@@ -33,21 +33,27 @@ user data and run without a visible window.
 The repository includes `.vscode/launch.json`, `.vscode/tasks.json` and an extension recommendation
 for [Microsoft C/C++](https://code.visualstudio.com/docs/cpp/launch-json-reference). GDB is the
 configured Linux debugger. The recommendation does not install the extension or debugger.
-The normal launch tasks run the executable directly and need neither the extension nor GDB.
+The normal launch profiles use VS Code's [built-in terminal launcher](https://github.com/microsoft/vscode-js-debug/blob/main/OPTIONS.md#node-terminal-launch)
+to run the native executable directly. They need neither the C/C++ extension nor GDB; the
+JavaScript debugger bundled with VS Code supplies the terminal launcher.
 
 1. Open the repository root folder in VS Code.
 2. Make sure `build-linux/play-root` contains the prepared file-link farm. It is already present
    in the local checkout used for this validation.
-3. For normal play, choose **Terminal → Run Task → Zero Hour: Play (no debugger)**. Select
-   **Zero Hour: AI skirmish (no debugger)** to watch an AI match instead.
+3. In **Run and Debug**, select **Zero Hour: Play (no debugger)** and press **F5** or click the
+   green play button. Select **Zero Hour: AI skirmish (no debugger)** to watch an AI match instead.
 4. For debugging, have the C/C++ extension and GDB available, then select **Zero Hour: Play (Linux)**
    in **Run and Debug** and press **F5**. **Zero Hour: AI skirmish (Linux)** runs the AI match under GDB.
 
-All four entries run `CC=gcc-16 CXX=g++-16 ./build-linux.sh Release` before launching. The AI entries
-use seed 0, the `brutal` AI command-line setting, an observer camera and a 12,000-frame limit.
+The two normal launches are also available under **Terminal → Run Task** with the same names.
+All four profiles and both launch tasks run `CC=gcc-16 CXX=g++-16 ./build-linux.sh Release`
+before launching. The AI entries use seed 0, the `brutal` AI command-line setting, an observer
+camera and a 12,000-frame limit.
 Each entry passes `-root`, `-quickstart`, `-noshellmap` and `-multiInstance`. They use the staged
 executable and overlay, and keep settings, saves and replays under `build-linux/vscode-user`.
 Edit the `-root` argument in both `launch.json` and `tasks.json` if your prepared farm is elsewhere.
+The normal profiles keep their arguments in `command`; the debugger profiles and process tasks
+use `args`.
 Release contains debug symbols on this build, with optimized code; for a Debug build, change the
 build task's `Release` argument to `Debug`.
 

@@ -79,6 +79,30 @@
         }
       ],
       "preLaunchTask": "Linux: Build Release"
+    },
+    {
+      "name": "Zero Hour: Play (no debugger)",
+      "type": "node-terminal",
+      "request": "launch",
+      "autoAttachChildProcesses": false,
+      "command": "exec ./build-linux/ZeroHourReforged/bin/generals -root ./build-linux/play-root -quickstart -noshellmap -multiInstance",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "ZH_USER_DATA_DIR": "${workspaceFolder}/build-linux/vscode-user"
+      },
+      "preLaunchTask": "Linux: Build Release"
+    },
+    {
+      "name": "Zero Hour: AI skirmish (no debugger)",
+      "type": "node-terminal",
+      "request": "launch",
+      "autoAttachChildProcesses": false,
+      "command": "exec ./build-linux/ZeroHourReforged/bin/generals -root ./build-linux/play-root -quickstart -noshellmap -multiInstance -randommap 0 2 -autoskirmish 2 -aidiff brutal -seed 0 -observer -autocamera 10 -showHudOverlay -maxframes 12000",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "ZH_USER_DATA_DIR": "${workspaceFolder}/build-linux/vscode-user"
+      },
+      "preLaunchTask": "Linux: Build Release"
     }
   ]
 }

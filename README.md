@@ -124,14 +124,16 @@ explains how the harness prepares a file-link farm.
 
 ### Run from VS Code
 
-Open the repository folder in VS Code. For normal play, choose **Terminal → Run Task** and select:
+Open the repository folder in VS Code. In the **Run and Debug** dropdown, select a normal launch
+profile and press **F5** or click the green play button:
 
 - **Zero Hour: Play (no debugger)** opens the main menu. Start a game through **Solo Play → Skirmish**.
 - **Zero Hour: AI skirmish (no debugger)** starts a seeded two-player AI match with an observer camera
   and exits after 12,000 logic frames.
 
-These tasks launch the executable directly and require no debugger extension. With the Microsoft
-C/C++ extension and GDB available, **Run and Debug** also provides these profiles:
+These profiles use VS Code's built-in terminal launcher to run the executable directly without GDB.
+The same names are also available under **Terminal → Run Task**. With the Microsoft C/C++ extension
+and GDB available, the dropdown also provides these debugger profiles:
 
 - **Zero Hour: Play (Linux)** opens the main menu. Select it and press **F5**, then start a game
   through **Solo Play → Skirmish**.
