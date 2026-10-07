@@ -123,6 +123,9 @@ static const Int K_SCRIPT_LIST_DATA_VERSION_1 = 1;
 // A start position gets a flat disc to build on, easing back into the terrain.
 #define RMG_FLAT_RADIUS			13.0f
 #define RMG_BLEND_RADIUS		26.0f
+#define RMG_BASE_FLAT_FLOOR		14.2f	///< cells of flat round a start on every bearing, the pathfinder's square inside it
+#define RMG_BASE_FLAT_SWING		5.5f	///< cells the flat edge wanders out past that floor
+#define RMG_BASE_BLEND_SWING	0.6f	///< share of its width the blend's outer edge wanders out by
 #define RMG_START_MARGIN		10.0f	///< cells of playable area kept outside the blend disc
 #define RMG_START_EDGE_FRACTION	0.14f	///< and this much of the map besides, so a base has ground behind it
 #define RMG_START_STRIDE		3		///< cells between the spots the search looks at
@@ -162,6 +165,7 @@ static const Int K_SCRIPT_LIST_DATA_VERSION_1 = 1;
 #define RMG_PAD_RADIUS			5.0f
 #define RMG_PAD_BLEND			10.0f
 #define RMG_PAD_SHORE_KEEP		2.0f	///< cells of beach a pad never touches
+#define RMG_PAD_BLEND_SWING		0.7f	///< share of its width a pad's blend wanders out by
 
 /* A town. Nothing here is a fixed number: each town rolls how many streets it has each way, how far
 	apart they run, how deep the plots are, and which way the whole grid is turned. Two towns on one
@@ -180,6 +184,7 @@ static const Int K_SCRIPT_LIST_DATA_VERSION_1 = 1;
 #define RMG_TOWN_LOT_BLEND		7.0f
 #define RMG_TOWN_GRADE_MARGIN	4.0f	///< cells of graded ground kept past the outermost frontage
 #define RMG_TOWN_GRADE_FADE		14.0f	///< cells the grading eases back into the hills over
+#define RMG_TOWN_GRADE_SWING	0.6f	///< share of that the fade's outer edge wanders out by
 #define RMG_TOWN_GRADE_BLUR		9		///< cells either side the ground is averaged over
 #define RMG_TOWN_JITTER			2.0f	///< cells a building sits off its own frontage line
 #define RMG_TOWN_DRY_MARGIN		4.0f	///< cells a building or a street keeps off the water
@@ -217,7 +222,8 @@ static const Int K_SCRIPT_LIST_DATA_VERSION_1 = 1;
 #define RMG_MASSIF_HEIGHT		44.0f	///< height bytes, almost two terrace steps
 #define RMG_MASSIF_RADIUS		0.16f	///< fraction of the playable size, to the foot of the cliff
 #define RMG_MASSIF_RIM			4.0f	///< cells the cliff takes from foot to top
-#define RMG_MASSIF_WOBBLE		0.10f	///< share of the radius the outline wanders by
+#define RMG_MASSIF_WOBBLE		0.10f	///< share of the radius the outline wanders out by
+#define RMG_MASSIF_WOBBLE_IN	0.24f	///< and in by: inward costs no start any room
 #define RMG_MASSIF_ROAD_TOP		3.0f	///< cells either side of a ramp's centre where it meets the top
 #define RMG_MASSIF_ROAD_FOOT	6.0f	///< and where it meets the ground below, so the foot opens out
 #define RMG_MASSIF_ROAD_BANK	4.0f	///< cells over which a ramp's sides ease back into the ground
@@ -479,6 +485,18 @@ static Real fractalNoise( const UnsignedByte perm[512], Real x, Real y, Int octa
 	}
 
 	return total / range;
+}
+
+/** Noise on a bearing, 0 to 1. It is read on a small circle round (originX, originY) in the noise
+	field, so it is smooth in the bearing and closes on itself all the way round, and two origins
+	give two unrelated outlines. A disc stamped with compasses reads as a disc from across the map;
+	the base pads, the money pads and the town grading wander their edge by this instead. */
+static Real ringNoise( const UnsignedByte perm[512], Real unitX, Real unitY, Real originX, Real originY )
+{
+	Real t = 0.5f + 1.4f * fractalNoise( perm, originX + unitX * 1.6f, originY + unitY * 1.6f, 2 );
+	if( t < 0.0f ) t = 0.0f;
+	if( t > 1.0f ) t = 1.0f;
+	return t;
 }
 
 /// Repeatable per-cell randomness, for scattering that must not depend on order.
@@ -827,6 +845,7 @@ public:
 	std::vector<UnsignedByte> m_landHeights;	///< the height field eased onto its floor, swapped in once the lakes are grown
 	std::vector<UnsignedByte> m_terrain;
 	std::vector<Short> m_blendIndex;	///< into m_blends, 0 for a cell with no blend
+	std::vector<Short> m_extraBlendIndex;	///< the second layer, drawn over the first; 0 for none
 	std::vector<char> m_passable;
 	std::vector<RMGLake> m_lakes;
 	std::vector<RMGPoint> m_riverLine;	///< a river map's centre line, inside the water margin
@@ -869,6 +888,8 @@ private:
 	static Real walkSpread( const std::vector<Int>& walks, Int *nearLowOut );
 	void nudgeStarts( const std::vector<RMGStartCandidate>& candidates, const std::vector<Int>& cost, Int farthest );
 	void flattenBases( void );
+	void shapeBases( void );
+	void levelStartSquares( const std::vector<Real>& startHeights );
 	void buildPassability( void );
 	void connectStarts( void );
 	Real massifClearance( Real cellX, Real cellY ) const;
@@ -941,7 +962,11 @@ private:
 	void reserveSite( Real cellX, Real cellY, Real radius );
 	void addObject( const char *templateName, const char *uniqueID, Real cellX, Real cellY,
 									Real angle );
-	Short blendEntryFor( Int blendTileIndex, Int cornerMask );
+	Short blendEntryFor( Int blendTileIndex, Int shapeIndex, Bool flipped );
+	Int blendLayersAt( Int x, Int y, Int *classes, Int *masks ) const;
+	void settleTerrainForBlends( void );
+
+	UnsignedByte m_perm[512];			///< the seed's noise permutation, for the stamps that wobble
 
 	std::map<Int, Short> m_blendLookup;	///< tile and shape to the table entry that holds them
 	std::vector<RMGSite> m_sites;		///< everything placed so far, with its elbow room
@@ -949,6 +974,10 @@ private:
 	std::vector<char> m_baseLevelled;	///< cells a base blend has touched
 	std::vector<UnsignedByte> m_baseUnder;	///< and the ground it blended there
 	std::vector<UnsignedByte> m_baseResult;	///< and what it left, so a second levelling can tell
+	std::vector<RMGPoint> m_baseShapeStarts;	///< the starts the three below were worked out for
+	std::vector<Int> m_baseCells;		///< cells a base levelling touches
+	std::vector<Real> m_baseBlendT;		///< and how far into the blend each is, 0 on the flat
+	std::vector<UnsignedByte> m_baseOwners;	///< and whose base it is
 	std::vector<RMGMoneyWalk> m_moneyWalks;	///< every walked placement of a player's own money
 	std::vector<RMGPoint> m_ramps;		///< where a carved route changed layer, for the bunkers
 	std::vector<char> m_inLake;			///< cells the basins drowned, whatever the ground does
@@ -1018,7 +1047,15 @@ void RMGLayout::buildHeights( const UnsignedByte perm[512] )
 				{
 					Real ux = ( r > 0.5f ) ? dx / r : 0.0f;
 					Real uy = ( r > 0.5f ) ? dy / r : 0.0f;
-					foot *= 1.0f + RMG_MASSIF_WOBBLE * fractalNoise( perm, ux * 1.7f + 41.0f, uy * 1.7f - 37.0f, 2 );
+					/* Fractal noise only reaches a third or so of its range, so read at face value the
+						wobble moved the foot by a few percent and the massif stood as a circle. Doubled
+						and clamped it uses the whole band, and the band reaches further in than out: the
+						outer bound is what the start search keeps clear of, the inner one only sets where
+						the ramps meet the top. */
+					Real wander = 2.0f * fractalNoise( perm, ux * 2.4f + 41.0f, uy * 2.4f - 37.0f, 3 );
+					if( wander > 1.0f ) wander = 1.0f;
+					if( wander < -1.0f ) wander = -1.0f;
+					foot *= 1.0f + ( wander > 0.0f ? RMG_MASSIF_WOBBLE : RMG_MASSIF_WOBBLE_IN ) * wander;
 					Real t = ( foot - r ) / RMG_MASSIF_RIM;
 					if( t > 1.0f ) t = 1.0f;
 					if( t > 0.0f )
@@ -2842,16 +2879,70 @@ void RMGLayout::flattenBases( void )
 		m_baseResult.assign( m_heights.size(), 0 );
 	}
 
-	std::vector<Real> startHeights;
-	std::vector<Real> flatRadii;
-	std::vector<Real> blendRadii;
+	Bool stale = m_baseShapeStarts.size() != m_starts.size();
+	for( UnsignedInt i = 0; i < m_starts.size() && !stale; i++ )
+	{
+		stale = m_baseShapeStarts[i].m_cellX != m_starts[i].m_cellX ||
+						m_baseShapeStarts[i].m_cellY != m_starts[i].m_cellY;
+	}
+	if( stale )
+		shapeBases();
 
+	std::vector<Real> startHeights;
 	for( UnsignedInt i = 0; i < m_starts.size(); i++ )
 	{
 		Int mapX = (Int)(m_starts[i].m_cellX + 0.5f) + RMG_BORDER_CELLS;
 		Int mapY = (Int)(m_starts[i].m_cellY + 0.5f) + RMG_BORDER_CELLS;
 		startHeights.push_back( (Real)m_heights[cellIndex( mapX, mapY )] );
+	}
 
+	for( UnsignedInt e = 0; e < m_baseCells.size(); e++ )
+	{
+		Int c = m_baseCells[e];
+		Real t = m_baseBlendT[e];
+		UnsignedInt nearestIndex = m_baseOwners[e];
+
+		/* Blend against the ground as it stood before the last levelling, unless something has
+			moved this cell since. Blending the blend again on every call pulled the ring towards
+			the base a little more each time while its outer edge stayed put, and after the ring
+			route and the money walks had each levelled it, that edge stood as a cliff round the
+			base. */
+		UnsignedByte under = m_heights[c];
+		if( m_baseLevelled[c] && m_heights[c] == m_baseResult[c] )
+			under = m_baseUnder[c];
+
+		Real h = lerpReal( startHeights[nearestIndex], (Real)under, fadeCurve( t ) );
+		if( h < 1.0f ) h = 1.0f;
+		if( h > 254.0f ) h = 254.0f;
+
+		m_heights[c] = (UnsignedByte)(h + 0.5f);
+		m_baseLevelled[c] = 1;
+		m_baseUnder[c] = under;
+		m_baseResult[c] = m_heights[c];
+	}
+
+	levelStartSquares( startHeights );
+}
+
+/** Which cells round the starts a levelling touches, how far into the blend each one is and which
+	start it belongs to. None of it depends on the heights, and flattenBases runs after every route
+	and every money walk, so it is worked out once for a set of starts and kept. */
+void RMGLayout::shapeBases( void )
+{
+	m_baseShapeStarts = m_starts;
+	m_baseCells.clear();
+	m_baseBlendT.clear();
+	m_baseOwners.clear();
+
+	std::vector<Real> flatRadii;
+	std::vector<Real> flatWidest;
+	std::vector<Real> blendWidths;
+	std::vector<Real> blendCaps;
+	std::vector<Real> turnCos;
+	std::vector<Real> turnSin;
+
+	for( UnsignedInt i = 0; i < m_starts.size(); i++ )
+	{
 		/* Two discs at different heights meeting in the middle is a cliff between two bases, so
 			on a map too cramped to hold everybody at the full radius each disc gives way rather
 			than overlapping its neighbour. */
@@ -2868,9 +2959,12 @@ void RMGLayout::flattenBases( void )
 				nearestOther = distance;
 		}
 
-		Real flat = RMG_FLAT_RADIUS;
+		Real flat = RMG_BASE_FLAT_FLOOR;
 		if( flat > nearestOther * 0.45f )
 			flat = nearestOther * 0.45f;
+		Real widest = flat + RMG_BASE_FLAT_SWING;
+		if( widest > nearestOther * 0.45f )
+			widest = nearestOther * 0.45f;
 
 		Real blend = RMG_BLEND_RADIUS;
 		if( blend > nearestOther * 0.9f )
@@ -2878,18 +2972,29 @@ void RMGLayout::flattenBases( void )
 		if( blend < flat + 4.0f )
 			blend = flat + 4.0f;
 
+		/* The edge of the flat and the edge of the blend both wander with the bearing, outward only,
+			so no base has less flat ground than the floor. The flat edge is one profile turned to a
+			different angle for each seat: every base gains the same ground, and no two have the same
+			outline to look at. */
+		Real turn = hashUnit( m_settings.m_seed, (Int)i, 4242 ) * 2.0f * PI;
+
 		flatRadii.push_back( flat );
-		blendRadii.push_back( blend );
+		flatWidest.push_back( widest );
+		blendWidths.push_back( blend - flat );
+		blendCaps.push_back( nearestOther * 0.9f );
+		turnCos.push_back( Cos( turn ) );
+		turnSin.push_back( Sin( turn ) );
 	}
 
 	/* Only the squares round each start can be inside a blend, so only those are walked; a cell
 		two squares share is levelled once. Every pass of the ring routes calls this, and walking
 		the whole map each time was most of what connecting the starts cost. */
 	Real reach = 0.0f;
-	for( UnsignedInt i = 0; i < blendRadii.size(); i++ )
+	for( UnsignedInt i = 0; i < flatRadii.size(); i++ )
 	{
-		if( blendRadii[i] > reach )
-			reach = blendRadii[i];
+		Real widest = flatWidest[i] + blendWidths[i] * ( 1.0f + RMG_BASE_BLEND_SWING );
+		if( widest > reach )
+			reach = widest;
 	}
 	Int box = (Int)reach + 2;
 	std::vector<char> walked( m_heights.size(), 0 );
@@ -2924,38 +3029,44 @@ void RMGLayout::flattenBases( void )
 				}
 			}
 
-			if( nearest >= blendRadii[nearestIndex] )
+			UnsignedInt n = nearestIndex;
+			Real flatR = flatRadii[n];
+			Real blendR = flatR + blendWidths[n];
+			if( nearest > 0.5f )
+			{
+				Real ux = ( px - m_starts[n].m_cellX ) / nearest;
+				Real uy = ( py - m_starts[n].m_cellY ) / nearest;
+				Real turnedX = ux * turnCos[n] - uy * turnSin[n];
+				Real turnedY = ux * turnSin[n] + uy * turnCos[n];
+				flatR += ( flatWidest[n] - flatRadii[n] ) * ringNoise( m_perm, turnedX, turnedY, 11.3f, 47.9f );
+				blendR = flatR + blendWidths[n] * ( 1.0f + RMG_BASE_BLEND_SWING * ringNoise( m_perm, turnedX, turnedY, -23.1f, 5.7f ) );
+				if( blendR > blendCaps[n] )
+					blendR = blendCaps[n];
+				if( blendR < flatR + 4.0f )
+					blendR = flatR + 4.0f;
+			}
+
+			if( nearest >= blendR )
 				continue;
 
 			Real t = 0.0f;
-			if( nearest > flatRadii[nearestIndex] )
-				t = (nearest - flatRadii[nearestIndex])
-					/ (blendRadii[nearestIndex] - flatRadii[nearestIndex]);
+			if( nearest > flatR )
+				t = (nearest - flatR) / (blendR - flatR);
 
-			/* Blend against the ground as it stood before the last levelling, unless something has
-				moved this cell since. Blending the blend again on every call pulled the ring towards
-				the base a little more each time while its outer edge stayed put, and after the ring
-				route and the money walks had each levelled it, that edge stood as a cliff round the
-				base. */
-			Int c = cellIndex( x, y );
-			UnsignedByte under = m_heights[c];
-			if( m_baseLevelled[c] && m_heights[c] == m_baseResult[c] )
-				under = m_baseUnder[c];
-
-			Real h = lerpReal( startHeights[nearestIndex], (Real)under, fadeCurve( t ) );
-			if( h < 1.0f ) h = 1.0f;
-			if( h > 254.0f ) h = 254.0f;
-
-			m_heights[c] = (UnsignedByte)(h + 0.5f);
-			m_baseLevelled[c] = 1;
-			m_baseUnder[c] = under;
-			m_baseResult[c] = m_heights[c];
+			m_baseCells.push_back( cellIndex( x, y ) );
+			m_baseBlendT.push_back( t );
+			m_baseOwners.push_back( (UnsignedByte)nearestIndex );
 		}
 	}
+}
 
+void RMGLayout::levelStartSquares( const std::vector<Real>& startHeights )
+{
 	/* The pathfinder tests a 9-cell square, and the span of a corner cell of that square
 		looks one cell further out, into the blend. A river bank sitting there is a cliff
-		on the pad. Force that square flat after the disc so the base is walkable. */
+		on the pad. Force that square flat after the disc so the base is walkable. It is forced as
+		the disc round the square's corners: a square of one height on rolling ground read in the
+		game as a square of one texture with the slope's texture all round it. */
 	const Int square = 10;
 	for( UnsignedInt i = 0; i < m_starts.size(); i++ )
 	{
@@ -2965,10 +3076,12 @@ void RMGLayout::flattenBases( void )
 		if( h < 1 ) h = 1;
 		if( h > 254 ) h = 254;
 
-		for( Int dy = -square; dy <= square; dy++ )
+		for( Int dy = -square - 5; dy <= square + 5; dy++ )
 		{
-			for( Int dx = -square; dx <= square; dx++ )
+			for( Int dx = -square - 5; dx <= square + 5; dx++ )
 			{
+				if( dx * dx + dy * dy > 2 * square * square )
+					continue;
 				Int x = sx + dx;
 				Int y = sy + dy;
 				if( x < 0 || y < 0 || x >= m_width || y >= m_height )
@@ -3350,7 +3463,7 @@ void RMGLayout::carveMassifRamps( void )
 	Real playable = (Real)m_settings.m_playableCells;
 	Real centre = playable * 0.5f;
 	Real outer = playable * RMG_MASSIF_RADIUS * ( 1.0f + RMG_MASSIF_WOBBLE );
-	Real inner = playable * RMG_MASSIF_RADIUS * ( 1.0f - RMG_MASSIF_WOBBLE ) - RMG_MASSIF_RIM;
+	Real inner = playable * RMG_MASSIF_RADIUS * ( 1.0f - RMG_MASSIF_WOBBLE_IN ) - RMG_MASSIF_RIM;
 
 	for( UnsignedInt i = 0; i < m_starts.size(); i++ )
 	{
@@ -4090,19 +4203,44 @@ void RMGLayout::holdMoneyWalks( void )
 
 /** Height and slope decide the ground cover, with the thresholds pushed about
 	by a noise field of their own so the edges wander instead of following a
-	contour line. */
+	contour line.
+
+	The slope is read averaged over the cell and its eight neighbours, and the classes then go
+	through two majority votes. Read cell by cell, the slope of rolling ground flickers either side
+	of the rock threshold, and version 12 drew that as single rock cells, spurs one cell wide and
+	notches in the edge of every patch: on screen a staircase of squares. The average takes the top
+	off a steep cell, so rock starts at 0.39 of the cliff span instead of 0.45, and a real cliff
+	keeps its rock whatever the vote says. */
 void RMGLayout::buildTerrainClasses( const UnsignedByte perm[512] )
 {
 	m_terrain.resize( m_width * m_height );
 
 	Real scale = RMG_FEATURES_PER_MAP * 2.5f / (Real)m_settings.m_playableCells;
 
+	std::vector<Real> spans( m_width * m_height );
+	for( Int y = 0; y < m_height; y++ )
+		for( Int x = 0; x < m_width; x++ )
+			spans[cellIndex( x, y )] = cellSpanWorld( x, y );
+
 	for( Int y = 0; y < m_height; y++ )
 	{
 		for( Int x = 0; x < m_width; x++ )
 		{
 			Real height = (Real)m_heights[cellIndex( x, y )];
-			Real span = cellSpanWorld( x, y );
+
+			Real span = 0.0f;
+			Int around = 0;
+			for( Int dy = -1; dy <= 1; dy++ )
+			{
+				for( Int dx = -1; dx <= 1; dx++ )
+				{
+					if( x + dx < 0 || y + dy < 0 || x + dx >= m_width || y + dy >= m_height )
+						continue;
+					span += spans[cellIndex( x + dx, y + dy )];
+					around++;
+				}
+			}
+			span /= (Real)around;
 
 			Real wobble = fractalNoise( perm, (Real)x * scale + 31.0f, (Real)y * scale - 17.0f, 3 );
 
@@ -4114,10 +4252,13 @@ void RMGLayout::buildTerrainClasses( const UnsignedByte perm[512] )
 			Real distanceToShore;
 			insideLake( (Real)(x - RMG_BORDER_CELLS), (Real)(y - RMG_BORDER_CELLS), &distanceToShore );
 
+			// The beach's width wanders as well, or it reads as the lake's outline drawn again a
+			// fixed distance out.
 			if( height < m_waterHeight + 8.0f + wobble * 3.0f &&
-					distanceToShore < RMG_LAKE_SHORE + 8.0f )
+					distanceToShore < RMG_LAKE_SHORE + 8.0f + wobble * 8.0f )
 				terrainClass = RMG_TERRAIN_SAND;
-			else if( span > RMG_CLIFF_WORLD_SPAN * (0.45f + wobble * 0.12f) )
+			else if( span > RMG_CLIFF_WORLD_SPAN * (0.39f + wobble * 0.12f) ||
+							 spans[cellIndex( x, y )] > RMG_CLIFF_WORLD_SPAN )
 				terrainClass = RMG_TERRAIN_ROCK;
 			// Dry high ground. The offset is in height bytes rather than a fraction of the
 			// amplitude: five octaves only reach a third of their nominal range, so a fraction of
@@ -4130,6 +4271,43 @@ void RMGLayout::buildTerrainClasses( const UnsignedByte perm[512] )
 			m_terrain[cellIndex( x, y )] = terrainClass;
 		}
 	}
+
+	// Two rounds of a vote over each cell and its eight neighbours: the class with the most votes
+	// wins, a tie keeps what the cell had. Both rounds read the classes as the last one left them.
+	std::vector<UnsignedByte> voted( m_terrain.size() );
+	for( Int round = 0; round < 2; round++ )
+	{
+		for( Int y = 0; y < m_height; y++ )
+		{
+			for( Int x = 0; x < m_width; x++ )
+			{
+				Int mine = m_terrain[cellIndex( x, y )];
+				voted[cellIndex( x, y )] = (UnsignedByte)mine;
+				if( spans[cellIndex( x, y )] > RMG_CLIFF_WORLD_SPAN )
+					continue;
+
+				Int votes[RMG_TERRAIN_COUNT] = { 0, 0, 0, 0 };
+				for( Int dy = -1; dy <= 1; dy++ )
+				{
+					for( Int dx = -1; dx <= 1; dx++ )
+					{
+						if( x + dx < 0 || y + dy < 0 || x + dx >= m_width || y + dy >= m_height )
+							continue;
+						votes[m_terrain[cellIndex( x + dx, y + dy )]]++;
+					}
+				}
+
+				Int best = mine;
+				for( Int k = 0; k < RMG_TERRAIN_COUNT; k++ )
+				{
+					if( votes[k] > votes[best] )
+						best = k;
+				}
+				voted[cellIndex( x, y )] = (UnsignedByte)best;
+			}
+		}
+		m_terrain.swap( voted );
+	}
 }
 
 /** The tile index WorldBuilder computes for a cell: four quadrants packed into
@@ -4141,12 +4319,23 @@ static Short tileIndexForCell( Int x, Int y, Int firstTile, Int width )
 	return (Short)ndx;
 }
 
-/** The corner alpha the renderer can actually express, and the flags that ask
-	for it. `inverted` is one field shared by every flag in an entry, so the
-	combinations are the ones on one side of it or the other - which is why a
-	mask is matched to the nearest of these rather than built from scratch.
-	Corners: bit 0 is (x,y), 1 is (x+1,y), 2 is (x+1,y+1), 3 is (x,y+1), in the
-	order getAlphaUVData fills alpha[]. */
+/** The corner alpha the renderer can actually express, and the flags that ask for it, read off
+	WorldHeightMap::getAlphaUVData. A horizontal or vertical blend paints one side, a short diagonal
+	one corner and a long diagonal three. Every flag in an entry shares the one `inverted` byte, and
+	the masks with two opposite corners or all four have no entry at all.
+	Corners: bit 0 is (x,y), 1 is (x+1,y), 2 is (x+1,y+1), 3 is (x,y+1), in the order getAlphaUVData
+	fills alpha[].
+
+	Version 12 asked for three corners with a side flag and a diagonal flag together. The renderer
+	adds those up, and with the shared `inverted` only the pair that point the same way came to three
+	corners: the other three entries drew two corners or one, so every concave corner of a patch of
+	rock was missing a corner, a notch of the ground underneath it. The long diagonals are what
+	WorldBuilder uses and reach all four.
+
+	A diagonal also decides which way the cell's two triangles are cut (m_flip, 1 for the cut from
+	corner 1 to corner 3). The renderer cuts the cell the way its first layer says and draws the
+	second layer cut its own way, so two layers have to agree; a side blend looks the same cut either
+	way (-1) and takes the other layer's cut through FLIPPED_MASK, which is what WorldBuilder does. */
 struct RMGBlendShape
 {
 	Int m_cornerMask;
@@ -4156,68 +4345,53 @@ struct RMGBlendShape
 	UnsignedByte m_leftDiagonal;
 	UnsignedByte m_inverted;
 	UnsignedByte m_longDiagonal;
+	Int m_flip;
 };
 
 static const RMGBlendShape theBlendShapes[] =
 {
 	// one corner
-	{ 0x1, 0, 0, 0, 1, 1, 0 },		// (x,y)
-	{ 0x2, 0, 0, 1, 0, 1, 0 },		// (x+1,y)
-	{ 0x4, 0, 0, 1, 0, 0, 0 },		// (x+1,y+1)
-	{ 0x8, 0, 0, 0, 1, 0, 0 },		// (x,y+1)
-	// one edge
-	{ 0x6, 1, 0, 0, 0, 0, 0 },		// the +x side
-	{ 0x9, 1, 0, 0, 0, 1, 0 },		// the -x side
-	{ 0xC, 0, 1, 0, 0, 0, 0 },		// the +y side
-	{ 0x3, 0, 1, 0, 0, 1, 0 },		// the -y side
+	{ 0x1, 0, 0, 0, 1, 1, 0, 1 },		// (x,y)
+	{ 0x2, 0, 0, 1, 0, 1, 0, 0 },		// (x+1,y)
+	{ 0x4, 0, 0, 1, 0, 0, 0, 1 },		// (x+1,y+1)
+	{ 0x8, 0, 0, 0, 1, 0, 0, 0 },		// (x,y+1)
+	// one side
+	{ 0x6, 1, 0, 0, 0, 0, 0, -1 },		// the +x side
+	{ 0x9, 1, 0, 0, 0, 1, 0, -1 },		// the -x side
+	{ 0xC, 0, 1, 0, 0, 0, 0, -1 },		// the +y side
+	{ 0x3, 0, 1, 0, 0, 1, 0, -1 },		// the -y side
 	// three corners
-	{ 0xE, 1, 1, 0, 0, 0, 0 },		// everything but (x,y)
-	{ 0xB, 0, 1, 0, 1, 1, 0 },		// everything but (x+1,y+1)
-	{ 0xD, 1, 0, 1, 0, 0, 0 },		// everything but (x+1,y)
-	{ 0x7, 0, 1, 1, 0, 1, 0 },		// everything but (x,y+1)
+	{ 0x7, 0, 0, 1, 0, 1, 1, 0 },		// everything but (x,y+1)
+	{ 0xB, 0, 0, 0, 1, 1, 1, 1 },		// everything but (x+1,y+1)
+	{ 0xD, 0, 0, 0, 1, 0, 1, 0 },		// everything but (x+1,y)
+	{ 0xE, 0, 0, 1, 0, 0, 1, 1 },		// everything but (x,y)
 };
 static const Int theNumBlendShapes = sizeof(theBlendShapes) / sizeof(theBlendShapes[0]);
+static const UnsignedByte RMG_BLEND_FLIPPED = 0x2;		///< FLIPPED_MASK in TileData.h
 
-/// Find or add the blend table entry that paints this tile over these corners.
-Short RMGLayout::blendEntryFor( Int blendTileIndex, Int cornerMask )
+/// The shape that paints exactly these corners, or -1 when the renderer has none.
+static Int blendShapeFor( Int cornerMask )
 {
-	// Nearest shape by how many corners it gets wrong, preferring one that covers
-	// more rather than less: a corner blended a little early is invisible, a
-	// corner left unblended is the hard edge this whole pass exists to remove.
-	Int bestShape = -1;
-	Int bestPenalty = 100;
-
 	for( Int i = 0; i < theNumBlendShapes; i++ )
 	{
-		Int missing = cornerMask & ~theBlendShapes[i].m_cornerMask;
-		Int extra = theBlendShapes[i].m_cornerMask & ~cornerMask;
-
-		Int penalty = 0;
-		for( Int bit = 0; bit < 4; bit++ )
-		{
-			if( missing & (1 << bit) ) penalty += 3;
-			if( extra & (1 << bit) ) penalty += 1;
-		}
-
-		if( penalty < bestPenalty )
-		{
-			bestPenalty = penalty;
-			bestShape = i;
-		}
+		if( theBlendShapes[i].m_cornerMask == cornerMask )
+			return i;
 	}
+	return -1;
+}
 
-	if( bestShape < 0 )
-		return 0;
-
-	/* A tile and a shape name an entry, so that pair is the key. A scan of the table instead would
-		be a scan per cell of the map, and on a 456-cell map with a few thousand entries in the
+/// Find or add the blend table entry that paints this tile in this shape.
+Short RMGLayout::blendEntryFor( Int blendTileIndex, Int shapeIndex, Bool flipped )
+{
+	/* A tile, a shape and the cut name an entry, so that is the key. A scan of the table instead
+		would be a scan per cell of the map, and on a 456-cell map with a few thousand entries in the
 		table that is most of the generator's time. */
-	Int key = blendTileIndex * theNumBlendShapes + bestShape;
+	Int key = ( blendTileIndex * theNumBlendShapes + shapeIndex ) * 2 + ( flipped ? 1 : 0 );
 	std::map<Int, Short>::const_iterator found = m_blendLookup.find( key );
 	if( found != m_blendLookup.end() )
 		return found->second;
 
-	const RMGBlendShape& shape = theBlendShapes[bestShape];
+	const RMGBlendShape& shape = theBlendShapes[shapeIndex];
 
 	RMGBlend blend;
 	blend.m_blendTileIndex = blendTileIndex;
@@ -4225,7 +4399,7 @@ Short RMGLayout::blendEntryFor( Int blendTileIndex, Int cornerMask )
 	blend.m_vertical = shape.m_vertical;
 	blend.m_rightDiagonal = shape.m_rightDiagonal;
 	blend.m_leftDiagonal = shape.m_leftDiagonal;
-	blend.m_inverted = shape.m_inverted;
+	blend.m_inverted = shape.m_inverted | ( flipped ? RMG_BLEND_FLIPPED : 0 );
 	blend.m_longDiagonal = shape.m_longDiagonal;
 	m_blends.push_back( blend );
 
@@ -4234,10 +4408,142 @@ Short RMGLayout::blendEntryFor( Int blendTileIndex, Int cornerMask )
 	return entry;
 }
 
-/** Every cell whose neighbour carries a higher-priority ground gets that ground
-	painted over the corners it touches, as an alpha ramp across the cell. One
-	side blends and the other does not, which is what stops two neighbours
-	fighting over the same edge and leaving a seam between them. */
+/** The layers a cell is drawn with, lowest ground first; returns how many.
+
+	A layer of some ground goes over every corner that touches that ground or anything above it. Put
+	that way the alpha of a ground at a corner belongs to the corner and not to whichever of the four
+	cells round it is asking, so the four draw it alike, and along an edge the two cells either side
+	interpolate the same two values: the picture has no seam anywhere. Version 12 painted only the
+	strongest neighbour and only its own corners, so a grass cell between sand and rock cut the sand
+	off at a hard line, and a cell the layer above already covers corner for corner added nothing and
+	is left out here. The renderer has two layers, the blend and the extra blend over it. */
+Int RMGLayout::blendLayersAt( Int x, Int y, Int *classes, Int *masks ) const
+{
+	Int mine = m_terrain[cellIndex( x, y )];
+	Int touch[RMG_TERRAIN_COUNT] = { 0, 0, 0, 0 };
+
+	for( Int dy = -1; dy <= 1; dy++ )
+	{
+		for( Int dx = -1; dx <= 1; dx++ )
+		{
+			Int nx = x + dx;
+			Int ny = y + dy;
+			if( (dx == 0 && dy == 0) || nx < 0 || ny < 0 || nx >= m_width || ny >= m_height )
+				continue;
+
+			Int theirs = m_terrain[cellIndex( nx, ny )];
+			if( theirs <= mine )
+				continue;
+
+			// A neighbour claims the corners it shares with this cell.
+			if( dx >= 0 && dy >= 0 ) touch[theirs] |= 0x4;		// (x+1,y+1)
+			if( dx >= 0 && dy <= 0 ) touch[theirs] |= 0x2;		// (x+1,y)
+			if( dx <= 0 && dy >= 0 ) touch[theirs] |= 0x8;		// (x,y+1)
+			if( dx <= 0 && dy <= 0 ) touch[theirs] |= 0x1;		// (x,y)
+		}
+	}
+
+	Int topDown[RMG_TERRAIN_COUNT];
+	Int topDownMasks[RMG_TERRAIN_COUNT];
+	Int count = 0;
+	Int above = 0;
+	for( Int k = RMG_TERRAIN_COUNT - 1; k > mine; k-- )
+	{
+		Int mask = above | touch[k];
+		if( mask != above )
+		{
+			topDown[count] = k;
+			topDownMasks[count] = mask;
+			count++;
+		}
+		above = mask;
+	}
+
+	for( Int i = 0; i < count; i++ )
+	{
+		classes[i] = topDown[count - 1 - i];
+		masks[i] = topDownMasks[count - 1 - i];
+	}
+	return count;
+}
+
+/** Raise every cell the renderer cannot draw without a seam to the ground of its lowest layer, until
+	none is left. A cell gets raised when it needs a third layer, when a layer covers two opposite
+	corners or all four, or when both layers are diagonals cut opposite ways. A cell with ground on
+	all four corners is that ground anyway, and a gap one cell wide between two patches of the same
+	ground fills in; nothing that is drawn moves by more than the cell. A cell only ever goes up, so
+	the passes end. After the first pass only the cells round one that was raised can change, so
+	only those are looked at again, in map order. */
+void RMGLayout::settleTerrainForBlends( void )
+{
+	std::vector<Int> look( m_width * m_height );
+	for( Int i = 0; i < (Int)look.size(); i++ )
+		look[i] = i;
+	std::vector<Int> raised;
+	std::vector<char> queued( look.size(), 0 );
+
+	while( !look.empty() )
+	{
+		raised.clear();
+		for( UnsignedInt i = 0; i < look.size(); i++ )
+		{
+			Int x = look[i] % m_width;
+			Int y = look[i] / m_width;
+
+			Int classes[RMG_TERRAIN_COUNT];
+			Int masks[RMG_TERRAIN_COUNT];
+			Int count = blendLayersAt( x, y, classes, masks );
+			if( count == 0 )
+				continue;
+
+			Bool drawable = count <= 2;
+			Int flip = -1;
+			for( Int layer = 0; layer < count && drawable; layer++ )
+			{
+				Int shape = blendShapeFor( masks[layer] );
+				if( shape < 0 )
+					drawable = FALSE;
+				else if( theBlendShapes[shape].m_flip >= 0 )
+				{
+					if( flip >= 0 && flip != theBlendShapes[shape].m_flip )
+						drawable = FALSE;
+					flip = theBlendShapes[shape].m_flip;
+				}
+			}
+
+			if( !drawable )
+			{
+				m_terrain[look[i]] = (UnsignedByte)classes[0];
+				raised.push_back( look[i] );
+			}
+		}
+
+		look.clear();
+		for( UnsignedInt i = 0; i < raised.size(); i++ )
+		{
+			Int x = raised[i] % m_width;
+			Int y = raised[i] / m_width;
+			for( Int dy = -1; dy <= 1; dy++ )
+			{
+				for( Int dx = -1; dx <= 1; dx++ )
+				{
+					if( x + dx < 0 || y + dy < 0 || x + dx >= m_width || y + dy >= m_height )
+						continue;
+					Int c = cellIndex( x + dx, y + dy );
+					if( !queued[c] )
+					{
+						queued[c] = 1;
+						look.push_back( c );
+					}
+				}
+			}
+		}
+		std::sort( look.begin(), look.end() );
+		for( UnsignedInt i = 0; i < look.size(); i++ )
+			queued[look[i]] = 0;
+	}
+}
+
 void RMGLayout::buildBlends( void )
 {
 	m_blends.clear();
@@ -4248,56 +4554,40 @@ void RMGLayout::buildBlends( void )
 	m_blends.push_back( nothing );		// entry 0 is "no blend"
 
 	m_blendIndex.assign( m_width * m_height, 0 );
+	m_extraBlendIndex.assign( m_width * m_height, 0 );
+
+	settleTerrainForBlends();
 
 	for( Int y = 0; y < m_height; y++ )
 	{
 		for( Int x = 0; x < m_width; x++ )
 		{
-			Int mine = m_terrain[cellIndex( x, y )];
-
-			// The strongest ground among the eight neighbours, and which of this
-			// cell's corners touch it.
-			Int strongest = mine;
-			Int cornerMask = 0;
-
-			for( Int dy = -1; dy <= 1; dy++ )
-			{
-				for( Int dx = -1; dx <= 1; dx++ )
-				{
-					if( dx == 0 && dy == 0 )
-						continue;
-
-					Int nx = x + dx;
-					Int ny = y + dy;
-					if( nx < 0 || ny < 0 || nx >= m_width || ny >= m_height )
-						continue;
-
-					Int theirs = m_terrain[cellIndex( nx, ny )];
-					if( theirs <= mine )
-						continue;
-
-					if( theirs > strongest )
-					{
-						strongest = theirs;
-						cornerMask = 0;
-					}
-					if( theirs < strongest )
-						continue;
-
-					// A neighbour claims the corners it shares with this cell.
-					if( dx >= 0 && dy >= 0 ) cornerMask |= 0x4;		// (x+1,y+1)
-					if( dx >= 0 && dy <= 0 ) cornerMask |= 0x2;		// (x+1,y)
-					if( dx <= 0 && dy >= 0 ) cornerMask |= 0x8;		// (x,y+1)
-					if( dx <= 0 && dy <= 0 ) cornerMask |= 0x1;		// (x,y)
-				}
-			}
-
-			if( strongest == mine || cornerMask == 0 )
+			Int classes[RMG_TERRAIN_COUNT];
+			Int masks[RMG_TERRAIN_COUNT];
+			Int count = blendLayersAt( x, y, classes, masks );
+			if( count == 0 )
 				continue;
 
-			Int blendTile = tileIndexForCell( x, y, strongest * RMG_TILES_PER_CLASS,
-																				RMG_TILE_SHEET_WIDTH );
-			m_blendIndex[cellIndex( x, y )] = blendEntryFor( blendTile, cornerMask );
+			Int shapes[2];
+			Int flip = 0;
+			for( Int i = 0; i < count; i++ )
+			{
+				shapes[i] = blendShapeFor( masks[i] );
+				if( theBlendShapes[shapes[i]].m_flip > 0 )
+					flip = 1;
+			}
+
+			// A side blend takes the cut of the diagonal it shares the cell with.
+			for( Int i = 0; i < count; i++ )
+			{
+				Bool flipped = theBlendShapes[shapes[i]].m_flip < 0 && count == 2 && flip > 0;
+				Int tile = tileIndexForCell( x, y, classes[i] * RMG_TILES_PER_CLASS, RMG_TILE_SHEET_WIDTH );
+				Short entry = blendEntryFor( tile, shapes[i], flipped );
+				if( i == 0 )
+					m_blendIndex[cellIndex( x, y )] = entry;
+				else
+					m_extraBlendIndex[cellIndex( x, y )] = entry;
+			}
 		}
 	}
 }
@@ -4353,7 +4643,7 @@ void RMGLayout::flattenPad( Real cellX, Real cellY, Real radius, Real blend )
 		return;
 
 	Real level = (Real)m_heights[cellIndex( centreX, centreY )];
-	Int reach = (Int)blend + 1;
+	Int reach = (Int)( radius + ( blend - radius ) * ( 1.0f + RMG_PAD_BLEND_SWING ) ) + 1;
 
 	for( Int dy = -reach; dy <= reach; dy++ )
 	{
@@ -4371,13 +4661,19 @@ void RMGLayout::flattenPad( Real cellX, Real cellY, Real radius, Real blend )
 			if( !m_routeLock.empty() && m_routeLock[cellIndex( x, y )] )
 				continue;
 
+			/* The flat stays a disc of the radius asked for, which is what the dock is placed on and
+				what every player gets alike; the blend round it wanders out with the bearing. */
 			Real distance = sqrtf( (Real)(dx * dx + dy * dy) );
-			if( distance >= blend )
+			Real reachHere = blend;
+			if( distance > radius )
+				reachHere = radius + ( blend - radius ) * ( 1.0f + RMG_PAD_BLEND_SWING *
+					ringNoise( m_perm, (Real)dx / distance, (Real)dy / distance, cellX * 0.37f, cellY * 0.37f ) );
+			if( distance >= reachHere )
 				continue;
 
 			Real t = 0.0f;
 			if( distance > radius )
-				t = (distance - radius) / (blend - radius);
+				t = (distance - radius) / (reachHere - radius);
 
 			/* The beach keeps its own profile. A pad that runs to the water's edge levels the shelf
 				the soft water edge is drawn on and leaves the bank standing over the lake like a
@@ -4433,7 +4729,8 @@ void RMGLayout::gradeTown( Real centreX, Real centreY, const RMGTownPlan& plan,
 
 	Real farAcross = (fabsf( fromAcross ) > fabsf( toAcross )) ? fabsf( fromAcross ) : fabsf( toAcross );
 	Real farDown = (fabsf( fromDown ) > fabsf( toDown )) ? fabsf( fromDown ) : fabsf( toDown );
-	Int reach = (Int)(sqrtf( farAcross * farAcross + farDown * farDown ) + RMG_TOWN_GRADE_FADE) + 1;
+	Int reach = (Int)(sqrtf( farAcross * farAcross + farDown * farDown )
+							+ RMG_TOWN_GRADE_FADE * ( 1.0f + RMG_TOWN_GRADE_SWING )) + 1;
 
 	Int centreCellX = (Int)(centreX + 0.5f) + RMG_BORDER_CELLS;
 	Int centreCellY = (Int)(centreY + 0.5f) + RMG_BORDER_CELLS;
@@ -4527,10 +4824,15 @@ void RMGLayout::gradeTown( Real centreX, Real centreY, const RMGTownPlan& plan,
 			else if( down > toDown ) outDown = down - toDown;
 
 			Real outside = sqrtf( outAcross * outAcross + outDown * outDown );
-			if( outside >= RMG_TOWN_GRADE_FADE )
+			Real fade = RMG_TOWN_GRADE_FADE;
+			Real fromCentre = sqrtf( dx * dx + dy * dy );
+			if( outside > 0.0f && fromCentre > 0.5f )
+				fade *= 1.0f + RMG_TOWN_GRADE_SWING * ringNoise( m_perm, dx / fromCentre, dy / fromCentre,
+																												 centreX * 0.37f, centreY * 0.37f );
+			if( outside >= fade )
 				continue;
 
-			Real weight = 1.0f - fadeCurve( outside / RMG_TOWN_GRADE_FADE );
+			Real weight = 1.0f - fadeCurve( outside / fade );
 
 			Real distanceToShore;
 			insideLake( playX, playY, &distanceToShore );
@@ -5866,7 +6168,7 @@ void RMGLayout::placeScenery( const UnsignedByte perm[512] )
 				{
 					Real clearance = massifClearance( (Real)x, (Real)y );
 					if( clearance < 3.0f &&
-							clearance > -2.0f * playable * RMG_MASSIF_RADIUS * RMG_MASSIF_WOBBLE - RMG_MASSIF_RIM - 3.0f )
+							clearance > -playable * RMG_MASSIF_RADIUS * ( RMG_MASSIF_WOBBLE + RMG_MASSIF_WOBBLE_IN ) - RMG_MASSIF_RIM - 3.0f )
 						continue;
 				}
 
@@ -6262,8 +6564,8 @@ void RMGLayout::build( const RandomMapSettings& settings )
 	m_waterHeight = RMG_BASE_HEIGHT - RMG_WATER_DROP;
 	m_startSearchStride = RMG_START_STRIDE;
 
-	UnsignedByte perm[512];
-	seedPermutation( m_settings.m_seed, perm );
+	seedPermutation( m_settings.m_seed, m_perm );
+	const UnsignedByte *perm = m_perm;
 
 	buildHeights( perm );
 	placeLakes( perm );
@@ -6699,7 +7001,7 @@ void RandomMapGenerator::generate( const RandomMapSettings& settings, std::vecto
 			w.writeInt( dataSize );
 			w.writeBytes( &tiles[0], dataSize * sizeof(Short) );
 			w.writeBytes( &layout.m_blendIndex[0], dataSize * sizeof(Short) );
-			w.writeBytes( &zeroes[0], dataSize * sizeof(Short) );	// extra blend tiles
+			w.writeBytes( &layout.m_extraBlendIndex[0], dataSize * sizeof(Short) );
 			w.writeBytes( &zeroes[0], dataSize * sizeof(Short) );	// cliff info
 
 			w.writeInt( RMG_TERRAIN_COUNT * RMG_TILES_PER_CLASS );	// bitmap tiles

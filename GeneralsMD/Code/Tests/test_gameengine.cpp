@@ -7997,6 +7997,7 @@ struct RMGParse
 	std::vector<UnsignedByte> m_heights;
 	std::vector<Short> m_tiles;
 	std::vector<Short> m_blendIndexes;			///< per cell, into m_blends; 0 is no blend
+	std::vector<Short> m_extraBlendIndexes;		///< the layer drawn over that one, the same way
 	std::vector<RMGBlendEntry> m_blends;		///< the table itself, entry 0 excepted
 	std::vector<Coord3D> m_waterPoints;			///< first point of each water area
 	std::vector< std::vector<Coord3D> > m_waterPolygons;	///< and every point of it
@@ -8047,8 +8048,10 @@ static Bool RMGParseBlendTile( DataChunkInput &file, DataChunkInfo *info, void *
 	theRMGParse.m_blendIndexes.resize( len );
 	file.readArrayOfBytes( (char *)&theRMGParse.m_blendIndexes[0], len * sizeof(Short) );
 
+	theRMGParse.m_extraBlendIndexes.resize( len );
+	file.readArrayOfBytes( (char *)&theRMGParse.m_extraBlendIndexes[0], len * sizeof(Short) );
+
 	std::vector<Short> scratch( len );
-	file.readArrayOfBytes( (char *)&scratch[0], len * sizeof(Short) );	// extra blend tiles
 	file.readArrayOfBytes( (char *)&scratch[0], len * sizeof(Short) );	// cliff info
 
 	theRMGParse.m_numBitmapTiles = file.readInt();
@@ -8690,92 +8693,203 @@ TEST(each_start_position_gets_flat_ground_to_build_on)
 	}
 }
 
+/* The corner alpha a blend entry draws, read the way WorldHeightMap::getAlphaUVData and
+	getExtraAlphaUVData read it (GameEngineDevice, which this binary does not link): corners in the
+	order (x,y), (x+1,y), (x+1,y+1), (x,y+1), and whether the cell's two triangles are cut from
+	corner 1 to corner 3 instead of 0 to 2. */
+static void RMGBlendCorners( const RMGBlendEntry& entry, Bool alpha[4], Bool *flip )
+{
+	const UnsignedByte inverted = entry.m_inverted & 0x1;		// INVERTED_MASK
+	const UnsignedByte flipped = entry.m_inverted & 0x2;		// FLIPPED_MASK
+	alpha[0] = alpha[1] = alpha[2] = alpha[3] = FALSE;
+	*flip = FALSE;
+	if( entry.m_horizontal )
+	{
+		*flip = flipped != 0;
+		if( inverted ) alpha[0] = alpha[3] = TRUE;
+		else alpha[1] = alpha[2] = TRUE;
+	}
+	if( entry.m_vertical )
+	{
+		*flip = flipped != 0;
+		if( inverted ) alpha[0] = alpha[1] = TRUE;
+		else alpha[2] = alpha[3] = TRUE;
+	}
+	if( entry.m_rightDiagonal )
+	{
+		if( inverted )
+		{
+			alpha[1] = TRUE;
+			if( entry.m_longDiagonal ) alpha[0] = alpha[2] = TRUE;
+		}
+		else
+		{
+			*flip = TRUE;
+			alpha[2] = TRUE;
+			if( entry.m_longDiagonal ) alpha[1] = alpha[3] = TRUE;
+		}
+	}
+	if( entry.m_leftDiagonal )
+	{
+		if( inverted )
+		{
+			*flip = TRUE;
+			alpha[0] = TRUE;
+			if( entry.m_longDiagonal ) alpha[1] = alpha[3] = TRUE;
+		}
+		else
+		{
+			alpha[3] = TRUE;
+			if( entry.m_longDiagonal ) alpha[0] = alpha[2] = TRUE;
+		}
+	}
+}
+
 //-------------------------------------------------------------------------------------------------
-/** A texture class change from one cell to the next is a hard edge on screen unless the cell on
-	the low side of it carries a blend of the other texture over the corners they share.  Walk the
-	map, find every boundary, and check the cell that is supposed to carry the blend does. */
+/** A texture class change from one cell to the next is a hard edge on screen unless the blends on
+	either side of it meet. The game draws a cell as its own ground, the blend layer over it and the
+	extra layer over that, each with an alpha of 0 or 1 at a corner and interpolated across the two
+	triangles. So the picture is seamless when, for every ground a cell paints, the alpha at a corner
+	is the same whichever of the four cells round the corner is drawing it - 1 exactly when one of
+	those four cells is that ground or above - and when the two layers of a cell cut it the same
+	way. Version 12 asked for three-corner shapes the renderer drew with one or two corners, could
+	not draw two opposite corners at all and blended only the strongest neighbour: on the first seed
+	here 8551 corner checks failed against 8155 cells on a boundary. */
 //-------------------------------------------------------------------------------------------------
 TEST(every_texture_boundary_is_blended_rather_than_cut)
 {
 	CHECK( bootOnce() );
 
-	RandomMapSettings settings;
-	settings.m_seed = 31337;
-	settings.m_playableCells = 128;
-	settings.m_numPlayers = 4;
-
-	std::vector<char> bytes;
-	RandomMapGenerator::generate( settings, bytes );
-	parseGeneratedMap( bytes );
-
-	Int width = theRMGParse.m_width;
-	Int height = theRMGParse.m_height;
-
-	CHECK_EQ( (Int)theRMGParse.m_blendIndexes.size(), theRMGParse.m_dataSize );
-	CHECK_EQ( (Int)theRMGParse.m_blends.size(), theRMGParse.m_numBlendedTiles - 1 );
-	CHECK( theRMGParse.m_numBlendedTiles < 16193 );		// NUM_BLEND_TILES, the reader's ceiling
-
-	// Every entry has to be one the reader will take: a real tile, the alpha blend rather than a
-	// custom edge class this map never declares, and the sentinel it asserts on.
-	Int i;
-	for( i = 0; i < (Int)theRMGParse.m_blends.size(); i++ )
+	static const Int seeds[] = { 31337, 271, 5150 };
+	for( Int s = 0; s < 3; s++ )
 	{
-		const RMGBlendEntry& entry = theRMGParse.m_blends[i];
-		Int source = entry.m_blendTileIndex >> 2;
+		RandomMapSettings settings;
+		settings.m_seed = seeds[s];
+		settings.m_playableCells = 128;
+		settings.m_numPlayers = 4;
 
-		CHECK( source >= 0 );
-		CHECK( source < theRMGParse.m_numBitmapTiles );
-		CHECK_EQ( entry.m_customBlendEdgeClass, -1 );
-		CHECK_EQ( entry.m_flag, 0x7ADA0000 );
+		std::vector<char> bytes;
+		RandomMapGenerator::generate( settings, bytes );
+		parseGeneratedMap( bytes );
 
-		// A blend that asks for nothing is a table row nothing can draw.
-		CHECK( entry.m_horizontal || entry.m_vertical || entry.m_rightDiagonal ||
-					 entry.m_leftDiagonal );
-	}
+		Int width = theRMGParse.m_width;
+		Int height = theRMGParse.m_height;
 
-	Int boundaries = 0;
-	Int blended = 0;
+		CHECK_EQ( (Int)theRMGParse.m_blendIndexes.size(), theRMGParse.m_dataSize );
+		CHECK_EQ( (Int)theRMGParse.m_extraBlendIndexes.size(), theRMGParse.m_dataSize );
+		CHECK_EQ( (Int)theRMGParse.m_blends.size(), theRMGParse.m_numBlendedTiles - 1 );
+		CHECK( theRMGParse.m_numBlendedTiles < 16193 );		// NUM_BLEND_TILES, the reader's ceiling
 
-	for( Int y = 1; y < height - 1; y++ )
-	{
-		for( Int x = 1; x < width - 1; x++ )
+		// Every entry has to be one the reader will take: a real tile, the alpha blend rather than a
+		// custom edge class this map never declares, and the sentinel it asserts on.
+		Int i;
+		for( i = 0; i < (Int)theRMGParse.m_blends.size(); i++ )
 		{
-			Int mine = (theRMGParse.m_tiles[y * width + x] >> 2) / 4;
+			const RMGBlendEntry& entry = theRMGParse.m_blends[i];
+			Int source = entry.m_blendTileIndex >> 2;
 
-			/* The strongest of the eight neighbours is the one whose texture bleeds in, and the
-				low side of the boundary is the cell that has to carry it.  Diagonals count: a
-				corner touching a rock cell is a corner of rock. */
-			Int strongest = mine;
-			for( Int dy = -1; dy <= 1; dy++ )
+			CHECK( source >= 0 );
+			CHECK( source < theRMGParse.m_numBitmapTiles );
+			CHECK_EQ( entry.m_customBlendEdgeClass, -1 );
+			CHECK_EQ( entry.m_flag, 0x7ADA0000 );
+
+			// A blend that asks for nothing is a table row nothing can draw.
+			CHECK( entry.m_horizontal || entry.m_vertical || entry.m_rightDiagonal ||
+						 entry.m_leftDiagonal );
+		}
+
+		std::vector<Int> ground( width * height );
+		for( i = 0; i < width * height; i++ )
+			ground[i] = (theRMGParse.m_tiles[i] >> 2) / 4;
+
+		Int boundaries = 0;
+		Int extraLayers = 0;
+		Int wrongCorners = 0;
+		Int wrongCuts = 0;
+		Int badIndexes = 0;
+
+		for( Int y = 1; y < height - 1; y++ )
+		{
+			for( Int x = 1; x < width - 1; x++ )
 			{
-				for( Int dx = -1; dx <= 1; dx++ )
+				Int mine = ground[y * width + x];
+
+				// What the four cells round each corner reach: the highest ground among them.
+				static const Int cornerDX[4] = { 0, 1, 1, 0 };
+				static const Int cornerDY[4] = { 0, 0, 1, 1 };
+				Int highest[4];
+				Bool boundary = FALSE;
+				for( Int c = 0; c < 4; c++ )
 				{
-					Int theirs = (theRMGParse.m_tiles[(y + dy) * width + x + dx] >> 2) / 4;
-					if( theirs > strongest )
-						strongest = theirs;
+					highest[c] = mine;
+					for( Int oy = -1; oy <= 0; oy++ )
+					{
+						for( Int ox = -1; ox <= 0; ox++ )
+						{
+							Int theirs = ground[(y + cornerDY[c] + oy) * width + x + cornerDX[c] + ox];
+							if( theirs > highest[c] )
+								highest[c] = theirs;
+						}
+					}
+					if( highest[c] != mine )
+						boundary = TRUE;
+				}
+				if( boundary )
+					boundaries++;
+
+				// The layers this cell draws, lowest first, and the ground it ends up showing.
+				Int shown[4] = { mine, mine, mine, mine };
+				Int cut = -1;
+				Int previousClass = mine;
+				Short layers[2] = { theRMGParse.m_blendIndexes[y * width + x],
+														theRMGParse.m_extraBlendIndexes[y * width + x] };
+				for( Int layer = 0; layer < 2; layer++ )
+				{
+					if( layers[layer] == 0 )
+						continue;
+					if( layers[layer] < 0 || layers[layer] >= theRMGParse.m_numBlendedTiles || (layer == 1 && layers[0] == 0) )
+					{
+						badIndexes++;
+						continue;
+					}
+					if( layer == 1 )
+						extraLayers++;
+
+					const RMGBlendEntry& entry = theRMGParse.m_blends[layers[layer] - 1];
+					Int layerClass = (entry.m_blendTileIndex >> 2) / 4;
+					if( layerClass <= previousClass )
+						badIndexes++;			// a layer has to be a higher ground than what it covers
+					previousClass = layerClass;
+
+					Bool alpha[4];
+					Bool flip;
+					RMGBlendCorners( entry, alpha, &flip );
+					for( Int c = 0; c < 4; c++ )
+					{
+						if( alpha[c] != (highest[c] >= layerClass) )
+							wrongCorners++;
+						if( alpha[c] )
+							shown[c] = layerClass;
+					}
+					if( cut >= 0 && cut != (flip ? 1 : 0) )
+						wrongCuts++;
+					cut = flip ? 1 : 0;
+				}
+
+				for( Int c = 0; c < 4; c++ )
+				{
+					if( shown[c] != highest[c] )
+						wrongCorners++;
 				}
 			}
-
-			if( strongest == mine )
-				continue;
-
-			boundaries++;
-
-			Int blendIndex = theRMGParse.m_blendIndexes[y * width + x];
-			if( blendIndex <= 0 )
-				continue;
-
-			CHECK( blendIndex < theRMGParse.m_numBlendedTiles );
-
-			// and the texture painted over it is the neighbour's, not some third one
-			Int blendClass = (theRMGParse.m_blends[blendIndex - 1].m_blendTileIndex >> 2) / 4;
-			CHECK_EQ( blendClass, strongest );
-			blended++;
 		}
-	}
 
-	CHECK( boundaries > 100 );
-	CHECK_EQ( blended, boundaries );
+		CHECK( boundaries > 100 );
+		CHECK( extraLayers > 0 );
+		CHECK_EQ( badIndexes, 0 );
+		CHECK_EQ( wrongCorners, 0 );
+		CHECK_EQ( wrongCuts, 0 );
+	}
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -9760,14 +9874,14 @@ TEST(the_generator_still_turns_a_seed_into_the_bytes_it_used_to)
 {
 	CHECK( bootOnce() );
 
-	CHECK_EQ( RANDOM_MAP_GENERATOR_VERSION, 12 );
+	CHECK_EQ( RANDOM_MAP_GENERATOR_VERSION, 13 );
 
 	struct RMGFingerprint { Int m_seed, m_players, m_cells; UnsignedInt m_crc; };
 	static const RMGFingerprint theFingerprints[] =
 	{
-		{ 0, 2, 64, 0x784968C4 },
-		{ 12345, 4, 96, 0xCF747041 },
-		{ 7, 8, 128, 0xC7C6D183 },
+		{ 0, 2, 64, 0x3C830A0F },
+		{ 12345, 4, 96, 0xAB2D49CF },
+		{ 7, 8, 128, 0xF237C0BA },
 	};
 	const Int numFingerprints = sizeof(theFingerprints) / sizeof(theFingerprints[0]);
 
@@ -9972,8 +10086,10 @@ TEST(the_ground_is_textured_by_what_the_ground_is_doing)
 
 	/* Rock starts at under half the cliff slope, so since the rolling maps of generator version 10
 		most of it is hillside a tank drives up. 72 maps over twelve seeds, two sizes and 2/4/6
-		players painted 17.8% of the ground rock on average and 23.6% at most; this seed paints 22%.
-		What must stay small is the ground nobody can cross, and that is under 2.3% on all 72. */
+		players painted 17.8% of the ground rock on average and 23.6% at most in version 12, a good
+		part of it single cells. Version 13 reads the slope over 3x3 cells and votes the strays out:
+		12.1% on average, 34.0% at most, in patches; this seed paints 11%. What must stay small is
+		the ground nobody can cross, and that was under 2.3% on all 72. */
 	CHECK( cellsPerClass[3] < total / 4 );
 
 	const Real cliffLimit = 9.8f;						// PATHFIND_CLIFF_SLOPE_LIMIT_F

@@ -1946,6 +1946,16 @@ The whole HUD is on the hardware. Four colours carry it, and they mean the same 
   ground, rock breaks through where it turns steep, and woods stand thick in the middle and thin at
   the edges. The ground changes texture the way ground does, with one blending into the next instead
   of meeting it at a straight line.
+- Where rock or dirt meets sand the edge is soft now and bends with the land. It used to come out
+  as a staircase, with a square notch in the inside corner of every patch
+  and single squares of rock sprinkled down the hillsides. The map was asking the terrain for corner
+  blends it draws differently: three of the four ways to blend three corners of a square came out
+  as one corner or two, and that is the notch. A square between two other kinds of ground blended
+  into only one of them, and rock was decided a square at a time. On a test map 8,551 corner checks
+  used to fail and none fails now. The bases, the ground round the supply docks and derricks, the
+  towns and the table in the middle of a massif map were drawn with compasses and read from the
+  camera as circles; their edges wander now. Nobody pays for it: every base keeps at least the flat
+  ground it had, and gets the same amount as everyone else.
 - The maps are twice the size they were. A two-player map is a quarter of a million square feet of
   ground, an eight-player one nearly three times that, which is room to manoeuvre round a flank
   instead of running into the enemy on the way out of your own base.
