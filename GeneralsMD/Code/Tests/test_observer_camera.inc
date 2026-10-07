@@ -422,6 +422,16 @@ TEST(pane_cameras_stand_higher_the_more_panes_there_are)
 	CHECK_NEAR( ObserverCamera_paneZoom( 8, 1.0f ), 1.5f, 0.0001f );
 }
 
+TEST(pane_lines_grow_with_the_picture_and_the_join_keeps_all_of_them)
+{
+	CHECK_EQ( ObserverCamera_paneLineWidth( 720 ), 6 );
+	CHECK_EQ( ObserverCamera_paneLineWidth( 1080 ), 9 );
+	CHECK_EQ( ObserverCamera_paneLineWidth( 2160 ), 18 );
+	// the gold and both edges, crossed by a row at 45 degrees: 13 * 0.707 is 9.2 at 1080
+	CHECK( ObserverCamera_paneSeamBand( 1080 ) >= 10 );
+	CHECK( ObserverCamera_paneSeamBand( 720 ) >= 8 );
+}
+
 TEST(pane_animations_ease_over_logic_frames)
 {
 	CHECK_NEAR( ObserverCamera_easeFrames( 100, 100, 15 ), 0.0f, 0.0001f );

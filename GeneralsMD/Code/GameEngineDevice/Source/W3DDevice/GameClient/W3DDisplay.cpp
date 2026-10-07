@@ -4305,7 +4305,7 @@ static Bool openVideoPipe(Int width, Int height)
 	* 0's. */
 static void joinVideoPanes(char *rows, Int width, Int height, UnsignedInt frame)
 {
-	enum { SEAM_BAND = 2 };
+	const Int seamBand = ObserverCamera_paneSeamBand(height);
 	const Int count = TheObserverCamera.getDrawnPaneCount();
 	const Real *rays = TheObserverCamera.getPaneRays();
 	const Coord2D origin = TheObserverCamera.getPaneOrigin();
@@ -4334,10 +4334,10 @@ static void joinVideoPanes(char *rows, Int width, Int height, UnsignedInt frame)
 				continue;
 			if (x >= radar.lo.x && x < radar.hi.x && y >= radar.lo.y && y < radar.hi.y)
 				continue;
-			const Int left = max(x - SEAM_BAND, 0);
-			const Int right = min(x + SEAM_BAND, width - 1);
-			const Int up = max(y - SEAM_BAND, 0);
-			const Int down = min(y + SEAM_BAND, height - 1);
+			const Int left = max(x - seamBand, 0);
+			const Int right = min(x + seamBand, width - 1);
+			const Int up = max(y - seamBand, 0);
+			const Int down = min(y + seamBand, height - 1);
 			if (s_videoPaneMap[y * width + left] != pane || s_videoPaneMap[y * width + right] != pane
 				|| s_videoPaneMap[up * width + x] != pane || s_videoPaneMap[down * width + x] != pane)
 				continue;

@@ -159,6 +159,13 @@ void ObserverCamera_paneMiddles( const Real *rays, Int count, Int width, Int hei
 Real ObserverCamera_easeFrames( UnsignedInt frame, UnsignedInt start, UnsignedInt length );
 /// how much higher every camera stands while count panes are progress of the way in, 1 with none
 Real ObserverCamera_paneZoom( Int count, Real progress );
+/// the dark edge each side of the gold of a line between panes and of the radar's frame, in pixels
+enum { OBSERVER_PANE_LINE_EDGE = 2 };
+/// the gold of a line between panes, in pixels, for a picture height pixels high: 6 at 720, 9 at 1080
+Int ObserverCamera_paneLineWidth( Int height );
+/// how far either side of a seam the join keeps pane 0's pixels, which is where its line is drawn:
+/// the whole edged line's half width, measured along a row or column across a 45 degree line
+Int ObserverCamera_paneSeamBand( Int height );
 
 class ObserverCamera
 {

@@ -128,6 +128,8 @@ static const UnsignedInt PANE_INTRO_FRAMES = 7 * LOGICFRAMES_PER_SECOND;
 static const Real PANE_ZOOM_TWO = 1.3f;
 static const Real PANE_ZOOM_THREE = 1.4f;
 static const Real PANE_ZOOM_FOUR_OR_MORE = 1.5f;
+/// the gold of a line between panes is a pixel for every this many rows of the picture
+static const Real PANE_LINE_ROWS_A_PIXEL = 120.0f;
 /// a pane's middle is measured on a grid this coarse, which is plenty for where to put a subject
 static const Int PANE_MIDDLE_COLUMNS = 64;
 static const Int PANE_MIDDLE_ROWS = 36;
@@ -538,6 +540,22 @@ Real ObserverCamera_paneZoom( Int count, Real progress )
 		return 1.0f;
 	const Real highest = count == 2 ? PANE_ZOOM_TWO : count == 3 ? PANE_ZOOM_THREE : PANE_ZOOM_FOUR_OR_MORE;
 	return 1.0f + ( highest - 1.0f ) * progress;
+}
+
+//-------------------------------------------------------------------------------------------------
+Int ObserverCamera_paneLineWidth( Int height )
+{
+	return max( REAL_TO_INT( height / PANE_LINE_ROWS_A_PIXEL ), 2 );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A row crosses a 45 degree line over its width times the square root of two, the widest any of
+	* the rays is cut; one pixel more for the rounding of the line's quad. */
+//-------------------------------------------------------------------------------------------------
+Int ObserverCamera_paneSeamBand( Int height )
+{
+	const Real whole = (Real)( ObserverCamera_paneLineWidth( height ) + 2 * OBSERVER_PANE_LINE_EDGE );
+	return REAL_TO_INT_CEIL( whole * 0.5f * sqrtf( 2.0f ) ) + 1;
 }
 
 //-------------------------------------------------------------------------------------------------
