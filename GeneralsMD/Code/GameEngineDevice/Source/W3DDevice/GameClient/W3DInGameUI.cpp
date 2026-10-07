@@ -423,11 +423,83 @@ void W3DInGameUI::reset( void )
 
 static void drawGroundRing( const Coord3D& center, Real radius, UnsignedInt color, Real width );
 
-/// -directorrecord's line between panes, and round the radar framed where they meet
-static void drawPaneLine( Real fromX, Real fromY, Real toX, Real toY )
+/// -directorrecord's lines between panes and round the framed radar: the brand's gold (zerohour.gg's
+/// --gold, #f2c230) on an edge of its ground (--bg, #0c1220), so the line reads on snow and on night
+/// maps alike
+enum { PANE_LINE_WIDTH = 3, PANE_EDGE_WIDTH = 5, PANE_MOST_LINES = 2 * OBSERVER_MOST_PANES + 4 };
+struct PaneLine
 {
-	TheDisplay->drawLine( REAL_TO_INT( fromX ), REAL_TO_INT( fromY ), REAL_TO_INT( toX ), REAL_TO_INT( toY ),
-		3.0f, GameMakeColor( 235, 235, 235, 255 ) );
+	Coord2D from;
+	Coord2D to;
+};
+
+/// every edge drawn before any gold, so where two lines meet the gold runs on unbroken
+static void drawPaneLines( const PaneLine *lines, Int count )
+{
+	const Color edge = GameMakeColor( 0x0c, 0x12, 0x20, 255 );
+	const Color gold = GameMakeColor( 0xf2, 0xc2, 0x30, 255 );
+	for( Int line = 0; line < count; line++ )
+		TheDisplay->drawLine( REAL_TO_INT( lines[ line ].from.x ), REAL_TO_INT( lines[ line ].from.y ),
+			REAL_TO_INT( lines[ line ].to.x ), REAL_TO_INT( lines[ line ].to.y ), (Real)PANE_EDGE_WIDTH, edge );
+	for( Int line = 0; line < count; line++ )
+		TheDisplay->drawLine( REAL_TO_INT( lines[ line ].from.x ), REAL_TO_INT( lines[ line ].from.y ),
+			REAL_TO_INT( lines[ line ].to.x ), REAL_TO_INT( lines[ line ].to.y ), (Real)PANE_LINE_WIDTH, gold );
+}
+
+/** A ray from the panes' meeting point with the part inside the radar's frame left out, so the ray
+	* starts on the frame's line: one piece, two when the meeting point is outside the frame and the ray
+	* crosses it, none when it ends inside. */
+static Int addRayOutsideFrame( const Coord2D &from, const Coord2D &to, const IRegion2D *frame, PaneLine *lines )
+{
+	PaneLine whole = { from, to };
+	if( frame == NULL )
+	{
+		lines[ 0 ] = whole;
+		return 1;
+	}
+
+	// the stretch of the ray inside the frame, as fractions of it (Liang and Barsky's clip)
+	const Real start[ 2 ] = { from.x, from.y };
+	const Real along[ 2 ] = { to.x - from.x, to.y - from.y };
+	const Real low[ 2 ] = { (Real)frame->lo.x, (Real)frame->lo.y };
+	const Real high[ 2 ] = { (Real)frame->hi.x, (Real)frame->hi.y };
+	Real enter = 0.0f;
+	Real leave = 1.0f;
+	for( Int axis = 0; axis < 2; axis++ )
+	{
+		if( along[ axis ] == 0.0f )
+		{
+			if( start[ axis ] < low[ axis ] || start[ axis ] > high[ axis ] )
+				enter = 2.0f;
+			continue;
+		}
+		const Real atLow = ( low[ axis ] - start[ axis ] ) / along[ axis ];
+		const Real atHigh = ( high[ axis ] - start[ axis ] ) / along[ axis ];
+		enter = max( enter, min( atLow, atHigh ) );
+		leave = min( leave, max( atLow, atHigh ) );
+	}
+	if( enter >= leave )
+	{
+		lines[ 0 ] = whole;
+		return 1;
+	}
+
+	Int count = 0;
+	if( enter > 0.0f )
+	{
+		lines[ count ].from = from;
+		lines[ count ].to.x = from.x + along[ 0 ] * enter;
+		lines[ count ].to.y = from.y + along[ 1 ] * enter;
+		count++;
+	}
+	if( leave < 1.0f )
+	{
+		lines[ count ].from.x = from.x + along[ 0 ] * leave;
+		lines[ count ].from.y = from.y + along[ 1 ] * leave;
+		lines[ count ].to = to;
+		count++;
+	}
+	return count;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -440,24 +512,14 @@ void W3DInGameUI::draw( void )
 	// 930 and 1230), and nothing on the list belongs in a shot.  The letterbox is the display's own.
 	if( CinemaDirector_hidesHud() )
 	{
-		// -directorrecord's panes: the rays between them, from where they meet to past the screen's
-		// edge, drawn in pane 0's draw alone; the join takes a band along every seam from pane 0, line
-		// and all
 		const Bool framed = TheObserverCamera.isRadarFramed();
 		IRegion2D noFrame;
 		noFrame.lo.x = noFrame.lo.y = noFrame.hi.x = noFrame.hi.y = 0;
 		TheObserverCamera.setRadarFrame( noFrame );
-		if( framed && !TheObserverCamera.isDrawingSecond() )
-		{
-			const Real reach = 2.0f * ( TheDisplay->getWidth() + TheDisplay->getHeight() );
-			const Coord2D origin = TheObserverCamera.getPaneOrigin();
-			const Real *rays = TheObserverCamera.getPaneRays();
-			for( Int ray = 0; ray < TheObserverCamera.getDrawnPaneCount(); ray++ )
-			{
-				const Real angle = rays[ ray ] * PI / 180.0f;
-				drawPaneLine( origin.x, origin.y, origin.x + cosf( angle ) * reach, origin.y - sinf( angle ) * reach );
-			}
-		}
+		// the frame's line runs along the radar window's outside edge, its inner side on the window's
+		// one pixel bezel, so the map meets it with no gap
+		IRegion2D frame = noFrame;
+		Bool hasFrame = FALSE;
 
 		// the console's 'hidehud showmap=true': the bar is hidden, so its radar window is put in the
 		// corner by hand, where the radar's own pixel maths find it too, and painted.  Under
@@ -481,10 +543,11 @@ void W3DInGameUI::draw( void )
 			corner.lo.y = corner.hi.y - ( lr.y - ul.y ) - 2 * RADAR_BEZEL;
 			const Int mapWidth = corner.hi.x - corner.lo.x;
 			const Int mapHeight = corner.hi.y - corner.lo.y;
-			enum { RADAR_FRAME_GAP = 3 };
+			// how far the frame's line and its edge reach outside the window
+			enum { RADAR_FRAME_OUTSIDE = 1 + PANE_EDGE_WIDTH / 2 + 1 };
 			if( framed )
 			{
-				const Real diagonal = sqrtf( (Real)( mapWidth * mapWidth + mapHeight * mapHeight ) ) + 2 * RADAR_FRAME_GAP;
+				const Real diagonal = sqrtf( (Real)( mapWidth * mapWidth + mapHeight * mapHeight ) ) + 2 * RADAR_FRAME_OUTSIDE;
 				const Coord2D middle = TheObserverCamera.getFramedRadarMiddle( diagonal );
 				corner.lo.x = REAL_TO_INT( middle.x ) - mapWidth / 2;
 				corner.hi.x = corner.lo.x + mapWidth;
@@ -493,7 +556,7 @@ void W3DInGameUI::draw( void )
 			}
 			else
 			{
-				const Int slide = REAL_TO_INT( TheObserverCamera.getCornerRadarSlide() * ( mapWidth + RADAR_FRAME_GAP ) );
+				const Int slide = REAL_TO_INT( TheObserverCamera.getCornerRadarSlide() * ( mapWidth + RADAR_FRAME_OUTSIDE ) );
 				corner.lo.x -= slide;
 				corner.hi.x -= slide;
 			}
@@ -502,22 +565,60 @@ void W3DInGameUI::draw( void )
 
 			if( framed )
 			{
-				IRegion2D frame;
-				frame.lo.x = corner.lo.x - RADAR_FRAME_GAP;
-				frame.lo.y = corner.lo.y - RADAR_FRAME_GAP;
-				frame.hi.x = corner.hi.x + RADAR_FRAME_GAP;
-				frame.hi.y = corner.hi.y + RADAR_FRAME_GAP;
-				drawPaneLine( frame.lo.x, frame.lo.y, frame.hi.x, frame.lo.y );
-				drawPaneLine( frame.hi.x, frame.lo.y, frame.hi.x, frame.hi.y );
-				drawPaneLine( frame.hi.x, frame.hi.y, frame.lo.x, frame.hi.y );
-				drawPaneLine( frame.lo.x, frame.hi.y, frame.lo.x, frame.lo.y );
-				// the line is drawn on the frame's edge, so its outer half is pane 0's too
-				frame.lo.x -= RADAR_FRAME_GAP;
-				frame.lo.y -= RADAR_FRAME_GAP;
-				frame.hi.x += RADAR_FRAME_GAP;
-				frame.hi.y += RADAR_FRAME_GAP;
-				TheObserverCamera.setRadarFrame( frame );
+				// the window's last column is corner.hi.x - 1, so the line's middle is one pixel
+				// outside the bezel on every side
+				frame.lo.x = corner.lo.x - 1;
+				frame.lo.y = corner.lo.y - 1;
+				frame.hi.x = corner.hi.x;
+				frame.hi.y = corner.hi.y;
+				hasFrame = TRUE;
+				// the line and its edge are drawn over the frame's outline, so they are pane 0's too
+				IRegion2D taken = frame;
+				taken.lo.x -= PANE_EDGE_WIDTH / 2 + 1;
+				taken.lo.y -= PANE_EDGE_WIDTH / 2 + 1;
+				taken.hi.x += PANE_EDGE_WIDTH / 2 + 1;
+				taken.hi.y += PANE_EDGE_WIDTH / 2 + 1;
+				TheObserverCamera.setRadarFrame( taken );
 			}
+		}
+
+		// -directorrecord's panes: the rays between them, from where they meet to past the screen's
+		// edge, meeting the radar's frame and drawn with it in pane 0's draw alone; the join takes a
+		// band along every seam from pane 0, line and all
+		if( framed && !TheObserverCamera.isDrawingSecond() )
+		{
+			PaneLine lines[ PANE_MOST_LINES ];
+			Int count = 0;
+			const Real reach = 2.0f * ( TheDisplay->getWidth() + TheDisplay->getHeight() );
+			const Coord2D origin = TheObserverCamera.getPaneOrigin();
+			const Real *rays = TheObserverCamera.getPaneRays();
+			for( Int ray = 0; ray < TheObserverCamera.getDrawnPaneCount(); ray++ )
+			{
+				const Real angle = rays[ ray ] * PI / 180.0f;
+				Coord2D end;
+				end.x = origin.x + cosf( angle ) * reach;
+				end.y = origin.y - sinf( angle ) * reach;
+				count += addRayOutsideFrame( origin, end, hasFrame ? &frame : NULL, lines + count );
+			}
+			if( hasFrame )
+			{
+				// each side runs on past the corners by half the edge, so the corners are filled
+				const Real past = PANE_EDGE_WIDTH / 2;
+				const Real left = (Real)frame.lo.x;
+				const Real top = (Real)frame.lo.y;
+				const Real right = (Real)frame.hi.x;
+				const Real bottom = (Real)frame.hi.y;
+				const PaneLine sides[ 4 ] =
+				{
+					{ { left - past, top }, { right + past, top } },
+					{ { right, top - past }, { right, bottom + past } },
+					{ { right + past, bottom }, { left - past, bottom } },
+					{ { left, bottom + past }, { left, top - past } },
+				};
+				for( Int side = 0; side < 4; side++ )
+					lines[ count++ ] = sides[ side ];
+			}
+			drawPaneLines( lines, count );
 		}
 		return;
 	}

@@ -124,6 +124,10 @@ static const UnsignedInt PANE_RADAR_FRAMES = 12;
 static const UnsignedInt PANE_SLIDE_FRAMES = 15;
 /// the match opens on every player's base, one pane each, for this long
 static const UnsignedInt PANE_INTRO_FRAMES = 7 * LOGICFRAMES_PER_SECOND;
+/// how much higher the cameras stand with the panes all in, by how many panes there are
+static const Real PANE_ZOOM_TWO = 1.3f;
+static const Real PANE_ZOOM_THREE = 1.4f;
+static const Real PANE_ZOOM_FOUR_OR_MORE = 1.5f;
 /// a pane's middle is measured on a grid this coarse, which is plenty for where to put a subject
 static const Int PANE_MIDDLE_COLUMNS = 64;
 static const Int PANE_MIDDLE_ROWS = 36;
@@ -525,6 +529,18 @@ Real ObserverCamera_easeFrames( UnsignedInt frame, UnsignedInt start, UnsignedIn
 }
 
 //-------------------------------------------------------------------------------------------------
+/** A wedge is a slice of the screen, so its subject wants more ground round it than the whole
+	* screen gave; more panes are narrower slices and stand higher still. */
+//-------------------------------------------------------------------------------------------------
+Real ObserverCamera_paneZoom( Int count, Real progress )
+{
+	if( count < 2 )
+		return 1.0f;
+	const Real highest = count == 2 ? PANE_ZOOM_TWO : count == 3 ? PANE_ZOOM_THREE : PANE_ZOOM_FOUR_OR_MORE;
+	return 1.0f + ( highest - 1.0f ) * progress;
+}
+
+//-------------------------------------------------------------------------------------------------
 ObserverCamera::ObserverCamera()
 {
 	reset();
@@ -571,6 +587,7 @@ void ObserverCamera::reset( void )
 	m_paneCount = 0;
 	m_paneProgress = 0.0f;
 	m_paneExit = 0.0f;
+	m_paneBaseZoom = 1.0f;
 	m_paneOrigin.x = m_paneOrigin.y = 0.0f;
 	m_cornerRadarSlide = 0.0f;
 	m_radarFrame.lo.x = m_radarFrame.lo.y = m_radarFrame.hi.x = m_radarFrame.hi.y = 0;
@@ -890,6 +907,7 @@ void ObserverCamera::advancePanes( UnsignedInt frame )
 			if( next != PANES_NONE )
 			{
 				m_paneExit = ObserverCamera_paneExit( m_paneRays, m_paneCount, TheDisplay->getWidth(), TheDisplay->getHeight() );
+				m_paneBaseZoom = TheTacticalView->getZoom();
 				for( Int pane = 0; pane < OBSERVER_MOST_PANES; pane++ )
 					m_paneGlide[ pane ] = ViewLocation();
 			}
@@ -1355,7 +1373,10 @@ void ObserverCamera::update( UnsignedInt nowMilliseconds )
 		releaseHeight();
 	else
 		driveHeight( m_placeHeight );
-	holdHeight( isShowingPlayerView() );
+	// while there are panes the zoom is set outright from how far in they are, with the view's own
+	// settling held off: it eases on every draw, and a frame has a draw a pane
+	const Bool panesZoom = m_paneCount >= 2 && !isShowingPlayerView();
+	holdHeight( isShowingPlayerView() || panesZoom );
 	if( !m_driving )
 	{
 		m_velocity.x = m_velocity.y = m_velocity.z = m_velocity.angle = m_velocity.pitch = m_velocity.zoom = 0.0f;
@@ -1393,8 +1414,14 @@ void ObserverCamera::update( UnsignedInt nowMilliseconds )
 			m_introGlide = FALSE;
 	}
 	const Bool player = m_mode == OBSERVER_CAMERA_PLAYER;
-	const ViewLocation step = ObserverCamera_approach( subject, target, elapsed / MILLISECONDS_PER_SECOND,
+	ViewLocation step = ObserverCamera_approach( subject, target, elapsed / MILLISECONDS_PER_SECOND,
 		player ? PLAYER_PAN_SECONDS : DIRECTOR_PAN_SECONDS, player ? PLAYER_TOP_SPEED : DIRECTOR_TOP_SPEED, &m_velocity );
+	if( panesZoom )
+	{
+		const Coord3D &stepAt = step.getPosition();
+		step.init( stepAt.x, stepAt.y, stepAt.z, step.getAngle(), step.getPitch(),
+			m_paneBaseZoom * ObserverCamera_paneZoom( m_paneCount, m_paneProgress ) );
+	}
 	const Coord2D offset = screenToGround( step, fromMiddle );
 	Coord2D sitBack;
 	sitBack.x = step.getPosition().x - offset.x;

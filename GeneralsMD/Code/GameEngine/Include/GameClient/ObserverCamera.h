@@ -157,6 +157,8 @@ Coord2D ObserverCamera_paneExitDirection( const Real *rays );
 void ObserverCamera_paneMiddles( const Real *rays, Int count, Int width, Int height, Coord2D *middles );
 /// how far an animation of length frames that started on start is on frame, eased in and out, 0 to 1
 Real ObserverCamera_easeFrames( UnsignedInt frame, UnsignedInt start, UnsignedInt length );
+/// how much higher every camera stands while count panes are progress of the way in, 1 with none
+Real ObserverCamera_paneZoom( Int count, Real progress );
 
 class ObserverCamera
 {
@@ -284,6 +286,7 @@ private:
 	Real m_paneRays[ OBSERVER_MOST_PANES ];
 	Real m_paneProgress;						///< 0 for no panes on the screen, 1 for all of them, eased
 	Real m_paneExit;								///< how far off the meeting point goes, in pixels
+	Real m_paneBaseZoom;							///< the view's zoom when the panes started, which they rise from
 	Coord2D m_paneOrigin;						///< where the rays meet now, in pixels
 	Real m_cornerRadarSlide;
 	IRegion2D m_radarFrame;

@@ -411,6 +411,17 @@ TEST(the_two_pane_middles_mirror_through_the_screen_middle)
 	CHECK_NEAR( middles[ 0 ].y + middles[ 1 ].y, 720.0f, 1.0f );
 }
 
+TEST(pane_cameras_stand_higher_the_more_panes_there_are)
+{
+	CHECK_NEAR( ObserverCamera_paneZoom( 1, 1.0f ), 1.0f, 0.0001f );
+	CHECK_NEAR( ObserverCamera_paneZoom( 2, 0.0f ), 1.0f, 0.0001f );
+	CHECK_NEAR( ObserverCamera_paneZoom( 2, 1.0f ), 1.3f, 0.0001f );
+	CHECK_NEAR( ObserverCamera_paneZoom( 2, 0.5f ), 1.15f, 0.0001f );
+	CHECK_NEAR( ObserverCamera_paneZoom( 3, 1.0f ), 1.4f, 0.0001f );
+	CHECK_NEAR( ObserverCamera_paneZoom( 4, 1.0f ), 1.5f, 0.0001f );
+	CHECK_NEAR( ObserverCamera_paneZoom( 8, 1.0f ), 1.5f, 0.0001f );
+}
+
 TEST(pane_animations_ease_over_logic_frames)
 {
 	CHECK_NEAR( ObserverCamera_easeFrames( 100, 100, 15 ), 0.0f, 0.0001f );
