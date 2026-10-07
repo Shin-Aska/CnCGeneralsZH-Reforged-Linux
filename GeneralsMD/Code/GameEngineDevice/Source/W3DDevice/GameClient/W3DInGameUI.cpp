@@ -503,6 +503,9 @@ void W3DInGameUI::draw( void )
 			// the frame is the rays' gold and outer edge laid round the window, the gold on the bezel
 			const Int frameGold = ObserverCamera_paneLineWidth( TheDisplay->getHeight() );
 			const Int frameOutside = frameGold + OBSERVER_PANE_LINE_EDGE;
+			// -directorrecord frames the radar in its corner as well; the console's showmap alone keeps
+			// it bare and flush with the corner
+			const Bool cornerFramed = !framed && TheGlobalData->m_directorRecord;
 			if( framed )
 			{
 				const Real diagonal = sqrtf( (Real)( mapWidth * mapWidth + mapHeight * mapHeight ) ) + 2 * frameOutside;
@@ -512,19 +515,28 @@ void W3DInGameUI::draw( void )
 				corner.lo.y = REAL_TO_INT( middle.y ) - mapHeight / 2;
 				corner.hi.y = corner.lo.y + mapHeight;
 			}
-			else
+			else if( cornerFramed )
 			{
-				const Int slide = REAL_TO_INT( TheObserverCamera.getCornerRadarSlide() * ( mapWidth + frameOutside ) );
+				// in from the corner by the frame, so none of it is cut by the screen's edge, and slid out
+				// left far enough to take the frame off the screen too
+				corner.lo.x = frameOutside;
+				corner.hi.x = corner.lo.x + mapWidth;
+				corner.hi.y = TheDisplay->getHeight() - frameOutside;
+				corner.lo.y = corner.hi.y - mapHeight;
+				const Int slide = REAL_TO_INT( TheObserverCamera.getCornerRadarSlide() * ( mapWidth + 2 * frameOutside ) );
 				corner.lo.x -= slide;
 				corner.hi.x -= slide;
 			}
 
 			// two filled rectangles under the radar, square at the corners: the edge, then the gold up
 			// to the window, so the map sits on the gold with no gap.  All of it is pane 0's in the join
-			if( framed )
+			if( framed || cornerFramed )
 			{
 				fillAround( corner, frameOutside, PANE_EDGE );
 				fillAround( corner, frameGold, PANE_GOLD );
+			}
+			if( framed )
+			{
 				IRegion2D taken = corner;
 				taken.lo.x -= frameOutside;
 				taken.lo.y -= frameOutside;
