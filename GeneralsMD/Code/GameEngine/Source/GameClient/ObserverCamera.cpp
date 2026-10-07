@@ -106,6 +106,19 @@ static const Real PLAYER_TOP_SPEED = 4000.0f;
 /// a frame longer than this is a hitch, and is not allowed to throw the camera across the map
 static const UnsignedInt LONGEST_STEP_MILLISECONDS = 100;
 static const Real MILLISECONDS_PER_SECOND = 1000.0f;
+/// -directorrecord: a second fight closer than this to the first shares its ground, and the split
+/// would show one fight twice
+static const Real SPLIT_APART = 3.0f * DIRECTOR_GATHER_RADIUS;
+/// the picture splits for a second fight at least this hot, and at least this share of the first
+static const Real SPLIT_ENTER_HEAT = 2.0f;
+static const Real SPLIT_ENTER_SHARE = 0.5f;
+/// a split stays this long at least, and after that while the second fight keeps this share
+static const UnsignedInt SPLIT_HOLD_FRAMES = 6 * LOGICFRAMES_PER_SECOND;
+static const Real SPLIT_STAY_SHARE = 0.25f;
+/// once the picture is whole again it stays whole this long, so it does not flicker between the two
+static const UnsignedInt SPLIT_REST_FRAMES = 4 * LOGICFRAMES_PER_SECOND;
+/// how far the divider leans off the upright
+static const Real SPLIT_LEAN_DEGREES = 12.0f;
 
 //-------------------------------------------------------------------------------------------------
 static Bool sameFight( const Coord2D &a, const Coord2D &b )
@@ -364,6 +377,39 @@ ViewLocation ObserverCamera_approach( const ViewLocation &from, const ViewLocati
 }
 
 //-------------------------------------------------------------------------------------------------
+Bool ObserverCamera_secondPlace( const std::vector< DirectorHeat > &hits, const Coord2D &first, Coord2D *place, Real *heat )
+{
+	std::vector< DirectorHeat > apart;
+	for( size_t index = 0; index < hits.size(); index++ )
+	{
+		const Real dx = hits[ index ].position.x - first.x;
+		const Real dy = hits[ index ].position.y - first.y;
+		if( dx * dx + dy * dy > SPLIT_APART * SPLIT_APART )
+			apart.push_back( hits[ index ] );
+	}
+	return ObserverCamera_hottestPlace( apart, place, heat );
+}
+
+//-------------------------------------------------------------------------------------------------
+Bool ObserverCamera_holdSplit( Bool split, Real firstHeat, Real secondHeat, Real apart, UnsignedInt framesSince )
+{
+	// two halves of one fight, or a half with no fight left in it, is no split at all
+	if( secondHeat <= 0.0f || apart <= SPLIT_APART )
+		return FALSE;
+	if( split )
+		return framesSince < SPLIT_HOLD_FRAMES || secondHeat >= firstHeat * SPLIT_STAY_SHARE;
+	return framesSince >= SPLIT_REST_FRAMES && firstHeat > 0.0f && secondHeat >= SPLIT_ENTER_HEAT
+		&& secondHeat >= firstHeat * SPLIT_ENTER_SHARE;
+}
+
+//-------------------------------------------------------------------------------------------------
+Int ObserverCamera_splitBoundary( Int y, Int width, Int height )
+{
+	const Real lean = tanf( SPLIT_LEAN_DEGREES * PI / 180.0f );
+	return (Int)floorf( width * 0.5f + ( height * 0.5f - y ) * lean + 0.5f );
+}
+
+//-------------------------------------------------------------------------------------------------
 ObserverCamera::ObserverCamera()
 {
 	reset();
@@ -397,6 +443,15 @@ void ObserverCamera::reset( void )
 	m_seen.clear();
 	m_events.clear();
 	m_nextEventId = 1;
+	m_fights.clear();
+	m_split = FALSE;
+	m_splitCut = FALSE;
+	m_splitChanged = 0;
+	m_secondPlace.x = m_secondPlace.y = 0.0f;
+	m_secondView = ViewLocation();
+	m_secondVelocity.x = m_secondVelocity.y = m_secondVelocity.z = m_secondVelocity.angle = m_secondVelocity.pitch = m_secondVelocity.zoom = 0.0f;
+	m_firstView = ViewLocation();
+	m_drawingSecond = FALSE;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -599,6 +654,81 @@ Coord2D ObserverCamera::keepInMap( const Coord2D &place, const ViewLocation &cur
 }
 
 //-------------------------------------------------------------------------------------------------
+/** A quarter of the screen's width on the ground, pointing right: moving the look point by it puts
+	* what was in the middle of the screen in the middle of its left half. */
+//-------------------------------------------------------------------------------------------------
+Coord2D ObserverCamera::screenQuarter( const ViewLocation &current ) const
+{
+	const Coord3D &at = current.getPosition();
+	Coord3D world[ 4 ];
+	TheTacticalView->getScreenCornerWorldPointsAtZ( &world[ 0 ], &world[ 1 ], &world[ 2 ], &world[ 3 ],
+		TheTerrainLogic->getGroundHeight( at.x, at.y ) );
+	// the corners come top left, top right, bottom right, bottom left; the two edges across are averaged
+	Coord2D quarter;
+	quarter.x = ( world[ 1 ].x - world[ 0 ].x + world[ 2 ].x - world[ 3 ].x ) / 8.0f;
+	quarter.y = ( world[ 1 ].y - world[ 0 ].y + world[ 2 ].y - world[ 3 ].y ) / 8.0f;
+	return quarter;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** -directorrecord: whether the picture is split, and the second fight it shows.  Asked again only
+	* when the hits were counted again.  Only real fighting counts, on both sides of the line: a base
+	* going up, or a dozer clearing trees, is no reason to split.  A special power the director is
+	* showing counts as a fight beside it. */
+//-------------------------------------------------------------------------------------------------
+void ObserverCamera::updateSplit( void )
+{
+	const UnsignedInt frame = TheGameLogic->getFrame();
+	Coord2D middle;
+	Real firstHeat = ObserverCamera_heatAround( m_fights, m_place, &middle );
+	if( m_placeKind == PLACE_EVENT )
+		firstHeat = max( firstHeat, SPLIT_ENTER_HEAT );
+	Coord2D second = { 0.0f, 0.0f };
+	Real secondHeat = 0.0f;
+	ObserverCamera_secondPlace( m_fights, m_place, &second, &secondHeat );
+
+	// the second fight is followed once it has moved a little, the way the director follows its own
+	Coord2D shown = m_secondPlace;
+	const Real dx = second.x - m_secondPlace.x;
+	const Real dy = second.y - m_secondPlace.y;
+	if( !m_split || dx * dx + dy * dy > DIRECTOR_FOLLOW_SLACK * DIRECTOR_FOLLOW_SLACK )
+		shown = second;
+	const Real ax = shown.x - m_place.x;
+	const Real ay = shown.y - m_place.y;
+	const Real apart = sqrtf( ax * ax + ay * ay );
+
+	const UnsignedInt since = frame >= m_splitChanged ? frame - m_splitChanged : 0;
+	const Bool split = ObserverCamera_holdSplit( m_split, firstHeat, secondHeat, apart, since );
+	if( split != m_split )
+	{
+		DEBUG_LOG(( "OBSCAM frame %u split %s, first heat %.1f, second (%.0f,%.0f) heat %.1f, %.0f apart\n", frame,
+			split ? "on" : "off", firstHeat, shown.x, shown.y, secondHeat, apart ));
+		m_split = split;
+		m_splitChanged = frame;
+		// both halves cut to their places rather than gliding in from the middle of the screen
+		m_splitCut = split;
+		m_secondView = ViewLocation();
+	}
+	if( m_split )
+		m_secondPlace = shown;
+}
+
+//-------------------------------------------------------------------------------------------------
+void ObserverCamera::beginSecondPass( void )
+{
+	TheTacticalView->getLocation( &m_firstView );
+	TheTacticalView->setLocation( &m_secondView );
+	m_drawingSecond = TRUE;
+}
+
+//-------------------------------------------------------------------------------------------------
+void ObserverCamera::endSecondPass( void )
+{
+	TheTacticalView->setLocation( &m_firstView );
+	m_drawingSecond = FALSE;
+}
+
+//-------------------------------------------------------------------------------------------------
 Bool ObserverCamera::takenByHand( const ViewLocation &current ) const
 {
 	if( TheLookAtTranslator->isMovingCamera() )
@@ -634,6 +764,7 @@ Bool ObserverCamera::directorPlace( const Player *narrowTo, Coord2D *place )
 	m_placeScanned = frame;
 
 	std::vector< DirectorHeat > hits;
+	std::vector< DirectorHeat > fights;
 	std::vector< DirectorHeat > sights;
 	for( Object *obj = TheGameLogic->getFirstObject(); obj != NULL; obj = obj->getNextObject() )
 	{
@@ -665,7 +796,18 @@ Bool ObserverCamera::directorPlace( const Player *narrowTo, Coord2D *place )
 
 		heat.weight = ObserverCamera_hitWeight( cost, obj->isEffectivelyDead(), superweapon );
 		hits.push_back( heat );
+
+		// -directorrecord's split counts a hit only when one player dealt it to another he is at war
+		// with: a tree a dozer cleared, or a building's own wear, is no fight
+		const PlayerMaskType sourceMask = body->getLastDamageInfo()->in.m_sourcePlayerMask;
+		const Player *victim = obj->getControllingPlayer();
+		if( sourceMask == 0 || victim == NULL || ( sourceMask & victim->getPlayerMask() ) != 0 )
+			continue;
+		const Player *source = ThePlayerList->getPlayerFromMask( sourceMask );
+		if( source != NULL && victim->getRelationship( source->getDefaultTeam() ) == ENEMIES )
+			fights.push_back( heat );
 	}
+	m_fights = fights;
 
 	Coord2D hottest;
 	Real hottestHeat = 0.0f;
@@ -785,6 +927,7 @@ Bool ObserverCamera::chooseTarget( const ViewLocation &current, ViewLocation *ta
 
 	if( isShowingPlayerView() )
 	{
+		m_split = FALSE;
 		*target = m_playerViews[ m_followed ];
 		return TRUE;
 	}
@@ -794,6 +937,15 @@ Bool ObserverCamera::chooseTarget( const ViewLocation &current, ViewLocation *ta
 	Coord2D place;
 	if( !directorPlace( narrowTo, &place ) )
 		return FALSE;
+	if( TheGlobalData->m_directorRecord && m_placeScanned == TheGameLogic->getFrame() )
+		updateSplit();
+	// split, the first fight goes in the middle of the left half
+	if( m_split )
+	{
+		const Coord2D quarter = screenQuarter( current );
+		place.x += quarter.x;
+		place.y += quarter.y;
+	}
 	place = keepInMap( place, current );
 	target->init( place.x, place.y, at.z, current.getAngle(), current.getPitch(), current.getZoom() );
 	return TRUE;
@@ -810,6 +962,7 @@ void ObserverCamera::update( UnsignedInt nowMilliseconds )
 	if( m_mode == OBSERVER_CAMERA_FREE )
 	{
 		m_driving = FALSE;
+		m_split = FALSE;
 		holdHeight( FALSE );
 		releaseHeight();
 		return;
@@ -823,6 +976,7 @@ void ObserverCamera::update( UnsignedInt nowMilliseconds )
 		DEBUG_LOG(( "OBSCAM frame %u the watcher took the camera\n", TheGameLogic->getFrame() ));
 		m_mode = OBSERVER_CAMERA_FREE;
 		m_driving = FALSE;
+		m_split = FALSE;
 		holdHeight( FALSE );
 		releaseHeight();
 		return;
@@ -832,6 +986,7 @@ void ObserverCamera::update( UnsignedInt nowMilliseconds )
 	if( !chooseTarget( current, &target ) )
 	{
 		m_driving = FALSE;
+		m_split = FALSE;
 		holdHeight( FALSE );
 		releaseHeight();
 		return;
@@ -844,15 +999,41 @@ void ObserverCamera::update( UnsignedInt nowMilliseconds )
 	else
 		driveHeight( m_placeHeight );
 	holdHeight( isShowingPlayerView() );
-	if( !m_driving )
+	// a split going on cuts the camera to its place in the left half: gliding there would carry the
+	// fight out of the middle of the screen and across the line for a second
+	if( !m_driving || m_splitCut )
 		m_velocity.x = m_velocity.y = m_velocity.z = m_velocity.angle = m_velocity.pitch = m_velocity.zoom = 0.0f;
 	const Bool player = m_mode == OBSERVER_CAMERA_PLAYER;
-	const ViewLocation step = ObserverCamera_approach( current, target, elapsed / MILLISECONDS_PER_SECOND,
+	const ViewLocation step = m_splitCut ? target : ObserverCamera_approach( current, target, elapsed / MILLISECONDS_PER_SECOND,
 		player ? PLAYER_PAN_SECONDS : DIRECTOR_PAN_SECONDS, player ? PLAYER_TOP_SPEED : DIRECTOR_TOP_SPEED, &m_velocity );
+	m_splitCut = FALSE;
 	TheTacticalView->setLocation( &step );
 	// the view keeps its look point inside its constraint when it draws; held there now, a cut to a
 	// place past the constraint is not mistaken next frame for the watcher moving the camera
 	TheTacticalView->applyCameraConstraint();
 	TheTacticalView->getPosition( &m_drivenTo );
 	m_driving = TRUE;
+
+	// the right half's camera glides to the second fight on its own, the second fight in the middle
+	// of the right half, and takes everything but the place from the camera's own step
+	if( !m_split )
+		return;
+	const Coord2D quarter = screenQuarter( step );
+	Coord2D place;
+	place.x = m_secondPlace.x - quarter.x;
+	place.y = m_secondPlace.y - quarter.y;
+	place = keepInMap( place, step );
+	const Coord3D &at = step.getPosition();
+	ViewLocation secondTarget;
+	secondTarget.init( place.x, place.y, at.z, step.getAngle(), step.getPitch(), step.getZoom() );
+	if( !m_secondView.isValid() )
+	{
+		m_secondVelocity.x = m_secondVelocity.y = m_secondVelocity.z = m_secondVelocity.angle = m_secondVelocity.pitch = m_secondVelocity.zoom = 0.0f;
+		m_secondView = secondTarget;
+		return;
+	}
+	const ViewLocation glide = ObserverCamera_approach( m_secondView, secondTarget, elapsed / MILLISECONDS_PER_SECOND,
+		DIRECTOR_PAN_SECONDS, DIRECTOR_TOP_SPEED, &m_secondVelocity );
+	const Coord3D &glidedTo = glide.getPosition();
+	m_secondView.init( glidedTo.x, glidedTo.y, at.z, step.getAngle(), step.getPitch(), step.getZoom() );
 }

@@ -732,6 +732,7 @@ GlobalData::GlobalData()
 	m_videoStartFrame = 0;
 	m_videoEndFrame = 0; // record nothing unless -video asks for a range
 	m_videoName.clear();
+	m_directorRecord = FALSE;
 	m_wavStartFrame = 0;
 	m_wavEndFrame = 0; // record no sound unless -wav asks for a range
 	m_wavName.clear();

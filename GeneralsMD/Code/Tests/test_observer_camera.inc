@@ -289,3 +289,75 @@ TEST(the_observer_camera_eases_in_holds_its_top_speed_and_settles_without_oversh
 	CHECK_NEAR( at.getPosition().x, 2200.0f, 1.0f );
 	CHECK( lastStep < 1.0f );
 }
+
+TEST(the_recording_splits_for_a_second_fight_far_from_the_first_and_never_for_the_same_one)
+{
+	Coord2D first;
+	first.x = first.y = 1000.0f;
+	std::vector< DirectorHeat > hits;
+	for( Int each = 0; each < 6; each++ )
+		hits.push_back( directorHit( 1000.0f + each * 20.0f, 1000.0f ) );
+	// a hit 500 away is near enough that the two halves would show the same ground
+	hits.push_back( directorHit( 1500.0f, 1000.0f ) );
+
+	Coord2D second;
+	Real heat = 0.0f;
+	CHECK( !ObserverCamera_secondPlace( hits, first, &second, &heat ) );
+
+	for( Int each = 0; each < 3; each++ )
+		hits.push_back( directorHit( 3000.0f, 3000.0f + each * 20.0f ) );
+	CHECK( ObserverCamera_secondPlace( hits, first, &second, &heat ) );
+	CHECK_NEAR( heat, 3.0f, 0.001f );
+	CHECK_NEAR( second.x, 3000.0f, 0.001f );
+	CHECK_NEAR( second.y, 3020.0f, 0.001f );
+}
+
+TEST(the_recording_splits_for_a_big_second_fight_holds_it_and_rests_after)
+{
+	const UnsignedInt rested = 5 * LOGICFRAMES_PER_SECOND;
+	const UnsignedInt justJoined = 2 * LOGICFRAMES_PER_SECOND;
+	const UnsignedInt longHeld = 8 * LOGICFRAMES_PER_SECOND;
+	const Real farApart = 2000.0f;
+	// on for a second fight hot on its own and at least half the first
+	CHECK( ObserverCamera_holdSplit( FALSE, 6.0f, 3.0f, farApart, rested ) );
+	CHECK( !ObserverCamera_holdSplit( FALSE, 8.0f, 3.0f, farApart, rested ) );
+	CHECK( !ObserverCamera_holdSplit( FALSE, 1.0f, 1.5f, farApart, rested ) );
+	// not straight back on after it went off
+	CHECK( !ObserverCamera_holdSplit( FALSE, 6.0f, 3.0f, farApart, 2 * LOGICFRAMES_PER_SECOND ) );
+	// held a few seconds while the second fight goes on at all, then only while it keeps a quarter
+	CHECK( ObserverCamera_holdSplit( TRUE, 6.0f, 0.5f, farApart, justJoined ) );
+	CHECK( ObserverCamera_holdSplit( TRUE, 8.0f, 2.0f, farApart, longHeld ) );
+	CHECK( !ObserverCamera_holdSplit( TRUE, 8.0f, 1.9f, farApart, longHeld ) );
+}
+
+TEST(the_recording_split_ends_at_once_when_the_two_halves_show_one_fight)
+{
+	const UnsignedInt justJoined = 2 * LOGICFRAMES_PER_SECOND;
+	// the director moved onto the second fight: both halves would show the same ground
+	CHECK( !ObserverCamera_holdSplit( TRUE, 12.0f, 8.0f, 60.0f, justJoined ) );
+	CHECK( !ObserverCamera_holdSplit( FALSE, 6.0f, 6.0f, 600.0f, 5 * LOGICFRAMES_PER_SECOND ) );
+	// the second fight is over, however new the split
+	CHECK( !ObserverCamera_holdSplit( TRUE, 6.0f, 0.0f, 2000.0f, justJoined ) );
+}
+
+TEST(the_recording_splits_only_beside_a_real_fight)
+{
+	// bases going up are no fight: the split's hits are only one side's on another, so the director
+	// looking at a sight has no heat of its own and a second fight does not split the picture
+	CHECK( !ObserverCamera_holdSplit( FALSE, 0.0f, 10.0f, 2000.0f, 5 * LOGICFRAMES_PER_SECOND ) );
+	// and with no fight anywhere there is no second place to show
+	std::vector< DirectorHeat > none;
+	Coord2D first;
+	first.x = first.y = 1000.0f;
+	Coord2D second;
+	Real heat = 0.0f;
+	CHECK( !ObserverCamera_secondPlace( none, first, &second, &heat ) );
+}
+
+TEST(the_split_line_leans_twelve_degrees_through_the_middle)
+{
+	CHECK_EQ( ObserverCamera_splitBoundary( 360, 1280, 720 ), 640 );
+	// 360 rows from the middle at tan 12 degrees is 76.5 columns
+	CHECK_EQ( ObserverCamera_splitBoundary( 0, 1280, 720 ), 717 );
+	CHECK_EQ( ObserverCamera_splitBoundary( 720, 1280, 720 ), 563 );
+}

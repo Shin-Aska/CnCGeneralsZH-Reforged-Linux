@@ -477,6 +477,7 @@ public:
 	Int m_videoStartFrame;					///< -video <from> <to> [name]: the first logic frame recorded
 	Int m_videoEndFrame;						///< -video: the last logic frame recorded (0 = no video)
 	AsciiString m_videoName;				///< -video: the recording is Videos\<name>.mp4 next to the save games
+	Bool m_directorRecord;					///< -directorrecord [name]: the director films the whole match, split for two fights, and the run quits at its end
 	Int m_wavStartFrame;						///< -wav <from> <to> [name]: the first logic frame of the sound recording
 	Int m_wavEndFrame;							///< -wav: the last logic frame recorded (0 = no sound recording)
 	AsciiString m_wavName;					///< -wav: the recording is Videos\<name>.wav next to the save games

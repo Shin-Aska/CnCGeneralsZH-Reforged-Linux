@@ -364,6 +364,7 @@ static Bool theCinemaLoaded = FALSE;
 static std::vector<CinemaShot> theCinemaShots;
 static size_t theCinemaNext = 0;
 static Bool theCinemaHudHidden = FALSE;
+static Bool theCinemaShowMap = FALSE;	///< the console's hidehud showmap: the radar stays in the bottom left corner
 static Bool theCinemaLetterbox = FALSE;
 static Bool theCinemaFlying = FALSE;			///< a camera verb has run; until then the player has the camera
 static Real theCinemaBaseZoom = 1.0f;
@@ -778,21 +779,30 @@ static void cinemaChase( Real now )
 	cinemaCentreOn( theCinemaStillX, theCinemaStillY, obj->getPosition()->z );
 }
 
-void CinemaDirector_setHudHidden( Bool hidden )
+void CinemaDirector_setHudHidden( Bool hidden, Bool showMap )
 {
 	cinemaSetHud( hidden );
+	theCinemaShowMap = hidden && showMap;
 }
 
 /// the match is over and the next one builds its own bar, so the flag goes without touching the bar
 void CinemaDirector_forgetHudHidden( void )
 {
 	if (TheGlobalData->m_cinemaScript.isEmpty())
+	{
 		theCinemaHudHidden = FALSE;
+		theCinemaShowMap = FALSE;
+	}
 }
 
 Bool CinemaDirector_isHudHidden( void )
 {
 	return theCinemaHudHidden;
+}
+
+Bool CinemaDirector_showsMap( void )
+{
+	return theCinemaHudHidden && theCinemaShowMap;
 }
 
 void CinemaDirector_update( void )

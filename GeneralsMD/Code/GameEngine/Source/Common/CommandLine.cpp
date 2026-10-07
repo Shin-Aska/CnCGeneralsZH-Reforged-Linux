@@ -1532,6 +1532,41 @@ Int parseVideo(char *args[], int num)
 	return consumed;
 }
 
+/* -directorrecord [name]: film a whole match with the director camera, as Videos\<name>.mp4.
+	 *
+	 * -video records a range of frames from wherever the camera happens to be.  This hands the camera
+	 * to the observer's director from the first frame, takes the interface off but for the radar, and
+	 * records from frame 1 until the match is decided or the replay runs out, then quits.  When two
+	 * fights far apart are both worth watching, the picture splits down a leaning line, one fight a
+	 * half.  It sets -observer, so an -autoskirmish run is watched rather than played; with -replay the
+	 * watcher is the replay's own.  The name defaults to "director" and takes -video's rules. */
+Int parseDirectorRecord(char *args[], int num)
+{
+	AsciiString name = "director";
+	Int consumed = 1;
+	if (num > 1 && args[1][0] != '-')
+	{
+		consumed = 2;
+		if (isVideoNameUsable(args[1]))
+			name = args[1];
+		else
+			DEBUG_LOG(("-directorrecord: '%s' is not a usable name (letters, digits, '-' and '_'), recording as %s\n",
+				args[1], name.str()));
+	}
+
+	if (TheWritableGlobalData)
+	{
+		// no last frame: the run ends with the match, and the display's teardown finishes the movie
+		const Int NO_LAST_FRAME = 0x3FFFFFFF;
+		TheWritableGlobalData->m_directorRecord = TRUE;
+		TheWritableGlobalData->m_videoStartFrame = 1;
+		TheWritableGlobalData->m_videoEndFrame = NO_LAST_FRAME;
+		TheWritableGlobalData->m_videoName = name;
+		TheWritableGlobalData->m_autoSkirmishObserver = TRUE;
+	}
+	return consumed;
+}
+
 /* -wav <from> <to> [name]: record what the game sounds like over logic frames <from> to <to>.
 	 *
 	 * A movie made by -video has no sound in it: the picture comes from a frame dump and the frames are
@@ -2546,6 +2581,7 @@ static CommandLineParam params[] =
 	{ "-screenshot", parseScreenShot },
 	{ "-showHudOverlay", parseShowHudOverlay },
 	{ "-video", parseVideo },
+	{ "-directorrecord", parseDirectorRecord },
 	{ "-wav", parseWav },
 	{ "-turbo", parseTurbo },
 	{ "-msaa", parseMSAA },

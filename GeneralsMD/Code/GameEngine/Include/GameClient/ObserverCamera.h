@@ -129,6 +129,17 @@ Coord2D ObserverCamera_keepInMap( const Coord2D &place, const Coord2D *corners, 
 /// it jumps there and stops
 ViewLocation ObserverCamera_approach( const ViewLocation &from, const ViewLocation &to, Real elapsedSeconds, Real smoothSeconds,
 	Real topSpeed, ObserverCameraVelocity *velocity );
+/// -directorrecord's second fight: the hottest place among the hits far enough from first that the
+/// two halves of a split screen never show the same ground.  FALSE when nothing that far was hit
+Bool ObserverCamera_secondPlace( const std::vector< DirectorHeat > &hits, const Coord2D &first, Coord2D *place, Real *heat );
+/// whether the recording's picture is split, given whether it is now, how far apart the two places
+/// are and how long ago it last went on or off: on, after a rest, for a second fight that is big on
+/// its own and next to a first one; off once it has been held a while and the second fight has burnt
+/// down, and at once when the second fight is over or the two places come together
+Bool ObserverCamera_holdSplit( Bool split, Real firstHeat, Real secondHeat, Real apart, UnsignedInt framesSince );
+/// the column the split's divider crosses row y of a width by height picture at: through the middle,
+/// leaning 12 degrees with its top to the right.  Columns left of it are the first fight's
+Int ObserverCamera_splitBoundary( Int y, Int width, Int height );
 
 class ObserverCamera
 {
@@ -168,6 +179,14 @@ public:
 	/// the watcher's own height back on the view, if the director had raised it over a fight
 	void releaseHeight( void );
 
+	/// -directorrecord: two fights far apart are recorded side by side.  The frame is drawn twice, the
+	/// second fight first and never presented, then the first; the recording joins the two halves
+	Bool isSplit( void ) const { return m_split; }
+	Bool isDrawingSecond( void ) const { return m_drawingSecond; }
+	/// the view moved to the second fight for one draw, and put back after it
+	void beginSecondPass( void );
+	void endSecondPass( void );
+
 	enum { NO_PLAYER = -1 };
 
 private:
@@ -176,6 +195,8 @@ private:
 	void driveHeight( Real extra );
 	Bool takenByHand( const ViewLocation &current ) const;
 	Coord2D keepInMap( const Coord2D &place, const ViewLocation &current ) const;
+	Coord2D screenQuarter( const ViewLocation &current ) const;
+	void updateSplit( void );
 	Bool isShowingPlayerView( void ) const;
 	Bool chooseTarget( const ViewLocation &current, ViewLocation *target );
 	Bool directorPlace( const Player *narrowTo, Coord2D *place );
@@ -210,6 +231,16 @@ private:
 	std::vector< Coord2D > m_seen;	///< the last few sights, oldest first, not gone back to while there is another
 	std::vector< DirectorEvent > m_events;	///< the special powers still worth watching, oldest first
 	UnsignedInt m_nextEventId;
+
+	std::vector< DirectorHeat > m_fights;	///< the last scan's hits one player dealt another he is at war with; the split counts only these
+	Bool m_split;										///< -directorrecord's picture is two fights side by side
+	Bool m_splitCut;								///< the split just went on: the camera cuts to its place in the left half
+	UnsignedInt m_splitChanged;			///< the logic frame the split last went on or off
+	Coord2D m_secondPlace;					///< the second fight, shown in the right half
+	ViewLocation m_secondView;			///< the right half's camera, gliding on its own
+	ObserverCameraVelocity m_secondVelocity;
+	ViewLocation m_firstView;				///< the camera's own place, put back after the right half is drawn
+	Bool m_drawingSecond;
 };
 
 extern ObserverCamera TheObserverCamera;

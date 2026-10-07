@@ -35,6 +35,7 @@
 #include "Common/GlobalData.h"
 #include "Common/Player.h"
 #include "Common/PlayerList.h"
+#include "Common/Radar.h"
 #include "Common/ThingTemplate.h"
 #include "Common/ThingFactory.h"
 #include "GameLogic/AI.h"
@@ -56,6 +57,7 @@
 #include "GameClient/ControlBar.h"
 #include "GameClient/Image.h"
 #include "GameClient/Mouse.h"
+#include "GameClient/ObserverCamera.h"
 #include "W3DDevice/GameClient/W3DAssetManager.h"
 #include "W3DDevice/GameClient/W3DGUICallbacks.h"
 #include "W3DDevice/GameClient/W3DInGameUI.h"
@@ -430,7 +432,50 @@ void W3DInGameUI::draw( void )
 	// star banner slide in at the top right of an observer's footage (twice in trailer_chaos, frames
 	// 930 and 1230), and nothing on the list belongs in a shot.  The letterbox is the display's own.
 	if( CinemaDirector_hidesHud() )
+	{
+		// -directorrecord's two fights side by side: the line between the halves, drawn the same in
+		// both draws so the joined picture has it whole
+		const Bool split = TheObserverCamera.isSplit();
+		if( split )
+		{
+			const Int width = TheDisplay->getWidth();
+			const Int height = TheDisplay->getHeight();
+			TheDisplay->drawLine( ObserverCamera_splitBoundary( 0, width, height ), 0,
+				ObserverCamera_splitBoundary( height, width, height ), height, 3.0f, GameMakeColor( 235, 235, 235, 255 ) );
+		}
+
+		// the console's 'hidehud showmap=true': the bar is hidden, so its radar window is put in the
+		// corner by hand, where the radar's own pixel maths find it too, and painted.  Over a split
+		// picture it sits in the middle, on the line, where it covers neither fight
+		if( CinemaDirector_showsMap() )
+		{
+			GameWindow *radarWindow = TheWindowManager->winGetWindowFromId( NULL, TheNameKeyGenerator->nameToKey( "ControlBar.wnd:LeftHUD" ) );
+			// W3DLeftHUDDraw paints one pixel inside the window, and the radar keeps the map's shape
+			// inside that, with black bars for the rest.  The window is cut to the map's own shape,
+			// a pixel larger each side and one pixel over the screen's edges, so the map is flush
+			enum { RADAR_BEZEL = 1 };
+			ICoord2D size, ul, lr;
+			radarWindow->winGetSize( &size.x, &size.y );
+			TheRadar->findDrawPositions( 0, 0, size.x - 2 * RADAR_BEZEL, size.y - 2 * RADAR_BEZEL, &ul, &lr );
+			IRegion2D corner;
+			corner.lo.x = -RADAR_BEZEL;
+			corner.hi.x = corner.lo.x + ( lr.x - ul.x ) + 2 * RADAR_BEZEL;
+			corner.hi.y = TheDisplay->getHeight() + RADAR_BEZEL;
+			corner.lo.y = corner.hi.y - ( lr.y - ul.y ) - 2 * RADAR_BEZEL;
+			if( split )
+			{
+				const Int mapWidth = corner.hi.x - corner.lo.x;
+				const Int mapHeight = corner.hi.y - corner.lo.y;
+				corner.lo.x = ( TheDisplay->getWidth() - mapWidth ) / 2;
+				corner.hi.x = corner.lo.x + mapWidth;
+				corner.lo.y = ( TheDisplay->getHeight() - mapHeight ) / 2;
+				corner.hi.y = corner.lo.y + mapHeight;
+			}
+			TheControlBar->placeWindowAt( radarWindow, corner );
+			W3DLeftHUDDraw( radarWindow, NULL );
+		}
 		return;
+	}
 
 	preDraw();
 

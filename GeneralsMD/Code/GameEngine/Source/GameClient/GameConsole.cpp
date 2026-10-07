@@ -286,7 +286,9 @@ static AsciiString runDirector( void )
 	return result;
 }
 
-static AsciiString runHideHud( void )
+/** 'hidehud' toggles the interface; 'hidehud showmap=true' (or 'showmap true', or 'showmap') hides it
+	* with the radar left in the bottom left corner, and 'showmap=false' is the plain hide. */
+static AsciiString runHideHud( AsciiString arguments )
 {
 	AsciiString result;
 	if( !TheGameLogic->isInGame() || TheGameLogic->isInShellGame() )
@@ -295,8 +297,32 @@ static AsciiString runHideHud( void )
 		return result;
 	}
 
-	const Bool hide = !CinemaDirector_isHudHidden();
-	CinemaDirector_setHudHidden( hide );
+	Bool showMap = FALSE;
+	if( !arguments.isEmpty() )
+	{
+		char text[ 64 ];
+		strncpy( text, arguments.str(), sizeof( text ) - 1 );
+		text[ sizeof( text ) - 1 ] = '\0';
+		for( char *c = text; *c; ++c )
+			if( *c == '=' )
+				*c = ' ';
+
+		char name[ 16 ], value[ 16 ] = "true";
+		const Int given = sscanf( text, "%15s %15s", name, value );
+		const AsciiString word( value );
+		const Bool isTrue = word.compareNoCase( "true" ) == 0 || word.compareNoCase( "1" ) == 0;
+		const Bool isFalse = word.compareNoCase( "false" ) == 0 || word.compareNoCase( "0" ) == 0;
+		if( given < 1 || AsciiString( name ).compareNoCase( "showmap" ) != 0 || !( isTrue || isFalse ) )
+		{
+			result = "hidehud: takes nothing, or showmap=true to keep the radar in the bottom left corner";
+			return result;
+		}
+		showMap = isTrue;
+	}
+
+	// with an argument it hides (again) with that setting, bare it toggles
+	const Bool hide = arguments.isEmpty() ? !CinemaDirector_isHudHidden() : TRUE;
+	CinemaDirector_setHudHidden( hide, showMap );
 	result = hide ? "hud hidden; 'hidehud' again brings it back" : "hud shown";
 	return result;
 }
@@ -526,7 +552,7 @@ void GameConsole::runCommand( AsciiString commandLine )
 		printLine( AsciiString( "              Shift faster; Esc or 'freecam' again lands.  'freecam x y z heading tilt'" ) );
 		printLine( AsciiString( "              flies to a pose, angles in degrees" ) );
 		printLine( AsciiString( "director      observer: the director camera on, again gives the camera back" ) );
-		printLine( AsciiString( "hidehud       the interface off, again brings it back" ) );
+		printLine( AsciiString( "hidehud       the interface off, again brings it back; showmap=true keeps the radar" ) );
 		if( areCheatsAvailable() )
 		{
 			printLine( AsciiString( "cheats        single-player cheats" ) );
@@ -598,7 +624,7 @@ void GameConsole::runCommand( AsciiString commandLine )
 
 	if( command == "hidehud" )
 	{
-		printLine( runHideHud() );
+		printLine( runHideHud( arguments ) );
 		return;
 	}
 

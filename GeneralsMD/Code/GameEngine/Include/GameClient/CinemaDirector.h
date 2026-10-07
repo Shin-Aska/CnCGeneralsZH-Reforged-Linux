@@ -75,9 +75,11 @@ void CinemaDirector_routePoint( const Real *xs, const Real *ys, Int count, Real 
 /// once a render pass, after the logic tick
 void CinemaDirector_update( void );
 
-/// the console's hidehud: the interface off or back on without a shot list
-void CinemaDirector_setHudHidden( Bool hidden );
+/// the console's hidehud: the interface off or back on without a shot list, the radar kept in the
+/// bottom left corner when showMap is set
+void CinemaDirector_setHudHidden( Bool hidden, Bool showMap );
 Bool CinemaDirector_isHudHidden( void );
+Bool CinemaDirector_showsMap( void );
 void CinemaDirector_forgetHudHidden( void );
 
 /// the interface is off, under -cinema or the console's freecam: nothing but the world is drawn
