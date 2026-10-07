@@ -8,6 +8,19 @@ found and fixed â€” EA's own, not port damage.**
 
 ---
 
+## Linux fork: Ubuntu 26.04 and GCC 16 (2026-10-07)
+
+- The native Linux Release build works with the tested GCC 16 snapshot. Missing static-library
+  dependencies and a remaining Windows-only rendering type no longer stop the build.
+- Hotkey text uses the engine's 16-bit character type consistently, and the text portability
+  check passes.
+- The main menu and a skirmish render on an NVIDIA RTX 4060 under Ubuntu 26.04.1. A 12,000-frame
+  AI match, its replay and a second run agree on the same machine. One NVIDIA graphics reference
+  check still reports a two-pixel difference; [the Linux validation record](docs/linux.md) gives
+  the environment, commands and remaining limits.
+
+The entries below retain the upstream project's feature and platform history.
+
 ## Zero Hour on a Mac, on Linux and on the Steam Deck
 
 - The game runs on Apple silicon Macs and on Linux, the Steam Deck included, as a program built for that machine. There is no Wine or Proton underneath. It draws through Metal on a Mac and through Vulkan on Linux, from the same Zero Hour files you already own.
@@ -16,7 +29,7 @@ found and fixed â€” EA's own, not port damage.**
 - One game on every machine. A replay recorded on a Mac plays back on Linux and on Windows to the same checksum, and the other way round, and a Mac and a Linux PC have played a LAN match together without once disagreeing. A Mac or Linux game could not join a Windows one: the check every machine runs before a network game failed, because the Mac and Linux copies of the game's data files ended each line differently from Windows'. They agree now. A match between Windows and a Mac has not been played yet.
 - Text on the Linux menus is as wide as on Windows. Linux has no Arial, and the font standing in for it reports a wider average letter, so every menu font the game sets to a fixed width came out a quarter narrower than it should, the "Generals" lettering and the menu buttons among them. Each is measured against Arial's own figure now, and lands within one percent of Windows.
 - The game no longer crashes on some Linux PCs as its window opens. The game hands out memory its own way, and on Linux the graphics driver gets its memory from the game too. Some drivers, AMD's on Debian 12 among them, need every piece lined up on a 16-byte boundary, and the game's lined up on 4, so the start died or went through depending on where the pieces happened to fall. On Linux everything outside the game's own pools now comes from the system, which lines it up as the driver expects.
-- `./build-linux.sh` stopped on Linux Mint and Arch after the centred Classic interface went in: the new code compared layout names with a Windows-only spelling that GCC on Linux has never heard of. It uses the name every platform knows now, and so do the two debug-build spots with the same habit. Nobody has rebuilt on Linux since, so whether anything else stands in the way is not known yet.
+- `./build-linux.sh` stopped on Linux Mint and Arch after the centred Classic interface went in: the new code compared layout names with a Windows-only spelling that GCC on Linux has never heard of. It uses the name every platform knows now, and so do the two debug-build spots with the same habit. This Linux fork has since built and run on Ubuntu 26.04.1 with GCC 16 and an NVIDIA RTX 4060; see [the Linux validation record](docs/linux.md) for the remaining test failure.
 - Windows on Arm laptops, the Snapdragon ones, get a build made for them. Microsoft never shipped those machines the library the game loads its textures and shaders through, so the game brings its own, the texture code the Mac and Linux versions already run. Switched on in place of Microsoft's library on an ordinary Windows PC, it draws the same battlefields, with no tree, house or patch of ground going missing. Nobody has played it on a Snapdragon laptop yet.
 - Thanks to ilyasakin, whose port this is.
 

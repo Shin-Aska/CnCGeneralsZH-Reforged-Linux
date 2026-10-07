@@ -1,5 +1,10 @@
 # Zero Hour Reforged on macOS, Linux and Windows on ARM64
 
+This document retains the upstream port's architecture and cross-platform history. This fork
+focuses on Linux: start with [README.md](README.md) for setup and [docs/linux.md](docs/linux.md)
+for the Ubuntu 26.04.1, GCC 16 and NVIDIA RTX 4060 validation record. Platform and packaging
+results below describe upstream work unless the Linux validation record explicitly confirms them.
+
 This branch ports the Zero Hour engine off Windows without changing what the game computes. A match
 recorded on one platform plays back to the same world checksum on every other, and the Windows x64 build
 keeps its own renderer and platform layer. This file covers what the port adds, how to build and run it,
@@ -297,6 +302,10 @@ MSVC's own casts on Windows), `license-headers.py --check`, `fingerprint-manifes
 
 ## Known issues and limitations
 
+- **NVIDIA RTX 4060 reference comparison.** On Ubuntu 26.04.1 with NVIDIA driver 595.91.07,
+  `ffref_capture_selfcheck` reports two pixels outside tolerance in one draw. The same check passes
+  on Intel UHD 770 with Mesa 26.0.8. The menu and a skirmish render on NVIDIA; the comparison
+  difference remains unresolved. See [docs/linux.md](docs/linux.md#remaining-nvidia-comparison-failure).
 - **Metal's 27 pixel differences.** Metal on Apple silicon forms its 2x2 derivative quads across an edge that
   two triangles of one indexed draw share, so a pixel beside that edge can take its neighbour's mip level.
   All 27 of Metal's disagreements with FFReference on the captured draw sets (243 pixels, worst 51/255) are

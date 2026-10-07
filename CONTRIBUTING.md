@@ -1,5 +1,9 @@
 # Contributing
 
+This fork focuses on native Linux. Include the distribution, compiler, GPU and driver versions
+with Linux build or graphics reports. [README.md](README.md) covers setup and
+[docs/linux.md](docs/linux.md) records the verified Ubuntu/NVIDIA environment and remaining checks.
+
 Pull requests are welcome. These are the things that decide whether one goes in as it is, goes in
 in pieces, or waits for a question to be answered.
 
@@ -40,16 +44,25 @@ request, so bring your branch up to date with `git rebase main` rather than merg
 
 ## Before you open it
 
-Build Release and run the tests. One command does both on each platform: `build.bat Release test`
-on Windows, `./build-macos.sh Release test` on a Mac and `./build-linux.sh Release test` on Linux.
-The build is 64-bit only, and `-A Win32` stops at configure.
+Build Release and run the tests:
+
+```sh
+CC=gcc-16 CXX=g++-16 ./build-linux.sh Release
+ctest --test-dir build-linux --output-on-failure
+```
+
+GCC 16 is the tested compiler; another compiler can be selected for a fresh build tree. The combined
+`./build-linux.sh Release test` command stages only after the tests pass. On the documented NVIDIA
+machine, `ffref_capture_selfcheck` still fails; report that result and any new failures explicitly.
+Do not widen the reference tolerance just to make the run pass. Checks without their required assets
+or environment may skip; list those limits with the result. The build is 64-bit only.
 
 A change to how the game behaves leaves a test behind that fails without it. Put the fix back to
 the old behaviour once and watch the test go red before you trust it.
 
 A change to what a unit or the computer opponent decides has to leave replays and network games
-alone: `replay-check.ps1` plays the same match twice and compares the checksums. A switch or an
-option that changes such a decision is off in network games, or every machine in the match plays a
+alone: `GeneralsMD/Code/Tools/replay-check.sh` compares a match, its replay and a second run's
+checksums. A switch or an option that changes such a decision is off in network games, or every machine in the match plays a
 different game.
 
 A change a player can see gets an entry in `CHANGELOG.md` in the same commit. It is written for
