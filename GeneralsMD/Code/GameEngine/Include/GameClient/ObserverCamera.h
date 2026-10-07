@@ -22,7 +22,10 @@
 // The mode and the followed player are picked apart, from two lists.  Free is the camera in the
 // watcher's own hands.  Director goes to the fight of the last few seconds with the most at stake,
 // each hit counted by what the thing hit cost and more for a kill or a superweapon, and stays there
-// a while before it looks for a bigger fight.  With no fight on it goes round the armies on the
+// a while before it looks for a bigger fight.  A special power used anywhere outranks any fight: a
+// superweapon is shown leaving its silo, then where it lands until the dust settles, a laser
+// followed along its sweep.  The camera glides between places on a spring and only cuts across
+// most of a map.  With no fight on it goes round the armies on the
 // move, the bases going up and the superweapons, a few seconds each, so it never sits still; with a
 // player picked it counts only that player's fights and things.  Player shows what the followed player's own screen
 // shows: a player's camera comes over the network a few times a second (MSG_SET_REPLAY_CAMERA), an
@@ -63,6 +66,28 @@ struct DirectorHeat
 	Real weight;
 };
 
+class Player;
+
+/// a special power used lately: who used it, where it was fired from, where it lands, and until which
+/// logic frame it is worth watching.  A superweapon is shown leaving its silo before its target
+struct DirectorEvent
+{
+	UnsignedInt id;
+	const Player *owner;
+	Coord2D source;
+	Coord2D target;
+	UnsignedInt since;
+	UnsignedInt until;
+	Real weight;
+	Bool superweapon;
+};
+
+/// how fast the camera is going on each of its six axes, carried from one frame's step to the next
+struct ObserverCameraVelocity
+{
+	Real x, y, z, angle, pitch, zoom;
+};
+
 /// the place the hits crowd most: each hit's weight summed over those within DIRECTOR_GATHER_RADIUS
 /// of it, and the best one's neighbours averaged by weight.  FALSE when nothing was hit
 Bool ObserverCamera_hottestPlace( const std::vector< DirectorHeat > &hits, Coord2D *place, Real *heat );
@@ -78,11 +103,15 @@ Real ObserverCamera_hitWeight( Int cost, Bool killed, Bool superweapon );
 Real ObserverCamera_sightWeight( Int cost, Bool structure, Bool busy, Bool superweapon );
 /// the best place among the sights away from the ones in seen; FALSE when every sight was seen
 Bool ObserverCamera_nextSight( const std::vector< DirectorHeat > &sights, const std::vector< Coord2D > &seen, Coord2D *place );
-/// a step of the camera towards where it is going, easing with timeConstant, or the jump there when
-/// the two are further apart than a pan should cross
-ViewLocation ObserverCamera_approach( const ViewLocation &from, const ViewLocation &to, Real elapsedSeconds, Real timeConstant );
-
-class Player;
+/// where an event is best watched on a frame: a superweapon's silo for its first few seconds, then
+/// where it lands
+Coord2D ObserverCamera_eventPlace( const DirectorEvent &event, UnsignedInt frame );
+/// a step of the camera towards where it is going on a critically damped spring: it gathers speed,
+/// never goes faster than topSpeed across the ground, and slows into place without overshooting.
+/// smoothSeconds is roughly how long it takes to arrive.  Further apart than a glide should cross,
+/// it jumps there and stops
+ViewLocation ObserverCamera_approach( const ViewLocation &from, const ViewLocation &to, Real elapsedSeconds, Real smoothSeconds,
+	Real topSpeed, ObserverCameraVelocity *velocity );
 
 class ObserverCamera
 {
@@ -113,6 +142,12 @@ public:
 	/// on is following
 	Int getShroudPlayerIndex( void ) const;
 
+	/// a special power was used: logic tells the director, and never asks it anything back
+	void noteSpecialPower( const Player *owner, const Coord3D *from, const Coord3D *at, Bool superweapon );
+	/// a superweapon is hitting the ground here this frame, a beam or a warhead.  Keeps the event it
+	/// belongs to going a few seconds more, and with follow the event's target moves with it
+	void noteSuperweaponHit( const Player *owner, const Coord3D *at, Bool follow );
+
 	enum { NO_PLAYER = -1 };
 
 private:
@@ -122,6 +157,10 @@ private:
 	Bool isShowingPlayerView( void ) const;
 	Bool chooseTarget( const ViewLocation &current, ViewLocation *target );
 	Bool directorPlace( const Player *narrowTo, Coord2D *place );
+	DirectorEvent *findEvent( UnsignedInt id );
+	void dropOldEvents( UnsignedInt frame );
+
+	enum PlaceKind { PLACE_SIGHT, PLACE_FIGHT, PLACE_EVENT };
 
 	ObserverCameraMode m_mode;
 	Int m_followed;
@@ -131,6 +170,7 @@ private:
 	Bool m_holdingHeight;						///< the view's own height easing is off while a player's zoom is shown
 	Coord3D m_drivenTo;
 	UnsignedInt m_lastUpdate;
+	ObserverCameraVelocity m_velocity;
 
 	ViewLocation m_playerViews[ MAX_PLAYER_COUNT ];
 
@@ -139,8 +179,11 @@ private:
 	UnsignedInt m_placeSince;				///< the logic frame it went there
 	UnsignedInt m_placeScanned;			///< the logic frame the hits were last counted
 	const Player *m_placeFor;				///< whose fights the place was picked from, NULL for everybody's
-	Bool m_placeIsFight;						///< the place is a fight, not a sight picked while nothing was hit
+	PlaceKind m_placeKind;					///< a fight, a special power, or a sight picked while nothing was hit
+	UnsignedInt m_placeEvent;				///< the id of the event the place is, while it is one
 	std::vector< Coord2D > m_seen;	///< the last few sights, oldest first, not gone back to while there is another
+	std::vector< DirectorEvent > m_events;	///< the special powers still worth watching, oldest first
+	UnsignedInt m_nextEventId;
 };
 
 extern ObserverCamera TheObserverCamera;

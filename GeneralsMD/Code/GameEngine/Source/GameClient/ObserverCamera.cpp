@@ -49,35 +49,52 @@ static const UnsignedInt DIRECTOR_HEAT_FRAMES = 5 * LOGICFRAMES_PER_SECOND;
 /// how often the hits are counted again
 static const UnsignedInt DIRECTOR_SCAN_FRAMES = LOGICFRAMES_PER_SECOND / 2;
 /// how long the director stays with a fight that is still going before it looks for a better one
-static const UnsignedInt DIRECTOR_HOLD_FRAMES = 6 * LOGICFRAMES_PER_SECOND;
+static const UnsignedInt DIRECTOR_HOLD_FRAMES = 12 * LOGICFRAMES_PER_SECOND;
 /// how much hotter somewhere else has to be to be worth leaving a fight that is still going
-static const Real DIRECTOR_SWITCH_MARGIN = 1.5f;
-/// no cut sooner than this after the last one, however big the other fight
-static const UnsignedInt DIRECTOR_SETTLE_FRAMES = 2 * LOGICFRAMES_PER_SECOND;
+static const Real DIRECTOR_SWITCH_MARGIN = 2.0f;
+/// no move sooner than this after the last one, however big the other fight
+static const UnsignedInt DIRECTOR_SETTLE_FRAMES = 6 * LOGICFRAMES_PER_SECOND;
 /// this much hotter elsewhere and the director goes before its hold is up
-static const Real DIRECTOR_BIG_MARGIN = 3.0f;
-/// after this long on one fight any hotter one elsewhere will do
-static const UnsignedInt DIRECTOR_TIRED_FRAMES = 20 * LOGICFRAMES_PER_SECOND;
-static const Real DIRECTOR_TIRED_MARGIN = 1.1f;
+static const Real DIRECTOR_BIG_MARGIN = 4.0f;
+/// after this long on one fight any clearly hotter one elsewhere will do
+static const UnsignedInt DIRECTOR_TIRED_FRAMES = 30 * LOGICFRAMES_PER_SECOND;
+static const Real DIRECTOR_TIRED_MARGIN = 1.3f;
+/// a fight's middle drifts as units die and arrive; the camera follows it only once it has gone this far
+static const Real DIRECTOR_FOLLOW_SLACK = 80.0f;
+/// what a special power counts for against another one; any of them outranks every fight
+static const Real EVENT_WEIGHT = 1.0f;
+static const Real EVENT_SUPERWEAPON_WEIGHT = 5.0f;
+/// how long a special power is watched with nothing hitting the ground there yet: a superweapon's
+/// missiles take a while to arrive, a bomber longer to fly in
+static const UnsignedInt EVENT_FRAMES = 12 * LOGICFRAMES_PER_SECOND;
+static const UnsignedInt EVENT_SUPERWEAPON_FRAMES = 20 * LOGICFRAMES_PER_SECOND;
+/// how long a superweapon is shown at its silo before the camera goes to where it will land
+static const UnsignedInt EVENT_LAUNCH_FRAMES = 4 * LOGICFRAMES_PER_SECOND;
+/// the camera stays this long after the last hit at an event's target, for the cloud and the fires
+static const UnsignedInt EVENT_AFTERMATH_FRAMES = 5 * LOGICFRAMES_PER_SECOND;
 /// a hit on a thing that cost this much counts twice what a free one does
 static const Real DIRECTOR_COST_PER_WEIGHT = 500.0f;
 /// a kill counts this many times a hit, and anything on a superweapon this many times again
 static const Real DIRECTOR_KILL_FACTOR = 2.0f;
 static const Real DIRECTOR_SUPERWEAPON_FACTOR = 3.0f;
 /// with no fight on, how long the director looks at one army, base or building site
-static const UnsignedInt DIRECTOR_SIGHT_FRAMES = 8 * LOGICFRAMES_PER_SECOND;
+static const UnsignedInt DIRECTOR_SIGHT_FRAMES = 14 * LOGICFRAMES_PER_SECOND;
 /// how many of the last sights the director will not go back to while there is another
 static const size_t DIRECTOR_SEEN_COUNT = 3;
-/// further apart than this the camera cuts rather than pans: a pan across the map shows nothing
-static const Real CUT_DISTANCE = 700.0f;
+/// further apart than this the camera cuts rather than glides: a glide across most of a map is too
+/// long to sit through and shows nothing
+static const Real CUT_DISTANCE = 1600.0f;
 /// the camera found further than this from where it was put was moved by something else, a click on
 /// the production strip or a jump to a group; the edge of the map pulls it back by less.  The radar
 /// hands the camera over itself, since a click near the camera and a drag both move it by less
 static const Real HAND_JUMP_DISTANCE = 400.0f;
-/// how quickly the camera closes on where it is going, in seconds to cover about two thirds of it
-static const Real DIRECTOR_PAN_SECONDS = 0.35f;
+/// roughly how long the director's glide takes to arrive, easing in and out
+static const Real DIRECTOR_PAN_SECONDS = 1.4f;
+/// the director's glide never crosses the ground faster than this, about two screens a second
+static const Real DIRECTOR_TOP_SPEED = 900.0f;
 /// a player's camera comes a few times a second, and this smooths the steps between
-static const Real PLAYER_PAN_SECONDS = 0.12f;
+static const Real PLAYER_PAN_SECONDS = 0.15f;
+static const Real PLAYER_TOP_SPEED = 4000.0f;
 /// a frame longer than this is a hitch, and is not allowed to throw the camera across the map
 static const UnsignedInt LONGEST_STEP_MILLISECONDS = 100;
 static const Real MILLISECONDS_PER_SECOND = 1000.0f;
@@ -190,35 +207,80 @@ Bool ObserverCamera_shouldMove( Real heatHere, Real heatThere, UnsignedInt frame
 }
 
 //-------------------------------------------------------------------------------------------------
+Coord2D ObserverCamera_eventPlace( const DirectorEvent &event, UnsignedInt frame )
+{
+	if( event.superweapon && frame < event.since + EVENT_LAUNCH_FRAMES && !sameFight( event.source, event.target ) )
+		return event.source;
+	return event.target;
+}
+
+//-------------------------------------------------------------------------------------------------
 /** An angle's shortest way round to another, so a camera facing just west of north turns a few
 	* degrees to just east of it rather than all the way back round. */
 //-------------------------------------------------------------------------------------------------
-static Real turnTowards( Real from, Real to, Real share )
+static Real shortestTurn( Real from, Real to )
 {
 	Real turn = to - from;
 	while( turn > PI )
 		turn -= 2.0f * PI;
 	while( turn < -PI )
 		turn += 2.0f * PI;
-	return from + turn * share;
+	return turn;
 }
 
 //-------------------------------------------------------------------------------------------------
-ViewLocation ObserverCamera_approach( const ViewLocation &from, const ViewLocation &to, Real elapsedSeconds, Real timeConstant )
+/** One axis of a critically damped spring, in the closed form game cameras use (Game Programming
+	* Gems 4, 1.10): from rest it gathers speed, then slows into the target without passing it. */
+//-------------------------------------------------------------------------------------------------
+static Real springTowards( Real from, Real to, Real *velocity, Real smoothSeconds, Real elapsedSeconds )
+{
+	const Real omega = 2.0f / smoothSeconds;
+	const Real x = omega * elapsedSeconds;
+	const Real decay = 1.0f / ( 1.0f + x + 0.48f * x * x + 0.235f * x * x * x );
+	const Real change = from - to;
+	const Real pull = ( *velocity + omega * change ) * elapsedSeconds;
+	*velocity = ( *velocity - omega * pull ) * decay;
+	Real result = to + ( change + pull ) * decay;
+	if( ( to - from > 0.0f ) == ( result > to ) )
+	{
+		result = to;
+		*velocity = 0.0f;
+	}
+	return result;
+}
+
+//-------------------------------------------------------------------------------------------------
+ViewLocation ObserverCamera_approach( const ViewLocation &from, const ViewLocation &to, Real elapsedSeconds, Real smoothSeconds,
+	Real topSpeed, ObserverCameraVelocity *velocity )
 {
 	const Coord3D &start = from.getPosition();
 	const Coord3D &end = to.getPosition();
-	const Real dx = end.x - start.x;
-	const Real dy = end.y - start.y;
-	if( dx * dx + dy * dy > CUT_DISTANCE * CUT_DISTANCE )
+	Real dx = end.x - start.x;
+	Real dy = end.y - start.y;
+	const Real distance = sqrtf( dx * dx + dy * dy );
+	if( distance > CUT_DISTANCE )
+	{
+		velocity->x = velocity->y = velocity->z = velocity->angle = velocity->pitch = velocity->zoom = 0.0f;
 		return to;
+	}
 
-	const Real share = 1.0f - expf( -elapsedSeconds / timeConstant );
+	// a long way is closed on a point that runs at most this far ahead, which holds the middle of the
+	// glide to a steady speed instead of a lunge
+	const Real reach = topSpeed * smoothSeconds;
+	if( distance > reach )
+	{
+		dx *= reach / distance;
+		dy *= reach / distance;
+	}
+
+	const Real angle = from.getAngle();
 	ViewLocation step;
-	step.init( start.x + dx * share, start.y + dy * share, start.z + ( end.z - start.z ) * share,
-						 turnTowards( from.getAngle(), to.getAngle(), share ),
-						 from.getPitch() + ( to.getPitch() - from.getPitch() ) * share,
-						 from.getZoom() + ( to.getZoom() - from.getZoom() ) * share );
+	step.init( springTowards( start.x, start.x + dx, &velocity->x, smoothSeconds, elapsedSeconds ),
+						 springTowards( start.y, start.y + dy, &velocity->y, smoothSeconds, elapsedSeconds ),
+						 springTowards( start.z, end.z, &velocity->z, smoothSeconds, elapsedSeconds ),
+						 springTowards( angle, angle + shortestTurn( angle, to.getAngle() ), &velocity->angle, smoothSeconds, elapsedSeconds ),
+						 springTowards( from.getPitch(), to.getPitch(), &velocity->pitch, smoothSeconds, elapsedSeconds ),
+						 springTowards( from.getZoom(), to.getZoom(), &velocity->zoom, smoothSeconds, elapsedSeconds ) );
 	return step;
 }
 
@@ -239,6 +301,7 @@ void ObserverCamera::reset( void )
 	m_holdingHeight = FALSE;
 	m_drivenTo.zero();
 	m_lastUpdate = 0;
+	m_velocity.x = m_velocity.y = m_velocity.z = m_velocity.angle = m_velocity.pitch = m_velocity.zoom = 0.0f;
 	for( Int index = 0; index < MAX_PLAYER_COUNT; index++ )
 		m_playerViews[ index ] = ViewLocation();
 	m_placeValid = FALSE;
@@ -246,8 +309,81 @@ void ObserverCamera::reset( void )
 	m_placeSince = 0;
 	m_placeScanned = 0;
 	m_placeFor = NULL;
-	m_placeIsFight = FALSE;
+	m_placeKind = PLACE_SIGHT;
+	m_placeEvent = 0;
 	m_seen.clear();
+	m_events.clear();
+	m_nextEventId = 1;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Called from the logic on every machine, players' included, so it only ever adds to a list the
+	* director reads; nothing the logic does depends on it. */
+//-------------------------------------------------------------------------------------------------
+void ObserverCamera::noteSpecialPower( const Player *owner, const Coord3D *from, const Coord3D *at, Bool superweapon )
+{
+	const UnsignedInt frame = TheGameLogic->getFrame();
+	dropOldEvents( frame );
+
+	DirectorEvent event;
+	event.id = m_nextEventId++;
+	event.owner = owner;
+	event.source.x = from->x;
+	event.source.y = from->y;
+	event.target.x = at->x;
+	event.target.y = at->y;
+	event.since = frame;
+	event.until = frame + ( superweapon ? EVENT_SUPERWEAPON_FRAMES : EVENT_FRAMES );
+	event.weight = superweapon ? EVENT_SUPERWEAPON_WEIGHT : EVENT_WEIGHT;
+	event.superweapon = superweapon;
+	m_events.push_back( event );
+}
+
+//-------------------------------------------------------------------------------------------------
+void ObserverCamera::noteSuperweaponHit( const Player *owner, const Coord3D *at, Bool follow )
+{
+	const UnsignedInt frame = TheGameLogic->getFrame();
+	Coord2D where;
+	where.x = at->x;
+	where.y = at->y;
+	for( size_t index = 0; index < m_events.size(); index++ )
+	{
+		DirectorEvent &event = m_events[ index ];
+		if( event.owner != owner || !sameFight( event.target, where ) || frame >= event.until )
+			continue;
+
+		if( follow )
+			event.target = where;
+		event.until = max( event.until, frame + EVENT_AFTERMATH_FRAMES );
+		return;
+	}
+
+	// a warhead nobody's special power sent, a script's or a map's, is still worth seeing land
+	noteSpecialPower( owner, at, at, TRUE );
+	m_events.back().until = frame + EVENT_AFTERMATH_FRAMES;
+}
+
+//-------------------------------------------------------------------------------------------------
+void ObserverCamera::dropOldEvents( UnsignedInt frame )
+{
+	size_t kept = 0;
+	for( size_t index = 0; index < m_events.size(); index++ )
+	{
+		if( frame < m_events[ index ].until )
+			m_events[ kept++ ] = m_events[ index ];
+	}
+	m_events.resize( kept );
+}
+
+//-------------------------------------------------------------------------------------------------
+DirectorEvent *ObserverCamera::findEvent( UnsignedInt id )
+{
+	for( size_t index = 0; index < m_events.size(); index++ )
+	{
+		if( m_events[ index ].id == id )
+			return &m_events[ index ];
+	}
+	return NULL;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -333,8 +469,10 @@ Bool ObserverCamera::takenByHand( const ViewLocation &current ) const
 /** Where the director looks: the fight with the most at stake, held for a while, followed as it
 	* moves, and left for a clearly bigger one.  With no fight anywhere it goes round what is worth
 	* seeing instead, an army on the move, a base going up, a superweapon, a few seconds each and not
-	* straight back to one it has just shown.  Narrowed to one player it counts only the hits on his
-	* things, the hits his things made and his own sights.  It only reads the logic. */
+	* straight back to one it has just shown.  A special power beats all of it and is held until
+	* nothing has hit the ground there for a few seconds.  Narrowed to one player it counts only the
+	* hits on his things, the hits his things made, his own sights and the special powers he used or
+	* had used on him.  It only reads the logic. */
 //-------------------------------------------------------------------------------------------------
 Bool ObserverCamera::directorPlace( const Player *narrowTo, Coord2D *place )
 {
@@ -388,17 +526,58 @@ Bool ObserverCamera::directorPlace( const Player *narrowTo, Coord2D *place )
 
 	const UnsignedInt held = frame - m_placeSince;
 	Coord2D followed = m_place;
-	if( m_placeValid && m_placeIsFight )
+
+	// a special power outranks any fight.  Narrowed to one player, only his own and the ones that
+	// land on his things count, the way only his fights do
+	dropOldEvents( frame );
+	DirectorEvent *best = NULL;
+	for( size_t index = 0; index < m_events.size(); index++ )
+	{
+		DirectorEvent &event = m_events[ index ];
+		Coord2D middle;
+		if( event.owner != narrowTo && narrowTo != NULL && ObserverCamera_heatAround( sights, event.target, &middle ) <= 0.0f )
+			continue;
+		// hits at the target keep it going: the missiles arriving, the bombs, the fires after
+		if( frame >= event.since + EVENT_LAUNCH_FRAMES && ObserverCamera_heatAround( hits, event.target, &middle ) > 0.0f )
+			event.until = max( event.until, frame + EVENT_AFTERMATH_FRAMES );
+		if( best == NULL || event.weight >= best->weight )
+			best = &event;
+	}
+	DirectorEvent *current = m_placeValid && m_placeKind == PLACE_EVENT ? findEvent( m_placeEvent ) : NULL;
+	if( current != NULL && ( best == current || !ObserverCamera_shouldMove( current->weight, best->weight, held ) ) )
+	{
+		m_place = ObserverCamera_eventPlace( *current, frame );
+		*place = m_place;
+		return TRUE;
+	}
+	// an event that just ended hands straight over to the next; anything else is given its settle first
+	if( best != NULL && ( !m_placeValid || m_placeKind == PLACE_EVENT || held >= DIRECTOR_SETTLE_FRAMES ) )
+	{
+		DEBUG_LOG(( "OBSCAM frame %u director to special power %u at (%.0f,%.0f)%s\n", frame, best->id,
+			best->target.x, best->target.y, best->superweapon ? " superweapon" : "" ));
+		m_place = ObserverCamera_eventPlace( *best, frame );
+		m_placeKind = PLACE_EVENT;
+		m_placeEvent = best->id;
+		m_placeSince = frame;
+		m_placeValid = TRUE;
+		*place = m_place;
+		return TRUE;
+	}
+
+	if( m_placeValid && m_placeKind == PLACE_FIGHT )
 	{
 		const Real heatHere = ObserverCamera_heatAround( hits, m_place, &followed );
 		if( heatHere > 0.0f && ( sameFight( hottest, followed ) || !ObserverCamera_shouldMove( heatHere, hottestHeat, held ) ) )
 		{
-			m_place = followed;
+			const Real dx = followed.x - m_place.x;
+			const Real dy = followed.y - m_place.y;
+			if( dx * dx + dy * dy > DIRECTOR_FOLLOW_SLACK * DIRECTOR_FOLLOW_SLACK )
+				m_place = followed;
 			*place = m_place;
 			return TRUE;
 		}
 	}
-	else if( m_placeValid && hottestHeat <= 0.0f && held < DIRECTOR_SIGHT_FRAMES )
+	else if( m_placeValid && m_placeKind == PLACE_SIGHT && hottestHeat <= 0.0f && held < DIRECTOR_SIGHT_FRAMES )
 	{
 		if( ObserverCamera_heatAround( sights, m_place, &followed ) > 0.0f )
 			m_place = followed;
@@ -410,7 +589,7 @@ Bool ObserverCamera::directorPlace( const Player *narrowTo, Coord2D *place )
 	{
 		DEBUG_LOG(( "OBSCAM frame %u director to fight (%.0f,%.0f) heat %.1f\n", frame, hottest.x, hottest.y, hottestHeat ));
 		m_place = hottest;
-		m_placeIsFight = TRUE;
+		m_placeKind = PLACE_FIGHT;
 	}
 	else
 	{
@@ -426,7 +605,7 @@ Bool ObserverCamera::directorPlace( const Player *narrowTo, Coord2D *place )
 		}
 		DEBUG_LOG(( "OBSCAM frame %u director to sight (%.0f,%.0f)\n", frame, sight.x, sight.y ));
 		m_place = sight;
-		m_placeIsFight = FALSE;
+		m_placeKind = PLACE_SIGHT;
 		m_seen.push_back( sight );
 		if( m_seen.size() > DIRECTOR_SEEN_COUNT )
 			m_seen.erase( m_seen.begin() );
@@ -503,8 +682,11 @@ void ObserverCamera::update( UnsignedInt nowMilliseconds )
 	}
 
 	holdHeight( isShowingPlayerView() );
-	const Real timeConstant = m_mode == OBSERVER_CAMERA_PLAYER ? PLAYER_PAN_SECONDS : DIRECTOR_PAN_SECONDS;
-	const ViewLocation step = ObserverCamera_approach( current, target, elapsed / MILLISECONDS_PER_SECOND, timeConstant );
+	if( !m_driving )
+		m_velocity.x = m_velocity.y = m_velocity.z = m_velocity.angle = m_velocity.pitch = m_velocity.zoom = 0.0f;
+	const Bool player = m_mode == OBSERVER_CAMERA_PLAYER;
+	const ViewLocation step = ObserverCamera_approach( current, target, elapsed / MILLISECONDS_PER_SECOND,
+		player ? PLAYER_PAN_SECONDS : DIRECTOR_PAN_SECONDS, player ? PLAYER_TOP_SPEED : DIRECTOR_TOP_SPEED, &m_velocity );
 	TheTacticalView->setLocation( &step );
 	m_drivenTo = step.getPosition();
 	m_driving = TRUE;
