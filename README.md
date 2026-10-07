@@ -20,6 +20,10 @@ The fork inherits upstream's gameplay, AI, interface and renderer improvements. 
 Game data and upscaled art are not included; you need your own installed copy of Zero Hour and
 the original Generals.
 
+**Play after building:** open a terminal in the repository folder and run
+`./build-linux/ZeroHourReforged/bin/generals`. Then choose **Solo Play → Skirmish** to start a game
+against the AI. [The steps below](#play) cover choosing your game files and starting a match.
+
 ## Build
 
 ### Ubuntu prerequisites
@@ -73,15 +77,52 @@ other distributions have not been validated in this fork's Ubuntu/NVIDIA check.
 
 ## Play
 
-After building:
+### Launch the game
+
+1. Install your own copy of **Generals and Zero Hour**, for example through Steam.
+2. Open a terminal in this repository's root folder, the folder containing `build-linux.sh`.
+3. Build Release if you have not built it yet, then start the staged executable:
 
 ```sh
+CC=gcc-16 CXX=g++-16 ./build-linux.sh Release
 ./build-linux/ZeroHourReforged/bin/generals
 ```
 
-The staged game searches known install locations, including Steam libraries, and asks for a folder
-if discovery fails. Choose the Zero Hour folder containing `INIZH.big`. The original Generals files
-must also be available, usually in its `ZH_Generals/` subfolder or beside the Zero Hour install.
+On later launches, run only the second command. It opens the game window and main menu for
+keyboard and mouse play.
+
+On the first launch, the game searches known install locations, including Steam libraries. If
+the folder chooser appears, select the **Zero Hour install folder containing `INIZH.big`**.
+For a Steam install, this is normally `steamapps/common/Command & Conquer Generals - Zero Hour/`.
+Keep the original Generals files available in `ZH_Generals/` inside that folder or beside it.
+If the game asks separately for Generals, select its install folder too. Your selections are saved
+for later launches.
+
+### Start a skirmish
+
+1. In the main menu, click **Solo Play**, then **Skirmish**.
+2. Choose a map and your faction/general. Add at least one computer opponent and choose its difficulty.
+3. Click **Start** to load the match.
+4. Left-click to select units and buildings; right-click to issue movement and attack orders.
+
+For a campaign, choose a faction's campaign under **Solo Play**. Use **Options** from the main menu
+to adjust display, sound and controls before starting.
+
+### Launch a prepared development install
+
+If you already have a file-link farm at `build-linux/play-root`, as used in this fork's local
+validation, you can select it explicitly:
+
+```sh
+./build-linux/ZeroHourReforged/bin/generals -root "$PWD/build-linux/play-root"
+```
+
+Some local development checkouts also have `./build-linux/play.sh` wrapping that command. That helper
+is generated locally under the ignored build directory and is not included in a fresh clone.
+The executable command above works without it. [The validation guide](docs/linux.md#checks-with-game-data)
+explains how the harness prepares a file-link farm.
+
+### Saves and game files
 
 The engine reads the installed archives and searches the fork's staged overlay first. It refuses
 writes to the install root. Settings, saves and replays go to
@@ -89,8 +130,8 @@ writes to the install root. Settings, saves and replays go to
 `~/.local/share/Command and Conquer Generals Zero Hour Data` when `XDG_DATA_HOME` is unset.
 `ZH_USER_DATA_DIR` overrides that location.
 
-For development runs, use a file-link farm and separate test user data as described in
-[the Linux validation guide](docs/linux.md#checks-with-game-data). Automated checks verify the original
+For automated development checks, use a file-link farm and separate test user data as described in
+[the Linux validation guide](docs/linux.md#checks-with-game-data). Those checks verify the original
 install's contents before and after running.
 
 Upscaled art is optional. Put existing `Reforged*.big` archives in `ReforgedArt/` inside the user

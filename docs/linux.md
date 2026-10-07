@@ -1,7 +1,32 @@
-# Linux build and validation
+# Linux play and validation
 
-This guide records this fork's Linux checks and how to repeat them. The wider platform history in
+This guide covers launching the game and repeating this fork's Linux checks. The wider platform history in
 [PORTING.md](../PORTING.md) and [CHANGELOG.md](../CHANGELOG.md) is inherited from upstream.
+
+## How to play
+
+Open a terminal in the repository root. After building with `./build-linux.sh Release`, launch:
+
+```sh
+./build-linux/ZeroHourReforged/bin/generals
+```
+
+If asked for game files, select the installed Zero Hour folder containing `INIZH.big`, with the
+original Generals available in `ZH_Generals/` or in its own install folder. In the main menu,
+choose **Solo Play → Skirmish**, select a map and your general, add an AI opponent, then click
+**Start**. [README.md](../README.md#play) has the complete build-and-play steps.
+
+For an existing development checkout with `build-linux/play-root` prepared, launch against that
+file-link farm:
+
+```sh
+./build-linux/ZeroHourReforged/bin/generals -root "$PWD/build-linux/play-root"
+```
+
+The `./build-linux/play.sh` helper, when present in a local checkout, wraps this command. It is
+not tracked by Git, so a fresh clone uses the staged executable directly. The gameplay commands
+above open a window for interactive play; the automated checks later in this guide use isolated
+user data and run without a visible window.
 
 ## Verified environment
 
