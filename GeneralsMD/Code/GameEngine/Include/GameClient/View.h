@@ -240,6 +240,7 @@ public:
 
 	virtual Real getFXPitch( void ) const { return 1.0f; }					///< returns the FX pitch angle
 	virtual void forceCameraConstraintRecalc(void) {}
+	virtual void applyCameraConstraint( void ) {}										///< move the look point inside the camera constraint now, where the next draw would
 	virtual void setGuardBandBias( const Coord2D *gb ) = 0;
 
 	/** The console's freecam, a photo mode: the camera flies on its own from an eye point with a

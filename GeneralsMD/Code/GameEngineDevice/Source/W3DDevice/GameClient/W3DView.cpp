@@ -574,6 +574,33 @@ void W3DView::buildCameraTransform( Matrix3D *transform )
 }
 
 //-------------------------------------------------------------------------------------------------
+/** The look point inside the constraint, built first if a zoom, a pitch or a move of the ground
+	* threw it away.  The draw does this every frame; the observer camera does it as soon as it has
+	* moved the view, to know where the draw will put it. */
+//-------------------------------------------------------------------------------------------------
+void W3DView::applyCameraConstraint( void )
+{
+	// the freecam owns the camera and is held to no constraint, as in setCameraTransform
+	if (m_freeCamera || !(TheGlobalData->m_useCameraConstraints || TheGlobalData->isClassicUI()))
+		return;
+
+	if (!m_cameraConstraintValid)
+	{
+		Matrix3D cameraTransform;
+		buildCameraTransform(&cameraTransform);
+		m_3DCamera->Set_Transform( cameraTransform );
+		calcCameraConstraints();
+	}
+	DEBUG_ASSERTLOG(m_cameraConstraintValid,("*** cam constraints are not valid!!!\n"));
+
+	if (m_cameraConstraintValid)
+	{
+		Coord3D pos = constrainCameraPosition(*getPosition(), m_cameraConstraint);
+		setPosition(&pos);
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 void W3DView::calcCameraConstraints()
 {
@@ -909,22 +936,7 @@ void W3DView::setCameraTransform( void )
 	}
 
 	m_3DCamera->Set_Clip_Planes(nearZ, farZ);
-	if (TheGlobalData->m_useCameraConstraints || TheGlobalData->isClassicUI())
-	{
-		if (!m_cameraConstraintValid)
-		{
-			buildCameraTransform(&cameraTransform);
-			m_3DCamera->Set_Transform( cameraTransform );
-			calcCameraConstraints();
-		}
-		DEBUG_ASSERTLOG(m_cameraConstraintValid,("*** cam constraints are not valid!!!\n"));
-
-		if (m_cameraConstraintValid)
-		{
-			Coord3D pos = constrainCameraPosition(*getPosition(), m_cameraConstraint);
-			setPosition(&pos);
-		}
-	}
+	applyCameraConstraint();
 
 #if defined(_DEBUG) || defined(_INTERNAL)
 	m_3DCamera->Set_View_Plane( m_FOV, -1 );

@@ -132,6 +132,98 @@ TEST(the_director_with_no_fight_goes_round_the_sights_and_never_parks)
 	CHECK_NEAR( place.x, 1000.0f, 0.001f );
 }
 
+static DirectorEvent directorEvent( UnsignedInt id, Real weight, Bool superweapon )
+{
+	DirectorEvent event;
+	event.id = id;
+	event.owner = NULL;
+	event.source.x = event.source.y = 500.0f;
+	event.target.x = 3000.0f;
+	event.target.y = 2000.0f;
+	event.since = 1000;
+	event.until = 2000;
+	event.weight = weight;
+	event.superweapon = superweapon;
+	return event;
+}
+
+TEST(the_director_keeps_its_event_when_none_may_be_shown_any_more)
+{
+	// narrowed to a player whose things at the target all died, the event it shows is filtered out
+	// and nothing is left to compare it with; this read a NULL best and crashed
+	const DirectorEvent nuke = directorEvent( 1, 5.0f, TRUE );
+	CHECK( ObserverCamera_stayOnEvent( &nuke, NULL, 0 ) );
+	CHECK( ObserverCamera_stayOnEvent( &nuke, &nuke, 0 ) );
+	CHECK( !ObserverCamera_stayOnEvent( NULL, &nuke, 0 ) );
+	CHECK( !ObserverCamera_stayOnEvent( NULL, NULL, 0 ) );
+
+	// a bomber's strike gives way to a superweapon once it has settled, not before
+	const DirectorEvent strike = directorEvent( 2, 1.0f, FALSE );
+	CHECK( ObserverCamera_stayOnEvent( &strike, &nuke, LOGICFRAMES_PER_SECOND ) );
+	CHECK( !ObserverCamera_stayOnEvent( &strike, &nuke, 7 * LOGICFRAMES_PER_SECOND ) );
+}
+
+TEST(a_superweapon_leaving_its_silo_takes_the_camera_before_the_settle_is_up)
+{
+	const DirectorEvent nuke = directorEvent( 1, 5.0f, TRUE );
+	const DirectorEvent strike = directorEvent( 2, 1.0f, FALSE );
+	const UnsignedInt justArrived = LOGICFRAMES_PER_SECOND;
+	CHECK( ObserverCamera_eventCutsIn( nuke, 1001, justArrived ) );
+	CHECK( !ObserverCamera_eventCutsIn( strike, 1001, justArrived ) );
+	// once the missile is out of the silo the nuke waits for the settle like anything else
+	CHECK( !ObserverCamera_eventCutsIn( nuke, 1000 + 5 * LOGICFRAMES_PER_SECOND, justArrived ) );
+	CHECK( ObserverCamera_eventCutsIn( strike, 1001, 7 * LOGICFRAMES_PER_SECOND ) );
+}
+
+TEST(the_director_rises_over_a_wide_fight_and_not_over_a_tight_one)
+{
+	std::vector< DirectorHeat > tight;
+	std::vector< DirectorHeat > wide;
+	for( Int each = 0; each < 4; each++ )
+	{
+		tight.push_back( directorHit( 1000.0f + ( each - 2 ) * 10.0f, 1000.0f ) );
+		wide.push_back( directorHit( 1000.0f + ( each % 2 ? 150.0f : -150.0f ), 1000.0f ) );
+	}
+	Coord2D middle;
+	middle.x = middle.y = 1000.0f;
+	CHECK_NEAR( ObserverCamera_spreadAround( wide, middle ), 150.0f, 0.01f );
+	CHECK_NEAR( ObserverCamera_fightHeight( ObserverCamera_spreadAround( tight, middle ) ), 0.0f, 0.001f );
+	CHECK_NEAR( ObserverCamera_fightHeight( ObserverCamera_spreadAround( wide, middle ) ), 135.0f, 0.01f );
+	CHECK( ObserverCamera_fightHeight( 10000.0f ) <= 300.0f );
+	std::vector< DirectorHeat > none;
+	CHECK_NEAR( ObserverCamera_spreadAround( none, middle ), 0.0f, 0.001f );
+}
+
+TEST(the_director_stops_short_of_a_place_that_shows_ground_off_the_map)
+{
+	// the screen's ground runs 300 to each side, 200 below the point looked at and 500 above it
+	Coord2D corners[ 4 ];
+	corners[ 0 ].x = -300.0f; corners[ 0 ].y = 500.0f;
+	corners[ 1 ].x = 300.0f; corners[ 1 ].y = 500.0f;
+	corners[ 2 ].x = -300.0f; corners[ 2 ].y = -200.0f;
+	corners[ 3 ].x = 300.0f; corners[ 3 ].y = -200.0f;
+	Region2D map;
+	map.lo.x = map.lo.y = 0.0f;
+	map.hi.x = map.hi.y = 4000.0f;
+
+	Coord2D place;
+	place.x = 2000.0f;
+	place.y = 2000.0f;
+	CHECK_NEAR( ObserverCamera_keepInMap( place, corners, 4, map ).x, 2000.0f, 0.001f );
+
+	// a fight in the map's corner is shown from as near it as the screen allows
+	place.x = 50.0f;
+	place.y = 3900.0f;
+	const Coord2D kept = ObserverCamera_keepInMap( place, corners, 4, map );
+	CHECK_NEAR( kept.x, 300.0f, 0.001f );
+	CHECK_NEAR( kept.y, 3500.0f, 0.001f );
+
+	// a map narrower than the screen: the place stays between the two edges' limits
+	map.hi.x = 400.0f;
+	place.x = 50.0f;
+	CHECK_NEAR( ObserverCamera_keepInMap( place, corners, 4, map ).x, 100.0f, 0.001f );
+}
+
 static ObserverCameraVelocity atRest( void )
 {
 	ObserverCameraVelocity velocity;

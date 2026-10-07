@@ -37,6 +37,7 @@
 #include "GameLogic/Module/BodyModule.h"
 #include "GameLogic/Object.h"
 #include "GameLogic/PartitionManager.h"
+#include "GameLogic/TerrainLogic.h"
 
 #include <math.h>
 
@@ -85,13 +86,20 @@ static const size_t DIRECTOR_SEEN_COUNT = 3;
 /// long to sit through and shows nothing
 static const Real CUT_DISTANCE = 1600.0f;
 /// the camera found further than this from where it was put was moved by something else, a click on
-/// the production strip or a jump to a group; the edge of the map pulls it back by less.  The radar
+/// the production strip or a jump to a group.  Where it was put is taken after the view's own
+/// constraint, so the edge of the map pulling it back does not count.  The radar
 /// hands the camera over itself, since a click near the camera and a drag both move it by less
 static const Real HAND_JUMP_DISTANCE = 400.0f;
 /// roughly how long the director's glide takes to arrive, easing in and out
 static const Real DIRECTOR_PAN_SECONDS = 1.4f;
 /// the director's glide never crosses the ground faster than this, about two screens a second
 static const Real DIRECTOR_TOP_SPEED = 900.0f;
+/// a fight this tight is watched from the watcher's own height; wider, the camera rises this much
+/// for every unit further, up to the most.  A fight's hits lie within DIRECTOR_GATHER_RADIUS of one
+/// another, so the most is reached only by the widest
+static const Real DIRECTOR_TIGHT_SPREAD = 60.0f;
+static const Real DIRECTOR_HEIGHT_PER_SPREAD = 1.5f;
+static const Real DIRECTOR_MOST_EXTRA_HEIGHT = 300.0f;
 /// a player's camera comes a few times a second, and this smooths the steps between
 static const Real PLAYER_PAN_SECONDS = 0.15f;
 static const Real PLAYER_TOP_SPEED = 4000.0f;
@@ -215,6 +223,77 @@ Coord2D ObserverCamera_eventPlace( const DirectorEvent &event, UnsignedInt frame
 }
 
 //-------------------------------------------------------------------------------------------------
+Bool ObserverCamera_stayOnEvent( const DirectorEvent *current, const DirectorEvent *best, UnsignedInt held )
+{
+	if( current == NULL )
+		return FALSE;
+	return best == NULL || best == current || !ObserverCamera_shouldMove( current->weight, best->weight, held );
+}
+
+//-------------------------------------------------------------------------------------------------
+Bool ObserverCamera_eventCutsIn( const DirectorEvent &event, UnsignedInt frame, UnsignedInt held )
+{
+	return held >= DIRECTOR_SETTLE_FRAMES || ( event.superweapon && frame < event.since + EVENT_LAUNCH_FRAMES );
+}
+
+//-------------------------------------------------------------------------------------------------
+Real ObserverCamera_spreadAround( const std::vector< DirectorHeat > &hits, const Coord2D &around )
+{
+	Real weight = 0.0f;
+	Real squares = 0.0f;
+	for( size_t index = 0; index < hits.size(); index++ )
+	{
+		const DirectorHeat &hit = hits[ index ];
+		if( !sameFight( hit.position, around ) )
+			continue;
+
+		const Real dx = hit.position.x - around.x;
+		const Real dy = hit.position.y - around.y;
+		weight += hit.weight;
+		squares += ( dx * dx + dy * dy ) * hit.weight;
+	}
+	return weight > 0.0f ? sqrtf( squares / weight ) : 0.0f;
+}
+
+//-------------------------------------------------------------------------------------------------
+Real ObserverCamera_fightHeight( Real spread )
+{
+	const Real extra = ( spread - DIRECTOR_TIGHT_SPREAD ) * DIRECTOR_HEIGHT_PER_SPREAD;
+	return min( max( extra, 0.0f ), DIRECTOR_MOST_EXTRA_HEIGHT );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Each axis on its own: the lowest corner may not go below the map's low edge, nor the highest
+	* past its high one.  When the screen is wider than the map the two bounds cross, and anywhere
+	* between them shows as little off the map as the screen can. */
+//-------------------------------------------------------------------------------------------------
+static Real keepAxisInMap( Real place, Real lowestCorner, Real highestCorner, Real mapLow, Real mapHigh )
+{
+	const Real low = mapLow - lowestCorner;
+	const Real high = mapHigh - highestCorner;
+	return min( max( place, min( low, high ) ), max( low, high ) );
+}
+
+//-------------------------------------------------------------------------------------------------
+Coord2D ObserverCamera_keepInMap( const Coord2D &place, const Coord2D *corners, Int count, const Region2D &map )
+{
+	Coord2D lowest = corners[ 0 ];
+	Coord2D highest = corners[ 0 ];
+	for( Int index = 1; index < count; index++ )
+	{
+		lowest.x = min( lowest.x, corners[ index ].x );
+		lowest.y = min( lowest.y, corners[ index ].y );
+		highest.x = max( highest.x, corners[ index ].x );
+		highest.y = max( highest.y, corners[ index ].y );
+	}
+
+	Coord2D kept;
+	kept.x = keepAxisInMap( place.x, lowest.x, highest.x, map.lo.x, map.hi.x );
+	kept.y = keepAxisInMap( place.y, lowest.y, highest.y, map.lo.y, map.hi.y );
+	return kept;
+}
+
+//-------------------------------------------------------------------------------------------------
 /** An angle's shortest way round to another, so a camera facing just west of north turns a few
 	* degrees to just east of it rather than all the way back round. */
 //-------------------------------------------------------------------------------------------------
@@ -299,6 +378,9 @@ void ObserverCamera::reset( void )
 	m_shroudViewer = NO_PLAYER;
 	m_driving = FALSE;
 	m_holdingHeight = FALSE;
+	m_heightDriven = FALSE;
+	m_handHeight = 0.0f;
+	m_drivenHeight = 0.0f;
 	m_drivenTo.zero();
 	m_lastUpdate = 0;
 	m_velocity.x = m_velocity.y = m_velocity.z = m_velocity.angle = m_velocity.pitch = m_velocity.zoom = 0.0f;
@@ -310,6 +392,7 @@ void ObserverCamera::reset( void )
 	m_placeScanned = 0;
 	m_placeFor = NULL;
 	m_placeKind = PLACE_SIGHT;
+	m_placeHeight = 0.0f;
 	m_placeEvent = 0;
 	m_seen.clear();
 	m_events.clear();
@@ -455,6 +538,67 @@ void ObserverCamera::holdHeight( Bool hold )
 }
 
 //-------------------------------------------------------------------------------------------------
+/** The director's height over a fight is the watcher's own plus extra.  It is set as the height
+	* the view wants, so the view's own easing carries the camera there rather than a jump.  A turn
+	* of the wheel while it drives moves the height the view wants, and that turn is the watcher's:
+	* it is added to his own height, so the director never takes it back. */
+//-------------------------------------------------------------------------------------------------
+void ObserverCamera::driveHeight( Real extra )
+{
+	const Real now = TheTacticalView->getHeightAboveGround();
+	if( m_heightDriven )
+		m_handHeight += now - m_drivenHeight;
+	else
+		m_handHeight = now;
+	m_heightDriven = TRUE;
+
+	const Real wanted = m_handHeight + extra;
+	if( wanted != now )
+		TheTacticalView->setHeightAboveGround( wanted );
+	m_drivenHeight = TheTacticalView->getHeightAboveGround();
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The watcher's own height back, with any turn of the wheel since the last frame kept. */
+//-------------------------------------------------------------------------------------------------
+void ObserverCamera::releaseHeight( void )
+{
+	if( !m_heightDriven )
+		return;
+
+	m_heightDriven = FALSE;
+	TheTacticalView->setHeightAboveGround( m_handHeight + TheTacticalView->getHeightAboveGround() - m_drivenHeight );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The screen's corners on the ground round the point looked at now, so the place keeps the whole
+	* screen over the map.  They are measured at the current zoom: while the camera rises the corners
+	* spread and the place is pulled further in, frame by frame. */
+//-------------------------------------------------------------------------------------------------
+Coord2D ObserverCamera::keepInMap( const Coord2D &place, const ViewLocation &current ) const
+{
+	const Coord3D &at = current.getPosition();
+	Coord3D world[ 4 ];
+	TheTacticalView->getScreenCornerWorldPointsAtZ( &world[ 0 ], &world[ 1 ], &world[ 2 ], &world[ 3 ],
+		TheTerrainLogic->getGroundHeight( at.x, at.y ) );
+	Coord2D corners[ 4 ];
+	for( Int index = 0; index < 4; index++ )
+	{
+		corners[ index ].x = world[ index ].x - at.x;
+		corners[ index ].y = world[ index ].y - at.y;
+	}
+
+	Region3D extent;
+	TheTerrainLogic->getExtent( &extent );
+	Region2D map;
+	map.lo.x = extent.lo.x;
+	map.lo.y = extent.lo.y;
+	map.hi.x = extent.hi.x;
+	map.hi.y = extent.hi.y;
+	return ObserverCamera_keepInMap( place, corners, 4, map );
+}
+
+//-------------------------------------------------------------------------------------------------
 Bool ObserverCamera::takenByHand( const ViewLocation &current ) const
 {
 	if( TheLookAtTranslator->isMovingCamera() )
@@ -509,7 +653,10 @@ Bool ObserverCamera::directorPlace( const Player *narrowTo, Coord2D *place )
 			sights.push_back( heat );
 		}
 
+		// a thing with no body module takes no damage, so it has no hits to count
 		const BodyModuleInterface *body = obj->getBodyModule();
+		if( body == NULL )
+			continue;
 		const UnsignedInt hitAt = body->getLastDamageTimestamp();
 		if( hitAt == 0 || frame >= hitAt + DIRECTOR_HEAT_FRAMES )
 			continue;
@@ -524,7 +671,7 @@ Bool ObserverCamera::directorPlace( const Player *narrowTo, Coord2D *place )
 	Real hottestHeat = 0.0f;
 	ObserverCamera_hottestPlace( hits, &hottest, &hottestHeat );
 
-	const UnsignedInt held = frame - m_placeSince;
+	const UnsignedInt held = frame >= m_placeSince ? frame - m_placeSince : 0;
 	Coord2D followed = m_place;
 
 	// a special power outranks any fight.  Narrowed to one player, only his own and the ones that
@@ -544,19 +691,21 @@ Bool ObserverCamera::directorPlace( const Player *narrowTo, Coord2D *place )
 			best = &event;
 	}
 	DirectorEvent *current = m_placeValid && m_placeKind == PLACE_EVENT ? findEvent( m_placeEvent ) : NULL;
-	if( current != NULL && ( best == current || !ObserverCamera_shouldMove( current->weight, best->weight, held ) ) )
+	if( ObserverCamera_stayOnEvent( current, best, held ) )
 	{
 		m_place = ObserverCamera_eventPlace( *current, frame );
 		*place = m_place;
 		return TRUE;
 	}
-	// an event that just ended hands straight over to the next; anything else is given its settle first
-	if( best != NULL && ( !m_placeValid || m_placeKind == PLACE_EVENT || held >= DIRECTOR_SETTLE_FRAMES ) )
+	// an event that just ended hands straight over to the next; anything else is given its settle
+	// first, except a superweapon still leaving its silo
+	if( best != NULL && ( !m_placeValid || m_placeKind == PLACE_EVENT || ObserverCamera_eventCutsIn( *best, frame, held ) ) )
 	{
 		DEBUG_LOG(( "OBSCAM frame %u director to special power %u at (%.0f,%.0f)%s\n", frame, best->id,
 			best->target.x, best->target.y, best->superweapon ? " superweapon" : "" ));
 		m_place = ObserverCamera_eventPlace( *best, frame );
 		m_placeKind = PLACE_EVENT;
+		m_placeHeight = 0.0f;
 		m_placeEvent = best->id;
 		m_placeSince = frame;
 		m_placeValid = TRUE;
@@ -573,6 +722,7 @@ Bool ObserverCamera::directorPlace( const Player *narrowTo, Coord2D *place )
 			const Real dy = followed.y - m_place.y;
 			if( dx * dx + dy * dy > DIRECTOR_FOLLOW_SLACK * DIRECTOR_FOLLOW_SLACK )
 				m_place = followed;
+			m_placeHeight = ObserverCamera_fightHeight( ObserverCamera_spreadAround( hits, followed ) );
 			*place = m_place;
 			return TRUE;
 		}
@@ -590,6 +740,7 @@ Bool ObserverCamera::directorPlace( const Player *narrowTo, Coord2D *place )
 		DEBUG_LOG(( "OBSCAM frame %u director to fight (%.0f,%.0f) heat %.1f\n", frame, hottest.x, hottest.y, hottestHeat ));
 		m_place = hottest;
 		m_placeKind = PLACE_FIGHT;
+		m_placeHeight = ObserverCamera_fightHeight( ObserverCamera_spreadAround( hits, hottest ) );
 	}
 	else
 	{
@@ -606,6 +757,7 @@ Bool ObserverCamera::directorPlace( const Player *narrowTo, Coord2D *place )
 		DEBUG_LOG(( "OBSCAM frame %u director to sight (%.0f,%.0f)\n", frame, sight.x, sight.y ));
 		m_place = sight;
 		m_placeKind = PLACE_SIGHT;
+		m_placeHeight = 0.0f;
 		m_seen.push_back( sight );
 		if( m_seen.size() > DIRECTOR_SEEN_COUNT )
 			m_seen.erase( m_seen.begin() );
@@ -642,6 +794,7 @@ Bool ObserverCamera::chooseTarget( const ViewLocation &current, ViewLocation *ta
 	Coord2D place;
 	if( !directorPlace( narrowTo, &place ) )
 		return FALSE;
+	place = keepInMap( place, current );
 	target->init( place.x, place.y, at.z, current.getAngle(), current.getPitch(), current.getZoom() );
 	return TRUE;
 }
@@ -658,6 +811,7 @@ void ObserverCamera::update( UnsignedInt nowMilliseconds )
 	{
 		m_driving = FALSE;
 		holdHeight( FALSE );
+		releaseHeight();
 		return;
 	}
 
@@ -670,6 +824,7 @@ void ObserverCamera::update( UnsignedInt nowMilliseconds )
 		m_mode = OBSERVER_CAMERA_FREE;
 		m_driving = FALSE;
 		holdHeight( FALSE );
+		releaseHeight();
 		return;
 	}
 
@@ -678,9 +833,16 @@ void ObserverCamera::update( UnsignedInt nowMilliseconds )
 	{
 		m_driving = FALSE;
 		holdHeight( FALSE );
+		releaseHeight();
 		return;
 	}
 
+	// a player's screen brings its own zoom; the director's height is the watcher's own plus what
+	// the fight's width asks for
+	if( isShowingPlayerView() )
+		releaseHeight();
+	else
+		driveHeight( m_placeHeight );
 	holdHeight( isShowingPlayerView() );
 	if( !m_driving )
 		m_velocity.x = m_velocity.y = m_velocity.z = m_velocity.angle = m_velocity.pitch = m_velocity.zoom = 0.0f;
@@ -688,6 +850,9 @@ void ObserverCamera::update( UnsignedInt nowMilliseconds )
 	const ViewLocation step = ObserverCamera_approach( current, target, elapsed / MILLISECONDS_PER_SECOND,
 		player ? PLAYER_PAN_SECONDS : DIRECTOR_PAN_SECONDS, player ? PLAYER_TOP_SPEED : DIRECTOR_TOP_SPEED, &m_velocity );
 	TheTacticalView->setLocation( &step );
-	m_drivenTo = step.getPosition();
+	// the view keeps its look point inside its constraint when it draws; held there now, a cut to a
+	// place past the constraint is not mistaken next frame for the watcher moving the camera
+	TheTacticalView->applyCameraConstraint();
+	TheTacticalView->getPosition( &m_drivenTo );
 	m_driving = TRUE;
 }

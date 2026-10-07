@@ -25,7 +25,9 @@
 // a while before it looks for a bigger fight.  A special power used anywhere outranks any fight: a
 // superweapon is shown leaving its silo, then where it lands until the dust settles, a laser
 // followed along its sweep.  The camera glides between places on a spring and only cuts across
-// most of a map.  With no fight on it goes round the armies on the
+// most of a map, and stops short of a place that would put ground off the map on the screen.  Over
+// a wide fight it rises above the watcher's own height, which the wheel still moves, and comes back
+// down to it when the camera goes elsewhere or is taken back.  With no fight on it goes round the armies on the
 // move, the bases going up and the superweapons, a few seconds each, so it never sits still; with a
 // player picked it counts only that player's fights and things.  Player shows what the followed player's own screen
 // shows: a player's camera comes over the network a few times a second (MSG_SET_REPLAY_CAMERA), an
@@ -106,6 +108,21 @@ Bool ObserverCamera_nextSight( const std::vector< DirectorHeat > &sights, const 
 /// where an event is best watched on a frame: a superweapon's silo for its first few seconds, then
 /// where it lands
 Coord2D ObserverCamera_eventPlace( const DirectorEvent &event, UnsignedInt frame );
+/// whether the director stays on the event it is showing, current, rather than go to best, the
+/// biggest one it may show now.  best is NULL when none may be shown: narrowed to a player whose
+/// things round the target are all gone, the current one is filtered out and is still kept
+Bool ObserverCamera_stayOnEvent( const DirectorEvent *current, const DirectorEvent *best, UnsignedInt held );
+/// whether an event takes the camera from a fight or a sight held for held frames.  A superweapon
+/// still on its way out of the silo goes at once, or the launch is over before the settle is
+Bool ObserverCamera_eventCutsIn( const DirectorEvent &event, UnsignedInt frame, UnsignedInt held );
+/// how widely the hits within DIRECTOR_GATHER_RADIUS of a place lie round it, by weight
+Real ObserverCamera_spreadAround( const std::vector< DirectorHeat > &hits, const Coord2D &around );
+/// how much higher than the watcher's own the director takes the camera over a fight this spread
+Real ObserverCamera_fightHeight( Real spread );
+/// the place moved the least that keeps the screen's ground over the map: corners are where the
+/// screen's corners fall on the ground, taken from the point looked at.  Where the screen is wider
+/// than the map, the place stays between the two edges
+Coord2D ObserverCamera_keepInMap( const Coord2D &place, const Coord2D *corners, Int count, const Region2D &map );
 /// a step of the camera towards where it is going on a critically damped spring: it gathers speed,
 /// never goes faster than topSpeed across the ground, and slows into place without overshooting.
 /// smoothSeconds is roughly how long it takes to arrive.  Further apart than a glide should cross,
@@ -148,12 +165,17 @@ public:
 	/// belongs to going a few seconds more, and with follow the event's target moves with it
 	void noteSuperweaponHit( const Player *owner, const Coord3D *at, Bool follow );
 
+	/// the watcher's own height back on the view, if the director had raised it over a fight
+	void releaseHeight( void );
+
 	enum { NO_PLAYER = -1 };
 
 private:
 	void updateShroudViewer( void );
 	void holdHeight( Bool hold );
+	void driveHeight( Real extra );
 	Bool takenByHand( const ViewLocation &current ) const;
+	Coord2D keepInMap( const Coord2D &place, const ViewLocation &current ) const;
 	Bool isShowingPlayerView( void ) const;
 	Bool chooseTarget( const ViewLocation &current, ViewLocation *target );
 	Bool directorPlace( const Player *narrowTo, Coord2D *place );
@@ -168,7 +190,10 @@ private:
 	Int m_shroudViewer;
 	Bool m_driving;									///< the camera was put where it is by this, last frame
 	Bool m_holdingHeight;						///< the view's own height easing is off while a player's zoom is shown
-	Coord3D m_drivenTo;
+	Bool m_heightDriven;						///< the director has the camera's height above the ground
+	Real m_handHeight;							///< the watcher's own height, the wheel's turns while driven added in
+	Real m_drivenHeight;						///< the height the director left the view at last frame
+	Coord3D m_drivenTo;							///< where this put the camera last frame, inside the view's constraint
 	UnsignedInt m_lastUpdate;
 	ObserverCameraVelocity m_velocity;
 
@@ -180,6 +205,7 @@ private:
 	UnsignedInt m_placeScanned;			///< the logic frame the hits were last counted
 	const Player *m_placeFor;				///< whose fights the place was picked from, NULL for everybody's
 	PlaceKind m_placeKind;					///< a fight, a special power, or a sight picked while nothing was hit
+	Real m_placeHeight;							///< how much higher than the watcher's own the place is watched from
 	UnsignedInt m_placeEvent;				///< the id of the event the place is, while it is one
 	std::vector< Coord2D > m_seen;	///< the last few sights, oldest first, not gone back to while there is another
 	std::vector< DirectorEvent > m_events;	///< the special powers still worth watching, oldest first

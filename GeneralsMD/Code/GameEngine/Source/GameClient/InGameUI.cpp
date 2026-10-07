@@ -2487,8 +2487,9 @@ static void takeReplayCheckpoint( UnsignedInt frame )
 }
 
 /** Load the last checkpoint at or before the frame, or the first one if the frame is before it.  The
-	* camera, the speed and the observer's view stay as they were: the checkpoint carries the camera it
-	* was taken with, which is not where the person watching is looking now. */
+	* camera, the speed and the observer's view stay as they were, the observer camera's mode, followed
+	* player and fog included: the checkpoint carries the camera it was taken with, which is not where
+	* the person watching is looking now. */
 static void rewindReplay( UnsignedInt target )
 {
 	std::map< UnsignedInt, ReplayCheckpoint >::const_iterator at = TheReplayCheckpoints.upper_bound( target );
@@ -2497,6 +2498,9 @@ static void rewindReplay( UnsignedInt target )
 	const ReplayCheckpoint &checkpoint = at->second;
 
 	const AsciiString replayFile = TheRecorder->getCurrentReplayFilename();
+	// the reset forgets that the director raised the view over a fight, and the view keeps the raise;
+	// given back first, so rewinds do not stack it
+	TheObserverCamera.releaseHeight();
 	Coord3D lookingAt;
 	TheTacticalView->getPosition( &lookingAt );
 	const Real angle = TheTacticalView->getAngle();
@@ -2504,10 +2508,21 @@ static void rewindReplay( UnsignedInt target )
 	const Real zoom = TheTacticalView->getZoom();
 	const Int framesPerSecond = TheGameEngine->getFramesPerSecondLimit();
 	const UnsignedInt startMs = Clock_Milliseconds();
+	// the load resets the client, the observer camera with it: who drives it, who is followed and
+	// whose fog is drawn are the watcher's choices, not the checkpoint's
+	const ObserverCameraMode cameraMode = TheObserverCamera.getMode();
+	const Int followed = TheObserverCamera.getFollowedPlayerIndex();
+	const Bool fog = TheObserverCamera.isFogOn();
 
 	TheGameState->loadCheckpoint( checkpoint.path,
 		[ & ]() { TheRecorder->resumePlayback( replayFile, checkpoint.cursor ); } );
 	SetGameLogicRandomState( checkpoint.random );
+
+	TheObserverCamera.setMode( cameraMode );
+	TheObserverCamera.followPlayer( followed );
+	TheObserverCamera.setFog( fog );
+	if( followed != ObserverCamera::NO_PLAYER )
+		TheControlBar->watchPlayer( ThePlayerList->getNthPlayer( followed ) );
 
 	for( size_t each = 0; each < checkpoint.postedCRCs.size(); each++ )
 	{
