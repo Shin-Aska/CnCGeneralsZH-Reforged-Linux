@@ -13,6 +13,7 @@ Data/Art/Textures/ReforgedOrders.tga
 Data/Art/Textures/ReforgedSignalAttack.tga
 Data/Art/Textures/ReforgedSignalDefend.tga
 Data/Art/Textures/ReforgedSignalLook.tga
+Data/Cinema/aurorafog.txt
 Data/Cinema/blastcheck.txt
 Data/Cinema/demo.txt
 Data/Cinema/explreel.txt
@@ -100,6 +101,7 @@ Data/Patch.str
 Data/Scenarios/airbelow.txt
 Data/Scenarios/airbelowfar.txt
 Data/Scenarios/alphaaurora.txt
+Data/Scenarios/aurorafog.txt
 Data/Scenarios/blastcheck.txt
 Data/Scenarios/bridgecross.txt
 Data/Scenarios/bridgelong.txt
@@ -246,6 +248,7 @@ Data/Window/Menus/LanGameOptionsMenu.wnd
 Data/Window/Menus/OptionsMenu.wnd
 Data/Window/Menus/OptionsMenuClassic.wnd
 Data/Window/Menus/SkirmishGameOptionsMenu.wnd
+Data/Window/Trainer.wnd
 Data/dx11shaders.shipped
 GameEngine/GameEngine.dsp
 GameEngine/Include/Common/AcademyStats.h
