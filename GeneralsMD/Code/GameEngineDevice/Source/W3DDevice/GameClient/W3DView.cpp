@@ -4350,6 +4350,28 @@ void W3DView::updateScreenDistortions( void )
 		if (screenRadius < 1.0f)
 			continue;
 
+		// The dome's footprint on the ground toward the camera: a radius along the camera's
+		// backward direction laid flat, which the pitch shortens on screen.  Looking straight down
+		// there is no such direction and the footprint is as deep as it is wide.
+		Real squash = 1.0f;
+		const Vector3 back = m_3DCamera->Get_Transform().Get_Z_Vector();
+		const Real flatLength = sqrtf(back.X * back.X + back.Y * back.Y);
+		if (flatLength > 0.01f)
+		{
+			Coord3D front = blast.m_epicenter;
+			front.x += back.X / flatLength * info.m_radius;
+			front.y += back.Y / flatLength * info.m_radius;
+			ICoord2D frontScreen;
+			if (worldToScreenTriReturn(&front, &frontScreen) != WTS_INVALID)
+			{
+				const Real fx = (Real)(frontScreen.x - centre.x);
+				const Real fy = (Real)(frontScreen.y - centre.y);
+				squash = sqrtf(fx * fx + fy * fy) / screenRadius;
+				if (squash > 1.0f)
+					squash = 1.0f;
+			}
+		}
+
 		DX11PostWarp &warp = warps[warpCount++];
 		warp.CentreX = (Real)centre.x / displayWidth;
 		warp.CentreY = (Real)centre.y / displayHeight;
@@ -4362,6 +4384,7 @@ void W3DView::updateScreenDistortions( void )
 		warp.RingRadius = warp.Radius * ringReach;
 		warp.RingWidth = warp.Radius * ringWidth;
 		warp.RingStrength = ringStrength;
+		warp.RingSquash = squash;
 	}
 	m_distortionCount = kept;
 	DX11Post_Set_Warps(warps, (unsigned)warpCount);

@@ -127,6 +127,11 @@ struct DX11PostWarp
 	float RingRadius;
 	float RingWidth;
 	float RingStrength;
+	// The ring is the outline of a dome standing on the ground, not a circle on the glass.  Above
+	// the centre it is the dome's own round silhouette, rising as high as it is wide; below it, it
+	// is the dome's footprint on the ground, which the camera's pitch flattens.  This is how far it
+	// is flattened there: the footprint's depth on screen over its width, one looking straight down.
+	float RingSquash;
 };
 
 // Four blasts on one screen at once is already more than anyone can read.

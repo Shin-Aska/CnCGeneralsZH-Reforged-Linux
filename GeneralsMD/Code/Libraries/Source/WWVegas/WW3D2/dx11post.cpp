@@ -383,6 +383,13 @@ static const char * const BLOOM_COMPOSITE_SHADER_BODY =
 // reads from nearer the centre, so what was inside it is carried outward on its crest, and across
 // its width it falls off as a gaussian, which keeps the band soft rather than a cut line.
 //
+// The ring is a dome's outline rather than a circle.  Above the centre a hemisphere seen from a
+// raised camera shows its round top, as tall as it is wide; below the centre what shows is its
+// footprint on the ground nearest the camera, flattened by the pitch.  So the lower half of the
+// ring is measured with the vertical squeezed by RingSquash, and it pushes along that ellipse's
+// normal, which is what makes the wave run flat across the ground in front of the blast and stand
+// up behind it.
+//
 // The whole shift dies away over the last 8% of the frame toward every edge.  A read past the edge
 // comes back as the edge's own texel, and on film that drew the border out into streaks thirty to
 // forty pixels long; held to zero at the edge, a pixel near it never reads further out than it is
@@ -402,9 +409,14 @@ static const char * const WARP_SHADER_BODY =
 	"        float2 outward = away / max(span, 0.0001);\n"
 	"        float reach = saturate(span / max(centre.z, 0.0001));\n"
 	"        float inward = centre.w * centre.z * 6.75 * reach * (1.0 - reach) * (1.0 - reach);\n"
-	"        float across = (span - ring.x) / max(ring.y, 0.0001);\n"
+	"        float squash = (away.y > 0.0) ? max(ring.w, 0.05) : 1.0;\n"
+	"        float2 domed = float2(away.x, away.y / squash);\n"
+	"        float domeSpan = length(domed);\n"
+	"        float2 domeNormal = float2(domed.x, domed.y / squash);\n"
+	"        domeNormal /= max(length(domeNormal), 0.0001);\n"
+	"        float across = (domeSpan - ring.x) / max(ring.y, 0.0001);\n"
 	"        float push = ring.z * centre.z * exp(-across * across);\n"
-	"        shift += outward * (inward - push);\n"
+	"        shift += outward * inward - domeNormal * push;\n"
 	"    }\n"
 	"    shift.x /= aspect;\n"
 	"    float2 border = min(input.Texture, 1.0 - input.Texture);\n"
@@ -890,7 +902,7 @@ void DX11PostProcessClass::Draw_Pass(const PassSetup & pass)
 		block.WarpRing[index][0] = warp.RingRadius;
 		block.WarpRing[index][1] = warp.RingWidth;
 		block.WarpRing[index][2] = warp.RingStrength;
-		block.WarpRing[index][3] = 0.0f;
+		block.WarpRing[index][3] = warp.RingSquash;
 	}
 	memcpy(mapped.pData, &block, sizeof(block));
 	context->Unmap(ConstantBuffer, 0);

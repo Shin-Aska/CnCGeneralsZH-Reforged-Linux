@@ -346,6 +346,7 @@ TEST(dx11post_a_warp_bends_the_edge_its_ring_crosses_and_clearing_it_gives_the_f
 	warp.RingRadius = 0.28f;
 	warp.RingWidth = 0.05f;
 	warp.RingStrength = 0.1f;
+	warp.RingSquash = 1.0f;
 	DX11Post_Set_Warps(&warp, 1);
 
 	const DX11PostEffect chain[] = { DX11_POST_COPY };
