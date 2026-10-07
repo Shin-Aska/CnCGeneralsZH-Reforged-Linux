@@ -124,15 +124,21 @@ static const UnsignedInt PANE_RADAR_FRAMES = 12;
 static const UnsignedInt PANE_SLIDE_FRAMES = 15;
 /// the match opens on every player's base, one pane each, for this long
 static const UnsignedInt PANE_INTRO_FRAMES = 7 * LOGICFRAMES_PER_SECOND;
-/// how much higher the cameras stand with the panes all in, by how many panes there are
-static const Real PANE_ZOOM_TWO = 1.3f;
-static const Real PANE_ZOOM_THREE = 1.4f;
-static const Real PANE_ZOOM_FOUR_OR_MORE = 1.5f;
 /// the gold of a line between panes is a pixel for every this many rows of the picture
 static const Real PANE_LINE_ROWS_A_PIXEL = 120.0f;
-/// a pane's middle is measured on a grid this coarse, which is plenty for where to put a subject
-static const Int PANE_MIDDLE_COLUMNS = 64;
-static const Int PANE_MIDDLE_ROWS = 36;
+/// a pane's circle is looked for on a grid this fine, a centre every 10 pixels at 1280x720
+static const Int PANE_CIRCLE_COLUMNS = 128;
+static const Int PANE_CIRCLE_ROWS = 72;
+/// a subject fitted into its pane's circle leaves this much of the radius round it
+static const Real PANE_FIT_MARGIN = 0.15f;
+/// a pane never comes closer than the director's own zoom, and never goes further out than this times it
+static const Real PANE_FIT_FARTHEST = 2.0f;
+/// a fight is never fitted as smaller than this across, so two tanks are not filled into a pane
+static const Real PANE_FIT_LEAST_EXTENT = 150.0f;
+/// the opening fits what a player has within this of the middle of it, his base and the army beside it
+static const Real PANE_INTRO_REACH = 500.0f;
+/// how much of the way to a new fit a pane's zoom goes each logic frame, about a second and a half
+static const Real PANE_FIT_FOLLOW = 0.06f;
 
 //-------------------------------------------------------------------------------------------------
 static Bool sameFight( const Coord2D &a, const Coord2D &b )
@@ -494,31 +500,82 @@ Real ObserverCamera_paneExit( const Real *rays, Int count, Int width, Int height
 }
 
 //-------------------------------------------------------------------------------------------------
-void ObserverCamera_paneMiddles( const Real *rays, Int count, Int width, Int height, Coord2D *middles )
+/** How far a point is from a ray out of the middle: across to the ray's line, or back to where the
+	* ray starts when the point is behind it. */
+//-------------------------------------------------------------------------------------------------
+static Real distanceToRay( Real x, Real y, Real middleX, Real middleY, Real degrees )
 {
-	Int samples[ OBSERVER_MOST_PANES ];
+	const Real angle = degrees * PI / 180.0f;
+	const Real alongX = cosf( angle );
+	const Real alongY = -sinf( angle );
+	const Real fromX = x - middleX;
+	const Real fromY = y - middleY;
+	if( fromX * alongX + fromY * alongY <= 0.0f )
+		return sqrtf( fromX * fromX + fromY * fromY );
+	return fabs( fromX * alongY - fromY * alongX );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Every pane is a wedge of 180 degrees or less, so the nearest of its edges is one of its two rays,
+	* the screen's four sides or the radar's frame; the grid point furthest from all of them is the
+	* circle's centre. */
+//-------------------------------------------------------------------------------------------------
+void ObserverCamera_paneCircles( const Real *rays, Int count, Int width, Int height, const Coord2D &radarHalf,
+	Coord2D *centres, Real *radii )
+{
+	const Real middleX = width * 0.5f;
+	const Real middleY = height * 0.5f;
 	for( Int pane = 0; pane < count; pane++ )
 	{
-		samples[ pane ] = 0;
-		middles[ pane ].x = middles[ pane ].y = 0.0f;
+		radii[ pane ] = 0.0f;
+		centres[ pane ].x = middleX;
+		centres[ pane ].y = middleY;
 	}
-	for( Int row = 0; row < PANE_MIDDLE_ROWS; row++ )
+	for( Int row = 0; row < PANE_CIRCLE_ROWS; row++ )
 	{
-		for( Int column = 0; column < PANE_MIDDLE_COLUMNS; column++ )
+		for( Int column = 0; column < PANE_CIRCLE_COLUMNS; column++ )
 		{
-			const Real x = ( column + 0.5f ) * width / PANE_MIDDLE_COLUMNS;
-			const Real y = ( row + 0.5f ) * height / PANE_MIDDLE_ROWS;
-			const Int pane = ObserverCamera_paneOf( x, y, width * 0.5f, height * 0.5f, rays, count );
-			middles[ pane ].x += x;
-			middles[ pane ].y += y;
-			samples[ pane ]++;
+			const Real x = ( column + 0.5f ) * width / PANE_CIRCLE_COLUMNS;
+			const Real y = ( row + 0.5f ) * height / PANE_CIRCLE_ROWS;
+			const Int pane = ObserverCamera_paneOf( x, y, middleX, middleY, rays, count );
+			Real clear = min( min( x, width - x ), min( y, height - y ) );
+			clear = min( clear, distanceToRay( x, y, middleX, middleY, rays[ pane ] ) );
+			clear = min( clear, distanceToRay( x, y, middleX, middleY, rays[ ( pane + 1 ) % count ] ) );
+			const Real outX = max( fabs( x - middleX ) - radarHalf.x, 0.0f );
+			const Real outY = max( fabs( y - middleY ) - radarHalf.y, 0.0f );
+			clear = min( clear, sqrtf( outX * outX + outY * outY ) );
+			if( clear > radii[ pane ] )
+			{
+				radii[ pane ] = clear;
+				centres[ pane ].x = x;
+				centres[ pane ].y = y;
+			}
 		}
 	}
-	for( Int pane = 0; pane < count; pane++ )
+}
+
+//-------------------------------------------------------------------------------------------------
+Real ObserverCamera_extentAround( const std::vector< DirectorHeat > &things, const Coord2D &around, Real reach, Real least )
+{
+	Real farthest = least;
+	for( size_t index = 0; index < things.size(); index++ )
 	{
-		middles[ pane ].x /= samples[ pane ];
-		middles[ pane ].y /= samples[ pane ];
+		const Real dx = things[ index ].position.x - around.x;
+		const Real dy = things[ index ].position.y - around.y;
+		const Real distance = sqrtf( dx * dx + dy * dy );
+		if( distance <= reach )
+			farthest = max( farthest, distance );
 	}
+	return farthest;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The ground a pixel covers grows with the zoom, the camera standing that much further back. */
+//-------------------------------------------------------------------------------------------------
+Real ObserverCamera_fitZoom( Real extent, Real radius, Real groundPerPixelAtOne, Real nearest, Real farthest )
+{
+	const Real zoom = extent * ( 1.0f + PANE_FIT_MARGIN ) / ( radius * groundPerPixelAtOne );
+	return min( max( zoom, nearest ), farthest );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -528,18 +585,6 @@ Real ObserverCamera_easeFrames( UnsignedInt frame, UnsignedInt start, UnsignedIn
 		return 0.0f;
 	const Real t = min( (Real)( frame - start ) / length, 1.0f );
 	return t * t * ( 3.0f - 2.0f * t );
-}
-
-//-------------------------------------------------------------------------------------------------
-/** A wedge is a slice of the screen, so its subject wants more ground round it than the whole
-	* screen gave; more panes are narrower slices and stand higher still. */
-//-------------------------------------------------------------------------------------------------
-Real ObserverCamera_paneZoom( Int count, Real progress )
-{
-	if( count < 2 )
-		return 1.0f;
-	const Real highest = count == 2 ? PANE_ZOOM_TWO : count == 3 ? PANE_ZOOM_THREE : PANE_ZOOM_FOUR_OR_MORE;
-	return 1.0f + ( highest - 1.0f ) * progress;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -606,6 +651,9 @@ void ObserverCamera::reset( void )
 	m_paneProgress = 0.0f;
 	m_paneExit = 0.0f;
 	m_paneBaseZoom = 1.0f;
+	m_paneFitValid = FALSE;
+	m_paneFitFrame = 0;
+	m_radarHalf.x = m_radarHalf.y = 0.0f;
 	m_paneOrigin.x = m_paneOrigin.y = 0.0f;
 	m_cornerRadarSlide = 0.0f;
 	m_radarFrame.lo.x = m_radarFrame.lo.y = m_radarFrame.hi.x = m_radarFrame.hi.y = 0;
@@ -614,6 +662,10 @@ void ObserverCamera::reset( void )
 		m_paneRays[ pane ] = 0.0f;
 		m_panePlayers[ pane ] = NULL;
 		m_paneSubject[ pane ].x = m_paneSubject[ pane ].y = 0.0f;
+		m_paneCentres[ pane ].x = m_paneCentres[ pane ].y = 0.0f;
+		m_paneRadii[ pane ] = 0.0f;
+		m_paneExtent[ pane ] = PANE_FIT_LEAST_EXTENT;
+		m_paneFit[ pane ] = 1.0f;
 		m_paneGlide[ pane ] = ViewLocation();
 		m_paneVelocity[ pane ].x = m_paneVelocity[ pane ].y = m_paneVelocity[ pane ].z = 0.0f;
 		m_paneVelocity[ pane ].angle = m_paneVelocity[ pane ].pitch = m_paneVelocity[ pane ].zoom = 0.0f;
@@ -825,10 +877,12 @@ Coord2D ObserverCamera::keepInMap( const Coord2D &place, const ViewLocation &cur
 
 //-------------------------------------------------------------------------------------------------
 /** A step across the screen in pixels, from its middle, as a step on the ground: moving the look point
-	* back by it puts what was in the middle of the screen at that many pixels from it. */
+	* back by it puts what was in the middle of the screen at that many pixels from it.  Measured on the
+	* view as it stands and taken to zoom, the ground a pixel covers growing with the zoom. */
 //-------------------------------------------------------------------------------------------------
-Coord2D ObserverCamera::screenToGround( const ViewLocation &current, const Coord2D &pixels ) const
+Coord2D ObserverCamera::screenToGround( const ViewLocation &current, const Coord2D &pixels, Real zoom ) const
 {
+	const Real scale = zoom / TheTacticalView->getZoom();
 	const Coord3D &at = current.getPosition();
 	Coord3D world[ 4 ];
 	TheTacticalView->getScreenCornerWorldPointsAtZ( &world[ 0 ], &world[ 1 ], &world[ 2 ], &world[ 3 ],
@@ -838,8 +892,8 @@ Coord2D ObserverCamera::screenToGround( const ViewLocation &current, const Coord
 	const Real acrossY = ( world[ 1 ].y - world[ 0 ].y + world[ 2 ].y - world[ 3 ].y ) * 0.5f;
 	const Real downX = ( world[ 3 ].x - world[ 0 ].x + world[ 2 ].x - world[ 1 ].x ) * 0.5f;
 	const Real downY = ( world[ 3 ].y - world[ 0 ].y + world[ 2 ].y - world[ 1 ].y ) * 0.5f;
-	const Real right = pixels.x / TheDisplay->getWidth();
-	const Real down = pixels.y / TheDisplay->getHeight();
+	const Real right = pixels.x / TheDisplay->getWidth() * scale;
+	const Real down = pixels.y / TheDisplay->getHeight() * scale;
 	Coord2D ground;
 	ground.x = acrossX * right + downX * down;
 	ground.y = acrossY * right + downY * down;
@@ -926,8 +980,12 @@ void ObserverCamera::advancePanes( UnsignedInt frame )
 			{
 				m_paneExit = ObserverCamera_paneExit( m_paneRays, m_paneCount, TheDisplay->getWidth(), TheDisplay->getHeight() );
 				m_paneBaseZoom = TheTacticalView->getZoom();
+				m_paneFitValid = FALSE;
 				for( Int pane = 0; pane < OBSERVER_MOST_PANES; pane++ )
+				{
 					m_paneGlide[ pane ] = ViewLocation();
+					m_paneExtent[ pane ] = PANE_FIT_LEAST_EXTENT;
+				}
 			}
 			break;
 		case PANES_RADAR_OUT:
@@ -1030,15 +1088,72 @@ void ObserverCamera::updateIntroPlaces( void )
 	{
 		Real heat = 0.0f;
 		ObserverCamera_hottestPlace( sights[ pane ], &m_paneSubject[ pane ], &heat );
+		m_paneExtent[ pane ] = ObserverCamera_extentAround( sights[ pane ], m_paneSubject[ pane ], PANE_INTRO_REACH, PANE_FIT_LEAST_EXTENT );
 	}
 }
 
 //-------------------------------------------------------------------------------------------------
+/** Each pane's zoom with the panes all in: its subject's spread, fitted into the largest circle its
+	* wedge holds clear of the rays, the screen's edges and the radar's frame.  Never closer than the
+	* director was when the panes came, never more than PANE_FIT_FARTHEST times further out.  It moves
+	* towards a new fit a share a logic frame, and while the panes are held only outwards, so a fight
+	* that grows is let out and one that shrinks does not pump the zoom. */
+//-------------------------------------------------------------------------------------------------
+void ObserverCamera::fitPanes( UnsignedInt frame )
+{
+	const IRegion2D &radar = m_radarFrame;
+	if( radar.hi.x > radar.lo.x )
+	{
+		m_radarHalf.x = ( radar.hi.x - radar.lo.x ) * 0.5f;
+		m_radarHalf.y = ( radar.hi.y - radar.lo.y ) * 0.5f;
+	}
+	ObserverCamera_paneCircles( m_paneRays, m_paneCount, TheDisplay->getWidth(), TheDisplay->getHeight(), m_radarHalf,
+		m_paneCentres, m_paneRadii );
+
+	if( !m_intro )
+	{
+		m_paneExtent[ 0 ] = ObserverCamera_extentAround( m_fights, m_panesLeftPlace, DIRECTOR_GATHER_RADIUS, PANE_FIT_LEAST_EXTENT );
+		m_paneExtent[ 1 ] = ObserverCamera_extentAround( m_fights, m_secondPlace, DIRECTOR_GATHER_RADIUS, PANE_FIT_LEAST_EXTENT );
+	}
+
+	// the ground a pixel covers at zoom 1, from the screen's width on the ground now
+	Coord3D world[ 4 ];
+	Coord3D at;
+	TheTacticalView->getPosition( &at );
+	TheTacticalView->getScreenCornerWorldPointsAtZ( &world[ 0 ], &world[ 1 ], &world[ 2 ], &world[ 3 ],
+		TheTerrainLogic->getGroundHeight( at.x, at.y ) );
+	const Real acrossX = ( world[ 1 ].x - world[ 0 ].x + world[ 2 ].x - world[ 3 ].x ) * 0.5f;
+	const Real acrossY = ( world[ 1 ].y - world[ 0 ].y + world[ 2 ].y - world[ 3 ].y ) * 0.5f;
+	const Real groundPerPixelAtOne = sqrtf( acrossX * acrossX + acrossY * acrossY ) / TheDisplay->getWidth() / TheTacticalView->getZoom();
+
+	const Bool moves = frame != m_paneFitFrame;
+	m_paneFitFrame = frame;
+	for( Int pane = 0; pane < m_paneCount; pane++ )
+	{
+		const Real wanted = ObserverCamera_fitZoom( m_paneExtent[ pane ], m_paneRadii[ pane ], groundPerPixelAtOne,
+			m_paneBaseZoom, m_paneBaseZoom * PANE_FIT_FARTHEST );
+		if( !m_paneFitValid )
+			m_paneFit[ pane ] = wanted;
+		else if( moves && ( m_panePhase != PANES_HELD || wanted > m_paneFit[ pane ] ) )
+			m_paneFit[ pane ] += ( wanted - m_paneFit[ pane ] ) * PANE_FIT_FOLLOW;
+	}
+	m_paneFitValid = TRUE;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A pane's zoom now: the director's own with no panes, its fit with them all in. */
+//-------------------------------------------------------------------------------------------------
+Real ObserverCamera::paneZoom( Int pane ) const
+{
+	return m_paneBaseZoom + ( m_paneFit[ pane ] - m_paneBaseZoom ) * m_paneProgress;
+}
+
+//-------------------------------------------------------------------------------------------------
 /** Each pane past the first glides to its subject on its own, and its camera sits back from the
-	* subject by the pane's middle, so the subject is in the middle of its pane.  While the rays' meeting
-	* point slides, the camera sits back by that much more, so the pane's picture slides with it and
-	* is the world on the whole screen, with no edge of a moved picture to show.  Angle, pitch and zoom
-	* are the main camera's. */
+	* subject by the centre of the pane's circle, at the pane's own zoom, so the subject fills the
+	* circle.  While the rays' meeting point slides, the camera sits back by that much more, so the
+	* pane's picture slides with it and is the world on the whole screen, with no edge of a moved
+	* picture to show.  Angle and pitch are the main camera's. */
 //-------------------------------------------------------------------------------------------------
 void ObserverCamera::stepPaneCameras( const ViewLocation &step, Real elapsedSeconds )
 {
@@ -1047,11 +1162,10 @@ void ObserverCamera::stepPaneCameras( const ViewLocation &step, Real elapsedSeco
 	if( !m_intro )
 		m_paneSubject[ 1 ] = m_secondPlace;
 
-	Coord2D middles[ OBSERVER_MOST_PANES ];
-	ObserverCamera_paneMiddles( m_paneRays, m_paneCount, TheDisplay->getWidth(), TheDisplay->getHeight(), middles );
 	const Coord3D &at = step.getPosition();
 	for( Int pane = 1; pane < m_paneCount; pane++ )
 	{
+		const Real zoom = paneZoom( pane );
 		ViewLocation subject;
 		subject.init( m_paneSubject[ pane ].x, m_paneSubject[ pane ].y, at.z, step.getAngle(), step.getPitch(), step.getZoom() );
 		if( !m_paneGlide[ pane ].isValid() )
@@ -1068,14 +1182,14 @@ void ObserverCamera::stepPaneCameras( const ViewLocation &step, Real elapsedSeco
 		}
 
 		Coord2D fromMiddle;
-		fromMiddle.x = middles[ pane ].x + m_paneOrigin.x - TheDisplay->getWidth();
-		fromMiddle.y = middles[ pane ].y + m_paneOrigin.y - TheDisplay->getHeight();
-		const Coord2D offset = screenToGround( step, fromMiddle );
+		fromMiddle.x = m_paneCentres[ pane ].x + m_paneOrigin.x - TheDisplay->getWidth();
+		fromMiddle.y = m_paneCentres[ pane ].y + m_paneOrigin.y - TheDisplay->getHeight();
+		const Coord2D offset = screenToGround( step, fromMiddle, zoom );
 		Coord2D camera;
 		camera.x = m_paneGlide[ pane ].getPosition().x - offset.x;
 		camera.y = m_paneGlide[ pane ].getPosition().y - offset.y;
 		camera = keepInMap( camera, step );
-		m_paneView[ pane ].init( camera.x, camera.y, at.z, step.getAngle(), step.getPitch(), step.getZoom() );
+		m_paneView[ pane ].init( camera.x, camera.y, at.z, step.getAngle(), step.getPitch(), zoom );
 	}
 }
 
@@ -1401,15 +1515,14 @@ void ObserverCamera::update( UnsignedInt nowMilliseconds )
 		m_mainOffset.x = m_mainOffset.y = 0.0f;
 	}
 
-	// the glide is of the subject; the camera sits back from it so the subject is in the middle of
-	// pane 0, moving there as the panes come in and back to the middle of the screen as they go
+	// the glide is of the subject; the camera sits back from it so the subject is in pane 0's circle,
+	// moving there as the panes come in and back to the middle of the screen as they go
 	Coord2D fromMiddle = { 0.0f, 0.0f };
-	if( m_paneCount >= 2 && !isShowingPlayerView() )
+	if( panesZoom )
 	{
-		Coord2D middles[ OBSERVER_MOST_PANES ];
-		ObserverCamera_paneMiddles( m_paneRays, m_paneCount, TheDisplay->getWidth(), TheDisplay->getHeight(), middles );
-		fromMiddle.x = ( middles[ 0 ].x - TheDisplay->getWidth() * 0.5f ) * m_paneProgress;
-		fromMiddle.y = ( middles[ 0 ].y - TheDisplay->getHeight() * 0.5f ) * m_paneProgress;
+		fitPanes( TheGameLogic->getFrame() );
+		fromMiddle.x = ( m_paneCentres[ 0 ].x - TheDisplay->getWidth() * 0.5f ) * m_paneProgress;
+		fromMiddle.y = ( m_paneCentres[ 0 ].y - TheDisplay->getHeight() * 0.5f ) * m_paneProgress;
 	}
 	const Coord3D &camera = current.getPosition();
 	ViewLocation subject;
@@ -1437,10 +1550,9 @@ void ObserverCamera::update( UnsignedInt nowMilliseconds )
 	if( panesZoom )
 	{
 		const Coord3D &stepAt = step.getPosition();
-		step.init( stepAt.x, stepAt.y, stepAt.z, step.getAngle(), step.getPitch(),
-			m_paneBaseZoom * ObserverCamera_paneZoom( m_paneCount, m_paneProgress ) );
+		step.init( stepAt.x, stepAt.y, stepAt.z, step.getAngle(), step.getPitch(), paneZoom( 0 ) );
 	}
-	const Coord2D offset = screenToGround( step, fromMiddle );
+	const Coord2D offset = screenToGround( step, fromMiddle, step.getZoom() );
 	Coord2D sitBack;
 	sitBack.x = step.getPosition().x - offset.x;
 	sitBack.y = step.getPosition().y - offset.y;

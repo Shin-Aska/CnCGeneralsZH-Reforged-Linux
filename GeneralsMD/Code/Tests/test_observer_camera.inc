@@ -400,26 +400,80 @@ TEST(pane_zero_fills_the_screen_once_the_meeting_point_is_out_far_enough)
 	CHECK( away.x > 0.0f && away.y > 0.0f );
 }
 
-TEST(the_two_pane_middles_mirror_through_the_screen_middle)
+TEST(a_pane_circle_is_the_largest_its_wedge_holds)
 {
 	Real rays[ OBSERVER_MOST_PANES ];
+	Coord2D centres[ OBSERVER_MOST_PANES ];
+	Real radii[ OBSERVER_MOST_PANES ];
+	const Coord2D noRadar = { 0.0f, 0.0f };
+
+	// two panes: the circle touching the top, the left and the diagonal x + y = 1000 has a radius of
+	// 1000 / (2 + root 2), and pane 1's is its mirror through the middle
 	ObserverCamera_paneLayout( 2, rays );
-	Coord2D middles[ OBSERVER_MOST_PANES ];
-	ObserverCamera_paneMiddles( rays, 2, 1280, 720, middles );
-	CHECK( middles[ 0 ].x < 640.0f && middles[ 0 ].y < 360.0f );
-	CHECK_NEAR( middles[ 0 ].x + middles[ 1 ].x, 1280.0f, 1.0f );
-	CHECK_NEAR( middles[ 0 ].y + middles[ 1 ].y, 720.0f, 1.0f );
+	ObserverCamera_paneCircles( rays, 2, 1280, 720, noRadar, centres, radii );
+	CHECK_NEAR( radii[ 0 ], 292.9f, 8.0f );
+	CHECK_NEAR( centres[ 0 ].x, 292.9f, 15.0f );
+	CHECK_NEAR( centres[ 0 ].y, 292.9f, 15.0f );
+	CHECK_NEAR( radii[ 1 ], radii[ 0 ], 8.0f );
+	CHECK_NEAR( centres[ 0 ].x + centres[ 1 ].x, 1280.0f, 20.0f );
+
+	// an X: the top wedge is a right triangle on a 720 wide side, its circle 149 in radius; the left
+	// one runs past the top and bottom corners, and its circle touching the left edge and both rays has
+	// 640 / (1 + root 2)
+	ObserverCamera_paneLayout( 4, rays );
+	ObserverCamera_paneCircles( rays, 4, 1280, 720, noRadar, centres, radii );
+	CHECK_NEAR( radii[ 0 ], 149.1f, 8.0f );
+	CHECK_NEAR( centres[ 0 ].x, 640.0f, 15.0f );
+	CHECK_NEAR( radii[ 1 ], 265.1f, 8.0f );
+	CHECK_NEAR( centres[ 1 ].y, 360.0f, 15.0f );
+	CHECK_NEAR( radii[ 2 ], radii[ 0 ], 8.0f );
+	CHECK_NEAR( radii[ 3 ], radii[ 1 ], 8.0f );
+
+	// a Y: three circles, every one inside the screen
+	ObserverCamera_paneLayout( 3, rays );
+	ObserverCamera_paneCircles( rays, 3, 1280, 720, noRadar, centres, radii );
+	for( Int pane = 0; pane < 3; pane++ )
+	{
+		CHECK( radii[ pane ] > 100.0f );
+		CHECK( centres[ pane ].x - radii[ pane ] >= 0.0f && centres[ pane ].x + radii[ pane ] <= 1280.0f );
+		CHECK( centres[ pane ].y - radii[ pane ] >= 0.0f && centres[ pane ].y + radii[ pane ] <= 720.0f );
+		CHECK_EQ( ObserverCamera_paneOf( centres[ pane ].x, centres[ pane ].y, 640.0f, 360.0f, rays, 3 ), pane );
+	}
+
+	// the framed radar in the middle takes room from the two pane circle, which reached its corner
+	ObserverCamera_paneLayout( 2, rays );
+	const Coord2D radar = { 150.0f, 100.0f };
+	ObserverCamera_paneCircles( rays, 2, 1280, 720, radar, centres, radii );
+	CHECK( radii[ 0 ] < 285.0f );
+	CHECK( radii[ 0 ] > 150.0f );
 }
 
-TEST(pane_cameras_stand_higher_the_more_panes_there_are)
+TEST(a_subject_spreads_as_far_as_its_farthest_thing_within_reach)
 {
-	CHECK_NEAR( ObserverCamera_paneZoom( 1, 1.0f ), 1.0f, 0.0001f );
-	CHECK_NEAR( ObserverCamera_paneZoom( 2, 0.0f ), 1.0f, 0.0001f );
-	CHECK_NEAR( ObserverCamera_paneZoom( 2, 1.0f ), 1.3f, 0.0001f );
-	CHECK_NEAR( ObserverCamera_paneZoom( 2, 0.5f ), 1.15f, 0.0001f );
-	CHECK_NEAR( ObserverCamera_paneZoom( 3, 1.0f ), 1.4f, 0.0001f );
-	CHECK_NEAR( ObserverCamera_paneZoom( 4, 1.0f ), 1.5f, 0.0001f );
-	CHECK_NEAR( ObserverCamera_paneZoom( 8, 1.0f ), 1.5f, 0.0001f );
+	std::vector< DirectorHeat > things;
+	const Coord2D around = { 1000.0f, 1000.0f };
+	CHECK_NEAR( ObserverCamera_extentAround( things, around, 500.0f, 150.0f ), 150.0f, 0.01f );
+	const Real distances[] = { 100.0f, 300.0f, 600.0f };
+	for( Int index = 0; index < 3; index++ )
+	{
+		DirectorHeat thing;
+		thing.position.x = around.x + distances[ index ];
+		thing.position.y = around.y;
+		thing.weight = 1.0f;
+		things.push_back( thing );
+	}
+	CHECK_NEAR( ObserverCamera_extentAround( things, around, 500.0f, 150.0f ), 300.0f, 0.01f );
+}
+
+TEST(a_pane_zooms_out_to_fit_its_subject_and_no_further_than_the_cap)
+{
+	// 200 pixels at 2 a pixel is 400 on the ground; 300 with its 15 percent margin fits closer than
+	// the director's own, which is as close as a pane comes
+	CHECK_NEAR( ObserverCamera_fitZoom( 300.0f, 200.0f, 2.0f, 1.0f, 2.0f ), 1.0f, 0.0001f );
+	CHECK_NEAR( ObserverCamera_fitZoom( 600.0f, 200.0f, 2.0f, 1.0f, 2.0f ), 1.725f, 0.001f );
+	CHECK_NEAR( ObserverCamera_fitZoom( 2000.0f, 200.0f, 2.0f, 1.0f, 2.0f ), 2.0f, 0.0001f );
+	// a smaller circle wants more ground in each pixel
+	CHECK( ObserverCamera_fitZoom( 600.0f, 150.0f, 2.0f, 1.0f, 3.0f ) > ObserverCamera_fitZoom( 600.0f, 200.0f, 2.0f, 1.0f, 3.0f ) );
 }
 
 TEST(pane_lines_grow_with_the_picture_and_the_join_keeps_all_of_them)

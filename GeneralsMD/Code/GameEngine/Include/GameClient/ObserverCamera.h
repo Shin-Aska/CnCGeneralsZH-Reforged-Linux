@@ -152,13 +152,21 @@ Int ObserverCamera_paneOf( Real x, Real y, Real originX, Real originY, const Rea
 Real ObserverCamera_paneExit( const Real *rays, Int count, Int width, Int height );
 /// the direction, in pixels with y down, that meeting point moves in to take the other panes away
 Coord2D ObserverCamera_paneExitDirection( const Real *rays );
-/// the middle of each pane with the rays meeting in the middle of the picture, where its subject is
-/// put; middles has count entries
-void ObserverCamera_paneMiddles( const Real *rays, Int count, Int width, Int height, Coord2D *middles );
+/// the largest circle that fits in each pane with the rays meeting in the middle of the picture, kept
+/// off the screen's edges, the rays and the radar's frame, a rectangle radarHalf wide and high each
+/// way from the middle.  Its centre is where the pane's subject is put and its radius, in pixels,
+/// what the subject is fitted into; centres and radii have count entries
+void ObserverCamera_paneCircles( const Real *rays, Int count, Int width, Int height, const Coord2D &radarHalf,
+	Coord2D *centres, Real *radii );
+/// how far from around the farthest of the things within reach of it lie, on the ground, and never less
+/// than least
+Real ObserverCamera_extentAround( const std::vector< DirectorHeat > &things, const Coord2D &around, Real reach, Real least );
+/// the zoom that fits a subject extent across on the ground into a circle radius pixels across, with a
+/// margin, for a view whose ground per pixel is groundPerPixelAtOne at zoom 1; never under nearest or
+/// over farthest
+Real ObserverCamera_fitZoom( Real extent, Real radius, Real groundPerPixelAtOne, Real nearest, Real farthest );
 /// how far an animation of length frames that started on start is on frame, eased in and out, 0 to 1
 Real ObserverCamera_easeFrames( UnsignedInt frame, UnsignedInt start, UnsignedInt length );
-/// how much higher every camera stands while count panes are progress of the way in, 1 with none
-Real ObserverCamera_paneZoom( Int count, Real progress );
 /// the dark edge each side of the gold of a line between panes and of the radar's frame, in pixels
 enum { OBSERVER_PANE_LINE_EDGE = 2 };
 /// the gold of a line between panes, in pixels, for a picture height pixels high: 6 at 720, 9 at 1080
@@ -237,10 +245,12 @@ private:
 	void driveHeight( Real extra );
 	Bool takenByHand( const ViewLocation &current ) const;
 	Coord2D keepInMap( const Coord2D &place, const ViewLocation &current ) const;
-	Coord2D screenToGround( const ViewLocation &current, const Coord2D &pixels ) const;
+	Coord2D screenToGround( const ViewLocation &current, const Coord2D &pixels, Real zoom ) const;
 	void updateSplit( void );
 	void updateIntroPlaces( void );
 	void advancePanes( UnsignedInt frame );
+	void fitPanes( UnsignedInt frame );
+	Real paneZoom( Int pane ) const;
 	void stepPaneCameras( const ViewLocation &step, Real elapsedSeconds );
 	Bool isShowingPlayerView( void ) const;
 	Bool chooseTarget( const ViewLocation &current, ViewLocation *target );
@@ -294,6 +304,13 @@ private:
 	Real m_paneProgress;						///< 0 for no panes on the screen, 1 for all of them, eased
 	Real m_paneExit;								///< how far off the meeting point goes, in pixels
 	Real m_paneBaseZoom;							///< the view's zoom when the panes started, which they rise from
+	Coord2D m_paneCentres[ OBSERVER_MOST_PANES ];	///< where each pane's subject is put, the rays meeting in the middle
+	Real m_paneRadii[ OBSERVER_MOST_PANES ];		///< how much of its pane each subject is fitted into, in pixels
+	Real m_paneExtent[ OBSERVER_MOST_PANES ];		///< how far each pane's subject spreads on the ground
+	Real m_paneFit[ OBSERVER_MOST_PANES ];			///< each pane's zoom with the panes all in, eased on logic frames
+	Bool m_paneFitValid;							///< m_paneFit holds a fit of these panes
+	UnsignedInt m_paneFitFrame;						///< the logic frame m_paneFit last moved on
+	Coord2D m_radarHalf;							///< half the framed radar's size, taken from its last draw
 	Coord2D m_paneOrigin;						///< where the rays meet now, in pixels
 	Real m_cornerRadarSlide;
 	IRegion2D m_radarFrame;
