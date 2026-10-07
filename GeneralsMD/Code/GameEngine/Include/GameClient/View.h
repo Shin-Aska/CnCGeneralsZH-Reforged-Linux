@@ -258,6 +258,9 @@ public:
 	virtual void addScreenDistortion( const Coord3D *epicenter, const ScreenDistortionInfo &info ) { }
 
 	virtual Real getFXPitch( void ) const { return 1.0f; }					///< returns the FX pitch angle
+	/// how the eye stands back with the zoom: (zoom - zoomAtPivot) times a fixed offset from the point
+	/// looked at, which stands pivotHeight above zero
+	virtual void getZoomPivot( Real *zoomAtPivot, Real *pivotHeight ) const { *zoomAtPivot = 0.0f; *pivotHeight = 0.0f; }
 	virtual void forceCameraConstraintRecalc(void) {}
 	virtual void applyCameraConstraint( void ) {}										///< move the look point inside the camera constraint now, where the next draw would
 	virtual void setGuardBandBias( const Coord2D *gb ) = 0;

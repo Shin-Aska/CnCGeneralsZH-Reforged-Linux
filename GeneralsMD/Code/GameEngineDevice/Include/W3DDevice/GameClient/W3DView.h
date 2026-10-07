@@ -226,6 +226,9 @@ public:
 	virtual void addScreenDistortion( const Coord3D *epicenter, const ScreenDistortionInfo &info );
 
 	virtual Real getFXPitch( void ) const { return m_FXPitch; }					///< returns the FX pitch angle
+	/// buildCameraTransform scales the offset by zoom and then by 1 - groundLevel / (offset.z * zoom),
+	/// which is zoom - groundLevel / offset.z, round a target at groundLevel
+	virtual void getZoomPivot( Real *zoomAtPivot, Real *pivotHeight ) const { *zoomAtPivot = m_groundLevel / m_cameraOffset.z; *pivotHeight = m_groundLevel; }
 
 	virtual Bool setViewFilterMode(enum FilterModes filterMode);			///< Turns on viewport special effect (black & white mode)
 	virtual Bool setViewFilter(enum FilterTypes filter);			///< Turns on viewport special effect (black & white mode)

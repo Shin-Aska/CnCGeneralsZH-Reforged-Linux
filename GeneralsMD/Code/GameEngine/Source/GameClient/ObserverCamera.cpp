@@ -661,24 +661,121 @@ Real ObserverCamera_groundRadius( const Coord2D &centre, Real radius, Int width,
 }
 
 //-------------------------------------------------------------------------------------------------
-/** The ground a circle reaches grows with the zoom, the camera standing that much further back. */
-//-------------------------------------------------------------------------------------------------
-Real ObserverCamera_fitZoom( Real extent, Real groundRadiusAtOne, Real nearest, Real farthest )
+void ObserverCamera_cornersAtZoom( const ObserverCameraGround &ground, Real zoom, Coord2D *corners )
 {
-	const Real zoom = extent * ( 1.0f + PANE_FIT_MARGIN ) / groundRadiusAtOne;
-	return min( max( zoom, nearest ), farthest );
+	const Real out = zoom - ground.zoomAtPivot;
+	for( Int corner = 0; corner < 4; corner++ )
+	{
+		corners[ corner ].x = ground.perZoom[ corner ].x * out + ground.shift[ corner ].x;
+		corners[ corner ].y = ground.perZoom[ corner ].y * out + ground.shift[ corner ].y;
+	}
 }
 
 //-------------------------------------------------------------------------------------------------
-/** The corners at zoom 1 taken out to a zoom: every one moves out from the look point by it. */
+/** The ground a circle reaches grows with the zoom, the camera standing further back; the lowest
+	* zoom that reaches far enough is found by halving. */
 //-------------------------------------------------------------------------------------------------
-static void scaleCorners( const Coord2D *cornersAtOne, Real zoom, Coord2D *corners )
+Real ObserverCamera_fitZoom( Real extent, const Coord2D &centre, Real radius, Int width, Int height,
+	const ObserverCameraGround &ground, Real nearest, Real farthest )
 {
+	enum { HALVINGS = 14 };
+	const Real needed = extent * ( 1.0f + PANE_FIT_MARGIN );
+	Real lowest = nearest;
+	Real highest = farthest;
+	for( Int halving = 0; halving < HALVINGS; halving++ )
+	{
+		const Real tried = halving == 0 ? nearest : ( lowest + highest ) * 0.5f;
+		Coord2D corners[ 4 ];
+		ObserverCamera_cornersAtZoom( ground, tried, corners );
+		if( ObserverCamera_groundRadius( centre, radius, width, height, corners ) >= needed )
+		{
+			highest = tried;
+			if( halving == 0 )
+				break;
+		}
+		else
+		{
+			lowest = tried;
+		}
+	}
+	return highest;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The wedge from origin between the pane's two rays, cut by the screen: where the rays meet if that
+	* is on the screen, the screen's corners inside the wedge, and where each ray leaves the screen.
+	* A wedge of 180 degrees or less and the screen are both convex, so these are all its corners. */
+//-------------------------------------------------------------------------------------------------
+Int ObserverCamera_panePolygon( const Real *rays, Int count, Int pane, const Coord2D &origin, Int width, Int height,
+	Coord2D *vertices )
+{
+	const Coord2D screen[ 4 ] = { { 0.0f, 0.0f }, { (Real)width, 0.0f }, { (Real)width, (Real)height }, { 0.0f, (Real)height } };
+	Int found = 0;
+	if( count < 2 )
+	{
+		for( Int corner = 0; corner < 4; corner++ )
+			vertices[ found++ ] = screen[ corner ];
+		return found;
+	}
+
+	const Bool originOnScreen = origin.x >= 0.0f && origin.x <= width && origin.y >= 0.0f && origin.y <= height;
+	if( originOnScreen )
+		vertices[ found++ ] = origin;
 	for( Int corner = 0; corner < 4; corner++ )
 	{
-		corners[ corner ].x = cornersAtOne[ corner ].x * zoom;
-		corners[ corner ].y = cornersAtOne[ corner ].y * zoom;
+		if( ObserverCamera_paneOf( screen[ corner ].x, screen[ corner ].y, origin.x, origin.y, rays, count ) == pane )
+			vertices[ found++ ] = screen[ corner ];
 	}
+	const Int bounds[ 2 ] = { pane, ( pane + 1 ) % count };
+	for( Int side = 0; side < 2; side++ )
+	{
+		const Real angle = rays[ bounds[ side ] ] * PI / 180.0f;
+		const Real alongX = cosf( angle );
+		const Real alongY = -sinf( angle );
+		// the stretch of the ray inside the screen, as distances along it
+		Real enter = 0.0f;
+		Real leave = 1.0e9f;
+		const Real start[ 2 ] = { origin.x, origin.y };
+		const Real along[ 2 ] = { alongX, alongY };
+		const Real high[ 2 ] = { (Real)width, (Real)height };
+		for( Int axis = 0; axis < 2; axis++ )
+		{
+			if( fabs( along[ axis ] ) < 1.0e-6f )
+			{
+				if( start[ axis ] < 0.0f || start[ axis ] > high[ axis ] )
+					enter = leave + 1.0f;
+				continue;
+			}
+			const Real atLow = ( 0.0f - start[ axis ] ) / along[ axis ];
+			const Real atHigh = ( high[ axis ] - start[ axis ] ) / along[ axis ];
+			enter = max( enter, min( atLow, atHigh ) );
+			leave = min( leave, max( atLow, atHigh ) );
+		}
+		if( enter > leave )
+			continue;
+		if( !originOnScreen )
+		{
+			vertices[ found ].x = origin.x + alongX * enter;
+			vertices[ found ].y = origin.y + alongY * enter;
+			found++;
+		}
+		vertices[ found ].x = origin.x + alongX * leave;
+		vertices[ found ].y = origin.y + alongY * leave;
+		found++;
+	}
+	return found;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The ground under each vertex, from look, held inside the map the way the screen's corners are. */
+//-------------------------------------------------------------------------------------------------
+Coord2D ObserverCamera_keepPaneInMap( const Coord2D &look, const Coord2D *vertices, Int vertexCount, Int width, Int height,
+	const Coord2D *corners, const Region2D &map )
+{
+	Coord2D grounds[ 8 ];
+	for( Int vertex = 0; vertex < vertexCount; vertex++ )
+		grounds[ vertex ] = ObserverCamera_pixelToGround( vertices[ vertex ], width, height, corners );
+	return ObserverCamera_keepInMap( look, grounds, vertexCount, map );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -695,12 +792,12 @@ Coord2D ObserverCamera_lookPoint( const Coord2D &subject, const Coord2D &pixel, 
 }
 
 //-------------------------------------------------------------------------------------------------
-/** The look point that puts subject on pixel is subject less pixel's ground from the screen's middle,
-	* and the map keeps it where the screen shows nothing past the edge.  Showing more ground the
-	* higher it stands, the highest zoom that needs no keeping is found by halving. */
+/** The look point that puts subject on pixel, and the map keeps it where the pane shows nothing past
+	* the edge.  Showing more ground the higher it stands, the highest zoom that needs no keeping is
+	* found by halving. */
 //-------------------------------------------------------------------------------------------------
-Real ObserverCamera_zoomInMap( const Coord2D &subject, const Coord2D &pixel, Int width, Int height,
-	const Coord2D *cornersAtOne, const Region2D &map, Real nearest, Real wanted )
+Real ObserverCamera_zoomInMap( const Coord2D &subject, const Coord2D &pixel, const Coord2D *vertices, Int vertexCount,
+	Int width, Int height, const ObserverCameraGround &ground, const Region2D &map, Real nearest, Real wanted )
 {
 	enum { HALVINGS = 12 };
 	const Real kept = 1.0f;
@@ -711,9 +808,9 @@ Real ObserverCamera_zoomInMap( const Coord2D &subject, const Coord2D &pixel, Int
 	for( Int halving = 0; halving <= HALVINGS; halving++ )
 	{
 		Coord2D corners[ 4 ];
-		scaleCorners( cornersAtOne, tried, corners );
+		ObserverCamera_cornersAtZoom( ground, tried, corners );
 		const Coord2D look = ObserverCamera_lookPoint( subject, pixel, width, height, corners );
-		const Coord2D inMap = ObserverCamera_keepInMap( look, corners, 4, map );
+		const Coord2D inMap = ObserverCamera_keepPaneInMap( look, vertices, vertexCount, width, height, corners, map );
 		const Bool clear = fabs( inMap.x - look.x ) <= kept && fabs( inMap.y - look.y ) <= kept;
 		if( clear )
 		{
@@ -808,7 +905,11 @@ void ObserverCamera::reset( void )
 	m_paneFitFrame = 0;
 	m_radarHalf.x = m_radarHalf.y = 0.0f;
 	for( Int corner = 0; corner < 4; corner++ )
-		m_cornersAtOne[ corner ].x = m_cornersAtOne[ corner ].y = 0.0f;
+	{
+		m_ground.perZoom[ corner ].x = m_ground.perZoom[ corner ].y = 0.0f;
+		m_ground.shift[ corner ].x = m_ground.shift[ corner ].y = 0.0f;
+	}
+	m_ground.zoomAtPivot = 0.0f;
 	m_paneOrigin.x = m_paneOrigin.y = 0.0f;
 	m_cornerRadarSlide = 0.0f;
 	m_radarFrame.lo.x = m_radarFrame.lo.y = m_radarFrame.hi.x = m_radarFrame.hi.y = 0;
@@ -821,6 +922,7 @@ void ObserverCamera::reset( void )
 		m_paneRadii[ pane ] = 0.0f;
 		m_paneExtent[ pane ] = PANE_FIT_LEAST_EXTENT;
 		m_paneFit[ pane ] = 1.0f;
+		m_paneShifted[ pane ] = 0.0f;
 		m_paneGlide[ pane ] = ViewLocation();
 		m_paneVelocity[ pane ].x = m_paneVelocity[ pane ].y = m_paneVelocity[ pane ].z = 0.0f;
 		m_paneVelocity[ pane ].angle = m_paneVelocity[ pane ].pitch = m_paneVelocity[ pane ].zoom = 0.0f;
@@ -1037,37 +1139,50 @@ Region2D ObserverCamera::mapRegion( void ) const
 }
 
 //-------------------------------------------------------------------------------------------------
-/** Where the screen's corners fall on the ground from the point the view looks at, brought to zoom 1.
-	* Taken before this frame moves the view, so the corners and the zoom are the ones the last picture
-	* was drawn with; the last draw of a frame is always pane 0's. */
+/** Where the screen's corners fall from the point the view looks at, as m_ground: on the height of
+	* the camera's target they scale with the eye's distance, and the ground under the look point adds
+	* each ray's own shift.  Taken before this frame moves the view, so the corners and the zoom are
+	* the ones the last picture was drawn with; the last draw of a frame is always pane 0's. */
 //-------------------------------------------------------------------------------------------------
 void ObserverCamera::measureCorners( void )
 {
 	Coord3D at;
 	TheTacticalView->getPosition( &at );
-	Coord3D world[ 4 ];
-	TheTacticalView->getScreenCornerWorldPointsAtZ( &world[ 0 ], &world[ 1 ], &world[ 2 ], &world[ 3 ],
+	Real pivotHeight = 0.0f;
+	TheTacticalView->getZoomPivot( &m_ground.zoomAtPivot, &pivotHeight );
+	Coord3D onPivot[ 4 ];
+	TheTacticalView->getScreenCornerWorldPointsAtZ( &onPivot[ 0 ], &onPivot[ 1 ], &onPivot[ 2 ], &onPivot[ 3 ], pivotHeight );
+	Coord3D onGround[ 4 ];
+	TheTacticalView->getScreenCornerWorldPointsAtZ( &onGround[ 0 ], &onGround[ 1 ], &onGround[ 2 ], &onGround[ 3 ],
 		TheTerrainLogic->getGroundHeight( at.x, at.y ) );
-	const Real zoom = TheTacticalView->getZoom();
+	const Real out = TheTacticalView->getZoom() - m_ground.zoomAtPivot;
 	for( Int corner = 0; corner < 4; corner++ )
 	{
-		m_cornersAtOne[ corner ].x = ( world[ corner ].x - at.x ) / zoom;
-		m_cornersAtOne[ corner ].y = ( world[ corner ].y - at.y ) / zoom;
+		m_ground.perZoom[ corner ].x = ( onPivot[ corner ].x - at.x ) / out;
+		m_ground.perZoom[ corner ].y = ( onPivot[ corner ].y - at.y ) / out;
+		m_ground.shift[ corner ].x = onGround[ corner ].x - onPivot[ corner ].x;
+		m_ground.shift[ corner ].y = onGround[ corner ].y - onPivot[ corner ].y;
 	}
 }
 
 //-------------------------------------------------------------------------------------------------
-/** The point a camera at zoom looks at to draw subject on pixel, kept where it shows no ground past
-	* the map at that zoom.  The same projection the fit was worked out with, so a subject stays on its
-	* circle's centre at every zoom. */
+/** The point a camera at zoom looks at to draw subject on pixel, moved the least that keeps what the
+	* pane shows now, its wedge round the meeting point where it is, inside the map.  The same
+	* projection the fit was worked out with, so a subject stays on its circle's centre at every zoom.
+	* shifted is how far the map moved it. */
 //-------------------------------------------------------------------------------------------------
-Coord2D ObserverCamera::paneLookPoint( const Coord2D &subject, const Coord2D &pixel, Real zoom ) const
+Coord2D ObserverCamera::paneLookPoint( Int pane, const Coord2D &subject, const Coord2D &pixel, Real zoom, Real *shifted ) const
 {
 	const Int width = TheDisplay->getWidth();
 	const Int height = TheDisplay->getHeight();
 	Coord2D corners[ 4 ];
-	scaleCorners( m_cornersAtOne, zoom, corners );
-	return ObserverCamera_keepInMap( ObserverCamera_lookPoint( subject, pixel, width, height, corners ), corners, 4, mapRegion() );
+	ObserverCamera_cornersAtZoom( m_ground, zoom, corners );
+	Coord2D vertices[ 8 ];
+	const Int vertexCount = ObserverCamera_panePolygon( m_paneRays, m_paneCount, pane, m_paneOrigin, width, height, vertices );
+	const Coord2D look = ObserverCamera_lookPoint( subject, pixel, width, height, corners );
+	const Coord2D kept = ObserverCamera_keepPaneInMap( look, vertices, vertexCount, width, height, corners, mapRegion() );
+	*shifted = sqrtf( ( kept.x - look.x ) * ( kept.x - look.x ) + ( kept.y - look.y ) * ( kept.y - look.y ) );
+	return kept;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1232,8 +1347,8 @@ void ObserverCamera::advancePanes( UnsignedInt frame )
 }
 
 //-------------------------------------------------------------------------------------------------
-/** The opening's panes: where each player's things crowd, his base at the start and his army once it
-	* is bigger than the base. */
+/** The opening's panes: how far each player's things spread round his fixed subject, his base and
+	* the army beside it. */
 //-------------------------------------------------------------------------------------------------
 void ObserverCamera::updateIntroPlaces( void )
 {
@@ -1255,10 +1370,69 @@ void ObserverCamera::updateIntroPlaces( void )
 		}
 	}
 	for( Int pane = 0; pane < m_paneCount; pane++ )
+		m_paneExtent[ pane ] = ObserverCamera_extentAround( sights[ pane ], m_paneSubject[ pane ], PANE_INTRO_REACH, PANE_FIT_LEAST_EXTENT );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The opening's subjects, fixed for the whole of it: each player's command centre, his start, or
+	* where his things crowd when he has none.  Following the crowd let a pane wander off after the
+	* first units to leave the base. */
+//-------------------------------------------------------------------------------------------------
+void ObserverCamera::pickIntroBases( void )
+{
+	std::vector< DirectorHeat > sights[ OBSERVER_MOST_PANES ];
+	Bool based[ OBSERVER_MOST_PANES ];
+	for( Int pane = 0; pane < m_paneCount; pane++ )
+		based[ pane ] = FALSE;
+	for( Object *obj = TheGameLogic->getFirstObject(); obj != NULL; obj = obj->getNextObject() )
 	{
+		const Int cost = obj->getTemplate()->friend_getBuildCost();
+		if( obj->isEffectivelyDead() )
+			continue;
+		for( Int pane = 0; pane < m_paneCount; pane++ )
+		{
+			if( obj->getControllingPlayer() != m_panePlayers[ pane ] )
+				continue;
+			if( !based[ pane ] && obj->isKindOf( KINDOF_COMMANDCENTER ) )
+			{
+				based[ pane ] = TRUE;
+				m_paneSubject[ pane ].x = obj->getPosition()->x;
+				m_paneSubject[ pane ].y = obj->getPosition()->y;
+			}
+			if( cost <= 0 )
+				continue;
+			DirectorHeat heat;
+			heat.position.x = obj->getPosition()->x;
+			heat.position.y = obj->getPosition()->y;
+			heat.weight = ObserverCamera_sightWeight( cost, obj->isKindOf( KINDOF_STRUCTURE ), FALSE, FALSE ) + 1.0f;
+			sights[ pane ].push_back( heat );
+		}
+	}
+	for( Int pane = 0; pane < m_paneCount; pane++ )
+	{
+		if( based[ pane ] )
+			continue;
 		Real heat = 0.0f;
 		ObserverCamera_hottestPlace( sights[ pane ], &m_paneSubject[ pane ], &heat );
-		m_paneExtent[ pane ] = ObserverCamera_extentAround( sights[ pane ], m_paneSubject[ pane ], PANE_INTRO_REACH, PANE_FIT_LEAST_EXTENT );
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Every 30 logic frames while there are panes: each one's subject, its zoom now and with the panes
+	* all in, and how far the map moved its look point off the subject, so a recording that drifts
+	* says whether the subject moved or the map pushed the camera. */
+//-------------------------------------------------------------------------------------------------
+void ObserverCamera::logPanes( UnsignedInt frame ) const
+{
+	enum { PANE_LOG_FRAMES = 30 };
+	if( m_paneCount < 2 || frame % PANE_LOG_FRAMES != 0 )
+		return;
+	for( Int pane = 0; pane < m_paneCount; pane++ )
+	{
+		const Coord2D &subject = pane == 0 && !m_intro ? m_panesLeftPlace : m_paneSubject[ pane ];
+		DEBUG_LOG(( "OBSCAM frame %u pane %d subject (%.0f,%.0f) extent %.0f zoom %.2f fit %.2f base %.2f map shift %.0f\n",
+			frame, pane, subject.x, subject.y, m_paneExtent[ pane ], paneZoom( pane ), m_paneFit[ pane ], m_paneBaseZoom,
+			m_paneShifted[ pane ] ));
 	}
 }
 
@@ -1297,14 +1471,20 @@ void ObserverCamera::fitPanes( UnsignedInt frame )
 	const Int width = TheDisplay->getWidth();
 	const Int height = TheDisplay->getHeight();
 	const Region2D map = mapRegion();
+	Coord2D middle;
+	middle.x = width * 0.5f;
+	middle.y = height * 0.5f;
 	const Bool moves = frame != m_paneFitFrame;
 	m_paneFitFrame = frame;
 	for( Int pane = 0; pane < m_paneCount; pane++ )
 	{
-		const Real reach = ObserverCamera_groundRadius( m_paneCentres[ pane ], m_paneRadii[ pane ], width, height, m_cornersAtOne );
-		const Real fitted = ObserverCamera_fitZoom( m_paneExtent[ pane ], reach, m_paneBaseZoom, m_paneBaseZoom * PANE_FIT_FARTHEST );
-		const Real wanted = ObserverCamera_zoomInMap( subjects[ pane ], m_paneCentres[ pane ], width, height, m_cornersAtOne,
-			map, m_paneBaseZoom, fitted );
+		const Real fitted = ObserverCamera_fitZoom( m_paneExtent[ pane ], m_paneCentres[ pane ], m_paneRadii[ pane ], width, height,
+			m_ground, m_paneBaseZoom, m_paneBaseZoom * PANE_FIT_FARTHEST );
+		// what the pane shows with them all in, the rays meeting in the middle
+		Coord2D vertices[ 8 ];
+		const Int vertexCount = ObserverCamera_panePolygon( m_paneRays, m_paneCount, pane, middle, width, height, vertices );
+		const Real wanted = ObserverCamera_zoomInMap( subjects[ pane ], m_paneCentres[ pane ], vertices, vertexCount, width, height,
+			m_ground, map, m_paneBaseZoom, fitted );
 		const Bool mapLowers = wanted < fitted && wanted < m_paneFit[ pane ];
 		if( !m_paneFitValid )
 			m_paneFit[ pane ] = wanted;
@@ -1363,7 +1543,7 @@ void ObserverCamera::stepPaneCameras( const ViewLocation &step, Real elapsedSeco
 		Coord2D glided;
 		glided.x = m_paneGlide[ pane ].getPosition().x;
 		glided.y = m_paneGlide[ pane ].getPosition().y;
-		const Coord2D camera = paneLookPoint( glided, pixel, zoom );
+		const Coord2D camera = paneLookPoint( pane, glided, pixel, zoom, &m_paneShifted[ pane ] );
 		m_paneView[ pane ].init( camera.x, camera.y, at.z, step.getAngle(), step.getPitch(), zoom );
 	}
 }
@@ -1661,6 +1841,8 @@ void ObserverCamera::update( UnsignedInt nowMilliseconds )
 		const Bool introStarting = !m_introDone;
 		measureCorners();
 		advancePanes( frame );
+		if( m_intro && introStarting )
+			pickIntroBases();
 		if( m_intro && ( introStarting || frame % DIRECTOR_SCAN_FRAMES == 0 ) )
 			updateIntroPlaces();
 	}
@@ -1733,7 +1915,7 @@ void ObserverCamera::update( UnsignedInt nowMilliseconds )
 		Coord2D pixel;
 		pixel.x = TheDisplay->getWidth() * 0.5f + fromMiddle.x;
 		pixel.y = TheDisplay->getHeight() * 0.5f + fromMiddle.y;
-		sitBack = paneLookPoint( sitBack, pixel, step.getZoom() );
+		sitBack = paneLookPoint( 0, sitBack, pixel, step.getZoom(), &m_paneShifted[ 0 ] );
 	}
 	m_mainOffset.x = step.getPosition().x - sitBack.x;
 	m_mainOffset.y = step.getPosition().y - sitBack.y;
@@ -1747,4 +1929,6 @@ void ObserverCamera::update( UnsignedInt nowMilliseconds )
 	m_driving = TRUE;
 
 	stepPaneCameras( step, elapsed / MILLISECONDS_PER_SECOND );
+	if( TheGlobalData->m_directorRecord )
+		logPanes( TheGameLogic->getFrame() );
 }
