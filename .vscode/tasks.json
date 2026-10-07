@@ -18,6 +18,71 @@
         "kind": "build",
         "isDefault": true
       }
+    },
+    {
+      "label": "Zero Hour: Play (no debugger)",
+      "type": "process",
+      "command": "${workspaceFolder}/build-linux/ZeroHourReforged/bin/generals",
+      "args": [
+        "-root",
+        "${workspaceFolder}/build-linux/play-root",
+        "-quickstart",
+        "-noshellmap",
+        "-multiInstance"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "ZH_USER_DATA_DIR": "${workspaceFolder}/build-linux/vscode-user"
+        }
+      },
+      "dependsOn": "Linux: Build Release",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "focus": true,
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "Zero Hour: AI skirmish (no debugger)",
+      "type": "process",
+      "command": "${workspaceFolder}/build-linux/ZeroHourReforged/bin/generals",
+      "args": [
+        "-root",
+        "${workspaceFolder}/build-linux/play-root",
+        "-quickstart",
+        "-noshellmap",
+        "-multiInstance",
+        "-randommap",
+        "0",
+        "2",
+        "-autoskirmish",
+        "2",
+        "-aidiff",
+        "brutal",
+        "-seed",
+        "0",
+        "-observer",
+        "-autocamera",
+        "10",
+        "-showHudOverlay",
+        "-maxframes",
+        "12000"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "ZH_USER_DATA_DIR": "${workspaceFolder}/build-linux/vscode-user"
+        }
+      },
+      "dependsOn": "Linux: Build Release",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "focus": true,
+        "panel": "dedicated"
+      }
     }
   ]
 }

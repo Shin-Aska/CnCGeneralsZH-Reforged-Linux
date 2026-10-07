@@ -33,20 +33,23 @@ user data and run without a visible window.
 The repository includes `.vscode/launch.json`, `.vscode/tasks.json` and an extension recommendation
 for [Microsoft C/C++](https://code.visualstudio.com/docs/cpp/launch-json-reference). GDB is the
 configured Linux debugger. The recommendation does not install the extension or debugger.
+The normal launch tasks run the executable directly and need neither the extension nor GDB.
 
-1. Open the repository root folder in VS Code with the C/C++ extension and GDB available.
+1. Open the repository root folder in VS Code.
 2. Make sure `build-linux/play-root` contains the prepared file-link farm. It is already present
    in the local checkout used for this validation.
-3. In **Run and Debug**, select **Zero Hour: Play (Linux)** and press **F5**. The build task runs
-   `CC=gcc-16 CXX=g++-16 ./build-linux.sh Release` before the debugger opens the main menu.
-4. Select **Zero Hour: AI skirmish (Linux)** instead to watch a seeded two-player match under GDB.
-   It uses seed 0, the `brutal` AI command-line setting, an observer camera and a 12,000-frame limit.
+3. For normal play, choose **Terminal → Run Task → Zero Hour: Play (no debugger)**. Select
+   **Zero Hour: AI skirmish (no debugger)** to watch an AI match instead.
+4. For debugging, have the C/C++ extension and GDB available, then select **Zero Hour: Play (Linux)**
+   in **Run and Debug** and press **F5**. **Zero Hour: AI skirmish (Linux)** runs the AI match under GDB.
 
-The profiles pass `-root`, `-quickstart`, `-noshellmap` and `-multiInstance`. They use the staged
+All four entries run `CC=gcc-16 CXX=g++-16 ./build-linux.sh Release` before launching. The AI entries
+use seed 0, the `brutal` AI command-line setting, an observer camera and a 12,000-frame limit.
+Each entry passes `-root`, `-quickstart`, `-noshellmap` and `-multiInstance`. They use the staged
 executable and overlay, and keep settings, saves and replays under `build-linux/vscode-user`.
-Edit the `-root` argument in `launch.json` if your prepared farm is elsewhere. Release contains
-debug symbols on this build, with optimized code; for a Debug build, change the build task's
-`Release` argument to `Debug`.
+Edit the `-root` argument in both `launch.json` and `tasks.json` if your prepared farm is elsewhere.
+Release contains debug symbols on this build, with optimized code; for a Debug build, change the
+build task's `Release` argument to `Debug`.
 
 For a fresh clone, build first, then follow [Checks with game data](#checks-with-game-data) and
 run the replay harness with `--keep`. When `build-linux/play-root` does not exist yet, copy its

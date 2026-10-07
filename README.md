@@ -124,16 +124,22 @@ explains how the harness prepares a file-link farm.
 
 ### Run from VS Code
 
-Open the repository folder in VS Code with the Microsoft C/C++ extension and GDB available.
-The checked-in `.vscode/` configuration provides these **Run and Debug** profiles:
+Open the repository folder in VS Code. For normal play, choose **Terminal → Run Task** and select:
+
+- **Zero Hour: Play (no debugger)** opens the main menu. Start a game through **Solo Play → Skirmish**.
+- **Zero Hour: AI skirmish (no debugger)** starts a seeded two-player AI match with an observer camera
+  and exits after 12,000 logic frames.
+
+These tasks launch the executable directly and require no debugger extension. With the Microsoft
+C/C++ extension and GDB available, **Run and Debug** also provides these profiles:
 
 - **Zero Hour: Play (Linux)** opens the main menu. Select it and press **F5**, then start a game
   through **Solo Play → Skirmish**.
 - **Zero Hour: AI skirmish (Linux)** starts a seeded two-player AI match with an observer camera
   and exits after 12,000 logic frames.
 
-Both profiles build and stage Release with GCC 16 before launching, use the file-link farm at
-`build-linux/play-root`, and put debugger settings, saves and replays in `build-linux/vscode-user`.
+All four entries build and stage Release with GCC 16 before launching, use the file-link farm at
+`build-linux/play-root`, and put game settings, saves and replays in `build-linux/vscode-user`.
 That root is already prepared in the development checkout used for this validation. For a fresh
 clone, follow [the setup in the Linux guide](docs/linux.md#vs-code-launch-setup) first.
 
