@@ -118,6 +118,10 @@ void ObserverCamera_trackFights( std::vector< DirectorMoment > &fights, const st
 /// whether a moment is worth the camera's time: every special power, and a fight that got hot enough
 /// and lasted.  The rest fizzled
 Bool ObserverCamera_worthFilming( const DirectorMoment &moment );
+/// the scouting pass's fights as its run ends on frame end: one still going was cut short by the end
+/// of the match, not by itself, and is counted as lasting, so a last battle that got hot is filmed
+/// rather than skipped as a fizzle
+void ObserverCamera_closeTimeline( std::vector< DirectorMoment > &moments, UnsignedInt end );
 /// the moment the director goes to wait at on frame: of the fights worth filming and the superweapons
 /// that begin within the pre-roll after frame, a superweapon first and then the hottest.  -1 for none
 Int ObserverCamera_prerollMoment( const std::vector< DirectorMoment > &timeline, UnsignedInt frame );

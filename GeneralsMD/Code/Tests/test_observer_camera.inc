@@ -627,6 +627,24 @@ TEST(the_scout_counts_a_fight_worth_filming_only_when_it_got_hot_and_lasted)
 	CHECK( ObserverCamera_worthFilming( scoutedPower( 100, 0.0f, 0.0f, FALSE ) ) );
 }
 
+TEST(a_hot_fight_the_end_of_the_scouting_run_cut_short_is_still_worth_filming)
+{
+	std::vector< DirectorMoment > timeline;
+	timeline.push_back( scoutedFight( 5865, 6000, 1218.0f, 1689.0f, 15.2f ) );
+	timeline.push_back( scoutedFight( 5000, 5100, 3000.0f, 3000.0f, 9.0f ) );
+	timeline.push_back( scoutedFight( 5950, 5940 + 2 * LOGICFRAMES_PER_SECOND, 4000.0f, 4000.0f, 2.0f ) );
+	timeline.push_back( scoutedPower( 5990, 500.0f, 500.0f, FALSE ) );
+	CHECK( !ObserverCamera_worthFilming( timeline[ 0 ] ) );
+	ObserverCamera_closeTimeline( timeline, 6000 );
+	CHECK( ObserverCamera_worthFilming( timeline[ 0 ] ) );
+	// one that was over before the end keeps its own end
+	CHECK_EQ( timeline[ 1 ].last, 5100u );
+	CHECK( !ObserverCamera_worthFilming( timeline[ 1 ] ) );
+	// still small at the end is still a fizzle
+	CHECK( !ObserverCamera_worthFilming( timeline[ 2 ] ) );
+	CHECK_EQ( timeline[ 3 ].last, 5990u );
+}
+
 TEST(the_director_goes_to_wait_for_a_fight_four_seconds_before_it_starts_superweapons_first)
 {
 	std::vector< DirectorMoment > timeline;

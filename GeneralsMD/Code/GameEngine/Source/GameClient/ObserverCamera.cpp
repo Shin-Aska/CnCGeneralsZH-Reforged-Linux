@@ -761,6 +761,18 @@ Bool ObserverCamera_worthFilming( const DirectorMoment &moment )
 }
 
 //-------------------------------------------------------------------------------------------------
+void ObserverCamera_closeTimeline( std::vector< DirectorMoment > &moments, UnsignedInt end )
+{
+	for( size_t index = 0; index < moments.size(); index++ )
+	{
+		DirectorMoment &fight = moments[ index ];
+		if( fight.power || fight.last + SCOUT_FIGHT_GAP < end )
+			continue;
+		fight.last = max( fight.last, fight.start + FIGHT_WORTH_FRAMES );
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
 Int ObserverCamera_prerollMoment( const std::vector< DirectorMoment > &timeline, UnsignedInt frame )
 {
 	Int best = -1;
@@ -1872,6 +1884,8 @@ void ObserverCamera::finishScout( void )
 		DEBUG_LOG(( "-directorscout: cannot write '%s', the filming pass films live\n", path ));
 		return;
 	}
+	// the last frame the pass counted on: a replay that ran out has gone back to the shell by now
+	ObserverCamera_closeTimeline( m_scouted, m_scoutScanned );
 	Int worth = 0;
 	for( size_t index = 0; index < m_scouted.size(); index++ )
 	{
@@ -1886,7 +1900,7 @@ void ObserverCamera::finishScout( void )
 		fprintf( file, "crc %u %u\n", m_scoutCrcs[ index ].frame, m_scoutCrcs[ index ].crc );
 	fclose( file );
 	DEBUG_LOG(( "-directorscout: %d moments, %d worth filming, %d CRC checkpoints, to frame %u, written to '%s'\n",
-		(Int)m_scouted.size(), worth, (Int)m_scoutCrcs.size(), TheGameLogic->getFrame(), path ));
+		(Int)m_scouted.size(), worth, (Int)m_scoutCrcs.size(), m_scoutScanned, path ));
 }
 
 //-------------------------------------------------------------------------------------------------
