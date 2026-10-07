@@ -2,6 +2,7 @@ CMakeLists.txt
 Data/Art/Textures/ReforgedBarAmericaCenter.tga
 Data/Art/Textures/ReforgedBarAmericaLeft.tga
 Data/Art/Textures/ReforgedBarAmericaRight.tga
+Data/Art/Textures/ReforgedBarChinaBeacon.tga
 Data/Art/Textures/ReforgedBarChinaCenter.tga
 Data/Art/Textures/ReforgedBarChinaLeft.tga
 Data/Art/Textures/ReforgedBarChinaRight.tga
@@ -91,6 +92,7 @@ Data/INI/CommandSetReforged.ini
 Data/INI/ControlBarSchemeReforged.ini
 Data/INI/FXListReforged.ini
 Data/INI/FixesReforged.ini
+Data/INI/MappedImages/HandCreated/ReforgedBarChinaBeacon.ini
 Data/INI/MappedImages/HandCreated/ReforgedOrders.ini
 Data/INI/ObjectCreationListReforged.ini
 Data/INI/ParticleSystemReforged.ini
@@ -3719,6 +3721,7 @@ Tools/build-posix.sh
 Tools/buildVersionUpdate/buildVersionUpdate.cpp
 Tools/buildVersionUpdate/buildVersionUpdate.dsp
 Tools/cheat_check.py
+Tools/china_beacon.py
 Tools/control_client.py
 Tools/d3d9posix_check.py
 Tools/ffmpeg-build-posix.sh
