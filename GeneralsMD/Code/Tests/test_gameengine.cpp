@@ -1276,14 +1276,14 @@ TEST(force_fire_is_the_attack_key_and_nothing_else)
 /* HotKey.cpp: a label's '&' letter and the key a Turkish keyboard types meet on one map key. */
 TEST(hotkey_names_fold_turkish_letters_and_case)
 {
-	CHECK_STR( HotKeyManager::nameOf( L'B' ).str(), "b" );
-	CHECK_STR( HotKeyManager::nameOf( L'b' ).str(), "b" );
-	CHECK( HotKeyManager::nameOf( 0x0130 ) == HotKeyManager::nameOf( L'i' ) );	// İptal against the i key
-	CHECK( HotKeyManager::nameOf( 0x0131 ) == HotKeyManager::nameOf( L'I' ) );
+	CHECK_STR( HotKeyManager::nameOf( u'B' ).str(), "b" );
+	CHECK_STR( HotKeyManager::nameOf( u'b' ).str(), "b" );
+	CHECK( HotKeyManager::nameOf( 0x0130 ) == HotKeyManager::nameOf( u'i' ) );	// İptal against the i key
+	CHECK( HotKeyManager::nameOf( 0x0131 ) == HotKeyManager::nameOf( u'I' ) );
 	CHECK( HotKeyManager::nameOf( 0x015E ) == HotKeyManager::nameOf( 0x015F ) );	// Ş ş
 	CHECK( HotKeyManager::nameOf( 0x00C7 ) == HotKeyManager::nameOf( 0x00E7 ) );	// Ç ç
 	CHECK( HotKeyManager::nameOf( 0x011E ) == HotKeyManager::nameOf( 0x011F ) );	// Ğ ğ
-	CHECK( HotKeyManager::nameOf( 0x015E ) != HotKeyManager::nameOf( L'^' ) );	// not its low byte
+	CHECK( HotKeyManager::nameOf( 0x015E ) != HotKeyManager::nameOf( u'^' ) );	// not its low byte
 }
 
 /* InGameUI.cpp: Classic is the game as shipped, where ctrl held was force fire. */
