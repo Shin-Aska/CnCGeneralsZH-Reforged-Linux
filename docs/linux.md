@@ -28,7 +28,39 @@ not tracked by Git, so a fresh clone uses the staged executable directly. The ga
 above open a window for interactive play; the automated checks later in this guide use isolated
 user data and run without a visible window.
 
+## VS Code launch setup
+
+The repository includes `.vscode/launch.json`, `.vscode/tasks.json` and an extension recommendation
+for [Microsoft C/C++](https://code.visualstudio.com/docs/cpp/launch-json-reference). GDB is the
+configured Linux debugger. The recommendation does not install the extension or debugger.
+
+1. Open the repository root folder in VS Code with the C/C++ extension and GDB available.
+2. Make sure `build-linux/play-root` contains the prepared file-link farm. It is already present
+   in the local checkout used for this validation.
+3. In **Run and Debug**, select **Zero Hour: Play (Linux)** and press **F5**. The build task runs
+   `CC=gcc-16 CXX=g++-16 ./build-linux.sh Release` before the debugger opens the main menu.
+4. Select **Zero Hour: AI skirmish (Linux)** instead to watch a seeded two-player match under GDB.
+   It uses seed 0, the `brutal` AI command-line setting, an observer camera and a 12,000-frame limit.
+
+The profiles pass `-root`, `-quickstart`, `-noshellmap` and `-multiInstance`. They use the staged
+executable and overlay, and keep settings, saves and replays under `build-linux/vscode-user`.
+Edit the `-root` argument in `launch.json` if your prepared farm is elsewhere. Release contains
+debug symbols on this build, with optimized code; for a Debug build, change the build task's
+`Release` argument to `Debug`.
+
+For a fresh clone, build first, then follow [Checks with game data](#checks-with-game-data) and
+run the replay harness with `--keep`. When `build-linux/play-root` does not exist yet, copy its
+kept file-link root into that location, replacing the example temporary path below:
+
+```sh
+cp -a /tmp/replay-check.REPLACE/root build-linux/play-root
+```
+
+This copies the directories and symbolic links, leaving the installed game archives where they
+are. A fresh clone does not contain those archives or the prepared root.
+
 ## Verified environment
+
 
 Validation date: **2026-10-07**. Native Linux x86_64 build; no Wine or Proton.
 

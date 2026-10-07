@@ -122,6 +122,21 @@ is generated locally under the ignored build directory and is not included in a 
 The executable command above works without it. [The validation guide](docs/linux.md#checks-with-game-data)
 explains how the harness prepares a file-link farm.
 
+### Run from VS Code
+
+Open the repository folder in VS Code with the Microsoft C/C++ extension and GDB available.
+The checked-in `.vscode/` configuration provides these **Run and Debug** profiles:
+
+- **Zero Hour: Play (Linux)** opens the main menu. Select it and press **F5**, then start a game
+  through **Solo Play → Skirmish**.
+- **Zero Hour: AI skirmish (Linux)** starts a seeded two-player AI match with an observer camera
+  and exits after 12,000 logic frames.
+
+Both profiles build and stage Release with GCC 16 before launching, use the file-link farm at
+`build-linux/play-root`, and put debugger settings, saves and replays in `build-linux/vscode-user`.
+That root is already prepared in the development checkout used for this validation. For a fresh
+clone, follow [the setup in the Linux guide](docs/linux.md#vs-code-launch-setup) first.
+
 ### Saves and game files
 
 The engine reads the installed archives and searches the fork's staged overlay first. It refuses

@@ -1,0 +1,84 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Zero Hour: Play (Linux)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build-linux/ZeroHourReforged/bin/generals",
+      "args": [
+        "-root",
+        "${workspaceFolder}/build-linux/play-root",
+        "-quickstart",
+        "-noshellmap",
+        "-multiInstance"
+      ],
+      "cwd": "${workspaceFolder}",
+      "environment": [
+        {
+          "name": "ZH_USER_DATA_DIR",
+          "value": "${workspaceFolder}/build-linux/vscode-user"
+        }
+      ],
+      "stopAtEntry": false,
+      "externalConsole": false,
+      "MIMode": "gdb",
+      "miDebuggerPath": "/usr/bin/gdb",
+      "setupCommands": [
+        {
+          "description": "Enable GDB pretty printing",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        }
+      ],
+      "preLaunchTask": "Linux: Build Release"
+    },
+    {
+      "name": "Zero Hour: AI skirmish (Linux)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build-linux/ZeroHourReforged/bin/generals",
+      "args": [
+        "-root",
+        "${workspaceFolder}/build-linux/play-root",
+        "-quickstart",
+        "-noshellmap",
+        "-multiInstance",
+        "-randommap",
+        "0",
+        "2",
+        "-autoskirmish",
+        "2",
+        "-aidiff",
+        "brutal",
+        "-seed",
+        "0",
+        "-observer",
+        "-autocamera",
+        "10",
+        "-showHudOverlay",
+        "-maxframes",
+        "12000"
+      ],
+      "cwd": "${workspaceFolder}",
+      "environment": [
+        {
+          "name": "ZH_USER_DATA_DIR",
+          "value": "${workspaceFolder}/build-linux/vscode-user"
+        }
+      ],
+      "stopAtEntry": false,
+      "externalConsole": false,
+      "MIMode": "gdb",
+      "miDebuggerPath": "/usr/bin/gdb",
+      "setupCommands": [
+        {
+          "description": "Enable GDB pretty printing",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        }
+      ],
+      "preLaunchTask": "Linux: Build Release"
+    }
+  ]
+}
