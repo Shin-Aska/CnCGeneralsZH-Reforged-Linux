@@ -104,6 +104,9 @@
 #include "WW3D2/predlod.h"
 #include "WW3D2/ww3d.h"
 #include "WW3D2/dx11runtime.h"
+#if defined(_WIN32)
+#include "dx11post.h"	//DX11Post_Set_Warps; the library is not built off Windows
+#endif
 
 #include "W3DDevice/GameClient/camerashakesystem.h"
 
@@ -205,6 +208,7 @@ W3DView::W3DView()
 	m_shakerAngles.X =0.0f;							// Proper camera shake generator & sources
 	m_shakerAngles.Y =0.0f;
 	m_shakerAngles.Z =0.0f;
+	m_distortionCount = 0;
 
 	m_recalcCamera = false;
 	m_isometricApplied = false;
@@ -1230,6 +1234,9 @@ void W3DView::reset( void )
 
 	Coord2D gb = { 0,0 };
 	setGuardBandBias( &gb );
+
+	// a blast from the last game must not come back on the first frames of the next one
+	m_distortionCount = 0;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2598,6 +2605,7 @@ void W3DView::draw( void )
 	Int64 tPostChainStart, tPostChainEnd, tIconStart, tIconEnd;
 	tPostChainStart = Clock_Ticks();
 #endif
+	updateScreenDistortions();
 	Direct3D11_Finish_Scene();
 #ifdef DEBUG_LOGGING
 	tPostChainEnd = Clock_Ticks();
@@ -4227,6 +4235,139 @@ void W3DView::shake( const Coord3D *epicenter, CameraShakeType shakeType )
 	// the hit that took a barrage over the top shook the camera less than the one before it.
 	if (m_shakeIntensity > TheGlobalData->m_maxShakeIntensity)
 		m_shakeIntensity = TheGlobalData->m_maxShakeIntensity;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A blast that bends the picture.  Only the Direct3D 11 post chain draws it: under Direct3D 9 the
+	* warps are handed over all the same and no pass reads them, and off Windows the list is dropped
+	* at the next draw.  A fifth blast on a full list pushes the oldest off. */
+//-------------------------------------------------------------------------------------------------
+void W3DView::addScreenDistortion( const Coord3D *epicenter, const ScreenDistortionInfo &info )
+{
+	// A Scud Storm missile plays its detonation FX twice, once from the missile and once from the
+	// damage weapon it fires, and the Chemical general's adds a Scud launcher's on top.  One blast
+	// in one place on one frame bends the picture once: the first to arrive is kept.
+	const UnsignedInt now = TheGameClient->getFrame();
+	for (Int i = 0; i < m_distortionCount; ++i)
+	{
+		const ScreenDistortion &other = m_distortions[i];
+		const Real dx = other.m_epicenter.x - epicenter->x;
+		const Real dy = other.m_epicenter.y - epicenter->y;
+		const Real sameSpot = 0.25f * other.m_info.m_radius;
+		if (now - other.m_startFrame <= 1 && dx * dx + dy * dy < sameSpot * sameSpot)
+			return;
+	}
+
+	if (m_distortionCount == MAX_SCREEN_DISTORTIONS)
+	{
+		for (Int i = 1; i < MAX_SCREEN_DISTORTIONS; ++i)
+			m_distortions[i - 1] = m_distortions[i];
+		--m_distortionCount;
+	}
+	ScreenDistortion &added = m_distortions[m_distortionCount++];
+	added.m_epicenter = *epicenter;
+	added.m_startFrame = now;
+	added.m_info = info;
+}
+
+static const Real MAX_DISTORTION_SCREEN_RADIUS = 0.35f;	///< fraction of the screen's height
+
+/** How far past the radius the ring runs.  Stopping at the radius it spent most of its strength
+	* under the fireball, where nothing behind it shows the bend; carried half as far again it rolls
+	* out over open ground while it still has the strength to be seen. */
+static const Real RING_TRAVEL = 1.5f;
+
+static Real distortionEase( Real x )
+{
+	return x * x * (3.0f - 2.0f * x);
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Ages the blasts on client frames, so a paused game holds the ring where it is, and blends into
+	* the next frame the way smooth motion blends the units, so at 120 fps the ring grows every frame
+	* rather than in thirtieths of a second.  The pull rises over the first 70% of its time and lets
+	* go over the rest, then the ring runs out past the radius, decelerating and widening, its
+	* strength falling off in a straight line so it is still there when it reaches clear ground.
+	* The world radius becomes a screen one by projecting the blast and a point a radius away along
+	* the camera's right vector, which is square to the line of sight and so gives the same size
+	* whichever way the camera is turned. */
+//-------------------------------------------------------------------------------------------------
+void W3DView::updateScreenDistortions( void )
+{
+#if defined(_WIN32)
+	DX11PostWarp warps[MAX_SCREEN_DISTORTIONS];
+	Int warpCount = 0;
+	const Real displayWidth = (Real)TheDisplay->getWidth();
+	const Real displayHeight = (Real)TheDisplay->getHeight();
+	const UnsignedInt frame = TheGameClient->getFrame();
+
+	Int kept = 0;
+	for (Int i = 0; i < m_distortionCount; ++i)
+	{
+		const ScreenDistortion &blast = m_distortions[i];
+		const ScreenDistortionInfo &info = blast.m_info;
+		const Real pullFrames = (Real)info.m_pullFrames;
+		const Real waveFrames = (Real)info.m_waveFrames;
+		Real age = (Real)(frame - blast.m_startFrame) + TheSmoothMotionAlpha - 1.0f;
+		if (age < 0.0f)
+			age = 0.0f;
+		if (age >= pullFrames + waveFrames)
+			continue;		// spent, or from a game before this one
+		m_distortions[kept++] = blast;
+
+		Real pull = 0.0f;
+		Real ringReach = 0.0f;
+		Real ringWidth = info.m_waveWidth;
+		Real ringStrength = 0.0f;
+		if (age < pullFrames)
+		{
+			const Real s = age / pullFrames;
+			pull = info.m_pullStrength * (s < 0.7f ? distortionEase(s / 0.7f) : 1.0f - distortionEase((s - 0.7f) / 0.3f));
+		}
+		else
+		{
+			const Real u = (age - pullFrames) / waveFrames;
+			const Real left = 1.0f - u;
+			ringReach = RING_TRAVEL * (1.0f - left * left);
+			ringWidth = info.m_waveWidth * (0.5f + u);
+			ringStrength = info.m_waveStrength * left * (u < 0.06f ? u / 0.06f : 1.0f);
+		}
+
+		ICoord2D centre;
+		if (worldToScreenTriReturn(&blast.m_epicenter, &centre) == WTS_INVALID)
+			continue;
+		const Vector3 right = m_3DCamera->Get_Transform().Get_X_Vector();
+		Coord3D edge = blast.m_epicenter;
+		edge.x += right.X * info.m_radius;
+		edge.y += right.Y * info.m_radius;
+		edge.z += right.Z * info.m_radius;
+		ICoord2D edgeScreen;
+		if (worldToScreenTriReturn(&edge, &edgeScreen) == WTS_INVALID)
+			continue;
+		const Real dx = (Real)(edgeScreen.x - centre.x);
+		const Real dy = (Real)(edgeScreen.y - centre.y);
+		const Real screenRadius = sqrtf(dx * dx + dy * dy);
+		if (screenRadius < 1.0f)
+			continue;
+
+		DX11PostWarp &warp = warps[warpCount++];
+		warp.CentreX = (Real)centre.x / displayWidth;
+		warp.CentreY = (Real)centre.y / displayHeight;
+		// Zoomed in, a nuke's radius is wider than the screen and the pull moved the whole picture;
+		// held to about a third of the height it stays a blast in the frame rather than the frame.
+		warp.Radius = screenRadius / displayHeight;
+		if (warp.Radius > MAX_DISTORTION_SCREEN_RADIUS)
+			warp.Radius = MAX_DISTORTION_SCREEN_RADIUS;
+		warp.Pull = pull;
+		warp.RingRadius = warp.Radius * ringReach;
+		warp.RingWidth = warp.Radius * ringWidth;
+		warp.RingStrength = ringStrength;
+	}
+	m_distortionCount = kept;
+	DX11Post_Set_Warps(warps, (unsigned)warpCount);
+#else
+	m_distortionCount = 0;
+#endif
 }
 
 //-------------------------------------------------------------------------------------------------
