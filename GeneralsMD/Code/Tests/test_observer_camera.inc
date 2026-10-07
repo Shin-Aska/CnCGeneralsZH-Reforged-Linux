@@ -654,14 +654,29 @@ TEST(the_director_goes_to_wait_for_a_fight_four_seconds_before_it_starts_superwe
 	timeline.push_back( scoutedPower( 1020, 6000.0f, 1000.0f, FALSE ) );
 	timeline.push_back( scoutedPower( 1100, 6000.0f, 3000.0f, TRUE ) );
 	const UnsignedInt preroll = 4 * LOGICFRAMES_PER_SECOND;
-	CHECK_EQ( ObserverCamera_prerollMoment( timeline, 1000 - preroll - 1 ), -1 );
-	CHECK_EQ( ObserverCamera_prerollMoment( timeline, 1000 - preroll ), 0 );
+	CHECK_EQ( ObserverCamera_prerollMoment( timeline, 1000 - preroll - 1, NULL ), -1 );
+	CHECK_EQ( ObserverCamera_prerollMoment( timeline, 1000 - preroll, NULL ), 0 );
 	// two coming up: the hotter
-	CHECK_EQ( ObserverCamera_prerollMoment( timeline, 1050 - preroll ), 1 );
+	CHECK_EQ( ObserverCamera_prerollMoment( timeline, 1050 - preroll, NULL ), 1 );
 	// a superweapon over any fight
-	CHECK_EQ( ObserverCamera_prerollMoment( timeline, 1100 - preroll ), 4 );
+	CHECK_EQ( ObserverCamera_prerollMoment( timeline, 1100 - preroll, NULL ), 4 );
 	// one that has started is no longer waited for
-	CHECK_EQ( ObserverCamera_prerollMoment( timeline, 1100 ), -1 );
+	CHECK_EQ( ObserverCamera_prerollMoment( timeline, 1100, NULL ), -1 );
+}
+
+TEST(the_director_does_not_wait_for_the_fight_the_other_pane_already_shows)
+{
+	std::vector< DirectorMoment > timeline;
+	timeline.push_back( scoutedFight( 1000, 1600, 1000.0f, 1000.0f, 6.0f ) );
+	timeline.push_back( scoutedFight( 1050, 1600, 3000.0f, 3000.0f, 9.0f ) );
+	const UnsignedInt preroll = 4 * LOGICFRAMES_PER_SECOND;
+	// pane 1 waits at the hotter one: pane 0 takes the other
+	Coord2D taken;
+	taken.x = 3100.0f;
+	taken.y = 3000.0f;
+	CHECK_EQ( ObserverCamera_prerollMoment( timeline, 1050 - preroll, &taken ), 0 );
+	// and with nothing else coming up, none
+	CHECK_EQ( ObserverCamera_prerollMoment( timeline, 1001, &taken ), -1 );
 }
 
 TEST(the_director_skips_only_a_fight_the_scout_saw_fizzle)
@@ -694,13 +709,25 @@ TEST(the_recording_splits_before_a_known_second_fight_far_from_the_first)
 	timeline.push_back( scoutedFight( 900, 1500, 6000.0f, 6000.0f, 2.0f ) );
 	Coord2D first;
 	first.x = first.y = 1000.0f;
-	Coord2D second;
 	const UnsignedInt preroll = 4 * LOGICFRAMES_PER_SECOND;
-	CHECK( !ObserverCamera_plannedSecond( timeline, first, 1000 - preroll - 1, &second ) );
-	CHECK( ObserverCamera_plannedSecond( timeline, first, 1000 - preroll, &second ) );
-	CHECK_NEAR( second.x, 4000.0f, 0.001f );
-	CHECK( ObserverCamera_plannedSecond( timeline, first, 1500, &second ) );
-	CHECK( !ObserverCamera_plannedSecond( timeline, first, 1501, &second ) );
+	CHECK_EQ( ObserverCamera_plannedSecond( timeline, first, 1000 - preroll - 1, FALSE ), -1 );
+	CHECK_EQ( ObserverCamera_plannedSecond( timeline, first, 1000 - preroll, FALSE ), 0 );
+	CHECK_EQ( ObserverCamera_plannedSecond( timeline, first, 1500, TRUE ), 0 );
+	CHECK_EQ( ObserverCamera_plannedSecond( timeline, first, 1501, TRUE ), -1 );
+}
+
+TEST(the_recording_splits_ahead_for_a_fight_still_to_begin_and_not_anew_for_one_under_way)
+{
+	std::vector< DirectorMoment > timeline;
+	timeline.push_back( scoutedFight( 5865, 6870, 1218.0f, 1689.0f, 15.2f ) );
+	Coord2D first;
+	first.x = 2346.0f;
+	first.y = 1668.0f;
+	// a split already up keeps the fight while it lasts
+	CHECK_EQ( ObserverCamera_plannedSecond( timeline, first, 6451, TRUE ), 0 );
+	// none up: where it began twenty seconds ago is no place to send a pane
+	CHECK_EQ( ObserverCamera_plannedSecond( timeline, first, 6451, FALSE ), -1 );
+	CHECK_EQ( ObserverCamera_plannedSecond( timeline, first, 5864, FALSE ), 0 );
 }
 
 TEST(a_timeline_line_reads_back_as_the_moment_it_was_written_from)

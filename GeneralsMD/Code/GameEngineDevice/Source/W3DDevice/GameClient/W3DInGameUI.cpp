@@ -548,9 +548,14 @@ void W3DInGameUI::draw( void )
 			W3DLeftHUDDraw( radarWindow, NULL );
 		}
 
-		// -directorrecord's score bar and pane labels, over everything and pane 0's alone like the lines
-		if( TheGlobalData->m_directorRecord && !TheObserverCamera.isDrawingSecond() )
-			drawDirectorBroadcast();
+		// -directorrecord's opening plates, each pane's own, then the score bar and a split's labels over
+		// everything and pane 0's alone like the lines
+		if( TheGlobalData->m_directorRecord )
+		{
+			drawDirectorIntroPlate();
+			if( !TheObserverCamera.isDrawingSecond() )
+				drawDirectorBroadcast();
+		}
 		return;
 	}
 

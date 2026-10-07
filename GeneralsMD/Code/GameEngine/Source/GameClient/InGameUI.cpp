@@ -10524,11 +10524,11 @@ void InGameUI::drawPeaceCountdown( UnsignedInt framesLeft )
 									peaceTimeColor( alpha ), GameMakeColor( 0, 0, 0, alpha ) );
 }
 
-// -directorrecord's broadcast is drawn in zerohour.gg's colours (website/resources/css/app.css,
-// docs/reference/BRAND.md): the ground at the site's veil, its panel, ink, muted text, the line and
-// the gold the pane lines are drawn in.  The site sets words in Chivo and numbers in JetBrains Mono;
-// Windows has neither, and these are the site's own fallbacks for the two
-static const Color BROADCAST_GROUND = GameMakeColor( 0x0c, 0x12, 0x20, 224 );
+// -directorrecord's broadcast is drawn in zerohour.gg's colours: the ground, its panel, ink, muted
+// text, the line and the gold the pane lines are drawn in.  The ground is opaque: at the site's veil
+// the gold of the pane lines under it showed through the score bar's corners.  The site sets words in
+// Chivo and numbers in JetBrains Mono; Windows has neither, and these are the site's own fallbacks
+static const Color BROADCAST_GROUND = GameMakeColor( 0x0c, 0x12, 0x20, 255 );
 static const Color BROADCAST_PANEL = GameMakeColor( 0x12, 0x1a, 0x2b, 255 );
 static const Color BROADCAST_LINE = GameMakeColor( 0x1f, 0x29, 0x40, 255 );
 static const Color BROADCAST_INK = GameMakeColor( 0xe8, 0xea, 0xf0, 255 );
@@ -10570,6 +10570,73 @@ static Color broadcastFade( Color color, Real share )
 	return GameMakeColor( red, green, blue, (UnsignedByte)REAL_TO_INT( alpha * share ) );
 }
 
+/** A size given for the 720 row picture, in this picture's pixels and font points. */
+static Int broadcastPixels( Real at720 )
+{
+	return max( REAL_TO_INT( at720 * ( TheDisplay->getHeight() / BROADCAST_ROWS ) ), 1 );
+}
+
+static Int broadcastPoints( Int at720 )
+{
+	return REAL_TO_INT( at720 * ( TheDisplay->getHeight() / BROADCAST_ROWS ) );
+}
+
+/** What the broadcast calls a player and what goes beside it.  Every AI's name is its difficulty, so
+	* a plate read "Hard AI vs Hard AI": an AI is called by its general, the difficulty beside it. */
+static UnicodeString broadcastName( Player *player )
+{
+	return player->getPlayerType() == PLAYER_COMPUTER ? player->getPlayerTemplate()->getDisplayName() : player->getPlayerDisplayName();
+}
+
+static UnicodeString broadcastSide( Player *player )
+{
+	return player->getPlayerType() == PLAYER_COMPUTER ? player->getPlayerDisplayName() : player->getPlayerTemplate()->getDisplayName();
+}
+
+/// a label on the picture: pieces of text side by side, each its colour, on the ground with the gold
+/// rule along its bottom
+struct BroadcastPlate
+{
+	std::vector< DisplayString * > pieces;
+	std::vector< Color > colors;
+};
+
+static void broadcastPlateSize( const BroadcastPlate &plate, Int *width, Int *height )
+{
+	Int textWidth = 0, textHeight = 0;
+	for( size_t piece = 0; piece < plate.pieces.size(); piece++ )
+	{
+		Int pieceWidth = 0, pieceHeight = 0;
+		plate.pieces[ piece ]->getSize( &pieceWidth, &pieceHeight );
+		textWidth += pieceWidth + ( piece > 0 ? broadcastPixels( BROADCAST_GAP ) / 2 : 0 );
+		textHeight = max( textHeight, pieceHeight );
+	}
+	*width = textWidth + 2 * broadcastPixels( BROADCAST_PAD );
+	*height = textHeight + broadcastPixels( BROADCAST_PAD ) + broadcastPixels( BROADCAST_RULE );
+}
+
+/** The plate with its top left at left, top, faded to shown. */
+static void drawBroadcastPlate( const BroadcastPlate &plate, Int left, Int top, Real shown )
+{
+	const Int pad = broadcastPixels( BROADCAST_PAD );
+	const Int gap = broadcastPixels( BROADCAST_GAP );
+	const Int rule = broadcastPixels( BROADCAST_RULE );
+	Int width = 0, height = 0;
+	broadcastPlateSize( plate, &width, &height );
+	const Int textHeight = height - pad - rule;
+	TheDisplay->drawFillRect( left, top, width, height, broadcastFade( BROADCAST_GROUND, shown ) );
+	TheDisplay->drawFillRect( left, top + height - rule, width, rule, broadcastFade( BROADCAST_GOLD, shown ) );
+	Int x = left + pad;
+	for( size_t piece = 0; piece < plate.pieces.size(); piece++ )
+	{
+		Int pieceWidth = 0, pieceHeight = 0;
+		plate.pieces[ piece ]->getSize( &pieceWidth, &pieceHeight );
+		plate.pieces[ piece ]->draw( x, top + pad / 2 + ( textHeight - pieceHeight ) / 2, broadcastFade( plate.colors[ piece ], shown ),
+			broadcastFade( BROADCAST_GROUND, shown ) );
+		x += pieceWidth + gap / 2;
+	}
+}
+
 //-------------------------------------------------------------------------------------------------
 DisplayString *InGameUI::broadcastText( const std::string &key, const UnicodeString &text, const char *font, Int points, Bool bold )
 {
@@ -10601,8 +10668,8 @@ struct BroadcastRow
 	* teams face each other across it; in a free for all the first half of the list is on the left.
 	* Under the rows the armies pull on one bar: the left's from the left edge, the right's from the
 	* right, each player his colour, gold at the middle so the side ahead is the one past it.  While
-	* there are panes each carries a plate in the top of its circle, inside its wedge and clear of the
-	* lines and the radar: the player's name and side in the opening, the fight's players in a split.
+	* a split is up each pane carries a plate in the top of its circle, inside its wedge and clear of
+	* the lines and the radar, naming the fight's players.
 	* Everything is read off the players and their objects; nothing here writes the logic. */
 //-------------------------------------------------------------------------------------------------
 void InGameUI::drawDirectorBroadcast( void )
@@ -10615,15 +10682,12 @@ void InGameUI::drawDirectorBroadcast( void )
 	std::stable_sort( players.begin(), players.end(), []( const SpectatorStats &a, const SpectatorStats &b )
 		{ return a.team != b.team ? a.team < b.team : a.player->getPlayerIndex() < b.player->getPlayerIndex(); } );
 
-	const Real unit = TheDisplay->getHeight() / BROADCAST_ROWS;
-	auto pixels = [ unit ]( Real at720 ) { return max( REAL_TO_INT( at720 * unit ), 1 ); };
-	auto points = [ unit ]( Int at720 ) { return REAL_TO_INT( at720 * unit ); };
-	const Int pad = pixels( BROADCAST_PAD );
-	const Int gap = pixels( BROADCAST_GAP );
-	const Int swatch = pixels( BROADCAST_SWATCH );
-	const Int rowGap = pixels( BROADCAST_ROW_GAP );
-	const Int rule = pixels( BROADCAST_RULE );
-	const Int tug = pixels( BROADCAST_TUG );
+	const Int pad = broadcastPixels( BROADCAST_PAD );
+	const Int gap = broadcastPixels( BROADCAST_GAP );
+	const Int swatch = broadcastPixels( BROADCAST_SWATCH );
+	const Int rowGap = broadcastPixels( BROADCAST_ROW_GAP );
+	const Int rule = broadcastPixels( BROADCAST_RULE );
+	const Int tug = broadcastPixels( BROADCAST_TUG );
 
 	const Int teams = players.back().team + 1;
 	size_t leftCount = ( players.size() + 1 ) / 2;
@@ -10644,11 +10708,10 @@ void InGameUI::drawDirectorBroadcast( void )
 		BroadcastRow row;
 		row.stats = &stats;
 		row.color = clientPlayerColor( stats.player );
-		row.name = broadcastText( "name" + seat, stats.player->getPlayerDisplayName(), BROADCAST_WORDS, points( BROADCAST_NAME_POINTS ), TRUE );
-		row.side = broadcastText( "side" + seat, stats.player->getPlayerTemplate()->getDisplayName(), BROADCAST_WORDS,
-			points( BROADCAST_SIDE_POINTS ), FALSE );
-		row.cash = broadcastText( "cash" + seat, broadcastNumber( "$", stats.cash ), BROADCAST_NUMBERS, points( BROADCAST_NAME_POINTS ), TRUE );
-		row.army = broadcastText( "army" + seat, broadcastNumber( "", stats.army ), BROADCAST_NUMBERS, points( BROADCAST_NAME_POINTS ), TRUE );
+		row.name = broadcastText( "name" + seat, broadcastName( stats.player ), BROADCAST_WORDS, broadcastPoints( BROADCAST_NAME_POINTS ), TRUE );
+		row.side = broadcastText( "side" + seat, broadcastSide( stats.player ), BROADCAST_WORDS, broadcastPoints( BROADCAST_SIDE_POINTS ), FALSE );
+		row.cash = broadcastText( "cash" + seat, broadcastNumber( "$", stats.cash ), BROADCAST_NUMBERS, broadcastPoints( BROADCAST_NAME_POINTS ), TRUE );
+		row.army = broadcastText( "army" + seat, broadcastNumber( "", stats.army ), BROADCAST_NUMBERS, broadcastPoints( BROADCAST_NAME_POINTS ), TRUE );
 		Int width = 0, height = 0;
 		row.name->getSize( &width, &height );
 		nameWidth = max( nameWidth, width );
@@ -10665,18 +10728,18 @@ void InGameUI::drawDirectorBroadcast( void )
 	}
 
 	DisplayString *cashHead = broadcastText( "cashhead", TheGameText->fetch( "GUI:HudStatCash" ), BROADCAST_NUMBERS,
-		points( BROADCAST_HEAD_POINTS ), FALSE );
+		broadcastPoints( BROADCAST_HEAD_POINTS ), FALSE );
 	DisplayString *armyHead = broadcastText( "armyhead", TheGameText->fetch( "GUI:HudStatArmy" ), BROADCAST_NUMBERS,
-		points( BROADCAST_HEAD_POINTS ), FALSE );
+		broadcastPoints( BROADCAST_HEAD_POINTS ), FALSE );
 	UnicodeString clockText;
 	clockText.translate( AsciiString( spectatorClock( TheGameLogic->getFrame() ).c_str() ) );
-	DisplayString *clock = broadcastText( "clock", clockText, BROADCAST_NUMBERS, points( BROADCAST_CLOCK_POINTS ), TRUE );
+	DisplayString *clock = broadcastText( "clock", clockText, BROADCAST_NUMBERS, broadcastPoints( BROADCAST_CLOCK_POINTS ), TRUE );
 	// the number columns are as wide as six digits whatever they hold, so the bar does not change its
 	// width every time a player's cash crosses a thousand
 	DisplayString *cashWidest = broadcastText( "cashwidest", broadcastNumber( "$", BROADCAST_WIDEST ), BROADCAST_NUMBERS,
-		points( BROADCAST_NAME_POINTS ), TRUE );
+		broadcastPoints( BROADCAST_NAME_POINTS ), TRUE );
 	DisplayString *armyWidest = broadcastText( "armywidest", broadcastNumber( "", BROADCAST_WIDEST ), BROADCAST_NUMBERS,
-		points( BROADCAST_NAME_POINTS ), TRUE );
+		broadcastPoints( BROADCAST_NAME_POINTS ), TRUE );
 	Int cashHeadWidth = 0, armyHeadWidth = 0, headHeight = 0, clockWidth = 0, clockHeight = 0, widestHeight = 0;
 	Int cashWidestWidth = 0, armyWidestWidth = 0;
 	cashHead->getSize( &cashHeadWidth, &headHeight );
@@ -10767,72 +10830,83 @@ void InGameUI::drawDirectorBroadcast( void )
 	TheObserverCamera.addBroadcast( bar );
 	TheObserverCamera.setBroadcastTop( (Real)( height + pad ) );
 
-	// a plate a pane, faded in and out with the panes
+	// a split's plate a pane, faded in and out with the panes; the opening's are each pane's own
 	const Real shown = TheObserverCamera.getPaneProgress();
-	const Int panes = TheObserverCamera.getDrawnPaneCount();
-	DisplayString *versus = broadcastText( "versus", UnicodeString( u"vs" ), BROADCAST_WORDS, points( BROADCAST_SIDE_POINTS ), FALSE );
+	const Int panes = TheObserverCamera.isIntro() ? 0 : TheObserverCamera.getDrawnPaneCount();
+	DisplayString *versus = broadcastText( "versus", UnicodeString( u"vs" ), BROADCAST_WORDS, broadcastPoints( BROADCAST_SIDE_POINTS ), FALSE );
 	for( Int pane = 0; pane < panes && panes >= 2; pane++ )
 	{
 		const PlayerMaskType sides = TheObserverCamera.getPaneSides( pane );
-		std::vector< DisplayString * > pieces;
-		std::vector< Color > colors;
-		const BroadcastRow *only = NULL;
+		BroadcastPlate plate;
 		for( size_t index = 0; index < rows.size(); index++ )
 		{
 			if( ( rows[ index ].stats->player->getPlayerMask() & sides ) == 0 )
 				continue;
-			if( !pieces.empty() )
+			if( !plate.pieces.empty() )
 			{
-				pieces.push_back( versus );
-				colors.push_back( BROADCAST_MUTED );
+				plate.pieces.push_back( versus );
+				plate.colors.push_back( BROADCAST_MUTED );
 			}
-			pieces.push_back( rows[ index ].name );
-			colors.push_back( rows[ index ].color );
-			only = &rows[ index ];
+			plate.pieces.push_back( rows[ index ].name );
+			plate.colors.push_back( rows[ index ].color );
 		}
-		// the opening's pane is one player's, and his side goes beside his name
-		if( pieces.size() == 1 )
-		{
-			pieces.push_back( only->side );
-			colors.push_back( BROADCAST_MUTED );
-		}
-		if( pieces.empty() )
+		if( plate.pieces.empty() )
 			continue;
 
-		Int textWidth = 0, textHeight = 0;
-		for( size_t piece = 0; piece < pieces.size(); piece++ )
-		{
-			Int pieceWidth = 0, pieceHeight = 0;
-			pieces[ piece ]->getSize( &pieceWidth, &pieceHeight );
-			textWidth += pieceWidth + ( piece > 0 ? gap / 2 : 0 );
-			textHeight = max( textHeight, pieceHeight );
-		}
-		const Int plateWidth = textWidth + 2 * pad;
-		const Int plateHeight = textHeight + pad + rule;
+		Int plateWidth = 0, plateHeight = 0;
+		broadcastPlateSize( plate, &plateWidth, &plateHeight );
 		Coord2D centre;
 		Real radius = 0.0f;
 		TheObserverCamera.getPaneCircle( pane, &centre, &radius );
 		const Int plateTop = REAL_TO_INT( ObserverCamera_paneLabelTop( centre, radius, (Real)plateWidth, (Real)plateHeight ) );
 		const Int plateLeft = REAL_TO_INT( centre.x ) - plateWidth / 2;
-		TheDisplay->drawFillRect( plateLeft, plateTop, plateWidth, plateHeight, broadcastFade( BROADCAST_GROUND, shown ) );
-		TheDisplay->drawFillRect( plateLeft, plateTop + plateHeight - rule, plateWidth, rule, broadcastFade( BROADCAST_GOLD, shown ) );
-		Int x = plateLeft + pad;
-		for( size_t piece = 0; piece < pieces.size(); piece++ )
-		{
-			Int pieceWidth = 0, pieceHeight = 0;
-			pieces[ piece ]->getSize( &pieceWidth, &pieceHeight );
-			pieces[ piece ]->draw( x, plateTop + pad / 2 + ( textHeight - pieceHeight ) / 2, broadcastFade( colors[ piece ], shown ),
-				broadcastFade( BROADCAST_GROUND, shown ) );
-			x += pieceWidth + gap / 2;
-		}
+		drawBroadcastPlate( plate, plateLeft, plateTop, shown );
 
-		IRegion2D plate;
-		plate.lo.x = plateLeft;
-		plate.lo.y = plateTop;
-		plate.hi.x = plateLeft + plateWidth;
-		plate.hi.y = plateTop + plateHeight;
-		TheObserverCamera.addBroadcast( plate );
+		IRegion2D drawn;
+		drawn.lo.x = plateLeft;
+		drawn.lo.y = plateTop;
+		drawn.hi.x = plateLeft + plateWidth;
+		drawn.hi.y = plateTop + plateHeight;
+		TheObserverCamera.addBroadcast( drawn );
 	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The opening's plate for the pane being drawn, the player's name with a player's side beside it,
+	* hung just over his command centre through the camera drawing that pane, so it stays on the
+	* building as the camera moves, zooms and slides.  Drawn in the pane's own draw it lies on that
+	* pane's picture, and the recording takes it with the pane; held on the screen when the building
+	* goes off it, and faded with the panes. */
+//-------------------------------------------------------------------------------------------------
+void InGameUI::drawDirectorIntroPlate( void )
+{
+	const Real shown = TheObserverCamera.getPaneProgress();
+	if( !TheObserverCamera.isIntro() || shown <= 0.0f )
+		return;
+	const Int pane = TheObserverCamera.getDrawingPane();
+	ICoord2D over;
+	if( TheTacticalView->worldToScreenTriReturn( &TheObserverCamera.getIntroMark( pane ), &over ) == View::WTS_INVALID )
+		return;
+
+	Player *player = ThePlayerList->getNthPlayer( TheObserverCamera.getIntroPlayerIndex( pane ) );
+	const std::string seat = std::to_string( player->getPlayerIndex() );
+	BroadcastPlate plate;
+	plate.pieces.push_back( broadcastText( "name" + seat, broadcastName( player ), BROADCAST_WORDS, broadcastPoints( BROADCAST_NAME_POINTS ), TRUE ) );
+	plate.colors.push_back( clientPlayerColor( player ) );
+	// an AI is called by its side already
+	if( player->getPlayerType() != PLAYER_COMPUTER )
+	{
+		plate.pieces.push_back( broadcastText( "side" + seat, broadcastSide( player ), BROADCAST_WORDS, broadcastPoints( BROADCAST_SIDE_POINTS ), FALSE ) );
+		plate.colors.push_back( BROADCAST_MUTED );
+	}
+
+	Int plateWidth = 0, plateHeight = 0;
+	broadcastPlateSize( plate, &plateWidth, &plateHeight );
+	const Int left = over.x - plateWidth / 2;
+	const Int top = over.y - broadcastPixels( BROADCAST_PAD ) - plateHeight;
+	const Int rightmost = (Int)TheDisplay->getWidth() - plateWidth;
+	const Int lowest = (Int)TheDisplay->getHeight() - plateHeight;
+	drawBroadcastPlate( plate, min( max( left, 0 ), rightmost ), min( max( top, 0 ), lowest ), shown );
 }
 
 //-------------------------------------------------------------------------------------------------

@@ -139,6 +139,9 @@ static const Real PANE_FIT_LEAST_EXTENT = 150.0f;
 static const Real PANE_INTRO_REACH = 500.0f;
 /// how much of the way to a new fit a pane's zoom goes each logic frame, about a second and a half
 static const Real PANE_FIT_FOLLOW = 0.06f;
+/// how far over a command centre's own height its player's plate hangs: the flags on a GLA palace
+/// stand past it, and zoomed in they ran into the plate
+static const Real PANE_MARK_LIFT = 15.0f;
 /// the scouting pass: a crowd of hits this near a fight still going is more of that fight
 static const Real SCOUT_SAME_FIGHT = 2.0f * DIRECTOR_GATHER_RADIUS;
 /// a fight with no crowd near it for this long is over; its hits stay hot DIRECTOR_HEAT_FRAMES on top
@@ -773,7 +776,7 @@ void ObserverCamera_closeTimeline( std::vector< DirectorMoment > &moments, Unsig
 }
 
 //-------------------------------------------------------------------------------------------------
-Int ObserverCamera_prerollMoment( const std::vector< DirectorMoment > &timeline, UnsignedInt frame )
+Int ObserverCamera_prerollMoment( const std::vector< DirectorMoment > &timeline, UnsignedInt frame, const Coord2D *taken )
 {
 	Int best = -1;
 	for( size_t index = 0; index < timeline.size(); index++ )
@@ -782,6 +785,8 @@ Int ObserverCamera_prerollMoment( const std::vector< DirectorMoment > &timeline,
 		if( moment.start <= frame || moment.start > frame + DIRECTOR_PREROLL_FRAMES )
 			continue;
 		if( moment.power ? !moment.superweapon : !ObserverCamera_worthFilming( moment ) )
+			continue;
+		if( taken != NULL && within( moment.place, *taken, SPLIT_APART ) )
 			continue;
 		if( best >= 0 )
 		{
@@ -818,7 +823,7 @@ Bool ObserverCamera_fizzles( const std::vector< DirectorMoment > &timeline, cons
 }
 
 //-------------------------------------------------------------------------------------------------
-Bool ObserverCamera_plannedSecond( const std::vector< DirectorMoment > &timeline, const Coord2D &first, UnsignedInt frame, Coord2D *second )
+Int ObserverCamera_plannedSecond( const std::vector< DirectorMoment > &timeline, const Coord2D &first, UnsignedInt frame, Bool keeping )
 {
 	Int best = -1;
 	for( size_t index = 0; index < timeline.size(); index++ )
@@ -826,15 +831,14 @@ Bool ObserverCamera_plannedSecond( const std::vector< DirectorMoment > &timeline
 		const DirectorMoment &fight = timeline[ index ];
 		if( fight.power || !ObserverCamera_worthFilming( fight ) || frame + DIRECTOR_PREROLL_FRAMES < fight.start || frame > fight.last )
 			continue;
+		if( !keeping && frame >= fight.start )
+			continue;
 		if( within( fight.place, first, SPLIT_APART ) )
 			continue;
 		if( best < 0 || fight.peak > timeline[ best ].peak )
 			best = (Int)index;
 	}
-	if( best < 0 )
-		return FALSE;
-	*second = timeline[ best ].place;
-	return TRUE;
+	return best;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -956,6 +960,7 @@ void ObserverCamera::reset( void )
 		m_paneRays[ pane ] = 0.0f;
 		m_panePlayers[ pane ] = NULL;
 		m_paneSubject[ pane ].x = m_paneSubject[ pane ].y = 0.0f;
+		m_paneMark[ pane ].x = m_paneMark[ pane ].y = m_paneMark[ pane ].z = 0.0f;
 		m_paneCentres[ pane ].x = m_paneCentres[ pane ].y = 0.0f;
 		m_paneRadii[ pane ] = 0.0f;
 		m_paneExtent[ pane ] = PANE_FIT_LEAST_EXTENT;
@@ -1394,12 +1399,19 @@ void ObserverCamera::updateSplit( void )
 	ObserverCamera_secondPlace( m_fights, m_place, &second, &secondHeat );
 	if( secondHeat > 0.0f && ObserverCamera_fizzles( m_timeline, second, frame ) )
 		secondHeat = 0.0f;
-	// the scouting pass knows the pairs: a second fight worth filming going on or about to begin far
-	// enough away splits the picture before its first shot, and keeps it split while it lasts
-	Coord2D planned;
-	const Bool plannedSplit = m_placeKind != PLACE_SIGHT && ObserverCamera_plannedSecond( m_timeline, m_place, frame, &planned );
-	if( plannedSplit && ( secondHeat <= 0.0f || !within( second, planned, SPLIT_APART ) ) )
-		second = planned;
+	// the scouting pass knows the pairs: a second fight worth filming about to begin far enough away
+	// splits the picture before its first shot, pane 1 waiting where it begins, and keeps it split
+	// while it lasts.  Once it is going it is wherever the hits are, and in a lull pane 1 stays put;
+	// sent back to where it began, pane 1 sat on empty ground while the fight went on elsewhere.  The
+	// director that moved onto pane 1's fight has been handed it, and the split ends there: kept on
+	// by the timeline, pane 1 went over to the fight pane 0 had just left
+	const Bool handedOver = m_split && within( m_place, m_secondPlace, SPLIT_APART );
+	const Int planned = m_placeKind != PLACE_SIGHT ? ObserverCamera_plannedSecond( m_timeline, m_place, frame, m_split ) : -1;
+	const Bool plannedSplit = planned >= 0;
+	if( plannedSplit && frame < m_timeline[ planned ].start && ( secondHeat <= 0.0f || !within( second, m_timeline[ planned ].place, SPLIT_APART ) ) )
+		second = m_timeline[ planned ].place;
+	else if( plannedSplit && secondHeat <= 0.0f )
+		second = m_secondPlace;
 
 	// the second fight is followed once it has moved a little, the way the director follows its own
 	Coord2D shown = m_secondPlace;
@@ -1412,7 +1424,7 @@ void ObserverCamera::updateSplit( void )
 	const Real apart = sqrtf( ax * ax + ay * ay );
 
 	const UnsignedInt since = frame >= m_splitChanged ? frame - m_splitChanged : 0;
-	const Bool split = plannedSplit || ObserverCamera_holdSplit( m_split, firstHeat, secondHeat, apart, since );
+	const Bool split = !handedOver && ( plannedSplit || ObserverCamera_holdSplit( m_split, firstHeat, secondHeat, apart, since ) );
 	if( split != m_split )
 	{
 		DEBUG_LOG(( "OBSCAM frame %u split %s, first heat %.1f, second (%.0f,%.0f) heat %.1f, %.0f apart%s\n", frame,
@@ -1483,6 +1495,16 @@ void ObserverCamera::advancePanes( UnsignedInt frame )
 		case PANES_HELD:
 			if( m_intro ? elapsed >= PANE_INTRO_FRAMES : !m_split )
 				next = PANES_OUT;
+			// the opening ends on pane 0's base and the director stays there until something happens;
+			// handed whatever sight it had come to meanwhile, it glided over empty ground to another base
+			if( next == PANES_OUT && m_intro && ( !m_placeValid || m_placeKind == PLACE_SIGHT ) )
+			{
+				m_place = m_paneSubject[ 0 ];
+				m_placeKind = PLACE_SIGHT;
+				m_placeHeight = 0.0f;
+				m_placeSince = frame;
+				m_placeValid = TRUE;
+			}
 			break;
 		case PANES_OUT:
 			if( elapsed >= PANE_SLIDE_FRAMES )
@@ -1575,7 +1597,7 @@ void ObserverCamera::updateIntroPlaces( void )
 //-------------------------------------------------------------------------------------------------
 /** The opening's subjects, fixed for the whole of it: each player's command centre, his start, or
 	* where his things crowd when he has none.  Following the crowd let a pane wander off after the
-	* first units to leave the base. */
+	* first units to leave the base.  His plate hangs from the top of the command centre. */
 //-------------------------------------------------------------------------------------------------
 void ObserverCamera::pickIntroBases( void )
 {
@@ -1597,6 +1619,8 @@ void ObserverCamera::pickIntroBases( void )
 				based[ pane ] = TRUE;
 				m_paneSubject[ pane ].x = obj->getPosition()->x;
 				m_paneSubject[ pane ].y = obj->getPosition()->y;
+				m_paneMark[ pane ] = *obj->getPosition();
+				m_paneMark[ pane ].z += obj->getGeometryInfo().getMaxHeightAbovePosition() + PANE_MARK_LIFT;
 			}
 			if( cost <= 0 )
 				continue;
@@ -1613,6 +1637,9 @@ void ObserverCamera::pickIntroBases( void )
 			continue;
 		Real heat = 0.0f;
 		ObserverCamera_hottestPlace( sights[ pane ], &m_paneSubject[ pane ], &heat );
+		m_paneMark[ pane ].x = m_paneSubject[ pane ].x;
+		m_paneMark[ pane ].y = m_paneSubject[ pane ].y;
+		m_paneMark[ pane ].z = TheTerrainLogic->getGroundHeight( m_paneSubject[ pane ].x, m_paneSubject[ pane ].y );
 	}
 }
 
@@ -1768,10 +1795,25 @@ Bool ObserverCamera::isBroadcast( Int x, Int y ) const
 }
 
 //-------------------------------------------------------------------------------------------------
+/** Where each pane's subject is drawn, the way update and stepPaneCameras put it: pane 0's moves from
+	* the middle of the screen to its circle as the panes come in, every other pane's circle slides
+	* with the meeting point.  Moved with the meeting point as well, pane 0's label hung under its
+	* subject while the panes slid, over the fight it was naming. */
+//-------------------------------------------------------------------------------------------------
 void ObserverCamera::getPaneCircle( Int pane, Coord2D *centre, Real *radius ) const
 {
-	centre->x = m_paneCentres[ pane ].x + m_paneOrigin.x - TheDisplay->getWidth() * 0.5f;
-	centre->y = m_paneCentres[ pane ].y + m_paneOrigin.y - TheDisplay->getHeight() * 0.5f;
+	const Real middleX = TheDisplay->getWidth() * 0.5f;
+	const Real middleY = TheDisplay->getHeight() * 0.5f;
+	if( pane == 0 )
+	{
+		centre->x = middleX + ( m_paneCentres[ 0 ].x - middleX ) * m_paneProgress;
+		centre->y = middleY + ( m_paneCentres[ 0 ].y - middleY ) * m_paneProgress;
+	}
+	else
+	{
+		centre->x = m_paneCentres[ pane ].x + m_paneOrigin.x - middleX;
+		centre->y = m_paneCentres[ pane ].y + m_paneOrigin.y - middleY;
+	}
 	*radius = m_paneRadii[ pane ];
 }
 
@@ -1781,14 +1823,18 @@ void ObserverCamera::getPaneCircle( Int pane, Coord2D *centre, Real *radius ) co
 //-------------------------------------------------------------------------------------------------
 PlayerMaskType ObserverCamera::getPaneSides( Int pane ) const
 {
-	if( m_intro )
-		return m_panePlayers[ pane ]->getPlayerMask();
 	const Coord2D &subject = pane == 0 ? m_panesLeftPlace : m_secondPlace;
 	PlayerMaskType sides = 0;
 	for( size_t index = 0; index < m_fights.size(); index++ )
 		if( sameFight( m_fights[ index ].position, subject ) )
 			sides |= m_fightSides[ index ];
 	return sides;
+}
+
+//-------------------------------------------------------------------------------------------------
+Int ObserverCamera::getIntroPlayerIndex( Int pane ) const
+{
+	return m_panePlayers[ pane ]->getPlayerIndex();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2101,7 +2147,8 @@ Bool ObserverCamera::directorPlace( const Player *narrowTo, Coord2D *place )
 		m_placeKind = PLACE_FIGHT;
 		m_placeSince = frame;
 	}
-	const Int upcoming = timeline ? ObserverCamera_prerollMoment( m_timeline, frame ) : -1;
+	// the fight pane 1 holds stays pane 1's: pane 0 going there swapped the two panes' subjects
+	const Int upcoming = timeline ? ObserverCamera_prerollMoment( m_timeline, frame, m_split ? &m_secondPlace : NULL ) : -1;
 	if( upcoming >= 0 && upcoming != m_placeMoment )
 	{
 		const DirectorMoment &moment = m_timeline[ upcoming ];
@@ -2125,7 +2172,10 @@ Bool ObserverCamera::directorPlace( const Player *narrowTo, Coord2D *place )
 	if( m_placeValid && m_placeKind == PLACE_FIGHT )
 	{
 		const Real heatHere = ObserverCamera_heatAround( hits, m_place, &followed );
-		if( heatHere > 0.0f && ( sameFight( hottest, followed ) || !ObserverCamera_shouldMove( heatHere, hottestHeat, held ) ) )
+		// a split's pane 0 keeps its own fight while it goes on rather than take pane 1's; once it is
+		// over the director moves there and the split ends, pane 1's fight handed to pane 0
+		const Bool heldByPaneOne = m_split && within( hottest, m_secondPlace, SPLIT_APART );
+		if( heatHere > 0.0f && ( sameFight( hottest, followed ) || heldByPaneOne || !ObserverCamera_shouldMove( heatHere, hottestHeat, held ) ) )
 		{
 			const Real dx = followed.x - m_place.x;
 			const Real dy = followed.y - m_place.y;

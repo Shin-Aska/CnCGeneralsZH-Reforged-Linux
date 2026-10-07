@@ -123,15 +123,19 @@ Bool ObserverCamera_worthFilming( const DirectorMoment &moment );
 /// rather than skipped as a fizzle
 void ObserverCamera_closeTimeline( std::vector< DirectorMoment > &moments, UnsignedInt end );
 /// the moment the director goes to wait at on frame: of the fights worth filming and the superweapons
-/// that begin within the pre-roll after frame, a superweapon first and then the hottest.  -1 for none
-Int ObserverCamera_prerollMoment( const std::vector< DirectorMoment > &timeline, UnsignedInt frame );
+/// that begin within the pre-roll after frame, a superweapon first and then the hottest, leaving out
+/// any too near taken for a split to tell apart, the place another pane already shows (NULL for
+/// none).  -1 for none
+Int ObserverCamera_prerollMoment( const std::vector< DirectorMoment > &timeline, UnsignedInt frame, const Coord2D *taken );
 /// whether the fight going on at place on frame is one the scouting pass saw fizzle, which the
 /// director does not cut to.  FALSE where the pass saw nothing, so a match it did not scout is
 /// filmed as before
 Bool ObserverCamera_fizzles( const std::vector< DirectorMoment > &timeline, const Coord2D &place, UnsignedInt frame );
-/// a fight worth filming going on at frame, or beginning within the pre-roll, far enough from first
-/// to want a pane of its own: the hottest such, where it begins; FALSE for none
-Bool ObserverCamera_plannedSecond( const std::vector< DirectorMoment > &timeline, const Coord2D &first, UnsignedInt frame, Coord2D *second );
+/// a fight worth filming beginning within the pre-roll after frame, or with keeping, the split up
+/// already, one going on at frame, far enough from first to want a pane of its own: the hottest such,
+/// -1 for none.  A fight already going is not split for anew: where it began is only a guess at
+/// where it is now, and a fight that had wandered off left pane 1 on empty ground
+Int ObserverCamera_plannedSecond( const std::vector< DirectorMoment > &timeline, const Coord2D &first, UnsignedInt frame, Bool keeping );
 /// a moment as one line of the timeline file, and back; FALSE for a line that is not one
 AsciiString ObserverCamera_formatMoment( const DirectorMoment &moment );
 Bool ObserverCamera_parseMoment( const char *line, DirectorMoment *moment );
@@ -299,13 +303,17 @@ public:
 	Bool isBroadcast( Int x, Int y ) const;
 	/// the rows the score bar takes at the top of the picture, which every pane's circle stays below
 	void setBroadcastTop( Real rows ) { m_broadcastTop = rows; }
-	/// a pane's circle where it is drawn this frame, slid with the rays' meeting point
+	/// a pane's circle round its subject where that is drawn this frame, the panes part way in or out
 	void getPaneCircle( Int pane, Coord2D *centre, Real *radius ) const;
 	/// how far in the panes are, 0 to 1
 	Real getPaneProgress( void ) const { return m_paneProgress; }
-	/// who a pane shows: the opening's player, or everybody dealing or taking hits in the fight it
-	/// shows; 0 when nobody is
+	/// who a split's pane shows: everybody dealing or taking hits in its fight; 0 when nobody is
 	PlayerMaskType getPaneSides( Int pane ) const;
+	/// the panes are the match's opening, each one player's: his index, and the point over his command
+	/// centre his plate hangs from, on the ground where his things crowd when he has none
+	Bool isIntro( void ) const { return m_intro; }
+	Int getIntroPlayerIndex( Int pane ) const;
+	const Coord3D &getIntroMark( Int pane ) const { return m_paneMark[ pane ]; }
 	Bool isDrawingSecond( void ) const { return m_drawingPane != 0; }
 	Int getDrawingPane( void ) const { return m_drawingPane; }
 	/// the view moved to a pane's camera for one draw, and put back after it
@@ -434,6 +442,7 @@ private:
 	IRegion2D m_radarFrame;
 	const Player *m_panePlayers[ OBSERVER_MOST_PANES ];	///< the intro's player for each pane
 	Coord2D m_paneSubject[ OBSERVER_MOST_PANES ];			///< what each pane past the first looks at
+	Coord3D m_paneMark[ OBSERVER_MOST_PANES ];				///< the top of each opening player's command centre
 	ViewLocation m_paneGlide[ OBSERVER_MOST_PANES ];		///< where each pane's subject glide has got to
 	ObserverCameraVelocity m_paneVelocity[ OBSERVER_MOST_PANES ];
 	ViewLocation m_paneView[ OBSERVER_MOST_PANES ];		///< each pane's camera for its draw
