@@ -139,6 +139,20 @@ static const Real PANE_FIT_LEAST_EXTENT = 150.0f;
 static const Real PANE_INTRO_REACH = 500.0f;
 /// how much of the way to a new fit a pane's zoom goes each logic frame, about a second and a half
 static const Real PANE_FIT_FOLLOW = 0.06f;
+/// the scouting pass: a crowd of hits this near a fight still going is more of that fight
+static const Real SCOUT_SAME_FIGHT = 2.0f * DIRECTOR_GATHER_RADIUS;
+/// a fight with no crowd near it for this long is over; its hits stay hot DIRECTOR_HEAT_FRAMES on top
+static const UnsignedInt SCOUT_FIGHT_GAP = 3 * LOGICFRAMES_PER_SECOND;
+/// a fight is worth filming once one scan of it was this hot and it ran this long, hot tail and all;
+/// a jeep shot up on its way past is neither
+static const Real FIGHT_WORTH_HEAT = 4.0f;
+static const UnsignedInt FIGHT_WORTH_FRAMES = 8 * LOGICFRAMES_PER_SECOND;
+/// the director goes to wait at a fight this long before it begins: the glide takes about a second
+/// and a half of it
+static const UnsignedInt DIRECTOR_PREROLL_FRAMES = 4 * LOGICFRAMES_PER_SECOND;
+/// both passes take the logic's CRC this often, and a filming pass whose CRC differs from the
+/// scouting pass's is not playing the match the timeline describes
+static const UnsignedInt SCOUT_CRC_FRAMES = 30 * LOGICFRAMES_PER_SECOND;
 
 //-------------------------------------------------------------------------------------------------
 static Bool sameFight( const Coord2D &a, const Coord2D &b )
@@ -646,6 +660,185 @@ Int ObserverCamera_panePolygon( const Real *rays, Int count, Int pane, const Coo
 }
 
 //-------------------------------------------------------------------------------------------------
+static Real distanceSquared( const Coord2D &a, const Coord2D &b )
+{
+	const Real dx = a.x - b.x;
+	const Real dy = a.y - b.y;
+	return dx * dx + dy * dy;
+}
+
+static Bool within( const Coord2D &a, const Coord2D &b, Real distance )
+{
+	return distanceSquared( a, b ) <= distance * distance;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A crowd's hits are taken out of the scan before the next hottest place is looked for, so each
+	* pass of the loop is another crowd.  The crowd's own first hit lies within the gather radius of
+	* the crowd's middle, which is a weighted middle of hits all within that radius of it, so every
+	* pass takes at least one hit out. */
+//-------------------------------------------------------------------------------------------------
+void ObserverCamera_trackFights( std::vector< DirectorMoment > &fights, const std::vector< DirectorFightHit > &hits, UnsignedInt frame )
+{
+	std::vector< DirectorHeat > left;
+	std::vector< UnsignedInt > leftSides;
+	for( size_t index = 0; index < hits.size(); index++ )
+	{
+		DirectorHeat heat;
+		heat.position = hits[ index ].position;
+		heat.weight = hits[ index ].weight;
+		left.push_back( heat );
+		leftSides.push_back( hits[ index ].sides );
+	}
+
+	Coord2D crowd;
+	Real heat = 0.0f;
+	while( ObserverCamera_hottestPlace( left, &crowd, &heat ) )
+	{
+		UnsignedInt sides = 0;
+		size_t kept = 0;
+		for( size_t index = 0; index < left.size(); index++ )
+		{
+			if( sameFight( left[ index ].position, crowd ) )
+			{
+				sides |= leftSides[ index ];
+				continue;
+			}
+			left[ kept ] = left[ index ];
+			leftSides[ kept ] = leftSides[ index ];
+			kept++;
+		}
+		left.resize( kept );
+		leftSides.resize( kept );
+
+		DirectorMoment *joined = NULL;
+		for( size_t index = 0; index < fights.size(); index++ )
+		{
+			DirectorMoment &fight = fights[ index ];
+			if( fight.power || frame > fight.last + SCOUT_FIGHT_GAP || !within( fight.target, crowd, SCOUT_SAME_FIGHT ) )
+				continue;
+			if( joined == NULL || distanceSquared( fight.target, crowd ) < distanceSquared( joined->target, crowd ) )
+				joined = &fight;
+		}
+		if( joined == NULL )
+		{
+			DirectorMoment fight;
+			fight.start = frame;
+			fight.last = frame;
+			fight.place = crowd;
+			fight.target = crowd;
+			fight.peak = heat;
+			fight.sides = sides;
+			fight.power = FALSE;
+			fight.superweapon = FALSE;
+			fights.push_back( fight );
+			continue;
+		}
+		joined->last = frame;
+		joined->target = crowd;
+		joined->peak = max( joined->peak, heat );
+		joined->sides |= sides;
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+Bool ObserverCamera_worthFilming( const DirectorMoment &moment )
+{
+	return moment.power || ( moment.peak >= FIGHT_WORTH_HEAT && moment.last - moment.start >= FIGHT_WORTH_FRAMES );
+}
+
+//-------------------------------------------------------------------------------------------------
+Int ObserverCamera_prerollMoment( const std::vector< DirectorMoment > &timeline, UnsignedInt frame )
+{
+	Int best = -1;
+	for( size_t index = 0; index < timeline.size(); index++ )
+	{
+		const DirectorMoment &moment = timeline[ index ];
+		if( moment.start <= frame || moment.start > frame + DIRECTOR_PREROLL_FRAMES )
+			continue;
+		if( moment.power ? !moment.superweapon : !ObserverCamera_worthFilming( moment ) )
+			continue;
+		if( best >= 0 )
+		{
+			const DirectorMoment &held = timeline[ best ];
+			const Bool better = moment.superweapon != held.superweapon ? moment.superweapon : moment.peak > held.peak;
+			if( !better )
+				continue;
+		}
+		best = (Int)index;
+	}
+	return best;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A fight is looked for from a scan before the scouting pass first saw it to the end of its gap,
+	* the two passes' scans need not fall on the same frames; near where it began or where it was last
+	* seen, since a fight moves. */
+//-------------------------------------------------------------------------------------------------
+Bool ObserverCamera_fizzles( const std::vector< DirectorMoment > &timeline, const Coord2D &place, UnsignedInt frame )
+{
+	Bool seen = FALSE;
+	for( size_t index = 0; index < timeline.size(); index++ )
+	{
+		const DirectorMoment &fight = timeline[ index ];
+		if( fight.power || frame + DIRECTOR_SCAN_FRAMES < fight.start || frame > fight.last + SCOUT_FIGHT_GAP )
+			continue;
+		if( !within( fight.place, place, SCOUT_SAME_FIGHT ) && !within( fight.target, place, SCOUT_SAME_FIGHT ) )
+			continue;
+		if( ObserverCamera_worthFilming( fight ) )
+			return FALSE;
+		seen = TRUE;
+	}
+	return seen;
+}
+
+//-------------------------------------------------------------------------------------------------
+Bool ObserverCamera_plannedSecond( const std::vector< DirectorMoment > &timeline, const Coord2D &first, UnsignedInt frame, Coord2D *second )
+{
+	Int best = -1;
+	for( size_t index = 0; index < timeline.size(); index++ )
+	{
+		const DirectorMoment &fight = timeline[ index ];
+		if( fight.power || !ObserverCamera_worthFilming( fight ) || frame + DIRECTOR_PREROLL_FRAMES < fight.start || frame > fight.last )
+			continue;
+		if( within( fight.place, first, SPLIT_APART ) )
+			continue;
+		if( best < 0 || fight.peak > timeline[ best ].peak )
+			best = (Int)index;
+	}
+	if( best < 0 )
+		return FALSE;
+	*second = timeline[ best ].place;
+	return TRUE;
+}
+
+//-------------------------------------------------------------------------------------------------
+AsciiString ObserverCamera_formatMoment( const DirectorMoment &moment )
+{
+	AsciiString line;
+	line.format( "%s %u %u %.0f %.0f %.0f %.0f %.2f %u %d", moment.power ? "power" : "fight", moment.start, moment.last,
+		moment.place.x, moment.place.y, moment.target.x, moment.target.y, moment.peak, moment.sides, moment.superweapon ? 1 : 0 );
+	return line;
+}
+
+//-------------------------------------------------------------------------------------------------
+Bool ObserverCamera_parseMoment( const char *line, DirectorMoment *moment )
+{
+	char kind[ 8 ];
+	Int superweapon = 0;
+	const Int read = sscanf( line, "%7s %u %u %f %f %f %f %f %u %d", kind, &moment->start, &moment->last, &moment->place.x,
+		&moment->place.y, &moment->target.x, &moment->target.y, &moment->peak, &moment->sides, &superweapon );
+	if( read != 10 )
+		return FALSE;
+	const Bool power = strcmp( kind, "power" ) == 0;
+	if( !power && strcmp( kind, "fight" ) != 0 )
+		return FALSE;
+	moment->power = power;
+	moment->superweapon = superweapon != 0;
+	return TRUE;
+}
+
+//-------------------------------------------------------------------------------------------------
 Real ObserverCamera_easeFrames( UnsignedInt frame, UnsignedInt start, UnsignedInt length )
 {
 	if( frame <= start )
@@ -673,6 +866,9 @@ Int ObserverCamera_paneSeamBand( Int height )
 //-------------------------------------------------------------------------------------------------
 ObserverCamera::ObserverCamera()
 {
+	// the timeline is the whole process's, read once and kept across the resets a match start makes
+	m_scoutScanned = 0;
+	m_timelineLoaded = FALSE;
 	reset();
 }
 
@@ -701,6 +897,8 @@ void ObserverCamera::reset( void )
 	m_placeKind = PLACE_SIGHT;
 	m_placeHeight = 0.0f;
 	m_placeEvent = 0;
+	m_placeMoment = -1;
+	m_skippedFight.x = m_skippedFight.y = 0.0f;
 	m_seen.clear();
 	m_events.clear();
 	m_nextEventId = 1;
@@ -770,6 +968,20 @@ void ObserverCamera::noteSpecialPower( const Player *owner, const Coord3D *from,
 	event.weight = superweapon ? EVENT_SUPERWEAPON_WEIGHT : EVENT_WEIGHT;
 	event.superweapon = superweapon;
 	m_events.push_back( event );
+
+	if( !TheGlobalData->m_directorScoutFile.isEmpty() )
+	{
+		DirectorMoment moment;
+		moment.start = frame;
+		moment.last = frame;
+		moment.place = event.source;
+		moment.target = event.target;
+		moment.peak = event.weight;
+		moment.sides = owner->getPlayerMask();
+		moment.power = TRUE;
+		moment.superweapon = superweapon;
+		m_scouted.push_back( moment );
+	}
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1152,6 +1364,14 @@ void ObserverCamera::updateSplit( void )
 	Coord2D second = { 0.0f, 0.0f };
 	Real secondHeat = 0.0f;
 	ObserverCamera_secondPlace( m_fights, m_place, &second, &secondHeat );
+	if( secondHeat > 0.0f && ObserverCamera_fizzles( m_timeline, second, frame ) )
+		secondHeat = 0.0f;
+	// the scouting pass knows the pairs: a second fight worth filming going on or about to begin far
+	// enough away splits the picture before its first shot, and keeps it split while it lasts
+	Coord2D planned;
+	const Bool plannedSplit = m_placeKind != PLACE_SIGHT && ObserverCamera_plannedSecond( m_timeline, m_place, frame, &planned );
+	if( plannedSplit && ( secondHeat <= 0.0f || !within( second, planned, SPLIT_APART ) ) )
+		second = planned;
 
 	// the second fight is followed once it has moved a little, the way the director follows its own
 	Coord2D shown = m_secondPlace;
@@ -1164,11 +1384,11 @@ void ObserverCamera::updateSplit( void )
 	const Real apart = sqrtf( ax * ax + ay * ay );
 
 	const UnsignedInt since = frame >= m_splitChanged ? frame - m_splitChanged : 0;
-	const Bool split = ObserverCamera_holdSplit( m_split, firstHeat, secondHeat, apart, since );
+	const Bool split = plannedSplit || ObserverCamera_holdSplit( m_split, firstHeat, secondHeat, apart, since );
 	if( split != m_split )
 	{
-		DEBUG_LOG(( "OBSCAM frame %u split %s, first heat %.1f, second (%.0f,%.0f) heat %.1f, %.0f apart\n", frame,
-			split ? "on" : "off", firstHeat, shown.x, shown.y, secondHeat, apart ));
+		DEBUG_LOG(( "OBSCAM frame %u split %s, first heat %.1f, second (%.0f,%.0f) heat %.1f, %.0f apart%s\n", frame,
+			split ? "on" : "off", firstHeat, shown.x, shown.y, secondHeat, apart, plannedSplit ? ", planned" : "" ));
 		m_split = split;
 		m_splitChanged = frame;
 	}
@@ -1534,6 +1754,151 @@ Bool ObserverCamera::takenByHand( const ViewLocation &current ) const
 }
 
 //-------------------------------------------------------------------------------------------------
+/** The players a recent hit was between, when one dealt it to another he is at war with; none for a
+	* tree a dozer cleared, or a building's own wear, which is no fight. */
+//-------------------------------------------------------------------------------------------------
+static PlayerMaskType fightSides( const Object *obj, const BodyModuleInterface *body )
+{
+	const PlayerMaskType sourceMask = body->getLastDamageInfo()->in.m_sourcePlayerMask;
+	const Player *victim = obj->getControllingPlayer();
+	if( sourceMask == 0 || victim == NULL || ( sourceMask & victim->getPlayerMask() ) != 0 )
+		return 0;
+	const Player *source = ThePlayerList->getPlayerFromMask( sourceMask );
+	if( source == NULL || victim->getRelationship( source->getDefaultTeam() ) != ENEMIES )
+		return 0;
+	return sourceMask | victim->getPlayerMask();
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The scouting pass counts the hits the way the director does on the same scan frames, so a fight
+	* starts on the scan the filming pass would first have seen it. */
+//-------------------------------------------------------------------------------------------------
+void ObserverCamera::scout( void )
+{
+	const UnsignedInt frame = TheGameLogic->getFrame();
+	if( frame == m_scoutScanned )
+		return;
+	m_scoutScanned = frame;
+	if( frame % SCOUT_CRC_FRAMES == 0 )
+	{
+		const CrcCheckpoint checkpoint = { frame, TheGameLogic->getCRC( CRC_RECALC ) };
+		m_scoutCrcs.push_back( checkpoint );
+	}
+	if( frame % DIRECTOR_SCAN_FRAMES != 0 )
+		return;
+
+	std::vector< DirectorFightHit > hits;
+	for( Object *obj = TheGameLogic->getFirstObject(); obj != NULL; obj = obj->getNextObject() )
+	{
+		// a thing with no body module takes no damage, so it has no hits to count
+		const BodyModuleInterface *body = obj->getBodyModule();
+		if( body == NULL )
+			continue;
+		const UnsignedInt hitAt = body->getLastDamageTimestamp();
+		if( hitAt == 0 || frame >= hitAt + DIRECTOR_HEAT_FRAMES )
+			continue;
+		DirectorFightHit hit;
+		hit.sides = fightSides( obj, body );
+		if( hit.sides == 0 )
+			continue;
+		hit.position.x = obj->getPosition()->x;
+		hit.position.y = obj->getPosition()->y;
+		hit.weight = ObserverCamera_hitWeight( obj->getTemplate()->friend_getBuildCost(), obj->isEffectivelyDead(),
+			obj->isKindOf( KINDOF_FS_SUPERWEAPON ) );
+		hits.push_back( hit );
+	}
+	ObserverCamera_trackFights( m_scouted, hits, frame );
+}
+
+//-------------------------------------------------------------------------------------------------
+void ObserverCamera::finishScout( void )
+{
+	const char *path = TheGlobalData->m_directorScoutFile.str();
+	FILE *file = fopen( path, "w" );
+	if( file == NULL )
+	{
+		DEBUG_LOG(( "-directorscout: cannot write '%s', the filming pass films live\n", path ));
+		return;
+	}
+	Int worth = 0;
+	for( size_t index = 0; index < m_scouted.size(); index++ )
+	{
+		const AsciiString line = ObserverCamera_formatMoment( m_scouted[ index ] );
+		fprintf( file, "%s\n", line.str() );
+		if( !ObserverCamera_worthFilming( m_scouted[ index ] ) )
+			continue;
+		worth++;
+		DEBUG_LOG(( "OBSCAM scouted %s\n", line.str() ));
+	}
+	for( size_t index = 0; index < m_scoutCrcs.size(); index++ )
+		fprintf( file, "crc %u %u\n", m_scoutCrcs[ index ].frame, m_scoutCrcs[ index ].crc );
+	fclose( file );
+	DEBUG_LOG(( "-directorscout: %d moments, %d worth filming, %d CRC checkpoints, to frame %u, written to '%s'\n",
+		(Int)m_scouted.size(), worth, (Int)m_scoutCrcs.size(), TheGameLogic->getFrame(), path ));
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The file is the scouting pass's, made for this run alone, and gone once it is read. */
+//-------------------------------------------------------------------------------------------------
+void ObserverCamera::loadTimeline( void )
+{
+	m_timelineLoaded = TRUE;
+	const char *path = TheGlobalData->m_directorTimelineFile.str();
+	if( TheGlobalData->m_directorTimelineFile.isEmpty() )
+		return;
+	FILE *file = fopen( path, "r" );
+	if( file == NULL )
+	{
+		DEBUG_LOG(( "-directortimeline: no '%s', the director films live\n", path ));
+		return;
+	}
+	char line[ 256 ];
+	Int worth = 0;
+	while( fgets( line, sizeof( line ), file ) != NULL )
+	{
+		CrcCheckpoint checkpoint;
+		DirectorMoment moment;
+		if( sscanf( line, "crc %u %u", &checkpoint.frame, &checkpoint.crc ) == 2 )
+			m_timelineCrcs.push_back( checkpoint );
+		else if( ObserverCamera_parseMoment( line, &moment ) )
+		{
+			m_timeline.push_back( moment );
+			if( ObserverCamera_worthFilming( moment ) )
+				worth++;
+		}
+	}
+	fclose( file );
+	remove( path );
+	DEBUG_LOG(( "-directortimeline: %d moments, %d worth filming, %d CRC checkpoints\n", (Int)m_timeline.size(), worth,
+		(Int)m_timelineCrcs.size() ));
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Same seed and same switches play the same match, and the checkpoints are how that is known rather
+	* than hoped: the first that differs throws the timeline away and the rest is filmed live. */
+//-------------------------------------------------------------------------------------------------
+void ObserverCamera::checkTimeline( UnsignedInt frame )
+{
+	while( !m_timelineCrcs.empty() && m_timelineCrcs.front().frame <= frame )
+	{
+		const CrcCheckpoint checkpoint = m_timelineCrcs.front();
+		m_timelineCrcs.erase( m_timelineCrcs.begin() );
+		if( checkpoint.frame < frame )
+			continue;
+		const UnsignedInt crc = TheGameLogic->getCRC( CRC_RECALC );
+		DEBUG_LOG(( "OBSCAM frame %u timeline CRC: scouted 0x%08X filmed 0x%08X\n", frame, checkpoint.crc, crc ));
+		if( crc == checkpoint.crc )
+			continue;
+		DEBUG_LOG(( "OBSCAM frame %u the match went another way than the scouting pass's, the director films live\n", frame ));
+		m_timeline.clear();
+		m_timelineCrcs.clear();
+		m_placeMoment = -1;
+		if( m_placeKind == PLACE_UPCOMING )
+			m_placeValid = FALSE;
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
 /** Where the director looks: the fight with the most at stake, held for a while, followed as it
 	* moves, and left for a clearly bigger one.  With no fight anywhere it goes round what is worth
 	* seeing instead, an army on the move, a base going up, a superweapon, a few seconds each and not
@@ -1591,14 +1956,8 @@ Bool ObserverCamera::directorPlace( const Player *narrowTo, Coord2D *place )
 		heat.weight = ObserverCamera_hitWeight( cost, obj->isEffectivelyDead(), superweapon );
 		hits.push_back( heat );
 
-		// -directorrecord's split counts a hit only when one player dealt it to another he is at war
-		// with: a tree a dozer cleared, or a building's own wear, is no fight
-		const PlayerMaskType sourceMask = body->getLastDamageInfo()->in.m_sourcePlayerMask;
-		const Player *victim = obj->getControllingPlayer();
-		if( sourceMask == 0 || victim == NULL || ( sourceMask & victim->getPlayerMask() ) != 0 )
-			continue;
-		const Player *source = ThePlayerList->getPlayerFromMask( sourceMask );
-		if( source != NULL && victim->getRelationship( source->getDefaultTeam() ) == ENEMIES )
+		// -directorrecord's split counts only fights
+		if( fightSides( obj, body ) != 0 )
 			fights.push_back( heat );
 	}
 	m_fights = fights;
@@ -1606,6 +1965,15 @@ Bool ObserverCamera::directorPlace( const Player *narrowTo, Coord2D *place )
 	Coord2D hottest;
 	Real hottestHeat = 0.0f;
 	ObserverCamera_hottestPlace( hits, &hottest, &hottestHeat );
+	// a fight the scouting pass saw come to nothing is not worth the trip
+	const Bool timeline = narrowTo == NULL && !m_timeline.empty();
+	if( timeline && hottestHeat > 0.0f && ObserverCamera_fizzles( m_timeline, hottest, frame ) )
+	{
+		if( !sameFight( hottest, m_skippedFight ) )
+			DEBUG_LOG(( "OBSCAM frame %u skips a fight at (%.0f,%.0f) heat %.1f the scout saw fizzle\n", frame, hottest.x, hottest.y, hottestHeat ));
+		m_skippedFight = hottest;
+		hottestHeat = 0.0f;
+	}
 
 	const UnsignedInt held = frame >= m_placeSince ? frame - m_placeSince : 0;
 	Coord2D followed = m_place;
@@ -1647,6 +2015,40 @@ Bool ObserverCamera::directorPlace( const Player *narrowTo, Coord2D *place )
 		m_placeValid = TRUE;
 		*place = m_place;
 		return TRUE;
+	}
+
+	// a fight the scouting pass saw begin is waited for where it begins, so the picture has it from
+	// the first shot; it becomes an ordinary fight when it starts.  It is gone to from nothing, from a
+	// fight that has settled when it is clearly bigger, and from anything for a superweapon's silo
+	if( m_placeValid && m_placeKind == PLACE_UPCOMING )
+	{
+		if( frame < m_timeline[ m_placeMoment ].start )
+		{
+			*place = m_place;
+			return TRUE;
+		}
+		m_placeKind = PLACE_FIGHT;
+		m_placeSince = frame;
+	}
+	const Int upcoming = timeline ? ObserverCamera_prerollMoment( m_timeline, frame ) : -1;
+	if( upcoming >= 0 && upcoming != m_placeMoment )
+	{
+		const DirectorMoment &moment = m_timeline[ upcoming ];
+		Coord2D middle;
+		const Real heatHere = m_placeValid && m_placeKind == PLACE_FIGHT ? ObserverCamera_heatAround( hits, m_place, &middle ) : 0.0f;
+		if( moment.superweapon || heatHere <= 0.0f || ( held >= DIRECTOR_SETTLE_FRAMES && moment.peak > heatHere * DIRECTOR_SWITCH_MARGIN ) )
+		{
+			DEBUG_LOG(( "OBSCAM frame %u pre-roll to %s at frame %u (%.0f,%.0f) peak %.1f\n", frame,
+				moment.superweapon ? "superweapon" : "fight", moment.start, moment.place.x, moment.place.y, moment.peak ));
+			m_place = moment.place;
+			m_placeKind = PLACE_UPCOMING;
+			m_placeHeight = 0.0f;
+			m_placeMoment = upcoming;
+			m_placeSince = frame;
+			m_placeValid = TRUE;
+			*place = m_place;
+			return TRUE;
+		}
 	}
 
 	if( m_placeValid && m_placeKind == PLACE_FIGHT )
@@ -1787,6 +2189,9 @@ void ObserverCamera::update( UnsignedInt nowMilliseconds )
 	if( TheGlobalData->m_directorRecord )
 	{
 		const UnsignedInt frame = TheGameLogic->getFrame();
+		if( !m_timelineLoaded )
+			loadTimeline();
+		checkTimeline( frame );
 		const Bool introStarting = !m_introDone;
 		advancePanes( frame );
 		if( m_intro && introStarting )

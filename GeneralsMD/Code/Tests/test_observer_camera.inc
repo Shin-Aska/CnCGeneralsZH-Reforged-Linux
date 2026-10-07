@@ -528,6 +528,162 @@ TEST(pane_lines_grow_with_the_picture_and_the_join_keeps_all_of_them)
 	CHECK( ObserverCamera_paneSeamBand( 720 ) >= 8 );
 }
 
+static DirectorFightHit fightHit( Real x, Real y, UnsignedInt sides )
+{
+	DirectorFightHit hit;
+	hit.position.x = x;
+	hit.position.y = y;
+	hit.weight = 1.0f;
+	hit.sides = sides;
+	return hit;
+}
+
+static DirectorMoment scoutedFight( UnsignedInt start, UnsignedInt last, Real x, Real y, Real peak )
+{
+	DirectorMoment fight;
+	fight.start = start;
+	fight.last = last;
+	fight.place.x = fight.target.x = x;
+	fight.place.y = fight.target.y = y;
+	fight.peak = peak;
+	fight.sides = 3;
+	fight.power = FALSE;
+	fight.superweapon = FALSE;
+	return fight;
+}
+
+static DirectorMoment scoutedPower( UnsignedInt frame, Real x, Real y, Bool superweapon )
+{
+	DirectorMoment power = scoutedFight( frame, frame, x, y, superweapon ? 5.0f : 1.0f );
+	power.target.x = x + 1500.0f;
+	power.power = TRUE;
+	power.superweapon = superweapon;
+	return power;
+}
+
+TEST(the_scout_follows_a_fight_from_its_first_scan_to_its_last_and_keeps_two_apart)
+{
+	std::vector< DirectorMoment > fights;
+	std::vector< DirectorFightHit > hits;
+	for( Int each = 0; each < 3; each++ )
+		hits.push_back( fightHit( 1000.0f + each * 10.0f, 1000.0f, 1 | 2 ) );
+	hits.push_back( fightHit( 4000.0f, 4000.0f, 4 | 8 ) );
+	hits.push_back( fightHit( 4010.0f, 4000.0f, 4 | 8 ) );
+	ObserverCamera_trackFights( fights, hits, 15 );
+	CHECK_EQ( (Int)fights.size(), 2 );
+	CHECK_EQ( fights[ 0 ].start, 15u );
+	CHECK_NEAR( fights[ 0 ].peak, 3.0f, 0.001f );
+	CHECK_EQ( fights[ 0 ].sides, 3u );
+	CHECK_EQ( fights[ 1 ].sides, 12u );
+
+	// the first fight moves 200 on and a third player joins it: the same fight, seen later
+	hits.clear();
+	for( Int each = 0; each < 4; each++ )
+		hits.push_back( fightHit( 1200.0f + each * 10.0f, 1000.0f, 1 | 4 ) );
+	ObserverCamera_trackFights( fights, hits, 30 );
+	CHECK_EQ( (Int)fights.size(), 2 );
+	CHECK_EQ( fights[ 0 ].start, 15u );
+	CHECK_EQ( fights[ 0 ].last, 30u );
+	CHECK_NEAR( fights[ 0 ].place.x, 1010.0f, 0.001f );
+	CHECK_NEAR( fights[ 0 ].target.x, 1215.0f, 0.001f );
+	CHECK_NEAR( fights[ 0 ].peak, 4.0f, 0.001f );
+	CHECK_EQ( fights[ 0 ].sides, 7u );
+	CHECK_EQ( fights[ 1 ].last, 15u );
+
+	// quiet for longer than the gap, the place starts a new fight
+	ObserverCamera_trackFights( fights, hits, 30 + 4 * LOGICFRAMES_PER_SECOND );
+	CHECK_EQ( (Int)fights.size(), 3 );
+	CHECK_EQ( fights[ 2 ].start, 30u + 4 * LOGICFRAMES_PER_SECOND );
+}
+
+TEST(the_scout_counts_a_fight_worth_filming_only_when_it_got_hot_and_lasted)
+{
+	CHECK( ObserverCamera_worthFilming( scoutedFight( 100, 100 + 8 * LOGICFRAMES_PER_SECOND, 0.0f, 0.0f, 4.0f ) ) );
+	CHECK( !ObserverCamera_worthFilming( scoutedFight( 100, 100 + 8 * LOGICFRAMES_PER_SECOND, 0.0f, 0.0f, 3.9f ) ) );
+	CHECK( !ObserverCamera_worthFilming( scoutedFight( 100, 100 + 3 * LOGICFRAMES_PER_SECOND, 0.0f, 0.0f, 20.0f ) ) );
+	CHECK( ObserverCamera_worthFilming( scoutedPower( 100, 0.0f, 0.0f, FALSE ) ) );
+}
+
+TEST(the_director_goes_to_wait_for_a_fight_four_seconds_before_it_starts_superweapons_first)
+{
+	std::vector< DirectorMoment > timeline;
+	timeline.push_back( scoutedFight( 1000, 1600, 1000.0f, 1000.0f, 6.0f ) );
+	timeline.push_back( scoutedFight( 1050, 1600, 3000.0f, 3000.0f, 9.0f ) );
+	timeline.push_back( scoutedFight( 1010, 1030, 5000.0f, 5000.0f, 2.0f ) );
+	timeline.push_back( scoutedPower( 1020, 6000.0f, 1000.0f, FALSE ) );
+	timeline.push_back( scoutedPower( 1100, 6000.0f, 3000.0f, TRUE ) );
+	const UnsignedInt preroll = 4 * LOGICFRAMES_PER_SECOND;
+	CHECK_EQ( ObserverCamera_prerollMoment( timeline, 1000 - preroll - 1 ), -1 );
+	CHECK_EQ( ObserverCamera_prerollMoment( timeline, 1000 - preroll ), 0 );
+	// two coming up: the hotter
+	CHECK_EQ( ObserverCamera_prerollMoment( timeline, 1050 - preroll ), 1 );
+	// a superweapon over any fight
+	CHECK_EQ( ObserverCamera_prerollMoment( timeline, 1100 - preroll ), 4 );
+	// one that has started is no longer waited for
+	CHECK_EQ( ObserverCamera_prerollMoment( timeline, 1100 ), -1 );
+}
+
+TEST(the_director_skips_only_a_fight_the_scout_saw_fizzle)
+{
+	std::vector< DirectorMoment > timeline;
+	timeline.push_back( scoutedFight( 500, 560, 2000.0f, 2000.0f, 2.0f ) );
+	timeline.push_back( scoutedFight( 500, 900, 5000.0f, 5000.0f, 8.0f ) );
+	Coord2D place;
+	place.x = 2050.0f;
+	place.y = 2000.0f;
+	CHECK( ObserverCamera_fizzles( timeline, place, 520 ) );
+	// over and past its gap, whatever is there now the scout did not see
+	CHECK( !ObserverCamera_fizzles( timeline, place, 560 + 4 * LOGICFRAMES_PER_SECOND ) );
+	place.x = place.y = 5000.0f;
+	CHECK( !ObserverCamera_fizzles( timeline, place, 600 ) );
+	place.x = place.y = 8000.0f;
+	CHECK( !ObserverCamera_fizzles( timeline, place, 520 ) );
+	// a fight worth filming in the same place beats the fizzle beside it
+	timeline.push_back( scoutedFight( 500, 900, 2100.0f, 2000.0f, 8.0f ) );
+	place.x = 2050.0f;
+	place.y = 2000.0f;
+	CHECK( !ObserverCamera_fizzles( timeline, place, 520 ) );
+}
+
+TEST(the_recording_splits_before_a_known_second_fight_far_from_the_first)
+{
+	std::vector< DirectorMoment > timeline;
+	timeline.push_back( scoutedFight( 1000, 1500, 4000.0f, 4000.0f, 8.0f ) );
+	timeline.push_back( scoutedFight( 900, 1500, 1200.0f, 1000.0f, 20.0f ) );
+	timeline.push_back( scoutedFight( 900, 1500, 6000.0f, 6000.0f, 2.0f ) );
+	Coord2D first;
+	first.x = first.y = 1000.0f;
+	Coord2D second;
+	const UnsignedInt preroll = 4 * LOGICFRAMES_PER_SECOND;
+	CHECK( !ObserverCamera_plannedSecond( timeline, first, 1000 - preroll - 1, &second ) );
+	CHECK( ObserverCamera_plannedSecond( timeline, first, 1000 - preroll, &second ) );
+	CHECK_NEAR( second.x, 4000.0f, 0.001f );
+	CHECK( ObserverCamera_plannedSecond( timeline, first, 1500, &second ) );
+	CHECK( !ObserverCamera_plannedSecond( timeline, first, 1501, &second ) );
+}
+
+TEST(a_timeline_line_reads_back_as_the_moment_it_was_written_from)
+{
+	DirectorMoment fight = scoutedFight( 450, 1230, 1234.0f, 567.0f, 7.25f );
+	fight.target.x = 1400.0f;
+	fight.sides = 0x30;
+	DirectorMoment read;
+	CHECK( ObserverCamera_parseMoment( ObserverCamera_formatMoment( fight ).str(), &read ) );
+	CHECK_EQ( read.start, 450u );
+	CHECK_EQ( read.last, 1230u );
+	CHECK_NEAR( read.place.x, 1234.0f, 0.001f );
+	CHECK_NEAR( read.place.y, 567.0f, 0.001f );
+	CHECK_NEAR( read.target.x, 1400.0f, 0.001f );
+	CHECK_NEAR( read.peak, 7.25f, 0.001f );
+	CHECK_EQ( read.sides, 0x30u );
+	CHECK( !read.power );
+	CHECK( ObserverCamera_parseMoment( ObserverCamera_formatMoment( scoutedPower( 90, 10.0f, 20.0f, TRUE ) ).str(), &read ) );
+	CHECK( read.power );
+	CHECK( read.superweapon );
+	CHECK( !ObserverCamera_parseMoment( "crc 900 305419896", &read ) );
+	CHECK( !ObserverCamera_parseMoment( "", &read ) );
+}
+
 TEST(pane_animations_ease_over_logic_frames)
 {
 	CHECK_NEAR( ObserverCamera_easeFrames( 100, 100, 15 ), 0.0f, 0.0001f );

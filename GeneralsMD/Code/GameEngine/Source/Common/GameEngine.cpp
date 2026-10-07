@@ -123,6 +123,7 @@
 #include "GameClient/GUICallbacks.h"
 #include "GameClient/ControlBar.h"		// -uidrill works the command bar the way a player does
 #include "GameClient/InGameUI.h"		// -resdrill selects a building before it changes the mode
+#include "GameClient/ObserverCamera.h"	// -directorscout counts the fights of a headless run
 #include "GameLogic/Object.h"
 
 #include "GameNetwork/GameInfo.h"
@@ -2317,7 +2318,8 @@ static void updateHeadlessRun( void )
 		 than a decision, goes back to the shell, and the run ends there; the display's teardown
 		 finishes the movie. */
 	static Bool directorRecordSawMatch = FALSE;
-	if (TheGlobalData->m_directorRecord && !TheGameEngine->getQuitting())
+	const Bool scouting = !TheGlobalData->m_directorScoutFile.isEmpty();
+	if ((TheGlobalData->m_directorRecord || scouting) && !TheGameEngine->getQuitting())
 	{
 		const Bool inMatch = TheGameLogic->isInGame() && !TheGameLogic->isInShellGame();
 		if (inMatch)
@@ -2327,6 +2329,8 @@ static void updateHeadlessRun( void )
 		else if (directorRecordSawMatch)
 		{
 			DEBUG_LOG(("-directorrecord: the match is over, quitting\n"));
+			if (scouting)
+				TheObserverCamera.finishScout();
 			TheGameEngine->setQuitting( TRUE );
 			return;
 		}
@@ -2353,6 +2357,10 @@ static void updateHeadlessRun( void )
 	}
 
 	const UnsignedInt frame = TheGameLogic->getFrame();
+
+	// -directorrecord's scouting pass: a headless run of the same match counting its fights
+	if (scouting)
+		TheObserverCamera.scout();
 
 	/* -screenshot <n>: hand the renderer a shot request as the run passes frame n. W3DDisplay only
 		 sets a pending flag here and writes the file out of the back buffer on its next draw, so this
@@ -2500,6 +2508,9 @@ static void updateHeadlessRun( void )
 							 score->getTotalBuildingsBuilt(), score->getTotalBuildingsLost(),
 							 slot, team));
 	}
+
+	if (scouting)
+		TheObserverCamera.finishScout();
 
 	/* Tear the match down the way the benchmark timer does, so the replay of the run is closed and
 		 written rather than left half-flushed by the process going away. */

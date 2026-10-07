@@ -1567,6 +1567,25 @@ Int parseDirectorRecord(char *args[], int num)
 	return consumed;
 }
 
+/* -directorscout <file> and -directortimeline <file>: the two passes of -directorrecord.  WinMain
+	 starts the same match again headless with -directorscout before it films anything, and that run
+	 writes down where and when every fight starts and every special power is used; the filming run
+	 is handed the file with -directortimeline and arrives at each fight before it starts.  Neither is
+	 a switch for a person: WinMain names the file and passes both. */
+Int parseDirectorScout(char *args[], int num)
+{
+	if (TheWritableGlobalData && num > 1)
+		TheWritableGlobalData->m_directorScoutFile = args[1];
+	return 2;
+}
+
+Int parseDirectorTimeline(char *args[], int num)
+{
+	if (TheWritableGlobalData && num > 1)
+		TheWritableGlobalData->m_directorTimelineFile = args[1];
+	return 2;
+}
+
 /* -wav <from> <to> [name]: record what the game sounds like over logic frames <from> to <to>.
 	 *
 	 * A movie made by -video has no sound in it: the picture comes from a frame dump and the frames are
@@ -2582,6 +2601,8 @@ static CommandLineParam params[] =
 	{ "-showHudOverlay", parseShowHudOverlay },
 	{ "-video", parseVideo },
 	{ "-directorrecord", parseDirectorRecord },
+	{ "-directorscout", parseDirectorScout },
+	{ "-directortimeline", parseDirectorTimeline },
 	{ "-wav", parseWav },
 	{ "-turbo", parseTurbo },
 	{ "-msaa", parseMSAA },

@@ -49,6 +49,7 @@
 #ifndef _OBSERVER_CAMERA_H_
 #define _OBSERVER_CAMERA_H_
 
+#include "Common/AsciiString.h"
 #include "Common/GameCommon.h"
 #include "GameClient/View.h"
 
@@ -83,6 +84,53 @@ struct DirectorEvent
 	Real weight;
 	Bool superweapon;
 };
+
+/// -directorrecord's scouting pass plays the match headless first and writes down what is worth
+/// filming, so the filming pass can be there before it starts.  A fight runs from the scan it was
+/// first hot on, start, to the last, starting at place and last seen at target; peak is its hottest
+/// scan and sides the mask of every player who dealt or took a hit in it.  A special power is a
+/// moment of one frame fired from place at target, peak its weight against other powers
+struct DirectorMoment
+{
+	UnsignedInt start;
+	UnsignedInt last;
+	Coord2D place;
+	Coord2D target;
+	Real peak;
+	UnsignedInt sides;
+	Bool power;
+	Bool superweapon;
+};
+
+/// one hit a player dealt another he is at war with, for the scouting pass: where, what it counts
+/// for, and the two players' masks together
+struct DirectorFightHit
+{
+	Coord2D position;
+	Real weight;
+	UnsignedInt sides;
+};
+
+/// the scouting pass's fights carried over one scan of the hits.  Each crowd of hits, hottest first,
+/// joins the fight still going nearest it, or starts a new one on this frame; a fight with no crowd
+/// near it for a few seconds is over and is not joined again
+void ObserverCamera_trackFights( std::vector< DirectorMoment > &fights, const std::vector< DirectorFightHit > &hits, UnsignedInt frame );
+/// whether a moment is worth the camera's time: every special power, and a fight that got hot enough
+/// and lasted.  The rest fizzled
+Bool ObserverCamera_worthFilming( const DirectorMoment &moment );
+/// the moment the director goes to wait at on frame: of the fights worth filming and the superweapons
+/// that begin within the pre-roll after frame, a superweapon first and then the hottest.  -1 for none
+Int ObserverCamera_prerollMoment( const std::vector< DirectorMoment > &timeline, UnsignedInt frame );
+/// whether the fight going on at place on frame is one the scouting pass saw fizzle, which the
+/// director does not cut to.  FALSE where the pass saw nothing, so a match it did not scout is
+/// filmed as before
+Bool ObserverCamera_fizzles( const std::vector< DirectorMoment > &timeline, const Coord2D &place, UnsignedInt frame );
+/// a fight worth filming going on at frame, or beginning within the pre-roll, far enough from first
+/// to want a pane of its own: the hottest such, where it begins; FALSE for none
+Bool ObserverCamera_plannedSecond( const std::vector< DirectorMoment > &timeline, const Coord2D &first, UnsignedInt frame, Coord2D *second );
+/// a moment as one line of the timeline file, and back; FALSE for a line that is not one
+AsciiString ObserverCamera_formatMoment( const DirectorMoment &moment );
+Bool ObserverCamera_parseMoment( const char *line, DirectorMoment *moment );
 
 /// how fast the camera is going on each of its six axes, carried from one frame's step to the next
 struct ObserverCameraVelocity
@@ -241,6 +289,12 @@ public:
 	void beginPanePass( Int pane );
 	void endPanePass( void );
 
+	/// -directorrecord's scouting pass, once a pass of a headless run: count the fights on every scan
+	/// and a checkpoint of the logic's CRC now and then
+	void scout( void );
+	/// and at its end, the timeline written to the -directorscout file
+	void finishScout( void );
+
 	enum { NO_PLAYER = -1 };
 
 private:
@@ -270,8 +324,27 @@ private:
 	Bool directorPlace( const Player *narrowTo, Coord2D *place );
 	DirectorEvent *findEvent( UnsignedInt id );
 	void dropOldEvents( UnsignedInt frame );
+	void loadTimeline( void );
+	void checkTimeline( UnsignedInt frame );
 
-	enum PlaceKind { PLACE_SIGHT, PLACE_FIGHT, PLACE_EVENT };
+	/// a sight, a fight going on, a special power, or a fight the timeline says is about to begin
+	enum PlaceKind { PLACE_SIGHT, PLACE_FIGHT, PLACE_EVENT, PLACE_UPCOMING };
+
+	/// a logic frame and the logic's CRC on it, which the two passes compare to know they played one match
+	struct CrcCheckpoint
+	{
+		UnsignedInt frame;
+		UnsignedInt crc;
+	};
+
+	std::vector< DirectorMoment > m_scouted;		///< the scouting pass's fights and special powers so far
+	std::vector< CrcCheckpoint > m_scoutCrcs;		///< and its checkpoints
+	UnsignedInt m_scoutScanned;									///< the logic frame it last counted the hits on
+	std::vector< DirectorMoment > m_timeline;		///< what the scouting pass saw, for the filming pass
+	std::vector< CrcCheckpoint > m_timelineCrcs;
+	Bool m_timelineLoaded;
+	Int m_placeMoment;													///< the timeline's moment the director waits at, while the place is one
+	Coord2D m_skippedFight;											///< the last fizzling fight the director passed over, so it is logged once
 
 	ObserverCameraMode m_mode;
 	Int m_followed;
