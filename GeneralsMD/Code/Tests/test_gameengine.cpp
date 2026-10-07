@@ -647,10 +647,14 @@ TEST(balance_patch_edits_a_weapon_in_place)
 	CHECK_NEAR( gun->getPrimaryDamage( noBonus ), 45.0f, 0.01f );
 	CHECK_NEAR( gun->getUnmodifiedAttackRange(), 150.0f, 0.01f );
 
-	/* a patch that names a weapon nobody defined is a typo, and has to stop the load */
+	/* a patch that names a weapon the loaded data lacks (a mod's Weapon.ini without it) is read and
+		 dropped: no weapon is made for the name, and the block after it still applies */
 	writeFile( TEST_INI,
 		"Weapon BalancePatchProbeGunTypo\r\n"
 		"  PrimaryDamage = 45.0\r\n"
+		"End\r\n"
+		"Weapon BalancePatchProbeGun\r\n"
+		"  PrimaryDamage = 30.0\r\n"
 		"End\r\n" );
 	Bool threw = FALSE;
 	try
@@ -662,8 +666,9 @@ TEST(balance_patch_edits_a_weapon_in_place)
 	{
 		threw = TRUE;
 	}
-	CHECK( threw );
+	CHECK( threw == FALSE );
 	CHECK( TheWeaponStore->findWeaponTemplate( "BalancePatchProbeGunTypo" ) == NULL );
+	CHECK_NEAR( gun->getPrimaryDamage( noBonus ), 30.0f, 0.01f );
 
 	remove( TEST_INI );
 }
@@ -745,6 +750,68 @@ TEST(replace_module_of_another_type_is_skipped)
 		CHECK( droppedReplacement );
 		CHECK( replacedBody );
 	}
+
+	remove( TEST_INI );
+	if( savedGlobals == NULL )
+	{
+		delete TheWritableGlobalData;
+		TheWritableGlobalData = NULL;
+	}
+}
+
+/* BalanceReforged.ini prices Nuke_ChinaGattlingCannon, and an install whose mod archives had no such
+	 object threw in ThingFactory::parseObjectDefinition and stopped the game at start.  The block is
+	 read and dropped now: no template is made for the name, and the object after it is still edited. */
+TEST(patch_of_a_missing_object_is_skipped)
+{
+	CHECK( bootOnce() );
+
+	GlobalData *savedGlobals = TheWritableGlobalData;
+	if( savedGlobals == NULL )
+		TheWritableGlobalData = NEW GlobalData;
+	if( TheModuleFactory == NULL )
+	{
+		TheModuleFactory = NEW ModuleFactory;
+		TheModuleFactory->init();
+	}
+	if( TheThingFactory == NULL )
+		TheThingFactory = NEW ThingFactory;
+
+	writeFile( TEST_INI,
+		"Object MissingObjectProbe\r\n"
+		"  BuildCost = 1200\r\n"
+		"End\r\n" );
+	CHECK( loadIni( TEST_INI ) );
+
+	writeFile( TEST_INI,
+		"Object MissingObjectProbeAbsent\r\n"
+		"  BuildCost = 1000\r\n"
+		"  ReplaceModule ModuleTag_04\r\n"
+		"    Body = StructureBody ModuleTag_04_Reforged\r\n"
+		"      MaxHealth = 1500.0\r\n"
+		"    End\r\n"
+		"  End\r\n"
+		"End\r\n"
+		"Object MissingObjectProbe\r\n"
+		"  BuildCost = 1000\r\n"
+		"End\r\n" );
+	Bool threw = FALSE;
+	try
+	{
+		INI patch;
+		patch.load( AsciiString( TEST_INI ), INI_LOAD_MULTIFILE, NULL );
+	}
+	catch( ... )
+	{
+		threw = TRUE;
+	}
+	CHECK( threw == FALSE );
+	CHECK( TheThingFactory->findTemplate( "MissingObjectProbeAbsent", FALSE ) == NULL );
+
+	const ThingTemplate *probe = TheThingFactory->findTemplate( "MissingObjectProbe" );
+	CHECK( probe != NULL );
+	if( probe != NULL )
+		CHECK_EQ( probe->friend_getBuildCost(), 1000 );
 
 	remove( TEST_INI );
 	if( savedGlobals == NULL )
