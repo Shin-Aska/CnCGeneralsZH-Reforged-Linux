@@ -676,7 +676,13 @@ void AISkirmishPlayer::buildAIBaseDefense(Bool flank)
 		}
 		resInfo = resInfo->m_next;
 	}
-	if (resInfo) {
+	// the data names one defence per side, so a script asking for ten got ten of it: the side's mix
+	// comes off a dozer's buttons instead, and the data's choice stands in when no dozer is left
+	Object *dozer = findNearestDozer(&m_baseCenter);
+	const ThingTemplate *mix = dozer ? nextBaseDefense(dozer) : NULL;
+	if (mix) {
+		buildAIBaseDefenseStructure(mix->getName(), flank);
+	} else if (resInfo) {
 		buildAIBaseDefenseStructure(resInfo->m_baseDefenseStructure1, flank);
 	}
 }

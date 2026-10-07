@@ -154,11 +154,12 @@ Int UnitLimitPerPlayer( Int nonObserverPlayers );
 Bool UnitCapRefuses( Int unitsTowardCap, Int unitsItAdds, UnsignedInt unitCap );
 
 // A computer player's superweapons are paid for in base defences: every DEFENSES_PER_SUPERWEAPON
-// finished defences it stands allow it one superweapon, counted across every type.  A human is held
+// finished defences it stands allow it one superweapon, counted across every type (four until
+// the owner raised it to twelve).  A human is held
 // only by the lobby's rule and Pro Rules.  Whether one more is refused,
 // given the finished defences and the superweapons he already has, foundations included.  It sits
 // on top of the lobby's rule and never loosens it.
-enum { DEFENSES_PER_SUPERWEAPON = 4 };
+enum { DEFENSES_PER_SUPERWEAPON = 12 };
 Bool SuperweaponDefenseCapRefuses( Int finishedDefenses, Int superweapons );
 // Only a defence somebody paid for counts.  The Sneak Attack tunnel, its Start and every general's
 // copy are the only FS_BASE_DEFENSE templates with no BuildCost: a power drops them for free.

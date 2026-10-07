@@ -11139,6 +11139,49 @@ TEST(massing_waits_for_a_force_but_never_waits_for_ever)
 }
 
 
+/** A computer's base defences come as a mix: the type it has fewest of goes up next, and a bunker or
+	 a speaker tower, which shoots at nothing on its own, counts three times what it has standing. */
+TEST(ai_base_defenses_rotate_through_the_sides_types)
+{
+	CHECK_EQ( aiPickBaseDefense( NULL, NULL, 0 ), -1 );
+
+	// USA: Patriot first on the bar, then Fire Base.  Twelve picks go six and six, never two alike running
+	{
+		Int standing[ 2 ] = { 0, 0 };
+		const Bool armed[ 2 ] = { TRUE, TRUE };
+		Int last = -1;
+		for( Int n = 0; n < 12; ++n )
+		{
+			const Int pick = aiPickBaseDefense( standing, armed, 2 );
+			CHECK( pick != last );
+			last = pick;
+			++standing[ pick ];
+		}
+		CHECK_EQ( standing[ 0 ], 6 );
+		CHECK_EQ( standing[ 1 ], 6 );
+	}
+
+	// China: Bunker, Speaker Tower and Gattling Cannon on the bar, in that order.  The cannon goes up
+	// first although the bunker's button comes first, and twelve end seven guns, three bunkers, two towers
+	{
+		Int standing[ 3 ] = { 0, 0, 0 };
+		const Bool armed[ 3 ] = { FALSE, FALSE, TRUE };
+		CHECK_EQ( aiPickBaseDefense( standing, armed, 3 ), 2 );
+		for( Int n = 0; n < 12; ++n )
+			++standing[ aiPickBaseDefense( standing, armed, 3 ) ];
+		CHECK_EQ( standing[ 2 ], 7 );
+		CHECK_EQ( standing[ 0 ], 3 );
+		CHECK_EQ( standing[ 1 ], 2 );
+	}
+
+	// one type lost in a raid is the one put back
+	{
+		const Int standing[ 2 ] = { 5, 2 };
+		const Bool armed[ 2 ] = { TRUE, TRUE };
+		CHECK_EQ( aiPickBaseDefense( standing, armed, 2 ), 1 );
+	}
+}
+
 /** Another factory when the queue is backing up, and another tech building until three are standing.
 	 Easy and Normal never reach the caller: economy buildings stay off below Brutal. */
 TEST(extra_factory_follows_the_queue_and_tech_stops_at_three)
@@ -11168,6 +11211,16 @@ TEST(extra_factory_follows_the_queue_and_tech_stops_at_three)
 	CHECK( aiWantsAnotherTechBuilding( AI_TECH_BUILDING_COPIES - 1, 0 ) );
 	CHECK( !aiWantsAnotherTechBuilding( 2, 1 ) );
 	CHECK( !aiWantsAnotherTechBuilding( AI_TECH_BUILDING_COPIES, 0 ) );
+
+	// defences: a big army earns them, and the clock earns one per pace up to two superweapons' worth
+	const UnsignedInt pace = AI_DEFENSE_PACE_SECONDS * LOGICFRAMES_PER_SECOND;
+	CHECK_EQ( aiDefenseAllowance( 0, 0 ), 0 );
+	CHECK_EQ( aiDefenseAllowance( 0, pace - 1 ), 0 );
+	CHECK_EQ( aiDefenseAllowance( 0, pace ), 1 );
+	CHECK_EQ( aiDefenseAllowance( 0, DEFENSES_PER_SUPERWEAPON * pace ), (Int)DEFENSES_PER_SUPERWEAPON );
+	CHECK_EQ( aiDefenseAllowance( 0, 1000 * pace ), 2 * (Int)DEFENSES_PER_SUPERWEAPON );
+	CHECK_EQ( aiDefenseAllowance( 40, pace ), 40 / AI_ARMY_PER_DEFENSE );
+	CHECK_EQ( aiDefenseAllowance( 200, 1000 * pace ), 200 / AI_ARMY_PER_DEFENSE );
 
 	TAiData ladder;
 	CHECK( !ladder.m_skill[ AISKILL_EASY ].m_economyBuildings );
@@ -15068,26 +15121,29 @@ TEST(an_open_dropdown_owns_the_rows_that_hang_past_its_panel)
 	CHECK( !OpenWindowOwnsPoint( TRUE, boxX, boxY, boxWidth, boxHeightOpen, 900, 660 ) );
 }
 
-/* Four finished base defences buy one superweapon, eight buy two, whatever mix of silo, uplink and
-	 storm they go to.  Player::canBuildMoreOfType counts and asks this; the lobby's cap is checked
-	 beside it and still refuses on its own. */
-TEST(four_finished_defenses_pay_for_each_superweapon)
+/* Twelve finished base defences buy one superweapon, twenty-four buy two, whatever mix of silo,
+	 uplink and storm they go to.  Player::canBuildMoreOfType counts and asks this; the lobby's cap is
+	 checked beside it and still refuses on its own. */
+TEST(twelve_finished_defenses_pay_for_each_superweapon)
 {
-	// fewer than four buys nothing
+	CHECK_EQ( (Int)DEFENSES_PER_SUPERWEAPON, 12 );
+
+	// fewer than twelve buys nothing, four included, which bought one before
 	CHECK( SuperweaponDefenseCapRefuses( 0, 0 ) );
-	CHECK( SuperweaponDefenseCapRefuses( 3, 0 ) );
+	CHECK( SuperweaponDefenseCapRefuses( 4, 0 ) );
+	CHECK( SuperweaponDefenseCapRefuses( 11, 0 ) );
 
-	// four buy the first, and a foundation already down spends it
-	CHECK( !SuperweaponDefenseCapRefuses( 4, 0 ) );
-	CHECK( SuperweaponDefenseCapRefuses( 4, 1 ) );
-	CHECK( SuperweaponDefenseCapRefuses( 7, 1 ) );
+	// twelve buy the first, and a foundation already down spends it
+	CHECK( !SuperweaponDefenseCapRefuses( 12, 0 ) );
+	CHECK( SuperweaponDefenseCapRefuses( 12, 1 ) );
+	CHECK( SuperweaponDefenseCapRefuses( 23, 1 ) );
 
-	// eight the second
-	CHECK( !SuperweaponDefenseCapRefuses( 8, 1 ) );
-	CHECK( SuperweaponDefenseCapRefuses( 8, 2 ) );
+	// twenty-four the second
+	CHECK( !SuperweaponDefenseCapRefuses( 24, 1 ) );
+	CHECK( SuperweaponDefenseCapRefuses( 24, 2 ) );
 
 	// losing defences never pulls a standing superweapon down, it only stops the next one
-	CHECK( SuperweaponDefenseCapRefuses( 4, 2 ) );
+	CHECK( SuperweaponDefenseCapRefuses( 12, 2 ) );
 
 	// a Sneak Attack tunnel costs nothing and buys nothing; a Tunnel Network at 800 does
 	CHECK( !DefenseCountsForSuperweapons( 0 ) );
@@ -15124,9 +15180,9 @@ TEST(superweapon_defense_allowance_binds_computer_players_only)
 	CHECK( SuperweaponNeedsDefenses( AsciiString( "GLAScudStorm" ), FALSE, SUPERWEAPONS_ALLOW, TRUE ) );
 	CHECK( SuperweaponNeedsDefenses( AsciiString( "AmericaParticleCannonUplink" ), FALSE, SUPERWEAPONS_LIMIT, TRUE ) );
 
-	// and for a computer a storm's waiting hole still spends the four towers it stood on
-	CHECK( SuperweaponDefenseCapRefuses( 4, RebuildHoleHoldsSuperweapon( TRUE, FALSE ) ? 1 : 0 ) );
-	CHECK( !SuperweaponDefenseCapRefuses( 4, RebuildHoleHoldsSuperweapon( FALSE, FALSE ) ? 1 : 0 ) );
+	// and for a computer a storm's waiting hole still spends the twelve towers it stood on
+	CHECK( SuperweaponDefenseCapRefuses( 12, RebuildHoleHoldsSuperweapon( TRUE, FALSE ) ? 1 : 0 ) );
+	CHECK( !SuperweaponDefenseCapRefuses( 12, RebuildHoleHoldsSuperweapon( FALSE, FALSE ) ? 1 : 0 ) );
 }
 
 /* The superweapon rule is a mode, and what a mode leaves you depends on who you are playing.  The

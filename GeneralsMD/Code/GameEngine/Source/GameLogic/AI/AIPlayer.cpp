@@ -4809,10 +4809,6 @@ static const Real POWER_SETBACK = 0.75f;
 /** And how far in front of it a bought base defense goes, on the same line the other way. */
 static const Real DEFENSE_STANDOFF = 1.0f;
 
-/** The base grows with the army: one gun allowed per this many fighting units.  Superweapons follow
-	* the guns by the computer players' rule, DEFENSES_PER_SUPERWEAPON in Player.h. */
-static const Int ARMY_PER_DEFENSE = 4;
-
 /** Dozers a Hard AI trains on its own when every one it has is on a building. */
 static const Int MAX_ECONOMY_DOZERS = 4;
 
@@ -4881,6 +4877,53 @@ static const ThingTemplate *buildableOfKind( Object *builder, GUICommandType com
 			return tmpl;
 	}
 	return NULL;
+}
+
+static Bool priorityBuildPending( Player *player, const ThingTemplate *tmpl );
+
+//----------------------------------------------------------------------------------------------------------
+/** The base defence this player has the fewest of, off the dozer's buttons (aiPickBaseDefense).  Asking
+	* buildableOfKind for one gave the first button every time: a USA base of nothing but Patriots, a
+	* GLA one of Stinger Sites, and China bunkers nobody sat in beside the Gattling Cannons its scripts
+	* asked for.  One standing, going up or waiting on the build list counts alike. */
+//----------------------------------------------------------------------------------------------------------
+const ThingTemplate *AIPlayer::nextBaseDefense( Object *dozer )
+{
+	const CommandSet *commandSet = TheControlBar->findCommandSet( dozer->getCommandSetString() );
+	if( commandSet == NULL )
+		return NULL;
+
+	const ThingTemplate *candidates[ MAX_COMMANDS_PER_SET ];
+	Bool armed[ MAX_COMMANDS_PER_SET ];
+	Int count = 0;
+	for( Int i = 0; i < MAX_COMMANDS_PER_SET; ++i )
+	{
+		const CommandButton *button = commandSet->getCommandButton( i );
+		if( button == NULL || button->getCommandType() != GUI_COMMAND_DOZER_CONSTRUCT )
+			continue;
+		const ThingTemplate *tmpl = button->getThingTemplate();
+		if( tmpl == NULL || !tmpl->isKindOf( KINDOF_FS_BASE_DEFENSE ) )
+			continue;
+		// short of money is still a candidate: the build list waits for it, and a pick made only from
+		// what the bank covers today would lean on the cheapest
+		const CanMakeType canMake = TheBuildAssistant->canMakeUnit( dozer, tmpl );
+		if( canMake != CANMAKE_OK && canMake != CANMAKE_NO_MONEY )
+			continue;
+		candidates[ count ] = tmpl;
+		armed[ count ] = tmpl->canPossiblyHaveAnyWeapon() || tmpl->isKindOf( KINDOF_SPAWNS_ARE_THE_WEAPONS );
+		++count;
+	}
+	if( count == 0 )
+		return NULL;
+
+	Int standing[ MAX_COMMANDS_PER_SET ];
+	m_player->countObjectsByThingTemplate( count, candidates, TRUE, standing, FALSE );
+	for( Int i = 0; i < count; ++i )
+		if( priorityBuildPending( m_player, candidates[ i ] ) )
+			++standing[ i ];
+
+	const Int pick = aiPickBaseDefense( standing, armed, count );
+	return pick < 0 ? NULL : candidates[ pick ];
 }
 
 /** How loaded this player's factories of one kind are.  Counted off the objects, because a factory
@@ -5237,8 +5280,8 @@ void AIPlayer::doPower( void )
 	* What the plan cannot buy.  A tank factory or a barracks when that queue is backing up, and an
 	* airfield on every pass the money allows, with no cap on how many stand.  Income buildings the
 	* same way: a supply drop zone, a black market, an internet center, whichever of those the faction
-	* can build, on every pass.  Hackers from every factory that trains them.  And base defenses,
-	* still one per four fighting units.
+	* can build, on every pass.  Hackers from every factory that trains them.  And base defenses, a
+	* mix of the side's types, as many as aiDefenseAllowance gives the army and the clock.
 	*/
 //----------------------------------------------------------------------------------------------------------
 void AIPlayer::doEconomy( void )
@@ -5322,30 +5365,48 @@ void AIPlayer::doEconomy( void )
 			homeFull = TRUE;
 	}
 
-	// ... and what does not pay back for twice it, so the opening build order is not what pays for it
-	if( m_player->getMoney()->countMoney() <= 2 * profile->m_cashHoardThreshold )
-		return;
-
-	/* A gun on the side the trouble comes from, before anything else the pass buys.  Production and
+	/* A gun on the side the trouble comes from, before the factories the pass buys.  Production and
 		 income go round the base center, the power goes behind it, and this goes out in front, so the
 		 defenses stand in front of everything else.  It used to be one every minute and a half and never
 		 more than ten.  Bought whenever the bank allowed, they took the money from the army: over twelve
 		 four-player matches 23 guns became 241, and attack waves fell from 223 to 187.  So the guns grow
-		 with the army, one per ARMY_PER_DEFENSE fighting units, and a base whose army is gone rebuilds
-		 its army before its walls. */
+		 with the army, and with the clock up to two superweapons' worth (aiDefenseAllowance), one at a
+		 time, each the type the base has fewest of.  They go round the front: straight at the enemy,
+		 then 45 degrees either side, then 90, so the flanks are covered too, and a pass that finds one
+		 arc full tries the next arc on the next pass.  They wait only for the hoard, like the income
+		 buildings: behind twice the hoard, a 1v1 Hard side built two to five a match. */
 	const BaseTally tally = tallyBase( m_player );
-	const ThingTemplate *defense = buildableOfKind( dozer, GUI_COMMAND_DOZER_CONSTRUCT, KINDOF_FS_BASE_DEFENSE );
-	if( defense && tally.defenses < tally.army / ARMY_PER_DEFENSE && !priorityBuildPending( m_player, defense ) )
+	const ThingTemplate *defense = nextBaseDefense( dozer );
+	if( defense && tally.defenses < aiDefenseAllowance( tally.army, TheGameLogic->getFrame() )
+			&& !priorityBuildPending( m_player, defense ) )
 	{
+		// cos and sin of 0, +45, -45, +90 and -90 degrees, written out so no trig runs in logic
+		const Int ARCS = 5;
+		static const Real ARC_COS[ ARCS ] = { 1.0f, 0.70710678f, 0.70710678f, 0.0f, 0.0f };
+		static const Real ARC_SIN[ ARCS ] = { 0.0f, 0.70710678f, -0.70710678f, 1.0f, -1.0f };
 		Coord3D spot = m_baseCenter;
 		Coord3D dir;
 		if( enemyDirection( &dir ) )
 		{
-			spot.x += dir.x * m_baseRadius * DEFENSE_STANDOFF;
-			spot.y += dir.y * m_baseRadius * DEFENSE_STANDOFF;
+			const Int arc = (Int)( ( (UnsignedInt)tally.defenses + TheGameLogic->getFrame() / ECONOMY_CHECK_RATE ) % ARCS );
+			const Real x = dir.x * ARC_COS[ arc ] - dir.y * ARC_SIN[ arc ];
+			const Real y = dir.y * ARC_COS[ arc ] + dir.x * ARC_SIN[ arc ];
+			spot.x += x * m_baseRadius * DEFENSE_STANDOFF;
+			spot.y += y * m_baseRadius * DEFENSE_STANDOFF;
 		}
-		placeNear( defense, &spot, 0.0f, FALSE );
+		// a base on a small map has its arc off the edge or on a cliff: 680 of 790 tries missed over
+		// 72 1v1 matches, so a miss goes round the middle of the base instead
+		Bool placed = placeNear( defense, &spot, 0.0f, FALSE );
+		if( !placed )
+			placed = placeNear( defense, &m_baseCenter, 0.5f * m_baseRadius, FALSE );
+		DEBUG_LOG(("AI ECONOMY frame %d player %d %s defense '%s', %d of %d standing, army %d\n", TheGameLogic->getFrame(),
+			m_player->getPlayerIndex(), placed ? "puts up" : "has no room for", defense->getName().str(),
+			tally.defenses, aiDefenseAllowance( tally.army, TheGameLogic->getFrame() ), tally.army));
 	}
+
+	// ... and what does not pay back for twice it, so the opening build order is not what pays for it
+	if( m_player->getMoney()->countMoney() <= 2 * profile->m_cashHoardThreshold )
+		return;
 
 	/* Airfields have no count, so a tank queue that never empties would take every pass and the
 		 airfield would wait forever.  Even economy ticks ask for the airfield first, odd ticks ask for
@@ -6313,7 +6374,7 @@ void AIPlayer::defendHome( void )
 	m_player->iterateObjects( findAnyDozer, &dozer );
 	if( dozer && m_player->getCanBuildBase() )
 	{
-		const ThingTemplate *defense = buildableOfKind( dozer, GUI_COMMAND_DOZER_CONSTRUCT, KINDOF_FS_BASE_DEFENSE );
+		const ThingTemplate *defense = nextBaseDefense( dozer );
 		Bool going = FALSE;
 		m_player->iterateObjects( findDefenseUnderConstruction, &going );
 		if( defense && !going && !priorityBuildPending( m_player, defense ) )

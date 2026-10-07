@@ -1255,6 +1255,33 @@ Bool aiWantsAnotherTechBuilding( Int standing, Int onTheWay )
 }
 
 //-------------------------------------------------------------------------------------------------
+Int aiDefenseAllowance( Int army, UnsignedInt frame )
+{
+	const Int byArmy = army / AI_ARMY_PER_DEFENSE;
+	Int byClock = (Int)( frame / ( AI_DEFENSE_PACE_SECONDS * LOGICFRAMES_PER_SECOND ) );
+	if( byClock > 2 * DEFENSES_PER_SUPERWEAPON )
+		byClock = 2 * DEFENSES_PER_SUPERWEAPON;
+	return byArmy > byClock ? byArmy : byClock;
+}
+
+//-------------------------------------------------------------------------------------------------
+Int aiPickBaseDefense( const Int *standing, const Bool *armed, Int count )
+{
+	Int best = -1;
+	Int bestWeight = 0;
+	for( Int i = 0; i < count; ++i )
+	{
+		const Int weight = standing[ i ] * ( armed[ i ] ? 1 : AI_SUPPORT_DEFENSE_WEIGHT );
+		if( best < 0 || weight < bestWeight || ( weight == bestWeight && armed[ i ] && !armed[ best ] ) )
+		{
+			best = i;
+			bestWeight = weight;
+		}
+	}
+	return best;
+}
+
+//-------------------------------------------------------------------------------------------------
 Real aiScoutScore( UnsignedInt now, UnsignedInt lastSeenFrame, Real distance, UnsignedInt freshFrames )
 {
 	// 0 == never looked, and now - 0 is bigger than any real age, so those sort to the front by itself

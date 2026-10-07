@@ -337,6 +337,22 @@ static const Int AI_TECH_BUILDING_COPIES = 3;
 /** Another of those, when fewer than AI_TECH_BUILDING_COPIES are standing and none is already on the way. */
 Bool aiWantsAnotherTechBuilding( Int standing, Int onTheWay );
 
+/** Base defences a Hard computer may stand: one per AI_ARMY_PER_DEFENSE fighting units, and however
+	* small the army, one more every AI_DEFENSE_PACE_SECONDS of the match until two superweapons' worth
+	* stand.  The army ration alone left a 1v1 base on two or three guns, short of the
+	* DEFENSES_PER_SUPERWEAPON a superweapon asks for. */
+static const Int AI_ARMY_PER_DEFENSE = 4;
+static const Int AI_DEFENSE_PACE_SECONDS = 40;
+Int aiDefenseAllowance( Int army, UnsignedInt frame );
+
+/** Which of the base defences a dozer can build goes up next, as an index into the candidates: the
+	* one with the fewest standing, so a side's guns come as a mix rather than a row of whatever button
+	* sits first.  A defence with no gun or spawn of its own (an empty bunker, a speaker tower) counts
+	* AI_SUPPORT_DEFENSE_WEIGHT times what it has standing.  Ties go to an armed one, then to the first
+	* candidate.  -1 when there are none. */
+static const Int AI_SUPPORT_DEFENSE_WEIGHT = 3;
+Int aiPickBaseDefense( const Int *standing, const Bool *armed, Int count );
+
 /** How badly one place wants looking at, per step walked there.  A3's scouting is never a search -
 	* the start positions are public, the lobby shows them - so the question is not "where is he" but
 	* "whose picture is worth the walk", and the answer is the stalest one per unit of distance:
