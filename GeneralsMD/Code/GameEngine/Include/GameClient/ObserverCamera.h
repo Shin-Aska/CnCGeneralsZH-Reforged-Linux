@@ -161,10 +161,27 @@ void ObserverCamera_paneCircles( const Real *rays, Int count, Int width, Int hei
 /// how far from around the farthest of the things within reach of it lie, on the ground, and never less
 /// than least
 Real ObserverCamera_extentAround( const std::vector< DirectorHeat > &things, const Coord2D &around, Real reach, Real least );
-/// the zoom that fits a subject extent across on the ground into a circle radius pixels across, with a
-/// margin, for a view whose ground per pixel is groundPerPixelAtOne at zoom 1; never under nearest or
-/// over farthest
-Real ObserverCamera_fitZoom( Real extent, Real radius, Real groundPerPixelAtOne, Real nearest, Real farthest );
+/// where a pixel of a width by height picture falls on flat ground, from where its four corners fall
+/// (top left, top right, bottom right, bottom left), through the plane's projection, which is exact
+/// for a perspective camera over flat ground.  A camera moved away from the point it looks at by a
+/// zoom moves every corner, and every pixel's ground, out from that point by the same factor
+Coord2D ObserverCamera_pixelToGround( const Coord2D &pixel, Int width, Int height, const Coord2D *corners );
+/// the other way: the pixel a point on the ground is drawn at
+Coord2D ObserverCamera_groundToPixel( const Coord2D &ground, Int width, Int height, const Coord2D *corners );
+/// the point a camera whose corners are these, measured from the point it looks at, looks at to draw
+/// subject on pixel; every pane camera is placed through this
+Coord2D ObserverCamera_lookPoint( const Coord2D &subject, const Coord2D &pixel, Int width, Int height, const Coord2D *corners );
+/// how far round a circle on the screen reaches on the ground, the nearest of its four sides, with the
+/// corners as above
+Real ObserverCamera_groundRadius( const Coord2D &centre, Real radius, Int width, Int height, const Coord2D *corners );
+/// the zoom that fits a subject extent across on the ground into a circle that reaches groundRadiusAtOne
+/// at zoom 1, with a margin; never under nearest or over farthest
+Real ObserverCamera_fitZoom( Real extent, Real groundRadiusAtOne, Real nearest, Real farthest );
+/// the highest zoom, from nearest up to wanted, at which a camera putting subject on pixel shows no
+/// ground past the map; nearest when none does.  cornersAtOne are the corners at zoom 1, from the
+/// point the camera looks at
+Real ObserverCamera_zoomInMap( const Coord2D &subject, const Coord2D &pixel, Int width, Int height,
+	const Coord2D *cornersAtOne, const Region2D &map, Real nearest, Real wanted );
 /// how far an animation of length frames that started on start is on frame, eased in and out, 0 to 1
 Real ObserverCamera_easeFrames( UnsignedInt frame, UnsignedInt start, UnsignedInt length );
 /// the dark edge each side of the gold of a line between panes and of the radar's frame, in pixels
@@ -245,7 +262,9 @@ private:
 	void driveHeight( Real extra );
 	Bool takenByHand( const ViewLocation &current ) const;
 	Coord2D keepInMap( const Coord2D &place, const ViewLocation &current ) const;
-	Coord2D screenToGround( const ViewLocation &current, const Coord2D &pixels, Real zoom ) const;
+	void measureCorners( void );
+	Coord2D paneLookPoint( const Coord2D &subject, const Coord2D &pixel, Real zoom ) const;
+	Region2D mapRegion( void ) const;
 	void updateSplit( void );
 	void updateIntroPlaces( void );
 	void advancePanes( UnsignedInt frame );
@@ -311,6 +330,7 @@ private:
 	Bool m_paneFitValid;							///< m_paneFit holds a fit of these panes
 	UnsignedInt m_paneFitFrame;						///< the logic frame m_paneFit last moved on
 	Coord2D m_radarHalf;							///< half the framed radar's size, taken from its last draw
+	Coord2D m_cornersAtOne[ 4 ];					///< where the screen's corners fall on the ground from the look point, at zoom 1
 	Coord2D m_paneOrigin;						///< where the rays meet now, in pixels
 	Real m_cornerRadarSlide;
 	IRegion2D m_radarFrame;

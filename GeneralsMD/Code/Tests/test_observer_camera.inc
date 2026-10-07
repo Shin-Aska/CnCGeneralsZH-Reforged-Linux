@@ -467,13 +467,121 @@ TEST(a_subject_spreads_as_far_as_its_farthest_thing_within_reach)
 
 TEST(a_pane_zooms_out_to_fit_its_subject_and_no_further_than_the_cap)
 {
-	// 200 pixels at 2 a pixel is 400 on the ground; 300 with its 15 percent margin fits closer than
+	// a circle reaching 400 on the ground at zoom 1; 300 with its 15 percent margin fits closer than
 	// the director's own, which is as close as a pane comes
-	CHECK_NEAR( ObserverCamera_fitZoom( 300.0f, 200.0f, 2.0f, 1.0f, 2.0f ), 1.0f, 0.0001f );
-	CHECK_NEAR( ObserverCamera_fitZoom( 600.0f, 200.0f, 2.0f, 1.0f, 2.0f ), 1.725f, 0.001f );
-	CHECK_NEAR( ObserverCamera_fitZoom( 2000.0f, 200.0f, 2.0f, 1.0f, 2.0f ), 2.0f, 0.0001f );
-	// a smaller circle wants more ground in each pixel
-	CHECK( ObserverCamera_fitZoom( 600.0f, 150.0f, 2.0f, 1.0f, 3.0f ) > ObserverCamera_fitZoom( 600.0f, 200.0f, 2.0f, 1.0f, 3.0f ) );
+	CHECK_NEAR( ObserverCamera_fitZoom( 300.0f, 400.0f, 1.0f, 2.0f ), 1.0f, 0.0001f );
+	CHECK_NEAR( ObserverCamera_fitZoom( 600.0f, 400.0f, 1.0f, 2.0f ), 1.725f, 0.001f );
+	CHECK_NEAR( ObserverCamera_fitZoom( 2000.0f, 400.0f, 1.0f, 2.0f ), 2.0f, 0.0001f );
+	// a smaller circle needs the camera further out
+	CHECK( ObserverCamera_fitZoom( 600.0f, 300.0f, 1.0f, 3.0f ) > ObserverCamera_fitZoom( 600.0f, 400.0f, 1.0f, 3.0f ) );
+}
+
+/// where a pixel of a 1280x720 picture falls on flat ground for a pinhole camera looking down at 50
+/// degrees on the origin from distance away, the way the game's view stands over the ground
+static Coord2D castPixel( Real x, Real y, Real distance )
+{
+	const Real pitch = 50.0f * PI / 180.0f;
+	const Real halfWide = 0.6f;
+	const Real halfHigh = 0.6f * 720.0f / 1280.0f;
+	const Real forwardY = cosf( pitch ), forwardZ = -sinf( pitch );
+	const Real upY = sinf( pitch ), upZ = cosf( pitch );
+	const Real right = ( 2.0f * x / 1280.0f - 1.0f ) * halfWide;
+	const Real up = ( 1.0f - 2.0f * y / 720.0f ) * halfHigh;
+	const Real eyeY = -distance * forwardY, eyeZ = -distance * forwardZ;
+	const Real rayX = right, rayY = forwardY + up * upY, rayZ = forwardZ + up * upZ;
+	const Real along = -eyeZ / rayZ;
+	Coord2D ground;
+	ground.x = rayX * along;
+	ground.y = eyeY + rayY * along;
+	return ground;
+}
+
+static void castCorners( Real distance, Coord2D *corners )
+{
+	corners[ 0 ] = castPixel( 0.0f, 0.0f, distance );
+	corners[ 1 ] = castPixel( 1280.0f, 0.0f, distance );
+	corners[ 2 ] = castPixel( 1280.0f, 720.0f, distance );
+	corners[ 3 ] = castPixel( 0.0f, 720.0f, distance );
+}
+
+TEST(the_four_corners_project_every_pixel_onto_flat_ground_exactly)
+{
+	Coord2D corners[ 4 ];
+	castCorners( 400.0f, corners );
+	const Coord2D pixels[] = { { 900.0f, 200.0f }, { 150.0f, 650.0f }, { 640.0f, 360.0f }, { 1200.0f, 40.0f } };
+	for( Int index = 0; index < 4; index++ )
+	{
+		const Coord2D cast = castPixel( pixels[ index ].x, pixels[ index ].y, 400.0f );
+		const Coord2D projected = ObserverCamera_pixelToGround( pixels[ index ], 1280, 720, corners );
+		CHECK_NEAR( projected.x, cast.x, 0.5f );
+		CHECK_NEAR( projected.y, cast.y, 0.5f );
+		const Coord2D back = ObserverCamera_groundToPixel( projected, 1280, 720, corners );
+		CHECK_NEAR( back.x, pixels[ index ].x, 0.05f );
+		CHECK_NEAR( back.y, pixels[ index ].y, 0.05f );
+	}
+	// twice as far back, every pixel's ground is twice as far from the point looked at
+	Coord2D farther[ 4 ];
+	castCorners( 800.0f, farther );
+	for( Int corner = 0; corner < 4; corner++ )
+	{
+		CHECK_NEAR( farther[ corner ].x, corners[ corner ].x * 2.0f, 0.5f );
+		CHECK_NEAR( farther[ corner ].y, corners[ corner ].y * 2.0f, 0.5f );
+	}
+}
+
+TEST(a_subject_put_on_its_circle_centre_stays_there_at_every_zoom)
+{
+	// the look point the pane cameras use, subject less the pixel's ground at that zoom, drawn back
+	// through the camera of that zoom, lands on the pixel it was put on
+	Coord2D atOne[ 4 ];
+	castCorners( 400.0f, atOne );
+	const Coord2D subject = { 3000.0f, 2000.0f };
+	const Coord2D centre = { 293.0f, 293.0f };
+	const Real zooms[] = { 1.0f, 1.3f, 1.7f, 2.0f };
+	for( Int index = 0; index < 4; index++ )
+	{
+		Coord2D corners[ 4 ];
+		for( Int corner = 0; corner < 4; corner++ )
+		{
+			corners[ corner ].x = atOne[ corner ].x * zooms[ index ];
+			corners[ corner ].y = atOne[ corner ].y * zooms[ index ];
+		}
+		const Coord2D look = ObserverCamera_lookPoint( subject, centre, 1280, 720, corners );
+		Coord2D fromLook;
+		fromLook.x = subject.x - look.x;
+		fromLook.y = subject.y - look.y;
+		const Coord2D drawn = ObserverCamera_groundToPixel( fromLook, 1280, 720, corners );
+		CHECK_NEAR( drawn.x, centre.x, 0.05f );
+		CHECK_NEAR( drawn.y, centre.y, 0.05f );
+		// and the circle reaches further on the ground the further out the camera stands
+		CHECK_NEAR( ObserverCamera_groundRadius( centre, 200.0f, 1280, 720, corners ),
+			ObserverCamera_groundRadius( centre, 200.0f, 1280, 720, atOne ) * zooms[ index ], 0.5f );
+	}
+}
+
+TEST(a_pane_comes_down_to_the_zoom_that_shows_no_ground_past_the_map)
+{
+	Coord2D atOne[ 4 ];
+	castCorners( 400.0f, atOne );
+	Region2D map;
+	map.lo.x = map.lo.y = 0.0f;
+	map.hi.x = map.hi.y = 3000.0f;
+	const Coord2D middlePixel = { 640.0f, 360.0f };
+	const Coord2D middle = { 1500.0f, 1500.0f };
+	const Coord2D nearEdge = { 400.0f, 1500.0f };
+	// in the middle of a big map the cap is free
+	CHECK_NEAR( ObserverCamera_zoomInMap( middle, middlePixel, 1280, 720, atOne, map, 1.0f, 1.5f ), 1.5f, 0.0001f );
+	// near its edge the pane comes down to where the screen's left corners just reach the edge
+	const Real kept = ObserverCamera_zoomInMap( nearEdge, middlePixel, 1280, 720, atOne, map, 1.0f, 3.0f );
+	CHECK( kept < 3.0f );
+	Real leftmost = atOne[ 0 ].x;
+	for( Int corner = 1; corner < 4; corner++ )
+		leftmost = min( leftmost, atOne[ corner ].x );
+	const Coord2D onMiddle = ObserverCamera_pixelToGround( middlePixel, 1280, 720, atOne );
+	CHECK_NEAR( nearEdge.x - onMiddle.x * kept + leftmost * kept, 0.0f, 2.0f );
+	// and a subject that cannot be shown without the edge at any zoom gets the nearest
+	const Coord2D pastEdge = { 10.0f, 1500.0f };
+	CHECK_NEAR( ObserverCamera_zoomInMap( pastEdge, middlePixel, 1280, 720, atOne, map, 1.0f, 2.0f ), 1.0f, 0.0001f );
 }
 
 TEST(pane_lines_grow_with_the_picture_and_the_join_keeps_all_of_them)
