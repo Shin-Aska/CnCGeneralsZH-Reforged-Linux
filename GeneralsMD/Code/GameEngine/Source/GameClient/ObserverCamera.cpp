@@ -132,7 +132,7 @@ static const Int PANE_CIRCLE_ROWS = 72;
 /// a subject fitted into its pane's circle leaves this much of the radius round it
 static const Real PANE_FIT_MARGIN = 0.15f;
 /// a pane never comes closer than the director's own zoom, and never goes further out than this times it
-static const Real PANE_FIT_FARTHEST = 2.0f;
+static const Real PANE_FIT_FARTHEST = 3.0f;
 /// a fight is never fitted as smaller than this across, so two tanks are not filled into a pane
 static const Real PANE_FIT_LEAST_EXTENT = 150.0f;
 /// the opening fits what a player has within this of the middle of it, his base and the army beside it

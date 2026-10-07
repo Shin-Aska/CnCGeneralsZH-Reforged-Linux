@@ -944,13 +944,16 @@ void W3DView::aimCamera( void )
 	// 1200 was a number, not a distance: at the stock ceiling and pitch the far plane already cuts
 	// the terrain the game means to draw, and this fork zooms further out than the stock game did.
 	// Take the distance the terrain is actually drawn over instead, and open it with the height -
-	// at twice the height you see twice as far.  The height is the eye's own as well as the one the
-	// view settles towards: the observer camera sets the zoom outright with the settling held off,
-	// and a pane twice as high as the height said cut the far ground off in a black band.
+	// at twice the height you see twice as far.  -directorrecord's panes set the zoom outright with
+	// the height's settling held off, so there the eye's own height opens it as well: a pane twice
+	// as high as the held height cut the far ground off in a black band.  Only there, so every
+	// other camera keeps the far plane it had.
 	static const Real VIEW_DEFAULT_MAX_HEIGHT_ABOVE_TERRAIN = 310.0f;
 	farZ = (WorldHeightMap::NORMAL_DRAW_WIDTH * 1.08f) * MAP_XY_FACTOR;
-	const Real eyeHeight = m_cameraOffset.z * getZoom() - m_groundLevel;
-	const Real heightMultiplier = max(m_heightAboveGround, eyeHeight) / VIEW_DEFAULT_MAX_HEIGHT_ABOVE_TERRAIN;
+	Real height = m_heightAboveGround;
+	if (TheGlobalData->m_directorRecord && !m_okToAdjustHeight)
+		height = max(height, m_cameraOffset.z * getZoom() - m_groundLevel);
+	const Real heightMultiplier = height / VIEW_DEFAULT_MAX_HEIGHT_ABOVE_TERRAIN;
 	if (heightMultiplier > 1.0f)
 		farZ *= heightMultiplier;
 
