@@ -547,6 +547,10 @@ void W3DInGameUI::draw( void )
 			TheControlBar->placeWindowAt( radarWindow, corner );
 			W3DLeftHUDDraw( radarWindow, NULL );
 		}
+
+		// -directorrecord's score bar and pane labels, over everything and pane 0's alone like the lines
+		if( TheGlobalData->m_directorRecord && !TheObserverCamera.isDrawingSecond() )
+			drawDirectorBroadcast();
 		return;
 	}
 

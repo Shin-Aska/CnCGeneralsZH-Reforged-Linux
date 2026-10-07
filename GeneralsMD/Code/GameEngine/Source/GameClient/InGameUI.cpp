@@ -1433,6 +1433,9 @@ InGameUI::~InGameUI()
 	for( size_t key = 0; key < m_quitMenuKeyOverlays.size(); key++ )
 		delete m_quitMenuKeyOverlays[ key ];
 	m_quitMenuKeyOverlays.clear();
+	for( std::map< std::string, DisplayString * >::iterator text = m_broadcastTexts.begin(); text != m_broadcastTexts.end(); ++text )
+		TheDisplayStringManager->freeDisplayString( text->second );
+	m_broadcastTexts.clear();
 	for( Int grid = 0; grid < CELL_GRID_COUNT; grid++ )
 	{
 		delete m_cellFrontOverlay[ grid ];
@@ -2110,19 +2113,18 @@ static void addObjectStats( Object *obj, void *userData )
 }
 
 //-------------------------------------------------------------------------------------------------
-/** Everyone still in the match with his numbers, ranked by `stat`.  Allies both ways share a team
-	* number, counted in the order the teams first appear in the player list. */
+/** Everyone still in the match but leftOut with his numbers, ranked by `stat`.  Allies both ways share
+	* a team number, counted in the order the teams first appear in the player list. */
 //-------------------------------------------------------------------------------------------------
-static std::vector< SpectatorStats > gatherSpectatorStats( const SpectatorStat &stat )
+static std::vector< SpectatorStats > gatherSpectatorStats( const SpectatorStat &stat, const Player *leftOut )
 {
 	std::vector< SpectatorStats > players;
-	const Player *local = ThePlayerList->getLocalPlayer();
 	const UnsignedInt frame = TheGameLogic->getFrame();
 	Int teams = 0;
 	for( Int index = 0; index < ThePlayerList->getPlayerCount(); index++ )
 	{
 		Player *player = ThePlayerList->getNthPlayer( index );
-		if( player == NULL || player == local || !player->isPlayerActive() || !player->isPlayableSide() )
+		if( player == NULL || player == leftOut || !player->isPlayerActive() || !player->isPlayableSide() )
 			continue;
 
 		ScoreKeeper *score = player->getScoreKeeper();
@@ -2656,7 +2658,7 @@ void InGameUI::drawSpectatorPage( void )
 			|| frame < m_spectatorListsFrame || frame >= m_spectatorListsFrame + NET_WORTH_REFRESH_FRAMES )
 	{
 		const SpectatorStat &stat = spectatorStat( m_spectatorPicked );
-		const std::vector< SpectatorStats > players = gatherSpectatorStats( stat );
+		const std::vector< SpectatorStats > players = gatherSpectatorStats( stat, ThePlayerList->getLocalPlayer() );
 		fillSpectatorPlayers( players, stat, m_spectatorLists[ "players" ] );
 		fillSpectatorArmies( players, m_spectatorLists[ "army" ] );
 		fillSpectatorFollows( players, m_spectatorLists[ "follows" ] );
@@ -10520,6 +10522,317 @@ void InGameUI::drawPeaceCountdown( UnsignedInt framesLeft )
 
 	m_peaceCountdownDisplayString->draw( (TheDisplay->getWidth() - textWidth) / 2, top + labelHeight,
 									peaceTimeColor( alpha ), GameMakeColor( 0, 0, 0, alpha ) );
+}
+
+// -directorrecord's broadcast is drawn in zerohour.gg's colours (website/resources/css/app.css,
+// docs/reference/BRAND.md): the ground at the site's veil, its panel, ink, muted text, the line and
+// the gold the pane lines are drawn in.  The site sets words in Chivo and numbers in JetBrains Mono;
+// Windows has neither, and these are the site's own fallbacks for the two
+static const Color BROADCAST_GROUND = GameMakeColor( 0x0c, 0x12, 0x20, 224 );
+static const Color BROADCAST_PANEL = GameMakeColor( 0x12, 0x1a, 0x2b, 255 );
+static const Color BROADCAST_LINE = GameMakeColor( 0x1f, 0x29, 0x40, 255 );
+static const Color BROADCAST_INK = GameMakeColor( 0xe8, 0xea, 0xf0, 255 );
+static const Color BROADCAST_MUTED = GameMakeColor( 0x8e, 0x97, 0xad, 255 );
+static const Color BROADCAST_GOLD = GameMakeColor( 0xf2, 0xc2, 0x30, 255 );
+static const char *const BROADCAST_WORDS = "Segoe UI";
+static const char *const BROADCAST_NUMBERS = "Consolas";
+/// the broadcast's sizes are a 720 row picture's, grown with the picture's height
+static const Real BROADCAST_ROWS = 720.0f;
+static const Int BROADCAST_NAME_POINTS = 11;
+static const Int BROADCAST_SIDE_POINTS = 9;
+static const Int BROADCAST_HEAD_POINTS = 7;
+static const Int BROADCAST_CLOCK_POINTS = 16;
+static const Real BROADCAST_PAD = 8.0f;
+static const Real BROADCAST_GAP = 10.0f;
+static const Real BROADCAST_SWATCH = 4.0f;
+static const Real BROADCAST_ROW_GAP = 3.0f;
+static const Real BROADCAST_RULE = 2.0f;
+static const Real BROADCAST_TUG = 6.0f;
+static const Int THOUSANDS = 3;
+static const Int BROADCAST_WIDEST = 888888;	///< the number the cash and army columns are measured on
+
+/** A whole number with its thousands parted by commas, after prefix. */
+static UnicodeString broadcastNumber( const char *prefix, Int value )
+{
+	std::string digits = std::to_string( value );
+	for( Int at = (Int)digits.size() - THOUSANDS; at > 0; at -= THOUSANDS )
+		digits.insert( at, "," );
+	UnicodeString text;
+	text.translate( AsciiString( ( prefix + digits ).c_str() ) );
+	return text;
+}
+
+/** color with its opacity taken down to share of what it was. */
+static Color broadcastFade( Color color, Real share )
+{
+	UnsignedByte red, green, blue, alpha;
+	GameGetColorComponents( color, &red, &green, &blue, &alpha );
+	return GameMakeColor( red, green, blue, (UnsignedByte)REAL_TO_INT( alpha * share ) );
+}
+
+//-------------------------------------------------------------------------------------------------
+DisplayString *InGameUI::broadcastText( const std::string &key, const UnicodeString &text, const char *font, Int points, Bool bold )
+{
+	DisplayString *&string = m_broadcastTexts[ key ];
+	if( string == NULL )
+	{
+		string = TheDisplayStringManager->newDisplayString();
+		string->setFont( TheFontLibrary->getFont( AsciiString( font ), points, bold ) );
+	}
+	string->setText( text );
+	return string;
+}
+
+/// one player's row of the score bar
+struct BroadcastRow
+{
+	const SpectatorStats *stats;
+	Color color;
+	DisplayString *name;
+	DisplayString *side;
+	DisplayString *cash;
+	DisplayString *army;
+};
+
+//-------------------------------------------------------------------------------------------------
+/** The score bar hangs from the top edge in the middle: the match clock in a box of its own, one row a
+	* player either side of it, the swatch of his colour and his name on the outside, his side, then his
+	* cash and the cost of everything he has standing that is not a building nearest the clock.  Two
+	* teams face each other across it; in a free for all the first half of the list is on the left.
+	* Under the rows the armies pull on one bar: the left's from the left edge, the right's from the
+	* right, each player his colour, gold at the middle so the side ahead is the one past it.  While
+	* there are panes each carries a plate in the top of its circle, inside its wedge and clear of the
+	* lines and the radar: the player's name and side in the opening, the fight's players in a split.
+	* Everything is read off the players and their objects; nothing here writes the logic. */
+//-------------------------------------------------------------------------------------------------
+void InGameUI::drawDirectorBroadcast( void )
+{
+	TheObserverCamera.clearBroadcast();
+	std::vector< SpectatorStats > players = gatherSpectatorStats( SPECTATOR_STATS[ 0 ], NULL );
+	// the match is over: nobody is left to score
+	if( players.empty() )
+		return;
+	std::stable_sort( players.begin(), players.end(), []( const SpectatorStats &a, const SpectatorStats &b )
+		{ return a.team != b.team ? a.team < b.team : a.player->getPlayerIndex() < b.player->getPlayerIndex(); } );
+
+	const Real unit = TheDisplay->getHeight() / BROADCAST_ROWS;
+	auto pixels = [ unit ]( Real at720 ) { return max( REAL_TO_INT( at720 * unit ), 1 ); };
+	auto points = [ unit ]( Int at720 ) { return REAL_TO_INT( at720 * unit ); };
+	const Int pad = pixels( BROADCAST_PAD );
+	const Int gap = pixels( BROADCAST_GAP );
+	const Int swatch = pixels( BROADCAST_SWATCH );
+	const Int rowGap = pixels( BROADCAST_ROW_GAP );
+	const Int rule = pixels( BROADCAST_RULE );
+	const Int tug = pixels( BROADCAST_TUG );
+
+	const Int teams = players.back().team + 1;
+	size_t leftCount = ( players.size() + 1 ) / 2;
+	if( teams == 2 )
+	{
+		leftCount = 0;
+		while( players[ leftCount ].team == 0 )
+			leftCount++;
+	}
+
+	std::vector< BroadcastRow > rows;
+	Int nameWidth = 0, sideWidth = 0, cashWidth = 0, armyWidth = 0, rowHeight = 0;
+	Int armies[ 2 ] = { 0, 0 };
+	for( size_t index = 0; index < players.size(); index++ )
+	{
+		const SpectatorStats &stats = players[ index ];
+		const std::string seat = std::to_string( stats.player->getPlayerIndex() );
+		BroadcastRow row;
+		row.stats = &stats;
+		row.color = clientPlayerColor( stats.player );
+		row.name = broadcastText( "name" + seat, stats.player->getPlayerDisplayName(), BROADCAST_WORDS, points( BROADCAST_NAME_POINTS ), TRUE );
+		row.side = broadcastText( "side" + seat, stats.player->getPlayerTemplate()->getDisplayName(), BROADCAST_WORDS,
+			points( BROADCAST_SIDE_POINTS ), FALSE );
+		row.cash = broadcastText( "cash" + seat, broadcastNumber( "$", stats.cash ), BROADCAST_NUMBERS, points( BROADCAST_NAME_POINTS ), TRUE );
+		row.army = broadcastText( "army" + seat, broadcastNumber( "", stats.army ), BROADCAST_NUMBERS, points( BROADCAST_NAME_POINTS ), TRUE );
+		Int width = 0, height = 0;
+		row.name->getSize( &width, &height );
+		nameWidth = max( nameWidth, width );
+		rowHeight = max( rowHeight, height );
+		row.side->getSize( &width, &height );
+		sideWidth = max( sideWidth, width );
+		row.cash->getSize( &width, &height );
+		cashWidth = max( cashWidth, width );
+		rowHeight = max( rowHeight, height );
+		row.army->getSize( &width, &height );
+		armyWidth = max( armyWidth, width );
+		armies[ index < leftCount ? 0 : 1 ] += stats.army;
+		rows.push_back( row );
+	}
+
+	DisplayString *cashHead = broadcastText( "cashhead", TheGameText->fetch( "GUI:HudStatCash" ), BROADCAST_NUMBERS,
+		points( BROADCAST_HEAD_POINTS ), FALSE );
+	DisplayString *armyHead = broadcastText( "armyhead", TheGameText->fetch( "GUI:HudStatArmy" ), BROADCAST_NUMBERS,
+		points( BROADCAST_HEAD_POINTS ), FALSE );
+	UnicodeString clockText;
+	clockText.translate( AsciiString( spectatorClock( TheGameLogic->getFrame() ).c_str() ) );
+	DisplayString *clock = broadcastText( "clock", clockText, BROADCAST_NUMBERS, points( BROADCAST_CLOCK_POINTS ), TRUE );
+	// the number columns are as wide as six digits whatever they hold, so the bar does not change its
+	// width every time a player's cash crosses a thousand
+	DisplayString *cashWidest = broadcastText( "cashwidest", broadcastNumber( "$", BROADCAST_WIDEST ), BROADCAST_NUMBERS,
+		points( BROADCAST_NAME_POINTS ), TRUE );
+	DisplayString *armyWidest = broadcastText( "armywidest", broadcastNumber( "", BROADCAST_WIDEST ), BROADCAST_NUMBERS,
+		points( BROADCAST_NAME_POINTS ), TRUE );
+	Int cashHeadWidth = 0, armyHeadWidth = 0, headHeight = 0, clockWidth = 0, clockHeight = 0, widestHeight = 0;
+	Int cashWidestWidth = 0, armyWidestWidth = 0;
+	cashHead->getSize( &cashHeadWidth, &headHeight );
+	armyHead->getSize( &armyHeadWidth, &headHeight );
+	clock->getSize( &clockWidth, &clockHeight );
+	cashWidest->getSize( &cashWidestWidth, &widestHeight );
+	armyWidest->getSize( &armyWidestWidth, &widestHeight );
+	const Int cashColumn = max( max( cashWidth, cashWidestWidth ), cashHeadWidth );
+	const Int armyColumn = max( max( armyWidth, armyWidestWidth ), armyHeadWidth );
+
+	// the bar's measures, its left edge at left and its top on the screen's
+	const Int half = swatch + gap / 2 + nameWidth + gap + sideWidth + gap + cashColumn + gap + armyColumn;
+	const Int rowCount = (Int)max( leftCount, rows.size() - leftCount );
+	const Int tableTop = pad + headHeight;
+	const Int tableBottom = tableTop + rowCount * ( rowHeight + rowGap );
+	const Int clockBox = clockWidth + 2 * gap;
+	const Int width = 2 * ( pad + half + pad ) + clockBox;
+	const Int left = ( TheDisplay->getWidth() - width ) / 2;
+	const Int tugTop = tableBottom + pad / 2;
+	const Int height = tugTop + tug + pad;
+	const Int clockLeft = left + pad + half + pad;
+	const Int rightStart = clockLeft + clockBox + pad;
+
+	TheDisplay->drawFillRect( left, 0, width, height, BROADCAST_GROUND );
+	TheDisplay->drawFillRect( clockLeft, 0, clockBox, tableBottom, BROADCAST_PANEL );
+	TheDisplay->drawFillRect( clockLeft, tableBottom - rule, clockBox, rule, BROADCAST_GOLD );
+	clock->draw( clockLeft + gap, ( tableBottom - clockHeight ) / 2, BROADCAST_INK, BROADCAST_GROUND );
+
+	// the columns on the left run outwards in, on the right inwards out; numbers end on their column's
+	// right edge both sides so their digits line up
+	const Int leftCashEnd = left + pad + half - gap - armyColumn;
+	const Int leftArmyEnd = left + pad + half;
+	const Int rightArmyEnd = rightStart + armyColumn;
+	const Int rightCashEnd = rightArmyEnd + gap + cashColumn;
+	cashHead->draw( leftCashEnd - cashHeadWidth, pad, BROADCAST_MUTED, BROADCAST_GROUND );
+	armyHead->draw( leftArmyEnd - armyHeadWidth, pad, BROADCAST_MUTED, BROADCAST_GROUND );
+	armyHead->draw( rightArmyEnd - armyHeadWidth, pad, BROADCAST_MUTED, BROADCAST_GROUND );
+	cashHead->draw( rightCashEnd - cashHeadWidth, pad, BROADCAST_MUTED, BROADCAST_GROUND );
+
+	for( size_t index = 0; index < rows.size(); index++ )
+	{
+		const BroadcastRow &row = rows[ index ];
+		const Bool onLeft = index < leftCount;
+		const Int top = tableTop + (Int)( onLeft ? index : index - leftCount ) * ( rowHeight + rowGap );
+		Int nameW = 0, nameH = 0, sideW = 0, sideH = 0, cashW = 0, cashH = 0, armyW = 0, armyH = 0;
+		row.name->getSize( &nameW, &nameH );
+		row.side->getSize( &sideW, &sideH );
+		row.cash->getSize( &cashW, &cashH );
+		row.army->getSize( &armyW, &armyH );
+		const Int swatchLeft = onLeft ? left + pad : rightStart + half - swatch;
+		const Int nameLeft = onLeft ? swatchLeft + swatch + gap / 2 : swatchLeft - gap / 2 - nameW;
+		const Int sideLeft = onLeft ? nameLeft + nameWidth + gap : swatchLeft - gap / 2 - nameWidth - gap - sideW;
+		const Int cashEnd = onLeft ? leftCashEnd : rightCashEnd;
+		const Int armyEnd = onLeft ? leftArmyEnd : rightArmyEnd;
+		TheDisplay->drawFillRect( swatchLeft, top, swatch, rowHeight, row.color );
+		row.name->draw( nameLeft, top + ( rowHeight - nameH ) / 2, row.color, BROADCAST_GROUND );
+		row.side->draw( sideLeft, top + ( rowHeight - sideH ) / 2, BROADCAST_MUTED, BROADCAST_GROUND );
+		row.cash->draw( cashEnd - cashW, top + ( rowHeight - cashH ) / 2, BROADCAST_INK, BROADCAST_GROUND );
+		row.army->draw( armyEnd - armyW, top + ( rowHeight - armyH ) / 2, BROADCAST_INK, BROADCAST_GROUND );
+	}
+
+	// the tug of war: each side's armies from its own end, split among its players
+	const Int tugLeft = left + pad;
+	const Int tugWidth = width - 2 * pad;
+	const Int total = armies[ 0 ] + armies[ 1 ];
+	TheDisplay->drawFillRect( tugLeft, tugTop, tugWidth, tug, BROADCAST_LINE );
+	Int fromLeft = tugLeft;
+	Int fromRight = tugLeft + tugWidth;
+	for( size_t index = 0; index < rows.size() && total > 0; index++ )
+	{
+		const Int share = (Int)( (Int64)rows[ index ].stats->army * tugWidth / total );
+		if( index < leftCount )
+		{
+			TheDisplay->drawFillRect( fromLeft, tugTop, share, tug, rows[ index ].color );
+			fromLeft += share;
+			continue;
+		}
+		fromRight -= share;
+		TheDisplay->drawFillRect( fromRight, tugTop, share, tug, rows[ index ].color );
+	}
+	TheDisplay->drawFillRect( tugLeft + ( tugWidth - rule ) / 2, tugTop - rule, rule, tug + 2 * rule, BROADCAST_GOLD );
+
+	IRegion2D bar;
+	bar.lo.x = left;
+	bar.lo.y = 0;
+	bar.hi.x = left + width;
+	bar.hi.y = height;
+	TheObserverCamera.addBroadcast( bar );
+	TheObserverCamera.setBroadcastTop( (Real)( height + pad ) );
+
+	// a plate a pane, faded in and out with the panes
+	const Real shown = TheObserverCamera.getPaneProgress();
+	const Int panes = TheObserverCamera.getDrawnPaneCount();
+	DisplayString *versus = broadcastText( "versus", UnicodeString( u"vs" ), BROADCAST_WORDS, points( BROADCAST_SIDE_POINTS ), FALSE );
+	for( Int pane = 0; pane < panes && panes >= 2; pane++ )
+	{
+		const PlayerMaskType sides = TheObserverCamera.getPaneSides( pane );
+		std::vector< DisplayString * > pieces;
+		std::vector< Color > colors;
+		const BroadcastRow *only = NULL;
+		for( size_t index = 0; index < rows.size(); index++ )
+		{
+			if( ( rows[ index ].stats->player->getPlayerMask() & sides ) == 0 )
+				continue;
+			if( !pieces.empty() )
+			{
+				pieces.push_back( versus );
+				colors.push_back( BROADCAST_MUTED );
+			}
+			pieces.push_back( rows[ index ].name );
+			colors.push_back( rows[ index ].color );
+			only = &rows[ index ];
+		}
+		// the opening's pane is one player's, and his side goes beside his name
+		if( pieces.size() == 1 )
+		{
+			pieces.push_back( only->side );
+			colors.push_back( BROADCAST_MUTED );
+		}
+		if( pieces.empty() )
+			continue;
+
+		Int textWidth = 0, textHeight = 0;
+		for( size_t piece = 0; piece < pieces.size(); piece++ )
+		{
+			Int pieceWidth = 0, pieceHeight = 0;
+			pieces[ piece ]->getSize( &pieceWidth, &pieceHeight );
+			textWidth += pieceWidth + ( piece > 0 ? gap / 2 : 0 );
+			textHeight = max( textHeight, pieceHeight );
+		}
+		const Int plateWidth = textWidth + 2 * pad;
+		const Int plateHeight = textHeight + pad + rule;
+		Coord2D centre;
+		Real radius = 0.0f;
+		TheObserverCamera.getPaneCircle( pane, &centre, &radius );
+		const Int plateTop = REAL_TO_INT( ObserverCamera_paneLabelTop( centre, radius, (Real)plateWidth, (Real)plateHeight ) );
+		const Int plateLeft = REAL_TO_INT( centre.x ) - plateWidth / 2;
+		TheDisplay->drawFillRect( plateLeft, plateTop, plateWidth, plateHeight, broadcastFade( BROADCAST_GROUND, shown ) );
+		TheDisplay->drawFillRect( plateLeft, plateTop + plateHeight - rule, plateWidth, rule, broadcastFade( BROADCAST_GOLD, shown ) );
+		Int x = plateLeft + pad;
+		for( size_t piece = 0; piece < pieces.size(); piece++ )
+		{
+			Int pieceWidth = 0, pieceHeight = 0;
+			pieces[ piece ]->getSize( &pieceWidth, &pieceHeight );
+			pieces[ piece ]->draw( x, plateTop + pad / 2 + ( textHeight - pieceHeight ) / 2, broadcastFade( colors[ piece ], shown ),
+				broadcastFade( BROADCAST_GROUND, shown ) );
+			x += pieceWidth + gap / 2;
+		}
+
+		IRegion2D plate;
+		plate.lo.x = plateLeft;
+		plate.lo.y = plateTop;
+		plate.hi.x = plateLeft + plateWidth;
+		plate.hi.y = plateTop + plateHeight;
+		TheObserverCamera.addBroadcast( plate );
+	}
 }
 
 //-------------------------------------------------------------------------------------------------

@@ -4301,8 +4301,8 @@ static Bool openVideoPipe(Int width, Int height)
 /** -directorrecord's panes joined into pane 0's picture: each pixel is taken from the pane whose wedge
 	* it lies in.  A pane's camera already slid its picture with the rays' meeting point, so the copy is
 	* pixel for pixel; moving the pixels instead read past a picture's edge and smeared it.  Pane 0 keeps the framed radar and a band along every
-	* seam, where only its draw has the line.  A pane with no picture of this frame and size stays pane
-	* 0's. */
+	* seam, where only its draw has the line, and the broadcast's score bar and labels, which only its
+	* draw has either.  A pane with no picture of this frame and size stays pane 0's. */
 static void joinVideoPanes(char *rows, Int width, Int height, UnsignedInt frame)
 {
 	const Int seamBand = ObserverCamera_paneSeamBand(height);
@@ -4333,6 +4333,8 @@ static void joinVideoPanes(char *rows, Int width, Int height, UnsignedInt frame)
 				|| s_videoHeldWidth[pane] != width || s_videoHeldHeight[pane] != height)
 				continue;
 			if (x >= radar.lo.x && x < radar.hi.x && y >= radar.lo.y && y < radar.hi.y)
+				continue;
+			if (TheObserverCamera.isBroadcast(x, y))
 				continue;
 			const Int left = max(x - seamBand, 0);
 			const Int right = min(x + seamBand, width - 1);

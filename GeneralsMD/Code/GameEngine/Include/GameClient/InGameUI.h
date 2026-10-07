@@ -1100,6 +1100,10 @@ public:  // ********************************************************************
 	virtual void preDraw( void );														///< Logic which needs to occur before the UI renders
 	virtual void draw( void ) = 0;													///< Render the in-game user interface
 	virtual void postDraw( void );													///< Logic which needs to occur after the UI renders
+	/// -directorrecord's broadcast over the director's picture: a score bar along the top with every
+	/// player's name, side, cash and army and the match clock, the armies' tug of war under it, and a
+	/// label in each pane.  Pane 0's draw alone; the recording takes these pixels from it
+	void drawDirectorBroadcast( void );
 
 	//
 	// One cameo of the global production strip: which producer it belongs to, which entry of that
@@ -1755,6 +1759,10 @@ protected:
 	DisplayString *							m_hudDisplayString;			///< the ShowHudOverlay line (fps / clock)
 	HtmlValues									m_hudValues;						///< that line's readings one by one, for Window/Html/Net.html
 	DisplayString *							m_peaceTimeDisplayString;	///< the peace time clock at the top of the screen
+	/// the broadcast's string for what key names, in font at points, holding text: one string per
+	/// thing written, so a text is laid out again only when it changes
+	DisplayString *broadcastText( const std::string &key, const UnicodeString &text, const char *font, Int points, Bool bold );
+	std::map< std::string, DisplayString * > m_broadcastTexts;
 	DisplayString *							m_peaceTimeLabelDisplayString;	///< the word written over that clock
 	DisplayString *							m_peaceCountdownDisplayString;	///< the big digit of its last ten seconds
 	Int													m_lastMoneyDisplayed;		///< so the money gadget is only written when the amount changes

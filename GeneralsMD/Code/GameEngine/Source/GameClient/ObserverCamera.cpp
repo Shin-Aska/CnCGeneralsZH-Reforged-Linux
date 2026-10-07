@@ -534,7 +534,7 @@ static Real distanceToRay( Real x, Real y, Real middleX, Real middleY, Real degr
 	* the screen's four sides or the radar's frame; the grid point furthest from all of them is the
 	* circle's centre. */
 //-------------------------------------------------------------------------------------------------
-void ObserverCamera_paneCircles( const Real *rays, Int count, Int width, Int height, const Coord2D &radarHalf,
+void ObserverCamera_paneCircles( const Real *rays, Int count, Int width, Int height, const Coord2D &radarHalf, Real top,
 	Coord2D *centres, Real *radii )
 {
 	const Real middleX = width * 0.5f;
@@ -552,7 +552,7 @@ void ObserverCamera_paneCircles( const Real *rays, Int count, Int width, Int hei
 			const Real x = ( column + 0.5f ) * width / PANE_CIRCLE_COLUMNS;
 			const Real y = ( row + 0.5f ) * height / PANE_CIRCLE_ROWS;
 			const Int pane = ObserverCamera_paneOf( x, y, middleX, middleY, rays, count );
-			Real clear = min( min( x, width - x ), min( y, height - y ) );
+			Real clear = min( min( x, width - x ), min( y - top, height - y ) );
 			clear = min( clear, distanceToRay( x, y, middleX, middleY, rays[ pane ] ) );
 			clear = min( clear, distanceToRay( x, y, middleX, middleY, rays[ ( pane + 1 ) % count ] ) );
 			const Real outX = max( fabs( x - middleX ) - radarHalf.x, 0.0f );
@@ -566,6 +566,19 @@ void ObserverCamera_paneCircles( const Real *rays, Int count, Int width, Int hei
 			}
 		}
 	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The label's top corners are the first of it to leave the circle going up: they meet it where its
+	* chord is the label's width, and the label hangs from there. */
+//-------------------------------------------------------------------------------------------------
+Real ObserverCamera_paneLabelTop( const Coord2D &centre, Real radius, Real width, Real height )
+{
+	const Real halfWidth = width * 0.5f;
+	if( halfWidth >= radius )
+		return centre.y - height * 0.5f;
+	const Real above = sqrtf( radius * radius - halfWidth * halfWidth );
+	return centre.y - max( above, height * 0.5f );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -903,6 +916,9 @@ void ObserverCamera::reset( void )
 	m_events.clear();
 	m_nextEventId = 1;
 	m_fights.clear();
+	m_fightSides.clear();
+	m_broadcast.clear();
+	m_broadcastTop = 0.0f;
 	m_split = FALSE;
 	m_splitChanged = 0;
 	m_secondPlace.x = m_secondPlace.y = 0.0f;
@@ -1623,7 +1639,7 @@ void ObserverCamera::fitPanes( UnsignedInt frame )
 		m_radarHalf.y = ( radar.hi.y - radar.lo.y ) * 0.5f;
 	}
 	ObserverCamera_paneCircles( m_paneRays, m_paneCount, TheDisplay->getWidth(), TheDisplay->getHeight(), m_radarHalf,
-		m_paneCentres, m_paneRadii );
+		m_broadcastTop, m_paneCentres, m_paneRadii );
 
 	Coord2D subjects[ OBSERVER_MOST_PANES ];
 	for( Int pane = 0; pane < m_paneCount; pane++ )
@@ -1725,6 +1741,42 @@ Coord2D ObserverCamera::getFramedRadarMiddle( Real radarDiagonal ) const
 	middle.x = TheDisplay->getWidth() * 0.5f + away.x * out;
 	middle.y = TheDisplay->getHeight() * 0.5f + away.y * out;
 	return middle;
+}
+
+//-------------------------------------------------------------------------------------------------
+Bool ObserverCamera::isBroadcast( Int x, Int y ) const
+{
+	for( size_t index = 0; index < m_broadcast.size(); index++ )
+	{
+		const IRegion2D &region = m_broadcast[ index ];
+		if( x >= region.lo.x && x < region.hi.x && y >= region.lo.y && y < region.hi.y )
+			return TRUE;
+	}
+	return FALSE;
+}
+
+//-------------------------------------------------------------------------------------------------
+void ObserverCamera::getPaneCircle( Int pane, Coord2D *centre, Real *radius ) const
+{
+	centre->x = m_paneCentres[ pane ].x + m_paneOrigin.x - TheDisplay->getWidth() * 0.5f;
+	centre->y = m_paneCentres[ pane ].y + m_paneOrigin.y - TheDisplay->getHeight() * 0.5f;
+	*radius = m_paneRadii[ pane ];
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A split's two panes show the fights at the director's place and at the second one, and their
+	* sides are every player in the hits within the gather radius of each. */
+//-------------------------------------------------------------------------------------------------
+PlayerMaskType ObserverCamera::getPaneSides( Int pane ) const
+{
+	if( m_intro )
+		return m_panePlayers[ pane ]->getPlayerMask();
+	const Coord2D &subject = pane == 0 ? m_panesLeftPlace : m_secondPlace;
+	PlayerMaskType sides = 0;
+	for( size_t index = 0; index < m_fights.size(); index++ )
+		if( sameFight( m_fights[ index ].position, subject ) )
+			sides |= m_fightSides[ index ];
+	return sides;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1924,6 +1976,7 @@ Bool ObserverCamera::directorPlace( const Player *narrowTo, Coord2D *place )
 
 	std::vector< DirectorHeat > hits;
 	std::vector< DirectorHeat > fights;
+	std::vector< PlayerMaskType > sides;
 	std::vector< DirectorHeat > sights;
 	for( Object *obj = TheGameLogic->getFirstObject(); obj != NULL; obj = obj->getNextObject() )
 	{
@@ -1956,11 +2009,15 @@ Bool ObserverCamera::directorPlace( const Player *narrowTo, Coord2D *place )
 		heat.weight = ObserverCamera_hitWeight( cost, obj->isEffectivelyDead(), superweapon );
 		hits.push_back( heat );
 
-		// -directorrecord's split counts only fights
-		if( fightSides( obj, body ) != 0 )
-			fights.push_back( heat );
+		// -directorrecord's split counts only fights, and its labels name who is in them
+		const PlayerMaskType between = fightSides( obj, body );
+		if( between == 0 )
+			continue;
+		fights.push_back( heat );
+		sides.push_back( between );
 	}
 	m_fights = fights;
+	m_fightSides = sides;
 
 	Coord2D hottest;
 	Real hottestHeat = 0.0f;

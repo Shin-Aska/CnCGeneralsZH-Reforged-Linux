@@ -202,10 +202,15 @@ Real ObserverCamera_paneExit( const Real *rays, Int count, Int width, Int height
 Coord2D ObserverCamera_paneExitDirection( const Real *rays );
 /// the largest circle that fits in each pane with the rays meeting in the middle of the picture, kept
 /// off the screen's edges, the rays and the radar's frame, a rectangle radarHalf wide and high each
-/// way from the middle.  Its centre is where the pane's subject is put and its radius, in pixels,
-/// what the subject is fitted into; centres and radii have count entries
-void ObserverCamera_paneCircles( const Real *rays, Int count, Int width, Int height, const Coord2D &radarHalf,
+/// way from the middle, and below the top rows the broadcast's score bar takes.  Its centre is where
+/// the pane's subject is put and its radius, in pixels, what the subject is fitted into; centres and
+/// radii have count entries
+void ObserverCamera_paneCircles( const Real *rays, Int count, Int width, Int height, const Coord2D &radarHalf, Real top,
 	Coord2D *centres, Real *radii );
+/// the top row of a label width by height pixels centred across a pane's circle as high as the circle
+/// holds all of it, so it stays inside the pane and clear of its lines; the circle's middle row when
+/// it is too wide for that
+Real ObserverCamera_paneLabelTop( const Coord2D &centre, Real radius, Real width, Real height );
 /// how far from around the farthest of the things within reach of it lie, on the ground, and never less
 /// than least
 Real ObserverCamera_extentAround( const std::vector< DirectorHeat > &things, const Coord2D &around, Real reach, Real least );
@@ -283,6 +288,20 @@ public:
 	/// the framed radar's rectangle as it was drawn, frame included: the recording takes it from pane 0
 	void setRadarFrame( const IRegion2D &frame ) { m_radarFrame = frame; }
 	const IRegion2D &getRadarFrame( void ) const { return m_radarFrame; }
+	/// the broadcast drawn over pane 0, its score bar and its labels: the recording takes these
+	/// rectangles from pane 0 whichever pane they lie over.  Cleared at the start of each of its draws
+	void clearBroadcast( void ) { m_broadcast.clear(); }
+	void addBroadcast( const IRegion2D &region ) { m_broadcast.push_back( region ); }
+	Bool isBroadcast( Int x, Int y ) const;
+	/// the rows the score bar takes at the top of the picture, which every pane's circle stays below
+	void setBroadcastTop( Real rows ) { m_broadcastTop = rows; }
+	/// a pane's circle where it is drawn this frame, slid with the rays' meeting point
+	void getPaneCircle( Int pane, Coord2D *centre, Real *radius ) const;
+	/// how far in the panes are, 0 to 1
+	Real getPaneProgress( void ) const { return m_paneProgress; }
+	/// who a pane shows: the opening's player, or everybody dealing or taking hits in the fight it
+	/// shows; 0 when nobody is
+	PlayerMaskType getPaneSides( Int pane ) const;
 	Bool isDrawingSecond( void ) const { return m_drawingPane != 0; }
 	Int getDrawingPane( void ) const { return m_drawingPane; }
 	/// the view moved to a pane's camera for one draw, and put back after it
@@ -374,6 +393,9 @@ private:
 	UnsignedInt m_nextEventId;
 
 	std::vector< DirectorHeat > m_fights;	///< the last scan's hits one player dealt another he is at war with; the split counts only these
+	std::vector< PlayerMaskType > m_fightSides;	///< and the two players each of them was between
+	std::vector< IRegion2D > m_broadcast;	///< the rectangles the broadcast drew over pane 0 this frame
+	Real m_broadcastTop;									///< the rows the score bar took
 	Bool m_split;										///< -directorrecord wants two fights side by side
 	UnsignedInt m_splitChanged;			///< the logic frame the split last went on or off
 	Coord2D m_secondPlace;					///< the second fight, shown in the second pane

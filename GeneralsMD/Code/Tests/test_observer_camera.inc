@@ -410,7 +410,7 @@ TEST(a_pane_circle_is_the_largest_its_wedge_holds)
 	// two panes: the circle touching the top, the left and the diagonal x + y = 1000 has a radius of
 	// 1000 / (2 + root 2), and pane 1's is its mirror through the middle
 	ObserverCamera_paneLayout( 2, rays );
-	ObserverCamera_paneCircles( rays, 2, 1280, 720, noRadar, centres, radii );
+	ObserverCamera_paneCircles( rays, 2, 1280, 720, noRadar, 0.0f, centres, radii );
 	CHECK_NEAR( radii[ 0 ], 292.9f, 8.0f );
 	CHECK_NEAR( centres[ 0 ].x, 292.9f, 15.0f );
 	CHECK_NEAR( centres[ 0 ].y, 292.9f, 15.0f );
@@ -421,7 +421,7 @@ TEST(a_pane_circle_is_the_largest_its_wedge_holds)
 	// one runs past the top and bottom corners, and its circle touching the left edge and both rays has
 	// 640 / (1 + root 2)
 	ObserverCamera_paneLayout( 4, rays );
-	ObserverCamera_paneCircles( rays, 4, 1280, 720, noRadar, centres, radii );
+	ObserverCamera_paneCircles( rays, 4, 1280, 720, noRadar, 0.0f, centres, radii );
 	CHECK_NEAR( radii[ 0 ], 149.1f, 8.0f );
 	CHECK_NEAR( centres[ 0 ].x, 640.0f, 15.0f );
 	CHECK_NEAR( radii[ 1 ], 265.1f, 8.0f );
@@ -431,7 +431,7 @@ TEST(a_pane_circle_is_the_largest_its_wedge_holds)
 
 	// a Y: three circles, every one inside the screen
 	ObserverCamera_paneLayout( 3, rays );
-	ObserverCamera_paneCircles( rays, 3, 1280, 720, noRadar, centres, radii );
+	ObserverCamera_paneCircles( rays, 3, 1280, 720, noRadar, 0.0f, centres, radii );
 	for( Int pane = 0; pane < 3; pane++ )
 	{
 		CHECK( radii[ pane ] > 100.0f );
@@ -443,9 +443,32 @@ TEST(a_pane_circle_is_the_largest_its_wedge_holds)
 	// the framed radar in the middle takes room from the two pane circle, which reached its corner
 	ObserverCamera_paneLayout( 2, rays );
 	const Coord2D radar = { 150.0f, 100.0f };
-	ObserverCamera_paneCircles( rays, 2, 1280, 720, radar, centres, radii );
+	ObserverCamera_paneCircles( rays, 2, 1280, 720, radar, 0.0f, centres, radii );
 	CHECK( radii[ 0 ] < 285.0f );
 	CHECK( radii[ 0 ] > 150.0f );
+
+	// the score bar's rows at the top are no pane's: the upper circle stays below them
+	ObserverCamera_paneCircles( rays, 2, 1280, 720, noRadar, 90.0f, centres, radii );
+	CHECK( centres[ 0 ].y - radii[ 0 ] >= 90.0f - 6.0f );
+	CHECK( radii[ 0 ] < 285.0f );
+}
+
+TEST(a_pane_label_hangs_as_high_in_its_circle_as_the_circle_holds_it)
+{
+	Coord2D centre;
+	centre.x = 300.0f;
+	centre.y = 400.0f;
+	// 160 wide in a circle of 100: its top corners meet the circle 60 above the centre
+	const Real top = ObserverCamera_paneLabelTop( centre, 100.0f, 160.0f, 20.0f );
+	CHECK_NEAR( top, 340.0f, 0.01f );
+	// its top corners, the first of it to leave the circle, are on it
+	const Real dx = 80.0f;
+	const Real dy = top - centre.y;
+	CHECK( dx * dx + dy * dy <= 100.0f * 100.0f + 0.5f );
+	// too wide to fit at all: across the middle
+	CHECK_NEAR( ObserverCamera_paneLabelTop( centre, 100.0f, 240.0f, 20.0f ), 390.0f, 0.01f );
+	// a chord shorter than the label is tall: across the middle as well
+	CHECK_NEAR( ObserverCamera_paneLabelTop( centre, 100.0f, 198.0f, 40.0f ), 380.0f, 0.01f );
 }
 
 TEST(a_subject_spreads_as_far_as_its_farthest_thing_within_reach)
