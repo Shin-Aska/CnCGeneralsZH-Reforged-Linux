@@ -441,9 +441,8 @@ void W3DInGameUI::draw( void )
 	if( CinemaDirector_hidesHud() )
 	{
 		// -directorrecord's panes: the rays between them, from where they meet to past the screen's
-		// edge, drawn in pane 0's draw alone.  The other panes' pictures are moved with the meeting
-		// point when they are joined, which would carry a line of theirs off the seam; the join takes
-		// a band along every seam from pane 0, line and all
+		// edge, drawn in pane 0's draw alone; the join takes a band along every seam from pane 0, line
+		// and all
 		const Bool framed = TheObserverCamera.isRadarFramed();
 		IRegion2D noFrame;
 		noFrame.lo.x = noFrame.lo.y = noFrame.hi.x = noFrame.hi.y = 0;

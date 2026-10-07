@@ -566,6 +566,8 @@ void ObserverCamera::reset( void )
 	m_panePhaseStart = 0;
 	m_intro = FALSE;
 	m_introDone = FALSE;
+	m_introGlide = FALSE;
+	m_panesLeftPlace.x = m_panesLeftPlace.y = 0.0f;
 	m_paneCount = 0;
 	m_paneProgress = 0.0f;
 	m_paneExit = 0.0f;
@@ -906,7 +908,10 @@ void ObserverCamera::advancePanes( UnsignedInt frame )
 			break;
 		case PANES_OUT:
 			if( elapsed >= PANE_SLIDE_FRAMES )
+			{
 				next = PANES_RADAR_IN;
+				m_introGlide = m_intro;
+			}
 			break;
 		case PANES_RADAR_IN:
 			if( elapsed >= PANE_RADAR_FRAMES )
@@ -994,7 +999,9 @@ void ObserverCamera::updateIntroPlaces( void )
 
 //-------------------------------------------------------------------------------------------------
 /** Each pane past the first glides to its subject on its own, and its camera sits back from the
-	* subject by the pane's middle, so the subject is in the middle of its pane.  Angle, pitch and zoom
+	* subject by the pane's middle, so the subject is in the middle of its pane.  While the rays' meeting
+	* point slides, the camera sits back by that much more, so the pane's picture slides with it and
+	* is the world on the whole screen, with no edge of a moved picture to show.  Angle, pitch and zoom
 	* are the main camera's. */
 //-------------------------------------------------------------------------------------------------
 void ObserverCamera::stepPaneCameras( const ViewLocation &step, Real elapsedSeconds )
@@ -1025,8 +1032,8 @@ void ObserverCamera::stepPaneCameras( const ViewLocation &step, Real elapsedSeco
 		}
 
 		Coord2D fromMiddle;
-		fromMiddle.x = middles[ pane ].x - TheDisplay->getWidth() * 0.5f;
-		fromMiddle.y = middles[ pane ].y - TheDisplay->getHeight() * 0.5f;
+		fromMiddle.x = middles[ pane ].x + m_paneOrigin.x - TheDisplay->getWidth();
+		fromMiddle.y = middles[ pane ].y + m_paneOrigin.y - TheDisplay->getHeight();
 		const Coord2D offset = screenToGround( step, fromMiddle );
 		Coord2D camera;
 		camera.x = m_paneGlide[ pane ].getPosition().x - offset.x;
@@ -1034,15 +1041,6 @@ void ObserverCamera::stepPaneCameras( const ViewLocation &step, Real elapsedSeco
 		camera = keepInMap( camera, step );
 		m_paneView[ pane ].init( camera.x, camera.y, at.z, step.getAngle(), step.getPitch(), step.getZoom() );
 	}
-}
-
-//-------------------------------------------------------------------------------------------------
-Coord2D ObserverCamera::getPaneShift( void ) const
-{
-	Coord2D shift;
-	shift.x = m_paneOrigin.x - TheDisplay->getWidth() * 0.5f;
-	shift.y = m_paneOrigin.y - TheDisplay->getHeight() * 0.5f;
-	return shift;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1285,9 +1283,16 @@ Bool ObserverCamera::chooseTarget( const ViewLocation &current, ViewLocation *ta
 		return FALSE;
 	if( TheGlobalData->m_directorRecord && m_placeScanned == TheGameLogic->getFrame() )
 		updateSplit();
-	// the opening shows the first player's base in pane 0 until the panes start to go
+	// the opening shows the first player's base in pane 0.  Pane 0 keeps its place until the panes
+	// have gone: a split ends when the director moves onto the second fight, and pane 0 going there at
+	// once showed that fight twice while pane 1 slid out
 	if( m_intro && m_panePhase == PANES_HELD )
 		place = m_paneSubject[ 0 ];
+	const Bool panesUp = m_panePhase == PANES_IN || m_panePhase == PANES_HELD || m_panePhase == PANES_OUT;
+	if( panesUp && ( m_panePhase == PANES_OUT || ( !m_split && !m_intro ) ) )
+		place = m_panesLeftPlace;
+	else
+		m_panesLeftPlace = place;
 	place = keepInMap( place, current );
 	target->init( place.x, place.y, at.z, current.getAngle(), current.getPitch(), current.getZoom() );
 	return TRUE;
@@ -1370,6 +1375,23 @@ void ObserverCamera::update( UnsignedInt nowMilliseconds )
 	const Coord3D &camera = current.getPosition();
 	ViewLocation subject;
 	subject.init( camera.x + m_mainOffset.x, camera.y + m_mainOffset.y, camera.z, current.getAngle(), current.getPitch(), current.getZoom() );
+	// from the opening's last player to the director's first place is a glide whatever the distance,
+	// on a target kept just inside the cut distance until the real one is
+	if( m_introGlide )
+	{
+		const Real dx = target.getPosition().x - subject.getPosition().x;
+		const Real dy = target.getPosition().y - subject.getPosition().y;
+		const Real distance = sqrtf( dx * dx + dy * dy );
+		const Real glideReach = CUT_DISTANCE * 0.9f;
+		if( distance > glideReach )
+		{
+			const Real share = glideReach / distance;
+			target.init( subject.getPosition().x + dx * share, subject.getPosition().y + dy * share, target.getPosition().z,
+				target.getAngle(), target.getPitch(), target.getZoom() );
+		}
+		else
+			m_introGlide = FALSE;
+	}
 	const Bool player = m_mode == OBSERVER_CAMERA_PLAYER;
 	const ViewLocation step = ObserverCamera_approach( subject, target, elapsed / MILLISECONDS_PER_SECOND,
 		player ? PLAYER_PAN_SECONDS : DIRECTOR_PAN_SECONDS, player ? PLAYER_TOP_SPEED : DIRECTOR_TOP_SPEED, &m_velocity );

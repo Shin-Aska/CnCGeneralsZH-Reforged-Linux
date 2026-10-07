@@ -4299,7 +4299,8 @@ static Bool openVideoPipe(Int width, Int height)
 #endif
 
 /** -directorrecord's panes joined into pane 0's picture: each pixel is taken from the pane whose wedge
-	* it lies in, moved with the rays' meeting point.  Pane 0 keeps the framed radar and a band along every
+	* it lies in.  A pane's camera already slid its picture with the rays' meeting point, so the copy is
+	* pixel for pixel; moving the pixels instead read past a picture's edge and smeared it.  Pane 0 keeps the framed radar and a band along every
 	* seam, where only its draw has the line.  A pane with no picture of this frame and size stays pane
 	* 0's. */
 static void joinVideoPanes(char *rows, Int width, Int height, UnsignedInt frame)
@@ -4308,9 +4309,6 @@ static void joinVideoPanes(char *rows, Int width, Int height, UnsignedInt frame)
 	const Int count = TheObserverCamera.getDrawnPaneCount();
 	const Real *rays = TheObserverCamera.getPaneRays();
 	const Coord2D origin = TheObserverCamera.getPaneOrigin();
-	const Coord2D shift = TheObserverCamera.getPaneShift();
-	const Int shiftX = REAL_TO_INT(shift.x);
-	const Int shiftY = REAL_TO_INT(shift.y);
 	const IRegion2D &radar = TheObserverCamera.getRadarFrame();
 
 	if (s_videoPaneMapSize != width * height)
@@ -4343,9 +4341,8 @@ static void joinVideoPanes(char *rows, Int width, Int height, UnsignedInt frame)
 			if (s_videoPaneMap[y * width + left] != pane || s_videoPaneMap[y * width + right] != pane
 				|| s_videoPaneMap[up * width + x] != pane || s_videoPaneMap[down * width + x] != pane)
 				continue;
-			const Int fromX = min(max(x - shiftX, 0), width - 1);
-			const Int fromY = min(max(y - shiftY, 0), height - 1);
-			memcpy(rows + (y * width + x) * 3, s_videoHeld[pane] + (fromY * width + fromX) * 3, 3);
+			const Int at = (y * width + x) * 3;
+			memcpy(rows + at, s_videoHeld[pane] + at, 3);
 		}
 	}
 }

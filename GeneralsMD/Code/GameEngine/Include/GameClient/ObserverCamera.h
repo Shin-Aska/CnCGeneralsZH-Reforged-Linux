@@ -205,8 +205,6 @@ public:
 	const Real *getPaneRays( void ) const { return m_paneRays; }
 	/// where the rays meet on the screen, in pixels, which slides in from off the screen and back out
 	Coord2D getPaneOrigin( void ) const { return m_paneOrigin; }
-	/// how far a pane's picture past the first is moved with the meeting point, in pixels
-	Coord2D getPaneShift( void ) const;
 	/// how far the radar in the bottom left corner is slid out to the left, 0 to 1
 	Real getCornerRadarSlide( void ) const { return m_cornerRadarSlide; }
 	/// the radar framed on the rays' meeting point, pane 0's, while there are panes; its middle comes
@@ -280,6 +278,8 @@ private:
 	UnsignedInt m_panePhaseStart;		///< the logic frame the phase began on
 	Bool m_intro;										///< the panes are the match's opening, one a player
 	Bool m_introDone;
+	Bool m_introGlide;								///< the opening has gone and the camera glides to the director's place, however far
+	Coord2D m_panesLeftPlace;						///< pane 0's place while its panes are up, kept as they go
 	Int m_paneCount;								///< 0 with no panes
 	Real m_paneRays[ OBSERVER_MOST_PANES ];
 	Real m_paneProgress;						///< 0 for no panes on the screen, 1 for all of them, eased
