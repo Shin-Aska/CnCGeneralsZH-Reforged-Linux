@@ -1,0 +1,8 @@
+# Scenarios/swpair.txt, the nuke: wide enough that the whole ring town round 1500,3450 sits in the
+# frame out to the supply centre at 340, so the centre dying first and the destruction moving out
+# to each ring reads. A little flatter than nukefade's overhead so the buildings stand up against the
+# ground and the warp has edges to bend. Held, no move, so a side by side lines up.
+#
+#   ...the scenario's switches... -cinema swpair_nuke -video 200 650 swpair_nuke -maxframes 660
+
+0.5   cut     1500 3450 1.6 -45 -16
