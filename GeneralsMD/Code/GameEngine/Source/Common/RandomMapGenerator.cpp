@@ -654,6 +654,25 @@ static const RMGBiome theBiomes[RMG_BIOME_COUNT] =
 	},
 };
 
+static Int rmgBiomeFor( Int seed )
+{
+	return (Int)( hashCell( seed, 9001, 1 ) % (UnsignedInt)RMG_BIOME_COUNT );
+}
+
+/** Snow falls on winter maps and nowhere else. The ground, the firs and the rocks of a winter map
+	are snow already; on green grass or golden steppe it would put white roofs over a summer field. */
+static Bool rmgSnowsOn( Int seed )
+{
+	return rmgBiomeFor( seed ) == RMG_BIOME_WINTER;
+}
+
+/** The hour, on its own salt so it rolls apart from the kind of map and the ground. Over the first
+	thousand seeds each of the four comes up between 226 and 269 times. */
+static TimeOfDay rmgTimeOfDayFor( Int seed )
+{
+	return (TimeOfDay)( TIME_OF_DAY_FIRST + (Int)( hashCell( seed, 9001, 14 ) % 4U ) );
+}
+
 struct RMGPoint
 {
 	Real m_cellX;
@@ -837,6 +856,8 @@ public:
 	RandomMapSettings m_settings;
 	const RMGMapTypeShape *m_type;		///< what kind of map the seed rolled
 	const RMGBiome *m_biome;			///< and what it is made of
+	TimeOfDay m_timeOfDay;				///< the hour the map is lit for
+	Bool m_snowy;						///< weather: snow on the roofs and in the air
 	Int m_width;						///< map cells per side, border included
 	Int m_height;
 	Real m_waterHeight;					///< height bytes; the surface of every lake
@@ -5813,8 +5834,13 @@ void RMGLayout::placeTowns( void )
 
 						AsciiString uniqueID;
 						uniqueID.format( "Civilian %d", buildingID++ );
-						addObject( theStreetNames[(nameOffset + buildingID) % numStreetNames],
-											 uniqueID.str(), buildingX, buildingY,
+						const char *name = theStreetNames[(nameOffset + buildingID) % numStreetNames];
+						// The one shop on the list with no snowed or night model: it would stand bare
+						// and dark among lit, snowed neighbours. StanSmallRetail01 has its footprint
+						// and its ten garrison seats.
+						if( ( m_snowy || m_timeOfDay == TIME_OF_DAY_NIGHT ) && strcmp( name, "StanSmallRetail03" ) == 0 )
+							name = "StanSmallRetail01";
+						addObject( name, uniqueID.str(), buildingX, buildingY,
 											 snapAngle45( plan.m_rotation + facing ) );
 					}
 				}
@@ -6557,7 +6583,9 @@ void RMGLayout::build( const RandomMapSettings& settings )
 		the same seed is the same kind of map for two players and for eight. Over the first thousand
 		seeds each of the seven kinds comes up between 131 and 159 times. */
 	m_type = &theMapTypes[hashCell( m_settings.m_seed, 9001, 8 ) % (UnsignedInt)RMG_MAP_TYPE_COUNT];
-	m_biome = &theBiomes[hashCell( m_settings.m_seed, 9001, 1 ) % (UnsignedInt)RMG_BIOME_COUNT];
+	m_biome = &theBiomes[rmgBiomeFor( m_settings.m_seed )];
+	m_timeOfDay = rmgTimeOfDayFor( m_settings.m_seed );
+	m_snowy = rmgSnowsOn( m_settings.m_seed );
 
 	m_width = m_settings.m_playableCells + 2 * RMG_BORDER_CELLS;
 	m_height = m_width;
@@ -6862,37 +6890,55 @@ static void writePolygonTriggers( MapChunkWriter& w, const RMGLayout& layout )
 	w.closeChunk();
 }
 
-/** Daylight. A map with no lighting chunk keeps whatever GameData.ini left in GlobalData, which is
-	the dusk the shipped maps all override, so a generated map looked like somebody had turned the
-	sun off. These are written for all four times of day: the map has no scripts to change the hour
-	with, and a player who forces one should still be able to see the ground. */
-static void writeGlobalLighting( MapChunkWriter& w, const RMGBiome& biome )
+/** How each hour is lit, as a tint over the biome's afternoon so a desert dusk stays a desert's and
+	a winter night keeps the snow's blue. Afternoon is the biome as it is. Morning and evening put
+	the sun low on opposite sides, evening warmer and dimmer; night is the moon, high and blue, at
+	about the level of the shipped night maps (Dark Night's ambient is 0.09 0.16 0.50, its diffuse
+	0.20 0.24 0.37), so the ground and the units still read. */
+struct RMGHourLight
 {
-	const Real *theSunDirection = biome.m_sunDirection;
-	const Real *theTerrainAmbient = biome.m_terrainAmbient;
-	const Real *theTerrainDiffuse = biome.m_terrainDiffuse;
-	const Real *theObjectAmbient = biome.m_objectAmbient;
-	const Real *theObjectDiffuse = biome.m_objectDiffuse;
+	Real m_ambient[3];		///< times the biome's ambient
+	Real m_diffuse[3];		///< times the biome's diffuse
+	Real m_sun[3];			///< the light's direction; afternoon keeps the biome's
+	Bool m_biomeSun;
+};
 
+static const RMGHourLight theHourLights[4] =
+{
+	{ { 1.10f, 1.00f, 0.88f }, { 1.05f, 0.90f, 0.78f }, { -0.90f, 0.20f, -0.38f }, FALSE },	// morning
+	{ { 1.00f, 1.00f, 1.00f }, { 1.00f, 1.00f, 1.00f }, { 0.0f, 0.0f, -1.0f }, TRUE },		// afternoon
+	{ { 0.85f, 0.68f, 0.58f }, { 1.05f, 0.72f, 0.48f }, { 0.86f, -0.30f, -0.42f }, FALSE },	// evening
+	{ { 0.34f, 0.42f, 0.80f }, { 0.34f, 0.40f, 0.58f }, { -0.43f, 0.43f, -0.80f }, FALSE },	// night
+};
+
+static void writeTintedLight( MapChunkWriter& w, const Real *ambient, const Real *diffuse,
+															const RMGHourLight& hour, const Real *biomeSun )
+{
+	Int channel;
+	for( channel = 0; channel < 3; channel++ )
+		w.writeReal( ambient[channel] * hour.m_ambient[channel] );
+	for( channel = 0; channel < 3; channel++ )
+		w.writeReal( diffuse[channel] * hour.m_diffuse[channel] );		// the brightest biome stays under 1
+	for( channel = 0; channel < 3; channel++ )
+		w.writeReal( hour.m_biomeSun ? biomeSun[channel] : hour.m_sun[channel] );
+}
+
+/** The light. A map with no lighting chunk keeps whatever GameData.ini left in GlobalData, which is
+	the dusk the shipped maps all override, so a generated map looked like somebody had turned the
+	sun off. All four hours are written and the seed's is the current one; the reader takes the
+	current hour's set, and the buildings pick their night or snow models from the hour and the
+	WorldInfo weather. */
+static void writeGlobalLighting( MapChunkWriter& w, const RMGBiome& biome, TimeOfDay current )
+{
 	w.openChunk( "GlobalLighting", K_LIGHTING_VERSION_3 );
-		w.writeInt( TIME_OF_DAY_AFTERNOON );
+		w.writeInt( current );
 
 		Int timeOfDay, light, channel;
 		for( timeOfDay = 0; timeOfDay < 4; timeOfDay++ )
 		{
-			for( channel = 0; channel < 3; channel++ )
-				w.writeReal( theTerrainAmbient[channel] );
-			for( channel = 0; channel < 3; channel++ )
-				w.writeReal( theTerrainDiffuse[channel] );
-			for( channel = 0; channel < 3; channel++ )
-				w.writeReal( theSunDirection[channel] );
-
-			for( channel = 0; channel < 3; channel++ )
-				w.writeReal( theObjectAmbient[channel] );
-			for( channel = 0; channel < 3; channel++ )
-				w.writeReal( theObjectDiffuse[channel] );
-			for( channel = 0; channel < 3; channel++ )
-				w.writeReal( theSunDirection[channel] );
+			const RMGHourLight& hour = theHourLights[timeOfDay];
+			writeTintedLight( w, biome.m_terrainAmbient, biome.m_terrainDiffuse, hour, biome.m_sunDirection );
+			writeTintedLight( w, biome.m_objectAmbient, biome.m_objectDiffuse, hour, biome.m_sunDirection );
 
 			// The two extra lights of version 3, dark but pointing somewhere valid: one sun is
 			// what this map wants, and a light with no direction at all upsets the shaders.
@@ -6959,6 +7005,11 @@ void RandomMapGenerator::clampSettings( RandomMapSettings& settings )
 
 void RandomMapGenerator::generate( const RandomMapSettings& settings, std::vector<char>& mapBytes )
 {
+	// The light is multiplied out while the bytes are written, after build() has handed the FPU
+	// back, so the writing runs in the simulation's rounding mode as well.
+	UnsignedInt callersFPMode = getFPMode();
+	setFPMode();
+
 	RMGLayout layout;
 	layout.build( settings );
 
@@ -7042,7 +7093,9 @@ void RandomMapGenerator::generate( const RandomMapSettings& settings, std::vecto
 	// Must come before the sides chunk.
 	w.openChunk( "WorldInfo", K_WORLDDICT_VERSION_1 );
 		w.beginDict( 2 );
-		w.dictInt( "weather", 0 );
+		// WorldHeightMapData copies it into GlobalData, where the buildings and the props read it
+		// to pick their snow models; the falling snow is the map.ini's, see generatedMapBytes
+		w.dictInt( "weather", layout.m_snowy ? WEATHER_SNOWY : WEATHER_NORMAL );
 		w.dictInt( "compression", 0 );
 	w.closeChunk();
 
@@ -7067,7 +7120,7 @@ void RandomMapGenerator::generate( const RandomMapSettings& settings, std::vecto
 	writePolygonTriggers( w, layout );
 
 	/***************GLOBAL LIGHTING DATA ***************/
-	writeGlobalLighting( w, *layout.m_biome );
+	writeGlobalLighting( w, *layout.m_biome, layout.m_timeOfDay );
 
 	/***************WAYPOINT LINKS ***************/
 	// read after every waypoint exists (TerrainLogic::loadMap), so its place in the file is free
@@ -7081,6 +7134,8 @@ void RandomMapGenerator::generate( const RandomMapSettings& settings, std::vecto
 	w.closeChunk();
 
 	w.finish( mapBytes );
+
+	restoreFPMode( callersFPMode );
 }
 
 UnsignedInt RandomMapGenerator::fingerprint( const RandomMapSettings& settings )
@@ -7270,10 +7325,46 @@ static Bool settingsFromGeneratedPath( const AsciiString& path, RandomMapSetting
 			&& clamped.m_playableCells == settingsOut.m_playableCells;
 }
 
+/** The falling snow is not map data: SnowManager draws it when the Weather block says
+	SnowEnabled, and a shipped winter map turns that on from the map.ini in its folder. A generated
+	map that snows gets one too, served from here the way its bytes are; the values are Bitter
+	Winter's. GameLogic loads it as an override and drops it at the next reset, so a map that does
+	not snow has no map.ini and keeps the stock Weather.ini. */
+static const char theSnowRules[] =
+	"Weather\r\n"
+	"  SnowEnabled = Yes\r\n"
+	"  SnowTexture = ExSnowFlake1.tga\r\n"
+	"  SnowBoxDimensions = 100\r\n"
+	"  SnowBoxDensity = 1\r\n"
+	"  SnowFrequencyScaleX = 0.0533\r\n"
+	"  SnowFrequencyScaleY = 0.0275\r\n"
+	"  SnowAmplitude = 4.0\r\n"
+	"  SnowVelocity = 3.0\r\n"
+	"  SnowPointSize = 0.16\r\n"
+	"  SnowMaxPointSize = 10.0\r\n"
+	"  SnowMinPointSize = 0.0\r\n"
+	"  SnowPointSprites = Yes\r\n"
+	"  SnowQuadSize = 0.5\r\n"
+	"End\r\n";
+
+/// "<generated map folder>\map.ini", for a seed that snows.
+static Bool isSnowRulesPath( const AsciiString& path )
+{
+	AsciiString folder = path;
+	folder.toLower();
+	if( !folder.endsWith( "\\map.ini" ) )
+		return FALSE;
+	for( Int i = 0; i < 8; i++ )
+		folder.removeLastChar();
+
+	RandomMapSettings settings;
+	return settingsFromGeneratedPath( folder, settings ) && rmgSnowsOn( settings.m_seed );
+}
+
 Bool isGeneratedMapPath( const AsciiString& path )
 {
 	RandomMapSettings settings;
-	return settingsFromGeneratedPath( path, settings );
+	return settingsFromGeneratedPath( path, settings ) || isSnowRulesPath( path );
 }
 
 /** The slot holding this map, or NULL.  Slots are looked up by what they were built from rather
@@ -7339,6 +7430,15 @@ Bool stageRandomMap( const RandomMapSettings& settings, AsciiString& mapPathOut 
 
 Bool generatedMapBytes( const AsciiString& path, const char **bytesOut, Int *sizeOut )
 {
+	if( isSnowRulesPath( path ) )
+	{
+		if( bytesOut )
+			*bytesOut = theSnowRules;
+		if( sizeOut )
+			*sizeOut = (Int)sizeof(theSnowRules) - 1;
+		return TRUE;
+	}
+
 	RandomMapSettings settings;
 	if( !settingsFromGeneratedPath( path, settings ) )
 		return FALSE;

@@ -1921,6 +1921,13 @@ The whole HUD is on the hardware. Four colours carry it, and they mean the same 
   maples, desert sand with palms in thin stands, winter snow under snowed-in firs, or dry steppe.
   The two are picked apart, so a river can run through snow as well as through grass, and the light
   changes with the ground.
+- The number picks the hour too. A map is played in the morning, in the afternoon, at dusk or at
+  night, each about as often as the others. The morning sun comes in low and gold; at dusk the
+  ground goes red under long shadows. A night map is moonlit and blue, with lights on in every
+  window of the towns and on the buildings of your own base, and the ground stays clear enough to
+  fight on. Winter maps snow: every roof in town is white and the snow keeps falling all match.
+  Grass and sand never get snow on them, so a summer field does not end up under white roofs.
+  There is no rain, because Zero Hour never had any to show.
 - Every player gets the same deal. The bases are found in the land rather than stamped on it, and
   then every layout tried is measured by the walk from each base to its nearest and second-nearest
   enemy, and the one where those walks come out most even is the one you play. Your home dock,

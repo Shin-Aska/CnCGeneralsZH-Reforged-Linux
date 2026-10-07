@@ -7985,7 +7985,8 @@ struct RMGParse
 	Int m_numTextureClasses, m_firstTile, m_numTiles, m_tileWidth;
 	Int m_numSides, m_numTeams, m_numObjects, m_numWaterAreas;
 	Int m_weather, m_compression, m_timeOfDay, m_lightingBytesLeftOver, m_blendBytesLeftOver;
-	Real m_terrainAmbient[3];
+	Real m_terrainAmbient[4][3];		///< per hour, morning first, as the chunk orders them
+	Real m_terrainDiffuse[4][3];
 	AsciiString m_textureName;
 	std::vector<AsciiString> m_textureNames;
 	std::vector<Int> m_firstTiles;
@@ -8013,7 +8014,8 @@ struct RMGParse
 		m_weather(-1), m_compression(-1), m_timeOfDay(-1), m_lightingBytesLeftOver(-1),
 		m_blendBytesLeftOver(-1)
 	{
-		m_terrainAmbient[0] = m_terrainAmbient[1] = m_terrainAmbient[2] = 0.0f;
+		memset( m_terrainAmbient, 0, sizeof(m_terrainAmbient) );
+		memset( m_terrainDiffuse, 0, sizeof(m_terrainDiffuse) );
 	}
 };
 static RMGParse theRMGParse;
@@ -8112,8 +8114,10 @@ static Bool RMGParseLighting( DataChunkInput &file, DataChunkInfo *info, void * 
 		for( Int value = 0; value < 54; value++ )
 		{
 			Real read = file.readReal();
-			if( timeOfDay == 0 && value < 3 )
-				theRMGParse.m_terrainAmbient[value] = read;
+			if( value < 3 )
+				theRMGParse.m_terrainAmbient[timeOfDay][value] = read;
+			else if( value < 6 )
+				theRMGParse.m_terrainDiffuse[timeOfDay][value - 3] = read;
 		}
 	}
 
@@ -8354,10 +8358,91 @@ TEST(a_generated_map_reads_back_through_the_engines_own_chunk_reader)
 	CHECK_EQ( (Int)theRMGParse.m_waterPoints.size(), theRMGParse.m_numWaterAreas );
 	CHECK( theRMGParse.m_waterPoints[0].z > 0.0f );
 
-	// Daylight, written into the map rather than left to whatever GameData.ini holds.
-	CHECK_EQ( theRMGParse.m_timeOfDay, (Int)TIME_OF_DAY_AFTERNOON );
+	// The light, written into the map rather than left to whatever GameData.ini holds.
+	CHECK( theRMGParse.m_timeOfDay >= (Int)TIME_OF_DAY_FIRST );
+	CHECK( theRMGParse.m_timeOfDay < (Int)TIME_OF_DAY_COUNT );
 	CHECK_EQ( theRMGParse.m_lightingBytesLeftOver, 0 );
-	CHECK( theRMGParse.m_terrainAmbient[0] > 0.2f );
+	CHECK( theRMGParse.m_terrainAmbient[TIME_OF_DAY_AFTERNOON - TIME_OF_DAY_FIRST][0] > 0.2f );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The seed rolls the hour as well as the ground: all four come up, each lit as itself, and a
+	winter map snows - snowed roofs from the WorldInfo weather, falling snow from a map.ini the
+	store serves beside it. No other ground snows, and no other map has a map.ini. */
+//-------------------------------------------------------------------------------------------------
+TEST(a_seed_rolls_its_hour_and_a_winter_map_snows)
+{
+	CHECK( bootOnce() );
+
+	Int hours[TIME_OF_DAY_COUNT] = { 0 };
+	Int winterMaps = 0, otherMaps = 0, plainShopsAfterDark = 0;
+	const Int seeds = 120;
+	for( Int seed = 1; seed <= seeds; seed++ )
+	{
+		RandomMapSettings settings;
+		settings.m_seed = seed;
+		settings.m_playableCells = 64;
+		settings.m_numPlayers = 2;
+
+		std::vector<char> bytes;
+		RandomMapGenerator::generate( settings, bytes );
+		parseGeneratedMap( bytes );
+
+		const Int hour = theRMGParse.m_timeOfDay;
+		CHECK( hour >= (Int)TIME_OF_DAY_FIRST && hour < (Int)TIME_OF_DAY_COUNT );
+		if( hour >= (Int)TIME_OF_DAY_FIRST && hour < (Int)TIME_OF_DAY_COUNT )
+			hours[hour]++;
+
+		const Bool winter = theRMGParse.m_textureNames[0].compare( "SnowType1" ) == 0;
+		CHECK_EQ( theRMGParse.m_weather, winter ? (Int)WEATHER_SNOWY : (Int)WEATHER_NORMAL );
+		winter ? winterMaps++ : otherMaps++;
+
+		AsciiString rules;
+		rules.format( "Maps\\RMG_v%d_%d_2p_64c\\map.ini", RANDOM_MAP_GENERATOR_VERSION, seed );
+		const char *rulesBytes = NULL;
+		Int rulesSize = 0;
+		CHECK_EQ( isGeneratedMapPath( rules ), winter );
+		CHECK_EQ( generatedMapBytes( rules, &rulesBytes, &rulesSize ), winter );
+		if( winter && rulesBytes )
+		{
+			CHECK( std::string( rulesBytes, rulesSize ).find( "SnowEnabled = Yes" ) != std::string::npos );
+		}
+
+		// the one shop with no night or snow model stays off a map that would show it bare
+		if( winter || hour == (Int)TIME_OF_DAY_NIGHT )
+		{
+			for( Int i = 0; i < (Int)theRMGParse.m_objectNames.size(); i++ )
+			{
+				if( theRMGParse.m_objectNames[i].compare( "StanSmallRetail03" ) == 0 )
+					plainShopsAfterDark++;
+			}
+		}
+
+		// Each hour lit as itself: the evening redder and dimmer than the afternoon, the night blue
+		// and dim but not black.
+		const Real *noonDiffuse = theRMGParse.m_terrainDiffuse[TIME_OF_DAY_AFTERNOON - TIME_OF_DAY_FIRST];
+		const Real *eveningDiffuse = theRMGParse.m_terrainDiffuse[TIME_OF_DAY_EVENING - TIME_OF_DAY_FIRST];
+		const Real *nightDiffuse = theRMGParse.m_terrainDiffuse[TIME_OF_DAY_NIGHT - TIME_OF_DAY_FIRST];
+		const Real *nightAmbient = theRMGParse.m_terrainAmbient[TIME_OF_DAY_NIGHT - TIME_OF_DAY_FIRST];
+		CHECK( eveningDiffuse[2] < noonDiffuse[2] );
+		CHECK( eveningDiffuse[0] / eveningDiffuse[2] > noonDiffuse[0] / noonDiffuse[2] );
+		CHECK( nightDiffuse[0] < noonDiffuse[0] * 0.5f );
+		CHECK( nightAmbient[2] > nightAmbient[0] );
+		for( Int channel = 0; channel < 3; channel++ )
+		{
+			CHECK( nightDiffuse[channel] > 0.15f && nightAmbient[channel] > 0.08f );
+		}
+	}
+
+	for( Int hour = TIME_OF_DAY_FIRST; hour < TIME_OF_DAY_COUNT; hour++ )
+	{
+		if( hours[hour] < seeds / 8 )
+			printf( "  hour %d came up %d times in %d seeds\n", hour, hours[hour], seeds );
+		CHECK( hours[hour] >= seeds / 8 );
+	}
+	CHECK( winterMaps > 0 );
+	CHECK( otherMaps > 0 );
+	CHECK_EQ( plainShopsAfterDark, 0 );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -9874,14 +9959,14 @@ TEST(the_generator_still_turns_a_seed_into_the_bytes_it_used_to)
 {
 	CHECK( bootOnce() );
 
-	CHECK_EQ( RANDOM_MAP_GENERATOR_VERSION, 13 );
+	CHECK_EQ( RANDOM_MAP_GENERATOR_VERSION, 14 );
 
 	struct RMGFingerprint { Int m_seed, m_players, m_cells; UnsignedInt m_crc; };
 	static const RMGFingerprint theFingerprints[] =
 	{
-		{ 0, 2, 64, 0x3C830A0F },
-		{ 12345, 4, 96, 0xAB2D49CF },
-		{ 7, 8, 128, 0xF237C0BA },
+		{ 0, 2, 64, 0x47855C63 },
+		{ 12345, 4, 96, 0x2863C7C9 },
+		{ 7, 8, 128, 0x297288D3 },
 	};
 	const Int numFingerprints = sizeof(theFingerprints) / sizeof(theFingerprints[0]);
 
