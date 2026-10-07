@@ -1082,6 +1082,7 @@ A third pass went through the generals' powers, promotions and unit abilities.
 - The whole map is drawn out to its edges from wherever the camera is. The usual view draws the ground and the shadows the camera can see from above; aimed at the horizon, the old limits cut the world off a short way out and left the far half of a map dark and shadowless. In the freecam the shadows cover the whole map, with a shadow map four times as wide so the far ones are as sharp as the near ones.
 - The match carries on underneath, and the fog of war stays as it is: the camera sees what you could already see. It changes nothing in the battle, so it works in replays and in multiplayer too.
 - `freecam 1200 900 600 45 -30` flies straight to a spot: the position, then the heading and the tilt in degrees. Leaving the freecam prints where it was in that same form, so a good angle can be found again.
+- `director` in the console hands an observer's camera to the director on the Classic interface too, where there is no spectator page to pick it from, and `director` again takes it back. `hidehud` takes the whole interface off the screen in any match or replay and brings it back the next time you type it.
 
 ## A scoreboard on Tab
 

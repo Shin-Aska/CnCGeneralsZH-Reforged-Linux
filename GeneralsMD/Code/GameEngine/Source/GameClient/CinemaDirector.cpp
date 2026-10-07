@@ -589,13 +589,18 @@ static void cinemaSetHud( Bool hidden )
 
 /** The match puts the control bar up and the letterbox down on its own when loading finishes, which is
 		after the first frame this runs on, so what the shot list asked for is re-asserted every pass. */
+static void cinemaHoldTheBar( void )
+{
+	GameWindow *bar = cinemaControlBarWindow();
+	if (bar != NULL && !bar->winIsHidden())
+		HideControlBar( TRUE );
+}
+
 static void cinemaHoldTheFrame( void )
 {
 	if (theCinemaHudHidden)
 	{
-		GameWindow *bar = cinemaControlBarWindow();
-		if (bar != NULL && !bar->winIsHidden())
-			HideControlBar( TRUE );
+		cinemaHoldTheBar();
 		// the cursor comes back whenever the game decides it should, so it is put away every pass
 		TheMouse->setVisibility( FALSE );
 		if (TheInGameUI->getSelectCount() > 0)
@@ -773,8 +778,28 @@ static void cinemaChase( Real now )
 	cinemaCentreOn( theCinemaStillX, theCinemaStillY, obj->getPosition()->z );
 }
 
+void CinemaDirector_setHudHidden( Bool hidden )
+{
+	cinemaSetHud( hidden );
+}
+
+/// the match is over and the next one builds its own bar, so the flag goes without touching the bar
+void CinemaDirector_forgetHudHidden( void )
+{
+	if (TheGlobalData->m_cinemaScript.isEmpty())
+		theCinemaHudHidden = FALSE;
+}
+
+Bool CinemaDirector_isHudHidden( void )
+{
+	return theCinemaHudHidden;
+}
+
 void CinemaDirector_update( void )
 {
+	// the console's hidehud: no shot list, but the match still puts the bar back on its own
+	if (TheGlobalData->m_cinemaScript.isEmpty() && theCinemaHudHidden && TheGameLogic->isInGame())
+		cinemaHoldTheBar();
 	if (TheGlobalData->m_cinemaScript.isEmpty() || TheTacticalView == NULL || TheTerrainLogic == NULL)
 		return;
 	if (!TheGameLogic->isInGame() || TheGameLogic->isInShellGame())

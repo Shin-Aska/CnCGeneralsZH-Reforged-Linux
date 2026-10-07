@@ -4278,6 +4278,7 @@ void InGameUI::reset( void )
 	m_signalsWereShown = FALSE;
 	m_spectatorPageLoaded = FALSE;
 	TheObserverCamera.reset();
+	CinemaDirector_forgetHudHidden();
 	m_spectatorFlipped.clear();
 	m_spectatorPicked.clear();
 	m_spectatorLists.clear();

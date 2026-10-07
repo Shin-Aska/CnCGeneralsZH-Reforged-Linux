@@ -38,6 +38,7 @@
 #include "GameLogic/GameLogic.h"
 #include "GameNetwork/GameSpy/ThreadUtils.h"
 
+#include "GameClient/CinemaDirector.h"
 #include "GameClient/Color.h"
 #include "GameClient/ControlBar.h"
 #include "GameClient/ControlBarScheme.h"
@@ -57,6 +58,7 @@
 #include "GameClient/KeyDefs.h"
 #include "GameClient/Keyboard.h"
 #include "GameClient/Mouse.h"
+#include "GameClient/ObserverCamera.h"
 #include "GameClient/View.h"
 
 GameConsole *TheGameConsole = NULL;
@@ -263,6 +265,39 @@ static AsciiString describeFreeCameraPose( void )
 	TheTacticalView->getFreeCameraPose( &eye, &heading, &tilt );
 	AsciiString result;
 	result.format( "%.0f %.0f %.0f %.1f %.1f", eye.x, eye.y, eye.z, heading * 180.0f / PI, tilt * 180.0f / PI );
+	return result;
+}
+
+/** The observer's director camera, for the Classic interface that has no spectator page to pick it
+	* from: 'director' hands the camera to it, again gives it back. */
+static AsciiString runDirector( void )
+{
+	AsciiString result;
+	const Player *local = ThePlayerList ? ThePlayerList->getLocalPlayer() : NULL;
+	if( !TheGameLogic->isInGame() || TheGameLogic->isInShellGame() || local == NULL || local->isPlayerActive() )
+	{
+		result = "director: for an observer or a replay only";
+		return result;
+	}
+
+	const Bool on = TheObserverCamera.getMode() != OBSERVER_CAMERA_DIRECTOR;
+	TheObserverCamera.setMode( on ? OBSERVER_CAMERA_DIRECTOR : OBSERVER_CAMERA_FREE );
+	result = on ? "director camera on; scrolling takes the camera back, 'director' again hands it over" : "director camera off";
+	return result;
+}
+
+static AsciiString runHideHud( void )
+{
+	AsciiString result;
+	if( !TheGameLogic->isInGame() || TheGameLogic->isInShellGame() )
+	{
+		result = "hidehud: in a match or a replay only";
+		return result;
+	}
+
+	const Bool hide = !CinemaDirector_isHudHidden();
+	CinemaDirector_setHudHidden( hide );
+	result = hide ? "hud hidden; 'hidehud' again brings it back" : "hud shown";
 	return result;
 }
 
@@ -490,6 +525,8 @@ void GameConsole::runCommand( AsciiString commandLine )
 		printLine( AsciiString( "              W/S forward and back, A/D left and right, R up, F down, mouse turns," ) );
 		printLine( AsciiString( "              Shift faster; Esc or 'freecam' again lands.  'freecam x y z heading tilt'" ) );
 		printLine( AsciiString( "              flies to a pose, angles in degrees" ) );
+		printLine( AsciiString( "director      observer: the director camera on, again gives the camera back" ) );
+		printLine( AsciiString( "hidehud       the interface off, again brings it back" ) );
 		if( areCheatsAvailable() )
 		{
 			printLine( AsciiString( "cheats        single-player cheats" ) );
@@ -550,6 +587,18 @@ void GameConsole::runCommand( AsciiString commandLine )
 		// out of the way of the picture, and of the keys the camera now takes
 		if( TheTacticalView && TheTacticalView->isFreeCamera() )
 			close();
+		return;
+	}
+
+	if( command == "director" )
+	{
+		printLine( runDirector() );
+		return;
+	}
+
+	if( command == "hidehud" )
+	{
+		printLine( runHideHud() );
 		return;
 	}
 
