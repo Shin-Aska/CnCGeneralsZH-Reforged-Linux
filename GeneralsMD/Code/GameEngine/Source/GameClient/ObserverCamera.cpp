@@ -26,6 +26,7 @@
 #include "Common/Player.h"
 #include "Common/PlayerList.h"
 #include "Common/ThingTemplate.h"
+#include "GameClient/Display.h"
 #include "GameClient/Drawable.h"
 #include "GameClient/GameClient.h"
 #include "GameClient/LookAtXlat.h"
@@ -117,8 +118,15 @@ static const UnsignedInt SPLIT_HOLD_FRAMES = 6 * LOGICFRAMES_PER_SECOND;
 static const Real SPLIT_STAY_SHARE = 0.25f;
 /// once the picture is whole again it stays whole this long, so it does not flicker between the two
 static const UnsignedInt SPLIT_REST_FRAMES = 4 * LOGICFRAMES_PER_SECOND;
-/// how far the divider leans off the upright
-static const Real SPLIT_LEAN_DEGREES = 12.0f;
+/// the corner radar takes this long to slide out to the left before the panes come, and back after
+static const UnsignedInt PANE_RADAR_FRAMES = 12;
+/// the panes take this long to slide in along the rays, and out again
+static const UnsignedInt PANE_SLIDE_FRAMES = 15;
+/// the match opens on every player's base, one pane each, for this long
+static const UnsignedInt PANE_INTRO_FRAMES = 7 * LOGICFRAMES_PER_SECOND;
+/// a pane's middle is measured on a grid this coarse, which is plenty for where to put a subject
+static const Int PANE_MIDDLE_COLUMNS = 64;
+static const Int PANE_MIDDLE_ROWS = 36;
 
 //-------------------------------------------------------------------------------------------------
 static Bool sameFight( const Coord2D &a, const Coord2D &b )
@@ -403,10 +411,117 @@ Bool ObserverCamera_holdSplit( Bool split, Real firstHeat, Real secondHeat, Real
 }
 
 //-------------------------------------------------------------------------------------------------
-Int ObserverCamera_splitBoundary( Int y, Int width, Int height )
+/** Two panes are one diagonal, its upper left half the radar's; four are an X.  The others add rays to
+	* the X, the bottom first: three is a Y, the top wedge and two halves below; five is the X with the
+	* bottom wedge halved; six halves the top wedge as well; seven adds the right half of the level
+	* line, and eight is every 45 degrees. */
+//-------------------------------------------------------------------------------------------------
+Int ObserverCamera_paneLayout( Int count, Real *rays )
 {
-	const Real lean = tanf( SPLIT_LEAN_DEGREES * PI / 180.0f );
-	return (Int)floorf( width * 0.5f + ( height * 0.5f - y ) * lean + 0.5f );
+	static const Real two[] = { 45, 225 };
+	static const Real three[] = { 45, 135, 270 };
+	static const Real four[] = { 45, 135, 225, 315 };
+	static const Real five[] = { 45, 135, 225, 270, 315 };
+	static const Real six[] = { 45, 90, 135, 225, 270, 315 };
+	static const Real seven[] = { 0, 45, 90, 135, 225, 270, 315 };
+	static const Real eight[] = { 0, 45, 90, 135, 180, 225, 270, 315 };
+	static const Real *layouts[] = { two, three, four, five, six, seven, eight };
+	if( count < 2 )
+		return 0;
+	count = min( count, (Int)OBSERVER_MOST_PANES );
+	for( Int ray = 0; ray < count; ray++ )
+		rays[ ray ] = layouts[ count - 2 ][ ray ];
+	return count;
+}
+
+//-------------------------------------------------------------------------------------------------
+Int ObserverCamera_paneOf( Real x, Real y, Real originX, Real originY, const Real *rays, Int count )
+{
+	Real angle = atan2f( originY - y, x - originX ) * 180.0f / PI;
+	if( angle < 0.0f )
+		angle += 360.0f;
+	// below the first ray is the far side of the last pane, which wraps round through 0
+	Int pane = count - 1;
+	for( Int ray = 0; ray < count; ray++ )
+	{
+		if( angle >= rays[ ray ] )
+			pane = ray;
+	}
+	return pane;
+}
+
+//-------------------------------------------------------------------------------------------------
+Coord2D ObserverCamera_paneExitDirection( const Real *rays )
+{
+	const Real away = ( ( rays[ 0 ] + rays[ 1 ] ) * 0.5f + 180.0f ) * PI / 180.0f;
+	Coord2D direction;
+	direction.x = cosf( away );
+	direction.y = -sinf( away );
+	return direction;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Pane 0 is a wedge of 180 degrees or less, so it holds the whole picture once it holds the four
+	* corners. */
+//-------------------------------------------------------------------------------------------------
+Real ObserverCamera_paneExit( const Real *rays, Int count, Int width, Int height )
+{
+	const Coord2D direction = ObserverCamera_paneExitDirection( rays );
+	const Real cornerX[ 4 ] = { 0.5f, width - 0.5f, 0.5f, width - 0.5f };
+	const Real cornerY[ 4 ] = { 0.5f, 0.5f, height - 0.5f, height - 0.5f };
+	Real inside = 2.0f * ( width + height );
+	Real outside = 0.0f;
+	for( Int step = 0; step < 32; step++ )
+	{
+		const Real tried = ( inside + outside ) * 0.5f;
+		const Real originX = width * 0.5f + direction.x * tried;
+		const Real originY = height * 0.5f + direction.y * tried;
+		Bool whole = TRUE;
+		for( Int corner = 0; corner < 4 && whole; corner++ )
+			whole = ObserverCamera_paneOf( cornerX[ corner ], cornerY[ corner ], originX, originY, rays, count ) == 0;
+		if( whole )
+			inside = tried;
+		else
+			outside = tried;
+	}
+	return inside;
+}
+
+//-------------------------------------------------------------------------------------------------
+void ObserverCamera_paneMiddles( const Real *rays, Int count, Int width, Int height, Coord2D *middles )
+{
+	Int samples[ OBSERVER_MOST_PANES ];
+	for( Int pane = 0; pane < count; pane++ )
+	{
+		samples[ pane ] = 0;
+		middles[ pane ].x = middles[ pane ].y = 0.0f;
+	}
+	for( Int row = 0; row < PANE_MIDDLE_ROWS; row++ )
+	{
+		for( Int column = 0; column < PANE_MIDDLE_COLUMNS; column++ )
+		{
+			const Real x = ( column + 0.5f ) * width / PANE_MIDDLE_COLUMNS;
+			const Real y = ( row + 0.5f ) * height / PANE_MIDDLE_ROWS;
+			const Int pane = ObserverCamera_paneOf( x, y, width * 0.5f, height * 0.5f, rays, count );
+			middles[ pane ].x += x;
+			middles[ pane ].y += y;
+			samples[ pane ]++;
+		}
+	}
+	for( Int pane = 0; pane < count; pane++ )
+	{
+		middles[ pane ].x /= samples[ pane ];
+		middles[ pane ].y /= samples[ pane ];
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+Real ObserverCamera_easeFrames( UnsignedInt frame, UnsignedInt start, UnsignedInt length )
+{
+	if( frame <= start )
+		return 0.0f;
+	const Real t = min( (Real)( frame - start ) / length, 1.0f );
+	return t * t * ( 3.0f - 2.0f * t );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -445,13 +560,31 @@ void ObserverCamera::reset( void )
 	m_nextEventId = 1;
 	m_fights.clear();
 	m_split = FALSE;
-	m_splitCut = FALSE;
 	m_splitChanged = 0;
 	m_secondPlace.x = m_secondPlace.y = 0.0f;
-	m_secondView = ViewLocation();
-	m_secondVelocity.x = m_secondVelocity.y = m_secondVelocity.z = m_secondVelocity.angle = m_secondVelocity.pitch = m_secondVelocity.zoom = 0.0f;
+	m_panePhase = PANES_NONE;
+	m_panePhaseStart = 0;
+	m_intro = FALSE;
+	m_introDone = FALSE;
+	m_paneCount = 0;
+	m_paneProgress = 0.0f;
+	m_paneExit = 0.0f;
+	m_paneOrigin.x = m_paneOrigin.y = 0.0f;
+	m_cornerRadarSlide = 0.0f;
+	m_radarFrame.lo.x = m_radarFrame.lo.y = m_radarFrame.hi.x = m_radarFrame.hi.y = 0;
+	for( Int pane = 0; pane < OBSERVER_MOST_PANES; pane++ )
+	{
+		m_paneRays[ pane ] = 0.0f;
+		m_panePlayers[ pane ] = NULL;
+		m_paneSubject[ pane ].x = m_paneSubject[ pane ].y = 0.0f;
+		m_paneGlide[ pane ] = ViewLocation();
+		m_paneVelocity[ pane ].x = m_paneVelocity[ pane ].y = m_paneVelocity[ pane ].z = 0.0f;
+		m_paneVelocity[ pane ].angle = m_paneVelocity[ pane ].pitch = m_paneVelocity[ pane ].zoom = 0.0f;
+		m_paneView[ pane ] = ViewLocation();
+	}
+	m_mainOffset.x = m_mainOffset.y = 0.0f;
 	m_firstView = ViewLocation();
-	m_drawingSecond = FALSE;
+	m_drawingPane = 0;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -654,20 +787,26 @@ Coord2D ObserverCamera::keepInMap( const Coord2D &place, const ViewLocation &cur
 }
 
 //-------------------------------------------------------------------------------------------------
-/** A quarter of the screen's width on the ground, pointing right: moving the look point by it puts
-	* what was in the middle of the screen in the middle of its left half. */
+/** A step across the screen in pixels, from its middle, as a step on the ground: moving the look point
+	* back by it puts what was in the middle of the screen at that many pixels from it. */
 //-------------------------------------------------------------------------------------------------
-Coord2D ObserverCamera::screenQuarter( const ViewLocation &current ) const
+Coord2D ObserverCamera::screenToGround( const ViewLocation &current, const Coord2D &pixels ) const
 {
 	const Coord3D &at = current.getPosition();
 	Coord3D world[ 4 ];
 	TheTacticalView->getScreenCornerWorldPointsAtZ( &world[ 0 ], &world[ 1 ], &world[ 2 ], &world[ 3 ],
 		TheTerrainLogic->getGroundHeight( at.x, at.y ) );
-	// the corners come top left, top right, bottom right, bottom left; the two edges across are averaged
-	Coord2D quarter;
-	quarter.x = ( world[ 1 ].x - world[ 0 ].x + world[ 2 ].x - world[ 3 ].x ) / 8.0f;
-	quarter.y = ( world[ 1 ].y - world[ 0 ].y + world[ 2 ].y - world[ 3 ].y ) / 8.0f;
-	return quarter;
+	// the corners come top left, top right, bottom right, bottom left; opposite edges are averaged
+	const Real acrossX = ( world[ 1 ].x - world[ 0 ].x + world[ 2 ].x - world[ 3 ].x ) * 0.5f;
+	const Real acrossY = ( world[ 1 ].y - world[ 0 ].y + world[ 2 ].y - world[ 3 ].y ) * 0.5f;
+	const Real downX = ( world[ 3 ].x - world[ 0 ].x + world[ 2 ].x - world[ 1 ].x ) * 0.5f;
+	const Real downY = ( world[ 3 ].y - world[ 0 ].y + world[ 2 ].y - world[ 1 ].y ) * 0.5f;
+	const Real right = pixels.x / TheDisplay->getWidth();
+	const Real down = pixels.y / TheDisplay->getHeight();
+	Coord2D ground;
+	ground.x = acrossX * right + downX * down;
+	ground.y = acrossY * right + downY * down;
+	return ground;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -705,27 +844,234 @@ void ObserverCamera::updateSplit( void )
 			split ? "on" : "off", firstHeat, shown.x, shown.y, secondHeat, apart ));
 		m_split = split;
 		m_splitChanged = frame;
-		// both halves cut to their places rather than gliding in from the middle of the screen
-		m_splitCut = split;
-		m_secondView = ViewLocation();
 	}
 	if( m_split )
 		m_secondPlace = shown;
 }
 
 //-------------------------------------------------------------------------------------------------
-void ObserverCamera::beginSecondPass( void )
+/** The panes' timeline, on logic frames, which is what each recorded picture is.  A split: the corner
+	* radar slides out, the second pane slides in along the diagonal with the framed radar on its
+	* corner, and it all goes back the same way when the split ends.  The match opens with a pane a
+	* player, held a few seconds and then slid away to leave pane 0. */
+//-------------------------------------------------------------------------------------------------
+void ObserverCamera::advancePanes( UnsignedInt frame )
 {
-	TheTacticalView->getLocation( &m_firstView );
-	TheTacticalView->setLocation( &m_secondView );
-	m_drawingSecond = TRUE;
+	static const char *const phaseNames[] = { "none", "radar out", "in", "held", "out", "radar in" };
+	PanePhase next = m_panePhase;
+	const UnsignedInt elapsed = frame >= m_panePhaseStart ? frame - m_panePhaseStart : 0;
+	switch( m_panePhase )
+	{
+		case PANES_NONE:
+			if( !m_introDone )
+			{
+				m_introDone = TRUE;
+				Int players = 0;
+				for( Int index = 0; index < ThePlayerList->getPlayerCount() && players < OBSERVER_MOST_PANES; index++ )
+				{
+					const Player *player = ThePlayerList->getNthPlayer( index );
+					if( player->isPlayableSide() && !player->isPlayerObserver() && player->isPlayerActive() )
+						m_panePlayers[ players++ ] = player;
+				}
+				m_paneCount = ObserverCamera_paneLayout( players, m_paneRays );
+				if( m_paneCount >= 2 )
+				{
+					m_intro = TRUE;
+					next = PANES_HELD;
+				}
+			}
+			else if( m_split )
+			{
+				m_paneCount = ObserverCamera_paneLayout( 2, m_paneRays );
+				next = PANES_RADAR_OUT;
+			}
+			if( next != PANES_NONE )
+			{
+				m_paneExit = ObserverCamera_paneExit( m_paneRays, m_paneCount, TheDisplay->getWidth(), TheDisplay->getHeight() );
+				for( Int pane = 0; pane < OBSERVER_MOST_PANES; pane++ )
+					m_paneGlide[ pane ] = ViewLocation();
+			}
+			break;
+		case PANES_RADAR_OUT:
+			if( elapsed >= PANE_RADAR_FRAMES )
+				next = PANES_IN;
+			break;
+		case PANES_IN:
+			if( elapsed >= PANE_SLIDE_FRAMES )
+				next = PANES_HELD;
+			break;
+		case PANES_HELD:
+			if( m_intro ? elapsed >= PANE_INTRO_FRAMES : !m_split )
+				next = PANES_OUT;
+			break;
+		case PANES_OUT:
+			if( elapsed >= PANE_SLIDE_FRAMES )
+				next = PANES_RADAR_IN;
+			break;
+		case PANES_RADAR_IN:
+			if( elapsed >= PANE_RADAR_FRAMES )
+			{
+				next = PANES_NONE;
+				m_paneCount = 0;
+				m_intro = FALSE;
+			}
+			break;
+	}
+	if( next != m_panePhase )
+	{
+		DEBUG_LOG(( "OBSCAM frame %u panes %s, %d of them%s\n", frame, phaseNames[ next ], m_paneCount, m_intro ? ", the opening" : "" ));
+		m_panePhase = next;
+		m_panePhaseStart = frame;
+	}
+
+	switch( m_panePhase )
+	{
+		case PANES_NONE:
+			m_paneProgress = 0.0f;
+			m_cornerRadarSlide = 0.0f;
+			break;
+		case PANES_RADAR_OUT:
+			m_paneProgress = 0.0f;
+			m_cornerRadarSlide = ObserverCamera_easeFrames( frame, m_panePhaseStart, PANE_RADAR_FRAMES );
+			break;
+		case PANES_IN:
+			m_paneProgress = ObserverCamera_easeFrames( frame, m_panePhaseStart, PANE_SLIDE_FRAMES );
+			m_cornerRadarSlide = 1.0f;
+			break;
+		case PANES_HELD:
+			m_paneProgress = 1.0f;
+			m_cornerRadarSlide = 1.0f;
+			break;
+		case PANES_OUT:
+			m_paneProgress = 1.0f - ObserverCamera_easeFrames( frame, m_panePhaseStart, PANE_SLIDE_FRAMES );
+			m_cornerRadarSlide = 1.0f;
+			break;
+		case PANES_RADAR_IN:
+			m_paneProgress = 0.0f;
+			m_cornerRadarSlide = 1.0f - ObserverCamera_easeFrames( frame, m_panePhaseStart, PANE_RADAR_FRAMES );
+			break;
+	}
+
+	m_paneOrigin.x = TheDisplay->getWidth() * 0.5f;
+	m_paneOrigin.y = TheDisplay->getHeight() * 0.5f;
+	if( m_paneCount >= 2 )
+	{
+		const Coord2D away = ObserverCamera_paneExitDirection( m_paneRays );
+		m_paneOrigin.x += away.x * ( 1.0f - m_paneProgress ) * m_paneExit;
+		m_paneOrigin.y += away.y * ( 1.0f - m_paneProgress ) * m_paneExit;
+	}
 }
 
 //-------------------------------------------------------------------------------------------------
-void ObserverCamera::endSecondPass( void )
+/** The opening's panes: where each player's things crowd, his base at the start and his army once it
+	* is bigger than the base. */
+//-------------------------------------------------------------------------------------------------
+void ObserverCamera::updateIntroPlaces( void )
+{
+	std::vector< DirectorHeat > sights[ OBSERVER_MOST_PANES ];
+	for( Object *obj = TheGameLogic->getFirstObject(); obj != NULL; obj = obj->getNextObject() )
+	{
+		const Int cost = obj->getTemplate()->friend_getBuildCost();
+		if( cost <= 0 || obj->isEffectivelyDead() )
+			continue;
+		for( Int pane = 0; pane < m_paneCount; pane++ )
+		{
+			if( obj->getControllingPlayer() != m_panePlayers[ pane ] )
+				continue;
+			DirectorHeat heat;
+			heat.position.x = obj->getPosition()->x;
+			heat.position.y = obj->getPosition()->y;
+			heat.weight = ObserverCamera_sightWeight( cost, obj->isKindOf( KINDOF_STRUCTURE ), FALSE, FALSE ) + 1.0f;
+			sights[ pane ].push_back( heat );
+		}
+	}
+	for( Int pane = 0; pane < m_paneCount; pane++ )
+	{
+		Real heat = 0.0f;
+		ObserverCamera_hottestPlace( sights[ pane ], &m_paneSubject[ pane ], &heat );
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Each pane past the first glides to its subject on its own, and its camera sits back from the
+	* subject by the pane's middle, so the subject is in the middle of its pane.  Angle, pitch and zoom
+	* are the main camera's. */
+//-------------------------------------------------------------------------------------------------
+void ObserverCamera::stepPaneCameras( const ViewLocation &step, Real elapsedSeconds )
+{
+	if( m_paneCount < 2 )
+		return;
+	if( !m_intro )
+		m_paneSubject[ 1 ] = m_secondPlace;
+
+	Coord2D middles[ OBSERVER_MOST_PANES ];
+	ObserverCamera_paneMiddles( m_paneRays, m_paneCount, TheDisplay->getWidth(), TheDisplay->getHeight(), middles );
+	const Coord3D &at = step.getPosition();
+	for( Int pane = 1; pane < m_paneCount; pane++ )
+	{
+		ViewLocation subject;
+		subject.init( m_paneSubject[ pane ].x, m_paneSubject[ pane ].y, at.z, step.getAngle(), step.getPitch(), step.getZoom() );
+		if( !m_paneGlide[ pane ].isValid() )
+		{
+			m_paneVelocity[ pane ].x = m_paneVelocity[ pane ].y = m_paneVelocity[ pane ].z = 0.0f;
+			m_paneVelocity[ pane ].angle = m_paneVelocity[ pane ].pitch = m_paneVelocity[ pane ].zoom = 0.0f;
+			m_paneGlide[ pane ] = subject;
+		}
+		else
+		{
+			const ViewLocation glide = ObserverCamera_approach( m_paneGlide[ pane ], subject, elapsedSeconds,
+				DIRECTOR_PAN_SECONDS, DIRECTOR_TOP_SPEED, &m_paneVelocity[ pane ] );
+			m_paneGlide[ pane ].init( glide.getPosition().x, glide.getPosition().y, at.z, step.getAngle(), step.getPitch(), step.getZoom() );
+		}
+
+		Coord2D fromMiddle;
+		fromMiddle.x = middles[ pane ].x - TheDisplay->getWidth() * 0.5f;
+		fromMiddle.y = middles[ pane ].y - TheDisplay->getHeight() * 0.5f;
+		const Coord2D offset = screenToGround( step, fromMiddle );
+		Coord2D camera;
+		camera.x = m_paneGlide[ pane ].getPosition().x - offset.x;
+		camera.y = m_paneGlide[ pane ].getPosition().y - offset.y;
+		camera = keepInMap( camera, step );
+		m_paneView[ pane ].init( camera.x, camera.y, at.z, step.getAngle(), step.getPitch(), step.getZoom() );
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+Coord2D ObserverCamera::getPaneShift( void ) const
+{
+	Coord2D shift;
+	shift.x = m_paneOrigin.x - TheDisplay->getWidth() * 0.5f;
+	shift.y = m_paneOrigin.y - TheDisplay->getHeight() * 0.5f;
+	return shift;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** On the meeting point when the panes are all in, and far enough out along its way off the screen,
+	* the radar's own size further, that none of it shows when they have gone. */
+//-------------------------------------------------------------------------------------------------
+Coord2D ObserverCamera::getFramedRadarMiddle( Real radarDiagonal ) const
+{
+	const Coord2D away = ObserverCamera_paneExitDirection( m_paneRays );
+	const Real out = ( 1.0f - m_paneProgress ) * ( m_paneExit + radarDiagonal );
+	Coord2D middle;
+	middle.x = TheDisplay->getWidth() * 0.5f + away.x * out;
+	middle.y = TheDisplay->getHeight() * 0.5f + away.y * out;
+	return middle;
+}
+
+//-------------------------------------------------------------------------------------------------
+void ObserverCamera::beginPanePass( Int pane )
+{
+	TheTacticalView->getLocation( &m_firstView );
+	TheTacticalView->setLocation( &m_paneView[ pane ] );
+	m_drawingPane = pane;
+}
+
+//-------------------------------------------------------------------------------------------------
+void ObserverCamera::endPanePass( void )
 {
 	TheTacticalView->setLocation( &m_firstView );
-	m_drawingSecond = FALSE;
+	m_drawingPane = 0;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -939,13 +1285,9 @@ Bool ObserverCamera::chooseTarget( const ViewLocation &current, ViewLocation *ta
 		return FALSE;
 	if( TheGlobalData->m_directorRecord && m_placeScanned == TheGameLogic->getFrame() )
 		updateSplit();
-	// split, the first fight goes in the middle of the left half
-	if( m_split )
-	{
-		const Coord2D quarter = screenQuarter( current );
-		place.x += quarter.x;
-		place.y += quarter.y;
-	}
+	// the opening shows the first player's base in pane 0 until the panes start to go
+	if( m_intro && m_panePhase == PANES_HELD )
+		place = m_paneSubject[ 0 ];
 	place = keepInMap( place, current );
 	target->init( place.x, place.y, at.z, current.getAngle(), current.getPitch(), current.getZoom() );
 	return TRUE;
@@ -982,6 +1324,16 @@ void ObserverCamera::update( UnsignedInt nowMilliseconds )
 		return;
 	}
 
+	// -directorrecord's panes run on the logic clock, on the split the last scan decided
+	if( TheGlobalData->m_directorRecord )
+	{
+		const UnsignedInt frame = TheGameLogic->getFrame();
+		const Bool introStarting = !m_introDone;
+		advancePanes( frame );
+		if( m_intro && ( introStarting || frame % DIRECTOR_SCAN_FRAMES == 0 ) )
+			updateIntroPlaces();
+	}
+
 	ViewLocation target;
 	if( !chooseTarget( current, &target ) )
 	{
@@ -999,41 +1351,44 @@ void ObserverCamera::update( UnsignedInt nowMilliseconds )
 	else
 		driveHeight( m_placeHeight );
 	holdHeight( isShowingPlayerView() );
-	// a split going on cuts the camera to its place in the left half: gliding there would carry the
-	// fight out of the middle of the screen and across the line for a second
-	if( !m_driving || m_splitCut )
+	if( !m_driving )
+	{
 		m_velocity.x = m_velocity.y = m_velocity.z = m_velocity.angle = m_velocity.pitch = m_velocity.zoom = 0.0f;
+		m_mainOffset.x = m_mainOffset.y = 0.0f;
+	}
+
+	// the glide is of the subject; the camera sits back from it so the subject is in the middle of
+	// pane 0, moving there as the panes come in and back to the middle of the screen as they go
+	Coord2D fromMiddle = { 0.0f, 0.0f };
+	if( m_paneCount >= 2 && !isShowingPlayerView() )
+	{
+		Coord2D middles[ OBSERVER_MOST_PANES ];
+		ObserverCamera_paneMiddles( m_paneRays, m_paneCount, TheDisplay->getWidth(), TheDisplay->getHeight(), middles );
+		fromMiddle.x = ( middles[ 0 ].x - TheDisplay->getWidth() * 0.5f ) * m_paneProgress;
+		fromMiddle.y = ( middles[ 0 ].y - TheDisplay->getHeight() * 0.5f ) * m_paneProgress;
+	}
+	const Coord3D &camera = current.getPosition();
+	ViewLocation subject;
+	subject.init( camera.x + m_mainOffset.x, camera.y + m_mainOffset.y, camera.z, current.getAngle(), current.getPitch(), current.getZoom() );
 	const Bool player = m_mode == OBSERVER_CAMERA_PLAYER;
-	const ViewLocation step = m_splitCut ? target : ObserverCamera_approach( current, target, elapsed / MILLISECONDS_PER_SECOND,
+	const ViewLocation step = ObserverCamera_approach( subject, target, elapsed / MILLISECONDS_PER_SECOND,
 		player ? PLAYER_PAN_SECONDS : DIRECTOR_PAN_SECONDS, player ? PLAYER_TOP_SPEED : DIRECTOR_TOP_SPEED, &m_velocity );
-	m_splitCut = FALSE;
-	TheTacticalView->setLocation( &step );
+	const Coord2D offset = screenToGround( step, fromMiddle );
+	Coord2D sitBack;
+	sitBack.x = step.getPosition().x - offset.x;
+	sitBack.y = step.getPosition().y - offset.y;
+	if( fromMiddle.x != 0.0f || fromMiddle.y != 0.0f )
+		sitBack = keepInMap( sitBack, step );
+	m_mainOffset.x = step.getPosition().x - sitBack.x;
+	m_mainOffset.y = step.getPosition().y - sitBack.y;
+	ViewLocation placed;
+	placed.init( sitBack.x, sitBack.y, step.getPosition().z, step.getAngle(), step.getPitch(), step.getZoom() );
+	TheTacticalView->setLocation( &placed );
 	// the view keeps its look point inside its constraint when it draws; held there now, a cut to a
 	// place past the constraint is not mistaken next frame for the watcher moving the camera
 	TheTacticalView->applyCameraConstraint();
 	TheTacticalView->getPosition( &m_drivenTo );
 	m_driving = TRUE;
 
-	// the right half's camera glides to the second fight on its own, the second fight in the middle
-	// of the right half, and takes everything but the place from the camera's own step
-	if( !m_split )
-		return;
-	const Coord2D quarter = screenQuarter( step );
-	Coord2D place;
-	place.x = m_secondPlace.x - quarter.x;
-	place.y = m_secondPlace.y - quarter.y;
-	place = keepInMap( place, step );
-	const Coord3D &at = step.getPosition();
-	ViewLocation secondTarget;
-	secondTarget.init( place.x, place.y, at.z, step.getAngle(), step.getPitch(), step.getZoom() );
-	if( !m_secondView.isValid() )
-	{
-		m_secondVelocity.x = m_secondVelocity.y = m_secondVelocity.z = m_secondVelocity.angle = m_secondVelocity.pitch = m_secondVelocity.zoom = 0.0f;
-		m_secondView = secondTarget;
-		return;
-	}
-	const ViewLocation glide = ObserverCamera_approach( m_secondView, secondTarget, elapsed / MILLISECONDS_PER_SECOND,
-		DIRECTOR_PAN_SECONDS, DIRECTOR_TOP_SPEED, &m_secondVelocity );
-	const Coord3D &glidedTo = glide.getPosition();
-	m_secondView.init( glidedTo.x, glidedTo.y, at.z, step.getAngle(), step.getPitch(), step.getZoom() );
+	stepPaneCameras( step, elapsed / MILLISECONDS_PER_SECOND );
 }

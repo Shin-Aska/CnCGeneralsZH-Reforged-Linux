@@ -4063,12 +4063,14 @@ static UnsignedInt s_videoLastFrame = 0;
 static Int s_videoFramesWritten = 0;
 static Int s_videoFramesMissed = 0;
 static char s_videoDirectory[_MAX_PATH];
-/* -directorrecord's second fight, drawn first and kept here until the frame everybody sees is read and
-	 the right of the leaning line is taken from it */
-static char *s_videoHeld = NULL;
-static Int s_videoHeldWidth = 0;
-static Int s_videoHeldHeight = 0;
-static UnsignedInt s_videoHeldFrame = 0;
+/* -directorrecord's panes past the first, each drawn before pane 0 and kept here until the frame everybody
+	 sees is read and the pane's wedge is taken from it */
+static char *s_videoHeld[OBSERVER_MOST_PANES] = { NULL };
+static Int s_videoHeldWidth[OBSERVER_MOST_PANES] = { 0 };
+static Int s_videoHeldHeight[OBSERVER_MOST_PANES] = { 0 };
+static UnsignedInt s_videoHeldFrame[OBSERVER_MOST_PANES] = { 0 };
+static UnsignedByte *s_videoPaneMap = NULL;
+static Int s_videoPaneMapSize = 0;
 #if defined(_WIN32)
 /* -directorrecord writes no frames to disk: they go down a pipe into ffmpeg as they are drawn, which a
 	 whole match of 1080p bitmaps would need tens of gigabytes for.  With no ffmpeg it records nothing
@@ -4136,8 +4138,14 @@ static void finishVideo(void)
 
 	DEBUG_LOG(("VIDEO: %d frames written to %s, %d logic frames went by without a picture\n",
 		s_videoFramesWritten, s_videoDirectory, s_videoFramesMissed));
-	delete [] s_videoHeld;
-	s_videoHeld = NULL;
+	for (Int pane = 0; pane < OBSERVER_MOST_PANES; ++pane)
+	{
+		delete [] s_videoHeld[pane];
+		s_videoHeld[pane] = NULL;
+	}
+	delete [] s_videoPaneMap;
+	s_videoPaneMap = NULL;
+	s_videoPaneMapSize = 0;
 
 #if defined(_WIN32)
 	// the end of the pipe is the end of the stream: ffmpeg finishes the movie and exits
@@ -4290,6 +4298,58 @@ static Bool openVideoPipe(Int width, Int height)
 }
 #endif
 
+/** -directorrecord's panes joined into pane 0's picture: each pixel is taken from the pane whose wedge
+	* it lies in, moved with the rays' meeting point.  Pane 0 keeps the framed radar and a band along every
+	* seam, where only its draw has the line.  A pane with no picture of this frame and size stays pane
+	* 0's. */
+static void joinVideoPanes(char *rows, Int width, Int height, UnsignedInt frame)
+{
+	enum { SEAM_BAND = 2 };
+	const Int count = TheObserverCamera.getDrawnPaneCount();
+	const Real *rays = TheObserverCamera.getPaneRays();
+	const Coord2D origin = TheObserverCamera.getPaneOrigin();
+	const Coord2D shift = TheObserverCamera.getPaneShift();
+	const Int shiftX = REAL_TO_INT(shift.x);
+	const Int shiftY = REAL_TO_INT(shift.y);
+	const IRegion2D &radar = TheObserverCamera.getRadarFrame();
+
+	if (s_videoPaneMapSize != width * height)
+	{
+		delete [] s_videoPaneMap;
+		s_videoPaneMapSize = width * height;
+		s_videoPaneMap = NEW UnsignedByte[s_videoPaneMapSize];
+	}
+	for (Int y = 0; y < height; ++y)
+		for (Int x = 0; x < width; ++x)
+			s_videoPaneMap[y * width + x] = (UnsignedByte)ObserverCamera_paneOf((Real)x + 0.5f, (Real)y + 0.5f,
+				origin.x, origin.y, rays, count);
+
+	for (Int y = 0; y < height; ++y)
+	{
+		for (Int x = 0; x < width; ++x)
+		{
+			const Int pane = s_videoPaneMap[y * width + x];
+			if (pane == 0)
+				continue;
+			if (s_videoHeld[pane] == NULL || s_videoHeldFrame[pane] != frame
+				|| s_videoHeldWidth[pane] != width || s_videoHeldHeight[pane] != height)
+				continue;
+			if (x >= radar.lo.x && x < radar.hi.x && y >= radar.lo.y && y < radar.hi.y)
+				continue;
+			const Int left = max(x - SEAM_BAND, 0);
+			const Int right = min(x + SEAM_BAND, width - 1);
+			const Int up = max(y - SEAM_BAND, 0);
+			const Int down = min(y + SEAM_BAND, height - 1);
+			if (s_videoPaneMap[y * width + left] != pane || s_videoPaneMap[y * width + right] != pane
+				|| s_videoPaneMap[up * width + x] != pane || s_videoPaneMap[down * width + x] != pane)
+				continue;
+			const Int fromX = min(max(x - shiftX, 0), width - 1);
+			const Int fromY = min(max(y - shiftY, 0), height - 1);
+			memcpy(rows + (y * width + x) * 3, s_videoHeld[pane] + (fromY * width + fromX) * 3, 3);
+		}
+	}
+}
+
 /** One picture of the recording, into ffmpeg's pipe under -directorrecord, as the next numbered .bmp
 	* otherwise. */
 static Bool writeVideoFrame(char *rows, Int width, Int height)
@@ -4349,12 +4409,13 @@ static void captureVideoFrame(void)
 		return;
 	}
 
-	// -directorrecord's second fight: kept for the frame that follows it on this logic frame
+	// -directorrecord's panes past the first: kept for pane 0's draw, the last on this logic frame
 	if (TheObserverCamera.isDrawingSecond())
 	{
-		delete [] s_videoHeld;
-		s_videoHeld = captureFrameRows(&s_videoHeldWidth, &s_videoHeldHeight);
-		s_videoHeldFrame = frame;
+		const Int pane = TheObserverCamera.getDrawingPane();
+		delete [] s_videoHeld[pane];
+		s_videoHeld[pane] = captureFrameRows(&s_videoHeldWidth[pane], &s_videoHeldHeight[pane]);
+		s_videoHeldFrame[pane] = frame;
 		return;
 	}
 
@@ -4400,16 +4461,8 @@ static void captureVideoFrame(void)
 		return;
 	}
 
-	// split: right of the leaning line is the second fight's picture
-	if (s_videoHeld != NULL && s_videoHeldFrame == frame && s_videoHeldWidth == width && s_videoHeldHeight == height)
-	{
-		for (Int y = 0; y < height; ++y)
-		{
-			const Int from = min(max(ObserverCamera_splitBoundary(y, width, height), 0), width);
-			const Int at = (y * width + from) * 3;
-			memcpy(rows + at, s_videoHeld + at, (width - from) * 3);
-		}
-	}
+	if (TheObserverCamera.getDrawnPaneCount() >= 2)
+		joinVideoPanes(rows, width, height, frame);
 
 	if (writeVideoFrame(rows, width, height))
 		++s_videoFramesWritten;

@@ -423,6 +423,13 @@ void W3DInGameUI::reset( void )
 
 static void drawGroundRing( const Coord3D& center, Real radius, UnsignedInt color, Real width );
 
+/// -directorrecord's line between panes, and round the radar framed where they meet
+static void drawPaneLine( Real fromX, Real fromY, Real toX, Real toY )
+{
+	TheDisplay->drawLine( REAL_TO_INT( fromX ), REAL_TO_INT( fromY ), REAL_TO_INT( toX ), REAL_TO_INT( toY ),
+		3.0f, GameMakeColor( 235, 235, 235, 255 ) );
+}
+
 //-------------------------------------------------------------------------------------------------
 /** Draw member for the W3D implemenation of the game user interface */
 //-------------------------------------------------------------------------------------------------
@@ -433,21 +440,32 @@ void W3DInGameUI::draw( void )
 	// 930 and 1230), and nothing on the list belongs in a shot.  The letterbox is the display's own.
 	if( CinemaDirector_hidesHud() )
 	{
-		// -directorrecord's two fights side by side: the line between the halves, drawn the same in
-		// both draws so the joined picture has it whole
-		const Bool split = TheObserverCamera.isSplit();
-		if( split )
+		// -directorrecord's panes: the rays between them, from where they meet to past the screen's
+		// edge, drawn in pane 0's draw alone.  The other panes' pictures are moved with the meeting
+		// point when they are joined, which would carry a line of theirs off the seam; the join takes
+		// a band along every seam from pane 0, line and all
+		const Bool framed = TheObserverCamera.isRadarFramed();
+		IRegion2D noFrame;
+		noFrame.lo.x = noFrame.lo.y = noFrame.hi.x = noFrame.hi.y = 0;
+		TheObserverCamera.setRadarFrame( noFrame );
+		if( framed && !TheObserverCamera.isDrawingSecond() )
 		{
-			const Int width = TheDisplay->getWidth();
-			const Int height = TheDisplay->getHeight();
-			TheDisplay->drawLine( ObserverCamera_splitBoundary( 0, width, height ), 0,
-				ObserverCamera_splitBoundary( height, width, height ), height, 3.0f, GameMakeColor( 235, 235, 235, 255 ) );
+			const Real reach = 2.0f * ( TheDisplay->getWidth() + TheDisplay->getHeight() );
+			const Coord2D origin = TheObserverCamera.getPaneOrigin();
+			const Real *rays = TheObserverCamera.getPaneRays();
+			for( Int ray = 0; ray < TheObserverCamera.getDrawnPaneCount(); ray++ )
+			{
+				const Real angle = rays[ ray ] * PI / 180.0f;
+				drawPaneLine( origin.x, origin.y, origin.x + cosf( angle ) * reach, origin.y - sinf( angle ) * reach );
+			}
 		}
 
 		// the console's 'hidehud showmap=true': the bar is hidden, so its radar window is put in the
-		// corner by hand, where the radar's own pixel maths find it too, and painted.  Over a split
-		// picture it sits in the middle, on the line, where it covers neither fight
-		if( CinemaDirector_showsMap() )
+		// corner by hand, where the radar's own pixel maths find it too, and painted.  Under
+		// -directorrecord it slides out of the corner to the left before panes come and back after
+		// them, and while they are up it sits in a frame of the rays' own line where they meet,
+		// pane 0's alone: the other panes' draws leave it out and the recording takes it from pane 0
+		if( CinemaDirector_showsMap() && !TheObserverCamera.isDrawingSecond() )
 		{
 			GameWindow *radarWindow = TheWindowManager->winGetWindowFromId( NULL, TheNameKeyGenerator->nameToKey( "ControlBar.wnd:LeftHUD" ) );
 			// W3DLeftHUDDraw paints one pixel inside the window, and the radar keeps the map's shape
@@ -462,17 +480,45 @@ void W3DInGameUI::draw( void )
 			corner.hi.x = corner.lo.x + ( lr.x - ul.x ) + 2 * RADAR_BEZEL;
 			corner.hi.y = TheDisplay->getHeight() + RADAR_BEZEL;
 			corner.lo.y = corner.hi.y - ( lr.y - ul.y ) - 2 * RADAR_BEZEL;
-			if( split )
+			const Int mapWidth = corner.hi.x - corner.lo.x;
+			const Int mapHeight = corner.hi.y - corner.lo.y;
+			enum { RADAR_FRAME_GAP = 3 };
+			if( framed )
 			{
-				const Int mapWidth = corner.hi.x - corner.lo.x;
-				const Int mapHeight = corner.hi.y - corner.lo.y;
-				corner.lo.x = ( TheDisplay->getWidth() - mapWidth ) / 2;
+				const Real diagonal = sqrtf( (Real)( mapWidth * mapWidth + mapHeight * mapHeight ) ) + 2 * RADAR_FRAME_GAP;
+				const Coord2D middle = TheObserverCamera.getFramedRadarMiddle( diagonal );
+				corner.lo.x = REAL_TO_INT( middle.x ) - mapWidth / 2;
 				corner.hi.x = corner.lo.x + mapWidth;
-				corner.lo.y = ( TheDisplay->getHeight() - mapHeight ) / 2;
+				corner.lo.y = REAL_TO_INT( middle.y ) - mapHeight / 2;
 				corner.hi.y = corner.lo.y + mapHeight;
+			}
+			else
+			{
+				const Int slide = REAL_TO_INT( TheObserverCamera.getCornerRadarSlide() * ( mapWidth + RADAR_FRAME_GAP ) );
+				corner.lo.x -= slide;
+				corner.hi.x -= slide;
 			}
 			TheControlBar->placeWindowAt( radarWindow, corner );
 			W3DLeftHUDDraw( radarWindow, NULL );
+
+			if( framed )
+			{
+				IRegion2D frame;
+				frame.lo.x = corner.lo.x - RADAR_FRAME_GAP;
+				frame.lo.y = corner.lo.y - RADAR_FRAME_GAP;
+				frame.hi.x = corner.hi.x + RADAR_FRAME_GAP;
+				frame.hi.y = corner.hi.y + RADAR_FRAME_GAP;
+				drawPaneLine( frame.lo.x, frame.lo.y, frame.hi.x, frame.lo.y );
+				drawPaneLine( frame.hi.x, frame.lo.y, frame.hi.x, frame.hi.y );
+				drawPaneLine( frame.hi.x, frame.hi.y, frame.lo.x, frame.hi.y );
+				drawPaneLine( frame.lo.x, frame.hi.y, frame.lo.x, frame.lo.y );
+				// the line is drawn on the frame's edge, so its outer half is pane 0's too
+				frame.lo.x -= RADAR_FRAME_GAP;
+				frame.lo.y -= RADAR_FRAME_GAP;
+				frame.hi.x += RADAR_FRAME_GAP;
+				frame.hi.y += RADAR_FRAME_GAP;
+				TheObserverCamera.setRadarFrame( frame );
+			}
 		}
 		return;
 	}

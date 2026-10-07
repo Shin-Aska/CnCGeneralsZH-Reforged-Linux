@@ -354,10 +354,75 @@ TEST(the_recording_splits_only_beside_a_real_fight)
 	CHECK( !ObserverCamera_secondPlace( none, first, &second, &heat ) );
 }
 
-TEST(the_split_line_leans_twelve_degrees_through_the_middle)
+TEST(every_pane_layout_cuts_on_45_degree_rays)
 {
-	CHECK_EQ( ObserverCamera_splitBoundary( 360, 1280, 720 ), 640 );
-	// 360 rows from the middle at tan 12 degrees is 76.5 columns
-	CHECK_EQ( ObserverCamera_splitBoundary( 0, 1280, 720 ), 717 );
-	CHECK_EQ( ObserverCamera_splitBoundary( 720, 1280, 720 ), 563 );
+	CHECK_EQ( ObserverCamera_paneLayout( 1, NULL ), 0 );
+	for( Int count = 2; count <= OBSERVER_MOST_PANES; count++ )
+	{
+		Real rays[ OBSERVER_MOST_PANES ];
+		CHECK_EQ( ObserverCamera_paneLayout( count, rays ), count );
+		for( Int ray = 0; ray < count; ray++ )
+		{
+			CHECK_EQ( (Int)rays[ ray ] % 45, 0 );
+			CHECK( ray == 0 || rays[ ray ] > rays[ ray - 1 ] );
+		}
+	}
+	// more players than panes share the eight
+	Real rays[ OBSERVER_MOST_PANES ];
+	CHECK_EQ( ObserverCamera_paneLayout( 12, rays ), (Int)OBSERVER_MOST_PANES );
+}
+
+TEST(a_pixel_lies_in_the_wedge_counter_clockwise_of_its_ray)
+{
+	Real rays[ OBSERVER_MOST_PANES ];
+	ObserverCamera_paneLayout( 2, rays );
+	// the diagonal through the middle of 1280x720: pane 0 above it on the left, pane 1 below it
+	CHECK_EQ( ObserverCamera_paneOf( 740.0f, 258.0f, 640.0f, 360.0f, rays, 2 ), 0 );
+	CHECK_EQ( ObserverCamera_paneOf( 740.0f, 262.0f, 640.0f, 360.0f, rays, 2 ), 1 );
+	CHECK_EQ( ObserverCamera_paneOf( 100.0f, 100.0f, 640.0f, 360.0f, rays, 2 ), 0 );
+	CHECK_EQ( ObserverCamera_paneOf( 1200.0f, 700.0f, 640.0f, 360.0f, rays, 2 ), 1 );
+
+	// an X: top, left, bottom, right
+	ObserverCamera_paneLayout( 4, rays );
+	CHECK_EQ( ObserverCamera_paneOf( 640.0f, 100.0f, 640.0f, 360.0f, rays, 4 ), 0 );
+	CHECK_EQ( ObserverCamera_paneOf( 100.0f, 360.0f, 640.0f, 360.0f, rays, 4 ), 1 );
+	CHECK_EQ( ObserverCamera_paneOf( 640.0f, 700.0f, 640.0f, 360.0f, rays, 4 ), 2 );
+	CHECK_EQ( ObserverCamera_paneOf( 1200.0f, 360.0f, 640.0f, 360.0f, rays, 4 ), 3 );
+}
+
+TEST(pane_zero_fills_the_screen_once_the_meeting_point_is_out_far_enough)
+{
+	Real rays[ OBSERVER_MOST_PANES ];
+	ObserverCamera_paneLayout( 2, rays );
+	// the diagonal has to clear the bottom right corner: (639.5 + 359.5) * cos 45 degrees
+	CHECK_NEAR( ObserverCamera_paneExit( rays, 2, 1280, 720 ), 706.4f, 2.0f );
+	const Coord2D away = ObserverCamera_paneExitDirection( rays );
+	CHECK( away.x > 0.0f && away.y > 0.0f );
+}
+
+TEST(the_two_pane_middles_mirror_through_the_screen_middle)
+{
+	Real rays[ OBSERVER_MOST_PANES ];
+	ObserverCamera_paneLayout( 2, rays );
+	Coord2D middles[ OBSERVER_MOST_PANES ];
+	ObserverCamera_paneMiddles( rays, 2, 1280, 720, middles );
+	CHECK( middles[ 0 ].x < 640.0f && middles[ 0 ].y < 360.0f );
+	CHECK_NEAR( middles[ 0 ].x + middles[ 1 ].x, 1280.0f, 1.0f );
+	CHECK_NEAR( middles[ 0 ].y + middles[ 1 ].y, 720.0f, 1.0f );
+}
+
+TEST(pane_animations_ease_over_logic_frames)
+{
+	CHECK_NEAR( ObserverCamera_easeFrames( 100, 100, 15 ), 0.0f, 0.0001f );
+	CHECK_NEAR( ObserverCamera_easeFrames( 90, 100, 15 ), 0.0f, 0.0001f );
+	CHECK_NEAR( ObserverCamera_easeFrames( 110, 100, 20 ), 0.5f, 0.0001f );
+	CHECK_NEAR( ObserverCamera_easeFrames( 115, 100, 15 ), 1.0f, 0.0001f );
+	CHECK_NEAR( ObserverCamera_easeFrames( 400, 100, 15 ), 1.0f, 0.0001f );
+	Real last = 0.0f;
+	for( UnsignedInt frame = 100; frame <= 115; frame++ )
+	{
+		const Real now = ObserverCamera_easeFrames( frame, 100, 15 );
+		CHECK( now >= last );
+		last = now;
+	}
 }

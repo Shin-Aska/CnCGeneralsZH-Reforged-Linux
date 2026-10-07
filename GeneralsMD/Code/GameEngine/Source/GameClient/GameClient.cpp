@@ -934,14 +934,14 @@ void GameClient::update( void )
 			Int64 drawStart, drawEnd;
 			drawStart = Clock_Ticks();
 #endif
-			/* -directorrecord with two fights on: the second fight is drawn first, for the recording
-				 only and never presented, then the frame everybody sees.  W3D's clock stands still for
-				 a second draw on one client frame, so nothing animates twice. */
-			if( TheObserverCamera.isSplit() )
+			/* -directorrecord's panes: every pane past the first is drawn first, for the recording only
+				 and never presented, then the frame everybody sees.  W3D's clock stands still for every
+				 draw after the first on one client frame, so nothing animates twice. */
+			for( Int pane = 1; pane < TheObserverCamera.getDrawnPaneCount(); pane++ )
 			{
-				TheObserverCamera.beginSecondPass();
+				TheObserverCamera.beginPanePass( pane );
 				TheDisplay->DRAW();
-				TheObserverCamera.endSecondPass();
+				TheObserverCamera.endPanePass();
 			}
 			TheDisplay->DRAW();
 #ifdef DEBUG_LOGGING

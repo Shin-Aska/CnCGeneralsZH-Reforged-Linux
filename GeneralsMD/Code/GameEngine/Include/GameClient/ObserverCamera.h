@@ -137,9 +137,26 @@ Bool ObserverCamera_secondPlace( const std::vector< DirectorHeat > &hits, const 
 /// its own and next to a first one; off once it has been held a while and the second fight has burnt
 /// down, and at once when the second fight is over or the two places come together
 Bool ObserverCamera_holdSplit( Bool split, Real firstHeat, Real secondHeat, Real apart, UnsignedInt framesSince );
-/// the column the split's divider crosses row y of a width by height picture at: through the middle,
-/// leaning 12 degrees with its top to the right.  Columns left of it are the first fight's
-Int ObserverCamera_splitBoundary( Int y, Int width, Int height );
+
+/// -directorrecord's panes.  The picture is cut by rays from one point, every ray a multiple of 45
+/// degrees, and pane i is the wedge from ray i counterclockwise to ray i + 1.  Angles are degrees,
+/// 0 to the right and 90 up the screen
+enum { OBSERVER_MOST_PANES = 8 };
+/// the rays for count panes, ascending from 0 to 360; the number of rays, which is count, or 0 for
+/// fewer than two panes.  Pane 0 is the one the radar belongs to and the one left when the panes go
+Int ObserverCamera_paneLayout( Int count, Real *rays );
+/// the pane pixel x, y falls in, the rays meeting at origin x, y (pixels, y down)
+Int ObserverCamera_paneOf( Real x, Real y, Real originX, Real originY, const Real *rays, Int count );
+/// how far the rays' meeting point has to move, away from pane 0, before pane 0 is the whole of a
+/// width by height picture: the panes come in from there and go back out to it
+Real ObserverCamera_paneExit( const Real *rays, Int count, Int width, Int height );
+/// the direction, in pixels with y down, that meeting point moves in to take the other panes away
+Coord2D ObserverCamera_paneExitDirection( const Real *rays );
+/// the middle of each pane with the rays meeting in the middle of the picture, where its subject is
+/// put; middles has count entries
+void ObserverCamera_paneMiddles( const Real *rays, Int count, Int width, Int height, Coord2D *middles );
+/// how far an animation of length frames that started on start is on frame, eased in and out, 0 to 1
+Real ObserverCamera_easeFrames( UnsignedInt frame, UnsignedInt start, UnsignedInt length );
 
 class ObserverCamera
 {
@@ -179,13 +196,31 @@ public:
 	/// the watcher's own height back on the view, if the director had raised it over a fight
 	void releaseHeight( void );
 
-	/// -directorrecord: two fights far apart are recorded side by side.  The frame is drawn twice, the
-	/// second fight first and never presented, then the first; the recording joins the two halves
+	/// -directorrecord's panes: the players' bases for the first seconds of a match, then two fights
+	/// far apart side by side.  Each pane past the first is drawn first, for the recording only and
+	/// never presented, then the frame everybody sees; the recording joins them along the rays
 	Bool isSplit( void ) const { return m_split; }
-	Bool isDrawingSecond( void ) const { return m_drawingSecond; }
-	/// the view moved to the second fight for one draw, and put back after it
-	void beginSecondPass( void );
-	void endSecondPass( void );
+	/// how many panes the next frame is drawn in, 1 when the picture is whole
+	Int getDrawnPaneCount( void ) const { return m_paneProgress > 0.0f ? m_paneCount : 1; }
+	const Real *getPaneRays( void ) const { return m_paneRays; }
+	/// where the rays meet on the screen, in pixels, which slides in from off the screen and back out
+	Coord2D getPaneOrigin( void ) const { return m_paneOrigin; }
+	/// how far a pane's picture past the first is moved with the meeting point, in pixels
+	Coord2D getPaneShift( void ) const;
+	/// how far the radar in the bottom left corner is slid out to the left, 0 to 1
+	Real getCornerRadarSlide( void ) const { return m_cornerRadarSlide; }
+	/// the radar framed on the rays' meeting point, pane 0's, while there are panes; its middle comes
+	/// with the meeting point and goes off the screen with it
+	Bool isRadarFramed( void ) const { return m_paneCount >= 2 && m_paneProgress > 0.0f; }
+	Coord2D getFramedRadarMiddle( Real radarDiagonal ) const;
+	/// the framed radar's rectangle as it was drawn, frame included: the recording takes it from pane 0
+	void setRadarFrame( const IRegion2D &frame ) { m_radarFrame = frame; }
+	const IRegion2D &getRadarFrame( void ) const { return m_radarFrame; }
+	Bool isDrawingSecond( void ) const { return m_drawingPane != 0; }
+	Int getDrawingPane( void ) const { return m_drawingPane; }
+	/// the view moved to a pane's camera for one draw, and put back after it
+	void beginPanePass( Int pane );
+	void endPanePass( void );
 
 	enum { NO_PLAYER = -1 };
 
@@ -195,8 +230,11 @@ private:
 	void driveHeight( Real extra );
 	Bool takenByHand( const ViewLocation &current ) const;
 	Coord2D keepInMap( const Coord2D &place, const ViewLocation &current ) const;
-	Coord2D screenQuarter( const ViewLocation &current ) const;
+	Coord2D screenToGround( const ViewLocation &current, const Coord2D &pixels ) const;
 	void updateSplit( void );
+	void updateIntroPlaces( void );
+	void advancePanes( UnsignedInt frame );
+	void stepPaneCameras( const ViewLocation &step, Real elapsedSeconds );
 	Bool isShowingPlayerView( void ) const;
 	Bool chooseTarget( const ViewLocation &current, ViewLocation *target );
 	Bool directorPlace( const Player *narrowTo, Coord2D *place );
@@ -233,14 +271,30 @@ private:
 	UnsignedInt m_nextEventId;
 
 	std::vector< DirectorHeat > m_fights;	///< the last scan's hits one player dealt another he is at war with; the split counts only these
-	Bool m_split;										///< -directorrecord's picture is two fights side by side
-	Bool m_splitCut;								///< the split just went on: the camera cuts to its place in the left half
+	Bool m_split;										///< -directorrecord wants two fights side by side
 	UnsignedInt m_splitChanged;			///< the logic frame the split last went on or off
-	Coord2D m_secondPlace;					///< the second fight, shown in the right half
-	ViewLocation m_secondView;			///< the right half's camera, gliding on its own
-	ObserverCameraVelocity m_secondVelocity;
-	ViewLocation m_firstView;				///< the camera's own place, put back after the right half is drawn
-	Bool m_drawingSecond;
+	Coord2D m_secondPlace;					///< the second fight, shown in the second pane
+
+	enum PanePhase { PANES_NONE, PANES_RADAR_OUT, PANES_IN, PANES_HELD, PANES_OUT, PANES_RADAR_IN };
+	PanePhase m_panePhase;
+	UnsignedInt m_panePhaseStart;		///< the logic frame the phase began on
+	Bool m_intro;										///< the panes are the match's opening, one a player
+	Bool m_introDone;
+	Int m_paneCount;								///< 0 with no panes
+	Real m_paneRays[ OBSERVER_MOST_PANES ];
+	Real m_paneProgress;						///< 0 for no panes on the screen, 1 for all of them, eased
+	Real m_paneExit;								///< how far off the meeting point goes, in pixels
+	Coord2D m_paneOrigin;						///< where the rays meet now, in pixels
+	Real m_cornerRadarSlide;
+	IRegion2D m_radarFrame;
+	const Player *m_panePlayers[ OBSERVER_MOST_PANES ];	///< the intro's player for each pane
+	Coord2D m_paneSubject[ OBSERVER_MOST_PANES ];			///< what each pane past the first looks at
+	ViewLocation m_paneGlide[ OBSERVER_MOST_PANES ];		///< where each pane's subject glide has got to
+	ObserverCameraVelocity m_paneVelocity[ OBSERVER_MOST_PANES ];
+	ViewLocation m_paneView[ OBSERVER_MOST_PANES ];		///< each pane's camera for its draw
+	Coord2D m_mainOffset;						///< how far the camera's look point sat from its subject last frame, on the ground
+	ViewLocation m_firstView;				///< the camera's own place, put back after a pane is drawn
+	Int m_drawingPane;
 };
 
 extern ObserverCamera TheObserverCamera;
