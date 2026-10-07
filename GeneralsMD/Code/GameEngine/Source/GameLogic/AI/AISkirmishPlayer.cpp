@@ -681,7 +681,9 @@ void AISkirmishPlayer::buildAIBaseDefense(Bool flank)
 	Object *dozer = findNearestDozer(&m_baseCenter);
 	const ThingTemplate *mix = dozer ? nextBaseDefense(dozer) : NULL;
 	if (mix) {
-		buildAIBaseDefenseStructure(mix->getName(), flank);
+		// the spot with the widest field of fire first; the approach-path ring when none scores
+		if (!placeDefense(mix))
+			buildAIBaseDefenseStructure(mix->getName(), flank);
 	} else if (resInfo) {
 		buildAIBaseDefenseStructure(resInfo->m_baseDefenseStructure1, flank);
 	}

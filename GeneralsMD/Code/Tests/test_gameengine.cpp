@@ -11290,6 +11290,13 @@ TEST(ai_base_defenses_rotate_through_the_sides_types)
 		CHECK_EQ( standing[ 1 ], 2 );
 	}
 
+	// a spot is scored by the ground it sees toward the enemy: ground half a reach nearer him than the
+	// middle of the base is worth a half, ground behind the base nothing, and outside the base a tenth on top
+	CHECK_NEAR( aiFireSampleWeight( 1000.0f, 850.0f, 300.0f, FALSE ), 0.5f, 0.001f );
+	CHECK_NEAR( aiFireSampleWeight( 1000.0f, 1200.0f, 300.0f, FALSE ), 0.0f, 0.001f );
+	CHECK_NEAR( aiFireSampleWeight( 1000.0f, 1200.0f, 300.0f, TRUE ), 0.1f, 0.001f );
+	CHECK_NEAR( aiFireSampleWeight( 1000.0f, 700.0f, 300.0f, TRUE ), 1.1f, 0.001f );
+
 	// one type lost in a raid is the one put back
 	{
 		const Int standing[ 2 ] = { 5, 2 };

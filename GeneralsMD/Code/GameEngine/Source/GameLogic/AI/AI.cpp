@@ -1265,6 +1265,15 @@ Int aiDefenseAllowance( Int army, UnsignedInt frame )
 }
 
 //-------------------------------------------------------------------------------------------------
+Real aiFireSampleWeight( Real baseToThreat, Real sampleToThreat, Real reach, Bool outsideBase )
+{
+	Real weight = reach > 0.0f ? ( baseToThreat - sampleToThreat ) / reach : 0.0f;
+	if( weight < 0.0f )
+		weight = 0.0f;
+	return outsideBase ? weight + 0.1f : weight;
+}
+
+//-------------------------------------------------------------------------------------------------
 Int aiPickBaseDefense( const Int *standing, const Bool *armed, Int count )
 {
 	Int best = -1;

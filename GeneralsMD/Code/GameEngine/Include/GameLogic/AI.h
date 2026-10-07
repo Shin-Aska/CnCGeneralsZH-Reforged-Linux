@@ -340,9 +340,11 @@ Bool aiWantsAnotherTechBuilding( Int standing, Int onTheWay );
 /** Base defences a Hard computer may stand: one per AI_ARMY_PER_DEFENSE fighting units, and however
 	* small the army, one more every AI_DEFENSE_PACE_SECONDS of the match until two superweapons' worth
 	* stand.  The army ration alone left a 1v1 base on two or three guns, short of the
-	* DEFENSES_PER_SUPERWEAPON a superweapon asks for. */
-static const Int AI_ARMY_PER_DEFENSE = 4;
-static const Int AI_DEFENSE_PACE_SECONDS = 40;
+	* DEFENSES_PER_SUPERWEAPON a superweapon asks for.  At 30 seconds the clock allows the twelfth
+	* gun at six minutes, under the seven a Hard-against-Hard 1v1 lasts on average; 40 seconds and
+	* four units a gun, the first try, put a superweapon up on 5 of 96 Hard sides. */
+static const Int AI_ARMY_PER_DEFENSE = 3;
+static const Int AI_DEFENSE_PACE_SECONDS = 30;
 Int aiDefenseAllowance( Int army, UnsignedInt frame );
 
 /** Which of the base defences a dozer can build goes up next, as an index into the candidates: the
@@ -350,6 +352,12 @@ Int aiDefenseAllowance( Int army, UnsignedInt frame );
 	* sits first.  A defence with no gun or spawn of its own (an empty bunker, a speaker tower) counts
 	* AI_SUPPORT_DEFENSE_WEIGHT times what it has standing.  Ties go to an armed one, then to the first
 	* candidate.  -1 when there are none. */
+/** What one point of open ground inside a defence's reach is worth to the spot it is scored for:
+	* how much nearer the enemy it lies than the middle of the base does, in reaches, never below
+	* zero, plus a tenth for lying outside the base.  Ground behind the base counts only that tenth,
+	* so a spot at the back scores a fraction of one at the front, and none inside the base. */
+Real aiFireSampleWeight( Real baseToThreat, Real sampleToThreat, Real reach, Bool outsideBase );
+
 static const Int AI_SUPPORT_DEFENSE_WEIGHT = 3;
 Int aiPickBaseDefense( const Int *standing, const Bool *armed, Int count );
 

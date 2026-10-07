@@ -4926,6 +4926,250 @@ const ThingTemplate *AIPlayer::nextBaseDefense( Object *dozer )
 	return pick < 0 ? NULL : candidates[ pick ];
 }
 
+/** Where a defence's own guns reach, off its default weapon set.  A Stinger Site's soldiers, an empty
+	* bunker and a speaker tower have none, and are scored as if they reached DEFENSE_REACH_UNARMED. */
+static const Real DEFENSE_REACH_UNARMED = 250.0f;
+
+static Real defenseReach( const ThingTemplate *tmpl )
+{
+	Real reach = 0.0f;
+	const WeaponTemplateSet *set = tmpl->getWeaponTemplateSets().empty() ? NULL : tmpl->findWeaponTemplateSet( WeaponSetFlags() );
+	for( Int slot = 0; set && slot < WEAPONSLOT_COUNT; ++slot )
+	{
+		const WeaponTemplate *weapon = set->getNth( (WeaponSlotType)slot );
+		if( weapon && weapon->getUnmodifiedAttackRange() > reach )
+			reach = weapon->getUnmodifiedAttackRange();
+	}
+	return reach > 0.0f ? reach : DEFENSE_REACH_UNARMED;
+}
+
+static void collectDefensePositions( Object *obj, void *userData )
+{
+	if( obj->isKindOf( KINDOF_FS_BASE_DEFENSE ) && !obj->isEffectivelyDead() )
+		((std::vector<Coord3D> *)userData)->push_back( *obj->getPosition() );
+}
+
+/** Rings round the base center a defence may go on, in base radii, and spots per ring. */
+static const Int DEFENSE_RINGS = 4;
+static const Real DEFENSE_RING_RADII[ DEFENSE_RINGS ] = { 0.75f, 1.0f, 1.25f, 1.5f };
+static const Int DEFENSE_SPOTS_PER_RING = 24;
+/** Ground looked at round each spot: this many directions, at half and nine tenths of the reach. */
+static const Int DEFENSE_FIRE_SAMPLES = 16;
+/** Best-scored spots asked for legality, each about a millisecond. */
+static const Int DEFENSE_PLACE_TRIES = 12;
+
+//----------------------------------------------------------------------------------------------------------
+/** A defence goes where its guns see the most of the ground an enemy comes over.  A spot on a ring
+	* round the base is scored by the open ground inside its reach: each sample point on clear,
+	* drivable ground counts for how much nearer the enemy it lies than the middle of the base does
+	* (aiFireSampleWeight), plus a little for being outside the base at all, and counts nothing when a building of ours or a cliff stands
+	* between it and the spot.  Every defence already standing or queued within three quarters of the
+	* reach divides the score, so the guns spread along the front instead of stacking.  The enemy is
+	* where enemyStartGuess says, the same knowledge every other decision here uses.  The spot that went
+	* up in front of a fixed point used to land behind the base's own buildings on a crowded map, and a
+	* missed spot fell back to the middle of the base; one with no score is not built at all now. */
+//----------------------------------------------------------------------------------------------------------
+Bool AIPlayer::placeDefense( const ThingTemplate *defense )
+{
+	if( !m_baseCenterSet )
+		return FALSE;
+
+	Coord3D threats[ MAX_PLAYER_COUNT ];
+	Int threatCount = 0;
+	for( Int i = 0; i < ThePlayerList->getPlayerCount() && threatCount < MAX_PLAYER_COUNT; ++i )
+	{
+		Player *them = ThePlayerList->getNthPlayer( i );
+		if( them == m_player || m_player->getRelationship( them->getDefaultTeam() ) != ENEMIES || !them->hasAnyObjects() )
+			continue;
+		if( enemyStartGuess( i, &threats[ threatCount ] ) )
+			++threatCount;
+	}
+	if( threatCount == 0 )
+	{
+		Coord3D dir;
+		if( !enemyDirection( &dir ) )
+			return FALSE;
+		threats[ 0 ].x = m_baseCenter.x + dir.x * 4.0f * m_baseRadius;
+		threats[ 0 ].y = m_baseCenter.y + dir.y * 4.0f * m_baseRadius;
+		threats[ 0 ].z = 0.0f;
+		threatCount = 1;
+	}
+
+	std::vector<Coord3D> guns;
+	m_player->iterateObjects( collectDefensePositions, &guns );
+	for( BuildListInfo *info = m_player->getBuildList(); info; info = info->getNext() )
+	{
+		const ThingTemplate *planned = info->isPriorityBuild() && info->getObjectID() == INVALID_ID
+			? TheThingFactory->findTemplate( info->getTemplateName(), FALSE ) : NULL;
+		if( planned && planned->isKindOf( KINDOF_FS_BASE_DEFENSE ) )
+			guns.push_back( *info->getLocation() );
+	}
+
+	const Real reach = defenseReach( defense );
+	const Real spacingSqr = sqr( 0.75f * reach );
+	const Real footprint = defense->getTemplateGeometryInfo().getBoundingCircleRadius();
+	const Real footprintSqr = sqr( 2.0f * footprint );
+	Region3D extent;
+	TheTerrainLogic->getMaximumPathfindExtent( &extent );
+
+	const Int SPOTS = DEFENSE_RINGS * DEFENSE_SPOTS_PER_RING;
+	Coord3D spot[ SPOTS ];
+	Real score[ SPOTS ];
+	Int clear[ SPOTS ];
+	Int blocked[ SPOTS ];
+	Int order[ SPOTS ];
+	for( Int s = 0; s < SPOTS; ++s )
+	{
+		const Real angle = 2.0f * PI * ( s % DEFENSE_SPOTS_PER_RING ) / DEFENSE_SPOTS_PER_RING;
+		const Real radius = DEFENSE_RING_RADII[ s / DEFENSE_SPOTS_PER_RING ] * m_baseRadius;
+		spot[ s ].x = m_baseCenter.x + radius * Cos( angle );
+		spot[ s ].y = m_baseCenter.y + radius * Sin( angle );
+		spot[ s ].z = 0.0f;
+		score[ s ] = 0.0f;
+		clear[ s ] = 0;
+		blocked[ s ] = 0;
+		order[ s ] = s;
+		if( spot[ s ].x < extent.lo.x || spot[ s ].x > extent.hi.x || spot[ s ].y < extent.lo.y || spot[ s ].y > extent.hi.y )
+			continue;
+
+		// a spot that cannot be legal is not worth a legality check: on a building, a cliff or water,
+		// or on top of a gun already there or queued.  Without this 11 of every 12 checks failed, most
+		// of them on restricted terrain under the footprint's edge, so the corners are looked at too
+		{
+			Bool open = TRUE;
+			for( Int corner = 0; corner < 9 && open; ++corner )
+			{
+				Coord3D at = spot[ s ];
+				at.x += footprint * ( corner % 3 - 1 );
+				at.y += footprint * ( corner / 3 - 1 );
+				ICoord2D cell;
+				TheAI->pathfinder()->worldToCell( &at, &cell );
+				const PathfindCell *pathCell = TheAI->pathfinder()->getCell( LAYER_GROUND, cell.x, cell.y );
+				open = pathCell != NULL && pathCell->getType() == PathfindCell::CELL_CLEAR;
+			}
+			if( !open )
+				continue;
+			// the rest failed on the clearance kept round another building, ours or anybody's
+			PartitionFilterAcceptByKindOf structuresOnly( MAKE_KINDOF_MASK( KINDOF_STRUCTURE ), KINDOFMASK_NONE );
+			PartitionFilter *structureFilters[] = { &structuresOnly, NULL };
+			if( ThePartitionManager->getClosestObject( &spot[ s ], footprint + PATHFIND_CELL_SIZE_F * 2.0f,
+						FROM_BOUNDINGSPHERE_2D, structureFilters ) != NULL )
+				continue;
+			Bool onGun = FALSE;
+			for( std::vector<Coord3D>::const_iterator g = guns.begin(); g != guns.end() && !onGun; ++g )
+				onGun = sqr( g->x - spot[ s ].x ) + sqr( g->y - spot[ s ].y ) < footprintSqr;
+			if( onGun )
+				continue;
+			// and ground the build rules refuse - a tile marked unbuildable, a slope - fails most of
+			// what is left, and the terrain half of the legality test alone is a footprint walk
+			if( TheBuildAssistant->isLocationLegalToBuild( &spot[ s ], defense, defense->getPlacementViewAngle(),
+						BuildAssistant::TERRAIN_RESTRICTIONS, NULL, m_player ) != LBC_OK )
+				continue;
+			// an enemy within reach of the dozer: on a small map the front ring sat that close to the
+			// enemy's own base, and the best spots were refused on every pass for the whole match
+			if( !isLocationSafe( &spot[ s ], defense ) )
+				continue;
+		}
+
+
+		for( Int k = 0; k < 2 * DEFENSE_FIRE_SAMPLES; ++k )
+		{
+			const Real sampleAngle = 2.0f * PI * ( k % DEFENSE_FIRE_SAMPLES ) / DEFENSE_FIRE_SAMPLES;
+			const Real sampleReach = ( k < DEFENSE_FIRE_SAMPLES ? 0.5f : 0.9f ) * reach;
+			Coord3D at;
+			at.x = spot[ s ].x + sampleReach * Cos( sampleAngle );
+			at.y = spot[ s ].y + sampleReach * Sin( sampleAngle );
+			at.z = 0.0f;
+
+			ICoord2D cell;
+			TheAI->pathfinder()->worldToCell( &at, &cell );
+			const PathfindCell *pathCell = TheAI->pathfinder()->getCell( LAYER_GROUND, cell.x, cell.y );
+			if( pathCell == NULL || pathCell->getType() != PathfindCell::CELL_CLEAR )
+				continue;		// not ground anything drives over
+
+			// measured against the enemy nearest this ground, from the middle of the base: ground the
+			// enemy has to cross to reach us, not merely ground in front of this spot
+			Real sampleToThreat = -1.0f;
+			Int nearest = 0;
+			for( Int t = 0; t < threatCount; ++t )
+			{
+				const Real d = sqrt( sqr( threats[ t ].x - at.x ) + sqr( threats[ t ].y - at.y ) );
+				if( sampleToThreat < 0.0f || d < sampleToThreat )
+				{
+					sampleToThreat = d;
+					nearest = t;
+				}
+			}
+			const Real baseToThreat = sqrt( sqr( threats[ nearest ].x - m_baseCenter.x ) + sqr( threats[ nearest ].y - m_baseCenter.y ) );
+			const Real weight = aiFireSampleWeight( baseToThreat, sampleToThreat, reach,
+				sqr( at.x - m_baseCenter.x ) + sqr( at.y - m_baseCenter.y ) > sqr( m_baseRadius ) );
+			if( weight <= 0.0f )
+				continue;
+			if( !groundLineClear( &spot[ s ], &at ) )
+			{
+				++blocked[ s ];
+				continue;
+			}
+			++clear[ s ];
+			score[ s ] += weight;
+		}
+
+		Int neighbours = 0;
+		for( std::vector<Coord3D>::const_iterator g = guns.begin(); g != guns.end(); ++g )
+			if( sqr( g->x - spot[ s ].x ) + sqr( g->y - spot[ s ].y ) < spacingSqr )
+				++neighbours;
+		score[ s ] /= INT_TO_REAL( 1 + neighbours );
+	}
+
+	// best first, the lower index of two alike
+	for( Int i = 1; i < SPOTS; ++i )
+		for( Int j = i; j > 0 && score[ order[ j ] ] > score[ order[ j - 1 ] ]; --j )
+		{
+			const Int swap = order[ j ];
+			order[ j ] = order[ j - 1 ];
+			order[ j - 1 ] = swap;
+		}
+
+	const Real placeAngle = defense->getPlacementViewAngle();
+	Int illegal = 0;
+	LegalBuildCode lastCode = LBC_OK;
+	// a pass whose best dozen all failed asked the same dozen again ten seconds later, all match long.
+	// Half the tries go to the best spots, the other half to a window further down the ranking that
+	// moves on every pass, round to the top again every fourth
+	const Int HALF = DEFENSE_PLACE_TRIES / 2;
+	const Int window = HALF + (Int)( ( TheGameLogic->getFrame() / ECONOMY_CHECK_RATE ) % 4 ) * HALF;
+	for( Int t = 0; t < DEFENSE_PLACE_TRIES; ++t )
+	{
+		const Int n = t < HALF ? t : window + t - HALF;
+		if( n >= SPOTS )
+			break;
+		const Int s = order[ n ];
+		if( score[ s ] <= 0.0f )
+			continue;		// ranked after every spot worth anything; the window may have run into them
+		const LegalBuildCode code = TheBuildAssistant->isLocationLegalToBuild( &spot[ s ], defense, placeAngle,
+											BuildAssistant::CLEAR_PATH | BuildAssistant::TERRAIN_RESTRICTIONS | BuildAssistant::NO_OBJECT_OVERLAP,
+											NULL, m_player );
+		TheTerrainVisual->removeAllBibs();	// isLocationLegalToBuild adds bib feedback
+		if( code != LBC_OK )
+		{
+			++illegal;
+			lastCode = code;
+		}
+		else
+		{
+			DEBUG_LOG(("AI DEFENSE frame %d player %d places '%s' at (%.0f,%.0f), rank %d, score %.2f, fire clear %d blocked %d, %d guns near\n",
+				TheGameLogic->getFrame(), m_player->getPlayerIndex(), defense->getName().str(), spot[ s ].x, spot[ s ].y, n + 1,
+				score[ s ], clear[ s ], blocked[ s ], (Int)guns.size()));
+			m_player->addToPriorityBuildList( defense->getName(), &spot[ s ], placeAngle );
+			return TRUE;
+		}
+	}
+	DEBUG_LOG(("AI DEFENSE frame %d player %d has no spot for '%s', best score %.2f, fire clear %d blocked %d, %d illegal (last code %d)\n",
+		TheGameLogic->getFrame(), m_player->getPlayerIndex(), defense->getName().str(), score[ order[ 0 ] ], clear[ order[ 0 ] ], blocked[ order[ 0 ] ],
+		illegal, (Int)lastCode));
+	return FALSE;
+}
+
 /** How loaded this player's factories of one kind are.  Counted off the objects, because a factory
 	* bought past the build list is still a factory. */
 struct FactoryLoad
@@ -5371,37 +5615,24 @@ void AIPlayer::doEconomy( void )
 		 more than ten.  Bought whenever the bank allowed, they took the money from the army: over twelve
 		 four-player matches 23 guns became 241, and attack waves fell from 223 to 187.  So the guns grow
 		 with the army, and with the clock up to two superweapons' worth (aiDefenseAllowance), one at a
-		 time, each the type the base has fewest of.  They go round the front: straight at the enemy,
-		 then 45 degrees either side, then 90, so the flanks are covered too, and a pass that finds one
-		 arc full tries the next arc on the next pass.  They wait only for the hoard, like the income
-		 buildings: behind twice the hoard, a 1v1 Hard side built two to five a match. */
+		 time, each the type the base has fewest of, each on the spot with the widest field of fire
+		 (placeDefense).  They wait only for the hoard, like the income buildings: behind twice the
+		 hoard, a 1v1 Hard side built two to five a match.  A base three or more behind its allowance
+		 queues two a pass, of different types, since one a pass left most of the allowance unspent. */
 	const BaseTally tally = tallyBase( m_player );
-	const ThingTemplate *defense = nextBaseDefense( dozer );
-	if( defense && tally.defenses < aiDefenseAllowance( tally.army, TheGameLogic->getFrame() )
-			&& !priorityBuildPending( m_player, defense ) )
+	const Int allowance = aiDefenseAllowance( tally.army, TheGameLogic->getFrame() );
+	const Int perPass = allowance - tally.defenses >= 3 ? 2 : 1;
+	for( Int k = 0; k < perPass && tally.defenses + k < allowance; ++k )
 	{
-		// cos and sin of 0, +45, -45, +90 and -90 degrees, written out so no trig runs in logic
-		const Int ARCS = 5;
-		static const Real ARC_COS[ ARCS ] = { 1.0f, 0.70710678f, 0.70710678f, 0.0f, 0.0f };
-		static const Real ARC_SIN[ ARCS ] = { 0.0f, 0.70710678f, -0.70710678f, 1.0f, -1.0f };
-		Coord3D spot = m_baseCenter;
-		Coord3D dir;
-		if( enemyDirection( &dir ) )
-		{
-			const Int arc = (Int)( ( (UnsignedInt)tally.defenses + TheGameLogic->getFrame() / ECONOMY_CHECK_RATE ) % ARCS );
-			const Real x = dir.x * ARC_COS[ arc ] - dir.y * ARC_SIN[ arc ];
-			const Real y = dir.y * ARC_COS[ arc ] + dir.x * ARC_SIN[ arc ];
-			spot.x += x * m_baseRadius * DEFENSE_STANDOFF;
-			spot.y += y * m_baseRadius * DEFENSE_STANDOFF;
-		}
-		// a base on a small map has its arc off the edge or on a cliff: 680 of 790 tries missed over
-		// 72 1v1 matches, so a miss goes round the middle of the base instead
-		Bool placed = placeNear( defense, &spot, 0.0f, FALSE );
-		if( !placed )
-			placed = placeNear( defense, &m_baseCenter, 0.5f * m_baseRadius, FALSE );
+		const ThingTemplate *defense = nextBaseDefense( dozer );
+		if( defense == NULL || priorityBuildPending( m_player, defense ) )
+			break;
+		const Bool placed = placeDefense( defense );
 		DEBUG_LOG(("AI ECONOMY frame %d player %d %s defense '%s', %d of %d standing, army %d\n", TheGameLogic->getFrame(),
 			m_player->getPlayerIndex(), placed ? "puts up" : "has no room for", defense->getName().str(),
-			tally.defenses, aiDefenseAllowance( tally.army, TheGameLogic->getFrame() ), tally.army));
+			tally.defenses + k, allowance, tally.army));
+		if( !placed )
+			break;
 	}
 
 	// ... and what does not pay back for twice it, so the opening build order is not what pays for it
