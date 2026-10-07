@@ -480,6 +480,10 @@ found and fixed â€” EA's own, not port damage.**
   standing in the fog and the game used to run on forever, waiting for an opponent to destroy
   something they could neither see nor shoot. A plan is not a building; only one a worker has started
   counts.
+- The same goes for a Generals Challenge or a mission. Lose your last base with a plan still on the
+  map, or a factory already burning down, and the game used to sit there waiting for a defeat that
+  never came. It ends now. The observer's counts stopped counting units that are already dying and
+  plans nobody has started. Found and fixed by 600rr.
 - Your units walk straight over a plan â€” nothing solid is there until the builder starts work.
 - The plan turns solid the instant the first work goes in, so no building goes up inside its own ghost.
 - The builder starts work from where it reaches the site instead of shuffling into place first.
