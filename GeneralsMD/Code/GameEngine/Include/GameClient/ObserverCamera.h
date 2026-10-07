@@ -83,13 +83,16 @@ struct DirectorEvent
 	UnsignedInt until;
 	Real weight;
 	Bool superweapon;
+	Bool landed;		///< it hurt somebody where it was aimed: a superweapon from the start, any other once a hit is seen there
 };
 
 /// -directorrecord's scouting pass plays the match headless first and writes down what is worth
 /// filming, so the filming pass can be there before it starts.  A fight runs from the scan it was
 /// first hot on, start, to the last, starting at place and last seen at target; peak is its hottest
 /// scan and sides the mask of every player who dealt or took a hit in it.  A special power is a
-/// moment of one frame fired from place at target, peak its weight against other powers
+/// moment of one frame fired from place at target, peak its weight against other powers; a power
+/// that is not a superweapon has 0 until a hit is seen where it was aimed, so a spy satellite or a
+/// radar scan stays at 0
 struct DirectorMoment
 {
 	UnsignedInt start;
@@ -115,27 +118,38 @@ struct DirectorFightHit
 /// joins the fight still going nearest it, or starts a new one on this frame; a fight with no crowd
 /// near it for a few seconds is over and is not joined again
 void ObserverCamera_trackFights( std::vector< DirectorMoment > &fights, const std::vector< DirectorFightHit > &hits, UnsignedInt frame );
-/// whether a moment is worth the camera's time: every special power, and a fight that got hot enough
-/// and lasted.  The rest fizzled
+/// whether a moment is worth the camera's time: a superweapon, any other special power that hurt
+/// somebody where it was aimed, and a fight that got hot enough and lasted.  The rest fizzled
 Bool ObserverCamera_worthFilming( const DirectorMoment &moment );
+/// the scouting pass's special powers on frame, each scan up to EVENT_FRAMES after its launch: one a
+/// hit of hits lands within the gather radius of the target of has landed
+void ObserverCamera_markLandings( std::vector< DirectorMoment > &moments, const std::vector< DirectorFightHit > &hits, UnsignedInt frame );
+/// whether the special power fired on frame at at is one the scouting pass saw land; FALSE for one
+/// it did not see, so a match it did not scout waits for the hits
+Bool ObserverCamera_powerLands( const std::vector< DirectorMoment > &timeline, UnsignedInt frame, const Coord2D &at );
+/// whether the timeline has a fight worth filming near place, going on at frame or beginning within
+/// the pre-roll, that lasts to until, leaving out any that is also near besides, the place another
+/// pane already shows (NULL for none)
+Bool ObserverCamera_fightLasts( const std::vector< DirectorMoment > &timeline, const Coord2D &place, UnsignedInt frame, UnsignedInt until,
+	const Coord2D *besides );
 /// the scouting pass's fights as its run ends on frame end: one still going was cut short by the end
 /// of the match, not by itself, and is counted as lasting, so a last battle that got hot is filmed
 /// rather than skipped as a fizzle
 void ObserverCamera_closeTimeline( std::vector< DirectorMoment > &moments, UnsignedInt end );
 /// the moment the director goes to wait at on frame: of the fights worth filming and the superweapons
 /// that begin within the pre-roll after frame, a superweapon first and then the hottest, leaving out
-/// any too near taken for a split to tell apart, the place another pane already shows (NULL for
-/// none).  -1 for none
-Int ObserverCamera_prerollMoment( const std::vector< DirectorMoment > &timeline, UnsignedInt frame, const Coord2D *taken );
+/// any within apart of taken, the place another pane already shows (NULL for none).  -1 for none
+Int ObserverCamera_prerollMoment( const std::vector< DirectorMoment > &timeline, UnsignedInt frame, const Coord2D *taken, Real apart );
 /// whether the fight going on at place on frame is one the scouting pass saw fizzle, which the
 /// director does not cut to.  FALSE where the pass saw nothing, so a match it did not scout is
 /// filmed as before
 Bool ObserverCamera_fizzles( const std::vector< DirectorMoment > &timeline, const Coord2D &place, UnsignedInt frame );
-/// a fight worth filming beginning within the pre-roll after frame, or with keeping, the split up
-/// already, one going on at frame, far enough from first to want a pane of its own: the hottest such,
-/// -1 for none.  A fight already going is not split for anew: where it began is only a guess at
-/// where it is now, and a fight that had wandered off left pane 1 on empty ground
-Int ObserverCamera_plannedSecond( const std::vector< DirectorMoment > &timeline, const Coord2D &first, UnsignedInt frame, Bool keeping );
+/// a fight worth filming beginning within SPLIT_LEAD_FRAMES after frame, or with keeping, the split up
+/// already, one going on at frame, more than apart from first: the hottest such, -1 for none.  A
+/// fight already going is not split for anew: where it began is only a guess at where it is now, and
+/// a fight that had wandered off left pane 1 on empty ground
+Int ObserverCamera_plannedSecond( const std::vector< DirectorMoment > &timeline, const Coord2D &first, UnsignedInt frame, Real apart,
+	Bool keeping );
 /// a moment as one line of the timeline file, and back; FALSE for a line that is not one
 AsciiString ObserverCamera_formatMoment( const DirectorMoment &moment );
 Bool ObserverCamera_parseMoment( const char *line, DirectorMoment *moment );
@@ -185,14 +199,16 @@ Coord2D ObserverCamera_keepInMap( const Coord2D &place, const Coord2D *corners, 
 /// it jumps there and stops
 ViewLocation ObserverCamera_approach( const ViewLocation &from, const ViewLocation &to, Real elapsedSeconds, Real smoothSeconds,
 	Real topSpeed, ObserverCameraVelocity *velocity );
-/// -directorrecord's second fight: the hottest place among the hits far enough from first that the
-/// two halves of a split screen never show the same ground.  FALSE when nothing that far was hit
-Bool ObserverCamera_secondPlace( const std::vector< DirectorHeat > &hits, const Coord2D &first, Coord2D *place, Real *heat );
+/// -directorrecord's second fight: the hottest place among the hits more than needed from first, so
+/// the two halves of a split screen never show the same ground.  FALSE when nothing that far was hit
+Bool ObserverCamera_secondPlace( const std::vector< DirectorHeat > &hits, const Coord2D &first, Real needed, Coord2D *place, Real *heat );
 /// whether the recording's picture is split, given whether it is now, how far apart the two places
-/// are and how long ago it last went on or off: on, after a rest, for a second fight that is big on
-/// its own and next to a first one; off once it has been held a while and the second fight has burnt
-/// down, and at once when the second fight is over or the two places come together
-Bool ObserverCamera_holdSplit( Bool split, Real firstHeat, Real secondHeat, Real apart, UnsignedInt framesSince );
+/// are against the needed distance, and how long ago it last went on or off: on, after a rest, for a
+/// second fight more than needed away that is big on its own and next to a first one; held through
+/// SPLIT_LEAST_FRAMES whatever the second fight does, then while it keeps a quarter of the first; off
+/// at once, however new, when the two places come within two thirds of needed and the two panes
+/// would show the same ground
+Bool ObserverCamera_holdSplit( Bool split, Real firstHeat, Real secondHeat, Real apart, Real needed, UnsignedInt framesSince );
 
 /// -directorrecord's panes.  The picture is cut by rays from one point, every ray a multiple of 45
 /// degrees, and pane i is the wedge from ray i counterclockwise to ray i + 1.  Angles are degrees,
@@ -226,6 +242,11 @@ Real ObserverCamera_extentAround( const std::vector< DirectorHeat > &things, con
 /// reach measured at two zooms: the ground a picture covers grows in a straight line with the zoom,
 /// which is how far the eye stands back
 Real ObserverCamera_zoomForReach( Real zoomA, Real reachA, Real zoomB, Real reachB, Real reach, Real nearest, Real farthest );
+/// the ground a pane spans across its middle row once its circle reaches reach: screenGround is what
+/// the whole picture spans at the director's zoom and circleGround what the circle reaches there.
+/// The pane zooms out from the director's zoom, never past PANE_FIT_FARTHEST times it, and the ground
+/// grows with the zoom
+Real ObserverCamera_paneGround( Real screenGround, Real circleGround, Real reach );
 /// the corners of what pane shows of a width by height picture, the rays meeting at origin: its wedge
 /// cut by the screen's edges, at most eight points; the number of them
 Int ObserverCamera_panePolygon( const Real *rays, Int count, Int pane, const Coord2D &origin, Int width, Int height,
@@ -345,6 +366,9 @@ private:
 	void pickIntroBases( void );
 	Region2D mapRegion( void ) const;
 	void updateSplit( void );
+	void measureScreenGround( void );
+	Real paneGround( const Coord2D &subject ) const;
+	Real splitApart( const Coord2D &second ) const;
 	void updateIntroPlaces( void );
 	void advancePanes( UnsignedInt frame );
 	void fitPanes( UnsignedInt frame );
@@ -408,7 +432,10 @@ private:
 	std::vector< PlayerMaskType > m_fightSides;	///< and the two players each of them was between
 	std::vector< IRegion2D > m_broadcast;	///< the rectangles the broadcast drew over pane 0 this frame
 	Real m_broadcastTop;									///< the rows the score bar took
+	Real m_screenGround;									///< the ground the whole picture spans across its middle row, last measured with no panes up
+	Real m_circleGround;									///< and the least a split's pane circle reaches on the ground with it
 	Bool m_split;										///< -directorrecord wants two fights side by side
+	Real m_splitApart;							///< how far apart the split's two fights had to be when it last went on or off
 	UnsignedInt m_splitChanged;			///< the logic frame the split last went on or off
 	Coord2D m_secondPlace;					///< the second fight, shown in the second pane
 

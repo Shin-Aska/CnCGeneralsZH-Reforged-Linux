@@ -108,12 +108,19 @@ static const Real PLAYER_TOP_SPEED = 4000.0f;
 static const UnsignedInt LONGEST_STEP_MILLISECONDS = 100;
 static const Real MILLISECONDS_PER_SECOND = 1000.0f;
 /// -directorrecord: a second fight closer than this to the first shares its ground, and the split
-/// would show one fight twice
+/// would show one fight twice; the least, raised to the ground a pane's whole picture spans
 static const Real SPLIT_APART = 3.0f * DIRECTOR_GATHER_RADIUS;
+/// a split opens only for two fights further apart than either pane's picture is wide, so no ground
+/// shows in both, and closes once they come within this share of that.  A pane zooms out until its
+/// fight fills its circle, one and a half to two and a half times the director's zoom: at 660 apart,
+/// and at one and a half times the director's own picture, about 700, the two panes of a 1v1 showed
+/// one bridge from neighbouring views
+static const Real SPLIT_SAME_GROUND_SHARE = 2.0f / 3.0f;
 /// the picture splits for a second fight at least this hot, and at least this share of the first
 static const Real SPLIT_ENTER_HEAT = 2.0f;
 static const Real SPLIT_ENTER_SHARE = 0.5f;
-/// a split stays this long at least, and after that while the second fight keeps this share
+/// a split is held this long once its panes are all in, and after that while the second fight keeps
+/// this share
 static const UnsignedInt SPLIT_HOLD_FRAMES = 6 * LOGICFRAMES_PER_SECOND;
 static const Real SPLIT_STAY_SHARE = 0.25f;
 /// once the picture is whole again it stays whole this long, so it does not flicker between the two
@@ -122,6 +129,12 @@ static const UnsignedInt SPLIT_REST_FRAMES = 4 * LOGICFRAMES_PER_SECOND;
 static const UnsignedInt PANE_RADAR_FRAMES = 12;
 /// the panes take this long to slide in along the rays, and out again
 static const UnsignedInt PANE_SLIDE_FRAMES = 15;
+/// so a split, once on, stays on this long whatever its fights do, unless its panes come to show
+/// the same ground: a split that went off before its panes were in flashed a pane in and out
+static const UnsignedInt SPLIT_LEAST_FRAMES = PANE_RADAR_FRAMES + PANE_SLIDE_FRAMES + SPLIT_HOLD_FRAMES;
+/// a split the timeline plans opens this long before its fight: at four seconds pane 1 sat on an
+/// empty bridge
+static const UnsignedInt SPLIT_LEAD_FRAMES = 3 * LOGICFRAMES_PER_SECOND;
 /// the match opens on every player's base, one pane each, for this long
 static const UnsignedInt PANE_INTRO_FRAMES = 7 * LOGICFRAMES_PER_SECOND;
 /// the gold of a line between panes is a pixel for every this many rows of the picture
@@ -414,28 +427,28 @@ ViewLocation ObserverCamera_approach( const ViewLocation &from, const ViewLocati
 }
 
 //-------------------------------------------------------------------------------------------------
-Bool ObserverCamera_secondPlace( const std::vector< DirectorHeat > &hits, const Coord2D &first, Coord2D *place, Real *heat )
+Bool ObserverCamera_secondPlace( const std::vector< DirectorHeat > &hits, const Coord2D &first, Real needed, Coord2D *place, Real *heat )
 {
 	std::vector< DirectorHeat > apart;
 	for( size_t index = 0; index < hits.size(); index++ )
 	{
 		const Real dx = hits[ index ].position.x - first.x;
 		const Real dy = hits[ index ].position.y - first.y;
-		if( dx * dx + dy * dy > SPLIT_APART * SPLIT_APART )
+		if( dx * dx + dy * dy > needed * needed )
 			apart.push_back( hits[ index ] );
 	}
 	return ObserverCamera_hottestPlace( apart, place, heat );
 }
 
 //-------------------------------------------------------------------------------------------------
-Bool ObserverCamera_holdSplit( Bool split, Real firstHeat, Real secondHeat, Real apart, UnsignedInt framesSince )
+Bool ObserverCamera_holdSplit( Bool split, Real firstHeat, Real secondHeat, Real apart, Real needed, UnsignedInt framesSince )
 {
-	// two halves of one fight, or a half with no fight left in it, is no split at all
-	if( secondHeat <= 0.0f || apart <= SPLIT_APART )
+	// two halves showing one fight's ground is no split at all, however new
+	if( apart <= needed * SPLIT_SAME_GROUND_SHARE )
 		return FALSE;
 	if( split )
-		return framesSince < SPLIT_HOLD_FRAMES || secondHeat >= firstHeat * SPLIT_STAY_SHARE;
-	return framesSince >= SPLIT_REST_FRAMES && firstHeat > 0.0f && secondHeat >= SPLIT_ENTER_HEAT
+		return framesSince < SPLIT_LEAST_FRAMES || ( secondHeat > 0.0f && secondHeat >= firstHeat * SPLIT_STAY_SHARE );
+	return apart > needed && framesSince >= SPLIT_REST_FRAMES && firstHeat > 0.0f && secondHeat >= SPLIT_ENTER_HEAT
 		&& secondHeat >= firstHeat * SPLIT_ENTER_SHARE;
 }
 
@@ -611,6 +624,12 @@ Real ObserverCamera_zoomForReach( Real zoomA, Real reachA, Real zoomB, Real reac
 }
 
 //-------------------------------------------------------------------------------------------------
+Real ObserverCamera_paneGround( Real screenGround, Real circleGround, Real reach )
+{
+	return screenGround * min( max( reach / circleGround, 1.0f ), PANE_FIT_FARTHEST );
+}
+
+//-------------------------------------------------------------------------------------------------
 /** The wedge from origin between the pane's two rays, cut by the screen: where the rays meet if that
 	* is on the screen, the screen's corners inside the wedge, and where each ray leaves the screen.
 	* A wedge of 180 degrees or less and the screen are both convex, so these are all its corners. */
@@ -760,7 +779,38 @@ void ObserverCamera_trackFights( std::vector< DirectorMoment > &fights, const st
 //-------------------------------------------------------------------------------------------------
 Bool ObserverCamera_worthFilming( const DirectorMoment &moment )
 {
-	return moment.power || ( moment.peak >= FIGHT_WORTH_HEAT && moment.last - moment.start >= FIGHT_WORTH_FRAMES );
+	if( moment.power )
+		return moment.superweapon || moment.peak > 0.0f;
+	return moment.peak >= FIGHT_WORTH_HEAT && moment.last - moment.start >= FIGHT_WORTH_FRAMES;
+}
+
+//-------------------------------------------------------------------------------------------------
+void ObserverCamera_markLandings( std::vector< DirectorMoment > &moments, const std::vector< DirectorFightHit > &hits, UnsignedInt frame )
+{
+	for( size_t index = 0; index < moments.size(); index++ )
+	{
+		DirectorMoment &power = moments[ index ];
+		if( !power.power || power.superweapon || power.peak > 0.0f || frame > power.start + EVENT_FRAMES )
+			continue;
+		for( size_t hit = 0; hit < hits.size() && power.peak <= 0.0f; hit++ )
+			if( within( hits[ hit ].position, power.target, DIRECTOR_GATHER_RADIUS ) )
+				power.peak = EVENT_WEIGHT;
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The timeline is written with no decimals, so the scouting pass's target is the one fired on frame
+	* within a unit of at. */
+//-------------------------------------------------------------------------------------------------
+Bool ObserverCamera_powerLands( const std::vector< DirectorMoment > &timeline, UnsignedInt frame, const Coord2D &at )
+{
+	for( size_t index = 0; index < timeline.size(); index++ )
+	{
+		const DirectorMoment &power = timeline[ index ];
+		if( power.power && power.start == frame && within( power.target, at, 1.0f ) )
+			return ObserverCamera_worthFilming( power );
+	}
+	return FALSE;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -776,7 +826,7 @@ void ObserverCamera_closeTimeline( std::vector< DirectorMoment > &moments, Unsig
 }
 
 //-------------------------------------------------------------------------------------------------
-Int ObserverCamera_prerollMoment( const std::vector< DirectorMoment > &timeline, UnsignedInt frame, const Coord2D *taken )
+Int ObserverCamera_prerollMoment( const std::vector< DirectorMoment > &timeline, UnsignedInt frame, const Coord2D *taken, Real apart )
 {
 	Int best = -1;
 	for( size_t index = 0; index < timeline.size(); index++ )
@@ -786,7 +836,7 @@ Int ObserverCamera_prerollMoment( const std::vector< DirectorMoment > &timeline,
 			continue;
 		if( moment.power ? !moment.superweapon : !ObserverCamera_worthFilming( moment ) )
 			continue;
-		if( taken != NULL && within( moment.place, *taken, SPLIT_APART ) )
+		if( taken != NULL && within( moment.place, *taken, apart ) )
 			continue;
 		if( best >= 0 )
 		{
@@ -823,17 +873,39 @@ Bool ObserverCamera_fizzles( const std::vector< DirectorMoment > &timeline, cons
 }
 
 //-------------------------------------------------------------------------------------------------
-Int ObserverCamera_plannedSecond( const std::vector< DirectorMoment > &timeline, const Coord2D &first, UnsignedInt frame, Bool keeping )
+static Bool scoutedNear( const DirectorMoment &fight, const Coord2D &place )
+{
+	return within( fight.place, place, SCOUT_SAME_FIGHT ) || within( fight.target, place, SCOUT_SAME_FIGHT );
+}
+
+//-------------------------------------------------------------------------------------------------
+Bool ObserverCamera_fightLasts( const std::vector< DirectorMoment > &timeline, const Coord2D &place, UnsignedInt frame, UnsignedInt until,
+	const Coord2D *besides )
+{
+	for( size_t index = 0; index < timeline.size(); index++ )
+	{
+		const DirectorMoment &fight = timeline[ index ];
+		if( fight.power || !ObserverCamera_worthFilming( fight ) || frame + DIRECTOR_PREROLL_FRAMES < fight.start || fight.last < until )
+			continue;
+		if( scoutedNear( fight, place ) && ( besides == NULL || !scoutedNear( fight, *besides ) ) )
+			return TRUE;
+	}
+	return FALSE;
+}
+
+//-------------------------------------------------------------------------------------------------
+Int ObserverCamera_plannedSecond( const std::vector< DirectorMoment > &timeline, const Coord2D &first, UnsignedInt frame, Real apart,
+	Bool keeping )
 {
 	Int best = -1;
 	for( size_t index = 0; index < timeline.size(); index++ )
 	{
 		const DirectorMoment &fight = timeline[ index ];
-		if( fight.power || !ObserverCamera_worthFilming( fight ) || frame + DIRECTOR_PREROLL_FRAMES < fight.start || frame > fight.last )
+		if( fight.power || !ObserverCamera_worthFilming( fight ) || frame + SPLIT_LEAD_FRAMES < fight.start || frame > fight.last )
 			continue;
 		if( !keeping && frame >= fight.start )
 			continue;
-		if( within( fight.place, first, SPLIT_APART ) )
+		if( within( fight.place, first, apart ) )
 			continue;
 		if( best < 0 || fight.peak > timeline[ best ].peak )
 			best = (Int)index;
@@ -935,6 +1007,9 @@ void ObserverCamera::reset( void )
 	m_fightSides.clear();
 	m_broadcast.clear();
 	m_broadcastTop = 0.0f;
+	m_screenGround = 0.0f;
+	m_circleGround = 0.0f;
+	m_splitApart = SPLIT_APART;
 	m_split = FALSE;
 	m_splitChanged = 0;
 	m_secondPlace.x = m_secondPlace.y = 0.0f;
@@ -1000,6 +1075,10 @@ void ObserverCamera::noteSpecialPower( const Player *owner, const Coord3D *from,
 	event.until = frame + ( superweapon ? EVENT_SUPERWEAPON_FRAMES : EVENT_FRAMES );
 	event.weight = superweapon ? EVENT_SUPERWEAPON_WEIGHT : EVENT_WEIGHT;
 	event.superweapon = superweapon;
+	// a power that only looks, a spy satellite or a radar scan, hurts nobody and is not filmed: the
+	// director cut to empty ground for every one an Air Force general fired.  The scouting pass knows
+	// which ones land; without it a power waits for its first hit
+	event.landed = superweapon || ObserverCamera_powerLands( m_timeline, frame, event.target );
 	m_events.push_back( event );
 
 	if( !TheGlobalData->m_directorScoutFile.isEmpty() )
@@ -1009,7 +1088,7 @@ void ObserverCamera::noteSpecialPower( const Player *owner, const Coord3D *from,
 		moment.last = frame;
 		moment.place = event.source;
 		moment.target = event.target;
-		moment.peak = event.weight;
+		moment.peak = superweapon ? event.weight : 0.0f;
 		moment.sides = owner->getPlayerMask();
 		moment.power = TRUE;
 		moment.superweapon = superweapon;
@@ -1297,14 +1376,12 @@ Coord2D ObserverCamera::mapShift( Int pane, const Coord2D &origin, const Coord2D
 }
 
 //-------------------------------------------------------------------------------------------------
-/** How far a circle of radius pixels round centre reaches on the ground at zoom, subject put on
-	* centre: the nearest of eight points round it, picked on the subject's height. */
+/** How far a circle of radius pixels round centre reaches on the ground from subject, the point under
+	* centre, through the view as it is aimed: the nearest of eight points round it, picked on ground. */
 //-------------------------------------------------------------------------------------------------
-Real ObserverCamera::groundReach( const Coord2D &subject, const Coord2D &centre, Real radius, Real zoom )
+static Real reachRound( const Coord2D &subject, const Coord2D &centre, Real radius, Real ground )
 {
 	enum { REACH_POINTS = 8 };
-	placeOnPixel( subject, centre, zoom );
-	const Real ground = TheTerrainLogic->getGroundHeight( subject.x, subject.y );
 	Real nearest = 0.0f;
 	for( Int point = 0; point < REACH_POINTS; point++ )
 	{
@@ -1320,6 +1397,16 @@ Real ObserverCamera::groundReach( const Coord2D &subject, const Coord2D &centre,
 		nearest = point == 0 ? reach : min( nearest, reach );
 	}
 	return nearest;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** How far a circle of radius pixels round centre reaches on the ground at zoom, subject put on
+	* centre. */
+//-------------------------------------------------------------------------------------------------
+Real ObserverCamera::groundReach( const Coord2D &subject, const Coord2D &centre, Real radius, Real zoom )
+{
+	placeOnPixel( subject, centre, zoom );
+	return reachRound( subject, centre, radius, TheTerrainLogic->getGroundHeight( subject.x, subject.y ) );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1382,6 +1469,64 @@ Coord2D ObserverCamera::placePane( Int pane, const Coord2D &subject, const Coord
 }
 
 //-------------------------------------------------------------------------------------------------
+/** The ground the whole picture spans across its middle row, and the least a split's pane circle
+	* reaches round its centre, at the height of the ground the view looks at, through the camera the
+	* last draw built.  Taken while there are no panes, when the view is the director's own at the zoom
+	* the panes would start from. */
+//-------------------------------------------------------------------------------------------------
+void ObserverCamera::measureScreenGround( void )
+{
+	Coord3D look;
+	TheTacticalView->getPosition( &look );
+	const Real ground = TheTerrainLogic->getGroundHeight( look.x, look.y );
+	const Int width = TheDisplay->getWidth();
+	const Int height = TheDisplay->getHeight();
+	ICoord2D left, right;
+	left.x = 0;
+	right.x = width - 1;
+	left.y = right.y = height / 2;
+	Coord3D leftGround, rightGround;
+	TheTacticalView->screenToWorldAtZ( &left, &leftGround, ground );
+	TheTacticalView->screenToWorldAtZ( &right, &rightGround, ground );
+	const Real dx = rightGround.x - leftGround.x;
+	const Real dy = rightGround.y - leftGround.y;
+	m_screenGround = sqrtf( dx * dx + dy * dy );
+
+	Real rays[ OBSERVER_MOST_PANES ];
+	const Int count = ObserverCamera_paneLayout( 2, rays );
+	Coord2D centres[ OBSERVER_MOST_PANES ];
+	Real radii[ OBSERVER_MOST_PANES ];
+	ObserverCamera_paneCircles( rays, count, width, height, m_radarHalf, m_broadcastTop, centres, radii );
+	for( Int pane = 0; pane < count; pane++ )
+	{
+		ICoord2D at;
+		at.x = REAL_TO_INT( centres[ pane ].x );
+		at.y = REAL_TO_INT( centres[ pane ].y );
+		Coord3D under;
+		TheTacticalView->screenToWorldAtZ( &at, &under, ground );
+		const Coord2D subject = { under.x, under.y };
+		const Real reach = reachRound( subject, centres[ pane ], radii[ pane ], ground );
+		m_circleGround = pane == 0 ? reach : min( m_circleGround, reach );
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The ground a split's pane would span across its middle row with the fight round subject fitted
+	* into its circle, the way fitPanes fits it. */
+//-------------------------------------------------------------------------------------------------
+Real ObserverCamera::paneGround( const Coord2D &subject ) const
+{
+	const Real extent = ObserverCamera_extentAround( m_fights, subject, DIRECTOR_GATHER_RADIUS, PANE_FIT_LEAST_EXTENT );
+	return ObserverCamera_paneGround( m_screenGround, m_circleGround, extent * ( 1.0f + PANE_FIT_MARGIN ) );
+}
+
+//-------------------------------------------------------------------------------------------------
+Real ObserverCamera::splitApart( const Coord2D &second ) const
+{
+	return max( SPLIT_APART, max( paneGround( m_place ), paneGround( second ) ) );
+}
+
+//-------------------------------------------------------------------------------------------------
 /** -directorrecord: whether the picture is split, and the second fight it shows.  Asked again only
 	* when the hits were counted again.  Only real fighting counts, on both sides of the line: a base
 	* going up, or a dozer clearing trees, is no reason to split.  A special power the director is
@@ -1390,27 +1535,40 @@ Coord2D ObserverCamera::placePane( Int pane, const Coord2D &subject, const Coord
 void ObserverCamera::updateSplit( void )
 {
 	const UnsignedInt frame = TheGameLogic->getFrame();
+	if( m_paneCount < 2 )
+		measureScreenGround();
 	Coord2D middle;
 	Real firstHeat = ObserverCamera_heatAround( m_fights, m_place, &middle );
 	if( m_placeKind == PLACE_EVENT )
 		firstHeat = max( firstHeat, SPLIT_ENTER_HEAT );
+	// a second fight is looked for beyond what pane 0's own picture would span; a split up keeps the
+	// distance it opened at, so a fight that grows and zooms its pane out does not end it
+	const Real searched = m_split ? m_splitApart : splitApart( m_place );
 	Coord2D second = { 0.0f, 0.0f };
 	Real secondHeat = 0.0f;
-	ObserverCamera_secondPlace( m_fights, m_place, &second, &secondHeat );
+	ObserverCamera_secondPlace( m_fights, m_place, searched, &second, &secondHeat );
 	if( secondHeat > 0.0f && ObserverCamera_fizzles( m_timeline, second, frame ) )
 		secondHeat = 0.0f;
+	// with a timeline a split is decided before it opens: pane 0 needs a fight the scouting pass saw
+	// last through the least hold, or a special power, or it is about to leave for something else and
+	// the split goes off before its panes are in
+	const Bool timelineKnown = !m_timeline.empty();
+	const UnsignedInt heldTo = frame + SPLIT_LEAST_FRAMES;
+	const Bool firstLasts = !timelineKnown || m_placeKind == PLACE_EVENT || ObserverCamera_fightLasts( m_timeline, m_place, frame, heldTo, NULL );
 	// the scouting pass knows the pairs: a second fight worth filming about to begin far enough away
 	// splits the picture before its first shot, pane 1 waiting where it begins, and keeps it split
 	// while it lasts.  Once it is going it is wherever the hits are, and in a lull pane 1 stays put;
 	// sent back to where it began, pane 1 sat on empty ground while the fight went on elsewhere.  The
 	// director that moved onto pane 1's fight has been handed it, and the split ends there: kept on
 	// by the timeline, pane 1 went over to the fight pane 0 had just left
-	const Bool handedOver = m_split && within( m_place, m_secondPlace, SPLIT_APART );
-	const Int planned = m_placeKind != PLACE_SIGHT ? ObserverCamera_plannedSecond( m_timeline, m_place, frame, m_split ) : -1;
+	const Real sameGround = searched * SPLIT_SAME_GROUND_SHARE;
+	const Bool handedOver = m_split && within( m_place, m_secondPlace, sameGround );
+	const Bool mayPlan = m_placeKind != PLACE_SIGHT && ( m_split || firstLasts );
+	const Int planned = mayPlan ? ObserverCamera_plannedSecond( m_timeline, m_place, frame, searched, m_split ) : -1;
 	const Bool plannedSplit = planned >= 0;
-	if( plannedSplit && frame < m_timeline[ planned ].start && ( secondHeat <= 0.0f || !within( second, m_timeline[ planned ].place, SPLIT_APART ) ) )
+	if( plannedSplit && frame < m_timeline[ planned ].start && ( secondHeat <= 0.0f || !within( second, m_timeline[ planned ].place, sameGround ) ) )
 		second = m_timeline[ planned ].place;
-	else if( plannedSplit && secondHeat <= 0.0f )
+	else if( m_split && secondHeat <= 0.0f )
 		second = m_secondPlace;
 
 	// the second fight is followed once it has moved a little, the way the director follows its own
@@ -1423,14 +1581,26 @@ void ObserverCamera::updateSplit( void )
 	const Real ay = shown.y - m_place.y;
 	const Real apart = sqrtf( ax * ax + ay * ay );
 
+	// with the second fight known, both panes' pictures say how far apart is far enough
+	const Real needed = m_split ? m_splitApart : splitApart( shown );
 	const UnsignedInt since = frame >= m_splitChanged ? frame - m_splitChanged : 0;
-	const Bool split = !handedOver && ( plannedSplit || ObserverCamera_holdSplit( m_split, firstHeat, secondHeat, apart, since ) );
+	// a planned split rests after the last one like any other: opened 45 frames after one went off,
+	// the radar slid back into its corner and straight out again
+	const Bool plannedOpens = plannedSplit && ( m_split || since >= SPLIT_REST_FRAMES );
+	Bool split = plannedOpens || ObserverCamera_holdSplit( m_split, firstHeat, secondHeat, apart, needed, since );
+	// a live split opens, with a timeline, only on two different fights the scouting pass saw last: a
+	// crowd beside pane 0's that the pass saw as part of it was pane 0's fight spreading, and the split
+	// went off again two seconds later, once the director had followed it there
+	if( split && !m_split && !plannedSplit && timelineKnown )
+		split = firstLasts && ObserverCamera_fightLasts( m_timeline, shown, frame, heldTo, &m_place );
+	split = split && !handedOver && apart > needed * SPLIT_SAME_GROUND_SHARE;
 	if( split != m_split )
 	{
-		DEBUG_LOG(( "OBSCAM frame %u split %s, first heat %.1f, second (%.0f,%.0f) heat %.1f, %.0f apart%s\n", frame,
-			split ? "on" : "off", firstHeat, shown.x, shown.y, secondHeat, apart, plannedSplit ? ", planned" : "" ));
+		DEBUG_LOG(( "OBSCAM frame %u split %s, first heat %.1f, second (%.0f,%.0f) heat %.1f, %.0f apart of %.0f needed, screen %.0f%s\n",
+			frame, split ? "on" : "off", firstHeat, shown.x, shown.y, secondHeat, apart, needed, m_screenGround, plannedSplit ? ", planned" : "" ));
 		m_split = split;
 		m_splitChanged = frame;
+		m_splitApart = needed;
 	}
 	if( m_split )
 		m_secondPlace = shown;
@@ -1917,6 +2087,7 @@ void ObserverCamera::scout( void )
 			obj->isKindOf( KINDOF_FS_SUPERWEAPON ) );
 		hits.push_back( hit );
 	}
+	ObserverCamera_markLandings( m_scouted, hits, frame );
 	ObserverCamera_trackFights( m_scouted, hits, frame );
 }
 
@@ -2108,6 +2279,9 @@ Bool ObserverCamera::directorPlace( const Player *narrowTo, Coord2D *place )
 		// hits at the target keep it going: the missiles arriving, the bombs, the fires after
 		if( frame >= event.since + EVENT_LAUNCH_FRAMES && ObserverCamera_heatAround( hits, event.target, &middle ) > 0.0f )
 			event.until = max( event.until, frame + EVENT_AFTERMATH_FRAMES );
+		event.landed = event.landed || ObserverCamera_heatAround( fights, event.target, &middle ) > 0.0f;
+		if( !event.landed )
+			continue;
 		if( best == NULL || event.weight >= best->weight )
 			best = &event;
 	}
@@ -2148,7 +2322,7 @@ Bool ObserverCamera::directorPlace( const Player *narrowTo, Coord2D *place )
 		m_placeSince = frame;
 	}
 	// the fight pane 1 holds stays pane 1's: pane 0 going there swapped the two panes' subjects
-	const Int upcoming = timeline ? ObserverCamera_prerollMoment( m_timeline, frame, m_split ? &m_secondPlace : NULL ) : -1;
+	const Int upcoming = timeline ? ObserverCamera_prerollMoment( m_timeline, frame, m_split ? &m_secondPlace : NULL, m_splitApart ) : -1;
 	if( upcoming >= 0 && upcoming != m_placeMoment )
 	{
 		const DirectorMoment &moment = m_timeline[ upcoming ];
@@ -2174,7 +2348,7 @@ Bool ObserverCamera::directorPlace( const Player *narrowTo, Coord2D *place )
 		const Real heatHere = ObserverCamera_heatAround( hits, m_place, &followed );
 		// a split's pane 0 keeps its own fight while it goes on rather than take pane 1's; once it is
 		// over the director moves there and the split ends, pane 1's fight handed to pane 0
-		const Bool heldByPaneOne = m_split && within( hottest, m_secondPlace, SPLIT_APART );
+		const Bool heldByPaneOne = m_split && within( hottest, m_secondPlace, m_splitApart );
 		if( heatHere > 0.0f && ( sameFight( hottest, followed ) || heldByPaneOne || !ObserverCamera_shouldMove( heatHere, hottestHeat, held ) ) )
 		{
 			const Real dx = followed.x - m_place.x;

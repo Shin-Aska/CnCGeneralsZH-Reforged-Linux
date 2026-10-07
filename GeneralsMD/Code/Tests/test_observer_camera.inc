@@ -302,14 +302,17 @@ TEST(the_recording_splits_for_a_second_fight_far_from_the_first_and_never_for_th
 
 	Coord2D second;
 	Real heat = 0.0f;
-	CHECK( !ObserverCamera_secondPlace( hits, first, &second, &heat ) );
+	const Real needed = 660.0f;
+	CHECK( !ObserverCamera_secondPlace( hits, first, needed, &second, &heat ) );
 
 	for( Int each = 0; each < 3; each++ )
 		hits.push_back( directorHit( 3000.0f, 3000.0f + each * 20.0f ) );
-	CHECK( ObserverCamera_secondPlace( hits, first, &second, &heat ) );
+	CHECK( ObserverCamera_secondPlace( hits, first, needed, &second, &heat ) );
 	CHECK_NEAR( heat, 3.0f, 0.001f );
 	CHECK_NEAR( second.x, 3000.0f, 0.001f );
 	CHECK_NEAR( second.y, 3020.0f, 0.001f );
+	// a picture that spans more ground wants the second fight further off
+	CHECK( !ObserverCamera_secondPlace( hits, first, 3000.0f, &second, &heat ) );
 }
 
 TEST(the_recording_splits_for_a_big_second_fight_holds_it_and_rests_after)
@@ -318,40 +321,68 @@ TEST(the_recording_splits_for_a_big_second_fight_holds_it_and_rests_after)
 	const UnsignedInt justJoined = 2 * LOGICFRAMES_PER_SECOND;
 	const UnsignedInt longHeld = 8 * LOGICFRAMES_PER_SECOND;
 	const Real farApart = 2000.0f;
+	const Real needed = 660.0f;
 	// on for a second fight hot on its own and at least half the first
-	CHECK( ObserverCamera_holdSplit( FALSE, 6.0f, 3.0f, farApart, rested ) );
-	CHECK( !ObserverCamera_holdSplit( FALSE, 8.0f, 3.0f, farApart, rested ) );
-	CHECK( !ObserverCamera_holdSplit( FALSE, 1.0f, 1.5f, farApart, rested ) );
+	CHECK( ObserverCamera_holdSplit( FALSE, 6.0f, 3.0f, farApart, needed, rested ) );
+	CHECK( !ObserverCamera_holdSplit( FALSE, 8.0f, 3.0f, farApart, needed, rested ) );
+	CHECK( !ObserverCamera_holdSplit( FALSE, 1.0f, 1.5f, farApart, needed, rested ) );
 	// not straight back on after it went off
-	CHECK( !ObserverCamera_holdSplit( FALSE, 6.0f, 3.0f, farApart, 2 * LOGICFRAMES_PER_SECOND ) );
+	CHECK( !ObserverCamera_holdSplit( FALSE, 6.0f, 3.0f, farApart, needed, 2 * LOGICFRAMES_PER_SECOND ) );
 	// held a few seconds while the second fight goes on at all, then only while it keeps a quarter
-	CHECK( ObserverCamera_holdSplit( TRUE, 6.0f, 0.5f, farApart, justJoined ) );
-	CHECK( ObserverCamera_holdSplit( TRUE, 8.0f, 2.0f, farApart, longHeld ) );
-	CHECK( !ObserverCamera_holdSplit( TRUE, 8.0f, 1.9f, farApart, longHeld ) );
+	CHECK( ObserverCamera_holdSplit( TRUE, 6.0f, 0.5f, farApart, needed, justJoined ) );
+	CHECK( ObserverCamera_holdSplit( TRUE, 8.0f, 2.0f, farApart, needed, longHeld ) );
+	CHECK( !ObserverCamera_holdSplit( TRUE, 8.0f, 1.9f, farApart, needed, longHeld ) );
 }
 
 TEST(the_recording_split_ends_at_once_when_the_two_halves_show_one_fight)
 {
 	const UnsignedInt justJoined = 2 * LOGICFRAMES_PER_SECOND;
+	const Real needed = 660.0f;
 	// the director moved onto the second fight: both halves would show the same ground
-	CHECK( !ObserverCamera_holdSplit( TRUE, 12.0f, 8.0f, 60.0f, justJoined ) );
-	CHECK( !ObserverCamera_holdSplit( FALSE, 6.0f, 6.0f, 600.0f, 5 * LOGICFRAMES_PER_SECOND ) );
-	// the second fight is over, however new the split
-	CHECK( !ObserverCamera_holdSplit( TRUE, 6.0f, 0.0f, 2000.0f, justJoined ) );
+	CHECK( !ObserverCamera_holdSplit( TRUE, 12.0f, 8.0f, 60.0f, needed, justJoined ) );
+	CHECK( !ObserverCamera_holdSplit( FALSE, 6.0f, 6.0f, 600.0f, needed, 5 * LOGICFRAMES_PER_SECOND ) );
+}
+
+TEST(a_split_once_on_stays_until_its_panes_are_in_and_held_six_seconds)
+{
+	const Real needed = 660.0f;
+	// in through the radar's slide and the panes' and held six seconds, whatever the second fight does:
+	// one that went off on the next scan slid a pane in and straight back out
+	const UnsignedInt least = 12 + 15 + 6 * LOGICFRAMES_PER_SECOND;
+	CHECK( ObserverCamera_holdSplit( TRUE, 6.0f, 0.0f, 2000.0f, needed, 15 ) );
+	CHECK( ObserverCamera_holdSplit( TRUE, 6.0f, 0.0f, 2000.0f, needed, least - 1 ) );
+	CHECK( !ObserverCamera_holdSplit( TRUE, 6.0f, 0.0f, 2000.0f, needed, least ) );
+}
+
+TEST(a_split_wants_its_fights_further_apart_the_more_ground_a_pane_shows)
+{
+	const UnsignedInt rested = 5 * LOGICFRAMES_PER_SECOND;
+	const UnsignedInt longHeld = 8 * LOGICFRAMES_PER_SECOND;
+	// panes 1650 across: a split opens past 1650, and a held one stays past 1100
+	const Real needed = 1650.0f;
+	CHECK( !ObserverCamera_holdSplit( FALSE, 6.0f, 6.0f, 1600.0f, needed, rested ) );
+	CHECK( ObserverCamera_holdSplit( FALSE, 6.0f, 6.0f, 1700.0f, needed, rested ) );
+	CHECK( ObserverCamera_holdSplit( TRUE, 6.0f, 6.0f, 1200.0f, needed, longHeld ) );
+	CHECK( !ObserverCamera_holdSplit( TRUE, 6.0f, 6.0f, 1050.0f, needed, 15 ) );
+	// a picture 460 across whose pane circle reaches 100: a fight fitted into 172 zooms the pane out
+	// 1.72 times, a smaller one leaves it at the director's zoom, a huge one stops at three times
+	CHECK_NEAR( ObserverCamera_paneGround( 460.0f, 100.0f, 172.0f ), 791.2f, 0.01f );
+	CHECK_NEAR( ObserverCamera_paneGround( 460.0f, 100.0f, 60.0f ), 460.0f, 0.01f );
+	CHECK_NEAR( ObserverCamera_paneGround( 460.0f, 100.0f, 1000.0f ), 1380.0f, 0.01f );
 }
 
 TEST(the_recording_splits_only_beside_a_real_fight)
 {
 	// bases going up are no fight: the split's hits are only one side's on another, so the director
 	// looking at a sight has no heat of its own and a second fight does not split the picture
-	CHECK( !ObserverCamera_holdSplit( FALSE, 0.0f, 10.0f, 2000.0f, 5 * LOGICFRAMES_PER_SECOND ) );
+	CHECK( !ObserverCamera_holdSplit( FALSE, 0.0f, 10.0f, 2000.0f, 660.0f, 5 * LOGICFRAMES_PER_SECOND ) );
 	// and with no fight anywhere there is no second place to show
 	std::vector< DirectorHeat > none;
 	Coord2D first;
 	first.x = first.y = 1000.0f;
 	Coord2D second;
 	Real heat = 0.0f;
-	CHECK( !ObserverCamera_secondPlace( none, first, &second, &heat ) );
+	CHECK( !ObserverCamera_secondPlace( none, first, 660.0f, &second, &heat ) );
 }
 
 TEST(every_pane_layout_cuts_on_45_degree_rays)
@@ -627,6 +658,38 @@ TEST(the_scout_counts_a_fight_worth_filming_only_when_it_got_hot_and_lasted)
 	CHECK( ObserverCamera_worthFilming( scoutedPower( 100, 0.0f, 0.0f, FALSE ) ) );
 }
 
+TEST(a_special_power_is_worth_filming_only_once_it_hurts_somebody_where_it_was_aimed)
+{
+	// a spy satellite and a carpet bomb fired the same frame; only the bomb's target is hit
+	std::vector< DirectorMoment > moments;
+	moments.push_back( scoutedPower( 1800, 500.0f, 500.0f, FALSE ) );
+	moments.push_back( scoutedPower( 1800, 500.0f, 3000.0f, FALSE ) );
+	moments.push_back( scoutedPower( 1800, 500.0f, 5000.0f, TRUE ) );
+	moments[ 0 ].peak = moments[ 1 ].peak = 0.0f;
+	// the superweapon is filmed from its launch, hit or not
+	CHECK( ObserverCamera_worthFilming( moments[ 2 ] ) );
+	CHECK( !ObserverCamera_worthFilming( moments[ 1 ] ) );
+	std::vector< DirectorFightHit > hits;
+	hits.push_back( fightHit( 2100.0f, 3000.0f, 3 ) );
+	ObserverCamera_markLandings( moments, hits, 1950 );
+	CHECK( !ObserverCamera_worthFilming( moments[ 0 ] ) );
+	CHECK( ObserverCamera_worthFilming( moments[ 1 ] ) );
+	// a hit long after the launch is somebody else's
+	hits.push_back( fightHit( 2000.0f, 500.0f, 3 ) );
+	ObserverCamera_markLandings( moments, hits, 1800 + 13 * LOGICFRAMES_PER_SECOND );
+	CHECK( !ObserverCamera_worthFilming( moments[ 0 ] ) );
+
+	// the filming pass finds the power by its frame and its target, written without decimals
+	Coord2D at;
+	at.x = 2000.4f;
+	at.y = 3000.3f;
+	CHECK( ObserverCamera_powerLands( moments, 1800, at ) );
+	at.y = 500.0f;
+	CHECK( !ObserverCamera_powerLands( moments, 1800, at ) );
+	at.y = 3000.0f;
+	CHECK( !ObserverCamera_powerLands( moments, 1801, at ) );
+}
+
 TEST(a_hot_fight_the_end_of_the_scouting_run_cut_short_is_still_worth_filming)
 {
 	std::vector< DirectorMoment > timeline;
@@ -654,14 +717,14 @@ TEST(the_director_goes_to_wait_for_a_fight_four_seconds_before_it_starts_superwe
 	timeline.push_back( scoutedPower( 1020, 6000.0f, 1000.0f, FALSE ) );
 	timeline.push_back( scoutedPower( 1100, 6000.0f, 3000.0f, TRUE ) );
 	const UnsignedInt preroll = 4 * LOGICFRAMES_PER_SECOND;
-	CHECK_EQ( ObserverCamera_prerollMoment( timeline, 1000 - preroll - 1, NULL ), -1 );
-	CHECK_EQ( ObserverCamera_prerollMoment( timeline, 1000 - preroll, NULL ), 0 );
+	CHECK_EQ( ObserverCamera_prerollMoment( timeline, 1000 - preroll - 1, NULL, 660.0f ), -1 );
+	CHECK_EQ( ObserverCamera_prerollMoment( timeline, 1000 - preroll, NULL, 660.0f ), 0 );
 	// two coming up: the hotter
-	CHECK_EQ( ObserverCamera_prerollMoment( timeline, 1050 - preroll, NULL ), 1 );
+	CHECK_EQ( ObserverCamera_prerollMoment( timeline, 1050 - preroll, NULL, 660.0f ), 1 );
 	// a superweapon over any fight
-	CHECK_EQ( ObserverCamera_prerollMoment( timeline, 1100 - preroll, NULL ), 4 );
+	CHECK_EQ( ObserverCamera_prerollMoment( timeline, 1100 - preroll, NULL, 660.0f ), 4 );
 	// one that has started is no longer waited for
-	CHECK_EQ( ObserverCamera_prerollMoment( timeline, 1100, NULL ), -1 );
+	CHECK_EQ( ObserverCamera_prerollMoment( timeline, 1100, NULL, 660.0f ), -1 );
 }
 
 TEST(the_director_does_not_wait_for_the_fight_the_other_pane_already_shows)
@@ -674,9 +737,9 @@ TEST(the_director_does_not_wait_for_the_fight_the_other_pane_already_shows)
 	Coord2D taken;
 	taken.x = 3100.0f;
 	taken.y = 3000.0f;
-	CHECK_EQ( ObserverCamera_prerollMoment( timeline, 1050 - preroll, &taken ), 0 );
+	CHECK_EQ( ObserverCamera_prerollMoment( timeline, 1050 - preroll, &taken, 660.0f ), 0 );
 	// and with nothing else coming up, none
-	CHECK_EQ( ObserverCamera_prerollMoment( timeline, 1001, &taken ), -1 );
+	CHECK_EQ( ObserverCamera_prerollMoment( timeline, 1001, &taken, 660.0f ), -1 );
 }
 
 TEST(the_director_skips_only_a_fight_the_scout_saw_fizzle)
@@ -709,11 +772,40 @@ TEST(the_recording_splits_before_a_known_second_fight_far_from_the_first)
 	timeline.push_back( scoutedFight( 900, 1500, 6000.0f, 6000.0f, 2.0f ) );
 	Coord2D first;
 	first.x = first.y = 1000.0f;
-	const UnsignedInt preroll = 4 * LOGICFRAMES_PER_SECOND;
-	CHECK_EQ( ObserverCamera_plannedSecond( timeline, first, 1000 - preroll - 1, FALSE ), -1 );
-	CHECK_EQ( ObserverCamera_plannedSecond( timeline, first, 1000 - preroll, FALSE ), 0 );
-	CHECK_EQ( ObserverCamera_plannedSecond( timeline, first, 1500, TRUE ), 0 );
-	CHECK_EQ( ObserverCamera_plannedSecond( timeline, first, 1501, TRUE ), -1 );
+	// three seconds ahead: at four pane 1 sat on an empty bridge
+	const UnsignedInt lead = 3 * LOGICFRAMES_PER_SECOND;
+	CHECK_EQ( ObserverCamera_plannedSecond( timeline, first, 1000 - lead - 1, 660.0f, FALSE ), -1 );
+	CHECK_EQ( ObserverCamera_plannedSecond( timeline, first, 1000 - lead, 660.0f, FALSE ), 0 );
+	CHECK_EQ( ObserverCamera_plannedSecond( timeline, first, 1500, 660.0f, TRUE ), 0 );
+	CHECK_EQ( ObserverCamera_plannedSecond( timeline, first, 1501, 660.0f, TRUE ), -1 );
+	// the fight 4243 away is too near once the picture is so wide a split wants 4300
+	CHECK_EQ( ObserverCamera_plannedSecond( timeline, first, 1000 - lead, 4300.0f, FALSE ), -1 );
+}
+
+TEST(a_split_is_planned_only_beside_a_fight_that_outlasts_its_least_hold)
+{
+	std::vector< DirectorMoment > timeline;
+	timeline.push_back( scoutedFight( 1000, 1300, 1000.0f, 1000.0f, 8.0f ) );
+	timeline[ 0 ].target.x = 1400.0f;
+	timeline.push_back( scoutedFight( 1000, 1300, 3000.0f, 3000.0f, 2.0f ) );
+	Coord2D place;
+	place.x = 1050.0f;
+	place.y = 1000.0f;
+	CHECK( ObserverCamera_fightLasts( timeline, place, 1100, 1300, NULL ) );
+	CHECK( !ObserverCamera_fightLasts( timeline, place, 1100, 1301, NULL ) );
+	// near where it ended up as well as where it began
+	place.x = 1600.0f;
+	CHECK( ObserverCamera_fightLasts( timeline, place, 1100, 1300, NULL ) );
+	// but not for a second pane while the first shows where it began: that is the first pane's fight
+	Coord2D first;
+	first.x = first.y = 1000.0f;
+	CHECK( !ObserverCamera_fightLasts( timeline, place, 1100, 1300, &first ) );
+	first.x = first.y = 3000.0f;
+	CHECK( ObserverCamera_fightLasts( timeline, place, 1100, 1300, &first ) );
+	// one about to begin counts; a fizzle never does
+	CHECK( ObserverCamera_fightLasts( timeline, place, 1000 - 4 * LOGICFRAMES_PER_SECOND, 1300, NULL ) );
+	place.x = place.y = 3000.0f;
+	CHECK( !ObserverCamera_fightLasts( timeline, place, 1100, 1200, NULL ) );
 }
 
 TEST(the_recording_splits_ahead_for_a_fight_still_to_begin_and_not_anew_for_one_under_way)
@@ -724,10 +816,10 @@ TEST(the_recording_splits_ahead_for_a_fight_still_to_begin_and_not_anew_for_one_
 	first.x = 2346.0f;
 	first.y = 1668.0f;
 	// a split already up keeps the fight while it lasts
-	CHECK_EQ( ObserverCamera_plannedSecond( timeline, first, 6451, TRUE ), 0 );
+	CHECK_EQ( ObserverCamera_plannedSecond( timeline, first, 6451, 660.0f, TRUE ), 0 );
 	// none up: where it began twenty seconds ago is no place to send a pane
-	CHECK_EQ( ObserverCamera_plannedSecond( timeline, first, 6451, FALSE ), -1 );
-	CHECK_EQ( ObserverCamera_plannedSecond( timeline, first, 5864, FALSE ), 0 );
+	CHECK_EQ( ObserverCamera_plannedSecond( timeline, first, 6451, 660.0f, FALSE ), -1 );
+	CHECK_EQ( ObserverCamera_plannedSecond( timeline, first, 5864, 660.0f, FALSE ), 0 );
 }
 
 TEST(a_timeline_line_reads_back_as_the_moment_it_was_written_from)
