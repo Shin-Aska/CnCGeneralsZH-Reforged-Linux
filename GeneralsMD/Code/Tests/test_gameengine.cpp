@@ -765,7 +765,7 @@ TEST(replace_module_of_another_type_is_skipped)
 	 pink death, which has none and is the one block the count leaves out.  The Paladin's and the
 	 Avenger's hard-kill charge added two of the fork's own, its launch and its blast, lit too.
 	 The explosion pass added 22 more of EA's, from the structure deaths to the nukes, each with
-	 the light it lacked. */
+	 the light it lacked, and the point defense lasers' missile burst one of the fork's own. */
 static const char *const s_unlitReforgedFXList = "FXList SupW_FX_ParticleUplinkDeathInitial";
 
 TEST(fxlist_reforged_ini_parses_and_keeps_its_light)
@@ -814,7 +814,7 @@ TEST(fxlist_reforged_ini_parses_and_keeps_its_light)
 	}
 	fclose( fp );
 
-	CHECK_EQ( blocks, 112 );
+	CHECK_EQ( blocks, 113 );
 	CHECK_EQ( lit, blocks );
 }
 
