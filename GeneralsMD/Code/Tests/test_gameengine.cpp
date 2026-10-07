@@ -7991,6 +7991,8 @@ struct RMGParse
 	std::vector<Int> m_firstTiles;
 	std::vector<AsciiString> m_waypointNames;
 	std::vector<Coord3D> m_waypointPositions;
+	std::vector<AsciiString> m_pathWaypointNames;		///< the approach paths' waypoints, "Center2_from1_0"
+	std::vector<Coord3D> m_pathWaypointPositions;
 	std::vector<AsciiString> m_objectNames;
 	std::vector<UnsignedByte> m_heights;
 	std::vector<Short> m_tiles;
@@ -8206,6 +8208,11 @@ static Bool RMGParseObject( DataChunkInput &file, DataChunkInfo *info, void * )
 	{
 		theRMGParse.m_waypointNames.push_back( d.getAsciiString( NAMEKEY( "waypointName" ) ) );
 		theRMGParse.m_waypointPositions.push_back( loc );
+	}
+	else if( d.getType( NAMEKEY( "waypointID" ) ) == Dict::DICT_INT )
+	{
+		theRMGParse.m_pathWaypointNames.push_back( d.getAsciiString( NAMEKEY( "waypointName" ) ) );
+		theRMGParse.m_pathWaypointPositions.push_back( loc );
 	}
 	return TRUE;
 }
@@ -8465,6 +8472,11 @@ TEST(the_cliffs_are_where_the_layout_put_them_and_never_between_two_players)
 
 	RandomMapSettings settings;
 
+	/* Rolling ground is the default and only some peaks sit on a shelf, so one seed may have no
+		cliff at all now that a base's blend ring no longer leaves a rim. Across the sixteen maps the
+		shelves have to show up somewhere. */
+	Int totalCliffCells = 0;
+
 	for( Int players = 2; players <= 8; players += 2 )
 	{
 		settings.m_numPlayers = players;
@@ -8497,7 +8509,7 @@ TEST(the_cliffs_are_where_the_layout_put_them_and_never_between_two_players)
 			}
 
 			CHECK( highest > lowest + 8 );				// terrain, not a parade ground
-			CHECK( numCliffCells > 0 );					// the ridge is supposed to be a cliff
+			totalCliffCells += numCliffCells;
 
 			// Nothing steep within a base radius of a start, or the base cannot be laid out.
 			for( Int i = 0; i < players; i++ )
@@ -8576,6 +8588,8 @@ TEST(the_cliffs_are_where_the_layout_put_them_and_never_between_two_players)
 			}
 		}
 	}
+
+	CHECK( totalCliffCells > 0 );						// the ridges are supposed to be cliffs
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -9690,6 +9704,53 @@ TEST(a_generated_map_carries_an_attack_path_to_every_start)
 }
 
 //-------------------------------------------------------------------------------------------------
+/** The approach paths flooded from a start's playable cell read as a map cell, twenty cells short on
+	both axes, so a "Center" path set off from ground twenty-odd cells beside the base it named. Every
+	path waypoint has to stand on ground the starts can walk to, and the first "Center" waypoint lies
+	one waypoint spacing (twelve steps) out from the base the path leaves. The flank points once
+	snapped onto lake beds the flood counts as flat ground; seed 42 at four players had ten of them. */
+//-------------------------------------------------------------------------------------------------
+TEST(an_attack_path_leaves_from_its_own_base_over_walkable_ground)
+{
+	CHECK( bootOnce() );
+
+	RandomMapSettings settings;
+	settings.m_seed = 42;
+	settings.m_numPlayers = 4;
+	settings.m_playableCells = RandomMapGenerator::cellsFor( RANDOM_MAP_SIZE_NORMAL, 4 );
+	std::vector<char> bytes;
+	RandomMapGenerator::generate( settings, bytes );
+	parseGeneratedMap( bytes );
+
+	CHECK_EQ( (Int)theRMGParse.m_waypointPositions.size(), settings.m_numPlayers );
+	CHECK( !theRMGParse.m_pathWaypointPositions.empty() );
+
+	Int startX, startY;
+	RMGWorldToCell( theRMGParse.m_waypointPositions[0], &startX, &startY );
+	std::vector<char> seen;
+	RMGFloodFillWalkable( startX, startY, seen );
+
+	Int firstSteps = 0;
+	for( UnsignedInt w = 0; w < theRMGParse.m_pathWaypointPositions.size(); w++ )
+	{
+		const Coord3D& at = theRMGParse.m_pathWaypointPositions[w];
+		CHECK( RMGSeenHasObjectAt( seen, at ) );
+
+		Int target = 0, from = 0, step = -1;
+		if( sscanf( theRMGParse.m_pathWaypointNames[w].str(), "Center%d_from%d_%d", &target, &from, &step ) != 3 ||
+				step != 0 )
+			continue;
+		CHECK( from >= 1 && from <= settings.m_numPlayers );
+		const Coord3D& base = theRMGParse.m_waypointPositions[from - 1];
+		Real dx = ( at.x - base.x ) / MAP_XY_FACTOR;
+		Real dy = ( at.y - base.y ) / MAP_XY_FACTOR;
+		CHECK( dx * dx + dy * dy <= 13.0f * 13.0f );
+		firstSteps++;
+	}
+	CHECK_EQ( firstSteps, settings.m_numPlayers * ( settings.m_numPlayers - 1 ) );
+}
+
+//-------------------------------------------------------------------------------------------------
 /** The seed is worthless across two builds unless both builds turn it into the same bytes, and
 	nothing warns anybody when they stop doing so.  These numbers are that warning: change the
 	generator and this test fails until RANDOM_MAP_GENERATOR_VERSION and the recorded fingerprints
@@ -9699,14 +9760,14 @@ TEST(the_generator_still_turns_a_seed_into_the_bytes_it_used_to)
 {
 	CHECK( bootOnce() );
 
-	CHECK_EQ( RANDOM_MAP_GENERATOR_VERSION, 11 );
+	CHECK_EQ( RANDOM_MAP_GENERATOR_VERSION, 12 );
 
 	struct RMGFingerprint { Int m_seed, m_players, m_cells; UnsignedInt m_crc; };
 	static const RMGFingerprint theFingerprints[] =
 	{
-		{ 0, 2, 64, 0x2D2AF5EF },
-		{ 12345, 4, 96, 0xD1B4AB2D },
-		{ 7, 8, 128, 0x5A40EFA4 },
+		{ 0, 2, 64, 0x784968C4 },
+		{ 12345, 4, 96, 0xCF747041 },
+		{ 7, 8, 128, 0xC7C6D183 },
 	};
 	const Int numFingerprints = sizeof(theFingerprints) / sizeof(theFingerprints[0]);
 
@@ -9928,6 +9989,175 @@ TEST(the_ground_is_textured_by_what_the_ground_is_doing)
 		}
 	}
 	CHECK( numCliffCells < numCells / 20 );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The seed picks a kind of map and what it is made of, the way an Age of Empires seed picks
+	Arabia or a river map and a desert or a forest. Over a couple of dozen seeds every ground set
+	has to turn up, and the water has to differ in kind as well as in place: a river map is cut
+	into several stretches at its fords, a plain has a pond or two.
+
+	Two of the kinds are told apart by what stands on them and how high the middle is. A black
+	forest has trees in nearly every patch of ground away from the bases, and none on the ride from
+	a base to the middle. A massif lifts the middle well above the ring the bases stand on, and the
+	top is ground a unit from player one's base can drive onto. Forty seeds hold three forests and
+	six massifs; on 128 cells the thresholds pick out all three forests and four of the massifs, and
+	no seed of another kind. */
+//-------------------------------------------------------------------------------------------------
+TEST(a_seed_picks_its_map_type_and_its_ground)
+{
+	CHECK( bootOnce() );
+
+	std::set<std::string> groundSets;
+	std::set<Int> waterCounts;
+	Int woodedMaps = 0;
+	Int massifMaps = 0;
+
+	for( Int seed = 1; seed <= 40; seed++ )
+	{
+		RandomMapSettings settings;
+		settings.m_seed = seed;
+		settings.m_playableCells = 128;
+		settings.m_numPlayers = 2;
+
+		std::vector<char> bytes;
+		RandomMapGenerator::generate( settings, bytes );
+		parseGeneratedMap( bytes );
+
+		CHECK_EQ( theRMGParse.m_numTextureClasses, 4 );
+		std::string ground;
+		for( Int i = 0; i < 4 && i < (Int)theRMGParse.m_textureNames.size(); i++ )
+		{
+			ground += theRMGParse.m_textureNames[i].str();
+			ground += ";";
+		}
+		groundSets.insert( ground );
+		waterCounts.insert( theRMGParse.m_numWaterAreas );
+
+		const Real playable = (Real)settings.m_playableCells;
+		const Real centre = playable * 0.5f;
+		Real startX[2], startY[2];
+		for( Int i = 0; i < 2; i++ )
+		{
+			startX[i] = theRMGParse.m_waypointPositions[i].x / MAP_XY_FACTOR;
+			startY[i] = theRMGParse.m_waypointPositions[i].y / MAP_XY_FACTOR;
+		}
+
+		// Patches of 16 cells with a tree in them, out of those clear of both bases.
+		const Int patch = 16;
+		const Int patches = settings.m_playableCells / patch;
+		std::vector<char> wooded( patches * patches, 0 );
+		Int rideTrees = 0;
+		for( Int i = 0; i < (Int)theRMGParse.m_objectNames.size(); i++ )
+		{
+			if( strncmp( theRMGParse.m_objectNames[i].str(), "Tree", 4 ) != 0 )
+				continue;
+			Real tx = theRMGParse.m_objectPositions[i].x / MAP_XY_FACTOR;
+			Real ty = theRMGParse.m_objectPositions[i].y / MAP_XY_FACTOR;
+			Int px = (Int)tx / patch;
+			Int py = (Int)ty / patch;
+			if( px >= 0 && py >= 0 && px < patches && py < patches )
+				wooded[py * patches + px] = 1;
+
+			for( Int s = 0; s < 2; s++ )
+			{
+				Real sx = startX[s] - centre;
+				Real sy = startY[s] - centre;
+				Real length2 = sx * sx + sy * sy;
+				if( length2 < 1.0f )
+					continue;
+				Real t = ( ( tx - centre ) * sx + ( ty - centre ) * sy ) / length2;
+				if( t < 0.0f || t > 1.0f )
+					continue;
+				Real ex = tx - centre - sx * t;
+				Real ey = ty - centre - sy * t;
+				if( ex * ex + ey * ey < 1.5f * 1.5f )
+					rideTrees++;
+			}
+		}
+		Int open = 0, covered = 0;
+		for( Int py = 0; py < patches; py++ )
+		{
+			for( Int px = 0; px < patches; px++ )
+			{
+				Real cx = ( (Real)px + 0.5f ) * (Real)patch;
+				Real cy = ( (Real)py + 0.5f ) * (Real)patch;
+				Bool nearBase = FALSE;
+				for( Int s = 0; s < 2; s++ )
+				{
+					Real dx = cx - startX[s];
+					Real dy = cy - startY[s];
+					if( dx * dx + dy * dy < 44.0f * 44.0f )
+						nearBase = TRUE;
+				}
+				if( nearBase )
+					continue;
+				open++;
+				if( wooded[py * patches + px] )
+					covered++;
+			}
+		}
+		if( open > 0 && covered * 10 >= open * 8 )
+		{
+			woodedMaps++;
+			CHECK_EQ( rideTrees, 0 );
+		}
+
+		// The middle against the ring the bases stand on.
+		const Int width = theRMGParse.m_width;
+		const Int border = theRMGParse.m_border;
+		Real middle = 0.0f;
+		Int middleSamples = 0;
+		for( Int dy = -6; dy <= 6; dy++ )
+		{
+			for( Int dx = -6; dx <= 6; dx++ )
+			{
+				if( dx * dx + dy * dy > 36 )
+					continue;
+				middle += (Real)theRMGParse.m_heights[( (Int)centre + dy + border ) * width + (Int)centre + dx + border];
+				middleSamples++;
+			}
+		}
+		middle /= (Real)middleSamples;
+		Real ring = 0.0f;
+		for( Int k = 0; k < 32; k++ )
+		{
+			Real angle = 2.0f * PI * (Real)k / 32.0f;
+			Int x = (Int)( centre + playable * 0.32f * Cos( angle ) ) + border;
+			Int y = (Int)( centre + playable * 0.32f * Sin( angle ) ) + border;
+			ring += (Real)theRMGParse.m_heights[y * width + x];
+		}
+		ring /= 32.0f;
+
+		// And how many bearings out of the middle run into a cliff before they reach that ring.
+		Int walled = 0;
+		for( Int k = 0; k < 64; k++ )
+		{
+			Real angle = 2.0f * PI * (Real)k / 64.0f;
+			for( Real r = 0.0f; r < playable * 0.30f; r += 1.0f )
+			{
+				Int x = (Int)( centre + r * Cos( angle ) ) + border;
+				Int y = (Int)( centre + r * Sin( angle ) ) + border;
+				if( RMGCellSpan( x, y ) > 9.8f )
+				{
+					walled++;
+					break;
+				}
+			}
+		}
+		if( middle > ring + 45.0f && walled >= 48 )
+		{
+			massifMaps++;
+			std::vector<char> seen;
+			RMGFloodFillFromFirstStart( seen );
+			CHECK( seen[( (Int)centre + border ) * width + (Int)centre + border] );
+		}
+	}
+
+	CHECK_EQ( (Int)groundSets.size(), 4 );
+	CHECK( waterCounts.size() >= 3 );
+	CHECK( woodedMaps >= 1 );
+	CHECK( massifMaps >= 1 );
 }
 
 //////////////////////////////////////////////////////////////////////////////

@@ -1902,10 +1902,33 @@ The whole HUD is on the hardware. Four colours carry it, and they mean the same 
   marked roads to every other base, a middle road along the ground a tank would drive and two that
   swing out wide to either side. Random maps made by an older version are different maps from the
   same number.
-- No two of them are the same shape. Nothing is mirrored, rotated or laid out on a ring. The whole
-  map is one field of noise, and the bases are found in it: the flattest ground first, then
-  whichever good ground is furthest from everything already taken. Some seeds give you four corners
-  and some give you a long diagonal, and where the fighting happens is different every time.
+- The number picks what kind of map you get, the way an Age of Empires seed picks Arabia or a river
+  map. There are seven. Plains roll gently with a pond or two. Highlands stand on shelves. Lake
+  country spreads extra lakes and keeps them apart. A river map is cut in two by one river with
+  fords across it. A canyon map has a few long gorges winding through it. A black forest is one
+  wood from edge to edge, with clear rides cut from every base to the middle and round the ring of
+  bases, so you can see an army coming down a ride. A massif lifts the middle into one table of
+  high ground with a cliff all round and a ramp up from every side. Over the first thousand numbers
+  each kind comes up between 131 and 159 times.
+- The same number also picks what the ground is made of: green temperate fields with oaks and
+  maples, desert sand with palms in thin stands, winter snow under snowed-in firs, or dry steppe.
+  The two are picked apart, so a river can run through snow as well as through grass, and the light
+  changes with the ground.
+- Every player gets the same deal. The bases are found in the land rather than stamped on it, and
+  then every layout tried is measured by the walk from each base to its nearest and second-nearest
+  enemy, and the one where those walks come out most even is the one you play. Your home dock,
+  your derricks and the money out in the field sit as far from your base as everybody else's do
+  from theirs, and every one of them can be driven to.
+- The ground is cleaner. The routes between bases used to be levelled into straight shelves that
+  drew ruled lines across the map; they follow the hillside now. A lake bed climbs back up to its
+  bank instead of ending at a square cut, and the bank stays above the water.
+- Towns sit in the land. A town used to be a round plate pressed flat into the hills; now its
+  streets keep the long roll of the hillside under them and the easing fades out past the last
+  house. Trees grow in thickets with glades between them, every player has a stand of trees of his
+  own near home, and no rock sits on a ramp that is the only way up.
+- The computer attacks on every one of them. The roads it sends its armies down started about
+  twenty steps to the side of the base they belonged to, and some of the side roads ended in a lake
+  bed. Every road now leaves from its own base and runs over ground a tank can drive.
 - Nobody starts with their back against the edge of the map. A seventh of the map is kept clear
   of start positions on every side: there is ground behind a base to fall back into, and a way
   round it for whoever is attacking. On a packed map the seats sit on a circle so the last
