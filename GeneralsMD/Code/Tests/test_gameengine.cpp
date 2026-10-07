@@ -15099,12 +15099,34 @@ TEST(four_finished_defenses_pay_for_each_superweapon)
 	CHECK( !RebuildHoleHoldsSuperweapon( TRUE, TRUE ) );
 	CHECK( !RebuildHoleHoldsSuperweapon( FALSE, FALSE ) );
 
-	// a silo whose missile is silenced sells China's upgrades and asks for no defences
-	CHECK( !SuperweaponNeedsDefenses( AsciiString( "ChinaNuclearMissileLauncher" ), FALSE, SUPERWEAPONS_NONE ) );
-	CHECK( !SuperweaponNeedsDefenses( AsciiString( "Tank_ChinaNuclearMissileLauncher" ), TRUE, SUPERWEAPONS_ALLOW ) );
-	CHECK( SuperweaponNeedsDefenses( AsciiString( "ChinaNuclearMissileLauncher" ), FALSE, SUPERWEAPONS_LIMIT ) );
-	CHECK( SuperweaponNeedsDefenses( AsciiString( "SupW_AmericaParticleCannonUplink" ), FALSE, SUPERWEAPONS_NONE ) );
-	CHECK( SuperweaponNeedsDefenses( AsciiString( "GLAScudStorm" ), TRUE, SUPERWEAPONS_ALLOW ) );
+	// a computer's silo whose missile is silenced sells China's upgrades and asks for no defences
+	CHECK( !SuperweaponNeedsDefenses( AsciiString( "ChinaNuclearMissileLauncher" ), FALSE, SUPERWEAPONS_NONE, TRUE ) );
+	CHECK( !SuperweaponNeedsDefenses( AsciiString( "Tank_ChinaNuclearMissileLauncher" ), TRUE, SUPERWEAPONS_ALLOW, TRUE ) );
+	CHECK( SuperweaponNeedsDefenses( AsciiString( "ChinaNuclearMissileLauncher" ), FALSE, SUPERWEAPONS_LIMIT, TRUE ) );
+	CHECK( SuperweaponNeedsDefenses( AsciiString( "SupW_AmericaParticleCannonUplink" ), FALSE, SUPERWEAPONS_NONE, TRUE ) );
+	CHECK( SuperweaponNeedsDefenses( AsciiString( "GLAScudStorm" ), TRUE, SUPERWEAPONS_ALLOW, TRUE ) );
+}
+
+/* The defence allowance is the computer's rule only.  A human builds a superweapon against the
+	 lobby's limit and Pro Rules alone, so no superweapon of his is ever asked for towers, whatever
+	 mode the lobby picked. */
+TEST(superweapon_defense_allowance_binds_computer_players_only)
+{
+	const char *const superweapons[] = { "ChinaNuclearMissileLauncher", "SupW_AmericaParticleCannonUplink",
+	                                     "AmericaParticleCannonUplink", "GLAScudStorm" };
+	const Int restrictions[] = { SUPERWEAPONS_ALLOW, SUPERWEAPONS_LIMIT, SUPERWEAPONS_NONE };
+	for ( Int s = 0; s < ARRAY_SIZE( superweapons ); ++s )
+		for ( Int r = 0; r < ARRAY_SIZE( restrictions ); ++r )
+			for ( Int pro = 0; pro < 2; ++pro )
+				CHECK( !SuperweaponNeedsDefenses( AsciiString( superweapons[ s ] ), (Bool)pro, restrictions[ r ], FALSE ) );
+
+	// the same Scud Storm under the same lobby asks a computer for its towers
+	CHECK( SuperweaponNeedsDefenses( AsciiString( "GLAScudStorm" ), FALSE, SUPERWEAPONS_ALLOW, TRUE ) );
+	CHECK( SuperweaponNeedsDefenses( AsciiString( "AmericaParticleCannonUplink" ), FALSE, SUPERWEAPONS_LIMIT, TRUE ) );
+
+	// and for a computer a storm's waiting hole still spends the four towers it stood on
+	CHECK( SuperweaponDefenseCapRefuses( 4, RebuildHoleHoldsSuperweapon( TRUE, FALSE ) ? 1 : 0 ) );
+	CHECK( !SuperweaponDefenseCapRefuses( 4, RebuildHoleHoldsSuperweapon( FALSE, FALSE ) ? 1 : 0 ) );
 }
 
 /* The superweapon rule is a mode, and what a mode leaves you depends on who you are playing.  The
