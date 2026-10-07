@@ -900,6 +900,33 @@ Bool W3DView::wantsIsometric( void ) const
 //-------------------------------------------------------------------------------------------------
 void W3DView::setCameraTransform( void )
 {
+	aimCamera();
+	if (m_freeCamera)
+		return;
+
+	if (TheTerrainRenderObject)
+	{
+		RefRenderObjListIterator *it = W3DDisplay::m_3DScene->createLightsIterator();
+		TheTerrainRenderObject->updateCenter(m_3DCamera, it);
+		if (it)
+		{
+		 W3DDisplay::m_3DScene->destroyLightsIterator(it);
+		 it = NULL;
+		}
+	}
+
+	// tell the radar its view box is stale, whatever it was that moved - it used to work that out
+	// itself by comparing the zoom and the angle, so panning left the box behind
+	if (TheRadar)
+		TheRadar->notifyViewChanged();
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The camera itself, built from the location now.  The observer camera aims the view at a pane's
+	* place and asks it where things land before the draw does this for real. */
+//-------------------------------------------------------------------------------------------------
+void W3DView::aimCamera( void )
+{
 	m_cameraHasMovedSinceRequest = true;
 	if (m_freeCamera)
 	{
@@ -917,10 +944,13 @@ void W3DView::setCameraTransform( void )
 	// 1200 was a number, not a distance: at the stock ceiling and pitch the far plane already cuts
 	// the terrain the game means to draw, and this fork zooms further out than the stock game did.
 	// Take the distance the terrain is actually drawn over instead, and open it with the height -
-	// at twice the height you see twice as far.
+	// at twice the height you see twice as far.  The height is the eye's own as well as the one the
+	// view settles towards: the observer camera sets the zoom outright with the settling held off,
+	// and a pane twice as high as the height said cut the far ground off in a black band.
 	static const Real VIEW_DEFAULT_MAX_HEIGHT_ABOVE_TERRAIN = 310.0f;
 	farZ = (WorldHeightMap::NORMAL_DRAW_WIDTH * 1.08f) * MAP_XY_FACTOR;
-	const Real heightMultiplier = m_heightAboveGround / VIEW_DEFAULT_MAX_HEIGHT_ABOVE_TERRAIN;
+	const Real eyeHeight = m_cameraOffset.z * getZoom() - m_groundLevel;
+	const Real heightMultiplier = max(m_heightAboveGround, eyeHeight) / VIEW_DEFAULT_MAX_HEIGHT_ABOVE_TERRAIN;
 	if (heightMultiplier > 1.0f)
 		farZ *= heightMultiplier;
 
@@ -979,22 +1009,6 @@ void W3DView::setCameraTransform( void )
 	}
 
 	m_3DCamera->Set_Transform( cameraTransform );
-
-	if (TheTerrainRenderObject)
-	{
-		RefRenderObjListIterator *it = W3DDisplay::m_3DScene->createLightsIterator();
-		TheTerrainRenderObject->updateCenter(m_3DCamera, it);
-		if (it)
-		{
-		 W3DDisplay::m_3DScene->destroyLightsIterator(it);
-		 it = NULL;
-		}
-	}
-
-	// tell the radar its view box is stale, whatever it was that moved - it used to work that out
-	// itself by comparing the zoom and the angle, so panning left the box behind
-	if (TheRadar)
-		TheRadar->notifyViewChanged();
 }
 
 //-------------------------------------------------------------------------------------------------

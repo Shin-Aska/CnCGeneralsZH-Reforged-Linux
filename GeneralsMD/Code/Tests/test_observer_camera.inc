@@ -467,139 +467,33 @@ TEST(a_subject_spreads_as_far_as_its_farthest_thing_within_reach)
 
 TEST(a_pane_zooms_out_to_fit_its_subject_and_no_further_than_the_cap)
 {
-	ObserverCameraGround ground;
-	const Coord2D atOne[ 4 ] = { { -400.0f, 400.0f }, { 400.0f, 400.0f }, { 300.0f, -200.0f }, { -300.0f, -200.0f } };
-	for( Int corner = 0; corner < 4; corner++ )
-	{
-		ground.perZoom[ corner ] = atOne[ corner ];
-		ground.shift[ corner ].x = ground.shift[ corner ].y = 0.0f;
-	}
-	ground.zoomAtPivot = 0.0f;
-	const Coord2D centre = { 640.0f, 360.0f };
-	Coord2D corners[ 4 ];
-	ObserverCamera_cornersAtZoom( ground, 1.0f, corners );
-	const Real reachAtOne = ObserverCamera_groundRadius( centre, 200.0f, 1280, 720, corners );
+	// the view measured a circle reaching 180 at zoom 1.2 and 420 at 2.4: the eye stands back in a
+	// straight line with the zoom from a pivot at 0.3, as W3D's camera does
+	const Real nearest = 1.2f;
+	const Real farthest = 2.4f;
 	// a subject that fits at the director's own zoom is not brought closer
-	CHECK_NEAR( ObserverCamera_fitZoom( reachAtOne * 0.5f, centre, 200.0f, 1280, 720, ground, 1.0f, 2.0f ), 1.0f, 0.0001f );
-	// one 1.5 times the circle's reach, with its 15 percent margin, needs 1.725 times as far out
-	CHECK_NEAR( ObserverCamera_fitZoom( reachAtOne * 1.5f, centre, 200.0f, 1280, 720, ground, 1.0f, 3.0f ), 1.725f, 0.001f );
-	CHECK_NEAR( ObserverCamera_fitZoom( reachAtOne * 5.0f, centre, 200.0f, 1280, 720, ground, 1.0f, 2.0f ), 2.0f, 0.001f );
-	// a smaller circle needs the camera further out
-	CHECK( ObserverCamera_fitZoom( reachAtOne, centre, 150.0f, 1280, 720, ground, 1.0f, 3.0f )
-		> ObserverCamera_fitZoom( reachAtOne, centre, 200.0f, 1280, 720, ground, 1.0f, 3.0f ) );
+	CHECK_NEAR( ObserverCamera_zoomForReach( nearest, 180.0f, farthest, 420.0f, 120.0f, nearest, farthest ), 1.2f, 0.0001f );
+	// 300 is half way along the line
+	CHECK_NEAR( ObserverCamera_zoomForReach( nearest, 180.0f, farthest, 420.0f, 300.0f, nearest, farthest ), 1.8f, 0.0001f );
+	// and one too wide for the cap gets the cap
+	CHECK_NEAR( ObserverCamera_zoomForReach( nearest, 180.0f, farthest, 420.0f, 900.0f, nearest, farthest ), 2.4f, 0.0001f );
 }
 
-/// the game's view as buildCameraTransform makes it: a pinhole looking down at 50 degrees on a target
-/// TARGET_HEIGHT above zero, its eye (zoom - ZOOM_AT_PIVOT) times 400 back from it
-static const Real TARGET_HEIGHT = 10.0f;
-static const Real ZOOM_AT_PIVOT = 0.3f;
-
-/// where a pixel of a 1280x720 picture falls on a plane at planeHeight for that view at zoom
-static Coord2D castPixel( Real x, Real y, Real zoom, Real planeHeight )
+TEST(a_pane_whose_top_leaves_the_map_is_moved_in_by_the_top_alone)
 {
-	const Real distance = ( zoom - ZOOM_AT_PIVOT ) * 400.0f;
-	const Real pitch = 50.0f * PI / 180.0f;
-	const Real halfWide = 0.6f;
-	const Real halfHigh = 0.6f * 720.0f / 1280.0f;
-	const Real forwardY = cosf( pitch ), forwardZ = -sinf( pitch );
-	const Real upY = sinf( pitch ), upZ = cosf( pitch );
-	const Real right = ( 2.0f * x / 1280.0f - 1.0f ) * halfWide;
-	const Real up = ( 1.0f - 2.0f * y / 720.0f ) * halfHigh;
-	const Real eyeY = -distance * forwardY, eyeZ = TARGET_HEIGHT - distance * forwardZ;
-	const Real rayX = right, rayY = forwardY + up * upY, rayZ = forwardZ + up * upZ;
-	const Real along = ( planeHeight - eyeZ ) / rayZ;
-	Coord2D ground;
-	ground.x = rayX * along;
-	ground.y = eyeY + rayY * along;
-	return ground;
-}
-
-static void castCorners( Real zoom, Real planeHeight, Coord2D *corners )
-{
-	corners[ 0 ] = castPixel( 0.0f, 0.0f, zoom, planeHeight );
-	corners[ 1 ] = castPixel( 1280.0f, 0.0f, zoom, planeHeight );
-	corners[ 2 ] = castPixel( 1280.0f, 720.0f, zoom, planeHeight );
-	corners[ 3 ] = castPixel( 0.0f, 720.0f, zoom, planeHeight );
-}
-
-/// what measureCorners takes from the view at zoom over ground at groundHeight
-static ObserverCameraGround measureCast( Real zoom, Real groundHeight )
-{
-	ObserverCameraGround ground;
-	Coord2D onPivot[ 4 ];
-	Coord2D onGround[ 4 ];
-	castCorners( zoom, TARGET_HEIGHT, onPivot );
-	castCorners( zoom, groundHeight, onGround );
-	for( Int corner = 0; corner < 4; corner++ )
-	{
-		ground.perZoom[ corner ].x = onPivot[ corner ].x / ( zoom - ZOOM_AT_PIVOT );
-		ground.perZoom[ corner ].y = onPivot[ corner ].y / ( zoom - ZOOM_AT_PIVOT );
-		ground.shift[ corner ].x = onGround[ corner ].x - onPivot[ corner ].x;
-		ground.shift[ corner ].y = onGround[ corner ].y - onPivot[ corner ].y;
-	}
-	ground.zoomAtPivot = ZOOM_AT_PIVOT;
-	return ground;
-}
-
-TEST(corners_measured_at_one_zoom_say_where_they_fall_at_another)
-{
-	// ground 110 above the camera's target, which is how the old scaling about the look point went
-	// wrong: the top corners, nearly level, moved furthest
-	const ObserverCameraGround ground = measureCast( 1.0f, 120.0f );
-	const Real zooms[] = { 1.0f, 1.4f, 2.0f };
-	for( Int index = 0; index < 3; index++ )
-	{
-		Coord2D cast[ 4 ];
-		castCorners( zooms[ index ], 120.0f, cast );
-		Coord2D predicted[ 4 ];
-		ObserverCamera_cornersAtZoom( ground, zooms[ index ], predicted );
-		for( Int corner = 0; corner < 4; corner++ )
-		{
-			CHECK_NEAR( predicted[ corner ].x, cast[ corner ].x, 0.5f );
-			CHECK_NEAR( predicted[ corner ].y, cast[ corner ].y, 0.5f );
-		}
-	}
-}
-
-TEST(the_four_corners_project_every_pixel_onto_flat_ground_exactly)
-{
-	Coord2D corners[ 4 ];
-	castCorners( 1.3f, 120.0f, corners );
-	const Coord2D pixels[] = { { 900.0f, 200.0f }, { 150.0f, 650.0f }, { 640.0f, 360.0f }, { 1200.0f, 40.0f } };
-	for( Int index = 0; index < 4; index++ )
-	{
-		const Coord2D cast = castPixel( pixels[ index ].x, pixels[ index ].y, 1.3f, 120.0f );
-		const Coord2D projected = ObserverCamera_pixelToGround( pixels[ index ], 1280, 720, corners );
-		CHECK_NEAR( projected.x, cast.x, 0.5f );
-		CHECK_NEAR( projected.y, cast.y, 0.5f );
-		const Coord2D back = ObserverCamera_groundToPixel( projected, 1280, 720, corners );
-		CHECK_NEAR( back.x, pixels[ index ].x, 0.05f );
-		CHECK_NEAR( back.y, pixels[ index ].y, 0.05f );
-	}
-}
-
-TEST(a_subject_put_on_its_circle_centre_stays_there_at_every_zoom)
-{
-	// the look point the pane cameras use, subject less the pixel's ground at that zoom, drawn back
-	// through the real camera of that zoom, lands on the pixel it was put on
-	const ObserverCameraGround ground = measureCast( 1.0f, 120.0f );
-	const Coord2D subject = { 3000.0f, 2000.0f };
-	const Coord2D centre = { 293.0f, 293.0f };
-	const Real zooms[] = { 1.0f, 1.3f, 1.7f, 2.0f };
-	for( Int index = 0; index < 4; index++ )
-	{
-		Coord2D corners[ 4 ];
-		ObserverCamera_cornersAtZoom( ground, zooms[ index ], corners );
-		const Coord2D look = ObserverCamera_lookPoint( subject, centre, 1280, 720, corners );
-		Coord2D cast[ 4 ];
-		castCorners( zooms[ index ], 120.0f, cast );
-		Coord2D fromLook;
-		fromLook.x = subject.x - look.x;
-		fromLook.y = subject.y - look.y;
-		const Coord2D drawn = ObserverCamera_groundToPixel( fromLook, 1280, 720, cast );
-		CHECK_NEAR( drawn.x, centre.x, 0.5f );
-		CHECK_NEAR( drawn.y, centre.y, 0.5f );
-	}
+	// the ground under a tilted pane's corners: the top reaches three times as far as the bottom, so
+	// a look point 400 from the far edge shows 200 past it at the top while its middle is on the map
+	const Coord2D corners[ 4 ] = { { -900.0f, 600.0f }, { 900.0f, 600.0f }, { 300.0f, -200.0f }, { -300.0f, -200.0f } };
+	Region2D map;
+	map.lo.x = map.lo.y = 0.0f;
+	map.hi.x = map.hi.y = 3000.0f;
+	const Coord2D nearTop = { 1500.0f, 2600.0f };
+	const Coord2D kept = ObserverCamera_keepInMap( nearTop, corners, 4, map );
+	CHECK_NEAR( kept.x, 1500.0f, 0.001f );
+	CHECK_NEAR( kept.y, 2400.0f, 0.001f );
+	const Coord2D middle = { 1500.0f, 1500.0f };
+	const Coord2D free = ObserverCamera_keepInMap( middle, corners, 4, map );
+	CHECK_NEAR( free.y, 1500.0f, 0.001f );
 }
 
 TEST(a_pane_shows_its_wedge_cut_by_the_screen)
@@ -622,40 +516,6 @@ TEST(a_pane_shows_its_wedge_cut_by_the_screen)
 	CHECK( bottom );
 	// with no panes it is the whole screen
 	CHECK_EQ( ObserverCamera_panePolygon( rays, 1, 0, middle, 1280, 720, vertices ), 4 );
-}
-
-TEST(a_pane_comes_down_to_the_zoom_that_shows_no_ground_past_the_map)
-{
-	const ObserverCameraGround ground = measureCast( 1.0f, 120.0f );
-	Region2D map;
-	map.lo.x = map.lo.y = 0.0f;
-	map.hi.x = map.hi.y = 3000.0f;
-	const Coord2D middlePixel = { 640.0f, 360.0f };
-	Real rays[ OBSERVER_MOST_PANES ];
-	Coord2D screen[ 8 ];
-	const Int screenCount = ObserverCamera_panePolygon( rays, 1, 0, middlePixel, 1280, 720, screen );
-
-	// in the middle of a big map the cap is free
-	const Coord2D middle = { 1500.0f, 1500.0f };
-	CHECK_NEAR( ObserverCamera_zoomInMap( middle, middlePixel, screen, screenCount, 1280, 720, ground, map, 1.0f, 1.5f ), 1.5f, 0.0001f );
-
-	// near the far edge only the top of the screen, which reaches furthest, leaves the map: the
-	// middle stays on it at any zoom, and the zoom comes down to where the top just touches the edge
-	const Coord2D nearTop = { 1500.0f, 2550.0f };
-	const Real kept = ObserverCamera_zoomInMap( nearTop, middlePixel, screen, screenCount, 1280, 720, ground, map, 1.0f, 3.0f );
-	CHECK( kept > 1.0f && kept < 3.0f );
-	Coord2D cast[ 4 ];
-	castCorners( kept, 120.0f, cast );
-	Coord2D corners[ 4 ];
-	ObserverCamera_cornersAtZoom( ground, kept, corners );
-	const Coord2D look = ObserverCamera_lookPoint( nearTop, middlePixel, 1280, 720, corners );
-	const Real topEdge = look.y + max( cast[ 0 ].y, cast[ 1 ].y );
-	CHECK_NEAR( topEdge, 3000.0f, 3.0f );
-	CHECK( nearTop.y < 3000.0f );
-
-	// and a subject that cannot be shown without the edge at any zoom gets the nearest
-	const Coord2D pastEdge = { 10.0f, 1500.0f };
-	CHECK_NEAR( ObserverCamera_zoomInMap( pastEdge, middlePixel, screen, screenCount, 1280, 720, ground, map, 1.0f, 2.0f ), 1.0f, 0.0001f );
 }
 
 TEST(pane_lines_grow_with_the_picture_and_the_join_keeps_all_of_them)
