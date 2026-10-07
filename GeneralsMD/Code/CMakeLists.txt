@@ -506,6 +506,9 @@ target_include_directories(wwlib PUBLIC ${WW}/WWLib
   PRIVATE ${WW}/WWMath ${WW}/Wwutil ${CMAKE_CURRENT_SOURCE_DIR}/Libraries/Include
           ${CMAKE_CURRENT_SOURCE_DIR}/GameEngine/Include)
 target_link_libraries(wwlib PRIVATE wwdebug)
+# wwmemlog uses FastAllocatorGeneral from wwlib, which itself uses wwdebug. Declare
+# both directions so CMake repeats the static libraries for one-pass linkers.
+target_link_libraries(wwdebug PRIVATE wwlib)
 if(ZH_PLATFORM_WINDOWS)
   # winmm: timeGetTime/timeBeginPeriod.  version: verchk.cpp's GetFileVersionInfo,
   # which Wwutil drags in for Get_File_Id_String.  Both are Windows import libraries; B2 replaces
@@ -1574,12 +1577,16 @@ if(ZH_PLATFORM_POSIX)
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Stubs ${CMAKE_CURRENT_SOURCE_DIR}/Main
             ${WW}/Miles6/include ${WW}/Bink/include)
   target_link_libraries(w3ddevice PUBLIC gameengine ww3d2 sdlinput binkvideo)
+  # The engine calls the platform's CD factory and the renderer's hooks. Record
+  # those reverse links without inheriting the device layer's compile settings.
+  target_link_libraries(gameengine INTERFACE "$<LINK_ONLY:posixdevice>" "$<LINK_ONLY:w3ddevice>")
 
-  # A1's link checkpoint: all of w3ddevice and ww3d2, whole archive, against what the POSIX game links.
+  # A1's link checkpoint: all renderer and platform objects, including the CD
+  # factory GameEngine reaches after loading the renderer, against the engine.
   add_executable(w3d_link_probe ${CMAKE_CURRENT_SOURCE_DIR}/Tests/w3d_link_probe.cpp)
   set_target_properties(w3d_link_probe PROPERTIES CXX_STANDARD 17)
   target_link_libraries(w3d_link_probe PRIVATE
-    "$<LINK_LIBRARY:WHOLE_ARCHIVE,w3ddevice,ww3d2>" posixdevice gameengine)
+    "$<LINK_LIBRARY:WHOLE_ARCHIVE,w3ddevice,ww3d2,posixdevice>" gameengine)
 
   # A2's checkpoint: every texture of the install through WW3D2's loader into the POSIX device on a
   # null-window (-headless) WW3D, read back and checked against the file.  Needs ZH_GAME_DATA, else Skipped.
