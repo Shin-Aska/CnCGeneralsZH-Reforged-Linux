@@ -454,6 +454,8 @@ private:
 	Real m_lastZoom;								///< the view's zoom at the last update, for the zoom jump log
 	Bool m_lastCut;									///< the last update cut
 	UnsignedInt m_handoverLogUntil;	///< the frame the per-frame hand-over log stops at
+	Int m_paneSurvivor;							///< the pane that fills the screen as the panes go out: 1 when the split ended on the director taking pane 1's fight
+	Bool m_survivorHandover;				///< the panes have just gone out on pane 1, whose camera the single view takes over this update
 	Coord3D m_drivenTo;							///< where this put the camera last frame, inside the view's constraint
 	UnsignedInt m_lastUpdate;
 	ObserverCameraVelocity m_velocity;

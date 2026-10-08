@@ -1202,6 +1202,8 @@ void ObserverCamera::reset( void )
 	m_lastZoom = 0.0f;
 	m_lastCut = FALSE;
 	m_handoverLogUntil = 0;
+	m_paneSurvivor = 0;
+	m_survivorHandover = FALSE;
 	m_drivenTo.zero();
 	m_lastUpdate = 0;
 	m_velocity.x = m_velocity.y = m_velocity.z = m_velocity.angle = m_velocity.pitch = m_velocity.zoom = 0.0f;
@@ -1819,6 +1821,10 @@ void ObserverCamera::updateSplit( void )
 		m_split = split;
 		m_splitChanged = frame;
 		m_splitApart = needed;
+		// the director has gone over to pane 1's fight: pane 1 is the picture that stays, and the panes
+		// go out towards pane 0's side, where pane 0 used to fill the screen and the camera then cut
+		// across the map to the fight pane 1 had been showing
+		m_paneSurvivor = !split && handedOver && !m_intro ? 1 : 0;
 	}
 	if( m_split )
 		m_secondPlace = shown;
@@ -1929,6 +1935,9 @@ void ObserverCamera::advancePanes( UnsignedInt frame )
 			{
 				next = PANES_RADAR_IN;
 				m_introGlide = m_intro;
+				// pane 1 fills the screen: from here pane 0 does, with pane 1's camera, which update hands it
+				m_survivorHandover = m_paneSurvivor == 1;
+				m_paneSurvivor = 0;
 			}
 			break;
 		case PANES_RADAR_IN:
@@ -1994,9 +2003,12 @@ void ObserverCamera::advancePanes( UnsignedInt frame )
 	m_paneOrigin.y = TheDisplay->getHeight() * 0.5f;
 	if( m_paneCount >= 2 )
 	{
+		// pane 1 staying, the meeting point leaves the other way, and a split's two wedges are mirror
+		// images, so the same distance leaves pane 1 holding the whole screen
 		const Coord2D away = ObserverCamera_paneExitDirection( m_paneRays );
-		m_paneOrigin.x += away.x * ( 1.0f - m_paneProgress ) * m_paneExit;
-		m_paneOrigin.y += away.y * ( 1.0f - m_paneProgress ) * m_paneExit;
+		const Real side = m_paneSurvivor == 1 ? -1.0f : 1.0f;
+		m_paneOrigin.x += side * away.x * ( 1.0f - m_paneProgress ) * m_paneExit;
+		m_paneOrigin.y += side * away.y * ( 1.0f - m_paneProgress ) * m_paneExit;
 	}
 }
 
@@ -2191,8 +2203,8 @@ void ObserverCamera::stepPaneCameras( const ViewLocation &step, Real elapsedSeco
 		// the circle's centre moved with the meeting point; it only ever slides down the screen, away
 		// from the horizon, so the projection holds off the screen too
 		Coord2D pixel;
-		pixel.x = m_paneCentres[ pane ].x + m_paneOrigin.x - TheDisplay->getWidth() * 0.5f;
-		pixel.y = m_paneCentres[ pane ].y + m_paneOrigin.y - TheDisplay->getHeight() * 0.5f;
+		Real radius = 0.0f;
+		getPaneCircle( pane, &pixel, &radius );
 		Coord2D glided;
 		glided.x = m_paneGlide[ pane ].getPosition().x;
 		glided.y = m_paneGlide[ pane ].getPosition().y;
@@ -2208,7 +2220,8 @@ void ObserverCamera::stepPaneCameras( const ViewLocation &step, Real elapsedSeco
 Coord2D ObserverCamera::getFramedRadarMiddle( Real radarDiagonal ) const
 {
 	const Coord2D away = ObserverCamera_paneExitDirection( m_paneRays );
-	const Real out = ( 1.0f - m_paneProgress ) * ( m_paneExit + radarDiagonal );
+	const Real side = m_paneSurvivor == 1 ? -1.0f : 1.0f;
+	const Real out = side * ( 1.0f - m_paneProgress ) * ( m_paneExit + radarDiagonal );
 	Coord2D middle;
 	middle.x = TheDisplay->getWidth() * 0.5f + away.x * out;
 	middle.y = TheDisplay->getHeight() * 0.5f + away.y * out;
@@ -2237,10 +2250,10 @@ void ObserverCamera::getPaneCircle( Int pane, Coord2D *centre, Real *radius ) co
 {
 	const Real middleX = TheDisplay->getWidth() * 0.5f;
 	const Real middleY = TheDisplay->getHeight() * 0.5f;
-	if( pane == 0 )
+	if( pane == 0 || pane == m_paneSurvivor )
 	{
-		centre->x = middleX + ( m_paneCentres[ 0 ].x - middleX ) * m_paneProgress;
-		centre->y = middleY + ( m_paneCentres[ 0 ].y - middleY ) * m_paneProgress;
+		centre->x = middleX + ( m_paneCentres[ pane ].x - middleX ) * m_paneProgress;
+		centre->y = middleY + ( m_paneCentres[ pane ].y - middleY ) * m_paneProgress;
 	}
 	else
 	{
@@ -2733,6 +2746,14 @@ void ObserverCamera::logHandover( const ViewLocation &step, const ViewLocation &
 	TheTacticalView->worldToScreenTriReturn( &world, &pixel );
 	DEBUG_LOG(( "OBSCAM frame %u hand look (%.1f,%.1f) zoom %.3f subject (%.1f,%.1f) at (%d,%d)\n", frame,
 		placed.getPosition().x, placed.getPosition().y, TheTacticalView->getZoom(), world.x, world.y, pixel.x, pixel.y ));
+	if( m_paneCount < 2 )
+		return;
+	Coord2D circle;
+	Real radius = 0.0f;
+	getPaneCircle( 1, &circle, &radius );
+	DEBUG_LOG(( "OBSCAM frame %u hand pane 1 look (%.1f,%.1f) zoom %.3f subject (%.1f,%.1f) at (%.0f,%.0f)\n", frame,
+		m_paneView[ 1 ].getPosition().x, m_paneView[ 1 ].getPosition().y, m_paneView[ 1 ].getZoom(),
+		m_paneGlide[ 1 ].getPosition().x, m_paneGlide[ 1 ].getPosition().y, circle.x, circle.y ));
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2779,6 +2800,20 @@ void ObserverCamera::update( UnsignedInt nowMilliseconds )
 			pickIntroBases();
 		if( m_intro && ( introStarting || frame % DIRECTOR_SCAN_FRAMES == 0 ) )
 			updateIntroPlaces();
+		// pane 1 went out holding the whole screen: the single view takes its camera, its subject and
+		// its glide as they stand, and goes on from there
+		if( m_survivorHandover )
+		{
+			m_survivorHandover = FALSE;
+			TheTacticalView->setLocation( &m_paneView[ 1 ] );
+			TheTacticalView->getLocation( &current );
+			m_mainOffset.x = m_paneGlide[ 1 ].getPosition().x - current.getPosition().x;
+			m_mainOffset.y = m_paneGlide[ 1 ].getPosition().y - current.getPosition().y;
+			m_velocity = m_paneVelocity[ 1 ];
+			m_panesLeftPlace.x = m_paneGlide[ 1 ].getPosition().x;
+			m_panesLeftPlace.y = m_paneGlide[ 1 ].getPosition().y;
+			DEBUG_LOG(( "OBSCAM frame %u panes went out on pane 1, the single view takes its camera\n", frame ));
+		}
 	}
 
 	ViewLocation target;
