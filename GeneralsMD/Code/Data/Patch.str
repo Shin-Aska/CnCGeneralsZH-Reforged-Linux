@@ -220,14 +220,6 @@ GUI:OrderMoveDescription
 "The next click on the ground sends the selected units there. Drag instead and they spread out along the line you draw."
 END
 
-GUI:OrderSearchAndDestroy
-"Search and Destroy"
-END
-
-GUI:OrderSearchAndDestroyDescription
-"Click a spot and the selected units attack move round it, fighting whatever they run into, then stay and guard the whole circle. Roll the mouse wheel before you click to size the circle."
-END
-
 GUI:OrderStanceDefensive
 "Stance: Defensive"
 END

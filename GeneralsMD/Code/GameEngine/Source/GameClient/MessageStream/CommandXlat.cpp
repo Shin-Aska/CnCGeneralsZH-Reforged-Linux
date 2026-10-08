@@ -1624,16 +1624,6 @@ GameMessage::Type CommandTranslator::evaluateContextCommand( Drawable *draw,
 																														 const Coord3D *pos, 
 																														 CommandEvaluateType type )
 {
-	// the search and destroy key sweeps a circle round the point, whatever stands on it
-	if( TheInGameUI->getAreaOrderArmed() != InGameUI::AREA_ORDER_NONE && TheInGameUI->areSelectedObjectsControllable() )
-	{
-		if( type == DO_COMMAND )
-			TheInGameUI->issueAreaSweep( *pos );
-		else if( type == DO_HINT )
-			TheMessageStream->appendMessage( GameMessage::MSG_DO_MOVETO_HINT )->appendLocationArgument( *pos );
-		return type == DO_COMMAND ? GameMessage::MSG_DO_MOVETO : GameMessage::MSG_DO_MOVETO_HINT;
-	}
-
 	Object *obj = draw ? draw->getObject() : NULL;
 	Drawable *drawableInWay = draw;
 

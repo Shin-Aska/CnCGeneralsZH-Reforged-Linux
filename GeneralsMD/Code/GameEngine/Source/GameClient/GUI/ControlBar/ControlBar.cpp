@@ -392,7 +392,7 @@ void ControlBar_orderKeyPlaces( const Int *places, Int count, Bool fights, Int *
 			taken[ places[ slot ] ] = TRUE;
 	taken[ COMMAND_PLACE_ATTACK ] = taken[ COMMAND_PLACE_HOLD ] = taken[ COMMAND_PLACE_MOVE ] = TRUE;
 
-	static const Int OWN[ ORDER_KEY_EXTRAS ] = { COMMAND_PLACE_F, COMMAND_PLACE_H };
+	static const Int OWN[ ORDER_KEY_EXTRAS ] = { COMMAND_PLACE_H };
 	for( Int key = 0; key < ORDER_KEY_EXTRAS; key++ )
 		if( !taken[ OWN[ key ] ] )
 			keys[ key ] = OWN[ key ];
@@ -484,7 +484,7 @@ void ControlBar::pressCommandButton( Int place )
 	if( place < 0 || place >= COMMAND_PLACE_COUNT )
 		return;
 
-	// the page's search and destroy and stance keys stand where no button does
+	// the page's stance key stands where no button does
 	Int keys[ ORDER_KEY_EXTRAS ];
 	getOrderKeyPlaces( keys );
 	for( Int key = 0; key < ORDER_KEY_EXTRAS; key++ )

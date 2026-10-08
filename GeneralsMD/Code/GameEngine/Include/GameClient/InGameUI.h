@@ -1262,9 +1262,9 @@ public:  // ********************************************************************
 	void setForceAttackMode( Bool enabled )		{ m_forceAttackMode = enabled; }
 	void setPreferSelectionMode( Bool enabled )		{ m_preferSelection = enabled; }
 	
-	void toggleAttackMoveToMode( void )				{ m_attackMoveToMode = !m_attackMoveToMode; m_forceAttackArmed = FALSE; m_guardArmed = FALSE; m_moveArmed = FALSE; m_areaOrder = AREA_ORDER_NONE; }
+	void toggleAttackMoveToMode( void )				{ m_attackMoveToMode = !m_attackMoveToMode; m_forceAttackArmed = FALSE; m_guardArmed = FALSE; m_moveArmed = FALSE; }
 	Bool isInAttackMoveToMode( void ) const		{ return m_attackMoveToMode; }
-	void clearAttackMoveToMode( void )				{ m_attackMoveToMode = FALSE; m_forceAttackArmed = FALSE; m_guardArmed = FALSE; m_moveArmed = FALSE; m_areaOrder = AREA_ORDER_NONE; m_orderKeyKeptByShift = FALSE; }
+	void clearAttackMoveToMode( void )				{ m_attackMoveToMode = FALSE; m_forceAttackArmed = FALSE; m_guardArmed = FALSE; m_moveArmed = FALSE; m_orderKeyKeptByShift = FALSE; }
 
 	// an order click with one of the three keys armed spends the key, unless shift is down: then it
 	// stays armed for the next click, so a row of targets is one key and a row of clicks, and it drops
@@ -1274,28 +1274,20 @@ public:  // ********************************************************************
 	// the attack key arms force fire the way the attack move key arms an attack move: the next
 	// order click shoots whatever is under it, ground included, and the mode drops again with the
 	// same call that drops attack move
-	void toggleForceAttackArmed( void )				{ m_forceAttackArmed = !m_forceAttackArmed; m_attackMoveToMode = FALSE; m_guardArmed = FALSE; m_moveArmed = FALSE; m_areaOrder = AREA_ORDER_NONE; }
+	void toggleForceAttackArmed( void )				{ m_forceAttackArmed = !m_forceAttackArmed; m_attackMoveToMode = FALSE; m_guardArmed = FALSE; m_moveArmed = FALSE; }
 	Bool isForceAttackArmed( void ) const			{ return m_forceAttackArmed; }
-	Bool isOrderKeyArmed( void ) const				{ return m_forceAttackArmed || m_attackMoveToMode || m_guardArmed || m_moveArmed || m_areaOrder != AREA_ORDER_NONE; }	///< the next left click is an attack, an attack move, a guard, a move or a sweep
+	Bool isOrderKeyArmed( void ) const				{ return m_forceAttackArmed || m_attackMoveToMode || m_guardArmed || m_moveArmed; }	///< the next left click is an attack, an attack move, a guard or a move
 	Bool isForceFireOn( void ) const;					///< the next order click force fires: the attack key armed it
 
 	// and the guard key arms guard the same way: the next order click posts the selection on that
 	// spot, or on that object, and a drag posts them along the line instead of stacking them all
 	// on one point.  All the armed keys are one mode at a time
-	void toggleGuardArmed( void )							{ m_guardArmed = !m_guardArmed; m_attackMoveToMode = FALSE; m_forceAttackArmed = FALSE; m_moveArmed = FALSE; m_areaOrder = AREA_ORDER_NONE; }
+	void toggleGuardArmed( void )							{ m_guardArmed = !m_guardArmed; m_attackMoveToMode = FALSE; m_forceAttackArmed = FALSE; m_moveArmed = FALSE; }
 	Bool isGuardArmed( void ) const						{ return m_guardArmed; }
 
-	// The search and destroy key (fork) arms a sweep the same way: the next order click is the centre
-	// of a circle, sized with the wheel like a guard's, and the selection attack moves round it and
-	// then guards the whole circle.  It skips the ring's points the player already sees
-	enum AreaOrder { AREA_ORDER_NONE, AREA_ORDER_HUNT };
-	void toggleAreaOrderArmed( AreaOrder order );
-	AreaOrder getAreaOrderArmed( void ) const	{ return m_areaOrder; }
-	void issueAreaSweep( const Coord3D &center );		///< the armed sweep's messages, round `center`
-
 	/** One of the page's keys past attack, hold position and move, an OrderKeyExtra (ControlBar.h),
-		* pressed with the mouse or its grid key: search and destroy arms its sweep, the
-		* stance key puts the selection on the other stance from the first unit's */
+		* pressed with the mouse or its grid key: the stance key puts the selection on the other
+		* stance from the first unit's */
 	void pressOrderKey( Int key );
 
 	// An order that covers a circle around the point it is given on (the guard key, EA's guard
@@ -1308,7 +1300,7 @@ public:  // ********************************************************************
 
 	// the move key arms the order a right click gives, for the left button: the next order click is
 	// that move, and a left drag draws the formation line
-	void toggleMoveArmed( void )							{ m_moveArmed = !m_moveArmed; m_attackMoveToMode = FALSE; m_forceAttackArmed = FALSE; m_guardArmed = FALSE; m_areaOrder = AREA_ORDER_NONE; }
+	void toggleMoveArmed( void )							{ m_moveArmed = !m_moveArmed; m_attackMoveToMode = FALSE; m_forceAttackArmed = FALSE; m_guardArmed = FALSE; }
 	Bool isMoveArmed( void ) const						{ return m_moveArmed; }
 	Bool isLineOrderArmed( void ) const				{ return m_attackMoveToMode || m_guardArmed || m_moveArmed; }	///< a left drag draws a move, attack move or guard line; force fire's left drag is the attack circle
 	
@@ -1655,7 +1647,7 @@ protected:
 	HtmlOverlay *								m_promotionFrontOverlay;		///< the grid's frames, drawn over the promotions
 	HtmlOverlay *								m_cellFrontOverlay[ CELL_GRID_COUNT ];
 	std::vector< HtmlValues >		m_cellFrontCells[ CELL_GRID_COUNT ];	///< each grid's cells as the bar's page last placed them
-	enum { ORDER_KEYS = 5 };																				///< the page's attack, hold position and move keys, then the OrderKeyExtra ones
+	enum { ORDER_KEYS = 4 };																				///< the page's attack, hold position and move keys, then the OrderKeyExtra ones
 	IRegion2D										m_orderKeyCell[ ORDER_KEYS ];					///< where the page last put each, screen pixels
 	Int													m_orderKeyPlace[ ORDER_KEYS ];				///< the CommandPlace each stands on, -1 while it is not shown
 	DisplayString *							m_orderKeyString[ ORDER_KEYS ];				///< each one's letter, on the command buttons' plate
@@ -1942,8 +1934,7 @@ protected:
 	Bool												m_attackMoveToMode;	///< are we in attack move mode?
 	Bool												m_forceAttackArmed;	///< is the attack key holding force fire for the next click?
 	Bool												m_guardArmed;				///< is the guard key holding a guard order for the next click?
-	AreaOrder										m_areaOrder;				///< the sweep the search and destroy key holds for the next click
-	Real												m_areaPickScale;		///< what the wheel has made of the armed area order's default radius
+	Real												m_areaPickScale;		///< what the wheel has made of the armed guard's default radius
 	Bool												m_moveArmed;				///< is the move key holding a move for the next click?
 	Bool												m_orderKeyKeptByShift;	///< an armed key was clicked with under shift, and drops when shift comes up
 	Bool												m_preferSelection;		///< the shift key has been depressed.

@@ -3785,7 +3785,7 @@ TEST(controlbar_command_places_go_in_rows_by_what_they_are_for)
 		CHECK_EQ( places[ slot ], manyPlaces[ slot ] );
 }
 
-TEST(controlbar_hunt_and_stance_keys_take_what_the_buttons_leave)
+TEST(controlbar_stance_key_takes_what_the_buttons_leave)
 {
 	enum { SLOTS = 14 };
 	Int places[ SLOTS ];
@@ -3793,34 +3793,30 @@ TEST(controlbar_hunt_and_stance_keys_take_what_the_buttons_leave)
 	const Int N = GUI_COMMAND_NONE, ab = COMMAND_GROUP_ABILITY, pa = COMMAND_GROUP_PASSENGER;
 	const Int nothingPinned[ SLOTS ] = { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
 
-	/* a Ranger: two abilities, attack move, guard, stop.  Search and destroy on F and the stance on H,
-	   their own places */
+	/* a Ranger: two abilities, attack move, guard, stop.  The stance on H, its own place */
 	const Int ranger[ SLOTS ] = { GUI_COMMAND_FIRE_WEAPON, GUI_COMMAND_SPECIAL_POWER, N, N, N, N, N, N, N, N,
 		GUI_COMMAND_ATTACK_MOVE, N, GUI_COMMAND_GUARD, GUI_COMMAND_STOP };
 	const Int rangerGroups[ SLOTS ] = { ab, ab, ab, ab, ab, ab, ab, ab, ab, ab, ab, ab, ab, ab };
 	Bool fights = ControlBar_commandPlaces( ranger, rangerGroups, nothingPinned, SLOTS, places );
 	CHECK( fights );
 	ControlBar_orderKeyPlaces( places, SLOTS, fights, keys );
-	CHECK_EQ( keys[ ORDER_KEY_HUNT ], (Int)COMMAND_PLACE_F );
 	CHECK_EQ( keys[ ORDER_KEY_STANCE ], (Int)COMMAND_PLACE_H );
 
 	/* the Humvee's set, as in the test above: passengers hold F G H B N and the drones Q W E, so the
-	   two go on in reading order, R T, and never move a button */
+	   stance goes on in reading order, R, and never moves a button */
 	const Int humvee[ SLOTS ] = { GUI_COMMAND_OBJECT_UPGRADE, GUI_COMMAND_OBJECT_UPGRADE, GUI_COMMAND_OBJECT_UPGRADE,
 		GUI_COMMAND_EXIT_CONTAINER, GUI_COMMAND_EXIT_CONTAINER, GUI_COMMAND_EXIT_CONTAINER, GUI_COMMAND_EXIT_CONTAINER,
 		GUI_COMMAND_EXIT_CONTAINER, GUI_COMMAND_EVACUATE, N, GUI_COMMAND_ATTACK_MOVE, N, GUI_COMMAND_GUARD, GUI_COMMAND_STOP };
 	const Int humveeGroups[ SLOTS ] = { ab, ab, ab, pa, pa, pa, pa, pa, ab, ab, ab, ab, ab, ab };
 	fights = ControlBar_commandPlaces( humvee, humveeGroups, nothingPinned, SLOTS, places );
 	ControlBar_orderKeyPlaces( places, SLOTS, fights, keys );
-	CHECK_EQ( keys[ ORDER_KEY_HUNT ], (Int)COMMAND_PLACE_R );
-	CHECK_EQ( keys[ ORDER_KEY_STANCE ], (Int)COMMAND_PLACE_T );
+	CHECK_EQ( keys[ ORDER_KEY_STANCE ], (Int)COMMAND_PLACE_R );
 
-	/* a Radar Van: a scan and an upgrade, nothing to attack move with, so neither key */
+	/* a Radar Van: a scan and an upgrade, nothing to attack move with, so no stance key */
 	const Int van[ SLOTS ] = { GUI_COMMAND_SPECIAL_POWER, GUI_COMMAND_OBJECT_UPGRADE, N, N, N, N, N, N, N, N, N, N, N, GUI_COMMAND_STOP };
 	fights = ControlBar_commandPlaces( van, rangerGroups, nothingPinned, SLOTS, places );
 	CHECK( !fights );
 	ControlBar_orderKeyPlaces( places, SLOTS, fights, keys );
-	CHECK_EQ( keys[ ORDER_KEY_HUNT ], -1 );
 	CHECK_EQ( keys[ ORDER_KEY_STANCE ], -1 );
 
 	/* a grid with no room: every key stays off it */
@@ -3830,35 +3826,6 @@ TEST(controlbar_hunt_and_stance_keys_take_what_the_buttons_leave)
 	ControlBar_orderKeyPlaces( full, COMMAND_PLACE_COUNT, TRUE, keys );
 	for( Int key = 0; key < ORDER_KEY_EXTRAS; key++ )
 		CHECK_EQ( keys[ key ], -1 );
-}
-
-/* The search and destroy key walks a ring at seven tenths of the circle, starting on the
-   side the selection stands and going round clockwise, four to eight points by size, never off the map. */
-TEST(sweep_points_go_round_the_ring_from_the_selection_side)
-{
-	std::vector<Coord3D> points;
-	sweepPoints( 1000.0f, 1000.0f, 300.0f, 1000.0f, 0.0f, 0.0f, 0.0f, 4000.0f, 4000.0f, points );
-	CHECK_EQ( (Int)points.size(), 5 );		// 2 pi 210 / 300 is 4.4
-	CHECK_NEAR( points[ 0 ].x, 1000.0f, 0.01f );
-	CHECK_NEAR( points[ 0 ].y, 790.0f, 0.01f );
-	// clockwise from six o'clock is towards nine
-	CHECK( points[ 1 ].x < 1000.0f - 150.0f );
-	for( size_t i = 0; i < points.size(); i++ )
-	{
-		const Real dx = points[ i ].x - 1000.0f, dy = points[ i ].y - 1000.0f;
-		CHECK_NEAR( (Real)sqrt( dx * dx + dy * dy ), 210.0f, 0.5f );
-	}
-
-	sweepPoints( 1000.0f, 1000.0f, 50.0f, 1000.0f, 1000.0f, 0.0f, 0.0f, 4000.0f, 4000.0f, points );
-	CHECK_EQ( (Int)points.size(), 4 );
-	CHECK_NEAR( points[ 0 ].x, 1035.0f, 0.01f );		// standing on the centre starts east
-	sweepPoints( 1000.0f, 1000.0f, 800.0f, 0.0f, 0.0f, 0.0f, 0.0f, 4000.0f, 4000.0f, points );
-	CHECK_EQ( (Int)points.size(), 8 );
-
-	// a circle on the map's corner keeps every point on the map
-	sweepPoints( 50.0f, 50.0f, 400.0f, 500.0f, 500.0f, 0.0f, 0.0f, 4000.0f, 4000.0f, points );
-	for( size_t i = 0; i < points.size(); i++ )
-		CHECK( points[ i ].x >= 0.0f && points[ i ].y >= 0.0f );
 }
 
 /* The money plate follows its figure's width: wider at once, narrower only once the narrower figure
@@ -15899,18 +15866,13 @@ TEST(scenario_parses_the_order_lines)
 	CHECK_STR( action.selector.str(), "ChinaGattlingCannon" );
 	CHECK_EQ( (Int)ScenarioDrill_parseLine( "1800 tally 1", &action ), (Int)SCENARIO_PARSE_MISSING_ARGS );
 
-	// the stance key, and the sweep with the key's own circle unless the line sizes it
+	// the stance key
 	CHECK_EQ( (Int)ScenarioDrill_parseLine( "60 stance 0 AmericaTankCrusader aggressive", &action ), (Int)SCENARIO_PARSE_OK );
 	CHECK_EQ( (Int)action.action, (Int)SCENARIO_ACTION_STANCE );
 	CHECK_STR( action.name.str(), "aggressive" );
 	CHECK_EQ( (Int)ScenarioDrill_parseLine( "60 stance 0 * bold", &action ), (Int)SCENARIO_PARSE_BAD_ACTION );
 	CHECK_EQ( (Int)ScenarioDrill_parseLine( "60 stance 0 *", &action ), (Int)SCENARIO_PARSE_MISSING_ARGS );
-	CHECK_EQ( (Int)ScenarioDrill_parseLine( "60 hunt 0 * 900 700", &action ), (Int)SCENARIO_PARSE_OK );
-	CHECK_EQ( (Int)action.action, (Int)SCENARIO_ACTION_HUNT );
-	CHECK( action.radius == 300.0f );
-	CHECK_EQ( (Int)ScenarioDrill_parseLine( "60 hunt 0 * 900 700 450", &action ), (Int)SCENARIO_PARSE_OK );
-	CHECK_EQ( (Int)action.action, (Int)SCENARIO_ACTION_HUNT );
-	CHECK( action.radius == 450.0f );
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "60 hunt 0 * 900 700", &action ), (Int)SCENARIO_PARSE_BAD_ACTION );
 
 	CHECK_EQ( (Int)ScenarioDrill_parseLine( "700 power 1 GLAScudStorm start0:0:300", &action ),
 						(Int)SCENARIO_PARSE_OK );

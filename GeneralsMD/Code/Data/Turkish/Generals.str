@@ -14829,14 +14829,6 @@ GUI:OrderMoveDescription
 "Zemine bir sonraki tıklama seçili birlikleri oraya gönderir. Bunun yerine sürüklerseniz birlikler çizdiğiniz çizgi boyunca dizilir."
 END
 
-GUI:OrderSearchAndDestroy
-"Ara ve Yok Et"
-END
-
-GUI:OrderSearchAndDestroyDescription
-"Bir noktaya tıklayın; seçili birlikler çevresinde saldırarak ilerler, karşılarına çıkanla savaşır, sonra kalıp bütün daireyi korur. Daireyi boyutlandırmak için tıklamadan önce fare tekerleğini çevirin."
-END
-
 GUI:OrderStanceDefensive
 "Tutum: Savunmacı"
 END

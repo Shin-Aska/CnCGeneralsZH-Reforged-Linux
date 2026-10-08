@@ -430,12 +430,9 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 			}
 
 			// with attack move or guard armed a left drag draws the order line over in CommandXlat, so
-			// no selection box grows under it.  Search and destroy has no line to draw, and its drag
-			// is no box either: the key stays armed for the click that aims it
-			// Classic draws no lines: its left drag is always the box
+			// no selection box grows under it.  Classic draws no lines: its left drag is always the box
 			const Bool leftDragIsOrder = !TheGlobalData->isClassicUI()
-																	&& (TheInGameUI->isLineOrderArmed()
-																		|| TheInGameUI->getAreaOrderArmed() != InGameUI::AREA_ORDER_NONE)
+																	&& TheInGameUI->isLineOrderArmed()
 																	 && TheInGameUI->getSelectCount() > 0;
 			if (m_leftMouseButtonIsDown && !leftDragIsOrder)
 			{

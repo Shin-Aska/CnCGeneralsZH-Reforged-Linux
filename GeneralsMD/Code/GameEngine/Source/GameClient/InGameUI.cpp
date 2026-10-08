@@ -1355,7 +1355,6 @@ InGameUI::InGameUI()
 	m_attackMoveToMode	= false;
 	m_forceAttackArmed	= false;
 	m_guardArmed				= false;
-	m_areaOrder					= AREA_ORDER_NONE;
 	m_areaPickScale			= 1.0f;
 	m_moveArmed					= false;
 	m_orderKeyKeptByShift	= false;
@@ -4391,7 +4390,6 @@ void InGameUI::reset( void )
 	m_attackMoveToMode	= false;
 	m_forceAttackArmed	= false;
 	m_guardArmed				= false;
-	m_areaOrder					= AREA_ORDER_NONE;
 	m_areaPickScale			= 1.0f;
 	m_moveArmed					= false;
 	m_orderKeyKeptByShift	= false;
@@ -7086,8 +7084,6 @@ void InGameUI::createCommandHint( const GameMessage *msg )
 					{
 						if( !drawSelectable && srcObj && srcObj->isLocallyControlled() && srcObj->isKindOf(KINDOF_STRUCTURE))
 							setMouseCursor( Mouse::GENERIC_INVALID );
-						else if( m_areaOrder != AREA_ORDER_NONE )
-							setMouseCursor( Mouse::CROSS );	// a sweep circles the point whatever stands on it, own units included
 						else if( drawSelectable && obj->isLocallyControlled() && !obj->isKindOf(KINDOF_MINE))
 							setMouseCursor( Mouse::SELECTING );
 						else if( TheRadar->isRadarWindow( window ) &&
@@ -7841,11 +7837,9 @@ void InGameUI::adjustPlacementRowGap( Real spin )
 
 static const Real AREA_PICK_RADIUS_MIN = 50.0f;
 static const Real AREA_PICK_STEP = 1.15f;		///< what one notch of the wheel multiplies the radius by
-static const Real AREA_SWEEP_RADIUS = 300.0f;	///< a search and destroy's circle before the wheel
 
 //-------------------------------------------------------------------------------------------------
-/** The guard key, the search and destroy key, or one of EA's guard buttons waiting for
-	* its click. */
+/** The guard key, or one of EA's guard buttons waiting for its click. */
 //-------------------------------------------------------------------------------------------------
 Bool InGameUI::isAreaPicking( void ) const
 {
@@ -7853,7 +7847,7 @@ Bool InGameUI::isAreaPicking( void ) const
 	if( TheGlobalData->isClassicUI() )
 		return FALSE;
 
-	if( m_guardArmed || m_areaOrder != AREA_ORDER_NONE )
+	if( m_guardArmed )
 		return TRUE;
 
 	const CommandButton *command = m_pendingGUICommand;
@@ -7865,14 +7859,10 @@ Bool InGameUI::isAreaPicking( void ) const
 //-------------------------------------------------------------------------------------------------
 /** The radius the armed order starts from before the wheel touches it.  A guard used to cover
 	* each unit's own vision, so riflemen and rocket troops on one spot held two different circles;
-	* the whole selection now takes the widest of them.  A sweep's circle is the ground to cover, which
-	* has nothing to do with how far its units see, so it starts the same for every selection. */
+	* the whole selection now takes the widest of them. */
 //-------------------------------------------------------------------------------------------------
-static Real areaPickBaseRadius( const DrawableList& selected, Bool sweeping )
+static Real areaPickBaseRadius( const DrawableList& selected )
 {
-	if( sweeping )
-		return AREA_SWEEP_RADIUS;
-
 	Real widest = 0.0f;
 	for( DrawableList::const_iterator it = selected.begin(); it != selected.end(); ++it )
 	{
@@ -7886,7 +7876,7 @@ static Real areaPickBaseRadius( const DrawableList& selected, Bool sweeping )
 //-------------------------------------------------------------------------------------------------
 Real InGameUI::getAreaPickRadius( void ) const
 {
-	const Real radius = areaPickBaseRadius( m_selectedDrawables, m_areaOrder != AREA_ORDER_NONE ) * m_areaPickScale;
+	const Real radius = areaPickBaseRadius( m_selectedDrawables ) * m_areaPickScale;
 	return min( max( radius, AREA_PICK_RADIUS_MIN ), GUARD_RADIUS_MAX );
 }
 
@@ -7897,23 +7887,12 @@ Real InGameUI::getAreaPickRadius( void ) const
 //-------------------------------------------------------------------------------------------------
 void InGameUI::adjustAreaPickRadius( Real notches )
 {
-	const Real base = areaPickBaseRadius( m_selectedDrawables, m_areaOrder != AREA_ORDER_NONE );
+	const Real base = areaPickBaseRadius( m_selectedDrawables );
 	if( base <= 0.0f )
 		return;
 
 	m_areaPickScale *= (Real)pow( AREA_PICK_STEP, notches );
 	m_areaPickScale = min( max( m_areaPickScale, AREA_PICK_RADIUS_MIN / base ), GUARD_RADIUS_MAX / base );
-}
-
-//-------------------------------------------------------------------------------------------------
-void InGameUI::toggleAreaOrderArmed( AreaOrder order )
-{
-	m_areaOrder = ( m_areaOrder == order ) ? AREA_ORDER_NONE : order;
-	m_areaPickScale = 1.0f;
-	m_attackMoveToMode = FALSE;
-	m_forceAttackArmed = FALSE;
-	m_guardArmed = FALSE;
-	m_moveArmed = FALSE;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -7935,60 +7914,11 @@ static Bool isSelectionAggressive( void )
 //-------------------------------------------------------------------------------------------------
 void InGameUI::pressOrderKey( Int key )
 {
-	if( key == ORDER_KEY_HUNT )
-		toggleAreaOrderArmed( AREA_ORDER_HUNT );
-	else if( key == ORDER_KEY_STANCE && getSelectCount() > 0 )
+	if( key == ORDER_KEY_STANCE && getSelectCount() > 0 )
 	{
 		GameMessage *stance = TheMessageStream->appendMessage( GameMessage::MSG_SET_STANCE );
 		stance->appendIntegerArgument( isSelectionAggressive() ? 0 : 1 );
 	}
-}
-
-//-------------------------------------------------------------------------------------------------
-/** The ring is walked from the point nearest the selection, each point an order of its own on the
-	* units' list (OrderQueue.h): the first replaces what they were doing, unless shift puts the whole
-	* sweep behind it.  Search and destroy attack moves the ring, so it fights what it meets, and
-	* ends guarding the circle it was given. */
-//-------------------------------------------------------------------------------------------------
-void InGameUI::issueAreaSweep( const Coord3D &center )
-{
-	const DrawableList *selected = getAllSelectedLocalDrawables();
-	Coord3D from;
-	from.zero();
-	Int count = 0;
-	for( DrawableListCIt it = selected->begin(); it != selected->end(); ++it )
-	{
-		const Object *obj = (*it)->getObject();
-		if( obj == NULL )
-			continue;
-		from.x += obj->getPosition()->x;
-		from.y += obj->getPosition()->y;
-		count++;
-	}
-	if( count == 0 )
-		return;
-	from.x /= count;
-	from.y /= count;
-
-	const Real radius = getAreaPickRadius();
-	std::vector<Coord3D> route;
-	sweepRoute( ThePlayerList->getLocalPlayer()->getPlayerIndex(), center, radius, from, route );
-
-	const GameMessage::Type step = GameMessage::MSG_DO_ATTACKMOVETO;
-	for( size_t i = 0; i < route.size(); i++ )
-	{
-		markNextOrderQueued( ( i == 0 && !isInWaypointMode() ) ? ORDER_QUEUE_FRESH : ORDER_QUEUE_APPEND );
-		TheMessageStream->appendMessage( step )->appendLocationArgument( route[ i ] );
-	}
-	markNextOrderQueued( ORDER_QUEUE_APPEND );
-	GameMessage *guard = TheMessageStream->appendMessage( GameMessage::MSG_DO_GUARD_POSITION );
-	guard->appendLocationArgument( center );
-	guard->appendIntegerArgument( GUARDMODE_NORMAL );
-	guard->appendRealArgument( radius );
-
-	pickAndPlayUnitVoiceResponse( selected, step );
-	DEBUG_LOG(( "area sweep: hunt round (%.0f,%.0f) radius %.0f, %d points, %d units\n",
-							center.x, center.y, radius, (Int)route.size(), count ));
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -13096,8 +13026,7 @@ static void armSignalFromPage( const std::string &kind )
 //-------------------------------------------------------------------------------------------------
 /** data-click="order:attack", "order:hold" or "order:move", the command panel's orders no command set
 	* has a button for: what the A, C and V keys do, force fire armed for the next click, hold position,
-	* and a move armed for the next click.  "order:hunt" and "order:stance" are the keys after them,
-	* pressOrderKey's. */
+	* and a move armed for the next click.  "order:stance" is the key after them, pressOrderKey's. */
 //-------------------------------------------------------------------------------------------------
 static void orderFromPage( const std::string &order )
 {
@@ -13105,8 +13034,6 @@ static void orderFromPage( const std::string &order )
 		TheInGameUI->toggleForceAttackArmed();
 	else if( order == "move" )
 		TheInGameUI->toggleMoveArmed();
-	else if( order == "hunt" )
-		TheInGameUI->pressOrderKey( ORDER_KEY_HUNT );
 	else if( order == "stance" )
 		TheInGameUI->pressOrderKey( ORDER_KEY_STANCE );
 	else if( order == "hold" && TheInGameUI->getSelectCount() > 0 )
@@ -14034,7 +13961,7 @@ Bool InGameUI::drawControlBarPage( const IRegion2D *panels, const Bool *shown, I
 	// attack, hold position and move have no button in any command set: the page's keys do what A, C
 	// and V do, for anything that attack moves
 	taken[ COMMAND_PLACE_ATTACK ] = taken[ COMMAND_PLACE_HOLD ] = taken[ COMMAND_PLACE_MOVE ] = fights;
-	// and search and destroy and the stance key wherever there is room for them
+	// and the stance key wherever there is room for it
 	Int extraKeys[ ORDER_KEY_EXTRAS ];
 	TheControlBar->getOrderKeyPlaces( extraKeys );
 	for( Int key = 0; key < ORDER_KEY_EXTRAS; key++ )
@@ -14171,9 +14098,9 @@ Bool InGameUI::drawControlBarPage( const IRegion2D *panels, const Bool *shown, I
 		if( where[ button ] >= 0 )
 			TheControlBar->placeWindowAt( numberedWindow( "ButtonCommand", button + 1 ), place[ where[ button ] ] );
 	// the page's own keys; their letters are drawCellGridFront's, on the command buttons' own plate
-	static const char *const ORDER_KEY_NAMES[ ORDER_KEYS ] = { "attackkey", "holdkey", "movekey", "huntkey", "stancekey" };
+	static const char *const ORDER_KEY_NAMES[ ORDER_KEYS ] = { "attackkey", "holdkey", "movekey", "stancekey" };
 	const Int orderKeyPlaces[ ORDER_KEYS ] = { fights ? COMMAND_PLACE_ATTACK : -1, fights ? COMMAND_PLACE_HOLD : -1,
-		fights ? COMMAND_PLACE_MOVE : -1, extraKeys[ ORDER_KEY_HUNT ], extraKeys[ ORDER_KEY_STANCE ] };
+		fights ? COMMAND_PLACE_MOVE : -1, extraKeys[ ORDER_KEY_STANCE ] };
 	for( Int key = 0; key < ORDER_KEYS; key++ )
 	{
 		m_orderKeyPlace[ key ] = centreShown ? orderKeyPlaces[ key ] : -1;
@@ -16717,11 +16644,11 @@ Bool InGameUI::drawTooltipPage( const UnicodeString &cursorText, const RGBColor 
 	const ICoord2D &mouse = TheMouse->getMouseStatus()->pos;
 	const BuildTooltipCard *card = TheControlBar->getBuildTooltipCard();
 
-	// the attack, hold position and move keys and the two after them are the page's own, with no
+	// the attack, hold position and move keys and the stance key after them are the page's own, with no
 	// window behind them for the bar's tooltip to find, so their cards are made here and stand on the
 	// console as a button's does.  The stance key's card names the stance the selection is on
 	static const char *const ORDER_KEY_LABELS[ ORDER_KEYS ] = { "GUI:OrderForceAttack", "GUI:OrderHoldPosition", "GUI:OrderMove",
-		"GUI:OrderSearchAndDestroy", "GUI:OrderStanceDefensive" };
+		"GUI:OrderStanceDefensive" };
 	BuildTooltipCard orderCard = BuildTooltipCard();
 	if( m_controlBarPageShown && !areTooltipsDisabled() && !isQuitMenuVisible() )
 	{
