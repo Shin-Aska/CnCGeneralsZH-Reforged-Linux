@@ -10540,15 +10540,11 @@ static const char *const BROADCAST_NUMBERS = "Consolas";
 static const Real BROADCAST_ROWS = 720.0f;
 static const Int BROADCAST_NAME_POINTS = 11;
 static const Int BROADCAST_COMPACT_POINTS = 8;
-/// a column with more rows than this, totals counted, sets its rows compact
-static const Int BROADCAST_FULL_ROWS = 3;
 static const Int BROADCAST_SIDE_POINTS = 9;
 static const Int BROADCAST_HEAD_POINTS = 7;
 static const Int BROADCAST_CLOCK_POINTS = 16;
 static const Real BROADCAST_PAD = 8.0f;
 static const Real BROADCAST_GAP = 10.0f;
-static const Real BROADCAST_SWATCH = 4.0f;
-static const Real BROADCAST_ROW_GAP = 3.0f;
 static const Real BROADCAST_RULE = 2.0f;
 static const Real BROADCAST_TUG = 6.0f;
 static const Int THOUSANDS = 3;
@@ -10694,7 +10690,7 @@ DisplayString *InGameUI::broadcastText( const std::string &key, const UnicodeStr
 	return string;
 }
 
-/// one player's row of the score bar
+/// one player's card of the score bar
 struct BroadcastRow
 {
 	const SpectatorStats *stats;
@@ -10705,13 +10701,22 @@ struct BroadcastRow
 	DisplayString *army;
 };
 
+/// the score bar's sizes, largest first, in 720 line points and pixels: a row of cards takes the first
+/// that fits the screen's width
+static const Int BROADCAST_CARD_STEPS = 4;
+static const Int BROADCAST_CARD_NAME_POINTS[ BROADCAST_CARD_STEPS ] = { 11, 10, 9, 8 };
+static const Int BROADCAST_CARD_DETAIL_POINTS[ BROADCAST_CARD_STEPS ] = { 9, 8, 8, 7 };
+static const Real BROADCAST_CARD_PAD[ BROADCAST_CARD_STEPS ] = { 6.0f, 5.0f, 4.0f, 3.0f };
+/// the house colour along a card's top
+static const Real BROADCAST_CARD_STRIP = 3.0f;
+
 //-------------------------------------------------------------------------------------------------
-/** The score bar hangs from the top edge in the middle: the match clock in a box of its own, one row a
-	* player either side of it, the swatch of his colour and his name on the outside, his side, then his
-	* cash and the cost of everything he has standing that is not a building nearest the clock.  Two
-	* teams face each other across it; in a free for all the first half of the list is on the left.
-	* Under the rows the armies pull on one bar: the left's from the left edge, the right's from the
-	* right, each player his colour, gold at the middle so the side ahead is the one past it.  While
+/** The score bar hangs from the top edge in the middle: the match clock in a tab of its own, and under
+	* it every side in one row, "Team A vs Team B vs a player alone", a card a player with his name in
+	* his colour, his general or difficulty, his cash and the cost of everything he has standing that is
+	* not a building.  A team's cards sit together under its name and its armies' total.  Under the row
+	* the armies pull on one bar, each player his colour in the cards' order, gold at the middle when
+	* two sides play so the side ahead is the one past it.  While
 	* a split is up each pane carries a plate in the top of its circle, inside its wedge and clear of
 	* the lines and the radar, naming the fight's players.
 	* Everything is read off the players and their objects; nothing here writes the logic. */
@@ -10727,14 +10732,11 @@ void InGameUI::drawDirectorBroadcast( void )
 		{ return a.team != b.team ? a.team < b.team : a.player->getPlayerIndex() < b.player->getPlayerIndex(); } );
 
 	const Int pad = broadcastPixels( BROADCAST_PAD );
-	const Int gap = broadcastPixels( BROADCAST_GAP );
-	const Int swatch = broadcastPixels( BROADCAST_SWATCH );
-	const Int rowGap = broadcastPixels( BROADCAST_ROW_GAP );
 	const Int rule = broadcastPixels( BROADCAST_RULE );
 	const Int tug = broadcastPixels( BROADCAST_TUG );
 
-	// a block is one side: a team, or a player on his own.  Two face each other; more are dealt to the
-	// two columns whole, so teammates stay together, and a team of two or more has a row of its total
+	// a block is one side: a team, or a player on his own, its players' cards side by side and a "vs"
+	// between two blocks
 	std::vector< Int > blockFirst, blockSizes, blockArmies;
 	for( size_t index = 0; index < players.size(); index++ )
 	{
@@ -10748,206 +10750,198 @@ void InGameUI::drawDirectorBroadcast( void )
 		blockArmies.back() += players[ index ].army;
 	}
 	const Int blocks = (Int)blockSizes.size();
-	const std::vector< Int > columns = ObserverCamera_blockColumns( blockSizes );
-	// a column of more than three rows goes compact, smaller and without the side column: four rows
-	// a side and a total at full size took a third of a 720 row picture
-	Int columnRows[ 2 ] = { 0, 0 };
-	for( Int block = 0; block < blocks; block++ )
-		columnRows[ columns[ block ] ] += blockSizes[ block ] + ( blockSizes[ block ] >= 2 ? 1 : 0 );
-	const Bool compact = max( columnRows[ 0 ], columnRows[ 1 ] ) > BROADCAST_FULL_ROWS;
-	const std::string size = compact ? "compact" : "";
-	const Int rowPoints = broadcastPoints( compact ? BROADCAST_COMPACT_POINTS : BROADCAST_NAME_POINTS );
 
-	std::vector< BroadcastRow > rows;
-	Int nameWidth = 0, sideWidth = 0, cashWidth = 0, armyWidth = 0, rowHeight = 0;
-	for( size_t index = 0; index < players.size(); index++ )
-	{
-		const SpectatorStats &stats = players[ index ];
-		const std::string seat = size + std::to_string( stats.player->getPlayerIndex() );
-		BroadcastRow row;
-		row.stats = &stats;
-		row.color = clientPlayerColor( stats.player );
-		row.name = broadcastText( "name" + seat, broadcastName( stats.player ), BROADCAST_WORDS, rowPoints, TRUE );
-		row.side = broadcastText( "side" + seat, compact ? UnicodeString::TheEmptyString : broadcastSide( stats.player ), BROADCAST_WORDS,
-			broadcastPoints( BROADCAST_SIDE_POINTS ), FALSE );
-		row.cash = broadcastText( "cash" + seat, broadcastNumber( "$", stats.cash ), BROADCAST_NUMBERS, rowPoints, TRUE );
-		row.army = broadcastText( "army" + seat, broadcastNumber( "", stats.army ), BROADCAST_NUMBERS, rowPoints, TRUE );
-		Int width = 0, height = 0;
-		row.name->getSize( &width, &height );
-		nameWidth = max( nameWidth, width );
-		rowHeight = max( rowHeight, height );
-		row.side->getSize( &width, &height );
-		sideWidth = max( sideWidth, width );
-		row.cash->getSize( &width, &height );
-		cashWidth = max( cashWidth, width );
-		rowHeight = max( rowHeight, height );
-		row.army->getSize( &width, &height );
-		armyWidth = max( armyWidth, width );
-		rows.push_back( row );
-	}
-
-	// each team's name and its army's total; the total is measured into the army column
+	// every card's text at a size, and the card width it needs: the widest of the name, the general or
+	// difficulty, a label and a six digit number, and a team header spread over its block's cards.
+	// Each size keeps strings of its own, since a string keeps the font it was made with
+	std::vector< BroadcastRow > rows( players.size() );
 	std::vector< DisplayString * > teamNames( blocks, NULL ), teamTotals( blocks, NULL );
-	Int totalHeight = 0;
-	for( Int block = 0; block < blocks; block++ )
+	DisplayString *cashHead = NULL;
+	DisplayString *armyHead = NULL;
+	DisplayString *versusText = NULL;
+	auto buildCards = [ & ]( Int step ) -> Int
 	{
-		if( blockSizes[ block ] < 2 )
-			continue;
-		const std::string key = size + std::to_string( block );
-		const Int totalPoints = broadcastPoints( compact ? BROADCAST_COMPACT_POINTS : BROADCAST_SIDE_POINTS );
-		teamNames[ block ] = broadcastText( "teamname" + key, broadcastTeamName( players, players[ blockFirst[ block ] ].team ), BROADCAST_WORDS,
-			totalPoints, TRUE );
-		teamTotals[ block ] = broadcastText( "teamtotal" + key, broadcastNumber( "", blockArmies[ block ] ), BROADCAST_NUMBERS, totalPoints, TRUE );
-		Int width = 0, height = 0;
-		teamNames[ block ]->getSize( &width, &height );
-		totalHeight = max( totalHeight, height );
-		teamTotals[ block ]->getSize( &width, &height );
-		armyWidth = max( armyWidth, width );
-		totalHeight = max( totalHeight, height );
+		const std::string size = "card" + std::to_string( step ) + ":";
+		const Int cardPad = broadcastPixels( BROADCAST_CARD_PAD[ step ] );
+		const Int namePoints = broadcastPoints( BROADCAST_CARD_NAME_POINTS[ step ] );
+		const Int detailPoints = broadcastPoints( BROADCAST_CARD_DETAIL_POINTS[ step ] );
+		const Int labelPoints = broadcastPoints( BROADCAST_HEAD_POINTS );
+		cashHead = broadcastText( size + "cashhead", TheGameText->fetch( "GUI:HudStatCash" ), BROADCAST_WORDS, labelPoints, FALSE );
+		armyHead = broadcastText( size + "armyhead", TheGameText->fetch( "GUI:HudStatArmy" ), BROADCAST_WORDS, labelPoints, FALSE );
+		versusText = broadcastText( size + "versus", UnicodeString( u"vs" ), BROADCAST_WORDS, detailPoints, FALSE );
+		DisplayString *widest = broadcastText( size + "widest", broadcastNumber( "$", BROADCAST_WIDEST ), BROADCAST_NUMBERS, detailPoints, TRUE );
+		Int width = 0, height = 0, labelWidth = 0, widestWidth = 0;
+		cashHead->getSize( &labelWidth, &height );
+		armyHead->getSize( &width, &height );
+		labelWidth = max( labelWidth, width );
+		widest->getSize( &widestWidth, &height );
+		Int content = labelWidth + cardPad + widestWidth;
+		for( size_t index = 0; index < players.size(); index++ )
+		{
+			const SpectatorStats &stats = players[ index ];
+			const std::string seat = size + std::to_string( stats.player->getPlayerIndex() );
+			BroadcastRow &row = rows[ index ];
+			row.stats = &stats;
+			row.color = clientPlayerColor( stats.player );
+			row.name = broadcastText( "name" + seat, broadcastName( stats.player ), BROADCAST_WORDS, namePoints, TRUE );
+			row.side = broadcastText( "side" + seat, broadcastSide( stats.player ), BROADCAST_WORDS, detailPoints, FALSE );
+			row.cash = broadcastText( "cash" + seat, broadcastNumber( "$", stats.cash ), BROADCAST_NUMBERS, detailPoints, TRUE );
+			row.army = broadcastText( "army" + seat, broadcastNumber( "$", stats.army ), BROADCAST_NUMBERS, detailPoints, TRUE );
+			row.name->getSize( &width, &height );
+			content = max( content, width );
+			row.side->getSize( &width, &height );
+			content = max( content, width );
+		}
+		for( Int block = 0; block < blocks; block++ )
+		{
+			if( blockSizes[ block ] < 2 )
+				continue;
+			const std::string key = size + std::to_string( block );
+			teamNames[ block ] = broadcastText( "teamname" + key, broadcastTeamName( players, players[ blockFirst[ block ] ].team ), BROADCAST_WORDS,
+				detailPoints, TRUE );
+			teamTotals[ block ] = broadcastText( "teamtotal" + key, broadcastNumber( "$", blockArmies[ block ] ), BROADCAST_NUMBERS, detailPoints, TRUE );
+			// the total measured as six digits, as the cards' numbers are, so the width holds still
+			Int nameWidth = 0;
+			teamNames[ block ]->getSize( &nameWidth, &height );
+			const Int header = nameWidth + cardPad + widestWidth;
+			const Int cards = blockSizes[ block ];
+			content = max( content, ( header - ( cards - 1 ) * cardPad + cards - 1 ) / cards - 2 * cardPad );
+		}
+		return content + 2 * cardPad;
+	};
+
+	// the largest size whose row fits the screen less the bar's padding; past the smallest the cards are
+	// cut to fit, so the bar never runs off the picture
+	Int cardWidths[ BROADCAST_CARD_STEPS ], cardGaps[ BROADCAST_CARD_STEPS ], versusWidths[ BROADCAST_CARD_STEPS ];
+	for( Int step = 0; step < BROADCAST_CARD_STEPS; step++ )
+	{
+		cardWidths[ step ] = buildCards( step );
+		cardGaps[ step ] = broadcastPixels( BROADCAST_CARD_PAD[ step ] );
+		Int versusWidth = 0, versusHeight = 0;
+		versusText->getSize( &versusWidth, &versusHeight );
+		versusWidths[ step ] = versusWidth + 4 * cardGaps[ step ];
+	}
+	const Int room = (Int)TheDisplay->getWidth() - 4 * pad;
+	const Int step = ObserverCamera_cardStep( blockSizes, cardWidths, cardGaps, versusWidths, BROADCAST_CARD_STEPS, room );
+	buildCards( step );
+	const Int cardPad = cardGaps[ step ];
+	const Int versusWidth = versusWidths[ step ];
+	std::vector< Int > cardLefts, blockLefts;
+	Int cardWidth = cardWidths[ step ];
+	Int rowWidth = ObserverCamera_cardRow( blockSizes, cardWidth, cardPad, versusWidth, &cardLefts, &blockLefts );
+	if( rowWidth > room )
+	{
+		cardWidth = ObserverCamera_cardWidthIn( blockSizes, cardPad, versusWidth, room );
+		rowWidth = ObserverCamera_cardRow( blockSizes, cardWidth, cardPad, versusWidth, &cardLefts, &blockLefts );
 	}
 
-	DisplayString *cashHead = broadcastText( "cashhead", TheGameText->fetch( "GUI:HudStatCash" ), BROADCAST_NUMBERS,
-		broadcastPoints( BROADCAST_HEAD_POINTS ), FALSE );
-	DisplayString *armyHead = broadcastText( "armyhead", TheGameText->fetch( "GUI:HudStatArmy" ), BROADCAST_NUMBERS,
-		broadcastPoints( BROADCAST_HEAD_POINTS ), FALSE );
 	UnicodeString clockText;
 	clockText.translate( AsciiString( spectatorClock( TheGameLogic->getFrame() ).c_str() ) );
 	DisplayString *clock = broadcastText( "clock", clockText, BROADCAST_NUMBERS, broadcastPoints( BROADCAST_CLOCK_POINTS ), TRUE );
-	// the number columns are as wide as six digits whatever they hold, so the bar does not change its
-	// width every time a player's cash crosses a thousand
-	DisplayString *cashWidest = broadcastText( "cashwidest" + size, broadcastNumber( "$", BROADCAST_WIDEST ), BROADCAST_NUMBERS, rowPoints, TRUE );
-	DisplayString *armyWidest = broadcastText( "armywidest" + size, broadcastNumber( "", BROADCAST_WIDEST ), BROADCAST_NUMBERS, rowPoints, TRUE );
-	Int cashHeadWidth = 0, armyHeadWidth = 0, headHeight = 0, clockWidth = 0, clockHeight = 0, widestHeight = 0;
-	Int cashWidestWidth = 0, armyWidestWidth = 0;
-	cashHead->getSize( &cashHeadWidth, &headHeight );
-	armyHead->getSize( &armyHeadWidth, &headHeight );
+	Int clockWidth = 0, clockHeight = 0;
 	clock->getSize( &clockWidth, &clockHeight );
-	cashWidest->getSize( &cashWidestWidth, &widestHeight );
-	armyWidest->getSize( &armyWidestWidth, &widestHeight );
-	const Int cashColumn = max( max( cashWidth, cashWidestWidth ), cashHeadWidth );
-	const Int armyColumn = max( max( armyWidth, armyWidestWidth ), armyHeadWidth );
 
-	// the bar's measures, its left edge at left and its top on the screen's
-	const Int half = swatch + gap / 2 + nameWidth + gap + sideWidth + gap + cashColumn + gap + armyColumn;
-	const Int blockGap = gap / 2;
-	Int columnHeights[ 2 ] = { 0, 0 };
+	// the bar's measures: the clock in a tab at the top in the middle, under it a line of team headers
+	// when there are teams, the cards, and the armies' bar under the whole row
+	Int nameHeight = 0, sideHeight = 0, numberHeight = 0, labelHeight = 0, headerHeight = 0, width = 0;
+	rows[ 0 ].name->getSize( &width, &nameHeight );
+	rows[ 0 ].side->getSize( &width, &sideHeight );
+	rows[ 0 ].cash->getSize( &width, &numberHeight );
+	cashHead->getSize( &width, &labelHeight );
+	numberHeight = max( numberHeight, labelHeight );
 	for( Int block = 0; block < blocks; block++ )
-	{
-		Int &columnHeight = columnHeights[ columns[ block ] ];
-		if( columnHeight > 0 )
-			columnHeight += blockGap;
-		columnHeight += blockSizes[ block ] * ( rowHeight + rowGap ) + ( teamNames[ block ] != NULL ? totalHeight + rowGap : 0 );
-	}
-	const Int tableTop = pad + headHeight;
-	const Int tableBottom = tableTop + max( columnHeights[ 0 ], columnHeights[ 1 ] );
-	const Int clockBox = clockWidth + 2 * gap;
-	const Int width = 2 * ( pad + half + pad ) + clockBox;
-	const Int left = ( TheDisplay->getWidth() - width ) / 2;
-	const Int tugTop = tableBottom + pad / 2;
+		if( teamNames[ block ] != NULL )
+			teamNames[ block ]->getSize( &width, &headerHeight );
+	if( headerHeight > 0 )
+		headerHeight += cardPad;
+	const Int clockBox = clockWidth + 2 * broadcastPixels( BROADCAST_GAP );
+	const Int clockBoxHeight = clockHeight + rule;
+	const Int barWidth = max( rowWidth, clockBox ) + 2 * pad;
+	const Int left = ( (Int)TheDisplay->getWidth() - barWidth ) / 2;
+	const Int rowLeft = left + ( barWidth - rowWidth ) / 2;
+	const Int headerTop = clockBoxHeight + pad / 2;
+	const Int cardsTop = headerTop + headerHeight;
+	const Int strip = broadcastPixels( BROADCAST_CARD_STRIP );
+	const Int cardHeight = strip + cardPad + nameHeight + sideHeight + 2 * numberHeight + cardPad;
+	const Int tugTop = cardsTop + cardHeight + pad / 2;
 	const Int height = tugTop + tug + pad;
-	const Int clockLeft = left + pad + half + pad;
-	const Int rightStart = clockLeft + clockBox + pad;
+	const Int clockLeft = left + ( barWidth - clockBox ) / 2;
 
-	TheDisplay->drawFillRect( left, 0, width, height, BROADCAST_GROUND );
-	TheDisplay->drawFillRect( clockLeft, 0, clockBox, tableBottom, BROADCAST_PANEL );
-	TheDisplay->drawFillRect( clockLeft, tableBottom - rule, clockBox, rule, BROADCAST_GOLD );
-	clock->draw( clockLeft + gap, ( tableBottom - clockHeight ) / 2, BROADCAST_INK, BROADCAST_GROUND );
+	TheDisplay->drawFillRect( left, 0, barWidth, height, BROADCAST_GROUND );
+	TheDisplay->drawFillRect( clockLeft, 0, clockBox, clockBoxHeight, BROADCAST_PANEL );
+	TheDisplay->drawFillRect( clockLeft, clockBoxHeight - rule, clockBox, rule, BROADCAST_GOLD );
+	clock->draw( clockLeft + ( clockBox - clockWidth ) / 2, 0, BROADCAST_INK, BROADCAST_GROUND );
 
-	// the columns on the left run outwards in, on the right inwards out; numbers end on their column's
-	// right edge both sides so their digits line up
-	const Int leftCashEnd = left + pad + half - gap - armyColumn;
-	const Int leftArmyEnd = left + pad + half;
-	const Int rightArmyEnd = rightStart + armyColumn;
-	const Int rightCashEnd = rightArmyEnd + gap + cashColumn;
-	cashHead->draw( leftCashEnd - cashHeadWidth, pad, BROADCAST_MUTED, BROADCAST_GROUND );
-	armyHead->draw( leftArmyEnd - armyHeadWidth, pad, BROADCAST_MUTED, BROADCAST_GROUND );
-	armyHead->draw( rightArmyEnd - armyHeadWidth, pad, BROADCAST_MUTED, BROADCAST_GROUND );
-	cashHead->draw( rightCashEnd - cashHeadWidth, pad, BROADCAST_MUTED, BROADCAST_GROUND );
-
-	// each column's blocks top down in team order, a hairline between two blocks
-	Int columnTops[ 2 ] = { tableTop, tableTop };
+	// block by block: a "vs" before every block but the first, a team's name and its armies' total over
+	// its cards, and a card a player, the house colour along its top, the name, the general or the
+	// difficulty, then cash and army each beside its label
+	Int versusTextWidth = 0, versusTextHeight = 0;
+	versusText->getSize( &versusTextWidth, &versusTextHeight );
 	for( Int block = 0; block < blocks; block++ )
 	{
-		const Bool onLeft = columns[ block ] == 0;
-		Int &top = columnTops[ columns[ block ] ];
-		const Int columnLeft = onLeft ? left + pad : rightStart;
-		if( top > tableTop )
+		const Int blockLeft = rowLeft + blockLefts[ block ];
+		const Int blockWidth = blockSizes[ block ] * cardWidth + ( blockSizes[ block ] - 1 ) * cardPad;
+		if( block > 0 )
+			versusText->draw( blockLeft - ( versusWidth + versusTextWidth ) / 2, cardsTop + ( cardHeight - versusTextHeight ) / 2,
+				BROADCAST_MUTED, BROADCAST_GROUND );
+		if( teamNames[ block ] != NULL )
 		{
-			TheDisplay->drawFillRect( columnLeft, top + ( blockGap - rowGap ) / 2, half, 1, BROADCAST_LINE );
-			top += blockGap;
+			Int totalWidth = 0, totalHeight = 0;
+			teamTotals[ block ]->getSize( &totalWidth, &totalHeight );
+			teamNames[ block ]->draw( blockLeft, headerTop, BROADCAST_GOLD, BROADCAST_GROUND );
+			teamTotals[ block ]->draw( blockLeft + blockWidth - totalWidth, headerTop, BROADCAST_INK, BROADCAST_GROUND );
 		}
 		for( Int index = blockFirst[ block ]; index < blockFirst[ block ] + blockSizes[ block ]; index++ )
 		{
 			const BroadcastRow &row = rows[ index ];
-			Int nameW = 0, nameH = 0, sideW = 0, sideH = 0, cashW = 0, cashH = 0, armyW = 0, armyH = 0;
-			row.name->getSize( &nameW, &nameH );
-			row.side->getSize( &sideW, &sideH );
-			row.cash->getSize( &cashW, &cashH );
-			row.army->getSize( &armyW, &armyH );
-			const Int swatchLeft = onLeft ? left + pad : rightStart + half - swatch;
-			const Int nameLeft = onLeft ? swatchLeft + swatch + gap / 2 : swatchLeft - gap / 2 - nameW;
-			const Int sideLeft = onLeft ? nameLeft + nameWidth + gap : swatchLeft - gap / 2 - nameWidth - gap - sideW;
-			const Int cashEnd = onLeft ? leftCashEnd : rightCashEnd;
-			const Int armyEnd = onLeft ? leftArmyEnd : rightArmyEnd;
-			drawBroadcastSwatch( swatchLeft, top, swatch, rowHeight, row.color );
-			row.name->draw( nameLeft, top + ( rowHeight - nameH ) / 2, ObserverCamera_readableColor( row.color ), BROADCAST_GROUND );
-			row.side->draw( sideLeft, top + ( rowHeight - sideH ) / 2, BROADCAST_MUTED, BROADCAST_GROUND );
-			row.cash->draw( cashEnd - cashW, top + ( rowHeight - cashH ) / 2, BROADCAST_INK, BROADCAST_GROUND );
-			row.army->draw( armyEnd - armyW, top + ( rowHeight - armyH ) / 2, BROADCAST_INK, BROADCAST_GROUND );
-			top += rowHeight + rowGap;
+			const Int cardLeft = rowLeft + cardLefts[ index ];
+			const Int textLeft = cardLeft + cardPad;
+			const Int numberEnd = cardLeft + cardWidth - cardPad;
+			TheDisplay->drawFillRect( cardLeft, cardsTop, cardWidth, cardHeight, BROADCAST_PANEL );
+			drawBroadcastSwatch( cardLeft, cardsTop, cardWidth, strip, row.color );
+			Int top = cardsTop + strip + cardPad;
+			row.name->draw( textLeft, top, ObserverCamera_readableColor( row.color ), BROADCAST_GROUND );
+			top += nameHeight;
+			row.side->draw( textLeft, top, BROADCAST_MUTED, BROADCAST_GROUND );
+			top += sideHeight;
+			Int numberWidth = 0, numberTall = 0;
+			cashHead->draw( textLeft, top + numberHeight - labelHeight, BROADCAST_MUTED, BROADCAST_GROUND );
+			row.cash->getSize( &numberWidth, &numberTall );
+			row.cash->draw( numberEnd - numberWidth, top + numberHeight - numberTall, BROADCAST_INK, BROADCAST_GROUND );
+			top += numberHeight;
+			armyHead->draw( textLeft, top + numberHeight - labelHeight, BROADCAST_MUTED, BROADCAST_GROUND );
+			row.army->getSize( &numberWidth, &numberTall );
+			row.army->draw( numberEnd - numberWidth, top + numberHeight - numberTall, BROADCAST_INK, BROADCAST_GROUND );
 		}
-		if( teamNames[ block ] == NULL )
-			continue;
-		// the team's name where its players' names are, its armies' total under theirs
-		Int teamW = 0, teamH = 0, totalW = 0, totalH = 0;
-		teamNames[ block ]->getSize( &teamW, &teamH );
-		teamTotals[ block ]->getSize( &totalW, &totalH );
-		const Int nameStart = onLeft ? left + pad + swatch + gap / 2 : rightStart + half - swatch - gap / 2 - teamW;
-		const Int armyEnd = onLeft ? leftArmyEnd : rightArmyEnd;
-		teamNames[ block ]->draw( nameStart, top + ( totalHeight - teamH ) / 2, BROADCAST_MUTED, BROADCAST_GROUND );
-		teamTotals[ block ]->draw( armyEnd - totalW, top + ( totalHeight - totalH ) / 2, BROADCAST_MUTED, BROADCAST_GROUND );
-		top += totalHeight + rowGap;
 	}
 
-	// the army bar: every side's share from the left, the left column's first, then the right
-	// column's from the right edge in, so with two sides each pulls from its own end.  Two sides meet
-	// at a gold mark in the middle; more are parted by the ground's colour
-	std::vector< Int > barPlayers, barArmies, barBlocks;
-	for( Int column = 0; column < 2; column++ )
-	{
-		for( Int taken = 0; taken < blocks; taken++ )
+	// the armies' bar under the whole row, every player's share in the cards' order, so with two sides
+	// each pulls from its own end and they meet at a gold mark in the middle; more sides are parted by
+	// the ground's colour
+	std::vector< Int > barArmies, barBlocks;
+	for( Int block = 0; block < blocks; block++ )
+		for( Int index = blockFirst[ block ]; index < blockFirst[ block ] + blockSizes[ block ]; index++ )
 		{
-			const Int block = column == 0 ? taken : blocks - 1 - taken;
-			if( columns[ block ] != column )
-				continue;
-			for( Int member = 0; member < blockSizes[ block ]; member++ )
-			{
-				const Int index = column == 0 ? blockFirst[ block ] + member : blockFirst[ block ] + blockSizes[ block ] - 1 - member;
-				barPlayers.push_back( index );
-				barArmies.push_back( players[ index ].army );
-				barBlocks.push_back( block );
-			}
+			barArmies.push_back( players[ index ].army );
+			barBlocks.push_back( block );
 		}
-	}
-	const Int tugLeft = left + pad;
-	const Int tugWidth = width - 2 * pad;
-	TheDisplay->drawFillRect( tugLeft, tugTop, tugWidth, tug, BROADCAST_LINE );
-	const std::vector< Int > shares = ObserverCamera_barShares( barArmies, tugWidth );
-	Int barAt = tugLeft;
+	TheDisplay->drawFillRect( rowLeft, tugTop, rowWidth, tug, BROADCAST_LINE );
+	const std::vector< Int > shares = ObserverCamera_barShares( barArmies, rowWidth );
+	Int barAt = rowLeft;
 	for( size_t piece = 0; piece < shares.size(); piece++ )
 	{
-		drawBroadcastSwatch( barAt, tugTop, shares[ piece ], tug, rows[ barPlayers[ piece ] ].color );
+		drawBroadcastSwatch( barAt, tugTop, shares[ piece ], tug, rows[ piece ].color );
 		if( blocks > 2 && piece > 0 && barBlocks[ piece ] != barBlocks[ piece - 1 ] )
 			TheDisplay->drawFillRect( barAt, tugTop - rule, rule, tug + 2 * rule, BROADCAST_GROUND );
 		barAt += shares[ piece ];
 	}
 	if( blocks == 2 )
-		TheDisplay->drawFillRect( tugLeft + ( tugWidth - rule ) / 2, tugTop - rule, rule, tug + 2 * rule, BROADCAST_GOLD );
+		TheDisplay->drawFillRect( rowLeft + ( rowWidth - rule ) / 2, tugTop - rule, rule, tug + 2 * rule, BROADCAST_GOLD );
 
 	IRegion2D bar;
 	bar.lo.x = left;
 	bar.lo.y = 0;
-	bar.hi.x = left + width;
+	bar.hi.x = left + barWidth;
 	bar.hi.y = height;
 	TheObserverCamera.addBroadcast( bar );
 	TheObserverCamera.setBroadcastTop( (Real)( height + pad ) );

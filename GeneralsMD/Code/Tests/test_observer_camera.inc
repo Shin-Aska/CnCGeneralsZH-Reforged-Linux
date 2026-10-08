@@ -857,31 +857,71 @@ TEST(pane_animations_ease_over_logic_frames)
 	}
 }
 
-TEST(the_score_bar_keeps_each_team_together_and_balances_its_two_columns)
+TEST(the_directors_height_eases_to_a_new_place_and_cuts_with_a_cut)
 {
-	// two sides face each other whatever their sizes: 4v1
+	// a place 300 higher: no frame at 30 a second moves more than a twentieth of it, it gets there
+	// within five seconds, and never passes it
+	Real height = 0.0f;
+	Real velocity = 0.0f;
+	Real biggestStep = 0.0f;
+	for( Int frame = 0; frame < 150; frame++ )
+	{
+		const Real next = ObserverCamera_easeHeight( height, 300.0f, &velocity, 1.0f / 30.0f, FALSE );
+		biggestStep = max( biggestStep, next - height );
+		CHECK( next <= 300.0f );
+		height = next;
+	}
+	CHECK( biggestStep < 15.0f );
+	CHECK( height > 290.0f );
+	// the first frame of a change barely moves: the view's own settle took a tenth of the gap at once
+	velocity = 0.0f;
+	CHECK( ObserverCamera_easeHeight( 0.0f, 300.0f, &velocity, 1.0f / 30.0f, FALSE ) < 3.0f );
+	// a cut is there at once and starts the next glide from rest
+	velocity = 50.0f;
+	CHECK_NEAR( ObserverCamera_easeHeight( 0.0f, 300.0f, &velocity, 1.0f / 30.0f, TRUE ), 300.0f, 0.0001f );
+	CHECK_NEAR( velocity, 0.0f, 0.0001f );
+}
+
+TEST(the_score_bar_sets_every_side_in_one_row_and_fits_eight_players)
+{
+	// 4v1: four cards with three gaps, a "vs", one card
 	std::vector< Int > sizes;
 	sizes.push_back( 4 );
 	sizes.push_back( 1 );
-	std::vector< Int > columns = ObserverCamera_blockColumns( sizes );
-	CHECK_EQ( columns[ 0 ], 0 );
-	CHECK_EQ( columns[ 1 ], 1 );
-	// eight alone alternate, four a column
-	sizes.assign( 8, 1 );
-	columns = ObserverCamera_blockColumns( sizes );
-	Int left = 0;
-	for( size_t block = 0; block < columns.size(); block++ )
-		left += columns[ block ] == 0 ? 1 : 0;
-	CHECK_EQ( left, 4 );
-	// four alone and a pair: the pair's two rows and its total land where there is room
+	std::vector< Int > cardLefts, blockLefts;
+	CHECK_EQ( ObserverCamera_cardRow( sizes, 100, 4, 30, &cardLefts, &blockLefts ), 5 * 100 + 3 * 4 + 30 );
+	CHECK_EQ( (Int)cardLefts.size(), 5 );
+	CHECK_EQ( cardLefts[ 3 ], 3 * 104 );
+	CHECK_EQ( blockLefts[ 1 ], 4 * 100 + 3 * 4 + 30 );
+	CHECK_EQ( cardLefts[ 4 ], blockLefts[ 1 ] );
+	// two alone, three alone and a pair: the 1v1v1v1v2 staging
 	sizes.assign( 4, 1 );
 	sizes.push_back( 2 );
-	columns = ObserverCamera_blockColumns( sizes );
-	Int rows[ 2 ] = { 0, 0 };
-	for( size_t block = 0; block < columns.size(); block++ )
-		rows[ columns[ block ] ] += sizes[ block ] + ( sizes[ block ] >= 2 ? 1 : 0 );
-	CHECK_EQ( rows[ 0 ], 4 );
-	CHECK_EQ( rows[ 1 ], 3 );
+	CHECK_EQ( ObserverCamera_cardRow( sizes, 100, 4, 30, &cardLefts, &blockLefts ), 6 * 100 + 4 + 4 * 30 );
+	CHECK_EQ( blockLefts[ 4 ], 4 * 130 );
+
+	// the sizes a 720 picture measured, largest first: every count from two to eight alone and 4v4
+	// fit 1280 less the bar's padding at some step, and no step is taken that is larger than needed
+	const Int cardWidths[] = { 170, 150, 132, 116 };
+	const Int cardGaps[] = { 6, 5, 4, 3 };
+	const Int versusWidths[] = { 30, 26, 22, 20 };
+	const Int room = 1280 - 2 * 8;
+	for( Int players = 2; players <= 8; players++ )
+	{
+		sizes.assign( players, 1 );
+		const Int step = ObserverCamera_cardStep( sizes, cardWidths, cardGaps, versusWidths, 4, room );
+		CHECK( ObserverCamera_cardRow( sizes, cardWidths[ step ], cardGaps[ step ], versusWidths[ step ], &cardLefts, &blockLefts ) <= room );
+		if( step > 0 )
+			CHECK( ObserverCamera_cardRow( sizes, cardWidths[ step - 1 ], cardGaps[ step - 1 ], versusWidths[ step - 1 ], &cardLefts, &blockLefts ) > room );
+	}
+	sizes.assign( 2, 4 );
+	const Int step = ObserverCamera_cardStep( sizes, cardWidths, cardGaps, versusWidths, 4, room );
+	// 4v4 has one "vs" where eight alone have seven, so it keeps a larger size: 1200 + 30 + 26
+	CHECK_EQ( step, 1 );
+	// a row too wide at every step gets the widest card that fits
+	const Int narrow = ObserverCamera_cardWidthIn( sizes, cardGaps[ 3 ], versusWidths[ 3 ], 900 );
+	CHECK( ObserverCamera_cardRow( sizes, narrow, cardGaps[ 3 ], versusWidths[ 3 ], &cardLefts, &blockLefts ) <= 900 );
+	CHECK( ObserverCamera_cardRow( sizes, narrow + 1, cardGaps[ 3 ], versusWidths[ 3 ], &cardLefts, &blockLefts ) > 900 );
 
 	// teammates are taken together in the order their teams first appear
 	std::vector< Int > teams;

@@ -94,6 +94,13 @@ static const Real CUT_DISTANCE = 1600.0f;
 static const Real HAND_JUMP_DISTANCE = 400.0f;
 /// roughly how long the director's glide takes to arrive, easing in and out
 static const Real DIRECTOR_PAN_SECONDS = 1.4f;
+/// how long the director's height takes to settle on a new place's: the view's own settle took a
+/// third of a second, and a camera gliding in over seconds stepped back up in that third
+static const Real DIRECTOR_HEIGHT_SECONDS = 1.6f;
+/// how long after the panes are gone the hand-over is logged a line a frame
+static const UnsignedInt HANDOVER_LOG_FRAMES = 45;
+/// a zoom moving more than this share of itself between two updates is logged as a jump
+static const Real ZOOM_JUMP_SHARE = 0.02f;
 /// the director's glide never crosses the ground faster than this, about two screens a second
 static const Real DIRECTOR_TOP_SPEED = 900.0f;
 /// a fight this tight is watched from the watcher's own height; wider, the camera rises this much
@@ -445,6 +452,17 @@ ViewLocation ObserverCamera_approach( const ViewLocation &from, const ViewLocati
 }
 
 //-------------------------------------------------------------------------------------------------
+Real ObserverCamera_easeHeight( Real from, Real to, Real *velocity, Real elapsedSeconds, Bool cut )
+{
+	if( cut )
+	{
+		*velocity = 0.0f;
+		return to;
+	}
+	return springTowards( from, to, velocity, DIRECTOR_HEIGHT_SECONDS, elapsedSeconds );
+}
+
+//-------------------------------------------------------------------------------------------------
 Bool ObserverCamera_secondPlace( const std::vector< DirectorHeat > &hits, const Coord2D &first, Real needed, Coord2D *place, Real *heat )
 {
 	std::vector< DirectorHeat > apart;
@@ -616,28 +634,47 @@ Real ObserverCamera_paneLabelTop( const Coord2D &centre, Real radius, Real width
 }
 
 //-------------------------------------------------------------------------------------------------
-std::vector< Int > ObserverCamera_blockColumns( const std::vector< Int > &sizes )
+Int ObserverCamera_cardRow( const std::vector< Int > &sizes, Int cardWidth, Int cardGap, Int versusWidth,
+	std::vector< Int > *cardLefts, std::vector< Int > *blockLefts )
 {
-	std::vector< Int > columns( sizes.size(), 0 );
-	if( sizes.size() == 2 )
-	{
-		columns[ 1 ] = 1;
-		return columns;
-	}
-	// the biggest first, each to the shorter column, which evens the two out best
-	std::vector< Int > biggestFirst;
+	cardLefts->clear();
+	blockLefts->clear();
+	Int at = 0;
 	for( size_t block = 0; block < sizes.size(); block++ )
-		biggestFirst.push_back( (Int)block );
-	std::stable_sort( biggestFirst.begin(), biggestFirst.end(), [ &sizes ]( Int a, Int b ) { return sizes[ a ] > sizes[ b ]; } );
-	Int rows[ 2 ] = { 0, 0 };
-	for( size_t taken = 0; taken < biggestFirst.size(); taken++ )
 	{
-		const Int block = biggestFirst[ taken ];
-		const Int column = rows[ 1 ] < rows[ 0 ] ? 1 : 0;
-		rows[ column ] += sizes[ block ] + ( sizes[ block ] >= 2 ? 1 : 0 );
-		columns[ block ] = column;
+		if( block > 0 )
+			at += versusWidth;
+		blockLefts->push_back( at );
+		for( Int card = 0; card < sizes[ block ]; card++ )
+		{
+			if( card > 0 )
+				at += cardGap;
+			cardLefts->push_back( at );
+			at += cardWidth;
+		}
 	}
-	return columns;
+	return at;
+}
+
+//-------------------------------------------------------------------------------------------------
+Int ObserverCamera_cardStep( const std::vector< Int > &sizes, const Int *cardWidths, const Int *cardGaps,
+	const Int *versusWidths, Int steps, Int room )
+{
+	std::vector< Int > cardLefts, blockLefts;
+	for( Int step = 0; step < steps; step++ )
+		if( ObserverCamera_cardRow( sizes, cardWidths[ step ], cardGaps[ step ], versusWidths[ step ], &cardLefts, &blockLefts ) <= room )
+			return step;
+	return steps - 1;
+}
+
+//-------------------------------------------------------------------------------------------------
+Int ObserverCamera_cardWidthIn( const std::vector< Int > &sizes, Int cardGap, Int versusWidth, Int room )
+{
+	Int cards = 0;
+	for( size_t block = 0; block < sizes.size(); block++ )
+		cards += sizes[ block ];
+	const Int blocks = (Int)sizes.size();
+	return ( room - ( cards - blocks ) * cardGap - ( blocks - 1 ) * versusWidth ) / cards;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1159,6 +1196,12 @@ void ObserverCamera::reset( void )
 	m_heightDriven = FALSE;
 	m_handHeight = 0.0f;
 	m_drivenHeight = 0.0f;
+	m_heightExtra = 0.0f;
+	m_heightExtraVelocity = 0.0f;
+	m_panesHeldZoom = FALSE;
+	m_lastZoom = 0.0f;
+	m_lastCut = FALSE;
+	m_handoverLogUntil = 0;
 	m_drivenTo.zero();
 	m_lastUpdate = 0;
 	m_velocity.x = m_velocity.y = m_velocity.z = m_velocity.angle = m_velocity.pitch = m_velocity.zoom = 0.0f;
@@ -2671,6 +2714,28 @@ Bool ObserverCamera::chooseTarget( const ViewLocation &current, ViewLocation *ta
 }
 
 //-------------------------------------------------------------------------------------------------
+/** While panes are up and for HANDOVER_LOG_FRAMES after, a line a frame with pane 0's look point,
+	* zoom, subject and the pixel the view, aimed as it will draw, puts the subject on: a hand-over
+	* between the panes and the single view that jumps shows as a step in those numbers. */
+//-------------------------------------------------------------------------------------------------
+void ObserverCamera::logHandover( const ViewLocation &step, const ViewLocation &placed )
+{
+	const UnsignedInt frame = TheGameLogic->getFrame();
+	if( m_panePhase != PANES_NONE )
+		m_handoverLogUntil = frame + HANDOVER_LOG_FRAMES;
+	if( frame >= m_handoverLogUntil )
+		return;
+	TheTacticalView->aimCamera();
+	Coord3D world = step.getPosition();
+	world.z = TheTerrainLogic->getGroundHeight( world.x, world.y );
+	ICoord2D pixel;
+	pixel.x = pixel.y = -1;
+	TheTacticalView->worldToScreenTriReturn( &world, &pixel );
+	DEBUG_LOG(( "OBSCAM frame %u hand look (%.1f,%.1f) zoom %.3f subject (%.1f,%.1f) at (%d,%d)\n", frame,
+		placed.getPosition().x, placed.getPosition().y, TheTacticalView->getZoom(), world.x, world.y, pixel.x, pixel.y ));
+}
+
+//-------------------------------------------------------------------------------------------------
 void ObserverCamera::update( UnsignedInt nowMilliseconds )
 {
 	const UnsignedInt elapsed = m_lastUpdate == 0 ? 0 : min( nowMilliseconds - m_lastUpdate, LONGEST_STEP_MILLISECONDS );
@@ -2727,14 +2792,42 @@ void ObserverCamera::update( UnsignedInt nowMilliseconds )
 	}
 
 	// a player's screen brings its own zoom; the director's height is the watcher's own plus what
-	// the fight's width asks for
+	// the fight's width asks for, eased there on a spring of its own.  Handed straight to the view,
+	// whose settle closes two thirds of a gap in ten frames, every change of place's height made a
+	// camera gliding in for seconds step back up in a third of one.  A cut, the place too far for a
+	// glide, takes the height at once with it, so it is one clean cut and not a cut and a step.
+	// Panes set the zoom outright; when they let go the spring starts from the height the panes left
+	// the camera at, so the view does not settle from there to an old height in one go
+	const Bool panesZoom = m_paneCount >= 2 && !isShowingPlayerView();
+	const Coord3D &from = current.getPosition();
+	const Real gapX = target.getPosition().x - from.x - ( m_driving ? m_mainOffset.x : 0.0f );
+	const Real gapY = target.getPosition().y - from.y - ( m_driving ? m_mainOffset.y : 0.0f );
+	const Bool cut = !m_introGlide && !panesZoom && gapX * gapX + gapY * gapY > CUT_DISTANCE * CUT_DISTANCE;
+	if( !m_heightDriven )
+	{
+		m_heightExtra = 0.0f;
+		m_heightExtraVelocity = 0.0f;
+	}
+	if( m_panesHeldZoom && !panesZoom && m_heightDriven )
+	{
+		m_heightExtra = TheTacticalView->getCurrentHeightAboveGround() - m_handHeight;
+		m_heightExtraVelocity = 0.0f;
+	}
+	// a step back or in that no glide made: the zoom moved more than ZOOM_JUMP_SHARE between two
+	// updates without a cut, panes aside, which set their zoom outright as they slide
+	if( TheGlobalData->m_directorRecord && m_lastZoom > 0.0f && !m_lastCut && !panesZoom && !m_panesHeldZoom
+		&& fabsf( current.getZoom() - m_lastZoom ) > m_lastZoom * ZOOM_JUMP_SHARE )
+		DEBUG_LOG(( "OBSCAM frame %u zoom jump %.3f -> %.3f\n", TheGameLogic->getFrame(), m_lastZoom, current.getZoom() ));
+	m_lastZoom = current.getZoom();
+	m_lastCut = cut;
+	m_panesHeldZoom = panesZoom;
+	m_heightExtra = ObserverCamera_easeHeight( m_heightExtra, m_placeHeight, &m_heightExtraVelocity, elapsed / MILLISECONDS_PER_SECOND, cut );
 	if( isShowingPlayerView() )
 		releaseHeight();
 	else
-		driveHeight( m_placeHeight );
+		driveHeight( m_heightExtra );
 	// while there are panes the zoom is set outright from how far in they are, with the view's own
 	// settling held off: it eases on every draw, and a frame has a draw a pane
-	const Bool panesZoom = m_paneCount >= 2 && !isShowingPlayerView();
 	holdHeight( isShowingPlayerView() || panesZoom );
 	if( !m_driving )
 	{
@@ -2788,6 +2881,18 @@ void ObserverCamera::update( UnsignedInt nowMilliseconds )
 		m_aimFrom = step;
 		sitBack = placePane( 0, sitBack, pixel, step.getZoom() );
 	}
+	else if( TheGlobalData->m_directorRecord && !player )
+	{
+		// the single view puts the subject on the screen's middle pixel the way pane 0 does at the end of
+		// its exit and the start of its entry.  Looking straight at the subject drew it off the middle by
+		// the view's lift over the ground, and the picture jumped sideways by that much the frame the
+		// panes let go and again the frame they came
+		Coord2D middle;
+		middle.x = TheDisplay->getWidth() * 0.5f;
+		middle.y = TheDisplay->getHeight() * 0.5f;
+		m_aimFrom = step;
+		sitBack = placeOnPixel( sitBack, middle, step.getZoom() );
+	}
 	// the pane cameras are placed by aiming the view, so before the view is put where it draws
 	stepPaneCameras( step, elapsed / MILLISECONDS_PER_SECOND );
 	m_mainOffset.x = step.getPosition().x - sitBack.x;
@@ -2795,6 +2900,8 @@ void ObserverCamera::update( UnsignedInt nowMilliseconds )
 	ViewLocation placed;
 	placed.init( sitBack.x, sitBack.y, step.getPosition().z, step.getAngle(), step.getPitch(), step.getZoom() );
 	TheTacticalView->setLocation( &placed );
+	if( cut && !isShowingPlayerView() )
+		TheTacticalView->setZoomToHeight( m_handHeight + m_heightExtra );
 	// the view keeps its look point inside its constraint when it draws; held there now, a cut to a
 	// place past the constraint is not mistaken next frame for the watcher moving the camera
 	TheTacticalView->applyCameraConstraint();
@@ -2802,5 +2909,8 @@ void ObserverCamera::update( UnsignedInt nowMilliseconds )
 	m_driving = TRUE;
 
 	if( TheGlobalData->m_directorRecord )
+	{
 		logPanes( TheGameLogic->getFrame() );
+		logHandover( step, placed );
+	}
 }

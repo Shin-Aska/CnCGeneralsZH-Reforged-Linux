@@ -200,6 +200,9 @@ Coord2D ObserverCamera_keepInMap( const Coord2D &place, const Coord2D *corners, 
 /// it jumps there and stops
 ViewLocation ObserverCamera_approach( const ViewLocation &from, const ViewLocation &to, Real elapsedSeconds, Real smoothSeconds,
 	Real topSpeed, ObserverCameraVelocity *velocity );
+/// the director's height over the watcher's own, one step from from towards to on a spring that
+/// gathers and slows over about 1.6 s; a cut takes it there at once
+Real ObserverCamera_easeHeight( Real from, Real to, Real *velocity, Real elapsedSeconds, Bool cut );
 /// -directorrecord's second fight: the hottest place among the hits more than needed from first, so
 /// the two halves of a split screen never show the same ground.  FALSE when nothing that far was hit
 Bool ObserverCamera_secondPlace( const std::vector< DirectorHeat > &hits, const Coord2D &first, Real needed, Coord2D *place, Real *heat );
@@ -236,10 +239,17 @@ void ObserverCamera_paneCircles( const Real *rays, Int count, Int width, Int hei
 /// holds all of it, so it stays inside the pane and clear of its lines; the circle's middle row when
 /// it is too wide for that
 Real ObserverCamera_paneLabelTop( const Coord2D &centre, Real radius, Real width, Real height );
-/// the score bar's column, 0 left and 1 right, for each block of players, given each block's size:
-/// two blocks face each other; more go one by one to the column with fewer rows, a block of two or
-/// more counting the row of its total as well
-std::vector< Int > ObserverCamera_blockColumns( const std::vector< Int > &sizes );
+/// the score bar's one row of cards, a card a player, each block of players (a team, or one alone)
+/// side by side with versusWidth between two blocks for the "vs" and cardGap between two cards of a
+/// block: every card's left and every block's left from the row's, and the row's whole width
+Int ObserverCamera_cardRow( const std::vector< Int > &sizes, Int cardWidth, Int cardGap, Int versusWidth,
+	std::vector< Int > *cardLefts, std::vector< Int > *blockLefts );
+/// the first of steps sizes, largest first, whose row of cards is no wider than room; the last when
+/// none is
+Int ObserverCamera_cardStep( const std::vector< Int > &sizes, const Int *cardWidths, const Int *cardGaps,
+	const Int *versusWidths, Int steps, Int room );
+/// the widest card a row of these blocks can have and still fit room
+Int ObserverCamera_cardWidthIn( const std::vector< Int > &sizes, Int cardGap, Int versusWidth, Int room );
 /// values cut into width pixels in proportion, the rounding handed to the largest remainders so the
 /// pieces fill width exactly; all zero when the values add up to nothing
 std::vector< Int > ObserverCamera_barShares( const std::vector< Int > &values, Int width );
@@ -390,6 +400,7 @@ private:
 	Real zoomInMap( Int pane, const Coord2D &subject, Real nearest, Real wanted );
 	Coord2D placePane( Int pane, const Coord2D &subject, const Coord2D &pixel, Real zoom );
 	void logPanes( UnsignedInt frame ) const;
+	void logHandover( const ViewLocation &step, const ViewLocation &placed );
 	void pickIntroBases( void );
 	Region2D mapRegion( void ) const;
 	void updateSplit( void );
@@ -437,6 +448,12 @@ private:
 	Bool m_heightDriven;						///< the director has the camera's height above the ground
 	Real m_handHeight;							///< the watcher's own height, the wheel's turns while driven added in
 	Real m_drivenHeight;						///< the height the director left the view at last frame
+	Real m_heightExtra;							///< the height over the watcher's own the director has eased to so far
+	Real m_heightExtraVelocity;			///< how fast that height is moving, for its spring
+	Bool m_panesHeldZoom;						///< last frame's panes set the zoom outright
+	Real m_lastZoom;								///< the view's zoom at the last update, for the zoom jump log
+	Bool m_lastCut;									///< the last update cut
+	UnsignedInt m_handoverLogUntil;	///< the frame the per-frame hand-over log stops at
 	Coord3D m_drivenTo;							///< where this put the camera last frame, inside the view's constraint
 	UnsignedInt m_lastUpdate;
 	ObserverCameraVelocity m_velocity;
