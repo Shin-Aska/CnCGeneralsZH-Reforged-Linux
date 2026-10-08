@@ -2062,6 +2062,23 @@ Int parseSide(char *args[], int num)
 	return 1;
 }
 
+/* -team <slot> <n> puts one -autoskirmish slot on team n, -1 for none, over whatever -teams gave
+	 it.  -teams only splits evenly into blocks; this stages any layout, 4v1, 2v1 or three players
+	 alone beside a pair (-team 3 0 -team 4 0 with the rest -1). */
+Int parseTeam(char *args[], int num)
+{
+	if (TheWritableGlobalData && num > 2 && args[1] && args[2])
+	{
+		const Int slot = atoi(args[1]);
+		if (slot >= 0 && slot < MAX_SLOTS)
+			TheWritableGlobalData->m_autoSkirmishTeam[slot] = max(atoi(args[2]), -1);
+		else
+			DEBUG_LOG(("-team: slot %d is outside 0..%d\n", slot, MAX_SLOTS - 1));
+		return 3;
+	}
+	return 1;
+}
+
 /* -takeover empties every -autoskirmish seat instead of filling it with an AI.
 
 	 SLOT_TAKEOVER is an occupied seat with nothing behind it: startNewGame writes playerIsHuman for
@@ -2633,6 +2650,7 @@ static CommandLineParam params[] =
 	{ "-cinema", parseCinema },
 	{ "-freecam", parseFreeCamera },
 	{ "-side", parseSide },
+	{ "-team", parseTeam },
 	{ "-takeover", parseTakeover },
 	{ "-replay", parseReplay },
 	{ "-loadsave", parseLoadSave },

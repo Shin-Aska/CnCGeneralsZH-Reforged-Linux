@@ -51,6 +51,7 @@
 
 #include "Common/AsciiString.h"
 #include "Common/GameCommon.h"
+#include "GameClient/Color.h"
 #include "GameClient/View.h"
 
 #include <vector>
@@ -235,6 +236,21 @@ void ObserverCamera_paneCircles( const Real *rays, Int count, Int width, Int hei
 /// holds all of it, so it stays inside the pane and clear of its lines; the circle's middle row when
 /// it is too wide for that
 Real ObserverCamera_paneLabelTop( const Coord2D &centre, Real radius, Real width, Real height );
+/// the score bar's column, 0 left and 1 right, for each block of players, given each block's size:
+/// two blocks face each other; more go one by one to the column with fewer rows, a block of two or
+/// more counting the row of its total as well
+std::vector< Int > ObserverCamera_blockColumns( const std::vector< Int > &sizes );
+/// values cut into width pixels in proportion, the rounding handed to the largest remainders so the
+/// pieces fill width exactly; all zero when the values add up to nothing
+std::vector< Int > ObserverCamera_barShares( const std::vector< Int > &values, Int width );
+/// the order to take things in so the ones of one team sit together, the teams in the order they
+/// first appear and each team's members in their own order
+std::vector< Int > ObserverCamera_teamOrder( const std::vector< Int > &teams );
+/// a player's colour lifted towards white until it reads on the broadcast's ground at 4.5 to 1;
+/// a colour that already does comes back unchanged
+Color ObserverCamera_readableColor( Color color );
+/// whether a player's colour is close enough to the brand gold of the lines to need an edge
+Bool ObserverCamera_nearBrandGold( Color color );
 /// how far from around the farthest of the things within reach of it lie, on the ground, and never less
 /// than least
 Real ObserverCamera_extentAround( const std::vector< DirectorHeat > &things, const Coord2D &around, Real reach, Real least );

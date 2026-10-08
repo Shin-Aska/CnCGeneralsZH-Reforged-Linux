@@ -709,6 +709,8 @@ static void startAutoSkirmish( Int numPlayersWanted )
 			if (teamNumber >= teams)
 				teamNumber = teams - 1;		// an uneven split puts the remainder on the last team
 		}
+		if (TheGlobalData->m_autoSkirmishTeam[ i ] != AUTO_SKIRMISH_TEAM_UNSET)
+			teamNumber = TheGlobalData->m_autoSkirmishTeam[ i ];
 		slot.setTeamNumber( teamNumber );
 		TheSkirmishGameInfo->setSlot( i, slot );
 	}

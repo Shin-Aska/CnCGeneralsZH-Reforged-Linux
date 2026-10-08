@@ -40,6 +40,7 @@
 #include "GameLogic/PartitionManager.h"
 #include "GameLogic/TerrainLogic.h"
 
+#include <algorithm>
 #include <math.h>
 
 ObserverCamera TheObserverCamera;
@@ -595,6 +596,130 @@ Real ObserverCamera_paneLabelTop( const Coord2D &centre, Real radius, Real width
 		return centre.y - height * 0.5f;
 	const Real above = sqrtf( radius * radius - halfWidth * halfWidth );
 	return centre.y - max( above, height * 0.5f );
+}
+
+//-------------------------------------------------------------------------------------------------
+std::vector< Int > ObserverCamera_blockColumns( const std::vector< Int > &sizes )
+{
+	std::vector< Int > columns( sizes.size(), 0 );
+	if( sizes.size() == 2 )
+	{
+		columns[ 1 ] = 1;
+		return columns;
+	}
+	// the biggest first, each to the shorter column, which evens the two out best
+	std::vector< Int > biggestFirst;
+	for( size_t block = 0; block < sizes.size(); block++ )
+		biggestFirst.push_back( (Int)block );
+	std::stable_sort( biggestFirst.begin(), biggestFirst.end(), [ &sizes ]( Int a, Int b ) { return sizes[ a ] > sizes[ b ]; } );
+	Int rows[ 2 ] = { 0, 0 };
+	for( size_t taken = 0; taken < biggestFirst.size(); taken++ )
+	{
+		const Int block = biggestFirst[ taken ];
+		const Int column = rows[ 1 ] < rows[ 0 ] ? 1 : 0;
+		rows[ column ] += sizes[ block ] + ( sizes[ block ] >= 2 ? 1 : 0 );
+		columns[ block ] = column;
+	}
+	return columns;
+}
+
+//-------------------------------------------------------------------------------------------------
+std::vector< Int > ObserverCamera_barShares( const std::vector< Int > &values, Int width )
+{
+	std::vector< Int > pixels( values.size(), 0 );
+	Int64 total = 0;
+	for( size_t index = 0; index < values.size(); index++ )
+		total += values[ index ];
+	if( total <= 0 )
+		return pixels;
+	std::vector< Int64 > remainders( values.size(), 0 );
+	Int given = 0;
+	for( size_t index = 0; index < values.size(); index++ )
+	{
+		const Int64 scaled = (Int64)values[ index ] * width;
+		pixels[ index ] = (Int)( scaled / total );
+		remainders[ index ] = scaled % total;
+		given += pixels[ index ];
+	}
+	for( ; given < width; given++ )
+	{
+		size_t largest = 0;
+		for( size_t index = 1; index < values.size(); index++ )
+			if( remainders[ index ] > remainders[ largest ] )
+				largest = index;
+		pixels[ largest ]++;
+		remainders[ largest ] = -1;
+	}
+	return pixels;
+}
+
+//-------------------------------------------------------------------------------------------------
+std::vector< Int > ObserverCamera_teamOrder( const std::vector< Int > &teams )
+{
+	std::vector< Int > order;
+	std::vector< Bool > taken( teams.size(), FALSE );
+	for( size_t first = 0; first < teams.size(); first++ )
+	{
+		if( taken[ first ] )
+			continue;
+		for( size_t index = first; index < teams.size(); index++ )
+		{
+			if( teams[ index ] != teams[ first ] )
+				continue;
+			order.push_back( (Int)index );
+			taken[ index ] = TRUE;
+		}
+	}
+	return order;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The relative luminance of a colour, the way the contrast ratio is defined. */
+//-------------------------------------------------------------------------------------------------
+static Real luminance( Real red, Real green, Real blue )
+{
+	const Real channels[ 3 ] = { red, green, blue };
+	Real linear[ 3 ];
+	for( Int channel = 0; channel < 3; channel++ )
+	{
+		const Real value = channels[ channel ] / 255.0f;
+		linear[ channel ] = value <= 0.03928f ? value / 12.92f : powf( ( value + 0.055f ) / 1.055f, 2.4f );
+	}
+	return 0.2126f * linear[ 0 ] + 0.7152f * linear[ 1 ] + 0.0722f * linear[ 2 ];
+}
+
+/// the broadcast's ground, zerohour.gg's --bg, and the contrast its text needs on it
+static const UnsignedByte BROADCAST_GROUND_RGB[ 3 ] = { 0x0c, 0x12, 0x20 };
+static const Real READABLE_CONTRAST = 4.5f;
+static const Real READABLE_STEP = 0.05f;
+/// zerohour.gg's --gold, the pane lines' colour, and how far from it a player's colour has to be to
+/// stand apart from them, summed over the three channels
+static const Int BRAND_GOLD_RGB[ 3 ] = { 0xf2, 0xc2, 0x30 };
+static const Int BRAND_GOLD_NEAR = 100;
+
+//-------------------------------------------------------------------------------------------------
+Color ObserverCamera_readableColor( Color color )
+{
+	UnsignedByte red, green, blue, alpha;
+	GameGetColorComponents( color, &red, &green, &blue, &alpha );
+	const Real ground = luminance( BROADCAST_GROUND_RGB[ 0 ], BROADCAST_GROUND_RGB[ 1 ], BROADCAST_GROUND_RGB[ 2 ] );
+	for( Real white = 0.0f; white <= 1.0f; white += READABLE_STEP )
+	{
+		const Real r = red + ( 255.0f - red ) * white;
+		const Real g = green + ( 255.0f - green ) * white;
+		const Real b = blue + ( 255.0f - blue ) * white;
+		if( ( luminance( r, g, b ) + 0.05f ) / ( ground + 0.05f ) >= READABLE_CONTRAST )
+			return GameMakeColor( (UnsignedByte)REAL_TO_INT( r ), (UnsignedByte)REAL_TO_INT( g ), (UnsignedByte)REAL_TO_INT( b ), alpha );
+	}
+	return GameMakeColor( 255, 255, 255, alpha );
+}
+
+//-------------------------------------------------------------------------------------------------
+Bool ObserverCamera_nearBrandGold( Color color )
+{
+	UnsignedByte red, green, blue, alpha;
+	GameGetColorComponents( color, &red, &green, &blue, &alpha );
+	return abs( red - BRAND_GOLD_RGB[ 0 ] ) + abs( green - BRAND_GOLD_RGB[ 1 ] ) + abs( blue - BRAND_GOLD_RGB[ 2 ] ) <= BRAND_GOLD_NEAR;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1630,6 +1755,27 @@ void ObserverCamera::advancePanes( UnsignedInt frame )
 					if( player->isPlayableSide() && !player->isPlayerObserver() && player->isPlayerActive() )
 						m_panePlayers[ players++ ] = player;
 				}
+				// teammates side by side round the meeting point: a player's team is the first one
+				// before him allied with him both ways
+				std::vector< Int > teams;
+				for( Int pane = 0; pane < players; pane++ )
+				{
+					Int team = pane;
+					for( Int earlier = 0; earlier < pane && team == pane; earlier++ )
+					{
+						const Player *one = m_panePlayers[ pane ];
+						const Player *other = m_panePlayers[ earlier ];
+						if( one->getRelationship( other->getDefaultTeam() ) == ALLIES && other->getRelationship( one->getDefaultTeam() ) == ALLIES )
+							team = teams[ earlier ];
+					}
+					teams.push_back( team );
+				}
+				const std::vector< Int > order = ObserverCamera_teamOrder( teams );
+				const Player *found[ OBSERVER_MOST_PANES ];
+				for( Int pane = 0; pane < players; pane++ )
+					found[ pane ] = m_panePlayers[ order[ pane ] ];
+				for( Int pane = 0; pane < players; pane++ )
+					m_panePlayers[ pane ] = found[ pane ];
 				m_paneCount = ObserverCamera_paneLayout( players, m_paneRays );
 				if( m_paneCount >= 2 )
 				{

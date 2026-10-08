@@ -859,3 +859,82 @@ TEST(pane_animations_ease_over_logic_frames)
 		last = now;
 	}
 }
+
+TEST(the_score_bar_keeps_each_team_together_and_balances_its_two_columns)
+{
+	// two sides face each other whatever their sizes: 4v1
+	std::vector< Int > sizes;
+	sizes.push_back( 4 );
+	sizes.push_back( 1 );
+	std::vector< Int > columns = ObserverCamera_blockColumns( sizes );
+	CHECK_EQ( columns[ 0 ], 0 );
+	CHECK_EQ( columns[ 1 ], 1 );
+	// eight alone alternate, four a column
+	sizes.assign( 8, 1 );
+	columns = ObserverCamera_blockColumns( sizes );
+	Int left = 0;
+	for( size_t block = 0; block < columns.size(); block++ )
+		left += columns[ block ] == 0 ? 1 : 0;
+	CHECK_EQ( left, 4 );
+	// four alone and a pair: the pair's two rows and its total land where there is room
+	sizes.assign( 4, 1 );
+	sizes.push_back( 2 );
+	columns = ObserverCamera_blockColumns( sizes );
+	Int rows[ 2 ] = { 0, 0 };
+	for( size_t block = 0; block < columns.size(); block++ )
+		rows[ columns[ block ] ] += sizes[ block ] + ( sizes[ block ] >= 2 ? 1 : 0 );
+	CHECK_EQ( rows[ 0 ], 4 );
+	CHECK_EQ( rows[ 1 ], 3 );
+
+	// teammates are taken together in the order their teams first appear
+	std::vector< Int > teams;
+	teams.push_back( 0 );
+	teams.push_back( 1 );
+	teams.push_back( 0 );
+	teams.push_back( 2 );
+	teams.push_back( 1 );
+	const std::vector< Int > order = ObserverCamera_teamOrder( teams );
+	const Int expected[] = { 0, 2, 1, 4, 3 };
+	CHECK_EQ( (Int)order.size(), 5 );
+	for( Int index = 0; index < 5; index++ )
+		CHECK_EQ( order[ index ], expected[ index ] );
+}
+
+TEST(the_army_bar_cuts_its_whole_width_among_the_sides)
+{
+	std::vector< Int > armies;
+	armies.push_back( 1 );
+	armies.push_back( 1 );
+	armies.push_back( 1 );
+	const std::vector< Int > pixels = ObserverCamera_barShares( armies, 100 );
+	CHECK_EQ( pixels[ 0 ] + pixels[ 1 ] + pixels[ 2 ], 100 );
+	CHECK( pixels[ 0 ] >= 33 && pixels[ 0 ] <= 34 );
+	armies[ 0 ] = 3000;
+	armies[ 1 ] = 1000;
+	armies[ 2 ] = 0;
+	const std::vector< Int > uneven = ObserverCamera_barShares( armies, 100 );
+	CHECK_EQ( uneven[ 0 ], 75 );
+	CHECK_EQ( uneven[ 1 ], 25 );
+	CHECK_EQ( uneven[ 2 ], 0 );
+	armies.assign( 3, 0 );
+	const std::vector< Int > none = ObserverCamera_barShares( armies, 100 );
+	CHECK_EQ( none[ 0 ] + none[ 1 ] + none[ 2 ], 0 );
+}
+
+TEST(a_dark_player_colour_is_lifted_to_read_and_a_gold_one_is_told_from_the_lines)
+{
+	// purple, #9600c8, is lifted; white stays white
+	const Color purple = GameMakeColor( 0x96, 0x00, 0xc8, 255 );
+	const Color lifted = ObserverCamera_readableColor( purple );
+	CHECK_NE( lifted, purple );
+	UnsignedByte red, green, blue, alpha;
+	GameGetColorComponents( lifted, &red, &green, &blue, &alpha );
+	CHECK( red > 0x96 && green > 0x00 && blue > 0xc8 );
+	const Color white = GameMakeColor( 255, 255, 255, 255 );
+	CHECK_NE( lifted, white );
+	CHECK_EQ( ObserverCamera_readableColor( white ), white );
+	// gold, #dde20d, is near the lines' gold; blue and red are not
+	CHECK( ObserverCamera_nearBrandGold( GameMakeColor( 0xdd, 0xe2, 0x0d, 255 ) ) );
+	CHECK( !ObserverCamera_nearBrandGold( GameMakeColor( 0x00, 0x00, 0xff, 255 ) ) );
+	CHECK( !ObserverCamera_nearBrandGold( GameMakeColor( 0xff, 0x00, 0x00, 255 ) ) );
+}

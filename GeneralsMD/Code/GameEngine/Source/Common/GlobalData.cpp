@@ -756,7 +756,10 @@ GlobalData::GlobalData()
 	m_cinemaScript.clear(); // the interface is on and the camera belongs to the player
 	m_autoSkirmishTakeover = FALSE; // the AI plays the opponents unless -takeover empties their seats
 	for( Int slot = 0; slot < MAX_PLAYER_COUNT; slot++ )
+	{
 		m_autoSkirmishSide[ slot ].clear(); // every faction still comes out of the seed unless -side names one
+		m_autoSkirmishTeam[ slot ] = AUTO_SKIRMISH_TEAM_UNSET; // and every team out of -teams unless -team names one
+	}
 	m_netGameHosts.clear(); // no network game from the command line
 	m_netGameStarted = FALSE;
 	m_netGameLocalSlot = 0;

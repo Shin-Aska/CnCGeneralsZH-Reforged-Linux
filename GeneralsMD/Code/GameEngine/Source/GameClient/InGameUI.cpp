@@ -10539,6 +10539,9 @@ static const char *const BROADCAST_NUMBERS = "Consolas";
 /// the broadcast's sizes are a 720 row picture's, grown with the picture's height
 static const Real BROADCAST_ROWS = 720.0f;
 static const Int BROADCAST_NAME_POINTS = 11;
+static const Int BROADCAST_COMPACT_POINTS = 8;
+/// a column with more rows than this, totals counted, sets its rows compact
+static const Int BROADCAST_FULL_ROWS = 3;
 static const Int BROADCAST_SIDE_POINTS = 9;
 static const Int BROADCAST_HEAD_POINTS = 7;
 static const Int BROADCAST_CLOCK_POINTS = 16;
@@ -10591,6 +10594,41 @@ static UnicodeString broadcastName( Player *player )
 static UnicodeString broadcastSide( Player *player )
 {
 	return player->getPlayerType() == PLAYER_COMPUTER ? player->getPlayerDisplayName() : player->getPlayerTemplate()->getDisplayName();
+}
+
+/** How many of players are on team. */
+static Int broadcastTeamSize( const std::vector< SpectatorStats > &players, Int team )
+{
+	Int size = 0;
+	for( size_t index = 0; index < players.size(); index++ )
+		size += players[ index ].team == team ? 1 : 0;
+	return size;
+}
+
+/** A team of two or more by its letter, Team A the first such team in team order; a player alone has
+	* no team name. */
+static UnicodeString broadcastTeamName( const std::vector< SpectatorStats > &players, Int team )
+{
+	Int letter = 'A';
+	for( Int earlier = 0; earlier < team; earlier++ )
+		letter += broadcastTeamSize( players, earlier ) >= 2 ? 1 : 0;
+	AsciiString name;
+	name.format( "Team %c", letter );
+	UnicodeString text;
+	text.translate( name );
+	return text;
+}
+
+/** A player's colour as a filled rectangle; one near the lines' gold gets an edge of the ground round
+	* it, so it does not run into them. */
+static void drawBroadcastSwatch( Int left, Int top, Int width, Int height, Color color )
+{
+	if( width <= 0 )
+		return;
+	TheDisplay->drawFillRect( left, top, width, height, color );
+	if( !ObserverCamera_nearBrandGold( color ) || width < 3 )
+		return;
+	TheDisplay->drawOpenRect( left, top, width, height, 1.0f, BROADCAST_GROUND );
 }
 
 /// a label on the picture: pieces of text side by side, each its colour, on the ground with the gold
@@ -10689,29 +10727,45 @@ void InGameUI::drawDirectorBroadcast( void )
 	const Int rule = broadcastPixels( BROADCAST_RULE );
 	const Int tug = broadcastPixels( BROADCAST_TUG );
 
-	const Int teams = players.back().team + 1;
-	size_t leftCount = ( players.size() + 1 ) / 2;
-	if( teams == 2 )
+	// a block is one side: a team, or a player on his own.  Two face each other; more are dealt to the
+	// two columns whole, so teammates stay together, and a team of two or more has a row of its total
+	std::vector< Int > blockFirst, blockSizes, blockArmies;
+	for( size_t index = 0; index < players.size(); index++ )
 	{
-		leftCount = 0;
-		while( players[ leftCount ].team == 0 )
-			leftCount++;
+		if( index == 0 || players[ index ].team != players[ index - 1 ].team )
+		{
+			blockFirst.push_back( (Int)index );
+			blockSizes.push_back( 0 );
+			blockArmies.push_back( 0 );
+		}
+		blockSizes.back()++;
+		blockArmies.back() += players[ index ].army;
 	}
+	const Int blocks = (Int)blockSizes.size();
+	const std::vector< Int > columns = ObserverCamera_blockColumns( blockSizes );
+	// a column of more than three rows goes compact, smaller and without the side column: four rows
+	// a side and a total at full size took a third of a 720 row picture
+	Int columnRows[ 2 ] = { 0, 0 };
+	for( Int block = 0; block < blocks; block++ )
+		columnRows[ columns[ block ] ] += blockSizes[ block ] + ( blockSizes[ block ] >= 2 ? 1 : 0 );
+	const Bool compact = max( columnRows[ 0 ], columnRows[ 1 ] ) > BROADCAST_FULL_ROWS;
+	const std::string size = compact ? "compact" : "";
+	const Int rowPoints = broadcastPoints( compact ? BROADCAST_COMPACT_POINTS : BROADCAST_NAME_POINTS );
 
 	std::vector< BroadcastRow > rows;
 	Int nameWidth = 0, sideWidth = 0, cashWidth = 0, armyWidth = 0, rowHeight = 0;
-	Int armies[ 2 ] = { 0, 0 };
 	for( size_t index = 0; index < players.size(); index++ )
 	{
 		const SpectatorStats &stats = players[ index ];
-		const std::string seat = std::to_string( stats.player->getPlayerIndex() );
+		const std::string seat = size + std::to_string( stats.player->getPlayerIndex() );
 		BroadcastRow row;
 		row.stats = &stats;
 		row.color = clientPlayerColor( stats.player );
-		row.name = broadcastText( "name" + seat, broadcastName( stats.player ), BROADCAST_WORDS, broadcastPoints( BROADCAST_NAME_POINTS ), TRUE );
-		row.side = broadcastText( "side" + seat, broadcastSide( stats.player ), BROADCAST_WORDS, broadcastPoints( BROADCAST_SIDE_POINTS ), FALSE );
-		row.cash = broadcastText( "cash" + seat, broadcastNumber( "$", stats.cash ), BROADCAST_NUMBERS, broadcastPoints( BROADCAST_NAME_POINTS ), TRUE );
-		row.army = broadcastText( "army" + seat, broadcastNumber( "", stats.army ), BROADCAST_NUMBERS, broadcastPoints( BROADCAST_NAME_POINTS ), TRUE );
+		row.name = broadcastText( "name" + seat, broadcastName( stats.player ), BROADCAST_WORDS, rowPoints, TRUE );
+		row.side = broadcastText( "side" + seat, compact ? UnicodeString::TheEmptyString : broadcastSide( stats.player ), BROADCAST_WORDS,
+			broadcastPoints( BROADCAST_SIDE_POINTS ), FALSE );
+		row.cash = broadcastText( "cash" + seat, broadcastNumber( "$", stats.cash ), BROADCAST_NUMBERS, rowPoints, TRUE );
+		row.army = broadcastText( "army" + seat, broadcastNumber( "", stats.army ), BROADCAST_NUMBERS, rowPoints, TRUE );
 		Int width = 0, height = 0;
 		row.name->getSize( &width, &height );
 		nameWidth = max( nameWidth, width );
@@ -10723,8 +10777,27 @@ void InGameUI::drawDirectorBroadcast( void )
 		rowHeight = max( rowHeight, height );
 		row.army->getSize( &width, &height );
 		armyWidth = max( armyWidth, width );
-		armies[ index < leftCount ? 0 : 1 ] += stats.army;
 		rows.push_back( row );
+	}
+
+	// each team's name and its army's total; the total is measured into the army column
+	std::vector< DisplayString * > teamNames( blocks, NULL ), teamTotals( blocks, NULL );
+	Int totalHeight = 0;
+	for( Int block = 0; block < blocks; block++ )
+	{
+		if( blockSizes[ block ] < 2 )
+			continue;
+		const std::string key = size + std::to_string( block );
+		const Int totalPoints = broadcastPoints( compact ? BROADCAST_COMPACT_POINTS : BROADCAST_SIDE_POINTS );
+		teamNames[ block ] = broadcastText( "teamname" + key, broadcastTeamName( players, players[ blockFirst[ block ] ].team ), BROADCAST_WORDS,
+			totalPoints, TRUE );
+		teamTotals[ block ] = broadcastText( "teamtotal" + key, broadcastNumber( "", blockArmies[ block ] ), BROADCAST_NUMBERS, totalPoints, TRUE );
+		Int width = 0, height = 0;
+		teamNames[ block ]->getSize( &width, &height );
+		totalHeight = max( totalHeight, height );
+		teamTotals[ block ]->getSize( &width, &height );
+		armyWidth = max( armyWidth, width );
+		totalHeight = max( totalHeight, height );
 	}
 
 	DisplayString *cashHead = broadcastText( "cashhead", TheGameText->fetch( "GUI:HudStatCash" ), BROADCAST_NUMBERS,
@@ -10736,10 +10809,8 @@ void InGameUI::drawDirectorBroadcast( void )
 	DisplayString *clock = broadcastText( "clock", clockText, BROADCAST_NUMBERS, broadcastPoints( BROADCAST_CLOCK_POINTS ), TRUE );
 	// the number columns are as wide as six digits whatever they hold, so the bar does not change its
 	// width every time a player's cash crosses a thousand
-	DisplayString *cashWidest = broadcastText( "cashwidest", broadcastNumber( "$", BROADCAST_WIDEST ), BROADCAST_NUMBERS,
-		broadcastPoints( BROADCAST_NAME_POINTS ), TRUE );
-	DisplayString *armyWidest = broadcastText( "armywidest", broadcastNumber( "", BROADCAST_WIDEST ), BROADCAST_NUMBERS,
-		broadcastPoints( BROADCAST_NAME_POINTS ), TRUE );
+	DisplayString *cashWidest = broadcastText( "cashwidest" + size, broadcastNumber( "$", BROADCAST_WIDEST ), BROADCAST_NUMBERS, rowPoints, TRUE );
+	DisplayString *armyWidest = broadcastText( "armywidest" + size, broadcastNumber( "", BROADCAST_WIDEST ), BROADCAST_NUMBERS, rowPoints, TRUE );
 	Int cashHeadWidth = 0, armyHeadWidth = 0, headHeight = 0, clockWidth = 0, clockHeight = 0, widestHeight = 0;
 	Int cashWidestWidth = 0, armyWidestWidth = 0;
 	cashHead->getSize( &cashHeadWidth, &headHeight );
@@ -10752,9 +10823,17 @@ void InGameUI::drawDirectorBroadcast( void )
 
 	// the bar's measures, its left edge at left and its top on the screen's
 	const Int half = swatch + gap / 2 + nameWidth + gap + sideWidth + gap + cashColumn + gap + armyColumn;
-	const Int rowCount = (Int)max( leftCount, rows.size() - leftCount );
+	const Int blockGap = gap / 2;
+	Int columnHeights[ 2 ] = { 0, 0 };
+	for( Int block = 0; block < blocks; block++ )
+	{
+		Int &columnHeight = columnHeights[ columns[ block ] ];
+		if( columnHeight > 0 )
+			columnHeight += blockGap;
+		columnHeight += blockSizes[ block ] * ( rowHeight + rowGap ) + ( teamNames[ block ] != NULL ? totalHeight + rowGap : 0 );
+	}
 	const Int tableTop = pad + headHeight;
-	const Int tableBottom = tableTop + rowCount * ( rowHeight + rowGap );
+	const Int tableBottom = tableTop + max( columnHeights[ 0 ], columnHeights[ 1 ] );
 	const Int clockBox = clockWidth + 2 * gap;
 	const Int width = 2 * ( pad + half + pad ) + clockBox;
 	const Int left = ( TheDisplay->getWidth() - width ) / 2;
@@ -10779,48 +10858,85 @@ void InGameUI::drawDirectorBroadcast( void )
 	armyHead->draw( rightArmyEnd - armyHeadWidth, pad, BROADCAST_MUTED, BROADCAST_GROUND );
 	cashHead->draw( rightCashEnd - cashHeadWidth, pad, BROADCAST_MUTED, BROADCAST_GROUND );
 
-	for( size_t index = 0; index < rows.size(); index++ )
+	// each column's blocks top down in team order, a hairline between two blocks
+	Int columnTops[ 2 ] = { tableTop, tableTop };
+	for( Int block = 0; block < blocks; block++ )
 	{
-		const BroadcastRow &row = rows[ index ];
-		const Bool onLeft = index < leftCount;
-		const Int top = tableTop + (Int)( onLeft ? index : index - leftCount ) * ( rowHeight + rowGap );
-		Int nameW = 0, nameH = 0, sideW = 0, sideH = 0, cashW = 0, cashH = 0, armyW = 0, armyH = 0;
-		row.name->getSize( &nameW, &nameH );
-		row.side->getSize( &sideW, &sideH );
-		row.cash->getSize( &cashW, &cashH );
-		row.army->getSize( &armyW, &armyH );
-		const Int swatchLeft = onLeft ? left + pad : rightStart + half - swatch;
-		const Int nameLeft = onLeft ? swatchLeft + swatch + gap / 2 : swatchLeft - gap / 2 - nameW;
-		const Int sideLeft = onLeft ? nameLeft + nameWidth + gap : swatchLeft - gap / 2 - nameWidth - gap - sideW;
-		const Int cashEnd = onLeft ? leftCashEnd : rightCashEnd;
+		const Bool onLeft = columns[ block ] == 0;
+		Int &top = columnTops[ columns[ block ] ];
+		const Int columnLeft = onLeft ? left + pad : rightStart;
+		if( top > tableTop )
+		{
+			TheDisplay->drawFillRect( columnLeft, top + ( blockGap - rowGap ) / 2, half, 1, BROADCAST_LINE );
+			top += blockGap;
+		}
+		for( Int index = blockFirst[ block ]; index < blockFirst[ block ] + blockSizes[ block ]; index++ )
+		{
+			const BroadcastRow &row = rows[ index ];
+			Int nameW = 0, nameH = 0, sideW = 0, sideH = 0, cashW = 0, cashH = 0, armyW = 0, armyH = 0;
+			row.name->getSize( &nameW, &nameH );
+			row.side->getSize( &sideW, &sideH );
+			row.cash->getSize( &cashW, &cashH );
+			row.army->getSize( &armyW, &armyH );
+			const Int swatchLeft = onLeft ? left + pad : rightStart + half - swatch;
+			const Int nameLeft = onLeft ? swatchLeft + swatch + gap / 2 : swatchLeft - gap / 2 - nameW;
+			const Int sideLeft = onLeft ? nameLeft + nameWidth + gap : swatchLeft - gap / 2 - nameWidth - gap - sideW;
+			const Int cashEnd = onLeft ? leftCashEnd : rightCashEnd;
+			const Int armyEnd = onLeft ? leftArmyEnd : rightArmyEnd;
+			drawBroadcastSwatch( swatchLeft, top, swatch, rowHeight, row.color );
+			row.name->draw( nameLeft, top + ( rowHeight - nameH ) / 2, ObserverCamera_readableColor( row.color ), BROADCAST_GROUND );
+			row.side->draw( sideLeft, top + ( rowHeight - sideH ) / 2, BROADCAST_MUTED, BROADCAST_GROUND );
+			row.cash->draw( cashEnd - cashW, top + ( rowHeight - cashH ) / 2, BROADCAST_INK, BROADCAST_GROUND );
+			row.army->draw( armyEnd - armyW, top + ( rowHeight - armyH ) / 2, BROADCAST_INK, BROADCAST_GROUND );
+			top += rowHeight + rowGap;
+		}
+		if( teamNames[ block ] == NULL )
+			continue;
+		// the team's name where its players' names are, its armies' total under theirs
+		Int teamW = 0, teamH = 0, totalW = 0, totalH = 0;
+		teamNames[ block ]->getSize( &teamW, &teamH );
+		teamTotals[ block ]->getSize( &totalW, &totalH );
+		const Int nameStart = onLeft ? left + pad + swatch + gap / 2 : rightStart + half - swatch - gap / 2 - teamW;
 		const Int armyEnd = onLeft ? leftArmyEnd : rightArmyEnd;
-		TheDisplay->drawFillRect( swatchLeft, top, swatch, rowHeight, row.color );
-		row.name->draw( nameLeft, top + ( rowHeight - nameH ) / 2, row.color, BROADCAST_GROUND );
-		row.side->draw( sideLeft, top + ( rowHeight - sideH ) / 2, BROADCAST_MUTED, BROADCAST_GROUND );
-		row.cash->draw( cashEnd - cashW, top + ( rowHeight - cashH ) / 2, BROADCAST_INK, BROADCAST_GROUND );
-		row.army->draw( armyEnd - armyW, top + ( rowHeight - armyH ) / 2, BROADCAST_INK, BROADCAST_GROUND );
+		teamNames[ block ]->draw( nameStart, top + ( totalHeight - teamH ) / 2, BROADCAST_MUTED, BROADCAST_GROUND );
+		teamTotals[ block ]->draw( armyEnd - totalW, top + ( totalHeight - totalH ) / 2, BROADCAST_MUTED, BROADCAST_GROUND );
+		top += totalHeight + rowGap;
 	}
 
-	// the tug of war: each side's armies from its own end, split among its players
+	// the army bar: every side's share from the left, the left column's first, then the right
+	// column's from the right edge in, so with two sides each pulls from its own end.  Two sides meet
+	// at a gold mark in the middle; more are parted by the ground's colour
+	std::vector< Int > barPlayers, barArmies, barBlocks;
+	for( Int column = 0; column < 2; column++ )
+	{
+		for( Int taken = 0; taken < blocks; taken++ )
+		{
+			const Int block = column == 0 ? taken : blocks - 1 - taken;
+			if( columns[ block ] != column )
+				continue;
+			for( Int member = 0; member < blockSizes[ block ]; member++ )
+			{
+				const Int index = column == 0 ? blockFirst[ block ] + member : blockFirst[ block ] + blockSizes[ block ] - 1 - member;
+				barPlayers.push_back( index );
+				barArmies.push_back( players[ index ].army );
+				barBlocks.push_back( block );
+			}
+		}
+	}
 	const Int tugLeft = left + pad;
 	const Int tugWidth = width - 2 * pad;
-	const Int total = armies[ 0 ] + armies[ 1 ];
 	TheDisplay->drawFillRect( tugLeft, tugTop, tugWidth, tug, BROADCAST_LINE );
-	Int fromLeft = tugLeft;
-	Int fromRight = tugLeft + tugWidth;
-	for( size_t index = 0; index < rows.size() && total > 0; index++ )
+	const std::vector< Int > shares = ObserverCamera_barShares( barArmies, tugWidth );
+	Int barAt = tugLeft;
+	for( size_t piece = 0; piece < shares.size(); piece++ )
 	{
-		const Int share = (Int)( (Int64)rows[ index ].stats->army * tugWidth / total );
-		if( index < leftCount )
-		{
-			TheDisplay->drawFillRect( fromLeft, tugTop, share, tug, rows[ index ].color );
-			fromLeft += share;
-			continue;
-		}
-		fromRight -= share;
-		TheDisplay->drawFillRect( fromRight, tugTop, share, tug, rows[ index ].color );
+		drawBroadcastSwatch( barAt, tugTop, shares[ piece ], tug, rows[ barPlayers[ piece ] ].color );
+		if( blocks > 2 && piece > 0 && barBlocks[ piece ] != barBlocks[ piece - 1 ] )
+			TheDisplay->drawFillRect( barAt, tugTop - rule, rule, tug + 2 * rule, BROADCAST_GROUND );
+		barAt += shares[ piece ];
 	}
-	TheDisplay->drawFillRect( tugLeft + ( tugWidth - rule ) / 2, tugTop - rule, rule, tug + 2 * rule, BROADCAST_GOLD );
+	if( blocks == 2 )
+		TheDisplay->drawFillRect( tugLeft + ( tugWidth - rule ) / 2, tugTop - rule, rule, tug + 2 * rule, BROADCAST_GOLD );
 
 	IRegion2D bar;
 	bar.lo.x = left;
@@ -10837,18 +10953,28 @@ void InGameUI::drawDirectorBroadcast( void )
 	for( Int pane = 0; pane < panes && panes >= 2; pane++ )
 	{
 		const PlayerMaskType sides = TheObserverCamera.getPaneSides( pane );
+		// a team of two or more by its name once, a player alone by his own
 		BroadcastPlate plate;
-		for( size_t index = 0; index < rows.size(); index++ )
+		for( Int block = 0; block < blocks; block++ )
 		{
-			if( ( rows[ index ].stats->player->getPlayerMask() & sides ) == 0 )
-				continue;
-			if( !plate.pieces.empty() )
+			for( Int index = blockFirst[ block ]; index < blockFirst[ block ] + blockSizes[ block ]; index++ )
 			{
-				plate.pieces.push_back( versus );
-				plate.colors.push_back( BROADCAST_MUTED );
+				if( ( rows[ index ].stats->player->getPlayerMask() & sides ) == 0 )
+					continue;
+				if( !plate.pieces.empty() )
+				{
+					plate.pieces.push_back( versus );
+					plate.colors.push_back( BROADCAST_MUTED );
+				}
+				const Bool team = teamNames[ block ] != NULL;
+				Player *player = rows[ index ].stats->player;
+				plate.pieces.push_back( team ? broadcastText( "plateteam" + std::to_string( block ), broadcastTeamName( players, players[ index ].team ),
+					BROADCAST_WORDS, broadcastPoints( BROADCAST_NAME_POINTS ), TRUE ) : broadcastText( "name" + std::to_string( player->getPlayerIndex() ),
+					broadcastName( player ), BROADCAST_WORDS, broadcastPoints( BROADCAST_NAME_POINTS ), TRUE ) );
+				plate.colors.push_back( team ? BROADCAST_INK : ObserverCamera_readableColor( rows[ index ].color ) );
+				if( team )
+					break;
 			}
-			plate.pieces.push_back( rows[ index ].name );
-			plate.colors.push_back( rows[ index ].color );
 		}
 		if( plate.pieces.empty() )
 			continue;
@@ -10892,12 +11018,22 @@ void InGameUI::drawDirectorIntroPlate( void )
 	const std::string seat = std::to_string( player->getPlayerIndex() );
 	BroadcastPlate plate;
 	plate.pieces.push_back( broadcastText( "name" + seat, broadcastName( player ), BROADCAST_WORDS, broadcastPoints( BROADCAST_NAME_POINTS ), TRUE ) );
-	plate.colors.push_back( clientPlayerColor( player ) );
+	plate.colors.push_back( ObserverCamera_readableColor( clientPlayerColor( player ) ) );
 	// an AI is called by its side already
 	if( player->getPlayerType() != PLAYER_COMPUTER )
 	{
 		plate.pieces.push_back( broadcastText( "side" + seat, broadcastSide( player ), BROADCAST_WORDS, broadcastPoints( BROADCAST_SIDE_POINTS ), FALSE ) );
 		plate.colors.push_back( BROADCAST_MUTED );
+	}
+	// and the team he is on, the score bar's name for it
+	const std::vector< SpectatorStats > players = gatherSpectatorStats( SPECTATOR_STATS[ 0 ], NULL );
+	for( size_t index = 0; index < players.size(); index++ )
+	{
+		if( players[ index ].player != player || broadcastTeamSize( players, players[ index ].team ) < 2 )
+			continue;
+		plate.pieces.push_back( broadcastText( "introteam" + seat, broadcastTeamName( players, players[ index ].team ), BROADCAST_WORDS,
+			broadcastPoints( BROADCAST_SIDE_POINTS ), TRUE ) );
+		plate.colors.push_back( BROADCAST_GOLD );
 	}
 
 	Int plateWidth = 0, plateHeight = 0;
