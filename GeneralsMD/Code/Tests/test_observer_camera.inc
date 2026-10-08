@@ -882,6 +882,39 @@ TEST(the_directors_height_eases_to_a_new_place_and_cuts_with_a_cut)
 	CHECK_NEAR( velocity, 0.0f, 0.0001f );
 }
 
+TEST(the_score_bar_takes_two_rows_from_five_players_with_blocks_kept_whole)
+{
+	std::vector< Int > sizes( 4, 1 );
+	std::vector< Int > rows = ObserverCamera_cardRows( sizes );
+	for( size_t block = 0; block < rows.size(); block++ )
+		CHECK_EQ( rows[ block ], 0 );
+	// eight alone: four and four
+	sizes.assign( 8, 1 );
+	rows = ObserverCamera_cardRows( sizes );
+	for( size_t block = 0; block < rows.size(); block++ )
+		CHECK_EQ( rows[ block ], block < 4 ? 0 : 1 );
+	// 4v4 and 4v1: a team to a row
+	sizes.assign( 2, 4 );
+	rows = ObserverCamera_cardRows( sizes );
+	CHECK_EQ( rows[ 0 ], 0 );
+	CHECK_EQ( rows[ 1 ], 1 );
+	sizes[ 1 ] = 1;
+	rows = ObserverCamera_cardRows( sizes );
+	CHECK_EQ( rows[ 1 ], 1 );
+	// 1v1v1v1v2: three cards up, the last single and the pair down
+	sizes.assign( 4, 1 );
+	sizes.push_back( 2 );
+	rows = ObserverCamera_cardRows( sizes );
+	CHECK_EQ( rows[ 2 ], 0 );
+	CHECK_EQ( rows[ 3 ], 1 );
+	CHECK_EQ( rows[ 4 ], 1 );
+	// 2v2v2: four up, two down
+	sizes.assign( 3, 2 );
+	rows = ObserverCamera_cardRows( sizes );
+	CHECK_EQ( rows[ 1 ], 0 );
+	CHECK_EQ( rows[ 2 ], 1 );
+}
+
 TEST(the_score_bar_sets_every_side_in_one_row_and_fits_eight_players)
 {
 	// 4v1: four cards with three gaps, a "vs", one card

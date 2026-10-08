@@ -97,6 +97,12 @@ static const Real DIRECTOR_PAN_SECONDS = 1.4f;
 /// how long the director's height takes to settle on a new place's: the view's own settle took a
 /// third of a second, and a camera gliding in over seconds stepped back up in that third
 static const Real DIRECTOR_HEIGHT_SECONDS = 1.6f;
+/// the score bar sets this many players' cards and more in two rows: eight in one were 6 pixel text
+/// at 720p
+static const Int CARD_TWO_ROWS_FROM = 5;
+/// the longest a split stays up, from when it opened; a planned one was held 5300 frames on an
+/// eight-player map while pane 0 went from fight to fight beside it
+static const UnsignedInt SPLIT_MOST_FRAMES = 18 * LOGICFRAMES_PER_SECOND;
 /// how long after the panes are gone the hand-over is logged a line a frame
 static const UnsignedInt HANDOVER_LOG_FRAMES = 45;
 /// a zoom moving more than this share of itself between two updates is logged as a jump
@@ -657,6 +663,30 @@ Int ObserverCamera_cardRow( const std::vector< Int > &sizes, Int cardWidth, Int 
 }
 
 //-------------------------------------------------------------------------------------------------
+std::vector< Int > ObserverCamera_cardRows( const std::vector< Int > &sizes )
+{
+	std::vector< Int > rows( sizes.size(), 0 );
+	Int cards = 0;
+	for( size_t block = 0; block < sizes.size(); block++ )
+		cards += sizes[ block ];
+	if( cards < CARD_TWO_ROWS_FROM )
+		return rows;
+	// blocks in order into the first row until it holds half the cards, the rest into the second; a
+	// block that would carry the first row further past half than it is short goes down instead
+	Int first = 0;
+	Bool second = FALSE;
+	for( size_t block = 0; block < sizes.size(); block++ )
+	{
+		if( block > 0 && !second && first + sizes[ block ] - cards / 2 > cards / 2 - first )
+			second = TRUE;
+		rows[ block ] = second ? 1 : 0;
+		if( !second )
+			first += sizes[ block ];
+	}
+	return rows;
+}
+
+//-------------------------------------------------------------------------------------------------
 Int ObserverCamera_cardStep( const std::vector< Int > &sizes, const Int *cardWidths, const Int *cardGaps,
 	const Int *versusWidths, Int steps, Int room )
 {
@@ -1202,7 +1232,10 @@ void ObserverCamera::reset( void )
 	m_lastZoom = 0.0f;
 	m_lastCut = FALSE;
 	m_handoverLogUntil = 0;
+	m_paneLookFrame = 0;
+	m_paneLookStepMost[ 0 ] = m_paneLookStepMost[ 1 ] = 0.0f;
 	m_paneSurvivor = 0;
+	m_spentMoment = -1;
 	m_survivorHandover = FALSE;
 	m_drivenTo.zero();
 	m_lastUpdate = 0;
@@ -1785,7 +1818,8 @@ void ObserverCamera::updateSplit( void )
 	const Bool handedOver = m_split && within( m_place, m_secondPlace, sameGround );
 	const Bool mayPlan = m_placeKind != PLACE_SIGHT && ( m_split || firstLasts );
 	const Int planned = mayPlan ? ObserverCamera_plannedSecond( m_timeline, m_place, frame, searched, m_split ) : -1;
-	const Bool plannedSplit = planned >= 0;
+	// a planned moment whose split was ended early does not open another
+	const Bool plannedSplit = planned >= 0 && planned != m_spentMoment;
 	if( plannedSplit && frame < m_timeline[ planned ].start && ( secondHeat <= 0.0f || !within( second, m_timeline[ planned ].place, sameGround ) ) )
 		second = m_timeline[ planned ].place;
 	else if( m_split && secondHeat <= 0.0f )
@@ -1814,6 +1848,21 @@ void ObserverCamera::updateSplit( void )
 	if( split && !m_split && !plannedSplit && timelineKnown )
 		split = firstLasts && ObserverCamera_fightLasts( m_timeline, shown, frame, heldTo, &m_place );
 	split = split && !handedOver && apart > needed * SPLIT_SAME_GROUND_SHARE;
+	// a split goes out the usual way when it has been up long enough, when the director has taken pane
+	// 0 to another fight (pane 0 keeps the one it had until the panes are gone, see chooseTarget), and
+	// when the second fight is now somewhere else.  Pane 0 retargeted under a split it never left, and a
+	// pre-roll fifteen frames into one moved it 2900 units while it slid in
+	const Bool upTooLong = m_split && since >= SPLIT_MOST_FRAMES;
+	const Bool paneZeroLeft = m_split && !handedOver && !within( m_place, m_panesLeftPlace, sameGround );
+	const Bool paneOneLeft = m_split && !within( shown, m_secondPlace, sameGround );
+	if( split && ( upTooLong || paneZeroLeft || paneOneLeft ) )
+	{
+		DEBUG_LOG(( "OBSCAM frame %u split ends:%s%s%s\n", frame, upTooLong ? " up too long" : "",
+			paneZeroLeft ? " the director went elsewhere" : "", paneOneLeft ? " the second fight is elsewhere" : "" ));
+		split = FALSE;
+		if( planned >= 0 )
+			m_spentMoment = planned;
+	}
 	if( split != m_split )
 	{
 		DEBUG_LOG(( "OBSCAM frame %u split %s, first heat %.1f, second (%.0f,%.0f) heat %.1f, %.0f apart of %.0f needed, screen %.0f%s\n",
@@ -1901,7 +1950,10 @@ void ObserverCamera::advancePanes( UnsignedInt frame )
 			}
 			break;
 		case PANES_RADAR_OUT:
-			if( elapsed >= PANE_RADAR_FRAMES )
+			// a split that ended before its panes came takes the radar back without bringing them in
+			if( !m_intro && !m_split )
+				next = PANES_RADAR_IN;
+			else if( elapsed >= PANE_RADAR_FRAMES )
 				next = PANES_IN;
 			break;
 		case PANES_IN:
@@ -2715,6 +2767,14 @@ Bool ObserverCamera::chooseTarget( const ViewLocation &current, ViewLocation *ta
 	const Bool panesUp = m_panePhase == PANES_IN || panesSettled() || m_panePhase == PANES_OUT;
 	if( panesUp && ( leaving || ( !m_split && !m_intro ) ) )
 		place = m_panesLeftPlace;
+	else if( panesUp && m_split && !m_intro && !within( place, m_panesLeftPlace, m_splitApart * SPLIT_SAME_GROUND_SHARE ) )
+	{
+		// updateSplit ends a split whose pane 0 the director takes elsewhere before this is reached; a
+		// place that still moves this far under panes would be a jump, so pane 0 stays and says so
+		DEBUG_LOG(( "OBSCAM frame %u pane 0 would jump to (%.0f,%.0f) under a split, held at (%.0f,%.0f)\n", TheGameLogic->getFrame(),
+			place.x, place.y, m_panesLeftPlace.x, m_panesLeftPlace.y ));
+		place = m_panesLeftPlace;
+	}
 	else
 		m_panesLeftPlace = place;
 	// while there are panes each one keeps what it shows inside the map itself; the whole screen's
@@ -2733,10 +2793,40 @@ Bool ObserverCamera::chooseTarget( const ViewLocation &current, ViewLocation *ta
 //-------------------------------------------------------------------------------------------------
 void ObserverCamera::logHandover( const ViewLocation &step, const ViewLocation &placed )
 {
+	// the panes moving, and HANDOVER_LOG_FRAMES after; held still, once a second.  A split held 5300
+	// frames wrote a line every one of them
 	const UnsignedInt frame = TheGameLogic->getFrame();
-	if( m_panePhase != PANES_NONE )
+	// inside a split no pane jumps: each pane's largest subject step a logic frame, written when the
+	// panes are gone, says whether one did.  The subject and not the look point: a pane sliding off the
+	// screen's edge keeps its subject on its circle's centre, and the look under that perspective swung
+	// 89 units in a frame while the picture moved evenly.  The radar sliding is not the panes
+	const Bool panesShown = m_paneCount >= 2 && m_panePhase != PANES_RADAR_IN && m_panePhase != PANES_RADAR_OUT;
+	if( panesShown && frame != m_paneLookFrame )
+	{
+		const Coord2D looks[ 2 ] = { { step.getPosition().x, step.getPosition().y },
+			{ m_paneGlide[ 1 ].getPosition().x, m_paneGlide[ 1 ].getPosition().y } };
+		for( Int pane = 0; pane < 2; pane++ )
+		{
+			if( m_paneLookFrame != 0 )
+			{
+				const Real dx = looks[ pane ].x - m_paneLookLast[ pane ].x;
+				const Real dy = looks[ pane ].y - m_paneLookLast[ pane ].y;
+				m_paneLookStepMost[ pane ] = max( m_paneLookStepMost[ pane ], sqrtf( dx * dx + dy * dy ) / ( frame - m_paneLookFrame ) );
+			}
+			m_paneLookLast[ pane ] = looks[ pane ];
+		}
+		m_paneLookFrame = frame;
+	}
+	else if( !panesShown && m_paneLookFrame != 0 )
+	{
+		DEBUG_LOG(( "OBSCAM frame %u panes down, largest subject step a frame: pane 0 %.1f, pane 1 %.1f\n", frame,
+			m_paneLookStepMost[ 0 ], m_paneLookStepMost[ 1 ] ));
+		m_paneLookFrame = 0;
+		m_paneLookStepMost[ 0 ] = m_paneLookStepMost[ 1 ] = 0.0f;
+	}
+	if( m_panePhase != PANES_NONE && m_panePhase != PANES_HELD )
 		m_handoverLogUntil = frame + HANDOVER_LOG_FRAMES;
-	if( frame >= m_handoverLogUntil )
+	if( frame >= m_handoverLogUntil && ( m_panePhase != PANES_HELD || frame % LOGICFRAMES_PER_SECOND != 0 ) )
 		return;
 	TheTacticalView->aimCamera();
 	Coord3D world = step.getPosition();

@@ -244,6 +244,9 @@ Real ObserverCamera_paneLabelTop( const Coord2D &centre, Real radius, Real width
 /// block: every card's left and every block's left from the row's, and the row's whole width
 Int ObserverCamera_cardRow( const std::vector< Int > &sizes, Int cardWidth, Int cardGap, Int versusWidth,
 	std::vector< Int > *cardLefts, std::vector< Int > *blockLefts );
+/// the score bar's row, 0 or 1, for each block of players: one row under five players, else blocks
+/// kept whole and in order, the first row taking them until it holds about half the cards
+std::vector< Int > ObserverCamera_cardRows( const std::vector< Int > &sizes );
 /// the first of steps sizes, largest first, whose row of cards is no wider than room; the last when
 /// none is
 Int ObserverCamera_cardStep( const std::vector< Int > &sizes, const Int *cardWidths, const Int *cardGaps,
@@ -454,7 +457,11 @@ private:
 	Real m_lastZoom;								///< the view's zoom at the last update, for the zoom jump log
 	Bool m_lastCut;									///< the last update cut
 	UnsignedInt m_handoverLogUntil;	///< the frame the per-frame hand-over log stops at
+	Coord2D m_paneLookLast[ 2 ];		///< each pane's subject at the last frame panes were up, for the jump check
+	UnsignedInt m_paneLookFrame;		///< that frame, 0 while no panes are up
+	Real m_paneLookStepMost[ 2 ];		///< each pane's largest subject step a logic frame while these panes are up
 	Int m_paneSurvivor;							///< the pane that fills the screen as the panes go out: 1 when the split ended on the director taking pane 1's fight
+	Int m_spentMoment;							///< the timeline moment whose split was ended early, so it does not open again
 	Bool m_survivorHandover;				///< the panes have just gone out on pane 1, whose camera the single view takes over this update
 	Coord3D m_drivenTo;							///< where this put the camera last frame, inside the view's constraint
 	UnsignedInt m_lastUpdate;

@@ -10712,7 +10712,7 @@ static const Real BROADCAST_CARD_STRIP = 3.0f;
 
 //-------------------------------------------------------------------------------------------------
 /** The score bar hangs from the top edge in the middle: the match clock in a tab of its own, and under
-	* it every side in one row, "Team A vs Team B vs a player alone", a card a player with his name in
+	* it every side in one row (two rows of one-line cards from five players), "Team A vs Team B vs a player alone", a card a player with his name in
 	* his colour, his general or difficulty, his cash and the cost of everything he has standing that is
 	* not a building.  A team's cards sit together under its name and its armies' total.  Under the row
 	* the armies pull on one bar, each player his colour in the cards' order, gold at the middle when
@@ -10751,6 +10751,16 @@ void InGameUI::drawDirectorBroadcast( void )
 	}
 	const Int blocks = (Int)blockSizes.size();
 
+	// five players or more stand in two rows, whole blocks to a row, and their cards keep one line each:
+	// the name at the left, the army's value at the right, no general and no cash.  One row of eight
+	// two-line cards fell to 7 point text at 720, and one line with the cash had to be cut to fit
+	const std::vector< Int > lineOf = ObserverCamera_cardRows( blockSizes );
+	const Int lines = lineOf.back() + 1;
+	const Bool compact = lines > 1;
+	std::vector< std::vector< Int > > lineSizes( lines );
+	for( Int block = 0; block < blocks; block++ )
+		lineSizes[ lineOf[ block ] ].push_back( blockSizes[ block ] );
+
 	// every card's text at a size, and the card width it needs: the widest of the name, the general or
 	// difficulty, the money line (cash, then the army's label and value) at six digits each, and a team
 	// header spread over its block's cards.  Each size keeps strings of its own, since a string keeps
@@ -10759,6 +10769,7 @@ void InGameUI::drawDirectorBroadcast( void )
 	std::vector< DisplayString * > teamNames( blocks, NULL ), teamTotals( blocks, NULL );
 	DisplayString *armyHead = NULL;
 	DisplayString *versusText = NULL;
+	Int widestWidth = 0;
 	auto buildCards = [ & ]( Int step ) -> Int
 	{
 		const std::string size = "card" + std::to_string( step ) + ":";
@@ -10769,10 +10780,10 @@ void InGameUI::drawDirectorBroadcast( void )
 			broadcastPoints( BROADCAST_HEAD_POINTS ), FALSE );
 		versusText = broadcastText( size + "versus", UnicodeString( u"vs" ), BROADCAST_WORDS, detailPoints, FALSE );
 		DisplayString *widest = broadcastText( size + "widest", broadcastNumber( "$", BROADCAST_WIDEST ), BROADCAST_NUMBERS, detailPoints, TRUE );
-		Int width = 0, height = 0, labelWidth = 0, widestWidth = 0;
+		Int width = 0, height = 0, labelWidth = 0;
 		armyHead->getSize( &labelWidth, &height );
 		widest->getSize( &widestWidth, &height );
-		Int content = widestWidth + cardPad + labelWidth + cardPad / 2 + widestWidth;
+		Int content = compact ? 0 : widestWidth + cardPad + labelWidth + cardPad / 2 + widestWidth;
 		for( size_t index = 0; index < players.size(); index++ )
 		{
 			const SpectatorStats &stats = players[ index ];
@@ -10785,7 +10796,9 @@ void InGameUI::drawDirectorBroadcast( void )
 			row.cash = broadcastText( "cash" + seat, broadcastNumber( "$", stats.cash ), BROADCAST_NUMBERS, detailPoints, TRUE );
 			row.army = broadcastText( "army" + seat, broadcastNumber( "$", stats.army ), BROADCAST_NUMBERS, detailPoints, TRUE );
 			row.name->getSize( &width, &height );
-			content = max( content, width );
+			content = max( content, compact ? width + cardPad + widestWidth : width );
+			if( compact )
+				continue;
 			row.side->getSize( &width, &height );
 			content = max( content, width );
 		}
@@ -10819,17 +10832,41 @@ void InGameUI::drawDirectorBroadcast( void )
 		versusWidths[ step ] = versusWidth + 4 * cardGaps[ step ];
 	}
 	const Int room = (Int)TheDisplay->getWidth() - 4 * pad;
-	const Int step = ObserverCamera_cardStep( blockSizes, cardWidths, cardGaps, versusWidths, BROADCAST_CARD_STEPS, room );
+	Int step = 0;
+	for( Int line = 0; line < lines; line++ )
+		step = max( step, ObserverCamera_cardStep( lineSizes[ line ], cardWidths, cardGaps, versusWidths, BROADCAST_CARD_STEPS, room ) );
 	buildCards( step );
 	const Int cardPad = cardGaps[ step ];
 	const Int versusWidth = versusWidths[ step ];
-	std::vector< Int > cardLefts, blockLefts;
+	std::vector< Int > lineCards, lineBlocks;
 	Int cardWidth = cardWidths[ step ];
-	Int rowWidth = ObserverCamera_cardRow( blockSizes, cardWidth, cardPad, versusWidth, &cardLefts, &blockLefts );
+	std::vector< Int > lineWidths( lines, 0 );
+	for( Int line = 0; line < lines; line++ )
+		lineWidths[ line ] = ObserverCamera_cardRow( lineSizes[ line ], cardWidth, cardPad, versusWidth, &lineCards, &lineBlocks );
+	Int rowWidth = *std::max_element( lineWidths.begin(), lineWidths.end() );
 	if( rowWidth > room )
 	{
-		cardWidth = ObserverCamera_cardWidthIn( blockSizes, cardPad, versusWidth, room );
-		rowWidth = ObserverCamera_cardRow( blockSizes, cardWidth, cardPad, versusWidth, &cardLefts, &blockLefts );
+		for( Int line = 0; line < lines; line++ )
+			cardWidth = min( cardWidth, ObserverCamera_cardWidthIn( lineSizes[ line ], cardPad, versusWidth, room ) );
+		for( Int line = 0; line < lines; line++ )
+			lineWidths[ line ] = ObserverCamera_cardRow( lineSizes[ line ], cardWidth, cardPad, versusWidth, &lineCards, &lineBlocks );
+		rowWidth = *std::max_element( lineWidths.begin(), lineWidths.end() );
+	}
+	// every block's and every card's left across the bar, a shorter line in the middle under the longer
+	std::vector< Int > cardLefts( players.size(), 0 ), blockLefts( blocks, 0 );
+	for( Int line = 0; line < lines; line++ )
+	{
+		ObserverCamera_cardRow( lineSizes[ line ], cardWidth, cardPad, versusWidth, &lineCards, &lineBlocks );
+		const Int shift = ( rowWidth - lineWidths[ line ] ) / 2;
+		Int blockInLine = 0, cardInLine = 0;
+		for( Int block = 0; block < blocks; block++ )
+		{
+			if( lineOf[ block ] != line )
+				continue;
+			blockLefts[ block ] = shift + lineBlocks[ blockInLine++ ];
+			for( Int index = blockFirst[ block ]; index < blockFirst[ block ] + blockSizes[ block ]; index++ )
+				cardLefts[ index ] = shift + lineCards[ cardInLine++ ];
+		}
 	}
 
 	UnicodeString clockText;
@@ -10839,7 +10876,8 @@ void InGameUI::drawDirectorBroadcast( void )
 	clock->getSize( &clockWidth, &clockHeight );
 
 	// the bar's measures: the clock in a tab at the top in the middle, under it a line of team headers
-	// when there are teams, the cards, and the armies' bar under the whole row
+	// when there are teams, the cards, a header line and a card line again for a second row, and the
+	// armies' bar under all of it
 	Int nameHeight = 0, sideHeight = 0, numberHeight = 0, labelHeight = 0, headerHeight = 0, width = 0;
 	rows[ 0 ].name->getSize( &width, &nameHeight );
 	rows[ 0 ].side->getSize( &width, &sideHeight );
@@ -10860,10 +10898,20 @@ void InGameUI::drawDirectorBroadcast( void )
 	const Int left = ( (Int)TheDisplay->getWidth() - barWidth ) / 2;
 	const Int rowLeft = left + ( barWidth - rowWidth ) / 2;
 	const Int headerTop = clockBoxHeight + halfPad;
-	const Int cardsTop = headerTop + headerHeight;
 	const Int strip = broadcastPixels( BROADCAST_CARD_STRIP );
-	const Int cardHeight = strip + halfPad + nameHeight + sideHeight + numberHeight + halfPad;
-	const Int tugTop = cardsTop + cardHeight + halfPad;
+	const Int textHeight = compact ? max( nameHeight, numberHeight ) : nameHeight + sideHeight + numberHeight;
+	const Int cardHeight = strip + halfPad + textHeight + halfPad;
+	// a row's team headers take a line over it only when the row has a team
+	std::vector< Int > lineHeaders( lines, 0 ), lineTops( lines, 0 );
+	for( Int block = 0; block < blocks; block++ )
+		if( teamNames[ block ] != NULL )
+			lineHeaders[ lineOf[ block ] ] = headerHeight;
+	Int tugTop = headerTop;
+	for( Int line = 0; line < lines; line++ )
+	{
+		lineTops[ line ] = tugTop;
+		tugTop += lineHeaders[ line ] + cardHeight + halfPad;
+	}
 	const Int height = tugTop + tug + pad / 2;
 	const Int clockLeft = left + ( barWidth - clockBox ) / 2;
 
@@ -10877,19 +10925,23 @@ void InGameUI::drawDirectorBroadcast( void )
 	// difficulty, then one money line: the cash at the left, the army's label and value at the right
 	Int versusTextWidth = 0, versusTextHeight = 0;
 	versusText->getSize( &versusTextWidth, &versusTextHeight );
+	Int armyLabelWidth = 0;
+	armyHead->getSize( &armyLabelWidth, &labelHeight );
 	for( Int block = 0; block < blocks; block++ )
 	{
 		const Int blockLeft = rowLeft + blockLefts[ block ];
 		const Int blockWidth = blockSizes[ block ] * cardWidth + ( blockSizes[ block ] - 1 ) * cardPad;
-		if( block > 0 )
-			versusText->draw( blockLeft - ( versusWidth + versusTextWidth ) / 2, cardsTop + ( cardHeight - versusTextHeight ) / 2,
+		const Int blockHeaderTop = lineTops[ lineOf[ block ] ];
+		const Int blockCardsTop = blockHeaderTop + lineHeaders[ lineOf[ block ] ];
+		if( block > 0 && lineOf[ block ] == lineOf[ block - 1 ] )
+			versusText->draw( blockLeft - ( versusWidth + versusTextWidth ) / 2, blockCardsTop + ( cardHeight - versusTextHeight ) / 2,
 				BROADCAST_MUTED, BROADCAST_GROUND );
 		if( teamNames[ block ] != NULL )
 		{
 			Int totalWidth = 0, totalHeight = 0;
 			teamTotals[ block ]->getSize( &totalWidth, &totalHeight );
-			teamNames[ block ]->draw( blockLeft, headerTop, BROADCAST_GOLD, BROADCAST_GROUND );
-			teamTotals[ block ]->draw( blockLeft + blockWidth - totalWidth, headerTop, BROADCAST_INK, BROADCAST_GROUND );
+			teamNames[ block ]->draw( blockLeft, blockHeaderTop, BROADCAST_GOLD, BROADCAST_GROUND );
+			teamTotals[ block ]->draw( blockLeft + blockWidth - totalWidth, blockHeaderTop, BROADCAST_INK, BROADCAST_GROUND );
 		}
 		for( Int index = blockFirst[ block ]; index < blockFirst[ block ] + blockSizes[ block ]; index++ )
 		{
@@ -10897,20 +10949,26 @@ void InGameUI::drawDirectorBroadcast( void )
 			const Int cardLeft = rowLeft + cardLefts[ index ];
 			const Int textLeft = cardLeft + cardPad;
 			const Int numberEnd = cardLeft + cardWidth - cardPad;
-			TheDisplay->drawFillRect( cardLeft, cardsTop, cardWidth, cardHeight, BROADCAST_PANEL );
-			drawBroadcastSwatch( cardLeft, cardsTop, cardWidth, strip, row.color );
-			Int top = cardsTop + strip + halfPad;
-			row.name->draw( textLeft, top, ObserverCamera_readableColor( row.color ), BROADCAST_GROUND );
-			top += nameHeight;
-			row.side->draw( textLeft, top, BROADCAST_MUTED, BROADCAST_GROUND );
-			top += sideHeight;
-			Int numberWidth = 0, numberTall = 0, labelWidth = 0;
-			row.cash->getSize( &numberWidth, &numberTall );
-			row.cash->draw( textLeft, top + numberHeight - numberTall, BROADCAST_INK, BROADCAST_GROUND );
+			TheDisplay->drawFillRect( cardLeft, blockCardsTop, cardWidth, cardHeight, BROADCAST_PANEL );
+			drawBroadcastSwatch( cardLeft, blockCardsTop, cardWidth, strip, row.color );
+			Int top = blockCardsTop + strip + halfPad;
+			Int numberWidth = 0, numberTall = 0;
+			row.name->getSize( &numberWidth, &numberTall );
+			row.name->draw( textLeft, compact ? top + textHeight - numberTall : top, ObserverCamera_readableColor( row.color ), BROADCAST_GROUND );
+			if( !compact )
+			{
+				top += nameHeight;
+				row.side->draw( textLeft, top, BROADCAST_MUTED, BROADCAST_GROUND );
+				top += sideHeight;
+			}
+			const Int moneyBottom = compact ? top + textHeight : top + numberHeight;
 			row.army->getSize( &numberWidth, &numberTall );
-			row.army->draw( numberEnd - numberWidth, top + numberHeight - numberTall, BROADCAST_INK, BROADCAST_GROUND );
-			armyHead->getSize( &labelWidth, &labelHeight );
-			armyHead->draw( numberEnd - numberWidth - halfPad - labelWidth, top + numberHeight - labelHeight, BROADCAST_MUTED, BROADCAST_GROUND );
+			row.army->draw( numberEnd - numberWidth, moneyBottom - numberTall, BROADCAST_INK, BROADCAST_GROUND );
+			if( compact )
+				continue;
+			armyHead->draw( numberEnd - numberWidth - halfPad - armyLabelWidth, moneyBottom - labelHeight, BROADCAST_MUTED, BROADCAST_GROUND );
+			row.cash->getSize( &numberWidth, &numberTall );
+			row.cash->draw( textLeft, moneyBottom - numberTall, BROADCAST_INK, BROADCAST_GROUND );
 		}
 	}
 
@@ -10944,6 +11002,13 @@ void InGameUI::drawDirectorBroadcast( void )
 	bar.hi.y = height;
 	TheObserverCamera.addBroadcast( bar );
 	TheObserverCamera.setBroadcastTop( (Real)( height + pad ) );
+	static Int loggedHeight = -1;
+	if( height != loggedHeight )
+	{
+		loggedHeight = height;
+		DEBUG_LOG(( "OBSCAM frame %u score bar %d x %d, %d row(s), size %d (name %d, detail %d points), card %d of %d\n", TheGameLogic->getFrame(),
+			barWidth, height, lines, step, BROADCAST_CARD_NAME_POINTS[ step ], BROADCAST_CARD_DETAIL_POINTS[ step ], cardWidth, cardWidths[ step ] ));
+	}
 
 	// a split's plate a pane, faded in and out with the panes; the opening's are each pane's own
 	const Real shown = TheObserverCamera.getPaneProgress();
