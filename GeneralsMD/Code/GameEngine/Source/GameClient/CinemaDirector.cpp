@@ -44,6 +44,7 @@
 #include "Common/Recorder.h"
 #include "Common/ThingTemplate.h"
 #include "GameClient/CinemaDirector.h"
+#include "GameClient/CommandXlat.h"
 #include "Common/NameKeyGenerator.h"
 #include "GameClient/Display.h"
 #include "GameClient/GameWindow.h"
@@ -261,6 +262,13 @@ Bool CinemaDirector_parseLine( const char *line, CinemaShot *shot, Bool *isShot,
 		shot->verb = (verb == "hud") ? CINEMA_VERB_HUD : CINEMA_VERB_LETTERBOX;
 		if (args != 1 || !parseCinemaSwitch( tokens[ 2 ], &shot->on ))
 			return refuseCinemaLine( reason, "hud and letterbox take on or off" );
+	}
+	else if (verb == "filter")
+	{
+		shot->verb = CINEMA_VERB_FILTER;
+		if (args != 1 || (tokens[ 2 ] != "bw" && tokens[ 2 ] != "blur" && tokens[ 2 ] != "off"))
+			return refuseCinemaLine( reason, "filter takes bw, blur or off" );
+		shot->name = tokens[ 2 ];
 	}
 	else
 	{
@@ -706,6 +714,27 @@ static void runShot( const CinemaShot &shot )
 
 		case CINEMA_VERB_LETTERBOX:
 			theCinemaLetterbox = shot.on;
+			break;
+
+		// what ScriptActions::doBlackWhiteMode and doCameraMotionBlur set, with no fade
+		case CINEMA_VERB_FILTER:
+			if (shot.name == "bw")
+			{
+				TheTacticalView->setViewFilterMode( FM_VIEW_BW_BLACK_AND_WHITE );
+				TheTacticalView->setViewFilter( FT_VIEW_BW_FILTER );
+				TheTacticalView->setFadeParameters( 0, 1 );
+			}
+			else if (shot.name == "blur")
+			{
+				if (TheTacticalView->setViewFilter( FT_VIEW_MOTION_BLUR_FILTER )
+						&& !TheTacticalView->setViewFilterMode( FM_VIEW_MB_IN_ALPHA ))
+					TheTacticalView->setViewFilter( FT_NULL_FILTER );
+			}
+			else
+			{
+				TheTacticalView->setViewFilterMode( FM_NULL_MODE );
+				TheTacticalView->setViewFilter( FT_NULL_FILTER );
+			}
 			break;
 
 		case CINEMA_VERB_SHOT:

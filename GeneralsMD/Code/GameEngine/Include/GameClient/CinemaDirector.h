@@ -41,6 +41,7 @@ enum CinemaVerb
 	CINEMA_VERB_UNFOLLOW,		///< unfollow: stop following, stay where the camera is
 	CINEMA_VERB_HUD,				///< hud on|off
 	CINEMA_VERB_LETTERBOX,	///< letterbox on|off
+	CINEMA_VERB_FILTER,			///< filter bw|blur|off: a map script's black and white view or motion blur zoom
 	CINEMA_VERB_SHOT,				///< shot: one screenshot
 	CINEMA_VERB_END,				///< end: quit the game
 
@@ -59,7 +60,7 @@ struct CinemaShot
 	Real routeX[ CINEMA_MAX_ROUTE_POINTS ];
 	Real routeY[ CINEMA_MAX_ROUTE_POINTS ];
 	Int routePoints;
-	AsciiString name;						///< follow's template
+	AsciiString name;						///< follow's template, filter's bw, blur or off
 	Bool on;										///< hud and letterbox
 };
 

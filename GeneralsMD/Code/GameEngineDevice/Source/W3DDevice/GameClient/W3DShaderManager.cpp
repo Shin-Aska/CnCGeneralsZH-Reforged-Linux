@@ -457,7 +457,7 @@ Bool ScreenDefaultFilter::preRender(Bool &skipRender, CustomScenePassModes &scen
 	{	if (((W3DSmudgeManager *)TheSmudgeManager)->getSmudgeCountLastFrame() == 0)
 			return FALSE;
 	}
-	W3DShaderManager::startRenderToTexture();
+	W3DShaderManager::startRenderToTexture(TRUE);	//the smudges only sample it, mid-scene
 	return true;
 }
 
@@ -2935,10 +2935,6 @@ void W3DShaderManager::init(void)
 			}
 		}
 	}
-	// Direct3D 11 keeps the scene in its own float target while this texture is the target, so the
-	// smudges' redirect does not clip the Glow option's fires at white.
-	Direct3D11_Set_Scene_Stand_In(m_renderTexture, m_newRenderSurface);
-
 	W3DShaderInterface **shaders;
 
 	for (i=0; MasterShaderList[i] != NULL; i++)
@@ -3141,8 +3137,8 @@ void W3DShaderManager::drawViewport(Int color)
 /** Starts rendering to a texture.
  */
 //=============================================================================
-void W3DShaderManager::startRenderToTexture(void)
-{	
+void W3DShaderManager::startRenderToTexture(Bool sceneStandIn)
+{
 	DEBUG_ASSERTCRASH(!m_renderingToTexture, ("Already rendering to texture - cannot nest calls."));
 
 	if (m_renderingToTexture || m_newRenderSurface==NULL || m_oldDepthSurface==NULL)
@@ -3159,6 +3155,8 @@ void W3DShaderManager::startRenderToTexture(void)
 	//texture.  Ask the wrapper for a matching one (NULL = not multisampling, nothing to do).
 	IDirect3DSurface9 *depthSurface = DX8Wrapper::_Get_Non_MultiSampled_Depth_Buffer();
 	if (depthSurface == NULL) depthSurface = m_oldDepthSurface;
+	if (sceneStandIn)
+		Direct3D11_Set_Scene_Stand_In(m_renderTexture, m_newRenderSurface);
 	DX8Wrapper::_Set_DX8_Render_Target(m_newRenderSurface,depthSurface);
 	RenderResult hr = D3D_OK;
 	DEBUG_ASSERTCRASH(hr==D3D_OK, ("Set target failed unexpectedly."));
@@ -3218,6 +3216,7 @@ IDirect3DTexture9 *W3DShaderManager::endRenderToTexture(void)
 		return NULL;
 	}
 	DX8Wrapper::_Set_DX8_Render_Target(m_oldRenderSurface,m_oldDepthSurface);	//restore original render target
+	Direct3D11_Set_Scene_Stand_In(NULL, NULL);
 	RenderResult hr = D3D_OK;
 	DEBUG_ASSERTCRASH(hr==D3D_OK, ("Set target failed unexpectedly."));
 	if (hr != D3D_OK)
