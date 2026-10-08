@@ -10752,11 +10752,11 @@ void InGameUI::drawDirectorBroadcast( void )
 	const Int blocks = (Int)blockSizes.size();
 
 	// every card's text at a size, and the card width it needs: the widest of the name, the general or
-	// difficulty, a label and a six digit number, and a team header spread over its block's cards.
-	// Each size keeps strings of its own, since a string keeps the font it was made with
+	// difficulty, the money line (cash, then the army's label and value) at six digits each, and a team
+	// header spread over its block's cards.  Each size keeps strings of its own, since a string keeps
+	// the font it was made with
 	std::vector< BroadcastRow > rows( players.size() );
 	std::vector< DisplayString * > teamNames( blocks, NULL ), teamTotals( blocks, NULL );
-	DisplayString *cashHead = NULL;
 	DisplayString *armyHead = NULL;
 	DisplayString *versusText = NULL;
 	auto buildCards = [ & ]( Int step ) -> Int
@@ -10765,17 +10765,14 @@ void InGameUI::drawDirectorBroadcast( void )
 		const Int cardPad = broadcastPixels( BROADCAST_CARD_PAD[ step ] );
 		const Int namePoints = broadcastPoints( BROADCAST_CARD_NAME_POINTS[ step ] );
 		const Int detailPoints = broadcastPoints( BROADCAST_CARD_DETAIL_POINTS[ step ] );
-		const Int labelPoints = broadcastPoints( BROADCAST_HEAD_POINTS );
-		cashHead = broadcastText( size + "cashhead", TheGameText->fetch( "GUI:HudStatCash" ), BROADCAST_WORDS, labelPoints, FALSE );
-		armyHead = broadcastText( size + "armyhead", TheGameText->fetch( "GUI:HudStatArmy" ), BROADCAST_WORDS, labelPoints, FALSE );
+		armyHead = broadcastText( size + "armyhead", TheGameText->fetch( "GUI:HudStatArmy" ), BROADCAST_WORDS,
+			broadcastPoints( BROADCAST_HEAD_POINTS ), FALSE );
 		versusText = broadcastText( size + "versus", UnicodeString( u"vs" ), BROADCAST_WORDS, detailPoints, FALSE );
 		DisplayString *widest = broadcastText( size + "widest", broadcastNumber( "$", BROADCAST_WIDEST ), BROADCAST_NUMBERS, detailPoints, TRUE );
 		Int width = 0, height = 0, labelWidth = 0, widestWidth = 0;
-		cashHead->getSize( &labelWidth, &height );
-		armyHead->getSize( &width, &height );
-		labelWidth = max( labelWidth, width );
+		armyHead->getSize( &labelWidth, &height );
 		widest->getSize( &widestWidth, &height );
-		Int content = labelWidth + cardPad + widestWidth;
+		Int content = widestWidth + cardPad + labelWidth + cardPad / 2 + widestWidth;
 		for( size_t index = 0; index < players.size(); index++ )
 		{
 			const SpectatorStats &stats = players[ index ];
@@ -10847,24 +10844,27 @@ void InGameUI::drawDirectorBroadcast( void )
 	rows[ 0 ].name->getSize( &width, &nameHeight );
 	rows[ 0 ].side->getSize( &width, &sideHeight );
 	rows[ 0 ].cash->getSize( &width, &numberHeight );
-	cashHead->getSize( &width, &labelHeight );
+	armyHead->getSize( &width, &labelHeight );
 	numberHeight = max( numberHeight, labelHeight );
 	for( Int block = 0; block < blocks; block++ )
 		if( teamNames[ block ] != NULL )
 			teamNames[ block ]->getSize( &width, &headerHeight );
+	// half a card pad round the card's text and under the team names, and a pad's half under the
+	// armies' bar: with a pad each and the money on two lines the bar took 125 rows of 720
+	const Int halfPad = max( cardPad / 2, 1 );
 	if( headerHeight > 0 )
-		headerHeight += cardPad;
+		headerHeight += halfPad;
 	const Int clockBox = clockWidth + 2 * broadcastPixels( BROADCAST_GAP );
 	const Int clockBoxHeight = clockHeight + rule;
 	const Int barWidth = max( rowWidth, clockBox ) + 2 * pad;
 	const Int left = ( (Int)TheDisplay->getWidth() - barWidth ) / 2;
 	const Int rowLeft = left + ( barWidth - rowWidth ) / 2;
-	const Int headerTop = clockBoxHeight + pad / 2;
+	const Int headerTop = clockBoxHeight + halfPad;
 	const Int cardsTop = headerTop + headerHeight;
 	const Int strip = broadcastPixels( BROADCAST_CARD_STRIP );
-	const Int cardHeight = strip + cardPad + nameHeight + sideHeight + 2 * numberHeight + cardPad;
-	const Int tugTop = cardsTop + cardHeight + pad / 2;
-	const Int height = tugTop + tug + pad;
+	const Int cardHeight = strip + halfPad + nameHeight + sideHeight + numberHeight + halfPad;
+	const Int tugTop = cardsTop + cardHeight + halfPad;
+	const Int height = tugTop + tug + pad / 2;
 	const Int clockLeft = left + ( barWidth - clockBox ) / 2;
 
 	TheDisplay->drawFillRect( left, 0, barWidth, height, BROADCAST_GROUND );
@@ -10874,7 +10874,7 @@ void InGameUI::drawDirectorBroadcast( void )
 
 	// block by block: a "vs" before every block but the first, a team's name and its armies' total over
 	// its cards, and a card a player, the house colour along its top, the name, the general or the
-	// difficulty, then cash and army each beside its label
+	// difficulty, then one money line: the cash at the left, the army's label and value at the right
 	Int versusTextWidth = 0, versusTextHeight = 0;
 	versusText->getSize( &versusTextWidth, &versusTextHeight );
 	for( Int block = 0; block < blocks; block++ )
@@ -10899,19 +10899,18 @@ void InGameUI::drawDirectorBroadcast( void )
 			const Int numberEnd = cardLeft + cardWidth - cardPad;
 			TheDisplay->drawFillRect( cardLeft, cardsTop, cardWidth, cardHeight, BROADCAST_PANEL );
 			drawBroadcastSwatch( cardLeft, cardsTop, cardWidth, strip, row.color );
-			Int top = cardsTop + strip + cardPad;
+			Int top = cardsTop + strip + halfPad;
 			row.name->draw( textLeft, top, ObserverCamera_readableColor( row.color ), BROADCAST_GROUND );
 			top += nameHeight;
 			row.side->draw( textLeft, top, BROADCAST_MUTED, BROADCAST_GROUND );
 			top += sideHeight;
-			Int numberWidth = 0, numberTall = 0;
-			cashHead->draw( textLeft, top + numberHeight - labelHeight, BROADCAST_MUTED, BROADCAST_GROUND );
+			Int numberWidth = 0, numberTall = 0, labelWidth = 0;
 			row.cash->getSize( &numberWidth, &numberTall );
-			row.cash->draw( numberEnd - numberWidth, top + numberHeight - numberTall, BROADCAST_INK, BROADCAST_GROUND );
-			top += numberHeight;
-			armyHead->draw( textLeft, top + numberHeight - labelHeight, BROADCAST_MUTED, BROADCAST_GROUND );
+			row.cash->draw( textLeft, top + numberHeight - numberTall, BROADCAST_INK, BROADCAST_GROUND );
 			row.army->getSize( &numberWidth, &numberTall );
 			row.army->draw( numberEnd - numberWidth, top + numberHeight - numberTall, BROADCAST_INK, BROADCAST_GROUND );
+			armyHead->getSize( &labelWidth, &labelHeight );
+			armyHead->draw( numberEnd - numberWidth - halfPad - labelWidth, top + numberHeight - labelHeight, BROADCAST_MUTED, BROADCAST_GROUND );
 		}
 	}
 
