@@ -434,6 +434,8 @@ static const UnsignedByte PANE_BAND_RGB[ 3 ] = { 0x80, 0x95, 0xea };
 static const Real PANE_BAND_OUTER_ALPHA = 0.3f;
 static const Real PANE_BAND_INNER_ALPHA = 0.55f;
 static const Real PANE_BAND_FAR_SHARE = 0.35f;
+/// the corner radar's dark edge is a pixel this many rows of the picture
+static const Real CORNER_EDGE_ROWS_A_PIXEL = 720.0f;
 /// the light that runs along the gold: --gold most of the way to white, as wide as the edged line and
 /// this share of its length, fading out to both ends.  At --gold half way to white and the gold's
 /// own width nobody saw it at 720p
@@ -606,23 +608,26 @@ void W3DInGameUI::draw( void )
 				corner.lo.y = REAL_TO_INT( middle.y ) - mapHeight / 2;
 				corner.hi.y = corner.lo.y + mapHeight;
 			}
-			else if( cornerFramed )
+			// in its corner the radar stays flush with the screen's left and bottom edges and its frame is
+			// half the rays' gold on a pixel of edge a 720 rows, so only its top and right show: the
+			// owner found the full frame, inset by its width, too heavy for a corner
+			const Int halo = max( ( ObserverCamera_paneBandWidth( TheDisplay->getHeight() ) - frameGold ) / 2 - OBSERVER_PANE_LINE_EDGE, 0 );
+			const Int cornerGold = max( frameGold / 2, 1 );
+			const Int cornerOutside = cornerGold + max( REAL_TO_INT( TheDisplay->getHeight() / CORNER_EDGE_ROWS_A_PIXEL ), 1 );
+			const Int cornerHalo = halo / 2;
+			if( cornerFramed )
 			{
-				// in from the corner by the frame, so none of it is cut by the screen's edge, and slid out
-				// left far enough to take the frame off the screen too
-				corner.lo.x = frameOutside;
-				corner.hi.x = corner.lo.x + mapWidth;
-				corner.hi.y = TheDisplay->getHeight() - frameOutside;
-				corner.lo.y = corner.hi.y - mapHeight;
-				const Int slide = REAL_TO_INT( TheObserverCamera.getCornerRadarSlide() * ( mapWidth + 2 * frameOutside ) );
+				// slid out left far enough to take the frame and its halo off the screen too
+				const Int slide = REAL_TO_INT( TheObserverCamera.getCornerRadarSlide() * ( mapWidth + cornerOutside + cornerHalo ) );
 				corner.lo.x -= slide;
 				corner.hi.x -= slide;
 			}
 
 			// two filled rectangles under the radar, square at the corners: the edge, then the gold up
 			// to the window, so the map sits on the gold with no gap.  Between the panes the frame wears the lines' blue band as a halo and draws its gold in round
-			// the window as the lines grow; until the gold is whole the map sits on the edge
-			const Int halo = max( ( ObserverCamera_paneBandWidth( TheDisplay->getHeight() ) - frameGold ) / 2 - OBSERVER_PANE_LINE_EDGE, 0 );
+			// the window as the lines grow; until the gold is whole the map sits on the edge.  In the
+			// corner the same rectangles run off the screen's left and bottom, which leaves the top and
+			// the right
 			if( framed )
 			{
 				const Real progress = TheObserverCamera.getLineProgress();
@@ -641,8 +646,10 @@ void W3DInGameUI::draw( void )
 			}
 			else if( cornerFramed )
 			{
-				fillAround( corner, frameOutside, PANE_EDGE );
-				fillAround( corner, frameGold, PANE_GOLD );
+				fillAround( corner, cornerOutside + cornerHalo, paneBand( PANE_BAND_OUTER_ALPHA ) );
+				fillAround( corner, cornerOutside + cornerHalo / 2, paneBand( PANE_BAND_INNER_ALPHA ) );
+				fillAround( corner, cornerOutside, PANE_EDGE );
+				fillAround( corner, cornerGold, PANE_GOLD );
 			}
 			if( !secondPane )
 			{
