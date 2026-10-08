@@ -68,6 +68,22 @@ enum PickType
 };
 
 // ------------------------------------------------------------------------------------------------
+/** A blast bending the picture around it, as the ScreenDistortion FX nugget describes it: the frame
+	* drawn in toward the point for PullFrames, then a ring travelling out to Radius over WaveFrames
+	* and pushing the picture outward as it passes.  Radius is in world units; the strengths and the
+	* ring's width are fractions of it. */
+// ------------------------------------------------------------------------------------------------
+struct ScreenDistortionInfo
+{
+	Real m_radius;
+	UnsignedInt m_pullFrames;
+	UnsignedInt m_waveFrames;
+	Real m_pullStrength;
+	Real m_waveStrength;
+	Real m_waveWidth;
+};
+
+// ------------------------------------------------------------------------------------------------
 /** The implementation of common view functionality. */
 // ------------------------------------------------------------------------------------------------
 class View : public Snapshot
@@ -238,8 +254,15 @@ public:
 	/// Add an impulse force to shake the camera
 	virtual void shake( const Coord3D *epicenter, CameraShakeType shakeType ) { };
 
+	/// Bend the picture around a blast; only the Direct3D 11 post chain draws it
+	virtual void addScreenDistortion( const Coord3D *epicenter, const ScreenDistortionInfo &info ) { }
+
 	virtual Real getFXPitch( void ) const { return 1.0f; }					///< returns the FX pitch angle
+	/// build the camera from the view's location now rather than at the next draw, so picks and
+	/// projections answer for where it was just put
+	virtual void aimCamera( void ) {}
 	virtual void forceCameraConstraintRecalc(void) {}
+	virtual void applyCameraConstraint( void ) {}										///< move the look point inside the camera constraint now, where the next draw would
 	virtual void setGuardBandBias( const Coord2D *gb ) = 0;
 
 	/** The console's freecam, a photo mode: the camera flies on its own from an eye point with a

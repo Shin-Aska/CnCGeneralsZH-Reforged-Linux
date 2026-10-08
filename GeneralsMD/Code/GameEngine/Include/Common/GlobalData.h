@@ -453,8 +453,7 @@ public:
 	Bool m_workersReturnToSupply;		///< a worker that finishes a build job goes back to the dock it left
 	Bool m_detailedBuildTooltips;		///< put build time, weapon range and damage in the build tooltip
 	Bool m_archiveReplays;					///< keep a timestamped copy of every replay, instead of only the last one
-	Int m_bloomIntensity;				///< bloom strength in percent, 0 = off
-	Int m_bloomThreshold;				///< brightness in percent below which nothing blooms
+	Int m_bloomIntensity;				///< Glow strength in percent, 0 = off; the renderer derives the rest
 	Bool m_buildMapCache;
 	AsciiString m_initialFile;				///< If this is specified, load a specific map/replay from the command-line
 	AsciiString m_pendingFile;				///< If this is specified, use this map at the next game start
@@ -477,6 +476,9 @@ public:
 	Int m_videoStartFrame;					///< -video <from> <to> [name]: the first logic frame recorded
 	Int m_videoEndFrame;						///< -video: the last logic frame recorded (0 = no video)
 	AsciiString m_videoName;				///< -video: the recording is Videos\<name>.mp4 next to the save games
+	Bool m_directorRecord;					///< -directorrecord [name]: the director films the whole match, split for two fights, and the run quits at its end
+	AsciiString m_directorScoutFile;	///< -directorscout <file>: -directorrecord's first pass, headless, writes the match's fights and special powers here
+	AsciiString m_directorTimelineFile;	///< -directortimeline <file>: what the first pass wrote, which the filming pass reads to arrive before each fight
 	Int m_wavStartFrame;						///< -wav <from> <to> [name]: the first logic frame of the sound recording
 	Int m_wavEndFrame;							///< -wav: the last logic frame recorded (0 = no sound recording)
 	AsciiString m_wavName;					///< -wav: the recording is Videos\<name>.wav next to the save games

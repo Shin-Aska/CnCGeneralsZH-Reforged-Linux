@@ -244,6 +244,10 @@ void Direct3D11_Mark_Surface_Dirty(struct IDirect3DSurface9 * surface)
 	DX11Texture_Mark_Dirty(surface);
 }
 
+// Direct3D11_Set_Scene_Stand_In's texture and surface.
+static struct IDirect3DBaseTexture9 * SceneStandInTexture = NULL;
+static struct IDirect3DSurface9 * SceneStandInSurface = NULL;
+
 void Direct3D11_Mirror_Texture(unsigned stage, struct IDirect3DBaseTexture9 * texture)
 {
 	if (!Active) {
@@ -252,6 +256,9 @@ void Direct3D11_Mirror_Texture(unsigned stage, struct IDirect3DBaseTexture9 * te
 	ID3D11ShaderResourceView * view = texture == NULL
 		? NULL
 		: DX11Texture_Mirror(Device.Get_Device(), Device.Get_Context(), texture);
+	if (texture != NULL && texture == SceneStandInTexture) {
+		Backend.Set_Scene_Stand_In(view);
+	}
 	Backend.Set_Texture(stage, view);
 	Backend.Set_Texture_Missing(stage, texture != NULL && view == NULL);
 }
@@ -340,6 +347,23 @@ void Direct3D11_Set_Smoke_Glow(bool glow)
 	}
 }
 
+void Direct3D11_Set_Glow_Draw(bool glow)
+{
+	if (Active) {
+		Backend.Set_Glow_Draw(glow);
+	}
+}
+
+void Direct3D11_Set_Scene_Stand_In(struct IDirect3DBaseTexture9 * texture,
+	struct IDirect3DSurface9 * surface)
+{
+	SceneStandInTexture = texture;
+	SceneStandInSurface = surface;
+	if (Active && texture == NULL) {
+		Backend.Set_Scene_Stand_In(NULL);
+	}
+}
+
 void Direct3D11_Clear_Shadow_Parameters()
 {
 	if (Active) {
@@ -357,8 +381,10 @@ void Direct3D11_Mirror_Render_Target(struct IDirect3DSurface9 * surface)
 	if (!Active) {
 		return;
 	}
-	Backend.Set_Render_Target(DX11Texture_Target(Device.Get_Device(), Device.Get_Context(),
-		surface));
+	// The scene's stand-in is not drawn into here: the scene stays where the gain and the bloom are.
+	Backend.Set_Render_Target((surface != NULL && surface == SceneStandInSurface)
+		? NULL
+		: DX11Texture_Target(Device.Get_Device(), Device.Get_Context(), surface));
 }
 
 void Direct3D11_Mirror_Surface_Copy(struct IDirect3DSurface9 * destination,
@@ -456,6 +482,7 @@ const char * Direct3D11_Post_Diagnostic()
 static void take_the_frame_to_the_screen()
 {
 	Device.Set_Scene_View(NULL);
+	Backend.Set_Additive_Gain(1.0f);	// eight bits from here on: a boosted interface draw would only clip
 	Backend.Begin_Scene();
 }
 
@@ -483,7 +510,11 @@ void Direct3D11_Begin_Scene()
 		// that asked for a chain and could not have one falls back to the swap chain here rather
 		// than half way through.
 		Post.Begin_Frame();
-		Device.Set_Scene_View(Post.Scene_View());
+		ID3D11RenderTargetView * scene = Post.Scene_View();
+		Device.Set_Scene_View(scene);
+		// The Glow option's boost needs the half float scene: in eight bits it would only clip.
+		Backend.Set_Additive_Gain((scene != NULL && Post.Scene_Is_Float())
+			? DX11Post_Additive_Gain() : 1.0f);
 		Backend.Begin_Scene();
 	}
 }

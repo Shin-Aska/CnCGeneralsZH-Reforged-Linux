@@ -123,6 +123,7 @@
 #include "GameClient/GUICallbacks.h"
 #include "GameClient/ControlBar.h"		// -uidrill works the command bar the way a player does
 #include "GameClient/InGameUI.h"		// -resdrill selects a building before it changes the mode
+#include "GameClient/ObserverCamera.h"	// -directorscout counts the fights of a headless run
 #include "GameLogic/Object.h"
 
 #include "GameNetwork/GameInfo.h"
@@ -2305,13 +2306,35 @@ static void updateHeadlessRun( void )
 		 was here that run had to be -headless to end by itself, which is to say it could not be
 		 photographed at all. */
 	const Bool unattended = TheGlobalData->m_headless || TheGlobalData->m_autoSkirmishPlayers > 0 ||
-													!TheGlobalData->m_netGameHosts.isEmpty();
+													!TheGlobalData->m_netGameHosts.isEmpty() || TheGlobalData->m_directorRecord;
 
 	/* Except that a run with a control socket open is not unattended at all - somebody is driving
 		 it from the other end, and tearing the process down the moment a match is decided takes the
 		 socket with it.  Whoever is driving says when it ends, by sending "quit". */
 	if (TheGlobalData->m_controlPort > 0)
 		return;
+
+	/* -directorrecord films one match.  A replay that runs out, or a match that ends some other way
+		 than a decision, goes back to the shell, and the run ends there; the display's teardown
+		 finishes the movie. */
+	static Bool directorRecordSawMatch = FALSE;
+	const Bool scouting = !TheGlobalData->m_directorScoutFile.isEmpty();
+	if ((TheGlobalData->m_directorRecord || scouting) && !TheGameEngine->getQuitting())
+	{
+		const Bool inMatch = TheGameLogic->isInGame() && !TheGameLogic->isInShellGame();
+		if (inMatch)
+		{
+			directorRecordSawMatch = TRUE;
+		}
+		else if (directorRecordSawMatch)
+		{
+			DEBUG_LOG(("-directorrecord: the match is over, quitting\n"));
+			if (scouting)
+				TheObserverCamera.finishScout();
+			TheGameEngine->setQuitting( TRUE );
+			return;
+		}
+	}
 
 	if (!unattended || !TheGameLogic->isInGame() || TheGameLogic->isInShellGame())
 		return;
@@ -2334,6 +2357,10 @@ static void updateHeadlessRun( void )
 	}
 
 	const UnsignedInt frame = TheGameLogic->getFrame();
+
+	// -directorrecord's scouting pass: a headless run of the same match counting its fights
+	if (scouting)
+		TheObserverCamera.scout();
 
 	/* -screenshot <n>: hand the renderer a shot request as the run passes frame n. W3DDisplay only
 		 sets a pending flag here and writes the file out of the back buffer on its next draw, so this
@@ -2387,7 +2414,8 @@ static void updateHeadlessRun( void )
 	/* A -video range that runs up to or past -maxframes keeps the run alive until its last picture is
 		 drawn, which happens on the pass after the logic reaches that frame. */
 	Int maxGameFrames = TheGlobalData->m_maxGameFrames;
-	if (maxGameFrames > 0 && !TheGlobalData->m_headless && TheGlobalData->m_videoEndFrame >= maxGameFrames)
+	if (maxGameFrames > 0 && !TheGlobalData->m_headless && !TheGlobalData->m_directorRecord
+			&& TheGlobalData->m_videoEndFrame >= maxGameFrames)
 		maxGameFrames = TheGlobalData->m_videoEndFrame + 1;
 	if (maxGameFrames > 0)
 		maxGameFrames += frameLimitOvershoot();		// a test's overshoot: 0 for every real run
@@ -2480,6 +2508,9 @@ static void updateHeadlessRun( void )
 							 score->getTotalBuildingsBuilt(), score->getTotalBuildingsLost(),
 							 slot, team));
 	}
+
+	if (scouting)
+		TheObserverCamera.finishScout();
 
 	/* Tear the match down the way the benchmark timer does, so the replay of the run is closed and
 		 written rather than left half-flushed by the process going away. */
