@@ -53,9 +53,17 @@ static const DXGI_FORMAT FLOAT_FORMAT = DXGI_FORMAT_R16G16B16A16_FLOAT;
 // sixteenth of the samples.
 static const unsigned BLOOM_DIVISOR = 4;
 
-// Two horizontal and two vertical, which at a quarter resolution reaches about sixteen pixels of
-// the finished frame.  A third pair was tried and the glow got wider without getting better.
+// Pairs of blur passes, one horizontal and one vertical, the n-th pair stepping n texels between
+// its taps.  Two reach about fifteen pixels of the finished frame; the Glow option's Medium asks
+// for three, High and Ultra for four, about twenty five and thirty five.  More than four and a
+// fire's halo covers the units fighting in it.
 static const unsigned BLOOM_BLUR_PASSES = 2;
+static const unsigned BLOOM_BLUR_PASS_LIMIT = 4;
+
+// How far past the threshold the bright pass takes to reach full strength.  A pixel just over it
+// keeps the square of its excess, so a flame flickering across the threshold fades its glow in
+// and out instead of switching it.
+static const float BLOOM_KNEE = 0.5f;
 
 // What counts as bright enough to bleed, what the bleed is worth when it is added back, and where
 // the tone curve starts bending.
@@ -72,18 +80,30 @@ static const unsigned BLOOM_BLUR_PASSES = 2;
 // An intensity of 1.5 against a quiet frame with nothing burning costs half a level a channel,
 // which is the cost of having this on when there is nothing for it to do.
 //
-// Those two are the defaults.  The game replaces them every frame from its Bloom option.
+// Those two are the defaults.  The game replaces them every frame from its Glow option, which
+// also raises what an additive draw is worth (DX11Post_Additive_Gain): that, and not a lower
+// threshold, is what gets fire and lasers past white while the art stays under it.
 static const float BLOOM_THRESHOLD = 1.0f;
 static const float BLOOM_INTENSITY = 1.5f;
 static const float TONE_CURVE_KNEE = 0.8f;
 
 static float BloomThreshold = BLOOM_THRESHOLD;
 static float BloomIntensity = BLOOM_INTENSITY;
+static float BloomAdditiveGain = 1.0f;
+static unsigned BloomBlurPasses = BLOOM_BLUR_PASSES;
 
-void DX11Post_Set_Bloom(float threshold, float intensity)
+void DX11Post_Set_Bloom(float threshold, float intensity, float additive_gain, unsigned blur_passes)
 {
 	BloomThreshold = (threshold > 0.0f) ? threshold : 0.0f;
 	BloomIntensity = (intensity > 0.0f) ? intensity : 0.0f;
+	BloomAdditiveGain = (additive_gain > 1.0f) ? additive_gain : 1.0f;
+	BloomBlurPasses = (blur_passes < 1) ? 1
+		: (blur_passes > BLOOM_BLUR_PASS_LIMIT) ? BLOOM_BLUR_PASS_LIMIT : blur_passes;
+}
+
+float DX11Post_Additive_Gain()
+{
+	return (BloomIntensity > 0.0f) ? BloomAdditiveGain : 1.0f;
 }
 
 static DX11PostWarp Warps[DX11_POST_WARP_LIMIT];
@@ -331,9 +351,11 @@ static const char * const AO_SHADER_BODY =
 	"}\n";
 
 // The bright pass, downsampling as it goes: four taps of the full size frame averaged into one
-// quarter size texel, then the threshold taken off what is left.  What survives is the amount by
-// which something was brighter than white, which is a quantity an eight bit scene target could not
-// have held.
+// quarter size texel, then the threshold taken off its brightest channel.  What survives is the
+// amount by which something was brighter than white, which is a quantity an eight bit scene target
+// could not have held, carried in the pixel's own hue so an orange fire glows orange.  Over the
+// first Tuning.w past the threshold it keeps the square of that excess (the soft knee), so it
+// starts at nothing with no step and the art, which never passes white, keeps nothing.
 static const char * const BLOOM_EXTRACT_SHADER_BODY =
 	"float4 main(VertexOutput input) : SV_TARGET\n"
 	"{\n"
@@ -342,7 +364,12 @@ static const char * const BLOOM_EXTRACT_SHADER_BODY =
 	"        + Source.Sample(Sampler, input.Texture + float2(texel.x, -texel.y)).rgb\n"
 	"        + Source.Sample(Sampler, input.Texture + float2(-texel.x, texel.y)).rgb\n"
 	"        + Source.Sample(Sampler, input.Texture + float2(texel.x, texel.y)).rgb;\n"
-	"    return float4(max(sum * 0.25 - Tuning.x, 0.0), 1.0);\n"
+	"    float3 colour = sum * 0.25;\n"
+	"    float bright = max(colour.r, max(colour.g, colour.b));\n"
+	"    float over = max(bright - Tuning.x, 0.0);\n"
+	"    float knee = max(Tuning.w, 0.0001);\n"
+	"    float kept = (over < knee) ? over * over / (2.0 * knee) : over - knee * 0.5;\n"
+	"    return float4(colour * (kept / max(bright, 0.0001)), 1.0);\n"
 	"}\n";
 
 // One half of a separable gaussian.  The direction comes in as a constant, so the same program is
@@ -882,7 +909,7 @@ void DX11PostProcessClass::Draw_Pass(const PassSetup & pass)
 	block.Tuning[0] = BloomThreshold;
 	block.Tuning[1] = BloomIntensity;
 	block.Tuning[2] = TONE_CURVE_KNEE;
-	block.Tuning[3] = 0.0f;
+	block.Tuning[3] = BLOOM_KNEE;
 	if (pass.Occlusion) {
 		block.Tuning[0] = NearPlane;
 		block.Tuning[1] = FarPlane;
@@ -966,13 +993,17 @@ ID3D11ShaderResourceView * DX11PostProcessClass::Run_Bloom(ID3D11RenderTargetVie
 	pass.SourceWidth = BloomWidth;
 	pass.SourceHeight = BloomHeight;
 	unsigned source = 0;
-	for (unsigned iteration = 0; iteration < BLOOM_BLUR_PASSES; ++iteration) {
+	for (unsigned iteration = 0; iteration < BloomBlurPasses; ++iteration) {
+		// Each pair steps a texel wider than the last.  What the earlier pairs left is smooth
+		// enough by then that the taps landing between texels miss nothing, and the widths add
+		// up in squares, which is how four pairs reach twice as far as two.
+		const float spread = static_cast<float>(iteration + 1);
 		for (unsigned axis = 0; axis < 2; ++axis) {
 			const unsigned other = 1 - source;
 			pass.Source = BloomTargets[source].Resource;
 			pass.Destination = BloomTargets[other].View;
-			pass.BlurX = (axis == 0) ? bloom_texel_x : 0.0f;
-			pass.BlurY = (axis == 0) ? 0.0f : bloom_texel_y;
+			pass.BlurX = (axis == 0) ? bloom_texel_x * spread : 0.0f;
+			pass.BlurY = (axis == 0) ? 0.0f : bloom_texel_y * spread;
 			Draw_Pass(pass);
 			source = other;
 		}

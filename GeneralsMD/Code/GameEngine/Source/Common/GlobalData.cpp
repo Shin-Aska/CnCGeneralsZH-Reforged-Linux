@@ -223,7 +223,6 @@ static void parseIgnoredField( INI *, void *, void *, const void * )
 	{ "DetailedBuildTooltips",		INI::parseBool,				NULL,			offsetof( GlobalData, m_detailedBuildTooltips ) },
 	{ "ArchiveReplays",						INI::parseBool,				NULL,			offsetof( GlobalData, m_archiveReplays ) },
 	{ "Bloom",										INI::parseInt,				NULL,			offsetof( GlobalData, m_bloomIntensity ) },
-	{ "BloomThreshold",						INI::parseInt,				NULL,			offsetof( GlobalData, m_bloomThreshold ) },
 	{ "MinCameraHeight",						INI::parseReal,				NULL,			offsetof( GlobalData, m_minCameraHeight ) },
 	{ "TerrainHeightAtEdgeOfMap",					INI::parseReal,				NULL,			offsetof( GlobalData, m_terrainHeightAtEdgeOfMap ) },
 	{ "UnitDamagedThreshold",				INI::parseReal,				NULL,			offsetof( GlobalData, m_unitDamagedThresh ) },
@@ -1201,14 +1200,11 @@ GlobalData::GlobalData()
 	m_detailedBuildTooltips = TRUE;
 	m_archiveReplays = TRUE;
 
-	// Bloom defaults to the options screen's Medium: 60 percent, which the Direct3D 11 post chain
-	// turns into the 1.5 strength it used to apply unconditionally.  Both fields are percentages and
-	// GameData.ini sets them as such - the strength, and the brightness below which nothing glows.
-	// The options screen offers levels instead and stores one of those in Options.ini;
-	// OptionsCatalog.cpp holds the percentage each level stands for, and 60 and 65 here are two of
-	// them.
-	m_bloomIntensity = 60;
-	m_bloomThreshold = 65;
+	// Glow defaults to the options screen's Medium, 50 percent.  GameData.ini sets the field as a
+	// percentage; the options screen offers levels and stores one of those in Options.ini, and
+	// OptionsCatalog.cpp holds the percentage each level stands for.  W3DShaderManager.cpp turns
+	// the percentage into the additive gain, the bloom strength and the blur width.
+	m_bloomIntensity = 50;
 	
 	m_animateWindows = TRUE;
 	

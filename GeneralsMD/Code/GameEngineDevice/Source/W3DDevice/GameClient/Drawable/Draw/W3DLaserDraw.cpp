@@ -33,6 +33,7 @@
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include <stdlib.h>
 
+#include "Common/GlobalData.h"
 #include "Common/Thing.h"
 #include "Common/ThingTemplate.h"
 #include "Common/Xfer.h"
@@ -65,7 +66,8 @@
 // own hue and a narrow core run toward white. Both draw through one texture made here, a falloff
 // across the width that reaches zero at the edge, so the halo has no visible border. The core
 // stacks past white on top of EA's layers, which the Direct3D 11 bloom then picks up; under -d3d9
-// the halo alone is the glow. Draw side only: nothing here is read by GameLogic or parsed from INI.
+// the halo alone is the glow. Both follow the Glow option (glowStrength). Draw side only: nothing
+// here is read by GameLogic or parsed from INI.
 static const Real GLOW_HALO_WIDTH_SCALE	= 2.8f;		// halo width over the beam's widest layer
 static const Real GLOW_HALO_MIN_WIDTH		= 16.0f;
 static const Real GLOW_HALO_INTENSITY		= 0.75f;
@@ -154,6 +156,14 @@ static Vector3 glowHue( Color inner, Color outer )
 	if( hi <= 0.0f )
 		return Vector3( 1.0f, 1.0f, 1.0f );
 	return Vector3( c[best][0] / hi, c[best][1] / hi, c[best][2] / hi );
+}
+
+// What the Glow option makes of the two glow lines: nothing at Off, which leaves EA's beams alone,
+// and the look they were tuned at for Medium, twice it at Ultra.  A beam is a few pixels wide, so
+// unlike a fireball it needs its own brightness raised to get past white and bloom.
+static Real glowStrength()
+{
+	return TheGlobalData->m_bloomIntensity / 50.0f;
 }
 
 // PUBLIC FUNCTIONS ///////////////////////////////////////////////////////////////////////////////
@@ -319,9 +329,6 @@ W3DLaserDraw::W3DLaserDraw( Thing *thing, const ModuleData* moduleData ) :
 	if( beamGlows( thing ) )
 	{
 		TextureClass *glowTexture = acquireGlowTexture();
-		Vector3 hue = glowHue( data->m_innerColor, data->m_outerColor );
-		Vector3 white( 1.0f, 1.0f, 1.0f );
-		Vector3 colors[ GLOW_LAYERS ] = { hue * GLOW_HALO_INTENSITY, hue * ( 1.0f - GLOW_CORE_WHITEN ) + white * GLOW_CORE_WHITEN };
 
 		const Int glowCount = (Int)data->m_segments * GLOW_LAYERS;
 		m_glow3D = NEW SegmentedLineClass *[ glowCount ];
@@ -331,7 +338,6 @@ W3DLaserDraw::W3DLaserDraw( Thing *thing, const ModuleData* moduleData ) :
 			m_glow3D[ g ] = line;
 			line->Set_Texture( glowTexture );
 			line->Set_Shader( ShaderClass::_PresetAdditiveShader );
-			line->Set_Color( colors[ g % GLOW_LAYERS ] );
 			line->Set_Texture_Mapping_Mode( SegLineRendererClass::UNIFORM_WIDTH_TEXTURE_MAP );	// u runs across the width
 			W3DDisplay::m_3DScene->Add_Render_Object( line );
 			line->Set_Visible( 0 );
@@ -566,9 +572,20 @@ void W3DLaserDraw::doDrawModule(const Matrix3D* transformMtx)
 					MAX( widest * GLOW_HALO_WIDTH_SCALE, GLOW_HALO_MIN_WIDTH ) * widthScale,
 					MAX( widest * GLOW_CORE_WIDTH_SCALE, GLOW_CORE_MIN_WIDTH ) * widthScale
 				};
+				// set with the points rather than once, so a change of the Glow option reaches the
+				// next beam drawn
+				const Real strength = glowStrength();
+				Vector3 hue = glowHue( data->m_innerColor, data->m_outerColor );
+				Vector3 white( 1.0f, 1.0f, 1.0f );
+				Vector3 colors[ GLOW_LAYERS ] =
+				{
+					hue * ( GLOW_HALO_INTENSITY * strength ),
+					( hue * ( 1.0f - GLOW_CORE_WHITEN ) + white * GLOW_CORE_WHITEN ) * strength
+				};
 				for( Int g = 0; g < GLOW_LAYERS; g++ )
 				{
 					SegmentedLineClass *line = m_glow3D[ segment * GLOW_LAYERS + g ];
+					line->Set_Color( colors[ g ] );
 					line->Set_Width( widths[ g ] );
 					line->Set_Points( 2, &laserPoints[0] );
 				}

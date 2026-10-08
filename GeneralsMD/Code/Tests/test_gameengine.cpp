@@ -13591,18 +13591,20 @@ TEST(option_catalog_clamps_and_leaves_an_absent_key_alone)
 	TheWritableGlobalData = saved;
 }
 
-/** Bloom is picked as a level and stored as one, and the shader still reads the percentage it
-	 always read.  The mapping is the whole setting: get the two directions out of step and the combo
-	 box shows one thing while the screen does another, which nothing at build time would notice. */
+/** Glow (the Bloom key) is picked as a level and stored as one, and the renderer still reads the
+	 percentage it always read.  The mapping is the whole setting: get the two directions out of step
+	 and the combo box shows one thing while the screen does another, which nothing at build time
+	 would notice. */
 TEST(bloom_levels_carry_the_percentages_the_shader_reads)
 {
 	const OptionDef *bloom = findOptionDef( "Bloom" );
-	const OptionDef *threshold = findOptionDef( "BloomThreshold" );
-	CHECK( bloom != NULL && threshold != NULL );
+	CHECK( bloom != NULL );
 	CHECK_EQ( (Int)bloom->kind, (Int)OPTION_ENUM );
-	CHECK_EQ( (Int)threshold->kind, (Int)OPTION_ENUM );
+	CHECK_EQ( BLOOM_LEVEL_COUNT, 5 );		// off, low, medium, high, ultra
 	CHECK_EQ( bloom->hi, BLOOM_LEVEL_COUNT - 1 );
-	CHECK_EQ( threshold->hi, BLOOM_THRESHOLD_LEVEL_COUNT - 1 );
+
+	// what glows is the level's business now, and a second row deciding it would contradict it
+	CHECK( findOptionDef( "BloomThreshold" ) == NULL );
 
 	GlobalData *saved = TheWritableGlobalData;
 	GlobalData *scratch = NEW GlobalData;
@@ -13610,7 +13612,6 @@ TEST(bloom_levels_carry_the_percentages_the_shader_reads)
 
 	// what GlobalData's constructor put there, before anything below scribbles on it
 	const Int shippedIntensity = TheGlobalData->m_bloomIntensity;
-	const Int shippedThreshold = TheGlobalData->m_bloomThreshold;
 	CHECK_EQ( bloom->get(), 2 );		// a fresh install starts on Medium, not Off
 
 	// off is off, and nothing else is: a level that mapped to 0 would be a silent second Off entry
@@ -13632,33 +13633,30 @@ TEST(bloom_levels_carry_the_percentages_the_shader_reads)
 		previous = TheGlobalData->m_bloomIntensity;
 	}
 
-	/* The threshold is a brightness, so it runs the other way: later entries mean more of the
-		 picture glows, which is a lower number.  This is the pair that was worth a dropdown. */
-	previous = 101;
-	for( Int level = 0; level < BLOOM_THRESHOLD_LEVEL_COUNT; ++level )
+	/* An Options.ini saved before Ultra was added holds 0 to 3 for off, subtle, normal and strong,
+		 and has to come back as Off, Low, Medium and High: the index kept its meaning. */
+	UserPreferences pref;
+	for( Int old = 0; old < 4; ++old )
 	{
-		threshold->set( level );
-		CHECK( TheGlobalData->m_bloomThreshold < previous );
-		previous = TheGlobalData->m_bloomThreshold;
-		CHECK_EQ( threshold->get(), level );
+		AsciiString value;
+		value.format( "%d", old );
+		pref[ AsciiString( "Bloom" ) ] = value;
+		loadOptionsFromPreferences( pref );
+		CHECK_EQ( bloom->get(), old );
 	}
 
-	/* GameData.ini writes these fields as raw percentages and never learns about levels, so the
-		 combo box has to answer with the nearest entry rather than the first one. */
-	TheWritableGlobalData->m_bloomIntensity = 62;
+	/* GameData.ini writes the field as a raw percentage and never learns about levels, so the
+		 combo box has to answer with the nearest entry rather than the first one.  60 is the old
+		 default Medium. */
+	TheWritableGlobalData->m_bloomIntensity = 60;
 	CHECK_EQ( bloom->get(), 2 );
-	TheWritableGlobalData->m_bloomThreshold = 66;
-	CHECK_EQ( threshold->get(), 1 );
 
 	/* The shipped default has to be one of the entries, not something between two of them.  Opening
 		 the options screen and pressing Accept without touching anything must leave the picture where
 		 it was, and it only does that if the default round trips through a level exactly. */
 	TheWritableGlobalData->m_bloomIntensity = shippedIntensity;
-	TheWritableGlobalData->m_bloomThreshold = shippedThreshold;
 	bloom->set( bloom->get() );
-	threshold->set( threshold->get() );
 	CHECK_EQ( TheGlobalData->m_bloomIntensity, shippedIntensity );
-	CHECK_EQ( TheGlobalData->m_bloomThreshold, shippedThreshold );
 
 	delete scratch;					// while it is the current one: a Debug build's ~GlobalData reads TheWritableGlobalData
 	TheWritableGlobalData = saved;

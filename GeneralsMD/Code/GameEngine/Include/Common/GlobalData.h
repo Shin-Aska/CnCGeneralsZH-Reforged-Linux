@@ -453,8 +453,7 @@ public:
 	Bool m_workersReturnToSupply;		///< a worker that finishes a build job goes back to the dock it left
 	Bool m_detailedBuildTooltips;		///< put build time, weapon range and damage in the build tooltip
 	Bool m_archiveReplays;					///< keep a timestamped copy of every replay, instead of only the last one
-	Int m_bloomIntensity;				///< bloom strength in percent, 0 = off
-	Int m_bloomThreshold;				///< brightness in percent below which nothing blooms
+	Int m_bloomIntensity;				///< Glow strength in percent, 0 = off; the renderer derives the rest
 	Bool m_buildMapCache;
 	AsciiString m_initialFile;				///< If this is specified, load a specific map/replay from the command-line
 	AsciiString m_pendingFile;				///< If this is specified, use this map at the next game start

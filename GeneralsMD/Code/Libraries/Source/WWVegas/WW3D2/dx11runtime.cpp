@@ -456,6 +456,7 @@ const char * Direct3D11_Post_Diagnostic()
 static void take_the_frame_to_the_screen()
 {
 	Device.Set_Scene_View(NULL);
+	Backend.Set_Additive_Gain(1.0f);	// eight bits from here on: a boosted interface draw would only clip
 	Backend.Begin_Scene();
 }
 
@@ -483,7 +484,11 @@ void Direct3D11_Begin_Scene()
 		// that asked for a chain and could not have one falls back to the swap chain here rather
 		// than half way through.
 		Post.Begin_Frame();
-		Device.Set_Scene_View(Post.Scene_View());
+		ID3D11RenderTargetView * scene = Post.Scene_View();
+		Device.Set_Scene_View(scene);
+		// The Glow option's boost needs the half float scene: in eight bits it would only clip.
+		Backend.Set_Additive_Gain((scene != NULL && Post.Scene_Is_Float())
+			? DX11Post_Additive_Gain() : 1.0f);
 		Backend.Begin_Scene();
 	}
 }

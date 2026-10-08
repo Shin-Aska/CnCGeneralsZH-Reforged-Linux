@@ -244,6 +244,7 @@ DX11BackendClass::DX11BackendClass()
 	, ShadowSkyFill(0.0f)
 	, ShadowReceiving(false)
 	, SmokeGlow(false)
+	, AdditiveGain(1.0f)
 	, DrawsMade(0)
 	, DrawsRefused(0)
 	, RefusedNoBuffer(0)
@@ -948,6 +949,30 @@ void DX11BackendClass::Set_Smoke_Glow(bool glow)
 		SmokeGlow = glow;
 		PipelineChanged = true;
 	}
+}
+
+void DX11BackendClass::Set_Additive_Gain(float gain)
+{
+	if (AdditiveGain != gain) {
+		AdditiveGain = gain;
+		// The factor goes with the blend state when it is bound, so the next draw binds again.
+		StateObjectsChanged = true;
+		Bound.Blend = NULL;
+	}
+}
+
+/** An additive draw into the scene, the one blend the Glow option boosts.  ONE, ONE is what the
+		engine's additive presets set (fire and explosion particles, the laser lines, muzzle flash and
+		glow meshes); a source alpha blend into ONE is left alone, since the blend factor would replace
+		the alpha it weighs by. */
+bool DX11BackendClass::Additive_Glow() const
+{
+	return AdditiveGain != 1.0f && CurrentTarget == NULL && !ShadowMapBound
+		&& (VertexFormat & D3DFVF_XYZRHW) == 0
+		&& RenderStates.Get_Render_State(D3DRS_ALPHABLENDENABLE) != FALSE
+		&& RenderStates.Get_Render_State(D3DRS_SRCBLEND) == D3DBLEND_ONE
+		&& RenderStates.Get_Render_State(D3DRS_DESTBLEND) == D3DBLEND_ONE
+		&& RenderStates.Get_Render_State(D3DRS_BLENDOP) == D3DBLENDOP_ADD;
 }
 
 bool DX11BackendClass::Smoke_Glow() const
@@ -2420,6 +2445,7 @@ void DX11BackendClass::Forget_Last_State_Objects()
 	memset(&LastRasterizerDescription, 0, sizeof(LastRasterizerDescription));
 	memset(LastSamplerDescriptions, 0, sizeof(LastSamplerDescriptions));
 	LastBlendState = NULL;
+	LastBlendGlow = false;
 	LastDepthStencilState = NULL;
 	LastRasterizerState = NULL;
 	memset(LastSamplerStates, 0, sizeof(LastSamplerStates));
@@ -2427,10 +2453,16 @@ void DX11BackendClass::Forget_Last_State_Objects()
 	Forget_Bindings();
 }
 
-ID3D11BlendState * DX11BackendClass::Blend_State()
+ID3D11BlendState * DX11BackendClass::Blend_State(bool glow)
 {
 	D3D11_BLEND_DESC description;
 	RenderStates.Build_Blend_Description(description);
+	if (glow) {
+		// The source term becomes the blend factor, which Bind_State_Objects passes as the gain.
+		// A float target takes a factor past one unclamped; that is the whole of the boost.
+		description.RenderTarget[0].SrcBlend = D3D11_BLEND_BLEND_FACTOR;
+		description.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_BLEND_FACTOR;
+	}
 	if (LastBlendState != NULL
 		&& memcmp(&LastBlendDescription, &description, sizeof(description)) == 0) {
 		return LastBlendState;
@@ -2571,15 +2603,21 @@ void DX11BackendClass::Bind_State_Objects()
 	ID3D11BlendState * blend = LastBlendState;
 	ID3D11DepthStencilState * depth_stencil = LastDepthStencilState;
 	ID3D11RasterizerState * rasterizer = LastRasterizerState;
-	if (StateObjectsChanged || blend == NULL || depth_stencil == NULL || rasterizer == NULL) {
-		blend = Blend_State();
+	// Whether the glow applies hangs on the target and the vertex format as well as the render
+	// states, and neither of those raises StateObjectsChanged, so it is asked every draw.
+	const bool glow = Additive_Glow();
+	if (StateObjectsChanged || glow != LastBlendGlow || blend == NULL || depth_stencil == NULL
+			|| rasterizer == NULL) {
+		blend = Blend_State(glow);
+		LastBlendGlow = glow;
 		depth_stencil = Depth_Stencil_State();
 		rasterizer = Rasterizer_State();
 		StateObjectsChanged = blend == NULL || depth_stencil == NULL || rasterizer == NULL;
 	}
 
 	if (!known || blend != Bound.Blend) {
-		context->OMSetBlendState(blend, NULL, 0xffffffff);
+		const float gain[4] = { AdditiveGain, AdditiveGain, AdditiveGain, 1.0f };
+		context->OMSetBlendState(blend, glow ? gain : NULL, 0xffffffff);
 		Bound.Blend = blend;
 	}
 	const UINT stencil_reference = RenderStates.Get_Stencil_Reference();
