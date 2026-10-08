@@ -25,6 +25,9 @@
 
 #include "Common/Player.h"
 #include "Common/PlayerList.h"
+#include "Common/PlayerTemplate.h"
+#include "Common/Science.h"
+#include "Common/SpecialPower.h"
 #include "Common/ThingTemplate.h"
 #include "GameClient/Display.h"
 #include "GameClient/Drawable.h"
@@ -39,6 +42,7 @@
 #include "GameLogic/Object.h"
 #include "GameLogic/PartitionManager.h"
 #include "GameLogic/TerrainLogic.h"
+#include "GameLogic/VictoryConditions.h"
 
 #include <algorithm>
 #include <math.h>
@@ -200,6 +204,26 @@ static const UnsignedInt DIRECTOR_PREROLL_FRAMES = 4 * LOGICFRAMES_PER_SECOND;
 /// both passes take the logic's CRC this often, and a filming pass whose CRC differs from the
 /// scouting pass's is not playing the match the timeline describes
 static const UnsignedInt SCOUT_CRC_FRAMES = 30 * LOGICFRAMES_PER_SECOND;
+/// the broadcast's power flags drop and go back up over the first many logic frames; the defeat and
+/// winner banners open and close over the second, the rule, the panel and the words one after another
+static const UnsignedInt FLAG_MOVE_FRAMES = 15;
+static const UnsignedInt BANNER_MOVE_FRAMES = 24;
+/// a power's flag hangs under its player's card this long when nothing waits behind it, a defeated
+/// player's banner holds this long
+static const UnsignedInt FLAG_HOLD_FRAMES = 4 * LOGICFRAMES_PER_SECOND;
+static const UnsignedInt DEFEAT_BANNER_HOLD_FRAMES = 3 * LOGICFRAMES_PER_SECOND;
+/// a defeated player's card flashes red over the first of these, a line is drawn through it from the
+/// second over the third, it is seen struck until the fourth after the defeat and then collapses over
+/// the last while the others slide together
+static const UnsignedInt CARD_FLASH_FRAMES = 12;
+static const UnsignedInt CARD_STRIKE_FROM = 6;
+static const UnsignedInt CARD_STRIKE_FRAMES = 12;
+static const UnsignedInt CARD_STRUCK_FRAMES = 36;
+static const UnsignedInt CARD_COLLAPSE_FRAMES = 18;
+/// the winner's banner starts to come in this long after the match is decided, as the last defeated
+/// player's banner over it has opened: the film runs 105 frames past the decision, and at 30 the winner's
+/// was all in for only 51 of them
+static const UnsignedInt WINNER_DELAY_FRAMES = 24;
 
 //-------------------------------------------------------------------------------------------------
 static Bool sameFight( const Coord2D &a, const Coord2D &b )
@@ -1170,9 +1194,7 @@ Int ObserverCamera_paneBandWidth( Int height )
 }
 
 //-------------------------------------------------------------------------------------------------
-/** progress along from to to, eased in and out, 0 before from and 1 after to. */
-//-------------------------------------------------------------------------------------------------
-static Real easeBetween( Real progress, Real from, Real to )
+Real ObserverCamera_easeBetween( Real progress, Real from, Real to )
 {
 	const Real t = min( max( ( progress - from ) / ( to - from ), 0.0f ), 1.0f );
 	return t * t * ( 3.0f - 2.0f * t );
@@ -1181,19 +1203,19 @@ static Real easeBetween( Real progress, Real from, Real to )
 //-------------------------------------------------------------------------------------------------
 Real ObserverCamera_lineDrawn( Real progress )
 {
-	return easeBetween( progress, 0.0f, PANE_LINE_DRAWN_BY );
+	return ObserverCamera_easeBetween( progress, 0.0f, PANE_LINE_DRAWN_BY );
 }
 
 //-------------------------------------------------------------------------------------------------
 Real ObserverCamera_bandShown( Real progress )
 {
-	return easeBetween( progress, PANE_BAND_FROM, 1.0f );
+	return ObserverCamera_easeBetween( progress, PANE_BAND_FROM, 1.0f );
 }
 
 //-------------------------------------------------------------------------------------------------
 Real ObserverCamera_frameTraced( Real progress )
 {
-	return easeBetween( progress, 0.0f, PANE_FRAME_TRACED_BY );
+	return ObserverCamera_easeBetween( progress, 0.0f, PANE_FRAME_TRACED_BY );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1202,7 +1224,55 @@ Real ObserverCamera_shimmerAt( UnsignedInt frame )
 	const UnsignedInt into = frame % PANE_SHIMMER_PERIOD;
 	if( into >= PANE_SHIMMER_FRAMES )
 		return -1.0f;
-	return easeBetween( (Real)into, 0.0f, (Real)PANE_SHIMMER_FRAMES );
+	return ObserverCamera_easeBetween( (Real)into, 0.0f, (Real)PANE_SHIMMER_FRAMES );
+}
+
+//-------------------------------------------------------------------------------------------------
+Bool ObserverCamera_advanceShowing( std::vector< DirectorShowing > &queue, UnsignedInt frame, UnsignedInt moveFrames, UnsignedInt holdAlone,
+	Bool keepLast )
+{
+	if( !queue.empty() && queue.front().leaving != 0 && frame >= queue.front().leaving + moveFrames )
+		queue.erase( queue.begin() );
+	if( queue.empty() )
+		return FALSE;
+	DirectorShowing &first = queue.front();
+	if( first.start == 0 )
+	{
+		first.start = frame;
+		return TRUE;
+	}
+	const size_t waiting = queue.size() - 1;
+	const UnsignedInt hold = holdAlone / (UnsignedInt)min( waiting + 1, (size_t)3 );
+	if( first.leaving == 0 && !( keepLast && waiting == 0 ) && frame >= first.start + moveFrames + hold )
+		first.leaving = frame;
+	return FALSE;
+}
+
+//-------------------------------------------------------------------------------------------------
+Real ObserverCamera_showingShown( const DirectorShowing &showing, UnsignedInt frame, UnsignedInt moveFrames )
+{
+	if( showing.start == 0 )
+		return 0.0f;
+	const Real in = ObserverCamera_easeFrames( frame, showing.start, moveFrames );
+	if( showing.leaving == 0 )
+		return in;
+	return in * ( 1.0f - ObserverCamera_easeFrames( frame, showing.leaving, moveFrames ) );
+}
+
+//-------------------------------------------------------------------------------------------------
+void ObserverCamera_cardExit( UnsignedInt frame, UnsignedInt defeated, UnsignedInt collapseFrom, Real *flash, Real *struck, Real *collapse )
+{
+	// up in a third of the flash, down over the rest
+	const UnsignedInt up = CARD_FLASH_FRAMES / 3;
+	*flash = ObserverCamera_easeFrames( frame, defeated, up ) * ( 1.0f - ObserverCamera_easeFrames( frame, defeated + up, CARD_FLASH_FRAMES - up ) );
+	*struck = ObserverCamera_easeFrames( frame, defeated + CARD_STRIKE_FROM, CARD_STRIKE_FRAMES );
+	*collapse = ObserverCamera_easeFrames( frame, collapseFrom, CARD_COLLAPSE_FRAMES );
+}
+
+//-------------------------------------------------------------------------------------------------
+UnsignedInt ObserverCamera_collapseFrom( UnsignedInt defeated, UnsignedInt lastCollapse )
+{
+	return max( defeated + CARD_STRUCK_FRAMES, lastCollapse + CARD_COLLAPSE_FRAMES );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1255,6 +1325,16 @@ void ObserverCamera::reset( void )
 	m_seen.clear();
 	m_events.clear();
 	m_nextEventId = 1;
+	for( Int index = 0; index < MAX_PLAYER_COUNT; index++ )
+	{
+		m_flags[ index ].clear();
+		m_defeatFrame[ index ] = 0;
+		m_collapseFrame[ index ] = 0;
+	}
+	m_defeatBanners.clear();
+	m_playedMask = 0;
+	m_lastCollapse = 0;
+	m_winnerFrame = 0;
 	m_fights.clear();
 	m_fightSides.clear();
 	m_broadcast.clear();
@@ -1312,7 +1392,8 @@ void ObserverCamera::reset( void )
 /** Called from the logic on every machine, players' included, so it only ever adds to a list the
 	* director reads; nothing the logic does depends on it. */
 //-------------------------------------------------------------------------------------------------
-void ObserverCamera::noteSpecialPower( const Player *owner, const Coord3D *from, const Coord3D *at, Bool superweapon )
+void ObserverCamera::noteSpecialPower( const Player *owner, const Coord3D *from, const Coord3D *at, Bool superweapon,
+	const SpecialPowerTemplate *power, const ThingTemplate *sourceThing )
 {
 	const UnsignedInt frame = TheGameLogic->getFrame();
 	dropOldEvents( frame );
@@ -1332,7 +1413,11 @@ void ObserverCamera::noteSpecialPower( const Player *owner, const Coord3D *from,
 	// director cut to empty ground for every one an Air Force general fired.  The scouting pass knows
 	// which ones land; without it a power waits for its first hit
 	event.landed = superweapon || ObserverCamera_powerLands( m_timeline, frame, event.target );
+	event.power = power;
+	event.sourceThing = sourceThing;
 	m_events.push_back( event );
+	if( event.landed )
+		noteFlag( event );
 
 	if( !TheGlobalData->m_directorScoutFile.isEmpty() )
 	{
@@ -1369,8 +1454,100 @@ void ObserverCamera::noteSuperweaponHit( const Player *owner, const Coord3D *at,
 	}
 
 	// a warhead nobody's special power sent, a script's or a map's, is still worth seeing land
-	noteSpecialPower( owner, at, at, TRUE );
+	noteSpecialPower( owner, at, at, TRUE, NULL, NULL );
 	m_events.back().until = frame + EVENT_AFTERMATH_FRAMES;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A power that landed hangs its flag under its player's card: a superweapon, or a general's power,
+	* one a promotion bought.  A unit's own ability, a sniper's shot or a hacker's, is neither. */
+//-------------------------------------------------------------------------------------------------
+void ObserverCamera::noteFlag( const DirectorEvent &event )
+{
+	if( !TheGlobalData->m_directorRecord || event.power == NULL )
+		return;
+	if( !event.superweapon && event.power->getRequiredScience() == SCIENCE_INVALID )
+		return;
+	const Int index = event.owner->getPlayerIndex();
+	const DirectorShowing flag = { index, event.power, event.sourceThing, event.superweapon, 0, 0 };
+	m_flags[ index ].push_back( flag );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The broadcast's moments, one logic frame on: a player seen playing who no longer is has lost, his
+	* card struck and his banner queued; the match decided brings the winner's banner; and every queue
+	* of flags and banners moves on.  Read off the players, never written to them. */
+//-------------------------------------------------------------------------------------------------
+void ObserverCamera::updateBroadcastMoments( UnsignedInt frame )
+{
+	for( Int index = 0; index < ThePlayerList->getPlayerCount() && index < MAX_PLAYER_COUNT; index++ )
+	{
+		Player *player = ThePlayerList->getNthPlayer( index );
+		if( !player->isPlayableSide() || player->isPlayerObserver() )
+			continue;
+		const PlayerMaskType mask = player->getPlayerMask();
+		if( player->isPlayerActive() )
+		{
+			m_playedMask |= mask;
+			continue;
+		}
+		if( ( m_playedMask & mask ) == 0 || m_defeatFrame[ index ] != 0 )
+			continue;
+		m_defeatFrame[ index ] = frame;
+		m_collapseFrame[ index ] = ObserverCamera_collapseFrom( frame, m_lastCollapse );
+		m_lastCollapse = m_collapseFrame[ index ];
+		m_flags[ index ].clear();
+		const DirectorShowing banner = { index, NULL, NULL, FALSE, 0, 0 };
+		m_defeatBanners.push_back( banner );
+		DEBUG_LOG(( "OBSCAM frame %u defeat: player %d '%s' (%s), card struck, collapses at frame %u\n", frame, index,
+			WideCharAsUtf8( player->getPlayerDisplayName().str() ).str(), WideCharAsUtf8( player->getPlayerTemplate()->getDisplayName().str() ).str(),
+			m_collapseFrame[ index ] ));
+	}
+
+	const UnsignedInt decidedOn = TheVictoryConditions->getEndFrame();
+	const Bool decided = decidedOn > LOGICFRAMES_PER_SECOND;
+	if( decided && m_winnerFrame == 0 )
+	{
+		m_winnerFrame = frame + WINNER_DELAY_FRAMES;
+		DEBUG_LOG(( "OBSCAM frame %u match decided on frame %u, winner banner at frame %u\n", frame, decidedOn, m_winnerFrame ));
+	}
+
+	if( ObserverCamera_advanceShowing( m_defeatBanners, frame, BANNER_MOVE_FRAMES, DEFEAT_BANNER_HOLD_FRAMES, decided ) )
+		DEBUG_LOG(( "OBSCAM frame %u defeat banner: player %d, %d waiting\n", frame, m_defeatBanners.front().player,
+			(Int)m_defeatBanners.size() - 1 ));
+	for( Int index = 0; index < MAX_PLAYER_COUNT; index++ )
+	{
+		if( !ObserverCamera_advanceShowing( m_flags[ index ], frame, FLAG_MOVE_FRAMES, FLAG_HOLD_FRAMES, FALSE ) )
+			continue;
+		const DirectorShowing &flag = m_flags[ index ].front();
+		DEBUG_LOG(( "OBSCAM frame %u power flag under player %d's card: %s%s, %d waiting\n", frame, index, flag.power->getName().str(),
+			flag.superweapon ? " (superweapon)" : "", (Int)m_flags[ index ].size() - 1 ));
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+const DirectorShowing *ObserverCamera::getPowerFlag( Int playerIndex, Real *drop ) const
+{
+	const std::vector< DirectorShowing > &flags = m_flags[ playerIndex ];
+	if( flags.empty() || flags.front().start == 0 )
+		return NULL;
+	*drop = ObserverCamera_showingShown( flags.front(), TheGameLogic->getFrame(), FLAG_MOVE_FRAMES );
+	return &flags.front();
+}
+
+//-------------------------------------------------------------------------------------------------
+const DirectorShowing *ObserverCamera::getDefeatBanner( Real *shown ) const
+{
+	if( m_defeatBanners.empty() || m_defeatBanners.front().start == 0 )
+		return NULL;
+	*shown = ObserverCamera_showingShown( m_defeatBanners.front(), TheGameLogic->getFrame(), BANNER_MOVE_FRAMES );
+	return &m_defeatBanners.front();
+}
+
+//-------------------------------------------------------------------------------------------------
+Real ObserverCamera::getWinnerShown( void ) const
+{
+	return m_winnerFrame == 0 ? 0.0f : ObserverCamera_easeFrames( TheGameLogic->getFrame(), m_winnerFrame, BANNER_MOVE_FRAMES );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2607,7 +2784,11 @@ Bool ObserverCamera::directorPlace( const Player *narrowTo, Coord2D *place )
 		// hits at the target keep it going: the missiles arriving, the bombs, the fires after
 		if( frame >= event.since + EVENT_LAUNCH_FRAMES && ObserverCamera_heatAround( hits, event.target, &middle ) > 0.0f )
 			event.until = max( event.until, frame + EVENT_AFTERMATH_FRAMES );
-		event.landed = event.landed || ObserverCamera_heatAround( fights, event.target, &middle ) > 0.0f;
+		if( !event.landed && ObserverCamera_heatAround( fights, event.target, &middle ) > 0.0f )
+		{
+			event.landed = TRUE;
+			noteFlag( event );
+		}
 		if( !event.landed )
 			continue;
 		if( best == NULL || event.weight >= best->weight )
@@ -2884,6 +3065,7 @@ void ObserverCamera::update( UnsignedInt nowMilliseconds )
 		if( !m_timelineLoaded )
 			loadTimeline();
 		checkTimeline( frame );
+		updateBroadcastMoments( frame );
 		const Bool introStarting = !m_introDone;
 		advancePanes( frame );
 		if( m_intro && introStarting )

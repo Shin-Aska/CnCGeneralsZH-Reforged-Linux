@@ -574,7 +574,7 @@ void SpecialPowerModule::aboutToDoSpecialPower( const Coord3D *location )
 	// the observer's director camera goes to see it; this only tells the client
 	if( location != NULL )
 		TheObserverCamera.noteSpecialPower( getObject()->getControllingPlayer(), getObject()->getPosition(), location,
-			getObject()->isKindOf( KINDOF_FS_SUPERWEAPON ) );
+			getObject()->isKindOf( KINDOF_FS_SUPERWEAPON ), getSpecialPowerModuleData()->m_specialPowerTemplate, getObject()->getTemplate() );
 
 	// Let EVA do her thing
 	SpecialPowerType type = getSpecialPowerModuleData()->m_specialPowerTemplate->getSpecialPowerType();

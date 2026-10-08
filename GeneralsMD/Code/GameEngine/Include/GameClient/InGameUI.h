@@ -73,6 +73,8 @@ class Image;
 class GameFont;
 class GameSlot;
 class Player;
+struct SpectatorStats;
+struct BroadcastLayout;
 enum LegalBuildCode : Int;
 enum KindOfType : Int;
 enum ShadowType : Int;
@@ -1766,6 +1768,9 @@ protected:
 	/// thing written, so a text is laid out again only when it changes
 	DisplayString *broadcastText( const std::string &key, const UnicodeString &text, const char *font, Int points, Bool bold );
 	std::map< std::string, DisplayString * > m_broadcastTexts;
+	/// the score bar laid out for players, under the clock's tab, team letters taken from named
+	void layOutBroadcast( const std::vector< SpectatorStats > &players, const std::vector< SpectatorStats > &named,
+		const std::string &tag, Int clockBox, Int clockBoxHeight, BroadcastLayout &layout );
 	DisplayString *							m_peaceTimeLabelDisplayString;	///< the word written over that clock
 	DisplayString *							m_peaceCountdownDisplayString;	///< the big digit of its last ten seconds
 	Int													m_lastMoneyDisplayed;		///< so the money gadget is only written when the amount changes

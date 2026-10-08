@@ -2427,6 +2427,25 @@ static void updateHeadlessRun( void )
 	if (why == NULL)
 		return;
 
+	/* -directorrecord films on past the decision, so the last player's defeat and the winner's banner
+		 are in the movie: it used to stop on the frame the last card fell.  Not past the game's own end,
+		 though: the multiplayer scripts' end timer clears the match FRAMES_TO_SHOW_WIN_LOSE_MESSAGE (120)
+		 frames after it is decided and drops to the shell, which would leave without these lines.  The
+		 decision's own CRC is logged on its frame, the one the scouting pass closed on. */
+	static UnsignedInt filmDecidedOn = 0;
+	const UnsignedInt FILM_PAST_DECISION_FRAMES = 105;
+	if (TheGlobalData->m_directorRecord && strcmp( why, "decided" ) == 0)
+	{
+		if (filmDecidedOn == 0)
+		{
+			filmDecidedOn = frame;
+			DEBUG_LOG(("-directorrecord: decided on frame %d, CRC 0x%08X, filming %u frames more\n", frame,
+								 TheGameLogic->getCRC( CRC_RECALC ), FILM_PAST_DECISION_FRAMES));
+		}
+		if (frame < filmDecidedOn + FILM_PAST_DECISION_FRAMES)
+			return;
+	}
+
 	const UnsignedInt wallMs = Clock_Milliseconds() - runStartTime;
 	const Real logicFps = wallMs ? (Real)(frame - runStartFrame) * 1000.0f / (Real)wallMs : 0.0f;
 

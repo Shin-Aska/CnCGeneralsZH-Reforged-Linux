@@ -71,6 +71,8 @@ struct DirectorHeat
 };
 
 class Player;
+class SpecialPowerTemplate;
+class ThingTemplate;
 
 /// a special power used lately: who used it, where it was fired from, where it lands, and until which
 /// logic frame it is worth watching.  A superweapon is shown leaving its silo before its target
@@ -85,7 +87,42 @@ struct DirectorEvent
 	Real weight;
 	Bool superweapon;
 	Bool landed;		///< it hurt somebody where it was aimed: a superweapon from the start, any other once a hit is seen there
+	const SpecialPowerTemplate *power;	///< the power used; NULL for a warhead no power sent
+	const ThingTemplate *sourceThing;		///< what it was fired from
 };
+
+/// -directorrecord's broadcast shows some things one at a time from a queue: a special power's flag
+/// under its player's card in the score bar, and a defeated player's banner.  start is the logic frame
+/// it began to come in, 0 while it waits behind another; leaving the frame it began to go, 0 while it
+/// holds.  A defeat's banner has no power
+struct DirectorShowing
+{
+	Int player;
+	const SpecialPowerTemplate *power;
+	const ThingTemplate *sourceThing;
+	Bool superweapon;
+	UnsignedInt start;
+	UnsignedInt leaving;
+};
+
+/// one logic frame of such a queue: the first in it comes in over moveFrames, holds holdAlone frames
+/// alone, half that with one waiting behind it and a third with more, goes over moveFrames, and the
+/// next starts the frame it is gone.  With keepLast the last one holds for good.  TRUE when one started
+/// this frame
+Bool ObserverCamera_advanceShowing( std::vector< DirectorShowing > &queue, UnsignedInt frame, UnsignedInt moveFrames, UnsignedInt holdAlone,
+	Bool keepLast );
+/// how far in a queued thing that comes and goes over moveFrames is on frame, 0 to 1, eased in and out
+Real ObserverCamera_showingShown( const DirectorShowing &showing, UnsignedInt frame, UnsignedInt moveFrames );
+/// a defeated player's card on frame: how bright its red flash is, how far the line through it has
+/// drawn and how far it has collapsed, each 0 to 1.  defeated is the frame he lost on, collapseFrom the
+/// frame his card starts to go
+void ObserverCamera_cardExit( UnsignedInt frame, UnsignedInt defeated, UnsignedInt collapseFrom, Real *flash, Real *struck, Real *collapse );
+/// the frame the card of a player who lost on defeated starts to collapse: once it has been seen struck,
+/// and not before the card that went before it, from lastCollapse, has gone, so the others slide for
+/// one card at a time
+UnsignedInt ObserverCamera_collapseFrom( UnsignedInt defeated, UnsignedInt lastCollapse );
+/// progress along from to to, eased in and out, 0 before from and 1 after to
+Real ObserverCamera_easeBetween( Real progress, Real from, Real to );
 
 /// -directorrecord's scouting pass plays the match headless first and writes down what is worth
 /// filming, so the filming pass can be there before it starts.  A fight runs from the scan it was
@@ -328,8 +365,10 @@ public:
 	/// on is following
 	Int getShroudPlayerIndex( void ) const;
 
-	/// a special power was used: logic tells the director, and never asks it anything back
-	void noteSpecialPower( const Player *owner, const Coord3D *from, const Coord3D *at, Bool superweapon );
+	/// a special power was used: logic tells the director, and never asks it anything back.  power is
+	/// the power and sourceThing what fired it, both NULL for a warhead no power sent
+	void noteSpecialPower( const Player *owner, const Coord3D *from, const Coord3D *at, Bool superweapon,
+		const SpecialPowerTemplate *power, const ThingTemplate *sourceThing );
 	/// a superweapon is hitting the ground here this frame, a beam or a warhead.  Keeps the event it
 	/// belongs to going a few seconds more, and with follow the event's target moves with it
 	void noteSuperweaponHit( const Player *owner, const Coord3D *at, Bool follow );
@@ -381,6 +420,19 @@ public:
 	void beginPanePass( Int pane );
 	void endPanePass( void );
 
+	/// -directorrecord's broadcast: the flag of a special power hanging under a player's card now, NULL
+	/// for none, and how far it has dropped, 0 to 1
+	const DirectorShowing *getPowerFlag( Int playerIndex, Real *drop ) const;
+	/// the defeated player's banner up now, NULL for none, and how far in it is
+	const DirectorShowing *getDefeatBanner( Real *shown ) const;
+	/// every player seen playing in this match, the ones who have lost included
+	PlayerMaskType getPlayedMask( void ) const { return m_playedMask; }
+	/// the logic frame a player lost on, 0 while he has not, and the frame his card starts to collapse
+	UnsignedInt getDefeatFrame( Int playerIndex ) const { return m_defeatFrame[ playerIndex ]; }
+	UnsignedInt getCollapseFrame( Int playerIndex ) const { return m_collapseFrame[ playerIndex ]; }
+	/// how far in the winner's banner is, 0 until a while after the match is decided
+	Real getWinnerShown( void ) const;
+
 	/// -directorrecord's scouting pass, once a pass of a headless run: count the fights on every scan
 	/// and a checkpoint of the logic's CRC now and then
 	void scout( void );
@@ -422,6 +474,8 @@ private:
 	void dropOldEvents( UnsignedInt frame );
 	void loadTimeline( void );
 	void checkTimeline( UnsignedInt frame );
+	void noteFlag( const DirectorEvent &event );
+	void updateBroadcastMoments( UnsignedInt frame );
 
 	/// a sight, a fight going on, a special power, or a fight the timeline says is about to begin
 	enum PlaceKind { PLACE_SIGHT, PLACE_FIGHT, PLACE_EVENT, PLACE_UPCOMING };
@@ -480,6 +534,14 @@ private:
 	std::vector< Coord2D > m_seen;	///< the last few sights, oldest first, not gone back to while there is another
 	std::vector< DirectorEvent > m_events;	///< the special powers still worth watching, oldest first
 	UnsignedInt m_nextEventId;
+
+	std::vector< DirectorShowing > m_flags[ MAX_PLAYER_COUNT ];	///< each player's special powers waiting to hang under his card, the first up now
+	std::vector< DirectorShowing > m_defeatBanners;	///< the defeated players' banners, the first up now
+	PlayerMaskType m_playedMask;										///< every player seen playing in this match
+	UnsignedInt m_defeatFrame[ MAX_PLAYER_COUNT ];	///< the frame each player lost on, 0 while he has not
+	UnsignedInt m_collapseFrame[ MAX_PLAYER_COUNT ];	///< the frame his card starts to collapse
+	UnsignedInt m_lastCollapse;											///< the last card's, which the next one waits out
+	UnsignedInt m_winnerFrame;											///< the frame the winner's banner starts to come in, 0 before the match is decided
 
 	std::vector< DirectorHeat > m_fights;	///< the last scan's hits one player dealt another he is at war with; the split counts only these
 	std::vector< PlayerMaskType > m_fightSides;	///< and the two players each of them was between

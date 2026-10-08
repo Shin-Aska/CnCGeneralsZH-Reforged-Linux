@@ -1038,3 +1038,73 @@ TEST(a_dark_player_colour_is_lifted_to_read_and_a_gold_one_is_told_from_the_line
 	CHECK( !ObserverCamera_nearBrandGold( GameMakeColor( 0x00, 0x00, 0xff, 255 ) ) );
 	CHECK( !ObserverCamera_nearBrandGold( GameMakeColor( 0xff, 0x00, 0x00, 255 ) ) );
 }
+
+TEST(power_flags_hang_one_at_a_time_and_hold_less_with_another_waiting)
+{
+	const DirectorShowing waiting = { 3, NULL, NULL, FALSE, 0, 0 };
+	std::vector< DirectorShowing > flags( 2, waiting );
+	// the first drops on the frame it is queued; with one behind it, it holds half of 120 after its 15
+	CHECK( ObserverCamera_advanceShowing( flags, 100, 15, 120, FALSE ) );
+	CHECK_EQ( flags[ 0 ].start, 100u );
+	CHECK_EQ( flags[ 1 ].start, 0u );
+	CHECK_NEAR( ObserverCamera_showingShown( flags[ 0 ], 100, 15 ), 0.0f, 0.0001f );
+	for( UnsignedInt frame = 101; frame < 175; frame++ )
+		CHECK( !ObserverCamera_advanceShowing( flags, frame, 15, 120, FALSE ) );
+	CHECK_NEAR( ObserverCamera_showingShown( flags[ 0 ], 174, 15 ), 1.0f, 0.0001f );
+	CHECK( !ObserverCamera_advanceShowing( flags, 175, 15, 120, FALSE ) );
+	CHECK_EQ( flags[ 0 ].leaving, 175u );
+	CHECK( ObserverCamera_showingShown( flags[ 0 ], 182, 15 ) > 0.0f );
+	CHECK( ObserverCamera_showingShown( flags[ 0 ], 182, 15 ) < 1.0f );
+	// gone 15 frames later, and the next drops on that frame and, alone, holds the whole 120
+	for( UnsignedInt frame = 176; frame < 190; frame++ )
+		CHECK( !ObserverCamera_advanceShowing( flags, frame, 15, 120, FALSE ) );
+	CHECK( ObserverCamera_advanceShowing( flags, 190, 15, 120, FALSE ) );
+	CHECK_EQ( (Int)flags.size(), 1 );
+	CHECK_EQ( flags[ 0 ].start, 190u );
+	for( UnsignedInt frame = 191; frame <= 325; frame++ )
+		ObserverCamera_advanceShowing( flags, frame, 15, 120, FALSE );
+	CHECK_EQ( flags[ 0 ].leaving, 325u );
+	for( UnsignedInt frame = 326; frame <= 340; frame++ )
+		ObserverCamera_advanceShowing( flags, frame, 15, 120, FALSE );
+	CHECK( flags.empty() );
+	CHECK( !ObserverCamera_advanceShowing( flags, 341, 15, 120, FALSE ) );
+}
+
+TEST(the_last_defeat_banner_of_a_decided_match_stays_up)
+{
+	const DirectorShowing waiting = { 1, NULL, NULL, FALSE, 0, 0 };
+	std::vector< DirectorShowing > banners( 2, waiting );
+	for( UnsignedInt frame = 100; frame < 1000; frame++ )
+		ObserverCamera_advanceShowing( banners, frame, 24, 90, TRUE );
+	// the first opened over 24, held 45 with the last behind it and closed over 24; the last never leaves
+	CHECK_EQ( (Int)banners.size(), 1 );
+	CHECK_EQ( banners[ 0 ].start, 193u );
+	CHECK_EQ( banners[ 0 ].leaving, 0u );
+	CHECK_NEAR( ObserverCamera_showingShown( banners[ 0 ], 999, 24 ), 1.0f, 0.0001f );
+}
+
+TEST(a_defeated_card_flashes_is_struck_and_closes_one_card_at_a_time)
+{
+	Real flash = 0.0f, struck = 0.0f, collapse = 0.0f;
+	const UnsignedInt first = ObserverCamera_collapseFrom( 100, 0 );
+	CHECK_EQ( first, 136u );
+	ObserverCamera_cardExit( 100, 100, first, &flash, &struck, &collapse );
+	CHECK_NEAR( flash, 0.0f, 0.0001f );
+	ObserverCamera_cardExit( 104, 100, first, &flash, &struck, &collapse );
+	CHECK_NEAR( flash, 1.0f, 0.0001f );
+	CHECK_NEAR( struck, 0.0f, 0.0001f );
+	ObserverCamera_cardExit( 112, 100, first, &flash, &struck, &collapse );
+	CHECK_NEAR( flash, 0.0f, 0.0001f );
+	CHECK( struck > 0.0f && struck < 1.0f );
+	ObserverCamera_cardExit( 136, 100, first, &flash, &struck, &collapse );
+	CHECK_NEAR( struck, 1.0f, 0.0001f );
+	CHECK_NEAR( collapse, 0.0f, 0.0001f );
+	ObserverCamera_cardExit( 145, 100, first, &flash, &struck, &collapse );
+	CHECK_NEAR( collapse, 0.5f, 0.0001f );
+	ObserverCamera_cardExit( 154, 100, first, &flash, &struck, &collapse );
+	CHECK_NEAR( collapse, 1.0f, 0.0001f );
+	// a second player beaten on the same frame closes once the first card has gone, a later one on its own
+	const UnsignedInt second = ObserverCamera_collapseFrom( 100, first );
+	CHECK_EQ( second, 154u );
+	CHECK_EQ( ObserverCamera_collapseFrom( 400, second ), 436u );
+}
