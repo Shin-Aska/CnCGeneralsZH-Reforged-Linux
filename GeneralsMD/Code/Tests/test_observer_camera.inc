@@ -175,6 +175,31 @@ TEST(the_director_keeps_its_event_when_none_may_be_shown_any_more)
 	CHECK( !ObserverCamera_stayOnEvent( &strike, &nuke, 7 * LOGICFRAMES_PER_SECOND ) );
 }
 
+TEST(one_use_of_a_power_is_one_event_and_another_power_or_player_is_new)
+{
+	// any two distinct addresses stand for two powers and two players; only identity is compared
+	static const int powers[ 2 ] = { 0, 0 };
+	static const int players[ 2 ] = { 0, 0 };
+	const SpecialPowerTemplate *strike = (const SpecialPowerTemplate *)&powers[ 0 ];
+	const SpecialPowerTemplate *bomb = (const SpecialPowerTemplate *)&powers[ 1 ];
+	const Player *one = (const Player *)&players[ 0 ];
+	const Player *two = (const Player *)&players[ 1 ];
+	DirectorEvent used = directorEvent( 1, 1.0f, FALSE );
+	used.owner = one;
+	used.power = strike;
+	Coord2D beside = { 3100.0f, 2050.0f };
+	Coord2D away = { 3600.0f, 2000.0f };
+	CHECK( ObserverCamera_sameUse( used, one, strike, beside, 1500 ) );
+	CHECK( !ObserverCamera_sameUse( used, one, strike, away, 1500 ) );
+	CHECK( !ObserverCamera_sameUse( used, one, bomb, beside, 1500 ) );
+	CHECK( !ObserverCamera_sameUse( used, two, strike, beside, 1500 ) );
+	// once the first is over the next is a use of its own
+	CHECK( !ObserverCamera_sameUse( used, one, strike, beside, 2000 ) );
+	// a warhead nobody's power sent is never folded into another
+	used.power = NULL;
+	CHECK( !ObserverCamera_sameUse( used, one, NULL, beside, 1500 ) );
+}
+
 TEST(a_superweapon_leaving_its_silo_takes_the_camera_before_the_settle_is_up)
 {
 	const DirectorEvent nuke = directorEvent( 1, 5.0f, TRUE );

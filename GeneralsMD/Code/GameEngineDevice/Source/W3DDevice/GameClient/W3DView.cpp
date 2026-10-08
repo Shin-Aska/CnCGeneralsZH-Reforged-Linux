@@ -2863,6 +2863,13 @@ void W3DView::setZoomToHeight( Real heightAboveGround )
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
+Real W3DView::getZoomForHeight( Real heightAboveGround )
+{
+	return (getHeightAroundPos(m_pos.x, m_pos.y) + heightAboveGround) / m_cameraOffset.z;
+}
+
+//-------------------------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------------------------
 void W3DView::setZoomToDefault( void )
 {
 	// default zoom has to be max, otherwise players will just zoom to max always

@@ -221,6 +221,9 @@ Coord2D ObserverCamera_eventPlace( const DirectorEvent &event, UnsignedInt frame
 /// biggest one it may show now.  best is NULL when none may be shown: narrowed to a player whose
 /// things round the target are all gone, the current one is filtered out and is still kept
 Bool ObserverCamera_stayOnEvent( const DirectorEvent *current, const DirectorEvent *best, UnsignedInt held );
+/// whether owner using power on target at frame is more of event, a use still shown, rather than a new one
+Bool ObserverCamera_sameUse( const DirectorEvent &event, const Player *owner, const SpecialPowerTemplate *power, const Coord2D &target,
+	UnsignedInt frame );
 /// whether an event takes the camera from a fight or a sight held for held frames.  A superweapon
 /// still on its way out of the silo goes at once, or the launch is over before the settle is
 Bool ObserverCamera_eventCutsIn( const DirectorEvent &event, UnsignedInt frame, UnsignedInt held );

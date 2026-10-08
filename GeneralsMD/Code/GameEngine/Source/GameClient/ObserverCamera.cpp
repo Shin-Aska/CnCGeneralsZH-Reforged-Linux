@@ -357,6 +357,13 @@ Coord2D ObserverCamera_eventPlace( const DirectorEvent &event, UnsignedInt frame
 }
 
 //-------------------------------------------------------------------------------------------------
+Bool ObserverCamera_sameUse( const DirectorEvent &event, const Player *owner, const SpecialPowerTemplate *power, const Coord2D &target,
+	UnsignedInt frame )
+{
+	return power != NULL && event.power == power && event.owner == owner && frame < event.until && sameFight( event.target, target );
+}
+
+//-------------------------------------------------------------------------------------------------
 Bool ObserverCamera_stayOnEvent( const DirectorEvent *current, const DirectorEvent *best, UnsignedInt held )
 {
 	if( current == NULL )
@@ -1414,6 +1421,20 @@ void ObserverCamera::noteSpecialPower( const Player *owner, const Coord3D *from,
 {
 	const UnsignedInt frame = TheGameLogic->getFrame();
 	dropOldEvents( frame );
+
+	// the same power from the same player again on the same spot while the first is still shown is
+	// more of that use: it keeps the shot going instead of starting a new one the director cuts to
+	Coord2D target;
+	target.x = at->x;
+	target.y = at->y;
+	for( size_t index = 0; index < m_events.size(); index++ )
+	{
+		if( ObserverCamera_sameUse( m_events[ index ], owner, power, target, frame ) )
+		{
+			m_events[ index ].until = max( m_events[ index ].until, frame + ( superweapon ? EVENT_SUPERWEAPON_FRAMES : EVENT_FRAMES ) );
+			return;
+		}
+	}
 
 	DirectorEvent event;
 	event.id = m_nextEventId++;
@@ -3150,7 +3171,14 @@ void ObserverCamera::update( UnsignedInt nowMilliseconds )
 	m_lastZoom = current.getZoom();
 	m_lastCut = cut;
 	m_panesHeldZoom = panesZoom;
+	const Real extraBefore = m_heightExtra;
 	m_heightExtra = ObserverCamera_easeHeight( m_heightExtra, DIRECTOR_WIDE_EXTRA + m_placeHeight, &m_heightExtraVelocity, elapsed / MILLISECONDS_PER_SECOND, cut );
+	// panes hold the view's height and set the zoom outright from the zoom they opened at, so the
+	// spring's steps go into that zoom while they are up.  Held at the zoom of the moment they opened,
+	// a special power's split went back out to a picture far below where the director was heading,
+	// and the single view then climbed the whole way back: a descent and a climb for one use
+	if( panesZoom && m_heightDriven )
+		m_paneBaseZoom += ( m_heightExtra - extraBefore ) * ( TheTacticalView->getZoomForHeight( 1.0f ) - TheTacticalView->getZoomForHeight( 0.0f ) );
 	if( isShowingPlayerView() )
 		releaseHeight();
 	else
