@@ -10619,16 +10619,22 @@ static UnicodeString broadcastTeamName( const std::vector< SpectatorStats > &pla
 	return text;
 }
 
+/// the ground's edge round a gold player's swatch, in 720 line pixels: one pixel was lost at 720p
+static const Real BROADCAST_GOLD_EDGE = 2.0f;
+
 /** A player's colour as a filled rectangle; one near the lines' gold gets an edge of the ground round
-	* it, so it does not run into them. */
+	* it, outside so a swatch three pixels wide keeps its colour, and over its neighbours' ends in the
+	* army bar so it does not run into them. */
 static void drawBroadcastSwatch( Int left, Int top, Int width, Int height, Color color )
 {
 	if( width <= 0 )
 		return;
+	if( ObserverCamera_nearBrandGold( color ) )
+	{
+		const Int edge = max( broadcastPixels( BROADCAST_GOLD_EDGE ), 2 );
+		TheDisplay->drawFillRect( left - edge, top - edge, width + edge * 2, height + edge * 2, BROADCAST_GROUND );
+	}
 	TheDisplay->drawFillRect( left, top, width, height, color );
-	if( !ObserverCamera_nearBrandGold( color ) || width < 3 )
-		return;
-	TheDisplay->drawOpenRect( left, top, width, height, 1.0f, BROADCAST_GROUND );
 }
 
 /// a label on the picture: pieces of text side by side, each its colour, on the ground with the gold
@@ -10998,8 +11004,8 @@ void InGameUI::drawDirectorBroadcast( void )
 }
 
 //-------------------------------------------------------------------------------------------------
-/** The opening's plate for the pane being drawn, the player's name with a player's side beside it,
-	* hung just over his command centre through the camera drawing that pane, so it stays on the
+/** The opening's plate for the pane being drawn, the player's name with a player's side and team under
+	* it, hung just over his command centre and kept inside the pane's circle through the camera drawing that pane, so it stays on the
 	* building as the camera moves, zooms and slides.  Drawn in the pane's own draw it lies on that
 	* pane's picture, and the recording takes it with the pane; held on the screen when the building
 	* goes off it, and faded with the panes. */
@@ -11016,33 +11022,77 @@ void InGameUI::drawDirectorIntroPlate( void )
 
 	Player *player = ThePlayerList->getNthPlayer( TheObserverCamera.getIntroPlayerIndex( pane ) );
 	const std::string seat = std::to_string( player->getPlayerIndex() );
-	BroadcastPlate plate;
-	plate.pieces.push_back( broadcastText( "name" + seat, broadcastName( player ), BROADCAST_WORDS, broadcastPoints( BROADCAST_NAME_POINTS ), TRUE ) );
-	plate.colors.push_back( ObserverCamera_readableColor( clientPlayerColor( player ) ) );
-	// an AI is called by its side already
-	if( player->getPlayerType() != PLAYER_COMPUTER )
-	{
-		plate.pieces.push_back( broadcastText( "side" + seat, broadcastSide( player ), BROADCAST_WORDS, broadcastPoints( BROADCAST_SIDE_POINTS ), FALSE ) );
-		plate.colors.push_back( BROADCAST_MUTED );
-	}
-	// and the team he is on, the score bar's name for it
 	const std::vector< SpectatorStats > players = gatherSpectatorStats( SPECTATOR_STATS[ 0 ], NULL );
-	for( size_t index = 0; index < players.size(); index++ )
-	{
-		if( players[ index ].player != player || broadcastTeamSize( players, players[ index ].team ) < 2 )
-			continue;
-		plate.pieces.push_back( broadcastText( "introteam" + seat, broadcastTeamName( players, players[ index ].team ), BROADCAST_WORDS,
-			broadcastPoints( BROADCAST_SIDE_POINTS ), TRUE ) );
-		plate.colors.push_back( BROADCAST_GOLD );
-	}
+	Coord2D centre;
+	Real radius = 0.0f;
+	TheObserverCamera.getPaneCircle( pane, &centre, &radius );
 
-	Int plateWidth = 0, plateHeight = 0;
-	broadcastPlateSize( plate, &plateWidth, &plateHeight );
-	const Int left = over.x - plateWidth / 2;
-	const Int top = over.y - broadcastPixels( BROADCAST_PAD ) - plateHeight;
-	const Int rightmost = (Int)TheDisplay->getWidth() - plateWidth;
-	const Int lowest = (Int)TheDisplay->getHeight() - plateHeight;
-	drawBroadcastPlate( plate, min( max( left, 0 ), rightmost ), min( max( top, 0 ), lowest ), shown );
+	// the name on top, and under it, smaller, a player's side and the team he is on: side by side on
+	// one plate they ran past the rays of an eight-pane opening.  A block wider than the pane's circle
+	// steps down through smaller sizes until it fits, or takes the smallest; each size has keys of its
+	// own since a string keeps the font it was made with
+	BroadcastPlate name;
+	BroadcastPlate under;
+	Int nameWidth = 0, nameHeight = 0, underWidth = 0, underHeight = 0;
+	const Int nameSizes[] = { BROADCAST_NAME_POINTS, BROADCAST_SIDE_POINTS, BROADCAST_HEAD_POINTS };
+	const Int underSizes[] = { BROADCAST_SIDE_POINTS, BROADCAST_COMPACT_POINTS, BROADCAST_HEAD_POINTS };
+	const Int sizeCount = ARRAY_SIZE( nameSizes );
+	for( Int step = 0; step < sizeCount; step++ )
+	{
+		const std::string size = std::to_string( step ) + ":";
+		const Int namePoints = broadcastPoints( nameSizes[ step ] );
+		const Int underPoints = broadcastPoints( underSizes[ step ] );
+		name = BroadcastPlate();
+		under = BroadcastPlate();
+		name.pieces.push_back( broadcastText( "name" + size + seat, broadcastName( player ), BROADCAST_WORDS, namePoints, TRUE ) );
+		name.colors.push_back( ObserverCamera_readableColor( clientPlayerColor( player ) ) );
+		// an AI is called by its side already
+		if( player->getPlayerType() != PLAYER_COMPUTER )
+		{
+			under.pieces.push_back( broadcastText( "side" + size + seat, broadcastSide( player ), BROADCAST_WORDS, underPoints, FALSE ) );
+			under.colors.push_back( BROADCAST_MUTED );
+		}
+		for( size_t index = 0; index < players.size(); index++ )
+		{
+			if( players[ index ].player != player || broadcastTeamSize( players, players[ index ].team ) < 2 )
+				continue;
+			under.pieces.push_back( broadcastText( "introteam" + size + seat, broadcastTeamName( players, players[ index ].team ), BROADCAST_WORDS,
+				underPoints, TRUE ) );
+			under.colors.push_back( BROADCAST_GOLD );
+		}
+		broadcastPlateSize( name, &nameWidth, &nameHeight );
+		underWidth = underHeight = 0;
+		if( !under.pieces.empty() )
+			broadcastPlateSize( under, &underWidth, &underHeight );
+		const Real across = (Real)max( nameWidth, underWidth );
+		const Real down = (Real)( nameHeight + underHeight );
+		if( across * across + down * down <= 4.0f * radius * radius )
+			break;
+	}
+	const Real width = (Real)max( nameWidth, underWidth );
+	const Real height = (Real)( nameHeight + underHeight );
+
+	// hung over the command centre, then pulled in until all of it is inside the pane's circle, so no
+	// ray cuts it and the score bar does not cover it
+	Coord2D middle;
+	middle.x = (Real)over.x;
+	middle.y = over.y - broadcastPixels( BROADCAST_PAD ) - height * 0.5f;
+	const Real room = max( radius - sqrtf( width * width + height * height ) * 0.5f, 0.0f );
+	const Real dx = middle.x - centre.x;
+	const Real dy = middle.y - centre.y;
+	const Real away = sqrtf( dx * dx + dy * dy );
+	if( away > room )
+	{
+		middle.x = centre.x + ( away > 0.0f ? dx / away * room : 0.0f );
+		middle.y = centre.y + ( away > 0.0f ? dy / away * room : 0.0f );
+	}
+	const Int top = min( max( REAL_TO_INT( middle.y - height * 0.5f ), 0 ), (Int)( TheDisplay->getHeight() - height ) );
+	const Int nameLeft = min( max( REAL_TO_INT( middle.x ) - nameWidth / 2, 0 ), (Int)TheDisplay->getWidth() - nameWidth );
+	drawBroadcastPlate( name, nameLeft, top, shown );
+	if( under.pieces.empty() )
+		return;
+	const Int underLeft = min( max( REAL_TO_INT( middle.x ) - underWidth / 2, 0 ), (Int)TheDisplay->getWidth() - underWidth );
+	drawBroadcastPlate( under, underLeft, top + nameHeight, shown );
 }
 
 //-------------------------------------------------------------------------------------------------

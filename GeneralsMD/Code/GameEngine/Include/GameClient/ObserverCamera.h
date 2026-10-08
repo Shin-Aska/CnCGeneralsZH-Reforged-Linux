@@ -279,10 +279,12 @@ Int ObserverCamera_paneSeamBand( Int height );
 /// the width of the soft band of the brand's blue under every line between panes and round the radar
 Int ObserverCamera_paneBandWidth( Int height );
 /// how much of its length a line between panes has grown out from the meeting point at progress, the
-/// panes' slide, 0 to 1; whole before the slide is
+/// lines' draw on the settled panes, 0 to 1; whole before the draw is
 Real ObserverCamera_lineDrawn( Real progress );
 /// how far a line's band has faded in at progress, behind the line
 Real ObserverCamera_bandShown( Real progress );
+/// how much of the radar frame's gold has been traced round the map at progress
+Real ObserverCamera_frameTraced( Real progress );
 /// where along the gold lines the travelling light is on logic frame frame, 0 at the meeting point and
 /// 1 at the far end, eased; below 0 between two runs
 Real ObserverCamera_shimmerAt( UnsignedInt frame );
@@ -354,6 +356,8 @@ public:
 	void getPaneCircle( Int pane, Coord2D *centre, Real *radius ) const;
 	/// how far in the panes are, 0 to 1
 	Real getPaneProgress( void ) const { return m_paneProgress; }
+	/// how far the gold lines have drawn out on the settled panes, 0 to 1, not eased
+	Real getLineProgress( void ) const { return m_lineProgress; }
 	/// who a split's pane shows: everybody dealing or taking hits in its fight; 0 when nobody is
 	PlayerMaskType getPaneSides( Int pane ) const;
 	/// the panes are the match's opening, each one player's: his index, and the point over his command
@@ -465,7 +469,9 @@ private:
 	UnsignedInt m_splitChanged;			///< the logic frame the split last went on or off
 	Coord2D m_secondPlace;					///< the second fight, shown in the second pane
 
-	enum PanePhase { PANES_NONE, PANES_RADAR_OUT, PANES_IN, PANES_HELD, PANES_OUT, PANES_RADAR_IN };
+	enum PanePhase { PANES_NONE, PANES_RADAR_OUT, PANES_IN, PANES_DRAW, PANES_HELD, PANES_UNDRAW, PANES_OUT, PANES_RADAR_IN };
+	/// the panes all in, their lines drawing, drawn or going back
+	Bool panesSettled( void ) const { return m_panePhase == PANES_DRAW || m_panePhase == PANES_HELD || m_panePhase == PANES_UNDRAW; }
 	PanePhase m_panePhase;
 	UnsignedInt m_panePhaseStart;		///< the logic frame the phase began on
 	Bool m_intro;										///< the panes are the match's opening, one a player
@@ -475,6 +481,7 @@ private:
 	Int m_paneCount;								///< 0 with no panes
 	Real m_paneRays[ OBSERVER_MOST_PANES ];
 	Real m_paneProgress;						///< 0 for no panes on the screen, 1 for all of them, eased
+	Real m_lineProgress;						///< 0 for no gold on the lines, 1 for all of it, a straight share of the draw
 	Real m_paneExit;								///< how far off the meeting point goes, in pixels
 	Real m_paneBaseZoom;							///< the view's zoom when the panes started, which they rise from
 	Coord2D m_paneCentres[ OBSERVER_MOST_PANES ];	///< where each pane's subject is put, the rays meeting in the middle

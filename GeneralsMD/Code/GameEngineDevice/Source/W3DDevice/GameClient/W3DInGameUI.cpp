@@ -434,18 +434,26 @@ static const UnsignedByte PANE_BAND_RGB[ 3 ] = { 0x80, 0x95, 0xea };
 static const Real PANE_BAND_OUTER_ALPHA = 0.3f;
 static const Real PANE_BAND_INNER_ALPHA = 0.55f;
 static const Real PANE_BAND_FAR_SHARE = 0.35f;
-/// the light that runs along the gold: --gold half way to white, over this share of a line's length
-static const Color PANE_SHIMMER = GameMakeColor( 0xf9, 0xe0, 0x98, 255 );
-static const Real PANE_SHIMMER_SHARE = 0.12f;
+/// the light that runs along the gold: --gold most of the way to white, as wide as the edged line and
+/// this share of its length, fading out to both ends.  At --gold half way to white and the gold's
+/// own width nobody saw it at 720p
+static const UnsignedByte PANE_SHIMMER_RGB[ 3 ] = { 0xff, 0xf6, 0xd8 };
+static const Real PANE_SHIMMER_SHARE = 0.18f;
+
+static Color paneShimmer( UnsignedByte alpha )
+{
+	return GameMakeColor( PANE_SHIMMER_RGB[ 0 ], PANE_SHIMMER_RGB[ 1 ], PANE_SHIMMER_RGB[ 2 ], alpha );
+}
 
 static Color paneBand( Real alpha )
 {
 	return GameMakeColor( PANE_BAND_RGB[ 0 ], PANE_BAND_RGB[ 1 ], PANE_BAND_RGB[ 2 ], (UnsignedByte)REAL_TO_INT( 255.0f * alpha ) );
 }
 
-/** The rays between the panes, from their meeting point out, as far as they have grown: every ray's
-	* band first, then every edge, then the gold, so the gold runs on unbroken where they meet.  Held,
-	* a light runs out along the gold now and then. */
+/** The rays between the panes, from their meeting point out: the dark edge whole from the start, so
+	* the seams read as the panes slide in, and the band and the gold as far as they have drawn out on
+	* the settled panes.  Every ray's band first, then every edge, then the gold, so the gold runs on
+	* unbroken where they meet.  Drawn, a light runs out along the gold now and then. */
 static void drawPaneRays( void )
 {
 	const Real gold = (Real)ObserverCamera_paneLineWidth( TheDisplay->getHeight() );
@@ -454,7 +462,7 @@ static void drawPaneRays( void )
 	const Coord2D origin = TheObserverCamera.getPaneOrigin();
 	const Real *rays = TheObserverCamera.getPaneRays();
 	const Int count = TheObserverCamera.getDrawnPaneCount();
-	const Real progress = TheObserverCamera.getPaneProgress();
+	const Real progress = TheObserverCamera.getLineProgress();
 	const Real bandShown = ObserverCamera_bandShown( progress );
 	const Real drawn = ObserverCamera_lineDrawn( progress );
 	// the far end is past the farthest corner from the meeting point, wherever that has slid to
@@ -462,7 +470,8 @@ static void drawPaneRays( void )
 	const Real height = (Real)TheDisplay->getHeight();
 	const Real farX = max( fabsf( origin.x ), fabsf( width - origin.x ) );
 	const Real farY = max( fabsf( origin.y ), fabsf( height - origin.y ) );
-	const Real length = sqrtf( farX * farX + farY * farY ) * drawn;
+	const Real whole = sqrtf( farX * farX + farY * farY );
+	const Real length = whole * drawn;
 	const Int fromX = REAL_TO_INT( origin.x );
 	const Int fromY = REAL_TO_INT( origin.y );
 	for( Int pass = 0; pass < 4; pass++ )
@@ -470,16 +479,19 @@ static void drawPaneRays( void )
 		for( Int ray = 0; ray < count; ray++ )
 		{
 			const Real angle = rays[ ray ] * PI / 180.0f;
-			const Int toX = REAL_TO_INT( origin.x + cosf( angle ) * length );
-			const Int toY = REAL_TO_INT( origin.y - sinf( angle ) * length );
+			const Real reach = pass == 2 ? whole : length;
+			const Int toX = REAL_TO_INT( origin.x + cosf( angle ) * reach );
+			const Int toY = REAL_TO_INT( origin.y - sinf( angle ) * reach );
 			if( pass == 0 && bandShown > 0.0f )
 				TheDisplay->drawLine( fromX, fromY, toX, toY, band, paneBand( PANE_BAND_OUTER_ALPHA * bandShown ),
 					paneBand( PANE_BAND_OUTER_ALPHA * bandShown * PANE_BAND_FAR_SHARE ) );
 			else if( pass == 1 && bandShown > 0.0f )
 				TheDisplay->drawLine( fromX, fromY, toX, toY, ( band + edged ) * 0.5f, paneBand( PANE_BAND_INNER_ALPHA * bandShown ),
 					paneBand( PANE_BAND_INNER_ALPHA * bandShown * PANE_BAND_FAR_SHARE ) );
-			else if( pass >= 2 )
-				TheDisplay->drawLine( fromX, fromY, toX, toY, pass == 2 ? edged : gold, pass == 2 ? PANE_EDGE : PANE_GOLD );
+			else if( pass == 2 )
+				TheDisplay->drawLine( fromX, fromY, toX, toY, edged, PANE_EDGE );
+			else if( pass == 3 && drawn > 0.0f )
+				TheDisplay->drawLine( fromX, fromY, toX, toY, gold, PANE_GOLD );
 		}
 	}
 
@@ -497,10 +509,10 @@ static void drawPaneRays( void )
 		const Real end = min( middle + half, length );
 		const Int middleX = REAL_TO_INT( origin.x + alongX * middle );
 		const Int middleY = REAL_TO_INT( origin.y + alongY * middle );
-		TheDisplay->drawLine( REAL_TO_INT( origin.x + alongX * start ), REAL_TO_INT( origin.y + alongY * start ), middleX, middleY, gold,
-			PANE_GOLD, PANE_SHIMMER );
-		TheDisplay->drawLine( middleX, middleY, REAL_TO_INT( origin.x + alongX * end ), REAL_TO_INT( origin.y + alongY * end ), gold,
-			PANE_SHIMMER, PANE_GOLD );
+		TheDisplay->drawLine( REAL_TO_INT( origin.x + alongX * start ), REAL_TO_INT( origin.y + alongY * start ), middleX, middleY, edged,
+			paneShimmer( 0 ), paneShimmer( 255 ) );
+		TheDisplay->drawLine( middleX, middleY, REAL_TO_INT( origin.x + alongX * end ), REAL_TO_INT( origin.y + alongY * end ), edged,
+			paneShimmer( 255 ), paneShimmer( 0 ) );
 	}
 }
 
@@ -610,9 +622,9 @@ void W3DInGameUI::draw( void )
 			const Int halo = max( ( ObserverCamera_paneBandWidth( TheDisplay->getHeight() ) - frameGold ) / 2 - OBSERVER_PANE_LINE_EDGE, 0 );
 			if( framed )
 			{
-				const Real progress = TheObserverCamera.getPaneProgress();
+				const Real progress = TheObserverCamera.getLineProgress();
 				const Real bandShown = ObserverCamera_bandShown( progress );
-				const Real drawn = ObserverCamera_lineDrawn( progress );
+				const Real drawn = ObserverCamera_frameTraced( progress );
 				if( bandShown > 0.0f )
 				{
 					fillAround( corner, frameOutside + halo, paneBand( PANE_BAND_OUTER_ALPHA * bandShown ) );

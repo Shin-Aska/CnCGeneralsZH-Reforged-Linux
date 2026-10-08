@@ -346,9 +346,9 @@ TEST(the_recording_split_ends_at_once_when_the_two_halves_show_one_fight)
 TEST(a_split_once_on_stays_until_its_panes_are_in_and_held_six_seconds)
 {
 	const Real needed = 660.0f;
-	// in through the radar's slide and the panes' and held six seconds, whatever the second fight does:
-	// one that went off on the next scan slid a pane in and straight back out
-	const UnsignedInt least = 12 + 15 + 6 * LOGICFRAMES_PER_SECOND;
+	// in through the radar's slide, the panes' and the lines' draw, and held six seconds, whatever the
+	// second fight does: one that went off on the next scan slid a pane in and straight back out
+	const UnsignedInt least = 12 + 15 + 21 + 6 * LOGICFRAMES_PER_SECOND;
 	CHECK( ObserverCamera_holdSplit( TRUE, 6.0f, 0.0f, 2000.0f, needed, 15 ) );
 	CHECK( ObserverCamera_holdSplit( TRUE, 6.0f, 0.0f, 2000.0f, needed, least - 1 ) );
 	CHECK( !ObserverCamera_holdSplit( TRUE, 6.0f, 0.0f, 2000.0f, needed, least ) );
@@ -902,8 +902,11 @@ TEST(the_score_bar_keeps_each_team_together_and_balances_its_two_columns)
 
 TEST(the_pane_lines_grow_out_then_their_band_fades_in_and_a_light_runs_along_them)
 {
-	// the line is whole three quarters of the way through the slide, its band only at the end, and
-	// the band has not begun while the line is still short
+	// the line is whole three quarters of the way through its draw, its band only at the end, and
+	// the band has not begun while the line is still short; the radar's frame goes round by 0.6
+	CHECK_NEAR( ObserverCamera_frameTraced( 0.0f ), 0.0f, 0.0001f );
+	CHECK_NEAR( ObserverCamera_frameTraced( 0.6f ), 1.0f, 0.0001f );
+	CHECK( ObserverCamera_frameTraced( 0.3f ) > 0.3f && ObserverCamera_frameTraced( 0.3f ) < 0.7f );
 	CHECK_NEAR( ObserverCamera_lineDrawn( 0.0f ), 0.0f, 0.0001f );
 	CHECK_NEAR( ObserverCamera_lineDrawn( 0.75f ), 1.0f, 0.0001f );
 	CHECK_NEAR( ObserverCamera_lineDrawn( 1.0f ), 1.0f, 0.0001f );

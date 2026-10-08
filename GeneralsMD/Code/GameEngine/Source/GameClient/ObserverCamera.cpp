@@ -130,9 +130,14 @@ static const UnsignedInt SPLIT_REST_FRAMES = 4 * LOGICFRAMES_PER_SECOND;
 static const UnsignedInt PANE_RADAR_FRAMES = 12;
 /// the panes take this long to slide in along the rays, and out again
 static const UnsignedInt PANE_SLIDE_FRAMES = 15;
+/// then the gold draws out along the settled lines from where they meet, and the radar's frame round
+/// the map, for this long; it goes back in as long before the panes leave.  Drawn while the panes
+/// slid, the lines were whole before the meeting point was on the screen and nothing was seen to draw
+static const UnsignedInt PANE_DRAW_FRAMES = 21;
+static const UnsignedInt PANE_UNDRAW_FRAMES = 15;
 /// so a split, once on, stays on this long whatever its fights do, unless its panes come to show
 /// the same ground: a split that went off before its panes were in flashed a pane in and out
-static const UnsignedInt SPLIT_LEAST_FRAMES = PANE_RADAR_FRAMES + PANE_SLIDE_FRAMES + SPLIT_HOLD_FRAMES;
+static const UnsignedInt SPLIT_LEAST_FRAMES = PANE_RADAR_FRAMES + PANE_SLIDE_FRAMES + PANE_DRAW_FRAMES + SPLIT_HOLD_FRAMES;
 /// a split the timeline plans opens this long before its fight: at four seconds pane 1 sat on an
 /// empty bridge
 static const UnsignedInt SPLIT_LEAD_FRAMES = 3 * LOGICFRAMES_PER_SECOND;
@@ -142,10 +147,12 @@ static const UnsignedInt PANE_INTRO_FRAMES = 7 * LOGICFRAMES_PER_SECOND;
 static const Real PANE_LINE_ROWS_A_PIXEL = 120.0f;
 /// the soft band of the brand's blue under a line is this many times the gold's width
 static const Int PANE_BAND_LINES = 5;
-/// as the panes come in a line grows out from the meeting point over this share of the slide, and its
-/// band fades in over the slide from this share of it, a beat behind; going out runs it backwards
+/// once the panes are in, a line grows out from the meeting point over this share of the draw, its
+/// band fades in from this share of it, a beat behind, and the radar's frame traces its gold round
+/// the map over this share; going back runs it all backwards
 static const Real PANE_LINE_DRAWN_BY = 0.75f;
 static const Real PANE_BAND_FROM = 0.35f;
+static const Real PANE_FRAME_TRACED_BY = 0.6f;
 /// while the panes are held a light runs out along every gold line once in this many logic frames,
 /// taking this many to reach the end
 static const UnsignedInt PANE_SHIMMER_PERIOD = 5 * LOGICFRAMES_PER_SECOND;
@@ -1127,6 +1134,12 @@ Real ObserverCamera_bandShown( Real progress )
 }
 
 //-------------------------------------------------------------------------------------------------
+Real ObserverCamera_frameTraced( Real progress )
+{
+	return easeBetween( progress, 0.0f, PANE_FRAME_TRACED_BY );
+}
+
+//-------------------------------------------------------------------------------------------------
 Real ObserverCamera_shimmerAt( UnsignedInt frame )
 {
 	const UnsignedInt into = frame % PANE_SHIMMER_PERIOD;
@@ -1192,6 +1205,7 @@ void ObserverCamera::reset( void )
 	m_panesLeftPlace.x = m_panesLeftPlace.y = 0.0f;
 	m_paneCount = 0;
 	m_paneProgress = 0.0f;
+	m_lineProgress = 0.0f;
 	m_paneExit = 0.0f;
 	m_paneBaseZoom = 1.0f;
 	m_paneFitValid = FALSE;
@@ -1785,7 +1799,7 @@ void ObserverCamera::updateSplit( void )
 //-------------------------------------------------------------------------------------------------
 void ObserverCamera::advancePanes( UnsignedInt frame )
 {
-	static const char *const phaseNames[] = { "none", "radar out", "in", "held", "out", "radar in" };
+	static const char *const phaseNames[] = { "none", "radar out", "in", "draw", "held", "undraw", "out", "radar in" };
 	PanePhase next = m_panePhase;
 	const UnsignedInt elapsed = frame >= m_panePhaseStart ? frame - m_panePhaseStart : 0;
 	switch( m_panePhase )
@@ -1823,10 +1837,11 @@ void ObserverCamera::advancePanes( UnsignedInt frame )
 				for( Int pane = 0; pane < players; pane++ )
 					m_panePlayers[ pane ] = found[ pane ];
 				m_paneCount = ObserverCamera_paneLayout( players, m_paneRays );
+				// the opening starts on the first view whole and opens into its panes like a split
 				if( m_paneCount >= 2 )
 				{
 					m_intro = TRUE;
-					next = PANES_HELD;
+					next = PANES_RADAR_OUT;
 				}
 			}
 			else if( m_split )
@@ -1852,14 +1867,18 @@ void ObserverCamera::advancePanes( UnsignedInt frame )
 			break;
 		case PANES_IN:
 			if( elapsed >= PANE_SLIDE_FRAMES )
+				next = PANES_DRAW;
+			break;
+		case PANES_DRAW:
+			if( elapsed >= PANE_DRAW_FRAMES )
 				next = PANES_HELD;
 			break;
 		case PANES_HELD:
 			if( m_intro ? elapsed >= PANE_INTRO_FRAMES : !m_split )
-				next = PANES_OUT;
+				next = PANES_UNDRAW;
 			// the opening ends on pane 0's base and the director stays there until something happens;
 			// handed whatever sight it had come to meanwhile, it glided over empty ground to another base
-			if( next == PANES_OUT && m_intro && ( !m_placeValid || m_placeKind == PLACE_SIGHT ) )
+			if( next == PANES_UNDRAW && m_intro && ( !m_placeValid || m_placeKind == PLACE_SIGHT ) )
 			{
 				m_place = m_paneSubject[ 0 ];
 				m_placeKind = PLACE_SIGHT;
@@ -1867,6 +1886,10 @@ void ObserverCamera::advancePanes( UnsignedInt frame )
 				m_placeSince = frame;
 				m_placeValid = TRUE;
 			}
+			break;
+		case PANES_UNDRAW:
+			if( elapsed >= PANE_UNDRAW_FRAMES )
+				next = PANES_OUT;
 			break;
 		case PANES_OUT:
 			if( elapsed >= PANE_SLIDE_FRAMES )
@@ -1905,7 +1928,15 @@ void ObserverCamera::advancePanes( UnsignedInt frame )
 			m_paneProgress = ObserverCamera_easeFrames( frame, m_panePhaseStart, PANE_SLIDE_FRAMES );
 			m_cornerRadarSlide = 1.0f;
 			break;
+		case PANES_DRAW:
+			m_paneProgress = 1.0f;
+			m_cornerRadarSlide = 1.0f;
+			break;
 		case PANES_HELD:
+			m_paneProgress = 1.0f;
+			m_cornerRadarSlide = 1.0f;
+			break;
+		case PANES_UNDRAW:
 			m_paneProgress = 1.0f;
 			m_cornerRadarSlide = 1.0f;
 			break;
@@ -1919,6 +1950,13 @@ void ObserverCamera::advancePanes( UnsignedInt frame )
 			break;
 	}
 
+	// the gold draws on the panes once they have settled and goes back in before they leave
+	const UnsignedInt phaseFrames = frame >= m_panePhaseStart ? frame - m_panePhaseStart : 0;
+	m_lineProgress = m_panePhase == PANES_HELD ? 1.0f : 0.0f;
+	if( m_panePhase == PANES_DRAW )
+		m_lineProgress = min( (Real)phaseFrames / PANE_DRAW_FRAMES, 1.0f );
+	if( m_panePhase == PANES_UNDRAW )
+		m_lineProgress = 1.0f - min( (Real)phaseFrames / PANE_UNDRAW_FRAMES, 1.0f );
 	m_paneOrigin.x = TheDisplay->getWidth() * 0.5f;
 	m_paneOrigin.y = TheDisplay->getHeight() * 0.5f;
 	if( m_paneCount >= 2 )
@@ -2070,7 +2108,7 @@ void ObserverCamera::fitPanes( UnsignedInt frame )
 		const Bool mapLowers = wanted < fitted && wanted < m_paneFit[ pane ];
 		if( !m_paneFitValid )
 			m_paneFit[ pane ] = wanted;
-		else if( moves && ( m_panePhase != PANES_HELD || wanted > m_paneFit[ pane ] || mapLowers ) )
+		else if( moves && ( !panesSettled() || wanted > m_paneFit[ pane ] || mapLowers ) )
 			m_paneFit[ pane ] += ( wanted - m_paneFit[ pane ] ) * PANE_FIT_FOLLOW;
 	}
 	m_paneFitValid = TRUE;
@@ -2625,10 +2663,11 @@ Bool ObserverCamera::chooseTarget( const ViewLocation &current, ViewLocation *ta
 	// the opening shows the first player's base in pane 0.  Pane 0 keeps its place until the panes
 	// have gone: a split ends when the director moves onto the second fight, and pane 0 going there at
 	// once showed that fight twice while pane 1 slid out
-	if( m_intro && m_panePhase == PANES_HELD )
+	if( m_intro && m_panePhase != PANES_OUT && m_panePhase != PANES_RADAR_IN )
 		place = m_paneSubject[ 0 ];
-	const Bool panesUp = m_panePhase == PANES_IN || m_panePhase == PANES_HELD || m_panePhase == PANES_OUT;
-	if( panesUp && ( m_panePhase == PANES_OUT || ( !m_split && !m_intro ) ) )
+	const Bool leaving = m_panePhase == PANES_UNDRAW || m_panePhase == PANES_OUT;
+	const Bool panesUp = m_panePhase == PANES_IN || panesSettled() || m_panePhase == PANES_OUT;
+	if( panesUp && ( leaving || ( !m_split && !m_intro ) ) )
 		place = m_panesLeftPlace;
 	else
 		m_panesLeftPlace = place;
