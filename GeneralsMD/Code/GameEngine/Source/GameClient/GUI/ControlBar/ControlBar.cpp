@@ -5471,6 +5471,11 @@ void ControlBar::setPortraitByImage( const Image *image )
 //-------------------------------------------------------------------------------------------------
 void ControlBar::setPortraitByObject( Object *obj )
 {
+	// a builder standing in for an empty selection lends the bar its buildings and nothing else: its
+	// portrait, name and health beside it read as that worker being selected, so the well stays empty
+	if( obj && m_standInBuilderID != INVALID_DRAWABLE_ID && obj->getDrawable()
+			&& obj->getDrawable()->getID() == m_standInBuilderID )
+		obj = NULL;
 
 	// the multi-select unit grid lives over this same HUD; a plain portrait means it must
 	// go, and so must the selection-count badge a one-type selection put on the portrait.

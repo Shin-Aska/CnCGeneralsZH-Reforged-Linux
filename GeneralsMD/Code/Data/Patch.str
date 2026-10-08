@@ -220,6 +220,10 @@ GUI:OrderMoveDescription
 "The next click on the ground sends the selected units there. Drag instead and they spread out along the line you draw."
 END
 
+GUI:SelectionTypeDescription
+"Click to keep only these selected. Shift-click to take them out of the selection."
+END
+
 GUI:OrderStanceDefensive
 "Stance: Defensive"
 END

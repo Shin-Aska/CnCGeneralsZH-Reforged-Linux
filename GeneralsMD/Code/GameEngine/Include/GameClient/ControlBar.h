@@ -967,6 +967,10 @@ public:
 		Shift-Tab (-1) walk the focus between them */
 	void cycleMultiSelectFocus( Int direction );
 
+	/** a left click at screen (x, y) on one of those type tiles keeps only that type selected, and
+		with shift drops that type from the selection; FALSE when (x, y) is on no tile */
+	Bool clickMultiSelectTile( Int x, Int y );
+
 	/** how long a half-finished two key press waits for its second key, the powers tray's row and
 		the promotion screen's marked column */
 	enum { CHORD_TIMEOUT_MS = 4000 };			///< real time, not frames: the client frame rate is uncapped

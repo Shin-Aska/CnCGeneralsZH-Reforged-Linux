@@ -14233,6 +14233,10 @@ GUI:OrderMoveDescription
 "Der nächste Klick auf den Boden schickt die ausgewählten Einheiten dorthin. Ziehe stattdessen, und sie verteilen sich entlang der gezogenen Linie."
 END
 
+GUI:SelectionTypeDescription
+"Klicke, um nur diese ausgewählt zu lassen. Mit Umschalt und Klick nimmst du sie aus der Auswahl."
+END
+
 GUI:OrderStanceDefensive
 "Haltung: Defensiv"
 END

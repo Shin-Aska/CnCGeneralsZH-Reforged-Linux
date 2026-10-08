@@ -83,6 +83,7 @@ public:
 	//changes the mode of drag selecting to it's opposite
 	void setDragSelecting(Bool dragSelect);
 	void setLeftMouseButton(Bool state);
+	Bool isLeftMouseButtonDown( void ) const { return m_leftMouseButtonIsDown; }	///< the left button went down on the world, not on a window
 	void forgetPendingSquads();	///< a match is over: what its team keys sent will never land
 
 #if defined(_DEBUG) || defined(_INTERNAL) || defined(_ALLOW_DEBUG_CHEATS_IN_RELEASE)

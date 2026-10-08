@@ -14829,6 +14829,10 @@ GUI:OrderMoveDescription
 "Zemine bir sonraki tıklama seçili birlikleri oraya gönderir. Bunun yerine sürüklerseniz birlikler çizdiğiniz çizgi boyunca dizilir."
 END
 
+GUI:SelectionTypeDescription
+"Tıklayın, seçimde yalnızca bunlar kalsın. Shift ile tıklayın, bunlar seçimden çıksın."
+END
+
 GUI:OrderStanceDefensive
 "Tutum: Savunmacı"
 END
