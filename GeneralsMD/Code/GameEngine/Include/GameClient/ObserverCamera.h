@@ -203,8 +203,9 @@ struct ObserverCameraVelocity
 Bool ObserverCamera_hottestPlace( const std::vector< DirectorHeat > &hits, Coord2D *place, Real *heat );
 /// the weight of the hits within DIRECTOR_GATHER_RADIUS of a place, and their weighted middle
 Real ObserverCamera_heatAround( const std::vector< DirectorHeat > &hits, const Coord2D &around, Coord2D *middle );
-/// whether a director holding a place with heatHere for framesHere should cut to one with heatThere
-Bool ObserverCamera_shouldMove( Real heatHere, Real heatThere, UnsignedInt framesHere );
+/// whether a director holding a place with heatHere for framesHere should cut to one with heatThere;
+/// peakHere is the hottest the place has been while held, and a place burnt down from it lets go sooner
+Bool ObserverCamera_shouldMove( Real heatHere, Real heatThere, UnsignedInt framesHere, Real peakHere );
 /// what one recent hit counts for: more the dearer the thing hit, more again if it died or is a
 /// superweapon
 Real ObserverCamera_hitWeight( Int cost, Bool killed, Bool superweapon );
@@ -530,6 +531,7 @@ private:
 	const Player *m_placeFor;				///< whose fights the place was picked from, NULL for everybody's
 	PlaceKind m_placeKind;					///< a fight, a special power, or a sight picked while nothing was hit
 	Real m_placeHeight;							///< how much higher than the watcher's own the place is watched from
+	Real m_placePeak;								///< the hottest the fight held has been since the director came to it
 	UnsignedInt m_placeEvent;				///< the id of the event the place is, while it is one
 	std::vector< Coord2D > m_seen;	///< the last few sights, oldest first, not gone back to while there is another
 	std::vector< DirectorEvent > m_events;	///< the special powers still worth watching, oldest first

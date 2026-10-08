@@ -56,16 +56,22 @@ static const UnsignedInt DIRECTOR_HEAT_FRAMES = 5 * LOGICFRAMES_PER_SECOND;
 /// how often the hits are counted again
 static const UnsignedInt DIRECTOR_SCAN_FRAMES = LOGICFRAMES_PER_SECOND / 2;
 /// how long the director stays with a fight that is still going before it looks for a better one
-static const UnsignedInt DIRECTOR_HOLD_FRAMES = 12 * LOGICFRAMES_PER_SECOND;
+/// at 12 seconds, and 30 before a slightly bigger fight would do, it sat on one spot through
+/// whatever started elsewhere
+static const UnsignedInt DIRECTOR_HOLD_FRAMES = 8 * LOGICFRAMES_PER_SECOND;
 /// how much hotter somewhere else has to be to be worth leaving a fight that is still going
 static const Real DIRECTOR_SWITCH_MARGIN = 2.0f;
-/// no move sooner than this after the last one, however big the other fight
-static const UnsignedInt DIRECTOR_SETTLE_FRAMES = 6 * LOGICFRAMES_PER_SECOND;
+/// no move sooner than this after the last one, however big the other fight; it keeps two fights
+/// of a size from trading the camera back and forth
+static const UnsignedInt DIRECTOR_SETTLE_FRAMES = 4 * LOGICFRAMES_PER_SECOND;
 /// this much hotter elsewhere and the director goes before its hold is up
-static const Real DIRECTOR_BIG_MARGIN = 4.0f;
+static const Real DIRECTOR_BIG_MARGIN = 2.5f;
 /// after this long on one fight any clearly hotter one elsewhere will do
-static const UnsignedInt DIRECTOR_TIRED_FRAMES = 30 * LOGICFRAMES_PER_SECOND;
+static const UnsignedInt DIRECTOR_TIRED_FRAMES = 20 * LOGICFRAMES_PER_SECOND;
 static const Real DIRECTOR_TIRED_MARGIN = 1.3f;
+/// a fight burnt down below this share of its own peak is fading, and once settled any clearly
+/// hotter one elsewhere will do, as if the director were tired of it
+static const Real DIRECTOR_FADING_SHARE = 0.5f;
 /// a fight's middle drifts as units die and arrive; the camera follows it only once it has gone this far
 static const Real DIRECTOR_FOLLOW_SLACK = 80.0f;
 /// what a special power counts for against another one; any of them outranks every fight
@@ -85,7 +91,7 @@ static const Real DIRECTOR_COST_PER_WEIGHT = 500.0f;
 static const Real DIRECTOR_KILL_FACTOR = 2.0f;
 static const Real DIRECTOR_SUPERWEAPON_FACTOR = 3.0f;
 /// with no fight on, how long the director looks at one army, base or building site
-static const UnsignedInt DIRECTOR_SIGHT_FRAMES = 14 * LOGICFRAMES_PER_SECOND;
+static const UnsignedInt DIRECTOR_SIGHT_FRAMES = 9 * LOGICFRAMES_PER_SECOND;
 /// how many of the last sights the director will not go back to while there is another
 static const size_t DIRECTOR_SEEN_COUNT = 3;
 /// further apart than this the camera cuts rather than glides: a glide across most of a map is too
@@ -325,7 +331,7 @@ Bool ObserverCamera_hottestPlace( const std::vector< DirectorHeat > &hits, Coord
 }
 
 //-------------------------------------------------------------------------------------------------
-Bool ObserverCamera_shouldMove( Real heatHere, Real heatThere, UnsignedInt framesHere )
+Bool ObserverCamera_shouldMove( Real heatHere, Real heatThere, UnsignedInt framesHere, Real peakHere )
 {
 	if( heatHere <= 0.0f )
 		return heatThere > 0.0f;
@@ -333,6 +339,9 @@ Bool ObserverCamera_shouldMove( Real heatHere, Real heatThere, UnsignedInt frame
 		return FALSE;
 	if( heatThere > heatHere * DIRECTOR_BIG_MARGIN )
 		return TRUE;
+	const Bool fading = heatHere < peakHere * DIRECTOR_FADING_SHARE;
+	if( fading )
+		return heatThere > heatHere * DIRECTOR_TIRED_MARGIN;
 	if( framesHere < DIRECTOR_HOLD_FRAMES )
 		return FALSE;
 	const Real margin = framesHere >= DIRECTOR_TIRED_FRAMES ? DIRECTOR_TIRED_MARGIN : DIRECTOR_SWITCH_MARGIN;
@@ -352,7 +361,7 @@ Bool ObserverCamera_stayOnEvent( const DirectorEvent *current, const DirectorEve
 {
 	if( current == NULL )
 		return FALSE;
-	return best == NULL || best == current || !ObserverCamera_shouldMove( current->weight, best->weight, held );
+	return best == NULL || best == current || !ObserverCamera_shouldMove( current->weight, best->weight, held, current->weight );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1323,6 +1332,7 @@ void ObserverCamera::reset( void )
 	m_place.x = m_place.y = 0.0f;
 	m_placeSince = 0;
 	m_placeScanned = 0;
+	m_placePeak = 0.0f;
 	m_placeFor = NULL;
 	m_placeKind = PLACE_SIGHT;
 	m_placeHeight = 0.0f;
@@ -2837,6 +2847,7 @@ Bool ObserverCamera::directorPlace( const Player *narrowTo, Coord2D *place )
 			return TRUE;
 		}
 		m_placeKind = PLACE_FIGHT;
+		m_placePeak = 0.0f;
 		m_placeSince = frame;
 	}
 	// the fight pane 1 holds stays pane 1's: pane 0 going there swapped the two panes' subjects
@@ -2867,7 +2878,8 @@ Bool ObserverCamera::directorPlace( const Player *narrowTo, Coord2D *place )
 		// a split's pane 0 keeps its own fight while it goes on rather than take pane 1's; once it is
 		// over the director moves there and the split ends, pane 1's fight handed to pane 0
 		const Bool heldByPaneOne = m_split && within( hottest, m_secondPlace, m_splitApart );
-		if( heatHere > 0.0f && ( sameFight( hottest, followed ) || heldByPaneOne || !ObserverCamera_shouldMove( heatHere, hottestHeat, held ) ) )
+		m_placePeak = max( m_placePeak, heatHere );
+		if( heatHere > 0.0f && ( sameFight( hottest, followed ) || heldByPaneOne || !ObserverCamera_shouldMove( heatHere, hottestHeat, held, m_placePeak ) ) )
 		{
 			const Real dx = followed.x - m_place.x;
 			const Real dy = followed.y - m_place.y;
@@ -2891,6 +2903,7 @@ Bool ObserverCamera::directorPlace( const Player *narrowTo, Coord2D *place )
 		DEBUG_LOG(( "OBSCAM frame %u director to fight (%.0f,%.0f) heat %.1f\n", frame, hottest.x, hottest.y, hottestHeat ));
 		m_place = hottest;
 		m_placeKind = PLACE_FIGHT;
+		m_placePeak = hottestHeat;
 		m_placeHeight = ObserverCamera_fightHeight( ObserverCamera_spreadAround( hits, hottest ) );
 	}
 	else

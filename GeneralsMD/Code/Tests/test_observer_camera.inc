@@ -34,25 +34,37 @@ TEST(the_director_holds_a_live_fight_and_leaves_a_dead_one)
 {
 	const UnsignedInt longHeld = 15 * LOGICFRAMES_PER_SECOND;
 	const UnsignedInt justArrived = LOGICFRAMES_PER_SECOND;
-	CHECK( ObserverCamera_shouldMove( 0.0f, 1.0f, justArrived ) );
-	CHECK( !ObserverCamera_shouldMove( 0.0f, 0.0f, longHeld ) );
-	CHECK( !ObserverCamera_shouldMove( 4.0f, 20.0f, justArrived ) );
-	CHECK( !ObserverCamera_shouldMove( 4.0f, 7.0f, longHeld ) );
-	CHECK( ObserverCamera_shouldMove( 4.0f, 9.0f, longHeld ) );
-	// ten seconds in is still inside the hold
-	CHECK( !ObserverCamera_shouldMove( 4.0f, 9.0f, 10 * LOGICFRAMES_PER_SECOND ) );
+	CHECK( ObserverCamera_shouldMove( 0.0f, 1.0f, justArrived, 0.0f ) );
+	CHECK( !ObserverCamera_shouldMove( 0.0f, 0.0f, longHeld, 0.0f ) );
+	CHECK( !ObserverCamera_shouldMove( 4.0f, 20.0f, justArrived, 4.0f ) );
+	CHECK( !ObserverCamera_shouldMove( 4.0f, 7.0f, longHeld, 4.0f ) );
+	CHECK( ObserverCamera_shouldMove( 4.0f, 9.0f, longHeld, 4.0f ) );
+	// six seconds in is still inside the hold
+	CHECK( !ObserverCamera_shouldMove( 4.0f, 9.0f, 6 * LOGICFRAMES_PER_SECOND, 4.0f ) );
+}
+
+TEST(the_director_lets_a_fading_fight_go_once_settled)
+{
+	const UnsignedInt settled = 5 * LOGICFRAMES_PER_SECOND;
+	// burnt down from 10 to 4, a fight a third hotter elsewhere is enough inside the hold
+	CHECK( ObserverCamera_shouldMove( 4.0f, 5.4f, settled, 10.0f ) );
+	CHECK( !ObserverCamera_shouldMove( 4.0f, 5.0f, settled, 10.0f ) );
+	// still at its peak it holds
+	CHECK( !ObserverCamera_shouldMove( 4.0f, 5.4f, settled, 4.0f ) );
+	// and fading or not, nothing moves it before the settle is up
+	CHECK( !ObserverCamera_shouldMove( 4.0f, 5.4f, 3 * LOGICFRAMES_PER_SECOND, 10.0f ) );
 }
 
 TEST(the_director_leaves_early_for_a_much_bigger_fight_and_late_for_any_bigger_one)
 {
 	const UnsignedInt settled = 7 * LOGICFRAMES_PER_SECOND;
 	const UnsignedInt tired = 35 * LOGICFRAMES_PER_SECOND;
-	CHECK( ObserverCamera_shouldMove( 4.0f, 17.0f, settled ) );
-	CHECK( !ObserverCamera_shouldMove( 4.0f, 13.0f, settled ) );
+	CHECK( ObserverCamera_shouldMove( 4.0f, 11.0f, settled, 4.0f ) );
+	CHECK( !ObserverCamera_shouldMove( 4.0f, 9.0f, settled, 4.0f ) );
 	// not even a much bigger fight pulls it away in its first seconds
-	CHECK( !ObserverCamera_shouldMove( 4.0f, 40.0f, 3 * LOGICFRAMES_PER_SECOND ) );
-	CHECK( ObserverCamera_shouldMove( 4.0f, 5.4f, tired ) );
-	CHECK( !ObserverCamera_shouldMove( 4.0f, 5.0f, tired ) );
+	CHECK( !ObserverCamera_shouldMove( 4.0f, 40.0f, 3 * LOGICFRAMES_PER_SECOND, 4.0f ) );
+	CHECK( ObserverCamera_shouldMove( 4.0f, 5.4f, tired, 4.0f ) );
+	CHECK( !ObserverCamera_shouldMove( 4.0f, 5.0f, tired, 4.0f ) );
 }
 
 TEST(the_director_shows_a_superweapon_leaving_its_silo_then_where_it_lands)
