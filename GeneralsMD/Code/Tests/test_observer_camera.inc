@@ -900,6 +900,34 @@ TEST(the_score_bar_keeps_each_team_together_and_balances_its_two_columns)
 		CHECK_EQ( order[ index ], expected[ index ] );
 }
 
+TEST(the_pane_lines_grow_out_then_their_band_fades_in_and_a_light_runs_along_them)
+{
+	// the line is whole three quarters of the way through the slide, its band only at the end, and
+	// the band has not begun while the line is still short
+	CHECK_NEAR( ObserverCamera_lineDrawn( 0.0f ), 0.0f, 0.0001f );
+	CHECK_NEAR( ObserverCamera_lineDrawn( 0.75f ), 1.0f, 0.0001f );
+	CHECK_NEAR( ObserverCamera_lineDrawn( 1.0f ), 1.0f, 0.0001f );
+	CHECK_NEAR( ObserverCamera_bandShown( 0.3f ), 0.0f, 0.0001f );
+	CHECK( ObserverCamera_lineDrawn( 0.3f ) > 0.2f );
+	CHECK_NEAR( ObserverCamera_bandShown( 1.0f ), 1.0f, 0.0001f );
+	Real last = 0.0f;
+	for( Int step = 0; step <= 20; step++ )
+	{
+		const Real now = ObserverCamera_bandShown( step / 20.0f );
+		CHECK( now >= last );
+		last = now;
+	}
+	// the light runs out over 45 frames once every five seconds, and is off in between
+	CHECK_NEAR( ObserverCamera_shimmerAt( 0 ), 0.0f, 0.0001f );
+	CHECK( ObserverCamera_shimmerAt( 22 ) > 0.3f && ObserverCamera_shimmerAt( 22 ) < 0.7f );
+	CHECK( ObserverCamera_shimmerAt( 45 ) < 0.0f );
+	CHECK( ObserverCamera_shimmerAt( 149 ) < 0.0f );
+	CHECK_NEAR( ObserverCamera_shimmerAt( 150 ), 0.0f, 0.0001f );
+	// the band is five golds wide and the join keeps all of it from pane 0
+	CHECK_EQ( ObserverCamera_paneBandWidth( 720 ), 30 );
+	CHECK( ObserverCamera_paneSeamBand( 720 ) * 2 >= ObserverCamera_paneBandWidth( 720 ) );
+}
+
 TEST(the_army_bar_cuts_its_whole_width_among_the_sides)
 {
 	std::vector< Int > armies;

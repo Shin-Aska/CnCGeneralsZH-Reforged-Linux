@@ -140,6 +140,16 @@ static const UnsignedInt SPLIT_LEAD_FRAMES = 3 * LOGICFRAMES_PER_SECOND;
 static const UnsignedInt PANE_INTRO_FRAMES = 7 * LOGICFRAMES_PER_SECOND;
 /// the gold of a line between panes is a pixel for every this many rows of the picture
 static const Real PANE_LINE_ROWS_A_PIXEL = 120.0f;
+/// the soft band of the brand's blue under a line is this many times the gold's width
+static const Int PANE_BAND_LINES = 5;
+/// as the panes come in a line grows out from the meeting point over this share of the slide, and its
+/// band fades in over the slide from this share of it, a beat behind; going out runs it backwards
+static const Real PANE_LINE_DRAWN_BY = 0.75f;
+static const Real PANE_BAND_FROM = 0.35f;
+/// while the panes are held a light runs out along every gold line once in this many logic frames,
+/// taking this many to reach the end
+static const UnsignedInt PANE_SHIMMER_PERIOD = 5 * LOGICFRAMES_PER_SECOND;
+static const UnsignedInt PANE_SHIMMER_FRAMES = 45;
 /// a pane's circle is looked for on a grid this fine, a centre every 10 pixels at 1280x720
 static const Int PANE_CIRCLE_COLUMNS = 128;
 static const Int PANE_CIRCLE_ROWS = 72;
@@ -1085,8 +1095,44 @@ Int ObserverCamera_paneLineWidth( Int height )
 //-------------------------------------------------------------------------------------------------
 Int ObserverCamera_paneSeamBand( Int height )
 {
-	const Real whole = (Real)( ObserverCamera_paneLineWidth( height ) + 2 * OBSERVER_PANE_LINE_EDGE );
+	const Real whole = (Real)max( ObserverCamera_paneLineWidth( height ) + 2 * OBSERVER_PANE_LINE_EDGE, ObserverCamera_paneBandWidth( height ) );
 	return REAL_TO_INT_CEIL( whole * 0.5f * sqrtf( 2.0f ) ) + 1;
+}
+
+//-------------------------------------------------------------------------------------------------
+Int ObserverCamera_paneBandWidth( Int height )
+{
+	return PANE_BAND_LINES * ObserverCamera_paneLineWidth( height );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** progress along from to to, eased in and out, 0 before from and 1 after to. */
+//-------------------------------------------------------------------------------------------------
+static Real easeBetween( Real progress, Real from, Real to )
+{
+	const Real t = min( max( ( progress - from ) / ( to - from ), 0.0f ), 1.0f );
+	return t * t * ( 3.0f - 2.0f * t );
+}
+
+//-------------------------------------------------------------------------------------------------
+Real ObserverCamera_lineDrawn( Real progress )
+{
+	return easeBetween( progress, 0.0f, PANE_LINE_DRAWN_BY );
+}
+
+//-------------------------------------------------------------------------------------------------
+Real ObserverCamera_bandShown( Real progress )
+{
+	return easeBetween( progress, PANE_BAND_FROM, 1.0f );
+}
+
+//-------------------------------------------------------------------------------------------------
+Real ObserverCamera_shimmerAt( UnsignedInt frame )
+{
+	const UnsignedInt into = frame % PANE_SHIMMER_PERIOD;
+	if( into >= PANE_SHIMMER_FRAMES )
+		return -1.0f;
+	return easeBetween( (Real)into, 0.0f, (Real)PANE_SHIMMER_FRAMES );
 }
 
 //-------------------------------------------------------------------------------------------------

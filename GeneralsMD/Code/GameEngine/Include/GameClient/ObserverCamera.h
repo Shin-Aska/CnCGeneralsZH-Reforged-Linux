@@ -276,6 +276,16 @@ Int ObserverCamera_paneLineWidth( Int height );
 /// how far either side of a seam the join keeps pane 0's pixels, which is where its line is drawn:
 /// the whole edged line's half width, measured along a row or column across a 45 degree line
 Int ObserverCamera_paneSeamBand( Int height );
+/// the width of the soft band of the brand's blue under every line between panes and round the radar
+Int ObserverCamera_paneBandWidth( Int height );
+/// how much of its length a line between panes has grown out from the meeting point at progress, the
+/// panes' slide, 0 to 1; whole before the slide is
+Real ObserverCamera_lineDrawn( Real progress );
+/// how far a line's band has faded in at progress, behind the line
+Real ObserverCamera_bandShown( Real progress );
+/// where along the gold lines the travelling light is on logic frame frame, 0 at the meeting point and
+/// 1 at the far end, eased; below 0 between two runs
+Real ObserverCamera_shimmerAt( UnsignedInt frame );
 
 class ObserverCamera
 {

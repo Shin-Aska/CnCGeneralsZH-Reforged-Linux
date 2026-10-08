@@ -428,27 +428,102 @@ static void drawGroundRing( const Coord3D& center, Real radius, UnsignedInt colo
 /// night maps alike
 static const Color PANE_GOLD = GameMakeColor( 0xf2, 0xc2, 0x30, 255 );
 static const Color PANE_EDGE = GameMakeColor( 0x0c, 0x12, 0x20, 255 );
+/// the band under the lines is the site's text blue, --blue #8095ea, the brand's second colour: a
+/// wide faint layer and a narrower stronger one, fading out along the ray
+static const UnsignedByte PANE_BAND_RGB[ 3 ] = { 0x80, 0x95, 0xea };
+static const Real PANE_BAND_OUTER_ALPHA = 0.3f;
+static const Real PANE_BAND_INNER_ALPHA = 0.55f;
+static const Real PANE_BAND_FAR_SHARE = 0.35f;
+/// the light that runs along the gold: --gold half way to white, over this share of a line's length
+static const Color PANE_SHIMMER = GameMakeColor( 0xf9, 0xe0, 0x98, 255 );
+static const Real PANE_SHIMMER_SHARE = 0.12f;
 
-/** The rays between the panes, from their meeting point to past the screen's edge, every ray's edge
-	* before any gold so the gold runs on unbroken where they meet. */
+static Color paneBand( Real alpha )
+{
+	return GameMakeColor( PANE_BAND_RGB[ 0 ], PANE_BAND_RGB[ 1 ], PANE_BAND_RGB[ 2 ], (UnsignedByte)REAL_TO_INT( 255.0f * alpha ) );
+}
+
+/** The rays between the panes, from their meeting point out, as far as they have grown: every ray's
+	* band first, then every edge, then the gold, so the gold runs on unbroken where they meet.  Held,
+	* a light runs out along the gold now and then. */
 static void drawPaneRays( void )
 {
 	const Real gold = (Real)ObserverCamera_paneLineWidth( TheDisplay->getHeight() );
 	const Real edged = gold + 2 * OBSERVER_PANE_LINE_EDGE;
-	const Real reach = 2.0f * ( TheDisplay->getWidth() + TheDisplay->getHeight() );
+	const Real band = (Real)ObserverCamera_paneBandWidth( TheDisplay->getHeight() );
 	const Coord2D origin = TheObserverCamera.getPaneOrigin();
 	const Real *rays = TheObserverCamera.getPaneRays();
 	const Int count = TheObserverCamera.getDrawnPaneCount();
-	for( Int pass = 0; pass < 2; pass++ )
+	const Real progress = TheObserverCamera.getPaneProgress();
+	const Real bandShown = ObserverCamera_bandShown( progress );
+	const Real drawn = ObserverCamera_lineDrawn( progress );
+	// the far end is past the farthest corner from the meeting point, wherever that has slid to
+	const Real width = (Real)TheDisplay->getWidth();
+	const Real height = (Real)TheDisplay->getHeight();
+	const Real farX = max( fabsf( origin.x ), fabsf( width - origin.x ) );
+	const Real farY = max( fabsf( origin.y ), fabsf( height - origin.y ) );
+	const Real length = sqrtf( farX * farX + farY * farY ) * drawn;
+	const Int fromX = REAL_TO_INT( origin.x );
+	const Int fromY = REAL_TO_INT( origin.y );
+	for( Int pass = 0; pass < 4; pass++ )
 	{
 		for( Int ray = 0; ray < count; ray++ )
 		{
 			const Real angle = rays[ ray ] * PI / 180.0f;
-			TheDisplay->drawLine( REAL_TO_INT( origin.x ), REAL_TO_INT( origin.y ),
-				REAL_TO_INT( origin.x + cosf( angle ) * reach ), REAL_TO_INT( origin.y - sinf( angle ) * reach ),
-				pass == 0 ? edged : gold, pass == 0 ? PANE_EDGE : PANE_GOLD );
+			const Int toX = REAL_TO_INT( origin.x + cosf( angle ) * length );
+			const Int toY = REAL_TO_INT( origin.y - sinf( angle ) * length );
+			if( pass == 0 && bandShown > 0.0f )
+				TheDisplay->drawLine( fromX, fromY, toX, toY, band, paneBand( PANE_BAND_OUTER_ALPHA * bandShown ),
+					paneBand( PANE_BAND_OUTER_ALPHA * bandShown * PANE_BAND_FAR_SHARE ) );
+			else if( pass == 1 && bandShown > 0.0f )
+				TheDisplay->drawLine( fromX, fromY, toX, toY, ( band + edged ) * 0.5f, paneBand( PANE_BAND_INNER_ALPHA * bandShown ),
+					paneBand( PANE_BAND_INNER_ALPHA * bandShown * PANE_BAND_FAR_SHARE ) );
+			else if( pass >= 2 )
+				TheDisplay->drawLine( fromX, fromY, toX, toY, pass == 2 ? edged : gold, pass == 2 ? PANE_EDGE : PANE_GOLD );
 		}
 	}
+
+	const Real shimmer = ObserverCamera_shimmerAt( TheGameLogic->getFrame() );
+	if( drawn < 1.0f || shimmer < 0.0f )
+		return;
+	const Real half = length * PANE_SHIMMER_SHARE * 0.5f;
+	const Real middle = length * shimmer;
+	for( Int ray = 0; ray < count; ray++ )
+	{
+		const Real angle = rays[ ray ] * PI / 180.0f;
+		const Real alongX = cosf( angle );
+		const Real alongY = -sinf( angle );
+		const Real start = max( middle - half, 0.0f );
+		const Real end = min( middle + half, length );
+		const Int middleX = REAL_TO_INT( origin.x + alongX * middle );
+		const Int middleY = REAL_TO_INT( origin.y + alongY * middle );
+		TheDisplay->drawLine( REAL_TO_INT( origin.x + alongX * start ), REAL_TO_INT( origin.y + alongY * start ), middleX, middleY, gold,
+			PANE_GOLD, PANE_SHIMMER );
+		TheDisplay->drawLine( middleX, middleY, REAL_TO_INT( origin.x + alongX * end ), REAL_TO_INT( origin.y + alongY * end ), gold,
+			PANE_SHIMMER, PANE_GOLD );
+	}
+}
+
+/** The radar's frame drawing its gold in round the window, clockwise from the top left corner, drawn
+	* share of the way; the edge is under all of it from the start. */
+static void drawFrameGold( const IRegion2D &window, Int gold, Real drawn )
+{
+	const Int left = window.lo.x - gold;
+	const Int top = window.lo.y - gold;
+	const Int across = window.hi.x - window.lo.x + 2 * gold;
+	const Int down = window.hi.y - window.lo.y + 2 * gold;
+	Int remaining = REAL_TO_INT( drawn * 2 * ( across + down ) );
+	const Int topRun = min( remaining, across );
+	TheDisplay->drawFillRect( left, top, topRun, gold, PANE_GOLD );
+	remaining -= topRun;
+	const Int rightRun = min( remaining, down );
+	TheDisplay->drawFillRect( left + across - gold, top, gold, rightRun, PANE_GOLD );
+	remaining -= rightRun;
+	const Int bottomRun = min( remaining, across );
+	TheDisplay->drawFillRect( left + across - bottomRun, top + down - gold, bottomRun, gold, PANE_GOLD );
+	remaining -= bottomRun;
+	const Int leftRun = min( remaining, down );
+	TheDisplay->drawFillRect( left, top + down - leftRun, gold, leftRun, PANE_GOLD );
 }
 
 /// a rectangle the given pixels larger than window on every side, filled
@@ -530,7 +605,26 @@ void W3DInGameUI::draw( void )
 
 			// two filled rectangles under the radar, square at the corners: the edge, then the gold up
 			// to the window, so the map sits on the gold with no gap.  All of it is pane 0's in the join
-			if( framed || cornerFramed )
+			// between the panes the frame wears the lines' blue band as a halo and draws its gold in round
+			// the window as the lines grow; until the gold is whole the map sits on the edge
+			const Int halo = max( ( ObserverCamera_paneBandWidth( TheDisplay->getHeight() ) - frameGold ) / 2 - OBSERVER_PANE_LINE_EDGE, 0 );
+			if( framed )
+			{
+				const Real progress = TheObserverCamera.getPaneProgress();
+				const Real bandShown = ObserverCamera_bandShown( progress );
+				const Real drawn = ObserverCamera_lineDrawn( progress );
+				if( bandShown > 0.0f )
+				{
+					fillAround( corner, frameOutside + halo, paneBand( PANE_BAND_OUTER_ALPHA * bandShown ) );
+					fillAround( corner, frameOutside + halo / 2, paneBand( PANE_BAND_INNER_ALPHA * bandShown ) );
+				}
+				fillAround( corner, frameOutside, PANE_EDGE );
+				if( drawn >= 1.0f )
+					fillAround( corner, frameGold, PANE_GOLD );
+				else
+					drawFrameGold( corner, frameGold, drawn );
+			}
+			else if( cornerFramed )
 			{
 				fillAround( corner, frameOutside, PANE_EDGE );
 				fillAround( corner, frameGold, PANE_GOLD );
@@ -538,10 +632,10 @@ void W3DInGameUI::draw( void )
 			if( framed )
 			{
 				IRegion2D taken = corner;
-				taken.lo.x -= frameOutside;
-				taken.lo.y -= frameOutside;
-				taken.hi.x += frameOutside;
-				taken.hi.y += frameOutside;
+				taken.lo.x -= frameOutside + halo;
+				taken.lo.y -= frameOutside + halo;
+				taken.hi.x += frameOutside + halo;
+				taken.hi.y += frameOutside + halo;
 				TheObserverCamera.setRadarFrame( taken );
 			}
 			TheControlBar->placeWindowAt( radarWindow, corner );
