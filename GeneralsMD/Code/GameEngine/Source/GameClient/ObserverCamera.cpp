@@ -100,7 +100,14 @@ static const Real HAND_JUMP_DISTANCE = 400.0f;
 static const Real DIRECTOR_PAN_SECONDS = 1.4f;
 /// how long the director's height takes to settle on a new place's: the view's own settle took a
 /// third of a second, and a camera gliding in over seconds stepped back up in that third
-static const Real DIRECTOR_HEIGHT_SECONDS = 1.6f;
+static const Real DIRECTOR_HEIGHT_SECONDS = 2.2f;
+/// and the view under it settles on that height and the ground below on this time constant: its own
+/// third of a second stepped the zoom in and out over every ridge a glide crossed
+static const Real DIRECTOR_SETTLE_SECONDS = 1.0f;
+/// every place the director shows is watched from this much over the watcher's own height, so the
+/// fight's surroundings are in the picture and not only the unit the hits came from; 300 at the
+/// start height framed one tank and missed the fight beside it
+static const Real DIRECTOR_WIDE_EXTRA = 200.0f;
 /// the score bar sets this many players' cards and more in two rows: eight in one were 6 pixel text
 /// at 720p
 static const Int CARD_TWO_ROWS_FROM = 5;
@@ -1655,6 +1662,7 @@ void ObserverCamera::driveHeight( Real extra )
 	else
 		m_handHeight = now;
 	m_heightDriven = TRUE;
+	TheTacticalView->setHeightSettleSeconds( DIRECTOR_SETTLE_SECONDS );
 
 	const Real wanted = m_handHeight + extra;
 	if( wanted != now )
@@ -1671,6 +1679,7 @@ void ObserverCamera::releaseHeight( void )
 		return;
 
 	m_heightDriven = FALSE;
+	TheTacticalView->setHeightSettleSeconds( 0.0f );
 	TheTacticalView->setHeightAboveGround( m_handHeight + TheTacticalView->getHeightAboveGround() - m_drivenHeight );
 }
 
@@ -3128,7 +3137,7 @@ void ObserverCamera::update( UnsignedInt nowMilliseconds )
 	m_lastZoom = current.getZoom();
 	m_lastCut = cut;
 	m_panesHeldZoom = panesZoom;
-	m_heightExtra = ObserverCamera_easeHeight( m_heightExtra, m_placeHeight, &m_heightExtraVelocity, elapsed / MILLISECONDS_PER_SECOND, cut );
+	m_heightExtra = ObserverCamera_easeHeight( m_heightExtra, DIRECTOR_WIDE_EXTRA + m_placeHeight, &m_heightExtraVelocity, elapsed / MILLISECONDS_PER_SECOND, cut );
 	if( isShowingPlayerView() )
 		releaseHeight();
 	else

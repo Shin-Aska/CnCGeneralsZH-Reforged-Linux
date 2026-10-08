@@ -2028,6 +2028,10 @@ void W3DView::update(void)
 	if (zoomSteps <= 0.0f || zoomSteps > 10.0f)
 		zoomSteps = 1.0f;		// first frame ever, or a hitch: take one plain step
 	Real cameraAdjustSpeed = 1.0f - (Real)pow(1.0f - TheGlobalData->m_cameraAdjustSpeed, zoomSteps);
+	// The director asks for a slower settle: at CameraAdjustSpeed's third of a second every ridge
+	// the five height samples crossed during a glide stepped the picture in and out.
+	if (m_heightSettleSeconds > 0.0f)
+		cameraAdjustSpeed = 1.0f - expf(-zoomSteps * TheW3DFrameLengthInMsec / (1000.0f * m_heightSettleSeconds));
 	if (TheTerrainLogic && TheGlobalData && TheInGameUI && m_okToAdjustHeight && !TheGameLogic->isGamePaused())
 	{
 		Real desiredHeight = (m_terrainHeightUnderCamera + m_heightAboveGround);

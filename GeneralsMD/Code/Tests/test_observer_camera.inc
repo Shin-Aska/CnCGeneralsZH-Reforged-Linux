@@ -860,11 +860,11 @@ TEST(pane_animations_ease_over_logic_frames)
 TEST(the_directors_height_eases_to_a_new_place_and_cuts_with_a_cut)
 {
 	// a place 300 higher: no frame at 30 a second moves more than a twentieth of it, it gets there
-	// within five seconds, and never passes it
+	// within seven seconds, and never passes it
 	Real height = 0.0f;
 	Real velocity = 0.0f;
 	Real biggestStep = 0.0f;
-	for( Int frame = 0; frame < 150; frame++ )
+	for( Int frame = 0; frame < 210; frame++ )
 	{
 		const Real next = ObserverCamera_easeHeight( height, 300.0f, &velocity, 1.0f / 30.0f, FALSE );
 		biggestStep = max( biggestStep, next - height );
