@@ -71,6 +71,7 @@
 static const Real GLOW_HALO_WIDTH_SCALE	= 2.8f;		// halo width over the beam's widest layer
 static const Real GLOW_HALO_MIN_WIDTH		= 16.0f;
 static const Real GLOW_HALO_INTENSITY		= 0.75f;
+static const Real GLOW_HALO_SPREAD			= 0.5f;		// halo width gained per unit of strength past Medium
 static const Real GLOW_CORE_WIDTH_SCALE	= 0.3f;
 static const Real GLOW_CORE_MIN_WIDTH		= 3.0f;
 static const Real GLOW_CORE_WHITEN			= 0.7f;		// how far the core's hue is run toward white
@@ -159,11 +160,21 @@ static Vector3 glowHue( Color inner, Color outer )
 }
 
 // What the Glow option makes of the two glow lines: nothing at Off, which leaves EA's beams alone,
-// and the look they were tuned at for Medium, twice it at Ultra.  A beam is a few pixels wide, so
-// unlike a fireball it needs its own brightness raised to get past white and bloom.
+// and the look they were tuned at for Medium, twice it at Ultra.  A line's colour goes to the device
+// as eight bits a channel and wraps past one, so the brightness stops at Medium's; past it the halo
+// widens instead, and the Direct3D 11 gain takes the lines over white (GLOW_ENABLE below).
 static Real glowStrength()
 {
 	return TheGlobalData->m_bloomIntensity / 50.0f;
+}
+
+// The plain additive preset, opted into the Glow option's gain: EA's beam layers and the glow
+// lines alike are light.
+static ShaderClass glowingAdditiveShader()
+{
+	ShaderClass shader = ShaderClass::_PresetAdditiveShader;
+	shader.Set_Glow( ShaderClass::GLOW_ENABLE );
+	return shader;
 }
 
 // PUBLIC FUNCTIONS ///////////////////////////////////////////////////////////////////////////////
@@ -304,7 +315,7 @@ W3DLaserDraw::W3DLaserDraw( Thing *thing, const ModuleData* moduleData ) :
 			if( line )
 			{
 				line->Set_Texture( m_texture );
-				line->Set_Shader( ShaderClass::_PresetAdditiveShader );	//pick the alpha blending mode you want - see shader.h for others.
+				line->Set_Shader( glowingAdditiveShader() );	//pick the alpha blending mode you want - see shader.h for others.
 				line->Set_Width( width );
 				line->Set_Color( Vector3( red, green, blue ) );
 				line->Set_UV_Offset_Rate( Vector2(0.0f, data->m_scrollRate) );	//amount to scroll texture on each draw
@@ -337,7 +348,7 @@ W3DLaserDraw::W3DLaserDraw( Thing *thing, const ModuleData* moduleData ) :
 			SegmentedLineClass *line = NEW SegmentedLineClass;
 			m_glow3D[ g ] = line;
 			line->Set_Texture( glowTexture );
-			line->Set_Shader( ShaderClass::_PresetAdditiveShader );
+			line->Set_Shader( glowingAdditiveShader() );
 			line->Set_Texture_Mapping_Mode( SegLineRendererClass::UNIFORM_WIDTH_TEXTURE_MAP );	// u runs across the width
 			W3DDisplay::m_3DScene->Add_Render_Object( line );
 			line->Set_Visible( 0 );
@@ -565,22 +576,25 @@ void W3DLaserDraw::doDrawModule(const Matrix3D* transformMtx)
 
 			if( m_glow3D )
 			{
+				// set with the points rather than once, so a change of the Glow option reaches the
+				// next beam drawn
+				const Real strength = glowStrength();
+				const Real brightness = MIN( strength, 1.0f );
+				const Real spread = 1.0f + GLOW_HALO_SPREAD * MAX( strength - 1.0f, 0.0f );
 				Real widest = MAX( data->m_innerBeamWidth, data->m_outerBeamWidth );
 				Real widthScale = update->getWidthScale();
 				Real widths[ GLOW_LAYERS ] =
 				{
-					MAX( widest * GLOW_HALO_WIDTH_SCALE, GLOW_HALO_MIN_WIDTH ) * widthScale,
+					MAX( widest * GLOW_HALO_WIDTH_SCALE, GLOW_HALO_MIN_WIDTH ) * widthScale * spread,
 					MAX( widest * GLOW_CORE_WIDTH_SCALE, GLOW_CORE_MIN_WIDTH ) * widthScale
 				};
-				// set with the points rather than once, so a change of the Glow option reaches the
-				// next beam drawn
-				const Real strength = glowStrength();
+				// glowHue's brightest channel is one, so neither colour passes one
 				Vector3 hue = glowHue( data->m_innerColor, data->m_outerColor );
 				Vector3 white( 1.0f, 1.0f, 1.0f );
 				Vector3 colors[ GLOW_LAYERS ] =
 				{
-					hue * ( GLOW_HALO_INTENSITY * strength ),
-					( hue * ( 1.0f - GLOW_CORE_WHITEN ) + white * GLOW_CORE_WHITEN ) * strength
+					hue * ( GLOW_HALO_INTENSITY * brightness ),
+					( hue * ( 1.0f - GLOW_CORE_WHITEN ) + white * GLOW_CORE_WHITEN ) * brightness
 				};
 				for( Int g = 0; g < GLOW_LAYERS; g++ )
 				{

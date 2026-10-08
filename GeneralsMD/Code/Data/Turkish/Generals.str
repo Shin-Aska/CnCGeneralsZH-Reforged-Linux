@@ -15262,7 +15262,7 @@ GUI:Bloom4
 END
 
 TOOLTIP:Bloom
-"Ateşin, patlamaların, namlu alevlerinin ve lazerlerin ne kadar parlak yandığı ve ışıklarının çevreye ne kadar taştığı. Binalar, gökyüzü, kar ve kum hiçbir zaman parlamaz. Çizimler Kapalı ayarına göre yapıldı. Direct3D 9 çizicisi bunun daha yumuşak bir sürümünü gösterir."
+"Ateşin, patlamaların, namlu alevlerinin ve lazerlerin ne kadar parlak yandığı ve ışıklarının çevreye ne kadar taştığı. Binalar, gökyüzü, kar ve kum hiçbir zaman parlamaz. Çizimler Kapalı ayarına göre yapıldı. Direct3D 9 çizicisi bunun daha yumuşak bir sürümünü gösterir; Klasik Grafikler açıkken bu ayara yalnızca lazer haleleri uyar."
 END
 
 GUI:VSync

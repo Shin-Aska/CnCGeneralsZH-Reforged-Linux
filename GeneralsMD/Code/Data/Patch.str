@@ -774,7 +774,7 @@ GUI:Bloom4
 END
 
 TOOLTIP:Bloom
-"How hard fire, explosions, muzzle flashes and lasers burn and how far their light spills over what is around them. Buildings, the sky, snow and sand never glow. Off is the look the artwork was painted for. The Direct3D 9 renderer gets a softer version."
+"How hard fire, explosions, muzzle flashes and lasers burn and how far their light spills over what is around them. Buildings, the sky, snow and sand never glow. Off is the look the artwork was painted for. The Direct3D 9 renderer gets a softer version, and under Classic Graphics only the laser halos follow it."
 END
 
 GUI:VSync

@@ -511,16 +511,19 @@ TEST(dx11backend_an_additive_draw_takes_the_glow_gain_past_white)
 	backend.Set_Indices(indices, DXGI_FORMAT_R16_UINT);
 	backend.Set_Render_State(D3DRS_ALPHABLENDENABLE, TRUE);
 
-	// Blue of the centre pixel after one draw over a 0.25 clear, at this gain and this blend.
-	struct Case { float Gain; DWORD Source; DWORD Destination; float Blue; };
+	// Blue of the centre pixel after one draw over a 0.25 clear, at this gain, this blend and with
+	// or without the draw's opt-in (ShaderClass::GLOW_ENABLE).
+	struct Case { float Gain; bool Glow; DWORD Source; DWORD Destination; float Blue; };
 	const Case cases[] = {
-		{ 4.0f, D3DBLEND_ONE, D3DBLEND_ONE, 0.25f + 0.2f * 4.0f },
-		{ 1.0f, D3DBLEND_ONE, D3DBLEND_ONE, 0.25f + 0.2f },
-		{ 4.0f, D3DBLEND_SRCALPHA, D3DBLEND_INVSRCALPHA, 0.2f },
+		{ 4.0f, true, D3DBLEND_ONE, D3DBLEND_ONE, 0.25f + 0.2f * 4.0f },
+		{ 1.0f, true, D3DBLEND_ONE, D3DBLEND_ONE, 0.25f + 0.2f },
+		{ 4.0f, true, D3DBLEND_SRCALPHA, D3DBLEND_INVSRCALPHA, 0.2f },
+		{ 4.0f, false, D3DBLEND_ONE, D3DBLEND_ONE, 0.25f + 0.2f },
 	};
 	for (unsigned index = 0; index < sizeof(cases) / sizeof(cases[0]); ++index) {
 		const float clear_colour[4] = { 0.25f, 0.25f, 0.25f, 1.0f };
 		device.Get_Context()->ClearRenderTargetView(target_view, clear_colour);
+		backend.Set_Glow_Draw(cases[index].Glow);
 		backend.Set_Additive_Gain(cases[index].Gain);
 		backend.Set_Render_State(D3DRS_SRCBLEND, cases[index].Source);
 		backend.Set_Render_State(D3DRS_DESTBLEND, cases[index].Destination);
@@ -828,6 +831,98 @@ TEST(dx11backend_a_draw_that_samples_its_own_target_reads_what_was_drawn)
 	target_view->Release();
 	staging->Release();
 	target->Release();
+	backend.Shutdown();
+}
+
+// W3DShaderManager's render texture stands in for the scene: Direct3D 11 never draws into it, so a
+// draw sampling it (the heat haze) has to read the scene, where the frame really is.  Without the
+// stand-in it reads the texture's own black and the centre comes back 00 00 00.
+TEST(dx11backend_a_draw_sampling_the_scene_stand_in_reads_the_scene)
+{
+	DX11DeviceClass device;
+	CHECK(device.Create_Offscreen());
+	ID3D11Device * d3d = device.Get_Device();
+
+	DX11BackendClass backend;
+	CHECK(backend.Initialise(&device));
+
+	D3D11_TEXTURE2D_DESC description;
+	memset(&description, 0, sizeof(description));
+	description.Width = TARGET_SIZE;
+	description.Height = TARGET_SIZE;
+	description.MipLevels = 1;
+	description.ArraySize = 1;
+	description.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+	description.SampleDesc.Count = 1;
+	description.Usage = D3D11_USAGE_DEFAULT;
+	description.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+
+	ID3D11Texture2D * scene = NULL;
+	CHECK(SUCCEEDED(d3d->CreateTexture2D(&description, NULL, &scene)));
+	ID3D11Texture2D * stand_in = NULL;
+	CHECK(SUCCEEDED(d3d->CreateTexture2D(&description, NULL, &stand_in)));
+	D3D11_TEXTURE2D_DESC staging_description = description;
+	staging_description.Usage = D3D11_USAGE_STAGING;
+	staging_description.BindFlags = 0;
+	staging_description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+	ID3D11Texture2D * staging = NULL;
+	CHECK(SUCCEEDED(d3d->CreateTexture2D(&staging_description, NULL, &staging)));
+
+	ID3D11RenderTargetView * scene_view = NULL;
+	CHECK(SUCCEEDED(d3d->CreateRenderTargetView(scene, NULL, &scene_view)));
+	ID3D11RenderTargetView * stand_in_target = NULL;
+	CHECK(SUCCEEDED(d3d->CreateRenderTargetView(stand_in, NULL, &stand_in_target)));
+	ID3D11ShaderResourceView * stand_in_texture = NULL;
+	CHECK(SUCCEEDED(d3d->CreateShaderResourceView(stand_in, NULL, &stand_in_texture)));
+
+	const float white[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+	const float black[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+	device.Get_Context()->ClearRenderTargetView(scene_view, white);
+	device.Get_Context()->ClearRenderTargetView(stand_in_target, black);
+
+	ID3D11Buffer * vertices = NULL;
+	CHECK(DX11Resource_Create_Vertex_Buffer(d3d, sizeof(QUAD_VERTICES), D3DPOOL_MANAGED, 0,
+		QUAD_VERTICES, &vertices));
+	ID3D11Buffer * indices = NULL;
+	CHECK(DX11Resource_Create_Index_Buffer(d3d, sizeof(QUAD_INDICES), D3DPOOL_MANAGED, 0,
+		QUAD_INDICES, &indices));
+
+	device.Set_Scene_View(scene_view);
+	backend.Set_Scene_Stand_In(stand_in_texture);
+	backend.Set_Render_Target(NULL);
+	backend.Set_Viewport(0, 0, TARGET_SIZE, TARGET_SIZE);	// an offscreen device has no size of its own
+	configure_unlit_pass_through(backend);
+	backend.Set_Texture_Stage_State(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+	backend.Set_Texture_Stage_State(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+	backend.Set_Texture_Stage_State(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
+	backend.Set_Texture(0, stand_in_texture);
+	backend.Set_Stream_Source(vertices, sizeof(BackendVertex), 0);
+	backend.Set_Indices(indices, DXGI_FORMAT_R16_UINT);
+	CHECK(backend.Draw_Indexed_Triangles(6, 0, 0));
+
+	device.Get_Context()->CopyResource(staging, scene);
+	D3D11_MAPPED_SUBRESOURCE mapped;
+	CHECK(SUCCEEDED(device.Get_Context()->Map(staging, 0, D3D11_MAP_READ, 0, &mapped)));
+	const unsigned char * centre = static_cast<const unsigned char *>(mapped.pData)
+		+ mapped.RowPitch * (TARGET_SIZE / 2) + (TARGET_SIZE / 2) * 4;
+	if (centre[0] != EXPECTED_BLUE) {
+		printf("  centre pixel bgra %02x %02x %02x %02x\n",
+			centre[0], centre[1], centre[2], centre[3]);
+	}
+	CHECK_EQ(centre[0], EXPECTED_BLUE);
+	CHECK_EQ(centre[1], EXPECTED_GREEN);
+	CHECK_EQ(centre[2], EXPECTED_RED);
+	device.Get_Context()->Unmap(staging, 0);
+
+	device.Set_Scene_View(NULL);
+	indices->Release();
+	vertices->Release();
+	stand_in_texture->Release();
+	stand_in_target->Release();
+	scene_view->Release();
+	staging->Release();
+	stand_in->Release();
+	scene->Release();
 	backend.Shutdown();
 }
 

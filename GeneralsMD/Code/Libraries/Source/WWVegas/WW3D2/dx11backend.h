@@ -243,6 +243,17 @@ public:
 	void Set_Additive_Gain(float gain);
 	float Additive_Gain() const { return AdditiveGain; }
 
+	// Whether the draws that follow opted into that gain (ShaderClass::GLOW_ENABLE, sent by
+	// ShaderClass::Apply).  Additive water, waypoint lines, decals and heat vision are ONE, ONE as
+	// well and stay as they were painted.
+	void Set_Glow_Draw(bool glow) { GlowDraw = glow; }
+
+	// The texture the engine draws the scene into for its screen filters (W3DShaderManager's render
+	// texture).  Here the scene stays in the scene target, where the gain and the bloom work: a
+	// redirect into this texture's 8-bit twin would clip every fire at white.  A draw that samples
+	// the view samples a copy of the scene instead (Readable_Texture).  NULL when there is none.
+	void Set_Scene_Stand_In(ID3D11ShaderResourceView * view) { SceneStandIn = view; }
+
 	// What is in the map, read back through a staging copy: how much of it was drawn into and how
 	// near the nearest thing is.  A caster pass that drew nothing leaves a map that is all one
 	// value, and no draw count tells that apart from a pass that drew the world.
@@ -484,7 +495,9 @@ private:
 	bool SmokeGlow;
 	bool Smoke_Glow() const;
 	float AdditiveGain;
+	bool GlowDraw;
 	bool Additive_Glow() const;
+	ID3D11ShaderResourceView * SceneStandIn;
 	// A stage samples the target the draw is going into: the heat haze, which bends a picture that
 	// already took its shadows, and would take them a second time.
 	bool Samples_Current_Target() const;

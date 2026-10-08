@@ -369,10 +369,14 @@ static void renderBloom(IDirect3DTexture9 *sceneTexture, Real x, Real y, Real w,
 	DX8Wrapper::Set_DX8_Texture_Stage_State(1, D3DTSS_COLOROP, D3DTOP_MODULATE4X);
 	DX8Wrapper::Set_DX8_Texture_Stage_State(1, D3DTSS_COLORARG1, D3DTA_CURRENT);
 	DX8Wrapper::Set_DX8_Texture_Stage_State(1, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
+	//a stage with its colour on may not have its alpha off: D3D9 leaves that undefined
+	DX8Wrapper::Set_DX8_Texture_Stage_State(1, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+	DX8Wrapper::Set_DX8_Texture_Stage_State(1, D3DTSS_ALPHAARG1, D3DTA_CURRENT);
 	DX8Wrapper::Set_DX8_Texture(0, sceneTexture);
 	DX8Wrapper::Set_DX8_Texture(1, NULL);
 	drawBloomQuad(0.0f, 0.0f, (Real)s_bloomWidth, (Real)s_bloomHeight, u0, v0, u1, v1, 0xffffffff);
 	DX8Wrapper::Set_DX8_Texture_Stage_State(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+	DX8Wrapper::Set_DX8_Texture_Stage_State(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
 
 	//Blur: two 4-tap box passes ping-ponging between the targets, the second one twice as wide.
 	//Each tap is a quarter weight carried in the diffuse colour, the first writing and the other
@@ -462,6 +466,9 @@ Bool ScreenDefaultFilter::postRender(enum FilterModes mode, Coord2D &scrollDelta
 	IDirect3DTexture9 * tex =	W3DShaderManager::endRenderToTexture();
 	DEBUG_ASSERTCRASH(tex, ("Require rendered texture."));
 	if (!tex) return false;
+	// Direct3D 11 never left its own scene target (Direct3D11_Set_Scene_Stand_In): there is nothing
+	// to copy back, and the copy would clip the Glow option's fires at white.
+	if (Direct3D11_Is_Active()) return true;
 	if (!set(mode)) return false;
 
 
@@ -2928,6 +2935,9 @@ void W3DShaderManager::init(void)
 			}
 		}
 	}
+	// Direct3D 11 keeps the scene in its own float target while this texture is the target, so the
+	// smudges' redirect does not clip the Glow option's fires at white.
+	Direct3D11_Set_Scene_Stand_In(m_renderTexture, m_newRenderSurface);
 
 	W3DShaderInterface **shaders;
 
@@ -2960,6 +2970,7 @@ void W3DShaderManager::init(void)
 //=============================================================================
 void W3DShaderManager::shutdown(void)
 {
+	Direct3D11_Set_Scene_Stand_In(NULL, NULL);
 	if (m_newRenderSurface) m_newRenderSurface->Release();
 	if (m_renderTexture) m_renderTexture->Release();
 	if (m_oldRenderSurface) m_oldRenderSurface->Release();

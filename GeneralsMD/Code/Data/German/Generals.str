@@ -14606,7 +14606,7 @@ GUI:Bloom4
 END
 
 TOOLTIP:Bloom
-"Wie stark Feuer, Explosionen, Mündungsfeuer und Laser leuchten und wie weit ihr Licht auf die Umgebung übergreift. Gebäude, Himmel, Schnee und Sand leuchten nie. Aus ist das, wofür die Grafiken gemalt wurden. Der Direct3D-9-Renderer zeigt eine weichere Fassung."
+"Wie stark Feuer, Explosionen, Mündungsfeuer und Laser leuchten und wie weit ihr Licht auf die Umgebung übergreift. Gebäude, Himmel, Schnee und Sand leuchten nie. Aus ist das, wofür die Grafiken gemalt wurden. Der Direct3D-9-Renderer zeigt eine weichere Fassung, und mit Klassischer Grafik richten sich nur die Laserschimmer danach."
 END
 
 GUI:VSync

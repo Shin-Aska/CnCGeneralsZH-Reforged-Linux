@@ -245,6 +245,8 @@ DX11BackendClass::DX11BackendClass()
 	, ShadowReceiving(false)
 	, SmokeGlow(false)
 	, AdditiveGain(1.0f)
+	, GlowDraw(false)
+	, SceneStandIn(NULL)
 	, DrawsMade(0)
 	, DrawsRefused(0)
 	, RefusedNoBuffer(0)
@@ -458,6 +460,7 @@ void DX11BackendClass::Shutdown()
 		TargetCopyView = NULL;
 		TargetCopy = NULL;
 	}
+	SceneStandIn = NULL;
 	if (ShadowMapTexture != NULL) {
 		ShadowMapTexture->Release();
 		ShadowMapTexture = NULL;
@@ -961,13 +964,13 @@ void DX11BackendClass::Set_Additive_Gain(float gain)
 	}
 }
 
-/** An additive draw into the scene, the one blend the Glow option boosts.  ONE, ONE is what the
-		engine's additive presets set (fire and explosion particles, the laser lines, muzzle flash and
-		glow meshes); a source alpha blend into ONE is left alone, since the blend factor would replace
-		the alpha it weighs by. */
+/** An additive draw into the scene that opted in, the one blend the Glow option boosts: fire and
+		explosion particles, laser lines, and the additive meshes the art ships (muzzle flashes, glows).
+		A source alpha blend into ONE is left alone, since the blend factor would replace the alpha it
+		weighs by. */
 bool DX11BackendClass::Additive_Glow() const
 {
-	return AdditiveGain != 1.0f && CurrentTarget == NULL && !ShadowMapBound
+	return AdditiveGain != 1.0f && GlowDraw && CurrentTarget == NULL && !ShadowMapBound
 		&& (VertexFormat & D3DFVF_XYZRHW) == 0
 		&& RenderStates.Get_Render_State(D3DRS_ALPHABLENDENABLE) != FALSE
 		&& RenderStates.Get_Render_State(D3DRS_SRCBLEND) == D3DBLEND_ONE
@@ -1116,6 +1119,9 @@ void DX11BackendClass::Set_Blast_Lights(const float * lights, unsigned count)
 
 bool DX11BackendClass::Views_Current_Target(unsigned stage, ID3D11ShaderResourceView * texture) const
 {
+	if (texture != NULL && texture == SceneStandIn) {
+		return true;
+	}
 	if (texture == NULL || CurrentTarget == NULL) {
 		return false;
 	}
@@ -1311,7 +1317,8 @@ void DX11BackendClass::Set_Texture(unsigned stage, ID3D11ShaderResourceView * te
 		// Sampling the current target takes a draw off the shadow receivers (Shadow_Receiving), so a
 		// change into or out of that is a change of pipeline.  The old view's answer is in the cache
 		// when it was drawn with; when it is not, it is taken as yes.
-		else if (texture != Textures[stage] && CurrentTarget != NULL) {
+		else if (texture != Textures[stage] && (CurrentTarget != NULL || texture == SceneStandIn
+				|| Textures[stage] == SceneStandIn)) {
 			const bool was_target = (TargetCheckedViews[stage] == Textures[stage])
 				? TargetCheckedIsTarget[stage] : true;
 			if (was_target || Views_Current_Target(stage, texture)) {
@@ -2758,6 +2765,10 @@ ID3D11ShaderResourceView * DX11BackendClass::Readable_Texture(unsigned stage,
 		return texture;
 	}
 	ID3D11Resource * resource = CurrentTargetResource;
+	if (texture == SceneStandIn) {
+		Device->Get_Scene_View()->GetResource(&resource);
+		resource->Release();	// the device holds the scene target for as long as it lives
+	}
 
 	// Set_Render_Target keeps only a target that is a two dimensional texture.
 	D3D11_TEXTURE2D_DESC description;
