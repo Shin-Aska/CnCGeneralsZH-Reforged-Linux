@@ -4300,12 +4300,12 @@ static Bool openVideoPipe(Int width, Int height)
 
 /** -directorrecord's panes joined into pane 0's picture: each pixel is taken from the pane whose wedge
 	* it lies in.  A pane's camera already slid its picture with the rays' meeting point, so the copy is
-	* pixel for pixel; moving the pixels instead read past a picture's edge and smeared it.  Pane 0 keeps the framed radar and a band along every
-	* seam, where only its draw has the line, and the broadcast's score bar and labels, which only its
-	* draw has either.  A pane with no picture of this frame and size stays pane 0's. */
+	* pixel for pixel; moving the pixels instead read past a picture's edge and smeared it.  Every pane
+	* draws the lines and the radar's frame, so a seam needs nothing of its own.  Pane 0 keeps the framed
+	* radar and the broadcast's score bar and labels, which only its draw has.  A pane with no picture
+	* of this frame and size stays pane 0's. */
 static void joinVideoPanes(char *rows, Int width, Int height, UnsignedInt frame)
 {
-	const Int seamBand = ObserverCamera_paneSeamBand(height);
 	const Int count = TheObserverCamera.getDrawnPaneCount();
 	const Real *rays = TheObserverCamera.getPaneRays();
 	const Coord2D origin = TheObserverCamera.getPaneOrigin();
@@ -4335,13 +4335,6 @@ static void joinVideoPanes(char *rows, Int width, Int height, UnsignedInt frame)
 			if (x >= radar.lo.x && x < radar.hi.x && y >= radar.lo.y && y < radar.hi.y)
 				continue;
 			if (TheObserverCamera.isBroadcast(x, y))
-				continue;
-			const Int left = max(x - seamBand, 0);
-			const Int right = min(x + seamBand, width - 1);
-			const Int up = max(y - seamBand, 0);
-			const Int down = min(y + seamBand, height - 1);
-			if (s_videoPaneMap[y * width + left] != pane || s_videoPaneMap[y * width + right] != pane
-				|| s_videoPaneMap[up * width + x] != pane || s_videoPaneMap[down * width + x] != pane)
 				continue;
 			const Int at = (y * width + x) * 3;
 			memcpy(rows + at, s_videoHeld[pane] + at, 3);

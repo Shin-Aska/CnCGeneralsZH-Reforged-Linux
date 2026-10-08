@@ -560,17 +560,21 @@ void W3DInGameUI::draw( void )
 		noFrame.lo.x = noFrame.lo.y = noFrame.hi.x = noFrame.hi.y = 0;
 		TheObserverCamera.setRadarFrame( noFrame );
 
-		// -directorrecord's panes: the rays between them, drawn in pane 0's draw alone and under the
-		// radar; the join takes a band along every seam from pane 0, line and all
-		if( framed && !TheObserverCamera.isDrawingSecond() )
+		// -directorrecord's panes: the rays between them, under the radar, drawn in every pane's draw so
+		// each pane's half of a line's band lies over its own picture.  Kept from pane 0 alone, the band
+		// showed pane 0's ground on the far side of the seam, the black past its map in an eight-pane
+		// opening
+		if( framed )
 			drawPaneRays();
 
 		// the console's 'hidehud showmap=true': the bar is hidden, so its radar window is put in the
 		// corner by hand, where the radar's own pixel maths find it too, and painted.  Under
 		// -directorrecord it slides out of the corner to the left before panes come and back after
-		// them, and while they are up it sits in a frame of the rays' own line where they meet,
-		// pane 0's alone: the other panes' draws leave it out and the recording takes it from pane 0
-		if( CinemaDirector_showsMap() && !TheObserverCamera.isDrawingSecond() )
+		// them, and while they are up it sits in a frame of the rays' own line where they meet.  Every
+		// pane draws the frame and its halo, for the same reason as the rays; the map in it is pane 0's
+		// alone, and the recording takes the framed map from pane 0
+		const Bool secondPane = TheObserverCamera.isDrawingSecond();
+		if( CinemaDirector_showsMap() && ( framed || !secondPane ) )
 		{
 			GameWindow *radarWindow = TheWindowManager->winGetWindowFromId( NULL, TheNameKeyGenerator->nameToKey( "ControlBar.wnd:LeftHUD" ) );
 			// W3DLeftHUDDraw paints one pixel inside the window, and the radar keeps the map's shape
@@ -616,8 +620,7 @@ void W3DInGameUI::draw( void )
 			}
 
 			// two filled rectangles under the radar, square at the corners: the edge, then the gold up
-			// to the window, so the map sits on the gold with no gap.  All of it is pane 0's in the join
-			// between the panes the frame wears the lines' blue band as a halo and draws its gold in round
+			// to the window, so the map sits on the gold with no gap.  Between the panes the frame wears the lines' blue band as a halo and draws its gold in round
 			// the window as the lines grow; until the gold is whole the map sits on the edge
 			const Int halo = max( ( ObserverCamera_paneBandWidth( TheDisplay->getHeight() ) - frameGold ) / 2 - OBSERVER_PANE_LINE_EDGE, 0 );
 			if( framed )
@@ -641,17 +644,20 @@ void W3DInGameUI::draw( void )
 				fillAround( corner, frameOutside, PANE_EDGE );
 				fillAround( corner, frameGold, PANE_GOLD );
 			}
-			if( framed )
+			if( !secondPane )
 			{
-				IRegion2D taken = corner;
-				taken.lo.x -= frameOutside + halo;
-				taken.lo.y -= frameOutside + halo;
-				taken.hi.x += frameOutside + halo;
-				taken.hi.y += frameOutside + halo;
-				TheObserverCamera.setRadarFrame( taken );
+				if( framed )
+				{
+					IRegion2D taken = corner;
+					taken.lo.x -= frameOutside;
+					taken.lo.y -= frameOutside;
+					taken.hi.x += frameOutside;
+					taken.hi.y += frameOutside;
+					TheObserverCamera.setRadarFrame( taken );
+				}
+				TheControlBar->placeWindowAt( radarWindow, corner );
+				W3DLeftHUDDraw( radarWindow, NULL );
 			}
-			TheControlBar->placeWindowAt( radarWindow, corner );
-			W3DLeftHUDDraw( radarWindow, NULL );
 		}
 
 		// -directorrecord's opening plates, each pane's own, then the score bar and a split's labels over

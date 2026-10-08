@@ -572,14 +572,11 @@ TEST(a_pane_shows_its_wedge_cut_by_the_screen)
 	CHECK_EQ( ObserverCamera_panePolygon( rays, 1, 0, middle, 1280, 720, vertices ), 4 );
 }
 
-TEST(pane_lines_grow_with_the_picture_and_the_join_keeps_all_of_them)
+TEST(pane_lines_grow_with_the_picture)
 {
 	CHECK_EQ( ObserverCamera_paneLineWidth( 720 ), 6 );
 	CHECK_EQ( ObserverCamera_paneLineWidth( 1080 ), 9 );
 	CHECK_EQ( ObserverCamera_paneLineWidth( 2160 ), 18 );
-	// the gold and both edges, crossed by a row at 45 degrees: 13 * 0.707 is 9.2 at 1080
-	CHECK( ObserverCamera_paneSeamBand( 1080 ) >= 10 );
-	CHECK( ObserverCamera_paneSeamBand( 720 ) >= 8 );
 }
 
 static DirectorFightHit fightHit( Real x, Real y, UnsignedInt sides )
@@ -926,9 +923,8 @@ TEST(the_pane_lines_grow_out_then_their_band_fades_in_and_a_light_runs_along_the
 	CHECK( ObserverCamera_shimmerAt( 45 ) < 0.0f );
 	CHECK( ObserverCamera_shimmerAt( 149 ) < 0.0f );
 	CHECK_NEAR( ObserverCamera_shimmerAt( 150 ), 0.0f, 0.0001f );
-	// the band is five golds wide and the join keeps all of it from pane 0
+	// the band is five golds wide
 	CHECK_EQ( ObserverCamera_paneBandWidth( 720 ), 30 );
-	CHECK( ObserverCamera_paneSeamBand( 720 ) * 2 >= ObserverCamera_paneBandWidth( 720 ) );
 }
 
 TEST(the_army_bar_cuts_its_whole_width_among_the_sides)

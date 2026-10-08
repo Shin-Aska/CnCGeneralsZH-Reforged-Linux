@@ -1097,16 +1097,6 @@ Int ObserverCamera_paneLineWidth( Int height )
 }
 
 //-------------------------------------------------------------------------------------------------
-/** A row crosses a 45 degree line over its width times the square root of two, the widest any of
-	* the rays is cut; one pixel more for the rounding of the line's quad. */
-//-------------------------------------------------------------------------------------------------
-Int ObserverCamera_paneSeamBand( Int height )
-{
-	const Real whole = (Real)max( ObserverCamera_paneLineWidth( height ) + 2 * OBSERVER_PANE_LINE_EDGE, ObserverCamera_paneBandWidth( height ) );
-	return REAL_TO_INT_CEIL( whole * 0.5f * sqrtf( 2.0f ) ) + 1;
-}
-
-//-------------------------------------------------------------------------------------------------
 Int ObserverCamera_paneBandWidth( Int height )
 {
 	return PANE_BAND_LINES * ObserverCamera_paneLineWidth( height );

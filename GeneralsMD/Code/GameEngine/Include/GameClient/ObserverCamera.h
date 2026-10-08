@@ -273,9 +273,6 @@ Real ObserverCamera_easeFrames( UnsignedInt frame, UnsignedInt start, UnsignedIn
 enum { OBSERVER_PANE_LINE_EDGE = 2 };
 /// the gold of a line between panes, in pixels, for a picture height pixels high: 6 at 720, 9 at 1080
 Int ObserverCamera_paneLineWidth( Int height );
-/// how far either side of a seam the join keeps pane 0's pixels, which is where its line is drawn:
-/// the whole edged line's half width, measured along a row or column across a 45 degree line
-Int ObserverCamera_paneSeamBand( Int height );
 /// the width of the soft band of the brand's blue under every line between panes and round the radar
 Int ObserverCamera_paneBandWidth( Int height );
 /// how much of its length a line between panes has grown out from the meeting point at progress, the
