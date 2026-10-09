@@ -297,6 +297,10 @@ Int ObserverCamera_cardStep( const std::vector< Int > &sizes, const Int *cardWid
 	const Int *versusWidths, Int steps, Int room );
 /// the widest card a row of these blocks can have and still fit room
 Int ObserverCamera_cardWidthIn( const std::vector< Int > &sizes, Int cardGap, Int versusWidth, Int room );
+/// how many of a text's characters to keep in widest pixels, from prefixWidths, the width of its first
+/// n characters at n (0 up to the whole text): all of them when the whole text fits, else the most
+/// that fit with an ellipsis of ellipsisWidth after them, 0 when not even one does
+Int ObserverCamera_fitCount( const std::vector< Int > &prefixWidths, Int ellipsisWidth, Int widest );
 /// values cut into width pixels in proportion, the rounding handed to the largest remainders so the
 /// pieces fill width exactly; all zero when the values add up to nothing
 std::vector< Int > ObserverCamera_barShares( const std::vector< Int > &values, Int width );

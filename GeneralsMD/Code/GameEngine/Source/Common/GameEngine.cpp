@@ -692,6 +692,12 @@ static void startAutoSkirmish( Int numPlayersWanted )
 			if ((i & 1) && TheGlobalData->m_autoSkirmishAIStateOdd != 0)
 				state = TheGlobalData->m_autoSkirmishAIStateOdd;
 			slot.setState( (SlotState)state );
+			if (TheGlobalData->m_autoSkirmishSeatName[ i ].isNotEmpty())
+			{
+				UnicodeString seatName;
+				seatName.translate( TheGlobalData->m_autoSkirmishSeatName[ i ] );
+				slot.setName( seatName );
+			}
 		}
 		slot.setPlayerTemplate( sideTemplate[ i ] );
 		slot.setColor( -1 );			// -1 is "random" to populateRandomSideAndColor

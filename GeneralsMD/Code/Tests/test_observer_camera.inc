@@ -1040,6 +1040,17 @@ TEST(the_score_bar_sets_every_side_in_one_row_and_fits_eight_players)
 	CHECK( ObserverCamera_cardRow( sizes, narrow, cardGaps[ 3 ], versusWidths[ 3 ], &cardLefts, &blockLefts ) <= 900 );
 	CHECK( ObserverCamera_cardRow( sizes, narrow + 1, cardGaps[ 3 ], versusWidths[ 3 ], &cardLefts, &blockLefts ) > 900 );
 
+	// a name of eight characters ten pixels each, the ellipsis six: whole while it fits, else the most
+	// characters that leave room for the ellipsis
+	std::vector< Int > prefixWidths;
+	for( Int count = 0; count <= 8; count++ )
+		prefixWidths.push_back( 10 * count );
+	CHECK_EQ( ObserverCamera_fitCount( prefixWidths, 6, 80 ), 8 );
+	CHECK_EQ( ObserverCamera_fitCount( prefixWidths, 6, 79 ), 7 );
+	CHECK_EQ( ObserverCamera_fitCount( prefixWidths, 6, 75 ), 6 );
+	CHECK_EQ( ObserverCamera_fitCount( prefixWidths, 6, 16 ), 1 );
+	CHECK_EQ( ObserverCamera_fitCount( prefixWidths, 6, 15 ), 0 );
+
 	// teammates are taken together in the order their teams first appear
 	std::vector< Int > teams;
 	teams.push_back( 0 );

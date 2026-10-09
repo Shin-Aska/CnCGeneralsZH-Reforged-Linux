@@ -2079,6 +2079,23 @@ Int parseTeam(char *args[], int num)
 	return 1;
 }
 
+/* -seatname <slot> <name> calls one -autoskirmish seat by a name instead of its difficulty, the way a
+	 player's own name stands on his seat: a cup's bots by their entrants' names, or a long one to see
+	 the director's score bar cut it.  ASCII only; it is read before the game text is. */
+Int parseSeatName(char *args[], int num)
+{
+	if (TheWritableGlobalData && num > 2 && args[1] && args[2])
+	{
+		const Int slot = atoi(args[1]);
+		if (slot >= 0 && slot < MAX_SLOTS)
+			TheWritableGlobalData->m_autoSkirmishSeatName[slot] = args[2];
+		else
+			DEBUG_LOG(("-seatname: slot %d is outside 0..%d\n", slot, MAX_SLOTS - 1));
+		return 3;
+	}
+	return 1;
+}
+
 /* -takeover empties every -autoskirmish seat instead of filling it with an AI.
 
 	 SLOT_TAKEOVER is an occupied seat with nothing behind it: startNewGame writes playerIsHuman for
@@ -2651,6 +2668,7 @@ static CommandLineParam params[] =
 	{ "-freecam", parseFreeCamera },
 	{ "-side", parseSide },
 	{ "-team", parseTeam },
+	{ "-seatname", parseSeatName },
 	{ "-takeover", parseTakeover },
 	{ "-replay", parseReplay },
 	{ "-loadsave", parseLoadSave },

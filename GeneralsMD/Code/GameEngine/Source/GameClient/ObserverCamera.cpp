@@ -796,6 +796,17 @@ Int ObserverCamera_cardWidthIn( const std::vector< Int > &sizes, Int cardGap, In
 }
 
 //-------------------------------------------------------------------------------------------------
+Int ObserverCamera_fitCount( const std::vector< Int > &prefixWidths, Int ellipsisWidth, Int widest )
+{
+	Int count = (Int)prefixWidths.size() - 1;
+	if( prefixWidths[ count ] <= widest )
+		return count;
+	while( count > 0 && prefixWidths[ count ] + ellipsisWidth > widest )
+		count--;
+	return count;
+}
+
+//-------------------------------------------------------------------------------------------------
 std::vector< Int > ObserverCamera_barShares( const std::vector< Int > &values, Int width )
 {
 	std::vector< Int > pixels( values.size(), 0 );

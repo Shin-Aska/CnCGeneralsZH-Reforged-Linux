@@ -10523,15 +10523,54 @@ static Int broadcastPoints( Int at720 )
 }
 
 /** What the broadcast calls a player and what goes beside it.  Every AI's name is its difficulty, so
-	* a plate read "Hard AI vs Hard AI": an AI is called by its general, the difficulty beside it. */
+	* a plate read "Hard AI vs Hard AI": an AI is called by its general, the difficulty beside it.  A
+	* computer seat given a name of its own (-seatname) is called by it, as a player is. */
+static Bool broadcastByDifficulty( Player *player )
+{
+	const UnicodeString &name = player->getPlayerDisplayName();
+	return player->getPlayerType() == PLAYER_COMPUTER && ( name.compare( SlotStateName( SLOT_EASY_AI ) ) == 0
+		|| name.compare( SlotStateName( SLOT_MED_AI ) ) == 0 || name.compare( SlotStateName( SLOT_BRUTAL_AI ) ) == 0 );
+}
+
 static UnicodeString broadcastName( Player *player )
 {
-	return player->getPlayerType() == PLAYER_COMPUTER ? player->getPlayerTemplate()->getDisplayName() : player->getPlayerDisplayName();
+	return broadcastByDifficulty( player ) ? player->getPlayerTemplate()->getDisplayName() : player->getPlayerDisplayName();
 }
 
 static UnicodeString broadcastSide( Player *player )
 {
-	return player->getPlayerType() == PLAYER_COMPUTER ? player->getPlayerDisplayName() : player->getPlayerTemplate()->getDisplayName();
+	return broadcastByDifficulty( player ) ? player->getPlayerDisplayName() : player->getPlayerTemplate()->getDisplayName();
+}
+
+/// U+2026 by number: written as a character in a u"" literal, MSVC read this file in the machine's
+/// code page and the bar drew the three characters of its UTF-8 bytes
+static const WideChar BROADCAST_ELLIPSIS[] = { 0x2026, 0 };
+static const WideChar HIGH_SURROGATE_FIRST = 0xD800;
+static const WideChar HIGH_SURROGATE_LAST = 0xDBFF;
+
+/** full's text as it fits widest pixels: whole, or as many of its first characters as fit with
+	* ellipsis, a string holding the ellipsis in full's font, after them.  Spaces before the ellipsis
+	* go, and a character outside the 16 bit range is never cut in half. */
+static UnicodeString broadcastFitted( DisplayString *full, DisplayString *ellipsis, Int widest )
+{
+	UnicodeString text = full->getText();
+	if( full->getWidth() <= widest )
+		return text;
+	std::vector< Int > prefixWidths( text.getLength() + 1, 0 );
+	for( Int count = 1; count <= text.getLength(); count++ )
+		prefixWidths[ count ] = full->getWidth( count );
+	const Int kept = ObserverCamera_fitCount( prefixWidths, ellipsis->getWidth(), widest );
+	while( text.getLength() > kept )
+		text.removeLastChar();
+	auto dangles = [ &text ]() -> Bool
+	{
+		const WideChar last = text.getCharAt( text.getLength() - 1 );
+		return last == u' ' || ( last >= HIGH_SURROGATE_FIRST && last <= HIGH_SURROGATE_LAST );
+	};
+	while( text.getLength() > 0 && dangles() )
+		text.removeLastChar();
+	text.concat( BROADCAST_ELLIPSIS );
+	return text;
 }
 
 /** How many of players are on team. */
@@ -10721,6 +10760,11 @@ static const Int BROADCAST_CARD_STEPS = 4;
 static const Int BROADCAST_CARD_NAME_POINTS[ BROADCAST_CARD_STEPS ] = { 11, 10, 9, 8 };
 static const Int BROADCAST_CARD_DETAIL_POINTS[ BROADCAST_CARD_STEPS ] = { 9, 8, 8, 7 };
 static const Real BROADCAST_CARD_PAD[ BROADCAST_CARD_STEPS ] = { 6.0f, 5.0f, 4.0f, 3.0f };
+/// the widest a player's own name may be on a card, in 720 line pixels at the largest size and
+/// shrinking with the name's points: a longer one ends in an ellipsis, so one long name neither widens
+/// every card nor runs into the general beside it.  A computer player's name is his general and is
+/// never cut: "GLA Demolition General" is 171 at the largest size
+static const Real BROADCAST_CARD_NAME_WIDEST = 140.0f;
 /// the house colour along a card's top
 static const Real BROADCAST_CARD_STRIP = 2.0f;
 /// the line through a defeated player's name, in 720 line pixels, with a pixel of the ground each side
@@ -10809,6 +10853,8 @@ void InGameUI::layOutBroadcast( const std::vector< SpectatorStats > &players, co
 			broadcastPoints( BROADCAST_HEAD_POINTS ), FALSE );
 		l.versusText = broadcastText( size + "versus", UnicodeString( u"vs" ), BROADCAST_WORDS, detailPoints, FALSE );
 		DisplayString *widest = broadcastText( size + "widest", broadcastNumber( "$", BROADCAST_WIDEST ), BROADCAST_NUMBERS, detailPoints, TRUE );
+		DisplayString *ellipsis = broadcastText( size + "ellipsis", UnicodeString( BROADCAST_ELLIPSIS ), BROADCAST_WORDS, namePoints, TRUE );
+		const Int nameWidest = broadcastPixels( BROADCAST_CARD_NAME_WIDEST * BROADCAST_CARD_NAME_POINTS[ step ] / BROADCAST_CARD_NAME_POINTS[ 0 ] );
 		Int width = 0, height = 0, labelWidth = 0;
 		l.armyHead->getSize( &labelWidth, &height );
 		widest->getSize( &widestWidth, &height );
@@ -10820,7 +10866,10 @@ void InGameUI::layOutBroadcast( const std::vector< SpectatorStats > &players, co
 			BroadcastRow &row = l.rows[ index ];
 			row.stats = &stats;
 			row.color = clientPlayerColor( stats.player );
-			row.name = broadcastText( "name" + seat, broadcastName( stats.player ), BROADCAST_WORDS, namePoints, TRUE );
+			UnicodeString name = broadcastName( stats.player );
+			if( !broadcastByDifficulty( stats.player ) )
+				name = broadcastFitted( broadcastText( "fullname" + seat, name, BROADCAST_WORDS, namePoints, TRUE ), ellipsis, nameWidest );
+			row.name = broadcastText( "name" + seat, name, BROADCAST_WORDS, namePoints, TRUE );
 			row.side = broadcastText( "side" + seat, broadcastSide( stats.player ), BROADCAST_WORDS, detailPoints, FALSE );
 			row.cash = broadcastText( "cash" + seat, broadcastNumber( "$", stats.cash ), BROADCAST_NUMBERS, detailPoints, TRUE );
 			row.army = broadcastText( "army" + seat, broadcastNumber( "$", stats.army ), BROADCAST_NUMBERS, detailPoints, TRUE );
