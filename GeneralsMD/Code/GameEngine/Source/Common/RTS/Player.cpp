@@ -3154,6 +3154,14 @@ Bool SuperweaponMissileSilencedInMatch( SpecialPowerType specialPowerType )
                                      TheGameLogic->getSuperweaponRestriction() );
 }
 
+Bool SuperweaponSiloSilencedInMatch( const Object *structure )
+{
+  return ( structure->hasSpecialPower( SPECIAL_NEUTRON_MISSILE )
+           || structure->hasSpecialPower( NUKE_SPECIAL_NEUTRON_MISSILE )
+           || structure->hasSpecialPower( SUPW_SPECIAL_NEUTRON_MISSILE ) )
+         && SuperweaponMissileSilencedInMatch( SPECIAL_NEUTRON_MISSILE );
+}
+
 Bool ProRulesRefuseSpecialPower( const Player *player, SpecialPowerType specialPowerType )
 {
   return SuperweaponMissileSilencedInMatch( specialPowerType )

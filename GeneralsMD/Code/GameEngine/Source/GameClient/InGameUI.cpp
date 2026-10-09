@@ -4748,7 +4748,8 @@ void InGameUI::feedSpecialPower( const Object *source, const AsciiString &powerN
 //-------------------------------------------------------------------------------------------------
 void InGameUI::feedStructure( Object *structure, Bool finished )
 {
-	const Bool superweapon = structure->isKindOf( KINDOF_FS_SUPERWEAPON );
+	// a silo whose missile can never fire is not news: no feed line and no banner for every player
+	const Bool superweapon = structure->isKindOf( KINDOF_FS_SUPERWEAPON ) && !SuperweaponSiloSilencedInMatch( structure );
 	if( !superweapon && !structure->isKindOf( KINDOF_FS_ADVANCED_TECH ) )
 		return;
 

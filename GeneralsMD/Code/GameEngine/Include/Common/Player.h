@@ -205,6 +205,8 @@ Bool ProRulesRefuseSpecialPower( const Player *player, SpecialPowerType specialP
 // no fire button, no shortcut.  Both read game setup only, the same on every machine.
 Bool SuperweaponMissileSilenced( SpecialPowerType specialPowerType, Bool proRules, Int superweaponRestriction );
 Bool SuperweaponMissileSilencedInMatch( SpecialPowerType specialPowerType );
+// the silo of a missile the one above silences: no banner, no feed line, announced as a building
+Bool SuperweaponSiloSilencedInMatch( const Object *structure );
 
 // Rule 9: no foundation this close to an enemy building, edge to edge.  The same 300 world units
 // the derrick cluster rules measure with, which is also more than a Patriot or a Stinger Site
