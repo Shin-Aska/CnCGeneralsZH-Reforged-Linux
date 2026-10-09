@@ -7784,12 +7784,12 @@ void InGameUI::snapPlacementToGrid( Coord3D *world, const ThingTemplate *what, R
 //-------------------------------------------------------------------------------------------------
 /** Ctrl held while placing turns GridBuildPlacement the other way for as long as it is down: off,
 	* it snaps; on, it places freely.  The ghost, the lines and the order the click sends all ask
-	* this, so they cannot disagree.  Classic keeps the option as the only switch, as it does with
-	* the shift and alt rows. */
+	* this, so they cannot disagree.  Classic too: the snap is not one of 1.04's rules, it is an
+	* option on top of them, and the key that turns it is no different there. */
 //-------------------------------------------------------------------------------------------------
 Bool InGameUI::gridPlacementOn( void ) const
 {
-	const Bool flip = TheKeyboard && !TheGlobalData->isClassicUI() && TheKeyboard->isCtrl();
+	const Bool flip = TheKeyboard && TheKeyboard->isCtrl();
 	return ( TheGlobalData->m_gridBuildPlacement != FALSE ) != flip;
 }
 
