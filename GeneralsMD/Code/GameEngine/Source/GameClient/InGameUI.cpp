@@ -10483,11 +10483,12 @@ static const Int BROADCAST_NAME_POINTS = 11;
 static const Int BROADCAST_COMPACT_POINTS = 8;
 static const Int BROADCAST_SIDE_POINTS = 9;
 static const Int BROADCAST_HEAD_POINTS = 7;
-static const Int BROADCAST_CLOCK_POINTS = 16;
+/// the clock was 16 and the armies' bar 6 rows; both gave up height when the bar was thinned
+static const Int BROADCAST_CLOCK_POINTS = 13;
 static const Real BROADCAST_PAD = 8.0f;
 static const Real BROADCAST_GAP = 10.0f;
 static const Real BROADCAST_RULE = 2.0f;
-static const Real BROADCAST_TUG = 6.0f;
+static const Real BROADCAST_TUG = 4.0f;
 static const Int THOUSANDS = 3;
 static const Int BROADCAST_WIDEST = 888888;	///< the number the cash and army columns are measured on
 
@@ -10721,7 +10722,7 @@ static const Int BROADCAST_CARD_NAME_POINTS[ BROADCAST_CARD_STEPS ] = { 11, 10, 
 static const Int BROADCAST_CARD_DETAIL_POINTS[ BROADCAST_CARD_STEPS ] = { 9, 8, 8, 7 };
 static const Real BROADCAST_CARD_PAD[ BROADCAST_CARD_STEPS ] = { 6.0f, 5.0f, 4.0f, 3.0f };
 /// the house colour along a card's top
-static const Real BROADCAST_CARD_STRIP = 3.0f;
+static const Real BROADCAST_CARD_STRIP = 2.0f;
 /// the line through a defeated player's name, in 720 line pixels, with a pixel of the ground each side
 static const Real BROADCAST_STRIKE = 2.0f;
 /// a power's flag under a card: its icon this many 720 rows high, with this much of the panel round it
@@ -10824,11 +10825,15 @@ void InGameUI::layOutBroadcast( const std::vector< SpectatorStats > &players, co
 			row.cash = broadcastText( "cash" + seat, broadcastNumber( "$", stats.cash ), BROADCAST_NUMBERS, detailPoints, TRUE );
 			row.army = broadcastText( "army" + seat, broadcastNumber( "$", stats.army ), BROADCAST_NUMBERS, detailPoints, TRUE );
 			row.name->getSize( &width, &height );
-			content = max( content, l.compact ? width + cardPad + widestWidth : width );
 			if( l.compact )
+			{
+				content = max( content, width + cardPad + widestWidth );
 				continue;
-			row.side->getSize( &width, &height );
-			content = max( content, width );
+			}
+			// the general or difficulty stands at the right end of the name's line
+			Int sideWidth = 0;
+			row.side->getSize( &sideWidth, &height );
+			content = max( content, width + cardPad + sideWidth );
 		}
 		for( Int block = 0; block < blocks; block++ )
 		{
@@ -10922,7 +10927,9 @@ void InGameUI::layOutBroadcast( const std::vector< SpectatorStats > &players, co
 	l.rowLeft = l.left + ( l.barWidth - l.rowWidth ) / 2;
 	const Int headerTop = clockBoxHeight + l.halfPad;
 	l.strip = broadcastPixels( BROADCAST_CARD_STRIP );
-	l.textHeight = l.compact ? max( l.nameHeight, l.numberHeight ) : l.nameHeight + l.sideHeight + l.numberHeight;
+	// a card is two lines, the name with the general or difficulty at its right, then the money; the
+	// general on a line of its own made the bar 100 rows of 720 tall for a 1v1
+	l.textHeight = l.compact ? max( l.nameHeight, l.numberHeight ) : max( l.nameHeight, l.sideHeight ) + l.numberHeight;
 	l.cardHeight = l.strip + l.halfPad + l.textHeight + l.halfPad;
 	// a row's team headers take a line over it only when the row has a team
 	std::vector< Int > lineHeaders( l.lines, 0 ), lineTops( l.lines, 0 );
@@ -10935,7 +10942,7 @@ void InGameUI::layOutBroadcast( const std::vector< SpectatorStats > &players, co
 		lineTops[ line ] = l.tugTop;
 		l.tugTop += lineHeaders[ line ] + l.cardHeight + l.halfPad;
 	}
-	l.height = l.tugTop + tug + pad / 2;
+	l.height = l.tugTop + tug + l.halfPad;
 
 	// and every block and card where it stands on the screen
 	l.blockLefts.assign( blocks, 0 );
@@ -11234,9 +11241,12 @@ void InGameUI::drawDirectorBroadcast( void )
 			row.name->draw( textLeft, nameTop, broadcastFade( ObserverCamera_readableColor( row.color ), words * ( 1.0f - 0.4f * struck ) ), ground );
 			if( !l.compact )
 			{
-				top += l.nameHeight;
-				row.side->draw( textLeft, top, broadcastFade( BROADCAST_MUTED, words ), ground );
-				top += l.sideHeight;
+				// the general or difficulty at the right of the name's line, on the name's foot
+				const Int lineHeight = max( l.nameHeight, l.sideHeight );
+				Int sideWidth = 0, sideTall = 0;
+				row.side->getSize( &sideWidth, &sideTall );
+				row.side->draw( numberEnd - sideWidth, top + lineHeight - sideTall, broadcastFade( BROADCAST_MUTED, words ), ground );
+				top += lineHeight;
 			}
 			const Int moneyBottom = l.compact ? top + l.textHeight : top + l.numberHeight;
 			row.army->getSize( &numberWidth, &numberTall );
