@@ -1784,7 +1784,8 @@ protected:
 	UnsignedInt									m_hudRealClockBaseMs;		///< wall clock the two elapsed-time readouts were aligned at
 	UnsignedInt									m_hudLastDrawMs;				///< wall clock of the previous overlay draw, so a pause can be taken back out of it
 	Int													m_hudOverlayBottom;			///< bottom of everything drawn in the top right corner, so the superweapon timers start under it
-	DisplayString *							m_wireframeNotice;			///< the draft notice drawWireframeNotice bounces
+	enum { WIREFRAME_LINES = 2 };
+	DisplayString *							m_wireframeNotice[ WIREFRAME_LINES ];	///< the draft notice drawWireframeNotice bounces, a string a line
 	Coord2D											m_wireframePos;					///< its top left corner on screen
 	Coord2D											m_wireframeDir;					///< which way it is going, each axis +1 or -1
 	UnsignedInt									m_wireframeLastMs;			///< wall clock of its previous draw, 0 before the first

@@ -15642,7 +15642,11 @@ GUI:PeaceTimeHudLabel
 END
 
 GUI:WireframeNotice
-"Arayüz taslak, güncellenecek."
+"Reforged arayüz: ön sürüm"
+END
+
+GUI:WireframeNotice2
+"Son tasarım yolda"
 END
 
 GUI:LobbyTabChat

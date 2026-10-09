@@ -1233,7 +1233,7 @@ InGameUI::InGameUI()
 	m_hudRealClockBaseMs = 0;
 	m_hudLastDrawMs = 0;
 	m_hudOverlayBottom = 0;
-	m_wireframeNotice = NULL;
+	m_wireframeNotice[ 0 ] = m_wireframeNotice[ 1 ] = NULL;
 	m_wireframePos.x = m_wireframePos.y = 0.0f;
 	m_wireframeDir.x = m_wireframeDir.y = 1.0f;
 	m_wireframeLastMs = 0;
@@ -11633,18 +11633,30 @@ void InGameUI::drawWireframeNotice( void )
 	}
 	box.hi.y = min( box.hi.y, (Int)TheDisplay->getHeight() );
 
-	if( m_wireframeNotice == NULL )
+	// two strings, one a line: the text renderer has no concept of a newline
+	static const char *const LINES[ WIREFRAME_LINES ] = { "GUI:WireframeNotice", "GUI:WireframeNotice2" };
+	if( m_wireframeNotice[ 0 ] == NULL )
 	{
-		m_wireframeNotice = TheDisplayStringManager->newDisplayString();
-		m_wireframeNotice->setFont( TheFontLibrary->getFont( m_superweaponNormalFont,
-									TheGlobalLanguageData->adjustFontSize( 16 ), TRUE ) );
-		m_wireframeNotice->setText( TheGameText->fetch( "GUI:WireframeNotice" ) );
+		for( Int i = 0; i < WIREFRAME_LINES; i++ )
+		{
+			m_wireframeNotice[ i ] = TheDisplayStringManager->newDisplayString();
+			m_wireframeNotice[ i ]->setFont( TheFontLibrary->getFont( m_superweaponNormalFont,
+										TheGlobalLanguageData->adjustFontSize( 11 ), TRUE ) );
+			m_wireframeNotice[ i ]->setText( TheGameText->fetch( LINES[ i ] ) );
+		}
 		m_wireframePos.x = (Real)box.lo.x;
 		m_wireframePos.y = (Real)box.lo.y;
 	}
 
+	// the block is as wide as its wider line and as tall as both
+	Int lineWidth[ WIREFRAME_LINES ], lineHeight[ WIREFRAME_LINES ];
 	Int width = 0, height = 0;
-	m_wireframeNotice->getSize( &width, &height );
+	for( Int i = 0; i < WIREFRAME_LINES; i++ )
+	{
+		m_wireframeNotice[ i ]->getSize( &lineWidth[ i ], &lineHeight[ i ] );
+		width = max( width, lineWidth[ i ] );
+		height += lineHeight[ i ];
+	}
 
 	// a tenth of the screen's height a second; a frame after a stall or a pause moves at most 100 ms
 	// worth, rather than jumping the text across the bar
@@ -11662,8 +11674,13 @@ void InGameUI::drawWireframeNotice( void )
 	if( m_wireframePos.y >= bottom )	{ m_wireframePos.y = bottom;	m_wireframeDir.y = -1.0f; }
 	if( m_wireframePos.y <= box.lo.y )	{ m_wireframePos.y = (Real)box.lo.y;	m_wireframeDir.y = 1.0f; }
 
-	m_wireframeNotice->draw( REAL_TO_INT( m_wireframePos.x ), REAL_TO_INT( m_wireframePos.y ),
-		GameMakeColor( 255, 220, 120, 170 ), GameMakeColor( 0, 0, 0, 170 ) );
+	Int y = REAL_TO_INT( m_wireframePos.y );
+	for( Int i = 0; i < WIREFRAME_LINES; i++ )
+	{
+		m_wireframeNotice[ i ]->draw( REAL_TO_INT( m_wireframePos.x ) + ( width - lineWidth[ i ] ) / 2, y,
+			GameMakeColor( 255, 220, 120, 170 ), GameMakeColor( 0, 0, 0, 170 ) );
+		y += lineHeight[ i ];
+	}
 }
 
 //-------------------------------------------------------------------------------------------------

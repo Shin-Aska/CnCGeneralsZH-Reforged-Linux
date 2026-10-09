@@ -1315,7 +1315,11 @@ GUI:PeaceTimeHudLabel
 END
 
 GUI:WireframeNotice
-"UI is wireframe, will be updated."
+"Reforged HUD: early preview"
+END
+
+GUI:WireframeNotice2
+"Final artwork is on the way"
 END
 
 GUI:LobbyTabChat
