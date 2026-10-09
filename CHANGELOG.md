@@ -694,7 +694,7 @@ A third pass went through the generals' powers, promotions and unit abilities.
 - One picture is one order, cut to match the command bar's artwork.
 - The strip is half the size it was: it says the same thing and takes back the screen it was eating.
 - Whatever is actually being built counts down inside its own picture. The ones queued behind it stay blank, because their wait depends on everything in front of them.
-- A unit finishes walking out of its factory before it takes an order.
+- A unit still rolling out of its factory takes your orders. Click a tank the moment it appears and send it anywhere, or queue a route with shift: it drives out of the door first and then goes, instead of ignoring the click until it was clear. The order replaces the rally point. A dozer told to build the instant it leaves the Command Center used to drive straight from the door to the site, through the Command Center's walls; it comes out and goes round now.
 - An upgrade stays available if any selected building can still buy it.
 - One right click cancels one thing, counted the moment you press.
 - A build button takes a batch: Shift queues five, Ctrl twenty, both together as many as the queue will hold and the bank will pay for. Right-click with the same keys and the same number comes back out. Ten tanks used to be ten clicks. How many are still coming is written in the corner of the button, half again bigger than the price and the countdown beside it and on a plate you can actually read it against: at the size the other markings wear, the one number you check in the middle of a fight was a smudge you had to look for.

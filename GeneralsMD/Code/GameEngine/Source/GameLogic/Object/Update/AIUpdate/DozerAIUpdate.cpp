@@ -1804,8 +1804,10 @@ UpdateSleepTime DozerAIUpdate::update( void )
 	else
 		getObject()->setWeaponSetFlag(WEAPONSET_MINE_CLEARING_DETAIL);//maybe go clear some mines, if I feel like it
 
-	// run our own state machine
-	m_dozerMachine->updateStateMachine();
+	// run our own state machine, once we are out of the structure that built us: a job taken up on the
+	// exit path walked the builder straight from the door to the site, through the building's walls
+	if( !isExitingProducer() )
+		m_dozerMachine->updateStateMachine();
 
 	return UPDATE_SLEEP_NONE;
 		

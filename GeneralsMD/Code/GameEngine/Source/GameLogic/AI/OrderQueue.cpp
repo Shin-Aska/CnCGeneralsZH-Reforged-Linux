@@ -225,6 +225,12 @@ static Bool OrderQueue_isWorking( const Object *obj, const AIUpdateInterface *ai
 	if( ai->isIdle() )
 		return FALSE;
 
+	// a unit still driving out of the structure that built it holds the player's orders until it is
+	// out (AIUpdateInterface::isAllowedToRespondToAiCommands); a queued one handed over now would be
+	// held with them and replace the order in front of it
+	if( ai->isExitingProducer() )
+		return TRUE;
+
 	if( ai->getCurrentStateID() == AI_ATTACK_MOVE_TO )
 		return TRUE;
 
