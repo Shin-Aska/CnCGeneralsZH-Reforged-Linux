@@ -10760,11 +10760,16 @@ static const Int BROADCAST_CARD_STEPS = 4;
 static const Int BROADCAST_CARD_NAME_POINTS[ BROADCAST_CARD_STEPS ] = { 11, 10, 9, 8 };
 static const Int BROADCAST_CARD_DETAIL_POINTS[ BROADCAST_CARD_STEPS ] = { 9, 8, 8, 7 };
 static const Real BROADCAST_CARD_PAD[ BROADCAST_CARD_STEPS ] = { 6.0f, 5.0f, 4.0f, 3.0f };
-/// the widest a player's own name may be on a card, in 720 line pixels at the largest size and
-/// shrinking with the name's points: a longer one ends in an ellipsis, so one long name neither widens
-/// every card nor runs into the general beside it.  A computer player's name is his general and is
-/// never cut: "GLA Demolition General" is 171 at the largest size
+/// the widest a player's own name may be where the broadcast writes it, in 720 line pixels for a name of
+/// BROADCAST_NAME_POINTS and in proportion at other sizes: a longer one ends in an ellipsis, so one long
+/// name neither widens every card nor runs into the general beside it, past a pane's circle or across
+/// the picture.  A computer player's name is his general and is never cut: "GLA Demolition General" is
+/// 171 at 11 points.  A split's plate holds two names and a "vs" in a circle 265 across; the opening's
+/// holds one; a banner has the picture's middle
 static const Real BROADCAST_CARD_NAME_WIDEST = 140.0f;
+static const Real BROADCAST_PLATE_NAME_WIDEST = 110.0f;
+static const Real BROADCAST_INTRO_NAME_WIDEST = 120.0f;
+static const Real BROADCAST_BANNER_NAME_WIDEST = 210.0f;
 /// the house colour along a card's top
 static const Real BROADCAST_CARD_STRIP = 2.0f;
 /// the line through a defeated player's name, in 720 line pixels, with a pixel of the ground each side
@@ -10772,6 +10777,18 @@ static const Real BROADCAST_STRIKE = 2.0f;
 /// a power's flag under a card: its icon this many 720 rows high, with this much of the panel round it
 static const Real BROADCAST_FLAG_ICON = 30.0f;
 static const Real BROADCAST_FLAG_INSET = 3.0f;
+
+//-------------------------------------------------------------------------------------------------
+DisplayString *InGameUI::broadcastNameText( const std::string &key, Player *player, Int points, Real widest )
+{
+	const Int screenPoints = broadcastPoints( points );
+	UnicodeString name = broadcastName( player );
+	if( !broadcastByDifficulty( player ) )
+		name = broadcastFitted( broadcastText( "full" + key, name, BROADCAST_WORDS, screenPoints, TRUE ),
+			broadcastText( "ellipsis" + std::to_string( screenPoints ), UnicodeString( BROADCAST_ELLIPSIS ), BROADCAST_WORDS, screenPoints, TRUE ),
+			broadcastPixels( widest * points / BROADCAST_NAME_POINTS ) );
+	return broadcastText( key, name, BROADCAST_WORDS, screenPoints, TRUE );
+}
 
 /// the score bar laid out for one set of players: their cards' strings, every block's and card's place on
 /// the screen and the bar's measures.  While a defeated player's card closes the bar is drawn between
@@ -10847,14 +10864,11 @@ void InGameUI::layOutBroadcast( const std::vector< SpectatorStats > &players, co
 	{
 		const std::string size = "card" + std::to_string( step ) + ":";
 		const Int cardPad = broadcastPixels( BROADCAST_CARD_PAD[ step ] );
-		const Int namePoints = broadcastPoints( BROADCAST_CARD_NAME_POINTS[ step ] );
 		const Int detailPoints = broadcastPoints( BROADCAST_CARD_DETAIL_POINTS[ step ] );
 		l.armyHead = broadcastText( size + "armyhead", TheGameText->fetch( "GUI:HudStatArmy" ), BROADCAST_WORDS,
 			broadcastPoints( BROADCAST_HEAD_POINTS ), FALSE );
 		l.versusText = broadcastText( size + "versus", UnicodeString( u"vs" ), BROADCAST_WORDS, detailPoints, FALSE );
 		DisplayString *widest = broadcastText( size + "widest", broadcastNumber( "$", BROADCAST_WIDEST ), BROADCAST_NUMBERS, detailPoints, TRUE );
-		DisplayString *ellipsis = broadcastText( size + "ellipsis", UnicodeString( BROADCAST_ELLIPSIS ), BROADCAST_WORDS, namePoints, TRUE );
-		const Int nameWidest = broadcastPixels( BROADCAST_CARD_NAME_WIDEST * BROADCAST_CARD_NAME_POINTS[ step ] / BROADCAST_CARD_NAME_POINTS[ 0 ] );
 		Int width = 0, height = 0, labelWidth = 0;
 		l.armyHead->getSize( &labelWidth, &height );
 		widest->getSize( &widestWidth, &height );
@@ -10866,10 +10880,7 @@ void InGameUI::layOutBroadcast( const std::vector< SpectatorStats > &players, co
 			BroadcastRow &row = l.rows[ index ];
 			row.stats = &stats;
 			row.color = clientPlayerColor( stats.player );
-			UnicodeString name = broadcastName( stats.player );
-			if( !broadcastByDifficulty( stats.player ) )
-				name = broadcastFitted( broadcastText( "fullname" + seat, name, BROADCAST_WORDS, namePoints, TRUE ), ellipsis, nameWidest );
-			row.name = broadcastText( "name" + seat, name, BROADCAST_WORDS, namePoints, TRUE );
+			row.name = broadcastNameText( "name" + seat, stats.player, BROADCAST_CARD_NAME_POINTS[ step ], BROADCAST_CARD_NAME_WIDEST );
 			row.side = broadcastText( "side" + seat, broadcastSide( stats.player ), BROADCAST_WORDS, detailPoints, FALSE );
 			row.cash = broadcastText( "cash" + seat, broadcastNumber( "$", stats.cash ), BROADCAST_NUMBERS, detailPoints, TRUE );
 			row.army = broadcastText( "army" + seat, broadcastNumber( "$", stats.army ), BROADCAST_NUMBERS, detailPoints, TRUE );
@@ -11400,8 +11411,8 @@ void InGameUI::drawDirectorBroadcast( void )
 				}
 				const Bool team = from.teamNames[ block ] != NULL;
 				plate.pieces.push_back( team ? broadcastText( "plateteam" + std::to_string( block ), broadcastTeamName( named, from.players[ index ].team ),
-					BROADCAST_WORDS, broadcastPoints( BROADCAST_NAME_POINTS ), TRUE ) : broadcastText( "name" + std::to_string( player->getPlayerIndex() ),
-					broadcastName( player ), BROADCAST_WORDS, broadcastPoints( BROADCAST_NAME_POINTS ), TRUE ) );
+					BROADCAST_WORDS, broadcastPoints( BROADCAST_NAME_POINTS ), TRUE ) : broadcastNameText( "name" + std::to_string( player->getPlayerIndex() ),
+					player, BROADCAST_NAME_POINTS, BROADCAST_PLATE_NAME_WIDEST ) );
 				plate.colors.push_back( team ? BROADCAST_INK : ObserverCamera_readableColor( from.rows[ index ].color ) );
 				if( team )
 					break;
@@ -11433,7 +11444,7 @@ void InGameUI::drawDirectorBroadcast( void )
 	auto bannerLines = [ & ]( Player *player, BroadcastPlate *title, BroadcastPlate *under )
 	{
 		const std::string seat = std::to_string( player->getPlayerIndex() );
-		title->pieces.push_back( broadcastText( "bannername" + seat, broadcastName( player ), BROADCAST_WORDS, broadcastPoints( BROADCAST_BANNER_POINTS ), TRUE ) );
+		title->pieces.push_back( broadcastNameText( "bannername" + seat, player, BROADCAST_BANNER_POINTS, BROADCAST_BANNER_NAME_WIDEST ) );
 		title->colors.push_back( ObserverCamera_readableColor( clientPlayerColor( player ) ) );
 		under->pieces.push_back( broadcastText( "bannerside" + seat, broadcastSide( player ), BROADCAST_WORDS, broadcastPoints( BROADCAST_SIDE_POINTS ), FALSE ) );
 		under->colors.push_back( BROADCAST_MUTED );
@@ -11475,8 +11486,8 @@ void InGameUI::drawDirectorBroadcast( void )
 			for( size_t index = 0; index < winners.size(); index++ )
 			{
 				Player *player = winners[ index ]->player;
-				under.pieces.push_back( broadcastText( "bannerwinner" + std::to_string( player->getPlayerIndex() ), broadcastName( player ),
-					BROADCAST_WORDS, broadcastPoints( BROADCAST_SIDE_POINTS ), TRUE ) );
+				under.pieces.push_back( broadcastNameText( "bannerwinner" + std::to_string( player->getPlayerIndex() ), player,
+					BROADCAST_SIDE_POINTS, BROADCAST_BANNER_NAME_WIDEST ) );
 				under.colors.push_back( ObserverCamera_readableColor( clientPlayerColor( player ) ) );
 			}
 		}
@@ -11526,14 +11537,13 @@ void InGameUI::drawDirectorIntroPlate( void )
 	for( Int step = 0; step < sizeCount; step++ )
 	{
 		const std::string size = std::to_string( step ) + ":";
-		const Int namePoints = broadcastPoints( nameSizes[ step ] );
 		const Int underPoints = broadcastPoints( underSizes[ step ] );
 		name = BroadcastPlate();
 		under = BroadcastPlate();
-		name.pieces.push_back( broadcastText( "name" + size + seat, broadcastName( player ), BROADCAST_WORDS, namePoints, TRUE ) );
+		name.pieces.push_back( broadcastNameText( "name" + size + seat, player, nameSizes[ step ], BROADCAST_INTRO_NAME_WIDEST ) );
 		name.colors.push_back( ObserverCamera_readableColor( clientPlayerColor( player ) ) );
-		// an AI is called by its side already
-		if( player->getPlayerType() != PLAYER_COMPUTER )
+		// an AI called by its general has it on top already; one with a name of its own gets it here
+		if( !broadcastByDifficulty( player ) )
 		{
 			under.pieces.push_back( broadcastText( "side" + size + seat, broadcastSide( player ), BROADCAST_WORDS, underPoints, FALSE ) );
 			under.colors.push_back( BROADCAST_MUTED );

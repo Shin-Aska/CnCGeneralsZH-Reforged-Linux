@@ -1759,6 +1759,9 @@ protected:
 	/// the broadcast's string for what key names, in font at points, holding text: one string per
 	/// thing written, so a text is laid out again only when it changes
 	DisplayString *broadcastText( const std::string &key, const UnicodeString &text, const char *font, Int points, Bool bold );
+	/// broadcastText of what the broadcast calls player, at points, his own name cut with an ellipsis
+	/// past widest (both for a 720 line picture)
+	DisplayString *broadcastNameText( const std::string &key, Player *player, Int points, Real widest );
 	std::map< std::string, DisplayString * > m_broadcastTexts;
 	/// the score bar laid out for players, under the clock's tab, team letters taken from named
 	void layOutBroadcast( const std::vector< SpectatorStats > &players, const std::vector< SpectatorStats > &named,
