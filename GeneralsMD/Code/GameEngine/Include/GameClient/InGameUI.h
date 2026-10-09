@@ -689,6 +689,8 @@ public:  // ********************************************************************
 		* build grid, so that structures put down by eye line up with each other and with the cells
 		* the pathfinder actually reasons about. */
 	virtual void snapPlacementToGrid( Coord3D *world, const ThingTemplate *what, Real angle ) const;
+	/// is that snap on right now: the option, turned the other way while ctrl is held (not in Classic)
+	Bool gridPlacementOn( void ) const;
 
 	/** Where the pathfinder's cell boundaries actually are.  It files a world position under
 		* floor( (v + 0.5) / PATHFIND_CELL_SIZE ) (see Pathfinder::internal_classifyObjectFootprint),

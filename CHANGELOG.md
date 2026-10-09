@@ -32,6 +32,7 @@ found and fixed â€” EA's own, not port damage.**
 - Point at the attack, hold position or move key and a card says what it does, in English or Turkish. Those three are painted onto the grid rather than given to a unit, so the game had no card for them and showed nothing. The card stands on top of the command bar like every other button's.
 - HUD Size grows the console from its middle, and on a narrow screen it stops at the size that still fits.
 - The grid under a building you are placing is fainter and its lines thinner, and the red squares where nothing can stand are lighter, so the ground under them shows through. Untick grid placement on the Controls page and the lines go altogether.
+- Hold Ctrl while placing a building and grid placement flips for as long as the key is down. With the box unticked the building snaps to the grid and the lines come up, so one flush row is a held key away; with it ticked you get a free hand for the odd building that has to sit between two squares. Classic places by its own rules and ignores Ctrl here.
 - Your general's promotion screen opens in the middle of the screen, in the Classic interface as well, instead of hanging from the top edge. The battlefield dims behind it, and a click anywhere off the screen closes it without selecting or ordering anything underneath.
 
 ## Groups attack-move at their own speed
@@ -1257,7 +1258,7 @@ The whole HUD is on the hardware. Four colours carry it, and they mean the same 
 - Taking over another base no longer squeezes the picture into the top four fifths of the screen.
 - A match opens with the camera 300 over the ground, close enough to read your base, in Classic and Reforged alike. Start Zoomed Out on Options > Controls opens it as far out as the wheel goes instead; it starts unticked.
 - Hold Ctrl and roll the wheel to turn a building before placing it.
-- Buildings snap to the pathfinder's own grid (`GridBuildPlacement = No` for the old way).
+- Buildings can snap to the grid the game itself plans movement on. Tick grid placement on the Controls page; it starts unticked.
 - The grid under a structure is drawn, with blocked squares crossed out.
 - Snapping now uses the true cell offset and the building's concrete apron.
 - A building faces the way you drag it, read at the moment you release.

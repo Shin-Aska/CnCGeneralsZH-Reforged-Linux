@@ -970,7 +970,7 @@ void W3DInGameUI::drawBuildGrid( void )
 		return;
 	// the grid you see is the grid you snap to: with the snap off the lines would mean nothing, but
 	// the cells nothing can stand on still do
-	const Bool drawLines = TheGlobalData->m_gridBuildPlacement;
+	const Bool drawLines = gridPlacementOn();
 	if( m_placeIcon == NULL || m_placeIcon[ 0 ] == NULL )
 		return;
 	if( TheTerrainLogic == NULL || TheAI == NULL )

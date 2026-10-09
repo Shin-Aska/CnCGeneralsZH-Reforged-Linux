@@ -7770,7 +7770,7 @@ static void placementHalfExtents( const ThingTemplate *what, Real angle, Real *h
 
 void InGameUI::snapPlacementToGrid( Coord3D *world, const ThingTemplate *what, Real angle ) const
 {
-	if( world == NULL || what == NULL || TheGlobalData->m_gridBuildPlacement == FALSE )
+	if( world == NULL || what == NULL || gridPlacementOn() == FALSE )
 		return;
 
 	Real halfX, halfY;
@@ -7780,6 +7780,18 @@ void InGameUI::snapPlacementToGrid( Coord3D *world, const ThingTemplate *what, R
 	world->y = snapPlacementAxis( world->y, halfY );
 
 }  // end snapPlacementToGrid
+
+//-------------------------------------------------------------------------------------------------
+/** Ctrl held while placing turns GridBuildPlacement the other way for as long as it is down: off,
+	* it snaps; on, it places freely.  The ghost, the lines and the order the click sends all ask
+	* this, so they cannot disagree.  Classic keeps the option as the only switch, as it does with
+	* the shift and alt rows. */
+//-------------------------------------------------------------------------------------------------
+Bool InGameUI::gridPlacementOn( void ) const
+{
+	const Bool flip = TheKeyboard && !TheGlobalData->isClassicUI() && TheKeyboard->isCtrl();
+	return ( TheGlobalData->m_gridBuildPlacement != FALSE ) != flip;
+}
 
 //-------------------------------------------------------------------------------------------------
 /** Shift or alt held on the drag: a wall already tiles from any drag, so it is left to do that.
