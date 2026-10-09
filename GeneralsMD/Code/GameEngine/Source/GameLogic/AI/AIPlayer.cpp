@@ -159,12 +159,20 @@ static Real templateCombatPower( const ThingTemplate *tmpl, const Player *owner 
 	return INT_TO_REAL( tmpl->calcCostToBuild( owner ) );
 }
 
-/** The same figure for a unit on the field. */
+/** What a rank adds to a unit's worth: a quarter of its price a chevron.  A heroic tank hits harder,
+	* takes more and heals itself, and the price alone weighed it the same as one off the line. */
+Real AIRank_valueScale( Int rank )
+{
+	return 1.0f + 0.25f * (Real)rank;
+}
+
+/** The same figure for a unit on the field, its rank counted.  Ranks are on show to every player, so
+	* weighing an enemy's by them reads nothing a human could not. */
 static Real aiCombatPower( const Object *obj )
 {
 	if( obj == NULL || obj->getTemplate() == NULL )
 		return 0.0f;
-	return templateCombatPower( obj->getTemplate(), obj->getControllingPlayer() );
+	return templateCombatPower( obj->getTemplate(), obj->getControllingPlayer() ) * AIRank_valueScale( (Int)obj->getVeterancyLevel() );
 }
 
 /** One of the map's own Player_N_Start waypoints, by 0-based position index.  Where the start
@@ -10061,6 +10069,103 @@ static Bool retreatCanOrderHome( const Object *obj )
 }
 
 //----------------------------------------------------------------------------------------------------------
+/** A ranked unit is worth keeping.  It hits harder and takes more, and it took a match of fighting to
+	* earn: a new one off the line is a rookie again.  So it leaves a fight on its own health, whatever
+	* its team does, below RANK_HEALTH_BASE plus RANK_HEALTH_STEP a rank (35% for a veteran, 55% for a
+	* heroic), and leaves a fight its team is losing before the team does, at the rung's ratio raised by
+	* RANK_RATIO_STEP a rank and never above an even fight.  A regular soldier is the retreat's as before.
+	*
+	* Split out with plain values so the rule is testable without a running game. */
+static const Real RANK_HEALTH_BASE = 0.25f;
+static const Real RANK_HEALTH_STEP = 0.1f;
+static const Real RANK_RATIO_STEP = 0.25f;
+/** How near a unit's own goal has to be to where pullOutRanked would send it to count as on its way. */
+static const Real RANK_GOAL_SLACK = 50.0f;
+
+Bool AIRetreat_rankPullsOut( Int rank, Real healthFraction, Bool inFight, Real ratio, Real retreatRatio )
+{
+	if( rank <= 0 )
+		return FALSE;
+	if( healthFraction < RANK_HEALTH_BASE + RANK_HEALTH_STEP * rank )
+		return TRUE;
+	return inFight && ratio < min( retreatRatio * (1.0f + RANK_RATIO_STEP * rank), 1.0f );
+}
+
+/** The nearest of our own buildings that mends this unit - a repair pad for a vehicle, a heal pad for
+	* infantry - or NULL.  Ties go to the first in the object list. */
+static Object *findMender( Player *player, Object *unit )
+{
+	std::vector<Object *> owned;
+	player->iterateObjects( collectOwned, &owned );
+	Object *best = NULL;
+	Real bestSqr = 0.0f;
+	for( std::vector<Object *>::const_iterator o = owned.begin(); o != owned.end(); ++o )
+	{
+		if( !(*o)->isKindOf( KINDOF_STRUCTURE ) ||
+				!(TheActionManager->canGetRepairedAt( unit, *o, CMD_FROM_AI ) || TheActionManager->canGetHealedAt( unit, *o, CMD_FROM_AI )) )
+			continue;
+		const Real distSqr = sqr( (*o)->getPosition()->x - unit->getPosition()->x ) + sqr( (*o)->getPosition()->y - unit->getPosition()->y );
+		if( best == NULL || distSqr < bestSqr )
+		{
+			best = *o;
+			bestSqr = distSqr;
+		}
+	}
+	return best;
+}
+
+/** The ranked members of a team that AIRetreat_rankPullsOut says go, to the nearest building that mends
+	* them, or home when there is none.  Marked as a walk home, so neither this nor the team's retreat
+	* turns them round for RETREAT_HOME_WALK_FRAMES. */
+void AIPlayer::pullOutRanked( Team *team, Bool inFight, Real ratio )
+{
+	const UnsignedInt now = TheGameLogic->getFrame();
+	for( DLINK_ITERATOR<Object> objIter = team->iterate_TeamMemberList(); !objIter.done(); objIter.advance() )
+	{
+		Object *obj = objIter.cur();
+		const Int rank = (Int)obj->getVeterancyLevel();
+		if( rank <= LEVEL_REGULAR || obj->isEffectivelyDead() || obj->isContained() || !retreatCanOrderHome( obj ) ||
+				obj->getBodyModule() == NULL || obj->getAI()->hasTunnelTrip() )
+			continue;
+		const TacticalStep *row = findTacticalStep( obj->getID() );
+		if( row && (row->fallingBack || (row->fallbackFrame != 0 && now - row->fallbackFrame < RETREAT_HOME_WALK_FRAMES)) )
+			continue;
+		// one already on its way into a dock or a building is being mended, or will be.  So is one in a state
+		// of its own module's (1000 and up): a Helix sent to its airfield flies there in ChinookAIUpdate's
+		// states, and was sent again on every pass of a 3,600-foot flight
+		const StateID state = obj->getAI()->getCurrentStateID();
+		if( state == AI_DOCK || state == AI_ENTER || state >= 1000 )
+			continue;
+		const Real health = obj->getBodyModule()->getHealth() / obj->getBodyModule()->getMaxHealth();
+		if( !AIRetreat_rankPullsOut( rank, health, inFight, ratio, getSkillProfile()->m_retreatTtkRatio ) )
+			continue;
+		Object *mender = findMender( m_player, obj );
+		if( mender == NULL && isAtHome( obj->getPosition() ) )
+			continue;		// home already, and nothing there mends it
+		// one already walking there from an earlier pass whose row has since gone
+		const Coord3D *to = mender ? mender->getPosition() : &m_baseCenter;
+		const Coord3D *goal = obj->getAI()->getGoalPosition();
+		if( obj->getAI()->isMoving() && goal && sqr( goal->x - to->x ) + sqr( goal->y - to->y ) < sqr( RANK_GOAL_SLACK ) )
+			continue;
+		leaveTacticsAlone( obj->getID() );
+		TacticalStep *step = tacticalStepFor( obj->getID() );
+		step->fallingBack = FALSE;
+		step->fallbackFrom = *obj->getPosition();
+		step->fallbackFrame = now;
+		stepCalmly( obj, step, to );
+		if( mender && TheActionManager->canGetRepairedAt( obj, mender, CMD_FROM_AI ) )
+			obj->getAI()->aiGetRepaired( mender, CMD_FROM_SCRIPT );
+		else if( mender )
+			obj->getAI()->aiGetHealed( mender, CMD_FROM_SCRIPT );
+		DEBUG_LOG(("AI VETERAN frame %d player %d pulls '%s' %d rank %d out at %.0f%% health, fight %.2f%s, state %d, %.0f from %s, now state %d\n", now,
+			m_player->getPlayerIndex(), obj->getTemplate()->getName().str(), obj->getID(), rank, health * 100.0f,
+			inFight ? ratio : 0.0f, inFight ? "" : " (none)", (Int)state,
+			(Real)sqrt( sqr( to->x - obj->getPosition()->x ) + sqr( to->y - obj->getPosition()->y ) ),
+			mender ? mender->getTemplate()->getName().str() : "base", (Int)obj->getAI()->getCurrentStateID()));
+	}
+}
+
+//----------------------------------------------------------------------------------------------------------
 /** Look at every fight this AI is in and break off the ones it is losing.
 	*
 	* Deliberately at the player level and on the rung's decision interval rather than inside the
@@ -10128,13 +10233,15 @@ void AIPlayer::doRetreats( void )
 
 			// A fight at home is not broken off: home is where the retreat goes.  Ordered to the base
 			// centre, the defenders of an early rush stopped shooting and walked, every decision tick,
-			// while sixteen rebels took the base apart untouched for a minute.
-			if( isAtHome( &centre ) )
-				continue;
-
+			// while sixteen rebels took the base apart untouched for a minute.  A ranked unit hurt badly
+			// enough still goes to be mended, at home too
+			const Bool home = isAtHome( &centre );
 			Real enemyHealth = 0.0f, enemyPower = 0.0f;
 			std::vector<Real> enemyGuns;
-			const Real ratio = fightRatio( &centre, FALSE, &enemyHealth, &enemyPower, &enemyGuns );
+			const Real ratio = home ? 1.0f : fightRatio( &centre, FALSE, &enemyHealth, &enemyPower, &enemyGuns );
+			pullOutRanked( team, enemyPower > 0.0f, ratio );
+			if( home )
+				continue;
 
 			if( enemyPower <= 0.0f )
 				continue;			// not in a fight

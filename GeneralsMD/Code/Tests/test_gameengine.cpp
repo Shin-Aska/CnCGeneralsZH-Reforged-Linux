@@ -11201,6 +11201,38 @@ TEST(the_retreat_never_orders_an_aircraft_home)
 }
 
 
+/** AIPlayer.cpp: a ranked unit leaves a fight on its own health and before its team does, the higher
+	 the rank the sooner, and counts for more in every weighing of forces. */
+extern Bool AIRetreat_rankPullsOut( Int rank, Real healthFraction, Bool inFight, Real ratio, Real retreatRatio );
+extern Real AIRank_valueScale( Int rank );
+
+TEST(the_ai_pulls_ranked_units_out_sooner_the_higher_the_rank)
+{
+	// a regular soldier is the team retreat's, however hurt or however the fight goes
+	CHECK( !AIRetreat_rankPullsOut( 0, 0.05f, true, 0.1f, 0.5f ) );
+
+	// on its own health, fight or no fight: a veteran at 30%, an elite at 40%, a heroic at 50%
+	CHECK( AIRetreat_rankPullsOut( 1, 0.30f, false, 1.0f, 0.5f ) );
+	CHECK( !AIRetreat_rankPullsOut( 1, 0.40f, false, 1.0f, 0.5f ) );
+	CHECK( AIRetreat_rankPullsOut( 2, 0.40f, false, 1.0f, 0.5f ) );
+	CHECK( AIRetreat_rankPullsOut( 3, 0.50f, false, 1.0f, 0.5f ) );
+	CHECK( !AIRetreat_rankPullsOut( 3, 0.60f, false, 1.0f, 0.5f ) );
+
+	// a fight read at 0.7, which a team quitting at 0.5 stays in: the veteran stays, the elite goes
+	CHECK( !AIRetreat_rankPullsOut( 1, 1.0f, true, 0.7f, 0.5f ) );
+	CHECK( AIRetreat_rankPullsOut( 2, 1.0f, true, 0.7f, 0.5f ) );
+	// a fight read the same with no enemy in it is no reason to go
+	CHECK( !AIRetreat_rankPullsOut( 3, 1.0f, false, 0.7f, 0.5f ) );
+	// and nobody leaves a fight it is even in or winning, at any rank
+	CHECK( !AIRetreat_rankPullsOut( 3, 1.0f, true, 1.0f, 0.9f ) );
+
+	CHECK_NEAR( 1.0f, AIRank_valueScale( 0 ), 0.0001f );
+	CHECK( AIRank_valueScale( 3 ) > AIRank_valueScale( 2 ) );
+	CHECK( AIRank_valueScale( 2 ) > AIRank_valueScale( 1 ) );
+	CHECK( AIRank_valueScale( 1 ) > 1.0f );
+}
+
+
 /** AI.cpp: a team that loses a fight stops at the first ground on its way home that none of the
 	 fight's guns reach, a step past it, rather than walking the whole map back to its base. */
 TEST(a_losing_team_falls_back_out_of_reach_not_home)
