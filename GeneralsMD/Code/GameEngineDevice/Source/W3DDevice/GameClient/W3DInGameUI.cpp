@@ -1611,40 +1611,73 @@ void W3DInGameUI::drawBuildPlanNumbers( void )
 }  // end drawBuildPlanNumbers
 
 //-------------------------------------------------------------------------------------------------
-/** A heater shield filled one screen row at a time: straight sides for the upper part, then a
-	* curve closing to the point at the bottom. */
+/** One screen row from `left` to `right`, the two end pixels at the share of them the span covers,
+	* so a slanted edge fades across a pixel instead of stepping. */
 //-------------------------------------------------------------------------------------------------
-static void drawShieldShape( Int x, Int y, Int width, Int height, UnsignedInt color )
+static void drawCoveredSpan( Real left, Real right, Int y, UnsignedInt color )
 {
-	const Real SHOULDER = 0.45f;		// share of the height above the taper
+	if( right <= left )
+		return;
+	const UnsignedInt rgb = color & 0x00FFFFFF;
+	const Real alpha = (Real)( color >> 24 );
+	const Int first = (Int)floorf( left );
+	const Int last = (Int)floorf( right );
+	if( first == last )
+	{
+		TheDisplay->drawFillRect( first, y, 1, 1, rgb | ( REAL_TO_INT( alpha * ( right - left ) ) << 24 ) );
+		return;
+	}
+	TheDisplay->drawFillRect( first, y, 1, 1, rgb | ( REAL_TO_INT( alpha * ( first + 1 - left ) ) << 24 ) );
+	if( last > first + 1 )
+		TheDisplay->drawFillRect( first + 1, y, last - first - 1, 1, color );
+	if( right > last )
+		TheDisplay->drawFillRect( last, y, 1, 1, rgb | ( REAL_TO_INT( alpha * ( right - last ) ) << 24 ) );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A heater shield centred on `centreX`, filled one screen row at a time: straight sides for the
+	* upper part, then a curve closing to the point at the bottom.  The left half takes `leftColor`
+	* and the right half `rightColor`, which with a light and a darker steel reads as a raised
+	* centre ridge with the light from the left. */
+//-------------------------------------------------------------------------------------------------
+static void drawShieldShape( Real centreX, Int top, Real width, Int height, UnsignedInt leftColor, UnsignedInt rightColor )
+{
+	const Real SHOULDER = 0.4f;		// share of the height above the taper
 	for( Int row = 0; row < height; ++row )
 	{
 		const Real t = ( row + 0.5f ) / height;
 		Real half = width * 0.5f;
 		if( t > SHOULDER )
 			half *= sqrtf( ( 1.0f - t ) / ( 1.0f - SHOULDER ) );
-		const Int span = REAL_TO_INT( half * 2.0f + 0.5f );
-		if( span > 0 )
-			TheDisplay->drawFillRect( x + ( width - span ) / 2, y + row, span, 1, color );
+		drawCoveredSpan( centreX - half, centreX, top + row, leftColor );
+		drawCoveredSpan( centreX, centreX + half, top + row, rightColor );
 	}
 }
 
 //-------------------------------------------------------------------------------------------------
 /** A guarding unit looks like an idle one until something walks into its circle, so each of the
 	* local player's guards wears a small shield over its head, selected or not.  Two groups on
-	* overlapping posts can then be told apart from the ones simply standing about. */
+	* overlapping posts can then be told apart from the ones simply standing about.
+	*
+	* It follows the zoom like the health bar does, so it stays in proportion to the unit, between a
+	* floor that still reads as a shield and a ceiling that does not cover a close-up infantryman. */
 //-------------------------------------------------------------------------------------------------
 void W3DInGameUI::drawGuardMarkers( void )
 {
-	const Real MARKER_HEIGHT = 14.0f;
-	const Real MARKER_LIFT = 6.0f;		// clear of the health bar's line over the model's top
-	const UnsignedInt EDGE_COLOR = 0xDD101418;
-	const UnsignedInt FACE_COLOR = 0xDDC8D2DC;		// the command bar's steel
+	const Real MARKER_HEIGHT = 10.0f;		// at 800x600 and zoom 1, a little closer than the opening camera
+	const Real MARKER_MIN_HEIGHT = 6.0f;
+	const Real MARKER_MAX_HEIGHT = 10.0f;
+	const UnsignedInt SHADOW_COLOR = 0x60000000;		// lifts it off snow and sand alike
+	const UnsignedInt EDGE_COLOR = 0xE00C1014;
+	const UnsignedInt LIT_COLOR = 0xF0E8EEF4;		// the command bar's steel, the side facing the light
+	const UnsignedInt SHADED_COLOR = 0xF0939FAC;
 
-	const Real scale = orderStepScale();
-	const Int height = max( REAL_TO_INT( MARKER_HEIGHT * scale ), 6 );
-	const Int width = height * 4 / 5;
-	const Int lift = REAL_TO_INT( MARKER_LIFT * scale );
+	const Real uiScale = TheUIScale();
+	const Real size = MARKER_HEIGHT * uiScale / TheTacticalView->getZoom();
+	const Int height = REAL_TO_INT( max( MARKER_MIN_HEIGHT * uiScale, min( MARKER_MAX_HEIGHT * uiScale, size ) ) );
+	const Real width = height * 0.8f;
+	const Int lift = height / 2;		// clear of the health bar's line over the model's top
+	const Real rim = max( 1.0f, height / 10.0f );
 
 	// ponytail: walks every object each frame, like drawBuildPlanNumbers; share one walk if it shows
 	for( Object *obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject() )
@@ -1664,10 +1697,12 @@ void W3DInGameUI::drawGuardMarkers( void )
 		if( !TheTacticalView->worldToScreen( &top, &spot ) )
 			continue;
 
-		const Int x = spot.x - width / 2;
+		const Real centreX = spot.x + 0.5f;
 		const Int y = spot.y - lift - height;
-		drawShieldShape( x, y, width, height, EDGE_COLOR );
-		drawShieldShape( x + 1, y + 1, width - 2, height - 3, FACE_COLOR );
+		const Int inset = REAL_TO_INT( rim );
+		drawShieldShape( centreX + rim, y + inset, width, height, SHADOW_COLOR, SHADOW_COLOR );
+		drawShieldShape( centreX, y, width, height, EDGE_COLOR, EDGE_COLOR );
+		drawShieldShape( centreX, y + inset, width - 2.0f * rim, height - 3 * inset, LIT_COLOR, SHADED_COLOR );
 	}
 
 }  // end drawGuardMarkers
