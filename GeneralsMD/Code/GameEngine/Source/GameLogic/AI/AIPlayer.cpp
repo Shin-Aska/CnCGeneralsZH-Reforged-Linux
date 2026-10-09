@@ -81,6 +81,7 @@
 #include "GameLogic/Module/OpenContain.h"			// a seat's own shoot-out flag, asked before a rider exists
 #include "GameLogic/Module/TransportContain.h"	// ... and a template's hold, before one exists
 #include "GameLogic/Module/JetAIUpdate.h"		// a Comanche is a jet with no runway
+#include "GameLogic/Module/CleanupHazardUpdate.h"	// an Ambulance out cleaning is left to it
 #include <map>
 #include "Platform/MsvcFloatCasts.h"
 
@@ -373,6 +374,11 @@ m_role(AIROLE_AGGRESSIVE)
 		m_dutyHelix[ helix ].spot.zero();
 		m_dutyHelix[ helix ].targetHealth = 0.0f;
 	}
+	for( Int slot = 0; slot < MAX_DUTY_AMBULANCES; ++slot )
+	{
+		m_ambulance[ slot ].id = INVALID_ID;
+		m_ambulance[ slot ].spot.zero();
+	}
 	m_healerSeconds = 0;
 	m_healerClearSeconds = 0;
 	m_captureTimer = 1;
@@ -646,6 +652,7 @@ static Bool hasSuppliesNear( Player *player, const Object *supplyCenter, Real re
 }
 
 static const TransportContainModuleData *transportContainOf( const ThingTemplate *tmpl );
+static Bool isAmbulanceTemplate( const ThingTemplate *tmpl );
 static Bool passengersFireFrom( const ThingTemplate *tmpl );
 static Bool isHelicopter( const Object *obj );
 
@@ -1793,6 +1800,18 @@ void AIPlayer::onUnitProduced( Object *factory, Object *unit )
 				// a Helix buyDutyHelix ordered; a team's Helix comes out of a team order, not a support one
 				if (order->m_isScout && isHelicopter(unit))
 					takeDutyHelix(unit);
+				// ... and an Ambulance doAmbulances ordered
+				if (order->m_isScout && isAmbulanceTemplate(unit->getTemplate())) {
+					for (Int slot = 0; slot < MAX_DUTY_AMBULANCES; ++slot) {
+						if (m_ambulance[slot].id == INVALID_ID) {
+							m_ambulance[slot].id = unit->getID();
+							m_ambulance[slot].spot = *unit->getPosition();
+							DEBUG_LOG(("AI AMBULANCE frame %d player %d '%s' %d comes out\n", TheGameLogic->getFrame(),
+								m_player->getPlayerIndex(), unit->getTemplate()->getName().str(), unit->getID()));
+							break;
+						}
+					}
+				}
 				found = true;
 				break;
 			}
@@ -4777,6 +4796,7 @@ void AIPlayer::update( void )
 	AI_PHASE( AIP_TACTICS, doTransports() );				// Put the helicopters' riders down at the fight.
 	AI_PHASE( AIP_TACTICS, doShuttles() );					// Fly the wave's ground units up its road.
 	AI_PHASE( AIP_TACTICS, doHelixes() );					// Helix upgrades by the enemy army, healers, bomb raids.
+	AI_PHASE( AIP_TACTICS, doAmbulances() );				// Ambulances behind the army, for the hurt and the hazards.
 
 #ifdef DEBUG_LOGGING
 	Int64 playerEnd;
@@ -7613,7 +7633,7 @@ Bool AIPlayer::leavesToFinish( const Object *obj ) const
 	for( Int slot = 0; slot < MAX_AI_SCOUTS; ++slot )
 		if( m_scoutID[ slot ] == id )
 			return FALSE;
-	return id != m_capturerID && id != m_ferryID && id != m_hijackerID && !isDutyHelix( obj );
+	return id != m_capturerID && id != m_ferryID && id != m_hijackerID && !isDutyHelix( obj ) && !isDutyAmbulance( obj );
 }
 
 //----------------------------------------------------------------------------------------------------------
@@ -10012,6 +10032,248 @@ void AIPlayer::doHelixes( void )
 }
 
 //----------------------------------------------------------------------------------------------------------
+/** The USA's Ambulance carries three infantry, heals them a quarter of their health a second, and
+	* cleans toxins, anthrax and radiation off the ground.  The computer never built one.  Medium and up
+	* now buy one once AMBULANCE_FIRST_ARMY fighting units stand and a second at AMBULANCE_SECOND_ARMY,
+	* through the support-unit queue.  An Ambulance waits
+	* AMBULANCE_BEHIND back from the middle of whoever is out, toward home and clear of every known gun,
+	* or at home with nobody out.  The cash hoard does not hold it back, since a USA at war banks under
+	* the hoard all match.  Our infantry within AMBULANCE_CALL_REACH of it and under half health
+	* walk over and climb in, and it lets them out once they are whole.  It drives to the nearest hazard
+	* on our side of the map that no known gun covers; one beside it it notices by itself
+	* (CleanupHazardUpdate::startAutoCleanup).  Split out with plain values so the rules are testable
+	* without a running game. */
+//----------------------------------------------------------------------------------------------------------
+static const Int AMBULANCE_CHECK_RATE = LOGICFRAMES_PER_SECOND;
+static const Int AMBULANCE_FIRST_ARMY = 8;
+static const Int AMBULANCE_SECOND_ARMY = 20;
+static const Real AMBULANCE_PATIENT_HEALTH = 0.5f;
+static const Real AMBULANCE_CALL_REACH = 450.0f;
+static const Real AMBULANCE_BEHIND = 150.0f;
+static const Real AMBULANCE_HAZARD_REACH = 1500.0f;
+/** The cleanup ability's MaxMoveDistanceFromLocation in retail AmericaVehicle.ini. */
+static const Real AMBULANCE_CLEANUP_RANGE = 300.0f;
+static const Real AMBULANCE_REORDER_DISTANCE = 100.0f;
+
+Int AIAmbulance_wanted( Int army )
+{
+	if( army >= AMBULANCE_SECOND_ARMY )
+		return 2;
+	return army >= AMBULANCE_FIRST_ARMY ? 1 : 0;
+}
+
+Bool AIAmbulance_callsPatient( Real healthFraction, Real distance )
+{
+	return healthFraction < AMBULANCE_PATIENT_HEALTH && distance <= AMBULANCE_CALL_REACH;
+}
+
+/** A vehicle with a hold that cleans hazards: the Ambulance, and each general's copy of it. */
+static Bool isAmbulanceTemplate( const ThingTemplate *tmpl )
+{
+	if( !tmpl->isKindOf( KINDOF_VEHICLE ) || transportContainOf( tmpl ) == NULL )
+		return FALSE;
+	const ModuleInfo &modules = tmpl->getBehaviorModuleInfo();
+	for( Int m = 0; m < modules.getCount(); ++m )
+		if( modules.getNthName( m ).compare( "CleanupHazardUpdate" ) == 0 )
+			return TRUE;
+	return FALSE;
+}
+
+Bool AIPlayer::isDutyAmbulance( const Object *obj ) const
+{
+	for( Int slot = 0; slot < MAX_DUTY_AMBULANCES; ++slot )
+		if( m_ambulance[ slot ].id == obj->getID() )
+			return TRUE;
+	return FALSE;
+}
+
+void AIPlayer::doAmbulances( void )
+{
+	if( !isSkirmishAI() || !m_baseCenterSet || m_skillLevel == AISKILL_EASY || measuringWithoutTactics() )
+		return;
+	if( (TheGameLogic->getFrame() + computeUpdatePhase( m_player->getPlayerIndex(), AMBULANCE_CHECK_RATE )) % AMBULANCE_CHECK_RATE != 0 )
+		return;
+	Int owned = 0;
+	for( Int slot = 0; slot < MAX_DUTY_AMBULANCES; ++slot )
+	{
+		DutyAmbulance &duty = m_ambulance[ slot ];
+		if( duty.id == INVALID_ID )
+			continue;
+		const Object *ambulance = TheGameLogic->findObjectByID( duty.id );
+		if( ambulance && !ambulance->isEffectivelyDead() && ambulance->getControllingPlayer() == m_player )
+		{
+			++owned;
+			continue;
+		}
+		DEBUG_LOG(("AI AMBULANCE frame %d player %d loses %d\n", TheGameLogic->getFrame(), m_player->getPlayerIndex(), duty.id));
+		duty.id = INVALID_ID;
+	}
+
+	const Int wanted = AIAmbulance_wanted( tallyBase( m_player ).army );
+	// no cash hoard to clear: an Ambulance is 600, and a USA at war banks under the hoard all match long.
+	// queueSupportUnit still waits for twice its price
+	if( owned < wanted && !isBaseUnderAttack() && !scoutInQueue() )
+	{
+		std::vector<Object *> factories;
+		m_player->iterateObjects( collectFactories, &factories );
+		Bool ordered = FALSE;
+		for( size_t f = 0; f < factories.size() && !ordered; ++f )
+		{
+			const CommandSet *commandSet = TheControlBar->findCommandSet( factories[ f ]->getCommandSetString() );
+			if( commandSet == NULL )
+				continue;
+			for( Int i = 0; i < MAX_COMMANDS_PER_SET && !ordered; ++i )
+			{
+				const CommandButton *button = commandSet->getCommandButton( i );
+				if( button == NULL || button->getCommandType() != GUI_COMMAND_UNIT_BUILD || button->getThingTemplate() == NULL ||
+						!isAmbulanceTemplate( button->getThingTemplate() ) || TheBuildAssistant->canMakeUnit( factories[ f ], button->getThingTemplate() ) != CANMAKE_OK )
+					continue;
+				queueSupportUnit( button->getThingTemplate(), "AMBULANCE" );
+				ordered = TRUE;
+				if( scoutInQueue() )
+					DEBUG_LOG(("AI AMBULANCE frame %d player %d orders '%s', %d owned of %d wanted, %d in the bank\n", TheGameLogic->getFrame(),
+						m_player->getPlayerIndex(), button->getThingTemplate()->getName().str(), owned, wanted, m_player->getMoney()->countMoney()));
+			}
+		}
+	}
+
+	std::vector<AIKnownGun> guns;
+	Bool gunsRead = FALSE;
+	for( Int slot = 0; slot < MAX_DUTY_AMBULANCES; ++slot )
+	{
+		if( m_ambulance[ slot ].id == INVALID_ID )
+			continue;
+		if( !gunsRead )
+		{
+			collectKnownGuns( &guns );
+			gunsRead = TRUE;
+		}
+		steerAmbulance( slot, guns );
+	}
+}
+
+void AIPlayer::steerAmbulance( Int slot, const std::vector<AIKnownGun> &guns )
+{
+	DutyAmbulance &duty = m_ambulance[ slot ];
+	Object *ambulance = TheGameLogic->findObjectByID( duty.id );
+	static NameKeyType key_CleanupHazardUpdate = NAMEKEY( "CleanupHazardUpdate" );
+	CleanupHazardUpdate *cleaner = (CleanupHazardUpdate *)ambulance->findUpdateModule( key_CleanupHazardUpdate );
+	if( ambulance->isContained() )
+		return;
+	AIUpdateInterface *ai = ambulance->getAI();
+	ContainModuleInterface *hold = ambulance->getContain();
+	const Coord3D *pos = ambulance->getPosition();
+	const UnsignedInt now = TheGameLogic->getFrame();
+
+	// whole again: out they get
+	if( hold->getContainCount() > 0 )
+	{
+		Bool whole = TRUE;
+		const ContainedItemsList *riders = hold->getContainedItemsList();
+		for( ContainedItemsList::const_iterator r = riders->begin(); r != riders->end(); ++r )
+			if( (*r)->getBodyModule()->getHealth() < (*r)->getBodyModule()->getMaxHealth() )
+				whole = FALSE;
+		if( whole )
+		{
+			DEBUG_LOG(("AI AMBULANCE frame %d player %d '%s' %d lets %d out whole at (%.0f,%.0f)\n", now, m_player->getPlayerIndex(),
+				ambulance->getTemplate()->getName().str(), duty.id, (Int)hold->getContainCount(), pos->x, pos->y));
+			ai->aiEvacuate( FALSE, CMD_FROM_AI );
+			return;
+		}
+	}
+	if( cleaner->isCleaningArea() )
+		return;		// its own module drives it until the ground is clean and brings it back
+
+	// the hurt nearby climb in, while there is room, and the middle of whoever is out
+	BoardingSearch boarding;
+	boarding.transport = ambulance;
+	boarding.found = FALSE;
+	m_player->iterateObjects( findBoarder, &boarding );
+	Int room = hold->getContainMax() - (Int)hold->getContainCount() - hold->getExtraSlotsInUse();
+	Int called = 0;
+	std::vector<Object *> owned;
+	m_player->iterateObjects( collectOwned, &owned );
+	Coord3D middle;
+	middle.zero();
+	Int out = 0;
+	for( size_t o = 0; o < owned.size(); ++o )
+	{
+		Object *obj = owned[ o ];
+		if( obj->isEffectivelyDead() || obj->isContained() || obj->getAI() == NULL || obj->isKindOf( KINDOF_STRUCTURE ) ||
+				obj->isKindOf( KINDOF_AIRCRAFT ) || isDutyAmbulance( obj ) )
+			continue;
+		if( (obj->isKindOf( KINDOF_INFANTRY ) || obj->isKindOf( KINDOF_VEHICLE )) && aiCombatPower( obj ) > 0.0f && !isAtHome( obj->getPosition() ) )
+		{
+			middle.x += obj->getPosition()->x;
+			middle.y += obj->getPosition()->y;
+			++out;
+		}
+		if( room <= 0 || !obj->isKindOf( KINDOF_INFANTRY ) )
+			continue;
+		const StateID state = obj->getAI()->getCurrentStateID();
+		const BodyModuleInterface *body = obj->getBodyModule();
+		const Real distance = (Real)sqrt( sqr( obj->getPosition()->x - pos->x ) + sqr( obj->getPosition()->y - pos->y ) );
+		if( state == AI_ENTER || state == AI_DOCK || state >= 1000 || !hold->isValidContainerFor( obj, TRUE ) ||
+				!AIAmbulance_callsPatient( body->getHealth() / body->getMaxHealth(), distance ) )
+			continue;
+		leaveTacticsAlone( obj->getID() );
+		obj->getAI()->aiEnter( ambulance, CMD_FROM_AI );
+		--room;
+		++called;
+		DEBUG_LOG(("AI AMBULANCE frame %d player %d '%s' %d calls in '%s' %d at %.0f%% health, %.0f away\n", now, m_player->getPlayerIndex(),
+			ambulance->getTemplate()->getName().str(), duty.id, obj->getTemplate()->getName().str(), obj->getID(),
+			body->getHealth() * 100.0f / body->getMaxHealth(), distance));
+	}
+	if( called > 0 || boarding.found )
+		return;		// no new spot while they walk over
+
+	// the nearest hazard, if it is on our side and out of every known gun's reach
+	PartitionFilterAcceptByKindOf kindFilter( MAKE_KINDOF_MASK( KINDOF_CLEANUP_HAZARD ), KINDOFMASK_NONE );
+	PartitionFilterSameMapStatus filterMapStatus( ambulance );
+	PartitionFilter *filters[] = { &kindFilter, &filterMapStatus, NULL };
+	Object *hazard = ThePartitionManager->getClosestObject( pos, AMBULANCE_HAZARD_REACH, FROM_CENTER_2D, filters );
+	if( hazard && isOurSideOfMap( hazard->getPosition() ) && deepestReach( guns, hazard->getPosition()->x, hazard->getPosition()->y, FALSE ) < 0.0f )
+	{
+		DEBUG_LOG(("AI AMBULANCE frame %d player %d '%s' %d goes to clean '%s' %d at (%.0f,%.0f), %.0f away\n", now, m_player->getPlayerIndex(),
+			ambulance->getTemplate()->getName().str(), duty.id, hazard->getTemplate()->getName().str(), hazard->getID(),
+			hazard->getPosition()->x, hazard->getPosition()->y,
+			(Real)sqrt( sqr( hazard->getPosition()->x - pos->x ) + sqr( hazard->getPosition()->y - pos->y ) )));
+		cleaner->setCleanupAreaParameters( hazard->getPosition(), AMBULANCE_CLEANUP_RANGE );
+		duty.spot = *hazard->getPosition();
+		return;
+	}
+
+	// behind whoever is out, or home
+	Coord3D spot = m_baseCenter;
+	if( out > 0 )
+	{
+		middle.x /= out;
+		middle.y /= out;
+		const Real dx = m_baseCenter.x - middle.x;
+		const Real dy = m_baseCenter.y - middle.y;
+		const Real length = (Real)sqrt( dx * dx + dy * dy );
+		if( length > AMBULANCE_BEHIND )
+		{
+			middle.x += dx * AMBULANCE_BEHIND / length;
+			middle.y += dy * AMBULANCE_BEHIND / length;
+			spot = rearOf( &middle, guns );
+		}
+	}
+	else if( isAtHome( pos ) )
+		spot = *pos;
+	spot.z = TheTerrainLogic->getGroundHeight( spot.x, spot.y );
+	const Bool moved = sqr( spot.x - duty.spot.x ) + sqr( spot.y - duty.spot.y ) > sqr( AMBULANCE_REORDER_DISTANCE );
+	const Bool away = sqr( spot.x - pos->x ) + sqr( spot.y - pos->y ) > sqr( AMBULANCE_REORDER_DISTANCE );
+	if( !moved && !(ai->isIdle() && away) )
+		return;
+	if( moved )
+		DEBUG_LOG(("AI AMBULANCE frame %d player %d '%s' %d waits at (%.0f,%.0f), %d units out\n", now, m_player->getPlayerIndex(),
+			ambulance->getTemplate()->getName().str(), duty.id, spot.x, spot.y, out));
+	ai->aiMoveToPosition( &spot, CMD_FROM_AI );
+	duty.spot = spot;
+}
+
+//----------------------------------------------------------------------------------------------------------
 /** How far around a fight to look for what is in it.  Wide enough to catch the base defences and
 	* the second rank shooting into it, not so wide that a skirmish at the front counts the garrison
 	* at the back as part of the same exchange. */
@@ -11000,7 +11262,7 @@ void AIPlayer::tacticsFor( Object *obj )
 	const TeamTemplateInfo *info = team->getPrototype()->getTemplateInfo();
 	if( info && (info->m_isBaseDefense || info->m_isPerimeterDefense) )
 		return;
-	if( obj->getID() == m_capturerID || obj->getID() == m_hijackerID || isDutyHelix( obj ) )
+	if( obj->getID() == m_capturerID || obj->getID() == m_hijackerID || isDutyHelix( obj ) || isDutyAmbulance( obj ) )
 		return;
 	for( Int i = 0; i < MAX_AI_SCOUTS; ++i )
 	{
@@ -11349,7 +11611,7 @@ Object *AIPlayer::findScout( void )
 			continue;
 		if( obj->getAI() == NULL )
 			continue;
-		if( obj->getID() == m_capturerID || obj->getID() == m_hijackerID )
+		if( obj->getID() == m_capturerID || obj->getID() == m_hijackerID || isDutyAmbulance( obj ) )
 			continue;		// it has a job; two owners giving one unit orders is how both jobs stall
 
 		Bool alreadyScouting = FALSE;
@@ -12675,7 +12937,7 @@ void AIPlayer::xfer( Xfer *xfer )
 {
 
 	// version
-	XferVersion currentVersion = 18;		// 2: scout  3: rung and role  4: scouting stamps  5: the capturer  6: parked waves  7: superweapon aims  8: the hijacker  9: tactical steps  10: the ferry and dropped riders  11: the outward placement ring  12: the pressure level  13: falling back  14: gunship Chinooks and the boarding wait  15: transport Chinooks and the lent one  16: healer and raider Helixes  17: the seen-enemy ledger  18: the fist
+	XferVersion currentVersion = 19;		// 2: scout  3: rung and role  4: scouting stamps  5: the capturer  6: parked waves  7: superweapon aims  8: the hijacker  9: tactical steps  10: the ferry and dropped riders  11: the outward placement ring  12: the pressure level  13: falling back  14: gunship Chinooks and the boarding wait  15: transport Chinooks and the lent one  16: healer and raider Helixes  17: the seen-enemy ledger  18: the fist  19: the Ambulances
 	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
 
@@ -13046,6 +13308,14 @@ void AIPlayer::xfer( Xfer *xfer )
 			m_massUnits.resize( held );
 		for( UnsignedShort i = 0; i < held; ++i )
 			xfer->xferObjectID( &m_massUnits[ i ] );
+	}
+	if( version >= 19 )
+	{
+		for( Int slot = 0; slot < MAX_DUTY_AMBULANCES; ++slot )
+		{
+			xfer->xferObjectID( &m_ambulance[ slot ].id );
+			xfer->xferCoord3D( &m_ambulance[ slot ].spot );
+		}
 	}
 
 	// the ladder rung and the role, which are rolled once and must come back the same way

@@ -11233,6 +11233,29 @@ TEST(the_ai_pulls_ranked_units_out_sooner_the_higher_the_rank)
 }
 
 
+/** AIPlayer.cpp: the computer buys its first Ambulance once it has an army and a second once the army
+	 is big, and calls in the badly hurt from near it only. */
+extern Int AIAmbulance_wanted( Int army );
+extern Bool AIAmbulance_callsPatient( Real healthFraction, Real distance );
+
+TEST(the_ai_buys_ambulances_by_army_and_calls_in_the_hurt_nearby)
+{
+	CHECK_EQ( 0, AIAmbulance_wanted( 0 ) );
+	CHECK_EQ( 0, AIAmbulance_wanted( 7 ) );
+	CHECK_EQ( 1, AIAmbulance_wanted( 8 ) );
+	CHECK_EQ( 1, AIAmbulance_wanted( 19 ) );
+	CHECK_EQ( 2, AIAmbulance_wanted( 20 ) );
+	CHECK_EQ( 2, AIAmbulance_wanted( 200 ) );
+
+	CHECK( AIAmbulance_callsPatient( 0.3f, 100.0f ) );
+	CHECK( AIAmbulance_callsPatient( 0.49f, 450.0f ) );
+	// half health or more stays in the fight
+	CHECK( !AIAmbulance_callsPatient( 0.5f, 100.0f ) );
+	// too far off to walk over
+	CHECK( !AIAmbulance_callsPatient( 0.1f, 451.0f ) );
+}
+
+
 /** AI.cpp: a team that loses a fight stops at the first ground on its way home that none of the
 	 fight's guns reach, a step past it, rather than walking the whole map back to its base. */
 TEST(a_losing_team_falls_back_out_of_reach_not_home)

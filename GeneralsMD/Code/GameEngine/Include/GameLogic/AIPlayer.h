@@ -369,6 +369,8 @@ protected:
 	void buyDutyHelix(void);	///< Medium and up buy the healers and raiders their Helixes' buttons allow
 	Int helixRoleWanted(const ThingTemplate *tmpl) const;	///< the job a Helix of this kind would take now, -1 for none
 	void takeDutyHelix(Object *helix);	///< a Helix buyDutyHelix ordered comes out and takes its job
+	void doAmbulances(void);	///< the USA's Ambulances: bought once there is an army, kept behind it, taking in the hurt and cleaning our side
+	void steerAmbulance(Int slot, const std::vector<AIKnownGun> &guns);	///< one Ambulance's job this pass
 	void upgradeHelix(Object *helix, Int role, AIEnemyComposition *enemy, Bool *enemyRead);	///< the upgrade this Helix's job or the enemy army calls for
 	void collectKnownGuns(std::vector<AIKnownGun> *guns) const;	///< every enemy gun this AI knows of, in object list order
 	void steerHealer(Int slot, const std::vector<AIKnownGun> &guns);	///< a healer over our hurt behind the line, clear of every known gun
@@ -439,6 +441,7 @@ public:
 	Bool isTransportChinook( const Object *obj ) const;	///< a plain Chinook this AI bought to fly its wave, not to gather
 	Bool isDutyChinook( const Object *obj ) const;	///< either of those, which the gatherer counts leave out
 	Bool isDutyHelix( const Object *obj ) const;	///< a Helix this AI bought to heal or to raid, which nothing else gives orders
+	Bool isDutyAmbulance( const Object *obj ) const;	///< an Ambulance this AI bought to follow the army, which nothing else gives orders
 protected:
 
 	/**
@@ -523,6 +526,14 @@ protected:
 	};
 	enum { MAX_DUTY_HELIXES = 5 };
 	DutyHelix		m_dutyHelix[ MAX_DUTY_HELIXES ];
+	/// An Ambulance bought to follow the army: the hurt infantry climb in, and it cleans hazards on our side
+	struct DutyAmbulance
+	{
+		ObjectID		id;					///< INVALID_ID for a free slot
+		Coord3D			spot;				///< where it was last sent
+	};
+	enum { MAX_DUTY_AMBULANCES = 2 };
+	DutyAmbulance	m_ambulance[ MAX_DUTY_AMBULANCES ];
 	Int					m_healerSeconds;		///< for the log only, not saved: healer seconds counted, and those clear of the nearest gun's reach
 	Int					m_healerClearSeconds;
 	Int				m_captureTimer;					///< frames until the next look for something to capture
