@@ -357,6 +357,7 @@ protected:
 	AsciiString secondApproachLabel(const Coord3D *from, const AsciiString &taken, Int pathSuffix);	///< the quietest other road, or empty
 	Bool loadGunships(void);	///< infantry boards the transports it can shoot out of: the wave's anything at home, a team's its own; TRUE while a firing gunship is still filling
 	Int buyGunshipRiders(Int freeSeats);	///< Medium and up train the men for the firing seats nobody fills; how many are in training
+	void garrisonBuildings(void);	///< the home guard's infantry into our own buildings it shoots out of and the empty ones at home
 	void buyGunshipChinook(void);	///< Medium and up buy a supply-center transport the riders shoot out of, as a gunship
 	void doShuttles(void);	///< the transport Chinooks load at home, fly the wave's ground units to its road and come back
 	void buyTransportChinook(void);	///< one more transport Chinook while the last wave needs more lift than there is
