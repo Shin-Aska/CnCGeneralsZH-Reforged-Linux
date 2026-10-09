@@ -16146,6 +16146,7 @@ public:
 	};
 
 	Int drawState( void ) const { return m_drawState; }
+	void start( void ) { m_isFinished = FALSE; m_isForward = TRUE; }	// init() without the gradient lookup
 };
 
 TEST(button_flash_draws_nothing_for_a_button_the_layout_lacks)
@@ -16156,6 +16157,29 @@ TEST(button_flash_draws_nothing_for_a_button_the_layout_lacks)
 		flash.update( frame );
 		CHECK_EQ( flash.drawState(), (Int)ButtonFlashWithoutWindow::NOTHING_TO_DRAW );
 	}
+}
+
+/* The same flash never reaches its own end, so the group holding it has to call itself finished
+ * once it is past the last frame. It waited on the flash for good instead, and the main menu
+ * refuses every click while a group runs: issue 86, Single Player and then nothing. The group
+ * steps on the wall clock, 30 a second, so this takes about 0.6 seconds of real time. */
+#include "Lib/Clock.h"
+
+TEST(transition_group_finishes_past_a_flash_for_a_button_the_layout_lacks)
+{
+	ButtonFlashWithoutWindow *flash = NEW ButtonFlashWithoutWindow;
+	flash->start();
+	TransitionWindow *window = NEW TransitionWindow;
+	window->m_transition = flash;
+	TransitionGroup group;
+	group.addWindow( window );	// the group deletes it, and it deletes the flash
+
+	UnsignedInt start = Clock_Milliseconds();
+	while( !group.isFinished() && Clock_Milliseconds() - start < 3000 )
+		group.update();
+
+	CHECK( group.isFinished() );
+	CHECK( !flash->isFinished() );
 }
 
 // Camera scroll timing must advance during stationary frames as well as moving frames.
