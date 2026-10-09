@@ -835,8 +835,9 @@ struct UnitFigures
 };
 
 /** `weapon`'s figures under `bonus`, the build tooltip's and the selected unit's alike
-	* (ControlBarPopupDescription.cpp). */
-WeaponFigures ControlBarWeaponFigures( const WeaponTemplate *weapon, const WeaponBonus &bonus );
+	* (ControlBarPopupDescription.cpp); `thing` carries it, and its death weapon stands in for a
+	* suicide dummy. */
+WeaponFigures ControlBarWeaponFigures( const ThingTemplate *thing, const WeaponTemplate *weapon, const WeaponBonus &bonus );
 
 /** `thing`'s weapons in the set `setFlags` picks, each under the bonuses `bonusFlags` give it, into
 	* `figures`' slots; a template with no such set leaves them as they are. */

@@ -13435,7 +13435,7 @@ static void putSelectedUnit( HtmlValues &values, HtmlLists &lists, const IRegion
 				continue;
 			WeaponBonus bonus;
 			weapon->computeBonus( object, 0, bonus );
-			figures.slots[ slot ] = ControlBarWeaponFigures( weapon->getTemplate(), bonus );
+			figures.slots[ slot ] = ControlBarWeaponFigures( object->getTemplate(), weapon->getTemplate(), bonus );
 		}
 	}
 	else
@@ -13452,14 +13452,15 @@ static void putSelectedUnit( HtmlValues &values, HtmlLists &lists, const IRegion
 	{
 		const WeaponFigures &weapon = figures.slots[ main ];
 		putFigureColumn( weaponColumns, 0, "TOOLTIP:StatDamage", std::to_string( REAL_TO_INT( weapon.damage ) ), "" );
-		putFigureColumn( weaponColumns, 1, "TOOLTIP:StatShortDamagePerSecond",
-										 std::to_string( REAL_TO_INT( weapon.damage * weapon.attacksPerSecond ) ), "" );
+		putFigureColumn( weaponColumns, 1, "TOOLTIP:StatShortDamagePerSecond", weapon.attacksPerSecond > 0.0f
+										 ? std::to_string( REAL_TO_INT( weapon.damage * weapon.attacksPerSecond ) ) : "-", "" );
 		putFigureColumn( weaponColumns, 2, "TOOLTIP:StatRange", std::to_string( REAL_TO_INT( weapon.range ) ), "" );
 		weaponColumns.resize( WEAPON_FIGURES );
 	}
 
 	// the armour, and for our own the body's damage scalar on top of it, which is where a battle plan
-	// such as Hold the Line goes (ActiveBody::attemptDamage)
+	// such as Hold the Line goes (ActiveBody::attemptDamage).  Each figure is protection, the share of
+	// that damage the armour stops: +50% for a unit that takes half, -25% for one that takes a quarter more
 	ArmorSetFlags armorFlags;
 	for( Int set = 0; set < ARMORSET_COUNT; set++ )
 		if( object->testArmorSetFlag( (ArmorSetType)set ) && ( ours || set != ARMORSET_PLAYER_UPGRADE ) )
@@ -13469,9 +13470,9 @@ static void putSelectedUnit( HtmlValues &values, HtmlLists &lists, const IRegion
 	const Int shownArmor = (Int)ARRAY_SIZE( SHOWN_ARMOR );
 	for( Int each = 0; each < shownArmor; each++ )
 	{
-		const Int change = REAL_TO_INT_FLOOR( armor.adjustDamage( SHOWN_ARMOR[ each ].type, PERCENT ) * scalar + 0.5f ) - PERCENT;
+		const Int stopped = PERCENT - REAL_TO_INT_FLOOR( armor.adjustDamage( SHOWN_ARMOR[ each ].type, PERCENT ) * scalar + 0.5f );
 		putFigureColumn( armorColumns, each, SHOWN_ARMOR[ each ].label,
-										 ( change > 0 ? "+" : "" ) + std::to_string( change ) + "%", change < 0 ? "strong" : change > 0 ? "weak" : "" );
+										 ( stopped > 0 ? "+" : "" ) + std::to_string( stopped ) + "%", stopped > 0 ? "strong" : stopped < 0 ? "weak" : "" );
 	}
 	armorColumns.resize( shownArmor );
 }
@@ -14405,8 +14406,8 @@ static void placePromotionWindow( const std::string &name, Int x, Int y, Int wid
 	* row a grid five places wide in command button cells with a hair of steel between them, the way
 	* the command bar's grid is, in a well of its own with its heading, a plate's margin between one
 	* well and the next; the rank's name and the points on one line with the bar under them, and the
-	* close button in the last row's fifth place, which no side fills.  Centred across the screen, its
-	* top under the players' strip.  `layout` gets every place, filled or not, the headings and the wells,
+	* close button in the last row's fifth place, which no side fills.  Centred on the screen, its
+	* top never over the players' strip.  `layout` gets every place, filled or not, the headings and the wells,
 	* in screen pixels. */
 //-------------------------------------------------------------------------------------------------
 static void layoutPromotionScreen( GameWindow *parent, PromotionLayout &layout )
@@ -14430,15 +14431,19 @@ static void layoutPromotionScreen( GameWindow *parent, PromotionLayout &layout )
 	placePromotionWindow( "ProgressBarExperience", margin, margin + titleHeight + Page::px( PROMOTION_BAR_GAP, scale ),
 												width - 3 * margin - pointsWidth, Page::px( PROMOTION_BAR, scale ) );
 
-	// the parent goes first, across the middle of the screen just under the players hanging from its
-	// top edge, so the places can be handed out in screen pixels
-	const Int parentX = ( TheDisplay->getWidth() - width ) / 2;
-	const Int parentY = Page::px( PROMOTION_TOP, scale );
-	parent->winSetPosition( parentX, parentY );
-
 	// each row's well stands a margin under the one before, the first a margin under the bar and the
 	// points, and the heading and the cells an inset inside it
 	Int y = margin + titleHeight + Page::px( PROMOTION_BAR_GAP + PROMOTION_BAR, scale );
+	Int height = y + margin;
+	for( Int row = 0; row < (Int)ARRAY_SIZE( PROMOTION_ROWS ); row++ )
+		height += margin + 2 * inset + heading + PROMOTION_ROWS[ row ].depth * ( cellHeight + gap ) - gap;
+
+	// the parent goes first, in the middle of the screen but never over the players hanging from its
+	// top edge, so the places can be handed out in screen pixels
+	const Int parentX = ( TheDisplay->getWidth() - width ) / 2;
+	const Int parentY = max( Page::px( PROMOTION_TOP, scale ), ( (Int)TheDisplay->getHeight() - height ) / 2 );
+	parent->winSetPosition( parentX, parentY );
+
 	const Int left = margin + inset;
 	layout.places.clear();
 	layout.headings.clear();
@@ -14493,7 +14498,7 @@ static void layoutPromotionScreen( GameWindow *parent, PromotionLayout &layout )
 		layout.wells.push_back( well );
 	}
 
-	parent->winSetSize( width, y + margin );
+	parent->winSetSize( width, height );
 }
 
 /** The screen's picture, drawn by the page while it is there. */
@@ -16588,6 +16593,8 @@ static void putBuildTooltipCard( const BuildTooltipCard &card, HtmlValues &value
 	snprintf( speed, sizeof( speed ), "%.2f", card.attacksPerSecond );
 	values[ "speed" ] = speed + WideCharStringToMultiByte( TheGameText->fetch( "TOOLTIP:StatPerSecond" ).str() );
 	values[ "dps" ] = std::to_string( card.damagePerSecond );
+	if( card.attacksPerSecond <= 0.0f )	// a bomb that kills its carrier goes off once
+		values[ "speed" ] = values[ "dps" ] = "-";
 	values[ "stats.shown" ] = card.hasStats ? "shown" : "hidden";
 	values[ "health.shown" ] = card.hasStats && card.health > 0 ? "shown" : "hidden";
 	values[ "weapon.shown" ] = card.hasStats && card.damage > 0 ? "shown" : "hidden";
