@@ -10467,6 +10467,13 @@ static const Color BROADCAST_LINE = GameMakeColor( 0x1f, 0x29, 0x40, 255 );
 static const Color BROADCAST_INK = GameMakeColor( 0xe8, 0xea, 0xf0, 255 );
 static const Color BROADCAST_MUTED = GameMakeColor( 0x8e, 0x97, 0xad, 255 );
 static const Color BROADCAST_GOLD = GameMakeColor( 0xf2, 0xc2, 0x30, 255 );
+/// the score bar's frame is the corner radar's (W3DInGameUI's drawPaneRays and its corner frame): the
+/// brand's blue band as a halo at these strengths, a pixel of the ground a 720 rows and half the pane
+/// lines' gold, on the three sides that are on the screen
+static const UnsignedByte BROADCAST_BAND_RGB[ 3 ] = { 0x80, 0x95, 0xea };
+static const Real BROADCAST_BAND_OUTER_ALPHA = 0.3f;
+static const Real BROADCAST_BAND_INNER_ALPHA = 0.55f;
+static const Real BROADCAST_FRAME_EDGE_ROWS_A_PIXEL = 720.0f;
 static const char *const BROADCAST_WORDS = "Segoe UI";
 static const char *const BROADCAST_NUMBERS = "Consolas";
 /// the broadcast's sizes are a 720 row picture's, grown with the picture's height
@@ -11016,6 +11023,33 @@ void InGameUI::drawDirectorBroadcast( void )
 	layOutBroadcast( shown, named, "", clockBox, clockBoxHeight, from );
 	if( sliding )
 		layOutBroadcast( settled, named, "to", clockBox, clockBoxHeight, to );
+
+	// the frame round the bar, the corner radar's own sizes
+	const Int screenRows = TheDisplay->getHeight();
+	const Int lineGold = ObserverCamera_paneLineWidth( screenRows );
+	const Int frameGold = max( lineGold / 2, 1 );
+	const Int frameEdge = frameGold + max( REAL_TO_INT( screenRows / BROADCAST_FRAME_EDGE_ROWS_A_PIXEL ), 1 );
+	const Int frameHalo = max( ( ObserverCamera_paneBandWidth( screenRows ) - lineGold ) / 2 - OBSERVER_PANE_LINE_EDGE, 0 ) / 2;
+	const Int frameReach = frameEdge + frameHalo;
+	// while the screen is split the bar goes up off the top, frame and all, as the corner radar slides
+	// out to the left, and comes back down as the radar comes back: the panes have the screen to
+	// themselves.  Everything the bar draws hangs from its layouts' rows, so lifting those lifts it
+	const Int lift = REAL_TO_INT( TheObserverCamera.getCornerRadarSlide() * ( max( from.height, to.height ) + frameReach ) );
+	auto liftLayout = [ lift ]( BroadcastLayout &l )
+	{
+		for( size_t index = 0; index < l.cardTops.size(); index++ )
+			l.cardTops[ index ] -= lift;
+		for( size_t block = 0; block < l.blockHeaderTops.size(); block++ )
+		{
+			l.blockHeaderTops[ block ] -= lift;
+			l.blockCardsTops[ block ] -= lift;
+		}
+		l.tugTop -= lift;
+		l.height -= lift;
+	};
+	liftLayout( from );
+	if( sliding )
+		liftLayout( to );
 	// a card is drawn with the first layout's strings and measures over the first half of a slide and the
 	// second's after: the same strings unless the size or the rows change
 	const BroadcastLayout &face = sliding && slide >= 0.5f ? to : from;
@@ -11090,7 +11124,8 @@ void InGameUI::drawDirectorBroadcast( void )
 		const Int flagWidth = iconWidth + 2 * inset + 2 * edge;
 		const Int flagHeight = iconHeight + 2 * inset + accent;
 		const Int flagLeft = place.left + place.width / 2 + quarter - flagWidth / 2;
-		const Int flagTop = height - flagHeight + REAL_TO_INT( flagHeight * drop );
+		// a flag goes up with the bar, its own height further so it leaves the screen too
+		const Int flagTop = height + frameReach - flagHeight + REAL_TO_INT( flagHeight * ( drop - TheObserverCamera.getCornerRadarSlide() ) );
 		if( edge > 0 )
 			TheDisplay->drawFillRect( flagLeft, flagTop, flagWidth, flagHeight, BROADCAST_GOLD );
 		TheDisplay->drawFillRect( flagLeft + edge, flagTop, flagWidth - 2 * edge, flagHeight - accent, BROADCAST_PANEL );
@@ -11105,10 +11140,27 @@ void InGameUI::drawDirectorBroadcast( void )
 		flagsDrawn.push_back( drawn );
 	}
 
-	TheDisplay->drawFillRect( left, 0, barWidth, height, BROADCAST_GROUND );
-	TheDisplay->drawFillRect( clockLeft, 0, clockBox, clockBoxHeight, BROADCAST_PANEL );
-	TheDisplay->drawFillRect( clockLeft, clockBoxHeight - rule, clockBox, rule, BROADCAST_GOLD );
-	clock->draw( clockLeft + ( clockBox - clockWidth ) / 2, 0, BROADCAST_INK, BROADCAST_GROUND );
+	// the frame under the bar, squares one inside the other from the top edge down: the halo's two
+	// strengths of blue, the ground's edge, then the gold up to the bar, so the bar sits on the gold.
+	// Its top runs off the screen, which leaves the sides and the foot.  Over the flags, which drop
+	// from under it
+	auto frameRect = [ & ]( Int outside, Color color )
+	{
+		if( height + outside > 0 )
+			TheDisplay->drawFillRect( left - outside, 0, barWidth + 2 * outside, height + outside, color );
+	};
+	frameRect( frameReach, GameMakeColor( BROADCAST_BAND_RGB[ 0 ], BROADCAST_BAND_RGB[ 1 ], BROADCAST_BAND_RGB[ 2 ],
+		(UnsignedByte)REAL_TO_INT( 255.0f * BROADCAST_BAND_OUTER_ALPHA ) ) );
+	frameRect( frameEdge + frameHalo / 2, GameMakeColor( BROADCAST_BAND_RGB[ 0 ], BROADCAST_BAND_RGB[ 1 ], BROADCAST_BAND_RGB[ 2 ],
+		(UnsignedByte)REAL_TO_INT( 255.0f * BROADCAST_BAND_INNER_ALPHA ) ) );
+	frameRect( frameEdge, BROADCAST_GROUND );
+	frameRect( frameGold, BROADCAST_GOLD );
+
+	if( height > 0 )
+		TheDisplay->drawFillRect( left, 0, barWidth, height, BROADCAST_GROUND );
+	TheDisplay->drawFillRect( clockLeft, -lift, clockBox, clockBoxHeight, BROADCAST_PANEL );
+	TheDisplay->drawFillRect( clockLeft, clockBoxHeight - rule - lift, clockBox, rule, BROADCAST_GOLD );
+	clock->draw( clockLeft + ( clockBox - clockWidth ) / 2, -lift, BROADCAST_INK, BROADCAST_GROUND );
 
 	// block by block: a "vs" before every block but the first of its row, and a team's name and its
 	// armies' total over its cards.  A block in both layouts moves with its cards; one in the first alone,
@@ -11248,16 +11300,16 @@ void InGameUI::drawDirectorBroadcast( void )
 		TheDisplay->drawFillRect( rowLeft + ( rowWidth - rule ) / 2, tugTop - rule, rule, tug + 2 * rule, BROADCAST_GOLD );
 
 	IRegion2D bar;
-	bar.lo.x = left;
+	bar.lo.x = left - frameReach;
 	bar.lo.y = 0;
-	bar.hi.x = left + barWidth;
-	bar.hi.y = height;
+	bar.hi.x = left + barWidth + frameReach;
+	bar.hi.y = max( height + frameReach, 0 );
 	TheObserverCamera.addBroadcast( bar );
 	for( size_t flag = 0; flag < flagsDrawn.size(); flag++ )
 		TheObserverCamera.addBroadcast( flagsDrawn[ flag ] );
-	TheObserverCamera.setBroadcastTop( (Real)( height + pad ) );
+	TheObserverCamera.setBroadcastTop( (Real)max( height + frameReach + pad, 0 ) );
 	static Int loggedHeight = -1;
-	if( !sliding && height != loggedHeight )
+	if( !sliding && lift == 0 && height != loggedHeight )
 	{
 		loggedHeight = height;
 		DEBUG_LOG(( "OBSCAM frame %u score bar %d x %d, %d row(s), size %d (name %d, detail %d points), card %d of %d\n", frame,
