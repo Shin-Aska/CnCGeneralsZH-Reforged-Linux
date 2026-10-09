@@ -15641,6 +15641,10 @@ GUI:PeaceTimeHudLabel
 "BARIŞ"
 END
 
+GUI:WireframeNotice
+"Arayüz taslak, güncellenecek."
+END
+
 GUI:LobbyTabChat
 "Sohbet"
 END

@@ -1574,6 +1574,7 @@ protected:
 	void drawPeaceTimer( void );					///< the lobby's peace time, counting down at the top of the screen
 	void drawPeaceCountdown( UnsignedInt framesLeft );	///< the last seconds of it, one big digit in the middle of the screen
 	void drawHudOverlay( void );					///< the small elapsed-time / fps plate (ShowHudOverlay)
+	void drawWireframeNotice( void );			///< "the interface is a draft" bouncing round the command bar's band
 	void drawProductionStrip( void );			///< the production queue rows above the control bar
 	///< the run of cells, a column, with its left edge at 'left' and its first cell's top edge at 'bottomY'
 	void drawProductionStripColumn( Int left, Int bottomY );
@@ -1783,6 +1784,10 @@ protected:
 	UnsignedInt									m_hudRealClockBaseMs;		///< wall clock the two elapsed-time readouts were aligned at
 	UnsignedInt									m_hudLastDrawMs;				///< wall clock of the previous overlay draw, so a pause can be taken back out of it
 	Int													m_hudOverlayBottom;			///< bottom of everything drawn in the top right corner, so the superweapon timers start under it
+	DisplayString *							m_wireframeNotice;			///< the draft notice drawWireframeNotice bounces
+	Coord2D											m_wireframePos;					///< its top left corner on screen
+	Coord2D											m_wireframeDir;					///< which way it is going, each axis +1 or -1
+	UnsignedInt									m_wireframeLastMs;			///< wall clock of its previous draw, 0 before the first
 	// A script time freeze stops the logic clock, and the military subtitle's counters are
 	// logic frames, so they have to be stepped by hand while it lasts.  These two turn the
 	// wall clock into that step without drift: every update works out how many 30Hz frames

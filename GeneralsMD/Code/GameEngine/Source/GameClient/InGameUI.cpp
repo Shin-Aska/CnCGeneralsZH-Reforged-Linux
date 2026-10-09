@@ -1233,6 +1233,10 @@ InGameUI::InGameUI()
 	m_hudRealClockBaseMs = 0;
 	m_hudLastDrawMs = 0;
 	m_hudOverlayBottom = 0;
+	m_wireframeNotice = NULL;
+	m_wireframePos.x = m_wireframePos.y = 0.0f;
+	m_wireframeDir.x = m_wireframeDir.y = 1.0f;
+	m_wireframeLastMs = 0;
 	m_productionStripCount = 0;
 	m_productionStripTotal = 0;
 	m_productionStripCameoW = PRODUCTION_STRIP_CAMEO;
@@ -11601,6 +11605,65 @@ void InGameUI::drawDirectorIntroPlate( void )
 		return;
 	const Int underLeft = min( max( REAL_TO_INT( middle.x ) - underWidth / 2, 0 ), (Int)TheDisplay->getWidth() - underWidth );
 	drawBroadcastPlate( under, underLeft, top + nameHeight, shown );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The Reforged command bar is still a draft, and players kept reporting it as one. This says so
+	* first: a line of text drifting diagonally over the bar's band and turning back off its edges.
+	* It moves on the wall clock, so 120 frames a second and 30 cross the bar at the same speed, and
+	* it is only drawn, never a window, so a click goes straight through it. */
+//-------------------------------------------------------------------------------------------------
+void InGameUI::drawWireframeNotice( void )
+{
+	if( TheGameLogic == NULL || !TheGameLogic->isInGame() || TheGameLogic->isInShellGame() )
+		return;
+	// hidden while the game loads and in the observer views, and then there is nothing to excuse
+	if( TheControlBar->getMasterParent()->winIsHidden() )
+		return;
+
+	// the three plates' laid out rectangles: radar on the left to the powers on the right
+	IRegion2D box = *TheControlBar->getPanelRect( 0 );
+	for( Int p = 1; p < ControlBar::CB_PANEL_COUNT; p++ )
+	{
+		const IRegion2D *panel = TheControlBar->getPanelRect( p );
+		box.lo.x = min( box.lo.x, panel->lo.x );
+		box.lo.y = min( box.lo.y, panel->lo.y );
+		box.hi.x = max( box.hi.x, panel->hi.x );
+		box.hi.y = max( box.hi.y, panel->hi.y );
+	}
+	box.hi.y = min( box.hi.y, (Int)TheDisplay->getHeight() );
+
+	if( m_wireframeNotice == NULL )
+	{
+		m_wireframeNotice = TheDisplayStringManager->newDisplayString();
+		m_wireframeNotice->setFont( TheFontLibrary->getFont( m_superweaponNormalFont,
+									TheGlobalLanguageData->adjustFontSize( 16 ), TRUE ) );
+		m_wireframeNotice->setText( TheGameText->fetch( "GUI:WireframeNotice" ) );
+		m_wireframePos.x = (Real)box.lo.x;
+		m_wireframePos.y = (Real)box.lo.y;
+	}
+
+	Int width = 0, height = 0;
+	m_wireframeNotice->getSize( &width, &height );
+
+	// a tenth of the screen's height a second; a frame after a stall or a pause moves at most 100 ms
+	// worth, rather than jumping the text across the bar
+	const UnsignedInt nowMs = Clock_Milliseconds();
+	const UnsignedInt stepMs = m_wireframeLastMs == 0 ? 0 : min( nowMs - m_wireframeLastMs, 100u );
+	m_wireframeLastMs = nowMs;
+	const Real step = TheDisplay->getHeight() * 0.1f * stepMs / 1000.0f;
+	m_wireframePos.x += m_wireframeDir.x * step;
+	m_wireframePos.y += m_wireframeDir.y * step;
+
+	const Real right = (Real)( box.hi.x - width );
+	const Real bottom = (Real)( box.hi.y - height );
+	if( m_wireframePos.x >= right )		{ m_wireframePos.x = right;	m_wireframeDir.x = -1.0f; }
+	if( m_wireframePos.x <= box.lo.x )	{ m_wireframePos.x = (Real)box.lo.x;	m_wireframeDir.x = 1.0f; }
+	if( m_wireframePos.y >= bottom )	{ m_wireframePos.y = bottom;	m_wireframeDir.y = -1.0f; }
+	if( m_wireframePos.y <= box.lo.y )	{ m_wireframePos.y = (Real)box.lo.y;	m_wireframeDir.y = 1.0f; }
+
+	m_wireframeNotice->draw( REAL_TO_INT( m_wireframePos.x ), REAL_TO_INT( m_wireframePos.y ),
+		GameMakeColor( 255, 220, 120, 170 ), GameMakeColor( 0, 0, 0, 170 ) );
 }
 
 //-------------------------------------------------------------------------------------------------

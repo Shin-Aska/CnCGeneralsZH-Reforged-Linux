@@ -1314,6 +1314,10 @@ GUI:PeaceTimeHudLabel
 "PEACE"
 END
 
+GUI:WireframeNotice
+"UI is wireframe, will be updated."
+END
+
 GUI:LobbyTabChat
 "Chat"
 END

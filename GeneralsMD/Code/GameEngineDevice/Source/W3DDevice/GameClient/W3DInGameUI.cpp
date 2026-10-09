@@ -805,6 +805,7 @@ void W3DInGameUI::draw( void )
 	{
 		drawPeaceTimer();
 		drawHudOverlay();
+		drawWireframeNotice();
 		drawScoreboard();
 	}
 
