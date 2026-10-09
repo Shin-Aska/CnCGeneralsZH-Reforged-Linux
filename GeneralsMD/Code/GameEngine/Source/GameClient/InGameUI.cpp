@@ -5779,7 +5779,7 @@ void InGameUI::collectOrderHints( void )
 					hint.onObject = TRUE;
 					addOrderHint( hint, previous );
 
-					const Object *exit = local->getTunnelSystem()->findQuietTunnelNear( ai->getTunnelTripGoal() );
+					const Object *exit = local->getTunnelSystem()->findQuietTunnelNear( ai->getTunnelTripGoal(), obj );
 					hint.from = ( exit != NULL ) ? *exit->getPosition() : hint.to;
 					hint.to = *ai->getTunnelTripGoal();
 					hint.onObject = FALSE;

@@ -264,20 +264,10 @@ StateReturnType DozerActionPickActionPosState::update( void )
 	const Real walkX = goalPos.x - dozer->getPosition()->x;
 	const Real walkY = goalPos.y - dozer->getPosition()->y;
 	const TunnelTracker *tunnels = dozer->getControllingPlayer()->getTunnelSystem();
-	Object *entrance = tunnels->findTunnelShortcut( dozer->getPosition(), &goalPos,
+	Object *entrance = tunnels->findTunnelShortcut( dozer, dozer->getPosition(), &goalPos,
 		(Real)sqrt( walkX * walkX + walkY * walkY ) );
 
-	//
-	// The shortcut is measured in straight lines, and the site was only ever known to be reachable
-	// from where the builder stood.  A far mouth on the other side of a cliff or on another island
-	// would leave it walking at a wall with the job still in hand, so the ground between that mouth
-	// and the site is asked about first.  The mouth is a structure, which the zone check reads as the
-	// terrain under it.
-	//
-	if( entrance != NULL &&
-			TheAI->pathfinder()->clientSafeQuickDoesPathExist( ai->getLocomotorSet(),
-				tunnels->findQuietTunnelNear( &goalPos )->getPosition(), &goalPos ) &&
-			ai->takeTunnelTrip( entrance, &goalPos, TUNNEL_TRIP_MOVE, CMD_FROM_AI ) )
+	if( entrance != NULL && ai->takeTunnelTrip( entrance, &goalPos, TUNNEL_TRIP_MOVE, CMD_FROM_AI ) )
 	{
 		DEBUG_LOG(("TUNNELBUILD frame %d: builder %d takes tunnel %d to task %d on %d\n", TheGameLogic->getFrame(),
 			dozer->getID(), entrance->getID(), m_task, goalObject->getID()));

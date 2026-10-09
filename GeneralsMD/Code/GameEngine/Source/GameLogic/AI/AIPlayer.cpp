@@ -7799,14 +7799,16 @@ void AIPlayer::sendWaveThroughTunnels( AIGroup *wave, const Coord3D *center, Way
 		end = next;
 	}
 
-	Object *entrance = m_player->getTunnelSystem()->findTunnelShortcut( center, end->getLocation(), walk );
+	// a copy: a member that goes into the tunnel leaves the group
+	const VecObjectID members = wave->getAllIDs();
+	const Object *walker = members.empty() ? NULL : TheGameLogic->findObjectByID( members.front() );
+	Object *entrance = walker == NULL || walker->getAI() == NULL ? NULL
+		: m_player->getTunnelSystem()->findTunnelShortcut( walker, center, end->getLocation(), walk );
 	if( entrance == NULL )
 		return;
 
-	// a copy: a member that goes into the tunnel leaves the group
 	Int sent = 0;
 	const Int waveSize = wave->getCount();
-	const VecObjectID members = wave->getAllIDs();
 	for( VecObjectID::const_iterator it = members.begin(); it != members.end(); ++it )
 	{
 		Object *obj = TheGameLogic->findObjectByID( *it );
@@ -9235,6 +9237,7 @@ void AIPlayer::doRetreats( void )
 			Real count = 0.0f;
 			Coord3D centre;
 			centre.zero();
+			const Object *walker = NULL;	// whose feet judge the tunnel home
 			for( DLINK_ITERATOR<Object> objIter = team->iterate_TeamMemberList(); !objIter.done(); objIter.advance() )
 			{
 				Object *obj = objIter.cur();
@@ -9242,6 +9245,8 @@ void AIPlayer::doRetreats( void )
 					continue;
 				if( obj->isKindOf( KINDOF_PROJECTILE ) || !retreatCanOrderHome( obj ) )
 					continue;			// only the units that could actually be pulled out place the fight
+				if( walker == NULL )
+					walker = obj;
 				centre.x += obj->getPosition()->x;
 				centre.y += obj->getPosition()->y;
 				count += 1.0f;
@@ -9296,7 +9301,7 @@ void AIPlayer::doRetreats( void )
 				fallback.z = TheTerrainLogic->getGroundHeight( fallback.x, fallback.y );
 			const Real homeX = m_baseCenter.x - centre.x;
 			const Real homeY = m_baseCenter.y - centre.y;
-			Object *homeTunnel = shortOfHome ? NULL : m_player->getTunnelSystem()->findTunnelShortcut( &centre, &m_baseCenter,
+			Object *homeTunnel = shortOfHome ? NULL : m_player->getTunnelSystem()->findTunnelShortcut( walker, &centre, &m_baseCenter,
 				(Real)sqrt( homeX * homeX + homeY * homeY ) );
 			if( homeTunnel )
 				DEBUG_LOG(("AI RETREAT frame %d player %d falls back through tunnel %d\n", TheGameLogic->getFrame(),

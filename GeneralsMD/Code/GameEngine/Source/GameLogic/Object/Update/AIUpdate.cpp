@@ -1279,7 +1279,7 @@ UpdateSleepTime AIUpdateInterface::update( void )
 		// a rally point across the map is reached through the tunnels when they are shorter
 		const Real walkX = rallyPoint.x - getObject()->getPosition()->x;
 		const Real walkY = rallyPoint.y - getObject()->getPosition()->y;
-		Object *entrance = getObject()->getControllingPlayer()->getTunnelSystem()->findTunnelShortcut( getObject()->getPosition(),
+		Object *entrance = getObject()->getControllingPlayer()->getTunnelSystem()->findTunnelShortcut( getObject(), getObject()->getPosition(),
 			&rallyPoint, (Real)sqrt( walkX * walkX + walkY * walkY ) );
 		const Bool tunnelled = entrance != NULL
 			&& takeTunnelTrip( entrance, &rallyPoint, fights ? TUNNEL_TRIP_ATTACK_MOVE : TUNNEL_TRIP_MOVE, CMD_FROM_AI );
@@ -1306,15 +1306,16 @@ UpdateSleepTime AIUpdateInterface::update( void )
 	}
 
 	// A move order that a tunnel shortened: idle inside the network means the enter just finished, so
-	// leave by the mouth nearest the goal; idle outside means the exit is done, or the enter gave up,
-	// and either way what is left is the walk to the goal.
+	// leave by the mouth nearest the goal that the goal can be walked to from, the one the shortcut was
+	// chosen for; idle outside means the exit is done, or the enter gave up, and either way what is left
+	// is the walk to the goal.
 	if (m_hasTunnelTrip && getAIStateType() == AI_IDLE)
 	{
 		Object *me = getObject();
 		Object *tunnel = me->getContainedBy();
 		if (tunnel != NULL && tunnel->getContain()->isTunnelContain())
 		{
-			Object *exit = me->getControllingPlayer()->getTunnelSystem()->findQuietTunnelNear( &m_tunnelTripGoal );
+			Object *exit = me->getControllingPlayer()->getTunnelSystem()->findQuietTunnelNear( &m_tunnelTripGoal, me );
 			privateExit( exit != NULL ? exit : tunnel, CMD_FROM_AI );
 		}
 		else
