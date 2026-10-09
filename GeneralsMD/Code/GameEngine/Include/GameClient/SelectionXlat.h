@@ -53,6 +53,9 @@ private:
 	UnsignedInt m_lastGroupSelTime;
 	Int m_lastGroupSelGroup;
 	ICoord2D m_selectFeedbackAnchor;		// Note: Used for drawing feedback only.
+	ICoord2D m_deselectFeedbackAnchor;	///< where Classic's right press went down, for 1.04's click test on its release
+	UnsignedInt m_lastClick;						///< when it went down
+	Coord3D m_deselectDownCameraPosition;	///< and where the camera stood then
 	Bool m_displayedMaxWarning;	// did we already display a warning about selecting too many units?
 
 	SelectCountMap m_selectCountMap;
