@@ -505,6 +505,57 @@ TEST(a_pixel_lies_in_the_wedge_counter_clockwise_of_its_ray)
 	CHECK_EQ( ObserverCamera_paneOf( 1200.0f, 360.0f, 640.0f, 360.0f, rays, 4 ), 3 );
 }
 
+TEST(the_pane_runs_put_every_pixel_where_pane_of_puts_it)
+{
+	// the meeting point in the middle, on a pixel's centre row and column, sliding out past a corner,
+	// and on an odd picture, for every layout
+	struct Picture { Int width; Int height; Real originX; Real originY; };
+	const Picture pictures[] = {
+		{ 1280, 720, 640.0f, 360.0f },
+		{ 1280, 720, 640.5f, 360.5f },
+		{ 1280, 720, 1503.37f, -211.81f },
+		{ 333, 217, 101.25f, 160.75f },
+	};
+	std::vector< ObserverPaneRun > runs;
+	for( Int picture = 0; picture < (Int)ARRAY_SIZE( pictures ); picture++ )
+	{
+		const Picture &shape = pictures[ picture ];
+		for( Int count = 2; count <= OBSERVER_MOST_PANES; count++ )
+		{
+			Real rays[ OBSERVER_MOST_PANES ];
+			ObserverCamera_paneLayout( count, rays, shape.width, shape.height );
+			ObserverCamera_paneRuns( shape.width, shape.height, shape.originX, shape.originY, rays, count, runs );
+			Int wrong = 0;
+			Int covered = 0;
+			Int nextY = 0;
+			Int nextX = 0;
+			for( size_t index = 0; index < runs.size(); index++ )
+			{
+				const ObserverPaneRun &run = runs[ index ];
+				if( run.x0 == 0 && run.y == nextY + 1 && nextX == shape.width )
+				{
+					nextY = run.y;
+					nextX = 0;
+				}
+				CHECK( run.y == nextY && run.x0 == nextX && run.x1 > run.x0 );
+				nextX = run.x1;
+				for( Int x = run.x0; x < run.x1; x++ )
+				{
+					const Int pane = ObserverCamera_paneOf( (Real)x + 0.5f, (Real)run.y + 0.5f, shape.originX, shape.originY,
+						rays, count );
+					if( pane != run.pane )
+						wrong++;
+					covered++;
+				}
+			}
+			CHECK_EQ( wrong, 0 );
+			CHECK_EQ( covered, shape.width * shape.height );
+			// a run is a whole stretch of one pane, not a pixel at a time
+			CHECK( (Int)runs.size() < shape.height * ( count + 2 ) );
+		}
+	}
+}
+
 TEST(pane_zero_fills_the_screen_once_the_meeting_point_is_out_far_enough)
 {
 	Real rays[ OBSERVER_MOST_PANES ];

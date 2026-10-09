@@ -267,6 +267,18 @@ Int ObserverCamera_paneLayout( Int count, Real *rays, Int width, Int height );
 Real ObserverCamera_angleForShare( Real share, Int width, Int height );
 /// the pane pixel x, y falls in, the rays meeting at origin x, y (pixels, y down)
 Int ObserverCamera_paneOf( Real x, Real y, Real originX, Real originY, const Real *rays, Int count );
+/// a stretch of row y from column x0 up to, not including, x1 that lies in one pane
+struct ObserverPaneRun
+{
+	Int y;
+	Int x0;
+	Int x1;
+	Int pane;
+};
+/// a width by height picture as runs, row by row and left to right, every pixel in the pane
+/// ObserverCamera_paneOf gives its centre
+void ObserverCamera_paneRuns( Int width, Int height, Real originX, Real originY, const Real *rays, Int count,
+	std::vector< ObserverPaneRun > &runs );
 /// how far the rays' meeting point has to move, away from pane 0, before pane 0 is the whole of a
 /// width by height picture: the panes come in from there and go back out to it
 Real ObserverCamera_paneExit( const Real *rays, Int count, Int width, Int height );
@@ -409,7 +421,7 @@ public:
 	/// rectangles from pane 0 whichever pane they lie over.  Cleared at the start of each of its draws
 	void clearBroadcast( void ) { m_broadcast.clear(); }
 	void addBroadcast( const IRegion2D &region ) { m_broadcast.push_back( region ); }
-	Bool isBroadcast( Int x, Int y ) const;
+	const std::vector< IRegion2D > &getBroadcast( void ) const { return m_broadcast; }
 	/// the rows the score bar takes at the top of the picture, which every pane's circle stays below
 	void setBroadcastTop( Real rows ) { m_broadcastTop = rows; }
 	/// a pane's circle round its subject where that is drawn this frame, the panes part way in or out

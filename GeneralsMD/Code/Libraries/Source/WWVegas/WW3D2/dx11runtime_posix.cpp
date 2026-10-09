@@ -109,6 +109,17 @@ unsigned char * Direct3D11_Capture_Back_Buffer(unsigned & width, unsigned & heig
 }
 void Direct3D11_Release_Capture(unsigned char * pixels) { delete [] pixels; }
 
+bool Direct3D11_Queue_Frame_Copy(unsigned) { return false; }
+const unsigned char * Direct3D11_Map_Frame_Copy(unsigned, unsigned & width, unsigned & height, unsigned & pitch)
+{
+	width = 0;
+	height = 0;
+	pitch = 0;
+	return NULL;
+}
+void Direct3D11_Unmap_Frame_Copy(unsigned) {}
+void Direct3D11_Release_Frame_Copies() {}
+
 void Direct3D11_Mirror_Stream_Source(DX11BufferTwinClass *, unsigned, unsigned) {}
 void Direct3D11_Mirror_Indices(DX11BufferTwinClass *) {}
 void Direct3D11_Mirror_Vertex_Format(unsigned) {}

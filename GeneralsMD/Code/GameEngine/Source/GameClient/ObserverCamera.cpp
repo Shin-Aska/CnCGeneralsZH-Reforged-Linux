@@ -623,6 +623,84 @@ Int ObserverCamera_paneOf( Real x, Real y, Real originX, Real originY, const Rea
 }
 
 //-------------------------------------------------------------------------------------------------
+/* paneOf's float angle strays less than two hundredths of a degree from the true one, even on an 8K
+	 picture, for a pixel at least PANE_RUN_CLEARANCE pixels from the meeting point.  A stretch of a row whose true
+	 angle stays more than PANE_RUN_MARGIN degrees off every ray and off the turn's ends all the way along
+	 can therefore take one pixel's pane for all of it.  A stretch that cannot is halved, and one no longer
+	 than PANE_RUN_SHORTEST is asked pixel by pixel. */
+static const double PANE_RUN_MARGIN = 0.05;
+static const double PANE_RUN_CLEARANCE = 2.0;
+static const Int PANE_RUN_SHORTEST = 4;
+
+static double paneRunAngle( double x, double towardsTop, double originX )
+{
+	const double angle = atan2( towardsTop, x - originX ) * 180.0 / 3.14159265358979323846;
+	return angle < 0.0 ? angle + 360.0 : angle;
+}
+
+static Bool paneRunIsOnePane( Int first, Int last, double towardsTop, double originX, const Real *rays, Int count )
+{
+	const double left = first + 0.5;
+	const double right = last + 0.5;
+	if( fabs( towardsTop ) < PANE_RUN_CLEARANCE && right > originX - PANE_RUN_CLEARANCE
+			&& left < originX + PANE_RUN_CLEARANCE )
+		return FALSE;
+	// along a row the angle only ever turns one way, so its ends bound it
+	const double leftAngle = paneRunAngle( left, towardsTop, originX );
+	const double rightAngle = paneRunAngle( right, towardsTop, originX );
+	const double lowest = min( leftAngle, rightAngle ) - PANE_RUN_MARGIN;
+	const double highest = max( leftAngle, rightAngle ) + PANE_RUN_MARGIN;
+	if( lowest <= 0.0 || highest >= 360.0 )
+		return FALSE;
+	for( Int ray = 0; ray < count; ray++ )
+	{
+		if( rays[ ray ] >= lowest && rays[ ray ] <= highest )
+			return FALSE;
+	}
+	return TRUE;
+}
+
+static void addPaneRun( std::vector< ObserverPaneRun > &runs, Int y, Int x0, Int x1, Int pane )
+{
+	if( !runs.empty() && runs.back().y == y && runs.back().x1 == x0 && runs.back().pane == pane )
+	{
+		runs.back().x1 = x1;
+		return;
+	}
+	const ObserverPaneRun run = { y, x0, x1, pane };
+	runs.push_back( run );
+}
+
+static void addPaneRuns( std::vector< ObserverPaneRun > &runs, Int y, Int first, Int last, Real originX, Real originY,
+	const Real *rays, Int count )
+{
+	const Real centreY = (Real)y + 0.5f;
+	const double towardsTop = (double)originY - centreY;
+	if( paneRunIsOnePane( first, last, towardsTop, originX, rays, count ) )
+	{
+		addPaneRun( runs, y, first, last + 1, ObserverCamera_paneOf( (Real)first + 0.5f, centreY, originX, originY, rays, count ) );
+		return;
+	}
+	if( last - first < PANE_RUN_SHORTEST )
+	{
+		for( Int x = first; x <= last; x++ )
+			addPaneRun( runs, y, x, x + 1, ObserverCamera_paneOf( (Real)x + 0.5f, centreY, originX, originY, rays, count ) );
+		return;
+	}
+	const Int middle = ( first + last ) / 2;
+	addPaneRuns( runs, y, first, middle, originX, originY, rays, count );
+	addPaneRuns( runs, y, middle + 1, last, originX, originY, rays, count );
+}
+
+void ObserverCamera_paneRuns( Int width, Int height, Real originX, Real originY, const Real *rays, Int count,
+	std::vector< ObserverPaneRun > &runs )
+{
+	runs.clear();
+	for( Int y = 0; y < height; y++ )
+		addPaneRuns( runs, y, 0, width - 1, originX, originY, rays, count );
+}
+
+//-------------------------------------------------------------------------------------------------
 Coord2D ObserverCamera_paneExitDirection( const Real *rays )
 {
 	const Real away = ( ( rays[ 0 ] + rays[ 1 ] ) * 0.5f + 180.0f ) * PI / 180.0f;
@@ -2547,18 +2625,6 @@ Coord2D ObserverCamera::getFramedRadarMiddle( Real radarDiagonal ) const
 	middle.x = TheDisplay->getWidth() * 0.5f + away.x * out;
 	middle.y = TheDisplay->getHeight() * 0.5f + away.y * out;
 	return middle;
-}
-
-//-------------------------------------------------------------------------------------------------
-Bool ObserverCamera::isBroadcast( Int x, Int y ) const
-{
-	for( size_t index = 0; index < m_broadcast.size(); index++ )
-	{
-		const IRegion2D &region = m_broadcast[ index ];
-		if( x >= region.lo.x && x < region.hi.x && y >= region.lo.y && y < region.hi.y )
-			return TRUE;
-	}
-	return FALSE;
 }
 
 //-------------------------------------------------------------------------------------------------
