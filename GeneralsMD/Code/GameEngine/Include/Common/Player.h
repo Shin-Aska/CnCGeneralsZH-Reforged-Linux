@@ -623,6 +623,12 @@ public:
 	/// TRUE when the AI parks this team to go out with the rest of its wave instead of on its own.
 	Bool holdTeamForWave(Team *team, const AsciiString &approach, Int pathSuffix);
 
+	/// TRUE when the AI parks this team instead of letting a script send it hunting or at an area from home.
+	Bool gateTeamAttack(Team *team, const char *cause);
+
+	/// One of this player's units died; the AI keeps count of the ones that died alone.
+	void onUnitLost(const Object *obj);
+
 	/// Get the center of the ai's base.
 	virtual Bool getAiBaseCenter(Coord3D *pos);
 

@@ -37,6 +37,7 @@
 #include "GameLogic/AI.h"			// AISkillLevel, AIRole and the difficulty profile the ladder reads
 #include "Common/GameCommon.h"		// MAX_PLAYER_COUNT, for the per-enemy scouting stamps
 #include "GameLogic/AIInfluenceMap.h"
+#include <map>
 
 enum { INVALID_SKILLSET_SELECTION = -1 };
 
@@ -227,8 +228,13 @@ public: // AIPlayer interface, may be overridden by AISkirmishPlayer.  jba.
 		* The script's own label when the rung does not read the map, or the label is not one of the three. */
 	AsciiString chooseApproachLabel(const Coord3D *from, const AsciiString &requested, Int pathSuffix);
 	/** C2: park an attack team that is not a wave on its own until the rest of the wave is in hand.
-		* TRUE when it is parked, and the caller's own order must not go out. */
-	Bool holdTeamForWave(Team *team, const AsciiString &approach, Int pathSuffix);
+		* TRUE when it is parked, and the caller's own order must not go out.  logRefusal writes the AI
+		* ENGAGE line for a team that goes on its own instead; a caller that logs its own passes FALSE. */
+	Bool holdTeamForWave(Team *team, const AsciiString &approach, Int pathSuffix, Bool logRefusal = TRUE);
+	/** A script sends this team hunting or at an area: logged, and with EngageGate a team still at
+		* home parks for the next wave instead.  TRUE when it is parked, and the script's order must not go out. */
+	Bool gateTeamAttack(Team *team, const char *cause);
+	void onUnitLost(const Object *obj);		///< one of ours died: was it alone, away from a team that is still alive?
 	virtual void repairStructure(ObjectID structure);
 
 	virtual void selectSkillset(Int skillset);
@@ -373,7 +379,12 @@ protected:
 	Real addHomeStrays(AIGroup *wave) const;	///< the default team's fighters idle at home go with the wave
 	Real knownFirepowerNear(const Coord3D *pos);	///< what this AI has seen that can shoot, near a point
 	Bool forwardHoldPoint(const AsciiString &approach, Int pathSuffix, const Coord3D *enemyPos, Coord3D *hold);	///< where a wave gathers on its road
-	void sendWave(AIGroup *wave, const AsciiString &approach, Int pathSuffix, Int teams, Real power, UnsignedInt heldFrames);
+	void sendWave(AIGroup *wave, const AsciiString &approach, Int pathSuffix, Int teams, Real power, UnsignedInt heldFrames, const char *cause);
+	void logEngage(const char *cause, const std::vector<Object *> &units);	///< AI ENGAGE: what goes out, and how it weighs against the army it remembers
+	Bool refuseHold(Team *team, const char *why, Bool logIt);	///< FALSE, after logging the team holdTeamForWave lets go
+	Bool holdReinforcement(Object *obj);	///< a top-up for a team out on the map waits for the next wave instead of walking out alone
+	void rememberEnemies(void);					///< bring the seen-enemy ledger up to date with what is in sight now
+	void rememberedArmy(std::vector<AIVisibleEnemy> *army) const;	///< the ledger, one entry a kind, weighed by combat power
 	void sendWaveThroughTunnels(AIGroup *wave, const Coord3D *center, Waypoint *way);	///< whoever can goes by tunnel when the path is the long way round
 
 	virtual void doBaseBuilding(void);
@@ -459,6 +470,7 @@ protected:
 	Player *m_player;									///< the Player we represent
 
 	AISkillLevel m_skillLevel;				///< rung of the ladder: how well this AI plays
+	mutable AIDifficultyProfile m_measuredProfile;	///< the rung's profile less the knobs -aiknobsoff turns off for this slot
 	AIRole		m_role;									///< what it is trying to do; rolled once, kept for the match
 
 	enum { MAX_AI_SCOUTS = 2 };				///< the ladder's maxScouts never asks for more than this
@@ -588,6 +600,19 @@ protected:
 	void sendIdleUnitsHunting(void);							///< attack units idle at the end of their road, and the guards once the enemy is finished
 	Bool holdsTeamsForWaves(void) const;					///< this rung parks attack teams at the current level
 	Bool leavesToFinish(const Object *obj) const;	///< a fighter the last push takes off guard, as against a worker or a scout
+	/** Every enemy unit this AI has seen and not since lost track of: what it was, whose, and where and
+		* when it was last in sight.  An army that walks back into the fog is still an army.  A row goes when
+		* it has not been seen for LEDGER_FORGET_FRAMES, or when the ground it was last seen on is in sight
+		* and it is not there and no longer exists: the AI looked and it was gone. */
+	struct SeenEnemy
+	{
+		const ThingTemplate	*tmpl;
+		Int					owner;			///< player index
+		UnsignedInt	seen;				///< last frame it was in sight
+		Coord3D			pos;				///< where
+		Bool				stealth;		///< it can go invisible
+	};
+	std::map<ObjectID, SeenEnemy> m_seenEnemies;
 	AIPressure	m_pressure;
 	Real				m_knownEnemyPower;								///< his army as this AI believes it: what is in sight at least, less for each look at his base that does not find it, more for each look not taken
 	Int					m_pressureEnemy;									///< the player index that figure is about, -1 for nobody yet

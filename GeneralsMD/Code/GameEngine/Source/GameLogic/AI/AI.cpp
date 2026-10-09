@@ -1101,12 +1101,12 @@ Real AI::getAdjustedVisionRangeForObject(const Object *object, Int factorsToCons
 	* expansions, extra buildings and tactical fighting stay on Hard, and the two measured columns
 	* above were left where the matches put them.
 	*
-	*                      scoutS maxSc decis  cntr  mass   ttk  indiv team infl focus save harv expand guard hoard econ micro */
+	*                      scoutS maxSc decis  cntr  mass   ttk  indiv team infl focus save harv expand guard hoard econ micro  gate  answer massU */
 static const AIDifficultyProfile s_defaultSkillLadder[ AISKILL_COUNT ] =
 {
-	/* Easy      */ { 75.0f, 1,  7.0f,  0.00f, FALSE, 0.00f, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE,  FALSE, FALSE,     0, FALSE, FALSE },
-	/* Medium    */ { 45.0f, 1,  3.0f,  0.50f, FALSE, 0.35f, TRUE,  FALSE, FALSE, TRUE,  TRUE,  TRUE,  TRUE,  FALSE,  6000, FALSE, FALSE },
-	/* Brutal    */ { 25.0f, 2,  1.5f,  1.00f, TRUE,  0.50f, TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,   4000, TRUE,  TRUE }
+	/* Easy      */ { 75.0f, 1,  7.0f,  0.00f, FALSE, 0.00f, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE,  FALSE, FALSE,     0, FALSE, FALSE, FALSE, FALSE, FALSE },
+	/* Medium    */ { 45.0f, 1,  3.0f,  0.50f, FALSE, 0.35f, TRUE,  FALSE, FALSE, TRUE,  TRUE,  TRUE,  TRUE,  FALSE,  6000, FALSE, FALSE, FALSE, FALSE, FALSE },
+	/* Brutal    */ { 25.0f, 2,  1.5f,  1.00f, TRUE,  0.50f, TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,   4000, TRUE,  TRUE,  FALSE, FALSE, FALSE }
 };
 
 //-------------------------------------------------------------------------------------------------
@@ -1549,6 +1549,36 @@ Real aiMatchupScore( Real myFramesToKill, Real theirFramesToKill, Real myCost, R
 }
 
 //-------------------------------------------------------------------------------------------------
+/** The value-weighted mean of every pairing's score, turned back into an advantage as s / (1 - s):
+	* even at 0.5, three at 0.75, the inverse when the sides swap.  That stays near the doublings the
+	* score was made from (0.75 was four times better) with no exp() in logic. */
+//-------------------------------------------------------------------------------------------------
+Real aiArmyAdvantage( const Real *myValue, Int myKinds, const Real *theirValue, Int theirKinds, const Real *score )
+{
+	const Real MOST = 16.0f;
+
+	Real weighed = 0.0f;
+	Real scored = 0.0f;
+	for( Int i = 0; i < myKinds; ++i )
+	{
+		for( Int j = 0; j < theirKinds; ++j )
+		{
+			const Real weight = myValue[ i ] * theirValue[ j ];
+			weighed += weight;
+			scored += weight * score[ i * theirKinds + j ];
+		}
+	}
+	if( weighed <= 0.0f )
+		return 1.0f;		// one side is empty: no exchange to weigh
+
+	Real s = scored / weighed;
+	const Real lowest = 1.0f / (MOST + 1.0f);
+	if( s < lowest ) s = lowest;
+	if( s > 1.0f - lowest ) s = 1.0f - lowest;
+	return s / (1.0f - s);
+}
+
+//-------------------------------------------------------------------------------------------------
 const AIDifficultyProfile *AI::getDifficultyProfile( AISkillLevel level ) const
 {
 	if( m_aiData == NULL )
@@ -1583,6 +1613,9 @@ void AI::parseSkillLevel(INI *ini, void *instance, void* /*store*/, const void* 
 		{ "CashHoardThreshold",				INI::parseInt,  NULL, offsetof( AIDifficultyProfile, m_cashHoardThreshold ) },
 		{ "EconomyBuildings",					INI::parseBool, NULL, offsetof( AIDifficultyProfile, m_economyBuildings ) },
 		{ "TacticalMicro",						INI::parseBool, NULL, offsetof( AIDifficultyProfile, m_tacticalMicro ) },
+		{ "EngageGate",								INI::parseBool, NULL, offsetof( AIDifficultyProfile, m_engageGate ) },
+		{ "AnswerArmy",								INI::parseBool, NULL, offsetof( AIDifficultyProfile, m_answerArmy ) },
+		{ "MassUnit",									INI::parseBool, NULL, offsetof( AIDifficultyProfile, m_massUnit ) },
 		{ NULL, NULL, NULL, 0 }
 	};
 

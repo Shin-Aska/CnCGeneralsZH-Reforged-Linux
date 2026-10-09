@@ -681,7 +681,7 @@ static void startAutoSkirmish( Int numPlayersWanted )
 			slot.setState( SLOT_PLAYER, localName );
 			slot.setName( localName );
 		}
-		else if (takeover)
+		else if (takeover && (TheGlobalData->m_autoSkirmishTakeoverSlot < 0 || TheGlobalData->m_autoSkirmishTakeoverSlot == i))
 		{
 			slot.setState( SLOT_TAKEOVER );
 		}
@@ -2534,6 +2534,9 @@ static void updateHeadlessRun( void )
 							 peakUnits[ i ],
 							 score->getTotalBuildingsBuilt(), score->getTotalBuildingsLost(),
 							 slot, team));
+		// the exchange in money, on a line of its own so the PLAYER line's readers keep matching it
+		DEBUG_LOG(("HEADLESS VALUE %d: units worth %d lost, %d killed\n", i,
+							 score->getUnitValueLost(), score->getUnitValueDestroyed()));
 	}
 
 	if (scouting)

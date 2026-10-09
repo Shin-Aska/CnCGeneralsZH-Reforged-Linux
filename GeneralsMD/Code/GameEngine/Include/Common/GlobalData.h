@@ -110,6 +110,14 @@ enum TextLanguageType
 	TEXT_LANGUAGE_COUNT		= 3,
 };
 
+/** The AI profile knobs -aiknobsoff can switch off for a measurement. */
+enum
+{
+	AIKNOB_ENGAGE_GATE	= 1,
+	AIKNOB_ANSWER_ARMY	= 2,
+	AIKNOB_MASS_UNIT		= 4,
+};
+
 //-------------------------------------------------------------------------------------------------
 /** Global data container class
   *	Defines all global game data used by the system
@@ -467,6 +475,8 @@ public:
 	Bool m_turbo;									///< -turbo: draw, but run one logic frame a pass instead of pacing it to the wall clock
 	Int m_autoSkirmishAIStateOdd;		///< -aidiff2 <name>: rung for the odd-numbered slots (0 = same as -aidiff)
 	Int m_noTacticsSlotParity;			///< -notactics even|odd: those slots of a skirmish fight without Hard's unit tactics; -1 none
+	Int m_aiKnobsOffParity;				///< -aiknobsoff even|odd|all <names>: those slots of a skirmish play with these profile knobs off; -1 none, 2 all
+	Int m_aiKnobsOffMask;					///< ... which knobs: AIKNOB_* bits
 	Int m_autoSkirmishTeams;				///< -teams <n>: split the auto-skirmish slots into n allied teams (0 or 1 = free-for-all)
 	Int m_peaceTime;								///< -peacetime <n>: the lobby's peace time, in minutes, for an -autoskirmish run
 	Bool m_unitLimit;								///< -unitlimit: the lobby's unit limit for an -autoskirmish run
@@ -503,6 +513,7 @@ public:
 	AsciiString m_scenarioFile;			///< -scenario <name>: play Run/Scenarios/<name>.txt instead of leaving the match to a person or an AI (empty = off)
 	AsciiString m_cinemaScript;			///< -cinema <name>: interface off, camera flown by Run/Cinema/<name>.txt (empty = off)
 	Bool m_autoSkirmishTakeover;		///< -takeover: give every -autoskirmish slot a driverless human seat, so nothing thinks unless a scenario says so
+	Int m_autoSkirmishTakeoverSlot;	///< -takeover <slot>: only that seat is driverless and the AI plays the rest; -1 for every seat
 	AsciiString m_autoSkirmishSide[ MAX_PLAYER_COUNT ];	///< -side <slot> <faction>: name that slot's faction instead of drawing it from the seed
 	Int m_autoSkirmishTeam[ MAX_PLAYER_COUNT ];	///< -team <slot> <n>: that slot's team, -1 for none; AUTO_SKIRMISH_TEAM_UNSET leaves it to -teams
 	AsciiString m_autoSkirmishSeatName[ MAX_PLAYER_COUNT ];	///< -seatname <slot> <name>: what that seat is called instead of its difficulty

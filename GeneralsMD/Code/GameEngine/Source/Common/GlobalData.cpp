@@ -716,6 +716,8 @@ GlobalData::GlobalData()
 	m_autoSkirmishAIState = SLOT_BRUTAL_AI;
 	m_autoSkirmishAIStateOdd = 0;		// 0 = not set: every slot plays at -aidiff
 	m_noTacticsSlotParity = -1;
+	m_aiKnobsOffParity = -1;
+	m_aiKnobsOffMask = 0;
 	m_autoSkirmishTeams = 0;				// 0 = not set: every slot fights every other slot
 	m_peaceTime = 0;								// no truce unless -peacetime asks for one
 	m_unitLimit = FALSE;						// no unit limit unless -unitlimit asks for one
@@ -755,6 +757,7 @@ GlobalData::GlobalData()
 	m_scenarioFile.clear(); // nothing is scripted; -scenario is a measuring tool and ruins the match it runs in
 	m_cinemaScript.clear(); // the interface is on and the camera belongs to the player
 	m_autoSkirmishTakeover = FALSE; // the AI plays the opponents unless -takeover empties their seats
+	m_autoSkirmishTakeoverSlot = -1;
 	for( Int slot = 0; slot < MAX_PLAYER_COUNT; slot++ )
 	{
 		m_autoSkirmishSide[ slot ].clear(); // every faction still comes out of the seed unless -side names one

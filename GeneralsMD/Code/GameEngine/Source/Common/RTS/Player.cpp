@@ -1661,6 +1661,19 @@ Bool Player::holdTeamForWave(Team *team, const AsciiString &approach, Int pathSu
 }
 
 //-------------------------------------------------------------------------------------------------
+Bool Player::gateTeamAttack(Team *team, const char *cause)
+{
+	return m_ai ? m_ai->gateTeamAttack(team, cause) : FALSE;
+}
+
+//-------------------------------------------------------------------------------------------------
+void Player::onUnitLost(const Object *obj)
+{
+	if (m_ai)
+		m_ai->onUnitLost(obj);
+}
+
+//-------------------------------------------------------------------------------------------------
 /** Do any bridges need repair, and if so repair them. */
 //-------------------------------------------------------------------------------------------------
 Bool Player::getAiBaseCenter(Coord3D *pos)

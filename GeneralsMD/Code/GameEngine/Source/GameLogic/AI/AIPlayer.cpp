@@ -122,15 +122,8 @@ static Bool observerKnowsAbout( const Object *obj, Int observerNdx )
 	* at nothing and did nothing at all.  Build cost is the fallback: always present, and a fair
 	* proxy - the data already prices a tank above a rifleman.
 	*/
-static Real aiCombatPower( const Object *obj )
+static Real templateCombatPower( const ThingTemplate *tmpl, const Player *owner )
 {
-	if( obj == NULL )
-		return 0.0f;
-
-	const ThingTemplate *tmpl = obj->getTemplate();
-	if( tmpl == NULL )
-		return 0.0f;
-
 	//
 	// Only what can shoot has any power in an exchange.  Cost as a proxy is only fair among things
 	// that fight: a war factory costs as much as a tank column and cannot fire a shot, and the
@@ -145,7 +138,15 @@ static Real aiCombatPower( const Object *obj )
 	if( threat > 0.0f )
 		return threat;
 
-	return INT_TO_REAL( tmpl->calcCostToBuild( obj->getControllingPlayer() ) );
+	return INT_TO_REAL( tmpl->calcCostToBuild( owner ) );
+}
+
+/** The same figure for a unit on the field. */
+static Real aiCombatPower( const Object *obj )
+{
+	if( obj == NULL || obj->getTemplate() == NULL )
+		return 0.0f;
+	return templateCombatPower( obj->getTemplate(), obj->getControllingPlayer() );
 }
 
 /** One of the map's own Player_N_Start waypoints, by 0-based position index.  Where the start
@@ -2612,6 +2613,155 @@ static void addToVisibleArmy( std::vector<AIVisibleEnemy> *army, const ThingTemp
 }
 
 //-------------------------------------------------------------------------------------------------
+/** How one army trades against another, unit against unit and money for money (aiArmyAdvantage). */
+//-------------------------------------------------------------------------------------------------
+static Real armyAdvantage( const std::vector<AIVisibleEnemy> &mine, const std::vector<AIVisibleEnemy> &theirs )
+{
+	if( mine.empty() || theirs.empty() )
+		return 1.0f;
+	std::vector<Real> myValue, theirValue, score;
+	for( size_t i = 0; i < mine.size(); ++i )
+		myValue.push_back( mine[ i ].m_weight );
+	for( size_t j = 0; j < theirs.size(); ++j )
+		theirValue.push_back( theirs[ j ].m_weight );
+	for( size_t i = 0; i < mine.size(); ++i )
+		for( size_t j = 0; j < theirs.size(); ++j )
+			score.push_back( aiMatchupScore( templateFramesToKill( mine[ i ].m_template, theirs[ j ].m_template ),
+				templateFramesToKill( theirs[ j ].m_template, mine[ i ].m_template ), mine[ i ].m_cost, theirs[ j ].m_cost ) );
+	return aiArmyAdvantage( &myValue[ 0 ], (Int)myValue.size(), &theirValue[ 0 ], (Int)theirValue.size(), &score[ 0 ] );
+}
+
+/** How often the ledger of seen enemies is brought up to date, and how long a unit nobody has seen is
+	* still believed in.  Three minutes is long enough for an army that walked back into the fog to be
+	* remembered when it walks out again, and short enough that one the AI never saw die is let go. */
+static const Int LEDGER_RATE = 2 * LOGICFRAMES_PER_SECOND;
+static const UnsignedInt LEDGER_FORGET_FRAMES = 180 * LOGICFRAMES_PER_SECOND;
+
+//-------------------------------------------------------------------------------------------------
+/** Write down every enemy unit in sight, and cross off the ones it has looked for and not found.  Only
+	* what observerKnowsAbout allows, so the ledger is what a player would know from his own screen. */
+//-------------------------------------------------------------------------------------------------
+void AIPlayer::rememberEnemies( void )
+{
+	const Int me = m_player->getPlayerIndex();
+	const UnsignedInt now = TheGameLogic->getFrame();
+	if( !isSkirmishAI() || (now + computeUpdatePhase( me, LEDGER_RATE )) % LEDGER_RATE != 0 )
+		return;
+
+	for( Int i = 0; i < ThePlayerList->getPlayerCount(); ++i )
+	{
+		Player *p = ThePlayerList->getNthPlayer( i );
+		if( p == NULL || p == m_player || m_player->getRelationship( p->getDefaultTeam() ) != ENEMIES )
+			continue;
+		for( Player::PlayerTeamList::const_iterator t = p->getPlayerTeams()->begin(); t != p->getPlayerTeams()->end(); ++t )
+		{
+			for( DLINK_ITERATOR<Team> iter = (*t)->iterate_TeamInstanceList(); !iter.done(); iter.advance() )
+			{
+				for( DLINK_ITERATOR<Object> objIter = iter.cur()->iterate_TeamMemberList(); !objIter.done(); objIter.advance() )
+				{
+					Object *obj = objIter.cur();
+					if( obj->isEffectivelyDead() || obj->isContained() || obj->isKindOf( KINDOF_STRUCTURE ) ||
+							obj->isKindOf( KINDOF_PROJECTILE ) || aiCombatPower( obj ) <= 0.0f || !observerKnowsAbout( obj, me ) )
+						continue;
+					SeenEnemy &row = m_seenEnemies[ obj->getID() ];
+					row.tmpl = obj->getTemplate();
+					row.owner = p->getPlayerIndex();
+					row.seen = now;
+					row.pos = *obj->getPosition();
+					row.stealth = obj->getStatusBits().test( OBJECT_STATUS_CAN_STEALTH );
+				}
+			}
+		}
+	}
+
+	for( std::map<ObjectID, SeenEnemy>::iterator it = m_seenEnemies.begin(); it != m_seenEnemies.end(); )
+	{
+		Bool forget = it->second.seen + LEDGER_FORGET_FRAMES <= now;
+		if( !forget && it->second.seen != now &&
+				ThePartitionManager->getShroudStatusForPlayer( me, &it->second.pos ) == CELLSHROUD_CLEAR )
+		{
+			// the ground it stood on is in sight and it is not there: gone, unless it still exists and only
+			// walked off, in which case it is somewhere in the fog still
+			const Object *obj = TheGameLogic->findObjectByID( it->first );
+			forget = obj == NULL || obj->isEffectivelyDead() || obj->getControllingPlayer()->getPlayerIndex() != it->second.owner;
+		}
+		if( forget )
+			m_seenEnemies.erase( it++ );
+		else
+			++it;
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The ledger as an army: one entry a kind of unit, weighed by what each is worth in a fight, in the
+	* order of the units' IDs. */
+//-------------------------------------------------------------------------------------------------
+void AIPlayer::rememberedArmy( std::vector<AIVisibleEnemy> *army ) const
+{
+	for( std::map<ObjectID, SeenEnemy>::const_iterator it = m_seenEnemies.begin(); it != m_seenEnemies.end(); ++it )
+	{
+		const Player *owner = ThePlayerList->getNthPlayer( it->second.owner );
+		addToVisibleArmy( army, it->second.tmpl, owner, templateCombatPower( it->second.tmpl, owner ) );
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** AI ENGAGE: something of ours sets off at the enemy.  What it is worth, what the enemy army it
+	* remembers is worth, and the two ratios a fight is decided by: money against money, and how the
+	* units fare against each other (armyAdvantage).  The cause says who sent it. */
+//-------------------------------------------------------------------------------------------------
+void AIPlayer::logEngage( const char *cause, const std::vector<Object *> &units )
+{
+	std::vector<AIVisibleEnemy> mine;
+	Real power = 0.0f;
+	for( std::vector<Object *>::const_iterator u = units.begin(); u != units.end(); ++u )
+	{
+		const Real p = aiCombatPower( *u );
+		if( (*u)->isEffectivelyDead() || p <= 0.0f )
+			continue;
+		power += p;
+		addToVisibleArmy( &mine, (*u)->getTemplate(), m_player, p );
+	}
+	if( mine.empty() )
+		return;
+	std::vector<AIVisibleEnemy> theirs;
+	rememberedArmy( &theirs );
+	Real theirPower = 0.0f;
+	for( std::vector<AIVisibleEnemy>::const_iterator k = theirs.begin(); k != theirs.end(); ++k )
+		theirPower += k->m_weight;
+	DEBUG_LOG(("AI ENGAGE frame %d player %d %s: %d units, %.0f power against %.0f remembered, cost %.2f matchup %.2f\n",
+		TheGameLogic->getFrame(), m_player->getPlayerIndex(), cause, (Int)units.size(), power, theirPower,
+		theirPower > 0.0f ? power / theirPower : 99.0f, armyAdvantage( mine, theirs )));
+}
+
+//-------------------------------------------------------------------------------------------------
+/** AI LOSS: one of a team's units died.  Straggling when two or more of its team are still alive and
+	* at most one of them stands within 300 of it: the unit that went in on its own, as against the last
+	* survivor of a lost fight, which dies alone whatever the AI did. */
+//-------------------------------------------------------------------------------------------------
+void AIPlayer::onUnitLost( const Object *obj )
+{
+	const Team *team = obj->getTeam();
+	if( !isSkirmishAI() || obj->isKindOf( KINDOF_STRUCTURE ) || team == NULL || team == m_player->getDefaultTeam() )
+		return;
+	const Real NEAR_SQR = 300.0f * 300.0f;
+	Int alive = 0;
+	Int beside = 0;		// not "near": windef.h makes that a macro
+	for( DLINK_ITERATOR<Object> m = team->iterate_TeamMemberList(); !m.done(); m.advance() )
+	{
+		const Object *mate = m.cur();
+		if( mate == obj || mate->isEffectivelyDead() || mate->isKindOf( KINDOF_STRUCTURE ) )
+			continue;
+		++alive;
+		if( sqr( mate->getPosition()->x - obj->getPosition()->x ) + sqr( mate->getPosition()->y - obj->getPosition()->y ) <= NEAR_SQR )
+			++beside;
+	}
+	DEBUG_LOG(("AI LOSS frame %d player %d '%s' of '%s' %s, %d teammates alive, %d within 300\n", TheGameLogic->getFrame(),
+		m_player->getPlayerIndex(), obj->getTemplate()->getName().str(), team->getName().str(),
+		alive < 2 ? "last" : (beside <= 1 ? "straggling" : "grouped"), alive, beside));
+}
+
+//-------------------------------------------------------------------------------------------------
 /** What a team prototype can answer, over every unit it is built from: each of its units against
 	* each kind of enemy unit in sight, both ways round, weighted by how much of the visible army that
 	* kind is and by how many of the unit the team fields. */
@@ -4119,6 +4269,34 @@ Bool AIPlayer::shouldHoldForMassing( TeamInQueue *team )
 	return aiShouldMass( waitingThreat, enemy.m_totalThreat, massFraction, timeExpired, baseUnderAttack );
 }
 
+/** A unit trained to top up a team that is out on the map walks to it on its own, across the map.
+	* Logged as an AI ENGAGE; with EngageGate it stays at home instead, where sendIdleAttackTeams calls
+	* it up with the next wave.  TRUE when it stays. */
+Bool AIPlayer::holdReinforcement( Object *obj )
+{
+	Team *team = obj->getTeam();
+	if( !isSkirmishAI() || team == NULL || team == m_player->getDefaultTeam() )
+		return FALSE;
+	const TeamTemplateInfo *info = team->getPrototype()->getTemplateInfo();
+	if( info->m_isBaseDefense || info->m_isPerimeterDefense )
+		return FALSE;
+	Bool away = FALSE;
+	for( DLINK_ITERATOR<Object> m = team->iterate_TeamMemberList(); !m.done(); m.advance() )
+		if( m.cur() != obj && !m.cur()->isEffectivelyDead() && !isAtHome( m.cur()->getPosition() ) )
+			away = TRUE;
+	if( !away )
+		return FALSE;		// the team is at home: joining it is a walk across the base
+	if( getSkillProfile()->m_engageGate && aiTeamAttacks( info ) )
+	{
+		DEBUG_LOG(("AI ENGAGE frame %d player %d keeps '%s' for '%s' at home for the next wave\n", TheGameLogic->getFrame(),
+			m_player->getPlayerIndex(), obj->getTemplate()->getName().str(), team->getName().str()));
+		return TRUE;
+	}
+	std::vector<Object *> units( 1, obj );
+	logEngage( "reinforce", units );
+	return FALSE;
+}
+
 void AIPlayer::checkReadyTeams( void )
 {
 	// See if any ready teams are gathered at their rally point
@@ -4189,7 +4367,7 @@ void AIPlayer::checkReadyTeams( void )
 				removeFrom_TeamReadyQueue(team);
 				if (team->m_reinforcement) {
 					Object *obj = TheGameLogic->findObjectByID(team->m_reinforcementID);
-					if (obj&&obj->getAIUpdateInterface()) {
+					if (obj&&obj->getAIUpdateInterface() && !holdReinforcement(obj)) {
 						obj->getAIUpdateInterface()->joinTeam();
 					}
 				} else {
@@ -4508,6 +4686,7 @@ void AIPlayer::update( void )
 	AI_PHASE( AIP_ECONOMY, doEconomy() );						// ... and the money sitting in the bank.
 	AI_PHASE( AIP_POWER,   doPower() );							// Keep the lights on, and out of reach.
 	AI_PHASE( AIP_ECONOMY, doSuperweapons() );			// The big guns, as soon as they can be bought.
+	AI_PHASE( AIP_WAVE,    rememberEnemies() );			// Write down the enemy army in sight.
 	AI_PHASE( AIP_WAVE,    doWaves() );							// Send the parked attack teams out together.
 	AI_PHASE( AIP_TACTICS, doTactics() );						// Fight each unit from where it is strongest.
 	AI_PHASE( AIP_TACTICS, doTransports() );				// Put the helicopters' riders down at the fight.
@@ -6760,17 +6939,37 @@ Bool aiTeamAttacks( const TeamTemplateInfo *info )
 	* production carries on, and doWaves sends everything parked out together.
 	*/
 //----------------------------------------------------------------------------------------------------------
-Bool AIPlayer::holdTeamForWave( Team *team, const AsciiString &approach, Int pathSuffix )
+/** Every living member of a team. */
+static void collectTeamUnits( Team *team, std::vector<Object *> *units )
+{
+	for( DLINK_ITERATOR<Object> iter = team->iterate_TeamMemberList(); !iter.done(); iter.advance() )
+		if( !iter.cur()->isEffectivelyDead() )
+			units->push_back( iter.cur() );
+}
+
+/** holdTeamForWave lets this team go as its script said: say so, and why. */
+Bool AIPlayer::refuseHold( Team *team, const char *why, Bool logIt )
+{
+	if( logIt )
+	{
+		std::vector<Object *> units;
+		collectTeamUnits( team, &units );
+		logEngage( why, units );
+	}
+	return FALSE;
+}
+
+Bool AIPlayer::holdTeamForWave( Team *team, const AsciiString &approach, Int pathSuffix, Bool logRefusal )
 {
 	// a base being hit keeps what its scripts would send out, on every rung, until the fight at home is over
 	if( team == NULL || !isSkirmishAI() )
 		return FALSE;
-	const Bool underAttack = isBaseUnderAttack();
-	if( !underAttack && !holdsTeamsForWaves() )
-		return FALSE;
 	const TeamTemplateInfo *info = team->getPrototype()->getTemplateInfo();
 	if( info->m_isBaseDefense || info->m_isPerimeterDefense )
 		return FALSE;
+	const Bool underAttack = isBaseUnderAttack();
+	if( !underAttack && !holdsTeamsForWaves() )
+		return refuseHold( team, "press", logRefusal );
 
 	Int freeSlot = -1;
 	Bool anyParked = FALSE;
@@ -6787,9 +6986,9 @@ Bool AIPlayer::holdTeamForWave( Team *team, const AsciiString &approach, Int pat
 		anyParked = TRUE;
 	}
 	if( freeSlot < 0 )
-		return FALSE;		// the staging point is full, so this one goes as the script said
+		return refuseHold( team, "full", logRefusal );		// the staging point is full, so this one goes as the script said
 	if( !underAttack && aiReleaseWaveAt( m_pressure, waitingPower( team, NULL ), WAVE_POWER, 0, WAVE_MAX_HOLD_FRAMES ) )
-		return FALSE;		// a wave on its own waits for nobody
+		return refuseHold( team, "alone", logRefusal );		// a wave on its own waits for nobody
 
 	m_heldUsed[ freeSlot ] = TRUE;
 	m_heldTeam[ freeSlot ] = team->getID();
@@ -6838,6 +7037,39 @@ Bool AIPlayer::holdTeamForWave( Team *team, const AsciiString &approach, Int pat
 	else
 		group->groupTightenToPosition( &staging, FALSE, CMD_FROM_AI );
 	return TRUE;
+}
+
+//----------------------------------------------------------------------------------------------------------
+/** A skirmish script sends a team hunting, or at an area.  Both go from wherever the team stands, on
+	* their own, the moment the script fires: a team just out of the factory walks across the map alone,
+	* past the wave parked at the staging point.  With EngageGate a team still mostly at home parks with
+	* that wave instead, and goes out with it. */
+//----------------------------------------------------------------------------------------------------------
+Bool AIPlayer::gateTeamAttack( Team *team, const char *cause )
+{
+	if( team == NULL || !isSkirmishAI() )
+		return FALSE;
+	const TeamTemplateInfo *info = team->getPrototype()->getTemplateInfo();
+	if( info->m_isBaseDefense || info->m_isPerimeterDefense )
+		return FALSE;
+	std::vector<Object *> units;
+	collectTeamUnits( team, &units );
+	if( units.empty() )
+		return FALSE;
+	Int home = 0;
+	for( std::vector<Object *>::const_iterator u = units.begin(); u != units.end(); ++u )
+		if( isAtHome( (*u)->getPosition() ) )
+			++home;
+	Player *enemy = getAiEnemy();
+	if( getSkillProfile()->m_engageGate && enemy && m_baseCenterSet && 2 * home >= (Int)units.size() &&
+			holdTeamForWave( team, AsciiString( "Center" ), enemy->getMpStartIndex() + 1, FALSE ) )
+	{
+		DEBUG_LOG(("AI ENGAGE frame %d player %d parks '%s' for the next wave instead of its script's %s\n",
+			TheGameLogic->getFrame(), m_player->getPlayerIndex(), team->getName().str(), cause));
+		return TRUE;
+	}
+	logEngage( cause, units );
+	return FALSE;
 }
 
 //----------------------------------------------------------------------------------------------------------
@@ -7042,6 +7274,7 @@ void AIPlayer::doWaves( void )
 	// and a rung that does not mass lets go the moment the fight at home is over
 	if( teams < MAX_HELD_TEAMS && holdsTeamsForWaves() && !aiReleaseWaveAt( m_pressure, power, WAVE_POWER, heldFrames, WAVE_MAX_HOLD_FRAMES ) )
 		return;
+	const char *cause = !holdsTeamsForWaves() ? "press" : teams >= MAX_HELD_TEAMS ? "full" : power >= WAVE_POWER ? "wave" : "timeout";
 
 	// a gunship still being filled holds the wave a little while its riders walk over or come out of
 	// the barracks.  Without the wait 13 of 15 bunkered Helixes left with nobody aboard: the riders
@@ -7122,10 +7355,10 @@ void AIPlayer::doWaves( void )
 			wave->remove( obj );
 			flankGroup->add( obj );
 		}
-		sendWave( flankGroup, flank, pathSuffix, teams, flankPower, heldFrames );
+		sendWave( flankGroup, flank, pathSuffix, teams, flankPower, heldFrames, cause );
 		power -= flankPower;
 	}
-	sendWave( wave, approach, pathSuffix, teams, power, heldFrames );
+	sendWave( wave, approach, pathSuffix, teams, power, heldFrames, cause );
 }
 
 //----------------------------------------------------------------------------------------------------------
@@ -7585,7 +7818,7 @@ void AIPlayer::buyGunshipChinook( void )
 }
 
 //----------------------------------------------------------------------------------------------------------
-void AIPlayer::sendWave( AIGroup *wave, const AsciiString &approach, Int pathSuffix, Int teams, Real power, UnsignedInt heldFrames )
+void AIPlayer::sendWave( AIGroup *wave, const AsciiString &approach, Int pathSuffix, Int teams, Real power, UnsignedInt heldFrames, const char *cause )
 {
 	Coord3D center;
 	wave->getCenter( &center );
@@ -7596,6 +7829,15 @@ void AIPlayer::sendWave( AIGroup *wave, const AsciiString &approach, Int pathSuf
 		m_player->getPlayerIndex(), teams, wave->getCount(), power, heldFrames / LOGICFRAMES_PER_SECOND, pathLabel.str()));
 	if( way == NULL )
 		return;
+	std::vector<Object *> units;
+	const VecObjectID &ids = wave->getAllIDs();
+	for( VecObjectID::const_iterator it = ids.begin(); it != ids.end(); ++it )
+	{
+		Object *obj = TheGameLogic->findObjectByID( *it );
+		if( obj )
+			units.push_back( obj );
+	}
+	logEngage( cause, units );
 
 	computeShuttleFront( way, wave );
 	wave->groupFollowWaypointPathAsTeam( way, CMD_FROM_AI );
@@ -7670,13 +7912,13 @@ void AIPlayer::sendIdleAttackTeams( void )
 
 			DEBUG_LOG(("AI WAVE frame %d player %d calls up '%s', %d units idle at home\n", TheGameLogic->getFrame(),
 				m_player->getPlayerIndex(), team->getName().str(), waiting));
-			if( holdTeamForWave( team, center, pathSuffix ) )
+			if( holdTeamForWave( team, center, pathSuffix, FALSE ) )
 				continue;
 			AIGroup *group = TheAI->createGroup();
 			const Real power = waitingPower( team, group );
 			Coord3D from;
 			group->getCenter( &from );
-			sendWave( group, chooseApproachLabel( &from, center, pathSuffix ), pathSuffix, 1, power, 0 );
+			sendWave( group, chooseApproachLabel( &from, center, pathSuffix ), pathSuffix, 1, power, 0, "calledup" );
 		}
 	}
 }
@@ -7732,6 +7974,7 @@ void AIPlayer::sendIdleUnitsHunting( void )
 	const Real reachSqr = sqr( 2.0f * m_baseRadius );
 	Int hunters = 0;
 	Int guards = 0;
+	std::vector<Object *> hunting;
 
 	for( Player::PlayerTeamList::const_iterator t = m_player->getPlayerTeams()->begin(); t != m_player->getPlayerTeams()->end(); ++t )
 	{
@@ -7770,14 +8013,18 @@ void AIPlayer::sendIdleUnitsHunting( void )
 					continue;
 				obj->getAI()->aiHunt( CMD_FROM_AI );
 				++hunters;
+				hunting.push_back( obj );
 				if( !attacks )
 					++guards;
 			}
 		}
 	}
 	if( hunters > 0 )
+	{
 		DEBUG_LOG(("AI WAVE frame %d player %d sends %d idle units hunting, %d of them off guard\n", TheGameLogic->getFrame(),
 			m_player->getPlayerIndex(), hunters, guards));
+		logEngage( "idlehunt", hunting );
+	}
 }
 
 //----------------------------------------------------------------------------------------------------------
@@ -11524,7 +11771,22 @@ AISkillLevel AIPlayer::skillLevelForDifficulty( GameDifficulty difficulty )
 //-------------------------------------------------------------------------------------------------
 const AIDifficultyProfile *AIPlayer::getSkillProfile( void ) const
 {
-	return TheAI->getDifficultyProfile( m_skillLevel );
+	const AIDifficultyProfile *profile = TheAI->getDifficultyProfile( m_skillLevel );
+	const Int parity = TheGlobalData->m_aiKnobsOffParity;
+	if( parity < 0 )
+		return profile;
+	// -aiknobsoff: a skirmish, or the playback of one given the switch again, as -notactics reads it
+	const Int originalMode = (TheRecorder && TheRecorder->getMode() == RECORDERMODETYPE_PLAYBACK)
+												 ? TheRecorder->getGameMode() : TheGameLogic->getGameMode();
+	if( originalMode != GAME_SKIRMISH ||
+			(parity != 2 && (ThePlayerList->getSlotIndex( m_player->getPlayerIndex() ) & 1) != parity) )
+		return profile;
+	m_measuredProfile = *profile;
+	const Int mask = TheGlobalData->m_aiKnobsOffMask;
+	if( mask & AIKNOB_ENGAGE_GATE )	m_measuredProfile.m_engageGate = FALSE;
+	if( mask & AIKNOB_ANSWER_ARMY )	m_measuredProfile.m_answerArmy = FALSE;
+	if( mask & AIKNOB_MASS_UNIT )		m_measuredProfile.m_massUnit = FALSE;
+	return &m_measuredProfile;
 }
 
 
@@ -11661,7 +11923,7 @@ void AIPlayer::xfer( Xfer *xfer )
 {
 
 	// version
-	XferVersion currentVersion = 16;		// 2: scout  3: rung and role  4: scouting stamps  5: the capturer  6: parked waves  7: superweapon aims  8: the hijacker  9: tactical steps  10: the ferry and dropped riders  11: the outward placement ring  12: the pressure level  13: falling back  14: gunship Chinooks and the boarding wait  15: transport Chinooks and the lent one  16: healer and raider Helixes
+	XferVersion currentVersion = 17;		// 2: scout  3: rung and role  4: scouting stamps  5: the capturer  6: parked waves  7: superweapon aims  8: the hijacker  9: tactical steps  10: the ferry and dropped riders  11: the outward placement ring  12: the pressure level  13: falling back  14: gunship Chinooks and the boarding wait  15: transport Chinooks and the lent one  16: healer and raider Helixes  17: the seen-enemy ledger
 	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
 
@@ -11976,6 +12238,45 @@ void AIPlayer::xfer( Xfer *xfer )
 			xfer->xferObjectID( &duty.target );
 			xfer->xferCoord3D( &duty.spot );
 			xfer->xferReal( &duty.targetHealth );
+		}
+	}
+	// the enemy units it has seen, so a loaded game remembers the army that went back into the fog
+	if( version >= 17 )
+	{
+		UnsignedShort seen = (UnsignedShort)m_seenEnemies.size();
+		xfer->xferUnsignedShort( &seen );
+		if( xfer->getXferMode() == XFER_SAVE )
+		{
+			for( std::map<ObjectID, SeenEnemy>::iterator it = m_seenEnemies.begin(); it != m_seenEnemies.end(); ++it )
+			{
+				ObjectID id = it->first;
+				AsciiString name = it->second.tmpl->getName();
+				xfer->xferObjectID( &id );
+				xfer->xferAsciiString( &name );
+				xfer->xferInt( &it->second.owner );
+				xfer->xferUnsignedInt( &it->second.seen );
+				xfer->xferCoord3D( &it->second.pos );
+				xfer->xferBool( &it->second.stealth );
+			}
+		}
+		else
+		{
+			m_seenEnemies.clear();
+			for( UnsignedShort i = 0; i < seen; ++i )
+			{
+				ObjectID id;
+				AsciiString name;
+				SeenEnemy row;
+				xfer->xferObjectID( &id );
+				xfer->xferAsciiString( &name );
+				xfer->xferInt( &row.owner );
+				xfer->xferUnsignedInt( &row.seen );
+				xfer->xferCoord3D( &row.pos );
+				xfer->xferBool( &row.stealth );
+				row.tmpl = TheThingFactory->findTemplate( name, FALSE );
+				if( row.tmpl )
+					m_seenEnemies[ id ] = row;
+			}
 		}
 	}
 

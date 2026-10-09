@@ -11062,6 +11062,35 @@ TEST(matchup_score_is_money_for_money)
 	CHECK_NEAR( 0.625f, faster, 0.00001f );
 }
 
+/** The exchange between two mixed armies: the value-weighted mean of their pairings, as an advantage. */
+TEST(army_advantage_weighs_the_mix)
+{
+	// one kind a side, an even pairing: an even trade
+	const Real even = 0.5f;
+	const Real one = 1000.0f;
+	CHECK_NEAR( 1.0f, aiArmyAdvantage( &one, 1, &one, 1, &even ), 0.0001f );
+
+	// four times better reads as three, and the other side of it as a third
+	const Real better = 0.75f;
+	const Real worse = 0.25f;
+	CHECK_NEAR( 3.0f, aiArmyAdvantage( &one, 1, &one, 1, &better ), 0.0001f );
+	CHECK_NEAR( 1.0f / 3.0f, aiArmyAdvantage( &one, 1, &one, 1, &worse ), 0.0001f );
+
+	// nothing to hurt, or nothing to hurt it with, saturates at sixteen either way
+	const Real none = 0.0f;
+	const Real all = 1.0f;
+	CHECK_NEAR( 16.0f, aiArmyAdvantage( &one, 1, &one, 1, &all ), 0.0001f );
+	CHECK_NEAR( 1.0f / 16.0f, aiArmyAdvantage( &one, 1, &one, 1, &none ), 0.0001f );
+
+	// an empty side is no exchange
+	CHECK_NEAR( 1.0f, aiArmyAdvantage( &one, 1, NULL, 0, NULL ), 0.0001f );
+
+	// two kinds of mine against one of theirs: the dearer kind weighs three times as much
+	const Real mine[ 2 ] = { 3000.0f, 1000.0f };
+	const Real scores[ 2 ] = { 0.75f, 0.25f };		// (0.75 * 3 + 0.25) / 4 = 0.625
+	CHECK_NEAR( 0.625f / 0.375f, aiArmyAdvantage( mine, 2, &one, 1, scores ), 0.0001f );
+}
+
 
 /** C1's arithmetic: the ratio of how long a force lasts to how long it needs to finish what is
 	 shooting at it.  The word "retreat" did not appear anywhere in the AI before this - teams fought
