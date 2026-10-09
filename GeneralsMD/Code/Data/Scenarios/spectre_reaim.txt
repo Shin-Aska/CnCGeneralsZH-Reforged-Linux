@@ -1,0 +1,15 @@
+# Spectre Gunship re-aimed twice with the right click. Called on the town crossroads of Alpine
+# Assault (1310,1290), moved at frame 360 to the rail yard (760,920), where four Battlemasters
+# stand 60 units off the click, then at frame 520 to the street at 1100,1500. The SPECTRE line of
+# each re-aim is in the log; the orbit opens around frame 300 and closes 450 frames later.
+#
+#   generals.exe -headless -quickstart -noshellmap -observer -multiInstance -noFPSLimit
+#     -map "Maps\Alpine Assault\Alpine Assault.map" -autoskirmish 2 -takeover
+#     -side 0 FactionAmerica -side 1 FactionChina -seed 1 -maxframes 900
+#     -scenario spectre_reaim -logPrefix spectre_
+10    spawn      0  AmericaCommandCenter     1   start0:240:60
+10    spawn      1  ChinaTankBattleMaster    4   800 980  30
+20    power      0  AmericaCommandCenter     1310 1290  SuperweaponSpectreGunship
+360   reaim      0  AmericaJetSpectreGunship  760 920
+520   reaim      0  AmericaJetSpectreGunship  1100 1500
+880   tally      1  ChinaTankBattleMaster

@@ -299,7 +299,18 @@ void SpectreGunshipUpdate::setSpecialPowerOverridableDestination( const Coord3D 
 	Object *me = getObject();
 	if( !me->isDisabled() )
 	{
-		m_overrideTargetDestination = *loc; 
+		// The new aim is the new centre: the orbit, the attack area and the wide acquire all follow it,
+		// where EA kept them on the first click and clamped every later one to 175 units of it.
+		Region3D mapRegion;
+		TheTerrainLogic->getExtent( &mapRegion );
+		Coord3D aim = *loc;
+		aim.x = min( mapRegion.hi.x, max( mapRegion.lo.x, aim.x ) );
+		aim.y = min( mapRegion.hi.y, max( mapRegion.lo.y, aim.y ) );
+		m_overrideTargetDestination = aim;
+		m_initialTargetPosition = aim;
+		m_positionToShootAt = aim;
+		DEBUG_LOG(("SPECTRE: frame %d gunship %d re-aimed at (%.0f,%.0f)\n",
+			TheGameLogic->getFrame(), (Int)me->getID(), aim.x, aim.y));
 
 		if( me->getControllingPlayer()  &&  me->getControllingPlayer()->isLocalPlayer() )
 		{
@@ -450,22 +461,6 @@ UpdateSleepTime SpectreGunshipUpdate::update()
            shipAI->aiMoveToPosition( &m_satellitePosition, CMD_FROM_AI ); 
         }
 
-        Real constraintRadius = data->m_attackAreaRadius - data->m_targetingReticleRadius;
-
-        //Constrain Target Override to the targeting radius
-        Coord3D overrideTargetDelta = m_initialTargetPosition;
-        overrideTargetDelta.sub( &m_overrideTargetDestination );
-        if ( overrideTargetDelta.length() > constraintRadius )
-        {
-          overrideTargetDelta.normalize();
-          overrideTargetDelta.x *= constraintRadius;
-          overrideTargetDelta.y *= constraintRadius; 
-
-          m_overrideTargetDestination.x = m_initialTargetPosition.x - overrideTargetDelta.x;
-          m_overrideTargetDestination.y = m_initialTargetPosition.y - overrideTargetDelta.y;
-
-        }
-
         m_attackAreaDecal.setPosition( m_initialTargetPosition );
         m_targetingReticleDecal.setPosition( m_overrideTargetDestination );
 
@@ -558,9 +553,8 @@ UpdateSleepTime SpectreGunshipUpdate::update()
             
 
 
-            // WE WANT THE WIDE_RANGE AUTOACQUIRE POWER DISABLED FOR HUMAN PLAYERS 
-            // SO THAT THE SPECTREGUNSHIP REQUIRES BABYSITTING AT ALL TIMES
-            if (gunship->getControllingPlayer()->getPlayerType() != PLAYER_HUMAN )
+            // EA kept this wide acquire from human players so the gunship needed babysitting, which
+            // left it hosing the empty reticle while enemies stood beside it. Everyone gets it now.
             {
               if ( ! validTargetObject )
               {
@@ -612,7 +606,6 @@ UpdateSleepTime SpectreGunshipUpdate::update()
                 attackPositionWithRandomOffset.y = m_gattlingTargetPosition.y + GameLogicRandomValue( -offs, offs );
                 attackPositionWithRandomOffset.z = m_gattlingTargetPosition.z;
 	              TheWeaponStore->createAndFireTempWeapon( wt, gunship, &attackPositionWithRandomOffset );
-
                 m_howitzerFireSound.setObjectID(gunship->getID());
                 TheAudio->addAudioEvent( &m_howitzerFireSound );
 
@@ -629,22 +622,20 @@ UpdateSleepTime SpectreGunshipUpdate::update()
           // GATTLING TARGETING LOGIC------------------------------------------
 				  // TheSuperHackers @fix A missing client-side particle template used to switch off the
 				  // gattling's aiming and its howitzer counter, which are logic state and CRC'd.
-				  if (gattling && gattling->testStatus( OBJECT_STATUS_IS_FIRING_WEAPON) )
+				  // The aim walks toward the next good spot whether or not the gun is firing: EA's walked only
+				  // while it fired, so a re-aim beyond the gun's reach left it stuck on the old spot for good.
+				  // The howitzer still waits for the gattling to have plinked the spot.
+				  Bool gattlingFiring = gattling && gattling->testStatus( OBJECT_STATUS_IS_FIRING_WEAPON );
+				  if (gattling)
 				  {
-
-
-
-            // I am going to wind my gattling gun toward the next good spot,
-            //whether an object's position or a cursor position
-
-
             Coord3D delta = m_positionToShootAt;
             delta.sub( &m_gattlingTargetPosition );
             Real dist = delta.length();
             if ( dist < data->m_strafingIncrement )
             {
               m_gattlingTargetPosition = m_positionToShootAt;
-              ++m_okToFireHowitzerCounter;
+              if ( gattlingFiring )
+                ++m_okToFireHowitzerCounter;
             }
             else
             {
@@ -653,6 +644,10 @@ UpdateSleepTime SpectreGunshipUpdate::update()
               delta.scale( data->m_strafingIncrement );
               m_gattlingTargetPosition.add( &delta );
             }
+				  }
+
+				  if (gattlingFiring)
+				  {
 
 			
 			const Player *localPlayer = ThePlayerList->getLocalPlayer();

@@ -219,6 +219,8 @@ static Bool parseActionType( const AsciiString &token, ScenarioActionType *actio
 		*action = SCENARIO_ACTION_WEAPONAT;
 	else if (token == "forceground")
 		*action = SCENARIO_ACTION_FORCEGROUND;
+	else if (token == "reaim")
+		*action = SCENARIO_ACTION_REAIM;
 	else if (token == "respond")
 		*action = SCENARIO_ACTION_RESPOND;
 	else
@@ -305,6 +307,7 @@ static Int tokensNeededFor( ScenarioActionType action )
 		case SCENARIO_ACTION_CONSTRUCT:		return SCENARIO_TOKENS_MOVE;
 		case SCENARIO_ACTION_WEAPONAT:		return SCENARIO_TOKENS_MOVE;
 		case SCENARIO_ACTION_FORCEGROUND:	return SCENARIO_TOKENS_MOVE;
+		case SCENARIO_ACTION_REAIM:				return SCENARIO_TOKENS_MOVE;
 		case SCENARIO_ACTION_RESPOND:			return SCENARIO_TOKENS_MOVE;
 		case SCENARIO_ACTION_STANCE:			return SCENARIO_TOKENS_STANCE;
 		case SCENARIO_ACTION_SHIFTATTACK:	return SCENARIO_TOKENS_ATTACK;
@@ -390,6 +393,7 @@ ScenarioParseResult ScenarioDrill_parseLine( const char *line, ScenarioAction *a
 		case SCENARIO_ACTION_CONSTRUCT:
 		case SCENARIO_ACTION_WEAPONAT:
 		case SCENARIO_ACTION_FORCEGROUND:
+		case SCENARIO_ACTION_REAIM:
 		case SCENARIO_ACTION_RESPOND:
 		{
 			Int next = SCENARIO_ORDER_POSITION_TOKEN;
@@ -1606,6 +1610,21 @@ static Bool executeOrder( const ScenarioAction &action, Player *player, const Co
 			TheGameLogic->logicMessageDispatcher( msg, group );
 			msg->deleteInstance();
 			DEBUG_LOG(("SCENARIO: frame %d forceground slot %d '%s' x%d at (%.0f,%.0f)\n",
+								 action.frame, action.slot, action.selector.str(), taken, dest.x, dest.y));
+			return TRUE;
+		}
+
+		case SCENARIO_ACTION_REAIM:
+		{
+			// the right click CommandXlat sends while a power's aim can be moved; the dispatcher destroys the group
+			GameMessage *msg = newInstance( GameMessage )( GameMessage::MSG_DO_SPECIAL_POWER_OVERRIDE_DESTINATION );
+			msg->friend_setPlayerIndex( player->getPlayerIndex() );
+			msg->appendLocationArgument( dest );
+			msg->appendIntegerArgument( SPECIAL_INVALID );
+			msg->appendObjectIDArgument( INVALID_ID );
+			TheGameLogic->logicMessageDispatcher( msg, group );
+			msg->deleteInstance();
+			DEBUG_LOG(("SCENARIO: frame %d reaim slot %d '%s' x%d at (%.0f,%.0f)\n",
 								 action.frame, action.slot, action.selector.str(), taken, dest.x, dest.y));
 			return TRUE;
 		}
