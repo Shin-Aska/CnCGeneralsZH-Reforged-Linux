@@ -299,18 +299,10 @@ void SpectreGunshipUpdate::setSpecialPowerOverridableDestination( const Coord3D 
 	Object *me = getObject();
 	if( !me->isDisabled() )
 	{
-		// The new aim is the new centre: the orbit, the attack area and the wide acquire all follow it,
-		// where EA kept them on the first click and clamped every later one to 175 units of it.
-		Region3D mapRegion;
-		TheTerrainLogic->getExtent( &mapRegion );
-		Coord3D aim = *loc;
-		aim.x = min( mapRegion.hi.x, max( mapRegion.lo.x, aim.x ) );
-		aim.y = min( mapRegion.hi.y, max( mapRegion.lo.y, aim.y ) );
-		m_overrideTargetDestination = aim;
-		m_initialTargetPosition = aim;
-		m_positionToShootAt = aim;
-		DEBUG_LOG(("SPECTRE: frame %d gunship %d re-aimed at (%.0f,%.0f)\n",
-			TheGameLogic->getFrame(), (Int)me->getID(), aim.x, aim.y));
+		// The orbit stays on the area the gunship was called to; update() clamps this aim inside it.
+		m_overrideTargetDestination = *loc;
+		DEBUG_LOG(("SPECTRE: frame %d gunship %d re-aimed at (%.0f,%.0f), area (%.0f,%.0f)\n",
+			TheGameLogic->getFrame(), (Int)me->getID(), loc->x, loc->y, m_initialTargetPosition.x, m_initialTargetPosition.y));
 
 		if( me->getControllingPlayer()  &&  me->getControllingPlayer()->isLocalPlayer() )
 		{
@@ -458,7 +450,23 @@ UpdateSleepTime SpectreGunshipUpdate::update()
    
         if ( shipAI)
         {
-           shipAI->aiMoveToPosition( &m_satellitePosition, CMD_FROM_AI ); 
+           shipAI->aiMoveToPosition( &m_satellitePosition, CMD_FROM_AI );
+        }
+
+        Real constraintRadius = data->m_attackAreaRadius - data->m_targetingReticleRadius;
+
+        //Constrain Target Override to the targeting radius
+        Coord3D overrideTargetDelta = m_initialTargetPosition;
+        overrideTargetDelta.sub( &m_overrideTargetDestination );
+        if ( overrideTargetDelta.length() > constraintRadius )
+        {
+          overrideTargetDelta.normalize();
+          overrideTargetDelta.x *= constraintRadius;
+          overrideTargetDelta.y *= constraintRadius;
+
+          m_overrideTargetDestination.x = m_initialTargetPosition.x - overrideTargetDelta.x;
+          m_overrideTargetDestination.y = m_initialTargetPosition.y - overrideTargetDelta.y;
+
         }
 
         m_attackAreaDecal.setPosition( m_initialTargetPosition );
@@ -605,8 +613,7 @@ UpdateSleepTime SpectreGunshipUpdate::update()
                 attackPositionWithRandomOffset.x = m_gattlingTargetPosition.x + GameLogicRandomValue( -offs, offs );
                 attackPositionWithRandomOffset.y = m_gattlingTargetPosition.y + GameLogicRandomValue( -offs, offs );
                 attackPositionWithRandomOffset.z = m_gattlingTargetPosition.z;
-	              TheWeaponStore->createAndFireTempWeapon( wt, gunship, &attackPositionWithRandomOffset );
-                m_howitzerFireSound.setObjectID(gunship->getID());
+	              TheWeaponStore->createAndFireTempWeapon( wt, gunship, &attackPositionWithRandomOffset );                m_howitzerFireSound.setObjectID(gunship->getID());
                 TheAudio->addAudioEvent( &m_howitzerFireSound );
 
               }
