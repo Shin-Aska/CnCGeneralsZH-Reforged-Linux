@@ -2945,6 +2945,17 @@ void ControlBar::shutdownWindows( void )
 
 }  // end shutdownWindows
 
+/** The painted promotion screen's own draw, and the battlefield and bar dimmed under it the way the
+	* Reforged page dims them (Promotion.html, .dim); the page takes the draw over in Reforged. */
+static GameWinDrawFunc theClassicPromotionDraw = NULL;
+
+static void drawClassicPromotionScreen( GameWindow *window, WinInstanceData *instData )
+{
+	enum { DIM_ALPHA = 166 };	///< rgba(0, 0, 0, 0.65)
+	TheDisplay->drawFillRect( 0, 0, TheDisplay->getWidth(), TheDisplay->getHeight(), GameMakeColor( 0, 0, 0, DIM_ALPHA ) );
+	theClassicPromotionDraw( window, instData );
+}
+
 //-------------------------------------------------------------------------------------------------
 /** Look up every window the bar drives, and lay the bar out.  Re-callable: a resolution change
 	* rebuilds ControlBar.wnd and then calls this instead of replacing the whole ControlBar. */
@@ -2987,6 +2998,8 @@ void ControlBar::initWindows( void )
 		id = TheNameKeyGenerator->nameToKey( "GeneralsExpPoints.wnd:GenExpParent" );
 
 		m_contextParent[ CP_PURCHASE_SCIENCE ] = TheWindowManager->winGetWindowFromId( NULL, id );//m_scienceLayout->getFirstWindow();
+		theClassicPromotionDraw = m_contextParent[ CP_PURCHASE_SCIENCE ]->winGetDrawFunc();
+		m_contextParent[ CP_PURCHASE_SCIENCE ]->winSetDrawFunc( drawClassicPromotionScreen );
 
 		id = TheNameKeyGenerator->nameToKey( "ControlBar.wnd:UnderConstructionWindow" );
 		m_contextParent[ CP_UNDER_CONSTRUCTION ] = TheWindowManager->winGetWindowFromId( NULL, id );
