@@ -613,6 +613,17 @@ protected:
 		Bool				stealth;		///< it can go invisible
 	};
 	std::map<ObjectID, SeenEnemy> m_seenEnemies;
+	void answerArmy(void);	///< train the answer to the biggest part of the remembered enemy army nothing of ours answers
+
+	/** The fist: one unit picked because the army it remembers has no answer to it, built from the idle
+		* factories, held together at the staging point and sent as one. */
+	void doMass(void);
+	const ThingTemplate *pickMassUnit(const std::vector<AIVisibleEnemy> &army, Real *efficiency) const;
+	Bool isMassUnit(ObjectID id) const;
+	const ThingTemplate	*m_massTemplate;	///< NULL while no unit is picked
+	UnsignedInt					m_massPickFrame;	///< when it was picked, or dropped; 0 for never
+	UnsignedInt					m_massSince;			///< when the first of the fist now waiting joined it
+	std::vector<ObjectID>	m_massUnits;	///< the fist so far, in the order they came out
 	AIPressure	m_pressure;
 	Real				m_knownEnemyPower;								///< his army as this AI believes it: what is in sight at least, less for each look at his base that does not find it, more for each look not taken
 	Int					m_pressureEnemy;									///< the player index that figure is about, -1 for nobody yet
@@ -656,7 +667,8 @@ protected:
 	void leaveTacticsAlone(ObjectID unit);
 	Bool isFallingBack(ObjectID unit);		///< holding at a safe spot after a lost fight, for doRetreats to send back
 	void measureFight(const Coord3D *centre, Bool countHolders, Real *myHealth, Real *myPower,
-		Real *enemyHealth, Real *enemyPower, std::vector<Real> *enemyGuns);
+		Real *enemyHealth, Real *enemyPower, std::vector<Real> *enemyGuns, Real *advantage = NULL);
+	Real fightRatio(const Coord3D *centre, Bool countHolders, Real *enemyHealth, Real *enemyPower, std::vector<Real> *enemyGuns);	///< the exchange around centre, by the units in it when the rung weighs them
 	Bool doFallback(Team *team);		///< TRUE when it sent the team's holders back or home on this pass
 	void stepCalmly(Object *obj, TacticalStep *step, const Coord3D *spot);	///< a move the unit's mood cannot turn into an attack move
 	void restoreMood(Object *obj, TacticalStep *step);

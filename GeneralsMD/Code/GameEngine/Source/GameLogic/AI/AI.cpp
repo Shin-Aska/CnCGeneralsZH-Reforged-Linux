@@ -1101,12 +1101,19 @@ Real AI::getAdjustedVisionRangeForObject(const Object *object, Int factorsToCons
 	* expansions, extra buildings and tactical fighting stay on Hard, and the two measured columns
 	* above were left where the matches put them.
 	*
+	* gate, answer and massU came in on 2026-10-09 and none of them moved Hard against Hard: over 24
+	* matches a condition on Twilight Flame, Winter Wolf and Tournament Desert, a side with all three
+	* won 5 where the side without won 4, at the same value lost for value killed.  Against the
+	* overlordrush scenario gate and answer together cut the sends into a fight the matchup loses
+	* from 48% to 40% and stragglers from 17% to 14% of deaths; massU on top shortened the matches
+	* and lost more for what it killed (0.70 against 0.64), so it stays off until it earns its place.
+	*
 	*                      scoutS maxSc decis  cntr  mass   ttk  indiv team infl focus save harv expand guard hoard econ micro  gate  answer massU */
 static const AIDifficultyProfile s_defaultSkillLadder[ AISKILL_COUNT ] =
 {
 	/* Easy      */ { 75.0f, 1,  7.0f,  0.00f, FALSE, 0.00f, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE,  FALSE, FALSE,     0, FALSE, FALSE, FALSE, FALSE, FALSE },
 	/* Medium    */ { 45.0f, 1,  3.0f,  0.50f, FALSE, 0.35f, TRUE,  FALSE, FALSE, TRUE,  TRUE,  TRUE,  TRUE,  FALSE,  6000, FALSE, FALSE, FALSE, FALSE, FALSE },
-	/* Brutal    */ { 25.0f, 2,  1.5f,  1.00f, TRUE,  0.50f, TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,   4000, TRUE,  TRUE,  FALSE, FALSE, FALSE }
+	/* Brutal    */ { 25.0f, 2,  1.5f,  1.00f, TRUE,  0.50f, TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,   4000, TRUE,  TRUE,  TRUE,  TRUE,  FALSE }
 };
 
 //-------------------------------------------------------------------------------------------------

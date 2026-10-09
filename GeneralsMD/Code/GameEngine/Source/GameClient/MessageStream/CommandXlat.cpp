@@ -4161,11 +4161,7 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 			m_mouseRightUp = (UnsignedInt) msg->getArgument( 2 )->integer;
 
 			// a structure waiting to be placed is dropped by the same release, over in
-			// SelectionXlat, unless the release ended a pan.  Classic drops it here on a click, as 1.04
-			// did, which is also what takes a shortcut bar's sneak attack off the cursor.
-			if( TheGlobalData->isClassicUI()
-					&& TheMouse->isClick( &m_mouseRightDragAnchor, &m_mouseRightDragLift, NULL, NULL, m_mouseRightDown, m_mouseRightUp ) )
-				TheInGameUI->placeBuildAvailable( NULL, NULL );
+			// SelectionXlat, unless the release ended a pan
 
 			break;
 		}
