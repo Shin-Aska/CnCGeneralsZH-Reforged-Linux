@@ -42,6 +42,7 @@
 #include "Common/ThingFactory.h"
 #include "Common/PlayerList.h"
 #include "Common/Recorder.h"
+#include "Common/ResourceGatheringManager.h"
 #include "Common/BuildAssistant.h"
 #include "Common/ThingTemplate.h"
 #include "Common/TunnelTracker.h"
@@ -618,8 +619,9 @@ void AIPlayer::checkForSupplyCenter( BuildListInfo *info, Object *bldg )
 	}
 }
 
-/** A warehouse with boxes left, not an enemy's, within reach of this supply center.  Any of them:
-	* this asked the nearest one only, and an emptied pile hid the full one behind it. */
+/** A warehouse with boxes left, not an enemy's and not beside another player's center, within reach
+	* of this supply center.  Any of them: this asked the nearest one only, and an emptied pile hid the
+	* full one behind it. */
 static Bool hasSuppliesNear( Player *player, const Object *supplyCenter, Real reach )
 {
 	Real radius = reach + supplyCenter->getGeometryInfo().getBoundingCircleRadius();
@@ -637,7 +639,8 @@ static Bool hasSuppliesNear( Player *player, const Object *supplyCenter, Real re
 		SupplyWarehouseDockUpdate *warehouseModule = (SupplyWarehouseDockUpdate*)supplySource->findUpdateModule( key_warehouseUpdate );
 		if (!warehouseModule) return TRUE;
 		if (warehouseModule->getBoxesStored()*TheGlobalData->m_baseValuePerSupplyBox > 0 &&
-				player->getRelationship(supplySource->getTeam()) != ENEMIES) return TRUE;
+				player->getRelationship(supplySource->getTeam()) != ENEMIES &&
+				!ResourceGatheringManager::isPileOfAnotherPlayer(player, supplySource)) return TRUE;
 	}
 	return FALSE;
 }
