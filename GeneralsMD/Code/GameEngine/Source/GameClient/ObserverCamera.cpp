@@ -542,26 +542,67 @@ Bool ObserverCamera_holdSplit( Bool split, Real firstHeat, Real secondHeat, Real
 }
 
 //-------------------------------------------------------------------------------------------------
-/** Two panes are one diagonal, its upper left half the radar's; four are an X.  The others add rays to
-	* the X, the bottom first: three is a Y, the top wedge and two halves below; five is the X with the
-	* bottom wedge halved; six halves the top wedge as well; seven adds the right half of the level
-	* line, and eight is every 45 degrees. */
+/** How much of a picture half w wide and half h high round its middle a ray sweeping counterclockwise
+	* from 0 has covered by angle degrees.  In each quarter the swept part is a triangle against the near
+	* side until the ray reaches the corner, and the whole quarter less a triangle against the far side
+	* after; the quarters that start upright are the same with the sides swapped. */
 //-------------------------------------------------------------------------------------------------
-Int ObserverCamera_paneLayout( Int count, Real *rays )
+static Real sweptArea( Real angle, Real halfWidth, Real halfHeight )
+{
+	const Int quarter = min( (Int)( angle / 90.0f ), 3 );
+	const Real within = ( angle - quarter * 90.0f ) * PI / 180.0f;
+	const Real along = quarter % 2 == 0 ? halfWidth : halfHeight;
+	const Real across = quarter % 2 == 0 ? halfHeight : halfWidth;
+	Real part;
+	if( within <= atan2f( across, along ) )
+		part = 0.5f * along * along * tanf( within );
+	else
+		part = along * across - 0.5f * across * across * tanf( PI * 0.5f - within );
+	return quarter * halfWidth * halfHeight + part;
+}
+
+//-------------------------------------------------------------------------------------------------
+Real ObserverCamera_angleForShare( Real share, Int width, Int height )
+{
+	const Real halfWidth = width * 0.5f;
+	const Real halfHeight = height * 0.5f;
+	const Real wanted = share * 4.0f * halfWidth * halfHeight;
+	Real low = 0.0f;
+	Real high = 360.0f;
+	for( Int step = 0; step < 40; step++ )
+	{
+		const Real tried = ( low + high ) * 0.5f;
+		if( sweptArea( tried, halfWidth, halfHeight ) < wanted )
+			low = tried;
+		else
+			high = tried;
+	}
+	return ( low + high ) * 0.5f;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Each layout is where its rays would stand on a round picture, where angle and area are one; on the
+	* real picture each ray goes where it covers the same share of it.  Two panes are the diagonal
+	* corner to corner, its upper left half the radar's; four are both diagonals.  Three is a Y, the top
+	* wedge and two below; the odd counts keep a ray straight down, the even ones a pair of opposite
+	* rays.  At a fixed 45 degrees a 16:9 Y gave its top pane 14% of the picture and each of the others
+	* 43%; every pane now has its share, a third of it for three. */
+//-------------------------------------------------------------------------------------------------
+Int ObserverCamera_paneLayout( Int count, Real *rays, Int width, Int height )
 {
 	static const Real two[] = { 45, 225 };
-	static const Real three[] = { 45, 135, 270 };
+	static const Real three[] = { 30, 150, 270 };
 	static const Real four[] = { 45, 135, 225, 315 };
-	static const Real five[] = { 45, 135, 225, 270, 315 };
-	static const Real six[] = { 45, 90, 135, 225, 270, 315 };
-	static const Real seven[] = { 0, 45, 90, 135, 225, 270, 315 };
+	static const Real five[] = { 54, 126, 198, 270, 342 };
+	static const Real six[] = { 30, 90, 150, 210, 270, 330 };
+	static const Real seven[] = { 12.857f, 64.286f, 115.714f, 167.143f, 218.571f, 270, 321.429f };
 	static const Real eight[] = { 0, 45, 90, 135, 180, 225, 270, 315 };
 	static const Real *layouts[] = { two, three, four, five, six, seven, eight };
 	if( count < 2 )
 		return 0;
 	count = min( count, (Int)OBSERVER_MOST_PANES );
 	for( Int ray = 0; ray < count; ray++ )
-		rays[ ray ] = layouts[ count - 2 ][ ray ];
+		rays[ ray ] = ObserverCamera_angleForShare( layouts[ count - 2 ][ ray ] / 360.0f, width, height );
 	return count;
 }
 
@@ -1963,7 +2004,7 @@ void ObserverCamera::measureScreenGround( void )
 	m_screenGround = sqrtf( dx * dx + dy * dy );
 
 	Real rays[ OBSERVER_MOST_PANES ];
-	const Int count = ObserverCamera_paneLayout( 2, rays );
+	const Int count = ObserverCamera_paneLayout( 2, rays, width, height );
 	Coord2D centres[ OBSERVER_MOST_PANES ];
 	Real radii[ OBSERVER_MOST_PANES ];
 	ObserverCamera_paneCircles( rays, count, width, height, m_radarHalf, m_broadcastTop, centres, radii );
@@ -2141,7 +2182,7 @@ void ObserverCamera::advancePanes( UnsignedInt frame )
 					found[ pane ] = m_panePlayers[ order[ pane ] ];
 				for( Int pane = 0; pane < players; pane++ )
 					m_panePlayers[ pane ] = found[ pane ];
-				m_paneCount = ObserverCamera_paneLayout( players, m_paneRays );
+				m_paneCount = ObserverCamera_paneLayout( players, m_paneRays, TheDisplay->getWidth(), TheDisplay->getHeight() );
 				// the opening starts on the first view whole and opens into its panes like a split
 				if( m_paneCount >= 2 )
 				{
@@ -2151,7 +2192,7 @@ void ObserverCamera::advancePanes( UnsignedInt frame )
 			}
 			else if( m_split )
 			{
-				m_paneCount = ObserverCamera_paneLayout( 2, m_paneRays );
+				m_paneCount = ObserverCamera_paneLayout( 2, m_paneRays, TheDisplay->getWidth(), TheDisplay->getHeight() );
 				next = PANES_RADAR_OUT;
 			}
 			if( next != PANES_NONE )

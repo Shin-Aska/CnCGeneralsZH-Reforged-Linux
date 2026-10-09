@@ -255,13 +255,16 @@ Bool ObserverCamera_secondPlace( const std::vector< DirectorHeat > &hits, const 
 /// would show the same ground
 Bool ObserverCamera_holdSplit( Bool split, Real firstHeat, Real secondHeat, Real apart, Real needed, UnsignedInt framesSince );
 
-/// -directorrecord's panes.  The picture is cut by rays from one point, every ray a multiple of 45
-/// degrees, and pane i is the wedge from ray i counterclockwise to ray i + 1.  Angles are degrees,
-/// 0 to the right and 90 up the screen
+/// -directorrecord's panes.  The picture is cut by rays from one point, and pane i is the wedge from
+/// ray i counterclockwise to ray i + 1.  Angles are degrees, 0 to the right and 90 up the screen
 enum { OBSERVER_MOST_PANES = 8 };
-/// the rays for count panes, ascending from 0 to 360; the number of rays, which is count, or 0 for
-/// fewer than two panes.  Pane 0 is the one the radar belongs to and the one left when the panes go
-Int ObserverCamera_paneLayout( Int count, Real *rays );
+/// the rays for count panes on a width by height picture, ascending from 0 to 360, so that every
+/// pane's wedge of it is as big as every other's; the number of rays, which is count, or 0 for fewer
+/// than two panes.  Pane 0 is the one the radar belongs to and the one left when the panes go
+Int ObserverCamera_paneLayout( Int count, Real *rays, Int width, Int height );
+/// the angle from the middle of a width by height picture at which a ray sweeping counterclockwise
+/// from 0 has covered share of it, 0 to 1
+Real ObserverCamera_angleForShare( Real share, Int width, Int height );
 /// the pane pixel x, y falls in, the rays meeting at origin x, y (pixels, y down)
 Int ObserverCamera_paneOf( Real x, Real y, Real originX, Real originY, const Real *rays, Int count );
 /// how far the rays' meeting point has to move, away from pane 0, before pane 0 is the whole of a

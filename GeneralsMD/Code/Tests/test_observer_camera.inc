@@ -422,36 +422,83 @@ TEST(the_recording_splits_only_beside_a_real_fight)
 	CHECK( !ObserverCamera_secondPlace( none, first, 660.0f, &second, &heat ) );
 }
 
-TEST(every_pane_layout_cuts_on_45_degree_rays)
+static Real paneArea( const Real *rays, Int count, Int pane, Int width, Int height )
 {
-	CHECK_EQ( ObserverCamera_paneLayout( 1, NULL ), 0 );
-	for( Int count = 2; count <= OBSERVER_MOST_PANES; count++ )
+	const Coord2D middle = { width * 0.5f, height * 0.5f };
+	Coord2D vertices[ 8 ];
+	const Int found = ObserverCamera_panePolygon( rays, count, pane, middle, width, height, vertices );
+	// the polygon's corners come unordered: sort them round the middle of the wedge before the shoelace
+	Coord2D centroid = { 0.0f, 0.0f };
+	for( Int vertex = 0; vertex < found; vertex++ )
 	{
-		Real rays[ OBSERVER_MOST_PANES ];
-		CHECK_EQ( ObserverCamera_paneLayout( count, rays ), count );
-		for( Int ray = 0; ray < count; ray++ )
+		centroid.x += vertices[ vertex ].x / found;
+		centroid.y += vertices[ vertex ].y / found;
+	}
+	std::vector< std::pair< Real, Coord2D > > round;
+	for( Int vertex = 0; vertex < found; vertex++ )
+		round.push_back( std::make_pair( atan2f( vertices[ vertex ].y - centroid.y, vertices[ vertex ].x - centroid.x ), vertices[ vertex ] ) );
+	std::sort( round.begin(), round.end(), []( const std::pair< Real, Coord2D > &a, const std::pair< Real, Coord2D > &b ) { return a.first < b.first; } );
+	Real twice = 0.0f;
+	for( size_t vertex = 0; vertex < round.size(); vertex++ )
+	{
+		const Coord2D &a = round[ vertex ].second;
+		const Coord2D &b = round[ ( vertex + 1 ) % round.size() ].second;
+		twice += a.x * b.y - b.x * a.y;
+	}
+	return fabsf( twice ) * 0.5f;
+}
+
+TEST(every_pane_layout_gives_each_pane_an_equal_share_of_a_wide_picture)
+{
+	CHECK_EQ( ObserverCamera_paneLayout( 1, NULL, 1280, 720 ), 0 );
+	const Int sizes[ 2 ][ 2 ] = { { 1280, 720 }, { 2560, 1080 } };
+	for( Int size = 0; size < 2; size++ )
+	{
+		const Int width = sizes[ size ][ 0 ];
+		const Int height = sizes[ size ][ 1 ];
+		for( Int count = 2; count <= OBSERVER_MOST_PANES; count++ )
 		{
-			CHECK_EQ( (Int)rays[ ray ] % 45, 0 );
-			CHECK( ray == 0 || rays[ ray ] > rays[ ray - 1 ] );
+			Real rays[ OBSERVER_MOST_PANES ];
+			CHECK_EQ( ObserverCamera_paneLayout( count, rays, width, height ), count );
+			const Real share = (Real)width * height / count;
+			for( Int ray = 0; ray < count; ray++ )
+			{
+				CHECK( ray == 0 || rays[ ray ] > rays[ ray - 1 ] );
+				// no wedge wider than half the turn, which the polygon and the exit rely on
+				const Real next = ray + 1 < count ? rays[ ray + 1 ] : rays[ 0 ] + 360.0f;
+				CHECK( next - rays[ ray ] <= 180.01f );
+				const Real area = paneArea( rays, count, ray, width, height );
+				CHECK( area > share * 0.95f && area < share * 1.05f );
+			}
 		}
 	}
-	// more players than panes share the eight
+	// the old fixed 45 degrees gave a 16:9 Y's top pane 14% of the picture; now its rays leave the
+	// sides 120 rows down, and the bottom ray stays straight down
 	Real rays[ OBSERVER_MOST_PANES ];
-	CHECK_EQ( ObserverCamera_paneLayout( 12, rays ), (Int)OBSERVER_MOST_PANES );
+	ObserverCamera_paneLayout( 3, rays, 1280, 720 );
+	CHECK_NEAR( rays[ 0 ], 20.56f, 0.05f );
+	CHECK_NEAR( rays[ 1 ], 159.44f, 0.05f );
+	CHECK_NEAR( rays[ 2 ], 270.0f, 0.05f );
+	// two and four panes run corner to corner
+	ObserverCamera_paneLayout( 4, rays, 2560, 1080 );
+	CHECK_NEAR( rays[ 0 ], atan2f( 540.0f, 1280.0f ) * 180.0f / PI, 0.05f );
+	// more players than panes share the eight
+	CHECK_EQ( ObserverCamera_paneLayout( 12, rays, 1280, 720 ), (Int)OBSERVER_MOST_PANES );
 }
 
 TEST(a_pixel_lies_in_the_wedge_counter_clockwise_of_its_ray)
 {
 	Real rays[ OBSERVER_MOST_PANES ];
-	ObserverCamera_paneLayout( 2, rays );
-	// the diagonal through the middle of 1280x720: pane 0 above it on the left, pane 1 below it
-	CHECK_EQ( ObserverCamera_paneOf( 740.0f, 258.0f, 640.0f, 360.0f, rays, 2 ), 0 );
-	CHECK_EQ( ObserverCamera_paneOf( 740.0f, 262.0f, 640.0f, 360.0f, rays, 2 ), 1 );
+	ObserverCamera_paneLayout( 2, rays, 1280, 720 );
+	// the diagonal corner to corner of 1280x720 drops 56 rows in 100 columns: pane 0 above it on
+	// the left, pane 1 below it
+	CHECK_EQ( ObserverCamera_paneOf( 740.0f, 300.0f, 640.0f, 360.0f, rays, 2 ), 0 );
+	CHECK_EQ( ObserverCamera_paneOf( 740.0f, 308.0f, 640.0f, 360.0f, rays, 2 ), 1 );
 	CHECK_EQ( ObserverCamera_paneOf( 100.0f, 100.0f, 640.0f, 360.0f, rays, 2 ), 0 );
 	CHECK_EQ( ObserverCamera_paneOf( 1200.0f, 700.0f, 640.0f, 360.0f, rays, 2 ), 1 );
 
 	// an X: top, left, bottom, right
-	ObserverCamera_paneLayout( 4, rays );
+	ObserverCamera_paneLayout( 4, rays, 1280, 720 );
 	CHECK_EQ( ObserverCamera_paneOf( 640.0f, 100.0f, 640.0f, 360.0f, rays, 4 ), 0 );
 	CHECK_EQ( ObserverCamera_paneOf( 100.0f, 360.0f, 640.0f, 360.0f, rays, 4 ), 1 );
 	CHECK_EQ( ObserverCamera_paneOf( 640.0f, 700.0f, 640.0f, 360.0f, rays, 4 ), 2 );
@@ -461,9 +508,10 @@ TEST(a_pixel_lies_in_the_wedge_counter_clockwise_of_its_ray)
 TEST(pane_zero_fills_the_screen_once_the_meeting_point_is_out_far_enough)
 {
 	Real rays[ OBSERVER_MOST_PANES ];
-	ObserverCamera_paneLayout( 2, rays );
-	// the diagonal has to clear the bottom right corner: (639.5 + 359.5) * cos 45 degrees
-	CHECK_NEAR( ObserverCamera_paneExit( rays, 2, 1280, 720 ), 706.4f, 2.0f );
+	ObserverCamera_paneLayout( 2, rays, 1280, 720 );
+	// the diagonal has to clear the bottom right corner, 639.5 by 359.5 from the middle, square to the
+	// diagonal's own slope of 360 over 640: 2 * 639.5 * 359.5 / sqrt( 640^2 + 360^2 )
+	CHECK_NEAR( ObserverCamera_paneExit( rays, 2, 1280, 720 ), 626.6f, 2.0f );
 	const Coord2D away = ObserverCamera_paneExitDirection( rays );
 	CHECK( away.x > 0.0f && away.y > 0.0f );
 }
@@ -475,30 +523,29 @@ TEST(a_pane_circle_is_the_largest_its_wedge_holds)
 	Real radii[ OBSERVER_MOST_PANES ];
 	const Coord2D noRadar = { 0.0f, 0.0f };
 
-	// two panes: the circle touching the top, the left and the diagonal x + y = 1000 has a radius of
-	// 1000 / (2 + root 2), and pane 1's is its mirror through the middle
-	ObserverCamera_paneLayout( 2, rays );
+	// two panes: the upper left half is the triangle on the top and left edges and the diagonal, its
+	// circle the incircle, area over half the perimeter: 460800 / 1734.3; pane 1's is its mirror
+	ObserverCamera_paneLayout( 2, rays, 1280, 720 );
 	ObserverCamera_paneCircles( rays, 2, 1280, 720, noRadar, 0.0f, centres, radii );
-	CHECK_NEAR( radii[ 0 ], 292.9f, 8.0f );
-	CHECK_NEAR( centres[ 0 ].x, 292.9f, 15.0f );
-	CHECK_NEAR( centres[ 0 ].y, 292.9f, 15.0f );
+	CHECK_NEAR( radii[ 0 ], 265.7f, 8.0f );
+	CHECK_NEAR( centres[ 0 ].x, 265.7f, 15.0f );
+	CHECK_NEAR( centres[ 0 ].y, 265.7f, 15.0f );
 	CHECK_NEAR( radii[ 1 ], radii[ 0 ], 8.0f );
 	CHECK_NEAR( centres[ 0 ].x + centres[ 1 ].x, 1280.0f, 20.0f );
 
-	// an X: the top wedge is a right triangle on a 720 wide side, its circle 149 in radius; the left
-	// one runs past the top and bottom corners, and its circle touching the left edge and both rays has
-	// 640 / (1 + root 2)
-	ObserverCamera_paneLayout( 4, rays );
+	// both diagonals: the top wedge is the triangle on the whole top edge to the middle, its incircle
+	// 230400 / 1374.3; the left one stands on the left edge, 230400 / 1094.3
+	ObserverCamera_paneLayout( 4, rays, 1280, 720 );
 	ObserverCamera_paneCircles( rays, 4, 1280, 720, noRadar, 0.0f, centres, radii );
-	CHECK_NEAR( radii[ 0 ], 149.1f, 8.0f );
+	CHECK_NEAR( radii[ 0 ], 167.6f, 8.0f );
 	CHECK_NEAR( centres[ 0 ].x, 640.0f, 15.0f );
-	CHECK_NEAR( radii[ 1 ], 265.1f, 8.0f );
+	CHECK_NEAR( radii[ 1 ], 210.5f, 8.0f );
 	CHECK_NEAR( centres[ 1 ].y, 360.0f, 15.0f );
 	CHECK_NEAR( radii[ 2 ], radii[ 0 ], 8.0f );
 	CHECK_NEAR( radii[ 3 ], radii[ 1 ], 8.0f );
 
 	// a Y: three circles, every one inside the screen
-	ObserverCamera_paneLayout( 3, rays );
+	ObserverCamera_paneLayout( 3, rays, 1280, 720 );
 	ObserverCamera_paneCircles( rays, 3, 1280, 720, noRadar, 0.0f, centres, radii );
 	for( Int pane = 0; pane < 3; pane++ )
 	{
@@ -509,16 +556,16 @@ TEST(a_pane_circle_is_the_largest_its_wedge_holds)
 	}
 
 	// the framed radar in the middle takes room from the two pane circle, which reached its corner
-	ObserverCamera_paneLayout( 2, rays );
+	ObserverCamera_paneLayout( 2, rays, 1280, 720 );
 	const Coord2D radar = { 150.0f, 100.0f };
 	ObserverCamera_paneCircles( rays, 2, 1280, 720, radar, 0.0f, centres, radii );
-	CHECK( radii[ 0 ] < 285.0f );
+	CHECK( radii[ 0 ] < 255.0f );
 	CHECK( radii[ 0 ] > 150.0f );
 
 	// the score bar's rows at the top are no pane's: the upper circle stays below them
 	ObserverCamera_paneCircles( rays, 2, 1280, 720, noRadar, 90.0f, centres, radii );
 	CHECK( centres[ 0 ].y - radii[ 0 ] >= 90.0f - 6.0f );
-	CHECK( radii[ 0 ] < 285.0f );
+	CHECK( radii[ 0 ] < 258.0f );
 }
 
 TEST(a_pane_label_hangs_as_high_in_its_circle_as_the_circle_holds_it)
@@ -590,21 +637,21 @@ TEST(a_pane_whose_top_leaves_the_map_is_moved_in_by_the_top_alone)
 TEST(a_pane_shows_its_wedge_cut_by_the_screen)
 {
 	Real rays[ OBSERVER_MOST_PANES ];
-	ObserverCamera_paneLayout( 2, rays );
+	ObserverCamera_paneLayout( 3, rays, 1280, 720 );
 	const Coord2D middle = { 640.0f, 360.0f };
 	Coord2D vertices[ 8 ];
-	// the upper left half: the meeting point, the two left corners and where the diagonal leaves the
-	// top and the bottom
-	CHECK_EQ( ObserverCamera_panePolygon( rays, 2, 0, middle, 1280, 720, vertices ), 5 );
-	Bool top = FALSE;
-	Bool bottom = FALSE;
+	// a Y's top pane: the meeting point, the two top corners and where its rays leave the two sides,
+	// 240 rows above the middle
+	CHECK_EQ( ObserverCamera_panePolygon( rays, 3, 0, middle, 1280, 720, vertices ), 5 );
+	Bool right = FALSE;
+	Bool left = FALSE;
 	for( Int vertex = 0; vertex < 5; vertex++ )
 	{
-		top = top || ( fabs( vertices[ vertex ].x - 1000.0f ) < 0.5f && fabs( vertices[ vertex ].y ) < 0.5f );
-		bottom = bottom || ( fabs( vertices[ vertex ].x - 280.0f ) < 0.5f && fabs( vertices[ vertex ].y - 720.0f ) < 0.5f );
+		right = right || ( fabs( vertices[ vertex ].x - 1280.0f ) < 0.5f && fabs( vertices[ vertex ].y - 120.0f ) < 1.0f );
+		left = left || ( fabs( vertices[ vertex ].x ) < 0.5f && fabs( vertices[ vertex ].y - 120.0f ) < 1.0f );
 	}
-	CHECK( top );
-	CHECK( bottom );
+	CHECK( right );
+	CHECK( left );
 	// with no panes it is the whole screen
 	CHECK_EQ( ObserverCamera_panePolygon( rays, 1, 0, middle, 1280, 720, vertices ), 4 );
 }
