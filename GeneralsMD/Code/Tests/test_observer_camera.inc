@@ -34,25 +34,37 @@ TEST(the_director_holds_a_live_fight_and_leaves_a_dead_one)
 {
 	const UnsignedInt longHeld = 15 * LOGICFRAMES_PER_SECOND;
 	const UnsignedInt justArrived = LOGICFRAMES_PER_SECOND;
-	CHECK( ObserverCamera_shouldMove( 0.0f, 1.0f, justArrived ) );
-	CHECK( !ObserverCamera_shouldMove( 0.0f, 0.0f, longHeld ) );
-	CHECK( !ObserverCamera_shouldMove( 4.0f, 20.0f, justArrived ) );
-	CHECK( !ObserverCamera_shouldMove( 4.0f, 7.0f, longHeld ) );
-	CHECK( ObserverCamera_shouldMove( 4.0f, 9.0f, longHeld ) );
-	// ten seconds in is still inside the hold
-	CHECK( !ObserverCamera_shouldMove( 4.0f, 9.0f, 10 * LOGICFRAMES_PER_SECOND ) );
+	CHECK( ObserverCamera_shouldMove( 0.0f, 1.0f, justArrived, 0.0f ) );
+	CHECK( !ObserverCamera_shouldMove( 0.0f, 0.0f, longHeld, 0.0f ) );
+	CHECK( !ObserverCamera_shouldMove( 4.0f, 20.0f, justArrived, 4.0f ) );
+	CHECK( !ObserverCamera_shouldMove( 4.0f, 7.0f, longHeld, 4.0f ) );
+	CHECK( ObserverCamera_shouldMove( 4.0f, 9.0f, longHeld, 4.0f ) );
+	// six seconds in is still inside the hold
+	CHECK( !ObserverCamera_shouldMove( 4.0f, 9.0f, 6 * LOGICFRAMES_PER_SECOND, 4.0f ) );
+}
+
+TEST(the_director_lets_a_fading_fight_go_once_settled)
+{
+	const UnsignedInt settled = 5 * LOGICFRAMES_PER_SECOND;
+	// burnt down from 10 to 4, a fight a third hotter elsewhere is enough inside the hold
+	CHECK( ObserverCamera_shouldMove( 4.0f, 5.4f, settled, 10.0f ) );
+	CHECK( !ObserverCamera_shouldMove( 4.0f, 5.0f, settled, 10.0f ) );
+	// still at its peak it holds
+	CHECK( !ObserverCamera_shouldMove( 4.0f, 5.4f, settled, 4.0f ) );
+	// and fading or not, nothing moves it before the settle is up
+	CHECK( !ObserverCamera_shouldMove( 4.0f, 5.4f, 3 * LOGICFRAMES_PER_SECOND, 10.0f ) );
 }
 
 TEST(the_director_leaves_early_for_a_much_bigger_fight_and_late_for_any_bigger_one)
 {
 	const UnsignedInt settled = 7 * LOGICFRAMES_PER_SECOND;
 	const UnsignedInt tired = 35 * LOGICFRAMES_PER_SECOND;
-	CHECK( ObserverCamera_shouldMove( 4.0f, 17.0f, settled ) );
-	CHECK( !ObserverCamera_shouldMove( 4.0f, 13.0f, settled ) );
+	CHECK( ObserverCamera_shouldMove( 4.0f, 11.0f, settled, 4.0f ) );
+	CHECK( !ObserverCamera_shouldMove( 4.0f, 9.0f, settled, 4.0f ) );
 	// not even a much bigger fight pulls it away in its first seconds
-	CHECK( !ObserverCamera_shouldMove( 4.0f, 40.0f, 3 * LOGICFRAMES_PER_SECOND ) );
-	CHECK( ObserverCamera_shouldMove( 4.0f, 5.4f, tired ) );
-	CHECK( !ObserverCamera_shouldMove( 4.0f, 5.0f, tired ) );
+	CHECK( !ObserverCamera_shouldMove( 4.0f, 40.0f, 3 * LOGICFRAMES_PER_SECOND, 4.0f ) );
+	CHECK( ObserverCamera_shouldMove( 4.0f, 5.4f, tired, 4.0f ) );
+	CHECK( !ObserverCamera_shouldMove( 4.0f, 5.0f, tired, 4.0f ) );
 }
 
 TEST(the_director_shows_a_superweapon_leaving_its_silo_then_where_it_lands)
@@ -161,6 +173,31 @@ TEST(the_director_keeps_its_event_when_none_may_be_shown_any_more)
 	const DirectorEvent strike = directorEvent( 2, 1.0f, FALSE );
 	CHECK( ObserverCamera_stayOnEvent( &strike, &nuke, LOGICFRAMES_PER_SECOND ) );
 	CHECK( !ObserverCamera_stayOnEvent( &strike, &nuke, 7 * LOGICFRAMES_PER_SECOND ) );
+}
+
+TEST(one_use_of_a_power_is_one_event_and_another_power_or_player_is_new)
+{
+	// any two distinct addresses stand for two powers and two players; only identity is compared
+	static const int powers[ 2 ] = { 0, 0 };
+	static const int players[ 2 ] = { 0, 0 };
+	const SpecialPowerTemplate *strike = (const SpecialPowerTemplate *)&powers[ 0 ];
+	const SpecialPowerTemplate *bomb = (const SpecialPowerTemplate *)&powers[ 1 ];
+	const Player *one = (const Player *)&players[ 0 ];
+	const Player *two = (const Player *)&players[ 1 ];
+	DirectorEvent used = directorEvent( 1, 1.0f, FALSE );
+	used.owner = one;
+	used.power = strike;
+	Coord2D beside = { 3100.0f, 2050.0f };
+	Coord2D away = { 3600.0f, 2000.0f };
+	CHECK( ObserverCamera_sameUse( used, one, strike, beside, 1500 ) );
+	CHECK( !ObserverCamera_sameUse( used, one, strike, away, 1500 ) );
+	CHECK( !ObserverCamera_sameUse( used, one, bomb, beside, 1500 ) );
+	CHECK( !ObserverCamera_sameUse( used, two, strike, beside, 1500 ) );
+	// once the first is over the next is a use of its own
+	CHECK( !ObserverCamera_sameUse( used, one, strike, beside, 2000 ) );
+	// a warhead nobody's power sent is never folded into another
+	used.power = NULL;
+	CHECK( !ObserverCamera_sameUse( used, one, NULL, beside, 1500 ) );
 }
 
 TEST(a_superweapon_leaving_its_silo_takes_the_camera_before_the_settle_is_up)
@@ -346,9 +383,9 @@ TEST(the_recording_split_ends_at_once_when_the_two_halves_show_one_fight)
 TEST(a_split_once_on_stays_until_its_panes_are_in_and_held_six_seconds)
 {
 	const Real needed = 660.0f;
-	// in through the radar's slide and the panes' and held six seconds, whatever the second fight does:
-	// one that went off on the next scan slid a pane in and straight back out
-	const UnsignedInt least = 12 + 15 + 6 * LOGICFRAMES_PER_SECOND;
+	// in through the radar's slide, the panes' and the lines' draw, and held six seconds, whatever the
+	// second fight does: one that went off on the next scan slid a pane in and straight back out
+	const UnsignedInt least = 12 + 15 + 21 + 6 * LOGICFRAMES_PER_SECOND;
 	CHECK( ObserverCamera_holdSplit( TRUE, 6.0f, 0.0f, 2000.0f, needed, 15 ) );
 	CHECK( ObserverCamera_holdSplit( TRUE, 6.0f, 0.0f, 2000.0f, needed, least - 1 ) );
 	CHECK( !ObserverCamera_holdSplit( TRUE, 6.0f, 0.0f, 2000.0f, needed, least ) );
@@ -385,48 +422,147 @@ TEST(the_recording_splits_only_beside_a_real_fight)
 	CHECK( !ObserverCamera_secondPlace( none, first, 660.0f, &second, &heat ) );
 }
 
-TEST(every_pane_layout_cuts_on_45_degree_rays)
+static Real paneArea( const Real *rays, Int count, Int pane, Int width, Int height )
 {
-	CHECK_EQ( ObserverCamera_paneLayout( 1, NULL ), 0 );
-	for( Int count = 2; count <= OBSERVER_MOST_PANES; count++ )
+	const Coord2D middle = { width * 0.5f, height * 0.5f };
+	Coord2D vertices[ 8 ];
+	const Int found = ObserverCamera_panePolygon( rays, count, pane, middle, width, height, vertices );
+	// the polygon's corners come unordered: sort them round the middle of the wedge before the shoelace
+	Coord2D centroid = { 0.0f, 0.0f };
+	for( Int vertex = 0; vertex < found; vertex++ )
 	{
-		Real rays[ OBSERVER_MOST_PANES ];
-		CHECK_EQ( ObserverCamera_paneLayout( count, rays ), count );
-		for( Int ray = 0; ray < count; ray++ )
+		centroid.x += vertices[ vertex ].x / found;
+		centroid.y += vertices[ vertex ].y / found;
+	}
+	std::vector< std::pair< Real, Coord2D > > round;
+	for( Int vertex = 0; vertex < found; vertex++ )
+		round.push_back( std::make_pair( atan2f( vertices[ vertex ].y - centroid.y, vertices[ vertex ].x - centroid.x ), vertices[ vertex ] ) );
+	std::sort( round.begin(), round.end(), []( const std::pair< Real, Coord2D > &a, const std::pair< Real, Coord2D > &b ) { return a.first < b.first; } );
+	Real twice = 0.0f;
+	for( size_t vertex = 0; vertex < round.size(); vertex++ )
+	{
+		const Coord2D &a = round[ vertex ].second;
+		const Coord2D &b = round[ ( vertex + 1 ) % round.size() ].second;
+		twice += a.x * b.y - b.x * a.y;
+	}
+	return fabsf( twice ) * 0.5f;
+}
+
+TEST(every_pane_layout_gives_each_pane_an_equal_share_of_a_wide_picture)
+{
+	CHECK_EQ( ObserverCamera_paneLayout( 1, NULL, 1280, 720 ), 0 );
+	const Int sizes[ 2 ][ 2 ] = { { 1280, 720 }, { 2560, 1080 } };
+	for( Int size = 0; size < 2; size++ )
+	{
+		const Int width = sizes[ size ][ 0 ];
+		const Int height = sizes[ size ][ 1 ];
+		for( Int count = 2; count <= OBSERVER_MOST_PANES; count++ )
 		{
-			CHECK_EQ( (Int)rays[ ray ] % 45, 0 );
-			CHECK( ray == 0 || rays[ ray ] > rays[ ray - 1 ] );
+			Real rays[ OBSERVER_MOST_PANES ];
+			CHECK_EQ( ObserverCamera_paneLayout( count, rays, width, height ), count );
+			const Real share = (Real)width * height / count;
+			for( Int ray = 0; ray < count; ray++ )
+			{
+				CHECK( ray == 0 || rays[ ray ] > rays[ ray - 1 ] );
+				// no wedge wider than half the turn, which the polygon and the exit rely on
+				const Real next = ray + 1 < count ? rays[ ray + 1 ] : rays[ 0 ] + 360.0f;
+				CHECK( next - rays[ ray ] <= 180.01f );
+				const Real area = paneArea( rays, count, ray, width, height );
+				CHECK( area > share * 0.95f && area < share * 1.05f );
+			}
 		}
 	}
-	// more players than panes share the eight
+	// the old fixed 45 degrees gave a 16:9 Y's top pane 14% of the picture; now its rays leave the
+	// sides 120 rows down, and the bottom ray stays straight down
 	Real rays[ OBSERVER_MOST_PANES ];
-	CHECK_EQ( ObserverCamera_paneLayout( 12, rays ), (Int)OBSERVER_MOST_PANES );
+	ObserverCamera_paneLayout( 3, rays, 1280, 720 );
+	CHECK_NEAR( rays[ 0 ], 20.56f, 0.05f );
+	CHECK_NEAR( rays[ 1 ], 159.44f, 0.05f );
+	CHECK_NEAR( rays[ 2 ], 270.0f, 0.05f );
+	// two and four panes run corner to corner
+	ObserverCamera_paneLayout( 4, rays, 2560, 1080 );
+	CHECK_NEAR( rays[ 0 ], atan2f( 540.0f, 1280.0f ) * 180.0f / PI, 0.05f );
+	// more players than panes share the eight
+	CHECK_EQ( ObserverCamera_paneLayout( 12, rays, 1280, 720 ), (Int)OBSERVER_MOST_PANES );
 }
 
 TEST(a_pixel_lies_in_the_wedge_counter_clockwise_of_its_ray)
 {
 	Real rays[ OBSERVER_MOST_PANES ];
-	ObserverCamera_paneLayout( 2, rays );
-	// the diagonal through the middle of 1280x720: pane 0 above it on the left, pane 1 below it
-	CHECK_EQ( ObserverCamera_paneOf( 740.0f, 258.0f, 640.0f, 360.0f, rays, 2 ), 0 );
-	CHECK_EQ( ObserverCamera_paneOf( 740.0f, 262.0f, 640.0f, 360.0f, rays, 2 ), 1 );
+	ObserverCamera_paneLayout( 2, rays, 1280, 720 );
+	// the diagonal corner to corner of 1280x720 drops 56 rows in 100 columns: pane 0 above it on
+	// the left, pane 1 below it
+	CHECK_EQ( ObserverCamera_paneOf( 740.0f, 300.0f, 640.0f, 360.0f, rays, 2 ), 0 );
+	CHECK_EQ( ObserverCamera_paneOf( 740.0f, 308.0f, 640.0f, 360.0f, rays, 2 ), 1 );
 	CHECK_EQ( ObserverCamera_paneOf( 100.0f, 100.0f, 640.0f, 360.0f, rays, 2 ), 0 );
 	CHECK_EQ( ObserverCamera_paneOf( 1200.0f, 700.0f, 640.0f, 360.0f, rays, 2 ), 1 );
 
 	// an X: top, left, bottom, right
-	ObserverCamera_paneLayout( 4, rays );
+	ObserverCamera_paneLayout( 4, rays, 1280, 720 );
 	CHECK_EQ( ObserverCamera_paneOf( 640.0f, 100.0f, 640.0f, 360.0f, rays, 4 ), 0 );
 	CHECK_EQ( ObserverCamera_paneOf( 100.0f, 360.0f, 640.0f, 360.0f, rays, 4 ), 1 );
 	CHECK_EQ( ObserverCamera_paneOf( 640.0f, 700.0f, 640.0f, 360.0f, rays, 4 ), 2 );
 	CHECK_EQ( ObserverCamera_paneOf( 1200.0f, 360.0f, 640.0f, 360.0f, rays, 4 ), 3 );
 }
 
+TEST(the_pane_runs_put_every_pixel_where_pane_of_puts_it)
+{
+	// the meeting point in the middle, on a pixel's centre row and column, sliding out past a corner,
+	// and on an odd picture, for every layout
+	struct Picture { Int width; Int height; Real originX; Real originY; };
+	const Picture pictures[] = {
+		{ 1280, 720, 640.0f, 360.0f },
+		{ 1280, 720, 640.5f, 360.5f },
+		{ 1280, 720, 1503.37f, -211.81f },
+		{ 333, 217, 101.25f, 160.75f },
+	};
+	std::vector< ObserverPaneRun > runs;
+	for( Int picture = 0; picture < (Int)ARRAY_SIZE( pictures ); picture++ )
+	{
+		const Picture &shape = pictures[ picture ];
+		for( Int count = 2; count <= OBSERVER_MOST_PANES; count++ )
+		{
+			Real rays[ OBSERVER_MOST_PANES ];
+			ObserverCamera_paneLayout( count, rays, shape.width, shape.height );
+			ObserverCamera_paneRuns( shape.width, shape.height, shape.originX, shape.originY, rays, count, runs );
+			Int wrong = 0;
+			Int covered = 0;
+			Int nextY = 0;
+			Int nextX = 0;
+			for( size_t index = 0; index < runs.size(); index++ )
+			{
+				const ObserverPaneRun &run = runs[ index ];
+				if( run.x0 == 0 && run.y == nextY + 1 && nextX == shape.width )
+				{
+					nextY = run.y;
+					nextX = 0;
+				}
+				CHECK( run.y == nextY && run.x0 == nextX && run.x1 > run.x0 );
+				nextX = run.x1;
+				for( Int x = run.x0; x < run.x1; x++ )
+				{
+					const Int pane = ObserverCamera_paneOf( (Real)x + 0.5f, (Real)run.y + 0.5f, shape.originX, shape.originY,
+						rays, count );
+					if( pane != run.pane )
+						wrong++;
+					covered++;
+				}
+			}
+			CHECK_EQ( wrong, 0 );
+			CHECK_EQ( covered, shape.width * shape.height );
+			// a run is a whole stretch of one pane, not a pixel at a time
+			CHECK( (Int)runs.size() < shape.height * ( count + 2 ) );
+		}
+	}
+}
+
 TEST(pane_zero_fills_the_screen_once_the_meeting_point_is_out_far_enough)
 {
 	Real rays[ OBSERVER_MOST_PANES ];
-	ObserverCamera_paneLayout( 2, rays );
-	// the diagonal has to clear the bottom right corner: (639.5 + 359.5) * cos 45 degrees
-	CHECK_NEAR( ObserverCamera_paneExit( rays, 2, 1280, 720 ), 706.4f, 2.0f );
+	ObserverCamera_paneLayout( 2, rays, 1280, 720 );
+	// the diagonal has to clear the bottom right corner, 639.5 by 359.5 from the middle, square to the
+	// diagonal's own slope of 360 over 640: 2 * 639.5 * 359.5 / sqrt( 640^2 + 360^2 )
+	CHECK_NEAR( ObserverCamera_paneExit( rays, 2, 1280, 720 ), 626.6f, 2.0f );
 	const Coord2D away = ObserverCamera_paneExitDirection( rays );
 	CHECK( away.x > 0.0f && away.y > 0.0f );
 }
@@ -438,30 +574,29 @@ TEST(a_pane_circle_is_the_largest_its_wedge_holds)
 	Real radii[ OBSERVER_MOST_PANES ];
 	const Coord2D noRadar = { 0.0f, 0.0f };
 
-	// two panes: the circle touching the top, the left and the diagonal x + y = 1000 has a radius of
-	// 1000 / (2 + root 2), and pane 1's is its mirror through the middle
-	ObserverCamera_paneLayout( 2, rays );
+	// two panes: the upper left half is the triangle on the top and left edges and the diagonal, its
+	// circle the incircle, area over half the perimeter: 460800 / 1734.3; pane 1's is its mirror
+	ObserverCamera_paneLayout( 2, rays, 1280, 720 );
 	ObserverCamera_paneCircles( rays, 2, 1280, 720, noRadar, 0.0f, centres, radii );
-	CHECK_NEAR( radii[ 0 ], 292.9f, 8.0f );
-	CHECK_NEAR( centres[ 0 ].x, 292.9f, 15.0f );
-	CHECK_NEAR( centres[ 0 ].y, 292.9f, 15.0f );
+	CHECK_NEAR( radii[ 0 ], 265.7f, 8.0f );
+	CHECK_NEAR( centres[ 0 ].x, 265.7f, 15.0f );
+	CHECK_NEAR( centres[ 0 ].y, 265.7f, 15.0f );
 	CHECK_NEAR( radii[ 1 ], radii[ 0 ], 8.0f );
 	CHECK_NEAR( centres[ 0 ].x + centres[ 1 ].x, 1280.0f, 20.0f );
 
-	// an X: the top wedge is a right triangle on a 720 wide side, its circle 149 in radius; the left
-	// one runs past the top and bottom corners, and its circle touching the left edge and both rays has
-	// 640 / (1 + root 2)
-	ObserverCamera_paneLayout( 4, rays );
+	// both diagonals: the top wedge is the triangle on the whole top edge to the middle, its incircle
+	// 230400 / 1374.3; the left one stands on the left edge, 230400 / 1094.3
+	ObserverCamera_paneLayout( 4, rays, 1280, 720 );
 	ObserverCamera_paneCircles( rays, 4, 1280, 720, noRadar, 0.0f, centres, radii );
-	CHECK_NEAR( radii[ 0 ], 149.1f, 8.0f );
+	CHECK_NEAR( radii[ 0 ], 167.6f, 8.0f );
 	CHECK_NEAR( centres[ 0 ].x, 640.0f, 15.0f );
-	CHECK_NEAR( radii[ 1 ], 265.1f, 8.0f );
+	CHECK_NEAR( radii[ 1 ], 210.5f, 8.0f );
 	CHECK_NEAR( centres[ 1 ].y, 360.0f, 15.0f );
 	CHECK_NEAR( radii[ 2 ], radii[ 0 ], 8.0f );
 	CHECK_NEAR( radii[ 3 ], radii[ 1 ], 8.0f );
 
 	// a Y: three circles, every one inside the screen
-	ObserverCamera_paneLayout( 3, rays );
+	ObserverCamera_paneLayout( 3, rays, 1280, 720 );
 	ObserverCamera_paneCircles( rays, 3, 1280, 720, noRadar, 0.0f, centres, radii );
 	for( Int pane = 0; pane < 3; pane++ )
 	{
@@ -472,16 +607,16 @@ TEST(a_pane_circle_is_the_largest_its_wedge_holds)
 	}
 
 	// the framed radar in the middle takes room from the two pane circle, which reached its corner
-	ObserverCamera_paneLayout( 2, rays );
+	ObserverCamera_paneLayout( 2, rays, 1280, 720 );
 	const Coord2D radar = { 150.0f, 100.0f };
 	ObserverCamera_paneCircles( rays, 2, 1280, 720, radar, 0.0f, centres, radii );
-	CHECK( radii[ 0 ] < 285.0f );
+	CHECK( radii[ 0 ] < 255.0f );
 	CHECK( radii[ 0 ] > 150.0f );
 
 	// the score bar's rows at the top are no pane's: the upper circle stays below them
 	ObserverCamera_paneCircles( rays, 2, 1280, 720, noRadar, 90.0f, centres, radii );
 	CHECK( centres[ 0 ].y - radii[ 0 ] >= 90.0f - 6.0f );
-	CHECK( radii[ 0 ] < 285.0f );
+	CHECK( radii[ 0 ] < 258.0f );
 }
 
 TEST(a_pane_label_hangs_as_high_in_its_circle_as_the_circle_holds_it)
@@ -553,33 +688,30 @@ TEST(a_pane_whose_top_leaves_the_map_is_moved_in_by_the_top_alone)
 TEST(a_pane_shows_its_wedge_cut_by_the_screen)
 {
 	Real rays[ OBSERVER_MOST_PANES ];
-	ObserverCamera_paneLayout( 2, rays );
+	ObserverCamera_paneLayout( 3, rays, 1280, 720 );
 	const Coord2D middle = { 640.0f, 360.0f };
 	Coord2D vertices[ 8 ];
-	// the upper left half: the meeting point, the two left corners and where the diagonal leaves the
-	// top and the bottom
-	CHECK_EQ( ObserverCamera_panePolygon( rays, 2, 0, middle, 1280, 720, vertices ), 5 );
-	Bool top = FALSE;
-	Bool bottom = FALSE;
+	// a Y's top pane: the meeting point, the two top corners and where its rays leave the two sides,
+	// 240 rows above the middle
+	CHECK_EQ( ObserverCamera_panePolygon( rays, 3, 0, middle, 1280, 720, vertices ), 5 );
+	Bool right = FALSE;
+	Bool left = FALSE;
 	for( Int vertex = 0; vertex < 5; vertex++ )
 	{
-		top = top || ( fabs( vertices[ vertex ].x - 1000.0f ) < 0.5f && fabs( vertices[ vertex ].y ) < 0.5f );
-		bottom = bottom || ( fabs( vertices[ vertex ].x - 280.0f ) < 0.5f && fabs( vertices[ vertex ].y - 720.0f ) < 0.5f );
+		right = right || ( fabs( vertices[ vertex ].x - 1280.0f ) < 0.5f && fabs( vertices[ vertex ].y - 120.0f ) < 1.0f );
+		left = left || ( fabs( vertices[ vertex ].x ) < 0.5f && fabs( vertices[ vertex ].y - 120.0f ) < 1.0f );
 	}
-	CHECK( top );
-	CHECK( bottom );
+	CHECK( right );
+	CHECK( left );
 	// with no panes it is the whole screen
 	CHECK_EQ( ObserverCamera_panePolygon( rays, 1, 0, middle, 1280, 720, vertices ), 4 );
 }
 
-TEST(pane_lines_grow_with_the_picture_and_the_join_keeps_all_of_them)
+TEST(pane_lines_grow_with_the_picture)
 {
 	CHECK_EQ( ObserverCamera_paneLineWidth( 720 ), 6 );
 	CHECK_EQ( ObserverCamera_paneLineWidth( 1080 ), 9 );
 	CHECK_EQ( ObserverCamera_paneLineWidth( 2160 ), 18 );
-	// the gold and both edges, crossed by a row at 45 degrees: 13 * 0.707 is 9.2 at 1080
-	CHECK( ObserverCamera_paneSeamBand( 1080 ) >= 10 );
-	CHECK( ObserverCamera_paneSeamBand( 720 ) >= 8 );
 }
 
 static DirectorFightHit fightHit( Real x, Real y, UnsignedInt sides )
@@ -858,4 +990,267 @@ TEST(pane_animations_ease_over_logic_frames)
 		CHECK( now >= last );
 		last = now;
 	}
+}
+
+TEST(the_directors_height_eases_to_a_new_place_and_cuts_with_a_cut)
+{
+	// a place 300 higher: no frame at 30 a second moves more than a twentieth of it, it gets there
+	// within seven seconds, and never passes it
+	Real height = 0.0f;
+	Real velocity = 0.0f;
+	Real biggestStep = 0.0f;
+	for( Int frame = 0; frame < 210; frame++ )
+	{
+		const Real next = ObserverCamera_easeHeight( height, 300.0f, &velocity, 1.0f / 30.0f, FALSE );
+		biggestStep = max( biggestStep, next - height );
+		CHECK( next <= 300.0f );
+		height = next;
+	}
+	CHECK( biggestStep < 15.0f );
+	CHECK( height > 290.0f );
+	// the first frame of a change barely moves: the view's own settle took a tenth of the gap at once
+	velocity = 0.0f;
+	CHECK( ObserverCamera_easeHeight( 0.0f, 300.0f, &velocity, 1.0f / 30.0f, FALSE ) < 3.0f );
+	// a cut is there at once and starts the next glide from rest
+	velocity = 50.0f;
+	CHECK_NEAR( ObserverCamera_easeHeight( 0.0f, 300.0f, &velocity, 1.0f / 30.0f, TRUE ), 300.0f, 0.0001f );
+	CHECK_NEAR( velocity, 0.0f, 0.0001f );
+}
+
+TEST(the_score_bar_takes_two_rows_from_five_players_with_blocks_kept_whole)
+{
+	std::vector< Int > sizes( 4, 1 );
+	std::vector< Int > rows = ObserverCamera_cardRows( sizes );
+	for( size_t block = 0; block < rows.size(); block++ )
+		CHECK_EQ( rows[ block ], 0 );
+	// eight alone: four and four
+	sizes.assign( 8, 1 );
+	rows = ObserverCamera_cardRows( sizes );
+	for( size_t block = 0; block < rows.size(); block++ )
+		CHECK_EQ( rows[ block ], block < 4 ? 0 : 1 );
+	// 4v4 and 4v1: a team to a row
+	sizes.assign( 2, 4 );
+	rows = ObserverCamera_cardRows( sizes );
+	CHECK_EQ( rows[ 0 ], 0 );
+	CHECK_EQ( rows[ 1 ], 1 );
+	sizes[ 1 ] = 1;
+	rows = ObserverCamera_cardRows( sizes );
+	CHECK_EQ( rows[ 1 ], 1 );
+	// 1v1v1v1v2: three cards up, the last single and the pair down
+	sizes.assign( 4, 1 );
+	sizes.push_back( 2 );
+	rows = ObserverCamera_cardRows( sizes );
+	CHECK_EQ( rows[ 2 ], 0 );
+	CHECK_EQ( rows[ 3 ], 1 );
+	CHECK_EQ( rows[ 4 ], 1 );
+	// 2v2v2: four up, two down
+	sizes.assign( 3, 2 );
+	rows = ObserverCamera_cardRows( sizes );
+	CHECK_EQ( rows[ 1 ], 0 );
+	CHECK_EQ( rows[ 2 ], 1 );
+}
+
+TEST(the_score_bar_sets_every_side_in_one_row_and_fits_eight_players)
+{
+	// 4v1: four cards with three gaps, a "vs", one card
+	std::vector< Int > sizes;
+	sizes.push_back( 4 );
+	sizes.push_back( 1 );
+	std::vector< Int > cardLefts, blockLefts;
+	CHECK_EQ( ObserverCamera_cardRow( sizes, 100, 4, 30, &cardLefts, &blockLefts ), 5 * 100 + 3 * 4 + 30 );
+	CHECK_EQ( (Int)cardLefts.size(), 5 );
+	CHECK_EQ( cardLefts[ 3 ], 3 * 104 );
+	CHECK_EQ( blockLefts[ 1 ], 4 * 100 + 3 * 4 + 30 );
+	CHECK_EQ( cardLefts[ 4 ], blockLefts[ 1 ] );
+	// two alone, three alone and a pair: the 1v1v1v1v2 staging
+	sizes.assign( 4, 1 );
+	sizes.push_back( 2 );
+	CHECK_EQ( ObserverCamera_cardRow( sizes, 100, 4, 30, &cardLefts, &blockLefts ), 6 * 100 + 4 + 4 * 30 );
+	CHECK_EQ( blockLefts[ 4 ], 4 * 130 );
+
+	// the sizes a 720 picture measured, largest first: every count from two to eight alone and 4v4
+	// fit 1280 less the bar's padding at some step, and no step is taken that is larger than needed
+	const Int cardWidths[] = { 170, 150, 132, 116 };
+	const Int cardGaps[] = { 6, 5, 4, 3 };
+	const Int versusWidths[] = { 30, 26, 22, 20 };
+	const Int room = 1280 - 2 * 8;
+	for( Int players = 2; players <= 8; players++ )
+	{
+		sizes.assign( players, 1 );
+		const Int step = ObserverCamera_cardStep( sizes, cardWidths, cardGaps, versusWidths, 4, room );
+		CHECK( ObserverCamera_cardRow( sizes, cardWidths[ step ], cardGaps[ step ], versusWidths[ step ], &cardLefts, &blockLefts ) <= room );
+		if( step > 0 )
+			CHECK( ObserverCamera_cardRow( sizes, cardWidths[ step - 1 ], cardGaps[ step - 1 ], versusWidths[ step - 1 ], &cardLefts, &blockLefts ) > room );
+	}
+	sizes.assign( 2, 4 );
+	const Int step = ObserverCamera_cardStep( sizes, cardWidths, cardGaps, versusWidths, 4, room );
+	// 4v4 has one "vs" where eight alone have seven, so it keeps a larger size: 1200 + 30 + 26
+	CHECK_EQ( step, 1 );
+	// a row too wide at every step gets the widest card that fits
+	const Int narrow = ObserverCamera_cardWidthIn( sizes, cardGaps[ 3 ], versusWidths[ 3 ], 900 );
+	CHECK( ObserverCamera_cardRow( sizes, narrow, cardGaps[ 3 ], versusWidths[ 3 ], &cardLefts, &blockLefts ) <= 900 );
+	CHECK( ObserverCamera_cardRow( sizes, narrow + 1, cardGaps[ 3 ], versusWidths[ 3 ], &cardLefts, &blockLefts ) > 900 );
+
+	// a name of eight characters ten pixels each, the ellipsis six: whole while it fits, else the most
+	// characters that leave room for the ellipsis
+	std::vector< Int > prefixWidths;
+	for( Int count = 0; count <= 8; count++ )
+		prefixWidths.push_back( 10 * count );
+	CHECK_EQ( ObserverCamera_fitCount( prefixWidths, 6, 80 ), 8 );
+	CHECK_EQ( ObserverCamera_fitCount( prefixWidths, 6, 79 ), 7 );
+	CHECK_EQ( ObserverCamera_fitCount( prefixWidths, 6, 75 ), 6 );
+	CHECK_EQ( ObserverCamera_fitCount( prefixWidths, 6, 16 ), 1 );
+	CHECK_EQ( ObserverCamera_fitCount( prefixWidths, 6, 15 ), 0 );
+
+	// teammates are taken together in the order their teams first appear
+	std::vector< Int > teams;
+	teams.push_back( 0 );
+	teams.push_back( 1 );
+	teams.push_back( 0 );
+	teams.push_back( 2 );
+	teams.push_back( 1 );
+	const std::vector< Int > order = ObserverCamera_teamOrder( teams );
+	const Int expected[] = { 0, 2, 1, 4, 3 };
+	CHECK_EQ( (Int)order.size(), 5 );
+	for( Int index = 0; index < 5; index++ )
+		CHECK_EQ( order[ index ], expected[ index ] );
+}
+
+TEST(the_pane_lines_grow_out_then_their_band_fades_in_and_a_light_runs_along_them)
+{
+	// the line is whole three quarters of the way through its draw, its band only at the end, and
+	// the band has not begun while the line is still short; the radar's frame goes round by 0.6
+	CHECK_NEAR( ObserverCamera_frameTraced( 0.0f ), 0.0f, 0.0001f );
+	CHECK_NEAR( ObserverCamera_frameTraced( 0.6f ), 1.0f, 0.0001f );
+	CHECK( ObserverCamera_frameTraced( 0.3f ) > 0.3f && ObserverCamera_frameTraced( 0.3f ) < 0.7f );
+	CHECK_NEAR( ObserverCamera_lineDrawn( 0.0f ), 0.0f, 0.0001f );
+	CHECK_NEAR( ObserverCamera_lineDrawn( 0.75f ), 1.0f, 0.0001f );
+	CHECK_NEAR( ObserverCamera_lineDrawn( 1.0f ), 1.0f, 0.0001f );
+	CHECK_NEAR( ObserverCamera_bandShown( 0.3f ), 0.0f, 0.0001f );
+	CHECK( ObserverCamera_lineDrawn( 0.3f ) > 0.2f );
+	CHECK_NEAR( ObserverCamera_bandShown( 1.0f ), 1.0f, 0.0001f );
+	Real last = 0.0f;
+	for( Int step = 0; step <= 20; step++ )
+	{
+		const Real now = ObserverCamera_bandShown( step / 20.0f );
+		CHECK( now >= last );
+		last = now;
+	}
+	// the light runs out over 45 frames once every five seconds, and is off in between
+	CHECK_NEAR( ObserverCamera_shimmerAt( 0 ), 0.0f, 0.0001f );
+	CHECK( ObserverCamera_shimmerAt( 22 ) > 0.3f && ObserverCamera_shimmerAt( 22 ) < 0.7f );
+	CHECK( ObserverCamera_shimmerAt( 45 ) < 0.0f );
+	CHECK( ObserverCamera_shimmerAt( 149 ) < 0.0f );
+	CHECK_NEAR( ObserverCamera_shimmerAt( 150 ), 0.0f, 0.0001f );
+	// the band is five golds wide
+	CHECK_EQ( ObserverCamera_paneBandWidth( 720 ), 30 );
+}
+
+TEST(the_army_bar_cuts_its_whole_width_among_the_sides)
+{
+	std::vector< Int > armies;
+	armies.push_back( 1 );
+	armies.push_back( 1 );
+	armies.push_back( 1 );
+	const std::vector< Int > pixels = ObserverCamera_barShares( armies, 100 );
+	CHECK_EQ( pixels[ 0 ] + pixels[ 1 ] + pixels[ 2 ], 100 );
+	CHECK( pixels[ 0 ] >= 33 && pixels[ 0 ] <= 34 );
+	armies[ 0 ] = 3000;
+	armies[ 1 ] = 1000;
+	armies[ 2 ] = 0;
+	const std::vector< Int > uneven = ObserverCamera_barShares( armies, 100 );
+	CHECK_EQ( uneven[ 0 ], 75 );
+	CHECK_EQ( uneven[ 1 ], 25 );
+	CHECK_EQ( uneven[ 2 ], 0 );
+	armies.assign( 3, 0 );
+	const std::vector< Int > none = ObserverCamera_barShares( armies, 100 );
+	CHECK_EQ( none[ 0 ] + none[ 1 ] + none[ 2 ], 0 );
+}
+
+TEST(a_dark_player_colour_is_lifted_to_read_and_a_gold_one_is_told_from_the_lines)
+{
+	// purple, #9600c8, is lifted; white stays white
+	const Color purple = GameMakeColor( 0x96, 0x00, 0xc8, 255 );
+	const Color lifted = ObserverCamera_readableColor( purple );
+	CHECK_NE( lifted, purple );
+	UnsignedByte red, green, blue, alpha;
+	GameGetColorComponents( lifted, &red, &green, &blue, &alpha );
+	CHECK( red > 0x96 && green > 0x00 && blue > 0xc8 );
+	const Color white = GameMakeColor( 255, 255, 255, 255 );
+	CHECK_NE( lifted, white );
+	CHECK_EQ( ObserverCamera_readableColor( white ), white );
+	// gold, #dde20d, is near the lines' gold; blue and red are not
+	CHECK( ObserverCamera_nearBrandGold( GameMakeColor( 0xdd, 0xe2, 0x0d, 255 ) ) );
+	CHECK( !ObserverCamera_nearBrandGold( GameMakeColor( 0x00, 0x00, 0xff, 255 ) ) );
+	CHECK( !ObserverCamera_nearBrandGold( GameMakeColor( 0xff, 0x00, 0x00, 255 ) ) );
+}
+
+TEST(power_flags_hang_one_at_a_time_and_hold_less_with_another_waiting)
+{
+	const DirectorShowing waiting = { 3, NULL, NULL, FALSE, 0, 0 };
+	std::vector< DirectorShowing > flags( 2, waiting );
+	// the first drops on the frame it is queued; with one behind it, it holds half of 120 after its 15
+	CHECK( ObserverCamera_advanceShowing( flags, 100, 15, 120, FALSE ) );
+	CHECK_EQ( flags[ 0 ].start, 100u );
+	CHECK_EQ( flags[ 1 ].start, 0u );
+	CHECK_NEAR( ObserverCamera_showingShown( flags[ 0 ], 100, 15 ), 0.0f, 0.0001f );
+	for( UnsignedInt frame = 101; frame < 175; frame++ )
+		CHECK( !ObserverCamera_advanceShowing( flags, frame, 15, 120, FALSE ) );
+	CHECK_NEAR( ObserverCamera_showingShown( flags[ 0 ], 174, 15 ), 1.0f, 0.0001f );
+	CHECK( !ObserverCamera_advanceShowing( flags, 175, 15, 120, FALSE ) );
+	CHECK_EQ( flags[ 0 ].leaving, 175u );
+	CHECK( ObserverCamera_showingShown( flags[ 0 ], 182, 15 ) > 0.0f );
+	CHECK( ObserverCamera_showingShown( flags[ 0 ], 182, 15 ) < 1.0f );
+	// gone 15 frames later, and the next drops on that frame and, alone, holds the whole 120
+	for( UnsignedInt frame = 176; frame < 190; frame++ )
+		CHECK( !ObserverCamera_advanceShowing( flags, frame, 15, 120, FALSE ) );
+	CHECK( ObserverCamera_advanceShowing( flags, 190, 15, 120, FALSE ) );
+	CHECK_EQ( (Int)flags.size(), 1 );
+	CHECK_EQ( flags[ 0 ].start, 190u );
+	for( UnsignedInt frame = 191; frame <= 325; frame++ )
+		ObserverCamera_advanceShowing( flags, frame, 15, 120, FALSE );
+	CHECK_EQ( flags[ 0 ].leaving, 325u );
+	for( UnsignedInt frame = 326; frame <= 340; frame++ )
+		ObserverCamera_advanceShowing( flags, frame, 15, 120, FALSE );
+	CHECK( flags.empty() );
+	CHECK( !ObserverCamera_advanceShowing( flags, 341, 15, 120, FALSE ) );
+}
+
+TEST(the_last_defeat_banner_of_a_decided_match_stays_up)
+{
+	const DirectorShowing waiting = { 1, NULL, NULL, FALSE, 0, 0 };
+	std::vector< DirectorShowing > banners( 2, waiting );
+	for( UnsignedInt frame = 100; frame < 1000; frame++ )
+		ObserverCamera_advanceShowing( banners, frame, 24, 90, TRUE );
+	// the first opened over 24, held 45 with the last behind it and closed over 24; the last never leaves
+	CHECK_EQ( (Int)banners.size(), 1 );
+	CHECK_EQ( banners[ 0 ].start, 193u );
+	CHECK_EQ( banners[ 0 ].leaving, 0u );
+	CHECK_NEAR( ObserverCamera_showingShown( banners[ 0 ], 999, 24 ), 1.0f, 0.0001f );
+}
+
+TEST(a_defeated_card_flashes_is_struck_and_closes_one_card_at_a_time)
+{
+	Real flash = 0.0f, struck = 0.0f, collapse = 0.0f;
+	const UnsignedInt first = ObserverCamera_collapseFrom( 100, 0 );
+	CHECK_EQ( first, 136u );
+	ObserverCamera_cardExit( 100, 100, first, &flash, &struck, &collapse );
+	CHECK_NEAR( flash, 0.0f, 0.0001f );
+	ObserverCamera_cardExit( 104, 100, first, &flash, &struck, &collapse );
+	CHECK_NEAR( flash, 1.0f, 0.0001f );
+	CHECK_NEAR( struck, 0.0f, 0.0001f );
+	ObserverCamera_cardExit( 112, 100, first, &flash, &struck, &collapse );
+	CHECK_NEAR( flash, 0.0f, 0.0001f );
+	CHECK( struck > 0.0f && struck < 1.0f );
+	ObserverCamera_cardExit( 136, 100, first, &flash, &struck, &collapse );
+	CHECK_NEAR( struck, 1.0f, 0.0001f );
+	CHECK_NEAR( collapse, 0.0f, 0.0001f );
+	ObserverCamera_cardExit( 145, 100, first, &flash, &struck, &collapse );
+	CHECK_NEAR( collapse, 0.5f, 0.0001f );
+	ObserverCamera_cardExit( 154, 100, first, &flash, &struck, &collapse );
+	CHECK_NEAR( collapse, 1.0f, 0.0001f );
+	// a second player beaten on the same frame closes once the first card has gone, a later one on its own
+	const UnsignedInt second = ObserverCamera_collapseFrom( 100, first );
+	CHECK_EQ( second, 154u );
+	CHECK_EQ( ObserverCamera_collapseFrom( 400, second ), 436u );
 }

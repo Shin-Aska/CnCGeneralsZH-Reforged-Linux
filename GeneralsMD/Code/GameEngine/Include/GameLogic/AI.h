@@ -209,6 +209,11 @@ struct AIDifficultyProfile
 
 	// Fighting: decisions only, from what it knows can shoot where
 	Bool	m_tacticalMicro;								///< kite what it outranges, take the high ground, pull hurt units out
+
+	// Choosing fights: what it remembers of the enemy army, not only what is in sight
+	Bool	m_engageGate;										///< weigh a fight by unit against unit, not money alone; nothing leaves home on its own
+	Bool	m_answerArmy;										///< remember the enemy army it has seen, and train the answer to the biggest part of it
+	Bool	m_massUnit;											///< pick one unit the enemy has no answer to, build a fist of it and hit with it
 };
 
 //-------------------------------------------------------------------------------------------------
@@ -290,6 +295,12 @@ Real aiFramesToKill( Real targetHealth, const AIShotPattern &shots );
 /** One pairing as 0..1, money for money: 0.5 an even trade, 1 when my side kills sixteen times
 	* faster for its price (or cannot be hurt back), 0 when it cannot hurt the other side. */
 Real aiMatchupScore( Real myFramesToKill, Real theirFramesToKill, Real myCost, Real theirCost );
+
+/** How one army's mix trades against another's, money for money: 1 an even trade, above 1 when my
+	* money kills theirs faster than theirs kills mine, clamped to 1/16..16.  score holds myKinds rows of
+	* theirKinds entries, aiMatchupScore of my kind i against their kind j, and each side's values weigh
+	* its kinds.  Ten Overlords against ten Crusaders cost the same and are not the same fight. */
+Real aiArmyAdvantage( const Real *myValue, Int myKinds, const Real *theirValue, Int theirKinds, const Real *score );
 
 /** How the exchange is going, as the ratio of how long this force lasts to how long it needs to
 	* kill what is shooting at it.  Below 1 it is losing; below the rung's retreatTtkRatio it should

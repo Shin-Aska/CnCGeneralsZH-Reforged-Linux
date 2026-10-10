@@ -1221,6 +1221,27 @@ Int parseNoTactics(char *args[], int num)
 	return 2;
 }
 
+/** -aiknobsoff even|odd|all engagegate,answerarmy,massunit: those slots keep their rung with these knobs
+	* of its profile off, so a batch can play Hard against Hard without them, or a scenario against the AI
+	* as it was.  A measuring aid like -notactics: read only in a single-player skirmish, never in a
+	* network game, and a replay made with it is played back with it given again. */
+Int parseAIKnobsOff(char *args[], int num)
+{
+	if (TheWritableGlobalData && num > 2)
+	{
+		AsciiString parity = args[1];
+		TheWritableGlobalData->m_aiKnobsOffParity = parity.compareNoCase("even") == 0 ? 0 : (parity.compareNoCase("odd") == 0 ? 1 : 2);
+		AsciiString names = args[2];
+		names.toLower();
+		Int mask = 0;
+		if (strstr(names.str(), "engagegate")) mask |= AIKNOB_ENGAGE_GATE;
+		if (strstr(names.str(), "answerarmy")) mask |= AIKNOB_ANSWER_ARMY;
+		if (strstr(names.str(), "massunit")) mask |= AIKNOB_MASS_UNIT;
+		TheWritableGlobalData->m_aiKnobsOffMask = mask;
+	}
+	return 3;
+}
+
 Int parseObserver(char *args[], int num)
 {
 	if (TheWritableGlobalData)
@@ -2062,18 +2083,61 @@ Int parseSide(char *args[], int num)
 	return 1;
 }
 
+/* -team <slot> <n> puts one -autoskirmish slot on team n, -1 for none, over whatever -teams gave
+	 it.  -teams only splits evenly into blocks; this stages any layout, 4v1, 2v1 or three players
+	 alone beside a pair (-team 3 0 -team 4 0 with the rest -1). */
+Int parseTeam(char *args[], int num)
+{
+	if (TheWritableGlobalData && num > 2 && args[1] && args[2])
+	{
+		const Int slot = atoi(args[1]);
+		if (slot >= 0 && slot < MAX_SLOTS)
+			TheWritableGlobalData->m_autoSkirmishTeam[slot] = max(atoi(args[2]), -1);
+		else
+			DEBUG_LOG(("-team: slot %d is outside 0..%d\n", slot, MAX_SLOTS - 1));
+		return 3;
+	}
+	return 1;
+}
+
+/* -seatname <slot> <name> calls one -autoskirmish seat by a name instead of its difficulty, the way a
+	 player's own name stands on his seat: a cup's bots by their entrants' names, or a long one to see
+	 the director's score bar cut it.  ASCII only; it is read before the game text is. */
+Int parseSeatName(char *args[], int num)
+{
+	if (TheWritableGlobalData && num > 2 && args[1] && args[2])
+	{
+		const Int slot = atoi(args[1]);
+		if (slot >= 0 && slot < MAX_SLOTS)
+			TheWritableGlobalData->m_autoSkirmishSeatName[slot] = args[2];
+		else
+			DEBUG_LOG(("-seatname: slot %d is outside 0..%d\n", slot, MAX_SLOTS - 1));
+		return 3;
+	}
+	return 1;
+}
+
 /* -takeover empties every -autoskirmish seat instead of filling it with an AI.
 
 	 SLOT_TAKEOVER is an occupied seat with nothing behind it: startNewGame writes playerIsHuman for
 	 it, so Player::setPlayerType never news an AIPlayer and that player sits waiting to be told what
 	 to do. For a measurement that is exactly the point. An AI that builds, expands and attacks costs
 	 more of the frame than whatever is under test, and it costs a different amount every run; with
-	 the seats empty, nothing happens at all unless -scenario says it does. */
+	 the seats empty, nothing happens at all unless -scenario says it does.
+
+	 -takeover <slot> empties that one seat and leaves the AI in the others: a scenario then plays one
+	 side by hand against a computer that plays the whole game, which is how an AI is asked what it
+	 does about a given army. */
 Int parseTakeover(char *args[], int num)
 {
 	if (TheWritableGlobalData)
 	{
 		TheWritableGlobalData->m_autoSkirmishTakeover = TRUE;
+		if (num > 1 && args[1][0] >= '0' && args[1][0] <= '9')
+		{
+			TheWritableGlobalData->m_autoSkirmishTakeoverSlot = atoi(args[1]);
+			return 2;
+		}
 	}
 	return 1;
 }
@@ -2591,6 +2655,7 @@ static CommandLineParam params[] =
 	{ "-aidiff", parseAIDifficulty },
 	{ "-aidiff2", parseAIDifficulty2 },
 	{ "-notactics", parseNoTactics },
+	{ "-aiknobsoff", parseAIKnobsOff },
 	{ "-observer", parseObserver },
 	{ "-headless", parseHeadless },
 	/* -noaudio was in the Debug/Internal block above, so a Release build ignored it and a windowed run
@@ -2633,6 +2698,8 @@ static CommandLineParam params[] =
 	{ "-cinema", parseCinema },
 	{ "-freecam", parseFreeCamera },
 	{ "-side", parseSide },
+	{ "-team", parseTeam },
+	{ "-seatname", parseSeatName },
 	{ "-takeover", parseTakeover },
 	{ "-replay", parseReplay },
 	{ "-loadsave", parseLoadSave },

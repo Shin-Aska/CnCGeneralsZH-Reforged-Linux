@@ -123,6 +123,7 @@ void Direct3D11_Release()
 	Post.Shutdown();
 	Device.Set_Scene_View(NULL);
 	Backend.Shutdown();
+	Direct3D11_Release_Frame_Copies();
 	Device.Release();
 	Active = false;
 }
@@ -528,6 +529,22 @@ void Direct3D11_Mirror_Clear(bool colour, bool depth, float red, float green, fl
 	}
 }
 
+// A texture the CPU can read that the back buffer copies into whole.
+static D3D11_TEXTURE2D_DESC staging_description_of(ID3D11Resource * back_buffer)
+{
+	D3D11_TEXTURE2D_DESC description;
+	((ID3D11Texture2D *)back_buffer)->GetDesc(&description);
+	description.Usage = D3D11_USAGE_STAGING;
+	description.BindFlags = 0;
+	description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+	description.MiscFlags = 0;
+	// A multisampled back buffer cannot be copied into a single-sample staging texture, and this
+	// swap chain never asks for one, so the copy is the whole of it.
+	description.SampleDesc.Count = 1;
+	description.SampleDesc.Quality = 0;
+	return description;
+}
+
 unsigned char * Direct3D11_Capture_Back_Buffer(unsigned & width, unsigned & height,
 	unsigned & pitch)
 {
@@ -546,17 +563,7 @@ unsigned char * Direct3D11_Capture_Back_Buffer(unsigned & width, unsigned & heig
 	ID3D11Resource * back_buffer = NULL;
 	Device.Get_Back_Buffer_View()->GetResource(&back_buffer);
 
-	D3D11_TEXTURE2D_DESC description;
-	((ID3D11Texture2D *)back_buffer)->GetDesc(&description);
-	description.Usage = D3D11_USAGE_STAGING;
-	description.BindFlags = 0;
-	description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-	description.MiscFlags = 0;
-	// A multisampled back buffer cannot be copied into a single-sample staging texture, and this
-	// swap chain never asks for one, so the copy below is the whole of it.
-	description.SampleDesc.Count = 1;
-	description.SampleDesc.Quality = 0;
-
+	const D3D11_TEXTURE2D_DESC description = staging_description_of(back_buffer);
 	ID3D11Texture2D * staging = NULL;
 	if (FAILED(Device.Get_Device()->CreateTexture2D(&description, NULL, &staging))) {
 		back_buffer->Release();
@@ -587,6 +594,77 @@ unsigned char * Direct3D11_Capture_Back_Buffer(unsigned & width, unsigned & heig
 void Direct3D11_Release_Capture(unsigned char * pixels)
 {
 	delete [] pixels;
+}
+
+static ID3D11Texture2D * FrameCopies[DX11_FRAME_COPY_SLOTS];
+
+bool Direct3D11_Queue_Frame_Copy(unsigned slot)
+{
+	if (!Active || Device.Get_Back_Buffer_View() == NULL) {
+		return false;
+	}
+
+	// what the player sees, the way a screenshot takes it
+	Direct3D11_Finish_Frame();
+
+	ID3D11Resource * back_buffer = NULL;
+	Device.Get_Back_Buffer_View()->GetResource(&back_buffer);
+	const D3D11_TEXTURE2D_DESC description = staging_description_of(back_buffer);
+
+	ID3D11Texture2D *& copy = FrameCopies[slot];
+	if (copy != NULL) {
+		D3D11_TEXTURE2D_DESC held;
+		copy->GetDesc(&held);
+		if (held.Width != description.Width || held.Height != description.Height
+				|| held.Format != description.Format) {
+			copy->Release();
+			copy = NULL;
+		}
+	}
+	if (copy == NULL && FAILED(Device.Get_Device()->CreateTexture2D(&description, NULL, &copy))) {
+		copy = NULL;
+		back_buffer->Release();
+		return false;
+	}
+
+	Device.Get_Context()->CopyResource(copy, back_buffer);
+	back_buffer->Release();
+	return true;
+}
+
+const unsigned char * Direct3D11_Map_Frame_Copy(unsigned slot, unsigned & width, unsigned & height,
+	unsigned & pitch)
+{
+	width = 0;
+	height = 0;
+	pitch = 0;
+	ID3D11Texture2D * copy = FrameCopies[slot];
+	D3D11_MAPPED_SUBRESOURCE mapped;
+	if (!Active || copy == NULL || FAILED(Device.Get_Context()->Map(copy, 0, D3D11_MAP_READ, 0, &mapped))) {
+		return NULL;
+	}
+
+	D3D11_TEXTURE2D_DESC description;
+	copy->GetDesc(&description);
+	width = description.Width;
+	height = description.Height;
+	pitch = mapped.RowPitch;
+	return (const unsigned char *)mapped.pData;
+}
+
+void Direct3D11_Unmap_Frame_Copy(unsigned slot)
+{
+	Device.Get_Context()->Unmap(FrameCopies[slot], 0);
+}
+
+void Direct3D11_Release_Frame_Copies()
+{
+	for (unsigned slot = 0; slot < DX11_FRAME_COPY_SLOTS; ++slot) {
+		if (FrameCopies[slot] != NULL) {
+			FrameCopies[slot]->Release();
+			FrameCopies[slot] = NULL;
+		}
+	}
 }
 
 void Direct3D11_End_Scene(bool flip_frames)

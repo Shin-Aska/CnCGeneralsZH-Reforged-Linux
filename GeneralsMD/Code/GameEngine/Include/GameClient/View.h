@@ -208,8 +208,10 @@ public:
 	virtual void setZoomToDefault( void ) { }														///< Set zoom to default value
 	virtual void setZoomToMax( void ) { }																///< Set zoom as far out as the player may zoom by hand
 	virtual void setZoomToHeight( Real heightAboveGround ) { }								///< Frame the camera at this height above the terrain
+	virtual Real getZoomForHeight( Real heightAboveGround ) { return m_zoom; }		///< the zoom setZoomToHeight would set, without setting it
 	void setZoomToStart( Bool shellMap );																	///< the zoom a match opens at: max under StartAtMaxZoom, else START_CAMERA_HEIGHT
 	virtual void setOkToAdjustHeight( Bool val ) { m_okToAdjustHeight = val; }	///< Set this to adjust camera height
+	void setHeightSettleSeconds( Real seconds ) { m_heightSettleSeconds = seconds; }	///< settle the height on this time constant, 0 for CameraAdjustSpeed
 
 	// for debugging
 	virtual Real getTerrainHeightUnderCamera() { return m_terrainHeightUnderCamera; }
@@ -335,6 +337,7 @@ protected:
 	Bool m_mouseLocked;																					///< is the mouse input locked to the tactical view?
 
 	Bool m_okToAdjustHeight;																		///< Should we attempt to adjust camera height?
+	Real m_heightSettleSeconds;																	///< the director's slower height settle, 0 when nobody asked for one
 	Bool m_snapImmediate;																				///< Should we immediately snap to the object we're following?
 
 	Coord2D m_guardBandBias; ///< Exttra beefy margins so huge thins can stay "on-screen"

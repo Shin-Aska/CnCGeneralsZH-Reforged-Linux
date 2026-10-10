@@ -204,6 +204,7 @@ public:
 	virtual void setZoomToDefault( void );									///< Set zoom to default value
 	virtual void setZoomToMax( void );												///< Set zoom as far out as the player may zoom by hand
 	virtual void setZoomToHeight( Real heightAboveGround );				///< Frame the camera at this height above the terrain
+	virtual Real getZoomForHeight( Real heightAboveGround );				///< the zoom setZoomToHeight would set, without setting it
 	virtual void anchorZoomAt( const ICoord2D *pixel );
 
 	virtual void setFieldOfView( Real angle );							///< Set the horizontal field of view angle

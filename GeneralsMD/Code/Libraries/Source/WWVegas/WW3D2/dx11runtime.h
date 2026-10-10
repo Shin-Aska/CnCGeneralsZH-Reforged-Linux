@@ -256,6 +256,17 @@ unsigned char * Direct3D11_Capture_Back_Buffer(unsigned & width, unsigned & heig
 	unsigned & pitch);
 void Direct3D11_Release_Capture(unsigned char * pixels);
 
+// The same back buffer for a recording, without waiting for it.  Queue copies it into one of
+// DX11_FRAME_COPY_SLOTS staging textures kept from call to call; Map hands that copy back a frame
+// later, by when the GPU has long made it, and is null for a slot that holds nothing.  A Map is
+// followed by an Unmap of the same slot before the slot is queued again.
+enum { DX11_FRAME_COPY_SLOTS = 16 };
+bool Direct3D11_Queue_Frame_Copy(unsigned slot);
+const unsigned char * Direct3D11_Map_Frame_Copy(unsigned slot, unsigned & width, unsigned & height,
+	unsigned & pitch);
+void Direct3D11_Unmap_Frame_Copy(unsigned slot);
+void Direct3D11_Release_Frame_Copies();
+
 // The buffers and the vertex format a draw is about to read, mirrored as DX8Wrapper binds them.
 // A null twin unbinds, which is what a stream with no buffer means.  Index buffers in this engine
 // are 16-bit without exception, so the format is not a parameter.

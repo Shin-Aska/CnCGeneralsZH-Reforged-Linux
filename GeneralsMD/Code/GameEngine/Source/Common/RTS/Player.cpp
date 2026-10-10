@@ -1661,6 +1661,19 @@ Bool Player::holdTeamForWave(Team *team, const AsciiString &approach, Int pathSu
 }
 
 //-------------------------------------------------------------------------------------------------
+Bool Player::gateTeamAttack(Team *team, const char *cause)
+{
+	return m_ai ? m_ai->gateTeamAttack(team, cause) : FALSE;
+}
+
+//-------------------------------------------------------------------------------------------------
+void Player::onUnitLost(const Object *obj)
+{
+	if (m_ai)
+		m_ai->onUnitLost(obj);
+}
+
+//-------------------------------------------------------------------------------------------------
 /** Do any bridges need repair, and if so repair them. */
 //-------------------------------------------------------------------------------------------------
 Bool Player::getAiBaseCenter(Coord3D *pos)
@@ -3152,6 +3165,14 @@ Bool SuperweaponMissileSilencedInMatch( SpecialPowerType specialPowerType )
 {
   return SuperweaponMissileSilenced( specialPowerType, TheGameLogic->isProRules(),
                                      TheGameLogic->getSuperweaponRestriction() );
+}
+
+Bool SuperweaponSiloSilencedInMatch( const Object *structure )
+{
+  return ( structure->hasSpecialPower( SPECIAL_NEUTRON_MISSILE )
+           || structure->hasSpecialPower( NUKE_SPECIAL_NEUTRON_MISSILE )
+           || structure->hasSpecialPower( SUPW_SPECIAL_NEUTRON_MISSILE ) )
+         && SuperweaponMissileSilencedInMatch( SPECIAL_NEUTRON_MISSILE );
 }
 
 Bool ProRulesRefuseSpecialPower( const Player *player, SpecialPowerType specialPowerType )

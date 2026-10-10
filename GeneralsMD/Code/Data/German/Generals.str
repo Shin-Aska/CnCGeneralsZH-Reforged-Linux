@@ -14233,12 +14233,8 @@ GUI:OrderMoveDescription
 "Der nächste Klick auf den Boden schickt die ausgewählten Einheiten dorthin. Ziehe stattdessen, und sie verteilen sich entlang der gezogenen Linie."
 END
 
-GUI:OrderSearchAndDestroy
-"Suchen und Zerstören"
-END
-
-GUI:OrderSearchAndDestroyDescription
-"Klicke auf eine Stelle, und die ausgewählten Einheiten gehen im Angriffsmarsch um sie herum, bekämpfen alles auf ihrem Weg und bewachen dann den ganzen Kreis. Drehe vor dem Klick das Mausrad, um den Kreis einzustellen."
+GUI:SelectionTypeDescription
+"Klicke, um nur diese ausgewählt zu lassen. Mit Umschalt und Klick nimmst du sie aus der Auswahl."
 END
 
 GUI:OrderStanceDefensive

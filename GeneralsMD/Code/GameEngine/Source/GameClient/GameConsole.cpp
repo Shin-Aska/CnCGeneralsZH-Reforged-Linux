@@ -48,6 +48,8 @@
 #include "GameClient/GameFont.h"
 #include "GameClient/Gadget.h"
 #include "GameClient/GadgetListBox.h"
+#include "GameClient/GUICallbacks.h"
+#include "GameClient/InGameUI.h"
 #include "GameClient/GameWindowManager.h"
 #include "GameClient/WindowLayout.h"
 #include "Common/GlobalData.h"
@@ -327,6 +329,29 @@ static AsciiString runHideHud( AsciiString arguments )
 	return result;
 }
 
+/** 'pause' opens the Esc menu, which stops the game, and 'resume' closes it again.  Not in a LAN or
+	* internet game, where the Esc menu stops nothing. */
+static AsciiString runPause( Bool pause )
+{
+	AsciiString result;
+	const char *name = pause ? "pause" : "resume";
+	if( !TheGameLogic->isInGame() || TheGameLogic->isInShellGame() || TheGameLogic->isInMultiplayerGame() )
+	{
+		result.format( "%s: in a single player match or a replay only", name );
+		return result;
+	}
+
+	if( TheInGameUI->isQuitMenuVisible() == pause )
+	{
+		result.format( "%s: already %s", name, pause ? "paused" : "running" );
+		return result;
+	}
+
+	ToggleQuitMenu();
+	result = pause ? "paused; 'resume' closes the menu" : "resumed";
+	return result;
+}
+
 static AsciiString runFreeCamera( AsciiString arguments )
 {
 	AsciiString result;
@@ -552,6 +577,7 @@ void GameConsole::runCommand( AsciiString commandLine )
 		printLine( AsciiString( "              Shift faster; Esc or 'freecam' again lands.  'freecam x y z heading tilt'" ) );
 		printLine( AsciiString( "              flies to a pose, angles in degrees" ) );
 		printLine( AsciiString( "director      observer: the director camera on, again gives the camera back" ) );
+		printLine( AsciiString( "pause, resume open and close the Esc menu, single player only" ) );
 		printLine( AsciiString( "hidehud       the interface off, again brings it back; showmap=true keeps the radar" ) );
 		if( areCheatsAvailable() )
 		{
@@ -612,6 +638,15 @@ void GameConsole::runCommand( AsciiString commandLine )
 		printLine( runFreeCamera( arguments ) );
 		// out of the way of the picture, and of the keys the camera now takes
 		if( TheTacticalView && TheTacticalView->isFreeCamera() )
+			close();
+		return;
+	}
+
+	if( command == "pause" || command == "resume" )
+	{
+		printLine( runPause( command == "pause" ) );
+		// out of the way of the menu it opens
+		if( TheInGameUI->isQuitMenuVisible() )
 			close();
 		return;
 	}

@@ -681,7 +681,7 @@ static void startAutoSkirmish( Int numPlayersWanted )
 			slot.setState( SLOT_PLAYER, localName );
 			slot.setName( localName );
 		}
-		else if (takeover)
+		else if (takeover && (TheGlobalData->m_autoSkirmishTakeoverSlot < 0 || TheGlobalData->m_autoSkirmishTakeoverSlot == i))
 		{
 			slot.setState( SLOT_TAKEOVER );
 		}
@@ -692,6 +692,12 @@ static void startAutoSkirmish( Int numPlayersWanted )
 			if ((i & 1) && TheGlobalData->m_autoSkirmishAIStateOdd != 0)
 				state = TheGlobalData->m_autoSkirmishAIStateOdd;
 			slot.setState( (SlotState)state );
+			if (TheGlobalData->m_autoSkirmishSeatName[ i ].isNotEmpty())
+			{
+				UnicodeString seatName;
+				seatName.translate( TheGlobalData->m_autoSkirmishSeatName[ i ] );
+				slot.setName( seatName );
+			}
 		}
 		slot.setPlayerTemplate( sideTemplate[ i ] );
 		slot.setColor( -1 );			// -1 is "random" to populateRandomSideAndColor
@@ -709,6 +715,8 @@ static void startAutoSkirmish( Int numPlayersWanted )
 			if (teamNumber >= teams)
 				teamNumber = teams - 1;		// an uneven split puts the remainder on the last team
 		}
+		if (TheGlobalData->m_autoSkirmishTeam[ i ] != AUTO_SKIRMISH_TEAM_UNSET)
+			teamNumber = TheGlobalData->m_autoSkirmishTeam[ i ];
 		slot.setTeamNumber( teamNumber );
 		TheSkirmishGameInfo->setSlot( i, slot );
 	}
@@ -2425,6 +2433,25 @@ static void updateHeadlessRun( void )
 	if (why == NULL)
 		return;
 
+	/* -directorrecord films on past the decision, so the last player's defeat and the winner's banner
+		 are in the movie: it used to stop on the frame the last card fell.  Not past the game's own end,
+		 though: the multiplayer scripts' end timer clears the match FRAMES_TO_SHOW_WIN_LOSE_MESSAGE (120)
+		 frames after it is decided and drops to the shell, which would leave without these lines.  The
+		 decision's own CRC is logged on its frame, the one the scouting pass closed on. */
+	static UnsignedInt filmDecidedOn = 0;
+	const UnsignedInt FILM_PAST_DECISION_FRAMES = 105;
+	if (TheGlobalData->m_directorRecord && strcmp( why, "decided" ) == 0)
+	{
+		if (filmDecidedOn == 0)
+		{
+			filmDecidedOn = frame;
+			DEBUG_LOG(("-directorrecord: decided on frame %d, CRC 0x%08X, filming %u frames more\n", frame,
+								 TheGameLogic->getCRC( CRC_RECALC ), FILM_PAST_DECISION_FRAMES));
+		}
+		if (frame < filmDecidedOn + FILM_PAST_DECISION_FRAMES)
+			return;
+	}
+
 	const UnsignedInt wallMs = Clock_Milliseconds() - runStartTime;
 	const Real logicFps = wallMs ? (Real)(frame - runStartFrame) * 1000.0f / (Real)wallMs : 0.0f;
 
@@ -2507,6 +2534,9 @@ static void updateHeadlessRun( void )
 							 peakUnits[ i ],
 							 score->getTotalBuildingsBuilt(), score->getTotalBuildingsLost(),
 							 slot, team));
+		// the exchange in money, on a line of its own so the PLAYER line's readers keep matching it
+		DEBUG_LOG(("HEADLESS VALUE %d: units worth %d lost, %d killed\n", i,
+							 score->getUnitValueLost(), score->getUnitValueDestroyed()));
 	}
 
 	if (scouting)
