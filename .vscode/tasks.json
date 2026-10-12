@@ -31,7 +31,12 @@
           "CXX": "g++-16"
         }
       },
-      "problemMatcher": ["$gcc"]
+      "problemMatcher": ["$gcc"],
+      "presentation": {
+        "panel": "dedicated",
+        "close": true,
+        "showReuseMessage": false
+      }
     },
     {
       "label": "Linux: Publish thin executable",
@@ -49,7 +54,9 @@
       "problemMatcher": [],
       "presentation": {
         "reveal": "always",
-        "panel": "dedicated"
+        "panel": "dedicated",
+        "close": true,
+        "showReuseMessage": false
       }
     },
     {

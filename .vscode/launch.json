@@ -85,7 +85,7 @@
       "type": "node-terminal",
       "request": "launch",
       "autoAttachChildProcesses": false,
-      "command": "bash \"${workspaceFolder}/GeneralsMD/Code/Tools/publish-linux-executable.sh\" \"${workspaceFolder}/build-linux/generals\" \"${env:HOME}/Games/ZeroHourReforged/bin/generals\"",
+      "command": "exec bash \"${workspaceFolder}/GeneralsMD/Code/Tools/publish-linux-executable.sh\" \"${workspaceFolder}/build-linux/generals\" \"${env:HOME}/Games/ZeroHourReforged/bin/generals\"",
       "cwd": "${workspaceFolder}",
       "preLaunchTask": "Linux: Build Release executable only"
     },
