@@ -629,6 +629,9 @@ public:
 	/// One of this player's units died; the AI keeps count of the ones that died alone.
 	void onUnitLost(const Object *obj);
 
+	/// TRUE for an Ambulance the AI drives behind its army; it cleans only the hazards the AI sends it to.
+	Bool isAIDutyAmbulance(const Object *obj) const;
+
 	/// Get the center of the ai's base.
 	virtual Bool getAiBaseCenter(Coord3D *pos);
 

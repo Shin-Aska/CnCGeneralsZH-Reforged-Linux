@@ -112,6 +112,11 @@ struct CombinerDescription
 	// a building.  SOFT_PARTICLE_ALPHA fades the alpha alone, which is what a SRCALPHA blend reads;
 	// SOFT_PARTICLE_COLOUR fades the colour as well, for a blend that adds the colour unweighted.
 	unsigned SoftParticle = 0;
+
+	// D3D11 only: a look the scene asked for on this one object (DRAW_EFFECT_*), written after the
+	// fog and the alpha test (DRAW_EFFECT_SAMPLING).  RTS3DScene::renderOneObject picks it and
+	// the mesh renderer hands it to the backend around each of the object's draws.
+	unsigned DrawEffect = 0;
 };
 
 enum
@@ -119,6 +124,17 @@ enum
 	SOFT_PARTICLE_NONE = 0,
 	SOFT_PARTICLE_ALPHA = 1,
 	SOFT_PARTICLE_COLOUR = 2
+};
+
+// The per-object looks.  The numbers are in the program key, so they do not move.
+enum
+{
+	DRAW_EFFECT_NONE = 0,
+	DRAW_EFFECT_OUTAGE = 1,		///< a building out of power: drained, cold, lights out, sparks
+	DRAW_EFFECT_EMP = 2,		///< anything an EMP disabled: arcs crawling over it
+	DRAW_EFFECT_CLOAK = 3,		///< own stealthed unit: what is behind it bent through it, a rim
+	DRAW_EFFECT_REVEALED = 4,	///< enemy stealthed unit a detector found: hot edges, scan lines
+	DRAW_EFFECT_COUNT = 5
 };
 
 // The constant block still carries this many normal mapped light slots, unread, so the shadow and
@@ -415,18 +431,21 @@ const unsigned NORMAL_MAPPED_LIGHTS = 4;
 // texel at the pixel's own position, so the viewport's half pixel shift applies to both alike.  Both
 // depths go back to the distance from the eye through the projection the particles are drawn with,
 // w = SoftParticleDepth.x / (z * SoftParticleDepth.y - SoftParticleDepth.z), which is the same
-// matrix the world was drawn with; .w is one over the distance the fade takes, in world units.  The
-// ramp is a smoothstep: a straight one left a crease at both ends of every sprite's fade, and a
-// toxin cloud is hundreds of sprites lying on the ground, whose creases stacked into contour lines.
+// matrix the world was drawn with; .w is one over the longest distance the fade takes, in world
+// units.  A sprite never fades over more than its own half width, which the vertex half hands on in
+// the specular alpha (VertexPipelineDescription::SoftParticle): a mine's flare hangs under a unit
+// above the ground, and twelve units erased it whole.  The ramp is a smoothstep: a straight one
+// left a crease at both ends of every sprite's fade, and a toxin cloud is hundreds of sprites lying
+// on the ground, whose creases stacked into contour lines.
 #define SOFT_PARTICLE_SAMPLING \
 	"Texture2D SceneDepth : register(t7);\n" \
 	"\n" \
-	"float soft_particle_fade(float4 position)\n" \
+	"float soft_particle_fade(float4 position, float half_width)\n" \
 	"{\n" \
 	"    float scene = SceneDepth.Load(int3(position.xy, 0)).r;\n" \
 	"    float behind = SoftParticleDepth.x / (scene * SoftParticleDepth.y - SoftParticleDepth.z);\n" \
 	"    float here = SoftParticleDepth.x / (position.z * SoftParticleDepth.y - SoftParticleDepth.z);\n" \
-	"    float fade = saturate((behind - here) * SoftParticleDepth.w);\n" \
+	"    float fade = saturate((behind - here) * max(SoftParticleDepth.w, 1.0 / half_width));\n" \
 	"    return fade * fade * (3.0 - 2.0 * fade);\n" \
 	"}\n" \
 	"\n"
@@ -444,6 +463,149 @@ const unsigned NORMAL_MAPPED_LIGHTS = 4;
 	"    float4 BlastLightDiffuse[" BLAST_LIGHT_SLOTS_TEXT "];\n" \
 	"    float4 BlastLightAmbient[" BLAST_LIGHT_SLOTS_TEXT "];\n" \
 	"    float4 SoftParticleDepth;\n"
+
+// The per-object looks (CombinerDescription::DrawEffect), Direct3D 11 only, declared after the
+// whole block above: DrawEffectParameters is its last field.  x is seconds on the wall clock, y a
+// strength (the detector's pulse for the two stealth looks), z a seed from the object's id so two
+// buildings do not flicker in step, w the object's own opacity for the cloak.  The surface is taken
+// back to the world through WorldFromClip the way the headlights take it, and faces the eye.  The
+// cloak reads the scene as it stood before the translucent objects went in, at t8, by pixel.
+#define DRAW_EFFECT_CONSTANTS \
+	"    float4 DrawEffectParameters;\n"
+
+#define DRAW_EFFECT_SAMPLING \
+	"Texture2D SceneColour : register(t8);\n" \
+	"\n" \
+	"float effect_hash(float3 p)\n" \
+	"{\n" \
+	"    return frac(sin(dot(p, float3(12.9898, 78.233, 37.719))) * 43758.5453);\n" \
+	"}\n" \
+	"\n" \
+	"float effect_noise(float3 p)\n" \
+	"{\n" \
+	"    float3 i = floor(p);\n" \
+	"    float3 f = frac(p);\n" \
+	"    f = f * f * (3.0 - 2.0 * f);\n" \
+	"    float a = lerp(effect_hash(i), effect_hash(i + float3(1, 0, 0)), f.x);\n" \
+	"    float b = lerp(effect_hash(i + float3(0, 1, 0)), effect_hash(i + float3(1, 1, 0)), f.x);\n" \
+	"    float c = lerp(effect_hash(i + float3(0, 0, 1)), effect_hash(i + float3(1, 0, 1)), f.x);\n" \
+	"    float d = lerp(effect_hash(i + float3(0, 1, 1)), effect_hash(i + float3(1, 1, 1)), f.x);\n" \
+	"    return lerp(lerp(a, b, f.y), lerp(c, d, f.y), f.z);\n" \
+	"}\n" \
+	"\n" \
+	"void effect_surface(float4 position, out float3 world, out float3 surface, out float facing)\n" \
+	"{\n" \
+	"    float2 ndc = float2(position.x * ShadowViewport.x * 2.0 - 1.0,\n" \
+	"                        1.0 - position.y * ShadowViewport.y * 2.0);\n" \
+	"    float4 at = mul(float4(ndc, position.z, 1.0), WorldFromClip);\n" \
+	"    world = at.xyz / at.w;\n" \
+	"    float4 eye = mul(float4(ndc, 0.0, 1.0), WorldFromClip);\n" \
+	"    float3 to_eye = normalize(eye.xyz / eye.w - world);\n" \
+	"    float3 across = cross(ddx(world), ddy(world));\n" \
+	"    surface = across * rsqrt(max(dot(across, across), 1e-20));\n" \
+	"    if (dot(surface, to_eye) < 0.0) surface = -surface;\n" \
+	"    facing = saturate(dot(surface, to_eye));\n" \
+	"}\n" \
+	"\n" \
+	"/* Out of power.  The colour drains to a cold grey and sags, the brightest texels, which on\n" \
+	"   this art are the windows, lamps and beacons, go out, and now and then the whole building\n" \
+	"   blinks dark or the lights catch for a moment.  A few points on the walls short out in\n" \
+	"   blue-white for a sixth of a second each, past white so the bloom finds them. */\n" \
+	"float4 effect_outage(float4 current, float4 position)\n" \
+	"{\n" \
+	"    float3 world; float3 surface; float facing;\n" \
+	"    effect_surface(position, world, surface, facing);\n" \
+	"    float t = DrawEffectParameters.x;\n" \
+	"    float seed = DrawEffectParameters.z;\n" \
+	"    float grey = dot(current.rgb, float3(0.299, 0.587, 0.114));\n" \
+	"    float3 cold = grey * float3(0.80, 0.88, 1.0);\n" \
+	"    float stutter = effect_hash(float3(floor(t * 7.0 + seed * 31.0), seed * 97.0, 1.0));\n" \
+	"    float sag = 0.45 + 0.08 * sin(t * 1.7 + seed * 6.2832);\n" \
+	"    float dip = (stutter > 0.82) ? 0.3 : 1.0;\n" \
+	"    float relit = (stutter > 0.95) ? 1.0 : 0.0;\n" \
+	"    float lamp = smoothstep(0.42, 0.8, max(current.r, max(current.g, current.b)));\n" \
+	"    float3 dark = cold * sag * dip * (1.0 - 0.95 * lamp * (1.0 - relit)) + relit * lamp * current.rgb * 0.8;\n" \
+	"    float3 cell = floor(world * 0.125);\n" \
+	"    float3 inside = frac(world * 0.125) - 0.5;\n" \
+	"    float slot = floor(t * 8.0 + seed * 7.0);\n" \
+	"    float live = step(0.985, effect_hash(cell + float3(slot * 1.31, seed * 13.0, 0.0)));\n" \
+	"    float3 point_at = float3(effect_hash(cell + 3.1), effect_hash(cell + 5.7), effect_hash(cell + 7.3)) - 0.5;\n" \
+	"    float3 off = inside - point_at * 0.6;\n" \
+	"    float spark = live * saturate(1.0 - length(off - surface * dot(off, surface)) * 2.5);\n" \
+	"    float crackle = 0.6 + 0.4 * effect_hash(float3(floor(t * 40.0), cell.x, cell.y));\n" \
+	"    current.rgb = lerp(current.rgb, dark, DrawEffectParameters.y)\n" \
+	"        + spark * spark * crackle * saturate(grey * 8.0) * float3(4.0, 5.0, 6.5);\n" \
+	"    return current;\n" \
+	"}\n" \
+	"\n" \
+	"/* Caught by an EMP.  The surface dims a little towards blue and thin lines of current crawl\n" \
+	"   over it: two bands of moving noise at two sizes, strobing, with a cold rim on top. */\n" \
+	"float4 effect_emp(float4 current, float4 position)\n" \
+	"{\n" \
+	"    float3 world; float3 surface; float facing;\n" \
+	"    effect_surface(position, world, surface, facing);\n" \
+	"    float t = DrawEffectParameters.x;\n" \
+	"    float seed = DrawEffectParameters.z;\n" \
+	"    float grey = dot(current.rgb, float3(0.299, 0.587, 0.114));\n" \
+	"    float3 base = lerp(current.rgb, grey * float3(0.70, 0.80, 1.0), 0.65) * 0.6;\n" \
+	"    float wide = effect_noise(world * 0.11 + float3(seed * 17.0, 0.0, t * 1.6));\n" \
+	"    float fine = effect_noise(world * 0.29 - float3(0.0, t * 2.3, seed * 9.0));\n" \
+	"    float line_wide = saturate(1.0 - abs(wide - 0.5) * 16.0);\n" \
+	"    float line_fine = saturate(1.0 - abs(fine - 0.5) * 24.0);\n" \
+	"    float strobe = 0.35 + 0.65 * step(0.25, effect_hash(float3(floor(t * 24.0), seed * 41.0, 2.0)));\n" \
+	"    float arc = (line_wide * line_wide + 0.8 * line_fine * line_fine) * strobe;\n" \
+	"    float rim = pow(1.0 - facing, 2.0) * (0.6 + 0.4 * sin(t * 37.0 + seed * 6.2832));\n" \
+	"    float hum = 0.08 + 0.05 * sin(t * 11.0 + seed * 6.2832);\n" \
+	"    current.rgb = base + (arc * 4.0 + rim * 0.9 + hum) * float3(0.45, 0.72, 1.0) * DrawEffectParameters.y;\n" \
+	"    return current;\n" \
+	"}\n" \
+	"\n" \
+	"/* Own stealthed unit.  What is behind it shows through, bent by a slow ripple that swims over\n" \
+	"   the body and bends harder towards the outline, with a little of the unit itself left in so\n" \
+	"   its owner can still read what it is, and a cold rim.  Detected, the rim pulses amber.  The\n" \
+	"   alpha goes back up to the texel's own, because the shade already holds the mix. */\n" \
+	"float4 effect_cloak(float4 current, float4 position)\n" \
+	"{\n" \
+	"    float3 world; float3 surface; float facing;\n" \
+	"    effect_surface(position, world, surface, facing);\n" \
+	"    float t = DrawEffectParameters.x;\n" \
+	"    float opacity = max(DrawEffectParameters.w, 0.05);\n" \
+	"    float rim = pow(1.0 - facing, 1.5);\n" \
+	"    float swim_x = effect_noise(world * 0.6 + float3(t * 0.9, t * 0.5, t * 1.3)) - 0.5;\n" \
+	"    float swim_y = effect_noise(world * 0.6 + float3(5.2 - t * 0.7, 1.3, t * 1.1)) - 0.5;\n" \
+	"    float2 screen = 1.0 / ShadowViewport.xy;\n" \
+	"    float2 bend = float2(swim_x, swim_y) * (0.016 + 0.03 * rim) * screen.y + surface.xy * rim * 0.008 * screen.y;\n" \
+	"    int2 at = int2(clamp(position.xy + bend, float2(0.0, 0.0), screen - 1.0));\n" \
+	"    float3 behind = SceneColour.Load(int3(at, 0)).rgb;\n" \
+	"    float band = smoothstep(0.85, 1.0, sin(world.z * 0.5 - t * 4.0)) * 0.35;\n" \
+	"    float own = 0.4;\n" \
+	"    float3 edge = lerp(float3(0.45, 0.85, 1.0), float3(1.0, 0.55, 0.15), DrawEffectParameters.y);\n" \
+	"    float edge_gain = 0.9 + 0.6 * DrawEffectParameters.y * (0.5 + 0.5 * sin(t * 9.0));\n" \
+	"    current.rgb = lerp(behind * float3(0.85, 0.95, 1.15), current.rgb, own)\n" \
+	"        + (rim * edge_gain + band + 0.08) * edge;\n" \
+	"    current.a = saturate(current.a / opacity);\n" \
+	"    return current;\n" \
+	"}\n" \
+	"\n" \
+	"/* Enemy stealthed unit a detector found.  The paint drains to a dull warm grey, the outline\n" \
+	"   burns red-orange, scan lines run up it in world height, and each sweep of the detector\n" \
+	"   (the strength, one at the sweep and falling after) brightens all of it. */\n" \
+	"float4 effect_revealed(float4 current, float4 position)\n" \
+	"{\n" \
+	"    float3 world; float3 surface; float facing;\n" \
+	"    effect_surface(position, world, surface, facing);\n" \
+	"    float t = DrawEffectParameters.x;\n" \
+	"    float pulse = DrawEffectParameters.y;\n" \
+	"    float grey = dot(current.rgb, float3(0.299, 0.587, 0.114));\n" \
+	"    float3 heat = float3(1.0, 0.36, 0.10);\n" \
+	"    float rim = pow(1.0 - facing, 2.0);\n" \
+	"    float scan = smoothstep(0.80, 1.0, frac(world.z * 0.4 - t * 1.5));\n" \
+	"    float sweep = smoothstep(0.96, 1.0, sin(world.z * 0.08 - t * 2.2));\n" \
+	"    float glow = (rim * 1.7 + scan * 0.35 + sweep * 0.6 + 0.12) * (0.55 + 0.75 * pulse);\n" \
+	"    current.rgb = grey * float3(0.85, 0.62, 0.52) * 0.85 + heat * glow;\n" \
+	"    return current;\n" \
+	"}\n" \
+	"\n"
 
 // SHADOW_APPLY with the smoke in it.  A particle takes the shade whatever its own brightness: the
 // threshold is there for ground under the shroud, and on smoke it tied the shade to the colour, so

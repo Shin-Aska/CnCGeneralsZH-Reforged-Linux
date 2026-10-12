@@ -50,6 +50,7 @@
 #include "dx8fvf.h"
 #include "dx8caps.h"
 #include "dx8rendererdebugger.h"
+#include "dx11runtime.h"
 #include "wwdebug.h"
 #include "wwprofile.h"
 #include "wwmemlog.h"
@@ -1879,6 +1880,13 @@ void DX8TextureCategoryClass::Render(void)
 		//(gth) this if statement's contents are not tabbed to avoid perforce merge problems...
 		if (!DX8RendererDebugger::Is_Enabled() || !mesh->Is_Disabled_By_Debugger()) {
 
+		// The object's look on the Direct3D 11 frame (RTS3DScene::renderOneObject picks it), for this
+		// mesh's draws only.  A sorted mesh draws later, from the sorting pool, and goes without.
+		const unsigned draw_effect = mesh->Get_Draw_Effect();
+		if (draw_effect != 0) {
+			Direct3D11_Set_Draw_Effect(draw_effect, mesh->Get_Draw_Effect_Parameters());
+		}
+
 		if ((!!mesh->Peek_Model()->Get_Flag(MeshGeometryClass::SORT)) && WW3D::Is_Sorting_Enabled()) {
 			renderer->Render_Sorted(mesh->Get_Base_Vertex_Offset(),mesh->Get_Bounding_Sphere());
 		} else {
@@ -1932,6 +1940,10 @@ void DX8TextureCategoryClass::Render(void)
 			} 
 			else
 				renderer->Render(mesh->Get_Base_Vertex_Offset());
+		}
+		if (draw_effect != 0) {
+			static const float no_effect[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+			Direct3D11_Set_Draw_Effect(0, no_effect);
 		}
 //--------------------------------------------------------------------
 		if (mesh->Get_ObjectScale() != 1.0f)

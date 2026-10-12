@@ -100,6 +100,8 @@ protected:
 	Int			m_resumeGuardMode;	///< a GuardMode
 	Bool		m_returning;				///< the area is clean and the walk back to m_pos has been ordered
 	Int			m_approaches;				///< scans in a row standing out of reach of the hazard it is after
+	ObjectID	m_resumeGuardObject;	///< the object it was guarding when a cleanup took it off guard, or INVALID_ID for a spot
+	ObjectID	m_givenUpID;			///< the last hazard it gave up on as out of reach, never gone for again
 };
 
 

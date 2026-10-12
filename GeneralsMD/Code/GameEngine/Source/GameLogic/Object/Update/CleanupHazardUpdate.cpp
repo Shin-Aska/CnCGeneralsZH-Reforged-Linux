@@ -58,6 +58,18 @@
 /** Scans in a row an area cleaner stands out of reach of its hazard before it gives the area up. */
 static const Int MAX_CLEANUP_APPROACHES = 5;
 
+/** Every hazard but the one given up on. */
+class PartitionFilterRejectGivenUp : public PartitionFilter
+{
+	ObjectID m_id;
+public:
+	PartitionFilterRejectGivenUp( ObjectID id ) : m_id( id ) {}
+	virtual Bool allow( Object *objOther ) { return objOther->getID() != m_id; }
+#if defined(_DEBUG) || defined(_INTERNAL)
+	virtual const char* debugGetName() { return "PartitionFilterRejectGivenUp"; }
+#endif
+};
+
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 CleanupHazardUpdateModuleData::CleanupHazardUpdateModuleData()
@@ -96,8 +108,10 @@ CleanupHazardUpdate::CleanupHazardUpdate( Thing *thing, const ModuleData* module
 	m_resumeGuardMode						= GUARDMODE_NORMAL;
 	m_returning									= FALSE;
 	m_approaches								= 0;
+	m_resumeGuardObject					= INVALID_ID;
+	m_givenUpID									= INVALID_ID;
 
-} 
+}
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
@@ -186,9 +200,9 @@ UpdateSleepTime CleanupHazardUpdate::update()
 	{
 		m_returning = FALSE;
 		// Cleaning an area: standing still out of the weapon's reach on a scan, scan after scan, is a hazard
-		// it cannot drive up to. It gives the area up rather than order the same drive for good.
-		// ponytail: it may notice the same hazard again from home and try once more, bounded by the
-		// hazard's own lifetime; a list of hazards given up on would end that
+		// it cannot drive up to. It gives the area up rather than order the same drive for good, and does
+		// not go for that hazard again: noticed from home, it drove the same way for the hazard's lifetime.
+		// ponytail: one hazard remembered; two out of reach side by side would take turns
 		AIUpdateInterface *ai = obj->getAI();
 		WeaponBonus bonus;
 		bonus.clear();
@@ -197,6 +211,7 @@ UpdateSleepTime CleanupHazardUpdate::update()
 		{
 			if( ++m_approaches > MAX_CLEANUP_APPROACHES )
 			{
+				m_givenUpID = found->getID();
 				finishArea( "gave up on a hazard it cannot reach", TRUE );
 				return UPDATE_SLEEP_NONE;
 			}
@@ -323,7 +338,8 @@ Object* CleanupHazardUpdate::scanClosestTarget()
 
 	PartitionFilterAcceptByKindOf kindFilter(MAKE_KINDOF_MASK(KINDOF_CLEANUP_HAZARD), KINDOFMASK_NONE);
 	PartitionFilterSameMapStatus filterMapStatus(getObject());
-	PartitionFilter* filters[] = { &kindFilter, &filterMapStatus, NULL };
+	PartitionFilterRejectGivenUp givenUpFilter( m_givenUpID );
+	PartitionFilter* filters[] = { &kindFilter, &filterMapStatus, &givenUpFilter, NULL };
 
 	if( m_moveRange > 0.0f )
 	{
@@ -361,7 +377,13 @@ void CleanupHazardUpdate::finishArea( const char *why, Bool goHome )
 	if( m_resumeGuard )
 	{
 		m_resumeGuard = FALSE;
-		ai->aiGuardPosition( &m_pos, (GuardMode)m_resumeGuardMode, CMD_FROM_AI );
+		// back on the object it guarded, not the spot it stood on when it left; on the spot if that is gone
+		Object *guarded = TheGameLogic->findObjectByID( m_resumeGuardObject );
+		m_resumeGuardObject = INVALID_ID;
+		if( guarded && !guarded->isEffectivelyDead() )
+			ai->aiGuardObject( guarded, (GuardMode)m_resumeGuardMode, CMD_FROM_AI );
+		else
+			ai->aiGuardPosition( &m_pos, (GuardMode)m_resumeGuardMode, CMD_FROM_AI );
 	}
 	else if( goHome )
 		ai->aiMoveToPosition( &m_pos, CMD_FROM_AI );
@@ -390,19 +412,25 @@ void CleanupHazardUpdate::startAutoCleanup()
 	const Bool guarding = ai->getCurrentStateID() == AI_GUARD;
 	if( !guarding && !ai->isIdle() )
 		return;
+	// the AI's own Ambulance cleans what the AI sends it to, which keeps it behind the army and clear of
+	// the guns it knows: by itself it drove up to 300 ahead of where it waited, and 7 of 25 lost in twelve
+	// Hard against Medium matches on Twilight Flame (2026-10-11) died within 30 s of a cleanup it started
+	if( obj->getControllingPlayer() && obj->getControllingPlayer()->isAIDutyAmbulance( obj ) )
+		return;
 
 	PartitionFilterAcceptByKindOf kindFilter(MAKE_KINDOF_MASK(KINDOF_CLEANUP_HAZARD), KINDOFMASK_NONE);
 	PartitionFilterSameMapStatus filterMapStatus(obj);
-	PartitionFilter* filters[] = { &kindFilter, &filterMapStatus, NULL };
+	PartitionFilterRejectGivenUp givenUpFilter( m_givenUpID );
+	PartitionFilter* filters[] = { &kindFilter, &filterMapStatus, &givenUpFilter, NULL };
 	if( !ThePartitionManager->getClosestObject( obj->getPosition(), data->m_scanRange + AUTO_CLEANUP_MOVE_RANGE, FROM_CENTER_2D, filters ) )
 		return;
 
 	m_pos = *obj->getPosition();
 	m_moveRange = AUTO_CLEANUP_MOVE_RANGE;
-	// ponytail: an object guard comes back as a guard on the spot it stood, since EA's guard target type
-	// keeps the first guard order ever given rather than the current one
+	// read before aiBusy below, whose exit from the guard state clears the guard target type
 	m_resumeGuard = guarding;
 	m_resumeGuardMode = ai->getGuardMode();
+	m_resumeGuardObject = guarding && ai->getGuardTargetType() == GUARDTARGET_OBJECT ? ai->getGuardObject() : INVALID_ID;
 	ai->aiBusy( CMD_FROM_AI );
 	DEBUG_LOG(("CLEANUP frame %d '%s' %d of player %d goes to clean by itself round (%.0f,%.0f)%s\n", TheGameLogic->getFrame(),
 		obj->getTemplate()->getName().str(), obj->getID(), obj->getControllingPlayer() ? obj->getControllingPlayer()->getPlayerIndex() : -1,
@@ -424,6 +452,7 @@ void CleanupHazardUpdate::setCleanupAreaParameters( const Coord3D *pos, Real ran
 	m_resumeGuard = FALSE;
 	m_returning = FALSE;
 	m_approaches = 0;
+	m_givenUpID = INVALID_ID;		// sent on purpose, it tries every hazard there again
 
 	if( ai )
 	{
@@ -449,13 +478,14 @@ void CleanupHazardUpdate::crc( Xfer *xfer )
 /** Xfer method
 	* Version Info:
 	* 1: Initial version
-	* 2: the guard a cleanup it started by itself gives back, the walk back, the drives toward a hazard */
+	* 2: the guard a cleanup it started by itself gives back, the walk back, the drives toward a hazard
+	* 3: the object that guard was on, the hazard given up on */
 // ------------------------------------------------------------------------------------------------
 void CleanupHazardUpdate::xfer( Xfer *xfer )
 {
 
 	// version
-	XferVersion currentVersion = 2;
+	XferVersion currentVersion = 3;
 	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
 
@@ -489,6 +519,11 @@ void CleanupHazardUpdate::xfer( Xfer *xfer )
 		xfer->xferInt( &m_resumeGuardMode );
 		xfer->xferBool( &m_returning );
 		xfer->xferInt( &m_approaches );
+	}
+	if( version >= 3 )
+	{
+		xfer->xferObjectID( &m_resumeGuardObject );
+		xfer->xferObjectID( &m_givenUpID );
 	}
 
 }  // end xfer

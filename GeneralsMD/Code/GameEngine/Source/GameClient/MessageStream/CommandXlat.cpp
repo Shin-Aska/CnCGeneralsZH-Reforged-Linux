@@ -1492,14 +1492,18 @@ void CommandTranslator::finishFormationDrag( const ICoord2D& lift )
 															TheInGameUI->isGuardArmed() );
 
 	// the traced curve becomes world points; who stands where along it is decided on
-	// the logic side, where every machine decides it the same way
+	// the logic side, where every machine decides it the same way.  A point past the horizon
+	// reaches no ground and comes back as the map's corner, so it is left out
 	std::vector<Coord3D> line;
 	for( std::vector<ICoord2D>::const_iterator it = curve.begin(); it != curve.end(); ++it )
 	{
 		Coord3D world;
-		TheTacticalView->screenToTerrain( &(*it), &world );
-		line.push_back( world );
+		if( TheTacticalView->screenToTerrain( &(*it), &world ) )
+			line.push_back( world );
 	}
+
+	if( line.size() < 2 )
+		return;
 
 	// a line drawn with the attack key across enemies is aimed at them: the units that can shoot
 	// share those enemies along the stroke, and the ground under the line is not shot at.  Only a

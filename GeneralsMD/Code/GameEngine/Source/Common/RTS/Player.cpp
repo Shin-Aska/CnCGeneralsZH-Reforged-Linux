@@ -1674,6 +1674,12 @@ void Player::onUnitLost(const Object *obj)
 }
 
 //-------------------------------------------------------------------------------------------------
+Bool Player::isAIDutyAmbulance(const Object *obj) const
+{
+	return m_ai ? m_ai->isDutyAmbulance(obj) : FALSE;
+}
+
+//-------------------------------------------------------------------------------------------------
 /** Do any bridges need repair, and if so repair them. */
 //-------------------------------------------------------------------------------------------------
 Bool Player::getAiBaseCenter(Coord3D *pos)

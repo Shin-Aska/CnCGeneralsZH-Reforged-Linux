@@ -572,12 +572,21 @@ public:
 		m_attachToObject = false;
 		m_createAtGroundHeight = FALSE;
 		m_useCallersRadius = FALSE;
+		m_atTarget = FALSE;
 		m_rotateX = m_rotateY = m_rotateZ = 0;
 	}
 
-	virtual void doFXPos(const Coord3D *primary, const Matrix3D* primaryMtx, const Real /*primarySpeed*/, const Coord3D * /*secondary*/, const Real overrideRadius ) const
+	virtual void doFXPos(const Coord3D *primary, const Matrix3D* primaryMtx, const Real /*primarySpeed*/, const Coord3D *secondary, const Real overrideRadius ) const
 	{
-		if (primary)
+		// AtTarget plays the system where the shot lands rather than at the muzzle: a FireFX is
+		// played with the victim's position as its secondary, the same point a Tracer flies to,
+		// and an instant-hit gun has no projectile to carry a detonation FX there.
+		if (m_atTarget)
+		{
+			DEBUG_ASSERTCRASH(secondary, ("ParticleSystem %s is AtTarget but the FX has no target\n", m_name.str()));
+			reallyDoFX(secondary, NULL, NULL, overrideRadius);
+		}
+		else if (primary)
 		{
 			reallyDoFX(primary, primaryMtx, NULL, overrideRadius);
 		}
@@ -633,6 +642,7 @@ public:
 			{ "AttachToObject",				INI::parseBool,							NULL, offsetof( ParticleSystemFXNugget, m_attachToObject ) },
 			{ "CreateAtGroundHeight",	INI::parseBool,							NULL, offsetof( ParticleSystemFXNugget, m_createAtGroundHeight ) },
 			{ "UseCallersRadius",			INI::parseBool,							NULL, offsetof( ParticleSystemFXNugget, m_useCallersRadius ) },
+			{ "AtTarget",							INI::parseBool,							NULL, offsetof( ParticleSystemFXNugget, m_atTarget ) },
 			{ 0, 0, 0, 0 }
 		};
 
@@ -730,6 +740,7 @@ private:
 	Bool						m_attachToObject;
 	Bool						m_createAtGroundHeight;
 	Bool						m_useCallersRadius;
+	Bool						m_atTarget;
 	Bool						m_ricochet;
 };  
 EMPTY_DTOR(ParticleSystemFXNugget)

@@ -39,6 +39,7 @@
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "Common/Radar.h"
 #include "Common/RadarShroudCache.h"
+#include "GameClient/ObserverCamera.h"
 #include "WW3D2/ww3dformat.h"
 
 // FORWARD REFERENCES /////////////////////////////////////////////////////////////////////////////
@@ -96,6 +97,7 @@ protected:
 	void cacheLandmarks( void );													///< rebuild the landmark list from both object lists
 	void collectLandmarks( const RadarObject *listHead );	///< add the landmarks of one list to the cache
 	void drawViewBox( Int pixelX, Int pixelY, Int width, Int height );  ///< draw view box
+	void drawBoxLines( const ICoord2D *corners );	///< a view box's lines through its four corners in pixels
 	void buildTerrainTexture( TerrainLogic *terrain );	 ///< create the terrain texture of the radar
 	void drawIcons( Int pixelX, Int pixelY, Int width, Int height );	///< draw all of the radar icons
 	void renderObjectList( const RadarObject *listHead, TextureClass *texture, Bool calcHero = FALSE );			 ///< render an object list to the texture

@@ -49,6 +49,7 @@
 #include "GameLogic/TerrainLogic.h"
 #include "GameClient/ControlBar.h"	// COMMAND_FIRED_BY_SCRIPT, the flag every script-fired power carries
 #include "GameClient/ParticleSys.h"
+#include "GameClient/TerrainVisual.h"	// removeAllBibs, after the build check lights them
 #include "GameLogic/PartitionManager.h"
 #include "GameLogic/Module/BodyModule.h"
 #include "GameLogic/Weapon.h"
@@ -223,6 +224,8 @@ static Bool parseActionType( const AsciiString &token, ScenarioActionType *actio
 		*action = SCENARIO_ACTION_REAIM;
 	else if (token == "respond")
 		*action = SCENARIO_ACTION_RESPOND;
+	else if (token == "guard")
+		*action = SCENARIO_ACTION_GUARD;
 	else
 		return FALSE;
 
@@ -317,6 +320,7 @@ static Int tokensNeededFor( ScenarioActionType action )
 		case SCENARIO_ACTION_ATTACK:			return SCENARIO_TOKENS_ATTACK;
 		case SCENARIO_ACTION_ENTER:				return SCENARIO_TOKENS_ATTACK;
 		case SCENARIO_ACTION_DOCK:				return SCENARIO_TOKENS_ATTACK;
+		case SCENARIO_ACTION_GUARD:				return SCENARIO_TOKENS_ATTACK;
 		case SCENARIO_ACTION_PRODUCE:			return SCENARIO_TOKENS_ATTACK;
 		case SCENARIO_ACTION_STOP:				return SCENARIO_TOKENS_STOP;
 		case SCENARIO_ACTION_TALLY:				return SCENARIO_TOKENS_STOP;
@@ -418,6 +422,7 @@ ScenarioParseResult ScenarioDrill_parseLine( const char *line, ScenarioAction *a
 		case SCENARIO_ACTION_ATTACK:
 		case SCENARIO_ACTION_ENTER:
 		case SCENARIO_ACTION_DOCK:
+		case SCENARIO_ACTION_GUARD:
 		case SCENARIO_ACTION_SHIFTATTACK:
 		case SCENARIO_ACTION_FORCEATTACK:
 		case SCENARIO_ACTION_SHIFTPOWER:
@@ -726,8 +731,12 @@ static Object *findFirstMatching( Player *player, const AsciiString &selector )
 
 /** The recipe the debug spawn path uses (GameLogic.cpp's unitTimings): a template's onCreate ran in
 	  the constructor, but a unit that was never built still has to be told it is finished, or half
-	  its modules never start.  The team has to be activated too, or it counts as an empty team. */
-static Bool spawnOne( const ThingTemplate *tmpl, Team *team, const Coord3D *pos )
+	  its modules never start.  The team has to be activated too, or it counts as an empty team.
+	  A unit that moves goes down only on a cell its own locomotors could enter, the test the
+	  pathfinder puts every destination to: a tank set on a cliff or in the sea is taken away again
+	  rather than left to drive out.  Aircraft are not asked: anything on a JetAIUpdate, the Comanche
+	  included, is made on its ground-only taxiing set, which would refuse it on every cliff. */
+static Bool spawnOne( const ScenarioAction &action, const ThingTemplate *tmpl, Team *team, const Coord3D *pos )
 {
 	Object *obj = TheThingFactory->newObject( tmpl, team );
 	if (obj == NULL)
@@ -735,6 +744,22 @@ static Bool spawnOne( const ThingTemplate *tmpl, Team *team, const Coord3D *pos 
 
 	obj->setOrientation( 0 );
 	obj->setPosition( pos );
+
+	AIUpdateInterface *ai = obj->getAI();
+	if (ai != NULL && ai->getLocomotorSet().getValidSurfaces() != 0 && !obj->isKindOf( KINDOF_AIRCRAFT )
+			&& !TheAI->pathfinder()->validMovementPosition( obj->getCrusherLevel() > 0, obj->getLayer(), ai->getLocomotorSet(), pos ))
+	{
+		static const char *const cellNames[] = { "CLEAR", "WATER", "CLIFF", "RUBBLE", "OBSTACLE",
+			"BRIDGE_IMPASSABLE", "IMPASSABLE" };
+		// a point off the map has no cell at all
+		const PathfindCell *cell = TheAI->pathfinder()->getCell( obj->getLayer(), pos );
+		const Int type = cell != NULL ? cell->getType() : -1;
+		DEBUG_LOG(("SCENARIO: frame %d spawn slot %d '%s' refused at (%.0f,%.0f): cell type %d (%s), no unit of it could stand there\n",
+							 action.frame, action.slot, action.selector.str(), pos->x, pos->y, type,
+							 cell != NULL ? cellNames[type] : "OFF_MAP"));
+		TheGameLogic->destroyObject( obj );
+		return FALSE;
+	}
 
 	for( BehaviorModule **m = obj->getBehaviorModules(); *m; ++m )
 	{
@@ -781,7 +806,29 @@ static Bool executeSpawn( const ScenarioAction &action, Player *player, const Co
 		pos.y = centre.y + (i / columns) * action.spacing - halfHeight;
 		pos.z = TheTerrainLogic->getGroundHeight( pos.x, pos.y );
 
-		if (spawnOne( tmpl, team, &pos ))
+		// a structure goes only where a player could put it: on flat buildable ground, clear of other
+		// buildings.  The check is logic state only; the bibs it lights are client feedback, so off again.
+		// A new object reaches the partition cells only on the partition's next update, so that runs
+		// first, the way the starting units are placed, or a block of structures stacks on itself
+		if (tmpl->isKindOf( KINDOF_STRUCTURE ))
+		{
+			ThePartitionManager->update();
+			const LegalBuildCode code = TheBuildAssistant->isLocationLegalToBuild( &pos, tmpl, 0.0f,
+																					BuildAssistant::TERRAIN_RESTRICTIONS | BuildAssistant::NO_OBJECT_OVERLAP,
+																					NULL, player );
+			TheTerrainVisual->removeAllBibs();
+			if (code != LBC_OK)
+			{
+				static const char *const codeNames[] = { "OK", "RESTRICTED_TERRAIN", "NOT_FLAT_ENOUGH",
+					"OBJECTS_IN_THE_WAY", "NO_CLEAR_PATH", "SHROUD", "TOO_CLOSE_TO_SUPPLIES", "GENERIC_FAILURE",
+					"TOO_CLOSE_TO_ENEMY", "TOO_MANY_DERRICK_DEFENSES" };
+				DEBUG_LOG(("SCENARIO: frame %d spawn slot %d '%s' refused at (%.0f,%.0f): LBC_%s, no structure may be built there\n",
+									 action.frame, action.slot, action.selector.str(), pos.x, pos.y, codeNames[code]));
+				continue;
+			}
+		}
+
+		if (spawnOne( action, tmpl, team, &pos ))
 			++made;
 	}
 
@@ -1557,9 +1604,11 @@ static Bool executeOrder( const ScenarioAction &action, Player *player, const Co
 		case SCENARIO_ACTION_ATTACK:
 		case SCENARIO_ACTION_ENTER:
 		case SCENARIO_ACTION_DOCK:
+		case SCENARIO_ACTION_GUARD:
 		{
 			const char *verb = (action.action == SCENARIO_ACTION_ATTACK) ? "attack"
-											 : (action.action == SCENARIO_ACTION_DOCK) ? "dock" : "enter";
+											 : (action.action == SCENARIO_ACTION_DOCK) ? "dock"
+											 : (action.action == SCENARIO_ACTION_GUARD) ? "guard" : "enter";
 			Player *targetPlayer = findPlayerForSlot( action.targetSlot );
 			Object *target = (targetPlayer != NULL)
 											 ? findFirstMatching( targetPlayer, action.targetSelector )
@@ -1576,6 +1625,8 @@ static Bool executeOrder( const ScenarioAction &action, Player *player, const Co
 				group->groupAttackObject( target, SCENARIO_ATTACK_SHOTS, CMD_FROM_SCRIPT );
 			else if (action.action == SCENARIO_ACTION_DOCK)
 				group->groupDock( target, CMD_FROM_SCRIPT );
+			else if (action.action == SCENARIO_ACTION_GUARD)
+				group->groupGuardObject( target, GUARDMODE_NORMAL, CMD_FROM_SCRIPT );
 			else
 				group->groupEnter( target, CMD_FROM_SCRIPT );
 

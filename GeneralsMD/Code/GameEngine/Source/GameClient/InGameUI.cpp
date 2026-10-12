@@ -4193,7 +4193,9 @@ void InGameUI::update( void )
 			if( !CinemaDirector_showsMap() )
 				CinemaDirector_setHudHidden( TRUE, TRUE );
 			TheMouse->setVisibility( FALSE );
-			observerNowMs = TheGameLogic->getFrame() * 1000 / LOGICFRAMES_PER_SECOND;
+			// the picture's own time, a share of a frame before the logic frame for a -recordfps
+			// picture between two of them
+			observerNowMs = GameEngine_pictureMilliseconds();
 		}
 		TheObserverCamera.update( observerNowMs );
 	}
@@ -5393,10 +5395,14 @@ void InGameUI::updateFormationHints( void )
 	for( std::vector<ICoord2D>::const_iterator pt = m_formationDragPoints.begin();
 			 pt != m_formationDragPoints.end(); ++pt )
 	{
+		// past the horizon there is no ground, the same points finishFormationDrag leaves out
 		Coord3D world;
-		TheTacticalView->screenToTerrain( &(*pt), &world );
-		path.push_back( world );
+		if( TheTacticalView->screenToTerrain( &(*pt), &world ) )
+			path.push_back( world );
 	}
+
+	if( path.size() < 2 )
+		return;
 
 	std::vector<Real> arc;
 	buildPathArcLengths( path, arc );
@@ -11049,8 +11055,8 @@ void InGameUI::layOutBroadcast( const std::vector< SpectatorStats > &players, co
 	* his colour, his general or difficulty, his cash and the cost of everything he has standing that is
 	* not a building.  A team's cards sit together under its name and its armies' total.  Under the row
 	* the armies pull on one bar, each player his colour in the cards' order, gold at the middle when
-	* two sides play so the side ahead is the one past it.  A special power a player used drops its icon
-	* in a flag from under his card.  A player who loses has his card flash red and struck through, then
+	* two sides play so the side ahead is the one past it.  A special power a player used, or an upgrade
+	* he bought, drops its icon in a flag from under his card.  A player who loses has his card flash red and struck through, then
 	* it closes while the others slide to where they stand without it, and his banner comes up across
 	* the lower picture; once the match is decided the winner's comes up under the last.  While
 	* a split is up each pane carries a plate in the top of its circle, inside its wedge and clear of
@@ -11074,7 +11080,7 @@ void InGameUI::drawDirectorBroadcast( void )
 		const Int seat = named[ index ].player->getPlayerIndex();
 		Real flash = 0.0f, struck = 0.0f, collapse = 0.0f;
 		if( TheObserverCamera.getDefeatFrame( seat ) != 0 )
-			ObserverCamera_cardExit( frame, TheObserverCamera.getDefeatFrame( seat ), TheObserverCamera.getCollapseFrame( seat ),
+			ObserverCamera_cardExit( GameEngine_pictureFrame(), TheObserverCamera.getDefeatFrame( seat ), TheObserverCamera.getCollapseFrame( seat ),
 				&flash, &struck, &collapse );
 		if( collapse >= 1.0f )
 			continue;
@@ -11115,8 +11121,8 @@ void InGameUI::drawDirectorBroadcast( void )
 	const Int frameEdge = frameGold + max( REAL_TO_INT( screenRows / BROADCAST_FRAME_EDGE_ROWS_A_PIXEL ), 1 );
 	const Int frameHalo = max( ( ObserverCamera_paneBandWidth( screenRows ) - lineGold ) / 2 - OBSERVER_PANE_LINE_EDGE, 0 ) / 2;
 	const Int frameReach = frameEdge + frameHalo;
-	// while the screen is split the bar goes up off the top, frame and all, as the corner radar slides
-	// out to the left, and comes back down as the radar comes back: the panes have the screen to
+	// while the screen is split the bar goes up off the top, frame and all, as the radar slides down
+	// off the bottom, and comes back down as the radar comes back: the panes have the screen to
 	// themselves.  Everything the bar draws hangs from its layouts' rows, so lifting those lifts it
 	const Int lift = REAL_TO_INT( TheObserverCamera.getCornerRadarSlide() * ( max( from.height, to.height ) + frameReach ) );
 	auto liftLayout = [ lift ]( BroadcastLayout &l )
@@ -11192,7 +11198,7 @@ void InGameUI::drawDirectorBroadcast( void )
 		const DirectorShowing *flag = TheObserverCamera.getPowerFlag( from.players[ index ].player->getPlayerIndex(), &drop );
 		if( flag == NULL || drop <= 0.0f )
 			continue;
-		const Image *icon = superweaponCameo( flag->power );
+		const Image *icon = flag->upgrade != NULL ? flag->upgrade->getButtonImage() : superweaponCameo( flag->power );
 		if( icon == NULL && flag->sourceThing != NULL )
 			icon = flag->sourceThing->getButtonImage();
 		if( icon == NULL || icon->getImageHeight() <= 0 )
@@ -11394,7 +11400,8 @@ void InGameUI::drawDirectorBroadcast( void )
 	TheObserverCamera.addBroadcast( bar );
 	for( size_t flag = 0; flag < flagsDrawn.size(); flag++ )
 		TheObserverCamera.addBroadcast( flagsDrawn[ flag ] );
-	TheObserverCamera.setBroadcastTop( (Real)max( height + frameReach + pad, 0 ) );
+	const Int barFoot = max( height + frameReach + pad, 0 );
+	TheObserverCamera.setBroadcastTop( (Real)barFoot );
 	static Int loggedHeight = -1;
 	if( !sliding && lift == 0 && height != loggedHeight )
 	{
@@ -11404,14 +11411,14 @@ void InGameUI::drawDirectorBroadcast( void )
 			from.cardWidth, from.fullCardWidth ));
 	}
 
-	// a split's plate a pane, faded in and out with the panes; the opening's are each pane's own
+	// a split's plate a pane, faded in and out with the panes; the opening's are each pane's own.  The
+	// whole screen has none: the score bar over it already names every side
 	const Real paneShown = TheObserverCamera.getPaneProgress();
 	const Int panes = TheObserverCamera.isIntro() ? 0 : TheObserverCamera.getDrawnPaneCount();
 	DisplayString *versus = broadcastText( "versus", UnicodeString( u"vs" ), BROADCAST_WORDS, broadcastPoints( BROADCAST_SIDE_POINTS ), FALSE );
-	for( Int pane = 0; pane < panes && panes >= 2; pane++ )
+	// a team of two or more by its name once, a player alone by his own
+	auto sidesPlate = [ & ]( PlayerMaskType sides ) -> BroadcastPlate
 	{
-		const PlayerMaskType sides = TheObserverCamera.getPaneSides( pane );
-		// a team of two or more by its name once, a player alone by his own
 		BroadcastPlate plate;
 		for( size_t block = 0; block < from.blockFirst.size(); block++ )
 		{
@@ -11434,26 +11441,44 @@ void InGameUI::drawDirectorBroadcast( void )
 					break;
 			}
 		}
-		if( plate.pieces.empty() )
-			continue;
-
-		Int plateWidth = 0, plateHeight = 0;
-		broadcastPlateSize( plate, &plateWidth, &plateHeight );
-		Coord2D centre;
-		Real radius = 0.0f;
-		TheObserverCamera.getPaneCircle( pane, &centre, &radius );
-		const Int plateTop = REAL_TO_INT( ObserverCamera_paneLabelTop( centre, radius, (Real)plateWidth, (Real)plateHeight ) );
-		const Int plateLeft = REAL_TO_INT( centre.x ) - plateWidth / 2;
-		drawBroadcastPlate( plate, plateLeft, plateTop, paneShown );
-
+		return plate;
+	};
+	// each plate's sides are logged when they change, so a film's plates can be counted
+	static PlayerMaskType loggedSides[ OBSERVER_MOST_PANES ];
+	auto placePlate = [ & ]( Int slot, PlayerMaskType sides, const BroadcastPlate &plate, Int plateLeft, Int plateTop, Int plateWidth,
+		Int plateHeight, Real shown )
+	{
+		if( sides != loggedSides[ slot ] )
+		{
+			loggedSides[ slot ] = sides;
+			DEBUG_LOG(( "OBSCAM frame %u pane plate %d, %d name(s)%s\n", frame, slot, (Int)( plate.pieces.size() + 1 ) / 2,
+				plate.pieces.size() > 1 ? ", vs" : "" ));
+		}
+		drawBroadcastPlate( plate, plateLeft, plateTop, shown );
 		IRegion2D drawn;
 		drawn.lo.x = plateLeft;
 		drawn.lo.y = plateTop;
 		drawn.hi.x = plateLeft + plateWidth;
 		drawn.hi.y = plateTop + plateHeight;
 		TheObserverCamera.addBroadcast( drawn );
+	};
+	for( Int pane = 0; pane < OBSERVER_MOST_PANES; pane++ )
+	{
+		const PlayerMaskType sides = pane < panes && panes >= 2 ? TheObserverCamera.getPaneSides( pane ) : 0;
+		const BroadcastPlate plate = sidesPlate( sides );
+		if( plate.pieces.empty() )
+		{
+			loggedSides[ pane ] = 0;
+			continue;
+		}
+		Int plateWidth = 0, plateHeight = 0;
+		broadcastPlateSize( plate, &plateWidth, &plateHeight );
+		Coord2D centre;
+		Real radius = 0.0f;
+		TheObserverCamera.getPaneCircle( pane, &centre, &radius );
+		const Int plateTop = REAL_TO_INT( ObserverCamera_paneLabelTop( centre, radius, (Real)plateWidth, (Real)plateHeight ) );
+		placePlate( pane, sides, plate, REAL_TO_INT( centre.x ) - plateWidth / 2, plateTop, plateWidth, plateHeight, paneShown );
 	}
-
 	// a defeated player's banner across the lower picture, the broadcast's red in its tab, and once the
 	// match is decided the winner's under it in gold.  A banner names the player in his colour, under it
 	// his general or difficulty and his team
@@ -11678,7 +11703,7 @@ void InGameUI::drawWireframeNotice( void )
 	for( Int i = 0; i < WIREFRAME_LINES; i++ )
 	{
 		m_wireframeNotice[ i ]->draw( REAL_TO_INT( m_wireframePos.x ) + ( width - lineWidth[ i ] ) / 2, y,
-			GameMakeColor( 255, 220, 120, 170 ), GameMakeColor( 0, 0, 0, 170 ) );
+			GameMakeColor( 255, 220, 120, 100 ), GameMakeColor( 0, 0, 0, 100 ) );
 		y += lineHeight[ i ];
 	}
 }

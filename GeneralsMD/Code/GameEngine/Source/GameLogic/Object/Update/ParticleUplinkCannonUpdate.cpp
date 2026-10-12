@@ -1134,6 +1134,24 @@ Bool ParticleUplinkCannonUpdate::findOrbitBeamRadius( Real &radius ) const
 }
 
 //-------------------------------------------------------------------------------------------------
+/** Where the beam is burning while it can still be driven: born, not yet decaying, not following a
+	* script's waypoints, and past its first damage pulse, which is when m_currentTargetPosition is the
+	* spot on the ground rather than whatever the last shot left in it.  The radius is the one the next
+	* pulse will use. */
+//-------------------------------------------------------------------------------------------------
+Bool ParticleUplinkCannonUpdate::getBurningSpot( Coord3D *spot, Real *damageRadius ) const
+{
+	if( m_laserStatus != LASERSTATUS_BORN || m_scriptedWaypointMode || m_damagePulsesMade == 0 )
+		return FALSE;
+	Real beamRadius = 0.0f;
+	if( !findOrbitBeamRadius( beamRadius ) )
+		return FALSE;
+	*spot = m_currentTargetPosition;
+	*damageRadius = beamRadius * computeOrbitBeamWidthScalar( TheGameLogic->getFrame() ) * getParticleUplinkCannonUpdateModuleData()->m_damageRadiusScalar;
+	return TRUE;
+}
+
+//-------------------------------------------------------------------------------------------------
 /** LaserUpdate::computeWidthScalar on the cannon's own frames: wider from birth over WidthGrowTime,
 	* narrower from the decay over the same time, the same arithmetic so the radius is the same float. */
 //-------------------------------------------------------------------------------------------------

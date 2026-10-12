@@ -725,6 +725,7 @@ GlobalData::GlobalData()
 	m_techRespawn = 0;							// a destroyed tech building stays destroyed unless -techrespawn asks
 	m_supplyPileLimit = 0;					// a supply pile takes any number of players unless -supplypilelimit asks
 	m_superweapons = 0;							// SUPERWEAPONS_ALLOW unless -superweapons asks
+	m_startingCash = 0;							// the INI's DefaultStartingCash unless -startingcash asks
 	m_autoSkirmishObserver = FALSE;
 	m_headless = FALSE;
 	m_turbo = FALSE;
@@ -733,6 +734,7 @@ GlobalData::GlobalData()
 	m_videoStartFrame = 0;
 	m_videoEndFrame = 0; // record nothing unless -video asks for a range
 	m_videoName.clear();
+	m_videoPictures = 1; // a picture a logic frame, 30 a second, unless -recordfps asks for more
 	m_directorRecord = FALSE;
 	m_directorScoutFile.clear();
 	m_directorTimelineFile.clear();

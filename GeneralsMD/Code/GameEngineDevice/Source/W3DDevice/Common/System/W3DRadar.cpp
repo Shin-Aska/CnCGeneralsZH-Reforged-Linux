@@ -426,24 +426,6 @@ void W3DRadar::drawViewBox( Int pixelX, Int pixelY, Int width, Int height )
 	ICoord2D ulRadar;
 	Coord3D ulWorld;
 	ICoord2D ulStart = { 0, 0 };
-	ICoord2D start, end;
-	ICoord2D clipStart, clipEnd;
-	Real lineWidth = 1.0f;
-	Color topColor = GameMakeColor( 225, 225, 0, 255 );
-	Color bottomColor = GameMakeColor( 158, 158, 0, 255 );
-
-	//
-	// setup the clipping region ... note that this clipping region is not over just the
-	// radar image area ... it's in the WHOLE window available for the radar
-	//
-	IRegion2D clipRegion;
-	ICoord2D radarWindowSize, radarWindowScreenPos;
-	m_radarWindow->winGetSize( &radarWindowSize.x, &radarWindowSize.y );
-	m_radarWindow->winGetScreenPosition( &radarWindowScreenPos.x, &radarWindowScreenPos.y );
-	clipRegion.lo.x = radarWindowScreenPos.x;
-	clipRegion.lo.y = radarWindowScreenPos.y;
-	clipRegion.hi.x = radarWindowScreenPos.x + radarWindowSize.x;
-	clipRegion.hi.y = radarWindowScreenPos.y + radarWindowSize.y;
 
 	// convert top left of screen into world position
 	TheTacticalView->getOrigin( &ulScreen.x, &ulScreen.y );
@@ -468,42 +450,50 @@ void W3DRadar::drawViewBox( Int pixelX, Int pixelY, Int width, Int height )
 	// (upper left, upper right, lower right, lower left)
 	//
 	ICoord2D radar;
-
-	// top line
-	start = ulStart;
-	radar.x = ulRadar.x + m_viewBox[ 1 ].x;
-	radar.y = ulRadar.y + m_viewBox[ 1 ].y;
-	radarToPixel( &radar, &end, pixelX, pixelY, width, height );
-	if( ClipLine2D( &start, &end, &clipStart, &clipEnd, &clipRegion ) )
-		TheDisplay->drawLine( clipStart.x, clipStart.y, clipEnd.x, clipEnd.y,
-													lineWidth, topColor );
-
-  // right line
-	start = end;
-	radar.x += m_viewBox[ 2 ].x;
-	radar.y += m_viewBox[ 2 ].y;
-	radarToPixel( &radar, &end, pixelX, pixelY, width, height );
-	if( ClipLine2D( &start, &end, &clipStart, &clipEnd, &clipRegion ) )
-		TheDisplay->drawLine( clipStart.x, clipStart.y, clipEnd.x, clipEnd.y,
-													lineWidth, topColor, bottomColor );
-
-  // bottom line
-	start = end;
-	radar.x += m_viewBox[ 3 ].x;
-	radar.y += m_viewBox[ 3 ].y;
-	radarToPixel( &radar, &end, pixelX, pixelY, width, height );
-	if( ClipLine2D( &start, &end, &clipStart, &clipEnd, &clipRegion ) )
-		TheDisplay->drawLine( clipStart.x, clipStart.y, clipEnd.x, clipEnd.y,
-													lineWidth, bottomColor );
-
-  // left line
-	start = end;
-	end = ulStart;
-	if( ClipLine2D( &start, &end, &clipStart, &clipEnd, &clipRegion ) )
-		TheDisplay->drawLine( clipStart.x, clipStart.y, clipEnd.x, clipEnd.y,
-													lineWidth, bottomColor, topColor );
+	ICoord2D corners[ 4 ];
+	corners[ 0 ] = ulStart;
+	radar = ulRadar;
+	for( Int corner = 1; corner < 4; corner++ )
+	{
+		radar.x += m_viewBox[ corner ].x;
+		radar.y += m_viewBox[ corner ].y;
+		radarToPixel( &radar, &corners[ corner ], pixelX, pixelY, width, height );
+	}
+	drawBoxLines( corners );
 
 }  // end drawViewBox
+
+//-------------------------------------------------------------------------------------------------
+/** The view box's four lines through corners in pixels, upper left, upper right, lower right and
+	* lower left, clipped to the whole window available for the radar and not just its image */
+//-------------------------------------------------------------------------------------------------
+void W3DRadar::drawBoxLines( const ICoord2D *corners )
+{
+	const Real lineWidth = 1.0f;
+	const Color topColor = GameMakeColor( 225, 225, 0, 255 );
+	const Color bottomColor = GameMakeColor( 158, 158, 0, 255 );
+	// each line's colour at its start and its end: the top light, the bottom dark, the sides between
+	const Color fromColor[ 4 ] = { topColor, topColor, bottomColor, bottomColor };
+	const Color toColor[ 4 ] = { topColor, bottomColor, bottomColor, topColor };
+
+	IRegion2D clipRegion;
+	ICoord2D radarWindowSize, radarWindowScreenPos;
+	m_radarWindow->winGetSize( &radarWindowSize.x, &radarWindowSize.y );
+	m_radarWindow->winGetScreenPosition( &radarWindowScreenPos.x, &radarWindowScreenPos.y );
+	clipRegion.lo.x = radarWindowScreenPos.x;
+	clipRegion.lo.y = radarWindowScreenPos.y;
+	clipRegion.hi.x = radarWindowScreenPos.x + radarWindowSize.x;
+	clipRegion.hi.y = radarWindowScreenPos.y + radarWindowSize.y;
+
+	for( Int line = 0; line < 4; line++ )
+	{
+		ICoord2D start = corners[ line ];
+		ICoord2D end = corners[ ( line + 1 ) % 4 ];
+		ICoord2D clipStart, clipEnd;
+		if( ClipLine2D( &start, &end, &clipStart, &clipEnd, &clipRegion ) )
+			TheDisplay->drawLine( clipStart.x, clipStart.y, clipEnd.x, clipEnd.y, lineWidth, fromColor[ line ], toColor[ line ] );
+	}
+}
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
@@ -1603,7 +1593,8 @@ void W3DRadar::draw( Int pixelX, Int pixelY, Int width, Int height )
 	if( m_reconstructViewBox )
 		reconstructViewBox();
 
-	// draw the view region on top of the radar reconstructing if necessary
+	// draw the view region on top of the radar reconstructing if necessary.  -directorrecord draws no
+	// radar while its panes are up, so there is one view to box
 	drawViewBox( ul.x, ul.y, scaledWidth, scaledHeight );
 
 }  // end draw

@@ -1588,6 +1588,33 @@ Int parseDirectorRecord(char *args[], int num)
 	return consumed;
 }
 
+/* -recordfps <n>: the frame rate -video and -directorrecord record at, a multiple of the logic's 30.
+	 *
+	 * At 30 a picture is a logic frame.  At 60 each recorded logic frame is drawn twice before the next
+	 * one runs, the first picture blended half way from the frame before (smooth motion, on for it
+	 * whatever the option says), and ffmpeg is told 60.  The logic runs the same frames either way. */
+Int parseRecordFps(char *args[], int num)
+{
+	if (num < 2)
+	{
+		DEBUG_LOG(("-recordfps: wants a frame rate, a multiple of %d\n", LOGICFRAMES_PER_SECOND));
+		return num;
+	}
+	// four pictures a frame at most: W3D's clock moves in whole milliseconds, and a picture's share of a
+	// 33 ms frame has to be one at least or the drawables are never drawn
+	const Int MOST_PICTURES = 4;
+	const Int fps = atoi(args[1]);
+	if (fps < LOGICFRAMES_PER_SECOND || fps % LOGICFRAMES_PER_SECOND != 0 || fps > MOST_PICTURES * LOGICFRAMES_PER_SECOND)
+	{
+		DEBUG_LOG(("-recordfps: %s is not a multiple of %d up to %d, recording at %d\n", args[1], LOGICFRAMES_PER_SECOND,
+			MOST_PICTURES * LOGICFRAMES_PER_SECOND, LOGICFRAMES_PER_SECOND));
+		return 2;
+	}
+	if (TheWritableGlobalData)
+		TheWritableGlobalData->m_videoPictures = fps / LOGICFRAMES_PER_SECOND;
+	return 2;
+}
+
 /* -directorscout <file> and -directortimeline <file>: the two passes of -directorrecord.  WinMain
 	 starts the same match again headless with -directorscout before it films anything, and that run
 	 writes down where and when every fight starts and every special power is used; the filming run
@@ -2235,6 +2262,18 @@ Int parseTechRespawn(char *args[], int num)
 	return 1;
 }
 
+/* -startingcash <n>: the lobby's starting cash for an -autoskirmish run, any amount rather than the
+	 lobby's list, carried the same way as -incomesharing. */
+Int parseStartingCash(char *args[], int num)
+{
+	if (TheWritableGlobalData && num > 1 && args[1])
+	{
+		TheWritableGlobalData->m_startingCash = atoi(args[1]);
+		return 2;
+	}
+	return 1;
+}
+
 /* -supplypilelimit <players>: the lobby's supply pile limit for an -autoskirmish run, carried the
 	 same way as -incomesharing. */
 Int parseSupplyPileLimit(char *args[], int num)
@@ -2666,6 +2705,7 @@ static CommandLineParam params[] =
 	{ "-showHudOverlay", parseShowHudOverlay },
 	{ "-video", parseVideo },
 	{ "-directorrecord", parseDirectorRecord },
+	{ "-recordfps", parseRecordFps },
 	{ "-directorscout", parseDirectorScout },
 	{ "-directortimeline", parseDirectorTimeline },
 	{ "-wav", parseWav },
@@ -2688,6 +2728,7 @@ static CommandLineParam params[] =
 	{ "-techrespawn", parseTechRespawn },
 	{ "-superweapons", parseSuperweapons },
 	{ "-supplypilelimit", parseSupplyPileLimit },
+	{ "-startingcash", parseStartingCash },
 	{ "-showlanes", parseShowLanes },
 	{ "-uidrill", parseUIDrill },
 	{ "-resdrill", parseResDrill },

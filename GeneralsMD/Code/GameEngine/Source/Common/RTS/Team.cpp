@@ -1515,9 +1515,14 @@ void Team::setTeamTargetObject(const Object *target)
 		// Whether a team fires together is a rung of the ladder now, not one of the three script
 		// tiers: the ladder has six steps and this is one of the capabilities that separates them
 		// (AI-ROADMAP.md D6). The bottom two rungs still do not do it, which is what the old
-		// DIFFICULTY_EASY test said.
+		// DIFFICULTY_EASY test said.  A script-driven opponent keeps that test itself, so the ladder's
+		// tuning never reaches a Challenge or mission.
 		//
-		if (!TheAI->getDifficultyProfile(getControllingPlayer()->getAISkillLevel())->m_focusFire) {
+		Player *player = getControllingPlayer();
+		const Bool focusFire = player->isSkirmishAIPlayer()
+			? TheAI->getDifficultyProfile(player->getAISkillLevel())->m_focusFire
+			: player->getPlayerDifficulty() != DIFFICULTY_EASY;
+		if (!focusFire) {
 			return;
 		}
 		m_commonAttackTarget = target->getID();

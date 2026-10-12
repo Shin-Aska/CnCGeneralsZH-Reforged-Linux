@@ -832,7 +832,9 @@ TEST(patch_of_a_missing_object_is_skipped)
 	 pink death, which has none and is the one block the count leaves out.  The Paladin's and the
 	 Avenger's hard-kill charge added two of the fork's own, its launch and its blast, lit too.
 	 The explosion pass added 22 more of EA's, from the structure deaths to the nukes, each with
-	 the light it lacked, and the point defense lasers' missile burst one of the fork's own. */
+	 the light it lacked, and the point defense lasers' missile burst one of the fork's own.
+	 The gunfire pass added 13 of EA's gun FXLists, wider tracers and AtTarget impacts, all of
+	 which already had a muzzle light. */
 static const char *const s_unlitReforgedFXList = "FXList SupW_FX_ParticleUplinkDeathInitial";
 
 TEST(fxlist_reforged_ini_parses_and_keeps_its_light)
@@ -881,7 +883,7 @@ TEST(fxlist_reforged_ini_parses_and_keeps_its_light)
 	}
 	fclose( fp );
 
-	CHECK_EQ( blocks, 113 );
+	CHECK_EQ( blocks, 127 );
 	CHECK_EQ( lit, blocks );
 }
 
@@ -11219,8 +11221,11 @@ TEST(the_ai_pulls_ranked_units_out_sooner_the_higher_the_rank)
 	CHECK( !AIRetreat_rankPullsOut( 3, 0.60f, false, 1.0f, 0.5f ) );
 
 	// a fight read at 0.7, which a team quitting at 0.5 stays in: the veteran stays, the elite goes
-	CHECK( !AIRetreat_rankPullsOut( 1, 1.0f, true, 0.7f, 0.5f ) );
-	CHECK( AIRetreat_rankPullsOut( 2, 1.0f, true, 0.7f, 0.5f ) );
+	CHECK( !AIRetreat_rankPullsOut( 1, 0.8f, true, 0.7f, 0.5f ) );
+	CHECK( AIRetreat_rankPullsOut( 2, 0.8f, true, 0.7f, 0.5f ) );
+	// but only once the fight has hurt it: Colonel Burton was walked out of one at full health
+	CHECK( !AIRetreat_rankPullsOut( 3, 1.0f, true, 0.1f, 0.5f ) );
+	CHECK( !AIRetreat_rankPullsOut( 2, 0.95f, true, 0.7f, 0.5f ) );
 	// a fight read the same with no enemy in it is no reason to go
 	CHECK( !AIRetreat_rankPullsOut( 3, 1.0f, false, 0.7f, 0.5f ) );
 	// and nobody leaves a fight it is even in or winning, at any rank
@@ -11235,24 +11240,57 @@ TEST(the_ai_pulls_ranked_units_out_sooner_the_higher_the_rank)
 
 /** AIPlayer.cpp: the computer buys its first Ambulance once it has an army and a second once the army
 	 is big, and calls in the badly hurt from near it only. */
-extern Int AIAmbulance_wanted( Int army );
-extern Bool AIAmbulance_callsPatient( Real healthFraction, Real distance );
+extern Int AIAmbulance_wanted( Int army, Int skill );
+extern Bool AIAmbulance_callsPatient( Real healthFraction, Real distance, UnsignedInt sinceHit );
+extern Bool AIAmbulance_mayBuyMore( Int bought, Int skill );
 
 TEST(the_ai_buys_ambulances_by_army_and_calls_in_the_hurt_nearby)
 {
-	CHECK_EQ( 0, AIAmbulance_wanted( 0 ) );
-	CHECK_EQ( 0, AIAmbulance_wanted( 7 ) );
-	CHECK_EQ( 1, AIAmbulance_wanted( 8 ) );
-	CHECK_EQ( 1, AIAmbulance_wanted( 19 ) );
-	CHECK_EQ( 2, AIAmbulance_wanted( 20 ) );
-	CHECK_EQ( 2, AIAmbulance_wanted( 200 ) );
+	CHECK_EQ( 0, AIAmbulance_wanted( 0, AISKILL_BRUTAL ) );
+	CHECK_EQ( 0, AIAmbulance_wanted( 7, AISKILL_BRUTAL ) );
+	CHECK_EQ( 1, AIAmbulance_wanted( 8, AISKILL_BRUTAL ) );
+	CHECK_EQ( 1, AIAmbulance_wanted( 19, AISKILL_BRUTAL ) );
+	CHECK_EQ( 2, AIAmbulance_wanted( 20, AISKILL_BRUTAL ) );
+	CHECK_EQ( 2, AIAmbulance_wanted( 200, AISKILL_BRUTAL ) );
+	// Medium keeps one, Easy none
+	CHECK_EQ( 1, AIAmbulance_wanted( 200, AISKILL_MEDIUM ) );
+	CHECK_EQ( 0, AIAmbulance_wanted( 200, AISKILL_EASY ) );
+	// and a match buys only so many
+	CHECK( AIAmbulance_mayBuyMore( 5, AISKILL_BRUTAL ) );
+	CHECK( !AIAmbulance_mayBuyMore( 6, AISKILL_BRUTAL ) );
+	CHECK( AIAmbulance_mayBuyMore( 2, AISKILL_MEDIUM ) );
+	CHECK( !AIAmbulance_mayBuyMore( 3, AISKILL_MEDIUM ) );
+	CHECK( !AIAmbulance_mayBuyMore( 0, AISKILL_EASY ) );
 
-	CHECK( AIAmbulance_callsPatient( 0.3f, 100.0f ) );
-	CHECK( AIAmbulance_callsPatient( 0.49f, 450.0f ) );
+	CHECK( AIAmbulance_callsPatient( 0.3f, 100.0f, 60 ) );
+	CHECK( AIAmbulance_callsPatient( 0.49f, 900.0f, 60 ) );
 	// half health or more stays in the fight
-	CHECK( !AIAmbulance_callsPatient( 0.5f, 100.0f ) );
+	CHECK( !AIAmbulance_callsPatient( 0.5f, 100.0f, 60 ) );
 	// too far off to walk over
-	CHECK( !AIAmbulance_callsPatient( 0.1f, 451.0f ) );
+	CHECK( !AIAmbulance_callsPatient( 0.1f, 901.0f, 60 ) );
+	// still being shot: it would die on the way
+	CHECK( !AIAmbulance_callsPatient( 0.3f, 100.0f, 59 ) );
+}
+
+/** AIPlayer.cpp: an Ambulance pulls back when shot at or inside a known gun's reach, and a lost one is
+	 replaced only after a wait. */
+extern Bool AIAmbulance_pullsBack( UnsignedInt now, UnsignedInt lastHit, Bool inGunReach );
+extern Bool AIAmbulance_rebuyWaits( UnsignedInt now, UnsignedInt lost, Int skill );
+
+TEST(the_ai_ambulance_pulls_back_when_hit_and_is_not_rebought_at_once)
+{
+	CHECK( AIAmbulance_pullsBack( 1000, 0, TRUE ) );
+	CHECK( AIAmbulance_pullsBack( 1000, 990, FALSE ) );
+	// never hit, or hit long ago, and clear of every gun: it stays on the job
+	CHECK( !AIAmbulance_pullsBack( 1000, 0, FALSE ) );
+	CHECK( !AIAmbulance_pullsBack( 1000, 500, FALSE ) );
+
+	CHECK( !AIAmbulance_rebuyWaits( 1000, 0, AISKILL_BRUTAL ) );
+	CHECK( AIAmbulance_rebuyWaits( 1000, 900, AISKILL_BRUTAL ) );
+	CHECK( !AIAmbulance_rebuyWaits( 10000, 900, AISKILL_BRUTAL ) );
+	// Medium waits twice as long
+	CHECK( AIAmbulance_rebuyWaits( 6000, 900, AISKILL_MEDIUM ) );
+	CHECK( !AIAmbulance_rebuyWaits( 6500, 900, AISKILL_MEDIUM ) );
 }
 
 
@@ -11655,6 +11693,218 @@ TEST(a_cash_hoard_allows_more_copies_of_a_team)
 
 	// no threshold is the bottom rung, and EA's limit
 	CHECK_EQ( 1, aiHoardAllowedTeamInstances( 1, 999999, 0 ) );
+}
+
+
+/** The purchase queue: a Hard AI saves for the best thing it cannot afford yet instead of buying
+	 whatever the bank covers, and every way the saving could turn into a hoard or a deadlock is
+	 bounded.  ask() changes the queue, so every verdict is taken into a local before it is checked. */
+TEST(the_purchase_queue_saves_for_the_best_thing_it_cannot_afford)
+{
+	const Int HOARD = 4000;
+	const Int ARMY = aiPurchaseScore( AIBUY_ARMY, TRUE );
+	const Int POWER = aiPurchaseScore( AIBUY_POWER, TRUE );
+	AIPurchaseQueue q;
+	AIPurchaseQueue::Verdict v;
+
+	// nothing saved for: whatever the bank covers is bought
+	v = q.ask( 10, 1000, ARMY, TRUE, 2000, HOARD, 100 );
+	CHECK_EQ( AIPurchaseQueue::BUY, v );
+
+	// a power plant it cannot pay for, with a dozer free, has the money saved for it
+	v = q.ask( 5, 1200, POWER, TRUE, 800, HOARD, 100 );
+	CHECK_EQ( AIPurchaseQueue::RESERVED, v );
+	CHECK_EQ( 5, q.m_key );
+
+	// a tank that would take the bank under the plant's price waits ...
+	v = q.ask( 10, 600, ARMY, TRUE, 800, HOARD, 110 );
+	CHECK_EQ( AIPurchaseQueue::HELD, v );
+	CHECK_EQ( 1, q.m_held );
+	// ... and one that leaves the price in the bank does not
+	v = q.ask( 10, 600, ARMY, TRUE, 2000, HOARD, 120 );
+	CHECK_EQ( AIPurchaseQueue::BUY, v );
+
+	// something that ranks above the plant is bought regardless
+	v = q.ask( 20, 500, aiPurchaseScore( AIBUY_EMERGENCY, TRUE ), TRUE, 800, HOARD, 130 );
+	CHECK_EQ( AIPurchaseQueue::BUY, v );
+
+	// a better thing that could not start now never takes the reservation
+	v = q.ask( 3, 5000, 150, FALSE, 800, HOARD, 140 );
+	CHECK_EQ( AIPurchaseQueue::SHORT, v );
+	CHECK_EQ( 5, q.m_key );
+
+	// the plant itself, once the bank covers it, and then nothing is saved for
+	v = q.ask( 5, 1200, POWER, TRUE, 800, HOARD, 150 );
+	CHECK_EQ( AIPurchaseQueue::SAVING, v );
+	v = q.ask( 5, 1200, POWER, TRUE, 1300, HOARD, 160 );
+	CHECK_EQ( AIPurchaseQueue::BUY, v );
+	q.bought( 5 );
+	CHECK_EQ( (Int)AIPurchaseQueue::NONE, q.m_key );
+
+	// above the hoard threshold nothing is saved for: the bank is already big enough
+	v = q.ask( 7, 6000, 60, TRUE, 4500, HOARD, 200 );
+	CHECK_EQ( AIPurchaseQueue::SHORT, v );
+	CHECK_EQ( (Int)AIPurchaseQueue::NONE, q.m_key );
+
+	// a price above the threshold is saved for from under it, and holds the bank only up to that price
+	v = q.ask( 7, 6000, 60, TRUE, 3000, HOARD, 210 );
+	CHECK_EQ( AIPurchaseQueue::RESERVED, v );
+	v = q.ask( 10, 1000, ARMY, TRUE, 5000, HOARD, 220 );
+	CHECK_EQ( AIPurchaseQueue::HELD, v );
+	v = q.ask( 10, 1000, ARMY, TRUE, 6500, HOARD, 230 );
+	CHECK_EQ( AIPurchaseQueue::BUY, v );
+
+	// a reservation its spender stops asking for goes
+	CHECK_EQ( AIPurchaseQueue::KEPT, q.expire( 210 + AI_PURCHASE_STALE_FRAMES - 1 ) );
+	CHECK_EQ( AIPurchaseQueue::STALE, q.expire( 210 + AI_PURCHASE_STALE_FRAMES ) );
+	CHECK_EQ( (Int)AIPurchaseQueue::NONE, q.m_key );
+
+	// one asked for all along but never met times out, and may not take the money again for as long
+	const UnsignedInt start = 1000;
+	v = q.ask( 8, 3000, 50, TRUE, 100, HOARD, start );
+	CHECK_EQ( AIPurchaseQueue::RESERVED, v );
+	UnsignedInt frame = start;
+	for( ; frame < start + AI_PURCHASE_HOLD_FRAMES; frame += 100 )
+	{
+		CHECK_EQ( AIPurchaseQueue::KEPT, q.expire( frame ) );
+		v = q.ask( 8, 3000, 50, TRUE, 100, HOARD, frame );
+		CHECK_EQ( AIPurchaseQueue::SAVING, v );
+	}
+	CHECK_EQ( AIPurchaseQueue::TIMED_OUT, q.expire( frame ) );
+	v = q.ask( 8, 3000, 50, TRUE, 100, HOARD, frame );
+	CHECK_EQ( AIPurchaseQueue::SHORT, v );
+	v = q.ask( 9, 3000, 50, TRUE, 100, HOARD, frame );
+	CHECK_EQ( AIPurchaseQueue::RESERVED, v );
+	q.bought( 9 );
+	v = q.ask( 8, 3000, 50, TRUE, 100, HOARD, frame + AI_PURCHASE_HOLD_FRAMES );
+	CHECK_EQ( AIPurchaseQueue::RESERVED, v );
+
+	// two of the same score: the lower key wins, whichever asked first, so the order is the same everywhere
+	v = q.ask( 4, 3000, 50, TRUE, 100, HOARD, frame + AI_PURCHASE_HOLD_FRAMES );
+	CHECK_EQ( AIPurchaseQueue::RESERVED, v );
+	CHECK_EQ( 4, q.m_key );
+	v = q.ask( 12, 3000, 50, TRUE, 100, HOARD, frame + AI_PURCHASE_HOLD_FRAMES );
+	CHECK_EQ( AIPurchaseQueue::SHORT, v );
+	v = q.ask( 12, 500, 50, TRUE, 1000, HOARD, frame + AI_PURCHASE_HOLD_FRAMES );
+	CHECK_EQ( AIPurchaseQueue::HELD, v );
+
+	// early on income and power outrank the army; later the army climbs past income
+	CHECK( aiPurchaseScore( AIBUY_ECONOMY, TRUE ) > aiPurchaseScore( AIBUY_ARMY, TRUE ) );
+	CHECK( aiPurchaseScore( AIBUY_POWER, TRUE ) > aiPurchaseScore( AIBUY_ARMY, TRUE ) );
+	CHECK( aiPurchaseScore( AIBUY_DOZER, TRUE ) > aiPurchaseScore( AIBUY_ARMY, TRUE ) );
+	CHECK( aiPurchaseScore( AIBUY_ARMY, FALSE ) > aiPurchaseScore( AIBUY_ECONOMY, FALSE ) );
+	CHECK( aiPurchaseScore( AIBUY_POWER, FALSE ) > aiPurchaseScore( AIBUY_ARMY, FALSE ) );
+}
+
+
+/** The spend rule and the upgrades: a bank of so many seconds of income, factories enough to spend the
+	 income, and the upgrade the army gets the most out of for its price.  Each rung has its own values,
+	 and the ladder has to climb: Hard keeps the smallest bank and buys upgrades soonest and cheapest. */
+TEST(the_bank_target_and_the_upgrade_the_army_pays_for)
+{
+	// seconds of income, never under the floor; nothing earned yet is the floor alone
+	CHECK_EQ( 4000, aiBankTarget( 0.0f, 30.0f, 4000 ) );
+	CHECK_EQ( 4000, aiBankTarget( 100.0f, 30.0f, 4000 ) );
+	CHECK_EQ( 6000, aiBankTarget( 200.0f, 30.0f, 4000 ) );
+	CHECK_EQ( 12000, aiBankTarget( 200.0f, 60.0f, 4000 ) );
+
+	// another factory only when the bank is over target and has not come down over the window, and the
+	// rung's cap is not reached: the first cut sized it from income and a Hard AI earning 93 a second
+	// never added one to the two it had
+	CHECK( aiWantsMoreProduction( 56700, 56000, 4000, 2, 8, 0.0f ) );					// over target and still rising
+	CHECK( aiWantsMoreProduction( 9000, 9000, 4000, 2, 8, 0.0f ) );						// over target and flat
+	CHECK( !aiWantsMoreProduction( 9000, 12000, 4000, 2, 8, 0.0f ) );					// coming down: what stands spends it
+	CHECK( !aiWantsMoreProduction( 3000, 1000, 4000, 2, 8, 2.0f ) );					// under target
+	CHECK( !aiWantsMoreProduction( 56700, 56000, 4000, 8, 8, 2.0f ) );				// at the cap
+	CHECK( !aiWantsMoreProduction( 56700, 56000, 4000, 3, 3, 2.0f ) );
+	// a busy Hard AI's bank swings, so past twice the target it adds one whatever the trend
+	CHECK( aiWantsMoreProduction( 52200, 60000, 4000, 4, 8, 2.0f ) );
+	CHECK( !aiWantsMoreProduction( 8000, 9000, 4000, 4, 8, 2.0f ) );					// at twice, not past it
+	CHECK( !aiWantsMoreProduction( 52200, 60000, 4000, 4, 8, 0.0f ) );				// a rung without the multiple
+
+	// the surplus budget: the rung's share of thirty seconds' income, never past the excess
+	CHECK_EQ( 0, aiSurplusBudget( 3000, 4000, 100.0f, 1.0f ) );					// under target, nothing
+	CHECK_EQ( 3000, aiSurplusBudget( 60000, 4000, 100.0f, 1.0f ) );				// Hard: a window's income a pass
+	CHECK_EQ( 300, aiSurplusBudget( 60000, 4000, 100.0f, 0.1f ) );				// Medium
+	CHECK_EQ( 150, aiSurplusBudget( 60000, 4000, 100.0f, 0.05f ) );				// Easy
+	CHECK_EQ( 500, aiSurplusBudget( 4500, 4000, 100.0f, 1.0f ) );				// the excess, when that is less
+	CHECK_EQ( 0, aiSurplusBudget( 60000, 4000, 0.0f, 1.0f ) );					// nothing earned, nothing extra
+
+	// what counts toward an upgrade: a fighting unit at its fit, anything else at the rung's small weight,
+	// so a base worth 20,000 is 1,000 of reason to fortify it and a 10,000 army is 10,000 of reason to arm it
+	CHECK_NEAR( 1.5f, aiUpgradeWeight( TRUE, 1.5f, 0.05f ), 0.0001f );
+	CHECK_NEAR( 0.05f, aiUpgradeWeight( FALSE, 1.5f, 0.05f ), 0.0001f );
+	const Real fortifyOrArm[ 2 ] = { 20000.0f * aiUpgradeWeight( FALSE, 1.0f, 0.05f ), 10000.0f * aiUpgradeWeight( TRUE, 1.0f, 0.05f ) };
+	const Int fortifyOrArmCost[ 2 ] = { 1000, 2000 };
+	CHECK_EQ( 1, aiPickUpgrade( fortifyOrArm, fortifyOrArmCost, 2, 1.5f, FALSE ) );
+
+	// how a unit counts: as it is when the rung does not counter or the trade is even, double when it
+	// wins every trade and nothing when it loses every one
+	CHECK_NEAR( 1.0f, aiCounterFit( 0.9f, 0.0f ), 0.0001f );
+	CHECK_NEAR( 1.0f, aiCounterFit( 0.5f, 1.0f ), 0.0001f );
+	CHECK_NEAR( 2.0f, aiCounterFit( 1.0f, 1.0f ), 0.0001f );
+	CHECK_NEAR( 0.0f, aiCounterFit( 0.0f, 1.0f ), 0.0001f );
+	CHECK_NEAR( 1.25f, aiCounterFit( 1.0f, 0.25f ), 0.0001f );
+
+	// the most army for the money wins, if it clears the payoff
+	const Real covered[ 4 ] = { 3000.0f, 9000.0f, 0.0f, 2400.0f };
+	const Int cost[ 4 ] = { 1000, 2000, 500, 800 };
+	CHECK_EQ( 1, aiPickUpgrade( covered, cost, 4, 1.5f, FALSE ) );			// 4.5 times its price beats 3
+	CHECK_EQ( -1, aiPickUpgrade( covered, cost, 4, 5.0f, FALSE ) );			// nothing pays five times over ...
+	CHECK_EQ( 1, aiPickUpgrade( covered, cost, 4, 9.0f, TRUE ) );				// ... and past the target half the payoff will do
+	CHECK_EQ( -1, aiPickUpgrade( covered, cost, 4, 9.5f, TRUE ) );
+
+	// an upgrade that improves nothing we own is never bought, however cheap
+	const Real nothing[ 1 ] = { 0.0f };
+	const Int cheap[ 1 ] = { 1 };
+	CHECK_EQ( -1, aiPickUpgrade( nothing, cheap, 1, 0.0f, TRUE ) );
+
+	// two that pay the same: the first, so the order is the buttons' and the same on every machine
+	const Real even[ 2 ] = { 4000.0f, 2000.0f };
+	const Int evenCost[ 2 ] = { 2000, 1000 };
+	CHECK_EQ( 0, aiPickUpgrade( even, evenCost, 2, 1.0f, FALSE ) );
+
+	// every rung has the queue and the rule, and each step up keeps a smaller bank and buys sooner
+	TAiData data;
+	for( Int i = 0; i < AISKILL_COUNT; ++i )
+	{
+		CHECK( data.m_skill[ i ].m_bankTargetSeconds > 0.0f );
+		CHECK( data.m_skill[ i ].m_bankTargetFloor > 0 );
+		CHECK( data.m_skill[ i ].m_upgradePayoff > 0.0f );
+		CHECK( data.m_skill[ i ].m_upgradeNonCombatWeight < 0.5f );
+		CHECK( data.m_skill[ i ].m_surplusShare > 0.0f && data.m_skill[ i ].m_surplusShare <= 1.0f );
+	}
+	CHECK_EQ( 1.0f, data.m_skill[ AISKILL_BRUTAL ].m_surplusShare );		// Hard spends all of it
+	for( Int i = 1; i < AISKILL_COUNT; ++i )
+	{
+		const AIDifficultyProfile &lower = data.m_skill[ i - 1 ];
+		const AIDifficultyProfile &upper = data.m_skill[ i ];
+		CHECK( upper.m_bankTargetSeconds < lower.m_bankTargetSeconds );
+		CHECK( upper.m_bankTargetFloor <= lower.m_bankTargetFloor );
+		CHECK( upper.m_upgradePayoff < lower.m_upgradePayoff );
+		CHECK( upper.m_upgradeStartSeconds < lower.m_upgradeStartSeconds );
+		CHECK( upper.m_surplusShare > lower.m_surplusShare );
+		CHECK( upper.m_maxProduction >= lower.m_maxProduction );
+		// every rung waits out an opening and sends no trickle, Hard the shortest wait and the biggest
+		// floor; every rung keeps its artillery behind the line, Hard the farthest
+		CHECK( lower.m_firstPushSeconds > 0.0f && upper.m_firstPushSeconds > 0.0f );
+		CHECK( upper.m_firstPushSeconds <= lower.m_firstPushSeconds );
+		CHECK( upper.m_minAttackPower > lower.m_minAttackPower && lower.m_minAttackPower > 0.0f );
+		CHECK( upper.m_siegeTrail > lower.m_siegeTrail && lower.m_siegeTrail > 0.0f );
+	}
+	// Hard builds past its plan with a bank past twice its target, Medium only past a bigger multiple and
+	// to a lower cap, Easy never; Medium out-armies Easy and Hard out-armies Medium, which an equal share
+	// and cap for the two lower rungs had undone
+	CHECK( data.m_skill[ AISKILL_BRUTAL ].m_maxProduction > data.m_skill[ AISKILL_MEDIUM ].m_maxProduction );
+	CHECK( data.m_skill[ AISKILL_BRUTAL ].m_factoryBankMultiple > 0.0f );
+	CHECK( data.m_skill[ AISKILL_MEDIUM ].m_factoryBankMultiple > data.m_skill[ AISKILL_BRUTAL ].m_factoryBankMultiple );
+	CHECK_EQ( 0.0f, data.m_skill[ AISKILL_EASY ].m_factoryBankMultiple );
+	CHECK( data.m_skill[ AISKILL_BRUTAL ].m_surplusShare >= 4.0f * data.m_skill[ AISKILL_MEDIUM ].m_surplusShare );
+	// Easy fires the retail S curve; Medium drives the Particle Cannon's beam at walking pace, Hard
+	// steers it often enough to count as the double click that drives it fast
+	CHECK_EQ( 0.0f, data.m_skill[ AISKILL_EASY ].m_beamSteerSeconds );
+	CHECK( data.m_skill[ AISKILL_MEDIUM ].m_beamSteerSeconds > data.m_skill[ AISKILL_BRUTAL ].m_beamSteerSeconds );
+	CHECK( data.m_skill[ AISKILL_BRUTAL ].m_beamSteerSeconds > 0.0f && data.m_skill[ AISKILL_BRUTAL ].m_beamSteerSeconds < 0.5f );
 }
 
 

@@ -727,6 +727,12 @@ static void startAutoSkirmish( Int numPlayersWanted )
 	TheSkirmishGameInfo->setTechRespawn( TheGlobalData->m_techRespawn );
 	TheSkirmishGameInfo->setSupplyPileLimit( TheGlobalData->m_supplyPileLimit );
 	TheSkirmishGameInfo->setSuperweaponRestriction( (UnsignedShort)TheGlobalData->m_superweapons );
+	if (TheGlobalData->m_startingCash > 0)
+	{
+		Money cash;
+		cash.deposit( (UnsignedInt)TheGlobalData->m_startingCash, FALSE );
+		TheSkirmishGameInfo->setStartingCash( cash );
+	}
 
 	/* -seed makes the whole run repeatable: the seed drives the factions, the colours, the start
 		 positions and every logic random draw after them, so the same command line replays the same
@@ -755,8 +761,8 @@ static void startAutoSkirmish( Int numPlayersWanted )
 	msg->appendIntegerArgument( 0 );
 	msg->appendIntegerArgument( maxFPS );
 
-	DEBUG_LOG(("-autoskirmish: %d slots on '%s', seed %d, up to %d fps, %s%s%s\n",
-		numPlayers, mapName.str(), seed, maxFPS,
+	DEBUG_LOG(("-autoskirmish: %d slots on '%s', seed %d, starting cash %u, up to %d fps, %s%s%s\n",
+		numPlayers, mapName.str(), seed, TheSkirmishGameInfo->getStartingCash().countMoney(), maxFPS,
 		observing ? "every slot AI, watching from the free camera" : "slot 0 is the local player",
 		takeover ? ", seats driverless" : "",
 		fixedStartPositions ? ", start positions fixed to slot order" : ""));
@@ -1543,8 +1549,74 @@ void GameEngine_noteLogicTickDone( Int logicFps, Bool fastMode )
 	s_msPerLogicTick = (logicFps > 0 && !fastMode) ? 1000.0f / (Real)logicFps : 0.0f;
 }
 
+/* -recordfps: which of the logic frame's pictures the coming draw is.  The logic loop moves it on once a
+	 pass and runs the next frame after the last one (the fast-mode branch in GameEngine::update). */
+static Int s_videoPicture = 0;
+
+static Bool isVideoFrame( Int frame )
+{
+	if (TheGlobalData->m_videoEndFrame <= 0 || TheGameLogic == NULL || !TheGameLogic->isInGame() || TheGameLogic->isInShellGame())
+		return FALSE;
+	return frame >= TheGlobalData->m_videoStartFrame && frame <= TheGlobalData->m_videoEndFrame;
+}
+
+/* -recordfps's pictures of a recorded logic frame.  A network game's clock is the network's, one logic
+	 frame a pass or more, and -headless draws no picture to make more of */
+static Int videoPicturesOn( Int frame )
+{
+	if (TheNetwork != NULL || TheGlobalData->m_headless || !isVideoFrame( frame ))
+		return 1;
+	return TheGlobalData->m_videoPictures;
+}
+
+Bool GameEngine_isVideoFrame( void )
+{
+	return TheGameLogic != NULL && isVideoFrame( (Int)TheGameLogic->getFrame() );
+}
+
+Int GameEngine_videoPictures( void )
+{
+	return TheGameLogic == NULL ? 1 : videoPicturesOn( (Int)TheGameLogic->getFrame() );
+}
+
+Bool GameEngine_videoBlends( void )
+{
+	if (TheGameLogic == NULL)
+		return FALSE;
+	const Int frame = (Int)TheGameLogic->getFrame();
+	return videoPicturesOn( frame ) > 1 || videoPicturesOn( frame + 1 ) > 1;
+}
+
+Int GameEngine_videoFramesPerSecond( void )
+{
+	return TheNetwork != NULL || TheGlobalData->m_headless ? LOGICFRAMES_PER_SECOND
+		: LOGICFRAMES_PER_SECOND * TheGlobalData->m_videoPictures;
+}
+
+Int GameEngine_videoPicture( void )
+{
+	// a match that ended between two pictures of a frame leaves the count where it was
+	return GameEngine_videoPictures() > 1 ? s_videoPicture : 0;
+}
+
+Real GameEngine_pictureFrame( void )
+{
+	const Int pictures = GameEngine_videoPictures();
+	return (Real)TheGameLogic->getFrame() - (Real)(pictures - 1 - GameEngine_videoPicture()) / (Real)pictures;
+}
+
+UnsignedInt GameEngine_pictureMilliseconds( void )
+{
+	const Int64 pictures = GameEngine_videoPictures();
+	const Int64 shown = (Int64)TheGameLogic->getFrame() * pictures - (pictures - 1 - GameEngine_videoPicture());
+	return shown <= 0 ? 0 : (UnsignedInt)(shown * 1000 / (LOGICFRAMES_PER_SECOND * pictures));
+}
+
 Real GameEngine_logicTickFraction( void )
 {
+	const Int pictures = GameEngine_videoPictures();
+	if (pictures > 1)
+		return (Real)(GameEngine_videoPicture() + 1) / (Real)pictures;
 	if (s_msPerLogicTick <= 0.0f)
 		return 1.0f;
 	const Real ms = (Real)(Clock_Ticks() - s_lastLogicTickTicks) * 1000.0f / (Real)Clock_Ticks_Per_Second();
@@ -2537,6 +2609,10 @@ static void updateHeadlessRun( void )
 		// the exchange in money, on a line of its own so the PLAYER line's readers keep matching it
 		DEBUG_LOG(("HEADLESS VALUE %d: units worth %d lost, %d killed\n", i,
 							 score->getUnitValueLost(), score->getUnitValueDestroyed()));
+		// the bank as it stands.  Starting money plus earned minus spent is not it: the score keeper's
+		// spent counts buildings and upgrades and never a unit, and that sum read a Hard AI ending on
+		// under 2,000 as one sitting on 52,000
+		DEBUG_LOG(("HEADLESS BANK %d: %d in the bank\n", i, p->getMoney()->countMoney()));
 	}
 
 	if (scouting)
@@ -2653,8 +2729,8 @@ void GameEngine::update( void )
 			 of an unattended run. */
 		fastMode = fastMode || TheGlobalData->m_headless;
 
-		/* -turbo: the same for a run that draws, unless a network or a sound recording owns the clock.
-			 The five seconds before a -screenshot run at the real rate.  Taken straight out of
+		/* -turbo: the same for a run that draws, unless a network owns the clock.  A -wav recording does
+			 not: its mix moves with the logic frames, not the wall clock (updateSoundCapture).  The five seconds before a -screenshot run at the real rate.  Taken straight out of
 			 fast-forward, a shot differed from its own repeat on 5.6% of the pixels; settled first, on
 			 0.01%, where two paced runs differ on 0.1%. */
 		const Int TURBO_SETTLE_FRAMES = 150;
@@ -2662,8 +2738,7 @@ void GameEngine::update( void )
 		const Bool turboSettling = TheGlobalData->m_screenShotFrame > 0
 			&& turboFrame + TURBO_SETTLE_FRAMES >= TheGlobalData->m_screenShotFrame
 			&& turboFrame <= TheGlobalData->m_screenShotFrame;
-		fastMode = fastMode || ( TheGlobalData->m_turbo && !turboSettling && TheNetwork == NULL
-														 && TheGlobalData->m_wavEndFrame == 0 );
+		fastMode = fastMode || ( TheGlobalData->m_turbo && !turboSettling && TheNetwork == NULL );
 
 		/* -video: one logic frame a pass across the range being recorded, so the draw in front of each
 			 logic frame is the one picture of it.  Paced by the wall clock, a pass that fell behind would
@@ -2679,6 +2754,9 @@ void GameEngine::update( void )
 		UnsignedInt now = Clock_Milliseconds();
 		Real elapsedMs = (Real)(now - prevLogicTime);
 		prevLogicTime = now;
+
+		const Bool logicMayRun =
+				((TheNetwork == NULL && !TheGameLogic->isGamePaused()) || (TheNetwork && TheNetwork->isFrameDataReady()));
 
 		Bool logicFrameDue;
 		Bool mayCatchUp = FALSE;
@@ -2705,7 +2783,11 @@ void GameEngine::update( void )
 		else if (fastMode)
 		{
 			logicAccumMs = 0.0f;
-			logicFrameDue = TRUE;
+			// -recordfps: a recorded frame is drawn as many times as it has pictures, the logic waiting
+			// for the last of them.  A paused game draws its last picture again
+			if (logicMayRun)
+				s_videoPicture = (s_videoPicture + 1) % GameEngine_videoPictures();
+			logicFrameDue = s_videoPicture == 0;
 		}
 		else
 		{
@@ -2713,9 +2795,6 @@ void GameEngine::update( void )
 			// Fast mode means exactly one logic frame per call, by its own definition.
 			mayCatchUp = (m_maxFPS > 0);
 		}
-
-		const Bool logicMayRun =
-				((TheNetwork == NULL && !TheGameLogic->isGamePaused()) || (TheNetwork && TheNetwork->isFrameDataReady()));
 
 		if (!logicMayRun)
 		{
@@ -2741,6 +2820,7 @@ void GameEngine::update( void )
 				 plus the render is a dropped frame nobody files a bug about. */
 			Int64 tCatchupStart, tCatchupNow;
 			tCatchupStart = Clock_Ticks();
+			const UnsignedInt frameBeforeTicks = TheGameLogic->getFrame();
 			for( ;; )
 			{
 				TheGameLogic->UPDATE();
@@ -2786,6 +2866,10 @@ void GameEngine::update( void )
 					break;
 			}
 			GameEngine_noteLogicTickDone( networkPaced ? TheGlobalData->m_framesPerSecondLimit : m_maxFPS, fastMode );
+			// a frame held by a scripted freeze keeps showing its last picture, rather than going back
+			// half a frame every other pass
+			if (TheGameLogic->getFrame() == frameBeforeTicks)
+				s_videoPicture = GameEngine_videoPictures() - 1;
 #ifdef DEBUG_LOGGING
 			tLogicEnd = Clock_Ticks();
 			logicMS = engineElapsedMS( tLogicStart, tLogicEnd );
