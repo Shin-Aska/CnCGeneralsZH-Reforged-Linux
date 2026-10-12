@@ -20,6 +20,39 @@
       }
     },
     {
+      "label": "Linux: Build Release executable only",
+      "type": "process",
+      "command": "${workspaceFolder}/build-linux.sh",
+      "args": ["Release", "generals"],
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "CC": "gcc-16",
+          "CXX": "g++-16"
+        }
+      },
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "Linux: Publish thin executable",
+      "type": "process",
+      "command": "bash",
+      "args": [
+        "${workspaceFolder}/GeneralsMD/Code/Tools/publish-linux-executable.sh",
+        "${workspaceFolder}/build-linux/generals",
+        "${env:HOME}/Games/ZeroHourReforged/bin/generals"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "dependsOn": "Linux: Build Release executable only",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
       "label": "Zero Hour: Play (no debugger)",
       "type": "process",
       "command": "${workspaceFolder}/build-linux/ZeroHourReforged/bin/generals",

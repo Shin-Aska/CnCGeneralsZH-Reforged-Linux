@@ -81,6 +81,24 @@
       "preLaunchTask": "Linux: Build Release"
     },
     {
+      "name": "Zero Hour: Publish thin executable (only)",
+      "type": "node-terminal",
+      "request": "launch",
+      "autoAttachChildProcesses": false,
+      "command": "bash \"${workspaceFolder}/GeneralsMD/Code/Tools/publish-linux-executable.sh\" \"${workspaceFolder}/build-linux/generals\" \"${env:HOME}/Games/ZeroHourReforged/bin/generals\"",
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "Linux: Build Release executable only"
+    },
+    {
+      "name": "Zero Hour: Publish and Play (thin executable)",
+      "type": "node-terminal",
+      "request": "launch",
+      "autoAttachChildProcesses": false,
+      "command": "exec \"${env:HOME}/Games/ZeroHourReforged/bin/generals\" -quickstart -noshellmap -multiInstance",
+      "cwd": "${env:HOME}/Games/ZeroHourReforged",
+      "preLaunchTask": "Linux: Publish thin executable"
+    },
+    {
       "name": "Zero Hour: Play (no debugger)",
       "type": "node-terminal",
       "request": "launch",

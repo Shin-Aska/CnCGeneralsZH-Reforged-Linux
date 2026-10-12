@@ -145,6 +145,18 @@ All four entries build and stage Release with GCC 16 before launching, use the f
 That root is already prepared in the development checkout used for this validation. For a fresh
 clone, follow [the setup in the Linux guide](docs/linux.md#vs-code-launch-setup) first.
 
+To update an existing local install at `~/Games/ZeroHourReforged`, run **Terminal → Run Task →
+Linux: Publish thin executable**. It builds only the Release `generals` target, strips a copy, and
+replaces `~/Games/ZeroHourReforged/bin/generals`. The build executable keeps its debug information;
+the installed overlay, art and game data are not copied or refreshed. This requires an existing
+overlay at `~/Games/ZeroHourReforged/share/zero-hour-reforged/overlay` to play with Reforged's data.
+Changes to INIs, scripts or other overlay files need a separate overlay update.
+
+For the same publish-only action in **Run and Debug**, select **Zero Hour: Publish thin executable
+(only)** and press **F5**. To publish and launch in one step, select **Zero Hour: Publish and Play
+(thin executable)**. The play profile lets the game find your existing game install and uses the
+normal player save folder. On Linux the executable is named `generals`, with no `.exe` extension.
+
 ### Saves and game files
 
 The engine reads the installed archives and searches the fork's staged overlay first. It refuses
