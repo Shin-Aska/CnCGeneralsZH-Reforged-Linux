@@ -34,6 +34,7 @@
 										 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "stdio.h"
+#include <complex>
 #include "Lib/Clock.h"
 #include "W3DDevice/GameClient/W3DWater.h"
 #include "W3DDevice/GameClient/HeightMap.h"
@@ -215,6 +216,8 @@ void doSkyBoxSet(Bool startDraw)
 #define NOISE_FREQ	(2.0f*PI/WAVE_FREQ)
 
 #define NOISE_REPEAT_FACTOR ((float)(1.0f/(16.0f)))
+static const Real WATER_SCROLL_SPEED = 0.2f;
+static const Real AUTHORED_FPS = 30.0f;
 
 					
 static Bool wireframeForDebug = 0;
@@ -326,7 +329,185 @@ void WaterRenderObjClass::setupJbaWaterShader(void)
 	if (m_riverWaterPixelShader){
 		DX8Wrapper::_Get_D3D_Device()->SetPixelShaderConstantF(0,   D3DXVECTOR4(REFLECTION_FACTOR, REFLECTION_FACTOR, REFLECTION_FACTOR, 1.0f), 1);
 		DX8Wrapper::Set_Pixel_Shader(m_riverWaterPixelShader);
+		setupModernWaterShader(TRUE);
 	}
+}
+
+// SDL's map water composites the coloured mirror in its surface shader. Windows retains the
+// original assembly and its separate reflection pass. No texture assets or game data are changed.
+void WaterRenderObjClass::setupModernWaterShader(Bool river)
+{
+#ifndef _WIN32
+	updateModernWaterTextures();
+	const Bool reflection = m_pReflectionTexture && !m_renderingMirror &&
+		m_reflectionAreaMax.X > m_reflectionAreaMin.X && m_reflectionAreaMax.Y > m_reflectionAreaMin.Y;
+	TextureClass *mirror = reflection ? m_pReflectionTexture : m_whiteTexture;
+	if (!mirror->Is_Initialized()) mirror->Init();
+	DX8Wrapper::Set_DX8_Texture(1, mirror->Peek_D3D_Texture());
+	DX8Wrapper::Set_DX8_Texture_Stage_State(1, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+	DX8Wrapper::Set_DX8_Texture_Stage_State(1, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+	DX8Wrapper::Set_DX8_Texture_Stage_State(1, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+	const D3DXVECTOR4 parameters(m_riverVOrigin / (0.002f * AUTHORED_FPS * WATER_SCROLL_SPEED),
+		river ? 1.0f : 0.0f, reflection ? 1.0f : 0.0f, m_reflectionLevel);
+	const D3DXVECTOR4 area(m_reflectionAreaMin.X, m_reflectionAreaMin.Y,
+		m_reflectionAreaMax.X, m_reflectionAreaMax.Y);
+	const Coord3D &sun = TheGlobalData->m_terrainLightPos[0];
+	const RGBColor &colour = TheGlobalData->m_terrainDiffuse[0];
+	const D3DXVECTOR4 direction(-sun.x, -sun.y, -sun.z, 0.0f);
+	const D3DXVECTOR4 light(colour.red, colour.green, colour.blue, 0.0f);
+	DX8Wrapper::_Get_D3D_Device()->SetPixelShaderConstantF(1, parameters, 1);
+	DX8Wrapper::_Get_D3D_Device()->SetPixelShaderConstantF(2, area, 1);
+	DX8Wrapper::_Get_D3D_Device()->SetPixelShaderConstantF(3, direction, 1);
+	DX8Wrapper::_Get_D3D_Device()->SetPixelShaderConstantF(4, light, 1);
+	WorldHeightMap *map = TheTerrainRenderObject ? TheTerrainRenderObject->getMap() : NULL;
+	const D3DXVECTOR4 terrain(map ? map->getBorderSize() * MAP_XY_FACTOR : 0.0f,
+		m_modernHeightSide * MAP_XY_FACTOR, 255.0f * MAP_HEIGHT_SCALE, m_modernHeightTexture ? 1.0f : 0.0f);
+	DX8Wrapper::_Get_D3D_Device()->SetPixelShaderConstantF(5, terrain, 1);
+	if (m_modernHeightTexture) DX8Wrapper::Set_DX8_Texture(2, m_modernHeightTexture->Peek_D3D_Texture());
+	if (m_modernNormalTexture) DX8Wrapper::Set_DX8_Texture(4, m_modernNormalTexture->Peek_D3D_Texture());
+	for (Int stage = 2; stage <= 4; stage += 2) {
+		DX8Wrapper::Set_DX8_Texture_Stage_State(stage, D3DSAMP_ADDRESSU, stage == 4 ? D3DTADDRESS_WRAP : D3DTADDRESS_CLAMP);
+		DX8Wrapper::Set_DX8_Texture_Stage_State(stage, D3DSAMP_ADDRESSV, stage == 4 ? D3DTADDRESS_WRAP : D3DTADDRESS_CLAMP);
+		DX8Wrapper::Set_DX8_Texture_Stage_State(stage, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+		DX8Wrapper::Set_DX8_Texture_Stage_State(stage, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+		DX8Wrapper::Set_DX8_Texture_Stage_State(stage, D3DSAMP_MIPFILTER, stage == 4 ? D3DTEXF_LINEAR : D3DTEXF_NONE);
+	}
+#endif
+}
+
+// Tileable normal detail and its mip chain are generated once, and ship with the executable.
+// Averaging encoded normals without renormalizing preserves the variance used for specular AA.
+void WaterRenderObjClass::updateModernWaterTextures(void)
+{
+#ifndef _WIN32
+	if (!m_modernNormalTexture) {
+		const Int side = 512;
+		const Real tileWidth = 40.0f;
+		typedef std::complex<Real> Complex;
+		std::vector<Complex> heightSpectrum(side*side, Complex(0,0));
+		UnsignedInt seed = 0x5a17c9e3;
+		auto randomUnit = [&seed]() {
+			seed = seed * 1664525u + 1013904223u;
+			return ((seed >> 8) + 0.5f) / 16777216.0f;
+		};
+		for (Int y = 0; y < side; ++y) for (Int x = 0; x < side; ++x) {
+			const Int opposite = ((side-y)%side)*side + (side-x)%side;
+			const Int index = y*side+x;
+			if (index > opposite || index == 0) continue;
+			const Real kx = 2.0f*PI*(x < side/2 ? x : x-side)/tileWidth;
+			const Real ky = 2.0f*PI*(y < side/2 ? y : y-side)/tileWidth;
+			const Real k2 = kx*kx + ky*ky;
+			const Real alignment = (kx*0.94f + ky*0.34f)/sqrtf(k2);
+			// A wind-weighted spectrum, with very short waves damped. Thousands of phases
+			// produce varied wave faces rather than the repeated outlines of a few sine modes.
+			const Real power = expf(-1.0f/(k2*1.8f*1.8f) - k2*0.16f*0.16f)
+				* (0.15f + 0.85f*alignment*alignment)/(k2*k2);
+			const Real magnitude = sqrtf(-2.0f*logf(randomUnit())*power);
+			const Real angle = 2.0f*PI*randomUnit();
+			Complex coefficient(magnitude*cosf(angle), magnitude*sinf(angle));
+			if (opposite == index) coefficient.imag(0.0f);
+			heightSpectrum[index] = coefficient;
+			heightSpectrum[opposite] = std::conj(coefficient);
+		}
+		// Radix-two inverse FFT, rows then columns. No dependency or texture asset is needed.
+		auto inverseFFT = [side](std::vector<Complex> &row) {
+			for (Int i = 1, j = 0; i < side; ++i) {
+				Int bit = side >> 1;
+				for (; j & bit; bit >>= 1) j ^= bit;
+				j ^= bit;
+				if (i < j) std::swap(row[i],row[j]);
+			}
+			for (Int length = 2; length <= side; length *= 2) {
+				const Real angle = 2.0f*PI/length;
+				const Complex root(cosf(angle), sinf(angle));
+				for (Int i = 0; i < side; i += length) {
+					Complex factor(1,0);
+					for (Int j = 0; j < length/2; ++j) {
+						const Complex even = row[i+j], odd = row[i+j+length/2]*factor;
+						row[i+j] = even+odd; row[i+j+length/2] = even-odd;
+						factor *= root;
+					}
+				}
+			}
+			for (Int i = 0; i < side; ++i) row[i] /= (Real)side;
+		};
+		std::vector<Complex> row(side);
+		for (Int y = 0; y < side; ++y) {
+			for (Int x = 0; x < side; ++x) row[x] = heightSpectrum[y*side+x];
+			inverseFFT(row);
+			for (Int x = 0; x < side; ++x) heightSpectrum[y*side+x] = row[x];
+		}
+		for (Int x = 0; x < side; ++x) {
+			for (Int y = 0; y < side; ++y) row[y] = heightSpectrum[y*side+x];
+			inverseFFT(row);
+			for (Int y = 0; y < side; ++y) heightSpectrum[y*side+x] = row[y];
+		}
+		double squares = 0;
+		for (Int i = 0; i < side*side; ++i) squares += std::norm(heightSpectrum[i]);
+		const Real scale = 0.22f / max((Real)sqrt(squares/(side*side)), 0.0000001f);
+		std::vector<Real> heights(side*side);
+		for (Int i = 0; i < side*side; ++i) heights[i] = heightSpectrum[i].real()*scale;
+		std::vector<UnsignedInt> pixels(side * side);
+		for (Int y = 0; y < side; ++y) for (Int x = 0; x < side; ++x) {
+			const Real nx = -(heights[y*side+(x+1)%side] - heights[y*side+(x+side-1)%side])/(2.0f*tileWidth/side);
+			const Real ny = -(heights[((y+1)%side)*side+x] - heights[((y+side-1)%side)*side+x])/(2.0f*tileWidth/side);
+			const Real inv = 1.0f/sqrtf(nx*nx+ny*ny+1.0f);
+			const UnsignedInt r = (UnsignedInt)clamp((0.5f + nx*inv*0.5f)*255.0f, 0.0f, 255.0f);
+			const UnsignedInt g = (UnsignedInt)clamp((0.5f + ny*inv*0.5f)*255.0f, 0.0f, 255.0f);
+			const UnsignedInt b = (UnsignedInt)clamp((0.5f + inv*0.5f)*255.0f, 0.0f, 255.0f);
+			// Alpha holds height in [-1, 1] world units for a 40-unit tile, used by parallax.
+			const UnsignedInt alpha = (UnsignedInt)clamp((0.5f + heights[y*side+x]*0.5f)*255.0f, 0.0f, 255.0f);
+			pixels[y*side+x] = (alpha<<24)|(r<<16)|(g<<8)|b;
+		}
+		m_modernNormalTexture = NEW_REF(TextureClass, (side, side, WW3D_FORMAT_A8R8G8B8, MIP_LEVELS_ALL));
+		for (Int size = side, level = 0; size > 0; size /= 2, ++level) {
+			SurfaceClass *surface = m_modernNormalTexture->Get_Surface_Level(level);
+			Int pitch; void *bits = surface->Lock(&pitch);
+			if (bits) {
+				for (Int y = 0; y < size; ++y) memcpy((char *)bits + y*pitch, &pixels[y*size], size*4);
+				surface->Unlock();
+			}
+			REF_PTR_RELEASE(surface);
+			if (size == 1) break;
+			std::vector<UnsignedInt> mip(size*size/4);
+			for (Int y = 0; y < size/2; ++y) for (Int x = 0; x < size/2; ++x) {
+				UnsignedInt packed = 0;
+				for (Int shift = 0; shift < 32; shift += 8) {
+					UnsignedInt sum = 0;
+					for (Int j = 0; j < 2; ++j) for (Int i = 0; i < 2; ++i)
+						sum += (pixels[(y*2+j)*size+x*2+i] >> shift)&255;
+					packed |= ((sum+2)/4)<<shift;
+				}
+				mip[y*(size/2)+x] = packed;
+			}
+			pixels.swap(mip);
+		}
+	}
+	WorldHeightMap *map = TheTerrainRenderObject ? TheTerrainRenderObject->getMap() : NULL;
+	if (!map) return;
+	const Int width = map->getXExtent(), height = map->getYExtent();
+	if (width <= 0 || height <= 0) return;
+	const size_t count = (size_t)width * height;
+	if (width == m_modernHeightWidth && height == m_modernHeightHeight &&
+		m_modernHeights.size() == count && memcmp(m_modernHeights.data(), map->getDataPtr(), count) == 0) return;
+	m_modernHeights.assign(map->getDataPtr(), map->getDataPtr() + count);
+	if (width != m_modernHeightWidth || height != m_modernHeightHeight || !m_modernHeightTexture) {
+		REF_PTR_RELEASE(m_modernHeightTexture);
+		m_modernHeightSide = 1; while (m_modernHeightSide < max(width,height)) m_modernHeightSide *= 2;
+		m_modernHeightTexture = NEW_REF(TextureClass, (m_modernHeightSide, m_modernHeightSide, WW3D_FORMAT_A8R8G8B8, MIP_LEVELS_1));
+	}
+	m_modernHeightWidth = width; m_modernHeightHeight = height;
+	SurfaceClass *surface = m_modernHeightTexture->Get_Surface_Level();
+	Int pitch; void *bits = surface->Lock(&pitch);
+	if (bits) {
+		for (Int y = 0; y < m_modernHeightSide; ++y) for (Int x = 0; x < m_modernHeightSide; ++x) {
+			const UnsignedInt h = map->getHeight(min(x,width-1), min(y,height-1));
+			((UnsignedInt *)((char *)bits+y*pitch))[x] = 0xff000000 | (h<<16) | (h<<8) | h;
+		}
+		surface->Unlock();
+	}
+	REF_PTR_RELEASE(surface);
+#endif
 }
 
 
@@ -893,6 +1074,9 @@ RenderResult WaterRenderObjClass::generateIndexBuffer(Int sizeX, Int sizeY)
 //-------------------------------------------------------------------------------------------------
 void WaterRenderObjClass::ReleaseResources(void)
 {
+	REF_PTR_RELEASE(m_modernNormalTexture);
+	REF_PTR_RELEASE(m_modernHeightTexture);
+	m_modernHeights.clear();
 
 	REF_PTR_RELEASE(m_indexBuffer);
 
@@ -1361,8 +1545,6 @@ void WaterRenderObjClass::update( void )
 	// frame longer, and at 0.2 that is six frames a second - the eye reads that as a stutter, not
 	// as slow water. So the flipbook keeps its authored rate and only the scroll is scaled.
 	//
-	const Real WATER_SCROLL_SPEED = 0.2f;
-	const Real AUTHORED_FPS = 30.0f;
 	const Real BUMP_FRAMES_PER_SEC = AUTHORED_FPS;
 
 	{
@@ -1657,7 +1839,12 @@ void WaterRenderObjClass::renderMirror(CameraClass *cam, Real level)
 	// Clear the backbuffer
 	// The sea's cloud plane fills its background; map water has no such plane, so its target is
 	// cleared to white, which the overlay multiplies in as no change at all.
+#ifdef _WIN32
 	WW3D::Begin_Render(m_waterType == WATER_TYPE_0_TRANSLUCENT,true,WATER_REFLECTION_SKY_COLOR);
+#else
+	// Transparent background lets the water shader supply its sky where the mirror has no geometry.
+	WW3D::Begin_Render(m_waterType == WATER_TYPE_0_TRANSLUCENT,true,Vector3(0,0,0),0.0f);
+#endif
 
 	cam->Set_Transform( reflectedTransform );
 
@@ -1695,7 +1882,9 @@ void WaterRenderObjClass::renderMirror(CameraClass *cam, Real level)
 	cam->Set_Oblique_Near_Plane(&waterSurface);
 	cam->Apply();
 
+	m_renderingMirror = TRUE;
 	WW3D::Render(m_parentScene,cam);
+	m_renderingMirror = FALSE;
 
 	cam->Set_Oblique_Near_Plane(NULL);
 	cam->Set_Transform(OldCameraMatrix);	//restore original non-reflected matrix
@@ -3145,6 +3334,9 @@ void WaterRenderObjClass::drawRiverWater(PolygonTrigger *pTrig)
 //-------------------------------------------------------------------------------------------------
 void WaterRenderObjClass::drawReflection(Int triangleCount, Int vertexCount)
 {
+#ifndef _WIN32
+	return; // SDL water already samples this mirror, before shoreline blending and shrouding.
+#endif
 	if (!m_pReflectionTexture || !m_reflectionPixelShader)
 		return;	//the card refused a render target or a pixel shader
 
@@ -3293,6 +3485,7 @@ void WaterRenderObjClass::setupFlatWaterShader(void)
 	if (m_trapezoidWaterPixelShader){
 		DX8Wrapper::_Get_D3D_Device()->SetPixelShaderConstantF(0,   D3DXVECTOR4(REFLECTION_FACTOR, REFLECTION_FACTOR, REFLECTION_FACTOR, 1.0f), 1);
 		DX8Wrapper::Set_Pixel_Shader(m_trapezoidWaterPixelShader);
+		setupModernWaterShader(FALSE);
 	}
 }
 

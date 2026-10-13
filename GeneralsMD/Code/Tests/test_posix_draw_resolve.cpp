@@ -286,6 +286,37 @@ static void check_constants(PosixDevice9 *device)
 	CHECK(pixel.TextureFactor[0] == 1.0f && near_value(pixel.TextureFactor[1], 0x40 / 255.0)
 		&& pixel.TextureFactor[2] == 0.0f && near_value(pixel.TextureFactor[3], 0x80 / 255.0));
 	CHECK(near_value(vertex.GlobalAmbient[0], 0x33 / 255.0) && near_value(vertex.GlobalAmbient[2], 0x99 / 255.0));
+
+	// Water must reconstruct world coordinates from the same projection that drew its geometry.
+	// Check the inverse by composing it with an independently calculated view/projection product.
+	const float water_registers[5][4] = { { 12.5f, 1, 1, 0 }, { -0.8f, -0.6f, 0.9f, 0.7f },
+		{ 0.2f, -0.3f, 0.8f, 0 }, { 0.7f, 0.6f, 0.5f, 0 }, { 160, 5120, 159.375f, 1 } };
+	device->SetPixelShaderConstantF(1, &water_registers[0][0], 5);
+	SdlWaterPixelConstants water;
+	device->Build_Water_Constants(pixel, water);
+	bool inverse = true;
+	for (int r = 0; r < 4; ++r) for (int c = 0; c < 4; ++c) {
+		double identity = 0;
+		for (int k = 0; k < 4; ++k) for (int j = 0; j < 4; ++j)
+			identity += view[r][j] * projection[j][k] * water.WorldFromClip[k * 4 + c];
+		inverse = inverse && fabs(identity - (r == c ? 1.0 : 0.0)) < 0.0001;
+	}
+	CHECK(inverse);
+	CHECK(near_value(water.CameraPosition[0], -20) && near_value(water.CameraPosition[1], 10)
+		&& near_value(water.CameraPosition[2], -30));
+	CHECK(memcmp(&water.Combiner, &pixel, sizeof(pixel)) == 0);
+	CHECK(memcmp(water.WaterParameters, water_registers[0], 16) == 0);
+	CHECK(memcmp(water.ReflectionArea, water_registers[1], 16) == 0);
+	CHECK(memcmp(water.SunDirection, water_registers[2], 16) == 0);
+	CHECK(memcmp(water.SunColour, water_registers[3], 16) == 0);
+	CHECK(memcmp(water.TerrainParameters, water_registers[4], 16) == 0);
+	CHECK(near_value(water.Viewport[2], 64) && near_value(water.Viewport[3], 32));
+	memset(&m, 0, sizeof(m));
+	device->SetTransform(D3DTS_PROJECTION, &m);
+	device->Build_Water_Constants(pixel, water);
+	bool fallback = true;
+	for (int i = 0; i < 16; ++i) fallback = fallback && water.WorldFromClip[i] == (i % 5 == 0 ? 1.0f : 0.0f);
+	CHECK(fallback);
 }
 
 int main()

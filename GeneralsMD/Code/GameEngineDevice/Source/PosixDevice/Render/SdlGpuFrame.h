@@ -207,6 +207,8 @@ public:
 	/// What the last Present showed: the back buffer is copied here at each Present, so the front buffer
 	/// (GetFrontBufferData) is the presented picture whenever it is asked for (A3d).
 	SDL_GPUTexture * Front_Copy() const { return FrontCopy; }
+	/// Opaque scene before the first water draw, copied once per frame for safe refraction sampling.
+	SDL_GPUTexture * Water_Background(const SdlTarget &source);
 	unsigned int Width() const { return BackWidth; }
 	unsigned int Height() const { return BackHeight; }
 	/// The back buffer's format, and so what a Present_To target has to be.
@@ -269,6 +271,10 @@ private:
 	SDL_GPUTexture * BackBuffer;
 	SDL_GPUTexture * DepthStencil;
 	SDL_GPUTexture * FrontCopy;			///< the last presented picture
+	SDL_GPUTexture * WaterBackground = NULL;
+	bool WaterBackgroundReady = false;
+	SDL_GPUTexture *WaterBackgroundSource = NULL;
+	unsigned int WaterBackgroundWidth = 0, WaterBackgroundHeight = 0;
 	bool Copy_To_Front(struct SDL_GPUCommandBuffer * commands);
 	unsigned int DepthFormat;			///< an SDL_GPUTextureFormat: D24S8 where there is one, else D32S8
 	unsigned int BackWidth;

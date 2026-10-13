@@ -328,6 +328,35 @@ static void transform_point(const float source[3], const float matrix[16], float
 	}
 }
 
+// Visual-only inverse for reconstructing the water surface from depth. Double intermediates keep
+// distant camera translations stable; this does not reach simulation or replay arithmetic.
+static bool water_inverse(const float source[16], float result[16])
+{
+	double rows[4][8];
+	for (unsigned r = 0; r < 4; ++r)
+		for (unsigned c = 0; c < 8; ++c)
+			rows[r][c] = c < 4 ? source[r * 4 + c] : (c - 4 == r ? 1.0 : 0.0);
+	for (unsigned c = 0; c < 4; ++c) {
+		unsigned pivot = c;
+		for (unsigned r = c + 1; r < 4; ++r)
+			if (fabs(rows[r][c]) > fabs(rows[pivot][c])) pivot = r;
+		if (!isfinite(rows[pivot][c]) || fabs(rows[pivot][c]) < 1e-15) return false;
+		for (unsigned k = 0; k < 8; ++k) {
+			const double saved = rows[c][k]; rows[c][k] = rows[pivot][k]; rows[pivot][k] = saved;
+		}
+		const double scale = rows[c][c];
+		for (unsigned k = 0; k < 8; ++k) rows[c][k] /= scale;
+		for (unsigned r = 0; r < 4; ++r) {
+			if (r == c) continue;
+			const double factor = rows[r][c];
+			for (unsigned k = 0; k < 8; ++k) rows[r][k] -= factor * rows[c][k];
+		}
+	}
+	for (unsigned r = 0; r < 4; ++r)
+		for (unsigned c = 0; c < 4; ++c) result[r * 4 + c] = (float)rows[r][c + 4];
+	return true;
+}
+
 static void transform_direction(const float source[3], const float matrix[16], float result[4])
 {
 	for (unsigned column = 0; column < 4; ++column) {
@@ -439,6 +468,32 @@ void PosixDevice9::Build_Constants(SdlVertexConstants &vertex, SdlPixelConstants
 	colour_of(RenderStates[D3DRS_FOGCOLOR], pixel.FogColour);
 	// A whole level, as D3D9 compares it: the program rounds the pixel's alpha to a level first.
 	pixel.AlphaReference[0] = (float)(RenderStates[D3DRS_ALPHAREF] & 0xFF);
+}
+
+void PosixDevice9::Build_Water_Constants(const SdlPixelConstants &pixel_constants, SdlWaterPixelConstants &water) const
+{
+	memset(&water, 0, sizeof(water));
+	water.Combiner = pixel_constants;
+	float view_projection[16], inverse_view[16];
+	multiply(&Transforms[D3DTS_VIEW]._11, &Transforms[D3DTS_PROJECTION]._11, view_projection);
+	if (!water_inverse(view_projection, water.WorldFromClip)
+		|| !water_inverse(&Transforms[D3DTS_VIEW]._11, inverse_view)) {
+		memset(water.WorldFromClip, 0, sizeof(water.WorldFromClip));
+		memset(inverse_view, 0, sizeof(inverse_view));
+		for (unsigned i = 0; i < 4; ++i) water.WorldFromClip[i * 5] = inverse_view[i * 5] = 1.0f;
+	}
+	water.CameraPosition[0] = inverse_view[12];
+	water.CameraPosition[1] = inverse_view[13];
+	water.CameraPosition[2] = inverse_view[14];
+	water.Viewport[0] = (float)Viewport.X + 0.5f;
+	water.Viewport[1] = (float)Viewport.Y + 0.5f;
+	water.Viewport[2] = (float)Viewport.Width;
+	water.Viewport[3] = (float)Viewport.Height;
+	memcpy(water.WaterParameters, PixelShaderConstants[1], sizeof(water.WaterParameters));
+	memcpy(water.ReflectionArea, PixelShaderConstants[2], sizeof(water.ReflectionArea));
+	memcpy(water.SunDirection, PixelShaderConstants[3], sizeof(water.SunDirection));
+	memcpy(water.SunColour, PixelShaderConstants[4], sizeof(water.SunColour));
+	memcpy(water.TerrainParameters, PixelShaderConstants[5], sizeof(water.TerrainParameters));
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -841,6 +896,16 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		without_depth[D3DRS_STENCILENABLE] = 0;
 		states = without_depth;
 	}
+	// The modern flat-water shader already refracts and attenuates the scene. The legacy
+	// destination-alpha mask would blend the unattenuated riverbed into it a second time.
+	RenderUInt32 water_states[RENDER_STATE_COUNT];
+	if (pixel_engine == ENGINE_SHADER_WATER_TRAPEZOID && states[D3DRS_SRCBLEND] == D3DBLEND_DESTALPHA
+		&& states[D3DRS_DESTBLEND] == D3DBLEND_INVDESTALPHA) {
+		memcpy(water_states, states, sizeof(water_states));
+		water_states[D3DRS_SRCBLEND] = D3DBLEND_SRCALPHA;
+		water_states[D3DRS_DESTBLEND] = D3DBLEND_INVSRCALPHA;
+		states = water_states;
+	}
 	SdlPipelineKey key;
 	if (!Sdl_Pipeline_Key(states, call.Type, vertex_program.Shader, pixel_program.Shader, FVF,
 		SdlGpuFrame::Target_Format(), Gpu->Depth_Format(), key, refusal)) {
@@ -873,6 +938,8 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	const bool stage_vertices = user || is_dynamic(vertex_buffer);
 	const bool stage_indices = call.Indexed && (fan || is_dynamic(index_buffer));
 	const unsigned int index_size = (call.Indexed && index_buffer->format() == D3DFMT_INDEX32) ? 4 : 2;
+	const bool water_draw = pixel_engine == ENGINE_SHADER_WATER_TRAPEZOID || pixel_engine == ENGINE_SHADER_WATER_RIVER;
+	SDL_GPUTexture *water_background = water_draw ? Gpu->Water_Background(target) : NULL;
 
 	// The GPU copies.  Bringing one up to date can flush the batch, which leaves the ones already asked
 	// for marked as used by the batch before: so ask again until a round flushes nothing.
@@ -889,7 +956,9 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 			}
 			IDirect3DBaseTexture9 *texture = Textures[texture_stage];
 			double since = phases.Now();
-			draw.Textures[slot] = texture != NULL ? Mirrors->Texture(texture, refusal) : Mirrors->White();
+			draw.Textures[slot] = water_draw && texture_stage == 5
+				? (water_background ? water_background : Mirrors->White())
+				: (texture != NULL ? Mirrors->Texture(texture, refusal) : Mirrors->White());
 			phases.Part(0, since);
 			if (draw.Textures[slot] != NULL && draw.Textures[slot] == target.Colour) {
 				// Undefined in D3D9, and an error on SDL3 GPU: the pass would read what it writes.
@@ -901,7 +970,16 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 				return D3D_OK;
 			}
 			since = phases.Now();
-			draw.Samplers[slot] = Samplers->Sampler(SamplerStates[sampler_stage]);
+			RenderUInt32 water_sampler[SAMPLER_STATE_COUNT];
+			const RenderUInt32 *sampler_states = SamplerStates[sampler_stage];
+			if (water_draw && texture_stage == 5) {
+				memcpy(water_sampler, sampler_states, sizeof(water_sampler));
+				sampler_states = water_sampler;
+				water_sampler[D3DSAMP_ADDRESSU] = water_sampler[D3DSAMP_ADDRESSV] = D3DTADDRESS_CLAMP;
+				water_sampler[D3DSAMP_MINFILTER] = water_sampler[D3DSAMP_MAGFILTER] = D3DTEXF_LINEAR;
+				water_sampler[D3DSAMP_MIPFILTER] = D3DTEXF_NONE;
+			}
+			draw.Samplers[slot] = Samplers->Sampler(sampler_states);
 			phases.Part(1, since);
 			if (draw.Samplers[slot] == NULL) {
 				Refuse_Draw("the sampler: " + Samplers->Refusal());
@@ -1079,7 +1157,17 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		draw.VertexConstants = Gpu->Constants(0, &vertex_constants, sizeof(vertex_constants));
 		draw.VertexConstantsSize = sizeof(vertex_constants);
 	}
-	if (pixel_program.UniformBuffers != 0 && pixel_engine != ENGINE_SHADER_NONE) {
+	if (pixel_program.UniformBuffers != 0 &&
+		(pixel_engine == ENGINE_SHADER_WATER_TRAPEZOID || pixel_engine == ENGINE_SHADER_WATER_RIVER)) {
+		SdlWaterPixelConstants water;
+		Build_Water_Constants(pixel_constants, water);
+		water.SceneParameters[0] = water_background ? 1.0f : 0.0f;
+		water.SceneParameters[1] = 1.0f / (float)target.Width;
+		water.SceneParameters[2] = 1.0f / (float)target.Height;
+		draw.PixelConstants = Gpu->Constants(1, &water, sizeof(water));
+		draw.PixelConstantsSize = sizeof(water);
+	}
+	else if (pixel_program.UniformBuffers != 0 && pixel_engine != ENGINE_SHADER_NONE) {
 		SdlEnginePixelConstants engine_constants;
 		memset(&engine_constants, 0, sizeof(engine_constants));
 		engine_constants.Combiner = pixel_constants;

@@ -235,6 +235,11 @@ bool SdlGpuFrame::Create_Targets(unsigned int width, unsigned int height)
 
 void SdlGpuFrame::Release_Targets()
 {
+	if (WaterBackground != NULL) SDL_ReleaseGPUTexture(GpuDevice, WaterBackground);
+	WaterBackground = NULL;
+	WaterBackgroundSource = NULL;
+	WaterBackgroundWidth = WaterBackgroundHeight = 0;
+	WaterBackgroundReady = false;
 	if (BackBuffer != NULL) SDL_ReleaseGPUTexture(GpuDevice, BackBuffer);
 	if (DepthStencil != NULL) SDL_ReleaseGPUTexture(GpuDevice, DepthStencil);
 	if (FrontCopy != NULL) SDL_ReleaseGPUTexture(GpuDevice, FrontCopy);
@@ -243,6 +248,38 @@ void SdlGpuFrame::Release_Targets()
 	DepthStencil = NULL;
 	FrontCopy = NULL;
 	DisplayTexture = NULL;		// made again at the new size by the next offscreen Present
+}
+
+SDL_GPUTexture *SdlGpuFrame::Water_Background(const SdlTarget &source)
+{
+	if (source.Width == 0 || source.Height == 0 || !source.Colour) return NULL;
+	if (WaterBackground && (WaterBackgroundWidth != source.Width || WaterBackgroundHeight != source.Height)) {
+		// Submit any recorded draws before replacing a snapshot they might still sample.
+		Flush();
+		SDL_ReleaseGPUTexture(GpuDevice, WaterBackground);
+		WaterBackground = NULL;
+		WaterBackgroundReady = false;
+	}
+	if (!WaterBackground) {
+		SDL_GPUTextureCreateInfo info;
+		SDL_zero(info);
+		info.type = SDL_GPU_TEXTURETYPE_2D;
+		info.format = BACK_BUFFER_FORMAT;
+		info.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+		info.width = source.Width; info.height = source.Height;
+		info.layer_count_or_depth = 1; info.num_levels = 1;
+		info.sample_count = SDL_GPU_SAMPLECOUNT_1;
+		WaterBackground = SDL_CreateGPUTexture(GpuDevice, &info);
+		if (!WaterBackground) return NULL;
+		WaterBackgroundWidth = source.Width; WaterBackgroundHeight = source.Height;
+	}
+	if (!WaterBackgroundReady || WaterBackgroundSource != source.Colour) {
+		const int32_t rectangle[4] = { 0, 0, (int32_t)source.Width, (int32_t)source.Height };
+		Record_Blit(source.Colour, rectangle, WaterBackground, rectangle, false);
+		WaterBackgroundSource = source.Colour;
+		WaterBackgroundReady = true;
+	}
+	return WaterBackground;
 }
 
 bool SdlGpuFrame::Resize(unsigned int width, unsigned int height)
@@ -257,6 +294,7 @@ bool SdlGpuFrame::Resize(unsigned int width, unsigned int height)
 
 void SdlGpuFrame::Clear_Back_Buffer(bool colour, bool depth, bool stencil, uint32_t argb, float z, uint32_t stencil_value)
 {
+	if (colour && (!TargetSet || CurrentTarget.Colour == WaterBackgroundSource)) WaterBackgroundReady = false;
 	if (!colour && !depth && !stencil) {
 		return;
 	}
@@ -579,6 +617,7 @@ bool SdlGpuFrame::Copy_To_Front(SDL_GPUCommandBuffer * commands)
 
 bool SdlGpuFrame::Present(const uint16_t (*ramp)[256])
 {
+	WaterBackgroundReady = false;
 	SDL_GPUCommandBuffer * commands = SDL_AcquireGPUCommandBuffer(GpuDevice);
 	if (commands == NULL) {
 		return false;
@@ -643,6 +682,7 @@ bool SdlGpuFrame::Present(const uint16_t (*ramp)[256])
 bool SdlGpuFrame::Present_To(SDL_GPUTexture * target, unsigned int width, unsigned int height,
 	const uint16_t (*ramp)[256])
 {
+	WaterBackgroundReady = false;
 	SDL_GPUCommandBuffer * commands = SDL_AcquireGPUCommandBuffer(GpuDevice);
 	if (commands == NULL) {
 		return false;

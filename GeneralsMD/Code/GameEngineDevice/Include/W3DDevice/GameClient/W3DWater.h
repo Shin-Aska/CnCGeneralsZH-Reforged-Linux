@@ -31,6 +31,8 @@
 #ifndef __W3DWater_H_
 #define __W3DWater_H_
 
+#include <vector>
+
 #include "always.h"
 #include "rendobj.h"
 #include "w3d_file.h"
@@ -217,6 +219,10 @@ protected:
 	TextureClass *m_riverTexture;
 	TextureClass *m_whiteTexture;		///< a texture containing only white used for NULL pixel shader stages.
 	TextureClass *m_waterNoiseTexture;
+	TextureClass *m_modernNormalTexture = NULL;
+	TextureClass *m_modernHeightTexture = NULL;
+	std::vector<UnsignedByte> m_modernHeights;
+	Int m_modernHeightWidth = 0, m_modernHeightHeight = 0, m_modernHeightSide = 0;
 	IDirect3DPixelShader9 *	m_waterPixelShader;		///<D3D pixel shader.
 	IDirect3DPixelShader9 *	m_riverWaterPixelShader;		///<D3D pixel shader.
 	IDirect3DPixelShader9 *	m_trapezoidWaterPixelShader;	///<D3D pixel shader
@@ -263,6 +269,9 @@ protected:
 
 	void setupFlatWaterShader(void);
 	void setupJbaWaterShader(void);
+	void setupModernWaterShader(Bool river);
+	void updateModernWaterTextures(void);
+	Bool m_renderingMirror = FALSE; ///< prevents a water draw sampling the mirror being written
 	void cleanupJbaWaterShader(void);
 
 	//Methods used for GeForce3 specific water

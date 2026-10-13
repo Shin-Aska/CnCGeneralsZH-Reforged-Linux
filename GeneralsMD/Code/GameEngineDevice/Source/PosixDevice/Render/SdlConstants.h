@@ -61,6 +61,23 @@ struct SdlPixelConstants
 	float AlphaReference[4];		///< .x is D3DRS_ALPHAREF as a whole level, 0 to 255
 };
 
+// Dedicated map-water uniforms. The common prefix keeps alpha testing and fog compatible with
+// the fixed-function pipeline; the remaining fields are used only by the SDL water shader.
+struct SdlWaterPixelConstants
+{
+	SdlPixelConstants Combiner;
+	float WorldFromClip[16];
+	float CameraPosition[4];
+	float SunDirection[4];
+	float SunColour[4];
+	float Viewport[4];
+	float ReflectionArea[4];
+	float WaterParameters[4]; // animation seconds, river flag, reflection available, mirror height
+	float TerrainParameters[4]; // height texture border, world size, height scale, available
+	float SceneParameters[4]; // refraction available, inverse scene-target width/height, reserved
+};
+static_assert(sizeof(SdlWaterPixelConstants) == 15 * 16, "water uniform packing");
+
 /// What an engine pixel program's b0 declares (A3e, engineshader.cpp's write_pixel_preamble): the Direct3D
 /// 11 backend's PixelConstantBlock, field for field.  The first three are SdlPixelConstants; the rest -
 /// the normal mapped lights, the terrain's sun, the shadow and the sky - are unread padding from the

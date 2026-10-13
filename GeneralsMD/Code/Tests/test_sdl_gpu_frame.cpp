@@ -120,11 +120,28 @@ int main()
 	}
 	CHECK(frame->Upload_Back_Buffer(picture));
 
+	// Refraction gets a stable pre-water snapshot, including ordered pending clears/blits.
+	SDL_GPUTexture *background = frame->Water_Background(frame->Back_Buffer_Target());
+	CHECK(background != NULL && background != frame->Back_Buffer());
+	CHECK(frame->Read_Back(background, WIDTH, HEIGHT, pixels));
+	CHECK(pixels == picture);
+	std::vector<uint8_t> replacement(WIDTH * HEIGHT * 4, 0xFF);
+	CHECK(frame->Upload_Back_Buffer(replacement));
+	CHECK(frame->Water_Background(frame->Back_Buffer_Target()) == background);
+	CHECK(frame->Read_Back(background, WIDTH, HEIGHT, pixels));
+	CHECK(pixels == picture); // Later water draws must not refract previously drawn water.
+	frame->Clear_Back_Buffer(true, false, false, 0xFF123456u, 1.0f, 0);
+	CHECK(frame->Water_Background(frame->Back_Buffer_Target()) == background);
+	CHECK(frame->Read_Back(background, WIDTH, HEIGHT, pixels));
+	CHECK(pixels.size() == WIDTH * HEIGHT * 4 && pixels[0] == 0x56 && pixels[1] == 0x34
+		&& pixels[2] == 0x12 && pixels[3] == 0xFF);
+	CHECK(frame->Upload_Back_Buffer(picture));
+
 	SDL_GPUTextureCreateInfo info;
 	SDL_zero(info);
 	info.type = SDL_GPU_TEXTURETYPE_2D;
 	info.format = (SDL_GPUTextureFormat)SdlGpuFrame::Target_Format();
-	info.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET;
+	info.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
 	info.width = WIDTH;
 	info.height = HEIGHT;
 	info.layer_count_or_depth = 1;
@@ -155,6 +172,33 @@ int main()
 	CHECK(frame->Read_Back(target, WIDTH, HEIGHT, pixels));
 	CHECK(pixels == picture);
 
+	// Present begins a new frame even when it did not clear the colour buffer.
+	CHECK(frame->Water_Background(frame->Back_Buffer_Target()) == background);
+	CHECK(frame->Read_Back(background, WIDTH, HEIGHT, pixels));
+	CHECK(pixels == picture);
+
+	// The game also draws water into an intermediate colour target, rather than the back buffer.
+	SdlTarget intermediate = { target, frame->Depth_For(WIDTH, HEIGHT), WIDTH, HEIGHT };
+	frame->Set_Target(intermediate);
+	frame->Clear_Back_Buffer(true, false, false, 0xFF102030u, 1.0f, 0);
+	CHECK(frame->Read_Back(frame->Water_Background(intermediate), WIDTH, HEIGHT, pixels));
+	CHECK(pixels.size() == WIDTH * HEIGHT * 4 && pixels[0] == 0x30 && pixels[1] == 0x20
+		&& pixels[2] == 0x10);
+	frame->Clear_Back_Buffer(true, false, false, 0xFF445566u, 1.0f, 0);
+	CHECK(frame->Read_Back(frame->Water_Background(intermediate), WIDTH, HEIGHT, pixels));
+	CHECK(pixels.size() == WIDTH * HEIGHT * 4 && pixels[0] == 0x66 && pixels[1] == 0x55
+		&& pixels[2] == 0x44);
+	frame->Set_Target(frame->Back_Buffer_Target());
+	CHECK(frame->Read_Back(frame->Water_Background(frame->Back_Buffer_Target()), WIDTH, HEIGHT, pixels));
+	CHECK(pixels == picture);
+
+	// A resize must replace the snapshot and match the new back-buffer dimensions.
+	CHECK(frame->Resize(16, 8));
+	frame->Clear_Back_Buffer(true, true, true, 0xFFAABBCCu, 1.0f, 0);
+	CHECK(frame->Read_Back(frame->Water_Background(frame->Back_Buffer_Target()), 16, 8, pixels));
+	CHECK(pixels.size() == 16 * 8 * 4 && pixels[0] == 0xCC && pixels[1] == 0xBB
+		&& pixels[2] == 0xAA && pixels[3] == 0xFF);
+
 	SDL_ReleaseGPUTexture(frame->Device(), target);
 	delete frame;
 	SDL_Quit();
@@ -164,6 +208,6 @@ int main()
 		return 1;
 	}
 	printf("sdl_gpu_frame_selfcheck: clear, depth-only clear, gamma (control differs in %u of %u pixels) "
-		"and the identity blit all hold\n", control, WIDTH * HEIGHT);
+		"water background snapshots and the identity blit all hold\n", control, WIDTH * HEIGHT);
 	return 0;
 }

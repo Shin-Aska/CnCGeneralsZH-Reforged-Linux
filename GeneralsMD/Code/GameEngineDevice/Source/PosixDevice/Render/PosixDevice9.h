@@ -61,6 +61,7 @@ struct CombinerDescription;
 struct VertexPipelineDescription;
 struct SdlVertexConstants;
 struct SdlPixelConstants;
+struct SdlWaterPixelConstants;
 
 /// AddRef and Release for one of the interfaces, counted as COM counts.
 template <class Interface>
@@ -230,6 +231,7 @@ public:
 	bool Build_Vertex_Description(VertexPipelineDescription &description, std::string *refusal = NULL) const;
 	/// The two constant blocks, packed to match the descriptions above.
 	void Build_Constants(SdlVertexConstants &vertex, SdlPixelConstants &pixel) const;
+	void Build_Water_Constants(const SdlPixelConstants &pixel, SdlWaterPixelConstants &water) const;
 
 	/// Makes the implicit back buffer (and depth surface, when the present parameters ask for one) from
 	/// the present parameters, and binds them as render target 0 and the depth surface.  CreateDevice and
