@@ -64,6 +64,14 @@ static const char GAMMA_PIXEL_HLSL[] =
 	"	return float4(entry(colour.r, 0), entry(colour.g, 1), entry(colour.b, 2), colour.a);\n"
 	"}\n";
 
+// A separate colour-only pass avoids both read/write attachment feedback and backend-specific
+// depth/stencil copy restrictions. Point sampling preserves object edges and the original depth.
+static const char WATER_DEPTH_PIXEL_HLSL[] =
+	"Texture2D<float> SceneDepth : register(t0, space2);\n"
+	"SamplerState DepthSampler : register(s0, space2);\n"
+	"float main([[vk::location(0)]] float2 uv : TEXCOORD0) : SV_Target0\n"
+	"{ return SceneDepth.SampleLevel(DepthSampler, uv, 0.0); }\n";
+
 bool Sdl_Gamma_Is_Identity(const uint16_t (*ramp)[256])
 {
 	if (ramp == NULL) {
@@ -82,6 +90,12 @@ bool Sdl_Gamma_Is_Identity(const uint16_t (*ramp)[256])
 unsigned int SdlGpuFrame::Target_Format()
 {
 	return BACK_BUFFER_FORMAT;
+}
+
+unsigned int SdlGpuFrame::Depth_Usage() const
+{
+	return SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET
+		| (DepthSampleable ? SDL_GPU_TEXTUREUSAGE_SAMPLER : 0);
 }
 
 SdlGpuFrame::SdlGpuFrame() :
@@ -165,10 +179,30 @@ SdlGpuFrame * SdlGpuFrame::Create(RenderWindow window, unsigned int width, unsig
 		delete frame;
 		return NULL;
 	}
-	// D24S8 is what D3D9's auto depth-stencil almost always is; Apple's GPUs have none, and take D32S8.
-	frame->DepthFormat = SDL_GPUTextureSupportsFormat(frame->GpuDevice, SDL_GPU_TEXTUREFORMAT_D24_UNORM_S8_UINT,
-		SDL_GPU_TEXTURETYPE_2D, SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET)
-		? SDL_GPU_TEXTUREFORMAT_D24_UNORM_S8_UINT : SDL_GPU_TEXTUREFORMAT_D32_FLOAT_S8_UINT;
+	// Prefer a sampleable stencil format for the water's GPU depth resolve. Preserve rendering on a
+	// device without one by retaining the ordinary depth target, and disabling scene-depth sampling.
+	const SDL_GPUTextureFormat depth_formats[] = {
+		SDL_GPU_TEXTUREFORMAT_D24_UNORM_S8_UINT, SDL_GPU_TEXTUREFORMAT_D32_FLOAT_S8_UINT };
+	for (unsigned int sampled = 1; frame->DepthFormat == SDL_GPU_TEXTUREFORMAT_INVALID; --sampled) {
+		const SDL_GPUTextureUsageFlags usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET
+			| (sampled ? SDL_GPU_TEXTUREUSAGE_SAMPLER : 0);
+		for (unsigned int i = 0; i < 2; ++i) {
+			if (SDL_GPUTextureSupportsFormat(frame->GpuDevice, depth_formats[i], SDL_GPU_TEXTURETYPE_2D, usage)) {
+				frame->DepthFormat = depth_formats[i];
+				frame->DepthSampleable = sampled != 0;
+				break;
+			}
+		}
+		if (!sampled) break;
+	}
+	frame->DepthSampleable = frame->DepthSampleable && SDL_GPUTextureSupportsFormat(frame->GpuDevice,
+		SDL_GPU_TEXTUREFORMAT_R32_FLOAT, SDL_GPU_TEXTURETYPE_2D,
+		SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER);
+	if (frame->DepthFormat == SDL_GPU_TEXTUREFORMAT_INVALID) {
+		error = "no supported depth/stencil render-target format";
+		delete frame;
+		return NULL;
+	}
 	if (!frame->Create_Targets(width, height)) {
 		error = std::string("the back buffer: ") + SDL_GetError();
 		delete frame;
@@ -197,7 +231,6 @@ SdlGpuFrame::~SdlGpuFrame()
 	Commands.clear();
 	End_Batch();
 	if (StreamBuffer != NULL) SDL_ReleaseGPUBuffer(GpuDevice, StreamBuffer);
-	for (size_t i = 0; i < ScratchDepths.size(); ++i) SDL_ReleaseGPUTexture(GpuDevice, ScratchDepths[i].Texture);
 	for (int i = 0; i < 8; ++i) if (ClearPipelines[i] != NULL) SDL_ReleaseGPUGraphicsPipeline(GpuDevice, ClearPipelines[i]);
 	if (ClearVertex != NULL) SDL_ReleaseGPUShader(GpuDevice, ClearVertex);
 	if (ClearPixel != NULL) SDL_ReleaseGPUShader(GpuDevice, ClearPixel);
@@ -207,6 +240,10 @@ SdlGpuFrame::~SdlGpuFrame()
 	if (GammaPixel != NULL) SDL_ReleaseGPUShader(GpuDevice, GammaPixel);
 	if (RampTexture != NULL) SDL_ReleaseGPUTexture(GpuDevice, RampTexture);
 	if (PointSampler != NULL) SDL_ReleaseGPUSampler(GpuDevice, PointSampler);
+	if (WaterDepthPipeline != NULL) SDL_ReleaseGPUGraphicsPipeline(GpuDevice, WaterDepthPipeline);
+	if (WaterDepthVertex != NULL) SDL_ReleaseGPUShader(GpuDevice, WaterDepthVertex);
+	if (WaterDepthPixel != NULL) SDL_ReleaseGPUShader(GpuDevice, WaterDepthPixel);
+	if (WaterDepthSampler != NULL) SDL_ReleaseGPUSampler(GpuDevice, WaterDepthSampler);
 	if (Window != NULL) SDL_ReleaseWindowFromGPUDevice(GpuDevice, Window);
 	SDL_DestroyGPUDevice(GpuDevice);
 }
@@ -226,7 +263,7 @@ bool SdlGpuFrame::Create_Targets(unsigned int width, unsigned int height)
 	BackBuffer = SDL_CreateGPUTexture(GpuDevice, &info);
 	FrontCopy = SDL_CreateGPUTexture(GpuDevice, &info);
 	info.format = (SDL_GPUTextureFormat)DepthFormat;
-	info.usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET;
+	info.usage = Depth_Usage();
 	DepthStencil = SDL_CreateGPUTexture(GpuDevice, &info);
 	BackWidth = width;
 	BackHeight = height;
@@ -235,11 +272,13 @@ bool SdlGpuFrame::Create_Targets(unsigned int width, unsigned int height)
 
 void SdlGpuFrame::Release_Targets()
 {
-	if (WaterBackground != NULL) SDL_ReleaseGPUTexture(GpuDevice, WaterBackground);
-	WaterBackground = NULL;
-	WaterBackgroundSource = NULL;
-	WaterBackgroundWidth = WaterBackgroundHeight = 0;
-	WaterBackgroundReady = false;
+	for (size_t i = 0; i < WaterSnapshots.size(); ++i) {
+		if (WaterSnapshots[i].Colour) SDL_ReleaseGPUTexture(GpuDevice, WaterSnapshots[i].Colour);
+		if (WaterSnapshots[i].Depth) SDL_ReleaseGPUTexture(GpuDevice, WaterSnapshots[i].Depth);
+	}
+	WaterSnapshots.clear();
+	for (size_t i = 0; i < ScratchDepths.size(); ++i) SDL_ReleaseGPUTexture(GpuDevice, ScratchDepths[i].Texture);
+	ScratchDepths.clear();
 	if (BackBuffer != NULL) SDL_ReleaseGPUTexture(GpuDevice, BackBuffer);
 	if (DepthStencil != NULL) SDL_ReleaseGPUTexture(GpuDevice, DepthStencil);
 	if (FrontCopy != NULL) SDL_ReleaseGPUTexture(GpuDevice, FrontCopy);
@@ -250,17 +289,37 @@ void SdlGpuFrame::Release_Targets()
 	DisplayTexture = NULL;		// made again at the new size by the next offscreen Present
 }
 
-SDL_GPUTexture *SdlGpuFrame::Water_Background(const SdlTarget &source)
+void SdlGpuFrame::Invalidate_Water_Snapshots(SDL_GPUTexture *colour, SDL_GPUTexture *depth)
+{
+	for (size_t i = 0; i < WaterSnapshots.size(); ++i) {
+		WaterSnapshot &snapshot = WaterSnapshots[i];
+		if ((colour && snapshot.Source.Colour == colour) || (depth && snapshot.Source.Depth == depth)) {
+			snapshot.Ready = false;
+		}
+	}
+}
+
+void SdlGpuFrame::Refresh_Water_Snapshots()
+{
+	++WaterFrame;
+	for (size_t i = 0; i < WaterSnapshots.size(); ++i) WaterSnapshots[i].Ready = false;
+}
+
+SdlGpuFrame::WaterSnapshot *SdlGpuFrame::Water_Snapshot(const SdlTarget &source)
 {
 	if (source.Width == 0 || source.Height == 0 || !source.Colour) return NULL;
-	if (WaterBackground && (WaterBackgroundWidth != source.Width || WaterBackgroundHeight != source.Height)) {
-		// Submit any recorded draws before replacing a snapshot they might still sample.
-		Flush();
-		SDL_ReleaseGPUTexture(GpuDevice, WaterBackground);
-		WaterBackground = NULL;
-		WaterBackgroundReady = false;
+	WaterSnapshot *snapshot = NULL;
+	for (size_t i = 0; i < WaterSnapshots.size(); ++i) {
+		WaterSnapshot &candidate = WaterSnapshots[i];
+		if (candidate.Source.Colour == source.Colour && candidate.Source.Depth == source.Depth
+			&& candidate.Source.Width == source.Width && candidate.Source.Height == source.Height) {
+			snapshot = &candidate;
+			break;
+		}
 	}
-	if (!WaterBackground) {
+	if (!snapshot) {
+		WaterSnapshot fresh = {};
+		fresh.Source = source;
 		SDL_GPUTextureCreateInfo info;
 		SDL_zero(info);
 		info.type = SDL_GPU_TEXTURETYPE_2D;
@@ -269,24 +328,126 @@ SDL_GPUTexture *SdlGpuFrame::Water_Background(const SdlTarget &source)
 		info.width = source.Width; info.height = source.Height;
 		info.layer_count_or_depth = 1; info.num_levels = 1;
 		info.sample_count = SDL_GPU_SAMPLECOUNT_1;
-		WaterBackground = SDL_CreateGPUTexture(GpuDevice, &info);
-		if (!WaterBackground) return NULL;
-		WaterBackgroundWidth = source.Width; WaterBackgroundHeight = source.Height;
+		fresh.Colour = SDL_CreateGPUTexture(GpuDevice, &info);
+		if (!fresh.Colour) return NULL;
+		if (source.Depth && DepthSampleable && Create_Water_Depth_Pipeline()) {
+			info.format = SDL_GPU_TEXTUREFORMAT_R32_FLOAT;
+			fresh.Depth = SDL_CreateGPUTexture(GpuDevice, &info);
+		}
+		if (WaterSnapshots.size() == 8) {
+			// The cache is bounded even when effects continually allocate intermediate targets. Recorded
+			// draws can keep using the retired textures until this batch has been submitted.
+			size_t oldest = 0;
+			for (size_t i = 1; i < WaterSnapshots.size(); ++i)
+				if (WaterSnapshots[i].UsedFrame < WaterSnapshots[oldest].UsedFrame) oldest = i;
+			if (WaterSnapshots[oldest].Colour) DeadTextures.push_back(WaterSnapshots[oldest].Colour);
+			if (WaterSnapshots[oldest].Depth) DeadTextures.push_back(WaterSnapshots[oldest].Depth);
+			WaterSnapshots[oldest] = fresh;
+			snapshot = &WaterSnapshots[oldest];
+		}
+		else {
+			WaterSnapshots.push_back(fresh);
+			snapshot = &WaterSnapshots.back();
+		}
 	}
-	if (!WaterBackgroundReady || WaterBackgroundSource != source.Colour) {
+	if (!snapshot->Ready) {
 		const int32_t rectangle[4] = { 0, 0, (int32_t)source.Width, (int32_t)source.Height };
-		Record_Blit(source.Colour, rectangle, WaterBackground, rectangle, false);
-		WaterBackgroundSource = source.Colour;
-		WaterBackgroundReady = true;
+		Record_Blit(source.Colour, rectangle, snapshot->Colour, rectangle, false);
+		if (snapshot->Depth) {
+			Command command = {};
+			command.IsDepthSnapshot = true;
+			command.BlitSource = source.Depth;
+			command.BlitDestination = snapshot->Depth;
+			memcpy(command.Rect, rectangle, sizeof(rectangle));
+			Commands.push_back(command);
+		}
+		snapshot->Ready = true;
 	}
-	return WaterBackground;
+	snapshot->UsedFrame = WaterFrame;
+	return snapshot;
+}
+
+SDL_GPUTexture *SdlGpuFrame::Water_Background(const SdlTarget &source)
+{
+	WaterSnapshot *snapshot = Water_Snapshot(source);
+	return snapshot ? snapshot->Colour : NULL;
+}
+
+SDL_GPUTexture *SdlGpuFrame::Water_Depth(const SdlTarget &source)
+{
+	WaterSnapshot *snapshot = Water_Snapshot(source);
+	return snapshot ? snapshot->Depth : NULL;
+}
+
+bool SdlGpuFrame::Create_Water_Depth_Pipeline()
+{
+	if (WaterDepthPipeline && WaterDepthSampler) return true;
+	std::string log;
+	if (!WaterDepthVertex) {
+		std::vector<unsigned char> spirv;
+		if (!SDL3_Compile_HLSL_To_SPIRV(GAMMA_VERTEX_HLSL, true, spirv, log)
+			|| !(WaterDepthVertex = SDL3_Create_Shader(GpuDevice, spirv, true, log))) {
+			fprintf(stderr, "SdlGpuFrame: water depth vertex: %s\n", log.c_str());
+			return false;
+		}
+	}
+	if (!WaterDepthPixel) {
+		std::vector<unsigned char> spirv;
+		if (!SDL3_Compile_HLSL_To_SPIRV(WATER_DEPTH_PIXEL_HLSL, false, spirv, log)
+			|| !(WaterDepthPixel = SDL3_Create_Shader(GpuDevice, spirv, false, log))) {
+			fprintf(stderr, "SdlGpuFrame: water depth pixel: %s\n", log.c_str());
+			return false;
+		}
+	}
+	if (!WaterDepthPipeline) {
+		SDL_GPUColorTargetDescription target = {};
+		target.format = SDL_GPU_TEXTUREFORMAT_R32_FLOAT;
+		SDL_GPUGraphicsPipelineCreateInfo info = {};
+		info.vertex_shader = WaterDepthVertex;
+		info.fragment_shader = WaterDepthPixel;
+		info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+		info.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
+		info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+		info.target_info.color_target_descriptions = &target;
+		info.target_info.num_color_targets = 1;
+		WaterDepthPipeline = SDL_CreateGPUGraphicsPipeline(GpuDevice, &info);
+	}
+	if (!WaterDepthSampler) {
+		SDL_GPUSamplerCreateInfo sampler = {};
+		sampler.min_filter = sampler.mag_filter = SDL_GPU_FILTER_NEAREST;
+		sampler.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
+		sampler.address_mode_u = sampler.address_mode_v = sampler.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+		WaterDepthSampler = SDL_CreateGPUSampler(GpuDevice, &sampler);
+	}
+	if (!WaterDepthPipeline || !WaterDepthSampler)
+		fprintf(stderr, "SdlGpuFrame: water depth resolve: %s\n", SDL_GetError());
+	return WaterDepthPipeline && WaterDepthSampler;
+}
+
+bool SdlGpuFrame::Resolve_Water_Depth(SDL_GPUCommandBuffer *commands, SDL_GPUTexture *source,
+	SDL_GPUTexture *destination, unsigned int width, unsigned int height)
+{
+	SDL_GPUColorTargetInfo colour = {};
+	colour.texture = destination;
+	colour.load_op = SDL_GPU_LOADOP_DONT_CARE;
+	colour.store_op = SDL_GPU_STOREOP_STORE;
+	SDL_GPURenderPass *pass = SDL_BeginGPURenderPass(commands, &colour, 1, NULL);
+	if (!pass) return false;
+	SDL_BindGPUGraphicsPipeline(pass, WaterDepthPipeline);
+	const SDL_GPUTextureSamplerBinding binding = { source, WaterDepthSampler };
+	SDL_BindGPUFragmentSamplers(pass, 0, &binding, 1);
+	const SDL_GPUViewport viewport = { 0, 0, (float)width, (float)height, 0, 1 };
+	SDL_SetGPUViewport(pass, &viewport);
+	SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
+	SDL_EndGPURenderPass(pass);
+	return true;
 }
 
 bool SdlGpuFrame::Resize(unsigned int width, unsigned int height)
 {
 	// What is recorded runs first: the GPU copies count the uploads it carries as done.  The current
 	// target named the old back buffer; the device sets it again before its next draw.
-	Flush();
+	if (!width || !height || !Flush()) return false;
 	TargetSet = false;
 	Release_Targets();
 	return Create_Targets(width, height);
@@ -294,7 +455,8 @@ bool SdlGpuFrame::Resize(unsigned int width, unsigned int height)
 
 void SdlGpuFrame::Clear_Back_Buffer(bool colour, bool depth, bool stencil, uint32_t argb, float z, uint32_t stencil_value)
 {
-	if (colour && (!TargetSet || CurrentTarget.Colour == WaterBackgroundSource)) WaterBackgroundReady = false;
+	const SdlTarget target = TargetSet ? CurrentTarget : Back_Buffer_Target();
+	Invalidate_Water_Snapshots(colour ? target.Colour : NULL, depth ? target.Depth : NULL);
 	if (!colour && !depth && !stencil) {
 		return;
 	}
@@ -617,7 +779,7 @@ bool SdlGpuFrame::Copy_To_Front(SDL_GPUCommandBuffer * commands)
 
 bool SdlGpuFrame::Present(const uint16_t (*ramp)[256])
 {
-	WaterBackgroundReady = false;
+	Refresh_Water_Snapshots();
 	SDL_GPUCommandBuffer * commands = SDL_AcquireGPUCommandBuffer(GpuDevice);
 	if (commands == NULL) {
 		return false;
@@ -682,7 +844,7 @@ bool SdlGpuFrame::Present(const uint16_t (*ramp)[256])
 bool SdlGpuFrame::Present_To(SDL_GPUTexture * target, unsigned int width, unsigned int height,
 	const uint16_t (*ramp)[256])
 {
-	WaterBackgroundReady = false;
+	Refresh_Water_Snapshots();
 	SDL_GPUCommandBuffer * commands = SDL_AcquireGPUCommandBuffer(GpuDevice);
 	if (commands == NULL) {
 		return false;

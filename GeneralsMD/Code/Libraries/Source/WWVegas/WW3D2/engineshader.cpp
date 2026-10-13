@@ -20,8 +20,10 @@
 #include "engineshader.h"
 #include "ffvertex.h"
 #include "sdl3target.h"
+#include "Platform/WaterSurfaceModel.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 /*
@@ -484,7 +486,7 @@ static bool write_engine_pixel_program(EngineShaderProgram program,
 static void write_modern_water(std::string &hlsl, bool river)
 {
 	hlsl.clear();
-	for (unsigned stage = 0; stage < 6; ++stage) {
+	for (unsigned stage = 0; stage < 8; ++stage) {
 		char line[128];
 		snprintf(line, sizeof(line), "Texture2D Texture%u : register(t%u);\nSamplerState Sampler%u : register(s%u);\n", stage, stage, stage, stage);
 		hlsl += line;
@@ -545,6 +547,31 @@ float2 pixelOffset(float2 offset, float2 dx, float2 dy)
     float inverse = abs(determinant) > 0.00001 ? 1.0 / determinant : 0.0;
     return float2(offset.x * dy.y - offset.y * dy.x, dx.x * offset.y - dx.y * offset.x) * inverse;
 }
+float3 scenePosition(float2 pixel, float deviceDepth)
+{
+    float2 uv = (pixel - Viewport.xy) / max(Viewport.zw, float2(1, 1));
+    float4 p = mul(float4(uv * float2(2, -2) + float2(-1, 1), deviceDepth, 1), WorldFromClip);
+    return p.xyz / p.w;
+}
+// Depth is a point-sampled, independent R32 snapshot of the scene's depth attachment. It includes
+// submerged objects. Terrain height is only a fallback and a material classification aid.
+float3 bottomPosition(float2 pixel, float3 surface, float baseLevel)
+{
+    float h = TerrainParameters.w > 0.5 ? terrainHeight(surface.xy) : baseLevel - 20.0;
+    float3 fallback = float3(surface.xy, min(h, baseLevel));
+    if (SceneParameters.w < 0.5) return fallback;
+    // A point depth belongs to the sampled texel's centre, even when the colour refraction is
+    // fractional. Unproject that same ray and stay inside the source camera's active viewport.
+    float2 firstPixel = max(float2(0.5,0.5), Viewport.xy);
+    float2 lastPixel = min(1.0 / SceneParameters.yz - 0.5, Viewport.xy + Viewport.zw - 1.0);
+    pixel = clamp(floor(pixel) + 0.5, firstPixel, lastPixel);
+    float d = Texture6.SampleLevel(Sampler6, pixel * SceneParameters.yz, 0).r;
+    if (d >= 0.999999) return fallback;
+    return scenePosition(pixel, d);
+}
+)HLSL";
+	hlsl += WaterSurfaceModel::ShaderSource();
+	hlsl += R"HLSL(
 float4 main(Input input) : SV_Target
 {
     float2 screenUV = (input.Position.xy - Viewport.xy) / max(Viewport.zw, float2(1.0, 1.0));
@@ -553,38 +580,22 @@ float4 main(Input input) : SV_Target
     float2 dx = ddx(world.xy), dy = ddy(world.xy);
     float time = WaterParameters.x;
     float4 base = Texture0.Sample(Sampler0, input.TexCoord0);
-    float depth = TerrainParameters.w > 0.5 ? max(world.z - terrainHeight(world.xy), 0.0) : 20.0;
+    float baseLevel = input.TexCoord1.y;
+    float3 bottom = bottomPosition(input.Position.xy, world, baseLevel);
+    float depth = max(world.z - bottom.z, 0.0);
     float3 view = normalize(CameraPosition.xyz - world + float3(0, 0, 0.00001));
-    float2 drift = time * float2(0.015, 0.007);
-    float lod = max(log2(max(max(length(dx), length(dy)) * (512.0/40.0), 1.0)), 0.0);
-    float shoreWave = smoothstep(0.2, 5.0, depth);
-    float heightRange = shoreWave;
-    float2 ray = view.xy / max(view.z, 0.15);
-    float z = heightRange, previousZ = z, previousDelta = 0.0;
-    float delta = 0.0;
-    // Intersect the view ray with the larger waves before sampling their normals. This gives
-    // crest/valley relief on the legacy plane without adding millions of ocean vertices.
-    if (lod < 3.5 && shoreWave > 0.001) {
-        for (int stepIndex = 0; stepIndex <= 8; ++stepIndex) {
-            float2 uv = (world.xy + ray*z) / 40.0 + drift;
-            float height = (Texture4.SampleLevel(Sampler4, uv, lod).a * 2.0 - 1.0) * heightRange;
-            delta = z - height;
-            if (delta <= 0.0) break;
-            previousZ = z; previousDelta = delta;
-            z -= heightRange * 0.25;
-        }
-        z = lerp(previousZ, z, saturate(previousDelta / max(previousDelta - delta, 0.00001)));
-    } else {
-        z = 0.0;
-    }
-    float2 wavePoint = world.xy + ray*z;
-    float4 detailA = Texture4.SampleLevel(Sampler4, wavePoint / 40.0 + drift, lod);
-    float2 rotated = float2(wavePoint.x * 0.8 + wavePoint.y * 0.6, -wavePoint.x * 0.6 + wavePoint.y * 0.8);
-    float4 detailB = Texture4.Sample(Sampler4, rotated / 15.0 - time * float2(0.021, 0.013));
-    float3 rawA = detailA.xyz * 2.0 - 1.0, rawB = detailB.xyz * 2.0 - 1.0;
-    float2 slopeB = float2(0.8 * rawB.x - 0.6 * rawB.y, 0.6 * rawB.x + 0.8 * rawB.y);
-    float2 slope = rawA.xy / max(rawA.z, 0.2) + slopeB / max(rawB.z, 0.2) * 0.35;
-    float3 normal = normalize(float3(slope * lerp(0.45, 1.0, shoreWave), 1.0));
+    // The mesh and this derivative share every mode, phase, dispersion and crest harmonic.
+    // Interpolated attenuation includes shores/structures, and its product derivative is retained.
+    float3 wave = waterWave(world.xy, time);
+    float attenuation = saturate(input.TexCoord1.x);
+    float determinant = dx.x * dy.y - dx.y * dy.x;
+    float invDet = abs(determinant) > 0.000001 ? 1.0 / determinant : 0.0;
+    float du = ddx(attenuation), dv = ddy(attenuation);
+    float2 attenuationSlope = float2(du*dy.y - dv*dx.y, dv*dx.x - du*dy.x) * invDet;
+    float zu = ddx(baseLevel), zv = ddy(baseLevel);
+    float2 baseSlope = float2(zu*dy.y - zv*dx.y, zv*dx.x - zu*dy.x) * invDet;
+    float2 slope = baseSlope + wave.yz * attenuation + wave.x * attenuationSlope;
+    float3 normal = normalize(float3(-slope, 1.0));
     float3 light = normalize(SunDirection.xyz + float3(0, 0, 0.00001));
     float nDotV = max(dot(normal, view), 0.001);
     float nDotL = saturate(dot(normal, light));
@@ -594,8 +605,8 @@ float4 main(Input input) : SV_Target
     float fresnel = 0.025 + 0.975 * pow(1.0 - saturate(nDotV), 5.0);
     // Keep the bed readable at the shallow bank instead of covering it with bright sky bands.
     fresnel = 0.025 + (fresnel - 0.025) * lerp(0.35, 1.0, smoothstep(3.0, 18.0, depth));
-    float variance = max(0.0, 1.0 - dot(rawA, rawA)) + max(0.0, 1.0 - dot(rawB, rawB)) * 0.1225;
-    float roughness = clamp(sqrt(0.0064 + variance * 0.12), 0.08, 0.24);
+    float variance = dot(ddx(normal), ddx(normal)) + dot(ddy(normal), ddy(normal));
+    float roughness = clamp(sqrt(0.016 + variance * 0.24), 0.126, 0.34);
     float a2 = pow(roughness, 4.0);
     float denominator = nDotH * nDotH * (a2 - 1.0) + 1.0;
     float distribution = a2 / max(3.14159265 * denominator * denominator, 0.0000001);
@@ -608,7 +619,7 @@ float4 main(Input input) : SV_Target
     highlight = highlight / (1.0 + highlight * 0.6);
     float daylight = saturate(max(max(SunColour.r, SunColour.g), SunColour.b));
     float3 reflectedRay = reflect(-view, normal);
-    float3 sky = lerp(float3(0.70, 0.81, 0.87), float3(0.32, 0.49, 0.63), saturate(reflectedRay.z)) * (0.06 + daylight * 0.94);
+    float3 sky = lerp(float3(0.49, 0.62, 0.68), float3(0.23, 0.38, 0.48), saturate(reflectedRay.z)) * (0.06 + daylight * 0.94);
     float2 reflectionOffset = float2((ReflectionArea.x + 1.0) * 0.5, (1.0 - ReflectionArea.w) * 0.5);
     float2 reflectionScale = max((ReflectionArea.zw - ReflectionArea.xy) * 0.5, float2(0.001, 0.001));
     float2 reflectionUV = (screenUV - reflectionOffset) / reflectionScale;
@@ -622,43 +633,85 @@ float4 main(Input input) : SV_Target
     // mirror. Its transparent-black clear gives RGB coverage even when geometry cannot write A.
     float mirrorCoverage = saturate(max(max(mirror.r, mirror.g), mirror.b) * 64.0);
     float coverage = saturate(min(border.x, border.y) * 30.0) * mirrorCoverage * WaterParameters.z;
-    coverage *= 1.0 - smoothstep(0.5, 2.0, abs(world.z - WaterParameters.w));
+    coverage *= 1.0 - smoothstep(0.5, 2.0, abs(baseLevel - WaterParameters.w));
     float3 reflection = lerp(waterLinear(sky), waterLinear(mirror.rgb), coverage);
     // Refract the view ray through the interface and map its bed displacement into screen pixels.
     float3 incident = -view;
     float3 underwater = refract(incident, normal, 0.75);
     float2 displacement = depth * (underwater.xy / min(underwater.z, -0.1) - incident.xy / min(incident.z, -0.1));
-    displacement *= TerrainParameters.w > 0.5 ? step(terrainHeight(world.xy + displacement), world.z - 0.25) : 0.0;
     float2 refractionPixels = clamp(pixelOffset(displacement, dx, dy), float2(-8, -8), float2(8, 8));
-    float2 sceneUV = (input.Position.xy + refractionPixels) * SceneParameters.yz;
+    refractionPixels *= smoothstep(0.15, 2.5, depth);
+    float2 refractedPixel = input.Position.xy + refractionPixels;
+    float3 refractedBottom = bottomPosition(refractedPixel, world, baseLevel);
+    // Reject foreground cliffs, bridge surfaces and opposite banks at the displaced coordinate.
+    // In particular, don't pull their above-water colour across the water's contact edge.
+    float refractedValid = step(refractedBottom.z, world.z - 0.08)
+        * step(0.0, dot(refractedBottom-world, -view));
+    refractedPixel = lerp(input.Position.xy, refractedPixel, refractedValid);
+    bottom = lerp(bottom, refractedBottom, refractedValid);
+    float bedDepth = max(world.z-bottom.z, 0.0);
+    float2 sceneUV = refractedPixel * SceneParameters.yz;
     float3 scene = waterLinear(Texture5.Sample(Sampler5, saturate(sceneUV)).rgb);
-    // Local focusing of the refracted sunlight brightens the visible bed only in clear shallows.
-    float3 sunRay = refract(-light, normal, 0.75);
-    float2 bend = sunRay.xy / min(sunRay.z, -0.1) * depth;
-    float2 cx = dx + ddx(bend), cy = dy + ddy(bend);
-    float determinant = dx.x * dy.y - dx.y * dy.x;
-    float focused = abs(determinant) / max(abs(cx.x * cy.y - cx.y * cy.x), 0.00001);
-    float caustic = lerp(1.0, clamp(focused, 0.65, 3.0), exp(-depth * 0.05) * sunVisible * daylight * 0.7);
-    // Flat ocean maps often use a low plane over a level floor. Treat that as optically deeper
-    // than the authored river channel, while retaining the actual depth for shoreline/refraction.
-    float opticalDepth = depth * lerp(8.0, 1.0, WaterParameters.y) * base.a;
-    float3 transmission = exp(-opticalDepth * float3(0.075, 0.035, 0.026));
-    float3 scatter = float3(0.001, 0.035, 0.085) * (0.08 + daylight * 0.92);
+    // Material detail is fixed to the *actual* submerged scene position. Keep object materials,
+    // steep cliff faces, map tint, and visibility; only exposed bed terrain receives this detail.
+    float bedHeight = terrainHeight(bottom.xy);
+    float2 bedSlope = float2(terrainHeight(bottom.xy+float2(5,0))-terrainHeight(bottom.xy-float2(5,0)),
+        terrainHeight(bottom.xy+float2(0,5))-terrainHeight(bottom.xy-float2(0,5))) * 0.1;
+    float terrainMask = (1.0-smoothstep(0.6, 2.6, abs(bottom.z-bedHeight)))
+        * (1.0-smoothstep(0.5, 1.6, length(bedSlope))) * TerrainParameters.w * SceneParameters.w;
+    float2 bedUV = bottom.xy / 48.0;
+    float4 material = Texture7.Sample(Sampler7, bedUV);
+    float4 broadMaterial = Texture7.Sample(Sampler7, bedUV * 0.173 + float2(0.31,0.67));
+    float gravel = saturate(WaterParameters.y * (0.25 + 0.8*broadMaterial.a) + length(bedSlope)*0.2);
+    float detail = lerp(material.r / 0.55, material.g / 0.45, gravel);
+    float2 bedRelief = float2(Texture7.Sample(Sampler7, bedUV+float2(1.0/256.0,0)).b - Texture7.Sample(Sampler7, bedUV-float2(1.0/256.0,0)).b,
+        Texture7.Sample(Sampler7, bedUV+float2(0,1.0/256.0)).b - Texture7.Sample(Sampler7, bedUV-float2(0,1.0/256.0)).b);
+    float3 bedNormal = normalize(float3(-bedSlope - bedRelief*gravel*1.8, 1.0));
+    float bedLight = 0.7 + 0.45*saturate(dot(bedNormal, light));
+    float rockVariation = lerp(0.82, 1.12, broadMaterial.a);
+    float bedLuminance = dot(scene, float3(0.2126,0.7152,0.0722));
+    scene = lerp(scene, bedLuminance*float3(1.10,1.0,0.80), terrainMask*gravel*0.38);
+    scene *= lerp(1.0, clamp(detail*bedLight*rockVariation, 0.38, 1.65), terrainMask * 0.85);
+    // Caustics use the evolving surface curvature at the light's entry point. Keep the modulation
+    // restrained and attenuate it by depth/footprint to avoid a painted luminous network at RTS zoom.
+    float3 causticWave = waterWave(bottom.xy-light.xy/max(light.z,0.2)*bedDepth, time);
+    float causticFootprint = max(length(ddx(bottom.xy)), length(ddy(bottom.xy)));
+    float3 causticNormal = normalize(float3(-causticWave.yz*attenuation, 1));
+    float3 sunRay = refract(-light, causticNormal, 0.75);
+    float2 bend = sunRay.xy / min(sunRay.z, -0.1) * bedDepth;
+    float2 bx = ddx(bottom.xy), by = ddy(bottom.xy);
+    float2 cx = bx+ddx(bend), cy = by+ddy(bend);
+    float focused = abs(bx.x*by.y-bx.y*by.x) / max(abs(cx.x*cy.y-cx.y*cy.x),0.0001);
+    float caustic = lerp(1.0, clamp(focused, 0.82, 1.55), exp(-bedDepth*0.055)
+        * sunVisible * daylight / (1.0 + causticFootprint*0.45));
+    // Absorption follows the underwater view-ray distance, including submerged object geometry.
+    float opticalDepth = min(length(bottom-world), 180.0) * lerp(2.4, 1.0, WaterParameters.y);
+    float3 transmission = exp(-opticalDepth * float3(0.065, 0.026, 0.019));
+    float3 scatter = float3(0.002, 0.028, 0.041) * (0.08 + daylight * 0.92);
     float3 body = lerp(scatter, scene * transmission * caustic + scatter * (1.0 - transmission), SceneParameters.x);
-    float foamNoise = smoothstep(0.50, 0.9, 0.5 + (detailA.a - 0.5) * 8.0 + (detailB.a - 0.5) * 4.0);
+    float foamNoise = smoothstep(0.1, 0.8, wave.x*0.5+0.5);
     float edgeDistance = depth / max(length(float2(ddx(depth), ddy(depth))), 0.01);
-    float contact = (1.0 - smoothstep(0.3, 1.8, edgeDistance)) * saturate(depth * 4.0) * TerrainParameters.w;
+    float contact = (1.0 - smoothstep(0.2, 1.35, edgeDistance)) * saturate(depth * 4.0)
+        * max(TerrainParameters.w, SceneParameters.w);
     float foam = contact * (0.25 + 0.75 * foamNoise) * (0.2 + 0.8 * daylight);
     float3 surface = lerp(body, reflection, fresnel) + highlight;
-    surface = waterDisplay(lerp(surface, waterLinear(float3(0.68, 0.76, 0.74)) * (0.1 + daylight * 0.9), foam * 0.55));
-    float4 edge = Texture3.Sample(Sampler3, input.TexCoord3);
+    surface = waterDisplay(lerp(surface, waterLinear(float3(0.68, 0.76, 0.74)) * (0.1 + daylight * 0.9), foam * 0.68));
     float4 current;
 )HLSL";
 	if (river) {
+		hlsl += "    float4 edge = Texture3.Sample(Sampler3, float2(2.0*input.TexCoord0.x, input.TexCoord0.y));\n";
 		hlsl += "    current = float4(saturate(surface) * input.Diffuse.a, edge.a * saturate(depth * 2.0) * lerp(base.a, step(0.001, base.a), SceneParameters.x));\n";
 	} else {
+		hlsl += "    float4 edge = Texture3.Sample(Sampler3, input.TexCoord3);\n";
 		hlsl += "    current = float4(saturate(surface) * edge.rgb, saturate(depth * 2.0) * lerp(input.Diffuse.a * base.a, step(0.001, input.Diffuse.a * base.a), SceneParameters.x));\n";
 	}
+	// Developer captures isolate the actual water inputs; normal game output is unaffected.
+	const char *debug = getenv("ZH_WATER_DEBUG");
+	if (debug && strcmp(debug, "depth") == 0) hlsl += "current.rgb = (1.0-exp(-depth*0.04)).xxx;\n";
+	if (debug && strcmp(debug, "bed") == 0) hlsl += "current.rgb = waterDisplay(scene);\n";
+	if (debug && strcmp(debug, "reflection") == 0) hlsl += "current.rgb = waterDisplay(reflection);\n";
+	if (debug && strcmp(debug, "normal") == 0) hlsl += "current.rgb = normal*0.5+0.5;\n";
+	if (debug && strcmp(debug, "highlight") == 0) hlsl += "current.rgb = waterDisplay(highlight);\n";
 }
 
 bool EngineShader_Pixel_Program(EngineShaderProgram program,

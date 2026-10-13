@@ -114,6 +114,8 @@ void SdlGpuFrame::Clear_Rect(int x, int y, int width, int height, bool colour, b
 	if ((!colour && !depth && !stencil) || width <= 0 || height <= 0) {
 		return;
 	}
+	const SdlTarget target = TargetSet ? CurrentTarget : Back_Buffer_Target();
+	Invalidate_Water_Snapshots(colour ? target.Colour : NULL, depth ? target.Depth : NULL);
 	Command command;
 	memset(&command, 0, sizeof(command));
 	command.IsRect = true;
@@ -204,7 +206,19 @@ void SdlGpuFrame::Record_Draw(const SdlRecordedDraw & draw)
 
 void SdlGpuFrame::Release_After_Batch(SDL_GPUTexture * texture, SDL_GPUBuffer * buffer)
 {
-	if (texture != NULL) DeadTextures.push_back(texture);
+	if (texture != NULL) {
+		// Forget source identities before SDL can recycle their handles. A queued snapshot/draw keeps
+		// its textures alive through the same submission; SDL retires them after GPU completion.
+		for (size_t i = WaterSnapshots.size(); i-- > 0; ) {
+			const WaterSnapshot &snapshot = WaterSnapshots[i];
+			if (snapshot.Source.Colour == texture || snapshot.Source.Depth == texture) {
+				if (snapshot.Colour) DeadTextures.push_back(snapshot.Colour);
+				if (snapshot.Depth) DeadTextures.push_back(snapshot.Depth);
+				WaterSnapshots.erase(WaterSnapshots.begin() + i);
+			}
+		}
+		DeadTextures.push_back(texture);
+	}
 	if (buffer != NULL) DeadBuffers.push_back(buffer);
 }
 
@@ -385,7 +399,7 @@ SDL_GPUTexture * SdlGpuFrame::Depth_For(unsigned int width, unsigned int height)
 	SDL_zero(info);
 	info.type = SDL_GPU_TEXTURETYPE_2D;
 	info.format = (SDL_GPUTextureFormat)DepthFormat;
-	info.usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET;
+	info.usage = Depth_Usage();
 	info.width = width;
 	info.height = height;
 	info.layer_count_or_depth = 1;
@@ -401,6 +415,7 @@ SDL_GPUTexture * SdlGpuFrame::Depth_For(unsigned int width, unsigned int height)
 void SdlGpuFrame::Record_Blit(SDL_GPUTexture * source, const int32_t source_rect[4], SDL_GPUTexture * destination,
 	const int32_t destination_rect[4], bool linear)
 {
+	Invalidate_Water_Snapshots(destination, NULL);
 	Command command;
 	memset(&command, 0, sizeof(command));
 	command.IsBlit = true;
@@ -434,15 +449,16 @@ bool SdlGpuFrame::Record_Passes(SDL_GPUCommandBuffer * commands, SDL_GPUBuffer *
 	for (size_t i = 0; i <= Commands.size(); ++i) {
 		const bool end = i == Commands.size();
 		const Command * command = end ? NULL : &Commands[i];
-		const bool whole_clear = !end && !command->IsDraw && !command->IsRect && !command->IsBlit;
+		const bool transfer = !end && (command->IsBlit || command->IsDepthSnapshot);
+		const bool whole_clear = !end && !command->IsDraw && !command->IsRect && !transfer;
 
 		// A pass ends at a blit, at a whole-target clear, at a change of target, and at the end.
-		if (pass != NULL && (end || command->IsBlit || whole_clear || command->Target != pass_target)) {
+		if (pass != NULL && (end || transfer || whole_clear || command->Target != pass_target)) {
 			SDL_EndGPURenderPass(pass);
 			pass = NULL;
 		}
 		// A waiting clear whose target is not the next thing drawn into gets a pass of its own.
-		if (pending && (end || command->IsBlit || command->Target != pending_target)) {
+		if (pending && (end || transfer || command->Target != pending_target)) {
 			if (!Begin_Pass(commands, Targets[pending_target], clear_colour, clear_depth, clear_stencil, argb, z,
 				stencil_value, &pass)) {
 				return false;
@@ -453,6 +469,11 @@ bool SdlGpuFrame::Record_Passes(SDL_GPUCommandBuffer * commands, SDL_GPUBuffer *
 		}
 		if (end) {
 			break;
+		}
+		if (command->IsDepthSnapshot) {
+			if (!Resolve_Water_Depth(commands, command->BlitSource, command->BlitDestination,
+				(unsigned int)command->Rect[2], (unsigned int)command->Rect[3])) return false;
+			continue;
 		}
 		if (command->IsBlit) {
 			SDL_GPUBlitInfo blit;

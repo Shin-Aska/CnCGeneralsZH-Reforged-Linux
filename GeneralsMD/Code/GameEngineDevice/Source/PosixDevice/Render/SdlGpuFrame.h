@@ -155,6 +155,8 @@ public:
 	bool Batch_Is_Full();
 	/// The depth-stencil's SDL_GPUTextureFormat.  Every pass has it attached.
 	unsigned int Depth_Format() const { return DepthFormat; }
+	/// Sampling is optional on older devices. The selected depth format supports this complete usage.
+	unsigned int Depth_Usage() const;
 
 	/// Flush, then the back buffer to the window through the gamma ramp (null: none, a straight blit).
 	bool Present(const uint16_t (*ramp)[256]);
@@ -207,8 +209,11 @@ public:
 	/// What the last Present showed: the back buffer is copied here at each Present, so the front buffer
 	/// (GetFrontBufferData) is the presented picture whenever it is asked for (A3d).
 	SDL_GPUTexture * Front_Copy() const { return FrontCopy; }
-	/// Opaque scene before the first water draw, copied once per frame for safe refraction sampling.
+	/// Opaque scene before the first water draw, cached per actual colour/depth target and frame.
 	SDL_GPUTexture * Water_Background(const SdlTarget &source);
+	/// Device depth (0..1), resolved into an independent R32_FLOAT texture between render passes.
+	/// Null if sampled depth is unsupported. Never aliases the depth attachment used by water.
+	SDL_GPUTexture * Water_Depth(const SdlTarget &source);
 	unsigned int Width() const { return BackWidth; }
 	unsigned int Height() const { return BackHeight; }
 	/// The back buffer's format, and so what a Present_To target has to be.
@@ -271,10 +276,25 @@ private:
 	SDL_GPUTexture * BackBuffer;
 	SDL_GPUTexture * DepthStencil;
 	SDL_GPUTexture * FrontCopy;			///< the last presented picture
-	SDL_GPUTexture * WaterBackground = NULL;
-	bool WaterBackgroundReady = false;
-	SDL_GPUTexture *WaterBackgroundSource = NULL;
-	unsigned int WaterBackgroundWidth = 0, WaterBackgroundHeight = 0;
+	struct WaterSnapshot
+	{
+		SdlTarget Source;
+		SDL_GPUTexture *Colour, *Depth;
+		bool Ready;
+		uint64_t UsedFrame;
+	};
+	std::vector<WaterSnapshot> WaterSnapshots; // at most eight; replaced resources retire with their batch
+	uint64_t WaterFrame = 0;
+	bool DepthSampleable = false;
+	SDL_GPUShader *WaterDepthVertex = NULL, *WaterDepthPixel = NULL;
+	SDL_GPUGraphicsPipeline *WaterDepthPipeline = NULL;
+	SDL_GPUSampler *WaterDepthSampler = NULL;
+	WaterSnapshot *Water_Snapshot(const SdlTarget &source);
+	void Invalidate_Water_Snapshots(SDL_GPUTexture *colour, SDL_GPUTexture *depth);
+	void Refresh_Water_Snapshots();
+	bool Create_Water_Depth_Pipeline();
+	bool Resolve_Water_Depth(struct SDL_GPUCommandBuffer *commands, SDL_GPUTexture *source,
+		SDL_GPUTexture *destination, unsigned int width, unsigned int height);
 	bool Copy_To_Front(struct SDL_GPUCommandBuffer * commands);
 	unsigned int DepthFormat;			///< an SDL_GPUTextureFormat: D24S8 where there is one, else D32S8
 	unsigned int BackWidth;
@@ -289,6 +309,7 @@ private:
 		int32_t Rect[4];				///< x, y, width, height
 		uint32_t Target;				///< into Targets: where a clear or draw goes
 		bool IsBlit;					///< a copy between textures, Rect to BlitRect
+		bool IsDepthSnapshot;		///< sampled depth to R32_FLOAT, with neither scene attachment bound
 		SDL_GPUTexture * BlitSource;
 		SDL_GPUTexture * BlitDestination;
 		int32_t BlitRect[4];

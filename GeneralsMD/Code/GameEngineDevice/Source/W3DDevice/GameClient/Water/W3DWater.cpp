@@ -34,8 +34,11 @@
 										 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "stdio.h"
-#include <complex>
+#include <cstdlib>
 #include "Lib/Clock.h"
+#include "Platform/WaterSurfaceModel.h"
+#include "Platform/WaterBedMaterial.h"
+#include "GameLogic/Object.h"
 #include "W3DDevice/GameClient/W3DWater.h"
 #include "W3DDevice/GameClient/HeightMap.h"
 #include "W3DDevice/GameClient/W3DShroud.h"
@@ -347,7 +350,7 @@ void WaterRenderObjClass::setupModernWaterShader(Bool river)
 	DX8Wrapper::Set_DX8_Texture_Stage_State(1, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
 	DX8Wrapper::Set_DX8_Texture_Stage_State(1, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
 	DX8Wrapper::Set_DX8_Texture_Stage_State(1, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
-	const D3DXVECTOR4 parameters(m_riverVOrigin / (0.002f * AUTHORED_FPS * WATER_SCROLL_SPEED),
+	const D3DXVECTOR4 parameters(m_modernWaveTime,
 		river ? 1.0f : 0.0f, reflection ? 1.0f : 0.0f, m_reflectionLevel);
 	const D3DXVECTOR4 area(m_reflectionAreaMin.X, m_reflectionAreaMin.Y,
 		m_reflectionAreaMax.X, m_reflectionAreaMax.Y);
@@ -364,121 +367,49 @@ void WaterRenderObjClass::setupModernWaterShader(Bool river)
 		m_modernHeightSide * MAP_XY_FACTOR, 255.0f * MAP_HEIGHT_SCALE, m_modernHeightTexture ? 1.0f : 0.0f);
 	DX8Wrapper::_Get_D3D_Device()->SetPixelShaderConstantF(5, terrain, 1);
 	if (m_modernHeightTexture) DX8Wrapper::Set_DX8_Texture(2, m_modernHeightTexture->Peek_D3D_Texture());
-	if (m_modernNormalTexture) DX8Wrapper::Set_DX8_Texture(4, m_modernNormalTexture->Peek_D3D_Texture());
-	for (Int stage = 2; stage <= 4; stage += 2) {
-		DX8Wrapper::Set_DX8_Texture_Stage_State(stage, D3DSAMP_ADDRESSU, stage == 4 ? D3DTADDRESS_WRAP : D3DTADDRESS_CLAMP);
-		DX8Wrapper::Set_DX8_Texture_Stage_State(stage, D3DSAMP_ADDRESSV, stage == 4 ? D3DTADDRESS_WRAP : D3DTADDRESS_CLAMP);
-		DX8Wrapper::Set_DX8_Texture_Stage_State(stage, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
-		DX8Wrapper::Set_DX8_Texture_Stage_State(stage, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
-		DX8Wrapper::Set_DX8_Texture_Stage_State(stage, D3DSAMP_MIPFILTER, stage == 4 ? D3DTEXF_LINEAR : D3DTEXF_NONE);
+	if (m_modernBedTexture) {
+		DX8Wrapper::Set_DX8_Texture(7, m_modernBedTexture->Peek_D3D_Texture());
+		// Sampling policy is local to the POSIX water draw, leaving the device's stage-7 state intact.
 	}
+	// The modern surface carries displacement damping and its original elevation in UV1.
+	DX8Wrapper::Set_DX8_Texture_Stage_State(1, D3DTSS_TEXCOORDINDEX, 1);
+	DX8Wrapper::Set_DX8_Texture_Stage_State(1, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
+	DX8Wrapper::Set_DX8_Texture_Stage_State(2,D3DSAMP_ADDRESSU,D3DTADDRESS_CLAMP);
+	DX8Wrapper::Set_DX8_Texture_Stage_State(2,D3DSAMP_ADDRESSV,D3DTADDRESS_CLAMP);
+	DX8Wrapper::Set_DX8_Texture_Stage_State(2,D3DSAMP_MINFILTER,D3DTEXF_LINEAR);
+	DX8Wrapper::Set_DX8_Texture_Stage_State(2,D3DSAMP_MAGFILTER,D3DTEXF_LINEAR);
+	DX8Wrapper::Set_DX8_Texture_Stage_State(2,D3DSAMP_MIPFILTER,D3DTEXF_NONE);
 #endif
 }
 
-// Tileable normal detail and its mip chain are generated once, and ship with the executable.
-// Averaging encoded normals without renormalizing preserves the variance used for specular AA.
+// Bed material detail and its mip chain are generated once and ship with the executable.
+// The terrain fallback refreshes when the map heights or dimensions change.
 void WaterRenderObjClass::updateModernWaterTextures(void)
 {
 #ifndef _WIN32
-	if (!m_modernNormalTexture) {
-		const Int side = 512;
-		const Real tileWidth = 40.0f;
-		typedef std::complex<Real> Complex;
-		std::vector<Complex> heightSpectrum(side*side, Complex(0,0));
-		UnsignedInt seed = 0x5a17c9e3;
-		auto randomUnit = [&seed]() {
-			seed = seed * 1664525u + 1013904223u;
-			return ((seed >> 8) + 0.5f) / 16777216.0f;
-		};
-		for (Int y = 0; y < side; ++y) for (Int x = 0; x < side; ++x) {
-			const Int opposite = ((side-y)%side)*side + (side-x)%side;
-			const Int index = y*side+x;
-			if (index > opposite || index == 0) continue;
-			const Real kx = 2.0f*PI*(x < side/2 ? x : x-side)/tileWidth;
-			const Real ky = 2.0f*PI*(y < side/2 ? y : y-side)/tileWidth;
-			const Real k2 = kx*kx + ky*ky;
-			const Real alignment = (kx*0.94f + ky*0.34f)/sqrtf(k2);
-			// A wind-weighted spectrum, with very short waves damped. Thousands of phases
-			// produce varied wave faces rather than the repeated outlines of a few sine modes.
-			const Real power = expf(-1.0f/(k2*1.8f*1.8f) - k2*0.16f*0.16f)
-				* (0.15f + 0.85f*alignment*alignment)/(k2*k2);
-			const Real magnitude = sqrtf(-2.0f*logf(randomUnit())*power);
-			const Real angle = 2.0f*PI*randomUnit();
-			Complex coefficient(magnitude*cosf(angle), magnitude*sinf(angle));
-			if (opposite == index) coefficient.imag(0.0f);
-			heightSpectrum[index] = coefficient;
-			heightSpectrum[opposite] = std::conj(coefficient);
-		}
-		// Radix-two inverse FFT, rows then columns. No dependency or texture asset is needed.
-		auto inverseFFT = [side](std::vector<Complex> &row) {
-			for (Int i = 1, j = 0; i < side; ++i) {
-				Int bit = side >> 1;
-				for (; j & bit; bit >>= 1) j ^= bit;
-				j ^= bit;
-				if (i < j) std::swap(row[i],row[j]);
-			}
-			for (Int length = 2; length <= side; length *= 2) {
-				const Real angle = 2.0f*PI/length;
-				const Complex root(cosf(angle), sinf(angle));
-				for (Int i = 0; i < side; i += length) {
-					Complex factor(1,0);
-					for (Int j = 0; j < length/2; ++j) {
-						const Complex even = row[i+j], odd = row[i+j+length/2]*factor;
-						row[i+j] = even+odd; row[i+j+length/2] = even-odd;
-						factor *= root;
-					}
-				}
-			}
-			for (Int i = 0; i < side; ++i) row[i] /= (Real)side;
-		};
-		std::vector<Complex> row(side);
-		for (Int y = 0; y < side; ++y) {
-			for (Int x = 0; x < side; ++x) row[x] = heightSpectrum[y*side+x];
-			inverseFFT(row);
-			for (Int x = 0; x < side; ++x) heightSpectrum[y*side+x] = row[x];
-		}
-		for (Int x = 0; x < side; ++x) {
-			for (Int y = 0; y < side; ++y) row[y] = heightSpectrum[y*side+x];
-			inverseFFT(row);
-			for (Int y = 0; y < side; ++y) heightSpectrum[y*side+x] = row[y];
-		}
-		double squares = 0;
-		for (Int i = 0; i < side*side; ++i) squares += std::norm(heightSpectrum[i]);
-		const Real scale = 0.22f / max((Real)sqrt(squares/(side*side)), 0.0000001f);
-		std::vector<Real> heights(side*side);
-		for (Int i = 0; i < side*side; ++i) heights[i] = heightSpectrum[i].real()*scale;
-		std::vector<UnsignedInt> pixels(side * side);
-		for (Int y = 0; y < side; ++y) for (Int x = 0; x < side; ++x) {
-			const Real nx = -(heights[y*side+(x+1)%side] - heights[y*side+(x+side-1)%side])/(2.0f*tileWidth/side);
-			const Real ny = -(heights[((y+1)%side)*side+x] - heights[((y+side-1)%side)*side+x])/(2.0f*tileWidth/side);
-			const Real inv = 1.0f/sqrtf(nx*nx+ny*ny+1.0f);
-			const UnsignedInt r = (UnsignedInt)clamp((0.5f + nx*inv*0.5f)*255.0f, 0.0f, 255.0f);
-			const UnsignedInt g = (UnsignedInt)clamp((0.5f + ny*inv*0.5f)*255.0f, 0.0f, 255.0f);
-			const UnsignedInt b = (UnsignedInt)clamp((0.5f + inv*0.5f)*255.0f, 0.0f, 255.0f);
-			// Alpha holds height in [-1, 1] world units for a 40-unit tile, used by parallax.
-			const UnsignedInt alpha = (UnsignedInt)clamp((0.5f + heights[y*side+x]*0.5f)*255.0f, 0.0f, 255.0f);
-			pixels[y*side+x] = (alpha<<24)|(r<<16)|(g<<8)|b;
-		}
-		m_modernNormalTexture = NEW_REF(TextureClass, (side, side, WW3D_FORMAT_A8R8G8B8, MIP_LEVELS_ALL));
-		for (Int size = side, level = 0; size > 0; size /= 2, ++level) {
-			SurfaceClass *surface = m_modernNormalTexture->Get_Surface_Level(level);
-			Int pitch; void *bits = surface->Lock(&pitch);
+	if (!m_modernBedTexture) {
+		const Int side=256;
+		std::vector<UnsignedInt> pixels(side*side);
+		for (Int y=0;y<side;++y) for (Int x=0;x<side;++x) pixels[y*side+x]=WaterBedMaterial::Texel(x,y,side);
+		m_modernBedTexture=NEW_REF(TextureClass,(side,side,WW3D_FORMAT_A8R8G8B8,MIP_LEVELS_ALL));
+		for (Int size=side,level=0;size>0;size/=2,++level) {
+			SurfaceClass *surface=m_modernBedTexture->Get_Surface_Level(level);
+			Int pitch; void *bits=surface->Lock(&pitch);
 			if (bits) {
-				for (Int y = 0; y < size; ++y) memcpy((char *)bits + y*pitch, &pixels[y*size], size*4);
+				for (Int y=0;y<size;++y) memcpy((char*)bits+y*pitch,&pixels[y*size],size*4);
 				surface->Unlock();
 			}
 			REF_PTR_RELEASE(surface);
-			if (size == 1) break;
+			if (size==1) break;
 			std::vector<UnsignedInt> mip(size*size/4);
-			for (Int y = 0; y < size/2; ++y) for (Int x = 0; x < size/2; ++x) {
-				UnsignedInt packed = 0;
-				for (Int shift = 0; shift < 32; shift += 8) {
-					UnsignedInt sum = 0;
-					for (Int j = 0; j < 2; ++j) for (Int i = 0; i < 2; ++i)
-						sum += (pixels[(y*2+j)*size+x*2+i] >> shift)&255;
-					packed |= ((sum+2)/4)<<shift;
+			for (Int y=0;y<size/2;++y) for (Int x=0;x<size/2;++x) {
+				UnsignedInt packed=0;
+				for (Int shift=0;shift<32;shift+=8) {
+					UnsignedInt sum=0;
+					for (Int j=0;j<2;++j) for (Int i=0;i<2;++i) sum+=(pixels[(2*y+j)*size+2*x+i]>>shift)&255;
+					packed|=((sum+2)/4)<<shift;
 				}
-				mip[y*(size/2)+x] = packed;
+				mip[y*(size/2)+x]=packed;
 			}
 			pixels.swap(mip);
 		}
@@ -648,7 +579,7 @@ void WaterRenderObjClass::Get_Obj_Space_Bounding_Box(AABoxClass & box) const
 	//let's disable culling by making bounds huge.  Let each piece do it's own cull.
 
 	Vector3	ObjSpaceCenter(0,0,0);
-	Vector3	ObjSpaceExtents(50000,50000,0.001f*m_dy);	//since mirror is a plane, it has no thickness. Set to m_dy/1000.
+	Vector3	ObjSpaceExtents(50000,50000,max(0.001f*m_dy,WaterSurfaceModel::MaxDisplacement));	//since mirror is a plane, it has no thickness. Set to m_dy/1000.
 
 	box.Init(ObjSpaceCenter,ObjSpaceExtents);
 }
@@ -1074,8 +1005,9 @@ RenderResult WaterRenderObjClass::generateIndexBuffer(Int sizeX, Int sizeY)
 //-------------------------------------------------------------------------------------------------
 void WaterRenderObjClass::ReleaseResources(void)
 {
-	REF_PTR_RELEASE(m_modernNormalTexture);
 	REF_PTR_RELEASE(m_modernHeightTexture);
+	REF_PTR_RELEASE(m_modernBedTexture);
+	m_modernObstacles.clear();
 	m_modernHeights.clear();
 
 	REF_PTR_RELEASE(m_indexBuffer);
@@ -1572,6 +1504,7 @@ void WaterRenderObjClass::update( void )
 		if (TheGameLogic->isGamePaused() || TheScriptEngine->isTimeFrozenScript() || TheScriptEngine->isTimeFrozenDebug())
 			elapsedSec = 0.0f;
 
+		m_modernWaveTime = WaterSurfaceModel::AdvanceTime(m_modernWaveTime, elapsedSec, false, false, false);
 		const Real step = elapsedSec * AUTHORED_FPS * WATER_SCROLL_SPEED;
 
 		m_riverVOrigin += 0.002f * step;
@@ -1944,6 +1877,46 @@ void WaterRenderObjClass::Render(RenderInfoClass & rinfo)
 		return;
 	}
 
+#ifndef _WIN32
+	RenderUInt32 oldModernCoordIndex=0,oldModernTransformFlags=0;
+	DX8Wrapper::_Get_D3D_Device()->GetTextureStageState(1,D3DTSS_TEXCOORDINDEX,&oldModernCoordIndex);
+	DX8Wrapper::_Get_D3D_Device()->GetTextureStageState(1,D3DTSS_TEXTURETRANSFORMFLAGS,&oldModernTransformFlags);
+	IDirect3DBaseTexture9 *oldModernBed=NULL;
+	DX8Wrapper::_Get_D3D_Device()->GetTexture(7,&oldModernBed);
+	m_modernRenderCamera=&rinfo.Camera;
+	m_modernCamera=rinfo.Camera.Get_Position();
+	Int modernPatches=0;
+	Real highestModernWater=m_level;
+	Bool hasModernWater=FALSE;
+	for (PolygonTrigger *trigger=PolygonTrigger::getFirstPolygonTrigger();trigger;trigger=trigger->getNext()) {
+		if (!trigger->isWaterArea() || trigger->getNumPoints()<3) continue;
+		modernPatches+=trigger->isRiver() ? max(0,trigger->getNumPoints()/2-1) :
+			((trigger->getNumPoints()-1)/2);
+		for (Int point=0;point<trigger->getNumPoints();++point) {
+			const Real elevation=trigger->getPoint(point)->z;
+			if (!hasModernWater || elevation>highestModernWater) highestModernWater=elevation;
+			hasModernWater=TRUE;
+		}
+	}
+	// One map-wide subdivision count keeps all common edges welded. The authored polygon count
+	// itself is irreducible; added tessellation stays within the shared model's vertex budget.
+	const WaterSurfaceModel::MeshLOD modernLOD=WaterSurfaceModel::LODForCameraHeight(
+		WaterSurfaceModel::CellsForPatches(modernPatches),m_modernCamera.Z-highestModernWater);
+	m_modernMeshCells=modernLOD.cells;
+	m_modernMeshMorph=modernLOD.morph;
+	m_modernObstacles.clear();
+	if (TheGameLogic) for (const Object *object=TheGameLogic->getFirstObject();object;object=object->getNextObject()) {
+		if (object->isDestroyed() || !(object->isKindOf(KINDOF_STRUCTURE) || object->isKindOf(KINDOF_BRIDGE) || object->isKindOf(KINDOF_IMMOBILE))) continue;
+		const Coord3D &p=*object->getPosition();
+		const GeometryInfo &geometry=object->getGeometryInfo();
+		ModernWaterObstacle obstacle;
+		obstacle.position.Set(p.x,p.y,p.z);
+		obstacle.radius=geometry.getBoundingCircleRadius();
+		obstacle.height=geometry.getMaxHeightAbovePosition();
+		if (obstacle.radius>1.0f) m_modernObstacles.push_back(obstacle);
+	}
+#endif
+
 	switch(m_waterType)
 	{
 		case WATER_TYPE_0_TRANSLUCENT:
@@ -2086,6 +2059,13 @@ void WaterRenderObjClass::Render(RenderInfoClass & rinfo)
 		default:
 			break;
 	}//switch
+#ifndef _WIN32
+	DX8Wrapper::Set_DX8_Texture_Stage_State(1,D3DTSS_TEXCOORDINDEX,oldModernCoordIndex);
+	DX8Wrapper::Set_DX8_Texture_Stage_State(1,D3DTSS_TEXTURETRANSFORMFLAGS,oldModernTransformFlags);
+	DX8Wrapper::Set_DX8_Texture(7,oldModernBed);
+	if (oldModernBed) oldModernBed->Release();
+	m_modernRenderCamera=NULL;
+#endif
 
 	if (TheGlobalData && TheGlobalData->m_drawSkyBox)
 	{	//center skybox around camera
@@ -2391,6 +2371,11 @@ void WaterRenderObjClass::renderWater(void)
 					points[2].Set(pt2.x, pt2.y, pt2.z);
 					points[3].Set(pt3.x, pt3.y, pt3.z);
 
+#ifndef _WIN32
+					// Modern depth intersections replace legacy tilted feather copies. Render exactly
+					// one surface at the authored elevation; duplicate layers could expose patch seams.
+					if (m_trapezoidWaterPixelShader) { drawTrapezoidWater(points); continue; }
+#endif
 					if ( TheGlobalData->m_featherWater )
 					{
 						for (int r = 0; r < TheGlobalData->m_featherWater; ++r)
@@ -2741,6 +2726,14 @@ void WaterRenderObjClass::renderWaterMesh(void)
 #endif
 			vb->u2=(float)(i)*cellSizeX/BUMP_SIZE; 
 			vb->v2=v2Offset;
+#ifndef _WIN32
+			if (m_trapezoidWaterPixelShader) {
+				Vector3 world;
+				Matrix3D::Transform_Vector(Transform,Vector3(x,y,pData->height),&world);
+				vb->u2=0.0f;
+				vb->v2=world.Z;
+			}
+#endif
 			//old slow code
 			//vb->v2=(float)(j+m_riverVOrigin/vScale )*cellSizeY/BUMP_SIZE+ 0.3f*(float)j*cellSizeY/BUMP_SIZE;
 			vb++;
@@ -3097,6 +3090,203 @@ Real WaterRenderObjClass::getWaterHeight(Real x, Real y)
 	return INVALID_WATER_HEIGHT;	//point not underwater
 }
 
+
+// Scene geometry attenuates the render mesh only. It never changes the simulation water grid.
+Real WaterRenderObjClass::modernWaterDamping(Real x, Real y, Real z) const
+{
+	WorldHeightMap *map=TheTerrainRenderObject?TheTerrainRenderObject->getMap():NULL;
+	Real damping=1.0f;
+	if (map && map->getXExtent()>1 && map->getYExtent()>1) {
+		const Real mx=clamp(x/MAP_XY_FACTOR+map->getBorderSize(),0.0f,(Real)map->getXExtent()-1.001f);
+		const Real my=clamp(y/MAP_XY_FACTOR+map->getBorderSize(),0.0f,(Real)map->getYExtent()-1.001f);
+		const Int ix=(Int)mx,iy=(Int)my;
+		const Real fx=mx-ix,fy=my-iy;
+		const Real a=map->getHeight(ix,iy)*(1-fx)+map->getHeight(ix+1,iy)*fx;
+		const Real b=map->getHeight(ix,iy+1)*(1-fx)+map->getHeight(ix+1,iy+1)*fx;
+		damping=WaterSurfaceModel::ShoreDamping(z-(a*(1-fy)+b*fy)*MAP_HEIGHT_SCALE);
+		if (damping<=0.0f) return 0.0f;
+	}
+	for (size_t i=0;i<m_modernPatchObstacles.size();++i) {
+		const ModernWaterObstacle &o=m_modernPatchObstacles[i];
+		if (z<o.position.Z-12.0f || z>o.position.Z+o.height+3.0f) continue;
+		const Real dx=x-o.position.X,dy=y-o.position.Y;
+		const Real distance=sqrtf(dx*dx+dy*dy)-o.radius;
+		damping=min(damping,WaterSurfaceModel::ShoreDamping(distance));
+		if (damping<=0.0f) return 0.0f;
+	}
+	return damping;
+}
+
+// Dense, render-only geometry deliberately uses SDL's supported fixed vertex path. Texture-driven
+// vertex programs and paired engine shaders are unnecessary; the fragment's analytic wave model is
+// generated from the same source. Shared edges keep the same samples and camera warp on every patch.
+void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool river, Real riverStart, Real riverEnd)
+{
+#ifndef _WIN32
+	Vector3 boundsMin=points[0],boundsMax=points[0];
+	for (Int i=1;i<4;++i) {
+		boundsMin.X=min(boundsMin.X,points[i].X); boundsMin.Y=min(boundsMin.Y,points[i].Y); boundsMin.Z=min(boundsMin.Z,points[i].Z);
+		boundsMax.X=max(boundsMax.X,points[i].X); boundsMax.Y=max(boundsMax.Y,points[i].Y); boundsMax.Z=max(boundsMax.Z,points[i].Z);
+	}
+	boundsMin.Z-=WaterSurfaceModel::MaxDisplacement; boundsMax.Z+=WaterSurfaceModel::MaxDisplacement;
+	// Include all wave crests in culling; offscreen authored patches do not evaluate any modes.
+	if (m_modernRenderCamera && m_modernRenderCamera->Cull_Box(AABoxClass((boundsMin+boundsMax)*0.5f,(boundsMax-boundsMin)*0.5f))) return;
+	const Int cells=m_modernMeshCells,side=cells+1;
+	const Int vertexCount=side*side,triangleCount=cells*cells*2;
+	WaterSurfaceModel::Point corners[4];
+	for (Int i=0;i<4;++i) corners[i]={points[i].X,points[i].Y,points[i].Z};
+	const WaterSurfaceModel::Point camera={m_modernCamera.X,m_modernCamera.Y,m_modernCamera.Z};
+	WaterSurfaceModel::Point edges[4][WaterSurfaceModel::MeshCells+1];
+	for (Int i=0;i<=cells;++i) {
+		const Real t=(Real)i/cells;
+		edges[0][i]=WaterSurfaceModel::EdgePoint(corners[0],corners[1],t,camera);
+		edges[1][i]=WaterSurfaceModel::EdgePoint(corners[1],corners[2],t,camera);
+		edges[2][i]=WaterSurfaceModel::EdgePoint(corners[3],corners[2],t,camera);
+		edges[3][i]=WaterSurfaceModel::EdgePoint(corners[0],corners[3],t,camera);
+	}
+	Real minX=points[0].X,maxX=minX,minY=points[0].Y,maxY=minY;
+	for (Int i=1;i<4;++i) { minX=min(minX,points[i].X);maxX=max(maxX,points[i].X);minY=min(minY,points[i].Y);maxY=max(maxY,points[i].Y); }
+	m_modernPatchObstacles.clear();
+	for (size_t i=0;i<m_modernObstacles.size();++i) {
+		const ModernWaterObstacle &o=m_modernObstacles[i];
+		const Real reach=o.radius+9.0f;
+		if (o.position.X+reach>=minX && o.position.X-reach<=maxX && o.position.Y+reach>=minY && o.position.Y-reach<=maxY) m_modernPatchObstacles.push_back(o);
+	}
+	Real shadeR=TheWaterTransparency->m_standingWaterColor.red;
+	Real shadeG=TheWaterTransparency->m_standingWaterColor.green;
+	Real shadeB=TheWaterTransparency->m_standingWaterColor.blue;
+
+	//If the water color is not overridden, use legacy lighting code.
+	if ( shadeR==1.0f && shadeG==1.0f && shadeB==1.0f)
+	{
+		shadeR = TheGlobalData->m_terrainAmbient[0].red;
+		shadeG = TheGlobalData->m_terrainAmbient[0].green;
+		shadeB = TheGlobalData->m_terrainAmbient[0].blue;
+
+		//Add in diffuse lighting from each terrain light
+		for (Int lightIndex=0; lightIndex < TheGlobalData->m_numGlobalLights; lightIndex++)
+		{
+			if (-TheGlobalData->m_terrainLightPos[lightIndex].z > 0)
+			{	shadeR += -TheGlobalData->m_terrainLightPos[lightIndex].z * TheGlobalData->m_terrainDiffuse[lightIndex].red;
+				shadeG += -TheGlobalData->m_terrainLightPos[lightIndex].z * TheGlobalData->m_terrainDiffuse[lightIndex].green;
+				shadeB += -TheGlobalData->m_terrainLightPos[lightIndex].z * TheGlobalData->m_terrainDiffuse[lightIndex].blue;
+			}
+		}
+
+		//Get water material colors
+		Real waterShadeR = (m_settings[m_tod].waterDiffuse & 0xff) / 255.0f;
+		Real waterShadeG = ((m_settings[m_tod].waterDiffuse >> 8) & 0xff) / 255.0f;
+		Real waterShadeB = ((m_settings[m_tod].waterDiffuse >> 16) & 0xff) / 255.0f;
+
+		shadeR=shadeR*waterShadeR*255.0f;
+		shadeG=shadeG*waterShadeG*255.0f;
+		shadeB=shadeB*waterShadeB*255.0f;
+	}
+	else
+	{
+		shadeR=shadeR*255.0f;
+		shadeG=shadeG*255.0f;
+		shadeB=shadeB*255.0f;
+
+		if (shadeR == 0 && shadeG == 0 && shadeB == 0)
+		{	//special case where we disable lighting
+			shadeR=255;
+			shadeG=255;
+			shadeB=255;
+		}
+	}
+
+	Int diffuse=REAL_TO_INT(shadeB) | (REAL_TO_INT(shadeG) << 8) | (REAL_TO_INT(shadeR) << 16);
+
+	//Keep diffuse from lighting calculations but substitute custom alpha
+	diffuse |= m_settings[m_tod].waterDiffuse & 0xff000000;	//copy alpha/opacity from ini setting
+
+	DynamicVBAccessClass vertices(BUFFER_TYPE_DYNAMIC_DX8,dynamic_fvf_type,vertexCount);
+	{
+		DynamicVBAccessClass::WriteLockClass lock(&vertices);
+		VertexFormatXYZNDUV2 *grid=lock.Get_Formatted_Vertex_Array();
+		VertexFormatXYZNDUV2 *vertex=grid;
+		W3DShroud *shroud=TheTerrainRenderObject?TheTerrainRenderObject->getShroud():NULL;
+		for (Int j=0;j<=cells;++j) for (Int i=0;i<=cells;++i) {
+			const Real u=(Real)i/cells,v=(Real)j/cells;
+			const WaterSurfaceModel::Point boundary[4]={edges[0][i],edges[1][j],edges[2][i],edges[3][j]};
+			const WaterSurfaceModel::Point p=WaterSurfaceModel::PatchPoint(corners,boundary,u,v);
+			const Real damping=modernWaterDamping(p.x,p.y,p.z);
+			// Broad water polygons also cover dry land. Those vertices cannot move, and evaluating
+			// all wave modes there was needlessly expensive on maps with many shallow pools.
+			const WaterSurfaceModel::Sample wave=damping>0.0f ?
+				WaterSurfaceModel::Evaluate(p.x,p.y,m_modernWaveTime) : WaterSurfaceModel::Sample{0,0,0};
+			vertex->x=p.x;vertex->y=p.y;vertex->z=p.z+damping*wave.height;
+			vertex->diffuse=river?applyShroudToRiverDiffuse(shroud,p.x,p.y,diffuse):diffuse;
+			vertex->u1=river?(1.0f-u)*0.5f:p.x/150.0f;
+			vertex->v1=river?riverStart+(riverEnd-riverStart)*v-m_riverVOrigin:p.y/150.0f;
+			vertex->u2=damping;vertex->v2=p.z;
+			const Real nx=-wave.dx*damping,ny=-wave.dy*damping,inv=1.0f/sqrtf(1.0f+nx*nx+ny*ny);
+			vertex->nx=nx*inv;vertex->ny=ny*inv;vertex->nz=inv;
+			++vertex;
+		}
+		if (m_modernMeshMorph>0.0f) {
+			for (Int j=0;j<=cells;++j) for (Int i=0;i<=cells;++i) {
+				if (((i|j)&1)==0) continue; // Coarse vertices are unchanged and safe to reuse.
+				const WaterSurfaceModel::CoarsePair pair=WaterSurfaceModel::CoarsePairForVertex(i,j,cells);
+				const VertexFormatXYZNDUV2 &a=grid[pair.first],&b=grid[pair.second];
+				VertexFormatXYZNDUV2 &v=grid[j*side+i];
+				const Real amount=m_modernMeshMorph;
+				v.x=WaterSurfaceModel::MorphCoordinate(v.x,a.x,b.x,amount);
+				v.y=WaterSurfaceModel::MorphCoordinate(v.y,a.y,b.y,amount);
+				v.z=WaterSurfaceModel::MorphCoordinate(v.z,a.z,b.z,amount);
+				v.u1=WaterSurfaceModel::MorphCoordinate(v.u1,a.u1,b.u1,amount);
+				v.v1=WaterSurfaceModel::MorphCoordinate(v.v1,a.v1,b.v1,amount);
+				v.u2=WaterSurfaceModel::MorphCoordinate(v.u2,a.u2,b.u2,amount);
+				v.v2=WaterSurfaceModel::MorphCoordinate(v.v2,a.v2,b.v2,amount);
+				v.nx=WaterSurfaceModel::MorphCoordinate(v.nx,a.nx,b.nx,amount);
+				v.ny=WaterSurfaceModel::MorphCoordinate(v.ny,a.ny,b.ny,amount);
+				v.nz=WaterSurfaceModel::MorphCoordinate(v.nz,a.nz,b.nz,amount);
+				v.diffuse=WaterSurfaceModel::MorphColour(v.diffuse,a.diffuse,b.diffuse,amount);
+			}
+		}
+	}
+	Matrix3D transform(1);
+	DX8Wrapper::Set_Transform(D3DTS_WORLD,transform);
+	DX8Wrapper::Set_Vertex_Buffer(vertices);
+	DX8Wrapper::Set_Texture(0,m_riverTexture);
+	if (river) setupJbaWaterShader(); else setupFlatWaterShader();
+	RenderUInt32 cull;
+	DX8Wrapper::_Get_D3D_Device()->GetRenderState(D3DRS_CULLMODE,&cull);
+	DX8Wrapper::Set_DX8_Render_State(D3DRS_CULLMODE,D3DCULL_NONE);
+	if (TheWaterTransparency->m_additiveBlend) DX8Wrapper::Set_DX8_Render_State(D3DRS_SRCBLEND,D3DBLEND_SRCALPHA);
+	const char *debug=std::getenv("ZH_WATER_DEBUG");
+	const Bool meshDebug=wireframeForDebug || (debug && strcmp(debug,"wireframe")==0);
+	if (meshDebug) DX8Wrapper::Set_DX8_Render_State(D3DRS_FILLMODE,D3DFILL_WIREFRAME);
+	// Legacy dynamic index buffers store their count in 16 bits. Keep a shared vertex grid and
+	// submit bounded row batches; even a 128-cell ocean patch cannot truncate its index count.
+	const Int batchRows=WaterSurfaceModel::IndexBatchRows(cells);
+	for (Int row=0;row<cells;row+=batchRows) {
+		const Int rows=min(batchRows,cells-row),triangles=rows*cells*2;
+		DynamicIBAccessClass indices(BUFFER_TYPE_DYNAMIC_DX8,triangles*3);
+		{
+			DynamicIBAccessClass::WriteLockClass lock(&indices);
+			UnsignedShort *index=lock.Get_Index_Array();
+			for (Int j=row;j<row+rows;++j) for (Int i=0;i<cells;++i) {
+				const Int a=j*side+i,b=a+1,c=a+side,d=c+1;
+				*index++=a;*index++=d;*index++=c;*index++=a;*index++=b;*index++=d;
+			}
+		}
+		DX8Wrapper::Set_Index_Buffer(indices,0);
+		DX8Wrapper::Draw_Triangles(0,triangles,0,vertexCount);
+	}
+	if (meshDebug) DX8Wrapper::Set_DX8_Render_State(D3DRS_FILLMODE,D3DFILL_SOLID);
+	DX8Wrapper::Set_Pixel_Shader(NULL);
+	if (TheWaterTransparency->m_additiveBlend) DX8Wrapper::Set_DX8_Render_State(D3DRS_SRCBLEND,D3DBLEND_ONE);
+	if (!river && TheTerrainRenderObject->getShroud()) {
+		W3DShaderManager::resetShader(W3DShaderManager::ST_SHROUD_TEXTURE);
+		DX8Wrapper::Set_DX8_Texture(3,NULL);
+		DX8Wrapper::Set_DX8_Render_State(D3DRS_ZFUNC,D3DCMP_EQUAL);
+	}
+	DX8Wrapper::Set_DX8_Render_State(D3DRS_CULLMODE,cull);
+#endif
+}
+
 //-------------------------------------------------------------------------------------------------
 //Draw a many sided river polygon.
 //-------------------------------------------------------------------------------------------------
@@ -3112,6 +3302,29 @@ void WaterRenderObjClass::drawRiverWater(PolygonTrigger *pTrig)
 
 	if (m_disableRiver) return;
 	m_drawingRiver = true;
+#ifndef _WIN32
+	if (m_riverWaterPixelShader) {
+		Int inner=pTrig->getRiverStart(),outer=inner+1;
+		if (inner<0 || inner>=pTrig->getNumPoints()-1) return;
+		Vector3 previous[2];
+		Real along=0;
+		for (Int row=0;row<=rectangleCount;++row) {
+			const ICoord3D &a=*pTrig->getPoint(outer),&b=*pTrig->getPoint(inner);
+			Vector3 next[2]={Vector3(a.x,a.y,a.z),Vector3(b.x,b.y,b.z)};
+			if (row) {
+				const Real length=((next[0]-previous[0]).Length()+(next[1]-previous[1]).Length())*0.5f;
+				const Real width=max((next[1]-next[0]).Length(),1.0f);
+				Vector3 patch[4]={previous[0],previous[1],next[1],next[0]};
+				drawModernWaterPatch(patch,TRUE,along,along+length/width);
+				along+=length/width;
+			}
+			previous[0]=next[0]; previous[1]=next[1];
+			outer=(outer+1)%pTrig->getNumPoints();
+			inner=(inner+pTrig->getNumPoints()-1)%pTrig->getNumPoints();
+		}
+		return;
+	}
+#endif
 
 	//allocate 2 triangles per side with 3 indices per triangle
 	DynamicIBAccessClass ib_access(BUFFER_TYPE_DYNAMIC_DX8,(rectangleCount+1)*2*3);
@@ -3494,6 +3707,9 @@ void WaterRenderObjClass::setupFlatWaterShader(void)
 //-------------------------------------------------------------------------------------------------
 void WaterRenderObjClass::drawTrapezoidWater(Vector3 points[4])
 {
+#ifndef _WIN32
+	if (m_trapezoidWaterPixelShader) { drawModernWaterPatch(points,FALSE); return; }
+#endif
 	Vector3 origin(points[0]);
 	Vector3 uVec1(points[1]);
 	Vector3 vVec1(points[3]);

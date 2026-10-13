@@ -74,7 +74,7 @@ struct SdlWaterPixelConstants
 	float ReflectionArea[4];
 	float WaterParameters[4]; // animation seconds, river flag, reflection available, mirror height
 	float TerrainParameters[4]; // height texture border, world size, height scale, available
-	float SceneParameters[4]; // refraction available, inverse scene-target width/height, reserved
+	float SceneParameters[4]; // refraction available, inverse scene-target width/height, scene depth available
 };
 static_assert(sizeof(SdlWaterPixelConstants) == 15 * 16, "water uniform packing");
 

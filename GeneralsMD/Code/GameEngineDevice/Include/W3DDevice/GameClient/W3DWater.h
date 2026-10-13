@@ -219,8 +219,15 @@ protected:
 	TextureClass *m_riverTexture;
 	TextureClass *m_whiteTexture;		///< a texture containing only white used for NULL pixel shader stages.
 	TextureClass *m_waterNoiseTexture;
-	TextureClass *m_modernNormalTexture = NULL;
 	TextureClass *m_modernHeightTexture = NULL;
+	TextureClass *m_modernBedTexture = NULL;
+	Real m_modernWaveTime = 0.0f;
+	Int m_modernMeshCells = 32;
+	Real m_modernMeshMorph = 0.0f;
+	Vector3 m_modernCamera;
+	CameraClass *m_modernRenderCamera = NULL;
+	struct ModernWaterObstacle { Vector3 position; Real radius, height; };
+	std::vector<ModernWaterObstacle> m_modernObstacles, m_modernPatchObstacles;
 	std::vector<UnsignedByte> m_modernHeights;
 	Int m_modernHeightWidth = 0, m_modernHeightHeight = 0, m_modernHeightSide = 0;
 	IDirect3DPixelShader9 *	m_waterPixelShader;		///<D3D pixel shader.
@@ -271,6 +278,8 @@ protected:
 	void setupJbaWaterShader(void);
 	void setupModernWaterShader(Bool river);
 	void updateModernWaterTextures(void);
+	void drawModernWaterPatch(const Vector3 points[4], Bool river, Real riverStart = 0, Real riverEnd = 1);
+	Real modernWaterDamping(Real x, Real y, Real z) const;
 	Bool m_renderingMirror = FALSE; ///< prevents a water draw sampling the mirror being written
 	void cleanupJbaWaterShader(void);
 

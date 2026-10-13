@@ -485,6 +485,16 @@ void PosixDevice9::Build_Water_Constants(const SdlPixelConstants &pixel_constant
 	water.CameraPosition[0] = inverse_view[12];
 	water.CameraPosition[1] = inverse_view[13];
 	water.CameraPosition[2] = inverse_view[14];
+	// Both SV_Position.z and sampled scene depth include the viewport's depth range. Compose its
+	// inverse into the unprojection so custom MinZ/MaxZ use the same shader path as the normal range.
+	const float depth_range = Viewport.MaxZ - Viewport.MinZ;
+	if (depth_range > 1.0e-8f) {
+		for (unsigned int column = 0; column < 4; ++column) {
+			const float z_row = water.WorldFromClip[8 + column] / depth_range;
+			water.WorldFromClip[12 + column] -= Viewport.MinZ * z_row;
+			water.WorldFromClip[8 + column] = z_row;
+		}
+	}
 	water.Viewport[0] = (float)Viewport.X + 0.5f;
 	water.Viewport[1] = (float)Viewport.Y + 0.5f;
 	water.Viewport[2] = (float)Viewport.Width;
@@ -940,6 +950,7 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	const unsigned int index_size = (call.Indexed && index_buffer->format() == D3DFMT_INDEX32) ? 4 : 2;
 	const bool water_draw = pixel_engine == ENGINE_SHADER_WATER_TRAPEZOID || pixel_engine == ENGINE_SHADER_WATER_RIVER;
 	SDL_GPUTexture *water_background = water_draw ? Gpu->Water_Background(target) : NULL;
+	SDL_GPUTexture *water_depth = water_draw ? Gpu->Water_Depth(target) : NULL;
 
 	// The GPU copies.  Bringing one up to date can flush the batch, which leaves the ones already asked
 	// for marked as used by the batch before: so ask again until a round flushes nothing.
@@ -958,9 +969,11 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 			double since = phases.Now();
 			draw.Textures[slot] = water_draw && texture_stage == 5
 				? (water_background ? water_background : Mirrors->White())
+				: water_draw && texture_stage == 6
+				? (water_depth ? water_depth : Mirrors->White())
 				: (texture != NULL ? Mirrors->Texture(texture, refusal) : Mirrors->White());
 			phases.Part(0, since);
-			if (draw.Textures[slot] != NULL && draw.Textures[slot] == target.Colour) {
+			if (draw.Textures[slot] != NULL && (draw.Textures[slot] == target.Colour || draw.Textures[slot] == target.Depth)) {
 				// Undefined in D3D9, and an error on SDL3 GPU: the pass would read what it writes.
 				Refuse_Draw("sampling the render target it draws into");
 				return D3D_OK;
@@ -972,12 +985,14 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 			since = phases.Now();
 			RenderUInt32 water_sampler[SAMPLER_STATE_COUNT];
 			const RenderUInt32 *sampler_states = SamplerStates[sampler_stage];
-			if (water_draw && texture_stage == 5) {
+			if (water_draw && (texture_stage == 5 || texture_stage == 6 || texture_stage == 7)) {
 				memcpy(water_sampler, sampler_states, sizeof(water_sampler));
 				sampler_states = water_sampler;
-				water_sampler[D3DSAMP_ADDRESSU] = water_sampler[D3DSAMP_ADDRESSV] = D3DTADDRESS_CLAMP;
-				water_sampler[D3DSAMP_MINFILTER] = water_sampler[D3DSAMP_MAGFILTER] = D3DTEXF_LINEAR;
-				water_sampler[D3DSAMP_MIPFILTER] = D3DTEXF_NONE;
+				water_sampler[D3DSAMP_ADDRESSU] = water_sampler[D3DSAMP_ADDRESSV]
+					= texture_stage == 7 ? D3DTADDRESS_WRAP : D3DTADDRESS_CLAMP;
+				water_sampler[D3DSAMP_MINFILTER] = water_sampler[D3DSAMP_MAGFILTER]
+					= texture_stage == 6 ? D3DTEXF_POINT : D3DTEXF_LINEAR;
+				water_sampler[D3DSAMP_MIPFILTER] = texture_stage == 7 ? D3DTEXF_LINEAR : D3DTEXF_NONE;
 			}
 			draw.Samplers[slot] = Samplers->Sampler(sampler_states);
 			phases.Part(1, since);
@@ -1164,6 +1179,7 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		water.SceneParameters[0] = water_background ? 1.0f : 0.0f;
 		water.SceneParameters[1] = 1.0f / (float)target.Width;
 		water.SceneParameters[2] = 1.0f / (float)target.Height;
+		water.SceneParameters[3] = water_depth ? 1.0f : 0.0f;
 		draw.PixelConstants = Gpu->Constants(1, &water, sizeof(water));
 		draw.PixelConstantsSize = sizeof(water);
 	}

@@ -311,6 +311,28 @@ static void check_constants(PosixDevice9 *device)
 	CHECK(memcmp(water.SunColour, water_registers[3], 16) == 0);
 	CHECK(memcmp(water.TerrainParameters, water_registers[4], 16) == 0);
 	CHECK(near_value(water.Viewport[2], 64) && near_value(water.Viewport[3], 32));
+	// Scene depth is the hardware viewport depth, including a nondefault MinZ/MaxZ. Project a known
+	// point independently and reconstruct it, as both surface and submerged-object samples must do.
+	D3DVIEWPORT9 depth_viewport;
+	device->GetViewport(&depth_viewport);
+	depth_viewport.MinZ = 0.2f;
+	depth_viewport.MaxZ = 0.85f;
+	device->SetViewport(&depth_viewport);
+	device->Build_Water_Constants(pixel, water);
+	const double world_point[4] = { 17, -9, 53, 1 };
+	double clip[4] = {};
+	for (unsigned int c = 0; c < 4; ++c)
+		for (unsigned int r = 0; r < 4; ++r)
+			for (unsigned int j = 0; j < 4; ++j) clip[c] += world_point[r] * view[r][j] * projection[j][c];
+	const double device_point[4] = { clip[0] / clip[3], clip[1] / clip[3],
+		depth_viewport.MinZ + clip[2] / clip[3] * (depth_viewport.MaxZ - depth_viewport.MinZ), 1 };
+	double reconstructed[4] = {};
+	for (unsigned int c = 0; c < 4; ++c)
+		for (unsigned int r = 0; r < 4; ++r) reconstructed[c] += device_point[r] * water.WorldFromClip[r * 4 + c];
+	for (unsigned int c = 0; c < 3; ++c) CHECK(near_value(reconstructed[c] / reconstructed[3], world_point[c]));
+	depth_viewport.MinZ = 0;
+	depth_viewport.MaxZ = 1;
+	device->SetViewport(&depth_viewport);
 	memset(&m, 0, sizeof(m));
 	device->SetTransform(D3DTS_PROJECTION, &m);
 	device->Build_Water_Constants(pixel, water);

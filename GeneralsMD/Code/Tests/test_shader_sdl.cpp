@@ -62,6 +62,7 @@
 
 #include "sdl3shadercompile.h"
 #include "shader_cases.h"
+#include "Platform/WaterBedMaterial.h"
 
 namespace {
 
@@ -193,6 +194,33 @@ bool vertex_layout(const std::string & hlsl, std::vector<SDL_GPUVertexAttribute>
 		attributes.push_back(attribute);
 	}
 	return !attributes.empty();
+}
+
+TEST(runtime_bed_material_is_tileable_deterministic_and_has_distinct_relief)
+{
+	// Sample every texel: wrapping must be identical without a random generator shared with gameplay.
+	// Each channel must carry useful contrast; a flat texture or an accidental repeated channel fails.
+	double sum[4] = {}, squares[4] = {};
+	unsigned different = 0, raised = 0;
+	const int side = 256;
+	for (int y = 0; y < side; ++y) for (int x = 0; x < side; ++x) {
+		const uint32_t value = WaterBedMaterial::Texel(x,y,side);
+		CHECK_EQ(value, WaterBedMaterial::Texel(x+side,y-side,side));
+		const unsigned relief = value & 255, pebbles = (value>>8)&255, sand = (value>>16)&255;
+		different += pebbles != sand;
+		raised += relief > 100;
+		for (unsigned c = 0; c < 4; ++c) {
+			const double b = (value >> (c*8)) & 255;
+			sum[c] += b; squares[c] += b*b;
+		}
+	}
+	CHECK(different > unsigned(side*side/2));
+	CHECK(raised > unsigned(side*side/8) && raised < unsigned(side*side*3/4));
+	for (unsigned c = 0; c < 4; ++c) {
+		const double mean = sum[c]/(side*side);
+		CHECK(mean > 10.0 && mean < 240.0);
+		CHECK(squares[c]/(side*side)-mean*mean > 200.0);
+	}
 }
 
 TEST(every_generated_program_reaches_sdl3_gpu)
