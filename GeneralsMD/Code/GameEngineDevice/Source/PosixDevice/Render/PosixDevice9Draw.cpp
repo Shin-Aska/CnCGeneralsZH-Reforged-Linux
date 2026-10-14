@@ -35,6 +35,7 @@
 #include "engineshader.h"
 #include "ffshader.h"
 #include "ffvertex.h"
+#include "Platform/WaterFftSampling.h"
 
 #include <SDL3/SDL.h>
 
@@ -504,6 +505,11 @@ void PosixDevice9::Build_Water_Constants(const SdlPixelConstants &pixel_constant
 	memcpy(water.SunDirection, PixelShaderConstants[3], sizeof(water.SunDirection));
 	memcpy(water.SunColour, PixelShaderConstants[4], sizeof(water.SunColour));
 	memcpy(water.TerrainParameters, PixelShaderConstants[5], sizeof(water.TerrainParameters));
+	memcpy(water.OpticalParameters, PixelShaderConstants[6], sizeof(water.OpticalParameters));
+	memcpy(water.HullParameters, PixelShaderConstants[7], sizeof(water.HullParameters));
+	memcpy(water.HullData, PixelShaderConstants[8], sizeof(water.HullData));
+	// River draws must never inherit a preceding ocean draw's hull field.
+	if (water.WaterParameters[1] > 0.5f) water.HullParameters[0] = 0;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -883,15 +889,27 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		Refuse_Draw(refusal);
 		return D3D_OK;
 	}
+	// The dedicated generated water vertex path deliberately avoids arbitrary engine-program
+	// pairing. Only this path may bind native FFT textures to the vertex stage.
+	const char *fft_setting = getenv("ZH_WATER_FFT");
+	const bool fft_requested = pixel_engine == ENGINE_SHADER_WATER_TRAPEZOID
+		&& vertex_engine == ENGINE_SHADER_NONE && !vertex.LightingEnabled
+		&& PixelShaderConstants[6][2] > 0.5f && PixelShaderConstants[6][3] > 0.5f
+		&& (fft_setting == NULL || strcmp(fft_setting, "0") != 0);
+	bool fft_water = fft_requested && Gpu->Prepare_Ocean(PixelShaderConstants[1][0]*WaterFftSampling::TimeScale);
+	const SdlProgram *fft_vertex = fft_water ? &Programs->Water_Vertex_Program(vertex) : NULL;
+	if (fft_vertex && fft_vertex->Shader == NULL) fft_water = false;
 	const SdlProgram &vertex_program = vertex_engine != ENGINE_SHADER_NONE
-		? Programs->Engine_Vertex_Program(vertex_engine) : Programs->Vertex_Program(vertex);
+		? Programs->Engine_Vertex_Program(vertex_engine)
+		: fft_water ? *fft_vertex : Programs->Vertex_Program(vertex);
 	const SdlProgram &pixel_program = pixel_engine != ENGINE_SHADER_NONE
 		? Programs->Engine_Pixel_Program(pixel_engine, combiner.PixelPipeline) : Programs->Pixel_Program(combiner);
 	if (vertex_program.Shader == NULL || pixel_program.Shader == NULL) {
 		Refuse_Draw(vertex_program.Shader == NULL ? "a vertex program refused" : "a pixel program refused");
 		return D3D_OK;
 	}
-	if (pixel_program.SamplerSlots > SdlRecordedDraw::MAXIMUM_SAMPLERS || vertex_program.SamplerSlots != 0) {
+	if (pixel_program.SamplerSlots > SdlRecordedDraw::MAXIMUM_SAMPLERS
+		|| vertex_program.SamplerSlots > (fft_water ? 3u : 0u)) {
 		Refuse_Draw("more sampler slots than a draw binds");
 		return D3D_OK;
 	}
@@ -951,6 +969,11 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	const bool water_draw = pixel_engine == ENGINE_SHADER_WATER_TRAPEZOID || pixel_engine == ENGINE_SHADER_WATER_RIVER;
 	SDL_GPUTexture *water_background = water_draw ? Gpu->Water_Background(target) : NULL;
 	SDL_GPUTexture *water_depth = water_draw ? Gpu->Water_Depth(target) : NULL;
+	draw.VertexSamplerCount = vertex_program.SamplerSlots;
+	for (unsigned int slot = 0; slot < draw.VertexSamplerCount; ++slot) {
+		draw.VertexTextures[slot] = Gpu->Ocean_Map(slot * 2);
+		draw.VertexSamplers[slot] = Gpu->Ocean_Sampler();
+	}
 
 	// The GPU copies.  Bringing one up to date can flush the batch, which leaves the ones already asked
 	// for marked as used by the batch before: so ask again until a round flushes nothing.
@@ -961,6 +984,12 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		for (unsigned int slot = 0; slot < pixel_program.SamplerSlots; ++slot) {
 			const int texture_stage = pixel_program.SlotTexture[slot];
 			const int sampler_stage = pixel_program.SlotSampler[slot];
+			if (water_draw && texture_stage >= 8 && texture_stage < 14) {
+				draw.Textures[slot] = fft_water ? Gpu->Ocean_Map(texture_stage - 8) : Mirrors->White();
+				draw.Samplers[slot] = fft_water ? Gpu->Ocean_Sampler() : Samplers->Sampler(SamplerStates[0]);
+				if (!draw.Textures[slot] || !draw.Samplers[slot]) return D3D_OK;
+				continue;
+			}
 			if (texture_stage < 0 || texture_stage >= SAMPLER_COUNT || sampler_stage < 0 || sampler_stage >= SAMPLER_COUNT) {
 				Refuse_Draw("a program slot past the device's stages");
 				return D3D_OK;
@@ -985,7 +1014,7 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 			since = phases.Now();
 			RenderUInt32 water_sampler[SAMPLER_STATE_COUNT];
 			const RenderUInt32 *sampler_states = SamplerStates[sampler_stage];
-			if (water_draw && (texture_stage == 5 || texture_stage == 6 || texture_stage == 7)) {
+			if (water_draw && (texture_stage == 4 || texture_stage == 5 || texture_stage == 6 || texture_stage == 7)) {
 				memcpy(water_sampler, sampler_states, sizeof(water_sampler));
 				sampler_states = water_sampler;
 				water_sampler[D3DSAMP_ADDRESSU] = water_sampler[D3DSAMP_ADDRESSV]
@@ -1180,8 +1209,18 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		water.SceneParameters[1] = 1.0f / (float)target.Width;
 		water.SceneParameters[2] = 1.0f / (float)target.Height;
 		water.SceneParameters[3] = water_depth ? 1.0f : 0.0f;
+		water.FftParameters[0] = fft_water ? 1.0f : 0.0f;
+		const char *vessel_setting = getenv("ZH_WATER_VESSEL_WAVES");
+		water.FftParameters[1] = fft_water && (vessel_setting == NULL || strcmp(vessel_setting, "0") != 0) ? 1.0f : 0.0f;
 		draw.PixelConstants = Gpu->Constants(1, &water, sizeof(water));
 		draw.PixelConstantsSize = sizeof(water);
+		if (fft_water) {
+			// The generated water vertex program reads precisely the same per-draw hulls and
+			// water time as its pixel program. Alias the recorded bytes so a later object's
+			// constants cannot change already queued displacement or its matching normals.
+			draw.VertexWaterConstants = draw.PixelConstants;
+			draw.VertexWaterConstantsSize = draw.PixelConstantsSize;
+		}
 	}
 	else if (pixel_program.UniformBuffers != 0 && pixel_engine != ENGINE_SHADER_NONE) {
 		SdlEnginePixelConstants engine_constants;

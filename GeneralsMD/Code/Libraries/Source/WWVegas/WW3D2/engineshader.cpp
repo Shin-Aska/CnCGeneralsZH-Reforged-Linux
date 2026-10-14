@@ -21,6 +21,9 @@
 #include "ffvertex.h"
 #include "sdl3target.h"
 #include "Platform/WaterSurfaceModel.h"
+#include "Platform/WaterOpticalModel.h"
+#include "Platform/WaterHullModel.h"
+#include "Platform/WaterFftSampling.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -486,27 +489,13 @@ static bool write_engine_pixel_program(EngineShaderProgram program,
 static void write_modern_water(std::string &hlsl, bool river)
 {
 	hlsl.clear();
-	for (unsigned stage = 0; stage < 8; ++stage) {
+	for (unsigned stage = 0; stage < 14; ++stage) {
 		char line[128];
 		snprintf(line, sizeof(line), "Texture2D Texture%u : register(t%u);\nSamplerState Sampler%u : register(s%u);\n", stage, stage, stage, stage);
 		hlsl += line;
 	}
-	hlsl += R"HLSL(cbuffer CombinerConstants : register(b0)
-{
-    float4 TextureFactor;
-    float4 FogColour;
-    float4 AlphaReference;
-    row_major float4x4 WorldFromClip;
-    float4 CameraPosition;
-    float4 SunDirection;
-    float4 SunColour;
-    float4 Viewport;
-    float4 ReflectionArea;
-    float4 WaterParameters;
-    float4 TerrainParameters;
-    float4 SceneParameters;
-};
-struct Input
+	hlsl += WaterFftSampling::UniformSource("CombinerConstants",0);
+	hlsl += R"HLSL(struct Input
 {
     float4 Position : SV_Position;
     float4 Diffuse : COLOR0;
@@ -523,6 +512,58 @@ struct Input
 // then encode the composed water once before the legacy fog and shoreline blend.
 float3 waterLinear(float3 rgb) { return pow(max(rgb, float3(0, 0, 0)), 2.2); }
 float3 waterDisplay(float3 rgb) { return pow(saturate(rgb), 1.0 / 2.2); }
+float oceanHash(float2 p)
+{
+    float3 q = frac(float3(p.x, p.y, p.x) * 0.1031);
+    q += dot(q, q.yzx + 33.33);
+    return frac((q.x + q.y) * q.z);
+}
+float oceanNoise(float2 p)
+{
+    float2 cell = floor(p), f = frac(p);
+    f = f*f*(3.0-2.0*f);
+    return lerp(lerp(oceanHash(cell), oceanHash(cell+float2(1,0)), f.x),
+        lerp(oceanHash(cell+float2(0,1)), oceanHash(cell+float2(1,1)), f.x), f.y);
+}
+// Broad radiance belongs to the reflected sky direction. It therefore follows the evolving
+// surface normal instead of looking like a second texture sliding across the water plane.
+float3 oceanSky(float3 ray, float3 light, float daylight)
+{
+    float horizon = pow(1.0-saturate(ray.z), 4.0);
+    float2 sunAxis = normalize(light.xy + float2(0.00001,0));
+    float2 skyPlane = float2(dot(ray.xy,sunAxis),dot(ray.xy,float2(-sunAxis.y,sunAxis.x)))
+        / (0.45+abs(ray.z));
+    float cloud = oceanNoise(skyPlane*2.7+float2(7.8,2.3))*0.7
+        + oceanNoise(skyPlane*6.1+float2(0.4,13.7))*0.3;
+    // A single broad cloud bank lights only the facets reflecting that portion of the sky.
+    // Its direction follows the sky's sun-relative frame, independent of the camera and waves.
+    float3 cloudDirection=normalize(float3(-sunAxis.y,sunAxis.x,0.85));
+    float cloudBank=pow(saturate(dot(ray,cloudDirection)),48.0);
+    cloud = smoothstep(0.46,0.73,cloud) * (0.04+5.5*cloudBank);
+    // A finite bright part of the sky produces broken silver facets. An azimuth-uniform bright
+    // horizon instead illuminates every crest equally, making the waves look like pale stripes.
+    float3 radiance = lerp(float3(0.016,0.055,0.110),float3(0.023,0.070,0.130),horizon);
+    radiance += cloud*float3(1.85,1.96,2.04);
+    radiance += pow(saturate(dot(ray,light)),12.0)*float3(0.24,0.18,0.10);
+    // Downward reflected rays see adjacent water. Keep the horizon transition continuous, but
+    // do not extend a bright sky over the whole lower hemisphere.
+    radiance = lerp(float3(0.001,0.005,0.010),radiance,smoothstep(-0.12,0.18,ray.z));
+    return radiance * (0.06+0.94*daylight);
+}
+float3 oceanEnvironment(float3 ray,float3 light,float daylight,float roughness)
+{
+    // The unresolved ripple distribution broadens every reflected light source, including the
+    // sky. Sampling its sharp horizon/cloud field only once makes small normal changes flicker.
+    float3 tangent=normalize(cross(ray,float3(0,0,1))+float3(0.00001,0,0));
+    float3 bitangent=cross(ray,tangent);
+    float cone=max(roughness,0.22)*0.85;
+    float3 value=oceanSky(ray,light,daylight)*0.4;
+    value+=oceanSky(normalize(ray+tangent*cone),light,daylight)*0.15;
+    value+=oceanSky(normalize(ray-tangent*cone),light,daylight)*0.15;
+    value+=oceanSky(normalize(ray+bitangent*cone),light,daylight)*0.15;
+    value+=oceanSky(normalize(ray-bitangent*cone),light,daylight)*0.15;
+    return value;
+}
 float terrainHeight(float2 p)
 {
     float2 uv = (p + TerrainParameters.xx + 5.0) / max(TerrainParameters.y, 1.0);
@@ -571,6 +612,23 @@ float3 bottomPosition(float2 pixel, float3 surface, float baseLevel)
 }
 )HLSL";
 	hlsl += WaterSurfaceModel::ShaderSource();
+	hlsl += WaterSurfaceModel::OceanShaderSource();
+	hlsl += WaterOpticalModel::GetHlslSource();
+	hlsl += WaterHullModel::GetHlslSource();
+	hlsl += WaterFftSampling::PixelSource();
+	char oceanBound[96];
+	snprintf(oceanBound, sizeof(oceanBound), "static const float oceanDisplacementBound = %.9g;\n",
+		(double)WaterSurfaceModel::OceanMaxDisplacement);
+	hlsl += oceanBound;
+	hlsl += R"HLSL(
+float terrainWaveAttenuation(float depth, float offshore)
+{
+    float shore = saturate(depth/9.0);
+    shore = shore*shore*(3.0-2.0*shore);
+    return lerp(shore, saturate((depth-0.15)/oceanDisplacementBound), offshore);
+}
+)HLSL";
+	hlsl += WaterHullModel::GetEffectsHlslSource();
 	hlsl += R"HLSL(
 float4 main(Input input) : SV_Target
 {
@@ -579,23 +637,91 @@ float4 main(Input input) : SV_Target
     float3 world = worldH.xyz / worldH.w;
     float2 dx = ddx(world.xy), dy = ddy(world.xy);
     float time = WaterParameters.x;
-    float4 base = Texture0.Sample(Sampler0, input.TexCoord0);
+    float fftWeight=FftParameters.x*saturate(input.Specular.x);
+    // Horizontal chop changes world.xy. Spectral samples must remain on the original surface
+    // parameters, as the vertex stage used them, rather than swimming along the displaced mesh.
+    float2 wavePosition=FftParameters.x>0.5?input.TexCoord2:world.xy;
+    float2 parameterDx=ddx(wavePosition),parameterDy=ddy(wavePosition);
+    // Projected flat patches reuse UV0 for a render-only boundary/LOD height correction.
+    // Their original material mapping is world.xy/150. Legacy grids and rivers keep their UVs.
+    float meshCorrection=OpticalParameters.w>0.5?input.TexCoord0.x:0.0;
+    float2 materialUV=OpticalParameters.w>0.5?world.xy/150.0:input.TexCoord0;
+    float4 base = Texture0.Sample(Sampler0, materialUV);
     float baseLevel = input.TexCoord1.y;
     float3 bottom = bottomPosition(input.Position.xy, world, baseLevel);
     float depth = max(world.z - bottom.z, 0.0);
     float3 view = normalize(CameraPosition.xyz - world + float3(0, 0, 0.00001));
+    float2 contextUV = (world.xy + TerrainParameters.xx + 5.0) / max(TerrainParameters.y, 1.0);
+    float offshore = Texture4.SampleLevel(Sampler4, contextUV, 0).r
+        * OpticalParameters.z * (1.0 - WaterParameters.y);
     // The mesh and this derivative share every mode, phase, dispersion and crest harmonic.
     // Interpolated attenuation includes shores/structures, and its product derivative is retained.
-    float3 wave = waterWave(world.xy, time);
+    float3 legacyWave = waterWave(wavePosition, time);
+    float4 oceanSwell;
+    float4 oceanSurface = waterOceanSurface(wavePosition, time, oceanSwell);
+    float3 oceanWave = oceanSurface.xyz;
+    float3 wave = lerp(legacyWave, oceanWave, offshore);
+    FftSurface spectral=(FftSurface)0;
+    if(FftParameters.x>0.5) spectral=fftSurface(wavePosition,baseLevel);
+    float footprint=max(length(dx),length(dy));
+    float hullWave=lerp(wave.x,spectral.displacement.z,fftWeight);
+    float3 hullEffects=oceanHullEffects(world.xy,baseLevel,time,offshore,hullWave,footprint);
     float attenuation = saturate(input.TexCoord1.x);
-    float determinant = dx.x * dy.y - dx.y * dy.x;
+    // Flat water carries obstacle-only attenuation in its otherwise unused diffuse red channel.
+    // Reconstruct the terrain profile at fragment density, avoiding large triangular shading
+    // facets from differentiating the coarse mesh's interpolated shore attenuation.
+    float localTerrain = TerrainParameters.w > 0.5
+        ? terrainWaveAttenuation(baseLevel-terrainHeight(world.xy), offshore) : 1.0;
+    attenuation = lerp(attenuation, min(localTerrain, input.Diffuse.r), offshore);
+    attenuation = min(attenuation,lerp(1.0,hullEffects.z,offshore));
+    float determinant = parameterDx.x * parameterDy.y - parameterDx.y * parameterDy.x;
     float invDet = abs(determinant) > 0.000001 ? 1.0 / determinant : 0.0;
+    float ou = ddx(offshore), ov = ddy(offshore);
+    float2 offshoreSlope = float2(ou*parameterDy.y-ov*parameterDx.y, ov*parameterDx.x-ou*parameterDy.x)*invDet;
+    wave.yz += (oceanWave.x-legacyWave.x)*offshoreSlope;
     float du = ddx(attenuation), dv = ddy(attenuation);
-    float2 attenuationSlope = float2(du*dy.y - dv*dx.y, dv*dx.x - du*dy.x) * invDet;
+    float2 attenuationSlope = float2(du*parameterDy.y - dv*parameterDx.y, dv*parameterDx.x - du*parameterDy.x) * invDet;
     float zu = ddx(baseLevel), zv = ddy(baseLevel);
-    float2 baseSlope = float2(zu*dy.y - zv*dx.y, zv*dx.x - zu*dy.x) * invDet;
-    float2 slope = baseSlope + wave.yz * attenuation + wave.x * attenuationSlope;
+    float2 baseSlope = float2(zu*parameterDy.y - zv*parameterDx.y, zv*parameterDx.x - zu*parameterDy.x) * invDet;
+    float cu=ddx(meshCorrection),cv=ddy(meshCorrection);
+    float2 correctionSlope=float2(cu*parameterDy.y-cv*parameterDx.y,cv*parameterDx.x-cu*parameterDy.x)*invDet;
+    float2 slope = baseSlope + wave.yz * attenuation + wave.x * attenuationSlope + correctionSlope;
     float3 normal = normalize(float3(-slope, 1.0));
+    float continuousHeight=baseLevel+wave.x*attenuation+meshCorrection;
+    float fftCompression=1.0;
+    float fftDamping=0.0;
+    if(FftParameters.x>0.5) {
+        float freeDamping=saturate(input.Specular.y),fftOffshore=saturate(input.Specular.w);
+        float3 dampingField=vesselApplyHullDamping(wavePosition,baseLevel,
+            float3(freeDamping,fftParameterGradient(freeDamping,parameterDx,parameterDy)),
+            float3(fftOffshore,fftParameterGradient(fftOffshore,parameterDx,parameterDy)));
+        fftDamping=dampingField.x;
+        float2 weightSlope=fftParameterGradient(fftWeight,parameterDx,parameterDy);
+        float2 dampingSlope=dampingField.yz;
+        float horizontalWeight=fftWeight*fftDamping;
+        float2 horizontalSlope=weightSlope*fftDamping+dampingSlope*fftWeight;
+        float oldHeight=continuousHeight-baseLevel;
+        float newHeight=spectral.displacement.z*fftDamping;
+        float2 newSlope=float2(spectral.derivativeX.z,spectral.derivativeY.z)*fftDamping
+            +spectral.displacement.z*dampingSlope;
+        float2 heightSlope=baseSlope+lerp(slope-baseSlope,newSlope,fftWeight)
+            +(newHeight-oldHeight)*weightSlope;
+        float3 tangentX=float3(1.0+spectral.derivativeX.x*horizontalWeight+spectral.displacement.x*horizontalSlope.x,
+            spectral.derivativeX.y*horizontalWeight+spectral.displacement.y*horizontalSlope.x,heightSlope.x);
+        float3 tangentY=float3(spectral.derivativeY.x*horizontalWeight+spectral.displacement.x*horizontalSlope.y,
+            1.0+spectral.derivativeY.y*horizontalWeight+spectral.displacement.y*horizontalSlope.y,heightSlope.y);
+        normal=normalize(cross(tangentX,tangentY));
+        continuousHeight=baseLevel+lerp(oldHeight,newHeight,fftWeight);
+        fftCompression=spectral.incidentCompression;
+    }
+    // Reconstruct the same continuous wave between mesh vertices for optical integration. The
+    // rendered scene bottom stays exact; using coarse triangle heights here exposes their edges
+    // through absorption on the campaign shell's deliberately shallow offshore terrain. Move on
+    // the camera ray, with a bounded correction at grazing angles, retaining raster occlusion.
+    float opticalShift = WaterOpticalRayShift(continuousHeight-world.z,
+        view.z, offshore, oceanDisplacementBound, dot(world-bottom,view), length(CameraPosition.xyz-world));
+    float3 opticalWorld = world + view*opticalShift;
+    float opticalDepth = max(opticalWorld.z-bottom.z,0.0);
     float3 light = normalize(SunDirection.xyz + float3(0, 0, 0.00001));
     float nDotV = max(dot(normal, view), 0.001);
     float nDotL = saturate(dot(normal, light));
@@ -604,9 +730,10 @@ float4 main(Input input) : SV_Target
     float vDotH = saturate(dot(view, halfway));
     float fresnel = 0.025 + 0.975 * pow(1.0 - saturate(nDotV), 5.0);
     // Keep the bed readable at the shallow bank instead of covering it with bright sky bands.
-    fresnel = 0.025 + (fresnel - 0.025) * lerp(0.35, 1.0, smoothstep(3.0, 18.0, depth));
+    fresnel = 0.025 + (fresnel - 0.025) * lerp(lerp(0.35, 1.0, smoothstep(3.0, 18.0, depth)), 1.0, offshore);
     float variance = dot(ddx(normal), ddx(normal)) + dot(ddy(normal), ddy(normal));
-    float roughness = clamp(sqrt(0.016 + variance * 0.24), 0.126, 0.34);
+    float roughness = clamp(sqrt(lerp(0.016, 0.036, offshore) + variance * 0.24), 0.126, 0.34);
+    roughness=lerp(roughness,max(roughness,0.27),hullEffects.y*0.5);
     float a2 = pow(roughness, 4.0);
     float denominator = nDotH * nDotH * (a2 - 1.0) + 1.0;
     float distribution = a2 / max(3.14159265 * denominator * denominator, 0.0000001);
@@ -618,7 +745,18 @@ float4 main(Input input) : SV_Target
     float3 highlight = waterLinear(SunColour.rgb) * 2.0 * (distribution * masking * sunFresnel * sunVisible / max(4.0 * nDotV, 0.001));
     highlight = highlight / (1.0 + highlight * 0.6);
     float daylight = saturate(max(max(SunColour.r, SunColour.g), SunColour.b));
-    float3 reflectedRay = reflect(-view, normal);
+    // Integrate the short crossing ripples into the environment lobe. Their shared spectrum
+    // still supplies physical height, refraction normals and directional sun glints, while the
+    // broad sky follows the resolved swell surface instead of tracing every fine ripple edge.
+    float rippleResolution=0.88/(1.0+footprint*0.18);
+    float3 environmentWave=lerp(oceanSwell.xyz,oceanWave,rippleResolution);
+    float2 swellSlope=baseSlope+environmentWave.yz*attenuation+environmentWave.x*attenuationSlope+correctionSlope;
+    float3 environmentNormal=normalize(lerp(normal,normalize(float3(-swellSlope,1)),offshore));
+    environmentNormal=normalize(lerp(environmentNormal,normal,fftWeight));
+    // The remaining fine-slope energy is ~0.045 for this spectrum (including its packet
+    // envelope); retaining a fraction of its amplitude leaves (1-fraction^2) as roughness.
+    float environmentRoughness=sqrt(roughness*roughness+0.045*(1.0-rippleResolution*rippleResolution)*offshore);
+    float3 reflectedRay = reflect(-view, environmentNormal);
     float3 sky = lerp(float3(0.49, 0.62, 0.68), float3(0.23, 0.38, 0.48), saturate(reflectedRay.z)) * (0.06 + daylight * 0.94);
     float2 reflectionOffset = float2((ReflectionArea.x + 1.0) * 0.5, (1.0 - ReflectionArea.w) * 0.5);
     float2 reflectionScale = max((ReflectionArea.zw - ReflectionArea.xy) * 0.5, float2(0.001, 0.001));
@@ -634,22 +772,24 @@ float4 main(Input input) : SV_Target
     float mirrorCoverage = saturate(max(max(mirror.r, mirror.g), mirror.b) * 64.0);
     float coverage = saturate(min(border.x, border.y) * 30.0) * mirrorCoverage * WaterParameters.z;
     coverage *= 1.0 - smoothstep(0.5, 2.0, abs(baseLevel - WaterParameters.w));
-    float3 reflection = lerp(waterLinear(sky), waterLinear(mirror.rgb), coverage);
+    float3 skyRadiance=waterLinear(sky);
+    if(offshore>0.0) skyRadiance=lerp(skyRadiance,oceanEnvironment(reflectedRay,light,daylight,environmentRoughness),offshore);
+    float3 reflection = lerp(skyRadiance, waterLinear(mirror.rgb), coverage);
     // Refract the view ray through the interface and map its bed displacement into screen pixels.
     float3 incident = -view;
     float3 underwater = refract(incident, normal, 0.75);
-    float2 displacement = depth * (underwater.xy / min(underwater.z, -0.1) - incident.xy / min(incident.z, -0.1));
+    float2 displacement = opticalDepth * (underwater.xy / min(underwater.z, -0.1) - incident.xy / min(incident.z, -0.1));
     float2 refractionPixels = clamp(pixelOffset(displacement, dx, dy), float2(-8, -8), float2(8, 8));
-    refractionPixels *= smoothstep(0.15, 2.5, depth);
+    refractionPixels *= smoothstep(0.15, 2.5, opticalDepth);
     float2 refractedPixel = input.Position.xy + refractionPixels;
     float3 refractedBottom = bottomPosition(refractedPixel, world, baseLevel);
     // Reject foreground cliffs, bridge surfaces and opposite banks at the displaced coordinate.
     // In particular, don't pull their above-water colour across the water's contact edge.
-    float refractedValid = step(refractedBottom.z, world.z - 0.08)
-        * step(0.0, dot(refractedBottom-world, -view));
+    float refractedValid = step(refractedBottom.z, min(world.z,opticalWorld.z) - 0.08)
+        * step(0.0, min(dot(refractedBottom-world, -view), dot(refractedBottom-opticalWorld, -view)));
     refractedPixel = lerp(input.Position.xy, refractedPixel, refractedValid);
     bottom = lerp(bottom, refractedBottom, refractedValid);
-    float bedDepth = max(world.z-bottom.z, 0.0);
+    float bedDepth = max(opticalWorld.z-bottom.z, 0.0);
     float2 sceneUV = refractedPixel * SceneParameters.yz;
     float3 scene = waterLinear(Texture5.Sample(Sampler5, saturate(sceneUV)).rgb);
     // Material detail is fixed to the *actual* submerged scene position. Keep object materials,
@@ -685,17 +825,62 @@ float4 main(Input input) : SV_Target
     float caustic = lerp(1.0, clamp(focused, 0.82, 1.55), exp(-bedDepth*0.055)
         * sunVisible * daylight / (1.0 + causticFootprint*0.45));
     // Absorption follows the underwater view-ray distance, including submerged object geometry.
-    float opticalDepth = min(length(bottom-world), 180.0) * lerp(2.4, 1.0, WaterParameters.y);
-    float3 transmission = exp(-opticalDepth * float3(0.065, 0.026, 0.019));
-    float3 scatter = float3(0.002, 0.028, 0.041) * (0.08 + daylight * 0.92);
+    // Campaign seas can have deliberately flat, shallow terrain beneath full-size ships. Honour
+    // their authored opacity offshore, while preserving the clear optical profile at coasts and
+    // in enclosed pools. Actual scene ray length still governs submerged objects and refraction.
+    float3 transmission = WaterOpticalTransmission(length(bottom-opticalWorld), WaterParameters.y,
+        offshore, OpticalParameters.x, OpticalParameters.y);
+    float3 scatter = lerp(float3(0.002, 0.028, 0.041), float3(0.0012, 0.015, 0.029), offshore)
+        * (0.08 + daylight * 0.92);
+    scatter=lerp(scatter,float3(0.002,0.035,0.075)*(0.08+daylight*0.92),fftWeight);
     float3 body = lerp(scatter, scene * transmission * caustic + scatter * (1.0 - transmission), SceneParameters.x);
+    // The broad wave faces carry soft directional scattering; small specular ripples should not
+    // be the only cue to their volume. Keep this offshore so clear river/pool materials are intact.
+    float3 swellNormal=normalize(float3(-oceanSwell.yz*attenuation-correctionSlope,1));
+    swellNormal=normalize(lerp(swellNormal,normal,fftWeight));
+    float swellLight=saturate(dot(swellNormal,light));
+    body *= lerp(1.0,0.40+1.80*swellLight,offshore);
     float foamNoise = smoothstep(0.1, 0.8, wave.x*0.5+0.5);
     float edgeDistance = depth / max(length(float2(ddx(depth), ddy(depth))), 0.01);
     float contact = (1.0 - smoothstep(0.2, 1.35, edgeDistance)) * saturate(depth * 4.0)
         * max(TerrainParameters.w, SceneParameters.w);
     float foam = contact * (0.25 + 0.75 * foamNoise) * (0.2 + 0.8 * daylight);
-    float3 surface = lerp(body, reflection, fresnel) + highlight;
-    surface = waterDisplay(lerp(surface, waterLinear(float3(0.68, 0.76, 0.74)) * (0.1 + daylight * 0.9), foam * 0.68));
+    // At a known hull, use its irregular wave wash instead of also drawing the generic scene
+    // intersection rim. Otherwise that continuous depth edge fills every intended foam gap.
+    foam *= lerp(1.0,hullEffects.z,offshore);
+    // Curvature of the undamped ocean model selects breaking crests. Including attenuation in
+    // this derivative would invent bright rings around a ship's damping footprint.
+    float curvature = -oceanSwell.w;
+    float crest = smoothstep(0.045, 0.11, curvature) * smoothstep(1.0, 2.4, oceanSwell.x);
+    // A narrow band at the swell's turning slope forms a crest line, rather than filling the
+    // whole high-curvature cap with a disconnected white patch. Pixel derivatives soften its
+    // edges as this world-space band becomes smaller than a pixel at RTS distances.
+    float crestSlope=dot(oceanSwell.yz,float2(0.9304,0.3665));
+    float crestBand=1.0-smoothstep(0.025,0.085+fwidth(crestSlope)*0.65,abs(crestSlope));
+    float foamPatch = oceanNoise(world.xy*0.065 + float2(time*0.06,-time*0.025));
+    float foamBreakup = smoothstep(0.35, 0.7, oceanNoise(world.xy*0.38+float2(-time*0.13,time*0.08)));
+    float crestFoam = crest * crestBand * smoothstep(0.53, 0.76, foamPatch) * offshore
+        * foamBreakup * smoothstep(0.06, 0.25, attenuation) * (0.2+0.8*daylight);
+    // Reference foam follows horizontal wave compression, with the same field as geometry.
+    float fftFoam=saturate(pow(max(0.0,1.2-fftCompression),7.2))
+        *smoothstep(0.15,0.65,fftDamping)*(0.2+0.8*daylight);
+    // Generated bow and divergent stern crests use the same height field as the displaced mesh.
+    // Stationary vessels contribute reflected incident waves, never a synthetic powered wake.
+    fftFoam=max(fftFoam,spectral.vesselCrest*0.2*smoothstep(0.15,0.65,fftDamping)*(0.2+0.8*daylight));
+    crestFoam=lerp(crestFoam,fftFoam,fftWeight);
+    foam = max(foam, crestFoam*0.48);
+    foam = max(foam,hullEffects.x*(0.2+0.8*daylight));
+    // Analytic fine normals can face away from the eye between geometric vertices. Fresnel alone
+    // approaches one there and paints a bright band on a hidden wave face. Smith visibility
+    // smoothly removes that reflected energy while retaining the underlying water body.
+    float oceanViewCosine = saturate(dot(environmentNormal,view));
+    float environmentK=environmentRoughness*environmentRoughness*0.5;
+    float oceanViewVisibility = oceanViewCosine / max(oceanViewCosine*(1.0-environmentK)+environmentK,0.0001);
+    float environmentFresnel=0.025+0.975*pow(1.0-oceanViewCosine,5.0);
+    float visibleFresnel = lerp(fresnel,environmentFresnel*oceanViewVisibility,offshore);
+    float3 surface = lerp(body, reflection, visibleFresnel) + highlight;
+    float3 foamColour=lerp(float3(0.68,0.76,0.74),float3(0.84,0.89,0.89),hullEffects.x);
+    surface = waterDisplay(lerp(surface, waterLinear(foamColour) * (0.1 + daylight * 0.9), foam * (0.68+0.22*hullEffects.x)));
     float4 current;
 )HLSL";
 	if (river) {
@@ -712,6 +897,8 @@ float4 main(Input input) : SV_Target
 	if (debug && strcmp(debug, "reflection") == 0) hlsl += "current.rgb = waterDisplay(reflection);\n";
 	if (debug && strcmp(debug, "normal") == 0) hlsl += "current.rgb = normal*0.5+0.5;\n";
 	if (debug && strcmp(debug, "highlight") == 0) hlsl += "current.rgb = waterDisplay(highlight);\n";
+	if (debug && strcmp(debug, "offshore") == 0) hlsl += "current.rgb = offshore.xxx;\n";
+	if (debug && strcmp(debug, "vessel") == 0) hlsl += "current.rgb = float3(max(0.0,-spectral.vesselHeight),max(0.0,spectral.vesselHeight),spectral.vesselCrest)*fftWeight;\n";
 }
 
 bool EngineShader_Pixel_Program(EngineShaderProgram program,

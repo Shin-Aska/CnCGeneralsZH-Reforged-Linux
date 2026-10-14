@@ -46,6 +46,142 @@ inline Sample Evaluate(float x, float y, float seconds) {
 #undef WATER_MODE_EVAL
     return value;
 }
+// Open water has its own spectrum. Height energy is shared by several crossing swells rather
+// than concentrated into the old river's first two directions. A slowly evolving coordinate
+// warp bends the crests, and a bounded packet envelope breaks their uniform strength.
+#define WATER_OCEAN_MODES(X) \
+ X( 0.1074f, 0.0423f,1.200f,1.02f,0.31f) \
+ X( 0.1383f,-0.1092f,1.000f,1.25f,2.41f) \
+ X(-0.0729f, 0.2148f,0.900f,1.52f,4.33f) \
+ X( 0.2481f, 0.1554f,0.720f,1.75f,1.20f) \
+ X(-0.2952f, 0.1176f,0.600f,1.91f,5.17f) \
+ X( 0.1689f,-0.3501f,0.480f,2.15f,3.62f) \
+ X( 0.4443f, 0.0519f,0.360f,2.37f,0.83f) \
+ X(-0.3387f,-0.3822f,0.260f,2.49f,4.71f) \
+ X( 0.0891f, 0.6243f,0.180f,2.74f,2.07f) \
+ X( 0.6642f,-0.3291f,0.120f,3.00f,5.91f) \
+ X(-0.6801f, 0.5724f,0.085f,3.24f,1.79f) \
+ X( 0.8943f, 0.3048f,0.060f,3.51f,3.11f) \
+ X( 0.7300f, 0.3600f,0.110f,3.32f,4.61f) \
+ X( 0.9300f,-0.6400f,0.084f,3.74f,0.73f) \
+ X(-1.2400f, 0.3100f,0.062f,4.08f,2.97f) \
+ X(-0.8200f,-1.3500f,0.050f,4.47f,5.13f) \
+ X( 1.6800f, 0.5200f,0.036f,4.72f,1.87f) \
+ X( 1.4500f,-1.8000f,0.026f,5.19f,3.43f) \
+ X(-2.6300f, 0.8800f,0.020f,5.64f,0.29f) \
+ X( 0.6200f, 3.3400f,0.016f,6.02f,4.07f)
+
+struct OceanSurface { float height,dx,dy,laplacian; };
+template<bool Curvature,bool Slopes=true,bool SwellOnly=false> inline OceanSurface EvaluateOceanInternal(float x,float y,float seconds) {
+    const float q0=x*0.0241f+y*0.0157f-seconds*0.23f+0.4f;
+    const float q1=x*-0.0173f+y*0.0299f-seconds*0.19f+2.1f;
+    const float s0=std::sin(q0),c0=std::cos(q0),s1=std::sin(q1),c1=std::cos(q1);
+    const float px=x+5.0f*s0,py=y+4.0f*s1;
+    const float xx=1.0f+5.0f*c0*0.0241f,xy=5.0f*c0*0.0157f;
+    const float yx=4.0f*c1*-0.0173f,yy=1.0f+4.0f*c1*0.0299f;
+    const float q0Length2=0.0241f*0.0241f+0.0157f*0.0157f;
+    const float q1Length2=0.0173f*0.0173f+0.0299f*0.0299f;
+    const float qDot=0.0241f*-0.0173f+0.0157f*0.0299f;
+    const float lapX=-5.0f*s0*q0Length2,lapY=-4.0f*s1*q1Length2;
+    OceanSurface value={0,0,0,0};
+#define WATER_OCEAN_EVAL(kx,ky,amplitude,omega,phase) if (!SwellOnly || kx*kx+ky*ky<0.18f) { \
+    const float p=px*kx+py*ky-seconds*omega+phase; \
+    const float s=std::sin(p),c=std::cos(p); \
+    value.height+=amplitude*(s+0.16f*s*c); \
+    if (Slopes || Curvature) { \
+        const float derivative=amplitude*(c+0.16f*(c*c-s*s)); \
+        const float phaseX=kx*xx+ky*yx,phaseY=kx*xy+ky*yy; \
+        value.dx+=derivative*phaseX; value.dy+=derivative*phaseY; \
+        if (Curvature) value.laplacian+=amplitude*(-s-0.64f*s*c)*(phaseX*phaseX+phaseY*phaseY)+derivative*(kx*lapX+ky*lapY); } }
+    WATER_OCEAN_MODES(WATER_OCEAN_EVAL)
+#undef WATER_OCEAN_EVAL
+    const float envelope=0.86f+0.14f*s0*s1;
+    const float ex=0.14f*(c0*0.0241f*s1+s0*c1*-0.0173f);
+    const float ey=0.14f*(c0*0.0157f*s1+s0*c1*0.0299f);
+    const float lapEnvelope=0.14f*(-s0*s1*(q0Length2+q1Length2)+2.0f*c0*c1*qDot);
+    const float laplacian=Curvature ? value.laplacian*envelope+2.0f*(value.dx*ex+value.dy*ey)+value.height*lapEnvelope : 0.0f;
+    return {value.height*envelope,Slopes?value.dx*envelope+value.height*ex:0.0f,
+        Slopes?value.dy*envelope+value.height*ey:0.0f,laplacian};
+}
+inline OceanSurface EvaluateOceanSurface(float x,float y,float seconds) { return EvaluateOceanInternal<true>(x,y,seconds); }
+// Foam breaking and broad face lighting follow the swell curvature, rather than the much larger
+// second derivatives of tiny ripples. This subset retains exactly the full model's warp/envelope.
+inline OceanSurface EvaluateOceanSwell(float x,float y,float seconds) { return EvaluateOceanInternal<true,true,true>(x,y,seconds); }
+inline Sample EvaluateOcean(float x,float y,float seconds) {
+    // Displacement does not need curvature; the constant template branch removes its work.
+    const OceanSurface value=EvaluateOceanInternal<false>(x,y,seconds);
+    return {value.height,value.dx,value.dy};
+}
+// The fixed, unlit mesh vertex path does not consume ocean normals. Keep the same height
+// arithmetic while instantiating away derivatives; merely reading EvaluateOcean(...).height
+// still invokes its outlined full evaluator on the release compiler.
+inline float EvaluateOceanHeight(float x,float y,float seconds) {
+    return EvaluateOceanInternal<false,false>(x,y,seconds).height;
+}
+inline Sample BlendSamples(const Sample &river,const Sample &ocean,const Sample &offshore) {
+    const float blend=offshore.height<0?0:(offshore.height>1?1:offshore.height);
+    const float delta=ocean.height-river.height;
+    return {river.height+delta*blend,
+        river.dx+(ocean.dx-river.dx)*blend+delta*offshore.dx,
+        river.dy+(ocean.dy-river.dy)*blend+delta*offshore.dy};
+}
+inline Sample EvaluateBlended(float x,float y,float seconds,const Sample &offshore) {
+    if (offshore.height<=0 && offshore.dx==0 && offshore.dy==0) return Evaluate(x,y,seconds);
+    if (offshore.height>=1 && offshore.dx==0 && offshore.dy==0) return EvaluateOcean(x,y,seconds);
+    return BlendSamples(Evaluate(x,y,seconds),EvaluateOcean(x,y,seconds),offshore);
+}
+inline float EvaluateBlendedHeight(float x,float y,float seconds,const Sample &offshore) {
+    if (offshore.height<=0 && offshore.dx==0 && offshore.dy==0) return Evaluate(x,y,seconds).height;
+    if (offshore.height>=1 && offshore.dx==0 && offshore.dy==0) return EvaluateOceanHeight(x,y,seconds);
+    const float river=Evaluate(x,y,seconds).height,ocean=EvaluateOceanHeight(x,y,seconds);
+    const float blend=offshore.height<0?0:(offshore.height>1?1:offshore.height);
+    return river+(ocean-river)*blend;
+}
+// The GPU context texture repeats the last real row/column into its padding. Its texel-centre UV
+// maps to exactly these terrain-grid coordinates; derivatives here are per world unit.
+inline Sample SampleOffshore(const std::uint8_t *field,int width,int height,float gx,float gy,float spacing) {
+    if (!field || width<2 || height<2 || spacing<=0) return {0,0,0};
+    const bool clampX=gx<0 || gx>width-1,clampY=gy<0 || gy>height-1;
+    gx=gx<0?0:(gx>width-1?float(width-1):gx); gy=gy<0?0:(gy>height-1?float(height-1):gy);
+    const int ix=int(gx)<width-1?int(gx):width-2,iy=int(gy)<height-1?int(gy):height-2;
+    const float fx=gx-ix,fy=gy-iy;
+    const float a=field[iy*width+ix]/255.0f,b=field[iy*width+ix+1]/255.0f;
+    const float c=field[(iy+1)*width+ix]/255.0f,d=field[(iy+1)*width+ix+1]/255.0f;
+    return {(a+(b-a)*fx)*(1-fy)+(c+(d-c)*fx)*fy,
+        clampX?0:((b-a)*(1-fy)+(d-c)*fy)/spacing,
+        clampY?0:((c-a)*(1-fx)+(d-b)*fx)/spacing};
+}
+inline const char *OceanShaderSource() {
+#define WATER_OCEAN_HLSL(kx,ky,amplitude,omega,phase) \
+    "{ float p=dot(warped,float2(" #kx "," #ky "))-seconds*" #omega "+" #phase ";" \
+    "float s=sin(p),c=cos(p);float4 mode;mode.x=" #amplitude "*(s+0.16*s*c);" \
+    "float derivative=" #amplitude "*(c+0.16*(c*c-s*s));" \
+    "float2 phaseSlope=" #kx "*wx+" #ky "*wy;mode.yz=derivative*phaseSlope;" \
+    "mode.w=" #amplitude "*(-s-0.64*s*c)*dot(phaseSlope,phaseSlope)+derivative*dot(float2(" #kx "," #ky "),warpLaplacian);" \
+    "value+=mode;if(" #kx "*" #kx "+" #ky "*" #ky "<0.18) swell+=mode; }\n"
+    return "float4 waterOceanSurface(float2 pxy,float seconds,out float4 swell) {\n"
+        "float q0=dot(pxy,float2(0.0241,0.0157))-seconds*0.23+0.4;\n"
+        "float q1=dot(pxy,float2(-0.0173,0.0299))-seconds*0.19+2.1;\n"
+        "float s0=sin(q0),c0=cos(q0),s1=sin(q1),c1=cos(q1);\n"
+        "float2 warped=pxy+float2(5.0*s0,4.0*s1);\n"
+        "float2 wx=float2(1.0,0.0)+5.0*c0*float2(0.0241,0.0157);\n"
+        "float2 wy=float2(0.0,1.0)+4.0*c1*float2(-0.0173,0.0299);float4 value=0;swell=0;\n"
+        "float q0Length2=dot(float2(0.0241,0.0157),float2(0.0241,0.0157));\n"
+        "float q1Length2=dot(float2(-0.0173,0.0299),float2(-0.0173,0.0299));\n"
+        "float qDot=dot(float2(0.0241,0.0157),float2(-0.0173,0.0299));\n"
+        "float2 warpLaplacian=float2(-5.0*s0*q0Length2,-4.0*s1*q1Length2);\n"
+        WATER_OCEAN_MODES(WATER_OCEAN_HLSL)
+        "float envelope=0.86+0.14*s0*s1;\n"
+        "float2 envelopeSlope=0.14*(c0*s1*float2(0.0241,0.0157)+s0*c1*float2(-0.0173,0.0299));\n"
+        "float lapEnvelope=0.14*(-s0*s1*(q0Length2+q1Length2)+2.0*c0*c1*qDot);\n"
+        "float laplacian=value.w*envelope+2.0*dot(value.yz,envelopeSlope)+value.x*lapEnvelope;\n"
+        "swell=float4(swell.x*envelope,swell.yz*envelope+swell.x*envelopeSlope,"
+        "swell.w*envelope+2.0*dot(swell.yz,envelopeSlope)+swell.x*lapEnvelope);\n"
+        "return float4(value.x*envelope,value.yz*envelope+value.x*envelopeSlope,laplacian); }\n"
+        "float4 waterOceanSurface(float2 pxy,float seconds) { float4 swell;return waterOceanSurface(pxy,seconds,swell); }\n"
+        "float3 waterOceanWave(float2 pxy,float seconds) { return waterOceanSurface(pxy,seconds).xyz; }\n";
+#undef WATER_OCEAN_HLSL
+}
 inline const char *ShaderSource() {
 #define WATER_MODE_HLSL(kx,ky,amplitude,omega,phase) \
     "{ float p=dot(pxy,float2(" #kx "," #ky "))-seconds*" #omega "+" #phase ";" \
@@ -56,7 +192,7 @@ inline const char *ShaderSource() {
         "return value; }\n";
 #undef WATER_MODE_HLSL
 }
-inline void AppendHLSL(std::string &source) { source += ShaderSource(); }
+inline void AppendHLSL(std::string &source) { source += ShaderSource(); source += OceanShaderSource(); }
 inline float AdvanceTime(float seconds, float elapsed, bool paused, bool scriptFrozen, bool debugFrozen) {
     if (paused || scriptFrozen || debugFrozen) return seconds;
     return seconds + (elapsed < 0 ? 0 : (elapsed > 0.1f ? 0.1f : elapsed));
@@ -66,9 +202,37 @@ inline float ShoreDamping(float depth) {
     t = t < 0 ? 0 : (t > 1 ? 1 : t);
     return t*t*(3-2*t);
 }
+inline float BoxDamping(float x,float y,float major,float minor) {
+    const float qx=std::abs(x)-major,qy=std::abs(y)-minor;
+    const float outsideX=qx>0?qx:0,outsideY=qy>0?qy:0;
+    const float inside=qx>qy?qx:qy;
+    return ShoreDamping(std::sqrt(outsideX*outsideX+outsideY*outsideY)+(inside<0?inside:0));
+}
+inline bool BeyondObstacleFade(float dx,float dy,float radius) {
+    // A one-unit conservative margin avoids changing results at the floating-point boundary
+    // of the nine-unit fade. The bounding circle also encloses every oriented box footprint.
+    const float reach=radius+10.0f;
+    return dx*dx+dy*dy>reach*reach;
+}
 #define WATER_MODE_BOUND(kx,ky,amplitude,omega,phase) + amplitude * 1.13f
-constexpr float MaxDisplacement = 0.0f WATER_SURFACE_MODES(WATER_MODE_BOUND);
+constexpr float LegacyMaxDisplacement = 0.0f WATER_SURFACE_MODES(WATER_MODE_BOUND);
 #undef WATER_MODE_BOUND
+#define WATER_OCEAN_BOUND(kx,ky,amplitude,omega,phase) + amplitude * 1.08f
+constexpr float OceanMaxDisplacement = 0.0f WATER_OCEAN_MODES(WATER_OCEAN_BOUND);
+#undef WATER_OCEAN_BOUND
+constexpr float MaxDisplacement = OceanMaxDisplacement>LegacyMaxDisplacement?OceanMaxDisplacement:LegacyMaxDisplacement;
+inline std::uint32_t EncodeObstacleAttenuation(std::uint32_t diffuse,float attenuation) {
+    const float bounded=attenuation<0?0:(attenuation>1?1:attenuation);
+    return (diffuse&0xff00ffffu)|(std::uint32_t(bounded*255.0f+0.5f)<<16);
+}
+inline float TerrainDamping(float depth,float offshore) {
+    const float river=ShoreDamping(depth);
+    if (offshore<=0) return river;
+    const float blend=offshore>1?1:offshore;
+    float ocean=(depth-0.15f)/OceanMaxDisplacement;
+    ocean=ocean<0?0:(ocean>1?1:ocean);
+    return river+(ocean-river)*blend;
+}
 constexpr int MeshCells = 128;
 constexpr int MeshVertices = (MeshCells+1)*(MeshCells+1);
 constexpr int MeshTriangles = MeshCells*MeshCells*2;
@@ -102,6 +266,14 @@ inline MeshLOD LODForCameraHeight(int baseCells, float height) {
         lod.morph=t*t*(3.0f-2.0f*t);
     }
     return lod;
+}
+// A map-wide open-water extent makes detail independent of view-frustum crossings. Keep the
+// existing river/pool LOD exactly on maps without a large ocean; the same budget and morph apply.
+inline MeshLOD LODForView(int baseCells,float height,float oceanExtent) {
+    float t=(oceanExtent-600.0f)/800.0f;
+    t=t<0?0:(t>1?1:t);
+    const float detailScale=1.0f+3.0f*t*t*(3.0f-2.0f*t);
+    return LODForCameraHeight(baseCells,height/detailScale);
 }
 // Every fine vertex is a coarse vertex or the midpoint of a coarse edge/diagonal. The same
 // a-to-d diagonal is used by the renderer's triangle indices. Endpoints are always even/even,

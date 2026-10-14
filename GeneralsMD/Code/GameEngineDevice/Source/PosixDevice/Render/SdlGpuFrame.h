@@ -62,7 +62,7 @@ struct SdlTarget
 /// One draw as the flush replays it, everything by value.  The device's resolve fills it.
 struct SdlRecordedDraw
 {
-	enum { MAXIMUM_SAMPLERS = 8 };
+	enum { MAXIMUM_SAMPLERS = 16 };
 	SDL_GPUGraphicsPipeline * Pipeline;
 	SDL_GPUBuffer * VertexBuffer;		///< a GPU copy, or null for the batch's staging stream
 	uint32_t VertexOffset;				///< bytes into it
@@ -74,11 +74,16 @@ struct SdlRecordedDraw
 	int32_t BaseVertex;
 	uint32_t VertexConstants;			///< offsets into the batch's constant bytes (Constants)
 	uint32_t VertexConstantsSize;
+	uint32_t VertexWaterConstants;		///< water-only b1; aliases this draw's immutable pixel constants
+	uint32_t VertexWaterConstantsSize;
 	uint32_t PixelConstants;
 	uint32_t PixelConstantsSize;
 	uint32_t SamplerCount;
 	SDL_GPUTexture * Textures[MAXIMUM_SAMPLERS];
 	SDL_GPUSampler * Samplers[MAXIMUM_SAMPLERS];
+	uint32_t VertexSamplerCount;
+	SDL_GPUTexture * VertexTextures[MAXIMUM_SAMPLERS];
+	SDL_GPUSampler * VertexSamplers[MAXIMUM_SAMPLERS];
 	float Viewport[6];					///< x, y, width, height, min depth, max depth: as the GPU takes it
 	int32_t Scissor[4];					///< x, y, width, height
 	uint32_t StencilReference;
@@ -214,6 +219,12 @@ public:
 	/// Device depth (0..1), resolved into an independent R32_FLOAT texture between render passes.
 	/// Null if sampled depth is unsupported. Never aliases the depth attachment used by water.
 	SDL_GPUTexture * Water_Depth(const SdlTarget &source);
+	/// Lazy, GPU-only Phillips spectrum/IFFT. Previous draws finish recording before maps change;
+	/// repeated paused times reuse the same field. Failure leaves the analytic water fallback usable.
+	bool Prepare_Ocean(float time);
+	SDL_GPUTexture * Ocean_Map(unsigned int index) const;
+	SDL_GPUSampler * Ocean_Sampler() const;
+	uint64_t Ocean_Updates() const { return OceanUpdates; }
 	unsigned int Width() const { return BackWidth; }
 	unsigned int Height() const { return BackHeight; }
 	/// The back buffer's format, and so what a Present_To target has to be.
@@ -289,6 +300,14 @@ private:
 	SDL_GPUShader *WaterDepthVertex = NULL, *WaterDepthPixel = NULL;
 	SDL_GPUGraphicsPipeline *WaterDepthPipeline = NULL;
 	SDL_GPUSampler *WaterDepthSampler = NULL;
+	struct OceanResources;
+	OceanResources *Ocean = NULL;
+	bool OceanFailed = false, OceanReady = false;
+	float OceanTime = 0;
+	uint64_t OceanUpdates = 0;
+	bool Create_Ocean();
+	void Release_Ocean();
+	bool Fail_Ocean(const char *reason);
 	WaterSnapshot *Water_Snapshot(const SdlTarget &source);
 	void Invalidate_Water_Snapshots(SDL_GPUTexture *colour, SDL_GPUTexture *depth);
 	void Refresh_Water_Snapshots();

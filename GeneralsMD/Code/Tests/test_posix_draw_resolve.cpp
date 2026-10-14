@@ -289,9 +289,10 @@ static void check_constants(PosixDevice9 *device)
 
 	// Water must reconstruct world coordinates from the same projection that drew its geometry.
 	// Check the inverse by composing it with an independently calculated view/projection product.
-	const float water_registers[5][4] = { { 12.5f, 1, 1, 0 }, { -0.8f, -0.6f, 0.9f, 0.7f },
-		{ 0.2f, -0.3f, 0.8f, 0 }, { 0.7f, 0.6f, 0.5f, 0 }, { 160, 5120, 159.375f, 1 } };
-	device->SetPixelShaderConstantF(1, &water_registers[0][0], 5);
+	const float water_registers[6][4] = { { 12.5f, 1, 1, 0 }, { -0.8f, -0.6f, 0.9f, 0.7f },
+		{ 0.2f, -0.3f, 0.8f, 0 }, { 0.7f, 0.6f, 0.5f, 0 }, { 160, 5120, 159.375f, 1 },
+		{ 2.7f, 0.75f, 1.0f, 0 } };
+	device->SetPixelShaderConstantF(1, &water_registers[0][0], 6);
 	SdlWaterPixelConstants water;
 	device->Build_Water_Constants(pixel, water);
 	bool inverse = true;
@@ -310,6 +311,36 @@ static void check_constants(PosixDevice9 *device)
 	CHECK(memcmp(water.SunDirection, water_registers[2], 16) == 0);
 	CHECK(memcmp(water.SunColour, water_registers[3], 16) == 0);
 	CHECK(memcmp(water.TerrainParameters, water_registers[4], 16) == 0);
+	CHECK(memcmp(water.OpticalParameters, water_registers[5], 16) == 0);
+	// Capability-dependent FFT enablement is supplied only after native preparation succeeds,
+	// never inherited from the engine register bank or an earlier ocean draw.
+	CHECK(water.FftParameters[0]==0 && water.FftParameters[1]==0);
+	// The last vessel's last contour vertex must survive the complete register-to-uniform path.
+	// A shorter legacy pixel bank silently loses this end of the runtime hull field.
+	float hull_registers[81][4] = {};
+	hull_registers[0][0] = 8;
+	for (int r=1;r<81;++r) for (int c=0;c<4;++c) hull_registers[r][c]=float(r*4+c)+0.25f;
+	CHECK(device->SetPixelShaderConstantF(7,&hull_registers[0][0],81)==D3D_OK);
+	float standing_parameters[4]={12.5f,0,1,0};
+	device->SetPixelShaderConstantF(1,standing_parameters,1);
+	device->Build_Water_Constants(pixel,water);
+	CHECK(memcmp(water.HullParameters,hull_registers[0],16)==0);
+	CHECK(memcmp(water.HullData,hull_registers[1],sizeof(water.HullData))==0);
+	// New flat meshes repurpose UV0 only when this per-draw flag reaches the shader. A legacy
+	// grid immediately following them must clear the flag while retaining all other optical data.
+	float correction_optics[4]={2.7f,.75f,1,1};
+	CHECK(device->SetPixelShaderConstantF(6,correction_optics,1)==D3D_OK);
+	device->Build_Water_Constants(pixel,water);
+	CHECK(memcmp(water.OpticalParameters,correction_optics,sizeof(correction_optics))==0);
+	correction_optics[3]=0;
+	CHECK(device->SetPixelShaderConstantF(6,correction_optics,1)==D3D_OK);
+	device->Build_Water_Constants(pixel,water);
+	CHECK(water.OpticalParameters[3]==0 && memcmp(water.OpticalParameters,water_registers[5],16)==0);
+	CHECK(device->SetPixelShaderConstantF(PosixDevice9::PIXEL_SHADER_CONSTANT_COUNT-1,
+		&hull_registers[0][0],2)==D3DERR_INVALIDCALL);
+	device->SetPixelShaderConstantF(1,water_registers[0],1);
+	device->Build_Water_Constants(pixel,water);
+	CHECK(water.HullParameters[0]==0); // river following an ocean draw cannot reuse vessel foam
 	CHECK(near_value(water.Viewport[2], 64) && near_value(water.Viewport[3], 32));
 	// Scene depth is the hardware viewport depth, including a nondefault MinZ/MaxZ. Project a known
 	// point independently and reconstruct it, as both surface and submerged-object samples must do.

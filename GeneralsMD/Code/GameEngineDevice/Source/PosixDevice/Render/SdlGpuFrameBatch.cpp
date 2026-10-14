@@ -444,7 +444,7 @@ bool SdlGpuFrame::Record_Passes(SDL_GPUCommandBuffer * commands, SDL_GPUBuffer *
 	// What the pass has bound, to bind only a change.  Pushed uniforms outlive a pass (SDL3 keeps them for
 	// the rest of the command buffer), so those are tracked for the whole batch.
 	const SdlRecordedDraw * last = NULL;
-	uint32_t pushed_vertex = 0xFFFFFFFFu, pushed_pixel = 0xFFFFFFFFu;
+	uint32_t pushed_vertex = 0xFFFFFFFFu, pushed_water_vertex = 0xFFFFFFFFu, pushed_pixel = 0xFFFFFFFFu;
 
 	for (size_t i = 0; i <= Commands.size(); ++i) {
 		const bool end = i == Commands.size();
@@ -533,7 +533,7 @@ bool SdlGpuFrame::Record_Passes(SDL_GPUCommandBuffer * commands, SDL_GPUBuffer *
 			SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
 			// Everything the draws set is the clear's now: the next draw binds it all again.
 			last = NULL;
-			pushed_vertex = pushed_pixel = 0xFFFFFFFFu;
+			pushed_vertex = pushed_water_vertex = pushed_pixel = 0xFFFFFFFFu;
 			continue;
 		}
 		const SdlRecordedDraw & draw = Draws[Commands[i].Draw];
@@ -579,9 +579,23 @@ bool SdlGpuFrame::Record_Passes(SDL_GPUCommandBuffer * commands, SDL_GPUBuffer *
 			}
 			SDL_BindGPUFragmentSamplers(pass, 0, bindings, draw.SamplerCount);
 		}
+		if (draw.VertexSamplerCount > 0 && (last == NULL || last->VertexSamplerCount != draw.VertexSamplerCount
+			|| memcmp(last->VertexTextures, draw.VertexTextures, sizeof(draw.VertexTextures[0]) * draw.VertexSamplerCount) != 0
+			|| memcmp(last->VertexSamplers, draw.VertexSamplers, sizeof(draw.VertexSamplers[0]) * draw.VertexSamplerCount) != 0)) {
+			SDL_GPUTextureSamplerBinding bindings[SdlRecordedDraw::MAXIMUM_SAMPLERS];
+			for (uint32_t slot = 0; slot < draw.VertexSamplerCount; ++slot) {
+				bindings[slot].texture = draw.VertexTextures[slot];
+				bindings[slot].sampler = draw.VertexSamplers[slot];
+			}
+			SDL_BindGPUVertexSamplers(pass, 0, bindings, draw.VertexSamplerCount);
+		}
 		if (draw.VertexConstantsSize != 0 && draw.VertexConstants != pushed_vertex) {
 			SDL_PushGPUVertexUniformData(commands, 0, &ConstantBytes[draw.VertexConstants], draw.VertexConstantsSize);
 			pushed_vertex = draw.VertexConstants;
+		}
+		if (draw.VertexWaterConstantsSize != 0 && draw.VertexWaterConstants != pushed_water_vertex) {
+			SDL_PushGPUVertexUniformData(commands, 1, &ConstantBytes[draw.VertexWaterConstants], draw.VertexWaterConstantsSize);
+			pushed_water_vertex = draw.VertexWaterConstants;
 		}
 		if (draw.PixelConstantsSize != 0 && draw.PixelConstants != pushed_pixel) {
 			SDL_PushGPUFragmentUniformData(commands, 0, &ConstantBytes[draw.PixelConstants], draw.PixelConstantsSize);

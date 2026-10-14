@@ -63,6 +63,12 @@
 #include "sdl3shadercompile.h"
 #include "shader_cases.h"
 #include "Platform/WaterBedMaterial.h"
+#include "Platform/WaterOpticalModel.h"
+#include "Platform/WaterHullModel.h"
+#include "Platform/WaterSurfaceModel.h"
+#include "Platform/WaterFftSampling.h"
+#include "sdl3target.h"
+#include <limits>
 
 namespace {
 
@@ -220,6 +226,53 @@ TEST(runtime_bed_material_is_tileable_deterministic_and_has_distinct_relief)
 		const double mean = sum[c]/(side*side);
 		CHECK(mean > 10.0 && mean < 240.0);
 		CHECK(squares[c]/(side*side)-mean*mean > 200.0);
+	}
+}
+
+TEST(fft_water_vertex_and_pixel_compile_with_separate_texture_bindings)
+{
+	VertexPipelineDescription description=shader_cases_detail::plain_vertex();
+	description.FVF=0x252; // XYZ, normal, diffuse, two texture coordinate sets, the actual water mesh.
+	description.LightingEnabled=false;
+	description.StageCount=4;
+	for(unsigned i=0;i<4;++i) {
+		description.Stages[i].TextureCoordinateIndex=i<2?i:0;
+		description.Stages[i].TextureTransformFlags=FF_TTFF_DISABLE;
+	}
+	std::string vertex;
+	CHECK(VertexShader_Generate(description,VERTEX_SHADER_TARGET_D3D11,vertex));
+	// Hull constants must remain a water-only second slot. The ordinary fixed vertex program
+	// keeps its existing single block even when it has the same water-compatible FVF.
+	{
+		std::string fixed=vertex,log;std::vector<unsigned char> spirv;
+		CHECK(SDL3_Shader_Retarget(fixed,true));
+		const bool compiled=SDL3_Compile_HLSL_To_SPIRV(fixed,true,spirv,log);CHECK(compiled);
+		if(compiled) {
+			unsigned samplers=0,buffers=0;SDL3_Shader_Slots(spirv,true,samplers,buffers);
+			CHECK_EQ(samplers,0u);CHECK_EQ(buffers,1u);
+		}
+	}
+	CHECK(WaterFftSampling::WrapVertex(vertex));
+	CHECK(SDL3_Shader_Retarget(vertex,true));
+	const size_t swap=vertex.find("input.Diffuse = input.Diffuse.bgra");
+	CHECK(swap!=std::string::npos);
+	CHECK(vertex.find("input.Diffuse = input.Diffuse.bgra",swap+1)==std::string::npos);
+	PixelPipelineDescription pipeline={};
+	std::string pixel;
+	CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,pixel,COMBINER_SHADER_TARGET_SDL3_GPU));
+	for(int stage=0;stage<2;++stage) {
+		const bool isVertex=stage==0;
+		std::vector<unsigned char> spirv;std::string log,msl,why;
+		const bool compiled=SDL3_Compile_HLSL_To_SPIRV(isVertex?vertex:pixel,isVertex,spirv,log);
+		if(!compiled) printf("FFT water stage%d: %s\n",stage,log.c_str());
+		CHECK(compiled);if(!compiled) continue;
+		unsigned samplers=0,buffers=0;
+		SDL3_Shader_Slots(spirv,isVertex,samplers,buffers);
+		CHECK_EQ(samplers,isVertex?3u:14u);CHECK_EQ(buffers,isVertex?2u:1u);
+		const char *validator=getenv("ZH_SPIRV_VAL");
+		if(validator && *validator) CHECK(validate(validator,spirv,log));
+		CHECK(SDL3_Translate_SPIRV_To_MSL(spirv,isVertex,msl,log));
+		CHECK(slots_kept(msl,samplers,why));
 	}
 }
 
@@ -419,4 +472,325 @@ TEST(every_vertex_program_links_with_every_pixel_program_it_can_meet)
 	SDL_DestroyGPUDevice(device);
 	SDL_Quit();
 #endif
+}
+
+namespace {
+float opticalChannel(const WaterOpticalModel::RGB &rgb,int channel)
+{
+	return channel==0?rgb.r:(channel==1?rgb.g:rgb.b);
+}
+float displayedBed(float bed,float scatter,float transmission)
+{
+	return std::pow(std::pow(bed,2.2f)*transmission+scatter*(1.0f-transmission),1.0f/2.2f);
+}
+float displayedBedContrast(float transmission,float scatter)
+{
+	return (displayedBed(0.65f,scatter,transmission)-displayedBed(0.25f,scatter,transmission))/0.4f;
+}
+}
+
+TEST(water_optics_shores_and_unclassified_pools_keep_existing_shallow_transmission)
+{
+	using namespace WaterOpticalModel;
+	for (float river:{0.0f,0.25f,0.5f,1.0f}) for (float distance:{0.0f,0.25f,2.0f,5.0f,10.0f,20.0f,80.0f}) {
+		const float materialPath=distance*(2.4f+(1.0f-2.4f)*river);
+		const RGB original={std::exp(-materialPath*0.065f),std::exp(-materialPath*0.026f),std::exp(-materialPath*0.019f)};
+		for (float opacity:{0.0f,0.5f,0.75f,1.0f}) for (float depth:{0.25f,2.7f,3.0f,10.0f}) {
+			const RGB shore=Transmission(distance,river,0.0f,depth,opacity);
+			CHECK(memcmp(&shore,&original,sizeof(RGB))==0);
+			const RGB unauthored=Transmission(distance,river,1.0f,depth,0.0f);
+			CHECK(memcmp(&unauthored,&original,sizeof(RGB))==0);
+		}
+	}
+	CHECK(std::abs(OffshoreExtinction(2.7f,0.75f)-(-std::log(0.25f)/2.7f))<0.000001f);
+	CHECK(std::abs(OffshoreExtinction(3.0f,1.0f)-(-std::log(0.01f)/3.0f))<0.000001f);
+	const RGB zero=Transmission(0,0,1,0,1);
+	CHECK(zero.r==1 && zero.g==1 && zero.b==1);
+	CHECK(std::abs(displayedBed(0.43f,0.028f,zero.g)-0.43f)<0.000001f);
+}
+
+TEST(water_optics_authored_extinction_uses_unscaled_physical_ray_length)
+{
+	using namespace WaterOpticalModel;
+	for (float distance:{0.25f,1.0f,3.2f,10.0f,40.0f}) for (float river:{0.0f,0.5f,1.0f}) {
+		const RGB base=Transmission(distance,river,0,2.7f,0.75f);
+		const RGB offshore=Transmission(distance,river,1,2.7f,0.75f);
+		const RGB halfway=Transmission(distance,river,0.5f,2.7f,0.75f);
+		const float authored=std::exp(-distance*OffshoreExtinction(2.7f,0.75f));
+		for (int channel=0;channel<3;++channel) {
+			const float a=opticalChannel(base,channel),b=opticalChannel(offshore,channel),m=opticalChannel(halfway,channel);
+			CHECK(std::abs(b-a*authored)<0.000001f);
+			CHECK(m>=b && m<=a);
+			CHECK(std::abs(m*m-a*b)<0.000001f); // Optical thickness interpolates, not display colour.
+		}
+	}
+}
+
+TEST(water_optics_transmission_is_finite_bounded_and_monotone)
+{
+	using namespace WaterOpticalModel;
+	const float infinity=std::numeric_limits<float>::infinity(),nan=std::numeric_limits<float>::quiet_NaN();
+	const float inputs[]={-infinity,nan,-3,0,0.1f,0.5f,1,3,100,infinity};
+	for (float distance:inputs) for (float river:inputs) for (float offshore:inputs)
+		for (float depth:inputs) for (float opacity:inputs) {
+		const RGB t=Transmission(distance,river,offshore,depth,opacity);
+		CHECK(std::isfinite(t.r) && std::isfinite(t.g) && std::isfinite(t.b));
+		CHECK(t.r>=0 && t.r<=1 && t.g>=0 && t.g<=1 && t.b>=0 && t.b<=1);
+	}
+	for (float river:{0.0f,1.0f}) for (float offshore:{0.0f,0.5f,1.0f}) {
+		RGB previous=Transmission(0,river,offshore,2.7f,0.75f);
+		for (int i=1;i<=1000;++i) {
+			const RGB current=Transmission(i*0.5f,river,offshore,2.7f,0.75f);
+			CHECK(current.r<=previous.r && current.g<=previous.g && current.b<=previous.b);
+			previous=current;
+		}
+	}
+}
+
+TEST(water_optics_deep_water_converges_without_a_180_unit_visibility_plateau)
+{
+	using namespace WaterOpticalModel;
+	for (float river:{0.0f,1.0f}) {
+		const RGB at180=Transmission(180,river,0,3,0),at360=Transmission(360,river,0,3,0),deep=Transmission(100000,river,0,3,0);
+		CHECK(at360.r<at180.r && at360.g<at180.g && at360.b<at180.b);
+		CHECK(deep.r<1e-30f && deep.g<1e-30f && deep.b<1e-30f);
+		CHECK(std::abs(displayedBed(0.65f,0.041f,deep.b)-std::pow(0.041f,1.0f/2.2f))<0.000001f);
+	}
+	for (float distance:{0.0f,1.0f,10.0f,100.0f}) {
+		const RGB t=Transmission(distance,0,1,3,1);
+		// A bed already equal to the scattering radiance must not brighten/darken with distance.
+		const float scatter=0.028f,displayScatter=std::pow(scatter,1.0f/2.2f);
+		CHECK(std::abs(displayedBed(displayScatter,scatter,t.g)-displayScatter)<0.000001f);
+	}
+}
+
+TEST(water_optics_authored_offshore_examples_hide_bed_in_display_space)
+{
+	using namespace WaterOpticalModel;
+	const float scatter[3]={0.002f,0.028f,0.041f};
+	// Optical interpretations of the maps' existing artistic settings: mission water at Z=7
+	// has a ~10-unit ray, opacity .75 at reference depth 2.7; shell water at Z=21 has ~2.25
+	// units of vertical depth and a ~3.2-unit ray, opacity 1 at reference depth 3.
+	const float scenarios[][3]={{10.0f,0.75f,2.7f},{3.2f,1.0f,3.0f}};
+	for (const auto &scenario:scenarios) {
+		const RGB shore=Transmission(scenario[0],0,0,scenario[2],scenario[1]);
+		const RGB offshore=Transmission(scenario[0],0,1,scenario[2],scenario[1]);
+		for (int channel=0;channel<3;++channel) {
+			CHECK(displayedBedContrast(opticalChannel(offshore,channel),scatter[channel])<0.05f);
+			CHECK(displayedBedContrast(opticalChannel(offshore,channel),scatter[channel])<
+				displayedBedContrast(opticalChannel(shore,channel),scatter[channel]));
+		}
+	}
+}
+
+TEST(water_optical_ray_correction_preserves_camera_rays_and_zero_offshore)
+{
+	using namespace WaterOpticalModel;
+	for (float vz:{.25f,.5f,.8f,1.0f}) for (float delta:{-3.0f,-.7f,0.0f,.4f,2.0f})
+		for (float offshore:{0.0f,.25f,.5f,1.0f}) {
+			const float vx=std::sqrt(1-vz*vz),shift=RayShift(delta,vz,offshore,7,100,100);
+			const float x=5+vx*shift,z=12+vz*shift;
+			// Independent intersection with a horizontal analytic surface: sufficient room to both
+			// the camera and the scene means the new point must land exactly at its blended height.
+			CHECK(std::abs(z-(12+delta*offshore))<0.000003f);
+			CHECK(std::abs((x-5)*vz-(z-12)*vx)<0.000003f); // parallel to the same camera ray
+			const float sceneX=5-vx*100,sceneZ=12-vz*100;
+			const float distance=std::sqrt((x-sceneX)*(x-sceneX)+(z-sceneZ)*(z-sceneZ));
+			CHECK(std::abs(distance-(100+shift))<0.00003f);
+			if (offshore==0) {
+				CHECK(shift==0 && x==5 && z==12);
+				const RGB before=Transmission(100,0,0,3,.75f),after=Transmission(100+shift,0,0,3,.75f);
+				CHECK(before.r==after.r && before.g==after.g && before.b==after.b);
+			}
+		}
+}
+
+TEST(water_optical_ray_correction_cannot_cross_scene_hits_or_the_camera)
+{
+	using namespace WaterOpticalModel;
+	for (float delta:{-1000000.0f,-100.0f,-1.0f,0.0f,1.0f,100.0f,1000000.0f})
+		for (float vz:{-.8f,0.0f,.001f,.05f,.2f,.8f,1.0f})
+			for (float offshore:{0.0f,.25f,.5f,1.0f})
+				for (float hit:{0.0f,.01f,.08f,.2f,2.0f,50.0f})
+					for (float camera:{0.0f,.04f,.08f,.3f,12.0f,100.0f}) {
+						const float shift=RayShift(delta,vz,offshore,7,hit,camera);
+						CHECK(std::isfinite(shift));
+						CHECK(std::abs(shift)<=70.00001f); // 2*7 height / .2 grazing denominator
+						CHECK(hit+shift>=std::min(hit,RaySurfaceMargin)-0.00001f);
+						CHECK(camera-shift>=std::min(camera,RaySurfaceMargin)-0.00001f);
+						if (vz<=0 || offshore==0) CHECK(shift==0);
+					}
+	const float nan=std::numeric_limits<float>::quiet_NaN(),inf=std::numeric_limits<float>::infinity();
+	for (float invalid:{nan,inf,-inf}) {
+		CHECK(RayShift(invalid,.8f,1,7,10,100)==0);
+		CHECK(RayShift(1,invalid,1,7,10,100)==0);
+		CHECK(std::isfinite(RayShift(-1,.8f,1,7,invalid,100)));
+		CHECK(std::isfinite(RayShift(1,.8f,1,7,10,invalid)));
+		CHECK(std::isfinite(RayShift(1,.8f,invalid,7,10,100)));
+		CHECK(std::isfinite(RayShift(1,.8f,1,invalid,10,100)));
+	}
+}
+
+TEST(water_optical_ray_correction_keeps_submerged_objects_clearer_than_the_bed)
+{
+	using namespace WaterOpticalModel;
+	// An object lies .25 along the rendered camera ray and the terrain lies 4 units away. The
+	// analytic trough would move the surface 2.5 units along that ray, behind the close object.
+	const float objectShift=RayShift(-2,.8f,1,7,.25f,100),bedShift=RayShift(-2,.8f,1,7,4,100);
+	const float objectGap=.25f+objectShift,bedGap=4+bedShift;
+	CHECK(std::abs(objectGap-.08f)<0.000001f && std::abs(bedGap-1.5f)<0.000001f);
+	const RGB object=Transmission(objectGap,0,1,3,.75f),bed=Transmission(bedGap,0,1,3,.75f);
+	CHECK(object.r>bed.r && object.g>bed.g && object.b>bed.b);
+	// Armed control reproduces the old bug: a length() taken after passing the hit becomes
+	// positive again and makes the near object *darker* than the farther bed.
+	const RGB crossed=Transmission(std::abs(.25f-2.5f),0,1,3,.75f);
+	CHECK(crossed.r<bed.r && crossed.g<bed.g && crossed.b<bed.b);
+	CHECK(RayShift(-2,.8f,1,7,.03f,100)==0); // preserve a hit closer than the safety margin
+	CHECK(std::abs(RayShift(2,.8f,1,7,10,.3f)-.22f)<0.000001f);
+}
+
+TEST(water_optics_shared_hlsl_compiles_and_translates_without_gpu_execution)
+{
+	std::string hlsl=WaterOpticalModel::GetHlslSource();
+	hlsl+="float4 main(float4 position : SV_Position) : SV_Target { float shift=WaterOpticalRayShift(position.x,.8,position.z,7,10,100); return float4(WaterOpticalTransmission(abs(position.x), position.y, position.z, 2.7, 0.75), shift); }\n";
+	std::vector<unsigned char> spirv;
+	std::string log,msl;
+	const bool compiled=SDL3_Compile_HLSL_To_SPIRV(hlsl,false,spirv,log);
+	if (!compiled) printf("  water optics HLSL compilation failed: %s\n",log.c_str());
+	CHECK(compiled);
+	if (!compiled) return;
+	const char *spirvVal=getenv("ZH_SPIRV_VAL");
+	if (spirvVal && *spirvVal) {
+		std::string output;
+		const bool valid=validate(spirvVal,spirv,output);
+		if (!valid) printf("  water optics SPIR-V validation failed: %s\n",output.c_str());
+		CHECK(valid);
+	}
+	const bool translated=SDL3_Translate_SPIRV_To_MSL(spirv,false,msl,log);
+	if (!translated) printf("  water optics MSL translation failed: %s\n",log.c_str());
+	CHECK(translated);
+}
+
+TEST(water_hull_slices_actual_triangles_at_water_not_the_deck_or_collision_box)
+{
+	using namespace WaterHullModel;
+	// An asymmetric, tapered hull widens from 10 below water to 30 at its elevated deck.
+	// At z=0 its waterline must be exactly half way: width20, not the deck/collision width30.
+	const Point outline[]={{-40,-10},{20,-10},{40,0},{20,10},{-40,10}};
+	std::vector<Point> intersections;
+	for(unsigned i=0;i<5;++i) {
+		const Point a=outline[i],b=outline[(i+1)%5];
+		const Point3 lowA={a.x,a.y,-5},lowB={b.x,b.y,-5};
+		const Point3 highA={a.x,a.y*3,5},highB={b.x,b.y*3,5};
+		CHECK(SliceTriangle(lowA,lowB,highB,intersections));
+		CHECK(SliceTriangle(lowA,highB,highA,intersections));
+	}
+	const Polygon hull=BuildPolygon(intersections);
+	// The slanted bow quad is not planar: its authored triangle diagonal intersects at
+	// (30,15), outside the straight line joining (40,0) and (20,20). Keep that real mesh kink.
+	CHECK(hull.count==6 && hull.error<0.0001f);
+	CHECK(std::abs(SignedDistance({30,15},hull))<0.0001f);
+	CHECK(std::abs(SignedDistance({0,20},hull))<0.0001f);
+	CHECK(std::abs(SignedDistance({0,25},hull)-5)<0.0001f);
+	CHECK(std::abs(SignedDistance({0,0},hull)+20)<0.0001f);
+	CHECK(SignedDistance({38,10},hull)>0); // pointed bow, not a rectangular collision box
+	CHECK(SignedDistance({-38,10},hull)<0); // broad stern retained
+	const Polygon wrongDeck=BuildPolygon({{-40,-30},{20,-30},{40,0},{20,30},{-40,30}});
+	CHECK(SignedDistance({0,25},wrongDeck)<0); // armed deck-footprint control
+	std::vector<Point> dry;
+	CHECK(SliceTriangle({0,0,1},{1,0,2},{0,1,3},dry));CHECK(dry.empty());
+	CHECK(SliceTriangle({0,0,0},{10,0,0},{0,10,0},dry));CHECK(BuildPolygon(dry).count==3);
+}
+
+TEST(water_hull_contours_have_bounded_cost_and_report_simplification_error)
+{
+	using namespace WaterHullModel;
+	std::vector<Point> ellipse;
+	for(unsigned i=0;i<256;++i) {
+		const float angle=float(i)*6.28318530718f/256;
+		ellipse.push_back({283.0f*std::cos(angle),36.0f*std::sin(angle)});
+	}
+	const Polygon reduced=BuildPolygon(ellipse);
+	CHECK(reduced.count==MaxVertices && reduced.error>0 && reduced.error<6);
+	float independentlyMeasured=0;
+	for(Point p:ellipse) independentlyMeasured=std::max(independentlyMeasured,SignedDistance(p,reduced));
+	CHECK(std::abs(independentlyMeasured-reduced.error)<0.0001f);
+	for(unsigned i=0;i<reduced.count;++i) {
+		const Point p=reduced.points[i];
+		CHECK(p.x*p.x/(283*283)+p.y*p.y/(36*36)<1.00001f);
+	}
+	CHECK(BuildPolygon({{0,0},{1,1},{2,2}}).count==0);
+	CHECK(BuildPolygon({{0,0},{0,0},{0,0}}).count==0);
+	ellipse.resize(MaxSlicePoints+1);CHECK(BuildPolygon(ellipse).count==0);
+	std::vector<Point> full(MaxSlicePoints);
+	CHECK(!SliceTriangle({0,0,-1},{1,0,1},{0,1,1},full));CHECK(full.size()==MaxSlicePoints);
+	std::vector<Point> invalid;
+	CHECK(!SliceTriangle({0,0,0},{1,std::numeric_limits<float>::quiet_NaN(),0},{0,1,0},invalid));
+}
+
+TEST(water_hull_packing_rotation_damping_and_distinct_water_levels)
+{
+	using namespace WaterHullModel;
+	Hull hull;
+	hull.data[0][0]=3028;hull.data[0][1]=588;hull.data[0][2]=7;hull.data[0][3]=4;
+	hull.data[1][0]=0;hull.data[1][1]=-1;hull.data[1][2]=100;hull.data[1][3]=20;
+	const Point p[]={{-100,-20},{100,-20},{100,20},{-100,20}};
+	for(unsigned i=0;i<4;++i) {hull.data[4+i/2][(i%2)*2]=p[i].x;hull.data[4+i/2][(i%2)*2+1]=p[i].y;}
+	CHECK(Damping(hull,3028,588,7)==0);
+	CHECK(Damping(hull,3028,588,9)==1); // another water plane cannot flatten this one
+	CHECK(Damping(hull,3052.5f,588,7)==0.5f);
+	CHECK(Damping(hull,3057,588,7)==1);
+	CHECK(Damping(hull,10000,10000,7)==1);
+	for(float blend:{0.0f,.25f,.5f,1.0f}) {
+		const float atten=1+(Damping(hull,3052.5f,588,7)-1)*blend;
+		CHECK(std::abs(atten-(1-.5f*blend))<0.000001f);
+	}
+	const Point bowWorld={3028,488};
+	const Point local=LocalPoint(hull,bowWorld.x,bowWorld.y);
+	CHECK(local.x==100 && local.y==0); // authored negative-X bow can become positive local bow
+	CHECK(sizeof(Hull)==RegistersPerHull*16);
+}
+
+TEST(water_hull_shared_distance_hlsl_compiles_and_translates)
+{
+	std::string hlsl="cbuffer Hulls : register(b0, space3) { float4 HullData[80]; };\n";
+	hlsl+=WaterHullModel::GetHlslSource();
+	hlsl+="float4 main(float4 position : SV_Position) : SV_Target { return WaterHullSignedDistance(position.xy,70,12); }\n";
+	std::vector<unsigned char> spirv;std::string log,msl;
+	const bool compiled=SDL3_Compile_HLSL_To_SPIRV(hlsl,false,spirv,log);
+	if(!compiled) printf("  hull HLSL compilation failed: %s\n",log.c_str());
+	CHECK(compiled);if(!compiled) return;
+	const bool translated=SDL3_Translate_SPIRV_To_MSL(spirv,false,msl,log);
+	if(!translated) printf("  hull HLSL MSL translation failed: %s\n",log.c_str());
+	CHECK(translated);
+}
+
+TEST(water_macro_swell_gradients_and_curvature_include_warp_and_packet_derivatives)
+{
+	using namespace WaterSurfaceModel;
+	unsigned gradientControls=0,curvatureControls=0;
+	for(float time:{0.0f,1.7f,12.0f,38.0f}) for(float x:{-80.0f,0.0f,17.0f}) for(float y:{-21.0f,0.0f,43.0f}) {
+		const OceanSurface s=EvaluateOceanSwell(x,y,time);
+		const float step=.125f;
+		const float xp=EvaluateOceanSwell(x+step,y,time).height,xm=EvaluateOceanSwell(x-step,y,time).height;
+		const float yp=EvaluateOceanSwell(x,y+step,time).height,ym=EvaluateOceanSwell(x,y-step,time).height;
+		CHECK(std::abs((xp-xm)/(2*step)-s.dx)<.0015f);
+		CHECK(std::abs((yp-ym)/(2*step)-s.dy)<.0015f);
+		CHECK(std::abs((xp+xm+yp+ym-4*s.height)/(step*step)-s.laplacian)<.0015f);
+		const float q0=x*.0241f+y*.0157f-time*.23f+.4f,q1=x*-.0173f+y*.0299f-time*.19f+2.1f;
+		const float s0=std::sin(q0),s1=std::sin(q1),px=x+5*s0,py=y+4*s1,envelope=.86f+.14f*s0*s1;
+		float wrongX=0,wrongY=0,wrongLaplacian=0,height=0;
+#define TEST_MACRO_SWELL(kx,ky,amplitude,omega,phase) if((kx)*(kx)+(ky)*(ky)<.18f) { \
+		const float p=px*(kx)+py*(ky)-time*(omega)+(phase),sn=std::sin(p),cs=std::cos(p); \
+		height+=(amplitude)*(sn+.16f*sn*cs); \
+		const float derivative=(amplitude)*(cs+.16f*(cs*cs-sn*sn)); \
+		wrongX+=derivative*(kx);wrongY+=derivative*(ky); \
+		wrongLaplacian+=(amplitude)*(-sn-.64f*sn*cs)*((kx)*(kx)+(ky)*(ky)); }
+		WATER_OCEAN_MODES(TEST_MACRO_SWELL)
+#undef TEST_MACRO_SWELL
+		CHECK(std::abs(height*envelope-s.height)<.000001f);
+		if(std::max(std::abs(wrongX*envelope-s.dx),std::abs(wrongY*envelope-s.dy))>.002f) ++gradientControls;
+		if(std::abs(wrongLaplacian*envelope-s.laplacian)>.002f) ++curvatureControls;
+	}
+	CHECK(gradientControls>=8 && curvatureControls>=8);
 }

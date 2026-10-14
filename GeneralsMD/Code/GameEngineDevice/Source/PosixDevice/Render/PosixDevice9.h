@@ -160,7 +160,8 @@ public:
 		STREAM_COUNT = 16,
 		RENDER_TARGET_COUNT = 4,
 		VERTEX_SHADER_CONSTANT_COUNT = 256,
-		PIXEL_SHADER_CONSTANT_COUNT = 32
+		// Modern water transports a bounded set of visible hull contours in c7-c87.
+		PIXEL_SHADER_CONSTANT_COUNT = 96
 	};
 
 	PosixDevice9(PosixDirect3D9 *adapter, RenderWindow window, const D3DPRESENT_PARAMETERS &parameters);

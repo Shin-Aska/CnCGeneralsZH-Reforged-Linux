@@ -46,6 +46,11 @@
 #include "Common/Snapshot.h"
 #include "GameLogic/WaterGridMotion.h"
 #include "Platform/RenderTypes.h"
+#include "Platform/WaterOpticalContext.h"
+#include "Platform/WaterProjectedMesh.h"
+#include "Platform/WaterObstacleIndex.h"
+#include "Platform/WaterHullModel.h"
+#include "Platform/WaterVesselMotion.h"
 
 #define INVALID_WATER_HEIGHT 0.0f	///water height guaranteed to be below all terrain.
 
@@ -224,12 +229,53 @@ protected:
 	Real m_modernWaveTime = 0.0f;
 	Int m_modernMeshCells = 32;
 	Real m_modernMeshMorph = 0.0f;
+	Int m_modernProjectedColumns=160,m_modernProjectedRows=90;
+	size_t m_modernProjectedVertices=0,m_modernProjectedTriangles=0,m_modernProjectedFallbacks=0,m_modernRetainedVertices=0;
+	size_t m_modernProjectedBudget=60000,m_modernProjectedEvaluations=0;
+	Bool m_modernProjectedCacheEnabled=TRUE;
+	Bool m_modernProfileEnabled=FALSE;
+	struct ModernWaterProfile {
+		double render=0,setup=0,hulls=0,obstacles=0,mesh=0,fill=0,submit=0;
+		double fieldSample=0,dampingSample=0,waveSample=0,cacheSample=0;
+		size_t frames=0,vertices=0,triangles=0,patches=0,patchObstacles=0;
+		size_t attempts=0,hits=0,misses=0,samples=0,wavePoints=0;
+	} m_modernProfile;
+	struct ModernProjectedSample { Real height,damping,obstacle,offshore,fftDamping; };
+	std::unordered_map<WaterProjectedMesh::WorldKey,ModernProjectedSample,WaterProjectedMesh::WorldHash> m_modernProjectedSamples;
 	Vector3 m_modernCamera;
 	CameraClass *m_modernRenderCamera = NULL;
-	struct ModernWaterObstacle { Vector3 position; Real radius, height; };
+	struct ModernWaterObstacle {
+		Vector3 position; Real radius,height,major,minor,cosine,sine; Bool box,hasHull=FALSE;
+	};
 	std::vector<ModernWaterObstacle> m_modernObstacles, m_modernPatchObstacles;
+	WaterObstacleIndex::Grid m_modernObstacleIndex;
+	std::vector<WaterObstacleIndex::Influence> m_modernObstacleInfluences;
+	struct ModernHullCache {
+		RenderObjClass *model=NULL; // retained until eviction/reset; pointer identity cannot be reused
+		UnsignedInt objectID=0, lastUse=0;
+		unsigned long long signature=0;
+		WaterHullModel::Polygon polygon;
+		Real forwardSign=1.0f;
+		WaterVesselMotion::State motion;
+	};
+	std::vector<ModernHullCache> m_modernHullCache;
+	std::vector<WaterHullModel::Hull> m_modernHulls;
+	std::vector<UnsignedInt> m_modernHullObjectIDs;
+	UnsignedInt m_modernHullSerial=0;
+	UnsignedInt m_modernHullTraceLines=0;
 	std::vector<UnsignedByte> m_modernHeights;
 	Int m_modernHeightWidth = 0, m_modernHeightHeight = 0, m_modernHeightSide = 0;
+	Int m_modernHeightBorder = -1;
+	const void *m_modernHeightMap = NULL, *m_modernHeightData = NULL;
+	Real m_modernOpticalLevel = 0.0f;
+	struct ModernOpticalTexture {
+		Real level; TextureClass *texture;
+		std::vector<UnsignedByte> ocean;
+		Real oceanExtent=0.0f;
+	};
+	std::vector<ModernOpticalTexture> m_modernOpticalTextures;
+	std::vector<WaterOpticalContext::Polygon> m_modernOpticalPolygons;
+	Bool m_modernOpticalPolygonsValid = FALSE;
 	IDirect3DPixelShader9 *	m_waterPixelShader;		///<D3D pixel shader.
 	IDirect3DPixelShader9 *	m_riverWaterPixelShader;		///<D3D pixel shader.
 	IDirect3DPixelShader9 *	m_trapezoidWaterPixelShader;	///<D3D pixel shader
@@ -274,12 +320,19 @@ protected:
 	///bounding box of frustum clipped polygon plane
 	Bool getClippedWaterPlane(CameraClass *cam, AABoxClass *box);
 
-	void setupFlatWaterShader(void);
+	void setupFlatWaterShader(Bool heightCorrection=FALSE);
 	void setupJbaWaterShader(void);
-	void setupModernWaterShader(Bool river);
+	void setupModernWaterShader(Bool river,Bool heightCorrection=FALSE);
 	void updateModernWaterTextures(void);
+	void updateModernWaterHulls(void);
+	void clearModernWaterHulls(void);
+	Real modernHullDamping(Real x,Real y,Real level) const;
+	Bool modernHasHull(UnsignedInt objectID) const;
+	void clearModernWaterOpticalTextures(void);
+	void refreshModernWaterOpticalPolygons(void);
+	TextureClass *modernWaterOpticalTexture(Real level);
 	void drawModernWaterPatch(const Vector3 points[4], Bool river, Real riverStart = 0, Real riverEnd = 1);
-	Real modernWaterDamping(Real x, Real y, Real z) const;
+	Real modernWaterDamping(Real x, Real y, Real z, Real offshore=0.0f, Real *obstacleAttenuation=NULL, Real *terrainDepth=NULL, Real *hullFreeDamping=NULL) const;
 	Bool m_renderingMirror = FALSE; ///< prevents a water draw sampling the mirror being written
 	void cleanupJbaWaterShader(void);
 

@@ -35,7 +35,7 @@
 #ifndef SDLCONSTANTS_H
 #define SDLCONSTANTS_H
 
-#include "ffvertex.h"		// MAXIMUM_VERTEX_STAGES, MAXIMUM_VERTEX_LIGHTS
+#include "../../../../Libraries/Source/WWVegas/WW3D2/ffvertex.h" // MAXIMUM_VERTEX_STAGES, MAXIMUM_VERTEX_LIGHTS
 
 struct SdlVertexConstants
 {
@@ -75,8 +75,12 @@ struct SdlWaterPixelConstants
 	float WaterParameters[4]; // animation seconds, river flag, reflection available, mirror height
 	float TerrainParameters[4]; // height texture border, world size, height scale, available
 	float SceneParameters[4]; // refraction available, inverse scene-target width/height, scene depth available
+	float OpticalParameters[4]; // authored depth/opacity, offshore context available, flat UV0 height correction available
+	float HullParameters[4]; // number of visible vessel contours, remaining components reserved
+	float HullData[80][4]; // eight vessels, ten float4 registers each; runtime waterline geometry
+	float FftParameters[4]; // x: the dedicated vertex displacement and six sampled ocean maps are bound
 };
-static_assert(sizeof(SdlWaterPixelConstants) == 15 * 16, "water uniform packing");
+static_assert(sizeof(SdlWaterPixelConstants) == 98 * 16, "water uniform packing");
 
 /// What an engine pixel program's b0 declares (A3e, engineshader.cpp's write_pixel_preamble): the Direct3D
 /// 11 backend's PixelConstantBlock, field for field.  The first three are SdlPixelConstants; the rest -

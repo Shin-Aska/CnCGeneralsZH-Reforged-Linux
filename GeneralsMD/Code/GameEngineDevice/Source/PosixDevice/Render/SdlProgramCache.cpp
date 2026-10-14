@@ -24,6 +24,8 @@
 #include "engineshader.h"
 #include "ffshader.h"
 #include "ffvertex.h"
+#include "sdl3target.h"
+#include "Platform/WaterFftSampling.h"
 
 #include <SDL3/SDL.h>
 
@@ -214,6 +216,28 @@ const SdlProgram &SdlProgramCache::Vertex_Program(const VertexPipelineDescriptio
 	const bool generated = VertexShader_Generate(description, VERTEX_SHADER_TARGET_SDL3_GPU, hlsl);
 	const SdlProgram &made = Make(VertexPrograms, key, generated, hlsl, true);
 	VertexByBytes.Add(&description, sizeof(description), &VertexPrograms[key]);
+	return made;
+}
+
+const SdlProgram &SdlProgramCache::Water_Vertex_Program(const VertexPipelineDescription &description)
+{
+	if (SdlProgram *found = WaterVertexByBytes.Find(&description, sizeof(description))) {
+		++found->Uses;
+		return *found;
+	}
+	const std::string key = "water-fft:" + VertexShader_Key(description);
+	std::map<std::string, SdlProgram>::iterator existing = VertexPrograms.find(key);
+	if (existing != VertexPrograms.end()) {
+		++existing->second.Uses;
+		WaterVertexByBytes.Add(&description, sizeof(description), &existing->second);
+		return existing->second;
+	}
+	std::string hlsl;
+	const bool generated = !description.LightingEnabled
+		&& VertexShader_Generate(description, VERTEX_SHADER_TARGET_D3D11, hlsl)
+		&& WaterFftSampling::WrapVertex(hlsl) && SDL3_Shader_Retarget(hlsl, true);
+	const SdlProgram &made = Make(VertexPrograms, key, generated, hlsl, true);
+	WaterVertexByBytes.Add(&description, sizeof(description), &VertexPrograms[key]);
 	return made;
 }
 

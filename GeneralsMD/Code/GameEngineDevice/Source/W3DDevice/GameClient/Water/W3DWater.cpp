@@ -35,10 +35,16 @@
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "stdio.h"
 #include <cstdlib>
+#include <chrono>
 #include "Lib/Clock.h"
 #include "Platform/WaterSurfaceModel.h"
 #include "Platform/WaterBedMaterial.h"
+#include "Platform/WaterFftGeometry.h"
 #include "GameLogic/Object.h"
+#include "GameLogic/TerrainLogic.h"
+#include "GameLogic/Module/PhysicsUpdate.h"
+#include "GameClient/Drawable.h"
+#include "W3DDevice/GameClient/Module/W3DModelDraw.h"
 #include "W3DDevice/GameClient/W3DWater.h"
 #include "W3DDevice/GameClient/HeightMap.h"
 #include "W3DDevice/GameClient/W3DShroud.h"
@@ -56,6 +62,8 @@
 #include "dx11twin.h"
 #include "simplevec.h"
 #include "mesh.h"
+#include "meshmdl.h"
+#include "hlod.h"
 #include "matinfo.h"
 
 #include "Common/GameState.h"
@@ -338,7 +346,267 @@ void WaterRenderObjClass::setupJbaWaterShader(void)
 
 // SDL's map water composites the coloured mirror in its surface shader. Windows retains the
 // original assembly and its separate reflection pass. No texture assets or game data are changed.
-void WaterRenderObjClass::setupModernWaterShader(Bool river)
+namespace {
+struct WaterHullMesh {
+	MeshModelClass *model;
+	float transform[3][4]; // local mesh vertex -> horizontal vessel frame and water-relative Z
+};
+static void WaterHullHash(unsigned long long &hash,unsigned long long value)
+{
+	hash^=value; hash*=1099511628211ULL;
+}
+static Bool CollectWaterHullMeshes(RenderObjClass *object,const Vector3 &origin,float axisX,float axisY,
+	float level,std::vector<WaterHullMesh> &meshes,unsigned long long &signature,unsigned &visited,unsigned depth=0)
+{
+	if (!object || object->Is_Hidden() || object->Is_Animation_Hidden()) return TRUE;
+	if (depth>6 || ++visited>WaterHullModel::MaxMeshes) return FALSE;
+	if (object->Class_ID()==RenderObjClass::CLASSID_MESH) {
+		MeshModelClass *model=static_cast<MeshClass*>(object)->Peek_Model();
+		if (!model || model->Get_Flag(MeshGeometryClass::SKIN) || object->Is_Additive()) return TRUE;
+		const AABoxClass &bounds=object->Get_Bounding_Box();
+		if (level<bounds.Center.Z-bounds.Extent.Z-0.01f || level>bounds.Center.Z+bounds.Extent.Z+0.01f) return TRUE;
+		if (model->Get_Vertex_Count()<=0 || model->Get_Polygon_Count()<=0) return TRUE;
+		const Matrix3D &matrix=object->Get_Transform();
+		WaterHullMesh mesh;mesh.model=model;
+		for (unsigned column=0;column<4;++column) {
+			const float x=matrix[0][column]-(column==3?origin.X:0.0f);
+			const float y=matrix[1][column]-(column==3?origin.Y:0.0f);
+			mesh.transform[0][column]=x*axisX+y*axisY;
+			mesh.transform[1][column]=-x*axisY+y*axisX;
+			mesh.transform[2][column]=matrix[2][column]-(column==3?level:0.0f);
+			for (unsigned row=0;row<3;++row) {
+				if (!std::isfinite(mesh.transform[row][column]) || std::abs(mesh.transform[row][column])>1.0e6f) return FALSE;
+				// A centimetre quantization ignores floating transform cancellation noise when a
+				// rigid boat translates/turns. Actual waterline, scale and animated hull changes refresh.
+				WaterHullHash(signature,(long long)std::llround(mesh.transform[row][column]*100.0f));
+			}
+		}
+		WaterHullHash(signature,(size_t)model);
+		WaterHullHash(signature,(size_t)model->Get_Vertex_Array());
+		WaterHullHash(signature,(size_t)model->Get_Polygon_Array());
+		WaterHullHash(signature,model->Get_Vertex_Count());
+		WaterHullHash(signature,model->Get_Polygon_Count());
+		meshes.push_back(mesh);
+		return TRUE;
+	}
+	if (object->Class_ID()==RenderObjClass::CLASSID_HLOD) {
+		HLodClass *hlod=static_cast<HLodClass*>(object);
+		// Retain the most detailed authored contour as visual LODs change. It is independent
+		// of deck/superstructure bounds and is never used for collision or pathfinding.
+		const int lod=hlod->Get_Lod_Count()-1;
+		if (lod>=0) for (int i=0;i<hlod->Get_Lod_Model_Count(lod);++i)
+			if (!CollectWaterHullMeshes(hlod->Peek_Lod_Model(lod,i),origin,axisX,axisY,level,meshes,signature,visited,depth+1)) return FALSE;
+		for (int i=0;i<hlod->Get_Additional_Model_Count();++i)
+			if (!CollectWaterHullMeshes(hlod->Peek_Additional_Model(i),origin,axisX,axisY,level,meshes,signature,visited,depth+1)) return FALSE;
+		return TRUE;
+	}
+	const int children=object->Get_Num_Sub_Objects();
+	if (children>(int)WaterHullModel::MaxMeshes) return FALSE;
+	for(int i=0;i<children;++i) {
+		RenderObjClass *child=object->Get_Sub_Object(i);
+		const Bool ok=CollectWaterHullMeshes(child,origin,axisX,axisY,level,meshes,signature,visited,depth+1);
+		REF_PTR_RELEASE(child);
+		if (!ok) return FALSE;
+	}
+	return TRUE;
+}
+static WaterHullModel::Point3 WaterHullPoint(const WaterHullMesh &mesh,const Vector3 &p)
+{
+	WaterHullModel::Point3 out;
+	out.x=mesh.transform[0][0]*p.X+mesh.transform[0][1]*p.Y+mesh.transform[0][2]*p.Z+mesh.transform[0][3];
+	out.y=mesh.transform[1][0]*p.X+mesh.transform[1][1]*p.Y+mesh.transform[1][2]*p.Z+mesh.transform[1][3];
+	out.z=mesh.transform[2][0]*p.X+mesh.transform[2][1]*p.Y+mesh.transform[2][2]*p.Z+mesh.transform[2][3];
+	return out;
+}
+}
+
+void WaterRenderObjClass::clearModernWaterHulls(void)
+{
+	for (size_t i=0;i<m_modernHullCache.size();++i) REF_PTR_RELEASE(m_modernHullCache[i].model);
+	m_modernHullCache.clear();m_modernHulls.clear();m_modernHullObjectIDs.clear();m_modernHullSerial=0;m_modernHullTraceLines=0;
+}
+
+Bool WaterRenderObjClass::modernHasHull(UnsignedInt objectID) const
+{
+	return std::find(m_modernHullObjectIDs.begin(),m_modernHullObjectIDs.end(),objectID)!=m_modernHullObjectIDs.end();
+}
+
+Real WaterRenderObjClass::modernHullDamping(Real x,Real y,Real level) const
+{
+	Real damping=1.0f;
+	for (size_t i=0;i<m_modernHulls.size();++i) damping=min(damping,WaterHullModel::Damping(m_modernHulls[i],x,y,level));
+	return damping;
+}
+
+void WaterRenderObjClass::updateModernWaterHulls(void)
+{
+#ifndef _WIN32
+	m_modernHulls.clear();
+	m_modernHullObjectIDs.clear();
+	if (!TheGameLogic || !TheTerrainLogic || !TheTerrainRenderObject || !TheTerrainRenderObject->getMap()) {
+		clearModernWaterHulls();return;
+	}
+	++m_modernHullSerial;
+	const UnsignedInt motionFrame=TheGameLogic->getFrame();
+	const Bool motionFrozen=TheGameLogic->isGamePaused() || (TheScriptEngine &&
+		(TheScriptEngine->isTimeFrozenScript() || TheScriptEngine->isTimeFrozenDebug()));
+	struct Candidate { const Object *object; RenderObjClass *model; Real level,score,samplePhase; };
+	std::vector<Candidate> candidates;
+	for (const Object *object=TheGameLogic->getFirstObject();object;object=object->getNextObject()) {
+		if (object->isDestroyed() || object->isKindOf(KINDOF_AIRCRAFT) ||
+			!(object->isKindOf(KINDOF_AIRCRAFT_CARRIER)||object->isKindOf(KINDOF_BOAT)||object->isKindOf(KINDOF_VEHICLE))) continue;
+		Drawable *drawable=object->getDrawable();
+		if (!drawable || drawable->isDrawableEffectivelyHidden() || drawable->getFullyObscuredByShroud()) continue;
+		const Coord3D &position=*object->getPosition();Real level=0.0f;
+		if (!TheTerrainLogic->isUnderwater(position.x,position.y,&level)) continue;
+		Bool oceanLevel=FALSE;
+		for (size_t i=0;i<m_modernOpticalTextures.size();++i)
+			if (m_modernOpticalTextures[i].level==level && m_modernOpticalTextures[i].oceanExtent>0.0f) oceanLevel=TRUE;
+		if (!oceanLevel) continue;
+		for (DrawModule **modules=drawable->getDrawModules();modules && *modules;++modules) {
+			const ObjectDrawInterface *draw=(*modules)->getObjectDrawInterface();
+			if (!draw) continue;
+			// All W3D object draw interfaces are W3DModelDraw implementations (also used by
+			// projected shadows and ghost snapshots); use the displayed, interpolated transform.
+			W3DModelDraw *modelDraw=(W3DModelDraw*)draw;
+			RenderObjClass *model=modelDraw->getRenderObject();
+			// Scene visibility culls the hull itself, but an offscreen vessel can still disturb
+			// visible water. Keep explicit visibility/shroud exclusions, then cull its influence.
+			if (!model || model->Is_Hidden() || model->Is_Animation_Hidden()) continue;
+			const AABoxClass &bounds=model->Get_Bounding_Box();
+			if (level<bounds.Center.Z-bounds.Extent.Z-0.01f || level>bounds.Center.Z+bounds.Extent.Z+0.01f) continue;
+			AABoxClass influence=bounds;
+			influence.Extent.X+=122.0f;influence.Extent.Y+=122.0f;
+			influence.Extent.Z+=WaterSurfaceModel::MaxDisplacement;
+			if(m_modernRenderCamera && m_modernRenderCamera->Cull_Box(influence)) continue;
+			const Real dx=bounds.Center.X-m_modernCamera.X,dy=bounds.Center.Y-m_modernCamera.Y;
+			const Real radius=sqrtf(bounds.Extent.X*bounds.Extent.X+bounds.Extent.Y*bounds.Extent.Y);
+			const Real score=max(0.0f,sqrtf(dx*dx+dy*dy)-radius);
+			Candidate candidate={object,model,level,score,modelDraw->clientOnly_getRenderMotionSamplePhase()};
+			size_t insert=0;
+			while(insert<candidates.size() && (candidates[insert].score<score ||
+				(candidates[insert].score==score && candidates[insert].object->getID()<object->getID()))) ++insert;
+			if (insert<WaterHullModel::MaxHulls) {
+				candidates.insert(candidates.begin()+insert,candidate);
+				if(candidates.size()>WaterHullModel::MaxHulls) candidates.pop_back();
+			}
+			break;
+		}
+	}
+	for (const Candidate &candidate:candidates) {
+		const Matrix3D &matrix=candidate.model->Get_Transform();
+		const Vector3 origin=matrix.Get_Translation();
+		float axisX=matrix[0][0],axisY=matrix[1][0],axisLength=sqrtf(axisX*axisX+axisY*axisY);
+		if (!(axisLength>0.0001f)) continue;
+		axisX/=axisLength;axisY/=axisLength;
+		std::vector<WaterHullMesh> meshes;unsigned long long signature=1469598103934665603ULL;unsigned visited=0;
+		if (!CollectWaterHullMeshes(candidate.model,origin,axisX,axisY,candidate.level,meshes,signature,visited)) continue;
+		size_t slot=0;
+		for (;slot<m_modernHullCache.size();++slot)
+			if(m_modernHullCache[slot].model==candidate.model && m_modernHullCache[slot].objectID==(UnsignedInt)candidate.object->getID()) break;
+		if (slot==m_modernHullCache.size()) {
+			if (slot==WaterHullModel::MaxCacheEntries) {
+				slot=0;
+				for(size_t i=1;i<m_modernHullCache.size();++i) if(m_modernHullCache[i].lastUse<m_modernHullCache[slot].lastUse) slot=i;
+				REF_PTR_RELEASE(m_modernHullCache[slot].model);
+				m_modernHullCache[slot]=ModernHullCache();
+			} else m_modernHullCache.push_back(ModernHullCache());
+			m_modernHullCache[slot].model=candidate.model;candidate.model->Add_Ref();
+			m_modernHullCache[slot].objectID=(UnsignedInt)candidate.object->getID();
+		}
+		ModernHullCache &cache=m_modernHullCache[slot];cache.lastUse=m_modernHullSerial;
+		if(cache.signature!=signature) {
+			cache.signature=signature;cache.polygon=WaterHullModel::Polygon();
+			std::vector<WaterHullModel::Point> points;unsigned triangles=0;Bool valid=TRUE;
+			for(const WaterHullMesh &mesh:meshes) {
+				const unsigned count=mesh.model->Get_Polygon_Count();
+				if (count>WaterHullModel::MaxSliceTriangles-triangles) {valid=FALSE;break;}
+				triangles+=count;
+				const Vector3 *vertices=mesh.model->Get_Vertex_Array();
+				const TriIndex *indices=mesh.model->Get_Polygon_Array();
+				for(unsigned i=0;i<count;++i) {
+					const TriIndex &t=indices[i];
+					if(t[0]>=mesh.model->Get_Vertex_Count() || t[1]>=mesh.model->Get_Vertex_Count() || t[2]>=mesh.model->Get_Vertex_Count() ||
+						!WaterHullModel::SliceTriangle(WaterHullPoint(mesh,vertices[t[0]]),WaterHullPoint(mesh,vertices[t[1]]),WaterHullPoint(mesh,vertices[t[2]]),points)) {valid=FALSE;break;}
+				}
+				if(!valid) break;
+			}
+			if(valid) cache.polygon=WaterHullModel::BuildPolygon(points);
+			if (getenv("ZH_WATER_HULL_TRACE") && m_modernHullTraceLines<64) {
+				if(m_modernHullTraceLines==0) {
+					const Coord3D &sun=TheGlobalData->m_terrainLightPos[0];const RGBColor &colour=TheGlobalData->m_terrainDiffuse[0];
+					fprintf(stderr,"water-hull-light: sun=(%.5f,%.5f,%.5f) colour=(%.5f,%.5f,%.5f) camera=(%.2f,%.2f,%.2f)\n",
+						-sun.x,-sun.y,-sun.z,colour.red,colour.green,colour.blue,m_modernCamera.X,m_modernCamera.Y,m_modernCamera.Z);
+				}
+				fprintf(stderr,"water-hull: object=%u model=%s meshes=%u triangles=%u vertices=%u error=%.4f level=%.3f origin=(%.2f,%.2f,%.2f)\n",
+					unsigned(candidate.object->getID()),candidate.model->Get_Name(),unsigned(meshes.size()),triangles,
+					cache.polygon.count,cache.polygon.error,candidate.level,origin.X,origin.Y,origin.Z);
+				++m_modernHullTraceLines;
+			}
+			cache.forwardSign=1.0f;
+			const int bow=candidate.model->Get_Bone_Index("BOWWAKE"),stern=candidate.model->Get_Bone_Index("PROPELLERWAKE");
+			if(bow>0 && stern>0) {
+				const Vector3 direction=candidate.model->Get_Bone_Transform(bow).Get_Translation()-candidate.model->Get_Bone_Transform(stern).Get_Translation();
+				cache.forwardSign=direction.X*axisX+direction.Y*axisY<0.0f?-1.0f:1.0f;
+			} else if(cache.polygon.count>=3) {
+				// Assets without wake bones use the narrower end of their actual waterline.
+				float minX=1.0e30f,maxX=-1.0e30f;
+				for(unsigned i=0;i<cache.polygon.count;++i) {minX=min(minX,cache.polygon.points[i].x);maxX=max(maxX,cache.polygon.points[i].x);}
+				float leftMin=1.0e30f,leftMax=-1.0e30f,rightMin=1.0e30f,rightMax=-1.0e30f;
+				const float band=(maxX-minX)*0.2f;
+				for(unsigned i=0;i<cache.polygon.count;++i) {
+					const WaterHullModel::Point p=cache.polygon.points[i];
+					if(p.x<minX+band) {leftMin=min(leftMin,p.y);leftMax=max(leftMax,p.y);}
+					if(p.x>maxX-band) {rightMin=min(rightMin,p.y);rightMax=max(rightMax,p.y);}
+				}
+				if(leftMax-leftMin<rightMax-rightMin) cache.forwardSign=-1.0f;
+			}
+		}
+		if(cache.polygon.count<3) continue;
+		float minX=1.0e30f,maxX=-1.0e30f,minY=1.0e30f,maxY=-1.0e30f;
+		for(unsigned i=0;i<cache.polygon.count;++i) {
+			const WaterHullModel::Point p=cache.polygon.points[i];
+			minX=min(minX,p.x);maxX=max(maxX,p.x);minY=min(minY,p.y);maxY=max(maxY,p.y);
+		}
+		if(maxX-minX<2.0f || maxY-minY<1.0f) continue;
+		const float centerX=(minX+maxX)*0.5f,centerY=(minY+maxY)*0.5f;
+		WaterHullModel::Hull hull;
+		hull.data[0][0]=origin.X+axisX*centerX-axisY*centerY;hull.data[0][1]=origin.Y+axisY*centerX+axisX*centerY;
+		hull.data[0][2]=candidate.level;hull.data[0][3]=float(cache.polygon.count);
+		hull.data[1][0]=axisX*cache.forwardSign;hull.data[1][1]=axisY*cache.forwardSign;
+		hull.data[1][2]=(maxX-minX)*0.5f;hull.data[1][3]=(maxY-minY)*0.5f;
+		const PhysicsBehavior *physics=candidate.object->getPhysics();
+		WaterVesselMotion::Point initialVelocity;
+		if(physics) {
+			const Coord3D &velocity=*physics->getVelocity();
+			initialVelocity={velocity.x*LOGICFRAMES_PER_SECOND,velocity.y*LOGICFRAMES_PER_SECOND};
+		}
+		const WaterVesselMotion::Point velocity=WaterVesselMotion::Update(cache.motion,{origin.X,origin.Y},
+			candidate.level,motionFrame,motionFrozen,initialVelocity,float(LOGICFRAMES_PER_SECOND),candidate.samplePhase);
+		hull.data[2][0]=velocity.x;hull.data[2][1]=velocity.y;
+		hull.data[2][2]=float((unsigned(candidate.object->getID())*2654435761U)&65535U)/65535.0f;
+		hull.data[2][3]=sqrtf(hull.data[1][2]*hull.data[1][2]+hull.data[1][3]*hull.data[1][3]);
+		hull.data[3][0]=-hull.data[1][2];hull.data[3][2]=hull.data[1][2];
+		float sternY=0.0f,bowY=0.0f;unsigned sternCount=0,bowCount=0;
+		for(unsigned i=0;i<WaterHullModel::MaxVertices;++i) {
+			const WaterHullModel::Point p=cache.polygon.points[min(i,cache.polygon.count-1)];
+			hull.data[4+i/2][(i%2)*2]=(p.x-centerX)*cache.forwardSign;
+			hull.data[4+i/2][(i%2)*2+1]=(p.y-centerY)*cache.forwardSign;
+			if(i<cache.polygon.count) {
+				const float localX=(p.x-centerX)*cache.forwardSign,localY=(p.y-centerY)*cache.forwardSign;
+				if(localX<-hull.data[1][2]+0.5f) {sternY+=localY;++sternCount;}
+				if(localX>hull.data[1][2]-0.5f) {bowY+=localY;++bowCount;}
+			}
+		}
+		hull.data[3][1]=sternCount?sternY/sternCount:0.0f;
+		hull.data[3][3]=bowCount?bowY/bowCount:0.0f;
+		m_modernHulls.push_back(hull);
+		m_modernHullObjectIDs.push_back((UnsignedInt)candidate.object->getID());
+	}
+#endif
+}
+
+void WaterRenderObjClass::setupModernWaterShader(Bool river,Bool heightCorrection)
 {
 #ifndef _WIN32
 	updateModernWaterTextures();
@@ -366,12 +634,28 @@ void WaterRenderObjClass::setupModernWaterShader(Bool river)
 	const D3DXVECTOR4 terrain(map ? map->getBorderSize() * MAP_XY_FACTOR : 0.0f,
 		m_modernHeightSide * MAP_XY_FACTOR, 255.0f * MAP_HEIGHT_SCALE, m_modernHeightTexture ? 1.0f : 0.0f);
 	DX8Wrapper::_Get_D3D_Device()->SetPixelShaderConstantF(5, terrain, 1);
+	TextureClass *optical = river ? NULL : modernWaterOpticalTexture(m_modernOpticalLevel);
+	const D3DXVECTOR4 optics(TheWaterTransparency->m_transparentWaterDepth,
+		TheWaterTransparency->m_minWaterOpacity, optical ? 1.0f : 0.0f, heightCorrection && !river ? 1.0f : 0.0f);
+	DX8Wrapper::_Get_D3D_Device()->SetPixelShaderConstantF(6, optics, 1);
+	const D3DXVECTOR4 hullParameters(river?0.0f:float(m_modernHulls.size()),0.0f,0.0f,0.0f);
+	DX8Wrapper::_Get_D3D_Device()->SetPixelShaderConstantF(7,hullParameters,1);
+	if (!river && !m_modernHulls.empty())
+		DX8Wrapper::_Get_D3D_Device()->SetPixelShaderConstantF(8,&m_modernHulls[0].data[0][0],
+			m_modernHulls.size()*WaterHullModel::RegistersPerHull);
+	DX8Wrapper::Set_DX8_Texture(4, optical ? optical->Peek_D3D_Texture() : NULL);
 	if (m_modernHeightTexture) DX8Wrapper::Set_DX8_Texture(2, m_modernHeightTexture->Peek_D3D_Texture());
 	if (m_modernBedTexture) {
 		DX8Wrapper::Set_DX8_Texture(7, m_modernBedTexture->Peek_D3D_Texture());
 		// Sampling policy is local to the POSIX water draw, leaving the device's stage-7 state intact.
 	}
 	// The modern surface carries displacement damping and its original elevation in UV1.
+	// Only the new flat-patch mesh uses UV0 for a geometric height correction. Legacy grids
+	// and rivers retain their authored base UVs; stale texture matrices must not transform metadata.
+	if (heightCorrection && !river) {
+		DX8Wrapper::Set_DX8_Texture_Stage_State(0,D3DTSS_TEXCOORDINDEX,D3DTSS_TCI_PASSTHRU|0);
+		DX8Wrapper::Set_DX8_Texture_Stage_State(0,D3DTSS_TEXTURETRANSFORMFLAGS,D3DTTFF_DISABLE);
+	}
 	DX8Wrapper::Set_DX8_Texture_Stage_State(1, D3DTSS_TEXCOORDINDEX, 1);
 	DX8Wrapper::Set_DX8_Texture_Stage_State(1, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
 	DX8Wrapper::Set_DX8_Texture_Stage_State(2,D3DSAMP_ADDRESSU,D3DTADDRESS_CLAMP);
@@ -415,12 +699,22 @@ void WaterRenderObjClass::updateModernWaterTextures(void)
 		}
 	}
 	WorldHeightMap *map = TheTerrainRenderObject ? TheTerrainRenderObject->getMap() : NULL;
-	if (!map) return;
+	if (!map || map->getXExtent()<=0 || map->getYExtent()<=0 || !map->getDataPtr()) {
+		clearModernWaterOpticalTextures();
+		REF_PTR_RELEASE(m_modernHeightTexture);
+		m_modernHeights.clear();
+		m_modernHeightWidth=0; m_modernHeightHeight=0; m_modernHeightSide=0; m_modernHeightBorder=-1;
+		m_modernHeightMap=NULL; m_modernHeightData=NULL;
+		return;
+	}
 	const Int width = map->getXExtent(), height = map->getYExtent();
-	if (width <= 0 || height <= 0) return;
 	const size_t count = (size_t)width * height;
-	if (width == m_modernHeightWidth && height == m_modernHeightHeight &&
+	if (map == m_modernHeightMap && map->getDataPtr() == m_modernHeightData &&
+		map->getBorderSize() == m_modernHeightBorder && width == m_modernHeightWidth && height == m_modernHeightHeight &&
 		m_modernHeights.size() == count && memcmp(m_modernHeights.data(), map->getDataPtr(), count) == 0) return;
+	clearModernWaterOpticalTextures();
+	m_modernHeightMap=map; m_modernHeightData=map->getDataPtr();
+	m_modernHeightBorder=map->getBorderSize();
 	m_modernHeights.assign(map->getDataPtr(), map->getDataPtr() + count);
 	if (width != m_modernHeightWidth || height != m_modernHeightHeight || !m_modernHeightTexture) {
 		REF_PTR_RELEASE(m_modernHeightTexture);
@@ -438,6 +732,82 @@ void WaterRenderObjClass::updateModernWaterTextures(void)
 		surface->Unlock();
 	}
 	REF_PTR_RELEASE(surface);
+#endif
+}
+
+void WaterRenderObjClass::clearModernWaterOpticalTextures(void)
+{
+	m_modernProjectedSamples.clear();
+	m_modernObstacleIndex.Clear();
+	for (size_t i=0;i<m_modernOpticalTextures.size();++i) REF_PTR_RELEASE(m_modernOpticalTextures[i].texture);
+	m_modernOpticalTextures.clear();
+}
+
+void WaterRenderObjClass::refreshModernWaterOpticalPolygons(void)
+{
+#ifndef _WIN32
+	std::vector<WaterOpticalContext::Polygon> polygons;
+	size_t points=0;
+	Bool valid=TRUE;
+	for (PolygonTrigger *trigger=PolygonTrigger::getFirstPolygonTrigger();trigger;trigger=trigger->getNext()) {
+		if (!trigger->isWaterArea() || trigger->isRiver() || trigger->getNumPoints()<3) continue;
+		if ((size_t)trigger->getNumPoints()>WaterOpticalContext::MaxPoints-points) { valid=FALSE; break; }
+		points+=trigger->getNumPoints();
+		WaterOpticalContext::Polygon polygon;
+		polygon.points.reserve(trigger->getNumPoints());
+		for (Int i=0;i<trigger->getNumPoints();++i) {
+			const ICoord3D *p=trigger->getPoint(i);
+			polygon.points.push_back({(float)p->x,(float)p->y,(float)p->z});
+		}
+		polygons.push_back(polygon);
+	}
+	if (valid!=m_modernOpticalPolygonsValid || !WaterOpticalContext::SamePolygons(polygons,m_modernOpticalPolygons)) {
+		clearModernWaterOpticalTextures();
+		m_modernOpticalPolygons.swap(polygons);
+		m_modernOpticalPolygonsValid=valid;
+	}
+#endif
+}
+
+TextureClass *WaterRenderObjClass::modernWaterOpticalTexture(Real level)
+{
+#ifndef _WIN32
+	if (!m_modernOpticalPolygonsValid) return NULL;
+	for (size_t i=0;i<m_modernOpticalTextures.size();++i)
+		if (m_modernOpticalTextures[i].level==level) return m_modernOpticalTextures[i].texture;
+	// Keep the first levels for this map revision. Overflow stays on the clear-water profile instead
+	// of evicting/rebuilding textures every frame on maps with many water elevations.
+	if (m_modernOpticalTextures.size()>=WaterOpticalContext::MaxLevels) return NULL;
+	m_modernOpticalTextures.push_back({level,NULL});
+	WaterOpticalContext::Field field;
+	if (!WaterOpticalContext::Build(m_modernHeights.empty()?NULL:m_modernHeights.data(),
+		m_modernHeightWidth,m_modernHeightHeight,m_modernHeightBorder,MAP_XY_FACTOR,MAP_HEIGHT_SCALE,
+		level,m_modernOpticalPolygons,field)) return NULL;
+	TextureClass *texture=NEW_REF(TextureClass,(m_modernHeightSide,m_modernHeightSide,WW3D_FORMAT_A8R8G8B8,MIP_LEVELS_1));
+	SurfaceClass *surface=texture->Get_Surface_Level();
+	Int pitch; void *bits=surface->Lock(&pitch);
+	if (bits) {
+		for (Int y=0;y<m_modernHeightSide;++y) for (Int x=0;x<m_modernHeightSide;++x) {
+			const size_t n=(size_t)min(y,m_modernHeightHeight-1)*m_modernHeightWidth+min(x,m_modernHeightWidth-1);
+			((UnsignedInt*)((char*)bits+y*pitch))[x]=0xff000000u | (UnsignedInt(field.ocean[n])<<16) | (UnsignedInt(field.shore[n])<<8);
+		}
+		surface->Unlock();
+	}
+	REF_PTR_RELEASE(surface);
+	if (!bits) { REF_PTR_RELEASE(texture); return NULL; }
+	ModernOpticalTexture &cached=m_modernOpticalTextures.back();
+	cached.texture=texture;
+	cached.ocean.swap(field.ocean);
+	// Retain exactly the bytes uploaded to Texture4, including its bilinear shoreline blend.
+	Int oceanMinX=m_modernHeightWidth,oceanMinY=m_modernHeightHeight,oceanMaxX=-1,oceanMaxY=-1;
+	for (Int y=0;y<m_modernHeightHeight;++y) for (Int x=0;x<m_modernHeightWidth;++x)
+		if (cached.ocean[y*m_modernHeightWidth+x]) {
+			oceanMinX=min(oceanMinX,x);oceanMinY=min(oceanMinY,y);oceanMaxX=max(oceanMaxX,x);oceanMaxY=max(oceanMaxY,y);
+		}
+	if (oceanMaxX>=0) cached.oceanExtent=max(oceanMaxX-oceanMinX,oceanMaxY-oceanMinY)*MAP_XY_FACTOR;
+	return texture;
+#else
+	return NULL;
 #endif
 }
 
@@ -1005,8 +1375,13 @@ RenderResult WaterRenderObjClass::generateIndexBuffer(Int sizeX, Int sizeY)
 //-------------------------------------------------------------------------------------------------
 void WaterRenderObjClass::ReleaseResources(void)
 {
+	clearModernWaterHulls();
 	REF_PTR_RELEASE(m_modernHeightTexture);
 	REF_PTR_RELEASE(m_modernBedTexture);
+	clearModernWaterOpticalTextures();
+	m_modernOpticalPolygons.clear();
+	m_modernOpticalPolygonsValid=FALSE;
+	m_modernHeightMap=NULL; m_modernHeightData=NULL; m_modernHeightBorder=-1;
 	m_modernObstacles.clear();
 	m_modernHeights.clear();
 
@@ -1387,6 +1762,13 @@ void WaterRenderObjClass::updateMapOverrides(void)
 // ------------------------------------------------------------------------------------------------
 void WaterRenderObjClass::reset( void )
 {
+	clearModernWaterHulls();
+	// TerrainVisual reuses this object across map lifetimes. Release per-level optical resources
+	// even if the next map happens to reuse the same terrain allocation and polygon coordinates.
+	clearModernWaterOpticalTextures();
+	m_modernOpticalPolygons.clear();
+	m_modernOpticalPolygonsValid=FALSE;
+	m_modernHeightMap=NULL; m_modernHeightData=NULL;
 
 	// for vertex animated water mesh reset the values
 	if( m_meshData)
@@ -1846,6 +2228,12 @@ void WaterRenderObjClass::renderMirror(CameraClass *cam, Real level)
 	*	This algorithm doesn't apply to translucent water, which is rendered into a
 	*   texture and rendered at end of scene. */
 //-------------------------------------------------------------------------------------------------
+#ifndef _WIN32
+static double modernWaterProfileMilliseconds()
+{
+	return std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+#endif
 DECLARE_PERF_TIMER(Water)
 void WaterRenderObjClass::Render(RenderInfoClass & rinfo)
 {
@@ -1878,20 +2266,48 @@ void WaterRenderObjClass::Render(RenderInfoClass & rinfo)
 	}
 
 #ifndef _WIN32
+	m_modernProfileEnabled=std::getenv("ZH_WATER_PROFILE")!=NULL;
+	const double profileRenderStart=m_modernProfileEnabled?modernWaterProfileMilliseconds():0;
 	RenderUInt32 oldModernCoordIndex=0,oldModernTransformFlags=0;
+	RenderUInt32 oldModernBaseCoordIndex=0,oldModernBaseTransformFlags=0;
+	DX8Wrapper::_Get_D3D_Device()->GetTextureStageState(0,D3DTSS_TEXCOORDINDEX,&oldModernBaseCoordIndex);
+	DX8Wrapper::_Get_D3D_Device()->GetTextureStageState(0,D3DTSS_TEXTURETRANSFORMFLAGS,&oldModernBaseTransformFlags);
 	DX8Wrapper::_Get_D3D_Device()->GetTextureStageState(1,D3DTSS_TEXCOORDINDEX,&oldModernCoordIndex);
 	DX8Wrapper::_Get_D3D_Device()->GetTextureStageState(1,D3DTSS_TEXTURETRANSFORMFLAGS,&oldModernTransformFlags);
-	IDirect3DBaseTexture9 *oldModernBed=NULL;
+	IDirect3DBaseTexture9 *oldModernBed=NULL,*oldModernOptical=NULL;
 	DX8Wrapper::_Get_D3D_Device()->GetTexture(7,&oldModernBed);
+	DX8Wrapper::_Get_D3D_Device()->GetTexture(4,&oldModernOptical);
+	updateModernWaterTextures();
+	refreshModernWaterOpticalPolygons();
 	m_modernRenderCamera=&rinfo.Camera;
 	m_modernCamera=rinfo.Camera.Get_Position();
-	Int modernPatches=0;
+	Int modernPatches=0,modernFlatPatches=0,visibleFlatPatches=0;
 	Real highestModernWater=m_level;
 	Bool hasModernWater=FALSE;
 	for (PolygonTrigger *trigger=PolygonTrigger::getFirstPolygonTrigger();trigger;trigger=trigger->getNext()) {
 		if (!trigger->isWaterArea() || trigger->getNumPoints()<3) continue;
 		modernPatches+=trigger->isRiver() ? max(0,trigger->getNumPoints()/2-1) :
 			((trigger->getNumPoints()-1)/2);
+		if (!trigger->isRiver()) {
+			modernFlatPatches+=(trigger->getNumPoints()-1)/2;
+			// This count only controls sample reuse, never topology or density. Conservatively
+			// include every visible planar flat patch that could use the projected path.
+			for (Int k=1;k<trigger->getNumPoints()-1;k+=2) {
+				const Int corner[4]={k+2<trigger->getNumPoints()?k+2:k+1,k+1,k,0};
+				Vector3 minimum,maximum;float levels[4];
+				for (Int n=0;n<4;++n) {
+					const ICoord3D &p=*trigger->getPoint(corner[n]);levels[n]=float(p.z);
+					if (n==0) minimum=maximum=Vector3(float(p.x),float(p.y),float(p.z));
+					else { minimum.X=min(minimum.X,float(p.x));minimum.Y=min(minimum.Y,float(p.y));minimum.Z=min(minimum.Z,float(p.z));
+						maximum.X=max(maximum.X,float(p.x));maximum.Y=max(maximum.Y,float(p.y));maximum.Z=max(maximum.Z,float(p.z)); }
+				}
+				minimum.Z-=WaterSurfaceModel::MaxDisplacement;maximum.Z+=WaterSurfaceModel::MaxDisplacement;
+				minimum.X-=WaterFftGeometry::MaxHorizontalDisplacement;minimum.Y-=WaterFftGeometry::MaxHorizontalDisplacement;
+				maximum.X+=WaterFftGeometry::MaxHorizontalDisplacement;maximum.Y+=WaterFftGeometry::MaxHorizontalDisplacement;
+				if (WaterProjectedMesh::HasSingleLevel(levels) && fabsf(m_modernCamera.Z-levels[0])>WaterSurfaceModel::MaxDisplacement*2 &&
+					!rinfo.Camera.Cull_Box(AABoxClass((minimum+maximum)*0.5f,(maximum-minimum)*0.5f))) ++visibleFlatPatches;
+			}
+		}
 		for (Int point=0;point<trigger->getNumPoints();++point) {
 			const Real elevation=trigger->getPoint(point)->z;
 			if (!hasModernWater || elevation>highestModernWater) highestModernWater=elevation;
@@ -1900,10 +2316,38 @@ void WaterRenderObjClass::Render(RenderInfoClass & rinfo)
 	}
 	// One map-wide subdivision count keeps all common edges welded. The authored polygon count
 	// itself is irreducible; added tessellation stays within the shared model's vertex budget.
+	for (size_t i=0;i<m_modernOpticalPolygons.size();++i) if (!m_modernOpticalPolygons[i].points.empty())
+		modernWaterOpticalTexture(m_modernOpticalPolygons[i].points[0].z);
+	// Rivers retain their old camera-height detail. Ocean interiors use a visible projected
+	// lattice and constrain boundary samples to these same morphed edge polylines.
+	const Int baseCells=WaterSurfaceModel::CellsForPatches(modernPatches);
 	const WaterSurfaceModel::MeshLOD modernLOD=WaterSurfaceModel::LODForCameraHeight(
-		WaterSurfaceModel::CellsForPatches(modernPatches),m_modernCamera.Z-highestModernWater);
+		baseCells,m_modernCamera.Z-highestModernWater);
 	m_modernMeshCells=modernLOD.cells;
 	m_modernMeshMorph=modernLOD.morph;
+	const size_t baseVertices=size_t(baseCells+1)*(baseCells+1);
+	const size_t retainedVertices=size_t(max(0,modernPatches-modernFlatPatches))*baseVertices;
+	const size_t available=retainedVertices<WaterSurfaceModel::VertexBudget?WaterSurfaceModel::VertexBudget-retainedVertices:0;
+	Int targetWidth,targetHeight,targetBits;bool targetWindowed;
+	WW3D::Get_Render_Target_Resolution(targetWidth,targetHeight,targetBits,targetWindowed);
+	const WaterProjectedMesh::Resolution projected=WaterProjectedMesh::ChooseResolution(targetWidth,targetHeight,modernFlatPatches,available,4u*(baseCells+1));
+	m_modernProjectedColumns=projected.columns;m_modernProjectedRows=projected.rows;
+	m_modernProjectedBudget=min(size_t(60000),available/size_t(max(1,modernFlatPatches)));
+	// Per-frame reuse shares lattice vertices across flat patches/levels, while never keeping
+	// stale terrain, moving hulls, wave time or camera state from a previous render.
+	m_modernProjectedSamples.clear();
+	m_modernObstacleIndex.Clear();
+	m_modernProjectedVertices=m_modernProjectedTriangles=m_modernProjectedFallbacks=m_modernRetainedVertices=m_modernProjectedEvaluations=0;
+	m_modernProjectedCacheEnabled=visibleFlatPatches>1;
+	double profilePhaseStart=0;
+	if (m_modernProfileEnabled) {
+		profilePhaseStart=modernWaterProfileMilliseconds();
+		m_modernProfile.setup+=profilePhaseStart-profileRenderStart;
+	}
+	updateModernWaterHulls();
+	if (m_modernProfileEnabled) {
+		const double now=modernWaterProfileMilliseconds();m_modernProfile.hulls+=now-profilePhaseStart;profilePhaseStart=now;
+	}
 	m_modernObstacles.clear();
 	if (TheGameLogic) for (const Object *object=TheGameLogic->getFirstObject();object;object=object->getNextObject()) {
 		if (object->isDestroyed() || !(object->isKindOf(KINDOF_STRUCTURE) || object->isKindOf(KINDOF_BRIDGE) || object->isKindOf(KINDOF_IMMOBILE))) continue;
@@ -1913,8 +2357,13 @@ void WaterRenderObjClass::Render(RenderInfoClass & rinfo)
 		obstacle.position.Set(p.x,p.y,p.z);
 		obstacle.radius=geometry.getBoundingCircleRadius();
 		obstacle.height=geometry.getMaxHeightAbovePosition();
+		obstacle.box=geometry.getGeomType()==GEOMETRY_BOX;
+		obstacle.hasHull=modernHasHull((UnsignedInt)object->getID());
+		obstacle.major=geometry.getMajorRadius();obstacle.minor=geometry.getMinorRadius();
+		obstacle.cosine=cosf(object->getOrientation());obstacle.sine=sinf(object->getOrientation());
 		if (obstacle.radius>1.0f) m_modernObstacles.push_back(obstacle);
 	}
+	if (m_modernProfileEnabled) m_modernProfile.obstacles+=modernWaterProfileMilliseconds()-profilePhaseStart;
 #endif
 
 	switch(m_waterType)
@@ -2060,10 +2509,20 @@ void WaterRenderObjClass::Render(RenderInfoClass & rinfo)
 			break;
 	}//switch
 #ifndef _WIN32
+	DX8Wrapper::Set_DX8_Texture_Stage_State(0,D3DTSS_TEXCOORDINDEX,oldModernBaseCoordIndex);
+	DX8Wrapper::Set_DX8_Texture_Stage_State(0,D3DTSS_TEXTURETRANSFORMFLAGS,oldModernBaseTransformFlags);
 	DX8Wrapper::Set_DX8_Texture_Stage_State(1,D3DTSS_TEXCOORDINDEX,oldModernCoordIndex);
 	DX8Wrapper::Set_DX8_Texture_Stage_State(1,D3DTSS_TEXTURETRANSFORMFLAGS,oldModernTransformFlags);
 	DX8Wrapper::Set_DX8_Texture(7,oldModernBed);
 	if (oldModernBed) oldModernBed->Release();
+	DX8Wrapper::Set_DX8_Texture(4,oldModernOptical);
+	if (oldModernOptical) oldModernOptical->Release();
+	if (std::getenv("ZH_WATER_MESH_STATS")) {
+		static UnsignedInt reports=0;
+		if ((reports++%120)==0) fprintf(stderr,"[water-mesh] lattice=%dx%d projected_vertices=%zu evaluated_samples=%zu triangles=%zu retained_vertices=%zu fallbacks=%zu\n",
+			m_modernProjectedColumns,m_modernProjectedRows,m_modernProjectedVertices,m_modernProjectedEvaluations,
+			m_modernProjectedTriangles,m_modernRetainedVertices,m_modernProjectedFallbacks);
+	}
 	m_modernRenderCamera=NULL;
 #endif
 
@@ -2082,6 +2541,28 @@ void WaterRenderObjClass::Render(RenderInfoClass & rinfo)
 
 	if (m_waterTrackSystem)
 		m_waterTrackSystem->flush(rinfo);
+#ifndef _WIN32
+	if (m_modernProfileEnabled) {
+		m_modernProfile.render+=modernWaterProfileMilliseconds()-profileRenderStart;
+		m_modernProfile.vertices+=m_modernProjectedVertices+m_modernRetainedVertices;
+		m_modernProfile.triangles+=m_modernProjectedTriangles;
+		if (++m_modernProfile.frames>=120) {
+			const double frames=double(m_modernProfile.frames);
+			fprintf(stderr,"[water-profile] frames=%zu render_ms=%.4f setup_ms=%.4f hulls_ms=%.4f obstacles_ms=%.4f projected_mesh_ms=%.4f vertex_fill_ms=%.4f submit_ms=%.4f vertices=%.1f projected_triangles=%.1f patches=%.1f\n",
+				m_modernProfile.frames,m_modernProfile.render/frames,m_modernProfile.setup/frames,
+				m_modernProfile.hulls/frames,m_modernProfile.obstacles/frames,m_modernProfile.mesh/frames,
+				m_modernProfile.fill/frames,m_modernProfile.submit/frames,m_modernProfile.vertices/frames,
+				m_modernProfile.triangles/frames,m_modernProfile.patches/frames);
+			const double scale=m_modernProfile.samples?double(m_modernProfile.attempts)/(m_modernProfile.samples*frames):0;
+			fprintf(stderr,"[water-profile-sampled] samples=%zu field_ms=%.4f damping_ms=%.4f wave_ms=%.4f cache_ms=%.4f patch_obstacles=%.1f misses=%.1f hits=%.1f wave_points=%.1f\n",
+				m_modernProfile.samples,m_modernProfile.fieldSample*scale,m_modernProfile.dampingSample*scale,
+				m_modernProfile.waveSample*scale,m_modernProfile.cacheSample*scale,
+				m_modernProfile.patches?double(m_modernProfile.patchObstacles)/m_modernProfile.patches:0,
+				m_modernProfile.misses/frames,m_modernProfile.hits/frames,m_modernProfile.wavePoints/frames);
+			m_modernProfile=ModernWaterProfile();
+		}
+	}
+#endif
 
 //	renderWaterMesh();
 //	renderWaterWave();
@@ -2597,6 +3078,7 @@ void WaterRenderObjClass::renderWaterMesh(void)
 
 	if (!m_doWaterGrid)
 		return;	//the water grid is disabled.
+	m_modernOpticalLevel=Get_Position().Z;
 
  	//According to Nvidia there's a D3D bug that happens if you don't start with a
  	//new dynamic VB each frame - so we force a DISCARD by overflowing the counter.
@@ -3092,8 +3574,12 @@ Real WaterRenderObjClass::getWaterHeight(Real x, Real y)
 
 
 // Scene geometry attenuates the render mesh only. It never changes the simulation water grid.
-Real WaterRenderObjClass::modernWaterDamping(Real x, Real y, Real z) const
+Real WaterRenderObjClass::modernWaterDamping(Real x, Real y, Real z, Real offshore, Real *obstacleAttenuation, Real *terrainDepth, Real *hullFreeDamping) const
 {
+	if (obstacleAttenuation) *obstacleAttenuation=1.0f;
+	if (terrainDepth) *terrainDepth=0.0f;
+	// Early zero returns remain zero for both the complete CPU fallback and the FFT envelope.
+	if (hullFreeDamping) *hullFreeDamping=0.0f;
 	WorldHeightMap *map=TheTerrainRenderObject?TheTerrainRenderObject->getMap():NULL;
 	Real damping=1.0f;
 	if (map && map->getXExtent()>1 && map->getYExtent()>1) {
@@ -3103,36 +3589,72 @@ Real WaterRenderObjClass::modernWaterDamping(Real x, Real y, Real z) const
 		const Real fx=mx-ix,fy=my-iy;
 		const Real a=map->getHeight(ix,iy)*(1-fx)+map->getHeight(ix+1,iy)*fx;
 		const Real b=map->getHeight(ix,iy+1)*(1-fx)+map->getHeight(ix+1,iy+1)*fx;
-		damping=WaterSurfaceModel::ShoreDamping(z-(a*(1-fy)+b*fy)*MAP_HEIGHT_SCALE);
+		const Real depth=z-(a*(1-fy)+b*fy)*MAP_HEIGHT_SCALE;
+		if (terrainDepth) *terrainDepth=depth;
+		damping=WaterSurfaceModel::TerrainDamping(depth,offshore);
 		if (damping<=0.0f) return 0.0f;
 	}
-	for (size_t i=0;i<m_modernPatchObstacles.size();++i) {
-		const ModernWaterObstacle &o=m_modernPatchObstacles[i];
+	// The broad phase only omits objects whose exact narrow phase returns one. River points
+	// and failed/oversized index builds retain the original ordered full list.
+	const WaterObstacleIndex::Range candidates=offshore>0.0f?m_modernObstacleIndex.Query(x,y):WaterObstacleIndex::Range{};
+	const size_t obstacleCount=candidates.indexed?candidates.count:m_modernPatchObstacles.size();
+	for (size_t i=0;i<obstacleCount;++i) {
+		const ModernWaterObstacle &o=m_modernPatchObstacles[candidates.indexed?candidates.indices[i]:i];
 		if (z<o.position.Z-12.0f || z>o.position.Z+o.height+3.0f) continue;
 		const Real dx=x-o.position.X,dy=y-o.position.Y;
-		const Real distance=sqrtf(dx*dx+dy*dy)-o.radius;
-		damping=min(damping,WaterSurfaceModel::ShoreDamping(distance));
+		if (offshore>0.0f && WaterSurfaceModel::BeyondObstacleFade(dx,dy,o.radius)) continue;
+		Real obstacleDamping;
+		if (o.hasHull && offshore>0.0f) {
+			// An actual rendered waterline replaces the broad collision box offshore. Preserve
+			// the original river footprint exactly where the offshore field is zero.
+			const Real legacy=offshore<1.0f?WaterSurfaceModel::ShoreDamping(sqrtf(dx*dx+dy*dy)-o.radius):1.0f;
+			obstacleDamping=legacy+(1.0f-legacy)*offshore;
+		} else if (o.box && offshore>0.0f) {
+			const Real localX=dx*o.cosine+dy*o.sine,localY=-dx*o.sine+dy*o.cosine;
+			obstacleDamping=WaterSurfaceModel::BoxDamping(localX,localY,o.major,o.minor);
+			if (offshore<1.0f) {
+				const Real legacy=WaterSurfaceModel::ShoreDamping(sqrtf(dx*dx+dy*dy)-o.radius);
+				obstacleDamping=legacy+(obstacleDamping-legacy)*offshore;
+			}
+		} else obstacleDamping=WaterSurfaceModel::ShoreDamping(sqrtf(dx*dx+dy*dy)-o.radius);
+		if (obstacleAttenuation) *obstacleAttenuation=min(*obstacleAttenuation,obstacleDamping);
+		damping=min(damping,obstacleDamping);
 		if (damping<=0.0f) return 0.0f;
+	}
+	if (hullFreeDamping) *hullFreeDamping=damping;
+	if (offshore>0.0f) {
+		const Real hull=1.0f+(modernHullDamping(x,y,z)-1.0f)*offshore;
+		damping=min(damping,hull);
+		if (obstacleAttenuation) *obstacleAttenuation=min(*obstacleAttenuation,hull);
 	}
 	return damping;
 }
 
-// Dense, render-only geometry deliberately uses SDL's supported fixed vertex path. Texture-driven
-// vertex programs and paired engine shaders are unnecessary; the fragment's analytic wave model is
-// generated from the same source. Shared edges keep the same samples and camera warp on every patch.
+// Render-only geometry keeps a complete analytic CPU fallback. Projected ocean interiors carry
+// optional FFT displacement metadata in the unlit normal channel; every authored edge retains the
+// same canonical analytic samples regardless of whether the GPU ocean field is available.
 void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool river, Real riverStart, Real riverEnd)
 {
 #ifndef _WIN32
+	m_modernOpticalLevel=points[0].Z;
 	Vector3 boundsMin=points[0],boundsMax=points[0];
 	for (Int i=1;i<4;++i) {
 		boundsMin.X=min(boundsMin.X,points[i].X); boundsMin.Y=min(boundsMin.Y,points[i].Y); boundsMin.Z=min(boundsMin.Z,points[i].Z);
 		boundsMax.X=max(boundsMax.X,points[i].X); boundsMax.Y=max(boundsMax.Y,points[i].Y); boundsMax.Z=max(boundsMax.Z,points[i].Z);
 	}
 	boundsMin.Z-=WaterSurfaceModel::MaxDisplacement; boundsMax.Z+=WaterSurfaceModel::MaxDisplacement;
+	if (!river) {
+		boundsMin.X-=WaterFftGeometry::MaxHorizontalDisplacement;boundsMin.Y-=WaterFftGeometry::MaxHorizontalDisplacement;
+		boundsMax.X+=WaterFftGeometry::MaxHorizontalDisplacement;boundsMax.Y+=WaterFftGeometry::MaxHorizontalDisplacement;
+	}
 	// Include all wave crests in culling; offscreen authored patches do not evaluate any modes.
 	if (m_modernRenderCamera && m_modernRenderCamera->Cull_Box(AABoxClass((boundsMin+boundsMax)*0.5f,(boundsMax-boundsMin)*0.5f))) return;
+	const ModernOpticalTexture *oceanContext=NULL;
+	if (!river && modernWaterOpticalTexture(m_modernOpticalLevel))
+		for (size_t field=0;field<m_modernOpticalTextures.size();++field)
+			if (m_modernOpticalTextures[field].level==m_modernOpticalLevel) { oceanContext=&m_modernOpticalTextures[field]; break; }
 	const Int cells=m_modernMeshCells,side=cells+1;
-	const Int vertexCount=side*side,triangleCount=cells*cells*2;
+	Int vertexCount=side*side;
 	WaterSurfaceModel::Point corners[4];
 	for (Int i=0;i<4;++i) corners[i]={points[i].X,points[i].Y,points[i].Z};
 	const WaterSurfaceModel::Point camera={m_modernCamera.X,m_modernCamera.Y,m_modernCamera.Z};
@@ -3151,6 +3673,13 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 		const ModernWaterObstacle &o=m_modernObstacles[i];
 		const Real reach=o.radius+9.0f;
 		if (o.position.X+reach>=minX && o.position.X-reach<=maxX && o.position.Y+reach>=minY && o.position.Y-reach<=maxY) m_modernPatchObstacles.push_back(o);
+	}
+	m_modernObstacleIndex.Clear();m_modernObstacleInfluences.clear();
+	if (oceanContext && oceanContext->oceanExtent>0 && m_modernPatchObstacles.size()<=WaterObstacleIndex::Grid::MaxObstacles) {
+		m_modernObstacleInfluences.reserve(m_modernPatchObstacles.size());
+		for (const ModernWaterObstacle &o:m_modernPatchObstacles)
+			m_modernObstacleInfluences.push_back({o.position.X,o.position.Y,o.radius});
+		m_modernObstacleIndex.Build(m_modernObstacleInfluences,{minX,minY,maxX,maxY});
 	}
 	Real shadeR=TheWaterTransparency->m_standingWaterColor.red;
 	Real shadeG=TheWaterTransparency->m_standingWaterColor.green;
@@ -3201,28 +3730,223 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 	//Keep diffuse from lighting calculations but substitute custom alpha
 	diffuse |= m_settings[m_tod].waterDiffuse & 0xff000000;	//copy alpha/opacity from ini setting
 
+	WaterProjectedMesh::Mesh projectedMesh;
+	WaterFftGeometry::SeamFade fftSeam;
+	const double profileMeshStart=m_modernProfileEnabled?modernWaterProfileMilliseconds():0;
+	if (m_modernProfileEnabled) { ++m_modernProfile.patches;m_modernProfile.patchObstacles+=m_modernPatchObstacles.size(); }
+	Bool projected=FALSE;
+	const float levels[4]={points[0].Z,points[1].Z,points[2].Z,points[3].Z};
+	// Homography is defined on one plane. Authored sloped patches retain every original Z.
+	if (!river && oceanContext && oceanContext->oceanExtent>0 && m_modernRenderCamera && WaterProjectedMesh::HasSingleLevel(levels)) {
+		WaterProjectedMesh::Projection projection;
+		Matrix3D view;m_modernRenderCamera->Get_View_Matrix(&view);
+		const Matrix4x4 &clip=m_modernRenderCamera->Get_Projection_Matrix();
+		for (Int row=0;row<3;++row) {
+			const Int clipRow=row==2?3:row;
+			for (Int column=0;column<2;++column) {
+				projection.matrix[row*3+column]=0;
+				for (Int k=0;k<3;++k) projection.matrix[row*3+column]+=double(clip[clipRow][k])*view[k][column];
+			}
+			projection.matrix[row*3+2]=clip[clipRow][3];
+			for (Int k=0;k<3;++k) projection.matrix[row*3+2]+=double(clip[clipRow][k])*(double(view[k][2])*points[0].Z+view[k][3]);
+		}
+		projection.depth={-double(view[2][0]),-double(view[2][1]),-double(view[2][2])*points[0].Z-view[2][3]};
+		Real nearDistance,farDistance;m_modernRenderCamera->Get_Clip_Planes(nearDistance,farDistance);
+		projection.nearDistance=max(0.01f,nearDistance);
+		projection.farDistance=farDistance+WaterSurfaceModel::MaxDisplacement;
+		const Real separation=fabsf(m_modernCamera.Z-points[0].Z);
+		projection.margin=clamp(4.0f*WaterSurfaceModel::MaxDisplacement/max(separation,1.0f),0.12f,0.8f);
+		WaterProjectedMesh::Point polygon[4];for (Int i=0;i<4;++i) polygon[i]={points[i].X,points[i].Y};
+		std::vector<WaterProjectedMesh::BoundaryKnot> boundaryKnots;boundaryKnots.reserve(4*(cells+1));
+		for (Int edge=0;edge<4;++edge) {
+			WaterSurfaceModel::Point a=corners[edge],b=corners[(edge+1)%4];
+			if (a.x>b.x || (a.x==b.x && a.y>b.y)) { const WaterSurfaceModel::Point swap=a;a=b;b=swap; }
+			const double dx=double(b.x)-a.x,dy=double(b.y)-a.y,len2=dx*dx+dy*dy;
+			if (len2<1e-12) continue;
+			WaterSurfaceModel::Point knot[WaterSurfaceModel::MeshCells+1];
+			for (Int i=0;i<=cells;++i) knot[i]=WaterSurfaceModel::EdgePoint(a,b,Real(i)/cells,camera);
+			for (Int i=1;i<cells;i+=2) {
+				knot[i].x=WaterSurfaceModel::MorphCoordinate(knot[i].x,knot[i-1].x,knot[i+1].x,m_modernMeshMorph);
+				knot[i].y=WaterSurfaceModel::MorphCoordinate(knot[i].y,knot[i-1].y,knot[i+1].y,m_modernMeshMorph);
+			}
+			for (Int i=0;i<=cells;++i) {
+				const double t=((knot[i].x-a.x)*dx+(knot[i].y-a.y)*dy)/len2;
+				// Use the authored straight XY edge for clipping; retain the exact float knot in
+				// the final vertex. The difference is at most float interpolation roundoff.
+				boundaryKnots.push_back({{a.x+dx*t,a.y+dy*t},edge,i,t});
+			}
+		}
+		if (separation>WaterSurfaceModel::MaxDisplacement*2 && projection.Prepare() &&
+			WaterProjectedMesh::Build(polygon,projection,{m_modernProjectedColumns,m_modernProjectedRows},projectedMesh,m_modernProjectedBudget,boundaryKnots)) {
+			projected=TRUE;vertexCount=(Int)projectedMesh.vertices.size();
+			fftSeam.Prepare(polygon,projection,{m_modernProjectedColumns,m_modernProjectedRows});
+			m_modernProjectedVertices+=vertexCount;m_modernProjectedTriangles+=projectedMesh.indices.size()/3;
+		} else ++m_modernProjectedFallbacks; // Retain complete original coverage if projection is singular.
+	}
+
+	if (m_modernProfileEnabled) m_modernProfile.mesh+=modernWaterProfileMilliseconds()-profileMeshStart;
+	if (projected && projectedMesh.indices.empty()) return;
+	if (!projected) m_modernRetainedVertices+=vertexCount;
+	const double profileFillStart=m_modernProfileEnabled?modernWaterProfileMilliseconds():0;
 	DynamicVBAccessClass vertices(BUFFER_TYPE_DYNAMIC_DX8,dynamic_fvf_type,vertexCount);
 	{
 		DynamicVBAccessClass::WriteLockClass lock(&vertices);
 		VertexFormatXYZNDUV2 *grid=lock.Get_Formatted_Vertex_Array();
 		VertexFormatXYZNDUV2 *vertex=grid;
 		W3DShroud *shroud=TheTerrainRenderObject?TheTerrainRenderObject->getShroud():NULL;
+		if (projected) {
+			auto makeBaseVertex=[&](const WaterSurfaceModel::Point &p,Bool boundarySample=FALSE) {
+				// Sample one in 64 vertices, with the phase rotating each render. Clock reads are
+				// absent from normal runs and sparse enough not to dominate the measured work.
+				const Bool sampled=m_modernProfileEnabled && ((m_modernProfile.attempts++ + m_modernProfile.frames)&63)==0;
+				double stamp=sampled?modernWaterProfileMilliseconds():0;
+				const Bool share=m_modernProjectedCacheEnabled || boundarySample;
+				const WaterProjectedMesh::WorldKey key=WaterProjectedMesh::SampleKey(p.x,p.y,p.z);
+				auto cached=share?m_modernProjectedSamples.find(key):m_modernProjectedSamples.end();
+				if (sampled) { const double now=modernWaterProfileMilliseconds();m_modernProfile.cacheSample+=now-stamp;stamp=now;++m_modernProfile.samples; }
+				ModernProjectedSample sample;
+				if (cached!=m_modernProjectedSamples.end()) {
+					sample=cached->second;if (m_modernProfileEnabled) ++m_modernProfile.hits;
+				} else {
+					++m_modernProjectedEvaluations;
+					if (m_modernProfileEnabled) ++m_modernProfile.misses;
+					const WaterSurfaceModel::Sample offshore=WaterSurfaceModel::SampleOffshore(oceanContext->ocean.data(),
+						m_modernHeightWidth,m_modernHeightHeight,p.x/MAP_XY_FACTOR+m_modernHeightBorder,p.y/MAP_XY_FACTOR+m_modernHeightBorder,MAP_XY_FACTOR);
+					if (sampled) { const double now=modernWaterProfileMilliseconds();m_modernProfile.fieldSample+=now-stamp;stamp=now; }
+					sample.obstacle=1;
+					Real terrainDepth=0,hullFreeDamping=0;
+					sample.damping=modernWaterDamping(p.x,p.y,p.z,offshore.height,&sample.obstacle,&terrainDepth,&hullFreeDamping);
+					sample.offshore=offshore.height;
+					sample.fftDamping=WaterFftGeometry::SafeDamping(hullFreeDamping,terrainDepth);
+					if (sampled) { const double now=modernWaterProfileMilliseconds();m_modernProfile.dampingSample+=now-stamp;stamp=now; }
+					sample.height=sample.damping>0 ? WaterSurfaceModel::EvaluateBlendedHeight(p.x,p.y,m_modernWaveTime,offshore)*sample.damping:0;
+					if (sampled) { const double now=modernWaterProfileMilliseconds();m_modernProfile.waveSample+=now-stamp;stamp=now; }
+					if (m_modernProfileEnabled && sample.damping>0) ++m_modernProfile.wavePoints;
+					if (share && m_modernProjectedSamples.size()<WaterSurfaceModel::VertexBudget) m_modernProjectedSamples.emplace(key,sample);
+					if (sampled) m_modernProfile.cacheSample+=modernWaterProfileMilliseconds()-stamp;
+				}
+				VertexFormatXYZNDUV2 result;
+				result.x=p.x;result.y=p.y;result.z=p.z+sample.height;
+				// The native FFT stages apply exact hull damping to this hull-free floor/obstacle
+				// envelope. Interpolating the hull envelope itself produces triangular normals.
+				// CPU fallback height and authored edges retain the original combined damping.
+				result.nx=boundarySample?0.0f:fftSeam.Weight({p.x,p.y},sample.offshore);
+				result.ny=sample.fftDamping;result.nz=sample.offshore;
+				result.u1=0;result.v1=p.y/150.0f;result.u2=sample.damping;result.v2=p.z;
+				result.diffuse=WaterSurfaceModel::EncodeObstacleAttenuation(diffuse,sample.obstacle);return result;
+			};
+			auto interpolate=[](const VertexFormatXYZNDUV2 &a,const VertexFormatXYZNDUV2 &b,Real t) {
+				VertexFormatXYZNDUV2 value=a;
+				value.x=a.x+(b.x-a.x)*t;value.y=a.y+(b.y-a.y)*t;value.z=a.z+(b.z-a.z)*t;
+				value.u1=a.u1+(b.u1-a.u1)*t;value.v1=a.v1+(b.v1-a.v1)*t;
+				value.u2=a.u2+(b.u2-a.u2)*t;value.v2=a.v2+(b.v2-a.v2)*t;
+				value.diffuse=0;for (Int shift=0;shift<32;shift+=8) {
+					const Real ca=(a.diffuse>>shift)&255,cb=(b.diffuse>>shift)&255;
+					value.diffuse|=UnsignedInt(ca+(cb-ca)*t+0.5f)<<shift;
+				}
+				return value;
+			};
+			VertexFormatXYZNDUV2 edgeVertices[4][WaterSurfaceModel::MeshCells+1];
+			Bool prepared[4]={FALSE,FALSE,FALSE,FALSE};
+
+			WaterProjectedMesh::Point authored[4];for (Int i=0;i<4;++i) authored[i]={points[i].X,points[i].Y};
+			auto prepareEdge=[&](Int edge) {
+				if (prepared[edge]) return;
+				WaterSurfaceModel::Point a=corners[edge],b=corners[(edge+1)%4];
+				if (a.x>b.x || (a.x==b.x && a.y>b.y)) { const WaterSurfaceModel::Point swap=a;a=b;b=swap; }
+				for (Int i=0;i<=cells;++i) edgeVertices[edge][i]=makeBaseVertex(WaterSurfaceModel::EdgePoint(a,b,Real(i)/cells,camera),TRUE);
+				for (Int i=1;i<cells;i+=2) {
+					VertexFormatXYZNDUV2 &v=edgeVertices[edge][i];
+					const VertexFormatXYZNDUV2 &lo=edgeVertices[edge][i-1],&hi=edgeVertices[edge][i+1];
+					v.x=WaterSurfaceModel::MorphCoordinate(v.x,lo.x,hi.x,m_modernMeshMorph);
+					v.y=WaterSurfaceModel::MorphCoordinate(v.y,lo.y,hi.y,m_modernMeshMorph);
+					v.z=WaterSurfaceModel::MorphCoordinate(v.z,lo.z,hi.z,m_modernMeshMorph);
+					v.u1=WaterSurfaceModel::MorphCoordinate(v.u1,lo.u1,hi.u1,m_modernMeshMorph);
+					v.v1=WaterSurfaceModel::MorphCoordinate(v.v1,lo.v1,hi.v1,m_modernMeshMorph);
+					v.u2=WaterSurfaceModel::MorphCoordinate(v.u2,lo.u2,hi.u2,m_modernMeshMorph);
+					v.v2=WaterSurfaceModel::MorphCoordinate(v.v2,lo.v2,hi.v2,m_modernMeshMorph);
+					v.diffuse=WaterSurfaceModel::MorphColour(v.diffuse,lo.diffuse,hi.diffuse,m_modernMeshMorph);
+				}
+				prepared[edge]=TRUE;
+			};
+			auto edgeSample=[&](Int edge,double parameter) {
+				prepareEdge(edge);
+				WaterSurfaceModel::Point a=corners[edge],b=corners[(edge+1)%4];
+				if (a.x>b.x || (a.x==b.x && a.y>b.y)) { const WaterSurfaceModel::Point swap=a;a=b;b=swap; }
+				const double ex=b.x-a.x,ey=b.y-a.y,len2=ex*ex+ey*ey;
+				Int i=0;Real t=0;
+				for (;i<cells;++i) {
+					const VertexFormatXYZNDUV2 &lo=edgeVertices[edge][i],&hi=edgeVertices[edge][i+1];
+					const double lt=((lo.x-a.x)*ex+(lo.y-a.y)*ey)/len2,ht=((hi.x-a.x)*ex+(hi.y-a.y)*ey)/len2;
+					if (parameter<=ht || i==cells-1) { t=ht>lt?Real((parameter-lt)/(ht-lt)):0;t=clamp(t,0.0f,1.0f);break; }
+				}
+				return interpolate(edgeVertices[edge][i],edgeVertices[edge][i+1],t);
+			};
+			auto correctedVertex=[&](WaterProjectedMesh::Point p,const WaterProjectedMesh::BoundaryCollar &collar,Bool share=FALSE) {
+				VertexFormatXYZNDUV2 result=makeBaseVertex({Real(p.x),Real(p.y),points[0].Z},share);
+				double correction=0;
+				for (Int i=0;i<collar.count;++i) {
+					const VertexFormatXYZNDUV2 edge=edgeSample(collar.edge[i],collar.parameter[i]);
+					correction+=collar.weight[i]*(edge.z-result.z);
+				}
+				result.u1=Real(correction);result.z+=result.u1;return result;
+			};
+			for (size_t n=0;n<projectedMesh.vertices.size();++n) {
+				const WaterProjectedMesh::Vertex &p=projectedMesh.vertices[n];
+				if (p.boundary<0) {
+					grid[n]=p.collar>=0?correctedVertex(p.world,projectedMesh.collars[p.collar]):makeBaseVertex({Real(p.world.x),Real(p.world.y),points[0].Z});
+					if (p.transition>=0) {
+						const WaterProjectedMesh::CentreTransition &transition=projectedMesh.transitions[p.transition];
+						VertexFormatXYZNDUV2 source[3];
+						for (Int i=0;i<3;++i) source[i]=correctedVertex(transition.source[i],WaterProjectedMesh::CollarAt(authored,transition.source[i]),TRUE);
+						double values[3];
+						for (Int i=0;i<3;++i) values[i]=source[i].z;
+						const Real height=Real(WaterProjectedMesh::InterpolateCentre(transition,grid[n].z,values));
+						grid[n].u1+=height-grid[n].z;grid[n].z=height;
+					}
+					continue;
+				}
+				const Int edge=p.boundary;
+				WaterSurfaceModel::Point a=corners[edge],b=corners[(edge+1)%4];
+				if (a.x>b.x || (a.x==b.x && a.y>b.y)) { const WaterSurfaceModel::Point swap=a;a=b;b=swap; }
+				prepareEdge(edge);
+				grid[n]=p.knot>=0?edgeVertices[edge][p.knot]:edgeSample(edge,p.edgeParameter);
+				// The fragment receives the exact additional height, including coarse-edge morph.
+				const VertexFormatXYZNDUV2 analytic=makeBaseVertex({grid[n].x,grid[n].y,points[0].Z},TRUE);
+				grid[n].u1=grid[n].z-analytic.z;grid[n].u2=analytic.u2;grid[n].diffuse=analytic.diffuse;
+				grid[n].nx=grid[n].ny=0;grid[n].nz=1;
+			}
+		} else {
 		for (Int j=0;j<=cells;++j) for (Int i=0;i<=cells;++i) {
 			const Real u=(Real)i/cells,v=(Real)j/cells;
 			const WaterSurfaceModel::Point boundary[4]={edges[0][i],edges[1][j],edges[2][i],edges[3][j]};
 			const WaterSurfaceModel::Point p=WaterSurfaceModel::PatchPoint(corners,boundary,u,v);
-			const Real damping=modernWaterDamping(p.x,p.y,p.z);
+			const WaterSurfaceModel::Sample offshore=oceanContext ? WaterSurfaceModel::SampleOffshore(
+				oceanContext->ocean.data(),m_modernHeightWidth,m_modernHeightHeight,
+				p.x/MAP_XY_FACTOR+m_modernHeightBorder,p.y/MAP_XY_FACTOR+m_modernHeightBorder,MAP_XY_FACTOR) : WaterSurfaceModel::Sample{0,0,0};
+			Real obstacleAttenuation=1.0f;
+			const Real damping=modernWaterDamping(p.x,p.y,p.z,offshore.height,river?NULL:&obstacleAttenuation);
 			// Broad water polygons also cover dry land. Those vertices cannot move, and evaluating
 			// all wave modes there was needlessly expensive on maps with many shallow pools.
-			const WaterSurfaceModel::Sample wave=damping>0.0f ?
-				WaterSurfaceModel::Evaluate(p.x,p.y,m_modernWaveTime) : WaterSurfaceModel::Sample{0,0,0};
+			WaterSurfaceModel::Sample wave={0,0,0};
+			if (damping>0.0f) {
+				if (offshore.height>0.0f) wave.height=WaterSurfaceModel::EvaluateBlendedHeight(p.x,p.y,m_modernWaveTime,offshore);
+				else wave=WaterSurfaceModel::EvaluateBlended(p.x,p.y,m_modernWaveTime,offshore);
+			}
 			vertex->x=p.x;vertex->y=p.y;vertex->z=p.z+damping*wave.height;
-			vertex->diffuse=river?applyShroudToRiverDiffuse(shroud,p.x,p.y,diffuse):diffuse;
-			vertex->u1=river?(1.0f-u)*0.5f:p.x/150.0f;
+			// The flat modern shader uses only alpha for colour/shroud. PRELIT_DIFFUSE passes RGB
+			// through unchanged, so red carries the obstacle profile independently of terrain.
+			vertex->diffuse=river?applyShroudToRiverDiffuse(shroud,p.x,p.y,diffuse):
+				WaterSurfaceModel::EncodeObstacleAttenuation(diffuse,obstacleAttenuation);
+			vertex->u1=river?(1.0f-u)*0.5f:0.0f;
 			vertex->v1=river?riverStart+(riverEnd-riverStart)*v-m_riverVOrigin:p.y/150.0f;
 			vertex->u2=damping;vertex->v2=p.z;
-			const Real nx=-wave.dx*damping,ny=-wave.dy*damping,inv=1.0f/sqrtf(1.0f+nx*nx+ny*ny);
-			vertex->nx=nx*inv;vertex->ny=ny*inv;vertex->nz=inv;
+			if (!river) {
+				vertex->nx=vertex->ny=0.0f;vertex->nz=1.0f;
+			} else {
+				const Real nx=-wave.dx*damping,ny=-wave.dy*damping,inv=1.0f/sqrtf(1.0f+nx*nx+ny*ny);
+				vertex->nx=nx*inv;vertex->ny=ny*inv;vertex->nz=inv;
+			}
 			++vertex;
 		}
 		if (m_modernMeshMorph>0.0f) {
@@ -3245,12 +3969,17 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 				v.diffuse=WaterSurfaceModel::MorphColour(v.diffuse,a.diffuse,b.diffuse,amount);
 			}
 		}
+		}
+	}
+	double profileSubmitStart=0;
+	if (m_modernProfileEnabled) {
+		profileSubmitStart=modernWaterProfileMilliseconds();m_modernProfile.fill+=profileSubmitStart-profileFillStart;
 	}
 	Matrix3D transform(1);
 	DX8Wrapper::Set_Transform(D3DTS_WORLD,transform);
 	DX8Wrapper::Set_Vertex_Buffer(vertices);
 	DX8Wrapper::Set_Texture(0,m_riverTexture);
-	if (river) setupJbaWaterShader(); else setupFlatWaterShader();
+	if (river) setupJbaWaterShader(); else setupFlatWaterShader(TRUE);
 	RenderUInt32 cull;
 	DX8Wrapper::_Get_D3D_Device()->GetRenderState(D3DRS_CULLMODE,&cull);
 	DX8Wrapper::Set_DX8_Render_State(D3DRS_CULLMODE,D3DCULL_NONE);
@@ -3260,6 +3989,14 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 	if (meshDebug) DX8Wrapper::Set_DX8_Render_State(D3DRS_FILLMODE,D3DFILL_WIREFRAME);
 	// Legacy dynamic index buffers store their count in 16 bits. Keep a shared vertex grid and
 	// submit bounded row batches; even a 128-cell ocean patch cannot truncate its index count.
+	if (projected) {
+		for (size_t first=0;first<projectedMesh.indices.size();first+=65532) {
+			const size_t count=min(size_t(65532),projectedMesh.indices.size()-first);
+			DynamicIBAccessClass indices(BUFFER_TYPE_DYNAMIC_DX8,(Int)count);
+			{ DynamicIBAccessClass::WriteLockClass lock(&indices);memcpy(lock.Get_Index_Array(),projectedMesh.indices.data()+first,count*sizeof(UnsignedShort)); }
+			DX8Wrapper::Set_Index_Buffer(indices,0);DX8Wrapper::Draw_Triangles(0,(Int)count/3,0,vertexCount);
+		}
+	} else {
 	const Int batchRows=WaterSurfaceModel::IndexBatchRows(cells);
 	for (Int row=0;row<cells;row+=batchRows) {
 		const Int rows=min(batchRows,cells-row),triangles=rows*cells*2;
@@ -3275,6 +4012,7 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 		DX8Wrapper::Set_Index_Buffer(indices,0);
 		DX8Wrapper::Draw_Triangles(0,triangles,0,vertexCount);
 	}
+	}
 	if (meshDebug) DX8Wrapper::Set_DX8_Render_State(D3DRS_FILLMODE,D3DFILL_SOLID);
 	DX8Wrapper::Set_Pixel_Shader(NULL);
 	if (TheWaterTransparency->m_additiveBlend) DX8Wrapper::Set_DX8_Render_State(D3DRS_SRCBLEND,D3DBLEND_ONE);
@@ -3284,6 +4022,7 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 		DX8Wrapper::Set_DX8_Render_State(D3DRS_ZFUNC,D3DCMP_EQUAL);
 	}
 	DX8Wrapper::Set_DX8_Render_State(D3DRS_CULLMODE,cull);
+	if (m_modernProfileEnabled) m_modernProfile.submit+=modernWaterProfileMilliseconds()-profileSubmitStart;
 #endif
 }
 
@@ -3606,7 +4345,7 @@ void WaterRenderObjClass::drawReflection(Int triangleCount, Int vertexCount)
 	ShaderClass::Invalidate();	//everything above was set behind the shader's back
 }
 
-void WaterRenderObjClass::setupFlatWaterShader(void) 
+void WaterRenderObjClass::setupFlatWaterShader(Bool heightCorrection)
 {
 
 	DX8Wrapper::Set_Texture(0,m_riverTexture);
@@ -3698,7 +4437,7 @@ void WaterRenderObjClass::setupFlatWaterShader(void)
 	if (m_trapezoidWaterPixelShader){
 		DX8Wrapper::_Get_D3D_Device()->SetPixelShaderConstantF(0,   D3DXVECTOR4(REFLECTION_FACTOR, REFLECTION_FACTOR, REFLECTION_FACTOR, 1.0f), 1);
 		DX8Wrapper::Set_Pixel_Shader(m_trapezoidWaterPixelShader);
-		setupModernWaterShader(FALSE);
+		setupModernWaterShader(FALSE,heightCorrection);
 	}
 }
 
