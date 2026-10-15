@@ -10,15 +10,17 @@
  * is not ported yet, so the test supplies its own out of LocalFile, which is
  * plain CRT _open/_read and does live in gameengine.
  */
+/* Standard-library headers precede crc.h's BaseType.h min/max macros, which otherwise
+   expand inside filesystem's stream and locale headers on GCC. */
+#include <filesystem>
+#include <limits>
+#include <string>
+
 /* crc.h pulls winsock2.h, so it has to come before anything that drags in
    windows.h (and with it winsock.h) - otherwise ws2def.h redefines sockaddr. */
 #include "Common/crc.h"
 
 #include "test_harness.h"
-
-#include <filesystem>
-#include <limits>
-#include <string>
 
 #include "Common/AsciiString.h"
 #include "Common/CommandLine.h"
@@ -192,7 +194,6 @@ static int GetSystemMetrics( int which )
 #include <math.h>
 #include <atomic>
 #include <chrono>
-#include <filesystem>
 #include <thread>
 
 //////////////////////////////////////////////////////////////////////////////
