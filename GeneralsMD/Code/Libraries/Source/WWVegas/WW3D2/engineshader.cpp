@@ -80,6 +80,8 @@ static const EngineShaderEntry ENGINE_SHADERS[] = {
 	{ ENGINE_SHADER_WATER_TRAPEZOID, "trapezoid water ps.1.1", "engine:trapezoidwater",
 		NULL, NULL },
 	{ ENGINE_SHADER_WATER_RIVER, "river water ps.1.1", "engine:riverwater", NULL, NULL },
+	{ ENGINE_SHADER_WATER_CLASSIC_TRAPEZOID, "classic trapezoid water ps.1.1", "engine:classictrapezoidwater", NULL, NULL },
+	{ ENGINE_SHADER_WATER_CLASSIC_RIVER, "classic river water ps.1.1", "engine:classicriverwater", NULL, NULL },
 	{ ENGINE_SHADER_WATER_REFLECTION, "water reflection ps.1.1", "engine:waterreflection",
 		NULL, NULL },
 	{ ENGINE_SHADER_TERRAIN, "terrain.pso", "engine:terrain",
@@ -1620,10 +1622,10 @@ static bool write_engine_pixel_program(EngineShaderProgram program,
 	if (entry != NULL && entry->Opening != NULL) {
 		write_multiply_chain(hlsl, *entry, volumetric);
 	}
-	else if (program == ENGINE_SHADER_WATER_TRAPEZOID) {
+	else if (program == ENGINE_SHADER_WATER_TRAPEZOID || program == ENGINE_SHADER_WATER_CLASSIC_TRAPEZOID) {
 		write_trapezoid_water(hlsl);
 	}
-	else if (program == ENGINE_SHADER_WATER_RIVER) {
+	else if (program == ENGINE_SHADER_WATER_RIVER || program == ENGINE_SHADER_WATER_CLASSIC_RIVER) {
 		write_river_water(hlsl);
 	}
 	else if (program == ENGINE_SHADER_WATER_REFLECTION) {

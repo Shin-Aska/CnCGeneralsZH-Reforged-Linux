@@ -143,6 +143,8 @@ NEW_CONTROLS = [
     (COMBO,  "ComboBoxFullscreenScaling", None),
     (CHECK,  "CheckVSync",             "GUI:VSync"),
     (CHECK,  "CheckClassicGraphics",   "GUI:ClassicGraphics"),
+    (LABEL,  "LabelWaterStyle",        "GUI:WaterStyle"),
+    (COMBO,  "ComboBoxWaterStyle",      None),
     (LABEL,  "LabelMSAA",              "GUI:MSAA"),
     (COMBO,  "ComboBoxMSAA",           None),
     (LABEL,  "LabelBloom",             "GUI:Bloom"),
@@ -293,7 +295,8 @@ GROUP_LAYOUT = [
         ("GUI:OptionsGroupLighting", [
             setting("LabelBloom", "ComboBoxBloom"),
             ("check", "CheckGroundLighting"),
-            ("check", "CheckHeatEffects")])]),
+            ("check", "CheckHeatEffects"),
+            setting("LabelWaterStyle", "ComboBoxWaterStyle")])]),
 
     ("PageEffects", [
         ("GUI:OptionsGroupShadows", [("check", name) for name in SHADOW_CHECKS]),

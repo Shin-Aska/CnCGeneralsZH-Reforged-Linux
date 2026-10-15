@@ -232,6 +232,39 @@ TEST(runtime_bed_material_is_tileable_deterministic_and_has_distinct_relief)
 	}
 }
 
+TEST(classic_water_uses_the_original_program_and_separate_cache_identity)
+{
+    // D3D11 retains the original transcription. Classic on SDL must be exactly that
+    // program after binding retargeting, including fog/alpha-test variants.
+    for (unsigned river=0; river<2; ++river) for (unsigned state=0; state<4; ++state) {
+        const auto original=river?ENGINE_SHADER_WATER_RIVER:ENGINE_SHADER_WATER_TRAPEZOID;
+        const auto classic=river?ENGINE_SHADER_WATER_CLASSIC_RIVER:ENGINE_SHADER_WATER_CLASSIC_TRAPEZOID;
+        PixelPipelineDescription pipeline={};
+        pipeline.FogEnabled=(state&1)!=0;
+        pipeline.AlphaTestEnabled=(state&2)!=0;
+        pipeline.AlphaFunction=FF_CMP_GREATEREQUAL;
+        std::string expected,actual,modern;
+        CHECK(EngineShader_Pixel_Program(original,pipeline,expected,COMBINER_SHADER_TARGET_D3D11));
+        CHECK(SDL3_Shader_Retarget(expected,false));
+        CHECK(EngineShader_Pixel_Program(classic,pipeline,actual,COMBINER_SHADER_TARGET_SDL3_GPU));
+        CHECK(actual==expected);
+        CHECK(EngineShader_Pixel_Program(original,pipeline,modern,COMBINER_SHADER_TARGET_SDL3_GPU));
+        CHECK(actual!=modern);
+        CHECK(std::string(EngineShader_Name(original))!=EngineShader_Name(classic));
+        CHECK(EngineShader_From_File(river?"classic river water ps.1.1":"classic trapezoid water ps.1.1")==classic);
+        std::vector<unsigned char> spirv;std::string log,msl;
+        const bool compiled=SDL3_Compile_HLSL_To_SPIRV(actual,false,spirv,log);
+        CHECK(compiled);
+        if (!compiled) { printf("Classic water: %s\n",log.c_str()); continue; }
+        unsigned samplers=0,buffers=0;SDL3_Shader_Slots(spirv,false,samplers,buffers);
+        // The original preamble also declares ShadowMap at t5, retaining six binding slots.
+        CHECK_EQ(samplers,6u);CHECK_EQ(buffers,1u);
+        CHECK(SDL3_Translate_SPIRV_To_MSL(spirv,false,msl,log));
+        const char *validator=getenv("ZH_SPIRV_VAL");
+        if(validator && *validator) CHECK(validate(validator,spirv,log));
+    }
+}
+
 TEST(fft_water_vertex_and_pixel_compile_with_separate_texture_bindings)
 {
 	VertexPipelineDescription description=shader_cases_detail::plain_vertex();

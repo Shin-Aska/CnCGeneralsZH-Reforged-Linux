@@ -143,6 +143,9 @@ enum { TEXTURE_FILTER_MODE_COUNT = 3 };
 // stores the level; the thickness each level stands for is in OptionsCatalog.cpp.
 enum { SMOKE_LEVEL_COUNT = 3 };
 
+// Classic is the original surface; Modern is the SDL wave and optical surface.
+enum { WATER_STYLE_COUNT = 2 };
+
 /** Options.ini -> TheWritableGlobalData, for every row.  A key that is absent leaves the field at
 	* whatever GlobalData's constructor put there, which is what makes an old Options.ini keep
 	* working when a row is added. */

@@ -236,6 +236,7 @@ protected:
 	TextureClass *m_riverTexture;
 	TextureClass *m_whiteTexture;		///< a texture containing only white used for NULL pixel shader stages.
 	TextureClass *m_waterNoiseTexture;
+	Bool m_useModernWater = FALSE; // active render style; synchronized before mirror/surface draws
 	TextureClass *m_modernHeightTexture = NULL;
 	TextureClass *m_modernBedTexture = NULL;
 	Real m_modernWaveTime = 0.0f;
@@ -372,6 +373,8 @@ protected:
 
 	void setupFlatWaterShader(Bool heightCorrection=FALSE);
 	void setupJbaWaterShader(void);
+	void synchronizeWaterStyle(void);
+	void registerWaterStyleShaders(void);
 	void setupModernWaterShader(Bool river,Bool heightCorrection=FALSE);
 	void updateModernWaterTextures(void);
 	void updateModernWaterHulls(void);

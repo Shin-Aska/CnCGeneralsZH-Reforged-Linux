@@ -5238,3 +5238,85 @@ TEST(water_coastal_domain_stride_two_capacity_preserves_fine_connectivity_and_te
 {
     WaterCoastalCapacityTest::Check();
 }
+
+#ifndef _WIN32
+#include "W3DDevice/GameClient/W3DWater.h"
+#include "GameClient/Water.h"
+#include "../GameEngineDevice/Source/PosixDevice/Render/PosixDevice9.h"
+#include "../Libraries/Source/WWVegas/WW3D2/engineshader.h"
+
+namespace {
+struct WaterShaderNameProbe : PosixDevice9 { using PosixDevice9::Engine_Name_Of; };
+class LiveWaterStyleProbe : public WaterRenderObjClass
+{
+public:
+    void prepareShaders(IDirect3DDevice9 *device) {
+        const RenderUInt32 tokens[]={0xffff0101u,0x0000ffffu};
+        CHECK(device->CreatePixelShader(tokens,&m_riverWaterPixelShader)==D3D_OK);
+        CHECK(device->CreatePixelShader(tokens,&m_trapezoidWaterPixelShader)==D3D_OK);
+        registerWaterStyleShaders();
+        m_modernWaveTime=37.5f;m_modernCaptureClock.Update(90,false);
+        m_level=7;m_meshInMotion=TRUE;
+    }
+    void seedPresentation() {
+        m_modernHulls.resize(1);m_modernContactHulls.resize(1);m_modernVisualHulls.resize(1);
+        m_modernHullObjectIDs.push_back(42);m_modernFoamDrawObjectIDs.push_back(42);
+        m_modernFoamDrawFrame=123;m_modernShoreReady=m_modernCoastalReady=m_modernCoastalViewReady=TRUE;
+        m_modernCoastalRevision=42;m_modernProfile.frames=17;m_reflectionReused=FALSE;
+    }
+    void checkChanged(bool modern) {
+        CHECK_EQ(bool(m_useModernWater),modern);
+        CHECK(m_modernHulls.empty() && m_modernContactHulls.empty() && m_modernVisualHulls.empty());
+        CHECK(m_modernHullObjectIDs.empty() && m_modernFoamDrawObjectIDs.empty());
+        CHECK(!m_modernShoreReady && !m_modernCoastalReady && !m_modernCoastalViewReady);
+        CHECK(m_modernCoastalRevision==0 && m_modernProfile.frames==0);
+        CHECK(m_reflectionReused); // force the new clear colour even with a stationary camera
+        CHECK_EQ(m_modernWaveTime,37.5f);CHECK_EQ(m_level,7);CHECK(m_meshInMotion);
+        const auto clock=m_modernCaptureClock.Update(90,true);
+        CHECK(!clock.restarted && clock.elapsed==0 && clock.seconds==3);
+        const auto river=EngineShader_From_File(WaterShaderNameProbe::Engine_Name_Of(m_riverWaterPixelShader).c_str());
+        const auto flat=EngineShader_From_File(WaterShaderNameProbe::Engine_Name_Of(m_trapezoidWaterPixelShader).c_str());
+        CHECK(river==(modern?ENGINE_SHADER_WATER_RIVER:ENGINE_SHADER_WATER_CLASSIC_RIVER));
+        CHECK(flat==(modern?ENGINE_SHADER_WATER_TRAPEZOID:ENGINE_SHADER_WATER_CLASSIC_TRAPEZOID));
+    }
+    void checkUnchanged() {
+        CHECK(!m_modernHulls.empty() && !m_modernFoamDrawObjectIDs.empty());
+        CHECK(m_modernShoreReady && m_modernCoastalRevision==42 && m_modernProfile.frames==17);
+        CHECK(!m_reflectionReused); // no per-frame history reset or forced mirror refresh
+    }
+};
+}
+
+TEST(water_style_changes_at_render_boundary_without_advancing_paused_time_or_reloading_the_map)
+{
+    GlobalData *saved=TheWritableGlobalData;
+    GlobalData *scratch=NEW GlobalData;TheWritableGlobalData=scratch;
+    WaterTransparencySetting *savedTransparency=(WaterTransparencySetting*)TheWaterTransparency.getNonOverloadedPointer();
+    TheWaterTransparency=newInstance(WaterTransparencySetting);
+    IDirect3D9 *d3d=Direct3DCreate9(D3D_SDK_VERSION);
+    D3DPRESENT_PARAMETERS parameters={};parameters.BackBufferWidth=16;parameters.BackBufferHeight=16;
+    parameters.BackBufferFormat=D3DFMT_X8R8G8B8;parameters.Windowed=TRUE;
+    IDirect3DDevice9 *device=NULL;
+    CHECK(d3d && d3d->CreateDevice(0,D3DDEVTYPE_HAL,NULL,0,&parameters,&device)==D3D_OK);
+    if (device) {
+        {
+            LiveWaterStyleProbe water;water.prepareShaders(device);
+            for (unsigned i=0;i<32;++i) {
+                const bool modern=(i&1)!=0;
+                water.seedPresentation();scratch->m_waterStyle=modern?1:0;
+                // No camera/map/device rendering: this is the real pre-mirror boundary,
+                // which must apply an accepted option even while simulation time is paused.
+                water.updateRenderTargetTextures(NULL);water.checkChanged(modern);
+                water.seedPresentation();water.updateRenderTargetTextures(NULL);water.checkUnchanged();
+            }
+        }
+        device->Release();
+    } else {
+        ((WaterTransparencySetting*)TheWaterTransparency.getNonOverloadedPointer())->deleteInstance();
+        TheWaterTransparency=NULL;
+    }
+    if (d3d) d3d->Release();
+    TheWaterTransparency=savedTransparency;
+    delete scratch;TheWritableGlobalData=saved;
+}
+#endif
