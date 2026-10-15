@@ -35,6 +35,7 @@
 #ifndef SDLCONSTANTS_H
 #define SDLCONSTANTS_H
 
+#include "Platform/WaterHullVisualLayout.h"
 #include "../../../../Libraries/Source/WWVegas/WW3D2/ffvertex.h" // MAXIMUM_VERTEX_STAGES, MAXIMUM_VERTEX_LIGHTS
 
 struct SdlVertexConstants
@@ -61,6 +62,18 @@ struct SdlPixelConstants
 	float AlphaReference[4];		///< .x is D3DRS_ALPHAREF as a whole level, 0 to 255
 };
 
+// Optional authored-surf wrapper. The original fixed-function prefix is byte-identical.
+struct SdlShorePixelConstants
+{
+	SdlPixelConstants Combiner;
+	float WorldFromClip[16];
+	float Viewport[4];
+	float Terrain[4];
+	float Scene[4];
+	float Surface[4];
+};
+static_assert(sizeof(SdlShorePixelConstants)==11*16,"shore wrapper packing");
+
 // Dedicated map-water uniforms. The common prefix keeps alpha testing and fog compatible with
 // the fixed-function pipeline; the remaining fields are used only by the SDL water shader.
 struct SdlWaterPixelConstants
@@ -76,11 +89,35 @@ struct SdlWaterPixelConstants
 	float TerrainParameters[4]; // height texture border, world size, height scale, available
 	float SceneParameters[4]; // refraction available, inverse scene-target width/height, scene depth available
 	float OpticalParameters[4]; // authored depth/opacity, offshore context available, flat UV0 height correction available
-	float HullParameters[4]; // number of visible vessel contours, remaining components reserved
+	float HullParameters[4]; // number of visible vessel contours, authored ambient RGB for vessel foam
 	float HullData[80][4]; // eight vessels, ten float4 registers each; runtime waterline geometry
 	float FftParameters[4]; // x: the dedicated vertex displacement and six sampled ocean maps are bound
+	float FoamHistoryArea[4]; // world origin XY, inverse world width/height; sampled at undisplaced surface XY
+	float FoamHistoryParameters[4]; // available, water level, cell world size, simulation time of atlas
+	float ContactHullData[80][4]; // optional foam-only contours; count < 3 falls back to the matching mean hull
+	float FoamFillLights[4][4]; // two direction/colour pairs; first direction.w enables the main light for foam
+	float CoastalArea[4]; // lower world origin XY and extent XY of the independent coastal view
+	float CoastalParams[4]; // valid, exact level, successful history sample time, current water time
 };
-static_assert(sizeof(SdlWaterPixelConstants) == 98 * 16, "water uniform packing");
+static_assert(sizeof(SdlWaterPixelConstants) == WaterHullVisualLayout::VertexCommonRegisters * 16, "water uniform packing");
+
+// Fragment-only extension after the shared water vertex/pixel prefix.
+struct SdlWaterVisualPixelConstants
+{
+	SdlWaterPixelConstants Water;
+	float VisualHullMeta[WaterHullVisualLayout::MaxHulls][4];
+};
+static_assert(sizeof(SdlWaterVisualPixelConstants)==WaterHullVisualLayout::FragmentCommonRegisters*16,
+	"fragment hull metadata packing");
+
+// A generator adding a block must have an explicit recording/binding path. The mesh packet
+// is the only four-block fragment layout; ordinary shaders cannot silently inherit its data.
+inline bool Sdl_Draw_Uniform_Buffers_Supported(bool water_vertex, bool water_pixel,
+	unsigned vertex_buffers, unsigned pixel_buffers)
+{
+	return vertex_buffers<=(water_vertex?2u:1u)
+		&& (pixel_buffers<=1u || (water_pixel && pixel_buffers==4u));
+}
 
 /// What an engine pixel program's b0 declares (A3e, engineshader.cpp's write_pixel_preamble): the Direct3D
 /// 11 backend's PixelConstantBlock, field for field.  The first three are SdlPixelConstants; the rest -

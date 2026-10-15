@@ -96,15 +96,16 @@ void SdlGpuFrame::Queue_Texture_Upload(SDL_GPUTexture * texture, unsigned int le
 	Uploads.push_back(upload);
 }
 
-uint32_t SdlGpuFrame::Constants(unsigned int stage, const void * bytes, uint32_t size)
+uint32_t SdlGpuFrame::Constants(unsigned int stage, const void * bytes, uint32_t size, unsigned int slot)
 {
-	if (LastConstantsSize[stage] == size && memcmp(&ConstantBytes[LastConstants[stage]], bytes, size) == 0) {
-		return LastConstants[stage];
+	SDL_assert(stage<2 && slot<SdlRecordedDraw::MAXIMUM_UNIFORM_SLOTS && bytes!=NULL && size>0);
+	if (LastConstantsSize[stage][slot] == size && memcmp(&ConstantBytes[LastConstants[stage][slot]], bytes, size) == 0) {
+		return LastConstants[stage][slot];
 	}
 	uint32_t offset = 0;
 	memcpy(grow(ConstantBytes, size, offset), bytes, size);
-	LastConstants[stage] = offset;
-	LastConstantsSize[stage] = size;
+	LastConstants[stage][slot] = offset;
+	LastConstantsSize[stage][slot] = size;
 	return offset;
 }
 
@@ -224,7 +225,7 @@ void SdlGpuFrame::Release_After_Batch(SDL_GPUTexture * texture, SDL_GPUBuffer * 
 
 bool SdlGpuFrame::Batch_Is_Full()
 {
-	if (StreamBytes.size() + UploadBytes.size() > BATCH_LIMIT) {
+	if (StreamBytes.size() + UploadBytes.size() + ConstantBytes.size() > BATCH_LIMIT) {
 		return true;
 	}
 	if (BatchDrawLimit > 0 && Draws.size() >= BatchDrawLimit) {
@@ -242,7 +243,7 @@ void SdlGpuFrame::End_Batch()
 	StreamBytes.clear();
 	UploadBytes.clear();
 	ConstantBytes.clear();
-	LastConstants[0] = LastConstants[1] = LastConstantsSize[0] = LastConstantsSize[1] = 0;
+	memset(LastConstants,0,sizeof(LastConstants));memset(LastConstantsSize,0,sizeof(LastConstantsSize));
 	Uploads.clear();
 	// The batch that could use these has been submitted: SDL keeps each until the GPU is done with it.
 	for (size_t i = 0; i < DeadTextures.size(); ++i) SDL_ReleaseGPUTexture(GpuDevice, DeadTextures[i]);
@@ -445,6 +446,8 @@ bool SdlGpuFrame::Record_Passes(SDL_GPUCommandBuffer * commands, SDL_GPUBuffer *
 	// the rest of the command buffer), so those are tracked for the whole batch.
 	const SdlRecordedDraw * last = NULL;
 	uint32_t pushed_vertex = 0xFFFFFFFFu, pushed_water_vertex = 0xFFFFFFFFu, pushed_pixel = 0xFFFFFFFFu;
+	uint32_t pushed_water_pixel[SdlRecordedDraw::WATER_PIXEL_BLOCKS];
+	memset(pushed_water_pixel,0xFF,sizeof(pushed_water_pixel));
 
 	for (size_t i = 0; i <= Commands.size(); ++i) {
 		const bool end = i == Commands.size();
@@ -534,6 +537,7 @@ bool SdlGpuFrame::Record_Passes(SDL_GPUCommandBuffer * commands, SDL_GPUBuffer *
 			// Everything the draws set is the clear's now: the next draw binds it all again.
 			last = NULL;
 			pushed_vertex = pushed_water_vertex = pushed_pixel = 0xFFFFFFFFu;
+			memset(pushed_water_pixel,0xFF,sizeof(pushed_water_pixel));
 			continue;
 		}
 		const SdlRecordedDraw & draw = Draws[Commands[i].Draw];
@@ -600,6 +604,12 @@ bool SdlGpuFrame::Record_Passes(SDL_GPUCommandBuffer * commands, SDL_GPUBuffer *
 		if (draw.PixelConstantsSize != 0 && draw.PixelConstants != pushed_pixel) {
 			SDL_PushGPUFragmentUniformData(commands, 0, &ConstantBytes[draw.PixelConstants], draw.PixelConstantsSize);
 			pushed_pixel = draw.PixelConstants;
+		}
+		for(unsigned block=0;block<SdlRecordedDraw::WATER_PIXEL_BLOCKS;++block) {
+			if(draw.PixelWaterConstantsSize[block]!=0 && draw.PixelWaterConstants[block]!=pushed_water_pixel[block]) {
+				SDL_PushGPUFragmentUniformData(commands,block+1,&ConstantBytes[draw.PixelWaterConstants[block]],draw.PixelWaterConstantsSize[block]);
+				pushed_water_pixel[block]=draw.PixelWaterConstants[block];
+			}
 		}
 		if (draw.IndexSize != 0) {
 			SDL_DrawGPUIndexedPrimitives(pass, draw.Count, 1, draw.First, draw.BaseVertex, 0);

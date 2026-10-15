@@ -11,10 +11,34 @@
 namespace WaterFftSpectrum {
 constexpr unsigned Resolution=256, Phases=8, Cascades=3, Maps=6;
 constexpr float Sizes[Cascades]={450.0f,103.0f,13.0f};
-constexpr float Strengths[Cascades]={0.8f,0.8f,0.9f};
-constexpr float MaxWaves[Cascades]={100.0f,100.0f,7.0f};
-constexpr float WindX=2.0f,WindY=2.0f,Alignment=0.01f;
+// Sampling and spectrum construction share one reference-to-world conversion.
+constexpr float WorldScale=20.0f;
+// World-space energy budgets for the actual seeded bands, before sampling and limiting.
+constexpr double HeightRms[Cascades]={1.50,0.75,0.18};
+// Phillips length controls spectral shape independently of propagation direction.
+// The medium/fine lengths retain the previous (2^2+2^2)/9.81 value.
+constexpr double WindLengths[Cascades]={4.0,8.0/9.81,8.0/9.81};
+constexpr double DirectionPowers[Cascades]={2.0,1.0,0.01};
+constexpr double WindDirectionX=1.0,WindDirectionY=1.0;
 constexpr double Pi=3.14159265358979323846;
+
+inline double BandRamp(double low,double high,double wavelength) {
+    const double t=(std::max)(0.0,(std::min)(1.0,(wavelength-low)/(high-low)));
+    return t*t*(3.0-2.0*t);
+}
+// Radial POWER, not amplitude. Wavelength is in world units.
+// The crossovers are 24..40 and 128..256 world units. Long swell
+// fades out over 1024..1792, before the former hard 2000-unit cutoff. The powers
+// sum to one below that upper fade; multiplying h0 by sqrt(power) applies a power
+// fade before each band is normalized. Even radial weights preserve conjugate pairs.
+inline double BandPower(unsigned cascade,double wavelength) {
+    if(cascade>=Cascades || !(wavelength>0) || !std::isfinite(wavelength)) return 0.0;
+    const double longer=BandRamp(128.0,256.0,wavelength);
+    const double shorter=1.0-BandRamp(24.0,40.0,wavelength);
+    if(cascade==0) return longer*(1.0-BandRamp(1024.0,1792.0,wavelength));
+    if(cascade==1) return 1.0-longer-shorter;
+    return shorter;
+}
 
 // Mulberry32's explicit unsigned arithmetic is reproducible, independent of gameplay randomness.
 inline float Random(uint32_t &state) {
@@ -27,32 +51,42 @@ inline std::vector<float> InitialSpectrum() {
     std::vector<float> noise(texels*2),result(texels*Cascades*4);
     uint32_t seed=0;
     for(float &v:noise) v=Random(seed);
-    const double wind2=double(WindX)*WindX+double(WindY)*WindY,L=wind2/9.81;
-    for(unsigned y=0;y<n;++y) for(unsigned x=0;x<n;++x) {
+    const double direction2=WindDirectionX*WindDirectionX+WindDirectionY*WindDirectionY;
+    double energy[Cascades]={};
+    // A centred even-sized grid has no distinct +Nyquist partner. Omit both
+    // Nyquist axes so odd derivatives and the packed real fields stay Hermitian.
+    for(unsigned y=1;y<n;++y) for(unsigned x=1;x<n;++x) {
         const unsigned at=y*n+x,opposite=((n-y)%n)*n+(n-x)%n;
         const double theta=2*Pi*noise[at*2],thetaOther=2*Pi*noise[opposite*2];
         // A random zero must not create log(0), even for a future seed/configuration.
         const double radius=std::sqrt(-2*std::log((std::max)(double(noise[at*2+1]),1.0/4294967296.0)));
         const double radiusOther=std::sqrt(-2*std::log((std::max)(double(noise[opposite*2+1]),1.0/4294967296.0)));
         for(unsigned c=0;c<Cascades;++c) {
-            // A centred even-sized grid has no distinct +Nyquist partner. Directional Phillips
-            // weights and odd derivatives cannot share the reference's ordinary conjugate rule
-            // there. Omit both Nyquist axes so every packed real field remains Hermitian; merely
-            // zeroing its odd derivatives would leak imaginary height into the packed dx channel.
-            if(x==0 || y==0) continue;
             const double kx=2*Pi*(int(x)-int(n/2))/Sizes[c],ky=2*Pi*(int(y)-int(n/2))/Sizes[c];
-            const double k2=kx*kx+ky*ky,A=Strengths[c]*0.081/(double(Sizes[c])*Sizes[c]);
-            double positive=0,negative=0;
-            const double minK=2*Pi/MaxWaves[c];
-            if(k2>minK*minK && wind2>0) {
-                const double phillips=A/(k2*k2)*std::exp(-1/(k2*L*L))*0.5;
-                const double alignment=(kx*WindX+ky*WindY)/std::sqrt(k2*wind2);
-                positive=std::sqrt(phillips*std::pow((std::max)(0.0,alignment),Alignment));
-                negative=std::sqrt(phillips*std::pow((std::max)(0.0,-alignment),Alignment));
-            }
+            const double k2=kx*kx+ky*ky;
+            if(k2==0) continue; // zero DC, without evaluating a singular Phillips density
+            const double power=BandPower(c,2*Pi*WorldScale/std::sqrt(k2));
+            if(power==0) continue;
+            const double length=WindLengths[c];
+            const double phillips=power*std::exp(-1/(k2*length*length))/(k2*k2);
+            const double alignment=(kx*WindDirectionX+ky*WindDirectionY)/std::sqrt(k2*direction2);
+            const double positive=std::sqrt(phillips*std::pow((std::max)(0.0,alignment),DirectionPowers[c]));
+            const double negative=std::sqrt(phillips*std::pow((std::max)(0.0,-alignment),DirectionPowers[c]));
             float *h=&result[(c*texels+at)*4];
             h[0]=float(radius*std::cos(theta)*positive);h[1]=float(radius*std::sin(theta)*positive);
             h[2]=float(radiusOther*std::cos(thetaOther)*negative);h[3]=float(-radiusOther*std::sin(thetaOther)*negative);
+            for(unsigned j=0;j<4;++j) energy[c]+=double(h[j])*h[j];
+        }
+    }
+    // At each k only one propagation half-plane is populated, so Parseval height
+    // variance is exactly this sum of packed coefficient powers at every time.
+    // One positive factor per cascade preserves phase and conjugate pairing.
+    // This also normalizes angular power on the actual finite seeded lattice:
+    // no Strengths, Phillips prefactor or extra angular gain survives this step.
+    for(unsigned c=0;c<Cascades;++c) {
+        const double gain=energy[c]>0?HeightRms[c]/(WorldScale*std::sqrt(energy[c])):0;
+        for(unsigned i=0;i<texels*4;++i) {
+            float &value=result[c*texels*4+i];value=float(double(value)*gain);
         }
     }
     return result;

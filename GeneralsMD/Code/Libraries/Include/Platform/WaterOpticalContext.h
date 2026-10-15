@@ -13,12 +13,21 @@ constexpr int MaxDimension = 2048;
 constexpr size_t MaxCells = 1024u * 1024u;
 constexpr size_t MaxPoints = 65536;
 constexpr size_t MaxLevels = 8;
+// Independent physical terrain-coast distance; never packed into optical RGBA.
+constexpr float PhysicalShoreRange = 160.0f;
 struct Point { float x, y, z; };
 struct Polygon { std::vector<Point> points; };
 struct Field {
     std::vector<uint8_t> ocean;
     std::vector<uint8_t> shore;
+    std::vector<uint8_t> exposure; // wet region connected to the playable map boundary
+    std::vector<uint8_t> physicalShore; // 0..PhysicalShoreRange, terrain only; polygon edges are excluded
+    std::vector<uint8_t> coast;    // terrain-coast replacement validity, inset from every nonzero ocean texel
 };
+inline uint32_t Texel(const Field &field,size_t n) {
+    return (uint32_t(field.coast[n])<<24)|(uint32_t(field.ocean[n])<<16)
+        |(uint32_t(field.shore[n])<<8)|uint32_t(field.exposure[n]);
+}
 
 inline float Offshore(float distance) {
     float t = (std::max)(0.0f, (std::min)(1.0f, (distance - 30.0f) / 70.0f));
@@ -40,7 +49,7 @@ inline bool SamePolygons(const std::vector<Polygon>& a, const std::vector<Polygo
 inline bool Build(const uint8_t* heights, int width, int height, int border,
                   float spacing, float heightScale, float level,
                   const std::vector<Polygon>& polygons, Field& result) {
-    result.ocean.clear(); result.shore.clear();
+    result.ocean.clear(); result.shore.clear(); result.exposure.clear(); result.coast.clear(); result.physicalShore.clear();
     if (!heights || width<2 || height<2 || width>MaxDimension || height>MaxDimension ||
         size_t(width)*height>MaxCells || border<0 || border>(width-2)/2 || border>(height-2)/2 ||
         !std::isfinite(spacing) || spacing<=0 || !std::isfinite(heightScale) || heightScale<=0 ||
@@ -115,12 +124,23 @@ inline bool Build(const uint8_t* heights, int width, int height, int border,
         if (y>0) seed(x,y-1);
         if (y+1<height) seed(x,y+1);
     }
+    result.exposure=result.ocean;
+    for(uint8_t &value:result.exposure)value=value?255:0;
+    result.coast.assign(count,0);
+    result.physicalShore.assign(count,255);
     // Two-pass chamfer distance is bounded O(cells), with diagonal distances avoiding a square
     // shoreline fade. Grid borders are not synthetic shores; an entirely wet sea has full extent.
     const float limit=100.0f, diagonal=spacing*1.41421356237f;
-    std::vector<float> distance(count,limit);
-    for (size_t n=0; n<count; ++n) if (!wet[n]) distance[n]=0;
-    auto relax = [&](int n,int neighbour,float step) { distance[n]=(std::min)(distance[n],distance[neighbour]+step); };
+    std::vector<float> distance(count,limit),terrainDistance(count,PhysicalShoreRange);
+    for (size_t n=0; n<count; ++n) {
+        if (!wet[n]) distance[n]=0;
+        // Authored polygon boundaries over submerged terrain are not physical coasts.
+        if (heights[n]*heightScale>=level) terrainDistance[n]=0;
+    }
+    auto relax = [&](int n,int neighbour,float step) {
+        distance[n]=(std::min)(distance[n],distance[neighbour]+step);
+        terrainDistance[n]=(std::min)(terrainDistance[n],terrainDistance[neighbour]+step);
+    };
     for (int y=0; y<height; ++y) for (int x=0; x<width; ++x) {
         const int n=y*width+x;
         if (x>0) relax(n,n-1,spacing);
@@ -138,8 +158,35 @@ inline bool Build(const uint8_t* heights, int width, int height, int border,
             if (x>0) relax(n,n+width-1,diagonal);
             if (x+1<width) relax(n,n+width+1,diagonal);
         }
+        result.physicalShore[n]=uint8_t(terrainDistance[n]/PhysicalShoreRange*255.0f+0.5f);
         result.shore[n]=uint8_t(distance[n]/limit*255.0f+0.5f);
         result.ocean[n]=result.ocean[n] ? uint8_t(Offshore(distance[n])*255.0f+0.5f) : 0;
+    }
+    // A contributing bilinear texel must have only zero-R neighbours. Consequently any
+    // nonzero interpolated support uses the unchanged analytic nearshore wave model. The
+    // shader repeats the zero-R guard against stale/malformed fallback resources.
+    for(int y=0;y<height;++y)for(int x=0;x<width;++x) {
+        const size_t n=size_t(y)*width+x;
+        if(terrainDistance[n]>=20.0f)continue;
+        bool adjacentWet=wet[n]!=0,exposed=result.exposure[n]!=0;
+        for(int yy=(std::max)(0,y-1);yy<=(std::min)(height-1,y+1);++yy)
+            for(int xx=(std::max)(0,x-1);xx<=(std::min)(width-1,x+1);++xx) {
+                const size_t neighbour=size_t(yy)*width+xx;
+                adjacentWet=adjacentWet || wet[neighbour]!=0;
+                exposed=exposed || (wet[neighbour] && result.exposure[neighbour]!=0);
+            }
+        if(!adjacentWet)continue;
+        bool analytic=true;
+        for(int yy=(std::max)(0,y-1);yy<=(std::min)(height-1,y+1);++yy)
+            for(int xx=(std::max)(0,x-1);xx<=(std::min)(width-1,x+1);++xx)
+                analytic=analytic && result.ocean[size_t(yy)*width+xx]==0;
+        if(!analytic)continue;
+        // Replacement validity must include the actual crossing between a dry terrain node
+        // and the first wet one. Wet-only A would retain most of the permanent rim there.
+        // Emission is independently gated by positive terrain depth and actual scene wetness.
+        if(!wet[n])result.exposure[n]=exposed?255:0;
+        const float t=(std::max)(0.0f,(std::min)(1.0f,(terrainDistance[n]-10.0f)/10.0f));
+        result.coast[n]=uint8_t((1.0f-t*t*(3.0f-2.0f*t))*255.0f+0.5f);
     }
     return true;
 }

@@ -57,6 +57,7 @@
 
 #include <string>
 #include <vector>
+#include <complex>
 
 #include <SDL3/SDL.h>
 
@@ -65,8 +66,10 @@
 #include "Platform/WaterBedMaterial.h"
 #include "Platform/WaterOpticalModel.h"
 #include "Platform/WaterHullModel.h"
+#include "Platform/WaterHullVisual.h"
 #include "Platform/WaterSurfaceModel.h"
 #include "Platform/WaterFftSampling.h"
+#include "Platform/WaterFoamEnvironment.h"
 #include "sdl3target.h"
 #include <limits>
 
@@ -268,12 +271,184 @@ TEST(fft_water_vertex_and_pixel_compile_with_separate_texture_bindings)
 		CHECK(compiled);if(!compiled) continue;
 		unsigned samplers=0,buffers=0;
 		SDL3_Shader_Slots(spirv,isVertex,samplers,buffers);
-		CHECK_EQ(samplers,isVertex?3u:14u);CHECK_EQ(buffers,isVertex?2u:1u);
+		const char *surfOption=getenv("ZH_WATER_SURF_GPU");
+		const bool surfEnabled=surfOption && strcmp(surfOption,"1")==0;
+		CHECK_EQ(samplers,isVertex?3u:(surfEnabled?16u:15u));CHECK_EQ(buffers,isVertex?2u:(WaterHullVisual::Enabled()?4u:1u));
 		const char *validator=getenv("ZH_SPIRV_VAL");
 		if(validator && *validator) CHECK(validate(validator,spirv,log));
 		CHECK(SDL3_Translate_SPIRV_To_MSL(spirv,isVertex,msl,log));
 		CHECK(slots_kept(msl,samplers,why));
 	}
+}
+
+TEST(fft_spectral_power_bands_partition_and_join_smoothly)
+{
+	using namespace WaterFftSpectrum;
+	// Requested world-space band boundaries. Assertions concern conservation and
+	// continuity, not copied ramp math.
+	const double joins[]={24.0,40.0,128.0,256.0,1024.0,1792.0};
+	for(unsigned i=1;i<=20000;++i) {
+		const double wavelength=2000.0*i/20000;
+		double sum=0;
+		for(unsigned c=0;c<Cascades;++c) {
+			const double power=BandPower(c,wavelength);
+			CHECK(std::isfinite(power) && power>=0 && power<=1);
+			sum+=power;
+		}
+		if(wavelength<=1024.0) CHECK_NEAR(sum,1,1e-12);
+		else CHECK(sum>=0 && sum<=1+1e-12);
+		if(wavelength>=1792.0) CHECK(sum==0);
+	}
+	for(double join:joins) for(unsigned c=0;c<Cascades;++c) {
+		const double step=1e-5,mid=BandPower(c,join);
+		const double left=BandPower(c,join-step),right=BandPower(c,join+step);
+		CHECK(std::abs(left-right)<1e-7);
+		// Each adjoining constant segment has derivative zero. Check both sides,
+		// so a merely continuous triangular fade cannot satisfy this contract.
+		CHECK(std::abs((mid-left)/step)<1e-5);
+		CHECK(std::abs((right-mid)/step)<1e-5);
+	}
+	// Direction of the crossfades and no gap or duplicate full-strength band.
+	for(unsigned i=0;i<100;++i) {
+		const double fine=24.0+16.0*i/100,medium=128.0+128.0*i/100,longer=1024.0+768.0*i/100;
+		CHECK(BandPower(2,fine+.16)<=BandPower(2,fine));
+		CHECK(BandPower(1,fine+.16)>=BandPower(1,fine));
+		CHECK(BandPower(0,medium+1.28)>=BandPower(0,medium));
+		CHECK(BandPower(1,medium+1.28)<=BandPower(1,medium));
+		CHECK(BandPower(0,longer+7.68)<=BandPower(0,longer));
+	}
+	CHECK(BandPower(0,180.0)>0 && BandPower(1,180.0)>0);
+	CHECK(BandPower(1,32.0)>0 && BandPower(2,32.0)>0);
+	CHECK(BandPower(0,32.0)==0 && BandPower(2,180.0)==0);
+}
+
+TEST(fft_generated_spectrum_has_normalized_separated_directional_energy)
+{
+	using namespace WaterFftSpectrum;
+	const std::vector<float> initial=InitialSpectrum(),again=InitialSpectrum();
+	CHECK(initial==again); // repeated generation must not consume gameplay RNG/state
+	const unsigned n=Resolution,texels=n*n;
+	CHECK_EQ(initial.size(),size_t(texels*Cascades*4));
+	if(initial.size()!=texels*Cascades*4) return;
+	double energy[Cascades]={},slope[Cascades]={},broad[Cascades]={};
+	double directionCos[Cascades]={},directionSin[Cascades]={};
+	bool finite=true,zeroSpecial=true,support=true,oneWay=true,paired=true;
+	unsigned active[Cascades]={};
+	const double axis=std::atan2(WindDirectionY,WindDirectionX);
+	for(unsigned c=0;c<Cascades;++c) for(unsigned y=0;y<n;++y) for(unsigned x=0;x<n;++x) {
+		const unsigned opposite=((n-y)%n)*n+(n-x)%n;
+		const float *h=&initial[(c*texels+y*n+x)*4],*other=&initial[(c*texels+opposite)*4];
+		double power=0;
+		for(unsigned j=0;j<4;++j) {finite=finite && std::isfinite(h[j]);power+=double(h[j])*h[j];}
+		if(x==0 || y==0 || (x==n/2 && y==n/2)) zeroSpecial=zeroSpecial && power==0;
+		const double forward=double(h[0])*h[0]+double(h[1])*h[1];
+		const double backward=double(h[2])*h[2]+double(h[3])*h[3];
+		oneWay=oneWay && (forward==0 || backward==0);
+		// h0(k) == conjugate(packed negative branch at -k), exactly after float stores.
+		paired=paired && h[0]==other[2] && h[1]==-other[3] && h[2]==other[0] && h[3]==-other[1];
+		const double kx=2*Pi*(int(x)-int(n/2))/Sizes[c],ky=2*Pi*(int(y)-int(n/2))/Sizes[c];
+		const double k2=kx*kx+ky*ky;
+		if(k2==0) continue;
+		const double wavelength=2*Pi*WorldScale/std::sqrt(k2);
+		// Independent generated-support checks: a broken generator cannot pass
+		// merely because it and the BandPower function agree on the same mistake.
+		const bool outside=(c==0 && (wavelength<=128.0 || wavelength>=1792.0)) ||
+			(c==1 && (wavelength<=24.0 || wavelength>=256.0)) || (c==2 && wavelength>=40.0);
+		if(outside) support=support && power==0;
+		if(power==0) continue;
+		++active[c];energy[c]+=power;slope[c]+=power*k2;
+		if(wavelength>512) broad[c]+=power;
+		const double angle=std::atan2(ky,kx)-axis;
+		directionCos[c]+=power*std::cos(2*angle);directionSin[c]+=power*std::sin(2*angle);
+	}
+	CHECK(finite && zeroSpecial && support && oneWay && paired);
+	double totalSlope=0;
+	const auto &unresolved=WaterFftFiltering::SpectrumVariance();
+	for(unsigned c=0;c<Cascades;++c) {
+		CHECK(active[c]>100);
+		CHECK(std::abs(std::sqrt(energy[c])*WorldScale-HeightRms[c])<HeightRms[c]*2e-7);
+		// For angular power |cos(theta)|^p, the continuous axial second moment
+		// is p/(p+2). This independent integral tests actual generated direction,
+		// allowing finite seeded-grid variation without pinning exact coefficients.
+		const double expectedMoment=DirectionPowers[c]/(DirectionPowers[c]+2);
+		CHECK(std::abs(directionCos[c]/energy[c]-expectedMoment)<.08);
+		CHECK(std::abs(directionSin[c]/energy[c])<.08);
+		// Final mip averages the entire periodic field. With zero DC, all slope
+		// power is unresolved: a stale M2 spectrum table must not silently survive.
+		CHECK(std::abs(unresolved[Phases][c]-slope[c])<1e-10*(1+slope[c]));
+		totalSlope+=slope[c];
+	}
+	// Broad swell must actually exist, while medium/fine cannot counterfeit it.
+	CHECK(broad[0]/energy[0]>.25 && broad[0]/energy[0]<.55);
+	CHECK(broad[1]==0 && broad[2]==0);
+	CHECK(energy[0]>3*energy[1] && energy[1]>10*energy[2]);
+	// Guard against recovering old height by amplifying the high-frequency slope.
+	CHECK(std::sqrt(totalSlope)<.15 && std::sqrt(slope[2])<.10);
+	printf("  FFT bands: height RMS %.8g/%.8g/%.8g; slope RMS %.8g/%.8g/%.8g; long power >512 %.3f%%\n",
+		std::sqrt(energy[0])*WorldScale,std::sqrt(energy[1])*WorldScale,std::sqrt(energy[2])*WorldScale,
+		std::sqrt(slope[0]),std::sqrt(slope[1]),std::sqrt(slope[2]),100*broad[0]/energy[0]);
+}
+
+TEST(fft_generated_spectrum_preserves_real_field_and_energy_over_time)
+{
+	using namespace WaterFftSpectrum;using Complex=std::complex<double>;
+	const auto initial=InitialSpectrum();const unsigned n=Resolution,texels=n*n;
+	const double times[]={0.0,2.75,61.0};
+	for(unsigned c=0;c<Cascades;++c) for(double seconds:times) {
+		double packedEnergy=0,evolvedEnergy=0,maxConjugateError=0;
+		for(unsigned y=0;y<n;++y) for(unsigned x=0;x<n;++x) {
+			const float *h=&initial[(c*texels+y*n+x)*4];
+			const float *other=&initial[(c*texels+((n-y)%n)*n+(n-x)%n)*4];
+			const double kx=2*Pi*(int(x)-int(n/2))/Sizes[c],ky=2*Pi*(int(y)-int(n/2))/Sizes[c];
+			// Independently evolve the actual packed coefficients with the retained
+			// dispersion. Conjugate symmetry gives a real spatial inverse transform.
+			const Complex phase=std::polar(1.0,std::sqrt(9.81*std::hypot(kx,ky))*seconds);
+			const Complex forward(h[0],h[1]),backward(h[2],h[3]);
+			const Complex evolved=forward*phase+backward*std::conj(phase);
+			const Complex opposite=Complex(other[0],other[1])*phase+Complex(other[2],other[3])*std::conj(phase);
+			maxConjugateError=(std::max)(maxConjugateError,std::abs(evolved-std::conj(opposite)));
+			packedEnergy+=std::norm(forward)+std::norm(backward);evolvedEnergy+=std::norm(evolved);
+		}
+		CHECK(maxConjugateError<1e-12);
+		CHECK(std::abs(packedEnergy-evolvedEnergy)<1e-12*(1+packedEnergy));
+		CHECK(std::abs(std::sqrt(evolvedEnergy)*WorldScale-HeightRms[c])<HeightRms[c]*2e-7);
+	}
+}
+
+TEST(fft_filter_variance_matches_independent_discrete_box_averages)
+{
+	using namespace WaterFftSpectrum;
+	const int modes[][2]={{1,0},{3,2},{19,-11},{83,47}};
+	double largest=0;
+	for(unsigned cascade=0;cascade<Cascades;++cascade) for(const auto &mode:modes) {
+		std::vector<float> input(Resolution*Resolution*Cascades*4,0);
+		const unsigned x=mode[0]+Resolution/2,y=mode[1]+Resolution/2;
+		float *v=&input[((cascade*Resolution+y)*Resolution+x)*4];v[0]=.75f;v[1]=.25f;
+		const auto table=WaterFftFiltering::UnresolvedSlopeVariance(input);
+		// Explicitly average complex samples of one Fourier mode over the texel box.
+		// This oracle does not use the production sine-ratio transfer function.
+		const double kx=2*Pi*mode[0]/Sizes[cascade],ky=2*Pi*mode[1]/Sizes[cascade];
+		const double power=(.75*.75+.25*.25)*(kx*kx+ky*ky);
+		for(unsigned level=0;level<WaterFftFiltering::Levels;++level) {
+			const unsigned width=1u<<level;std::complex<double> ax=0,ay=0;
+			for(unsigned i=0;i<width;++i) {
+				ax+=std::polar(1.0,2*Pi*mode[0]*i/Resolution);
+				ay+=std::polar(1.0,2*Pi*mode[1]*i/Resolution);
+			}
+			const double retained=std::norm(ax/double(width))*std::norm(ay/double(width));
+			const double expected=power*(1-retained),error=std::abs(table[level][cascade]-expected);
+			largest=(std::max)(largest,error);CHECK(error<1e-10*(1+power));
+			for(unsigned c=0;c<Cascades;++c) if(c!=cascade) CHECK(table[level][c]==0);
+		}
+	}
+	const auto &table=WaterFftFiltering::SpectrumVariance();
+	CHECK(&table==&WaterFftFiltering::SpectrumVariance());
+	for(unsigned c=0;c<Cascades;++c) {
+		CHECK(table[0][c]==0 && table[8][c]>0);
+		for(unsigned l=1;l<WaterFftFiltering::Levels;++l)
+			CHECK(std::isfinite(table[l][c]) && table[l][c]>=table[l-1][c]-1e-12 && table[l][c]<=table[8][c]+1e-12);
+	}
+	printf("  FFT unresolved slope power: independent discrete box error %.9g; per-cascade zero-LOD and bounded mip hierarchy checked\n",largest);
 }
 
 TEST(every_generated_program_reaches_sdl3_gpu)
@@ -671,6 +846,100 @@ TEST(water_optics_shared_hlsl_compiles_and_translates_without_gpu_execution)
 	CHECK(translated);
 }
 
+TEST(water_source_zero_path_keeps_transmitted_scene_independent_of_face_lighting)
+{
+    using namespace WaterOpticalModel;
+    const RGB scene={.17f,.38f,.61f};
+    unsigned oldControls=0;
+    for(float river:{0.0f,.25f,1.0f})for(float rawOcean:{0.0f,.5f,1.0f})
+    for(float daylight:{0.0f,.5f,1.0f})for(float face:{0.0f,.25f,1.0f})for(float caustic:{.82f,1.0f,1.55f}) {
+        const float offshore=rawOcean*(1-river);
+        const RGB source=ScatteringSource(river,offshore,daylight,face);
+        const RGB body=Body(scene,Transmission(0,river,offshore,3,.75f),source,caustic,1);
+        for(int c=0;c<3;++c)CHECK(std::abs(opticalChannel(body,c)-opticalChannel(scene,c)*caustic)<1e-6f);
+        // The pre-fix face multiplier also scales scene at T=1; an offshore face must expose it.
+        if(offshore==1 && face==0) {
+            const float oldRed=scene.r*caustic*.4f;
+            CHECK(std::abs(body.r-oldRed)>.05f);++oldControls;
+        }
+    }
+    CHECK(oldControls>0);
+}
+
+TEST(water_source_face_lighting_does_not_change_transmitted_object_contrast)
+{
+    using namespace WaterOpticalModel;
+    const RGB a={.72f,.51f,.29f},b={.12f,.08f,.04f};
+    for(float path:{.1f,1.0f,4.0f,12.0f})for(float offshore:{0.0f,.4f,1.0f})
+    for(float caustic:{.82f,1.0f,1.55f}) {
+        const RGB t=Transmission(path,0,offshore,3,.75f);
+        RGB contrasts[2];
+        for(int f=0;f<2;++f) {
+            const RGB source=ScatteringSource(0,offshore,1,float(f));
+            const RGB ba=Body(a,t,source,caustic,1),bb=Body(b,t,source,caustic,1);
+            contrasts[f]={ba.r-bb.r,ba.g-bb.g,ba.b-bb.b};
+            for(int c=0;c<3;++c) {
+                const float expected=(opticalChannel(a,c)-opticalChannel(b,c))*opticalChannel(t,c)*caustic;
+                CHECK(std::abs(opticalChannel(contrasts[f],c)-expected)<2e-6f);
+            }
+        }
+        CHECK(std::abs(contrasts[0].r-contrasts[1].r)<2e-6f);
+        CHECK(std::abs(contrasts[0].g-contrasts[1].g)<2e-6f);
+        CHECK(std::abs(contrasts[0].b-contrasts[1].b)<2e-6f);
+    }
+}
+
+TEST(water_source_deep_limit_fallback_and_radiance_equilibrium)
+{
+    using namespace WaterOpticalModel;
+    const RGB scene={.71f,.31f,.13f};
+    for(float river:{0.0f,1.0f})for(float ocean:{0.0f,.5f,1.0f})for(float face:{0.0f,.4f,1.0f}) {
+        const float offshore=ocean*(1-river);
+        const RGB source=ScatteringSource(river,offshore,.7f,face);
+        for(float path:{0.0f,.1f,3.0f,20.0f,100000.0f}) {
+            const RGB t=Transmission(path,river,offshore,3,.75f);
+            const RGB equilibrium=Body(source,t,source,1,1),fallback=Body(scene,t,source,1.5f,0);
+            for(int c=0;c<3;++c) {
+                CHECK(std::abs(opticalChannel(equilibrium,c)-opticalChannel(source,c))<1e-7f);
+                CHECK(std::abs(opticalChannel(fallback,c)-opticalChannel(source,c))<1e-7f);
+            }
+            if(path>1000) {
+                const RGB deep=Body(scene,t,source,1.5f,1);
+                for(int c=0;c<3;++c)CHECK(std::abs(opticalChannel(deep,c)-opticalChannel(source,c))<1e-7f);
+            }
+        }
+    }
+}
+
+TEST(water_source_context_is_continuous_and_does_not_gate_offshore_twice)
+{
+    using namespace WaterOpticalModel;
+    const RGB clear=MaterialSource(0,0),ocean=MaterialSource(0,1),river=MaterialSource(1,0);
+    // Migration checks pin existing art endpoints; they intentionally do not derive expected
+    // values from the new preset constants, which would allow an accidental retint to self-pass.
+    CHECK(std::abs(clear.r-.002f)<1e-8f && std::abs(clear.g-.028f)<1e-8f && std::abs(clear.b-.041f)<1e-8f);
+    CHECK(std::abs(ocean.r-.002f)<1e-8f && std::abs(ocean.g-.035f)<1e-8f && std::abs(ocean.b-.075f)<1e-8f);
+    CHECK(river.r==clear.r && river.g==clear.g && river.b==clear.b);
+    RGB previous=clear;
+    for(int i=1;i<=100;++i) {
+        const float offshore=i/100.0f;const RGB current=MaterialSource(0,offshore);
+        for(int c=0;c<3;++c) {
+            const float lo=opticalChannel(clear,c),hi=opticalChannel(ocean,c),value=opticalChannel(current,c);
+            CHECK(value>=std::min(lo,hi)-1e-8f && value<=std::max(lo,hi)+1e-8f);
+            CHECK(std::abs(value-opticalChannel(previous,c))<=std::abs(hi-lo)/100+1e-7f);
+        }
+        previous=current;
+    }
+    // Valid continuous context: river .4 + effective offshore .6 = 1. River currently shares
+    // the clear source, so changing the river share cannot shrink this already-gated ocean share.
+    const RGB partial=MaterialSource(.4f,.6f),ungated=MaterialSource(0,.6f);
+    CHECK(std::abs(partial.r-ungated.r)<1e-8f && std::abs(partial.g-ungated.g)<1e-8f && std::abs(partial.b-ungated.b)<1e-8f);
+    const RGB capped=MaterialSource(1,1);CHECK(capped.r==river.r && capped.g==river.g && capped.b==river.b);
+    // Shared source colour does not erase the existing river/standing-water transmission distinction.
+    const RGB riverT=Transmission(5,1,0,3,.75f),poolT=Transmission(5,0,0,3,.75f);
+    CHECK(riverT.r>poolT.r && riverT.g>poolT.g && riverT.b>poolT.b);
+}
+
 TEST(water_hull_slices_actual_triangles_at_water_not_the_deck_or_collision_box)
 {
 	using namespace WaterHullModel;
@@ -793,4 +1062,252 @@ TEST(water_macro_swell_gradients_and_curvature_include_warp_and_packet_derivativ
 		if(std::abs(wrongLaplacian*envelope-s.laplacian)>.002f) ++curvatureControls;
 	}
 	CHECK(gradientControls>=8 && curvatureControls>=8);
+}
+
+TEST(foam_environment_positive_quadrature_preserves_energy_without_renormalizing)
+{
+	using namespace WaterFoamEnvironment;
+	const Table white=Build([](Vector){return RGB{1,1,1};});
+	const Table dark=Build([](Vector){return RGB{0,0,0};});
+	// Independent analytic irradiance: for L(w)=1+.5*w.z, E/pi=1+n.z/3.
+	// A coloured HDR environment also proves neither radiance nor irradiance is saturated.
+	const Table gradient=Build([](Vector w){const double a=1+.5*w.z;return RGB{2*a,.75*a,3.5*a};});
+	double maximumLoss=0,maximumWhiteLoss=0;unsigned finiteBinLosses=0;
+	for(unsigned i=0;i<256;++i) {
+		const double z=1-2*(i+.5)/256,phase=i*2.399963229728653,r=std::sqrt(1-z*z);
+		const Vector n={r*std::cos(phase),r*std::sin(phase),z};
+		const RGB unit=Evaluate(white,n),black=Evaluate(dark,n),colour=Evaluate(gradient,n);
+		CHECK(unit.r>=0 && unit.g>=0 && unit.b>=0);
+		CHECK(unit.r<=1.00002 && unit.g<=1.00002 && unit.b<=1.00002);
+		CHECK(black.r==0 && black.g==0 && black.b==0);
+		const double exact=1+z/3,values[3]={colour.r/2,colour.g/.75,colour.b/3.5};
+		for(double value:values) {
+			CHECK(std::isfinite(value) && value>=0 && value<=exact+.00002);
+			const double loss=(exact-value)/exact;if(loss>maximumLoss)maximumLoss=loss;
+		}
+		if(1-unit.r>maximumWhiteLoss)maximumWhiteLoss=1-unit.r;
+		if(1-unit.r>.001)++finiteBinLosses;
+	}
+	// Retain the measured finite-bin loss. A renormalized approximation could pass
+	// positivity while incorrectly increasing the current bright cloud's incident energy.
+	CHECK(finiteBinLosses>64);
+	CHECK(maximumLoss<.10 && maximumWhiteLoss<.10);
+	const RGB up=Evaluate(white,{0,0,1}),down=Evaluate(white,{0,0,-1});
+	CHECK(std::abs(up.r-1)<1e-12 && std::abs(down.r-1)<1e-12);
+	printf("  foam environment constant/linear maximum finite-bin losses %.6g/%.6g\n",maximumWhiteLoss,maximumLoss);
+}
+
+TEST(foam_environment_canonical_rotation_daylight_and_generated_constants_are_stable)
+{
+	using namespace WaterFoamEnvironment;
+	CHECK(&CachedTable()==&CachedTable());
+	CHECK(&HlslSource()==&HlslSource());
+	CHECK(HlslSource().find("waterFoamSkyMoments[144]")!=std::string::npos);
+	CHECK(HlslSource().find("i<48")!=std::string::npos);
+	// Rotate sun azimuth and normal together. Adding the inverse of oceanSky's small
+	// sun-axis bias retains exactly the same canonical direction at every orientation.
+	const Vector canonical={.3,.4,std::sqrt(.75)};
+	const RGB expected=Evaluate(CachedTable(),canonical);
+	for(double angle:{0.0,.2,1.7,3.1,5.4})for(double day:{0.0,.4,1.0}) {
+		const double x=std::cos(angle),y=std::sin(angle),scale=.06+.94*day;
+		const Vector normal={canonical.x*x-canonical.y*y,canonical.x*y+canonical.y*x,canonical.z};
+		const RGB actual=Evaluate(normal,{x-.00001,y,.45},day);
+		CHECK(std::abs(actual.r-expected.r*scale)<1e-12);
+		CHECK(std::abs(actual.g-expected.g*scale)<1e-12);
+		CHECK(std::abs(actual.b-expected.b*scale)<1e-12);
+	}
+	// All normals, including overturned FFT tangents, receive nonnegative radiance.
+	for(unsigned i=0;i<128;++i) {
+		const double z=1-2*(i+.5)/128,phase=i*2.399963229728653,r=std::sqrt(1-z*z);
+		const RGB value=Evaluate(CachedTable(),{r*std::cos(phase),r*std::sin(phase),z});
+		CHECK(std::isfinite(value.r) && value.r>=0 && std::isfinite(value.g) && value.g>=0 && std::isfinite(value.b) && value.b>=0);
+	}
+}
+
+#include "Platform/WaterShoreOverlay.h"
+TEST(authored_surf_wrapper_compiles_with_original_fixed_function_fog_and_alpha)
+{
+    CombinerDescription d={};d.StageCount=2;d.PixelPipeline.FogEnabled=true;
+    d.PixelPipeline.AlphaTestEnabled=true;d.PixelPipeline.AlphaFunction=FF_CMP_GREATER;
+    for(unsigned i=0;i<2;++i) {
+        auto &s=d.Stages[i];s.TextureBound=true;s.TextureCoordinateIndex=i;
+        s.ColourOperation=FF_TOP_MODULATE;s.ColourArgument1=FF_TA_TEXTURE;s.ColourArgument2=FF_TA_CURRENT;
+        s.AlphaOperation=i==0?FF_TOP_MODULATE:FF_TOP_SELECTARG2;s.AlphaArgument1=FF_TA_TEXTURE;s.AlphaArgument2=FF_TA_CURRENT;
+    }
+    std::string source;CHECK(CombinerShader_Generate(d,COMBINER_SHADER_TARGET_D3D11,source));
+    const std::string original=source;CHECK(WaterShoreOverlay::WrapPixel(source));
+    CHECK(source.find("shoreOriginalPixel(input)")!=std::string::npos);
+    CHECK(source.find("result.a*=1-shoreReplacement")!=std::string::npos);
+    CHECK(SDL3_Shader_Retarget(source,false));
+    std::vector<unsigned char> spirv;std::string log,msl;
+    const bool compiled=SDL3_Compile_HLSL_To_SPIRV(source,false,spirv,log);
+    if(!compiled)printf("  authored surf wrapper: %s\n",log.c_str());CHECK(compiled);if(!compiled)return;
+    unsigned samplers=0,buffers=0;SDL3_Shader_Slots(spirv,false,samplers,buffers);
+    CHECK(samplers<=8 && buffers==1);
+    CHECK(SDL3_Translate_SPIRV_To_MSL(spirv,false,msl,log));
+    std::string bad="not a generated combiner";const std::string saved=bad;
+    CHECK(!WaterShoreOverlay::WrapPixel(bad));CHECK(bad==saved);
+}
+
+
+TEST(shore_source_terms_reports_actual_front_and_is_absent_from_normal_source)
+{
+    struct RestoreDebug {
+        bool had;std::string value;
+        RestoreDebug(){const char*p=getenv("ZH_WATER_DEBUG");had=p!=nullptr;value=p?p:"";}
+        ~RestoreDebug(){if(had)setenv("ZH_WATER_DEBUG",value.c_str(),1);else unsetenv("ZH_WATER_DEBUG");}
+    }restore;
+    for(auto program:{ENGINE_SHADER_WATER_TRAPEZOID,ENGINE_SHADER_WATER_RIVER}) {
+        PixelPipelineDescription description={};std::string normal,diagnostic;
+        CHECK(unsetenv("ZH_WATER_DEBUG")==0);
+        CHECK(EngineShader_Pixel_Program(program,description,normal,COMBINER_SHADER_TARGET_SDL3_GPU));
+        CHECK(setenv("ZH_WATER_DEBUG","shore-source-terms",1)==0);
+        CHECK(EngineShader_Pixel_Program(program,description,diagnostic,COMBINER_SHADER_TARGET_SDL3_GPU));
+        const std::string start="\n    // Shore source attribution (M5i):";
+        const std::string finish="    // End shore source attribution. Only the opt-in diagnostic recomputes residence.\n";
+        const size_t begin=diagnostic.find(start),end=diagnostic.find(finish,begin);
+        CHECK(begin!=std::string::npos&&end!=std::string::npos);
+        if(begin==std::string::npos||end==std::string::npos)continue;
+        const std::string block=diagnostic.substr(begin,end+finish.size()-begin);
+        CHECK(block.find("waterShoreFrontFresh(shoreRate,sourceTermsFront.y)")!=std::string::npos);
+        CHECK(block.find("shoreSupport)*fixedShoreFront.x")!=std::string::npos);
+        CHECK(block.find("waterShoreFresh(")==std::string::npos); // no accidental old-cap normalization
+        CHECK(block.find("fixedShoreRate/ShoreMaximumRate,finalShoreCoverage,1.0)")!=std::string::npos);
+        std::string stripped=diagnostic;stripped.erase(begin,end+finish.size()-begin);
+        CHECK(stripped==normal);CHECK(normal.find("sourceTermsFront")==std::string::npos);
+        std::vector<unsigned char>spirv;std::string log;
+        const bool compiled=SDL3_Compile_HLSL_To_SPIRV(diagnostic,false,spirv,log);
+        if(!compiled)printf("  actual shore-source-terms program %d: %s\n",int(program),log.c_str());
+        CHECK(compiled);
+    }
+}
+
+TEST(coastal_surf_optional_texture_contract_compiles_with_exact_hull_contact)
+{
+    // Exercise both branches explicitly rather than relying on the test process's
+    // ambient environment. Keep the existing larger shader matrix unchanged.
+    struct SavedOption {
+        const char *key;bool had;std::string value;
+        explicit SavedOption(const char *k):key(k),had(getenv(k)!=nullptr),value(getenv(k)?getenv(k):""){}
+        ~SavedOption(){if(had)setenv(key,value.c_str(),1);else unsetenv(key);}
+    } surf("ZH_WATER_SURF_GPU"),contact("ZH_WATER_HULL_CONTACT"),lift("ZH_WATER_BOW_LIFT"),
+      shoulder("ZH_WATER_BOW_SHOULDER"),crest("ZH_WATER_COAST_CREST"),debug("ZH_WATER_DEBUG");
+    CHECK(unsetenv("ZH_WATER_DEBUG")==0);
+    CHECK(setenv("ZH_WATER_BOW_LIFT","floor",1)==0);
+    CHECK(setenv("ZH_WATER_BOW_SHOULDER","contour",1)==0);
+    CHECK(setenv("ZH_WATER_COAST_CREST","1",1)==0);
+    PixelPipelineDescription pipeline={};
+    for(unsigned hull=0;hull<2;++hull) {
+        CHECK(setenv("ZH_WATER_HULL_CONTACT",hull?"mesh":"0",1)==0);
+        std::string riverWithoutSurf,flatWithoutSurf;
+        for(unsigned enabled=0;enabled<2;++enabled) {
+            CHECK(setenv("ZH_WATER_SURF_GPU",enabled?"1":"0",1)==0);
+            for(unsigned river=0;river<2;++river) {
+                std::string pixel,log,msl,why;std::vector<unsigned char>spirv;
+                const bool generated=EngineShader_Pixel_Program(river?ENGINE_SHADER_WATER_RIVER:ENGINE_SHADER_WATER_TRAPEZOID,
+                    pipeline,pixel,COMBINER_SHADER_TARGET_SDL3_GPU);
+                CHECK(generated);if(!generated)continue;
+                if(!enabled){if(river)riverWithoutSurf=pixel;else flatWithoutSurf=pixel;}
+                if(enabled&&river)CHECK(pixel==riverWithoutSurf); // river source exactly independent of surf switch
+                CHECK((pixel.find("float gpuCoastFoam=")!=std::string::npos)==bool(enabled&&!river));
+                const bool compiled=SDL3_Compile_HLSL_To_SPIRV(pixel,false,spirv,log);
+                if(!compiled)printf("coastal surf shader hull%u surf%u river%u: %s\n",hull,enabled,river,log.c_str());
+                CHECK(compiled);if(!compiled)continue;
+                unsigned samplers=0,buffers=0;SDL3_Shader_Slots(spirv,false,samplers,buffers);
+                CHECK_EQ(samplers,enabled&&!river?16u:15u);CHECK_EQ(buffers,hull?4u:1u);
+                const char *validator=getenv("ZH_SPIRV_VAL");
+                if(validator&&*validator)CHECK(validate(validator,spirv,log));
+                const bool translated=SDL3_Translate_SPIRV_To_MSL(spirv,false,msl,log);
+                CHECK(translated);if(translated)CHECK(slots_kept(msl,samplers,why));
+            }
+        }
+        // Only the exact token opts in; unset and misleading values retain the
+        // same generated flat program as the explicit off mode, not merely its slots.
+        for(const char *value:{static_cast<const char *>(nullptr),"true","01"}) {
+            if(value)CHECK(setenv("ZH_WATER_SURF_GPU",value,1)==0);else CHECK(unsetenv("ZH_WATER_SURF_GPU")==0);
+            std::string pixel;CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,pixel,COMBINER_SHADER_TARGET_SDL3_GPU));
+            CHECK(pixel==flatWithoutSurf);
+        }
+    }
+}
+
+TEST(water_mesh_contact_diagnostics_compile_with_the_shared_contact_material)
+{
+    struct SavedOption {
+        const char *key;bool had;std::string value;
+        explicit SavedOption(const char *k):key(k),had(getenv(k)!=nullptr),value(getenv(k)?getenv(k):""){}
+        ~SavedOption(){if(had)setenv(key,value.c_str(),1);else unsetenv(key);}
+    } contact("ZH_WATER_HULL_CONTACT"),debug("ZH_WATER_DEBUG");
+    CHECK(unsetenv(contact.key)==0);
+    PixelPipelineDescription pipeline={};
+    for(const char *mode:{"contact-mesh-query","contact-mesh-sources"}) {
+        CHECK(setenv(debug.key,mode,1)==0);
+        std::string pixel,log,msl,why;std::vector<unsigned char> spirv;
+        CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,pixel,COMBINER_SHADER_TARGET_SDL3_GPU));
+        const bool compiled=SDL3_Compile_HLSL_To_SPIRV(pixel,false,spirv,log);
+        if(!compiled)printf("mesh contact diagnostic %s: %s\n",mode,log.c_str());
+        CHECK(compiled);if(!compiled)continue;
+        unsigned samplers=0,buffers=0;SDL3_Shader_Slots(spirv,false,samplers,buffers);
+        CHECK_EQ(buffers,4u);
+        const char *validator=getenv("ZH_SPIRV_VAL");
+        if(validator && *validator)CHECK(validate(validator,spirv,log));
+        CHECK(SDL3_Translate_SPIRV_To_MSL(spirv,false,msl,log));
+        CHECK(slots_kept(msl,samplers,why));
+    }
+}
+
+TEST(water_plain_launch_matches_explicit_validated_settings)
+{
+    struct SavedOption {
+        const char *key;bool had;std::string value;
+        explicit SavedOption(const char *k):key(k),had(getenv(k)!=nullptr),value(getenv(k)?getenv(k):""){}
+        ~SavedOption(){if(had)setenv(key,value.c_str(),1);else unsetenv(key);}
+    } contact("ZH_WATER_HULL_CONTACT"),lift("ZH_WATER_BOW_LIFT"),
+      shoulder("ZH_WATER_BOW_SHOULDER"),debug("ZH_WATER_DEBUG");
+    const char *keys[]={contact.key,lift.key,shoulder.key};
+    const char *modes[]={"mesh","floor","contour"};
+    auto configure=[&](unsigned disabled,bool explicitModes) {
+        for(unsigned i=0;i<3;++i) {
+            if(disabled&(1u<<i))CHECK(setenv(keys[i],"0",1)==0);
+            else if(explicitModes)CHECK(setenv(keys[i],modes[i],1)==0);
+            else CHECK(unsetenv(keys[i])==0);
+        }
+        CHECK(WaterHullVisual::Enabled()==!(disabled&1u));
+        CHECK(WaterBowLift::Enabled()==!(disabled&2u));
+        CHECK(WaterBowShoulder::Enabled()==!(disabled&4u));
+    };
+    VertexPipelineDescription description=shader_cases_detail::plain_vertex();
+    description.FVF=0x252;description.LightingEnabled=false;description.StageCount=4;
+    for(unsigned i=0;i<4;++i) {
+        description.Stages[i].TextureCoordinateIndex=i<2?i:0;
+        description.Stages[i].TextureTransformFlags=FF_TTFF_DISABLE;
+    }
+    std::string fixedVertex;
+    CHECK(VertexShader_Generate(description,VERTEX_SHADER_TARGET_D3D11,fixedVertex));
+    PixelPipelineDescription pipeline={};
+    // Check each independent opt-out as well as the ordinary all-enabled launch.
+    // Complete generated programs must match, including diagnostics and resource layouts.
+    for(unsigned disabled=0;disabled<8;++disabled) {
+        configure(disabled,false);std::string defaultVertex=fixedVertex;
+        CHECK(WaterFftSampling::WrapVertex(defaultVertex));
+        configure(disabled,true);std::string explicitVertex=fixedVertex;
+        CHECK(WaterFftSampling::WrapVertex(explicitVertex));
+        CHECK(defaultVertex==explicitVertex);
+        for(const char *mode:{static_cast<const char *>(nullptr),"contact-mesh","bow-retention",
+            "contact-mesh-query","contact-mesh-sources"}) {
+            if(mode)CHECK(setenv(debug.key,mode,1)==0);else CHECK(unsetenv(debug.key)==0);
+            for(auto program:{ENGINE_SHADER_WATER_TRAPEZOID,ENGINE_SHADER_WATER_RIVER}) {
+                configure(disabled,false);std::string defaultPixel;
+                CHECK(EngineShader_Pixel_Program(program,pipeline,defaultPixel,COMBINER_SHADER_TARGET_SDL3_GPU));
+                configure(disabled,true);std::string explicitPixel;
+                CHECK(EngineShader_Pixel_Program(program,pipeline,explicitPixel,COMBINER_SHADER_TARGET_SDL3_GPU));
+                CHECK(defaultPixel==explicitPixel);
+            }
+        }
+    }
+    // Preserve the previous interpretation of explicit non-matching values.
+    for(const char *value:{"","0","off","true","invalid"}) {
+        for(const char *key:keys)CHECK(setenv(key,value,1)==0);
+        CHECK(!WaterHullVisual::Enabled());CHECK(!WaterBowLift::Enabled());CHECK(!WaterBowShoulder::Enabled());
+    }
 }

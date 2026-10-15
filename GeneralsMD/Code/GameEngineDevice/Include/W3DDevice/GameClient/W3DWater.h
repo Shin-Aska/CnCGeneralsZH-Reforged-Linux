@@ -48,9 +48,19 @@
 #include "Platform/RenderTypes.h"
 #include "Platform/WaterOpticalContext.h"
 #include "Platform/WaterProjectedMesh.h"
+#include "Platform/WaterHullVisual.h"
+#include "Platform/WaterHullVisualLayout.h"
+#include "Platform/WaterBowRefinement.h"
+#include "Platform/WaterCaptureClock.h"
 #include "Platform/WaterObstacleIndex.h"
 #include "Platform/WaterHullModel.h"
+#include "Platform/WaterHullPoseCache.h"
 #include "Platform/WaterVesselMotion.h"
+#include "Platform/WaterFoamHistory.h"
+#include "Platform/WaterShoreSource.h"
+#include "Platform/WaterCoastalRender.h"
+
+class MeshModelClass;
 
 #define INVALID_WATER_HEIGHT 0.0f	///water height guaranteed to be below all terrain.
 
@@ -139,6 +149,8 @@ public:
 	inline Bool worldToGridSpace(Real worldX, Real worldY, Real &gridX, Real &gridY);	///<convert from world coordinates to grid's local coordinate system.
 
 	void replaceSkyboxTexture(const AsciiString& oldTexName, const AsciiString& newTextName);
+	Bool hasModernVesselFoam(UnsignedInt objectID) const; ///< replacement was submitted for this hull in the current render frame
+	Bool isModernWaterMirrorForOwner(UnsignedInt objectID) const; ///< owner's surface foam must not reflect back into the same water plane
 
 protected:
 	DX8IndexBufferClass			*m_indexBuffer;	///<indices defining quad
@@ -227,9 +239,15 @@ protected:
 	TextureClass *m_modernHeightTexture = NULL;
 	TextureClass *m_modernBedTexture = NULL;
 	Real m_modernWaveTime = 0.0f;
+	WaterCaptureClock::Clock m_modernCaptureClock; // CPU state survives device resize
 	Int m_modernMeshCells = 32;
 	Real m_modernMeshMorph = 0.0f;
 	Int m_modernProjectedColumns=160,m_modernProjectedRows=90;
+	Int m_modernProjectedWidth=1280,m_modernProjectedHeight=720;
+	WaterBowRefinement::Admissions m_modernBowAdmissions;
+	uintptr_t m_modernBowPatchOwner=0;
+	unsigned m_modernBowPatchPart=0;
+	size_t m_modernBowVertices=0,m_modernBowTriangles=0,m_modernBowRegions=0,m_modernBowDenied=0,m_modernBowRejected=0;
 	size_t m_modernProjectedVertices=0,m_modernProjectedTriangles=0,m_modernProjectedFallbacks=0,m_modernRetainedVertices=0;
 	size_t m_modernProjectedBudget=60000,m_modernProjectedEvaluations=0;
 	Bool m_modernProjectedCacheEnabled=TRUE;
@@ -253,16 +271,47 @@ protected:
 	struct ModernHullCache {
 		RenderObjClass *model=NULL; // retained until eviction/reset; pointer identity cannot be reused
 		UnsignedInt objectID=0, lastUse=0;
-		unsigned long long signature=0;
-		WaterHullModel::Polygon polygon;
+		WaterHullPoseCache::Cache poses;
+		std::vector<MeshModelClass*> slicedModels; // retained even if an HLOD replaces a child
+		WaterHullPoseCache::Cache visualPoses;
+		std::vector<MeshModelClass*> visualModels;
+		WaterHullVisual::Packet visual={};
+		UnsignedInt visualTraceFrame=~0u;
+		WaterHullModel::Polygon polygon,contact;
 		Real forwardSign=1.0f;
 		WaterVesselMotion::State motion;
 	};
 	std::vector<ModernHullCache> m_modernHullCache;
-	std::vector<WaterHullModel::Hull> m_modernHulls;
+	std::vector<WaterHullModel::Hull> m_modernHulls,m_modernContactHulls;
+	std::vector<WaterHullVisual::Packet> m_modernVisualHulls;
 	std::vector<UnsignedInt> m_modernHullObjectIDs;
 	UnsignedInt m_modernHullSerial=0;
 	UnsignedInt m_modernHullTraceLines=0;
+	UnsignedInt m_modernVisualHullTraceLines=0;
+	UnsignedInt m_modernVesselStateTraceFrame=~0u, m_modernVesselStateTraceLines=0;
+	WaterFoamHistory::History m_modernFoamHistory;
+	WaterShoreHistory::History m_modernShoreHistory;
+	WaterShoreSource::Batch m_modernShoreSource;
+	uint64_t m_modernShoreRevision=1, m_modernShoreAttempted=0;
+	Bool m_modernShoreReady=FALSE;
+	WaterCoastalDomain::Domain m_modernCoastalDomain;
+	uint64_t m_modernCoastalRevision=0;
+	Bool m_modernCoastalReady=FALSE,m_modernCoastalViewReady=FALSE;
+	WaterShoreHistory::Mapping m_modernCoastalMapping={};
+	Real m_modernCoastalViewLevel=0;
+	std::vector<WaterCoastalSurf::Lookup> m_modernCoastalLookup;
+	unsigned m_modernFoamDrawFrame=~0u;
+	std::vector<UnsignedInt> m_modernFoamDrawObjectIDs;
+	struct ModernFoamTexture {
+		Real level=0,timestamp=-1;
+		TextureClass *texture=NULL;
+		WaterFoamHistory::Mapping mapping;
+		unsigned channels=0; // bit0 vessel RGB, bit1 coast A, bit2 second direction tile
+		unsigned textureWidth=0,textureHeight=0;
+		Bool valid=FALSE;
+	};
+	std::vector<ModernFoamTexture> m_modernFoamTextures;
+
 	std::vector<UnsignedByte> m_modernHeights;
 	Int m_modernHeightWidth = 0, m_modernHeightHeight = 0, m_modernHeightSide = 0;
 	Int m_modernHeightBorder = -1;
@@ -271,6 +320,7 @@ protected:
 	struct ModernOpticalTexture {
 		Real level; TextureClass *texture;
 		std::vector<UnsignedByte> ocean;
+		WaterOpticalContext::Field shoreContext; // retained CPU source data, independent of texture upload success
 		Real oceanExtent=0.0f;
 	};
 	std::vector<ModernOpticalTexture> m_modernOpticalTextures;
@@ -325,7 +375,12 @@ protected:
 	void setupModernWaterShader(Bool river,Bool heightCorrection=FALSE);
 	void updateModernWaterTextures(void);
 	void updateModernWaterHulls(void);
-	void clearModernWaterHulls(void);
+	void clearModernWaterHulls(Bool admissions=TRUE);
+	void clearModernWaterFoam(Bool history=TRUE);
+	void bindModernWaterFoam(Real level,Bool river);
+	void bindModernWaterCoastal(Real level,Bool river);
+	void invalidateModernWaterShore(void);
+	void updateModernWaterShore(void);
 	Real modernHullDamping(Real x,Real y,Real level) const;
 	Bool modernHasHull(UnsignedInt objectID) const;
 	void clearModernWaterOpticalTextures(void);

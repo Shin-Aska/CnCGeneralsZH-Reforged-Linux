@@ -16041,6 +16041,28 @@ TEST(pro_rules_count_the_defenses_of_one_derrick_cluster)
  * avoid: it reads "banana" as 0, 0 is a real frame number, and a typo in one field would put the
  * whole file on the first frame.
  */
+TEST(scenario_capture_campaign_owner_is_narrow_and_resets)
+{
+    ScenarioAction action;
+    CHECK_EQ((Int)ScenarioDrill_parseLine("4140 spawn player:ThePlayer WaterCaptureCarrier 1 2500 1000", &action), (Int)SCENARIO_PARSE_OK);
+    CHECK_STR(action.capturePlayerName.str(), "ThePlayer");
+    CHECK_EQ((Int)ScenarioDrill_parseLine("4200 move player:ThePlayer WaterCaptureCarrier 2600 1000", &action), (Int)SCENARIO_PARSE_OK);
+    CHECK_EQ((Int)ScenarioDrill_parseLine("4500 stop player:ThePlayer WaterCaptureCarrier", &action), (Int)SCENARIO_PARSE_OK);
+    CHECK_EQ((Int)ScenarioDrill_parseLine("0 spawn player:ThePlayer WaterCaptureCarrier 2 0 0", &action), (Int)SCENARIO_PARSE_BAD_COUNT);
+    CHECK_EQ((Int)ScenarioDrill_parseLine("0 move player:ThePlayer WaterCaptureCarrier start0", &action), (Int)SCENARIO_PARSE_BAD_POSITION);
+    CHECK_EQ((Int)ScenarioDrill_parseLine("0 move player:ThePlayer WaterCaptureCarrier nan 0", &action), (Int)SCENARIO_PARSE_BAD_POSITION);
+    CHECK_EQ((Int)ScenarioDrill_parseLine("0 move player:ThePlayer WaterCaptureCarrier x 0", &action), (Int)SCENARIO_PARSE_BAD_POSITION);
+    const char *bad[] = {
+        "0 stop player: WaterCaptureCarrier", "0 stop player:The.Player WaterCaptureCarrier",
+        "0 stop player:ThePlayer *", "0 stop player:ThePlayer WaterCaptureCarrier*",
+        "0 spawn player:ThePlayer AmericaAircraftCarrier 1 0 0",
+        "0 attackmove player:ThePlayer WaterCaptureCarrier 0 0"
+    };
+    for (const char *line : bad) CHECK_EQ((Int)ScenarioDrill_parseLine(line, &action), (Int)SCENARIO_PARSE_BAD_SLOT);
+    CHECK_EQ((Int)ScenarioDrill_parseLine("0 stop 0 CivilianVehiclePTBoat", &action), (Int)SCENARIO_PARSE_OK);
+    CHECK(action.capturePlayerName.isEmpty());
+}
+
 TEST(scenario_parses_a_spawn_line)
 {
 	ScenarioAction action;

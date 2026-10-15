@@ -7,6 +7,10 @@
 #define WATER_OPTICAL_CONSTANTS(X) X(0.065f, 0.026f, 0.019f, 2.4f, 0.25f, 0.01f, 80.0f, 1.0e20f)
 #define WATER_OPTICAL_RAY_CONSTANTS(X) X(0.2f, 0.08f, 2.0f)
 
+// Clear/coastal and river retain their current source; ocean retains the current FFT endpoint.
+// These source-function radiances are linear RGB. River extinction remains independently defined.
+#define WATER_OPTICAL_SOURCE_PRESETS(X) X(0.002f,0.028f,0.041f, 0.002f,0.028f,0.041f, 0.002f,0.035f,0.075f, 0.08f,0.40f,1.80f)
+
 namespace WaterOpticalModel {
 struct RGB { float r,g,b; };
 #define WATER_OPTICAL_CPP_CONSTANTS(red,green,blue,standing,minDepth,minTransmission,maxExponent,maxFinite) \
@@ -55,6 +59,41 @@ inline RGB Transmission(float path,float riverBlend,float offshoreFactor,float r
         std::exp(-std::min(materialPath*BaseExtinction.g+authored,MaximumExponent)),
         std::exp(-std::min(materialPath*BaseExtinction.b+authored,MaximumExponent))};
 }
+// Source-function radiances in linear RGB; these are not extinction coefficients.
+#define WATER_OPTICAL_SOURCE_CPP(clearR,clearG,clearB,riverR,riverG,riverB,oceanR,oceanG,oceanB,ambient,faceMin,faceRange) \
+    constexpr RGB ClearSource={clearR,clearG,clearB},RiverSource={riverR,riverG,riverB},OceanSource={oceanR,oceanG,oceanB}; \
+    constexpr float SourceAmbient=ambient,SourceFaceMinimum=faceMin,SourceFaceRange=faceRange;
+WATER_OPTICAL_SOURCE_PRESETS(WATER_OPTICAL_SOURCE_CPP)
+#undef WATER_OPTICAL_SOURCE_CPP
+inline float SourceOffshore(float riverBlend,float effectiveOffshore) {
+    // The caller has already excluded the river share from offshore. Cap malformed overlap;
+    // multiplying by (1-river) here would apply that gate twice at continuous transitions.
+    return std::min(Unit(effectiveOffshore),1.0f-Unit(riverBlend));
+}
+inline RGB MaterialSource(float riverBlend,float effectiveOffshore) {
+    const float river=Unit(riverBlend),offshore=SourceOffshore(river,effectiveOffshore);
+    // Convex context weights are clear=(1-river-offshore), river, and offshore. Nearshore
+    // connected water blends from clear to ocean; enclosed pools retain the clear endpoint.
+    return {ClearSource.r+(RiverSource.r-ClearSource.r)*river+(OceanSource.r-ClearSource.r)*offshore,
+        ClearSource.g+(RiverSource.g-ClearSource.g)*river+(OceanSource.g-ClearSource.g)*offshore,
+        ClearSource.b+(RiverSource.b-ClearSource.b)*river+(OceanSource.b-ClearSource.b)*offshore};
+}
+inline RGB ScatteringSource(float riverBlend,float effectiveOffshore,float daylight,float faceLight) {
+    const RGB material=MaterialSource(riverBlend,effectiveOffshore);
+    const float light=SourceAmbient+(1.0f-SourceAmbient)*Unit(daylight);
+    const float face=1.0f+SourceOffshore(riverBlend,effectiveOffshore)
+        *(SourceFaceMinimum+SourceFaceRange*Unit(faceLight)-1.0f);
+    return {material.r*light*face,material.g*light*face,material.b*light*face};
+}
+inline RGB Body(RGB scene,RGB transmission,RGB source,float caustic,float sceneAvailable) {
+    const RGB integrated={scene.r*transmission.r*caustic+source.r*(1.0f-transmission.r),
+        scene.g*transmission.g*caustic+source.g*(1.0f-transmission.g),
+        scene.b*transmission.b*caustic+source.b*(1.0f-transmission.b)};
+    const float available=Unit(sceneAvailable);
+    return {source.r+(integrated.r-source.r)*available,source.g+(integrated.g-source.g)*available,
+        source.b+(integrated.b-source.b)*available};
+}
+
 inline const char *GetHlslSource() {
 #define WATER_OPTICAL_HLSL(red,green,blue,standing,minDepth,minTransmission,maxExponent,maxFinite) \
     "static const float WaterOpticalMaximumFiniteInput=" #maxFinite ";\n" \
@@ -77,7 +116,25 @@ inline const char *GetHlslSource() {
     " float sceneLimit=max(WaterOpticalPath(sceneRayDistance)-" #margin ",0.0);\n" \
     " float cameraLimit=max(WaterOpticalPath(cameraDistance)-" #margin ",0.0);\n" \
     " return clamp(shift,-sceneLimit,cameraLimit); }\n"
-    return WATER_OPTICAL_CONSTANTS(WATER_OPTICAL_HLSL) WATER_OPTICAL_RAY_CONSTANTS(WATER_OPTICAL_RAY_HLSL);
+#define WATER_OPTICAL_SOURCE_HLSL(clearR,clearG,clearB,riverR,riverG,riverB,oceanR,oceanG,oceanB,ambient,faceMin,faceRange) \
+    "float WaterOpticalSourceOffshore(float riverBlend,float effectiveOffshore) {\n" \
+    " return min(WaterOpticalUnit(effectiveOffshore),1.0-WaterOpticalUnit(riverBlend)); }\n" \
+    "float3 WaterOpticalMaterialSource(float riverBlend,float effectiveOffshore) {\n" \
+    " float river=WaterOpticalUnit(riverBlend),offshore=WaterOpticalSourceOffshore(river,effectiveOffshore);\n" \
+    " float3 clearSource=float3(" #clearR "," #clearG "," #clearB ");\n" \
+    " float3 riverSource=float3(" #riverR "," #riverG "," #riverB ");\n" \
+    " float3 oceanSource=float3(" #oceanR "," #oceanG "," #oceanB ");\n" \
+    " return clearSource+(riverSource-clearSource)*river+(oceanSource-clearSource)*offshore; }\n" \
+    "float3 WaterOpticalScatteringSource(float riverBlend,float effectiveOffshore,float daylight,float faceLight) {\n" \
+    " float illumination=" #ambient "+(1.0-" #ambient ")*WaterOpticalUnit(daylight);\n" \
+    " float face=1.0+WaterOpticalSourceOffshore(riverBlend,effectiveOffshore)*(" #faceMin "+" #faceRange "*WaterOpticalUnit(faceLight)-1.0);\n" \
+    " return WaterOpticalMaterialSource(riverBlend,effectiveOffshore)*illumination*face; }\n" \
+    "float3 WaterOpticalBody(float3 scene,float3 transmission,float3 source,float caustic,float sceneAvailable) {\n" \
+    " return lerp(source,scene*transmission*caustic+source*(1.0-transmission),WaterOpticalUnit(sceneAvailable)); }\n"
+
+    return WATER_OPTICAL_CONSTANTS(WATER_OPTICAL_HLSL) WATER_OPTICAL_RAY_CONSTANTS(WATER_OPTICAL_RAY_HLSL)
+        WATER_OPTICAL_SOURCE_PRESETS(WATER_OPTICAL_SOURCE_HLSL);
+#undef WATER_OPTICAL_SOURCE_HLSL
 #undef WATER_OPTICAL_RAY_HLSL
 #undef WATER_OPTICAL_HLSL
 }

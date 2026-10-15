@@ -167,6 +167,7 @@ PosixDevice9::PosixDevice9(PosixDirect3D9 *adapter, RenderWindow window, const D
 
 PosixDevice9::~PosixDevice9()
 {
+	Shore_End();
 	Release_Surfaces();
 	for (int index = 0; index < SAMPLER_COUNT; ++index) {
 		Posix_Bind(Textures[index], (IDirect3DBaseTexture9 *)NULL);
@@ -504,6 +505,7 @@ RenderResult PosixDevice9::CreateAdditionalSwapChain(D3DPRESENT_PARAMETERS *, ID
 
 RenderResult PosixDevice9::Reset(D3DPRESENT_PARAMETERS *parameters)
 {
+	Shore_End();
 	if (parameters == NULL || parameters->BackBufferWidth == 0 || parameters->BackBufferHeight == 0) {
 		return D3DERR_INVALIDCALL;
 	}

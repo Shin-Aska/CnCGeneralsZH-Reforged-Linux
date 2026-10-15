@@ -26,6 +26,7 @@
 #include "ffvertex.h"
 #include "sdl3target.h"
 #include "Platform/WaterFftSampling.h"
+#include "Platform/WaterShoreOverlay.h"
 
 #include <SDL3/SDL.h>
 
@@ -305,5 +306,23 @@ const SdlProgram &SdlProgramCache::Pixel_Program(const CombinerDescription &desc
 	const bool generated = CombinerShader_Generate(description, COMBINER_SHADER_TARGET_SDL3_GPU, hlsl);
 	const SdlProgram &made = Make(PixelPrograms, key, generated, hlsl, false);
 	PixelByBytes.Add(&description, sizeof(description), &PixelPrograms[key]);
+	return made;
+}
+
+// Only an explicit authored-track draw tag may select this optional variant.
+const SdlProgram &SdlProgramCache::Shore_Pixel_Program(const CombinerDescription &description)
+{
+	if (SdlProgram *found=ShorePixelByBytes.Find(&description,sizeof(description))) {
+		++found->Uses;return *found;
+	}
+	const std::string key="shore-overlay:"+CombinerShader_Key(description);
+	std::string hlsl;
+	bool generated=!description.ShadowReceiving && !description.SoftParticle && !description.DrawEffect
+		&& !description.SmokeGlow && description.StageCount<=2
+		&& CombinerShader_Generate(description,COMBINER_SHADER_TARGET_D3D11,hlsl)
+		&& WaterShoreOverlay::WrapPixel(hlsl);
+	if(generated) generated=SDL3_Shader_Retarget(hlsl,false);
+	const SdlProgram &made=Make(PixelPrograms,key,generated,hlsl,false);
+	ShorePixelByBytes.Add(&description,sizeof(description),&PixelPrograms[key]);
 	return made;
 }

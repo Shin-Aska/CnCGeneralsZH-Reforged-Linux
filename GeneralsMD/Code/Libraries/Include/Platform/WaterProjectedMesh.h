@@ -109,7 +109,7 @@ inline BoundaryCollar CollarAt(const Point corners[4],Point p) {
     }
     collar.Normalize();return collar;
 }
-struct Vertex { Point world; int boundary=-1; double edgeParameter=0; int knot=-1; int transition=-1; int collar=-1; };
+struct Vertex { Point world; int boundary=-1; double edgeParameter=0; int knot=-1; int transition=-1; int collar=-1; int lattice=-1; };
 struct BoundaryKnot { Point world; int boundary,index; double edgeParameter; };
 // A clipped cell always has the same centre fan, whether or not it currently contains an edge
 // knot. As clipping vanishes, its centre approaches the regular cell's diagonal and its height
@@ -194,6 +194,7 @@ inline bool Build(const Point corners[4],const Projection &projection,Resolution
     // The switch exists for an exact reference-regression comparison, not runtime quality.
     std::vector<int> lattice(useLatticeCache?size_t(resolution.columns+1)*(resolution.rows+1):0,-1);
     auto append=[&](Point screen,uint16_t &index,const BoundaryKnot *knot=nullptr,int slot=-1) {
+        const int logicalSlot=slot;
         if (!useLatticeCache) slot=-1;
         const Key key=PointKey(screen);
         const auto found=slot<0?known.find(key):known.end();
@@ -202,7 +203,7 @@ inline bool Build(const Point corners[4],const Projection &projection,Resolution
             if (knot) mesh.vertices[index]={knot->world,knot->boundary,knot->edgeParameter,knot->index};
             return true;
         }
-        Vertex vertex;if (!projection.Transform(screen,vertex.world,true)) return false;
+        Vertex vertex;vertex.lattice=logicalSlot;if (!projection.Transform(screen,vertex.world,true)) return false;
         BoundaryCollar collar;
         for (int edge=0;edge<4;++edge) {
             Point a=corners[edge],b=corners[(edge+1)%4];

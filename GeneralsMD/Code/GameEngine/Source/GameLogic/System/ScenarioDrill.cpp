@@ -54,6 +54,11 @@
 #include "GameLogic/Module/BodyModule.h"
 #include "GameLogic/Weapon.h"
 
+#include "Platform/WaterCaptureFixture.h"
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+
 #include <algorithm>
 #include <map>
 #include <vector>
@@ -349,7 +354,18 @@ ScenarioParseResult ScenarioDrill_parseLine( const char *line, ScenarioAction *a
 		return SCENARIO_PARSE_BAD_ACTION;
 
 	Int slot = 0;
-	if (!parseWholeNumber( tokens[ 2 ], &slot ))
+	AsciiString capturePlayerName;
+	const char *ownerToken = tokens[2].str();
+	if (std::strncmp(ownerToken, "player:", 7) == 0)
+	{
+		if (!WaterCaptureFixture::ValidPlayerName(ownerToken + 7)
+			|| tokens[3] != WaterCaptureFixture::Template
+			|| (actionType != SCENARIO_ACTION_SPAWN && actionType != SCENARIO_ACTION_MOVE
+				&& actionType != SCENARIO_ACTION_STOP))
+			return SCENARIO_PARSE_BAD_SLOT;
+		capturePlayerName = ownerToken + 7;
+	}
+	else if (!parseWholeNumber( tokens[ 2 ], &slot ))
 		return SCENARIO_PARSE_BAD_SLOT;
 
 	if (count < tokensNeededFor( actionType ))
@@ -358,6 +374,7 @@ ScenarioParseResult ScenarioDrill_parseLine( const char *line, ScenarioAction *a
 	action->frame = (UnsignedInt)frame;
 	action->action = actionType;
 	action->slot = slot;
+	action->capturePlayerName = capturePlayerName;
 	action->selector = tokens[ 3 ];
 	action->at.x = 0.0f;
 	action->at.y = 0.0f;
@@ -458,6 +475,19 @@ ScenarioParseResult ScenarioDrill_parseLine( const char *line, ScenarioAction *a
 			break;
 	}
 
+	if (capturePlayerName.isNotEmpty())
+	{
+		if (action->atStart != SCENARIO_NO_START) return SCENARIO_PARSE_BAD_POSITION;
+		const Int expected = actionType == SCENARIO_ACTION_STOP ? 4 : (actionType == SCENARIO_ACTION_MOVE ? 6 : 7);
+		if (count != expected) return SCENARIO_PARSE_MISSING_ARGS;
+		if (actionType != SCENARIO_ACTION_STOP)
+		{
+			const Int first = actionType == SCENARIO_ACTION_MOVE ? 4 : 5;
+			if (!WaterCaptureFixture::ValidCoordinate(tokens[first].str())
+				|| !WaterCaptureFixture::ValidCoordinate(tokens[first+1].str())) return SCENARIO_PARSE_BAD_POSITION;
+		}
+		if (action->count != 1) return SCENARIO_PARSE_BAD_COUNT;
+	}
 	return SCENARIO_PARSE_OK;
 }
 
@@ -1727,8 +1757,53 @@ static Bool executeConstruct( const ScenarioAction &action, Player *player, cons
 	return TRUE;
 }
 
+// The campaign has stable internal player names but may have no skirmish seat.
+// This path can command only one explicitly installed disposable capture template.
+static Bool executeWaterCaptureFixture(const ScenarioAction& action)
+{
+	const Bool allowed = TheGlobalData && TheGameLogic && ThePlayerList && TheTerrainLogic
+		&& WaterCaptureFixture::Enabled(std::getenv("ZH_WATER_CAPTURE_FIXTURE"),
+			TheGlobalData->m_controlPort, TheGameLogic->isInGame() && !TheGameLogic->isInShellGame(),
+			TheGameLogic->isInMultiplayerGame(), TheGameLogic->isInReplayGame())
+		&& WaterCaptureFixture::ValidPlayerName(action.capturePlayerName.str())
+		&& action.selector == WaterCaptureFixture::Template && action.count == 1
+		&& action.atStart == SCENARIO_NO_START && std::isfinite(action.at.x) && std::isfinite(action.at.y)
+		&& (action.action == SCENARIO_ACTION_SPAWN || action.action == SCENARIO_ACTION_MOVE
+			|| action.action == SCENARIO_ACTION_STOP);
+	Player *player = allowed ? ThePlayerList->findPlayerWithNameKey(NAMEKEY(action.capturePlayerName)) : NULL;
+	Bool success = FALSE;
+	unsigned fixtureCount = 0;
+	if (allowed)
+		for (Object *obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject())
+			if (!obj->isEffectivelyDead() && selectorMatches(action.selector, obj)) ++fixtureCount;
+	Object *fixture = NULL;
+	if (player)
+	{
+		fixture = findFirstMatching(player, action.selector);
+		Coord3D position;
+		if (fixtureCount <= 1 && resolveScenarioPosition(action, &position))
+		{
+			if (action.action == SCENARIO_ACTION_SPAWN && fixtureCount == 0)
+				success = executeSpawn(action, player, position);
+			else if (action.action != SCENARIO_ACTION_SPAWN && fixture != NULL)
+				success = executeOrder(action, player, position);
+		}
+		fixture = findFirstMatching(player, action.selector);
+	}
+	static unsigned traceCount = 0;
+	if (traceCount++ < 32)
+		std::fprintf(stderr, "water-capture-command: frame=%u requested=%u action=%d player=%s index=%d allowed=%d success=%d object=%u x=%.3f y=%.3f\n",
+			TheGameLogic ? TheGameLogic->getFrame() : 0, action.frame, (int)action.action,
+			action.capturePlayerName.str(), player ? (int)player->getPlayerIndex() : -1,
+			(int)allowed, (int)success, fixture ? (unsigned)fixture->getID() : 0, action.at.x, action.at.y);
+	return success;
+}
+
 Bool ScenarioDrill_execute( const ScenarioAction &action )
 {
+	if (action.capturePlayerName.isNotEmpty())
+		return executeWaterCaptureFixture(action);
+
 	Player *player = findPlayerForSlot( action.slot );
 	if (player == NULL)
 	{

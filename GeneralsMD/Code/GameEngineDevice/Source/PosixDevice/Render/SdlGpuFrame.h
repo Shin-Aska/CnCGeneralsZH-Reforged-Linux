@@ -48,6 +48,8 @@ struct SDL_GPUSampler;
 struct SDL_GPUShader;
 struct SDL_GPUTexture;
 struct SDL_Window;
+namespace WaterCoastalSurf { struct Node; struct Lookup; }
+namespace WaterShoreHistory { struct Mapping; }
 
 /// Where a pass draws: a colour texture of Target_Format() and a depth-stencil of Depth_Format(), the
 /// same size.  The back buffer is one; a render-target surface's GPU texture is another (A3d).
@@ -62,7 +64,7 @@ struct SdlTarget
 /// One draw as the flush replays it, everything by value.  The device's resolve fills it.
 struct SdlRecordedDraw
 {
-	enum { MAXIMUM_SAMPLERS = 16 };
+	enum { MAXIMUM_SAMPLERS = 16, MAXIMUM_UNIFORM_SLOTS = 4, WATER_PIXEL_BLOCKS = 3 };
 	SDL_GPUGraphicsPipeline * Pipeline;
 	SDL_GPUBuffer * VertexBuffer;		///< a GPU copy, or null for the batch's staging stream
 	uint32_t VertexOffset;				///< bytes into it
@@ -78,6 +80,8 @@ struct SdlRecordedDraw
 	uint32_t VertexWaterConstantsSize;
 	uint32_t PixelConstants;
 	uint32_t PixelConstantsSize;
+	uint32_t PixelWaterConstants[WATER_PIXEL_BLOCKS]; ///< immutable modern-water-only PS b1..b3
+	uint32_t PixelWaterConstantsSize[WATER_PIXEL_BLOCKS]; ///< zero for every other draw
 	uint32_t SamplerCount;
 	SDL_GPUTexture * Textures[MAXIMUM_SAMPLERS];
 	SDL_GPUSampler * Samplers[MAXIMUM_SAMPLERS];
@@ -148,8 +152,8 @@ public:
 	void Queue_Texture_Upload(SDL_GPUTexture * texture, unsigned int level, unsigned int width, unsigned int height,
 		uint32_t upload_offset);
 	/// A constant block's bytes, for stage 0 (vertex) or 1 (pixel); the same bytes as that stage's block
-	/// before share its offset, so the flush pushes only a change.
-	uint32_t Constants(unsigned int stage, const void * bytes, uint32_t size);
+	/// before at the same slot share its offset, so the flush pushes only a change.
+	uint32_t Constants(unsigned int stage, const void * bytes, uint32_t size, unsigned int slot=0);
 	void Record_Draw(const SdlRecordedDraw & draw);
 	/// A GPU object nothing will record again, released once the batch that may use it has gone.
 	void Release_After_Batch(SDL_GPUTexture * texture, SDL_GPUBuffer * buffer);
@@ -219,12 +223,56 @@ public:
 	/// Device depth (0..1), resolved into an independent R32_FLOAT texture between render passes.
 	/// Null if sampled depth is unsupported. Never aliases the depth attachment used by water.
 	SDL_GPUTexture * Water_Depth(const SdlTarget &source);
+	/// Read-only lookup; never captures after water/overlays have already changed the scene.
+	SDL_GPUTexture * Ready_Water_Depth(const SdlTarget &source, uint64_t &serial) const;
 	/// Lazy, GPU-only Phillips spectrum/IFFT. Previous draws finish recording before maps change;
 	/// repeated paused times reuse the same field. Failure leaves the analytic water fallback usable.
 	bool Prepare_Ocean(float time);
 	SDL_GPUTexture * Ocean_Map(unsigned int index) const;
 	SDL_GPUSampler * Ocean_Sampler() const;
 	uint64_t Ocean_Updates() const { return OceanUpdates; }
+
+	/// Bounded GPU coastal history; callers install one immutable graph across all levels.
+	/// Same revision with changed bytes is rejected. Empty graphs clear the feature.
+	bool Install_Coastal_Surf(uint64_t revision,const std::vector<WaterCoastalSurf::Node> &nodes,double spacing);
+	/// Known-format RGBA32F 256x256 target owned by this frame. The caller renders the current
+	/// incident Field here, then supplies this exact target to Prepare. No arbitrary native
+	/// texture metadata is trusted; SDL offers no public texture format/dimension query.
+	SdlTarget Coastal_Surf_Field_Target(uint64_t revision) const;
+	/// Render the incident Field only for Sample/GapDecay. First/reset Prepare clears to
+	/// density=age=height=0, rate=-1; it consumes no field. Call Prepare even when not due
+	/// to observe clock advances/rewinds without repeating GPU work at paused times.
+	bool Coastal_Surf_Field_Due(uint64_t revision,double water_time) const;
+	bool Prepare_Coastal_Surf(uint64_t revision,double water_time,const SdlTarget &field);
+	/// Production path: when due, sample only an already prepared matching-phase ocean,
+	/// then record incident/reaction/diffusion atomically. Never updates the FFT itself.
+	/// On false, caller must disable coastal composition for this draw, not use stale data.
+	bool Prepare_Coastal_Surf_From_Ocean(uint64_t revision,double water_time);
+	bool Clear_Coastal_Surf();
+	/// Borrowed handles remain valid until Clear or a different successful Install. Prepare
+	/// can rotate the state handle; resolve it after Prepare for each immutable recorded draw.
+	SDL_GPUTexture * Coastal_Surf_State(uint64_t revision) const;
+	/// Domain indices: 0 world,1 coast,2 surface,3 admission,4 neighbour IDs (index+1).
+	SDL_GPUTexture * Coastal_Surf_Domain(unsigned index,uint64_t revision) const;
+	SDL_GPUSampler * Coastal_Surf_Sampler(uint64_t revision) const;
+	double Coastal_Surf_Time(uint64_t revision) const;
+	unsigned Coastal_Surf_Nodes(uint64_t revision) const;
+	uint64_t Coastal_Surf_Updates() const { return CoastalSurfUpdates; }
+	uint64_t Coastal_Surf_Installs() const { return CoastalSurfInstalls; }
+	/// One active camera-view lookup across all water levels. Set caches/validates CPU
+	/// IDs and weights; Prepare uploads changed lookup and composes density/age moments
+	/// from the current history in one submission. Missing weights stay zero.
+	bool Set_Coastal_Surf_View(uint64_t revision,const WaterShoreHistory::Mapping &mapping,
+		double level,const std::vector<WaterCoastalSurf::Lookup> &lookups);
+	bool Prepare_Coastal_Surf_View(uint64_t revision);
+	bool Clear_Coastal_Surf_View();
+	/// Only current-state, successfully submitted output is exposed; B/A are zero.
+	SDL_GPUTexture *Coastal_Surf_View(uint64_t revision,double level) const;
+	SDL_GPUSampler *Coastal_Surf_View_Sampler(uint64_t revision,double level) const;
+	double Coastal_Surf_View_Time(uint64_t revision,double level) const;
+	uint64_t Coastal_Surf_View_Sets() const { return CoastalSurfViewSets; }
+	uint64_t Coastal_Surf_View_Updates() const { return CoastalSurfViewUpdates; }
+
 	unsigned int Width() const { return BackWidth; }
 	unsigned int Height() const { return BackHeight; }
 	/// The back buffer's format, and so what a Present_To target has to be.
@@ -293,9 +341,11 @@ private:
 		SDL_GPUTexture *Colour, *Depth;
 		bool Ready;
 		uint64_t UsedFrame;
+		uint64_t CaptureSerial;
 	};
 	std::vector<WaterSnapshot> WaterSnapshots; // at most eight; replaced resources retire with their batch
 	uint64_t WaterFrame = 0;
+	uint64_t WaterCaptureSerial = 0;
 	bool DepthSampleable = false;
 	SDL_GPUShader *WaterDepthVertex = NULL, *WaterDepthPixel = NULL;
 	SDL_GPUGraphicsPipeline *WaterDepthPipeline = NULL;
@@ -308,6 +358,17 @@ private:
 	bool Create_Ocean();
 	void Release_Ocean();
 	bool Fail_Ocean(const char *reason);
+
+	struct CoastalSurfResources;
+	CoastalSurfResources *CoastalSurf=NULL;
+	uint64_t CoastalSurfUpdates=0,CoastalSurfInstalls=0;
+	void Release_Coastal_Surf();
+	bool Prepare_Coastal_Surf_Impl(uint64_t revision,double time,const SdlTarget &field,bool from_ocean);
+	struct CoastalSurfViewResources;
+	CoastalSurfViewResources *CoastalSurfView=NULL;
+	uint64_t CoastalSurfViewSets=0,CoastalSurfViewUpdates=0;
+	void Release_Coastal_Surf_View();
+
 	WaterSnapshot *Water_Snapshot(const SdlTarget &source);
 	void Invalidate_Water_Snapshots(SDL_GPUTexture *colour, SDL_GPUTexture *depth);
 	void Refresh_Water_Snapshots();
@@ -356,7 +417,7 @@ private:
 	std::vector<ArenaByte> StreamBytes;
 	std::vector<ArenaByte> UploadBytes;
 	std::vector<ArenaByte> ConstantBytes;
-	uint32_t LastConstants[2], LastConstantsSize[2];
+	uint32_t LastConstants[2][SdlRecordedDraw::MAXIMUM_UNIFORM_SLOTS], LastConstantsSize[2][SdlRecordedDraw::MAXIMUM_UNIFORM_SLOTS];
 	std::vector<Upload> Uploads;
 	std::vector<SDL_GPUTexture *> DeadTextures;
 	std::vector<SDL_GPUBuffer *> DeadBuffers;
