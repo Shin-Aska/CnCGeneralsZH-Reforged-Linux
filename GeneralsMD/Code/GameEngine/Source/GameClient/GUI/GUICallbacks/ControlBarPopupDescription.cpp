@@ -1124,7 +1124,7 @@ void ControlBar::populateBuildTooltipLayout( const CommandButton *commandButton,
 				if( !line.from.empty() )
 				{
 					descrip.concat( MultiByteToWideCharSingleLine( line.from.c_str() ).c_str() );
-					descrip.concat( u" → " );
+					descrip.concat( u" \u2192 " );
 				}
 				descrip.concat( MultiByteToWideCharSingleLine( line.to.c_str() ).c_str() );
 			}
