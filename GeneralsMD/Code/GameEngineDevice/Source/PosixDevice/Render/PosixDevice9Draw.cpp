@@ -1023,7 +1023,7 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		return D3D_OK;
 	}
 	if (pixel_program->SamplerSlots > SdlRecordedDraw::MAXIMUM_SAMPLERS
-		|| vertex_program.SamplerSlots > (fft_water ? 3u : 0u)) {
+		|| vertex_program.SamplerSlots > (fft_water ? 4u : 0u)) {
 		Refuse_Draw("more sampler slots than a draw binds");
 		return D3D_OK;
 	}
@@ -1104,7 +1104,7 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	coastal_view=coastal_view && coastal_texture && coastal_sampler
 		&& coastal_texture!=target.Colour && coastal_texture!=target.Depth;
 	draw.VertexSamplerCount = vertex_program.SamplerSlots;
-	for (unsigned int slot = 0; slot < draw.VertexSamplerCount; ++slot) {
+	for (unsigned int slot = 0; slot < draw.VertexSamplerCount && slot < 3; ++slot) {
 		draw.VertexTextures[slot] = Gpu->Ocean_Map(slot * 2);
 		draw.VertexSamplers[slot] = Gpu->Ocean_Sampler();
 	}
@@ -1212,7 +1212,7 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 			since = phases.Now();
 			RenderUInt32 water_sampler[SAMPLER_STATE_COUNT];
 			const RenderUInt32 *sampler_states = SamplerStates[sampler_stage];
-			if ((water_draw && (texture_stage == 4 || texture_stage == 5 || texture_stage == 6 || texture_stage == 7 || texture_stage == 14))
+			if ((water_draw && (texture_stage == 2 || texture_stage == 4 || texture_stage == 5 || texture_stage == 6 || texture_stage == 7 || texture_stage == 14))
 				|| (shore_region && pixel_program!=legacy_pixel_program && (texture_stage==2||texture_stage==4||texture_stage==6))) {
 				memcpy(water_sampler, sampler_states, sizeof(water_sampler));
 				sampler_states = water_sampler;
@@ -1228,6 +1228,26 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 				Refuse_Draw("the sampler: " + Samplers->Refusal());
 				return D3D_OK;
 			}
+		}
+		if (draw.VertexSamplerCount > 3) {
+			// The cage reads the same terrain resource as pixel stage 2. Resolve it
+			// inside this retry loop: updating a mirror can flush the current batch.
+			const double texture_since=phases.Now();
+			draw.VertexTextures[3]=Textures[2] ? Mirrors->Texture(Textures[2],refusal) : Mirrors->White();
+			phases.Part(0,texture_since);
+			if (!draw.VertexTextures[3]) { Refuse_Draw("the vertex terrain texture: "+refusal);return D3D_OK; }
+			if (draw.VertexTextures[3]==target.Colour || draw.VertexTextures[3]==target.Depth) {
+				Refuse_Draw("sampling the render target as vertex terrain");return D3D_OK;
+			}
+			RenderUInt32 terrain_sampler[SAMPLER_STATE_COUNT];
+			memcpy(terrain_sampler,SamplerStates[2],sizeof(terrain_sampler));
+			terrain_sampler[D3DSAMP_ADDRESSU]=terrain_sampler[D3DSAMP_ADDRESSV]=D3DTADDRESS_CLAMP;
+			terrain_sampler[D3DSAMP_MINFILTER]=terrain_sampler[D3DSAMP_MAGFILTER]=D3DTEXF_LINEAR;
+			terrain_sampler[D3DSAMP_MIPFILTER]=D3DTEXF_NONE;
+			const double sampler_since=phases.Now();
+			draw.VertexSamplers[3]=Samplers->Sampler(terrain_sampler);
+			phases.Part(1,sampler_since);
+			if (!draw.VertexSamplers[3]) { Refuse_Draw("the vertex terrain sampler: "+Samplers->Refusal());return D3D_OK; }
 		}
 		const double buffers_since = phases.Now();
 		if (!stage_vertices) {
@@ -1404,6 +1424,7 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		(pixel_engine == ENGINE_SHADER_WATER_TRAPEZOID || pixel_engine == ENGINE_SHADER_WATER_RIVER)) {
 		SdlWaterPixelConstants water;
 		Build_Water_Constants(pixel_constants, water);
+		if (fft_water && !Textures[2]) water.TerrainParameters[3]=0.0f;
 		water.SceneParameters[0] = water_background ? 1.0f : 0.0f;
 		water.SceneParameters[1] = 1.0f / (float)target.Width;
 		water.SceneParameters[2] = 1.0f / (float)target.Height;

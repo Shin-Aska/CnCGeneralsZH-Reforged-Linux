@@ -9,6 +9,7 @@
 #include "Platform/WaterVesselWaves.h"
 #include "Platform/WaterFftFiltering.h"
 #include "Platform/WaterBowLift.h"
+#include "Platform/WaterWaveCageShader.h"
 
 namespace WaterFftSampling {
 inline bool Enabled() {
@@ -151,6 +152,7 @@ inline bool WrapVertex(std::string &hlsl,bool bowLift=WaterBowLift::Enabled(),bo
     hlsl.replace(at,entry.size(),"Output waterFixedVertex(Input input)");
     hlsl+=UniformSource("WaterVertexParameters",1);
     hlsl+=VertexSource(bowLift,bowShoulder);
+    hlsl+=WaterWaveCageShader::Source(true);
     hlsl+=std::string(R"HLSL(
 Output main(Input input)
 {
@@ -167,8 +169,18 @@ Output main(Input input)
 )HLSL")+(bowLift?R"HLSL(        float bowHeight;
         float3 displacement=fftVertexBowDisplacement(parameter,input.TexCoord1.y,horizontalWeight*damping,bowHeight);
         float lifted=fftBowLift(float3(bowHeight,0,0),float3(freeDamping,0,0),float3(damping,0,0)).x;)HLSL":R"HLSL(        float3 displacement=fftVertexDisplacement(parameter,input.TexCoord1.y,horizontalWeight*damping);)HLSL")+R"HLSL(
-        input.Position.xy+=displacement.xy*(horizontalWeight*damping);
+        WaveCage cage=waveCage(parameter,input.TexCoord1.y);
+        float cageAmount=cage.support;
+        float3 cageDisplacement=0;
+        if(cageAmount>0.0) {
+            float cageObstacle=vesselApplyHullDamping(parameter,input.TexCoord1.y,
+                float3(saturate(input.Diffuse.r),0,0),float3(1,0,0)).x;
+            if(cageObstacle>0.0)
+                cageDisplacement=waveCageFloor(parameter,input.TexCoord1.y,waveCageMap(cage,displacement)*cageObstacle);
+        }
+        input.Position.xy+=lerp(displacement.xy*(horizontalWeight*damping),cageDisplacement.xy*weight,cageAmount);
         input.Position.z=input.TexCoord1.y+)HLSL"+(bowLift?R"HLSL(lerp(originalHeight,displacement.z*damping+lifted,weight))HLSL":R"HLSL(lerp(originalHeight,displacement.z*damping,weight))HLSL")+R"HLSL(;
+        input.Position.z=lerp(input.Position.z,input.TexCoord1.y+lerp(originalHeight,cageDisplacement.z,weight),cageAmount);
     }
     input.Normal=float3(0,0,1);
     Output output=waterFixedVertex(input);

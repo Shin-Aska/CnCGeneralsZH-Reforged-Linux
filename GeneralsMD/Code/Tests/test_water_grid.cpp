@@ -5226,6 +5226,12 @@ TEST(water_coastal_surf_rejects_overflow_inputs_and_preserves_tiny_step_finitene
     c=Coast();old.height=1.4f;CHECK(mixed.dx==0 && mixed.dy==0 && Rate(c,mixed,old,.1)==0);
 }
 
+#include "WaterWaveCageTest.h"
+TEST(water_wave_cage_phase_terrain_bounds_classification_and_constrained_smoothing)
+{
+    WaterWaveCageTest::Check();
+}
+
 #include "WaterCoastalDomainTest.h"
 TEST(water_coastal_domain_connected_wet_geometry_limits_and_atomic_refresh)
 {

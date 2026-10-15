@@ -45,6 +45,8 @@
 #include "Platform/WaterHullContact.h"
 #include "Platform/WaterBedMaterial.h"
 #include "Platform/WaterFftGeometry.h"
+#include "Platform/WaterWaveCage.h"
+#include "Platform/WaterWaveCageMesh.h"
 #include "GameLogic/Object.h"
 #include "GameLogic/TerrainLogic.h"
 #include "GameLogic/Module/PhysicsUpdate.h"
@@ -1167,7 +1169,7 @@ void WaterRenderObjClass::synchronizeWaterStyle(void)
 #endif
 }
 
-void WaterRenderObjClass::setupModernWaterShader(Bool river,Bool heightCorrection)
+void WaterRenderObjClass::setupModernWaterShader(Bool river,Bool heightCorrection,Bool waveCage)
 {
 #ifndef _WIN32
 	if (!m_useModernWater) return;
@@ -1245,7 +1247,11 @@ void WaterRenderObjClass::setupModernWaterShader(Bool river,Bool heightCorrectio
 	DX8Wrapper::Set_DX8_Texture(4, optical ? optical->Peek_D3D_Texture() : NULL);
 	bindModernWaterFoam(m_modernOpticalLevel,river);
 	bindModernWaterCoastal(m_modernOpticalLevel,river);
-	if (m_modernHeightTexture) DX8Wrapper::Set_DX8_Texture(2, m_modernHeightTexture->Peek_D3D_Texture());
+	TextureClass *heightTexture=m_modernHeightTexture;
+	if(waveCage && !river && heightCorrection)
+		for(const ModernOpticalTexture &cached:m_modernOpticalTextures)
+			if(cached.level==m_modernOpticalLevel && cached.waveCage) {heightTexture=cached.waveCage;break;}
+	DX8Wrapper::Set_DX8_Texture(2,heightTexture?heightTexture->Peek_D3D_Texture():NULL);
 	if (m_modernBedTexture) {
 		DX8Wrapper::Set_DX8_Texture(7, m_modernBedTexture->Peek_D3D_Texture());
 		// Sampling policy is local to the POSIX water draw, leaving the device's stage-7 state intact.
@@ -1333,7 +1339,8 @@ void WaterRenderObjClass::updateModernWaterTextures(void)
 	if (bits) {
 		for (Int y = 0; y < m_modernHeightSide; ++y) for (Int x = 0; x < m_modernHeightSide; ++x) {
 			const UnsignedInt h = map->getHeight(min(x,width-1), min(y,height-1));
-			((UnsignedInt *)((char *)bits+y*pitch))[x] = 0xff000000 | (h<<16) | (h<<8) | h;
+			// Alpha zero makes the height-only fallback explicitly opt out of wave cages.
+			((UnsignedInt *)((char *)bits+y*pitch))[x] = (h<<16) | (h<<8) | h;
 		}
 		surface->Unlock();
 	}
@@ -1345,7 +1352,10 @@ void WaterRenderObjClass::clearModernWaterOpticalTextures(void)
 {
 	m_modernProjectedSamples.clear();
 	m_modernObstacleIndex.Clear();
-	for (size_t i=0;i<m_modernOpticalTextures.size();++i) REF_PTR_RELEASE(m_modernOpticalTextures[i].texture);
+	for (size_t i=0;i<m_modernOpticalTextures.size();++i) {
+		REF_PTR_RELEASE(m_modernOpticalTextures[i].texture);
+		REF_PTR_RELEASE(m_modernOpticalTextures[i].waveCage);
+	}
 	m_modernOpticalTextures.clear();
 }
 
@@ -1406,6 +1416,30 @@ TextureClass *WaterRenderObjClass::modernWaterOpticalTexture(Real level)
 	if (!bits) { REF_PTR_RELEASE(texture); return NULL; }
 	ModernOpticalTexture &cached=m_modernOpticalTextures.back();
 	cached.texture=texture;
+	const char *waveCageOption=getenv("ZH_WATER_WAVE_CAGES");
+	if(WaterFftSampling::Enabled() && (!waveCageOption || strcmp(waveCageOption,"0")!=0)) {
+		WaterWaveCage::Field cage;
+		if(WaterWaveCage::Build(m_modernHeights.data(),m_modernHeightWidth,m_modernHeightHeight,
+			m_modernHeightBorder,MAP_XY_FACTOR,MAP_HEIGHT_SCALE,level,field,cage)) {
+			TextureClass *cageTexture=NEW_REF(TextureClass,(m_modernHeightSide,m_modernHeightSide,WW3D_FORMAT_A8R8G8B8,MIP_LEVELS_1));
+			SurfaceClass *cageSurface=cageTexture?cageTexture->Get_Surface_Level():NULL;
+			Int cagePitch=0;void *cageBits=cageSurface?cageSurface->Lock(&cagePitch):NULL;
+			const Bool uploaded=cageBits && cagePitch>=m_modernHeightSide*4;
+			if(uploaded)
+				for(Int y=0;y<m_modernHeightSide;++y) for(Int x=0;x<m_modernHeightSide;++x) {
+					const size_t n=size_t(min(y,m_modernHeightHeight-1))*m_modernHeightWidth+min(x,m_modernHeightWidth-1);
+					((UnsignedInt*)((char*)cageBits+y*cagePitch))[x]=WaterWaveCage::Texel(cage,n);
+				}
+			if(cageBits) cageSurface->Unlock();
+			REF_PTR_RELEASE(cageSurface);
+			if(uploaded) {
+				cached.waveCage=cageTexture;
+				cached.waveCageSupport.resize(cage.texels.size());
+				for(size_t n=0;n<cage.texels.size();++n) cached.waveCageSupport[n]=UnsignedByte(cage.texels[n]>>24);
+			}
+			else REF_PTR_RELEASE(cageTexture); // fall back to the original height texture, with zero support
+		}
+	}
 	cached.ocean.swap(field.ocean);
 	// Retain exactly the bytes uploaded to Texture4, including its bilinear shoreline blend.
 	Int oceanMinX=m_modernHeightWidth,oceanMinY=m_modernHeightHeight,oceanMaxX=-1,oceanMaxY=-1;
@@ -4250,9 +4284,10 @@ Real WaterRenderObjClass::getWaterHeight(Real x, Real y)
 
 
 // Scene geometry attenuates the render mesh only. It never changes the simulation water grid.
-Real WaterRenderObjClass::modernWaterDamping(Real x, Real y, Real z, Real offshore, Real *obstacleAttenuation, Real *terrainDepth, Real *hullFreeDamping) const
+Real WaterRenderObjClass::modernWaterDamping(Real x, Real y, Real z, Real offshore, Real *obstacleAttenuation, Real *terrainDepth, Real *hullFreeDamping, Real *hullFreeObstacle) const
 {
 	if (obstacleAttenuation) *obstacleAttenuation=1.0f;
+	if (hullFreeObstacle) *hullFreeObstacle=1.0f;
 	if (terrainDepth) *terrainDepth=0.0f;
 	// Early zero returns remain zero for both the complete CPU fallback and the FFT envelope.
 	if (hullFreeDamping) *hullFreeDamping=0.0f;
@@ -4262,7 +4297,7 @@ Real WaterRenderObjClass::modernWaterDamping(Real x, Real y, Real z, Real offsho
 		const Real depth=WaterTerrainDepth(map,x,y,z);
 		if (terrainDepth) *terrainDepth=depth;
 		damping=WaterSurfaceModel::TerrainDamping(depth,offshore);
-		if (damping<=0.0f) return 0.0f;
+		if (damping<=0.0f && !hullFreeObstacle) return 0.0f;
 	}
 	// The broad phase only omits objects whose exact narrow phase returns one. River points
 	// and failed/oversized index builds retain the original ordered full list.
@@ -4287,12 +4322,19 @@ Real WaterRenderObjClass::modernWaterDamping(Real x, Real y, Real z, Real offsho
 				obstacleDamping=legacy+(obstacleDamping-legacy)*offshore;
 			}
 		} else obstacleDamping=WaterSurfaceModel::ShoreDamping(sqrtf(dx*dx+dy*dy)-o.radius);
-		if (obstacleAttenuation) *obstacleAttenuation=min(*obstacleAttenuation,obstacleDamping);
-		damping=min(damping,obstacleDamping);
-		if (damping<=0.0f) return 0.0f;
+		// Cage displacement applies the exact rendered hull in the shader, including R0.
+		// Its independent object envelope must not inherit the legacy circular hull proxy.
+		if (hullFreeObstacle && !o.hasHull) *hullFreeObstacle=min(*hullFreeObstacle,obstacleDamping);
+		// Preserve the legacy outputs at their original early-out point while collecting
+		// the independent cage envelope through every remaining obstacle.
+		if(damping>0.0f) {
+			if (obstacleAttenuation) *obstacleAttenuation=min(*obstacleAttenuation,obstacleDamping);
+			damping=min(damping,obstacleDamping);
+		}
+		if (damping<=0.0f && !hullFreeObstacle) return 0.0f;
 	}
 	if (hullFreeDamping) *hullFreeDamping=damping;
-	if (offshore>0.0f) {
+	if (offshore>0.0f && damping>0.0f) {
 		const Real hull=1.0f+(modernHullDamping(x,y,z)-1.0f)*offshore;
 		damping=min(damping,hull);
 		if (obstacleAttenuation) *obstacleAttenuation=min(*obstacleAttenuation,hull);
@@ -4323,6 +4365,9 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 	if (!river && modernWaterOpticalTexture(m_modernOpticalLevel))
 		for (size_t field=0;field<m_modernOpticalTextures.size();++field)
 			if (m_modernOpticalTextures[field].level==m_modernOpticalLevel) { oceanContext=&m_modernOpticalTextures[field]; break; }
+	const char *waveCageOption=getenv("ZH_WATER_WAVE_CAGES");
+	const Bool waveCageAvailable=oceanContext && oceanContext->waveCage && WaterFftSampling::Enabled()
+		&& (!waveCageOption || strcmp(waveCageOption,"0")!=0);
 	const char *coastalCrestOption=getenv("ZH_WATER_COAST_CREST");
 	const Bool coastalCrestEnabled=coastalCrestOption && strcmp(coastalCrestOption,"1")==0;
 	// Only actual exposed terrain coast in the analytic R0 region participates. No new
@@ -4516,6 +4561,19 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 			m_modernBowVertices+=bowStats.addedVertices;m_modernBowTriangles+=bowStats.addedTriangles;
 			m_modernBowRegions+=bowStats.regions;m_modernBowRejected+=bowStats.rejected?1:0;
 			}
+			if(waveCageAvailable) {
+				const auto depth=[&](const WaterProjectedMesh::Point &p) {
+					return points[0].Z-WaterWaveCage::Height(m_modernHeights.data(),m_modernHeightWidth,m_modernHeightHeight,
+						m_modernHeightBorder,MAP_XY_FACTOR,MAP_HEIGHT_SCALE,float(p.x),float(p.y));
+				};
+				const auto supported=[&](const WaterProjectedMesh::Point &p) {
+					return WaterSurfaceModel::SampleOffshore(oceanContext->waveCageSupport.data(),m_modernHeightWidth,m_modernHeightHeight,
+						float(p.x)/MAP_XY_FACTOR+m_modernHeightBorder,float(p.y)/MAP_XY_FACTOR+m_modernHeightBorder,MAP_XY_FACTOR).height>0.0f;
+				};
+				// Split only supported interior triangles at the rest waterline. The helper
+				// retains authored seams and leaves the original mesh intact if its budget fails.
+				WaterWaveCageMesh::ClipRestWaterline(projectedMesh,depth,supported);
+			}
 			vertexCount=(Int)projectedMesh.vertices.size();
 			m_modernProjectedVertices+=vertexCount;m_modernProjectedTriangles+=projectedMesh.indices.size()/3;
 		} else ++m_modernProjectedFallbacks; // Retain complete original coverage if projection is singular.
@@ -4524,6 +4582,7 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 	if (m_modernProfileEnabled) m_modernProfile.mesh+=modernWaterProfileMilliseconds()-profileMeshStart;
 	if (projected && projectedMesh.indices.empty()) return;
 	if (!projected) m_modernRetainedVertices+=vertexCount;
+	const Bool waveCage=projected && waveCageAvailable;
 	const double profileFillStart=m_modernProfileEnabled?modernWaterProfileMilliseconds():0;
 	DynamicVBAccessClass vertices(BUFFER_TYPE_DYNAMIC_DX8,dynamic_fvf_type,vertexCount);
 	{
@@ -4550,9 +4609,10 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 					const WaterSurfaceModel::Sample offshore=WaterSurfaceModel::SampleOffshore(oceanContext->ocean.data(),
 						m_modernHeightWidth,m_modernHeightHeight,p.x/MAP_XY_FACTOR+m_modernHeightBorder,p.y/MAP_XY_FACTOR+m_modernHeightBorder,MAP_XY_FACTOR);
 					if (sampled) { const double now=modernWaterProfileMilliseconds();m_modernProfile.fieldSample+=now-stamp;stamp=now; }
-					sample.obstacle=1;
+					sample.obstacle=sample.hullFreeObstacle=1;
 					Real terrainDepth=0,hullFreeDamping=0;
-					sample.damping=modernWaterDamping(p.x,p.y,p.z,offshore.height,&sample.obstacle,&terrainDepth,&hullFreeDamping);
+					sample.damping=modernWaterDamping(p.x,p.y,p.z,offshore.height,&sample.obstacle,&terrainDepth,&hullFreeDamping,
+						waveCage?&sample.hullFreeObstacle:NULL);
 					sample.offshore=offshore.height;
 					sample.exposure=WaterSurfaceModel::SampleOffshore(oceanContext->shoreContext.exposure.data(),
 						m_modernHeightWidth,m_modernHeightHeight,p.x/MAP_XY_FACTOR+m_modernHeightBorder,
@@ -4576,7 +4636,7 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 				result.nx=boundarySample?0.0f:fftSeam.Weight({p.x,p.y},sample.exposure);
 				result.ny=sample.fftDamping;result.nz=sample.offshore;
 				result.u1=0;result.v1=p.y/150.0f;result.u2=sample.damping;result.v2=p.z;
-				result.diffuse=WaterSurfaceModel::EncodeObstacleAttenuation(diffuse,sample.obstacle);return result;
+				result.diffuse=WaterSurfaceModel::EncodeObstacleAttenuation(diffuse,boundarySample || !waveCage?sample.obstacle:sample.hullFreeObstacle);return result;
 			};
 			auto interpolate=[](const VertexFormatXYZNDUV2 &a,const VertexFormatXYZNDUV2 &b,Real t) {
 				VertexFormatXYZNDUV2 value=a;
@@ -4724,7 +4784,7 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 	DX8Wrapper::Set_Transform(D3DTS_WORLD,transform);
 	DX8Wrapper::Set_Vertex_Buffer(vertices);
 	DX8Wrapper::Set_Texture(0,m_riverTexture);
-	if (river) setupJbaWaterShader(); else setupFlatWaterShader(TRUE);
+	if (river) setupJbaWaterShader(); else setupFlatWaterShader(TRUE,waveCage);
 	RenderUInt32 cull;
 	DX8Wrapper::_Get_D3D_Device()->GetRenderState(D3DRS_CULLMODE,&cull);
 	DX8Wrapper::Set_DX8_Render_State(D3DRS_CULLMODE,D3DCULL_NONE);
@@ -5103,7 +5163,7 @@ void WaterRenderObjClass::drawReflection(Int triangleCount, Int vertexCount)
 	ShaderClass::Invalidate();	//everything above was set behind the shader's back
 }
 
-void WaterRenderObjClass::setupFlatWaterShader(Bool heightCorrection)
+void WaterRenderObjClass::setupFlatWaterShader(Bool heightCorrection,Bool waveCage)
 {
 
 	DX8Wrapper::Set_Texture(0,m_riverTexture);
@@ -5195,7 +5255,7 @@ void WaterRenderObjClass::setupFlatWaterShader(Bool heightCorrection)
 	if (m_trapezoidWaterPixelShader){
 		DX8Wrapper::_Get_D3D_Device()->SetPixelShaderConstantF(0,   D3DXVECTOR4(REFLECTION_FACTOR, REFLECTION_FACTOR, REFLECTION_FACTOR, 1.0f), 1);
 		DX8Wrapper::Set_Pixel_Shader(m_trapezoidWaterPixelShader);
-		setupModernWaterShader(FALSE,heightCorrection);
+		setupModernWaterShader(FALSE,heightCorrection,waveCage);
 	}
 }
 

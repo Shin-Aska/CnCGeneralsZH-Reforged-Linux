@@ -734,6 +734,7 @@ WaterRefractionSample waterRefractedScene(float2 originalPixel, float2 offset,
 	hlsl += WaterOpticalModel::GetHlslSource();
 	hlsl += WaterHullModel::GetHlslSource();
 	hlsl += WaterFftSampling::PixelSource(bowLift);
+	hlsl += WaterWaveCageShader::Source(false);
 	char oceanBound[96];
 	snprintf(oceanBound, sizeof(oceanBound), "static const float oceanDisplacementBound = %.9g;\n",
 		(double)WaterSurfaceModel::OceanMaxDisplacement);
@@ -968,6 +969,16 @@ float4 main(Input input) : SV_Target
 )COAST";
 	hlsl += R"HLSL(    float3 normal = normalize(float3(-slope, 1.0));
     float continuousHeight=baseLevel+wave.x*attenuation+meshCorrection;
+    WaveCage cage=waveCage(wavePosition,baseLevel);
+    float cageAmount=cage.support*FftParameters.x;
+    float2 cageAmountSlope=fftParameterGradient(cageAmount,parameterDx,parameterDy);
+    float3 cageObstacle=float3(saturate(input.Diffuse.r),fftParameterGradient(input.Diffuse.r,parameterDx,parameterDy));
+    if(cageAmount>0.0)
+        cageObstacle=vesselApplyHullDamping(wavePosition,baseLevel,cageObstacle,float3(1,0,0));
+    WaveCageSurface cagePhysical=waveCageSurface(cage,wavePosition,baseLevel,spectral.displacement,
+        spectral.derivativeX,spectral.derivativeY,cageObstacle,parameterDx,parameterDy);
+    WaveCageSurface cageShaded=waveCageSurface(cage,wavePosition,baseLevel,spectral.shadingDisplacement,
+        spectral.shadingDerivativeX,spectral.shadingDerivativeY,cageObstacle,parameterDx,parameterDy);
     float fftCompression=1.0;
     float fftDamping=0.0;
     float3 resolvedNormal=normal;
@@ -994,6 +1005,16 @@ float4 main(Input input) : SV_Target
             spectral.derivativeX.y*horizontalWeight+spectral.displacement.y*horizontalSlope.x,heightSlope.x);
         float3 tangentY=float3(spectral.derivativeY.x*horizontalWeight+spectral.displacement.x*horizontalSlope.y,
             1.0+spectral.derivativeY.y*horizontalWeight+spectral.displacement.y*horizontalSlope.y,heightSlope.y);
+        float3 oldDelta=float3(spectral.displacement.xy*horizontalWeight,lerp(oldHeight,newHeight,fftWeight));
+        float3 cageDelta=float3(cagePhysical.displacement.xy*fftWeight,lerp(oldHeight,cagePhysical.displacement.z,fftWeight));
+        float3 cageX=float3(1,0,baseSlope.x)+cagePhysical.derivativeX*fftWeight
+            +float3(cagePhysical.displacement.xy,cagePhysical.displacement.z-oldHeight)*weightSlope.x;
+        float3 cageY=float3(0,1,baseSlope.y)+cagePhysical.derivativeY*fftWeight
+            +float3(cagePhysical.displacement.xy,cagePhysical.displacement.z-oldHeight)*weightSlope.y;
+        cageX.z+=(slope.x-baseSlope.x)*(1.0-fftWeight);
+        cageY.z+=(slope.y-baseSlope.y)*(1.0-fftWeight);
+        tangentX=lerp(tangentX,cageX,cageAmount)+(cageDelta-oldDelta)*cageAmountSlope.x;
+        tangentY=lerp(tangentY,cageY,cageAmount)+(cageDelta-oldDelta)*cageAmountSlope.y;
         normal=normalize(cross(tangentX,tangentY));
         // Filter the same displacement derivatives for reflected/direct light only. Keep
         // level-zero geometry, refraction, contact and optical path reconstruction intact.
@@ -1012,9 +1033,19 @@ float4 main(Input input) : SV_Target
             spectral.shadingDerivativeX.y*horizontalWeight+spectral.shadingDisplacement.y*horizontalSlope.x,shadedHeightSlope.x);
         float3 shadedY=float3(spectral.shadingDerivativeY.x*horizontalWeight+spectral.shadingDisplacement.x*horizontalSlope.y,
             1.0+spectral.shadingDerivativeY.y*horizontalWeight+spectral.shadingDisplacement.y*horizontalSlope.y,shadedHeightSlope.y);
+        float3 shadedOldDelta=float3(spectral.shadingDisplacement.xy*horizontalWeight,lerp(oldHeight,shadedHeight,fftWeight));
+        float3 shadedCageDelta=float3(cageShaded.displacement.xy*fftWeight,lerp(oldHeight,cageShaded.displacement.z,fftWeight));
+        float3 shadedCageX=float3(1,0,baseSlope.x)+cageShaded.derivativeX*fftWeight
+            +float3(cageShaded.displacement.xy,cageShaded.displacement.z-oldHeight)*weightSlope.x;
+        float3 shadedCageY=float3(0,1,baseSlope.y)+cageShaded.derivativeY*fftWeight
+            +float3(cageShaded.displacement.xy,cageShaded.displacement.z-oldHeight)*weightSlope.y;
+        shadedCageX.z+=(slope.x-baseSlope.x)*(1.0-fftWeight);
+        shadedCageY.z+=(slope.y-baseSlope.y)*(1.0-fftWeight);
+        shadedX=lerp(shadedX,shadedCageX,cageAmount)+(shadedCageDelta-shadedOldDelta)*cageAmountSlope.x;
+        shadedY=lerp(shadedY,shadedCageY,cageAmount)+(shadedCageDelta-shadedOldDelta)*cageAmountSlope.y;
         resolvedNormal=normalize(cross(shadedX,shadedY));
         unresolvedSlopeVariance=spectral.unresolvedSlopeVariance*fftWeight*fftWeight*fftDamping*fftDamping;
-        continuousHeight=baseLevel+lerp(oldHeight,newHeight,fftWeight);
+        continuousHeight=baseLevel+lerp(oldHeight,lerp(newHeight,cagePhysical.displacement.z,cageAmount),fftWeight);
         fftCompression=lerp(1.0,spectral.incidentCompression,saturate(input.Specular.w));
     }
     // Reconstruct the same continuous wave between mesh vertices for optical integration. The
@@ -1031,7 +1062,7 @@ float4 main(Input input) : SV_Target
     // Geometry, refraction and full offshore shading keep their original normals.
     float shoreRippleLimit = min(smoothstep(0.0,0.75,depth),min(input.Diffuse.r,hullEffects.z));
     float shoreRippleWeight = opticalContext.b * OpticalParameters.z * TerrainParameters.w
-        * (1.0-WaterParameters.y) * (1.0-offshore);
+        * (1.0-WaterParameters.y) * (1.0-offshore) * (1.0-cageAmount*fftWeight);
     float2 shoreRipple = shoreRippleWeight * lerp(
         shoreRippleSlope * max(0.0,shoreRippleLimit-max(localTerrain,attenuation)),
         float2(spectral.shadingDerivativeX.z,spectral.shadingDerivativeY.z)
@@ -1165,6 +1196,19 @@ float4 main(Input input) : SV_Target
     // Same source composition with the coastal term omitted; retain this one scalar
     // through the real masks/max operations to attribute its final material weight.
     float foamWithoutShore=foam;
+    // Contact wash follows the arriving broad FFT face on the deformed surface.
+    // It is a bounded material approximation, not the paper's spray-particle solver.
+    float cageWash=0.0;
+    float broadSlope=length(spectral.contactIncident.yz);
+    float terrainSlope=length(terrainGradient);
+    float arrival=dot(spectral.contactIncident.yz,-terrainGradient)/max(broadSlope*terrainSlope,0.00001);
+    float cageTerrainMatch=1.0-smoothstep(0.5,1.5,abs(shoreSceneBottom.z-terrainHeight(shoreSceneBottom.xy)));
+    float cageWet=smoothstep(0.015,0.18,depth)*cageTerrainMatch*saturate(cageObstacle.x);
+    float cageContact=1.0-smoothstep(0.2,2.5,max(0.0,world.z-surfaceTerrainHeight));
+    float cageCrest=smoothstep(0.05,0.7,spectral.contactIncident.x)*smoothstep(0.0,0.35,arrival);
+    float cagePores=smoothstep(0.24,0.72,oceanNoise(world.xy*0.6));
+    cageWash=cageAmount*fftWeight*cageWet*cageContact*cageCrest*lerp(0.45,1.0,cagePores);
+    foam=max(foam*(1.0-cageAmount*fftWeight*cageTerrainMatch),cageWash*0.72);
 )HLSL";
 	if(coastalSurf) hlsl+=R"COAST(
     float gpuCoastFoam=0.0,gpuCoastRaw=0.0,gpuCoastGate=0.0;
@@ -1390,6 +1434,8 @@ float4 main(Input input) : SV_Target
 	if (debug && strcmp(debug, "normal") == 0) hlsl += "current.rgb = normal*0.5+0.5;\n";
 	if (debug && strcmp(debug, "highlight") == 0) hlsl += "current.rgb = waterDisplay(highlight);\n";
 	if (debug && strcmp(debug, "offshore") == 0) hlsl += "current.rgb = offshore.xxx;\n";
+	if (debug && strcmp(debug, "wave-cage") == 0) hlsl += "current = float4(cageAmount,cage.radii.x/fftVerticalBound,cage.radii.y/fftVerticalBound,1.0);\n";
+	if (debug && strcmp(debug, "cage-wash") == 0) hlsl += "current = float4(cageWash,cageContact*cageAmount,cageCrest*cageAmount,1.0);\n";
 	if (debug && strcmp(debug, "shore-history") == 0) hlsl += "current = float4(shoreHistory,shoreRate/ShoreMaximumRate,shoreSupport,1.0);\n";
 	if (debug && strcmp(debug, "shore-history-terms") == 0) hlsl += "current = float4(shoreHistory,shoreRetained,current.a,1.0);\n";
 	if (debug && strcmp(debug, "shore") == 0) hlsl += "current.rgb = float3(shoreRate/ShoreMaximumRate,shoreSupport,opticalContext.b);\n";

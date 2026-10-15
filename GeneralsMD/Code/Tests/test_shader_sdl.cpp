@@ -306,7 +306,7 @@ TEST(fft_water_vertex_and_pixel_compile_with_separate_texture_bindings)
 		SDL3_Shader_Slots(spirv,isVertex,samplers,buffers);
 		const char *surfOption=getenv("ZH_WATER_SURF_GPU");
 		const bool surfEnabled=surfOption && strcmp(surfOption,"1")==0;
-		CHECK_EQ(samplers,isVertex?3u:(surfEnabled?16u:15u));CHECK_EQ(buffers,isVertex?2u:(WaterHullVisual::Enabled()?4u:1u));
+		CHECK_EQ(samplers,isVertex?4u:(surfEnabled?16u:15u));CHECK_EQ(buffers,isVertex?2u:(WaterHullVisual::Enabled()?4u:1u));
 		const char *validator=getenv("ZH_SPIRV_VAL");
 		if(validator && *validator) CHECK(validate(validator,spirv,log));
 		CHECK(SDL3_Translate_SPIRV_To_MSL(spirv,isVertex,msl,log));
