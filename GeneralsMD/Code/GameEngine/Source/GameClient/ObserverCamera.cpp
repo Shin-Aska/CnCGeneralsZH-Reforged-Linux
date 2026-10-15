@@ -163,14 +163,14 @@ static const Real SPLIT_STAY_SHARE = 0.25f;
 /// once the picture is whole again it stays whole this long, so it does not flicker between the two
 static const UnsignedInt SPLIT_REST_FRAMES = 4 * LOGICFRAMES_PER_SECOND;
 /// the radar takes this long to slide down off the screen before the panes come, and back after
-static const UnsignedInt PANE_RADAR_FRAMES = 12;
+static const UnsignedInt PANE_RADAR_FRAMES = ConvertRetailFrames( 12U );
 /// the panes take this long to slide in along the rays, and out again
-static const UnsignedInt PANE_SLIDE_FRAMES = 15;
+static const UnsignedInt PANE_SLIDE_FRAMES = ConvertRetailFrames( 15U );
 /// then the gold draws out along the settled lines from where they meet, and the radar's frame round
 /// the map, for this long; it goes back in as long before the panes leave.  Drawn while the panes
 /// slid, the lines were whole before the meeting point was on the screen and nothing was seen to draw
-static const UnsignedInt PANE_DRAW_FRAMES = 21;
-static const UnsignedInt PANE_UNDRAW_FRAMES = 15;
+static const UnsignedInt PANE_DRAW_FRAMES = ConvertRetailFrames( 21U );
+static const UnsignedInt PANE_UNDRAW_FRAMES = ConvertRetailFrames( 15U );
 /// so a split, once on, stays on this long whatever its fights do, unless its panes come to show
 /// the same ground: a split that went off before its panes were in flashed a pane in and out
 static const UnsignedInt SPLIT_LEAST_FRAMES = PANE_RADAR_FRAMES + PANE_SLIDE_FRAMES + PANE_DRAW_FRAMES + SPLIT_HOLD_FRAMES;
@@ -206,7 +206,7 @@ static const Real PANE_BAND_FROM = 0.35f;
 /// while the panes are held a light runs out along every gold line once in this many logic frames,
 /// taking this many to reach the end
 static const UnsignedInt PANE_SHIMMER_PERIOD = 5 * LOGICFRAMES_PER_SECOND;
-static const UnsignedInt PANE_SHIMMER_FRAMES = 45;
+static const UnsignedInt PANE_SHIMMER_FRAMES = ConvertRetailFrames( 45U );
 /// a pane's circle is looked for on a grid this fine, a centre every 10 pixels at 1280x720
 static const Int PANE_CIRCLE_COLUMNS = 128;
 static const Int PANE_CIRCLE_ROWS = 72;
@@ -219,7 +219,7 @@ static const Real PANE_FIT_LEAST_EXTENT = 150.0f;
 /// the opening fits what a player has within this of the middle of it, his base and the army beside it
 static const Real PANE_INTRO_REACH = 500.0f;
 /// how much of the way to a new fit a pane's zoom goes each logic frame, about a second and a half
-static const Real PANE_FIT_FOLLOW = 0.06f;
+static const Real PANE_FIT_FOLLOW = 1.0f - ConvertRetailPerFrameFactor( 1.0f - 0.06f );
 /// how far over a command centre's own height its player's plate hangs: the flags on a GLA palace
 /// stand past it, and zoomed in they ran into the plate
 static const Real PANE_MARK_LIFT = 15.0f;
@@ -239,8 +239,8 @@ static const UnsignedInt DIRECTOR_PREROLL_FRAMES = 4 * LOGICFRAMES_PER_SECOND;
 static const UnsignedInt SCOUT_CRC_FRAMES = 30 * LOGICFRAMES_PER_SECOND;
 /// the broadcast's power flags drop and go back up over the first many logic frames; the defeat and
 /// winner banners open and close over the second, the rule, the panel and the words one after another
-static const UnsignedInt FLAG_MOVE_FRAMES = 15;
-static const UnsignedInt BANNER_MOVE_FRAMES = 24;
+static const UnsignedInt FLAG_MOVE_FRAMES = ConvertRetailFrames( 15U );
+static const UnsignedInt BANNER_MOVE_FRAMES = ConvertRetailFrames( 24U );
 /// a power's flag hangs under its player's card this long when nothing waits behind it, a defeated
 /// player's banner holds this long
 static const UnsignedInt FLAG_HOLD_FRAMES = 4 * LOGICFRAMES_PER_SECOND;
@@ -248,15 +248,15 @@ static const UnsignedInt DEFEAT_BANNER_HOLD_FRAMES = 3 * LOGICFRAMES_PER_SECOND;
 /// a defeated player's card flashes red over the first of these, a line is drawn through it from the
 /// second over the third, it is seen struck until the fourth after the defeat and then collapses over
 /// the last while the others slide together
-static const UnsignedInt CARD_FLASH_FRAMES = 12;
-static const UnsignedInt CARD_STRIKE_FROM = 6;
-static const UnsignedInt CARD_STRIKE_FRAMES = 12;
-static const UnsignedInt CARD_STRUCK_FRAMES = 36;
-static const UnsignedInt CARD_COLLAPSE_FRAMES = 18;
+static const UnsignedInt CARD_FLASH_FRAMES = ConvertRetailFrames( 12U );
+static const UnsignedInt CARD_STRIKE_FROM = ConvertRetailFrames( 6U );
+static const UnsignedInt CARD_STRIKE_FRAMES = ConvertRetailFrames( 12U );
+static const UnsignedInt CARD_STRUCK_FRAMES = ConvertRetailFrames( 36U );
+static const UnsignedInt CARD_COLLAPSE_FRAMES = ConvertRetailFrames( 18U );
 /// the winner's banner starts to come in this long after the match is decided, as the last defeated
 /// player's banner over it has opened: the film runs 105 frames past the decision, and at 30 the winner's
 /// was all in for only 51 of them
-static const UnsignedInt WINNER_DELAY_FRAMES = 24;
+static const UnsignedInt WINNER_DELAY_FRAMES = ConvertRetailFrames( 24U );
 
 //-------------------------------------------------------------------------------------------------
 static Bool sameFight( const Coord2D &a, const Coord2D &b )
@@ -1514,6 +1514,7 @@ ObserverCamera::ObserverCamera()
 	// the timeline is the whole process's, read once and kept across the resets a match start makes
 	m_scoutScanned = 0;
 	m_timelineLoaded = FALSE;
+	m_modeBeforeLook = OBSERVER_CAMERA_FREE;
 	reset();
 }
 
@@ -1880,6 +1881,31 @@ void ObserverCamera::followPlayer( Int playerIndex )
 	m_followed = playerIndex;
 	m_driving = FALSE;
 	m_placeValid = FALSE;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Picking a second player while looking through the first keeps the camera the watcher had before
+	* either, so one Esc always goes back to it. */
+//-------------------------------------------------------------------------------------------------
+void ObserverCamera::lookThrough( Int playerIndex )
+{
+	if( m_followed == NO_PLAYER && !m_fog )
+		m_modeBeforeLook = m_mode;
+	followPlayer( playerIndex );
+	m_fog = TRUE;
+	setMode( OBSERVER_CAMERA_PLAYER );
+}
+
+//-------------------------------------------------------------------------------------------------
+Bool ObserverCamera::stopLooking( void )
+{
+	if( m_followed == NO_PLAYER && !m_fog )
+		return FALSE;
+
+	followPlayer( NO_PLAYER );
+	m_fog = FALSE;
+	setMode( m_modeBeforeLook );
+	return TRUE;
 }
 
 //-------------------------------------------------------------------------------------------------

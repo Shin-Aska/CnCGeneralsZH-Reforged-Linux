@@ -50,7 +50,11 @@
 #include "Common/ArchiveFile.h"
 #include "Common/ArchiveFileSystem.h"
 #include "Common/AsciiString.h"
+#include "Common/GlobalData.h"
+#include "Common/LocalFileSystem.h"
 #include "Common/PerfTimer.h"
+
+#include <vector>
 
 #ifdef _INTERNAL
 // for occasional debugging...
@@ -107,7 +111,7 @@ ArchiveFileSystem *TheArchiveFileSystem = NULL;
 //------------------------------------------------------
 // ArchivedFileInfo
 //------------------------------------------------------
-ArchiveFileSystem::ArchiveFileSystem() 
+ArchiveFileSystem::ArchiveFileSystem() : m_focus( FILE_FOCUS_ALL )
 {
 }
 
@@ -126,21 +130,35 @@ ArchiveFileSystem::~ArchiveFileSystem()
 
 void ArchiveFileSystem::loadIntoDirectoryTree(const ArchiveFile *archiveFile, const AsciiString& archiveFilename, Bool overwrite)
 {
+	addToTree(m_rootDirectory, archiveFile, archiveFilename, overwrite);
+}
+
+void ArchiveFileSystem::addToTree(ArchivedDirectoryInfo &root, const ArchiveFile *archiveFile, const AsciiString& archiveFilename, Bool overwrite)
+{
 
 	FilenameList filenameList;
 
 	archiveFile->getFileListInDirectory(AsciiString(""), AsciiString(""), AsciiString("*"), filenameList, TRUE);
 
+	// a mod's maps never go in, merged or kept apart: the maps are ours (FileSystem::isMapPath)
+	const Bool modArchive = modLayerOf(archiveFilename).isNotEmpty();
+	Int mapsIgnored = 0;
+
 	FilenameListIter it = filenameList.begin();
 
 	while (it != filenameList.end()) {
+		if (modArchive && FileSystem::isMapPath(*it)) {
+			++mapsIgnored;
+			it++;
+			continue;
+		}
 		// add this filename to the directory tree.
 		AsciiString path = *it;
 		path.toLower();
 		AsciiString token;
 		AsciiString debugpath;
 
-		ArchivedDirectoryInfo *dirInfo = &m_rootDirectory;
+		ArchivedDirectoryInfo *dirInfo = &root;
 
 		Bool infoInPath;
 		infoInPath = path.nextToken(&token, "\\/");
@@ -170,33 +188,125 @@ void ArchiveFileSystem::loadIntoDirectoryTree(const ArchiveFile *archiveFile, co
 
 		it++;
 	}
+	if (mapsIgnored > 0)
+		DEBUG_LOG(("ArchiveFileSystem - %d map files in %s are ignored, the maps are ours\n", mapsIgnored, archiveFilename.str()));
+}
+
+/// the fork's upscaled art goes by its file name, ReforgedTextures.big and the like
+static Bool isReforgedArchiveName(const AsciiString &path)
+{
+	const char *slash = strrchr(path.str(), '\\');
+	const char *forward = strrchr(path.str(), '/');
+	const char *name = path.str();
+	if (slash != NULL && slash + 1 > name)
+		name = slash + 1;
+	if (forward != NULL && forward + 1 > name)
+		name = forward + 1;
+	return strncasecmp(name, "Reforged", 8) == 0;
 }
 
 void ArchiveFileSystem::loadMods() {
-	if (TheGlobalData->m_modBIG.isNotEmpty())
-	{
-		ArchiveFile *archiveFile = openArchiveFile(TheGlobalData->m_modBIG.str());
+	if (TheGlobalData->m_mods.empty())
+		return;
 
-		if (archiveFile != NULL) {
-			DEBUG_LOG(("ArchiveFileSystem::loadMods - loading %s into the directory tree.\n", TheGlobalData->m_modBIG.str()));
-			loadIntoDirectoryTree(archiveFile, TheGlobalData->m_modBIG, TRUE);
-			m_archiveFileMap[TheGlobalData->m_modBIG] = archiveFile;
-			DEBUG_LOG(("ArchiveFileSystem::loadMods - %s inserted into the archive file map.\n", TheGlobalData->m_modBIG.str()));
-		}
+	// retail < mods < the fork: the fork's Reforged*.big already in the tree go back on top afterwards
+	std::vector<AsciiString> forkArt;
+	for (ArchiveFileMap::const_iterator it = m_archiveFileMap.begin(); it != m_archiveFileMap.end(); ++it)
+	{
+		if (isReforgedArchiveName(it->first))
+			forkArt.push_back(it->first);
+	}
+
+	// -modfactions loads retail's factions and each mod's from their own files (FileSystem::setFocus)
+	if (TheGlobalData->m_modFactions)
+		keepModsApart(TheGlobalData->m_mods.size());
+
+	// In command-line order, each with overwrite: a later -mod wins over an earlier one, and all of them
+	// over the retail archives.  Under -modfactions a -modpatch goes over the full mod it was given
+	// after, in that mod's own tree, or over retail's when it came first (-1).  Inside one folder the
+	// first name wins, as in Win32BIGFileSystem's plain pass, so a mod's "!!" or "00_" archive is its
+	// patch: the folder goes in descending name order, each with overwrite.
+	std::vector< std::pair<Int, AsciiString> > layers;
+	for (size_t i = 0; i < TheGlobalData->m_retailPatches.size(); ++i)
+		layers.push_back(std::make_pair(-1, TheGlobalData->m_retailPatches[i]));
+	for (size_t i = 0; i < TheGlobalData->m_mods.size(); ++i)
+	{
+		layers.push_back(std::make_pair((Int)i, TheGlobalData->m_mods[i]));
+		for (size_t p = 0; i < TheGlobalData->m_modPatches.size() && p < TheGlobalData->m_modPatches[i].size(); ++p)
+			layers.push_back(std::make_pair((Int)i, TheGlobalData->m_modPatches[i][p]));
+	}
+	for (size_t layer = 0; layer < layers.size(); ++layer)
+	{
+		const AsciiString &mod = layers[layer].second;
+		FilenameList archives;
+		if (mod.endsWith("\\") || mod.endsWith("/"))
+			TheLocalFileSystem->getFileListInDirectory(mod, AsciiString(""), AsciiString("*.big"), archives, TRUE);
 		else
+			archives.insert(mod);
+
+		for (FilenameList::reverse_iterator it = archives.rbegin(); it != archives.rend(); ++it)
 		{
-			DEBUG_LOG(("ArchiveFileSystem::loadMods - could not openArchiveFile(%s)\n", TheGlobalData->m_modBIG.str()));
+			if (isReforgedArchiveName(*it))
+			{
+				DEBUG_LOG(("ArchiveFileSystem::loadMods - %s is ignored, the fork's own Reforged archives win\n", it->str()));
+				continue;
+			}
+			ArchiveFile *archiveFile = openArchiveFile(it->str());
+			if (archiveFile == NULL)
+			{
+				DEBUG_LOG(("ArchiveFileSystem::loadMods - could not openArchiveFile(%s)\n", it->str()));
+				continue;
+			}
+			DEBUG_LOG(("ArchiveFileSystem::loadMods - loading %s into the directory tree.\n", it->str()));
+			m_archiveLayer[*it] = mod;
+			addModArchive(layers[layer].first, archiveFile, *it);
 		}
 	}
 
-	if (TheGlobalData->m_modDir.isNotEmpty())
+	for (size_t i = 0; i < forkArt.size(); ++i)
 	{
-#ifdef DEBUG_LOGGING
-		Bool ret =
-#endif
-		loadBigFilesFromDirectory(TheGlobalData->m_modDir, "*.big", TRUE);
-		DEBUG_ASSERTLOG(ret, ("loadBigFilesFromDirectory(%s) returned FALSE!\n", TheGlobalData->m_modDir.str()));
+		DEBUG_LOG(("ArchiveFileSystem::loadMods - %s back over the mods\n", forkArt[i].str()));
+		loadIntoDirectoryTree(m_archiveFileMap[forkArt[i]], forkArt[i], TRUE);
 	}
+}
+
+AsciiString ArchiveFileSystem::modLayerOf(const AsciiString& archiveFilename) const
+{
+	std::map<AsciiString, AsciiString>::const_iterator it = m_archiveLayer.find(archiveFilename);
+	return it == m_archiveLayer.end() ? AsciiString() : it->second;
+}
+
+void ArchiveFileSystem::keepModsApart(size_t modCount)
+{
+	m_modRoots.assign(modCount, ArchivedDirectoryInfo());
+}
+
+void ArchiveFileSystem::addModArchive(Int mod, ArchiveFile *archiveFile, const AsciiString& archiveFilename)
+{
+	m_archiveFileMap[archiveFilename] = archiveFile;
+	// kept apart, a mod's files are reached only through its own focus or an "M<n>~" name: the merged
+	// view stays retail's, so the menus, the lobby and every file a faction does not name are ours
+	if (!m_modRoots.empty() && mod >= 0)
+	{
+		addToTree(m_modRoots[mod], archiveFile, archiveFilename, TRUE);
+		m_archiveMod[archiveFilename] = mod;
+		return;
+	}
+	loadIntoDirectoryTree(archiveFile, archiveFilename, TRUE);
+}
+
+const ArchivedDirectoryInfo &ArchiveFileSystem::focusedRoot() const
+{
+	return m_focus < 0 ? m_rootDirectory : m_modRoots[m_focus];
+}
+
+Bool ArchiveFileSystem::inFocus(const AsciiString& archiveFilename) const
+{
+	if (m_focus == FILE_FOCUS_ALL && m_modRoots.empty())
+		return TRUE;
+	std::map<AsciiString, Int>::const_iterator it = m_archiveMod.find(archiveFilename);
+	const Int owner = it == m_archiveMod.end() ? FILE_FOCUS_RETAIL : it->second;
+	return m_focus < 0 ? owner < 0 : owner == m_focus;
 }
 
 Bool ArchiveFileSystem::doesFileExist(const Char *filename) const
@@ -205,11 +315,11 @@ Bool ArchiveFileSystem::doesFileExist(const Char *filename) const
 	path.toLower();
 	AsciiString token;
 
-	const ArchivedDirectoryInfo *dirInfo = &m_rootDirectory;
+	const ArchivedDirectoryInfo *dirInfo = &focusedRoot();
 
 	path.nextToken(&token, "\\/");
 
-	while (!token.find('.') || path.find('.')) 
+	while (!token.find('.') || path.find('.'))
 	{
 		ArchivedDirectoryInfoMap::const_iterator tempiter = dirInfo->m_directories.find(token);
 		if (tempiter != dirInfo->m_directories.end()) 
@@ -332,13 +442,35 @@ void ArchiveFileSystem::prioritizeLargerFiles(const AsciiString& directory, cons
 
 AsciiString ArchiveFileSystem::getArchiveFilenameForFile(const AsciiString& filename) const
 {
+	return archiveInTree(focusedRoot(), filename);
+}
+
+File *ArchiveFileSystem::openModFile(Int mod, const AsciiString& filename, Int access)
+{
+	const AsciiString archive = archiveInTree(m_modRoots[mod], filename);
+	return archive.isEmpty() ? NULL : m_archiveFileMap[archive]->openFile(filename.str(), access);
+}
+
+Bool ArchiveFileSystem::doesModFileExist(Int mod, const AsciiString& filename) const
+{
+	return archiveInTree(m_modRoots[mod], filename).isNotEmpty();
+}
+
+Bool ArchiveFileSystem::getModFileInfo(Int mod, const AsciiString& filename, FileInfo *fileInfo) const
+{
+	ArchiveFileMap::const_iterator it = m_archiveFileMap.find(archiveInTree(m_modRoots[mod], filename));
+	return it != m_archiveFileMap.end() && it->second->getFileInfo(filename, fileInfo);
+}
+
+AsciiString ArchiveFileSystem::archiveInTree(const ArchivedDirectoryInfo &root, const AsciiString& filename)
+{
 	AsciiString path;
 	path = filename;
 	path.toLower();
 	AsciiString token;
 	AsciiString debugpath;
 
-	const ArchivedDirectoryInfo *dirInfo = &m_rootDirectory;
+	const ArchivedDirectoryInfo *dirInfo = &root;
 
 	path.nextToken(&token, "\\/");
 
@@ -387,7 +519,18 @@ void ArchiveFileSystem::getFileListInDirectory(const AsciiString& currentDirecto
 {
 	ArchiveFileMap::const_iterator it = m_archiveFileMap.begin();
 	while (it != m_archiveFileMap.end()) {
-		it->second->getFileListInDirectory(currentDirectory, originalDirectory, searchName, filenameList, searchSubdirectories);
+		if (inFocus(it->first) && modLayerOf(it->first).isEmpty())
+			it->second->getFileListInDirectory(currentDirectory, originalDirectory, searchName, filenameList, searchSubdirectories);
+		else if (inFocus(it->first))
+		{
+			FilenameList modded;
+			it->second->getFileListInDirectory(currentDirectory, originalDirectory, searchName, modded, searchSubdirectories);
+			for (FilenameListIter name = modded.begin(); name != modded.end(); ++name)
+			{
+				if (!FileSystem::isMapPath(*name))
+					filenameList.insert(*name);
+			}
+		}
 		it++;
 	}
 }

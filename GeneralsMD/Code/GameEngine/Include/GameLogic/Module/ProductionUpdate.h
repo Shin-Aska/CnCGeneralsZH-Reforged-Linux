@@ -147,6 +147,13 @@ public:
 //-------------------------------------------------------------------------------------------------
 enum CanMakeType : Int;
 
+/** A building still going up or being sold researches nothing. Its own command bar never offers an
+	* upgrade then, but a multi-selection that mixes it with finished ones did, and the logic took it. */
+inline Bool canResearchWithStatus( const ObjectStatusMaskType &status )
+{
+	return !status.testForAny( MAKE_OBJECT_STATUS_MASK2( OBJECT_STATUS_UNDER_CONSTRUCTION, OBJECT_STATUS_SOLD ) );
+}
+
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
 class ProductionUpdateInterface

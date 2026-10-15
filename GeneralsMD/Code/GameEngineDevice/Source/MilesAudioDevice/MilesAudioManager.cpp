@@ -527,7 +527,7 @@ void MilesAudioManager::reset()
 	* exactly 1/30 of a second of sound per logic frame, however long the frame took on the wall clock.
 	* So the file is as long as the frames it spans and lines up with the picture of the same frames,
 	* in a run that plays at the speed a person hears, in a -directorrecord run that crawls, and on a
-	* machine with no speakers.  A sound asked for during frame N starts N/30 seconds in, because the
+	* machine with no speakers.  A sound asked for during frame N starts N/LOGICFRAMES_PER_SECOND seconds in, because the
 	* requests are only played after this has mixed up to N.  Nothing is heard while it runs. */
 static void updateSoundCapture( void )
 {
@@ -1113,6 +1113,7 @@ void MilesAudioManager::stopAudioEvent( AudioHandle handle )
 			// it straight to PS_Stopping cut death cries, build-complete barks and weapon tails off
 			// the frame they were asked to stop.
 			audio->m_requestStop = true;
+			endLoopPassNow( audio );
 			break;
 		}
 	}
@@ -1128,8 +1129,33 @@ void MilesAudioManager::stopAudioEvent( AudioHandle handle )
 			DEBUG_LOG((" (%s)\n", audio->m_audioEventRTS->getEventName()));
 		#endif
 			audio->m_requestStop = true;
+			endLoopPassNow( audio );
 			break;
 		}
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A loop told to stop used to play its current pass to the end: a destroyed unit's engine hum or
+	* a turret that had stopped turning went on for as long as the sample ran.  A one-shot sound keeps
+	* its tail (that is what m_requestStop is for), but a loop ends the pass now, the same way the
+	* stream branch above does it: completing it with m_requestStop set starts no further loop, plays
+	* the decay portion if the sound has one, and otherwise leaves it for the next sweep to free. */
+//-------------------------------------------------------------------------------------------------
+void MilesAudioManager::endLoopPassNow( PlayingAudio *audio )
+{
+	const AudioEventInfo *info = audio->m_audioEventRTS->getAudioEventInfo();
+	if (!audio->isPlaying() || info == NULL || !(info->m_control & AC_LOOP)) {
+		return;
+	}
+
+	// stopped first: completing it closes the file the mixer is still reading
+	if (audio->m_type == PAT_Sample) {
+		AIL_stop_sample(audio->m_sample);
+		notifyOfAudioCompletion((UnsignedIntPtr)(audio->m_sample), PAT_Sample);
+	} else if (audio->m_type == PAT_3DSample) {
+		AIL_stop_3D_sample(audio->m_3DSample);
+		notifyOfAudioCompletion((UnsignedIntPtr)(audio->m_3DSample), PAT_3DSample);
 	}
 }
 

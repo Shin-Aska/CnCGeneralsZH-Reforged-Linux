@@ -1509,6 +1509,7 @@ WaterRenderObjClass::~WaterRenderObjClass(void)
 /** Constructor. Just nulls out some variables. */
 //-------------------------------------------------------------------------------------------------
 WaterRenderObjClass::WaterRenderObjClass(void)
+	: m_modernCaptureClock(LOGICFRAMES_PER_SECOND)
 {
 #ifndef _WIN32
 	m_useModernWater = !TheGlobalData || TheGlobalData->m_waterStyle != 0;
@@ -2563,11 +2564,11 @@ void WaterRenderObjClass::update( void )
 		if(captureClock) {
 			// Reconstruct all water presentation phases, including legacy fallback textures, from
 			// the same absolute time. No repeated-add drift and no inherited shell/load phase.
-			const double step=capturePicture*(AUTHORED_FPS/30.0)*WATER_SCROLL_SPEED;
+			const double step=capturePicture*(AUTHORED_FPS/double(LOGICFRAMES_PER_SECOND))*WATER_SCROLL_SPEED;
 			m_riverVOrigin=(Real)(0.002*step);
 			m_riverXOffset=(Real)std::fmod((0.0125*33/5000)*step,1.0);
 			m_riverYOffset=(Real)std::fmod((2*0.0125*33/5000)*step,1.0);
-			const double bump=capturePicture*(BUMP_FRAMES_PER_SEC/30.0);
+			const double bump=capturePicture*(BUMP_FRAMES_PER_SEC/double(LOGICFRAMES_PER_SECOND));
 			m_bumpFrameAccum=(Real)(bump-std::floor(bump));
 			m_iBumpFrame=(Int)std::fmod(std::floor(bump),double(NUM_BUMP_FRAMES));
 		} else {
@@ -4093,7 +4094,10 @@ void WaterRenderObjClass::addVelocity( Real worldX, Real worldY,
 					// set the velocity of this point based on the distance from the center of the
 					// "core" point for this call
 					//
-					meshPoint->velocity = meshPoint->velocity + zVelocity;				
+					// The one caller, WaveGuideUpdate, pushes every logic frame, so the push is an
+					// acceleration: per frame squared, a quarter of the 30 Hz amount.  WaterVelocity's
+					// parse (per second to per frame) took one half, this is the other.
+					meshPoint->velocity = meshPoint->velocity + ConvertRetailPerFrameRate( zVelocity );
 
 					// this point is now "in motion"
 					BitSet( meshPoint->status, WaterRenderObjClass::IN_MOTION );

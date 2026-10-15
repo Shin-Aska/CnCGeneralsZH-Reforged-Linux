@@ -146,6 +146,10 @@ enum { SMOKE_LEVEL_COUNT = 3 };
 // Classic is the original surface; Modern is the SDL wave and optical surface.
 enum { WATER_STYLE_COUNT = 2 };
 
+// Shadow quality is the size of the sun's depth map, low, medium and high: 1024, 2048 and 4096
+// texels a side (W3DVolumetricShadow.cpp, renderShadowMap).  Medium is the size the map always had.
+enum { SHADOW_QUALITY_COUNT = 3 };
+
 /** Options.ini -> TheWritableGlobalData, for every row.  A key that is absent leaves the field at
 	* whatever GlobalData's constructor put there, which is what makes an old Options.ini keep
 	* working when a row is added. */

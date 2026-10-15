@@ -36,7 +36,7 @@
 #include "Common/SubsystemInterface.h"
 #include "Common/GameType.h"
 
-#define DEFAULT_MAX_FPS		45
+#define DEFAULT_MAX_FPS		90		// retail 45: one and a half times normal speed, in 60 Hz logic frames
 
 /** How much wall-clock debt the pacer will carry and pay back. A render pass slower than one
 	logic frame owes the simulation more than one tick; without a catch-up the game speed just
@@ -61,7 +61,7 @@ Real GameEngine_logicTickFraction( void );
 
 /** -video and -directorrecord: whether the logic frame is one a range records.  -recordfps draws
 	GameEngine_videoPictures() pictures of each of those, and the logic runs after the last; the coming
-	draw is picture GameEngine_videoPicture() of them, 0 first.  1 and 0 outside a range, and at 30.
+	draw is picture GameEngine_videoPicture() of them, 0 first.  1 and 0 outside a range, and at LOGICFRAMES_PER_SECOND.
 	The last picture shows the logic frame, and each one before it is that share of a frame earlier: its
 	blend fraction is (picture + 1) / pictures, and GameEngine_pictureFrame is its time in logic frames,
 	what an animation drawn for footage runs on instead of the wall clock.  GameEngine_pictureMilliseconds
@@ -71,7 +71,7 @@ Bool GameEngine_isVideoFrame( void );
 Int GameEngine_videoPictures( void );
 /** The pictures of this logic frame or of the next one are blends, so smooth motion has to see this one. */
 Bool GameEngine_videoBlends( void );
-/** What the movie is told: -recordfps, or 30 where it does not apply (a network game, -headless). */
+/** What the movie is told: -recordfps, or LOGICFRAMES_PER_SECOND where it does not apply (a network game, -headless). */
 Int GameEngine_videoFramesPerSecond( void );
 Int GameEngine_videoPicture( void );
 Real GameEngine_pictureFrame( void );

@@ -760,6 +760,19 @@ void GameLogic::logicMessageDispatcher( GameMessage *msg, AIGroup *orderedGroup 
 		}
 
 		//---------------------------------------------------------------------------------------------
+		// A vote kick (fork): (Int player index, Bool yes) from "/kick", "/yes" or "/no" in chat.  The
+		// arguments came over the network, so their shape is checked; GameLogic::processKickVote
+		// decides the rest from logic state alone.
+		case GameMessage::MSG_VOTE_KICK:
+		{
+			if( msg->getArgumentCount() < 2 || msg->getArgumentDataType( 0 ) != ARGUMENTDATATYPE_INTEGER
+					|| msg->getArgumentDataType( 1 ) != ARGUMENTDATATYPE_BOOLEAN )
+				break;
+			processKickVote( thisPlayer, msg->getArgument( 0 )->integer, msg->getArgument( 1 )->boolean );
+			break;
+		}
+
+		//---------------------------------------------------------------------------------------------
 		// The stance key (fork): every selected unit of the sender's takes the stance.  The number came
 		// over the network, so only 0 and 1 mean anything
 		case GameMessage::MSG_SET_STANCE:
@@ -1203,6 +1216,10 @@ void GameLogic::logicMessageDispatcher( GameMessage *msg, AIGroup *orderedGroup 
 				if (!obj || obj->getControllingPlayer() != thisPlayer)
 					continue;
 				if (obj->isKindOf( KINDOF_IMMOBILE ) || obj->getAIUpdateInterface() == NULL)
+					continue;
+				// a rider cannot walk to a station; groupMoveToPosition and groupAttackMoveToPosition
+				// leave held members out too, while a garrison may still fire at or guard its own
+				if (obj->isDisabledByType( DISABLED_HELD ) && !fireAlong && !guardAlong)
 					continue;
 				movers.push_back( obj );
 			}
@@ -2482,39 +2499,7 @@ void GameLogic::logicMessageDispatcher( GameMessage *msg, AIGroup *orderedGroup 
 		// --------------------------------------------------------------------------------------------
 		case GameMessage::MSG_SELF_DESTRUCT:
 		{
-			if (msg->getArgument(0)->boolean)
-			{
-				// transfer control to any living ally
-				// i is used after the loop; VC6 for-scope let it escape.
-				Int i;
-				for (i =0; i<ThePlayerList->getPlayerCount(); ++i)
-				{
-					if (i != msg->getPlayerIndex())
-					{
-						Player *otherPlayer = ThePlayerList->getNthPlayer(i);
-						if (thisPlayer->getRelationship(otherPlayer->getDefaultTeam()) == ALLIES &&
-							otherPlayer->getRelationship(thisPlayer->getDefaultTeam()) == ALLIES)
-						{
-							if (TheVictoryConditions->hasSinglePlayerBeenDefeated(otherPlayer))
-								continue;
-
-							// a living ally!  hooray!
-							otherPlayer->transferAssetsFromThat(thisPlayer);
-							thisPlayer->killPlayer(); // just to be safe (and to kill beacons etc that don't transfer)
-							break;
-						}
-					}
-				}
-				if (i == ThePlayerList->getPlayerCount())
-				{
-					// didn't find any allies.  die, loner!
-					thisPlayer->killPlayer();
-				}
-			}
-			else
-			{
-				thisPlayer->killPlayer();
-			}
+			thisPlayer->surrender(msg->getArgument(0)->boolean);
 			// There is no reason to do any notification here, it now takes place in the victory conditions.
 			// bonehead.
 			break;

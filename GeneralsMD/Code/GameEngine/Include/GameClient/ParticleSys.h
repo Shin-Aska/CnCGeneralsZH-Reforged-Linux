@@ -910,6 +910,8 @@ public:
 	ParticleSystemTemplate *findTemplate( const AsciiString &name ) const;
 	ParticleSystemTemplate *findParentTemplate( const AsciiString &name, int parentNum ) const;
 	ParticleSystemTemplate *newTemplate( const AsciiString &name );
+	/// a map.ini is about to write over this template; reset() puts it back
+	void rememberTemplateBeforeMapINI( ParticleSystemTemplate *sysTemplate );
 
 	/// given a template, instantiate a particle system
 	ParticleSystem *createParticleSystem( const ParticleSystemTemplate *sysTemplate,
@@ -990,6 +992,7 @@ protected:
 
 private:
 	TemplateMap m_templateMap;		///< a hash map of all particle system templates
+	std::vector< std::pair<ParticleSystemTemplate *, ParticleSystemInfo> > m_beforeMapOverrides;	///< see reset()
 };
 
 /// The particle system manager singleton

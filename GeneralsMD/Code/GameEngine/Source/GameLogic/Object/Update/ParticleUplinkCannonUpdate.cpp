@@ -93,7 +93,7 @@ ParticleUplinkCannonUpdateModuleData::ParticleUplinkCannonUpdateModuleData()
 	m_damageRadiusScalar						= 1.0f;
 	m_groundHitFX										= NULL;
 	m_beamLaunchFX									= NULL;
-	m_framesBetweenLaunchFXRefresh  = 30;
+	m_framesBetweenLaunchFXRefresh  = LOGICFRAMES_PER_SECOND;
 	m_totalDamagePulses							= 0;
 	m_damagePerSecond								= 0.0f;
 	m_damageType										= DAMAGE_LASER;
@@ -101,7 +101,7 @@ ParticleUplinkCannonUpdateModuleData::ParticleUplinkCannonUpdateModuleData()
 	m_revealRange										= 0.0f;
   m_manualDrivingSpeed						= 0.0f;
   m_manualFastDrivingSpeed				= 0.0f;
-  m_doubleClickToFastDriveDelay		= 500;
+  m_doubleClickToFastDriveDelay		= ConvertRetailFrames( 500 );
 	//Added by Sadullah Nader
 	//Initializations inserted
 	m_swathOfDeathAmplitude					= 0.0f;

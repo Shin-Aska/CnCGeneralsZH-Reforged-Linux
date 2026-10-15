@@ -457,7 +457,7 @@ TEST(a_match_of_two_splits_after_its_opening_only_for_a_big_moment)
 	CHECK( !ObserverCamera_holdSideSplit( FALSE, FALSE, TRUE, 2, farApart, needed, rested - 1 ) );
 	CHECK( !ObserverCamera_holdSideSplit( FALSE, FALSE, TRUE, 2, 900.0f, needed, rested ) );
 	// once on it stays the panes' slide and 15 s whatever the fights do, no 8 s flicker
-	const UnsignedInt least = 12 + 15 + 21 + 15 * second;
+	const UnsignedInt least = ConvertRetailFrames( 12U + 15U + 21U ) + 15 * second;	// radar, slide and draw in 30 Hz frames, then the hold
 	CHECK( ObserverCamera_holdSideSplit( TRUE, FALSE, FALSE, 0, 0.0f, needed, 8 * second ) );
 	CHECK( ObserverCamera_holdSideSplit( TRUE, FALSE, FALSE, 0, 0.0f, needed, least - 1 ) );
 	CHECK( !ObserverCamera_holdSideSplit( TRUE, FALSE, FALSE, 0, 0.0f, needed, least ) );
@@ -520,7 +520,7 @@ TEST(a_split_once_on_stays_until_its_panes_are_in_and_held_six_seconds)
 	const Real needed = 660.0f;
 	// in through the radar's slide, the panes' and the lines' draw, and held six seconds, whatever the
 	// second fight does: one that went off on the next scan slid a pane in and straight back out
-	const UnsignedInt least = 12 + 15 + 21 + 6 * LOGICFRAMES_PER_SECOND;
+	const UnsignedInt least = ConvertRetailFrames( 12U + 15U + 21U ) + 6 * LOGICFRAMES_PER_SECOND;	// the three in 30 Hz frames
 	CHECK( ObserverCamera_holdSplit( TRUE, 6.0f, 0.0f, 2000.0f, needed, 15 ) );
 	CHECK( ObserverCamera_holdSplit( TRUE, 6.0f, 0.0f, 2000.0f, needed, least - 1 ) );
 	CHECK( !ObserverCamera_holdSplit( TRUE, 6.0f, 0.0f, 2000.0f, needed, least ) );
@@ -1022,7 +1022,7 @@ TEST(the_director_skips_only_a_fight_the_scout_saw_fizzle)
 {
 	std::vector< DirectorMoment > timeline;
 	timeline.push_back( scoutedFight( 500, 560, 2000.0f, 2000.0f, 2.0f ) );
-	timeline.push_back( scoutedFight( 500, 900, 5000.0f, 5000.0f, 8.0f ) );
+	timeline.push_back( scoutedFight( 500, 500 + 8 * LOGICFRAMES_PER_SECOND, 5000.0f, 5000.0f, 8.0f ) );
 	Coord2D place;
 	place.x = 2050.0f;
 	place.y = 2000.0f;
@@ -1034,7 +1034,7 @@ TEST(the_director_skips_only_a_fight_the_scout_saw_fizzle)
 	place.x = place.y = 8000.0f;
 	CHECK( !ObserverCamera_fizzles( timeline, place, 520 ) );
 	// a fight worth filming in the same place beats the fizzle beside it
-	timeline.push_back( scoutedFight( 500, 900, 2100.0f, 2000.0f, 8.0f ) );
+	timeline.push_back( scoutedFight( 500, 500 + 8 * LOGICFRAMES_PER_SECOND, 2100.0f, 2000.0f, 8.0f ) );
 	place.x = 2050.0f;
 	place.y = 2000.0f;
 	CHECK( !ObserverCamera_fizzles( timeline, place, 520 ) );
@@ -1061,25 +1061,27 @@ TEST(the_recording_splits_before_a_known_second_fight_far_from_the_first)
 TEST(a_split_is_planned_only_beside_a_fight_that_outlasts_its_least_hold)
 {
 	std::vector< DirectorMoment > timeline;
-	timeline.push_back( scoutedFight( 1000, 1300, 1000.0f, 1000.0f, 8.0f ) );
+	// ten seconds, past the eight a fight has to last to be worth filming
+	const UnsignedInt end = 1000 + 10 * LOGICFRAMES_PER_SECOND;
+	timeline.push_back( scoutedFight( 1000, end, 1000.0f, 1000.0f, 8.0f ) );
 	timeline[ 0 ].target.x = 1400.0f;
-	timeline.push_back( scoutedFight( 1000, 1300, 3000.0f, 3000.0f, 2.0f ) );
+	timeline.push_back( scoutedFight( 1000, end, 3000.0f, 3000.0f, 2.0f ) );
 	Coord2D place;
 	place.x = 1050.0f;
 	place.y = 1000.0f;
-	CHECK( ObserverCamera_fightLasts( timeline, place, 1100, 1300, NULL ) );
-	CHECK( !ObserverCamera_fightLasts( timeline, place, 1100, 1301, NULL ) );
+	CHECK( ObserverCamera_fightLasts( timeline, place, 1100, end, NULL ) );
+	CHECK( !ObserverCamera_fightLasts( timeline, place, 1100, end + 1, NULL ) );
 	// near where it ended up as well as where it began
 	place.x = 1600.0f;
-	CHECK( ObserverCamera_fightLasts( timeline, place, 1100, 1300, NULL ) );
+	CHECK( ObserverCamera_fightLasts( timeline, place, 1100, end, NULL ) );
 	// but not for a second pane while the first shows where it began: that is the first pane's fight
 	Coord2D first;
 	first.x = first.y = 1000.0f;
-	CHECK( !ObserverCamera_fightLasts( timeline, place, 1100, 1300, &first ) );
+	CHECK( !ObserverCamera_fightLasts( timeline, place, 1100, end, &first ) );
 	first.x = first.y = 3000.0f;
-	CHECK( ObserverCamera_fightLasts( timeline, place, 1100, 1300, &first ) );
+	CHECK( ObserverCamera_fightLasts( timeline, place, 1100, end, &first ) );
 	// one about to begin counts; a fizzle never does
-	CHECK( ObserverCamera_fightLasts( timeline, place, 1000 - 4 * LOGICFRAMES_PER_SECOND, 1300, NULL ) );
+	CHECK( ObserverCamera_fightLasts( timeline, place, 1000 - 4 * LOGICFRAMES_PER_SECOND, end, NULL ) );
 	place.x = place.y = 3000.0f;
 	CHECK( !ObserverCamera_fightLasts( timeline, place, 1100, 1200, NULL ) );
 }
@@ -1277,12 +1279,14 @@ TEST(the_pane_lines_grow_out_then_their_band_fades_in_and_a_light_runs_along_the
 		CHECK( now >= last );
 		last = now;
 	}
-	// the light runs out over 45 frames once every five seconds, and is off in between
+	// the light runs out over 45 frames at 30 Hz once every five seconds, and is off in between
+	const Real K = (Real)LOGICFRAMES_PER_RETAIL_FRAME;
+	const Real period = (Real)( 5 * LOGICFRAMES_PER_SECOND );
 	CHECK_NEAR( ObserverCamera_shimmerAt( 0 ), 0.0f, 0.0001f );
-	CHECK( ObserverCamera_shimmerAt( 22 ) > 0.3f && ObserverCamera_shimmerAt( 22 ) < 0.7f );
-	CHECK( ObserverCamera_shimmerAt( 45 ) < 0.0f );
-	CHECK( ObserverCamera_shimmerAt( 149 ) < 0.0f );
-	CHECK_NEAR( ObserverCamera_shimmerAt( 150 ), 0.0f, 0.0001f );
+	CHECK( ObserverCamera_shimmerAt( 22 * K ) > 0.3f && ObserverCamera_shimmerAt( 22 * K ) < 0.7f );
+	CHECK( ObserverCamera_shimmerAt( 45 * K ) < 0.0f );
+	CHECK( ObserverCamera_shimmerAt( period - 1 ) < 0.0f );
+	CHECK_NEAR( ObserverCamera_shimmerAt( period ), 0.0f, 0.0001f );
 	// the band is five golds wide
 	CHECK_EQ( ObserverCamera_paneBandWidth( 720 ), 30 );
 }
@@ -1372,26 +1376,28 @@ TEST(the_last_defeat_banner_of_a_decided_match_stays_up)
 
 TEST(a_defeated_card_flashes_is_struck_and_closes_one_card_at_a_time)
 {
+	// the card's times are 30 Hz frame counts: flash 12, strike from 6 over 12, struck 36, collapse 18
+	const UnsignedInt K = LOGICFRAMES_PER_RETAIL_FRAME;
 	Real flash = 0.0f, struck = 0.0f, collapse = 0.0f;
 	const UnsignedInt first = ObserverCamera_collapseFrom( 100, 0 );
-	CHECK_EQ( first, 136u );
+	CHECK_EQ( first, 100 + 36 * K );
 	ObserverCamera_cardExit( 100, 100, first, &flash, &struck, &collapse );
 	CHECK_NEAR( flash, 0.0f, 0.0001f );
-	ObserverCamera_cardExit( 104, 100, first, &flash, &struck, &collapse );
+	ObserverCamera_cardExit( 100 + 4 * K, 100, first, &flash, &struck, &collapse );
 	CHECK_NEAR( flash, 1.0f, 0.0001f );
 	CHECK_NEAR( struck, 0.0f, 0.0001f );
-	ObserverCamera_cardExit( 112, 100, first, &flash, &struck, &collapse );
+	ObserverCamera_cardExit( 100 + 12 * K, 100, first, &flash, &struck, &collapse );
 	CHECK_NEAR( flash, 0.0f, 0.0001f );
 	CHECK( struck > 0.0f && struck < 1.0f );
-	ObserverCamera_cardExit( 136, 100, first, &flash, &struck, &collapse );
+	ObserverCamera_cardExit( 100 + 36 * K, 100, first, &flash, &struck, &collapse );
 	CHECK_NEAR( struck, 1.0f, 0.0001f );
 	CHECK_NEAR( collapse, 0.0f, 0.0001f );
-	ObserverCamera_cardExit( 145, 100, first, &flash, &struck, &collapse );
+	ObserverCamera_cardExit( 100 + 45 * K, 100, first, &flash, &struck, &collapse );
 	CHECK_NEAR( collapse, 0.5f, 0.0001f );
-	ObserverCamera_cardExit( 154, 100, first, &flash, &struck, &collapse );
+	ObserverCamera_cardExit( 100 + 54 * K, 100, first, &flash, &struck, &collapse );
 	CHECK_NEAR( collapse, 1.0f, 0.0001f );
 	// a second player beaten on the same frame closes once the first card has gone, a later one on its own
 	const UnsignedInt second = ObserverCamera_collapseFrom( 100, first );
-	CHECK_EQ( second, 154u );
-	CHECK_EQ( ObserverCamera_collapseFrom( 400, second ), 436u );
+	CHECK_EQ( second, 100 + 54 * K );
+	CHECK_EQ( ObserverCamera_collapseFrom( 400, second ), 400 + 36 * K );
 }

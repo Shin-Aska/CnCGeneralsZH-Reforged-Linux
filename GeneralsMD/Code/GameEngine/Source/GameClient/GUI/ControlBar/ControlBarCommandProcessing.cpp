@@ -267,20 +267,6 @@ CBCommandStatus ControlBar::processCommandUI( GameWindow *control,
 	if( commandButton == NULL )
 		return CBC_COMMAND_NOT_USED;
 
-	//
-	// a builder's page menu buttons only move the command bar between its own pages - none of
-	// the command handling below applies to them, they never reach the game logic at all.
-	//
-	if( commandButton->getCommandType() == GUI_COMMAND_BUILD_PAGE )
-	{
-		Int page = BUILD_PAGE_ROOT;
-		for( Int i = 0; i < BUILD_PAGE_COUNT; i++ )
-			if( commandButton == m_buildPageButton[ i ] )
-				page = i;
-		setBuildPage( page );
-		return CBC_COMMAND_USED;
-	}
-
 	// if the button is flashing, tell it to stop flashing
 	commandButton->setFlashCount(0);
 	TheControlBar->setFlash( FALSE );
@@ -343,13 +329,11 @@ CBCommandStatus ControlBar::processCommandUI( GameWindow *control,
 		TheAudio->addAudioEvent( &sound );
 	}
 
-	if( commandButton->getCommandType() == GUI_COMMAND_ATTACK_MOVE && !TheGlobalData->isClassicUI() )
+	if( commandButton->getCommandType() == GUI_COMMAND_ATTACK_MOVE )
 	{
 		// The attack move button arms the same key its hotkey does, rather than becoming a pending
 		// GUI command that one click uses up: shift then keeps it armed for a row of points.  It
 		// takes the place of whatever command was waiting for a target, as any other button would.
-		// Classic's is 1.04's, a GUI command like guard: the left button aims it in either mouse
-		// setup and the right one takes it back.
 		TheInGameUI->setGUICommand( NULL );
 		TheMessageStream->appendMessage( GameMessage::MSG_META_TOGGLE_ATTACKMOVE );
 	}
@@ -723,8 +707,7 @@ CBCommandStatus ControlBar::processCommandUI( GameWindow *control,
 			DEBUG_LOG(("UpgradeSpread player upgrade '%s' ctx %d selCount %d rep obj %d\n",
 								 upgradeT->getUpgradeName().str(), (Int)m_currContext,
 								 TheInGameUI ? TheInGameUI->getSelectCount() : -1, (Int)obj->getID()));
-			// Classic buys it from the one object the bar stands for, as the game shipped
-			if( m_currContext == CB_CONTEXT_MULTI_SELECT && !TheGlobalData->isClassicUI() )
+			if( m_currContext == CB_CONTEXT_MULTI_SELECT )
 				producer = pickUpgradeProducer( upgradeT, obj );
 
 			ProductionUpdateInterface* pu = producer ? producer->getProductionUpdateInterface() : NULL;
@@ -761,7 +744,7 @@ CBCommandStatus ControlBar::processCommandUI( GameWindow *control,
 				break;
 
 			// shift: the unit buys it when its list gets there, and the money is looked at then
-			const Bool queued = TheInGameUI->isInWaypointMode() && !TheGlobalData->isClassicUI();
+			const Bool queued = TheInGameUI->isInWaypointMode();
 
 			//Make sure the player can really make this
 			if( !queued && TheUpgradeCenter->canAffordUpgrade( ThePlayerList->getLocalPlayer(), upgradeT, TRUE ) == FALSE )
@@ -789,9 +772,9 @@ CBCommandStatus ControlBar::processCommandUI( GameWindow *control,
 			// time, since the bar cannot see the queue the previous click just filled until the
 			// next logic frame - so a click on four selected barracks upgraded one of them and
 			// the other three clicks were silently thrown away by the duplicate guard in
-			// ProductionUpdate::queueUpgrade.  Classic keeps that one object.
+			// ProductionUpdate::queueUpgrade.
 			//
-			if( m_currContext == CB_CONTEXT_MULTI_SELECT && !TheGlobalData->isClassicUI() )
+			if( m_currContext == CB_CONTEXT_MULTI_SELECT )
 			{
 				Player *player = ThePlayerList->getLocalPlayer();
 				Int purse = player->getMoney()->countMoney();

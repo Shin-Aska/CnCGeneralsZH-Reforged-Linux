@@ -97,10 +97,7 @@ extern Real ControlBarHudScale( void );
 	* bar itself is laid out at. */
 static const Real BADGE_DESIGN_POINTS = 7.0f;
 
-/** The smallest a marking is set.  At 1280x720 the HUD's 0.84 makes seven points 5, and at 5 this
-	* font's figures run together: $600 read $800 and 2500 read 2600, and a misread price is worse
-	* than none.  So the marking stays at 6, and one still too wide sheds its unit - "$2000" is
-	* "2000", "24s" is "24" - before it is clipped. */
+/** The smallest a marking is set: at 5 this font's figures run together. */
 static const Int BADGE_LEAST_POINTS = 6;
 
 /** The queue count is the one marking a player reads at a glance in the middle of a fight - how
@@ -108,7 +105,7 @@ static const Int BADGE_LEAST_POINTS = 6;
 	* nobody found without looking for it.  It gets its own size, and an opaque plate under it. */
 static const Real COUNT_BADGE_DESIGN_POINTS = 11.0f;
 
-/** Classic's key letter, the only place its keys are shown. */
+/** The key letter, the only place the keys are shown. */
 static const Real CLASSIC_KEY_BADGE_DESIGN_POINTS = 12.0f;
 
 // getBadgeFont ===============================================================
@@ -145,7 +142,7 @@ static GameFont *getBadgeFont( GameWindow *window, Real designPoints = BADGE_DES
 }  // end getBadgeFont
 
 static void drawBadge( GameWindow *window, const UnicodeString &text, Real designPoints,
-											 HudReadoutCorner corner, Color color, const UnicodeString &bare = UnicodeString::TheEmptyString );
+											 HudReadoutCorner corner, Color color );
 static void drawClassicKeyBadge( GameWindow *window, const UnicodeString &text, Color color );
 
 // drawButtonText =============================================================
@@ -186,19 +183,13 @@ static void drawButtonText( GameWindow *window, WinInstanceData *instData )
 		dropColor = window->winGetEnabledTextBorderColor();
 	}  // end enabled only
 
-	// the shortcut letter is a corner marking: the marking font, on the markings' plate in the top
-	// left corner, which the button's own art could be any colour under
+	// the shortcut letter is a corner marking in the top left corner.  There are no grid places to
+	// learn the keys from, so the letter is the one way in: set larger, and in gold while the button
+	// can be pressed
 	if( BitTest( window->winGetStatus(), WIN_STATUS_SHORTCUT_BUTTON ) )
 	{
-		// Classic has no grid places to learn the keys from, so the letter is the one way in: set
-		// larger, and in gold while the button can be pressed
-		if( TheGlobalData->isClassicUI() )
-		{
-			const Bool enabled = BitTest( window->winGetStatus(), WIN_STATUS_ENABLED );
-			drawClassicKeyBadge( window, text->getText(), enabled ? GameMakeColor( 255, 210, 60, 255 ) : textColor );
-			return;
-		}
-		drawBadge( window, text->getText(), BADGE_DESIGN_POINTS, HUD_READOUT_TOP_LEFT, textColor );
+		const Bool enabled = BitTest( window->winGetStatus(), WIN_STATUS_ENABLED );
+		drawClassicKeyBadge( window, text->getText(), enabled ? GameMakeColor( 255, 210, 60, 255 ) : textColor );
 		return;
 	}
 
@@ -271,18 +262,11 @@ static void drawCountBadge( GameWindow *window, Int count )
 
 // drawBadge ==================================================================
 /** One corner marking: `text` on its plate in `corner` of the button's inner
-	* rectangle, inside the frame the command bar's page draws over the button's
-	* edge.  Text too wide for the button is set a point smaller until it fits, so
-	* a four figure price or a three figure countdown shrinks instead of running
-	* out over the frame or into the next button, down to BADGE_LEAST_POINTS.  A
-	* marking with a unit is drawn as `bare`, its figures alone, where the HUD's
-	* scale would set it under BADGE_LEAST_POINTS: held up at that size it shares
-	* its row with the corner beside it, and "$2000" ran under the hotkey's plate
-	* while "6s" lost its "s" to a block - and as `bare` too when it still does not
-	* fit at that size. */
+	* rectangle.  Text too wide for the button is set a point smaller until it
+	* fits, down to BADGE_LEAST_POINTS. */
 //=============================================================================
 static void drawBadge( GameWindow *window, const UnicodeString &text, Real designPoints,
-											 HudReadoutCorner corner, Color color, const UnicodeString &bare )
+											 HudReadoutCorner corner, Color color )
 {
 	IRegion2D cell;
 	ICoord2D size;
@@ -292,8 +276,7 @@ static void drawBadge( GameWindow *window, const UnicodeString &text, Real desig
 	cell.hi.y = cell.lo.y + size.y;
 
 	GameFont *font = getBadgeFont( window, designPoints );
-	const Bool cramped = REAL_TO_INT_FLOOR( designPoints * ControlBarHudScale() ) < BADGE_LEAST_POINTS;
-	DisplayString *badge = badgeString( cramped && !bare.isEmpty() ? bare : text, font );
+	DisplayString *badge = badgeString( text, font );
 	if( badge == NULL )
 		return;
 
@@ -304,8 +287,6 @@ static void drawBadge( GameWindow *window, const UnicodeString &text, Real desig
 		font = TheFontLibrary->getFont( font->nameString, font->pointSize - 1, TRUE );
 		badge = badgeString( text, font );
 	}
-	if( !bare.isEmpty() && !HudReadout_fits( badge, cell ) )
-		badge = badgeString( bare, font );
 
 	HudReadout_draw( badge, cell, corner, color );
 
@@ -343,79 +324,6 @@ static void drawClassicKeyBadge( GameWindow *window, const UnicodeString &text, 
 	badge->draw( left + ( side - textWidth ) / 2, top + ( side - textHeight ) / 2, color, GameMakeColor( 0, 0, 0, 255 ) );
 
 }  // end drawClassicKeyBadge
-
-// drawSecondsBadge ===========================================================
-/** Draw a small "12s" label in the button's bottom left corner - how long the
-	* thing on this button takes to build, or how long is left on it. */
-//=============================================================================
-static void drawSecondsBadge( GameWindow *window, Int seconds )
-{
-	UnicodeString text, bare;
-	text.format( u"%ds", seconds );
-	bare.format( u"%d", seconds );
-	drawBadge( window, text, BADGE_DESIGN_POINTS, HUD_READOUT_BOTTOM_LEFT, GameMakeColor( 255, 255, 255, 255 ), bare );
-
-}  // end drawSecondsBadge
-
-// drawCostBadge ==============================================================
-/** Draw a "$1200" price in the button's top right corner - what one of these
-	* costs.  The opposite corner from the seconds, and the two together are the
-	* whole of what a build decision asks: how much, and how long. */
-//=============================================================================
-static void drawCostBadge( GameWindow *window, Int cost )
-{
-	UnicodeString text, bare;
-	text.format( u"$%d", cost );
-	bare.format( u"%d", cost );
-	drawBadge( window, text, BADGE_DESIGN_POINTS, HUD_READOUT_TOP_RIGHT, GameMakeColor( 235, 210, 120, 255 ), bare );
-
-}  // end drawCostBadge
-
-// drawPowerBadge =============================================================
-/** Draw what this structure does to the power grid in the button's bottom right
-	* corner: "-5" for what it draws, "+10" for what a plant puts back.  Money and
-	* build time are already in the other corners; power is the third thing a base
-	* spends, and it was the one figure you had to hover a button to find - which
-	* is exactly the wrong way round for the building you put up to fix a brownout. */
-//=============================================================================
-static void drawPowerBadge( GameWindow *window, Int power )
-{
-	// the game's own sign: a template's EnergyProduction is negative when it consumes
-	const Int draws = -power;
-
-	UnicodeString text;
-	text.format( draws > 0 ? u"-%d" : u"+%d", draws > 0 ? draws : -draws );
-	drawBadge( window, text, BADGE_DESIGN_POINTS, HUD_READOUT_BOTTOM_RIGHT,
-						 draws > 0 ? GameMakeColor( 255, 170, 90, 255 )			// spends it
-											 : GameMakeColor( 130, 220, 255, 255 ) );	// supplies it
-
-}  // end drawPowerBadge
-
-// drawButtonBar ==============================================================
-/** Draw a thin progress bar along the button's bottom edge (experience) */
-//=============================================================================
-static void drawButtonBar( GameWindow *window, Int percent, Color color )
-{
-	ICoord2D origin, size;
-
-	window->winGetScreenPosition( &origin.x, &origin.y );
-	window->winGetSize( &size.x, &size.y );
-
-	if( percent > 100 )
-		percent = 100;
-
-	const Int barHeight = 4;
-	Int x = origin.x + 2;
-	Int y = origin.y + size.y - barHeight - 2;
-	Int w = size.x - 4;
-	if( w <= 0 )
-		return;
-
-	TheDisplay->drawFillRect( x, y, w, barHeight, GameMakeColor( 0, 0, 0, 180 ) );
-	TheDisplay->drawFillRect( x, y, w * percent / 100, barHeight, color );
-	TheDisplay->drawOpenRect( x, y, w, barHeight, 1.0f, GameMakeColor( 0, 0, 0, 255 ) );
-
-}  // end drawButtonBar
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -547,20 +455,8 @@ void W3DGadgetPushButtonDraw( GameWindow *window, WinInstanceData *instData )
 			TheDisplay->drawOpenRect(origin.x -1, origin.y - 1, size.x + 2, size.y + 2,1 , pData->colorBorder);
 		}
 
-		// both live in the bottom right corner; a queue count is about this one order and wins
 		if( pData->drawCount > 0 )
 			drawCountBadge( window, pData->drawCount );
-		else if( pData->drawPower != 0 )
-			drawPowerBadge( window, pData->drawPower );
-
-		if( pData->drawSeconds > 0 )
-			drawSecondsBadge( window, pData->drawSeconds );
-
-		if( pData->drawCost > 0 )
-			drawCostBadge( window, pData->drawCost );
-
-		if( pData->barPercent >= 0 )
-			drawButtonBar( window, pData->barPercent, pData->barColor );
 	}
 
 	// the text goes on last: the cooldown clock sweeps across the whole button and used to
@@ -735,20 +631,8 @@ void W3DGadgetPushButtonImageDrawOne( GameWindow *window,
 
 		}
 
-		// both live in the bottom right corner; a queue count is about this one order and wins
 		if( pData->drawCount > 0 )
 			drawCountBadge( window, pData->drawCount );
-		else if( pData->drawPower != 0 )
-			drawPowerBadge( window, pData->drawPower );
-
-		if( pData->drawSeconds > 0 )
-			drawSecondsBadge( window, pData->drawSeconds );
-
-		if( pData->drawCost > 0 )
-			drawCostBadge( window, pData->drawCost );
-
-		if( pData->barPercent >= 0 )
-			drawButtonBar( window, pData->barPercent, pData->barColor );
 	}
 
 	//Now render overlays that pertain to the correct state.
@@ -1010,20 +894,8 @@ void W3DGadgetPushButtonImageDrawThree(GameWindow *window, WinInstanceData *inst
 			TheDisplay->drawOpenRect(start.x - 1, start.y - 1, size.x + 2, size.y + 2, 1, pData->colorBorder);
 		}
 
-		// both live in the bottom right corner; a queue count is about this one order and wins
 		if( pData->drawCount > 0 )
 			drawCountBadge( window, pData->drawCount );
-		else if( pData->drawPower != 0 )
-			drawPowerBadge( window, pData->drawPower );
-
-		if( pData->drawSeconds > 0 )
-			drawSecondsBadge( window, pData->drawSeconds );
-
-		if( pData->drawCost > 0 )
-			drawCostBadge( window, pData->drawCost );
-
-		if( pData->barPercent >= 0 )
-			drawButtonBar( window, pData->barPercent, pData->barColor );
 	}
 
 	// the text goes on last: the cooldown clock sweeps across the whole button and used to

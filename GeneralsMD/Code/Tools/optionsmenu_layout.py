@@ -15,27 +15,24 @@ beside it.  Nothing is redrawn: the controls keep the images and tooltips they s
 or a check box takes the lettering of the one next to it, and what is new is cloned from a control
 that is already there.
 
-Two layouts come out of one run.  OptionsMenu.wnd is the Reforged interface's; OptionsMenuClassic.wnd
-leaves out every control the Classic interface overrules (REFORGED_ONLY) and flows what is left again,
-so no page shows a hole where a setting would have been.  Shell.cpp opens whichever one the run's
-interface wants.
+The result is OptionsMenuClassic.wnd, which Shell.cpp opens.
 
-    python optionsmenu_layout.py <shipped OptionsMenu.wnd> <Reforged .wnd> <Classic .wnd>
+    python optionsmenu_layout.py <shipped OptionsMenu.wnd> <output .wnd>
 
 The input is the file out of WindowZH.big:
 
     python bigfile.py extract ../../Run/WindowZH.big "*/OptionsMenu.wnd" -o wnd
-    python optionsmenu_layout.py wnd/Window/Menus/OptionsMenu.wnd ../Data/Window/Menus/OptionsMenu.wnd ../Data/Window/Menus/OptionsMenuClassic.wnd
+    python optionsmenu_layout.py wnd/Window/Menus/OptionsMenu.wnd ../Data/Window/Menus/OptionsMenuClassic.wnd
 
-The outputs are the tracked masters under Code/Data; the build copies them to Run/Window/Menus/, where
-a loose file beats the archive.  Layouts are not in the multiplayer INI checksum, so these do not have
-to match across a network game.
+The output is the tracked master under Code/Data; the build copies it to Run/Window/Menus/, where a
+loose file beats the archive.  Layouts are not in the multiplayer INI checksum, so it does not have to
+match across a network game.
 
     python optionsmenu_layout.py selfcheck
 
 reads the tracked files back and checks they still agree: every widget TheOptionCatalog names exists
-in the Reforged layout and, unless the Classic interface overrules it, in the Classic one, and every
-label, tooltip and combo box entry it needs is in Patch.str.  Run by CTest as optionsmenu_selfcheck.
+in the layout, and every label, tooltip and combo box entry it needs is in Patch.str.  Run by CTest as
+optionsmenu_selfcheck.
 """
 
 import os
@@ -124,11 +121,6 @@ NAME_THE_UNNAMED = [
     ("GUI:Options", "LabelTitle"),
 ]
 
-# EA's controls that only the Classic page keeps.  CheckAlternateMouse is EA's Alternate Mouse Setup:
-# Classic plays 1.04's mouse and offers its alternate one too, Reforged has one mouse and ignores the
-# setting, so its page drops the box.  OptionsMenu.cpp finds it by name and does without it.
-CLASSIC_ONLY = ["CheckAlternateMouse"]
-
 # The templates new controls are cloned from, and whose lettering the moved ones take.
 CHECK, LABEL, COMBO, SLIDER = "Retaliation", "DetailLabel", "ComboBoxDetail", "SliderGamma"
 
@@ -157,18 +149,13 @@ NEW_CONTROLS = [
     (COMBO,  "ComboBoxHealthBars",     None),
     (LABEL,  "LabelPlayerColors",      "GUI:PlayerColors"),
     (COMBO,  "ComboBoxPlayerColors",   None),
-    (LABEL,  "LabelHudScale",          "GUI:HudScale"),
-    (COMBO,  "ComboBoxHudScale",       None),
     (LABEL,  "LabelLanguage",          "GUI:Language"),
     (COMBO,  "ComboBoxLanguage",       None),
     (CHECK,  "CheckOrderLines",        "GUI:OrderLines"),
     (CHECK,  "CheckNetBox",            "GUI:NetBox"),
-    (LABEL,  "LabelIncomeRate",        "GUI:IncomeRate"),
-    (COMBO,  "ComboBoxIncomeRate",     None),
     (CHECK,  "CheckEmptyBuildingPips", "GUI:EmptyBuildingPips"),
     (CHECK,  "CheckZoomToCursor",      "GUI:ZoomToCursor"),
     (CHECK,  "CheckIsometricCamera",   "GUI:IsometricCamera"),
-    (CHECK,  "CheckSmoothMotion",      "GUI:SmoothMotion"),
     (CHECK,  "CheckStartAtMaxZoom",    "GUI:StartAtMaxZoom"),
     (CHECK,  "CheckSnapCamera45",      "GUI:SnapCamera45"),
     (CHECK,  "CheckGridBuild",         "GUI:GridBuild"),
@@ -277,8 +264,7 @@ GROUP_LAYOUT = [
             setting("LabelFullscreenScaling", "ComboBoxFullscreenScaling"),
             ("check", "CheckVSync")]),
         ("GUI:OptionsGroupPicture", [
-            setting("GammaLabel", "SliderGamma", "ValueGamma"),
-            ("check", "CheckSmoothMotion")])]),
+            setting("GammaLabel", "SliderGamma", "ValueGamma")])]),
 
     ("PageGraphics", [
         ("GUI:OptionsGroupDetail", [
@@ -340,8 +326,6 @@ GROUP_LAYOUT = [
 
     ("PageInterface", [
         ("GUI:OptionsGroupHud", [
-            setting("LabelHudScale", "ComboBoxHudScale"),
-            setting("LabelIncomeRate", "ComboBoxIncomeRate"),
             ("check", "CheckNetBox")]),
         ("GUI:OptionsGroupBattlefield", [
             setting("LabelHealthBars", "ComboBoxHealthBars"),
@@ -362,19 +346,6 @@ GROUP_LAYOUT = [
         ("GUI:OptionsGroupProxy", [
             setting("StaticTextHTTPProxy", "TextEntryHTTPProxy")])]),
 ]
-
-# Settings the Classic interface overrules whatever Options.ini says, each behind an isClassicUI()
-# gate where the value is read: smooth motion (W3DDisplay.cpp), the HUD scale (ControlBar.cpp), the
-# corner net box (InGameUI.cpp, no HTML pages in Classic), the income beside the money (InGameUI.cpp),
-# health bar mode and empty garrison pips (Drawable.cpp) and order lines (W3DInGameUI.cpp).  Every one
-# is a catalog row, whose menu passes skip a control the layout does not carry, so the Classic layout
-# leaves them out and keeps the value.  Zoom to cursor, the opening zoom, the camera's 45 degree steps
-# the three placement snaps and the nudge are not here: they start off, which is how 1.04 played, and Classic
-# honours them once ticked.
-REFORGED_ONLY = [
-    "CheckSmoothMotion", "ComboBoxHudScale", "CheckNetBox", "ComboBoxIncomeRate", "CheckOrderLines",
-]
-
 
 def item_height(item):
     if item[0] == "note":
@@ -401,17 +372,6 @@ def flow(groups):
                 best = (tallest, columns)
     return best[1]
 
-
-def without(groups, names):
-    """A page with these controls out, and a group left with nothing in it out too.  The Classic page
-    leaves out REFORGED_ONLY, the Reforged page CLASSIC_ONLY."""
-    kept = []
-    for heading, items in groups:
-        items = [item for item in items if (item[2] if item[0] == "setting" else item[1])
-                 not in names]
-        if items:
-            kept.append((heading, items))
-    return kept
 
 # EA controls that ship hidden and stay hidden, parked on a page rather than off the panel
 #   (page, name, column, top)
@@ -544,14 +504,6 @@ def drawn_text(window):
     return match.group(1) if match else None
 
 
-def drop_by_name(root, names):
-    """Delete every window with one of these names, wherever it sits."""
-    wanted = set(names)
-    for node in list(root.walk()):
-        node.children = [child for child in node.children
-                         if (child.name or "").split(":")[-1] not in wanted]
-
-
 def drop_by_text(root, texts):
     """Delete every window drawing one of these strings, wherever it sits."""
     wanted = set(texts)
@@ -560,7 +512,7 @@ def drop_by_text(root, texts):
                          if drawn_text(child) not in wanted]
 
 
-def build(layout, classic=False):
+def build(layout):
     old = layout.find("OptionsMenuParentOld")
     templates = dict((name, layout.find(name))
                      for name in (CHECK, LABEL, COMBO, SLIDER, "VideoParent", "ButtonDefaults"))
@@ -572,8 +524,6 @@ def build(layout, classic=False):
                 node.name = _named(name)
 
     drop_by_text(layout.root, HEADINGS)
-    if not classic:
-        drop_by_name(layout.root, CLASSIC_ONLY)
     for name in RULES + DROP:
         detach(old, name)
 
@@ -612,23 +562,8 @@ def build(layout, classic=False):
             control.put_prop("STATICTEXTDATA", "CENTERED: 0")
         pages[page_name].children.append(control)
 
-    if classic:
-        # the control and the label or readout that go with it
-        for _page, groups in GROUP_LAYOUT:
-            for _heading, items in groups:
-                for item in items:
-                    if item[0] == "setting" and item[2] in REFORGED_ONLY:
-                        for name in item[1:]:
-                            if name:
-                                waiting.pop(name)
-                    elif item[0] != "setting" and item[1] in REFORGED_ONLY:
-                        waiting.pop(item[1])
-
     page_bottom = PAGE[1] + PAGE[3]
     for page_name, groups in GROUP_LAYOUT:
-        groups = without(groups, REFORGED_ONLY if classic else CLASSIC_ONLY)
-        if not groups:
-            raise ValueError("%s has nothing left on it" % page_name)
         index = 0
         for column, stack in enumerate(flow(groups)):
             left = COLUMNS[column]
@@ -708,8 +643,7 @@ _CODE = os.path.dirname(_HERE)
 
 CATALOG = os.path.join(_CODE, "GameEngine", "Source", "Common", "OptionsCatalog.cpp")
 STRINGS = os.path.join(_CODE, "Data", "Patch.str")
-LAYOUT = os.path.join(_CODE, "Data", "Window", "Menus", "OptionsMenu.wnd")
-LAYOUT_CLASSIC = os.path.join(_CODE, "Data", "Window", "Menus", "OptionsMenuClassic.wnd")
+LAYOUT = os.path.join(_CODE, "Data", "Window", "Menus", "OptionsMenuClassic.wnd")
 INCLUDE = os.path.join(_CODE, "GameEngine", "Include")
 
 _ROW = re.compile(
@@ -774,31 +708,8 @@ def selfcheck():
     keys = read_strings()
     layout = wndlayout.load(LAYOUT)
     controls = set((node.name or "").split(":")[-1] for node in layout.root.walk())
-    classic = wndlayout.load(LAYOUT_CLASSIC)
-    classic_controls = set((node.name or "").split(":")[-1] for node in classic.root.walk())
 
     problems = []
-
-    # the Classic layout is the Reforged one less REFORGED_ONLY, and only catalog controls may be
-    # left out: the menu's catalog passes skip a missing control, the hand-written code does not
-    widgets = set(row["widget"] for row in rows if row["widget"])
-    for name in REFORGED_ONLY:
-        if name not in widgets:
-            problems.append("%s is in REFORGED_ONLY and is no catalog row's widget" % name)
-        if name in classic_controls:
-            problems.append("OptionsMenuClassic.wnd still carries %s" % name)
-    for name in sorted(widgets - set(REFORGED_ONLY)):
-        if name not in classic_controls:
-            problems.append("OptionsMenuClassic.wnd has no %s" % name)
-    for name in CLASSIC_ONLY:
-        if name in controls:
-            problems.append("OptionsMenu.wnd still carries %s, which only Classic has" % name)
-        if name not in classic_controls:
-            problems.append("OptionsMenuClassic.wnd has no %s" % name)
-    for page_name, _tab, _text in TABS:
-        if classic.find(page_name) is None:
-            problems.append("OptionsMenuClassic.wnd has no %s" % page_name)
-
     if len(rows) < 9:
         problems.append("only %d catalog rows parsed, the regex has stopped matching" % len(rows))
 
@@ -815,7 +726,7 @@ def selfcheck():
             continue
 
         if widget not in controls:
-            problems.append("%s names %s, which is not in OptionsMenu.wnd" % (row["ini"], widget))
+            problems.append("%s names %s, which is not in %s" % (row["ini"], widget, os.path.basename(LAYOUT)))
         if not label:
             problems.append("%s has a widget and no label key" % row["ini"])
             continue
@@ -849,9 +760,7 @@ def selfcheck():
 
     for name in READOUTS + GRAPHICS_CHECKS + MENU_CHECKS + MENU_COMBOS + [n for n, _k, _c in NOTES]:
         if name not in controls:
-            problems.append("OptionsMenu.wnd has no %s, which OptionsMenu.cpp fills in" % name)
-        if name not in classic_controls:
-            problems.append("OptionsMenuClassic.wnd has no %s, which OptionsMenu.cpp fills in" % name)
+            problems.append("%s has no %s, which OptionsMenu.cpp fills in" % (os.path.basename(LAYOUT), name))
     for group in [g for _page, groups in GROUP_LAYOUT for g in groups]:
         if group[0] not in keys:
             problems.append("group heading %s is not in Patch.str" % group[0])
@@ -864,19 +773,17 @@ def selfcheck():
             if key not in keys:
                 problems.append("%s needs %s in Patch.str" % (name, key))
     if ADVANCED in controls:
-        problems.append("OptionsMenu.wnd still carries %s; its controls are on the Graphics page"
-                        % ADVANCED)
+        problems.append("%s still carries %s; its controls are on the Graphics page"
+                        % (os.path.basename(LAYOUT), ADVANCED))
     problems.extend(overlaps(layout))
-    problems.extend("Classic: " + found for found in overlaps(classic))
 
     for problem in problems:
         print("optionsmenu: %s" % problem)
     if problems:
         return 1
 
-    print("optionsmenu: %d catalog rows agree with %s, %s and %s"
-          % (len(rows), os.path.basename(LAYOUT), os.path.basename(LAYOUT_CLASSIC),
-             os.path.basename(STRINGS)))
+    print("optionsmenu: %d catalog rows agree with %s and %s"
+          % (len(rows), os.path.basename(LAYOUT), os.path.basename(STRINGS)))
     return 0
 
 
@@ -884,14 +791,13 @@ def main(argv):
     if len(argv) == 2 and argv[1] == "selfcheck":
         return selfcheck()
 
-    if len(argv) != 4:
+    if len(argv) != 3:
         print(__doc__)
         return 2
 
-    for output, classic in ((argv[2], False), (argv[3], True)):
-        layout = wndlayout.load(argv[1])
-        wndlayout.save(build(layout, classic), output)
-        print("%s: %d windows" % (output, sum(1 for _ in layout.root.walk())))
+    layout = wndlayout.load(argv[1])
+    wndlayout.save(build(layout), argv[2])
+    print("%s: %d windows" % (argv[2], sum(1 for _ in layout.root.walk())))
     return 0
 
 

@@ -703,8 +703,8 @@ static const Real	FIELD_BUBBLE_GAIN			= 0.6f;
 static const Real	FIELD_COVER						= 2.0f;		///< puddles per (radius / puddle size) squared
 static const Int	FIELD_MAX_PUDDLES			= 48;
 static const Real	FIELD_GAIN						= 0.7f;		///< of the template's brightest colour, a puddle
-static const Int	FIELD_FADE_IN					= 15;			///< logic frames
-static const Int	FIELD_FADE_OUT				= 90;			///< logic frames before the field object dies
+static const Int	FIELD_FADE_IN					= LOGICFRAMES_PER_SECOND / 2;			///< logic frames
+static const Int	FIELD_FADE_OUT				= 3 * LOGICFRAMES_PER_SECOND;			///< logic frames before the field object dies
 static const Int	FIELD_FADE_GONE				= FIELD_FADE_OUT;	///< logic frames, a field fogged over or whose object went early
 static const Real	FIELD_OBJECT_REACH		= 5.0f;		///< how near the field's centre its object stands
 
@@ -739,7 +739,7 @@ struct FieldState
 	AsciiString texture;
 };
 
-static const Int	FIELD_GRACE						= 30;			///< logic frames a field with no object outlives its systems
+static const Int	FIELD_GRACE						= LOGICFRAMES_PER_SECOND;			///< logic frames a field with no object outlives its systems
 static const Real	FIELD_STACK						= 2.5f;		///< puddles' worth of cover a spot may add up to
 static const Real	FIELD_SATURATE				= 0.6f;		///< share of the weakest channel taken out of the colour
 

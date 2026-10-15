@@ -2051,7 +2051,8 @@ bool DX11BackendClass::Shadow_Receiving() const
 		const DWORD source = RenderStates.Get_Render_State(D3DRS_SRCBLEND);
 		const DWORD destination = RenderStates.Get_Render_State(D3DRS_DESTBLEND);
 		if (destination == D3DBLEND_ONE || source == D3DBLEND_ONE
-			|| destination == D3DBLEND_DESTCOLOR || source == D3DBLEND_DESTCOLOR) {
+			|| destination == D3DBLEND_DESTCOLOR || source == D3DBLEND_DESTCOLOR
+			|| destination == D3DBLEND_SRCCOLOR) {
 			return false;	// additive and multiplicative passes: fire, glow, the shadows themselves
 		}
 		if (destination == D3DBLEND_INVSRCCOLOR) {

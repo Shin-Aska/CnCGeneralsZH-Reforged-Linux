@@ -142,6 +142,10 @@ const Real cosAngleToCare = cos ((0.2 * PI) / 180.0);	//1.5 degree difference
 // ground read at a quarter of the sunlit sand, black in front of every wall, and the owner took
 // 0.45 from three panels of the same base on 2026-09-21.
 #define SHADOW_MAP_STRENGTH 0.45f
+// The Reforged lighting style moves light from the ambient to the sun, and a shadow is the share
+// the sun brought: on the rebalanced maps sun over sun plus ambient comes out 0.6 to 0.7 by day
+// and by night alike.  Held short of that and of the 0.55 found black in front of every wall.
+#define SHADOW_MAP_REFORGED_STRENGTH 0.52f
 // How wide the filter may open and how narrow it stays on the ground, in texels of the map, and how
 // much penumbra a unit of gap between a caster and what its shadow falls on is worth.  The last is
 // the number the whole picture turns on: a tank's tracks are on the ground and keep a hard edge, a
@@ -4197,7 +4201,11 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 	static Bool wholeMapRefused = FALSE;
 	if (!wholeMap)
 		wholeMapRefused = FALSE;
-	UnsignedInt texels = SHADOW_MAP_TEXELS;
+	/* The ShadowQuality option halves or doubles the usual map: 1024, 2048 or 4096 a side.  The filter
+		 below is held in ground units against the 2048 map, so a level changes how sharp an edge is
+		 and not how wide its penumbra is. */
+	const UnsignedInt chosenTexels = (SHADOW_MAP_TEXELS / 2) << TheGlobalData->m_shadowQuality;
+	UnsignedInt texels = chosenTexels;
 	Bool begun = FALSE;
 	if (TheGlobalData->m_shadowMap && m_shadowList != NULL && TheTacticalView != NULL)
 	{
@@ -4210,7 +4218,7 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 		{
 			if (wholeMap)
 				wholeMapRefused = TRUE;
-			begun = Direct3D11_Begin_Shadow_Map( SHADOW_MAP_TEXELS );
+			begun = Direct3D11_Begin_Shadow_Map( chosenTexels );
 		}
 	}
 	if (!begun)
@@ -4255,6 +4263,19 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 		transform.Look_At( focus + toSun * sunDistance, focus, 0.0f );
 		halfWidth = shadowMapHalfWidth( sceneCamera, transform, lowestReceiver,
 			TheTerrainRenderObject->getMaxHeight() );
+		/* The box's depth has to hold the ground its width holds.  Level ground a distance across the
+			 box toward or away from the sun sits that distance times the sun's cotangent nearer or further
+			 along the ray, so a box opened for the zoom with a low sun put the top of the screen past the
+			 far plane, lit, and clipped the casters at the near one.  The usual depth stays wherever it
+			 already covers that.  Aircraft above the highest ground count, as in wholeMapSunBox, and the
+		 sun is held where the frame's caster cull stops sweeping, so a very low sun deepens the box
+		 rather than cutting it short. */
+		const Real horizontal = WWMath::Sqrt( toSun.X * toSun.X + toSun.Y * toSun.Y );
+		const Real along = (halfWidth * horizontal + TheTerrainRenderObject->getMaxHeight()
+			+ SHADOW_MAP_WHOLE_MAP_HEADROOM - lowestReceiver) / WWMath::Max( toSun.Z, 0.01f )
+			+ SHADOW_MAP_WHOLE_MAP_DEPTH_MARGIN;
+		sunDistance = WWMath::Max( SHADOW_MAP_SUN_DISTANCE, along + SHADOW_MAP_NEAR_CLIP );
+		farClip = sunDistance + WWMath::Max( SHADOW_MAP_FAR_CLIP - SHADOW_MAP_SUN_DISTANCE, along );
 	}
 
 	CameraClass sun;
@@ -4265,14 +4286,20 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 	/* The box has to sit on whole texels of its own map, or every scroll of the camera slides the
 		 grid under the world by a fraction of a texel and every shadow edge crawls and sparkles.  The
 		 look point is taken into the sun's own frame, rounded to the texel it lands in, and taken back
-		 out: the box then moves in texel steps and a shadow that did not move does not shimmer. */
+		 out: the box then moves in texel steps and a shadow that did not move does not shimmer.  The
+		 frame it is rounded in has to stay put in the world.  Rounded in the box's own frame, which is
+		 centred on the look point, the look point is always at zero and rounds to itself: the grid
+		 slid on every scroll all the same.  The sun's frame on the world's origin turns the same way,
+		 since only the sun's direction decides that, and holds still. */
 	const Real texelWidth = (2.0f * halfWidth) / (Real)texels;
+	Matrix3D sunAtOrigin;
+	sunAtOrigin.Look_At( toSun, Vector3( 0.0f, 0.0f, 0.0f ), 0.0f );
 	Vector3 focusInSun;
-	Matrix3D::Inverse_Transform_Vector( transform, focus, &focusInSun );
+	Matrix3D::Inverse_Transform_Vector( sunAtOrigin, focus, &focusInSun );
 	focusInSun.X = WWMath::Floor( focusInSun.X / texelWidth + 0.5f ) * texelWidth;
 	focusInSun.Y = WWMath::Floor( focusInSun.Y / texelWidth + 0.5f ) * texelWidth;
 	Vector3 snapped;
-	Matrix3D::Transform_Vector( transform, focusInSun, &snapped );
+	Matrix3D::Transform_Vector( sunAtOrigin, focusInSun, &snapped );
 	transform.Look_At( snapped + toSun * sunDistance, snapped, 0.0f );
 
 	sun.Set_Transform( transform );
@@ -4431,20 +4458,20 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 		 an orthographic projection puts depth on a straight line. */
 	const Real worldPerTexel = texelWidth;
 	const Real unitsPerUnitOfDepth = farClip - SHADOW_MAP_NEAR_CLIP;
-	/* The bias is a share of that range, picked for the usual 3990 units.  The freecam's deeper box
-		 would stretch it to tens of units and lift every shadow off its caster, so it is held at the
-		 same distance in the world: six units. */
-	const Real depthBias = wholeMap
-		? SHADOW_MAP_DEPTH_BIAS * (SHADOW_MAP_FAR_CLIP - SHADOW_MAP_NEAR_CLIP) / unitsPerUnitOfDepth
-		: SHADOW_MAP_DEPTH_BIAS;
+	/* The bias is a share of that range, picked for the usual 3990 units.  The freecam's deeper box,
+		 or the usual one deepened for a low sun, would stretch it to tens of units and lift every
+		 shadow off its caster, so it is held at the same distance in the world: six units. */
+	const Real depthBias = SHADOW_MAP_DEPTH_BIAS * (SHADOW_MAP_FAR_CLIP - SHADOW_MAP_NEAR_CLIP) / unitsPerUnitOfDepth;
 
 	// -shadowtune overrules any of the four that it was given; a zero leaves the build's own.
 	const Real penumbra = (TheGlobalData->m_shadowMapPenumbra > 0.0f)
 		? TheGlobalData->m_shadowMapPenumbra : SHADOW_MAP_PENUMBRA_PER_UNIT;
 	const Real skyFill = (TheGlobalData->m_shadowMapSkyFill > 0.0f)
 		? TheGlobalData->m_shadowMapSkyFill : SHADOW_MAP_SKY_FILL;
-	const Real strength = (TheGlobalData->m_shadowMapStrength > 0.0f)
+	Real strength = (TheGlobalData->m_shadowMapStrength > 0.0f)
 		? TheGlobalData->m_shadowMapStrength : SHADOW_MAP_STRENGTH;
+	if (TheGlobalData->m_lightingStyle == LIGHTING_STYLE_REFORGED && TheGlobalData->m_shadowMapStrength <= 0.0f)
+		strength = SHADOW_MAP_REFORGED_STRENGTH;
 
 	Direct3D11_Set_Shadow_Parameters( depthBias, strength, widest,
 		narrowest, penumbra / worldPerTexel, unitsPerUnitOfDepth, skyFill );

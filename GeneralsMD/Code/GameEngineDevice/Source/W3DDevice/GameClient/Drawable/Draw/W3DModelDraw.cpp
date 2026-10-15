@@ -1058,10 +1058,10 @@ W3DModelDrawModuleData::W3DModelDrawModuleData() :
 	const Real SETTLE_RATE = 0.065f;		
 
 	m_projectileBoneFeedbackEnabledSlots = 0;
-	m_initialRecoil = INITIAL_RECOIL_RATE;
+	m_initialRecoil = ConvertRetailPerFrameRate(INITIAL_RECOIL_RATE);
 	m_maxRecoil = MAX_SHIFT;
-	m_recoilDamping = RECOIL_DAMPING;
-	m_recoilSettle = SETTLE_RATE;
+	m_recoilDamping = ConvertRetailPerFrameFactor(RECOIL_DAMPING);
+	m_recoilSettle = ConvertRetailPerFrameRate(SETTLE_RATE);
 
 
   m_receivesDynamicLights = TRUE;
@@ -1234,7 +1234,7 @@ void W3DModelDrawModuleData::buildFieldParse(MultiIniFieldParse& p)
 	{
 		{ "InitialRecoilSpeed",	INI::parseVelocityReal, NULL, offsetof(W3DModelDrawModuleData, m_initialRecoil) },
 		{ "MaxRecoilDistance",	INI::parseReal, NULL, offsetof(W3DModelDrawModuleData, m_maxRecoil) },
-		{ "RecoilDamping",	INI::parseReal, NULL, offsetof(W3DModelDrawModuleData, m_recoilDamping) },
+		{ "RecoilDamping",	INI::parseRetailPerFrameFactorReal, NULL, offsetof(W3DModelDrawModuleData, m_recoilDamping) },
 		{ "RecoilSettleSpeed",	INI::parseVelocityReal, NULL, offsetof(W3DModelDrawModuleData, m_recoilSettle) },
 		{ "OkToChangeModelColor",	INI::parseBool, NULL, offsetof(W3DModelDrawModuleData, m_okToChangeModelColor) },
 		{ "AnimationsRequirePower",	INI::parseBool, NULL, offsetof(W3DModelDrawModuleData, m_animationsRequirePower) },
@@ -2886,7 +2886,7 @@ void W3DModelDraw::handleClientRecoil()
 				barrels[i].setMuzzleFlashHidden(m_renderObject, hidden);
 			}
 
-			const Real TINY_RECOIL = 0.01f;
+			const Real TINY_RECOIL = ConvertRetailPerFrameRate(0.01f);
 			if (barrels[i].m_recoilBone != 0)
 			{
 				switch (recoils[i].m_state )

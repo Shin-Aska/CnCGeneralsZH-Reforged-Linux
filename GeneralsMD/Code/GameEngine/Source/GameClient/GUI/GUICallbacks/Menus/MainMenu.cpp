@@ -570,7 +570,7 @@ void MainMenuInit( WindowLayout *layout, void *userData )
 		dropDownWindows[i]->winHide(TRUE);
 
 	initialHide();
-	
+
 	showSelectiveButtons(SHOW_NONE);
 	// Set up the version number
 #if defined _DEBUG || defined _INTERNAL || defined _PROFILE
@@ -1501,12 +1501,16 @@ WindowMsgHandledType MainMenuSystem( GameWindow *window, UnsignedInt msg,
 				//buttonPushed = TRUE;
 				TheScriptEngine->signalUIInteract(TheShellHookNames[SHELL_SCRIPT_HOOK_MAIN_MENU_OPTIONS_SELECTED]);
 
-				// load the options menu
+				// load the options menu; on Windows the launcher owns the rest, so the volumes alone
+#if defined(_WIN32)
+				OpenVolumeOptions();
+#else
 				WindowLayout *optLayout = TheShell->getOptionsLayout(TRUE);
 				DEBUG_ASSERTCRASH(optLayout != NULL, ("unable to get options menu layout"));
 				optLayout->runInit();
 				optLayout->hide(FALSE);
 				optLayout->bringForward();
+#endif
 			}  // end else if
 			else if( controlID == worldBuilderID )
 			{

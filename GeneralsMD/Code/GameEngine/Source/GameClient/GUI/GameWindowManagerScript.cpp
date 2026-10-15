@@ -531,7 +531,7 @@ static Bool startsWithFolder( const char *path, const char *folder )
 	return *path == '/' || *path == '\\';
 }
 
-// The Classic interface fits everything at one scale, battlefield furniture and all, except the
+// Everything is fitted at one scale, battlefield furniture and all, except the
 // command bar's own layouts: layoutPanels and ControlBarLayoutUniform divide the loader's stretch
 // back out of those, so they must be given it.
 static Bool barLaysOutItself( const char *filename )
@@ -543,7 +543,7 @@ static Bool barLaysOutItself( const char *filename )
 	return FALSE;
 }
 
-// Where a fitted Classic layout stands.  The match's own furniture keeps the corner EA drew it in, as
+// Where a fitted layout stands.  The match's own furniture keeps the corner EA drew it in, as
 // the bar's radar and selection keep theirs: the build tooltip and the chat line over the radar in the
 // bottom left, diplomacy in the top left, the replay controls over the middle of the bar.  Every other
 // layout, the shell's and the dialogs a match opens, is centred.  Matched on the file's own name,
@@ -591,21 +591,15 @@ static Bool layoutIsShellScreen( const char *filename )
 static LayoutPlacement layoutPlacement( const char *filename )
 {
 	theLayoutAnchor.x = theLayoutAnchor.y = 0.5f;
-	if( TheGlobalData == NULL || filename == NULL )
+	if( filename == NULL )
 		return LAYOUT_STRETCH;
 	// "Menus/X.wnd" as the shell names them, or the whole "Window\\Menus\\X.wnd"
 	if( startsWithFolder( filename, "window" ) )
 		filename += 7;
-	if( layoutIsShellScreen( filename ) )
+	if( layoutIsShellScreen( filename ) || barLaysOutItself( filename ) )
 		return LAYOUT_STRETCH;
-	if( TheGlobalData->isClassicUI() )
-	{
-		if( barLaysOutItself( filename ) )
-			return LAYOUT_STRETCH;
-		theLayoutAnchor = classicLayoutAnchor( filename );
-		return LAYOUT_FIT;
-	}
-	return startsWithFolder( filename, "menus" ) ? LAYOUT_FIT : LAYOUT_STRETCH;
+	theLayoutAnchor = classicLayoutAnchor( filename );
+	return LAYOUT_FIT;
 }
 
 static Bool parseScreenRect( char *token, char *buffer,
@@ -644,15 +638,11 @@ static Bool parseScreenRect( char *token, char *buffer,
 
 	//
 	// Fit: one scale both ways, the smaller, with the layout's 4:3 area centred, so a
-	// panel, a logo or a medal keeps the shape it was drawn in.  A window that covers the whole
-	// layout - within two pixels, as a few parents are drawn - still fills the screen in Reforged: it
-	// is the backdrop, or the parent everything else sits in.  Classic keeps a match dialog's backdrop
-	// in the box with the rest, over the battlefield.  At 4:3 the scales are equal and the offsets
-	// nothing, and this is the stretch to the pixel.
+	// panel, a logo or a medal keeps the shape it was drawn in.  A match dialog's backdrop stays in the
+	// box with the rest, over the battlefield.  At 4:3 the scales are equal and the offsets nothing,
+	// and this is the stretch to the pixel.
 	//
-	const Bool fullScreen = screenRegion.lo.x <= 2 && screenRegion.lo.y <= 2 &&
-		screenRegion.hi.x >= createRes.x - 2 && screenRegion.hi.y >= createRes.y - 2;
-	if( theLayoutPlacement == LAYOUT_FIT && ( !fullScreen || TheGlobalData->isClassicUI() ) )
+	if( theLayoutPlacement == LAYOUT_FIT )
 	{
 		const Real scale = min( xScale, yScale );
 		const Real left = ((Real)TheDisplay->getWidth() - (Real)createRes.x * scale) * theLayoutAnchor.x;

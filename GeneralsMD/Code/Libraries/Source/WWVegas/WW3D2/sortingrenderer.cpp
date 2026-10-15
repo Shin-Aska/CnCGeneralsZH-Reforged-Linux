@@ -439,6 +439,11 @@ static void Run_Parallel(int count,int granularity,void (*work)(int,void*),void*
 	}
 }
 
+void SortingRendererClass::Parallel_For(int count,int granularity,void (*work)(int,void*),void* context)
+{
+	Run_Parallel(count,granularity,work,context);
+}
+
 // nodes a thread claims at once in the depth pass; a particle node is a few hundred quads
 static const int NODES_PER_CLAIM=4;
 // entries one job copies into a batch at once

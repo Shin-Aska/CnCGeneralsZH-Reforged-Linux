@@ -138,53 +138,6 @@ function Install-GameSpy {
   Step "GamespySDK -> Libraries\Source\GameSpy"
 }
 
-# --- litehtml 0.10, whole repository: the HTML and CSS layout engine behind the pages drawn over
-# the battlefield. Its CMakeLists builds the bundled gumbo parser as well. Same .gitignore dance as
-# GameSpy, for the same reason.
-function Install-Litehtml {
-  $destination = Join-Path $libraries 'Source\litehtml'
-  if ((Test-Path (Join-Path $destination 'CMakeLists.txt')) -and -not $Force) { return }
-  $archive = Get-File 'https://github.com/litehtml/litehtml/archive/9bc84b8b8d15a4e50f18b327aa30955048b441c2.zip' (Join-Path $work 'litehtml-0.10.zip')
-  $source = Expand-Source $archive 'litehtml'
-  $keep = Join-Path $destination '.gitignore'
-  $kept = if (Test-Path $keep) { Get-Content $keep -Raw } else { $null }
-  if (Test-Path $destination) { Remove-Item -Recurse -Force $destination }
-  New-Item -ItemType Directory -Force -Path $destination | Out-Null
-  Copy-Item (Join-Path $source '*') $destination -Recurse -Force
-  if ($null -ne $kept) { Set-Content -Path $keep -Value $kept -NoNewline }
-  Step "litehtml 0.10 -> Libraries\Source\litehtml"
-}
-
-# --- The fork's one change to litehtml, Libraries\Source\litehtml-parsed-css.patch: createFromString
-# takes stylesheets the caller parsed once, which was two thirds of building a page. HtmlOverlay.cpp
-# passes them and does not compile without it. A copy that has the patch says so by the parameter's
-# name in document.h, so a copy fetched before the patch existed gets it on the next build too.
-function Install-LitehtmlPatch {
-  $destination = Join-Path $libraries 'Source\litehtml'
-  $header = Join-Path $destination 'include\litehtml\document.h'
-  if (Select-String -LiteralPath $header -Pattern 'master_parsed' -SimpleMatch -Quiet) { return }
-  $patch = Join-Path $libraries 'Source\litehtml-parsed-css.patch'
-  # without the ceiling git finds this checkout around the folder and skips every file in the patch
-  # as outside it, and says nothing
-  $env:GIT_CEILING_DIRECTORIES = Join-Path $libraries 'Source'
-  try { git -C $destination -c core.autocrlf=false apply $patch }
-  finally { Remove-Item Env:GIT_CEILING_DIRECTORIES }
-  if ($LASTEXITCODE -ne 0) { throw "litehtml-parsed-css.patch did not apply to Libraries\Source\litehtml" }
-  Step "litehtml-parsed-css.patch -> Libraries\Source\litehtml"
-}
-
-# --- nanosvg, the two headers: parses and rasterises the SVG pictures a page names in url(), which
-# the game then draws pixel by pixel. Same .gitignore dance as litehtml.
-function Install-Nanosvg {
-  $destination = Join-Path $libraries 'Source\nanosvg'
-  if ((Test-Path (Join-Path $destination 'nanosvgrast.h')) -and -not $Force) { return }
-  $archive = Get-File 'https://github.com/memononen/nanosvg/archive/239e102ec2c691f2902e20ace2ed36ee4a35cfe6.zip' (Join-Path $work 'nanosvg.zip')
-  $source = Expand-Source $archive 'nanosvg'
-  Copy-Files (Get-TopLevel (Join-Path $source 'src') @('.h')) $destination
-  Copy-Item (Join-Path $source 'LICENSE.txt') $destination -Force
-  Step "nanosvg -> Libraries\Source\nanosvg"
-}
-
 # --- miniaudio 0.11.25, the one header and its one implementation file, the same pin as vendor.sh.
 # Windows plays through XAudio2 but records -wav through miniaudio's mix (miles_dispatch.cpp), the
 # one the logic clock can move. Copied file by file so the committed .gitignore is left alone.
@@ -305,9 +258,6 @@ Install-Lzhl
 Install-LzhlPatch
 Install-DirectX
 Install-GameSpy
-Install-Litehtml
-Install-LitehtmlPatch
-Install-Nanosvg
 Install-Miniaudio
 # SDL3 is the platform layer for everything that is not Windows (decision 3 in PORTING.md). Windows
 # keeps Win32Device, so it is not fetched here; vendor.sh fetches it, and says it skips DirectX the

@@ -33,6 +33,14 @@
  * is the engine's loop, which needs the W3D device to run (read in the source, T1); the
  * client passes' own reads of the grid, which now see it a step earlier in a pass, and draw nothing
  * the simulation reads.
+ *
+ * Since logic runs at 60 frames a second the step is no longer the original's bits: its gravity is
+ * per 60 Hz frame squared, its damping the square root of EA's and its at-rest velocity half of it,
+ * so the original's 30 Hz line can no longer be the golden. The catch-up tests hold every schedule
+ * to the moved code's own one-pass-per-frame line, computed in the same run, which is the claim T1c
+ * makes. EA_LOOP_GOLDEN pins that line against a change to the step, and is that line as a run of
+ * this binary prints it ("moved, passes of 1: ..."): regenerate it from a run whenever the step's
+ * constants or the frame rate change on purpose.
  */
 
 #include "test_harness.h"
@@ -59,8 +67,10 @@
 
 namespace {
 
-// EA's loop, run by the original code: water_grid_oracle's "original passes of 1" line.
-const char *const EA_LOOP_GOLDEN = "frames 240 all 96559c89 last a7eea444 moving 183";
+// The moved code at 60 Hz under one pass per logic frame, as test_water_grid prints it. The 30 Hz
+// original's line (water_grid_oracle, "original passes of 1") was "frames 240 all 96559c89 last a7eea444
+// moving 183". This is the "moved, passes of 1" line taken from a run of the 60 Hz step.
+const char *const EA_LOOP_GOLDEN = "frames 240 all 5c9f1917 last ac3c3fa9 moving 240";
 
 void boot()
 {
@@ -99,21 +109,29 @@ unsigned nextFirstFrame()
 	return 1 + 1000 * run++;	// the step's last-frame gate is a static: no run starts where one ended
 }
 
+// The moved code under EA's loop, one pass per logic frame: what every other schedule has to print.
+std::string eaLoopLine( void )
+{
+	MovedEngine engine;
+	return water_grid::run( engine, std::vector<int>( 1, 1 ), nextFirstFrame() );
+}
+
 }  // namespace
 
 TEST(water_grid_scenario_uses_the_engines_gravity)
 {
+	// the scenario's gravity is the oracle's, per 30 Hz frame squared; the engine's is per 60 Hz frame
+	// squared, a quarter of it, and exactly so: halving 1/30 only moves the exponent
 	boot();
 	const Real engine = ConvertAccelerationInSecsToFrames( -64.0f );
-	const float scenario = water_grid::shippedGravity();
-	CHECK( memcmp( &engine, &scenario, sizeof( engine ) ) == 0 );	// the oracle used the scenario's
+	const float scenario = ConvertRetailPerFrameSquared( water_grid::shippedGravity() );
+	CHECK( memcmp( &engine, &scenario, sizeof( engine ) ) == 0 );
 }
 
 TEST(water_grid_steps_as_eas_loop_did_under_eas_loop)
 {
 	boot();
-	MovedEngine engine;
-	const std::string line = water_grid::run( engine, std::vector<int>( 1, 1 ), nextFirstFrame() );
+	const std::string line = eaLoopLine();
 	printf( "  moved, passes of 1: %s\n", line.c_str() );
 	CHECK_STR( line.c_str(), EA_LOOP_GOLDEN );
 }
@@ -121,13 +139,14 @@ TEST(water_grid_steps_as_eas_loop_did_under_eas_loop)
 TEST(water_grid_k_logic_frames_in_one_pass_equal_k_single_passes)
 {
 	boot();
+	const std::string eaLoop = eaLoopLine();
 	const std::vector<std::vector<int> > schedules = water_grid::schedules();
 	for (size_t s = 0; s < schedules.size(); ++s)
 	{
 		MovedEngine engine;
 		const std::string line = water_grid::run( engine, schedules[s], nextFirstFrame() );
 		printf( "  moved, passes of %s: %s\n", water_grid::describe( schedules[s] ).c_str(), line.c_str() );
-		CHECK_STR( line.c_str(), EA_LOOP_GOLDEN );
+		CHECK_STR( line.c_str(), eaLoop.c_str() );
 	}
 }
 
@@ -136,19 +155,20 @@ TEST(water_grid_a_second_call_for_the_same_frame_does_not_step_again)
 	/* A frozen or held logic frame calls GameLogic::update again without advancing the frame; the
 		 gate, EA's own, keeps it to one step, as one client pass per unchanged frame did. */
 	boot();
+	const std::string eaLoop = eaLoopLine();
 	MovedEngine engine( 3 );
 	const std::string line = water_grid::run( engine, std::vector<int>( 1, 2 ), nextFirstFrame() );
-	CHECK_STR( line.c_str(), EA_LOOP_GOLDEN );
+	CHECK_STR( line.c_str(), eaLoop.c_str() );
 }
 
 TEST(water_grid_unstepped_is_not_the_golden)
 {
-	// So the golden means something: with no step at all the result is different...
+	// So the reference means something: with no step at all the result is different
 	boot();
+	const std::string eaLoop = eaLoopLine();
 	struct Unstepped : MovedEngine { void logicFrameTop( UnsignedInt ) {} } still;
 	const std::string line = water_grid::run( still, std::vector<int>( 1, 1 ), nextFirstFrame() );
-	CHECK( line != EA_LOOP_GOLDEN );
-	// ...and the golden's grid was in motion on 183 of the 240 frames: pushed, then settled.
+	CHECK( line != eaLoop );
 }
 
 #include "Platform/WaterSurfaceModel.h"
@@ -2006,6 +2026,29 @@ TEST(water_vessel_motion_is_stable_during_pause_and_repeated_render_frames)
 		CHECK(std::abs(velocity.x-results[0].x)<0.00002f);
 		CHECK(std::abs(velocity.y-results[0].y)<0.00002f);
 	}
+}
+
+TEST(water_vessel_motion_preserves_seconds_when_logic_rate_changes)
+{
+    using namespace WaterVesselMotion;
+    for (unsigned fps : {30u,unsigned(LOGICFRAMES_PER_SECOND),120u}) {
+        State state;
+        Update(state,{0,0},7,0,false,{},float(fps));
+        for (unsigned frame=1;frame<=fps*2;++frame) {
+            const float time=float(frame)/fps;
+            const Point velocity=Update(state,{60*time,-30*time},7,frame,false,{},float(fps));
+            const float response=1-std::exp(-time/SmoothingSeconds);
+            CHECK_NEAR(velocity.x,60*response,.0001f);
+            CHECK_NEAR(velocity.y,-30*response,.0001f);
+        }
+        const Point moving=state.velocity;
+        for (unsigned frame=1;frame<=fps;++frame) {
+            const Point velocity=Update(state,{120,-60},7,fps*2+frame,false,{},float(fps));
+            const float decay=std::exp(-float(frame)/fps/SmoothingSeconds);
+            CHECK_NEAR(velocity.x,moving.x*decay,.0001f);
+            CHECK_NEAR(velocity.y,moving.y*decay,.0001f);
+        }
+    }
 }
 
 TEST(water_vessel_motion_rejects_teleports_stale_history_and_object_replacement)
@@ -4470,7 +4513,7 @@ TEST(water_capture_clock_is_explicit_and_range_configured)
 }
 TEST(water_capture_clock_load_preroll_and_duplicate_cadence)
 {
-    WaterCaptureClock::Clock load, continuous;
+    WaterCaptureClock::Clock load(30), continuous(30);
     // Absolute logic-frame origin: a load does not start a new phase at frame4125.
     CHECK_NEAR(load.Update(4125,false).seconds,137.5,1e-12);
     continuous.Update(0,false);
@@ -4481,14 +4524,14 @@ TEST(water_capture_clock_load_preroll_and_duplicate_cadence)
     // Legacy flipbook must use this exact frame phase, not floor((frame/30)*30).
     for (int f=4161;f<4261;++f) CHECK_NEAR(load.Update(f,false).picture,double(f),0);
     // Two60fps pictures straddle the prior frame; the last picture agrees with30fps.
-    WaterCaptureClock::Clock subframe;
+    WaterCaptureClock::Clock subframe(30);
     subframe.Update(4159,false);
     CHECK_NEAR(subframe.Update(4159.5,false).seconds,4159.5/30.0,1e-12);
     CHECK_NEAR(subframe.Update(4160,false).seconds,a.seconds,1e-12);
 }
 TEST(water_capture_clock_freeze_no_catchup_rollback_reset)
 {
-    WaterCaptureClock::Clock clock;
+    WaterCaptureClock::Clock clock(30);
     clock.Update(30,false);
     CHECK_NEAR(clock.Update(31,true).seconds,1,1e-12);
     CHECK_NEAR(clock.Update(900,true).seconds,1,1e-12);
@@ -4506,12 +4549,40 @@ TEST(water_capture_clock_freeze_no_catchup_rollback_reset)
 }
 TEST(water_capture_clock_invalid_input_cannot_poison_phase)
 {
-    WaterCaptureClock::Clock clock;
+    WaterCaptureClock::Clock clock(30);
     clock.Update(90,false);
     CHECK_NEAR(clock.Update(std::numeric_limits<double>::quiet_NaN(),false).seconds,3,0);
     CHECK_NEAR(clock.Update(std::numeric_limits<double>::infinity(),false).seconds,3,0);
     CHECK_NEAR(clock.Update(-1,false).seconds,3,0);
     CHECK_NEAR(clock.Update(91,false).seconds,91.0/30.0,1e-12);
+}
+
+TEST(water_capture_clock_uses_logic_rate_independently_of_output_cadence)
+{
+    // GameEngine_pictureFrame is measured in logic ticks even with two recorded
+    // pictures per tick. Moving from 30 to 60 Hz must not double waves or foam age.
+    for (unsigned fps : {30u,unsigned(LOGICFRAMES_PER_SECOND),120u}) {
+        WaterCaptureClock::Clock clock(fps);
+        clock.Update(0,false);
+        for (unsigned picture=1;picture<=fps*4;++picture) {
+            const auto sample=clock.Update(picture*.5,false);
+            CHECK_NEAR(sample.seconds,double(picture)/(fps*2),1e-12);
+            CHECK_NEAR(sample.elapsed,1.0/(fps*2),1e-12);
+            CHECK_NEAR(clock.Update(picture*.5,false).elapsed,0,0);
+        }
+        CHECK_NEAR(clock.Update(fps*3,true).seconds,2,1e-12);
+        const auto resumed=clock.Update(fps*3+.5,false);
+        CHECK_NEAR(resumed.seconds,2+.5/fps,1e-12);
+        CHECK_NEAR(resumed.elapsed,.5/fps,1e-12);
+        clock.Reset();
+        CHECK_NEAR(clock.Update(fps*10,false).seconds,10,1e-12);
+    }
+    for (double rate : {0.0,-1.0,std::numeric_limits<double>::infinity(),
+                        std::numeric_limits<double>::quiet_NaN()}) {
+        WaterCaptureClock::Clock clock(rate);
+        const auto sample=clock.Update(60,false);
+        CHECK(sample.picture==0 && sample.seconds==0 && sample.elapsed==0 && !sample.restarted);
+    }
 }
 
 TEST(water_capture_clock_presentation_gate_preserves_normal_and_multiframe_paths)
@@ -4535,7 +4606,7 @@ TEST(water_capture_clock_repeated_updates_preserve_real_history_dose)
     std::vector<std::uint32_t> reference;
     size_t referenceSegments=0;
     for (unsigned cadence : {1u,2u,7u}) {
-        WaterCaptureClock::Clock clock;History history;
+        WaterCaptureClock::Clock clock(30);History history;
         unsigned frozenFrames=0;
         for (unsigned frame=4125;frame<=4365;++frame) {
             const bool frozen=frame>=4200 && frame<=4230;
@@ -5318,7 +5389,7 @@ public:
         CHECK(m_reflectionReused); // force the new clear colour even with a stationary camera
         CHECK_EQ(m_modernWaveTime,37.5f);CHECK_EQ(m_level,7);CHECK(m_meshInMotion);
         const auto clock=m_modernCaptureClock.Update(90,true);
-        CHECK(!clock.restarted && clock.elapsed==0 && clock.seconds==3);
+        CHECK(!clock.restarted && clock.elapsed==0 && clock.seconds==90.0/LOGICFRAMES_PER_SECOND);
         const auto river=EngineShader_From_File(WaterShaderNameProbe::Engine_Name_Of(m_riverWaterPixelShader).c_str());
         const auto flat=EngineShader_From_File(WaterShaderNameProbe::Engine_Name_Of(m_trapezoidWaterPixelShader).c_str());
         CHECK(river==(modern?ENGINE_SHADER_WATER_RIVER:ENGINE_SHADER_WATER_CLASSIC_RIVER));

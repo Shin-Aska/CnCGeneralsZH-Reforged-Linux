@@ -35,6 +35,7 @@
 #include "Common/PerfTimer.h"
 #include "Common/Player.h"
 #include "Common/PlayerList.h"
+#include "Common/PlayerTemplate.h"
 #include "Common/ThingTemplate.h"
 #include "Common/Xfer.h"
 #include "Common/XferCRC.h"
@@ -86,6 +87,35 @@ void TAiData::addFactionBuildList(AISideBuildList *buildList)
 	}
 	buildList->m_next = m_sideBuildLists;
 	m_sideBuildLists = buildList;
+}
+
+const AISideInfo *TAiData::findSideInfo( const AsciiString &side, Int modIndex ) const
+{
+	const AsciiString own = AI::modSideKey( side, modIndex );
+	for (const AISideInfo *info = m_sideInfo; info != NULL; info = info->m_next)
+	{
+		if (info->m_side == own)
+			return info;
+	}
+	return modIndex >= 0 ? findSideInfo( side, -1 ) : NULL;
+}
+
+const AISideBuildList *TAiData::findBuildList( const AsciiString &side, Int modIndex ) const
+{
+	const AsciiString own = AI::modSideKey( side, modIndex );
+	for (const AISideBuildList *build = m_sideBuildLists; build != NULL; build = build->m_next)
+	{
+		if (build->m_side == own)
+			return build;
+	}
+	return modIndex >= 0 ? findBuildList( side, -1 ) : NULL;
+}
+
+const AISideInfo *TAiData::findSideInfo( const Player *player ) const
+{
+	// a map player whose faction is gone (an obsolete map) has no template, and plays retail's side
+	const PlayerTemplate *pt = player->getPlayerTemplate();
+	return findSideInfo( player->getSide(), pt != NULL ? pt->getModIndex() : -1 );
 }
 
 TAiData::~TAiData()
@@ -479,9 +509,65 @@ void AI::parseAiDataDefinition( INI* ini )
 
 	}  // end if
 
+	/* -modfactions: a mod's pass (INI::loadModPasses) takes only its sides' entries, filed under
+		 "M<n>~<side>" with its names already prefixed, so its factions build and train its own things.
+		 The tuning in the rest of the block stays the fork's, mods fit the fork. */
+	const Int mod = TheModNamespace.getActive();
+	if (mod >= 0)
+	{
+		TAiData *modData = NEW TAiData;
+		// the mod's AIData.ini goes over its Default\AIData.ini: what the first filed seeds this parse, so a
+		// SideInfo field the second leaves out keeps the first's value, as retail's two files merge
+		const AsciiString prefix = modSideKey( AsciiString::TheEmptyString, mod );
+		for (AISideInfo **link = &TheAI->m_aiData->m_sideInfo; *link != NULL; )
+		{
+			AISideInfo *info = *link;
+			if (!info->m_side.startsWith( prefix ))
+			{
+				link = &info->m_next;
+				continue;
+			}
+			*link = info->m_next;
+			const AsciiString side( info->m_side.str() + prefix.getLength() );
+			info->m_side = side;
+			modData->addSideInfo( info );
+		}
+		ini->initFromINI( modData, TheAIFieldParseTable );
+		Int sides = 0;
+		while (modData->m_sideInfo != NULL)
+		{
+			AISideInfo *info = modData->m_sideInfo;
+			modData->m_sideInfo = info->m_next;
+			info->m_side = modSideKey( info->m_side, mod );
+			TheAI->m_aiData->addSideInfo( info );
+			++sides;
+		}
+		Int buildLists = 0;
+		while (modData->m_sideBuildLists != NULL)
+		{
+			AISideBuildList *build = modData->m_sideBuildLists;
+			modData->m_sideBuildLists = build->m_next;
+			build->m_side = modSideKey( build->m_side, mod );
+			TheAI->m_aiData->addFactionBuildList( build );
+			++buildLists;
+		}
+		delete modData;
+		DEBUG_LOG(( "MODNS M%d~ AIData from %s: %d sides, %d skirmish build lists\n", mod + 1, ini->getFilename().str(), sides, buildLists ));
+		return;
+	}
+
 	// parse the ini weapon definition
 	ini->initFromINI( TheAI->m_aiData, TheAIFieldParseTable );
 
+}
+
+AsciiString AI::modSideKey( const AsciiString &side, Int modIndex )
+{
+	if (modIndex < 0)
+		return side;
+	AsciiString key;
+	key.format( "M%d~%s", modIndex + 1, side.str() );
+	return key;
 }
 
 
@@ -1149,12 +1235,18 @@ Real AI::getAdjustedVisionRangeForObject(const Object *object, Int factorsToCons
 	* mostly unfinished at 45,000 on both builds, 1-0 with 5 draws before and 0-1 with 5 after, so a
 	* Hard that cannot close out Medium is still open.
 	*
-	*                      scoutS maxSc decis  cntr  mass   ttk  indiv team infl focus save harv expand guard hoard econ micro  gate  answer massU  bankS  floor payoff upgr    nonc  share maxF fMult */
+	* The last column, strikeE, came in on 2026-10-14: what a supply centre, black market, hacker,
+	* drop zone, captured derrick, strategy centre or palace adds to a superweapon's or a general
+	* power's score, in multiples of its price on top of the price.  Price alone and the threat weight
+	* on armed units sent every strike at the army; a strike on the economy is the one a player feels
+	* for the rest of the match.  Easy keeps price alone, Medium doubles it, Hard triples it.
+	*
+	*                      scoutS maxSc decis  cntr  mass   ttk  indiv team infl focus save harv expand guard hoard econ micro  gate  answer massU  bankS  floor payoff upgr    nonc  share maxF fMult push   minPow  siege  beam  strikeE */
 static const AIDifficultyProfile s_defaultSkillLadder[ AISKILL_COUNT ] =
 {
-	/* Easy      */ { 75.0f, 1,  7.0f,  0.00f, FALSE, 0.00f, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE,  FALSE, FALSE,     0, FALSE, FALSE, FALSE, FALSE, FALSE, 120.0f, 6000, 4.0f, 720.0f, 0.05f, 0.05f, 3, 0.0f, 360.0f, 1500.0f,  80.0f, 0.00f },
-	/* Medium    */ { 45.0f, 1,  3.0f,  0.50f, FALSE, 0.35f, TRUE,  FALSE, FALSE, TRUE,  TRUE,  TRUE,  TRUE,  FALSE,  6000, FALSE, FALSE, FALSE, FALSE, FALSE,  60.0f, 5000, 2.5f, 420.0f, 0.05f, 0.25f, 5, 3.0f, 300.0f, 2000.0f, 120.0f, 1.00f },
-	/* Hard      */ { 25.0f, 2,  1.5f,  1.00f, TRUE,  0.50f, TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,   4000, TRUE,  TRUE,  TRUE,  TRUE,  FALSE,  30.0f, 4000, 1.5f, 180.0f, 0.05f, 1.00f, 8, 2.0f, 240.0f, 4500.0f, 160.0f, 0.25f }
+	/* Easy      */ { 75.0f, 1,  7.0f,  0.00f, FALSE, 0.00f, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE,  FALSE, FALSE,     0, FALSE, FALSE, FALSE, FALSE, FALSE, 120.0f, 6000, 4.0f, 720.0f, 0.05f, 0.05f, 3, 0.0f, 360.0f, 1500.0f,  80.0f, 0.00f, 0.0f },
+	/* Medium    */ { 45.0f, 1,  3.0f,  0.50f, FALSE, 0.35f, TRUE,  FALSE, FALSE, TRUE,  TRUE,  TRUE,  TRUE,  FALSE,  6000, FALSE, FALSE, FALSE, FALSE, FALSE,  60.0f, 5000, 2.5f, 420.0f, 0.05f, 0.25f, 5, 3.0f, 300.0f, 2000.0f, 120.0f, 1.00f, 1.0f },
+	/* Hard      */ { 25.0f, 2,  1.5f,  1.00f, TRUE,  0.50f, TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,   4000, TRUE,  TRUE,  TRUE,  TRUE,  FALSE,  30.0f, 4000, 1.5f, 180.0f, 0.05f, 1.00f, 8, 2.0f, 240.0f, 4500.0f, 160.0f, 0.25f, 2.0f }
 };
 
 //-------------------------------------------------------------------------------------------------
@@ -1538,6 +1630,17 @@ Int aiSurplusBudget( Int bank, Int target, Real incomePerSecond, Real share )
 }
 
 //-------------------------------------------------------------------------------------------------
+Int aiFortuneBudget( Int bank, Int keep, Int fortune, Real share )
+{
+	Int excess = bank - keep;
+	if( excess > fortune )
+		excess = fortune;
+	if( excess <= 0 )
+		return 0;
+	return REAL_TO_INT_FLOOR( share * INT_TO_REAL( excess ) );
+}
+
+//-------------------------------------------------------------------------------------------------
 Real aiCounterFit( Real matchup, Real weight )
 {
 	return 1.0f + weight * (2.0f * matchup - 1.0f);
@@ -1802,6 +1905,7 @@ void AI::parseSkillLevel(INI *ini, void *instance, void* /*store*/, const void* 
 		{ "MinAttackPower",						INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_minAttackPower ) },
 		{ "SiegeTrail",								INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_siegeTrail ) },
 		{ "BeamSteerSeconds",					INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_beamSteerSeconds ) },
+		{ "StrikeEconomyWeight",			INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_strikeEconomyWeight ) },
 		{ NULL, NULL, NULL, 0 }
 	};
 

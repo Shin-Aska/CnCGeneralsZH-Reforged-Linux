@@ -902,6 +902,18 @@ void TeamPrototype::setControllingPlayer(Player *newController)
 
 	// impossible to get here with a NULL pointer.
 	m_owningPlayer->addTeamToList(this);
+
+	// every member changed hands without changing team; the partition counts each cell's
+	// objects per player and has to hear of it now
+	for (DLINK_ITERATOR<Team> teamIt = iterate_TeamInstanceList(); !teamIt.done(); teamIt.advance())
+	{
+		for (DLINK_ITERATOR<Object> objIt = teamIt.cur()->iterate_TeamMemberList(); !objIt.done(); objIt.advance())
+		{
+			PartitionData *pd = objIt.cur()->friend_getPartitionData();
+			if (pd)
+				pd->refreshCountedPlayer();
+		}
+	}
 }
 
 // ------------------------------------------------------------------------
@@ -1500,6 +1512,24 @@ Relationship Team::getRelationship(const Team *that) const
 
 	// nope -- go with our Player's view on the matter.
 	return getControllingPlayer()->getRelationship(that);
+}
+
+// ------------------------------------------------------------------------
+PlayerMaskType Team::getEnemyPlayerMask() const
+{
+	// with no team-keyed override on either side, getRelationship depends only on the other
+	// team's player, so that player's default team answers for all of its teams
+	if (!m_teamRelations->m_map.empty() || getControllingPlayer()->hasTeamRelationships())
+		return PLAYERMASK_ALL;
+
+	PlayerMaskType mask = PLAYERMASK_NONE;
+	for (Int i = 0; i < ThePlayerList->getPlayerCount(); ++i)
+	{
+		Player *player = ThePlayerList->getNthPlayer(i);
+		if (getRelationship(player->getDefaultTeam()) == ENEMIES)
+			mask |= player->getPlayerMask();
+	}
+	return mask;
 }
 
 // ------------------------------------------------------------------------

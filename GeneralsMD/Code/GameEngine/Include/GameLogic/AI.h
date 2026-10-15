@@ -233,6 +233,7 @@ struct AIDifficultyProfile
 
 	// Superweapons
 	Real	m_beamSteerSeconds;							///< how often a firing Particle Cannon's beam is driven onto the richest ground near it; 0 = the retail S curve
+	Real	m_strikeEconomyWeight;					///< what a supply centre, black market, hacker or strategy centre is worth to a strike on top of its price, in prices; 0 = price alone
 };
 
 //-------------------------------------------------------------------------------------------------
@@ -556,6 +557,11 @@ Bool aiWantsMoreProduction( Int bank, Int bankWindowAgo, Int target, Int standin
 	* AI_SURPLUS_INCOME_SECONDS, and never what takes the bank under target.  At share 1 that is three
 	* passes' income a pass, which drains a pile; a rung with a small share only tops its plan up. */
 Int aiSurplusBudget( Int bank, Int target, Real incomePerSecond, Real share );
+
+/** The same for a match that started rich: share of what the bank holds over keep (the bank target or
+	* the default starting cash, whichever is more), never more than fortune, what the start handed over
+	* the default.  0 in a match at the default cash, which then plays as it did. */
+Int aiFortuneBudget( Int bank, Int keep, Int fortune, Real share );
 const Real AI_SURPLUS_INCOME_SECONDS = 30.0f;
 
 /** What a unit counts for when an upgrade is weighed: 1 with nothing known of the enemy or no weight
@@ -618,6 +624,14 @@ public:
 
 	void addSideInfo(AISideInfo *info);
 	void addFactionBuildList(AISideBuildList *buildList);
+
+	/** A side's resource, defence and skill set entry, and its skirmish build list.  Under -modfactions a
+		* mod faction's own mod's AIData.ini is loaded under "M<n>~<side>" (AI::parseAiDataDefinition), so
+		* modIndex asks for that first and falls back on retail's entry of the side when the mod has none.
+		* NULL when neither has one. */
+	const AISideInfo *findSideInfo( const AsciiString &side, Int modIndex ) const;
+	const AISideBuildList *findBuildList( const AsciiString &side, Int modIndex ) const;
+	const AISideInfo *findSideInfo( const Player *player ) const;	///< by the player's side and template's mod
 
 	// --------------- inherited from Snapshot interface --------------
 	void crc( Xfer *xfer );
@@ -775,6 +789,8 @@ public:
 	enum FormationID getNextFormationID(void);
 
 	static void parseAiDataDefinition( INI* ini );
+	/// the key a mod's AIData entries are filed under: "M<n>~America" for mod index n-1, the side itself for retail (-1)
+	static AsciiString modSideKey( const AsciiString &side, Int modIndex );
 
 	static Int s_enemyScans;								///< see getEnemyScanCountThisFrame
 	static Real s_lastPathfindMS;						///< see getLastPathfindMS

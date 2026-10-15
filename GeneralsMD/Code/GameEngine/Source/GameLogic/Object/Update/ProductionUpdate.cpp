@@ -233,6 +233,9 @@ ProductionUpdate::~ProductionUpdate( void )
 //-------------------------------------------------------------------------------------------------
 CanMakeType ProductionUpdate::canQueueUpgrade( const UpgradeTemplate *upgrade ) const
 {
+	if( !canResearchWithStatus( getObject()->getStatusBits() ) )
+		return CANMAKE_FACTORY_IS_DISABLED;
+
 	if (m_productionCount >= getProductionUpdateModuleData()->m_maxQueueEntries)
 		return CANMAKE_QUEUE_FULL;
 
@@ -271,6 +274,10 @@ Bool ProductionUpdate::queueUpgrade( const UpgradeTemplate *upgrade )
 
 	// sanity
 	if( upgrade == NULL )
+		return FALSE;
+
+	// every path lands here (command bar, scripts, AI, a forged message), so refuse it here
+	if( !canResearchWithStatus( getObject()->getStatusBits() ) )
 		return FALSE;
 
 	// get the player

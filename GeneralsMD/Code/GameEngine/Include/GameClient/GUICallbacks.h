@@ -64,6 +64,9 @@ extern WindowMsgHandledType OptionsMenuSystem( GameWindow *window, UnsignedInt m
 extern WindowMsgHandledType OptionsMenuInput( GameWindow *window, UnsignedInt msg, WindowMsgData mData1, WindowMsgData mData2 );
 /// -resdrill: the options menu's own in-match resolution change, driven from the update loop
 extern void ResolutionDrillApply( Int xres, Int yres );
+#if defined(_WIN32)
+extern void OpenVolumeOptions( void );	///< the options layout with the Audio page alone; the launcher owns the rest
+#endif
 /// and the answer to the box it leaves behind, a few frames later, the way a player answers it
 extern void ResolutionDrillDismiss( Bool accept );
 
@@ -326,6 +329,8 @@ extern void ShowControlBar( Bool immediate = TRUE );
 // Replay Controls --------------------------------------------------------------------------------
 extern WindowMsgHandledType ReplayControlSystem( GameWindow *window, UnsignedInt msg, WindowMsgData mData1, WindowMsgData mData2 );
 extern WindowMsgHandledType ReplayControlInput( GameWindow *window, UnsignedInt msg, WindowMsgData mData1, WindowMsgData mData2 );
+extern void ReplayControlDraw( GameWindow *window, WinInstanceData *instData );
+extern void ReplayControlStepSpeed( Int step );	///< the replay one speed button faster (+1) or slower (-1)
 
 
 // InGame Chat Controls --------------------------------------------------------------------------------

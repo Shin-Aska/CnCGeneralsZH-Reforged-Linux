@@ -921,7 +921,8 @@ const FXList *FXListStore::findFXList(const char* name) const
 	{
 		return &(*it).second;
 	}
-	return NULL;
+	AsciiString retailName;
+	return TheModNamespace.findRetailName(AsciiString(name), MODNAME_FXLIST, &retailName) ? findFXList(retailName.str()) : NULL;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -930,9 +931,39 @@ const FXList *FXListStore::findFXList(const char* name) const
 	// read the FXList name
 	const char *c = ini->getNextToken();
 	NameKeyType key = TheNameKeyGenerator->nameToKey(c);
+	if (ini->getLoadType() == INI_LOAD_CREATE_OVERRIDES)
+	{
+		FXListStore *store = TheFXListStore;
+		if (store->m_fxmap.find(key) == store->m_fxmap.end())
+			store->m_addedByMap.push_back(key);
+		else if (store->m_beforeMapOverrides.find(key) == store->m_beforeMapOverrides.end()
+			&& std::find(store->m_addedByMap.begin(), store->m_addedByMap.end(), key) == store->m_addedByMap.end())
+			store->m_beforeMapOverrides[key].swap(store->m_fxmap[key]);	// the game's own list, kept whole
+	}
 	FXList& fxl = TheFXListStore->m_fxmap[key];
 	fxl.clear();
 	ini->initFromINI(&fxl, TheFXListFieldParse);
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A map.ini rewrote FXLists in place and the next match played with them.  The game's own lists
+	* go back.  A list the map brought is emptied rather than removed: a weapon whose effect name
+	* found nothing at startup was pointed at it when the map loaded (WeaponStore::postProcessLoad),
+	* and an empty list draws what the missing one did, nothing. */
+//-------------------------------------------------------------------------------------------------
+void FXListStore::reset()
+{
+	for (FXListMap::iterator it = m_beforeMapOverrides.begin(); it != m_beforeMapOverrides.end(); ++it)
+	{
+		FXList &live = m_fxmap[it->first];
+		live.clear();
+		live.swap(it->second);
+	}
+	m_beforeMapOverrides.clear();
+
+	for (size_t i = 0; i < m_addedByMap.size(); ++i)
+		m_fxmap[m_addedByMap[i]].clear();
+	m_addedByMap.clear();
 }
 
 //-------------------------------------------------------------------------------------------------

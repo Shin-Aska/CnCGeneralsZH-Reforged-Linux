@@ -406,6 +406,11 @@ public:
 	Bool isDriving( void ) const { return m_driving; }
 	Bool isFogOn( void ) const { return m_fog; }
 	void setFog( Bool fog ) { m_fog = fog; }
+	/// a player picked on the observer bar: his fog on the screen and his camera driving it, until
+	/// stopLooking puts back the whole map and the camera the watcher had before
+	void lookThrough( Int playerIndex );
+	/// FALSE when nobody was followed and no fog was on, so there was nothing to take back
+	Bool stopLooking( void );
 
 	/// the player whose fog the screen is drawn in: the local player, or whoever a watcher with fog
 	/// on is following
@@ -551,6 +556,7 @@ private:
 	Coord2D m_skippedFight;											///< the last fizzling fight the director passed over, so it is logged once
 
 	ObserverCameraMode m_mode;
+	ObserverCameraMode m_modeBeforeLook;	///< what stopLooking gives back; kept across a rewind's reset
 	Int m_followed;
 	Bool m_fog;
 	Int m_shroudViewer;

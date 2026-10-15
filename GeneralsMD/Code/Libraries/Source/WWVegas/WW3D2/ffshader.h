@@ -171,7 +171,7 @@ const unsigned NORMAL_MAPPED_LIGHTS = 4;
 	"       keeps only what the slope across one pixel needs.  Pull the camera back and that slope\n" \
 	"       grows, which is the case a fixed bias cannot cover. */\n" \
 	"    float3 surface = normalize(cross(ddx(sun.xyz), ddy(sun.xyz)));\n" \
-	"    map += surface.xy * texel * ShadowParameters.y * 400.0;\n" \
+	"    map += surface.xy * texel * 0.6;\n" \
 	"    float slope = max(abs(ddx(sun.z)), abs(ddy(sun.z)));\n" \
 	"    float bias = ShadowParameters.y * 0.35 + slope * 1.5;\n" \
 	"    float widest = ShadowParameters.w;\n" \

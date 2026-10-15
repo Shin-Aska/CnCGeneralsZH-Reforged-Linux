@@ -124,8 +124,11 @@
 
 
 
-// 30 fps
-Int TheW3DFrameLengthInMsec = 1000/LOGICFRAMES_PER_SECOND; // default is 33msec/frame == 30fps. but we may change it depending on sys config.
+// one logic frame; GameClient::init sets it
+Int TheW3DFrameLengthInMsec = 1000/LOGICFRAMES_PER_SECOND;
+// The camera's steppers - the smoothing, the scripted moves counted in steps, the scroll - were tuned for
+// one step a retail logic frame and step on that cadence whatever the logic rate is.
+static const Int CAMERA_STEP_MSEC = 1000/RETAIL_LOGICFRAMES_PER_SECOND;
 static const Int MAX_REQUEST_CACHE_SIZE = 40;	// Any size larger than 10, or examine code below for changes. jkmcd.
 static const Real DRAWABLE_OVERSCAN = 75.0f;  ///< 3D world coords of how much to overscan in the 3D screen region
 
@@ -364,7 +367,7 @@ void W3DView::setOrigin( Int x, Int y)
 // only the manual zoom limit is stretched - the default/scripted views still use
 // m_maxHeightAboveGround, so a map still opens framed the way its author meant it to.
 // 2.9 puts the ceiling at 899 over GameData.ini's MaxCameraHeight of 310; it was 3.2 (992).
-// Classic shares the reach and keeps EA's 10 unit wheel step (View.cpp).
+// The wheel keeps EA's 10 unit step (View.cpp).
 #define ZOOM_OUT_LIMIT_FACTOR (2.9f)
 void W3DView::buildCameraTransform( Matrix3D *transform )
 {
@@ -381,8 +384,7 @@ void W3DView::buildCameraTransform( Matrix3D *transform )
 	pos.x += m_shakeOffset.x;
 	pos.y += m_shakeOffset.y;
 
-	// Classic keeps the game's own constraint whatever Options.ini says
-	if ((TheGlobalData->m_useCameraConstraints || TheGlobalData->isClassicUI()) && m_cameraConstraintValid)
+	if (TheGlobalData->m_useCameraConstraints && m_cameraConstraintValid)
 	{
 		pos = constrainCameraPosition(pos, m_cameraConstraint);
 	}
@@ -608,7 +610,7 @@ void W3DView::buildCameraTransform( Matrix3D *transform )
 void W3DView::applyCameraConstraint( void )
 {
 	// the freecam owns the camera and is held to no constraint, as in setCameraTransform
-	if (m_freeCamera || !(TheGlobalData->m_useCameraConstraints || TheGlobalData->isClassicUI()))
+	if (m_freeCamera || !TheGlobalData->m_useCameraConstraints)
 		return;
 
 	if (!m_cameraConstraintValid)
@@ -1688,7 +1690,7 @@ void W3DView::update(void)
 
 #endif
 
-//	Int elapsedTimeMs = TheW3DFrameLengthInMsec; // Assume a constant time flow.  It just works out better.  jba.
+//	Int elapsedTimeMs = CAMERA_STEP_MSEC; // Assume a constant time flow.  It just works out better.  jba.
 
 	// The camera smoothing and scripted one-frame movements below were tuned for one
 	// call per 30Hz engine tick; update() now runs once per render frame. Step them on
@@ -1697,7 +1699,7 @@ void W3DView::update(void)
 	static UnsignedInt prevCameraStepTime = 0;
 	const Bool pictureClock = onPictureClock( this );
 	UnsignedInt nowCameraStepTime = cameraClockMilliseconds( this );
-	Bool stepTime = (nowCameraStepTime - prevCameraStepTime) >= (UnsignedInt)TheW3DFrameLengthInMsec;
+	Bool stepTime = (nowCameraStepTime - prevCameraStepTime) >= (UnsignedInt)CAMERA_STEP_MSEC;
 	// During a scripted frozen-time pan, W3DDisplay::draw's inner loop calls us and
 	// paces itself to ~30fps already; gating on top of that ran the pan at half speed.
 	if (isTimeFrozen() && !isCameraMovementFinished())
@@ -1706,11 +1708,13 @@ void W3DView::update(void)
 	{
 		// a recorded logic frame steps once, on its last picture: not on a -recordfps picture before it,
 		// whose 16 or 17 ms would put the step on every second picture in a phase that drifts, nor on a
-		// -directorrecord pane's second draw
+		// -directorrecord pane's second draw.  Once a retail frame, every second logic frame, like the
+		// wall clock's step
 		static UnsignedInt steppedFrame = 0xFFFFFFFFu;
-		stepTime = GameEngine_videoPicture() == GameEngine_videoPictures() - 1 && TheGameLogic->getFrame() != steppedFrame;
+		const UnsignedInt retailFrame = TheGameLogic->getFrame() / LOGICFRAMES_PER_RETAIL_FRAME;
+		stepTime = GameEngine_videoPicture() == GameEngine_videoPictures() - 1 && retailFrame != steppedFrame;
 		if (stepTime)
-			steppedFrame = TheGameLogic->getFrame();
+			steppedFrame = retailFrame;
 		prevCameraStepTime = nowCameraStepTime;
 	}
 	else if (stepTime)
@@ -1718,8 +1722,8 @@ void W3DView::update(void)
 		// carry the remainder instead of discarding it: with a render cadence that is not
 		// a multiple of 33ms (the shell caps at 45fps), discarding ran the steppers at a
 		// fraction of real speed and beat against the render rate as visible judder
-		prevCameraStepTime += (UnsignedInt)TheW3DFrameLengthInMsec;
-		if (nowCameraStepTime - prevCameraStepTime >= (UnsignedInt)TheW3DFrameLengthInMsec)
+		prevCameraStepTime += (UnsignedInt)CAMERA_STEP_MSEC;
+		if (nowCameraStepTime - prevCameraStepTime >= (UnsignedInt)CAMERA_STEP_MSEC)
 			prevCameraStepTime = nowCameraStepTime;	// fell far behind (hitch, pause) - resync
 	}
 
@@ -1787,13 +1791,14 @@ void W3DView::update(void)
 	{
 		followFactor = -1;
 	}
-	// R1, smooth motion: with it on, the lock follows on every render frame, towards the drawable's
-	// blended position, each per-step factor scaled to this frame's length (1-(1-f)^steps); with it off,
-	// 30 Hz steps and the factors as they were.
+	// The lock follows on every render frame, each per-retail-frame factor scaled to this frame's
+	// length (1-(1-f)^steps), so it keeps retail's pull at any frame rate. Stepping it every 33 ms
+	// while the unit moves every logic frame, 16.7 ms, put the camera a frame behind on every second
+	// one, a 2:1 judder. With smooth motion on it aims at the drawable's blended position as well.
 	const Bool smoothLock = TheSmoothMotionActive;
-	const Real lockSteps = smoothLock ? (Real)waypointElapsedMs / (Real)TheW3DFrameLengthInMsec : 1.0f;
-	auto perStep = [smoothLock, lockSteps](Real f) -> Real { return smoothLock ? 1.0f - powf(1.0f - f, lockSteps) : f; };
-	if ((smoothLock ? lockSteps > 0.0f : (stepTime != 0)) && cameraLock != INVALID_ID)
+	const Real lockSteps = (Real)waypointElapsedMs / (Real)CAMERA_STEP_MSEC;
+	auto perStep = [lockSteps](Real f) -> Real { return 1.0f - powf(1.0f - f, lockSteps); };
+	if (lockSteps > 0.0f && cameraLock != INVALID_ID)
 	{
 		m_doingMoveCameraOnWaypointPath = false;
 		m_CameraArrivedAtWaypointOnPathFlag = false;
@@ -2059,7 +2064,7 @@ void W3DView::update(void)
 	// time this frame actually took, so the zoom is smooth and its speed stays the same.
 	//
 	static UnsignedInt prevZoomStepTime = 0;
-	Real zoomSteps = (Real)(nowCameraStepTime - prevZoomStepTime) / (Real)TheW3DFrameLengthInMsec;
+	Real zoomSteps = (Real)(nowCameraStepTime - prevZoomStepTime) / (Real)CAMERA_STEP_MSEC;
 	prevZoomStepTime = nowCameraStepTime;
 	// first frame ever, or a hitch: take one plain step.  A recorded picture's second draw, a
 	// -directorrecord pane, is no time at all and takes none
@@ -2069,7 +2074,7 @@ void W3DView::update(void)
 	// The director asks for a slower settle: at CameraAdjustSpeed's third of a second every ridge
 	// the five height samples crossed during a glide stepped the picture in and out.
 	if (m_heightSettleSeconds > 0.0f)
-		cameraAdjustSpeed = 1.0f - expf(-zoomSteps * TheW3DFrameLengthInMsec / (1000.0f * m_heightSettleSeconds));
+		cameraAdjustSpeed = 1.0f - expf(-zoomSteps * CAMERA_STEP_MSEC / (1000.0f * m_heightSettleSeconds));
 	if (TheTerrainLogic && TheGlobalData && TheInGameUI && m_okToAdjustHeight && !TheGameLogic->isGamePaused())
 	{
 		Real desiredHeight = (m_terrainHeightUnderCamera + m_heightAboveGround);
@@ -2717,7 +2722,7 @@ void W3DView::scrollBy( Coord2D *delta )
 {
 	// Sample every render tick, including zero movement. Measuring only nonzero scrolls
 	// includes all the idle time in the first move and produces a jump on every restart.
-	const Real scrollDtFactor = m_scrollClock.sample(Clock_Milliseconds(), TheW3DFrameLengthInMsec);
+	const Real scrollDtFactor = m_scrollClock.sample(Clock_Milliseconds(), CAMERA_STEP_MSEC);
 	if (delta)
 		m_scrollAmount = *delta;
 
@@ -3428,7 +3433,7 @@ void W3DView::rotateCamera(Real rotations, Int milliseconds, Real easeIn, Real e
 	m_rcInfo.trackObject = FALSE;
 
 	if (milliseconds<1) milliseconds = 1;
-	m_rcInfo.numFrames = milliseconds/TheW3DFrameLengthInMsec;
+	m_rcInfo.numFrames = milliseconds/CAMERA_STEP_MSEC;
 	if (m_rcInfo.numFrames < 1) {
 		m_rcInfo.numFrames = 1;
 	}
@@ -3451,13 +3456,13 @@ void W3DView::rotateCameraTowardObject(ObjectID id, Int milliseconds, Int holdMi
 {
 	m_rcInfo.trackObject = TRUE;
 	if (holdMilliseconds<1) holdMilliseconds = 0;
-	m_rcInfo.numHoldFrames = holdMilliseconds/TheW3DFrameLengthInMsec;
+	m_rcInfo.numHoldFrames = holdMilliseconds/CAMERA_STEP_MSEC;
 	if (m_rcInfo.numHoldFrames < 1) {
 		m_rcInfo.numHoldFrames = 0;
 	}
 
 	if (milliseconds<1) milliseconds = 1;
-	m_rcInfo.numFrames = milliseconds/TheW3DFrameLengthInMsec;
+	m_rcInfo.numFrames = milliseconds/CAMERA_STEP_MSEC;
 	if (m_rcInfo.numFrames < 1) {
 		m_rcInfo.numFrames = 1;
 	}
@@ -3481,7 +3486,7 @@ void W3DView::rotateCameraTowardPosition(const Coord3D *pLoc, Int milliseconds, 
 	m_rcInfo.trackObject = FALSE;
 
 	if (milliseconds<1) milliseconds = 1;
-	m_rcInfo.numFrames = milliseconds/TheW3DFrameLengthInMsec;
+	m_rcInfo.numFrames = milliseconds/CAMERA_STEP_MSEC;
 	if (m_rcInfo.numFrames < 1) {
 		m_rcInfo.numFrames = 1;
 	}
@@ -3522,7 +3527,7 @@ void W3DView::rotateCameraTowardPosition(const Coord3D *pLoc, Int milliseconds, 
 void W3DView::zoomCamera( Real finalZoom, Int milliseconds, Real easeIn, Real easeOut )
 {
 	if (milliseconds<1) milliseconds = 1;
-	m_zcInfo.numFrames = milliseconds/TheW3DFrameLengthInMsec;
+	m_zcInfo.numFrames = milliseconds/CAMERA_STEP_MSEC;
 	if (m_zcInfo.numFrames < 1) {
 		m_zcInfo.numFrames = 1;
 	}
@@ -3538,7 +3543,7 @@ void W3DView::zoomCamera( Real finalZoom, Int milliseconds, Real easeIn, Real ea
 void W3DView::pitchCamera( Real finalPitch, Int milliseconds, Real easeIn, Real easeOut )
 {
 	if (milliseconds<1) milliseconds = 1;
-	m_pcInfo.numFrames = milliseconds/TheW3DFrameLengthInMsec;
+	m_pcInfo.numFrames = milliseconds/CAMERA_STEP_MSEC;
 	if (m_pcInfo.numFrames < 1) {
 		m_pcInfo.numFrames = 1;
 	}
@@ -3561,7 +3566,7 @@ void W3DView::cameraModFinalZoom( Real finalZoom, Real easeIn, Real easeOut )
 		Real maxHeight = (terrainHeightMax + m_maxHeightAboveGround);
 		Real maxZoom = maxHeight / m_cameraOffset.z;
 
-		Real time = (m_rcInfo.numFrames + m_rcInfo.numHoldFrames - m_rcInfo.curFrame)*TheW3DFrameLengthInMsec;
+		Real time = (m_rcInfo.numFrames + m_rcInfo.numHoldFrames - m_rcInfo.curFrame)*CAMERA_STEP_MSEC;
 		zoomCamera( finalZoom*maxZoom, time, time*easeIn, time*easeOut );
 	}
 	if (m_doingMoveCameraOnWaypointPath) 
@@ -3768,7 +3773,7 @@ void W3DView::cameraModRollingAverage(Int framesToAverage)
 // ------------------------------------------------------------------------------------------------
 void W3DView::cameraModFinalPitch(Real finalPitch, Real easeIn, Real easeOut) {
 	if (m_doingRotateCamera) {
-		Real time = (m_rcInfo.numFrames + m_rcInfo.numHoldFrames - m_rcInfo.curFrame)*TheW3DFrameLengthInMsec;
+		Real time = (m_rcInfo.numFrames + m_rcInfo.numHoldFrames - m_rcInfo.curFrame)*CAMERA_STEP_MSEC;
 		pitchCamera( finalPitch, time, time*easeIn, time*easeOut );
 	}
 	if (m_doingMoveCameraOnWaypointPath) {
@@ -3846,7 +3851,7 @@ void W3DView::moveCameraAlongWaypointPath(Waypoint *pWay, Int milliseconds, Int 
 	m_mcwpInfo.numWaypoints = 1;
 	if (milliseconds<1) milliseconds = 1;
 	m_mcwpInfo.totalTimeMilliseconds = milliseconds;
-	m_mcwpInfo.shutter = shutter/TheW3DFrameLengthInMsec;
+	m_mcwpInfo.shutter = shutter/CAMERA_STEP_MSEC;
 	if (m_mcwpInfo.shutter<1) m_mcwpInfo.shutter = 1;
 	m_mcwpInfo.ease.setEaseTimes(easeIn/milliseconds, easeOut/milliseconds);
 
@@ -4320,7 +4325,7 @@ void W3DView::addScreenDistortion( const Coord3D *epicenter, const ScreenDistort
 		const Real dx = other.m_epicenter.x - epicenter->x;
 		const Real dy = other.m_epicenter.y - epicenter->y;
 		const Real sameSpot = 0.25f * other.m_info.m_radius;
-		if (now - other.m_startFrame <= 1 && dx * dx + dy * dy < sameSpot * sameSpot)
+		if (now - other.m_startFrame <= LOGICFRAMES_PER_RETAIL_FRAME && dx * dx + dy * dy < sameSpot * sameSpot)
 			return;
 	}
 

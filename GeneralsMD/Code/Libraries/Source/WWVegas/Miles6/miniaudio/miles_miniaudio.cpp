@@ -1317,12 +1317,13 @@ void AILCALL AIL_ex_offline_mix(void)
 	g_engine.offline = true;
 }
 
-// The logic runs 30 frames a second of game time (LOGICFRAMES_PER_SECOND), whatever the wall clock
-// does.  Each target is computed from the absolute frame, so the remainders of a rate 30 does not
-// divide never add up: frames a to b always mix (b - a) * rate / 30, give or take one sample.
+// The logic runs 60 frames a second of game time (LOGICFRAMES_PER_SECOND in the game's GameCommon.h,
+// which this library cannot see: keep the two equal), whatever the wall clock does.  Each target is
+// computed from the absolute frame, so the remainders of a rate 60 does not divide never add up:
+// frames a to b always mix (b - a) * rate / 60, give or take one sample.
 void AILCALL AIL_ex_mix_to_frame(S32 logicFrame)
 {
-	const long long LOGIC_FRAMES_PER_SECOND = 30;
+	const long long LOGIC_FRAMES_PER_SECOND = 60;
 	if (!g_engine.offline || !g_engine.deviceReady) {
 		return;
 	}

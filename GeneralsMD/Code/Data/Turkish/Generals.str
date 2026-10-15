@@ -1033,10 +1033,6 @@ TOOLTIP:SupplyWarehouse
 "\n $%d kaldı"
 END
 
-TOOLTIP:SupplyWarehousePercent
-"\n $%d kaldı (%d%%)"
-END
-
 TOOLTIP:SupplyPileFull
 "\n Dolu: yığın sınırı toplayıcılarınızı almıyor"
 END
@@ -2587,6 +2583,14 @@ END
 
 LAN:ErrorCRCMismatch
 "Oyun bir uyumsuzluk tespit etti. Çok oyunculu oyun, oyuncular arasındaki senkronizasyon verisini kaybetti. Rakibiniz sürümünü değiştirmiş olabilir; onu Yok Sayma Listenize eklemek isteyebilirsiniz"
+END
+
+LAN:ErrorModMismatch
+"Bu oyun başka modlarla oynanıyor. Kurucunun modları: %s. Katılmak için oyunu aynı modlarla, aynı sırayla başlatın."
+END
+
+LAN:NoMod
+"yok"
 END
 
 LAN:ErrorGameStarted
@@ -9225,6 +9229,10 @@ CONTROLBAR:ObsPlayerLabel
 "%ls (Takım %ls)"
 END
 
+CONTROLBAR:ObsLookingThrough
+"Haritayı %ls oyuncusunun gözünden izliyorsun. Esc tüm haritayı geri getirir."
+END
+
 GUI:LowTextureDetail
 "Düşük Doku Ayrıntısı"
 END
@@ -14633,196 +14641,16 @@ GUI:StartCustomMission
 "OYUNU BAŞLAT"
 END
 
-GUI:SelectNextIdleWorker
-"Sonraki Boştaki İşçiyi Seç"
-END
-
-GUI:SelectNextIdleWorkerDescription
-"Yapacak işi olmayan sonraki dozeri veya işçiyi seçer ve görüntüyü ona odaklar."
-END
-
-GUI:SelectNextIdleUnit
-"Sonraki Boştaki Birliği Seç"
-END
-
-GUI:SelectNextIdleUnitDescription
-"Emri olmayan sonraki savaş birliğini seçer ve görüntüyü ona odaklar."
-END
-
-GUI:CommandSlot01
-"Komut Çubuğu Yuvası 01"
-END
-
-GUI:CommandSlot01Description
-"Komut çubuğunun 1. yuvasına basar (1. sütun, üst sıra; varsayılan ızgara düzeninde 'Q')."
-END
-
-GUI:CommandSlot02
-"Komut Çubuğu Yuvası 02"
-END
-
-GUI:CommandSlot02Description
-"Komut çubuğunun 2. yuvasına basar (2. sütun, üst sıra; varsayılan ızgara düzeninde 'W')."
-END
-
-GUI:CommandSlot03
-"Komut Çubuğu Yuvası 03"
-END
-
-GUI:CommandSlot03Description
-"Komut çubuğunun 3. yuvasına basar (3. sütun, üst sıra; varsayılan ızgara düzeninde 'E')."
-END
-
-GUI:CommandSlot04
-"Komut Çubuğu Yuvası 04"
-END
-
-GUI:CommandSlot04Description
-"Komut çubuğunun 4. yuvasına basar (4. sütun, üst sıra; varsayılan ızgara düzeninde 'R')."
-END
-
-GUI:CommandSlot05
-"Komut Çubuğu Yuvası 05"
-END
-
-GUI:CommandSlot05Description
-"Komut çubuğunun 5. yuvasına basar (5. sütun, üst sıra; varsayılan ızgara düzeninde 'T')."
-END
-
-GUI:CommandSlot06
-"Komut Çubuğu Yuvası 06"
-END
-
-GUI:CommandSlot06Description
-"Komut çubuğunun 6. yuvasına basar (6. sütun, üst sıra; varsayılan ızgara düzeninde 'Y')."
-END
-
-GUI:CommandSlot07
-"Komut Çubuğu Yuvası 07"
-END
-
-GUI:CommandSlot07Description
-"Komut çubuğunun 7. yuvasına basar (1. sütun, orta sıra; varsayılan ızgara düzeninde 'A'). Birliğin Saldır düğmesi buradadır."
-END
-
-GUI:CommandSlot08
-"Komut Çubuğu Yuvası 08"
-END
-
-GUI:CommandSlot08Description
-"Komut çubuğunun 8. yuvasına basar (2. sütun, orta sıra; varsayılan ızgara düzeninde 'S'). Birliğin Dur düğmesi buradadır."
-END
-
-GUI:CommandSlot09
-"Komut Çubuğu Yuvası 09"
-END
-
-GUI:CommandSlot09Description
-"Komut çubuğunun 9. yuvasına basar (3. sütun, orta sıra; varsayılan ızgara düzeninde 'D'). Saldırarak İlerle düğmesi buradadır."
-END
-
-GUI:CommandSlot10
-"Komut Çubuğu Yuvası 10"
-END
-
-GUI:CommandSlot10Description
-"Komut çubuğunun 10. yuvasına basar (4. sütun, orta sıra; varsayılan ızgara düzeninde 'F')."
-END
-
-GUI:CommandSlot11
-"Komut Çubuğu Yuvası 11"
-END
-
-GUI:CommandSlot11Description
-"Komut çubuğunun 11. yuvasına basar (5. sütun, orta sıra; varsayılan ızgara düzeninde 'G')."
-END
-
-GUI:CommandSlot12
-"Komut Çubuğu Yuvası 12"
-END
-
-GUI:CommandSlot12Description
-"Komut çubuğunun 12. yuvasına basar (6. sütun, orta sıra; varsayılan ızgara düzeninde 'H')."
-END
-
-GUI:CommandSlot13
-"Komut Çubuğu Yuvası 13"
-END
-
-GUI:CommandSlot13Description
-"Komut çubuğunun 13. yuvasına basar (1. sütun, alt sıra; varsayılan ızgara düzeninde 'Z'). Tahliye düğmesi buradadır: birliğin yolcularını ya da binadaki garnizonu indirir."
-END
-
-GUI:CommandSlot14
-"Komut Çubuğu Yuvası 14"
-END
-
-GUI:CommandSlot14Description
-"Komut çubuğunun 14. yuvasına basar (2. sütun, alt sıra; varsayılan ızgara düzeninde 'X'). Koru düğmesi buradadır."
-END
-
-GUI:CommandSlot15
-"Komut Çubuğu Yuvası 15"
-END
-
-GUI:CommandSlot15Description
-"Komut çubuğunun 15. yuvasına basar (3. sütun, alt sıra; varsayılan ızgara düzeninde 'C'). Mevzini Koru düğmesi buradadır."
-END
-
-GUI:CommandSlot16
-"Komut Çubuğu Yuvası 16"
-END
-
-GUI:CommandSlot16Description
-"Komut çubuğunun 16. yuvasına basar (4. sütun, alt sıra; varsayılan ızgara düzeninde 'V')."
-END
-
-GUI:CommandSlot17
-"Komut Çubuğu Yuvası 17"
-END
-
-GUI:CommandSlot17Description
-"Komut çubuğunun 17. yuvasına basar (5. sütun, alt sıra; varsayılan ızgara düzeninde 'B'). Binanın toplanma noktası düğmesi buradadır."
-END
-
-GUI:CommandSlot18
-"Komut Çubuğu Yuvası 18"
-END
-
-GUI:CommandSlot18Description
-"Komut çubuğunun 18. yuvasına basar (6. sütun, alt sıra; varsayılan ızgara düzeninde 'N'). Sat düğmesi buradadır."
-END
-
-GUI:TogglePurchaseScience
-"General Terfileri"
-END
-
-GUI:TogglePurchaseScienceDescription
-"General terfi ekranını açar ve kapatır."
-END
-
 GUI:StopDescription
 "Seçili birliklerin yaptığı işi durdurur."
-END
-
-GUI:OrderForceAttack
-"Zorla Saldır"
 END
 
 GUI:OrderForceAttackDescription
 "Bir sonraki tıklama imlecin altındaki her şeye saldırır, zemin ve kendi tarafınız da buna dahil. Vazgeçmek için tuşa yeniden tıklayın."
 END
 
-GUI:OrderHoldPosition
-"Mevzini Koru"
-END
-
 GUI:OrderHoldPositionDescription
 "Seçili birlikler durdukları yeri korur ve yaklaşan her şeyle savaşır, ama onu bölgenin dışına kadar kovalamaz."
-END
-
-GUI:OrderMove
-"Hareket Et"
 END
 
 GUI:OrderMoveDescription
@@ -14833,16 +14661,8 @@ GUI:SelectionTypeDescription
 "Tıklayın, seçimde yalnızca bunlar kalsın. Shift ile tıklayın, bunlar seçimden çıksın."
 END
 
-GUI:OrderStanceDefensive
-"Tutum: Savunmacı"
-END
-
 GUI:OrderStanceDefensiveDescription
 "Seçili birlikler menzile gireni vurur ve koyduğunuz yeri tutar. Saldırgan yapmak için tıklayın: gördükleri her düşmanın peşine düşerler."
-END
-
-GUI:OrderStanceAggressive
-"Tutum: Saldırgan"
 END
 
 GUI:OrderStanceAggressiveDescription
@@ -14853,24 +14673,12 @@ GUI:SignalAttack
 "Sinyal: Saldır"
 END
 
-GUI:SignalAttackDescription
-"İmlecin olduğu yere ya da altındaki radar noktasına on saniyeliğine sizin renginizde bir duman ve yere çapraz kılıçlar bırakır. Yalnızca müttefikleriniz görür."
-END
-
 GUI:SignalDefend
 "Sinyal: Savun"
 END
 
-GUI:SignalDefendDescription
-"İmlecin olduğu yere ya da altındaki radar noktasına on saniyeliğine sizin renginizde bir duman ve yere bir kalkan bırakır. Yalnızca müttefikleriniz görür."
-END
-
 GUI:SignalAttention
 "Sinyal: Buraya Bak"
-END
-
-GUI:SignalAttentionDescription
-"İmlecin olduğu yere ya da altındaki radar noktasına on saniyeliğine sizin renginizde bir duman ve yere bir göz bırakır. Yalnızca müttefikleriniz görür."
 END
 
 GUI:SignalAttackPlaced
@@ -14885,14 +14693,6 @@ GUI:SignalAttentionPlaced
 "%s: buraya bakın!"
 END
 
-GUI:TogglePause
-"Duraklat"
-END
-
-GUI:TogglePauseDescription
-"Oyunu duraklatır ve devam ettirir. Yalnızca tek oyunculu oyunlarda ve tekrarlarda."
-END
-
 GUI:GamePaused
 "Oyun duraklatıldı."
 END
@@ -14901,108 +14701,8 @@ GUI:GameResumed
 "Oyun devam ediyor."
 END
 
-GUI:SelectAllMilitary
-"Askeri Birlikleri Seç"
-END
-
-GUI:SelectAllMilitaryDescription
-"Ekrandaki silahlı birliklerinizi seçer. Bütün haritadakileri seçmek için tekrar basın."
-END
-
-GUI:SelectAllVehicles
-"Araçları Seç"
-END
-
-GUI:SelectAllVehiclesDescription
-"Ekrandaki kara araçlarınızı seçer; dozerler ve işçiler hariç. Bütün harita için tekrar basın."
-END
-
-GUI:SelectAllBarracks
-"Kışlaları Seç"
-END
-
-GUI:SelectAllBarracksDescription
-"Ekrandaki piyade üreten binalarınızı seçer. Bütün haritadakileri seçmek için tekrar basın."
-END
-
-GUI:SelectAllWarFactories
-"Savaş Fabrikalarını Seç"
-END
-
-GUI:SelectAllWarFactoriesDescription
-"Ekrandaki araç üreten binalarınızı seçer. Bütün haritadakileri seçmek için tekrar basın."
-END
-
-GUI:SelectAllAirfields
-"Hava Üslerini Seç"
-END
-
-GUI:SelectAllAirfieldsDescription
-"Ekrandaki hava üslerinizi ve helikopter pistlerinizi seçer. Bütün haritadakileri seçmek için tekrar basın."
-END
-
-GUI:ShortcutSlot01
-"General Gücü 1"
-END
-
-GUI:ShortcutSlot01Description
-"Sağ üst köşedeki general güçleri çubuğunun birinci butonuna basar."
-END
-
-GUI:ShortcutSlot02
-"General Gücü 2"
-END
-
-GUI:ShortcutSlot02Description
-"Sağ üst köşedeki general güçleri çubuğunun ikinci butonuna basar."
-END
-
-GUI:ShortcutSlot03
-"General Gücü 3"
-END
-
-GUI:ShortcutSlot03Description
-"Sağ üst köşedeki general güçleri çubuğunun üçüncü butonuna basar."
-END
-
-GUI:ShortcutSlot04
-"General Gücü 4"
-END
-
-GUI:ShortcutSlot04Description
-"Sağ üst köşedeki general güçleri çubuğunun dördüncü butonuna basar."
-END
-
-GUI:ShortcutSlot05
-"General Gücü 5"
-END
-
-GUI:ShortcutSlot05Description
-"Sağ üst köşedeki general güçleri çubuğunun beşinci butonuna basar."
-END
-
-GUI:ShortcutSlot06
-"General Gücü 6"
-END
-
-GUI:ShortcutSlot06Description
-"Sağ üst köşedeki general güçleri çubuğunun altıncı butonuna basar."
-END
-
-GUI:ShortcutSlot07
-"General Gücü 7"
-END
-
-GUI:ShortcutSlot07Description
-"Sağ üst köşedeki general güçleri çubuğunun yedinci butonuna basar."
-END
-
-GUI:ShortcutSlot08
-"General Gücü 8"
-END
-
-GUI:ShortcutSlot08Description
-"Sağ üst köşedeki general güçleri çubuğunun sekizinci butonuna basar."
+GUI:ReplayResume
+"Sürdür"
 END
 
 GUI:HumanSlot
@@ -15393,14 +15093,6 @@ TOOLTIP:IsometricCamera
 "Savaş alanı uzaktan görünür, bir birlik ekranın üstünde de altında da aynı boyda çizilir. Kamerayı yine sen döndürür ve yakınlaştırırsın."
 END
 
-GUI:SmoothMotion
-"Akıcı Hareket"
-END
-
-TOOLTIP:SmoothMotion
-"Birlikler oyunun saniyedeki 30 adımının arasında da çizilir, böylece hızlı bir ekranda akıcı hareket eder. Görüntü bir adım (33 ms) geriden gelir; oyunun kendisi değişmez."
-END
-
 GUI:EdgeScrollWindowed
 "Pencerede Kenardan Kaydır"
 END
@@ -15493,26 +15185,6 @@ GUI:OptionsGroupHud
 "Göstergeler"
 END
 
-GUI:IncomeRate
-"Gelir Gösterimi"
-END
-
-GUI:IncomeRate0
-"Saniyelik"
-END
-
-GUI:IncomeRate1
-"Dakikalık"
-END
-
-GUI:IncomeRate2
-"Otomatik"
-END
-
-TOOLTIP:IncomeRate
-"Paranızın yanındaki gelirin hangi süreye göre yazılacağı. Otomatik, saniyede 10 dolardan az kazanırken dakikalık yazar, çünkü o düzeyde saniyelik tam sayı değişimin çoğunu göstermez; üstünde saniyelik yazar."
-END
-
 GUI:EmptyBuildingPips
 "Boş Bina Yuvaları"
 END
@@ -15551,14 +15223,6 @@ END
 
 TOOLTIP:HealthBars
 "Akıllı; hasar almış her şeyin, seçili birliklerin ve imlecin altındakinin üzerinde çubuk gösterir. Yalnızca seçili, orijinal oyunun davranışıdır."
-END
-
-GUI:HudScale
-"Arayüz Boyutu"
-END
-
-TOOLTIP:HudScale
-"Komuta çubuğunu ve alttaki arayüzü çözünürlüğün seçtiğinden daha büyük çizer."
 END
 
 GUI:OptionsGroupInput
@@ -15641,12 +15305,8 @@ GUI:PeaceTimeHudLabel
 "BARIŞ"
 END
 
-GUI:WireframeNotice
-"Reforged arayüz: ön sürüm"
-END
-
-GUI:WireframeNotice2
-"Son tasarım yolda"
+GUI:ListMore
+"+%d daha"
 END
 
 GUI:LobbyTabChat
@@ -15757,14 +15417,6 @@ GUI:CantBuildTooManyDerrickDefenses
 "Bu petrol kuyularının çevresinde zaten iki savunmanız var."
 END
 
-TOOLTIP:BuildTimeSeconds
-"\nSüre %d sn"
-END
-
-TOOLTIP:WeaponStats
-"Hasar %d  Menzil %d"
-END
-
 TOOLTIP:StatTime
 "Üretim süresi"
 END
@@ -15821,22 +15473,6 @@ TOOLTIP:StatNewWeaponFigures
 "%d hasar, %d menzil"
 END
 
-TOOLTIP:StatShortDamagePerSecond
-"DPS"
-END
-
-TOOLTIP:StatVsGuns
-"Mermi"
-END
-
-TOOLTIP:StatVsShells
-"Top"
-END
-
-TOOLTIP:StatVsRockets
-"Roket"
-END
-
 TOOLTIP:Upgrades
 "GELİŞTİRMELER"
 END
@@ -15849,76 +15485,8 @@ TOOLTIP:UpgradeOwned
 "alındı"
 END
 
-GUI:HudSkillStrip
-"General yetenekleri"
-END
-
-GUI:HudSuperweaponStrip
-"Süper silah sayaçları"
-END
-
-GUI:HudNetWorth
-"Net değer"
-END
-
-GUI:HudGameStats
-"Oyun istatistikleri"
-END
-
-GUI:HudStatCash
-"Nakit"
-END
-
-GUI:HudStatIncome
-"Dakikalık gelir"
-END
-
 GUI:HudStatArmy
 "Ordu değeri"
-END
-
-GUI:HudStatKills
-"Öldürme / kayıp"
-END
-
-GUI:HudStatRank
-"General rütbesi"
-END
-
-GUI:HudStatPower
-"Elektrik"
-END
-
-GUI:HudArmies
-"Ordular"
-END
-
-GUI:HudCamera
-"Kamera"
-END
-
-GUI:HudCameraDirector
-"Yönetmen"
-END
-
-GUI:HudCameraFree
-"Serbest"
-END
-
-GUI:HudCameraPlayer
-"Oyuncu kamerası"
-END
-
-GUI:HudFollow
-"Oyuncu"
-END
-
-GUI:HudFollowNobody
-"Hiçbiri"
-END
-
-GUI:HudFog
-"Savaş sisi"
 END
 
 GUI:CheatPanelTitle
@@ -15953,6 +15521,10 @@ GUI:CheatPower
 "Sınırsız elektrik"
 END
 
+GUI:StartingMoneyUnlimited
+"Sınırsız"
+END
+
 GUI:CheatNoCooldown
 "Bekleme yok"
 END
@@ -15981,42 +15553,6 @@ GUI:CheatApply
 "YAP"
 END
 
-GUI:HudSuperweaponReady
-"ateşe hazır"
-END
-
-GUI:HudSuperweaponLaunched
-"ateşlendi"
-END
-
-GUI:HudAlertBuilt
-"%s tamamlandı"
-END
-
-GUI:HudAlertReady
-"%s hazır"
-END
-
-GUI:HudAlertLaunched
-"%s ateşlendi"
-END
-
-GUI:HudPowerUsed
-"kullanıldı"
-END
-
-GUI:HudPromotionBought
-"açıldı"
-END
-
-GUI:HudStructureStarted
-"inşaatı başladı"
-END
-
-GUI:HudStructureBuilt
-"tamamlandı"
-END
-
 GUI:HudNoDozerLeft
 "%s için hiç dozer kalmadı"
 END
@@ -16027,74 +15563,6 @@ END
 
 GUI:BarIdleWorker
 "İşçi"
-END
-
-GUI:BarNetReady
-"hazır"
-END
-
-GUI:BarNetRoom
-"oda"
-END
-
-GUI:BarNetUnits
-"birim"
-END
-
-GUI:ScoreboardAllies
-"TAKIMIN"
-END
-
-GUI:ScoreboardEnemies
-"DÜŞMANLAR"
-END
-
-GUI:ScoreboardPlayer
-"OYUNCU"
-END
-
-GUI:ScoreboardTeam
-"TAKIM"
-END
-
-GUI:ScoreboardLevel
-"RÜTBE"
-END
-
-GUI:ScoreboardMoney
-"PARA"
-END
-
-GUI:ScoreboardPerMinute
-"DAKİKADA"
-END
-
-GUI:ScoreboardPerSecond
-"SANİYEDE"
-END
-
-GUI:ControlBarMoneyEarning
-"$ %d  +%d/sn"
-END
-
-GUI:ControlBarMoneyEarningMinute
-"$ %d  +%d/dk"
-END
-
-GUI:ScoreboardKills
-"K"
-END
-
-GUI:ScoreboardDeaths
-"D"
-END
-
-GUI:ScoreboardPowers
-"YETENEKLER"
-END
-
-GUI:ScoreboardFavourite
-"FAVORİ"
 END
 
 CONTROLBAR:AirF_TooltipSpectreGunship
@@ -16111,4 +15579,40 @@ END
 
 CONTROLBAR:Demo_ToolTipGLAScienceRebelAmbush
 "Her yerde Asilerle ani bir pusu kurmanızı sağlar \n \n Seviye 1: 4 Asi \n Seviye 2: 6 Asi \n Seviye 3: 10 Asi \n \n Çağrıldığı yer: Komuta Merkezi"
+END
+
+GUI:SaveFromOlderGame
+"Bu kayıt orijinal oyunla ya da Reforged'ın eski bir sürümüyle yapılmış, yüklenemez."
+END
+
+GUI:MapCorrupt
+"%ls haritası bozuk, oynanamaz."
+END
+
+GUI:KickVoteStarted
+"%ls, %ls oyuncusunun maçtan atılmasını istiyor. Sohbete /yes ya da /no yazın: diğer oyuncuların kabul etmek için 30 saniyesi var."
+END
+
+GUI:KickVoteBanner
+"%ls atılsın mı?   Evet %d / %d   /yes ya da /no   %d sn"
+END
+
+GUI:KickVoteFailed
+"%ls oyuncusunu atma oylaması geçmedi."
+END
+
+GUI:KickVoteKicked
+"%ls oylamayla maçtan atıldı."
+END
+
+GUI:KickVoteTooFew
+"Oylamayla atmak için atılacak oyuncu dışında en az iki oyuncu daha gerekir."
+END
+
+GUI:KickVoteNoPlayer
+"Maçta %ls adında bir oyuncu yok."
+END
+
+GUI:KickVoteNone
+"Açık bir oylama yok. Başlatmak için /kick ve oyuncunun adını yazın."
 END

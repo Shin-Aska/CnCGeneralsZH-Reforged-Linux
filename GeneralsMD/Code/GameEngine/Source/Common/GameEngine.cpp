@@ -56,6 +56,7 @@
 #include "Common/INIException.h"
 #include "Common/MessageStream.h"
 #include "Common/ThingFactory.h"
+#include "Common/ThingTemplate.h"
 #include "Common/file.h"
 #include "Common/FileSystem.h"
 #include "Common/ArchiveFileSystem.h"
@@ -199,6 +200,19 @@ void initSubsystem(SUBSYSTEM*& sysref, AsciiString name, SUBSYSTEM* sys, Xfer *p
 }
 
 //-------------------------------------------------------------------------------------------------
+/** A store a faction is made of.  With -modfactions the plain load sees retail's files only, and
+	* then each mod's load under that mod's names (INI::loadModPasses); a mod's Default\ file never
+	* loads.  Without it this is initSubsystem. */
+//-------------------------------------------------------------------------------------------------
+template<class SUBSYSTEM>
+void initFactionSubsystem(SUBSYSTEM*& sysref, AsciiString name, SUBSYSTEM* sys, Xfer *pXfer, const char* path1,
+													const char* path2, const char* dirpath = NULL)
+{
+	initSubsystem(sysref, name, sys, pXfer, path1, path2, dirpath);
+	INI::loadModPasses(dirpath != NULL ? dirpath : path2, pXfer, dirpath != NULL);
+}
+
+//-------------------------------------------------------------------------------------------------
 #if defined(_WIN32)
 extern HINSTANCE ApplicationHInstance;  ///< our application instance
 extern CComModule _Module;		// ATL's module, for the embedded browser's COM; nothing off Windows uses COM
@@ -218,6 +232,20 @@ static void checksumFileContents( XferCRC &xferCRC, const char *path )
 	char *contents = file->readEntireAndClose();
 	xferCRC.xferUser( contents, fileSize );
 	delete [] contents;
+}
+
+/** The same for the command buttons and sets: with -modfactions each mod's copy after retail's, as
+	* ControlBar::init loads them. */
+static void checksumFactionFile( XferCRC &xferCRC, const char *path )
+{
+	checksumFileContents( xferCRC, path );
+	for (Int mod = 0; TheGlobalData->m_modFactions && mod < (Int)TheGlobalData->m_mods.size(); ++mod)
+	{
+		TheFileSystem->setFocus( mod );
+		if (TheFileSystem->doesFileExist( path ))
+			checksumFileContents( xferCRC, path );
+		TheFileSystem->setFocus( FILE_FOCUS_ALL );
+	}
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -320,8 +348,12 @@ static void checksumModels( XferCRC &xferCRC )
 		AsciiString model = *it;
 		model.toLower();
 
-		AsciiString source = TheLocalFileSystem->doesFileExist( model.str() )
-			? model : TheArchiveFileSystem->getArchiveFilenameForFile( model );
+		// the file openFile will read: a mod's loose or archived copy first (FileSystem::modLooseFile)
+		Bool inModArchive = FALSE;
+		AsciiString source = TheFileSystem->modLooseFile( model, &inModArchive );
+		if (source.isEmpty())
+			source = TheLocalFileSystem->doesFileExist( model.str() ) && !inModArchive
+				? model : TheArchiveFileSystem->getArchiveFilenameForFile( model );
 
 		ModelChecksum entry;
 		const Bool sourceKnown = TheLocalFileSystem->getFileInfo( source, &entry.source );
@@ -567,9 +599,22 @@ static void startPendingSaveGame( void )
 	}
 
 	// getSaveGameInfoFromFile opens the name it is handed as-is, so give it the path (the menu's
-	// iterateSaveFiles callback does the same).
-	TheGameState->getSaveGameInfoFromFile(
-		TheGameState->getFilePathInSaveDirectory( thePendingSaveFile ), &gameInfo.saveGameInfo );
+	// iterateSaveFiles callback does the same).  A broken file throws out of the header read, which
+	// the menu's callback catches too; nothing is set up yet, so it ends like a name not there.
+	try
+	{
+		TheGameState->getSaveGameInfoFromFile(
+			TheGameState->getFilePathInSaveDirectory( thePendingSaveFile ), &gameInfo.saveGameInfo );
+	}
+	catch( ... )
+	{
+		DEBUG_LOG(("-loadsave: '%s' could not be loaded, its header is broken\n", gameInfo.filename.str()));
+		if (TheGlobalData->m_headless)
+			TheGameEngine->setQuitting( TRUE );
+		else
+			TheWritableGlobalData->m_shellMapOn = TRUE;
+		return;
+	}
 
 	TheGameLogic->prepareNewGame( GAME_SINGLE_PLAYER, DIFFICULTY_NORMAL, 0 );
 
@@ -750,7 +795,7 @@ static void startAutoSkirmish( Int numPlayersWanted )
 		 back to m_framesPerSecondLimit *unclamped*, which is how a stray -fps would still get through.
 		 -noFPSLimit deliberately does not appear here - it uncaps the renderer, not the simulation. */
 	Int maxFPS = TheGlobalData->m_framesPerSecondLimit;
-	if (maxFPS < 15)
+	if (maxFPS < ConvertRetailFrames( 15 ))
 		maxFPS = DEFAULT_MAX_FPS;
 	if (maxFPS > 1000)
 		maxFPS = 1000;
@@ -1069,7 +1114,10 @@ void GameEngine::init( int argc, char *argv[] )
 	#endif/////////////////////////////////////////////////////////////////////////////////////////////
 
 
-		initSubsystem(TheScienceStore,"TheScienceStore", MSGNEW("GameEngineSubsystem") ScienceStore(), &xferCRC, "Data\\INI\\Default\\Science.ini", "Data\\INI\\Science.ini");
+		// -modfactions: which names each mod defines, read before any of its files load
+		if (TheGlobalData->m_modFactions)
+			TheModNamespace.scanMods();
+		initFactionSubsystem(TheScienceStore,"TheScienceStore", MSGNEW("GameEngineSubsystem") ScienceStore(), &xferCRC, "Data\\INI\\Default\\Science.ini", "Data\\INI\\Science.ini");
 		// New sciences only: a name EA already defined stops the load
 		ini.load( AsciiString( "Data\\INI\\ScienceReforged.ini" ), INI_LOAD_MULTIFILE, &xferCRC );
 		initSubsystem(TheMultiplayerSettings,"TheMultiplayerSettings", MSGNEW("GameEngineSubsystem") MultiplayerSettings(), &xferCRC, "Data\\INI\\Default\\Multiplayer.ini", "Data\\INI\\Multiplayer.ini");
@@ -1114,8 +1162,9 @@ void GameEngine::init( int argc, char *argv[] )
 		initSubsystem(TheMessageStream,"TheMessageStream", createMessageStream(), NULL);
 		initSubsystem(TheSidesList,"TheSidesList", MSGNEW("GameEngineSubsystem") SidesList(), NULL);
 		initSubsystem(TheCaveSystem,"TheCaveSystem", MSGNEW("GameEngineSubsystem") CaveSystem(), NULL);
-		initSubsystem(TheRankInfoStore,"TheRankInfoStore", MSGNEW("GameEngineSubsystem") RankInfoStore(), &xferCRC, NULL, "Data\\INI\\Rank.ini");
-		initSubsystem(ThePlayerTemplateStore,"ThePlayerTemplateStore", MSGNEW("GameEngineSubsystem") PlayerTemplateStore(), &xferCRC, "Data\\INI\\Default\\PlayerTemplate.ini", "Data\\INI\\PlayerTemplate.ini");
+		// -modfactions: each mod's own Rank.ini, the table its factions climb (RankInfoStore::getRankInfo)
+		initFactionSubsystem(TheRankInfoStore,"TheRankInfoStore", MSGNEW("GameEngineSubsystem") RankInfoStore(), &xferCRC, NULL, "Data\\INI\\Rank.ini");
+		initFactionSubsystem(ThePlayerTemplateStore,"ThePlayerTemplateStore", MSGNEW("GameEngineSubsystem") PlayerTemplateStore(), &xferCRC, "Data\\INI\\Default\\PlayerTemplate.ini", "Data\\INI\\PlayerTemplate.ini");
 		initSubsystem(TheParticleSystemManager,"TheParticleSystemManager", createParticleSystemManager(), NULL);
 
 	#ifdef DUMP_PERF_STATS///////////////////////////////////////////////////////////////////////////
@@ -1126,24 +1175,28 @@ void GameEngine::init( int argc, char *argv[] )
 	#endif/////////////////////////////////////////////////////////////////////////////////////////////
     
     
-		initSubsystem(TheFXListStore,"TheFXListStore", MSGNEW("GameEngineSubsystem") FXListStore(), &xferCRC, "Data\\INI\\Default\\FXList.ini", "Data\\INI\\FXList.ini");
+		initFactionSubsystem(TheFXListStore,"TheFXListStore", MSGNEW("GameEngineSubsystem") FXListStore(), &xferCRC, "Data\\INI\\Default\\FXList.ini", "Data\\INI\\FXList.ini");
 		/* The fork's own detonation light, on top of EA's list.  It is a separate file rather than a
 			 loose copy of FXList.ini because a loose copy shadows the whole 190K shipped file: it goes
 			 stale against every patch, it cannot be reviewed, and - since it lands in the INI CRC below -
 			 it silently refuses every multiplayer join from a machine that does not have the same one. */
 		ini.load( AsciiString( "Data\\INI\\FXListReforged.ini" ), INI_LOAD_OVERWRITE, &xferCRC );
-		initSubsystem(TheWeaponStore,"TheWeaponStore", MSGNEW("GameEngineSubsystem") WeaponStore(), &xferCRC, NULL, "Data\\INI\\Weapon.ini");
-		initSubsystem(TheObjectCreationListStore,"TheObjectCreationListStore", MSGNEW("GameEngineSubsystem") ObjectCreationListStore(), &xferCRC, "Data\\INI\\Default\\ObjectCreationList.ini", "Data\\INI\\ObjectCreationList.ini");
+		initFactionSubsystem(TheWeaponStore,"TheWeaponStore", MSGNEW("GameEngineSubsystem") WeaponStore(), &xferCRC, NULL, "Data\\INI\\Weapon.ini");
+		/* Weapons of the fork's own that BalanceReforged.ini hands out.  It cannot add one, and borrowing
+			 one of EA's that nothing fires broke under a mod whose Weapon.ini leaves it out (Contra's Paladin
+			 found no infantry laser and crashed); a new name here exists whatever Weapon.ini loaded. */
+		ini.load( AsciiString( "Data\\INI\\WeaponReforged.ini" ), INI_LOAD_OVERWRITE, &xferCRC );
+		initFactionSubsystem(TheObjectCreationListStore,"TheObjectCreationListStore", MSGNEW("GameEngineSubsystem") ObjectCreationListStore(), &xferCRC, "Data\\INI\\Default\\ObjectCreationList.ini", "Data\\INI\\ObjectCreationList.ini");
 		/* Lists EA left out or got wrong, before any object names one: a list parsed again is cleared
 			 and replaced whole, and a new name is simply added. */
 		ini.load( AsciiString( "Data\\INI\\ObjectCreationListReforged.ini" ), INI_LOAD_OVERWRITE, &xferCRC );
-		initSubsystem(TheLocomotorStore,"TheLocomotorStore", MSGNEW("GameEngineSubsystem") LocomotorStore(), &xferCRC, NULL, "Data\\INI\\Locomotor.ini");
-		initSubsystem(TheSpecialPowerStore,"TheSpecialPowerStore", MSGNEW("GameEngineSubsystem") SpecialPowerStore(), &xferCRC, "Data\\INI\\Default\\SpecialPower.ini", "Data\\INI\\SpecialPower.ini");
+		initFactionSubsystem(TheLocomotorStore,"TheLocomotorStore", MSGNEW("GameEngineSubsystem") LocomotorStore(), &xferCRC, NULL, "Data\\INI\\Locomotor.ini");
+		initFactionSubsystem(TheSpecialPowerStore,"TheSpecialPowerStore", MSGNEW("GameEngineSubsystem") SpecialPowerStore(), &xferCRC, "Data\\INI\\Default\\SpecialPower.ini", "Data\\INI\\SpecialPower.ini");
 		/* Powers edited in place (a scan Frenzy should not give) and the Demolitions General's own
 			 Rebel Ambush, before any object names one. */
 		ini.load( AsciiString( "Data\\INI\\SpecialPowerReforged.ini" ), INI_LOAD_MULTIFILE, &xferCRC );
-		initSubsystem(TheDamageFXStore,"TheDamageFXStore", MSGNEW("GameEngineSubsystem") DamageFXStore(), &xferCRC, NULL, "Data\\INI\\DamageFX.ini");
-		initSubsystem(TheArmorStore,"TheArmorStore", MSGNEW("GameEngineSubsystem") ArmorStore(), &xferCRC, NULL, "Data\\INI\\Armor.ini");
+		initFactionSubsystem(TheDamageFXStore,"TheDamageFXStore", MSGNEW("GameEngineSubsystem") DamageFXStore(), &xferCRC, NULL, "Data\\INI\\DamageFX.ini");
+		initFactionSubsystem(TheArmorStore,"TheArmorStore", MSGNEW("GameEngineSubsystem") ArmorStore(), &xferCRC, NULL, "Data\\INI\\Armor.ini");
 		initSubsystem(TheBuildAssistant,"TheBuildAssistant", MSGNEW("GameEngineSubsystem") BuildAssistant, NULL);
 
 
@@ -1156,7 +1209,7 @@ void GameEngine::init( int argc, char *argv[] )
 
 
 
-		initSubsystem(TheThingFactory,"TheThingFactory", createThingFactory(), &xferCRC, "Data\\INI\\Default\\Object.ini", NULL, "Data\\INI\\Object");
+		initFactionSubsystem(TheThingFactory,"TheThingFactory", createThingFactory(), &xferCRC, "Data\\INI\\Default\\Object.ini", NULL, "Data\\INI\\Object");
 		/* The fork's balance, written over EA's numbers after every object, weapon and armor exists.
 			 MULTIFILE edits a template in place and leaves every field the file does not name as EA
 			 wrote it, so the file holds the changes and nothing else; an Armor block still replaces
@@ -1174,7 +1227,7 @@ void GameEngine::init( int argc, char *argv[] )
 	#endif/////////////////////////////////////////////////////////////////////////////////////////////
     
     
-		initSubsystem(TheUpgradeCenter,"TheUpgradeCenter", MSGNEW("GameEngineSubsystem") UpgradeCenter, &xferCRC, "Data\\INI\\Default\\Upgrade.ini", "Data\\INI\\Upgrade.ini");
+		initFactionSubsystem(TheUpgradeCenter,"TheUpgradeCenter", MSGNEW("GameEngineSubsystem") UpgradeCenter, &xferCRC, "Data\\INI\\Default\\Upgrade.ini", "Data\\INI\\Upgrade.ini");
 		// An upgrade parsed again is edited in place, so this file names only what changes
 		ini.load( AsciiString( "Data\\INI\\UpgradeReforged.ini" ), INI_LOAD_MULTIFILE, &xferCRC );
 		initSubsystem(TheGameClient,"TheGameClient", createGameClient(), NULL);
@@ -1189,6 +1242,11 @@ void GameEngine::init( int argc, char *argv[] )
 
 	
 		initSubsystem(TheAI,"TheAI", MSGNEW("GameEngineSubsystem") AI(), &xferCRC,  "Data\\INI\\Default\\AIData.ini", "Data\\INI\\AIData.ini");
+		/* -modfactions: each mod's sides' build lists and skill sets, under "M<n>~<side>".  Unlike the
+			 other faction files this one reads the mod's Default\ copy too: ShockWave and The End of Days
+			 keep their whole AIData there, as retail does, and End of Days' AIData.ini is an empty block. */
+		INI::loadModPasses( "Data\\INI\\Default\\AIData.ini", &xferCRC );
+		INI::loadModPasses( "Data\\INI\\AIData.ini", &xferCRC );
 		initSubsystem(TheGameLogic,"TheGameLogic", createGameLogic(), NULL);
 		initSubsystem(TheTeamFactory,"TheTeamFactory", MSGNEW("GameEngineSubsystem") TeamFactory(), NULL);
 		initSubsystem(TheCrateSystem,"TheCrateSystem", MSGNEW("GameEngineSubsystem") CrateSystem(), &xferCRC, "Data\\INI\\Default\\Crate.ini", "Data\\INI\\Crate.ini");
@@ -1209,9 +1267,7 @@ void GameEngine::init( int argc, char *argv[] )
 
 		AsciiString fname;
 		fname.format("Data\\%s\\CommandMap.ini", GetRegistryLanguage().str());
-		initSubsystem(TheMetaMap,"TheMetaMap", MSGNEW("GameEngineSubsystem") MetaMap(), NULL, fname.str(), "Data\\INI\\CommandMapReforged.ini");
-		// Classic answers to the game's own map and to nothing this fork binds
-		TheMetaMap->loadClassicBindings(fname);
+		initSubsystem(TheMetaMap,"TheMetaMap", MSGNEW("GameEngineSubsystem") MetaMap(), NULL, fname.str(), NULL);
 
 #if defined(_DEBUG) || defined(_INTERNAL)
 		ini.load("Data\\INI\\CommandMapDebug.ini", INI_LOAD_MULTIFILE, NULL);
@@ -1220,6 +1276,28 @@ void GameEngine::init( int argc, char *argv[] )
 #if defined(_ALLOW_DEBUG_CHEATS_IN_RELEASE)
 		ini.load("Data\\INI\\CommandMapDemo.ini", INI_LOAD_MULTIFILE, NULL);
 #endif
+
+		// The player's own keys, which the launcher's Hotkeys page writes beside Options.ini:
+		// CommandMap blocks laid over the ones above, and CommandButtonHotKey blocks for the command
+		// bar.  Client only and never in the INI CRC, so a key here changes nothing for anyone else in
+		// a match.  The file is the player's to edit by hand, and a broken one costs the keys from the
+		// broken block on, not the start.
+		{
+			AsciiString hotkeys = TheGlobalData->getPath_UserData();
+			hotkeys.concat( "Hotkeys.ini" );
+			if( TheFileSystem->doesFileExist( hotkeys.str() ) )
+			{
+				try
+				{
+					ini.load( hotkeys, INI_LOAD_MULTIFILE, NULL );
+					DEBUG_LOG(( "HOTKEYS: read %s\n", hotkeys.str() ));
+				}
+				catch( ... )
+				{
+					DEBUG_LOG(( "HOTKEYS: %s stopped at a block it could not read; the keys before it stand\n", hotkeys.str() ));
+				}
+			}
+		}
 
 		initSubsystem(TheActionManager,"TheActionManager", MSGNEW("GameEngineSubsystem") ActionManager(), NULL);
 		//initSubsystem((CComObject<WebBrowser> *)TheWebBrowser,"(CComObject<WebBrowser> *)TheWebBrowser", (CComObject<WebBrowser> *)createWebBrowser(), NULL);
@@ -1240,8 +1318,8 @@ void GameEngine::init( int argc, char *argv[] )
 
 		// the control bar parses these without the checksum, and the AI builds and hunts from them
 		checksumFileContents( xferCRC, "Data\\INI\\Default\\CommandButton.ini" );
-		checksumFileContents( xferCRC, "Data\\INI\\CommandButton.ini" );
-		checksumFileContents( xferCRC, "Data\\INI\\CommandSet.ini" );
+		checksumFactionFile( xferCRC, "Data\\INI\\CommandButton.ini" );
+		checksumFactionFile( xferCRC, "Data\\INI\\CommandSet.ini" );
 		checksumFileContents( xferCRC, "Data\\INI\\CommandSetReforged.ini" );
 		checksumModels( xferCRC );
 
@@ -1667,8 +1745,6 @@ extern Real TheSceneDrawMS;				///< ...of which the 3D world
 extern Real TheUIDrawMS;					///< ...and the interface over it
 extern Real TheUIPostDrawMS;			///< ...of which the overlays and the HUD strips
 extern Real TheWindowRepaintMS;		///< ...and the window system's repaint
-extern Real TheStripGatherMS;			///< ...of the overlays, the production strip's sweep
-extern Real TheStripDrawMS;				///< ...and the production strip's own drawing
 extern Real TheParticleUpdateMS;		///< GameClient.cpp: the three places particles cost
 extern Real TheParticleFillMS;
 extern Real TheTranslucentMS;
@@ -2292,7 +2368,7 @@ static void updateAutoCamera( void )
  */
 const char *GameEngine_headlessRunResult( UnsignedInt frame, UnsignedInt victoryEndFrame, Int maxGameFrames )
 {
-	const UnsignedInt SETTLE_FRAMES = 30;
+	const UnsignedInt SETTLE_FRAMES = LOGICFRAMES_PER_SECOND;
 	if (victoryEndFrame > SETTLE_FRAMES)
 		return "decided";
 	if (maxGameFrames > 0 && frame >= (UnsignedInt)maxGameFrames)
@@ -2499,6 +2575,32 @@ static void updateHeadlessRun( void )
 		}
 	}
 
+	// -modfactions: whose objects each side is made of, ten seconds in
+	if (TheGlobalData->m_modFactions && frame == 300)
+	{
+		Int total[ MAX_PLAYER_COUNT ] = { 0 }, namespaced[ MAX_PLAYER_COUNT ] = { 0 };
+		AsciiString example[ MAX_PLAYER_COUNT ];
+		for (Object *obj = TheGameLogic->getFirstObject(); obj != NULL; obj = obj->getNextObject())
+		{
+			const Int index = obj->getControllingPlayer()->getPlayerIndex();
+			++total[ index ];
+			if (strchr( obj->getTemplate()->getName().str(), '~' ) != NULL)
+			{
+				++namespaced[ index ];
+				if (example[ index ].isEmpty())
+					example[ index ] = obj->getTemplate()->getName();
+			}
+		}
+		for (Int i = 0; i < ThePlayerList->getPlayerCount() && i < MAX_PLAYER_COUNT; ++i)
+		{
+			Player *p = ThePlayerList->getNthPlayer( i );
+			if (!p->isPlayableSide() || p->isPlayerObserver())
+				continue;
+			DEBUG_LOG(("MODNS frame %d player %d plays %s: %d objects, %d of them a mod's, e.g. %s\n", frame, i,
+								 p->getPlayerTemplate()->getName().str(), total[ i ], namespaced[ i ], example[ i ].str()));
+		}
+	}
+
 	/* A -video range that runs up to or past -maxframes keeps the run alive until its last picture is
 		 drawn, which happens on the pass after the logic reaches that frame. */
 	Int maxGameFrames = TheGlobalData->m_maxGameFrames;
@@ -2519,7 +2621,7 @@ static void updateHeadlessRun( void )
 		 frames after it is decided and drops to the shell, which would leave without these lines.  The
 		 decision's own CRC is logged on its frame, the one the scouting pass closed on. */
 	static UnsignedInt filmDecidedOn = 0;
-	const UnsignedInt FILM_PAST_DECISION_FRAMES = 105;
+	const UnsignedInt FILM_PAST_DECISION_FRAMES = ConvertRetailFrames( 105u );
 	if (TheGlobalData->m_directorRecord && strcmp( why, "decided" ) == 0)
 	{
 		if (filmDecidedOn == 0)
@@ -2652,7 +2754,6 @@ void GameEngine::update( void )
 		static UnsignedInt fpsWindowStart = Clock_Milliseconds();
 		static Real fpsRadarTotal = 0.0f, fpsAudioTotal = 0.0f, fpsDrawTotal = 0.0f, fpsDrawMax = 0.0f;
 		static Real fpsSceneTotal = 0.0f, fpsUITotal = 0.0f, fpsPostTotal = 0.0f, fpsWinTotal = 0.0f;
-		static Real fpsStripGatherTotal = 0.0f, fpsStripDrawTotal = 0.0f;
 		static Real fpsShadowTotal = 0.0f, fpsFillTotal = 0.0f, fpsTranslucentTotal = 0.0f;
 		static Real fpsPostChainTotal = 0.0f, fpsIconTotal = 0.0f;
 		static Real fpsSortTotal = 0.0f, fpsCopyTotal = 0.0f, fpsSortDrawTotal = 0.0f;
@@ -2663,7 +2764,6 @@ void GameEngine::update( void )
 		Real clientMS = 0.0f, logicMS = 0.0f, radarMS = 0.0f, audioMS = 0.0f;
 		Int logicTicks = 0;
 		TheClientDrawMS = TheSceneDrawMS = TheUIDrawMS = TheUIPostDrawMS = TheWindowRepaintMS = 0.0f;
-		TheStripGatherMS = TheStripDrawMS = 0.0f;
 		TheParticleUpdateMS = TheParticleFillMS = TheTranslucentMS = 0.0f;
 		TheTranslucentDraws = TheSortingPolygonsRefused = TheParticlesPastGroupLimit = 0;
 		TheShadowMapMS = ThePostChainMS = TheIconDrawMS = 0.0f;
@@ -2741,7 +2841,7 @@ void GameEngine::update( void )
 			 not: its mix moves with the logic frames, not the wall clock (updateSoundCapture).  The five seconds before a -screenshot run at the real rate.  Taken straight out of
 			 fast-forward, a shot differed from its own repeat on 5.6% of the pixels; settled first, on
 			 0.01%, where two paced runs differ on 0.1%. */
-		const Int TURBO_SETTLE_FRAMES = 150;
+		const Int TURBO_SETTLE_FRAMES = 5 * LOGICFRAMES_PER_SECOND;
 		const Int turboFrame = (Int)TheGameLogic->getFrame();
 		const Bool turboSettling = TheGlobalData->m_screenShotFrame > 0
 			&& turboFrame + TURBO_SETTLE_FRAMES >= TheGlobalData->m_screenShotFrame
@@ -2910,8 +3010,6 @@ void GameEngine::update( void )
 		fpsUITotal += TheUIDrawMS;
 		fpsPostTotal += TheUIPostDrawMS;
 		fpsWinTotal += TheWindowRepaintMS;
-		fpsStripGatherTotal += TheStripGatherMS;
-		fpsStripDrawTotal += TheStripDrawMS;
 		fpsShadowTotal += TheShadowMapMS;
 		fpsFillTotal += TheParticleFillMS;
 		fpsTranslucentTotal += TheTranslucentMS;
@@ -2959,7 +3057,7 @@ void GameEngine::update( void )
 					// 'hz' is the rate the simulation actually achieved and 'catchup' how many render
 					// frames were dropped to hold it there; hz short of m_maxFPS with catchup passes
 					// present is the logic side being genuinely over budget, not the pacer.
-					DEBUG_LOG(("FPS %.0f over %dms (%d frames, %d hz, %d catchup, logic frame %d) | client avg %.1f max %.1f (render avg %.1f max %.1f [scene %.1f, ui %.1f (post %.1f [strip gather %.1f, draw %.1f], win %.1f), present %.1f], radar %.1f, audio %.1f, rest %.1f) | logic avg %.1f max %.1f | unaccounted %.1fms\n",
+					DEBUG_LOG(("FPS %.0f over %dms (%d frames, %d hz, %d catchup, logic frame %d) | client avg %.1f max %.1f (render avg %.1f max %.1f [scene %.1f, ui %.1f (post %.1f, win %.1f), present %.1f], radar %.1f, audio %.1f, rest %.1f) | logic avg %.1f max %.1f | unaccounted %.1fms\n",
 										 fps, (Int)windowMS, fpsFrames,
 										 (Int)((Real)fpsLogicTicks * 1000.0f / (Real)windowMS + 0.5f), fpsCatchupPasses,
 										 TheGameLogic->getFrame(),
@@ -2967,7 +3065,6 @@ void GameEngine::update( void )
 										 fpsDrawTotal / fpsFrames, fpsDrawMax,
 										 fpsSceneTotal / fpsFrames, fpsUITotal / fpsFrames,
 										 fpsPostTotal / fpsFrames,
-										 fpsStripGatherTotal / fpsFrames, fpsStripDrawTotal / fpsFrames,
 										 fpsWinTotal / fpsFrames,
 										 ( fpsDrawTotal - fpsSceneTotal - fpsUITotal ) / fpsFrames,
 										 fpsRadarTotal / fpsFrames, fpsAudioTotal / fpsFrames,
@@ -2989,7 +3086,6 @@ void GameEngine::update( void )
 				fpsClientTotal = fpsLogicTotal = 0.0f;
 				fpsRadarTotal = fpsAudioTotal = fpsDrawTotal = fpsDrawMax = 0.0f;
 				fpsSceneTotal = fpsUITotal = fpsPostTotal = fpsWinTotal = 0.0f;
-				fpsStripGatherTotal = fpsStripDrawTotal = 0.0f;
 				fpsShadowTotal = fpsFillTotal = fpsTranslucentTotal = 0.0f;
 				fpsPostChainTotal = fpsIconTotal = 0.0f;
 				fpsSortTotal = fpsCopyTotal = fpsSortDrawTotal = 0.0f;

@@ -181,6 +181,11 @@ public:
 	static void resetFrameProfile( void );
 	static const char *getProfileReport( void );
 
+	/** Empty the unit-against-unit tables from the last match and, when a skirmish AI plays this one,
+		* fill them for every unit the sides in it can build, so the first team choice does not pay for
+		* them mid-match.  Called by GameLogic::startNewGame once the map's INI and the players are in. */
+	static void prepareMatchupTables( void );
+
 	/** Base building is the expensive job once the expansion convoy is out of the way, and it is a
 		* loop over the build list that calls several searches per entry. These name which one.
 		* AISkirmishPlayer overrides processBaseBuilding, so both copies are instrumented and the
@@ -361,6 +366,7 @@ protected:
 	UnsignedInt	m_incomeMarkFrame;			///< ... and the frame, 0 for never
 	Int					m_bankMark;							///< ... and the bank then
 	Real				m_incomePerSecond;			///< smoothed over the windows measured so far
+	Int					m_startFortune;					///< what the match started with over the default starting cash, 0 at the default
 	Bool purchaseAllowed(Int key, Int cost, AIPurchaseKind kind, Bool startable, const AsciiString &what);
 	void purchased(Int key, Int cost, AIPurchaseKind kind, const AsciiString &what);
 	Bool buyUnit(ProductionUpdateInterface *pu, const ThingTemplate *unit, AIPurchaseKind kind);	///< queueCreateUnit through the queue
@@ -407,7 +413,7 @@ protected:
 	void steerHealer(Int slot, const std::vector<AIKnownGun> &guns);	///< a healer over our hurt behind the line, clear of every known gun
 	void flyRaid(Int slot, const std::vector<AIKnownGun> &guns);	///< a raider's bomb run on an enemy building, in and out the quiet side
 	Bool pickRaidTarget(const Object *raider, const std::vector<AIKnownGun> &guns, Object **target, Coord3D *entry, Int *gunsOnRun) const;
-	Coord3D rearOf(const Coord3D *from, const std::vector<AIKnownGun> &guns) const;	///< the nearest point toward home no known gun reaches
+	Coord3D rearOf(const Coord3D *from, const std::vector<AIKnownGun> &guns, Real margin) const;	///< the nearest point toward home no known gun reaches by margin
 	Bool isGunshipRider(const Object *obj) const;	///< infantry loadGunships may put in a transport
 	void sendIdleAttackTeams(void);	///< attack teams standing at home join the next wave instead of waiting for the script's signal
 	Real addHomeStrays(AIGroup *wave) const;	///< the default team's fighters idle at home go with the wave
@@ -441,7 +447,8 @@ protected:
  	/** These two read another player's estate.  observerNdx is who is allowed to know: pass a
  		* player index and only what that player can see (or, for a building, has ever seen) is
  		* counted; -1 keeps the omniscient answer for a caller that is not a player's own thinking. */
- 	static Int getPlayerSuperweaponValue( Coord3D *center, Int playerNdx, Real radius, Bool includeMilitaryUnits = TRUE, Int observerNdx = -1 );
+ 	static Int getPlayerSuperweaponValue( Coord3D *center, Int playerNdx, Real radius, Bool includeMilitaryUnits = TRUE, Int observerNdx = -1,
+																				Real economyWeight = 0.0f );
 // End of aiplayer interface. 
 
 protected:
@@ -501,6 +508,7 @@ protected:
 
 	/// what a superweapon aimed here is worth, with the shots already on their way taken off
 	Int superweaponScore( Coord3D *center, Int playerNdx, Real radius, Bool targetMilitaryUnits );
+	Real strikeEconomyWeight( void );	///< the rung's m_strikeEconomyWeight for a skirmish AI, 0 for a campaign one
 	void noteSuperweaponAim( const Coord3D *pos );	///< remember a spot, so the next shot goes elsewhere
 
 protected:
@@ -568,6 +576,8 @@ protected:
 		Coord3D			seen;				///< for the log only, not saved: where it stood on the last pass
 		Real				seenHealth;	///< for the log only, not saved: its health share on the last pass
 		Real				seenReach;	///< for the log only, not saved: how deep inside a known gun's reach it stood, negative when clear
+		Int					pullbacks;	///< for the log only, not saved: pull-back orders this one was given
+		Int					holds;			///< for the log only, not saved: looks it wanted to pull back and found no clearer ground
 	};
 	enum { MAX_DUTY_AMBULANCES = 2 };
 	DutyAmbulance	m_ambulance[ MAX_DUTY_AMBULANCES ];
