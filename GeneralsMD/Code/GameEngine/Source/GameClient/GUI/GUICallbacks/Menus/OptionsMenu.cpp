@@ -1058,6 +1058,15 @@ static void fillCatalogWidgets( void )
 		if( widget == NULL )
 			continue;
 
+#ifdef _WIN32
+        // Modern water is provided by the SDL renderer; Windows keeps its existing water.
+        if (strcmp(def.iniKey, "WaterStyle") == 0) {
+            widget->winHide(TRUE);
+            GameWindow *label=TheWindowManager->winGetWindowFromId(NULL,NAMEKEY("OptionsMenu.wnd:LabelWaterStyle"));
+            if (label) label->winHide(TRUE);
+            continue;
+        }
+#endif
 		const Int value = clampOptionValue( def, def.get() );
 
 		switch( def.kind )

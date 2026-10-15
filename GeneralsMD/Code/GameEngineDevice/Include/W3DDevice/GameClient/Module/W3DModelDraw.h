@@ -385,6 +385,10 @@ public:
 	virtual void smoothMotionCapture(UnsignedInt clientFrame, Bool marked);
 	virtual void smoothMotionApply(Real alpha);
 	virtual void smoothMotionRestore();
+	// Read-only time of the displayed transform, for client effects that estimate motion.
+	Real clientOnly_getRenderMotionSamplePhase() const {
+		return m_smoothMotion.Applied && m_smoothMotion.Model == m_renderObject ? TheSmoothMotionAlpha : 1.0f;
+	}
 
 	// this method must ONLY be called from the client, NEVER From the logic, not even indirectly.
 	virtual Bool clientOnly_getRenderObjInfo(Coord3D* pos, Real* boundingSphereRadius, Matrix3D* transform) const;

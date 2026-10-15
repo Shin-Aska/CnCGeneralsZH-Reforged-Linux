@@ -32,6 +32,7 @@
 #include "zhio.h"
 #include "Common/MessageBoxFlags.h"	// MessageBoxWrapper and its flags
 #include "Platform/SleepMilliseconds.h"
+#include "Platform/WaterCaptureClock.h"
 #if !defined(_WIN32)
 #include <unistd.h>		// getpid, for the model-checksum cache's scratch file
 #endif
@@ -1621,7 +1622,14 @@ Real GameEngine_logicTickFraction( void )
 		return 1.0f;
 	const Real ms = (Real)(Clock_Ticks() - s_lastLogicTickTicks) * 1000.0f / (Real)Clock_Ticks_Per_Second();
 	const Real fraction = ms / s_msPerLogicTick;
-	return fraction < 0.0f ? 0.0f : (fraction > 1.0f ? 1.0f : fraction);
+	const Real ordinary=fraction < 0.0f ? 0.0f : (fraction > 1.0f ? 1.0f : fraction);
+	// The same capture predicate as water: single-picture pre-roll must not capture a
+	// wall-time-dependent intermediate pose. Multi-picture fractions returned above are unchanged.
+	const bool capture=TheGlobalData && TheGameLogic && WaterCaptureClock::Enabled(getenv("ZH_WATER_CAPTURE_CLOCK"),
+		TheGlobalData->m_controlPort,TheGlobalData->m_videoStartFrame,TheGlobalData->m_videoEndFrame,
+		TheGameLogic->isInGame() && !TheGameLogic->isInShellGame(),
+		TheGameLogic->isInMultiplayerGame(),TheGameLogic->isInReplayGame());
+	return WaterCaptureClock::PresentationFraction(capture,pictures,ordinary);
 }
 
 Bool GameEngine_isLogicFrameDue( Real& accumMs, Real elapsedMs, Int logicFps )

@@ -70,7 +70,10 @@ public:
 	/// The program for the description, made the first time it is asked for.  Never null: a refusal
 	/// comes back with a null Shader and its Refusal.
 	const SdlProgram &Vertex_Program(const VertexPipelineDescription &description);
+	/// Water-only GPU displacement, retaining the generated transform/fog/shroud path.
+	const SdlProgram &Water_Vertex_Program(const VertexPipelineDescription &description);
 	const SdlProgram &Pixel_Program(const CombinerDescription &description);
+	const SdlProgram &Shore_Pixel_Program(const CombinerDescription &description);
 	/// One of the engine's own programs (A3e), from D3's transcription (engineshader.cpp), keyed as the
 	/// Direct3D 11 backend keys it: the name, and for a pixel program the alpha test and fog written into
 	/// it.  A refusal for a program with no transcription, or of the other stage.
@@ -105,7 +108,7 @@ private:
 		SdlProgram *Last = NULL;
 		size_t Entries = 0;
 	};
-	ByBytes VertexByBytes, PixelByBytes, EngineVertexByBytes, EnginePixelByBytes;
+	ByBytes VertexByBytes, PixelByBytes, EngineVertexByBytes, EnginePixelByBytes, WaterVertexByBytes, ShorePixelByBytes;
 
 	SDL_GPUDevice *Device;
 	std::map<std::string, SdlProgram> VertexPrograms;

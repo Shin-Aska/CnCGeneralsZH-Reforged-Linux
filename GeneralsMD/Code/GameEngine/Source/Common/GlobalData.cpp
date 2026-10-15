@@ -694,6 +694,7 @@ GlobalData::GlobalData()
 	m_shadowsForParticles = TRUE;	//on by default: the shipped INI has no entry for it
 	m_volumetricSmokeShadows = TRUE;
 	m_smokeFireLighting = TRUE;
+	m_waterStyle = 1;				// keep modern water for existing Options.ini files
 	m_classicGraphics = FALSE;
 	m_shadowMap = TRUE;						//the sun's own shadows are what the game draws with now
 	m_shadowMapOnly = TRUE;				//and they replace the stencil volumes rather than joining them

@@ -36,6 +36,8 @@
 
 #define NO_DEBUG_CRC
 
+#include "Platform/WaterCaptureFixture.h"
+#include <cstdlib>
 #include "Common/crc.h"
 #include "Common/CRCDebug.h"
 #include "Common/GameState.h"
@@ -2338,6 +2340,17 @@ void W3DModelDraw::adjustTransformMtx(Matrix3D& mtx) const
 			}
 		}
 	}
+	// Capture-only model presentation; the drawable/object transform and PT physics stay intact.
+	// Both ordinary draw and transform-change notifications use this same adjusted render matrix,
+	// which is also the pose consumed by water hull extraction and reflected rendering.
+	const Object *fixture = getDrawable()->getObject();
+	if (fixture && fixture->getTemplate() && fixture->getTemplate()->getName() == WaterCaptureFixture::Template
+		&& TheGlobalData && TheGameLogic
+		&& WaterCaptureFixture::Enabled(std::getenv("ZH_WATER_CAPTURE_FIXTURE"), TheGlobalData->m_controlPort,
+			TheGameLogic->isInGame() && !TheGameLogic->isInShellGame(),
+			TheGameLogic->isInMultiplayerGame(), TheGameLogic->isInReplayGame()))
+		WaterCaptureFixture::ApplyRenderTransform(mtx);
+
 }
 
 //-------------------------------------------------------------------------------------------------

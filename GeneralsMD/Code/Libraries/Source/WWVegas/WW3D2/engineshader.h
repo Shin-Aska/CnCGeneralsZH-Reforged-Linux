@@ -70,7 +70,10 @@ enum EngineShaderProgram
 	ENGINE_SHADER_FLAT_TERRAIN_NOISE,
 	ENGINE_SHADER_FLAT_TERRAIN_NOISE_2,
 	ENGINE_SHADER_ROAD_NOISE_2,
-	ENGINE_SHADER_MONOCHROME
+	ENGINE_SHADER_MONOCHROME,
+	// Explicit Classic variants keep the SDL shader cache independent of the selected water style.
+	ENGINE_SHADER_WATER_CLASSIC_TRAPEZOID,
+	ENGINE_SHADER_WATER_CLASSIC_RIVER
 };
 
 // The name the engine loaded the shader under: a path for the ones that ship as files

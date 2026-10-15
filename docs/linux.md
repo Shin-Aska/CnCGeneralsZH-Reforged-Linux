@@ -28,6 +28,21 @@ not tracked by Git, so a fresh clone uses the staged executable directly. The ga
 above open a window for interactive play; the automated checks later in this guide use isolated
 user data and run without a visible window.
 
+## Boundary-aware water
+
+Modern FFT water uses terrain-fitted wave cages at exposed shores. The same incoming FFT
+phases drive the mesh and its lighting; fitted ellipsoids redirect motion along the bank.
+This adapts [Jeschke et al. (2020), Making Procedural Water Waves Boundary-Aware](https://visualcomputing.ist.ac.at/publications/2020/MPWWBa/)
+with equal tangential radii, bounded displacement, and a small material-based contact wash.
+It does not simulate overturning breakers or the paper's spray particles.
+
+Cages are enabled by default for supported projected water. Set `ZH_WATER_WAVE_CAGES=0`
+to compare with the previous shoreline damping. `ZH_WATER_DEBUG=wave-cage` displays support
+in red and the tangential/normal radii in green/blue; `ZH_WATER_DEBUG=cage-wash` displays
+wash coverage, contact proximity, and the incoming crest gate. Rivers, enclosed pools,
+and authored patch seams retain their existing wave treatment. Missing cage resources
+fall back to ordinary terrain damping.
+
 ## VS Code launch setup
 
 The repository includes `.vscode/launch.json`, `.vscode/tasks.json` and an extension recommendation
