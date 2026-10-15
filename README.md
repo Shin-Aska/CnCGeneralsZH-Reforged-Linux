@@ -147,10 +147,12 @@ clone, follow [the setup in the Linux guide](docs/linux.md#vs-code-launch-setup)
 
 To update an existing local install at `~/Games/ZeroHourReforged`, run **Terminal → Run Task →
 Linux: Publish thin executable**. It builds only the Release `generals` target, strips a copy, and
-replaces `~/Games/ZeroHourReforged/bin/generals`. The build executable keeps its debug information;
-the installed overlay, art and game data are not copied or refreshed. This requires an existing
-overlay at `~/Games/ZeroHourReforged/share/zero-hour-reforged/overlay` to play with Reforged's data.
-Changes to INIs, scripts or other overlay files need a separate overlay update.
+publishes it together with the matching small runtime overlay at
+`~/Games/ZeroHourReforged/share/zero-hour-reforged/overlay`. This keeps the executable and Reforged's
+INIs, scripts and menus in sync after an update. The build executable keeps its debug information.
+Existing upscaled art and unrelated overlay files are preserved; the original game archives and
+player saves are not changed. Publishing stages the new files first and reports a recovery folder
+containing the previous executable and replaced overlay files.
 
 For the same publish-only action in **Run and Debug**, select **Zero Hour: Publish thin executable
 (only)** and press **F5**. To publish and launch in one step, select **Zero Hour: Publish and Play

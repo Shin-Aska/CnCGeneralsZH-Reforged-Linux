@@ -28,6 +28,12 @@ found and fixed â€” EA's own, not port damage.**
   darkening-only reflection treatment described below; choose Classic under Water style to
   keep the previous water appearance. Modern is the default on the SDL renderer.
 
+## Linux publishing (2026-10-15)
+
+- Publishing a thin executable now updates the matching menus, rules and scripts too. Updating
+  only the executable could leave required files missing and stop the game with a serious error
+  during startup. Existing upscaled art and player saves are preserved.
+
 The entries below retain the upstream project's feature and platform history.
 
 ## The battle runs at 60 steps a second

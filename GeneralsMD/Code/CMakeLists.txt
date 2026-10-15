@@ -2002,6 +2002,9 @@ if(ZH_PLATFORM_POSIX)
   # its own launcher in the Steam Runtime's platform image.  Skipped (77) without docker, the SDK image, or a
   # portable CMake (ZH_PORTABLE_CMAKE: 3.29 or later, running inside the container - Kitware's release tarball).
   if(ZH_PLATFORM_LINUX)
+    add_test(NAME publish_linux_executable_check
+             COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/Tests/test_publish_linux_executable.sh)
+    set_tests_properties(publish_linux_executable_check PROPERTIES TIMEOUT 60)
     set(ZH_PORTABLE_CMAKE "" CACHE FILEPATH "A Linux CMake (3.29+, Kitware's release) for linux_portable_check's container build (P3)")
     add_test(NAME linux_portable_check
              COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/Tests/test_linux_portable.sh ${CMAKE_BINARY_DIR})
