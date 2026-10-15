@@ -2516,6 +2516,7 @@ endif()
 # ZH_GAME_DATA; without it the test is Skipped (77).
 add_executable(test_bigfilesystem ${TESTS}/test_bigfilesystem.cpp ${TESTS}/test_bigfilesystem_stubs.cpp
   ${ZH_POSIXLFS_SOURCES_NO_MAIN}
+  ${GE}/Source/Common/System/FileSystemPaths.cpp
   ${GE}/Source/Common/System/ArchiveFileSystem.cpp ${GE}/Source/Common/System/ArchiveFile.cpp
   ${GE}/Source/Common/System/StreamingArchiveFile.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/Win32Device/Common/Win32BIGFile.cpp

@@ -512,16 +512,6 @@ AsciiString FileSystem::modLooseFile(const AsciiString& filename, Bool *inModArc
 }
 
 //============================================================================
-// FileSystem::isMapPath
-//============================================================================
-Bool FileSystem::isMapPath(const AsciiString& filename)
-{
-	// A mod's Maps.big carries its own edits of the stock maps under the same names (Contra's Twilight
-	// Flame is not ours), and a lobby has to agree on one file: retail's and the fork's maps win always.
-	return strncasecmp(filename.str(), "maps", 4) == 0 && (filename.str()[4] == '\\' || filename.str()[4] == '/');
-}
-
-//============================================================================
 // FileSystem::isForkOwnedPath
 //============================================================================
 Bool FileSystem::isForkOwnedPath(const AsciiString& filename)

@@ -1048,6 +1048,7 @@ GameEngine/Source/Common/System/DisabledTypes.cpp
 GameEngine/Source/Common/System/ExecutableDirectory.cpp
 GameEngine/Source/Common/System/File.cpp
 GameEngine/Source/Common/System/FileSystem.cpp
+GameEngine/Source/Common/System/FileSystemPaths.cpp
 GameEngine/Source/Common/System/FunctionLexicon.cpp
 GameEngine/Source/Common/System/GameCommon.cpp
 GameEngine/Source/Common/System/GameMemory.cpp
