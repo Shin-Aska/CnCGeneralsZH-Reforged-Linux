@@ -43,6 +43,39 @@ wash coverage, contact proximity, and the incoming crest gate. Rivers, enclosed 
 and authored patch seams retain their existing wave treatment. Missing cage resources
 fall back to ordinary terrain damping.
 
+## Upstream synchronization (2026-10-15)
+
+Merged upstream `e81b9f6a` (v3.0.1, 86 incoming commits) while preserving the Linux
+build fixes and Modern/Classic water. The unified options menu retains the water selector.
+Water capture timing now uses the 60 Hz logic rate; restoring the old division by 30
+makes the new timing regression test fail. The source fingerprint includes the water files.
+
+Upstream v3 rejects saves and replays from earlier versions. Validation used fresh matches;
+existing player saves were left intact. The pre-sync main is retained locally at
+`codex/before-upstream-sync-20261015` (`90cb6ad1`).
+
+Validated on Ubuntu 26.04.1, GCC/G++ 16.0.1 (20260322), RTX 4060, NVIDIA 595.99.02,
+and SDL3 Vulkan. Final code revision: `028f38b1`.
+
+| Check | Result |
+|:--|:--|
+| Full Release build, existing dependencies | Passed |
+| CTest, NVIDIA selected, game-data cache unset | 95 registered: 73 passed, 21 skipped, 1 failed |
+| `ffref_capture_selfcheck` | Existing two-pixel mismatch in draw 1, worst pixel `(33, 20)`; tolerance unchanged |
+| Archive filesystem check with isolated user data and game assets | Passed: 25,293 files compared byte for byte, 2 tests / 10 checks |
+| Two-player AI matches, seeds 0 and 1, 24,000 frames each | Each match, its replay, and a second run agreed; install integrity check passed |
+| Fresh Tournament Island, Modern and Classic water | Both rendered successfully; inspected 1920x1080 stills and 60-frame clips |
+
+The replay and visual checks were captured before the final fingerprint/tooltip-text updates;
+the full CTest run used the final code. CTest skips include asset-dependent, audio and external
+oracle checks; the archive and replay checks above were run separately with assets. Windows,
+macOS, and cross-machine network compatibility were not tested. Both water styles report the
+same single rejected render-target feedback draw already present in the pre-sync capture.
+
+Logs and capture manifests are retained locally under `build-linux/upstream-sync-20261015/`.
+The final executable SHA-256 is
+`ea6325ed15a4729f47ff4606ca4573b064543295df5f8e0fd38e834f3fb24888`.
+
 ## VS Code launch setup
 
 The repository includes `.vscode/launch.json`, `.vscode/tasks.json` and an extension recommendation
