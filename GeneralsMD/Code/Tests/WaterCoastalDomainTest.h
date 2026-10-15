@@ -34,7 +34,7 @@ inline void Graph(const Domain &d){
         const auto &c=d.Cells()[i],&sorted=d.Topology().Cells()[i];
         CHECK(c.sourceIndex==i&&sorted.sourceIndex==i&&WaterShoreHistory::SameKey(c,sorted));
         CHECK(i==0||WaterShoreHistory::Less(d.Cells()[i-1],c));
-        const auto &n=d.Nodes()[i];CHECK(n.context.exposure==1&&n.context.wet==1&&n.context.admitted==1);
+        const auto &n=d.Nodes()[i];CHECK(n.context.exposure>0&&n.context.exposure<=1&&n.context.wet==1&&n.context.admitted==1);
         CHECK(n.world[0]==float(d.Grid().originX+c.x*d.Grid().spacing)&&n.world[1]==float(d.Grid().originY+c.y*d.Grid().spacing)&&n.world[2]==float(c.level));
         CHECK(n.context.analyticDamping==WaterSurfaceModel::TerrainDamping(n.context.depth,n.context.offshore)&&n.context.spectralDamping==WaterFftGeometry::SafeDamping(n.context.analyticDamping,n.context.depth));
     }
@@ -44,20 +44,33 @@ inline void Check(){
     Map ridge(11,11);
     for(int y=3;y<=7;++y)for(int x=3;x<=7;++x)if(x==3||x==7||y==3||y==7)ridge.heights[size_t(y)*11+x]=12;
     if(!ridge.Build())return;Domain kept;CHECK(ridge.Install(kept)==Result::Ready);Graph(kept);
-    const auto leaking=WaterSurfaceModel::SampleOffshore(ridge.field.exposure.data(),11,11,3.5f,5,10);
-    CHECK(leaking.height>.49f&&leaking.height<.51f);
+    const auto enclosed=WaterSurfaceModel::SampleOffshore(ridge.field.exposure.data(),11,11,3.5f,5,10);
+    const auto oceanFacing=WaterSurfaceModel::SampleOffshore(ridge.field.exposure.data(),11,11,2.5f,5,10);
+    CHECK(enclosed.height==0);
+    CHECK(oceanFacing.height>.49f&&oceanFacing.height<.51f);
     CHECK(kept.Topology().Find(7,10,10)<0);
+    CHECK(kept.Topology().Find(5,10,10)>=0);
     CHECK(kept.Topology().Find(4,10,10)>=0);
     for(const auto&c:kept.Cells())CHECK(!(c.x>6&&c.x<14&&c.y>6&&c.y<14));
+    for(const auto&n:kept.Nodes())CHECK(n.context.exposure==WaterSurfaceModel::SampleOffshore(
+        ridge.field.exposure.data(),11,11,n.world[0]/10,n.world[1]/10,10).height);
 
 
     Map gap(11,11);gap.heights[5*11+6]=12;
     gap.polygons={Map::Rect(0,0,43,100,10),Map::Rect(44,20,76,80,10)};if(!gap.Build())return;Domain separated;
-    CHECK(gap.field.exposure[4*11+5]==255);
+    CHECK(gap.field.exposure[4*11+5]==0);
+    for(int y=2;y<=8;++y)for(int x=5;x<=7;++x)
+        if(gap.heights[size_t(y)*11+x]<gap.level)CHECK(gap.field.exposure[size_t(y)*11+x]==0);
     CHECK(gap.Install(separated)==Result::Ready);Graph(separated);
     CHECK(separated.Topology().Find(10,8,10)<0);
     CHECK(separated.Topology().Find(8,8,10)>=0);
     for(const auto&n:separated.Nodes())CHECK(n.world[0]<=43);
+    // The union must connect when two polygons overlap BETWEEN native samples:
+    // neither polygon alone covers the complete native edge from x=40 to x=50.
+    gap.polygons={Map::Rect(0,0,46,100,10),Map::Rect(45,20,76,80,10)};
+    if(!gap.Build())return;Domain joined;CHECK(gap.field.exposure[4*11+5]==255);
+    CHECK(gap.Install(joined)==Result::Ready);Graph(joined);
+    CHECK(joined.Topology().Find(10,8,10)>=0);
 
 
     Map island(17,17);island.level=20;island.Full();

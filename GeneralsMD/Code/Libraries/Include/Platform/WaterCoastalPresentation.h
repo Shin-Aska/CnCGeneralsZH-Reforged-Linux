@@ -37,8 +37,8 @@ float2 waterCoastalAtTime(float2 moments,float elapsed) {
 float waterCoastalModelGate(float actual,float canonical,float correction,float2 correctionSlope) {
     if(!all(isfinite(float4(actual,canonical,correction,0)))||!all(isfinite(correctionSlope))
         ||actual<0||actual>1||canonical<0||canonical>1)return 0;
-    // The canonical field is camera independent; the vertex metadata includes the
-    // actual patch/camera FFT fade. Zero-R analytic shore remains a valid endpoint.
+    // Canonical exposure is camera independent; the vertex metadata includes the
+    // actual patch/camera FFT fade. Optical R does not select the wave family.
     // Corrections are representation deltas, not a new breaking-wave source.
     return (1-smoothstep(.015,.06,abs(actual-canonical)))
         *(1-smoothstep(.02,.15,abs(correction)))*(1-smoothstep(.002,.02,length(correctionSlope)));

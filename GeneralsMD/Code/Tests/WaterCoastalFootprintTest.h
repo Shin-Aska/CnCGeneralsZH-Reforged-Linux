@@ -23,7 +23,7 @@ inline void Check(){
     // The centre-only lookup at (43,41) keeps original weight .4. Linear sampling
     // at (44.25,41) then borrows .375*.4=.15 across the gap into the rejected pool.
     const double oldBorrow=((1-.6)*(1-.2)+(1-.6)*.2)*.375;
-    CHECK(std::abs(oldBorrow-.15)<1e-14&&gap.field.exposure[4*11+5]==255);
+    CHECK(std::abs(oldBorrow-.15)<1e-14&&gap.field.exposure[4*11+5]==0);
     std::vector<Lookup> output;
     CHECK(WaterCoastalView::Build(domain,{20,30,48,20,24,10},10,output));CHECK(output.size()==240);
     if(output.size()!=240)return;

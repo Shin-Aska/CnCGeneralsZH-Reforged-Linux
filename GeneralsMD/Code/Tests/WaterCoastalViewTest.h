@@ -45,7 +45,7 @@ inline void GapAndSaddle(){
     Map map(11,11);map.heights[5*11+6]=12;
     map.polygons={Map::Rect(0,0,43,100,10),Map::Rect(44,20,76,80,10)};
     if(!map.Build())return;Domain domain;CHECK(map.Install(domain)==Result::Ready);
-    CHECK(map.field.exposure[4*11+5]==255); // old coarse exposure crosses the gap
+    CHECK(map.field.exposure[4*11+5]==0); // optical connectivity also respects the authored gap
     CHECK(domain.Topology().Find(8,8,10)>=0&&domain.Topology().Find(9,8,10)<0);
     std::vector<Lookup> lookup;
     // In connected polygon: retain its original half-weight, never normalize to one.

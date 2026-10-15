@@ -4484,7 +4484,10 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 					Real(bow.centre.x)/MAP_XY_FACTOR+m_modernHeightBorder,Real(bow.centre.y)/MAP_XY_FACTOR+m_modernHeightBorder,MAP_XY_FACTOR);
 				Real terrainDepth=0;
 				const Real damping=modernWaterDamping(Real(bow.centre.x),Real(bow.centre.y),points[0].Z,offshore.height,NULL,&terrainDepth);
-				const Real amplitude=fftSeam.Weight(bow.centre,offshore.height)*WaterFftGeometry::SafeDamping(damping,terrainDepth);
+				const Real exposure=WaterSurfaceModel::SampleOffshore(oceanContext->shoreContext.exposure.data(),
+					m_modernHeightWidth,m_modernHeightHeight,Real(bow.centre.x)/MAP_XY_FACTOR+m_modernHeightBorder,
+					Real(bow.centre.y)/MAP_XY_FACTOR+m_modernHeightBorder,MAP_XY_FACTOR).height;
+				const Real amplitude=fftSeam.Weight(bow.centre,exposure)*WaterFftGeometry::SafeDamping(damping,terrainDepth);
 				return WaterBowRefinement::PrepareBow(bow,bowView,prepared,amplitude);
 			};
 			std::vector<size_t> hullOrder;hullOrder.reserve(m_modernHulls.size());
@@ -4551,6 +4554,9 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 					Real terrainDepth=0,hullFreeDamping=0;
 					sample.damping=modernWaterDamping(p.x,p.y,p.z,offshore.height,&sample.obstacle,&terrainDepth,&hullFreeDamping);
 					sample.offshore=offshore.height;
+					sample.exposure=WaterSurfaceModel::SampleOffshore(oceanContext->shoreContext.exposure.data(),
+						m_modernHeightWidth,m_modernHeightHeight,p.x/MAP_XY_FACTOR+m_modernHeightBorder,
+						p.y/MAP_XY_FACTOR+m_modernHeightBorder,MAP_XY_FACTOR).height;
 					sample.fftDamping=WaterFftGeometry::SafeDamping(hullFreeDamping,terrainDepth);
 					if (sampled) { const double now=modernWaterProfileMilliseconds();m_modernProfile.dampingSample+=now-stamp;stamp=now; }
 					sample.height=sample.damping>0 ? WaterSurfaceModel::EvaluateBlendedHeight(p.x,p.y,m_modernWaveTime,offshore)*sample.damping:0;
@@ -4565,7 +4571,9 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 				// The native FFT stages apply exact hull damping to this hull-free floor/obstacle
 				// envelope. Interpolating the hull envelope itself produces triangular normals.
 				// CPU fallback height and authored edges retain the original combined damping.
-				result.nx=boundarySample?0.0f:fftSeam.Weight({p.x,p.y},sample.offshore);
+				// Connected coastal water shares the ocean's spectral phases. Optical R
+				// still controls colour and horizontal chop, not the wave family.
+				result.nx=boundarySample?0.0f:fftSeam.Weight({p.x,p.y},sample.exposure);
 				result.ny=sample.fftDamping;result.nz=sample.offshore;
 				result.u1=0;result.v1=p.y/150.0f;result.u2=sample.damping;result.v2=p.z;
 				result.diffuse=WaterSurfaceModel::EncodeObstacleAttenuation(diffuse,sample.obstacle);return result;

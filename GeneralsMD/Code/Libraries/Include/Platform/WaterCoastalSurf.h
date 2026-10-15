@@ -38,7 +38,7 @@ inline bool Finite(const Context &c){return std::isfinite(c.depth)&&std::isfinit
     &&c.spectralDamping>=0&&c.spectralDamping<=1&&c.wet>=0&&c.wet<=1&&c.admitted>=0&&c.admitted<=1;}
 inline bool Finite(const State &s){return std::isfinite(s.density)&&std::isfinite(s.ageMoment)&&std::isfinite(s.height)&&std::isfinite(s.rate)
     &&s.density>=0&&s.density<=16&&s.ageMoment>=0&&s.ageMoment<=1024&&std::abs(s.height)<=64&&s.rate>=-1&&s.rate<=MaximumRate;}
-// Incident-component indicators at fixed blend weight, deliberately excluding grad(R).
+// Incident-component indicators at fixed blend weight, excluding its gradient.
 // This is not the final mixed geometric normal/Jacobian: a static coastal transition
 // must not create a breaker from two different but spatially constant input heights.
 inline Field Blend(const Field &analytic,const Field &spectral,float weight){
@@ -71,7 +71,7 @@ inline float Rate(const Context &c,const Field &f,const State &previous,double e
     const float heightBreak=Smooth(.4f,.85f,2*f.height/(std::max)(c.depth+.5f,1.0f));
     const float compressionBreak=Smooth(.04f,.30f,1-f.compression);
     const float breaking=(std::max)(heightBreak,compressionBreak);
-    const float damping=Clamp(c.analyticDamping+(c.spectralDamping-c.analyticDamping)*Clamp(c.offshore,0,1),0,1);
+    const float damping=Clamp(c.analyticDamping+(c.spectralDamping-c.analyticDamping)*Clamp(c.exposure,0,1),0,1);
     // Dissipation is already implied by the actual shallow-water damping. No constant
     // source floor, camera derivative, artificial crest, or fine-ripple trigger is added.
     const float lostEnergy=1-damping*damping;
@@ -208,7 +208,7 @@ float4 waterSurfIncident(FftMapSamples samples) {
 inline const char *Source(){return R"HLSL(
 struct WaterSurfContext {float4 coast;float4 surface;float4 admission;};
 // coast=(depth,physicalDistance,outwardX,outwardY)
-// surface=(exposure,offshore,analyticDamping,spectralDamping)
+// surface=(exposure/spectral support,optical offshore,analyticDamping,spectralDamping)
 // admission=(wet,admitted,0,0); optical A is deliberately absent.
 bool waterSurfContextFinite(WaterSurfContext c){return all(isfinite(c.coast))&&all(isfinite(c.surface))&&all(isfinite(c.admission))
     &&all(abs(c.coast.xy)<=1048576)&&all(abs(c.coast.zw)<=1024)&&all(c.surface>=0)&&all(c.surface<=1)
@@ -231,7 +231,7 @@ float waterSurfRate(WaterSurfContext c,float4 field,float4 previous,float dt){
     float ht=(field.x-previous.z)/dt;if(!isfinite(ht)||!(ht>0))return 0;
     float incoming=smoothstep(0,.25,dot(field.yz/slope,c.coast.zw/n));
     float breaking=max(smoothstep(.4,.85,2*field.x/max(c.coast.x+.5,1)),smoothstep(.04,.30,1-field.w));
-    float damping=saturate(lerp(c.surface.z,c.surface.w,saturate(c.surface.y)));
+    float damping=saturate(lerp(c.surface.z,c.surface.w,saturate(c.surface.x)));
     return 1.2*domain*incoming*breaking*(1-damping*damping)*smoothstep(0,.5,field.x)*smoothstep(0,.08,ht);
 }
 float3 waterSurfIntegrals(float x){

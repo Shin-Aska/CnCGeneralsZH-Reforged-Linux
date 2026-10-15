@@ -86,7 +86,7 @@ public:
             const auto &f=*entry.field;
             // Full wet connectivity precedes shallow/distance pruning: an island coast
             // remains exposed when its only path to the playable boundary is deep ocean.
-            // Memory is reused one level at a time; no optical exposure bit is trusted.
+            // Memory is reused one level at a time; optical exposure cannot establish connectivity.
             std::vector<uint8_t> wet(wetCount,0),columnWet(size_t(nx),0);
             for(int y=0;y<ny;++y) {
                 if(!spend(lineWork+size_t(nx)*(1+2*coveredWork)))return Result::Invalid;
@@ -142,13 +142,17 @@ public:
                 const float physical=distance.height*WaterOpticalContext::PhysicalShoreRange;
                 if(physical>WaterCoastalSurf::PhysicalCoastEnd+spacing+WaterOpticalContext::PhysicalShoreRange/510)continue;
                 const auto ocean=WaterSurfaceModel::SampleOffshore(f.ocean.data(),width,height,gx,gy,float(spacing));
+                const auto exposure=WaterSurfaceModel::SampleOffshore(f.exposure.data(),width,height,gx,gy,float(spacing));
+                // Physical connectivity above remains mandatory. Within that domain,
+                // match the actual spectral support used by geometry and presentation.
+                if(exposure.height<=0)continue;
                 WaterCoastalSurf::Node node;
                 node.world[0]=float(fine.grid.originX+x*fine.grid.spacing);
                 node.world[1]=float(fine.grid.originY+y*fine.grid.spacing);node.world[2]=float(entry.level);
                 auto &c=node.context;c.depth=depth;c.distance=physical;
                 c.outwardX=distance.dx*WaterOpticalContext::PhysicalShoreRange;
                 c.outwardY=distance.dy*WaterOpticalContext::PhysicalShoreRange;
-                c.exposure=1;c.offshore=ocean.height;
+                c.exposure=exposure.height;c.offshore=ocean.height;
                 c.analyticDamping=WaterSurfaceModel::TerrainDamping(depth,ocean.height);
                 c.spectralDamping=WaterFftGeometry::SafeDamping(c.analyticDamping,depth);
                 c.wet=c.admitted=1;

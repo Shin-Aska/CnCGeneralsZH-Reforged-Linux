@@ -14,34 +14,10 @@ struct SampleContext {
     std::array<float,WaterShoreFoam::ModeCount> sine{},cosine{};
 };
 struct Context : SampleContext {std::array<SampleContext,4> quadrature;};
-using Interval=std::pair<double,double>;
+using Interval=WaterOpticalContext::Interval;
 // Exact scanline union, including authored edges. Every accepted diffusion segment
 // lies entirely inside a union interval, rather than testing only its endpoints.
-inline std::vector<Interval> Intervals(const std::vector<WaterOpticalContext::Polygon>&polygons,
-                                      double level,double line,bool horizontal) {
-    std::vector<Interval> spans;std::vector<double> crossings;
-    for(const auto&polygon:polygons) {
-        if(polygon.points.size()<3)continue;
-        bool same=true;for(const auto&p:polygon.points)same=same&&std::abs(double(p.z)-level)<.01;
-        if(!same)continue;
-        crossings.clear();
-        for(size_t i=0,j=polygon.points.size()-1;i<polygon.points.size();j=i++) {
-            const auto&a=polygon.points[i];const auto&b=polygon.points[j];
-            const double ax=horizontal?a.x:a.y,ay=horizontal?a.y:a.x;
-            const double bx=horizontal?b.x:b.y,by=horizontal?b.y:b.x;
-            if((ay>line)!=(by>line))crossings.push_back(ax+(line-ay)*(bx-ax)/(by-ay));
-            if(ay==line){spans.push_back({ax,ax});if(by==line)spans.push_back({(std::min)(ax,bx),(std::max)(ax,bx)});}
-        }
-        std::sort(crossings.begin(),crossings.end());
-        for(size_t i=0;i+1<crossings.size();i+=2)spans.push_back({crossings[i],crossings[i+1]});
-    }
-    std::sort(spans.begin(),spans.end());std::vector<Interval> result;
-    for(auto span:spans) {
-        if(result.empty()||span.first>result.back().second)result.push_back(span);
-        else result.back().second=(std::max)(result.back().second,span.second);
-    }
-    return result;
-}
+using WaterOpticalContext::Intervals;
 inline bool Covered(const std::vector<Interval>&spans,double a,double b) {
     const auto at=std::upper_bound(spans.begin(),spans.end(),a,
         [](double x,const Interval&i){return x<i.first;});

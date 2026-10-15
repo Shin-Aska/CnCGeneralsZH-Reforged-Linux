@@ -60,15 +60,20 @@ float4 main(float4 pixel:SV_Position):SV_Target0 {
     context.admission=IncidentTexture3.SampleLevel(IncidentSampler3,uv,0);
     if(!all(isfinite(world))||!waterSurfContextFinite(context)||context.admission.x<.5
         ||context.admission.y<.5||context.surface.x<=0||context.coast.x<=.15)return float4(0,0,0,1);
-    float weight=context.surface.y;
+    float offshore=context.surface.y,weight=context.surface.x;
     // Exactly the existing selected analytic components; the ocean helper retains
-    // its original warp and packet envelope. No second TimeScale, grad(R), damping
-    // derivative, vessel pressure or decorative swell enters this incident source.
+    // its original warp and packet envelope. Exposed shallow water shares the FFT
+    // phase even at zero optical R. No second TimeScale, blend-weight gradient,
+    // damping derivative, vessel pressure or decorative swell enters this source.
     float3 legacy=waterShoreWave(world.xy,Parameters.x).xyz;
     float4 oceanSwell;waterOceanSurface(world.xy,Parameters.x,oceanSwell);
-    float4 analytic=float4(lerp(legacy,oceanSwell.xyz,weight),1);
+    float4 analytic=float4(lerp(legacy,oceanSwell.xyz,offshore),1);
     float4 spectral=waterSurfIncident(fftMapSamples(world.xy,float3(0,0,0)));
-    return waterSurfBlend(analytic,spectral,weight);
+    float4 incident=waterSurfBlend(analytic,spectral,weight);
+    // Horizontal chop still fades with optical R; a zero-chop shore must not
+    // acquire a compression breaker just because its vertical wave is spectral.
+    incident.w=lerp(1.0,spectral.w,saturate(weight*offshore));
+    return incident;
 }
 )HLSL";
     result.swap(source);return true;

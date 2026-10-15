@@ -885,7 +885,8 @@ float4 main(Input input) : SV_Target
     float offshore = opticalContext.r * OpticalParameters.z * (1.0 - WaterParameters.y);
     // The mesh and this derivative share every mode, phase, dispersion and crest harmonic.
     // Interpolated attenuation includes shores/structures, and its product derivative is retained.
-    float3 legacyWave = waterWave(wavePosition, time);
+    float2 shoreRippleSlope;
+    float3 legacyWave = waterWave(wavePosition, time, shoreRippleSlope);
     float4 oceanSwell;
     float4 oceanSurface = waterOceanSurface(wavePosition, time, oceanSwell);
     float3 oceanWave = oceanSurface.xyz;
@@ -895,14 +896,19 @@ float4 main(Input input) : SV_Target
     if(bowLift) hlsl+=R"HLSL(float3 bowLiftField=0;float3 fftDampingField=float3(0,0,0);float2 fftWeightSlope=0;)HLSL";
     else hlsl+=R"HLSL(float3 fftDampingField=float3(0,0,0);float2 fftWeightSlope=0;)HLSL";
     hlsl+=R"HLSL(
+    float fftHorizontalWeight=0.0;
+    float2 fftHorizontalWeightSlope=0;
     if(FftParameters.x>0.5) {
         float freeDamping=saturate(input.Specular.y),fftOffshore=saturate(input.Specular.w);
         fftDampingField=vesselApplyHullDamping(wavePosition,baseLevel,
             float3(freeDamping,fftParameterGradient(freeDamping,parameterDx,parameterDy)),
             float3(fftOffshore,fftParameterGradient(fftOffshore,parameterDx,parameterDy)));
         fftWeightSlope=fftParameterGradient(fftWeight,parameterDx,parameterDy);
-        float3 horizontalScale=float3(fftWeight*fftDampingField.x,
-            fftWeightSlope*fftDampingField.x+fftDampingField.yz*fftWeight);
+        fftHorizontalWeight=fftWeight*fftOffshore;
+        fftHorizontalWeightSlope=fftWeightSlope*fftOffshore
+            +fftParameterGradient(fftOffshore,parameterDx,parameterDy)*fftWeight;
+        float3 horizontalScale=float3(fftHorizontalWeight*fftDampingField.x,
+            fftHorizontalWeightSlope*fftDampingField.x+fftDampingField.yz*fftHorizontalWeight);
         )HLSL";
     if(bowLift) hlsl+=R"HLSL(spectral=fftSurface(wavePosition,baseLevel,max(length(parameterDx),length(parameterDy)),horizontalScale);
         bowLiftField=fftBowLift(spectral.bow,float3(freeDamping,fftParameterGradient(freeDamping,parameterDx,parameterDy)),fftDampingField);)HLSL";
@@ -970,8 +976,8 @@ float4 main(Input input) : SV_Target
         fftDamping=fftDampingField.x;
         float2 weightSlope=fftWeightSlope;
         float2 dampingSlope=fftDampingField.yz;
-        float horizontalWeight=fftWeight*fftDamping;
-        float2 horizontalSlope=weightSlope*fftDamping+dampingSlope*fftWeight;
+        float horizontalWeight=fftHorizontalWeight*fftDamping;
+        float2 horizontalSlope=fftHorizontalWeightSlope*fftDamping+dampingSlope*fftHorizontalWeight;
         float oldHeight=continuousHeight-baseLevel;
         )HLSL";
     if(bowLift) hlsl+=R"HLSL(float newHeight=spectral.displacement.z*fftDamping+bowLiftField.x;)HLSL";
@@ -1007,9 +1013,9 @@ float4 main(Input input) : SV_Target
         float3 shadedY=float3(spectral.shadingDerivativeY.x*horizontalWeight+spectral.shadingDisplacement.x*horizontalSlope.y,
             1.0+spectral.shadingDerivativeY.y*horizontalWeight+spectral.shadingDisplacement.y*horizontalSlope.y,shadedHeightSlope.y);
         resolvedNormal=normalize(cross(shadedX,shadedY));
-        unresolvedSlopeVariance=spectral.unresolvedSlopeVariance*horizontalWeight*horizontalWeight;
+        unresolvedSlopeVariance=spectral.unresolvedSlopeVariance*fftWeight*fftWeight*fftDamping*fftDamping;
         continuousHeight=baseLevel+lerp(oldHeight,newHeight,fftWeight);
-        fftCompression=spectral.incidentCompression;
+        fftCompression=lerp(1.0,spectral.incidentCompression,saturate(input.Specular.w));
     }
     // Reconstruct the same continuous wave between mesh vertices for optical integration. The
     // rendered scene bottom stays exact; using coarse triangle heights here exposes their edges
@@ -1019,6 +1025,20 @@ float4 main(Input input) : SV_Target
         view.z, offshore, oceanDisplacementBound, dot(world-bottom,view), length(CameraPosition.xyz-world));
     float3 opticalWorld = world + view*opticalShift;
     float opticalDepth = max(opticalWorld.z-bottom.z,0.0);
+    // Floor clearance flattens the mesh at the bank, but the incident wave pattern
+    // must still catch light across the shallows. Restore its terrain-damped lighting
+    // slopes with the same spectral phases, retaining wet-edge and obstacle/hull shelter.
+    // Geometry, refraction and full offshore shading keep their original normals.
+    float shoreRippleLimit = min(smoothstep(0.0,0.75,depth),min(input.Diffuse.r,hullEffects.z));
+    float shoreRippleWeight = opticalContext.b * OpticalParameters.z * TerrainParameters.w
+        * (1.0-WaterParameters.y) * (1.0-offshore);
+    float2 shoreRipple = shoreRippleWeight * lerp(
+        shoreRippleSlope * max(0.0,shoreRippleLimit-max(localTerrain,attenuation)),
+        float2(spectral.shadingDerivativeX.z,spectral.shadingDerivativeY.z)
+            * max(0.0,shoreRippleLimit-max(localTerrain,fftDamping)),fftWeight);
+    float3 waveLightingNormal = resolvedNormal;
+    if(any(shoreRipple!=0.0))
+        resolvedNormal = normalize(resolvedNormal + float3(-shoreRipple*resolvedNormal.z,0.0));
     float3 light = normalize(SunDirection.xyz + float3(0, 0, 0.00001));
     float nDotV = max(dot(resolvedNormal, view), 0.001);
     float nDotL = saturate(dot(resolvedNormal, light));
@@ -1052,7 +1072,9 @@ float4 main(Input input) : SV_Target
     float3 environmentWave=lerp(oceanSwell.xyz,oceanWave,rippleResolution);
     float2 swellSlope=baseSlope+environmentWave.yz*attenuation+environmentWave.x*attenuationSlope+correctionSlope;
     float3 environmentNormal=normalize(lerp(normal,normalize(float3(-swellSlope,1)),offshore));
-    environmentNormal=normalize(lerp(environmentNormal,resolvedNormal,fftWeight));
+    environmentNormal=normalize(lerp(environmentNormal,waveLightingNormal,fftWeight));
+    if(any(shoreRipple!=0.0))
+        environmentNormal=normalize(environmentNormal+float3(-shoreRipple*environmentNormal.z,0.0));
     // The remaining fine-slope energy is ~0.045 for this spectrum (including its packet
     // envelope); retaining a fraction of its amplitude leaves (1-fraction^2) as roughness.
     float environmentRoughness=sqrt(roughness*roughness+0.045*(1.0-rippleResolution*rippleResolution)*offshore*(1.0-fftWeight));
@@ -1127,7 +1149,7 @@ float4 main(Input input) : SV_Target
     float swellLight=saturate(dot(swellNormal,light));
     float3 scatter=WaterOpticalScatteringSource(WaterParameters.y,offshore,daylight,swellLight);
     float3 body=WaterOpticalBody(scene,transmission,scatter,caustic,SceneParameters.x);
-    float foamNoise = smoothstep(0.1, 0.8, wave.x*0.5+0.5);
+    float foamNoise = smoothstep(0.1, 0.8, lerp(wave.x,spectral.contactIncident.x,fftWeight)*0.5+0.5);
     float edgeDistance = depth / max(length(float2(ddx(depth), ddy(depth))), 0.01);
     float contact = (1.0 - smoothstep(0.2, 1.35, edgeDistance)) * saturate(depth * 4.0)
         * max(TerrainParameters.w, SceneParameters.w);
@@ -1138,7 +1160,7 @@ float4 main(Input input) : SV_Target
     float2 terrainGradient=float2(terrainDu*parameterDy.y-terrainDv*parameterDx.y,
         terrainDv*parameterDx.x-terrainDu*parameterDy.x)*invDet;
     float shoreRate=0.0,shoreSupport=0.0;
-    float shoreHistory=waterShoreHistory(wavePosition,baseLevel,time);
+    float shoreHistory=waterShoreHistory(wavePosition,baseLevel,time)*(1.0-fftWeight);
     float shoreRetained=0.0;
     // Same source composition with the coastal term omitted; retain this one scalar
     // through the real masks/max operations to attribute its final material weight.
@@ -1158,8 +1180,8 @@ float4 main(Input input) : SV_Target
         if(coastDensityAge.x>0.0) {
             // Source and lookup live on the original parameter chart, not chopped XY.
             float2 parameterContextUV=(wavePosition+TerrainParameters.xx+5.0)/max(TerrainParameters.y,1.0);
-            float canonicalR=Texture4.SampleLevel(Sampler4,parameterContextUV,0).r;
-            float coastModelGate=waterCoastalModelGate(fftWeight,canonicalR,input.TexCoord0.x,correctionSlope);
+            float canonicalSupport=Texture4.SampleLevel(Sampler4,parameterContextUV,0).b;
+            float coastModelGate=waterCoastalModelGate(fftWeight,canonicalSupport,input.TexCoord0.x,correctionSlope);
             gpuCoastRaw=waterCoastalPorousCoverage(wavePosition,foamFootprint,coastDensityAge);
             if(coastModelGate>0.0 && gpuCoastRaw>0.0) {
                 // Reconstruct the original actual scene sample. A refracted hit or the
@@ -1187,11 +1209,11 @@ float4 main(Input input) : SV_Target
         float2 shorePixel=waterScenePixel(floor(input.Position.xy)+0.5);
         float shoreRawDepth=Texture6.SampleLevel(Sampler6,shorePixel*SceneParameters.yz,0).r;
         if(waterShoreSceneDepth(SceneParameters.w,shoreRawDepth)) {
-            shoreSupport=opticalContext.a;
+            shoreSupport=opticalContext.a*(1.0-fftWeight);
             float terrainDepth=max(0.0,baseLevel-surfaceTerrainHeight);
             float terrainSlope=length(terrainGradient);
             float shoreDistance=min(opticalContext.g*100.0,terrainDepth/max(terrainSlope,0.01));
-            // These three phases are shared with the displaced R=0 nearshore mesh.
+            // These three phases follow only the remaining analytic mesh contribution.
             // Derivatives were evaluated outside this branch; filter their leading faces
             // without expanding terrain/wet support or creating a permanent coast rim.
             float2 shoreFront;
@@ -1229,7 +1251,7 @@ float4 main(Input input) : SV_Target
     // Ambient breaking follows the long/medium part of the geometry's horizontal
     // compression. Fine ripples shape its appearance without triggering whitecaps.
     float fftFoam=saturate(pow(max(0.0,1.2-fftCompression),7.2))
-        *smoothstep(0.15,0.65,fftDamping)*(0.2+0.8*daylight);
+        *smoothstep(0.15,0.65,fftDamping)*saturate(input.Specular.w)*(0.2+0.8*daylight);
     crestFoam=lerp(crestFoam,fftFoam,fftWeight);
     foam = max(foam, crestFoam*0.48);
     foamWithoutShore=max(foamWithoutShore,crestFoam*0.48);

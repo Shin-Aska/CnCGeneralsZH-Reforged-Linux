@@ -157,14 +157,17 @@ Output main(Input input)
     float2 parameter=input.Position.xy;
     float weight=saturate(input.Normal.x), freeDamping=saturate(input.Normal.y);
     float offshore=saturate(input.Normal.z);
+    // Carry the same vertical phases through the shallows, while retaining the
+    // coastal restriction on horizontal chop and its terrain/obstacle clearance.
+    float horizontalWeight=weight*offshore;
     float originalHeight=input.Position.z-input.TexCoord1.y;
     if(weight>0.0) {
         float damping=vesselApplyHullDamping(parameter,input.TexCoord1.y,
             float3(freeDamping,0,0),float3(offshore,0,0)).x;
 )HLSL")+(bowLift?R"HLSL(        float bowHeight;
-        float3 displacement=fftVertexBowDisplacement(parameter,input.TexCoord1.y,weight*damping,bowHeight);
-        float lifted=fftBowLift(float3(bowHeight,0,0),float3(freeDamping,0,0),float3(damping,0,0)).x;)HLSL":R"HLSL(        float3 displacement=fftVertexDisplacement(parameter,input.TexCoord1.y,weight*damping);)HLSL")+R"HLSL(
-        input.Position.xy+=displacement.xy*(weight*damping);
+        float3 displacement=fftVertexBowDisplacement(parameter,input.TexCoord1.y,horizontalWeight*damping,bowHeight);
+        float lifted=fftBowLift(float3(bowHeight,0,0),float3(freeDamping,0,0),float3(damping,0,0)).x;)HLSL":R"HLSL(        float3 displacement=fftVertexDisplacement(parameter,input.TexCoord1.y,horizontalWeight*damping);)HLSL")+R"HLSL(
+        input.Position.xy+=displacement.xy*(horizontalWeight*damping);
         input.Position.z=input.TexCoord1.y+)HLSL"+(bowLift?R"HLSL(lerp(originalHeight,displacement.z*damping+lifted,weight))HLSL":R"HLSL(lerp(originalHeight,displacement.z*damping,weight))HLSL")+R"HLSL(;
     }
     input.Normal=float3(0,0,1);

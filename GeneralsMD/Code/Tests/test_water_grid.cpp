@@ -2163,6 +2163,40 @@ TEST(water_fft_metadata_preserves_shared_edges_and_floor_and_hull_bounds)
 	}
 }
 
+TEST(water_fft_connected_coasts_keep_phase_support_without_changing_optical_classification)
+{
+	using namespace WaterOpticalContext;
+	const int width=50,height=40,border=2;
+	std::vector<uint8_t> heights(width*height,20);
+	for (int y=0;y<height;++y) for (int x=0;x<18;++x) heights[y*width+x]=0;
+	for (int y=10;y<31;++y) for (int x=28;x<47;++x) heights[y*width+x]=0;
+	Field field;
+	CHECK(Build(heights.data(),width,height,border,10,1,4,{opticalRectangle(-100,-100,600,500)},field));
+	const WaterProjectedMesh::Point polygon[4]={{-100,-100},{600,-100},{600,500},{-100,500}};
+	WaterFftGeometry::SeamFade seam;
+	CHECK(seam.Prepare(polygon,testWaterProjection(),{160,90}));
+	auto sample=[&](const std::vector<uint8_t> &channel,int x,int y) {
+		return WaterSurfaceModel::SampleOffshore(channel.data(),width,height,float(x),float(y),10).height;
+	};
+	// Actual topology metadata distinguishes a nearshore zero-R ocean texel from
+	// a zero-R enclosed pool. Colour/extinction R remains unchanged in both cases.
+	CHECK(sample(field.ocean,15,20)==0 && sample(field.exposure,15,20)==1);
+	CHECK(sample(field.ocean,37,20)==0 && sample(field.exposure,37,20)==0);
+	CHECK(sample(field.ocean,4,20)==1 && sample(field.exposure,4,20)==1);
+	const WaterProjectedMesh::Point coast={130,180},pool={350,180},open={20,180};
+	CHECK(seam.Weight(coast,sample(field.exposure,15,20))==1);
+	CHECK(seam.Weight(open,sample(field.exposure,4,20))==1);
+	CHECK(seam.Weight(pool,sample(field.exposure,37,20))==0);
+	CHECK(seam.Weight(coast,sample(field.ocean,15,20))==0); // Armed pre-fix phase switch.
+	// Connection cannot bypass the authored-boundary collar or invalid metadata.
+	CHECK(seam.Weight({-100,180},sample(field.exposure,4,20))==0);
+	CHECK(seam.Weight(coast,WaterSurfaceModel::SampleOffshore(nullptr,width,height,15,20,10).height)==0);
+	std::fill(heights.begin(),heights.end(),0);
+	CHECK(Build(heights.data(),width,height,border,10,1,4,{opticalRectangle(100,100,300,300)},field));
+	for (uint8_t exposure:field.exposure) CHECK(exposure==0);
+	CHECK(seam.Weight(coast,sample(field.exposure,15,20))==0);
+}
+
 TEST(water_fft_hull_free_metadata_preserves_original_vertices_and_clearance)
 {
 	using namespace WaterFftGeometry;
@@ -5138,6 +5172,11 @@ TEST(water_coastal_surf_distinct_domain_keeps_broad_wet_support_and_excludes_dry
     Field falling=f;falling.height=old.height-.1f;CHECK(Rate(c,falling,old,.1)==0);
     Field trough=f;trough.height=-1;CHECK(Rate(c,trough,old,.1)==0);
     q=c;q.analyticDamping=q.spectralDamping=1;old.height=1.9f;CHECK(Rate(q,f,old,.1)==0);
+    q=c;q.offshore=0;
+    Context offshore=q;offshore.offshore=1;
+    CHECK(Rate(q,f,old,.1)==Rate(offshore,f,old,.1)); // Optical R cannot select the phase field's damping.
+    q.analyticDamping=0;q.spectralDamping=1;
+    CHECK(Rate(q,f,old,.1)==0); // B1/R0 uses the same spectral damping as open water.
     Field analytic{1,.3f,-.2f,1},spectral{3,-.2f,.1f,.6f};
     Field mixed=Blend(analytic,spectral,.25f);CHECK(mixed.height==1.5f);
     CHECK(std::abs(mixed.dx-.175f)<.000001f && std::abs(mixed.compression-.9f)<.000001f);

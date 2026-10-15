@@ -186,10 +186,12 @@ inline const char *ShaderSource() {
 #define WATER_MODE_HLSL(kx,ky,amplitude,omega,phase) \
     "{ float p=dot(pxy,float2(" #kx "," #ky "))-seconds*" #omega "+" #phase ";" \
     "float s=sin(p), c=cos(p); value.x+=" #amplitude "*(s+0.26*s*c);" \
-    "value.yz+=" #amplitude "*(c+0.26*(c*c-s*s))*float2(" #kx "," #ky "); }\n"
-    return "float3 waterWave(float2 pxy,float seconds) { float3 value=0;\n"
+    "float2 slope=" #amplitude "*(c+0.26*(c*c-s*s))*float2(" #kx "," #ky ");value.yz+=slope;" \
+    "if(" #kx "*" #kx "+" #ky "*" #ky ">=1.0) rippleSlope+=slope; }\n"
+    return "float3 waterWave(float2 pxy,float seconds,out float2 rippleSlope) { float3 value=0;rippleSlope=0;\n"
         WATER_SURFACE_MODES(WATER_MODE_HLSL)
-        "return value; }\n";
+        "return value; }\n"
+        "float3 waterWave(float2 pxy,float seconds) { float2 rippleSlope;return waterWave(pxy,seconds,rippleSlope); }\n";
 #undef WATER_MODE_HLSL
 }
 inline void AppendHLSL(std::string &source) { source += ShaderSource(); source += OceanShaderSource(); }

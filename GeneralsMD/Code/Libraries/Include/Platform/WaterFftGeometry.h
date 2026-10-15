@@ -63,8 +63,8 @@ public:
         }
         ready=count>=3;return ready;
     }
-    float Weight(WaterProjectedMesh::Point point,float offshore) const {
-        if (!ready || !std::isfinite(offshore) || offshore<=0) return 0;
+    float Weight(WaterProjectedMesh::Point point,float spectralSupport) const {
+        if (!ready || !std::isfinite(spectralSupport) || spectralSupport<=0) return 0;
         WaterProjectedMesh::Point screen;
         if (!projection.Transform(point,screen)) return 0;
         double worldDistance=OuterWorldCollar,cellDistance=OuterCellCollar;
@@ -76,7 +76,7 @@ public:
             if (!std::isfinite(world) || !std::isfinite(cells)) return 0;
             worldDistance=(std::min)(worldDistance,world);cellDistance=(std::min)(cellDistance,cells);
         }
-        return float((std::min)(1.0f,offshore)*SmoothRange(worldDistance,InnerWorldCollar,OuterWorldCollar)*
+        return float((std::min)(1.0f,spectralSupport)*SmoothRange(worldDistance,InnerWorldCollar,OuterWorldCollar)*
             SmoothRange(cellDistance,InnerCellCollar,OuterCellCollar));
     }
 };

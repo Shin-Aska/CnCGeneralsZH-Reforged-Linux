@@ -259,7 +259,7 @@ protected:
 		size_t frames=0,vertices=0,triangles=0,patches=0,patchObstacles=0;
 		size_t attempts=0,hits=0,misses=0,samples=0,wavePoints=0;
 	} m_modernProfile;
-	struct ModernProjectedSample { Real height,damping,obstacle,offshore,fftDamping; };
+	struct ModernProjectedSample { Real height,damping,obstacle,offshore,fftDamping,exposure; };
 	std::unordered_map<WaterProjectedMesh::WorldKey,ModernProjectedSample,WaterProjectedMesh::WorldHash> m_modernProjectedSamples;
 	Vector3 m_modernCamera;
 	CameraClass *m_modernRenderCamera = NULL;
