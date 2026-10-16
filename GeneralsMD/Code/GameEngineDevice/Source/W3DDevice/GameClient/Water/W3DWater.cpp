@@ -33,6 +33,7 @@
 #define SCROLL_UV
 										 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
+#include "Platform/SunShadow.h"
 #include "stdio.h"
 #include <cstdlib>
 #include <chrono>
@@ -2542,7 +2543,9 @@ void WaterRenderObjClass::update( void )
 
 		// Eligible throughout pre-roll and after the selected range as well: eligibility must not
 		// introduce a load-duration origin or a discontinuity at the first recorded subframe.
-		const bool captureClock=WaterCaptureClock::Enabled(getenv("ZH_WATER_CAPTURE_CLOCK"),
+		// Sun-shadow comparison screenshots use the same absolute picture clock as
+		// water videos, so a slower capture pass cannot change the comparison's waves.
+		const bool captureClock=GameEngine_isShadowCaptureClock() || WaterCaptureClock::Enabled(getenv("ZH_WATER_CAPTURE_CLOCK"),
 			TheGlobalData->m_controlPort,TheGlobalData->m_videoStartFrame,TheGlobalData->m_videoEndFrame,
 			TheGameLogic->isInGame() && !TheGameLogic->isInShellGame(),
 			TheGameLogic->isInMultiplayerGame(),TheGameLogic->isInReplayGame());
@@ -2957,6 +2960,8 @@ void WaterRenderObjClass::Render(RenderInfoClass & rinfo)
 	}
 
 #ifndef _WIN32
+	SunShadow::ReceiverExclusion sunReceivers(DX8Wrapper::_Get_D3D_Device(),
+		!(m_useModernWater && m_waterType==WATER_TYPE_0_TRANSLUCENT));
 	WaterShoreOverlay::Scope shoreScope(DX8Wrapper::_Get_D3D_Device(),
 		m_useModernWater && m_waterType==WATER_TYPE_0_TRANSLUCENT && m_trapezoidWaterPixelShader &&
 		!TheGlobalData->m_isWorldBuilder && !TheGlobalData->m_usingWaterTrackEditor);
@@ -3234,6 +3239,9 @@ void WaterRenderObjClass::Render(RenderInfoClass & rinfo)
 	}
 #endif
 
+	#ifndef _WIN32
+	SunShadow::ReceiverExclusion waterEffects(DX8Wrapper::_Get_D3D_Device());
+	#endif
 	if (TheGlobalData && TheGlobalData->m_drawSkyBox)
 	{	//center skybox around camera
 		Vector3 pos=rinfo.Camera.Get_Position();

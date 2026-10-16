@@ -47,6 +47,11 @@ inline std::string UniformSource(const char *name,unsigned slot,bool visual_hull
     float4 FoamFillLights[4];
     float4 CoastalArea;
     float4 CoastalParams;
+    row_major float4x4 ShadowFromClip;
+    float4 ShadowParameters;
+    float4 ShadowViewport;
+    float4 ShadowSoftness;
+    float4 VolumeParameters;
 )HLSL";
     if(visual_hull) source+="    float4 VisualHullMeta[8];\n";
     source+="};\n";
@@ -192,9 +197,9 @@ Output main(Input input)
 )HLSL";
     return true;
 }
-inline std::string PixelSource(bool bowLift=false,bool bowShoulder=WaterBowShoulder::Enabled())
+inline std::string PixelSource(bool bowLift=false,bool bowShoulder=WaterBowShoulder::Enabled(),bool textureArray=false)
 {
-    return CommonSource()+(bowLift?WaterBowLift::Source():std::string())+WaterVesselWaves::Source(true,bowShoulder)+WaterFftFiltering::Source()+R"HLSL(
+    std::string source=CommonSource()+(bowLift?WaterBowLift::Source():std::string())+WaterVesselWaves::Source(true,bowShoulder)+WaterFftFiltering::Source()+R"HLSL(
 )HLSL"+(bowLift?R"HLSL(struct FftSurface {
     float3 bow;
     float bowLimitedDelta;
@@ -421,5 +426,19 @@ float2 fftParameterGradient(float value,float2 px,float2 py) {
     return float2(ddx(value)*py.y-ddy(value)*px.y,ddy(value)*px.x-ddx(value)*py.x)*inverse;
 }
 )HLSL";
+    if(textureArray) {
+        // Preserve the independent-map source contract used by the coastal decoder and
+        // numerical fixtures; only the material's native binding changes.
+        std::string sampling;
+        for(unsigned layer=0;layer<6;++layer) {
+            const std::string i=std::to_string(layer),stage=std::to_string(layer+8);
+            const std::string from="Texture"+stage+".SampleLevel(Sampler"+stage+",",to="fftMap"+i+"(";
+            for(size_t at=source.find(from);at!=std::string::npos;at=source.find(from,at+to.size()))
+                source.replace(at,from.size(),to);
+            sampling+="float4 fftMap"+i+"(float2 uv,float lod) { return OceanMaps.SampleLevel(OceanSampler,float3(uv,"+i+"),lod); }\n";
+        }
+        source=sampling+source;
+    }
+    return source;
 }
 } // namespace WaterFftSampling

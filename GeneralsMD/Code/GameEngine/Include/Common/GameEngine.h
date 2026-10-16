@@ -76,6 +76,8 @@ Int GameEngine_videoFramesPerSecond( void );
 Int GameEngine_videoPicture( void );
 Real GameEngine_pictureFrame( void );
 UnsignedInt GameEngine_pictureMilliseconds( void );
+// Opt-in screenshot validation: one rendered picture per logic frame, fixed scenery time.
+Bool GameEngine_isShadowCaptureClock( void );
 
 /**	How long the catch-up loop may keep starting new logic ticks before it gives up for this pass.
 

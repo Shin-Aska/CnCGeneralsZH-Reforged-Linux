@@ -356,16 +356,26 @@ bool SdlGpuFrame::Begin_Pass(SDL_GPUCommandBuffer * commands, const SdlTarget & 
 	depth.clear_stencil = (Uint8)stencil_value;
 	depth.load_op = clear_depth ? SDL_GPU_LOADOP_CLEAR : SDL_GPU_LOADOP_LOAD;
 	depth.store_op = SDL_GPU_STOREOP_STORE;
-	depth.stencil_load_op = clear_stencil ? SDL_GPU_LOADOP_CLEAR : SDL_GPU_LOADOP_LOAD;
-	depth.stencil_store_op = SDL_GPU_STOREOP_STORE;
-	*pass = SDL_BeginGPURenderPass(commands, &colour, 1, &depth);
+	const unsigned format = Target_Depth_Format(target);
+	const bool has_stencil = format == SDL_GPU_TEXTUREFORMAT_D24_UNORM_S8_UINT
+		|| format == SDL_GPU_TEXTUREFORMAT_D32_FLOAT_S8_UINT;
+	depth.stencil_load_op = !has_stencil ? SDL_GPU_LOADOP_DONT_CARE
+		: clear_stencil ? SDL_GPU_LOADOP_CLEAR : SDL_GPU_LOADOP_LOAD;
+	depth.stencil_store_op = has_stencil ? SDL_GPU_STOREOP_STORE : SDL_GPU_STOREOP_DONT_CARE;
+	*pass = SDL_BeginGPURenderPass(commands, target.Colour ? &colour : NULL, target.Colour ? 1 : 0,
+		target.Depth ? &depth : NULL);
 	return *pass != NULL;
 }
 
 SdlTarget SdlGpuFrame::Back_Buffer_Target() const
 {
-	SdlTarget target = { BackBuffer, DepthStencil, BackWidth, BackHeight };
+	SdlTarget target = { BackBuffer, DepthStencil, BackWidth, BackHeight, DepthFormat };
 	return target;
+}
+
+unsigned int SdlGpuFrame::Target_Depth_Format(const SdlTarget &target) const
+{
+	return target.Depth ? (target.DepthFormat ? target.DepthFormat : DepthFormat) : 0;
 }
 
 void SdlGpuFrame::Set_Target(const SdlTarget & target)
@@ -378,7 +388,8 @@ uint32_t SdlGpuFrame::Target_Index()
 {
 	const SdlTarget target = TargetSet ? CurrentTarget : Back_Buffer_Target();
 	for (size_t i = Targets.size(); i-- > 0; ) {
-		if (Targets[i].Colour == target.Colour && Targets[i].Depth == target.Depth) {
+		if (Targets[i].Colour == target.Colour && Targets[i].Depth == target.Depth
+			&& Targets[i].DepthFormat == target.DepthFormat && Targets[i].Width == target.Width && Targets[i].Height == target.Height) {
 			return (uint32_t)i;
 		}
 	}

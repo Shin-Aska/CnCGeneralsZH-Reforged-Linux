@@ -32,6 +32,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include "SdlSunShadowDebug.h"
 #include <string.h>
 
 void Sdl_Read_Slot_Lines(const std::string &hlsl, unsigned int slots, std::vector<int> &textures, std::vector<int> &samplers)
@@ -304,6 +305,8 @@ const SdlProgram &SdlProgramCache::Pixel_Program(const CombinerDescription &desc
 	}
 	std::string hlsl;
 	const bool generated = CombinerShader_Generate(description, COMBINER_SHADER_TARGET_SDL3_GPU, hlsl);
+	if (description.ShadowReceiving && Sdl_Sun_Shadow_Fault("receiver-program"))
+		hlsl += "\n#error injected sun receiver compilation failure\n";
 	const SdlProgram &made = Make(PixelPrograms, key, generated, hlsl, false);
 	PixelByBytes.Add(&description, sizeof(description), &PixelPrograms[key]);
 	return made;
@@ -325,4 +328,35 @@ const SdlProgram &SdlProgramCache::Shore_Pixel_Program(const CombinerDescription
 	const SdlProgram &made=Make(PixelPrograms,key,generated,hlsl,false);
 	ShorePixelByBytes.Add(&description,sizeof(description),&PixelPrograms[key]);
 	return made;
+}
+
+// Preserve the shared alpha/discard logic but expose no fragment color output on a depth-only pass.
+const SdlProgram &SdlProgramCache::Sun_Pixel_Program(const CombinerDescription &description, int engine)
+{
+    struct { CombinerDescription Description; int Engine; } lookup = {};
+    memcpy(&lookup.Description, &description, sizeof(description));
+    lookup.Engine = engine;
+    if (SdlProgram *found=SunPixelByBytes.Find(&lookup,sizeof(lookup))) { ++found->Uses; return *found; }
+    const bool fixed = engine == ENGINE_SHADER_NONE;
+    const std::string key = "sun-caster:" + (fixed ? CombinerShader_Key(description)
+        : std::string(EngineShader_Name((EngineShaderProgram)engine))+CombinerShader_Pipeline_Key(description.PixelPipeline));
+    auto existing = PixelPrograms.find(key);
+    if (existing != PixelPrograms.end()) {
+        ++existing->second.Uses;
+        SunPixelByBytes.Add(&lookup,sizeof(lookup),&existing->second);
+        return existing->second;
+    }
+    std::string hlsl;
+    bool generated = fixed ? CombinerShader_Generate(description,COMBINER_SHADER_TARGET_SDL3_GPU,hlsl)
+        : EngineShader_Pixel_Program((EngineShaderProgram)engine,description.PixelPipeline,hlsl,COMBINER_SHADER_TARGET_SDL3_GPU);
+    const std::string entry="float4 main(Input input) : SV_Target";
+    const size_t at=hlsl.find(entry);
+    generated = generated && at != std::string::npos;
+    if (generated) {
+        hlsl.replace(at,entry.size(),"float4 sunCasterPixel(Input input)");
+        hlsl += "\nvoid main(Input input) { sunCasterPixel(input); }\n";
+    }
+    const SdlProgram &made=Make(PixelPrograms,key,generated,hlsl,false);
+    SunPixelByBytes.Add(&lookup,sizeof(lookup),&PixelPrograms[key]);
+    return made;
 }

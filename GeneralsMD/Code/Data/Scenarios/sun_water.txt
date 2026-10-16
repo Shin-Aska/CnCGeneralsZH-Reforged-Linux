@@ -1,0 +1,7 @@
+# Sun-shadow coverage fixture on Tournament Island.
+# Move a registered caster from the beach over the water beside the fixed
+# (400,1000) camera. Compare legacy and mapped at frame 600 with the screenshot
+# clock enabled; mapped shadows must reach the displaced water surface.
+
+30  spawn  0  AmericaVehicleComanche  1  600 1000
+60  move   0  AmericaVehicleComanche     300 1000
