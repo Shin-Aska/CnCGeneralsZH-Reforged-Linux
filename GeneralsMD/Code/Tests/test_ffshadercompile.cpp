@@ -206,10 +206,8 @@ TEST(ffshadercompile_the_tree_shadow_program_compiles)
 	CHECK(compiles(compile, eleven, D3D11_PROFILE));
 }
 
-// A program that takes the sun's shadow takes the smoke's with it on Direct3D 11: the smoke's map at
-// t6 and the field after SkyUp.  The SDL3 GPU text is made from the same generator and must stay
-// without both, because that backend binds no map there and uploads no such field.
-TEST(ffshadercompile_a_shadow_receiving_program_reads_the_smoke_on_d3d11_only)
+// Windows and SDL receivers share the smoke map at t6 and its constants after SkyUp.
+TEST(ffshadercompile_shadow_receivers_share_the_smoke_filter)
 {
 	CombinerDescription description;
 	memset(&description, 0, sizeof(description));
@@ -227,8 +225,9 @@ TEST(ffshadercompile_a_shadow_receiving_program_reads_the_smoke_on_d3d11_only)
 
 	std::string sdl;
 	CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_SDL3_GPU, sdl));
-	CHECK(sdl.find("SmokeMap") == std::string::npos);
-	CHECK(sdl.find("VolumeParameters") == std::string::npos);
+	CHECK(sdl.find("register(t6, space2)") != std::string::npos);
+	CHECK(sdl.find("VolumeParameters") > sdl.find("SkyUp"));
+	CHECK(sdl.find("light_reaching(input.Position)") != std::string::npos);
 
 	D3DCompileFunction compile = load_compiler();
 	if (compile == NULL) {
@@ -368,7 +367,8 @@ TEST(ffshadercompile_each_draw_effect_compiles_on_d3d11_only)
 			std::string nine;
 			CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_SDL3_GPU, sdl));
 			CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_D3D9, nine));
-			CHECK(sdl.find("effect_") == std::string::npos);
+			CHECK((sdl.find("current = effect_cloak_shadow(") != std::string::npos) == (effect == DRAW_EFFECT_CLOAK_SHADOW));
+			if (effect != DRAW_EFFECT_CLOAK_SHADOW) CHECK(sdl.find("effect_") == std::string::npos);
 			CHECK(nine.find("effect_") == std::string::npos);
 
 			if (compile != NULL) {

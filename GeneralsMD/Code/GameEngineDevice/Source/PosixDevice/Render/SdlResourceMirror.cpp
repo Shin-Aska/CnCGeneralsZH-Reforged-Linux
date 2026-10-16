@@ -166,6 +166,7 @@ bool Sdl_Convert_Level(const PosixImage & image, bool native, uint8_t * out)
 SdlResourceMirrors::SdlResourceMirrors(SdlGpuFrame * frame) :
 	Frame(frame),
 	WhiteTexture(NULL),
+	WhiteArrayTexture(NULL),
 	BcSupported(-1),
 	StaleFlushes(0),
 	TexturesUploaded(0),
@@ -189,6 +190,7 @@ SdlResourceMirrors::~SdlResourceMirrors()
 	}
 	Dead.clear();
 	Frame->Release_After_Batch(WhiteTexture, NULL);
+	Frame->Release_After_Batch(WhiteArrayTexture, NULL);
 }
 
 /// PERF1's hitch hunt: how long taking Lock waited, when over 5 ms - another thread held it.
@@ -437,12 +439,13 @@ SDL_GPUBuffer * SdlResourceMirrors::Buffer(const void * owner, const PosixBuffer
 	return copy.Buffer;
 }
 
-SDL_GPUTexture * SdlResourceMirrors::White()
+SDL_GPUTexture * SdlResourceMirrors::White(bool array)
 {
-	if (WhiteTexture == NULL) {
+	SDL_GPUTexture *&texture = array ? WhiteArrayTexture : WhiteTexture;
+	if (texture == NULL) {
 		SDL_GPUTextureCreateInfo info;
 		SDL_zero(info);
-		info.type = SDL_GPU_TEXTURETYPE_2D;
+		info.type = array ? SDL_GPU_TEXTURETYPE_2D_ARRAY : SDL_GPU_TEXTURETYPE_2D;
 		info.format = SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM;
 		info.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER;
 		info.width = 1;
@@ -450,12 +453,12 @@ SDL_GPUTexture * SdlResourceMirrors::White()
 		info.layer_count_or_depth = 1;
 		info.num_levels = 1;
 		info.sample_count = SDL_GPU_SAMPLECOUNT_1;
-		WhiteTexture = SDL_CreateGPUTexture(Frame->Device(), &info);
-		if (WhiteTexture != NULL) {
+		texture = SDL_CreateGPUTexture(Frame->Device(), &info);
+		if (texture != NULL) {
 			uint32_t offset = 0;
 			memset(Frame->Upload_Space(4, offset), 0xFF, 4);
-			Frame->Queue_Texture_Upload(WhiteTexture, 0, 1, 1, offset);
+			Frame->Queue_Texture_Upload(texture, 0, 1, 1, offset);
 		}
 	}
-	return WhiteTexture;
+	return texture;
 }

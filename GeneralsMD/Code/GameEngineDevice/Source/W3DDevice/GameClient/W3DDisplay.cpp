@@ -2449,7 +2449,15 @@ AGAIN:
 		}
 	}
 
-	if (!freezeTime)
+	// Diagnostic pictures need the same animation/cloud phase even when one renderer does
+	// more work. Establish zero during loading so texture mappers inherit the same origin.
+	// This is opt-in for screenshot runs; ordinary play, multiplayer and replay keep their clock.
+	const bool shadowCaptureClock = GameEngine_isShadowCaptureClock();
+	if (shadowCaptureClock) {
+		if (!TheGameLogic->isInGame() || TheGameLogic->isInShellGame()) syncTime = 0;
+		else if (!freezeTime) syncTime = GameEngine_pictureMilliseconds();
+	}
+	if (!freezeTime && !shadowCaptureClock)
 	{
 		//
 		// This is W3D's clock: every skeletal animation, texture flipbook and W3D-driven effect

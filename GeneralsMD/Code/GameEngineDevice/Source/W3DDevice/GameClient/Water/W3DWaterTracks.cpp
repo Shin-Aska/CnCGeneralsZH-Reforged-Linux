@@ -54,6 +54,7 @@
 #include "GameClient/Water.h"
 #include "GameLogic/TerrainLogic.h"
 #include "Common/GlobalData.h"
+#include "Common/GameEngine.h"
 #include "Common/UnicodeString.h"
 #include "Common/file.h"
 #include "Common/FileSystem.h"
@@ -931,6 +932,15 @@ void WaterTracksRenderSystem::update()
 	carryMs += elapsedMs;
 	Int timeDiff = (Int)carryMs;
 	carryMs -= (Real)timeDiff;
+	if (GameEngine_isShadowCaptureClock()) {
+		// Screenshot comparisons must hold authored shoreline waves at the same
+		// phase too. Repeated renders of the same logic frame advance nothing.
+		static UnsignedInt lastPictureMs = 0;
+		const UnsignedInt pictureMs = GameEngine_pictureMilliseconds();
+		timeDiff = pictureMs >= lastPictureMs ? (Int)(pictureMs-lastPictureMs) : 0;
+		lastPictureMs = pictureMs;
+		carryMs = 0;
+	}
 
 	//first update all the tracks
 	while( mod )

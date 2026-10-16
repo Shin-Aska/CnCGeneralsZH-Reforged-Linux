@@ -977,6 +977,8 @@ protected:
 
 	static Vector4							Vertex_Shader_Constants[MAX_VERTEX_SHADER_CONSTANTS];
 	static Vector4							Pixel_Shader_Constants[MAX_PIXEL_SHADER_CONSTANTS];
+	static bool Vertex_Shader_Constants_Valid[MAX_VERTEX_SHADER_CONSTANTS];
+	static bool Pixel_Shader_Constants_Valid[MAX_PIXEL_SHADER_CONSTANTS];
 
 	static LightEnvironmentClass*		Light_Environment;
 	static RenderInfoClass*				Render_Info;
@@ -1101,28 +1103,29 @@ WWINLINE void DX8Wrapper::Set_Vertex_Shader_Constant(int reg, const void* data, 
 {
 	int memsize=sizeof(Vector4)*count;
 
-	// Ahead of the comparison below, not behind it.  Invalidate_Cached_Render_States zeroes this
-	// cache without zeroing the device, so a set that writes zeros after one of those is skipped
-	// here while the device really does hold zeros - and the backend, which is not reset by that
-	// call, would keep whatever it was last told.
+	// The mirrored backend owns its own cache and must see every requested update.
 	Direct3D11_Mirror_Vertex_Shader_Constant((unsigned)reg, (const float*)data, (unsigned)count);
 
-	// may be incorrect if shaders are created and destroyed dynamically
-	if (memcmp(data, &Vertex_Shader_Constants[reg],memsize)==0) return;
+	bool valid = true;
+	for (int i=reg; i<reg+count; ++i) valid = valid && Vertex_Shader_Constants_Valid[i];
+	if (valid && memcmp(data, &Vertex_Shader_Constants[reg],memsize)==0) return;
 
 	memcpy(&Vertex_Shader_Constants[reg],data,memsize);
 	DX8CALL(SetVertexShaderConstantF(reg,(const float*)data,count));
+	for (int i=reg; i<reg+count; ++i) Vertex_Shader_Constants_Valid[i] = true;
 }
 
 WWINLINE void DX8Wrapper::Set_Pixel_Shader_Constant(int reg, const void* data, int count)
 {
 	int memsize=sizeof(Vector4)*count;
 
-	// may be incorrect if shaders are created and destroyed dynamically
-	if (memcmp(data, &Pixel_Shader_Constants[reg],memsize)==0) return;
+	bool valid = true;
+	for (int i=reg; i<reg+count; ++i) valid = valid && Pixel_Shader_Constants_Valid[i];
+	if (valid && memcmp(data, &Pixel_Shader_Constants[reg],memsize)==0) return;
 
 	memcpy(&Pixel_Shader_Constants[reg],data,memsize);
 	DX8CALL(SetPixelShaderConstantF(reg,(const float*)data,count));
+	for (int i=reg; i<reg+count; ++i) Pixel_Shader_Constants_Valid[i] = true;
 }
 // shader system updates KJM ^
 

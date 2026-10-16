@@ -18,6 +18,7 @@
 // Modified 2026 by İlyas Akın for the macOS/Linux port; see NOTICE.md and the git history.
 
 #include "dx11backend.h"
+#include "Platform/SunSmoke.h"
 
 #include "dx11layout.h"
 #include "dx11resource.h"
@@ -633,17 +634,17 @@ void DX11BackendClass::Clear_Shadow_Parameters()
 	 1800 unit box, and nothing in a smoke cloud is that sharp.  Four 32-bit channels because the third
 	 sum is a square, and in half floats a plume 200 units deep vanished into the rounding of a depth
 	 near 0.5 squared.  512 square of that is 4 MB. */
-static const unsigned SMOKE_MAP_TEXELS = 512;
+static const unsigned SMOKE_MAP_TEXELS = SunSmoke::Texels;
 static const unsigned SMOKE_MAP_SLOT = DX11_BACKEND_TEXTURE_STAGES + 2;		///< t6 and s6, after the depth map's
-static const unsigned SMOKE_SPLAT_FLOATS = 6;		///< per caster: sun clip x, y, z, radius, optical depth, depth spread
-static const unsigned SMOKE_MOST_CASTERS = 16384;
+static const unsigned SMOKE_SPLAT_FLOATS = SunSmoke::SplatFloats;		///< per caster: sun clip x, y, z, radius, optical depth, depth spread
+static const unsigned SMOKE_MOST_CASTERS = SunSmoke::MaxCasters;
 // How a smoke particle shades itself (VOLUMETRIC_SAMPLING, smoke_reaching): how dark one on its
 // plume's far side goes, and the power on the share of the plume ahead of it that keeps the sun
 // side lit.  The 2026-10-04 sweep: at 16 white smoke's sun side came out 6.2% under the unshaded
 // plume and its far side 0.85 of the sun side, soot 2.4% and 0.87; at 8 white lost 10.8% on its sun
 // side, and at 32 soot went flat.
-static const float SMOKE_SELF_SHADOW_GAIN = 0.8f;
-static const float SMOKE_SELF_SHADOW_CURVE = 16.0f;
+static const float SMOKE_SELF_SHADOW_GAIN = SunSmoke::SelfGain;
+static const float SMOKE_SELF_SHADOW_CURVE = SunSmoke::SelfCurve;
 // How far in front of what is behind it a particle sprite has fully faded in, in world units.  A
 // tank is about thirty long; a smoke puff is ten to forty across.  At two, a sprite still met the
 // ground over a pixel or two at the default zoom: a nuke's haze and the Scud's grey smoke came out as
@@ -655,51 +656,6 @@ static const float SMOKE_SELF_SHADOW_CURVE = 16.0f;
 // over its own half width where that is shorter, so a mine's flare a few units across, hanging
 // under one unit above the ground, is not faded away entire.
 static const float SOFT_PARTICLE_FADE_UNITS = 12.0f;
-
-// Each caster is a disc facing the sun, drawn as a four corner strip whose corners come from the
-// vertex number, so the only buffer is the one holding the casters.
-static const char SMOKE_SPLAT_VERTEX_PROGRAM[] =
-	"struct Caster\n"
-	"{\n"
-	"    float4 Centre : CENTRE;\n"	// the sun's clip x, y and depth, and the radius in clip units
-	"    float2 Shape  : SHAPE;\n"	// optical depth through the middle, and the spread in depth
-	"};\n"
-	"struct Splat\n"
-	"{\n"
-	"    float4 Position : SV_Position;\n"
-	"    float2 Corner   : TEXCOORD0;\n"
-	"    float3 Moment   : TEXCOORD1;\n"
-	"};\n"
-	"Splat main(Caster caster, uint corner : SV_VertexID)\n"
-	"{\n"
-	"    Splat splat;\n"
-	"    splat.Corner = float2((corner & 1u) ? 1.0 : -1.0, (corner & 2u) ? 1.0 : -1.0);\n"
-	"    splat.Position = float4(caster.Centre.xy + splat.Corner * caster.Centre.w, 0.5, 1.0);\n"
-	"    splat.Moment = float3(caster.Shape.x, caster.Centre.z, caster.Shape.y);\n"
-	"    return splat;\n"
-	"}\n";
-
-// The three sums VOLUMETRIC_SAMPLING reads back, added up by the blend, and in alpha the depth of
-// the particle nearest the sun, kept by a minimum blend: the plume's own front, which a particle
-// with nothing ahead of it is measured from.  The disc is thickest in its middle and thins to
-// nothing at its rim, which is the shape every smoke sprite in the game has; outside it the quad's
-// corners leave the front alone.
-static const char SMOKE_SPLAT_PIXEL_PROGRAM[] =
-	"struct Splat\n"
-	"{\n"
-	"    float4 Position : SV_Position;\n"
-	"    float2 Corner   : TEXCOORD0;\n"
-	"    float3 Moment   : TEXCOORD1;\n"
-	"};\n"
-	"float4 main(Splat splat) : SV_Target\n"
-	"{\n"
-	"    float rim = saturate(1.0 - dot(splat.Corner, splat.Corner));\n"
-	"    float thickness = splat.Moment.x * rim * rim;\n"
-	"    float depth = splat.Moment.y;\n"
-	"    float spread = splat.Moment.z;\n"
-	"    return float4(thickness, thickness * depth, thickness * (depth * depth + spread * spread),\n"
-	"        rim > 0.0 ? depth : 1.0);\n"
-	"}\n";
 
 void DX11BackendClass::Release_Smoke_Map()
 {
@@ -791,8 +747,8 @@ bool DX11BackendClass::Make_Smoke_Map()
 		&& SUCCEEDED(device->CreateSamplerState(&sampler, &SmokeMapSampler))
 		&& SUCCEEDED(device->CreateBlendState(&blend, &SmokeSplatBlend))
 		&& SUCCEEDED(device->CreateRasterizerState(&rasterizer, &SmokeSplatRasterizer))
-		&& Compile_Program(SMOKE_SPLAT_VERTEX_PROGRAM, "smokesplat", VERTEX_PROFILE, vertex_code)
-		&& Compile_Program(SMOKE_SPLAT_PIXEL_PROGRAM, "smokesplat", PIXEL_PROFILE, pixel_code)
+		&& Compile_Program(SunSmoke::SMOKE_SPLAT_VERTEX_PROGRAM, "smokesplat", VERTEX_PROFILE, vertex_code)
+		&& Compile_Program(SunSmoke::SMOKE_SPLAT_PIXEL_PROGRAM, "smokesplat", PIXEL_PROFILE, pixel_code)
 		&& SUCCEEDED(device->CreateVertexShader(&vertex_code[0], vertex_code.size(), NULL,
 			&SmokeSplatVertexShader))
 		&& SUCCEEDED(device->CreatePixelShader(&pixel_code[0], pixel_code.size(), NULL,
@@ -829,41 +785,7 @@ bool DX11BackendClass::Fill_Smoke_Map(const float * casters, unsigned count, flo
 		count = SMOKE_MOST_CASTERS;
 	}
 
-	/* Into the sun's clip space through the matrix the depth pass drew with, on the CPU: the sun is
-		 orthographic, so a sphere's radius is the same number of clip units wherever it stands and
-		 the disc needs no projection of its own.  How many clip units a world unit is comes off the
-		 matrix's own columns. */
-	const float * sun = SunViewProjection;
-	const float across = sqrtf(sun[0] * sun[0] + sun[4] * sun[4] + sun[8] * sun[8]);
-	const float deep = sqrtf(sun[2] * sun[2] + sun[6] * sun[6] + sun[10] * sun[10]);
-
-	SmokeSplats.resize(count * SMOKE_SPLAT_FLOATS);
-	unsigned splats = 0;
-	for (unsigned index = 0; index < count; ++index) {
-		const float * caster = casters + index * 5;
-		const float w = caster[0] * sun[3] + caster[1] * sun[7] + caster[2] * sun[11] + sun[15];
-		if (w <= 0.0f || caster[3] <= 0.0f || caster[4] <= 0.0f) {
-			continue;
-		}
-		const float x = (caster[0] * sun[0] + caster[1] * sun[4] + caster[2] * sun[8] + sun[12]) / w;
-		const float y = (caster[0] * sun[1] + caster[1] * sun[5] + caster[2] * sun[9] + sun[13]) / w;
-		const float z = (caster[0] * sun[2] + caster[1] * sun[6] + caster[2] * sun[10] + sun[14]) / w;
-		const float radius = caster[3] * across;
-		// A ball's depth along the ray spreads about half its radius either side of its middle.
-		const float spread = 0.5f * caster[3] * deep;
-		if (x < -1.0f - radius || x > 1.0f + radius || y < -1.0f - radius || y > 1.0f + radius
-			|| z < -spread || z > 1.0f + spread) {
-			continue;
-		}
-		float * splat = &SmokeSplats[splats * SMOKE_SPLAT_FLOATS];
-		splat[0] = x;
-		splat[1] = y;
-		splat[2] = z;
-		splat[3] = radius;
-		splat[4] = caster[4];
-		splat[5] = spread;
-		++splats;
-	}
+	const unsigned splats = SunSmoke::Project(SunViewProjection, casters, count, SmokeSplats);
 	if (splats == 0) {
 		return true;
 	}
@@ -985,6 +907,13 @@ bool DX11BackendClass::Additive_Glow() const
 		&& RenderStates.Get_Render_State(D3DRS_SRCBLEND) == D3DBLEND_ONE
 		&& RenderStates.Get_Render_State(D3DRS_DESTBLEND) == D3DBLEND_ONE
 		&& RenderStates.Get_Render_State(D3DRS_BLENDOP) == D3DBLENDOP_ADD;
+}
+
+void DX11BackendClass::Get_Shadow_Caster_Effect(unsigned &effect, float parameters[4]) const
+{
+	effect = ShadowMapBound && DrawEffect == DRAW_EFFECT_CLOAK_SHADOW ? DrawEffect : DRAW_EFFECT_NONE;
+	memset(parameters, 0, sizeof(DrawEffectNumbers));
+	if (effect != DRAW_EFFECT_NONE) memcpy(parameters, DrawEffectNumbers, sizeof(DrawEffectNumbers));
 }
 
 void DX11BackendClass::Set_Draw_Effect(unsigned effect, const float parameters[4])

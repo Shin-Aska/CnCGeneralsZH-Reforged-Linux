@@ -167,6 +167,8 @@ PosixDevice9::PosixDevice9(PosixDirect3D9 *adapter, RenderWindow window, const D
 
 PosixDevice9::~PosixDevice9()
 {
+	Clear_Sun_Shadow();
+	Sun.reset();
 	Shore_End();
 	Release_Surfaces();
 	for (int index = 0; index < SAMPLER_COUNT; ++index) {
@@ -509,6 +511,8 @@ RenderResult PosixDevice9::Reset(D3DPRESENT_PARAMETERS *parameters)
 	if (parameters == NULL || parameters->BackBufferWidth == 0 || parameters->BackBufferHeight == 0) {
 		return D3DERR_INVALIDCALL;
 	}
+	Clear_Sun_Shadow();
+	Sun.reset();
 	Release_Surfaces();
 	Parameters = *parameters;
 	if (Parameters.hDeviceWindow != NULL) {
@@ -793,6 +797,7 @@ RenderResult PosixDevice9::SetSoftwareVertexProcessing(int)
 
 RenderResult PosixDevice9::Draw_Unavailable(const char *what)
 {
+	if (SunActive) SunFailed = true;
 	// -headless: Windows draws into a hidden window nobody sees, so succeeding and drawing nothing is
 	// the same effect (decision 8's refinement, 2026-09-26).
 	if (Window == NULL) {

@@ -59,6 +59,7 @@
 #include "Common/DrawModule.h"
 #include "W3DDevice/GameClient/W3DVolumetricShadow.h"
 #include "W3DDevice/GameClient/W3DShadow.h"
+#include "W3DDevice/GameClient/SunShadowCasterCull.h"
 #include "WW3D2/statistics.h"
 #include "Common/PerfTimer.h"
 #include "GameLogic/TerrainLogic.h"
@@ -74,6 +75,8 @@
 #include "WW3D2/sortingrenderer.h"
 #include "GameClient/View.h"
 #include "Platform/RenderTypes.h"
+#include "Platform/SunShadowMode.h"
+#include "Platform/SunShadow.h"
 #include "Lib/Clock.h"		// Clock_Ticks: QueryPerformanceCounter on Windows, a monotonic clock elsewhere
 #include "GameClient/ParticleSys.h"
 #include "W3DDevice/GameClient/Module/W3DModelDraw.h"
@@ -178,7 +181,7 @@ const Real cosAngleToCare = cos ((0.2 * PI) / 180.0);	//1.5 degree difference
 
 // Whether the sun's map took this frame.  The volumes read it to know whether to stand down, and it
 // is false on a machine with no Direct3D 11 device, which is what keeps that machine's shadows.
-static Bool theShadowMapHoldsTheFrame = FALSE;
+
 
 //#define SV_DEBUG
 //#define SV_DEBUG_BOUNDS
@@ -3996,7 +3999,7 @@ static void fillSmokeMap( const Matrix3D &sunTransform, const Vector3 &focus, Re
 		packed.push_back( found[ i ].opticalDepth );
 	}
 
-	const Bool held = Direct3D11_Fill_Smoke_Map( packed.empty() ? NULL : &packed[ 0 ],
+	const Bool held = SunShadow::FillSmoke(DX8Wrapper::_Get_D3D_Device(), packed.empty() ? NULL : &packed[ 0 ],
 		(unsigned)found.size(), SMOKE_SHADOW_STRENGTH );
 	if (!held)
 		return;
@@ -4049,6 +4052,11 @@ static void fillSmokeMap( const Matrix3D &sunTransform, const Vector3 &focus, Re
 		water areas; the grid mesh never does. */
 static Bool waterMirrorReadsTheMap()
 {
+#ifndef _WIN32
+	// SDL gives reflections a separate, excluded scene scope and never samples this
+	// capture through their camera. Keep culling against the actual receiving view.
+	return FALSE;
+#else
 	if (TheWaterRenderObj == NULL)
 		return FALSE;
 	if (TheGlobalData->m_waterType == WaterRenderObjClass::WATER_TYPE_3_GRIDMESH)
@@ -4061,37 +4069,7 @@ static Bool waterMirrorReadsTheMap()
 			return TRUE;
 	}
 	return FALSE;
-}
-
-/** Whether anything a pixel of this frame samples can be shadowed by a caster.  The caster is its
-		bounding sphere, and what it can darken lies downwind of it: the sphere swept away from the sun
-		from its own sun side down to the lowest ground on the map, widened by how far the receiving
-		filter reaches across the map.  That capsule runs from upwind to downwind with this radius.
-		Only the four sides of the view are tested: a draw with a depth-biased projection reads the
-		map through near and far planes that are not the camera's, and the sides are the same for
-		every one of them.  The overlay's quads sit at z = 0 whatever the ground does, so for them the
-		capsule runs on to overlayDownwind, swept down to z = 0 when the lowest ground is above it. */
-static Bool shadowReachesTheFrame( const FrustumClass &view, const Vector3 &upwind,
-	const Vector3 &downwind, const Vector3 &overlayDownwind, Real radius )
-{
-	Bool inView = TRUE;
-	for (Int side = 1; side <= 4 && inView; ++side)
-	{
-		const PlaneClass &plane = view.Planes[ side ];
-		inView = Vector3::Dot_Product( plane.N, upwind ) - plane.D <= radius
-			|| Vector3::Dot_Product( plane.N, downwind ) - plane.D <= radius;
-	}
-	if (inView)
-		return TRUE;
-
-	// the 2D scene's and the interface's quads, at the world's origin
-	const Vector3 along = overlayDownwind - upwind;
-	const Real lengthSqr = along.Length2();
-	Real t = (lengthSqr > 0.0f) ? -Vector3::Dot_Product( upwind, along ) / lengthSqr : 0.0f;
-	t = WWMath::Clamp( t, 0.0f, 1.0f );
-	const Vector3 nearest = upwind + along * t;
-	const Real reach = radius + SHADOW_MAP_OVERLAY_REACH;
-	return nearest.Length2() <= reach * reach;
+#endif
 }
 
 /** Render() is not only a draw.  Animatable3DObjClass::Render moves a playing animation on to the
@@ -4209,7 +4187,21 @@ static void wholeMapSunBox( const Vector3 &toSun, Vector3 *focus, Real *halfWidt
 		more than one view.  SHADOW-MAP-PLAN.md phase 1. */
 void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 {
-	theShadowMapHoldsTheFrame = FALSE;
+	// A failed, disabled or empty pass must not expose the previous view's shadow.
+	SunShadow::Clear(DX8Wrapper::_Get_D3D_Device());
+	DX8Wrapper::Flush_Deferred_D3D9_State();
+	const SunShadow::Mode mode = SunShadow::RequestedMode();
+	// Trees historically cast under either shadow option. Smoke has its own option;
+	// it may keep an otherwise empty depth capture alive without enabling geometry.
+	const Bool geometryShadows = TheGlobalData->m_useShadowVolumes || TheGlobalData->m_useShadowDecals;
+	const Bool captureShadows = geometryShadows || TheGlobalData->m_volumetricSmokeShadows;
+	static bool modeReported = false;
+	static SunShadow::Mode lastMode = SunShadow::Mode::Legacy;
+	if (!modeReported || lastMode != mode) {
+		fprintf(stderr, "SunShadow: requested %s\n", SunShadow::ModeName(mode));
+		modeReported = true;
+		lastMode = mode;
+	}
 
 	/* The freecam asks for a map four times as wide and makes do with the usual one if refused.  A
 		 refusal is remembered until the freecam lands: asking again every frame released the usual
@@ -4224,9 +4216,10 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 	const UnsignedInt chosenTexels = (SHADOW_MAP_TEXELS / 2) << TheGlobalData->m_shadowQuality;
 	UnsignedInt texels = chosenTexels;
 	Bool begun = FALSE;
-	if (TheGlobalData->m_shadowMap && m_shadowList != NULL && TheTacticalView != NULL)
+	if (mode != SunShadow::Mode::Legacy && TheGlobalData->m_shadowMap && captureShadows && TheTacticalView != NULL
+		&& TheTerrainRenderObject != NULL && TheTerrainLogic != NULL && TheW3DShadowManager != NULL)
 	{
-		if (wholeMap && !wholeMapRefused && Direct3D11_Begin_Shadow_Map( SHADOW_MAP_WHOLE_MAP_TEXELS ))
+		if (wholeMap && !wholeMapRefused && SunShadow::Begin( DX8Wrapper::_Get_D3D_Device(), SHADOW_MAP_WHOLE_MAP_TEXELS ))
 		{
 			texels = SHADOW_MAP_WHOLE_MAP_TEXELS;
 			begun = TRUE;
@@ -4235,14 +4228,14 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 		{
 			if (wholeMap)
 				wholeMapRefused = TRUE;
-			begun = Direct3D11_Begin_Shadow_Map( chosenTexels );
+			begun = SunShadow::Begin( DX8Wrapper::_Get_D3D_Device(), chosenTexels );
 		}
 	}
 	if (!begun)
 	{
 		//no Direct3D 11 device, or it refused the surface: the volumes keep the frame, no smoke is
 		//read out of a map the last frame filled, and every cloud keeps its blob
-		Direct3D11_Fill_Smoke_Map( NULL, 0, 0.0f );
+		SunShadow::FillSmoke(DX8Wrapper::_Get_D3D_Device(), NULL, 0, 0.0f );
 		forgetSmokeInSunMap();
 		return;
 	}
@@ -4370,8 +4363,10 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 	const FrustumClass &seen = sceneCamera.Get_Frustum();
 	const Real filterReach = (widest * 1.5f + 2.0f) * texelWidth;
 	const Bool cullToFrame = toSun.Z > 0.01f && !waterMirrorReadsTheMap();
+	const SunShadowCasterCull casterCull={seen,toSun,lowestReceiver,SHADOW_MAP_CASTER_PAD,filterReach,SHADOW_MAP_OVERLAY_REACH,cullToFrame};
 
-	for (W3DVolumetricShadow *shadow = m_shadowList; shadow; shadow = shadow->m_next)
+	for (W3DVolumetricShadow *shadow = TheGlobalData->m_useShadowVolumes ? m_shadowList : NULL;
+		shadow; shadow = shadow->m_next)
 	{
 		RenderObjClass *robj = shadow->getRenderObject();
 		if (robj == NULL || !shadow->isRenderEnabled() || shadow->isInvisibleEnabled())
@@ -4393,20 +4388,11 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 			 out is a caster whose shadow, followed downwind to the lowest ground and widened by the
 			 filter, never meets the frame: no pixel drawn this frame reads a texel it is nearest the
 			 sun in, so the map reads the same everywhere it is read. */
-		if (cullToFrame)
+		if (!casterCull.Visible(bound))
 		{
-			const Real casterRadius = bound.Radius + SHADOW_MAP_CASTER_PAD;
-			const Real radius = casterRadius + filterReach;
-			const Real sweep = WWMath::Max( (bound.Center.Z - lowestReceiver + radius) / toSun.Z, 0.0f );
-			const Real overlaySweep = WWMath::Max(
-				(bound.Center.Z - WWMath::Min( lowestReceiver, 0.0f ) + radius) / toSun.Z, 0.0f );
-			if (!shadowReachesTheFrame( seen, bound.Center + toSun * casterRadius,
-					bound.Center - toSun * sweep, bound.Center - toSun * overlaySweep, radius ))
-			{
-				CasterAnimationClock::advance( robj );
-				++castersOutOfView;
-				continue;
-			}
+			CasterAnimationClock::advance(robj);
+			++castersOutOfView;
+			continue;
 		}
 
 		/* An own stealthed unit casts only a share of its shadow, breathing with its fade, the way
@@ -4415,7 +4401,7 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 		sunInfo.drawEffect = DRAW_EFFECT_NONE;
 		const DrawableInfo *casterInfo = (const DrawableInfo *)robj->Get_User_Data();
 		const Drawable *caster = casterInfo ? casterInfo->m_drawable : NULL;
-		if (caster && Direct3D11_Draw_Effects()
+		if (caster && SunShadow::CasterEffects(DX8Wrapper::_Get_D3D_Device())
 			&& (caster->getStealthDrawnLook() == STEALTHLOOK_VISIBLE_FRIENDLY
 				|| caster->getStealthDrawnLook() == STEALTHLOOK_VISIBLE_FRIENDLY_DETECTED)
 			&& !caster->isKindOf( KINDOF_MINE )
@@ -4428,6 +4414,13 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 		robj->Render( sunInfo );
 		++castersCounted;
 	}
+	// Trees have no volume-shadow entry: batched foliage and object palms used
+	// separate flattened silhouettes. Capture their actual geometry in the sun map.
+	sunInfo.drawEffect = DRAW_EFFECT_NONE;
+	// Use the trees actually present. The loader can override ShowTrees for multiplayer,
+	// and changing that preference does not remove trees from an already loaded map.
+	if (geometryShadows)
+		TheTerrainRenderObject->renderTreeShadowCasters(sunInfo, &sceneCamera, casterCull);
 	TheDX8MeshRenderer.Flush();
 	/* A mesh the material system calls translucent goes to the sort lists rather than to the mesh
 		 renderer, and a helicopter's rotor disc is one of them: without this the map holds the
@@ -4452,19 +4445,30 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 		 wrapper's cached value, which an invalidate leaves as a sentinel. */
 	const float bridgeSlopeBias = SHADOW_MAP_BRIDGE_SLOPE_BIAS;
 	DX8Wrapper::Set_DX8_Render_State( D3DRS_SLOPESCALEDEPTHBIAS, *(const uint32 *)&bridgeSlopeBias );
-	TheTerrainRenderObject->getBridgeBuffer()->drawBridgeShadowCasters();
+	if (geometryShadows)
+		TheTerrainRenderObject->getBridgeBuffer()->drawBridgeShadowCasters();
 	DX8Wrapper::Set_DX8_Render_State( D3DRS_SLOPESCALEDEPTHBIAS, 0 );
 
 	DX8Wrapper::Set_DX8_Render_State( D3DRS_COLORWRITEENABLE,
 		D3DCOLORWRITEENABLE_RED | D3DCOLORWRITEENABLE_GREEN | D3DCOLORWRITEENABLE_BLUE
 		| D3DCOLORWRITEENABLE_ALPHA );
 
-	Direct3D11_End_Shadow_Map();
+	// Invalidate the engine caches before restoring the device snapshot: invalidation itself
+	// unbinds textures and flushes deferred states. The restored scene must be the last writer.
+#ifndef _WIN32
+	DX8Wrapper::Invalidate_Cached_Render_States();
+#endif
+	const bool captured = SunShadow::End(DX8Wrapper::_Get_D3D_Device());
 
 	// The smoke goes into a map of its own through the sun the casters were just drawn with.
 	// past the map's limit the smoke nearest the camera wins: the freecam's box is centred on the
 	// map's middle, which is not where it is looking from
-	fillSmokeMap( transform, wholeMap ? sceneCamera.Get_Position() : focus, halfWidth, farClip );
+	if (mode == SunShadow::Mode::Mapped && captured)
+		fillSmokeMap( transform, wholeMap ? sceneCamera.Get_Position() : focus, halfWidth, farClip );
+	else {
+		SunShadow::FillSmoke(DX8Wrapper::_Get_D3D_Device(), NULL, 0, 0.0f );
+		forgetSmokeInSunMap();
+	}
 
 	// The frame's own camera, put back: the view, the projection and the viewport all went with the
 	// sun.  Without this everything drawn after the pass is drawn from the sun's seat, which is the
@@ -4479,6 +4483,11 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 		Matrix4x4 view;
 		DX8Wrapper::Get_Transform( D3DTS_VIEW, view );
 		const Matrix4x4 deviceView = view.Transpose();
+#ifndef _WIN32
+		// Camera::Apply defers the view in render_state, outside the D3D9 state
+		// queue. Publish this one transform before snapshotting receiver coordinates.
+		DX8Wrapper::_Set_DX8_Transform(D3DTS_VIEW, deviceView);
+#endif
 		Direct3D11_Set_Scene_View( (const float *)&deviceView );
 	}
 
@@ -4507,15 +4516,17 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 	if (TheGlobalData->m_lightingStyle == LIGHTING_STYLE_REFORGED && TheGlobalData->m_shadowMapStrength <= 0.0f)
 		strength = SHADOW_MAP_REFORGED_STRENGTH;
 
-	Direct3D11_Set_Shadow_Parameters( depthBias, strength, widest,
-		narrowest, penumbra / worldPerTexel, unitsPerUnitOfDepth, skyFill );
+	DX8Wrapper::Flush_Deferred_D3D9_State();
+	const bool receiving = captured && mode == SunShadow::Mode::Mapped
+		&& SunShadow::Parameters(DX8Wrapper::_Get_D3D_Device(), depthBias, strength, widest,
+			narrowest, penumbra / worldPerTexel, unitsPerUnitOfDepth, skyFill);
 
 	/* Said last, and only on the way out: everything above can bail, and the volumes have to know
 		 whether this frame's shadows are in the map or still theirs to draw.  The count of casters is
 		 not part of that answer.  It was, and a frame that happened to hold none - a camera over open
 		 ground - handed the frame back to the volumes for that one frame, so the whole scene's
 		 shadows changed style and back again as the camera moved. */
-	theShadowMapHoldsTheFrame = TRUE;
+	(void)receiving; // backend scene ownership is installed only after successful parameters
 
 #ifdef DEBUG_LOGGING
 	{
@@ -4541,7 +4552,7 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 			nextReportFrame = frame + LOGICFRAMES_PER_SECOND;
 			DEBUG_LOG(("SHADOWMAP: %d casters, %d left out as reaching nothing in view, %d light meshes left out, %s\n",
 				castersCounted, castersOutOfView, MeshClass::Shadow_Pass_Light_Meshes,
-				Direct3D11_Shadow_Map_Report().c_str()));
+				SunShadow::Report(DX8Wrapper::_Get_D3D_Device()).c_str()));
 		}
 	}
 }
@@ -4556,7 +4567,7 @@ void W3DVolumetricShadowManager::renderShadows( Bool forceStencilFill )
 		 stay registered either way, which is what keeps them in the map; what stops is the volumes'
 		 own darkening pass.  A machine with no Direct3D 11 device fills no map and keeps the volumes,
 		 so nobody ends up with no shadows at all. */
-	if (TheGlobalData->m_shadowMapOnly && theShadowMapHoldsTheFrame)
+	if (TheGlobalData->m_shadowMapOnly && SunShadow::OwnsSceneShadows(DX8Wrapper::_Get_D3D_Device()))
 		return;
 
  	AABoxClass bbox;

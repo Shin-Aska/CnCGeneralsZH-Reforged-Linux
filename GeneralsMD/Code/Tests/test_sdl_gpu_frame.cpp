@@ -31,6 +31,7 @@
 
 #include "SdlGpuFrame.h"
 #include "SdlConstants.h"
+#include "SdlPipelineCache.h"
 #include "SdlResourceMirror.h"
 #include "PosixResources9.h"
 #include "../Libraries/Source/WWVegas/WW3D2/sdl3shadercompile.h"
@@ -93,15 +94,16 @@ class DepthObject
 public:
 	SDL_GPUShader *Vertex = NULL, *Pixel = NULL;
 	SDL_GPUGraphicsPipeline *Pipeline = NULL;
+	SdlPipelineCache *Cache = NULL;
 	SdlGpuFrame *Frame;
-	explicit DepthObject(SdlGpuFrame *frame) : Frame(frame)
+	explicit DepthObject(SdlGpuFrame *frame, bool sun = false) : Frame(frame)
 	{
 		const char *vertex =
 			"cbuffer Object : register(b0, space1) { float4 Depth; };\n"
 			"float4 main(uint id : SV_VertexID) : SV_Position {\n"
 			"float2 p = id == 0 ? float2(-0.75,-0.75) : (id == 1 ? float2(0.75,-0.75) : float2(0,0.75));\n"
 			"return float4(p,Depth.x,1); }\n";
-		const char *pixel = "float4 main() : SV_Target0 { return float4(0.8,0.2,0.1,1); }\n";
+		const char *pixel = sun ? "void main() {}\n" : "float4 main() : SV_Target0 { return float4(0.8,0.2,0.1,1); }\n";
 		std::vector<unsigned char> spirv;
 		std::string error;
 		CHECK(SDL3_Compile_HLSL_To_SPIRV(vertex, true, spirv, error));
@@ -125,13 +127,27 @@ public:
 		info.target_info.num_color_targets = 1;
 		info.target_info.has_depth_stencil_target = true;
 		info.target_info.depth_stencil_format = (SDL_GPUTextureFormat)frame->Depth_Format();
-		Pipeline = SDL_CreateGPUGraphicsPipeline(frame->Device(), &info);
+		if (sun) {
+			// Exercise the production cache with no colour attachment and a distinct
+			// depth format, not just a hand-built SDL pipeline.
+			RenderUInt32 states[256] = {};
+			states[D3DRS_FILLMODE] = D3DFILL_SOLID;
+			states[D3DRS_CULLMODE] = D3DCULL_NONE;
+			states[D3DRS_ZENABLE] = states[D3DRS_ZWRITEENABLE] = 1;
+			states[D3DRS_ZFUNC] = D3DCMP_LESS;
+			SdlPipelineKey key;
+			CHECK(Sdl_Pipeline_Key(states, D3DPT_TRIANGLELIST, Vertex, Pixel, D3DFVF_XYZ,
+				0, SDL_GPU_TEXTUREFORMAT_D32_FLOAT, key, error));
+			Cache = new SdlPipelineCache(frame->Device());
+			Pipeline = Cache->Pipeline(key);
+		} else Pipeline = SDL_CreateGPUGraphicsPipeline(frame->Device(), &info);
 		CHECK(Pipeline != NULL);
 	}
 	~DepthObject()
 	{
 		Frame->Flush();
-		if (Pipeline) SDL_ReleaseGPUGraphicsPipeline(Frame->Device(), Pipeline);
+		if (Cache) delete Cache;
+		else if (Pipeline) SDL_ReleaseGPUGraphicsPipeline(Frame->Device(), Pipeline);
 		if (Vertex) SDL_ReleaseGPUShader(Frame->Device(), Vertex);
 		if (Pixel) SDL_ReleaseGPUShader(Frame->Device(), Pixel);
 	}
@@ -142,7 +158,7 @@ public:
 		SdlRecordedDraw draw = {};
 		draw.Pipeline = Pipeline;
 		draw.Count = 3;
-		memset(Frame->Stage(16, draw.VertexOffset), 0, 16);
+		memset(Frame->Stage(36, draw.VertexOffset), 0, 36);
 		const float values[4] = { depth, 0, 0, 0 };
 		draw.VertexConstants = Frame->Constants(0, values, sizeof(values));
 		draw.VertexConstantsSize = sizeof(values);
@@ -154,6 +170,102 @@ public:
 		Frame->Record_Draw(draw);
 	}
 };
+
+static void check_sun_depth_target(SdlGpuFrame *frame)
+{
+	SdlTarget sun;
+	std::string error;
+	CHECK(frame->Sun_Shadow_Target(32, sun, error));
+	CHECK(sun.Colour == NULL && sun.Depth != NULL && sun.Width == 32 && sun.Height == 32);
+	CHECK(frame->Target_Depth_Format(sun) == SDL_GPU_TEXTUREFORMAT_D32_FLOAT);
+	if (!sun.Depth) return;
+	DepthObject caster(frame, true);
+	frame->Set_Target(frame->Back_Buffer_Target());
+	frame->Clear_Back_Buffer(true, true, true, 0xff123456, 0.8f, 0);
+	frame->Set_Target(sun);
+	frame->Clear_Back_Buffer(false, true, false, 0, 1.0f, 0);
+	caster.Draw(sun, 0.25f);
+	frame->Set_Target(frame->Back_Buffer_Target());
+	std::vector<uint8_t> pixels;
+	CHECK(frame->Read_Back(frame->Back_Buffer_Target().Colour, WIDTH, HEIGHT, pixels));
+	CHECK(pixels.size() == WIDTH * HEIGHT * 4);
+	for (size_t i = 0; i + 3 < pixels.size(); i += 4)
+		CHECK(pixels[i] == 0x56 && pixels[i+1] == 0x34 && pixels[i+2] == 0x12 && pixels[i+3] == 255);
+
+	const char *vs = "float4 main(uint id:SV_VertexID):SV_Position { return float4(id==1?3:-1,id==2?3:-1,0,1); }";
+	const char *ps =
+		"Texture2D<float> depthMap:register(t0,space2); SamplerState pointSampler:register(s0,space2);"
+		"cbuffer Size:register(b0,space3) { float4 size; };"
+		"float4 main(float4 p:SV_Position):SV_Target0 { float d=depthMap.SampleLevel(pointSampler,p.xy/size.xy,0); return float4(d,d,d,1); }";
+	std::vector<unsigned char> spirv;
+	CHECK(SDL3_Compile_HLSL_To_SPIRV(vs, true, spirv, error));
+	SDL_GPUShader *vertex = SDL3_Create_Shader(frame->Device(), spirv, true, error);
+	CHECK(SDL3_Compile_HLSL_To_SPIRV(ps, false, spirv, error));
+	SDL_GPUShader *pixel = SDL3_Create_Shader(frame->Device(), spirv, false, error);
+	SDL_GPUColorTargetDescription colour = {};
+	colour.format = (SDL_GPUTextureFormat)SdlGpuFrame::Target_Format();
+	SDL_GPUGraphicsPipelineCreateInfo info = {};
+	info.vertex_shader = vertex; info.fragment_shader = pixel;
+	info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+	info.target_info.color_target_descriptions = &colour; info.target_info.num_color_targets = 1;
+	info.target_info.has_depth_stencil_target = true;
+	info.target_info.depth_stencil_format = (SDL_GPUTextureFormat)frame->Depth_Format();
+	SDL_GPUGraphicsPipeline *pipeline = SDL_CreateGPUGraphicsPipeline(frame->Device(), &info);
+	SDL_GPUSamplerCreateInfo samplerInfo = {};
+	samplerInfo.address_mode_u = samplerInfo.address_mode_v = samplerInfo.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+	SDL_GPUSampler *sampler = SDL_CreateGPUSampler(frame->Device(), &samplerInfo);
+	CHECK(vertex && pixel && pipeline && sampler);
+	if (pipeline && sampler) {
+		auto sample = [&](SDL_GPUTexture *texture) {
+			const SdlTarget scene = frame->Back_Buffer_Target();
+			frame->Set_Target(scene);
+			SdlRecordedDraw draw = {};
+			draw.Pipeline = pipeline; draw.Count = 3;
+			memset(frame->Stage(16, draw.VertexOffset), 0, 16);
+			const float size[4] = { (float)scene.Width, (float)scene.Height, 0, 0 };
+			draw.PixelConstants = frame->Constants(1, size, sizeof(size)); draw.PixelConstantsSize = sizeof(size);
+			draw.SamplerCount = 1; draw.Textures[0] = texture; draw.Samplers[0] = sampler;
+			draw.Viewport[2] = draw.Scissor[2] = scene.Width;
+			draw.Viewport[3] = draw.Scissor[3] = scene.Height; draw.Viewport[5] = 1;
+			frame->Record_Draw(draw);
+		};
+		auto verify = [&](float expected) {
+			const SdlTarget scene = frame->Back_Buffer_Target();
+			CHECK(frame->Read_Back(scene.Colour, scene.Width, scene.Height, pixels));
+			if (pixels.size() != scene.Width * scene.Height * 4) { CHECK(false); return; }
+			CHECK(abs((int)pixels[((scene.Height/2)*scene.Width+scene.Width/2)*4] - (int)(expected*255+0.5f)) <= 1);
+			CHECK(pixels[0] == 255); // clear depth outside the triangle
+		};
+		sample(sun.Depth);
+		SdlTarget replacement;
+		CHECK(frame->Sun_Shadow_Target(64, replacement, error));
+		CHECK(replacement.Depth != sun.Depth);
+		verify(0.25f); // queued sampling still owns the retired 32x32 resource
+		frame->Set_Target(replacement);
+		frame->Clear_Back_Buffer(false, true, false, 0, 1, 0);
+		caster.Draw(replacement, 0.6f);
+		sample(replacement.Depth);
+		SdlTarget refused;
+		CHECK(!frame->Sun_Shadow_Target(0, refused, error) && refused.Depth == NULL);
+		CHECK(!frame->Sun_Shadow_Target(8193, refused, error) && refused.Depth == NULL);
+		verify(0.6f);
+		CHECK(frame->Resize(WIDTH+16, HEIGHT+8));
+		SdlTarget kept;
+		CHECK(frame->Sun_Shadow_Target(64, kept, error) && kept.Depth == replacement.Depth);
+		sample(kept.Depth); verify(0.6f); // window resizing does not invalidate the sun allocation
+		frame->Set_Target(kept);
+		frame->Clear_Back_Buffer(false, true, false, 0, 1, 0);
+		sample(kept.Depth); verify(1.0f); // empty capture clears stale caster depth
+		CHECK(frame->Resize(WIDTH, HEIGHT));
+	}
+	frame->Set_Target(frame->Back_Buffer_Target());
+	CHECK(frame->Flush());
+	if (pipeline) SDL_ReleaseGPUGraphicsPipeline(frame->Device(), pipeline);
+	if (sampler) SDL_ReleaseGPUSampler(frame->Device(), sampler);
+	if (vertex) SDL_ReleaseGPUShader(frame->Device(), vertex);
+	if (pixel) SDL_ReleaseGPUShader(frame->Device(), pixel);
+	printf("sun depth target: depth-only draw/sample, scene preservation, empty clear, retirement and resize checked\n");
+}
 
 static float depth_at(const std::vector<uint8_t> &bytes, unsigned int width, unsigned int x, unsigned int y)
 {
@@ -648,6 +760,10 @@ static void check_gpu_water_mesh_correction(SdlGpuFrame *frame)
 	water.TerrainParameters[1]=100;water.SceneParameters[1]=water.SceneParameters[2]=1;
 	water.OpticalParameters[0]=3;water.OpticalParameters[1]=1;
 	float correction[4]={.35f,-.20f,1.25f,0};
+	// The production material declares an array at t8 even when FFT sampling is
+	// disabled. Match the device's typed fallback rather than binding a 2D view.
+	SdlResourceMirrors mirrors(frame);
+	SDL_GPUTexture *whiteArray=mirrors.White(true);CHECK(whiteArray);if(!whiteArray)return;
 	CHECK(frame->Flush());unsigned renders=0;
 	auto render=[&](bool enabled,unsigned transformed) {
 		water.OpticalParameters[3]=enabled?1.0f:0.0f;
@@ -660,7 +776,7 @@ static void check_gpu_water_mesh_correction(SdlGpuFrame *frame)
 		pass=SDL_BeginGPURenderPass(commands,&attachment,1,NULL);CHECK(pass);
 		SDL_BindGPUGraphicsPipeline(pass,resources.pipelines[transformed]);
 		SDL_GPUTextureSamplerBinding bindings[16]={};
-		for(unsigned i=0;i<samplers;++i) {bindings[i].texture=resources.white;bindings[i].sampler=resources.sampler;}
+		for(unsigned i=0;i<samplers;++i) {bindings[i].texture=i==8?whiteArray:resources.white;bindings[i].sampler=resources.sampler;}
 		if(samplers) SDL_BindGPUFragmentSamplers(pass,0,bindings,samplers);
 		SDL_PushGPUVertexUniformData(commands,0,&vertexConstants,sizeof(vertexConstants));
 		SDL_PushGPUVertexUniformData(commands,1,correction,sizeof(correction));
@@ -1907,7 +2023,7 @@ static std::array<std::vector<float>,WaterFftSpectrum::Phases+1> check_ocean_mip
 	}
 	return result;
 }
-static void check_ocean_fractional_mips(SdlGpuFrame *frame,const OceanMipReference &expected)
+static void check_ocean_fractional_mips(SdlGpuFrame *frame,const OceanMipReference &expected,bool array=false)
 {
 	const unsigned width=36,height=6;
 	std::string source;
@@ -1915,6 +2031,9 @@ static void check_ocean_fractional_mips(SdlGpuFrame *frame,const OceanMipReferen
 	source+="float4 main(float4 position:SV_Position):SV_Target0 { int2 pixel=int2(position.xy);float lod=pixel.x*0.25;float2 uv=float2((pixel.x%3)-1,pixel.y%3)*2.0;\n";
 	for(unsigned i=0;i<6;++i) source+="if(pixel.y=="+std::to_string(i)+") return T"+std::to_string(i)+".SampleLevel(S"+std::to_string(i)+",uv,lod);\n";
 	source+="return 0;}\n";
+	if(array) source="Texture2DArray<float4> T:register(t0,space2);SamplerState S:register(s0,space2);\n"
+		"float4 main(float4 position:SV_Position):SV_Target0 { int2 p=int2(position.xy);"
+		"return T.SampleLevel(S,float3(float2((p.x%3)-1,p.y%3)*2.0,p.y),p.x*.25); }\n";
 	std::vector<unsigned char> spirv;std::string error;
 	CHECK(SDL3_Compile_HLSL_To_SPIRV(WaterFftSpectrum::VertexHlsl(),true,spirv,error));
 	SDL_GPUShader *vertex=SDL3_Create_Shader(frame->Device(),spirv,true,error);CHECK(vertex);
@@ -1930,8 +2049,8 @@ static void check_ocean_fractional_mips(SdlGpuFrame *frame,const OceanMipReferen
 	texture.layer_count_or_depth=texture.num_levels=1;SDL_GPUTexture *target=SDL_CreateGPUTexture(frame->Device(),&texture);CHECK(target);
 	if(pipeline && target) {
 		frame->Set_Target({target,frame->Depth_For(width,height),width,height});SdlRecordedDraw draw={};draw.Pipeline=pipeline;draw.Count=3;
-		memset(frame->Stage(16,draw.VertexOffset),0,16);draw.SamplerCount=6;
-		for(unsigned i=0;i<6;++i) {draw.Textures[i]=frame->Ocean_Map(i);draw.Samplers[i]=frame->Ocean_Sampler();}
+		memset(frame->Stage(16,draw.VertexOffset),0,16);draw.SamplerCount=array?1:6;
+		for(unsigned i=0;i<draw.SamplerCount;++i) {draw.Textures[i]=array?frame->Ocean_Array():frame->Ocean_Map(i);draw.Samplers[i]=frame->Ocean_Sampler();}
 		draw.Viewport[2]=draw.Scissor[2]=width;draw.Viewport[3]=draw.Scissor[3]=height;draw.Viewport[5]=1;frame->Record_Draw(draw);
 		const auto sampled=read_float_targets(frame,&target,1,width,height);double maximumError=0,armedNearest=0,armedBase=0;
 		for(unsigned y=0;y<height;++y) for(unsigned x=0;x<width;++x) for(unsigned c=0;c<4;++c) {
@@ -1943,7 +2062,7 @@ static void check_ocean_fractional_mips(SdlGpuFrame *frame,const OceanMipReferen
 			armedBase=(std::max)(armedBase,std::abs(value-ocean_mip_sample(expected,y,c,u,v,0)));
 		}
 		CHECK(armedNearest>1e-4 && armedBase>1e-3);
-		printf("sdl_gpu_frame_selfcheck: all6 FFT maps fractional/negative-wrapped mip sampling: max error %.9f, armed nearest %.6f and base-only %.6f\n",maximumError,armedNearest,armedBase);
+		printf("sdl_gpu_frame_selfcheck: all6 FFT %s fractional/negative-wrapped mip sampling: max error %.9f, armed nearest %.6f and base-only %.6f\n",array?"array layers":"maps",maximumError,armedNearest,armedBase);
 	}
 	CHECK(frame->Flush());frame->Set_Target(frame->Back_Buffer_Target());
 	if(target) SDL_ReleaseGPUTexture(frame->Device(),target);if(pipeline) SDL_ReleaseGPUGraphicsPipeline(frame->Device(),pipeline);
@@ -1967,7 +2086,7 @@ static void check_gpu_water_vertex_uniform_order(SdlGpuFrame *frame)
 	const unsigned coastalAreaRegister=offsetof(SdlWaterPixelConstants,CoastalArea)/16;
 	const unsigned coastalParamsRegister=offsetof(SdlWaterPixelConstants,CoastalParams)/16;
 	CHECK(contactRegister==100 && fillRegister==180 && coastalAreaRegister==184 && coastalParamsRegister==185
-		&& sizeof(SdlWaterPixelConstants)==186*16);
+		&& sizeof(SdlWaterPixelConstants)==WaterHullVisualLayout::VertexCommonRegisters*16);
 	std::string block="cbuffer WaterBlock : register(b1,space1) { float4 Water[";
 	block+=std::to_string(sizeof(SdlWaterPixelConstants)/16)+"]; };\n";
 	const std::string output="struct Output { float4 Position:SV_Position; [[vk::location(0)]] float4 Value:TEXCOORD0; };\n";
@@ -2084,7 +2203,7 @@ static void check_gpu_water_vertex_uniform_order(SdlGpuFrame *frame)
 		matched &= std::isfinite(values[(row*width+x)*4+c]) && std::abs(values[(row*width+x)*4+c]-expected)<0.00001f;
 	}
 	CHECK(matched);
-	printf("sdl_gpu_frame_selfcheck: GPU water VS slot1: %u queued draws, shared 186-float4 pixel snapshot, mean/FFT/history/contact/fill-light/coastal tails in both stages, explicit zero contact/light/coastal fallback, intervening non-water and rectangle clear checked\n",rows);
+	printf("sdl_gpu_frame_selfcheck: GPU water VS slot1: %u queued draws, shared 194-float4 pixel snapshot, mean/FFT/history/contact/fill-light/coastal tails in both stages, explicit zero contact/light/coastal fallback, intervening non-water and rectangle clear checked\n",rows);
 }
 
 static void check_gpu_water_visual_uniform_order(SdlGpuFrame *frame)
@@ -2219,7 +2338,7 @@ float4 main(float4 position:SV_Position,[[vk::location(0)]] float4 value:TEXCOOR
 		if(waterRows[row] && state && (x==256 || x==512))armedBoundary+=std::abs(actual-(expected-1024))>100;
 	}
 	CHECK(matched && armedLatest>0 && armedBoundary>0);
-	printf("sdl_gpu_frame_selfcheck: visual hull transport: all704 packet float4s +8 metadata, PS slots0..3, 186-register VS alias and 194-register PS common, both coastal float4s in both stages, queued A/B/zero, non-water, clear, new batch, resize; max error %.9g, armed %u/%u\n",maxError,armedLatest,armedBoundary);
+	printf("sdl_gpu_frame_selfcheck: visual hull transport: all704 packet float4s +8 metadata, PS slots0..3, 194-register VS alias and 202-register PS common, both coastal float4s in both stages, queued A/B/zero, non-water, clear, new batch, resize; max error %.9g, armed %u/%u\n",maxError,armedLatest,armedBoundary);
 }
 
 static void check_gpu_water_visual_query(SdlGpuFrame *frame)
@@ -5353,9 +5472,9 @@ static void check_gpu_water_hull_normal(SdlGpuFrame *frame)
 	const unsigned width=96,height=32;
 	struct Resources {
 		SDL_GPUDevice *device;SDL_GPUShader *vertex=NULL,*pixel=NULL;SDL_GPUGraphicsPipeline *pipeline=NULL;
-		SDL_GPUTexture *target=NULL,*white=NULL,*zero=NULL,*displacement=NULL;SDL_GPUSampler *sampler=NULL;
+		SDL_GPUTexture *target=NULL,*white=NULL,*zero=NULL,*displacement=NULL,*array=NULL;SDL_GPUSampler *sampler=NULL;
 		~Resources(){if(pipeline)SDL_ReleaseGPUGraphicsPipeline(device,pipeline);if(vertex)SDL_ReleaseGPUShader(device,vertex);
-			if(pixel)SDL_ReleaseGPUShader(device,pixel);for(auto *t:{target,white,zero,displacement})if(t)SDL_ReleaseGPUTexture(device,t);
+			if(pixel)SDL_ReleaseGPUShader(device,pixel);for(auto *t:{target,white,zero,displacement,array})if(t)SDL_ReleaseGPUTexture(device,t);
 			if(sampler)SDL_ReleaseGPUSampler(device,sampler);}
 	} resources;
 	resources.device=frame->Device();
@@ -5409,9 +5528,10 @@ Output main(uint id:SV_VertexID) {
 	ti.width=width;ti.height=height;ti.layer_count_or_depth=ti.num_levels=1;resources.target=SDL_CreateGPUTexture(resources.device,&ti);
 	ti.width=ti.height=1;ti.usage|=SDL_GPU_TEXTUREUSAGE_SAMPLER;
 	resources.white=SDL_CreateGPUTexture(resources.device,&ti);resources.zero=SDL_CreateGPUTexture(resources.device,&ti);resources.displacement=SDL_CreateGPUTexture(resources.device,&ti);
+	ti.type=SDL_GPU_TEXTURETYPE_2D_ARRAY;ti.layer_count_or_depth=6;resources.array=SDL_CreateGPUTexture(resources.device,&ti);
 	SDL_GPUSamplerCreateInfo si={};si.min_filter=si.mag_filter=SDL_GPU_FILTER_NEAREST;resources.sampler=SDL_CreateGPUSampler(resources.device,&si);
-	CHECK(resources.target && resources.white && resources.zero && resources.displacement && resources.sampler);
-	if(!resources.target || !resources.white || !resources.zero || !resources.displacement || !resources.sampler)return;
+	CHECK(resources.target && resources.white && resources.zero && resources.displacement && resources.array && resources.sampler);
+	if(!resources.target || !resources.white || !resources.zero || !resources.displacement || !resources.array || !resources.sampler)return;
 	SdlVertexConstants vertex={};SdlWaterPixelConstants water={};
 	for(unsigned i=0;i<4;++i) {
 		vertex.WorldViewProjection[i*5]=vertex.WorldView[i*5]=vertex.NormalTransform[i*5]=1;water.WorldFromClip[i*5]=1;
@@ -5435,10 +5555,16 @@ Output main(uint id:SV_VertexID) {
 			attachment.clear_color={i==0?1.0f:0.0f,i==0?1.0f:i==2?.05f:0.0f,i==0?1.0f:0.0f,i==0?1.0f:0.0f};
 			SDL_GPURenderPass *pass=SDL_BeginGPURenderPass(commands,&attachment,1,NULL);CHECK(pass);SDL_EndGPURenderPass(pass);
 		}
+		for(unsigned layer=0;layer<6;++layer) {
+			attachment.texture=resources.array;attachment.layer_or_depth_plane=layer;
+			attachment.clear_color={0,layer==0?.05f:0.0f,0,0};
+			SDL_GPURenderPass *pass=SDL_BeginGPURenderPass(commands,&attachment,1,NULL);CHECK(pass);SDL_EndGPURenderPass(pass);
+		}
+		attachment.layer_or_depth_plane=0;
 		attachment.texture=resources.target;attachment.clear_color={0,0,0,0};
 		SDL_GPURenderPass *pass=SDL_BeginGPURenderPass(commands,&attachment,1,NULL);CHECK(pass);SDL_BindGPUGraphicsPipeline(pass,resources.pipeline);
 		SDL_GPUTextureSamplerBinding bindings[16]={};for(unsigned i=0;i<samplers;++i) {
-			bindings[i].texture=i<8?resources.white:i==8?resources.displacement:resources.zero;bindings[i].sampler=resources.sampler;
+			bindings[i].texture=i<8?resources.white:i==8?resources.array:resources.zero;bindings[i].sampler=resources.sampler;
 		}
 		SDL_BindGPUFragmentSamplers(pass,0,bindings,samplers);
 		SDL_GPUTextureSamplerBinding vertexBindings[4]={{resources.displacement,resources.sampler},{resources.zero,resources.sampler},{resources.zero,resources.sampler},{resources.zero,resources.sampler}};
@@ -6647,6 +6773,7 @@ static void check_gpu_fft_ocean(SdlGpuFrame *frame)
 	const auto mipReference=ocean_mip_reference(field);double mipError=0;
 	const auto mipField=check_ocean_mip_contents(frame,mipReference,mipError);
 	check_ocean_fractional_mips(frame,mipReference);
+	check_ocean_fractional_mips(frame,mipReference,true);
 	check_fft_spectral_reality(initial);
 	const unsigned plane=Resolution*Resolution*4;
 	auto value=[&](const std::vector<float>& data,unsigned cascade,unsigned channel,unsigned x,unsigned y) -> double {
@@ -6741,6 +6868,7 @@ float2 uv=float2(0,0);output.Value=float4(A.SampleLevel(SA,uv,2.375).y,B.SampleL
 		const auto advancedReference=ocean_mip_reference(advanced);
 		const auto advancedMips=check_ocean_mip_contents(frame,advancedReference,mipError);
 		check_ocean_fractional_mips(frame,advancedReference);
+		check_ocean_fractional_mips(frame,advancedReference,true);
 		double changedMipSample=0;
 		for(unsigned c=0;c<3;++c) {
 			const double oldSample=ocean_mip_sample(mipReference,c*2,1,0,0,2.375);
@@ -8046,6 +8174,7 @@ int main()
 		return 77;
 	}
 	printf("sdl_gpu_frame_selfcheck: %s\n", SDL_GetGPUDeviceDriver(frame->Device()));
+	check_sun_depth_target(frame);
 	check_gpu_fft_ocean(frame);
 	check_gpu_water_coastal_incident(frame);
 	check_gpu_coastal_surf_from_ocean(frame);

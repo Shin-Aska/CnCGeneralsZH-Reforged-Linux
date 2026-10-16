@@ -61,6 +61,8 @@ class W3DPropBuffer;
 class W3DTreeDrawModuleData;
 class GeometryInfo;
 
+struct SunShadowCasterCull;
+
 #define no_TIMING_TESTS	1
 
 #define no_PRE_TRANSFORM_VERTEX // Don't do this, not a performance win.  jba.
@@ -175,6 +177,7 @@ public:
 	void removeTree(DrawableID id);
 	Bool updateTreePosition(DrawableID id, Coord3D location, Real angle);
 	void renderTrees(CameraClass * camera); ///< renders the tree buffer.
+	void renderTreeShadowCasters(RenderInfoClass &sunInfo, CameraClass *sceneCamera, const SunShadowCasterCull &cull);
 
 	void addProp(Int id, Coord3D location, Real angle, Real scale, const AsciiString &modelName);
 	void removeProp(Int id);

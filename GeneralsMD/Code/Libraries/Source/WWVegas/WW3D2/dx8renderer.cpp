@@ -42,6 +42,7 @@
 //#define ENABLE_CATEGORY_LOG
 //#define ENABLE_STRIPING
 
+#include "Platform/SunShadow.h"
 #include "dx8renderer.h"
 #include "dx8wrapper.h"
 #include "dx8polygonrenderer.h"
@@ -1917,10 +1918,11 @@ void DX8TextureCategoryClass::Render(void)
 		if (!DX8RendererDebugger::Is_Enabled() || !mesh->Is_Disabled_By_Debugger()) {
 
 		// The object's look on the Direct3D 11 frame (RTS3DScene::renderOneObject picks it), for this
-		// mesh's draws only.  A sorted mesh draws later, from the sorting pool, and goes without.
+		// mesh's draws only. The sorting pool retains shadow coverage; cosmetic scene
+		// effects still apply only to immediate meshes.
 		const unsigned draw_effect = mesh->Get_Draw_Effect();
 		if (draw_effect != 0) {
-			Direct3D11_Set_Draw_Effect(draw_effect, mesh->Get_Draw_Effect_Parameters());
+			SunShadow::SetCasterEffect(DX8Wrapper::_Get_D3D_Device(),draw_effect, mesh->Get_Draw_Effect_Parameters());
 		}
 
 		if ((!!mesh->Peek_Model()->Get_Flag(MeshGeometryClass::SORT)) && WW3D::Is_Sorting_Enabled()) {
@@ -1979,7 +1981,7 @@ void DX8TextureCategoryClass::Render(void)
 		}
 		if (draw_effect != 0) {
 			static const float no_effect[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-			Direct3D11_Set_Draw_Effect(0, no_effect);
+			SunShadow::SetCasterEffect(DX8Wrapper::_Get_D3D_Device(),0, no_effect);
 		}
 //--------------------------------------------------------------------
 		if (mesh->Get_ObjectScale() != 1.0f)

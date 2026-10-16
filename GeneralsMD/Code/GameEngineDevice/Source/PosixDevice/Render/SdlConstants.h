@@ -25,9 +25,8 @@
 ** declares a prefix of its block, and a longer push is legal.  Every field is a float4 or a row-major
 ** float4x4, so HLSL's packing and std140, which SDL3 asks for, agree.
 **
-** The pixel block stops after the alpha reference: the fields after it serve the Direct3D 11 backend's
-** own additions (normal maps, the shadow map, the sky), which A3 does not draw - A3 draws the Direct 3D 9
-** picture.
+** Ordinary combiners upload the small prefix. Sun/smoke receivers and cloak casters upload
+** the shared extended block; the SDL water programs have their own explicitly bound layout.
 */
 
 #pragma once
@@ -35,6 +34,7 @@
 #ifndef SDLCONSTANTS_H
 #define SDLCONSTANTS_H
 
+#include <cstddef>
 #include "Platform/WaterHullVisualLayout.h"
 #include "../../../../Libraries/Source/WWVegas/WW3D2/ffvertex.h" // MAXIMUM_VERTEX_STAGES, MAXIMUM_VERTEX_LIGHTS
 
@@ -98,6 +98,11 @@ struct SdlWaterPixelConstants
 	float FoamFillLights[4][4]; // two direction/colour pairs; first direction.w enables the main light for foam
 	float CoastalArea[4]; // lower world origin XY and extent XY of the independent coastal view
 	float CoastalParams[4]; // valid, exact level, successful history sample time, current water time
+	float ShadowFromClip[16];
+	float ShadowParameters[4];
+	float ShadowViewport[4];
+	float ShadowSoftness[4];
+	float VolumeParameters[4];
 };
 static_assert(sizeof(SdlWaterPixelConstants) == WaterHullVisualLayout::VertexCommonRegisters * 16, "water uniform packing");
 
@@ -119,12 +124,8 @@ inline bool Sdl_Draw_Uniform_Buffers_Supported(bool water_vertex, bool water_pix
 		&& (pixel_buffers<=1u || (water_pixel && pixel_buffers==4u));
 }
 
-/// What an engine pixel program's b0 declares (A3e, engineshader.cpp's write_pixel_preamble): the Direct3D
-/// 11 backend's PixelConstantBlock, field for field.  The first three are SdlPixelConstants; the rest -
-/// the normal mapped lights, the terrain's sun, the shadow and the sky - are unread padding from the
-/// normal maps taken out on 2026-10-06 and the fork's Direct3D 11 additions, which A3e does not
-/// draw, and stay zero: zero shadow parameters
-/// read as a pixel the sun reaches.
+/// Shared engine/generated receiver b0 layout. Normal-map and sky fields remain zero;
+/// eligible receivers fill sun/smoke fields; Windows per-pixel light counts remain zero.
 struct SdlEnginePixelConstants
 {
 	SdlPixelConstants Combiner;
@@ -138,8 +139,18 @@ struct SdlEnginePixelConstants
 	float ShadowSoftness[4];
 	float Sky[4];
 	float SkyUp[4];
+	float VolumeParameters[4];
+	float WorldFromClip[16];
+	float HeadlightParameters[4];
+	float HeadlightPosition[16][4], HeadlightDirection[16][4];
+	float BlastLightParameters[4];
+	float BlastLightPosition[32][4], BlastLightDiffuse[32][4], BlastLightAmbient[32][4];
+	float SoftParticleDepth[4];
+	float DrawEffectParameters[4];
 };
-static_assert(sizeof(SdlEnginePixelConstants) == 22 * 16, "PixelConstantBlock's 22 float4s");
+static_assert(sizeof(SdlEnginePixelConstants) == 159 * 16, "shared PixelConstantBlock packing");
+static_assert(offsetof(SdlEnginePixelConstants, VolumeParameters) == 22 * 16, "smoke follows SkyUp");
+static_assert(offsetof(SdlEnginePixelConstants, DrawEffectParameters) == 158 * 16, "caster opacity follows soft depth");
 
 static_assert(sizeof(SdlVertexConstants) % 16 == 0 && sizeof(SdlPixelConstants) % 16 == 0,
 	"whole float4s, as std140 lays them out");
