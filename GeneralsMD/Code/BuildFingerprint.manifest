@@ -9,6 +9,7 @@ Data/Art/Textures/ReforgedBarChinaRight.tga
 Data/Art/Textures/ReforgedBarGLACenter.tga
 Data/Art/Textures/ReforgedBarGLALeft.tga
 Data/Art/Textures/ReforgedBarGLARight.tga
+Data/Art/Textures/ReforgedForceAttack.tga
 Data/Art/Textures/ReforgedHudAmericaCommandBar.dds
 Data/Art/Textures/ReforgedHudAmericaPowers.dds
 Data/Art/Textures/ReforgedHudBlankTexture.tga
@@ -32,6 +33,10 @@ Data/Art/Textures/ReforgedSignalLook.tga
 Data/Cinema/aurorablast.txt
 Data/Cinema/aurorafog.txt
 Data/Cinema/blastcheck.txt
+Data/Cinema/debristrails.txt
+Data/Cinema/debristrails3.txt
+Data/Cinema/debristrails3_nuke.txt
+Data/Cinema/debristrails3_side.txt
 Data/Cinema/demo.txt
 Data/Cinema/drawlooks.txt
 Data/Cinema/explreel.txt
@@ -141,6 +146,7 @@ Data/INI/ControlBarSchemeReforged.ini
 Data/INI/FXListReforged.ini
 Data/INI/FixesReforged.ini
 Data/INI/MappedImages/HandCreated/ReforgedBarChinaBeacon.ini
+Data/INI/MappedImages/HandCreated/ReforgedForceAttack.ini
 Data/INI/MappedImages/HandCreated/ReforgedHudAmericaCommandBar.ini
 Data/INI/MappedImages/HandCreated/ReforgedHudAmericaPowers.ini
 Data/INI/MappedImages/HandCreated/ReforgedHudBlankTexture.ini
@@ -181,6 +187,8 @@ Data/Scenarios/comanchehill.txt
 Data/Scenarios/comanchepods.txt
 Data/Scenarios/comturret.txt
 Data/Scenarios/crowdbattle.txt
+Data/Scenarios/debristrails.txt
+Data/Scenarios/debristrails3.txt
 Data/Scenarios/defencereach.txt
 Data/Scenarios/dozerloss.txt
 Data/Scenarios/dragonfirewall.txt
@@ -246,6 +254,7 @@ Data/Scenarios/mobclose.txt
 Data/Scenarios/mobopen.txt
 Data/Scenarios/mobstress.txt
 Data/Scenarios/mobwin.txt
+Data/Scenarios/netrepeat.txt
 Data/Scenarios/netstance.txt
 Data/Scenarios/nukefade.txt
 Data/Scenarios/obeyorders.txt
@@ -255,6 +264,7 @@ Data/Scenarios/overlordrush.txt
 Data/Scenarios/parade.txt
 Data/Scenarios/particles100k.txt
 Data/Scenarios/reachshot.txt
+Data/Scenarios/repeatbuild.txt
 Data/Scenarios/rf_mass840.txt
 Data/Scenarios/rf_night.txt
 Data/Scenarios/rf_nightday.txt
@@ -1149,6 +1159,7 @@ GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/MainMenu.cpp
 GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/MapSelectMenu.cpp
 GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/NetworkDirectConnect.cpp
 GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/OptionsMenu.cpp
+GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/OptionsMenuHotkeys.cpp
 GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/PopupCommunicator.cpp
 GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/PopupHostGame.cpp
 GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/PopupJoinGame.cpp

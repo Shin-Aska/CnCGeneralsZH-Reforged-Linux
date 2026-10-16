@@ -379,20 +379,6 @@ void ControlBar::populateCommand( Object *obj )
 
 	}  // end if
 
-	// with grid keys on, the fixed letters this bar has no order for key its two keyless places
-	{
-		AsciiString names[ MAX_COMMANDS_PER_SET ];
-		Int types[ MAX_COMMANDS_PER_SET ];
-		for( i = 0; i < MAX_COMMANDS_PER_SET; i++ )
-		{
-			const CommandButton *button = commandSet->getCommandButton( i );
-			const Bool shows = button && !BitTest( button->getOptions(), SCRIPT_ONLY );
-			names[ i ] = shows ? button->getName() : AsciiString::TheEmptyString;
-			types[ i ] = shows ? button->getCommandType() : GUI_COMMAND_NONE;
-		}
-		HotKeyManager::lendFixedKeys( names, types, MAX_COMMANDS_PER_SET );
-	}
-
 	// transports do extra special things with the user interface buttons
 	if( obj->getContain()  &&  obj->getContain()->isDisplayedOnControlBar() )
 		doTransportInventoryUI( obj, commandSet );
@@ -411,26 +397,30 @@ void ControlBar::populateCommand( Object *obj )
 			types[ i ] = ( set[ i ] && !BitTest( set[ i ]->getOptions(), SCRIPT_ONLY ) ) ? set[ i ]->getCommandType() : GUI_COMMAND_NONE;
 			windowed[ i ] = m_commandWindows[ i ] != NULL;
 		}
+		{
+			const Int forceSlot = ControlBar_forceAttackSlot( types, MAX_COMMANDS_PER_SET, ControlBar_forceFires( obj ) );
+			const CommandButton *force = forceSlot >= 0 ? findCommandButton( AsciiString( "Command_ForceAttack" ) ) : NULL;
+			if( force )
+			{
+				set[ forceSlot ] = force;
+				types[ forceSlot ] = force->getCommandType();
+			}
+		}
 		ControlBar_fitCommandSlots( types, windowed, MAX_COMMANDS_PER_SET, shown );
 
-		// with grid keys on a button on a keyless place moves to a free keyed one, so the right of the
-		// bar does not keep buttons without a key.  A passenger's way out stays where the transport
-		// code put it.  Client side only: the bar's layout reaches no logic
-		Bool keyed[ MAX_COMMANDS_PER_SET ];
-		Bool unkeyed[ MAX_COMMANDS_PER_SET ];
-		for( i = 0; i < MAX_COMMANDS_PER_SET; i++ )
-		{
-			keyed[ i ] = windowed[ i ] && HotKeyManager::gridSlotKey( i ) != 0;
-			const CommandButton *button = shown[ i ] >= 0 ? set[ shown[ i ] ] : NULL;
-			unkeyed[ i ] = keyed[ i ] == FALSE && button && button->getCommandType() != GUI_COMMAND_EXIT_CONTAINER &&
-				HotKeyManager::playerButtonKey( button->getName(), 0, i, button->getCommandType() ) == 0;
-		}
-		ControlBar_packKeyedSlots( keyed, unkeyed, MAX_COMMANDS_PER_SET, shown );
-
-		// a window nothing is fitted to stays empty: its own slot is empty or script only, or its
-		// button was just packed away
+		// a window nothing is fitted to stays empty: its own slot is empty or script only
 		for( i = 0; i < MAX_COMMANDS_PER_SET; i++ )
 			slot[ i ] = shown[ i ] >= 0 ? set[ shown[ i ] ] : NULL;
+	}
+
+	// a builder standing in for an empty selection offers its buildings, not its orders: nobody
+	// asked that dozer to go and clear mines
+	if( m_standInBuilderID != INVALID_DRAWABLE_ID && obj->getDrawable()
+			&& obj->getDrawable()->getID() == m_standInBuilderID )
+	{
+		for( i = 0; i < MAX_COMMANDS_PER_SET; i++ )
+			if( slot[ i ] && ControlBar_namedCommandPlace( slot[ i ]->getName().str() ) == COMMAND_PLACE_CLEAR_MINES )
+				slot[ i ] = NULL;
 	}
 
 	// populate the button with commands defined
@@ -894,6 +884,11 @@ void ControlBar::updateContextCommand( void )
 		GadgetButtonClearClock( win );
 		win->winClearStatus( WIN_STATUS_CANCEL_WHEN_DISABLED );
 
+		// the spinning repeat mark: some selected factory builds this unit on repeat
+		const Bool repeating = command->getCommandType() == GUI_COMMAND_UNIT_BUILD &&
+													 selectionRepeatsUnit( command->getThingTemplate() );
+		GadgetButtonSetRepeat( win, repeating );
+
 		//
 		// a unit build button wears a radial fill over the cameo while its unit is the one being
 		// built, and right-click cancels the last one queued
@@ -1002,6 +997,11 @@ void ControlBar::updateContextCommand( void )
 			win->winEnable( TRUE );
 			win->winSetStatus( WIN_STATUS_ALWAYS_COLOR );
 		}
+
+		// the same for a unit on repeat the bank cannot pay for right now: Ctrl+Alt click has to
+		// reach the button to stop it, and a plain click only says there is not enough money
+		if( repeating && availability == COMMAND_CANT_AFFORD )
+			win->winEnable( TRUE );
 
 		//Determine by the production type of this button, whether or not the created object
 		//will have a veterancy rank

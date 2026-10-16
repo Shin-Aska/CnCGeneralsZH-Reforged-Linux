@@ -111,6 +111,7 @@
 #include "GameClient/Display.h"
 #include "GameClient/FXList.h"
 #include "GameClient/GameClient.h"
+#include "GameClient/HotKey.h"
 #include "GameClient/Keyboard.h"
 #include "GameClient/Shell.h"
 #include "GameClient/GameText.h"
@@ -1281,23 +1282,9 @@ void GameEngine::init( int argc, char *argv[] )
 		// CommandMap blocks laid over the ones above, and CommandButtonHotKey blocks for the command
 		// bar.  Client only and never in the INI CRC, so a key here changes nothing for anyone else in
 		// a match.  The file is the player's to edit by hand, and a broken one costs the keys from the
-		// broken block on, not the start.
-		{
-			AsciiString hotkeys = TheGlobalData->getPath_UserData();
-			hotkeys.concat( "Hotkeys.ini" );
-			if( TheFileSystem->doesFileExist( hotkeys.str() ) )
-			{
-				try
-				{
-					ini.load( hotkeys, INI_LOAD_MULTIFILE, NULL );
-					DEBUG_LOG(( "HOTKEYS: read %s\n", hotkeys.str() ));
-				}
-				catch( ... )
-				{
-					DEBUG_LOG(( "HOTKEYS: %s stopped at a block it could not read; the keys before it stand\n", hotkeys.str() ));
-				}
-			}
-		}
+		// broken block on, not the start.  The options menu's Hotkeys page writes it too and reads it
+		// again through HotKeyManager::reloadKeys.
+		HotKeyManager::loadPlayerKeys();
 
 		initSubsystem(TheActionManager,"TheActionManager", MSGNEW("GameEngineSubsystem") ActionManager(), NULL);
 		//initSubsystem((CComObject<WebBrowser> *)TheWebBrowser,"(CComObject<WebBrowser> *)TheWebBrowser", (CComObject<WebBrowser> *)createWebBrowser(), NULL);

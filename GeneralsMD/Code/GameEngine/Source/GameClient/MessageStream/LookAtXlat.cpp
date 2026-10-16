@@ -462,8 +462,9 @@ GameMessageDisposition LookAtTranslator::translateGameMessage(const GameMessage 
 			// edge, so believing it would scroll the map for as long as the mouse sat on the desktop.
 			// Nor while a watcher's director or player camera drives: the spectator page stands on the
 			// top and right edges, and the pointer on its way to it took the camera away (ObserverCamera.h).
-			// The Classic mouse keeps retail's rule whatever Options.ini says.
-			const Bool edgeScrollAllowed = (!TheGlobalData->m_windowed || (TheGlobalData->m_edgeScrollInWindowedMode && !TheGlobalData->isClassicMouse()))
+			// The Classic mouse honours the box too: it is every player's mouse since the launcher
+			// stopped passing -mouse, and a borderless window has no desktop around it to scroll from.
+			const Bool edgeScrollAllowed = (!TheGlobalData->m_windowed || TheGlobalData->m_edgeScrollInWindowedMode)
 																			&& TheMouse->isCursorInWindow() && !TheObserverCamera.isDriving();
 
 			if (m_isScrolling)

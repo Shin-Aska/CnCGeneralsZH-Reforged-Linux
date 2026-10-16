@@ -90,13 +90,21 @@ static Bool getPlacementDrag( ICoord2D *start, ICoord2D *end )
 }  // end getPlacementDrag
 
 //-------------------------------------------------------------------------------------------------
-/** The object that is to do the building, the one the placement was started from; NULL once it is
-	* dead, which ends the placement. */
+/** The object that is to do the building.  Normally the one the placement was started from, but
+	* with nothing selected the command bar is being driven by a stand-in builder that is not part of
+	* any selection, and that one is free to die between two clicks of a shift-held run of structures.
+	* When it is gone the command bar's current stand-in keeps the ghost on the cursor: the logic picks
+	* the idle builder nearest the site anyway (MSG_DOZER_CONSTRUCT).  With BuildWithoutWorker off
+	* there is no stand-in, and a dead builder ends the placement as it always did. */
 //-------------------------------------------------------------------------------------------------
 static Object *resolvePlacementBuilder( void )
 {
 	Object *builder = TheGameLogic->findObjectByID( TheInGameUI->getPendingPlaceSourceObjectID() );
-	return ( builder != NULL && !builder->isEffectivelyDead() ) ? builder : NULL;
+	if( builder != NULL && !builder->isEffectivelyDead() )
+		return builder;
+
+	Drawable *standIn = TheControlBar->findStandInBuilder( FALSE );
+	return standIn ? standIn->getObject() : NULL;
 }
 
 //-------------------------------------------------------------------------------------------------

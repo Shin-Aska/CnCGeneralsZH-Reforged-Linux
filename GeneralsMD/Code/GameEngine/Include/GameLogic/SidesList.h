@@ -212,8 +212,8 @@ protected:
 	TeamsInfoRec	m_teamrec;
 	TeamsInfoRec	m_skirmishTeamrec;
 
-	/// -modfactions: each mod's SkirmishScripts.scb players and teams, kept out of m_skirmishSides, which
-	/// a map's own sides nearly fill
+	/// -modfactions: each mod's SkirmishScripts.scb players and teams; and the standard file's players for
+	/// sides the map has none for.  Kept out of m_skirmishSides, which a map's own sides nearly fill
 	std::vector<SidesInfo>	m_modSkirmishSides;
 	TeamsInfoRec	m_modSkirmishTeamrec;
 	void loadModSkirmishScripts(void);

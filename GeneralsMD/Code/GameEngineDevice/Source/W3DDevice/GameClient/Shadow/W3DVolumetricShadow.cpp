@@ -70,11 +70,13 @@
 #include "WW3D2/camera.h"
 #include "WW3D2/dx8renderer.h"
 #include "WW3D2/dx11runtime.h"
+#include "WW3D2/ffshader.h"
 #include "WW3D2/sortingrenderer.h"
 #include "GameClient/View.h"
 #include "Platform/RenderTypes.h"
 #include "Lib/Clock.h"		// Clock_Ticks: QueryPerformanceCounter on Windows, a monotonic clock elsewhere
 #include "GameClient/ParticleSys.h"
+#include "W3DDevice/GameClient/Module/W3DModelDraw.h"
 #include <algorithm>
 #include <vector>
 
@@ -88,6 +90,16 @@
 
 W3DVolumetricShadowManager	*TheW3DVolumetricShadowManager=NULL;
 extern const FrustumClass *shadowCameraFrustum;	//defined in W3DShadow.
+
+// The sphere a caster's shadow is reckoned from: the bind pose, or its parts as they stand now when
+// its animation has carried it out of that pose (GLA 1's escape plane flies its whole takeoff in its
+// bones, and cast nothing once the runway spot it stands on left the frame).
+static SphereClass casterSphere(RenderObjClass *robj)
+{
+	SphereClass sphere = robj->Get_Bounding_Sphere();
+	W3DModelDraw::getPosedBoundingSphere(robj, sphere);
+	return sphere;
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 // DEFINITIONS ////////////////////////////////////////////////////////////////
@@ -2128,7 +2140,7 @@ void W3DVolumetricShadow::Update()
  				WWMath::Fabs(pos.Y - bcY) > (beY + extent) ||
  				WWMath::Fabs(pos.Z - bcZ) > (beZ + extent))
 			{
-				if (!volumeShadowCanReachView( *shadowCameraFrustum, m_robj->Get_Bounding_Sphere(), TheTerrainRenderObject->getMinHeight() ))
+				if (!volumeShadowCanReachView( *shadowCameraFrustum, casterSphere(m_robj), TheTerrainRenderObject->getMinHeight() ))
 					return;	//shadow can't be visible so no point in updating.
 			}
 
@@ -2148,10 +2160,10 @@ void W3DVolumetricShadow::Update()
  				WWMath::Fabs(pos.Y - bcY) > (beY + m_robjExtent) ||
  				WWMath::Fabs(pos.Z - bcZ) > (beZ + m_robjExtent))
 			{
-				if (!volumeShadowCanReachView( *shadowCameraFrustum, m_robj->Get_Bounding_Sphere(), TheTerrainRenderObject->getMinHeight() ))
+				if (!volumeShadowCanReachView( *shadowCameraFrustum, casterSphere(m_robj), TheTerrainRenderObject->getMinHeight() ))
 					return;	//shadow can't be visible so no point in updating.
 			}
- 
+
 				//check if this object has never had it's extrusion length updated.  Will only be true for
 				//immobile objects because finding an optimal extrusion length is expensive.
 				if (!m_extraExtrusionPadding)
@@ -3928,10 +3940,15 @@ static void fillSmokeMap( const Matrix3D &sunTransform, const Vector3 &focus, Re
 			if (*((UnsignedInt *)sys->getParticleTypeName().str()) == 0x44554D53)
 				continue;
 
+			// a stealthed thing's smoke shades the ground only as much as it is drawn
+			const Real fade = sys->getStealthFade();
+			if (fade <= 0.0f)
+				continue;
+
 			const UnsignedInt layers = sys->getVolumeParticleDepth();
 			for (Particle *p = sys->getFirstParticle(); p; p = p->m_systemNext)
 			{
-				const Real opticalDepth = particleSunMapOpticalDepth( p->getAlpha(), layers );
+				const Real opticalDepth = particleSunMapOpticalDepth( p->getAlpha() * fade, layers );
 				if (opticalDepth <= 0.0f)
 					continue;
 				const Coord3D *pos = p->getPosition();
@@ -4364,9 +4381,10 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 			 see.  Culling by the camera meant a tank just off the left of the screen stopped casting,
 			 so its shadow blinked out while the shadow of the tank beside it stayed - and scrolling
 			 turned that into a row of shadows flickering along the edge of the frame. */
-		const SphereClass &bound = robj->Get_Bounding_Sphere();
+		SphereClass bound = robj->Get_Bounding_Sphere();
+		const Bool posed = W3DModelDraw::getPosedBoundingSphere( robj, bound );	// see casterSphere
 		Vector3 inSun;
-		Matrix3D::Inverse_Transform_Vector( transform, robj->Get_Position(), &inSun );
+		Matrix3D::Inverse_Transform_Vector( transform, posed ? bound.Center : robj->Get_Position(), &inSun );
 		const Real reach = halfWidth + bound.Radius;
 		if (inSun.X < -reach || inSun.X > reach || inSun.Y < -reach || inSun.Y > reach)
 			continue;
@@ -4389,6 +4407,22 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 				++castersOutOfView;
 				continue;
 			}
+		}
+
+		/* An own stealthed unit casts only a share of its shadow, breathing with its fade, the way
+			 the cloak lets the ground show through its body (effect_cloak_shadow in ffshader.h).  A
+			 render object with no drawable behind it, a ghost or a prop, casts in full. */
+		sunInfo.drawEffect = DRAW_EFFECT_NONE;
+		const DrawableInfo *casterInfo = (const DrawableInfo *)robj->Get_User_Data();
+		const Drawable *caster = casterInfo ? casterInfo->m_drawable : NULL;
+		if (caster && Direct3D11_Draw_Effects()
+			&& (caster->getStealthDrawnLook() == STEALTHLOOK_VISIBLE_FRIENDLY
+				|| caster->getStealthDrawnLook() == STEALTHLOOK_VISIBLE_FRIENDLY_DETECTED)
+			&& !caster->isKindOf( KINDOF_MINE )
+			&& caster->getStealthFade() > 0.001f)
+		{
+			sunInfo.drawEffect = DRAW_EFFECT_CLOAK_SHADOW;
+			sunInfo.drawEffectParameters[3] = caster->getStealthSolid();
 		}
 
 		robj->Render( sunInfo );

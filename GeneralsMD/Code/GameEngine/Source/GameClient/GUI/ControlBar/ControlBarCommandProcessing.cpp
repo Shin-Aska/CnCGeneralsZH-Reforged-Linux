@@ -337,6 +337,11 @@ CBCommandStatus ControlBar::processCommandUI( GameWindow *control,
 		TheInGameUI->setGUICommand( NULL );
 		TheMessageStream->appendMessage( GameMessage::MSG_META_TOGGLE_ATTACKMOVE );
 	}
+	else if( commandButton->getCommandType() == GUI_COMMAND_FORCE_ATTACK )
+	{
+		TheInGameUI->setGUICommand( NULL );
+		TheMessageStream->appendMessage( GameMessage::MSG_META_TOGGLE_FORCEATTACK );
+	}
 	else if( BitTest( commandButton->getOptions(), COMMAND_OPTION_NEED_TARGET ) )
 	{
 		if (commandButton->getOptions() & USES_MINE_CLEARING_WEAPONSET)
@@ -524,12 +529,22 @@ CBCommandStatus ControlBar::processCommandUI( GameWindow *control,
 			DEBUG_ASSERTCRASH( whatToBuild, ("Undefined BUILD command for object '%s'\n",
 												 commandButton->getThingTemplate()->getName().str()) );
 
+			// Ctrl+Alt, on the button's key or a click, puts the unit on repeat or takes it off.
+			// The right button already takes units back out of the queue, so it stays that
+			if( TheKeyboard->isCtrl() && TheKeyboard->isAlt() )
+			{
+				toggleRepeatUnit( whatToBuild );
+				break;
+			}
+
 			// shift, control or both queue a whole batch with one click
 			Int wanted = getBuildBatchCount();
 
 			// gather the "factory" objects that could make the thing. With several factories
 			// selected (multi-select context) every one that can make it is a candidate, and each
-			// unit of the batch goes to the least loaded one, so the work spreads over all of them
+			// unit of the batch goes to the least loaded one, so the work spreads over all of them.
+			// A factory already at the nine-deep strip is left out, and with none able to take it
+			// the click does nothing: the button is already grey.
 			std::vector<Object *> factories;
 			std::vector<UnsignedInt> queued;		// real production count plus what this click already gave it
 			if( obj )
@@ -547,14 +562,10 @@ CBCommandStatus ControlBar::processCommandUI( GameWindow *control,
 					ProductionUpdateInterface *cpu = candidate ? candidate->getProductionUpdateInterface() : NULL;
 					if( cpu == NULL || TheBuildAssistant->canMakeUnit( candidate, whatToBuild ) != CANMAKE_OK )
 						continue;
+					if( cpu->getProductionCount() >= getQueueCap( cpu ) )
+						continue;
 					factories.push_back( candidate );
 					queued.push_back( cpu->getProductionCount() );
-				}
-				// nothing can take it: fall back to the first factory so the usual messages fire
-				if( factories.empty() && !selected->empty() && selected->front()->getObject() )
-				{
-					factories.push_back( selected->front()->getObject() );
-					queued.push_back( 0 );
 				}
 			}
 			if( factories.empty() )
@@ -562,11 +573,23 @@ CBCommandStatus ControlBar::processCommandUI( GameWindow *control,
 
 			for( Int built = 0; built < wanted; built++ )
 			{
-				// least loaded factory takes this one
-				Int best = 0;
-				for( Int i = 1; i < (Int)factories.size(); i++ )
-					if( queued[ i ] < queued[ best ] )
+				// least loaded factory that still has a free queue slot takes this one
+				Int best = -1;
+				for( Int i = 0; i < (Int)factories.size(); i++ )
+				{
+					ProductionUpdateInterface *fpu = factories[ i ]->getProductionUpdateInterface();
+					const UnsignedInt cap = fpu ? getQueueCap( fpu ) : 0;
+					if( queued[ i ] >= cap )
+						continue;
+					if( best < 0 || queued[ i ] < queued[ best ] )
 						best = i;
+				}
+				if( best < 0 )
+				{
+					if( built == 0 )
+						TheInGameUI->message( "GUI:ProductionQueueFull" );
+					break;
+				}
 				Object *factory = factories[ best ];
 
 				CanMakeType cmt = TheBuildAssistant->canMakeUnit(factory, whatToBuild);
@@ -1162,4 +1185,49 @@ CBCommandStatus ControlBar::processCommandUI( GameWindow *control,
 	return CBC_COMMAND_USED;
 
 }  // end processCommandUI
+
+//-------------------------------------------------------------------------------------------------
+/** The button's repeat mark: some selected factory of ours builds 'thing' on repeat. */
+//-------------------------------------------------------------------------------------------------
+Bool ControlBar::selectionRepeatsUnit( const ThingTemplate *thing )
+{
+	const DrawableList *selected = TheInGameUI->getAllSelectedDrawables();
+	for( DrawableListCIt it = selected->begin(); it != selected->end(); ++it )
+	{
+		Object *candidate = (*it)->getObject();
+		if( candidate == NULL || candidate->getControllingPlayer() != ThePlayerList->getLocalPlayer() )
+			continue;
+		ProductionUpdateInterface *pu = candidate->getProductionUpdateInterface();
+		if( pu && pu->isRepeatUnit( thing ) )
+			return TRUE;
+	}
+	return FALSE;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Ctrl+Alt on a build button: every selected factory of ours that can make the unit builds it on
+	* repeat, or, when any of them already does, every one of them stops.  One message per factory
+	* with the state named outright, so a mixed selection comes out all on or all off. */
+//-------------------------------------------------------------------------------------------------
+void ControlBar::toggleRepeatUnit( const ThingTemplate *thing )
+{
+	const Bool on = !selectionRepeatsUnit( thing );
+	const DrawableList *selected = TheInGameUI->getAllSelectedDrawables();
+	for( DrawableListCIt it = selected->begin(); it != selected->end(); ++it )
+	{
+		Object *candidate = (*it)->getObject();
+		if( candidate == NULL || candidate->getControllingPlayer() != ThePlayerList->getLocalPlayer() )
+			continue;
+		if( candidate->getProductionUpdateInterface() == NULL )
+			continue;
+		if( on && !TheBuildAssistant->isPossibleToMakeUnit( candidate, thing ) )
+			continue;
+
+		GameMessage *msg = TheMessageStream->appendMessage( GameMessage::MSG_SET_REPEAT_UNIT );
+		msg->appendIntegerArgument( thing->getTemplateID() );
+		msg->appendObjectIDArgument( candidate->getID() );
+		msg->appendBooleanArgument( on );
+	}
+	markUIDirty();
+}
 

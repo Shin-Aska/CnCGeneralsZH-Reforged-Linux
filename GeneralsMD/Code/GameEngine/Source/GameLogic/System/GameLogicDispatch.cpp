@@ -1919,6 +1919,37 @@ void GameLogic::logicMessageDispatcher( GameMessage *msg, AIGroup *orderedGroup 
 
 		}  // end GameMessage::MSG_CANCEL_UNIT_CREATE
 
+		//-------------------------------------------------------------------------------------------------
+		// Production repeat (fork): (Int template ID, objectID producer, Bool on).  The arguments came
+		// over the network, so their shape is checked, the producer must be the sender's, and a unit
+		// goes on repeat only where the factory could build it.  Turning one off is always allowed.
+		case GameMessage::MSG_SET_REPEAT_UNIT:
+		{
+			if( msg->getArgumentCount() < 3 || msg->getArgumentDataType( 0 ) != ARGUMENTDATATYPE_INTEGER
+					|| msg->getArgumentDataType( 1 ) != ARGUMENTDATATYPE_OBJECTID
+					|| msg->getArgumentDataType( 2 ) != ARGUMENTDATATYPE_BOOLEAN )
+				break;
+
+			const ThingTemplate *unit = TheThingFactory->findByTemplateID( msg->getArgument( 0 )->integer );
+			Object *producer = TheGameLogic->findObjectByID( msg->getArgument( 1 )->objectID );
+			const Bool on = msg->getArgument( 2 )->boolean;
+			if( unit == NULL || producer == NULL || producer->getControllingPlayer() != thisPlayer )
+				break;
+
+			ProductionUpdateInterface *pu = producer->getProductionUpdateInterface();
+			if( pu == NULL )
+				break;
+			if( on && !TheBuildAssistant->isPossibleToMakeUnit( producer, unit ) )
+				break;
+
+			pu->setRepeatUnit( unit, on );
+			DEBUG_LOG(( "REPEAT: frame %d player %d %s %s on %s (%d)\n", TheGameLogic->getFrame(), msg->getPlayerIndex(),
+									on ? "repeats" : "stops repeating", unit->getName().str(),
+									producer->getTemplate()->getName().str(), producer->getID() ));
+			break;
+
+		}  // end GameMessage::MSG_SET_REPEAT_UNIT
+
 		//---------------------------------------------------------------------------------------------
 		case GameMessage::MSG_DOZER_CONSTRUCT:
 		case GameMessage::MSG_DOZER_CONSTRUCT_LINE:

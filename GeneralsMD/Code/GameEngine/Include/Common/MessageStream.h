@@ -661,6 +661,7 @@ public:
 		MSG_CLEAR_RALLY_POINT,											///< (objectID) the building forgets its rally point (fork)
 		MSG_SET_STANCE,															///< (Int 0 defensive, 1 aggressive) how far the selected units go after what they see (fork)
 		MSG_VOTE_KICK,															///< (Int player index, Bool yes) a vote kick: opens one, or answers the open one (fork)
+		MSG_SET_REPEAT_UNIT,												///< (Int template ID, objectID producer, Bool on) the factory builds that unit on repeat, or stops (fork)
 
 		MSG_BEGIN_DEBUG_NETWORK_MESSAGES = 1900,		///< network messages that exist only in debug/internal builds. all grouped separately.
 

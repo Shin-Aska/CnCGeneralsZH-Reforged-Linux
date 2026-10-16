@@ -3963,9 +3963,11 @@ void InGameUI::updateAttackCircle( const ICoord2D& pt )
 
 //-------------------------------------------------------------------------------------------------
 /** The circle the player is dragging, in world terms: its centre is the ground the press landed on,
-	* and the cursor sits on its rim.  Both the rim drawn on the screen and the wash laid on the ground
-	* ask this, so they cannot disagree about where the circle is.  The centre is kept as ground, not
-	* as the pixel: a camera that moves during the drag used to slide the whole circle over the map. */
+	* and the cursor sits on its rim in that same plane.  The rim is not rayed onto the terrain: a
+	* hill or a building under the cursor used to jump the radius every frame.  Both the rim drawn on
+	* the screen and the wash laid on the ground ask this, so they cannot disagree about where the
+	* circle is.  The centre is kept as ground, not as the pixel: a camera that moves during the drag
+	* used to slide the whole circle over the map. */
 //-------------------------------------------------------------------------------------------------
 Bool InGameUI::getAttackCircleGround( Coord3D& center, Real& radius ) const
 {
@@ -3974,7 +3976,7 @@ Bool InGameUI::getAttackCircleGround( Coord3D& center, Real& radius ) const
 
 	Coord3D rim;
 	center = m_attackCircleCenter;
-	TheTacticalView->screenToTerrain( &m_attackCircleCursor, &rim );
+	TheTacticalView->screenToWorldAtZ( &m_attackCircleCursor, &rim, center.z );
 
 	const Real dx = rim.x - center.x;
 	const Real dy = rim.y - center.y;

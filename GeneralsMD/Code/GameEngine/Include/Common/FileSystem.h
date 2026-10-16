@@ -150,6 +150,10 @@ public:
 	/// .wnd layouts ...); see the definition for how the set is decided.
 	static Bool isForkOwnedPath(const AsciiString& filename);
 
+	/// TRUE for a game path that draws the game's interface (a .wnd, Language.ini's fonts, the shell's
+	/// image sheets): a merged mod never replaces it, the copy retail or the fork has wins
+	static Bool isForkUIPath(const AsciiString& filename);
+
 	/// TRUE for a game path under "Maps\": the maps are always ours, a mod's own maps are never listed or
 	/// loaded, so every machine in a match reads the same map whatever mods it runs
 	static Bool isMapPath(const AsciiString& filename);

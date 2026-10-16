@@ -340,13 +340,11 @@ WindowMsgHandledType LeftHUDInput( GameWindow *window, UnsignedInt msg,
 				// divides the world the other way round, and so did the radar in the game as shipped,
 				// except under EA's Alternate Mouse Setup, which looked with the left.
 				const UnsignedInt lookButton = TheGlobalData->leftButtonOrders() ? GWM_RIGHT_DOWN : GWM_LEFT_DOWN;
-				// the classic mouse's look is 1.04's, the press alone: a drag on the radar left the camera
-				// where it was
+				// that look button held on the radar keeps the camera under the cursor, Classic included
 				if( drawableList->empty() || msg == lookButton )
 				{
 					radarLookAt( &world );
-					if( !TheGlobalData->isClassicMouse() )
-						s_radarLookDrag = (msg == GWM_LEFT_DOWN) ? GWM_LEFT_DRAG : GWM_RIGHT_DRAG;
+					s_radarLookDrag = (msg == GWM_LEFT_DOWN) ? GWM_LEFT_DRAG : GWM_RIGHT_DRAG;
 					break;
 				}
 

@@ -416,22 +416,37 @@ void ControlBar_fitCommandSlots( const Int *types, const Bool *windowed, Int cou
 }
 
 //-------------------------------------------------------------------------------------------------
-void ControlBar_packKeyedSlots( const Bool *keyed, const Bool *unkeyed, Int count, Int *shown )
+Int ControlBar_forceAttackSlot( const Int *types, Int count, Bool forceFires )
 {
-	for( Int from = 0; from < count; from++ )
-	{
-		if( !unkeyed[ from ] || shown[ from ] < 0 )
-			continue;
-		for( Int to = 0; to < count; to++ )
-		{
-			if( keyed[ to ] && shown[ to ] < 0 )
-			{
-				shown[ to ] = shown[ from ];
-				shown[ from ] = -1;
-				break;
-			}
-		}
-	}
+	enum { SLOT = 11, ABOVE = 10 };
+	if( count <= SLOT )
+		return -1;
+	Bool fights = forceFires;
+	for( Int slot = 0; slot < count && !fights; slot++ )
+		fights = types[ slot ] == GUI_COMMAND_ATTACK_MOVE;
+	if( fights && types[ SLOT ] == GUI_COMMAND_NONE )
+		return SLOT;
+	if( forceFires && types[ ABOVE ] == GUI_COMMAND_NONE )
+		return ABOVE;
+	return -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+Bool ControlBar_forceFires( const Object *obj )
+{
+	if( obj->isKindOf( KINDOF_FS_BASE_DEFENSE ) )
+		return obj->isKindOf( KINDOF_CAN_ATTACK ) || obj->isKindOf( KINDOF_SPAWNS_ARE_THE_WEAPONS )
+			|| obj->isKindOf( KINDOF_GARRISONABLE_UNTIL_DESTROYED );
+	return obj->isKindOf( KINDOF_TRANSPORT ) && obj->isKindOf( KINDOF_CAN_ATTACK );
+}
+
+//-------------------------------------------------------------------------------------------------
+Bool ControlBar_forceFires( const ThingTemplate *thing )
+{
+	if( thing->isKindOf( KINDOF_FS_BASE_DEFENSE ) )
+		return thing->isKindOf( KINDOF_CAN_ATTACK ) || thing->isKindOf( KINDOF_SPAWNS_ARE_THE_WEAPONS )
+			|| thing->isKindOf( KINDOF_GARRISONABLE_UNTIL_DESTROYED );
+	return thing->isKindOf( KINDOF_TRANSPORT ) && thing->isKindOf( KINDOF_CAN_ATTACK );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1579,6 +1594,7 @@ ControlBar::ControlBar( void )
 	m_multiSelectGroupCount = 0;
 	m_multiSelectFocus = 0;
 	m_rallyPointDrawableID = INVALID_DRAWABLE_ID;
+	m_standInBuilderID = INVALID_DRAWABLE_ID;
 	m_displayedConstructPercent = -1.0f;
 	m_displayedOCLTimerSeconds = 0;
 	m_displayedQueueCount = 0;
@@ -2877,6 +2893,7 @@ void ControlBar::reset( void )
 	hideSpecialPowerShortcut();
 	// do not destroy the rally drawable, it will get destroyed with everythign else during a reset
 	m_rallyPointDrawableID = INVALID_DRAWABLE_ID;
+	m_standInBuilderID = INVALID_DRAWABLE_ID;
 
 	m_displayedConstructPercent = -1.0f;
 	m_displayedOCLTimerSeconds = 0;
@@ -3147,6 +3164,33 @@ void ControlBar::update( void )
 		clearPurchaseScienceColumn();
 
 	//
+	// a stand-in builder is not selected, so no deselect event tells us when it dies, when a real
+	// selection arrives or when BuildWithoutWorker is switched off; re-evaluate ourselves before
+	// anything touches its drawable
+	//
+	if( m_standInBuilderID != INVALID_DRAWABLE_ID )
+	{
+		Drawable *standIn = TheGameClient->findDrawableByID( m_standInBuilderID );
+		Object *standInObj = standIn ? standIn->getObject() : NULL;
+		if( TheInGameUI->getSelectCount() > 0 || standInObj == NULL || standInObj->isEffectivelyDead()
+				|| !TheGlobalData->m_buildWithoutWorker )
+		{
+			m_standInBuilderID = INVALID_DRAWABLE_ID;
+			m_currentSelectedDrawable = NULL;
+			markUIDirty();
+		}
+	}
+	//
+	// nothing selected and nothing standing in: a builder that is made or bought later, or the
+	// option switched on, gets the bar, which no selection event would announce either
+	//
+	else if( logicTick && ( logicNow % LOGICFRAMES_PER_SECOND ) == 0 && TheInGameUI->getSelectCount() == 0
+					 && m_currentSelectedDrawable == NULL && findStandInBuilder( FALSE ) )
+	{
+		markUIDirty();
+	}
+
+	//
 	// first, if the UI is dirty repopulate the UI with what the user should see for all the
 	// selected drawables
 	//
@@ -3389,9 +3433,23 @@ void ControlBar::evaluateContextUI( void )
 	// erase any current state of the GUI by switching out to the empty context
 	switchToContext( CB_CONTEXT_NONE, NULL );
 
-	// nothing selected is an empty bar, as 1.04 had it
+	//
+	// nothing selected: with BuildWithoutWorker on, one of the player's builders stands in and its
+	// command bar shows, so a structure can be placed without selecting a dozer first - the logic
+	// then sends the idle builder nearest the site (MSG_DOZER_CONSTRUCT).  Off, an empty bar, as
+	// 1.04 had it.  m_standInBuilderID is not cleared first: findStandInBuilder reads it to keep
+	// the builder it is already showing.
+	//
 	if( TheInGameUI->getSelectCount() == 0 && !m_isObserverCommandBar )
+	{
+		Drawable *builder = findStandInBuilder( FALSE );
+		m_standInBuilderID = builder ? builder->getID() : INVALID_DRAWABLE_ID;
+		if( builder )
+			switchToContext( CB_CONTEXT_COMMAND, builder );
 		return;
+	}
+
+	m_standInBuilderID = INVALID_DRAWABLE_ID;
 
 	// get the list of drawable IDs from the in game UI
 	const DrawableList *selectedDrawables = TheInGameUI->getAllSelectedDrawables();
@@ -3939,6 +3997,78 @@ Bool ControlBar::cancelLastQueuedUnit( const ThingTemplate *thing )
 }  // end cancelLastQueuedUnit
 
 //-------------------------------------------------------------------------------------------------
+/** The local player's builder that stands in for an empty selection: an idle one if there is
+	* one, else any live one.  (Player::iterateObjects callback + driver.) */
+//-------------------------------------------------------------------------------------------------
+struct StandInBuilderSearch
+{
+	Object *idle;
+	Object *any;
+};
+
+static void findStandInBuilderProc( Object *obj, void *userData )
+{
+	StandInBuilderSearch *s = (StandInBuilderSearch *)userData;
+	if( obj->isEffectivelyDead() || obj->getDrawable() == NULL )
+		return;
+	if( obj->testStatus( OBJECT_STATUS_UNDER_CONSTRUCTION ) || obj->testStatus( OBJECT_STATUS_SOLD ) )
+		return;
+	AIUpdateInterface *ai = obj->getAI();
+	DozerAIInterface *dozer = ai ? ai->getDozerAIInterface() : NULL;
+	if( dozer == NULL )
+		return;
+	if( s->any == NULL )
+		s->any = obj;
+	// free = no build/repair task and not hauling supplies; walking somewhere does not count
+	const SupplyTruckAIInterface *supply = ai->getSupplyTruckAIInterface();
+	if( s->idle == NULL && !dozer->isAnyTaskPending() && !( supply && supply->isCurrentlyFerryingSupplies() ) )
+		s->idle = obj;
+}
+
+Drawable *ControlBar::findStandInBuilder( Bool freeOnly )
+{
+	// off, the bar is 1.04's: nothing selected is an empty bar, and a build needs a selected worker
+	if( !TheGlobalData->m_buildWithoutWorker )
+		return NULL;
+
+	Player *player = ThePlayerList->getLocalPlayer();
+	if( player == NULL )
+		return NULL;
+
+	//
+	// The builder already standing in keeps the bar for as long as it is still a builder.  The
+	// sweep below answers "the first idle one", and idleness changes on its own: a dozer somewhere
+	// across the base finishing a building goes idle and used to take the bar off the one you were
+	// working with.  That drops the page you were on and takes the structure off your cursor, in
+	// the middle of placing it, because something happened somewhere else.  For a GLA worker it
+	// also keeps the fake-structure page it was switched to.
+	//
+	if( m_standInBuilderID != INVALID_DRAWABLE_ID )
+	{
+		Drawable *held = TheGameClient->findDrawableByID( m_standInBuilderID );
+		Object *obj = held ? held->getObject() : NULL;
+		if( obj && obj->getControllingPlayer() == player )
+		{
+			StandInBuilderSearch check;
+			check.idle = NULL;
+			check.any = NULL;
+			findStandInBuilderProc( obj, &check );
+			if( check.any && ( !freeOnly || check.idle ) )
+				return held;
+		}
+	}
+
+	StandInBuilderSearch s;
+	s.idle = NULL;
+	s.any = NULL;
+	player->iterateObjects( findStandInBuilderProc, &s );
+
+	Object *pick = s.idle ? s.idle : ( freeOnly ? NULL : s.any );
+	return pick ? pick->getDrawable() : NULL;
+
+}  // end findStandInBuilder
+
+//-------------------------------------------------------------------------------------------------
 /** Press the index'th general's power shortcut button, as a mouse click would */
 //-------------------------------------------------------------------------------------------------
 Bool ControlBar::clearSpecialPowerShortcutRow( void )
@@ -4482,17 +4612,27 @@ void ControlBar::setControlCommand( GameWindow *button, const CommandButton *com
 	// the key is the one the player gave the button on the launcher's Hotkeys page, or else the
 	// game's own, the letter after the '&' in the button's label - the English label's in every
 	// language, so a Turkish or German player presses what an English one does - and the button
-	// wears it in its top left corner.  With grid keys on, a command bar button's key is its place.
+	// wears it in its top left corner.
 	if( TheHotKeyManager )
 	{
-		Int barSlot = -1;
-		for( Int slot = 0; slot < MAX_COMMANDS_PER_SET; slot++ )
-			if( m_commandWindows[ slot ] == button )
-				barSlot = slot;
-		const WideChar letter = HotKeyManager::playerButtonKey( commandButton->getName(),
-			TheGameText ? TheGameText->fetchEnglishHotKey( commandButton->getTextLabel() ) : 0, barSlot,
+		// Force Attack wears the BEGIN_FORCEATTACK hold from MetaMap (Ctrl until the player
+		// rebinds it on the launcher's Command bar tab).  Showing H or F on the cameo would
+		// steal that letter and lie about the key.  Do not addHotKey it: the hold is already
+		// MSG_META_BEGIN_FORCEATTACK, and binding the button to that key would toggle on every press.
+		const Bool forceAttack = commandButton->getCommandType() == GUI_COMMAND_FORCE_ATTACK;
+		const WideChar letter = forceAttack ? 0 : HotKeyManager::playerButtonKey( commandButton->getName(),
+			TheGameText ? TheGameText->fetchEnglishHotKey( commandButton->getTextLabel() ) : 0,
 			commandButton->getCommandType() );
-		if( letter != 0 )
+		if( forceAttack )
+		{
+			const UnicodeString chord = MetaMap_chordLabel( GameMessage::MSG_META_BEGIN_FORCEATTACK );
+			GadgetButtonSetText( button, chord );
+			if( chord.isEmpty() )
+				button->winClearStatus( WIN_STATUS_SHORTCUT_BUTTON );
+			else
+				button->winSetStatus( WIN_STATUS_SHORTCUT_BUTTON );
+		}
+		else if( letter != 0 )
 		{
 			TheHotKeyManager->addHotKey( button, HotKeyManager::nameOf( letter ) );
 			const WideChar text[ 2 ] = { letter, 0 };
@@ -4599,6 +4739,12 @@ void ControlBar::setPortraitByImage( const Image *image )
 //-------------------------------------------------------------------------------------------------
 void ControlBar::setPortraitByObject( Object *obj )
 {
+	// a builder standing in for an empty selection lends the bar its buildings and nothing else: its
+	// portrait, name and health beside it read as that worker being selected, so the well stays empty
+	if( obj && m_standInBuilderID != INVALID_DRAWABLE_ID && obj->getDrawable()
+			&& obj->getDrawable()->getID() == m_standInBuilderID )
+		obj = NULL;
+
 	// the multi-select unit grid lives over this same HUD; a plain portrait means it must
 	// go, and so must the selection-count badge a one-type selection put on the portrait.
 	// updateMultiSelectStrip re-applies its own look right after calling in here.

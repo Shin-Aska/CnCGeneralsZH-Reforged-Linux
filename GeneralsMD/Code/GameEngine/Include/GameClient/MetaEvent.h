@@ -382,10 +382,19 @@ public:
 	void update() { }
 
 	static void parseMetaMap(INI* ini);
+	void clear();		///< every record gone, for CommandMap.ini and Hotkeys.ini to be read again
+
 
 	const MetaMapRec *getFirstMetaMapRec() const { return m_metaMaps; }
 };
 
 extern MetaMap *TheMetaMap;
+
+/** The words a command bar button wears for this meta command's key plus modifiers, English, the
+	* same shape as the launcher's chord ("Ctrl", "Alt", "F", "Ctrl + F"). Empty when the command is
+	* off the keyboard (UseableIn NONE). "Ctrl" when the map is missing, so Force Attack still names
+	* its shipped hold. */
+UnicodeString MetaMap_formatChord( MappableKeyType key, MappableKeyModState mods, CommandUsableInType usable );
+UnicodeString MetaMap_chordLabel( GameMessage::Type meta );
 
 #endif

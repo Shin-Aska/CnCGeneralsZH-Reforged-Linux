@@ -493,12 +493,15 @@ AsciiString FileSystem::modLooseFile(const AsciiString& filename, Bool *inModArc
 
 	// ...except over a file the fork ships: retail < mods < the fork.  That copy is the one the install
 	// folder holds loose, and the plain lookup after this finds it.
-	if ((loose.isNotEmpty() || archived) && isForkOwnedPath(filename) && TheLocalFileSystem->doesFileExist(filename.str()))
+	// The interface is ours whoever has it: a mod's loose .wnd, Language.ini or shell image is never
+	// read; its archived copies were kept out of the tree in ArchiveFileSystem::addToTree.
+	const Bool oursAlways = isForkUIPath(filename) || TheArchiveFileSystem->isOurUITexture(filename);
+	if ((loose.isNotEmpty() || archived) && (oursAlways || (isForkOwnedPath(filename) && TheLocalFileSystem->doesFileExist(filename.str()))))
 	{
 		static std::set<std::string> reported;
 		if (reported.insert(std::string(filename.str())).second)
 		{
-			DEBUG_LOG(("FileSystem - the mod's %s is ignored, the fork's own copy wins (%s)\n",
+			DEBUG_LOG(("FileSystem - the mod's %s is ignored, our own copy wins (%s)\n",
 				filename.str(), loose.isNotEmpty() ? loose.str() : archive.str()));
 		}
 		return AsciiString();

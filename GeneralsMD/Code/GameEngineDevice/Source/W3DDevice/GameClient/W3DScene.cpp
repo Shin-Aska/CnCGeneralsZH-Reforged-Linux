@@ -74,6 +74,7 @@
 #include "WW3D2/dx11runtime.h"
 #include "WW3D2/ffshader.h"
 #include "Platform/RenderTypes.h"
+#include "W3DDevice/GameClient/Module/W3DModelDraw.h"
 
 #include <algorithm>
 #include <vector>
@@ -99,9 +100,21 @@ static Bool theTranslucentPass = FALSE;
 
 static Bool wearsCloak( const Drawable *draw )
 {
-	const StealthLookType look = draw->getStealthLook();
-	return ( look == STEALTHLOOK_VISIBLE_FRIENDLY || look == STEALTHLOOK_VISIBLE_FRIENDLY_DETECTED )
-		&& Direct3D11_Draw_Effects();
+	if( !Direct3D11_Draw_Effects() )
+		return FALSE;
+	const StealthLookType look = draw->getStealthDrawnLook();
+	const Real fade = draw->getStealthFade();
+	if( look == STEALTHLOOK_VISIBLE_FRIENDLY || look == STEALTHLOOK_VISIBLE_FRIENDLY_DETECTED )
+	{
+		// mines force opacity 0 and must not become a lens on the ground
+		if( draw->isKindOf( KINDOF_MINE ) )
+			return FALSE;
+		return TRUE;
+	}
+	// revealed fades in the translucent pass so the heat can come up from nothing
+	if( look == STEALTHLOOK_VISIBLE_DETECTED && fade < 0.99f )
+		return TRUE;
+	return FALSE;
 }
 
 // No texturing, no zbuffer reading/writing, primary gradient, no
@@ -428,6 +441,18 @@ Bool RTS3DScene::castRay(RayCollisionTestClass & raytest, Bool testAll, Int coll
 }
 
 //=============================================================================
+// posedPartsInView
+//=============================================================================
+/** A model whose animation carries it out of its bind pose (W3DModelDraw's animLeavesBindPose) is
+  * in view when its parts are, as they stand now. */
+//=============================================================================
+static Bool posedPartsInView(RenderObjClass *robj, CameraClass *camera)
+{
+	SphereClass posed;
+	return W3DModelDraw::getPosedBoundingSphere(robj, posed) && !camera->Cull_Sphere(posed);
+}
+
+//=============================================================================
 // RTS3DScene::Visibility_Check
 //=============================================================================
 /** Custom visibility check method for the RTS3DScene, we can put optimized
@@ -482,7 +507,7 @@ void RTS3DScene::Visibility_Check(CameraClass * camera)
 					// The same test the main pass hides a drawable by, or a unit under the fog of war,
 					// or a building standing in for its own ghost, shows up in the water and nowhere else.
 					Bool hidden = robj->Is_Hidden() || draw->isDrawableEffectivelyHidden() || draw->getFullyObscuredByShroud();
-					robj->Set_Visible(!hidden && draw->getDrawsInMirror() && !camera->Cull_Sphere(robj->Get_Bounding_Sphere()));
+					robj->Set_Visible(!hidden && draw->getDrawsInMirror() && (!camera->Cull_Sphere(robj->Get_Bounding_Sphere()) || posedPartsInView(robj, camera)));
 				}
 			}
 			else
@@ -510,7 +535,7 @@ void RTS3DScene::Visibility_Check(CameraClass * camera)
 				robj->Set_Visible(false);
 			} else {
 
-				bool isVisible=!camera->Cull_Sphere(robj->Get_Bounding_Sphere());
+				bool isVisible=!camera->Cull_Sphere(robj->Get_Bounding_Sphere()) || posedPartsInView(robj, camera);
 
 				if (isVisible)
 				{	//need to keep track of occluders and ocludees for subsequent code.
@@ -647,17 +672,21 @@ static unsigned chooseDrawEffect( const Drawable *draw, const Object *obj, Bool 
 		return DRAW_EFFECT_NONE;
 
 	unsigned effect = DRAW_EFFECT_NONE;
-	const StealthLookType look = draw->getStealthLook();
+	const StealthLookType look = draw->getStealthDrawnLook();
 	const Real pulse = draw->getSecondMaterialPassOpacity();
-	const Real opacity = draw->getEffectiveOpacity();
+	const Real fade = draw->getStealthFade();
+	Real opacity = draw->getStealthSolid();
 	Real strength = 1.0f;
 
-	if ( look == STEALTHLOOK_VISIBLE_DETECTED && !draw->isKindOf( KINDOF_MINE ) )
+	if ( look == STEALTHLOOK_VISIBLE_DETECTED && !draw->isKindOf( KINDOF_MINE )
+		&& ( translucentPass || fade >= 0.99f ) )
 	{
 		effect = DRAW_EFFECT_REVEALED;
 		strength = pulse;
+		opacity = fade;
 	}
-	else if ( translucentPass && wearsCloak( draw ) )
+	else if ( translucentPass && wearsCloak( draw )
+		&& look != STEALTHLOOK_VISIBLE_DETECTED )
 	{
 		// Detected, the amber stays on and the detector's sweep brightens it; on the pulse alone it
 		// showed for a few frames a sweep and was never seen.

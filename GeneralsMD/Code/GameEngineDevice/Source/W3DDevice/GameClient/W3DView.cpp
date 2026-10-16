@@ -3110,8 +3110,11 @@ Int W3DView::iterateDrawablesInRegion( IRegion2D *screenRegion,
 				world.Y = pos.y;
 				world.Z = pos.z;
 
-				// project the world point to the screen
-				if( m_3DCamera->Project( screen, world ) == CameraClass::INSIDE_FRUSTUM &&
+				// project the world point to the screen.  Near-clip returns 0,0,0 and is a miss.
+				// Far-clip still writes x,y, and those feet can sit in the 2D view: skipping them
+				// is why a double-click missed units that were on screen.
+				enum CameraClass::ProjectionResType projection = m_3DCamera->Project( screen, world );
+				if( projection != CameraClass::OUTSIDE_NEAR_CLIP &&
 						screen.X >= normalizedRegion.lo.x && 
 						screen.X <= normalizedRegion.hi.x &&
 						screen.Y >= normalizedRegion.lo.y && 

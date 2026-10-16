@@ -244,6 +244,8 @@ static Bool parseActionType( const AsciiString &token, ScenarioActionType *actio
 		*action = SCENARIO_ACTION_RESPOND;
 	else if (token == "guard")
 		*action = SCENARIO_ACTION_GUARD;
+	else if (token == "repeat")
+		*action = SCENARIO_ACTION_REPEAT;
 	else
 		return FALSE;
 
@@ -341,6 +343,7 @@ static Int tokensNeededFor( ScenarioActionType action )
 		case SCENARIO_ACTION_DOCK:				return SCENARIO_TOKENS_ATTACK;
 		case SCENARIO_ACTION_GUARD:				return SCENARIO_TOKENS_ATTACK;
 		case SCENARIO_ACTION_PRODUCE:			return SCENARIO_TOKENS_ATTACK;
+		case SCENARIO_ACTION_REPEAT:			return SCENARIO_TOKENS_ATTACK;
 		case SCENARIO_ACTION_STOP:				return SCENARIO_TOKENS_STOP;
 		case SCENARIO_ACTION_TALLY:				return SCENARIO_TOKENS_STOP;
 		case SCENARIO_ACTION_ARRIVE:			return SCENARIO_TOKENS_ARRIVE;
@@ -486,6 +489,13 @@ ScenarioParseResult ScenarioDrill_parseLine( const char *line, ScenarioAction *a
 				return SCENARIO_PARSE_BAD_COUNT;
 			break;
 		}
+
+		case SCENARIO_ACTION_REPEAT:
+			action->targetSelector = tokens[ 4 ];	// the unit
+			action->name = tokens[ 5 ];
+			if (action->name != "on" && action->name != "off")
+				return SCENARIO_PARSE_BAD_ACTION;
+			break;
 
 		case SCENARIO_ACTION_STOP:
 		case SCENARIO_ACTION_TALLY:
@@ -1826,6 +1836,7 @@ static Bool executeOrder( const ScenarioAction &action, Player *player, const Co
 		case SCENARIO_ACTION_PARTICLES:
 		case SCENARIO_ACTION_POWER:
 		case SCENARIO_ACTION_PRODUCE:
+		case SCENARIO_ACTION_REPEAT:
 		case SCENARIO_ACTION_TALLY:
 		case SCENARIO_ACTION_RESPOND:
 			ordered = FALSE;		// handled before the group is built
@@ -1902,6 +1913,29 @@ static Bool executeWaterCaptureFixture(const ScenarioAction& action)
 	return success;
 }
 
+/** The Ctrl+Alt build key on a factory: one MSG_SET_REPEAT_UNIT onto the message stream, recorded and
+	  sent to every machine like construct, so only the local player can press it. */
+static Bool executeRepeat( const ScenarioAction &action, Player *player )
+{
+	Object *building = findFirstMatching( player, action.selector );
+	const ThingTemplate *made = TheThingFactory->findTemplate( action.targetSelector );
+	if (player != ThePlayerList->getLocalPlayer() || building == NULL || made == NULL)
+	{
+		DEBUG_LOG(("SCENARIO: frame %d repeat: slot %d is not the local player, has no '%s', or '%s' is no template\n",
+							 action.frame, action.slot, action.selector.str(), action.targetSelector.str()));
+		return FALSE;
+	}
+
+	GameMessage *msg = TheMessageStream->appendMessage( GameMessage::MSG_SET_REPEAT_UNIT );
+	msg->appendIntegerArgument( made->getTemplateID() );
+	msg->appendObjectIDArgument( building->getID() );
+	msg->appendBooleanArgument( action.name == "on" );
+
+	DEBUG_LOG(("SCENARIO: frame %d repeat slot %d '%s' %d '%s' %s\n", action.frame, action.slot,
+						 action.selector.str(), building->getID(), action.targetSelector.str(), action.name.str()));
+	return TRUE;
+}
+
 Bool ScenarioDrill_execute( const ScenarioAction &action )
 {
 	if (action.capturePlayerName.isNotEmpty())
@@ -1935,6 +1969,9 @@ Bool ScenarioDrill_execute( const ScenarioAction &action )
 
 	if (action.action == SCENARIO_ACTION_PRODUCE)
 		return executeProduce( action, player );
+
+	if (action.action == SCENARIO_ACTION_REPEAT)
+		return executeRepeat( action, player );
 
 	if (action.action == SCENARIO_ACTION_TALLY)
 		return executeTally( action, player );

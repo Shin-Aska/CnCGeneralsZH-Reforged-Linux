@@ -1426,11 +1426,11 @@ GUI:QMAborted
 END
 
 GUI:DrawScrollAnchor
-"Kaydırma çapasını çiz"
+"Kaydırma Çapasını Çiz"
 END
 
 GUI:MoveScrollAnchor
-"Kaydırma çapasını taşı"
+"Kaydırma Çapasını Taşı"
 END
 
 GUI:GroupRoom1
@@ -3378,11 +3378,11 @@ GUI:RemoteIPDesc
 END
 
 GUI:SaveCamera
-"Kamerayı tekrarlara kaydet"
+"Kameramı Kaydet"
 END
 
 GUI:UseCamera
-"Tekrarlarda kayıtlı kamerayı kullan"
+"Kayıtlı Kamerayı İzle"
 END
 
 Mouse:Windows
@@ -3699,6 +3699,10 @@ END
 
 CONTROLBAR:AttackMove
 "&Saldırarak İlerle"
+END
+
+CONTROLBAR:ForceAttack
+"&Zorla Saldır"
 END
 
 CONTROLBAR:Stop
@@ -6839,6 +6843,10 @@ END
 
 CONTROLBAR:ToolTipAttackMove
 "Birliğe hedef bölgeye ilerleme ve yolda karşılaştığı düşmanlarla çatışmak için durma emri verin"
+END
+
+CONTROLBAR:ToolTipForceAttack
+"Bir sonraki tıklama imlecin altındaki her şeye saldırır, zemin ve kendi tarafınız da buna dahil. Vazgeçmek için düğmeye yeniden tıklayın."
 END
 
 CONTROLBAR:ToolTipCommandStop
@@ -14842,7 +14850,7 @@ GUI:OptionsGroupLighting
 END
 
 GUI:OptionsGroupOrders
-"Emirler"
+"Fare ve Emirler"
 END
 
 GUI:OptionsGroupBattlefield
@@ -15615,4 +15623,384 @@ END
 
 GUI:KickVoteNone
 "Açık bir oylama yok. Başlatmak için /kick ve oyuncunun adını yazın."
+END
+
+GUI:ShadowQuality
+"Gölge Kalitesi"
+END
+
+GUI:ShadowQuality0
+"Düşük"
+END
+
+GUI:ShadowQuality1
+"Orta"
+END
+
+GUI:ShadowQuality2
+"Yüksek"
+END
+
+TOOLTIP:ShadowQuality
+"Birim ve bina gölgelerinin keskinliği. Yüksek yaklaşık 64 MB video belleği kullanır, Düşük zayıf kartta bellek açar. Yalnızca Direct3D 11'de ve Klasik Grafikler kapalıyken. Kabul Et'e basınca uygulanır."
+END
+
+GUI:VolumetricSmoke
+"Hacimli Duman"
+END
+
+TOOLTIP:VolumetricSmoke
+"Duman ve toz, arkalarındaki zemini, birimleri ve dumanı kalınlıklarına göre gölgeler. Yalnızca Direct3D 11, büyük çatışmalarda küçük bir yük getirir. Kabul Et'e basınca uygulanır."
+END
+
+GUI:LightingStyle
+"Aydınlatma"
+END
+
+GUI:LightingStyle0
+"Klasik"
+END
+
+GUI:LightingStyle1
+"Reforged"
+END
+
+TOOLTIP:LightingStyle
+"Reforged her haritaya günün saatini bozmadan daha güçlü ve sıcak bir güneş, daha koyu gölgeli yüzler ve daha derin gölgeler verir. Klasik 2003'ün düz ışığıdır ve Klasik Grafikler hep onu kullanır. Bir sonraki haritada geçerli olur."
+END
+
+GUI:SmokeFireLighting
+"Ateşin Aydınlattığı Duman"
+END
+
+TOOLTIP:SmokeFireLighting
+"Ateşin yanındaki duman onun turuncu ışığını alır. Kabul Et'e basınca uygulanır."
+END
+
+GUI:DebrisTrails
+"Patlama Parça İzleri"
+END
+
+TOOLTIP:DebrisTrails
+"Patlamalar arkasında duman bırakan parçalar savurur, enkazdan yanan şarapnel saçılır. Kapalıyken patlamalar orijinal haliyle kalır. Kabul Et'e basınca uygulanır."
+END
+
+GUI:FormationDrag
+"Sürükleyerek Düzen Kur"
+END
+
+TOOLTIP:FormationDrag
+"Hareket, saldırarak ilerleme ya da koruma emri hazırken sürüklemek birimleri çizdiğiniz çizgi boyunca dizer."
+END
+
+GUI:BuildWithoutWorker
+"İşçi Seçmeden İnşa"
+END
+
+TOOLTIP:BuildWithoutWorker
+"Hiçbir şey seçili değilken komut çubuğu işçilerinizin binalarını gösterir ve yere en yakın boştaki işçi gidip inşa eder. Kapalıyken çubuk, 2003'teki gibi bir işçi seçene kadar boş kalır."
+END
+
+GUI:HealthBarColors
+"Can Çubuğu Rengi"
+END
+
+GUI:HealthBarColors0
+"Yeşilden Kırmızıya"
+END
+
+GUI:HealthBarColors1
+"Oyuncu Rengi"
+END
+
+TOOLTIP:HealthBarColors
+"Tam canda yeşil, sarıdan geçip kırmızıya, ya da kimin olduğu görünsün diye her çubuk sahibinin renginde. Devre dışı birimler mavi kalır."
+END
+
+GUI:MenuTransitionSpeed
+"Menü Geçiş Hızı"
+END
+
+TOOLTIP:MenuTransitionSpeed
+"Menülerin kayma ve solma hızı. 100 özgün hızdır."
+END
+
+GUI:OptionsGroupMenus
+"Menüler"
+END
+
+GUI:OptionsGroupReplays
+"Tekrarlar"
+END
+
+TOOLTIP:SaveCamera
+"Tek oyunculu ve çatışma oyunlarında kamera hareketleriniz tekrarlarınıza kaydedilir."
+END
+
+TOOLTIP:UseCamera
+"Tekrar, size serbest kamera bırakmak yerine oyuncusunun kaydettiği kamerayı izler."
+END
+
+TOOLTIP:DrawScrollAnchor
+"Sağ tuşla sürükleyerek kaydırmanın başladığı yere bir işaret koyar."
+END
+
+TOOLTIP:MoveScrollAnchor
+"Kaydırma işareti imleci en fazla yarım ekran geriden izler, böylece uzun bir sürükleme durmadan hızlanmaz."
+END
+
+GUI:OptionsTabHotkeys
+"Kısayollar"
+END
+
+GUI:HotkeysCommands
+"Komutlar"
+END
+
+GUI:HotkeysCommandBar
+"Komut çubuğu"
+END
+
+GUI:HotkeysChange
+"Değiştir"
+END
+
+GUI:HotkeysClear
+"Tuş yok"
+END
+
+GUI:HotkeysDefault
+"Oyunun tuşu"
+END
+
+TOOLTIP:HotkeyChange
+"Seçili komut ya da düğme için yeni bir tuş bekler. Üzerine çift tıklamak ya da Enter da aynısını yapar."
+END
+
+TOOLTIP:HotkeyClear
+"Seçili komutun ya da düğmenin tuşunu kaldırır."
+END
+
+TOOLTIP:HotkeyDefault
+"Oyunun kendi tuşunu geri koyar. Tuşlar Kabul Et'e bastığınızda yazılır."
+END
+
+GUI:HotkeysNone
+"yok"
+END
+
+GUI:HotkeysPressKey
+"Bir tuşa basın, vazgeçmek için Esc"
+END
+
+GUI:HotkeysPressLetter
+"Bir harfe basın, vazgeçmek için Esc"
+END
+
+GUI:HotkeysPressForceAttack
+"Bir tuşa ya da tek başına Ctrl veya Alt tuşuna basın. Shift basılı tutma tuşu olamaz. Esc vazgeçer."
+END
+
+GUI:HotkeysClash
+"%s: %s aynı tuşu kullanıyor. Oyunda tuş yalnızca birinde çalışır, sabit emir kendi tuşunu korur."
+END
+
+GUI:HotkeysAlsoOn
+"Şununla aynı tuş: %s."
+END
+
+GUI:HotkeysFixed
+"Her çubukta sabit tuş: A saldırarak ilerle, S dur, G koru, Y toplanma noktası, V boşalt, C çatışma inişi, N sat, H mayın, kamuflaj ağı ve sahte bina geçişi."
+END
+
+GUI:HotkeysGameKey
+"Oyunun kendi tuşu %s."
+END
+
+GUI:HotkeysMoved
+"Komut çubuğunun tuşlarından taşındı; oyunun tuşu %s."
+END
+
+GUI:HotkeysButtonMoved
+"Oyun ona sabit bir tuşun harfini vermişti, başlatıcı taşıdı."
+END
+
+GUI:HotkeysForceAttack
+"Basılı tutunca imlecin altındakine ateş eder. Bu tuşla Shift, birlik kutusu çizer. Varsayılan Ctrl."
+END
+
+GUI:HotkeysPick
+"Bir komut ya da düğme seçin, sonra çift tıklayın ya da Değiştir'e basın."
+END
+
+GUI:HotkeysOnFixedKey
+"Bu bir komut çubuğu tuşu da: o tuşu taşıyan düğmeyle birlikte çalışır."
+END
+
+GUI:HotkeysCategorySELECTION
+"Seçim"
+END
+
+GUI:HotkeysCategoryTEAM
+"Takımlar"
+END
+
+GUI:HotkeysCategoryINFORMATION
+"İşaretler ve fişekler"
+END
+
+GUI:HotkeysCategoryCONTROL
+"Emirler"
+END
+
+GUI:HotkeysCategoryINTERFACE
+"Arayüz"
+END
+
+GUI:HotkeysCategorySHORTCUTS
+"General güçleri"
+END
+
+GUI:HotkeysCategoryGRID
+"Yerine göre komut çubuğu"
+END
+
+GUI:HotkeysCategoryMISC
+"Kamera ve sohbet"
+END
+
+GUI:HotkeysFamilySaveView
+"%d. yer imini kaydet"
+END
+
+GUI:HotkeysFamilyViewView
+"%d. yer imine git"
+END
+
+GUI:HotkeysFamilyAddTeam
+"Seçimi %d. takıma ekle"
+END
+
+GUI:HotkeysFamilyShortcut
+"%d. general gücü"
+END
+
+GUI:HotkeysFamilySlot
+"Komut çubuğunda %d. yer"
+END
+
+GUI:HotkeysCommandSELECT_HERO
+"Kahramanı seç"
+END
+
+GUI:HotkeysCommandSELECT_NEXT_WORKER
+"Sıradaki işçi"
+END
+
+GUI:HotkeysCommandSELECT_PREV_WORKER
+"Önceki işçi"
+END
+
+GUI:HotkeysCommandCHAT_ALLIES
+"Müttefiklere yaz"
+END
+
+GUI:HotkeysCommandCHAT_EVERYONE
+"Herkese yaz"
+END
+
+GUI:HotkeysCommandDIPLOMACY
+"Diplomasi"
+END
+
+GUI:HotkeysCommandPLACE_BEACON
+"İşaret fişeği koy"
+END
+
+GUI:HotkeysCommandDELETE_BEACON
+"İşaret fişeğini sil"
+END
+
+GUI:HotkeysCommandBEGIN_CAMERA_ROTATE_LEFT
+"Kamerayı sola döndür"
+END
+
+GUI:HotkeysCommandBEGIN_CAMERA_ROTATE_RIGHT
+"Kamerayı sağa döndür"
+END
+
+GUI:HotkeysCommandBEGIN_CAMERA_ZOOM_IN
+"Yakınlaştır"
+END
+
+GUI:HotkeysCommandBEGIN_CAMERA_ZOOM_OUT
+"Uzaklaştır"
+END
+
+GUI:HotkeysCommandCAMERA_RESET
+"Kamerayı sıfırla"
+END
+
+GUI:HotkeysCommandTOGGLE_CAMERA_TRACKING_DRAWABLE
+"Kamera seçimi izlesin"
+END
+
+GUI:HotkeysCommandTOGGLE_FAST_FORWARD_REPLAY
+"Tekrarı hızlı oynat"
+END
+
+GUI:HotkeysCommandSELECT_ALL
+"Bütün birlikleri seç"
+END
+
+GUI:HotkeysCommandSELECT_ALL_MILITARY
+"Bütün savaşan birlikleri seç"
+END
+
+GUI:HotkeysCommandSELECT_ALL_VEHICLES
+"Bütün araçları seç"
+END
+
+GUI:HotkeysCommandSELECT_ALL_AIRCRAFT
+"Bütün hava araçlarını seç"
+END
+
+GUI:HotkeysCommandSELECT_ALL_BARRACKS
+"Bütün kışlaları seç"
+END
+
+GUI:HotkeysCommandSELECT_ALL_WARFACTORIES
+"Bütün savaş fabrikalarını seç"
+END
+
+GUI:HotkeysCommandSELECT_ALL_AIRFIELDS
+"Bütün hava üslerini seç"
+END
+
+GUI:HotkeysCommandSELECT_NEXT_IDLE_WORKER
+"Sıradaki boştaki işçi"
+END
+
+GUI:HotkeysCommandSELECT_NEXT_IDLE_UNIT
+"Sıradaki boştaki birlik"
+END
+
+GUI:HotkeysCommandTOGGLE_PAUSE
+"Duraklat (tek oyunculu ve tekrarlar)"
+END
+
+GUI:HotkeysCommandTOGGLE_PURCHASE_SCIENCE
+"General terfileri"
+END
+
+GUI:HotkeysCommandSIGNAL_ATTACK
+"İşaret: buraya saldır"
+END
+
+GUI:HotkeysCommandSIGNAL_DEFEND
+"İşaret: burayı savun"
+END
+
+GUI:HotkeysCommandSIGNAL_ATTENTION
+"İşaret: buraya bak"
 END

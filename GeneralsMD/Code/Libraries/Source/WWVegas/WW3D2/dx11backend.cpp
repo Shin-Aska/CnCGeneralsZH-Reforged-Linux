@@ -1009,15 +1009,19 @@ void DX11BackendClass::Set_Draw_Effect(unsigned effect, const float parameters[4
 	}
 }
 
-/** Which look the current draw takes.  Only the scene's own world draws: not the sun's map, not a
-		mirror or a filter target, not a screen space quad and not a transcribed program.  A draw
+/** Which look the current draw takes.  Only the scene's own world draws, and in the sun's map only
+		the cloak's thinned shadow: not a mirror or a filter target, not a screen space quad and not a transcribed program.  A draw
 		adding light (ONE as either factor) takes the outage alone, which puts a building's glow cards
 		out with it; dressed in arcs or a rim, the card's whole quad would show.  A multiplying pass
 		takes none.  The cloak needs the scene's copy, and without one the object keeps its plain
 		translucency. */
 unsigned DX11BackendClass::Draw_Effect() const
 {
-	if (DrawEffect == DRAW_EFFECT_NONE || ShadowMapBound || CurrentTarget != NULL
+	// The cloak's shadow is the one look the sun's map takes, and the only place it is drawn.
+	if (ShadowMapBound != (DrawEffect == DRAW_EFFECT_CLOAK_SHADOW)) {
+		return DRAW_EFFECT_NONE;
+	}
+	if (DrawEffect == DRAW_EFFECT_NONE || CurrentTarget != NULL
 		|| (VertexFormat & D3DFVF_XYZRHW) != 0
 		|| VertexProgram != ENGINE_SHADER_NONE || PixelProgram != ENGINE_SHADER_NONE) {
 		return DRAW_EFFECT_NONE;

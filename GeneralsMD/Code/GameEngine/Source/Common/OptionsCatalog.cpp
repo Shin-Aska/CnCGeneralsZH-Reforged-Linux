@@ -86,6 +86,7 @@ static void set_m_ambientVolume( Int value )
 		TheAudio->setVolume( value / 100.0f, (AudioAffect)(AudioAffect_Ambient | AudioAffect_SystemSetting) );
 }
 OPTION_BOOL_ACCESSORS( m_formationDrag )
+OPTION_BOOL_ACCESSORS( m_buildWithoutWorker )
 OPTION_BOOL_ACCESSORS( m_chromaLighting )
 OPTION_INT_ACCESSORS( m_bloomIntensity )
 OPTION_INT_ACCESSORS( m_menuTransitionSpeed )
@@ -113,6 +114,7 @@ OPTION_BOOL_ACCESSORS( m_particleGroundBounce )
 OPTION_BOOL_ACCESSORS( m_volumetricSmokeShadows )
 OPTION_BOOL_ACCESSORS( m_useCloudMap )
 OPTION_BOOL_ACCESSORS( m_smokeFireLighting )
+OPTION_BOOL_ACCESSORS( m_explosionDebrisTrails )
 OPTION_INT_ACCESSORS( m_shadowQuality )
 
 //-----------------------------------------------------------------------------
@@ -211,12 +213,11 @@ const OptionDef TheOptionCatalog[] =
 {
 	// iniKey, widgetName, labelKey, kind, apply, lo, hi, get, set
 
-	// The camera and mouse habits below have no control in OptionsMenu.wnd any more.  They are
-	// not gone: an empty widgetName only makes the menu passes skip the row, so Options.ini still
-	// loads, clamps and saves each one and a player who wants the old behaviour can put the key
-	// back by hand.  The defaults in GlobalData are what everybody else gets.  UseCameraConstraints
-	// left the catalog: the camera keeps the map's own limits as the game shipped, and only
-	// -noViewLimit lifts them.
+	// No control: the margin's size is read nowhere, only whether it is above 0, which lets a manual
+	// pan pull the camera back inside limits a scripted path widened.  An empty widgetName makes the
+	// menu passes skip the row, so Options.ini still loads and clamps it.  UseCameraConstraints left
+	// the catalog: the camera keeps the map's own limits as the game shipped, and only -noViewLimit
+	// lifts them.
 
 	{ "CameraBoundaryMargin", "", "",
 		OPTION_INT, APPLY_LIVE, 0, 1000,
@@ -224,8 +225,9 @@ const OptionDef TheOptionCatalog[] =
 
 	// Retail refuses to edge-scroll in a window because the cursor can legitimately sit on the
 	// border while you reach for something else; on a second monitor, or borderless, that is
-	// exactly the behaviour you want back.
-	{ "EdgeScrollInWindowedMode",	"", "",
+	// exactly the behaviour you want back.  Borderless turns it on whatever this says
+	// (applyWindowMode).  On Options > Controls.
+	{ "EdgeScrollInWindowedMode",	OPT_WND( "CheckEdgeScrollWindowed" ), "GUI:EdgeScrollWindowed",
 		OPTION_BOOL, APPLY_LIVE, 0, 1,
 		get_m_edgeScrollInWindowedMode, set_m_edgeScrollInWindowedMode },
 
@@ -304,10 +306,18 @@ const OptionDef TheOptionCatalog[] =
 
 	// With the move, attack move or guard key armed, a left drag over the ground spreads the
 	// selection along the line drawn instead of sending everyone to one point.  On by default, and
-	// here for anyone who would rather that drag did nothing at all.
-	{ "FormationDrag",						"", "",
+	// here for anyone who would rather that drag did nothing at all.  On Options > Controls.
+	{ "FormationDrag",						OPT_WND( "CheckFormationDrag" ), "GUI:FormationDrag",
 		OPTION_BOOL, APPLY_LIVE, 0, 1,
 		get_m_formationDrag, set_m_formationDrag },
+
+	// With nothing selected the command bar shows one of your builders' buildings, and a structure put
+	// down from it goes to the idle builder nearest the site.  Client only: the logic already hands a
+	// placement with no qualifying selected builder to one (MSG_DOZER_CONSTRUCT), so off only takes
+	// the bar away, as 1.04 had it.  The bar picks it up on its next evaluation.  On Options > Controls.
+	{ "BuildWithoutWorker",				OPT_WND( "CheckBuildWithoutWorker" ), "GUI:BuildWithoutWorker",
+		OPTION_BOOL, APPLY_LIVE, 0, 1,
+		get_m_buildWithoutWorker, set_m_buildWithoutWorker },
 
 	// The match on Razer hardware: the command bar on the letter keys, power on the digits,
 	// superweapons on the numpad, money on the mousepad.  Only during a match; off, and in every
@@ -318,8 +328,8 @@ const OptionDef TheOptionCatalog[] =
 
 	// Percent of the speed the menu slides and fades were authored at. 100 is what the artists
 	// drew; higher gets you through the shell faster, and nothing about a menu animation is worth
-	// waiting for on the four hundredth launch.
-	{ "MenuTransitionSpeed",			"", "",
+	// waiting for on the four hundredth launch.  On Options > Interface.
+	{ "MenuTransitionSpeed",			OPT_WND( "SliderMenuTransitionSpeed" ), "GUI:MenuTransitionSpeed",
 		OPTION_INT, APPLY_LIVE, 25, 400,
 		get_m_menuTransitionSpeed, set_m_menuTransitionSpeed },
 
@@ -407,10 +417,10 @@ const OptionDef TheOptionCatalog[] =
 		get_m_healthBarMode, set_m_healthBarMode },
 
 	// What a health bar is coloured by: 0 the health, green through yellow to red as retail drew it,
-	// 1 the owner's player colour.  No control in the game's menu; the launcher writes it.  Read every
-	// frame by Drawable::drawHealthBar, and a disabled unit keeps its blue either way.
-	{ "HealthBarColors",					"", "",
-		OPTION_ENUM, APPLY_LIVE, 0, 1,
+	// 1 the owner's player colour.  On Options > Interface under Health Bars.  Read every frame by
+	// Drawable::drawHealthBar, and a disabled unit keeps its blue either way.
+	{ "HealthBarColors",					OPT_WND( "ComboBoxHealthBarColors" ), "GUI:HealthBarColors",
+		OPTION_ENUM, APPLY_LIVE, 0, HEALTH_BAR_COLORS_COUNT - 1,
 		get_m_healthBarColors, set_m_healthBarColors },
 
 	// MenuLayout (stretch or fit), HudScale and InterfaceStyle used to sit here.  Every menu is
@@ -474,37 +484,44 @@ const OptionDef TheOptionCatalog[] =
 		get_m_shadowsForParticles, set_m_shadowsForParticles },
 
 	// Smoke and dust in the sun's map: a cloud shades the ground, the units and the smoke behind it
-	// by how thick it is, and darkens on its own far side.  Read by the shadow pass every frame.  No
-	// control yet; Options.ini and -novolumetricsmoke reach it.
-	{ "VolumetricSmokeShadows",		"", "",
+	// by how thick it is, and darkens on its own far side.  Read by the shadow pass every frame.  On
+	// Options > Effects; -novolumetricsmoke turns it off for a run.
+	{ "VolumetricSmokeShadows",		OPT_WND( "CheckVolumetricSmoke" ), "GUI:VolumetricSmoke",
 		OPTION_BOOL, APPLY_LIVE, 0, 1,
 		get_m_volumetricSmokeShadows, set_m_volumetricSmokeShadows },
 
 	// The shadows of passing clouds scrolled over the terrain.  It used to belong to the detail
 	// preset, which turned it off at Low and gave no other way to; now the preset leaves it alone and
-	// GameData.ini's Yes holds until Options.ini says otherwise.  The terrain asks every frame.  No
-	// control in the game's menu; the launcher writes it.
+	// GameData.ini's Yes holds until Options.ini says otherwise.  The terrain asks every frame.  Its
+	// control is EA's CheckCloudShadows, which the menu reads by hand with the other detail boxes.
 	{ "UseCloudMap",							"", "",
 		OPTION_BOOL, APPLY_LIVE, 0, 1,
 		get_m_useCloudMap, set_m_useCloudMap },
 
 	// Classic or Reforged light.  Reforged rebalances each map's lights as the map loads (so a change
 	// shows on the next map), deepens the sun's shadow to match and grades the Direct3D 11 picture,
-	// which follows the setting every frame.  ClassicGraphics forces Classic.  No control in the
-	// game's menu; the launcher writes it and -lighting picks it for one run.
-	{ "LightingStyle",						"", "",
+	// which follows the setting every frame.  ClassicGraphics forces Classic.  On Options > Graphics;
+	// -lighting picks it for one run.
+	{ "LightingStyle",						OPT_WND( "ComboBoxLightingStyle" ), "GUI:LightingStyle",
 		OPTION_ENUM, APPLY_NEXT_MAP, 0, LIGHTING_STYLE_COUNT - 1,
 		get_m_lightingStyle, set_m_lightingStyle },
 
-	// Smoke lit by the fire beside it.  No control yet; -nosmokefirelight turns it off for a run.
-	{ "SmokeFireLighting",				"", "",
+	// Smoke lit by the fire beside it.  On Options > Effects; -nosmokefirelight turns it off for a run.
+	{ "SmokeFireLighting",				OPT_WND( "CheckSmokeFireLighting" ), "GUI:SmokeFireLighting",
 		OPTION_BOOL, APPLY_LIVE, 0, 1,
 		get_m_smokeFireLighting, set_m_smokeFireLighting },
 
+	// The fork's smoke-trailing blast fragments.  Off, every system marked ExplosionDebrisTrail in
+	// ParticleSystemReforged.ini is destroyed as it is made, which leaves the retail explosions.  On
+	// Options > Effects.
+	{ "DebrisTrails",							OPT_WND( "CheckDebrisTrails" ), "GUI:DebrisTrails",
+		OPTION_BOOL, APPLY_LIVE, 0, 1,
+		get_m_explosionDebrisTrails, set_m_explosionDebrisTrails },
+
 	// The size of the sun's depth map.  The shadow pass asks for it every frame and the backend makes
-	// the map again when the size changes, so a new level shows on the next frame.  No control in the
-	// game's own menu; the launcher writes it.  Classic graphics and -d3d9 draw no map at all.
-	{ "ShadowQuality",						"", "",
+	// the map again when the size changes, so a new level shows on the next frame.  On Options >
+	// Effects.  Classic graphics and -d3d9 draw no map at all.
+	{ "ShadowQuality",						OPT_WND( "ComboBoxShadowQuality" ), "GUI:ShadowQuality",
 		OPTION_ENUM, APPLY_LIVE, 0, SHADOW_QUALITY_COUNT - 1,
 		get_m_shadowQuality, set_m_shadowQuality },
 

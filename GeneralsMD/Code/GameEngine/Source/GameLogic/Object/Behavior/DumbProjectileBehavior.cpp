@@ -479,14 +479,44 @@ Bool DumbProjectileBehavior::calcFlightPath(Bool recalcNumSegments)
 
 	// With four control points, we have a curve.  We will decide how many frames we want to take to get to the target,
 	// and fill our vector with those curve points.
+	//
+	// The curve is sampled where a retail (30 Hz) frame put the shell, and the frames in between fly the
+	// straight line to the next sample, so a path looks and lasts as it did. Sampled at every frame, a
+	// fast shot met points of the curve retail never visited: mods give an instant tracer FirstHeight 300
+	// and WeaponSpeed 9999, which retail sampled at its two ends only, and at 60 Hz the third of four
+	// samples flew it 200 into the air.
 	BezierSegment flightCurve( controlPoints );
+	Int retailSegments;
 	if (recalcNumSegments)
 	{
 		Real flightDistance = flightCurve.getApproximateLength();
-		m_flightPathSegments = floatToIntAsMsvc( (float)ceil( flightDistance / m_flightPathSpeed ) );
+		retailSegments = floatToIntAsMsvc( (float)ceil( flightDistance / (m_flightPathSpeed * LOGICFRAMES_PER_RETAIL_FRAME) ) );
+		// One sample is no path: the iterator hands back its zeroed point, not the muzzle, and EA's
+		// point-blank shell flew to the map's corner and went off there. Two are the muzzle and the target.
+		if (retailSegments == 1)
+			retailSegments = 2;
 	}
-	flightCurve.getSegmentPoints( m_flightPathSegments, &m_flightPath );
-	DEBUG_ASSERTCRASH(m_flightPathSegments == m_flightPath.size(), ("m_flightPathSegments mismatch"));
+	else
+	{
+		retailSegments = m_flightPathSegments > 1 ? (m_flightPathSegments - 1) / LOGICFRAMES_PER_RETAIL_FRAME + 1 : m_flightPathSegments;
+	}
+	VecCoord3D retailPath;
+	flightCurve.getSegmentPoints( retailSegments, &retailPath );
+	m_flightPathSegments = retailSegments > 1 ? (retailSegments - 1) * LOGICFRAMES_PER_RETAIL_FRAME + 1 : retailSegments;
+	m_flightPath.resize( m_flightPathSegments );
+	for (Int i = 0; i < m_flightPathSegments; ++i)
+	{
+		Int sample = i / LOGICFRAMES_PER_RETAIL_FRAME;
+		Int between = i % LOGICFRAMES_PER_RETAIL_FRAME;
+		m_flightPath[i] = retailPath[sample];
+		if (between != 0)
+		{
+			Real t = (Real)between / LOGICFRAMES_PER_RETAIL_FRAME;
+			m_flightPath[i].x += t * (retailPath[sample + 1].x - retailPath[sample].x);
+			m_flightPath[i].y += t * (retailPath[sample + 1].y - retailPath[sample].y);
+			m_flightPath[i].z += t * (retailPath[sample + 1].z - retailPath[sample].z);
+		}
+	}
 
 #if defined(_DEBUG) || defined(_INTERNAL)
 	if( TheGlobalData->m_debugProjectilePath )

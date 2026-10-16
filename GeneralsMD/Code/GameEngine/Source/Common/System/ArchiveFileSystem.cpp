@@ -50,6 +50,7 @@
 #include "Common/ArchiveFile.h"
 #include "Common/ArchiveFileSystem.h"
 #include "Common/AsciiString.h"
+#include "Common/file.h"
 #include "Common/GlobalData.h"
 #include "Common/LocalFileSystem.h"
 #include "Common/PerfTimer.h"
@@ -143,6 +144,7 @@ void ArchiveFileSystem::addToTree(ArchivedDirectoryInfo &root, const ArchiveFile
 	// a mod's maps never go in, merged or kept apart: the maps are ours (FileSystem::isMapPath)
 	const Bool modArchive = modLayerOf(archiveFilename).isNotEmpty();
 	Int mapsIgnored = 0;
+	Int uiKept = 0;
 
 	FilenameListIter it = filenameList.begin();
 
@@ -178,10 +180,24 @@ void ArchiveFileSystem::addToTree(ArchivedDirectoryInfo &root, const ArchiveFile
 		}
 
 		// token is the filename, and dirInfo is the directory that this file is in.
-		if (dirInfo->m_files.find(token) == dirInfo->m_files.end() || overwrite) {
-			AsciiString path2;
-			path2 = debugpath;
-			path2.concat(token);
+		AsciiString path2;
+		path2 = debugpath;
+		path2.concat(token);
+		// a merged mod's interface file stays out where retail or the fork has one (FileSystem::isForkUIPath);
+		// an image sheet of it is still read first, under its "ModUI~" name, for the images only the mod
+		// has.  A texture our sheets name stays out even where only its other extension is ours, because
+		// the loader takes a .dds before the .tga it was asked for.
+		ArchivedFileLocationMap::const_iterator held = dirInfo->m_files.find(token);
+		const Bool oursHeld = held != dirInfo->m_files.end() && modLayerOf(held->second).isEmpty();
+		if (modArchive && &root == &m_rootDirectory && (isOurUITexture(path2) || (oursHeld && FileSystem::isForkUIPath(path2))))
+		{
+			if (path2.startsWith("data\\ini\\mappedimages\\"))
+				m_modUICopies[path2] = archiveFilename;
+			++uiKept;
+			it++;
+			continue;
+		}
+		if (held == dirInfo->m_files.end() || overwrite) {
 //			DEBUG_LOG(("ArchiveFileSystem::loadIntoDirectoryTree - adding file %s, archived in %s\n", path2.str(), archiveFilename.str()));
 			dirInfo->m_files[token] = archiveFilename;
 		}
@@ -190,6 +206,78 @@ void ArchiveFileSystem::addToTree(ArchivedDirectoryInfo &root, const ArchiveFile
 	}
 	if (mapsIgnored > 0)
 		DEBUG_LOG(("ArchiveFileSystem - %d map files in %s are ignored, the maps are ours\n", mapsIgnored, archiveFilename.str()));
+	if (uiKept > 0)
+		DEBUG_LOG(("ArchiveFileSystem - %d interface files in %s are ignored, the interface is ours\n", uiKept, archiveFilename.str()));
+}
+
+Bool ArchiveFileSystem::isOurUITexture(const AsciiString& filename) const
+{
+	AsciiString path = filename;
+	path.toLower();
+	return m_uiTextures.find(path) != m_uiTextures.end();
+}
+
+void ArchiveFileSystem::getModUICopies(const AsciiString& directory, std::vector<AsciiString> &names) const
+{
+	AsciiString prefix = directory;
+	prefix.toLower();
+	prefix.concat('\\');
+	for (std::map<AsciiString, AsciiString>::const_iterator it = m_modUICopies.begin(); it != m_modUICopies.end(); ++it)
+	{
+		if (it->first.startsWith(prefix.str()))
+		{
+			AsciiString name;
+			name.format("%s%s", MOD_UI_COPY, it->first.str());
+			names.push_back(name);
+		}
+	}
+}
+
+/// every texture our interface image sheets name, read from the sheets retail and the fork hold before
+/// any mod is in the tree; the loader may ask for either the .tga or the .dds of one
+void ArchiveFileSystem::collectUITextures()
+{
+	FilenameList sheets;
+	getFileListInDirectory(AsciiString(""), AsciiString("Data\\INI\\MappedImages\\"), AsciiString("*.ini"), sheets, TRUE);
+	for (FilenameListIter sheet = sheets.begin(); sheet != sheets.end(); ++sheet)
+	{
+		if (!FileSystem::isForkUIPath(*sheet))
+			continue;
+		File *file = openFile(sheet->str());
+		std::string text(file->size(), '\0');
+		file->read(&text[0], (Int)text.size());
+		file->close();
+		size_t at = 0;
+		while (at < text.size())
+		{
+			size_t end = text.find('\n', at);
+			if (end == std::string::npos)
+				end = text.size();
+			std::string line = text.substr(at, end - at);
+			at = end + 1;
+			line = line.substr(0, line.find(';'));
+			const size_t equals = line.find('=');
+			if (equals == std::string::npos)
+				continue;
+			AsciiString key = line.substr(0, equals).c_str();
+			AsciiString value = line.substr(equals + 1).c_str();
+			key.trim();
+			value.trim();
+			if (key.compareNoCase("Texture") != 0 || value.isEmpty())
+				continue;
+			value.toLower();
+			AsciiString path;
+			path.format("art\\textures\\%s", value.str());
+			m_uiTextures.insert(path);
+			if (path.endsWith(".tga"))
+			{
+				AsciiString dds = std::string(path.str(), path.getLength() - 4).c_str();
+				dds.concat(".dds");
+				m_uiTextures.insert(dds);
+			}
+		}
+	}
+	DEBUG_LOG(("ArchiveFileSystem::loadMods - %d interface textures stay ours\n", (Int)m_uiTextures.size()));
 }
 
 /// the fork's upscaled art goes by its file name, ReforgedTextures.big and the like
@@ -216,6 +304,8 @@ void ArchiveFileSystem::loadMods() {
 		if (isReforgedArchiveName(it->first))
 			forkArt.push_back(it->first);
 	}
+
+	collectUITextures();
 
 	// -modfactions loads retail's factions and each mod's from their own files (FileSystem::setFocus)
 	if (TheGlobalData->m_modFactions)
@@ -341,8 +431,14 @@ Bool ArchiveFileSystem::doesFileExist(const Char *filename) const
 	return TRUE;
 }
 
-File * ArchiveFileSystem::openFile(const Char *filename, Int access /* = 0 */) 
+File * ArchiveFileSystem::openFile(const Char *filename, Int access /* = 0 */)
 {
+	if (strncmp(filename, MOD_UI_COPY, strlen(MOD_UI_COPY)) == 0)
+	{
+		const Char *path = filename + strlen(MOD_UI_COPY);
+		return m_archiveFileMap[m_modUICopies[AsciiString(path)]]->openFile(path, access);
+	}
+
 	AsciiString archiveFilename;
 	archiveFilename = getArchiveFilenameForFile(AsciiString(filename));
 

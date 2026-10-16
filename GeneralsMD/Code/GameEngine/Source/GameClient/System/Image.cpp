@@ -37,6 +37,7 @@
 
 #define DEFINE_IMAGE_STATUS_NAMES
 #include "Lib/BaseType.h"
+#include "Common/ArchiveFileSystem.h"
 #include "Common/LocalFileSystem.h"
 #include "Common/Debug.h"
 #include "Common/INI.h"
@@ -256,6 +257,14 @@ void ImageCollection::load( Int textureSize )
 
 	// construct path to the mapped images folder of the correct texture size
 	sprintf( buffer, "Data\\INI\\MappedImages\\TextureSize_%d", textureSize );
+
+	// a merged mod's own copies of our interface sheets first: the images only it has (its cameos) are
+	// read from them, and ours, loaded after, take back every name both define (FileSystem::isForkUIPath)
+	std::vector<AsciiString> modCopies;
+	TheArchiveFileSystem->getModUICopies( AsciiString( buffer ), modCopies );
+	TheArchiveFileSystem->getModUICopies( AsciiString( "Data\\INI\\MappedImages\\HandCreated" ), modCopies );
+	for (size_t i = 0; i < modCopies.size(); ++i)
+		ini.load( modCopies[ i ], INI_LOAD_OVERWRITE, NULL );
 
 	// load all the ine files in that directory
 

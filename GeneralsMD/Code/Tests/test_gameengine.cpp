@@ -1139,7 +1139,9 @@ TEST(armor_skips_an_unknown_damage_type)
 	 The explosion pass added 22 more of EA's, from the structure deaths to the nukes, each with
 	 the light it lacked, and the point defense lasers' missile burst one of the fork's own.
 	 The gunfire pass added 13 of EA's gun FXLists, wider tracers and AtTarget impacts, all of
-	 which already had a muzzle light, and the faster tracers six more, each with EA's own light. */
+	 which already had a muzzle light, and the faster tracers six more, each with EA's own light.
+	 The smoke-trail fragments added two of EA's blasts, the jet missile with its own light and the
+	 Particle Cannon's ground hit with one of the fork's. */
 static const char *const s_unlitReforgedFXList = "FXList SupW_FX_ParticleUplinkDeathInitial";
 
 TEST(fxlist_reforged_ini_parses_and_keeps_its_light)
@@ -1188,7 +1190,7 @@ TEST(fxlist_reforged_ini_parses_and_keeps_its_light)
 	}
 	fclose( fp );
 
-	CHECK_EQ( blocks, 133 );
+	CHECK_EQ( blocks, 135 );
 	CHECK_EQ( lit, blocks );
 }
 
@@ -1658,6 +1660,222 @@ TEST(hotkey_names_fold_turkish_letters_and_case)
 	CHECK( HotKeyManager::nameOf( 0x00C7 ) == HotKeyManager::nameOf( 0x00E7 ) );	// Ç ç
 	CHECK( HotKeyManager::nameOf( 0x011E ) == HotKeyManager::nameOf( 0x011F ) );	// Ğ ğ
 	CHECK( HotKeyManager::nameOf( 0x015E ) != HotKeyManager::nameOf( u'^' ) );	// not its low byte
+}
+
+/* HotKey.cpp, Hotkeys_*: the options menu's Hotkeys page writes Hotkeys.ini the way the launcher does.
+   HOTKEYS_FROM_LAUNCHER is what launcher/hotkeys.js formatOverrides wrote on 2026-10-15 for these keys
+   over the shipped game (its launcher part cut to three blocks), and HOTKEYS_COMMAND_MAP the shipped
+   CommandMap.ini's entries for the commands it names. */
+static const char HOTKEYS_COMMAND_MAP[] =
+	"; comments go\r\n"
+	"CommandMap DEMO_INSTANT_QUIT\r\n  Key = KEY_BACKSPACE\r\n  Modifiers = SHIFT_CTRL\r\n  UseableIn = GAME SHELL\r\nEnd\r\n"
+	"CommandMap SELECT_TEAM1\r\n  Key = KEY_1\r\n  Transition = DOWN\r\n  Modifiers = NONE\r\n  UseableIn = GAME\r\n"
+	"  Category = TEAM\r\n  DisplayName = GUI:SelectTeam1\r\nEnd\r\n"
+	"CommandMap VIEW_COMMAND_CENTER\r\n  Key = KEY_H\r\n  Modifiers = NONE\r\n  UseableIn = GAME\r\n  Category = SELECTION\r\nEnd\r\n"
+	"CommandMap VIEW_LAST_RADAR_EVENT\r\n  Key = KEY_SPACE\r\n  Modifiers = NONE\r\n  UseableIn = GAME\r\nEnd\r\n"
+	"CommandMap TAKE_SCREENSHOT\r\n  Key = KEY_F12\r\n  Modifiers = NONE\r\n  UseableIn = GAME SHELL\r\nEnd\r\n"
+	"CommandMap BEGIN_CAMERA_ROTATE_LEFT\r\n  Key = KEY_KP4\r\n  Modifiers = NONE\r\n  UseableIn = GAME\r\nEnd\r\n"
+	"CommandMap END_CAMERA_ROTATE_LEFT\r\n  Key = KEY_KP4\r\n  Transition = UP\r\n  Modifiers = NONE\r\n  UseableIn = GAME\r\nEnd\r\n"
+	"CommandMap BEGIN_FORCEATTACK\r\n  Key = KEY_NONE\r\n  Modifiers = CTRL\r\n  UseableIn = GAME\r\nEnd\r\n";
+
+static const char HOTKEYS_FROM_LAUNCHER[] =
+	"; Zero Hour Reforged hotkeys, written by the launcher's Hotkeys page. Only what differs from the\r\n"
+	"; game is here. The game reads it at start; it is not part of the multiplayer checksum.\r\n"
+	"\r\n"
+	"CommandMap BEGIN_CAMERA_ROTATE_LEFT\r\n"
+	"  Key = KEY_LBRACKET\r\n"
+	"  Transition = DOWN\r\n"
+	"  Modifiers = NONE\r\n"
+	"  UseableIn = GAME\r\n"
+	"End\r\n"
+	"\r\n"
+	"CommandMap END_CAMERA_ROTATE_LEFT\r\n"
+	"  Key = KEY_LBRACKET\r\n"
+	"  Transition = UP\r\n"
+	"  Modifiers = NONE\r\n"
+	"  UseableIn = GAME\r\n"
+	"End\r\n"
+	"\r\n"
+	"CommandMap BEGIN_FORCEATTACK\r\n"
+	"  Key = KEY_NONE\r\n"
+	"  Transition = DOWN\r\n"
+	"  Modifiers = ALT\r\n"
+	"  UseableIn = GAME\r\n"
+	"End\r\n"
+	"\r\n"
+	"CommandMap END_FORCEATTACK\r\n"
+	"  Key = KEY_NONE\r\n"
+	"  Transition = UP\r\n"
+	"  Modifiers = ALT\r\n"
+	"  UseableIn = GAME\r\n"
+	"End\r\n"
+	"\r\n"
+	"CommandMap SELECT_ALL_MILITARY\r\n"
+	"  Key = KEY_Q\r\n"
+	"  Transition = DOWN\r\n"
+	"  Modifiers = CTRL\r\n"
+	"  UseableIn = GAME\r\n"
+	"End\r\n"
+	"\r\n"
+	"CommandMap SELECT_TEAM1\r\n"
+	"  Key = KEY_KP1\r\n"
+	"  Transition = DOWN\r\n"
+	"  Modifiers = SHIFT_ALT_CTRL\r\n"
+	"  UseableIn = GAME\r\n"
+	"End\r\n"
+	"\r\n"
+	"CommandMap TAKE_SCREENSHOT\r\n"
+	"  Key = KEY_F11\r\n"
+	"  Transition = DOWN\r\n"
+	"  Modifiers = CTRL\r\n"
+	"  UseableIn = GAME SHELL\r\n"
+	"End\r\n"
+	"\r\n"
+	"CommandMap VIEW_LAST_RADAR_EVENT\r\n"
+	"  Key = KEY_NONE\r\n"
+	"  Transition = DOWN\r\n"
+	"  Modifiers = NONE\r\n"
+	"  UseableIn = NONE\r\n"
+	"End\r\n"
+	"\r\n"
+	"CommandButtonHotKey Command_ConstructAmericaBarracks\r\n"
+	"  Key = B\r\n"
+	"End\r\n"
+	"\r\n"
+	"CommandButtonHotKey command_lowercase\r\n"
+	"  Key = NONE\r\n"
+	"End\r\n"
+	"\r\n"
+	"CommandButtonHotKey Command_Sell\r\n"
+	"  Key = S\r\n"
+	"End\r\n"
+	"\r\n"
+	"CommandButtonHotKey Command_UpgradeChinaMines\r\n"
+	"  Key = Q\r\n"
+	"End\r\n"
+	"\r\n"
+	"CommandButtonHotKey mymod:Command_Sell\r\n"
+	"  Key = K\r\n"
+	"End\r\n"
+	"\r\n"
+	"; the launcher's own keys from here on\r\n"
+	"\r\n"
+	"CommandMap SELECT_NEXT_IDLE_WORKER\r\n"
+	"  Key = KEY_I\r\n"
+	"  Transition = DOWN\r\n"
+	"  Modifiers = NONE\r\n"
+	"  UseableIn = GAME\r\n"
+	"End\r\n"
+	"\r\n"
+	"CommandMap VIEW_COMMAND_CENTER\r\n"
+	"  Key = KEY_P\r\n"
+	"  Transition = DOWN\r\n"
+	"  Modifiers = NONE\r\n"
+	"  UseableIn = GAME\r\n"
+	"End\r\n"
+	"\r\n"
+	"CommandButtonHotKey AirF_Command_A10ThunderboltMissileStrike\r\n"
+	"  Key = M\r\n"
+	"End\r\n";
+
+TEST(hotkeys_file_reads_the_launchers_rows_and_leaves_its_defaults_out)
+{
+	const std::vector< HotkeyCommandRow > rows = Hotkeys_commandRows( HOTKEYS_COMMAND_MAP );
+	const HotkeyCommandRow *team = NULL, *hold = NULL, *idle = NULL;
+	Bool demo = FALSE, endHalf = FALSE;
+	for( size_t each = 0; each < rows.size(); each++ )
+	{
+		team = rows[ each ].id == "SELECT_TEAM1" ? &rows[ each ] : team;
+		hold = rows[ each ].id == "BEGIN_FORCEATTACK" ? &rows[ each ] : hold;
+		idle = rows[ each ].id == "SELECT_NEXT_IDLE_WORKER" ? &rows[ each ] : idle;
+		demo = demo || rows[ each ].id == "DEMO_INSTANT_QUIT";
+		endHalf = endHalf || rows[ each ].id == "END_CAMERA_ROTATE_LEFT";
+	}
+	CHECK( !demo );
+	CHECK( !endHalf );
+	CHECK( team != NULL && team->binding == HotkeyBinding( "KEY_1", "NONE" ) && team->category == "TEAM" && team->label == "GUI:SelectTeam1" );
+	// KEY_NONE is not a key the launcher shows, so the shipped hold comes back as its own bar-only row
+	CHECK( hold != NULL && hold->barOnly && hold->binding == HotkeyBinding( "", "CTRL" ) && hold->pair == "END_FORCEATTACK" );
+	CHECK( idle != NULL && idle->launcherDefault && idle->binding.key == "KEY_I" );
+
+	// the launcher's own defaults in the player's part are no change of his
+	const HotkeysFile mine = Hotkeys_parse(
+		"CommandMap SELECT_NEXT_IDLE_WORKER\r\n  Key = KEY_I\r\n  Modifiers = NONE\r\n  UseableIn = GAME\r\nEnd\r\n"
+		"CommandMap BEGIN_FORCEATTACK\r\n  Key = KEY_NONE\r\n  Modifiers = CTRL\r\n  UseableIn = GAME\r\nEnd\r\n"
+		"CommandMap SCATTER\r\n  Key = KEY_NOTAKEY\r\n  Modifiers = CTRL\r\n  UseableIn = GAME\r\nEnd\r\n", rows );
+	CHECK_EQ( (Int)mine.commands.size(), 1 );
+	CHECK( mine.commands.find( "SCATTER" )->second == HotkeyBinding( "", "NONE" ) );
+	CHECK( mine.launcherPart.empty() );
+}
+
+TEST(hotkeys_file_the_launcher_wrote_comes_back_byte_for_byte)
+{
+	const std::vector< HotkeyCommandRow > rows = Hotkeys_commandRows( HOTKEYS_COMMAND_MAP );
+	const HotkeysFile file = Hotkeys_parse( HOTKEYS_FROM_LAUNCHER, rows );
+	CHECK_EQ( (Int)file.commands.size(), 6 );
+	CHECK( file.commands.find( "BEGIN_FORCEATTACK" )->second == HotkeyBinding( "", "ALT" ) );
+	CHECK( file.commands.find( "VIEW_LAST_RADAR_EVENT" )->second == HotkeyBinding( "", "NONE" ) );
+	CHECK( file.commands.find( "SELECT_TEAM1" )->second == HotkeyBinding( "KEY_KP1", "SHIFT_ALT_CTRL" ) );
+	CHECK( file.commands.find( "VIEW_COMMAND_CENTER" ) == file.commands.end() );	// the launcher's, not his
+	CHECK_EQ( (Int)file.buttons.size(), 5 );
+	CHECK_STR( file.buttons.find( "mymod:Command_Sell" )->second.c_str(), "K" );
+	CHECK_STR( file.buttons.find( "command_lowercase" )->second.c_str(), "" );
+	CHECK( Hotkeys_format( file, rows ) == std::string( HOTKEYS_FROM_LAUNCHER ) );
+
+	std::map< std::string, HotkeyBinding > launcherCommands;
+	std::map< std::string, std::string > launcherButtons;
+	Hotkeys_launcherKeys( file.launcherPart, &launcherCommands, &launcherButtons );
+	CHECK( launcherCommands.find( "VIEW_COMMAND_CENTER" )->second == HotkeyBinding( "KEY_P", "NONE" ) );
+	CHECK_STR( launcherButtons.find( "AirF_Command_A10ThunderboltMissileStrike" )->second.c_str(), "M" );
+}
+
+TEST(hotkeys_file_drops_the_launchers_block_for_what_the_player_set)
+{
+	const std::vector< HotkeyCommandRow > rows = Hotkeys_commandRows( HOTKEYS_COMMAND_MAP );
+	HotkeysFile file = Hotkeys_parse( HOTKEYS_FROM_LAUNCHER, rows );
+	// a later block beats an earlier one in the game, so the launcher's move would undo these
+	file.buttons[ "AirF_Command_A10ThunderboltMissileStrike" ] = "Z";
+	file.commands[ "VIEW_COMMAND_CENTER" ] = HotkeyBinding( "KEY_H", "CTRL" );
+	const std::string text = Hotkeys_format( file, rows );
+	const size_t part = text.find( HOTKEYS_LAUNCHER_PART );
+	CHECK( part != std::string::npos );
+	const std::string launcher = text.substr( part );
+	CHECK( launcher.find( "AirF_Command_A10ThunderboltMissileStrike" ) == std::string::npos );
+	CHECK( launcher.find( "VIEW_COMMAND_CENTER" ) == std::string::npos );
+	CHECK( launcher.find( "SELECT_NEXT_IDLE_WORKER" ) != std::string::npos );
+	// the launcher's part still ends the way the launcher ends it, on End and one line break
+	CHECK( launcher.size() > 7 && launcher.compare( launcher.size() - 7, 7, "\r\nEnd\r\n" ) == 0 );
+	CHECK( launcher.find( "End\r\n\r\n\r\n" ) == std::string::npos );
+
+	const HotkeysFile back = Hotkeys_parse( text, rows );
+	CHECK_STR( back.buttons.find( "AirF_Command_A10ThunderboltMissileStrike" )->second.c_str(), "Z" );
+	CHECK( back.commands.find( "VIEW_COMMAND_CENTER" )->second == HotkeyBinding( "KEY_H", "CTRL" ) );
+
+	// a file nobody wrote gets the launcher's line and nothing after it
+	HotkeysFile fresh = Hotkeys_parse( "", rows );
+	fresh.buttons[ "Command_Sell" ] = "";
+	const std::string first = Hotkeys_format( fresh, rows );
+	CHECK( first.compare( first.size() - strlen( HOTKEYS_LAUNCHER_PART ) - 2, std::string::npos,
+		std::string( HOTKEYS_LAUNCHER_PART ) + "\r\n" ) == 0 );
+	CHECK( first.find( "CommandButtonHotKey Command_Sell\r\n  Key = NONE\r\nEnd\r\n\r\n" ) != std::string::npos );
+}
+
+TEST(hotkeys_names_sort_and_chords_read_as_the_launcher_has_them)
+{
+	// String.localeCompare: case aside, '_' before the letters, then lower case first
+	CHECK( Hotkeys_nameLess( "command_lowercase", "Command_Sell" ) );
+	CHECK( Hotkeys_nameLess( "Command_Sell", "Command_UpgradeChinaMines" ) );
+	CHECK( Hotkeys_nameLess( "Command_UpgradeChinaMines", "mymod:Command_Sell" ) );
+	CHECK( Hotkeys_nameLess( "SELECT_ALL", "SELECT_ALL_MILITARY" ) );
+	CHECK( Hotkeys_nameLess( "SELECT_ALL_MILITARY", "SELECT_TEAM1" ) );
+	CHECK( Hotkeys_nameLess( "command_sell", "Command_Sell" ) );
+	CHECK( !Hotkeys_nameLess( "Command_Sell", "Command_Sell" ) );
+
+	CHECK_STR( Hotkeys_chordText( HotkeyBinding( "KEY_KP1", "SHIFT_ALT_CTRL" ) ).c_str(), "Ctrl + Alt + Shift + Num 1" );
+	CHECK_STR( Hotkeys_chordText( HotkeyBinding( "", "ALT" ) ).c_str(), "Alt" );
+	CHECK_STR( Hotkeys_chordText( HotkeyBinding( "KEY_LBRACKET", "NONE" ) ).c_str(), "[" );
+	CHECK_STR( Hotkeys_chordText( HotkeyBinding( "", "NONE" ) ).c_str(), "" );
+	CHECK( Hotkeys_isKeyName( "KEY_PGDN" ) && !Hotkeys_isKeyName( "KEY_NONE" ) && !Hotkeys_isKeyName( "KEY_LCTRL" ) );
 }
 
 /* GlobalData.h: which button orders.  The classic mouse is 1.04's left button, or the right under EA's
@@ -4133,76 +4351,66 @@ TEST(controlbar_mod_slots_past_the_bar_fit_its_windows)
 		CHECK_EQ( shown[ slot ], humvee[ slot ] != N && slot < WINDOWS ? slot : -1 );
 }
 
-/* Grid keys leave windows 11 and 13 keyless.  The USA War Factory's TOW upgrade in 11 moves to the
-   first free keyed window, leftmost first; attack move in 11 has its own A and is never unkeyed */
-TEST(controlbar_grid_packs_keyless_buttons_into_keyed_windows)
+TEST(controlbar_force_attack_slot_is_under_attack_move)
 {
 	enum { SLOTS = MAX_COMMANDS_PER_SET, WINDOWS = 14 };
-	Bool keyed[ SLOTS ];
-	Bool unkeyed[ SLOTS ];
+	const Int N = GUI_COMMAND_NONE, U = GUI_COMMAND_OBJECT_UPGRADE, W = GUI_COMMAND_SWITCH_WEAPON;
+	Int types[ SLOTS ];
+	for( Int slot = 0; slot < SLOTS; slot++ )
+		types[ slot ] = N;
+	types[ 10 ] = GUI_COMMAND_ATTACK_MOVE;
+	types[ 12 ] = GUI_COMMAND_GUARD;
+	types[ 13 ] = GUI_COMMAND_STOP;
+	CHECK_EQ( ControlBar_forceAttackSlot( types, SLOTS, FALSE ), 11 );
+
+	types[ 11 ] = GUI_COMMAND_OBJECT_UPGRADE;
+	CHECK_EQ( ControlBar_forceAttackSlot( types, SLOTS, FALSE ), -1 );
+
+	types[ 11 ] = N;
+	types[ 10 ] = N;
+	CHECK_EQ( ControlBar_forceAttackSlot( types, SLOTS, FALSE ), -1 );
+
+	/* A base defence that shoots, or a Combat Chinook, has no Attack Move. Patriot (Stop 13, Sell 14)
+	   and the Chinook take 12; Gattling Cannon and Bunker (mines 12) take 11 above them; GLA Tunnel
+	   Network and the Infantry General's Bunker fill 1 to 14 and get none */
+	types[ 12 ] = GUI_COMMAND_STOP;
+	types[ 13 ] = GUI_COMMAND_SELL;
+	CHECK_EQ( ControlBar_forceAttackSlot( types, SLOTS, TRUE ), 11 );
+	types[ 11 ] = GUI_COMMAND_PLAYER_UPGRADE;
+	CHECK_EQ( ControlBar_forceAttackSlot( types, SLOTS, TRUE ), 10 );
+	for( Int slot = 0; slot < 14; slot++ )
+		types[ slot ] = GUI_COMMAND_EXIT_CONTAINER;
+	CHECK_EQ( ControlBar_forceAttackSlot( types, SLOTS, TRUE ), -1 );
+
+	/* Contra ranger: Attack Move in 15, slot 12 empty. Inject then fit keeps Force Attack in 12
+	   and still maps Attack Move, Guard and Stop to 11, 13 and 14 */
+	Bool windowed[ SLOTS ];
 	Int shown[ SLOTS ];
 	for( Int slot = 0; slot < SLOTS; slot++ )
-	{
-		keyed[ slot ] = slot < WINDOWS && slot != 10 && slot != 12;
-		unkeyed[ slot ] = FALSE;
-		shown[ slot ] = -1;
-	}
-	// eight units in 1-8, TOW in 11, rally point in 13 (its own Y), sell in 14
-	for( Int slot = 0; slot < 8; slot++ )
-		shown[ slot ] = slot;
-	shown[ 10 ] = 10;
-	shown[ 12 ] = 12;
-	shown[ 13 ] = 13;
-	unkeyed[ 10 ] = TRUE;
-	ControlBar_packKeyedSlots( keyed, unkeyed, SLOTS, shown );
-	CHECK_EQ( shown[ 8 ], 10 );
-	CHECK_EQ( shown[ 10 ], -1 );
-	CHECK_EQ( shown[ 12 ], 12 );
-	CHECK_EQ( shown[ 13 ], 13 );
+		windowed[ slot ] = slot < WINDOWS;
+	Int ranger[ SLOTS ] = { U, U, U, U, U, N, GUI_COMMAND_SPECIAL_POWER, W, N, W, N, N, N, N,
+		GUI_COMMAND_ATTACK_MOVE, N, GUI_COMMAND_GUARD, GUI_COMMAND_STOP };
+	CHECK_EQ( ControlBar_forceAttackSlot( ranger, SLOTS, FALSE ), 11 );
+	ranger[ 11 ] = GUI_COMMAND_FORCE_ATTACK;
+	ControlBar_fitCommandSlots( ranger, windowed, SLOTS, shown );
+	CHECK_EQ( shown[ 10 ], 14 );
+	CHECK_EQ( shown[ 11 ], 11 );
+	CHECK_EQ( shown[ 12 ], 16 );
+	CHECK_EQ( shown[ 13 ], 17 );
 
-	// a full keyed block leaves the button where it is
-	for( Int slot = 0; slot < WINDOWS; slot++ )
-		shown[ slot ] = slot;
-	ControlBar_packKeyedSlots( keyed, unkeyed, SLOTS, shown );
-	for( Int slot = 0; slot < WINDOWS; slot++ )
-		CHECK_EQ( shown[ slot ], slot );
+	/* Force Attack is Ctrl: the English label's F stays off the button */
+	CHECK_EQ( HotKeyManager::playerButtonKey( AsciiString( "Command_ForceAttack" ), 'F',
+		GUI_COMMAND_FORCE_ATTACK ), 0 );
 }
 
-/* A bar without attack move, guard or rally point lends their letters to the keyless places 11 and
-   13; a unit's bar, which has them, keeps A and G on its own orders */
-TEST(grid_keyless_places_borrow_the_fixed_letters_a_bar_has_no_order_for)
+TEST(metamap_format_chord_names_the_hold)
 {
-	enum { SLOTS = MAX_COMMANDS_PER_SET, PLACES = 14 };
-	AsciiString names[ SLOTS ];
-	Int types[ SLOTS ];
-	WideChar lent[ PLACES ];
-	for( Int slot = 0; slot < SLOTS; slot++ )
-		types[ slot ] = GUI_COMMAND_NONE;
-
-	// War Factory: units, TOW, rally point, sell
-	names[ 0 ] = "Command_ConstructAmericaTankCrusader";	types[ 0 ] = GUI_COMMAND_UNIT_BUILD;
-	names[ 10 ] = "Command_UpgradeAmericaTOWMissile";			types[ 10 ] = GUI_COMMAND_OBJECT_UPGRADE;
-	names[ 12 ] = "Command_SetRallyPoint";								types[ 12 ] = GUI_COMMAND_SET_RALLY_POINT;
-	names[ 13 ] = "Command_Sell";													types[ 13 ] = GUI_COMMAND_SELL;
-	HotKeyManager::gridLentKeys( names, types, SLOTS, lent );
-	CHECK_EQ( (Int)lent[ 10 ], (Int)'A' );
-	CHECK_EQ( (Int)lent[ 12 ], (Int)'G' );
-	for( Int slot = 0; slot < PLACES; slot++ )
-		if( slot != 10 && slot != 12 )
-			CHECK_EQ( (Int)lent[ slot ], 0 );
-
-	// a unit with attack move, guard and stop: A and G are its own, the places borrow what is left
-	for( Int slot = 0; slot < SLOTS; slot++ )
-	{
-		names[ slot ].clear();
-		types[ slot ] = GUI_COMMAND_NONE;
-	}
-	names[ 10 ] = "Command_AttackMove";	types[ 10 ] = GUI_COMMAND_ATTACK_MOVE;
-	names[ 12 ] = "Command_Guard";			types[ 12 ] = GUI_COMMAND_GUARD;
-	names[ 13 ] = "Command_Stop";				types[ 13 ] = GUI_COMMAND_STOP;
-	HotKeyManager::gridLentKeys( names, types, SLOTS, lent );
-	CHECK_EQ( (Int)lent[ 12 ], (Int)'Y' );
-	CHECK_EQ( (Int)lent[ 10 ], (Int)'V' );
+	CHECK( MetaMap_formatChord( MK_NONE, CTRL, COMMANDUSABLE_GAME ) == UnicodeString( u"Ctrl" ) );
+	CHECK( MetaMap_formatChord( MK_F, NONE, COMMANDUSABLE_GAME ) == UnicodeString( u"F" ) );
+	CHECK( MetaMap_formatChord( MK_F, CTRL, COMMANDUSABLE_GAME ) == UnicodeString( u"Ctrl + F" ) );
+	CHECK( MetaMap_formatChord( MK_NONE, ALT, COMMANDUSABLE_GAME ) == UnicodeString( u"Alt" ) );
+	CHECK( MetaMap_formatChord( MK_NONE, CTRL, COMMANDUSABLE_NONE ).isEmpty() );
+	CHECK( MetaMap_chordLabel( GameMessage::MSG_META_BEGIN_FORCEATTACK ) == UnicodeString( u"Ctrl" ) );
 }
 
 TEST(controlbar_stance_key_takes_what_the_buttons_leave)
@@ -5325,6 +5533,91 @@ TEST(particlesys_find_answers_by_id_and_forgets_a_dead_system)
 
 	TheParticleSystemManager = savedManager;
 	TheGameClient = savedClient;
+}
+
+/* The DebrisTrails option, on by default, round-trips through Options.ini.  Off, a system built from a
+	 template marked ExplosionDebrisTrail comes back already destroyed, so it never emits and the manager
+	 drops it, while every other system is untouched.  On, the marked one lives like any other. */
+TEST(particlesys_debris_trails_option_destroys_only_marked_systems)
+{
+	const OptionDef *def = findOptionDef( "DebrisTrails" );
+	CHECK( def != NULL );
+	CHECK_EQ( (Int)def->kind, (Int)OPTION_BOOL );
+	CHECK_EQ( (Int)def->apply, (Int)APPLY_LIVE );
+
+	GlobalData *savedData = TheWritableGlobalData;
+	TheWritableGlobalData = NEW GlobalData;
+	CHECK( TheGlobalData->m_explosionDebrisTrails );
+
+	UserPreferences pref;
+	TheWritableGlobalData->m_explosionDebrisTrails = FALSE;
+	saveOptionsToPreferences( pref );
+	CHECK_STR( pref[ AsciiString( "DebrisTrails" ) ].str(), "no" );
+	TheWritableGlobalData->m_explosionDebrisTrails = TRUE;
+	loadOptionsFromPreferences( pref );
+	CHECK( !TheGlobalData->m_explosionDebrisTrails );
+
+	GameClient *savedClient = TheGameClient;
+	TheGameClient = getTestGameClient();
+	ParticleSystemManager *savedManager = TheParticleSystemManager;
+
+	{
+		TestParticleSystemManager mgr;
+		TheParticleSystemManager = &mgr;
+
+		ParticleSystemTemplate *plain = mgr.newTemplate( AsciiString( "TestPlainSystem" ) );
+		ParticleSystemTemplate *debris = mgr.newTemplate( AsciiString( "TestDebrisSystem" ) );
+		debris->setExplosionDebrisTrail( TRUE );
+
+		ParticleSystem *plainOff = mgr.createParticleSystem( plain, FALSE );
+		ParticleSystem *debrisOff = mgr.createParticleSystem( debris, FALSE );
+		CHECK( !plainOff->isDestroyed() );
+		CHECK( debrisOff->isDestroyed() );
+
+		TheWritableGlobalData->m_explosionDebrisTrails = TRUE;
+		ParticleSystem *debrisOn = mgr.createParticleSystem( debris, FALSE );
+		CHECK( !debrisOn->isDestroyed() );
+
+		plainOff->deleteInstance();
+		debrisOff->deleteInstance();
+		debrisOn->deleteInstance();
+	}
+
+	TheParticleSystemManager = savedManager;
+	TheGameClient = savedClient;
+	delete TheWritableGlobalData;
+	TheWritableGlobalData = savedData;
+}
+
+/* BuildWithoutWorker, on by default, is a live bool row with a check box on Options > Controls,
+	 and it round-trips through Options.ini. */
+TEST(options_build_without_worker_row_defaults_on_and_round_trips)
+{
+	const OptionDef *def = findOptionDef( "BuildWithoutWorker" );
+	CHECK( def != NULL );
+	CHECK_EQ( (Int)def->kind, (Int)OPTION_BOOL );
+	CHECK_EQ( (Int)def->apply, (Int)APPLY_LIVE );
+	CHECK_STR( def->widgetName, "OptionsMenu.wnd:CheckBuildWithoutWorker" );
+
+	GlobalData *savedData = TheWritableGlobalData;
+	TheWritableGlobalData = NEW GlobalData;
+	CHECK( TheGlobalData->m_buildWithoutWorker );
+	CHECK_EQ( def->get(), 1 );
+
+	UserPreferences pref;
+	TheWritableGlobalData->m_buildWithoutWorker = FALSE;
+	saveOptionsToPreferences( pref );
+	CHECK_STR( pref[ AsciiString( "BuildWithoutWorker" ) ].str(), "no" );
+	TheWritableGlobalData->m_buildWithoutWorker = TRUE;
+	loadOptionsFromPreferences( pref );
+	CHECK( !TheGlobalData->m_buildWithoutWorker );
+
+	pref[ AsciiString( "BuildWithoutWorker" ) ] = AsciiString( "yes" );
+	loadOptionsFromPreferences( pref );
+	CHECK( TheGlobalData->m_buildWithoutWorker );
+
+	delete TheWritableGlobalData;
+	TheWritableGlobalData = savedData;
 }
 
 /* Loading a save has to put each system back under the id it was saved with.  It used to build the
@@ -10986,16 +11279,13 @@ TEST(replay_crc_queue_aligns_to_either_kind_of_network_recording)
 }
 
 
-/** The build queue strip has nine buttons, and that number had become the production cap: every
-	 build button greyed out at nine units even though the queue itself is a hundred deep.  The two
-	 numbers are unrelated - one is how many entries fit on screen, the other is how many the factory
-	 will take (INI MaxQueueEntries). */
-TEST(a_factorys_queue_is_as_deep_as_its_ini_says_not_as_wide_as_the_button_strip)
+/** The build queue strip has nine buttons, and that is the production cap: a shift-click that
+	 would overshoot stops at nine, and so does the factory itself (INI MaxQueueEntries, default 9). */
+TEST(a_factorys_queue_is_as_deep_as_the_button_strip)
 {
 	ProductionUpdateModuleData data;
 
-	CHECK_EQ( 100, data.m_maxQueueEntries );
-	CHECK( data.m_maxQueueEntries > MAX_BUILD_QUEUE_BUTTONS );
+	CHECK_EQ( MAX_BUILD_QUEUE_BUTTONS, data.m_maxQueueEntries );
 }
 
 /** A docking ends on the frame the last box changes hands, not one action delay later.  Both ends
@@ -12872,6 +13162,59 @@ TEST(a_door_stays_open_while_another_unit_is_still_coming)
 	CHECK( !Production_shouldCloseDoorNow( 31, 30, true, true ) );
 }
 
+/* ProductionUpdate.h: production repeat.  A factory keeps one unit on repeat.  Turning a second
+	 on takes the first off.  Turning the same one on again is a no-op, and off takes it out. */
+TEST(production_repeat_is_one_unit_at_a_time)
+{
+	static const char a = 0, b = 0, c = 0;
+	const ThingTemplate *tank = (const ThingTemplate *)&a;
+	const ThingTemplate *apc = (const ThingTemplate *)&b;
+	const ThingTemplate *jeep = (const ThingTemplate *)&c;
+
+	ProductionRepeat repeat;
+	CHECK( repeat.turn() == NULL );
+	repeat.advance();		// nothing on repeat: no turn to pass, and no division by zero
+	CHECK( repeat.turn() == NULL );
+
+	repeat.set( tank, TRUE );
+	repeat.set( tank, TRUE );		// already on: still one
+	CHECK_EQ( 1, (Int)repeat.m_units.size() );
+	CHECK( repeat.has( tank ) && !repeat.has( apc ) && !repeat.has( jeep ) );
+	CHECK( repeat.turn() == tank );
+
+	repeat.set( apc, TRUE );		// a second unit replaces the first
+	CHECK_EQ( 1, (Int)repeat.m_units.size() );
+	CHECK( repeat.has( apc ) && !repeat.has( tank ) );
+	CHECK( repeat.turn() == apc );
+	repeat.advance();
+	CHECK( repeat.turn() == apc );
+
+	repeat.set( jeep, TRUE );
+	CHECK( repeat.turn() == jeep );
+	repeat.set( jeep, FALSE );
+	CHECK( repeat.turn() == NULL );
+	repeat.set( jeep, FALSE );		// already off: nothing happens
+	CHECK_EQ( 0, (Int)repeat.m_units.size() );
+
+	repeat.set( tank, TRUE );
+	repeat.clear();
+	CHECK( repeat.turn() == NULL );
+	CHECK( !repeat.has( tank ) );
+}
+
+/* What a factory on repeat does when canMakeUnit answers: money, a full queue or parking, the unit
+	 cap and a factory out of action wait, a unit the factory can no longer make leaves the repeat. */
+TEST(production_repeat_waits_for_money_and_drops_a_unit_it_can_no_longer_make)
+{
+	CHECK_EQ( (Int)REPEAT_QUEUE, (Int)Production_repeatAction( CANMAKE_OK ) );
+	CHECK_EQ( (Int)REPEAT_WAIT, (Int)Production_repeatAction( CANMAKE_NO_MONEY ) );
+	CHECK_EQ( (Int)REPEAT_WAIT, (Int)Production_repeatAction( CANMAKE_QUEUE_FULL ) );
+	CHECK_EQ( (Int)REPEAT_WAIT, (Int)Production_repeatAction( CANMAKE_PARKING_PLACES_FULL ) );
+	CHECK_EQ( (Int)REPEAT_WAIT, (Int)Production_repeatAction( CANMAKE_MAXED_OUT_FOR_PLAYER ) );
+	CHECK_EQ( (Int)REPEAT_WAIT, (Int)Production_repeatAction( CANMAKE_FACTORY_IS_DISABLED ) );
+	CHECK_EQ( (Int)REPEAT_DROP, (Int)Production_repeatAction( CANMAKE_NO_PREREQ ) );
+}
+
 TEST(borderless_asks_for_a_windowed_device_the_size_of_the_desktop)
 {
 	/* -borderless is borderless fullscreen.  Half of it is the window itself, which WinMain creates
@@ -13754,17 +14097,17 @@ TEST(gameplay_conveniences_are_forced_on_and_left_the_catalog)
 	CHECK( bars != NULL );
 	CHECK( bars->widgetName != NULL && bars->widgetName[ 0 ] != '\0' );
 
-	/* The camera and mouse habits went the other way: no control, but the row stays, so an
-		 Options.ini that names one still wins over the default.  ZoomToCursor came back to the menu. */
-	static const char *const hidden[] =
+	/* The two mouse habits are Controls check boxes again, on by default. */
+	static const char *const habits[] =
 	{
 		"FormationDrag", "EdgeScrollInWindowedMode", NULL
 	};
-	for( Int i = 0; hidden[ i ] != NULL; ++i )
+	for( Int i = 0; habits[ i ] != NULL; ++i )
 	{
-		const OptionDef *def = findOptionDef( hidden[ i ] );
+		const OptionDef *def = findOptionDef( habits[ i ] );
 		CHECK( def != NULL );
-		CHECK( def->widgetName == NULL || def->widgetName[ 0 ] == '\0' );
+		CHECK( def->widgetName != NULL && def->widgetName[ 0 ] != '\0' );
+		CHECK_EQ( def->get(), 1 );
 	}
 
 	/* The snaps, grid placement and the opening zoom are Controls check boxes, off by default, under

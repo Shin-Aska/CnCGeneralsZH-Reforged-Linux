@@ -84,6 +84,7 @@ void GadgetButtonDrawInverseClock( GameWindow *g, Int percent, Color color ); //
 void GadgetButtonDrawOverlayImage( GameWindow *g, const Image *image );
 void GadgetButtonSetBorder( GameWindow *g, Color color, Bool drawBorder = TRUE );
 void GadgetButtonSetCount( GameWindow *g, Int count );
+void GadgetButtonSetRepeat( GameWindow *g, Bool repeat );
 void GadgetButtonSetData(GameWindow *g, void *data);
 void *GadgetButtonGetData(GameWindow *g);
 void GadgetButtonSetAltSound( GameWindow *g, AsciiString altSound );

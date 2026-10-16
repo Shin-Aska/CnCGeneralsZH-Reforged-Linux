@@ -517,7 +517,8 @@ static LayoutPlacement theLayoutPlacement = LAYOUT_STRETCH;
 static Coord2D theLayoutAnchor = { 0.5f, 0.5f };
 
 // The dialogs a match opens over the battlefield are fitted in both interfaces, centred on a 4:3 panel
-// of their own; the shell's screens are stretched (layoutIsShellScreen).  In Reforged the rest of
+// of their own; a root authored as the whole 800x600 is that panel's veil and covers the display.
+// The shell's screens are stretched (layoutIsShellScreen).  In Reforged the rest of
 // Window/ is the battlefield's own furniture - the command bar, which scales itself
 // (ControlBarUniformScale), and windows that hold a screen edge (the general's powers bar, the build
 // tooltip) or follow the battlefield (chat, diplomacy, the general's promotion screen, replay
@@ -638,19 +639,33 @@ static Bool parseScreenRect( char *token, char *buffer,
 
 	//
 	// Fit: one scale both ways, the smaller, with the layout's 4:3 area centred, so a
-	// panel, a logo or a medal keeps the shape it was drawn in.  A match dialog's backdrop stays in the
-	// box with the rest, over the battlefield.  At 4:3 the scales are equal and the offsets nothing,
-	// and this is the stretch to the pixel.
+	// panel, a logo or a medal keeps the shape it was drawn in.  A root authored as the
+	// whole 800x600 is the veil behind that panel: stretch it to the display so a wide
+	// screen is covered, while the children stay fitted.  At 4:3 the scales are equal
+	// and the offsets nothing, and this is the stretch to the pixel.
 	//
 	if( theLayoutPlacement == LAYOUT_FIT )
 	{
-		const Real scale = min( xScale, yScale );
-		const Real left = ((Real)TheDisplay->getWidth() - (Real)createRes.x * scale) * theLayoutAnchor.x;
-		const Real top = ((Real)TheDisplay->getHeight() - (Real)createRes.y * scale) * theLayoutAnchor.y;
-		screenRegion.lo.x = (Int)((Real)screenRegion.lo.x * scale + left);
-		screenRegion.lo.y = (Int)((Real)screenRegion.lo.y * scale + top);
-		screenRegion.hi.x = (Int)((Real)screenRegion.hi.x * scale + left);
-		screenRegion.hi.y = (Int)((Real)screenRegion.hi.y * scale + top);
+		const Bool fullAuthored = parent == NULL
+			&& screenRegion.lo.x <= 1 && screenRegion.lo.y <= 1
+			&& screenRegion.hi.x >= createRes.x - 2 && screenRegion.hi.y >= createRes.y - 2;
+		if( fullAuthored )
+		{
+			screenRegion.lo.x = 0;
+			screenRegion.lo.y = 0;
+			screenRegion.hi.x = TheDisplay->getWidth();
+			screenRegion.hi.y = TheDisplay->getHeight();
+		}
+		else
+		{
+			const Real scale = min( xScale, yScale );
+			const Real left = ((Real)TheDisplay->getWidth() - (Real)createRes.x * scale) * theLayoutAnchor.x;
+			const Real top = ((Real)TheDisplay->getHeight() - (Real)createRes.y * scale) * theLayoutAnchor.y;
+			screenRegion.lo.x = (Int)((Real)screenRegion.lo.x * scale + left);
+			screenRegion.lo.y = (Int)((Real)screenRegion.lo.y * scale + top);
+			screenRegion.hi.x = (Int)((Real)screenRegion.hi.x * scale + left);
+			screenRegion.hi.y = (Int)((Real)screenRegion.hi.y * scale + top);
+		}
 	}
 	else
 	{

@@ -221,6 +221,7 @@ enum GUICommandType : Int
 	GUI_COMMAND_SPECIAL_POWER_CONSTRUCT_FROM_SHORTCUT, ///< do a shortcut special power using the construct building interface
 	
 	GUI_COMMAND_SELECT_ALL_UNITS_OF_TYPE,
+	GUI_COMMAND_FORCE_ATTACK,							///< arm force-fire; the next click attacks whatever is under the pointer
 
 	// add more commands here, don't forget to update the string command list below too ...
 
@@ -271,6 +272,7 @@ static const char *TheGuiCommandNames[] =
 	"SPECIAL_POWER_CONSTRUCT",					
 	"SPECIAL_POWER_CONSTRUCT_FROM_SHORTCUT", 
 	"SELECT_ALL_UNITS_OF_TYPE",
+	"FORCE_ATTACK",
 
 	NULL
 };
@@ -507,11 +509,22 @@ Bool ControlBar_commandPlaces( const Int *types, const Int *groups, const Int *p
 	* when free, anything else to the first empty one. */
 void ControlBar_fitCommandSlots( const Int *types, const Bool *windowed, Int count, Int *shown );
 
-/** Grid keys' second pass over ControlBar_fitCommandSlots' `shown`: a button in window w with no key
-	* there (`unkeyed[ w ]`) moves to the first empty window, leftmost first, whose place has a key
-	* (`keyed`), so a set that leaves the keyless top of the last two columns busy and a keyed window
-	* free gets a key for every button.  A button with nowhere to go stays put. */
-void ControlBar_packKeyedSlots( const Bool *keyed, const Bool *unkeyed, Int count, Int *shown );
+/** Slot 12 (0-based 11) when the set already has Attack Move and that hole is empty: left of Stop,
+	* under Attack Move. An object ControlBar_forceFires names takes 12 too, or 11 above it when 12 is
+	* taken (Gattling Cannon's mines, Stinger Site's camo net, Fire Base's Sell). -1 when neither
+	* applies, or the place is used (China CC mines, a Tunnel Network's full bar). */
+Int ControlBar_forceAttackSlot( const Int *types, Int count, Bool forceFires );
+
+/** Whether Force Attack belongs on a bar without Attack Move. A base defence (FS_BASE_DEFENSE) with its
+	* own gun (CAN_ATTACK: Patriot, Gattling Cannon, Fire Base, Tunnel Network), soldiers for a gun
+	* (SPAWNS_ARE_THE_WEAPONS: Stinger Site) or a garrison that shoots out (GARRISONABLE_UNTIL_DESTROYED:
+	* Bunker), and a transport whose riders shoot (TRANSPORT with CAN_ATTACK: Combat Chinook; the
+	* plain Chinook lacks CAN_ATTACK). A Speaker Tower is none of them. The launcher's Hotkeys page
+	* reads KindOf the same way. */
+Bool ControlBar_forceFires( const Object *obj );
+/// The same asked of a template, for the options menu's Hotkeys page, which has no object to ask.
+Bool ControlBar_forceFires( const ThingTemplate *thing );
+
 
 /** The page's keys past attack, hold position and move, which no command set has a button for either. */
 enum OrderKeyExtra
@@ -804,6 +817,8 @@ public:
 
 	/// mark the UI as dirty so the context of everything is re-evaluated
 	void markUIDirty( void );
+	Bool selectionRepeatsUnit( const ThingTemplate *thing );	///< a selected factory of ours builds it on repeat
+	void toggleRepeatUnit( const ThingTemplate *thing );		///< Ctrl+Alt on a build button: repeat on or off
 
 	/// a drawable has just become selected
 	void onDrawableSelected( Drawable *draw );
@@ -1206,6 +1221,8 @@ public:
 	// get method for list of commandbuttons
 	const CommandButton *getCommandButtons( void ) { return m_commandButtons; }
 
+	Drawable *findStandInBuilder( Bool freeOnly );				///< with BuildWithoutWorker on, the local player's free builder (or, unless freeOnly, any builder) to stand in for an empty selection
+
 protected:
 
 	ICoord2D m_defaultControlBarPosition;				///< Stored the original position of the control bar on the screen
@@ -1224,7 +1241,8 @@ protected:
 	Drawable *m_currentSelectedDrawable;					///< currently selected drawable for the context sensitive interface
 	ControlBarContext m_currContext;							///< our current displayed context
 
-	DrawableID m_rallyPointDrawableID;						///< rally point drawable for visual rally point 
+	DrawableID m_rallyPointDrawableID;						///< rally point drawable for visual rally point
+	DrawableID m_standInBuilderID;								///< with nothing selected, the builder whose command bar is shown (INVALID_DRAWABLE_ID otherwise)
 
 	Real m_displayedConstructPercent;							///< construct percent last displayed to user
 	UnsignedInt m_displayedOCLTimerSeconds;				///< OCL Timer seconds remaining last displayed to user

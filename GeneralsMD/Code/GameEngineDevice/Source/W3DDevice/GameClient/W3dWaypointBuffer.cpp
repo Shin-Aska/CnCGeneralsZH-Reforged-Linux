@@ -223,13 +223,17 @@ void W3DWaypointBuffer::drawWaypoints(RenderInfoClass &rinfo)
 			points[ 0 ].Set( it->from.x, it->from.y, max( it->from.z, TheTerrainLogic->getGroundHeight( it->from.x, it->from.y ) ) );
 			points[ 1 ].Set( it->to.x, it->to.y, max( it->to.z, TheTerrainLogic->getGroundHeight( it->to.x, it->to.y ) ) );
 
-			// Order Lines off in the options takes the lines away and leaves the points
-			if( TheGlobalData->m_showOrderLines )
+			// Order Lines off in the options takes away the line of a plain one-point order and leaves
+			// its point. A unit with more than one place to go (a shift queue, a waypoint path; step
+			// is numbered then) keeps its threads, since that list is the thing being planned
+			const Bool lineShown = TheGlobalData->m_showOrderLines || it->step > 0
+				|| it->kind == InGameUI::ORDER_HINT_WAYPOINT;
+			if( lineShown )
 				queueLine( 2, points );
 
-			// with the lines on, the end of the line wears the puck the joints between orders do
+			// with the line drawn, its end wears the puck the joints between orders do
 			if( it->mark == InGameUI::ORDER_MARK_JOINT
-					|| ( TheGlobalData->m_showOrderLines && it->mark == InGameUI::ORDER_MARK_FLAG ) )
+					|| ( lineShown && it->mark == InGameUI::ORDER_MARK_FLAG ) )
 			{
 				m_waypointNodeRobj->Set_Position( points[ 1 ] );
 				WW3D::Render( *m_waypointNodeRobj, localRinfo );		// the little hockey puck
@@ -498,8 +502,6 @@ void W3DWaypointBuffer::drawWaypoints(RenderInfoClass &rinfo)
 
 									if (pNearElbow)//did we find a nearest corner?
 									{
-										m_waypointNodeRobj->Set_Position(Vector3(pNearElbow->x,pNearElbow->y,ctr->z));
-										WW3D::Render(*m_waypointNodeRobj,localRinfo); //The little hockey puck
 										points[ numPoints ].Set( Vector3( pNearElbow->x, pNearElbow->y, ctr->z ) );
 										numPoints++;
 
@@ -524,8 +526,6 @@ void W3DWaypointBuffer::drawWaypoints(RenderInfoClass &rinfo)
 											dot = firstToRPDelta.x * firstElbowDelta.x + firstToRPDelta.y * firstElbowDelta.y;
 											if (dot < 0)// we have a second elbow
 											{
-												m_waypointNodeRobj->Set_Position(Vector3(pFarElbow->x,pFarElbow->y,ctr->z));
-												WW3D::Render(*m_waypointNodeRobj,localRinfo); //The little hockey puck
 												points[ numPoints ].Set( Vector3( pFarElbow->x, pFarElbow->y, ctr->z ) );
 												numPoints++;
 											}
@@ -545,10 +545,6 @@ void W3DWaypointBuffer::drawWaypoints(RenderInfoClass &rinfo)
 					}
 					else
 						continue;
-
-					m_waypointNodeRobj->Set_Position(Vector3(naturalRallyPoint.x,naturalRallyPoint.y,naturalRallyPoint.z));
-					WW3D::Render(*m_waypointNodeRobj,localRinfo); //The little hockey puck
-
 
 					queueLine( numPoints, points );
 

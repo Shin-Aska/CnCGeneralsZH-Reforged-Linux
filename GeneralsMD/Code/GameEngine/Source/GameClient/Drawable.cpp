@@ -616,6 +616,8 @@ Drawable::Drawable( const ThingTemplate *thingTemplate, DrawableStatus statusBit
 		m_modules[i] = NULL;
 
 	m_stealthLook = STEALTHLOOK_NONE;
+	m_stealthDrawnLook = STEALTHLOOK_NONE;
+	m_stealthFade = 0.0f;
 
 	m_flashCount = 0;
 
@@ -1371,6 +1373,8 @@ void Drawable::imitateStealthLook( Drawable& otherDraw )
   m_hidden = otherDraw.isDrawableEffectivelyHidden();
   m_hiddenByStealth = otherDraw.isDrawableEffectivelyHidden();
   m_stealthLook = otherDraw.getStealthLook();
+  m_stealthDrawnLook = otherDraw.getStealthDrawnLook();
+  m_stealthFade = otherDraw.getStealthFade();
   m_secondMaterialPassOpacity = otherDraw.getSecondMaterialPassOpacity();
 
 }
@@ -2914,6 +2918,8 @@ void Drawable::setStealthLook(StealthLookType look)
 {
 	if (look != m_stealthLook)
 	{
+		const StealthLookType previous = m_stealthLook;
+		const Bool wasHidden = m_hiddenByStealth;
 
 		m_stealthOpacity = 1.0f;	//assume not transparent
 		switch (look)
@@ -2982,11 +2988,36 @@ void Drawable::setStealthLook(StealthLookType look)
 				break;
 
 			case STEALTHLOOK_INVISIBLE:
-				m_hiddenByStealth = true;
 				m_secondMaterialPassOpacity = 0.0f;
+				// snap hide when the unit has never been drawn stealthed: an enemy spawning cloaked
+				// must not flash a frame of its body.  Classic and Direct3D 9 have no cloak shader
+				// to fade with, so they hide at once as they did in 2003.  The D3D11 path keeps
+				// drawing while draw() eases the fade out.
+				{
+					const Bool shaderFade = TheGlobalData
+						&& TheGlobalData->m_direct3D11
+						&& !TheGlobalData->m_classicGraphics;
+					if( ( previous == STEALTHLOOK_NONE && m_stealthFade <= 0.0f ) || !shaderFade )
+					{
+						m_hiddenByStealth = true;
+						m_stealthDrawnLook = STEALTHLOOK_INVISIBLE;
+						m_stealthFade = 0.0f;
+					}
+					else
+						m_hiddenByStealth = false;
+				}
 				break;
 		}
+
 		m_stealthLook = look;
+
+		if( look != STEALTHLOOK_INVISIBLE && look != STEALTHLOOK_NONE && look != STEALTHLOOK_DISGUISED_ENEMY )
+		{
+			m_stealthDrawnLook = look;
+			if( wasHidden )
+				m_stealthFade = 0.0f;
+		}
+
 		updateHiddenStatus();
 	}
 }
@@ -3034,6 +3065,32 @@ void Drawable::draw( View *view )
 		  m_secondMaterialPassOpacity = 0.0f;
   }
 
+	{
+		const Bool wantEffect = ( m_stealthLook == STEALTHLOOK_VISIBLE_FRIENDLY
+			|| m_stealthLook == STEALTHLOOK_VISIBLE_FRIENDLY_DETECTED
+			|| m_stealthLook == STEALTHLOOK_VISIBLE_DETECTED );
+		if( wantEffect )
+		{
+			m_stealthDrawnLook = m_stealthLook;
+			m_stealthFade = 1.0f - ( 1.0f - m_stealthFade ) * fadeScalar;
+			if( m_stealthFade > 0.999f )
+				m_stealthFade = 1.0f;
+		}
+		else
+		{
+			m_stealthFade *= fadeScalar;
+			if( m_stealthFade <= VERY_TRANSPARENT_MATERIAL_PASS_OPACITY )
+			{
+				m_stealthFade = 0.0f;
+				m_stealthDrawnLook = m_stealthLook;
+				if( m_stealthLook == STEALTHLOOK_INVISIBLE && !m_hiddenByStealth )
+				{
+					m_hiddenByStealth = true;
+					updateHiddenStatus();
+				}
+			}
+		}
+	}
 
 	if (m_hidden || m_hiddenByStealth || getFullyObscuredByShroud())
 		return;	// my, that was easy
@@ -6314,6 +6371,8 @@ void Drawable::xfer( Xfer *xfer )
 		// when it changes.  So in the next stealth update, it will be set to 
 		// it's correct value, and the drawable updated (hide shadows and such).  jba.
 		m_stealthLook = STEALTHLOOK_NONE;
+		m_stealthDrawnLook = STEALTHLOOK_NONE;
+		m_stealthFade = 0.0f;
 		// Also, need to update the hidden status for all sub-modules.
 		if (m_hidden || m_hiddenByStealth) {
 			updateHiddenStatus();

@@ -364,6 +364,10 @@ public:
 	/// Hands the frame's lit headlights to the Direct3D 11 frame, nearest the camera first.  Once a
 	/// frame, after the smooth motion has placed every model and before anything is drawn.
 	static void lightHeadlights(const Vector3& cameraPosition);
+	/// For a render object whose animation carries it out of its bind pose, which is the volume W3D
+	/// culls by: the sphere round its parts posed at this frame.  FALSE, and the sphere untouched,
+	/// for every other render object.
+	static Bool getPosedBoundingSphere(RenderObjClass *robj, SphereClass &sphere);
 	virtual void setShadowsEnabled(Bool enable);
 	virtual void releaseShadows(void);	///< frees all shadow resources used by this module - used by Options screen.
 	virtual void allocateShadows(void); ///< create shadow resources if not already present. Used by Options screen.

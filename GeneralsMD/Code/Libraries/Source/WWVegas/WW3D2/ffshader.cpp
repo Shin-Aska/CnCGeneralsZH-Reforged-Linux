@@ -477,7 +477,8 @@ static bool generate_combiners(const CombinerDescription & description,
 		"    current = effect_outage(current, input.Position);\n",
 		"    current = effect_emp(current, input.Position);\n",
 		"    current = effect_cloak(current, input.Position);\n",
-		"    current = effect_revealed(current, input.Position);\n"
+		"    current = effect_revealed(current, input.Position);\n",
+		"    current = effect_cloak_shadow(current, input.Position);\n"
 	};
 	hlsl += effect_calls[effect];
 

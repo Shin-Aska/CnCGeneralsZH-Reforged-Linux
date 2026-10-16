@@ -606,15 +606,11 @@ WindowMsgHandledType QuitMenuSystem( GameWindow *window, UnsignedInt msg,
 			}  // end else if
 			else if( buttonOptions == controlID )
 			{
-#if defined(_WIN32)
-				OpenVolumeOptions();
-#else
 				WindowLayout *optLayout = TheShell->getOptionsLayout(TRUE);
 				DEBUG_ASSERTCRASH(optLayout != NULL, ("options menu layout is NULL"));
 				optLayout->runInit();
 				optLayout->hide(FALSE);
 				optLayout->bringForward();
-#endif
 			}
 //			else if( controlID == buttonQuitToDesktop )
 //			{

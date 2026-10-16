@@ -457,32 +457,8 @@ static Bool ParsePlayersDataChunk(DataChunkInput &file, DataChunkInfo *info, voi
 	return true;
 }
 
-/**
-* ParseTeamsDataChunk - read teams data chunk.
-* Format is the newer CHUNKY format.
-*	Input: DataChunkInput 
-*		
-*/
-static Bool ParseTeamsDataChunk(DataChunkInput &file, DataChunkInfo *info, void *userData)
-{
-	SidesList *sides = (SidesList *)userData;
-	while (!file.atEndOfChunk()) {
-		Dict teamDict = file.readDict();
-		AsciiString teamName = teamDict.getAsciiString(TheKey_teamName);
-		AsciiString player = teamDict.getAsciiString(TheKey_teamOwner);
-		if (sides->findSkirmishSideInfo(player)) {
-			// player exists, so just add it.
-			sides->addSkirmishTeam(&teamDict);
-			//DEBUG_LOG(("Adding team %s\n", teamName.str()));
-		} else {
-			//DEBUG_LOG(("Couldn't add team %s, no player %s\n", teamName.str(), player.str()));
-		}
-	}
-	DEBUG_ASSERTCRASH(file.atEndOfChunk(), ("Unexpected data left over."));
-	return true;
-}
-
-/// a mod's ScriptTeams, kept whole until its players are known (loadModSkirmishScripts)
+/// a SkirmishScripts.scb's ScriptTeams, kept whole until its players are known
+/// (loadModSkirmishScripts, prepareForMP_or_Skirmish)
 static Bool ParseModTeamsDataChunk(DataChunkInput &file, DataChunkInfo *info, void *userData)
 {
 	while (!file.atEndOfChunk()) {
@@ -754,9 +730,10 @@ void SidesList::prepareForMP_or_Skirmish(void)
 				DataChunkInput file( pStrm );
 				file.registerParser( AsciiString("PlayerScriptsList"), AsciiString::TheEmptyString, ScriptList::ParseScriptsDataChunk );
 				file.registerParser( AsciiString("ScriptsPlayers"), AsciiString::TheEmptyString, ParsePlayersDataChunk );
-				file.registerParser( AsciiString("ScriptTeams"), AsciiString::TheEmptyString, ParseTeamsDataChunk );
+				file.registerParser( AsciiString("ScriptTeams"), AsciiString::TheEmptyString, ParseModTeamsDataChunk );
 				if (!file.parse(this)) {
 					DEBUG_LOG(("ERROR - Unable to read in skirmish scripts.\n"));
+					static_readModTeams.clear();
 					return;
 				}
 				ScriptList *scripts[MAX_PLAYER_COUNT];
@@ -772,15 +749,47 @@ void SidesList::prepareForMP_or_Skirmish(void)
 							break;
 						}
 					}
-					if (curSide == -1) continue;
+					if (curSide == -1) {
+						/* A map saved before a faction existed has no skirmish player for it: every retail map
+							 lacks ShockWave's Armor, Special Weapons and Salvage generals.  Player::initFromDict then
+							 found no scripts, made the seat human with no AI, and the base stood idle - and the
+							 takeover click handed it to whoever clicked it.  The file's own player for that side
+							 stands in, kept beside the map's, which nearly fill m_skirmishSides. */
+						const PlayerTemplate *pt = ThePlayerTemplateStore->findPlayerTemplate(NAMEKEY(static_readPlayerDicts[i].getAsciiString(TheKey_playerFaction)));
+						if (scripts[i] && pt && pt->isPlayableSide() && findSkirmishSideFor(pt, NULL) == NULL) {
+							DEBUG_LOG(("Skirmish map has no player for %s, using %s from the standard scripts\n", pt->getSide().str(), static_readPlayerNames[i].str()));
+							m_modSkirmishSides.push_back(SidesInfo());
+							m_modSkirmishSides.back().init(&static_readPlayerDicts[i]);
+							m_modSkirmishSides.back().setScriptList(scripts[i]);
+							scripts[i] = NULL;
+						}
+						if (scripts[i])
+							scripts[i]->deleteInstance();
+						continue;
+					}
 
 					ScriptList *pSL = getSkirmishSideInfo(curSide)->getScriptList();
 					getSkirmishSideInfo(curSide)->setScriptList(scripts[i]);
 					scripts[i] = NULL;
-					if (pSL) 
+					if (pSL)
 						pSL->deleteInstance();
 					scripts[i] = NULL;
 				}
+				for (Int t = 0; t < static_readModTeams.getNumTeams(); ++t) {
+					const Dict *teamDict = static_readModTeams.getTeamInfo(t)->getDict();
+					const AsciiString owner = teamDict->getAsciiString(TheKey_teamOwner);
+					if (findSkirmishSideInfo(owner)) {
+						addSkirmishTeam(teamDict);
+						continue;
+					}
+					for (size_t s = 0; s < m_modSkirmishSides.size(); ++s) {
+						if (m_modSkirmishSides[s].getDict()->getAsciiString(TheKey_playerName) == owner) {
+							m_modSkirmishTeamrec.addTeam(teamDict);
+							break;
+						}
+					}
+				}
+				static_readModTeams.clear();
 				for (i=0; i<MAX_PLAYER_COUNT; i++) {
 					static_readPlayerNames[i].clear();
 					static_readPlayerDicts[i].clear();

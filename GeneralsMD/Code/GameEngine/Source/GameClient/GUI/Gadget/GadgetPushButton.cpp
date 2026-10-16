@@ -605,6 +605,7 @@ PushButtonData * getNewPushButtonData( void )
 	p->drawBorder = FALSE;
 	p->drawClock = NO_CLOCK;
 	p->drawCount = 0;
+	p->drawRepeat = FALSE;
 	p->overlayImage = NULL;
 	return p;
 }
@@ -623,6 +624,20 @@ void GadgetButtonSetCount( GameWindow *g, Int count )
 		pData = getNewPushButtonData();
 	}
 	pData->drawCount = count;
+	g->winSetUserData(pData);
+}
+
+// GadgetButtonSetRepeat ======================================================
+/** Show or take off the spinning repeat mark in the button's top right corner */
+//=============================================================================
+void GadgetButtonSetRepeat( GameWindow *g, Bool repeat )
+{
+	PushButtonData *pData = (PushButtonData *)g->winGetUserData();
+	if(!pData)
+	{
+		pData = getNewPushButtonData();
+	}
+	pData->drawRepeat = repeat;
 	g->winSetUserData(pData);
 }
 

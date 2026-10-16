@@ -439,10 +439,6 @@ void WOLWelcomeMenuInit( WindowLayout *layout, void *userData )
 	buttonBack = TheWindowManager->winGetWindowFromId( NULL,  buttonBackID);
 	buttonOptionsID = TheNameKeyGenerator->nameToKey( "WOLWelcomeMenu.wnd:ButtonOptions" );
 	buttonbuttonOptions = TheWindowManager->winGetWindowFromId( NULL,  buttonOptionsID);
-#if defined(_WIN32)
-	// the launcher owns every setting on Windows
-	buttonbuttonOptions->winHide( TRUE );
-#endif
 	listboxInfoID = TheNameKeyGenerator->nameToKey( AsciiString( "WOLWelcomeMenu.wnd:InfoListbox" ) );
 
 	listboxInfo = TheWindowManager->winGetWindowFromId( NULL,  listboxInfoID);

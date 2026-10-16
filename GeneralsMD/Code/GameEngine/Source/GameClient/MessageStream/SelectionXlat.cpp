@@ -59,6 +59,7 @@
 #include "GameClient/SelectionPriority.h"
 #include "GameClient/SelectionXlat.h"
 #include "GameClient/TerrainVisual.h"
+#include "GameNetwork/GameInfo.h"
 #include "GameNetwork/NetworkInterface.h"
 
 #ifdef _INTERNAL
@@ -80,6 +81,26 @@
 static Bool TheHurtSelectionMode = false;
 static Bool TheDebugSelectionMode = false;
 #endif
+
+//-----------------------------------------------------------------------------
+/** The takeover click is for the seats the skirmish screen gave a person: your own and the Human
+	* (takeover) opponents.  A computer seat can be human too, when no skirmish scripts were found for
+	* its general, and clicking one of those used to hand you the enemy's base. */
+static Bool isHumanSeat( const Player *p )
+{
+	if (TheGameInfo == NULL)
+		return FALSE;
+	for (Int i = 0; i < MAX_SLOTS; ++i)
+	{
+		AsciiString name;
+		name.format("player%d", i);
+		if (p->getPlayerNameKey() != NAMEKEY(name))
+			continue;
+		const GameSlot *slot = TheGameInfo->getConstSlot(i);
+		return slot != NULL && (slot->isHuman() || slot->isTakeover());
+	}
+	return FALSE;
+}
 
 //-----------------------------------------------------------------------------
 static Bool currentlyLookingForSelection( )
@@ -434,10 +455,9 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 			}
 
 			// with attack move or guard armed a left drag draws the order line over in CommandXlat, so
-			// no selection box grows under it.  Classic draws no lines: its left drag is always the box
-			const Bool leftDragIsOrder = !TheGlobalData->isClassicMouse()
-																	&& TheInGameUI->isLineOrderArmed()
-																	 && TheInGameUI->getSelectCount() > 0;
+			// no selection box grows under it, whichever mouse is set.  A drag with no key armed is the box
+			const Bool leftDragIsOrder = TheInGameUI->isLineOrderArmed()
+																	&& TheInGameUI->getSelectCount() > 0;
 			if (m_leftMouseButtonIsDown && !leftDragIsOrder)
 			{
 				ICoord2D delta;
@@ -716,8 +736,11 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 				 between a selection and the right selection.  Shift already adds, so what was missing
 				 was a way to take things back out and a way to leave the base staff behind: Alt keeps
 				 only what can shoot, Ctrl removes the box from the selection instead of replacing it.
-				 Both are drag-only.  A point click has to stay exactly what it was - a filter that eats
-				 single clicks reads as a broken mouse.  Classic has neither: its Ctrl is force fire. */
+				 Ctrl+Shift selects the box: both meta modes drop when the second modifier goes
+				 down, the fire circle never starts, and this Ctrl-remove used to eat the click.
+				 Both filters are drag-only.  A point click has to stay exactly what it was - a filter
+				 that eats single clicks reads as a broken mouse.  Classic has neither: its Ctrl is
+				 force fire. */
 			if (!isPoint && !TheGlobalData->isClassicMouse())
 			{
 				if (TheKeyboard->isAlt())
@@ -742,7 +765,7 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 					}
 				}
 
-				if (TheKeyboard->isCtrl())
+				if (TheKeyboard->isCtrl() && !TheKeyboard->isShift())
 				{
 					GameMessage *removeMsg = NULL;
 					DrawableListIt rit;
@@ -790,14 +813,16 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 
 			/* Single-player test hook: a click that is not a command (nothing of yours selected, or
 				 nothing to do to it) on a base that nobody is driving - a Human seat from the skirmish
-				 screen, or a player you already took over - hands you that player, so the command bar,
-				 the money and the shroud become its own.  Computer opponents are left alone; only
-				 Shift-Ctrl-T takes one of those. */
+				 screen, or your own seat after you left it - hands you that player, so the command bar,
+				 the money and the shroud become its own.  Computer seats are left alone, one you took
+				 and left again and one that ended up human for want of scripts included (isHumanSeat);
+				 only Shift-Ctrl-T takes those.  takeControlOfPlayer refuses network games and replays, and the logic
+				 drops the message in a network game whoever sends it. */
 			for (DrawableListIt cit = drawablesThatWillSelect.begin(); cit != drawablesThatWillSelect.end(); ++cit)
 			{
 				Object *clicked = (*cit) ? (*cit)->getObject() : NULL;
 				Player *owner = clicked ? clicked->getControllingPlayer() : NULL;
-				if (owner == NULL || owner->getPlayerType() != PLAYER_HUMAN)
+				if (owner == NULL || owner->getPlayerType() != PLAYER_HUMAN || !isHumanSeat(owner))
 					continue;
 
 				if (takeControlOfPlayer(owner))
@@ -1077,11 +1102,14 @@ GameMessageDisposition SelectionTranslator::translateGameMessage(const GameMessa
 			m_leftMouseButtonIsDown = true;
 			m_selectFeedbackAnchor = msg->getArgument( 0 )->pixel;
 
-			// with the attack key armed or Ctrl held the left button draws a circle instead of a
-			// selection box, and everything hostile inside it becomes a target list.  An armed line key
-			// (move, attack move, guard) keeps its line under Ctrl
+			// with the attack key armed or the Force Attack hold down the left button draws a circle
+			// instead of a selection box, and everything hostile inside it becomes a target list.  An
+			// armed line key (move, attack move, guard) keeps its line under the hold.  Hold+Shift is
+			// the box: you can pick units without dropping force-fire.  Shift with the attack key
+			// armed still queues a circle.
 			if( TheInGameUI->isForceFireOn() && !TheInGameUI->isLineOrderArmed() && TheInGameUI->getSelectCount() > 0
-					&& TheInGameUI->getGUICommand() == NULL && TheInGameUI->getPendingPlaceType() == NULL )
+					&& TheInGameUI->getGUICommand() == NULL && TheInGameUI->getPendingPlaceType() == NULL
+					&& !( TheInGameUI->isInForceAttackMode() && TheKeyboard->isShift() ) )
 				TheInGameUI->beginAttackCircle( m_selectFeedbackAnchor );
 			break;
 		}

@@ -359,6 +359,10 @@ TEST(ffshadercompile_each_draw_effect_compiles_on_d3d11_only)
 			CHECK(call != std::string::npos);
 			CHECK(fog < call);
 			CHECK((eleven.find("current = effect_cloak(") != std::string::npos) == (effect == DRAW_EFFECT_CLOAK));
+			if (effect == DRAW_EFFECT_CLOAK) {
+				// solid=1 must be the unit's own paint, or cloak-in pops to a muted body
+				CHECK(eleven.find("lerp(muted, current.rgb, solid)") != std::string::npos);
+			}
 
 			std::string sdl;
 			std::string nine;

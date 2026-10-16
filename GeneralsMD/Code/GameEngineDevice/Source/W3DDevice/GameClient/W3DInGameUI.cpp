@@ -1077,8 +1077,8 @@ void W3DInGameUI::drawFormationLine( void )
 }  // end drawFormationLine
 
 //-------------------------------------------------------------------------------------------------
-/** A circle on the ground, not on the screen, so it follows the terrain the way the units it is
-	* about do */
+/** A circle in the plane of the press, not rayed onto the terrain: a hill under the rim used to
+	* jump the radius every frame. */
 //-------------------------------------------------------------------------------------------------
 static void drawGroundRing( const Coord3D& center, Real radius, UnsignedInt color, Real width )
 {
@@ -1092,7 +1092,7 @@ static void drawGroundRing( const Coord3D& center, Real radius, UnsignedInt colo
 		Coord3D world;
 		world.x = center.x + radius * (Real)cos( angle );
 		world.y = center.y + radius * (Real)sin( angle );
-		world.z = TheTerrainLogic->getGroundHeight( world.x, world.y );
+		world.z = center.z;
 
 		ICoord2D screen;
 		if( TheTacticalView->worldToScreenTriReturn( &world, &screen ) == View::WTS_INVALID )
@@ -1123,7 +1123,6 @@ void W3DInGameUI::drawAttackCircle( void )
 
 	// and the radius itself, so the drag reads as a radius rather than a rubber band
 	ICoord2D middle;
-	center.z = TheTerrainLogic->getGroundHeight( center.x, center.y );
 	if( TheTacticalView->worldToScreenTriReturn( &center, &middle ) != View::WTS_INVALID )
 		TheDisplay->drawLine( middle.x, middle.y, getAttackCircleCursor().x,
 													getAttackCircleCursor().y, 1.0f, 0x66FF5555 );

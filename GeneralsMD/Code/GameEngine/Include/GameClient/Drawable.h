@@ -397,6 +397,21 @@ public:
 
 	void setStealthLook(StealthLookType look);
 	StealthLookType getStealthLook() const { return m_stealthLook; }
+	StealthLookType getStealthDrawnLook() const { return m_stealthDrawnLook; }
+	Real getStealthFade() const { return m_stealthFade; }
+	// 1 is own paint with no bend, the stealth floor (about a half) is glass.  Cloak-in fade 0
+	// is solid.  The mix goes to that floor so the first frames still have travel while the
+	// pulse has not left 1.0; once faded, the 2003 breath owns it.  Decloak: fade 1 is the
+	// pulse, fade 0 is solid.  The shader keeps coverage: this is the mix, not alpha.
+	Real getStealthSolid() const
+	{
+		const Real breath = getEffectiveOpacity();
+		const Real fade = getStealthFade();
+		if( getStealthLook() == STEALTHLOOK_NONE )
+			return breath + ( 1.0f - breath ) * ( 1.0f - fade );
+		const Real dest = m_stealthOpacity + ( breath - m_stealthOpacity ) * fade;
+		return 1.0f - fade * ( 1.0f - dest );
+	}
 
 	void updateDrawableClipStatus( UnsignedInt shotsRemaining, UnsignedInt maxShots, WeaponSlotType slot ); ///< This will do the show/hide work if ProjectileBoneFeedbackEnabled is set.
 	void updateDrawableSupplyStatus( Int maxSupply, Int currentSupply ); ///< This will do visual feedback on Supplies carried
@@ -758,6 +773,8 @@ private:
 	Module** m_modules[NUM_DRAWABLE_MODULE_TYPES];
 
 	StealthLookType m_stealthLook;
+	StealthLookType m_stealthDrawnLook;	///< look the shader is fading, while m_stealthLook is the target
+	Real m_stealthFade;									///< 0 invisible / 1 fully the drawn look
 
 	Int m_flashCount;           ///< number of times to flash the drawable
 	Color m_flashColor;					///< color to flash the drawable

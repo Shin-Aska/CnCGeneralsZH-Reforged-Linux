@@ -30,6 +30,14 @@ GUI:OrderForceAttackDescription
 "The next click attacks whatever is under the pointer, the ground and your own side included. Click the key again to call it off."
 END
 
+CONTROLBAR:ForceAttack
+"&Force Attack"
+END
+
+CONTROLBAR:ToolTipForceAttack
+"The next click attacks whatever is under the pointer, the ground and your own side included. Click the button again to call it off."
+END
+
 GUI:OrderHoldPositionDescription
 "The selected units guard the spot they stand on and fight whatever comes near, without chasing it out of the area."
 END
@@ -323,7 +331,7 @@ GUI:OptionsGroupLighting
 END
 
 GUI:OptionsGroupOrders
-"Orders"
+"Mouse And Orders"
 END
 
 GUI:OptionsGroupBattlefield
@@ -1216,4 +1224,402 @@ END
 
 GUI:KickVoteNone
 "No vote is open. Type /kick and a player's name to start one."
+END
+
+GUI:ShadowQuality
+"Shadow Quality"
+END
+
+GUI:ShadowQuality0
+"Low"
+END
+
+GUI:ShadowQuality1
+"Medium"
+END
+
+GUI:ShadowQuality2
+"High"
+END
+
+TOOLTIP:ShadowQuality
+"How sharp unit and building shadows are. High takes about 64 MB of video memory, Low frees memory on a weak card. Direct3D 11 only, and not with Classic Graphics. Applies when you press Accept."
+END
+
+GUI:VolumetricSmoke
+"Volumetric Smoke"
+END
+
+TOOLTIP:VolumetricSmoke
+"Smoke and dust shade the ground, the units and the smoke behind them by how thick they are. Direct3D 11 only, with a small cost in big fights. Applies when you press Accept."
+END
+
+GUI:LightingStyle
+"Lighting"
+END
+
+GUI:LightingStyle0
+"Classic"
+END
+
+GUI:LightingStyle1
+"Reforged"
+END
+
+TOOLTIP:LightingStyle
+"Reforged gives each map a stronger, warmer sun, darker shade and deeper shadows, keeping its time of day. Classic is the flat light of 2003, and Classic Graphics always uses it. Applies from the next map."
+END
+
+GUI:SmokeFireLighting
+"Smoke Lit By Fire"
+END
+
+TOOLTIP:SmokeFireLighting
+"Smoke beside a fire takes on its orange light. Applies when you press Accept."
+END
+
+GUI:DebrisTrails
+"Explosion Debris Trails"
+END
+
+TOOLTIP:DebrisTrails
+"Blasts throw fragments that trail smoke, and wrecks shed burning shrapnel. Off keeps the original explosions. Applies when you press Accept."
+END
+
+GUI:FormationDrag
+"Drag Out A Formation"
+END
+
+TOOLTIP:FormationDrag
+"Dragging with a move, attack move or guard order armed spreads the units along the line you draw."
+END
+
+GUI:BuildWithoutWorker
+"Build Without A Worker"
+END
+
+TOOLTIP:BuildWithoutWorker
+"With nothing selected the command bar shows your workers' buildings, and the idle worker nearest the spot goes to build. Off, the bar stays empty until you select a worker, as in 2003."
+END
+
+GUI:HealthBarColors
+"Health Bar Color"
+END
+
+GUI:HealthBarColors0
+"Green To Red"
+END
+
+GUI:HealthBarColors1
+"Player Color"
+END
+
+TOOLTIP:HealthBarColors
+"Green at full health through yellow to red, or every bar in its owner's color so you see whose it is. Disabled units stay blue."
+END
+
+GUI:MenuTransitionSpeed
+"Menu Transition Speed"
+END
+
+TOOLTIP:MenuTransitionSpeed
+"How fast menus slide and fade. 100 is the original speed."
+END
+
+GUI:OptionsGroupMenus
+"Menus"
+END
+
+GUI:OptionsGroupReplays
+"Replays"
+END
+
+GUI:SaveCamera
+"Record My Camera"
+END
+
+TOOLTIP:SaveCamera
+"Your camera movements are recorded into your replays of single player and skirmish games."
+END
+
+GUI:UseCamera
+"Follow Recorded Camera"
+END
+
+TOOLTIP:UseCamera
+"A replay follows the camera its player recorded instead of leaving you a free camera."
+END
+
+GUI:DrawScrollAnchor
+"Draw Scroll Anchor"
+END
+
+TOOLTIP:DrawScrollAnchor
+"Puts a marker where a right-drag scroll started."
+END
+
+GUI:MoveScrollAnchor
+"Move Scroll Anchor"
+END
+
+TOOLTIP:MoveScrollAnchor
+"The scroll marker trails the cursor, never more than half a screen behind, so a long drag does not keep speeding up."
+END
+
+// The options menu's Hotkeys page (OptionsMenuHotkeys.cpp), the launcher's Hotkeys page in the game.
+// GUI:HotkeysClash takes the key and the buttons' names; the family lines take a number.
+GUI:OptionsTabHotkeys
+"Hotkeys"
+END
+
+GUI:HotkeysCommands
+"Commands"
+END
+
+GUI:HotkeysCommandBar
+"Command bar"
+END
+
+GUI:HotkeysChange
+"Change"
+END
+
+GUI:HotkeysClear
+"No key"
+END
+
+GUI:HotkeysDefault
+"Game's key"
+END
+
+TOOLTIP:HotkeyChange
+"Wait for a new key for the selected command or button. A double click or Enter on it does the same."
+END
+
+TOOLTIP:HotkeyClear
+"Take the key off the selected command or button."
+END
+
+TOOLTIP:HotkeyDefault
+"Put back the game's own key. Keys are written when you press Accept."
+END
+
+GUI:HotkeysNone
+"none"
+END
+
+GUI:HotkeysPressKey
+"Press a key, or Esc to cancel"
+END
+
+GUI:HotkeysPressLetter
+"Press a letter, or Esc to cancel"
+END
+
+GUI:HotkeysPressForceAttack
+"Press a key, or Ctrl or Alt alone. Shift cannot be the hold. Esc cancels."
+END
+
+GUI:HotkeysClash
+"%s: %s share this key. Only one of them gets it in the game, and a fixed order keeps its own."
+END
+
+GUI:HotkeysAlsoOn
+"Same key as %s."
+END
+
+GUI:HotkeysFixed
+"A fixed key on every bar: A attack move, S stop, G guard, Y rally point, V evacuate, C combat drop, N sell, H mines, camo netting and the fake switch."
+END
+
+GUI:HotkeysGameKey
+"The game's own key is %s."
+END
+
+GUI:HotkeysMoved
+"Moved off the command bar's keys; the game's key is %s."
+END
+
+GUI:HotkeysButtonMoved
+"The game gave it the letter of a fixed key, so the launcher moved it."
+END
+
+GUI:HotkeysForceAttack
+"Hold to fire on whatever is under the pointer. Shift plus this key still draws a selection box. Default is Ctrl."
+END
+
+GUI:HotkeysPick
+"Pick a command or a button, then double-click it or press Change."
+END
+
+GUI:HotkeysOnFixedKey
+"A command bar key too: it fires with the button that has it."
+END
+
+GUI:HotkeysCategorySELECTION
+"Selection"
+END
+
+GUI:HotkeysCategoryTEAM
+"Teams"
+END
+
+GUI:HotkeysCategoryINFORMATION
+"Signals and beacons"
+END
+
+GUI:HotkeysCategoryCONTROL
+"Orders"
+END
+
+GUI:HotkeysCategoryINTERFACE
+"Interface"
+END
+
+GUI:HotkeysCategorySHORTCUTS
+"General's powers"
+END
+
+GUI:HotkeysCategoryGRID
+"Command bar by place"
+END
+
+GUI:HotkeysCategoryMISC
+"Camera and chat"
+END
+
+GUI:HotkeysFamilySaveView
+"Set bookmark %d"
+END
+
+GUI:HotkeysFamilyViewView
+"Go to bookmark %d"
+END
+
+GUI:HotkeysFamilyAddTeam
+"Add selection to team %d"
+END
+
+GUI:HotkeysFamilyShortcut
+"General's power %d"
+END
+
+GUI:HotkeysFamilySlot
+"Command bar place %d"
+END
+
+GUI:HotkeysCommandSELECT_HERO
+"Select hero"
+END
+
+GUI:HotkeysCommandSELECT_NEXT_WORKER
+"Next worker"
+END
+
+GUI:HotkeysCommandSELECT_PREV_WORKER
+"Previous worker"
+END
+
+GUI:HotkeysCommandCHAT_ALLIES
+"Chat to allies"
+END
+
+GUI:HotkeysCommandCHAT_EVERYONE
+"Chat to everyone"
+END
+
+GUI:HotkeysCommandDIPLOMACY
+"Diplomacy"
+END
+
+GUI:HotkeysCommandPLACE_BEACON
+"Place beacon"
+END
+
+GUI:HotkeysCommandDELETE_BEACON
+"Delete beacon"
+END
+
+GUI:HotkeysCommandBEGIN_CAMERA_ROTATE_LEFT
+"Turn camera left"
+END
+
+GUI:HotkeysCommandBEGIN_CAMERA_ROTATE_RIGHT
+"Turn camera right"
+END
+
+GUI:HotkeysCommandBEGIN_CAMERA_ZOOM_IN
+"Zoom in"
+END
+
+GUI:HotkeysCommandBEGIN_CAMERA_ZOOM_OUT
+"Zoom out"
+END
+
+GUI:HotkeysCommandCAMERA_RESET
+"Reset camera"
+END
+
+GUI:HotkeysCommandTOGGLE_CAMERA_TRACKING_DRAWABLE
+"Camera follows selection"
+END
+
+GUI:HotkeysCommandTOGGLE_FAST_FORWARD_REPLAY
+"Fast forward replay"
+END
+
+GUI:HotkeysCommandSELECT_ALL
+"Select all units"
+END
+
+GUI:HotkeysCommandSELECT_ALL_MILITARY
+"Select all fighting units"
+END
+
+GUI:HotkeysCommandSELECT_ALL_VEHICLES
+"Select all vehicles"
+END
+
+GUI:HotkeysCommandSELECT_ALL_AIRCRAFT
+"Select all aircraft"
+END
+
+GUI:HotkeysCommandSELECT_ALL_BARRACKS
+"Select all barracks"
+END
+
+GUI:HotkeysCommandSELECT_ALL_WARFACTORIES
+"Select all war factories"
+END
+
+GUI:HotkeysCommandSELECT_ALL_AIRFIELDS
+"Select all airfields"
+END
+
+GUI:HotkeysCommandSELECT_NEXT_IDLE_WORKER
+"Next idle worker"
+END
+
+GUI:HotkeysCommandSELECT_NEXT_IDLE_UNIT
+"Next idle unit"
+END
+
+GUI:HotkeysCommandTOGGLE_PAUSE
+"Pause (single player and replays)"
+END
+
+GUI:HotkeysCommandTOGGLE_PURCHASE_SCIENCE
+"General's promotions"
+END
+
+GUI:HotkeysCommandSIGNAL_ATTACK
+"Signal: attack here"
+END
+
+GUI:HotkeysCommandSIGNAL_DEFEND
+"Signal: defend here"
+END
+
+GUI:HotkeysCommandSIGNAL_ATTENTION
+"Signal: look here"
 END

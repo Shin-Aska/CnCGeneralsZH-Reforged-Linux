@@ -2118,6 +2118,7 @@ void ScriptActions::doTeamHuntWithCommandButton(const AsciiString& teamName, con
 			case GUI_COMMAND_CANCEL_UNIT_BUILD:
 			case GUI_COMMAND_CANCEL_UPGRADE:
 			case GUI_COMMAND_ATTACK_MOVE:
+			case GUI_COMMAND_FORCE_ATTACK:
 			case GUI_COMMAND_GUARD:
 			case GUI_COMMAND_GUARD_WITHOUT_PURSUIT:
 			case GUI_COMMAND_GUARD_FLYING_UNITS_ONLY:

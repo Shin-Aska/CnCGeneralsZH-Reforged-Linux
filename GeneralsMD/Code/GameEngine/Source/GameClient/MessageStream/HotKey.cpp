@@ -49,10 +49,13 @@
 // SYSTEM INCLUDES ////////////////////////////////////////////////////////////
 //-----------------------------------------------------------------------------
 #include "PreRTS.h"	// This must go first in EVERY cpp file int the GameEngine
+#include <algorithm>
 //-----------------------------------------------------------------------------
 // USER INCLUDES //////////////////////////////////////////////////////////////
 //-----------------------------------------------------------------------------
 #include "GameClient/HotKey.h"
+#include "Common/FileSystem.h"
+#include "Common/Registry.h"
 #include "GameClient/KeyDefs.h"
 #include "GameClient/MetaEvent.h"
 #include "GameClient/GameWindow.h"
@@ -105,12 +108,14 @@ GameMessageDisposition HotKeyTranslator::translateGameMessage(const GameMessage 
 		{
 			newModState |= ALT;
 		}
+		// Ctrl+Alt and a build button's key puts its unit on repeat or takes it off
+		const Bool repeatChord = newModState == ( CTRL | ALT );
 		// shift is allowed through: a shift-click on a build button queues a batch of units, and
 		// the label hotkey is meant to be that click's equal. Ctrl and alt still block the hotkey.
-		if( ( newModState & ~SHIFT ) != 0 )
+		if( !repeatChord && ( newModState & ~SHIFT ) != 0 )
 			return disp;
 		// Ctrl+F let go of Ctrl first ends on a bare F release; it is still Ctrl+F
-		if( keyState & KEY_STATE_PRESSED_WITH_CTRL_ALT )
+		if( !repeatChord && ( keyState & KEY_STATE_PRESSED_WITH_CTRL_ALT ) )
 			return disp;
 		const UnsignedByte scanCode = (UnsignedByte)msg->getArgument(0)->integer;
 		WideChar typed = TheKeyboard->getPrintableKey(scanCode, 0);
@@ -127,6 +132,24 @@ GameMessageDisposition HotKeyTranslator::translateGameMessage(const GameMessage 
 				typed = (WideChar)out[0];
 		}
 #endif
+		if( repeatChord )
+		{
+			// straight to the bar rather than as a click: a repeated unit the bank cannot pay for
+			// right now has a greyed button, and that is when the repeat most wants stopping
+			Bool pressable = FALSE;
+			GameWindow *win = TheHotKeyManager ? TheHotKeyManager->findHotKey( HotKeyManager::nameOf( typed ), &pressable ) : NULL;
+			const CommandButton *command = win ? (const CommandButton *)GadgetButtonGetData( win ) : NULL;
+			if( command && command->getCommandType() == GUI_COMMAND_UNIT_BUILD &&
+					!BitTest( win->winGetStatus(), WIN_STATUS_HIDDEN ) )
+			{
+				TheControlBar->toggleRepeatUnit( command->getThingTemplate() );
+				AudioEventRTS buttonClick( "GUIClick" );
+				if( TheAudio )
+					TheAudio->addAudioEvent( &buttonClick );
+				disp = DESTROY_MESSAGE;
+			}
+			return disp;
+		}
 		if(TheHotKeyManager && TheHotKeyManager->executeHotKey(HotKeyManager::nameOf(typed)))
 			disp = DESTROY_MESSAGE;
 	}
@@ -165,8 +188,9 @@ void HotKeyManager::init( void )
 void HotKeyManager::reset( void )
 {
 	m_hotKeyMap.clear();
-	lendFixedKeys( NULL, NULL, 0 );
 }
+
+static Bool ownsFixedKey( GameWindow *win, const AsciiString& key );
 
 //-----------------------------------------------------------------------------
 void HotKeyManager::addHotKey( GameWindow *win, const AsciiString& keyIn)
@@ -174,9 +198,11 @@ void HotKeyManager::addHotKey( GameWindow *win, const AsciiString& keyIn)
 	AsciiString key = keyIn;
 	key.toLower();
 	HotKeyMap::iterator it = m_hotKeyMap.find(key);
-	if( it != m_hotKeyMap.end() )
+	// two buttons on one letter is the player's choice on the Hotkeys page, which marks it: the
+	// first keeps the key, except that a fixed order takes its own letter back
+	if( it != m_hotKeyMap.end() && !ownsFixedKey( win, key ) )
 	{
-		DEBUG_ASSERTCRASH(FALSE,("Hotkey %s is already mapped to window %s, current window is %s", key.str(), it->second.m_win->winGetInstanceData()->m_decoratedNameString.str(), win->winGetInstanceData()->m_decoratedNameString.str()));
+		DEBUG_LOG(( "HOTKEYS: %s already on %s, not on %s\n", key.str(), it->second.m_win->winGetInstanceData()->m_decoratedNameString.str(), win->winGetInstanceData()->m_decoratedNameString.str() ));
 		return;
 	}
 	HotKey newHK;
@@ -306,27 +332,13 @@ AsciiString HotKeyManager::searchHotKey( const UnicodeString& uStr )
 	* kept for the whole run, so it lives outside the manager, which every game client rebuilds. */
 static std::map< std::string, WideChar > s_playerButtonKeys;
 
-/** Grid keys (Hotkeys.ini's CommandBarGrid), by command bar slot: ControlBar.wnd's ButtonCommand01
-	* to 14 stand two rows of seven read down the columns, and take the twelve letters of the Q W E R T
-	* Y / A S D F G H / Z X C V B N block that are no GRID_FIXED_KEYS.  Q W E R T top the first five
-	* columns, Z X D F B under them, each under its own column where the fixed A, S and G leave a gap;
-	* the sixth column is H under attack move's place (slot 11) and the seventh N, sell's key, under
-	* the rally point's (slot 13).  Those two places have no key of their own: a fixed order standing
-	* there shows its own letter, and on a bar without such an order the place borrows the free fixed
-	* letter (HotKeyManager::lendFixedKeys).  The launcher's Hotkeys page draws the same table
-	* (hotkeys.js, GRID_KEYS). */
-static const WideChar GRID_KEYS[] = { 'Q', 'Z', 'W', 'X', 'E', 'D', 'R', 'F', 'T', 'B', 0, 'H', 0, 'N' };
-static const Int GRID_KEY_COUNT = sizeof( GRID_KEYS ) / sizeof( GRID_KEYS[ 0 ] );
-static Bool s_commandGrid = FALSE;
-
 /** The owner's fixed keys, 2026-10-12, on every bar: A attack move, S stop, G guard, Y rally
 	* point, V evacuate, N sell, C combat drop, and H for land mines, camo netting and the GLA's fake
-	* and real switches, which go by button name.  No other button may have one of these letters.
-	* With grid keys on only GRID_FIXED_KEYS hold, on any bar and slot; sell and the H buttons take
-	* their place's key.  The launcher holds the same tables (hotkeys.js, FIXED_KEYS and
-	* GRID_FIXED_LETTERS). */
+	* and real switches, which go by button name.  No button keeps one of these letters from its
+	* label; the player may give one to any button on the launcher's Hotkeys page, and on a bar where
+	* the fixed order stands too, the order gets the key (addHotKey).  The launcher holds the same
+	* table (hotkeys.js, FIXED_KEYS). */
 static const WideChar FIXED_KEYS[] = { 'A', 'S', 'G', 'Y', 'V', 'N', 'C', 'H' };
-static const WideChar GRID_FIXED_KEYS[] = { 'A', 'S', 'G', 'Y', 'V', 'C' };
 static const char *const FIXED_H_BUTTONS[] =
 {
 	"command_upgradechinamines", "command_upgradeempmines", "command_upgradecamonetting", "command_upgradeglacamonetting",
@@ -386,11 +398,23 @@ static std::string withoutModPrefix( const char *lowerName, Int *mod )
 	return tilde + 1;
 }
 
+/** Whether win is a command button whose fixed letter (fixedButtonKey) is key, the map's lower
+	* case name. */
+static Bool ownsFixedKey( GameWindow *win, const AsciiString& key )
+{
+	const CommandButton *command = (const CommandButton *)GadgetButtonGetData( win );
+	AsciiString lower = command->getName();
+	lower.toLower();
+	Int mod = -1;
+	const WideChar fixed = fixedButtonKey( AsciiString( withoutModPrefix( lower.str(), &mod ).c_str() ), command->getCommandType() );
+	return fixed != 0 && HotKeyManager::nameOf( fixed ) == key;
+}
+
 /** The player's key for a button, into *letter; FALSE leaves it alone.  A mod's own button (ownMod,
 	* under -modfactions) takes only its mod's "<scope>:<button>" entry.  A plain name, which under a
 	* plain -mod may be any loaded mod's, takes the last loaded mod's scoped entry that exists, then
 	* the unscoped one, which is retail's. */
-static Bool findPlayerKey( const std::string& bare, Int ownMod, WideChar *letter )
+static Bool findPlayerKey( const std::map< std::string, WideChar >& keys, const std::string& bare, Int ownMod, WideChar *letter )
 {
 	std::map< std::string, WideChar >::const_iterator it;
 	const Int modCount = TheGlobalData ? (Int)TheGlobalData->m_mods.size() : 0;
@@ -398,8 +422,8 @@ static Bool findPlayerKey( const std::string& bare, Int ownMod, WideChar *letter
 	{
 		if( ownMod >= 0 && mod != ownMod )
 			continue;
-		it = s_playerButtonKeys.find( modScope( mod ) + ":" + bare );
-		if( it != s_playerButtonKeys.end() )
+		it = keys.find( modScope( mod ) + ":" + bare );
+		if( it != keys.end() )
 		{
 			*letter = it->second;
 			return TRUE;
@@ -407,8 +431,8 @@ static Bool findPlayerKey( const std::string& bare, Int ownMod, WideChar *letter
 	}
 	if( ownMod >= 0 )
 		return FALSE;
-	it = s_playerButtonKeys.find( bare );
-	if( it == s_playerButtonKeys.end() )
+	it = keys.find( bare );
+	if( it == keys.end() )
 		return FALSE;
 	*letter = it->second;
 	return TRUE;
@@ -423,99 +447,64 @@ static Bool isOneOf( WideChar letter, const WideChar *letters, Int count )
 }
 
 //-----------------------------------------------------------------------------
-WideChar HotKeyManager::playerButtonKey( const AsciiString& button, WideChar labelKey, Int barSlot,
-																				 Int commandType )
+WideChar HotKeyManager::playerButtonKey( const AsciiString& button, WideChar labelKey, Int commandType )
 {
+	return buttonKeyIn( button, labelKey, commandType, s_playerButtonKeys );
+}
+
+//-----------------------------------------------------------------------------
+WideChar HotKeyManager::fixedKey( const AsciiString& button, Int commandType )
+{
+	AsciiString lower = button;
+	lower.toLower();
+	Int ownMod = -1;
+	return fixedButtonKey( AsciiString( withoutModPrefix( lower.str(), &ownMod ).c_str() ), commandType );
+}
+
+//-----------------------------------------------------------------------------
+std::string HotKeyManager::fileButtonName( const AsciiString& button )
+{
+	AsciiString lower = button;
+	lower.toLower();
+	Int ownMod = -1;
+	withoutModPrefix( lower.str(), &ownMod );
+	std::string name( button.str() );
+	if( ownMod >= 0 )
+		return modScope( ownMod ) + ":" + name.substr( name.find( '~' ) + 1 );
+	if( !TheGlobalData->m_mods.empty() && !TheGlobalData->m_modFactions )
+		return modScope( (Int)TheGlobalData->m_mods.size() - 1 ) + ":" + name;
+	return name;
+}
+
+//-----------------------------------------------------------------------------
+WideChar HotKeyManager::buttonKeyIn( const AsciiString& button, WideChar labelKey, Int commandType,
+	const std::map< std::string, WideChar >& keys )
+{
+	// Force Attack is Ctrl.  The English label's F is not the key and may not bind the button.
+	if( commandType == GUI_COMMAND_FORCE_ATTACK )
+		return 0;
 	AsciiString lower = button;
 	lower.toLower();
 	Int ownMod = -1;
 	const std::string bare = withoutModPrefix( lower.str(), &ownMod );
 	const WideChar fixed = fixedButtonKey( AsciiString( bare.c_str() ), commandType );
-	if( s_commandGrid && barSlot >= 0 )
-	{
-		if( fixed != 0 && isOneOf( fixed, GRID_FIXED_KEYS, (Int)( sizeof( GRID_FIXED_KEYS ) / sizeof( GRID_FIXED_KEYS[ 0 ] ) ) ) )
-			return fixed;
-		return gridSlotKey( barSlot );
-	}
 	if( fixed != 0 )
 		return fixed;
 
 	WideChar letter = labelKey;
-	findPlayerKey( bare, ownMod, &letter );
+	const Bool chosen = findPlayerKey( keys, bare, ownMod, &letter );
 	if( letter >= 'a' && letter <= 'z' )
 		letter -= 'a' - 'A';
-	if( isOneOf( letter, FIXED_KEYS, (Int)( sizeof( FIXED_KEYS ) / sizeof( FIXED_KEYS[ 0 ] ) ) ) )
-		return 0;
-	// a button off the bar gives a grid letter up to the bar
-	if( s_commandGrid && isOneOf( letter, GRID_KEYS, GRID_KEY_COUNT ) )
+	// a label's own fixed letter gives way; one the player chose stays, and the bar's fixed order
+	// still takes it first (addHotKey)
+	if( !chosen && isOneOf( letter, FIXED_KEYS, (Int)( sizeof( FIXED_KEYS ) / sizeof( FIXED_KEYS[ 0 ] ) ) ) )
 		return 0;
 	return letter;
 }
 
 //-----------------------------------------------------------------------------
-/** What the bar on show lends the two keyless places, see lendFixedKeys. */
-static WideChar s_lentKeys[ GRID_KEY_COUNT ] = { 0 };
-
-WideChar HotKeyManager::gridSlotKey( Int barSlot )
-{
-	if( !s_commandGrid || barSlot < 0 || barSlot >= GRID_KEY_COUNT )
-		return 0;
-	return GRID_KEYS[ barSlot ] != 0 ? GRID_KEYS[ barSlot ] : s_lentKeys[ barSlot ];
-}
-
-//-----------------------------------------------------------------------------
-void HotKeyManager::gridLentKeys( const AsciiString *buttons, const Int *types, Int count, WideChar *lent )
-{
-	const Int fixedCount = (Int)( sizeof( GRID_FIXED_KEYS ) / sizeof( GRID_FIXED_KEYS[ 0 ] ) );
-	WideChar used[ MAX_COMMANDS_PER_SET + GRID_KEY_COUNT ];
-	Int usedCount = 0;
-	for( Int each = 0; each < count; each++ )
-	{
-		if( buttons[ each ].isEmpty() )
-			continue;
-		AsciiString lower = buttons[ each ];
-		lower.toLower();
-		Int mod = -1;
-		const WideChar fixed = fixedButtonKey( AsciiString( withoutModPrefix( lower.str(), &mod ).c_str() ), types[ each ] );
-		if( isOneOf( fixed, GRID_FIXED_KEYS, fixedCount ) )
-			used[ usedCount++ ] = fixed;
-	}
-
-	for( Int slot = 0; slot < GRID_KEY_COUNT; slot++ )
-		lent[ slot ] = 0;
-	// a place takes the order's letter that usually stands there first: attack move's A, then guard's
-	// G or the rally point's Y; then any fixed letter still free, in GRID_FIXED_KEYS' order
-	static const struct { Int slot; WideChar letter; } OWN[] = { { 10, 'A' }, { 12, 'G' }, { 12, 'Y' } };
-	for( Int pass = 0; pass < 2; pass++ )
-	{
-		const Int choices = pass == 0 ? (Int)( sizeof( OWN ) / sizeof( OWN[ 0 ] ) ) : GRID_KEY_COUNT * fixedCount;
-		for( Int each = 0; each < choices; each++ )
-		{
-			const Int slot = pass == 0 ? OWN[ each ].slot : each / fixedCount;
-			const WideChar letter = pass == 0 ? OWN[ each ].letter : GRID_FIXED_KEYS[ each % fixedCount ];
-			if( GRID_KEYS[ slot ] != 0 || lent[ slot ] != 0 || isOneOf( letter, used, usedCount ) )
-				continue;
-			lent[ slot ] = letter;
-			used[ usedCount++ ] = letter;
-		}
-	}
-}
-
-//-----------------------------------------------------------------------------
-void HotKeyManager::lendFixedKeys( const AsciiString *buttons, const Int *types, Int count )
-{
-	if( buttons == NULL )
-	{
-		for( Int slot = 0; slot < GRID_KEY_COUNT; slot++ )
-			s_lentKeys[ slot ] = 0;
-		return;
-	}
-	gridLentKeys( buttons, types, count, s_lentKeys );
-}
-
-//-----------------------------------------------------------------------------
-/** CommandBarGrid, Enabled = Yes or No, End.  Only the player's own Hotkeys.ini carries it, and
-	* nothing in it reaches the INI CRC. */
+/** CommandBarGrid, Enabled = Yes or No, End: the grid keys a launcher before 2026-10-15 wrote into
+	* Hotkeys.ini.  Grid keys are gone, so the block is read and ignored. */
 /*static*/ void INI::parseCommandBarGridDefinition( INI *ini )
 {
 	static const FieldParse fields[] =
@@ -523,8 +512,8 @@ void HotKeyManager::lendFixedKeys( const AsciiString *buttons, const Int *types,
 		{ "Enabled", INI::parseBool, NULL, 0 },
 		{ NULL, NULL, NULL, 0 }
 	};
-	ini->initFromINI( &s_commandGrid, fields );
-	DEBUG_LOG(( "HOTKEYS: grid keys %s\n", s_commandGrid ? "on" : "off" ));
+	Bool ignored = FALSE;
+	ini->initFromINI( &ignored, fields );
 }
 
 //-----------------------------------------------------------------------------
@@ -551,6 +540,473 @@ void HotKeyManager::lendFixedKeys( const AsciiString *buttons, const Int *types,
 
 	s_playerButtonKeys[ name.str() ] = letter;
 	DEBUG_LOG(( "HOTKEYS: button %s key %s\n", name.str(), key.str() ));
+}
+
+//-----------------------------------------------------------------------------
+void HotKeyManager::loadPlayerKeys( void )
+{
+	s_playerButtonKeys.clear();
+	AsciiString hotkeys = TheGlobalData->getPath_UserData();
+	hotkeys.concat( "Hotkeys.ini" );
+	if( !TheFileSystem->doesFileExist( hotkeys.str() ) )
+		return;
+	INI ini;
+	try
+	{
+		ini.load( hotkeys, INI_LOAD_MULTIFILE, NULL );
+		DEBUG_LOG(( "HOTKEYS: read %s\n", hotkeys.str() ));
+	}
+	catch( ... )
+	{
+		DEBUG_LOG(( "HOTKEYS: %s stopped at a block it could not read; the keys before it stand\n", hotkeys.str() ));
+	}
+}
+
+//-----------------------------------------------------------------------------
+void HotKeyManager::reloadKeys( void )
+{
+	TheMetaMap->clear();
+	AsciiString commandMap;
+	commandMap.format( "Data\\%s\\CommandMap.ini", GetRegistryLanguage().str() );
+	INI ini;
+	ini.load( commandMap, INI_LOAD_OVERWRITE, NULL );
+#if defined(_DEBUG) || defined(_INTERNAL)
+	ini.load( "Data\\INI\\CommandMapDebug.ini", INI_LOAD_MULTIFILE, NULL );
+#endif
+#if defined(_ALLOW_DEBUG_CHEATS_IN_RELEASE)
+	ini.load( "Data\\INI\\CommandMapDemo.ini", INI_LOAD_MULTIFILE, NULL );
+#endif
+	loadPlayerKeys();
+	// the bar's letters are given out again on its next update
+	if( TheControlBar )
+		TheControlBar->markUIDirty();
+}
+
+//-----------------------------------------------------------------------------
+// Hotkeys.ini, the launcher's format
+//-----------------------------------------------------------------------------
+const char HOTKEYS_LAUNCHER_PART[] = "; the launcher's own keys from here on";
+
+/// KEY_NAMES in hotkeys.js: the keys a command may take there, so what this writes the launcher reads.
+static const char *const HOTKEY_KEY_NAMES[] =
+{
+	"KEY_ESC", "KEY_BACKSPACE", "KEY_ENTER", "KEY_SPACE", "KEY_TAB",
+	"KEY_F1", "KEY_F2", "KEY_F3", "KEY_F4", "KEY_F5", "KEY_F6", "KEY_F7", "KEY_F8", "KEY_F9", "KEY_F10", "KEY_F11", "KEY_F12",
+	"KEY_A", "KEY_B", "KEY_C", "KEY_D", "KEY_E", "KEY_F", "KEY_G", "KEY_H", "KEY_I", "KEY_J", "KEY_K", "KEY_L", "KEY_M",
+	"KEY_N", "KEY_O", "KEY_P", "KEY_Q", "KEY_R", "KEY_S", "KEY_T", "KEY_U", "KEY_V", "KEY_W", "KEY_X", "KEY_Y", "KEY_Z",
+	"KEY_1", "KEY_2", "KEY_3", "KEY_4", "KEY_5", "KEY_6", "KEY_7", "KEY_8", "KEY_9", "KEY_0",
+	"KEY_KP1", "KEY_KP2", "KEY_KP3", "KEY_KP4", "KEY_KP5", "KEY_KP6", "KEY_KP7", "KEY_KP8", "KEY_KP9", "KEY_KP0",
+	"KEY_KPPLUS", "KEY_KPMINUS", "KEY_KPSLASH", "KEY_MINUS", "KEY_EQUAL", "KEY_LBRACKET", "KEY_RBRACKET",
+	"KEY_SEMICOLON", "KEY_APOSTROPHE", "KEY_TICK", "KEY_BACKSLASH", "KEY_COMMA", "KEY_PERIOD", "KEY_SLASH",
+	"KEY_UP", "KEY_DOWN", "KEY_LEFT", "KEY_RIGHT", "KEY_HOME", "KEY_END", "KEY_PGUP", "KEY_PGDN", "KEY_INS", "KEY_DEL",
+};
+
+Bool Hotkeys_isKeyName( const std::string& key )
+{
+	for( size_t each = 0; each < sizeof( HOTKEY_KEY_NAMES ) / sizeof( HOTKEY_KEY_NAMES[ 0 ] ); each++ )
+		if( key == HOTKEY_KEY_NAMES[ each ] )
+			return TRUE;
+	return FALSE;
+}
+
+static std::string lowered( std::string text )
+{
+	for( size_t at = 0; at < text.size(); at++ )
+		text[ at ] = (char)tolower( (unsigned char)text[ at ] );
+	return text;
+}
+
+static Bool startsWith( const std::string& text, const char *prefix )
+{
+	return text.compare( 0, strlen( prefix ), prefix ) == 0;
+}
+
+static std::string trimmed( const std::string& text )
+{
+	size_t first = text.find_first_not_of( " \t\r\n" );
+	if( first == std::string::npos )
+		return std::string();
+	size_t last = text.find_last_not_of( " \t\r\n" );
+	return text.substr( first, last - first + 1 );
+}
+
+/// The file's lines without their CR.
+static std::vector< std::string > linesOf( const std::string& text )
+{
+	std::vector< std::string > lines;
+	size_t start = 0;
+	for( ;; )
+	{
+		size_t end = text.find( '\n', start );
+		std::string line = text.substr( start, end == std::string::npos ? std::string::npos : end - start );
+		if( !line.empty() && line[ line.size() - 1 ] == '\r' )
+			line.erase( line.size() - 1 );
+		lines.push_back( line );
+		if( end == std::string::npos )
+			return lines;
+		start = end + 1;
+	}
+}
+
+/** One top-level block of an INI text the way hotkeys.js parseIni reads it: "Type Name" up to its
+	* End, comments after ; and // gone, fields as key and value. */
+struct HotkeyIniBlock
+{
+	std::string type, name;
+	std::vector< std::pair< std::string, std::string > > fields;
+	std::string field( const char *key, const char *otherwise ) const
+	{
+		for( size_t each = 0; each < fields.size(); each++ )
+			if( lowered( fields[ each ].first ) == lowered( key ) )
+				return fields[ each ].second;
+		return otherwise;
+	}
+	Bool hasField( const char *key ) const
+	{
+		for( size_t each = 0; each < fields.size(); each++ )
+			if( lowered( fields[ each ].first ) == lowered( key ) )
+				return TRUE;
+		return FALSE;
+	}
+};
+
+static std::vector< HotkeyIniBlock > iniBlocks( const std::string& text )
+{
+	std::vector< HotkeyIniBlock > blocks;
+	HotkeyIniBlock block;
+	Bool open = FALSE;
+	Int depth = 0;
+	std::vector< std::string > lines = linesOf( text );
+	for( size_t each = 0; each < lines.size(); each++ )
+	{
+		std::string line = lines[ each ];
+		size_t comment = line.find( ';' );
+		if( comment != std::string::npos )
+			line.erase( comment );
+		comment = line.find( "//" );
+		if( comment != std::string::npos )
+			line.erase( comment );
+		line = trimmed( line );
+		if( line.empty() )
+			continue;
+		const std::string word = line.substr( 0, line.find_first_of( " \t=" ) );
+		if( !open )
+		{
+			block = HotkeyIniBlock();
+			block.type = word;
+			std::string rest = trimmed( line.substr( word.size() ) );
+			block.name = rest.substr( 0, rest.find_first_of( " \t" ) );
+			open = TRUE;
+			depth = 0;
+			continue;
+		}
+		if( lowered( word ) == "end" )
+		{
+			if( depth == 0 )
+			{
+				blocks.push_back( block );
+				open = FALSE;
+			}
+			else
+				depth--;
+		}
+		else if( line.find_first_of( " \t=" ) == std::string::npos )
+			depth++;	// a word alone opens a block inside, whose fields are not the block's
+		else if( depth == 0 )
+		{
+			const size_t equals = line.find( '=' );
+			if( equals == std::string::npos )
+				block.fields.push_back( std::make_pair( word, trimmed( line.substr( word.size() ) ) ) );
+			else
+				block.fields.push_back( std::make_pair( trimmed( line.substr( 0, equals ) ), trimmed( line.substr( equals + 1 ) ) ) );
+		}
+	}
+	return blocks;
+}
+
+static HotkeyCommandRow commandRow( const std::string& id, const std::string& category, const char *key = "", const char *modifiers = "NONE" )
+{
+	HotkeyCommandRow row;
+	row.id = id;
+	row.binding = HotkeyBinding( key, modifiers );
+	row.usableIn = "GAME";
+	row.category = category;
+	row.barOnly = FALSE;
+	row.launcherDefault = FALSE;
+	return row;
+}
+
+std::vector< HotkeyCommandRow > Hotkeys_commandRows( const std::string& commandMapText )
+{
+	std::vector< HotkeyCommandRow > rows;
+	std::vector< HotkeyIniBlock > blocks = iniBlocks( commandMapText );
+	for( size_t each = 0; each < blocks.size(); each++ )
+	{
+		const HotkeyIniBlock& block = blocks[ each ];
+		const std::string key = block.field( "Key", "" );
+		if( block.type != "CommandMap" || startsWith( block.name, "DEMO_" ) || startsWith( block.name, "DEBUG_" )
+				|| startsWith( block.name, "CHEAT_" ) || startsWith( block.name, "END_" ) || !Hotkeys_isKeyName( key ) )
+			continue;
+		HotkeyCommandRow row = commandRow( block.name, block.field( "Category", "MISC" ), key.c_str(), block.field( "Modifiers", "NONE" ).c_str() );
+		row.usableIn = block.field( "UseableIn", "GAME" );
+		row.label = block.field( "DisplayName", "" );
+		if( startsWith( block.name, "BEGIN_" ) )
+			row.pair = "END_" + block.name.substr( 6 );
+		rows.push_back( row );
+	}
+
+	// UNBOUND_COMMANDS in hotkeys.js: commands the engine knows that the shipped map binds to nothing
+	std::vector< HotkeyCommandRow > unbound;
+	static const char *const SELECTION[] = { "SELECT_ALL", "SELECT_ALL_MILITARY", "SELECT_ALL_VEHICLES", "SELECT_ALL_AIRCRAFT",
+		"SELECT_ALL_BARRACKS", "SELECT_ALL_WARFACTORIES", "SELECT_ALL_AIRFIELDS", "SELECT_NEXT_IDLE_WORKER", "SELECT_NEXT_IDLE_UNIT" };
+	for( size_t each = 0; each < sizeof( SELECTION ) / sizeof( SELECTION[ 0 ] ); each++ )
+		unbound.push_back( commandRow( SELECTION[ each ], "SELECTION" ) );
+	unbound.push_back( commandRow( "TOGGLE_PAUSE", "INTERFACE" ) );
+	unbound.push_back( commandRow( "TOGGLE_PURCHASE_SCIENCE", "INTERFACE" ) );
+	unbound.push_back( commandRow( "SIGNAL_ATTACK", "INFORMATION" ) );
+	unbound.push_back( commandRow( "SIGNAL_DEFEND", "INFORMATION" ) );
+	unbound.push_back( commandRow( "SIGNAL_ATTENTION", "INFORMATION" ) );
+	char name[ 32 ];
+	for( Int slot = 1; slot <= 8; slot++ )
+	{
+		snprintf( name, sizeof( name ), "SHORTCUT_SLOT%02d", slot );
+		unbound.push_back( commandRow( name, "SHORTCUTS" ) );
+	}
+	for( Int slot = 1; slot <= 18; slot++ )
+	{
+		snprintf( name, sizeof( name ), "COMMAND_SLOT%02d", slot );
+		unbound.push_back( commandRow( name, "GRID" ) );
+	}
+	// LAUNCHER_DEFAULTS: I, free in the shipped map, for the next idle worker
+	for( size_t each = 0; each < unbound.size(); each++ )
+		if( unbound[ each ].id == "SELECT_NEXT_IDLE_WORKER" )
+		{
+			unbound[ each ].binding.key = "KEY_I";
+			unbound[ each ].launcherDefault = TRUE;
+		}
+
+	std::vector< HotkeyCommandRow > all = rows;
+	Bool forceAttack = FALSE;
+	for( size_t each = 0; each < unbound.size(); each++ )
+	{
+		Bool known = FALSE;
+		for( size_t row = 0; row < rows.size(); row++ )
+			known = known || rows[ row ].id == unbound[ each ].id;
+		if( !known )
+			all.push_back( unbound[ each ] );
+	}
+	for( size_t row = 0; row < rows.size(); row++ )
+		forceAttack = forceAttack || rows[ row ].id == "BEGIN_FORCEATTACK";
+	if( !forceAttack )
+	{
+		// FORCE_ATTACK_HOLD: KEY_NONE + Ctrl in the shipped file, set from the command bar page
+		HotkeyCommandRow hold = commandRow( "BEGIN_FORCEATTACK", "CONTROL", "", "CTRL" );
+		hold.pair = "END_FORCEATTACK";
+		hold.barOnly = TRUE;
+		all.push_back( hold );
+	}
+	return all;
+}
+
+HotkeysFile Hotkeys_parse( const std::string& text, const std::vector< HotkeyCommandRow >& rows )
+{
+	HotkeysFile file;
+	const size_t part = text.find( HOTKEYS_LAUNCHER_PART );
+	if( part != std::string::npos )
+		file.launcherPart = text.substr( part + strlen( HOTKEYS_LAUNCHER_PART ) );
+	std::vector< HotkeyIniBlock > blocks = iniBlocks( text.substr( 0, part ) );
+	for( size_t each = 0; each < blocks.size(); each++ )
+	{
+		const HotkeyIniBlock& block = blocks[ each ];
+		const std::string key = block.field( "Key", "" );
+		if( block.type == "CommandButtonHotKey" )
+		{
+			const Bool letter = key.size() == 1 && isalpha( (unsigned char)key[ 0 ] );
+			file.buttons[ block.name ] = letter ? std::string( 1, (char)toupper( (unsigned char)key[ 0 ] ) ) : std::string();
+		}
+		else if( block.type == "CommandMap" && !startsWith( block.name, "END_" ) )
+		{
+			const std::string usableIn = block.field( "UseableIn", "" );
+			const std::string modifiers = block.field( "Modifiers", "NONE" );
+			const Bool none = lowered( usableIn ) == "none";
+			const Bool named = Hotkeys_isKeyName( key );
+			const Bool modsOnly = lowered( key ) == "key_none" && !none && modifiers != "NONE";
+			file.commands[ block.name ] = ( none || ( !named && !modsOnly ) )
+				? HotkeyBinding( "", "NONE" ) : HotkeyBinding( named ? key : "", modifiers );
+		}
+	}
+	// the launcher's own default, written for the game's sake, is not a change the player made
+	for( size_t each = 0; each < rows.size(); each++ )
+	{
+		if( !rows[ each ].barOnly && !rows[ each ].launcherDefault )
+			continue;
+		std::map< std::string, HotkeyBinding >::iterator it = file.commands.find( rows[ each ].id );
+		if( it != file.commands.end() && it->second == rows[ each ].binding )
+			file.commands.erase( it );
+	}
+	return file;
+}
+
+/// The launcher's part without the blocks naming something in `names`, and the blank line after each.
+static std::string launcherPartWithout( const std::string& part, const std::map< std::string, Bool >& names )
+{
+	if( part.empty() )
+		return "\r\n";
+	std::vector< std::string > lines = linesOf( part );
+	std::vector< std::string > kept;
+	for( size_t each = 0; each < lines.size(); each++ )
+	{
+		const std::string line = trimmed( lines[ each ] );
+		const Bool header = startsWith( line, "CommandMap " ) || startsWith( line, "CommandButtonHotKey " );
+		if( header && names.count( trimmed( line.substr( line.find( ' ' ) ) ) ) )
+		{
+			while( each < lines.size() && lowered( trimmed( lines[ each ] ) ) != "end" )
+				each++;
+			if( each + 1 < lines.size() && trimmed( lines[ each + 1 ] ).empty() )
+				each++;
+			continue;
+		}
+		kept.push_back( lines[ each ] );
+	}
+	std::string out;
+	for( size_t each = 0; each < kept.size(); each++ )
+		out += ( each > 0 ? "\r\n" : "" ) + kept[ each ];
+	return out;
+}
+
+void Hotkeys_launcherKeys( const std::string& launcherPart, std::map< std::string, HotkeyBinding > *commands,
+	std::map< std::string, std::string > *buttons )
+{
+	std::vector< HotkeyIniBlock > blocks = iniBlocks( launcherPart );
+	for( size_t each = 0; each < blocks.size(); each++ )
+	{
+		const HotkeyIniBlock& block = blocks[ each ];
+		const std::string key = block.field( "Key", "" );
+		if( block.type == "CommandButtonHotKey" )
+			( *buttons )[ block.name ] = ( key.size() == 1 && isalpha( (unsigned char)key[ 0 ] ) ) ? key : std::string();
+		else if( block.type == "CommandMap" && !startsWith( block.name, "END_" ) )
+			( *commands )[ block.name ] = lowered( block.field( "UseableIn", "" ) ) == "none"
+				? HotkeyBinding( "", "NONE" ) : HotkeyBinding( Hotkeys_isKeyName( key ) ? key : "", block.field( "Modifiers", "NONE" ) );
+	}
+}
+
+/** Where a character falls in String.localeCompare's root collation: blanks, then punctuation in its
+	* own order, then digits, then letters with case set aside. */
+static Int collationWeight( unsigned char c )
+{
+	static const char PUNCTUATION[] = "_-,;:!?.'\"()[]{}@*/\\&#%`^+<=>|~$";
+	if( isspace( c ) )
+		return 1;
+	const char *at = strchr( PUNCTUATION, c );
+	if( c != 0 && at != NULL )
+		return 10 + (Int)( at - PUNCTUATION );
+	if( isdigit( c ) )
+		return 100 + ( c - '0' );
+	if( isalpha( c ) )
+		return 200 + ( tolower( c ) - 'a' );
+	return 300 + c;
+}
+
+bool Hotkeys_nameLess( const std::string& left, const std::string& right )
+{
+	const size_t common = left.size() < right.size() ? left.size() : right.size();
+	for( size_t at = 0; at < common; at++ )
+	{
+		const Int l = collationWeight( (unsigned char)left[ at ] ), r = collationWeight( (unsigned char)right[ at ] );
+		if( l != r )
+			return l < r;
+	}
+	if( left.size() != right.size() )
+		return left.size() < right.size();
+	// the same letters: lower case first
+	for( size_t at = 0; at < common; at++ )
+		if( left[ at ] != right[ at ] )
+			return islower( (unsigned char)left[ at ] ) != 0;
+	return false;
+}
+
+template< class Map > static std::vector< std::string > sortedNames( const Map& map )
+{
+	std::vector< std::string > names;
+	for( typename Map::const_iterator it = map.begin(); it != map.end(); ++it )
+		names.push_back( it->first );
+	std::sort( names.begin(), names.end(), Hotkeys_nameLess );
+	return names;
+}
+
+std::string Hotkeys_format( const HotkeysFile& file, const std::vector< HotkeyCommandRow >& rows )
+{
+	std::string out =
+		"; Zero Hour Reforged hotkeys, written by the launcher's Hotkeys page. Only what differs from the\r\n"
+		"; game is here. The game reads it at start; it is not part of the multiplayer checksum.\r\n"
+		"\r\n";
+	std::map< std::string, Bool > named;
+	std::vector< std::string > ids = sortedNames( file.commands );
+	for( size_t each = 0; each < ids.size(); each++ )
+	{
+		const HotkeyBinding& binding = file.commands.find( ids[ each ] )->second;
+		const HotkeyCommandRow *row = NULL;
+		for( size_t candidate = 0; candidate < rows.size() && row == NULL; candidate++ )
+			if( rows[ candidate ].id == ids[ each ] )
+				row = &rows[ candidate ];
+		const Bool chord = !binding.key.empty() || binding.modifiers != "NONE";
+		for( Int half = 0; half < 2; half++ )
+		{
+			if( half == 1 && ( row == NULL || row->pair.empty() ) )
+				break;
+			const std::string& name = half == 0 ? ids[ each ] : row->pair;
+			named[ name ] = TRUE;
+			out += "CommandMap " + name + "\r\n";
+			out += "  Key = " + ( binding.key.empty() ? std::string( "KEY_NONE" ) : binding.key ) + "\r\n";
+			out += std::string( "  Transition = " ) + ( half == 0 ? "DOWN" : "UP" ) + "\r\n";
+			out += "  Modifiers = " + ( chord ? binding.modifiers : std::string( "NONE" ) ) + "\r\n";
+			out += "  UseableIn = " + ( chord ? ( row ? row->usableIn : std::string( "GAME" ) ) : std::string( "NONE" ) ) + "\r\n";
+			out += "End\r\n\r\n";
+		}
+	}
+	std::vector< std::string > buttons = sortedNames( file.buttons );
+	for( size_t each = 0; each < buttons.size(); each++ )
+	{
+		const std::string& key = file.buttons.find( buttons[ each ] )->second;
+		named[ buttons[ each ] ] = TRUE;
+		out += "CommandButtonHotKey " + buttons[ each ] + "\r\n";
+		out += "  Key = " + ( key.empty() ? std::string( "NONE" ) : key ) + "\r\n";
+		out += "End\r\n\r\n";
+	}
+	out += HOTKEYS_LAUNCHER_PART;
+	out += launcherPartWithout( file.launcherPart, named );
+	return out;
+}
+
+std::string Hotkeys_chordText( const HotkeyBinding& binding )
+{
+	std::string text;
+	const std::string& mods = binding.modifiers;
+	if( mods == "CTRL" || mods == "CTRL_ALT" || mods == "SHIFT_CTRL" || mods == "SHIFT_ALT_CTRL" )
+		text = "Ctrl";
+	if( mods == "ALT" || mods == "CTRL_ALT" || mods == "SHIFT_ALT" || mods == "SHIFT_ALT_CTRL" )
+		text += text.empty() ? "Alt" : " + Alt";
+	if( mods == "SHIFT" || mods == "SHIFT_CTRL" || mods == "SHIFT_ALT" || mods == "SHIFT_ALT_CTRL" )
+		text += text.empty() ? "Shift" : " + Shift";
+	if( binding.key.empty() )
+		return text;
+	static const char *const WORDS[][ 2 ] =
+	{
+		{ "ESC", "Esc" }, { "BACKSPACE", "Backspace" }, { "ENTER", "Enter" }, { "SPACE", "Space" }, { "TAB", "Tab" },
+		{ "LBRACKET", "[" }, { "RBRACKET", "]" }, { "SEMICOLON", ";" }, { "APOSTROPHE", "'" }, { "TICK", "`" },
+		{ "BACKSLASH", "\\" }, { "COMMA", "," }, { "PERIOD", "." }, { "SLASH", "/" }, { "MINUS", "-" }, { "EQUAL", "=" },
+		{ "UP", "Up" }, { "DOWN", "Down" }, { "LEFT", "Left" }, { "RIGHT", "Right" }, { "HOME", "Home" }, { "END", "End" },
+		{ "PGUP", "Page Up" }, { "PGDN", "Page Down" }, { "INS", "Insert" }, { "DEL", "Delete" },
+		{ "KPPLUS", "Num +" }, { "KPMINUS", "Num -" }, { "KPSLASH", "Num /" },
+	};
+	std::string name = startsWith( binding.key, "KEY_" ) ? binding.key.substr( 4 ) : binding.key;
+	std::string word = name;
+	for( size_t each = 0; each < sizeof( WORDS ) / sizeof( WORDS[ 0 ] ); each++ )
+		if( name == WORDS[ each ][ 0 ] )
+			word = WORDS[ each ][ 1 ];
+	if( name.size() == 3 && startsWith( name, "KP" ) && isdigit( (unsigned char)name[ 2 ] ) )
+		word = std::string( "Num " ) + name[ 2 ];
+	return text.empty() ? word : text + " + " + word;
 }
 
 //-----------------------------------------------------------------------------

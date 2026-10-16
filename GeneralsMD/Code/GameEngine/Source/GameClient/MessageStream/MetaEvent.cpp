@@ -808,6 +808,12 @@ MetaMap::MetaMap() :
 //-------------------------------------------------------------------------------------------------
 MetaMap::~MetaMap()
 {
+	clear();
+}
+
+//-------------------------------------------------------------------------------------------------
+void MetaMap::clear()
+{
 	while (m_metaMaps)
 	{
 		MetaMapRec *next = m_metaMaps->m_next;
@@ -850,6 +856,81 @@ MetaMapRec *MetaMap::getMetaMapRec(GameMessage::Type t)
 	m_metaMaps = m;
 	
 	return m;
+}
+
+//-------------------------------------------------------------------------------------------------
+UnicodeString MetaMap_formatChord( MappableKeyType key, MappableKeyModState mods, CommandUsableInType usable )
+{
+	if( usable == COMMANDUSABLE_NONE )
+		return UnicodeString::TheEmptyString;
+
+	UnicodeString text;
+	if( ( mods & CTRL ) != 0 )
+		text.concat( UnicodeString( u"Ctrl" ) );
+	if( ( mods & ALT ) != 0 )
+	{
+		if( !text.isEmpty() )
+			text.concat( UnicodeString( u" + " ) );
+		text.concat( UnicodeString( u"Alt" ) );
+	}
+	if( ( mods & SHIFT ) != 0 )
+	{
+		if( !text.isEmpty() )
+			text.concat( UnicodeString( u" + " ) );
+		text.concat( UnicodeString( u"Shift" ) );
+	}
+	if( key != MK_NONE )
+	{
+		const char *token = NULL;
+		for( const LookupListRec *rec = KeyNames; rec->name != NULL; ++rec )
+		{
+			if( rec->value == (Int)key )
+			{
+				token = rec->name;
+				break;
+			}
+		}
+		UnicodeString keyText;
+		if( token != NULL && strncmp( token, "KEY_", 4 ) == 0 )
+		{
+			const char *rest = token + 4;
+			if( strcmp( rest, "ESC" ) == 0 )
+				keyText = UnicodeString( u"Esc" );
+			else if( strcmp( rest, "SPACE" ) == 0 )
+				keyText = UnicodeString( u"Space" );
+			else if( strcmp( rest, "ENTER" ) == 0 )
+				keyText = UnicodeString( u"Enter" );
+			else if( strcmp( rest, "BACKSPACE" ) == 0 )
+				keyText = UnicodeString( u"Backspace" );
+			else if( strcmp( rest, "TAB" ) == 0 )
+				keyText = UnicodeString( u"Tab" );
+			else if( strcmp( rest, "PGUP" ) == 0 )
+				keyText = UnicodeString( u"Page Up" );
+			else if( strcmp( rest, "PGDN" ) == 0 )
+				keyText = UnicodeString( u"Page Down" );
+			else
+				keyText.translate( AsciiString( rest ) );
+		}
+		else
+			keyText = UnicodeString( u"Key" );
+		if( !text.isEmpty() )
+			text.concat( UnicodeString( u" + " ) );
+		text.concat( keyText );
+	}
+	return text;
+}
+
+//-------------------------------------------------------------------------------------------------
+UnicodeString MetaMap_chordLabel( GameMessage::Type meta )
+{
+	if( TheMetaMap == NULL )
+		return UnicodeString( u"Ctrl" );
+	for( const MetaMapRec *rec = TheMetaMap->getFirstMetaMapRec(); rec; rec = rec->m_next )
+	{
+		if( rec->m_meta == meta )
+			return MetaMap_formatChord( rec->m_key, rec->m_modState, rec->m_usableIn );
+	}
+	return UnicodeString( u"Ctrl" );
 }
 
 //-------------------------------------------------------------------------------------------------

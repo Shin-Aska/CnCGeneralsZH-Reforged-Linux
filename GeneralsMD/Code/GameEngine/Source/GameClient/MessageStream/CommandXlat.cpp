@@ -178,10 +178,6 @@ SignalKind Command_signalKindForMeta( GameMessage::Type meta )
 
 static Bool isFormationDragArmed( void )
 {
-	// the Classic mouse's left drag is the selection box it always was
-	if( TheGlobalData->isClassicMouse() )
-		return FALSE;
-
 	return Command_formationDragArmed( TheGlobalData->m_formationDrag,
 																		 TheInGameUI->getSelectCount() > 0
 																			&& TheInGameUI->areSelectedObjectsControllable(),
@@ -265,7 +261,7 @@ static Bool canSelectionSalvage( const Object *targetObj)
 }
 
 //-------------------------------------------------------------------------------------------------
-static CanAttackResult canObjectForceAttack( Object *obj, const Object *victim, const Coord3D *pos )
+static CanAttackResult canObjectItselfForceAttack( Object *obj, const Object *victim, const Coord3D *pos )
 {
 	CanAttackResult result;
 	result = obj->isAbleToAttack() ? ATTACKRESULT_POSSIBLE : ATTACKRESULT_NOT_POSSIBLE;
@@ -357,6 +353,30 @@ static CanAttackResult canObjectForceAttack( Object *obj, const Object *victim, 
 		}
 	}
 	return ATTACKRESULT_NOT_POSSIBLE;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A container whose passengers shoot (a Bunker, a Combat Chinook) has no gun of its own, so its
+	* force fire is its closest rider's. The order itself already reaches the riders:
+	* AIGroup::groupAttackObjectPrivate and groupAttackPosition hand it to every passenger that can fire. */
+static CanAttackResult canObjectForceAttack( Object *obj, const Object *victim, const Coord3D *pos )
+{
+	const CanAttackResult result = canObjectItselfForceAttack( obj, victim, pos );
+	if( result == ATTACKRESULT_POSSIBLE || result == ATTACKRESULT_POSSIBLE_AFTER_MOVING || ( !victim && !pos ) )
+		return result;
+
+	ContainModuleInterface *contain = obj->getContain();
+	if( !contain || !contain->isPassengerAllowedToFire() || !obj->isAbleToAttack() )
+		return result;
+
+	Object *rider = contain->getClosestRider( victim ? victim->getPosition() : pos );
+	if( !rider )
+		return result;
+
+	const CanAttackResult riderResult = victim
+		? rider->getAbleToAttackSpecificObject( ATTACK_NEW_TARGET_FORCED, victim, CMD_FROM_PLAYER )
+		: rider->getAbleToUseWeaponAgainstTarget( ATTACK_NEW_TARGET, NULL, pos, CMD_FROM_PLAYER );
+	return riderResult != ATTACKRESULT_NOT_POSSIBLE ? riderResult : result;
 }
 
 //-------------------------------------------------------------------------------------------------
