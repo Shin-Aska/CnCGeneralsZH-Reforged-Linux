@@ -440,26 +440,40 @@ static WaterHullModel::Point3 WaterHullPoint(const WaterHullMesh &mesh,const Vec
 
 void WaterRenderObjClass::clearModernWaterHulls(Bool admissions)
 {
-	if(admissions) m_modernBowAdmissions.Clear();
-	for (ModernHullCache &cache:m_modernHullCache) {
-		for(MeshModelClass *mesh:cache.slicedModels) REF_PTR_RELEASE(mesh);
-		for(MeshModelClass *mesh:cache.visualModels) REF_PTR_RELEASE(mesh);
+	if (admissions)
+		m_modernBowAdmissions.Clear();
+	for (ModernHullCache &cache : m_modernHullCache) {
+		for (MeshModelClass *mesh : cache.slicedModels)
+			REF_PTR_RELEASE(mesh);
+		for (MeshModelClass *mesh : cache.visualModels)
+			REF_PTR_RELEASE(mesh);
 		REF_PTR_RELEASE(cache.model);
 	}
-	m_modernHullCache.clear();m_modernHulls.clear();m_modernContactHulls.clear();m_modernVisualHulls.clear();m_modernHullObjectIDs.clear();m_modernHullSerial=0;m_modernHullTraceLines=0;
-	m_modernVesselStateTraceFrame=~0u;m_modernVesselStateTraceLines=0;m_modernVisualHullTraceLines=0;
+	m_modernHullCache.clear();
+	m_modernHulls.clear();
+	m_modernContactHulls.clear();
+	m_modernVisualHulls.clear();
+	m_modernHullObjectIDs.clear();
+	m_modernHullSerial = 0;
+	m_modernHullTraceLines = 0;
+	m_modernVesselStateTraceFrame = ~0u;
+	m_modernVesselStateTraceLines = 0;
+	m_modernVisualHullTraceLines = 0;
 }
 
 Bool WaterRenderObjClass::modernHasHull(UnsignedInt objectID) const
 {
-	return std::find(m_modernHullObjectIDs.begin(),m_modernHullObjectIDs.end(),objectID)!=m_modernHullObjectIDs.end();
+	return std::find(m_modernHullObjectIDs.begin(), m_modernHullObjectIDs.end(), objectID)
+		!= m_modernHullObjectIDs.end();
 }
 
 Bool WaterRenderObjClass::hasModernVesselFoam(UnsignedInt objectID) const
 {
 #if defined(__linux__)
-	return m_useModernWater && !m_renderingMirror && m_trapezoidWaterPixelShader && m_modernFoamDrawFrame==WW3D::Get_Frame_Count() &&
-		std::find(m_modernFoamDrawObjectIDs.begin(),m_modernFoamDrawObjectIDs.end(),objectID)!=m_modernFoamDrawObjectIDs.end();
+	return m_useModernWater && !m_renderingMirror && m_trapezoidWaterPixelShader
+		&& m_modernFoamDrawFrame == WW3D::Get_Frame_Count()
+		&& std::find(m_modernFoamDrawObjectIDs.begin(), m_modernFoamDrawObjectIDs.end(), objectID)
+			!= m_modernFoamDrawObjectIDs.end();
 #else
 	return FALSE;
 #endif
@@ -1110,28 +1124,44 @@ void WaterRenderObjClass::bindModernWaterFoam(Real level,Bool river)
 #endif
 }
 
-void WaterRenderObjClass::bindModernWaterCoastal(Real level,Bool river)
+void WaterRenderObjClass::bindModernWaterCoastal(Real level, Bool river)
 {
 #if defined(__linux__)
-	auto *device=DX8Wrapper::_Get_D3D_Device();PosixWaterCoastalEnd(device);
-	const char *option=getenv("ZH_WATER_SURF_GPU");
-	if(river || !option || strcmp(option,"1")!=0 || !m_modernCoastalReady || !m_modernRenderCamera) return;
-	const Vector2 ndc[5]={Vector2(0,0),Vector2(-1,-1),Vector2(1,-1),Vector2(1,1),Vector2(-1,1)};
+	auto *device = DX8Wrapper::_Get_D3D_Device();
+	PosixWaterCoastalEnd(device);
+	const char *option = getenv("ZH_WATER_SURF_GPU");
+	if (river || !option || strcmp(option, "1") != 0
+		|| !m_modernCoastalReady || !m_modernRenderCamera)
+		return;
+
+	const Vector2 ndc[5] = {
+		Vector2(0, 0), Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)
+	};
 	WaterFoamWindow::Point rays[5];
-	for(unsigned i=0;i<5;++i) {
-		Vector3 target;m_modernRenderCamera->Un_Project(target,ndc[i]);
-		const Vector3 d=target-m_modernCamera;rays[i]={d.X,d.Y,d.Z};
+	for (unsigned i = 0; i < 5; ++i) {
+		Vector3 target;
+		m_modernRenderCamera->Un_Project(target, ndc[i]);
+		const Vector3 direction = target - m_modernCamera;
+		rays[i] = {direction.X, direction.Y, direction.Z};
 	}
-	const auto window=WaterFoamWindow::Choose({m_modernCamera.X,m_modernCamera.Y,m_modernCamera.Z},rays,level);
-	const WaterShoreHistory::Mapping mapping={window.originX,window.originY,window.widthWorld,window.heightWorld,
-		window.widthPixels,window.heightPixels};
-	if(!m_modernCoastalViewReady || m_modernCoastalViewLevel!=level
-		|| !WaterCoastalView::SameMapping(mapping,m_modernCoastalMapping)) {
-		m_modernCoastalViewReady=WaterCoastalView::Build(m_modernCoastalDomain,mapping,level,m_modernCoastalLookup);
-		if(m_modernCoastalViewReady) {m_modernCoastalMapping=mapping;m_modernCoastalViewLevel=level;}
+	const auto window = WaterFoamWindow::Choose(
+		{m_modernCamera.X, m_modernCamera.Y, m_modernCamera.Z}, rays, level);
+	const WaterShoreHistory::Mapping mapping = {
+		window.originX, window.originY, window.widthWorld, window.heightWorld,
+		window.widthPixels, window.heightPixels
+	};
+	if (!m_modernCoastalViewReady || m_modernCoastalViewLevel != level
+		|| !WaterCoastalView::SameMapping(mapping, m_modernCoastalMapping)) {
+		m_modernCoastalViewReady = WaterCoastalView::Build(
+			m_modernCoastalDomain, mapping, level, m_modernCoastalLookup);
+		if (m_modernCoastalViewReady) {
+			m_modernCoastalMapping = mapping;
+			m_modernCoastalViewLevel = level;
+		}
 	}
-	if(m_modernCoastalViewReady) PosixWaterCoastalBind(device,m_modernCoastalRevision,m_modernCoastalDomain,
-		m_modernCoastalMapping,level,m_modernCoastalLookup);
+	if (m_modernCoastalViewReady)
+		PosixWaterCoastalBind(device, m_modernCoastalRevision, m_modernCoastalDomain,
+			m_modernCoastalMapping, level, m_modernCoastalLookup);
 #endif
 }
 
