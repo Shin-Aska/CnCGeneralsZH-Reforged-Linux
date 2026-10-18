@@ -5303,6 +5303,12 @@ TEST(water_wave_cage_phase_terrain_bounds_classification_and_constrained_smoothi
     WaterWaveCageTest::Check();
 }
 
+#include "WaterTerrainCullingTest.h"
+TEST(water_terrain_culling_preserves_wet_interiors_displacement_and_mesh_metadata)
+{
+    WaterTerrainCullingTest::Check();
+}
+
 #include "WaterCoastalDomainTest.h"
 TEST(water_coastal_domain_connected_wet_geometry_limits_and_atomic_refresh)
 {

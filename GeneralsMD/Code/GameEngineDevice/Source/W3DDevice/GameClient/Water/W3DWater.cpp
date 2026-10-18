@@ -46,6 +46,7 @@
 #include "Platform/WaterHullContact.h"
 #include "Platform/WaterBedMaterial.h"
 #include "Platform/WaterFftGeometry.h"
+#include "Platform/WaterTerrainCulling.h"
 #include "Platform/WaterWaveCage.h"
 #include "Platform/WaterWaveCageMesh.h"
 #include "GameLogic/Object.h"
@@ -4573,21 +4574,51 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 			m_modernBowVertices+=bowStats.addedVertices;m_modernBowTriangles+=bowStats.addedTriangles;
 			m_modernBowRegions+=bowStats.regions;m_modernBowRejected+=bowStats.rejected?1:0;
 			}
-			if(waveCageAvailable) {
-				const auto depth=[&](const WaterProjectedMesh::Point &p) {
-					return points[0].Z-WaterWaveCage::Height(m_modernHeights.data(),m_modernHeightWidth,m_modernHeightHeight,
-						m_modernHeightBorder,MAP_XY_FACTOR,MAP_HEIGHT_SCALE,float(p.x),float(p.y));
+			// Authored ocean polygons often extend beneath the entire land mass. The
+			// projected lattice covers that hidden area too; discard only triangles
+			// whose complete displaced footprint is buried, before evaluating waves,
+			// obstacles or uploading their vertices. Endpoint depths alone can miss a
+			// small pond inside a triangle, so inspect every overlapping terrain cell.
+			// Keep the original mesh for an underwater/below-terrain free camera.
+			if (m_modernCamera.Z > points[0].Z + WaterSurfaceModel::MaxDisplacement + 0.01f &&
+				WaterTerrainCulling::CameraAboveTerrain(
+					m_modernHeights.data(), m_modernHeightWidth, m_modernHeightHeight,
+					m_modernHeightBorder, MAP_XY_FACTOR, MAP_HEIGHT_SCALE,
+					m_modernCamera.X, m_modernCamera.Y, m_modernCamera.Z))
+			{
+				WaterTerrainCulling::CullDryTriangles(
+					projectedMesh, m_modernHeights.data(), m_modernHeightWidth, m_modernHeightHeight,
+					m_modernHeightBorder, MAP_XY_FACTOR, MAP_HEIGHT_SCALE, points[0].Z,
+					WaterSurfaceModel::MaxDisplacement + 0.01f,
+					WaterFftGeometry::MaxHorizontalDisplacement + 0.01f);
+			}
+
+			if (waveCageAvailable)
+			{
+				const auto depth = [&](const WaterProjectedMesh::Point &p)
+				{
+					return points[0].Z - WaterWaveCage::Height(
+						m_modernHeights.data(), m_modernHeightWidth, m_modernHeightHeight,
+						m_modernHeightBorder, MAP_XY_FACTOR, MAP_HEIGHT_SCALE, float(p.x), float(p.y));
 				};
-				const auto supported=[&](const WaterProjectedMesh::Point &p) {
-					return WaterSurfaceModel::SampleOffshore(oceanContext->waveCageSupport.data(),m_modernHeightWidth,m_modernHeightHeight,
-						float(p.x)/MAP_XY_FACTOR+m_modernHeightBorder,float(p.y)/MAP_XY_FACTOR+m_modernHeightBorder,MAP_XY_FACTOR).height>0.0f;
+				const auto supported = [&](const WaterProjectedMesh::Point &p)
+				{
+					return WaterSurfaceModel::SampleOffshore(
+						oceanContext->waveCageSupport.data(), m_modernHeightWidth, m_modernHeightHeight,
+						float(p.x) / MAP_XY_FACTOR + m_modernHeightBorder,
+						float(p.y) / MAP_XY_FACTOR + m_modernHeightBorder, MAP_XY_FACTOR).height > 0.0f;
 				};
+
 				// Split only supported interior triangles at the rest waterline. The helper
 				// retains authored seams and leaves the original mesh intact if its budget fails.
-				WaterWaveCageMesh::ClipRestWaterline(projectedMesh,depth,supported);
+				WaterWaveCageMesh::ClipRestWaterline(projectedMesh, depth, supported);
 			}
-			vertexCount=(Int)projectedMesh.vertices.size();
-			m_modernProjectedVertices+=vertexCount;m_modernProjectedTriangles+=projectedMesh.indices.size()/3;
+
+			// Waterline clipping also leaves unreferenced dry vertices behind.
+			WaterTerrainCulling::CompactVertices(projectedMesh);
+			vertexCount = (Int)projectedMesh.vertices.size();
+			m_modernProjectedVertices += vertexCount;
+			m_modernProjectedTriangles += projectedMesh.indices.size() / 3;
 		} else ++m_modernProjectedFallbacks; // Retain complete original coverage if projection is singular.
 	}
 

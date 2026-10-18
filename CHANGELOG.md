@@ -19,6 +19,13 @@ found and fixed â€” EA's own, not port damage.**
   check still reports a two-pixel difference; [the Linux validation record](docs/linux.md) gives
   the environment, commands and remaining limits.
 
+## Modern water performance on Linux (2026-10-18)
+
+- Modern water skips water hidden beneath dry land, reducing slowdowns when the camera looks
+  inland while preserving shorelines and waves. In 1080p uncapped offscreen tests of a
+  Bombardment Beach save on an RTX 4060, the inland view improved from 35.3 to 11.5 milliseconds
+  per frame, and the original wide view improved from 52.9 to 20.4 milliseconds per frame.
+
 ## Modern water on Linux (2026-10-15)
 
 - Water rolls in waves with sunlight that follows the same crests into the shallows. Exposed
