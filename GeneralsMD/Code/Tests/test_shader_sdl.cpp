@@ -60,9 +60,10 @@
 #include <complex>
 
 #include <SDL3/SDL.h>
+#if defined(__linux__)
 #include <spirv_cross_c.h>
-
 #include "../GameEngineDevice/Source/PosixDevice/Render/SdlConstants.h"
+#endif
 
 #include "sdl3shadercompile.h"
 #include "shader_cases.h"
@@ -252,7 +253,11 @@ TEST(classic_water_uses_the_original_program_and_separate_cache_identity)
         CHECK(EngineShader_Pixel_Program(classic,pipeline,actual,COMBINER_SHADER_TARGET_SDL3_GPU));
         CHECK(actual==expected);
         CHECK(EngineShader_Pixel_Program(original,pipeline,modern,COMBINER_SHADER_TARGET_SDL3_GPU));
+#if defined(__linux__)
         CHECK(actual!=modern);
+#else
+        CHECK(actual==modern);
+#endif
         CHECK(std::string(EngineShader_Name(original))!=EngineShader_Name(classic));
         CHECK(EngineShader_From_File(river?"classic river water ps.1.1":"classic trapezoid water ps.1.1")==classic);
         std::vector<unsigned char> spirv;std::string log,msl;
@@ -268,6 +273,8 @@ TEST(classic_water_uses_the_original_program_and_separate_cache_identity)
     }
 }
 
+#if defined(__linux__)
+// These programs are selected only by the Linux Modern water runtime.
 TEST(fft_water_vertex_and_pixel_compile_with_separate_texture_bindings)
 {
 	VertexPipelineDescription description=shader_cases_detail::plain_vertex();
@@ -477,6 +484,8 @@ TEST(modern_water_compiled_uniform_layout_matches_every_cpu_upload_field)
     CHECK(generated);
     if (generated) checkCompiledWaterUniformLayout(vertex, true, "WaterVertexParameters", false);
 }
+
+#endif // __linux__
 
 TEST(fft_spectral_power_bands_partition_and_join_smoothly)
 {
@@ -1347,6 +1356,8 @@ TEST(authored_surf_wrapper_compiles_with_original_fixed_function_fog_and_alpha)
 }
 
 
+#if defined(__linux__)
+// Full Modern shader integration, including its optional production diagnostics.
 TEST(shore_source_terms_reports_actual_front_and_is_absent_from_normal_source)
 {
     struct RestoreDebug {
@@ -1508,3 +1519,4 @@ TEST(water_plain_launch_matches_explicit_validated_settings)
         CHECK(!WaterHullVisual::Enabled());CHECK(!WaterBowLift::Enabled());CHECK(!WaterBowShoulder::Enabled());
     }
 }
+#endif // __linux__

@@ -1668,6 +1668,7 @@ bool EngineShader_Pixel_Program(EngineShaderProgram program,
 		return false;
 	}
 	if (target == COMBINER_SHADER_TARGET_SDL3_GPU) {
+#if defined(__linux__)
 		if (program == ENGINE_SHADER_WATER_TRAPEZOID || program == ENGINE_SHADER_WATER_RIVER) {
 			write_modern_water(hlsl, program == ENGINE_SHADER_WATER_RIVER);
 			const int hullDepthDiagnostic=water_hull_depth_diagnostic();
@@ -1697,6 +1698,7 @@ bool EngineShader_Pixel_Program(EngineShaderProgram program,
 			hlsl += "    return current;\n}\n";
 			return SDL3_Shader_Retarget(hlsl, false);
 		}
+#endif // __linux__
 		return write_engine_pixel_program(program, pipeline, hlsl, false)
 			&& SDL3_Shader_Retarget(hlsl, false);
 	}

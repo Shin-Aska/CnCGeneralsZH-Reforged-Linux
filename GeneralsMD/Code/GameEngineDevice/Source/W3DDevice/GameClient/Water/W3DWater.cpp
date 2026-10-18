@@ -2587,10 +2587,14 @@ void WaterRenderObjClass::update( void )
 
 		// Eligible throughout pre-roll and after the selected range as well: eligibility must not
 		// introduce a load-duration origin or a discontinuity at the first recorded subframe.
-		const bool captureClock=WaterCaptureClock::Enabled(getenv("ZH_WATER_CAPTURE_CLOCK"),
-			TheGlobalData->m_controlPort,TheGlobalData->m_videoStartFrame,TheGlobalData->m_videoEndFrame,
+#if defined(__linux__)
+		const bool captureClock = WaterCaptureClock::Enabled(getenv("ZH_WATER_CAPTURE_CLOCK"),
+			TheGlobalData->m_controlPort, TheGlobalData->m_videoStartFrame, TheGlobalData->m_videoEndFrame,
 			TheGameLogic->isInGame() && !TheGameLogic->isInShellGame(),
-			TheGameLogic->isInMultiplayerGame(),TheGameLogic->isInReplayGame());
+			TheGameLogic->isInMultiplayerGame(), TheGameLogic->isInReplayGame());
+#else
+		const bool captureClock = false;
+#endif
 		double capturePicture=0;
 		if(captureClock) {
 			const WaterCaptureClock::Sample sample=m_modernCaptureClock.Update(GameEngine_pictureFrame(),waterFrozen);

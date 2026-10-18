@@ -2341,6 +2341,7 @@ void W3DModelDraw::adjustTransformMtx(Matrix3D& mtx) const
 			}
 		}
 	}
+#if defined(__linux__)
 	// Capture-only model presentation; the drawable/object transform and PT physics stay intact.
 	// Both ordinary draw and transform-change notifications use this same adjusted render matrix,
 	// which is also the pose consumed by water hull extraction and reflected rendering.
@@ -2351,6 +2352,7 @@ void W3DModelDraw::adjustTransformMtx(Matrix3D& mtx) const
 			TheGameLogic->isInGame() && !TheGameLogic->isInShellGame(),
 			TheGameLogic->isInMultiplayerGame(), TheGameLogic->isInReplayGame()))
 		WaterCaptureFixture::ApplyRenderTransform(mtx);
+#endif
 
 }
 

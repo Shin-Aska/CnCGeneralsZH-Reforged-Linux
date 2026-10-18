@@ -2571,8 +2571,10 @@ target_link_libraries(fs_oracle PRIVATE wwlib wwdebug)
 # SKIPPED for that step and says how many it did not check.
 find_program(ZH_SPIRV_VAL spirv-val)
 add_lib_test(test_shader_sdl ffvertex engineshader sdl3shadercompile)
-# Reflect the compiled native water blocks against their CPU upload structures.
-target_link_libraries(test_shader_sdl PRIVATE spirv-cross-c)
+# Reflect the Linux Modern water blocks against their CPU upload structures.
+if(ZH_PLATFORM_LINUX)
+  target_link_libraries(test_shader_sdl PRIVATE spirv-cross-c)
+endif()
 if(ZH_SPIRV_VAL)
   set_tests_properties(test_shader_sdl PROPERTIES ENVIRONMENT "ZH_SPIRV_VAL=${ZH_SPIRV_VAL}")
 endif()
