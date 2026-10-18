@@ -3433,6 +3433,8 @@ Tools/ParticleEditor/post-build-Release.bat
 Tools/ParticleEditor/post-build.bat
 Tools/ParticleEditor/res/ParticleEditor.rc2
 Tools/ProfileSampler/eip_sampler.cpp
+Tools/ThraxWaterPollution.h
+Tools/ThraxWaterPreviewShader.cpp
 Tools/WW3D/max2w3d/AlphaModifier.cpp
 Tools/WW3D/max2w3d/AlphaModifier.h
 Tools/WW3D/max2w3d/AppData.cpp
@@ -3641,6 +3643,7 @@ Tools/WW3D/pluglib/win.h
 Tools/WW3D/pluglib/wwfile.h
 Tools/WW3D/pluglib/wwmath.cpp
 Tools/WW3D/pluglib/wwmath.h
+Tools/WaterPreviewColorPanel.h
 Tools/WorldBuilder/WorldBuilder.dsp
 Tools/WorldBuilder/include/AutoEdgeOutTool.h
 Tools/WorldBuilder/include/BaseBuildProps.h
@@ -4074,6 +4077,7 @@ Tools/versionUpdate/versionUpdate.cpp
 Tools/versionUpdate/versionUpdate.dsp
 Tools/vfx_tune.py
 Tools/water_grid_oracle_extract.py
+Tools/water_preview.cpp
 Tools/widechar_check.py
 Tools/widechar_check_allow.txt
 Tools/windows_view_diff.py

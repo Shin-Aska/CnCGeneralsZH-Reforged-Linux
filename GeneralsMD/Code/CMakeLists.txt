@@ -1455,6 +1455,17 @@ if(ZH_PLATFORM_POSIX)
   add_test(NAME posix_gpu_draw_selfcheck COMMAND posix_gpu_draw_selfcheck)
   set_tests_properties(posix_gpu_draw_selfcheck PROPERTIES SKIP_RETURN_CODE 77)
 
+  # Dedicated water material editor: the same device, FFT and shader as the game.
+  add_executable(water_preview EXCLUDE_FROM_ALL
+    ${CMAKE_CURRENT_SOURCE_DIR}/Tools/water_preview.cpp)
+  set_target_properties(water_preview PROPERTIES CXX_STANDARD 17)
+  target_include_directories(water_preview PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/PosixDevice/Render
+    ${WW}/WW3D2 ${ZH_POSIX_D3D9_INCLUDE})
+  target_link_libraries(water_preview PRIVATE posixd3d9 SDL3::SDL3-static)
+  # Preserve the original proposal's build-target name for existing local workflows.
+  add_custom_target(thrax_water_preview DEPENDS water_preview)
+
   # A3b's harness: the device's draws on this machine's GPU against FFReference, scenario by scenario,
   # with two armed controls that must fail (77 without a GPU).
   add_executable(ffref_gpu_selfcheck ${CMAKE_CURRENT_SOURCE_DIR}/Tests/test_ffref_gpu.cpp)
@@ -1953,6 +1964,10 @@ if(ZH_PLATFORM_POSIX)
     DEPENDS ${ZH_OVERLAY_INPUTS} ${CMAKE_CURRENT_SOURCE_DIR}/Tools/stage-overlay.sh
     COMMENT "Staging the fork's overlay (P1)" VERBATIM)
   add_custom_target(zh_overlay ALL DEPENDS ${CMAKE_BINARY_DIR}/overlay.staged)
+  if(TARGET water_preview)
+    add_dependencies(water_preview zh_overlay)
+  endif()
+
   add_custom_command(
     OUTPUT ${CMAKE_BINARY_DIR}/overlay-dev.staged
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/Tools/stage-overlay.sh ${CMAKE_CURRENT_SOURCE_DIR}/Data ""
