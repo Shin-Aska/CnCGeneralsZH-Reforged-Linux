@@ -27,59 +27,55 @@ Windows/macOS compilation and runtime remain unverified for this proposal.
 
 ## Hazard clouds
 
-**Options → Graphics → Cloud style**, directly below **Water style**, selects
-**Classic** or **Volumetric**. Volumetric is the default; switching applies live and
-persists as `CloudStyle = 0` or `CloudStyle = 1` in the player's Options.ini.
-The Linux package uses the same renderer as the [isolated preview](cloud-preview.md),
-including the approved green toxin, blue beta, purple gamma and amber nuclear colors.
-Their transparency defaults are 67%, 77%, 74% and 0%, respectively. These reduce
-optical thickness while preserving each hazard's footprint and timing; nuclear
-heat distortion and embers remain independent.
+On Linux, **Options → Graphics → Cloud style**, directly below **Water style**,
+selects **Classic** or **Volumetric**. Volumetric is the default; switching applies
+live and persists as `CloudStyle = 0` or `CloudStyle = 1` in Options.ini. The choice
+is independent of Water style and smoke shadows. Other platforms keep their
+existing ground fields and hide this selector.
 
-The clouds read each live field's actual emission radius and remaining lifetime.
-Toxin billows build outward; nuclear haze fades into its full footprint with darker
-smoke, rising embers and heat distortion. Terrain samples keep the smoke close to
-hills, while elevated emitters stay at their deck height. Visible infantry stir
-the smoke without pushing units or changing damage, weapons, AI or simulation state.
-The appearance of blast, spray and attached model effects remains authored by their
-particle definitions.
+The game shares its volume renderer with the [isolated preview](cloud-preview.md).
+Approved green toxin, blue beta, purple gamma and amber nuclear palettes use
+transparency defaults of 67%, 77%, 74% and 0%, respectively. The exact linear RGB,
+brightness and transparency values are retained in
+[preferred.ini](../GeneralsMD/Code/Tools/cloud_preview/presets/preferred.ini) and the
+matching compiled defaults. Preview palette files affect only the preview.
+Increasing transparency reduces optical thickness and self-shadowing; 100% hides
+smoke while nuclear heat and embers remain visible.
 
-Terrain validation currently covers height-map hills and planar elevated emitters.
-Cliffs and crossing decks have no dedicated production fixture yet; the single
-height per XY sample cannot represent multiple support surfaces within one field.
-Exact co-location of same-palette hazard owners is also outside the overlap
-fixture: production associates unattached emitters with the nearest matching owner,
-so coincident owners cannot be distinguished by that position lookup.
+Supported effects read their actual emission radius and hazard lifetime. Toxin
+billows form outward; nuclear haze fades into its full footprint. Formation is
+capped to one quarter of short hazard lifetimes. Visible infantry stir the smoke;
+hidden, stealthed or shrouded infantry contribute no new wakes. These effects do
+not change damage, weapons, movement, gameplay RNG or simulation state.
 
-The client admits at most eight visible cloud layers within a 192 MiB cache budget.
-Fields outside that budget, unknown mod effects, or unavailable GPU resources retain
-their Classic hazard appearance. Smoke caches and wakes reset on map/device changes.
-The demo's color editor remains available for further tuning; its saved color file
-is independent of the normal game's approved defaults.
+The client admits at most eight visible cloud layers within a 192 MiB atlas-cache
+budget. Over-budget fields, unknown effects and unavailable GPU resources keep
+Classic fallback. Rendering runs after opaque geometry and water in the main
+scene; reflection and custom passes leave the main-view cloud caches and wakes
+alone. Caches and wakes reset on map or device changes.
 
-Validation on 2026-10-18 used the real Linux executable with isolated profiles and
-real hazard objects. All four palettes, nuclear owner continuity, overlapping
-fields, hillside contact, Modern water, the eight-field budget and short-lived
-fallout passed. Live Classic/Volumetric switching persisted, active fields restored
-from a save, and the paired appearances produced the same gameplay-state CRC.
-The Graphics menu was checked visually at 1280×800. GPU validation reported no
-cloud shader or resource errors. These checks establish behavior and compatibility;
-they are not a crowded-battle FPS benchmark.
-The final approved transparency preset also passed 30 real-game checks covering
-all four palettes, Modern water and equal Classic/Volumetric gameplay CRCs. Those
-results are in `build-linux/cloud-preview/approved-transparency-game-check/`.
+The support model follows height-map terrain or an elevated plane. Cliffs and
+crossing decks have no dedicated production fixture or automatic geometry
+fallback; one height per XY sample cannot represent multiple support surfaces
+within a field. The overlap fixture separates its owners: position-based emitter
+association cannot distinguish exactly coincident owners of the same palette.
 
-Repeat the checks with
-[`hazard-cloud-check.py`](../GeneralsMD/Code/Tools/hazard-cloud-check.py); its
-[runtime check guide](../GeneralsMD/Code/Tools/cloud_preview/runtime-check.md)
-documents the fixtures. Its `--root` argument needs a prepared file-link root;
-[Checks with game data](#checks-with-game-data) explains how to retain one with
-`replay-check.sh --keep`. Substitute that path for the guide's local example.
-Local results are indexed by
-`build-linux/cloud-preview/production-validation-combined.json`, with exact
-executable hashes, logs and screenshots in the referenced per-case manifests.
-The published stripped executable and matching overlay also passed the four-palette
-fixture. Both the installed Linux launcher target and the development package were
-updated; their build IDs match the final build. The publisher retains the previous
-installed executable and managed overlay in a `.thin-publish-backup.*` directory
-inside the package and prints that recovery path after publishing.
+From an already configured Linux Release build with existing dependencies:
+
+```sh
+cmake --build build-linux --target generals cloud_preview \
+  test_hazard_cloud_policy test_gameengine
+ctest --test-dir build-linux --output-on-failure \
+  -R '^(test_hazard_cloud_policy|test_gameengine)$'
+```
+
+`cloud_preview` is excluded from the default build and is available only when
+Python 3 was found at configuration. The game does not depend on its scene
+controller, palette editor or generated inspection map. See the
+[preview guide](cloud-preview.md) for controls and standalone CPU checks, and the
+[production runtime guide](../GeneralsMD/Code/Tools/cloud_preview/runtime-check.md)
+for preparing a retail file-link root with `replay-check.sh --keep` and running
+real hazard fixtures. The runtime harness records executable/input hashes, logs,
+CRCs and captures in each new output directory. Inspect the captures and measure
+representative scenes separately: a passing harness does not establish image
+quality, crowded-battle performance or Windows/macOS runtime compatibility.
