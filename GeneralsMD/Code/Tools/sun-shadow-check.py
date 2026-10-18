@@ -166,12 +166,13 @@ def main():
         overrides["ZH_SUN_SHADOW_DEPTH_DUMP"] = str(out / "sun-depth.pgm")
     if args.icd:
         overrides["VK_DRIVER_FILES"] = str(args.icd.resolve())
+    repository = Path(__file__).resolve().parents[3]
     manifest = {"command": command, "environment": overrides, "case": args.case,
                 "mode": args.mode, "water": args.water, "quality": args.quality, "exe_sha256": digest(exe),
                 "trees": args.trees, "geometry_shadows": args.geometry_shadows, "smoke_shadows": args.smoke_shadows,
                 "options_sha256": digest(user / "Options.ini"),
-                "git_head": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
-                "git_diff_sha256": hashlib.sha256(subprocess.check_output(["git", "diff", "HEAD"])).hexdigest(),
+                "git_head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repository, text=True).strip(),
+                "git_diff_sha256": hashlib.sha256(subprocess.check_output(["git", "diff", "HEAD"], cwd=repository)).hexdigest(),
                 "timing_scope": "device probe includes loading; HEADLESS FRAMETIME starts after logic frame 60",
                 "measurement": args.measure}
     if scenario_source:
@@ -179,8 +180,7 @@ def main():
     if replay:
         manifest["replay"] = {"source": str(replay), "sha256": digest(replay)}
     # New backend files can be untracked while an increment is under review.
-    repository = Path(__file__).resolve().parents[3]
-    untracked = subprocess.check_output(["git", "ls-files", "--others", "--exclude-standard", "-z"], text=True).split("\0")
+    untracked = subprocess.check_output(["git", "ls-files", "--others", "--exclude-standard", "-z"], cwd=repository, text=True).split("\0")
     manifest["untracked_files_sha256"] = {name: digest(repository / name) for name in untracked
                                            if name and (repository / name).is_file()}
     manifest_path = out / "manifest.json"
