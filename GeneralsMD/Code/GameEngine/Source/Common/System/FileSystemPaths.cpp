@@ -75,4 +75,3 @@ Bool FileSystem::isForkUIPath(const AsciiString& filename)
 	}
 	return FALSE;
 }
-
