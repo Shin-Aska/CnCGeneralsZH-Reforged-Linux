@@ -19,6 +19,19 @@ found and fixed â€” EA's own, not port damage.**
   check still reports a two-pixel difference; [the Linux validation record](docs/linux.md) gives
   the environment, commands and remaining limits.
 
+## Volumetric hazard clouds on Linux (2026-10-18)
+
+- Cloud style appears directly below Water style, with live Classic / Volumetric
+  choices. The shared demo renderer now draws the game's toxin, beta, gamma and
+  nuclear fields using the approved colors, actual hazard radii and lifetimes.
+- Low smoke follows terrain and responds visually to passing infantry. Nuclear
+  fields fade in across their full area, with darker billows, rising embers and
+  heat distortion. The renderer has bounded caches and preserves Classic effects
+  when a field cannot be admitted; gameplay damage and simulation are unchanged.
+- The preview has per-cloud color, brightness and transparency controls, with
+  structures, props and Modern water for judging visibility. The approved preset
+  uses 67% toxin, 77% beta and 74% gamma transparency; nuclear remains at 0%.
+
 ## Modern water performance on Linux (2026-10-18)
 
 - Modern water skips water hidden beneath dry land, reducing slowdowns when the camera looks

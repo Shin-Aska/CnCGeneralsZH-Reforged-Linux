@@ -1064,10 +1064,13 @@ static void fillCatalogWidgets( void )
 			continue;
 
 #ifdef _WIN32
-        // Modern water is provided by the SDL renderer; Windows keeps its existing water.
-        if (strcmp(def.iniKey, "WaterStyle") == 0) {
+        // These alternate surfaces are provided by the SDL renderer.
+        if (strcmp(def.iniKey, "WaterStyle") == 0 || strcmp(def.iniKey, "CloudStyle") == 0) {
             widget->winHide(TRUE);
-            GameWindow *label=TheWindowManager->winGetWindowFromId(NULL,NAMEKEY("OptionsMenu.wnd:LabelWaterStyle"));
+            const char *labelName = strcmp(def.iniKey, "WaterStyle") == 0
+                ? "OptionsMenu.wnd:LabelWaterStyle" : "OptionsMenu.wnd:LabelCloudStyle";
+            GameWindow *label=TheWindowManager->winGetWindowFromId(
+                NULL, TheNameKeyGenerator->nameToKey(AsciiString(labelName)));
             if (label) label->winHide(TRUE);
             continue;
         }

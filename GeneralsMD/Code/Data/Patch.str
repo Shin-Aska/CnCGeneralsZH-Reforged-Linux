@@ -1182,6 +1182,22 @@ TOOLTIP:WaterStyle
 "Classic uses the original water, sparkles, reflections and wakes. Modern adds waves, shoreline detail and hull foam. Applied when you Accept."
 END
 
+GUI:CloudStyle
+"Cloud style"
+END
+
+GUI:CloudStyle0
+"Classic"
+END
+
+GUI:CloudStyle1
+"Volumetric"
+END
+
+TOOLTIP:CloudStyle
+"Classic uses the original toxin and radiation effects. Volumetric adds moving smoke, darker nuclear haze and heat shimmer. Applied when you Accept."
+END
+
 LAN:ErrorModMismatch
 "This game runs different mods. The host's mods: %s. Start the game with the same mods, in the same order, to join."
 END

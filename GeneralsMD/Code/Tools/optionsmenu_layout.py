@@ -167,6 +167,8 @@ NEW_CONTROLS = [
     (CHECK,  "CheckClassicGraphics",   "GUI:ClassicGraphics"),
     (LABEL,  "LabelWaterStyle",        "GUI:WaterStyle"),
     (COMBO,  "ComboBoxWaterStyle",      None),
+    (LABEL,  "LabelCloudStyle",        "GUI:CloudStyle"),
+    (COMBO,  "ComboBoxCloudStyle",      None),
     (LABEL,  "LabelMSAA",              "GUI:MSAA"),
     (COMBO,  "ComboBoxMSAA",           None),
     (LABEL,  "LabelBloom",             "GUI:Bloom"),
@@ -339,7 +341,8 @@ GROUP_LAYOUT = [
             setting("LabelBloom", "ComboBoxBloom"),
             ("check", "CheckGroundLighting"),
             ("check", "CheckHeatEffects"),
-            setting("LabelWaterStyle", "ComboBoxWaterStyle")])]),
+            setting("LabelWaterStyle", "ComboBoxWaterStyle"),
+            setting("LabelCloudStyle", "ComboBoxCloudStyle")])]),
 
     ("PageEffects", [
         ("GUI:OptionsGroupShadows",
@@ -913,6 +916,20 @@ def selfcheck():
         problems.append("%s still carries %s; its controls are on the Graphics page"
                         % (os.path.basename(LAYOUT), ADVANCED))
     problems.extend(overlaps(layout))
+
+    # Hazard cloud style belongs directly beneath water, independent of the
+    # separate particle thickness and smoke-shadow controls on Effects.
+    graphics = layout.find("PageGraphics")
+    water = layout.find("ComboBoxWaterStyle")
+    cloud_label = layout.find("LabelCloudStyle")
+    cloud = layout.find("ComboBoxCloudStyle")
+    if graphics and water and cloud_label and cloud:
+        if cloud not in graphics.children or cloud_label not in graphics.children:
+            problems.append("CloudStyle must be on the Graphics page")
+        if cloud.rect[0] != water.rect[0] or cloud.rect[1] != water.rect[1] + SETTING_PITCH:
+            problems.append("CloudStyle must be directly below WaterStyle in the same column")
+        if cloud_label.rect[1] != cloud.rect[1] - ROW_HEIGHT:
+            problems.append("CloudStyle label must sit above its combo box")
 
     for problem in problems:
         print("optionsmenu: %s" % problem)
