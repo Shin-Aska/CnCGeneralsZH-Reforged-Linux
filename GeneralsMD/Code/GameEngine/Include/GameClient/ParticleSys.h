@@ -718,6 +718,7 @@ public:
 	void trigger (void) { m_burstDelayLeft = 0; m_delayLeft = 0;}
 
 	void setInitialDelay( UnsignedInt delay ) { m_delayLeft = delay; }
+	UnsignedInt getInitialDelayLeft() const { return m_delayLeft; }
 
 	AsciiString getParticleTypeName( void ) { return m_particleTypeName; }	///< return the name of the particles
 	Bool isUsingDrawables( void ) { return (m_particleType == DRAWABLE) ? true : false; }

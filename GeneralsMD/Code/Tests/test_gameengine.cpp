@@ -14227,6 +14227,41 @@ TEST(water_style_defaults_to_modern_and_preserves_an_explicit_classic_choice)
     TheWritableGlobalData=saved;
 }
 
+TEST(cloud_style_defaults_to_volumetric_and_preserves_an_explicit_classic_choice)
+{
+    GlobalData *saved = TheWritableGlobalData;
+    GlobalData *scratch = NEW GlobalData;
+    TheWritableGlobalData = scratch;
+    const OptionDef *cloud = findOptionDef("CloudStyle");
+    CHECK(cloud != NULL);
+    if (cloud) {
+        UserPreferences pref;
+        CHECK_EQ(scratch->m_cloudStyle, 1);
+        CHECK_EQ(cloud->kind, OPTION_ENUM);
+        CHECK_EQ(cloud->apply, APPLY_LIVE);
+        CHECK_EQ(cloud->lo, 0);
+        CHECK_EQ(cloud->hi, 1);
+        CHECK_STR(cloud->widgetName, "OptionsMenu.wnd:ComboBoxCloudStyle");
+        // The cloud appearance is independent of water and particle smoke shadows.
+        scratch->m_waterStyle = 0;
+        scratch->m_volumetricSmokeShadows = FALSE;
+        loadOptionsFromPreferences(pref);
+        CHECK_EQ(cloud->get(), 1);
+        pref["CloudStyle"] = "0";
+        loadOptionsFromPreferences(pref);
+        CHECK_EQ(cloud->get(), 0);
+        saveOptionsToPreferences(pref);
+        CHECK_STR(pref["CloudStyle"].str(), "0");
+        pref["CloudStyle"] = "1";
+        loadOptionsFromPreferences(pref);
+        CHECK_EQ(cloud->get(), 1);
+        CHECK_EQ(scratch->m_waterStyle, 0);
+        CHECK(!scratch->m_volumetricSmokeShadows);
+    }
+    delete scratch;
+    TheWritableGlobalData = saved;
+}
+
 TEST(option_catalog_round_trips_every_key_through_options_ini)
 {
 	/* Every row has to survive the trip out to Options.ini and back, at both ends of its range.

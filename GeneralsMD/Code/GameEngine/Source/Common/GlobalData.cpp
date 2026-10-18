@@ -696,6 +696,7 @@ GlobalData::GlobalData()
 	m_volumetricSmokeShadows = TRUE;
 	m_smokeFireLighting = TRUE;
 	m_waterStyle = 1;				// keep modern water for existing Options.ini files
+	m_cloudStyle = 1;				// approved volumetric hazard clouds unless Classic is explicitly selected
 	m_explosionDebrisTrails = TRUE;
 	m_shadowQuality = 1;					//medium, the 2048 map the shadows always had
 	m_classicGraphics = FALSE;

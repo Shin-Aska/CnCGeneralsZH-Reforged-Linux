@@ -52,6 +52,11 @@ public:
 	~W3DParticleSystemManager();
 
 	virtual void reset();
+	/// Forget only cached contamination footprints; all particle systems remain alive.
+	/// With fadeIn=false, fields collected on the next render appear immediately,
+	/// including while logic is paused. Later fields retain their normal fade-in.
+	void invalidateGroundFields(bool fadeIn = true);
+	static void releaseCloudResources(); // Before display/device teardown or reset.
 	virtual void doParticles(RenderInfoClass &rinfo);
 	virtual void queueParticleRender();
 	///< returns the number of particles shown on screen per frame

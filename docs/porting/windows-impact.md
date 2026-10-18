@@ -465,3 +465,13 @@ tree silhouettes, caster selection and constant-cache comparisons. macOS keeps
 its original scene shadows through refused sun-map admission. New shared API
 and queue metadata still compile on both platforms, so compilation and runtime
 checks remain open. Linux GPU tests are not Windows/macOS validation.
+
+## Linux hazard cloud proposal (2026-10-19)
+
+The production volume implementation and preview target compile on Linux. The
+new particle recognition, owner/lifetime tracking, terrain caches and infantry
+wakes are enabled only on Linux. Other platforms retain their original ground
+fields; shared option metadata and no-op resource hooks still compile there.
+`SdlRenderMatrix.h` is a small, pure matrix helper also used by the shadow
+proposal; this PR needs it without requiring the shadow renderer. Windows and
+macOS compilation and runtime validation remain open.
