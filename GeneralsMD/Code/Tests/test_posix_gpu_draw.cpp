@@ -1053,6 +1053,13 @@ static void check_sun_water(PosixDevice9 *device)
     device->SetFVF(D3DFVF_XYZ|D3DFVF_DIFFUSE|D3DFVF_TEX4);
     CHECK(SunShadow::Begin(device,32));device->DrawPrimitiveUP(D3DPT_TRIANGLELIST,2,vertices,sizeof(V));
     CHECK(SunShadow::End(device));
+    // Capture in one view, then receive through a translated, scaled view. The scene's
+    // clip-to-sun matrix is non-symmetric: the blocker's world x=0 edge now lands at
+    // screen x=20. An accidentally column-major upload leaves it near x=16 instead.
+    D3DMATRIX sceneView = camera;
+    sceneView._11 = .8f;
+    sceneView._41 = .25f;
+    device->SetTransform(D3DTS_VIEW, &sceneView);
     for(auto &v:vertices) {v.x=v.x*2+1;v.z=.75f;v.uv[3]=.75f;}
     const RenderUInt32 tokens[]={0xffff0101u,0x0000ffffu};IDirect3DPixelShader9 *shader=nullptr;
     CHECK(device->CreatePixelShader(tokens,&shader)==D3D_OK);
@@ -1068,20 +1075,22 @@ static void check_sun_water(PosixDevice9 *device)
     for(const char *name:{"trapezoid water ps.1.1","river water ps.1.1"}) {
         PosixDevice_Name_Shader(shader,name);device->SetPixelShader(shader);
         const auto lit=render(0),shadow=render(.8f);
-        unsigned darkened=0;
+        unsigned darkened=0, translatedShadow=0;
         for(unsigned y=8;y<24;++y)for(unsigned x=4;x<28;++x)for(unsigned c=0;c<3;++c) {
             const unsigned at=(y*SIZE+x)*4+c;
             if(x<12 && shadow[at]+2<lit[at]) ++darkened;
+            if(x>=17 && x<=18 && shadow[at]+2<lit[at]) ++translatedShadow;
             if(x>20) CHECK(shadow[at]==lit[at]);
         }
         if(darkened<=100)printf("water %s: darkened %u, lit=%u,%u,%u shadow=%u,%u,%u\n",name,darkened,lit[(16*SIZE+8)*4],lit[(16*SIZE+8)*4+1],lit[(16*SIZE+8)*4+2],shadow[(16*SIZE+8)*4],shadow[(16*SIZE+8)*4+1],shadow[(16*SIZE+8)*4+2]);
         CHECK(darkened>100);
+        CHECK(translatedShadow>24);
         {SunShadow::ReceiverExclusion exclusion(device);CHECK(render(.8f)==lit);}
     }
     device->SetPixelShader(nullptr);shader->Release();device->SetRenderState(D3DRS_CULLMODE,D3DCULL_CCW);
     }
     if(had)setenv("ZH_SUN_SHADOW_MODE",saved.c_str(),1);else unsetenv("ZH_SUN_SHADOW_MODE");
-    printf("sun water: flat/river production receivers, lit region, explicit exclusion and analytic array fallback checked\n");
+    printf("sun water: flat/river production receivers, translated/scaled camera and shadow edge, lit region, explicit exclusion and analytic array fallback checked\n");
 }
 
 static void check_sun_reset(PosixDevice9 *device)

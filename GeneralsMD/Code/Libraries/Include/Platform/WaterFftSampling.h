@@ -48,7 +48,7 @@ inline std::string UniformSource(const char *name,unsigned slot,bool visual_hull
     float4 FoamFillLights[4];
     float4 CoastalArea;
     float4 CoastalParams;
-    float4x4 ShadowFromClip;
+    row_major float4x4 ShadowFromClip;
     float4 ShadowParameters;
     float4 ShadowViewport;
     float4 ShadowSoftness;
