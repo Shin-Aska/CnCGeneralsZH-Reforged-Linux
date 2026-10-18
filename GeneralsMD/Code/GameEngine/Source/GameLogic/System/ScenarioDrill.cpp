@@ -1871,6 +1871,7 @@ static Bool executeConstruct( const ScenarioAction &action, Player *player, cons
 	return TRUE;
 }
 
+#if defined(__linux__)
 // The campaign has stable internal player names but may have no skirmish seat.
 // This path can command only one explicitly installed disposable capture template.
 static Bool executeWaterCaptureFixture(const ScenarioAction& action)
@@ -1913,6 +1914,8 @@ static Bool executeWaterCaptureFixture(const ScenarioAction& action)
 	return success;
 }
 
+#endif
+
 /** The Ctrl+Alt build key on a factory: one MSG_SET_REPEAT_UNIT onto the message stream, recorded and
 	  sent to every machine like construct, so only the local player can press it. */
 static Bool executeRepeat( const ScenarioAction &action, Player *player )
@@ -1939,7 +1942,13 @@ static Bool executeRepeat( const ScenarioAction &action, Player *player )
 Bool ScenarioDrill_execute( const ScenarioAction &action )
 {
 	if (action.capturePlayerName.isNotEmpty())
+	{
+#if defined(__linux__)
 		return executeWaterCaptureFixture(action);
+#else
+		return FALSE;
+#endif
+	}
 
 	Player *player = findPlayerForSlot( action.slot );
 	if (player == NULL)

@@ -662,6 +662,7 @@ static void check_gpu_ocean_wave_model(SdlGpuFrame *frame)
 	SDL_ReleaseGPUShader(frame->Device(),pixel);
 }
 
+#if defined(__linux__)
 static void check_gpu_water_mesh_correction(SdlGpuFrame *frame)
 {
 	// Exercise the production water normal, including its UV0 metadata gate and fixed-function
@@ -807,6 +808,7 @@ static void check_gpu_water_mesh_correction(SdlGpuFrame *frame)
 	checkNormal(render(false,0),0,0);
 	printf("sdl_gpu_frame_selfcheck: GPU production water correction: %u renders; known normals, legacy gate, constant offsets, projection rotation and armed texture-transform control passed\n",renders);
 }
+#endif // __linux__
 
 static void check_gpu_water_optical_model(SdlGpuFrame *frame)
 {
@@ -1088,6 +1090,7 @@ static void check_gpu_water_hull_distance(SdlGpuFrame *frame)
 // These are renderer fixtures, not injected gameplay velocities. The stable USA02 save has
 // stationary ships and no PT-boat patrol script, so it cannot validate moving-vessel integration.
 // Render the production wake function over an independently specified rectangular waterline.
+#if defined(__linux__)
 static void check_gpu_water_hull_effects(SdlGpuFrame *frame)
 {
 	using namespace WaterHullModel;
@@ -1312,6 +1315,7 @@ static void check_gpu_water_hull_effects(SdlGpuFrame *frame)
 	SDL_ReleaseGPUTexture(frame->Device(),target);SDL_ReleaseGPUGraphicsPipeline(frame->Device(),pipeline);
 	SDL_ReleaseGPUShader(frame->Device(),vertex);SDL_ReleaseGPUShader(frame->Device(),pixel);
 }
+#endif // __linux__
 
 // A float readback used only by verification. Runtime FFT never reads a result back to the CPU.
 static std::vector<float> read_float_targets(SdlGpuFrame *frame,SDL_GPUTexture *const *textures,
@@ -1342,6 +1346,7 @@ static std::vector<float> read_float_targets(SdlGpuFrame *frame,SDL_GPUTexture *
 }
 
 // Verify depth-aware colour filtering with an explicit independent valid-tap case table.
+#if defined(__linux__)
 static void check_gpu_water_refraction_footprint(SdlGpuFrame *frame)
 {
     const unsigned rows=27,columns=3;
@@ -1631,8 +1636,10 @@ float4 main(float4 position:SV_Position):SV_Target0
     CHECK(renders==10 && checked==54 && armedLeaks==26 && missingColourChecks==108);
     printf("sdl_gpu_frame_selfcheck: M4D production depth-aware colour filter: %u renders, %u cases at two sizes, %u armed nearest-only leaks, %u missing-colour checks; independent normalized colours, nearest transport, both surfaces/rays, clear depth, margins, viewport and fallback passed\n",renders,checked,armedLeaks,missingColourChecks);
 }
+#endif // __linux__
 
 // Verify production refraction helpers against independent ray/plane intersections.
+#if defined(__linux__)
 static void check_gpu_water_refraction_coordinates(SdlGpuFrame *frame)
 {
     const unsigned rows=10,columns=3;
@@ -1857,6 +1864,7 @@ float4 main(float4 position : SV_Position) : SV_Target0
     CHECK(armedSign==6 && armedViewport==2);
     printf("sdl_gpu_frame_selfcheck: M4A production refraction helpers: %u renders; sign, zero, tilt, optical shift, clamp, fractional centres, subviewport and resize passed; %u sign/%u viewport old controls\n",renders,armedSign,armedViewport);
 }
+#endif // __linux__
 
 // Authored material invariants are checked on the GPU with the production helpers. This
 // deliberately avoids a second C++ implementation of their colour conversion or extinction.
@@ -2554,6 +2562,7 @@ float4 main(float4 position:SV_Position):SV_Target0 {
 	printf("sdl_gpu_frame_selfcheck: exact visual query: 27 closed-form/guard cases x8 hulls x12 outputs; triangle/raked hull/actual-height/tangent/coplanar/empty/corrupt, all packet boundaries; max error %.9g, mismatches %u, armed %u\n",maxError,checked,armed);
 }
 
+#if defined(__linux__)
 static void check_gpu_water_visual_zero_effect_skip(SdlGpuFrame *frame)
 {
 	// Compare actual emitted effects against an explicit full-query control using the current
@@ -2784,6 +2793,7 @@ float4 main(float4 pixel:SV_Position):SV_Target0 {
 	printf("sdl_gpu_frame_selfcheck: exact zero-effect skip: %zu cases x%u samples, emitted/control same-fragment max %.9g, mismatches %u; query-skipped %u active %u; calm/trough and moving thresholds, all8 slots/96 triangles, stationary slope/zero-slope crest, moving/reverse, mixed accumulation, actual-height and guards checked\n",
 		cases.size(),samplesX*samplesY,maxError,mismatches,skipped,active);
 }
+#endif // __linux__
 
 // Append after read_float_targets; include Platform/WaterCoastalSurf.h once and call
 // check_gpu_coastal_surf_owner(frame) in the GPU selfcheck after core math fixtures.
@@ -3445,6 +3455,7 @@ static void check_gpu_foam_history_tiles(SdlGpuFrame *frame)
     }
 }
 
+#if defined(__linux__)
 static void check_gpu_foam_history_sampling(SdlGpuFrame *frame)
 {
 	// Unequal density/age moments distinguish filtered weighted age from an incorrectly
@@ -3552,7 +3563,9 @@ static void check_gpu_foam_history_sampling(SdlGpuFrame *frame)
 	resources.atlas->Release();resources.atlas=NULL;mirrors.Collect_Dead();CHECK(frame->Flush());
 	printf("sdl_gpu_frame_selfcheck: GPU production foam history: %u samples, age %.8f/churn %.8f; density-weighted filtering, level/outside/border/disabled guards, exact pause and elapsed-time breakup (%u changed, %u fragmented) checked\n",rows,ageError,churnError,breakupChanged,remnants);
 }
+#endif // __linux__
 
+#if defined(__linux__)
 static void check_gpu_foam_microcoverage(SdlGpuFrame *frame)
 {
 	// Evaluate the real production helper over large, distinct world windows. The independent
@@ -4184,7 +4197,9 @@ static void check_gpu_foam_microcoverage(SdlGpuFrame *frame)
 
 	printf("sdl_gpu_frame_selfcheck: GPU foam microcoverage: %u world atlases, maximum expected-coverage error %.7f; uniform-rank density/value/mean errors %.7f/%.7f/%.7f; graded fresh %u, close mean %.7f, time-step max %.7f and 1-second RMS %.7f; old/frozen patch variogram %.7f/%.7f; soft/hard edge energy %.7f/%.7f, band %.7f/%.7f; rank quadrature %.7f; exact pause/world pan/old ages, smooth age %.7f (gates %.9f), footprint %.7f/%.7f/%.7f checked\n",renders,maximumMeanError,densityError,coverageQuadratureError,meanFormulaError,gradedInterior,freshMean,tinyTimeChange,temporalRms,shapeVariogram[0],shapeVariogram[1],softEnergy[0],softEnergy[1],softEnergy[2],softEnergy[3],rankAreaError,maximumAgeChange,ageGateChange,nearChange,farChange,freshFilterChange);
 }
+#endif // __linux__
 
+#if defined(__linux__)
 static void check_gpu_foam_irradiance(SdlGpuFrame *frame)
 {
 	// These are authored legacy light colours, not pre-linearized radiance. Expected values
@@ -4319,7 +4334,9 @@ static void check_gpu_foam_irradiance(SdlGpuFrame *frame)
 	CHECK(values[21*4+3]>.3f && values[23*4+3]==0);
 	printf("sdl_gpu_frame_selfcheck: GPU production foam irradiance: %u coloured fixtures, independent error %.8f; zero/one/three lights, unshadowed authored fills, ambient invariance, rotated normals, Island missing-fill control %.8f, USA02 unchanged, HDR/no clamp and decode-after-light-sum control %.8f checked\n",rows,errorMax,values[21*4+3],wrongLinearOrder);
 }
+#endif // __linux__
 
+#if defined(__linux__)
 static void check_gpu_foam_environment(SdlGpuFrame *frame)
 {
 	using namespace WaterFoamEnvironment;
@@ -4539,7 +4556,9 @@ Result main(float4 pixel:SV_Position) {
 	CHECK(std::abs(Evaluate(unit,{0,0,1}).r-1)<.00001 && std::abs(Evaluate(unit,{0,0,-1}).r-1)<.00001);
 	printf("sdl_gpu_frame_selfcheck: GPU foam sky: %u full-sphere/rotated/light queries; independent original-sky integral max %.7f, sphere/cosine convergence %.7f/%.7f, CPU/GPU %.7f, rigid rotation %.7f; ambient replacement %.7f, executed production callsite with exact zero-foam/offshore0/HDR and shadow increment, constant positive energy %.7f..%.7f checked\n",count,maxReferenceError,maxConvergence,maxCosineConvergence,maxCpuGpu,maxRotation,maxAmbient,unitMinimum,unitMaximum);
 }
+#endif // __linux__
 
+#if defined(__linux__)
 static void check_gpu_foam_material(SdlGpuFrame *frame)
 {
 	// Execute the actual material helpers and the emitted production integration block. A
@@ -4732,7 +4751,9 @@ static void check_gpu_foam_material(SdlGpuFrame *frame)
 	resources.mirror->Release();resources.mirror=NULL;mirrors.Collect_Dead();CHECK(frame->Flush());
 	printf("sdl_gpu_frame_selfcheck: GPU rough foam material: %u fixtures, independent filter/material/layer/production errors %.8f/%.8f/%.8f/%.8f; mip-zero coloured planar filtering, isotropic broadening, sky/border/level guards, single-Fresnel/HDR/convex energy, exact clear/crest invariance and decode-before-filter control %.8f checked\n",rows,filterError,materialError,layerError,productionError,decodeControl);
 }
+#endif // __linux__
 
+#if defined(__linux__)
 static void check_gpu_coastal_material(SdlGpuFrame *frame)
 {
 	// Execute the actual emitted material block. Independent double-precision weights and
@@ -4886,6 +4907,7 @@ static void check_gpu_coastal_material(SdlGpuFrame *frame)
 	printf("sdl_gpu_frame_selfcheck: GPU coastal material: %u actual emitted-block fixtures; independent lighting/weight/display/fog/shroud/alpha error %.8f, armed old-material %.6f and vessel-albedo %.6f controls; exact zero/crest/vessel/max-hidden identity, full and mixed coverage, same albedo, shadow/fill/HDR, tangent %u, fog %u and shroud %u checked\n",
 		rows,maximumError,oldControl,wrongAlbedoControl,tangent,fogged,shrouded);
 }
+#endif // __linux__
 
 // Independent scalar pressure reference: intentionally does not call the production parameter
 // builder, constants, dual arithmetic, or derivative expressions. GPU slopes use differences
@@ -5546,6 +5568,7 @@ Result main(CageProbe input) {
 	printf("sdl_gpu_frame_selfcheck: GPU wave cages: VS3/PS2 real wrapper %.8f, independent map %.8f, full spatial derivative %.8f (%u checks), stage %.8f/projection %.8f/floor filter %.8f bound %.8f, armed legacy coast delta %.5f; waterline, zero, partial support, obstacle and four fallback guards checked\n",maxVertex,maxValue,maxDerivative,checks,maxStage,maxProjection,maxFloor,floorFilterBound,armed);
 }
 
+#if defined(__linux__)
 static void check_gpu_water_hull_normal(SdlGpuFrame *frame)
 {
 	// A constant spectral height has zero spectral slope. Its production normal is therefore
@@ -5687,6 +5710,7 @@ Output main(uint id:SV_VertexID) {
 	CHECK(active>200 && maximumControl>.01 && controls>100);
 	printf("sdl_gpu_frame_selfcheck: GPU production hull normal: %u renders, independent normal %.8f/diagonal %.8f/floor %.8f/zero-weight %.8f; armed interpolated damping diagonal error %.8f (%u components), disabled vessel-wave gate checked\n",renders,maximumError,maximumDiagonal,maximumFloor,maximumSeam,maximumControl,controls);
 }
+#endif // __linux__
 
 #include "WaterBowShoulderTest.h"
 static void check_gpu_water_bow_shoulder(SdlGpuFrame *frame)
@@ -7170,6 +7194,7 @@ float4 main(float4 pixel:SV_Position):SV_Target0 {
 }
 
 
+#if defined(__linux__)
 static void check_gpu_water_coastal_crest(SdlGpuFrame *frame)
 {
     struct Env {
@@ -7269,7 +7294,9 @@ float4 main(float4 pixel:SV_Position):SV_Target0 {
     printf("sdl_gpu_frame_selfcheck: coastal crest %u cases; actual production helper vs independent scalar/FD-normal max %.9g, exact pause, opt-out source identity\n",rows,maximum);
     check_gpu_water_coastal_crest_injection(frame,production);
 }
+#endif // __linux__
 
+#if defined(__linux__)
 static void check_gpu_water_shore_front(SdlGpuFrame *frame)
 {
     using namespace WaterShoreFoam;
@@ -7367,7 +7394,9 @@ float4 main(float4 pixel:SV_Position):SV_Target0 {
     CHECK(active>5&&changed>5&&filtered>5);
     printf("sdl_gpu_frame_selfcheck: phase-locked shore front %u cases, independent integrated phase/rate/residence/blend max %.8g; %u active, %u old-cap controls, %u footprint controls, exact pause\n",rows,maximum,active,changed,filtered);
 }
+#endif // __linux__
 
+#if defined(__linux__)
 static void check_gpu_water_shore_source(SdlGpuFrame *frame)
 {
     // Production source, independently checked against double scalar height and analytic
@@ -7447,6 +7476,7 @@ static void check_gpu_water_shore_source(SdlGpuFrame *frame)
     CHECK(values[(16*columns+1)*4]>.5f && values[(17*columns+1)*4]==0 && values[(18*columns+1)*4]==0);
     printf("sdl_gpu_frame_selfcheck: coastal source %u queries: wave/independent space-time %.8f, rate/blend %.8f; incoming/outgoing, trough, exposure, dry/deep, invalid, exact pause and fallback checked\n",rows,maxWave,maxRate);
 }
+#endif // __linux__
 
 
 static void check_gpu_authored_shore_overlay(SdlGpuFrame *frame)
@@ -7553,6 +7583,7 @@ Output main(uint id:SV_VertexID) {
     printf("sdl_gpu_frame_selfcheck: authored surf production wrapper: dry/wet replacement %u/%u, %u object/invalid fallbacks, max %.8f; original RGB/fog/shroud, unavailable resources and pause preserved\n",dry,wet,preserved,maximum);
 }
 
+#if defined(__linux__)
 static void check_gpu_water_shore_history(SdlGpuFrame *frame)
 {
     // Real production alpha sampler and non-double-counting composition, with independently
@@ -7662,7 +7693,9 @@ float4 main(float4 pixel:SV_Position):SV_Target0 {
     CHECK(armed==16);
     printf("sdl_gpu_frame_selfcheck: coast alpha 8x8, 8 cases, linear sampling, age hold, pause, level/window flags, source trough, no double count, upload replacement and %u armed RGB-channel controls checked\n",armed);
 }
+#endif // __linux__
 
+#if defined(__linux__)
 static void check_gpu_water_shore_depth_gate(SdlGpuFrame *frame)
 {
     // Execute the actual generated coastal branch with a point-sampled depth texture and
@@ -7811,6 +7844,7 @@ float4 main(float4 pixel:SV_Position):SV_Target0 {
     CHECK(accepted>0 && invalidArmed>0 && unavailableArmed>0 && dry>0 && object>0 && spectralSuppressed>0 && historyArmed>0);
     printf("sdl_gpu_frame_selfcheck: coastal original-depth raster %zu cases, generated branch max %.8f; real/clear/negative/nonfinite, unavailable, offset viewport, trough, dry/object, FFT suppression of analytic source/history and exact pause checked\n",cases.size(),maximumError);
 }
+#endif // __linux__
 
 // Core-only fixture: actual production FFT decode/limiter feeds the proposed source.
 // Native texture binding, graph transport and scene masks remain separate rollout gates.
@@ -8100,6 +8134,7 @@ static void check_gpu_water_coastal_incident(SdlGpuFrame *frame)
 // Run after the new presentation header/uniform transport is integrated. This fixture
 // extracts the ACTUAL generated injection, then supplies controlled scene provenance.
 // Existing scene-depth/refraction tests independently validate real reconstruction.
+#if defined(__linux__)
 static void check_gpu_water_coastal_presentation(SdlGpuFrame *frame)
 {
     struct Query{float q[7][4];};
@@ -8241,6 +8276,7 @@ float4 main(float4 pixel:SV_Position):SV_Target0 {
     CHECK(actual[23*8+2]==0&&actual[12*8+2]==0&&actual[16*8+2]==0); // false fallback, object, known hull armed
     printf("sdl_gpu_frame_selfcheck: coastal presentation actual injection %u cases, independent moment/model/original-depth/wet/porosity oracle max%.9g admitted%u rejected%u repeat exact; absolute-time shift exact\n",rows,maximum,admitted,rejected);
 }
+#endif // __linux__
 
 int main()
 {
@@ -8264,29 +8300,41 @@ int main()
 	check_gpu_modern_water_material(frame);
 	check_gpu_water_visual_uniform_order(frame);
 	check_gpu_water_visual_query(frame);
+#if defined(__linux__)
 	check_gpu_water_visual_zero_effect_skip(frame);
+#endif
 	check_gpu_coastal_surf_owner(frame);
 	check_gpu_coastal_surf_view(frame);
+#if defined(__linux__)
 	check_gpu_water_coastal_presentation(frame);
+#endif
 	check_gpu_foam_history_upload(frame);
 	check_gpu_foam_history_tiles(frame);
+#if defined(__linux__)
 	check_gpu_foam_history_sampling(frame);
 	check_gpu_foam_microcoverage(frame);
 	check_gpu_foam_irradiance(frame);
 	check_gpu_foam_environment(frame);
 	check_gpu_water_shore_source(frame);
+#endif
 	check_gpu_water_coastal_surf_core(frame);
+#if defined(__linux__)
 	check_gpu_water_coastal_crest(frame);
 	check_gpu_water_shore_front(frame);
 	check_gpu_water_shore_depth_gate(frame);
 	check_gpu_water_shore_history(frame);
+#endif
 	check_gpu_authored_shore_overlay(frame);
+#if defined(__linux__)
 	check_gpu_foam_material(frame);
 	check_gpu_coastal_material(frame);
+#endif
 	check_gpu_vessel_wave_model(frame);
 	check_gpu_vessel_hull_damping(frame);
 	check_gpu_water_wave_cage(frame);
+#if defined(__linux__)
 	check_gpu_water_hull_normal(frame);
+#endif
 	check_gpu_water_bow_shoulder(frame);
 	check_gpu_water_bow_refinement(frame);
 	check_gpu_fft_vessel_composition(frame);
@@ -8294,14 +8342,20 @@ int main()
 	check_gpu_fft_vessel_composition(frame,true,true);
 	check_gpu_wave_model(frame);
 	check_gpu_ocean_wave_model(frame);
+#if defined(__linux__)
 	check_gpu_water_mesh_correction(frame);
+#endif
 	check_gpu_water_optical_model(frame);
 	check_gpu_water_optical_ray_shift(frame);
+#if defined(__linux__)
 	check_gpu_water_refraction_coordinates(frame);
 	check_gpu_water_refraction_footprint(frame);
+#endif
 	check_gpu_water_material_transport(frame);
 	check_gpu_water_hull_distance(frame);
+#if defined(__linux__)
 	check_gpu_water_hull_effects(frame);
+#endif
 
 	// A colour clear: D3DCOLOR 0x80402010 is A 0x80, R 0x40, G 0x20, B 0x10.
 	frame->Clear_Back_Buffer(true, true, true, 0x80402010u, 1.0f, 0);
