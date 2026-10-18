@@ -24,11 +24,11 @@ jobs:
             libx11-dev libxext-dev libxcursor-dev libxi-dev libxfixes-dev libxrandr-dev libxss-dev \
             libxtst-dev libwayland-dev libxkbcommon-dev wayland-protocols libegl-dev libdrm-dev \
             libgbm-dev libvulkan-dev spirv-tools
-      - name: Fetch pinned POSIX source dependencies
+      - name: Fetch pinned POSIX dependencies and optional published art
         if: runner.os != 'Windows'
         shell: bash
         run: GeneralsMD/Code/Tools/vendor.sh
-      - name: Fetch pinned Windows source dependencies
+      - name: Fetch pinned Windows dependencies and optional published art
         if: runner.os == 'Windows'
         shell: pwsh
         run: GeneralsMD/Code/Tools/vendor.ps1
