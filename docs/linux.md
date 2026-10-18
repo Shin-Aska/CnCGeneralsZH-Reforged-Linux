@@ -11,3 +11,8 @@ into the build overlay; invalid or missing game rules use built-in defaults.
 Build the standalone editor explicitly: `cmake --build build-linux --target water_preview`.
 See [water-preview.md](water-preview.md) for controls, matching, explicit exports
 and the distinction between game fallback and preview parse failures.
+
+The reference baseline fails `widechar_check` on hotkey character literals and a
+tooltip arrow. The prerequisite text fixes use `u` character literals and a
+`\u2192` escape, retaining the same character values while satisfying the
+portable source checks. These fixes do not enable new Windows rendering.
