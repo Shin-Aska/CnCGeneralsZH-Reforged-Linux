@@ -52,7 +52,10 @@ jobs:
           fi
       - name: Rendering CPU checks without retail data
         shell: bash
+        env:
+          ZH_USER_DATA_DIR: ${{ github.workspace }}/build-render/test-user-data/rendering-cpu-filters
         run: |
+          mkdir -p "$ZH_USER_DATA_DIR"
           ctest --test-dir build-render -C Release --output-on-failure \
             -R '^(build_fingerprint_check|build_fingerprint_manifest|fingerprint_manifest_selfcheck|test_modern_water_config|test_water_preview_preset|test_water_grid|test_water_tracks|test_hazard_cloud_policy|test_shader_sdl|test_ffshadercompile|optionsmenu_selfcheck)$'
           executable=build-render/test_gameengine
