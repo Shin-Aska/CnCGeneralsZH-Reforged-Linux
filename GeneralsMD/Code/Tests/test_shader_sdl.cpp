@@ -60,6 +60,9 @@
 #include <complex>
 
 #include <SDL3/SDL.h>
+#include <spirv_cross_c.h>
+
+#include "../GameEngineDevice/Source/PosixDevice/Render/SdlConstants.h"
 
 #include "sdl3shadercompile.h"
 #include "shader_cases.h"
@@ -312,6 +315,167 @@ TEST(fft_water_vertex_and_pixel_compile_with_separate_texture_bindings)
 		CHECK(SDL3_Translate_SPIRV_To_MSL(spirv,isVertex,msl,log));
 		CHECK(slots_kept(msl,samplers,why));
 	}
+}
+
+namespace {
+
+// Restore launch-time shader options after testing each production variant.
+struct SavedShaderOption
+{
+    const char *name;
+    bool present;
+    std::string value;
+
+    explicit SavedShaderOption(const char *key) : name(key), present(getenv(key) != NULL),
+        value(present ? getenv(key) : "") {}
+
+    ~SavedShaderOption()
+    {
+        if (present) setenv(name, value.c_str(), 1);
+        else unsetenv(name);
+    }
+};
+
+struct WaterUniformMember
+{
+    const char *name;
+    size_t offset;
+    size_t size;
+};
+
+// The first three fields are flattened in HLSL, while C++ nests that common prefix.
+#define WATER_COMBINER_MEMBER(name) { #name, offsetof(SdlWaterPixelConstants, Combiner) \
+    + offsetof(SdlPixelConstants, name), sizeof(((SdlPixelConstants *)NULL)->name) }
+#define WATER_UNIFORM_MEMBER(name) { #name, offsetof(SdlWaterPixelConstants, name), \
+    sizeof(((SdlWaterPixelConstants *)NULL)->name) }
+const WaterUniformMember WaterUniformMembers[] = {
+    WATER_COMBINER_MEMBER(TextureFactor),
+    WATER_COMBINER_MEMBER(FogColour),
+    WATER_COMBINER_MEMBER(AlphaReference),
+    WATER_UNIFORM_MEMBER(WorldFromClip),
+    WATER_UNIFORM_MEMBER(CameraPosition),
+    WATER_UNIFORM_MEMBER(SunDirection),
+    WATER_UNIFORM_MEMBER(SunColour),
+    WATER_UNIFORM_MEMBER(Viewport),
+    WATER_UNIFORM_MEMBER(ReflectionArea),
+    WATER_UNIFORM_MEMBER(WaterParameters),
+    WATER_UNIFORM_MEMBER(TerrainParameters),
+    WATER_UNIFORM_MEMBER(SceneParameters),
+    WATER_UNIFORM_MEMBER(OpticalParameters),
+    WATER_UNIFORM_MEMBER(HullParameters),
+    WATER_UNIFORM_MEMBER(HullData),
+    WATER_UNIFORM_MEMBER(FftParameters),
+    WATER_UNIFORM_MEMBER(FoamHistoryArea),
+    WATER_UNIFORM_MEMBER(FoamHistoryParameters),
+    WATER_UNIFORM_MEMBER(ContactHullData),
+    WATER_UNIFORM_MEMBER(FoamFillLights),
+    WATER_UNIFORM_MEMBER(CoastalArea),
+    WATER_UNIFORM_MEMBER(CoastalParams),
+    WATER_UNIFORM_MEMBER(MaterialColor),
+    WATER_UNIFORM_MEMBER(MaterialParameters)
+};
+#undef WATER_COMBINER_MEMBER
+#undef WATER_UNIFORM_MEMBER
+
+void checkCompiledWaterUniformLayout(const std::string &source, bool vertex,
+    const char *blockName, bool visual)
+{
+    std::vector<unsigned char> spirv;
+    std::string log;
+    const bool compiled = SDL3_Compile_HLSL_To_SPIRV(source, vertex, spirv, log);
+    if (!compiled) printf("Water uniform reflection: %s\n", log.c_str());
+    CHECK(compiled);
+    if (!compiled) return;
+
+    struct ReflectionContext {
+        spvc_context context = NULL;
+        ~ReflectionContext() { if (context) spvc_context_destroy(context); }
+    } reflection;
+    const bool created = spvc_context_create(&reflection.context) == SPVC_SUCCESS;
+    CHECK(created);
+    if (!created) return;
+
+    // Copy into aligned words; the production compiler exposes its bytes as unsigned char.
+    CHECK(spirv.size() % sizeof(SpvId) == 0);
+    if (spirv.size() % sizeof(SpvId) != 0) return;
+    std::vector<SpvId> words(spirv.size() / sizeof(SpvId));
+    memcpy(words.data(), spirv.data(), spirv.size());
+    spvc_parsed_ir ir = NULL;
+    spvc_compiler compiler = NULL;
+    spvc_resources resources = NULL;
+    const spvc_reflected_resource *blocks = NULL;
+    size_t blockCount = 0;
+    const bool reflected =
+        spvc_context_parse_spirv(reflection.context, words.data(), words.size(), &ir) == SPVC_SUCCESS
+        && spvc_context_create_compiler(reflection.context, SPVC_BACKEND_NONE, ir,
+            SPVC_CAPTURE_MODE_TAKE_OWNERSHIP, &compiler) == SPVC_SUCCESS
+        && spvc_compiler_create_shader_resources(compiler, &resources) == SPVC_SUCCESS
+        && spvc_resources_get_resource_list_for_type(resources, SPVC_RESOURCE_TYPE_UNIFORM_BUFFER,
+            &blocks, &blockCount) == SPVC_SUCCESS;
+    CHECK(reflected);
+    if (!reflected) return;
+
+    const spvc_reflected_resource *block = NULL;
+    for (size_t i = 0; i < blockCount; ++i)
+        if (strcmp(blocks[i].name, blockName) == 0) block = &blocks[i];
+    CHECK(block != NULL);
+    if (!block) return;
+
+    const spvc_type type = spvc_compiler_get_type_handle(compiler, block->base_type_id);
+    size_t blockSize = 0;
+    CHECK(spvc_compiler_get_declared_struct_size(compiler, type, &blockSize) == SPVC_SUCCESS);
+    CHECK_EQ(blockSize, visual ? sizeof(SdlWaterVisualPixelConstants) : sizeof(SdlWaterPixelConstants));
+    const unsigned commonMembers = sizeof(WaterUniformMembers) / sizeof(WaterUniformMembers[0]);
+    const unsigned memberCount = spvc_type_get_num_member_types(type);
+    CHECK_EQ(memberCount, commonMembers + (visual ? 1u : 0u));
+    for (unsigned i = 0; i < memberCount; ++i) {
+        const WaterUniformMember metadata = { "VisualHullMeta",
+            offsetof(SdlWaterVisualPixelConstants, VisualHullMeta),
+            sizeof(((SdlWaterVisualPixelConstants *)NULL)->VisualHullMeta) };
+        if (i >= commonMembers && (!visual || i != commonMembers)) continue;
+        const WaterUniformMember &expected = i < commonMembers ? WaterUniformMembers[i] : metadata;
+        const char *name = spvc_compiler_get_member_name(compiler, block->base_type_id, i);
+        unsigned offset = 0;
+        size_t size = 0;
+        CHECK(strcmp(name, expected.name) == 0);
+        CHECK(spvc_compiler_type_struct_member_offset(compiler, type, i, &offset) == SPVC_SUCCESS);
+        CHECK(spvc_compiler_get_declared_struct_member_size(compiler, type, i, &size) == SPVC_SUCCESS);
+        CHECK_EQ(size_t(offset), expected.offset);
+        CHECK_EQ(size, expected.size);
+    }
+}
+
+} // namespace
+
+TEST(modern_water_compiled_uniform_layout_matches_every_cpu_upload_field)
+{
+    SavedShaderOption contact("ZH_WATER_HULL_CONTACT"), debug("ZH_WATER_DEBUG");
+    CHECK(unsetenv(debug.name) == 0);
+    for (unsigned visual = 0; visual < 2; ++visual) {
+        CHECK(setenv(contact.name, visual ? "mesh" : "0", 1) == 0);
+        for (const EngineShaderProgram program : {ENGINE_SHADER_WATER_TRAPEZOID, ENGINE_SHADER_WATER_RIVER}) {
+            PixelPipelineDescription pipeline = {};
+            std::string source;
+            const bool generated = EngineShader_Pixel_Program(program, pipeline, source,
+                COMBINER_SHADER_TARGET_SDL3_GPU);
+            CHECK(generated);
+            if (generated) checkCompiledWaterUniformLayout(source, false, "CombinerConstants", visual != 0);
+        }
+    }
+
+    VertexPipelineDescription description = shader_cases_detail::plain_vertex();
+    description.FVF = 0x252;
+    description.LightingEnabled = false;
+    description.StageCount = 4;
+    for (unsigned i = 0; i < 4; ++i) {
+        description.Stages[i].TextureCoordinateIndex = i < 2 ? i : 0;
+        description.Stages[i].TextureTransformFlags = FF_TTFF_DISABLE;
+    }
+    std::string vertex;
+    const bool generated = VertexShader_Generate(description, VERTEX_SHADER_TARGET_D3D11, vertex)
+        && WaterFftSampling::WrapVertex(vertex) && SDL3_Shader_Retarget(vertex, true);
+    CHECK(generated);
+    if (generated) checkCompiledWaterUniformLayout(vertex, true, "WaterVertexParameters", false);
 }
 
 TEST(fft_spectral_power_bands_partition_and_join_smoothly)

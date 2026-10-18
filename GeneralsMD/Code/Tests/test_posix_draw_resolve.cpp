@@ -366,7 +366,7 @@ static void check_constants(PosixDevice9 *device)
 	CHECK(device->SetPixelShaderConstantF(175,contact_registers[79],1)==D3D_OK);
 	CHECK(device->SetPixelShaderConstantF(WaterHullVisualLayout::PixelRegisterCount,contact_registers[79],1)==D3DERR_INVALIDCALL);
 	// Exact mesh transport extends the emulated bank deliberately, without moving the old
-	// 186-register native vertex prefix or copying the reserved engine-register gap into metadata.
+	// 188-register native vertex prefix or copying the reserved engine-register gap into metadata.
 	using namespace WaterHullVisualLayout;
 	CHECK(PosixDevice9::PIXEL_SHADER_CONSTANT_COUNT==896);
 	CHECK(sizeof(SdlWaterVisualPixelConstants)==196*16 && offsetof(SdlWaterVisualPixelConstants,VisualHullMeta)==188*16);
