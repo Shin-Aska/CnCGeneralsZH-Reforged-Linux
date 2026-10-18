@@ -23,7 +23,7 @@ jobs:
           sudo apt-get install -y cmake ninja-build g++ git curl unzip xz-utils make pkg-config python3 \
             libx11-dev libxext-dev libxcursor-dev libxi-dev libxfixes-dev libxrandr-dev libxss-dev \
             libxtst-dev libwayland-dev libxkbcommon-dev wayland-protocols libegl-dev libdrm-dev \
-            libgbm-dev libvulkan-dev spirv-tools
+            libgbm-dev libvulkan-dev spirv-tools libfontconfig1-dev fonts-liberation
       - name: Fetch pinned POSIX dependencies and optional published art
         if: runner.os != 'Windows'
         shell: bash
@@ -46,7 +46,8 @@ jobs:
         shell: bash
         run: |
           cmake --build build-render --target water_preview --parallel 2
-          if cmake --build build-render --target help | grep -q cloud_preview; then
+          cmake --build build-render --target help > build-render/available-targets.txt
+          if grep -q cloud_preview build-render/available-targets.txt; then
             cmake --build build-render --target cloud_preview --parallel 2
           fi
       - name: Rendering CPU checks without retail data
@@ -58,6 +59,7 @@ jobs:
           if [ "$RUNNER_OS" = Windows ]; then executable=build-render/Release/test_gameengine.exe; fi
           "$executable" water_style
           "$executable" modern_water
-          if ctest --test-dir build-render -C Release -N | grep -q test_hazard_cloud_policy; then
+          ctest --test-dir build-render -C Release -N > build-render/available-tests.txt
+          if grep -q test_hazard_cloud_policy build-render/available-tests.txt; then
             "$executable" cloud_style
           fi
