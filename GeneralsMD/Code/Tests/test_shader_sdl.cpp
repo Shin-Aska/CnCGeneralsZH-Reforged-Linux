@@ -454,6 +454,19 @@ void checkCompiledWaterUniformLayout(const std::string &source, bool vertex,
         CHECK(spvc_compiler_get_declared_struct_member_size(compiler, type, i, &size) == SPVC_SUCCESS);
         CHECK_EQ(size_t(offset), expected.offset);
         CHECK_EQ(size, expected.size);
+        if (strcmp(name, "WorldFromClip") == 0 || strcmp(name, "ShadowFromClip") == 0) {
+            // Both matrices are copied directly from row-major CPU arrays. glslang represents
+            // HLSL matrices transposed, so HLSL row_major becomes SPIR-V ColMajor. Offsets and
+            // sizes alone also pass for the opposite packing, which transposes translations.
+            CHECK(spvc_compiler_has_member_decoration(compiler, block->base_type_id, i,
+                SpvDecorationColMajor));
+            CHECK(!spvc_compiler_has_member_decoration(compiler, block->base_type_id, i,
+                SpvDecorationRowMajor));
+            unsigned stride = 0;
+            CHECK(spvc_compiler_type_struct_member_matrix_stride(compiler, type, i,
+                &stride) == SPVC_SUCCESS);
+            CHECK_EQ(stride, 4u * sizeof(float));
+        }
     }
 }
 
