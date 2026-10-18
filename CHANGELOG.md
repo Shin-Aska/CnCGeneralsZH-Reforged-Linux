@@ -32,6 +32,12 @@ found and fixed â€” EA's own, not port damage.**
   structures, props and Modern water for judging visibility. The approved preset
   uses 67% toxin, 77% beta and 74% gamma transparency; nuclear remains at 0%.
 
+## Water preview editing fixes on Linux (2026-10-18)
+
+- Invalid saved water colors leave the current colors intact and report the
+  mistake. The default rule export keeps the loaded configuration safe; choose
+  an explicit export destination to replace it.
+
 ## Modern water performance on Linux (2026-10-18)
 
 - Modern water skips water hidden beneath dry land, reducing slowdowns when the camera looks

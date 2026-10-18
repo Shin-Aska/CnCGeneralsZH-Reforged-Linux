@@ -242,6 +242,7 @@ private:
     WaterPreviewColor::Panel colourPanel;
     std::string colourSettingsPath;
     ModernWaterConfig::Material resolvedMaterial;
+    std::string loadedConfigPath;
 
     void loadMaterial()
     {
@@ -263,6 +264,7 @@ private:
                 std::string error;
                 if (!ModernWaterConfig::Parse(text,rules,error))
                     throw std::runtime_error("invalid ModernWater INI "+path+": "+error);
+                loadedConfigPath = path;
                 std::printf("Modern water configuration: %s\n",path.c_str());
             } else if (std::filesystem::exists(path)) {
                 throw std::runtime_error("cannot read ModernWater INI: "+path);
@@ -283,13 +285,6 @@ private:
             resolvedMaterial.ruleName.empty()?"map color fallback":resolvedMaterial.ruleName.c_str(),
             resolvedMaterial.color.r,resolvedMaterial.color.g,resolvedMaterial.color.b,
             v.brightness,v.strength,options.bubbles?"yes":"no");
-    }
-
-    static bool validColour(const WaterPreviewColor::Values &v)
-    {
-        for (float channel : {v.red,v.green,v.blue,v.strength})
-            if (!std::isfinite(channel) || channel<0 || channel>1) return false;
-        return std::isfinite(v.brightness) && v.brightness>=0.1f && v.brightness<=1;
     }
 
     void loadColour()
@@ -316,10 +311,8 @@ private:
         if (colourSettingsPath.empty()) { colourPanel.status="LOAD UNAVAILABLE"; return false; }
         std::ifstream input(colourSettingsPath);
         if (!input) { colourPanel.status="NO SAVED COLOR FOUND"; return false; }
-        std::string version;
         WaterPreviewColor::Values saved;
-        if (!(input>>version>>saved.red>>saved.green>>saved.blue>>saved.brightness>>saved.strength)
-            || version!="WATER_PREVIEW_COLOR_V1" || !validColour(saved)) {
+        if (!WaterPreviewColor::readPreset(input, saved)) {
             colourPanel.status="SAVED COLOR INVALID";
             return false;
         }
@@ -336,6 +329,7 @@ private:
         const auto &v=colourPanel.values;
         const std::string temporary=colourSettingsPath+".tmp";
         std::ofstream output(temporary,std::ios::trunc);
+        output.imbue(std::locale::classic());
         output.precision(9);
         output<<"WATER_PREVIEW_COLOR_V1\n"<<v.red<<' '<<v.green<<' '<<v.blue<<' '
             <<v.brightness<<' '<<v.strength<<'\n';
@@ -352,6 +346,10 @@ private:
     void exportRule()
     {
         const std::string path=options.exportConfig.empty()?"water-preview-rule.ini":options.exportConfig;
+        if (options.exportConfig.empty()
+            && WaterPreviewColor::defaultExportOverwritesInput(loadedConfigPath, path))
+            throw std::runtime_error("default export would overwrite the loaded configuration; "
+                "choose --export-config explicitly");
         const std::string temporary=path+".tmp";
         const auto input=mapColour(options.mapColour);
         const auto &v=colourPanel.values;

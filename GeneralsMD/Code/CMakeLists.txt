@@ -2222,6 +2222,11 @@ target_include_directories(test_wwutil PRIVATE ${WW}/Wwutil ${WW}/WWLib ${WW}/WW
 # Lib/Clock.h is header-only and links nothing, so this runs on both platforms from day one -
 # which matters, because the macOS half of that header is the half nobody has ever executed.
 add_lib_test(test_clock)
+if(ZH_PLATFORM_LINUX)
+  add_lib_test(test_water_preview_preset)
+  set_target_properties(test_water_preview_preset PROPERTIES CXX_STANDARD 17)
+  target_include_directories(test_water_preview_preset PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Tools)
+endif()
 add_lib_test(test_modern_water_config)
 set_target_properties(test_modern_water_config PROPERTIES CXX_STANDARD 17)
 target_compile_definitions(test_modern_water_config PRIVATE

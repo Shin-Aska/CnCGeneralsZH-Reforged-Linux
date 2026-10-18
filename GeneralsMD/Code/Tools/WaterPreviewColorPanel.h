@@ -3,6 +3,7 @@
 #pragma once
 
 #include "PosixDevice9.h"
+#include "WaterPreviewPreset.h"
 #include <SDL3/SDL.h>
 #include <algorithm>
 #include <array>
@@ -13,16 +14,6 @@
 #include <vector>
 
 namespace WaterPreviewColor {
-
-// The controls use display RGB; the water shader converts it to linear color.
-struct Values {
-    // Initialized from the shared INI resolver before the panel is displayed.
-    float red = 1.f;
-    float green = 1.f;
-    float blue = 1.f;
-    float brightness = 1.f;
-    float strength = 0.f;
-};
 
 class Panel {
 public:
