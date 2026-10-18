@@ -475,3 +475,9 @@ fields; shared option metadata and no-op resource hooks still compile there.
 `SdlRenderMatrix.h` is a small, pure matrix helper also used by the shadow
 proposal; this PR needs it without requiring the shadow renderer. Windows and
 macOS compilation and runtime validation remain open.
+
+The independent review restored non-Linux field-key grouping, owner selection,
+emitter grace periods and initial-delay behavior. An `unifdef` MSVC/macOS view
+comparison against the water base confirms that the key, owner lookup and fade
+function bodies retain their original source after preprocessing. This textual
+check does not establish compiler or runtime compatibility.

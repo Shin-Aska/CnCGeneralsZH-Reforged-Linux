@@ -205,7 +205,9 @@ bool makeResources(SdlGpuFrame *frame, const SdlTarget &target)
     description.target_info.color_target_descriptions = &colour;
     description.target_info.num_color_targets = 1;
     description.target_info.has_depth_stencil_target = true;
-    description.target_info.depth_stencil_format = static_cast<SDL_GPUTextureFormat>(frame->Target_Depth_Format(target));
+    // Clouds render only into the main scene. Its implicit and mirrored depth
+    // surfaces use the frame's scene format, independently of shadow targets.
+    description.target_info.depth_stencil_format = static_cast<SDL_GPUTextureFormat>(frame->Depth_Format());
     pipeline = SDL_CreateGPUGraphicsPipeline(gpu, &description);
     if (!pipeline) return fail(SDL_GetError());
     SDL_GPUSamplerCreateInfo sampler = {};

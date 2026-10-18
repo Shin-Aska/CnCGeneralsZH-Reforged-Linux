@@ -295,7 +295,7 @@ bool resizeLowTarget(unsigned width, unsigned height)
     // Recorded passes retain the old texture until this batch is submitted;
     // SDL then keeps it alive until the GPU has finished those users.
     if (shared.lowTarget.Colour) frame->Release_After_Batch(shared.lowTarget.Colour, nullptr);
-    shared.lowTarget = { texture, nullptr, lowWidth, lowHeight, 0 };
+    shared.lowTarget = { texture, nullptr, lowWidth, lowHeight };
     return true;
 }
 
@@ -313,7 +313,7 @@ bool prepareHeatBackground(const SdlTarget &target)
         SDL_GPUTexture *texture = SDL_CreateGPUTexture(gpu, &description);
         if (!texture) { fail(SDL_GetError()); return false; }
         if (shared.heatBackground.Colour) frame->Release_After_Batch(shared.heatBackground.Colour, nullptr);
-        shared.heatBackground = { texture, nullptr, target.Width, target.Height, 0 };
+        shared.heatBackground = { texture, nullptr, target.Width, target.Height };
     }
     return true;
 }
@@ -361,8 +361,8 @@ bool resizeFieldCache(unsigned index)
         return false;
     }
     retireCache(cache);
-    cache.density = { density, nullptr, description.width, description.height, 0 };
-    cache.lighting = { lighting, nullptr, description.width, description.height, 0 };
+    cache.density = { density, nullptr, description.width, description.height };
+    cache.lighting = { lighting, nullptr, description.width, description.height };
     cache.side = side;
     cachedInputsValid = false;
     std::fprintf(stderr, "cloud-preview: volume-cache field=%u grid=%ux%ux%u atlas=%ux%u spacing=%.3f\n",

@@ -44,6 +44,13 @@ the smoke without pushing units or changing damage, weapons, AI or simulation st
 The appearance of blast, spray and attached model effects remains authored by their
 particle definitions.
 
+Terrain validation currently covers height-map hills and planar elevated emitters.
+Cliffs and crossing decks have no dedicated production fixture yet; the single
+height per XY sample cannot represent multiple support surfaces within one field.
+Exact co-location of same-palette hazard owners is also outside the overlap
+fixture: production associates unattached emitters with the nearest matching owner,
+so coincident owners cannot be distinguished by that position lookup.
+
 The client admits at most eight visible cloud layers within a 192 MiB cache budget.
 Fields outside that budget, unknown mod effects, or unavailable GPU resources retain
 their Classic hazard appearance. Smoke caches and wakes reset on map/device changes.
