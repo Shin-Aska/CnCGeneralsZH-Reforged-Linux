@@ -66,7 +66,7 @@
 #include "assetmgr.h"
 #include "WW3D2/dx8wrapper.h"
 #include "Platform/RenderTypes.h"
-#ifndef _WIN32
+#if defined(__linux__)
 #include "Platform/WaterShoreOverlay.h"
 #endif
 #include <cstdlib>
@@ -488,7 +488,7 @@ Int WaterTracksObj::render(DX8VertexBufferClass	*vertexBuffer, Int batchStart)
 
 	//First insert tail of wave:
 	Vector2 testPoint(waveTailOrigin);
-#ifndef _WIN32
+#if defined(__linux__)
 	const Bool hasWaterLevel=TheTerrainLogic->getWaterHandle(testPoint.X,testPoint.Y)!=NULL;
 #endif
 	TheTerrainLogic->isUnderwater(testPoint.X,testPoint.Y,&waterHeight);
@@ -543,7 +543,7 @@ Int WaterTracksObj::render(DX8VertexBufferClass	*vertexBuffer, Int batchStart)
 	Int idxCount=(m_y-1)*(m_x*2+2) - 2;	//index count
 
 	DX8Wrapper::Set_Index_Buffer(TheWaterTracksRenderSystem->m_indexBuffer,batchStart);
-	#ifndef _WIN32
+	#if defined(__linux__)
 	WaterShoreOverlay::Quad shoreTrack;shoreTrack.level=waterHeight;
 	const Vector2 corners[4]={waveTailOrigin,waveTailOrigin+m_perpDir*m_waveFinalWidth*widthFrac,
 		waveFrontOrigin+m_perpDir*m_waveFinalWidth*widthFrac,waveFrontOrigin};
@@ -552,7 +552,7 @@ Int WaterTracksObj::render(DX8VertexBufferClass	*vertexBuffer, Int batchStart)
 		!TheGlobalData->m_isWorldBuilder && !TheGlobalData->m_usingWaterTrackEditor?&shoreTrack:NULL);
 #endif
 	DX8Wrapper::Draw_Strip(0,idxCount-2,0,m_x*m_y);	//there are always n-2 primitives for n index strip.
-#ifndef _WIN32
+#if defined(__linux__)
 	PosixWaterShoreTrack(DX8Wrapper::_Get_D3D_Device(),NULL);
 #endif
 
@@ -967,7 +967,7 @@ void setFPMode( void );
 //=============================================================================
 void WaterTracksRenderSystem::flush(RenderInfoClass & rinfo)
 {
-#ifndef _WIN32
+#if defined(__linux__)
 	// Developer comparison only: isolate the water-surface surf from the authored .wak
 	// overlay. Normal play keeps the overlay until its per-fragment replacement is valid.
 	const char *legacySurf=std::getenv("ZH_WATER_LEGACY_SURF");

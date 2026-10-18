@@ -384,7 +384,14 @@ CasterEffect GetCasterEffect(IDirect3DDevice9 *d) {
     return effect;
 }
 void SetSmokeGlow(IDirect3DDevice9 *d,bool g) { if(d) static_cast<PosixDevice9*>(d)->Set_Smoke_Glow(g); }
-bool Begin(IDirect3DDevice9 *d,unsigned size) { return d && static_cast<PosixDevice9*>(d)->Begin_Sun_Shadow(size); }
+bool Begin(IDirect3DDevice9 *device, unsigned size)
+{
+#if defined(__linux__)
+    return device && static_cast<PosixDevice9 *>(device)->Begin_Sun_Shadow(size);
+#else
+    return false; // Preserve the existing macOS scene shadows.
+#endif
+}
 bool End(IDirect3DDevice9 *d) { return d && static_cast<PosixDevice9*>(d)->End_Sun_Shadow(); }
 void Clear(IDirect3DDevice9 *d) {
     // A nested view's renderShadowMap starts with Clear, even when Begin will be

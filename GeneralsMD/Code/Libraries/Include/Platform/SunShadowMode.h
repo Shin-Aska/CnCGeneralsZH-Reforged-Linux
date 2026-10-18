@@ -20,7 +20,11 @@ inline Mode ParseMode(const char *text, Mode defaultMode)
 inline Mode RequestedMode()
 {
     const Mode defaultMode = Mode::Mapped;
+#if defined(__linux__)
     return ParseMode(std::getenv("ZH_SUN_SHADOW_MODE"), defaultMode);
+#else
+    return defaultMode;
+#endif
 }
 
 inline const char *ModeName(Mode mode)

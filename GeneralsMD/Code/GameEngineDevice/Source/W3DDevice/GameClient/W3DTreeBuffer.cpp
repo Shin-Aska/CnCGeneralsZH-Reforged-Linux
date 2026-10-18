@@ -2125,7 +2125,11 @@ DECLARE_PERF_TIMER(Tree_Render)
 void W3DTreeBuffer::drawTrees(CameraClass * camera, RefRenderObjListIterator *pDynamicLightsIterator,
 	const CameraClass *sunCamera)
 {
+#if defined(__linux__)
 	const Bool mapped = SunShadow::OwnsSceneShadows(DX8Wrapper::_Get_D3D_Device());
+#else
+	const Bool mapped = FALSE;
+#endif
 	SunShadow::ReceiverExclusion sunReceivers(DX8Wrapper::_Get_D3D_Device(), !mapped);
 	USE_PERF_TIMER(Tree_Render)
 	if (!m_isTerrainPass && !sunCamera) {

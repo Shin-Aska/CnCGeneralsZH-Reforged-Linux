@@ -1091,7 +1091,9 @@ void GameEngine::init( int argc, char *argv[] )
 		ini.load( AsciiString( "Data\\INI\\Water.ini" ), INI_LOAD_OVERWRITE, &xferCRC );
 		// Visual material rules have their own parser, shared with the standalone preview.
 		// They do not change gameplay state or the legacy map WaterTransparency values.
+#if defined(__linux__)
 		loadModernWaterSettings();
+#endif
 		ini.load( AsciiString( "Data\\INI\\Default\\Weather.ini" ), INI_LOAD_OVERWRITE, &xferCRC );
 		ini.load( AsciiString( "Data\\INI\\Weather.ini" ), INI_LOAD_OVERWRITE, &xferCRC );
 
@@ -1683,6 +1685,7 @@ UnsignedInt GameEngine_pictureMilliseconds( void )
 
 Bool GameEngine_isShadowCaptureClock( void )
 {
+#if defined(__linux__)
 	// Cache the request before the screenshot clears its pending frame. Never admit a replay
 	// or network session, and never enable this clock through ordinary graphics settings.
 	static const bool asked = TheGlobalData && TheGlobalData->m_screenShotFrame > 0
@@ -1690,6 +1693,9 @@ Bool GameEngine_isShadowCaptureClock( void )
 		&& strcmp(getenv("ZH_SUN_SHADOW_CAPTURE_CLOCK"), "logic") == 0;
 	return asked && TheGlobalData->m_turbo && TheNetwork == NULL && TheGameLogic
 		&& !TheGameLogic->isInMultiplayerGame() && !TheGameLogic->isInReplayGame();
+#else
+	return FALSE;
+#endif
 }
 
 Real GameEngine_logicTickFraction( void )
@@ -1705,11 +1711,15 @@ Real GameEngine_logicTickFraction( void )
 	const Real ordinary=fraction < 0.0f ? 0.0f : (fraction > 1.0f ? 1.0f : fraction);
 	// The same capture predicate as water: single-picture pre-roll must not capture a
 	// wall-time-dependent intermediate pose. Multi-picture fractions returned above are unchanged.
+#if defined(__linux__)
 	const bool capture=TheGlobalData && TheGameLogic && WaterCaptureClock::Enabled(getenv("ZH_WATER_CAPTURE_CLOCK"),
 		TheGlobalData->m_controlPort,TheGlobalData->m_videoStartFrame,TheGlobalData->m_videoEndFrame,
 		TheGameLogic->isInGame() && !TheGameLogic->isInShellGame(),
 		TheGameLogic->isInMultiplayerGame(),TheGameLogic->isInReplayGame());
 	return WaterCaptureClock::PresentationFraction(capture,pictures,ordinary);
+#else
+	return ordinary;
+#endif
 }
 
 Bool GameEngine_isLogicFrameDue( Real& accumMs, Real elapsedMs, Int logicFps )

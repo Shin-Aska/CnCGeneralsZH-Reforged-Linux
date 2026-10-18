@@ -1458,16 +1458,18 @@ if(ZH_PLATFORM_POSIX)
   add_test(NAME posix_gpu_draw_selfcheck COMMAND posix_gpu_draw_selfcheck)
   set_tests_properties(posix_gpu_draw_selfcheck PROPERTIES SKIP_RETURN_CODE 77)
 
-  # Dedicated water material editor: the same device, FFT and shader as the game.
-  add_executable(water_preview EXCLUDE_FROM_ALL
-    ${CMAKE_CURRENT_SOURCE_DIR}/Tools/water_preview.cpp)
-  set_target_properties(water_preview PROPERTIES CXX_STANDARD 17)
-  target_include_directories(water_preview PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/PosixDevice/Render
-    ${WW}/WW3D2 ${ZH_POSIX_D3D9_INCLUDE})
-  target_link_libraries(water_preview PRIVATE posixd3d9 SDL3::SDL3-static)
-  # Preserve the original proposal's build-target name for existing local workflows.
-  add_custom_target(thrax_water_preview DEPENDS water_preview)
+  if(ZH_PLATFORM_LINUX)
+    # Dedicated water material editor: the same device, FFT and shader as the game.
+    add_executable(water_preview EXCLUDE_FROM_ALL
+      ${CMAKE_CURRENT_SOURCE_DIR}/Tools/water_preview.cpp)
+    set_target_properties(water_preview PROPERTIES CXX_STANDARD 17)
+    target_include_directories(water_preview PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/PosixDevice/Render
+      ${WW}/WW3D2 ${ZH_POSIX_D3D9_INCLUDE})
+    target_link_libraries(water_preview PRIVATE posixd3d9 SDL3::SDL3-static)
+    # Preserve the original proposal's build-target name for existing local workflows.
+    add_custom_target(thrax_water_preview DEPENDS water_preview)
+  endif()
 
   # A3b's harness: the device's draws on this machine's GPU against FFReference, scenario by scenario,
   # with two armed controls that must fail (77 without a GPU).
@@ -1580,11 +1582,13 @@ if(ZH_PLATFORM_POSIX)
   list(APPEND W3DDEVICE_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/VideoDevice/Bink/BinkVideoPlayer.cpp)
   add_library(w3ddevice STATIC ${W3DDEVICE_SOURCES})
   set(ZH_POSIX_RENDER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/PosixDevice/Render)
-  target_sources(w3ddevice PRIVATE
-    ${ZH_POSIX_RENDER_DIR}/SdlHazardCloud.cpp
-    ${ZH_POSIX_RENDER_DIR}/SdlHazardCloudShader.cpp
-    ${ZH_POSIX_RENDER_DIR}/SdlHazardCloudFlow.cpp
-    ${ZH_POSIX_RENDER_DIR}/SdlHazardCloudEmbers.cpp)
+  if(ZH_PLATFORM_LINUX)
+    target_sources(w3ddevice PRIVATE
+      ${ZH_POSIX_RENDER_DIR}/SdlHazardCloud.cpp
+      ${ZH_POSIX_RENDER_DIR}/SdlHazardCloudShader.cpp
+      ${ZH_POSIX_RENDER_DIR}/SdlHazardCloudFlow.cpp
+      ${ZH_POSIX_RENDER_DIR}/SdlHazardCloudEmbers.cpp)
+  endif()
   set_target_properties(w3ddevice PROPERTIES CXX_STANDARD 17)
   target_include_directories(w3ddevice PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Include
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Stubs ${CMAKE_CURRENT_SOURCE_DIR}/Main
@@ -1980,7 +1984,7 @@ if(ZH_PLATFORM_POSIX)
   # An isolated, harmless effects scene. This target shares the real client/renderer
   # libraries, but its entry point, scene controller and map never enter generals.
   find_package(Python3 COMPONENTS Interpreter QUIET)
-  if(Python3_Interpreter_FOUND)
+  if(ZH_PLATFORM_LINUX AND Python3_Interpreter_FOUND)
     set(ZH_CLOUD_PREVIEW_DIR ${CMAKE_BINARY_DIR}/cloud-preview)
     set(ZH_CLOUD_PREVIEW_MAP ${ZH_CLOUD_PREVIEW_DIR}/overlay/Maps/CloudPreview/CloudPreview.map)
     add_custom_command(OUTPUT ${ZH_CLOUD_PREVIEW_MAP}

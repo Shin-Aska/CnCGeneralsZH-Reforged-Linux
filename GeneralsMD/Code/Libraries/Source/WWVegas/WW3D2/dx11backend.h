@@ -238,7 +238,6 @@ public:
 	// mesh renderer sets it around one object's draws and puts DRAW_EFFECT_NONE back after them.
 	// A draw it does not suit takes none (Draw_Effect).
 	void Set_Draw_Effect(unsigned effect, const float parameters[4]);
-	void Get_Shadow_Caster_Effect(unsigned &effect, float parameters[4]) const;
 
 	// What an additive draw (ONE, ONE) into the scene is worth, for the Glow option: the blend
 	// takes the draw's colour times this through the blend factor, so fire, muzzle flashes and

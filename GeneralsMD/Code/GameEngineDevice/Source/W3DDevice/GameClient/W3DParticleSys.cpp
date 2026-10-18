@@ -59,7 +59,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <tuple>
-#ifndef _WIN32
+#if defined(__linux__)
 #include "Platform/HazardCloudPolicy.h"
 #include "Platform/SdlHazardCloud.h"
 #include <array>
@@ -89,7 +89,7 @@ extern Real TheParticleFillMS;
 extern UnsignedInt TheParticlesPastGroupLimit;
 #endif
 
-#ifndef _WIN32
+#if defined(__linux__)
 // Attribution only. Bounded process-lifetime records, deduplicated for unchanged system/pass decisions in a logic tick, then on a
 // changed decision or every 30 ticks. The two render loops share it.
 static void traceNativeRippleDiagnostic(ParticleSystem *sys,UnsignedInt owner,Bool ordinary,
@@ -122,7 +122,7 @@ static void traceNativeRippleDiagnostic(ParticleSystem *sys,UnsignedInt owner,Bo
 // Modern water replaces only verified vessel-surface particles, after that hull's water draw.
 static Bool replaceLegacyVesselFoam(ParticleSystem *sys)
 {
-#ifndef _WIN32
+#if defined(__linux__)
     if(!sys || !TheWaterRenderObj || !TheGameClient || !sys->getTemplate()) return FALSE;
     const Bool ordinaryGroundParticle=!sys->shouldBillboard() && !sys->isUsingDrawables() &&
         !sys->isUsingStreak() && !sys->isUsingSmudge() && sys->getVolumeParticleDepth()==0;
@@ -835,7 +835,7 @@ static ObjectID findFieldObject( const Coord3D &centre, Int palette )
 	{
 		if (!obj->isKindOf( KINDOF_CLEANUP_HAZARD ) || obj->isDestroyed() || obj->isEffectivelyDead())
 			continue;
-#ifndef _WIN32
+#if defined(__linux__)
 		if (palette >= 0 && HazardCloudPolicy::paletteForOwner(obj->getTemplate()->getName().str()) != palette)
 			continue;
 #endif
@@ -905,7 +905,7 @@ static Real fieldFade( FieldState &state, Int now )
 	return state.shown;
 }
 
-#ifndef _WIN32
+#if defined(__linux__)
 namespace {
 // A busy battlefield has a fixed visual memory/draw budget. Fields which cannot
 // be admitted keep the ordinary ground effect, including unknown mod templates.
@@ -1151,7 +1151,7 @@ static Int collectGroundFields( ParticleSystemManager::ParticleSystemList &syste
 	s_fieldDraws.clear();
 	++s_fieldCollectionPass;
 	std::map<std::tuple<Int, Int, Int, Int>, ObjectID> fieldOwners;
-#ifndef _WIN32
+#if defined(__linux__)
 	beginCloudPass(now);
 #endif
 
@@ -1166,7 +1166,7 @@ static Int collectGroundFields( ParticleSystemManager::ParticleSystemList &syste
 		Coord3D pos;
 		sys->getPosition( &pos );
 		Int palette = -1;
-#ifndef _WIN32
+#if defined(__linux__)
 		palette = HazardCloudPolicy::paletteForTemplate(sys->getTemplate()->getName().str());
 #endif
 		const auto ownerKey = std::make_tuple(REAL_TO_INT_FLOOR(pos.x + .5f), REAL_TO_INT_FLOOR(pos.y + .5f),
@@ -1289,7 +1289,7 @@ static Int collectGroundFields( ParticleSystemManager::ParticleSystemList &syste
 		const Real size = state.size;
 		Real reach = state.radius + size;
 		Bool groundVolume = FALSE;
-#ifndef _WIN32
+#if defined(__linux__)
 		if (modernCloudsEnabled() && key.palette >= 0) {
 			reach = state.radius + HazardCloudPolicy::visualFringe(size) + 18.f;
 			groundVolume = TRUE;
@@ -1298,7 +1298,7 @@ static Int collectGroundFields( ParticleSystemManager::ParticleSystemList &syste
 		const Bool visible = WWMath::Fabs( state.centre.x - view.Center.X ) <= view.Extent.X + reach
 			&& WWMath::Fabs( state.centre.y - view.Center.Y ) <= view.Extent.Y + reach
 			&& (groundVolume || WWMath::Fabs( state.centre.z - view.Center.Z ) <= view.Extent.Z + reach);
-#ifndef _WIN32
+#if defined(__linux__)
 		if (visible) {
 			if (drawModernCloud(key, state, fade, seconds, now)) {
 				// Preserve the client's existing area-effect particle ceiling even
@@ -1608,7 +1608,7 @@ void W3DParticleSystemManager::invalidateGroundFields(bool fadeIn)
 
 void W3DParticleSystemManager::releaseCloudResources()
 {
-#ifndef _WIN32
+#if defined(__linux__)
 	releaseCloudLayers();
 #endif
 }

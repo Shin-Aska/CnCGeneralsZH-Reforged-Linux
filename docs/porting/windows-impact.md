@@ -90,6 +90,23 @@ Three things the checks found:
 
 ## Ledger
 
+### Linux rendering extraction audit (2026-10-18)
+
+The Linux shadow, water and hazard paths are now admitted at Linux integration
+boundaries. Windows keeps its original water shader identities, tree silhouettes,
+geometry-caster selection, constant-cache comparisons and sorted-cloak behavior.
+The Direct3D 11 backend is byte-for-byte the `reference/3.1.0` implementation;
+the shared sun interface only delegates to its existing entry points. macOS
+keeps Classic water and its existing scene shadows, and hides the Linux styles.
+The preview executables and production hazard implementation are built on Linux.
+
+Shared declarations, inert option fields, shader program identities and the sun
+adapter still compile on Windows. Their main risks are interface/link errors or
+incorrect forwarding of existing draw state. Validation here is Linux Release
+and targeted rendering checks; Windows and macOS builds and runtime checks remain
+open. This is a scope audit, not evidence that either platform ran successfully.
+
+
 | Date | Task | Files | What changed | Risk if wrong | Severity | How to verify |
 |:--|:--|:--|:--|:--|:--|:--|
 | 2026-09-22 | A2 follow-up | `Libraries/Source/Compression/ZLib/zutil.h` (vendored, not tracked) | `vendor.sh` narrows zlib's `#if defined(MACOS) \|\| defined(TARGET_OS_MAC)` at zutil.h:113 to also require `!defined(__APPLE__)`, so Darwin falls through to zutil.h's own `#define OS_CODE 0x03 /* assume Unix */` and keeps the real `fdopen`. Measured before and after: `OS_CODE` 0x07 -> 0x03, `fdopen` macro -> not a macro. | Neither `MACOS` nor `TARGET_OS_MAC` is ever defined on Windows, so that branch was already dead there and the added condition is never evaluated. Windows keeps `OS_CODE 0x0b` from the `WIN32` branch above it. The risk is that this reasoning is wrong about some MSVC configuration that does define one of them - in which case Windows would move from 0x07 to 0x0b and gain a working `fdopen`, which is a fix, not a regression. | low | **Windows: VERIFIED** (VM check: the `compression` target defines neither `MACOS` nor `TARGET_OS_MAC`; CI: it builds.) `grep -rn MACOS` the Windows build's command lines; confirm neither name is defined. Then build `compression`. |

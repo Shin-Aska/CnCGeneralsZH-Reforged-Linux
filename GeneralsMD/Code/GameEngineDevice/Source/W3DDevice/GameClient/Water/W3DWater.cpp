@@ -457,7 +457,7 @@ Bool WaterRenderObjClass::modernHasHull(UnsignedInt objectID) const
 
 Bool WaterRenderObjClass::hasModernVesselFoam(UnsignedInt objectID) const
 {
-#ifndef _WIN32
+#if defined(__linux__)
 	return m_useModernWater && !m_renderingMirror && m_trapezoidWaterPixelShader && m_modernFoamDrawFrame==WW3D::Get_Frame_Count() &&
 		std::find(m_modernFoamDrawObjectIDs.begin(),m_modernFoamDrawObjectIDs.end(),objectID)!=m_modernFoamDrawObjectIDs.end();
 #else
@@ -467,7 +467,7 @@ Bool WaterRenderObjClass::hasModernVesselFoam(UnsignedInt objectID) const
 
 Bool WaterRenderObjClass::isModernWaterMirrorForOwner(UnsignedInt objectID) const
 {
-#ifndef _WIN32
+#if defined(__linux__)
 	if(!m_useModernWater || !m_renderingMirror || m_waterType!=WATER_TYPE_0_TRANSLUCENT || !m_trapezoidWaterPixelShader ||
 		!m_pReflectionTexture || !TheGameLogic || !TheTerrainLogic || !TheTerrainRenderObject ||
 		!TheTerrainRenderObject->getMap()) return FALSE;
@@ -499,7 +499,7 @@ Real WaterRenderObjClass::modernHullDamping(Real x,Real y,Real level) const
 
 void WaterRenderObjClass::updateModernWaterHulls(void)
 {
-#ifndef _WIN32
+#if defined(__linux__)
 	m_modernHulls.clear();
 	m_modernContactHulls.clear();
 	m_modernVisualHulls.clear();
@@ -951,7 +951,7 @@ void WaterRenderObjClass::invalidateModernWaterShore(void)
 
 void WaterRenderObjClass::updateModernWaterShore(void)
 {
-#ifndef _WIN32
+#if defined(__linux__)
 	if(m_modernShoreAttempted!=m_modernShoreRevision) {
 		m_modernShoreAttempted=m_modernShoreRevision;m_modernShoreReady=FALSE;
 		std::vector<double> levels;
@@ -1014,7 +1014,7 @@ void WaterRenderObjClass::updateModernWaterShore(void)
 
 void WaterRenderObjClass::bindModernWaterFoam(Real level,Bool river)
 {
-#ifndef _WIN32
+#if defined(__linux__)
 	D3DXVECTOR4 area(0,0,0,0),parameters(0,level,0,m_modernWaveTime);
 	TextureClass *texture=NULL;
 	const char *enabled=getenv("ZH_WATER_FOAM_HISTORY");
@@ -1112,7 +1112,7 @@ void WaterRenderObjClass::bindModernWaterFoam(Real level,Bool river)
 
 void WaterRenderObjClass::bindModernWaterCoastal(Real level,Bool river)
 {
-#ifndef _WIN32
+#if defined(__linux__)
 	auto *device=DX8Wrapper::_Get_D3D_Device();PosixWaterCoastalEnd(device);
 	const char *option=getenv("ZH_WATER_SURF_GPU");
 	if(river || !option || strcmp(option,"1")!=0 || !m_modernCoastalReady || !m_modernRenderCamera) return;
@@ -1137,17 +1137,26 @@ void WaterRenderObjClass::bindModernWaterCoastal(Real level,Bool river)
 
 void WaterRenderObjClass::registerWaterStyleShaders(void)
 {
+#if defined(__linux__)
+    const Bool modern = m_useModernWater;
+#elif defined(_WIN32)
+    // Keep the original shader identities on Windows.
+    const Bool modern = TRUE;
+#else
+    // The SDL renderer uses explicit legacy variants outside Linux.
+    const Bool modern = FALSE;
+#endif
     if (m_riverWaterPixelShader)
-        Direct3D11_Register_Engine_Shader(m_riverWaterPixelShader, m_useModernWater
+        Direct3D11_Register_Engine_Shader(m_riverWaterPixelShader, modern
             ? "river water ps.1.1" : "classic river water ps.1.1");
     if (m_trapezoidWaterPixelShader)
-        Direct3D11_Register_Engine_Shader(m_trapezoidWaterPixelShader, m_useModernWater
+        Direct3D11_Register_Engine_Shader(m_trapezoidWaterPixelShader, modern
             ? "trapezoid water ps.1.1" : "classic trapezoid water ps.1.1");
 }
 
 void WaterRenderObjClass::synchronizeWaterStyle(void)
 {
-#ifndef _WIN32
+#if defined(__linux__)
     const Bool modern = !TheGlobalData || TheGlobalData->m_waterStyle != 0;
     if (modern == m_useModernWater) return;
 
@@ -1174,7 +1183,7 @@ void WaterRenderObjClass::synchronizeWaterStyle(void)
 
 void WaterRenderObjClass::setupModernWaterShader(Bool river,Bool heightCorrection,Bool waveCage)
 {
-#ifndef _WIN32
+#if defined(__linux__)
 	if (!m_useModernWater) return;
 	updateModernWaterTextures();
 	const Bool reflection = m_pReflectionTexture && !m_renderingMirror &&
@@ -1284,7 +1293,7 @@ void WaterRenderObjClass::setupModernWaterShader(Bool river,Bool heightCorrectio
 // The terrain fallback refreshes when the map heights or dimensions change.
 void WaterRenderObjClass::updateModernWaterTextures(void)
 {
-#ifndef _WIN32
+#if defined(__linux__)
 	if (!m_modernBedTexture) {
 		const Int side=256;
 		std::vector<UnsignedInt> pixels(side*side);
@@ -1368,7 +1377,7 @@ void WaterRenderObjClass::clearModernWaterOpticalTextures(void)
 
 void WaterRenderObjClass::refreshModernWaterOpticalPolygons(void)
 {
-#ifndef _WIN32
+#if defined(__linux__)
 	std::vector<WaterOpticalContext::Polygon> polygons;
 	size_t points=0;
 	Bool valid=TRUE;
@@ -1396,7 +1405,7 @@ void WaterRenderObjClass::refreshModernWaterOpticalPolygons(void)
 
 TextureClass *WaterRenderObjClass::modernWaterOpticalTexture(Real level)
 {
-#ifndef _WIN32
+#if defined(__linux__)
 	if (!m_modernOpticalPolygonsValid) return NULL;
 	for (size_t i=0;i<m_modernOpticalTextures.size();++i)
 		if (m_modernOpticalTextures[i].level==level) return m_modernOpticalTextures[i].texture;
@@ -1518,7 +1527,7 @@ WaterRenderObjClass::~WaterRenderObjClass(void)
 WaterRenderObjClass::WaterRenderObjClass(void)
 	: m_modernCaptureClock(LOGICFRAMES_PER_SECOND)
 {
-#ifndef _WIN32
+#if defined(__linux__)
 	m_useModernWater = !TheGlobalData || TheGlobalData->m_waterStyle != 0;
 #endif
 	memset( &m_settings, 0, sizeof( m_settings ) );
@@ -2563,7 +2572,7 @@ void WaterRenderObjClass::update( void )
 			m_modernCaptureClock.Reset();
 			m_modernWaveTime = WaterSurfaceModel::AdvanceTime(m_modernWaveTime, elapsedSec, false, false, false);
 		}
-#ifndef _WIN32
+#if defined(__linux__)
 		// Client updates are independent of water visibility and reflected render recursion.
 		// Build every level once, then advance the fixed-world source even when the camera pans away.
 		if(m_useModernWater && m_trapezoidWaterPixelShader) {
@@ -2851,7 +2860,7 @@ void WaterRenderObjClass::renderMirror(CameraClass *cam, Real level)
 	// Clear the backbuffer
 	// The sea's cloud plane fills its background; map water has no such plane, so its target is
 	// cleared to white, which the overlay multiplies in as no change at all.
-#ifdef _WIN32
+#if !defined(__linux__)
 	WW3D::Begin_Render(m_waterType == WATER_TYPE_0_TRANSLUCENT,true,WATER_REFLECTION_SKY_COLOR);
 #else
 	// Modern water supplies its own sky. Classic multiplies a white-background mirror.
@@ -2928,7 +2937,7 @@ void WaterRenderObjClass::renderMirror(CameraClass *cam, Real level)
 	*	This algorithm doesn't apply to translucent water, which is rendered into a
 	*   texture and rendered at end of scene. */
 //-------------------------------------------------------------------------------------------------
-#ifndef _WIN32
+#if defined(__linux__)
 static double modernWaterProfileMilliseconds()
 {
 	return std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -2965,7 +2974,7 @@ void WaterRenderObjClass::Render(RenderInfoClass & rinfo)
 		return;
 	}
 
-#ifndef _WIN32
+#if defined(__linux__)
 	SunShadow::ReceiverExclusion sunReceivers(DX8Wrapper::_Get_D3D_Device(),
 		!(m_useModernWater && m_waterType==WATER_TYPE_0_TRANSLUCENT));
 	WaterShoreOverlay::Scope shoreScope(DX8Wrapper::_Get_D3D_Device(),
@@ -3221,7 +3230,7 @@ void WaterRenderObjClass::Render(RenderInfoClass & rinfo)
 		default:
 			break;
 	}//switch
-#ifndef _WIN32
+#if defined(__linux__)
 	if (m_useModernWater) {
 		DX8Wrapper::Set_DX8_Texture_Stage_State(0,D3DTSS_TEXCOORDINDEX,oldModernBaseCoordIndex);
 		DX8Wrapper::Set_DX8_Texture_Stage_State(0,D3DTSS_TEXTURETRANSFORMFLAGS,oldModernBaseTransformFlags);
@@ -3245,7 +3254,7 @@ void WaterRenderObjClass::Render(RenderInfoClass & rinfo)
 	}
 #endif
 
-	#ifndef _WIN32
+	#if defined(__linux__)
 	SunShadow::ReceiverExclusion waterEffects(DX8Wrapper::_Get_D3D_Device());
 	#endif
 	if (TheGlobalData && TheGlobalData->m_drawSkyBox)
@@ -3263,7 +3272,7 @@ void WaterRenderObjClass::Render(RenderInfoClass & rinfo)
 
 	if (m_waterTrackSystem)
 		m_waterTrackSystem->flush(rinfo);
-#ifndef _WIN32
+#if defined(__linux__)
 	if (m_modernProfileEnabled) {
 		m_modernProfile.render+=modernWaterProfileMilliseconds()-profileRenderStart;
 		m_modernProfile.vertices+=m_modernProjectedVertices+m_modernRetainedVertices;
@@ -3574,7 +3583,7 @@ void WaterRenderObjClass::renderWater(void)
 					points[2].Set(pt2.x, pt2.y, pt2.z);
 					points[3].Set(pt3.x, pt3.y, pt3.z);
 
-#ifndef _WIN32
+#if defined(__linux__)
 					// Modern depth intersections replace legacy tilted feather copies. Render exactly
 					// one surface at the authored elevation; duplicate layers could expose patch seams.
 					if (m_useModernWater && m_trapezoidWaterPixelShader) {
@@ -3933,7 +3942,7 @@ void WaterRenderObjClass::renderWaterMesh(void)
 #endif
 			vb->u2=(float)(i)*cellSizeX/BUMP_SIZE; 
 			vb->v2=v2Offset;
-#ifndef _WIN32
+#if defined(__linux__)
 			if (m_useModernWater && m_trapezoidWaterPixelShader) {
 				Vector3 world;
 				Matrix3D::Transform_Vector(Transform,Vector3(x,y,pData->height),&world);
@@ -4365,7 +4374,7 @@ Real WaterRenderObjClass::modernWaterDamping(Real x, Real y, Real z, Real offsho
 // same canonical analytic samples regardless of whether the GPU ocean field is available.
 void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool river, Real riverStart, Real riverEnd)
 {
-#ifndef _WIN32
+#if defined(__linux__)
 	m_modernOpticalLevel=points[0].Z;
 	Vector3 boundsMin=points[0],boundsMax=points[0];
 	for (Int i=1;i<4;++i) {
@@ -4907,7 +4916,7 @@ void WaterRenderObjClass::drawRiverWater(PolygonTrigger *pTrig)
 
 	if (m_disableRiver) return;
 	m_drawingRiver = true;
-#ifndef _WIN32
+#if defined(__linux__)
 	if (m_useModernWater && m_riverWaterPixelShader) {
 		Int inner=pTrig->getRiverStart(),outer=inner+1;
 		if (inner<0 || inner>=pTrig->getNumPoints()-1) return;
@@ -5152,7 +5161,7 @@ void WaterRenderObjClass::drawRiverWater(PolygonTrigger *pTrig)
 //-------------------------------------------------------------------------------------------------
 void WaterRenderObjClass::drawReflection(Int triangleCount, Int vertexCount)
 {
-#ifndef _WIN32
+#if defined(__linux__)
 	if (m_useModernWater) return; // Modern water samples the mirror in its surface shader.
 #endif
 	if (!m_pReflectionTexture || !m_reflectionPixelShader)
@@ -5312,7 +5321,7 @@ void WaterRenderObjClass::setupFlatWaterShader(Bool heightCorrection,Bool waveCa
 //-------------------------------------------------------------------------------------------------
 void WaterRenderObjClass::drawTrapezoidWater(Vector3 points[4])
 {
-#ifndef _WIN32
+#if defined(__linux__)
 	if (m_useModernWater && m_trapezoidWaterPixelShader) { drawModernWaterPatch(points,FALSE); return; }
 #endif
 	Vector3 origin(points[0]);

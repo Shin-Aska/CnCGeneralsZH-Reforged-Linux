@@ -1106,26 +1106,42 @@ WWINLINE void DX8Wrapper::Set_Vertex_Shader_Constant(int reg, const void* data, 
 	// The mirrored backend owns its own cache and must see every requested update.
 	Direct3D11_Mirror_Vertex_Shader_Constant((unsigned)reg, (const float*)data, (unsigned)count);
 
+#if defined(__linux__)
 	bool valid = true;
-	for (int i=reg; i<reg+count; ++i) valid = valid && Vertex_Shader_Constants_Valid[i];
+	for (int i = reg; i < reg + count; ++i)
+		valid = valid && Vertex_Shader_Constants_Valid[i];
 	if (valid && memcmp(data, &Vertex_Shader_Constants[reg],memsize)==0) return;
+#else
+	if (memcmp(data, &Vertex_Shader_Constants[reg],memsize)==0) return;
+#endif
 
 	memcpy(&Vertex_Shader_Constants[reg],data,memsize);
 	DX8CALL(SetVertexShaderConstantF(reg,(const float*)data,count));
-	for (int i=reg; i<reg+count; ++i) Vertex_Shader_Constants_Valid[i] = true;
+#if defined(__linux__)
+	for (int i = reg; i < reg + count; ++i)
+		Vertex_Shader_Constants_Valid[i] = true;
+#endif
 }
 
 WWINLINE void DX8Wrapper::Set_Pixel_Shader_Constant(int reg, const void* data, int count)
 {
 	int memsize=sizeof(Vector4)*count;
 
+#if defined(__linux__)
 	bool valid = true;
-	for (int i=reg; i<reg+count; ++i) valid = valid && Pixel_Shader_Constants_Valid[i];
+	for (int i = reg; i < reg + count; ++i)
+		valid = valid && Pixel_Shader_Constants_Valid[i];
 	if (valid && memcmp(data, &Pixel_Shader_Constants[reg],memsize)==0) return;
+#else
+	if (memcmp(data, &Pixel_Shader_Constants[reg],memsize)==0) return;
+#endif
 
 	memcpy(&Pixel_Shader_Constants[reg],data,memsize);
 	DX8CALL(SetPixelShaderConstantF(reg,(const float*)data,count));
-	for (int i=reg; i<reg+count; ++i) Pixel_Shader_Constants_Valid[i] = true;
+#if defined(__linux__)
+	for (int i = reg; i < reg + count; ++i)
+		Pixel_Shader_Constants_Valid[i] = true;
+#endif
 }
 // shader system updates KJM ^
 

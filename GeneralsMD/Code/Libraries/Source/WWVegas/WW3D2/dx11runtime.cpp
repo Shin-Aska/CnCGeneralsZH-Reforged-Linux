@@ -917,7 +917,7 @@ bool CasterEffects(IDirect3DDevice9 *) { return Direct3D11_Draw_Effects(); }
 void SetCasterEffect(IDirect3DDevice9 *,unsigned e,const float p[4]) { Direct3D11_Set_Draw_Effect(e,p); }
 CasterEffect GetCasterEffect(IDirect3DDevice9 *) {
     CasterEffect effect;
-    if (Active) Backend.Get_Shadow_Caster_Effect(effect.Effect, effect.Parameters);
+    // Queued caster coverage is Linux-only; preserve Windows sorting behavior.
     return effect;
 }
 void SetSmokeGlow(IDirect3DDevice9 *,bool g) { Direct3D11_Set_Smoke_Glow(g); }

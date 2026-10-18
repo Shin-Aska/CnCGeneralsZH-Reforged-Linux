@@ -541,8 +541,11 @@ Bool FileSystem::isForkOwnedPath(const AsciiString& filename)
 		return TRUE;
 	if (starts("data\\ini\\mappedimages\\handcreated\\reforged") && ends(".ini"))
 		return TRUE;
-	return p == "data\\ini\\modernwater.ini"
-		|| p == "data\\patch.str"
+#if defined(__linux__)
+	if (p == "data\\ini\\modernwater.ini")
+		return TRUE;
+#endif
+	return p == "data\\patch.str"
 		|| starts("data\\turkish\\") || starts("data\\german\\")
 		|| starts("art\\textures\\reforged")
 		|| starts("window\\")

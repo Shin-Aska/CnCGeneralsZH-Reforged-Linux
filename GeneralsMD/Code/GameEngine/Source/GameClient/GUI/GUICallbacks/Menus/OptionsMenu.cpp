@@ -1063,8 +1063,8 @@ static void fillCatalogWidgets( void )
 		if( widget == NULL )
 			continue;
 
-#ifdef _WIN32
-        // These alternate surfaces are provided by the SDL renderer.
+#if !defined(__linux__)
+        // These alternate surfaces are provided by the Linux renderer.
         if (strcmp(def.iniKey, "WaterStyle") == 0 || strcmp(def.iniKey, "CloudStyle") == 0) {
             widget->winHide(TRUE);
             const char *labelName = strcmp(def.iniKey, "WaterStyle") == 0

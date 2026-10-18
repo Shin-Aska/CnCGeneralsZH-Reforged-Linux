@@ -32,6 +32,12 @@ found and fixed â€” EA's own, not port damage.**
   structures, props and Modern water for judging visibility. The approved preset
   uses 67% toxin, 77% beta and 74% gamma transparency; nuclear remains at 0%.
 
+## Linux rendering scope (2026-10-18)
+
+- The new water, shadow and hazard appearances apply on Linux. Windows keeps its
+  existing water, tree shadows and cloaked-object shadows; Mac players keep the
+  existing water and shadows without seeing unsupported style controls.
+
 ## Water preview editing fixes on Linux (2026-10-18)
 
 - Invalid saved water colors leave the current colors intact and report the

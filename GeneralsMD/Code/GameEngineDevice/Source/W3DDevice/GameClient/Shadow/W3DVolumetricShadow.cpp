@@ -4052,7 +4052,7 @@ static void fillSmokeMap( const Matrix3D &sunTransform, const Vector3 &focus, Re
 		water areas; the grid mesh never does. */
 static Bool waterMirrorReadsTheMap()
 {
-#ifndef _WIN32
+#if defined(__linux__)
 	// SDL gives reflections a separate, excluded scene scope and never samples this
 	// capture through their camera. Keep culling against the actual receiving view.
 	return FALSE;
@@ -4193,8 +4193,13 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 	const SunShadow::Mode mode = SunShadow::RequestedMode();
 	// Trees historically cast under either shadow option. Smoke has its own option;
 	// it may keep an otherwise empty depth capture alive without enabling geometry.
+#if defined(__linux__)
 	const Bool geometryShadows = TheGlobalData->m_useShadowVolumes || TheGlobalData->m_useShadowDecals;
 	const Bool captureShadows = geometryShadows || TheGlobalData->m_volumetricSmokeShadows;
+#else
+	const Bool geometryShadows = TRUE;
+	const Bool captureShadows = m_shadowList != NULL;
+#endif
 	static bool modeReported = false;
 	static SunShadow::Mode lastMode = SunShadow::Mode::Legacy;
 	if (!modeReported || lastMode != mode) {
@@ -4365,8 +4370,12 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 	const Bool cullToFrame = toSun.Z > 0.01f && !waterMirrorReadsTheMap();
 	const SunShadowCasterCull casterCull={seen,toSun,lowestReceiver,SHADOW_MAP_CASTER_PAD,filterReach,SHADOW_MAP_OVERLAY_REACH,cullToFrame};
 
-	for (W3DVolumetricShadow *shadow = TheGlobalData->m_useShadowVolumes ? m_shadowList : NULL;
-		shadow; shadow = shadow->m_next)
+#if defined(__linux__)
+	W3DVolumetricShadow *firstCaster = TheGlobalData->m_useShadowVolumes ? m_shadowList : NULL;
+#else
+	W3DVolumetricShadow *firstCaster = m_shadowList;
+#endif
+	for (W3DVolumetricShadow *shadow = firstCaster; shadow; shadow = shadow->m_next)
 	{
 		RenderObjClass *robj = shadow->getRenderObject();
 		if (robj == NULL || !shadow->isRenderEnabled() || shadow->isInvisibleEnabled())
@@ -4419,8 +4428,10 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 	sunInfo.drawEffect = DRAW_EFFECT_NONE;
 	// Use the trees actually present. The loader can override ShowTrees for multiplayer,
 	// and changing that preference does not remove trees from an already loaded map.
+#if defined(__linux__)
 	if (geometryShadows)
 		TheTerrainRenderObject->renderTreeShadowCasters(sunInfo, &sceneCamera, casterCull);
+#endif
 	TheDX8MeshRenderer.Flush();
 	/* A mesh the material system calls translucent goes to the sort lists rather than to the mesh
 		 renderer, and a helicopter's rotor disc is one of them: without this the map holds the
@@ -4455,7 +4466,7 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 
 	// Invalidate the engine caches before restoring the device snapshot: invalidation itself
 	// unbinds textures and flushes deferred states. The restored scene must be the last writer.
-#ifndef _WIN32
+#if defined(__linux__)
 	DX8Wrapper::Invalidate_Cached_Render_States();
 #endif
 	const bool captured = SunShadow::End(DX8Wrapper::_Get_D3D_Device());
@@ -4483,7 +4494,7 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 		Matrix4x4 view;
 		DX8Wrapper::Get_Transform( D3DTS_VIEW, view );
 		const Matrix4x4 deviceView = view.Transpose();
-#ifndef _WIN32
+#if defined(__linux__)
 		// Camera::Apply defers the view in render_state, outside the D3D9 state
 		// queue. Publish this one transform before snapshotting receiver coordinates.
 		DX8Wrapper::_Set_DX8_Transform(D3DTS_VIEW, deviceView);
