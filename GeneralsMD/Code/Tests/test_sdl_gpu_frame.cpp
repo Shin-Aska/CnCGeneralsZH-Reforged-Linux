@@ -2285,7 +2285,7 @@ static void check_gpu_water_vertex_uniform_order(SdlGpuFrame *frame)
 		matched &= std::isfinite(values[(row*width+x)*4+c]) && std::abs(values[(row*width+x)*4+c]-expected)<0.00001f;
 	}
 	CHECK(matched);
-	printf("sdl_gpu_frame_selfcheck: GPU water VS slot1: %u queued draws, shared 194-float4 pixel snapshot, mean/FFT/history/contact/fill-light/coastal tails in both stages, explicit zero contact/light/coastal fallback, intervening non-water and rectangle clear checked\n",rows);
+	printf("sdl_gpu_frame_selfcheck: GPU water VS slot1: %u queued draws, shared 196-float4 pixel snapshot, mean/FFT/history/contact/fill-light/coastal tails in both stages, explicit zero contact/light/coastal fallback, intervening non-water and rectangle clear checked\n",rows);
 }
 
 static void check_gpu_water_visual_uniform_order(SdlGpuFrame *frame)
@@ -2420,7 +2420,7 @@ float4 main(float4 position:SV_Position,[[vk::location(0)]] float4 value:TEXCOOR
 		if(waterRows[row] && state && (x==256 || x==512))armedBoundary+=std::abs(actual-(expected-1024))>100;
 	}
 	CHECK(matched && armedLatest>0 && armedBoundary>0);
-	printf("sdl_gpu_frame_selfcheck: visual hull transport: all704 packet float4s +8 metadata, PS slots0..3, 194-register VS alias and 202-register PS common, both coastal float4s in both stages, queued A/B/zero, non-water, clear, new batch, resize; max error %.9g, armed %u/%u\n",maxError,armedLatest,armedBoundary);
+	printf("sdl_gpu_frame_selfcheck: visual hull transport: all704 packet float4s +8 metadata, PS slots0..3, 196-register VS alias and 204-register PS common, both coastal float4s in both stages, queued A/B/zero, non-water, clear, new batch, resize; max error %.9g, armed %u/%u\n",maxError,armedLatest,armedBoundary);
 }
 
 static void check_gpu_water_visual_query(SdlGpuFrame *frame)
