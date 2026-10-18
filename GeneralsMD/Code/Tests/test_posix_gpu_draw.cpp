@@ -533,6 +533,8 @@ static void check_render_targets(PosixDevice9 *device)
 	target_texture->Release();
 }
 
+#if defined(__linux__)
+// Runtime sun capture and diagnostic mode overrides are enabled only on Linux.
 static void check_sun_capture(PosixDevice9 *device)
 {
     begin(device, BLUE);
@@ -1258,6 +1260,8 @@ static void check_sun_failures(IDirect3D9 *adapter)
     if(hadFault) setenv("ZH_TEST_SUN_SHADOW_FAILURE",savedFault.c_str(),1);else unsetenv("ZH_TEST_SUN_SHADOW_FAILURE");
 }
 
+#endif
+
 static void check_refusal(PosixDevice9 *device)
 {
 	IDirect3DCubeTexture9 *cube = NULL;
@@ -1486,15 +1490,19 @@ int main()
 	check_min_vertex(device);
 	check_clears_and_depth(device);
 	check_render_targets(device);
+#if defined(__linux__)
 	check_sun_capture(device);
 	check_sun_receivers(device);
 	check_sun_smoke(device);
 	check_sun_trees(device);
 	check_sun_water(device);
 	check_sun_reset(device);
+#endif
 	check_refusal(device);
 	check_quad_derivatives(device);
+#if defined(__linux__)
 	check_sun_failures(d3d);
+#endif
 
 	printf("posix_gpu_draw_selfcheck: %s: %u draws recorded, %u textures and %u buffers uploaded, %u stale flushes\n",
 		SDL_GetGPUDeviceDriver(device->Get_Gpu()->Device()), device->Draws_Recorded(),

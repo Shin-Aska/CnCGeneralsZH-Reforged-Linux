@@ -535,9 +535,17 @@ int main()
 	setenv("ZH_SUN_SHADOW_MODE", "mapped", 1);
 	CHECK(SunShadow::RequestedMode() == Mode::Mapped);
 	setenv("ZH_SUN_SHADOW_MODE", "capture-only", 1);
+#if defined(__linux__)
 	CHECK(SunShadow::RequestedMode() == Mode::CaptureOnly);
+#else
+	CHECK(SunShadow::RequestedMode() == Mode::Mapped);
+#endif
 	setenv("ZH_SUN_SHADOW_MODE", "legacy", 1);
+#if defined(__linux__)
 	CHECK(SunShadow::RequestedMode() == Mode::Legacy);
+#else
+	CHECK(SunShadow::RequestedMode() == Mode::Mapped);
+#endif
 	if (hadMode) setenv("ZH_SUN_SHADOW_MODE", savedModeText.c_str(), 1);
 	else unsetenv("ZH_SUN_SHADOW_MODE");
 	IDirect3D9 *d3d = NULL;
