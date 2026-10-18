@@ -29,7 +29,6 @@
 // Author: Michael S. Booth, November 2001
 
 #include "Common/GlobalData.h"
-#include "Common/ThingTemplate.h"
 #include "Lib/Clock.h"
 #include "GameClient/Color.h"
 #include "W3DDevice/GameClient/W3DParticleSys.h"
@@ -58,14 +57,15 @@
 #include <map>
 #include <cstdio>
 #include <cstdlib>
-#include <tuple>
 #if defined(__linux__)
+#include "Common/ThingTemplate.h"
 #include "Platform/HazardCloudPolicy.h"
 #include "Platform/SdlHazardCloud.h"
 #include <array>
 #include <memory>
 #include <cmath>
 #include <algorithm>
+#include <tuple>
 #endif
 
 #ifdef _INTERNAL
@@ -742,11 +742,15 @@ static const Real	FIELD_OBJECT_REACH		= 5.0f;		///< how near the field's centre 
 struct FieldKey
 {
 	const ParticleSystemTemplate *tmpl;
-	Int x, y, z;
+	Int x, y;
+#if defined(__linux__)
+	Int z;
 	Int palette;
 	ObjectID owner;
+#endif
 	bool operator<( const FieldKey &o ) const
 	{
+#if defined(__linux__)
 		// The initial nuke emitter and its periodic radiation pulses describe
 		// one hazard. Keep its age/cache when the emitter template changes.
 		const bool bound = palette >= 0 && owner != INVALID_ID;
@@ -756,10 +760,15 @@ struct FieldKey
 			if (owner != o.owner) return owner < o.owner;
 			return palette < o.palette;
 		}
+#endif
 		if (tmpl != o.tmpl) return tmpl < o.tmpl;
 		if (x != o.x) return x < o.x;
+#if defined(__linux__)
 		if (y != o.y) return y < o.y;
 		return z < o.z;
+#else
+		return y < o.y;
+#endif
 	}
 };
 
@@ -768,10 +777,12 @@ struct FieldKey
 struct FieldState
 {
 	Int born;						///< logic frame it was first seen
+#if defined(__linux__)
 	Int visualBorn;             ///< formation age survives fog fade changes
 	Real cloudShown, cloudFormation, cloudGoneDensity, cloudGoneFormation, cloudRevealFrom;
 	Int cloudGoneAt, cloudRevealAt;
 	Int cloudReportFrame, cloudReportStyle;
+#endif
 	Int seen;						///< logic frame a system was last seen at it
 	ObjectID object;		///< the object whose life it fades with, or INVALID_ID
 	Int gone;						///< logic frame it began going out (fog, or its object gone), or -1
@@ -792,9 +803,11 @@ static const Real	FIELD_STACK						= 2.5f;		///< puddles' worth of cover a spot 
 static const Real	FIELD_SATURATE				= 0.6f;		///< share of the weakest channel taken out of the colour
 
 static std::map<FieldKey, FieldState>	s_fieldStates;
+#if defined(__linux__)
 struct FieldSystemOwner { ObjectID object; unsigned pass; };
 static std::map<ParticleSystemID, FieldSystemOwner> s_fieldSystemOwners;
 static unsigned s_fieldCollectionPass = 0;
+#endif
 static Bool s_fieldSkipNextFadeIn = FALSE;
 
 /** One puddle of this frame's fields, before it is laid. */
@@ -826,25 +839,37 @@ static std::vector<FieldPuddle>	s_fieldPuddles;
 static std::vector<FieldDraw>		s_fieldDraws;
 
 /** The CLEANUP_HAZARD object with a LifetimeUpdate standing on a field's centre, if there is one. */
+#if defined(__linux__)
 static ObjectID findFieldObject( const Coord3D &centre, Int palette )
+#else
+static ObjectID findFieldObject( const Coord3D &centre )
+#endif
 {
 	static NameKeyType key_LifetimeUpdate = NAMEKEY( "LifetimeUpdate" );
 	ObjectID found = INVALID_ID;
 	Real best = FIELD_OBJECT_REACH * FIELD_OBJECT_REACH;
 	for (Object *obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject())
 	{
-		if (!obj->isKindOf( KINDOF_CLEANUP_HAZARD ) || obj->isDestroyed() || obj->isEffectivelyDead())
+		if (!obj->isKindOf( KINDOF_CLEANUP_HAZARD ))
 			continue;
 #if defined(__linux__)
+		if (obj->isDestroyed() || obj->isEffectivelyDead())
+			continue;
 		if (palette >= 0 && HazardCloudPolicy::paletteForOwner(obj->getTemplate()->getName().str()) != palette)
 			continue;
 #endif
 		const Coord3D *pos = obj->getPosition();
+#if defined(__linux__)
 		if (WWMath::Fabs(pos->z - centre.z) > FIELD_OBJECT_REACH)
 			continue;
+#endif
 		const Real dx = pos->x - centre.x, dy = pos->y - centre.y;
 		const Real d = dx * dx + dy * dy;
+#if defined(__linux__)
 		if ((d < best || (found == INVALID_ID && d <= best)) && obj->findUpdateModule( key_LifetimeUpdate ) != NULL)
+#else
+		if (d <= best && obj->findUpdateModule( key_LifetimeUpdate ) != NULL)
+#endif
 		{
 			best = d;
 			found = obj->getID();
@@ -869,7 +894,13 @@ static inline Real midValue( const GameClientRandomVariable &v )
 static Real fieldFade( FieldState &state, Int now )
 {
 	static NameKeyType key_LifetimeUpdate = NAMEKEY( "LifetimeUpdate" );
+#if defined(__linux__)
+	// An owner's real lifetime keeps Linux fields continuous between
+	// sparse emitters. Other platforms retain their existing emitter grace period.
 	Bool lost = (state.object == INVALID_ID && now - state.seen > FIELD_GRACE)
+#else
+	Bool lost = now - state.seen > FIELD_GRACE
+#endif
 		|| ThePartitionManager->getShroudStatusForPlayer( TheObserverCamera.getShroudPlayerIndex(), &state.centre ) != CELLSHROUD_CLEAR;
 	Int remaining = state.particleEnd - now;
 	if (!lost && state.object != INVALID_ID)
@@ -1149,9 +1180,9 @@ static Int collectGroundFields( ParticleSystemManager::ParticleSystemList &syste
 	const Real seconds = ((Real)now + (TheSmoothMotionActive ? TheSmoothMotionAlpha : 0.0f)) / LOGICFRAMES_PER_SECOND;
 	s_fieldPuddles.clear();
 	s_fieldDraws.clear();
+#if defined(__linux__)
 	++s_fieldCollectionPass;
 	std::map<std::tuple<Int, Int, Int, Int>, ObjectID> fieldOwners;
-#if defined(__linux__)
 	beginCloudPass(now);
 #endif
 
@@ -1161,14 +1192,14 @@ static Int collectGroundFields( ParticleSystemManager::ParticleSystemList &syste
 		ParticleSystem *sys = *it;
 		if (!sys || sys->isUsingDrawables() || !isGroundField( sys ))
 			continue;
+#if defined(__linux__)
 		if (sys->getInitialDelayLeft() > 0) continue;
+#endif
 
 		Coord3D pos;
 		sys->getPosition( &pos );
-		Int palette = -1;
 #if defined(__linux__)
-		palette = HazardCloudPolicy::paletteForTemplate(sys->getTemplate()->getName().str());
-#endif
+		const Int palette = HazardCloudPolicy::paletteForTemplate(sys->getTemplate()->getName().str());
 		const auto ownerKey = std::make_tuple(REAL_TO_INT_FLOOR(pos.x + .5f), REAL_TO_INT_FLOOR(pos.y + .5f),
 			REAL_TO_INT_FLOOR(pos.z + .5f), palette);
 		ObjectID owner = INVALID_ID;
@@ -1186,6 +1217,9 @@ static Int collectGroundFields( ParticleSystemManager::ParticleSystemList &syste
 		}
 		FieldKey key = { sys->getTemplate(), REAL_TO_INT_FLOOR( pos.x + 0.5f ), REAL_TO_INT_FLOOR( pos.y + 0.5f ),
 			REAL_TO_INT_FLOOR(pos.z + .5f), palette, owner };
+#else
+		FieldKey key = { sys->getTemplate(), REAL_TO_INT_FLOOR( pos.x + 0.5f ), REAL_TO_INT_FLOOR( pos.y + 0.5f ) };
+#endif
 		const ParticleSystemInfo::EmissionVolumeType volume = sys->getEmisionVolumeType();
 		const Real radius = volume == ParticleSystemInfo::SPHERE ? sys->m_emissionVolume.sphere.radius
 			: (volume == ParticleSystemInfo::CYLINDER ? sys->m_emissionVolume.cylinder.radius : 0.0f);
@@ -1195,6 +1229,7 @@ static Int collectGroundFields( ParticleSystemManager::ParticleSystemList &syste
 			life = WWMath::Max( life, (Int)p->getLifetimeLeft() );
 
 		std::map<FieldKey, FieldState>::iterator st = s_fieldStates.find( key );
+#if defined(__linux__)
 		// A blast FX can precede its cleanup object within the same tick. Adopt
 		// that unbound visual when the owner arrives rather than drawing it twice.
 		if (st == s_fieldStates.end() && palette >= 0 && owner != INVALID_ID) {
@@ -1209,18 +1244,25 @@ static Int collectGroundFields( ParticleSystemManager::ParticleSystemList &syste
 				}
 			}
 		}
+#endif
 		if (st == s_fieldStates.end() || st->second.seen != now)
 		{
 			if (st == s_fieldStates.end())
 			{
 				FieldState fresh = {};
 				fresh.born = now - (skipFadeIn ? FIELD_FADE_IN : 0);
+#if defined(__linux__)
 				fresh.visualBorn = fresh.born;
 				fresh.cloudGoneAt = -1;
 				fresh.cloudRevealAt = now - FIELD_FADE_IN;
 				fresh.cloudReportFrame = -1;
+#endif
 				fresh.seen = now;
+#if defined(__linux__)
 				fresh.object = owner;
+#else
+				fresh.object = findFieldObject( pos );
+#endif
 				fresh.gone = -1;
 				fresh.goneFade = 0.0f;
 				fresh.shown = 0.0f;
@@ -1258,10 +1300,12 @@ static Int collectGroundFields( ParticleSystemManager::ParticleSystemList &syste
 		}
 		st->second.stealth = sys->getStealthFade();
 	}
+#if defined(__linux__)
 	for (auto binding = s_fieldSystemOwners.begin(); binding != s_fieldSystemOwners.end();) {
 		if (binding->second.pass != s_fieldCollectionPass) binding = s_fieldSystemOwners.erase(binding);
 		else ++binding;
 	}
+#endif
 
 	Int laid = 0;
 	for (std::map<FieldKey, FieldState>::iterator st = s_fieldStates.begin(); st != s_fieldStates.end(); )
@@ -1602,7 +1646,9 @@ void W3DParticleSystemManager::invalidateGroundFields(bool fadeIn)
 	// references are already released at the end of each draw. Only this map
 	// persists the footprint after an emitter is removed or changes appearance.
 	s_fieldStates.clear();
+#if defined(__linux__)
 	s_fieldSystemOwners.clear();
+#endif
 	s_fieldSkipNextFadeIn = !fadeIn;
 }
 

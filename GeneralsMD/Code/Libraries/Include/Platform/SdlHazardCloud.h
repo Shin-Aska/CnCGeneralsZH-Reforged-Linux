@@ -37,8 +37,9 @@ const Palette &defaultPalette(unsigned index);
 // lighting and infantry-wake history. Pipelines and transient scene targets are
 // shared by all layers on the same device. No scene object is registered.
 // Without a terrain grid, ground support is the field's flat ground/deck plane.
-// Callers must retain classic effects on unsupported geometry such as cliffs or
-// overlapping decks that cannot be represented by one height per XY position.
+// The support model has one height per XY position. The production adapter uses
+// terrain samples or an elevated plane; cliffs and crossing decks have no
+// dedicated validation fixture or automatic geometry fallback yet.
 class Layer {
 public:
     Layer();
