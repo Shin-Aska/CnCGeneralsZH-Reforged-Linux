@@ -87,6 +87,47 @@ static void push_empty_visual_water(SDL_GPUCommandBuffer *commands,const SdlWate
 static const unsigned int WIDTH = 64;
 static const unsigned int HEIGHT = 48;
 
+// Cloud caches and their half-resolution ray pass have colour attachments only.
+// Exercise their recorded clear path and switching back to the scene attachment:
+// passing a depth descriptor whose texture is null crashes SDL's validation path.
+static void check_colour_only_target(SdlGpuFrame *frame)
+{
+	SDL_GPUTextureCreateInfo info = {};
+	info.type = SDL_GPU_TEXTURETYPE_2D;
+	info.format = (SDL_GPUTextureFormat)SdlGpuFrame::Target_Format();
+	info.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+	info.width = WIDTH;
+	info.height = HEIGHT;
+	info.layer_count_or_depth = info.num_levels = 1;
+	SDL_GPUTexture *texture = SDL_CreateGPUTexture(frame->Device(), &info);
+	CHECK(texture != NULL);
+	if (!texture) return;
+
+	const SdlTarget colour_only = { texture, NULL, WIDTH, HEIGHT };
+	frame->Set_Target(colour_only);
+	frame->Clear_Back_Buffer(true, false, false, 0xFF123456u, 1.0f, 0);
+	std::vector<uint8_t> pixels;
+	CHECK(frame->Read_Back(texture, WIDTH, HEIGHT, pixels));
+	CHECK(pixels.size() == WIDTH * HEIGHT * 4);
+	for (size_t i = 0; i + 3 < pixels.size(); i += 4)
+		CHECK(pixels[i] == 0x56 && pixels[i + 1] == 0x34
+			&& pixels[i + 2] == 0x12 && pixels[i + 3] == 0xFF);
+
+	// Both clears are pending in one batch: changing targets must close the
+	// colour-only pass and retain the scene's normal depth/stencil attachment.
+	frame->Clear_Back_Buffer(true, false, false, 0xFFABCDEFu, 1.0f, 0);
+	frame->Set_Target(frame->Back_Buffer_Target());
+	frame->Clear_Back_Buffer(true, true, true, 0xFF102030u, 0.5f, 7);
+	CHECK(frame->Read_Back(texture, WIDTH, HEIGHT, pixels));
+	CHECK(pixels.size() == WIDTH * HEIGHT * 4 && pixels[0] == 0xEF
+		&& pixels[1] == 0xCD && pixels[2] == 0xAB && pixels[3] == 0xFF);
+	CHECK(frame->Read_Back(frame->Back_Buffer(), WIDTH, HEIGHT, pixels));
+	CHECK(pixels.size() == WIDTH * HEIGHT * 4 && pixels[0] == 0x30
+		&& pixels[1] == 0x20 && pixels[2] == 0x10 && pixels[3] == 0xFF);
+	SDL_ReleaseGPUTexture(frame->Device(), texture);
+	printf("sdl_gpu_frame_selfcheck: colour-only attachment clear/readback and scene target restoration checked\n");
+}
+
 // Rasterize a submerged object independently of the water capture: a triangle writes its own
 // depth, so a terrain-only estimate or a copy of the depth clear cannot satisfy the assertions.
 class DepthObject
@@ -8292,6 +8333,7 @@ int main()
 		return 77;
 	}
 	printf("sdl_gpu_frame_selfcheck: %s\n", SDL_GetGPUDeviceDriver(frame->Device()));
+	check_colour_only_target(frame);
 	check_sun_depth_target(frame);
 	check_gpu_fft_ocean(frame);
 	check_gpu_water_coastal_incident(frame);
