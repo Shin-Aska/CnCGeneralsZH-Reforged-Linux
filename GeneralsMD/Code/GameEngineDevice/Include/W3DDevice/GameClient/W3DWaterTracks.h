@@ -69,6 +69,7 @@ protected:
 	waveType	m_type;					///<used for render state sorting (set this to texture pointer for now).
 	Int			m_x;					///<vertex count
 	Int			m_y;					///<vertex count
+	Bool		m_authoredSource;		///< loaded from .wak; explicit optional surf-replacement tag
 	Bool		m_bound;				///<object is bound to owner and accepts new edges
 	Vector2		m_startPos;				///<starting position of wave
 //	Vector2		m_endPos;				///<ending position of wave

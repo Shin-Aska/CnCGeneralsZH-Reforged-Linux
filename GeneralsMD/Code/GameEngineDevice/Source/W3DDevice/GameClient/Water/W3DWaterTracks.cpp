@@ -65,6 +65,11 @@
 #include "assetmgr.h"
 #include "WW3D2/dx8wrapper.h"
 #include "Platform/RenderTypes.h"
+#if defined(__linux__)
+#include "Platform/WaterShoreOverlay.h"
+#endif
+#include <cstdlib>
+#include <cstring>
 
 //#pragma optimize("", off)
 
@@ -157,6 +162,7 @@ WaterTracksObj::WaterTracksObj(void)
 {
 	m_stageZeroTexture=NULL;
 	m_bound=false;
+	m_authoredSource=FALSE;
 	m_initTimeOffset=0;
 }
 
@@ -481,6 +487,9 @@ Int WaterTracksObj::render(DX8VertexBufferClass	*vertexBuffer, Int batchStart)
 
 	//First insert tail of wave:
 	Vector2 testPoint(waveTailOrigin);
+#if defined(__linux__)
+	const Bool hasWaterLevel=TheTerrainLogic->getWaterHandle(testPoint.X,testPoint.Y)!=NULL;
+#endif
 	TheTerrainLogic->isUnderwater(testPoint.X,testPoint.Y,&waterHeight);
 	vb->x=	testPoint.X;
 	vb->y=	testPoint.Y;
@@ -533,7 +542,18 @@ Int WaterTracksObj::render(DX8VertexBufferClass	*vertexBuffer, Int batchStart)
 	Int idxCount=(m_y-1)*(m_x*2+2) - 2;	//index count
 
 	DX8Wrapper::Set_Index_Buffer(TheWaterTracksRenderSystem->m_indexBuffer,batchStart);
+	#if defined(__linux__)
+	WaterShoreOverlay::Quad shoreTrack;shoreTrack.level=waterHeight;
+	const Vector2 corners[4]={waveTailOrigin,waveTailOrigin+m_perpDir*m_waveFinalWidth*widthFrac,
+		waveFrontOrigin+m_perpDir*m_waveFinalWidth*widthFrac,waveFrontOrigin};
+	for(Int i=0;i<4;++i){shoreTrack.xy[i*2]=corners[i].X;shoreTrack.xy[i*2+1]=corners[i].Y;}
+	PosixWaterShoreTrack(DX8Wrapper::_Get_D3D_Device(),m_authoredSource && hasWaterLevel &&
+		!TheGlobalData->m_isWorldBuilder && !TheGlobalData->m_usingWaterTrackEditor?&shoreTrack:NULL);
+#endif
 	DX8Wrapper::Draw_Strip(0,idxCount-2,0,m_x*m_y);	//there are always n-2 primitives for n index strip.
+#if defined(__linux__)
+	PosixWaterShoreTrack(DX8Wrapper::_Get_D3D_Device(),NULL);
+#endif
 
 	return batchStart+m_x*m_y;	//return new offset into unused area of vertex buffer
 }
@@ -563,6 +583,7 @@ WaterTracksObj *WaterTracksRenderSystem::bindTrack(waveType type)
 			m_freeModules = mod->m_nextSystem;
 
 		mod->m_type=type;
+		mod->m_authoredSource=FALSE;
 
 		// put module on the used list (sorted next to similar types)
 		nextmod=NULL,prevmod=NULL;
@@ -936,6 +957,12 @@ void setFPMode( void );
 //=============================================================================
 void WaterTracksRenderSystem::flush(RenderInfoClass & rinfo)
 {
+#if defined(__linux__)
+	// Developer comparison only: isolate the water-surface surf from the authored .wak
+	// overlay. Normal play keeps the overlay until its per-fragment replacement is valid.
+	const char *legacySurf=std::getenv("ZH_WATER_LEGACY_SURF");
+	if (legacySurf && std::strcmp(legacySurf,"0")==0) return;
+#endif
 /** @todo: Optimize system by drawing tracks as triangle strips and use dynamic vertex buffer access.
 May also try rendering all tracks with one call to W3D/D3D by grouping them by texture.
 Try improving the fit to vertical surfaces like cliffs.
@@ -1137,6 +1164,7 @@ void WaterTracksRenderSystem::loadTracks(void)
 				flipU ^= 1;	//toggle flip state
 				umod->init(waveTypeInfo[wtype].m_finalHeight,waveTypeInfo[wtype].m_finalWidth,startPos,endPos,waveTypeInfo[wtype].m_textureName,0);
 				umod->m_flipU=flipU;
+				umod->m_authoredSource=TRUE;
 
 				if (waveTypeInfo[wtype].m_secondWaveTimeOffset)	//check if we need a second wave to follow
 				{
@@ -1145,6 +1173,7 @@ void WaterTracksRenderSystem::loadTracks(void)
 					{
 						umod->init(waveTypeInfo[wtype].m_finalHeight,waveTypeInfo[wtype].m_finalWidth,startPos,endPos,waveTypeInfo[wtype].m_textureName,waveTypeInfo[wtype].m_secondWaveTimeOffset);
 						umod->m_flipU = !flipU;
+						umod->m_authoredSource=TRUE;
 					}
 				}
 			}

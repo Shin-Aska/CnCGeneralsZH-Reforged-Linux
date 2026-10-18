@@ -8,6 +8,18 @@ found and fixed â€” EA's own, not port damage.**
 
 ---
 
+
+## Modern water on Linux
+
+- Water rolls in waves with sunlight following the crests into the shallows.
+  Shores redirect waves along their banks and gather foam; vessels leave wakes.
+- Modern water preserves map-authored depth and opacity, matches material rules
+  to the effective water color and texture, and adds pollution and bubbles only
+  to matching water. Choose Classic to keep the previous surface.
+- A standalone editor uses the game's water renderer and material rules. Invalid
+  saved colors leave the current colors intact; default exports protect the
+  loaded rule file. Explicit export destinations remain available.
+
 ## The battle runs at 60 steps a second
 
 - The game now works out the battle 60 times a second, double the 30 Zero Hour has run at since 2003. Each step is 17 milliseconds where it was 33, so an order you give waits half as long for the step that carries it out, and a unit turning, braking or firing moves in steps half the size.

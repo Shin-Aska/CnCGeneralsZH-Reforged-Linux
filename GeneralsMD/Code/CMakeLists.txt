@@ -503,6 +503,9 @@ target_include_directories(wwlib PUBLIC ${WW}/WWLib
   PRIVATE ${WW}/WWMath ${WW}/Wwutil ${CMAKE_CURRENT_SOURCE_DIR}/Libraries/Include
           ${CMAKE_CURRENT_SOURCE_DIR}/GameEngine/Include)
 target_link_libraries(wwlib PRIVATE wwdebug)
+# wwmemlog uses FastAllocatorGeneral from wwlib, which itself uses wwdebug. Declare
+# both directions so CMake repeats the static libraries for one-pass linkers.
+target_link_libraries(wwdebug PRIVATE wwlib)
 if(ZH_PLATFORM_WINDOWS)
   # winmm: timeGetTime/timeBeginPeriod.  version: verchk.cpp's GetFileVersionInfo,
   # which Wwutil drags in for Get_File_Id_String.  Both are Windows import libraries; B2 replaces
@@ -1452,6 +1455,19 @@ if(ZH_PLATFORM_POSIX)
   add_test(NAME posix_gpu_draw_selfcheck COMMAND posix_gpu_draw_selfcheck)
   set_tests_properties(posix_gpu_draw_selfcheck PROPERTIES SKIP_RETURN_CODE 77)
 
+  if(ZH_PLATFORM_LINUX)
+    # Dedicated water material editor: the same device, FFT and shader as the game.
+    add_executable(water_preview EXCLUDE_FROM_ALL
+      ${CMAKE_CURRENT_SOURCE_DIR}/Tools/water_preview.cpp)
+    set_target_properties(water_preview PROPERTIES CXX_STANDARD 17)
+    target_include_directories(water_preview PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/PosixDevice/Render
+      ${WW}/WW3D2 ${ZH_POSIX_D3D9_INCLUDE})
+    target_link_libraries(water_preview PRIVATE posixd3d9 SDL3::SDL3-static)
+    # Preserve the original proposal's build-target name for existing local workflows.
+    add_custom_target(thrax_water_preview DEPENDS water_preview)
+  endif()
+
   # A3b's harness: the device's draws on this machine's GPU against FFReference, scenario by scenario,
   # with two armed controls that must fail (77 without a GPU).
   add_executable(ffref_gpu_selfcheck ${CMAKE_CURRENT_SOURCE_DIR}/Tests/test_ffref_gpu.cpp)
@@ -1567,12 +1583,16 @@ if(ZH_PLATFORM_POSIX)
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Stubs ${CMAKE_CURRENT_SOURCE_DIR}/Main
             ${WW}/Miles6/include ${WW}/Bink/include)
   target_link_libraries(w3ddevice PUBLIC gameengine ww3d2 sdlinput binkvideo)
+  # The engine calls the platform's CD factory and the renderer's hooks. Record
+  # those reverse links without inheriting the device layer's compile settings.
+  target_link_libraries(gameengine INTERFACE "$<LINK_ONLY:posixdevice>" "$<LINK_ONLY:w3ddevice>")
 
-  # A1's link checkpoint: all of w3ddevice and ww3d2, whole archive, against what the POSIX game links.
+  # A1's link checkpoint: all renderer and platform objects, including the CD
+  # factory GameEngine reaches after loading the renderer, against the engine.
   add_executable(w3d_link_probe ${CMAKE_CURRENT_SOURCE_DIR}/Tests/w3d_link_probe.cpp)
   set_target_properties(w3d_link_probe PROPERTIES CXX_STANDARD 17)
   target_link_libraries(w3d_link_probe PRIVATE
-    "$<LINK_LIBRARY:WHOLE_ARCHIVE,w3ddevice,ww3d2>" posixdevice gameengine)
+    "$<LINK_LIBRARY:WHOLE_ARCHIVE,w3ddevice,ww3d2,posixdevice>" gameengine)
 
   # A2's checkpoint: every texture of the install through WW3D2's loader into the POSIX device on a
   # null-window (-headless) WW3D, read back and checked against the file.  Needs ZH_GAME_DATA, else Skipped.
@@ -1937,6 +1957,10 @@ if(ZH_PLATFORM_POSIX)
     DEPENDS ${ZH_OVERLAY_INPUTS} ${CMAKE_CURRENT_SOURCE_DIR}/Tools/stage-overlay.sh
     COMMENT "Staging the fork's overlay (P1)" VERBATIM)
   add_custom_target(zh_overlay ALL DEPENDS ${CMAKE_BINARY_DIR}/overlay.staged)
+  if(TARGET water_preview)
+    add_dependencies(water_preview zh_overlay)
+  endif()
+
   add_custom_command(
     OUTPUT ${CMAKE_BINARY_DIR}/overlay-dev.staged
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/Tools/stage-overlay.sh ${CMAKE_CURRENT_SOURCE_DIR}/Data ""
@@ -2144,6 +2168,15 @@ target_include_directories(test_wwutil PRIVATE ${WW}/Wwutil ${WW}/WWLib ${WW}/WW
 # Lib/Clock.h is header-only and links nothing, so this runs on both platforms from day one -
 # which matters, because the macOS half of that header is the half nobody has ever executed.
 add_lib_test(test_clock)
+if(ZH_PLATFORM_LINUX)
+  add_lib_test(test_water_preview_preset)
+  set_target_properties(test_water_preview_preset PROPERTIES CXX_STANDARD 17)
+  target_include_directories(test_water_preview_preset PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Tools)
+endif()
+add_lib_test(test_modern_water_config)
+set_target_properties(test_modern_water_config PROPERTIES CXX_STANDARD 17)
+target_compile_definitions(test_modern_water_config PRIVATE
+  MODERN_WATER_INI_PATH="${CMAKE_CURRENT_SOURCE_DIR}/Data/INI/ModernWater.ini")
 if(ZH_PLATFORM_WINDOWS)
   target_link_libraries(test_clock PRIVATE winmm)		# Clock.h's Windows half: timeGetTime, timeBeginPeriod (W2)
 endif()
@@ -2509,6 +2542,7 @@ endif()
 # ZH_GAME_DATA; without it the test is Skipped (77).
 add_executable(test_bigfilesystem ${TESTS}/test_bigfilesystem.cpp ${TESTS}/test_bigfilesystem_stubs.cpp
   ${ZH_POSIXLFS_SOURCES_NO_MAIN}
+  ${GE}/Source/Common/System/FileSystemPaths.cpp
   ${GE}/Source/Common/System/ArchiveFileSystem.cpp ${GE}/Source/Common/System/ArchiveFile.cpp
   ${GE}/Source/Common/System/StreamingArchiveFile.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/Win32Device/Common/Win32BIGFile.cpp

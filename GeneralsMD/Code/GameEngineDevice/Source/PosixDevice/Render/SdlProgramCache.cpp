@@ -24,6 +24,9 @@
 #include "engineshader.h"
 #include "ffshader.h"
 #include "ffvertex.h"
+#include "sdl3target.h"
+#include "Platform/WaterFftSampling.h"
+#include "Platform/WaterShoreOverlay.h"
 
 #include <SDL3/SDL.h>
 
@@ -217,6 +220,28 @@ const SdlProgram &SdlProgramCache::Vertex_Program(const VertexPipelineDescriptio
 	return made;
 }
 
+const SdlProgram &SdlProgramCache::Water_Vertex_Program(const VertexPipelineDescription &description)
+{
+	if (SdlProgram *found = WaterVertexByBytes.Find(&description, sizeof(description))) {
+		++found->Uses;
+		return *found;
+	}
+	const std::string key = "water-fft:" + VertexShader_Key(description);
+	std::map<std::string, SdlProgram>::iterator existing = VertexPrograms.find(key);
+	if (existing != VertexPrograms.end()) {
+		++existing->second.Uses;
+		WaterVertexByBytes.Add(&description, sizeof(description), &existing->second);
+		return existing->second;
+	}
+	std::string hlsl;
+	const bool generated = !description.LightingEnabled
+		&& VertexShader_Generate(description, VERTEX_SHADER_TARGET_D3D11, hlsl)
+		&& WaterFftSampling::WrapVertex(hlsl) && SDL3_Shader_Retarget(hlsl, true);
+	const SdlProgram &made = Make(VertexPrograms, key, generated, hlsl, true);
+	WaterVertexByBytes.Add(&description, sizeof(description), &VertexPrograms[key]);
+	return made;
+}
+
 const SdlProgram &SdlProgramCache::Engine_Vertex_Program(int program)
 {
 	if (SdlProgram *found = EngineVertexByBytes.Find(&program, sizeof(program))) {
@@ -281,5 +306,23 @@ const SdlProgram &SdlProgramCache::Pixel_Program(const CombinerDescription &desc
 	const bool generated = CombinerShader_Generate(description, COMBINER_SHADER_TARGET_SDL3_GPU, hlsl);
 	const SdlProgram &made = Make(PixelPrograms, key, generated, hlsl, false);
 	PixelByBytes.Add(&description, sizeof(description), &PixelPrograms[key]);
+	return made;
+}
+
+// Only an explicit authored-track draw tag may select this optional variant.
+const SdlProgram &SdlProgramCache::Shore_Pixel_Program(const CombinerDescription &description)
+{
+	if (SdlProgram *found=ShorePixelByBytes.Find(&description,sizeof(description))) {
+		++found->Uses;return *found;
+	}
+	const std::string key="shore-overlay:"+CombinerShader_Key(description);
+	std::string hlsl;
+	bool generated=!description.ShadowReceiving && !description.SoftParticle && !description.DrawEffect
+		&& !description.SmokeGlow && description.StageCount<=2
+		&& CombinerShader_Generate(description,COMBINER_SHADER_TARGET_D3D11,hlsl)
+		&& WaterShoreOverlay::WrapPixel(hlsl);
+	if(generated) generated=SDL3_Shader_Retarget(hlsl,false);
+	const SdlProgram &made=Make(PixelPrograms,key,generated,hlsl,false);
+	ShorePixelByBytes.Add(&description,sizeof(description),&PixelPrograms[key]);
 	return made;
 }

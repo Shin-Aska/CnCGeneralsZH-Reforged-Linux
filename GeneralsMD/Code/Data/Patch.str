@@ -1166,6 +1166,22 @@ CONTROLBAR:Demo_ToolTipGLAScienceRebelAmbush
 "Allows you to create a surprise ambush of Rebels anywhere \n \n Rank 1: 4 Rebels \n Rank 2: 6 Rebels \n Rank 3: 10 Rebels \n \n Deploy from: Command Center"
 END
 
+GUI:WaterStyle
+"Water style"
+END
+
+GUI:WaterStyle0
+"Classic"
+END
+
+GUI:WaterStyle1
+"Modern"
+END
+
+TOOLTIP:WaterStyle
+"Classic uses the original water, sparkles, reflections and wakes. Modern adds waves, shoreline detail and hull foam. Applied when you Accept."
+END
+
 LAN:ErrorModMismatch
 "This game runs different mods. The host's mods: %s. Start the game with the same mods, in the same order, to join."
 END

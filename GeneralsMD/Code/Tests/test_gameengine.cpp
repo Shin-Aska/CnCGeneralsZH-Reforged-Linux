@@ -10,15 +10,17 @@
  * is not ported yet, so the test supplies its own out of LocalFile, which is
  * plain CRT _open/_read and does live in gameengine.
  */
+/* Standard-library headers precede crc.h's BaseType.h min/max macros, which otherwise
+   expand inside filesystem's stream and locale headers on GCC. */
+#include <filesystem>
+#include <limits>
+#include <string>
+
 /* crc.h pulls winsock2.h, so it has to come before anything that drags in
    windows.h (and with it winsock.h) - otherwise ws2def.h redefines sockaddr. */
 #include "Common/crc.h"
 
 #include "test_harness.h"
-
-#include <filesystem>
-#include <limits>
-#include <string>
 
 #include "Common/AsciiString.h"
 #include "Common/CommandLine.h"
@@ -192,7 +194,6 @@ static int GetSystemMetrics( int which )
 #include <math.h>
 #include <atomic>
 #include <chrono>
-#include <filesystem>
 #include <thread>
 
 //////////////////////////////////////////////////////////////////////////////
@@ -1651,14 +1652,14 @@ TEST(force_fire_is_the_attack_key_and_nothing_else)
 /* HotKey.cpp: a label's '&' letter and the key a Turkish keyboard types meet on one map key. */
 TEST(hotkey_names_fold_turkish_letters_and_case)
 {
-	CHECK_STR( HotKeyManager::nameOf( L'B' ).str(), "b" );
-	CHECK_STR( HotKeyManager::nameOf( L'b' ).str(), "b" );
-	CHECK( HotKeyManager::nameOf( 0x0130 ) == HotKeyManager::nameOf( L'i' ) );	// İptal against the i key
-	CHECK( HotKeyManager::nameOf( 0x0131 ) == HotKeyManager::nameOf( L'I' ) );
+	CHECK_STR( HotKeyManager::nameOf( u'B' ).str(), "b" );
+	CHECK_STR( HotKeyManager::nameOf( u'b' ).str(), "b" );
+	CHECK( HotKeyManager::nameOf( 0x0130 ) == HotKeyManager::nameOf( u'i' ) );	// İptal against the i key
+	CHECK( HotKeyManager::nameOf( 0x0131 ) == HotKeyManager::nameOf( u'I' ) );
 	CHECK( HotKeyManager::nameOf( 0x015E ) == HotKeyManager::nameOf( 0x015F ) );	// Ş ş
 	CHECK( HotKeyManager::nameOf( 0x00C7 ) == HotKeyManager::nameOf( 0x00E7 ) );	// Ç ç
 	CHECK( HotKeyManager::nameOf( 0x011E ) == HotKeyManager::nameOf( 0x011F ) );	// Ğ ğ
-	CHECK( HotKeyManager::nameOf( 0x015E ) != HotKeyManager::nameOf( L'^' ) );	// not its low byte
+	CHECK( HotKeyManager::nameOf( 0x015E ) != HotKeyManager::nameOf( u'^' ) );	// not its low byte
 }
 
 /* HotKey.cpp, Hotkeys_*: the options menu's Hotkeys page writes Hotkeys.ini the way the launcher does.
@@ -14200,6 +14201,32 @@ TEST(order_lines_are_a_live_check_box_that_starts_on)
 	TheWritableGlobalData = saved;
 }
 
+TEST(water_style_defaults_to_modern_and_preserves_an_explicit_classic_choice)
+{
+    GlobalData *saved=TheWritableGlobalData;
+    GlobalData *scratch=NEW GlobalData;
+    TheWritableGlobalData=scratch;
+    const OptionDef *water=findOptionDef("WaterStyle");
+    CHECK(water!=NULL);
+    if (water) {
+        UserPreferences pref;
+        CHECK_EQ(scratch->m_waterStyle,1);
+        loadOptionsFromPreferences(pref);
+        CHECK_EQ(water->get(),1);
+        pref["WaterStyle"]="0";
+        loadOptionsFromPreferences(pref);
+        CHECK_EQ(water->get(),0);
+        saveOptionsToPreferences(pref);
+        CHECK_STR(pref["WaterStyle"].str(),"0");
+        pref["WaterStyle"]="1";
+        loadOptionsFromPreferences(pref);
+        CHECK_EQ(water->get(),1);
+        CHECK_EQ(water->apply,APPLY_LIVE);
+    }
+    delete scratch;
+    TheWritableGlobalData=saved;
+}
+
 TEST(option_catalog_round_trips_every_key_through_options_ini)
 {
 	/* Every row has to survive the trip out to Options.ini and back, at both ends of its range.
@@ -16334,6 +16361,28 @@ TEST(pro_rules_count_the_defenses_of_one_derrick_cluster)
  * avoid: it reads "banana" as 0, 0 is a real frame number, and a typo in one field would put the
  * whole file on the first frame.
  */
+TEST(scenario_capture_campaign_owner_is_narrow_and_resets)
+{
+    ScenarioAction action;
+    CHECK_EQ((Int)ScenarioDrill_parseLine("4140 spawn player:ThePlayer WaterCaptureCarrier 1 2500 1000", &action), (Int)SCENARIO_PARSE_OK);
+    CHECK_STR(action.capturePlayerName.str(), "ThePlayer");
+    CHECK_EQ((Int)ScenarioDrill_parseLine("4200 move player:ThePlayer WaterCaptureCarrier 2600 1000", &action), (Int)SCENARIO_PARSE_OK);
+    CHECK_EQ((Int)ScenarioDrill_parseLine("4500 stop player:ThePlayer WaterCaptureCarrier", &action), (Int)SCENARIO_PARSE_OK);
+    CHECK_EQ((Int)ScenarioDrill_parseLine("0 spawn player:ThePlayer WaterCaptureCarrier 2 0 0", &action), (Int)SCENARIO_PARSE_BAD_COUNT);
+    CHECK_EQ((Int)ScenarioDrill_parseLine("0 move player:ThePlayer WaterCaptureCarrier start0", &action), (Int)SCENARIO_PARSE_BAD_POSITION);
+    CHECK_EQ((Int)ScenarioDrill_parseLine("0 move player:ThePlayer WaterCaptureCarrier nan 0", &action), (Int)SCENARIO_PARSE_BAD_POSITION);
+    CHECK_EQ((Int)ScenarioDrill_parseLine("0 move player:ThePlayer WaterCaptureCarrier x 0", &action), (Int)SCENARIO_PARSE_BAD_POSITION);
+    const char *bad[] = {
+        "0 stop player: WaterCaptureCarrier", "0 stop player:The.Player WaterCaptureCarrier",
+        "0 stop player:ThePlayer *", "0 stop player:ThePlayer WaterCaptureCarrier*",
+        "0 spawn player:ThePlayer AmericaAircraftCarrier 1 0 0",
+        "0 attackmove player:ThePlayer WaterCaptureCarrier 0 0"
+    };
+    for (const char *line : bad) CHECK_EQ((Int)ScenarioDrill_parseLine(line, &action), (Int)SCENARIO_PARSE_BAD_SLOT);
+    CHECK_EQ((Int)ScenarioDrill_parseLine("0 stop 0 CivilianVehiclePTBoat", &action), (Int)SCENARIO_PARSE_OK);
+    CHECK(action.capturePlayerName.isEmpty());
+}
+
 TEST(scenario_parses_a_spawn_line)
 {
 	ScenarioAction action;

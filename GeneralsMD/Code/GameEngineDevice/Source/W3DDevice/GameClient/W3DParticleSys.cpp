@@ -39,6 +39,7 @@
 #include "W3DDevice/GameClient/W3DSnow.h"
 #include "W3DDevice/GameClient/W3DScene.h"
 #include "W3DDevice/GameClient/W3DDynamicLight.h"
+#include "W3DDevice/GameClient/W3DWater.h"
 #include "WW3D2/camera.h"
 #include "W3DDevice/GameClient/W3DSmoothMotion.h"
 #include "WW3D2/dx8wrapper.h"
@@ -49,7 +50,12 @@
 #include "GameLogic/Module/LifetimeUpdate.h"
 #include "GameLogic/PartitionManager.h"
 #include "GameClient/ObserverCamera.h"
+#include "GameClient/GameClient.h"
+#include "GameClient/Drawable.h"
+#include "Platform/WaterFoamParticlePolicy.h"
 #include <map>
+#include <cstdio>
+#include <cstdlib>
 
 #ifdef _INTERNAL
 // for occasional debugging...
@@ -71,6 +77,74 @@
 extern Real TheParticleFillMS;
 extern UnsignedInt TheParticlesPastGroupLimit;
 #endif
+
+#if defined(__linux__)
+// Attribution only. Bounded process-lifetime records, deduplicated for unchanged system/pass decisions in a logic tick, then on a
+// changed decision or every 30 ticks. The two render loops share it.
+static void traceNativeRippleDiagnostic(ParticleSystem *sys,UnsignedInt owner,Bool ordinary,
+    Bool mirror,Bool admitted,Bool skipped)
+{
+    struct Entry { UnsignedInt system,logic; Bool mirror,skipped,admitted,ordinary; };
+    static Entry entries[64]={};
+    static unsigned count=0,lines=0;
+    if(lines>=256 || !TheGameLogic) return;
+    const UnsignedInt system=(UnsignedInt)sys->getSystemID(),logic=TheGameLogic->getFrame();
+    unsigned i=0;
+    for(;i<count;++i) if(entries[i].system==system && entries[i].mirror==mirror) break;
+    if(i<count) {
+        const Entry &old=entries[i];
+        if(old.logic==logic && old.skipped==skipped && old.admitted==admitted && old.ordinary==ordinary) return;
+        if(logic%30!=0 && old.skipped==skipped && old.admitted==admitted && old.ordinary==ordinary) return;
+    } else if(count==64) return;
+    else ++count;
+    entries[i]={system,logic,mirror,skipped,admitted,ordinary};
+    ++lines;
+    std::fprintf(stderr,"water-native-ripple: template=%s texture=%s system=%u owner=%u drawable=%u object=%u "
+        "logic=%u render=%u mirror=%d ordinary=%d admitted=%d skipped=%d particles=%u record=%u/256\n",
+        sys->getTemplate()->getName().str(),sys->getParticleTypeName().str(),system,owner,
+        (UnsignedInt)sys->getAttachedDrawable(),(UnsignedInt)sys->getAttachedObject(),logic,
+        (UnsignedInt)WW3D::Get_Frame_Count(),(int)mirror,(int)ordinary,(int)admitted,(int)skipped,
+        (UnsignedInt)sys->getParticleCount(),lines);
+}
+#endif
+
+// Modern water replaces only verified vessel-surface particles, after that hull's water draw.
+static Bool replaceLegacyVesselFoam(ParticleSystem *sys)
+{
+#if defined(__linux__)
+    if(!sys || !TheWaterRenderObj || !TheGameClient || !sys->getTemplate()) return FALSE;
+    const Bool ordinaryGroundParticle=!sys->shouldBillboard() && !sys->isUsingDrawables() &&
+        !sys->isUsingStreak() && !sys->isUsingSmudge() && sys->getVolumeParticleDepth()==0;
+    const AsciiString name=sys->getTemplate()->getName(),texture=sys->getParticleTypeName();
+    const Bool known=WaterFoamParticlePolicy::KnownSurfaceFoam(name.str(),texture.str());
+    const Bool isolateRipple=WaterFoamParticlePolicy::KnownDiagnosticRipple(name.str(),texture.str()) &&
+        WaterFoamParticlePolicy::RippleDiagnosticEnabled(std::getenv("ZH_WATER_NATIVE_WAKE_DIAGNOSTIC"));
+    if(!isolateRipple && (!ordinaryGroundParticle || !known)) return FALSE;
+    UnsignedInt owner=INVALID_ID;
+    if(sys->getAttachedDrawable()!=INVALID_DRAWABLE_ID) {
+        const Drawable *drawable=TheGameClient->findDrawableByID(sys->getAttachedDrawable());
+        if(drawable && drawable->getObject()) owner=drawable->getObject()->getID();
+    } else if(sys->getAttachedObject()!=INVALID_ID) owner=sys->getAttachedObject();
+    if(!isolateRipple && owner==INVALID_ID) return FALSE;
+    const Bool mirror=ShaderClass::Is_Backface_Culling_Inverted();
+    const Bool attached=owner!=INVALID_ID;
+    // Keep the original admission functions for each pass. In particular, reflected
+    // hulls and spray remain intact; only same-interface surface ripples are isolated.
+    const Bool admitted=ordinaryGroundParticle && attached &&
+        (mirror?TheWaterRenderObj->isModernWaterMirrorForOwner(owner):TheWaterRenderObj->hasModernVesselFoam(owner));
+    const Bool legacySkip=mirror?
+        WaterFoamParticlePolicy::ExcludeSelfReflection(name.str(),texture.str(),ordinaryGroundParticle,attached,admitted):
+        WaterFoamParticlePolicy::Replace(name.str(),texture.str(),ordinaryGroundParticle,attached,admitted,FALSE);
+    const Bool diagnosticSkip=WaterFoamParticlePolicy::IsolateDiagnosticRipple(name.str(),texture.str(),isolateRipple,
+        ordinaryGroundParticle,attached,admitted,mirror,admitted);
+    if(isolateRipple) traceNativeRippleDiagnostic(sys,owner,ordinaryGroundParticle,mirror,admitted,diagnosticSkip);
+    // Simulation, emission, aging and IDs are untouched. Missing modern admission
+    // immediately restores the original particle draw, including in this experiment.
+    return legacySkip || diagnosticSkip;
+#else
+    return FALSE;
+#endif
+}
 
 /** The preset a particle shader type draws with, and whether it names one at all.  An invalid type
 	* leaves the point group's previous shader in place on the old path, so it does not take the
@@ -1254,6 +1328,8 @@ void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 		ParticleSystem *sys = (*it);
 		if (!sys || sys->isUsingDrawables())
 			continue;
+		if (replaceLegacyVesselFoam(sys))
+			continue;
 		if (*((UnsignedInt *)sys->getParticleTypeName().str()) == 0x44554D53)
 			continue;
 
@@ -1344,6 +1420,8 @@ void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 		if (!sys) {
 			continue;
 		}
+		if (replaceLegacyVesselFoam(sys))
+			continue;
 
 		// only look at particle/point style systems
 		if (sys->isUsingDrawables())

@@ -1,0 +1,63 @@
+name: Rendering build and CPU checks
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022, macos-14]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build g++ git curl unzip xz-utils make pkg-config python3 \
+            libx11-dev libxext-dev libxcursor-dev libxi-dev libxfixes-dev libxrandr-dev libxss-dev \
+            libxtst-dev libwayland-dev libxkbcommon-dev wayland-protocols libegl-dev libdrm-dev \
+            libgbm-dev libvulkan-dev spirv-tools
+      - name: Fetch pinned POSIX source dependencies
+        if: runner.os != 'Windows'
+        shell: bash
+        run: GeneralsMD/Code/Tools/vendor.sh
+      - name: Fetch pinned Windows source dependencies
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: GeneralsMD/Code/Tools/vendor.ps1
+      - name: Configure POSIX Release
+        if: runner.os != 'Windows'
+        shell: bash
+        run: cmake -S GeneralsMD/Code -B build-render -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - name: Configure Windows Release
+        if: runner.os == 'Windows'
+        run: cmake -S GeneralsMD/Code -B build-render -A x64
+      - name: Build Release
+        run: cmake --build build-render --config Release --parallel 2
+      - name: Build Linux preview tools explicitly
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          cmake --build build-render --target water_preview --parallel 2
+          if cmake --build build-render --target help | grep -q cloud_preview; then
+            cmake --build build-render --target cloud_preview --parallel 2
+          fi
+      - name: Rendering CPU checks without retail data
+        shell: bash
+        run: |
+          ctest --test-dir build-render -C Release --output-on-failure \
+            -R '^(build_fingerprint_check|build_fingerprint_manifest|fingerprint_manifest_selfcheck|test_modern_water_config|test_water_preview_preset|test_water_grid|test_water_tracks|test_hazard_cloud_policy|test_shader_sdl|test_ffshadercompile|optionsmenu_selfcheck)$'
+          executable=build-render/test_gameengine
+          if [ "$RUNNER_OS" = Windows ]; then executable=build-render/Release/test_gameengine.exe; fi
+          "$executable" water_style
+          "$executable" modern_water
+          if ctest --test-dir build-render -C Release -N | grep -q test_hazard_cloud_policy; then
+            "$executable" cloud_style
+          fi

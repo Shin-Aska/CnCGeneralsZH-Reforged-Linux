@@ -515,16 +515,6 @@ AsciiString FileSystem::modLooseFile(const AsciiString& filename, Bool *inModArc
 }
 
 //============================================================================
-// FileSystem::isMapPath
-//============================================================================
-Bool FileSystem::isMapPath(const AsciiString& filename)
-{
-	// A mod's Maps.big carries its own edits of the stock maps under the same names (Contra's Twilight
-	// Flame is not ours), and a lobby has to agree on one file: retail's and the fork's maps win always.
-	return strncasecmp(filename.str(), "maps", 4) == 0 && (filename.str()[4] == '\\' || filename.str()[4] == '/');
-}
-
-//============================================================================
 // FileSystem::isForkOwnedPath
 //============================================================================
 Bool FileSystem::isForkOwnedPath(const AsciiString& filename)
@@ -551,55 +541,15 @@ Bool FileSystem::isForkOwnedPath(const AsciiString& filename)
 		return TRUE;
 	if (starts("data\\ini\\mappedimages\\handcreated\\reforged") && ends(".ini"))
 		return TRUE;
+#if defined(__linux__)
+	if (p == "data\\ini\\modernwater.ini")
+		return TRUE;
+#endif
 	return p == "data\\patch.str"
 		|| starts("data\\turkish\\") || starts("data\\german\\")
 		|| starts("art\\textures\\reforged")
 		|| starts("window\\")
 		|| p == "install_final.bmp";
-}
-
-//============================================================================
-// FileSystem::isForkUIPath
-//============================================================================
-Bool FileSystem::isForkUIPath(const AsciiString& filename)
-{
-	// A mod integrates into our game and never brings its own interface: every window layout, the
-	// fonts (Language.ini, HeaderTemplate.ini), the shell's colours and transitions and the image sheets
-	// the shell and the HUD frames are cut from.  The image sheets a mod's cameos live in
-	// (SAUserInterface512 and the like) and the Generals Challenge portraits stay the mod's: those are
-	// its units and its generals.  The textures our sheets name are added in ArchiveFileSystem::loadMods.
-	AsciiString path = filename;
-	path.toLower();
-	std::string p(path.str());
-	for (size_t i = 0; i < p.size(); ++i)
-	{
-		if (p[i] == '/')
-			p[i] = '\\';
-	}
-	if (p.compare(0, strlen("window\\"), "window\\") == 0)
-		return TRUE;
-	const size_t slash = p.find_last_of('\\');
-	const std::string dir = slash == std::string::npos ? std::string() : p.substr(0, slash + 1);
-	const std::string name = slash == std::string::npos ? p : p.substr(slash + 1);
-	// Data\<language>\Language.ini and HeaderTemplate.ini
-	if (dir.compare(0, strlen("data\\"), "data\\") == 0 && dir.find('\\', strlen("data\\")) == dir.size() - 1
-		&& (name == "language.ini" || name == "headertemplate.ini"))
-		return TRUE;
-	if ((dir == "data\\ini\\" || dir == "data\\ini\\default\\")
-		&& (name == "shellmenuscheme.ini" || name == "windowtransitions.ini" || name == "ingameui.ini" || name == "controlbarresizer.ini"))
-		return TRUE;
-	static const char *const sheets[] = { "handcreatedmappedimages.ini", "scshelluserinterface512.ini",
-		"scsmshelluserinterface512.ini", "scgameuserinterface512.ini", "sclogosuserinterface512.ini",
-		"scpurchasepowers512.ini", "sacontrolbar512.ini", "sncontrolbar512.ini", "sucontrolbar512.ini" };
-	if (dir.compare(0, strlen("data\\ini\\mappedimages\\"), "data\\ini\\mappedimages\\") == 0)
-	{
-		for (size_t i = 0; i < sizeof(sheets) / sizeof(sheets[0]); ++i)
-		{
-			if (name == sheets[i])
-				return TRUE;
-		}
-	}
-	return FALSE;
 }
 
 //============================================================================

@@ -121,6 +121,7 @@ struct ScenarioAction
 	UnsignedInt frame;						///< the logic frame this fires on
 	ScenarioActionType action;
 	Int slot;											///< the seat, the same number -side takes; not an index into ThePlayerList
+	AsciiString capturePlayerName; // optional player:<internal-name>, exact disposable fixture only
 	AsciiString selector;					///< a template name, or "*" for everything that seat owns
 	Coord2D at;										///< spawn, move, attackmove and arrive target, or the offset from atStart
 	Int atStart;									///< the start position at is measured from, SCENARIO_NO_START for none
