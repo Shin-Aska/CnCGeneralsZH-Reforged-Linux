@@ -1,30 +1,72 @@
 # Zero Hour Reforged Linux
 
-A Linux-focused fork of [Zero Hour Reforged](https://github.com/olcayseygan/CnCGeneralsZH-Reforged),
-which rebuilds Command & Conquer: Generals Zero Hour from EA's released source. The native 64-bit
-Linux game uses SDL3 and Vulkan and reads the Generals and Zero Hour files you already own.
+Command & Conquer: Generals Zero Hour running natively on **64-bit Linux**, with **SDL3 and Vulkan**,
+volumetric hazard clouds, Modern water and mapped sun shadows. No Wine or Proton is needed.
+
+This is the Linux-focused fork of [Zero Hour Reforged](https://github.com/olcayseygan/CnCGeneralsZH-Reforged),
+rebuilt from EA's released source. The `main` branch focuses on Linux development, graphics and
+validation, while retaining upstream's gameplay, AI and interface improvements.
 
 [![last commit](https://img.shields.io/github/last-commit/Shin-Aska/CnCGeneralsZH-Reforged-Linux/main?style=for-the-badge)](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/commits/main)
 [![license](https://img.shields.io/badge/license-GPL--3.0%20%2B%20EA%20terms-0d1117?style=for-the-badge)](LICENSE.md)
 
-[Build](#build) · [Play](#play) · [Tests](#tests) · [Linux validation](docs/linux.md) ·
+[Graphics highlights](#graphics-highlights) · [Build](#build) · [Play](#play) · [Tests](#tests) ·
+[Linux validation](docs/linux.md) ·
 [Changes](CHANGELOG.md) · [Contributing](CONTRIBUTING.md)
 
-This fork's development and verification focus on Linux. Windows and macOS sources and historical
-porting notes are inherited from upstream. The current tested machine runs **Ubuntu 26.04.1 LTS,
-GCC 16 and an NVIDIA GeForce RTX 4060**. See [the validation record](docs/linux.md#verified-environment)
-for exact versions, checks and limitations.
-
-The fork inherits upstream's gameplay, AI, interface and renderer improvements. Their history is in
-[CHANGELOG.md](CHANGELOG.md), and [PORTING.md](PORTING.md) describes the engine's platform layer.
-Game data and upscaled art are not included; you need your own installed copy of Zero Hour and
-the original Generals.
+**Bring your own game files:** you need an installed copy of **Generals and Zero Hour**.
+Game data and optional upscaled art are not included.
 
 **Play after building:** open a terminal in the repository folder and run
 `./build-linux/ZeroHourReforged/bin/generals`. Then choose **Solo Play → Skirmish** to start a game
 against the AI. [The steps below](#play) cover choosing your game files and starting a match.
 
+## Graphics highlights
+
+Fresh Linux settings use **Volumetric clouds**, **Modern water** and **mapped sun shadows** by
+default. Existing player settings are respected. Choose **Classic / Volumetric** under
+**Options → Graphics → Cloud style**, or **Classic / Modern** under **Water style**.
+
+### Volumetric Clouds
+
+Terrain-following toxin and nuclear clouds add rolling billows to live hazard fields. Nuclear
+haze includes heat distortion and rising embers. These effects follow the hazard's radius and
+lifetime without changing damage or gameplay timing.
+
+![Volumetric Clouds: a toxin cloud across a base on the left, with nuclear haze, an explosion and embers on the right](.github/media/linux-volumetric-clouds.png)
+
+*Toxin and nuclear effects, side by side.* See [hazard clouds on Linux](docs/linux.md#hazard-clouds)
+for settings and validation, or the [cloud preview](docs/cloud-preview.md) for the development viewer.
+
+### Modern Water
+
+FFT-driven waves, reflections and bright ocean highlights give water a moving surface, with foam
+around vessels and along the shoreline. Rivers and coastal water share the Modern rendering path,
+including mapped sun and smoke shadows.
+
+![Modern Water: ocean highlights and foam around vessels on the left, with a river, bridge and shoreline foam on the right](.github/media/linux-modern-water.png)
+
+*Ocean surface and vessel foam alongside a river and shoreline scene.* Read about
+[shoreline waves](docs/linux.md#boundary-aware-water) and the [water material preview](docs/water-preview.md).
+
+### Linux Shadow Parity
+
+Native Linux now uses the shared mapped sun-shadow path for buildings, units and trees. Shadows
+fall across structures, terrain and Modern water, with soft filtering and support for animated
+geometry. Normal launches enable this path without an environment override.
+
+![Linux Shadow Parity: a base overview with building shadows on the left and an enlarged crop of power plants and their shadows on the right](.github/media/linux-shadow-parity.png)
+
+*A Linux base overview alongside a closer view of building shadows.* The
+[Linux shadow rollout](docs/sdl-sun-shadows.md#default-rendering-rollout-linux-2026-10-16)
+records supported effects, fallback behavior and validation.
+
 ## Build
+
+The tested Linux setup uses **Ubuntu 26.04.1 LTS, GCC 16 and an NVIDIA GeForce RTX 4060**.
+The [Linux guide](docs/linux.md) records exact versions, graphics checks and limitations.
+Windows and macOS sources and historical porting notes are inherited from upstream;
+this fork's development and verification focus on Linux.
 
 ### Ubuntu prerequisites
 
