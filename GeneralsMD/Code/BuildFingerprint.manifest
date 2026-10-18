@@ -309,6 +309,10 @@ Data/Scenarios/standinfake.txt
 Data/Scenarios/stashbeside.txt
 Data/Scenarios/statues.txt
 Data/Scenarios/stealthintruder.txt
+Data/Scenarios/sun_cloak.txt
+Data/Scenarios/sun_trees.txt
+Data/Scenarios/sun_water.txt
+Data/Scenarios/sun_water_smoke.txt
 Data/Scenarios/swhole.txt
 Data/Scenarios/swpair.txt
 Data/Scenarios/techrespawn.txt
@@ -1625,6 +1629,7 @@ GameEngineDevice/Include/W3DDevice/GameClient/Module/W3DTankTruckDraw.h
 GameEngineDevice/Include/W3DDevice/GameClient/Module/W3DTracerDraw.h
 GameEngineDevice/Include/W3DDevice/GameClient/Module/W3DTreeDraw.h
 GameEngineDevice/Include/W3DDevice/GameClient/Module/W3DTruckDraw.h
+GameEngineDevice/Include/W3DDevice/GameClient/SunShadowCasterCull.h
 GameEngineDevice/Include/W3DDevice/GameClient/TerrainTex.h
 GameEngineDevice/Include/W3DDevice/GameClient/TileData.h
 GameEngineDevice/Include/W3DDevice/GameClient/W3DAssetManager.h
@@ -1706,6 +1711,7 @@ GameEngineDevice/Source/PosixDevice/Render/PosixDevice9.h
 GameEngineDevice/Source/PosixDevice/Render/PosixDevice9Capture.cpp
 GameEngineDevice/Source/PosixDevice/Render/PosixDevice9Draw.cpp
 GameEngineDevice/Source/PosixDevice/Render/PosixDevice9Resources.cpp
+GameEngineDevice/Source/PosixDevice/Render/PosixDevice9SunShadow.cpp
 GameEngineDevice/Source/PosixDevice/Render/PosixDevice9Timing.cpp
 GameEngineDevice/Source/PosixDevice/Render/PosixDirect3D9.cpp
 GameEngineDevice/Source/PosixDevice/Render/PosixImage.cpp
@@ -1721,12 +1727,15 @@ GameEngineDevice/Source/PosixDevice/Render/SdlCreationLog.h
 GameEngineDevice/Source/PosixDevice/Render/SdlGpuFrame.cpp
 GameEngineDevice/Source/PosixDevice/Render/SdlGpuFrame.h
 GameEngineDevice/Source/PosixDevice/Render/SdlGpuFrameBatch.cpp
+GameEngineDevice/Source/PosixDevice/Render/SdlGpuFrameSmoke.cpp
 GameEngineDevice/Source/PosixDevice/Render/SdlPipelineCache.cpp
 GameEngineDevice/Source/PosixDevice/Render/SdlPipelineCache.h
 GameEngineDevice/Source/PosixDevice/Render/SdlProgramCache.cpp
 GameEngineDevice/Source/PosixDevice/Render/SdlProgramCache.h
+GameEngineDevice/Source/PosixDevice/Render/SdlRenderMatrix.h
 GameEngineDevice/Source/PosixDevice/Render/SdlResourceMirror.cpp
 GameEngineDevice/Source/PosixDevice/Render/SdlResourceMirror.h
+GameEngineDevice/Source/PosixDevice/Render/SdlSunShadowDebug.h
 GameEngineDevice/Source/SdlDevice/Common/SdlDisplays.cpp
 GameEngineDevice/Source/SdlDevice/Common/SdlGameEngine.cpp
 GameEngineDevice/Source/SdlDevice/Common/SdlMessageBox.cpp
@@ -1879,6 +1888,9 @@ Libraries/Include/Platform/RenderTypes.h
 Libraries/Include/Platform/RendererName.h
 Libraries/Include/Platform/SleepMilliseconds.h
 Libraries/Include/Platform/StrdupAsWindows.h
+Libraries/Include/Platform/SunShadow.h
+Libraries/Include/Platform/SunShadowMode.h
+Libraries/Include/Platform/SunSmoke.h
 Libraries/Include/Platform/WaterBedMaterial.h
 Libraries/Include/Platform/WaterBowLift.h
 Libraries/Include/Platform/WaterBowRefinement.h
@@ -1917,6 +1929,7 @@ Libraries/Include/Platform/WaterShoreOverlay.h
 Libraries/Include/Platform/WaterShoreSource.h
 Libraries/Include/Platform/WaterShoreSupport.h
 Libraries/Include/Platform/WaterSurfaceModel.h
+Libraries/Include/Platform/WaterTerrainCulling.h
 Libraries/Include/Platform/WaterVesselMotion.h
 Libraries/Include/Platform/WaterVesselWaves.h
 Libraries/Include/Platform/WaterWaveCage.h
@@ -2934,6 +2947,7 @@ Tests/WaterCoastalDomainTest.h
 Tests/WaterCoastalFootprintTest.h
 Tests/WaterCoastalViewTest.h
 Tests/WaterHullContactFoamTest.h
+Tests/WaterTerrainCullingTest.h
 Tests/WaterWaveCageTest.h
 Tests/arch_diff/arch_probe.cpp
 Tests/arch_diff/known_differences.txt
@@ -3045,6 +3059,7 @@ Tests/test_posixlocalfilesystem_stubs.cpp
 Tests/test_posixpath.cpp
 Tests/test_premain_strings.cpp
 Tests/test_production_input.inc
+Tests/test_publish_linux_executable.sh
 Tests/test_registryfile.cpp
 Tests/test_render_hooks.cpp
 Tests/test_road_buffer.cpp
@@ -3056,6 +3071,7 @@ Tests/test_sdl_program_cache.cpp
 Tests/test_selection_priority.inc
 Tests/test_shader_sdl.cpp
 Tests/test_smooth_motion.cpp
+Tests/test_sun_shadow_sorting.cpp
 Tests/test_supply_center_save.inc
 Tests/test_support.cpp
 Tests/test_terrain_golden.cpp
@@ -4034,6 +4050,7 @@ Tools/replay-check.sh
 Tools/root-readonly-check.sh
 Tools/signal_marks.py
 Tools/stage-overlay.sh
+Tools/sun-shadow-check.py
 Tools/syntax_sweep.py
 Tools/terrain_oracle_extract.py
 Tools/textureCompress/resource.h
