@@ -40,6 +40,7 @@
  * Functions:                                                                                  *
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
+#include "Platform/SunShadow.h"
 #include "sortingrenderer.h"
 #include "dx8vertexbuffer.h"
 #include "dx8indexbuffer.h"
@@ -139,6 +140,8 @@ class SortingNodeStruct : public DLNodeClass<SortingNodeStruct>
 
 public:
 	RenderStateStruct sorting_state;
+	bool excludeSunReceivers;
+	SunShadow::CasterEffect casterEffect;
 
 	SphereClass bounding_sphere;
 
@@ -221,6 +224,8 @@ void SortingRendererClass::Insert_Triangles(
 	SortingNodeStruct* state=Get_Sorting_Struct();
 
 	DX8Wrapper::Get_Render_State(state->sorting_state);
+	state->excludeSunReceivers = SunShadow::ReceiversExcluded(DX8Wrapper::_Get_D3D_Device());
+	state->casterEffect = SunShadow::GetCasterEffect(DX8Wrapper::_Get_D3D_Device());
 
  	WWASSERT(
 		((state->sorting_state.index_buffer_type==BUFFER_TYPE_SORTING || state->sorting_state.index_buffer_type==BUFFER_TYPE_DYNAMIC_SORTING) &&
@@ -332,6 +337,8 @@ void SortingRendererClass::Insert_Quads(
 
 	SortingNodeStruct* state=Get_Sorting_Struct();
 	DX8Wrapper::Get_Render_State(state->sorting_state);
+	state->excludeSunReceivers = SunShadow::ReceiversExcluded(DX8Wrapper::_Get_D3D_Device());
+	state->casterEffect = SunShadow::GetCasterEffect(DX8Wrapper::_Get_D3D_Device());
 
  	WWASSERT(
 		((state->sorting_state.index_buffer_type==BUFFER_TYPE_SORTING || state->sorting_state.index_buffer_type==BUFFER_TYPE_DYNAMIC_SORTING) &&
@@ -717,10 +724,14 @@ static void Flush_Sorting_Batch(const TempIndexStruct* entries,unsigned entry_co
 			// A run of billboards fades into the depth behind it and a run of meshes does not, so the
 			// two never share a draw even in one state.
 			if (state->glow!=next->glow || state->quads!=next->quads ||
+				state->excludeSunReceivers!=next->excludeSunReceivers ||
+				!(state->casterEffect==next->casterEffect) ||
 				!Same_Draw_State(state->sorting_state,next->sorting_state)) {
 				Apply_Render_State(state->sorting_state);
-				Direct3D11_Set_Smoke_Glow(state->glow);
+				SunShadow::SetSmokeGlow(DX8Wrapper::_Get_D3D_Device(),state->glow);
 				Direct3D11_Set_Soft_Particles(state->quads);
+				SunShadow::ReceiverExclusion sunReceivers(DX8Wrapper::_Get_D3D_Device(), state->excludeSunReceivers);
+				SunShadow::CasterEffectScope casterEffect(DX8Wrapper::_Get_D3D_Device(), state->casterEffect);
 				DX8Wrapper::Draw_Triangles(run_first_index,run_triangles,run_first_vertex,vertex_cursor-run_first_vertex);
 				run_first_index=index_cursor;
 				run_first_vertex=vertex_cursor;
@@ -734,10 +745,14 @@ static void Flush_Sorting_Batch(const TempIndexStruct* entries,unsigned entry_co
 	}
 
 	Apply_Render_State(overlapping_nodes[node_id]->sorting_state);
-	Direct3D11_Set_Smoke_Glow(overlapping_nodes[node_id]->glow);
+	SunShadow::SetSmokeGlow(DX8Wrapper::_Get_D3D_Device(),overlapping_nodes[node_id]->glow);
 	Direct3D11_Set_Soft_Particles(overlapping_nodes[node_id]->quads);
-	DX8Wrapper::Draw_Triangles(run_first_index,run_triangles,run_first_vertex,vertex_cursor-run_first_vertex);
-	Direct3D11_Set_Smoke_Glow(false);
+	{
+		SunShadow::ReceiverExclusion sunReceivers(DX8Wrapper::_Get_D3D_Device(), overlapping_nodes[node_id]->excludeSunReceivers);
+		SunShadow::CasterEffectScope casterEffect(DX8Wrapper::_Get_D3D_Device(), overlapping_nodes[node_id]->casterEffect);
+		DX8Wrapper::Draw_Triangles(run_first_index,run_triangles,run_first_vertex,vertex_cursor-run_first_vertex);
+	}
+	SunShadow::SetSmokeGlow(DX8Wrapper::_Get_D3D_Device(),false);
 	Direct3D11_Set_Soft_Particles(false);
 
 	tDrawEnd = Clock_Ticks();
@@ -955,6 +970,8 @@ void SortingRendererClass::Flush()
 		}
 		else {
 			DX8Wrapper::Set_Render_State(state->sorting_state);
+			SunShadow::ReceiverExclusion sunReceivers(DX8Wrapper::_Get_D3D_Device(), state->excludeSunReceivers);
+			SunShadow::CasterEffectScope casterEffect(DX8Wrapper::_Get_D3D_Device(), state->casterEffect);
 			DX8Wrapper::Draw_Triangles(state->start_index,state->polygon_count,state->min_vertex_index,state->vertex_count);
 			DX8Wrapper::Release_Render_State();
 			Release_Refs(state);
@@ -1046,6 +1063,8 @@ void SortingRendererClass::Insert_VolumeParticle(
 
 	SortingNodeStruct* state=Get_Sorting_Struct();
 	DX8Wrapper::Get_Render_State(state->sorting_state);
+	state->excludeSunReceivers = SunShadow::ReceiversExcluded(DX8Wrapper::_Get_D3D_Device());
+	state->casterEffect = SunShadow::GetCasterEffect(DX8Wrapper::_Get_D3D_Device());
 
  	WWASSERT(
 		((state->sorting_state.index_buffer_type==BUFFER_TYPE_SORTING || state->sorting_state.index_buffer_type==BUFFER_TYPE_DYNAMIC_SORTING) &&

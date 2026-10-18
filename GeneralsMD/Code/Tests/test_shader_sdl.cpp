@@ -378,6 +378,11 @@ const WaterUniformMember WaterUniformMembers[] = {
     WATER_UNIFORM_MEMBER(FoamFillLights),
     WATER_UNIFORM_MEMBER(CoastalArea),
     WATER_UNIFORM_MEMBER(CoastalParams),
+    WATER_UNIFORM_MEMBER(ShadowFromClip),
+    WATER_UNIFORM_MEMBER(ShadowParameters),
+    WATER_UNIFORM_MEMBER(ShadowViewport),
+    WATER_UNIFORM_MEMBER(ShadowSoftness),
+    WATER_UNIFORM_MEMBER(VolumeParameters),
     WATER_UNIFORM_MEMBER(MaterialColor),
     WATER_UNIFORM_MEMBER(MaterialParameters)
 };

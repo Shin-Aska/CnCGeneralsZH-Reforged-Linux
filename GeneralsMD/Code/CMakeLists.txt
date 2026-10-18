@@ -1630,6 +1630,15 @@ if(ZH_PLATFORM_POSIX)
   if(ZH_GAME_DATA)
     set_tests_properties(test_render_hooks PROPERTIES ENVIRONMENT "ZH_DATA_DIR=${ZH_GAME_DATA}")
   endif()
+
+  add_executable(test_sun_shadow_sorting ${CMAKE_CURRENT_SOURCE_DIR}/Tests/test_sun_shadow_sorting.cpp)
+  set_target_properties(test_sun_shadow_sorting PROPERTIES CXX_STANDARD 17)
+  target_include_directories(test_sun_shadow_sorting PRIVATE
+    ${WW}/WWLib ${WW}/WWMath ${WW}/WWDebug ${WW}/WW3D2
+    ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/PosixDevice/Render)
+  target_link_libraries(test_sun_shadow_sorting PRIVATE w3ddevice ww3d2 posixdevice gameengine SDL3::SDL3-static)
+  add_test(NAME test_sun_shadow_sorting COMMAND test_sun_shadow_sorting)
+  set_tests_properties(test_sun_shadow_sorting PROPERTIES SKIP_RETURN_CODE 77 RUN_SERIAL TRUE)
 endif()
 
 # ===========================================================================
@@ -2839,14 +2848,14 @@ if(ZH_PLATFORM_POSIX)
   # measured on a Linux x86_64 host).  Not dummy there: it has no Vulkan_CreateSurface, so SDL finds no GPU backend.
   if(APPLE)
     foreach(_zh_test sdl_gpu_frame_selfcheck sdl_program_cache_selfcheck sdl_pipeline_state_selfcheck
-                     posix_gpu_draw_selfcheck ffref_gpu_selfcheck ffref_capture_selfcheck)
+                     posix_gpu_draw_selfcheck ffref_gpu_selfcheck ffref_capture_selfcheck test_sun_shadow_sorting)
       if(TEST ${_zh_test})
         set_property(TEST ${_zh_test} APPEND PROPERTY ENVIRONMENT "SDL_VIDEO_DRIVER=dummy" "ZH_SDL_GPU_METAL_WINDOWLESS=1")
       endif()
     endforeach()
   elseif(ZH_PLATFORM_LINUX)
     foreach(_zh_test sdl_gpu_frame_selfcheck sdl_program_cache_selfcheck sdl_pipeline_state_selfcheck
-                     posix_gpu_draw_selfcheck ffref_gpu_selfcheck ffref_capture_selfcheck)
+                     posix_gpu_draw_selfcheck ffref_gpu_selfcheck ffref_capture_selfcheck test_sun_shadow_sorting)
       if(TEST ${_zh_test})
         set_property(TEST ${_zh_test} APPEND PROPERTY ENVIRONMENT "SDL_VIDEO_DRIVER=offscreen")
       endif()

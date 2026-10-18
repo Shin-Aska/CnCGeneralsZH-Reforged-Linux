@@ -87,7 +87,7 @@ public:
 	/// The copy of a vertex or index buffer's bytes (`owner` is the buffer object: its address is the key).
 	SDL_GPUBuffer * Buffer(const void * owner, const PosixBufferStorage & storage, std::string & refusal);
 	/// 1x1 opaque white: what a slot with no texture bound samples.
-	SDL_GPUTexture * White();
+	SDL_GPUTexture * White(bool array = false);
 
 	/// Hands the copies of objects that have died to the frame, to go after the batch.  Main thread.
 	void Collect_Dead();
@@ -117,6 +117,7 @@ private:
 	std::unordered_map<const void *, Copy> Copies;
 	std::vector<Copy> Dead;
 	SDL_GPUTexture * WhiteTexture;
+	SDL_GPUTexture * WhiteArrayTexture;
 	int BcSupported;									///< -1 not asked yet
 	unsigned int StaleFlushes;
 	unsigned int TexturesUploaded;

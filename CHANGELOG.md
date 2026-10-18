@@ -9,6 +9,14 @@ found and fixed â€” EA's own, not port damage.**
 ---
 
 
+## Shadow parity on Linux
+
+- Linux now draws sun and smoke shadows across terrain, buildings, units, trees
+  and water. Cloaked casters retain their partial coverage when draws are sorted.
+- Reflections and custom passes keep their own view state. Disabled shadows or
+  unavailable resources retain the original shadows. Windows keeps its existing
+  tree silhouettes and sorted-cloak behavior; Mac scene shadows remain unchanged.
+
 ## Modern water on Linux
 
 - Water rolls in waves with sunlight following the crests into the shallows.

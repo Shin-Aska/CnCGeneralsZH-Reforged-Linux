@@ -506,11 +506,20 @@ static void write_modern_water(std::string &hlsl, bool river)
 		(strcmp(visualDebugOption,"contact-mesh-query")==0 || strcmp(visualDebugOption,"contact-mesh-sources")==0);
 	hlsl.clear();
 	for (unsigned stage = 0; stage < (coastalSurf?16u:15u); ++stage) {
+		if(stage>=8 && stage<14) continue;
 		char line[128];
 		snprintf(line, sizeof(line), "Texture2D Texture%u : register(t%u);\nSamplerState Sampler%u : register(s%u);\n", stage, stage, stage, stage);
 		hlsl += line;
 	}
+	hlsl += "Texture2DArray OceanMaps : register(t8);\nSamplerState OceanSampler : register(s8);\n";
 	hlsl += WaterFftSampling::UniformSource("CombinerConstants",0,visualContact);
+	std::string sunSampling=SHADOW_SAMPLING SUN_SMOKE_SAMPLING;
+	for(const auto &binding : {std::pair<const char*,const char*>("register(t5)","register(t9)"),
+		{"register(s5)","register(s9)"},{"register(t6)","register(t10)"},{"register(s6)","register(s10)"}}) {
+		const size_t at=sunSampling.find(binding.first);
+		if(at!=std::string::npos) sunSampling.replace(at,strlen(binding.first),binding.second);
+	}
+	hlsl += sunSampling;
 	hlsl += R"HLSL(struct Input
 {
     float4 Position : SV_Position;
@@ -736,7 +745,7 @@ WaterRefractionSample waterRefractedScene(float2 originalPixel, float2 offset,
 	hlsl += ModernWaterMaterial::OpticalSource();
 	hlsl += ModernWaterMaterial::BubbleSource();
 	hlsl += WaterHullModel::GetHlslSource();
-	hlsl += WaterFftSampling::PixelSource(bowLift);
+	hlsl += WaterFftSampling::PixelSource(bowLift,WaterBowShoulder::Enabled(),true);
 	hlsl += WaterWaveCageShader::Source(false);
 	char oceanBound[96];
 	snprintf(oceanBound, sizeof(oceanBound), "static const float oceanDisplacementBound = %.9g;\n",
@@ -1104,7 +1113,7 @@ float4 main(Input input) : SV_Target
     float masking = nDotV / (nDotV * (1.0 - k) + k);
     masking *= nDotL / max(nDotL * (1.0 - k) + k, 0.0001);
     float sunFresnel = 0.02 + 0.98 * pow(1.0 - vDotH, 5.0);
-    float sunVisible = terrainSun(world, light);
+    float sunVisible = terrainSun(world, light) * light_reaching(input.Position);
     float3 highlight = waterLinear(SunColour.rgb) * 2.0 * (distribution * masking * sunFresnel * sunVisible / max(4.0 * nDotV, 0.001));
     highlight = highlight / (1.0 + highlight * 0.6);
     float daylight = saturate(max(max(SunColour.r, SunColour.g), SunColour.b));
@@ -1373,7 +1382,7 @@ float4 main(Input input) : SV_Target
     }
     // Foam replaces transmission and the clear-water material locally. Its diffuse and rough
     // reflected light follow the same displaced surface; neither is additive white emission.
-    float foamDiffuse=(0.22+0.78*saturate(dot(normal,light)))*(0.12+0.88*daylight);
+    float foamDiffuse=(0.22+0.78*saturate(dot(normal,light))*sunVisible)*(0.12+0.88*daylight);
     float3 foamAlbedo=lerp(float3(0.67,0.73,0.71),float3(0.79,0.83,0.81),historyFoam.z);
     // Newly deposited contact foam shares the fresh material even on a stationary
     // ship. Turbulence alone previously left it at the older, darker endpoint.
@@ -1661,8 +1670,7 @@ current=float4(hullDepthRegion*saturate(0.5+0.5*(world.z-baseLevel)/fftVerticalB
 bool EngineShader_Pixel_Program(EngineShaderProgram program,
 	const PixelPipelineDescription & pipeline, std::string & hlsl, CombinerShaderTarget target)
 {
-	// As the vertex half: D3D11 only, and SDL3 GPU as the D3D11 text rebound, without the smoke the
-	// SDL3 backend has no map for.
+	// SDL ground programs share the Windows sun and smoke filters. Water keeps its own path.
 	if (target == COMBINER_SHADER_TARGET_D3D9) {
 		hlsl.clear();
 		return false;
@@ -1699,7 +1707,7 @@ bool EngineShader_Pixel_Program(EngineShaderProgram program,
 			return SDL3_Shader_Retarget(hlsl, false);
 		}
 #endif // __linux__
-		return write_engine_pixel_program(program, pipeline, hlsl, false)
+		return write_engine_pixel_program(program, pipeline, hlsl, EngineShader_Paints_Ground(program))
 			&& SDL3_Shader_Retarget(hlsl, false);
 	}
 	return write_engine_pixel_program(program, pipeline, hlsl, true);

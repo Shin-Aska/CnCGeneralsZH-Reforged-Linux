@@ -155,6 +155,8 @@ IDirect3DPixelShader9 *		DX8Wrapper::Pixel_Shader								= NULL;
 
 Vector4							DX8Wrapper::Vertex_Shader_Constants[MAX_VERTEX_SHADER_CONSTANTS];
 Vector4							DX8Wrapper::Pixel_Shader_Constants[MAX_PIXEL_SHADER_CONSTANTS];
+bool DX8Wrapper::Vertex_Shader_Constants_Valid[MAX_VERTEX_SHADER_CONSTANTS] = {};
+bool DX8Wrapper::Pixel_Shader_Constants_Valid[MAX_PIXEL_SHADER_CONSTANTS] = {};
 
 LightEnvironmentClass*		DX8Wrapper::Light_Environment							= NULL;
 RenderInfoClass*				DX8Wrapper::Render_Info									= NULL;
@@ -720,6 +722,10 @@ void DX8Wrapper::Invalidate_Cached_Render_States(void)
 	render_state_changed=0;
 	CurrentDX8MaterialValid=false;
 	CurrentDX8LightsValid=0;
+	// A native pass restores device constants behind the wrapper's cache. The
+	// next setter must resend even an unchanged value (tree shroud UVs included).
+	memset(Vertex_Shader_Constants_Valid, 0, sizeof(Vertex_Shader_Constants_Valid));
+	memset(Pixel_Shader_Constants_Valid, 0, sizeof(Pixel_Shader_Constants_Valid));
 
 	int a;
 	for (a=0;a<sizeof(RenderStates)/sizeof(unsigned);++a) {

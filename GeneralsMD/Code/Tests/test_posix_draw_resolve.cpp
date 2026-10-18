@@ -39,6 +39,7 @@
 #include "SdlConstants.h"
 #include "ffshader.h"
 #include "ffvertex.h"
+#include "Platform/SunShadowMode.h"
 
 #include <math.h>
 #include <stddef.h>
@@ -329,7 +330,7 @@ static void check_constants(PosixDevice9 *device)
 	CHECK(memcmp(water.HullData,hull_registers[1],sizeof(water.HullData))==0);
 	// The optional foam contour is a distinct tail, never a replacement for the mean hull used
 	// by displacement. Exercise every register, including the twelfth vertex of hull eight.
-	CHECK(sizeof(water)==188*16 && offsetof(SdlWaterPixelConstants,ContactHullData)==100*16);
+	CHECK(sizeof(water)==196*16 && offsetof(SdlWaterPixelConstants,ContactHullData)==100*16);
 	CHECK(offsetof(SdlWaterPixelConstants,CoastalArea)==184*16 && offsetof(SdlWaterPixelConstants,CoastalParams)==185*16);
 	float contact_registers[80][4]={};
 	for(int r=0;r<80;++r)for(int c=0;c<4;++c)contact_registers[r][c]=-float(r*4+c)-0.75f;
@@ -366,11 +367,11 @@ static void check_constants(PosixDevice9 *device)
 	CHECK(device->SetPixelShaderConstantF(175,contact_registers[79],1)==D3D_OK);
 	CHECK(device->SetPixelShaderConstantF(WaterHullVisualLayout::PixelRegisterCount,contact_registers[79],1)==D3DERR_INVALIDCALL);
 	// Exact mesh transport extends the emulated bank deliberately, without moving the old
-	// 188-register native vertex prefix or copying the reserved engine-register gap into metadata.
+	// 196-register native vertex prefix or copying the reserved engine-register gap into metadata.
 	using namespace WaterHullVisualLayout;
 	CHECK(PosixDevice9::PIXEL_SHADER_CONSTANT_COUNT==896);
-	CHECK(sizeof(SdlWaterVisualPixelConstants)==196*16 && offsetof(SdlWaterVisualPixelConstants,VisualHullMeta)==188*16);
-	CHECK(VertexCommonRegisters==188 && FragmentCommonRegisters==196);
+	CHECK(sizeof(SdlWaterVisualPixelConstants)==204*16 && offsetof(SdlWaterVisualPixelConstants,VisualHullMeta)==196*16);
+	CHECK(VertexCommonRegisters==196 && FragmentCommonRegisters==204);
 	CHECK(BlockOffset(0)==0 && BlockOffset(1)==256 && BlockOffset(2)==512);
 	CHECK(BlockRegisters(0)==256 && BlockRegisters(1)==256 && BlockRegisters(2)==192);
 	float visualMeta[8][4]={};float visualPacket[704][4]={};float reserved[8][4]={};
@@ -519,6 +520,26 @@ static void check_foam_history_constants(PosixDevice9 *device)
 
 int main()
 {
+	using SunShadow::Mode;
+	CHECK(SunShadow::ParseMode(NULL, Mode::Legacy) == Mode::Legacy);
+	CHECK(SunShadow::ParseMode("", Mode::Mapped) == Mode::Mapped);
+	CHECK(SunShadow::ParseMode("legacy", Mode::Mapped) == Mode::Legacy);
+	CHECK(SunShadow::ParseMode("capture-only", Mode::Legacy) == Mode::CaptureOnly);
+	CHECK(SunShadow::ParseMode("mapped", Mode::Legacy) == Mode::Mapped);
+	CHECK(SunShadow::ParseMode("mappde", Mode::Mapped) == Mode::Legacy);
+	const char *savedMode = getenv("ZH_SUN_SHADOW_MODE");
+	const bool hadMode = savedMode != NULL;
+	const std::string savedModeText = savedMode ? savedMode : "";
+	unsetenv("ZH_SUN_SHADOW_MODE");
+	CHECK(SunShadow::RequestedMode() == Mode::Mapped);
+	setenv("ZH_SUN_SHADOW_MODE", "mapped", 1);
+	CHECK(SunShadow::RequestedMode() == Mode::Mapped);
+	setenv("ZH_SUN_SHADOW_MODE", "capture-only", 1);
+	CHECK(SunShadow::RequestedMode() == Mode::CaptureOnly);
+	setenv("ZH_SUN_SHADOW_MODE", "legacy", 1);
+	CHECK(SunShadow::RequestedMode() == Mode::Legacy);
+	if (hadMode) setenv("ZH_SUN_SHADOW_MODE", savedModeText.c_str(), 1);
+	else unsetenv("ZH_SUN_SHADOW_MODE");
 	IDirect3D9 *d3d = NULL;
 	PosixDevice9 *device = make_device(d3d);
 	CHECK(device != NULL);

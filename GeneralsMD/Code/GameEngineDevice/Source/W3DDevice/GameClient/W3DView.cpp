@@ -146,7 +146,8 @@ static Bool drawsDrawables( void )
 	 logic, and W3DDisplay::draw loops until the pan is done. */
 static Bool onPictureClock( View *view )
 {
-	return GameEngine_isVideoFrame() && !( view->isTimeFrozen() && !view->isCameraMovementFinished() );
+	return (GameEngine_isVideoFrame() || GameEngine_isShadowCaptureClock())
+		&& !( view->isTimeFrozen() && !view->isCameraMovementFinished() );
 }
 
 static UnsignedInt cameraClockMilliseconds( View *view )
@@ -4523,4 +4524,3 @@ void W3DView::Add_Camera_Shake (const Coord3D & position,float radius,float dura
 
 	CameraShakerSystem.Add_Camera_Shake(vpos,radius,duration,power);
 }
-

@@ -453,3 +453,15 @@ option metadata still compile elsewhere. Windows retains its original shader
 names and shader programs; macOS binds the legacy SDL programs. The Linux style
 widget is hidden on both platforms. Windows/macOS builds and runtime checks remain
 open; Linux compilation and GPU tests do not establish their runtime compatibility.
+
+
+## Linux shadow parity proposal (2026-10-19)
+
+New scene admission, tree captures, shadow option gating and queued cloak
+coverage apply on Linux. Windows' Direct3D 11 backend is retained verbatim;
+the shared shadow adapter forwards existing Windows calls and deliberately
+returns empty queued coverage. Windows keeps its original water shader names,
+tree silhouettes, caster selection and constant-cache comparisons. macOS keeps
+its original scene shadows through refused sun-map admission. New shared API
+and queue metadata still compile on both platforms, so compilation and runtime
+checks remain open. Linux GPU tests are not Windows/macOS validation.

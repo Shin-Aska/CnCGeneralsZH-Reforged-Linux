@@ -59,6 +59,9 @@ struct SdlTarget
 	SDL_GPUTexture * Depth;
 	uint32_t Width;
 	uint32_t Height;
+	// Zero retains the scene depth format for existing colour targets. A depth-only
+	// target names its own format; it is independent of the window's stencil surface.
+	uint32_t DepthFormat = 0;
 };
 
 /// One draw as the flush replays it, everything by value.  The device's resolve fills it.
@@ -119,6 +122,16 @@ public:
 	/// Where the clears and draws recorded from now on go (A3d); the back buffer until told otherwise.
 	void Set_Target(const SdlTarget & target);
 	SdlTarget Back_Buffer_Target() const;
+	unsigned int Target_Depth_Format(const SdlTarget &target) const;
+	/// Sampleable depth-only sun target. A replacement retires after all recorded users.
+	/// Failure leaves the old allocation alive but returns no usable target.
+	bool Sun_Shadow_Target(unsigned int size, SdlTarget &target, std::string &error);
+	// Flush readers before replacing this persistent map; submission order owns its lifetime.
+	bool Fill_Sun_Smoke(const float *sun, const float *casters, unsigned count);
+	SDL_GPUTexture *Sun_Smoke_Texture() const;
+	SDL_GPUSampler *Sun_Smoke_Sampler() const;
+	bool Read_Sun_Smoke(std::vector<float> &moments);
+	unsigned Sun_Smoke_Count() const { return SmokeCount; }
 	/// A depth-stencil of this size for a render target the back buffer's does not fit, made once and
 	/// kept.  D3D9 lets a smaller target borrow the bigger depth surface; SDL3 GPU wants one size per pass.
 	SDL_GPUTexture * Depth_For(unsigned int width, unsigned int height);
@@ -210,6 +223,9 @@ public:
 	/// The texture's pixels, B8G8R8A8 rows top first, width * 4 bytes each.  Flushes first.
 	bool Read_Back(SDL_GPUTexture * texture, unsigned int width, unsigned int height, std::vector<uint8_t> & bgra);
 
+	/// Diagnostic readback of a sampleable depth texture, resolved to R32_FLOAT first.
+	bool Read_Depth(SDL_GPUTexture *texture, unsigned width, unsigned height, std::vector<float> &depth);
+
 	/// Writes B8G8R8A8 pixels into the back buffer (the gamma test's input picture).
 	bool Upload_Back_Buffer(const std::vector<uint8_t> & bgra);
 
@@ -229,6 +245,7 @@ public:
 	/// repeated paused times reuse the same field. Failure leaves the analytic water fallback usable.
 	bool Prepare_Ocean(float time);
 	SDL_GPUTexture * Ocean_Map(unsigned int index) const;
+	SDL_GPUTexture * Ocean_Array() const;
 	SDL_GPUSampler * Ocean_Sampler() const;
 	uint64_t Ocean_Updates() const { return OceanUpdates; }
 
@@ -335,6 +352,15 @@ private:
 	SDL_GPUTexture * BackBuffer;
 	SDL_GPUTexture * DepthStencil;
 	SDL_GPUTexture * FrontCopy;			///< the last presented picture
+	SDL_GPUTexture * SunShadowTexture = NULL;
+	struct SmokeResources;
+	SmokeResources *Smoke = NULL;
+	bool SmokeFailed = false;
+	unsigned SmokeCount = 0;
+	bool Create_Sun_Smoke();
+	void Release_Sun_Smoke();
+	bool Fail_Sun_Smoke(const char *reason);
+	unsigned int SunShadowSize = 0;
 	struct WaterSnapshot
 	{
 		SdlTarget Source;

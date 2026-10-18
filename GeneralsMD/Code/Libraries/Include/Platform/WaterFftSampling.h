@@ -48,6 +48,11 @@ inline std::string UniformSource(const char *name,unsigned slot,bool visual_hull
     float4 FoamFillLights[4];
     float4 CoastalArea;
     float4 CoastalParams;
+    float4x4 ShadowFromClip;
+    float4 ShadowParameters;
+    float4 ShadowViewport;
+    float4 ShadowSoftness;
+    float4 VolumeParameters;
 )HLSL";
 #define MODERN_WATER_HLSL_UNIFORM(name) "    float4 " #name ";\n"
     source+=MODERN_WATER_MATERIAL_UNIFORMS(MODERN_WATER_HLSL_UNIFORM);

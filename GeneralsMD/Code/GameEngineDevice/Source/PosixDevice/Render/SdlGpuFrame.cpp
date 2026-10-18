@@ -25,6 +25,7 @@
 #include "Platform/WaterCoastalIncident.h"
 #include "Platform/WaterCoastalView.h"
 #include <memory>
+#include "SdlSunShadowDebug.h"
 
 #include <SDL3/SDL.h>
 
@@ -234,9 +235,11 @@ SdlGpuFrame::~SdlGpuFrame()
 	FlushFences.clear();
 	Release_Coastal_Surf();
 	Release_Ocean();
+	Release_Sun_Smoke();
 	Release_Targets();
 	Commands.clear();
 	End_Batch();
+	if (SunShadowTexture != NULL) SDL_ReleaseGPUTexture(GpuDevice, SunShadowTexture);
 	if (StreamBuffer != NULL) SDL_ReleaseGPUBuffer(GpuDevice, StreamBuffer);
 	for (int i = 0; i < 8; ++i) if (ClearPipelines[i] != NULL) SDL_ReleaseGPUGraphicsPipeline(GpuDevice, ClearPipelines[i]);
 	if (ClearVertex != NULL) SDL_ReleaseGPUShader(GpuDevice, ClearVertex);
@@ -300,7 +303,7 @@ void SdlGpuFrame::Release_Targets()
 // window dimensions: resizing scene targets keeps both its seed and paused frame unchanged.
 struct SdlGpuFrame::OceanResources
 {
-	SDL_GPUTexture *Initial[3]={}, *Ping[2][6]={}, *Maps[6]={}, *Butterfly=NULL;
+	SDL_GPUTexture *Initial[3]={}, *Ping[2][6]={}, *Maps[6]={}, *Array=NULL, *Butterfly=NULL;
 	SDL_GPUShader *Vertex=NULL, *Pixels[4]={};
 	SDL_GPUGraphicsPipeline *Pipelines[4]={};
 	SDL_GPUSampler *Point=NULL,*Linear=NULL;
@@ -354,6 +357,7 @@ void SdlGpuFrame::Release_Ocean()
 	for(auto *texture:Ocean->Initial) if(texture) SDL_ReleaseGPUTexture(GpuDevice,texture);
 	for(auto &pair:Ocean->Ping) for(auto *texture:pair) if(texture) SDL_ReleaseGPUTexture(GpuDevice,texture);
 	for(auto *texture:Ocean->Maps) if(texture) SDL_ReleaseGPUTexture(GpuDevice,texture);
+	if(Ocean->Array) SDL_ReleaseGPUTexture(GpuDevice,Ocean->Array);
 	if(Ocean->Butterfly) SDL_ReleaseGPUTexture(GpuDevice,Ocean->Butterfly);
 	for(auto *pipeline:Ocean->Pipelines) if(pipeline) SDL_ReleaseGPUGraphicsPipeline(GpuDevice,pipeline);
 	for(auto *shader:Ocean->Pixels) if(shader) SDL_ReleaseGPUShader(GpuDevice,shader);
@@ -383,11 +387,17 @@ bool SdlGpuFrame::Create_Ocean()
 	for(auto &pair:Ocean->Ping) for(auto *&target:pair) target=SDL_CreateGPUTexture(GpuDevice,&texture);
 	texture.num_levels=Phases+1;
 	for(auto *&target:Ocean->Maps) target=SDL_CreateGPUTexture(GpuDevice,&texture);
+	// One fragment binding for the six FFT fields leaves room for sun depth and smoke.
+	// Vertex and coastal passes retain their individual maps.
+	texture.type=SDL_GPU_TEXTURETYPE_2D_ARRAY;texture.layer_count_or_depth=6;
+	texture.usage=SDL_GPU_TEXTUREUSAGE_SAMPLER;
+	Ocean->Array=SDL_CreateGPUTexture(GpuDevice,&texture);
+	texture.type=SDL_GPU_TEXTURETYPE_2D;texture.layer_count_or_depth=1;texture.usage=usage;
 	texture.num_levels=1;texture.width=Phases;Ocean->Butterfly=SDL_CreateGPUTexture(GpuDevice,&texture);
 	for(auto *target:Ocean->Initial) if(!target) return Fail_Ocean(SDL_GetError());
 	for(auto &pair:Ocean->Ping) for(auto *target:pair) if(!target) return Fail_Ocean(SDL_GetError());
 	for(auto *target:Ocean->Maps) if(!target) return Fail_Ocean(SDL_GetError());
-	if(!Ocean->Butterfly) return Fail_Ocean(SDL_GetError());
+	if(!Ocean->Array || !Ocean->Butterfly) return Fail_Ocean(SDL_GetError());
 	SDL_GPUSamplerCreateInfo sampler={};
 	sampler.address_mode_u=sampler.address_mode_v=sampler.address_mode_w=SDL_GPU_SAMPLERADDRESSMODE_REPEAT;
 	sampler.min_filter=sampler.mag_filter=SDL_GPU_FILTER_NEAREST;sampler.mipmap_mode=SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
@@ -474,6 +484,19 @@ bool SdlGpuFrame::Prepare_Ocean(float time)
 		}
 		SDL_EndGPUCopyPass(copy);
 	}
+	if(ok) {
+		SDL_GPUCopyPass *copy=SDL_BeginGPUCopyPass(commands);
+		if(!copy) ok=false;
+		else {
+			for(unsigned layer=0;layer<6;++layer) for(unsigned level=0;level<=Phases;++level) {
+				SDL_GPUTextureLocation source={};source.texture=Ocean->Maps[layer];source.mip_level=level;
+				SDL_GPUTextureLocation destination={};destination.texture=Ocean->Array;
+				destination.layer=layer;destination.mip_level=level;
+				SDL_CopyGPUTextureToTexture(copy,&source,&destination,Resolution>>level,Resolution>>level,1,false);
+			}
+			SDL_EndGPUCopyPass(copy);
+		}
+	}
 	if(!ok) {SDL_CancelGPUCommandBuffer(commands);return Fail_Ocean("could not record independent FFT passes");}
 	ok=SerializeSubmits?Submit(commands):Submit_Flush(commands);
 	FlushMs+=double(SDL_GetTicksNS()-started)/1.0e6;++Flushes;++FlushesTotal;
@@ -484,6 +507,11 @@ bool SdlGpuFrame::Prepare_Ocean(float time)
 SDL_GPUTexture *SdlGpuFrame::Ocean_Map(unsigned int index) const
 {
 	return OceanReady && Ocean && index<6?Ocean->Maps[index]:NULL;
+}
+
+SDL_GPUTexture *SdlGpuFrame::Ocean_Array() const
+{
+	return OceanReady && Ocean?Ocean->Array:NULL;
 }
 
 SDL_GPUSampler *SdlGpuFrame::Ocean_Sampler() const
@@ -1197,6 +1225,36 @@ bool SdlGpuFrame::Resolve_Water_Depth(SDL_GPUCommandBuffer *commands, SDL_GPUTex
 	return true;
 }
 
+bool SdlGpuFrame::Sun_Shadow_Target(unsigned int size, SdlTarget &target, std::string &error)
+{
+	target = {};
+	const SDL_GPUTextureFormat format = SDL_GPU_TEXTUREFORMAT_D32_FLOAT;
+	const SDL_GPUTextureUsageFlags usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+	if (size == 0 || size > 8192 || !SDL_GPUTextureSupportsFormat(GpuDevice, format, SDL_GPU_TEXTURETYPE_2D, usage)) {
+		error = "unsupported sampleable sun depth target or size";
+		return false;
+	}
+	if (!SunShadowTexture || SunShadowSize != size) {
+		SDL_GPUTextureCreateInfo info = {};
+		info.type = SDL_GPU_TEXTURETYPE_2D;
+		info.format = format;
+		info.usage = usage;
+		info.width = info.height = size;
+		info.layer_count_or_depth = info.num_levels = 1;
+		info.sample_count = SDL_GPU_SAMPLECOUNT_1;
+		SDL_GPUTexture *replacement = nullptr;
+		if (Sdl_Sun_Shadow_Fault("target")) SDL_SetError("injected sun depth allocation failure");
+		else replacement = SDL_CreateGPUTexture(GpuDevice, &info);
+		if (!replacement) { error = SDL_GetError(); return false; }
+		if (SunShadowTexture) Release_After_Batch(SunShadowTexture, NULL);
+		SunShadowTexture = replacement;
+		SunShadowSize = size;
+	}
+	target = { NULL, SunShadowTexture, size, size, (uint32_t)format };
+	error.clear();
+	return true;
+}
+
 bool SdlGpuFrame::Resize(unsigned int width, unsigned int height)
 {
 	// What is recorded runs first: the GPU copies count the uploads it carries as done.  The current
@@ -1695,4 +1753,29 @@ bool SdlGpuFrame::Read_Back(SDL_GPUTexture * texture, unsigned int width, unsign
 	}
 	SDL_ReleaseGPUTransferBuffer(GpuDevice, transfer);
 	return ok;
+}
+
+// Diagnostics only: reuse the existing scalar depth resolve, without creating a water snapshot.
+bool SdlGpuFrame::Read_Depth(SDL_GPUTexture *texture, unsigned width, unsigned height, std::vector<float> &depth)
+{
+    depth.clear();
+    if (!texture || !width || !height || !Create_Water_Depth_Pipeline()) return false;
+    SDL_GPUTextureCreateInfo info = {};
+    info.type = SDL_GPU_TEXTURETYPE_2D;
+    info.format = SDL_GPU_TEXTUREFORMAT_R32_FLOAT;
+    info.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+    info.width = width; info.height = height;
+    info.layer_count_or_depth = info.num_levels = 1;
+    SDL_GPUTexture *resolved = SDL_CreateGPUTexture(GpuDevice, &info);
+    if (!resolved) return false;
+    Command command = {};
+    command.IsDepthSnapshot = true;
+    command.BlitSource = texture; command.BlitDestination = resolved;
+    command.Rect[2] = width; command.Rect[3] = height;
+    Commands.push_back(command);
+    std::vector<uint8_t> bytes;
+    const bool ok = Read_Back(resolved, width, height, bytes);
+    if (ok) { depth.resize(width*height); memcpy(depth.data(), bytes.data(), bytes.size()); }
+    Release_After_Batch(resolved, NULL);
+    return ok;
 }

@@ -1,0 +1,6 @@
+# Sun/smoke over the beach, shoreline and shallow water on Tournament Island.
+30 particles 0 SootySmokeColumn 2 480 1050 120
+30 particles 0 FireFactionSmall 2 480 1050 120
+30 particles 0 BeaconSmokeFFFFFF 1 380 1000
+30 spawn 0 AmericaVehicleComanche 1 600 1000
+60 move 0 AmericaVehicleComanche 300 1000
