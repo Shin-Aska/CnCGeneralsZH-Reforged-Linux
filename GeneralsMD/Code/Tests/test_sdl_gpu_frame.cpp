@@ -1858,6 +1858,88 @@ float4 main(float4 position : SV_Position) : SV_Target0
     printf("sdl_gpu_frame_selfcheck: M4A production refraction helpers: %u renders; sign, zero, tilt, optical shift, clamp, fractional centres, subviewport and resize passed; %u sign/%u viewport old controls\n",renders,armedSign,armedViewport);
 }
 
+// Authored material invariants are checked on the GPU with the production helpers. This
+// deliberately avoids a second C++ implementation of their colour conversion or extinction.
+static void check_gpu_modern_water_material(SdlGpuFrame *frame)
+{
+    const unsigned rows=12,columns=3;
+    // display colour/brightness, tint/pollution/bubbles/reserved, path/depth/illumination/face.
+    const float fixtures[rows][12]={
+        {0,0,0,0, 0,0,0,0, 20,10,1,.6f},
+        {1,1,1,1, 1,0,0,0, 20,10,1,.6f},
+        {.5f,.5f,.5f,1, 1,0,0,0, 20,10,1,.6f},
+        {.7f,0,0,1, 1,0,0,0, 20,10,1,.6f},
+        {0,0,.7f,1, 1,0,0,0, 20,10,1,.6f},
+        {.7f,0,0,1, 1,.8f,1,0, 20,10,1,.6f},
+        {0,0,.7f,1, 1,.8f,1,0, 20,10,1,.6f},
+        {45/255.f,58/255.f,11/255.f,.67f, 1,.8f,0,0, 20,10,1,.6f},
+        {45/255.f,58/255.f,11/255.f,.67f, 1,0,1,0, 20,10,1,.6f},
+        {45/255.f,58/255.f,11/255.f,.67f, 1,.8f,1,0, 20,0,1,.6f},
+        {45/255.f,58/255.f,11/255.f,.67f, 1,.8f,1,0, 20,10,1,.6f},
+        {45/255.f,58/255.f,11/255.f,1, 1,.8f,1,0, 20,10,1,.6f}
+    };
+    struct Resources {
+        SDL_GPUDevice *device;SDL_GPUShader *vertex=NULL,*pixel=NULL;
+        SDL_GPUGraphicsPipeline *pipeline=NULL;SDL_GPUTexture *target=NULL;
+        ~Resources(){if(pipeline)SDL_ReleaseGPUGraphicsPipeline(device,pipeline);
+            if(vertex)SDL_ReleaseGPUShader(device,vertex);if(pixel)SDL_ReleaseGPUShader(device,pixel);
+            if(target)SDL_ReleaseGPUTexture(device,target);}
+    } r;r.device=frame->Device();
+    const char *vs="float4 main(uint id:SV_VertexID):SV_Position {return float4(id==1?3.0:-1.0,id==2?3.0:-1.0,0,1);}";
+    std::string ps="cbuffer Fixtures:register(b0,space3){float4 F[36];};\n";
+    ps+=ModernWaterMaterial::OpticalSource();
+    ps+=R"HLSL(
+float4 main(float4 position:SV_Position):SV_Target0 {
+    uint row=(uint)position.y,column=(uint)position.x;
+    float4 colour=F[row*3],params=F[row*3+1],context=F[row*3+2];
+    if(column==0)return float4(modernWaterMaterialSource(float3(.002,.035,.075),colour,params.x,context.z,context.w),1);
+    if(column==1)return float4(modernWaterMaterialTransmission(float3(.8,.8,.8),colour.rgb,params.y,context.x,.5),1);
+    return float4(modernWaterBubbleFilm(colour.rgb),modernWaterBubbleWeight(params.y,params.z,context.y));
+})HLSL";
+    std::string error;std::vector<unsigned char> spirv;
+    bool compiled=SDL3_Compile_HLSL_To_SPIRV(vs,true,spirv,error);CHECK(compiled);if(!compiled)return;
+    r.vertex=SDL3_Create_Shader(r.device,spirv,true,error);CHECK(r.vertex);if(!r.vertex)return;
+    compiled=SDL3_Compile_HLSL_To_SPIRV(ps,false,spirv,error);CHECK(compiled);
+    if(!compiled){printf("Modern water material compile: %s\n",error.c_str());return;}
+    r.pixel=SDL3_Create_Shader(r.device,spirv,false,error);CHECK(r.pixel);if(!r.pixel)return;
+    SDL_GPUColorTargetDescription cd={};cd.format=SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT;
+    SDL_GPUGraphicsPipelineCreateInfo pi={};pi.vertex_shader=r.vertex;pi.fragment_shader=r.pixel;
+    pi.primitive_type=SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;pi.rasterizer_state.cull_mode=SDL_GPU_CULLMODE_NONE;
+    pi.target_info.color_target_descriptions=&cd;pi.target_info.num_color_targets=1;
+    r.pipeline=SDL_CreateGPUGraphicsPipeline(r.device,&pi);CHECK(r.pipeline);if(!r.pipeline)return;
+    SDL_GPUTextureCreateInfo ti={};ti.type=SDL_GPU_TEXTURETYPE_2D;ti.format=cd.format;
+    ti.usage=SDL_GPU_TEXTUREUSAGE_COLOR_TARGET;ti.width=columns;ti.height=rows;ti.layer_count_or_depth=ti.num_levels=1;
+    r.target=SDL_CreateGPUTexture(r.device,&ti);CHECK(r.target);if(!r.target)return;
+    CHECK(frame->Flush());
+    SDL_GPUCommandBuffer *commands=SDL_AcquireGPUCommandBuffer(r.device);CHECK(commands);if(!commands)return;
+    SDL_GPUColorTargetInfo attachment={};attachment.texture=r.target;attachment.load_op=SDL_GPU_LOADOP_CLEAR;attachment.store_op=SDL_GPU_STOREOP_STORE;
+    SDL_GPURenderPass *pass=SDL_BeginGPURenderPass(commands,&attachment,1,NULL);CHECK(pass);
+    if(!pass){SDL_CancelGPUCommandBuffer(commands);return;}
+    SDL_BindGPUGraphicsPipeline(pass,r.pipeline);SDL_PushGPUFragmentUniformData(commands,0,fixtures,sizeof(fixtures));
+    SDL_DrawGPUPrimitives(pass,3,1,0,0);SDL_EndGPURenderPass(pass);CHECK(SDL_SubmitGPUCommandBuffer(commands));
+    const auto actual=read_float_targets(frame,&r.target,1,columns,rows);
+    CHECK(actual.size()==rows*columns*4);if(actual.size()!=rows*columns*4)return;
+    auto value=[&](unsigned row,unsigned column,unsigned channel){return actual[(row*columns+column)*4+channel];};
+    for(float value:actual)CHECK(std::isfinite(value) && value>=0 && value<=1);
+    const float baseline[]={.002f,.035f,.075f};
+    for(unsigned c=0;c<3;++c) {
+        CHECK(value(0,0,c)==baseline[c] && value(1,0,c)==baseline[c]);
+        CHECK(std::abs(value(2,0,c)/baseline[c]-std::pow(.5f,2.2f))<.000001);
+        CHECK(value(0,1,c)==.8f && value(3,1,c)==.8f && value(4,1,c)==.8f);
+        CHECK(value(3,0,c)==value(5,0,c) && value(4,0,c)==value(6,0,c)); // tint independent of pollution
+        CHECK(value(5,1,c)<value(3,1,c) && value(6,1,c)<value(4,1,c));
+        CHECK(value(7,0,c)==value(8,0,c) && value(8,0,c)==value(10,0,c));
+        CHECK(std::abs(value(10,0,c)-.67f*value(11,0,c))<.000001);
+    }
+    CHECK(value(3,0,0)>0 && value(3,0,1)==0 && value(3,0,2)==0); // red does not inherit a blue cast
+    CHECK(value(4,0,2)>0 && value(4,0,0)==0 && value(4,0,1)==0);
+    CHECK(value(5,1,0)>value(5,1,1) && value(5,1,1)==value(5,1,2));
+    CHECK(value(6,1,2)>value(6,1,0) && value(6,1,0)==value(6,1,1));
+    CHECK(value(5,2,0)>value(5,2,1) && value(6,2,2)>value(6,2,1));
+    CHECK(value(7,2,3)==0 && value(8,2,3)==0 && value(9,2,3)==0 && value(10,2,3)==.8f);
+    printf("sdl_gpu_frame_selfcheck: Modern material: exact clean/white identity, gray attenuation, red/blue tint and absorption, independent pollution, brightness and bubble gates passed\n");
+}
+
 // Executes the exact shared functions called by generated production water; not a whole-frame
 // FFT toggle test. Fixed context/path/face inputs intentionally isolate material independence.
 static void check_gpu_water_material_transport(SdlGpuFrame *frame)
@@ -8179,6 +8261,7 @@ int main()
 	check_gpu_water_coastal_incident(frame);
 	check_gpu_coastal_surf_from_ocean(frame);
 	check_gpu_water_vertex_uniform_order(frame);
+	check_gpu_modern_water_material(frame);
 	check_gpu_water_visual_uniform_order(frame);
 	check_gpu_water_visual_query(frame);
 	check_gpu_water_visual_zero_effect_skip(frame);

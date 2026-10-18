@@ -159,6 +159,7 @@ Data/INI/MappedImages/HandCreated/ReforgedHudGlaPowers.ini
 Data/INI/MappedImages/HandCreated/ReforgedHudHelpbox.ini
 Data/INI/MappedImages/HandCreated/ReforgedHudObsCommandBar.ini
 Data/INI/MappedImages/HandCreated/ReforgedHudObsPlayerWindow.ini
+Data/INI/ModernWater.ini
 Data/INI/ObjectCreationListReforged.ini
 Data/INI/ParticleSystemReforged.ini
 Data/INI/ScienceReforged.ini
@@ -1880,6 +1881,8 @@ Libraries/Include/Platform/EngineShaderName.h
 Libraries/Include/Platform/IsWindows9x.h
 Libraries/Include/Platform/LoadTiming.h
 Libraries/Include/Platform/MSVCCompat.h
+Libraries/Include/Platform/ModernWaterConfig.h
+Libraries/Include/Platform/ModernWaterMaterial.h
 Libraries/Include/Platform/MsvcFloatCasts.h
 Libraries/Include/Platform/PosixD3D9/d3d9.h
 Libraries/Include/Platform/PosixD3D9/d3d9caps.h
@@ -3048,6 +3051,7 @@ Tests/test_map_ini_rollback.inc
 Tests/test_miles_miniaudio.cpp
 Tests/test_milesaudiomanager.cpp
 Tests/test_minimap_input.inc
+Tests/test_modern_water_config.cpp
 Tests/test_msvc_float_casts.cpp
 Tests/test_observer_camera.inc
 Tests/test_pixelcentre.cpp

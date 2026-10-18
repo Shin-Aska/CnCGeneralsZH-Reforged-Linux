@@ -1089,6 +1089,9 @@ void GameEngine::init( int argc, char *argv[] )
 		// read the water settings from INI (must do prior to initing GameClient, apparently)
 		ini.load( AsciiString( "Data\\INI\\Default\\Water.ini" ), INI_LOAD_OVERWRITE, &xferCRC );
 		ini.load( AsciiString( "Data\\INI\\Water.ini" ), INI_LOAD_OVERWRITE, &xferCRC );
+		// Visual material rules have their own parser, shared with the standalone preview.
+		// They do not change gameplay state or the legacy map WaterTransparency values.
+		loadModernWaterSettings();
 		ini.load( AsciiString( "Data\\INI\\Default\\Weather.ini" ), INI_LOAD_OVERWRITE, &xferCRC );
 		ini.load( AsciiString( "Data\\INI\\Weather.ini" ), INI_LOAD_OVERWRITE, &xferCRC );
 

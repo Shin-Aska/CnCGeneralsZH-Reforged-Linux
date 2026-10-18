@@ -2163,6 +2163,10 @@ target_include_directories(test_wwutil PRIVATE ${WW}/Wwutil ${WW}/WWLib ${WW}/WW
 # Lib/Clock.h is header-only and links nothing, so this runs on both platforms from day one -
 # which matters, because the macOS half of that header is the half nobody has ever executed.
 add_lib_test(test_clock)
+add_lib_test(test_modern_water_config)
+set_target_properties(test_modern_water_config PROPERTIES CXX_STANDARD 17)
+target_compile_definitions(test_modern_water_config PRIVATE
+  MODERN_WATER_INI_PATH="${CMAKE_CURRENT_SOURCE_DIR}/Data/INI/ModernWater.ini")
 if(ZH_PLATFORM_WINDOWS)
   target_link_libraries(test_clock PRIVATE winmm)		# Clock.h's Windows half: timeGetTime, timeBeginPeriod (W2)
 endif()

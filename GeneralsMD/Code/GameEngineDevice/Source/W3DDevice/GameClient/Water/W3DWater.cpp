@@ -39,6 +39,7 @@
 #include <chrono>
 #include "Lib/Clock.h"
 #include "Platform/WaterSurfaceModel.h"
+#include "Platform/ModernWaterMaterial.h"
 #include "Platform/WaterCoastalCrest.h"
 #include "Platform/WaterShoreOverlay.h"
 #include "Platform/WaterFoamWindow.h"
@@ -1204,6 +1205,10 @@ void WaterRenderObjClass::setupModernWaterShader(Bool river,Bool heightCorrectio
 	const D3DXVECTOR4 optics(TheWaterTransparency->m_transparentWaterDepth,
 		TheWaterTransparency->m_minWaterOpacity, optical ? 1.0f : 0.0f, heightCorrection && !river ? 1.0f : 0.0f);
 	DX8Wrapper::_Get_D3D_Device()->SetPixelShaderConstantF(6, optics, 1);
+	D3DXVECTOR4 materialColor, materialParameters;
+	getModernWaterMaterial(&materialColor.x, &materialParameters.x);
+	DX8Wrapper::_Get_D3D_Device()->SetPixelShaderConstantF(ModernWaterMaterial::RegisterColor, materialColor, 1);
+	DX8Wrapper::_Get_D3D_Device()->SetPixelShaderConstantF(ModernWaterMaterial::RegisterParameters, materialParameters, 1);
 	const RGBColor &ambient=TheGlobalData->m_terrainAmbient[0];
 	const D3DXVECTOR4 hullParameters(river?0.0f:float(m_modernHulls.size()),ambient.red,ambient.green,ambient.blue);
 	DX8Wrapper::_Get_D3D_Device()->SetPixelShaderConstantF(7,hullParameters,1);

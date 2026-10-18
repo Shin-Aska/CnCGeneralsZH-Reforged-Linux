@@ -10,6 +10,7 @@
 #include "Platform/WaterFftFiltering.h"
 #include "Platform/WaterBowLift.h"
 #include "Platform/WaterWaveCageShader.h"
+#include "Platform/ModernWaterMaterial.h"
 
 namespace WaterFftSampling {
 inline bool Enabled() {
@@ -53,6 +54,9 @@ inline std::string UniformSource(const char *name,unsigned slot,bool visual_hull
     float4 ShadowSoftness;
     float4 VolumeParameters;
 )HLSL";
+#define MODERN_WATER_HLSL_UNIFORM(name) "    float4 " #name ";\n"
+    source+=MODERN_WATER_MATERIAL_UNIFORMS(MODERN_WATER_HLSL_UNIFORM);
+#undef MODERN_WATER_HLSL_UNIFORM
     if(visual_hull) source+="    float4 VisualHullMeta[8];\n";
     source+="};\n";
     if(visual_hull) source+=R"HLSL(

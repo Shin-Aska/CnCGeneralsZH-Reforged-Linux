@@ -23,6 +23,7 @@
 #include "Platform/WaterSurfaceModel.h"
 #include "Platform/WaterCoastalPresentation.h"
 #include "Platform/WaterOpticalModel.h"
+#include "Platform/ModernWaterMaterial.h"
 #include "Platform/WaterHullModel.h"
 #include "Platform/WaterHullVisual.h"
 #include "Platform/WaterFftSampling.h"
@@ -741,6 +742,8 @@ WaterRefractionSample waterRefractedScene(float2 originalPixel, float2 offset,
 	hlsl += WaterSurfaceModel::ShaderSource();
 	hlsl += WaterSurfaceModel::OceanShaderSource();
 	hlsl += WaterOpticalModel::GetHlslSource();
+	hlsl += ModernWaterMaterial::OpticalSource();
+	hlsl += ModernWaterMaterial::BubbleSource();
 	hlsl += WaterHullModel::GetHlslSource();
 	hlsl += WaterFftSampling::PixelSource(bowLift,WaterBowShoulder::Enabled(),true);
 	hlsl += WaterWaveCageShader::Source(false);
@@ -1079,6 +1082,15 @@ float4 main(Input input) : SV_Target
     float3 waveLightingNormal = resolvedNormal;
     if(any(shoreRipple!=0.0))
         resolvedNormal = normalize(resolvedNormal + float3(-shoreRipple*resolvedNormal.z,0.0));
+    float materialBubbleWeight=modernWaterBubbleWeight(MaterialParameters.y,MaterialParameters.z,depth);
+    ModernWaterBubbles materialBubbles=(ModernWaterBubbles)0;
+    if(materialBubbleWeight>0.0) {
+        materialBubbles=modernWaterBubbles(wavePosition,time,footprint);
+        float3 capNormal=float3(-materialBubbles.slope*materialBubbleWeight,0);
+        normal=normalize(normal+capNormal);
+        resolvedNormal=normalize(resolvedNormal+capNormal);
+        waveLightingNormal=normalize(waveLightingNormal+capNormal);
+    }
     float3 light = normalize(SunDirection.xyz + float3(0, 0, 0.00001));
     float nDotV = max(dot(resolvedNormal, view), 0.001);
     float nDotL = saturate(dot(resolvedNormal, light));
@@ -1188,6 +1200,12 @@ float4 main(Input input) : SV_Target
     swellNormal=normalize(lerp(swellNormal,normal,fftWeight));
     float swellLight=saturate(dot(swellNormal,light));
     float3 scatter=WaterOpticalScatteringSource(WaterParameters.y,offshore,daylight*sunVisible,swellLight);
+    scatter=modernWaterMaterialSource(scatter,MaterialColor,MaterialParameters.x,daylight*sunVisible,swellLight);
+    if(MaterialParameters.y>0.0) {
+        float materialPatch=oceanNoise(wavePosition*0.009+float2(time*0.008,-time*0.006));
+        transmission=modernWaterMaterialTransmission(transmission,MaterialColor.rgb,MaterialParameters.y,
+            length(bottom-opticalWorld),materialPatch);
+    }
     float3 body=WaterOpticalBody(scene,transmission,scatter,caustic,SceneParameters.x);
     float foamNoise = smoothstep(0.1, 0.8, lerp(wave.x,spectral.contactIncident.x,fftWeight)*0.5+0.5);
     float edgeDistance = depth / max(length(float2(ddx(depth), ddy(depth))), 0.01);
@@ -1358,6 +1376,10 @@ float4 main(Input input) : SV_Target
     float environmentFresnel=0.025+0.975*pow(1.0-oceanViewCosine,5.0);
     float visibleFresnel = lerp(fresnel,environmentFresnel*oceanViewVisibility,offshore);
     float3 surface = lerp(body, reflection, visibleFresnel) + highlight;
+    if(materialBubbleWeight>0.0) {
+        float film=saturate(materialBubbles.rim*0.16+materialBubbles.cap*0.045+materialBubbles.ripple*0.065)*materialBubbleWeight;
+        surface=lerp(surface,modernWaterBubbleFilm(MaterialColor.rgb)*(0.12+0.88*daylight*sunVisible),film);
+    }
     // Foam replaces transmission and the clear-water material locally. Its diffuse and rough
     // reflected light follow the same displaced surface; neither is additive white emission.
     float foamDiffuse=(0.22+0.78*saturate(dot(normal,light))*sunVisible)*(0.12+0.88*daylight);
