@@ -1129,6 +1129,17 @@ static void fillCatalogWidgets( void )
 		if( widget == NULL )
 			continue;
 
+#if !defined(__linux__)
+		if (strcmp(def.iniKey, "CloudStyle") == 0)
+		{
+			widget->winHide(TRUE);
+			GameWindow *label = TheWindowManager->winGetWindowFromId(
+				NULL, NAMEKEY("OptionsMenu.wnd:LabelCloudStyle"));
+			if (label) label->winHide(TRUE);
+			continue;
+		}
+#endif
+
 		const Int value = clampOptionValue( def, def.get() );
 
 		switch( def.kind )

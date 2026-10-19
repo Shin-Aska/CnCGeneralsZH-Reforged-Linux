@@ -165,6 +165,8 @@ NEW_CONTROLS = [
     (COMBO,  "ComboBoxFullscreenScaling", None),
     (CHECK,  "CheckVSync",             "GUI:VSync"),
     (CHECK,  "CheckClassicGraphics",   "GUI:ClassicGraphics"),
+    (LABEL,  "LabelCloudStyle",        "GUI:CloudStyle"),
+    (COMBO,  "ComboBoxCloudStyle",      None),
     (LABEL,  "LabelMSAA",              "GUI:MSAA"),
     (COMBO,  "ComboBoxMSAA",           None),
     (LABEL,  "LabelBloom",             "GUI:Bloom"),
@@ -338,7 +340,8 @@ GROUP_LAYOUT = [
             setting("LabelLightingStyle", "ComboBoxLightingStyle"),
             setting("LabelBloom", "ComboBoxBloom"),
             ("check", "CheckGroundLighting"),
-            ("check", "CheckHeatEffects")])]),
+            ("check", "CheckHeatEffects"),
+            setting("LabelCloudStyle", "ComboBoxCloudStyle")])]),
 
     ("PageEffects", [
         ("GUI:OptionsGroupShadows",
@@ -918,6 +921,16 @@ def selfcheck():
         problems.append("%s still carries %s; its controls are on the Graphics page"
                         % (os.path.basename(LAYOUT), ADVANCED))
     problems.extend(overlaps(layout))
+
+    # Hazard appearance is a Graphics setting, independent of particle thickness.
+    graphics = layout.find("PageGraphics")
+    cloud_label = layout.find("LabelCloudStyle")
+    cloud = layout.find("ComboBoxCloudStyle")
+    if graphics and cloud_label and cloud:
+        if cloud not in graphics.children or cloud_label not in graphics.children:
+            problems.append("CloudStyle must be on the Graphics page")
+        if cloud_label.rect[1] != cloud.rect[1] - ROW_HEIGHT:
+            problems.append("CloudStyle label must sit above its combo box")
 
     for problem in problems:
         print("optionsmenu: %s" % problem)

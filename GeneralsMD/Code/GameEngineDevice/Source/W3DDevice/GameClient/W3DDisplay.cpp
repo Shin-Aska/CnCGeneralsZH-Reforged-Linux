@@ -486,6 +486,7 @@ static unsigned long long s_smoothPasses = 0;
 
 W3DDisplay::~W3DDisplay()
 {
+	W3DParticleSystemManager::releaseCloudResources();
 	// R1: how each captured model was treated per tick, for the snap rules' tuning.
 	{
 		const unsigned long long *counts = SmoothMotion_Counts();
@@ -692,6 +693,7 @@ void Reset_D3D_Device(bool active)
 {
 	if (TheDisplay && WW3D::Is_Initted() && !TheDisplay->getWindowed())
 	{
+		W3DParticleSystemManager::releaseCloudResources();
 		// On Windows nothing owns the display exclusively under either renderer, so leaving loses no
 		// device: the window covering the monitor goes, and comes back with the game.
 #if defined(_WIN32)
@@ -877,6 +879,7 @@ Bool W3DDisplay::setDisplayMode( UnsignedInt xres, UnsignedInt yres, UnsignedInt
 	// would stay on a window covering the display.
 	//
 	const Bool wasWindowed = getWindowed();
+	W3DParticleSystemManager::releaseCloudResources();
 	const Int wasMode = wasWindowed
 											? ( ApplicationIsBorderless ? WINDOW_MODE_BORDERLESS : WINDOW_MODE_WINDOWED )
 											: WINDOW_MODE_FULLSCREEN;

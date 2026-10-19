@@ -30,6 +30,9 @@
 //   - Any GPU but this one.  Exits 77, and ctest reports it skipped, where SDL has no GPU device.
 
 #include "SdlGpuFrame.h"
+#include "../Libraries/Source/WWVegas/WW3D2/sdl3shadercompile.h"
+#include <cmath>
+#include <cstring>
 
 #include <SDL3/SDL.h>
 
@@ -43,6 +46,207 @@ static int failures = 0;
 
 static const unsigned int WIDTH = 64;
 static const unsigned int HEIGHT = 48;
+
+// Cloud caches and their half-resolution ray pass have colour attachments only.
+// Exercise their recorded clear path and switching back to the scene attachment:
+// passing a depth descriptor whose texture is null crashes SDL's validation path.
+static void check_colour_only_target(SdlGpuFrame *frame)
+{
+	SDL_GPUTextureCreateInfo info = {};
+	info.type = SDL_GPU_TEXTURETYPE_2D;
+	info.format = (SDL_GPUTextureFormat)SdlGpuFrame::Target_Format();
+	info.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+	info.width = WIDTH;
+	info.height = HEIGHT;
+	info.layer_count_or_depth = info.num_levels = 1;
+	SDL_GPUTexture *texture = SDL_CreateGPUTexture(frame->Device(), &info);
+	CHECK(texture != NULL);
+	if (!texture) return;
+
+	const SdlTarget colour_only = { texture, NULL, WIDTH, HEIGHT };
+	frame->Set_Target(colour_only);
+	frame->Clear_Back_Buffer(true, false, false, 0xFF123456u, 1.0f, 0);
+	std::vector<uint8_t> pixels;
+	CHECK(frame->Read_Back(texture, WIDTH, HEIGHT, pixels));
+	CHECK(pixels.size() == WIDTH * HEIGHT * 4);
+	for (size_t i = 0; i + 3 < pixels.size(); i += 4)
+		CHECK(pixels[i] == 0x56 && pixels[i + 1] == 0x34
+			&& pixels[i + 2] == 0x12 && pixels[i + 3] == 0xFF);
+
+	// Both clears are pending in one batch: changing targets must close the
+	// colour-only pass and retain the scene's normal depth/stencil attachment.
+	frame->Clear_Back_Buffer(true, false, false, 0xFFABCDEFu, 1.0f, 0);
+	frame->Set_Target(frame->Back_Buffer_Target());
+	frame->Clear_Back_Buffer(true, true, true, 0xFF102030u, 0.5f, 7);
+	CHECK(frame->Read_Back(texture, WIDTH, HEIGHT, pixels));
+	CHECK(pixels.size() == WIDTH * HEIGHT * 4 && pixels[0] == 0xEF
+		&& pixels[1] == 0xCD && pixels[2] == 0xAB && pixels[3] == 0xFF);
+	CHECK(frame->Read_Back(frame->Back_Buffer(), WIDTH, HEIGHT, pixels));
+	CHECK(pixels.size() == WIDTH * HEIGHT * 4 && pixels[0] == 0x30
+		&& pixels[1] == 0x20 && pixels[2] == 0x10 && pixels[3] == 0xFF);
+	SDL_ReleaseGPUTexture(frame->Device(), texture);
+	printf("sdl_gpu_frame_selfcheck: colour-only attachment clear/readback and scene target restoration checked\n");
+}
+
+// Rasterize actual object depth independently of the capture. The optional
+// vertex texture path also exercises the height sampling used by cloud embers.
+class DepthObject
+{
+public:
+	SDL_GPUShader *Vertex = NULL, *Pixel = NULL;
+	SDL_GPUGraphicsPipeline *Pipeline = NULL;
+	SDL_GPUSampler *Sampler = NULL;
+	SdlGpuFrame *Frame;
+	explicit DepthObject(SdlGpuFrame *frame, bool vertexTexture = false) : Frame(frame)
+	{
+		const char *vertex =
+			"cbuffer Object : register(b0, space1) { float4 Depth; };\n"
+			"float4 main(uint id : SV_VertexID) : SV_Position {\n"
+			"float2 p = id == 0 ? float2(-0.75,-0.75) : (id == 1 ? float2(0.75,-0.75) : float2(0,0.75));\n"
+			"return float4(p,Depth.x,1); }\n";
+		if (vertexTexture) {
+			vertex =
+				"Texture2D<float> Height : register(t0, space0);\n"
+				"SamplerState HeightSampler : register(s0, space0);\n"
+				"float4 main(uint id : SV_VertexID) : SV_Position {\n"
+				"float2 p = id == 0 ? float2(-0.75,-0.75) : (id == 1 ? float2(0.75,-0.75) : float2(0,0.75));\n"
+				"return float4(p, Height.SampleLevel(HeightSampler,float2(0.5,0.5),0),1); }\n";
+		}
+		const char *pixel = "float4 main() : SV_Target0 { return float4(0.8,0.2,0.1,1); }\n";
+		std::vector<unsigned char> spirv;
+		std::string error;
+		CHECK(SDL3_Compile_HLSL_To_SPIRV(vertex, true, spirv, error));
+		Vertex = SDL3_Create_Shader(frame->Device(), spirv, true, error);
+		CHECK(Vertex != NULL);
+		CHECK(SDL3_Compile_HLSL_To_SPIRV(pixel, false, spirv, error));
+		Pixel = SDL3_Create_Shader(frame->Device(), spirv, false, error);
+		CHECK(Pixel != NULL);
+		if (!Vertex || !Pixel) return;
+		SDL_GPUColorTargetDescription colour = {};
+		colour.format = (SDL_GPUTextureFormat)SdlGpuFrame::Target_Format();
+		SDL_GPUGraphicsPipelineCreateInfo info = {};
+		info.vertex_shader = Vertex;
+		info.fragment_shader = Pixel;
+		info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+		info.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
+		info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+		info.depth_stencil_state.enable_depth_test = true;
+		info.depth_stencil_state.enable_depth_write = true;
+		info.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS;
+		info.target_info.color_target_descriptions = &colour;
+		info.target_info.num_color_targets = 1;
+		info.target_info.has_depth_stencil_target = true;
+		info.target_info.depth_stencil_format = (SDL_GPUTextureFormat)frame->Depth_Format();
+		Pipeline = SDL_CreateGPUGraphicsPipeline(frame->Device(), &info);
+		CHECK(Pipeline != NULL);
+		if (vertexTexture) {
+			SDL_GPUSamplerCreateInfo sampler = {};
+			sampler.min_filter = sampler.mag_filter = SDL_GPU_FILTER_NEAREST;
+			sampler.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
+			sampler.address_mode_u = sampler.address_mode_v = sampler.address_mode_w
+				= SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+			Sampler = SDL_CreateGPUSampler(frame->Device(), &sampler);
+			CHECK(Sampler != NULL);
+		}
+	}
+	~DepthObject()
+	{
+		Frame->Flush();
+		if (Pipeline) SDL_ReleaseGPUGraphicsPipeline(Frame->Device(), Pipeline);
+		if (Sampler) SDL_ReleaseGPUSampler(Frame->Device(), Sampler);
+		if (Vertex) SDL_ReleaseGPUShader(Frame->Device(), Vertex);
+		if (Pixel) SDL_ReleaseGPUShader(Frame->Device(), Pixel);
+	}
+	void Draw(const SdlTarget &target, float depth, SDL_GPUTexture *height = NULL)
+	{
+		if (!Pipeline || (height && !Sampler)) return;
+		Frame->Set_Target(target);
+		SdlRecordedDraw draw = {};
+		draw.Pipeline = Pipeline;
+		draw.Count = 3;
+		memset(Frame->Stage(16, draw.VertexOffset), 0, 16);
+		const float values[4] = { depth, 0, 0, 0 };
+		draw.VertexConstants = Frame->Constants(0, values, sizeof(values));
+		if (height) {
+			draw.VertexSamplerCount = 1;
+			draw.VertexTextures[0] = height;
+			draw.VertexSamplers[0] = Sampler;
+		} else {
+			draw.VertexConstantsSize = sizeof(values);
+		}
+		draw.Viewport[2] = (float)target.Width;
+		draw.Viewport[3] = (float)target.Height;
+		draw.Viewport[5] = 1;
+		draw.Scissor[2] = target.Width;
+		draw.Scissor[3] = target.Height;
+		Frame->Record_Draw(draw);
+	}
+};
+
+static float depth_at(const std::vector<uint8_t> &bytes, unsigned int width, unsigned int x, unsigned int y)
+{
+	float value = -1;
+	const size_t offset = ((size_t)y * width + x) * sizeof(float);
+	if (offset + sizeof(float) <= bytes.size()) memcpy(&value, &bytes[offset], sizeof(value));
+	return value;
+}
+
+static void check_scene_depth_snapshot(SdlGpuFrame *frame)
+{
+	const SdlTarget scene = frame->Back_Buffer_Target();
+	if (!(frame->Depth_Usage() & SDL_GPU_TEXTUREUSAGE_SAMPLER)) {
+		CHECK(frame->Scene_Depth(scene) == NULL);
+		printf("sdl_gpu_frame_selfcheck: sampled depth unavailable; fallback checked\n");
+		return;
+	}
+	frame->Set_Target(scene);
+	frame->Clear_Back_Buffer(true, true, true, 0xFF000000u, 0.8f, 0);
+	DepthObject object(frame);
+	object.Draw(scene, 0.25f);
+	SDL_GPUTexture *snapshot = frame->Scene_Depth(scene);
+	CHECK(snapshot != NULL);
+	if (!snapshot) return;
+	std::vector<uint8_t> bytes;
+	CHECK(frame->Read_Back(snapshot, WIDTH, HEIGHT, bytes));
+	CHECK(std::fabs(depth_at(bytes, WIDTH, WIDTH / 2, HEIGHT / 2) - 0.25f) < 0.00001f);
+	CHECK(std::fabs(depth_at(bytes, WIDTH, 0, 0) - 0.8f) < 0.00001f);
+	CHECK(frame->Scene_Depth(scene) == snapshot);
+
+	SDL_GPUTextureCreateInfo info = {};
+	info.type = SDL_GPU_TEXTURETYPE_2D;
+	info.format = (SDL_GPUTextureFormat)SdlGpuFrame::Target_Format();
+	info.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+	info.width = WIDTH; info.height = HEIGHT;
+	info.layer_count_or_depth = info.num_levels = 1;
+	SDL_GPUTexture *colour = SDL_CreateGPUTexture(frame->Device(), &info);
+	CHECK(colour != NULL);
+	if (colour) {
+		const SdlTarget intermediate = { colour, frame->Depth_For(WIDTH, HEIGHT), WIDTH, HEIGHT };
+		frame->Set_Target(intermediate);
+		frame->Clear_Back_Buffer(true, true, true, 0xFF000000u, 1.0f, 0);
+		DepthObject sampled(frame, true);
+		sampled.Draw(intermediate, 0, snapshot);
+		SDL_GPUTexture *sampled_depth = frame->Scene_Depth(intermediate);
+		CHECK(sampled_depth != NULL);
+		if (sampled_depth) CHECK(frame->Read_Back(sampled_depth, WIDTH, HEIGHT, bytes));
+		CHECK(std::fabs(depth_at(bytes, WIDTH, WIDTH / 2, HEIGHT / 2) - 0.25f) < 0.00001f);
+		CHECK(std::fabs(depth_at(bytes, WIDTH, 0, 0) - 1.0f) < 0.00001f);
+		frame->Set_Target(scene);
+		frame->Release_After_Batch(colour, NULL);
+	}
+	frame->Clear_Back_Buffer(false, true, true, 0, 0.6f, 0);
+	CHECK(frame->Read_Back(frame->Scene_Depth(scene), WIDTH, HEIGHT, bytes));
+	CHECK(std::fabs(depth_at(bytes, WIDTH, WIDTH / 2, HEIGHT / 2) - 0.6f) < 0.00001f);
+	CHECK(frame->Present(NULL));
+	object.Draw(scene, 0.1f);
+	CHECK(frame->Read_Back(frame->Scene_Depth(scene), WIDTH, HEIGHT, bytes));
+	CHECK(std::fabs(depth_at(bytes, WIDTH, WIDTH / 2, HEIGHT / 2) - 0.1f) < 0.00001f);
+	CHECK(frame->Resize(WIDTH, HEIGHT));
+	frame->Clear_Back_Buffer(true, true, true, 0, 0.4f, 0);
+	CHECK(frame->Read_Back(frame->Scene_Depth(frame->Back_Buffer_Target()), WIDTH, HEIGHT, bytes));
+	CHECK(std::fabs(depth_at(bytes, WIDTH, WIDTH / 2, HEIGHT / 2) - 0.4f) < 0.00001f);
+	printf("sdl_gpu_frame_selfcheck: scene/object depth, vertex texture, target/frame/clear invalidation and resize checked\n");
+}
 
 // B, G, R and A of pixel (x, y) in the gamma test's picture: no two pixels alike, no channel alike.
 static void pattern(unsigned int x, unsigned int y, uint8_t out[4])
@@ -93,6 +297,8 @@ int main()
 		return 77;
 	}
 	printf("sdl_gpu_frame_selfcheck: %s\n", SDL_GetGPUDeviceDriver(frame->Device()));
+	check_colour_only_target(frame);
+	check_scene_depth_snapshot(frame);
 
 	// A colour clear: D3DCOLOR 0x80402010 is A 0x80, R 0x40, G 0x20, B 0x10.
 	frame->Clear_Back_Buffer(true, true, true, 0x80402010u, 1.0f, 0);

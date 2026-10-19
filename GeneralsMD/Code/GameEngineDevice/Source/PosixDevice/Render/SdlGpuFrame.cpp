@@ -64,6 +64,20 @@ static const char GAMMA_PIXEL_HLSL[] =
 	"	return float4(entry(colour.r, 0), entry(colour.g, 1), entry(colour.b, 2), colour.a);\n"
 	"}\n";
 
+// Resolve sampled device depth through a colour-only pass. This avoids reading
+// a depth attachment while it is bound for writing and works across SDL backends.
+static const char SCENE_DEPTH_PIXEL_HLSL[] =
+	"Texture2D<float> SceneDepth : register(t0, space2);\n"
+	"SamplerState DepthSampler : register(s0, space2);\n"
+	"float main([[vk::location(0)]] float2 uv : TEXCOORD0) : SV_Target0\n"
+	"{ return SceneDepth.SampleLevel(DepthSampler, uv, 0.0); }\n";
+
+unsigned int SdlGpuFrame::Depth_Usage() const
+{
+	return SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET
+		| (DepthSampleable ? SDL_GPU_TEXTUREUSAGE_SAMPLER : 0);
+}
+
 bool Sdl_Gamma_Is_Identity(const uint16_t (*ramp)[256])
 {
 	if (ramp == NULL) {
@@ -169,6 +183,23 @@ SdlGpuFrame * SdlGpuFrame::Create(RenderWindow window, unsigned int width, unsig
 	frame->DepthFormat = SDL_GPUTextureSupportsFormat(frame->GpuDevice, SDL_GPU_TEXTUREFORMAT_D24_UNORM_S8_UINT,
 		SDL_GPU_TEXTURETYPE_2D, SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET)
 		? SDL_GPU_TEXTUREFORMAT_D24_UNORM_S8_UINT : SDL_GPU_TEXTUREFORMAT_D32_FLOAT_S8_UINT;
+#if defined(__linux__)
+	// Cloud clipping is optional: retain the original target-only depth format
+	// when no complete sampleable depth/R32F combination is supported.
+	if (SDL_GPUTextureSupportsFormat(frame->GpuDevice, SDL_GPU_TEXTUREFORMAT_R32_FLOAT,
+		SDL_GPU_TEXTURETYPE_2D, SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER)) {
+		const SDL_GPUTextureFormat formats[] = {
+			SDL_GPU_TEXTUREFORMAT_D24_UNORM_S8_UINT, SDL_GPU_TEXTUREFORMAT_D32_FLOAT_S8_UINT };
+		for (unsigned int i = 0; i < 2; ++i) {
+			if (SDL_GPUTextureSupportsFormat(frame->GpuDevice, formats[i], SDL_GPU_TEXTURETYPE_2D,
+				SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER)) {
+				frame->DepthFormat = formats[i];
+				frame->DepthSampleable = true;
+				break;
+			}
+		}
+	}
+#endif
 	if (!frame->Create_Targets(width, height)) {
 		error = std::string("the back buffer: ") + SDL_GetError();
 		delete frame;
@@ -207,6 +238,10 @@ SdlGpuFrame::~SdlGpuFrame()
 	if (GammaPixel != NULL) SDL_ReleaseGPUShader(GpuDevice, GammaPixel);
 	if (RampTexture != NULL) SDL_ReleaseGPUTexture(GpuDevice, RampTexture);
 	if (PointSampler != NULL) SDL_ReleaseGPUSampler(GpuDevice, PointSampler);
+	if (SceneDepthPipeline) SDL_ReleaseGPUGraphicsPipeline(GpuDevice, SceneDepthPipeline);
+	if (SceneDepthVertex) SDL_ReleaseGPUShader(GpuDevice, SceneDepthVertex);
+	if (SceneDepthPixel) SDL_ReleaseGPUShader(GpuDevice, SceneDepthPixel);
+	if (SceneDepthSampler) SDL_ReleaseGPUSampler(GpuDevice, SceneDepthSampler);
 	if (Window != NULL) SDL_ReleaseWindowFromGPUDevice(GpuDevice, Window);
 	SDL_DestroyGPUDevice(GpuDevice);
 }
@@ -226,7 +261,7 @@ bool SdlGpuFrame::Create_Targets(unsigned int width, unsigned int height)
 	BackBuffer = SDL_CreateGPUTexture(GpuDevice, &info);
 	FrontCopy = SDL_CreateGPUTexture(GpuDevice, &info);
 	info.format = (SDL_GPUTextureFormat)DepthFormat;
-	info.usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET;
+	info.usage = Depth_Usage();
 	DepthStencil = SDL_CreateGPUTexture(GpuDevice, &info);
 	BackWidth = width;
 	BackHeight = height;
@@ -235,6 +270,9 @@ bool SdlGpuFrame::Create_Targets(unsigned int width, unsigned int height)
 
 void SdlGpuFrame::Release_Targets()
 {
+	for (const SceneDepthSnapshot &snapshot : SceneDepthSnapshots)
+		if (snapshot.Texture) SDL_ReleaseGPUTexture(GpuDevice, snapshot.Texture);
+	SceneDepthSnapshots.clear();
 	if (BackBuffer != NULL) SDL_ReleaseGPUTexture(GpuDevice, BackBuffer);
 	if (DepthStencil != NULL) SDL_ReleaseGPUTexture(GpuDevice, DepthStencil);
 	if (FrontCopy != NULL) SDL_ReleaseGPUTexture(GpuDevice, FrontCopy);
@@ -245,11 +283,137 @@ void SdlGpuFrame::Release_Targets()
 	DisplayTexture = NULL;		// made again at the new size by the next offscreen Present
 }
 
+void SdlGpuFrame::Invalidate_Scene_Depth(SDL_GPUTexture *colour, SDL_GPUTexture *depth)
+{
+	for (SceneDepthSnapshot &snapshot : SceneDepthSnapshots)
+		if ((colour && snapshot.Source.Colour == colour) || (depth && snapshot.Source.Depth == depth))
+			snapshot.Ready = false;
+}
+
+void SdlGpuFrame::Refresh_Scene_Depth()
+{
+	++SceneDepthFrame;
+	for (SceneDepthSnapshot &snapshot : SceneDepthSnapshots) snapshot.Ready = false;
+}
+
+SDL_GPUTexture *SdlGpuFrame::Scene_Depth(const SdlTarget &source)
+{
+	if (!DepthSampleable || !source.Colour || !source.Depth || !source.Width || !source.Height
+		|| !Create_Scene_Depth_Pipeline()) return NULL;
+	SceneDepthSnapshot *snapshot = NULL;
+	for (SceneDepthSnapshot &candidate : SceneDepthSnapshots)
+		if (candidate.Source.Colour == source.Colour && candidate.Source.Depth == source.Depth
+			&& candidate.Source.Width == source.Width && candidate.Source.Height == source.Height) {
+			snapshot = &candidate;
+			break;
+		}
+	if (!snapshot) {
+		SDL_GPUTextureCreateInfo info = {};
+		info.type = SDL_GPU_TEXTURETYPE_2D;
+		info.format = SDL_GPU_TEXTUREFORMAT_R32_FLOAT;
+		info.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+		info.width = source.Width;
+		info.height = source.Height;
+		info.layer_count_or_depth = info.num_levels = 1;
+		SceneDepthSnapshot fresh = {};
+		fresh.Source = source;
+		fresh.Texture = SDL_CreateGPUTexture(GpuDevice, &info);
+		if (!fresh.Texture) return NULL;
+		if (SceneDepthSnapshots.size() == 8) {
+			size_t oldest = 0;
+			for (size_t i = 1; i < SceneDepthSnapshots.size(); ++i)
+				if (SceneDepthSnapshots[i].UsedFrame < SceneDepthSnapshots[oldest].UsedFrame) oldest = i;
+			DeadTextures.push_back(SceneDepthSnapshots[oldest].Texture);
+			SceneDepthSnapshots[oldest] = fresh;
+			snapshot = &SceneDepthSnapshots[oldest];
+		} else {
+			SceneDepthSnapshots.push_back(fresh);
+			snapshot = &SceneDepthSnapshots.back();
+		}
+	}
+	if (!snapshot->Ready) {
+		Command command = {};
+		command.IsDepthSnapshot = true;
+		command.BlitSource = source.Depth;
+		command.BlitDestination = snapshot->Texture;
+		command.Rect[2] = source.Width;
+		command.Rect[3] = source.Height;
+		Commands.push_back(command);
+		snapshot->Ready = true;
+	}
+	snapshot->UsedFrame = SceneDepthFrame;
+	return snapshot->Texture;
+}
+
+bool SdlGpuFrame::Create_Scene_Depth_Pipeline()
+{
+	if (SceneDepthPipeline && SceneDepthSampler) return true;
+	std::string log;
+	if (!SceneDepthVertex) {
+		std::vector<unsigned char> spirv;
+		if (!SDL3_Compile_HLSL_To_SPIRV(GAMMA_VERTEX_HLSL, true, spirv, log)
+			|| !(SceneDepthVertex = SDL3_Create_Shader(GpuDevice, spirv, true, log))) {
+			fprintf(stderr, "SdlGpuFrame: scene depth vertex: %s\n", log.c_str());
+			return false;
+		}
+	}
+	if (!SceneDepthPixel) {
+		std::vector<unsigned char> spirv;
+		if (!SDL3_Compile_HLSL_To_SPIRV(SCENE_DEPTH_PIXEL_HLSL, false, spirv, log)
+			|| !(SceneDepthPixel = SDL3_Create_Shader(GpuDevice, spirv, false, log))) {
+			fprintf(stderr, "SdlGpuFrame: scene depth pixel: %s\n", log.c_str());
+			return false;
+		}
+	}
+	if (!SceneDepthPipeline) {
+		SDL_GPUColorTargetDescription target = {};
+		target.format = SDL_GPU_TEXTUREFORMAT_R32_FLOAT;
+		SDL_GPUGraphicsPipelineCreateInfo info = {};
+		info.vertex_shader = SceneDepthVertex;
+		info.fragment_shader = SceneDepthPixel;
+		info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+		info.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
+		info.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+		info.target_info.color_target_descriptions = &target;
+		info.target_info.num_color_targets = 1;
+		SceneDepthPipeline = SDL_CreateGPUGraphicsPipeline(GpuDevice, &info);
+	}
+	if (!SceneDepthSampler) {
+		SDL_GPUSamplerCreateInfo sampler = {};
+		sampler.min_filter = sampler.mag_filter = SDL_GPU_FILTER_NEAREST;
+		sampler.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
+		sampler.address_mode_u = sampler.address_mode_v = sampler.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+		SceneDepthSampler = SDL_CreateGPUSampler(GpuDevice, &sampler);
+	}
+	if (!SceneDepthPipeline || !SceneDepthSampler)
+		fprintf(stderr, "SdlGpuFrame: scene depth resolve: %s\n", SDL_GetError());
+	return SceneDepthPipeline && SceneDepthSampler;
+}
+
+bool SdlGpuFrame::Resolve_Scene_Depth(SDL_GPUCommandBuffer *commands, SDL_GPUTexture *source,
+	SDL_GPUTexture *destination, unsigned int width, unsigned int height)
+{
+	SDL_GPUColorTargetInfo colour = {};
+	colour.texture = destination;
+	colour.load_op = SDL_GPU_LOADOP_DONT_CARE;
+	colour.store_op = SDL_GPU_STOREOP_STORE;
+	SDL_GPURenderPass *pass = SDL_BeginGPURenderPass(commands, &colour, 1, NULL);
+	if (!pass) return false;
+	SDL_BindGPUGraphicsPipeline(pass, SceneDepthPipeline);
+	const SDL_GPUTextureSamplerBinding binding = { source, SceneDepthSampler };
+	SDL_BindGPUFragmentSamplers(pass, 0, &binding, 1);
+	const SDL_GPUViewport viewport = { 0, 0, (float)width, (float)height, 0, 1 };
+	SDL_SetGPUViewport(pass, &viewport);
+	SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
+	SDL_EndGPURenderPass(pass);
+	return true;
+}
+
 bool SdlGpuFrame::Resize(unsigned int width, unsigned int height)
 {
 	// What is recorded runs first: the GPU copies count the uploads it carries as done.  The current
 	// target named the old back buffer; the device sets it again before its next draw.
-	Flush();
+	if (!width || !height || !Flush()) return false;
 	TargetSet = false;
 	Release_Targets();
 	return Create_Targets(width, height);
@@ -257,6 +421,8 @@ bool SdlGpuFrame::Resize(unsigned int width, unsigned int height)
 
 void SdlGpuFrame::Clear_Back_Buffer(bool colour, bool depth, bool stencil, uint32_t argb, float z, uint32_t stencil_value)
 {
+	const SdlTarget target = TargetSet ? CurrentTarget : Back_Buffer_Target();
+	Invalidate_Scene_Depth(colour ? target.Colour : NULL, depth ? target.Depth : NULL);
 	if (!colour && !depth && !stencil) {
 		return;
 	}
@@ -633,10 +799,12 @@ bool SdlGpuFrame::Present(const uint16_t (*ramp)[256])
 		}
 		const bool submitted = Submit_Offscreen(commands);
 		End_Batch();
+		Refresh_Scene_Depth();
 		return submitted && ok && DisplayTexture != NULL;
 	}
 	const bool submitted = Submit(commands);
 	End_Batch();
+	Refresh_Scene_Depth();
 	return submitted && ok;
 }
 
@@ -651,6 +819,7 @@ bool SdlGpuFrame::Present_To(SDL_GPUTexture * target, unsigned int width, unsign
 	ok = Present_Into(commands, target, width, height, BACK_BUFFER_FORMAT, ramp) && ok;
 	const bool submitted = Submit(commands);
 	End_Batch();
+	Refresh_Scene_Depth();
 	return submitted && ok;
 }
 

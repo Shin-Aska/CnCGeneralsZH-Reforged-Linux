@@ -49,8 +49,8 @@ struct SDL_GPUShader;
 struct SDL_GPUTexture;
 struct SDL_Window;
 
-/// Where a pass draws: a colour texture of Target_Format() and a depth-stencil of Depth_Format(), the
-/// same size.  The back buffer is one; a render-target surface's GPU texture is another (A3d).
+/// Where a pass draws: a colour texture of Target_Format() and an optional depth-stencil
+/// of Depth_Format(), the same size. Cloud caches have colour attachments only.
 struct SdlTarget
 {
 	SDL_GPUTexture * Colour;
@@ -79,6 +79,9 @@ struct SdlRecordedDraw
 	uint32_t SamplerCount;
 	SDL_GPUTexture * Textures[MAXIMUM_SAMPLERS];
 	SDL_GPUSampler * Samplers[MAXIMUM_SAMPLERS];
+	uint32_t VertexSamplerCount;
+	SDL_GPUTexture * VertexTextures[MAXIMUM_SAMPLERS];
+	SDL_GPUSampler * VertexSamplers[MAXIMUM_SAMPLERS];
 	float Viewport[6];					///< x, y, width, height, min depth, max depth: as the GPU takes it
 	int32_t Scissor[4];					///< x, y, width, height
 	uint32_t StencilReference;
@@ -153,8 +156,14 @@ public:
 	/// Whether the batch has grown enough that the next draw should flush first: its staged and uploaded bytes,
 	/// or its draws (BatchDrawLimit).  Counts the flushes the draw limit asks for.
 	bool Batch_Is_Full();
-	/// The depth-stencil's SDL_GPUTextureFormat.  Every pass has it attached.
+	/// The scene depth-stencil format; colour-only passes omit that attachment.
 	unsigned int Depth_Format() const { return DepthFormat; }
+	/// Includes sampling only when a supported Linux scene-depth format is available.
+	unsigned int Depth_Usage() const;
+	/// Sampleable device depth captured after opaque scene draws, once per target/frame.
+	/// The result is borrowed for immediate draw recording; callers must not release it.
+	/// Returns null when unavailable so callers can keep their existing effect.
+	SDL_GPUTexture * Scene_Depth(const SdlTarget &source);
 
 	/// Flush, then the back buffer to the window through the gamma ramp (null: none, a straight blit).
 	bool Present(const uint16_t (*ramp)[256]);
@@ -270,6 +279,24 @@ private:
 	SDL_GPUTexture * DepthStencil;
 	SDL_GPUTexture * FrontCopy;			///< the last presented picture
 	bool Copy_To_Front(struct SDL_GPUCommandBuffer * commands);
+	bool DepthSampleable = false;
+	struct SceneDepthSnapshot {
+		SdlTarget Source;
+		SDL_GPUTexture * Texture;
+		bool Ready;
+		uint64_t UsedFrame;
+	};
+	std::vector<SceneDepthSnapshot> SceneDepthSnapshots;
+	uint64_t SceneDepthFrame = 0;
+	SDL_GPUShader * SceneDepthVertex = NULL;
+	SDL_GPUShader * SceneDepthPixel = NULL;
+	SDL_GPUGraphicsPipeline * SceneDepthPipeline = NULL;
+	SDL_GPUSampler * SceneDepthSampler = NULL;
+	void Refresh_Scene_Depth();
+	void Invalidate_Scene_Depth(SDL_GPUTexture *colour, SDL_GPUTexture *depth);
+	bool Create_Scene_Depth_Pipeline();
+	bool Resolve_Scene_Depth(struct SDL_GPUCommandBuffer *commands, SDL_GPUTexture *source,
+		SDL_GPUTexture *destination, unsigned int width, unsigned int height);
 	unsigned int DepthFormat;			///< an SDL_GPUTextureFormat: D24S8 where there is one, else D32S8
 	unsigned int BackWidth;
 	unsigned int BackHeight;
@@ -282,6 +309,7 @@ private:
 		bool IsRect;					///< a clear draw over Rect, not a load operation
 		int32_t Rect[4];				///< x, y, width, height
 		uint32_t Target;				///< into Targets: where a clear or draw goes
+		bool IsDepthSnapshot;		///< depth sampled into an independent R32F target
 		bool IsBlit;					///< a copy between textures, Rect to BlitRect
 		SDL_GPUTexture * BlitSource;
 		SDL_GPUTexture * BlitDestination;

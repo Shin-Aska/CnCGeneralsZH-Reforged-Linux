@@ -757,6 +757,7 @@ public:
 	void trigger (void) { m_burstDelayLeft = 0; m_delayLeft = 0;}
 
 	void setInitialDelay( UnsignedInt delay ) { m_delayLeft = delay; m_initialDelaySet = TRUE; }
+	UnsignedInt getInitialDelayLeft() const { return m_delayLeft; }
 
 	/// the name of the particles; a reference, as the renderer asks it of every system several times
 	/// a frame and a copy is an atomic increment and decrement each

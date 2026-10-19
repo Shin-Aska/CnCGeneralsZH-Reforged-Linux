@@ -1398,6 +1398,9 @@ if(ZH_PLATFORM_POSIX)
 
   # ---- posixd3d9: the device, in the place d3d9.lib has on Windows -----------------------------------
   file(GLOB_RECURSE POSIXD3D9_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/PosixDevice/Render/*.cpp)
+  # Hazard clouds bridge the scene and SDL device; keep that bridge above the
+  # D3D compatibility library so low-level device tests stay independent.
+  list(FILTER POSIXD3D9_SOURCES EXCLUDE REGEX "/SdlHazardCloud[^/]*\\.cpp$")
   add_library(posixd3d9 STATIC ${POSIXD3D9_SOURCES})
   set_target_properties(posixd3d9 PROPERTIES CXX_STANDARD 17)
   target_include_directories(posixd3d9 PUBLIC ${ZH_POSIX_D3D9_INCLUDE})
@@ -1562,6 +1565,14 @@ if(ZH_PLATFORM_POSIX)
   # BinkVideoPlayer.cpp, unchanged: W3DGameClient makes it on every platform, so it lives with w3ddevice
   list(APPEND W3DDEVICE_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/VideoDevice/Bink/BinkVideoPlayer.cpp)
   add_library(w3ddevice STATIC ${W3DDEVICE_SOURCES})
+  set(ZH_POSIX_RENDER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/PosixDevice/Render)
+  if(ZH_PLATFORM_LINUX)
+    target_sources(w3ddevice PRIVATE
+      ${ZH_POSIX_RENDER_DIR}/SdlHazardCloud.cpp
+      ${ZH_POSIX_RENDER_DIR}/SdlHazardCloudShader.cpp
+      ${ZH_POSIX_RENDER_DIR}/SdlHazardCloudFlow.cpp
+      ${ZH_POSIX_RENDER_DIR}/SdlHazardCloudEmbers.cpp)
+  endif()
   set_target_properties(w3ddevice PROPERTIES CXX_STANDARD 17)
   target_include_directories(w3ddevice PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Include
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Stubs ${CMAKE_CURRENT_SOURCE_DIR}/Main
@@ -1952,6 +1963,35 @@ if(ZH_PLATFORM_POSIX)
     DEPENDS ${ZH_OVERLAY_INPUTS} ${CMAKE_CURRENT_SOURCE_DIR}/Tools/stage-overlay.sh
     COMMENT "Staging the fork's overlay (P1)" VERBATIM)
   add_custom_target(zh_overlay ALL DEPENDS ${CMAKE_BINARY_DIR}/overlay.staged)
+  # An isolated, harmless effects scene. This target shares the real client/renderer
+  # libraries, but its entry point, scene controller and map never enter generals.
+  find_package(Python3 COMPONENTS Interpreter QUIET)
+  if(ZH_PLATFORM_LINUX AND Python3_Interpreter_FOUND)
+    set(ZH_CLOUD_PREVIEW_DIR ${CMAKE_BINARY_DIR}/cloud-preview)
+    set(ZH_CLOUD_PREVIEW_MAP ${ZH_CLOUD_PREVIEW_DIR}/overlay/Maps/CloudPreview/CloudPreview.map)
+    add_custom_command(OUTPUT ${ZH_CLOUD_PREVIEW_MAP}
+      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/Tools/cloud_preview/generate_map.py
+              ${ZH_CLOUD_PREVIEW_MAP} --inspection-yard
+      DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Tools/cloud_preview/generate_map.py
+      COMMENT "Generating the cloud preview's inspection yard" VERBATIM)
+    add_custom_target(cloud_preview_map DEPENDS ${ZH_CLOUD_PREVIEW_MAP})
+    add_executable(cloud_preview EXCLUDE_FROM_ALL
+      ${CMAKE_CURRENT_SOURCE_DIR}/Tools/cloud_preview.cpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/Tools/CloudPreviewScene.cpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/Tools/CloudPreviewSources.cpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/Tools/CloudPreviewVolume.cpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/Tools/CloudPreviewFlow.cpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/Tools/CloudPreviewColors.cpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/Tools/CloudPreviewColorPanel.cpp)
+    set_target_properties(cloud_preview PROPERTIES CXX_STANDARD 17)
+    target_include_directories(cloud_preview PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Main ${GENERATED})
+    target_compile_definitions(cloud_preview PRIVATE
+      CLOUD_PREVIEW_DIRECTORY="${ZH_CLOUD_PREVIEW_DIR}"
+      CLOUD_PREVIEW_GAME_OVERLAY="${CMAKE_BINARY_DIR}/overlay")
+    target_link_libraries(cloud_preview PRIVATE sdldevice installroot)
+    add_dependencies(cloud_preview zh_overlay cloud_preview_map)
+  endif()
+
   add_custom_command(
     OUTPUT ${CMAKE_BINARY_DIR}/overlay-dev.staged
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/Tools/stage-overlay.sh ${CMAKE_CURRENT_SOURCE_DIR}/Data ""
@@ -2132,6 +2172,10 @@ endfunction()
 # platform; on Windows it also holds MSVC's own cast to the same bytes.
 add_lib_test(test_msvc_float_casts)
 target_include_directories(test_msvc_float_casts PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Libraries/Include)
+
+add_lib_test(test_hazard_cloud_policy)
+set_target_properties(test_hazard_cloud_policy PROPERTIES CXX_STANDARD 17)
+target_include_directories(test_hazard_cloud_policy PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Libraries/Include)
 
 add_lib_test(test_wwmath wwmath wwlib wwsaveload wwdebug)
 target_include_directories(test_wwmath PRIVATE ${WW}/WWLib ${WW}/WWSaveLoad ${WW}/Wwutil)

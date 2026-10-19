@@ -114,6 +114,8 @@ void SdlGpuFrame::Clear_Rect(int x, int y, int width, int height, bool colour, b
 	if ((!colour && !depth && !stencil) || width <= 0 || height <= 0) {
 		return;
 	}
+	const SdlTarget target = TargetSet ? CurrentTarget : Back_Buffer_Target();
+	Invalidate_Scene_Depth(colour ? target.Colour : NULL, depth ? target.Depth : NULL);
 	Command command;
 	memset(&command, 0, sizeof(command));
 	command.IsRect = true;
@@ -204,7 +206,18 @@ void SdlGpuFrame::Record_Draw(const SdlRecordedDraw & draw)
 
 void SdlGpuFrame::Release_After_Batch(SDL_GPUTexture * texture, SDL_GPUBuffer * buffer)
 {
-	if (texture != NULL) DeadTextures.push_back(texture);
+	if (texture != NULL) {
+		// Drop identities before SDL can recycle a source handle. Recorded users
+		// retain their textures through this batch's deferred release queue.
+		for (size_t i = SceneDepthSnapshots.size(); i-- > 0;) {
+			const SceneDepthSnapshot &snapshot = SceneDepthSnapshots[i];
+			if (snapshot.Source.Colour == texture || snapshot.Source.Depth == texture) {
+				if (snapshot.Texture) DeadTextures.push_back(snapshot.Texture);
+				SceneDepthSnapshots.erase(SceneDepthSnapshots.begin() + i);
+			}
+		}
+		DeadTextures.push_back(texture);
+	}
 	if (buffer != NULL) DeadBuffers.push_back(buffer);
 }
 
@@ -343,7 +356,10 @@ bool SdlGpuFrame::Begin_Pass(SDL_GPUCommandBuffer * commands, const SdlTarget & 
 	depth.store_op = SDL_GPU_STOREOP_STORE;
 	depth.stencil_load_op = clear_stencil ? SDL_GPU_LOADOP_CLEAR : SDL_GPU_LOADOP_LOAD;
 	depth.stencil_store_op = SDL_GPU_STOREOP_STORE;
-	*pass = SDL_BeginGPURenderPass(commands, &colour, 1, &depth);
+	// SDL requires an absent attachment's descriptor to be null, rather than
+	// a descriptor containing a null texture (cloud caches are colour-only).
+	*pass = SDL_BeginGPURenderPass(commands, target.Colour ? &colour : NULL, target.Colour ? 1 : 0,
+		target.Depth ? &depth : NULL);
 	return *pass != NULL;
 }
 
@@ -385,7 +401,7 @@ SDL_GPUTexture * SdlGpuFrame::Depth_For(unsigned int width, unsigned int height)
 	SDL_zero(info);
 	info.type = SDL_GPU_TEXTURETYPE_2D;
 	info.format = (SDL_GPUTextureFormat)DepthFormat;
-	info.usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET;
+	info.usage = Depth_Usage();
 	info.width = width;
 	info.height = height;
 	info.layer_count_or_depth = 1;
@@ -401,6 +417,7 @@ SDL_GPUTexture * SdlGpuFrame::Depth_For(unsigned int width, unsigned int height)
 void SdlGpuFrame::Record_Blit(SDL_GPUTexture * source, const int32_t source_rect[4], SDL_GPUTexture * destination,
 	const int32_t destination_rect[4], bool linear)
 {
+	Invalidate_Scene_Depth(destination, NULL);
 	Command command;
 	memset(&command, 0, sizeof(command));
 	command.IsBlit = true;
@@ -434,15 +451,16 @@ bool SdlGpuFrame::Record_Passes(SDL_GPUCommandBuffer * commands, SDL_GPUBuffer *
 	for (size_t i = 0; i <= Commands.size(); ++i) {
 		const bool end = i == Commands.size();
 		const Command * command = end ? NULL : &Commands[i];
-		const bool whole_clear = !end && !command->IsDraw && !command->IsRect && !command->IsBlit;
+		const bool transfer = !end && (command->IsBlit || command->IsDepthSnapshot);
+		const bool whole_clear = !end && !command->IsDraw && !command->IsRect && !transfer;
 
 		// A pass ends at a blit, at a whole-target clear, at a change of target, and at the end.
-		if (pass != NULL && (end || command->IsBlit || whole_clear || command->Target != pass_target)) {
+		if (pass != NULL && (end || transfer || whole_clear || command->Target != pass_target)) {
 			SDL_EndGPURenderPass(pass);
 			pass = NULL;
 		}
 		// A waiting clear whose target is not the next thing drawn into gets a pass of its own.
-		if (pending && (end || command->IsBlit || command->Target != pending_target)) {
+		if (pending && (end || transfer || command->Target != pending_target)) {
 			if (!Begin_Pass(commands, Targets[pending_target], clear_colour, clear_depth, clear_stencil, argb, z,
 				stencil_value, &pass)) {
 				return false;
@@ -453,6 +471,11 @@ bool SdlGpuFrame::Record_Passes(SDL_GPUCommandBuffer * commands, SDL_GPUBuffer *
 		}
 		if (end) {
 			break;
+		}
+		if (command->IsDepthSnapshot) {
+			if (!Resolve_Scene_Depth(commands, command->BlitSource, command->BlitDestination,
+				(unsigned int)command->Rect[2], (unsigned int)command->Rect[3])) return false;
+			continue;
 		}
 		if (command->IsBlit) {
 			SDL_GPUBlitInfo blit;
@@ -557,6 +580,16 @@ bool SdlGpuFrame::Record_Passes(SDL_GPUCommandBuffer * commands, SDL_GPUBuffer *
 				bindings[slot].sampler = draw.Samplers[slot];
 			}
 			SDL_BindGPUFragmentSamplers(pass, 0, bindings, draw.SamplerCount);
+		}
+		if (draw.VertexSamplerCount > 0 && (last == NULL || last->VertexSamplerCount != draw.VertexSamplerCount
+			|| memcmp(last->VertexTextures, draw.VertexTextures, sizeof(draw.VertexTextures[0]) * draw.VertexSamplerCount) != 0
+			|| memcmp(last->VertexSamplers, draw.VertexSamplers, sizeof(draw.VertexSamplers[0]) * draw.VertexSamplerCount) != 0)) {
+			SDL_GPUTextureSamplerBinding bindings[SdlRecordedDraw::MAXIMUM_SAMPLERS];
+			for (uint32_t slot = 0; slot < draw.VertexSamplerCount; ++slot) {
+				bindings[slot].texture = draw.VertexTextures[slot];
+				bindings[slot].sampler = draw.VertexSamplers[slot];
+			}
+			SDL_BindGPUVertexSamplers(pass, 0, bindings, draw.VertexSamplerCount);
 		}
 		if (draw.VertexConstantsSize != 0 && draw.VertexConstants != pushed_vertex) {
 			SDL_PushGPUVertexUniformData(commands, 0, &ConstantBytes[draw.VertexConstants], draw.VertexConstantsSize);
