@@ -30,14 +30,17 @@ user data and run without a visible window.
 
 ## Water reflections
 
-**Options → Effects → Reflections → Water reflection** selects **Legacy**, **SSR** or
-**Hybrid** for Modern water. **Accept** applies the choice during the current game and
+**Options → Effects → Reflections → Water reflection** selects **Legacy**, **SSR**,
+**Hybrid** or **Path traced (experimental)** for Modern water. **Accept** applies the choice during the current game and
 saves it for later sessions; no restart is needed. Choose Modern under
 **Graphics → Water style** to use these modes.
 
 Hybrid is the default and combines the improved 1024×1024 planar capture with
 screen-space reflections. Legacy preserves the original 512×512 planar rendering.
 SSR uses only the current screen, so hidden or off-screen objects can be missing.
+Path traced is an optional water-only experiment with approximate materials and incomplete
+scene coverage. It builds a scene BVH on the CPU and traces on the GPU, accumulating
+a stationary view over 64 frames. Hybrid remains the default.
 See the [reflection guide](water-preview.md#reflections) for details and preview controls.
 
 ## Hazard clouds

@@ -1158,7 +1158,8 @@ float4 main(Input input) : SV_Target
     float2 blur = roughness * 0.008 / reflectionScale;
     float4 mirror=0.0, filteredMirror=0.0;
     float2 mirrorFilterSupport=abs(blur);
-    bool filteredPlanar=MaterialParameters.w>0.5 && WaterParameters.z>0.5;
+    bool pathTraced=MaterialParameters.w>1.5;
+    bool filteredPlanar=MaterialParameters.w>0.5 && !pathTraced && WaterParameters.z>0.5;
     [branch] if (filteredPlanar) {
         uint mirrorWidth,mirrorHeight;
         Texture1.GetDimensions(mirrorWidth,mirrorHeight);
@@ -1176,8 +1177,10 @@ float4 main(Input input) : SV_Target
     float2 border = min(reflectionUV, 1.0 - reflectionUV);
     // Legacy terrain passes preserve destination alpha for shore blending, including in the
     // mirror. Its transparent-black clear gives RGB coverage even when geometry cannot write A.
-    float mirrorCoverage = filteredPlanar ? 1.0 : saturate(max(max(mirror.r, mirror.g), mirror.b) * 64.0);
-    if (filteredPlanar)
+    // The path capture has explicit validity and includes sky on a geometry miss.
+    // Its black surfaces remain surfaces; RGB is never used to infer their coverage.
+    float mirrorCoverage = pathTraced ? mirror.a : filteredPlanar ? 1.0 : saturate(max(max(mirror.r, mirror.g), mirror.b) * 64.0);
+    if (filteredPlanar || pathTraced)
         border=min(reflectionUV+distortion,1.0-reflectionUV-distortion)-mirrorFilterSupport;
     float coverage = saturate(min(border.x, border.y) * 30.0) * mirrorCoverage * WaterParameters.z;
     coverage *= 1.0 - smoothstep(0.5, 2.0, abs(baseLevel - WaterParameters.w));
@@ -1190,6 +1193,10 @@ float4 main(Input input) : SV_Target
         float3 planarRadiance=waterLinear(saturate(filteredMirror.rgb/max(filteredMirror.a,1e-6)))
             *filteredMirror.a;
         reflection=skyRadiance*(1.0-coverage*filteredMirror.a)+coverage*planarRadiance;
+    } else if (pathTraced) {
+        // Invalid primary samples contributed zero radiance to the history. Remove
+        // their coverage once before the interface blends that coverage with sky.
+        reflection=lerp(skyRadiance,waterLinear(mirror.rgb)/max(mirror.a,1e-6),coverage);
     } else reflection=lerp(skyRadiance,waterLinear(mirror.rgb),coverage);
     // MaterialParameters.w selects the traced reflection; hybrid also retains planar visibility.
     WaterSsrSample ssr = waterScreenReflection(world, view, environmentNormal, environmentRoughness, input.Position.xy);

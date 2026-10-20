@@ -1129,6 +1129,12 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		for (unsigned int slot = 0; slot < pixel_program->SamplerSlots; ++slot) {
 			const int texture_stage = pixel_program->SlotTexture[slot];
 			const int sampler_stage = pixel_program->SlotSampler[slot];
+			if (water_draw && texture_stage == 1 && PixelShaderConstants[95][3] > 1.5f
+				&& Gpu->Water_Path_Texture()) {
+				draw.Textures[slot] = Gpu->Water_Path_Texture();
+				draw.Samplers[slot] = Gpu->Water_Path_Sampler();
+				continue;
+			}
 			// The shared terrain programs declare t5 even with receiving disabled. Never
 			// alias a material texture or the active depth attachment into that slot.
 			if ((water_draw && texture_stage == 9) || (!water_draw && texture_stage == 5 && (combiner.ShadowReceiving || EngineShader_Paints_Ground(static_cast<EngineShaderProgram>(pixel_engine))))) {

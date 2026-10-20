@@ -1420,7 +1420,7 @@ TEST(screen_reflection_resolves_environment_over_live_setting)
     struct EnvironmentMode { const char *value;Mode mode; };
     const EnvironmentMode recognised[]={
         {"legacy",Mirror},{"mirror",Mirror},{"0",Mirror},{"ssr",ScreenSpace},{"1",ScreenSpace},
-        {"replace",ScreenSpace},{"hybrid",Hybrid},{"nomirror",SkyOnly}
+        {"replace",ScreenSpace},{"hybrid",Hybrid},{"path",PathTraced},{"path-traced",PathTraced},{"nomirror",SkyOnly}
     };
     for(const auto &environment:recognised) {
         CHECK(Parse(environment.value,parsed));CHECK(parsed==environment.mode);
@@ -1431,22 +1431,25 @@ TEST(screen_reflection_resolves_environment_over_live_setting)
         CHECK(Resolve(environment,0)==Mirror);
         CHECK(Resolve(environment,1)==ScreenSpace);
         CHECK(Resolve(environment,2)==Hybrid);
-        for(int setting:{std::numeric_limits<int>::min(),-1,3,std::numeric_limits<int>::max()})
+        CHECK(Resolve(environment,3)==PathTraced);
+        for(int setting:{std::numeric_limits<int>::min(),-1,4,std::numeric_limits<int>::max()})
             CHECK(Resolve(environment,setting)==Hybrid);
     }
     // Resolve reads the setting each time; neither it nor Next consults process state.
-    CHECK(Resolve(nullptr,Next(Resolve(nullptr,2)))==Mirror);
+    CHECK(Resolve(nullptr,Next(Resolve(nullptr,2)))==PathTraced);
+    CHECK(Resolve(nullptr,Next(Resolve(nullptr,3)))==Mirror);
     CHECK(Resolve(nullptr,Next(Resolve(nullptr,0)))==ScreenSpace);
 }
 
-TEST(screen_reflection_cycles_the_three_live_modes_without_sky_only)
+TEST(screen_reflection_cycles_the_four_live_modes_without_sky_only)
 {
     using namespace WaterScreenReflection;
-    Mode mode=Hybrid;
+    Mode mode=PathTraced;
     for(unsigned cycle=0;cycle<4;++cycle) {
         mode=Next(mode);CHECK(mode==Mirror);
         mode=Next(mode);CHECK(mode==ScreenSpace);
         mode=Next(mode);CHECK(mode==Hybrid);
+        mode=Next(mode);CHECK(mode==PathTraced);
     }
     CHECK(Next(SkyOnly)==Mirror);
 }
@@ -1462,6 +1465,7 @@ TEST(screen_reflection_is_a_runtime_choice_and_compiles)
     CHECK(Resolve(nullptr,2)==Hybrid);
     CHECK(UsesMirror(Mirror)&&UsesMirror(Hybrid)&&!UsesMirror(ScreenSpace)&&!UsesMirror(SkyOnly));
     CHECK(Traces(ScreenSpace)&&Traces(Hybrid)&&!Traces(Mirror)&&!Traces(SkyOnly));
+    CHECK(!UsesMirror(PathTraced)&&!Traces(PathTraced));
     for(auto program:{ENGINE_SHADER_WATER_TRAPEZOID,ENGINE_SHADER_WATER_RIVER}) {
         PixelPipelineDescription description={};std::string normal,other;
         CHECK(unsetenv("ZH_WATER_DEBUG")==0);CHECK(unsetenv("ZH_WATER_SSR")==0);

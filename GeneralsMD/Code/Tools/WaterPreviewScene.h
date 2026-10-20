@@ -86,6 +86,8 @@ public:
     void draw(unsigned width,unsigned height,int reflection,float elapsed,bool edited,
         const WaterPreviewColor::Values &values,bool bubbles,int materialMode)
     {
+        if (reflection==WaterPreviewReflection::PathTraced)
+            throw std::runtime_error("path tracing needs complete scene geometry, which this image bank does not contain");
         IDirect3DSurface9 *colour=nullptr,*depth=nullptr;
         require(device->GetRenderTarget(0,&colour),"get preview colour");
         require(device->GetDepthStencilSurface(&depth),"get preview depth");

@@ -88,7 +88,8 @@ installed, and the preview does not edit the game's configuration or maps automa
 - **1:** clean Modern baseline; **2:** resolved/editable material; **3:** split comparison,
   baseline on the left. Split mode uses two cropped views of the same scene and shader.
 - **4:** Legacy planar reflection; **5:** SSR; **6:** Hybrid, the game's default;
-  **7:** all three side by side, each column the same view. The bar at the top of the
+  **7:** those three side by side, each column the same view; **8:** Path traced
+  (experimental, synthetic scene only). The bar at the top of the
   window selects the same choices. See [Reflections](#reflections).
 - **P:** show or hide the synthetic props: towers on the far bank, a bridge on two
   piers, sandstone ruins near the centre and a separate striped pole near the camera.
@@ -144,7 +145,7 @@ preset. Unsaved slider changes affect only the current session.
 
 ## Reflections
 
-Modern water can reflect the scene three ways, and the preview draws each with the
+Modern water can reflect the scene four ways, and the preview draws each with the
 production shader exactly as the game sets it up:
 
 - **Legacy** restores the Modern water reflection from before the reflection feature
@@ -165,6 +166,64 @@ production shader exactly as the game sets it up:
   Outside that support SSR uses its full confidence. This conservative blend is not
   geometric correspondence or a way to recover hidden surfaces in SSR-only mode.
   Hybrid is the game's default.
+- **Path traced (experimental)** is a separate, optional mode. A CPU-built BVH supplies
+  scene triangles to a GPU shader. Each sample uses at most three rays: the reflected
+  view ray, a sun shadow ray at its hit, and one diffuse continuation for indirect
+  colour. Lighting at the second surface uses unshadowed sun and approximate sky,
+  which can make enclosed surfaces too bright. This affects the water reflection only.
+  The main scene and its shadows
+  keep their existing rendering.
+
+The path tracer uses a 256×256 planar capture and two RGBA16F history textures
+(1 MiB together). It traces one sample per pixel per update, averages in linear
+light, and stops at 64 samples. Camera, geometry, lighting or capture changes reset
+the history; there are no motion vectors or reprojection. After a camera or scene
+change it traces at 128×128, then restores 256×256 after at least 150 ms and eight
+unchanged updates. The quiet interval prevents resolution changes between moving
+scene snapshots at high frame rates.
+A moving view can remain noisy and soft. The water shader distorts the capture with
+the existing wave lookup; it does not trace individual FFT facets or water refraction.
+
+Game geometry includes eligible opaque scene meshes, props and known terrain outside the
+main camera view. Collection is limited to the reflected view and nearby geometry
+that can affect its indirect light or sun shadows. Fully submerged geometry is omitted.
+Terrain uses two-cell patches where shorelines, shroud and shared edges permit;
+this can lose small terrain features. Material colour is approximated per triangle. Cutout/blended
+meshes, particles, procedural vertex effects and separately batched trees
+and bridge decks are not represented. Failed capture setup falls back to Hybrid
+and reports the reason. This is a limited experiment, not a replacement for Hybrid.
+Its CPU scene collection/BVH work and GPU traversal add cost only while selected.
+With a stationary view, scene collection runs at most ten times per second; camera,
+capture and lighting changes refresh it immediately. Reflected moving objects can
+lag by 100 ms plus the time to the next rendered frame. Samples continue accumulating
+between scene refreshes. Unchanged objects reuse cached geometry. Moving objects refit the BVH when topology
+allows, with a full rebuild every 32 updates or when needed. Geometry changes still
+reset accumulation and upload the complete scene, so animated scenes remain expensive
+and can prevent convergence. Offscreen independently animated parts may retain their
+last evaluated pose, and cached material samples do not follow in-place texture edits.
+
+Primary rays reach 1,000 world units from the water; indirect and sun shadow rays
+reach 160 and 600 units respectively. Distant geometry can therefore disappear from
+reflections or stop casting reflected shadows. Indirect and shadow traversal also
+have work limits; exhausting them darkens that lighting contribution rather than
+assuming a clear path. Primary traversal has no such work limit.
+
+In the same busy saved game and camera view on an RTX 4060 at 1280×720, the original
+Path traced implementation averaged 9.3 FPS and this version averaged 38.0 FPS
+over logic frames 106000–107000. Both ran offscreen with a 60 Hz cap. These are
+whole-game timings during a live battle, not isolated GPU timings or a guarantee
+for other maps. This remains an experimental, lower-detail reflection mode.
+
+Run the synthetic test with:
+
+```sh
+./build-linux/water_preview --reflection path
+```
+
+Existing `.wbank` files contain images and water draws, not complete scene geometry.
+They cannot run this mode: `--scene sw-general --reflection path` reports an error
+and the Path button is disabled during bank replay. For a converged deterministic
+capture, use `--offscreen --frames 64 --reflection path --screenshot path.png`.
 
 Hybrid's filter uses twelve point texture reads across the existing three roughness
 offsets, resolving coverage before interpolation. It keeps the original display-space
@@ -179,18 +238,18 @@ The synthetic comparison renders separate 512 and 1024 targets. Existing scene b
 keep their captured resolution and demonstrate the filtering change only.
 
 In the Linux game, **Options → Effects → Reflections → Water reflection** selects
-Legacy, SSR or Hybrid. **Accept** applies the change live and saves `WaterReflection`
-to Options.ini (`0`, `1` or `2`, respectively). Hybrid remains the default when the
+Legacy, SSR, Hybrid or Path traced. **Accept** applies the change live and saves `WaterReflection`
+to Options.ini (`0`, `1`, `2` or `3`, respectively). Hybrid remains the default when the
 preference is absent. These modes apply to **Modern** water, selected under Graphics;
 Classic water keeps its original rendering.
 
-**Ctrl+Shift+W** cycles Legacy → SSR → Hybrid → Legacy live as a session-only
+**Ctrl+Shift+W** cycles Legacy → SSR → Hybrid → Path traced → Legacy live as a session-only
 override. With Classic water selected, the key still cycles the setting for the next
 switch to Modern water.
 Bind `CYCLE_WATER_REFLECTION` in CommandMap.ini to choose another key; a command bound
 to Ctrl+Shift+W takes precedence over this default.
 
-`ZH_WATER_SSR` overrides the setting and hotkey when it names `legacy`, `ssr` or `hybrid`;
+`ZH_WATER_SSR` overrides the setting and hotkey when it names `legacy`, `ssr`, `hybrid` or `path`;
 `mirror` remains an alias for `legacy`, including in the preview's `--reflection` option.
 `nomirror` draws sky only, for timing what the mirror costs, and is never part of the
 hotkey cycle. Unset or unrecognised values leave the setting in control. The environment

@@ -126,6 +126,13 @@ public:
 	void drawProps(RenderInfoClass &rinfo);
 	/// Called when the view changes, and sort key needs to be recalculated.
 	void doFullUpdate(void) {m_doCull = true;};
+#if defined(__linux__)
+	/// The reflection exporter needs offscreen props without changing camera culling.
+	Int getPropCount(void) const { return m_numProps; }
+	const TProp *getProp(Int index) const {
+		return index >= 0 && index < m_numProps ? &m_props[index] : NULL;
+	}
+#endif
 
 protected:
 	// snapshot methods

@@ -239,6 +239,7 @@ SdlGpuFrame::~SdlGpuFrame()
 	Release_Targets();
 	Commands.clear();
 	End_Batch();
+	Clear_Water_Path();
 	if (SunShadowTexture != NULL) SDL_ReleaseGPUTexture(GpuDevice, SunShadowTexture);
 	if (StreamBuffer != NULL) SDL_ReleaseGPUBuffer(GpuDevice, StreamBuffer);
 	for (int i = 0; i < 8; ++i) if (ClearPipelines[i] != NULL) SDL_ReleaseGPUGraphicsPipeline(GpuDevice, ClearPipelines[i]);

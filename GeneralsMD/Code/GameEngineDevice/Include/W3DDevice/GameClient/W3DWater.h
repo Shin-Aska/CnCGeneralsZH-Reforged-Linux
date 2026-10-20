@@ -61,9 +61,12 @@
 #include "Platform/WaterCoastalRender.h"
 #if defined(__linux__)
 #include "Platform/WaterScreenReflection.h"
+#include "Platform/WaterPathTracingView.h"
+#include "Platform/WaterPathTracingSchedule.h"
 #endif
 
 class MeshModelClass;
+class W3DWaterPathScene;
 
 #define INVALID_WATER_HEIGHT 0.0f	///water height guaranteed to be below all terrain.
 
@@ -210,6 +213,11 @@ protected:
 	Bool m_reflectionReused;	///<the frame before this one kept the previous reflection texture
 #if defined(__linux__)
 	WaterScreenReflection::Mode m_waterReflectionMode;	///<last resolved mode, so returning to the mirror refreshes it
+	W3DWaterPathScene *m_waterPathScene;
+	Bool m_waterPathReady;
+	Bool m_waterPathHasView;
+	WaterPathTracing::View m_waterPathView;
+	WaterPathTracing::RefreshSchedule m_waterPathSchedule;
 #endif
 	RenderObjClass	*m_skyBox;		///<box around level
 	WaterTracksRenderSystem *m_waterTrackSystem;	///<object responsible for rendering water wakes
@@ -386,6 +394,9 @@ protected:
 	void synchronizeWaterStyle(void);
 	Int mapReflectionTargetSize() const;
 	void ensureMapReflectionTarget(void);
+#if defined(__linux__)
+	Bool updatePathTracedReflection(CameraClass *cam);
+#endif
 	void registerWaterStyleShaders(void);
 	void setupModernWaterShader(Bool river,Bool heightCorrection=FALSE,Bool waveCage=FALSE);
 	void updateModernWaterTextures(void);

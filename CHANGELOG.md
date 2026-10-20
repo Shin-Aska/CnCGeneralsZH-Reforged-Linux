@@ -8,6 +8,18 @@ found and fixed â€” EA's own, not port damage.**
 
 ---
 
+## Experimental water path tracing on Linux (2026-10-20)
+
+- Added Path traced as an optional fourth water reflection mode. Hybrid remains the default.
+- The water capture traces scene geometry with one diffuse continuation and accumulates a
+  stationary view over 64 samples. It uses a smaller capture during motion, bounds ray
+  distances, and collects nearby reflection geometry at up to 10 Hz while the camera is still.
+  CPU geometry caches and BVH refits support scene updates.
+- Optimizing Path traced raised a busy saved-game check from 9.3 to 38.0 FPS at 1280×720
+  on an RTX 4060, with simpler indirect lighting and lower reflection detail.
+- Materials and scene coverage are approximate; moving scenes can be costly and noisy.
+  See [the reflection guide](docs/water-preview.md#reflections) for limits and demo controls.
+
 ## Water reflections on Linux (2026-10-20)
 
 - Hybrid water reflections keep more of reflected structures and have smoother edges.

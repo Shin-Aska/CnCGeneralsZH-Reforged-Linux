@@ -14243,7 +14243,7 @@ TEST(water_reflections_default_to_hybrid_and_persist_each_mode)
     CHECK_EQ(reflection->kind, OPTION_ENUM);
     CHECK_EQ(reflection->apply, APPLY_LIVE);
     CHECK_EQ(reflection->lo, 0);
-    CHECK_EQ(reflection->hi, 2);
+    CHECK_EQ(reflection->hi, 3);
     CHECK_STR(reflection->widgetName, "OptionsMenu.wnd:ComboBoxWaterReflection");
     CHECK_STR(reflection->labelKey, "GUI:WaterReflection");
 
@@ -14259,7 +14259,7 @@ TEST(water_reflections_default_to_hybrid_and_persist_each_mode)
 
     // The choice remains available with Classic water, ready for a later switch to Modern.
     scratch->m_waterStyle = 0;
-    static const char *const modes[] = { "0", "1", "2" };
+    static const char *const modes[] = { "0", "1", "2", "3" };
     for (Int mode = 0; mode < WATER_REFLECTION_COUNT; ++mode) {
         pref["WaterReflection"] = modes[mode];
         loadOptionsFromPreferences(pref);
@@ -14278,7 +14278,7 @@ TEST(water_reflections_default_to_hybrid_and_persist_each_mode)
     CHECK_EQ(reflection->get(), 0);
     pref["WaterReflection"] = "99";
     loadOptionsFromPreferences(pref);
-    CHECK_EQ(reflection->get(), 2);
+    CHECK_EQ(reflection->get(), 3);
 
     delete scratch;
     TheWritableGlobalData = saved;

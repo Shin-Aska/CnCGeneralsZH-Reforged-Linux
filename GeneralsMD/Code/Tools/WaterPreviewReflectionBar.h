@@ -1,5 +1,5 @@
 // Reflection selector for the standalone water preview: legacy planar, screen-space trace,
-// the game's hybrid of the two, or all three side by side.
+// the game's hybrid, experimental geometry path tracing, or the original three side by side.
 // Distributed under the repository's GPL-3.0 terms; see LICENSE.md.
 #pragma once
 
@@ -8,12 +8,19 @@
 
 namespace WaterPreviewReflection {
 
-enum Choice { Mirror, ScreenSpace, Hybrid, Compare, ChoiceCount };
+enum Choice { Mirror, ScreenSpace, Hybrid, PathTraced, Compare, ChoiceCount };
+
+inline char Key(int choice)
+{
+    static const char keys[ChoiceCount] = {'4', '5', '6', '8', '7'};
+    return choice >= 0 && choice < ChoiceCount ? keys[choice] : ' ';
+}
 
 inline const char *Label(int choice, bool banked = false)
 {
     if (banked && choice == Mirror) return "CAPTURED PLANAR";
-    static const char *labels[ChoiceCount] = {"LEGACY", "SSR", "HYBRID", "COMPARE ALL"};
+    if (banked && choice == PathTraced) return "PATH: NO GEOMETRY";
+    static const char *labels[ChoiceCount] = {"LEGACY", "SSR", "HYBRID", "PATH TRACED", "COMPARE 3"};
     return choice >= 0 && choice < ChoiceCount ? labels[choice] : "";
 }
 
@@ -21,11 +28,12 @@ class Bar {
 public:
     int choice = Hybrid;
     bool changed = false;
+    bool pathAvailable = true;
 
     bool handle(const SDL_Event &event, unsigned width)
     {
         if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat) {
-            const SDL_Keycode keys[ChoiceCount] = {SDLK_4, SDLK_5, SDLK_6, SDLK_7};
+            const SDL_Keycode keys[ChoiceCount] = {SDLK_4, SDLK_5, SDLK_6, SDLK_8, SDLK_7};
             for (int i = 0; i < ChoiceCount; ++i)
                 if (event.key.key == keys[i]) { select(i); return true; }
             return false;
@@ -53,16 +61,17 @@ public:
         rect(left - 6, Top - 6, ChoiceCount * (ButtonWidth + Gap) * size - Gap * size + 12, ButtonHeight * size + 12, 0xc0101418);
         for (int i = 0; i < ChoiceCount; ++i) {
             const float x = left + i * (ButtonWidth + Gap) * size;
-            const bool active = i == choice, hover = over(width) == i;
+            const bool available = i != PathTraced || pathAvailable;
+            const bool active = i == choice, hover = available && over(width) == i;
             rect(x, Top, ButtonWidth * size, ButtonHeight * size, active ? 0xff95ba79 : 0xff56636d);
             rect(x + 1, Top + 1, ButtonWidth * size - 2, ButtonHeight * size - 2,
                 active ? (hover ? 0xff466043 : 0xff354b34) : (hover ? 0xff3e4a55 : 0xff2d3741));
-            char key[2] = {char('4' + i), 0};
+            char key[2] = {Key(i), 0};
             text(x + 7 * size, Top + 11 * size, key, 1.f * size, 0xff879ba8);
-            const float labelSize = banked && i == Mirror ? 1.25f : 1.5f;
+            const float labelSize = banked && (i == Mirror || i == PathTraced) ? 1.25f : 1.5f;
             const float labelWidth = std::strlen(Label(i,banked)) * 6 * labelSize * size;
             text(x + (ButtonWidth * size - labelWidth) * .5f + 4 * size, Top + 10 * size, Label(i,banked), labelSize * size,
-                active ? 0xffeaf0e6 : 0xffc3ced5);
+                !available ? 0xff73808a : active ? 0xffeaf0e6 : 0xffc3ced5);
         }
         if (columns == 3) {
             const unsigned column = width / 3;
@@ -105,7 +114,11 @@ private:
     float mouseX = -1, mouseY = -1;
     std::vector<Vertex> vertices;
 
-    void select(int next) { if (next != choice) { choice = next; changed = true; } }
+    void select(int next)
+    {
+        if (next == PathTraced && !pathAvailable) return;
+        if (next != choice) { choice = next; changed = true; }
+    }
     // Centred, beside the color panel on wide windows; shrunk to fit narrow ones.
     static float buttonScale(unsigned width)
     { return std::min(1.f, float(width) / (ChoiceCount * (ButtonWidth + Gap) + 32)); }

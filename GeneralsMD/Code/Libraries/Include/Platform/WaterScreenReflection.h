@@ -1,14 +1,15 @@
 // Screen-space reflection for Modern map water. Render-only.
 //
-// Three ways to reflect the scene; ZH_WATER_SSR overrides the live setting when it names one:
+// Four ways to reflect the scene; ZH_WATER_SSR overrides the live setting when it names one:
 //   "legacy", "mirror", "0" the original planar reflection pass alone
 //   "ssr", "1", "replace"  no mirror pass; the reflected ray is traced through the pre-water scene snapshot
 //   "hybrid"               the legacy reflection plus screen-space reflection
+//   "path", "path-traced"  experimental geometry path tracing for water only
 //   "nomirror"             neither, sky only: times what the mirror costs
 // Unset or unrecognised values use the setting, which starts at Hybrid.
 //
-// The shader always carries the trace; the material register's reserved lane (c95.w) turns it on
-// per draw, so a mode needs no new program. ZH_WATER_DEBUG=ssr shows the traced colour over dark
+// The water shader carries SSR; c95.w=1 enables it per draw. Path tracing uses a
+// separate capture program and c95.w=2 selects that texture. ZH_WATER_DEBUG=ssr shows the traced colour over dark
 // blue misses; ZH_WATER_DEBUG=ssr-hit shows confidence (red), travel (green), refusal (blue).
 #pragma once
 #include <cstdlib>
@@ -16,7 +17,7 @@
 
 namespace WaterScreenReflection {
 
-enum Mode { Mirror, ScreenSpace, Hybrid, SkyOnly };
+enum Mode { Mirror, ScreenSpace, Hybrid, PathTraced, SkyOnly };
 
 // Map-water targets; the sea keeps its separate reflection allocation.
 constexpr unsigned LegacyMirrorSize = 512;
@@ -31,6 +32,7 @@ inline bool Parse(const char *value, Mode &mode)
 	else if (std::strcmp(value, "ssr") == 0 || std::strcmp(value, "1") == 0 || std::strcmp(value, "replace") == 0)
 		mode = ScreenSpace;
 	else if (std::strcmp(value, "hybrid") == 0) mode = Hybrid;
+	else if (std::strcmp(value, "path") == 0 || std::strcmp(value, "path-traced") == 0) mode = PathTraced;
 	else if (std::strcmp(value, "nomirror") == 0) mode = SkyOnly;
 	else return false;
 	return true;
@@ -43,6 +45,7 @@ inline Mode Resolve(const char *environment, int setting)
 	switch (setting) {
 		case 0: return Mirror;
 		case 1: return ScreenSpace;
+		case 3: return PathTraced;
 		default: return Hybrid;
 	}
 }
@@ -52,6 +55,7 @@ inline Mode Next(Mode mode)
 	switch (mode) {
 		case Mirror: return ScreenSpace;
 		case ScreenSpace: return Hybrid;
+		case Hybrid: return PathTraced;
 		default: return Mirror;
 	}
 }
@@ -69,6 +73,7 @@ inline const char *Name(Mode mode)
 		case Mirror: return "legacy";
 		case ScreenSpace: return "SSR";
 		case Hybrid: return "hybrid (legacy + SSR)";
+		case PathTraced: return "path traced (experimental)";
 		default: return "sky only";
 	}
 }
@@ -113,7 +118,7 @@ WaterSsrSample waterScreenReflection(float3 world, float3 view, float3 normal, f
     WaterSsrSample result;
     result.colour=float3(0,0,0); result.confidence=0.0; result.travel=1.0; result.refused=1.0;
     result.distance=0.0; result.position=world;
-    [branch] if (!(MaterialParameters.w>0.5 && SceneParameters.x>0.5 && SceneParameters.w>0.5) || ray.z<0.02)
+    [branch] if (!(MaterialParameters.w>0.5 && MaterialParameters.w<1.5 && SceneParameters.x>0.5 && SceneParameters.w>0.5) || ray.z<0.02)
         return result;
     // Uploaded once per draw, including the same viewport depth mapping as WorldFromClip.
     float4 c0=mul(float4(world,1),ClipFromWorld);

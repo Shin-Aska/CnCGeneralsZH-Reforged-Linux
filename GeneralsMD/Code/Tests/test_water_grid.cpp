@@ -5369,9 +5369,22 @@ TEST(water_coastal_domain_stride_two_capacity_preserves_fine_connectivity_and_te
 #if defined(__linux__)
 #include "../GameEngineDevice/Source/PosixDevice/Render/SdlGpuFrame.h"
 #include "../GameEngineDevice/Source/PosixDevice/Render/SdlResourceMirror.h"
+#include "../GameEngineDevice/Source/W3DDevice/GameClient/Water/W3DWaterPathScene.h"
+#include "W3DDevice/GameClient/BaseHeightMap.h"
+#include "GameClient/GameClient.h"
+#include "GameClient/InGameUI.h"
+#include "GameClient/TerrainRoads.h"
+#include "GameLogic/SidesList.h"
+#include "../Tools/WaterPreviewReflectionBar.h"
+#include "assetmgr.h"
 #include "dx8wrapper.h"
 #include "formconv.h"
+#include "hlod.h"
+#include "mesh.h"
+#include "meshmdl.h"
+#include "scene.h"
 #include "texture.h"
+#include "vertmaterial.h"
 #include "ww3d.h"
 #include "wwmath.h"
 #include <SDL3/SDL.h>
@@ -5437,14 +5450,14 @@ public:
         synchronizeWaterStyle();
         // The first frame returning to either mirror mode must refresh a stationary view.
         // A process-wide environment override keeps the resolved mode fixed instead.
-        for(int setting:{0,1,2,0,2,1,0}) {
+        for(int setting:{0,1,2,3,0,2,1,0}) {
             const Mode previous=m_waterReflectionMode;
             TheWritableGlobalData->m_waterReflection=setting;
             const Mode expected=Resolve(CachedEnvironment(),setting);
             seedPresentation();
             updateRenderTargetTextures(NULL);
             CHECK(m_waterReflectionMode==expected);
-            CHECK(bool(m_reflectionReused)==(previous!=expected && UsesMirror(expected)));
+            CHECK(bool(m_reflectionReused)==(previous!=expected && (UsesMirror(expected) || expected==PathTraced)));
             m_reflectionReused=FALSE;checkUnchanged();
             updateRenderTargetTextures(NULL);checkUnchanged();
             CHECK_EQ(m_modernWaveTime,37.5f);CHECK_EQ(m_level,7);CHECK(m_meshInMotion);
@@ -5454,7 +5467,201 @@ public:
 };
 }
 
-TEST(water_full_mirror_only_admits_modern_linux_hybrid_map_water_during_the_mirror_pass)
+#if defined(__linux__)
+namespace {
+class PathExportAssets : public WW3DAssetManager
+{
+public:
+    // Terrain constructs waypoint helpers, but this CPU geometry test needs no art.
+    TextureClass *Get_Texture(const char *,MipCountType,WW3DFormat,bool,
+        TextureBaseClass::TexAssetType,bool) override { return nullptr; }
+};
+
+class PathExportHeightMap : public WorldHeightMap
+{
+public:
+    PathExportHeightMap() {
+        m_width=m_height=2;m_borderSize=0;m_dataSize=4;
+        m_data=new UnsignedByte[4]();
+        m_tileNdxes=new Short[4]();
+        // The normal map-loading path initializes this optional texture.
+        m_alphaEdgeTex=nullptr;
+    }
+};
+
+class PathExportTerrain : public BaseHeightMapRenderObjClass
+{
+public:
+    void Render(RenderInfoClass &) override {}
+    void doPartialUpdate(const IRegion2D &,WorldHeightMap *,RefRenderObjListIterator *) override {}
+    int updateBlock(Int,Int,Int,Int,WorldHeightMap *,RefRenderObjListIterator *) override { return 0; }
+};
+
+class PathExportMesh : public MeshClass
+{
+public:
+    PathExportMesh() {
+        Model=new MeshModelClass;
+        Model->Reset(1,3,1);
+        Model->Set_Name("PathExport.TREADS");
+        Vector3 *vertices=Model->Get_Vertex_Array();
+        vertices[0]=Vector3(1,1,20);
+        vertices[1]=Vector3(3,1,20);
+        vertices[2]=Vector3(1,3,20);
+        TriIndex *indices=const_cast<TriIndex *>(Model->Get_Polygon_Array());
+        indices[0][0]=0;indices[0][1]=1;indices[0][2]=2;
+        ShaderClass shader;
+        shader.Set_Src_Blend_Func(ShaderClass::SRCBLEND_ONE);
+        shader.Set_Dst_Blend_Func(ShaderClass::DSTBLEND_ZERO);
+        shader.Set_Alpha_Test(ShaderClass::ALPHATEST_DISABLE);
+        shader.Set_Texturing(ShaderClass::TEXTURING_DISABLE);
+        Model->Set_Single_Shader(shader);
+    }
+};
+
+struct PathExportCleanupProbe : DX8Wrapper
+{
+    static DX8_CleanupHook *current() { return m_pCleanupHook; }
+};
+
+struct PathExportGlobals
+{
+    GameClient *client=TheGameClient;
+    InGameUI *ui=TheInGameUI;
+    SidesList *sides=TheSidesList;
+    TerrainRoadCollection *roads=TheTerrainRoads;
+    BaseHeightMapRenderObjClass *terrain=TheTerrainRenderObject;
+    DX8_CleanupHook *cleanup=PathExportCleanupProbe::current();
+    SidesList testSides;
+    TerrainRoadCollection testRoads;
+    PathExportGlobals() {
+        // Terrain buffer constructors need the CPU presets even without a device.
+        VertexMaterialClass::Init();
+        TheGameClient=nullptr;
+        TheInGameUI=nullptr;
+        TheSidesList=&testSides;
+        TheTerrainRoads=&testRoads;
+    }
+    ~PathExportGlobals() {
+        VertexMaterialClass::Shutdown();
+        TheGameClient=client;
+        TheInGameUI=ui;
+        TheSidesList=sides;
+        TheTerrainRoads=roads;
+        TheTerrainRenderObject=terrain;
+        DX8Wrapper::SetCleanupHook(cleanup);
+    }
+};
+}
+
+TEST(water_path_export_opaque_userdata_and_hidden_hierarchy)
+{
+    boot();
+    PathExportGlobals globals;
+    PathExportAssets assets;
+    PathExportTerrain terrain;
+    PathExportHeightMap *map=new PathExportHeightMap;
+    terrain.redirectToHeightmap(map);
+    map->Release_Ref();
+    SimpleSceneClass scene;
+    PathExportMesh *child=new PathExportMesh;
+    RenderObjClass *lods[]={child};
+    HLodClass *root=new HLodClass("PathExport",lods,1);
+    scene.Add_Render_Object(root);
+    W3DWaterPathScene exported;
+    const auto checkGeometry=[&](bool hasMesh) {
+        CHECK(exported.Update(&scene,&terrain,nullptr));
+        CHECK_EQ(exported.Triangles().size(),hasMesh ? 3u : 2u);
+        if (hasMesh && exported.Triangles().size()==3) {
+            const auto &triangle=exported.Triangles().back();
+            CHECK_EQ(triangle.a.z,20);
+            CHECK_EQ(triangle.b.z,20);
+            CHECK_EQ(triangle.c.z,20);
+        }
+    };
+
+    // Tank treads and ghost children use this payload instead of DrawableInfo.
+    // Nonzero UVs reproduce the pointer that the old cast tried to dereference.
+    RenderObjClass::Material_Override tread;
+    tread.customUVOffset=Vector2(1,2);
+    child->Set_User_Data(&tread);
+    checkGeometry(true);
+    const uint64_t originalRevision=exported.Revision();
+
+    // Unknown root and child data must stay opaque, including unreadable pointers.
+    // The geometry must still export: skipping every unfamiliar object is not a fix.
+    root->Set_User_Data(reinterpret_cast<void *>(uintptr_t(1)));
+    checkGeometry(true);
+    child->Set_User_Data(reinterpret_cast<void *>(uintptr_t(1)));
+    checkGeometry(true);
+    CHECK_EQ(exported.Revision(),originalRevision);
+
+    root->Set_Hidden(true);
+    checkGeometry(false);
+    root->Set_Hidden(false);
+    checkGeometry(true);
+    child->Set_Hidden(true);
+    checkGeometry(false);
+    child->Set_Hidden(false);
+    checkGeometry(true);
+    root->Set_Animation_Hidden(true);
+    checkGeometry(false);
+    root->Set_Animation_Hidden(false);
+    checkGeometry(true);
+    child->Set_Animation_Hidden(true);
+    checkGeometry(false);
+    child->Set_Animation_Hidden(false);
+    checkGeometry(true);
+    CHECK(exported.Update(&scene,&terrain,root));
+    CHECK_EQ(exported.Triangles().size(),2u); // The water object is never exported.
+
+    scene.Remove_Render_Object(root);
+    root->Release_Ref();
+    // Also cover a standalone mesh root, as used by non-hierarchical scene props.
+    scene.Add_Render_Object(child);
+    checkGeometry(true);
+    scene.Remove_Render_Object(child);
+    child->Release_Ref();
+}
+
+TEST(water_preview_path_choice_is_optional_and_unavailable_for_image_banks)
+{
+    using namespace WaterPreviewReflection;
+    Bar bar;
+    CHECK_EQ(bar.choice,Hybrid);
+    SDL_Event key={};
+    key.type=SDL_EVENT_KEY_DOWN;
+    key.key.key=SDLK_8;
+    CHECK(bar.handle(key,1280));
+    CHECK_EQ(bar.choice,PathTraced);
+    CHECK(bar.changed);
+    bar.changed=false;
+    key.key.key=SDLK_7;
+    CHECK(bar.handle(key,1280));
+    CHECK_EQ(bar.choice,Compare); // Existing key 7 remains the original three-mode comparison.
+    bar.pathAvailable=false;
+    bar.changed=false;
+    key.key.key=SDLK_8;
+    CHECK(bar.handle(key,1280));
+    CHECK_EQ(bar.choice,Compare);
+    CHECK(!bar.changed);
+    key.key.key=SDLK_6;
+    CHECK(bar.handle(key,1280));
+    CHECK_EQ(bar.choice,Hybrid);
+    bar.changed=false;
+    // The fourth button is disabled for a bank even when clicked, not just via its hotkey.
+    SDL_Event click={};
+    click.type=SDL_EVENT_MOUSE_BUTTON_DOWN;
+    click.button.button=SDL_BUTTON_LEFT;
+    click.button.x=800;
+    click.button.y=25;
+    CHECK(bar.handle(click,1280));
+    CHECK_EQ(bar.choice,Hybrid);
+    CHECK(!bar.changed);
+}
+#endif
+
+TEST(water_full_mirror_admits_hybrid_and_experimental_fallback_for_modern_linux_map_water)
 {
     boot();
     WaterTransparencySetting *saved=(WaterTransparencySetting*)TheWaterTransparency.getNonOverloadedPointer();
@@ -5472,11 +5679,11 @@ TEST(water_full_mirror_only_admits_modern_linux_hybrid_map_water_during_the_mirr
 #if defined(__linux__)
                     for (WaterScreenReflection::Mode mode : {
                         WaterScreenReflection::Mirror, WaterScreenReflection::ScreenSpace,
-                        WaterScreenReflection::Hybrid, WaterScreenReflection::SkyOnly}) {
+                        WaterScreenReflection::Hybrid, WaterScreenReflection::PathTraced, WaterScreenReflection::SkyOnly}) {
                         water.setReflectionMode(mode);
                         CHECK_EQ(bool(query.isModernFullMirror()),
                             modern && rendering && type==WaterRenderObjClass::WATER_TYPE_0_TRANSLUCENT
-                            && mode==WaterScreenReflection::Hybrid);
+                            && (mode==WaterScreenReflection::Hybrid || mode==WaterScreenReflection::PathTraced));
                     }
 #else
                     CHECK(!query.isModernFullMirror());

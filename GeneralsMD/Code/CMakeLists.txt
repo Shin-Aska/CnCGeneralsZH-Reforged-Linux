@@ -1420,6 +1420,14 @@ if(ZH_PLATFORM_POSIX)
   target_link_libraries(sdl_gpu_frame_selfcheck PRIVATE posixd3d9 SDL3::SDL3-static)
   add_test(NAME sdl_gpu_frame_selfcheck COMMAND sdl_gpu_frame_selfcheck)
 
+  add_executable(test_water_path_gpu ${CMAKE_CURRENT_SOURCE_DIR}/Tests/test_water_path_gpu.cpp)
+  set_target_properties(test_water_path_gpu PROPERTIES CXX_STANDARD 17)
+  target_include_directories(test_water_path_gpu PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/PosixDevice/Render)
+  target_link_libraries(test_water_path_gpu PRIVATE posixd3d9 SDL3::SDL3-static)
+  add_test(NAME test_water_path_gpu COMMAND test_water_path_gpu)
+  set_tests_properties(test_water_path_gpu PROPERTIES SKIP_RETURN_CODE 77)
+
   # A3c's resolve: the device's state into the generators' descriptions and the constants their
   # programs read, on a headless device.  No GPU.
   add_executable(posix_draw_resolve_selfcheck ${CMAKE_CURRENT_SOURCE_DIR}/Tests/test_posix_draw_resolve.cpp)
@@ -2202,6 +2210,10 @@ add_lib_test(test_hazard_cloud_policy)
 set_target_properties(test_hazard_cloud_policy PROPERTIES CXX_STANDARD 17)
 target_include_directories(test_hazard_cloud_policy PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Libraries/Include)
 
+add_lib_test(test_water_path_tracing)
+set_target_properties(test_water_path_tracing PROPERTIES CXX_STANDARD 17)
+target_include_directories(test_water_path_tracing PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Libraries/Include)
+
 add_lib_test(test_wwmath wwmath wwlib wwsaveload wwdebug)
 target_include_directories(test_wwmath PRIVATE ${WW}/WWLib ${WW}/WWSaveLoad ${WW}/Wwutil)
 # R1, smooth motion: W3DSmoothMotion.h's blend and verdicts, header-only over WWMath.
@@ -2380,6 +2392,8 @@ target_sources(test_water_grid PRIVATE ${TESTS}/test_gameengine_stubs.cpp)
 set_target_properties(test_water_grid PROPERTIES CXX_STANDARD 17)
 if(ZH_PLATFORM_POSIX)
   target_link_libraries(test_water_grid PRIVATE posixdevice w3ddevice)
+  target_include_directories(test_water_grid PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/PosixDevice/Render)
 endif()
 # Off Windows the device layer's hooks are the game's own: the renderer's from W3DDevice, the CD
 # manager from PosixDevice.  On Windows the test's own stubs stand in for gameenginedevice, which it

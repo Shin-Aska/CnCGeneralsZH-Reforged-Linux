@@ -1202,8 +1202,12 @@ GUI:WaterReflection2
 "Hybrid"
 END
 
+GUI:WaterReflection3
+"Path traced (experimental)"
+END
+
 TOOLTIP:WaterReflection
-"For Modern water. Legacy uses the original reflections. SSR reflects visible screen content and can miss hidden objects. Hybrid combines both for fuller reflections. Applied when you Accept."
+"For Modern water. Legacy uses the original reflections. SSR reflects visible screen content. Hybrid combines both and is the default. Path traced is an experimental, slower option that traces scene geometry. Applied when you Accept."
 END
 
 GUI:CloudStyle

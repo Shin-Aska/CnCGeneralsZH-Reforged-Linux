@@ -41,7 +41,7 @@ It also receives sun and smoke shadows.
 
 ### Water Reflections
 
-Choose **Legacy**, **SSR** or **Hybrid** under **Options → Effects → Reflections**.
+Choose **Legacy**, **SSR**, **Hybrid** or **Path traced (experimental)** under **Options → Effects → Reflections**.
 These modes apply to Modern water. Hybrid is the default and combines planar reflections with
 screen-space reflections. SSR alone can miss objects hidden from the camera or outside the screen.
 Click **Accept** to apply and save the choice.

@@ -185,6 +185,9 @@ public:
 	Bool addModelShadow(DrawableID id, RenderObjClass *robj);
 	void removeModelShadow(DrawableID id);
 	void removeAllProps(void);
+#if defined(__linux__)
+	const W3DPropBuffer *getPropBuffer(void) const { return m_propBuffer; }
+#endif
 
 	void unitMoved( Object *unit );
 	void notifyShroudChanged(void);

@@ -146,8 +146,8 @@ enum { SMOKE_LEVEL_COUNT = 3 };
 // Classic is the original surface; Modern is the SDL wave and optical surface.
 enum { WATER_STYLE_COUNT = 2 };
 
-// Modern water can use the original planar reflection, screen space, or their hybrid.
-enum { WATER_REFLECTION_COUNT = 3 };
+// Modern water reflection modes; experimental path tracing is optional.
+enum { WATER_REFLECTION_COUNT = 4 };
 
 // Classic is the original hazard effect; Volumetric is the SDL toxin/radiation cloud.
 enum { CLOUD_STYLE_COUNT = 2 };

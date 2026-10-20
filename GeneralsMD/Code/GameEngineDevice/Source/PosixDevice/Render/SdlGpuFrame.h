@@ -50,6 +50,7 @@ struct SDL_GPUTexture;
 struct SDL_Window;
 namespace WaterCoastalSurf { struct Node; struct Lookup; }
 namespace WaterShoreHistory { struct Mapping; }
+namespace WaterPathTracing { struct Triangle; struct View; }
 
 /// Where a pass draws: a colour texture of Target_Format() and a depth-stencil of Depth_Format(), the
 /// same size.  The back buffer is one; a render-target surface's GPU texture is another (A3d).
@@ -256,6 +257,14 @@ public:
 	SDL_GPUSampler * Ocean_Sampler() const;
 	uint64_t Ocean_Updates() const { return OceanUpdates; }
 
+	// Allocated and dispatched only by the optional water path tracing mode.
+	bool Prepare_Water_Path(const std::vector<WaterPathTracing::Triangle> &triangles,
+		const WaterPathTracing::View &view, uint64_t revision = 0);
+	void Clear_Water_Path();
+	SDL_GPUTexture *Water_Path_Texture() const;
+	SDL_GPUSampler *Water_Path_Sampler() const;
+	std::string Water_Path_Report() const;
+
 	/// Bounded GPU coastal history; callers install one immutable graph across all levels.
 	/// Same revision with changed bytes is rejected. Empty graphs clear the feature.
 	bool Install_Coastal_Surf(uint64_t revision,const std::vector<WaterCoastalSurf::Node> &nodes,double spacing);
@@ -303,6 +312,8 @@ public:
 	static unsigned int Target_Format();
 
 private:
+	struct PathResources;
+	PathResources *WaterPath = nullptr;
 	/// Submits, and with SerializeSubmits waits for the fence, adding the wait to FenceMs.
 	bool Submit(struct SDL_GPUCommandBuffer * commands);
 	bool SerializeSubmits;

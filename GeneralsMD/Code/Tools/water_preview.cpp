@@ -5,6 +5,7 @@
 #include "Platform/ModernWaterConfig.h"
 #include "Platform/ModernWaterMaterial.h"
 #include "Platform/WaterScreenReflection.h"
+#include "Platform/WaterPathTracing.h"
 
 #include <SDL3/SDL.h>
 #include <algorithm>
@@ -57,11 +58,12 @@ void help()
         "       [--config FILE.ini] [--map-color RRGGBB] [--map-texture NAME]\n"
         "       [--map-depth N] [--map-opacity 0..1] [--export-config FILE.ini]\n"
         "       [--load-preset] [--width N] [--height N] [--time SECONDS]\n"
-        "       [--reflection legacy|ssr|hybrid|compare] [--no-props] [--scene NAME|PATH]\n"
+        "       [--reflection legacy|ssr|hybrid|path|compare] [--no-props] [--scene NAME|PATH]\n"
         "       [--yaw RADIANS] [--pitch 0.48..1.38] [--distance 180..1050]\n"
         "       [--target X Y] [--debug VIEW]\n"
         "\n1 clean baseline | 2 resolved material | 3 split (baseline left / material right)\n"
-        "4 legacy | 5 SSR | 6 hybrid (legacy + SSR) | 7 all three side by side\n"
+        "4 legacy | 5 SSR | 6 hybrid (legacy + SSR) | 8 path traced (experimental)\n"
+        "7 legacy/SSR/hybrid side by side; path tracing is separate and optional.\n"
         "P synthetic props: bank, towers, bridge, sandstone ruins and striped pole\n"
         "B bubbles | Space pause | [ / ] pollution | S save PNG | E export rule | Escape close\n"
         "Synthetic camera: arrows pan; right drag pans away from its press anchor.\n"
@@ -77,6 +79,7 @@ void help()
         "The texture name is a matching input; authored texture pixels are not loaded.\n"
         "\n--scene: FIXED CAMERA (banked frame); camera input and start options have no effect.\n"
         "Banked mode 4 is CAPTURED PLANAR: a bank cannot regenerate the original legacy scene.\n"
+        "Path tracing requires synthetic scene geometry; old scene banks contain only images.\n"
         "--reflection mirror remains an alias for legacy.\n"
         "Scene names resolve beside the executable: water-scenes/NAME.wbank.\n"
         "--width/--height scale and letterbox that view; compare uses three bank-size targets.\n"
@@ -141,8 +144,9 @@ Options parse(int argc, char **argv)
             if (reflection == "legacy" || reflection == "mirror") o.reflection = WaterPreviewReflection::Mirror;
             else if (reflection == "ssr") o.reflection = WaterPreviewReflection::ScreenSpace;
             else if (reflection == "hybrid") o.reflection = WaterPreviewReflection::Hybrid;
+            else if (reflection == "path" || reflection == "path-traced") o.reflection = WaterPreviewReflection::PathTraced;
             else if (reflection == "compare") o.reflection = WaterPreviewReflection::Compare;
-            else throw std::runtime_error("reflection must be legacy, ssr, hybrid or compare");
+            else throw std::runtime_error("reflection must be legacy, ssr, hybrid, path or compare");
         }
         else if (arg == "--width") { o.width = integer(value(), 320, 8192); o.widthSet = true; }
         else if (arg == "--height") { o.height = integer(value(), 240, 8192); o.heightSet = true; }
@@ -174,6 +178,8 @@ Options parse(int argc, char **argv)
             else throw std::runtime_error("mode must be clean, material (or polluted), or split");
         } else throw std::runtime_error("unknown argument: " + arg);
     }
+    if (!o.scene.empty() && o.reflection == WaterPreviewReflection::PathTraced)
+        throw std::runtime_error("path tracing is unavailable for scene banks: they contain images, not complete scene geometry; omit --scene to use the synthetic scene");
     if (o.offscreen && !o.frames) o.frames = 1;
     return o;
 }
@@ -236,7 +242,7 @@ class PropBuilder {
 public:
     std::vector<PropVertex> vertices;
     // Everything below `floor` is cut away: the mirror pass keeps only what stands above the water.
-    explicit PropBuilder(float floor) : floor(floor) {}
+    explicit PropBuilder(float floor, bool shadeFaces = true) : floor(floor), shadeFaces(shadeFaces) {}
     void box(float x0, float y0, float z0, float x1, float y1, float z1, uint32_t colour)
     {
         z0 = std::max(z0, floor);
@@ -279,6 +285,7 @@ public:
     }
 private:
     float floor;
+    bool shadeFaces;
     static uint32_t shade(uint32_t colour, Vec3 normal)
     {
         const Vec3 sun = normalized({-.30f,-.45f,.84f});
@@ -289,7 +296,7 @@ private:
     }
     void quad(Vec3 a, Vec3 b, Vec3 c, Vec3 d, uint32_t colour)
     {
-        const uint32_t lit = shade(colour, normalized(cross(subtract(b,a),subtract(d,a))));
+        const uint32_t lit = shadeFaces ? shade(colour, normalized(cross(subtract(b,a),subtract(d,a)))) : colour;
         // A tilted face may straddle the plane: clamping its corners would change its slope.
         // Clip its edges instead, then triangulate the remaining convex polygon in its plane.
         Vec3 clipped[8];
@@ -310,9 +317,9 @@ private:
 
 // Towers on the far bank (tall enough to leave the top of the screen), a bridge on two piers
 // across the middle, sandstone ruins in the shallows, and a striped pole close to the camera.
-std::vector<PropVertex> buildProps(float floor)
+std::vector<PropVertex> buildProps(float floor, bool shadeFaces = true)
 {
-    PropBuilder b(floor);
+    PropBuilder b(floor, shadeFaces);
     b.bank(-900, 900, 130, 10, 260, 95, 960);
     b.box(-330, 300, 95, -270, 360, 290, 0xffc0392b);
     b.box(-120, 320, 95, -70, 370, 210, 0xffe8e4dc);
@@ -356,6 +363,7 @@ public:
         if (indices) indices->Release();
         if (shader) shader->Release();
         for (auto *texture : textures) texture->Release();
+        if (device && pathActive) WaterPathTracing::Clear(device);
         if (device) device->Release();
         if (adapter) adapter->Release();
         if (window) SDL_DestroyWindow(window);
@@ -366,7 +374,7 @@ public:
     {
         initialize();
         updateTitle();
-        std::printf("Controls: left-drag color sliders; H panel; L load saved colors; 1 clean baseline, 2 material, 3 split; 4 legacy (captured planar in banks), 5 SSR, 6 hybrid (legacy + SSR), 7 compare reflections; B bubbles; [/] pollution; Space pause; S PNG; E export rule; Esc close. %s\n",
+        std::printf("Controls: left-drag color sliders; H panel; L load saved colors; 1 clean baseline, 2 material, 3 split; 4 legacy (captured planar in banks), 5 SSR, 6 hybrid (legacy + SSR), 7 compare legacy/SSR/hybrid, 8 path traced (synthetic only); B bubbles; [/] pollution; Space pause; S PNG; E export rule; Esc close. %s\n",
             scene.loaded()?"FIXED CAMERA (banked frame).":"P props; arrows/right drag pan; middle drag turns; Alt+middle drag tilts (down tips down); middle click resets heading/pitch/zoom; wheel/+/- zoom; Ctrl+wheel 5x zoom; Alt+wheel tilts (forward flatter); Home/R resets camera and target.");
         uint64_t previous = SDL_GetTicksNS();
         unsigned frame = 0;
@@ -390,6 +398,7 @@ public:
             ++frame;
             if (last) done = true;
         }
+        if (pathActive) std::printf("Water path tracing final: %s\n",WaterPathTracing::Report(device).c_str());
         if (frame) std::printf("Rendered %u frames; %u recorded draws; %llu production FFT updates; no refused draws.\n",
             frame,device->Draws_Recorded(),static_cast<unsigned long long>(device->Get_Gpu()->Ocean_Updates()));
         return 0;
@@ -414,6 +423,8 @@ private:
     MirrorTarget legacyMirror{WaterScreenReflection::LegacyMirrorSize},
         hybridMirror{WaterScreenReflection::HybridMirrorSize};
     std::vector<PropVertex> props, mirrorProps;
+    std::vector<WaterPathTracing::Triangle> pathTriangles;
+    bool pathActive = false, pathReady = false, pathHasProps = false;
     std::vector<WaterVertex> waterGrid;
     D3DMATRIX waterWorld = identity();
     WaterPreviewReflection::Bar reflectionBar;
@@ -624,6 +635,7 @@ private:
             mirrorProps=buildProps(WaterLevel);
         }
         reflectionBar.choice=options.reflection;
+        reflectionBar.pathAvailable=!scene.loaded();
         device->SetRenderState(D3DRS_LIGHTING,0);
         device->SetRenderState(D3DRS_CULLMODE,D3DCULL_NONE);
         device->SetRenderState(D3DRS_FOGENABLE,0);
@@ -727,7 +739,9 @@ private:
 
     bool showsMirror() const
     {
-        return options.props && options.reflection!=WaterPreviewReflection::ScreenSpace;
+        return options.props && (options.reflection==WaterPreviewReflection::Mirror
+            || options.reflection==WaterPreviewReflection::Hybrid || comparing()
+            || (options.reflection==WaterPreviewReflection::PathTraced && !pathReady));
     }
 
     void drawProps(const std::vector<PropVertex> &list)
@@ -806,6 +820,64 @@ private:
         device->SetTransform(D3DTS_PROJECTION,&project);
     }
 
+    void preparePathTracing()
+    {
+        if (options.reflection!=WaterPreviewReflection::PathTraced) {
+            if (pathActive) WaterPathTracing::Clear(device);
+            pathActive=false;
+            pathReady=false;
+            return;
+        }
+        // Build only on first use or a scenery toggle. Camera movement changes the rays,
+        // not the world-space geometry. Colours are authored albedo, before raster lighting.
+        if (pathTriangles.empty() || pathHasProps!=options.props) {
+            pathTriangles.clear();
+            pathHasProps=options.props;
+            const auto linear=[](uint32_t color) {
+                return WaterPathTracing::DisplayToLinear({float((color>>16)&255)/255.f,
+                    float((color>>8)&255)/255.f,float(color&255)/255.f});
+            };
+            if (options.props) {
+                const auto unlit=buildProps(-1.0e9f,false);
+                pathTriangles.reserve(unlit.size()/3+2);
+                for (size_t i=0;i+2<unlit.size();i+=3) {
+                    const auto &a=unlit[i],&b=unlit[i+1],&c=unlit[i+2];
+                    pathTriangles.push_back({{a.x,a.y,a.z},{b.x,b.y,b.z},{c.x,c.y,c.z},linear(a.colour)});
+                }
+            }
+            // The raster bed has a subtle procedural grain; use its average albedo here.
+            const auto bedAlbedo=linear(0xff71674eu);
+            pathTriangles.push_back({{-BedExtent,-BedExtent,0},{BedExtent,-BedExtent,0},
+                {-BedExtent,BedExtent,0},bedAlbedo});
+            pathTriangles.push_back({{BedExtent,-BedExtent,0},{BedExtent,BedExtent,0},
+                {-BedExtent,BedExtent,0},bedAlbedo});
+        }
+        const auto &c=cameraControl.state;
+        const Vec3 offset={std::sin(c.yaw)*std::cos(c.pitch),-std::cos(c.yaw)*std::cos(c.pitch),std::sin(c.pitch)};
+        const Vec3 right=normalized(cross({0,0,1},offset)),up=cross(offset,right);
+        const float tangent=std::tan(48.0f*Pi/360.0f),aspect=viewAspect();
+        const auto reflected=[](Vec3 v) { return WaterPathTracing::Vec3{v.x,v.y,-v.z}; };
+        WaterPathTracing::View view;
+        view.origin={c.x+offset.x*c.distance,c.y+offset.y*c.distance,WaterLevel-offset.z*c.distance};
+        view.rayTopLeft=reflected({-offset.x+tangent*(up.x-right.x*aspect),
+            -offset.y+tangent*(up.y-right.y*aspect),-offset.z+tangent*(up.z-right.z*aspect)});
+        view.rayDx=reflected({2*tangent*aspect*right.x,2*tangent*aspect*right.y,2*tangent*aspect*right.z});
+        view.rayDy=reflected({-2*tangent*up.x,-2*tangent*up.y,-2*tangent*up.z});
+        const Vec3 sun=normalized({-.30f,-.45f,.84f});
+        view.sunDirection={sun.x,sun.y,sun.z};
+        view.sunRadiance=WaterPathTracing::DisplayToLinear({.88f,.81f,.66f});
+        view.skyLow=WaterPathTracing::DisplayToLinear({.49f,.62f,.68f});
+        view.skyHigh=WaterPathTracing::DisplayToLinear({.23f,.38f,.48f});
+        view.waterLevel=WaterLevel;
+        const bool wasReady=pathReady;
+        pathReady=WaterPathTracing::Prepare(device,pathTriangles,view);
+        if (!pathActive || pathReady!=wasReady) {
+            std::printf("Water path tracing: %s%s\n",WaterPathTracing::Report(device).c_str(),
+                pathReady?"":"; using Hybrid fallback");
+        }
+        pathActive=true;
+    }
+
     void draw()
     {
         if (scene.loaded()) {
@@ -818,11 +890,13 @@ private:
             return;
         }
         camera();
+        preparePathTracing();
         require(device->BeginScene(),"begin scene");
         if (showsMirror()) {
             if (comparing() || options.reflection==WaterPreviewReflection::Mirror)
                 drawMirror(legacyMirror,"legacy",comparing()?columnWidth(0):options.width);
-            if (comparing() || options.reflection==WaterPreviewReflection::Hybrid)
+            if (comparing() || options.reflection==WaterPreviewReflection::Hybrid
+                || (options.reflection==WaterPreviewReflection::PathTraced && !pathReady))
                 drawMirror(hybridMirror,"hybrid",comparing()?columnWidth(2):options.width);
         }
         require(device->Clear(0,nullptr,D3DCLEAR_TARGET|D3DCLEAR_ZBUFFER,0xff1b2830u,1,0),"clear frame");
@@ -944,9 +1018,11 @@ private:
     {
         // Each mode is a per-draw choice in the production shader: the mirror (c1.z, stage 1,
         // the viewport's slice of it in c2) and the trace (c95.w), as the game's water sets them.
+        const bool path=reflection==WaterPreviewReflection::PathTraced && pathReady;
+        if (reflection==WaterPreviewReflection::PathTraced && !path) reflection=WaterPreviewReflection::Hybrid;
         const bool mirror=showsMirror() && (reflection==WaterPreviewReflection::Mirror || reflection==WaterPreviewReflection::Hybrid);
         const bool trace=reflection==WaterPreviewReflection::ScreenSpace || reflection==WaterPreviewReflection::Hybrid;
-        const float water[4]={time,0,mirror?1.f:0.f,WaterLevel};
+        const float water[4]={time,0,(mirror||path)?1.f:0.f,WaterLevel};
         const float areaLeft=own?-1.f:-2.f*float(left)/float(width)-1.f;
         const float area[4]={areaLeft,-1,own?1.f:areaLeft+2.f*float(options.width)/float(width),1};
         require(device->SetPixelShaderConstantF(1,water,1),"set water parameters");
@@ -971,7 +1047,7 @@ private:
         const float colour[4]={v.red,v.green,v.blue,v.brightness};
         // Editing a neutral fallback creates an explicit tint without changing pollution.
         const float tint=resolvedMaterial.tintAmount>0 || v.red<1 || v.green<1 || v.blue<1 || v.brightness<1 ? 1.f : 0.f;
-        const float parameters[4]={enabled?tint:0.f,enabled?v.strength:0.f,enabled&&options.bubbles?1.f:0.f,trace?1.f:0.f};
+        const float parameters[4]={enabled?tint:0.f,enabled?v.strength:0.f,enabled&&options.bubbles?1.f:0.f,path?2.f:trace?1.f:0.f};
         require(device->SetPixelShaderConstantF(ModernWaterMaterial::RegisterColor,colour,1),"set water material color");
         require(device->SetPixelShaderConstantF(ModernWaterMaterial::RegisterParameters,parameters,1),"set water material parameters");
         require(device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST,0,0,(Grid+1)*(Grid+1),0,Grid*Grid*2),"draw modern water");
@@ -1002,6 +1078,7 @@ private:
         const char *reflection=options.reflection==WaterPreviewReflection::Mirror?(scene.loaded()?"captured planar":"legacy")
             :options.reflection==WaterPreviewReflection::ScreenSpace?"SSR"
             :options.reflection==WaterPreviewReflection::Hybrid?"hybrid (legacy + SSR)"
+            :options.reflection==WaterPreviewReflection::PathTraced?"path traced (experimental)"
             :scene.loaded()?"captured planar | SSR | hybrid":"legacy | SSR | hybrid";
         std::snprintf(title,sizeof(title),"Water Preview: %s | reflection %s | brightness %.0f%% | pollution %.0f%% | bubbles %s | H panel, E export%s",
             mode,reflection,colourPanel.values.brightness*100,colourPanel.values.strength*100,options.bubbles?"ON":"OFF",paused?" | PAUSED":"");
@@ -1038,8 +1115,12 @@ private:
                 case SDLK_3: options.mode=3; break;
                 case SDLK_B: options.bubbles=!options.bubbles; colourPanel.edited=true; colourPanel.status="UNSAVED CHANGES"; break;
                 case SDLK_P: options.props=!options.props; break;
-                case SDLK_4: case SDLK_5: case SDLK_6: case SDLK_7:
+                case SDLK_4: case SDLK_5: case SDLK_6:
                     options.reflection=reflectionBar.choice=int(event.key.key-SDLK_4); break;
+                case SDLK_7: options.reflection=reflectionBar.choice=WaterPreviewReflection::Compare; break;
+                case SDLK_8:
+                    if (!scene.loaded()) options.reflection=reflectionBar.choice=WaterPreviewReflection::PathTraced;
+                    break;
                 case SDLK_SPACE: paused=!paused; break;
                 case SDLK_S: capture=true; break;
                 case SDLK_L: colourPanel.visible=true; loadSavedColour(); break;
