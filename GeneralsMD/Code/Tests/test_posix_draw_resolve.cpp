@@ -305,6 +305,13 @@ static void check_constants(PosixDevice9 *device)
 		inverse = inverse && fabs(identity - (r == c ? 1.0 : 0.0)) < 0.0001;
 	}
 	CHECK(inverse);
+	// The uploaded forward projection replaces the per-pixel inverse in SSR. Verify it against
+	// the independently calculated view/projection, not a second call to the inverse helper.
+	for (int r = 0; r < 4; ++r) for (int c = 0; c < 4; ++c) {
+		double forward = 0;
+		for (int j = 0; j < 4; ++j) forward += view[r][j] * projection[j][c];
+		CHECK(near_value(water.ClipFromWorld[r * 4 + c], forward));
+	}
 	CHECK(near_value(water.CameraPosition[0], -20) && near_value(water.CameraPosition[1], 10)
 		&& near_value(water.CameraPosition[2], -30));
 	CHECK(memcmp(&water.Combiner, &pixel, sizeof(pixel)) == 0);
@@ -330,7 +337,8 @@ static void check_constants(PosixDevice9 *device)
 	CHECK(memcmp(water.HullData,hull_registers[1],sizeof(water.HullData))==0);
 	// The optional foam contour is a distinct tail, never a replacement for the mean hull used
 	// by displacement. Exercise every register, including the twelfth vertex of hull eight.
-	CHECK(sizeof(water)==196*16 && offsetof(SdlWaterPixelConstants,ContactHullData)==100*16);
+	CHECK(sizeof(water)==200*16 && offsetof(SdlWaterPixelConstants,ContactHullData)==100*16);
+	CHECK(offsetof(SdlWaterPixelConstants,ClipFromWorld)==196*16);
 	CHECK(offsetof(SdlWaterPixelConstants,CoastalArea)==184*16 && offsetof(SdlWaterPixelConstants,CoastalParams)==185*16);
 	float contact_registers[80][4]={};
 	for(int r=0;r<80;++r)for(int c=0;c<4;++c)contact_registers[r][c]=-float(r*4+c)-0.75f;
@@ -367,11 +375,11 @@ static void check_constants(PosixDevice9 *device)
 	CHECK(device->SetPixelShaderConstantF(175,contact_registers[79],1)==D3D_OK);
 	CHECK(device->SetPixelShaderConstantF(WaterHullVisualLayout::PixelRegisterCount,contact_registers[79],1)==D3DERR_INVALIDCALL);
 	// Exact mesh transport extends the emulated bank deliberately, without moving the old
-	// 196-register native vertex prefix or copying the reserved engine-register gap into metadata.
+	// shared native vertex prefix or copying the reserved engine-register gap into metadata.
 	using namespace WaterHullVisualLayout;
 	CHECK(PosixDevice9::PIXEL_SHADER_CONSTANT_COUNT==896);
-	CHECK(sizeof(SdlWaterVisualPixelConstants)==204*16 && offsetof(SdlWaterVisualPixelConstants,VisualHullMeta)==196*16);
-	CHECK(VertexCommonRegisters==196 && FragmentCommonRegisters==204);
+	CHECK(sizeof(SdlWaterVisualPixelConstants)==208*16 && offsetof(SdlWaterVisualPixelConstants,VisualHullMeta)==200*16);
+	CHECK(VertexCommonRegisters==200 && FragmentCommonRegisters==208);
 	CHECK(BlockOffset(0)==0 && BlockOffset(1)==256 && BlockOffset(2)==512);
 	CHECK(BlockRegisters(0)==256 && BlockRegisters(1)==256 && BlockRegisters(2)==192);
 	float visualMeta[8][4]={};float visualPacket[704][4]={};float reserved[8][4]={};
@@ -452,6 +460,19 @@ static void check_constants(PosixDevice9 *device)
 	for (unsigned int c = 0; c < 4; ++c)
 		for (unsigned int r = 0; r < 4; ++r) reconstructed[c] += device_point[r] * water.WorldFromClip[r * 4 + c];
 	for (unsigned int c = 0; c < 3; ++c) CHECK(near_value(reconstructed[c] / reconstructed[3], world_point[c]));
+	// SSR must project into the same device-depth range rather than raw projection Z.
+	double ssr_clip[4] = {};
+	for (unsigned int c = 0; c < 4; ++c)
+		for (unsigned int r = 0; r < 4; ++r) ssr_clip[c] += world_point[r] * water.ClipFromWorld[r * 4 + c];
+	for (unsigned int c = 0; c < 3; ++c) CHECK(near_value(ssr_clip[c] / ssr_clip[3], device_point[c]));
+	for (unsigned int r = 0; r < 4; ++r) for (unsigned int c = 0; c < 4; ++c) {
+		double identity = 0;
+		for (unsigned int k = 0; k < 4; ++k)
+			// Promote before multiplication: the translated projection has large cancelling
+			// products, and this checks the uploaded inverse rather than float dot rounding.
+			identity += double(water.ClipFromWorld[r * 4 + k]) * water.WorldFromClip[k * 4 + c];
+		CHECK(fabs(identity - (r == c ? 1.0 : 0.0)) < 0.0001);
+	}
 	depth_viewport.MinZ = 0;
 	depth_viewport.MaxZ = 1;
 	device->SetViewport(&depth_viewport);
@@ -459,8 +480,22 @@ static void check_constants(PosixDevice9 *device)
 	device->SetTransform(D3DTS_PROJECTION, &m);
 	device->Build_Water_Constants(pixel, water);
 	bool fallback = true;
-	for (int i = 0; i < 16; ++i) fallback = fallback && water.WorldFromClip[i] == (i % 5 == 0 ? 1.0f : 0.0f);
+	for (int i = 0; i < 16; ++i) fallback = fallback
+		&& water.WorldFromClip[i] == (i % 5 == 0 ? 1.0f : 0.0f)
+		&& water.ClipFromWorld[i] == (i % 5 == 0 ? 1.0f : 0.0f);
 	CHECK(fallback);
+	// Even the singular-transform fallback must include a custom viewport depth range.
+	depth_viewport.MinZ = 0.2f;
+	depth_viewport.MaxZ = 0.85f;
+	device->SetViewport(&depth_viewport);
+	device->Build_Water_Constants(pixel, water);
+	for (unsigned i = 0; i < 16; ++i) {
+		const double expected = i == 10 ? 0.65 : i == 14 ? 0.2 : i % 5 == 0 ? 1.0 : 0.0;
+		CHECK(near_value(water.ClipFromWorld[i], expected));
+	}
+	depth_viewport.MinZ = 0;
+	depth_viewport.MaxZ = 1;
+	device->SetViewport(&depth_viewport);
 }
 
 static void check_foam_history_constants(PosixDevice9 *device)

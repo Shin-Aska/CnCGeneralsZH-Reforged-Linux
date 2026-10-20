@@ -1,4 +1,4 @@
-// Reflection selector for the standalone water preview: planar mirror, screen-space trace,
+// Reflection selector for the standalone water preview: legacy planar, screen-space trace,
 // the game's hybrid of the two, or all three side by side.
 // Distributed under the repository's GPL-3.0 terms; see LICENSE.md.
 #pragma once
@@ -10,9 +10,10 @@ namespace WaterPreviewReflection {
 
 enum Choice { Mirror, ScreenSpace, Hybrid, Compare, ChoiceCount };
 
-inline const char *Label(int choice)
+inline const char *Label(int choice, bool banked = false)
 {
-    static const char *labels[ChoiceCount] = {"MIRROR", "SCREEN SPACE", "HYBRID", "COMPARE ALL"};
+    if (banked && choice == Mirror) return "CAPTURED PLANAR";
+    static const char *labels[ChoiceCount] = {"LEGACY", "SSR", "HYBRID", "COMPARE ALL"};
     return choice >= 0 && choice < ChoiceCount ? labels[choice] : "";
 }
 
@@ -44,7 +45,7 @@ public:
     }
 
     // Column labels name the three viewports of the comparison, left to right.
-    void draw(PosixDevice9 *device, unsigned width, unsigned height, unsigned columns)
+    void draw(PosixDevice9 *device, unsigned width, unsigned height, unsigned columns, bool banked = false)
     {
         if (!device || !width || !height) return;
         vertices.clear();
@@ -58,17 +59,18 @@ public:
                 active ? (hover ? 0xff466043 : 0xff354b34) : (hover ? 0xff3e4a55 : 0xff2d3741));
             char key[2] = {char('4' + i), 0};
             text(x + 7 * size, Top + 11 * size, key, 1.f * size, 0xff879ba8);
-            const float labelWidth = std::strlen(Label(i)) * 6 * 1.5f * size;
-            text(x + (ButtonWidth * size - labelWidth) * .5f + 4 * size, Top + 10 * size, Label(i), 1.5f * size,
+            const float labelSize = banked && i == Mirror ? 1.25f : 1.5f;
+            const float labelWidth = std::strlen(Label(i,banked)) * 6 * labelSize * size;
+            text(x + (ButtonWidth * size - labelWidth) * .5f + 4 * size, Top + 10 * size, Label(i,banked), labelSize * size,
                 active ? 0xffeaf0e6 : 0xffc3ced5);
         }
         if (columns == 3) {
             const unsigned column = width / 3;
             for (unsigned i = 0; i < 3; ++i) {
-                const float labelWidth = std::strlen(Label(int(i))) * 6 * 2.f;
+                const float labelWidth = std::strlen(Label(int(i),banked)) * 6 * 2.f;
                 const float x = column * i + (column - labelWidth) * .5f, y = Top + ButtonHeight * size + 22;
                 rect(x - 8, y - 6, labelWidth + 16, 26, 0xc0101418);
-                text(x, y, Label(int(i)), 2.f, 0xffeaf0e6);
+                text(x, y, Label(int(i),banked), 2.f, 0xffeaf0e6);
                 if (i) rect(float(column * i) - 1, 0, 2, float(height), 0xc0101418);
             }
         }

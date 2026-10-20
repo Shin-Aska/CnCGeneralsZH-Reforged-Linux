@@ -532,6 +532,13 @@ void PosixDevice9::Build_Water_Constants(const SdlPixelConstants &pixel_constant
 			water.WorldFromClip[8 + column] = z_row;
 		}
 	}
+	// SSR projects through the exact inverse of the depth-reconstruction matrix, including the
+	// viewport range and invalid-transform fallback above. Invert once per draw on the CPU
+	// instead of repeating a cofactor inverse for every water pixel.
+	if (!render_inverse(water.WorldFromClip, water.ClipFromWorld)) {
+		memset(water.ClipFromWorld, 0, sizeof(water.ClipFromWorld));
+		for (unsigned i = 0; i < 4; ++i) water.ClipFromWorld[i * 5] = 1.0f;
+	}
 	water.Viewport[0] = (float)Viewport.X + 0.5f;
 	water.Viewport[1] = (float)Viewport.Y + 0.5f;
 	water.Viewport[2] = (float)Viewport.Width;

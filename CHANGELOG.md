@@ -8,6 +8,15 @@ found and fixed â€” EA's own, not port damage.**
 
 ---
 
+## Water reflections on Linux (2026-10-20)
+
+- Hybrid water reflections keep more of reflected structures and have smoother edges.
+  The planar reflection image is now 1024×1024, up from 512×512.
+- Legacy restores the original Modern water reflections from before screen-space reflections
+  were added. SSR remains a separate mode and can miss objects hidden from the camera.
+- A new Reflections group under Options → Effects offers Legacy, SSR and Hybrid.
+  Accept applies the choice immediately and saves it for future sessions. Hybrid is the default.
+
 ## Linux fork: Ubuntu 26.04 and GCC 16 (2026-10-07)
 
 - The native Linux Release build works with the tested GCC 16 snapshot. Missing static-library

@@ -614,6 +614,23 @@ float2 pixelOffset(float2 offset, float2 dx, float2 dy)
     float inverse = abs(determinant) > 0.00001 ? 1.0 / determinant : 0.0;
     return float2(offset.x * dy.y - offset.y * dy.x, dx.x * offset.y - dx.y * offset.x) * inverse;
 }
+float4 waterMirrorTexel(int2 pixel, int2 size)
+{
+    float3 colour=Texture1.Load(int3(clamp(pixel,int2(0,0),size-1),0)).rgb;
+    // Legacy terrain cannot supply coverage alpha. Resolve the black-clear convention
+    // BEFORE filtering, so a partially covered texel does not become an opaque black rim.
+    float coverage=saturate(max(max(colour.r,colour.g),colour.b)*64.0);
+    return float4(colour*coverage,coverage);
+}
+float4 waterMirrorFiltered(float2 uv, int2 size)
+{
+    float2 p=saturate(uv)*float2(size)-0.5, f=frac(p);
+    int2 base=int2(floor(p));
+    float4 c00=waterMirrorTexel(base,size), c10=waterMirrorTexel(base+int2(1,0),size);
+    float4 c01=waterMirrorTexel(base+int2(0,1),size), c11=waterMirrorTexel(base+int2(1,1),size);
+    // Preserve the existing display-space texture filtering, but carry coverage with it.
+    return lerp(lerp(c00,c10,f.x),lerp(c01,c11,f.x),f.y);
+}
 float3 scenePosition(float2 pixel, float deviceDepth)
 {
     float2 uv = (pixel - Viewport.xy) / max(Viewport.zw, float2(1, 1));
@@ -1139,21 +1156,52 @@ float4 main(Input input) : SV_Target
     float2 reflectionUV = (screenUV - reflectionOffset) / reflectionScale;
     float2 distortion = pixelOffset(resolvedNormal.xy * 8.0, dx, dy) / max(Viewport.zw, float2(1, 1)) / reflectionScale;
     float2 blur = roughness * 0.008 / reflectionScale;
-    float4 mirror = Texture1.Sample(Sampler1, saturate(reflectionUV + distortion)) * 0.5;
-    mirror += Texture1.Sample(Sampler1, saturate(reflectionUV + distortion + blur)) * 0.25;
-    mirror += Texture1.Sample(Sampler1, saturate(reflectionUV + distortion - blur)) * 0.25;
+    float4 mirror=0.0, filteredMirror=0.0;
+    float2 mirrorFilterSupport=abs(blur);
+    bool filteredPlanar=MaterialParameters.w>0.5 && WaterParameters.z>0.5;
+    [branch] if (filteredPlanar) {
+        uint mirrorWidth,mirrorHeight;
+        Texture1.GetDimensions(mirrorWidth,mirrorHeight);
+        int2 mirrorSize=max(int2(mirrorWidth,mirrorHeight),int2(1,1));
+        filteredMirror=waterMirrorFiltered(reflectionUV+distortion,mirrorSize)*0.5;
+        filteredMirror+=waterMirrorFiltered(reflectionUV+distortion+blur,mirrorSize)*0.25;
+        filteredMirror+=waterMirrorFiltered(reflectionUV+distortion-blur,mirrorSize)*0.25;
+        mirrorFilterSupport+=1.0/float2(mirrorSize);
+    } else {
+        // Keep the original reconstruction in Legacy.
+        mirror=Texture1.Sample(Sampler1,saturate(reflectionUV+distortion))*0.5;
+        mirror+=Texture1.Sample(Sampler1,saturate(reflectionUV+distortion+blur))*0.25;
+        mirror+=Texture1.Sample(Sampler1,saturate(reflectionUV+distortion-blur))*0.25;
+    }
     float2 border = min(reflectionUV, 1.0 - reflectionUV);
     // Legacy terrain passes preserve destination alpha for shore blending, including in the
     // mirror. Its transparent-black clear gives RGB coverage even when geometry cannot write A.
-    float mirrorCoverage = saturate(max(max(mirror.r, mirror.g), mirror.b) * 64.0);
+    float mirrorCoverage = filteredPlanar ? 1.0 : saturate(max(max(mirror.r, mirror.g), mirror.b) * 64.0);
+    if (filteredPlanar)
+        border=min(reflectionUV+distortion,1.0-reflectionUV-distortion)-mirrorFilterSupport;
     float coverage = saturate(min(border.x, border.y) * 30.0) * mirrorCoverage * WaterParameters.z;
     coverage *= 1.0 - smoothstep(0.5, 2.0, abs(baseLevel - WaterParameters.w));
     float3 skyRadiance=waterLinear(sky);
     if(offshore>0.0) skyRadiance=lerp(skyRadiance,oceanEnvironment(reflectedRay,light,daylight,environmentRoughness),offshore);
-    float3 reflection = lerp(skyRadiance, waterLinear(mirror.rgb), coverage);
-    // MaterialParameters.w selects the traced reflection; a hit takes the mirror's or sky's place.
+    float3 reflection;
+    [branch] if (filteredPlanar) {
+        // Remove coverage before decoding, then restore it in linear light. Decoding once
+        // keeps the old interior colour filtering and avoids twelve gamma conversions.
+        float3 planarRadiance=waterLinear(saturate(filteredMirror.rgb/max(filteredMirror.a,1e-6)))
+            *filteredMirror.a;
+        reflection=skyRadiance*(1.0-coverage*filteredMirror.a)+coverage*planarRadiance;
+    } else reflection=lerp(skyRadiance,waterLinear(mirror.rgb),coverage);
+    // MaterialParameters.w selects the traced reflection; hybrid also retains planar visibility.
     WaterSsrSample ssr = waterScreenReflection(world, view, environmentNormal, environmentRoughness, input.Position.xy);
-    reflection = lerp(reflection, waterLinear(ssr.colour), ssr.confidence);
+    // A main-camera hit cannot certify a surface hidden from that camera (a bridge underside,
+    // for example). Retain the planar contribution in hybrid until geometric correspondence
+    // is available. Trust includes empty sky, so it is independent of the RGB coverage heuristic.
+    float2 tracedMirrorUV=reflectionUV+distortion;
+    float2 tracedMirrorBorder=min(tracedMirrorUV,1.0-tracedMirrorUV)-mirrorFilterSupport;
+    float mirrorTrust=saturate(min(tracedMirrorBorder.x,tracedMirrorBorder.y)*30.0)*WaterParameters.z;
+    mirrorTrust*=1.0-smoothstep(0.5,2.0,abs(baseLevel-WaterParameters.w));
+    float ssrWeight=ssr.confidence*lerp(1.0,0.35,saturate(mirrorTrust));
+    reflection = lerp(reflection, waterLinear(ssr.colour), ssrWeight);
     // Refraction uses the actual optical depth and shared colour/depth viewport bounds.
     float2 refractionPixels = waterRefractionPixels(opticalDepth, view, normal, dx, dy);
     WaterRefractionSample refractedScene = waterRefractedScene(input.Position.xy, refractionPixels,
@@ -1471,6 +1519,8 @@ float4 main(Input input) : SV_Target
 		hlsl += "current = float4(lerp(float3(0.05, 0.05, 0.2), ssr.colour, ssr.confidence), 1.0);\n";
 	if (debug && strcmp(debug, "ssr-hit") == 0)
 		hlsl += "current = float4(ssr.confidence, ssr.travel, ssr.refused, 1.0);\n";
+	if (debug && strcmp(debug, "ssr-mix") == 0)
+		hlsl += "current = float4(ssrWeight, mirrorTrust, ssr.confidence, 1.0);\n";
 	if (debug && strcmp(debug, "normal") == 0) hlsl += "current.rgb = normal*0.5+0.5;\n";
 	if (debug && strcmp(debug, "highlight") == 0) hlsl += "current.rgb = waterDisplay(highlight);\n";
 	if (debug && strcmp(debug, "offshore") == 0) hlsl += "current.rgb = offshore.xxx;\n";

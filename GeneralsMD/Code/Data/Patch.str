@@ -362,6 +362,10 @@ GUI:OptionsGroupParticles
 "Smoke And Particles"
 END
 
+GUI:OptionsGroupReflections
+"Reflections"
+END
+
 // ---------------------------------------------------------------------------
 // One GUI: label and one TOOLTIP: line per row of TheOptionCatalog.  A label
 // and the combo box under it share the tooltip; an OPTION_ENUM row also needs
@@ -1180,6 +1184,26 @@ END
 
 TOOLTIP:WaterStyle
 "Classic uses the original water, sparkles, reflections and wakes. Modern adds waves, shoreline detail and hull foam. Applied when you Accept."
+END
+
+GUI:WaterReflection
+"Water reflection"
+END
+
+GUI:WaterReflection0
+"Legacy"
+END
+
+GUI:WaterReflection1
+"SSR"
+END
+
+GUI:WaterReflection2
+"Hybrid"
+END
+
+TOOLTIP:WaterReflection
+"For Modern water. Legacy uses the original reflections. SSR reflects visible screen content and can miss hidden objects. Hybrid combines both for fuller reflections. Applied when you Accept."
 END
 
 GUI:CloudStyle

@@ -4,6 +4,7 @@
 #include "Platform/EngineShaderName.h"
 #include "Platform/ModernWaterConfig.h"
 #include "Platform/ModernWaterMaterial.h"
+#include "Platform/WaterScreenReflection.h"
 
 #include <SDL3/SDL.h>
 #include <algorithm>
@@ -31,7 +32,6 @@ constexpr float Extent = 1100.0f;
 constexpr float GridCell = 2*Extent/Grid;
 constexpr float BedExtent = 2600.0f; // the fixed bed covers the patch at either pan limit
 constexpr RenderUInt32 WaterFVF = D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_DIFFUSE | D3DFVF_TEX4;
-constexpr unsigned MirrorSize = 512; // the game's WATER_REFLECTION_SIZE
 
 struct Options {
     unsigned width = 1280, height = 800, frames = 0;
@@ -57,11 +57,11 @@ void help()
         "       [--config FILE.ini] [--map-color RRGGBB] [--map-texture NAME]\n"
         "       [--map-depth N] [--map-opacity 0..1] [--export-config FILE.ini]\n"
         "       [--load-preset] [--width N] [--height N] [--time SECONDS]\n"
-        "       [--reflection mirror|ssr|hybrid|compare] [--no-props] [--scene NAME|PATH]\n"
+        "       [--reflection legacy|ssr|hybrid|compare] [--no-props] [--scene NAME|PATH]\n"
         "       [--yaw RADIANS] [--pitch 0.48..1.38] [--distance 180..1050]\n"
         "       [--target X Y] [--debug VIEW]\n"
         "\n1 clean baseline | 2 resolved material | 3 split (baseline left / material right)\n"
-        "4 mirror | 5 screen space | 6 hybrid (the game's default) | 7 all three side by side\n"
+        "4 legacy | 5 SSR | 6 hybrid (legacy + SSR) | 7 all three side by side\n"
         "P synthetic props: bank, towers, bridge, sandstone ruins and striped pole\n"
         "B bubbles | Space pause | [ / ] pollution | S save PNG | E export rule | Escape close\n"
         "Synthetic camera: arrows pan; right drag pans away from its press anchor.\n"
@@ -76,8 +76,11 @@ void help()
         "E writes --export-config or water-preview-rule.ini in the working directory.\n"
         "The texture name is a matching input; authored texture pixels are not loaded.\n"
         "\n--scene: FIXED CAMERA (banked frame); camera input and start options have no effect.\n"
+        "Banked mode 4 is CAPTURED PLANAR: a bank cannot regenerate the original legacy scene.\n"
+        "--reflection mirror remains an alias for legacy.\n"
         "Scene names resolve beside the executable: water-scenes/NAME.wbank.\n"
         "--width/--height scale and letterbox that view; compare uses three bank-size targets.\n"
+        "Synthetic planar targets: legacy 512x512, hybrid 1024x1024; banks retain captured resolution.\n"
         "Synthetic mode requires no game data. No game/save files are changed.\n"
         "--offscreen defaults to one frame; captures use deterministic 1/60 s steps.");
 }
@@ -135,11 +138,11 @@ Options parse(int argc, char **argv)
         }
         else if (arg == "--reflection") {
             const std::string reflection = value();
-            if (reflection == "mirror") o.reflection = WaterPreviewReflection::Mirror;
+            if (reflection == "legacy" || reflection == "mirror") o.reflection = WaterPreviewReflection::Mirror;
             else if (reflection == "ssr") o.reflection = WaterPreviewReflection::ScreenSpace;
             else if (reflection == "hybrid") o.reflection = WaterPreviewReflection::Hybrid;
             else if (reflection == "compare") o.reflection = WaterPreviewReflection::Compare;
-            else throw std::runtime_error("reflection must be mirror, ssr, hybrid or compare");
+            else throw std::runtime_error("reflection must be legacy, ssr, hybrid or compare");
         }
         else if (arg == "--width") { o.width = integer(value(), 320, 8192); o.widthSet = true; }
         else if (arg == "--height") { o.height = integer(value(), 240, 8192); o.heightSet = true; }
@@ -344,9 +347,11 @@ public:
     ~Preview()
     {
         scene.release();
-        if (mirrorDepth) mirrorDepth->Release();
-        if (mirrorSurface) mirrorSurface->Release();
-        if (mirrorTexture) mirrorTexture->Release();
+        for (auto *target : {&legacyMirror, &hybridMirror}) {
+            if (target->depth) target->depth->Release();
+            if (target->surface) target->surface->Release();
+            if (target->texture) target->texture->Release();
+        }
         if (vertices) vertices->Release();
         if (indices) indices->Release();
         if (shader) shader->Release();
@@ -361,7 +366,7 @@ public:
     {
         initialize();
         updateTitle();
-        std::printf("Controls: left-drag color sliders; H panel; L load saved colors; 1 clean baseline, 2 material, 3 split; 4 mirror, 5 screen space, 6 hybrid, 7 compare reflections; B bubbles; [/] pollution; Space pause; S PNG; E export rule; Esc close. %s\n",
+        std::printf("Controls: left-drag color sliders; H panel; L load saved colors; 1 clean baseline, 2 material, 3 split; 4 legacy (captured planar in banks), 5 SSR, 6 hybrid (legacy + SSR), 7 compare reflections; B bubbles; [/] pollution; Space pause; S PNG; E export rule; Esc close. %s\n",
             scene.loaded()?"FIXED CAMERA (banked frame).":"P props; arrows/right drag pan; middle drag turns; Alt+middle drag tilts (down tips down); middle click resets heading/pitch/zoom; wheel/+/- zoom; Ctrl+wheel 5x zoom; Alt+wheel tilts (forward flatter); Home/R resets camera and target.");
         uint64_t previous = SDL_GetTicksNS();
         unsigned frame = 0;
@@ -401,8 +406,13 @@ private:
     IDirect3DIndexBuffer9 *indices = nullptr;
     std::vector<IDirect3DTexture9 *> textures;
     IDirect3DTexture9 *bed = nullptr, *height = nullptr, *optical = nullptr, *material = nullptr;
-    IDirect3DTexture9 *mirrorTexture = nullptr;
-    IDirect3DSurface9 *mirrorSurface = nullptr, *mirrorDepth = nullptr;
+    struct MirrorTarget {
+        unsigned size;
+        IDirect3DTexture9 *texture = nullptr;
+        IDirect3DSurface9 *surface = nullptr, *depth = nullptr;
+    };
+    MirrorTarget legacyMirror{WaterScreenReflection::LegacyMirrorSize},
+        hybridMirror{WaterScreenReflection::HybridMirrorSize};
     std::vector<PropVertex> props, mirrorProps;
     std::vector<WaterVertex> waterGrid;
     D3DMATRIX waterWorld = identity();
@@ -610,7 +620,6 @@ private:
         else {
             createMesh();
             createTextures();
-            createMirror();
             props=buildProps(-1.0e9f);
             mirrorProps=buildProps(WaterLevel);
         }
@@ -694,15 +703,17 @@ private:
         optical=texture(1,{0xff430000u}); // enclosed-water exposure: 0.263, no coastline
     }
 
-    // The game's map-water mirror: a 512 square target, cleared to transparent black so the
-    // shader's coverage test falls back to its sky wherever nothing stands.
-    void createMirror()
+    // Allocate only modes that are actually shown. Compare keeps separate targets so its
+    // Legacy column remains the original 512-square baseline while Hybrid gets more detail.
+    void createMirror(MirrorTarget &target, const char *name)
     {
-        require(device->CreateTexture(MirrorSize,MirrorSize,1,D3DUSAGE_RENDERTARGET,D3DFMT_A8R8G8B8,
-            D3DPOOL_DEFAULT,&mirrorTexture,nullptr),"create mirror target");
-        require(mirrorTexture->GetSurfaceLevel(0,&mirrorSurface),"mirror target surface");
-        require(device->CreateDepthStencilSurface(MirrorSize,MirrorSize,D3DFMT_D24S8,D3DMULTISAMPLE_NONE,0,1,
-            &mirrorDepth,nullptr),"create mirror depth");
+        if (target.texture) return;
+        require(device->CreateTexture(target.size,target.size,1,D3DUSAGE_RENDERTARGET,D3DFMT_A8R8G8B8,
+            D3DPOOL_DEFAULT,&target.texture,nullptr),"create mirror target");
+        require(target.texture->GetSurfaceLevel(0,&target.surface),"mirror target surface");
+        require(device->CreateDepthStencilSurface(target.size,target.size,D3DFMT_D24S8,D3DMULTISAMPLE_NONE,0,1,
+            &target.depth,nullptr),"create mirror depth");
+        std::printf("Synthetic planar target: %s %ux%u.\n",name,target.size,target.size);
     }
 
     bool comparing() const { return options.reflection==WaterPreviewReflection::Compare; }
@@ -736,27 +747,32 @@ private:
     // The scene seen from the camera reflected in the water plane, as WaterRenderObjClass::renderMirror
     // draws it: a point on the plane lands where the main camera sees it, so the shader can look the
     // mirror up at its own screen position.
-    void drawMirror()
+    void drawMirror(MirrorTarget &target, const char *name, unsigned viewWidth)
     {
+        createMirror(target,name);
         IDirect3DSurface9 *colour=nullptr,*depth=nullptr;
         require(device->GetRenderTarget(0,&colour),"get render target");
         require(device->GetDepthStencilSurface(&depth),"get depth target");
-        D3DMATRIX view;
+        D3DMATRIX view,project;
         device->GetTransform(D3DTS_VIEW,&view);
+        device->GetTransform(D3DTS_PROJECTION,&project);
+        const D3DMATRIX reflectedProject=projection(float(viewWidth)/options.height);
         D3DMATRIX reflect=identity();
         reflect._33=-1; reflect._43=2*WaterLevel;
         const D3DMATRIX mirrored=multiply(reflect,view);
-        require(device->SetRenderTarget(0,mirrorSurface),"set mirror target");
-        require(device->SetDepthStencilSurface(mirrorDepth),"set mirror depth");
-        const D3DVIEWPORT9 viewport={0,0,MirrorSize,MirrorSize,0,1};
+        require(device->SetRenderTarget(0,target.surface),"set mirror target");
+        require(device->SetDepthStencilSurface(target.depth),"set mirror depth");
+        const D3DVIEWPORT9 viewport={0,0,target.size,target.size,0,1};
         require(device->SetViewport(&viewport),"set mirror viewport");
         require(device->Clear(0,nullptr,D3DCLEAR_TARGET|D3DCLEAR_ZBUFFER,0x00000000u,1,0),"clear mirror");
         device->SetTransform(D3DTS_VIEW,&mirrored);
+        device->SetTransform(D3DTS_PROJECTION,&reflectedProject);
         device->SetRenderState(D3DRS_ZENABLE,D3DZB_TRUE);
         device->SetRenderState(D3DRS_ZWRITEENABLE,1);
         device->SetRenderState(D3DRS_ALPHABLENDENABLE,0);
         drawProps(mirrorProps);
         device->SetTransform(D3DTS_VIEW,&view);
+        device->SetTransform(D3DTS_PROJECTION,&project);
         require(device->SetRenderTarget(0,colour),"restore render target");
         require(device->SetDepthStencilSurface(depth),"restore depth target");
         colour->Release();
@@ -796,14 +812,19 @@ private:
             require(device->BeginScene(),"begin bank scene");
             scene.draw(options.width,options.height,options.reflection,time,colourPanel.edited,colourPanel.values,options.bubbles,options.mode);
             colourPanel.draw(device,options.width,options.height);
-            if (options.controls) reflectionBar.draw(device,options.width,options.height,comparing()?3:1);
+            if (options.controls) reflectionBar.draw(device,options.width,options.height,comparing()?3:1,true);
             require(device->EndScene(),"end bank scene");
             checkDraws();
             return;
         }
         camera();
         require(device->BeginScene(),"begin scene");
-        if (showsMirror()) drawMirror();
+        if (showsMirror()) {
+            if (comparing() || options.reflection==WaterPreviewReflection::Mirror)
+                drawMirror(legacyMirror,"legacy",comparing()?columnWidth(0):options.width);
+            if (comparing() || options.reflection==WaterPreviewReflection::Hybrid)
+                drawMirror(hybridMirror,"hybrid",comparing()?columnWidth(2):options.width);
+        }
         require(device->Clear(0,nullptr,D3DCLEAR_TARGET|D3DCLEAR_ZBUFFER,0xff1b2830u,1,0),"clear frame");
         // Every view's opaque scene precedes any water, so the device's one scene snapshot of
         // the frame holds all of it for the refraction and the trace.
@@ -901,7 +922,7 @@ private:
         device->SetIndices(indices);
         const int reflection=options.reflection;
         if (comparing()) {
-            // Mirror | screen space | hybrid: the same view three times over.
+            // Legacy (512) | screen space | hybrid (1024): the same view three times over.
             for (unsigned i=0; i<3; ++i)
                 drawWater(options.mode!=1,columnLeft(i),columnWidth(i),int(i),true);
             const D3DVIEWPORT9 viewport={0,0,options.width,options.height,0,1};
@@ -930,7 +951,13 @@ private:
         const float area[4]={areaLeft,-1,own?1.f:areaLeft+2.f*float(options.width)/float(width),1};
         require(device->SetPixelShaderConstantF(1,water,1),"set water parameters");
         require(device->SetPixelShaderConstantF(2,area,1),"set reflection area");
-        device->SetTexture(1,mirror?mirrorTexture:nullptr);
+        device->SetTexture(1,mirror
+            ? (reflection==WaterPreviewReflection::Hybrid?hybridMirror.texture:legacyMirror.texture)
+            : nullptr);
+        // Synthetic Legacy has always used linear filtering. Set both modes explicitly so
+        // a preceding diagnostic/UI pass cannot leave Hybrid sampling whole mirror texels.
+        device->SetSamplerState(1,D3DSAMP_MINFILTER,D3DTEXF_LINEAR);
+        device->SetSamplerState(1,D3DSAMP_MAGFILTER,D3DTEXF_LINEAR);
         const D3DVIEWPORT9 viewport={left,0,width,options.height,0,1};
         require(device->SetViewport(&viewport),"set water viewport");
         D3DMATRIX project=projection(float(own?width:options.width)/options.height);
@@ -972,9 +999,10 @@ private:
         if (!window) return;
         char title[320];
         const char *mode=options.mode==1?"Clean baseline":options.mode==2?"Resolved material":"Baseline LEFT | Material RIGHT";
-        const char *reflection=options.reflection==WaterPreviewReflection::Mirror?"mirror"
-            :options.reflection==WaterPreviewReflection::ScreenSpace?"screen space"
-            :options.reflection==WaterPreviewReflection::Hybrid?"hybrid":"mirror | screen space | hybrid";
+        const char *reflection=options.reflection==WaterPreviewReflection::Mirror?(scene.loaded()?"captured planar":"legacy")
+            :options.reflection==WaterPreviewReflection::ScreenSpace?"SSR"
+            :options.reflection==WaterPreviewReflection::Hybrid?"hybrid (legacy + SSR)"
+            :scene.loaded()?"captured planar | SSR | hybrid":"legacy | SSR | hybrid";
         std::snprintf(title,sizeof(title),"Water Preview: %s | reflection %s | brightness %.0f%% | pollution %.0f%% | bubbles %s | H panel, E export%s",
             mode,reflection,colourPanel.values.brightness*100,colourPanel.values.strength*100,options.bubbles?"ON":"OFF",paused?" | PAUSED":"");
         if (scene.loaded()) {

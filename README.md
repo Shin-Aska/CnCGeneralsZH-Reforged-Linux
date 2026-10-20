@@ -1,76 +1,72 @@
 # Zero Hour Reforged Linux
 
-Command & Conquer: Generals Zero Hour running natively on **64-bit Linux**, with **SDL3 and Vulkan**,
-volumetric hazard clouds, Modern water and mapped sun shadows. No Wine or Proton is needed.
+Command & Conquer: Generals Zero Hour for **64-bit Linux**, using **SDL3 and Vulkan**.
+No Wine or Proton required.
 
-This is the Linux-focused fork of [Zero Hour Reforged](https://github.com/olcayseygan/CnCGeneralsZH-Reforged),
-rebuilt from EA's released source. The `main` branch focuses on Linux development, graphics and
-validation, while retaining upstream's gameplay, AI and interface improvements.
+Based on [Zero Hour Reforged](https://github.com/olcayseygan/CnCGeneralsZH-Reforged) and EA's released
+source, with Linux graphics improvements and upstream's gameplay, AI and interface changes.
 
 [![last commit](https://img.shields.io/github/last-commit/Shin-Aska/CnCGeneralsZH-Reforged-Linux/main?style=for-the-badge)](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/commits/main)
 [![license](https://img.shields.io/badge/license-GPL--3.0%20%2B%20EA%20terms-0d1117?style=for-the-badge)](LICENSE.md)
 
 [Graphics highlights](#graphics-highlights) · [Build](#build) · [Play](#play) · [Tests](#tests) ·
-[Linux validation](docs/linux.md) ·
+[Linux guide](docs/linux.md) ·
 [Changes](CHANGELOG.md) · [Contributing](CONTRIBUTING.md)
 
-**Bring your own game files:** you need an installed copy of **Generals and Zero Hour**.
+**You need your own installed copies of Generals and Zero Hour.**
 Game data and optional upscaled art are not included.
-
-**Play after building:** open a terminal in the repository folder and run
-`./build-linux/ZeroHourReforged/bin/generals`. Then choose **Solo Play → Skirmish** to start a game
-against the AI. [The steps below](#play) cover choosing your game files and starting a match.
 
 ## Graphics highlights
 
-Fresh Linux settings use **Volumetric clouds**, **Modern water** and **mapped sun shadows** by
-default. Existing player settings are respected. Choose **Classic / Volumetric** under
-**Options → Graphics → Cloud style**, or **Classic / Modern** under **Water style**.
+New profiles use **Volumetric clouds**, **Modern water** and **mapped sun shadows**.
+Existing settings are kept. Change **Cloud style** and **Water style** under **Options → Graphics**.
 
 ### Volumetric Clouds
 
-Terrain-following toxin and nuclear clouds add rolling billows to live hazard fields. Nuclear
-haze includes heat distortion and rising embers. These effects follow the hazard's radius and
-lifetime without changing damage or gameplay timing.
+Toxin and nuclear clouds follow the terrain and the hazard's size and lifetime. Nuclear effects
+include heat distortion and embers. Damage and gameplay timing stay the same.
 
-![Volumetric Clouds: a toxin cloud across a base on the left, with nuclear haze, an explosion and embers on the right](.github/media/linux-volumetric-clouds.png)
+![Toxin clouds over a base and nuclear haze with embers](.github/media/linux-volumetric-clouds.png)
 
-*Toxin and nuclear effects, side by side.* See [hazard clouds on Linux](docs/linux.md#hazard-clouds)
-for settings and validation, or the [cloud preview](docs/cloud-preview.md) for the development viewer.
+[Settings and checks](docs/linux.md#hazard-clouds) · [Cloud preview](docs/cloud-preview.md)
 
 ### Modern Water
 
-FFT-driven waves, reflections and bright ocean highlights give water a moving surface, with foam
-around vessels and along the shoreline. Rivers and coastal water share the Modern rendering path,
-including mapped sun and smoke shadows.
+Modern water adds waves, reflections and foam around boats and shorelines.
+It also receives sun and smoke shadows.
 
-![Modern Water: ocean highlights and foam around vessels on the left, with a river, bridge and shoreline foam on the right](.github/media/linux-modern-water.png)
+![Ocean waves and foam around boats, beside a river and bridge](.github/media/linux-modern-water.png)
 
-*Ocean surface and vessel foam alongside a river and shoreline scene.* Read about
-[shoreline waves](docs/linux.md#boundary-aware-water) and the [water material preview](docs/water-preview.md).
+[Shoreline waves](docs/linux.md#boundary-aware-water) · [Water preview](docs/water-preview.md)
 
-### Linux Shadow Parity
+### Water Reflections
 
-Native Linux now uses the shared mapped sun-shadow path for buildings, units and trees. Shadows
-fall across structures, terrain and Modern water, with soft filtering and support for animated
-geometry. Normal launches enable this path without an environment override.
+Choose **Legacy**, **SSR** or **Hybrid** under **Options → Effects → Reflections**.
+These modes apply to Modern water. Hybrid is the default and combines planar reflections with
+screen-space reflections. SSR alone can miss objects hidden from the camera or outside the screen.
+Click **Accept** to apply and save the choice.
 
-![Linux Shadow Parity: a base overview with building shadows on the left and an enlarged crop of power plants and their shadows on the right](.github/media/linux-shadow-parity.png)
+![Stone ruins reflected in shallow water near the shore](.github/media/linux-water-reflections.png)
 
-*A Linux base overview alongside a closer view of building shadows.* The
-[Linux shadow rollout](docs/sdl-sun-shadows.md#default-rendering-rollout-linux-2026-10-16)
-records supported effects, fallback behavior and validation.
+[Reflection modes and demo controls](docs/water-preview.md#reflections)
+
+### Sun Shadows
+
+Buildings, units and trees cast shadows across terrain, structures and Modern water.
+
+![Building shadows in a Linux match, with a closer view of power plants](.github/media/linux-shadow-parity.png)
+
+[Supported effects and checks](docs/sdl-sun-shadows.md#default-rendering-rollout-linux-2026-10-16)
 
 ## Build
 
-The tested Linux setup uses **Ubuntu 26.04.1 LTS, GCC 16 and an NVIDIA GeForce RTX 4060**.
-The [Linux guide](docs/linux.md) records exact versions, graphics checks and limitations.
-Windows and macOS sources and historical porting notes are inherited from upstream;
-this fork's development and verification focus on Linux.
+Tested on **Ubuntu 26.04.1 LTS** with **GCC 16** and an **NVIDIA GeForce RTX 4060**.
+See the [Linux guide](docs/linux.md) for driver versions and test results.
+Windows and macOS code is inherited from upstream; this fork focuses on Linux.
 
 ### Ubuntu prerequisites
 
-The Ubuntu 26.04 build uses these packages. Install missing prerequisites before building:
+Install any missing build dependencies:
 
 ```sh
 sudo apt-get install g++ gcc-16 g++-16 cmake ninja-build git curl unzip xz-utils make pkg-config python3 \
@@ -78,15 +74,13 @@ sudo apt-get install g++ gcc-16 g++-16 cmake ninja-build git curl unzip xz-utils
   libwayland-dev libxkbcommon-dev wayland-protocols libegl-dev libdrm-dev libgbm-dev libvulkan-dev
 ```
 
-For validation, install `unifdef` for `widechar_check` and `spirv-tools` for the shader validator:
+The test suite also uses `unifdef` and `spirv-tools`:
 
 ```sh
 sudo apt-get install unifdef spirv-tools
 ```
 
-The machine also needs a working Vulkan graphics driver. The tested NVIDIA driver is **595.91.07**.
-The build script checks tools and development headers and prints a package command when something
-is missing. It does not install system packages.
+A working Vulkan driver is required. The build script reports missing packages but does not install them.
 
 ### Clone and compile
 
@@ -96,14 +90,12 @@ cd CnCGeneralsZH-Reforged-Linux
 CC=gcc-16 CXX=g++-16 ./build-linux.sh Release
 ```
 
-The script fetches pinned third-party sources, configures with Ninja, builds and stages the game at
-`build-linux/ZeroHourReforged/bin/generals`. The tested GCC 16 package is an experimental snapshot,
-`16.0.1 20260322`; GCC 16 is the compiler used for this validation, not an enforced version requirement.
-Without `CC` and `CXX`, a fresh CMake configuration selects the system's default compiler.
+The script downloads pinned dependencies and builds the game at
+`build-linux/ZeroHourReforged/bin/generals`.
 
-CMake retains its compiler choice in an existing build tree. Changing `CC` and `CXX` alone does
-not switch an already configured tree. Use a new build directory through the git-ignored
-`build.local.sh` when changing compilers; it can also override CMake and the generator.
+GCC 16 is the tested compiler, not a requirement. Omit `CC` and `CXX` to use your default compiler
+for a fresh build. To change compilers later, use a new build directory through `build.local.sh`;
+CMake keeps the compiler chosen when the build directory was created.
 
 Other build commands:
 
@@ -113,105 +105,71 @@ Other build commands:
 ./build-linux.sh Release test       # build, test, then stage if the tests pass
 ```
 
-The staged overlay is a link into the build tree, so this folder is for local use. The inherited
-packaging scripts are described in [PORTING.md](PORTING.md#linux-packages); release packages and
-other distributions have not been validated in this fork's Ubuntu/NVIDIA check.
+The output folder links to files in the build tree, so it is not a standalone package.
+See [packaging](PORTING.md#linux-packages) for the inherited release scripts.
 
 ## Play
 
 ### Launch the game
 
-1. Install your own copy of **Generals and Zero Hour**, for example through Steam.
-2. Open a terminal in this repository's root folder, the folder containing `build-linux.sh`.
-3. Build Release if you have not built it yet, then start the staged executable:
+After building, run this from the repository folder:
 
 ```sh
-CC=gcc-16 CXX=g++-16 ./build-linux.sh Release
 ./build-linux/ZeroHourReforged/bin/generals
 ```
 
-On later launches, run only the second command. It opens the game window and main menu for
-keyboard and mouse play.
-
-On the first launch, the game searches known install locations, including Steam libraries. If
-the folder chooser appears, select the **Zero Hour install folder containing `INIZH.big`**.
-For a Steam install, this is normally `steamapps/common/Command & Conquer Generals - Zero Hour/`.
-Keep the original Generals files available in `ZH_Generals/` inside that folder or beside it.
-If the game asks separately for Generals, select its install folder too. Your selections are saved
-for later launches.
+The game looks for installed game files, including Steam libraries. If prompted, select the
+**Zero Hour folder containing `INIZH.big`**, then the original Generals folder if requested.
+Generals files can also be in `ZH_Generals/` inside or beside the Zero Hour folder.
+The game remembers these locations.
 
 ### Start a skirmish
 
-1. In the main menu, click **Solo Play**, then **Skirmish**.
-2. Choose a map and your faction/general. Add at least one computer opponent and choose its difficulty.
-3. Click **Start** to load the match.
-4. Left-click to select units and buildings; right-click to issue movement and attack orders.
-
-For a campaign, choose a faction's campaign under **Solo Play**. Use **Options** from the main menu
-to adjust display, sound and controls before starting.
+Choose **Solo Play → Skirmish**, pick a map and general, add an AI opponent, then click **Start**.
+Campaigns are also under **Solo Play**. Display, sound and controls are in **Options**.
 
 ### Launch a prepared development install
 
-If you already have a file-link farm at `build-linux/play-root`, as used in this fork's local
-validation, you can select it explicitly:
+If you have prepared a game-data folder at `build-linux/play-root`, select it with:
 
 ```sh
 ./build-linux/ZeroHourReforged/bin/generals -root "$PWD/build-linux/play-root"
 ```
 
-Some local development checkouts also have `./build-linux/play.sh` wrapping that command. That helper
-is generated locally under the ignored build directory and is not included in a fresh clone.
-The executable command above works without it. [The validation guide](docs/linux.md#checks-with-game-data)
-explains how the harness prepares a file-link farm.
+Fresh clones do not include this folder or the optional local `build-linux/play.sh` helper.
+The [Linux guide](docs/linux.md#checks-with-game-data) explains how to prepare it.
 
 ### Run from VS Code
 
-Open the repository folder in VS Code. In the **Run and Debug** dropdown, select a normal launch
-profile and press **F5** or click the green play button:
+Follow the [VS Code setup](docs/linux.md#vs-code-launch-setup) first. These profiles build Release
+with GCC 16, use `build-linux/play-root` and save settings under `build-linux/vscode-user`.
+Select a profile in **Run and Debug** and press **F5**:
 
-- **Zero Hour: Play (no debugger)** opens the main menu. Start a game through **Solo Play → Skirmish**.
-- **Zero Hour: AI skirmish (no debugger)** starts a seeded two-player AI match with an observer camera
-  and exits after 12,000 logic frames.
+| Profile | Action |
+|:--|:--|
+| **Zero Hour: Play (no debugger)** | Open the main menu |
+| **Zero Hour: AI skirmish (no debugger)** | Watch an AI match for 12,000 frames |
+| **Zero Hour: Play (Linux)** | Open the main menu under GDB |
+| **Zero Hour: AI skirmish (Linux)** | Watch the AI match under GDB |
 
-These profiles use VS Code's built-in terminal launcher to run the executable directly without GDB.
-The same names are also available under **Terminal → Run Task**. With the Microsoft C/C++ extension
-and GDB available, the dropdown also provides these debugger profiles:
+The GDB profiles require GDB and the Microsoft C/C++ extension.
 
-- **Zero Hour: Play (Linux)** opens the main menu. Select it and press **F5**, then start a game
-  through **Solo Play → Skirmish**.
-- **Zero Hour: AI skirmish (Linux)** starts a seeded two-player AI match with an observer camera
-  and exits after 12,000 logic frames.
-
-All four entries build and stage Release with GCC 16 before launching, use the file-link farm at
-`build-linux/play-root`, and put game settings, saves and replays in `build-linux/vscode-user`.
-That root is already prepared in the development checkout used for this validation. For a fresh
-clone, follow [the setup in the Linux guide](docs/linux.md#vs-code-launch-setup) first.
-
-To update an existing local install at `~/Games/ZeroHourReforged`, run **Terminal → Run Task →
-Linux: Publish thin executable**. It builds only the Release `generals` target, strips a copy, and
-publishes it together with the matching small runtime overlay at
-`~/Games/ZeroHourReforged/share/zero-hour-reforged/overlay`. This keeps the executable and Reforged's
-INIs, scripts and menus in sync after an update. The build executable keeps its debug information.
-Existing upscaled art and unrelated overlay files are preserved; the original game archives and
-player saves are not changed. Publishing stages the new files first and reports a recovery folder
-containing the previous executable and replaced overlay files.
-
-For the same publish-only action in **Run and Debug**, select **Zero Hour: Publish thin executable
-(only)** and press **F5**. To publish and launch in one step, select **Zero Hour: Publish and Play
-(thin executable)**. The play profile lets the game find your existing game install and uses the
-normal player save folder. On Linux the executable is named `generals`, with no `.exe` extension.
+To update `~/Games/ZeroHourReforged`, run **Terminal → Run Task → Linux: Publish thin executable**.
+It builds and copies a stripped executable with the matching runtime files, and reports a backup
+folder for replaced files. It preserves existing upscaled art, unrelated files and saves.
+**Zero Hour: Publish and Play (thin executable)** in **Run and Debug** also launches that copy
+using the normal player save folder.
 
 ### Saves and game files
 
-The engine reads the installed archives and searches the fork's staged overlay first. It refuses
-writes to the install root. Settings, saves and replays go to
+The game reads the original archives without writing to the install folder.
+Settings, saves and replays go to
 `$XDG_DATA_HOME/Command and Conquer Generals Zero Hour Data`, or
 `~/.local/share/Command and Conquer Generals Zero Hour Data` when `XDG_DATA_HOME` is unset.
 `ZH_USER_DATA_DIR` overrides that location.
 
-For automated development checks, use a file-link farm and separate test user data as described in
-[the Linux validation guide](docs/linux.md#checks-with-game-data). Those checks verify the original
-install's contents before and after running.
+For automated checks, use separate test data as described in the
+[Linux guide](docs/linux.md#checks-with-game-data).
 
 Upscaled art is optional. Put existing `Reforged*.big` archives in `ReforgedArt/` inside the user
 data folder to use it; without them the game uses the original textures.
@@ -224,30 +182,20 @@ Build and stage first, then run the tests separately:
 ctest --test-dir build-linux --output-on-failure
 ```
 
-The focused checks for the build fixes are:
+Asset-dependent tests skip unless `ZH_GAME_DATA` is configured. See the
+[Linux guide](docs/linux.md#checks-with-game-data) for game-data setup and GPU, replay and screenshot checks.
 
-```sh
-ctest --test-dir build-linux -R '^(test_fontchars|test_gameengine|widechar_check)$' --output-on-failure
-```
+**Known NVIDIA test failure:** `ffref_capture_selfcheck` has a two-pixel reference mismatch on the
+tested RTX 4060 setup. It passes on the tested Intel UHD 770. This failure stops
+`./build-linux.sh Release test` before staging. [Details](docs/linux.md#remaining-nvidia-comparison-failure).
 
-Tests that require game assets skip unless `ZH_GAME_DATA` is configured. GPU and packaging checks
-also have their own environment requirements. [docs/linux.md](docs/linux.md) explains how to supply
-game data and repeat the skirmish, replay and screenshot checks.
-
-**Known NVIDIA check failure:** `ffref_capture_selfcheck` reports two pixels outside its reference
-tolerance in one captured draw on the RTX 4060 with driver 595.91.07. The same check passes on this
-machine's Intel UHD 770. The main menu and a rendered skirmish were checked on NVIDIA, and a longer
-headless match replayed consistently. The full NVIDIA test run is therefore not entirely passing;
-`./build-linux.sh Release test` currently stops before staging when it reaches that failure.
-
-Replay checks establish repeatability on the tested machine and build. Cross-platform multiplayer,
-other GPUs, other distributions and Linux release packages were not checked in this session.
+The recorded checks cover the listed Linux setups. They do not establish cross-platform
+multiplayer compatibility or support for untested distributions, GPUs and release packages.
 
 ## Contributing and credits
 
-Linux fixes and reproducible reports are welcome. Include your distribution, compiler, GPU,
-driver version and the relevant build or test output. Follow [CONTRIBUTING.md](CONTRIBUTING.md)
-for commit messages and validation.
+For bug reports, include your distribution, compiler, GPU, driver and relevant logs.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
 
 Electronic Arts released the Generals and Zero Hour source in 2025. This fork builds on
 [olcayseygan/CnCGeneralsZH-Reforged](https://github.com/olcayseygan/CnCGeneralsZH-Reforged), including

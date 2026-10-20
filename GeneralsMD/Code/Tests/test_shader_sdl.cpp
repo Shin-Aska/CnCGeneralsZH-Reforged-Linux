@@ -385,7 +385,8 @@ const WaterUniformMember WaterUniformMembers[] = {
     WATER_UNIFORM_MEMBER(ShadowSoftness),
     WATER_UNIFORM_MEMBER(VolumeParameters),
     WATER_UNIFORM_MEMBER(MaterialColor),
-    WATER_UNIFORM_MEMBER(MaterialParameters)
+    WATER_UNIFORM_MEMBER(MaterialParameters),
+    WATER_UNIFORM_MEMBER(ClipFromWorld)
 };
 #undef WATER_COMBINER_MEMBER
 #undef WATER_UNIFORM_MEMBER
@@ -455,8 +456,9 @@ void checkCompiledWaterUniformLayout(const std::string &source, bool vertex,
         CHECK(spvc_compiler_get_declared_struct_member_size(compiler, type, i, &size) == SPVC_SUCCESS);
         CHECK_EQ(size_t(offset), expected.offset);
         CHECK_EQ(size, expected.size);
-        if (strcmp(name, "WorldFromClip") == 0 || strcmp(name, "ShadowFromClip") == 0) {
-            // Both matrices are copied directly from row-major CPU arrays. glslang represents
+        if (strcmp(name, "WorldFromClip") == 0 || strcmp(name, "ShadowFromClip") == 0
+            || strcmp(name, "ClipFromWorld") == 0) {
+            // These matrices are copied directly from row-major CPU arrays. glslang represents
             // HLSL matrices transposed, so HLSL row_major becomes SPIR-V ColMajor. Offsets and
             // sizes alone also pass for the opposite packing, which transposes translations.
             CHECK(spvc_compiler_has_member_decoration(compiler, block->base_type_id, i,
@@ -1417,7 +1419,7 @@ TEST(screen_reflection_resolves_environment_over_live_setting)
     CHECK(!Parse("",parsed));CHECK(!Parse("unknown",parsed));CHECK(parsed==Mirror);
     struct EnvironmentMode { const char *value;Mode mode; };
     const EnvironmentMode recognised[]={
-        {"mirror",Mirror},{"0",Mirror},{"ssr",ScreenSpace},{"1",ScreenSpace},
+        {"legacy",Mirror},{"mirror",Mirror},{"0",Mirror},{"ssr",ScreenSpace},{"1",ScreenSpace},
         {"replace",ScreenSpace},{"hybrid",Hybrid},{"nomirror",SkyOnly}
     };
     for(const auto &environment:recognised) {
@@ -1467,12 +1469,12 @@ TEST(screen_reflection_is_a_runtime_choice_and_compiles)
         // The material register's reserved lane gates the trace per draw; a mode is not a program.
         CHECK(normal.find("waterScreenReflection(world, view, environmentNormal")!=std::string::npos);
         CHECK(normal.find("MaterialParameters.w>0.5")!=std::string::npos);
-        for(const char *mode:{"mirror","ssr","hybrid","nomirror"}) {
+        for(const char *mode:{"legacy","mirror","ssr","hybrid","nomirror"}) {
             CHECK(setenv("ZH_WATER_SSR",mode,1)==0);
             CHECK(EngineShader_Pixel_Program(program,description,other,COMBINER_SHADER_TARGET_SDL3_GPU));
             CHECK(other==normal);
         }
-        for(const char *view:{"","ssr","ssr-hit"}) {
+        for(const char *view:{"","ssr","ssr-hit","ssr-mix"}) {
             if(*view) CHECK(setenv("ZH_WATER_DEBUG",view,1)==0); else CHECK(unsetenv("ZH_WATER_DEBUG")==0);
             std::string traced;
             CHECK(EngineShader_Pixel_Program(program,description,traced,COMBINER_SHADER_TARGET_SDL3_GPU));

@@ -107,10 +107,12 @@ struct SdlWaterPixelConstants
 #define MODERN_WATER_CPP_UNIFORM(name) float name[4];
 	MODERN_WATER_MATERIAL_UNIFORMS(MODERN_WATER_CPP_UNIFORM)
 #undef MODERN_WATER_CPP_UNIFORM
+	float ClipFromWorld[16]; // inverse of the exact depth-range-adjusted WorldFromClip, for SSR
 };
 static_assert(sizeof(SdlWaterPixelConstants) == WaterHullVisualLayout::VertexCommonRegisters * 16, "water uniform packing");
 static_assert(offsetof(SdlWaterPixelConstants,MaterialColor)==194*16
 	&& offsetof(SdlWaterPixelConstants,MaterialParameters)==195*16,"water material tail packing");
+static_assert(offsetof(SdlWaterPixelConstants,ClipFromWorld)==196*16,"water projection tail packing");
 
 // Fragment-only extension after the shared water vertex/pixel prefix.
 struct SdlWaterVisualPixelConstants

@@ -210,7 +210,7 @@ public:
 	Bool m_smokeFireLighting;		// "SmokeFireLighting": smoke takes light from the fire beside it
 	Int m_waterStyle;					// "WaterStyle": 0 = Classic, 1 = Modern (SDL); applied between render frames
 #if defined(__linux__)
-	Int m_waterReflection;			// session only: 0 = Mirror, 1 = Screen space, 2 = Hybrid; Modern water
+	Int m_waterReflection;			// "WaterReflection": 0 = Legacy, 1 = SSR, 2 = Hybrid (legacy + SSR); Modern water
 #endif
 	Int m_cloudStyle;					// "CloudStyle": 0 = Classic, 1 = Volumetric toxin/radiation clouds (SDL); visual only
 	Bool m_explosionDebrisTrails;	// "DebrisTrails": blasts throw smoke-trailing fragments and burning shrapnel

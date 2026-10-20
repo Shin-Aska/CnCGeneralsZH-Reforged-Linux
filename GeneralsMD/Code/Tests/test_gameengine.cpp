@@ -14212,10 +14212,6 @@ TEST(water_style_defaults_to_modern_and_preserves_an_explicit_classic_choice)
     GlobalData *saved=TheWritableGlobalData;
     GlobalData *scratch=NEW GlobalData;
     TheWritableGlobalData=scratch;
-#if defined(__linux__)
-    CHECK_EQ(scratch->m_waterReflection,2);
-    CHECK(findOptionDef("WaterReflection")==NULL); // session only until the options menu exposes it
-#endif
     const OptionDef *water=findOptionDef("WaterStyle");
     CHECK(water!=NULL);
     if (water) {
@@ -14236,6 +14232,58 @@ TEST(water_style_defaults_to_modern_and_preserves_an_explicit_classic_choice)
     delete scratch;
     TheWritableGlobalData=saved;
 }
+
+#if defined(__linux__)
+TEST(water_reflections_default_to_hybrid_and_persist_each_mode)
+{
+    const OptionDef *reflection = findOptionDef("WaterReflection");
+    CHECK(reflection != NULL);
+    if (!reflection)
+        return;
+    CHECK_EQ(reflection->kind, OPTION_ENUM);
+    CHECK_EQ(reflection->apply, APPLY_LIVE);
+    CHECK_EQ(reflection->lo, 0);
+    CHECK_EQ(reflection->hi, 2);
+    CHECK_STR(reflection->widgetName, "OptionsMenu.wnd:ComboBoxWaterReflection");
+    CHECK_STR(reflection->labelKey, "GUI:WaterReflection");
+
+    GlobalData *saved = TheWritableGlobalData;
+    GlobalData *scratch = NEW GlobalData;
+    TheWritableGlobalData = scratch;
+
+    UserPreferences pref;
+    CHECK_EQ(scratch->m_waterReflection, 2);
+    // Existing preference files have no key; retain Hybrid until the player chooses a mode.
+    loadOptionsFromPreferences(pref);
+    CHECK_EQ(reflection->get(), 2);
+
+    // The choice remains available with Classic water, ready for a later switch to Modern.
+    scratch->m_waterStyle = 0;
+    static const char *const modes[] = { "0", "1", "2" };
+    for (Int mode = 0; mode < WATER_REFLECTION_COUNT; ++mode) {
+        pref["WaterReflection"] = modes[mode];
+        loadOptionsFromPreferences(pref);
+        CHECK_EQ(reflection->get(), mode);
+        saveOptionsToPreferences(pref);
+        CHECK_STR(pref["WaterReflection"].str(), modes[mode]);
+        reflection->set((mode + 1) % WATER_REFLECTION_COUNT);
+        loadOptionsFromPreferences(pref);
+        CHECK_EQ(scratch->m_waterReflection, mode);
+        CHECK_EQ(scratch->m_waterStyle, 0);
+    }
+
+    // Hand-edited out-of-range values must still resolve to a mode shown in the menu.
+    pref["WaterReflection"] = "-1";
+    loadOptionsFromPreferences(pref);
+    CHECK_EQ(reflection->get(), 0);
+    pref["WaterReflection"] = "99";
+    loadOptionsFromPreferences(pref);
+    CHECK_EQ(reflection->get(), 2);
+
+    delete scratch;
+    TheWritableGlobalData = saved;
+}
+#endif
 
 TEST(cloud_style_defaults_to_volumetric_and_preserves_an_explicit_classic_choice)
 {

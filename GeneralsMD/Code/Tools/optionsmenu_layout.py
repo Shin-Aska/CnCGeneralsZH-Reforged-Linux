@@ -169,6 +169,8 @@ NEW_CONTROLS = [
     (COMBO,  "ComboBoxWaterStyle",      None),
     (LABEL,  "LabelCloudStyle",        "GUI:CloudStyle"),
     (COMBO,  "ComboBoxCloudStyle",      None),
+    (LABEL,  "LabelWaterReflection",   "GUI:WaterReflection"),
+    (COMBO,  "ComboBoxWaterReflection", None),
     (LABEL,  "LabelMSAA",              "GUI:MSAA"),
     (COMBO,  "ComboBoxMSAA",           None),
     (LABEL,  "LabelBloom",             "GUI:Bloom"),
@@ -359,7 +361,9 @@ GROUP_LAYOUT = [
             setting("LabelSmoke", "ComboBoxSmoke"),
             ("check", "CheckParticleBounce"),
             ("check", "CheckSmokeFireLighting"),
-            ("check", "CheckDebrisTrails")])]),
+            ("check", "CheckDebrisTrails")]),
+        ("GUI:OptionsGroupReflections", [
+            setting("LabelWaterReflection", "ComboBoxWaterReflection")])]),
 
     ("PageAudio", [
         ("GUI:OptionsGroupVolume", [
@@ -930,6 +934,25 @@ def selfcheck():
             problems.append("CloudStyle must be directly below WaterStyle in the same column")
         if cloud_label.rect[1] != cloud.rect[1] - ROW_HEIGHT:
             problems.append("CloudStyle label must sit above its combo box")
+
+    # Reflection mode is its own Effects group, separate from the water style.
+    effects = layout.find("PageEffects")
+    reflection_label = layout.find("LabelWaterReflection")
+    reflection = layout.find("ComboBoxWaterReflection")
+    reflection_heading = layout.find("GroupHeadingEffects3")
+    if not effects or not reflection_label or not reflection or not reflection_heading:
+        problems.append("Effects must contain the Reflections group and WaterReflection setting")
+    else:
+        if any(control not in effects.children
+               for control in (reflection_label, reflection, reflection_heading)):
+            problems.append("WaterReflection and its Reflections heading must be on the Effects page")
+        if drawn_text(reflection_heading) != "GUI:OptionsGroupReflections":
+            problems.append("WaterReflection group must be titled Reflections")
+        if reflection_label.rect[1] != reflection.rect[1] - ROW_HEIGHT:
+            problems.append("WaterReflection label must sit above its combo box")
+        if (reflection_heading.rect[0] != reflection_label.rect[0]
+                or reflection_label.rect[1] != reflection_heading.rect[1] + HEADING_PITCH):
+            problems.append("WaterReflection must sit directly beneath the Reflections heading")
 
     for problem in problems:
         print("optionsmenu: %s" % problem)

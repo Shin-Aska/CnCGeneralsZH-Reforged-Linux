@@ -28,6 +28,18 @@ not tracked by Git, so a fresh clone uses the staged executable directly. The ga
 above open a window for interactive play; the automated checks later in this guide use isolated
 user data and run without a visible window.
 
+## Water reflections
+
+**Options → Effects → Reflections → Water reflection** selects **Legacy**, **SSR** or
+**Hybrid** for Modern water. **Accept** applies the choice during the current game and
+saves it for later sessions; no restart is needed. Choose Modern under
+**Graphics → Water style** to use these modes.
+
+Hybrid is the default and combines the improved 1024×1024 planar capture with
+screen-space reflections. Legacy preserves the original 512×512 planar rendering.
+SSR uses only the current screen, so hidden or off-screen objects can be missing.
+See the [reflection guide](water-preview.md#reflections) for details and preview controls.
+
 ## Hazard clouds
 
 **Options → Graphics → Cloud style**, directly below **Water style**, selects

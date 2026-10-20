@@ -125,7 +125,6 @@
 #define PATCH_UV_TILES	42	//number of times the bump map texture is tiled across patch (must be integer!).
 #define PATCH_SCALE (4.0f * MAP_XY_FACTOR)	//horizontal scale factor. Adjust this and size to get desired vertex density.
 #define SEA_REFLECTION_SIZE 256		//dimensions of reflection texture
-#define WATER_REFLECTION_SIZE 512	//dimensions of the reflection texture laid over map water
 #define WATER_REFLECTION_AREA_MARGIN 0.05f	//slack around the water's screen area, so filtering at its edge reads inside it
 #define WATER_REFLECTION_STRENGTH 0.55f	//how far a reflected object darkens the water under it
 #define WATER_REFLECTION_SKY_COLOR Vector3(1.0f,1.0f,1.0f)	//white, so where nothing stands the water keeps its own colour
@@ -471,7 +470,10 @@ Bool WaterRenderObjClass::modernHasHull(UnsignedInt objectID) const
 Bool WaterRenderObjClass::isModernFullMirror() const
 {
 #if defined(__linux__)
-	return m_renderingMirror && m_useModernWater && m_waterType==WATER_TYPE_0_TRANSLUCENT;
+	// The original reflection mode keeps the selective, object-only mirror. Only Hybrid
+	// broadens that pass to ordinary scene models and terrain for SSR's fallback.
+	return m_renderingMirror && m_useModernWater && m_waterType==WATER_TYPE_0_TRANSLUCENT
+		&& m_waterReflectionMode==WaterScreenReflection::Hybrid;
 #else
 	return FALSE;
 #endif
@@ -1266,6 +1268,37 @@ void WaterRenderObjClass::synchronizeWaterStyle(void)
 #endif
 }
 
+Int WaterRenderObjClass::mapReflectionTargetSize() const
+{
+#if defined(__linux__)
+	if (m_useModernWater && m_waterReflectionMode==WaterScreenReflection::Hybrid)
+		return WaterScreenReflection::HybridMirrorSize;
+#endif
+	return WaterScreenReflection::LegacyMirrorSize;
+}
+
+void WaterRenderObjClass::ensureMapReflectionTarget(void)
+{
+	if (m_waterType!=WATER_TYPE_0_TRANSLUCENT)
+		return;
+	const Int size=mapReflectionTargetSize();
+	if (m_reflectionTargetRequestSize==size)
+		return;
+	m_reflectionTargetRequestSize=size;
+
+	// Keep the old target alive until its replacement exists. A low-memory device keeps
+	// that usable reflection; initial Hybrid allocation can fall back to the original size.
+	TextureClass *replacement=DX8Wrapper::Create_Render_Target(size,size);
+	if (!replacement && !m_pReflectionTexture && size!=WaterScreenReflection::LegacyMirrorSize)
+		replacement=DX8Wrapper::Create_Render_Target(
+			WaterScreenReflection::LegacyMirrorSize,WaterScreenReflection::LegacyMirrorSize);
+	if (!replacement)
+		return;
+	REF_PTR_RELEASE(m_pReflectionTexture);
+	m_pReflectionTexture=replacement;
+	m_reflectionReused=TRUE; // a newly allocated target must be rendered even at a stationary camera
+}
+
 void WaterRenderObjClass::setupModernWaterShader(Bool river, Bool heightCorrection, Bool waveCage)
 {
 #if defined(__linux__)
@@ -1638,6 +1671,7 @@ WaterRenderObjClass::WaterRenderObjClass(void)
 	m_waterType = WATER_TYPE_0_TRANSLUCENT;
 	m_tod=TIME_OF_DAY_AFTERNOON;
 	m_pReflectionTexture=NULL;
+	m_reflectionTargetRequestSize=0;
 	m_reflectionLevel=0;
 	m_reflectionAreaMin.Set(-1.0f, -1.0f);
 	m_reflectionAreaMax.Set(1.0f, 1.0f);
@@ -2148,6 +2182,7 @@ void WaterRenderObjClass::ReleaseResources(void)
 	REF_PTR_RELEASE(m_indexBuffer);
 
 	REF_PTR_RELEASE(m_pReflectionTexture);
+	m_reflectionTargetRequestSize=0;
 	SAFE_RELEASE(m_vertexBufferD3D);
 	SAFE_RELEASE(m_indexBufferD3D);
 	releaseWaterTwins();
@@ -2255,7 +2290,7 @@ void WaterRenderObjClass::ReAcquireResources(void)
 	}
 
 	if (m_waterType == WATER_TYPE_0_TRANSLUCENT)
-		m_pReflectionTexture = DX8Wrapper::Create_Render_Target (WATER_REFLECTION_SIZE, WATER_REFLECTION_SIZE);
+		ensureMapReflectionTarget();
 
 	if (m_waterTrackSystem)
 		m_waterTrackSystem->ReAcquireResources();
@@ -2856,13 +2891,18 @@ void WaterRenderObjClass::updateRenderTargetTextures(CameraClass *cam)
 		renderMirror(cam, m_level);	//generate texture containing reflected scene
 	}
 
-	if (m_waterType != WATER_TYPE_0_TRANSLUCENT || !m_pReflectionTexture)
+	if (m_waterType != WATER_TYPE_0_TRANSLUCENT)
 		return;
 #if defined(__linux__)
 	// Screen-space and sky-only reflection draw no mirror; the shader then reads none.
 	if (m_useModernWater && !WaterScreenReflection::UsesMirror(mode))
 		return;
 #endif
+	// Mode/style changes resize only at a real mirror render boundary. SSR does not
+	// allocate an unused replacement, and Legacy/Classic restore their original density.
+	ensureMapReflectionTarget();
+	if (!m_pReflectionTexture)
+		return;
 
 	// A camera that has not moved looks at the same water from the same place, so a reflection one
 	// frame old lines up with it exactly and only what moved in it is a frame late.  Such a frame

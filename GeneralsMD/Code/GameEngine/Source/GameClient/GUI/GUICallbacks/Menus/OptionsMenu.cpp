@@ -1056,6 +1056,22 @@ static void fillCatalogWidgets( void )
 {
 	const Color entryColor = GameMakeColor( 255, 255, 255, 255 );
 
+#if !defined(__linux__)
+	// The reflection row is Linux-only and therefore absent from this platform's catalog.
+	const char *reflectionControls[] = {
+		"OptionsMenu.wnd:GroupHeadingEffects3",
+		"OptionsMenu.wnd:LabelWaterReflection",
+		"OptionsMenu.wnd:ComboBoxWaterReflection"
+	};
+	for( unsigned i = 0; i < sizeof(reflectionControls) / sizeof(reflectionControls[0]); ++i )
+	{
+		GameWindow *widget = TheWindowManager->winGetWindowFromId(
+			NULL, TheNameKeyGenerator->nameToKey(AsciiString(reflectionControls[i])) );
+		if( widget )
+			widget->winHide(TRUE);
+	}
+#endif
+
 	for( Int i = 0; i < TheOptionCatalogCount; ++i )
 	{
 		const OptionDef& def = TheOptionCatalog[ i ];

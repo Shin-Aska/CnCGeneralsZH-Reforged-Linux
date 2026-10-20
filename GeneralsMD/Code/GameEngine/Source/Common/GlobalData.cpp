@@ -697,7 +697,7 @@ GlobalData::GlobalData()
 	m_smokeFireLighting = TRUE;
 	m_waterStyle = 1;				// keep modern water for existing Options.ini files
 #if defined(__linux__)
-	m_waterReflection = 2;		// Hybrid until the player cycles it; not saved to Options.ini
+	m_waterReflection = 2;		// Hybrid unless Options.ini selects another reflection mode
 #endif
 	m_cloudStyle = 1;				// approved volumetric hazard clouds unless Classic is explicitly selected
 	m_explosionDebrisTrails = TRUE;

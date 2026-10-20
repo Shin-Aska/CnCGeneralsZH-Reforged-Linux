@@ -87,7 +87,7 @@ installed, and the preview does not edit the game's configuration or maps automa
 
 - **1:** clean Modern baseline; **2:** resolved/editable material; **3:** split comparison,
   baseline on the left. Split mode uses two cropped views of the same scene and shader.
-- **4:** planar mirror; **5:** screen-space reflection; **6:** hybrid, the game's default;
+- **4:** Legacy planar reflection; **5:** SSR; **6:** Hybrid, the game's default;
   **7:** all three side by side, each column the same view. The bar at the top of the
   window selects the same choices. See [Reflections](#reflections).
 - **P:** show or hide the synthetic props: towers on the far bank, a bridge on two
@@ -147,28 +147,60 @@ preset. Unsaved slider changes affect only the current session.
 Modern water can reflect the scene three ways, and the preview draws each with the
 production shader exactly as the game sets it up:
 
-- **Mirror** renders the scene a second time from the camera reflected in the water plane,
-  into a 512-pixel target, as the game's mirror pass does. It shows what the camera cannot
-  see: the undersides of bridges and anything above the top of the screen. It costs a
-  second scene render whenever the camera moves, and it only follows one water level.
-- **Screen space** traces the reflected ray through the scene the frame has already drawn.
+- **Legacy** restores the Modern water reflection from before the reflection feature
+  commit: a 512-pixel planar target containing the original selectively reflected objects,
+  without the expanded terrain capture. This is the unchanged visual baseline; it is
+  distinct from the game's Classic water style. A planar pass can show surfaces hidden
+  from the main camera, costs a second scene render when updated, and follows one water level.
+- **SSR** traces the reflected ray through the scene the frame has already drawn.
   It costs no extra scene render and works at any water level, but it can only reflect what
   is on screen and not hidden behind something nearer the camera.
-- **Hybrid** keeps the mirror and replaces it with the traced colour wherever the trace
-  finds a hit. This is the game's default.
+- **Hybrid (Legacy + SSR)** combines the planar technique with SSR. Only this mode expands
+  the game's planar capture to ordinary scene objects and terrain, at 1024×1024 instead
+  of Legacy's 512×512. It filters reflected colour and object coverage together,
+  so the transparent-black background fades into sky without a hard dark fringe.
+  Where that capture
+  supports the water plane and lookup footprint, an SSR hit contributes at most 35%:
+  a hit on a main-camera face cannot erase an underside visible only in the planar view.
+  Outside that support SSR uses its full confidence. This conservative blend is not
+  geometric correspondence or a way to recover hidden surfaces in SSR-only mode.
+  Hybrid is the game's default.
 
-In the Linux game, **Ctrl+Shift+W** cycles Mirror → Screen space → Hybrid → Mirror
-live. Hybrid is the session default; the choice is not saved to Options.ini. With Classic
-water selected, the key still cycles the setting for the next switch to Modern water.
+Hybrid's filter uses twelve point texture reads across the existing three roughness
+offsets, resolving coverage before interpolation. It keeps the original display-space
+colour filtering, removes coverage before one gamma decode, then mixes with sky in
+linear light. It needs no history or
+extra scene pass. Doubling the target width and height adds 3 MiB of colour storage
+and increases planar raster work by up to four times; draw submission count and refresh
+cadence stay unchanged. Depth backing also grows, and the backend can retain scratch
+depth targets for both sizes after switching modes. Immediate target-creation failure
+retains the previous target or tries 512×512 on initial allocation.
+The synthetic comparison renders separate 512 and 1024 targets. Existing scene banks
+keep their captured resolution and demonstrate the filtering change only.
+
+In the Linux game, **Options → Effects → Reflections → Water reflection** selects
+Legacy, SSR or Hybrid. **Accept** applies the change live and saves `WaterReflection`
+to Options.ini (`0`, `1` or `2`, respectively). Hybrid remains the default when the
+preference is absent. These modes apply to **Modern** water, selected under Graphics;
+Classic water keeps its original rendering.
+
+**Ctrl+Shift+W** cycles Legacy → SSR → Hybrid → Legacy live as a session-only
+override. With Classic water selected, the key still cycles the setting for the next
+switch to Modern water.
 Bind `CYCLE_WATER_REFLECTION` in CommandMap.ini to choose another key; a command bound
 to Ctrl+Shift+W takes precedence over this default.
 
-`ZH_WATER_SSR` overrides the setting and hotkey when it names `mirror`, `ssr` or `hybrid`;
+`ZH_WATER_SSR` overrides the setting and hotkey when it names `legacy`, `ssr` or `hybrid`;
+`mirror` remains an alias for `legacy`, including in the preview's `--reflection` option.
 `nomirror` draws sky only, for timing what the mirror costs, and is never part of the
 hotkey cycle. Unset or unrecognised values leave the setting in control. The environment
 is read once per run. `ZH_WATER_DEBUG=ssr`
 shows the traced colour over dark-blue misses, and `ZH_WATER_DEBUG=ssr-hit` shows
-confidence in red, distance travelled in green and skipped traces in blue.
+confidence in red, world distance travelled divided by 700 in green and skipped traces in blue.
+`ZH_WATER_DEBUG=ssr-mix` shows the actual SSR blend weight in red, planar trust in green,
+and the trace confidence in blue. The trace keeps a fixed spatial sampling phase, bounded
+refinement of real crossings and a CPU-uploaded projection matrix. It uses no temporal
+history; sparse hits can still produce speckled edges in SSR-only mode.
 The preview clears an inherited `ZH_WATER_DEBUG`; pass `--debug ssr` or `--debug ssr-hit`
 (or any other water debug view) to show one there.
 
@@ -212,7 +244,11 @@ snapshots stay identical. The title and startup controls say **FIXED CAMERA (ban
 camera drags, middle click, arrows, wheel, **+ / -**, **Home** and **R** have no effect,
 and `--yaw`, `--pitch`, `--distance` and `--target` do not move the banked view.
 Synthetic props, bed and mirror rendering are skipped. The captured mirror is
-used only when present. **Space** pauses animation; wave time starts at each draw's banked
+used only when present. Mode 4 and the first comparison column are labelled **CAPTURED PLANAR**:
+version 1 banks contain one baked mirror and cannot regenerate the original selective
+Legacy pass. To inspect that original pass, capture the game with `ZH_WATER_SSR=legacy`;
+the synthetic props are shared test geometry, not an archived copy of the original game scene.
+**Space** pauses animation; wave time starts at each draw's banked
 `c1.x` and advances by the preview's elapsed time (`--time` applies to synthetic mode).
 The banked `c94`/`c95.xyz` material remains in use until sliders, material keys, reset,
 explicit preset loading or command-line material overrides edit it. Reflection selection

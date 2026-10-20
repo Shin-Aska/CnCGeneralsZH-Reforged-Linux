@@ -97,6 +97,9 @@ OPTION_INT_ACCESSORS( m_fullscreenScaling )
 OPTION_INT_ACCESSORS( m_msaaLevel )
 OPTION_BOOL_ACCESSORS( m_vsync )
 OPTION_INT_ACCESSORS( m_waterStyle )
+#if defined(__linux__)
+OPTION_INT_ACCESSORS( m_waterReflection )
+#endif
 OPTION_INT_ACCESSORS( m_cloudStyle )
 OPTION_BOOL_ACCESSORS( m_classicGraphics )
 OPTION_INT_ACCESSORS( m_lightingStyle )
@@ -402,6 +405,14 @@ const OptionDef TheOptionCatalog[] =
 	{ "WaterStyle", OPT_WND( "ComboBoxWaterStyle" ), "GUI:WaterStyle",
 		OPTION_ENUM, APPLY_LIVE, 0, WATER_STYLE_COUNT - 1,
 		get_m_waterStyle, set_m_waterStyle },
+
+#if defined(__linux__)
+	// Modern water reads the mode each frame and refreshes its reflection target on a change.
+	// Keep this independent of WaterStyle so Classic can retain a choice for a later Modern switch.
+	{ "WaterReflection", OPT_WND( "ComboBoxWaterReflection" ), "GUI:WaterReflection",
+		OPTION_ENUM, APPLY_LIVE, 0, WATER_REFLECTION_COUNT - 1,
+		get_m_waterReflection, set_m_waterReflection },
+#endif
 
 	// The hazard keeps its gameplay area and lifetime; this changes its appearance only.
 	{ "CloudStyle", OPT_WND( "ComboBoxCloudStyle" ), "GUI:CloudStyle",

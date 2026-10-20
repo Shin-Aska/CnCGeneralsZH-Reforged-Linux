@@ -202,6 +202,7 @@ protected:
 	Real				m_bumpFrameAccum;	///<fractional carry, so the flipbook can run slower than one frame per tick
 	Real				m_fBumpScale;	///<scales bump map uv perturbation
 	TextureClass * m_pReflectionTexture;	///<render target for reflection
+	Int m_reflectionTargetRequestSize;	///<last attempted map reflection size; avoid retrying failed allocations every frame
 	Real m_reflectionLevel;	///<height of the water plane the reflection texture was rendered for
 	Vector2 m_reflectionAreaMin;	///<lower left of the screen area the reflection texture covers, -1 to 1
 	Vector2 m_reflectionAreaMax;	///<upper right of the same area
@@ -383,6 +384,8 @@ protected:
 	void setupFlatWaterShader(Bool heightCorrection=FALSE,Bool waveCage=FALSE);
 	void setupJbaWaterShader(void);
 	void synchronizeWaterStyle(void);
+	Int mapReflectionTargetSize() const;
+	void ensureMapReflectionTarget(void);
 	void registerWaterStyleShaders(void);
 	void setupModernWaterShader(Bool river,Bool heightCorrection=FALSE,Bool waveCage=FALSE);
 	void updateModernWaterTextures(void);
