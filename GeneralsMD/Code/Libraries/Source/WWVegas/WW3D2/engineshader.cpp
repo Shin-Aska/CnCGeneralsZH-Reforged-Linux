@@ -31,6 +31,7 @@
 #include "Platform/WaterFoamEnvironment.h"
 #include "Platform/WaterShoreFoam.h"
 #include "Platform/WaterCoastalCrest.h"
+#include "Platform/WaterScreenReflection.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -739,6 +740,7 @@ WaterRefractionSample waterRefractedScene(float2 originalPixel, float2 offset,
     return result;
 }
 )HLSL";
+	hlsl += WaterScreenReflection::ShaderSource();
 	hlsl += WaterSurfaceModel::ShaderSource();
 	hlsl += WaterSurfaceModel::OceanShaderSource();
 	hlsl += WaterOpticalModel::GetHlslSource();
@@ -1149,6 +1151,9 @@ float4 main(Input input) : SV_Target
     float3 skyRadiance=waterLinear(sky);
     if(offshore>0.0) skyRadiance=lerp(skyRadiance,oceanEnvironment(reflectedRay,light,daylight,environmentRoughness),offshore);
     float3 reflection = lerp(skyRadiance, waterLinear(mirror.rgb), coverage);
+    // MaterialParameters.w selects the traced reflection; a hit takes the mirror's or sky's place.
+    WaterSsrSample ssr = waterScreenReflection(world, view, environmentNormal, environmentRoughness, input.Position.xy);
+    reflection = lerp(reflection, waterLinear(ssr.colour), ssr.confidence);
     // Refraction uses the actual optical depth and shared colour/depth viewport bounds.
     float2 refractionPixels = waterRefractionPixels(opticalDepth, view, normal, dx, dy);
     WaterRefractionSample refractedScene = waterRefractedScene(input.Position.xy, refractionPixels,
@@ -1462,6 +1467,10 @@ float4 main(Input input) : SV_Target
 	if (debug && strcmp(debug, "depth") == 0) hlsl += "current.rgb = (1.0-exp(-depth*0.04)).xxx;\n";
 	if (debug && strcmp(debug, "bed") == 0) hlsl += "current.rgb = waterDisplay(scene);\n";
 	if (debug && strcmp(debug, "reflection") == 0) hlsl += "current.rgb = waterDisplay(reflection);\n";
+	if (debug && strcmp(debug, "ssr") == 0)
+		hlsl += "current = float4(lerp(float3(0.05, 0.05, 0.2), ssr.colour, ssr.confidence), 1.0);\n";
+	if (debug && strcmp(debug, "ssr-hit") == 0)
+		hlsl += "current = float4(ssr.confidence, ssr.travel, ssr.refused, 1.0);\n";
 	if (debug && strcmp(debug, "normal") == 0) hlsl += "current.rgb = normal*0.5+0.5;\n";
 	if (debug && strcmp(debug, "highlight") == 0) hlsl += "current.rgb = waterDisplay(highlight);\n";
 	if (debug && strcmp(debug, "offshore") == 0) hlsl += "current.rgb = offshore.xxx;\n";

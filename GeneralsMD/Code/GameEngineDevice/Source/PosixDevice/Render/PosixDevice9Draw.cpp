@@ -1566,6 +1566,10 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	draw.StencilReference = RenderStates[D3DRS_STENCILREF] & 0xFF;
 	draw.BlendFactor = RenderStates[D3DRS_BLENDFACTOR];
 	Gpu->Record_Draw(draw);
+#if defined(__linux__)
+	if (water_draw && Water_Bank_Is_Asked())
+		Water_Bank_Draw(call, pixel_engine, stride, reads, target, water_background, water_depth);
+#endif
 	if (combiner.ShadowReceiving) {
 		if (pixel_engine == ENGINE_SHADER_NONE) ++SunSolidReceivers; else ++SunGroundReceivers;
 		if (Sun_Camera_Space()) ++SunCameraReceivers;

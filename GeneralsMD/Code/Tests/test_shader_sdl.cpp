@@ -67,6 +67,7 @@
 
 #include "sdl3shadercompile.h"
 #include "shader_cases.h"
+#include "Platform/WaterScreenReflection.h"
 #include "Platform/WaterBedMaterial.h"
 #include "Platform/WaterOpticalModel.h"
 #include "Platform/WaterHullModel.h"
@@ -1405,6 +1406,81 @@ TEST(shore_source_terms_reports_actual_front_and_is_absent_from_normal_source)
         const bool compiled=SDL3_Compile_HLSL_To_SPIRV(diagnostic,false,spirv,log);
         if(!compiled)printf("  actual shore-source-terms program %d: %s\n",int(program),log.c_str());
         CHECK(compiled);
+    }
+}
+
+TEST(screen_reflection_resolves_environment_over_live_setting)
+{
+    using namespace WaterScreenReflection;
+    Mode parsed=Mirror;
+    CHECK(!Parse(nullptr,parsed));CHECK(parsed==Mirror);
+    CHECK(!Parse("",parsed));CHECK(!Parse("unknown",parsed));CHECK(parsed==Mirror);
+    struct EnvironmentMode { const char *value;Mode mode; };
+    const EnvironmentMode recognised[]={
+        {"mirror",Mirror},{"0",Mirror},{"ssr",ScreenSpace},{"1",ScreenSpace},
+        {"replace",ScreenSpace},{"hybrid",Hybrid},{"nomirror",SkyOnly}
+    };
+    for(const auto &environment:recognised) {
+        CHECK(Parse(environment.value,parsed));CHECK(parsed==environment.mode);
+        for(int setting:{std::numeric_limits<int>::min(),-1,0,1,2,3,std::numeric_limits<int>::max()})
+            CHECK(Resolve(environment.value,setting)==environment.mode);
+    }
+    for(const char *environment:{static_cast<const char *>(nullptr),"","unknown","MIRROR"}) {
+        CHECK(Resolve(environment,0)==Mirror);
+        CHECK(Resolve(environment,1)==ScreenSpace);
+        CHECK(Resolve(environment,2)==Hybrid);
+        for(int setting:{std::numeric_limits<int>::min(),-1,3,std::numeric_limits<int>::max()})
+            CHECK(Resolve(environment,setting)==Hybrid);
+    }
+    // Resolve reads the setting each time; neither it nor Next consults process state.
+    CHECK(Resolve(nullptr,Next(Resolve(nullptr,2)))==Mirror);
+    CHECK(Resolve(nullptr,Next(Resolve(nullptr,0)))==ScreenSpace);
+}
+
+TEST(screen_reflection_cycles_the_three_live_modes_without_sky_only)
+{
+    using namespace WaterScreenReflection;
+    Mode mode=Hybrid;
+    for(unsigned cycle=0;cycle<4;++cycle) {
+        mode=Next(mode);CHECK(mode==Mirror);
+        mode=Next(mode);CHECK(mode==ScreenSpace);
+        mode=Next(mode);CHECK(mode==Hybrid);
+    }
+    CHECK(Next(SkyOnly)==Mirror);
+}
+
+TEST(screen_reflection_is_a_runtime_choice_and_compiles)
+{
+    struct SavedOption {
+        const char *key;bool had;std::string value;
+        explicit SavedOption(const char *k):key(k),had(getenv(k)!=nullptr),value(getenv(k)?getenv(k):""){}
+        ~SavedOption(){if(had)setenv(key,value.c_str(),1);else unsetenv(key);}
+    } ssr("ZH_WATER_SSR"),debug("ZH_WATER_DEBUG");
+    using namespace WaterScreenReflection;
+    CHECK(Resolve(nullptr,2)==Hybrid);
+    CHECK(UsesMirror(Mirror)&&UsesMirror(Hybrid)&&!UsesMirror(ScreenSpace)&&!UsesMirror(SkyOnly));
+    CHECK(Traces(ScreenSpace)&&Traces(Hybrid)&&!Traces(Mirror)&&!Traces(SkyOnly));
+    for(auto program:{ENGINE_SHADER_WATER_TRAPEZOID,ENGINE_SHADER_WATER_RIVER}) {
+        PixelPipelineDescription description={};std::string normal,other;
+        CHECK(unsetenv("ZH_WATER_DEBUG")==0);CHECK(unsetenv("ZH_WATER_SSR")==0);
+        CHECK(EngineShader_Pixel_Program(program,description,normal,COMBINER_SHADER_TARGET_SDL3_GPU));
+        // The material register's reserved lane gates the trace per draw; a mode is not a program.
+        CHECK(normal.find("waterScreenReflection(world, view, environmentNormal")!=std::string::npos);
+        CHECK(normal.find("MaterialParameters.w>0.5")!=std::string::npos);
+        for(const char *mode:{"mirror","ssr","hybrid","nomirror"}) {
+            CHECK(setenv("ZH_WATER_SSR",mode,1)==0);
+            CHECK(EngineShader_Pixel_Program(program,description,other,COMBINER_SHADER_TARGET_SDL3_GPU));
+            CHECK(other==normal);
+        }
+        for(const char *view:{"","ssr","ssr-hit"}) {
+            if(*view) CHECK(setenv("ZH_WATER_DEBUG",view,1)==0); else CHECK(unsetenv("ZH_WATER_DEBUG")==0);
+            std::string traced;
+            CHECK(EngineShader_Pixel_Program(program,description,traced,COMBINER_SHADER_TARGET_SDL3_GPU));
+            std::vector<unsigned char>spirv;std::string log;
+            const bool compiled=SDL3_Compile_HLSL_To_SPIRV(traced,false,spirv,log);
+            if(!compiled)printf("  ZH_WATER_DEBUG=%s program %d: %s\n",view,int(program),log.c_str());
+            CHECK(compiled);
+        }
     }
 }
 

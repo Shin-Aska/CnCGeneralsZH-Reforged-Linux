@@ -59,6 +59,7 @@ enum
 #include "Platform/SunShadow.h"
 #include "W3DDevice/GameClient/SunShadowCasterCull.h"
 #include "W3DDevice/GameClient/W3DTreeBuffer.h"
+#include "W3DDevice/GameClient/W3DWater.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -2200,7 +2201,7 @@ void W3DTreeBuffer::drawTrees(CameraClass * camera, RefRenderObjListIterator *pD
 
 	// Shadows are wanted under either option: the loop used to be gated on m_useShadowDecals alone,
 	// so with volume shadows picked trees were the one thing in the scene standing on nothing.
-	Bool drawShadows = !sunCamera && !mapped && (TheGlobalData->m_useShadowDecals || TheGlobalData->m_useShadowVolumes);
+	Bool drawShadows = !sunCamera && !mapped && (!TheWaterRenderObj || !TheWaterRenderObj->isModernFullMirror()) && (TheGlobalData->m_useShadowDecals || TheGlobalData->m_useShadowVolumes);
 	Bool silhouetteShadows = drawShadows && treeSilhouetteShadows(m_dwTreeVertexShader);
 
 	// Draw tree shadows.

@@ -47,6 +47,7 @@
 #include "Platform/WaterHullContact.h"
 #include "Platform/WaterBedMaterial.h"
 #include "Platform/WaterFftGeometry.h"
+#include "Platform/WaterScreenReflection.h"
 #include "Platform/WaterTerrainCulling.h"
 #include "Platform/WaterWaveCage.h"
 #include "Platform/WaterWaveCageMesh.h"
@@ -465,6 +466,15 @@ Bool WaterRenderObjClass::modernHasHull(UnsignedInt objectID) const
 {
 	return std::find(m_modernHullObjectIDs.begin(), m_modernHullObjectIDs.end(), objectID)
 		!= m_modernHullObjectIDs.end();
+}
+
+Bool WaterRenderObjClass::isModernFullMirror() const
+{
+#if defined(__linux__)
+	return m_renderingMirror && m_useModernWater && m_waterType==WATER_TYPE_0_TRANSLUCENT;
+#else
+	return FALSE;
+#endif
 }
 
 Bool WaterRenderObjClass::hasModernVesselFoam(UnsignedInt objectID) const
@@ -1261,8 +1271,11 @@ void WaterRenderObjClass::setupModernWaterShader(Bool river, Bool heightCorrecti
 #if defined(__linux__)
 	if (!m_useModernWater) return;
 	updateModernWaterTextures();
+	const WaterScreenReflection::Mode mode = WaterScreenReflection::Resolve(
+		WaterScreenReflection::CachedEnvironment(), TheGlobalData ? TheGlobalData->m_waterReflection : 2);
 	const Bool reflection = m_pReflectionTexture && !m_renderingMirror &&
-		m_reflectionAreaMax.X > m_reflectionAreaMin.X && m_reflectionAreaMax.Y > m_reflectionAreaMin.Y;
+		m_reflectionAreaMax.X > m_reflectionAreaMin.X && m_reflectionAreaMax.Y > m_reflectionAreaMin.Y &&
+		WaterScreenReflection::UsesMirror(mode);
 	TextureClass *mirror = reflection ? m_pReflectionTexture : m_whiteTexture;
 	if (!mirror->Is_Initialized()) mirror->Init();
 	DX8Wrapper::Set_DX8_Texture(1, mirror->Peek_D3D_Texture());
@@ -1291,6 +1304,7 @@ void WaterRenderObjClass::setupModernWaterShader(Bool river, Bool heightCorrecti
 	DX8Wrapper::_Get_D3D_Device()->SetPixelShaderConstantF(6, optics, 1);
 	D3DXVECTOR4 materialColor, materialParameters;
 	getModernWaterMaterial(&materialColor.x, &materialParameters.x);
+	materialParameters.w = WaterScreenReflection::Traces(mode) ? 1.0f : 0.0f;
 	DX8Wrapper::_Get_D3D_Device()->SetPixelShaderConstantF(ModernWaterMaterial::RegisterColor, materialColor, 1);
 	DX8Wrapper::_Get_D3D_Device()->SetPixelShaderConstantF(ModernWaterMaterial::RegisterParameters, materialParameters, 1);
 	const RGBColor &ambient = TheGlobalData->m_terrainAmbient[0];
@@ -1607,6 +1621,8 @@ WaterRenderObjClass::WaterRenderObjClass(void)
 {
 #if defined(__linux__)
 	m_useModernWater = !TheGlobalData || TheGlobalData->m_waterStyle != 0;
+	m_waterReflectionMode = WaterScreenReflection::Resolve(
+		WaterScreenReflection::CachedEnvironment(), TheGlobalData ? TheGlobalData->m_waterReflection : 2);
 #endif
 	memset( &m_settings, 0, sizeof( m_settings ) );
 	m_dx=0;
@@ -2818,6 +2834,18 @@ void WaterRenderObjClass::updateRenderTargetTextures(CameraClass *cam)
 {
 	// This render boundary also runs while the game/options menu is paused.
 	synchronizeWaterStyle();
+#if defined(__linux__)
+	const WaterScreenReflection::Mode mode = WaterScreenReflection::Resolve(
+		WaterScreenReflection::CachedEnvironment(), TheGlobalData ? TheGlobalData->m_waterReflection : 2);
+	if (mode != m_waterReflectionMode)
+	{
+		// The mirror may have sat unused while the scene moved. Refresh it on the first
+		// frame back, even when the camera is still where the old reflection was drawn.
+		if (m_useModernWater && WaterScreenReflection::UsesMirror(mode))
+			m_reflectionReused = TRUE;
+		m_waterReflectionMode = mode;
+	}
+#endif
 	if (!cam || !TheTerrainRenderObject || !TheTerrainRenderObject->getMap())
 		return;
 
@@ -2830,6 +2858,11 @@ void WaterRenderObjClass::updateRenderTargetTextures(CameraClass *cam)
 
 	if (m_waterType != WATER_TYPE_0_TRANSLUCENT || !m_pReflectionTexture)
 		return;
+#if defined(__linux__)
+	// Screen-space and sky-only reflection draw no mirror; the shader then reads none.
+	if (m_useModernWater && !WaterScreenReflection::UsesMirror(mode))
+		return;
+#endif
 
 	// A camera that has not moved looks at the same water from the same place, so a reflection one
 	// frame old lines up with it exactly and only what moved in it is a frame late.  Such a frame

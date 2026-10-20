@@ -59,6 +59,9 @@
 #include "Platform/WaterFoamHistory.h"
 #include "Platform/WaterShoreSource.h"
 #include "Platform/WaterCoastalRender.h"
+#if defined(__linux__)
+#include "Platform/WaterScreenReflection.h"
+#endif
 
 class MeshModelClass;
 
@@ -151,6 +154,7 @@ public:
 	void replaceSkyboxTexture(const AsciiString& oldTexName, const AsciiString& newTextName);
 	Bool hasModernVesselFoam(UnsignedInt objectID) const; ///< replacement was submitted for this hull in the current render frame
 	Bool isModernWaterMirrorForOwner(UnsignedInt objectID) const; ///< owner's surface foam must not reflect back into the same water plane
+	Bool isModernFullMirror() const; ///< Modern map water reflects the scene, rather than just objects marked for Classic water
 
 protected:
 	DX8IndexBufferClass			*m_indexBuffer;	///<indices defining quad
@@ -203,6 +207,9 @@ protected:
 	Vector2 m_reflectionAreaMax;	///<upper right of the same area
 	Matrix3D m_reflectionCameraTransform;	///<where the camera stood when the reflection texture was last rendered
 	Bool m_reflectionReused;	///<the frame before this one kept the previous reflection texture
+#if defined(__linux__)
+	WaterScreenReflection::Mode m_waterReflectionMode;	///<last resolved mode, so returning to the mirror refreshes it
+#endif
 	RenderObjClass	*m_skyBox;		///<box around level
 	WaterTracksRenderSystem *m_waterTrackSystem;	///<object responsible for rendering water wakes
 

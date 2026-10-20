@@ -1229,6 +1229,25 @@ void W3DInGameUI::drawGuardMarkers( void )
 }  // end drawGuardMarkers
 
 //-------------------------------------------------------------------------------------------------
+/** Models which share the world scene with units, but describe the player's orders and cursor. */
+//-------------------------------------------------------------------------------------------------
+Bool W3DInGameUI::isWorldSpaceUI( const RenderObjClass *robj, const Drawable *draw ) const
+{
+	// These live in the world scene so the ground can cover them, but are feedback for the player.
+	// A row of placement previews owns more than the single drawable under the cursor.
+	if( robj == m_buildingPlacementAnchor || robj == m_buildingPlacementArrow )
+		return TRUE;
+	for( Int i = 0; i < MAX_MOVE_HINTS; i++ )
+		if( robj == m_moveHintRenderObj[ i ] )
+			return TRUE;
+	if( draw && m_placeIcon )
+		for( Int i = 0; i < TheGlobalData->m_maxLineBuildObjects; i++ )
+			if( draw == m_placeIcon[ i ] )
+				return TRUE;
+	return FALSE;
+}
+
+//-------------------------------------------------------------------------------------------------
 /** EA's animated ring on the ground where a move order landed, 40 client frames each.  EA's own
 	* code, deleted by fec052cc and brought back (InGameUI::createMoveHint fills it). */
 //-------------------------------------------------------------------------------------------------

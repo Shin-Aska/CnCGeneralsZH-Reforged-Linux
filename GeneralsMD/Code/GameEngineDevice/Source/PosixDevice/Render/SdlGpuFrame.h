@@ -222,6 +222,13 @@ public:
 
 	/// The texture's pixels, B8G8R8A8 rows top first, width * 4 bytes each.  Flushes first.
 	bool Read_Back(SDL_GPUTexture * texture, unsigned int width, unsigned int height, std::vector<uint8_t> & bgra);
+#if defined(__linux__)
+	// Bank depth is already R32_FLOAT, not a depth attachment to resolve again.
+	bool Read_Water_Depth(SDL_GPUTexture *texture, unsigned width, unsigned height, std::vector<float> &depth);
+	// Preview only: replace this target's water inputs after drawing reconstructed occlusion.
+	// The supplied images stay exact; the next clear or Present invalidates them normally.
+	bool Inject_Water_Snapshot(const SdlTarget &target, const std::vector<uint8_t> &bgra, const std::vector<float> &depth);
+#endif
 
 	/// Diagnostic readback of a sampleable depth texture, resolved to R32_FLOAT first.
 	bool Read_Depth(SDL_GPUTexture *texture, unsigned width, unsigned height, std::vector<float> &depth);
@@ -395,7 +402,7 @@ private:
 	uint64_t CoastalSurfViewSets=0,CoastalSurfViewUpdates=0;
 	void Release_Coastal_Surf_View();
 
-	WaterSnapshot *Water_Snapshot(const SdlTarget &source);
+	WaterSnapshot *Water_Snapshot(const SdlTarget &source, bool capture = true);
 	void Invalidate_Water_Snapshots(SDL_GPUTexture *colour, SDL_GPUTexture *depth);
 	void Refresh_Water_Snapshots();
 	bool Create_Water_Depth_Pipeline();

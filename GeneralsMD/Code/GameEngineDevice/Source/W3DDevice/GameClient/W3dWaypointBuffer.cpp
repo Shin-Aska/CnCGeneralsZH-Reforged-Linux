@@ -201,8 +201,8 @@ void W3DWaypointBuffer::drawWaypoints(RenderInfoClass &rinfo)
 	// line, the puck on each point short of the end and on any unit or building it is aimed at, and
 	// the rally flag on the last bit of ground (a drawable of its own, InGameUI::updateOrderFlags).
 	// The hints are rebuilt off the units every frame, so a puck on a target follows it.
-	// not in the water's mirror pass: the ground is left out of the reflection, and a PASS_ALWAYS
-	// line would lie on top of the water
+	// Not in the water's mirror pass: these are orders drawn for the player, even where Modern
+	// reflects the ground, and a PASS_ALWAYS line would lie on top of the water.
 	if( !TheInGameUI->getOrderHints().empty() && !ShaderClass::Is_Backface_Culling_Inverted() )
 	{
 		LightEnvironmentClass lightEnv;

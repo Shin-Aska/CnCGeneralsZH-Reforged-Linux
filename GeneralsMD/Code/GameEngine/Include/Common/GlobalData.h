@@ -209,6 +209,9 @@ public:
 	Bool m_volumetricSmokeShadows;	// "VolumetricSmokeShadows": smoke and dust shade the world and themselves through the sun's map (Direct3D 11)
 	Bool m_smokeFireLighting;		// "SmokeFireLighting": smoke takes light from the fire beside it
 	Int m_waterStyle;					// "WaterStyle": 0 = Classic, 1 = Modern (SDL); applied between render frames
+#if defined(__linux__)
+	Int m_waterReflection;			// session only: 0 = Mirror, 1 = Screen space, 2 = Hybrid; Modern water
+#endif
 	Int m_cloudStyle;					// "CloudStyle": 0 = Classic, 1 = Volumetric toxin/radiation clouds (SDL); visual only
 	Bool m_explosionDebrisTrails;	// "DebrisTrails": blasts throw smoke-trailing fragments and burning shrapnel
 	Int m_shadowQuality;				// "ShadowQuality": the sun's depth map at 1024, 2048 or 4096 texels a side (Direct3D 11)

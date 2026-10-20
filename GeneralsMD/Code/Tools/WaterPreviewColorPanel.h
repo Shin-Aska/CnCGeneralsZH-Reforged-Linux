@@ -21,6 +21,7 @@ public:
     Values defaults;
     bool visible = true;
     bool saveRequested = false;
+    bool edited = false;
     std::string status = "DRAG SLIDERS TO CHANGE WATER";
 
     bool handle(const SDL_Event &event)
@@ -63,6 +64,7 @@ public:
                 }
                 if (hit(mouseX, mouseY, Left + 16, Top + 351, 122, 34)) {
                     values = defaults;
+                    edited = true;
                     status = "UNSAVED CHANGES";
                 } else if (hit(mouseX, mouseY, Left + 150, Top + 351, 122, 34)) {
                     saveRequested = true;
@@ -183,6 +185,7 @@ private:
         const float next = low + fraction * (1.f - low);
         if (component(row) != next) {
             component(row) = next;
+            edited = true;
             status = "UNSAVED CHANGES";
         }
     }
@@ -204,6 +207,7 @@ private:
         text(x + offset, y + 12, label, 1.5f, 0xffe4eedf);
     }
 
+public:
     // Each byte is one five-pixel row of a compact, original bitmap alphabet.
     static std::array<uint8_t, 7> glyph(char c)
     {
@@ -254,6 +258,7 @@ private:
             default: return {{0,0,0,0,0,0,0}};
         }
     }
+private:
     void text(float x, float y, const char *label, float size, uint32_t color)
     {
         for (; *label; ++label, x += 6 * size) {

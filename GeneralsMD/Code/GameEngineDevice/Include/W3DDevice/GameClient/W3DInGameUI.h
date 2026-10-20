@@ -70,6 +70,7 @@ public:
 	//-----------------------------------------------------------------------------------------------
 
 	virtual void draw( void ); ///< Render the in-game user interface
+	Bool isWorldSpaceUI( const RenderObjClass *robj, const Drawable *draw ) const; ///< scene models belonging to the cursor and order feedback
 
 protected:
 

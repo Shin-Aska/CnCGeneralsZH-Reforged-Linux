@@ -2,8 +2,8 @@
 
 `water_preview` is the dedicated native editor for Modern water materials. It shares the
 production SDL renderer, GPU FFT, Modern water shader and `ModernWater.ini` parser with
-the game. It requires no game assets, save or running match. The synthetic flat submerged
-bed and fixed lighting make comparisons repeatable; this is not a campaign-map viewer.
+the game. The default synthetic scene requires no game assets, save or running match.
+`--scene` also replays a locally banked game view for reflection comparisons.
 
 ## Configuration and matching
 
@@ -87,17 +87,52 @@ installed, and the preview does not edit the game's configuration or maps automa
 
 - **1:** clean Modern baseline; **2:** resolved/editable material; **3:** split comparison,
   baseline on the left. Split mode uses two cropped views of the same scene and shader.
+- **4:** planar mirror; **5:** screen-space reflection; **6:** hybrid, the game's default;
+  **7:** all three side by side, each column the same view. The bar at the top of the
+  window selects the same choices. See [Reflections](#reflections).
+- **P:** show or hide the synthetic props: towers on the far bank, a bridge on two
+  piers, sandstone ruins near the centre and a separate striped pole near the camera.
 - **H:** show or hide the RGB, brightness and pollution panel.
 - **L:** load the saved editor colors. This opens the panel and reports success,
   a missing preset, or an invalid preset without closing the viewer.
 - **B:** toggle bubbles; the title reports their state. **[ / ]:** adjust pollution.
-- **Space:** pause animation. Drag outside the panel or use arrows to orbit. Wheel or
-  **+ / -** zooms. **R** resets the camera.
+- **Space:** pause animation.
 - **S:** save `water-preview.png` in the working directory, or the `--screenshot` path.
 - **E:** export the current material as `water-preview-rule.ini` in the working
   directory, or the `--export-config` path. Export replaces that destination with a
   single rule matching the selected map color and texture; it does not merge a rule set.
 - **Escape:** close the viewer.
+
+The synthetic camera looks at a ground target at water level, with the game's controls:
+
+- **Arrows:** pan over the ground in the current heading's screen directions.
+- **Right drag:** pan away from the point where the button went down. The press only
+  arms it; movement starts beyond a four-pixel tolerance. Holding the cursor farther from
+  that anchor pans faster, and panning continues while the cursor is still. Both arrow
+  and mouse pan speeds scale with camera distance.
+- **Middle drag:** turn the heading, at **0.01 radians per horizontal pixel**.
+  **Alt + middle drag:** tilt instead; dragging down tips the camera down.
+- **Middle click** without a drag: reset heading, pitch and zoom to their startup values,
+  leaving the current ground target in place.
+- **Wheel** or **+ / -:** zoom; **Ctrl + wheel:** zoom five times faster.
+  **Alt + wheel:** tilt by two degrees per notch; forward lays the camera flatter.
+- **Home** or **R:** reset the entire camera, including its ground target, to the starting
+  `--yaw`, `--pitch`, `--distance` and `--target X Y` (default `0 0`).
+
+The left button operates the colour panel and reflection bar. Camera drags start outside
+those controls and keep working if they cross them; losing window focus cancels a drag.
+The default start is target `0 0`, yaw `0.10`, pitch `0.82` and distance `600`, keeping the
+far-bank tower bases visible above the bridge while the ruins sit near the centre.
+Pitch stays within **0.48–1.38 radians**, target coordinates within **±700**, and zoom
+accepts **180–1050 units**, with the existing additional limit that keeps the finite water
+patch's edge out of view at low pitches or wide aspect ratios. These camera controls and
+start options apply only to synthetic mode; banked frames have a fixed camera.
+
+The ruins stand on a submerged masonry footing in front of the bridge: a gate with two
+square columns and an overhanging lintel, three columns under an L-shaped lintel, a lone
+half-height broken column, and a fallen slab tilted through the surface. The columns are
+10 units wide and 56–58 tall, with their bases below the water. They use the same flat sun
+shading as the other props; the mirror clips every face at the water plane.
 
 **Reset color** restores the material resolved at startup. **Save color** stores the five
 panel values in SDL's per-user `CnCGeneralsZH-Reforged/WaterPreview/colors.ini` preference
@@ -107,6 +142,100 @@ preview preferences cannot override it silently.
 The bubble toggle is a material option exported to INI, not part of the five-value editor
 preset. Unsaved slider changes affect only the current session.
 
+## Reflections
+
+Modern water can reflect the scene three ways, and the preview draws each with the
+production shader exactly as the game sets it up:
+
+- **Mirror** renders the scene a second time from the camera reflected in the water plane,
+  into a 512-pixel target, as the game's mirror pass does. It shows what the camera cannot
+  see: the undersides of bridges and anything above the top of the screen. It costs a
+  second scene render whenever the camera moves, and it only follows one water level.
+- **Screen space** traces the reflected ray through the scene the frame has already drawn.
+  It costs no extra scene render and works at any water level, but it can only reflect what
+  is on screen and not hidden behind something nearer the camera.
+- **Hybrid** keeps the mirror and replaces it with the traced colour wherever the trace
+  finds a hit. This is the game's default.
+
+In the Linux game, **Ctrl+Shift+W** cycles Mirror → Screen space → Hybrid → Mirror
+live. Hybrid is the session default; the choice is not saved to Options.ini. With Classic
+water selected, the key still cycles the setting for the next switch to Modern water.
+Bind `CYCLE_WATER_REFLECTION` in CommandMap.ini to choose another key; a command bound
+to Ctrl+Shift+W takes precedence over this default.
+
+`ZH_WATER_SSR` overrides the setting and hotkey when it names `mirror`, `ssr` or `hybrid`;
+`nomirror` draws sky only, for timing what the mirror costs, and is never part of the
+hotkey cycle. Unset or unrecognised values leave the setting in control. The environment
+is read once per run. `ZH_WATER_DEBUG=ssr`
+shows the traced colour over dark-blue misses, and `ZH_WATER_DEBUG=ssr-hit` shows
+confidence in red, distance travelled in green and skipped traces in blue.
+The preview clears an inherited `ZH_WATER_DEBUG`; pass `--debug ssr` or `--debug ssr-hit`
+(or any other water debug view) to show one there.
+
+Tilt the camera down (Alt + middle drag downward) until the towers leave the top of the window to see the
+screen-space trace lose them while the mirror keeps them. The default green material
+and the steep starting camera make all reflections faint; `--mode clean --pitch 0.6`
+shows them more clearly.
+
+## Banked scenes
+
+Bank the saved view from the Linux game, then replay it without running a match:
+
+```sh
+mkdir -p build-linux/water-scenes
+ZH_WATER_BANK="$PWD/build-linux/water-scenes/ruins.wbank" ZH_WATER_BANK_FRAMES=300 \
+  ./build-linux/generals -loadsave "ReferenceSave"
+./build-linux/water_preview --scene ruins
+./build-linux/water_preview --scene ruins --reflection compare --width 1800 --height 800
+./build-linux/water_preview --scene build-linux/water-scenes/ruins.wbank \
+  --offscreen --hide-controls --screenshot build-linux/water-scenes/ruins.png
+```
+
+Use the game's existing `-loadsave` save name/path convention. Keep the desired view still
+until the capture line appears. The counter advances only for presented frames with an
+accepted Modern water draw; the default is **300** such frames. The selected frame banks
+all its accepted Modern water draws, with the exact pre-water colour and sampled device
+depth, mirror, geometry, transforms, constant registers, states and bound 2D textures.
+GPU-owned images are copied at draw time and downloaded after submission. A failed
+readback or a frame containing different water snapshots reports an error and writes no
+bank. Capture runs once per process; leaving `ZH_WATER_BANK` unset uses only a cached check.
+
+Banks live in `<executable directory>/water-scenes/`, normally `build-linux/water-scenes/`.
+A name with no slash/backslash and no `.wbank` suffix resolves there; other values are
+literal paths. **Banks contain proprietary game imagery and must stay untracked.** The
+build directory and all `.wbank` files are ignored; do not force-add them or commit captures.
+
+The bank supplies the window size unless `--width` or `--height` overrides that dimension.
+Resized views fit with letterboxing. Reflection comparison renders three independent
+bank-size targets before fitting them into the window's thirds; their camera and input
+snapshots stay identical. The title and startup controls say **FIXED CAMERA (banked frame)**:
+camera drags, middle click, arrows, wheel, **+ / -**, **Home** and **R** have no effect,
+and `--yaw`, `--pitch`, `--distance` and `--target` do not move the banked view.
+Synthetic props, bed and mirror rendering are skipped. The captured mirror is
+used only when present. **Space** pauses animation; wave time starts at each draw's banked
+`c1.x` and advances by the preview's elapsed time (`--time` applies to synthetic mode).
+The banked `c94`/`c95.xyz` material remains in use until sliders, material keys, reset,
+explicit preset loading or command-line material overrides edit it. Reflection selection
+always overrides only `c1.z` and `c95.w`; **1/2/3** retain clean/material/split comparisons.
+
+Occlusion is exact at every pixel: the banked depth is written back into the depth buffer
+through a grid with one pretransformed vertex on each pixel centre. The visible opaque colour is
+the original bank image, and the water shader samples the **exact banked colour and R32_FLOAT
+depth**.
+The opaque picture, mirror, foam history and other captured textures are frozen; only
+procedural water/FFT time advances. This replays a frame, not the underlying map or units.
+
+`Platform/WaterSceneBank.h` defines version 1: `ZHWBANK1`, little-endian uint32 version,
+target dimensions, colour image, float32 depth array, optional mirror image, camera float3,
+then water draws. Each draw stores program/FVF/stride, vertex bytes, uint32 triangle-list
+indices, world/view/projection, viewport/depth range, pixel/vertex float4 registers, all
+256 render states, 16 stage/sampler state arrays and texture transforms, 16 level-zero
+BGRA8 images, and the mirror stage (1). Array lengths are uint32 element counts; an image
+is width/height/byte count followed by top-first tightly packed pixels. Stage 8 FFT maps
+are absent and regenerated from `c1.x` by the production device. The D3D-shaped device has
+texture-stage states for stages 0–7; unused entries 8–15 are zero. Readers reject unsupported
+versions, truncation, invalid sizes/indices and trailing data before replacing their output.
+
 ## Repeatable comparisons and export
 
 ```sh
@@ -115,6 +244,11 @@ preset. Unsaved slider changes affect only the current session.
 
 ./build-linux/water_preview --map-color C03020 --map-texture OtherWater.tga \
   --offscreen --screenshot /tmp/water-red-map.png
+
+./build-linux/water_preview --offscreen --mode clean --pitch 0.6 --distance 600 \
+  --reflection compare --width 1800 --height 800 --screenshot /tmp/water-reflections.png
+
+./build-linux/water_preview --target -60 -20 --yaw 0.2 --pitch 0.6 --distance 370
 
 ./build-linux/water_preview --color 2D3A0B --brightness 0.67 --strength 0.8 \
   --export-config /tmp/proposed-modern-water.ini
@@ -136,8 +270,19 @@ captures; **L** loads it explicitly during an interactive session.
 
 ## Implementation
 
-The tool compiles `Tools/water_preview.cpp` and `Tools/WaterPreviewColorPanel.h` and links
-the ordinary production shader library. Material inputs use the dedicated constants in
+The tool compiles `Tools/water_preview.cpp` with its `Tools/WaterPreview*.h` helpers and links
+the ordinary production shader library. The synthetic water patch remains a 220-by-220
+grid spanning ±1100 units. Its world translation follows the target, snapped to whole
+10-unit cells. The production vertex FFT samples positions before the device world
+transform, so the preview bakes this translation into the vertex upload and draws with
+an identity device world matrix. Vertices remain on the same world lattice and both
+shader stages sample matching world positions; moving the patch does not move the waves.
+The distance safeguard measures
+view rays from the target and leaves room for the snapping offset and wave displacement.
+The bed spans ±2600 and stays fixed with the props. Height and optical contexts retain a
+fixed world mapping over that bed; their uniform one-texel fields describe the flat bed
+and enclosed-water exposure, while the opaque scene depth supplies submerged prop surfaces.
+Material inputs use the dedicated constants in
 `Platform/ModernWaterMaterial.h`; light colors, texture factors and vertex metadata retain
 their production meanings. The two initial experimental shader files in `Tools/` are
 preserved as unbuilt historical references. The original investigation and capture notes
@@ -171,3 +316,11 @@ compilation, GPU material invariants and constant-layout tests passed. The compl
 suite ran 593 tests with one failure in the existing
 `minimap_classic_looks_on_the_press_in_both_mouse_setups` test; the same failure is recorded
 in the October 16 logs, before these water changes.
+
+Camera/ruins validation on 2026-10-20 rebuilt `water_preview` without warnings and passed
+all six tests selected by `ctest --test-dir build-linux -R "water|test_shader_sdl"`.
+A temporary harness under `build-linux/camera-ruins-validation/` passed camera-event and
+water-plane clipping checks. Software Vulkan captures covered the default, clean, panned
+and pan-limit views. With camera and time fixed, grid centres at 0, +20 and -20 rendered
+pixel-identically; a banked frame also stayed pixel-identical with camera start overrides
+and injected middle-drag/wheel input. Live windowed mouse feel still needs a human check.

@@ -19,23 +19,31 @@
 #include <string>
 #include <vector>
 #include "WaterPreviewColorPanel.h"
+#include "WaterPreviewReflectionBar.h"
+#include "WaterPreviewScene.h"
+#include "WaterPreviewCamera.h"
 
 namespace {
 constexpr float Pi = 3.14159265358979323846f;
 constexpr float WaterLevel = 40.0f;
 constexpr unsigned Grid = 220;
 constexpr float Extent = 1100.0f;
+constexpr float GridCell = 2*Extent/Grid;
+constexpr float BedExtent = 2600.0f; // the fixed bed covers the patch at either pan limit
 constexpr RenderUInt32 WaterFVF = D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_DIFFUSE | D3DFVF_TEX4;
+constexpr unsigned MirrorSize = 512; // the game's WATER_REFLECTION_SIZE
 
 struct Options {
     unsigned width = 1280, height = 800, frames = 0;
     float time = 18.0f, strength = 0.80f, brightness = 0.67f;
     float mapDepth = 2.0f, mapOpacity = 0.8f;
+    WaterPreviewCamera::State camera;
     int mode = 2;
-    bool offscreen = false, bubbles = true;
+    int reflection = WaterPreviewReflection::Hybrid;
+    bool offscreen = false, bubbles = true, props = true;
     bool controls = true, strengthSet = false, brightnessSet = false, bubblesSet = false;
-    bool loadPreset = false;
-    std::string screenshot, colour, config, exportConfig;
+    bool loadPreset = false, widthSet = false, heightSet = false;
+    std::string screenshot, colour, config, exportConfig, scene, debug;
     std::string mapColour = "324B32", mapTexture = "TSWater03.tga";
 };
 
@@ -49,15 +57,28 @@ void help()
         "       [--config FILE.ini] [--map-color RRGGBB] [--map-texture NAME]\n"
         "       [--map-depth N] [--map-opacity 0..1] [--export-config FILE.ini]\n"
         "       [--load-preset] [--width N] [--height N] [--time SECONDS]\n"
+        "       [--reflection mirror|ssr|hybrid|compare] [--no-props] [--scene NAME|PATH]\n"
+        "       [--yaw RADIANS] [--pitch 0.48..1.38] [--distance 180..1050]\n"
+        "       [--target X Y] [--debug VIEW]\n"
         "\n1 clean baseline | 2 resolved material | 3 split (baseline left / material right)\n"
-        "B bubbles | Space pause | drag / arrows orbit | wheel / +/- zoom\n"
-        "[ / ] pollution | R reset camera | S save PNG | E export rule | Escape close\n"
+        "4 mirror | 5 screen space | 6 hybrid (the game's default) | 7 all three side by side\n"
+        "P synthetic props: bank, towers, bridge, sandstone ruins and striped pole\n"
+        "B bubbles | Space pause | [ / ] pollution | S save PNG | E export rule | Escape close\n"
+        "Synthetic camera: arrows pan; right drag pans away from its press anchor.\n"
+        "Middle drag turns (0.01 rad/pixel); Alt+middle drag tilts (down tips down).\n"
+        "Middle click resets heading/pitch/zoom; Home or R also resets the ground target.\n"
+        "Wheel / +/- zoom; Ctrl+wheel zooms 5x faster; Alt+wheel tilts (forward flatter).\n"
+        "--target X Y starts the ground target at water level (each coordinate -700..700).\n"
+        "Resets use the starting --yaw/--pitch/--distance and, for Home/R, --target.\n"
         "H color panel: RGB, brightness, pollution; Save color stores an editor preset.\n"
         "L loads saved editor colors; --load-preset restores them at startup.\n"
-        "Ordinary starts resolve the INI rules.\n"
+        "Synthetic starts resolve the INI rules; scene starts retain the banked material.\n"
         "E writes --export-config or water-preview-rule.ini in the working directory.\n"
         "The texture name is a matching input; authored texture pixels are not loaded.\n"
-        "\nNo game data is required. No game/save files are changed.\n"
+        "\n--scene: FIXED CAMERA (banked frame); camera input and start options have no effect.\n"
+        "Scene names resolve beside the executable: water-scenes/NAME.wbank.\n"
+        "--width/--height scale and letterbox that view; compare uses three bank-size targets.\n"
+        "Synthetic mode requires no game data. No game/save files are changed.\n"
         "--offscreen defaults to one frame; captures use deterministic 1/60 s steps.");
 }
 
@@ -104,8 +125,24 @@ Options parse(int argc, char **argv)
         };
         if (arg == "--offscreen") o.offscreen = true;
         else if (arg == "--no-bubbles") { o.bubbles = false; o.bubblesSet = true; }
-        else if (arg == "--width") o.width = integer(value(), 320, 4096);
-        else if (arg == "--height") o.height = integer(value(), 240, 4096);
+        else if (arg == "--no-props") o.props = false;
+        else if (arg == "--yaw") o.camera.yaw = number(value(), -100, 100);
+        else if (arg == "--pitch") o.camera.pitch = number(value(), 0.48f, 1.38f);
+        else if (arg == "--distance") o.camera.distance = number(value(), 180, 1050);
+        else if (arg == "--target") {
+            o.camera.x = number(value(), -WaterPreviewCamera::TargetLimit, WaterPreviewCamera::TargetLimit);
+            o.camera.y = number(value(), -WaterPreviewCamera::TargetLimit, WaterPreviewCamera::TargetLimit);
+        }
+        else if (arg == "--reflection") {
+            const std::string reflection = value();
+            if (reflection == "mirror") o.reflection = WaterPreviewReflection::Mirror;
+            else if (reflection == "ssr") o.reflection = WaterPreviewReflection::ScreenSpace;
+            else if (reflection == "hybrid") o.reflection = WaterPreviewReflection::Hybrid;
+            else if (reflection == "compare") o.reflection = WaterPreviewReflection::Compare;
+            else throw std::runtime_error("reflection must be mirror, ssr, hybrid or compare");
+        }
+        else if (arg == "--width") { o.width = integer(value(), 320, 8192); o.widthSet = true; }
+        else if (arg == "--height") { o.height = integer(value(), 240, 8192); o.heightSet = true; }
         else if (arg == "--frames") o.frames = integer(value(), 1, 1000000);
         else if (arg == "--time") o.time = number(value(), 0, 1000000);
         else if (arg == "--strength") { o.strength = number(value(), 0, 1); o.strengthSet = true; }
@@ -121,6 +158,8 @@ Options parse(int argc, char **argv)
         }
         else if (arg == "--map-depth") o.mapDepth = number(value(), 0.001f, 1000000);
         else if (arg == "--map-opacity") o.mapOpacity = number(value(), 0, 1);
+        else if (arg == "--scene") o.scene = value();
+        else if (arg == "--debug") o.debug = value();
         else if (arg == "--config") o.config = value();
         else if (arg == "--export-config") o.exportConfig = value();
         else if (arg == "--screenshot") o.screenshot = value();
@@ -163,6 +202,14 @@ D3DMATRIX viewMatrix(Vec3 eye, Vec3 target)
     return m;
 }
 
+D3DMATRIX multiply(const D3DMATRIX &a, const D3DMATRIX &b)
+{
+    D3DMATRIX r = {};
+    for (unsigned i=0; i<4; ++i) for (unsigned j=0; j<4; ++j)
+        for (unsigned k=0; k<4; ++k) r.m[i][j] += a.m[i][k]*b.m[k][j];
+    return r;
+}
+
 D3DMATRIX projection(float aspect)
 {
     const float near = 2.0f, far = 6000.0f, scale = 1.0f / std::tan(48.0f*Pi/360.0f);
@@ -179,12 +226,127 @@ void require(RenderResult result, const char *operation)
 
 struct WaterVertex { float x,y,z,nx,ny,nz; uint32_t colour; float uv[8]; };
 struct BedVertex { float x,y,z; uint32_t colour; float u,v; };
+struct PropVertex { float x,y,z; uint32_t colour; };
+
+// Flat-shaded scenery in and above the water, lit by the same sun the water shader uses.
+class PropBuilder {
+public:
+    std::vector<PropVertex> vertices;
+    // Everything below `floor` is cut away: the mirror pass keeps only what stands above the water.
+    explicit PropBuilder(float floor) : floor(floor) {}
+    void box(float x0, float y0, float z0, float x1, float y1, float z1, uint32_t colour)
+    {
+        z0 = std::max(z0, floor);
+        if (z1 <= z0) return;
+        quad({x0,y0,z1},{x1,y0,z1},{x1,y1,z1},{x0,y1,z1},colour);
+        quad({x0,y0,z0},{x1,y0,z0},{x1,y0,z1},{x0,y0,z1},colour);
+        quad({x1,y1,z0},{x0,y1,z0},{x0,y1,z1},{x1,y1,z1},colour);
+        quad({x0,y1,z0},{x0,y0,z0},{x0,y0,z1},{x0,y1,z1},colour);
+        quad({x1,y0,z0},{x1,y1,z0},{x1,y1,z1},{x1,y0,z1},colour);
+    }
+    // Tilt about the box's local y axis, then turn it on the ground. Faces go through the
+    // same water-plane clip as the upright scenery, including the slab's visible underside.
+    void tiltedBox(Vec3 centre, Vec3 size, float yaw, float tilt, uint32_t colour)
+    {
+        const auto corner=[&](float x, float y, float z) {
+            x*=size.x*.5f; y*=size.y*.5f; z*=size.z*.5f;
+            const float tx=x*std::cos(tilt)+z*std::sin(tilt),tz=z*std::cos(tilt)-x*std::sin(tilt);
+            return Vec3{centre.x+tx*std::cos(yaw)-y*std::sin(yaw),
+                centre.y+tx*std::sin(yaw)+y*std::cos(yaw),centre.z+tz};
+        };
+        const Vec3 a=corner(-1,-1,-1),b=corner(1,-1,-1),c=corner(1,1,-1),d=corner(-1,1,-1);
+        const Vec3 e=corner(-1,-1,1),f=corner(1,-1,1),g=corner(1,1,1),h=corner(-1,1,1);
+        quad(e,f,g,h,colour); quad(d,c,b,a,colour);
+        quad(a,b,f,e,colour); quad(c,d,h,g,colour);
+        quad(d,a,e,h,colour); quad(b,c,g,f,colour);
+    }
+    // A bank rising along +y from (yLow, zLow) to (yHigh, zHigh), then a tiled plateau beyond.
+    void bank(float x0, float x1, float yLow, float zLow, float yHigh, float zHigh, float yFar)
+    {
+        if (zHigh <= floor) return;
+        const float yCut = zLow >= floor ? yLow : yLow + (yHigh - yLow) * (floor - zLow) / (zHigh - zLow);
+        const float zCut = std::max(zLow, floor);
+        quad({x0,yCut,zCut},{x1,yCut,zCut},{x1,yHigh,zHigh},{x0,yHigh,zHigh},0xff9c8a62);
+        const float tile = 60;
+        for (float y = yHigh; y < yFar; y += tile)
+            for (float x = x0; x < x1; x += tile) {
+                const bool odd = (int(std::floor((x - x0) / tile)) + int(std::floor((y - yHigh) / tile))) & 1;
+                quad({x,y,zHigh},{x+tile,y,zHigh},{x+tile,y+tile,zHigh},{x,y+tile,zHigh},odd ? 0xff5f7a3c : 0xff6f8a46);
+            }
+    }
+private:
+    float floor;
+    static uint32_t shade(uint32_t colour, Vec3 normal)
+    {
+        const Vec3 sun = normalized({-.30f,-.45f,.84f});
+        const float light = .38f + .62f * std::max(0.f, dot(normal, sun));
+        const auto channel = [&](unsigned shift) {
+            return uint32_t(std::min(255.f, float((colour >> shift) & 255) * light)) << shift; };
+        return 0xff000000u | channel(16) | channel(8) | channel(0);
+    }
+    void quad(Vec3 a, Vec3 b, Vec3 c, Vec3 d, uint32_t colour)
+    {
+        const uint32_t lit = shade(colour, normalized(cross(subtract(b,a),subtract(d,a))));
+        // A tilted face may straddle the plane: clamping its corners would change its slope.
+        // Clip its edges instead, then triangulate the remaining convex polygon in its plane.
+        Vec3 clipped[8];
+        unsigned count=0;
+        Vec3 previous=d;
+        for (const Vec3 &p : {a,b,c,d}) {
+            if ((previous.z>=floor)!=(p.z>=floor)) {
+                const float t=(floor-previous.z)/(p.z-previous.z);
+                clipped[count++]={previous.x+(p.x-previous.x)*t,previous.y+(p.y-previous.y)*t,floor};
+            }
+            if (p.z>=floor) clipped[count++]=p;
+            previous=p;
+        }
+        for (unsigned i=1; i+1<count; ++i)
+            for (const Vec3 &p : {clipped[0],clipped[i],clipped[i+1]}) vertices.push_back({p.x,p.y,p.z,lit});
+    }
+};
+
+// Towers on the far bank (tall enough to leave the top of the screen), a bridge on two piers
+// across the middle, sandstone ruins in the shallows, and a striped pole close to the camera.
+std::vector<PropVertex> buildProps(float floor)
+{
+    PropBuilder b(floor);
+    b.bank(-900, 900, 130, 10, 260, 95, 960);
+    b.box(-330, 300, 95, -270, 360, 290, 0xffc0392b);
+    b.box(-120, 320, 95, -70, 370, 210, 0xffe8e4dc);
+    b.box(60, 300, 95, 130, 350, 250, 0xffd9a521);
+    b.box(250, 330, 95, 300, 380, 180, 0xff2a8c82);
+    b.box(-330, 60, 78, 330, 95, 88, 0xffa09a8c);
+    b.box(-162, 66, 0, -138, 90, 78, 0xff8c8478);
+    b.box(108, 66, 0, 132, 90, 78, 0xff8c8478);
+    // A submerged masonry footing makes the ruins' water shallow. The 56-58 unit columns
+    // start on it below the surface; refraction can see their bases and the broken column.
+    const uint32_t sandstone=0xffc8b184,lintel=0xffd6c397;
+    b.box(-120, -90, 0, 110, 22, 22, 0xff9c8a68);
+    b.box(-82, -4, 22, -72, 6, 80, sandstone);
+    b.box(-26, -4, 22, -16, 6, 80, sandstone);
+    b.box(-88, -8, 80, -10, 10, 89, lintel);
+    // Three columns support the two arms of an L, with a small overhang at either end.
+    b.box(26, -4, 22, 36, 6, 78, sandstone);
+    b.box(82, -4, 22, 92, 6, 78, sandstone);
+    b.box(82, -60, 22, 92, -50, 78, sandstone);
+    b.box(20, -8, 78, 78, 10, 87, lintel);
+    b.box(78, -66, 78, 98, 10, 87, lintel);
+    b.box(-111, -30, 22, -101, -20, 51, sandstone);
+    b.tiltedBox({-60,-56,44},{66,15,10},-.35f,.55f,lintel);
+    for (int band = 0; band < 6; ++band)
+        b.box(30, -130, band ? 20.f + band * 12.f : 0.f, 42, -118, 32.f + band * 12.f, band & 1 ? 0xffe8e4dc : 0xffc0392b);
+    return std::move(b.vertices);
+}
 
 class Preview {
 public:
-    explicit Preview(Options options) : options(options), time(options.time) {}
+    explicit Preview(Options options) : options(options), time(options.time), cameraControl(options.camera) {}
     ~Preview()
     {
+        scene.release();
+        if (mirrorDepth) mirrorDepth->Release();
+        if (mirrorSurface) mirrorSurface->Release();
+        if (mirrorTexture) mirrorTexture->Release();
         if (vertices) vertices->Release();
         if (indices) indices->Release();
         if (shader) shader->Release();
@@ -199,7 +361,8 @@ public:
     {
         initialize();
         updateTitle();
-        std::puts("Controls: drag color sliders; H panel; L load saved colors; 1 clean baseline, 2 material, 3 split; B bubbles; Space pause; drag/arrows orbit; wheel/+/- zoom; S PNG; E export rule; Esc close.");
+        std::printf("Controls: left-drag color sliders; H panel; L load saved colors; 1 clean baseline, 2 material, 3 split; 4 mirror, 5 screen space, 6 hybrid, 7 compare reflections; B bubbles; [/] pollution; Space pause; S PNG; E export rule; Esc close. %s\n",
+            scene.loaded()?"FIXED CAMERA (banked frame).":"P props; arrows/right drag pan; middle drag turns; Alt+middle drag tilts (down tips down); middle click resets heading/pitch/zoom; wheel/+/- zoom; Ctrl+wheel 5x zoom; Alt+wheel tilts (forward flatter); Home/R resets camera and target.");
         uint64_t previous = SDL_GetTicksNS();
         unsigned frame = 0;
         bool done = false;
@@ -229,6 +392,7 @@ public:
 
 private:
     Options options;
+    WaterPreviewScene::Scene scene;
     SDL_Window *window = nullptr;
     IDirect3D9 *adapter = nullptr;
     PosixDevice9 *device = nullptr;
@@ -237,8 +401,15 @@ private:
     IDirect3DIndexBuffer9 *indices = nullptr;
     std::vector<IDirect3DTexture9 *> textures;
     IDirect3DTexture9 *bed = nullptr, *height = nullptr, *optical = nullptr, *material = nullptr;
-    float time, yaw = 0.10f, pitch = 0.82f, distance = 370.0f;
-    bool paused = false, dragging = false, capture = false;
+    IDirect3DTexture9 *mirrorTexture = nullptr;
+    IDirect3DSurface9 *mirrorSurface = nullptr, *mirrorDepth = nullptr;
+    std::vector<PropVertex> props, mirrorProps;
+    std::vector<WaterVertex> waterGrid;
+    D3DMATRIX waterWorld = identity();
+    WaterPreviewReflection::Bar reflectionBar;
+    float time;
+    WaterPreviewCamera::Camera cameraControl;
+    bool paused = false, capture = false;
     WaterPreviewColor::Panel colourPanel;
     std::string colourSettingsPath;
     ModernWaterConfig::Material resolvedMaterial;
@@ -302,7 +473,7 @@ private:
             v.red=float((rgb>>16)&255)/255; v.green=float((rgb>>8)&255)/255; v.blue=float(rgb&255)/255;
         }
         if (options.strengthSet || options.brightnessSet || !options.colour.empty())
-            colourPanel.status="UNSAVED CHANGES";
+            { colourPanel.status="UNSAVED CHANGES"; colourPanel.edited=true; }
         colourPanel.visible=options.controls;
     }
 
@@ -317,6 +488,7 @@ private:
             return false;
         }
         colourPanel.values=saved;
+        colourPanel.edited=true;
         colourPanel.status="SAVED COLOR LOADED";
         std::printf("Loaded preview color: %s\n",colourSettingsPath.c_str());
         return true;
@@ -395,12 +567,26 @@ private:
     void initialize()
     {
         if (!SDL_Init(SDL_INIT_VIDEO)) throw std::runtime_error(std::string("SDL video: ")+SDL_GetError());
-        loadMaterial();
+        if (!options.scene.empty()) {
+            scene.load(options.scene);
+            if (!options.widthSet) options.width=scene.bank.width;
+            if (!options.heightSet) options.height=scene.bank.height;
+            time=0;
+            const auto &c=scene.bank.draws.front().pixelConstants;
+            auto &v=colourPanel.values;
+            v.red=c[94*4]; v.green=c[94*4+1]; v.blue=c[94*4+2]; v.brightness=c[94*4+3]; v.strength=c[95*4+1];
+            colourPanel.defaults=v;
+            if (!options.bubblesSet) options.bubbles=c[95*4+2]>.5f;
+            colourPanel.status="BANKED MATERIAL - FIXED CAMERA";
+        } else loadMaterial();
         loadColour();
+        if (scene.loaded() && options.bubblesSet) colourPanel.edited=true;
         if (!options.exportConfig.empty()) exportRule();
         // The preview requires the game's native FFT path even if a user's game launch disables it.
         SDL_setenv_unsafe("ZH_WATER_FFT","1",1);
-        SDL_unsetenv_unsafe("ZH_WATER_DEBUG");
+        // An inherited game diagnostic would replace the picture; only --debug asks for one.
+        if (options.debug.empty()) SDL_unsetenv_unsafe("ZH_WATER_DEBUG");
+        else SDL_setenv_unsafe("ZH_WATER_DEBUG",options.debug.c_str(),1);
         if (!options.offscreen) {
             window = SDL_CreateWindow("Water Preview",options.width,options.height,0);
             if (!window) throw std::runtime_error(std::string("create window: ")+SDL_GetError());
@@ -420,8 +606,15 @@ private:
         const RenderUInt32 tokens[] = {0xffff0101u,0x0000ffffu};
         require(device->CreatePixelShader(tokens,&shader),"create water shader");
         PosixDevice_Name_Shader(shader,"trapezoid water ps.1.1");
-        createMesh();
-        createTextures();
+        if (scene.loaded()) scene.initialize(device);
+        else {
+            createMesh();
+            createTextures();
+            createMirror();
+            props=buildProps(-1.0e9f);
+            mirrorProps=buildProps(WaterLevel);
+        }
+        reflectionBar.choice=options.reflection;
         device->SetRenderState(D3DRS_LIGHTING,0);
         device->SetRenderState(D3DRS_CULLMODE,D3DCULL_NONE);
         device->SetRenderState(D3DRS_FOGENABLE,0);
@@ -440,13 +633,12 @@ private:
 
     void createMesh()
     {
-        std::vector<WaterVertex> data;
-        data.reserve((Grid+1)*(Grid+1));
+        waterGrid.reserve((Grid+1)*(Grid+1));
         for (unsigned y=0; y<=Grid; ++y) for (unsigned x=0; x<=Grid; ++x) {
-            const float px=(float(x)/Grid*2-1)*Extent, py=(float(y)/Grid*2-1)*Extent;
+            const float px=float(x)*GridCell-Extent, py=float(y)*GridCell-Extent;
             // Exact production FFT metadata: weight, free damping, offshore exposure;
             // UV0 geometric correction, UV1 attenuation and original water elevation.
-            data.push_back({px,py,WaterLevel,1.0f,0.72f,0.26f,0xffffffffu,{0,0,0.72f,WaterLevel,0,0,0,0}});
+            waterGrid.push_back({px,py,WaterLevel,1.0f,0.72f,0.26f,0xffffffffu,{0,0,0.72f,WaterLevel,0,0,0,0}});
         }
         std::vector<uint16_t> faces;
         faces.reserve(Grid*Grid*6);
@@ -454,15 +646,34 @@ private:
             const uint16_t a=uint16_t(y*(Grid+1)+x), b=uint16_t(a+1), c=uint16_t(a+Grid+1), d=uint16_t(c+1);
             faces.insert(faces.end(),{a,b,c,b,d,c});
         }
-        require(device->CreateVertexBuffer(unsigned(data.size()*sizeof(WaterVertex)),D3DUSAGE_WRITEONLY,WaterFVF,D3DPOOL_MANAGED,&vertices,nullptr),"create water vertices");
+        require(device->CreateVertexBuffer(unsigned(waterGrid.size()*sizeof(WaterVertex)),D3DUSAGE_WRITEONLY,WaterFVF,D3DPOOL_MANAGED,&vertices,nullptr),"create water vertices");
         void *memory = nullptr;
         require(vertices->Lock(0,0,&memory,0),"lock water vertices");
-        std::memcpy(memory,data.data(),data.size()*sizeof(WaterVertex));
+        std::memcpy(memory,waterGrid.data(),waterGrid.size()*sizeof(WaterVertex));
         require(vertices->Unlock(),"unlock water vertices");
         require(device->CreateIndexBuffer(unsigned(faces.size()*sizeof(uint16_t)),D3DUSAGE_WRITEONLY,D3DFMT_INDEX16,D3DPOOL_MANAGED,&indices,nullptr),"create water indices");
         require(indices->Lock(0,0,&memory,0),"lock water indices");
         std::memcpy(memory,faces.data(),faces.size()*sizeof(uint16_t));
         require(indices->Unlock(),"unlock water indices");
+    }
+
+    void moveWaterGrid(const D3DMATRIX &world)
+    {
+        if (world._41==waterWorld._41 && world._42==waterWorld._42) return;
+        // The production vertex FFT takes input.Position.xy before the fixed transform,
+        // whereas the pixel shader reconstructs world.xy. Bake this world translation into
+        // the upload and draw with identity, so both stages sample the same fixed positions.
+        // Integer cells also keep shared vertices and their triangles identical after a step.
+        for (unsigned y=0; y<=Grid; ++y) for (unsigned x=0; x<=Grid; ++x) {
+            auto &v=waterGrid[y*(Grid+1)+x];
+            v.x=float(x)*GridCell-Extent+world._41;
+            v.y=float(y)*GridCell-Extent+world._42;
+        }
+        void *memory=nullptr;
+        require(vertices->Lock(0,0,&memory,0),"lock moving water vertices");
+        std::memcpy(memory,waterGrid.data(),waterGrid.size()*sizeof(WaterVertex));
+        require(vertices->Unlock(),"unlock moving water vertices");
+        waterWorld=world;
     }
 
     void createTextures()
@@ -483,12 +694,84 @@ private:
         optical=texture(1,{0xff430000u}); // enclosed-water exposure: 0.263, no coastline
     }
 
+    // The game's map-water mirror: a 512 square target, cleared to transparent black so the
+    // shader's coverage test falls back to its sky wherever nothing stands.
+    void createMirror()
+    {
+        require(device->CreateTexture(MirrorSize,MirrorSize,1,D3DUSAGE_RENDERTARGET,D3DFMT_A8R8G8B8,
+            D3DPOOL_DEFAULT,&mirrorTexture,nullptr),"create mirror target");
+        require(mirrorTexture->GetSurfaceLevel(0,&mirrorSurface),"mirror target surface");
+        require(device->CreateDepthStencilSurface(MirrorSize,MirrorSize,D3DFMT_D24S8,D3DMULTISAMPLE_NONE,0,1,
+            &mirrorDepth,nullptr),"create mirror depth");
+    }
+
+    bool comparing() const { return options.reflection==WaterPreviewReflection::Compare; }
+    // Compare draws the same camera three times, each in a third of the window.
+    float viewAspect() const
+    {
+        return float(comparing()?options.width/3:options.width)/options.height;
+    }
+    unsigned columnLeft(unsigned i) const { return options.width/3*i; }
+    unsigned columnWidth(unsigned i) const { return i==2?options.width-2*(options.width/3):options.width/3; }
+
+    bool showsMirror() const
+    {
+        return options.props && options.reflection!=WaterPreviewReflection::ScreenSpace;
+    }
+
+    void drawProps(const std::vector<PropVertex> &list)
+    {
+        if (list.empty()) return;
+        device->SetPixelShader(nullptr);
+        for (unsigned stage=0; stage<16; ++stage) device->SetTexture(stage,nullptr);
+        device->SetTextureStageState(0,D3DTSS_COLOROP,D3DTOP_SELECTARG1);
+        device->SetTextureStageState(0,D3DTSS_COLORARG1,D3DTA_DIFFUSE);
+        device->SetTextureStageState(0,D3DTSS_ALPHAOP,D3DTOP_SELECTARG1);
+        device->SetTextureStageState(0,D3DTSS_ALPHAARG1,D3DTA_DIFFUSE);
+        device->SetTextureStageState(1,D3DTSS_COLOROP,D3DTOP_DISABLE);
+        device->SetFVF(D3DFVF_XYZ|D3DFVF_DIFFUSE);
+        require(device->DrawPrimitiveUP(D3DPT_TRIANGLELIST,unsigned(list.size()/3),list.data(),sizeof(PropVertex)),"draw props");
+    }
+
+    // The scene seen from the camera reflected in the water plane, as WaterRenderObjClass::renderMirror
+    // draws it: a point on the plane lands where the main camera sees it, so the shader can look the
+    // mirror up at its own screen position.
+    void drawMirror()
+    {
+        IDirect3DSurface9 *colour=nullptr,*depth=nullptr;
+        require(device->GetRenderTarget(0,&colour),"get render target");
+        require(device->GetDepthStencilSurface(&depth),"get depth target");
+        D3DMATRIX view;
+        device->GetTransform(D3DTS_VIEW,&view);
+        D3DMATRIX reflect=identity();
+        reflect._33=-1; reflect._43=2*WaterLevel;
+        const D3DMATRIX mirrored=multiply(reflect,view);
+        require(device->SetRenderTarget(0,mirrorSurface),"set mirror target");
+        require(device->SetDepthStencilSurface(mirrorDepth),"set mirror depth");
+        const D3DVIEWPORT9 viewport={0,0,MirrorSize,MirrorSize,0,1};
+        require(device->SetViewport(&viewport),"set mirror viewport");
+        require(device->Clear(0,nullptr,D3DCLEAR_TARGET|D3DCLEAR_ZBUFFER,0x00000000u,1,0),"clear mirror");
+        device->SetTransform(D3DTS_VIEW,&mirrored);
+        device->SetRenderState(D3DRS_ZENABLE,D3DZB_TRUE);
+        device->SetRenderState(D3DRS_ZWRITEENABLE,1);
+        device->SetRenderState(D3DRS_ALPHABLENDENABLE,0);
+        drawProps(mirrorProps);
+        device->SetTransform(D3DTS_VIEW,&view);
+        require(device->SetRenderTarget(0,colour),"restore render target");
+        require(device->SetDepthStencilSurface(depth),"restore depth target");
+        colour->Release();
+        if (depth) depth->Release();
+        const D3DVIEWPORT9 full={0,0,options.width,options.height,0,1};
+        require(device->SetViewport(&full),"restore viewport");
+    }
+
     void camera()
     {
-        pitch=std::clamp(pitch,0.48f,1.38f); distance=std::clamp(distance,180.0f,1050.0f);
-        const Vec3 offset={std::sin(yaw)*std::cos(pitch),-std::cos(yaw)*std::cos(pitch),std::sin(pitch)};
+        cameraControl.clamp();
+        auto &c=cameraControl.state;
+        const Vec3 offset={std::sin(c.yaw)*std::cos(c.pitch),-std::cos(c.yaw)*std::cos(c.pitch),std::sin(c.pitch)};
         const Vec3 right=normalized(cross({0,0,1},offset)),up=cross(offset,right);
-        const float tangent=std::tan(48.0f*Pi/360.0f),aspect=float(options.width)/options.height;
+        const float tangent=std::tan(48.0f*Pi/360.0f),aspect=viewAspect();
         float farthest=0;
         for (int x : {-1,1}) for (int y : {-1,1}) {
             const Vec3 ray={-offset.x+tangent*(up.x*y+right.x*x*aspect),
@@ -497,10 +780,11 @@ private:
             farthest=std::max(farthest,std::max(std::abs(offset.x+ray.x*travel),std::abs(offset.y+ray.y*travel)));
         }
         // Keep the finite patch outside every camera ray, including wide windows and
-        // low viewpoints. A margin covers the actual wave displacement near the boundary.
-        distance=std::min(distance,Extent*.90f/std::max(farthest,.01f));
-        const Vec3 eye={offset.x*distance,offset.y*distance,WaterLevel+offset.z*distance};
-        const D3DMATRIX world=identity(),view=viewMatrix(eye,{0,0,WaterLevel}),project=projection(float(options.width)/options.height);
+        // low viewpoints. Measure from the target, with room for half a snapped grid cell
+        // and the actual wave displacement near the boundary.
+        c.distance=std::min(c.distance,(Extent*.90f-GridCell*.5f)/std::max(farthest,.01f));
+        const Vec3 eye={c.x+offset.x*c.distance,c.y+offset.y*c.distance,WaterLevel+offset.z*c.distance};
+        const D3DMATRIX world=identity(),view=viewMatrix(eye,{c.x,c.y,WaterLevel}),project=projection(viewAspect());
         device->SetTransform(D3DTS_WORLD,&world);
         device->SetTransform(D3DTS_VIEW,&view);
         device->SetTransform(D3DTS_PROJECTION,&project);
@@ -508,9 +792,52 @@ private:
 
     void draw()
     {
+        if (scene.loaded()) {
+            require(device->BeginScene(),"begin bank scene");
+            scene.draw(options.width,options.height,options.reflection,time,colourPanel.edited,colourPanel.values,options.bubbles,options.mode);
+            colourPanel.draw(device,options.width,options.height);
+            if (options.controls) reflectionBar.draw(device,options.width,options.height,comparing()?3:1);
+            require(device->EndScene(),"end bank scene");
+            checkDraws();
+            return;
+        }
         camera();
-        require(device->Clear(0,nullptr,D3DCLEAR_TARGET|D3DCLEAR_ZBUFFER,0xff1b2830u,1,0),"clear frame");
         require(device->BeginScene(),"begin scene");
+        if (showsMirror()) drawMirror();
+        require(device->Clear(0,nullptr,D3DCLEAR_TARGET|D3DCLEAR_ZBUFFER,0xff1b2830u,1,0),"clear frame");
+        // Every view's opaque scene precedes any water, so the device's one scene snapshot of
+        // the frame holds all of it for the refraction and the trace.
+        if (comparing()) {
+            for (unsigned i=0; i<3; ++i) {
+                const D3DVIEWPORT9 viewport={columnLeft(i),0,columnWidth(i),options.height,0,1};
+                require(device->SetViewport(&viewport),"set column viewport");
+                const D3DMATRIX project=projection(float(columnWidth(i))/options.height);
+                require(device->SetTransform(D3DTS_PROJECTION,&project),"set column projection");
+                drawScene();
+            }
+        } else drawScene();
+        drawAllWater();
+        colourPanel.draw(device,options.width,options.height);
+        if (options.controls)
+            reflectionBar.draw(device,options.width,options.height,comparing()?3:1);
+        require(device->EndScene(),"end scene");
+        checkDraws();
+        if (!device->Get_Gpu()->Ocean_Updates()) throw std::runtime_error("production FFT did not initialize");
+    }
+
+    void checkDraws()
+    {
+        if (!device->Draw_Refusals().empty()) {
+            std::string why="GPU refused a draw:";
+            for (const auto &entry:device->Draw_Refusals()) why+=" "+entry.first+";";
+            throw std::runtime_error(why);
+        }
+    }
+
+    void drawScene()
+    {
+        const D3DMATRIX world=identity();
+        device->SetTransform(D3DTS_WORLD,&world);
         device->SetPixelShader(nullptr);
         device->SetRenderState(D3DRS_ZENABLE,D3DZB_TRUE);
         device->SetRenderState(D3DRS_ZWRITEENABLE,1);
@@ -525,18 +852,41 @@ private:
         device->SetTextureStageState(0,D3DTSS_ALPHAARG1,D3DTA_TEXTURE);
         device->SetTextureStageState(1,D3DTSS_COLOROP,D3DTOP_DISABLE);
         device->SetFVF(D3DFVF_XYZ|D3DFVF_DIFFUSE|D3DFVF_TEX1);
-        const float edge=1800,uv=edge/80;
+        const float edge=BedExtent,uv=edge/80;
         const BedVertex floor[]={{-edge,-edge,0,0xffffffffu,-uv,-uv},{edge,-edge,0,0xffffffffu,uv,-uv},{-edge,edge,0,0xffffffffu,-uv,uv},
             {edge,-edge,0,0xffffffffu,uv,-uv},{edge,edge,0,0xffffffffu,uv,uv},{-edge,edge,0,0xffffffffu,-uv,uv}};
         require(device->DrawPrimitiveUP(D3DPT_TRIANGLELIST,2,floor,sizeof(BedVertex)),"draw submerged bed");
+        // Opaque scenery precedes the water, so the device's scene snapshot holds it for the trace.
+        if (options.props) {
+            drawProps(props);
+            device->SetTextureStageState(0,D3DTSS_COLOROP,D3DTOP_MODULATE);
+            device->SetTextureStageState(0,D3DTSS_COLORARG1,D3DTA_TEXTURE);
+            device->SetTextureStageState(0,D3DTSS_COLORARG2,D3DTA_DIFFUSE);
+            device->SetTextureStageState(0,D3DTSS_ALPHAOP,D3DTOP_SELECTARG1);
+            device->SetTextureStageState(0,D3DTSS_ALPHAARG1,D3DTA_TEXTURE);
+        }
+    }
 
+    void drawAllWater()
+    {
+        // Only the water mesh follows the target. Whole-cell steps keep every vertex on
+        // the same world lattice; moveWaterGrid applies that transform before the FFT.
+        const auto &c=cameraControl.state;
+        D3DMATRIX world=identity();
+        world._41=std::round(c.x/GridCell)*GridCell;
+        world._42=std::round(c.y/GridCell)*GridCell;
+        moveWaterGrid(world);
+        const D3DMATRIX fixed=identity();
+        device->SetTransform(D3DTS_WORLD,&fixed);
         device->SetTexture(0,nullptr);
         device->SetTexture(2,height);
         device->SetTexture(4,optical);
         device->SetTexture(7,material);
         device->SetPixelShader(shader);
+        // Height and optical context describe the fixed world bed, not the moving patch.
+        // Their one-texel fields are uniform; the full bed mapping still covers every offset.
         const float constants[7][4]={{time,0,0,WaterLevel},{-Extent,-Extent,Extent,Extent},
-            {-.30f,-.45f,.84f,0},{.88f,.81f,.66f,1},{Extent,Extent*2,100,1},
+            {-.30f,-.45f,.84f,0},{.88f,.81f,.66f,1},{BedExtent,BedExtent*2,100,1},
             {options.mapDepth,options.mapOpacity,1,1},{0,.26f,.28f,.30f}};
         device->SetPixelShaderConstantF(1,&constants[0][0],7);
         const float fill[4][4]={{0,0,0,1},{0,0,0,0},{0,0,0,0},{0,0,0,0}};
@@ -549,40 +899,52 @@ private:
         device->SetFVF(WaterFVF);
         device->SetStreamSource(0,vertices,0,sizeof(WaterVertex));
         device->SetIndices(indices);
-        if (options.mode==3) {
+        const int reflection=options.reflection;
+        if (comparing()) {
+            // Mirror | screen space | hybrid: the same view three times over.
+            for (unsigned i=0; i<3; ++i)
+                drawWater(options.mode!=1,columnLeft(i),columnWidth(i),int(i),true);
+            const D3DVIEWPORT9 viewport={0,0,options.width,options.height,0,1};
+            require(device->SetViewport(&viewport),"restore viewport");
+        } else if (options.mode==3) {
             // Crop the same projection into two viewports. The device's viewport scissor
             // supplies the comparison boundary; production shading needs no split hook.
-            drawWater(false,0,options.width/2);
-            drawWater(true,options.width/2,options.width-options.width/2);
+            drawWater(false,0,options.width/2,reflection,false);
+            drawWater(true,options.width/2,options.width-options.width/2,reflection,false);
             const D3DVIEWPORT9 viewport={0,0,options.width,options.height,0,1};
             require(device->SetViewport(&viewport),"restore viewport");
             const D3DMATRIX project=projection(float(options.width)/options.height);
             require(device->SetTransform(D3DTS_PROJECTION,&project),"restore projection");
-        } else drawWater(options.mode!=1,0,options.width);
-        colourPanel.draw(device,options.width,options.height);
-        require(device->EndScene(),"end scene");
-        if (!device->Draw_Refusals().empty()) {
-            std::string why="GPU refused a draw:";
-            for (const auto &entry:device->Draw_Refusals()) why+=" "+entry.first+";";
-            throw std::runtime_error(why);
-        }
-        if (!device->Get_Gpu()->Ocean_Updates()) throw std::runtime_error("production FFT did not initialize");
+        } else drawWater(options.mode!=1,0,options.width,reflection,false);
     }
 
-    void drawWater(bool enabled,unsigned left,unsigned width)
+    // `own` draws a complete view in the viewport; otherwise the viewport crops the window's view.
+    void drawWater(bool enabled,unsigned left,unsigned width,int reflection,bool own)
     {
+        // Each mode is a per-draw choice in the production shader: the mirror (c1.z, stage 1,
+        // the viewport's slice of it in c2) and the trace (c95.w), as the game's water sets them.
+        const bool mirror=showsMirror() && (reflection==WaterPreviewReflection::Mirror || reflection==WaterPreviewReflection::Hybrid);
+        const bool trace=reflection==WaterPreviewReflection::ScreenSpace || reflection==WaterPreviewReflection::Hybrid;
+        const float water[4]={time,0,mirror?1.f:0.f,WaterLevel};
+        const float areaLeft=own?-1.f:-2.f*float(left)/float(width)-1.f;
+        const float area[4]={areaLeft,-1,own?1.f:areaLeft+2.f*float(options.width)/float(width),1};
+        require(device->SetPixelShaderConstantF(1,water,1),"set water parameters");
+        require(device->SetPixelShaderConstantF(2,area,1),"set reflection area");
+        device->SetTexture(1,mirror?mirrorTexture:nullptr);
         const D3DVIEWPORT9 viewport={left,0,width,options.height,0,1};
         require(device->SetViewport(&viewport),"set water viewport");
-        D3DMATRIX project=projection(float(options.width)/options.height);
-        project._11*=float(options.width)/width;
-        const float offset=(float(options.width)-2.f*left-width)/width;
-        project._31+=offset*project._34;
+        D3DMATRIX project=projection(float(own?width:options.width)/options.height);
+        if (!own) {
+            project._11*=float(options.width)/width;
+            const float offset=(float(options.width)-2.f*left-width)/width;
+            project._31+=offset*project._34;
+        }
         require(device->SetTransform(D3DTS_PROJECTION,&project),"set water projection");
         const auto &v=colourPanel.values;
         const float colour[4]={v.red,v.green,v.blue,v.brightness};
         // Editing a neutral fallback creates an explicit tint without changing pollution.
         const float tint=resolvedMaterial.tintAmount>0 || v.red<1 || v.green<1 || v.blue<1 || v.brightness<1 ? 1.f : 0.f;
-        const float parameters[4]={enabled?tint:0.f,enabled?v.strength:0.f,enabled&&options.bubbles?1.f:0.f,0.f};
+        const float parameters[4]={enabled?tint:0.f,enabled?v.strength:0.f,enabled&&options.bubbles?1.f:0.f,trace?1.f:0.f};
         require(device->SetPixelShaderConstantF(ModernWaterMaterial::RegisterColor,colour,1),"set water material color");
         require(device->SetPixelShaderConstantF(ModernWaterMaterial::RegisterParameters,parameters,1),"set water material parameters");
         require(device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST,0,0,(Grid+1)*(Grid+1),0,Grid*Grid*2),"draw modern water");
@@ -593,6 +955,9 @@ private:
         std::vector<uint8_t> pixels;
         if (!device->Get_Gpu()->Read_Back(device->Get_Gpu()->Back_Buffer(),options.width,options.height,pixels))
             throw std::runtime_error("read screenshot from GPU");
+        // The window ignores destination alpha, which a banked game frame carries for shore
+        // blending; a picture with it left in shows transparent holes the window never had.
+        for (size_t i=3; i<pixels.size(); i+=4) pixels[i]=255;
         SDL_Surface *surface=SDL_CreateSurfaceFrom(options.width,options.height,SDL_PIXELFORMAT_BGRA32,pixels.data(),options.width*4);
         if (!surface) throw std::runtime_error(std::string("create screenshot surface: ")+SDL_GetError());
         const bool bmp=path.size()>=4 && path.substr(path.size()-4)==".bmp";
@@ -607,42 +972,55 @@ private:
         if (!window) return;
         char title[320];
         const char *mode=options.mode==1?"Clean baseline":options.mode==2?"Resolved material":"Baseline LEFT | Material RIGHT";
-        std::snprintf(title,sizeof(title),"Water Preview: %s | brightness %.0f%% | pollution %.0f%% | bubbles %s | H panel, E export%s",
-            mode,colourPanel.values.brightness*100,colourPanel.values.strength*100,options.bubbles?"ON":"OFF",paused?" | PAUSED":"");
-        SDL_SetWindowTitle(window,title);
+        const char *reflection=options.reflection==WaterPreviewReflection::Mirror?"mirror"
+            :options.reflection==WaterPreviewReflection::ScreenSpace?"screen space"
+            :options.reflection==WaterPreviewReflection::Hybrid?"hybrid":"mirror | screen space | hybrid";
+        std::snprintf(title,sizeof(title),"Water Preview: %s | reflection %s | brightness %.0f%% | pollution %.0f%% | bubbles %s | H panel, E export%s",
+            mode,reflection,colourPanel.values.brightness*100,colourPanel.values.strength*100,options.bubbles?"ON":"OFF",paused?" | PAUSED":"");
+        if (scene.loaded()) {
+            const std::string bankTitle=std::string(title)+" | "+std::filesystem::path(scene.path).filename().string()+" | FIXED CAMERA (banked frame)";
+            SDL_SetWindowTitle(window,bankTitle.c_str());
+        } else SDL_SetWindowTitle(window,title);
     }
 
     void handle(const SDL_Event &event, bool &done)
     {
-        if (event.type==SDL_EVENT_WINDOW_FOCUS_LOST) dragging=false;
+        if (event.type==SDL_EVENT_WINDOW_FOCUS_LOST) cameraControl.cancelDrag();
+        if (!scene.loaded() && cameraControl.captures(event)) {
+            cameraControl.handle(event);
+            return;
+        }
         if (colourPanel.handle(event)) {
-            dragging=false;
             if (colourPanel.saveRequested) saveColour();
             updateTitle();
             return;
         }
+        if (options.controls && reflectionBar.handle(event,options.width)) {
+            if (reflectionBar.changed) { options.reflection=reflectionBar.choice; reflectionBar.changed=false; }
+            updateTitle();
+            return;
+        }
         if (event.type==SDL_EVENT_QUIT) done=true;
-        else if (event.type==SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.button==SDL_BUTTON_LEFT) dragging=true;
-        else if (event.type==SDL_EVENT_MOUSE_BUTTON_UP && event.button.button==SDL_BUTTON_LEFT) dragging=false;
-        else if (event.type==SDL_EVENT_MOUSE_MOTION && dragging) {yaw-=event.motion.xrel*.005f;pitch+=event.motion.yrel*.004f;}
-        else if (event.type==SDL_EVENT_MOUSE_WHEEL) distance*=std::exp(-event.wheel.y*.09f);
+        else if (!scene.loaded() && cameraControl.handle(event)) return;
         else if (event.type==SDL_EVENT_KEY_DOWN && !event.key.repeat) {
             switch (event.key.key) {
                 case SDLK_ESCAPE: done=true; break;
                 case SDLK_1: options.mode=1; break;
                 case SDLK_2: options.mode=2; break;
                 case SDLK_3: options.mode=3; break;
-                case SDLK_B: options.bubbles=!options.bubbles; colourPanel.status="UNSAVED CHANGES"; break;
+                case SDLK_B: options.bubbles=!options.bubbles; colourPanel.edited=true; colourPanel.status="UNSAVED CHANGES"; break;
+                case SDLK_P: options.props=!options.props; break;
+                case SDLK_4: case SDLK_5: case SDLK_6: case SDLK_7:
+                    options.reflection=reflectionBar.choice=int(event.key.key-SDLK_4); break;
                 case SDLK_SPACE: paused=!paused; break;
-                case SDLK_R: yaw=.10f;pitch=.82f;distance=370; break;
                 case SDLK_S: capture=true; break;
                 case SDLK_L: colourPanel.visible=true; loadSavedColour(); break;
                 case SDLK_E:
                     try { exportRule(); }
                     catch (const std::exception &error) { colourPanel.status="EXPORT FAILED"; std::fprintf(stderr,"%s\n",error.what()); }
                     break;
-                case SDLK_LEFTBRACKET: colourPanel.values.strength=std::max(0.0f,colourPanel.values.strength-.05f); colourPanel.status="UNSAVED CHANGES"; break;
-                case SDLK_RIGHTBRACKET: colourPanel.values.strength=std::min(1.0f,colourPanel.values.strength+.05f); colourPanel.status="UNSAVED CHANGES"; break;
+                case SDLK_LEFTBRACKET: colourPanel.values.strength=std::max(0.0f,colourPanel.values.strength-.05f); colourPanel.edited=true; colourPanel.status="UNSAVED CHANGES"; break;
+                case SDLK_RIGHTBRACKET: colourPanel.values.strength=std::min(1.0f,colourPanel.values.strength+.05f); colourPanel.edited=true; colourPanel.status="UNSAVED CHANGES"; break;
                 default: break;
             }
             updateTitle();
@@ -651,13 +1029,8 @@ private:
 
     void keyboard(float dt)
     {
-        const bool *keys=SDL_GetKeyboardState(nullptr);
-        if (keys[SDL_SCANCODE_LEFT]) yaw-=dt*.65f;
-        if (keys[SDL_SCANCODE_RIGHT]) yaw+=dt*.65f;
-        if (keys[SDL_SCANCODE_UP]) pitch+=dt*.5f;
-        if (keys[SDL_SCANCODE_DOWN]) pitch-=dt*.5f;
-        if (keys[SDL_SCANCODE_EQUALS] || keys[SDL_SCANCODE_KP_PLUS]) distance*=std::exp(-dt*.7f);
-        if (keys[SDL_SCANCODE_MINUS] || keys[SDL_SCANCODE_KP_MINUS]) distance*=std::exp(dt*.7f);
+        if (scene.loaded()) return;
+        cameraControl.update(dt,SDL_GetKeyboardState(nullptr));
     }
 };
 } // namespace

@@ -410,3 +410,231 @@ void PosixDevice9::Capture_Report()
 		fprintf(stderr, "PosixDevice9:   signatures not captured %zu: %s\n", it->second.size(), it->first.c_str());
 	}
 }
+
+#if defined(__linux__)
+#include "Platform/WaterSceneBank.h"
+#include "PosixImageOps.h"
+#include "SdlGpuFrame.h"
+#include "SdlConstants.h"
+#include <SDL3/SDL.h>
+#include <fstream>
+#include <limits>
+#include <algorithm>
+
+namespace {
+struct WaterBankOptions
+{
+	std::string Path;
+	unsigned Frames = 300;
+	WaterBankOptions()
+	{
+		const char *path = getenv("ZH_WATER_BANK");
+		if (!path || !*path) return;
+		Path = path;
+		const char *frames = getenv("ZH_WATER_BANK_FRAMES");
+		if (frames) {
+			char *end = NULL;
+			const unsigned long n = strtoul(frames, &end, 10);
+			if (*frames && end && !*end && n && n <= std::numeric_limits<unsigned>::max()) Frames = unsigned(n);
+		}
+	}
+};
+const WaterBankOptions &water_bank_options()
+{
+	static const WaterBankOptions options;
+	return options;
+}
+}
+
+struct PosixDevice9::WaterBankCapture
+{
+	SdlGpuFrame *Gpu;
+	WaterSceneBank::Frame Frame;
+	SdlTarget Target = {};
+	uint64_t Serial = 0;
+	unsigned Frames = 0;
+	bool Seen = false, Done = false;
+	std::string Failure;
+	struct Pending
+	{
+		SDL_GPUTexture *Texture;
+		unsigned Width, Height;
+		int Draw, Stage; // Draw < 0: the frame colour (-1) or sampled depth (-2)
+	};
+	std::vector<Pending> Downloads;
+	explicit WaterBankCapture(SdlGpuFrame *gpu) : Gpu(gpu) {}
+	~WaterBankCapture() { Release(); }
+	void Release()
+	{
+		for (const Pending &p : Downloads) Gpu->Release_After_Batch(p.Texture, NULL);
+		Downloads.clear();
+	}
+	void Copy(SDL_GPUTexture *source, unsigned width, unsigned height, int draw, int stage, bool depth = false)
+	{
+		if (!source) throw std::runtime_error("a required GPU image is unavailable");
+		SDL_GPUTextureCreateInfo info = {};
+		info.type = SDL_GPU_TEXTURETYPE_2D;
+		info.format = depth ? SDL_GPU_TEXTUREFORMAT_R32_FLOAT : SDL_GPUTextureFormat(SdlGpuFrame::Target_Format());
+		info.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+		info.width = width; info.height = height; info.layer_count_or_depth = info.num_levels = 1;
+		SDL_GPUTexture *copy = SDL_CreateGPUTexture(Gpu->Device(), &info);
+		if (!copy) throw std::runtime_error("cannot allocate a bank image");
+		Downloads.push_back({copy,width,height,draw,stage});
+		const int32_t rect[4] = {0,0,int32_t(width),int32_t(height)};
+		Gpu->Record_Blit(source, rect, copy, rect, false);
+	}
+};
+
+bool PosixDevice9::Water_Bank_Is_Asked()
+{
+	return !water_bank_options().Path.empty();
+}
+
+bool PosixDevice9::Inject_Water_Snapshot(const std::vector<uint8_t> &bgra, const std::vector<float> &depth)
+{
+	SdlTarget target;
+	std::string refusal;
+	return Gpu && Resolve_Target(target, refusal) && Gpu->Inject_Water_Snapshot(target, bgra, depth);
+}
+
+void PosixDevice9::Water_Bank_Draw(const DrawCall &call, int program, unsigned stride, unsigned reads,
+	const SdlTarget &target, SDL_GPUTexture *background, SDL_GPUTexture *depth)
+{
+	if (!WaterBank) WaterBank = std::make_shared<WaterBankCapture>(Gpu);
+	WaterBankCapture &bank = *WaterBank;
+	if (bank.Done) return;
+	bank.Seen = true;
+	if (bank.Frames + 1 != water_bank_options().Frames || !bank.Failure.empty()) return;
+	try {
+		uint64_t serial;
+		if (!depth || Gpu->Ready_Water_Depth(target, serial) != depth) throw std::runtime_error("sampled scene depth is unavailable");
+		if (bank.Frame.draws.empty()) {
+			bank.Target = target; bank.Serial = serial;
+			bank.Frame.width = target.Width; bank.Frame.height = target.Height;
+			bank.Copy(background, target.Width, target.Height, -1, 0);
+			bank.Copy(depth, target.Width, target.Height, -2, 0, true);
+			SdlPixelConstants unused = {}; SdlWaterPixelConstants water;
+			Build_Water_Constants(unused, water);
+			memcpy(bank.Frame.camera.data(), water.CameraPosition, sizeof(float) * 3);
+		} else if (bank.Target.Colour != target.Colour || bank.Target.Depth != target.Depth || bank.Serial != serial) {
+			throw std::runtime_error("water draws use different scene snapshots; a bank requires one view");
+		}
+		WaterSceneBank::Draw draw;
+		draw.program = program; draw.fvf = FVF; draw.stride = stride;
+		draw.viewport = {Viewport.X,Viewport.Y,Viewport.Width,Viewport.Height,Viewport.MinZ,Viewport.MaxZ};
+		memcpy(draw.world.data(), &Transforms[D3DTS_WORLD], sizeof(D3DMATRIX));
+		memcpy(draw.view.data(), &Transforms[D3DTS_VIEW], sizeof(D3DMATRIX));
+		memcpy(draw.projection.data(), &Transforms[D3DTS_PROJECTION], sizeof(D3DMATRIX));
+		draw.pixelConstants.assign(&PixelShaderConstants[0][0], &PixelShaderConstants[0][0] + PIXEL_SHADER_CONSTANT_COUNT * 4);
+		draw.vertexConstants.assign(&VertexShaderConstants[0][0], &VertexShaderConstants[0][0] + VERTEX_SHADER_CONSTANT_COUNT * 4);
+		memcpy(draw.renderStates.data(), RenderStates, sizeof(RenderStates));
+		for (unsigned stage = 0; stage < SAMPLER_COUNT; ++stage) {
+			if (stage < TEXTURE_STAGE_COUNT) memcpy(draw.stageStates[stage].data(), TextureStageStates[stage], sizeof(TextureStageStates[stage]));
+			memcpy(draw.samplerStates[stage].data(), SamplerStates[stage], sizeof(SamplerStates[stage]));
+			memcpy(draw.textureMatrices[stage].data(), &Transforms[D3DTS_TEXTURE0 + stage], sizeof(D3DMATRIX));
+		}
+		if (call.Type != D3DPT_TRIANGLELIST && call.Type != D3DPT_TRIANGLESTRIP && call.Type != D3DPT_TRIANGLEFAN)
+			throw std::runtime_error("water is not a triangle draw");
+		const uint8_t *vertices;
+		size_t limit;
+		if (call.UserVertices) {
+			vertices = static_cast<const uint8_t *>(call.UserVertices); limit = size_t(reads) * stride;
+		} else {
+			const PosixBufferStorage &storage = static_cast<PosixVertexBuffer9 *>(Streams[0])->storage();
+			if (StreamOffsets[0] > storage.length()) throw std::runtime_error("water vertex offset is out of range");
+			vertices = storage.bytes() + StreamOffsets[0]; limit = storage.length() - StreamOffsets[0];
+		}
+		std::vector<uint32_t> source(reads);
+		uint32_t first = call.UserVertices ? 0 : call.StartVertex, last = first + reads - 1;
+		if (call.Indexed) {
+			PosixIndexBuffer9 *buffer = static_cast<PosixIndexBuffer9 *>(Indices);
+			const unsigned size = buffer->format() == D3DFMT_INDEX32 ? 4 : 2;
+			if ((uint64_t(call.StartIndex) + reads) * size > buffer->storage().length()) throw std::runtime_error("water indices are out of range");
+			first = UINT32_MAX; last = 0;
+			for (unsigned i = 0; i < reads; ++i) {
+				uint32_t index = 0;
+				memcpy(&index, buffer->storage().bytes() + (size_t(call.StartIndex) + i) * size, size);
+				const int64_t vertex = int64_t(index) + call.BaseVertex;
+				if (vertex < 0 || vertex > UINT32_MAX) throw std::runtime_error("water vertex index is out of range");
+				source[i] = uint32_t(vertex); first = std::min(first,source[i]); last = std::max(last,source[i]);
+			}
+		} else for (unsigned i = 0; i < reads; ++i) source[i] = first + i;
+		if ((uint64_t(last) + 1) * stride > limit) throw std::runtime_error("water vertices are out of range");
+		for (uint32_t &index : source) index -= first;
+		draw.vertices.assign(vertices + size_t(first) * stride, vertices + (size_t(last) + 1) * stride);
+		draw.indices = WaterSceneBank::TriangleList(source, call.Type == D3DPT_TRIANGLELIST ? WaterSceneBank::Triangles
+			: call.Type == D3DPT_TRIANGLESTRIP ? WaterSceneBank::Strip : WaterSceneBank::Fan);
+		const int drawIndex = int(bank.Frame.draws.size());
+		for (unsigned stage = 0; stage < SAMPLER_COUNT; ++stage) {
+			if (stage == 8 || !Textures[stage]) continue;
+			if (Textures[stage]->GetType() != D3DRTYPE_TEXTURE) throw std::runtime_error("a water stage is not a 2D texture");
+			PosixTexture9 *texture = static_cast<PosixTexture9 *>(Textures[stage]);
+			const PosixImage &top = texture->level(0);
+			auto &image = draw.textures[stage]; image.width = top.width(); image.height = top.height();
+			D3DSURFACE_DESC desc;
+			if (texture->GetLevelDesc(0, &desc) != D3D_OK) throw std::runtime_error("cannot describe a water texture");
+			if (desc.Usage & D3DUSAGE_RENDERTARGET) {
+				IDirect3DSurface9 *surface = NULL;
+				if (texture->GetSurfaceLevel(0, &surface) != D3D_OK) throw std::runtime_error("cannot get a water texture surface");
+				std::string refusal;
+				SDL_GPUTexture *gpu = Gpu_Texture_Of(surface, refusal);
+				surface->Release();
+				bank.Copy(gpu, desc.Width, desc.Height, drawIndex, int(stage));
+			} else {
+				PosixImage converted;
+				const PosixRegion whole = {0,0,top.width(),top.height()};
+				if (!converted.create(D3DFMT_A8R8G8B8,top.width(),top.height(),1)
+					|| posixCopyImage(converted,whole,top,whole,POSIX_FILTER_NONE) != D3D_OK)
+					throw std::runtime_error("cannot decode a water texture as BGRA8");
+				image.bgra.assign(converted.bytes(),converted.bytes()+converted.size());
+			}
+		}
+		bank.Frame.draws.push_back(std::move(draw));
+	} catch (const std::exception &e) { bank.Failure = e.what(); }
+}
+
+void PosixDevice9::Water_Bank_Present(bool presented)
+{
+	if (!WaterBank || WaterBank->Done || !WaterBank->Seen) return;
+	WaterBankCapture &bank = *WaterBank;
+	bank.Seen = false;
+	if (!presented) {
+		if (bank.Frames + 1 != water_bank_options().Frames) return;
+		bank.Done = true;
+		fprintf(stderr,"PosixDevice9: water bank failed: frame submission failed\n");
+		bank.Release(); bank.Frame = {};
+		return;
+	}
+	if (++bank.Frames != water_bank_options().Frames) return;
+	bank.Done = true;
+	const std::string &path = water_bank_options().Path;
+	const std::string temporary = path + ".tmp";
+	try {
+		if (!bank.Failure.empty()) throw std::runtime_error(bank.Failure);
+		for (const auto &p : bank.Downloads) {
+			if (p.Draw == -2) {
+				if (!Gpu->Read_Water_Depth(p.Texture,p.Width,p.Height,bank.Frame.depth)) throw std::runtime_error("depth readback failed");
+			} else {
+				auto &image = p.Draw == -1 ? bank.Frame.colour : bank.Frame.draws.at(p.Draw).textures.at(p.Stage);
+				image.width = p.Width; image.height = p.Height;
+				if (!Gpu->Read_Back(p.Texture,p.Width,p.Height,image.bgra)) throw std::runtime_error("colour/texture readback failed");
+			}
+		}
+		// The game binds a white fallback at stage 1 when no mirror was rendered.
+		// Its presence alone must not turn that fallback into an available mirror.
+		for (const auto &draw : bank.Frame.draws) if (draw.pixelConstants[6] > .5f && !draw.textures[1].bgra.empty()) {
+			bank.Frame.mirror = draw.textures[1]; break;
+		}
+		std::ofstream out(temporary,std::ios::binary|std::ios::trunc);
+		std::string error;
+		if (!WaterSceneBank::Write(out,bank.Frame,error)) throw std::runtime_error(error);
+		const auto size = out.tellp(); out.close();
+		if (!out || std::rename(temporary.c_str(),path.c_str()) != 0) throw std::runtime_error("cannot publish bank file");
+		fprintf(stderr,"PosixDevice9: water bank %s: %zu draws, %llu bytes\n",path.c_str(),bank.Frame.draws.size(),(unsigned long long)size);
+	} catch (const std::exception &e) {
+		std::remove(temporary.c_str());
+		fprintf(stderr,"PosixDevice9: water bank %s failed: %s; no bank written\n",path.c_str(),e.what());
+	}
+	bank.Release(); bank.Frame = {};
+}
+#endif

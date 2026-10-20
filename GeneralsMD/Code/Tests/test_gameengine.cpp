@@ -1797,6 +1797,12 @@ TEST(hotkeys_file_reads_the_launchers_rows_and_leaves_its_defaults_out)
 	// KEY_NONE is not a key the launcher shows, so the shipped hold comes back as its own bar-only row
 	CHECK( hold != NULL && hold->barOnly && hold->binding == HotkeyBinding( "", "CTRL" ) && hold->pair == "END_FORCEATTACK" );
 	CHECK( idle != NULL && idle->launcherDefault && idle->binding.key == "KEY_I" );
+#if defined(__linux__)
+	const HotkeyCommandRow *water = NULL;
+	for( size_t each = 0; each < rows.size(); each++ )
+		water = rows[ each ].id == "CYCLE_WATER_REFLECTION" ? &rows[ each ] : water;
+	CHECK( water != NULL && water->category == "INTERFACE" && water->binding.key.empty() && water->usableIn == "GAME" );
+#endif
 
 	// the launcher's own defaults in the player's part are no change of his
 	const HotkeysFile mine = Hotkeys_parse(
@@ -14206,6 +14212,10 @@ TEST(water_style_defaults_to_modern_and_preserves_an_explicit_classic_choice)
     GlobalData *saved=TheWritableGlobalData;
     GlobalData *scratch=NEW GlobalData;
     TheWritableGlobalData=scratch;
+#if defined(__linux__)
+    CHECK_EQ(scratch->m_waterReflection,2);
+    CHECK(findOptionDef("WaterReflection")==NULL); // session only until the options menu exposes it
+#endif
     const OptionDef *water=findOptionDef("WaterStyle");
     CHECK(water!=NULL);
     if (water) {

@@ -762,6 +762,9 @@ std::vector< HotkeyCommandRow > Hotkeys_commandRows( const std::string& commandM
 	for( size_t each = 0; each < sizeof( SELECTION ) / sizeof( SELECTION[ 0 ] ); each++ )
 		unbound.push_back( commandRow( SELECTION[ each ], "SELECTION" ) );
 	unbound.push_back( commandRow( "TOGGLE_PAUSE", "INTERFACE" ) );
+#if defined(__linux__)
+	unbound.push_back( commandRow( "CYCLE_WATER_REFLECTION", "INTERFACE" ) );
+#endif
 	unbound.push_back( commandRow( "TOGGLE_PURCHASE_SCIENCE", "INTERFACE" ) );
 	unbound.push_back( commandRow( "SIGNAL_ATTACK", "INFORMATION" ) );
 	unbound.push_back( commandRow( "SIGNAL_DEFEND", "INFORMATION" ) );

@@ -5372,6 +5372,9 @@ struct WaterShaderNameProbe : PosixDevice9 { using PosixDevice9::Engine_Name_Of;
 class LiveWaterStyleProbe : public WaterRenderObjClass
 {
 public:
+    void setMirrorState(bool modern, WaterType type, bool rendering) {
+        m_useModernWater=modern;m_waterType=type;m_renderingMirror=rendering;
+    }
     void prepareShaders(IDirect3DDevice9 *device) {
         const RenderUInt32 tokens[]={0xffff0101u,0x0000ffffu};
         CHECK(device->CreatePixelShader(tokens,&m_riverWaterPixelShader)==D3D_OK);
@@ -5406,7 +5409,55 @@ public:
         CHECK(m_modernShoreReady && m_modernCoastalRevision==42 && m_modernProfile.frames==17);
         CHECK(!m_reflectionReused); // no per-frame history reset or forced mirror refresh
     }
+#if defined(__linux__)
+    void checkReflectionChanges() {
+        using namespace WaterScreenReflection;
+        TheWritableGlobalData->m_waterStyle=1;
+        synchronizeWaterStyle();
+        // The first frame returning to either mirror mode must refresh a stationary view.
+        // A process-wide environment override keeps the resolved mode fixed instead.
+        for(int setting:{0,1,2,0,2,1,0}) {
+            const Mode previous=m_waterReflectionMode;
+            TheWritableGlobalData->m_waterReflection=setting;
+            const Mode expected=Resolve(CachedEnvironment(),setting);
+            seedPresentation();
+            updateRenderTargetTextures(NULL);
+            CHECK(m_waterReflectionMode==expected);
+            CHECK(bool(m_reflectionReused)==(previous!=expected && UsesMirror(expected)));
+            m_reflectionReused=FALSE;checkUnchanged();
+            updateRenderTargetTextures(NULL);checkUnchanged();
+            CHECK_EQ(m_modernWaveTime,37.5f);CHECK_EQ(m_level,7);CHECK(m_meshInMotion);
+        }
+    }
+#endif
 };
+}
+
+TEST(water_full_mirror_only_admits_modern_linux_map_water_during_the_mirror_pass)
+{
+    boot();
+    WaterTransparencySetting *saved=(WaterTransparencySetting*)TheWaterTransparency.getNonOverloadedPointer();
+    TheWaterTransparency=newInstance(WaterTransparencySetting);
+    {
+        LiveWaterStyleProbe water;
+        const WaterRenderObjClass &query=water;
+        CHECK(!query.isModernFullMirror());
+        // No device or mirror rendering: every style/type/pass combination uses the real query.
+        // In particular, Modern sea water still uses the old restricted mirror.
+        for(bool modern:{false,true})
+            for(int type=0;type<WaterRenderObjClass::WATER_TYPE_MAX;++type)
+                for(bool rendering:{false,true}) {
+                    water.setMirrorState(modern,(WaterRenderObjClass::WaterType)type,rendering);
+#if defined(__linux__)
+                    CHECK_EQ(bool(query.isModernFullMirror()),modern && rendering && type==WaterRenderObjClass::WATER_TYPE_0_TRANSLUCENT);
+#else
+                    CHECK(!query.isModernFullMirror());
+#endif
+                }
+        water.setMirrorState(true,WaterRenderObjClass::WATER_TYPE_0_TRANSLUCENT,false);
+        CHECK(!query.isModernFullMirror()); // the main view never borrows the broader mirror rules
+    }
+    TheWaterTransparency=saved;
 }
 
 TEST(water_style_changes_at_render_boundary_without_advancing_paused_time_or_reloading_the_map)
@@ -5431,6 +5482,9 @@ TEST(water_style_changes_at_render_boundary_without_advancing_paused_time_or_rel
                 water.updateRenderTargetTextures(NULL);water.checkChanged(modern);
                 water.seedPresentation();water.updateRenderTargetTextures(NULL);water.checkUnchanged();
             }
+#if defined(__linux__)
+            water.checkReflectionChanges();
+#endif
         }
         device->Release();
     } else {

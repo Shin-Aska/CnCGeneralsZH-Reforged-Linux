@@ -206,6 +206,9 @@ PosixDevice9::~PosixDevice9()
 	delete Samplers;
 	delete Programs;
 	delete Mirrors;
+#if defined(__linux__)
+	WaterBank.reset();
+#endif
 	delete Gpu;
 	Adapter->Release();
 }
@@ -558,6 +561,9 @@ RenderResult PosixDevice9::Present(const RenderRect *, const RenderRect *, Rende
 	const bool timing = Timing_Is_Asked();
 	const Uint64 present_start = timing ? SDL_GetTicksNS() : 0;
 	const bool presented = Gpu->Present(reinterpret_cast<const uint16_t (*)[256]>(&GammaRamp));
+#if defined(__linux__)
+	if (Water_Bank_Is_Asked()) Water_Bank_Present(presented);
+#endif
 	if (timing) {
 		Timing_Present((double)(SDL_GetTicksNS() - present_start) / 1.0e6, DrawsRecorded - TimingDrawsAtPresent);
 		TimingDrawsAtPresent = DrawsRecorded;

@@ -1072,7 +1072,7 @@ void SdlGpuFrame::Refresh_Water_Snapshots()
 	for (size_t i = 0; i < WaterSnapshots.size(); ++i) WaterSnapshots[i].Ready = false;
 }
 
-SdlGpuFrame::WaterSnapshot *SdlGpuFrame::Water_Snapshot(const SdlTarget &source)
+SdlGpuFrame::WaterSnapshot *SdlGpuFrame::Water_Snapshot(const SdlTarget &source, bool capture)
 {
 	if (source.Width == 0 || source.Height == 0 || !source.Colour) return NULL;
 	WaterSnapshot *snapshot = NULL;
@@ -1117,7 +1117,7 @@ SdlGpuFrame::WaterSnapshot *SdlGpuFrame::Water_Snapshot(const SdlTarget &source)
 			snapshot = &WaterSnapshots.back();
 		}
 	}
-	if (!snapshot->Ready) {
+	if (!snapshot->Ready && capture) {
 		const int32_t rectangle[4] = { 0, 0, (int32_t)source.Width, (int32_t)source.Height };
 		Record_Blit(source.Colour, rectangle, snapshot->Colour, rectangle, false);
 		if (snapshot->Depth) {
@@ -1779,3 +1779,33 @@ bool SdlGpuFrame::Read_Depth(SDL_GPUTexture *texture, unsigned width, unsigned h
     Release_After_Batch(resolved, NULL);
     return ok;
 }
+
+#if defined(__linux__)
+bool SdlGpuFrame::Read_Water_Depth(SDL_GPUTexture *texture, unsigned width, unsigned height, std::vector<float> &depth)
+{
+	std::vector<uint8_t> bytes;
+	if (!texture || !Read_Back(texture, width, height, bytes)) return false;
+	depth.resize(size_t(width) * height);
+	memcpy(depth.data(), bytes.data(), bytes.size());
+	return true;
+}
+
+bool SdlGpuFrame::Inject_Water_Snapshot(const SdlTarget &target, const std::vector<uint8_t> &bgra,
+	const std::vector<float> &depth)
+{
+	const size_t pixels = size_t(target.Width) * target.Height;
+	if (!pixels || bgra.size() != pixels * 4 || depth.size() != pixels || !Flush()) return false;
+	WaterSnapshot *snapshot = Water_Snapshot(target, false);
+	if (!snapshot || !snapshot->Colour || !snapshot->Depth) return false;
+	uint32_t offset;
+	memcpy(Upload_Space(uint32_t(pixels * 4), offset), bgra.data(), pixels * 4);
+	Queue_Texture_Upload(snapshot->Colour, 0, target.Width, target.Height, offset);
+	memcpy(Upload_Space(uint32_t(pixels * 4), offset), depth.data(), pixels * 4);
+	Queue_Texture_Upload(snapshot->Depth, 0, target.Width, target.Height, offset);
+	if (!Flush()) return false;
+	snapshot->Ready = true;
+	snapshot->UsedFrame = WaterFrame;
+	snapshot->CaptureSerial = ++WaterCaptureSerial;
+	return true;
+}
+#endif

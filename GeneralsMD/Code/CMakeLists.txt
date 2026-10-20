@@ -2229,6 +2229,8 @@ target_include_directories(test_wwutil PRIVATE ${WW}/Wwutil ${WW}/WWLib ${WW}/WW
 # which matters, because the macOS half of that header is the half nobody has ever executed.
 add_lib_test(test_clock)
 if(ZH_PLATFORM_LINUX)
+  add_lib_test(test_water_scene_bank)
+  set_target_properties(test_water_scene_bank PROPERTIES CXX_STANDARD 17)
   add_lib_test(test_water_preview_preset)
   set_target_properties(test_water_preview_preset PROPERTIES CXX_STANDARD 17)
   target_include_directories(test_water_preview_preset PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Tools)

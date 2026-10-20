@@ -190,6 +190,9 @@ static const LookupListRec GameMessageMetaTypeNames[] =
 	{ "TOGGLE_GUARD",														GameMessage::MSG_META_TOGGLE_GUARD },
 	{ "TOGGLE_MOVE",														GameMessage::MSG_META_TOGGLE_MOVE },
 	{ "TOGGLE_PAUSE",														GameMessage::MSG_META_TOGGLE_PAUSE },
+#if defined(__linux__)
+	{ "CYCLE_WATER_REFLECTION",									GameMessage::MSG_META_CYCLE_WATER_REFLECTION },
+#endif
 	{ "DEPLOY",																		GameMessage::MSG_META_DEPLOY },
 	{ "CREATE_FORMATION",													GameMessage::MSG_META_CREATE_FORMATION },
 	{ "FOLLOW",																		GameMessage::MSG_META_FOLLOW },
@@ -642,6 +645,19 @@ GameMessageDisposition MetaEventTranslator::translateGameMessage(const GameMessa
 			TheMessageStream->appendMessage( GameMessage::MSG_META_CAMERA_RESET );
 			disp = DESTROY_MESSAGE;
 		}
+
+#if defined(__linux__)
+		// Ctrl+Shift+W cycles Modern water's reflections. The shipped CommandMap.ini leaves
+		// the combination free; a binding of the player's own gets the first say above.
+		if( disp == KEEP_MESSAGE && key == MK_W && newModState == SHIFT_CTRL &&
+				( keyState & KEY_STATE_DOWN ) && !( keyState & KEY_STATE_AUTOREPEAT ) &&
+				TheGameClient->getFrame() >= 1 && !( TheShell && TheShell->isShellActive() ) &&
+				!( TheInGameUI && TheInGameUI->isQuitMenuVisible() ) )
+		{
+			TheMessageStream->appendMessage( GameMessage::MSG_META_CYCLE_WATER_REFLECTION );
+			disp = DESTROY_MESSAGE;
+		}
+#endif
 
 		// A replay's strip on the keyboard, unless CommandMap.ini gave the key to something else: P
 		// pauses and resumes, minus and plus step through the speed buttons.  Nobody gives orders in

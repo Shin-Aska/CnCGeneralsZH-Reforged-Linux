@@ -211,6 +211,10 @@ public:
 	/// -offscreen's presents, paced at hz a second (0: unpaced); SdlGpuFrame::Set_Offscreen_Presents.
 	void Present_Offscreen(unsigned int hz);
 	SdlGpuFrame * Get_Gpu() const { return Gpu; }
+#if defined(__linux__)
+	// Standalone preview only; injects exact sampled inputs for the currently bound target.
+	bool Inject_Water_Snapshot(const std::vector<uint8_t> &bgra, const std::vector<float> &depth);
+#endif
 	SdlResourceMirrors * Get_Mirrors() const { return Mirrors; }
 	/// Draws recorded on the GPU, and the draws refused, by reason.
 	unsigned int Draws_Recorded() const { return DrawsRecorded; }
@@ -439,6 +443,15 @@ protected:
 		unsigned int stride);
 	/// ZH_GPU_DUMP_FRAMES' frames to ZH_GPU_DUMP_DIR, a development aid until A3d's capture.
 	void Dump_Frame_If_Asked();
+#if defined(__linux__)
+	// ZH_WATER_BANK records one presented water frame, including GPU-owned scene inputs.
+	struct WaterBankCapture;
+	std::shared_ptr<WaterBankCapture> WaterBank;
+	static bool Water_Bank_Is_Asked();
+	void Water_Bank_Draw(const DrawCall &call, int program, unsigned stride, unsigned reads,
+		const struct SdlTarget &target, struct SDL_GPUTexture *background, struct SDL_GPUTexture *depth);
+	void Water_Bank_Present(bool presented);
+#endif
 	/// ZH_GPU_CAPTURE (DrawCapture.h, PosixDevice9Capture.cpp): whether it is set, the first draw of each
 	/// signature written there, and at teardown what was written and what was not, and why.
 	static bool Capture_Is_Asked();

@@ -55,6 +55,9 @@
 #include "Common/Team.h"
 #include "Common/ThingTemplate.h"
 #include "Common/GameLOD.h"
+#if defined(__linux__)
+#include "Platform/WaterScreenReflection.h"
+#endif
 
 #include "GameClient/InGameUI.h"
 #include "GameClient/CommandXlat.h"
@@ -3628,6 +3631,30 @@ GameMessageDisposition CommandTranslator::translateGameMessage(const GameMessage
 			disp = DESTROY_MESSAGE;
 			break;
 		}
+
+#if defined(__linux__)
+		// The reflection choice changes only the picture, so it is local in every game type.
+		case GameMessage::MSG_META_CYCLE_WATER_REFLECTION:
+		{
+			if( TheWritableGlobalData )
+			{
+				WaterScreenReflection::Mode mode = WaterScreenReflection::Resolve(NULL, TheWritableGlobalData->m_waterReflection);
+				const Bool overridden = WaterScreenReflection::Parse(WaterScreenReflection::CachedEnvironment(), mode);
+				if( !overridden )
+				{
+					mode = WaterScreenReflection::Next(mode);
+					TheWritableGlobalData->m_waterReflection = mode;
+				}
+				UnicodeString name;
+				name.translate(WaterScreenReflection::Name(mode));
+				TheInGameUI->message( UnicodeString( u"Water reflection: %s%s%s" ), name.str(),
+					overridden ? u" (ZH_WATER_SSR override)" : u"",
+					TheWritableGlobalData->m_waterStyle == 0 ? u" (applies to Modern water)" : u"" );
+			}
+			disp = DESTROY_MESSAGE;
+			break;
+		}
+#endif
 
 		//
 		// Hold position: every selected unit guards the spot it is standing on and does not

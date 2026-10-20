@@ -8,7 +8,8 @@
 
 namespace ModernWaterMaterial {
 enum : unsigned { RegisterColor=94, RegisterParameters=95, UniformRegisters=2 };
-// c94: display-space RGB, brightness. c95: tint amount, pollution amount, bubbles, reserved.
+// c94: display-space RGB, brightness. c95: tint amount, pollution amount, bubbles, and whether
+// the screen-space reflection trace runs (Platform/WaterScreenReflection.h; not a material property).
 // A zero parameter vector preserves the existing clear-water material exactly.
 inline const char *OpticalSource() {
     return R"HLSL(
