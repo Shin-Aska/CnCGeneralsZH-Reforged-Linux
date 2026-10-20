@@ -39,6 +39,34 @@
       }
     },
     {
+      "label": "Linux: Make portable release zip (this machine)",
+      "type": "process",
+      "command": "bash",
+      "args": [
+        "${workspaceFolder}/GeneralsMD/Code/Tools/linux-portable.sh",
+        "--host",
+        "--zip",
+        "--no-art",
+        "--build",
+        "${workspaceFolder}/build-linux/release-build",
+        "--out",
+        "${workspaceFolder}/build-linux/release/ZeroHourReforged-linux-x86_64"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "CC": "gcc-16",
+          "CXX": "g++-16"
+        }
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "showReuseMessage": false
+      }
+    },
+    {
       "label": "Linux: Publish thin executable",
       "type": "process",
       "command": "bash",

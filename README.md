@@ -160,6 +160,18 @@ folder for replaced files. It preserves existing upscaled art, unrelated files a
 **Zero Hour: Publish and Play (thin executable)** in **Run and Debug** also launches that copy
 using the normal player save folder.
 
+To make a release folder, zip and `.tar.zst` with portable settings, run **Terminal → Run Task →
+Linux: Make portable release zip (this machine)**, or:
+
+```bash
+bash GeneralsMD/Code/Tools/linux-portable.sh --host --zip --no-art --build build-linux/release-build --out build-linux/release/ZeroHourReforged-linux-x86_64
+```
+
+The archives are written beside `build-linux/release/ZeroHourReforged-linux-x86_64` with a `.sha256`
+file. While the release folder has a `UserData` folder, settings, saves and `Registry.ini` stay in it.
+A `--host` build needs the build machine's glibc version or newer; `VERSION` records it. Builds for
+older distributions and the Steam Deck use the same script without `--host`, which requires Docker.
+
 ### Saves and game files
 
 The game reads the original archives without writing to the install folder.
