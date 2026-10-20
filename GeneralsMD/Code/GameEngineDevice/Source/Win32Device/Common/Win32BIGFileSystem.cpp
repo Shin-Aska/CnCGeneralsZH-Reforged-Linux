@@ -66,13 +66,14 @@ static const char *const BASE_GAME_ARCHIVE = "Textures.big";
 
 // Where to look when the registry does not say.  Steam writes no key and installs the two games as
 // sibling folders under steamapps\common (apps 2229870 and 2732960), so the base game is one folder
-// over; a copied-over install puts the same bigs in ZH_Generals next to the exe.  The First Decade
+// over, in "Command and Conquer Generals" (its appmanifest's installdir, spelled with "and"); a copied-over install puts the same bigs in ZH_Generals next to the exe.  The First Decade
 // does the same with its own folder name, and registers the collection's root folder as the base
 // game's InstallPath, so a player on v2.0.1 got "no base game archives" with Generals one folder
 // over.
 static const char *const BASE_GAME_DIRECTORIES[] = {
 	"ZH_Generals\\",
 	"..\\Command & Conquer Generals\\",
+	"..\\Command and Conquer Generals\\",
 	"..\\Command & Conquer(tm) Generals\\",
 };
 

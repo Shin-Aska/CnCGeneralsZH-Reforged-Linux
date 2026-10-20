@@ -92,6 +92,8 @@ void build()
 	file( at( "nobase/INIZH.big" ) );							// Zero Hour alone
 	file( at( "siblings/Zero Hour/INIZH.big" ) );				// the base game beside it
 	file( at( "siblings/Command & Conquer Generals/Textures.big" ) );
+	file( at( "steam/Command & Conquer Generals - Zero Hour/INIZH.big" ) );	// Steam's installdirs (2732960, 2229870)
+	file( at( "steam/Command and Conquer Generals/Textures.big" ) );
 	file( at( "notzh/readme.txt" ) );							// not Zero Hour at all
 	file( at( "firstdecade/Command & Conquer(tm) Generals/Textures.big" ) );	// Generals' registered folder
 	file( at( "Fake.app/Contents/Resources/Overlay/zh/INIZH.big" ) );		// inside the app
@@ -168,6 +170,7 @@ TEST(install_folder_validation_and_its_messages)
 	const std::vector<std::string> forbidden( 1, at( "Fake.app" ) );
 	CHECK_EQ( PosixCheckInstallFolder( at( "whole" ), forbidden ), INSTALL_OK );
 	CHECK_EQ( PosixCheckInstallFolder( at( "siblings/Zero Hour" ), forbidden ), INSTALL_OK );	// "../Command & Conquer Generals"
+	CHECK_EQ( PosixCheckInstallFolder( at( "steam/Command & Conquer Generals - Zero Hour" ), forbidden ), INSTALL_OK );	// "../Command and Conquer Generals"
 	CHECK_EQ( PosixCheckInstallFolder( at( "nobase" ), forbidden ), INSTALL_NO_BASE_GAME );
 	CHECK_EQ( PosixCheckInstallFolder( at( "notzh" ), forbidden ), INSTALL_NO_ZERO_HOUR );
 	CHECK_EQ( PosixCheckInstallFolder( at( "nowhere" ), forbidden ), INSTALL_NOT_A_FOLDER );

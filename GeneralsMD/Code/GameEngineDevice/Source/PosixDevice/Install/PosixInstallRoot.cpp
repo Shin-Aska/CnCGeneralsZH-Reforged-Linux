@@ -41,7 +41,7 @@ const char BASE_GAME_ARCHIVE[] = "Textures.big";
 
 // Win32BIGFileSystem::init's places for the base game, relative to the Zero Hour folder.
 const char *const BASE_GAME_FOLDERS[] = { "", "ZH_Generals", "../Command & Conquer Generals",
-	"../Command & Conquer(tm) Generals" };
+	"../Command and Conquer Generals", "../Command & Conquer(tm) Generals" };		// the second: Steam's
 const char FIRST_DECADE_GENERALS_FOLDER[] = "Command & Conquer(tm) Generals";
 
 // The Zero Hour folder's names on the installs players have (retail, First Decade, Steam, EA App).
