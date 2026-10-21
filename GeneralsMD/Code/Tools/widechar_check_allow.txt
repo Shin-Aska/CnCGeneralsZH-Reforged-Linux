@@ -9,6 +9,7 @@ Tests/widechar_gate_msvc_crt.cpp	*	emulates MSVC's two-byte CRT for the -fshort-
 GameEngine/Include/Common/EarlyCommandLine.h	*	reads GetCommandLineW's wchar_t command line before the parser exists - Windows' only intact copy of it; must not be retyped (B1 survey 1.2); off Windows the same reader runs over argv joined into the same wchar_t shape (processCommandLineW, C2), a byte per unit, never WideChar text
 GameEngine/Source/Common/System/Debug.cpp	L"	-headless and -logPrefix, passed to EarlyCommandLine.h's wchar_t reader
 GameEngine/Source/Common/System/JobSystem.cpp	L"	-jobthreads, passed to EarlyCommandLine.h's wchar_t reader
+GameEngine/Source/Common/System/LogicThread.cpp	L"	-logicthread, passed to EarlyCommandLine.h's wchar_t reader
 Tests/test_gameengine.cpp	L"	an_option_read_before_the_parser_exists_is_read_on_word_boundaries tests EarlyCommandLine.h's wchar_t reader
 Tests/test_gameengine.cpp	wchar_t	the same EarlyCommandLine.h test's command line
 Tests/test_early_command_line.cpp	L"	option names passed to EarlyCommandLine.h's wchar_t reader, the test's subject
