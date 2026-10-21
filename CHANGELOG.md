@@ -8,6 +8,15 @@ found and fixed â€” EA's own, not port damage.**
 
 ---
 
+## Coastal detail in Modern water on Linux (2026-10-21)
+
+- Modern water keeps the map's original moving beach breakers alongside its generated foam,
+  restoring the white surf along the main menu's coastline.
+- Fine wave highlights remain visible over shallow ocean floors, restoring surface detail
+  around ships without changing the water's depth or opacity.
+- Generated sand grain is subtler, leaving more of the map's own submerged terrain texture
+  visible. The existing clarity improvements for shallow ruins and scenery are retained.
+
 ## Clearer water reflections and shallow scenery on Linux (2026-10-21)
 
 - Path-traced water reflections are brighter and preserve more detail around reflected structures.

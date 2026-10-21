@@ -5741,6 +5741,173 @@ Output main(uint id:SV_VertexID) {
 #endif // __linux__
 
 #include "WaterBowShoulderTest.h"
+#if defined(__linux__)
+// The real fragment program consumes a local spectral plane with a non-identity
+// horizontal Jacobian. Constant displacement/derivative maps isolate its lighting
+// policy from the FFT generator (whose Fourier consistency is checked separately).
+// No restoration expression is duplicated in the probe shader.
+static void check_gpu_water_lighting_restoration(SdlGpuFrame *frame)
+{
+    const unsigned width=16,height=16;
+    struct Resources {
+        SDL_GPUDevice *device;SDL_GPUShader *vertex=NULL,*pixels[2]={};
+        SDL_GPUGraphicsPipeline *pipelines[2]={};SDL_GPUTexture *target=NULL,*white=NULL,*zero=NULL,*terrain=NULL,*context=NULL,*ocean=NULL;
+        SDL_GPUSampler *sampler=NULL;
+        ~Resources(){for(auto *p:pipelines)if(p)SDL_ReleaseGPUGraphicsPipeline(device,p);
+            if(vertex)SDL_ReleaseGPUShader(device,vertex);for(auto *p:pixels)if(p)SDL_ReleaseGPUShader(device,p);
+            for(auto *t:{target,white,zero,terrain,context,ocean})if(t)SDL_ReleaseGPUTexture(device,t);
+            if(sampler)SDL_ReleaseGPUSampler(device,sampler);}
+    } r;r.device=frame->Device();
+    VertexPipelineDescription vd={};vd.FVF=FF_FVF_XYZ|FF_FVF_NORMAL|FF_FVF_DIFFUSE|FF_FVF_TEX2;vd.StageCount=4;
+    vd.Stages[0].TextureCoordinateIndex=0;vd.Stages[1].TextureCoordinateIndex=1;
+    std::string vs;CHECK(VertexShader_Generate(vd,VERTEX_SHADER_TARGET_SDL3_GPU,vs));
+    const std::string entry="Output main(Input input)";const size_t at=vs.find(entry);
+    CHECK(at!=std::string::npos);if(at==std::string::npos)return;
+    vs.replace(at,entry.size(),"Output lightingFixtureVertex(Input input)");
+    vs+=R"HLSL(
+cbuffer LightingFixture:register(b1,space1) {float4 FixtureControl;};
+Output main(uint id:SV_VertexID) {
+    Input input=(Input)0;
+    input.Position=float3(id==1?3.0:-1.0,id==2?3.0:-1.0,0.5);
+    input.Normal=float3(0,0,1);input.Diffuse=float4(1,1,1,1);
+    Output o=lightingFixtureVertex(input);
+    // Supply the same constant metadata that the water vertex wrapper publishes.
+    // A zero displacement sample keeps the local geometry at the mean water plane.
+    o.Specular=float4(1,FixtureControl.y,0,1);
+    o.Diffuse=float4(FixtureControl.z,0,0,1);
+    o.TexCoord0=0;o.TexCoord1=float2(0,FixtureControl.x);
+    o.TexCoord2=input.Position.xy*FixtureControl.w*8.0;
+    return o;
+}
+)HLSL";
+    std::string error;std::vector<unsigned char> spirv;
+    bool compiled=SDL3_Compile_HLSL_To_SPIRV(vs,true,spirv,error);CHECK(compiled);
+    if(!compiled){printf("water lighting VS: %s\n",error.c_str());return;}
+    r.vertex=SDL3_Create_Shader(r.device,spirv,true,error);CHECK(r.vertex);if(!r.vertex)return;
+    unsigned samplers[2]={};
+    for(unsigned mode=0;mode<2;++mode) {
+        const char *previous=getenv("ZH_WATER_DEBUG");const bool had=previous!=NULL;const std::string old=previous?previous:"";
+        CHECK(setenv("ZH_WATER_DEBUG",mode==0?"normal":"lighting-normal",1)==0);
+        PixelPipelineDescription pd={};std::string ps;
+        const bool generated=EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pd,ps,COMBINER_SHADER_TARGET_SDL3_GPU);
+        if(had)CHECK(setenv("ZH_WATER_DEBUG",old.c_str(),1)==0);else CHECK(unsetenv("ZH_WATER_DEBUG")==0);
+        CHECK(generated);if(!generated)return;
+        compiled=SDL3_Compile_HLSL_To_SPIRV(ps,false,spirv,error);CHECK(compiled);
+        if(!compiled){printf("water lighting PS %u: %s\n",mode,error.c_str());return;}
+        unsigned uniforms=0;SDL3_Shader_Slots(spirv,false,samplers[mode],uniforms);
+        CHECK(samplers[mode]<=16 && uniforms==(WaterHullVisual::Enabled()?4u:1u));
+        if(samplers[mode]>16)return;
+        r.pixels[mode]=SDL3_Create_Shader(r.device,spirv,false,error);CHECK(r.pixels[mode]);if(!r.pixels[mode])return;
+        SDL_GPUColorTargetDescription colour={};colour.format=SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT;
+        SDL_GPUGraphicsPipelineCreateInfo pi={};pi.vertex_shader=r.vertex;pi.fragment_shader=r.pixels[mode];
+        pi.primitive_type=SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;pi.target_info.color_target_descriptions=&colour;pi.target_info.num_color_targets=1;
+        r.pipelines[mode]=SDL_CreateGPUGraphicsPipeline(r.device,&pi);CHECK(r.pipelines[mode]);if(!r.pipelines[mode])return;
+    }
+    SDL_GPUTextureCreateInfo ti={};ti.type=SDL_GPU_TEXTURETYPE_2D;ti.format=SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT;
+    ti.usage=SDL_GPU_TEXTUREUSAGE_COLOR_TARGET;ti.width=width;ti.height=height;ti.layer_count_or_depth=ti.num_levels=1;
+    r.target=SDL_CreateGPUTexture(r.device,&ti);ti.width=ti.height=1;ti.usage|=SDL_GPU_TEXTUREUSAGE_SAMPLER;
+    r.white=SDL_CreateGPUTexture(r.device,&ti);r.zero=SDL_CreateGPUTexture(r.device,&ti);
+    r.terrain=SDL_CreateGPUTexture(r.device,&ti);r.context=SDL_CreateGPUTexture(r.device,&ti);
+    ti.type=SDL_GPU_TEXTURETYPE_2D_ARRAY;ti.layer_count_or_depth=6;r.ocean=SDL_CreateGPUTexture(r.device,&ti);
+    SDL_GPUSamplerCreateInfo si={};si.min_filter=si.mag_filter=SDL_GPU_FILTER_NEAREST;r.sampler=SDL_CreateGPUSampler(r.device,&si);
+    CHECK(r.target&&r.white&&r.zero&&r.terrain&&r.context&&r.ocean&&r.sampler);
+    if(!r.target||!r.white||!r.zero||!r.terrain||!r.context||!r.ocean||!r.sampler)return;
+    SdlVertexConstants vertex={};SdlWaterPixelConstants water={};
+    for(unsigned i=0;i<4;++i) {
+        vertex.WorldViewProjection[i*5]=vertex.WorldView[i*5]=vertex.NormalTransform[i*5]=1;water.WorldFromClip[i*5]=1;
+        for(unsigned stage=0;stage<MAXIMUM_VERTEX_STAGES;++stage)vertex.TextureMatrix[stage][i*5]=1;
+    }
+    water.Viewport[2]=width;water.Viewport[3]=height;water.CameraPosition[2]=1000;
+    water.SunDirection[2]=1;water.SunColour[0]=water.SunColour[1]=water.SunColour[2]=1;
+    water.TerrainParameters[1]=100;water.TerrainParameters[2]=1;
+    water.SceneParameters[1]=water.SceneParameters[2]=1; // no scene snapshot: independently known flat terrain bottom
+    water.OpticalParameters[0]=3;water.OpticalParameters[1]=water.OpticalParameters[2]=water.OpticalParameters[3]=1;
+    water.FftParameters[0]=1;water.FftParameters[1]=0; // omit optional vessel-generated waves
+    const float shallowDepth=2.25f,shallowDamping=WaterFftGeometry::SafeDamping(1,shallowDepth);
+    struct Case {const char *name;float depth,damping,obstacle;bool terrain,cage;float lightingAmplitude;};
+    const Case cases[]={
+        {"shallow offshore",shallowDepth,shallowDamping,1,true,false,1},
+        {"deep offshore",20,1,1,true,false,1},
+        {"no terrain",shallowDepth,shallowDamping,1,false,false,shallowDamping},
+        {"obstacle blocked",shallowDepth,0,0,true,false,0},
+        {"dry scene hit",0,shallowDamping,1,true,false,shallowDamping},
+        {"full cage",shallowDepth,shallowDamping,1,true,true,shallowDamping}
+    };
+    CHECK(frame->Flush());unsigned renders=0;double maxNormalError=0,maxVarianceError=0,armedNormalDifference=0,armedVarianceDifference=0;
+    auto render=[&](const Case &test,float footprint,unsigned mode) {
+        water.TerrainParameters[3]=test.terrain?1.f:0.f;
+        water.WorldFromClip[0]=width*footprint*.5f;water.WorldFromClip[5]=height*footprint*.5f;
+        water.WorldFromClip[14]=test.depth-.5f;
+        SDL_GPUCommandBuffer *commands=SDL_AcquireGPUCommandBuffer(r.device);CHECK(commands);
+        auto clear=[&](SDL_GPUTexture *texture,SDL_FColor value,unsigned layer=0) {
+            SDL_GPUColorTargetInfo attachment={};attachment.texture=texture;attachment.layer_or_depth_plane=layer;
+            attachment.load_op=SDL_GPU_LOADOP_CLEAR;attachment.store_op=SDL_GPU_STOREOP_STORE;attachment.clear_color=value;
+            SDL_GPURenderPass *pass=SDL_BeginGPURenderPass(commands,&attachment,1,NULL);CHECK(pass);SDL_EndGPURenderPass(pass);
+        };
+        clear(r.white,{1,1,1,1});clear(r.zero,{0,0,0,0});
+        clear(r.terrain,{0,.4f,.2f,test.cage?1.f:0.f});clear(r.context,{1,0,0,0});
+        // Decode: dX=(-.30,-.108,.36), dY=(-.108,.216,-.24), displacement=0.
+        // Constant maps have identical values at every mip; only the independent expected
+        // missing-spectrum variance changes when the projected footprint grows.
+        for(unsigned layer=0;layer<6;++layer)
+            clear(r.ocean,layer==0?SDL_FColor{0,0,0,.09f}:layer==1?SDL_FColor{.36f,-.24f,.25f,-.18f}:SDL_FColor{0,0,0,0},layer);
+        SDL_GPUColorTargetInfo attachment={};attachment.texture=r.target;attachment.load_op=SDL_GPU_LOADOP_CLEAR;attachment.store_op=SDL_GPU_STOREOP_STORE;
+        SDL_GPURenderPass *pass=SDL_BeginGPURenderPass(commands,&attachment,1,NULL);CHECK(pass);
+        SDL_BindGPUGraphicsPipeline(pass,r.pipelines[mode]);
+        SDL_GPUTextureSamplerBinding bindings[16]={};for(unsigned i=0;i<samplers[mode];++i) {
+            bindings[i].texture=i==2?r.terrain:i==4?r.context:i==8?r.ocean:i<8?r.white:r.zero;bindings[i].sampler=r.sampler;
+        }
+        SDL_BindGPUFragmentSamplers(pass,0,bindings,samplers[mode]);
+        const float controls[4]={test.depth,test.damping,test.obstacle,footprint};
+        SDL_PushGPUVertexUniformData(commands,0,&vertex,sizeof(vertex));SDL_PushGPUVertexUniformData(commands,1,controls,sizeof(controls));
+        push_empty_visual_water(commands,water);SDL_DrawGPUPrimitives(pass,3,1,0,0);SDL_EndGPURenderPass(pass);
+        CHECK(SDL_SubmitGPUCommandBuffer(commands));++renders;return read_float_targets(frame,&r.target,1,width,height);
+    };
+    auto expectedNormal=[](double horizontal,double vertical) {
+        // Independent cross product of the prescribed local affine surface's two tangents.
+        const double xx=1-.30*horizontal,xy=-.108*horizontal,xz=.36*vertical;
+        const double yx=-.108*horizontal,yy=1+.216*horizontal,yz=-.24*vertical;
+        std::array<double,3> normal={xy*yz-xz*yy,xz*yx-xx*yz,xx*yy-xy*yx};
+        const double length=std::sqrt(normal[0]*normal[0]+normal[1]*normal[1]+normal[2]*normal[2]);
+        for(double &v:normal)v=.5+.5*v/length;return normal;
+    };
+    for(float footprint:{.25f,8.f})for(const Case &test:cases) {
+        double variance=0;const auto &table=WaterFftFiltering::SpectrumVariance();
+        for(unsigned c=0;c<3;++c) {
+            const double lod=(std::max)(0.0,(std::min)(8.0,std::log2(footprint*256.0/(WaterFftSpectrum::Sizes[c]*WaterFftSpectrum::WorldScale))));
+            const unsigned lower=(std::min)(unsigned(lod),7u);variance+=table[lower][c]+(table[lower+1][c]-table[lower][c])*(lod-lower);
+        }
+        const double horizontal=test.cage?.4:test.damping;
+        const double physicalAmplitude=test.cage?(std::min)(.2,double(test.depth/WaterFftGeometry::MaxVerticalDisplacement)):test.damping;
+        const double lightingAmplitude=test.cage?physicalAmplitude:test.lightingAmplitude;
+        const auto physicalExpected=expectedNormal(horizontal,physicalAmplitude),lightingExpected=expectedNormal(horizontal,lightingAmplitude);
+        const auto physical=render(test,footprint,0),lighting=render(test,footprint,1);
+        CHECK(physical.size()==width*height*4 && lighting.size()==physical.size());if(physical.size()!=width*height*4||lighting.size()!=physical.size())return;
+        double normalError=0,varianceError=0;
+        const double expectedVariance=variance*test.lightingAmplitude*test.lightingAmplitude;
+        for(unsigned y=2;y<height-2;++y)for(unsigned x=2;x<width-2;++x) {
+            const unsigned i=(y*width+x)*4;
+            for(unsigned c=0;c<4;++c)CHECK(std::isfinite(physical[i+c])&&std::isfinite(lighting[i+c]));
+            for(unsigned c=0;c<3;++c) {
+                normalError=(std::max)(normalError,std::abs(physical[i+c]-physicalExpected[c]));
+                normalError=(std::max)(normalError,std::abs(lighting[i+c]-lightingExpected[c]));
+            }
+            varianceError=(std::max)(varianceError,std::abs(lighting[i+3]-expectedVariance));
+        }
+        if(normalError>=.0001||varianceError>=.00001)printf("water lighting %s footprint %.2f: normal %.9g variance %.9g (expected %.9g, actual %.9g)\n",test.name,footprint,normalError,varianceError,expectedVariance,lighting[(width*8+8)*4+3]);
+        CHECK(normalError<.0001 && varianceError<.00001);
+        maxNormalError=(std::max)(maxNormalError,normalError);maxVarianceError=(std::max)(maxVarianceError,varianceError);
+        if(&test==&cases[0]) {
+            for(unsigned c=0;c<3;++c)armedNormalDifference=(std::max)(armedNormalDifference,std::abs(lightingExpected[c]-physicalExpected[c]));
+            armedVarianceDifference=(std::max)(armedVarianceDifference,std::abs(expectedVariance-variance*test.damping*test.damping));
+        } else CHECK(physicalExpected==lightingExpected);
+    }
+    CHECK(armedNormalDifference>.05 && armedVarianceDifference>.0001);
+    printf("sdl_gpu_frame_selfcheck: GPU production water lighting: %u renders, independent tangent normal %.9g / combined variance %.9g; shallow restoration armed %.6f / %.6f, deep/no-terrain/blocked/dry/cage controls and unchanged physical normals checked\n",renders,maxNormalError,maxVarianceError,armedNormalDifference,armedVarianceDifference);
+}
+
+#endif // __linux__
+
 static void check_gpu_water_bow_shoulder(SdlGpuFrame *frame)
 {
     namespace T=WaterBowShoulderTest;using WaterHullModel::Hull;
@@ -8362,6 +8529,7 @@ int main()
 	check_gpu_water_wave_cage(frame);
 #if defined(__linux__)
 	check_gpu_water_hull_normal(frame);
+	check_gpu_water_lighting_restoration(frame);
 #endif
 	check_gpu_water_bow_shoulder(frame);
 	check_gpu_water_bow_refinement(frame);

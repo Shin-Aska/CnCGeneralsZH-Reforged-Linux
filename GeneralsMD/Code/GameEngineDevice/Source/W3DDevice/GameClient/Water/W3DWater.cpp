@@ -3314,9 +3314,11 @@ void WaterRenderObjClass::Render(RenderInfoClass & rinfo)
 #if defined(__linux__)
 	SunShadow::ReceiverExclusion sunReceivers(DX8Wrapper::_Get_D3D_Device(),
 		!(m_useModernWater && m_waterType==WATER_TYPE_0_TRANSLUCENT));
-	WaterShoreOverlay::Scope shoreScope(DX8Wrapper::_Get_D3D_Device(),
-		m_useModernWater && m_waterType==WATER_TYPE_0_TRANSLUCENT && m_trapezoidWaterPixelShader &&
-		!TheGlobalData->m_isWorldBuilder && !TheGlobalData->m_usingWaterTrackEditor);
+	// A modern water patch proves surface coverage, not replacement surf coverage.
+	// Keep the map's animated breakers: the optical coast mask only marks where
+	// procedural foam can start, and suppressing the whole patch erases beach surf.
+	// Retain scope cleanup for coastal resources without admitting overlay replacement.
+	WaterShoreOverlay::Scope shoreScope(DX8Wrapper::_Get_D3D_Device(), false);
 	m_modernProfileEnabled=m_useModernWater && std::getenv("ZH_WATER_PROFILE")!=NULL;
 	m_modernFoamDrawFrame=~0u;m_modernFoamDrawObjectIDs.clear();
 	const double profileRenderStart=m_modernProfileEnabled?modernWaterProfileMilliseconds():0;

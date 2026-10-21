@@ -1041,6 +1041,12 @@ float4 main(Input input) : SV_Target
     float fftDamping=0.0;
     float3 resolvedNormal=normal;
     float unresolvedSlopeVariance=0.0;
+    // Floor clearance also flattens authored shallow offshore floors in the campaign
+    // shell. Restore only terrain-damped lighting slopes, using the same wave phases
+    // and retaining wet-edge, obstacle, hull and cage shelter. Geometry stays unchanged.
+    float shoreRippleLimit=min(smoothstep(0.0,0.75,depth),min(input.Diffuse.r,hullEffects.z));
+    float shoreRippleWeight=OpticalParameters.z*TerrainParameters.w
+        *(1.0-WaterParameters.y)*(1.0-cageAmount*fftWeight);
     if(FftParameters.x>0.5) {
         fftDamping=fftDampingField.x;
         float2 weightSlope=fftWeightSlope;
@@ -1101,8 +1107,15 @@ float4 main(Input input) : SV_Target
         shadedCageY.z+=(slope.y-baseSlope.y)*(1.0-fftWeight);
         shadedX=lerp(shadedX,shadedCageX,cageAmount)+(shadedCageDelta-shadedOldDelta)*cageAmountSlope.x;
         shadedY=lerp(shadedY,shadedCageY,cageAmount)+(shadedCageDelta-shadedOldDelta)*cageAmountSlope.y;
+        float restoredFftSlope=max(opticalContext.b,offshore)*shoreRippleWeight
+            *max(0.0,shoreRippleLimit-max(localTerrain,fftDamping));
+        // Add parameter-space height derivatives before crossing the tangents so
+        // horizontal FFT chop still maps the lighting slopes into world coordinates.
+        shadedX.z+=spectral.shadingDerivativeX.z*restoredFftSlope*fftWeight;
+        shadedY.z+=spectral.shadingDerivativeY.z*restoredFftSlope*fftWeight;
         resolvedNormal=normalize(cross(shadedX,shadedY));
-        unresolvedSlopeVariance=spectral.unresolvedSlopeVariance*fftWeight*fftWeight*fftDamping*fftDamping;
+        unresolvedSlopeVariance=spectral.unresolvedSlopeVariance*fftWeight*fftWeight
+            *(fftDamping+restoredFftSlope)*(fftDamping+restoredFftSlope);
         continuousHeight=baseLevel+lerp(oldHeight,lerp(newHeight,cagePhysical.displacement.z,cageAmount),fftWeight);
         fftCompression=lerp(1.0,spectral.incidentCompression,saturate(input.Specular.w));
     }
@@ -1114,17 +1127,9 @@ float4 main(Input input) : SV_Target
         view.z, offshore, oceanDisplacementBound, dot(world-bottom,view), length(CameraPosition.xyz-world));
     float3 opticalWorld = world + view*opticalShift;
     float opticalDepth = max(opticalWorld.z-bottom.z,0.0);
-    // Floor clearance flattens the mesh at the bank, but the incident wave pattern
-    // must still catch light across the shallows. Restore its terrain-damped lighting
-    // slopes with the same spectral phases, retaining wet-edge and obstacle/hull shelter.
-    // Geometry, refraction and full offshore shading keep their original normals.
-    float shoreRippleLimit = min(smoothstep(0.0,0.75,depth),min(input.Diffuse.r,hullEffects.z));
-    float shoreRippleWeight = opticalContext.b * OpticalParameters.z * TerrainParameters.w
-        * (1.0-WaterParameters.y) * (1.0-offshore) * (1.0-cageAmount*fftWeight);
-    float2 shoreRipple = shoreRippleWeight * lerp(
-        shoreRippleSlope * max(0.0,shoreRippleLimit-max(localTerrain,attenuation)),
-        float2(spectral.shadingDerivativeX.z,spectral.shadingDerivativeY.z)
-            * max(0.0,shoreRippleLimit-max(localTerrain,fftDamping)),fftWeight);
+    // The non-FFT fallback's fine waves belong to its nearshore spectrum only.
+    float2 shoreRipple=shoreRippleSlope*opticalContext.b*(1.0-offshore)*shoreRippleWeight
+        *max(0.0,shoreRippleLimit-max(localTerrain,attenuation))*(1.0-fftWeight);
     float3 waveLightingNormal = resolvedNormal;
     if(any(shoreRipple!=0.0))
         resolvedNormal = normalize(resolvedNormal + float3(-shoreRipple*resolvedNormal.z,0.0));
@@ -1263,7 +1268,8 @@ float4 main(Input input) : SV_Target
     float rockVariation = lerp(0.82, 1.12, broadMaterial.a);
     float bedLuminance = dot(scene, float3(0.2126,0.7152,0.0722));
     scene = lerp(scene, bedLuminance*float3(1.10,1.0,0.80), terrainMask*gravel*0.38);
-    scene *= lerp(1.0, clamp(detail*bedLight*rockVariation, 0.38, 1.65), terrainMask * 0.85);
+    // Authored terrain carries the scene's identity; procedural grain is secondary.
+    scene *= lerp(1.0, clamp(detail*bedLight*rockVariation, 0.38, 1.65), terrainMask * 0.30);
     // Caustics use the evolving surface curvature at the light's entry point. Keep the modulation
     // restrained and attenuate it by depth/footprint to avoid a painted luminous network at RTS zoom.
     float3 causticWave = waterWave(bottom.xy-light.xy/max(light.z,0.2)*bedDepth, time);
@@ -1596,6 +1602,8 @@ float4 main(Input input) : SV_Target
 	if (debug && strcmp(debug, "vessel") == 0) hlsl += "current.rgb = float3(max(0.0,-spectral.vesselHeight),max(0.0,spectral.vesselHeight),spectral.vesselCrest)*fftWeight;\n";
 	if (debug && strcmp(debug, "pressure") == 0) hlsl += "current.rgb = fftPressureDebug(spectral,fftWeight,fftDamping,generatedFoam);\n";
 	if (debug && strcmp(debug, "resolved-normal") == 0) hlsl += "current.rgb = resolvedNormal*0.5+0.5;\n";
+	if (debug && strcmp(debug, "lighting-normal") == 0)
+		hlsl += "current = float4(resolvedNormal*0.5+0.5,unresolvedSlopeVariance);\n";
 	if (debug && strcmp(debug, "roughness") == 0) hlsl += "current.rgb = float3(roughness,environmentRoughness,sqrt(unresolvedSlopeVariance));\n";
 	if (debug && strcmp(debug, "pressure-retention") == 0) hlsl += "current.rgb = fftPressureRetentionDebug(spectral,fftWeight,fftDamping,generatedFoam);\n";
 	// Diagnostics evaluate old and current rules at the same fragment/phase/snapshot.

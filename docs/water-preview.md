@@ -101,6 +101,26 @@ Keep durable project changes in the source INI. Building `water_preview`, buildi
 Restaging recreates that overlay, so direct edits to the staged copy are replaced. Restart
 the game or preview after editing the configuration; neither watches the file for changes.
 
+## Coastline and surface detail
+
+In the game, Modern water retains the map's animated `.wak` beach breakers alongside
+procedural coastal foam. This reverses the earlier policy that suppressed authored surf
+across every accepted Modern water patch. Patch coverage and the optical coast mask
+identify water and eligible foam sources; neither proves that procedural foam actually
+covers an authored breaker. Overlay replacement admission is therefore disabled, while
+the original wave animation, alpha blending, fog and shroud remain in use. The synthetic
+preview has no map-authored `.wak` tracks to restore.
+
+Procedural seabed grain is subdued so it complements the captured map terrain instead
+of dominating it with a repeating sand pattern. This does not change terrain geometry,
+scene depth, water opacity or the terrain-based `UnderwaterClarity` eligibility above.
+
+FFT lighting slopes retain fine wave highlights over shallow offshore floors. They use
+the existing FFT wave phases, keeping the light pattern tied to wave motion while the
+geometry retains its existing shallow-water damping. Water displacement, depth and
+clarity remain unchanged; the correction concerns surface shading rather than raising
+the water or exposing more of the seabed.
+
 ## Build and run
 
 With an existing configured native build and dependencies:
@@ -454,3 +474,31 @@ water-plane clipping checks. Software Vulkan captures covered the default, clean
 and pan-limit views. With camera and time fixed, grid centres at 0, +20 and -20 rendered
 pixel-identically; a banked frame also stayed pixel-identical with camera start overrides
 and injected middle-drag/wheel input. Live windowed mouse feel still needs a human check.
+
+## Coastline validation (2026-10-21)
+
+The Release build passed on Ubuntu 26.04.1, GCC 16.0.1 (20260322), and an RTX 4060
+with NVIDIA 595.99.02. The full offscreen NVIDIA CTest run finished with 82 passes,
+21 skips and the same three existing failures: `ffref_capture_selfcheck`,
+`lobbyroom_selfcheck` and `mapselect_selfcheck`. No reference tolerances were changed.
+Shader compilation and the production GPU water checks passed. The new lighting test
+renders shallow/deep offshore water, absent terrain, blocked/dry fragments and full
+wave cages at two footprints. It checks the prescribed tangent normal, unchanged
+physical normal and combined unresolved slope variance. A separately linked control
+with restoration removed fails both shallow cases; the other controls still pass.
+
+Actual animated menu captures at logic frames near 120, 300, 600 and 900 were inspected
+in SSR and Path traced modes against Classic and the preceding Modern build. The beach
+breakers return, the repeated sand ridges recede, and offshore wave lighting remains
+visible. These are matched camera stages, not pixel-identical simulation snapshots.
+Path traced carrier and SW ruins saves retain deep-water appearance and readable
+submerged scenery. Repeated paused captures are pixel-identical in the checked
+800-by-400 scene region outside the HUD, in both preceding and updated builds.
+
+Artifacts and commands are under `build-linux/menu-water-fix/`; the preceding menu
+captures are under `build-linux/menu-water-observation/animated/`. Menu runs exited
+normally. The saved-game harness needed to terminate its processes after the control
+quit timed out in both builds. Both also retain the previously observed render-target
+feedback refusal. These checks do not establish a clean shutdown or zero refused draws.
+The development package executable matches the tested build and completed an additional
+animated-menu capture with its staged runtime overlay, then exited normally.
