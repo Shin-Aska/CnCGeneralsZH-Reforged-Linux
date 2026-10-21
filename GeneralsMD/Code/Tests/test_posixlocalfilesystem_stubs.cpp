@@ -33,6 +33,7 @@
 #include <stdlib.h>
 
 #include "Common/Debug.h"
+#include "Common/LogicThread.h"
 #include "Common/FileSystem.h"
 #include "Common/INI.h"
 
@@ -62,3 +63,7 @@ void INI::load(AsciiString, INILoadType, Xfer *) { unreachable("INI::load"); }
 
 FileSystem *TheFileSystem = NULL;
 File *FileSystem::openFile(const Char *, Int) { unreachable("FileSystem::openFile"); return NULL; }
+
+// JobSystem.cpp counts the jobs a tick hands out (LOGIC_CENSUS); this test runs no logic thread.
+thread_local Bool LogicThread::t_isLogicThread = FALSE;
+void LogicThread::noteCensus(Channel) {}

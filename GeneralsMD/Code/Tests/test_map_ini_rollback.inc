@@ -307,17 +307,6 @@ public:
 	void getTerrainColorAt(Real, Real, RGBColor *) override {}
 	TerrainType *getTerrainTile(Real, Real) override { return NULL; }
 	void enableWaterGrid(Bool) override {}
-	void setWaterGridHeightClamps(const WaterHandle *, Real, Real) override {}
-	void setWaterAttenuationFactors(const WaterHandle *, Real, Real, Real, Real) override {}
-	void setWaterTransform(const WaterHandle *, Real, Real, Real, Real) override {}
-	void setWaterTransform(const Matrix3D *) override {}
-	void getWaterTransform(const WaterHandle *, Matrix3D *) override {}
-	void setWaterGridResolution(const WaterHandle *, Real, Real, Real) override {}
-	void getWaterGridResolution(const WaterHandle *, Real *, Real *, Real *) override {}
-	void changeWaterHeight(Real, Real, Real) override {}
-	void addWaterVelocity(Real, Real, Real, Real) override {}
-	Bool getWaterGridHeight(Real, Real, Real *) override { return FALSE; }
-	void updateWaterGrid(UnsignedInt) override {}
 	void setTerrainTracksDetail() override {}
 	void setShoreLineDetail() override {}
 	void addFactionBib(Object *, Bool, Real) override {}

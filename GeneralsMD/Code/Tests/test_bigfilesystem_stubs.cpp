@@ -34,6 +34,7 @@
 #include <stdlib.h>
 
 #include "Common/Debug.h"
+#include "Common/LogicThread.h"
 #include "Common/FileSystem.h"
 #include "Common/GameAudio.h"
 #include "Common/GlobalData.h"
@@ -85,3 +86,7 @@ int MessageBoxWrapper(const char *text, const char *caption, unsigned int)
 	++g_messageBoxes;
 	return 1;
 }
+
+// JobSystem.cpp counts the jobs a tick hands out (LOGIC_CENSUS); this test runs no logic thread.
+thread_local Bool LogicThread::t_isLogicThread = FALSE;
+void LogicThread::noteCensus(Channel) {}

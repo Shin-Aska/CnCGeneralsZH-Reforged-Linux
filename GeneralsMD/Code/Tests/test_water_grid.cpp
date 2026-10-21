@@ -19,7 +19,7 @@
  * T1c, defect 17: the water grid steps once per logic frame, however many logic frames a pass runs.
  *
  * WaterGridMotion::updateForLogicFrame is the step moved out of WaterRenderObjClass::update; GameLogic::
- * update calls it (through TerrainVisual::updateWaterGrid) at the top of every logic frame.  This plays
+ * update calls it (through TerrainLogic's WaterGrid::update) at the top of every logic frame.  This plays
  * Tests/water_grid_scenario.h through it that way, under EA's loop and three shapes of the fork's
  * catch-up, and requires every one to print what the ORIGINAL code printed under EA's loop.
  *
@@ -92,14 +92,15 @@ struct MovedEngine
 	std::vector<Point> points;
 	Bool moving;
 	int callsPerFrame;
-	MovedEngine( int calls = 1 ) : points( water_grid::POINTS_X * water_grid::POINTS_Y ), moving( FALSE ), callsPerFrame( calls ) {}
+	UnsignedInt lastFrame;
+	MovedEngine( int calls = 1 ) : points( water_grid::POINTS_X * water_grid::POINTS_Y ), moving( FALSE ), callsPerFrame( calls ), lastFrame( 0 ) {}
 	Point *mesh( void ) { return &points[0]; }
 	Bool &inMotion( void ) { return moving; }
 	void clientPass( UnsignedInt ) {}
 	void logicFrameTop( UnsignedInt frame )
 	{
 		for (int i = 0; i < callsPerFrame; ++i)
-			WaterGridMotion::updateForLogicFrame( frame, TRUE, moving, &points[0], water_grid::CELLS_X, water_grid::CELLS_Y );
+			WaterGridMotion::updateForLogicFrame( frame, lastFrame, TRUE, moving, &points[0], water_grid::CELLS_X, water_grid::CELLS_Y );
 	}
 };
 
@@ -5415,7 +5416,7 @@ public:
         CHECK(device->CreatePixelShader(tokens,&m_trapezoidWaterPixelShader)==D3D_OK);
         registerWaterStyleShaders();
         m_modernWaveTime=37.5f;m_modernCaptureClock.Update(90,false);
-        m_level=7;m_meshInMotion=TRUE;
+        m_level=7;m_drawnMotionEnabled=TRUE;
     }
     void seedPresentation() {
         m_modernHulls.resize(1);m_modernContactHulls.resize(1);m_modernVisualHulls.resize(1);
@@ -5430,7 +5431,7 @@ public:
         CHECK(!m_modernShoreReady && !m_modernCoastalReady && !m_modernCoastalViewReady);
         CHECK(m_modernCoastalRevision==0 && m_modernProfile.frames==0);
         CHECK(m_reflectionReused); // force the new clear colour even with a stationary camera
-        CHECK_EQ(m_modernWaveTime,37.5f);CHECK_EQ(m_level,7);CHECK(m_meshInMotion);
+        CHECK_EQ(m_modernWaveTime,37.5f);CHECK_EQ(m_level,7);CHECK(m_drawnMotionEnabled);
         const auto clock=m_modernCaptureClock.Update(90,true);
         CHECK(!clock.restarted && clock.elapsed==0 && clock.seconds==90.0/LOGICFRAMES_PER_SECOND);
         const auto river=EngineShader_From_File(WaterShaderNameProbe::Engine_Name_Of(m_riverWaterPixelShader).c_str());
@@ -5460,7 +5461,7 @@ public:
             CHECK(bool(m_reflectionReused)==(previous!=expected && (UsesMirror(expected) || expected==PathTraced)));
             m_reflectionReused=FALSE;checkUnchanged();
             updateRenderTargetTextures(NULL);checkUnchanged();
-            CHECK_EQ(m_modernWaveTime,37.5f);CHECK_EQ(m_level,7);CHECK(m_meshInMotion);
+            CHECK_EQ(m_modernWaveTime,37.5f);CHECK_EQ(m_level,7);CHECK(m_drawnMotionEnabled);
         }
     }
 #endif

@@ -71,6 +71,7 @@ public:
 
 	virtual void draw( void ); ///< Render the in-game user interface
 	Bool isWorldSpaceUI( const RenderObjClass *robj, const Drawable *draw ) const; ///< scene models belonging to the cursor and order feedback
+	virtual void recordDraw( void ); ///< what draw asks of logic, run at the sync point (LOGIC-THREAD.md phase 3)
 
 protected:
 
@@ -93,6 +94,21 @@ protected:
 	void drawMoveHints( View *view );
 	RenderObjClass *m_moveHintRenderObj[ MAX_MOVE_HINTS ];
 	HAnimClass		 *m_moveHintAnim[ MAX_MOVE_HINTS ];
+	Matrix3D				m_moveHintTransform[ MAX_MOVE_HINTS ];	///< each ring laid on the ground at the sync point (recordDraw)
+	void takeMoveHintTransforms( void );
+
+	// the build grid's patch, read at the sync point (recordDraw) and drawn by drawBuildGrid
+	enum { BUILD_GRID_RADIUS = 28, BUILD_GRID_CELLS = BUILD_GRID_RADIUS * 2 + 1 };
+	Int		m_buildGridCellX;		///< the patch's first pathfinder cell
+	Int		m_buildGridCellY;
+	Bool	m_buildGridBlocked[ BUILD_GRID_CELLS ][ BUILD_GRID_CELLS ];	///< [y][x], washed red
+	void takeBuildGrid( void );
+
+	// recordDraw's lists, replayed by draw
+	Display::DrawCalls m_overWorldDraw;		///< preDraw to the guard markers, drawn where the world is
+	Display::DrawCalls m_dragBoxDraw;		///< the drag box, drawn where the pointer is
+	Display::DrawCalls m_postDrawCalls;		///< postDraw
+	Display::DrawCalls m_hudOverlayDraw;	///< drawHudOverlay
 
 };  // end class W3DInGameUI
 
