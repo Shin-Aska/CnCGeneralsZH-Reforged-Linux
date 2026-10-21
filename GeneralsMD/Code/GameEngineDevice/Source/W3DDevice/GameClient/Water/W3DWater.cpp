@@ -1409,12 +1409,13 @@ void WaterRenderObjClass::setupModernWaterShader(Bool river, Bool heightCorrecti
 	const D3DXVECTOR4 optics(TheWaterTransparency->m_transparentWaterDepth,
 		TheWaterTransparency->m_minWaterOpacity, optical ? 1.0f : 0.0f, heightCorrection && !river ? 1.0f : 0.0f);
 	DX8Wrapper::_Get_D3D_Device()->SetPixelShaderConstantF(6, optics, 1);
-	D3DXVECTOR4 materialColor, materialParameters;
-	getModernWaterMaterial(&materialColor.x, &materialParameters.x);
+	D3DXVECTOR4 materialColor, materialParameters, materialOptics;
+	getModernWaterMaterial(&materialColor.x, &materialParameters.x, &materialOptics.x);
 	materialParameters.w = pathReady ? 2.0f
 		: (WaterScreenReflection::Traces(mode) || mode==WaterScreenReflection::PathTraced ? 1.0f : 0.0f);
 	DX8Wrapper::_Get_D3D_Device()->SetPixelShaderConstantF(ModernWaterMaterial::RegisterColor, materialColor, 1);
 	DX8Wrapper::_Get_D3D_Device()->SetPixelShaderConstantF(ModernWaterMaterial::RegisterParameters, materialParameters, 1);
+	DX8Wrapper::_Get_D3D_Device()->SetPixelShaderConstantF(ModernWaterMaterial::RegisterOptics, materialOptics, 1);
 	const RGBColor &ambient = TheGlobalData->m_terrainAmbient[0];
 	const D3DXVECTOR4 hullParameters(river ? 0.0f : float(m_modernHulls.size()), ambient.red, ambient.green, ambient.blue);
 	DX8Wrapper::_Get_D3D_Device()->SetPixelShaderConstantF(7, hullParameters, 1);
@@ -3126,7 +3127,7 @@ Bool WaterRenderObjClass::updatePathTracedReflection(CameraClass *cam)
 		const Coord3D &sun = TheGlobalData->m_terrainLightPos[0];
 		const RGBColor &colour = TheGlobalData->m_terrainDiffuse[0];
 		view.sunDirection = {-sun.x,-sun.y,-sun.z};
-		view.sunRadiance = WaterPathTracing::DisplayToLinear({colour.red,colour.green,colour.blue});
+		view.sunRadiance = WaterPathTracing::DisplayDiffuseToIrradiance({colour.red,colour.green,colour.blue});
 		const float daylight = max(0.0f,min(1.0f,max(colour.red,max(colour.green,colour.blue))));
 		const float skyScale = 0.06f+0.94f*daylight;
 		// Match the map-water sky's display-to-linear conversion and night dimming.

@@ -229,10 +229,12 @@ float4 main(float4 position : SV_Position) : SV_Target0
     float4 current=float4(max(radiance,0),validity);
     if(Counts.z>0) {
         float4 previous=PathPrevious.Load(int3(pixel,0));
-        previous.rgb=pow(max(previous.rgb,0),2.2);
         current=lerp(previous,current,1.0/(Counts.z+1.0));
     }
-    return float4(pow(max(current.rgb,0),1.0/2.2),current.a);
+    // Keep the RGBA16F history linear through the water shader's bilinear and
+    // roughness filtering. Encoding here used to darken small bright reflections
+    // at silhouettes before the interface's Fresnel factor was even applied.
+    return current;
 }
 )HLSL";
 }

@@ -6,7 +6,7 @@ enum : unsigned {
     MaxHulls=8, MaxVertices=64, MaxTriangles=96, RegistersPerHull=88,
     PacketRegisters=MaxHulls*RegistersPerHull,
     MetadataRegister=176, PacketRegister=192, PixelRegisterCount=896,
-    FragmentCommonRegisters=208, VertexCommonRegisters=200,
+    FragmentCommonRegisters=209, VertexCommonRegisters=201,
     BlockCount=3, Block0Registers=256, Block1Registers=256, Block2Registers=192
 };
 constexpr unsigned BlockRegisters(unsigned block) {

@@ -813,7 +813,7 @@ static void check_gpu_water_mesh_correction(SdlGpuFrame *frame)
 static void check_gpu_water_optical_model(SdlGpuFrame *frame)
 {
 	// Execute the same light-transport function used by the generated water shader. Each row has
-	// path, river blend, offshore blend, optical reference depth, authored opacity and padding.
+	// path, river blend, offshore blend, optical reference depth, authored opacity, clarity and padding.
 	// Columns capture all three channels independently in an R32 target without display conversion.
 	const float fixtures[][8] = {
 		{0, 0, 1, 2.7f, .75f, 0, 0, 0},
@@ -833,7 +833,11 @@ static void check_gpu_water_optical_model(SdlGpuFrame *frame)
 		{-4, -1, -1, -1, -1, 0, 0, 0},
 		{.5f, 2, 2, 0, 2, 0, 0, 0},
 		{10, .5f, .5f, 2.7f, .75f, 0, 0, 0},
-		{1.0e20f, 0, 0, 1.0e20f, 0, 0, 0, 0}
+		{1.0e20f, 0, 0, 1.0e20f, 0, 0, 0, 0},
+        {3.2f,0,1,3,1,.9f,0,0},
+        {3.2f,0,1,3,1,1,0,0},
+        {500,0,1,3,1,1,0,0},
+        {3.2f,0,1,3,1,-1,0,0}
 	};
 	const unsigned int count = sizeof(fixtures) / sizeof(fixtures[0]);
 	const char *vertex_source =
@@ -844,7 +848,7 @@ static void check_gpu_water_optical_model(SdlGpuFrame *frame)
 	pixel_source += WaterOpticalModel::GetHlslSource();
 	pixel_source += "float main(float4 position : SV_Position) : SV_Target0 {\n"
 		"uint row=(uint)position.y; float4 f=Fixtures[row*2];\n"
-		"return WaterOpticalTransmission(f.x,f.y,f.z,f.w,Fixtures[row*2+1].x)[(uint)position.x]; }\n";
+		"return WaterOpticalTransmission(f.x,f.y,f.z,f.w,Fixtures[row*2+1].x,Fixtures[row*2+1].y)[(uint)position.x]; }\n";
 	std::vector<unsigned char> spirv;
 	std::string error;
 	CHECK(SDL3_Compile_HLSL_To_SPIRV(vertex_source, true, spirv, error));
@@ -890,7 +894,7 @@ static void check_gpu_water_optical_model(SdlGpuFrame *frame)
 	float max_model_error = 0;
 	for (unsigned int i=0; i<count; ++i) {
 		const WaterOpticalModel::RGB cpu=WaterOpticalModel::Transmission(
-			fixtures[i][0],fixtures[i][1],fixtures[i][2],fixtures[i][3],fixtures[i][4]);
+			fixtures[i][0],fixtures[i][1],fixtures[i][2],fixtures[i][3],fixtures[i][4],fixtures[i][5]);
 		const float expected[3]={cpu.r,cpu.g,cpu.b};
 		for (unsigned int c=0; c<3; ++c) {
 			const float gpu=depth_at(bytes,3,c,i),difference=fabsf(gpu-expected[c]);
@@ -4604,11 +4608,19 @@ static void check_gpu_foam_material(SdlGpuFrame *frame)
 	q.material[2]=.7f;const unsigned crestOnly=add(q);
 	q.incident[0]=7;q.incident[1]=11;q.incident[2]=19;q.mapping[3]=0;q.material[0]=1;
 	const unsigned changedUnusedMaterial=add(q);
+	q=base;q.sky[3]=1;const unsigned linearCapture=add(q);
+	q.uv[0]=13.5f/32;q.mapping[2]=0;const unsigned linearBlack=add(q);
+	q.uv[0]=20.5f/32;q.uv[1]=5.5f/32;const unsigned linearEmpty=add(q);
+	q.uv[0]=4.0f/32;q.uv[1]=8.5f/32;add(q); // half-valid linear radiance, no second alpha multiply
 	const unsigned rows=unsigned(queries.size()),columns=5,side=32;
+	// SDL Vulkan binds each uniform slot with a 4 KiB range. Keep added fixtures
+	// in bounded batches so rows after 31 cannot silently read zero-valued queries.
+	const unsigned batchRows=4096/sizeof(Query);
 	std::vector<uint32_t> texels(side*side,0);
 	for(unsigned y=0;y<side;++y)for(unsigned x=0;x<side;++x) {
 		if(x<2)texels[y*side+x]=0xFF20C060;
 		if(x>=4 && x<=11 && y>=4 && y<=11)texels[y*side+x]=0xFF4080C0;
+		if(x>=12 && x<=14 && y>=4 && y<=11)texels[y*side+x]=0xFF000000;
 		if(x>=21 && x<=26 && y>=21 && y<=26)texels[y*side+x]=(x+y)%2?0xFFC02060:0xFF1090E0;
 	}
 	texels[16*side+16]=0xFFE06020;
@@ -4620,18 +4632,19 @@ static void check_gpu_foam_material(SdlGpuFrame *frame)
 	if(lightingStart==std::string::npos || lightingEnd<=lightingStart || integrationStart==std::string::npos || integrationEnd<=integrationStart)return;
 	std::string ps="Texture2D Texture1:register(t1);SamplerState Sampler1:register(s1);\n"
 		"struct Query{float4 uv;float4 mapping;float4 sky;float4 diffuse;float4 incident;float4 clear;float4 crest;float4 material;};\n"
-		"cbuffer QueriesBlock:register(b0){Query Queries["+std::to_string(rows)+"];};\n"+
+		"cbuffer QueriesBlock:register(b0){Query Queries["+std::to_string(batchRows)+"];};\n"+
 		production.substr(lightingStart,lightingEnd-lightingStart)+WaterFoamShading::MaterialSource()+
 		"float3 productionLayer(Query q){float3 vesselDiffuse=q.diffuse.rgb,surface=q.clear.rgb;"
 		"float vesselFoam=q.material.w,foam=q.material.z,environmentRoughness=q.mapping.z;"
 		"float3 sky=pow(q.sky.rgb,1.0/2.2),reflectedRay=float3(0,0,1),light=float3(0,0,1);"
 		"float offshore=0,daylight=1,baseLevel=0;float4 WaterParameters=float4(0,0,q.mapping.w,0);"
+		"bool pathTraced=q.sky.w>0.5;"
 		"float2 reflectionUV=q.uv.xy,distortion=q.uv.zw,reflectionScale=q.mapping.xy;"
 		"float environmentFresnel=q.material.x,oceanViewCosine=q.material.y,foamDiffuse=1;"
 		"float3 foamAlbedo=pow(q.crest.rgb,1.0/2.2),vesselIrradiance=float3(0,0,0);float shoreMaterialWeight=0;"+
 		production.substr(integrationStart,integrationEnd-integrationStart)+"return surface;}\n"
-		"float4 main(float4 pixel:SV_Position):SV_Target0{Query q=Queries[(uint)pixel.y];uint col=(uint)pixel.x;"
-		"if(col==0)return float4(waterFoamPlanarReflection(q.sky.rgb,q.uv.xy,q.uv.zw,q.mapping.xy,q.mapping.z,q.mapping.w),1);"
+		"float4 main(float4 pixel:SV_Position):SV_Target0{Query q=Queries[(uint)pixel.y%"+std::to_string(batchRows)+"];uint col=(uint)pixel.x;"
+		"if(col==0)return float4(waterFoamPlanarReflection(q.sky.rgb,q.uv.xy,q.uv.zw,q.mapping.xy,q.mapping.z,q.mapping.w,q.sky.w>0.5),1);"
 		"float3 material=waterFoamRoughMaterial(q.diffuse.rgb,q.incident.rgb,q.material.x,q.material.y,q.mapping.z);"
 		"if(col==1)return float4(material,1);"
 		"if(col==2)return float4(waterFoamLayer(q.clear.rgb,q.crest.rgb,material,q.material.z,q.material.w),1);"
@@ -4679,8 +4692,15 @@ static void check_gpu_foam_material(SdlGpuFrame *frame)
 	SDL_GPURenderPass *pass=SDL_BeginGPURenderPass(commands,&attachment,1,NULL);CHECK(pass);
 	if(!pass){SDL_CancelGPUCommandBuffer(commands);return;}
 	SDL_BindGPUGraphicsPipeline(pass,resources.pipeline);SDL_GPUTextureSamplerBinding bindings[2]={{white,resources.sampler},{mirror,resources.sampler}};
-	SDL_BindGPUFragmentSamplers(pass,0,bindings,2);SDL_PushGPUFragmentUniformData(commands,0,queries.data(),unsigned(queries.size()*sizeof(Query)));
-	SDL_DrawGPUPrimitives(pass,3,1,0,0);SDL_EndGPURenderPass(pass);CHECK(SDL_SubmitGPUCommandBuffer(commands));
+	SDL_BindGPUFragmentSamplers(pass,0,bindings,2);
+	for(unsigned first=0;first<rows;first+=batchRows) {
+		const unsigned count=(std::min)(batchRows,rows-first);
+		const SDL_Rect scissor={0,int(first),int(columns),int(count)};
+		SDL_SetGPUScissor(pass,&scissor);
+		SDL_PushGPUFragmentUniformData(commands,0,queries.data()+first,count*sizeof(Query));
+		SDL_DrawGPUPrimitives(pass,3,1,0,0);
+	}
+	SDL_EndGPURenderPass(pass);CHECK(SDL_SubmitGPUCommandBuffer(commands));
 	const auto values=read_float_targets(frame,&resources.target,1,columns,rows);CHECK(values.size()==rows*columns*4);if(values.size()!=rows*columns*4)return;
 	auto sat=[](double v){return (std::max)(0.0,(std::min)(1.0,v));};
 	auto sample=[&](double u,double v,unsigned channel) {
@@ -4688,7 +4708,7 @@ static void check_gpu_foam_material(SdlGpuFrame *frame)
 		const double fx=px-ix,fy=py-iy;double value=0;
 		for(int dy=0;dy<2;++dy)for(int dx=0;dx<2;++dx) {
 			const unsigned x=unsigned((std::max)(0,(std::min)(int(side)-1,ix+dx))),y=unsigned((std::max)(0,(std::min)(int(side)-1,iy+dy)));
-			value+=double((texels[y*side+x]>>(16-channel*8))&255)/255*(dx?fx:1-fx)*(dy?fy:1-fy);
+			value+=double((texels[y*side+x]>>(channel==3?24:16-channel*8))&255)/255*(dx?fx:1-fx)*(dy?fy:1-fy);
 		}
 		return value;
 	};
@@ -4700,6 +4720,11 @@ static void check_gpu_foam_material(SdlGpuFrame *frame)
 				v=f.uv[1]+f.uv[3]+offset[tap][1]*sat(roughness)*.008/(std::max)(double(f.mapping[1]),.001);
 			double rgb[3]={sample(u,v,0),sample(u,v,1),sample(u,v,2)};
 			const double border=(std::min)((std::min)(u,1-u),(std::min)(v,1-v));
+			if(f.sky[3]>.5f) {
+				const double footprint=sat(f.mapping[3])*sat(border*30),alpha=sample(u,v,3);
+				for(unsigned c=0;c<3;++c)out[c]+=weight[tap]*(f.sky[c]*(1-footprint*alpha)+rgb[c]*footprint);
+				continue;
+			}
 			const double coverage=sat(f.mapping[3])*sat(border*30)*sat((std::max)(rgb[0],(std::max)(rgb[1],rgb[2]))*64);
 			allCovered &= coverage>.999999;
 			for(unsigned c=0;c<3;++c){out[c]+=weight[tap]*(f.sky[c]*(1-coverage)+std::pow(rgb[c],2.2)*coverage);averagedDisplay[c]+=weight[tap]*rgb[c];}
@@ -4736,6 +4761,8 @@ static void check_gpu_foam_material(SdlGpuFrame *frame)
 	for(unsigned c=0;c<3;++c) {
 		const double constantRadiance=std::pow(double((texels[8*side+8]>>(16-c*8))&255)/255,2.2);
 		CHECK(std::abs(at(constant,0,c)-constantRadiance)<.00001);
+		CHECK(std::abs(at(linearCapture,0,c)-double((texels[8*side+8]>>(16-c*8))&255)/255)<.00001);
+		CHECK(at(linearBlack,0,c)==0 && std::abs(at(linearEmpty,0,c)-base.sky[c])<.000001);
 		CHECK(std::abs(at(empty,0,c)-base.sky[c])<.000001 && std::abs(at(disabled,0,c)-base.sky[c])<.000001 && std::abs(at(outside,0,c)-base.sky[c])<.000001);
 		CHECK(at(noFresnel,1,c)==base.diffuse[c] && at(tangent,1,c)==base.diffuse[c]);
 		CHECK(std::abs(at(fullReflection,1,c)-base.incident[c])<.000001 && at(dark,1,c)==0 && at(hdr,1,c)>1);
@@ -4801,6 +4828,7 @@ static void check_gpu_coastal_material(SdlGpuFrame *frame)
 		"cbuffer QueriesBlock:register(b0){Query Queries["+std::to_string(rows)+"];};\n"+
 		production.substr(lightStart,lightEnd-lightStart)+lighting.substr(0,lightingEnd)+WaterFoamShading::MaterialSource()+
 		"float3 productionCoast(Query q,bool applyCoast){float3 surface=q.clear.rgb,normal=q.normal.xyz,light=q.light.xyz;"
+		"bool pathTraced=false;"
 		"float vesselFoam=q.foam.z,foam=q.foam.x,environmentRoughness=q.material.z,offshore=0,daylight=q.sun.w,baseLevel=0;"
 		"float shoreMaterialWeight=applyCoast?waterFoamCoastWeight(foam,q.foam.y,vesselFoam):0;"
 		"float3 foamAlbedo=float3(.67,.73,.71);float foamDiffuse=(.22+.78*saturate(dot(normal,light)))*(.12+.88*daylight);"

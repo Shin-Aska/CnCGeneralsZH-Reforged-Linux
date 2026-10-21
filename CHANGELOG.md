@@ -8,6 +8,12 @@ found and fixed â€” EA's own, not port damage.**
 
 ---
 
+## Clearer water reflections and shallow scenery on Linux (2026-10-21)
+
+- Path-traced water reflections are brighter and preserve more detail around reflected structures.
+- Modern water reveals submerged ruins and scenery more clearly over shallow raised seabeds.
+  Deep water and flat offshore basins retain their depth and opacity, including around aircraft carriers.
+
 ## Experimental water path tracing on Linux (2026-10-20)
 
 - Added Path traced as an optional fourth water reflection mode. Hybrid remains the default.

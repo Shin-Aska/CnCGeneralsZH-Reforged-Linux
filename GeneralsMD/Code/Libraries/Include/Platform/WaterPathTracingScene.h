@@ -28,6 +28,17 @@ inline Vec3 DisplayToLinear(Vec3 rgb)
         std::pow(std::max(rgb.y,0.0f),2.2f),std::pow(std::max(rgb.z,0.0f),2.2f)};
 }
 
+// Legacy directional colours already describe the outgoing diffuse response of
+// a white, light-facing surface. Transport takes irradiance and applies albedo/pi;
+// convert the authored coefficient here so it is not divided by pi a second time.
+// Sky colours are radiance, so they must continue to use DisplayToLinear alone.
+inline Vec3 DisplayDiffuseToIrradiance(Vec3 rgb)
+{
+    const Vec3 linear=DisplayToLinear(rgb);
+    constexpr float pi=3.14159265358979323846f;
+    return {linear.x*pi,linear.y*pi,linear.z*pi};
+}
+
 inline Vec3 Add(Vec3 a, Vec3 b) { return {a.x+b.x,a.y+b.y,a.z+b.z}; }
 inline Vec3 Sub(Vec3 a, Vec3 b) { return {a.x-b.x,a.y-b.y,a.z-b.z}; }
 inline Vec3 Scale(Vec3 a, float s) { return {a.x*s,a.y*s,a.z*s}; }

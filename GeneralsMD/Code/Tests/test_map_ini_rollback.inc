@@ -386,10 +386,11 @@ struct WaterRuleFixture
 	}
 };
 
-void checkWaterMaterial(Real r, Real g, Real b, Real brightness, Real tint, Real pollution, Real bubbles)
+void checkWaterMaterial(Real r, Real g, Real b, Real brightness, Real tint, Real pollution, Real bubbles,
+	Real underwaterClarity = 0, Real reflectionStrength = 1)
 {
-	Real color[4], parameters[4];
-	getModernWaterMaterial(color, parameters);
+	Real color[4], parameters[4], optics[4];
+	getModernWaterMaterial(color, parameters, optics);
 	CHECK_NEAR(color[0], r / 255.0f, .00001f);
 	CHECK_NEAR(color[1], g / 255.0f, .00001f);
 	CHECK_NEAR(color[2], b / 255.0f, .00001f);
@@ -398,6 +399,10 @@ void checkWaterMaterial(Real r, Real g, Real b, Real brightness, Real tint, Real
 	CHECK_NEAR(parameters[1], pollution, .00001f);
 	CHECK_NEAR(parameters[2], bubbles, .00001f);
 	CHECK_EQ(parameters[3], 0.0f);
+	CHECK_NEAR(optics[0], underwaterClarity, .00001f);
+	CHECK_EQ(optics[1], reflectionStrength - 1.0f);
+	CHECK_EQ(optics[2], 0.0f);
+	CHECK_EQ(optics[3], 0.0f);
 }
 }
 
@@ -405,7 +410,20 @@ TEST(map_ini_modern_water_resolves_effective_override_without_changing_classic)
 {
 	CHECK(bootOnce());
 	WaterRuleFixture fixture;
-	checkWaterMaterial(255, 255, 255, 1, 0, 0, 0);
+	checkWaterMaterial(255, 255, 255, 1, 0, 0, 0, .90f, 2.0f);
+	writeFile(TEST_INI,
+		"WaterTransparency\n"
+		" StandingWaterColor = R:255 G:255 B:255\n"
+		" StandingWaterTexture = TWWater01.tga\n"
+		" TransparentWaterDepth = 5.0\n"
+		" TransparentWaterMinOpacity = 0.65\n"
+		"End\n");
+	CHECK(loadMapIni(TEST_INI));
+	checkWaterMaterial(255, 255, 255, 1, 0, 0, 0, .90f, 2.0f);
+	CHECK_NEAR(TheWaterTransparency->m_transparentWaterDepth, 5, .00001f);
+	CHECK_NEAR(TheWaterTransparency->m_minWaterOpacity, .65f, .00001f);
+	// A following polluted map must drop the clear-water optics from the cache.
+	fixture.resetMap();
 	writeFile(TEST_INI,
 		"WaterTransparency\n"
 		" StandingWaterColor = R:50 G:75 B:50\n"
@@ -437,7 +455,7 @@ TEST(map_ini_modern_water_resolves_effective_override_without_changing_classic)
 	CHECK(loadMapIni(TEST_INI));
 	checkWaterMaterial(50, 75, 50, 1, 1, 0, 0);
 	fixture.resetMap();
-	checkWaterMaterial(255, 255, 255, 1, 0, 0, 0);
+	checkWaterMaterial(255, 255, 255, 1, 0, 0, 0, .90f, 2.0f);
 	writeFile(TEST_INI,
 		"WaterTransparency\n"
 		" StandingWaterColor = R:255 G:0 B:0\n"
@@ -446,7 +464,7 @@ TEST(map_ini_modern_water_resolves_effective_override_without_changing_classic)
 	CHECK(loadMapIni(TEST_INI));
 	checkWaterMaterial(255, 0, 0, 1, 1, 0, 0);
 	fixture.resetMap();
-	checkWaterMaterial(255, 255, 255, 1, 0, 0, 0);
+	checkWaterMaterial(255, 255, 255, 1, 0, 0, 0, .90f, 2.0f);
 }
 
 TEST(map_ini_modern_water_config_reload_replaces_cache_and_falls_back_atomically)

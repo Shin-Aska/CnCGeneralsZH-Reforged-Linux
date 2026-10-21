@@ -84,7 +84,7 @@ public:
     }
 
     void draw(unsigned width,unsigned height,int reflection,float elapsed,bool edited,
-        const WaterPreviewColor::Values &values,bool bubbles,int materialMode)
+        const WaterPreviewColor::Values &values,bool bubbles,int materialMode,float clarity=-1.f)
     {
         if (reflection==WaterPreviewReflection::PathTraced)
             throw std::runtime_error("path tracing needs complete scene geometry, which this image bank does not contain");
@@ -104,7 +104,7 @@ public:
             occlusion();
             if (!device->Inject_Water_Snapshot(bank.colour.bgra,bank.depth))
                 throw std::runtime_error("inject original water colour/depth snapshot");
-            water(compare?int(i):reflection,elapsed,edited,values,bubbles,compare && materialMode==3?2:materialMode);
+            water(compare?int(i):reflection,elapsed,edited,values,bubbles,compare && materialMode==3?2:materialMode,clarity);
         }
         require(device->SetRenderTarget(0,colour),"restore preview colour");
         require(device->SetDepthStencilSurface(depth),"restore preview depth");
@@ -243,7 +243,7 @@ private:
         device->SetFVF(D3DFVF_XYZRHW); device->SetStreamSource(0,occlusionVertices,0,sizeof(ScreenDepth)); device->SetIndices(occlusionIndices);
         require(device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST,0,0,occlusionVertexCount,0,occlusionIndexCount/3),"draw bank occlusion depth");
     }
-    void water(int reflection,float elapsed,bool edited,const WaterPreviewColor::Values &values,bool bubbles,int mode)
+    void water(int reflection,float elapsed,bool edited,const WaterPreviewColor::Values &values,bool bubbles,int mode,float clarity)
     {
         for (size_t i=0;i<draws.size();++i) {
             const auto &d=bank.draws[i]; const auto &r=draws[i];
@@ -263,6 +263,12 @@ private:
             device->SetViewport(&viewport);
             device->SetPixelShader(r.shader); device->SetVertexShader(nullptr);
             require(device->SetPixelShaderConstantF(0,d.pixelConstants.data(),unsigned(d.pixelConstants.size()/4)),"restore bank pixel constants");
+            // Older banks can end before the optional optics register. Clear it explicitly
+            // so a previous draw or comparison cannot leak its material into this replay.
+            float optics[4]={};
+            if(d.pixelConstants.size()>=(ModernWaterMaterial::RegisterOptics+1)*4)
+                std::memcpy(optics,d.pixelConstants.data()+ModernWaterMaterial::RegisterOptics*4,sizeof(optics));
+            if(clarity>=0.f) optics[0]=clarity;
             if (!d.vertexConstants.empty()) require(device->SetVertexShaderConstantF(0,d.vertexConstants.data(),unsigned(d.vertexConstants.size()/4)),"restore bank vertex constants");
             float water[4]; std::memcpy(water,d.pixelConstants.data()+4,sizeof(water)); water[0]+=elapsed;
             IDirect3DTexture9 *reflectionTexture=d.pixelConstants[6]>.5f && r.textures[1]?r.textures[1]:mirror;
@@ -277,8 +283,10 @@ private:
                 parameters[0]=values.red<1 || values.green<1 || values.blue<1 || values.brightness<1?1.f:0.f;
                 parameters[1]=values.strength; parameters[2]=bubbles?1.f:0.f;
             }
-            const auto render=[&]() {
+            const auto render=[&](bool baseline) {
                 device->SetPixelShaderConstantF(95,parameters,1);
+                const float baselineOptics[4]={};
+                device->SetPixelShaderConstantF(ModernWaterMaterial::RegisterOptics,baseline?baselineOptics:optics,1);
                 device->SetFVF(d.fvf); device->SetStreamSource(0,r.vertices,0,d.stride); device->SetIndices(r.indices);
                 require(device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST,0,0,unsigned(d.vertices.size()/d.stride),0,unsigned(d.indices.size()/3)),"replay bank water");
             };
@@ -299,11 +307,11 @@ private:
                     device->SetPixelShaderConstantF(2,area,1);
                     std::memcpy(parameters,material,sizeof(parameters));
                     if (!half) parameters[0]=parameters[1]=parameters[2]=0;
-                    render();
+                    render(!half);
                 }
             } else {
                 if (mode==1) parameters[0]=parameters[1]=parameters[2]=0;
-                render();
+                render(mode==1);
             }
         }
     }

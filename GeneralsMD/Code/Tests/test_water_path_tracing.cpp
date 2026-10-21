@@ -510,3 +510,18 @@ TEST(water_path_lighting_decodes_display_colour_before_transport)
     CHECK_EQ(negative.y,0);
     CHECK_EQ(negative.z,0);
 }
+
+TEST(water_path_authored_diffuse_matches_lambertian_transport_units)
+{
+    const Vec3 irradiance=DisplayDiffuseToIrradiance({.88f,.81f,.66f});
+    constexpr float pi=3.14159265358979323846f;
+    // Albedo/pi restores the authored white-surface response without changing
+    // the independent sky-radiance conversion or clamping HDR light values.
+    CHECK_NEAR(std::pow(irradiance.x/pi,1.0f/2.2f),.88f,1e-6);
+    CHECK_NEAR(std::pow(irradiance.y/pi,1.0f/2.2f),.81f,1e-6);
+    CHECK_NEAR(std::pow(irradiance.z/pi,1.0f/2.2f),.66f,1e-6);
+    const Vec3 endpoints=DisplayDiffuseToIrradiance({-1,1,2});
+    CHECK_EQ(endpoints.x,0);
+    CHECK_NEAR(endpoints.y,pi,1e-6);
+    CHECK_NEAR(endpoints.z/pi,4.59479342,1e-5);
+}

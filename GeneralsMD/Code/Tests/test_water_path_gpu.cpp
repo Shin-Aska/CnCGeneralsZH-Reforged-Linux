@@ -2,6 +2,8 @@
 #include "SdlGpuFrame.h"
 #include "Platform/WaterPathTracing.h"
 #include "Platform/WaterPathTracingMotion.h"
+#include "Platform/WaterOpticalModel.h"
+#include "../Libraries/Source/WWVegas/WW3D2/sdl3shadercompile.h"
 #include <SDL3/SDL.h>
 #include <algorithm>
 #include <cmath>
@@ -24,11 +26,12 @@ float Half(uint16_t bits)
     return sign*std::ldexp(1.f+float(mantissa)/1024.f,int(exponent)-15);
 }
 
-std::vector<float> Read(SdlGpuFrame *frame,unsigned size)
+std::vector<float> Read(SdlGpuFrame *frame,unsigned size,SDL_GPUTexture *texture=nullptr)
 {
     std::vector<float> result;
     CHECK(frame->Flush());
-    if(!frame->Water_Path_Texture())return result;
+    if(!texture)texture=frame->Water_Path_Texture();
+    if(!texture)return result;
     SDL_GPUTransferBufferCreateInfo info{};
     info.usage=SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD;
     info.size=size*size*4*sizeof(uint16_t);
@@ -42,7 +45,7 @@ std::vector<float> Read(SdlGpuFrame *frame,unsigned size)
         CHECK(copy);
         if(copy) {
             SDL_GPUTextureRegion source{};
-            source.texture=frame->Water_Path_Texture();source.w=size;source.h=size;source.d=1;
+            source.texture=texture;source.w=size;source.h=size;source.d=1;
             SDL_GPUTextureTransferInfo destination{};
             destination.transfer_buffer=transfer;destination.pixels_per_row=size;destination.rows_per_layer=size;
             SDL_DownloadFromGPUTexture(copy,&source,&destination);
@@ -81,7 +84,6 @@ bool Approx(float actual,float expected,float tolerance=0.004f)
     return std::isfinite(actual)&&std::abs(actual-expected)<tolerance;
 }
 bool Contains(const std::string &text,const char *part) { return text.find(part)!=std::string::npos; }
-float Display(float linear) { return std::pow(linear,1.f/2.2f); }
 
 void CheckCapture(SdlGpuFrame *frame)
 {
@@ -99,9 +101,9 @@ void CheckCapture(SdlGpuFrame *frame)
     CHECK(pixels.size()==view.size*view.size*4);
     if(pixels.empty())return;
     for(unsigned i=0;i<pixels.size();i+=4) {
-        CHECK(Approx(pixels[i],Display(.1f)));
-        CHECK(Approx(pixels[i+1],Display(.2f)));
-        CHECK(Approx(pixels[i+2],Display(.3f)));
+        CHECK(Approx(pixels[i],.1f));
+        CHECK(Approx(pixels[i+1],.2f));
+        CHECK(Approx(pixels[i+2],.3f));
         CHECK(Approx(pixels[i+3],1));
     }
 
@@ -119,9 +121,9 @@ void CheckCapture(SdlGpuFrame *frame)
     CHECK(frame->Prepare_Water_Path(scene,view));
     pixels=Read(frame,view.size);
     for(unsigned i=0;i<pixels.size();i+=4) {
-        CHECK(Approx(pixels[i],Display(.7f)));
-        CHECK(Approx(pixels[i+1],Display(.2f)));
-        CHECK(Approx(pixels[i+2],Display(.05f)));
+        CHECK(Approx(pixels[i],.7f));
+        CHECK(Approx(pixels[i+1],.2f));
+        CHECK(Approx(pixels[i+2],.05f));
     }
     CHECK(Contains(frame->Water_Path_Report(),"1/64 samples"));
     CHECK(Contains(frame->Water_Path_Report(),"3 BVH builds"));
@@ -144,7 +146,7 @@ void CheckCapture(SdlGpuFrame *frame)
     CHECK(Contains(frame->Water_Path_Report(),"3 BVH builds, 1 refits"));
     const auto changed=Read(frame,view.size);
     CHECK(changed!=pixels);
-    if(!changed.empty())CHECK(Approx(changed[2],Display(.8f)));
+    if(!changed.empty())CHECK(Approx(changed[2],.8f));
 
     // Refit bounds and triangle texels together: the nearer blue-tinted plane moves
     // behind the far blue plane. Reversing source order must preserve that new image.
@@ -156,7 +158,7 @@ void CheckCapture(SdlGpuFrame *frame)
     CHECK(Contains(frame->Water_Path_Report(),"3 BVH builds, 2 refits"));
     const auto moved=Read(frame,view.size);
     CHECK(moved!=changed);
-    for(unsigned i=0;i<moved.size();i+=4)CHECK(Approx(moved[i+2],Display(.9f)));
+    for(unsigned i=0;i<moved.size();i+=4)CHECK(Approx(moved[i+2],.9f));
     std::reverse(scene.begin(),scene.end());
     CHECK(frame->Prepare_Water_Path(scene,view));
     CHECK(Contains(frame->Water_Path_Report(),"1/64 samples"));
@@ -244,8 +246,8 @@ void CheckMotionResolution(SdlGpuFrame *frame)
         bool finite=true,correct=true;
         for(unsigned i=0;i<pixels.size();i+=4) {
             for(unsigned channel=0;channel<4;++channel)finite&=std::isfinite(pixels[i+channel]);
-            correct&=Approx(pixels[i],Display(linear.x))&&Approx(pixels[i+1],Display(linear.y))
-                &&Approx(pixels[i+2],Display(linear.z))&&Approx(pixels[i+3],1);
+            correct&=Approx(pixels[i],linear.x)&&Approx(pixels[i+1],linear.y)
+                &&Approx(pixels[i+2],linear.z)&&Approx(pixels[i+3],1);
         }
         CHECK(finite&&correct);
     };
@@ -319,8 +321,8 @@ void CheckShadowAndPrimaryLimits(SdlGpuFrame *frame)
         CHECK(pixels.size()==view.size*view.size*4);
         bool correct=true;
         for(unsigned i=0;i<pixels.size();i+=4)
-            correct&=Approx(pixels[i],Display(expected.x))&&Approx(pixels[i+1],Display(expected.y))
-                &&Approx(pixels[i+2],Display(expected.z))&&Approx(pixels[i+3],1);
+            correct&=Approx(pixels[i],expected.x)&&Approx(pixels[i+1],expected.y)
+                &&Approx(pixels[i+2],expected.z)&&Approx(pixels[i+3],1);
         CHECK(correct);
     };
     CHECK(frame->Prepare_Water_Path(scene,view));
@@ -345,6 +347,159 @@ void CheckShadowAndPrimaryLimits(SdlGpuFrame *frame)
     checkColour(view.skyLow); // The explicit primary distance cutoff reaches only sky.
     frame->Clear_Water_Path();
 }
+
+void CheckAuthoredDiffuseLighting(SdlGpuFrame *frame)
+{
+    View view{};
+    view.size=32;view.origin={-5,0,-5};
+    view.rayTopLeft={.55f,-.2f,1};view.rayDx={.2f,0,0};view.rayDy={0,.4f,0};
+    view.skyLow=view.skyHigh={0,0,0};
+    view.sunDirection={-1,0,0};
+    view.sunRadiance=DisplayDiffuseToIrradiance({.88f,.81f,.66f});
+    std::vector<Triangle> scene;
+    Quad(scene,{0,-10,1},{0,10,1},{0,10,5},{0,-10,5},{1,1,1});
+    CHECK(frame->Prepare_Water_Path(scene,view));
+    const auto pixels=Read(frame,view.size);
+    CHECK(pixels.size()==view.size*view.size*4);
+    bool matchesAuthored=true;
+    const Vec3 expected=DisplayToLinear({.88f,.81f,.66f});
+    for(unsigned i=0;i<pixels.size();i+=4)
+        matchesAuthored&=Approx(pixels[i],expected.x)&&Approx(pixels[i+1],expected.y)
+            &&Approx(pixels[i+2],expected.z)&&Approx(pixels[i+3],1);
+    // A white wall facing the light must retain the map's diffuse colour. Passing
+    // display-decoded colour as irradiance used to dim this by pi in linear light.
+    CHECK(matchesAuthored);
+    frame->Clear_Water_Path();
+}
+
+void CheckLinearReflectionFiltering(SdlGpuFrame *frame)
+{
+    View view{};
+    view.size=32;view.origin={0,0,-5};
+    view.rayTopLeft={-.5f,.5f,1};view.rayDx={1,0,0};view.rayDy={0,-1,0};
+    view.skyLow=view.skyHigh={1,1,1};view.sunRadiance={0,0,0};
+    std::vector<Triangle> scene;
+    Quad(scene,{-100,-100,2},{0,-100,2},{0,100,2},{-100,100,2},{.1f,.2f,.3f});
+    Quad(scene,{0,-100,2},{100,-100,2},{100,100,2},{0,100,2},{.5f,.8f,1});
+    // Exercise the stored history after accumulation, then hardware-filter across
+    // a silhouette. The interface needs the mean radiance, not a gamma-space mean.
+    for(unsigned sample=0;sample<64;++sample)CHECK(frame->Prepare_Water_Path(scene,view));
+    SDL_GPUTextureCreateInfo info{};
+    info.type=SDL_GPU_TEXTURETYPE_2D;info.format=SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT;
+    info.usage=SDL_GPU_TEXTUREUSAGE_COLOR_TARGET|SDL_GPU_TEXTUREUSAGE_SAMPLER;
+    info.width=info.height=info.layer_count_or_depth=info.num_levels=1;
+    SDL_GPUTexture *filtered=SDL_CreateGPUTexture(frame->Device(),&info);
+    CHECK(filtered);
+    if(filtered) {
+        SDL_GPUCommandBuffer *commands=SDL_AcquireGPUCommandBuffer(frame->Device());
+        CHECK(commands);
+        if(commands) {
+            SDL_GPUBlitInfo blit{};
+            blit.source.texture=frame->Water_Path_Texture();
+            blit.source.w=blit.source.h=view.size;
+            blit.destination.texture=filtered;blit.destination.w=blit.destination.h=1;
+            blit.load_op=SDL_GPU_LOADOP_DONT_CARE;blit.filter=SDL_GPU_FILTER_LINEAR;
+            SDL_BlitGPUTexture(commands,&blit);
+            CHECK(SDL_SubmitGPUCommandBuffer(commands));
+            const auto pixels=Read(frame,1,filtered);
+            CHECK(pixels.size()==4);
+            if(pixels.size()==4) {
+                CHECK(Approx(pixels[0],.3f));
+                CHECK(Approx(pixels[1],.5f));
+                CHECK(Approx(pixels[2],.65f));
+                CHECK(Approx(pixels[3],1));
+            }
+        }
+        SDL_ReleaseGPUTexture(frame->Device(),filtered);
+    }
+    frame->Clear_Water_Path();
+}
+
+void CheckTerrainClarityEligibility(SdlGpuFrame *frame)
+{
+    using namespace WaterOpticalModel;
+    // Each pixel carries terrain depth, deepest surrounding wet terrain, offshore
+    // blend and actual scene-ray length. Hull/prop rays never replace terrain depth.
+    const float fixtures[16][4]={
+        {1.875f,5,1,3.2f}, {3.275f,5,1,5}, {1.875f,1.875f,1,3.2f}, {1.875f,2.375f,1,3.2f},
+        {6,6.625f,1,.1f}, {7,7.625f,1,.5f}, {50,150,0,.1f}, {2,2,0,3.2f},
+        {2,2,.5f,3.2f}, {2.5f,5,1,4}, {4,6,1,6}, {5.5f,7,1,8},
+        {2,3,1,3.2f}, {2,3.5f,1,3.2f}, {NAN,5,1,3.2f}, {2,INFINITY,1,3.2f}
+    };
+    struct Resources {
+        SDL_GPUDevice *device;
+        SDL_GPUShader *vertex=nullptr,*pixel=nullptr;
+        SDL_GPUGraphicsPipeline *pipeline=nullptr;
+        SDL_GPUTexture *target=nullptr;
+        ~Resources() {
+            if(target)SDL_ReleaseGPUTexture(device,target);
+            if(pipeline)SDL_ReleaseGPUGraphicsPipeline(device,pipeline);
+            if(pixel)SDL_ReleaseGPUShader(device,pixel);
+            if(vertex)SDL_ReleaseGPUShader(device,vertex);
+        }
+    } resources{frame->Device()};
+    const char *vertexSource="float4 main(uint id:SV_VertexID):SV_Position {"
+        "return float4(id==1?3.0:-1.0,id==2?3.0:-1.0,0,1);}";
+    const std::string pixelSource=std::string("cbuffer Samples:register(b0,space3) {float4 Fixtures[16];};\n")
+        +GetHlslSource()+"float4 main(float4 p:SV_Position):SV_Target0 {"
+        "float4 f=Fixtures[(uint)p.y*4+(uint)p.x];"
+        "float e=WaterOpticalClarityEligibility(f.x,f.y,f.z);"
+        "return float4(e,WaterOpticalTransmission(f.w,0,1,3,1,.9*e).g,"
+        "WaterOpticalTransmission(f.w,0,1,3,1,0).g,1);}";
+    std::vector<unsigned char> spirv;
+    std::string error;
+    bool compiled=SDL3_Compile_HLSL_To_SPIRV(vertexSource,true,spirv,error);
+    CHECK(compiled);if(!compiled){std::fprintf(stderr,"%s\n",error.c_str());return;}
+    resources.vertex=SDL3_Create_Shader(resources.device,spirv,true,error);
+    CHECK(resources.vertex);if(!resources.vertex)return;
+    compiled=SDL3_Compile_HLSL_To_SPIRV(pixelSource,false,spirv,error);
+    CHECK(compiled);if(!compiled){std::fprintf(stderr,"%s\n",error.c_str());return;}
+    resources.pixel=SDL3_Create_Shader(resources.device,spirv,false,error);
+    CHECK(resources.pixel);if(!resources.pixel)return;
+    SDL_GPUColorTargetDescription description{};
+    description.format=SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT;
+    SDL_GPUGraphicsPipelineCreateInfo pipeline{};
+    pipeline.vertex_shader=resources.vertex;pipeline.fragment_shader=resources.pixel;
+    pipeline.primitive_type=SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+    pipeline.rasterizer_state.fill_mode=SDL_GPU_FILLMODE_FILL;
+    pipeline.rasterizer_state.cull_mode=SDL_GPU_CULLMODE_NONE;
+    pipeline.target_info.color_target_descriptions=&description;pipeline.target_info.num_color_targets=1;
+    resources.pipeline=SDL_CreateGPUGraphicsPipeline(resources.device,&pipeline);
+    CHECK(resources.pipeline);if(!resources.pipeline)return;
+    SDL_GPUTextureCreateInfo target{};
+    target.type=SDL_GPU_TEXTURETYPE_2D;target.format=description.format;
+    target.usage=SDL_GPU_TEXTUREUSAGE_COLOR_TARGET;
+    target.width=target.height=4;target.layer_count_or_depth=target.num_levels=1;
+    resources.target=SDL_CreateGPUTexture(resources.device,&target);
+    CHECK(resources.target);if(!resources.target)return;
+    CHECK(frame->Flush());
+    SDL_GPUCommandBuffer *commands=SDL_AcquireGPUCommandBuffer(resources.device);
+    CHECK(commands);if(!commands)return;
+    SDL_GPUColorTargetInfo attachment{};
+    attachment.texture=resources.target;attachment.load_op=SDL_GPU_LOADOP_DONT_CARE;
+    attachment.store_op=SDL_GPU_STOREOP_STORE;
+    SDL_GPURenderPass *pass=SDL_BeginGPURenderPass(commands,&attachment,1,nullptr);
+    CHECK(pass);if(!pass){SDL_CancelGPUCommandBuffer(commands);return;}
+    SDL_BindGPUGraphicsPipeline(pass,resources.pipeline);
+    SDL_PushGPUFragmentUniformData(commands,0,fixtures,sizeof(fixtures));
+    SDL_DrawGPUPrimitives(pass,3,1,0,0);SDL_EndGPURenderPass(pass);
+    CHECK(SDL_SubmitGPUCommandBuffer(commands));
+    const auto pixels=Read(frame,4,resources.target);
+    CHECK(pixels.size()==64);if(pixels.size()!=64)return;
+    for(unsigned i=0;i<16;++i) {
+        const auto &f=fixtures[i];
+        const float eligibility=ClarityEligibility(f[0],f[1],f[2]);
+        const float clear=Transmission(f[3],0,1,3,1,.9f*eligibility).g;
+        const float original=Transmission(f[3],0,1,3,1).g;
+        CHECK(Approx(pixels[i*4],eligibility,.0006f));
+        CHECK(Approx(pixels[i*4+1],clear,.0006f));
+        CHECK(Approx(pixels[i*4+2],original,.0006f));
+        CHECK(Approx(pixels[i*4+3],1,.0006f));
+        if(eligibility==0)CHECK(pixels[i*4+1]==pixels[i*4+2]);
+    }
+    CHECK(pixels[0]>.99f && pixels[4]>.8f); // both raised ruin shelves qualify
+    CHECK(pixels[8]==0 && pixels[16]==0 && pixels[20]==0); // flat sea and carrier basins do not
+}
 }
 
 int main()
@@ -361,6 +516,9 @@ int main()
     CheckIndirectBounce(frame);
     CheckMotionResolution(frame);
     CheckShadowAndPrimaryLimits(frame);
+    CheckAuthoredDiffuseLighting(frame);
+    CheckLinearReflectionFiltering(frame);
+    CheckTerrainClarityEligibility(frame);
     delete frame;SDL_Quit();
     std::printf("water_path_gpu: %u checks, %u failed\n",checks,failures);
     return failures?1:0;

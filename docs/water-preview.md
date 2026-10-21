@@ -9,7 +9,7 @@ the game. The default synthetic scene requires no game assets, save or running m
 
 On an ordinary launch the tool looks beside its executable for
 `overlay/Data/INI/ModernWater.ini`, then `Data/INI/ModernWater.ini`. If neither exists it
-uses the same built-in rule as the game. `--config FILE.ini` selects another file;
+uses the same built-in rules as the game. `--config FILE.ini` selects another file;
 a missing file uses built-in defaults and reports that choice. Invalid configuration
 produces a diagnostic and stops the preview so a bad edit cannot be mistaken for a
 successful comparison. An empty file intentionally disables all replacement rules.
@@ -42,6 +42,37 @@ water without pollution; white preserves its normal blue appearance. Pollution d
 control tint strength. The Modern material's bubbles are procedural surface shading
 with popping rings, not a volumetric gas simulation.
 
+The shipped `ClearWater` rule matches white (RGB 255,255,255) with `TWWater01.tga`.
+It keeps the neutral color and sets `UnderwaterClarity = 0.90` so submerged ruins and
+seabed details remain visible. `UnderwaterClarity` is optional, ranges from **0 to 1**,
+and defaults to **0**. It reduces the extra Modern absorption derived from authored
+water settings independently of pollution. The boost follows the terrain: it is fully
+eligible below 2.5 units of water and fades out by 5.5. Offshore, the bed must also rise
+above nearby submerged terrain; a flat ocean floor retains its original opacity even
+when a map places it unrealistically close to the surface. Eight terrain directions
+at 80 and 160 world units detect those shelves, with dry banks interrupting the outer
+samples. This uses the water level and terrain height, so ships and submerged objects
+cannot create clear patches beneath themselves. Deep water skips the extra samples.
+Even **1** keeps natural spectral absorption along the actual underwater view ray.
+The original map depth and opacity data are retained, and Classic water continues to
+use them unchanged. Other color or texture combinations retain their existing
+absorption unless a matching rule supplies clarity.
+
+`ReflectionStrength` is an optional **0 to 4** artistic control for Path traced water
+reflections, with **1** as the default. `ClearWater` uses **2.0** to make reflected
+structures easier to read from the steep RTS camera. It increases the reflection share
+while reducing the transmitted-water share, with the reflection blend bounded at 1.
+This compensates for the view angle; it is not a physical material parameter and does
+not add missing reflected geometry. Classic water and the other reflection modes retain
+their existing appearance. Pollution and underwater clarity remain independent controls.
+
+`--underwater-clarity 0..1` overrides the clarity value for a preview and is retained in
+exported material rules. Existing scene banks retain their captured material; use
+this option to compare an older bank with a proposed clarity value. Clean baseline
+mode disables the material clarity, including the baseline half of a split view.
+`--reflection-strength 0..4` overrides and exports the Path traced strength for
+synthetic previews. Image banks cannot replay Path traced geometry.
+
 ## Game integration
 
 The global source file is `GeneralsMD/Code/Data/INI/ModernWater.ini`. A normal native
@@ -54,7 +85,8 @@ Matching uses the effective map `StandingWaterColor` and `StandingWaterTexture` 
 the existing map overrides have loaded, including save restoration. It does not inspect
 map names, save names or the chosen general. The material is resolved again when those
 effective values change. Classic water retains its authored parameters; Modern rules
-replace only the material color and effects, retaining the map's depth and opacity.
+control material color, effects and optical clarity while retaining the map's authored
+depth and opacity data.
 
 If the game cannot read the INI or an edit is invalid, it logs a diagnostic and keeps the
 complete built-in default rule set. Parsing is transactional: a valid first rule followed
@@ -174,9 +206,12 @@ production shader exactly as the game sets it up:
   The main scene and its shadows
   keep their existing rendering.
 
-The path tracer uses a 256×256 planar capture and two RGBA16F history textures
-(1 MiB together). It traces one sample per pixel per update, averages in linear
-light, and stops at 64 samples. Camera, geometry, lighting or capture changes reset
+The path tracer uses a 256×256 planar capture and two linear RGBA16F history textures
+(1 MiB together). It traces one sample per pixel per update, averages and filters in linear
+light, and stops at 64 samples. Keeping the reflection linear through the wave lookup
+preserves the brightness of small reflected details at object edges. Authored directional
+diffuse colours are converted to irradiance before the tracer applies its Lambertian BRDF;
+sky colours remain radiance. Camera, geometry, lighting or capture changes reset
 the history; there are no motion vectors or reprojection. After a camera or scene
 change it traces at 128×128, then restores 256×256 after at least 150 ms and eight
 unchanged updates. The quiet interval prevents resolution changes between moving

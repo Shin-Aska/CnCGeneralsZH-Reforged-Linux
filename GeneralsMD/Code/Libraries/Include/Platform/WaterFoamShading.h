@@ -19,11 +19,18 @@ float4 waterFoamHistoryTile(float2 uv,uint tile) {
 // with controlled incident radiance. Texture1/Sampler1 are the existing planar reflection.
 inline const char *MaterialSource() {
     return R"HLSL(
-float3 waterFoamPlanarTap(float3 sky,float2 uv,float levelCoverage) {
+float3 waterFoamPlanarTap(float3 sky,float2 uv,float levelCoverage,bool linearCapture) {
     // This material runs conditionally at foam pixels. Explicit mip zero avoids relying on
     // implicit derivatives inside that branch, including its divergent shoreline boundary.
-    float3 rgb=Texture1.SampleLevel(Sampler1,saturate(uv),0.0).rgb;
+    float4 sample=Texture1.SampleLevel(Sampler1,saturate(uv),0.0);
+    float3 rgb=sample.rgb;
     float2 border=min(uv,1.0-uv);
+    if(linearCapture) {
+        // Path history is coverage-weighted linear radiance, including valid black
+        // surfaces. Preserve that representation for foam's wider reflection lobe.
+        float footprint=saturate(levelCoverage)*saturate(min(border.x,border.y)*30.0);
+        return sky*(1.0-footprint*sample.a)+footprint*rgb;
+    }
     float coverage=saturate(levelCoverage)*saturate(min(border.x,border.y)*30.0)
         *saturate(max(rgb.r,max(rgb.g,rgb.b))*64.0);
     // Decode each incident sample before filtering. Black clear/off-map taps contribute the
@@ -31,14 +38,18 @@ float3 waterFoamPlanarTap(float3 sky,float2 uv,float levelCoverage) {
     return lerp(sky,pow(rgb,2.2),coverage);
 }
 float3 waterFoamPlanarReflection(float3 sky,float2 uv,float2 distortion,
-    float2 reflectionScale,float roughness,float levelCoverage) {
+    float2 reflectionScale,float roughness,float levelCoverage,bool linearCapture) {
     float2 radius=saturate(roughness)*0.008/max(reflectionScale,float2(0.001,0.001));
     float2 centre=uv+distortion;
-    return waterFoamPlanarTap(sky,centre,levelCoverage)*0.4
-        +(waterFoamPlanarTap(sky,centre+float2(radius.x,0),levelCoverage)
-         +waterFoamPlanarTap(sky,centre-float2(radius.x,0),levelCoverage)
-         +waterFoamPlanarTap(sky,centre+float2(0,radius.y),levelCoverage)
-         +waterFoamPlanarTap(sky,centre-float2(0,radius.y),levelCoverage))*0.15;
+    return waterFoamPlanarTap(sky,centre,levelCoverage,linearCapture)*0.4
+        +(waterFoamPlanarTap(sky,centre+float2(radius.x,0),levelCoverage,linearCapture)
+         +waterFoamPlanarTap(sky,centre-float2(radius.x,0),levelCoverage,linearCapture)
+         +waterFoamPlanarTap(sky,centre+float2(0,radius.y),levelCoverage,linearCapture)
+         +waterFoamPlanarTap(sky,centre-float2(0,radius.y),levelCoverage,linearCapture))*0.15;
+}
+float3 waterFoamPlanarReflection(float3 sky,float2 uv,float2 distortion,
+    float2 reflectionScale,float roughness,float levelCoverage) {
+    return waterFoamPlanarReflection(sky,uv,distortion,reflectionScale,roughness,levelCoverage,false);
 }
 float3 waterFoamRoughMaterial(float3 diffuse,float3 incidentReflection,
     float rawFresnel,float viewCosine,float roughness) {

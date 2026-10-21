@@ -337,8 +337,8 @@ static void check_constants(PosixDevice9 *device)
 	CHECK(memcmp(water.HullData,hull_registers[1],sizeof(water.HullData))==0);
 	// The optional foam contour is a distinct tail, never a replacement for the mean hull used
 	// by displacement. Exercise every register, including the twelfth vertex of hull eight.
-	CHECK(sizeof(water)==200*16 && offsetof(SdlWaterPixelConstants,ContactHullData)==100*16);
-	CHECK(offsetof(SdlWaterPixelConstants,ClipFromWorld)==196*16);
+	CHECK(sizeof(water)==201*16 && offsetof(SdlWaterPixelConstants,ContactHullData)==100*16);
+	CHECK(offsetof(SdlWaterPixelConstants,ClipFromWorld)==197*16);
 	CHECK(offsetof(SdlWaterPixelConstants,CoastalArea)==184*16 && offsetof(SdlWaterPixelConstants,CoastalParams)==185*16);
 	float contact_registers[80][4]={};
 	for(int r=0;r<80;++r)for(int c=0;c<4;++c)contact_registers[r][c]=-float(r*4+c)-0.75f;
@@ -374,12 +374,20 @@ static void check_constants(PosixDevice9 *device)
 	device->Build_Water_Constants(pixel,water);CHECK(memcmp(water.FoamFillLights,fill_registers,sizeof(fill_registers))==0);
 	CHECK(device->SetPixelShaderConstantF(175,contact_registers[79],1)==D3D_OK);
 	CHECK(device->SetPixelShaderConstantF(WaterHullVisualLayout::PixelRegisterCount,contact_registers[79],1)==D3DERR_INVALIDCALL);
+	const float optics[4]={.9f,1,0,0},zeroOptics[4]={};
+	CHECK(device->SetPixelShaderConstantF(ModernWaterMaterial::RegisterOptics,optics,1)==D3D_OK);
+	device->Build_Water_Constants(pixel,water);
+	CHECK(memcmp(water.MaterialOptics,optics,16)==0);
+	CHECK(memcmp(water.ContactHullData,contact_registers,sizeof(contact_registers))==0);
+	CHECK(device->SetPixelShaderConstantF(ModernWaterMaterial::RegisterOptics,zeroOptics,1)==D3D_OK);
+	device->Build_Water_Constants(pixel,water);
+	CHECK(memcmp(water.MaterialOptics,zeroOptics,16)==0);
 	// Exact mesh transport extends the emulated bank deliberately, without moving the old
 	// shared native vertex prefix or copying the reserved engine-register gap into metadata.
 	using namespace WaterHullVisualLayout;
 	CHECK(PosixDevice9::PIXEL_SHADER_CONSTANT_COUNT==896);
-	CHECK(sizeof(SdlWaterVisualPixelConstants)==208*16 && offsetof(SdlWaterVisualPixelConstants,VisualHullMeta)==200*16);
-	CHECK(VertexCommonRegisters==200 && FragmentCommonRegisters==208);
+	CHECK(sizeof(SdlWaterVisualPixelConstants)==209*16 && offsetof(SdlWaterVisualPixelConstants,VisualHullMeta)==201*16);
+	CHECK(VertexCommonRegisters==201 && FragmentCommonRegisters==209);
 	CHECK(BlockOffset(0)==0 && BlockOffset(1)==256 && BlockOffset(2)==512);
 	CHECK(BlockRegisters(0)==256 && BlockRegisters(1)==256 && BlockRegisters(2)==192);
 	float visualMeta[8][4]={};float visualPacket[704][4]={};float reserved[8][4]={};

@@ -165,8 +165,8 @@ public:
 		STREAM_COUNT = 16,
 		RENDER_TARGET_COUNT = 4,
 		VERTEX_SHADER_CONSTANT_COUNT = 256,
-		// Existing water uses c0-c175; exact mesh metadata is c176-c183, c184-c191
-		// remains spare, and c192-c895 supplies the three bounded fragment packet blocks.
+		// Existing water uses c0-c175; exact mesh metadata is c176-c183 and material
+		// optics uses c190. c192-c895 supplies the three bounded fragment packet blocks.
 		PIXEL_SHADER_CONSTANT_COUNT = WaterHullVisualLayout::PixelRegisterCount
 	};
 

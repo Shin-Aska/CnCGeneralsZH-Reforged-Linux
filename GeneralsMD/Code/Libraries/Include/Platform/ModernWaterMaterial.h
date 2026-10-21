@@ -3,11 +3,13 @@
 #pragma once
 #include <string>
 
-// Keep the two native float4 declarations identical in C++ and generated HLSL.
-#define MODERN_WATER_MATERIAL_UNIFORMS(X) X(MaterialColor) X(MaterialParameters)
+// Keep the native float4 declarations identical in C++ and generated HLSL.
+#define MODERN_WATER_MATERIAL_UNIFORMS(X) X(MaterialColor) X(MaterialParameters) X(MaterialOptics)
 
 namespace ModernWaterMaterial {
-enum : unsigned { RegisterColor=94, RegisterParameters=95, UniformRegisters=2 };
+enum : unsigned { RegisterColor=94, RegisterParameters=95, RegisterOptics=190, UniformRegisters=3 };
+// c190.x: reduction of authored offshore extinction; zero retains the original profile.
+// c190.y: path-reflection strength minus one; zero keeps older draws/banks unchanged.
 // c94: display-space RGB, brightness. c95: tint amount, pollution amount, bubbles, and whether
 // the screen-space reflection trace runs (Platform/WaterScreenReflection.h; not a material property).
 // A zero parameter vector preserves the existing clear-water material exactly.

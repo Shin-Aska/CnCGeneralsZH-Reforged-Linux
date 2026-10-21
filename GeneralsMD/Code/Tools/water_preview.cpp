@@ -46,6 +46,8 @@ struct Options {
     bool loadPreset = false, widthSet = false, heightSet = false;
     std::string screenshot, colour, config, exportConfig, scene, debug;
     std::string mapColour = "324B32", mapTexture = "TSWater03.tga";
+    float underwaterClarity = -1.f; // absent: retain resolved or banked material
+    float reflectionStrength = -1.f;
 };
 
 void help()
@@ -57,6 +59,8 @@ void help()
         "       [--color RRGGBB] [--brightness 0.1..1] [--hide-controls]\n"
         "       [--config FILE.ini] [--map-color RRGGBB] [--map-texture NAME]\n"
         "       [--map-depth N] [--map-opacity 0..1] [--export-config FILE.ini]\n"
+        "       [--underwater-clarity 0..1]\n"
+        "       [--reflection-strength 0..4]\n"
         "       [--load-preset] [--width N] [--height N] [--time SECONDS]\n"
         "       [--reflection legacy|ssr|hybrid|path|compare] [--no-props] [--scene NAME|PATH]\n"
         "       [--yaw RADIANS] [--pitch 0.48..1.38] [--distance 180..1050]\n"
@@ -165,6 +169,8 @@ Options parse(int argc, char **argv)
         }
         else if (arg == "--map-depth") o.mapDepth = number(value(), 0.001f, 1000000);
         else if (arg == "--map-opacity") o.mapOpacity = number(value(), 0, 1);
+        else if (arg == "--underwater-clarity") o.underwaterClarity = number(value(), 0, 1);
+        else if (arg == "--reflection-strength") o.reflectionStrength = number(value(), 0, 4);
         else if (arg == "--scene") o.scene = value();
         else if (arg == "--debug") o.debug = value();
         else if (arg == "--config") o.config = value();
@@ -463,6 +469,8 @@ private:
             } else std::printf("Modern water configuration absent (%s); using built-in defaults.\n",path.c_str());
         } else std::puts("Modern water configuration absent; using built-in defaults.");
         resolvedMaterial=ModernWaterConfig::Resolve(rules,mapColour(options.mapColour),options.mapTexture);
+        if (options.underwaterClarity>=0) resolvedMaterial.underwaterClarity=options.underwaterClarity;
+        if (options.reflectionStrength>=0) resolvedMaterial.reflectionStrength=options.reflectionStrength;
         auto &v=colourPanel.values;
         v.red=resolvedMaterial.color.r/255.f;
         v.green=resolvedMaterial.color.g/255.f;
@@ -556,7 +564,9 @@ private:
             <<"  MatchTextures\n    Texture = "<<options.mapTexture<<"\n  End\n"
             <<"  ReplacementColor = R:"<<channel(v.red)<<" G:"<<channel(v.green)<<" B:"<<channel(v.blue)<<"\n"
             <<"  Brightness = "<<v.brightness<<"\n  Pollution = "<<v.strength
-            <<"\n  Bubbles = "<<(options.bubbles?"Yes":"No")<<"\nEnd\n";
+            <<"\n  Bubbles = "<<(options.bubbles?"Yes":"No")
+            <<"\n  UnderwaterClarity = "<<resolvedMaterial.underwaterClarity
+            <<"\n  ReflectionStrength = "<<resolvedMaterial.reflectionStrength<<"\nEnd\n";
         ModernWaterConfig::Rules parsed;
         std::string error;
         if (!ModernWaterConfig::Parse(contents.str(),parsed,error))
@@ -594,6 +604,12 @@ private:
             if (!options.heightSet) options.height=scene.bank.height;
             time=0;
             const auto &c=scene.bank.draws.front().pixelConstants;
+            resolvedMaterial.underwaterClarity=c.size()>=(ModernWaterMaterial::RegisterOptics+1)*4
+                ? c[ModernWaterMaterial::RegisterOptics*4]:0.f;
+            if(options.underwaterClarity>=0) resolvedMaterial.underwaterClarity=options.underwaterClarity;
+            resolvedMaterial.reflectionStrength=c.size()>=(ModernWaterMaterial::RegisterOptics+1)*4
+                ? 1.f+c[ModernWaterMaterial::RegisterOptics*4+1]:1.f;
+            if(options.reflectionStrength>=0) resolvedMaterial.reflectionStrength=options.reflectionStrength;
             auto &v=colourPanel.values;
             v.red=c[94*4]; v.green=c[94*4+1]; v.blue=c[94*4+2]; v.brightness=c[94*4+3]; v.strength=c[95*4+1];
             colourPanel.defaults=v;
@@ -865,7 +881,7 @@ private:
         view.rayDy=reflected({-2*tangent*up.x,-2*tangent*up.y,-2*tangent*up.z});
         const Vec3 sun=normalized({-.30f,-.45f,.84f});
         view.sunDirection={sun.x,sun.y,sun.z};
-        view.sunRadiance=WaterPathTracing::DisplayToLinear({.88f,.81f,.66f});
+        view.sunRadiance=WaterPathTracing::DisplayDiffuseToIrradiance({.88f,.81f,.66f});
         view.skyLow=WaterPathTracing::DisplayToLinear({.49f,.62f,.68f});
         view.skyHigh=WaterPathTracing::DisplayToLinear({.23f,.38f,.48f});
         view.waterLevel=WaterLevel;
@@ -882,7 +898,7 @@ private:
     {
         if (scene.loaded()) {
             require(device->BeginScene(),"begin bank scene");
-            scene.draw(options.width,options.height,options.reflection,time,colourPanel.edited,colourPanel.values,options.bubbles,options.mode);
+            scene.draw(options.width,options.height,options.reflection,time,colourPanel.edited,colourPanel.values,options.bubbles,options.mode,options.underwaterClarity);
             colourPanel.draw(device,options.width,options.height);
             if (options.controls) reflectionBar.draw(device,options.width,options.height,comparing()?3:1,true);
             require(device->EndScene(),"end bank scene");
@@ -1050,6 +1066,9 @@ private:
         const float parameters[4]={enabled?tint:0.f,enabled?v.strength:0.f,enabled&&options.bubbles?1.f:0.f,path?2.f:trace?1.f:0.f};
         require(device->SetPixelShaderConstantF(ModernWaterMaterial::RegisterColor,colour,1),"set water material color");
         require(device->SetPixelShaderConstantF(ModernWaterMaterial::RegisterParameters,parameters,1),"set water material parameters");
+        const float optics[4]={enabled?resolvedMaterial.underwaterClarity:0.f,
+            enabled?resolvedMaterial.reflectionStrength-1.f:0.f,0,0};
+        require(device->SetPixelShaderConstantF(ModernWaterMaterial::RegisterOptics,optics,1),"set water material optics");
         require(device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST,0,0,(Grid+1)*(Grid+1),0,Grid*Grid*2),"draw modern water");
     }
 

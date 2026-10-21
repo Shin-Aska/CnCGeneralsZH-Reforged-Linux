@@ -20,6 +20,8 @@ struct Rule {
     Color replacement = {255, 255, 255};
     float brightness = 1.0f;
     float pollution = 0.0f;
+    float underwaterClarity = 0.0f;
+    float reflectionStrength = 1.0f;
     bool bubbles = false;
     bool enabled = true;
 };
@@ -34,7 +36,15 @@ inline Rules Defaults() {
     rule.brightness = 0.67f;
     rule.pollution = 0.80f;
     rule.bubbles = true;
-    return Rules(1, rule);
+    Rules rules(1, rule);
+    Rule clear;
+    clear.name = "ClearWater";
+    clear.colors.push_back(Color{255, 255, 255});
+    clear.textures.push_back("TWWater01.tga");
+    clear.underwaterClarity = 0.90f;
+    clear.reflectionStrength = 2.0f;
+    rules.push_back(clear);
+    return rules;
 }
 
 // Authored RGB values are stored by the engine as normalized floats. Round once
@@ -78,11 +88,11 @@ inline bool ReadColor(const std::string &text, Color &result) {
     result = Color{bytes[0], bytes[1], bytes[2]};
     return true;
 }
-inline bool ReadUnit(const std::string &text, float minimum, float &value) {
+inline bool ReadRange(const std::string &text, float minimum, float maximum, float &value) {
     std::istringstream input(text);
     input.imbue(std::locale::classic());
     float parsed;
-    if (!(input >> parsed) || !std::isfinite(parsed) || parsed < minimum || parsed > 1.0f)
+    if (!(input >> parsed) || !std::isfinite(parsed) || parsed < minimum || parsed > maximum)
         return false;
     input >> std::ws;
     if (!input.eof()) return false;
@@ -121,6 +131,8 @@ struct Material {
     Color color = {255, 255, 255};
     float brightness = 1.0f;
     float pollution = 0.0f;
+    float underwaterClarity = 0.0f;
+    float reflectionStrength = 1.0f;
     float tintAmount = 0.0f;
     bool bubbles = false;
     std::string ruleName;
@@ -137,7 +149,11 @@ inline Material Resolve(const Rules &rules, Color mapColor, const std::string &m
         material.color = rule->replacement;
         material.brightness = rule->brightness;
         material.pollution = rule->pollution;
-        material.tintAmount = 1.0f;
+        material.underwaterClarity = rule->underwaterClarity;
+        material.reflectionStrength = rule->reflectionStrength;
+        // Unity white is neutral even for matched optical/effect-only rules.
+        // Lower brightness still needs the tint path to apply its attenuation.
+        material.tintAmount = rule->replacement == Color{255, 255, 255} && rule->brightness == 1.0f ? 0.0f : 1.0f;
         material.bubbles = rule->bubbles;
         material.ruleName = rule->name;
     }
@@ -151,7 +167,8 @@ inline Material Resolve(const Rules &rules, Color mapColor, const std::string &m
 inline bool Parse(const std::string &text, Rules &result, std::string &error) {
     enum Section { Outside, InRule, InColors, InTextures } section = Outside;
     enum Field { Colors = 1, Textures = 2, Replacement = 4, Brightness = 8,
-                 Pollution = 16, Bubbles = 32, Enabled = 64 };
+                 Pollution = 16, Bubbles = 32, Enabled = 64, UnderwaterClarity = 128,
+                 ReflectionStrength = 256 };
     Rules parsed;
     Rule current;
     unsigned fields = 0;
@@ -221,8 +238,10 @@ inline bool Parse(const std::string &text, Rules &result, std::string &error) {
             unsigned field = 0;
             bool valid = false;
             if (key == "replacementcolor") { field = Replacement; valid = Detail::ReadColor(value, current.replacement); }
-            else if (key == "brightness") { field = Brightness; valid = Detail::ReadUnit(value, 0.1f, current.brightness); }
-            else if (key == "pollution") { field = Pollution; valid = Detail::ReadUnit(value, 0.0f, current.pollution); }
+            else if (key == "brightness") { field = Brightness; valid = Detail::ReadRange(value, 0.1f, 1.0f, current.brightness); }
+            else if (key == "pollution") { field = Pollution; valid = Detail::ReadRange(value, 0.0f, 1.0f, current.pollution); }
+            else if (key == "underwaterclarity") { field = UnderwaterClarity; valid = Detail::ReadRange(value, 0.0f, 1.0f, current.underwaterClarity); }
+            else if (key == "reflectionstrength") { field = ReflectionStrength; valid = Detail::ReadRange(value, 0.0f, 4.0f, current.reflectionStrength); }
             else if (key == "bubbles") { field = Bubbles; valid = Detail::ReadBool(value, current.bubbles); }
             else if (key == "enabled") { field = Enabled; valid = Detail::ReadBool(value, current.enabled); }
             else return Detail::Fail(error, lineNumber, "unknown field '" + key + "'");

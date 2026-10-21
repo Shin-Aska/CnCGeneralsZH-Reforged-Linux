@@ -33,8 +33,8 @@ std::string Changed(const std::string &before, const std::string &after) {
 }
 
 void CheckDefaults(const Rules &rules) {
-    CHECK_EQ(rules.size(), 1u);
-    if (rules.empty()) return;
+    CHECK_EQ(rules.size(), 2u);
+    if (rules.size() < 2) return;
     CHECK_STR(rules[0].name.c_str(), "PollutedWater");
     CHECK_EQ(rules[0].colors.size(), 1u);
     CHECK_EQ(rules[0].textures.size(), 1u);
@@ -43,8 +43,22 @@ void CheckDefaults(const Rules &rules) {
     CHECK(rules[0].replacement == (Color{45, 58, 11}));
     CHECK_NEAR(rules[0].brightness, .67f, 0.00001f);
     CHECK_NEAR(rules[0].pollution, .80f, 0.00001f);
+    CHECK_EQ(rules[0].underwaterClarity, 0.0f);
+    CHECK_EQ(rules[0].reflectionStrength, 1.0f);
     CHECK(rules[0].bubbles);
     CHECK(rules[0].enabled);
+    CHECK_STR(rules[1].name.c_str(), "ClearWater");
+    CHECK_EQ(rules[1].colors.size(), 1u);
+    CHECK_EQ(rules[1].textures.size(), 1u);
+    CHECK(rules[1].colors[0] == (Color{255, 255, 255}));
+    CHECK_STR(rules[1].textures[0].c_str(), "TWWater01.tga");
+    CHECK(rules[1].replacement == (Color{255, 255, 255}));
+    CHECK_EQ(rules[1].brightness, 1.0f);
+    CHECK_EQ(rules[1].pollution, 0.0f);
+    CHECK_NEAR(rules[1].underwaterClarity, .90f, 0.00001f);
+    CHECK_EQ(rules[1].reflectionStrength, 2.0f);
+    CHECK(!rules[1].bubbles);
+    CHECK(rules[1].enabled);
 }
 }
 
@@ -106,6 +120,18 @@ TEST(modern_water_bad_edits_preserve_previous_rules_and_report_line)
         Changed("0.80", "0.8junk"), Changed("Bubbles = Yes", "Bubbles = Maybe"),
         Changed("Bubbles = Yes", "Enabled = Maybe"), Changed("Bubbles = Yes", "Unknown = Yes"),
         Changed(" Bubbles = Yes", " Bubbles = Yes\n Bubbles = No"),
+        Changed(" Bubbles = Yes", " UnderwaterClarity = -0.01"),
+        Changed(" Bubbles = Yes", " UnderwaterClarity = 1.01"),
+        Changed(" Bubbles = Yes", " UnderwaterClarity = nan"),
+        Changed(" Bubbles = Yes", " UnderwaterClarity = inf"),
+        Changed(" Bubbles = Yes", " UnderwaterClarity = 0.9junk"),
+        Changed(" Bubbles = Yes", " UnderwaterClarity = 0.9\n UnderwaterClarity = 0.5"),
+        Changed(" Bubbles = Yes", " ReflectionStrength = -0.01"),
+        Changed(" Bubbles = Yes", " ReflectionStrength = 4.01"),
+        Changed(" Bubbles = Yes", " ReflectionStrength = nan"),
+        Changed(" Bubbles = Yes", " ReflectionStrength = inf"),
+        Changed(" Bubbles = Yes", " ReflectionStrength = 2junk"),
+        Changed(" Bubbles = Yes", " ReflectionStrength = 2\n ReflectionStrength = 1"),
         Changed("  Texture = TSWater03.tga", "  Texture = Art/Textures/"),
         Changed("  Texture = TSWater03.tga", "  Texture = Two Words.tga"),
         Changed("MatchColors", "MatchColors = Yes"),
@@ -154,12 +180,22 @@ TEST(modern_water_optional_parameters_and_numeric_endpoints)
     if (rules.empty()) return;
     CHECK_EQ(rules[0].brightness, 1.0f);
     CHECK_EQ(rules[0].pollution, 0.0f);
+    CHECK_EQ(rules[0].underwaterClarity, 0.0f);
+    CHECK_EQ(rules[0].reflectionStrength, 1.0f);
     CHECK(!rules[0].bubbles);
     CHECK(rules[0].enabled);
     CHECK(Parse(Changed("0.67", "0.1"), rules, error));
     CHECK(Parse(Changed("0.67", "1"), rules, error));
     CHECK(Parse(Changed("0.80", "0"), rules, error));
     CHECK(Parse(Changed("0.80", "1"), rules, error));
+    CHECK(Parse(Changed(" Bubbles = Yes", " UnderwaterClarity = 0"), rules, error));
+    CHECK_EQ(rules[0].underwaterClarity, 0.0f);
+    CHECK(Parse(Changed(" Bubbles = Yes", " UnderwaterClarity = 1"), rules, error));
+    CHECK_EQ(rules[0].underwaterClarity, 1.0f);
+    CHECK(Parse(Changed(" Bubbles = Yes", " ReflectionStrength = 0"), rules, error));
+    CHECK_EQ(rules[0].reflectionStrength, 0.0f);
+    CHECK(Parse(Changed(" Bubbles = Yes", " ReflectionStrength = 4"), rules, error));
+    CHECK_EQ(rules[0].reflectionStrength, 4.0f);
     CHECK(Parse(Changed("ReplacementColor = R:45 G:58 B:11", "ReplacementColor = R:0 G:255 B:0"), rules, error));
 }
 
@@ -170,6 +206,8 @@ TEST(modern_water_resolution_never_carries_pollution_to_next_map)
     CHECK(material.color == (Color{45, 58, 11}));
     CHECK_NEAR(material.brightness, .67f, .00001f);
     CHECK_NEAR(material.pollution, .80f, .00001f);
+    CHECK_EQ(material.underwaterClarity, 0.0f);
+    CHECK_EQ(material.reflectionStrength, 1.0f);
     CHECK_EQ(material.tintAmount, 1.0f);
     CHECK(material.bubbles);
     CHECK_STR(material.ruleName.c_str(), "PollutedWater");
@@ -179,10 +217,85 @@ TEST(modern_water_resolution_never_carries_pollution_to_next_map)
         CHECK(material.color == color);
         CHECK_EQ(material.brightness, 1.0f);
         CHECK_EQ(material.pollution, 0.0f);
+        CHECK_EQ(material.underwaterClarity, 0.0f);
+        CHECK_EQ(material.reflectionStrength, 1.0f);
         CHECK_EQ(material.tintAmount, color.r == 255 && color.g == 255 && color.b == 255 ? 0.0f : 1.0f);
         CHECK(!material.bubbles);
         CHECK(material.ruleName.empty());
     }
+}
+
+TEST(modern_water_clarity_matches_authored_water_and_resets_independently)
+{
+    const Rules defaults = Defaults();
+    Material material = Resolve(defaults, Color{255, 255, 255}, "Art/Textures/twwater01.TGA");
+    CHECK_STR(material.ruleName.c_str(), "ClearWater");
+    CHECK(material.color == (Color{255, 255, 255}));
+    CHECK_EQ(material.brightness, 1.0f);
+    CHECK_NEAR(material.underwaterClarity, .90f, .00001f);
+    CHECK_EQ(material.reflectionStrength, 2.0f);
+    CHECK_EQ(material.tintAmount, 0.0f);
+    CHECK_EQ(material.pollution, 0.0f);
+    CHECK(!material.bubbles);
+
+    // Neither half of the authored match is a wildcard. Resolving another map
+    // must restore the default absorption, even after a clear-water material.
+    for (const Color color : {Color{255, 255, 255}, Color{254, 255, 255}}) {
+        material = Resolve(defaults, color, color.r == 255 ? "Other.tga" : "TWWater01.tga");
+        CHECK_EQ(material.underwaterClarity, 0.0f);
+        CHECK_EQ(material.reflectionStrength, 1.0f);
+        CHECK(material.ruleName.empty());
+    }
+    material = Resolve(defaults, Color{50, 75, 50}, "TSWater03.tga");
+    CHECK_EQ(material.underwaterClarity, 0.0f);
+    CHECK_EQ(material.reflectionStrength, 1.0f);
+    CHECK_NEAR(material.pollution, .80f, .00001f);
+    CHECK(material.bubbles);
+
+    // Authors may combine clarity with pollution; these controls do not imply
+    // one another or change the map-color matching requirement.
+    Rules rules;
+    std::string error;
+    CHECK(Parse(Changed(" Bubbles = Yes", " Bubbles = Yes\n UnderwaterClarity = 0.45"), rules, error));
+    material = Resolve(rules, Color{50, 75, 50}, "TSWater03.tga");
+    CHECK_NEAR(material.underwaterClarity, .45f, .00001f);
+    CHECK_NEAR(material.pollution, .80f, .00001f);
+    CHECK(material.bubbles);
+}
+
+TEST(modern_water_reflection_strength_is_independent_of_clarity_and_pollution)
+{
+    Rules rules;
+    std::string error;
+    CHECK(Parse(Changed(" Bubbles = Yes", " Bubbles = Yes\n UnderwaterClarity = 0.45\n reflectionstrength = 3.25"), rules, error));
+    Material material = Resolve(rules, Color{50, 75, 50}, "TSWater03.tga");
+    CHECK_NEAR(material.reflectionStrength, 3.25f, .00001f);
+    CHECK_NEAR(material.underwaterClarity, .45f, .00001f);
+    CHECK_NEAR(material.pollution, .80f, .00001f);
+    CHECK(material.bubbles);
+    material = Resolve(rules, Color{50, 75, 50}, "Other.tga");
+    CHECK_EQ(material.reflectionStrength, 1.0f);
+    CHECK_EQ(material.underwaterClarity, 0.0f);
+    CHECK_EQ(material.pollution, 0.0f);
+}
+
+TEST(modern_water_white_rules_keep_neutral_tint_without_disabling_other_controls)
+{
+    Rules rules = Defaults();
+    Rule &clear = rules[1];
+    clear.pollution = .40f;
+    clear.bubbles = true;
+    Material material = Resolve(rules, Color{255, 255, 255}, "TWWater01.tga");
+    CHECK_EQ(material.tintAmount, 0.0f);
+    CHECK_NEAR(material.pollution, .40f, .00001f);
+    CHECK_NEAR(material.underwaterClarity, .90f, .00001f);
+    CHECK(material.bubbles);
+
+    clear.brightness = .70f;
+    material = Resolve(rules, Color{255, 255, 255}, "TWWater01.tga");
+    CHECK_EQ(material.tintAmount, 1.0f);
+    CHECK_NEAR(material.brightness, .70f, .00001f);
+    CHECK_NEAR(material.pollution, .40f, .00001f);
 }
 
 TEST(modern_water_normalized_byte_colors_round_trip_exactly)

@@ -771,6 +771,33 @@ WaterRefractionSample waterRefractedScene(float2 originalPixel, float2 offset,
 		(double)WaterSurfaceModel::OceanMaxDisplacement);
 	hlsl += oceanBound;
 	hlsl += R"HLSL(
+float waterTerrainClarity(float2 p,float baseLevel,float terrain,float offshore)
+{
+    float terrainDepth=max(baseLevel-terrain,0.0);
+    // Campaign seas can use a flat, shallow floor even beneath full-size ships. Only
+    // raised submerged shelves qualify offshore; hulls and scene hits cannot clear it.
+    [branch] if(MaterialOptics.x<=0.0 || TerrainParameters.w<0.5
+        || terrainDepth>=WaterOpticalClarityMaximumDepth) return 0.0;
+    float surroundingDepth=terrainDepth;
+    [branch] if(offshore>0.0) {
+        static const float2 directions[8]={float2(1,0),float2(0.70710678,0.70710678),
+            float2(0,1),float2(-0.70710678,0.70710678),float2(-1,0),
+            float2(-0.70710678,-0.70710678),float2(0,-1),float2(0.70710678,-0.70710678)};
+        [unroll] for(int i=0;i<8;++i) {
+            float nearHeight=terrainHeight(p+directions[i]*80.0);
+            // A dry bank interrupts the neighborhood; do not borrow lower terrain
+            // from the far side of it. Fade across its edge to avoid a hard clarity
+            // boundary. Both scales stay fixed in map coordinates.
+            if(nearHeight<baseLevel) {
+                surroundingDepth=max(surroundingDepth,baseLevel-nearHeight);
+                float outerDepth=max(baseLevel-terrainHeight(p+directions[i]*160.0),terrainDepth);
+                float wetSupport=smoothstep(0.0,0.75,baseLevel-nearHeight);
+                surroundingDepth=max(surroundingDepth,lerp(terrainDepth,outerDepth,wetSupport));
+            }
+        }
+    }
+    return MaterialOptics.x*WaterOpticalClarityEligibility(terrainDepth,surroundingDepth,offshore);
+}
 float terrainWaveAttenuation(float depth, float offshore)
 {
     float shore = saturate(depth/9.0);
@@ -1196,7 +1223,8 @@ float4 main(Input input) : SV_Target
     } else if (pathTraced) {
         // Invalid primary samples contributed zero radiance to the history. Remove
         // their coverage once before the interface blends that coverage with sky.
-        reflection=lerp(skyRadiance,waterLinear(mirror.rgb)/max(mirror.a,1e-6),coverage);
+        // Path history and its texture filtering are already in linear radiance.
+        reflection=lerp(skyRadiance,mirror.rgb/max(mirror.a,1e-6),coverage);
     } else reflection=lerp(skyRadiance,waterLinear(mirror.rgb),coverage);
     // MaterialParameters.w selects the traced reflection; hybrid also retains planar visibility.
     WaterSsrSample ssr = waterScreenReflection(world, view, environmentNormal, environmentRoughness, input.Position.xy);
@@ -1249,11 +1277,11 @@ float4 main(Input input) : SV_Target
     float caustic = lerp(1.0, clamp(focused, 0.82, 1.55), exp(-bedDepth*0.055)
         * sunVisible * daylight / (1.0 + causticFootprint*0.45));
     // Absorption follows the underwater view-ray distance, including submerged object geometry.
-    // Campaign seas can have deliberately flat, shallow terrain beneath full-size ships. Honour
-    // their authored opacity offshore, while preserving the clear optical profile at coasts and
-    // in enclosed pools. Actual scene ray length still governs submerged objects and refraction.
+    // Material clarity relaxes authored opacity only on shallow terrain shelves. Keep
+    // the terrain classification separate from the actual scene ray's absorption.
+    float terrainClarity=waterTerrainClarity(world.xy,baseLevel,surfaceTerrainHeight,offshore);
     float3 transmission = WaterOpticalTransmission(length(bottom-opticalWorld), WaterParameters.y,
-        offshore, OpticalParameters.x, OpticalParameters.y);
+        offshore, OpticalParameters.x, OpticalParameters.y, terrainClarity);
     // Preserve the current face-light signal, but apply it only to water's in-scattered source.
     // Transmitted terrain/object colour must not receive a second surface-light multiplier.
     float3 swellNormal=normalize(float3(-oceanSwell.yz*attenuation-correctionSlope,1));
@@ -1435,6 +1463,9 @@ float4 main(Input input) : SV_Target
     float oceanViewVisibility = oceanViewCosine / max(oceanViewCosine*(1.0-environmentK)+environmentK,0.0001);
     float environmentFresnel=0.025+0.975*pow(1.0-oceanViewCosine,5.0);
     float visibleFresnel = lerp(fresnel,environmentFresnel*oceanViewVisibility,offshore);
+    // Authored presentation strength makes scene reflections legible from an RTS camera.
+    // Exchange reflected and transmitted light with a bounded blend, never add energy.
+    if(pathTraced) visibleFresnel=saturate(visibleFresnel*clamp(1.0+MaterialOptics.y,0.0,4.0));
     float3 surface = lerp(body, reflection, visibleFresnel) + highlight;
     if(materialBubbleWeight>0.0) {
         float film=saturate(materialBubbles.rim*0.16+materialBubbles.cap*0.045+materialBubbles.ripple*0.065)*materialBubbleWeight;
@@ -1483,7 +1514,7 @@ float4 main(Input input) : SV_Target
         float foamLevelCoverage=WaterParameters.z
             *(1.0-smoothstep(0.5,2.0,abs(baseLevel-WaterParameters.w)));
         float3 foamReflection=waterFoamPlanarReflection(foamSky,reflectionUV,distortion,
-            reflectionScale,foamRoughness,foamLevelCoverage);
+            reflectionScale,foamRoughness,foamLevelCoverage,pathTraced);
         vesselRadiance=waterFoamRoughMaterial(vesselDiffuse,foamReflection,
             environmentFresnel,oceanViewCosine,foamRoughness);
         // Share the filtered incident reflection; exchange Fresnel only once.
