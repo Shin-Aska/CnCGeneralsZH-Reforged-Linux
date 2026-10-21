@@ -116,7 +116,7 @@ struct MeshInstance {
 bool eligible(RenderObjClass *object, RenderObjClass *water, Drawable *draw) {
     if (!object || object == water || !object->Is_Not_Hidden_At_All()) return false;
     if (draw && (draw->isDrawableEffectivelyHidden() || draw->getFullyObscuredByShroud()
-        || draw->testDrawableStatus(DRAWABLE_STATUS_NO_SAVE) || draw->getEffectiveOpacity()<0.999f))
+        || draw->isNoSaveForDraw() || draw->getEffectiveOpacity()<0.999f))
         return false;
     return !TheInGameUI || !static_cast<W3DInGameUI *>(TheInGameUI)->isWorldSpaceUI(object,draw);
 }
@@ -220,6 +220,7 @@ struct W3DWaterPathScene::State {
     };
     std::map<MeshClass *,MeshTriangles> meshTriangles;
     unsigned failure=0;
+    std::vector<ObjectShroudStatus> propShroud;
 
     bool Fail(unsigned code,const char *reason) {
         if (failure!=code) std::fprintf(stderr,"WaterPathTracing: %s; using Hybrid fallback\n",reason);
@@ -266,6 +267,19 @@ W3DWaterPathScene::~W3DWaterPathScene() = default;
 
 const std::vector<Triangle> &W3DWaterPathScene::Triangles() const { return m_state->triangles; }
 uint64_t W3DWaterPathScene::Revision() const { return m_state->revision; }
+
+void W3DWaterPathScene::takeReadsForRender(BaseHeightMapRenderObjClass *terrain)
+{
+    m_state->propShroud.clear();
+    const W3DPropBuffer *props=terrain?terrain->getPropBuffer():nullptr;
+    if (props) for (int i=0;i<props->getPropCount();++i) {
+        const TProp *prop=props->getProp(i);
+        ObjectShroudStatus status=OBJECTSHROUD_CLEAR;
+        if (prop && ThePlayerList && ThePartitionManager)
+            status=ThePartitionManager->getPropShroudStatusForPlayer(TheObserverCamera.getShroudPlayerIndex(),&prop->location);
+        m_state->propShroud.push_back(status);
+    }
+}
 
 bool W3DWaterPathScene::Update(SceneClass *scene, BaseHeightMapRenderObjClass *terrain, RenderObjClass *water,
     const WaterPathTracing::View *view)
@@ -389,9 +403,8 @@ bool W3DWaterPathScene::Update(SceneClass *scene, BaseHeightMapRenderObjClass *t
     if (props) for (int i=0; i<props->getPropCount(); ++i) {
         const TProp *prop=props->getProp(i);
         if (!prop || !prop->m_robj) continue;
-        ObjectShroudStatus status=OBJECTSHROUD_CLEAR;
-        if (ThePlayerList && ThePartitionManager)
-            status=ThePartitionManager->getPropShroudStatusForPlayer(TheObserverCamera.getShroudPlayerIndex(),&prop->location);
+        const ObjectShroudStatus status=size_t(i)<m_state->propShroud.size()
+            ?m_state->propShroud[i]:OBJECTSHROUD_INVALID;
         if (status<=OBJECTSHROUD_INVALID || status>=OBJECTSHROUD_SHROUDED) continue;
         const float visible=shroudAt(shroud,prop->location.x,prop->location.y)/255.0f;
         if (visible>0) collect(prop->m_robj,water,ownerOf(prop->m_robj),meshes,fingerprint,seen,scope.get(),visible);

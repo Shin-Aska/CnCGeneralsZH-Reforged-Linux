@@ -118,12 +118,10 @@ static void traceNativeRippleDiagnostic(ParticleSystem *sys,UnsignedInt owner,Bo
         (UnsignedInt)WW3D::Get_Frame_Count(),(int)mirror,(int)ordinary,(int)admitted,(int)skipped,
         (UnsignedInt)sys->getParticleCount(),lines);
 }
-#endif
 
 // Modern water replaces only verified vessel-surface particles, after that hull's water draw.
-static Bool replaceLegacyVesselFoam(ParticleSystem *sys)
+static Bool replaceLegacyVesselFoam(ParticleSystem *sys, ObjectID owner)
 {
-#if defined(__linux__)
     if(!sys || !TheWaterRenderObj || !TheGameClient || !sys->getTemplate()) return FALSE;
     const Bool ordinaryGroundParticle=!sys->shouldBillboard() && !sys->isUsingDrawables() &&
         !sys->isUsingStreak() && !sys->isUsingSmudge() && sys->getVolumeParticleDepth()==0;
@@ -132,11 +130,6 @@ static Bool replaceLegacyVesselFoam(ParticleSystem *sys)
     const Bool isolateRipple=WaterFoamParticlePolicy::KnownDiagnosticRipple(name.str(),texture.str()) &&
         WaterFoamParticlePolicy::RippleDiagnosticEnabled(std::getenv("ZH_WATER_NATIVE_WAKE_DIAGNOSTIC"));
     if(!isolateRipple && (!ordinaryGroundParticle || !known)) return FALSE;
-    UnsignedInt owner=INVALID_ID;
-    if(sys->getAttachedDrawable()!=INVALID_DRAWABLE_ID) {
-        const Drawable *drawable=TheGameClient->findDrawableByID(sys->getAttachedDrawable());
-        if(drawable && drawable->getObject()) owner=drawable->getObject()->getID();
-    } else if(sys->getAttachedObject()!=INVALID_ID) owner=sys->getAttachedObject();
     if(!isolateRipple && owner==INVALID_ID) return FALSE;
     const Bool mirror=ShaderClass::Is_Backface_Culling_Inverted();
     const Bool attached=owner!=INVALID_ID;
@@ -153,10 +146,8 @@ static Bool replaceLegacyVesselFoam(ParticleSystem *sys)
     // Simulation, emission, aging and IDs are untouched. Missing modern admission
     // immediately restores the original particle draw, including in this experiment.
     return legacySkip || diagnosticSkip;
-#else
-    return FALSE;
-#endif
 }
+#endif
 
 /** The preset a particle shader type draws with, and whether it names one at all.  An invalid type
 	* leaves the point group's previous shader in place on the old path, so it does not take the
@@ -1792,6 +1783,14 @@ void W3DParticleSystemManager::refreshFrameView( void )
 		SystemView view;
 		view.system = sys;
 		view.fade = fade;
+#if defined(__linux__)
+		view.owner = INVALID_ID;
+		if (sys->getAttachedDrawable() != INVALID_DRAWABLE_ID) {
+			const Drawable *drawable = TheGameClient->findDrawableByID(sys->getAttachedDrawable());
+			const Object *object = drawable ? drawable->getObject() : NULL;
+			if (object) view.owner = object->getID();
+		} else view.owner = sys->getAttachedObject();
+#endif
 		m_frameView.push_back( view );
 	}
 
@@ -1987,8 +1986,10 @@ void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 	for (size_t v = 0; v < m_frameView.size(); ++v)
 	{
 		ParticleSystem *sys = m_frameView[ v ].system;
-		if (replaceLegacyVesselFoam(sys))
+#if defined(__linux__)
+		if (replaceLegacyVesselFoam(sys, m_frameView[ v ].owner))
 			continue;
+#endif
 		if (*((UnsignedInt *)sys->getParticleTypeName().str()) == 0x44554D53)
 			continue;
 
@@ -2064,8 +2065,10 @@ void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 	{
 		ParticleSystem *sys = m_frameView[ v ].system;
 		const Real fade = m_frameView[ v ].fade;
-		if (replaceLegacyVesselFoam(sys))
+#if defined(__linux__)
+		if (replaceLegacyVesselFoam(sys, m_frameView[ v ].owner))
 			continue;
+#endif
 
 		// first, as a reserved system is never a smudge
 		if (nextFill < m_billboardFills.size() && m_billboardFills[ nextFill ].system == sys)

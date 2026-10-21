@@ -2337,6 +2337,10 @@ static void takeReadsForRender( Bool renders )
 	TheInGameUI->recordDraw();
 	TheTerrainRenderObject->takeWaypointsForRender();
 	TheTerrainRenderObject->stepTrees();	// before the particles: a falling tree's FX makes systems
+#if defined(__linux__)
+	if( TheWaterRenderObj )
+		TheWaterRenderObj->takeReadsForRender();
+#endif
 	static_cast<W3DParticleSystemManager *>( TheParticleSystemManager )->takeReadsForRender();
 }
 
