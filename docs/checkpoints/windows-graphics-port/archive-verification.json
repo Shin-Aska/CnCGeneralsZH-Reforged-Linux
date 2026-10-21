@@ -1,0 +1,64 @@
+{
+  "date": "2026-10-21",
+  "scope": "Archival integrity only; no new build or Game/test suite execution",
+  "selected_original_files": 136,
+  "staged_source_and_generated_files": 137,
+  "original_and_copied_source_sha256_match": true,
+  "index_content_match": "raw bytes or only CRLF-to-LF normalization",
+  "unmerged_index_entries": 0,
+  "all_seven_preexisting_water_inputs_included": true,
+  "fingerprint_inventory": {
+    "command": "bash GeneralsMD/Code/Tools/fingerprint-manifest.sh --check",
+    "exit_code": 0,
+    "tracked_code_paths": 4183
+  },
+  "whitespace_check": {
+    "command": "git diff --cached --check",
+    "exit_code": 2,
+    "findings": [
+      "GeneralsMD/Code/Tests/WaterDx11FftEndToEndTests.h:124: new blank line at EOF.",
+      "GeneralsMD/Code/Tests/WaterDx11FftFailureTests.h:147: new blank line at EOF.",
+      "GeneralsMD/Code/Tests/WaterDx11FftGeometryTests.h:142: new blank line at EOF.",
+      "GeneralsMD/Code/Tests/WaterDx11FftLifecycleTests.h:125: new blank line at EOF.",
+      "GeneralsMD/Code/Tests/WaterDx11FftNumericalTests.h:143: new blank line at EOF.",
+      "GeneralsMD/Code/Tests/WaterDx11FftReadback.h:92: new blank line at EOF.",
+      "GeneralsMD/Code/Tests/WaterDx11FftStateTests.h:99: new blank line at EOF.",
+      "GeneralsMD/Code/Tests/test_dx11water.cpp:568: new blank line at EOF.",
+      "GeneralsMD/Code/Tests/test_dx11water_fft.cpp:132: new blank line at EOF.",
+      "GeneralsMD/Code/Tests/test_dx11water_hull.cpp:56: new blank line at EOF.",
+      "GeneralsMD/Code/Tests/test_dx11water_samplers.cpp:259: new blank line at EOF.",
+      "GeneralsMD/Code/Tools/replay-control-selfcheck.ps1:96: new blank line at EOF.",
+      "GeneralsMD/Code/Tools/replay-control-selfcheck.sh:88: new blank line at EOF.",
+      "GeneralsMD/Code/Tools/replay-control.ps1:138: new blank line at EOF.",
+      "GeneralsMD/Code/Tools/replay-control.sh:98: new blank line at EOF."
+    ],
+    "interpretation": "15 pre-existing extra blank-line-at-EOF findings retained in the WIP snapshot; no source cleanup applied."
+  },
+  "credential_pattern_scan": {
+    "files": 252,
+    "findings": 0,
+    "scope": "Common private-key, GitHub/OpenAI/AWS credential shapes and original personal profile paths; not a full security review"
+  },
+  "original_checkout_modified_by_archival_copy": false,
+  "excluded_local_only": [
+    "--check",
+    "Microsoft/Windows/PowerShell/ModuleAnalysisCache",
+    "build64 outputs and staged binaries",
+    "game-data farms/caches/user settings",
+    "raw logs/readbacks/screenshots/video/capture sequence",
+    ".omo runtime resource state outside the selected portable checkpoint"
+  ],
+  "archived_root_debug_journal": "history/task6-initial-debug-journal.md",
+  "notes": [
+    "Main checkout and original index are left untouched.",
+    "Full parity and all final validation gates remain incomplete.",
+    "Final remote SHA verification is reported after push; this file is created before committing."
+  ],
+  "source_snapshot_commit": "f623a7bc0c09dcfce1839d8ada0bfec3e919fbf0",
+  "checkpoint_whitespace_check": {
+    "command": "git diff --cached --check",
+    "exit_code": 2,
+    "diagnostic_count": 76,
+    "scope": "Archived historical reports, helper snapshots and literal unapplied diff/patch context retain original formatting. Only trailing whitespace, blank-at-EOF and space-before-tab findings; no conflict markers. Check is recorded as nonzero, not PASS. No historical cleanup that would change the archived hashes was performed."
+  }
+}

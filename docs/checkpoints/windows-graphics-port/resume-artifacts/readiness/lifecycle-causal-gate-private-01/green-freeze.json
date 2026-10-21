@@ -1,0 +1,57 @@
+[
+  {
+    "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-causal-gate-private-01/fixture_game.py",
+    "bytes": 9598,
+    "sha256": "5CD42A5CCA8A9F10CAFEEC5B5A6893947A3046FAC0E5FF7E5EC0B18245BA8E0F"
+  },
+  {
+    "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-causal-gate-private-01/qualify.py",
+    "bytes": 7053,
+    "sha256": "55E9D890CBF5760B69A1AD284B70A90CAEDB0D7D8A5EC91F05EDEEBDF1A1FFF8"
+  },
+  {
+    "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-causal-gate-private-01/run-cpu.ps1",
+    "bytes": 3155,
+    "sha256": "2DB25DB13C0B60ED07F8F7744E4DC97DB6DDFB32CFF0E8B8F284AB7CBA8F194B"
+  },
+  {
+    "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/lifecycle_monitor.py",
+    "bytes": 10331,
+    "sha256": "56016F2EB495729543B0E0018871F4F29C5080C5AA4F53289D728ACE60B6A4CF"
+  },
+  {
+    "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/inspector_log.py",
+    "bytes": 8782,
+    "sha256": "5909B651D7169B4787A6C701D81EC938D78427D6E348B9F6DC984BAB56B78217"
+  },
+  {
+    "path": "<REPO>/GeneralsMD/Code/Tools/water-check/isolation.py",
+    "bytes": 4410,
+    "sha256": "F5B6F418D7E9F539C1827D317EA1C770CE3D5336B2C6C3FB71C49399EC190CE9"
+  },
+  {
+    "path": "<REPO>/GeneralsMD/Code/Tools/water-check/control_monitor.py",
+    "bytes": 4411,
+    "sha256": "CC345CCA65E878D866B447754A5DB73BD49A2F25C92EF7BE20DC248A9F818315"
+  },
+  {
+    "path": "<REPO>/GeneralsMD/Code/Tools/control_client.py",
+    "bytes": 7100,
+    "sha256": "7BC287D6062494E24178A9495555560923C89692F52041BC4BF2DAD2067E3F55"
+  },
+  {
+    "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-6/scene-input-repair/native-process-runner.ps1",
+    "bytes": 2048,
+    "sha256": "C78A26C2B58081CD9810CED579C6D1350FAA528A164FBFB8C8AEC45C08877790"
+  },
+  {
+    "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-causal-gate-private-01/canonical_gate.py",
+    "bytes": 8824,
+    "sha256": "58C5A712718E258DF5B839E48699EA00360A08A9604C87EE73DDAC8506CC9529"
+  },
+  {
+    "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-causal-gate-private-01/lifecycle_causal.py",
+    "bytes": 11844,
+    "sha256": "94F8BC51F6DCE8BE5CBCB99E54807C45AC999B2DC57752D478104AE027D2BB1E"
+  }
+]

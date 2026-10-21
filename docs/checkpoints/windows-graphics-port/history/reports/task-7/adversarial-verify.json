@@ -1,0 +1,50 @@
+{
+  "task": "7-native-raster-fft-and-displaced-geometry",
+  "verdict": "confirmed",
+  "codeQualityStatus": "WATCH",
+  "recommendation": "APPROVE",
+  "reportPath": "task-7-code-review.md",
+  "blockers": [],
+  "sourceManifestSha256": "07FB9DFE255F36CF5B189210C60684D086A918FEA376C1B661FEF9317AF5C448",
+  "sourceEntries": 66,
+  "currentSourceMismatches": 0,
+  "nativeArtifactSealSha256": "81889C1F6B26B0A72568B8BD8924FFD6ADE746D4A16BA3EADA859BB48175AE3C",
+  "sealedFilesIndependentlyVerified": 257,
+  "sealedFileMismatches": 0,
+  "fftExecutableSha256": "684D64120BA9A572286D5211BA70A9AEF24AC0217795D56C2F732750BDF5151F",
+  "currentGameSha256": "FAFA2FC13BB908847C76FA6964A881A849D334FA454DD4D7AEAAECCFCAD6BD05",
+  "native": {
+    "warp": "23 tests / 6338701 checks / 0 failures; actual software1/debug1; rc0/reaped",
+    "hardware": "23 tests / 6338701 checks / 0 failures; actual Intel software0/debug1; rc0/reaped",
+    "faultOrdinalsPerDriver": {"allocation": 75, "compile": 5, "draw": 26, "copy": 102},
+    "readbackRowsPerDriver": 540,
+    "currentRegressionMatrix": "16 invocations / 64 tests / 236262 checks / 0 failures; all rc0/reaped",
+    "cpuSuites": 5,
+    "resizeCausalProof": "clean RED 6 failures -> current GREEN 0 -> preserved old RED 6"
+  },
+  "game": {
+    "reportSha256": "DB54B380A18A6B380CCD31B24B15E777F51DE77CBE19CBE3F0638B4AD70DD83C",
+    "variants": ["modern-ordinary", "modern-refusal-2", "classic-reference"],
+    "originalBmpImagesPersonallyViewedAndHashChecked": 9,
+    "framesPerVariant": [390, 391, 392],
+    "frozenActualConsumerReplay": "both Assert-ModernTrace pass; Classic zero Modern issued",
+    "nativeScenarioActionsPerVariant": 7,
+    "terminalCrcPerVariant": "0x473C6EBD at frame 960, independently read raw engine logs",
+    "knownChainAndGamePidsObservedAbsent": 8,
+    "controlPortListeners": 0,
+    "ownedFarmTemporaryInputsAbsent": true
+  },
+  "qualifications": [
+    "Historical external environment exact-restoration false remains false; transparent additive correction/probe and departed owned processes, no retroactive pass",
+    "Stale per-variant pending label independently superseded by exact frozen-function replay, no raw report mutation",
+    "CRC underclaim corrected additively from raw lines; HEADLESS label is not graphics-adapter evidence",
+    "Full sparse independent grid/all mips; production selected seven base points/cascade and mips from GPU base, not full independent production-base DFT",
+    "Actual game adapter, save-completion frame, pixel shroud and crisp mirror UNKNOWN",
+    "No ten-second motion, default launch/full-feature admission, performance or full Linux parity claim",
+    "Physical driver reset/nonempty UAV mutation not established; Linux matched runtime UNRUN/waived",
+    "Future unlinked Task8 sources excluded from current66 closure"
+  ],
+  "skillPerspective": "programming and remove-ai-slops loaded/applied; debugging and visual-QA perspectives consulted for respective scoped evidence",
+  "reviewerExecution": "No build/game/GPU; source/artifact/hash/process reads, isolated process-only environment probe with verified deletion and frozen CPU consumer replay",
+  "reviewerCleanupDebt": false
+}

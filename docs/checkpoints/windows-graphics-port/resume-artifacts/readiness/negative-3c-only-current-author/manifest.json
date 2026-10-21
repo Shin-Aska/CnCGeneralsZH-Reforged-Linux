@@ -1,0 +1,170 @@
+{
+  "status": "UNAPPLIED_SOURCE_ONLY_3C_AVAILABILITY_RED_UNRUN",
+  "delta": {
+    "path": "delta.diff",
+    "bytes": 7684,
+    "sha256": "faaccbba9abba89735d714bc68c6c059da14215006830c052475bc41d05def07",
+    "files": 1,
+    "hunks": 6,
+    "added": 72,
+    "removed": 5,
+    "CRLF": true,
+    "bareLF": 0
+  },
+  "current": {
+    "path": "<REPO>/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DParticleSys.cpp",
+    "bytes": 87821,
+    "sha256": "dc9b619baa055901731602dcace0ded0a59584564ad9e50b57418293b6d596aa"
+  },
+  "target": {
+    "bytes": 93147,
+    "sha256": "1c62321725fdf420dc54052e51081d0c5fb1f5912c5f1a760effa9299cba943e",
+    "exactOldReviewedTriple": true
+  },
+  "inputs": [
+    {
+      "path": "<REPO>/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DParticleSys.cpp",
+      "bytes": 87821,
+      "sha256": "dc9b619baa055901731602dcace0ded0a59584564ad9e50b57418293b6d596aa",
+      "unchanged": true
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/probe-descriptor-composed-author/candidate.patch",
+      "bytes": 13526,
+      "sha256": "f912c664607ed580557a33d9697eb99fb5ac9d8907cc32128ede30a1015fa883",
+      "unchanged": true
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/particle-diagnostics-composed-author/candidate.patch",
+      "bytes": 19653,
+      "sha256": "5c500f90da456a2c93f62affd2200607ebf55619e741833cfe3956242e58814a",
+      "unchanged": true
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/particle-negative-attribution-v2-author/particle-negative-attribution-v2.diff",
+      "bytes": 7445,
+      "sha256": "3c1c910c1e0f49e5234496f04f74ccc5bc574ea1119606095e90b8b2a83f7fde",
+      "unchanged": true
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/negative-current-composition-author/manifest.json",
+      "bytes": 11850,
+      "sha256": "367890fe1127c51c69c0bbd05e7a855aa0091b50b64d3beeeac61c42c057a49e",
+      "unchanged": true
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/negative-current-composition-author/projections.json",
+      "bytes": 43529,
+      "sha256": "4a04afd40a8f9505c37e4245b98575fc410444e373cef1842ff7f29b676d9ddd",
+      "unchanged": true
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/negative-current-composition-author/seal.json",
+      "bytes": 1876,
+      "sha256": "22bf1fff7a9e8fba90e20adc1c3b7fc87587e8f6b63fe3e8e47914b0f16ba02d",
+      "unchanged": true
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/sortingrenderer.cpp",
+      "bytes": 42555,
+      "sha256": "5191b647d32824a0f1f962ff2c5a589ce6573cda026d6991aaa5e8a4d23d0a53",
+      "unchanged": true
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx8wrapper.cpp",
+      "bytes": 195211,
+      "sha256": "7837e97a84f4468a88664759359ce43d449de31a8f5fb9e2b40bbd34d7e7d282",
+      "unchanged": true
+    }
+  ],
+  "projections": {
+    "inverseF912ToD414": true,
+    "old5C500To1C623": true,
+    "savedNewDeltaForwardExact": true,
+    "inverseExactCurrent": true,
+    "helperBodyExactOld3CDonor": true,
+    "helperLFBytes": 4659,
+    "helperLFSha256": "f1fdb4770fc52be361eef2bee88d3b7fc637bea735376e2935f0728d51afce7b",
+    "ABProbeClassExact": true,
+    "ABObserverExact": true,
+    "consumerExact": true,
+    "pointRenderCount": 1,
+    "queueArgumentsExact": true,
+    "canonical512Unchanged": true,
+    "candidate128Unchanged": true,
+    "sortedE588Included": false
+  },
+  "staleControls": [
+    {
+      "name": "D414 pre-AB parent",
+      "bytes": 78356,
+      "sha256": "d414fce9c8c8cf824ede40302b2c9038ed83405fccac8a824910aa157d24240e",
+      "literalOldContextsRefused": true
+    },
+    {
+      "name": "1C623 already-patched source",
+      "bytes": 93147,
+      "sha256": "1c62321725fdf420dc54052e51081d0c5fb1f5912c5f1a760effa9299cba943e",
+      "literalOldContextsRefused": true
+    },
+    {
+      "name": "3C-only old pre-AB target",
+      "bytes": 83750,
+      "sha256": "366adcb49f9dae003781264345e97fab708c0e167774a616d899a7a5a4745c75",
+      "literalOldContextsRefused": true
+    }
+  ],
+  "mechanicalOverlap": "Exact reviewed old triple span union/zero-init/conditional probe callback; inverse recovers current AB. No new semantic rewrite.",
+  "hunks": [
+    {
+      "header": "@@ -63,6 +63,7 @@",
+      "oldContextCRLFSha256": "1dc7e139251282aa26c286ea43db2054f00e79e6633b80d2c8fcba75021588f6",
+      "newContextCRLFSha256": "fd417de68f4564fe628c934f5c61f20173acab2881cf1581aa448b7de286d56f",
+      "literalOldContextUnique": true
+    },
+    {
+      "header": "@@ -199,6 +200,68 @@",
+      "oldContextCRLFSha256": "c9f22bea1088b4d1faf3c8fab2d49099c806bf756feb8b5df127c77e0f63bb90",
+      "newContextCRLFSha256": "03a06bbc749264eded96126f79f92dfb8acc53202cc615eaecade86aa51af477",
+      "literalOldContextUnique": true
+    },
+    {
+      "header": "@@ -1622,6 +1685,7 @@",
+      "oldContextCRLFSha256": "843e9ff7ea3067f43e148f1f0def1d620e5b31ba65c4af984a8cf2a040d132d2",
+      "newContextCRLFSha256": "48efae11e49b05d3d5956479a82f831b474c0f3ccd27f8094d64ab0a027d5a14",
+      "literalOldContextUnique": true
+    },
+    {
+      "header": "@@ -1677,6 +1741,9 @@",
+      "oldContextCRLFSha256": "0b7fe440268bb2eed19f9506b50c0ef5d2773adc7949ad46a3f0ade5840db1ac",
+      "newContextCRLFSha256": "31488c6ce4afd297a177b4a03de96ddefbdc29247447f2f24ec973fce20c7d34",
+      "literalOldContextUnique": true
+    },
+    {
+      "header": "@@ -1852,8 +1919,8 @@",
+      "oldContextCRLFSha256": "69517e1a2c6d11e1e5f78e34ed6ce33b66523211cfa0f494b038e7ac0b0833b8",
+      "newContextCRLFSha256": "350eb9d58af5a71162598d87be042bf4df9f41e3d1f0a0df3344561710ac41c7",
+      "literalOldContextUnique": true
+    },
+    {
+      "header": "@@ -1866,10 +1933,10 @@",
+      "oldContextCRLFSha256": "cd2073c5fc5bc3076d6fdd6be47425d1706cb8ab870323dbdcb6441c5e2cf4aa",
+      "newContextCRLFSha256": "48ceac306200ae30c2372624c7ceeb086662bcffa3e53e3544009a587d97c96c",
+      "literalOldContextUnique": true
+    }
+  ],
+  "runtimePrerequisites": [
+    "3C enabled availability RED independently confirmed BEFORE applying this delta",
+    "New independent review of this exact delta",
+    "Separate Native apply/build/runtime GO",
+    "Sorted E588/combined3BEB held until own actual queued-positive availability RED after 3C compile"
+  ],
+  "scope": "9 direct pins only; no full source cohort/graph, executable, availability or runtime qualification; no sorted/wrapper changes",
+  "finalVerification": {
+    "all9DirectPinsUnchanged": true,
+    "sourceOnly": true,
+    "savedBytesForwardInverseExact": true,
+    "postimageCRLF": 1995,
+    "currentCRLF": 1928
+  }
+}

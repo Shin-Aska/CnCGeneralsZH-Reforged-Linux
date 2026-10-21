@@ -1,0 +1,67 @@
+[
+  {
+    "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/inspector_log.py",
+    "bytes": 8782,
+    "sha256": "5909B651D7169B4787A6C701D81EC938D78427D6E348B9F6DC984BAB56B78217"
+  },
+  {
+    "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/lifecycle_monitor.py",
+    "bytes": 10331,
+    "sha256": "56016F2EB495729543B0E0018871F4F29C5080C5AA4F53289D728ACE60B6A4CF"
+  },
+  {
+    "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/fixture_game.py",
+    "bytes": 8618,
+    "sha256": "00FCF6392A551C9CF09CD6EC382E18178F559EBC9506123DF8ED58D29B830B69"
+  },
+  {
+    "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/test_lifecycle.py",
+    "bytes": 4082,
+    "sha256": "BD190B5BDBEE2F190DCD3325F35CF83B00EC389E03069B60DB8C3C181A991B4D"
+  },
+  {
+    "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/qualify.py",
+    "bytes": 3150,
+    "sha256": "E8B6A529FFABE40D78A802685DB8649B03807FAFA46FB11DF83E2C4B9AFA443E"
+  },
+  {
+    "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/run-cpu.ps1",
+    "bytes": 3154,
+    "sha256": "C0B380C70EB20E243A98D6E970A1F2C97E0AACE1CA34C512872C8F452B0EBCF9"
+  },
+  {
+    "path": "<REPO>/GeneralsMD/Code/Tools/water-check/isolation.py",
+    "bytes": 4410,
+    "sha256": "F5B6F418D7E9F539C1827D317EA1C770CE3D5336B2C6C3FB71C49399EC190CE9"
+  },
+  {
+    "path": "<REPO>/GeneralsMD/Code/Tools/water-check/control_monitor.py",
+    "bytes": 4411,
+    "sha256": "CC345CCA65E878D866B447754A5DB73BD49A2F25C92EF7BE20DC248A9F818315"
+  },
+  {
+    "path": "<REPO>/GeneralsMD/Code/Tools/control_client.py",
+    "bytes": 7100,
+    "sha256": "7BC287D6062494E24178A9495555560923C89692F52041BC4BF2DAD2067E3F55"
+  },
+  {
+    "path": "<REPO>/GeneralsMD/Code/Tools/water-check/runtime.py",
+    "bytes": 15887,
+    "sha256": "AD0810F7AC0FABAB23B3B9C2D424C18D987135A41B5B5BE107B8C7E21026B510"
+  },
+  {
+    "path": "<REPO>/GeneralsMD/Code/Tools/water-check/models.py",
+    "bytes": 2333,
+    "sha256": "C588CF67EEB90D6E0B6B8DDC6DFD9BEACE435924CE7372DD4F9A83EA83F156E3"
+  },
+  {
+    "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-controller-green-01/process_identity.py",
+    "bytes": 2168,
+    "sha256": "88F424C0C956E041E1DD7A9037DAE1B8495346FF155C88A2291C6A76765F829E"
+  },
+  {
+    "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-6/scene-input-repair/native-process-runner.ps1",
+    "bytes": 2048,
+    "sha256": "C78A26C2B58081CD9810CED579C6D1350FAA528A164FBFB8C8AEC45C08877790"
+  }
+]

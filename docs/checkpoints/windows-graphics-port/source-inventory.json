@@ -1,0 +1,1106 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-21",
+  "base_commit": "98729c02a37b8c4c784df0856fbf290c4daa9536",
+  "note": "Original raw checkout byte hashes plus committed Git blob IDs. Staging content matches original bytes or only CRLF-to-LF normalization. All seven pre-existing water-related inputs included. Only archive-specific generated change is refreshed tracked-source fingerprint manifest; three new POSIX shell scripts have executable Git mode. No new product implementation or runtime validation.",
+  "files": [
+    {
+      "xy": " M",
+      "path": ".gitignore",
+      "bytes": 916,
+      "sha256": "87c3251f25178e6d07696b3ace5d5981b739a341125b0106e110ddb4a1a89a53",
+      "git_blob_oid": "101581560becb0ef0d480c5229f5056593c03480",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/CMakeLists.txt",
+      "bytes": 196198,
+      "sha256": "ee5b7d4189b8097246b922b309f034dfd4cb21599896ae7e3ccc43ce81502fa7",
+      "git_blob_oid": "95872d6e53e609bdcb95c5ef4447b6fc3cf9d13c",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/Data/Patch.str",
+      "bytes": 35060,
+      "sha256": "8631984a1f6557b5b6f0a69def879d161713a173ff636ece06272eea2f74d8d2",
+      "git_blob_oid": "258a7b5c664269449979d082753c344514622abf",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/GameEngine/Include/Common/GameEngine.h",
+      "bytes": 10650,
+      "sha256": "0408f308cf23392ff1174859c805bc059fcb83b6e6bc9734978469382a91c05f",
+      "git_blob_oid": "bb0df5b401702b0001d95e7e33737300e9bf6b15",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/GameEngine/Include/Common/OptionsCatalog.h",
+      "bytes": 9087,
+      "sha256": "18fefe3e179e8604e66baee3f113ce2f21c486361850631b535d3b43efe798a1",
+      "git_blob_oid": "d43544878587f65a3d0b07218e94d38b0e2210fd",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/GameEngine/Include/Common/UserPreferences.h",
+      "bytes": 7599,
+      "sha256": "894772ccaa9704adba73ca996b03a2629dccba66b813ea67d5757812fe5fcfa5",
+      "git_blob_oid": "524b9ffaa079938ceac0ee9d1b7e9c7a39820ddb",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/GameEngine/Include/GameClient/Display.h",
+      "bytes": 17566,
+      "sha256": "1147b8cc7e6f64a8a33b7b401980bbc3959220a837d3dcb69631d22b68669b12",
+      "git_blob_oid": "4becadecf43d6fe93b449ea4d88cd1fbecc4ba34",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/GameEngine/Include/GameLogic/ScenarioDrill.h",
+      "bytes": 11483,
+      "sha256": "8f317b5da89e20c61d6336c67b999bb14ab70d299201ba110f3c8d7f2bb5c55b",
+      "git_blob_oid": "99b7a6776116250d487731bbdf3a5f1e7cb0d502",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/GameEngine/Source/Common/GameEngine.cpp",
+      "bytes": 153168,
+      "sha256": "daafa7fa3b687423a7e0b4aa318c2ae8203325bc40ac59eb072de56adc79d6c2",
+      "git_blob_oid": "26bf51cad25509c97b0586f0a1043e5f7c411f2a",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/GameEngine/Source/Common/OptionsCatalog.cpp",
+      "bytes": 33327,
+      "sha256": "9d429b5bd175154836edeefefefb2f3d20d3ca416e2ac54ab0946e2c71d3f196",
+      "git_blob_oid": "c0bf633978ca1dc8dad0ff48bb39c18a7383db51",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/GameEngine/Source/Common/UserPreferences.cpp",
+      "bytes": 29271,
+      "sha256": "e377cbf1483e997b4703b61f431db8f247b8f37748c4b46c22ec5c53ca9c08ce",
+      "git_blob_oid": "79c630511f087070776d8d0ec5c6e0e4bb28251f",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/OptionsMenu.cpp",
+      "bytes": 116835,
+      "sha256": "9a50dbe8d5704578e334ab9cb94cc79df8a67029157631aa1043eb6c51486698",
+      "git_blob_oid": "dec855d70e767c6548402364dd8ea5b57647ac65",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/GameEngine/Source/GameLogic/System/ScenarioDrill.cpp",
+      "bytes": 97728,
+      "sha256": "92f5ab59732450192a16995207bffa6986e3897e4f190d757c54d339affd2437",
+      "git_blob_oid": "ed7905c99a82efc4b1d67be642c48323f6f65abc",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/GameEngineDevice/Include/W3DDevice/GameClient/W3DDisplay.h",
+      "bytes": 10626,
+      "sha256": "d1b17556f7cccc6f8c5d33f5b0849c4764de335e3c4fe4de147d61da7762a4c5",
+      "git_blob_oid": "76c1c3488cea2771a8f087e80a20c7af42edd965",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/GameEngineDevice/Include/W3DDevice/GameClient/W3DWater.h",
+      "bytes": 23170,
+      "sha256": "b490da3bab06b6233d279ecd0ae6cc61b7c87398fc2f74a894c88f806c51ddc1",
+      "git_blob_oid": "9ee09bc07ea9efdead3c193d9599ff68d12f8c00",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/GameEngineDevice/Source/PosixDevice/Render/PosixDevice9Draw.cpp",
+      "bytes": 81071,
+      "sha256": "dcaddc922686ebaabc6c66f3288b455cb465c0ab81b5c00e28de51ec99969cd6",
+      "git_blob_oid": "e5353f1bbdf6e70c9ae191fcdfcedba59fae8ceb",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/GameEngineDevice/Source/PosixDevice/Render/SdlConstants.h",
+      "bytes": 8242,
+      "sha256": "18d58465537f7e78c5118ba75c12883a3e55d53d9b71970080e7fbe0f41f78e8",
+      "git_blob_oid": "2516f51aa430f80e0f7e7d965045cd35f175ca90",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/GameEngineDevice/Source/PosixDevice/Render/SdlGpuFrame.cpp",
+      "bytes": 81323,
+      "sha256": "67f366f0380797b02aee9e9f9a5a607401adfa5af132bdfc241b9f784df30b48",
+      "git_blob_oid": "7da6354767ad2916f43ccab7ac6ee7f27c6edf7c",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/GameEngineDevice/Source/PosixDevice/Render/SdlProgramCache.cpp",
+      "bytes": 16211,
+      "sha256": "5a27c4fc4f476b475367beb72b77b73a56423a389f0e001ebbc2da5bc4ed1f65",
+      "git_blob_oid": "dfa13ef3c595224cc9450cce5b19dd647b86ec31",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/GameEngineDevice/Source/PosixDevice/Render/SdlProgramCache.h",
+      "bytes": 5906,
+      "sha256": "698a1a9456a838e2b300b529e5d50538d1b44648b2c6be11cdbd81b965901a98",
+      "git_blob_oid": "10677f78f845414aaff5e51813cb7877e2f172ca",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DDisplay.cpp",
+      "bytes": 190163,
+      "sha256": "2cbd498b75c64b9974ec59c1ef6e6805ea9f413dac5869feee776d0580d161d1",
+      "git_blob_oid": "fb6a13235a6268e8cffb5dd0243872a1319d37ef",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DParticleSys.cpp",
+      "bytes": 87821,
+      "sha256": "dc9b619baa055901731602dcace0ded0a59584564ad9e50b57418293b6d596aa",
+      "git_blob_oid": "377e5993456b7f287e8e89471966109c03862a3d",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/Water/W3DWater.cpp",
+      "bytes": 301223,
+      "sha256": "7ffca83ef204639d11411c370552009627c16d9efb60846122ba92dbb325cca3",
+      "git_blob_oid": "dbfca77dbff94ab33f8a92cf80d35e424cdb2a03",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/Libraries/Include/Platform/WaterBedMaterial.h",
+      "bytes": 2872,
+      "sha256": "6066326cbab65622d092af52e23bb524f4e449613482da5ee48d1d36a4a351c3",
+      "git_blob_oid": "20cc81c1d5270a053a0cb846731548f1076e9ff6",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/Libraries/Include/Platform/WaterFftSpectrum.h",
+      "bytes": 10166,
+      "sha256": "9b77c28234ac89d88f52adef2c6003867cedb02a9c07b6b3915872059ccb1b8b",
+      "git_blob_oid": "aa46e27e004cf97e44c8351a0a7ad71b6dd9181e",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/Libraries/Include/Platform/WaterOpticalModel.h",
+      "bytes": 10496,
+      "sha256": "4cc9512f7b19c8c925df78b2c2042d35824cd4082418565b46b358a6e8035cc1",
+      "git_blob_oid": "e4779d8158aa9d955694e68855e43651ee501828",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/Libraries/Include/Platform/WaterShoreOverlay.h",
+      "bytes": 16974,
+      "sha256": "ebb18d9a36942efa1a3994e78ef7f9435958c7c684a71b4def8ca8746c9cc99d",
+      "git_blob_oid": "ccbe510a5f33265cadadac5ef910a0a7c8c35628",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/Libraries/Include/Platform/WaterShoreSource.h",
+      "bytes": 12785,
+      "sha256": "312af84d4fac3700d0155926b9e930571b567a5a5a1fd46e6091fb2dd9c69efb",
+      "git_blob_oid": "b0e9e3c61260b2041672e75ebee9aecdb6e0f313",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11backend.cpp",
+      "bytes": 132184,
+      "sha256": "6c2998c98a034083a9f994ded481ba25936fea1eb32b6c1ea720be996952541e",
+      "git_blob_oid": "10dc20744e9be81ba076ad03c5930ff5bbe0cf05",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11backend.h",
+      "bytes": 48589,
+      "sha256": "22f435379a1a90357fdfb2a9aa12ebb92854630e6093ed1dabb012c080953c24",
+      "git_blob_oid": "ec0f922492c2d5076198f97c26aa6a7537267f67",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11device.h",
+      "bytes": 7060,
+      "sha256": "df0fbc56595e1b162d7d8a577d7231dbda69408f5592c4bf42397746412dced4",
+      "git_blob_oid": "469f2b89ec0e94413940bb270edd58799f3096d9",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11runtime.cpp",
+      "bytes": 27137,
+      "sha256": "63294ec7f48a44247e77a9f80efac9e031b1c28525693f3a2e9e9c2f3aa6d065",
+      "git_blob_oid": "a8d24e778d9b599ca5bd53c03269cacf37603a13",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11texture.cpp",
+      "bytes": 33286,
+      "sha256": "e75665ddd5feac09de1ae3f9f819f5087601969d9d45badc33e39a37e5fc4c8b",
+      "git_blob_oid": "c0f738c4eee18400326b210cff52e6c8f55cd626",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/engineshader.cpp",
+      "bytes": 109588,
+      "sha256": "2ac7da51657713cb61620e0bb44ed0419fffe7e7f28ad6f219eb4a737a66f5ba",
+      "git_blob_oid": "6338db0b5acb5354330cb4327cd20631af4495ef",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/pointgr.cpp",
+      "bytes": 89656,
+      "sha256": "28edfad8500df78870e2d8f1a39e4674bfac6c6b9a140dfaafc8523d18d43388",
+      "git_blob_oid": "4b83be2f54fa311a1e455ec7f59362589948043f",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/Tests/WaterCoastalCapacityTest.h",
+      "bytes": 5464,
+      "sha256": "078bd63a18a0d3bbb48bd546b3e0e31bc49074014a940f22db44b6f81d03b5c2",
+      "git_blob_oid": "7a873ac757924bc47335f51b51d6f20f29d46ba1",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/Tests/test_dx11backend.cpp",
+      "bytes": 42839,
+      "sha256": "714f5ee719d6882c7733cb95f393cedefa24cc886ed662cd5eb32b3b9a03c492",
+      "git_blob_oid": "315e4a34f1e478a43665df478a5d680a2a5805e6",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/Tests/test_dx11device.cpp",
+      "bytes": 5621,
+      "sha256": "2f18b7f6d69acd5251a5ec34ebc409ef13b613db4a75759d99a76914cc26809e",
+      "git_blob_oid": "0303a951f7cb9438cd73cbab69d0b4ece9f63681",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/Tests/test_dx11pipeline.cpp",
+      "bytes": 17242,
+      "sha256": "2919d2a784e9eba8876514d887329ea4f320a61437782240c8c626b0abc84681",
+      "git_blob_oid": "96ff765584d1a8e9cecda474b65604762d1b7eea",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/Tests/test_gameengine.cpp",
+      "bytes": 787702,
+      "sha256": "f7a9d04648d82e2ada854e296634f56d81bd26f251343777f0a581d9f61585ab",
+      "git_blob_oid": "8f640119733418546e1e33b0b572e3902c69944d",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/Tests/test_sdl_gpu_frame.cpp",
+      "bytes": 626455,
+      "sha256": "00109d29ad91ded96d98c87f29d381df5de6f3dcc2f4be7e9761a0a011792513",
+      "git_blob_oid": "bb44a1dfc9d7127f9d77a55bac74ee82b289a8e9",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/Tests/test_shader_sdl.cpp",
+      "bytes": 66960,
+      "sha256": "223e949ec59f0a84cbacad47df6ce8353c7015de667f6b0f8e324363f1457926",
+      "git_blob_oid": "a1acf1e59a9453f2bdc66d8d56f0f0fc16fdabab",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/Tests/test_water_grid.cpp",
+      "bytes": 317684,
+      "sha256": "96e4303d6ec2d8184765d72873ffe37c1e41d237b5e3bbb0f28c7d523b41a021",
+      "git_blob_oid": "ac75b570e681bafdec345d95c5c0ceada7f3e804",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/Tools/fingerprint-manifest.sh",
+      "bytes": 7024,
+      "sha256": "f949f66ee6299e0895b1d6c60805634d077a539e00c35454b8d64652cca25ed2",
+      "git_blob_oid": "34d3d7bfeffd7369078f8077895802effd8f68d3",
+      "git_mode": "100755"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/Tools/record-dx11-shaders.ps1",
+      "bytes": 19763,
+      "sha256": "f3bb544884ed4207a951f95fcceb7f102a3add1e84fa1a5cea5f4654960bc2e7",
+      "git_blob_oid": "b5b501de59348464f6e4a0a6df7dce5356764e48",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "GeneralsMD/Code/Tools/replay-check.sh",
+      "bytes": 24407,
+      "sha256": "51f79e66fb294d15cdc34d9bdee928c6ff0083dd6b1c8fd8282357c1626157f9",
+      "git_blob_oid": "fffbd075989dfe1dba0ff7486da90e9ac277397b",
+      "git_mode": "100755"
+    },
+    {
+      "xy": " M",
+      "path": "dx11-check.ps1",
+      "bytes": 23194,
+      "sha256": "d776ee3f682414db62015fd335c1570db36a3469ea934df04b9873b1c0cbf8b5",
+      "git_blob_oid": "588c7f054183ac56215c97e322dc50984d2acd4d",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "replay-check.ps1",
+      "bytes": 14506,
+      "sha256": "dda4506cebb33ca20c73c45f03c04f5ed753ec4ec623e5257488447d09b6fb3e",
+      "git_blob_oid": "5eb13b906551932b67a49d3c5e7e0a016ebb4866",
+      "git_mode": "100644"
+    },
+    {
+      "xy": " M",
+      "path": "windows-ci.ps1",
+      "bytes": 25396,
+      "sha256": "608c128e36217f096d0f2ccb7a7a32f8ebee53a583d95ad5acc2e92ee5e1af26",
+      "git_blob_oid": "7c6697e85f001807c4958f7e388e9e4eb5664fe5",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Libraries/Include/Platform/WaterGpuShaders.h",
+      "bytes": 1989,
+      "sha256": "65f5774156f0540801512d4e16dd785eaf36afd13d42d51626c8e3e9e170f5e0",
+      "git_blob_oid": "9f7ddfc996a60035c6457c6362982fbb2cd4c9a9",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Libraries/Include/Platform/WaterRenderAdapters.h",
+      "bytes": 1212,
+      "sha256": "04f7cc9033c38c7f3a9e00aff6c31318995044722aeeb10a078a2d8aaa544a8f",
+      "git_blob_oid": "337a13a992b53a79ee26ebfb74e1597a3b500814",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Libraries/Include/Platform/WaterRenderBridge.h",
+      "bytes": 11798,
+      "sha256": "cccc0fad32b07e56da0435977421bcecacd7f79d5e31488da723977cc13c22b6",
+      "git_blob_oid": "ad4d9fd07faadcbd2a89d453dd44de0307ac1775",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Libraries/Include/Platform/WaterRenderPacket.h",
+      "bytes": 14977,
+      "sha256": "96d4a8da58761cb95e582f7ed04d5e67d94ace239149da5af92771cc5541feb3",
+      "git_blob_oid": "ba495941a6ff6a3ef5fae320558984e103ac32ad",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Libraries/Include/Platform/WaterShaderLayout.h",
+      "bytes": 4498,
+      "sha256": "531bf8535e09c9074e5365fcde6568930a1def5e5722c76b69d0e025b929d092",
+      "git_blob_oid": "fe534a3d9f3db7dd83f2a337edf11e0e8be6fcd2",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11water.cpp",
+      "bytes": 91601,
+      "sha256": "efb5b715ea0edc4c0d0520b32f40919557cf553cc0b50ae38e08f4eff75d5d54",
+      "git_blob_oid": "490af85b7298a4fbd220fd5ae6adedcdc9ae34df",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11water.h",
+      "bytes": 9528,
+      "sha256": "092db66690c16a1a3dd81446d388b50f05809ec3a1d1b54b74052c6e248079fe",
+      "git_blob_oid": "507e88582c1e4aa9bc5f528b03ba9b6a044437ec",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11waterfft.cpp",
+      "bytes": 13139,
+      "sha256": "b583cdfffcb1e597d48759f27effcb996d7c087e30c1409470580a7e9b2db7d9",
+      "git_blob_oid": "a31ce15d6e40c34714c087d9a6a820ef673e5fe0",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11waterfft.h",
+      "bytes": 1685,
+      "sha256": "716cf6c5757298f31c8e1ad2bbbbec78391849595e1fa99016124bb03d255e8a",
+      "git_blob_oid": "264a33870463edb63de76499c5f0bc05837d5872",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tests/Dx11DriverEvidence.h",
+      "bytes": 625,
+      "sha256": "07545e3407ece5df5208236d76095ae0f4c5408dffa631e63ec29e8cf52e1322",
+      "git_blob_oid": "785b1cb3786003fad9be73a4bfdb2c40523a92ee",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tests/WaterDx11DirtyMirrorFixture.h",
+      "bytes": 19485,
+      "sha256": "7d266c7edc39433ea9b70b5bfc0daf4b4589fc6769fbbad4415b67d3613613e8",
+      "git_blob_oid": "2c53e09f0b02b316d49f6f6589884612bde9cdd9",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tests/WaterDx11FftEndToEndTests.h",
+      "bytes": 10294,
+      "sha256": "7e8fb42993fbb29a0c23f9bd6abbc100fc94b0152be3fc9650fba6f4e4abf81b",
+      "git_blob_oid": "b1af5af4aa782cbecf7a2ffc9cd9d3e854b94b64",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tests/WaterDx11FftFailureTests.h",
+      "bytes": 10220,
+      "sha256": "158f5c58ee65066e1dda6130af55ba0cf86f8682dfaeb6b762c06d2f1b626588",
+      "git_blob_oid": "9923f252ec1cb6a0f1f9751bd71a6a63d039838f",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tests/WaterDx11FftGeometryTests.h",
+      "bytes": 10944,
+      "sha256": "b62af24253e80f42f534217b00e6997c0c039554b3f579cf76d69d4e2121ae36",
+      "git_blob_oid": "de58904d6cc085d6d12d16be79a54a8177ce8eaf",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tests/WaterDx11FftLifecycleTests.h",
+      "bytes": 7968,
+      "sha256": "7d9246957fbe0fa784358a67df53638a9b8963e7c2d34cf8410462d21c1ae21c",
+      "git_blob_oid": "26c91088707b3df2852477d57c091f31bda58f25",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tests/WaterDx11FftNumericalTests.h",
+      "bytes": 8764,
+      "sha256": "02dd4206727920449def1c182688758f17772dfdf6816d3f48a0420b5c4b7f1c",
+      "git_blob_oid": "447b14d5ae8a00dd484f8dc662a7995b8588ad57",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tests/WaterDx11FftOracle.h",
+      "bytes": 3064,
+      "sha256": "8e53c7c8eb9ee0c77c454363408590ce97798be7ddf06ac4ca0e45704024c320",
+      "git_blob_oid": "d0644e210f19f0f4223e2fc44cc0ac58773beea1",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tests/WaterDx11FftReadback.h",
+      "bytes": 4408,
+      "sha256": "c53421363ff0b36b3f63fb3f0b0b89fe1288f58ae8c7832b9e071640ec529756",
+      "git_blob_oid": "97fd0ff0e9973bf7205de3f0f3f6c801daad2308",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tests/WaterDx11FftStateTests.h",
+      "bytes": 7701,
+      "sha256": "4f54ae8afba90bdb3fabe0ed52a7a0d4acfcd7e8985813e380096d985455421d",
+      "git_blob_oid": "28683c587b9f0cce34d69235eb3506ae086823a9",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tests/WaterDx11HullFixture.h",
+      "bytes": 15009,
+      "sha256": "2f4388d357ab46af5ac62a161bcc0b7e83e6b68e2eb3d2a0c3be0f7fc5e57bca",
+      "git_blob_oid": "69dc600d29d80b504cde099f97d8e4612c45aeb6",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tests/WaterDx11PointGroupFixture.h",
+      "bytes": 9171,
+      "sha256": "170008efc909ddfe8b9b5427bdae3391b636f97dbda109e7a28a3751f0e7efa2",
+      "git_blob_oid": "59dffee081d0d7f59308da76afda179aad86fdff",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tests/WaterDx11SurfaceFixture.h",
+      "bytes": 17543,
+      "sha256": "06c73df5fd7f2a91d08a099a04bb9750fcd9a42a4b86e9db86b1e9f5e3623fe4",
+      "git_blob_oid": "f0df497f0aa9dba2433cad4676e3918252f8e827",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tests/WaterDx11VesselFixture.h",
+      "bytes": 21828,
+      "sha256": "fc9715768e3c8d41d0d56352a229f0348686f80d7dd3b0c2cf5c68ac4bb0e265",
+      "git_blob_oid": "e86ddb67bbdb7926bc6b65d416427a498e5b4415",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tests/WaterFftReference.h",
+      "bytes": 11754,
+      "sha256": "b28273bd562f0b9419886472f8d8b233129fa73bf20515cbf893ebc49e863075",
+      "git_blob_oid": "15832f9841cc2464747d54cba1788d73a84b66f4",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tests/test_dx11water.cpp",
+      "bytes": 24349,
+      "sha256": "6e16a2162fba5e701b8f1fe26eda89daa6c89152a004d4054e368c028275a2cd",
+      "git_blob_oid": "4d3c7c6602583860244677a32233573fec6e2d6b",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tests/test_dx11water_dirty_mirror.cpp",
+      "bytes": 14331,
+      "sha256": "2380985b512ba7e1fc412ffbc93f53d60b57decafb17de2ed3ffbcb58d8bcc62",
+      "git_blob_oid": "6b017a856a7592f504f6b5e88f0ccaa37606b33b",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tests/test_dx11water_fft.cpp",
+      "bytes": 6745,
+      "sha256": "89590c1a87b8c09e9d0aba2a492d5e868e8889ab57732d560692e7fc5c533b82",
+      "git_blob_oid": "91eba94052c6c460897450a2e852d0d7f6200c35",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tests/test_dx11water_foam_view_history.cpp",
+      "bytes": 10590,
+      "sha256": "b94285d011e3b0ce4b40a82463814d974f4942ea923c8afde63bb33faa1fb47f",
+      "git_blob_oid": "7237b453e2f784ba6aa9b4ef29a8b41743cc949c",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tests/test_dx11water_hull.cpp",
+      "bytes": 3670,
+      "sha256": "ad73e3840cfb13c14361053338fe1e9e2b409f81c778ff6392f3143751988a07",
+      "git_blob_oid": "96c7558d5a115f30699374c9a60dc120ed49c439",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tests/test_dx11water_optics.cpp",
+      "bytes": 15630,
+      "sha256": "3a51eda518172a5ca9085c54045353020fbef11e837038033c11d1ac15736fa9",
+      "git_blob_oid": "705de47b197ea1cdf79ca044a4c209d4732dbee3",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tests/test_dx11water_point_group_view.cpp",
+      "bytes": 4279,
+      "sha256": "ab0adfacc94047a9e189925caed3fadc04418176d0633c95ea87fe2ac4d0360f",
+      "git_blob_oid": "65f63807e21b7168b5d0904554c23e98c9638e9a",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tests/test_dx11water_samplers.cpp",
+      "bytes": 14326,
+      "sha256": "6081537017187e6e66521abfc633458a5679ea18bf9c3c0a2732996b6cf2c9ac",
+      "git_blob_oid": "50eb61ec9e147177f3f2e81a71c2fc35d0c6ce2f",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tests/test_dx11water_scene.cpp",
+      "bytes": 23021,
+      "sha256": "080ca37b13143f6763856c0f09c992ef5e263131862faf1273d9d12bcf462423",
+      "git_blob_oid": "53e908e6f2ce079210a14d68c2d077ff7e1cc2d2",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tests/test_dx11water_scene_inputs.cpp",
+      "bytes": 13706,
+      "sha256": "fc827d7635f163be5fdb1e76ae3a0b4325c94b180f6a75ffa9392c9746830efa",
+      "git_blob_oid": "1826d821454533ade6b3bb15ecd78764b9eb9148",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tests/test_dx11water_surface.cpp",
+      "bytes": 26092,
+      "sha256": "21774ba2c622605930837732d8dd5687f91b4dac549b15177d98aaeb3f1000c8",
+      "git_blob_oid": "7e0f983065a09f15dd43dfc74808708862f1e951",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tests/test_dx11water_vessel.cpp",
+      "bytes": 8614,
+      "sha256": "a1d6c5f314776e4c8ed3adba47ca231bf74e0a45077d7ef41645e7a924094d2d",
+      "git_blob_oid": "469194746ec9e0241aa72d65b8ad7d64e3956152",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tests/test_water_capture_named_actor.cpp",
+      "bytes": 4604,
+      "sha256": "118b1c16d57c317c28d4513665548690a71a72dffb408ccf9253f7f9a6171109",
+      "git_blob_oid": "11659c8f0a604fdceb92b532cc9d5bb34c4afe45",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tests/test_water_capture_owner_lifecycle.cpp",
+      "bytes": 6713,
+      "sha256": "4a5672f673c7f47c9fe7a4af104a369b0087cbe37fa7b3a82953e34105c50c90",
+      "git_blob_oid": "5602ac9a70290f5014205e142cf6d2862e51eef0",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tests/test_water_capture_registry_witness.cpp",
+      "bytes": 3609,
+      "sha256": "7bc87604bb208ba38d03b9ee9d9e452223b0ca5435095ca5ac5a8d3491aa7dbd",
+      "git_blob_oid": "87661cb90ac39244703b24bca7b4bad951a693c9",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tests/test_water_fft_reference.cpp",
+      "bytes": 12779,
+      "sha256": "5c59fe0d523b7646ffddc570fe0c94a8cb257026bbfd8ca6bc5a4c8400a41860",
+      "git_blob_oid": "77c85f421e09b5eb8d3ce16ddcfdf4c945db1e78",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tests/test_water_optical_model.cpp",
+      "bytes": 2217,
+      "sha256": "08a93de04bdc1c68f338341bf4caa1ddd228d2e1685b5f2ab3f5d2ec7e9eb779",
+      "git_blob_oid": "2d5422e3ad758f4f7ace8a6e89f1f8af87199852",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tests/test_water_render_packet.cpp",
+      "bytes": 19392,
+      "sha256": "589b17b9d9cffb7ad206a5616666277ec7bb2eceb61953c0786194077514f676",
+      "git_blob_oid": "e195b6051297ff492cba2245ca1f39f8162d4dfd",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tests/test_water_settings.inc",
+      "bytes": 7368,
+      "sha256": "0c2064adffd1ccbe84e315c445e7432c9b2cbf63a33cdca3980686a44f3616b7",
+      "git_blob_oid": "9ce6110c24a9e54c1af22183d48afa26af124e50",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tests/test_water_shore_policy.cpp",
+      "bytes": 10670,
+      "sha256": "800fdadd934b4b6ca15e2d8b5943cd2716c10adf04c69847e12bc04b753f2a05",
+      "git_blob_oid": "3a87d729745f3b22ad633bea06a7149c1bd39547",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/dx11-check-selfcheck.ps1",
+      "bytes": 20670,
+      "sha256": "f1808640dc558f4430a8313984dbcedb6f61a61b1e553c419234a928433ac01e",
+      "git_blob_oid": "7e6ef3b8f4fd6539169e6a209e8e80844d8f1bc7",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/fingerprint-manifest-selfcheck.sh",
+      "bytes": 10588,
+      "sha256": "91115828a1918c7e8e3dd4203b4cbe446fa83668210cb4c1b833125f5968ada4",
+      "git_blob_oid": "5dbc7ee1dc57142d85ce6f9b75cd04955a2cc6f3",
+      "git_mode": "100755"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/record-dx11-shaders-selfcheck.ps1",
+      "bytes": 19057,
+      "sha256": "573ce224c61df98e3e53531cee39196fbfaeef0234167b35feaad6ceecbdb09c",
+      "git_blob_oid": "f93c96ac9cfd98b7a938b74e3e44a3d51338682c",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/replay-control-selfcheck.ps1",
+      "bytes": 5695,
+      "sha256": "921584e01b12b7cc7a9c4da073950cc812faf354dae1bdaab422a153bad4d71a",
+      "git_blob_oid": "32f5b65b5eee3f77a27fd9b3cb73801bc1ff0009",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/replay-control-selfcheck.sh",
+      "bytes": 4526,
+      "sha256": "aba231248617a494814c4a7c325904bfbeeb18aa37f878c422779b2dba44e401",
+      "git_blob_oid": "a981c8cf445d4e48287d9e7fe9692d9d29adf38b",
+      "git_mode": "100755"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/replay-control.ps1",
+      "bytes": 5950,
+      "sha256": "8762751759fe162ee71934ee9867a4a64154b83dd527571d595f60108f3351bb",
+      "git_blob_oid": "33c5268f0c952987d7857da8ec323f90909409d1",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/replay-control.sh",
+      "bytes": 5204,
+      "sha256": "5c02fb89304a6e6567462617f4173e9716c7ccc689438b1932a8aef4ef5afedd",
+      "git_blob_oid": "70cfd127fed9f46d2e23681e54f002013f9a029f",
+      "git_mode": "100755"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/water-check.py",
+      "bytes": 3206,
+      "sha256": "eac358072513ac52c71c62c111f30f85ecf7f2ec15f4ab49c4d474fcdff8dc5d",
+      "git_blob_oid": "96e2a52ad0c7dca9553e578977ddc09f70fdbb15",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/water-check/bitmap.py",
+      "bytes": 3522,
+      "sha256": "65010050725ee9df7ca67b2f7b7ae62b75e6ce5be3031dc534894cf7b943eafe",
+      "git_blob_oid": "3835d398e0748007fffc48f24aabc92fd153b98e",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/water-check/capture_archive.py",
+      "bytes": 17080,
+      "sha256": "b94ab06bd1a230647907801d00a7e79d73c8bb281068551acab750fbbdeb1a99",
+      "git_blob_oid": "8a7bc019a4379e8fab2f1431a22ea12581eaf297",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/water-check/commands.py",
+      "bytes": 1454,
+      "sha256": "ad4cdd7455a60c3d86fe7a211e06b57c9d8f0c866bfcdf81a9702b3621b03470",
+      "git_blob_oid": "3aa6269199dc3afc243e7faf7c06fb89ac4bc032",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/water-check/comparison.py",
+      "bytes": 2298,
+      "sha256": "585a6f73e343a079e56a875d5c2c826e547f7d5c1917e58911e6520438ce71c0",
+      "git_blob_oid": "b7fd3b7bf784d48e4d0d8ce57c06b939c700b5cc",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/water-check/control_monitor.py",
+      "bytes": 4411,
+      "sha256": "cc345cca65e878d866b447754a5db73bd49a2f25c92ef7be20dc248a9f818315",
+      "git_blob_oid": "4b370259051b33f0a5d00a187fdbe03ab88064cb",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/water-check/evidence.py",
+      "bytes": 3535,
+      "sha256": "b2e916278ac6b5e649d6914bc15fa901940a8ef0be9314f11e300e18105739f4",
+      "git_blob_oid": "68476682d9f91a7189e55eb0cb49ca03af097ca8",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/water-check/fixtures/WaterValidationGameData.fragment.ini",
+      "bytes": 503,
+      "sha256": "ec9bfb3d5af0291093ddfee4ae8a7d07e30e02d13c5e01098ed763b7e1740a39",
+      "git_blob_oid": "6c8de73da5eeb6ad9526e3767aaaedf6c37dce08",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/water-check/fixtures/WaterValidationMapCache.ini",
+      "bytes": 421,
+      "sha256": "e7470704af49d87c87d96637fe253e72c5fb1b6ffc137224b0a9717615af4631",
+      "git_blob_oid": "3dff245381d30ba76ccd3fefa3ff409f8bfeca43",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/water-check/fixtures/author_water_fixture.py",
+      "bytes": 15573,
+      "sha256": "8aeb1794283cddf83d5b353c52920be3dbc541bf594bb5375a4a2ad20a20dab7",
+      "git_blob_oid": "c2ca71990c5375fac88af23fb412a3de49862470",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/water-check/fixtures/overlay/Data/INI/Object/WaterCaptureCarrier.ini",
+      "bytes": 1808,
+      "sha256": "8473c6d60e88b5f033bab7a64af5b939f794a12364c5eedb3f8f9617df5fb6e8",
+      "git_blob_oid": "7f4d1552016a652c8806921285026b2d44403e1b",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/water-check/fixtures/overlay/Maps/Water Validation/Water Validation.map",
+      "bytes": 238949,
+      "sha256": "6b3ba8fc4db88cb0ec672b382d35243ca19b4fd3dafe88831e5db7528f6274aa",
+      "git_blob_oid": "74a0d609ef07d2bcb362385980cd756aaa728dde",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/water-check/fixtures/overlay/Maps/Water Validation/map.ini",
+      "bytes": 81,
+      "sha256": "13a570aa3320888756a3305a9193553402ffd6b1cb0008837fa0342c68bd99ed",
+      "git_blob_oid": "39159b29590e78b43c903540233739a837eb2a43",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/water-check/fixtures/overlay/Scenarios/water_capture_carrier.txt",
+      "bytes": 342,
+      "sha256": "a4f347621c162e4d770877de03cd35017278e142394b463991388fb12242f396",
+      "git_blob_oid": "c0f8358312dd39e127205d23802832df61682308",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/water-check/isolation.py",
+      "bytes": 4410,
+      "sha256": "f5b6f418d7e9f539c1827d317ea1c770ce3d5336b2c6c3fb71c49399ec190ce9",
+      "git_blob_oid": "63bc8721b04e3676e778f6737d3c5b575a4a563b",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/water-check/manifest.py",
+      "bytes": 483,
+      "sha256": "3da8d9520d41f397f214c647ad9da5f9bc06f824423eae447af179c812a62856",
+      "git_blob_oid": "35df3fe21c643ac0dba6cd93b7ed5d671aa54d36",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/water-check/manifest.schema.json",
+      "bytes": 783,
+      "sha256": "7ed022bdeb9d7f6d1ee01dc0848211102cffae44e23c60c46e702861c08ffcb6",
+      "git_blob_oid": "0410814d90b33b8bee7b97589061c15d6a36d8b6",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/water-check/menu_control.py",
+      "bytes": 6822,
+      "sha256": "89d37c7c88592a110b428b341616becfae485648a2bfd54359426e61db863fa3",
+      "git_blob_oid": "b8b57f1b2a29f75e74723727005199d45bfd6e3c",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/water-check/models.py",
+      "bytes": 2333,
+      "sha256": "c588cf67eeb90d6e0b6b8ddc6dfd9beace435924ce7372dd4f9a83ea83f156e3",
+      "git_blob_oid": "34d705c36cf1c4092fc0a1e8fb2141031ed68b2f",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/water-check/pyrightconfig.json",
+      "bytes": 148,
+      "sha256": "bda81344428e6c07e33cb2c0807eb6a4f4ce2488f7aaa5e11ac11e2d2c8e46cc",
+      "git_blob_oid": "e9732f0f4ba7c5f103e58ac206346806fed87986",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/water-check/receipt_evidence.py",
+      "bytes": 7987,
+      "sha256": "eba1f7cf36d87f4cf3a78295fa802917cdc3a34a57bc7a8647f38a9d84b356dc",
+      "git_blob_oid": "1557eba6df032a270082f02e01cd6903b463ca57",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/water-check/runtime.py",
+      "bytes": 15887,
+      "sha256": "ad0810f7ac0fabab23b3b9c2d424c18d987135a41b5b5be107b8c7e21026b510",
+      "git_blob_oid": "84cbb11289a2b6740698695ba1e1ff00e5e78e91",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/water-check/runtime_receipt.py",
+      "bytes": 3943,
+      "sha256": "53f73288f7461cc62a1c52d46ff34c9bcd053945648980aa9b79076728b0ec43",
+      "git_blob_oid": "46f7b4d782739ff9782eea856f12a6748e30d099",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/water-check/scenes.json",
+      "bytes": 2734,
+      "sha256": "b38602fcd39dd03a89673c81d9804a2e23ded046fea6e46b03552b2b7e0fe61a",
+      "git_blob_oid": "ebea7ba24e1cdd099080976d6cc5940bf7e0b8ae",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/water-check/schema.py",
+      "bytes": 7672,
+      "sha256": "a4d2f35de5f0d9df25d813b9e666e9de645696689ea09051bc6d6929d7b97f72",
+      "git_blob_oid": "e4f75fcadf147e6ab3504d517cb893aaea142029",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/water-check/selftest.py",
+      "bytes": 11219,
+      "sha256": "f67e1c3a1de005cf921c85469e22c7836d35d318f7273fd8f46f788446d9d3bd",
+      "git_blob_oid": "bf677769e9d5575b1efbf835eba1c07e7ae9efdb",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/water-check/selftest_archive.py",
+      "bytes": 10742,
+      "sha256": "04cb1453f318884c641d895899a7d6b6c34c9b8d3ebc8c880ffdd06293cbd6c7",
+      "git_blob_oid": "b627456653a2e79e5963b3eadc26977203ad231f",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/water-check/selftest_control.py",
+      "bytes": 3046,
+      "sha256": "87bb86b34fe27c1f9926b2204e40be99f59f90b46abaa9bbe50f9c4c20a3829a",
+      "git_blob_oid": "5217d761b5c3c112ea4bee8a1da024e20425079e",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/water-check/selftest_isolation.py",
+      "bytes": 16788,
+      "sha256": "041983085a8d5757aad88fdf90cf1f14382c7f33eea56ba7e8d37aa2fe67c32a",
+      "git_blob_oid": "5b18d9941297807188726c5f062e2887f361194a",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/water-check/selftest_menu_control.py",
+      "bytes": 12326,
+      "sha256": "28375a226749a3ef5e37b86686f59e677e5c1b025273620336b7839ded2d62bc",
+      "git_blob_oid": "6703a14e8daeb69b13b16dc92a0819bc6315ba4b",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/water-check/selftest_settings.py",
+      "bytes": 12446,
+      "sha256": "296c8a7a5e4c1b1b746c1a82a964160db5e1819943d80ab84d260a450e763a15",
+      "git_blob_oid": "f3519a36cf0133dbfc88eb83c1c9271288124eb4",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/water-check/selftest_suite.py",
+      "bytes": 11222,
+      "sha256": "021c1b09379f292df12cf882c62522a811323b57e4c96e68d69d8889ed8df233",
+      "git_blob_oid": "5cc63513db14603c3231c8ede6283b62f01716b9",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/water-check/settings_cases.py",
+      "bytes": 9740,
+      "sha256": "c5037da06db260f58a802b38059f9586dfd7b6557ab75b4612f78b5e0cd4f529",
+      "git_blob_oid": "fc227c8b8b51ea3c26efe1be5d6e1621758d7c7d",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/water-check/suites.py",
+      "bytes": 14677,
+      "sha256": "5cbf20295db09b5253d7d8aca16fcc153963f9ef5877c1001fa35e45f132e6e8",
+      "git_blob_oid": "9db821c38c4044a9754ef93dbb03a0c1ea1c9bca",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/windows-ci-gpu.ps1",
+      "bytes": 6269,
+      "sha256": "308ddc3025b749ba964dff233b175b9385eaa625022848e4f445ab86ae66abaf",
+      "git_blob_oid": "2fda53e815192be86185c0f064eef2edd9f4e90f",
+      "git_mode": "100644"
+    },
+    {
+      "xy": "??",
+      "path": "GeneralsMD/Code/Tools/windows-ci-selfcheck.ps1",
+      "bytes": 14025,
+      "sha256": "bcf75ae135045a08f75a521bec02fb09d4f601f5f6a4e11d42aa64c7325906d6",
+      "git_blob_oid": "6fa6aed8879209f4843be99b2db01c91d8b5f5aa",
+      "git_mode": "100644"
+    }
+  ],
+  "archive_generated": [
+    {
+      "path": "GeneralsMD/Code/BuildFingerprint.manifest",
+      "bytes": 183793,
+      "sha256": "17c3c5e1744bcf3422baf7a0693ad2622b604b9f845886f0063c09465ebcd36d",
+      "git_blob_oid": "cde24978ec9f452d80c6e2276baa933713b26cdf",
+      "git_mode": "100644",
+      "reason": "Regenerated from final staged source inventory. Also lists already-tracked base files missing from the old manifest."
+    }
+  ]
+}

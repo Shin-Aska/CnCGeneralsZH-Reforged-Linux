@@ -1,0 +1,28 @@
+{
+  "status": "SEALED_UNAPPLIED_3C_ONLY_SOURCE_NO_GO",
+  "entries": [
+    {
+      "path": "delta.diff",
+      "bytes": 7684,
+      "sha256": "faaccbba9abba89735d714bc68c6c059da14215006830c052475bc41d05def07"
+    },
+    {
+      "path": "manifest.json",
+      "bytes": 7285,
+      "sha256": "91100396c90cb4b8c54b92c620d1e2c9677e780a54997a52ca74416603abdb79"
+    },
+    {
+      "path": "DoneClaim.md",
+      "bytes": 6179,
+      "sha256": "2d9522d977d08303e02becda31c1636447756be6fa9cbfe45708f43a6f2bc043"
+    },
+    {
+      "path": "cleanup.json",
+      "bytes": 558,
+      "sha256": "2f519e32ab9ea91e20ac59ef463c420edafcc4def71f020cae82a959551ba415"
+    }
+  ],
+  "currentSource": "dc9b619baa055901731602dcace0ded0a59584564ad9e50b57418293b6d596aa",
+  "virtualPostimage": "1c62321725fdf420dc54052e51081d0c5fb1f5912c5f1a760effa9299cba943e",
+  "directPinsUnchanged": 9
+}

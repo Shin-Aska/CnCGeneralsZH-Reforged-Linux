@@ -1,0 +1,113 @@
+{
+  "channel": "Node fs.readFile absolute sources + crypto SHA256; no Python import/compile/execution",
+  "cases": [
+    {
+      "case": "teleport",
+      "entryCallsExactEnum": true,
+      "wrapperCorrectBody": true,
+      "wrapperCorrectOutput": true,
+      "wrapperCorrectReceipt": true,
+      "wrapperCorrectFreeze": true,
+      "exactOriginalCaps": true,
+      "C78": true,
+      "GoRequired": true,
+      "sourceOnly": true
+    },
+    {
+      "case": "hidden",
+      "entryCallsExactEnum": true,
+      "wrapperCorrectBody": true,
+      "wrapperCorrectOutput": true,
+      "wrapperCorrectReceipt": true,
+      "wrapperCorrectFreeze": true,
+      "exactOriginalCaps": true,
+      "C78": true,
+      "GoRequired": true,
+      "sourceOnly": true
+    },
+    {
+      "case": "presentation-shrouded",
+      "entryCallsExactEnum": true,
+      "wrapperCorrectBody": true,
+      "wrapperCorrectOutput": true,
+      "wrapperCorrectReceipt": true,
+      "wrapperCorrectFreeze": true,
+      "exactOriginalCaps": true,
+      "C78": true,
+      "GoRequired": true,
+      "sourceOnly": true
+    },
+    {
+      "case": "destroy-replacement",
+      "entryCallsExactEnum": true,
+      "wrapperCorrectBody": true,
+      "wrapperCorrectOutput": true,
+      "wrapperCorrectReceipt": true,
+      "wrapperCorrectFreeze": true,
+      "exactOriginalCaps": true,
+      "C78": true,
+      "GoRequired": true,
+      "sourceOnly": true
+    }
+  ],
+  "shared": {
+    "oneSameSealedHelperCall": true,
+    "evidenceTrue": true,
+    "monitorKeywordActualF5B6": true,
+    "namedUnionScenario": true,
+    "normalNoTakeover": true,
+    "observerFreecam": true,
+    "terminal300EmptyScreenshotPlan": true,
+    "threeBMPAndRealClockHelper": true,
+    "positiveProducerHardware": true,
+    "NoProbe": true
+  },
+  "historicalFirstHealthy": {
+    "log": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/native/named-union-positive-actual-01/run.log",
+    "bytes": 20937290,
+    "sha256": "5111F9EC2332504F49A62A4A3034FDA26A0D6E92B4EB65C8AEF13EA7C26DE240",
+    "logic": 15,
+    "render": 111,
+    "owner": 3,
+    "drawable": 3,
+    "Rest167Record7": true,
+    "Wave179Record9": true,
+    "frame": 112,
+    "generation": 1,
+    "capture": 4,
+    "view": 4,
+    "provenance": "HISTORICAL E470/source85; not current Native outcome"
+  },
+  "sizes": [
+    {
+      "file": "lifecycle_launch.py",
+      "bytes": 11029,
+      "pureLOC": 172
+    },
+    {
+      "file": "binding_inputs.py",
+      "bytes": 30526,
+      "pureLOC": 159
+    },
+    {
+      "file": "run_teleport.py",
+      "bytes": 272,
+      "pureLOC": 4
+    },
+    {
+      "file": "run_hidden.py",
+      "bytes": 268,
+      "pureLOC": 4
+    },
+    {
+      "file": "run_presentation_shrouded.py",
+      "bytes": 285,
+      "pureLOC": 4
+    },
+    {
+      "file": "run_destroy_replacement.py",
+      "bytes": 282,
+      "pureLOC": 4
+    }
+  ]
+}

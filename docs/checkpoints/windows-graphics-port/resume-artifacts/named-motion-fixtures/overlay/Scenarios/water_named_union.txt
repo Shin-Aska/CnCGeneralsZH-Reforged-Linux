@@ -1,0 +1,2 @@
+5 watercapturemove player:PlyrCivilian WaterFixtureUnion 1060 425
+120 watercapturestop player:PlyrCivilian WaterFixtureUnion

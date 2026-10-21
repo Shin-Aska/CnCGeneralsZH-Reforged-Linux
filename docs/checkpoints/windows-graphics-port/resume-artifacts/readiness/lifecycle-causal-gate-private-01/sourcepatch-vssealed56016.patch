@@ -1,0 +1,77 @@
+diff --git a/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/lifecycle_monitor.py b/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-causal-gate-private-01/lifecycle_causal.py
+index d6296eb0..942c0961 100644
+--- a/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/lifecycle_monitor.py
++++ b/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-causal-gate-private-01/lifecycle_causal.py
+@@ -12,6 +12,7 @@ from typing import TextIO, assert_never
+ from control_client import Control, ControlError
+ from control_monitor import ControlMonitorError, ControlOutcome, ControlPlan, _set_response_timeout, _status, response_timeout_seconds
+ from inspector_log import Inspection, Owner, parse_complete
++from canonical_gate import NativeBinding, wait_native
+ 
+ class Case(StrEnum):
+     TELEPORT = "teleport"
+@@ -101,7 +102,7 @@ def action_is(group: Inspection, operation: int, object_id: int) -> None:
+         raise ControlMonitorError("inspect: missing/ambiguous actual lifecycle action")
+ 
+ 
+-def make_lifecycle_monitor(case: str, log: Path, events: Path, name: str, x: float, y: float) -> Callable[[subprocess.Popen[bytes], ControlPlan, float], ControlOutcome]:
++def make_lifecycle_monitor(case: str, log: Path, events: Path, name: str, x: float, y: float, *, evidence: bool = False) -> Callable[[subprocess.Popen[bytes], ControlPlan, float], ControlOutcome]:
+     """Bind one literal fresh-process registry flow; caller owns real coordinates and render QA."""
+     try:
+         selected = Case(case)
+@@ -131,10 +132,31 @@ def make_lifecycle_monitor(case: str, log: Path, events: Path, name: str, x: flo
+                 session = Session(game, process, plan, deadline, log, record, name)
+                 record.write(json.dumps({"event": "discovery-dummy", "query": [1, 1], "scope": "not old identity"}) + "\n")
+                 record.flush()
++                if evidence:
++                    while True:
++                        session.live()
++                        _set_response_timeout(game, plan, deadline)
++                        startup = game.status()
++                        record.write(json.dumps({"event": "startup-live", "response": startup}) + "\n")
++                        record.flush()
++                        if _status(startup)[1]:
++                            break
++                        time.sleep(0.01)
+                 initial = session.inspect((1, 1)) # DUMMY lookup only; never an old-owner identity.
+                 old = owner_of(initial)
+                 query = (int(old.object_id), int(old.drawable_id))
+                 base = f" player:PlyrCivilian {name}"
++                def rendered(group: Inspection, presentation: bool = False) -> None:
++                    if evidence:
++                        owner = owner_of(group)
++                        binding = NativeBinding(owner.object_id, owner.drawable_id, tuple(s.system_id for s in group.systems))
++                        offset = log.stat().st_size
++                        record.write(json.dumps({"event": "native-wait", "offset": offset, "logic": group.logic}) + "\n")
++                        record.flush()
++                        proof = wait_native(log, offset, binding, group.logic, presentation, session.status)
++                        record.write(json.dumps({"event": "native-proof", "proof": asdict(proof)}) + "\n")
++                        record.flush()
++                rendered(initial)
+                 match selected:
+                     case Case.TELEPORT:
+                         group = session.inspect(query, "watercaptureteleport" + base + f" {x:g} {y:g}")
+@@ -143,6 +165,7 @@ def make_lifecycle_monitor(case: str, log: Path, events: Path, name: str, x: flo
+                         if (current.object_id, current.drawable_id) != query or (current.x, current.y) != (x, y) or (group.actions[0].x, group.actions[0].y) != (x, y):
+                             raise ControlMonitorError("inspect: actual teleport XY/identity mismatch")
+                         # Later physics may bob Z; never compare it to an older inspector sample.
++                        rendered(group)
+                     case Case.HIDDEN | Case.SHROUDED:
+                         hidden = selected == Case.HIDDEN
+                         verb, operation = ("watercapturehidden", 2) if hidden else ("watercaptureshrouded", 3)
+@@ -153,6 +176,7 @@ def make_lifecycle_monitor(case: str, log: Path, events: Path, name: str, x: flo
+                             actual = current.hidden if hidden else current.shrouded
+                             if (current.object_id, current.drawable_id) != query or actual != flag:
+                                 raise ControlMonitorError("inspect: actual presentation flag/identity mismatch")
++                            rendered(group, presentation=bool(flag))
+                     case Case.REPLACE:
+                         marked = session.inspect(query, "watercapturedestroy" + base)
+                         action_is(marked, 4, old.object_id)
+@@ -168,6 +192,7 @@ def make_lifecycle_monitor(case: str, log: Path, events: Path, name: str, x: flo
+                         action_is(replacement, 5, new.object_id)
+                         if new.object_id == old.object_id or new.drawable_id == old.drawable_id or replacement.object_found or replacement.drawable_found:
+                             raise ControlMonitorError("inspect: replacement did not establish distinct actual IDs")
++                        rendered(replacement)
+                     case unreachable:
+                         assert_never(unreachable)
+                 reached = session.status()

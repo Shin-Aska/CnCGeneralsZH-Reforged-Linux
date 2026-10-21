@@ -1,0 +1,106 @@
+{
+  "scope": "source-binding review only, no Python import/CPU/Game; existing API + actual sealed raw characterization reused",
+  "donor": {
+    "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/native/named-union-disjoint-02-binding/union-refuse2/run_twolevel.py",
+    "bytes": 9399,
+    "sha256": "7F9D4F6DD9C728071E883629DFCE9C5E00BF0BB6A3F5002D2B1A333AD19AD3FC"
+  },
+  "changes": [
+    "exact current Debug EXE; same namedtwolevel map/scenario4loaded",
+    "enum case selects only unique namespaces and optional-wireframe flag",
+    "no refuse2 override/GameDatafragment; ControlPlan300/native180182/60 unchanged",
+    "unchanged native capture/materializer and normal2E13; wireframe skips normal2E13 and uses actual returned enum2+span guard",
+    "driver UNKNOWN allowed solely when no actual device row in wireframe per root clarified functional scope"
+  ],
+  "currentOriginal133Matches": true,
+  "selectedInputs": 140,
+  "selectedCpp107": true,
+  "codePureLines": 230,
+  "apiBaseline": {
+    "report": {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/native/probe-green-baseline-actual-01/report.json",
+      "bytes": 3036,
+      "sha256": "F15B2710C3D951322AD87860A670BB116681182E4409CA6769B0E0FE490ADD9C"
+    },
+    "raw": {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/native/probe-green-baseline-actual-01/run.log",
+      "bytes": 1898242,
+      "sha256": "0D7BF6F3EAA4B780330F378630A82E81072F8DC5F07B6A84FC7096CF33A89B7A"
+    },
+    "capture": {
+      "crc": "0xDB20B2E8",
+      "images": [
+        {
+          "path": "<REPO>\\.omo\\evidence\\windows-modern-water-d3d11\\20261016152026\\task-8\\native\\probe-green-baseline-actual-01\\user\\Videos\\probe-green-baseline\\frame000000.bmp",
+          "bytes": 2764854,
+          "sha256": "e3758bb600dbe47c19701bbb95f87d9a1864f5fd36aefac02f1a27f6efa5bc6d"
+        },
+        {
+          "path": "<REPO>\\.omo\\evidence\\windows-modern-water-d3d11\\20261016152026\\task-8\\native\\probe-green-baseline-actual-01\\user\\Videos\\probe-green-baseline\\frame000001.bmp",
+          "bytes": 2764854,
+          "sha256": "94bf8633592489af3a8f161c55c37512f08ee7a5b110a2080c1c3dd7cb77b806"
+        },
+        {
+          "path": "<REPO>\\.omo\\evidence\\windows-modern-water-d3d11\\20261016152026\\task-8\\native\\probe-green-baseline-actual-01\\user\\Videos\\probe-green-baseline\\frame000002.bmp",
+          "bytes": 2764854,
+          "sha256": "3bfb91f3cb73a1387823516955140eb4a7d5219b2370377be3275764a5b8d9d6"
+        }
+      ],
+      "observations": [
+        {
+          "width": 1280,
+          "height": 720,
+          "water_pixels": 544301,
+          "min_luma": 0,
+          "max_luma": 0.9896196078431372,
+          "visible_pixels": 584791,
+          "sha256": "e3758bb600dbe47c19701bbb95f87d9a1864f5fd36aefac02f1a27f6efa5bc6d"
+        },
+        {
+          "width": 1280,
+          "height": 720,
+          "water_pixels": 544288,
+          "min_luma": 0,
+          "max_luma": 0.9896196078431372,
+          "visible_pixels": 584221,
+          "sha256": "94bf8633592489af3a8f161c55c37512f08ee7a5b110a2080c1c3dd7cb77b806"
+        },
+        {
+          "width": 1280,
+          "height": 720,
+          "water_pixels": 544131,
+          "min_luma": 0,
+          "max_luma": 0.9896196078431372,
+          "visible_pixels": 584317,
+          "sha256": "3bfb91f3cb73a1387823516955140eb4a7d5219b2370377be3275764a5b8d9d6"
+        }
+      ]
+    },
+    "producer": {
+      "scope": "diagnostic producer observations only; carrier/hulls/view/visual ownership UNVERIFIED",
+      "mode": "observe",
+      "links": 830,
+      "origin": "actual",
+      "driver": "hardware",
+      "actual_observation": true,
+      "driver_attested": true
+    },
+    "qualification": "actual prior Release5736 default-off baseline; same592C/2E13 API only, NOT Debug runtime or enum2 evidence"
+  },
+  "actualNativeDescriptorReference": {
+    "row": "water-particle-observe: phase=point-render-returned template=AmphibWave texture=EXWave01.tga system=175 owner=7 drawable=779 object=0 logic=301 render=206 mirror=0 ordinary=1 particles=1 built=1 skipped=0 admitted=0 view-before=1 view-after=1 view-stable=1 frame=207 generation=1 capture=51 colour=2656024400672 depth=2655565229408 view=51 target=(1280,720,10,1) owner-position=(427.243439,280.099915,28.999445) water-at-owner=25 stats-sampled=1 stats-active=(1,1) stats-render=(206,206) pipelines=(29,30) draws-made=(31737,31738) draws-refused=(0,0) native-rs-query=1 native-rs-fill=SOLID native-rs-enum=3 record=90/512\r",
+    "interpretation": "actual SOLID3/query1/owner7/sys175/built1/made31737->31738/refused0same/stablerender206; qualifies normal native row shape only; no wireframe expectedresult invented"
+  },
+  "unrun": [
+    "all new Python imports/CPU",
+    "both future Debuggames",
+    "new descriptor guard execution",
+    "native enum2 case"
+  ],
+  "limits": [
+    "sourcecandidate not functionalGREEN",
+    "Loaded4 != allran",
+    "512 unchanged/missing observations UNKNOWN",
+    "no softwarelog mayleave wireframedriverUNKNOWN while nativefunctionalnegative stillproved by actualenum2+span; normalHWReadyFFT remainsrequired"
+  ]
+}

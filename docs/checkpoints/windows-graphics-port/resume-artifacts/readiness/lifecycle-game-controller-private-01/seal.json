@@ -1,0 +1,1223 @@
+{
+  "classification": "HELPER_PRIVATE_FIXED_LIFECYCLE_CPU_GREEN",
+  "topLevelArtifacts": [
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/.debug-journal.md",
+      "bytes": 2028,
+      "sha256": "08D2BEC0D5A5463A3D66F766449ECFA4E616FFF6B4FB7E0F5AC6F68D79E5F2C6"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/actual-stream-observations.json",
+      "bytes": 9865,
+      "sha256": "0C2A15FF4A02F8F06799260A66C59759AA43E731129334E89C3C2999E65539E3"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/authoring-order.json",
+      "bytes": 318,
+      "sha256": "19FEB1D0962DECC807D3333D314EB3D74FBC9A2DD610380D2FB66CEE703CC83D"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/DoneClaim.md",
+      "bytes": 14013,
+      "sha256": "150A6D161B2E39C841AF3728C97BEE209F619217D60E58C64F9175E0456696B8"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/fixture_game.py",
+      "bytes": 8677,
+      "sha256": "8B590C71E8BDB3592C9FC54581DF7CAA00E492E538374F4326658E3276937187"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-cpu-cleanup.json",
+      "bytes": 1274,
+      "sha256": "6D441EEAF951016B0D01D7E403A9144AD24CC65759FE3096A0FDCA20C089B826"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-cpu-registration.json",
+      "bytes": 771,
+      "sha256": "7ECC735F8EF46343C6819F3079E54583CB91D610FC5B5E0202EA0B7D56F26155"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-failure-diagnosis.json",
+      "bytes": 609,
+      "sha256": "8D170771892AE4F0DAD60781A5354E78914744CC6209326C4002456F7FB9F735"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-freeze.json",
+      "bytes": 3403,
+      "sha256": "C228B4A44601045F709AAC09F3A47AB2490202B87F1C2A48478154306037308A"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-process.json",
+      "bytes": 860,
+      "sha256": "B3F2DDD601F79BAADC65C7D285ED9DD5FD93675D95288E98627570D1232B5ACA"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1-cpu-cleanup.json",
+      "bytes": 10530,
+      "sha256": "84B358D61FE9AF1ED420EEE1ABDFF2AC55A2E1E06978834163DF394D32EAE1E5"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1-cpu-registration.json",
+      "bytes": 778,
+      "sha256": "57FA4F80061E8B917F6EF7780AB853FB19BDAF4166B2C7665717BBB5022D7429"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1-diagnosis.json",
+      "bytes": 897,
+      "sha256": "72AD4A1B89C719402098068CCDC5D8863D5017CDA34AE6BE03B7C72DAED69032"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1-fixture.py.txt",
+      "bytes": 8618,
+      "sha256": "00FCF6392A551C9CF09CD6EC382E18178F559EBC9506123DF8ED58D29B830B69"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1-freeze.json",
+      "bytes": 3403,
+      "sha256": "616AEE5C4B02770B1B2C772DB212E912FD87394FE5F7FF31796A8606B14965E3"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1-process.json",
+      "bytes": 865,
+      "sha256": "7C19D4AA8F0BEFDC795D649225192480DEC0AE5987939A53E0B461913D3B8894"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1-stderr.txt",
+      "bytes": 673,
+      "sha256": "EAA11814AC8B6ED7561516D43BB74594F9EEE4AC548D07E913E64068936ED87B"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1-stdout.txt",
+      "bytes": 0,
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1-test.py.txt",
+      "bytes": 4086,
+      "sha256": "FBE05A4E1BC15FA469CCA0BC796093E76BBB9CE7F8EC14D2F70DA5520B7EAAC7"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2-cpu-cleanup.json",
+      "bytes": 19809,
+      "sha256": "C85A39DB290A0FB472095EFCE8978858E11F1F668134E7D96CAE6DA349F5412F"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2-cpu-registration.json",
+      "bytes": 778,
+      "sha256": "97A28C34CB73FF99FD9037DC1DB5A1BB5A18D0EA0329B6DE889EE80CD684EF24"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2-freeze.json",
+      "bytes": 3403,
+      "sha256": "9090EF8B4C2CFC79F78DB185026B482AD3E855CFFA95A8BD48F2CE19940CFB46"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2-process.json",
+      "bytes": 863,
+      "sha256": "D6D2094C5B4338452BE87BA664FC8E4A50A0F5B46AE8A9803E2BA99DCC6FFD48"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2-stderr.txt",
+      "bytes": 0,
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2-stdout.txt",
+      "bytes": 655,
+      "sha256": "2AB5359D0FE286CC3F5FE34D7AEA17E5DB13122A892700BCF238CC6C2B553804"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-stderr.txt",
+      "bytes": 1653,
+      "sha256": "8665A5B1893661ED6535EE09BE1140D4E1479931D3ED333D7BB641A12276264A"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-stdout.txt",
+      "bytes": 0,
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/inspector_log.py",
+      "bytes": 8782,
+      "sha256": "5909B651D7169B4787A6C701D81EC938D78427D6E348B9F6DC984BAB56B78217"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/lifecycle_monitor.py",
+      "bytes": 10331,
+      "sha256": "56016F2EB495729543B0E0018871F4F29C5080C5AA4F53289D728ACE60B6A4CF"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/qualify.py",
+      "bytes": 3150,
+      "sha256": "E8B6A529FFABE40D78A802685DB8649B03807FAFA46FB11DF83E2C4B9AFA443E"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/red-cpu-cleanup.json",
+      "bytes": 4316,
+      "sha256": "0D7363DF0D00C3E8B1F96695B122009801238D8D4228BFC8CD1DE62C532387F0"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/red-cpu-registration.json",
+      "bytes": 768,
+      "sha256": "B2E49AF96FB46B6E39983382ECF4A34DBF95C7E5BD298B8B50171EE90110ADC8"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/red-fixture.py.txt",
+      "bytes": 8045,
+      "sha256": "8A130D920784FD25D2BF41EF134DD7FE3DF7E94C51C62F90D76B2CDC8C040730"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/red-freeze.json",
+      "bytes": 3402,
+      "sha256": "98B35BAD36A34E64AAB65DE56686FD86572B4666737C1CFDF0AC83F468997BA3"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/red-monitor.py.txt",
+      "bytes": 483,
+      "sha256": "21FFE6D45EE717AF00A18DED3F64CDDFAAEBA5A69A6D3483C22C47D98BFA5392"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/red-process.json",
+      "bytes": 859,
+      "sha256": "7F659B28643F2E5E9200CCC546342CC558ED27F34B7FCB364A7D01DC0F4BAC76"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/red-qualify.py.txt",
+      "bytes": 2496,
+      "sha256": "CFF9F728E4DA66F51A703BB83231F0B37507270EE1CC9345E6F7B5AD85A18BFB"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/red-run-cpu.ps1.txt",
+      "bytes": 3154,
+      "sha256": "C0B380C70EB20E243A98D6E970A1F2C97E0AACE1CA34C512872C8F452B0EBCF9"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/red-source-archives.json",
+      "bytes": 695,
+      "sha256": "E6F7AC9B1384CF98F276507761AC77EBD3E29E7520D4DF02B6F6DC6A6D773BA9"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/red-stderr.txt",
+      "bytes": 763,
+      "sha256": "D95B97A632C1B9ACA8245C0C143F5C17A65CCC4A97A0A6281A0DFECF32CA9592"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/red-stdout.txt",
+      "bytes": 0,
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/red-test.py.txt",
+      "bytes": 4082,
+      "sha256": "BD190B5BDBEE2F190DCD3325F35CF83B00EC389E03069B60DB8C3C181A991B4D"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/run-cpu.ps1",
+      "bytes": 3176,
+      "sha256": "57566C450C423F1026A20C090324E9B1CE468C151AE5AFA62C107B06128F1AED"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/source-context-pins.json",
+      "bytes": 753,
+      "sha256": "12755EDD04156A556B73B98D0520E25A2AB037372102A71F4225D12B61BBB45F"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/test_lifecycle.py",
+      "bytes": 4513,
+      "sha256": "3A227DC0574B79CE3E32C6667AAF9A5446E14087D9FE65E2D47C3B6B37F7CA17"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/tool-pins.json",
+      "bytes": 411,
+      "sha256": "E9E48FB06303F2DCBCB9CC6806320D388AF53B8747A74D8EAD32531F1AF1D7FA"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/cleanup.json",
+      "bytes": 538,
+      "sha256": "0A909FC43466AD8DF0C95FBC22A0DF2CAB1BA692DC2948193881A30222E56B6C"
+    }
+  ],
+  "executedEvidence": [
+    "red/",
+    "green/",
+    "green-r1/",
+    "green-r2/"
+  ],
+  "finalProof": "green-r2/proof.json",
+  "finalFreeze": "green-r2-freeze.json",
+  "claim": "DoneClaim.md",
+  "limitations": "No actual C++ registry/Game/native rendering proof; no private interruption/disconnect/file-replacement injection; no basedpyright/ruff",
+  "readHolds": "RELEASED",
+  "executedEvidenceArtifacts": [
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green/default-healthy/registration.json",
+      "bytes": 701,
+      "sha256": "BF268E95099CB26EB16C9A2D7E025F37EFF3A3C3EB51E14CC9127B3296243B93"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green/fixture-cleanup.json",
+      "bytes": 225,
+      "sha256": "5E18787E48EB7D6C118C76018BD2CE5950B7978A48A88155B5AAA1BC9D361B64"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green/python-identity.json",
+      "bytes": 973,
+      "sha256": "2B71E2CF9B93474E3D020A794762EF698ACDD73D9A18F79429D2E1D241E46709"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/default-healthy/child-identity.json",
+      "bytes": 1379,
+      "sha256": "33E14FE51615F974C0A97F447CFD48387FDA6038AE4893BE2634868B8A8E3670"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/default-healthy/control-monitor.json",
+      "bytes": 293,
+      "sha256": "99393D753B7A68AFFCC774606A9E8B087B8252ED31179A002F15FF961A46AED2"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/default-healthy/launch-result.json",
+      "bytes": 242,
+      "sha256": "C88B1106298AB8C7657F491386B90259FA5BEC30239D7389C10C1BC77E75BC8D"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/default-healthy/registration.json",
+      "bytes": 704,
+      "sha256": "AC32127BC4980ABEA8C7268EE93FE2624A35ACFD60DB9860C582231432A13906"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/default-healthy/resources.log",
+      "bytes": 253,
+      "sha256": "2F680D1C3FD6C8EDBC39F9FACC232A2873A616B99331DC4A64FAA2B968BD76C2"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/default-healthy/run.log",
+      "bytes": 0,
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/default-healthy/served-state.json",
+      "bytes": 184,
+      "sha256": "344B54B95C072AE7CCCB9F046A2AB8DC88F1775BF746CFB406DE36DDD8528E1F"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/default-healthy/wire-events.jsonl",
+      "bytes": 581,
+      "sha256": "C3CFEC1347481CF0CFBFB4A48049236248B05FFEC4BFFB0536A143D901848552"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/destroy-replacement-healthy/actual-result.json",
+      "bytes": 421,
+      "sha256": "D66260279AB6872CDB86A8E917B5435575A99571C5B859C648CA4967760E8ADA"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/destroy-replacement-healthy/child-identity.json",
+      "bytes": 1403,
+      "sha256": "902AD6631FE0F035FD59D04A3F2A71C7975E50C65F43CAE7381E3341A017BDA5"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/destroy-replacement-healthy/control-monitor.json",
+      "bytes": 265,
+      "sha256": "F46BEC296E8E95DA024564254A4D730725BD92E7DDD0FA7169B42CF55C295799"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/destroy-replacement-healthy/controller-events.jsonl",
+      "bytes": 2996,
+      "sha256": "74767D1FD086F53C8CA69AF50CA36C1732344013D22D79A59192DB01C89E492A"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/destroy-replacement-healthy/launch-result.json",
+      "bytes": 220,
+      "sha256": "0AC18E6BEB7576DE61803B2EDC0B74E02EFC96B2D95F3C34854ED0BA8F22FF28"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/destroy-replacement-healthy/registration.json",
+      "bytes": 716,
+      "sha256": "16D06E63405F411F02145EC66C3E18AE7ED1B27A9CA05BC6C83DCEECEDE547D7"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/destroy-replacement-healthy/resources.log",
+      "bytes": 265,
+      "sha256": "7F0C1F51D00EEF2C9143977C242FE391E442AFD35BB12B9CAACEB68ED0B82022"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/destroy-replacement-healthy/run.log",
+      "bytes": 1765,
+      "sha256": "55CD61ED6F091247BD4D07BF9DD7E4C43B84DB3B96DDCFD5E035A6D67065D8F9"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/destroy-replacement-healthy/served-state.json",
+      "bytes": 186,
+      "sha256": "298AF68A44BA571DCE04DF61B9683E63ED7878FC823C730A6A4D715B36FE9BD5"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/destroy-replacement-healthy/wire-events.jsonl",
+      "bytes": 1480,
+      "sha256": "8EB883346ECB796B58E670089EEDA04DE30EDB4DD80AAA6830DA69A9B01A5D3C"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/fixture-cleanup.json",
+      "bytes": 689,
+      "sha256": "AC279A44CEDC0C9254B6735E78478E4484379BCC51FB186C987B9893FD305FEC"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/hidden-healthy/actual-result.json",
+      "bytes": 419,
+      "sha256": "7C71033C3901A4D1015B38089FC0BDD886D49A0BC72D0756417AEF6AF9EB8CDD"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/hidden-healthy/child-identity.json",
+      "bytes": 1379,
+      "sha256": "60D666C90A2DF35DB1BC9BF35A6DC388C1A74EE8C3C1342722E8D9F70807BAA2"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/hidden-healthy/control-monitor.json",
+      "bytes": 265,
+      "sha256": "392D857799877B1AC893756CBCDF5F8F997993AF6E894539CE474D060C07E58E"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/hidden-healthy/controller-events.jsonl",
+      "bytes": 3201,
+      "sha256": "87F9677B4C10913527389FD83F6C1FF3EF95C1B0A351DB71218263E08D8932F2"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/hidden-healthy/launch-result.json",
+      "bytes": 220,
+      "sha256": "E0CC8EC29C4AAAB513614D8ED9F97EA0744E93EC6B94B000ECBCD5284B26A542"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/hidden-healthy/registration.json",
+      "bytes": 703,
+      "sha256": "7CC18007277E7F1820018DE7C9B3F7FE9D5BAEB9D50E797F3155E3CAF66DA8DD"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/hidden-healthy/resources.log",
+      "bytes": 254,
+      "sha256": "5F160B067FB7AB7D0B5E034516332926A31679E9A4317E910F74CA0EF777F916"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/hidden-healthy/run.log",
+      "bytes": 2130,
+      "sha256": "C6F46BBC220830B9FE07B31611D819FAEC86D102F66EFA32C9BC34216E371076"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/hidden-healthy/served-state.json",
+      "bytes": 184,
+      "sha256": "1586367B6971D7D29357CDD322393CA38C4AB18238ED62BB41F676FDE8FF54EF"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/hidden-healthy/wire-events.jsonl",
+      "bytes": 1476,
+      "sha256": "AB0069327BB1E60BC4D548DBE2AC7DE55C13666DE0504EC71D824554D976196B"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/presentation-shrouded-healthy/actual-result.json",
+      "bytes": 420,
+      "sha256": "1AD409D02A5D8628EF0641F9B620D2CE58EA27A3439F9CDC6A17277FE0383934"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/presentation-shrouded-healthy/child-identity.json",
+      "bytes": 1409,
+      "sha256": "5B67B7A6679861C9C681E34EBD8AF975247BF6145EAA180106C0723D3DEEBB68"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/presentation-shrouded-healthy/control-monitor.json",
+      "bytes": 264,
+      "sha256": "31D948B7CE9FF22B7F6001CEDA6935DB87B0AE0538D4B745DD2E9984D88B6C87"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/presentation-shrouded-healthy/controller-events.jsonl",
+      "bytes": 3204,
+      "sha256": "641DB1120D1B63835383894011068EEDEE0DD48B5559A16A448354F9AC8C1C50"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/presentation-shrouded-healthy/launch-result.json",
+      "bytes": 221,
+      "sha256": "9F5010050D12A33E7D39FF52CAA84530EFEA546D4E36A317F6AAC2576C1E7DA2"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/presentation-shrouded-healthy/registration.json",
+      "bytes": 718,
+      "sha256": "7D03FAC555CFAA0DD3C03DD1E9EEB9DE2B8145C66E567F32E5240FBC8C0F7E5F"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/presentation-shrouded-healthy/resources.log",
+      "bytes": 269,
+      "sha256": "0B02E07F5343672F64E5A64195DCD9265B49BCBC1543EBFD3D97A9CA863A6430"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/presentation-shrouded-healthy/run.log",
+      "bytes": 2130,
+      "sha256": "DFE6A5C166AA52A86FB6997D6D7BC295913C3C6A37201B951385B7D1BA34B194"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/presentation-shrouded-healthy/served-state.json",
+      "bytes": 184,
+      "sha256": "1586367B6971D7D29357CDD322393CA38C4AB18238ED62BB41F676FDE8FF54EF"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/presentation-shrouded-healthy/wire-events.jsonl",
+      "bytes": 1481,
+      "sha256": "17641FD84835FCBCA34318E64E2D1171A89CD5EC15CDC4C6F4FA73AEC673F5F0"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/python-identity.json",
+      "bytes": 979,
+      "sha256": "A587B023433DE2C05268F4CACA73B57A71F569E5247A9683A34D30066C23F71F"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/teleport-duplicate/child-identity.json",
+      "bytes": 1391,
+      "sha256": "FB4C18274B3564F273D080AC784E716AE3D01AD96E0551D03B48E84D7A5D22C4"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/teleport-duplicate/control-monitor.json",
+      "bytes": 323,
+      "sha256": "974C3BF22F956AA804F50FBC2783163E8852762410DAB55B0C96DE7F60EE32D4"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/teleport-duplicate/controller-events.jsonl",
+      "bytes": 1387,
+      "sha256": "0ED6DE4F20D10DF8E16D8A4FD90BB68F7364A26881DCBF70BF9AD66ECD8446F0"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/teleport-duplicate/launch-result.json",
+      "bytes": 252,
+      "sha256": "CAD5446324EADF347E2187DE7B3C263C5F12554271F23A3FEDB6C54ACE980602"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/teleport-duplicate/registration.json",
+      "bytes": 709,
+      "sha256": "2BA0E634917B7E029F11B3BD9F24BD2561629F478FECF68DCD8B32B931DA173D"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/teleport-duplicate/resources.log",
+      "bytes": 258,
+      "sha256": "48E34C58222FC8555F5CC8E4F23F14EC9171D7EE6E46BC2E27EE5098DE971B9B"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/teleport-duplicate/run.log",
+      "bytes": 2658,
+      "sha256": "28CB63E2FB43843553E0F3F52790164052AE8C92417A3C86DEFD1F7E2E67905E"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/teleport-duplicate/served-state.json",
+      "bytes": 186,
+      "sha256": "5D2B52FB4CE75AADCB669E3933D3841DA2A3730DDF415993F5C6CBB50831EE98"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/teleport-duplicate/wire-events.jsonl",
+      "bytes": 1323,
+      "sha256": "641B68BFB40322B8E67702F4698C9DF8B37281987C6E02DDBD2F66BC518897A9"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/teleport-healthy/actual-result.json",
+      "bytes": 420,
+      "sha256": "5EBC3D1F54A386C302A3EA700D0B240FC501B853855B3840A13BACD22DEA088F"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/teleport-healthy/child-identity.json",
+      "bytes": 1383,
+      "sha256": "9D4F1DB1133F50449491FB9F36980C08CC9BC1DB467C33C8B9819831A3BEA137"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/teleport-healthy/control-monitor.json",
+      "bytes": 264,
+      "sha256": "1CD3B74DA4781F3F774595E57AB94AB770641E3A5211C453A7694E123BAACA81"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/teleport-healthy/controller-events.jsonl",
+      "bytes": 2159,
+      "sha256": "A64D928990B79355E23CC89586BF26E9C5C5D389BB3211B9D2112AD466558372"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/teleport-healthy/launch-result.json",
+      "bytes": 219,
+      "sha256": "B90F00D8D741A5C53F7E2760C5682A5DD5F19F0FD84B763F4208E6688CB5143E"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/teleport-healthy/registration.json",
+      "bytes": 705,
+      "sha256": "7470712223709B0C3EDFCE2AF75A34445799DC210FAAD4170058C67FCA6BD809"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/teleport-healthy/resources.log",
+      "bytes": 256,
+      "sha256": "4DD701B7D893960FEF70305C3F324882D544D41F7D507CA6DB3172568A5D0336"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/teleport-healthy/run.log",
+      "bytes": 1391,
+      "sha256": "DE29F8601685034A2110A4DEDDE1A7603210143EF27435694F8EEA2487AB3893"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/teleport-healthy/served-state.json",
+      "bytes": 186,
+      "sha256": "5D2B52FB4CE75AADCB669E3933D3841DA2A3730DDF415993F5C6CBB50831EE98"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r1/teleport-healthy/wire-events.jsonl",
+      "bytes": 1058,
+      "sha256": "8227154CDFC94EC8CC6853504E20539950E884CDBD0D773D135A7179E415DD7A"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/default-healthy/child-identity.json",
+      "bytes": 1380,
+      "sha256": "C1C9637CA7F0C52750D37148D2479C56EB942D7C1C64C24857CAB3929E933573"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/default-healthy/control-monitor.json",
+      "bytes": 293,
+      "sha256": "D2A5B1D3D8C62F5F4D00537C4330C53C2131E474FB09B7E073C126E976F2D9FA"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/default-healthy/launch-result.json",
+      "bytes": 243,
+      "sha256": "08C5C64F5331412A41C8B709445FD62FE62E0376D12F2F4336F9E0AC2F01C70D"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/default-healthy/registration.json",
+      "bytes": 704,
+      "sha256": "6C1E6CC30BE84408C6F0192C3849D3A4682D28B6D0CCA2011DC994890E954B6A"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/default-healthy/resources.log",
+      "bytes": 255,
+      "sha256": "809FFB0D5A61C20E0B2A32A77BEA88E2804B4529E550F30D60A2674CD65E51A9"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/default-healthy/run.log",
+      "bytes": 0,
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/default-healthy/served-state.json",
+      "bytes": 184,
+      "sha256": "344B54B95C072AE7CCCB9F046A2AB8DC88F1775BF746CFB406DE36DDD8528E1F"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/default-healthy/wire-events.jsonl",
+      "bytes": 581,
+      "sha256": "E8FBE0554EA32052902BEC3F780E35AB8B5912AAAA3BD55666208A513739C9B0"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/destroy-replacement-healthy/actual-result.json",
+      "bytes": 422,
+      "sha256": "629BB6FD9E4116AD991541FE34A1BAE569BC07E7F5191EDA48D1CC45CA7108CC"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/destroy-replacement-healthy/child-identity.json",
+      "bytes": 1405,
+      "sha256": "25C407E8931124CC26FAB30CDE62B501F1FD9E867361AA60211D23C71826E411"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/destroy-replacement-healthy/control-monitor.json",
+      "bytes": 265,
+      "sha256": "8615522EE62D754A39B7C882FE898B88C3C62D9CC4B534DA6F3C2904DE4171F5"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/destroy-replacement-healthy/controller-events.jsonl",
+      "bytes": 3000,
+      "sha256": "7B7A68B7767BAFF5E1500FCB97BD09420364126F9CDC61A84A4E4FC15FB6E314"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/destroy-replacement-healthy/launch-result.json",
+      "bytes": 221,
+      "sha256": "84F830523225725988095101A378C56797E9E739878A231E715AAE2EBABB9404"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/destroy-replacement-healthy/registration.json",
+      "bytes": 716,
+      "sha256": "0086404459D88102D77AAD726FA444B24CC23641E48E75A49984185DB63B1BB4"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/destroy-replacement-healthy/resources.log",
+      "bytes": 267,
+      "sha256": "A0002E9AD25189330AD64CE2F306B53B85EF1D6EC0D7934F0B400C5712BBAECE"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/destroy-replacement-healthy/run.log",
+      "bytes": 1765,
+      "sha256": "55CD61ED6F091247BD4D07BF9DD7E4C43B84DB3B96DDCFD5E035A6D67065D8F9"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/destroy-replacement-healthy/served-state.json",
+      "bytes": 186,
+      "sha256": "298AF68A44BA571DCE04DF61B9683E63ED7878FC823C730A6A4D715B36FE9BD5"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/destroy-replacement-healthy/wire-events.jsonl",
+      "bytes": 1479,
+      "sha256": "BEDE722700D54E182F207E77BBA48FCF43FA59EABB14918FE9F7122A1A9C224B"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/fixture-cleanup.json",
+      "bytes": 1230,
+      "sha256": "20BB443EDFBA9D92E61EA1B400A1C2781CA57BD7DEF36B18EA917BD2796737F4"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/hidden-healthy/actual-result.json",
+      "bytes": 420,
+      "sha256": "2775FFCF9D8BF0C533157720C9EABF9607B22DDD8B42A4E3B9260D7286679C1E"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/hidden-healthy/child-identity.json",
+      "bytes": 1379,
+      "sha256": "6A8A605468F3DD9DCEB91FD6BA087F041E0465E9C48A9191B783AEF9FE9454EC"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/hidden-healthy/control-monitor.json",
+      "bytes": 265,
+      "sha256": "CB94E02FC4AF504911167B1220473304BA26E5DCB6386664C6B37B5731946574"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/hidden-healthy/controller-events.jsonl",
+      "bytes": 3201,
+      "sha256": "BB93DC1D1027AEEFD25066F34F691D0E42AB396370F8D0A0EBDC68CB6BF5FE11"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/hidden-healthy/launch-result.json",
+      "bytes": 221,
+      "sha256": "45E8288C639F2C1520EA5A6F4603114D3EB0C7A1F074EF569557D55076E5AB0F"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/hidden-healthy/registration.json",
+      "bytes": 703,
+      "sha256": "DF4BD2D509656DF1C883A2FF63118A114EB0545F78CFB5EC3B7FCEAD7F6135B9"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/hidden-healthy/resources.log",
+      "bytes": 254,
+      "sha256": "427C842202E1C1D1E7903F14713F2298B71F1AFB3E2D5E08022C79AF0E0ECC02"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/hidden-healthy/run.log",
+      "bytes": 2130,
+      "sha256": "C6F46BBC220830B9FE07B31611D819FAEC86D102F66EFA32C9BC34216E371076"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/hidden-healthy/served-state.json",
+      "bytes": 184,
+      "sha256": "1586367B6971D7D29357CDD322393CA38C4AB18238ED62BB41F676FDE8FF54EF"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/hidden-healthy/wire-events.jsonl",
+      "bytes": 1475,
+      "sha256": "49E0411364F6E0257925976F743A23A174D91B14475714602E45D60F976B7A64"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/presentation-shrouded-healthy/actual-result.json",
+      "bytes": 419,
+      "sha256": "173E83D8787A1E81FC839BF3EA345B43D8F8F94774CD3836F36B389464F7522A"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/presentation-shrouded-healthy/child-identity.json",
+      "bytes": 1409,
+      "sha256": "457DC5D842AD539DAD51287524640B43BFC4407F8E0CAE1918C005624541058B"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/presentation-shrouded-healthy/control-monitor.json",
+      "bytes": 265,
+      "sha256": "7EBD15974065EE4BC2406262F2619635D332C05B2C38794B88E3E65556A867BC"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/presentation-shrouded-healthy/controller-events.jsonl",
+      "bytes": 3205,
+      "sha256": "EF6D8EB61562AA6E89722B2C306809DD628FB2E69A3708A339998A17899EBBF2"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/presentation-shrouded-healthy/launch-result.json",
+      "bytes": 220,
+      "sha256": "6304DD53BEA30C57BDEBC7784CFAF769CEF2FB9A2AD933DBC81B420129E89CBC"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/presentation-shrouded-healthy/registration.json",
+      "bytes": 718,
+      "sha256": "C36B4639171FCDA1CBF012BF34D29C1E33F70381167BDCC37D38E15041E6BECC"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/presentation-shrouded-healthy/resources.log",
+      "bytes": 269,
+      "sha256": "AB03206C9110329D89BB2C20708FE8F2360476F5B14CC86D11BDF27B6A5E13E8"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/presentation-shrouded-healthy/run.log",
+      "bytes": 2130,
+      "sha256": "DFE6A5C166AA52A86FB6997D6D7BC295913C3C6A37201B951385B7D1BA34B194"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/presentation-shrouded-healthy/served-state.json",
+      "bytes": 184,
+      "sha256": "1586367B6971D7D29357CDD322393CA38C4AB18238ED62BB41F676FDE8FF54EF"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/presentation-shrouded-healthy/wire-events.jsonl",
+      "bytes": 1480,
+      "sha256": "0E9DCDCDCD839E03B7C8AF8AE8588876B708581BD91EC1708AC9F5C0B7C88EFB"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/proof.json",
+      "bytes": 903,
+      "sha256": "E7A45CFAFE5E2C8AE02F6912E9B9523D391AFFB48391AD791FDC5866AF744D09"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/python-identity.json",
+      "bytes": 977,
+      "sha256": "88B5195C2222B8F20FE58EF19274755DD653FB981054603590725E935BA1BA9F"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-bad-id/child-identity.json",
+      "bytes": 1379,
+      "sha256": "E5FAAB424AE1A31CBDDC89BBDD9F5CAB9F6312EE8B66D7F3682CFC5C9BD9333C"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-bad-id/control-monitor.json",
+      "bytes": 317,
+      "sha256": "344EC7534EC69A36F7D1395BC77C94F2DA8DD0A436200D9544601CCC34287B87"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-bad-id/controller-events.jsonl",
+      "bytes": 402,
+      "sha256": "492F0D368C1191E775BB42F4B0DA591636A4F60BBAC572994F9647CA2015EF8A"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-bad-id/launch-result.json",
+      "bytes": 246,
+      "sha256": "378F607C30B336D2F9AC5DA2A8B1720FAEFFA85E832A3A93C29D922F086A45DE"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-bad-id/registration.json",
+      "bytes": 703,
+      "sha256": "8AB31D28051D78DA8D4776B69D0C0D91DC62A6F8563121E7A9842F07871EC28F"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-bad-id/resources.log",
+      "bytes": 255,
+      "sha256": "E91B636B5E49B6A4E892C2E75347C3865859B2CD431F5D7F573DD7662AF350D0"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-bad-id/run.log",
+      "bytes": 641,
+      "sha256": "85ABB7A6221A1122876A35526CA4FC758C016BD24AD07ED8E27A89D0BB4985A3"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-bad-id/served-state.json",
+      "bytes": 184,
+      "sha256": "0A8C13E4B9C0BAD129B91E3964CEF5E3074B905F66029A3AABFE351D0D6FC7AF"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-bad-id/wire-events.jsonl",
+      "bytes": 555,
+      "sha256": "C783AE6389A7403672C21915C91F4593897EA52D60D06AD0BBEE7B61925DD46E"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-duplicate/child-identity.json",
+      "bytes": 1391,
+      "sha256": "ECAC96CCCD6F6DC1C8CA3A89714A2EB4C6D7AAFEFE4BA2C803989048A92FB694"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-duplicate/control-monitor.json",
+      "bytes": 321,
+      "sha256": "AD62B03A52D8D6A67AA86C31CB87AEAD7AE5AE1342EE7D061916C284DC865810"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-duplicate/controller-events.jsonl",
+      "bytes": 401,
+      "sha256": "C21A8AA3199BF262FBF85F34A8BCC08A71285454D579F7202DB9A8D0DD98727B"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-duplicate/launch-result.json",
+      "bytes": 250,
+      "sha256": "1A5C3B4AC2415A5371A1CCA7EF2B7C46F31D1D5312E4886B072AF3205F0FAB9E"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-duplicate/registration.json",
+      "bytes": 709,
+      "sha256": "270F2D4287367AB9E62F28C5C2E43FA771AB38D7B8AB4B19F4C345239582B0C5"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-duplicate/resources.log",
+      "bytes": 258,
+      "sha256": "FB20EE364F0552475E30C237851B97A0340513DEEB4FD4D5554A8797CC9D6159"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-duplicate/run.log",
+      "bytes": 1264,
+      "sha256": "D35F0D3D2B66986537CC46FBB397A80B0411097191DC47FF208BBE78E12A9739"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-duplicate/served-state.json",
+      "bytes": 184,
+      "sha256": "0A8C13E4B9C0BAD129B91E3964CEF5E3074B905F66029A3AABFE351D0D6FC7AF"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-duplicate/wire-events.jsonl",
+      "bytes": 554,
+      "sha256": "5B6A7CC71DAD5B3DFD44673FEC507EE8A5ADD3A84BDA07157CAC60E74B099970"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-healthy/actual-result.json",
+      "bytes": 421,
+      "sha256": "57B1C00688AC44AB0D35785BD9C1836C1E73DE234AC18A3A19D6509F3D2D9A08"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-healthy/child-identity.json",
+      "bytes": 1383,
+      "sha256": "A5E0E5B428D626F7D73E801BF13F94C2CF3749DE51C0B4FEB86DA8270232E80F"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-healthy/control-monitor.json",
+      "bytes": 264,
+      "sha256": "96AB15968C1C35F6885E77E6B6A038E3A1D91EE967D0797B6D9370024A23774D"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-healthy/controller-events.jsonl",
+      "bytes": 2159,
+      "sha256": "7FC1ED3B1E437EF76416716F2DC2917F7598774163BF89E1A7288177EBEF73D9"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-healthy/launch-result.json",
+      "bytes": 220,
+      "sha256": "C4A56B768A86E40E5A61FC6E783539C454CEBEE60954CE30BC91167D4CD075DD"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-healthy/registration.json",
+      "bytes": 705,
+      "sha256": "8AE86A554ECFA102A4AD71EF483194355068344B3CF085FF2D0B721291F8A5F4"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-healthy/resources.log",
+      "bytes": 256,
+      "sha256": "005E455E77AD4D07D995823AAE993B8E5887FC853CCD7BFFA778B06766EB2A9F"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-healthy/run.log",
+      "bytes": 1391,
+      "sha256": "DE29F8601685034A2110A4DEDDE1A7603210143EF27435694F8EEA2487AB3893"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-healthy/served-state.json",
+      "bytes": 186,
+      "sha256": "5D2B52FB4CE75AADCB669E3933D3841DA2A3730DDF415993F5C6CBB50831EE98"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-healthy/wire-events.jsonl",
+      "bytes": 1057,
+      "sha256": "EBE3958384065461762666065E47C5683C5591164611E64A359DB8928B40C8C2"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-malformed/child-identity.json",
+      "bytes": 1390,
+      "sha256": "0B8D13A79506EED1AD2B04C9F66C3885040A4BA0BB1E67516D515D4CFC77D53A"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-malformed/control-monitor.json",
+      "bytes": 314,
+      "sha256": "4750F2215F97C4BB65340A1E28E6607C24D947032181750FCD7F089031B6005E"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-malformed/controller-events.jsonl",
+      "bytes": 403,
+      "sha256": "A9EE0F44D49FE2FBF72CD9A3A546A26A96D2E141C123C7CF6BD286AC3978A573"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-malformed/launch-result.json",
+      "bytes": 242,
+      "sha256": "3A0804B1C6DC7D6A30C85B82C38096FF6845173509C2372E09CFE159A1C307A2"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-malformed/registration.json",
+      "bytes": 709,
+      "sha256": "BB07386F3439B8E51A6B7864E4FC70B64137907036C6272739C1D442D48E6799"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-malformed/resources.log",
+      "bytes": 258,
+      "sha256": "B979C3AA3A95767F6069A339F80125C5AE2C83D61FAC20DFDC3ED84503B62AAF"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-malformed/run.log",
+      "bytes": 635,
+      "sha256": "3C7D94B6381443A0B8106084F41057A554A64482041830A2474CCBE0B24347AF"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-malformed/served-state.json",
+      "bytes": 184,
+      "sha256": "0A8C13E4B9C0BAD129B91E3964CEF5E3074B905F66029A3AABFE351D0D6FC7AF"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-malformed/wire-events.jsonl",
+      "bytes": 555,
+      "sha256": "9773D1CE406C6A2971058662836E64EECD71480013811C15C718AF0D97797730"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-missing-manager/child-identity.json",
+      "bytes": 1415,
+      "sha256": "678F237368EA74DCA9122F2230955ED8BDE572E5CF1C94FBDC24D161BF8F167D"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-missing-manager/control-monitor.json",
+      "bytes": 343,
+      "sha256": "4F1BFB5C376CEAA9B809E9CB8303BE5FE6F8198CD0326C8E50F2CBB6985FD522"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-missing-manager/controller-events.jsonl",
+      "bytes": 402,
+      "sha256": "197259912C8064C340E72F54F12D3C16BE60F76824CE17AEDD2F86D1178D8824"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-missing-manager/launch-result.json",
+      "bytes": 272,
+      "sha256": "73498EF8ACCA9B26E6AA7BED0A139F8811F5260CBDC90FFB413722B2846B030E"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-missing-manager/registration.json",
+      "bytes": 721,
+      "sha256": "7DB458C94C078A990C3AD4C0679F539DE307660A3FB1B8AC950C1CC846C6B667"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-missing-manager/resources.log",
+      "bytes": 264,
+      "sha256": "38C34FE8234FE0A326D5A4BC4C4F78D2401AD7E43F7EBFC1691D6F1324F232FF"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-missing-manager/run.log",
+      "bytes": 632,
+      "sha256": "68BF64DB76440B64225878D27C08991DFCDB65DBAF54F559456049AE3DD1941A"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-missing-manager/served-state.json",
+      "bytes": 184,
+      "sha256": "0A8C13E4B9C0BAD129B91E3964CEF5E3074B905F66029A3AABFE351D0D6FC7AF"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-missing-manager/wire-events.jsonl",
+      "bytes": 554,
+      "sha256": "696C23E2DCE8E2019896C317806F3D4697D6F3382952561D64E6AE4141BAA732"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-stale/child-identity.json",
+      "bytes": 1375,
+      "sha256": "88746A6CCE358EA1100A02C2268A9A22BB04B8086D1870E284B6890C052C0E32"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-stale/control-monitor.json",
+      "bytes": 334,
+      "sha256": "52BA09EF5AC7036527459940B385D7503C05162539FF2358A008F1DF7DA39456"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-stale/controller-events.jsonl",
+      "bytes": 405,
+      "sha256": "16CE87564BE445F56E1F886E0C9C49888E361232CAF7C60158CB119EBDD65B28"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-stale/launch-result.json",
+      "bytes": 263,
+      "sha256": "D2609B24172806650FEA1D48FF1372522606F605B809D8460A942E0E1238CC81"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-stale/registration.json",
+      "bytes": 701,
+      "sha256": "D2F407F048B961F254BD40B5F29A42402CC06E9F004747A492645EE112A0D91F"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-stale/resources.log",
+      "bytes": 254,
+      "sha256": "AC6F9DA141229848EC12F770BD08C47704B94204BA54DC7D946AA699135E179D"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-stale/run.log",
+      "bytes": 628,
+      "sha256": "65A8721AA31C22BD3DDE0058A74B9F23D73B47A8BA65A14DB02148CC17B95F3C"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-stale/served-state.json",
+      "bytes": 184,
+      "sha256": "D26239EFE19CF12E1F882ACECB286971C17240895AF23D9E09780115A51F43BC"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-stale/wire-events.jsonl",
+      "bytes": 554,
+      "sha256": "444C087FBFD16C0A26356A94EF7024B8A68BC64752AFBBA8357A42D21874F698"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-summary-truncated/child-identity.json",
+      "bytes": 1423,
+      "sha256": "29822AE5EF4B41706C4162BA444EE00F370418A3D12355CB7F1218397638E03D"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-summary-truncated/control-monitor.json",
+      "bytes": 343,
+      "sha256": "C76E2DD05E2FD58EC62C03CC8EEC3C8BB8D06D9EEB417ADF8373BADACFE1C61C"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-summary-truncated/controller-events.jsonl",
+      "bytes": 403,
+      "sha256": "39BED50D3DC987001BEBF3BF29819C0C43AD9587A652BC29E732DC7C23C88977"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-summary-truncated/launch-result.json",
+      "bytes": 272,
+      "sha256": "3EC2479FE751A3C705BF02203271FC954973C07149092A8B99E1FB30C4647B83"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-summary-truncated/registration.json",
+      "bytes": 725,
+      "sha256": "3DA1C5ED610D279FCAC1A8C6EF27433E46BCBFECE63FB00C30B50EC8F10D1E70"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-summary-truncated/resources.log",
+      "bytes": 266,
+      "sha256": "2DEC9E466CAB7932265664B8B8384FDA7D4FF54721E86E4F80847837D7216C26"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-summary-truncated/run.log",
+      "bytes": 632,
+      "sha256": "17680FF1F58F01639AFA15835D7D4BA6DE2FEC18F8A4ACD5AE58A4DEAFEB0D48"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-summary-truncated/served-state.json",
+      "bytes": 184,
+      "sha256": "0A8C13E4B9C0BAD129B91E3964CEF5E3074B905F66029A3AABFE351D0D6FC7AF"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-summary-truncated/wire-events.jsonl",
+      "bytes": 554,
+      "sha256": "AD0782B278D1F81D9EC8B60CFD524C95D1B1DBB87FE7624B32346158BA5AB15F"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-truncated/child-identity.json",
+      "bytes": 1390,
+      "sha256": "4CC8452CA4ACB26DEBE392C8FCA772931FA90319BAF5857101D2A2DC47476B2C"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-truncated/control-monitor.json",
+      "bytes": 334,
+      "sha256": "9EE3A23CE80B68D9F66F970E658DDCAD2095917CE115702723AD51B2DBB8C6F8"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-truncated/controller-events.jsonl",
+      "bytes": 403,
+      "sha256": "F7CEB8DCAC952C7504BBD00CE16C2CC3D3DA31130AF53A2CEDF94FFD9E85BD7F"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-truncated/launch-result.json",
+      "bytes": 263,
+      "sha256": "16A751DF0765FD780503FD742CA8405AE7931BC88B68757063153F617A33101F"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-truncated/registration.json",
+      "bytes": 709,
+      "sha256": "03FC4127096743273E8B29BE04397EC026980C79DB625FCE0D786462450FA753"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-truncated/resources.log",
+      "bytes": 258,
+      "sha256": "76C6DAAA6102F41AE92CB22F998950BDBC323B18DD10B59E148099880B24F9C8"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-truncated/run.log",
+      "bytes": 557,
+      "sha256": "542F465FBDA711605DCF379D7060C99205CCAACA171BA1ADBFEB4AB196DC3E61"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-truncated/served-state.json",
+      "bytes": 184,
+      "sha256": "0A8C13E4B9C0BAD129B91E3964CEF5E3074B905F66029A3AABFE351D0D6FC7AF"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/green-r2/teleport-truncated/wire-events.jsonl",
+      "bytes": 554,
+      "sha256": "AF5A9748956550A7837117E7B8E0D2A2BC0F3907EFE5011E22119F865E64EC3A"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/red/default-healthy/child-identity.json",
+      "bytes": 1371,
+      "sha256": "75313133275BAB284AEA7210CFD74122BDFAA4BB0D151F20CB84C7040F9A543B"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/red/default-healthy/control-monitor.json",
+      "bytes": 293,
+      "sha256": "D3B2AC8B6867B990C852FD79596F97DE1BA6902390A416E9DDDAB3D1A17ABC0A"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/red/default-healthy/launch-result.json",
+      "bytes": 243,
+      "sha256": "FA99DA2611DF1B3AE2911A57E0555C651A77DA098E1060EBF0B42B6BF8415458"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/red/default-healthy/registration.json",
+      "bytes": 699,
+      "sha256": "4C7B49D8E97013714ECCDCB5C387DD7D73279CCEE71B175B4D32AC24A77E2F35"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/red/default-healthy/resources.log",
+      "bytes": 250,
+      "sha256": "9B2F73D0290349AAF6E6575E2E3C412B67A097BE07792F14F61319CE3139969E"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/red/default-healthy/run.log",
+      "bytes": 0,
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/red/default-healthy/served-state.json",
+      "bytes": 184,
+      "sha256": "344B54B95C072AE7CCCB9F046A2AB8DC88F1775BF746CFB406DE36DDD8528E1F"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/red/default-healthy/wire-events.jsonl",
+      "bytes": 580,
+      "sha256": "B897AD9162D36DE989F2F8BBBB4F75E9C6EF6CED00339BBDE912B8ACF3C9B665"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/red/fixture-cleanup.json",
+      "bytes": 322,
+      "sha256": "062896CFC3A8BCE1A8EA1AB9705BFFAED068FEB4CB7203EAAF1734EDC8DE7A87"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/red/python-identity.json",
+      "bytes": 969,
+      "sha256": "3912B7251C650FE1F19674E271F4679B36CC63B0B228A499A9A2CBEBC1ABBC13"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/red/teleport-healthy/child-identity.json",
+      "bytes": 1373,
+      "sha256": "CBA6194C0EA6C4AD1B628C488B886DE38F57E784C6E292C2FF02E95FD5F515C0"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/red/teleport-healthy/control-monitor.json",
+      "bytes": 264,
+      "sha256": "D6A0A9A988AC36F00A77115D1D3032CBABD2B01C6162F14F109F172387D2ED71"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/red/teleport-healthy/launch-result.json",
+      "bytes": 220,
+      "sha256": "EFF2CBE2DA57AE37EE93DC7B9D58AB6DFE99FD90DC97CECCFAF01A9A470FBC5B"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/red/teleport-healthy/registration.json",
+      "bytes": 700,
+      "sha256": "C21402AE0349CD6D01AB25C3525AFE3EB42F25F49F318453BB9FE6282FBA3FBD"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/red/teleport-healthy/resources.log",
+      "bytes": 251,
+      "sha256": "C95F0FD6739398A9308C27768E7CD165E1502E93CD9261311709D7E335F5990A"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/red/teleport-healthy/run.log",
+      "bytes": 0,
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/red/teleport-healthy/served-state.json",
+      "bytes": 184,
+      "sha256": "344B54B95C072AE7CCCB9F046A2AB8DC88F1775BF746CFB406DE36DDD8528E1F"
+    },
+    {
+      "path": ".omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/lifecycle-game-controller-private-01/red/teleport-healthy/wire-events.jsonl",
+      "bytes": 444,
+      "sha256": "CD84F340A2F3AA82C008406FBCC404C9554097E46CF51651333591D88BE3D5E4"
+    }
+  ]
+}

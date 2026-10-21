@@ -1,0 +1,3585 @@
+{
+  "scope": "PRIVATE HELPER real-wire qualification, not Game or Task8 completion",
+  "entries": [
+    {
+      "path": ".debug-journal.md",
+      "bytes": 2050,
+      "sha256": "1B5255F26FD17776E6AAA0B94E05F2CF2471AD2182500E9B6732272171CA10AA"
+    },
+    {
+      "path": "actual-observations-final.json",
+      "bytes": 33691,
+      "sha256": "7329FFA9BCD810EB24658C48CD7F60FFE67DA4A865EC71FEE89373E21E1BB6B2"
+    },
+    {
+      "path": "actual-observations.json",
+      "bytes": 29759,
+      "sha256": "DB445B47F9D4781065762F13D0AF8B88C80EB3983F2137D34658A2315AD697E8"
+    },
+    {
+      "path": "attempt-source-archives.json",
+      "bytes": 34556,
+      "sha256": "71011B5380F0B06A76DEE0F53554D7DF0DD99738C35C84B3850AB8F5C5BE704F"
+    },
+    {
+      "path": "canonical_gate.py",
+      "bytes": 9223,
+      "sha256": "98F555DC397C8B28377C9547983AD8D28C8EF256CAE49D1EA27C005EC599B1CB"
+    },
+    {
+      "path": "cleanup.json",
+      "bytes": 13572,
+      "sha256": "0BF064AB3038B5CE3260B059F3A304031CFD1225870FA0B8E055300D12FD6960"
+    },
+    {
+      "path": "DoneClaim.md",
+      "bytes": 15390,
+      "sha256": "A06C9140ADFD8D6D1B2141D079003192CE27FBEC4618127F2B6E4AA21A000CBA"
+    },
+    {
+      "path": "fixture_game.py",
+      "bytes": 9990,
+      "sha256": "B9CC457CD8A2F5E45989C965E74DAA94F84E7CDE30ECA7A230F302AA6FC1F2F5"
+    },
+    {
+      "path": "green-cpu-cleanup.json",
+      "bytes": 24072,
+      "sha256": "8BC84285E6A873CBFD9EEA38E73E0275445501601DF24483C560D1444953014E"
+    },
+    {
+      "path": "green-cpu-registration.json",
+      "bytes": 764,
+      "sha256": "1089C0EB2C43DBEEB24B46AC1F5708B7BD3F13C23DCF1390019B1EE802A18F22"
+    },
+    {
+      "path": "green-freeze.json",
+      "bytes": 2966,
+      "sha256": "91C7DA9B475CE32D0B8DF92F8A4EE1E229C2A77D13963060CFFD2A81BC332996"
+    },
+    {
+      "path": "green-process.json",
+      "bytes": 859,
+      "sha256": "BAD01ACA272EA43BFE45452AD2599821529FFAEB56D3BA6592CCA27E7F404BE8"
+    },
+    {
+      "path": "green-r1-cpu-cleanup.json",
+      "bytes": 27249,
+      "sha256": "16F36054B38F24AED2A02181EF72C6492AFC805B1154FC831055BC301A4AEFFB"
+    },
+    {
+      "path": "green-r1-cpu-registration.json",
+      "bytes": 769,
+      "sha256": "BB85E963A8972AA71AF160B71353CABF527D31B8729AF7CA5FA96921A8DF692E"
+    },
+    {
+      "path": "green-r1-freeze.json",
+      "bytes": 2966,
+      "sha256": "696B34F4A959074D70D155370BE6DB8F5BA86C3557A30D2490AB5DECB1EEB82C"
+    },
+    {
+      "path": "green-r1-process.json",
+      "bytes": 859,
+      "sha256": "A47C100D3958ECD560EE97245F5CA78378D0F572F075691230731FEC6B4C974F"
+    },
+    {
+      "path": "green-r1-source-canonical_gate.py.txt",
+      "bytes": 9178,
+      "sha256": "CC9594D5AD496594B4D4219E1A111F8CAA3A24679520EF70E7DEBE1EF5BE3529"
+    },
+    {
+      "path": "green-r1-source-fixture_game.py.txt",
+      "bytes": 9752,
+      "sha256": "48414C173D52643FEFB643F2D8AE66B39F762217CE73B9103A0BD4D1C7AC10D1"
+    },
+    {
+      "path": "green-r1-source-qualify.py.txt",
+      "bytes": 7388,
+      "sha256": "322EECA1424518B36DAAB9B4701860B42B9834071BFCD97B529CDB19EC2CD303"
+    },
+    {
+      "path": "green-r1-source-run-cpu.ps1.txt",
+      "bytes": 3179,
+      "sha256": "FCD3F1D5ADCB022A6D9B2366BC1294039B2C5737ADCDFF70A98C5890728E4B38"
+    },
+    {
+      "path": "green-r1-stderr.txt",
+      "bytes": 0,
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+      "path": "green-r1-stdout.txt",
+      "bytes": 255,
+      "sha256": "A74E460A3F7F0F04F76BE3D72F904506F3C2F549CE898F19CE9375E8B46DCFDD"
+    },
+    {
+      "path": "green-r1/closure.json",
+      "bytes": 106,
+      "sha256": "7BD91709B11F73C60894C90F676D1465CB38A38FC439A65551711CD362C80080"
+    },
+    {
+      "path": "green-r1/destroy-replacement-healthy/actual-result.json",
+      "bytes": 192,
+      "sha256": "1D5DB90B6CA30ADE00175DCEFC450D9DDA28005B8E3342019885B0747B8EF0DB"
+    },
+    {
+      "path": "green-r1/destroy-replacement-healthy/child-identity.json",
+      "bytes": 1389,
+      "sha256": "FFCFE5805109CDD6C2A1BC4C332EAD8E56E586AE9AC63FF94563929F32C1685F"
+    },
+    {
+      "path": "green-r1/destroy-replacement-healthy/control-monitor.json",
+      "bytes": 263,
+      "sha256": "9E39EF81BAE376006A4242790B359253361FB7B248C6404C945B343BCE18C210"
+    },
+    {
+      "path": "green-r1/destroy-replacement-healthy/events.jsonl",
+      "bytes": 6735,
+      "sha256": "3A555FDA15C265FCD5DB35981B6BD99C97E7E0EFD41F78E012A1FE6BD26B8400"
+    },
+    {
+      "path": "green-r1/destroy-replacement-healthy/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green-r1/destroy-replacement-healthy/launch-result.json",
+      "bytes": 219,
+      "sha256": "898DB2ECD4D9CD26503D42A66C6F3D74D023F273F4FBD432437097F8E4BC1AAB"
+    },
+    {
+      "path": "green-r1/destroy-replacement-healthy/registration.json",
+      "bytes": 681,
+      "sha256": "5D3E5FB51B184B4CF4874E00542DAE0438DE67B08B3B8B4FECC917CAB7B00C2C"
+    },
+    {
+      "path": "green-r1/destroy-replacement-healthy/resources.log",
+      "bytes": 263,
+      "sha256": "792E144C8BBD6CD6875D406D42A88DE138A107984DF7F8BD2E15F2B0522D65E5"
+    },
+    {
+      "path": "green-r1/destroy-replacement-healthy/run.log",
+      "bytes": 5043,
+      "sha256": "96BA7CCEF94DA3D62AD3C33CD4F6DD7E11561CF2B2CBC7C39259AE9A85F2675D"
+    },
+    {
+      "path": "green-r1/destroy-replacement-healthy/served-state.json",
+      "bytes": 104,
+      "sha256": "F9F57A97766C355E8F69896BD8EDF9395D06A500201622517A0CC6F1BD0E1C28"
+    },
+    {
+      "path": "green-r1/destroy-replacement-healthy/wire-events.jsonl",
+      "bytes": 3104,
+      "sha256": "96D731A16159783F85C9A87CBC2C90A6D26380F4204CAA6AE3C79F446B9439E8"
+    },
+    {
+      "path": "green-r1/hidden-healthy/actual-result.json",
+      "bytes": 192,
+      "sha256": "A918D1F1D3D7AD0C865E8693CE880AEAF60E696CE6690DCAB15FFF89E702B52D"
+    },
+    {
+      "path": "green-r1/hidden-healthy/child-identity.json",
+      "bytes": 1363,
+      "sha256": "99951BFC1F9D70828B2E29110B56156E03BBD91EB212AF7CB1281270A3D259E0"
+    },
+    {
+      "path": "green-r1/hidden-healthy/control-monitor.json",
+      "bytes": 263,
+      "sha256": "31463A07A88ED2296F92D8A9CB8ED2C336F29AA01AE3E6F9FE7B3E6F736D07A1"
+    },
+    {
+      "path": "green-r1/hidden-healthy/events.jsonl",
+      "bytes": 7521,
+      "sha256": "6982E2D544B994E4EB3E47EF8E9D750A384E564F81497E6415F0441C2B269243"
+    },
+    {
+      "path": "green-r1/hidden-healthy/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green-r1/hidden-healthy/launch-result.json",
+      "bytes": 219,
+      "sha256": "CF1186F9A3CF678F7BA8E71A74351FD1F8641018C4C40BB25F96C7A7BD11B9A3"
+    },
+    {
+      "path": "green-r1/hidden-healthy/registration.json",
+      "bytes": 668,
+      "sha256": "6E1CB068A5217DAC62960A2CFE044FB5F13F0054AE499F824486A1A5BDCFDEE6"
+    },
+    {
+      "path": "green-r1/hidden-healthy/resources.log",
+      "bytes": 250,
+      "sha256": "0D32C60C8477992EF5D68B203CC4B219261D8335931F3891A15B2BF53540D944"
+    },
+    {
+      "path": "green-r1/hidden-healthy/run.log",
+      "bytes": 7056,
+      "sha256": "308A0FEBFBAB2C17D6A535C6FC8147D9C7376C2D43BB7B83377F21EB107CE3FB"
+    },
+    {
+      "path": "green-r1/hidden-healthy/served-state.json",
+      "bytes": 104,
+      "sha256": "9E093BC8894E767FAB16AB230455E700BDE1EFDF48D198BA433E16FE66668649"
+    },
+    {
+      "path": "green-r1/hidden-healthy/wire-events.jsonl",
+      "bytes": 3157,
+      "sha256": "A8DADFE6D56D501F2B5A45D58C609A0E449E9EC58E979E27403A013A8E3ED43B"
+    },
+    {
+      "path": "green-r1/presentation-shrouded-healthy/actual-result.json",
+      "bytes": 192,
+      "sha256": "1DF5C3835B32295CC60196DC57893AF13D464AE83B0B6DF0D73DD5C6EDE3C142"
+    },
+    {
+      "path": "green-r1/presentation-shrouded-healthy/child-identity.json",
+      "bytes": 1393,
+      "sha256": "2506957524D6F1713303F2EE894B45A3215A6DF3B41D5D66E47E825B879F4F4A"
+    },
+    {
+      "path": "green-r1/presentation-shrouded-healthy/control-monitor.json",
+      "bytes": 262,
+      "sha256": "A4651668E6296BCF28ED6E182C64C8C424C7E88546BA4E0026DD244DE9AA3A9A"
+    },
+    {
+      "path": "green-r1/presentation-shrouded-healthy/events.jsonl",
+      "bytes": 7525,
+      "sha256": "253729CC47C6619849C77D35887F668C8E08F7324CF1003697F275324DA31C6E"
+    },
+    {
+      "path": "green-r1/presentation-shrouded-healthy/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green-r1/presentation-shrouded-healthy/launch-result.json",
+      "bytes": 219,
+      "sha256": "C411B5E5E018574B4AD4EEEF1C536E473E574CA1BD1E82803DF600C5171AFA55"
+    },
+    {
+      "path": "green-r1/presentation-shrouded-healthy/registration.json",
+      "bytes": 683,
+      "sha256": "2684E6FBD16DEB19F0266F944F1158A3FFA9F17F8F32B281B875B0EC69C2FCEC"
+    },
+    {
+      "path": "green-r1/presentation-shrouded-healthy/resources.log",
+      "bytes": 265,
+      "sha256": "59466C4CD5C5B506E1DE5C1AAE4A9A076BDC4FCC7437762B045F563CA0EACBF2"
+    },
+    {
+      "path": "green-r1/presentation-shrouded-healthy/run.log",
+      "bytes": 7056,
+      "sha256": "C9F26D04627B7264990C1337AC5ABC1BDE9D0D900557F1C821891E8C2832675A"
+    },
+    {
+      "path": "green-r1/presentation-shrouded-healthy/served-state.json",
+      "bytes": 104,
+      "sha256": "9E093BC8894E767FAB16AB230455E700BDE1EFDF48D198BA433E16FE66668649"
+    },
+    {
+      "path": "green-r1/presentation-shrouded-healthy/wire-events.jsonl",
+      "bytes": 3166,
+      "sha256": "F812E85511E590FB9D0B00D17B3DA898130CC6946124E210263AE3F00478243E"
+    },
+    {
+      "path": "green-r1/supervisor-identity.json",
+      "bytes": 970,
+      "sha256": "633E514A2C8A21CE3A8C8135266AA425DD346E40EA13C836F37460588939E392"
+    },
+    {
+      "path": "green-r1/teleport-capped/actual-result.json",
+      "bytes": 281,
+      "sha256": "28EEC89BCBBE688D20A5DB71935A9E11953ABD80540E2DBA640BA12FC0B812D7"
+    },
+    {
+      "path": "green-r1/teleport-capped/child-identity.json",
+      "bytes": 1363,
+      "sha256": "0E8A8922B19E0EECE2AE97D3514538066D9DA181B6A60DEB5B28B61F48160FEC"
+    },
+    {
+      "path": "green-r1/teleport-capped/control-monitor.json",
+      "bytes": 379,
+      "sha256": "556CE05AC9FA86D27BF8A744E10C70B382A76BE4999FCD7F709E17C7AD6378D4"
+    },
+    {
+      "path": "green-r1/teleport-capped/events.jsonl",
+      "bytes": 1324,
+      "sha256": "0C196AFF7B0AE1F639B0BAAEF2F0115EE086AE441165BCD8ADDAF3266A3FD3D1"
+    },
+    {
+      "path": "green-r1/teleport-capped/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green-r1/teleport-capped/launch-result.json",
+      "bytes": 308,
+      "sha256": "E6F2C3ED6861A5355A47F3BF63EC26E2D1D2520FC1F0049FD931F7293A127387"
+    },
+    {
+      "path": "green-r1/teleport-capped/registration.json",
+      "bytes": 668,
+      "sha256": "B0BF89BAB5BDDBB87D8ABFF63021254002B4BEC6958B38AD1EA854A7EB4D671B"
+    },
+    {
+      "path": "green-r1/teleport-capped/resources.log",
+      "bytes": 251,
+      "sha256": "28450A49572CAFD1349D3CF4B0F6251A96EBB563FCD7A617EF580E199952015B"
+    },
+    {
+      "path": "green-r1/teleport-capped/run.log",
+      "bytes": 2274,
+      "sha256": "B34DFD337194A4682ED2E80939C4269977CB5A4C22E1351AEE6072923C26A252"
+    },
+    {
+      "path": "green-r1/teleport-capped/served-state.json",
+      "bytes": 104,
+      "sha256": "20E5FA82CF2E0F37FD4D0D827994DE7293761541CC1561A907E2E7C969B36033"
+    },
+    {
+      "path": "green-r1/teleport-capped/wire-events.jsonl",
+      "bytes": 814,
+      "sha256": "CAC9633AEC36E7F01FBCB8402F450E4D4B0E7F72A859B015E801FE79119B614A"
+    },
+    {
+      "path": "green-r1/teleport-disconnect/actual-result.json",
+      "bytes": 258,
+      "sha256": "75BB1EB3F98E1151E9B57C51FD8B595FADBF5B147E56D0D1A896374F29F9C5CC"
+    },
+    {
+      "path": "green-r1/teleport-disconnect/child-identity.json",
+      "bytes": 1379,
+      "sha256": "066A3FD7B0B5E1F99842922D44DDBE56404E324B857605A67C947EA1D33374AB"
+    },
+    {
+      "path": "green-r1/teleport-disconnect/control-monitor.json",
+      "bytes": 356,
+      "sha256": "11470D30A68FDCDC66BA6764E98CF881342A935228236CF756D1B71D43EA4F2E"
+    },
+    {
+      "path": "green-r1/teleport-disconnect/events.jsonl",
+      "bytes": 1224,
+      "sha256": "C8ED51A6D799A9A00CC7EC73EF97C47360EC60515E65012BA7651A348C568D67"
+    },
+    {
+      "path": "green-r1/teleport-disconnect/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green-r1/teleport-disconnect/launch-result.json",
+      "bytes": 285,
+      "sha256": "341618D69FEEFD8616545D2C2F532E076FAE7C31ED6941F430E28BA96EBD5B2D"
+    },
+    {
+      "path": "green-r1/teleport-disconnect/registration.json",
+      "bytes": 676,
+      "sha256": "8202D6DC3676DABF710252C8F110F840CFF5337C68920D2C289D1533F547ECD1"
+    },
+    {
+      "path": "green-r1/teleport-disconnect/resources.log",
+      "bytes": 255,
+      "sha256": "8899D00B48B2A75644528CA8594FA0FBFBFC42C70F047A27C91A4C00800CBC86"
+    },
+    {
+      "path": "green-r1/teleport-disconnect/run.log",
+      "bytes": 768,
+      "sha256": "AA65776A1853EAAB01643B47E1AB8A8C285D7DFEF1DB3641C5200D2732DFB91B"
+    },
+    {
+      "path": "green-r1/teleport-disconnect/served-state.json",
+      "bytes": 104,
+      "sha256": "20E5FA82CF2E0F37FD4D0D827994DE7293761541CC1561A907E2E7C969B36033"
+    },
+    {
+      "path": "green-r1/teleport-disconnect/wire-events.jsonl",
+      "bytes": 763,
+      "sha256": "92F8916A2C782EB3A712B0608931FC5F4277DB0FF493D51614DEF39DAF795733"
+    },
+    {
+      "path": "green-r1/teleport-empty-inventory/actual-result.json",
+      "bytes": 192,
+      "sha256": "751F760DA514DD7AAA4FEAD38771B81E090F66D22970A2EB2C08501C34921784"
+    },
+    {
+      "path": "green-r1/teleport-empty-inventory/child-identity.json",
+      "bytes": 1399,
+      "sha256": "F8109AC9DA4096D7F36B324DA25C6266542CF4215B5B2418D5B791ADD261C843"
+    },
+    {
+      "path": "green-r1/teleport-empty-inventory/control-monitor.json",
+      "bytes": 263,
+      "sha256": "163B19F7D1652D94888261BE672DED233847EC2482C5EBE9715C9F48CCA0436B"
+    },
+    {
+      "path": "green-r1/teleport-empty-inventory/events.jsonl",
+      "bytes": 5820,
+      "sha256": "3F839178B6DCEC27D3CA3E9FB35DBA910B467431C51B1105FA0E6308E748A288"
+    },
+    {
+      "path": "green-r1/teleport-empty-inventory/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green-r1/teleport-empty-inventory/launch-result.json",
+      "bytes": 219,
+      "sha256": "06704AB9DAEC35EC5B31FCED7352D995D6AF42D3D688EF7CD29ED5ADB1D8AF56"
+    },
+    {
+      "path": "green-r1/teleport-empty-inventory/registration.json",
+      "bytes": 686,
+      "sha256": "9CBD0EA02595A2B8F6AC4A14AC77BB44EA7F75964687A4ED3812E93D8090814F"
+    },
+    {
+      "path": "green-r1/teleport-empty-inventory/resources.log",
+      "bytes": 260,
+      "sha256": "F6DCDC404035485929E239118AF2B920DE3533274A77DA8995134E8652BE7672"
+    },
+    {
+      "path": "green-r1/teleport-empty-inventory/run.log",
+      "bytes": 4101,
+      "sha256": "2A764503E10C60565664C4046281982B7D163EBE63A97453CA49A10257125103"
+    },
+    {
+      "path": "green-r1/teleport-empty-inventory/served-state.json",
+      "bytes": 104,
+      "sha256": "64C869CF82B7F0ED695894C91113F83252F22349C223CC3AA20711E3F67B5083"
+    },
+    {
+      "path": "green-r1/teleport-empty-inventory/wire-events.jsonl",
+      "bytes": 2806,
+      "sha256": "9CF1A625FE6F935D393759C43AA6CD36BF41A4C265FCEA2248249621F0FB9636"
+    },
+    {
+      "path": "green-r1/teleport-healthy-compat/actual-result.json",
+      "bytes": 192,
+      "sha256": "31591D9F15FCA778BA5632EEC83CFA7C16575659D55C10303D56ABF7A8172FAA"
+    },
+    {
+      "path": "green-r1/teleport-healthy-compat/child-identity.json",
+      "bytes": 1381,
+      "sha256": "C683A6F9A88C10859CAF76E8A1F2A687A905FB35C0FE11809E5F34B9FA3829A2"
+    },
+    {
+      "path": "green-r1/teleport-healthy-compat/control-monitor.json",
+      "bytes": 263,
+      "sha256": "283A18B5AEA83E6664202B30AF55C747A909CD2E1852E6DF80A37A74D10FD910"
+    },
+    {
+      "path": "green-r1/teleport-healthy-compat/events.jsonl",
+      "bytes": 4987,
+      "sha256": "69D0A41B369B706C1F2B6231A95AEB7FCA1E571416212785690E20C4198A3668"
+    },
+    {
+      "path": "green-r1/teleport-healthy-compat/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green-r1/teleport-healthy-compat/launch-result.json",
+      "bytes": 219,
+      "sha256": "67C6916A93C2FBFB7EC10E5B4F071615D5156EFF04DF8EC55447D8669ABD18BA"
+    },
+    {
+      "path": "green-r1/teleport-healthy-compat/registration.json",
+      "bytes": 677,
+      "sha256": "C0AFA91EC177E64DFD6751235FC091826A73E70024592CDCD5A8511104B9AC82"
+    },
+    {
+      "path": "green-r1/teleport-healthy-compat/resources.log",
+      "bytes": 259,
+      "sha256": "CB3B081474003076603862474BF479E7C73F4963C3FAC019B3D6DA1AC71F5116"
+    },
+    {
+      "path": "green-r1/teleport-healthy-compat/run.log",
+      "bytes": 3167,
+      "sha256": "93B887CCAF3F2AA3F6F2D5ACADCF78ACB9869724BDDF1F6E247AA5EC5BA7A587"
+    },
+    {
+      "path": "green-r1/teleport-healthy-compat/served-state.json",
+      "bytes": 104,
+      "sha256": "64C869CF82B7F0ED695894C91113F83252F22349C223CC3AA20711E3F67B5083"
+    },
+    {
+      "path": "green-r1/teleport-healthy-compat/wire-events.jsonl",
+      "bytes": 2880,
+      "sha256": "AEF79BF8C15689C021510084B608880052E7CF748C64E8797E101084D182E0A0"
+    },
+    {
+      "path": "green-r1/teleport-healthy/actual-result.json",
+      "bytes": 192,
+      "sha256": "5170E181F6C90565D9CA910F48C76E8C7DFD0197ED4DF75B53B5A565AD2C828C"
+    },
+    {
+      "path": "green-r1/teleport-healthy/child-identity.json",
+      "bytes": 1367,
+      "sha256": "6E3A7E6B18C03A3E6CF5B68DD4E501EA6FC588CE2838433CEB465496BB35BDC7"
+    },
+    {
+      "path": "green-r1/teleport-healthy/control-monitor.json",
+      "bytes": 263,
+      "sha256": "21D8C21FA8BA253E34B73BEF67700EFDF9B06B04D61AF6CA2E4DAD51D2FDD917"
+    },
+    {
+      "path": "green-r1/teleport-healthy/events.jsonl",
+      "bytes": 5999,
+      "sha256": "7DF8616E9A8CCA2A282E86C0BE3DD72B16D83B94DFA66AAE3B703FDC5063F8DF"
+    },
+    {
+      "path": "green-r1/teleport-healthy/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green-r1/teleport-healthy/launch-result.json",
+      "bytes": 219,
+      "sha256": "D06F93111320B28F2125018CF310FFB9EF296D6433828FEA64798C3185D6066B"
+    },
+    {
+      "path": "green-r1/teleport-healthy/registration.json",
+      "bytes": 670,
+      "sha256": "663F69830214F2108A6E62CC4F0D0C0168E53A5971588CAC5840382E499BC455"
+    },
+    {
+      "path": "green-r1/teleport-healthy/resources.log",
+      "bytes": 252,
+      "sha256": "5970EC5BE557E813DE97129317B7CB303E105FAC849317014D59D9546AF4828E"
+    },
+    {
+      "path": "green-r1/teleport-healthy/run.log",
+      "bytes": 4669,
+      "sha256": "2856CDDC01885A7B0C872FD0E816F8D2ED6606634400B93E3435841279E6397F"
+    },
+    {
+      "path": "green-r1/teleport-healthy/served-state.json",
+      "bytes": 104,
+      "sha256": "64C869CF82B7F0ED695894C91113F83252F22349C223CC3AA20711E3F67B5083"
+    },
+    {
+      "path": "green-r1/teleport-healthy/wire-events.jsonl",
+      "bytes": 2807,
+      "sha256": "8050CFA089F4B34AD652CAE2212FD6A99C42135863DA9AD7504C53A8CDE51147"
+    },
+    {
+      "path": "green-r1/teleport-incomplete-key/actual-result.json",
+      "bytes": 271,
+      "sha256": "45BCA11465D558B0E36C41ABE36C5805A5DC96B8F4B86BAB937D7BF264B69CB2"
+    },
+    {
+      "path": "green-r1/teleport-incomplete-key/child-identity.json",
+      "bytes": 1395,
+      "sha256": "70E0C316A48738417B7410C7BFB16C9E809FB9B664D31346C26E4176A7E135B9"
+    },
+    {
+      "path": "green-r1/teleport-incomplete-key/control-monitor.json",
+      "bytes": 369,
+      "sha256": "9BB6566B7B843809D13AC3892E7CC9E69682C8978815617314AE12AA23FA5143"
+    },
+    {
+      "path": "green-r1/teleport-incomplete-key/events.jsonl",
+      "bytes": 1321,
+      "sha256": "8588E554FB95DD79A111AC3A30DC099059E164A371B57E710FE97EA7993E55AA"
+    },
+    {
+      "path": "green-r1/teleport-incomplete-key/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green-r1/teleport-incomplete-key/launch-result.json",
+      "bytes": 298,
+      "sha256": "CF8A1B599ED9240AF59806201087283EEE7A3FEE6D3031FFB824C431F9FDFC62"
+    },
+    {
+      "path": "green-r1/teleport-incomplete-key/registration.json",
+      "bytes": 684,
+      "sha256": "7D7E1CEDA8FCCCC33CD48D34C91A5926EE6FD18EBFFCD6A4901CF826DCD71738"
+    },
+    {
+      "path": "green-r1/teleport-incomplete-key/resources.log",
+      "bytes": 259,
+      "sha256": "7327F04B6DE35CEB42957169B1C28DFA39A9F275417AA19519457503A512BE46"
+    },
+    {
+      "path": "green-r1/teleport-incomplete-key/run.log",
+      "bytes": 2250,
+      "sha256": "5F1C938C19E58DF79562AD1A0DDA29F232B0FE5518E6528DDBB225C82C1CD221"
+    },
+    {
+      "path": "green-r1/teleport-incomplete-key/served-state.json",
+      "bytes": 104,
+      "sha256": "20E5FA82CF2E0F37FD4D0D827994DE7293761541CC1561A907E2E7C969B36033"
+    },
+    {
+      "path": "green-r1/teleport-incomplete-key/wire-events.jsonl",
+      "bytes": 811,
+      "sha256": "7CBDED67B921A0841A4581F6DCC6C6D1AEF72FF98DD3776EA4B2AD4F9A230A85"
+    },
+    {
+      "path": "green-r1/teleport-interrupt/child-identity.json",
+      "bytes": 1375,
+      "sha256": "58893499AA47575CDC747E6DA48AE7EAC6AC56B9194811BF5DC0028E4C45CCA9"
+    },
+    {
+      "path": "green-r1/teleport-interrupt/events.jsonl",
+      "bytes": 1323,
+      "sha256": "5ACCFF94FF0C8A8E4BD87193FF9CA668376819B48950B3FC804BA6CD56B60EED"
+    },
+    {
+      "path": "green-r1/teleport-interrupt/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green-r1/teleport-interrupt/interrupt-error.json",
+      "bytes": 77,
+      "sha256": "8F84882BAB8E4492E433AE4E79F8054A2938F019BF59AEE226711AC44FE97875"
+    },
+    {
+      "path": "green-r1/teleport-interrupt/interrupt-sent.json",
+      "bytes": 58,
+      "sha256": "8B37DCF75A2B11A8A6AFBAAB855D27672658C145797FBC4DD61923D8D5C16762"
+    },
+    {
+      "path": "green-r1/teleport-interrupt/registration.json",
+      "bytes": 674,
+      "sha256": "CB4E769AB289BBAC3B12F4CC8104C85819E917AD00451EFA0622BC291DF4709F"
+    },
+    {
+      "path": "green-r1/teleport-interrupt/resources.log",
+      "bytes": 254,
+      "sha256": "7907CCDE22794C9413819225026BE49956BB02FEFBCCFB5B1FDD0041226A0314"
+    },
+    {
+      "path": "green-r1/teleport-interrupt/run.log",
+      "bytes": 768,
+      "sha256": "AA65776A1853EAAB01643B47E1AB8A8C285D7DFEF1DB3641C5200D2732DFB91B"
+    },
+    {
+      "path": "green-r1/teleport-interrupt/served-state.json",
+      "bytes": 104,
+      "sha256": "20E5FA82CF2E0F37FD4D0D827994DE7293761541CC1561A907E2E7C969B36033"
+    },
+    {
+      "path": "green-r1/teleport-interrupt/wire-events.jsonl",
+      "bytes": 814,
+      "sha256": "423B5909AB755AEC3702C596376B8A2618DDE07CE0AC7C6E777388EDC040BBE2"
+    },
+    {
+      "path": "green-r1/teleport-later-wave/actual-result.json",
+      "bytes": 191,
+      "sha256": "EAD8B3B81E13E5F4B9409ED92F54ADB92F66081BAB9917C48882217F42A27ECC"
+    },
+    {
+      "path": "green-r1/teleport-later-wave/child-identity.json",
+      "bytes": 1377,
+      "sha256": "0FD7D447514FCD3858A9BF0B335A14387484F6410F1E8C070A39613A435BE9A7"
+    },
+    {
+      "path": "green-r1/teleport-later-wave/control-monitor.json",
+      "bytes": 263,
+      "sha256": "29EB919212B113F1430E80B879F2312790083B2DBED36A9E6ACB236E40F8B684"
+    },
+    {
+      "path": "green-r1/teleport-later-wave/events.jsonl",
+      "bytes": 5906,
+      "sha256": "E42737F36E37FBF5A5EE483F54CB2071939F8C35F4F3900B8EB867DB3F06D6C0"
+    },
+    {
+      "path": "green-r1/teleport-later-wave/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green-r1/teleport-later-wave/launch-result.json",
+      "bytes": 218,
+      "sha256": "EED33520E09C8140568C6FEAF52AED3E9394DFA346E0093D6F35D66DD107AC47"
+    },
+    {
+      "path": "green-r1/teleport-later-wave/registration.json",
+      "bytes": 676,
+      "sha256": "6E7B00F288E7B40FFEFA9D4C6970E47FB7706CFE6500A9A42C230777A63F3A8B"
+    },
+    {
+      "path": "green-r1/teleport-later-wave/resources.log",
+      "bytes": 253,
+      "sha256": "19F067E3969C4AA71758382CF9CF197C03D2A440423E72F602FA6F3FEDDBCA11"
+    },
+    {
+      "path": "green-r1/teleport-later-wave/run.log",
+      "bytes": 4385,
+      "sha256": "78C135A34D61B5D17284706D54FB46117725501A338A4E236F958C16CCA912DC"
+    },
+    {
+      "path": "green-r1/teleport-later-wave/served-state.json",
+      "bytes": 104,
+      "sha256": "64C869CF82B7F0ED695894C91113F83252F22349C223CC3AA20711E3F67B5083"
+    },
+    {
+      "path": "green-r1/teleport-later-wave/wire-events.jsonl",
+      "bytes": 2807,
+      "sha256": "378EFAAB2AFCD6428147F5D6E523C15A9762796199DFB0530A76AA9DCC64E727"
+    },
+    {
+      "path": "green-r1/teleport-malformed/actual-result.json",
+      "bytes": 269,
+      "sha256": "717833E1AD0D66FC318ADABF41202B258C072EA150137AD060DBD63F7A430AE7"
+    },
+    {
+      "path": "green-r1/teleport-malformed/child-identity.json",
+      "bytes": 1375,
+      "sha256": "08967BF209E0CD333C994AFEDEE97DCEC4586384D2ACDFD6AF39BE52BFAE565F"
+    },
+    {
+      "path": "green-r1/teleport-malformed/control-monitor.json",
+      "bytes": 367,
+      "sha256": "B28ED5479863E538DB08CCC3EE6E759CA7DFC7339387C369E00BA4B2831DD576"
+    },
+    {
+      "path": "green-r1/teleport-malformed/events.jsonl",
+      "bytes": 1324,
+      "sha256": "55D97D766180C992DDBEBEC7B7D37938CF33F64CF5D9330A5528C05142FF154B"
+    },
+    {
+      "path": "green-r1/teleport-malformed/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green-r1/teleport-malformed/launch-result.json",
+      "bytes": 296,
+      "sha256": "3DF9FB297527D44D19E2480F3B3F5645057A500040942F2932D28997941D59A4"
+    },
+    {
+      "path": "green-r1/teleport-malformed/registration.json",
+      "bytes": 674,
+      "sha256": "79E03402A56F5BEFB5C5E8C502FB964AF48AAED6FCFC98E89EEAABAA46EC4C49"
+    },
+    {
+      "path": "green-r1/teleport-malformed/resources.log",
+      "bytes": 254,
+      "sha256": "375634848B9BC9A36208C8271A3EB03A0037DC783D794BDDECA3A494EECFB1FD"
+    },
+    {
+      "path": "green-r1/teleport-malformed/run.log",
+      "bytes": 2276,
+      "sha256": "7CC5A196E4B00ABC46B38DD91410E51DF7020C66DDE274540F15954AFA8B4762"
+    },
+    {
+      "path": "green-r1/teleport-malformed/served-state.json",
+      "bytes": 104,
+      "sha256": "20E5FA82CF2E0F37FD4D0D827994DE7293761541CC1561A907E2E7C969B36033"
+    },
+    {
+      "path": "green-r1/teleport-malformed/wire-events.jsonl",
+      "bytes": 813,
+      "sha256": "7AB9404C850AF12BEF7A81928C4FC83985744244D4C273469CC67DB53175F142"
+    },
+    {
+      "path": "green-r1/teleport-mirror/actual-result.json",
+      "bytes": 235,
+      "sha256": "9868858CAE84C20C7A0E95C80BDCAEE1B579B89E94D50332E617FF130B6334C9"
+    },
+    {
+      "path": "green-r1/teleport-mirror/child-identity.json",
+      "bytes": 1363,
+      "sha256": "B6C4661C02EE013FAB15CFED1F8EA5749E72541937C0C7967BA7E78D07AE5843"
+    },
+    {
+      "path": "green-r1/teleport-mirror/control-monitor.json",
+      "bytes": 334,
+      "sha256": "066260FBBE97A3AA352CA313BB1966D177C9CA928FE88B4996C3585C680FAB8B"
+    },
+    {
+      "path": "green-r1/teleport-mirror/events.jsonl",
+      "bytes": 31289,
+      "sha256": "25F3E1EA57DD561568244DBEB9C7E0D4B7B6FDA76F81DFEF338E0E1CE6CA4918"
+    },
+    {
+      "path": "green-r1/teleport-mirror/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green-r1/teleport-mirror/launch-result.json",
+      "bytes": 262,
+      "sha256": "5C45A297BB0A7589793CFD91D213EFBE5A8E8E611AD9049153232BE48F6F3426"
+    },
+    {
+      "path": "green-r1/teleport-mirror/registration.json",
+      "bytes": 668,
+      "sha256": "9D1E5F367B7EC2F697E26646D2941CADE892FB2FE44AE96D098C6A0E50ECD7D7"
+    },
+    {
+      "path": "green-r1/teleport-mirror/resources.log",
+      "bytes": 251,
+      "sha256": "19FCB9ED8B527A29DCAB3F623FF73E6836577DFFD6140FE9FCCB5602058939B9"
+    },
+    {
+      "path": "green-r1/teleport-mirror/run.log",
+      "bytes": 2270,
+      "sha256": "A3D5AF6A75CF67F6435FF892FA22C014636FDD8BF3A5691D3CAA1E4F50CCEA81"
+    },
+    {
+      "path": "green-r1/teleport-mirror/served-state.json",
+      "bytes": 104,
+      "sha256": "20E5FA82CF2E0F37FD4D0D827994DE7293761541CC1561A907E2E7C969B36033"
+    },
+    {
+      "path": "green-r1/teleport-mirror/wire-events.jsonl",
+      "bytes": 20155,
+      "sha256": "0D2ACB1B17D6F03E2ECAF473B9F8DDBA4E881668A303D2F9845AC5C69A2FB2DD"
+    },
+    {
+      "path": "green-r1/teleport-no-eligible/actual-result.json",
+      "bytes": 234,
+      "sha256": "B0F88FB6C284C99A529E823F041343817634ACB2F36D86A07CFEC47C87C1C425"
+    },
+    {
+      "path": "green-r1/teleport-no-eligible/child-identity.json",
+      "bytes": 1383,
+      "sha256": "65337996D1826013340E3E4370EB48FC46BAEA4D063D3DA5653FEE207C8366F2"
+    },
+    {
+      "path": "green-r1/teleport-no-eligible/control-monitor.json",
+      "bytes": 334,
+      "sha256": "EEA69FF1B6267617243CFFB341A5107A402D987C1C5CA159B169430FA30A9D5A"
+    },
+    {
+      "path": "green-r1/teleport-no-eligible/events.jsonl",
+      "bytes": 30989,
+      "sha256": "74DD54C4EC02B082E456E26B98806A348A4DDA6ABE7E872240FC024171CA4936"
+    },
+    {
+      "path": "green-r1/teleport-no-eligible/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green-r1/teleport-no-eligible/launch-result.json",
+      "bytes": 261,
+      "sha256": "8DA11ED51205084557FE756DB61A0C5A22B4701BC71E818F41CC01E3FEA66C66"
+    },
+    {
+      "path": "green-r1/teleport-no-eligible/registration.json",
+      "bytes": 678,
+      "sha256": "807B326A42AF7520B20F3221CED8A8C691AA21A45438F7691CAA15590BF00BBB"
+    },
+    {
+      "path": "green-r1/teleport-no-eligible/resources.log",
+      "bytes": 256,
+      "sha256": "BDD303558FF60DD7F5318D46435061378EB6D4105DC1D8081DFE842CAA1E03A5"
+    },
+    {
+      "path": "green-r1/teleport-no-eligible/run.log",
+      "bytes": 768,
+      "sha256": "AA65776A1853EAAB01643B47E1AB8A8C285D7DFEF1DB3641C5200D2732DFB91B"
+    },
+    {
+      "path": "green-r1/teleport-no-eligible/served-state.json",
+      "bytes": 104,
+      "sha256": "20E5FA82CF2E0F37FD4D0D827994DE7293761541CC1561A907E2E7C969B36033"
+    },
+    {
+      "path": "green-r1/teleport-no-eligible/wire-events.jsonl",
+      "bytes": 19956,
+      "sha256": "AB75C7E0A837117857E68B754044FD29868ACEFC237640FF7154B1BD6A54A27A"
+    },
+    {
+      "path": "green-r1/teleport-stale/actual-result.json",
+      "bytes": 234,
+      "sha256": "0DE2B6263BE868431D4C28397385F4840D137FA400D0F35EBABF6D2EE97B0805"
+    },
+    {
+      "path": "green-r1/teleport-stale/child-identity.json",
+      "bytes": 1359,
+      "sha256": "3ACBF7F1CD59ED09C624898CA20AACB8EFDBA031ED0A7AF68B2BC9430CF9A4E0"
+    },
+    {
+      "path": "green-r1/teleport-stale/control-monitor.json",
+      "bytes": 332,
+      "sha256": "D184E7E12A90E26CB7818BD7EBC30556D5453BA55C70D29BEB7D98475EC154B7"
+    },
+    {
+      "path": "green-r1/teleport-stale/events.jsonl",
+      "bytes": 31089,
+      "sha256": "08684173EE11EAD89DAA4160A48DE07F2AC38C441B8996B9349F6E012A33F7A8"
+    },
+    {
+      "path": "green-r1/teleport-stale/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green-r1/teleport-stale/launch-result.json",
+      "bytes": 261,
+      "sha256": "AF8C8A19F35CB5F665551BE7EEFA6F38EF9A681B6F2474F3D21BA48DA0013884"
+    },
+    {
+      "path": "green-r1/teleport-stale/registration.json",
+      "bytes": 666,
+      "sha256": "51B1B53F2FE0EF250E8E7639B779D45226F8AE1F0EB2460745A8107B7517DF34"
+    },
+    {
+      "path": "green-r1/teleport-stale/resources.log",
+      "bytes": 250,
+      "sha256": "65E93C8CE8666C32098BD5BF66E68F6DCEB9A520E9A6F282CE47A2A5B8005F85"
+    },
+    {
+      "path": "green-r1/teleport-stale/run.log",
+      "bytes": 2270,
+      "sha256": "BDB953B5A6E85E9DE22798EE810778FD01E40E60CAB3D471CC522A8055DDB1F9"
+    },
+    {
+      "path": "green-r1/teleport-stale/served-state.json",
+      "bytes": 104,
+      "sha256": "20E5FA82CF2E0F37FD4D0D827994DE7293761541CC1561A907E2E7C969B36033"
+    },
+    {
+      "path": "green-r1/teleport-stale/wire-events.jsonl",
+      "bytes": 20020,
+      "sha256": "A1698A1AA61A91AF4B7AADAD0461D9C6F178F27167EC7466CD1BC1D202FD4A01"
+    },
+    {
+      "path": "green-r1/teleport-startup/actual-result.json",
+      "bytes": 192,
+      "sha256": "B4CCADF84806300276321DB63972003D282BC989D9DB657A4702258D410C5511"
+    },
+    {
+      "path": "green-r1/teleport-startup/child-identity.json",
+      "bytes": 1367,
+      "sha256": "B6DAC93CDD360AC418DB9B0AE448816F79D12E1EA12F98725496E0EC155DA914"
+    },
+    {
+      "path": "green-r1/teleport-startup/control-monitor.json",
+      "bytes": 263,
+      "sha256": "21060DDA83DF9B59A0A4FD7B3108E40C3013D50050D15199F04D95CB1B174630"
+    },
+    {
+      "path": "green-r1/teleport-startup/events.jsonl",
+      "bytes": 5947,
+      "sha256": "013502CAD92200A2DB41E05D61226571AADFE1621039F29A793EFFD0F46EE98A"
+    },
+    {
+      "path": "green-r1/teleport-startup/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green-r1/teleport-startup/launch-result.json",
+      "bytes": 219,
+      "sha256": "137C97B0D5850DD15ABED479809A55CC718B0815BCD4D1E028FAFCF84CC2E065"
+    },
+    {
+      "path": "green-r1/teleport-startup/registration.json",
+      "bytes": 670,
+      "sha256": "676C469ABDE1879550A72E8488AB6336B5C9AC24A84498847D3BD14972A1924B"
+    },
+    {
+      "path": "green-r1/teleport-startup/resources.log",
+      "bytes": 252,
+      "sha256": "8E757CF44D9865222590A7C53F7B686FEEA8A26F08FFE2FEC50EAA5B165CC121"
+    },
+    {
+      "path": "green-r1/teleport-startup/run.log",
+      "bytes": 4671,
+      "sha256": "B7AAFD675346EF1BD9AD69356F36709040EE7419691C75B7444675B4AC73FD92"
+    },
+    {
+      "path": "green-r1/teleport-startup/served-state.json",
+      "bytes": 104,
+      "sha256": "64C869CF82B7F0ED695894C91113F83252F22349C223CC3AA20711E3F67B5083"
+    },
+    {
+      "path": "green-r1/teleport-startup/wire-events.jsonl",
+      "bytes": 2806,
+      "sha256": "D0AB4F29F46AF5E7C37BE0935BDA7B51166C3A6DA74393D21966E63ADF2EB0E5"
+    },
+    {
+      "path": "green-r1/teleport-wrong-owner/actual-result.json",
+      "bytes": 234,
+      "sha256": "4913D446A6968D67D2B087C2446D467785CCD8E12E74554BFC56E32C0081516F"
+    },
+    {
+      "path": "green-r1/teleport-wrong-owner/child-identity.json",
+      "bytes": 1383,
+      "sha256": "BE0CFBC7E6E2974C4F16411203B8BA0D5144371952CB61A38670F9648387F7AD"
+    },
+    {
+      "path": "green-r1/teleport-wrong-owner/control-monitor.json",
+      "bytes": 333,
+      "sha256": "C96A9F7D64ACDA3AE9A2D343568BE219A0004CC573E69523BBC3C3BF6B4AD417"
+    },
+    {
+      "path": "green-r1/teleport-wrong-owner/events.jsonl",
+      "bytes": 31294,
+      "sha256": "68F0A75BD36340D2DF6368E8945862EF1B8ABEE82AFB2C1B253D7AADA25C1307"
+    },
+    {
+      "path": "green-r1/teleport-wrong-owner/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green-r1/teleport-wrong-owner/launch-result.json",
+      "bytes": 261,
+      "sha256": "A1175DFFEC80395E0162345811E0DCF4F400379C0590054D56914A5692658C18"
+    },
+    {
+      "path": "green-r1/teleport-wrong-owner/registration.json",
+      "bytes": 678,
+      "sha256": "740A893F20E610BE3D553897BC51A1D74443CC46EBD91F0D46D42419498972D6"
+    },
+    {
+      "path": "green-r1/teleport-wrong-owner/resources.log",
+      "bytes": 256,
+      "sha256": "190A3FE04B65B8AE7F2DD8E3EE7AB070985D7F0AF49993714B044906C3496FBC"
+    },
+    {
+      "path": "green-r1/teleport-wrong-owner/run.log",
+      "bytes": 2270,
+      "sha256": "330C40DE4469A9267ACFE4EB66417B25323EC8C303F406F55D2C86D7F6B73EC3"
+    },
+    {
+      "path": "green-r1/teleport-wrong-owner/served-state.json",
+      "bytes": 104,
+      "sha256": "20E5FA82CF2E0F37FD4D0D827994DE7293761541CC1561A907E2E7C969B36033"
+    },
+    {
+      "path": "green-r1/teleport-wrong-owner/wire-events.jsonl",
+      "bytes": 20157,
+      "sha256": "EAA9DC21F1A7F339FEB4396A7A2F9AE4B8CCE5B04C56786079A43142B2A0195E"
+    },
+    {
+      "path": "green-r2-cpu-cleanup.json",
+      "bytes": 30324,
+      "sha256": "AE60EC1022E1A9C05B4AA07FF081190C983376D10D8BCBAE19BAB3310B51E75F"
+    },
+    {
+      "path": "green-r2-cpu-registration.json",
+      "bytes": 770,
+      "sha256": "08D58F60315411BE05075B953B3CFC04AD39EBBD9E762CDBD52455B1B2C8B386"
+    },
+    {
+      "path": "green-r2-freeze.json",
+      "bytes": 2966,
+      "sha256": "790499B7D9DC5BD6DC52D4AC768EB5A60BF3B762A07B8C4CAE7A7DBEA2F15FB9"
+    },
+    {
+      "path": "green-r2-process.json",
+      "bytes": 862,
+      "sha256": "393545D7C6CDD74F39922D922A8C7BBB31325C3554C2978073BE00596A335E52"
+    },
+    {
+      "path": "green-r2-stderr.txt",
+      "bytes": 0,
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+      "path": "green-r2-stdout.txt",
+      "bytes": 272,
+      "sha256": "2E8AC60F63DFEDA144489F90E91C2B19DADB8FE0B5795BB804AA081BDECF6F69"
+    },
+    {
+      "path": "green-r2/closure.json",
+      "bytes": 106,
+      "sha256": "7BD91709B11F73C60894C90F676D1465CB38A38FC439A65551711CD362C80080"
+    },
+    {
+      "path": "green-r2/destroy-replacement-healthy/actual-result.json",
+      "bytes": 192,
+      "sha256": "EB760714709BA5D16AC0B25D77D88DD9978704E7C22EFECE9A947E4158CB0071"
+    },
+    {
+      "path": "green-r2/destroy-replacement-healthy/child-identity.json",
+      "bytes": 1389,
+      "sha256": "D19580174D04732DB549382593FFF7D6B509E54C9D903854A2A5D27A23869135"
+    },
+    {
+      "path": "green-r2/destroy-replacement-healthy/control-monitor.json",
+      "bytes": 263,
+      "sha256": "44093480EDBE1A030FD3EBB6CE0F67887FF25D6B090C19176CF105EDCDCEC9A1"
+    },
+    {
+      "path": "green-r2/destroy-replacement-healthy/events.jsonl",
+      "bytes": 6732,
+      "sha256": "A520E5A3C677310DBE835E1E27255E79E32B3CBD500EF30B77526771175E706F"
+    },
+    {
+      "path": "green-r2/destroy-replacement-healthy/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green-r2/destroy-replacement-healthy/launch-result.json",
+      "bytes": 219,
+      "sha256": "1FC8B3FE829E1E087D78C81C5DFA0093CA7FB02AD6D18B0CD9AFE1AEF36D8653"
+    },
+    {
+      "path": "green-r2/destroy-replacement-healthy/registration.json",
+      "bytes": 681,
+      "sha256": "B0211B0CAAB38AE8CB4B3677B799BA0BDDF0E04FB9EA9404E02AA605D0E2F371"
+    },
+    {
+      "path": "green-r2/destroy-replacement-healthy/resources.log",
+      "bytes": 263,
+      "sha256": "65AAB07D091BF64E1E3E3015DD01CFCF393BCD076F07EE46EAB9CA1D4AFD63AE"
+    },
+    {
+      "path": "green-r2/destroy-replacement-healthy/run.log",
+      "bytes": 5043,
+      "sha256": "96BA7CCEF94DA3D62AD3C33CD4F6DD7E11561CF2B2CBC7C39259AE9A85F2675D"
+    },
+    {
+      "path": "green-r2/destroy-replacement-healthy/served-state.json",
+      "bytes": 104,
+      "sha256": "F9F57A97766C355E8F69896BD8EDF9395D06A500201622517A0CC6F1BD0E1C28"
+    },
+    {
+      "path": "green-r2/destroy-replacement-healthy/wire-events.jsonl",
+      "bytes": 3094,
+      "sha256": "D09E374131D0BAE9E2F47F1D0C5B5A030CA0F47BC9688F59F43287B6415A1A74"
+    },
+    {
+      "path": "green-r2/hidden-healthy/actual-result.json",
+      "bytes": 191,
+      "sha256": "9631BAF8695BFF5CF5350D8DF88A85E869B308F54D37366F9E58C0E54AB90D08"
+    },
+    {
+      "path": "green-r2/hidden-healthy/child-identity.json",
+      "bytes": 1361,
+      "sha256": "7C5843D2240DBA1CDD6567A78116BC5CE9A8414E13A2E6BA2FC27192ED54F9AB"
+    },
+    {
+      "path": "green-r2/hidden-healthy/control-monitor.json",
+      "bytes": 263,
+      "sha256": "897BB2605AA555A9CAB74AF87B0B93ECC3FE1794425BFDFA486EC2F6513C15ED"
+    },
+    {
+      "path": "green-r2/hidden-healthy/events.jsonl",
+      "bytes": 7522,
+      "sha256": "3B2A2ABC3852EA4335043887D0B3C741DF077674EF834BCCBB8469E819B8E2A5"
+    },
+    {
+      "path": "green-r2/hidden-healthy/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green-r2/hidden-healthy/launch-result.json",
+      "bytes": 218,
+      "sha256": "BC9E4E45059CFF9FF39050B743A40A8B96AC6ABA33B549AD027A9198A92FDA2E"
+    },
+    {
+      "path": "green-r2/hidden-healthy/registration.json",
+      "bytes": 668,
+      "sha256": "9DC5ADF767637A2D2C0A07AD9A040690C2D2CBE21FD51271D6951F45D2D49816"
+    },
+    {
+      "path": "green-r2/hidden-healthy/resources.log",
+      "bytes": 248,
+      "sha256": "2737A80F0C8DAE8C70387E1D76EC722FC907D943D468D883B0C28BAF965D94C0"
+    },
+    {
+      "path": "green-r2/hidden-healthy/run.log",
+      "bytes": 7056,
+      "sha256": "308A0FEBFBAB2C17D6A535C6FC8147D9C7376C2D43BB7B83377F21EB107CE3FB"
+    },
+    {
+      "path": "green-r2/hidden-healthy/served-state.json",
+      "bytes": 104,
+      "sha256": "9E093BC8894E767FAB16AB230455E700BDE1EFDF48D198BA433E16FE66668649"
+    },
+    {
+      "path": "green-r2/hidden-healthy/wire-events.jsonl",
+      "bytes": 3160,
+      "sha256": "8EAF22E2E74303044F6A451C52E1C9C4B8A1EA6BAB2A43132D44C4EC3E17842A"
+    },
+    {
+      "path": "green-r2/presentation-shrouded-healthy/actual-result.json",
+      "bytes": 192,
+      "sha256": "57D4C4FFFB3D087CF9AE381BC1E04D8ED51F66F54848BBCCCBBF8D25C939EE26"
+    },
+    {
+      "path": "green-r2/presentation-shrouded-healthy/child-identity.json",
+      "bytes": 1393,
+      "sha256": "3F5ED165406BC240EAF4C53761B4766DE79359B0D324066BF6ACBD5853FEBF08"
+    },
+    {
+      "path": "green-r2/presentation-shrouded-healthy/control-monitor.json",
+      "bytes": 263,
+      "sha256": "9923250E23BFDE82A6A71111DA15486F57F985313B95F57B0F8F5DC8469667B2"
+    },
+    {
+      "path": "green-r2/presentation-shrouded-healthy/events.jsonl",
+      "bytes": 7527,
+      "sha256": "A7F8A5595B125F8F4C37DD4CE3CDB05B0AC31E2224F5BB0320758B4B9683607D"
+    },
+    {
+      "path": "green-r2/presentation-shrouded-healthy/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green-r2/presentation-shrouded-healthy/launch-result.json",
+      "bytes": 219,
+      "sha256": "B670EE0E492E26EA37387BE1634999D5257EE0F07BE1D7964FAFDC62A40A185F"
+    },
+    {
+      "path": "green-r2/presentation-shrouded-healthy/registration.json",
+      "bytes": 683,
+      "sha256": "9867274E10D4868A2ED73E5759DD9CDC7C9C463DFECAA20EB13CFD751E38F3E8"
+    },
+    {
+      "path": "green-r2/presentation-shrouded-healthy/resources.log",
+      "bytes": 265,
+      "sha256": "741830D2E1E62A5FB359314C12453C832D223B0229F6E8FBFDCE5ACD588793A5"
+    },
+    {
+      "path": "green-r2/presentation-shrouded-healthy/run.log",
+      "bytes": 7056,
+      "sha256": "C9F26D04627B7264990C1337AC5ABC1BDE9D0D900557F1C821891E8C2832675A"
+    },
+    {
+      "path": "green-r2/presentation-shrouded-healthy/served-state.json",
+      "bytes": 104,
+      "sha256": "9E093BC8894E767FAB16AB230455E700BDE1EFDF48D198BA433E16FE66668649"
+    },
+    {
+      "path": "green-r2/presentation-shrouded-healthy/wire-events.jsonl",
+      "bytes": 3162,
+      "sha256": "647DF21566881A269F3385A64BAE288A5C8F24D260276A2DD4CA74164C2AF4FD"
+    },
+    {
+      "path": "green-r2/supervisor-identity.json",
+      "bytes": 971,
+      "sha256": "1F0BA1B5F94C9635E7CC19794FAF23666F376DBB1657C0339CA43098747E1C01"
+    },
+    {
+      "path": "green-r2/teleport-capped/actual-result.json",
+      "bytes": 281,
+      "sha256": "1AAFB7B9D87AD72C56E6AC22D96D2ADE6FC8165D028860A02292369AC061E086"
+    },
+    {
+      "path": "green-r2/teleport-capped/child-identity.json",
+      "bytes": 1363,
+      "sha256": "A794965457FBF04AC215BA456B2E043FDE0B0C7CE06607C21369448230E2D316"
+    },
+    {
+      "path": "green-r2/teleport-capped/control-monitor.json",
+      "bytes": 379,
+      "sha256": "D7B28AD308711D2DC3EFA47FBD89C9442D562F6714814E396BB996E6FAF1857E"
+    },
+    {
+      "path": "green-r2/teleport-capped/events.jsonl",
+      "bytes": 1324,
+      "sha256": "FD9D514B3CB0BEC57ABEA6DBA64B1FF322ED71C7496C2BD88BC0A745A2E709AE"
+    },
+    {
+      "path": "green-r2/teleport-capped/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green-r2/teleport-capped/launch-result.json",
+      "bytes": 308,
+      "sha256": "421BE56C331806F1AD10D53626F598563A5EB430B1CCDDD85E7890C364ED9B55"
+    },
+    {
+      "path": "green-r2/teleport-capped/registration.json",
+      "bytes": 668,
+      "sha256": "487466223985390C0904E75C2993F317EC3598324AB9B8270ADFD81075ACD132"
+    },
+    {
+      "path": "green-r2/teleport-capped/resources.log",
+      "bytes": 251,
+      "sha256": "7E601341107B3201938632FF8DCE1123BE08BD8C840E9DFF71BDB7D2E1B34F67"
+    },
+    {
+      "path": "green-r2/teleport-capped/run.log",
+      "bytes": 2274,
+      "sha256": "B34DFD337194A4682ED2E80939C4269977CB5A4C22E1351AEE6072923C26A252"
+    },
+    {
+      "path": "green-r2/teleport-capped/served-state.json",
+      "bytes": 104,
+      "sha256": "20E5FA82CF2E0F37FD4D0D827994DE7293761541CC1561A907E2E7C969B36033"
+    },
+    {
+      "path": "green-r2/teleport-capped/wire-events.jsonl",
+      "bytes": 814,
+      "sha256": "0EA06A0DFC667F30713E1D8730A8DD2A0FDB771C6E77DCFEC91EFEDFBFE7A85F"
+    },
+    {
+      "path": "green-r2/teleport-complete-burst/actual-result.json",
+      "bytes": 192,
+      "sha256": "42334EF87F4CD12CE6041E90CCB82F00AB1169D15EEA888FBD4160A2FEAB1B1F"
+    },
+    {
+      "path": "green-r2/teleport-complete-burst/child-identity.json",
+      "bytes": 1395,
+      "sha256": "A31936D7C4AA8794BF5015A900EC7B483ED178CA4F485ED35026D6C1209ACD87"
+    },
+    {
+      "path": "green-r2/teleport-complete-burst/control-monitor.json",
+      "bytes": 263,
+      "sha256": "2A54CDB6E25FEFDD9523BF669C3FE57C58C2E673DF2BF1BC8A3796E8DD2F966E"
+    },
+    {
+      "path": "green-r2/teleport-complete-burst/events.jsonl",
+      "bytes": 6008,
+      "sha256": "781750A2B49E7ACDAAE2E34EC45BD60EEBE255F046EA3BD3FCCBF51EC92460AD"
+    },
+    {
+      "path": "green-r2/teleport-complete-burst/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green-r2/teleport-complete-burst/launch-result.json",
+      "bytes": 219,
+      "sha256": "2E1C9B97502517A71AE47E0B7781FC2480A879ABE06793872F05AAF9730691BD"
+    },
+    {
+      "path": "green-r2/teleport-complete-burst/registration.json",
+      "bytes": 684,
+      "sha256": "1E4AA129E66F8E60C81360824BE640274ABA959A894677991BD6F187B074E5B4"
+    },
+    {
+      "path": "green-r2/teleport-complete-burst/resources.log",
+      "bytes": 259,
+      "sha256": "E72D7171C3088CC7553CA86B4F6307C43B4E4063303548D6B55B44CCC42ECB4F"
+    },
+    {
+      "path": "green-r2/teleport-complete-burst/run.log",
+      "bytes": 161271,
+      "sha256": "A56E63DDBAD307E24C1188A0B3CECF3278D8581EC61BC457DA2790D3CE4D08BE"
+    },
+    {
+      "path": "green-r2/teleport-complete-burst/served-state.json",
+      "bytes": 104,
+      "sha256": "64C869CF82B7F0ED695894C91113F83252F22349C223CC3AA20711E3F67B5083"
+    },
+    {
+      "path": "green-r2/teleport-complete-burst/wire-events.jsonl",
+      "bytes": 2802,
+      "sha256": "CDB90E4D88857B42953518D5E67382F615950B9445CE400FB3402C7D97DDABE4"
+    },
+    {
+      "path": "green-r2/teleport-disconnect/actual-result.json",
+      "bytes": 258,
+      "sha256": "7FD807A8BD82EDB66046792011571B038E77E65CAF78CAC62A09DE8E92AC39D1"
+    },
+    {
+      "path": "green-r2/teleport-disconnect/child-identity.json",
+      "bytes": 1379,
+      "sha256": "A4186C91A30CE4D1036CC373819B45E753AE894ED84B170415CB89E4592CC56D"
+    },
+    {
+      "path": "green-r2/teleport-disconnect/control-monitor.json",
+      "bytes": 356,
+      "sha256": "B91786EC8EDACAE9190E688A3E4C911D98651848C318B2975BA044631A0A8B5F"
+    },
+    {
+      "path": "green-r2/teleport-disconnect/events.jsonl",
+      "bytes": 1225,
+      "sha256": "4069C5BFE971894AE2218A81D3F4E4813DFCEA7AAAF41FFAFCEA8CB7D523FA6A"
+    },
+    {
+      "path": "green-r2/teleport-disconnect/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green-r2/teleport-disconnect/launch-result.json",
+      "bytes": 285,
+      "sha256": "59E64404F53A4922B891971609227B34E6D18E71BC00669E8769D00123916E50"
+    },
+    {
+      "path": "green-r2/teleport-disconnect/registration.json",
+      "bytes": 676,
+      "sha256": "7052A43051158C6A153E977FC414903143C21DB9634D7284521E7C972DD3B59E"
+    },
+    {
+      "path": "green-r2/teleport-disconnect/resources.log",
+      "bytes": 255,
+      "sha256": "6BBEDD9B5E6BDD7E486C9223A67D5C7D2EB50511579E5EFDE07D1F9092D3FAC2"
+    },
+    {
+      "path": "green-r2/teleport-disconnect/run.log",
+      "bytes": 768,
+      "sha256": "AA65776A1853EAAB01643B47E1AB8A8C285D7DFEF1DB3641C5200D2732DFB91B"
+    },
+    {
+      "path": "green-r2/teleport-disconnect/served-state.json",
+      "bytes": 104,
+      "sha256": "20E5FA82CF2E0F37FD4D0D827994DE7293761541CC1561A907E2E7C969B36033"
+    },
+    {
+      "path": "green-r2/teleport-disconnect/wire-events.jsonl",
+      "bytes": 762,
+      "sha256": "A40B3014438B8DA9EF8ACA6AD0C3E410B2C03D6AFA1AD17AA3A371D25C9D5A52"
+    },
+    {
+      "path": "green-r2/teleport-empty-inventory/actual-result.json",
+      "bytes": 191,
+      "sha256": "D1EEB9AFE55D19FFF8B611E7C325578C68C7582F4CE2AB76E84F2D9506A36B86"
+    },
+    {
+      "path": "green-r2/teleport-empty-inventory/child-identity.json",
+      "bytes": 1397,
+      "sha256": "75A14D4A7681FAB28DF5D1B0D1060C0F181590FE6BEE9057AD3F96EF352D9F8B"
+    },
+    {
+      "path": "green-r2/teleport-empty-inventory/control-monitor.json",
+      "bytes": 263,
+      "sha256": "D131BB9963791B67797D658468A7CEDCE3F77A9737E8DF09493F910516ADA62D"
+    },
+    {
+      "path": "green-r2/teleport-empty-inventory/events.jsonl",
+      "bytes": 5822,
+      "sha256": "36EE64C576A9CE34AD6092A45B1A68F8239C60F216D87D868DE27BBC84BE81F7"
+    },
+    {
+      "path": "green-r2/teleport-empty-inventory/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green-r2/teleport-empty-inventory/launch-result.json",
+      "bytes": 218,
+      "sha256": "2901C2A1BC952A166E270016AEAF0649187F2749387C5AEC97CACF6A5410E57B"
+    },
+    {
+      "path": "green-r2/teleport-empty-inventory/registration.json",
+      "bytes": 686,
+      "sha256": "219EBFF853268F23745B59144E019C45DC44D2B7EF2FE2388D5E8F7DEB107EE7"
+    },
+    {
+      "path": "green-r2/teleport-empty-inventory/resources.log",
+      "bytes": 258,
+      "sha256": "FF4A379AA5CF15ECEC78E8EED7848E275C00F06EC679FEC696536CC0A02BCDDC"
+    },
+    {
+      "path": "green-r2/teleport-empty-inventory/run.log",
+      "bytes": 4101,
+      "sha256": "2A764503E10C60565664C4046281982B7D163EBE63A97453CA49A10257125103"
+    },
+    {
+      "path": "green-r2/teleport-empty-inventory/served-state.json",
+      "bytes": 104,
+      "sha256": "64C869CF82B7F0ED695894C91113F83252F22349C223CC3AA20711E3F67B5083"
+    },
+    {
+      "path": "green-r2/teleport-empty-inventory/wire-events.jsonl",
+      "bytes": 2804,
+      "sha256": "73E991836B8F9A9BB41FE0E57A312DC2310AB2D65663ECB498230E9955C9D7EE"
+    },
+    {
+      "path": "green-r2/teleport-healthy-compat/actual-result.json",
+      "bytes": 192,
+      "sha256": "495045FADF6AFBEEB1197303E4DC2566A0E00A88EB2FA8D2D9224CA03D182262"
+    },
+    {
+      "path": "green-r2/teleport-healthy-compat/child-identity.json",
+      "bytes": 1381,
+      "sha256": "265EF3EE0CB70D98B5DD1590F5F313370AA73B6748996CBD20FF14FDE1AF0B88"
+    },
+    {
+      "path": "green-r2/teleport-healthy-compat/control-monitor.json",
+      "bytes": 263,
+      "sha256": "A9DCE3767CFBAE538274A46A3053045A11A10DC102896E80E837807CC76653DF"
+    },
+    {
+      "path": "green-r2/teleport-healthy-compat/events.jsonl",
+      "bytes": 4986,
+      "sha256": "5CE507A93D0FC5A485FD08BA19E7136727ECDF3A796DD3520924FBD0D33097A1"
+    },
+    {
+      "path": "green-r2/teleport-healthy-compat/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green-r2/teleport-healthy-compat/launch-result.json",
+      "bytes": 219,
+      "sha256": "FD70648FE9CE797AF0BD8933E0D8F9B21214C30F75263065B66A6FD97F9F4F8D"
+    },
+    {
+      "path": "green-r2/teleport-healthy-compat/registration.json",
+      "bytes": 677,
+      "sha256": "2F2F87368E1B468D8A509A0E89C884B29B04C783986F74BEFD11567AFF4860E2"
+    },
+    {
+      "path": "green-r2/teleport-healthy-compat/resources.log",
+      "bytes": 259,
+      "sha256": "A54B26B3B5C08ACDE482C3B19F919077364C751F9EDB68F454CEBD5448584022"
+    },
+    {
+      "path": "green-r2/teleport-healthy-compat/run.log",
+      "bytes": 3167,
+      "sha256": "93B887CCAF3F2AA3F6F2D5ACADCF78ACB9869724BDDF1F6E247AA5EC5BA7A587"
+    },
+    {
+      "path": "green-r2/teleport-healthy-compat/served-state.json",
+      "bytes": 104,
+      "sha256": "64C869CF82B7F0ED695894C91113F83252F22349C223CC3AA20711E3F67B5083"
+    },
+    {
+      "path": "green-r2/teleport-healthy-compat/wire-events.jsonl",
+      "bytes": 2877,
+      "sha256": "DEC286FEE268B9E5055464793FF0DC58AE98BABE9BE8254CD79547E234E8564B"
+    },
+    {
+      "path": "green-r2/teleport-healthy/actual-result.json",
+      "bytes": 192,
+      "sha256": "7BC8C2ED1454DE94E47E0C8E1AB3C8F3E85AB588A41648539E81C71DDF55759F"
+    },
+    {
+      "path": "green-r2/teleport-healthy/child-identity.json",
+      "bytes": 1367,
+      "sha256": "9D7F1E9E42DD7F003529657532BB317F858C01A90D3B4F2BEB1520FE36FD2128"
+    },
+    {
+      "path": "green-r2/teleport-healthy/control-monitor.json",
+      "bytes": 263,
+      "sha256": "50C31DB55EF679CF356D000287A6C7515B30887351C89BB36AAC540011194DB8"
+    },
+    {
+      "path": "green-r2/teleport-healthy/events.jsonl",
+      "bytes": 6000,
+      "sha256": "C9E4C6F185E9D11029C7077C7FFB2899F32E8F4B5958F9EDEE81BB8470B4B59E"
+    },
+    {
+      "path": "green-r2/teleport-healthy/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green-r2/teleport-healthy/launch-result.json",
+      "bytes": 219,
+      "sha256": "585784A3856B005FD14C80E20BD45E77B806CC5D8D33BDE6E40732136FAF0AC4"
+    },
+    {
+      "path": "green-r2/teleport-healthy/registration.json",
+      "bytes": 670,
+      "sha256": "40642B2D0CCC9ED6EF2537A4D0EA19B26854B60A0AD505A82974CCC7A3969B36"
+    },
+    {
+      "path": "green-r2/teleport-healthy/resources.log",
+      "bytes": 252,
+      "sha256": "960F77EB8843572713F8258F695E998E4DC67825A1183618795072B4E750F567"
+    },
+    {
+      "path": "green-r2/teleport-healthy/run.log",
+      "bytes": 4669,
+      "sha256": "2856CDDC01885A7B0C872FD0E816F8D2ED6606634400B93E3435841279E6397F"
+    },
+    {
+      "path": "green-r2/teleport-healthy/served-state.json",
+      "bytes": 104,
+      "sha256": "64C869CF82B7F0ED695894C91113F83252F22349C223CC3AA20711E3F67B5083"
+    },
+    {
+      "path": "green-r2/teleport-healthy/wire-events.jsonl",
+      "bytes": 2806,
+      "sha256": "BB0D29ABD4A964B87D7B1A8911A1E34EEC20DF82A29CC28BE3AAFB13C91195D9"
+    },
+    {
+      "path": "green-r2/teleport-incomplete-key/actual-result.json",
+      "bytes": 271,
+      "sha256": "03E7DAAEC4688820550F5C16014A4AB94302719679F191B93BA44235190D20D1"
+    },
+    {
+      "path": "green-r2/teleport-incomplete-key/child-identity.json",
+      "bytes": 1395,
+      "sha256": "A76F513F3F7BE5D7B91D7E2D2BF2730E619A21C6F9DBE4C43CF002874AC196B9"
+    },
+    {
+      "path": "green-r2/teleport-incomplete-key/control-monitor.json",
+      "bytes": 368,
+      "sha256": "4B6888F4DE8117601C2E7D26573E8CF3C97FADE3738F36AA5E671F83E5D1A6C1"
+    },
+    {
+      "path": "green-r2/teleport-incomplete-key/events.jsonl",
+      "bytes": 1323,
+      "sha256": "BCF82A2303BB814614D68CCACAAC56D67D4886F201BDF4B57342DC967E222794"
+    },
+    {
+      "path": "green-r2/teleport-incomplete-key/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green-r2/teleport-incomplete-key/launch-result.json",
+      "bytes": 298,
+      "sha256": "5E65980A6C25EA31015018FF2121ADA38496988A1E5F8570584AF42EBC532600"
+    },
+    {
+      "path": "green-r2/teleport-incomplete-key/registration.json",
+      "bytes": 684,
+      "sha256": "CFFD4433E7F6A231C9FCAA5E938E839EFCC0BB851FECBD6215B106349C6E4B95"
+    },
+    {
+      "path": "green-r2/teleport-incomplete-key/resources.log",
+      "bytes": 259,
+      "sha256": "7540BAF303B6D37F2814C2B48EF57AF8213C5F890F7472A536659E2AEEABCCD6"
+    },
+    {
+      "path": "green-r2/teleport-incomplete-key/run.log",
+      "bytes": 2250,
+      "sha256": "5F1C938C19E58DF79562AD1A0DDA29F232B0FE5518E6528DDBB225C82C1CD221"
+    },
+    {
+      "path": "green-r2/teleport-incomplete-key/served-state.json",
+      "bytes": 104,
+      "sha256": "20E5FA82CF2E0F37FD4D0D827994DE7293761541CC1561A907E2E7C969B36033"
+    },
+    {
+      "path": "green-r2/teleport-incomplete-key/wire-events.jsonl",
+      "bytes": 814,
+      "sha256": "E955B0CFDD8E7146520E28234E00FD95192BFE5347C753166ABB83054524789A"
+    },
+    {
+      "path": "green-r2/teleport-interrupt/child-identity.json",
+      "bytes": 1375,
+      "sha256": "4DAE6BECD8C9615E5BA9F6B2DCF0C4243FFFC551B66F8CC5F0486630FBE59E2A"
+    },
+    {
+      "path": "green-r2/teleport-interrupt/events.jsonl",
+      "bytes": 1324,
+      "sha256": "FF991CD1BFD6A774923482ED6D8E8EACE1398590B3675066F78714B1F11B89EA"
+    },
+    {
+      "path": "green-r2/teleport-interrupt/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green-r2/teleport-interrupt/interrupt-error.json",
+      "bytes": 77,
+      "sha256": "8F84882BAB8E4492E433AE4E79F8054A2938F019BF59AEE226711AC44FE97875"
+    },
+    {
+      "path": "green-r2/teleport-interrupt/interrupt-sent.json",
+      "bytes": 58,
+      "sha256": "1D6F17DFA78221F805C645B46C2BCC554B3AF458284F6F269093FF330DC1B0C0"
+    },
+    {
+      "path": "green-r2/teleport-interrupt/registration.json",
+      "bytes": 674,
+      "sha256": "93D2B8C9B7C15E5385C70EE591C0D3005AA06AD9A18BC0E8E18F1DD203FB3DA0"
+    },
+    {
+      "path": "green-r2/teleport-interrupt/resources.log",
+      "bytes": 254,
+      "sha256": "D9E324205B779A99748C6C40DDA7FBFE77784E2A541611BA7D5DFC76258C2888"
+    },
+    {
+      "path": "green-r2/teleport-interrupt/run.log",
+      "bytes": 768,
+      "sha256": "AA65776A1853EAAB01643B47E1AB8A8C285D7DFEF1DB3641C5200D2732DFB91B"
+    },
+    {
+      "path": "green-r2/teleport-interrupt/served-state.json",
+      "bytes": 104,
+      "sha256": "20E5FA82CF2E0F37FD4D0D827994DE7293761541CC1561A907E2E7C969B36033"
+    },
+    {
+      "path": "green-r2/teleport-interrupt/wire-events.jsonl",
+      "bytes": 812,
+      "sha256": "9D03B7129392D2C8B5046B13877AC715DED0D69CF80ED92360FFEC8D59F527FA"
+    },
+    {
+      "path": "green-r2/teleport-later-wave/actual-result.json",
+      "bytes": 192,
+      "sha256": "96C19DEA96460BE88E64FA5AC2D4125C0DD27A621D2AB5589067B08A60F2BD90"
+    },
+    {
+      "path": "green-r2/teleport-later-wave/child-identity.json",
+      "bytes": 1379,
+      "sha256": "4621989FFAEC46A12F66933345DDDC98D036DD50E9EFD8B08475BEDB8C674635"
+    },
+    {
+      "path": "green-r2/teleport-later-wave/control-monitor.json",
+      "bytes": 263,
+      "sha256": "63731E8E9BEE6CF9F7088C9DD444206F3B951E634DCF3297E03FBCA0A00230ED"
+    },
+    {
+      "path": "green-r2/teleport-later-wave/events.jsonl",
+      "bytes": 5907,
+      "sha256": "B07F6833EB8BA6EA9235608F748F607ADB77B83F2ECC1B6A4F1E334AC823F82B"
+    },
+    {
+      "path": "green-r2/teleport-later-wave/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green-r2/teleport-later-wave/launch-result.json",
+      "bytes": 219,
+      "sha256": "22FEEE3E558FE31849C696BDBA1912F21951902A0BF689CB638046950DA2184D"
+    },
+    {
+      "path": "green-r2/teleport-later-wave/registration.json",
+      "bytes": 676,
+      "sha256": "F12DCCBD174D01B9213C776B812B70BBD59E8039C3E00E9B289052358D2963CC"
+    },
+    {
+      "path": "green-r2/teleport-later-wave/resources.log",
+      "bytes": 255,
+      "sha256": "882EA5653B29529A4ED1B8667E9D2CDC23C43C30CD3015FE17F50DE236A73CA4"
+    },
+    {
+      "path": "green-r2/teleport-later-wave/run.log",
+      "bytes": 4385,
+      "sha256": "78C135A34D61B5D17284706D54FB46117725501A338A4E236F958C16CCA912DC"
+    },
+    {
+      "path": "green-r2/teleport-later-wave/served-state.json",
+      "bytes": 104,
+      "sha256": "64C869CF82B7F0ED695894C91113F83252F22349C223CC3AA20711E3F67B5083"
+    },
+    {
+      "path": "green-r2/teleport-later-wave/wire-events.jsonl",
+      "bytes": 2808,
+      "sha256": "1545CAE2BAA0F14DB1BFD5AF63804FC451322115E809F6DBBA20CBF97DDCC59C"
+    },
+    {
+      "path": "green-r2/teleport-malformed/actual-result.json",
+      "bytes": 269,
+      "sha256": "199968D41C1C6AB2864D81744CE7D885C2EF1209E0D2F0438FA14820B1ADFEFA"
+    },
+    {
+      "path": "green-r2/teleport-malformed/child-identity.json",
+      "bytes": 1375,
+      "sha256": "64D0BCE6139E2D01BCC9C1D144CB09C4C265A352A27766BA1E736585EB599A2D"
+    },
+    {
+      "path": "green-r2/teleport-malformed/control-monitor.json",
+      "bytes": 367,
+      "sha256": "176CE29C0BF0EA88C5C5CA4FE76CC005893CCDF7ED515AC1EAAD477AA3B1BBEC"
+    },
+    {
+      "path": "green-r2/teleport-malformed/events.jsonl",
+      "bytes": 1323,
+      "sha256": "A495F53F21E0FA0764CA7AAAFAE030AE7429D3A23B06630A264851BEB0C343D7"
+    },
+    {
+      "path": "green-r2/teleport-malformed/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green-r2/teleport-malformed/launch-result.json",
+      "bytes": 296,
+      "sha256": "5D431BA6754995874FB30B871EA3622219620542CDD1EFC4194DC595FE5359C4"
+    },
+    {
+      "path": "green-r2/teleport-malformed/registration.json",
+      "bytes": 674,
+      "sha256": "56C484BBA3C2C9093447341E7A1AD1404110641737BC16BFB8BF1F0423A25706"
+    },
+    {
+      "path": "green-r2/teleport-malformed/resources.log",
+      "bytes": 254,
+      "sha256": "4A1BB3CF83202CD5952D648479F8770E02F40611ECFFF774AA33BD74BEEF44FF"
+    },
+    {
+      "path": "green-r2/teleport-malformed/run.log",
+      "bytes": 2276,
+      "sha256": "7CC5A196E4B00ABC46B38DD91410E51DF7020C66DDE274540F15954AFA8B4762"
+    },
+    {
+      "path": "green-r2/teleport-malformed/served-state.json",
+      "bytes": 104,
+      "sha256": "20E5FA82CF2E0F37FD4D0D827994DE7293761541CC1561A907E2E7C969B36033"
+    },
+    {
+      "path": "green-r2/teleport-malformed/wire-events.jsonl",
+      "bytes": 813,
+      "sha256": "EA870C71F20C342DB9EBF189D9E454C4035205E440054F4ABE0A0744AD7660A2"
+    },
+    {
+      "path": "green-r2/teleport-mirror/actual-result.json",
+      "bytes": 234,
+      "sha256": "CDE042F90504CB151E6D083B9D56D15AE37D7EDC98B78981B9E88655966D152D"
+    },
+    {
+      "path": "green-r2/teleport-mirror/child-identity.json",
+      "bytes": 1363,
+      "sha256": "1F34C108D6482E1EA61D65D37D839166B23EC01DDD7470A94F04BDD7AF21A7E1"
+    },
+    {
+      "path": "green-r2/teleport-mirror/control-monitor.json",
+      "bytes": 334,
+      "sha256": "9078875E37A68D9B29C24B0626AE327515BFEB1F6C7B5851676A97D665F8289A"
+    },
+    {
+      "path": "green-r2/teleport-mirror/events.jsonl",
+      "bytes": 30889,
+      "sha256": "3773CA2913F268F1991A9C9498351CBD41D02E8C82D4F246C53EA5C533C40883"
+    },
+    {
+      "path": "green-r2/teleport-mirror/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green-r2/teleport-mirror/launch-result.json",
+      "bytes": 261,
+      "sha256": "85F02B80DC986C2B10FB5EDEFFFA06182A98B74C4DFC3D9E015145C31F041E24"
+    },
+    {
+      "path": "green-r2/teleport-mirror/registration.json",
+      "bytes": 668,
+      "sha256": "B5B9E2563D936926CCB33BFEDCE402A7D1DEF0B545EB3C457B96F532FB3ECCB3"
+    },
+    {
+      "path": "green-r2/teleport-mirror/resources.log",
+      "bytes": 251,
+      "sha256": "94B4A79F2D23E90F1FCE9FC6E27D347DAB53501C986064F09CCD949328A6C932"
+    },
+    {
+      "path": "green-r2/teleport-mirror/run.log",
+      "bytes": 2270,
+      "sha256": "A3D5AF6A75CF67F6435FF892FA22C014636FDD8BF3A5691D3CAA1E4F50CCEA81"
+    },
+    {
+      "path": "green-r2/teleport-mirror/served-state.json",
+      "bytes": 104,
+      "sha256": "20E5FA82CF2E0F37FD4D0D827994DE7293761541CC1561A907E2E7C969B36033"
+    },
+    {
+      "path": "green-r2/teleport-mirror/wire-events.jsonl",
+      "bytes": 19886,
+      "sha256": "B082DD3AEC293AD0E17D794CDAA27DED10CEDA1D16519F85935236B57BFA4009"
+    },
+    {
+      "path": "green-r2/teleport-no-eligible/actual-result.json",
+      "bytes": 234,
+      "sha256": "525810BE840062E52574E1CE3E5A2EA7D9DCC4BCB3330E598A4FC0A2ED09F324"
+    },
+    {
+      "path": "green-r2/teleport-no-eligible/child-identity.json",
+      "bytes": 1383,
+      "sha256": "D1E93636567EBE0253EF0ED0EF9A398CC223CEAADF33116266C306B2F75F8C7D"
+    },
+    {
+      "path": "green-r2/teleport-no-eligible/control-monitor.json",
+      "bytes": 334,
+      "sha256": "610695D860707F7B4A2824EA3E76A79C9D9D5FD0A7F6C68931DA596E6771CA7A"
+    },
+    {
+      "path": "green-r2/teleport-no-eligible/events.jsonl",
+      "bytes": 25040,
+      "sha256": "9A75BBF10778A52647F99A0CA0C880D12ACEB9A34ED2AE933335EBA064A8D90E"
+    },
+    {
+      "path": "green-r2/teleport-no-eligible/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green-r2/teleport-no-eligible/launch-result.json",
+      "bytes": 261,
+      "sha256": "BE3DEFCB74C2B96D90B0F3354C600587CEC74317D3187C0B9F5469705E381FBE"
+    },
+    {
+      "path": "green-r2/teleport-no-eligible/registration.json",
+      "bytes": 678,
+      "sha256": "FDE9DA264B5BA8F878BB98EB9247EC02236D16AAB447C395E9A11980BEEB2FDE"
+    },
+    {
+      "path": "green-r2/teleport-no-eligible/resources.log",
+      "bytes": 256,
+      "sha256": "27529CDA205F38C67607227386EBBA1AF13923A88988EDC72CB629F75B0CD371"
+    },
+    {
+      "path": "green-r2/teleport-no-eligible/run.log",
+      "bytes": 768,
+      "sha256": "AA65776A1853EAAB01643B47E1AB8A8C285D7DFEF1DB3641C5200D2732DFB91B"
+    },
+    {
+      "path": "green-r2/teleport-no-eligible/served-state.json",
+      "bytes": 104,
+      "sha256": "20E5FA82CF2E0F37FD4D0D827994DE7293761541CC1561A907E2E7C969B36033"
+    },
+    {
+      "path": "green-r2/teleport-no-eligible/wire-events.jsonl",
+      "bytes": 16124,
+      "sha256": "D866D922EE0AF4DAAA99CC9D7B0F50A26A88369BF4DA0836CDCF8B8C4A121822"
+    },
+    {
+      "path": "green-r2/teleport-stale/actual-result.json",
+      "bytes": 234,
+      "sha256": "AE5DE836D066617F1946A846E840EF0BE8A2E6197B589435DC004F984E07BD3C"
+    },
+    {
+      "path": "green-r2/teleport-stale/child-identity.json",
+      "bytes": 1359,
+      "sha256": "49B3D5E4513F465E233CB3BAA6EDCEC3C88A94391C600E74FFC121C271F5240E"
+    },
+    {
+      "path": "green-r2/teleport-stale/control-monitor.json",
+      "bytes": 333,
+      "sha256": "95596BC1CF5F40593E48D883DB63161373A1FE3E0622BC2A7965DD770E55CBC1"
+    },
+    {
+      "path": "green-r2/teleport-stale/events.jsonl",
+      "bytes": 31385,
+      "sha256": "C4A7D11DBCF3580D43CD85F78EAE79E936133C76946E82F8206AC3370A0DB497"
+    },
+    {
+      "path": "green-r2/teleport-stale/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green-r2/teleport-stale/launch-result.json",
+      "bytes": 261,
+      "sha256": "12004F9FD98F6F0A6B12FEDA9B1A06C5FDB1CBB835EF01074160410DE0551A14"
+    },
+    {
+      "path": "green-r2/teleport-stale/registration.json",
+      "bytes": 666,
+      "sha256": "BF482DDF1C4DE15E9101F815EB545CF6FC72E23AF7E21F830E3ADE09DFC1B6D2"
+    },
+    {
+      "path": "green-r2/teleport-stale/resources.log",
+      "bytes": 250,
+      "sha256": "1FA2B9A91B280F010C02E1A6FEFE5B59C7798D4F6DB62FE9D25E1D6A87809B3E"
+    },
+    {
+      "path": "green-r2/teleport-stale/run.log",
+      "bytes": 2270,
+      "sha256": "BDB953B5A6E85E9DE22798EE810778FD01E40E60CAB3D471CC522A8055DDB1F9"
+    },
+    {
+      "path": "green-r2/teleport-stale/served-state.json",
+      "bytes": 104,
+      "sha256": "20E5FA82CF2E0F37FD4D0D827994DE7293761541CC1561A907E2E7C969B36033"
+    },
+    {
+      "path": "green-r2/teleport-stale/wire-events.jsonl",
+      "bytes": 20213,
+      "sha256": "9AB058EC45E6B7A60F9D1B3F459EF69A23A5218EB4276095F9FEA27FAE0B9D5A"
+    },
+    {
+      "path": "green-r2/teleport-startup/actual-result.json",
+      "bytes": 192,
+      "sha256": "C9B3348CE1DCAA60A3B89D9532649572779EC989B1B156151F089147A9B2CF5F"
+    },
+    {
+      "path": "green-r2/teleport-startup/child-identity.json",
+      "bytes": 1367,
+      "sha256": "C614A6021B72B68EDF8F8F7623E17FCFFF6E25E505A9BE3E408A2A3B6B29778B"
+    },
+    {
+      "path": "green-r2/teleport-startup/control-monitor.json",
+      "bytes": 263,
+      "sha256": "1E4EA414AA5B19E4CBF28CE091247BF26B48AE1EA733E6E22243CD5073067B4B"
+    },
+    {
+      "path": "green-r2/teleport-startup/events.jsonl",
+      "bytes": 5944,
+      "sha256": "BBBCEA03BF5670DFC28709BEDC7AEA2A0E9AD074389B20EFCF9E5B23F306493C"
+    },
+    {
+      "path": "green-r2/teleport-startup/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green-r2/teleport-startup/launch-result.json",
+      "bytes": 219,
+      "sha256": "E74F25198BC9A39C3F6F6069E1EC09C79694B7369B8548F21CD77A39D33389B8"
+    },
+    {
+      "path": "green-r2/teleport-startup/registration.json",
+      "bytes": 670,
+      "sha256": "095125204333C495192D3D0EFBF6E4DBF1971571E6FC779B80F8DBDB81D020B6"
+    },
+    {
+      "path": "green-r2/teleport-startup/resources.log",
+      "bytes": 252,
+      "sha256": "01B4FD1B0221EFEDAD378E2FFAD2A721B8A953340475DB97FBB88F24EF494746"
+    },
+    {
+      "path": "green-r2/teleport-startup/run.log",
+      "bytes": 4671,
+      "sha256": "B7AAFD675346EF1BD9AD69356F36709040EE7419691C75B7444675B4AC73FD92"
+    },
+    {
+      "path": "green-r2/teleport-startup/served-state.json",
+      "bytes": 104,
+      "sha256": "64C869CF82B7F0ED695894C91113F83252F22349C223CC3AA20711E3F67B5083"
+    },
+    {
+      "path": "green-r2/teleport-startup/wire-events.jsonl",
+      "bytes": 2810,
+      "sha256": "A8F966A362780EA729051DF2E86D682D8CDD7F21446D89DC106367590A54EF45"
+    },
+    {
+      "path": "green-r2/teleport-unfinished/actual-result.json",
+      "bytes": 233,
+      "sha256": "7B601498C6B9AF13DF1910095FF8B15A344D54D9EA3E3D46C743CC75DDA7B9FF"
+    },
+    {
+      "path": "green-r2/teleport-unfinished/child-identity.json",
+      "bytes": 1379,
+      "sha256": "499E18157E68D7194C6C4E704E2039FF76CB5F6F9A554D07A25A00491F578AAE"
+    },
+    {
+      "path": "green-r2/teleport-unfinished/control-monitor.json",
+      "bytes": 331,
+      "sha256": "443424DE79510C4D3C053AE83375980CE11762C2619C06834C7DC488259DFBD2"
+    },
+    {
+      "path": "green-r2/teleport-unfinished/events.jsonl",
+      "bytes": 1323,
+      "sha256": "C78D01C58C864019A464793F2DAC158C25FAE7142B7BB29620B82602C3762169"
+    },
+    {
+      "path": "green-r2/teleport-unfinished/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green-r2/teleport-unfinished/launch-result.json",
+      "bytes": 260,
+      "sha256": "82625BE8547154A6D8AF1E424EF4397071C23C80115A66B1B23C08FCBB0E7985"
+    },
+    {
+      "path": "green-r2/teleport-unfinished/registration.json",
+      "bytes": 676,
+      "sha256": "B959F9FCEDEFD614B6BA3E41E85879FECC31218072F59AEC916AF649E9D63BE1"
+    },
+    {
+      "path": "green-r2/teleport-unfinished/resources.log",
+      "bytes": 255,
+      "sha256": "A3AB167F8A5245EB80CEB061F964E2B323E28CF65CB9BBFB5E6B48FE11B74D79"
+    },
+    {
+      "path": "green-r2/teleport-unfinished/run.log",
+      "bytes": 66329,
+      "sha256": "A5D8DC36900828A5DC512D89AE58832487778F9D1599E86FFD8876DE9EF73E94"
+    },
+    {
+      "path": "green-r2/teleport-unfinished/served-state.json",
+      "bytes": 104,
+      "sha256": "20E5FA82CF2E0F37FD4D0D827994DE7293761541CC1561A907E2E7C969B36033"
+    },
+    {
+      "path": "green-r2/teleport-unfinished/wire-events.jsonl",
+      "bytes": 810,
+      "sha256": "9D6E81AC02B95507CB58DF7A90123FB88FD4E31155117AE0DFC6A7C8DECE6786"
+    },
+    {
+      "path": "green-r2/teleport-wrong-owner/actual-result.json",
+      "bytes": 234,
+      "sha256": "9BF59675BEE315F241E66EBEFED09A3B3B0942350BA570326783BE3F444EC66C"
+    },
+    {
+      "path": "green-r2/teleport-wrong-owner/child-identity.json",
+      "bytes": 1383,
+      "sha256": "67174061F7636630746BE698EC0FE6CBE6D46BEF966F0EEE52A7552BFBFB8579"
+    },
+    {
+      "path": "green-r2/teleport-wrong-owner/control-monitor.json",
+      "bytes": 334,
+      "sha256": "F0287F9F7FD5B357B4B00AD62113F26DC7D7C37DD8AB749DA32A8C1C97B9A325"
+    },
+    {
+      "path": "green-r2/teleport-wrong-owner/events.jsonl",
+      "bytes": 31696,
+      "sha256": "8EC64E1D8BD7697CDCF46BDAD84B645677E6D0C4230C02D7F2C3A15D0B05BFAA"
+    },
+    {
+      "path": "green-r2/teleport-wrong-owner/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green-r2/teleport-wrong-owner/launch-result.json",
+      "bytes": 261,
+      "sha256": "14A69B52CF2877C8E7398E6293501463AD2ECACBEA11ACC13F9D12E71B5142B0"
+    },
+    {
+      "path": "green-r2/teleport-wrong-owner/registration.json",
+      "bytes": 678,
+      "sha256": "62D2000575710BC4C1471193A946FDCE5B9E1731617050C6F0888EEFCF2424AF"
+    },
+    {
+      "path": "green-r2/teleport-wrong-owner/resources.log",
+      "bytes": 256,
+      "sha256": "133CDBB315134CEBC0AB74BF5B3DE2C4785A984C01D25D1F5EA7FEE3261A65BE"
+    },
+    {
+      "path": "green-r2/teleport-wrong-owner/run.log",
+      "bytes": 2270,
+      "sha256": "330C40DE4469A9267ACFE4EB66417B25323EC8C303F406F55D2C86D7F6B73EC3"
+    },
+    {
+      "path": "green-r2/teleport-wrong-owner/served-state.json",
+      "bytes": 104,
+      "sha256": "20E5FA82CF2E0F37FD4D0D827994DE7293761541CC1561A907E2E7C969B36033"
+    },
+    {
+      "path": "green-r2/teleport-wrong-owner/wire-events.jsonl",
+      "bytes": 20393,
+      "sha256": "3FC7EE8CBD398DEAE065562B8BBA70DDDB2BDBAA03B8A9B0E659CB115DC84880"
+    },
+    {
+      "path": "green-source-canonical_gate.py.txt",
+      "bytes": 8824,
+      "sha256": "58C5A712718E258DF5B839E48699EA00360A08A9604C87EE73DDAC8506CC9529"
+    },
+    {
+      "path": "green-source-fixture_game.py.txt",
+      "bytes": 9598,
+      "sha256": "5CD42A5CCA8A9F10CAFEEC5B5A6893947A3046FAC0E5FF7E5EC0B18245BA8E0F"
+    },
+    {
+      "path": "green-source-lifecycle_causal.py.txt",
+      "bytes": 11844,
+      "sha256": "94F8BC51F6DCE8BE5CBCB99E54807C45AC999B2DC57752D478104AE027D2BB1E"
+    },
+    {
+      "path": "green-source-qualify.py.txt",
+      "bytes": 7053,
+      "sha256": "55E9D890CBF5760B69A1AD284B70A90CAEDB0D7D8A5EC91F05EDEEBDF1A1FFF8"
+    },
+    {
+      "path": "green-source-run-cpu.ps1.txt",
+      "bytes": 3155,
+      "sha256": "2DB25DB13C0B60ED07F8F7744E4DC97DB6DDFB32CFF0E8B8F284AB7CBA8F194B"
+    },
+    {
+      "path": "green-stderr.txt",
+      "bytes": 0,
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+      "path": "green-stdout.txt",
+      "bytes": 255,
+      "sha256": "AC66C2307DE44B0B16E1BC29BCCEAD26082A068D084FDD9D3AF8F71AE2905F4E"
+    },
+    {
+      "path": "green/closure.json",
+      "bytes": 106,
+      "sha256": "7BD91709B11F73C60894C90F676D1465CB38A38FC439A65551711CD362C80080"
+    },
+    {
+      "path": "green/destroy-replacement-healthy/actual-result.json",
+      "bytes": 192,
+      "sha256": "2F7D825CD28A26D55F15EC1C9B66CFEE714C8E701BCB9788227C3194C5A4F2F5"
+    },
+    {
+      "path": "green/destroy-replacement-healthy/child-identity.json",
+      "bytes": 1383,
+      "sha256": "B5E4FB126E43616CA176B097FFD6C269A961AF25268A5213BAE6109C5C293572"
+    },
+    {
+      "path": "green/destroy-replacement-healthy/control-monitor.json",
+      "bytes": 263,
+      "sha256": "1D56A10EB6A4F6BB61A97C05D21852D037DBDD3A78CBCB3FF8F9CBA7E5E5337B"
+    },
+    {
+      "path": "green/destroy-replacement-healthy/events.jsonl",
+      "bytes": 6561,
+      "sha256": "C14055DA15C5A0B4C05890EC61D23F8C8600CA4C2EAE3EA08573EBBE3DAC9E4B"
+    },
+    {
+      "path": "green/destroy-replacement-healthy/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green/destroy-replacement-healthy/launch-result.json",
+      "bytes": 219,
+      "sha256": "0C118FBF408333E11713C17203051B6BC54D24FF52732ACAB7C64DAA24DA56E2"
+    },
+    {
+      "path": "green/destroy-replacement-healthy/registration.json",
+      "bytes": 678,
+      "sha256": "A09715C55C4123F78B3222957AA482FAA3239B05153F06E73932D1FF5CF4916B"
+    },
+    {
+      "path": "green/destroy-replacement-healthy/resources.log",
+      "bytes": 260,
+      "sha256": "27DC8F579BD6E937E9544221E1273EEBB9FD2F977BEB6313677A4DAC1F1786C9"
+    },
+    {
+      "path": "green/destroy-replacement-healthy/run.log",
+      "bytes": 5043,
+      "sha256": "96BA7CCEF94DA3D62AD3C33CD4F6DD7E11561CF2B2CBC7C39259AE9A85F2675D"
+    },
+    {
+      "path": "green/destroy-replacement-healthy/served-state.json",
+      "bytes": 104,
+      "sha256": "F9F57A97766C355E8F69896BD8EDF9395D06A500201622517A0CC6F1BD0E1C28"
+    },
+    {
+      "path": "green/destroy-replacement-healthy/wire-events.jsonl",
+      "bytes": 3094,
+      "sha256": "50CFEC62C4737D73F06207A2F2BFB28796FD84123A507E2B9F8E7304AFB58C35"
+    },
+    {
+      "path": "green/hidden-healthy/actual-result.json",
+      "bytes": 192,
+      "sha256": "76BD730797C83DBDD359430F670611EF6939C742D0D58DF3AB1425F300117A22"
+    },
+    {
+      "path": "green/hidden-healthy/child-identity.json",
+      "bytes": 1357,
+      "sha256": "0584CA3327B93C9ADEA6B7A19E8E01E36FBEF39631A7458137EDCCBAD282649C"
+    },
+    {
+      "path": "green/hidden-healthy/control-monitor.json",
+      "bytes": 263,
+      "sha256": "38CD68CA2894401F946861396DEC0630BE9F8F7AB2553B1B3BB896EE830419CC"
+    },
+    {
+      "path": "green/hidden-healthy/events.jsonl",
+      "bytes": 7269,
+      "sha256": "F47BFE5E8C59F09CD6368298F6A96CD7E8E155110D4020E52DEC726142FCB1E0"
+    },
+    {
+      "path": "green/hidden-healthy/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green/hidden-healthy/launch-result.json",
+      "bytes": 219,
+      "sha256": "B16D1407D731208A42EA7CF1E52B2765426A902B703AC9F4E550A28E75C662EF"
+    },
+    {
+      "path": "green/hidden-healthy/registration.json",
+      "bytes": 665,
+      "sha256": "C4C4C2DB1A7550CD3B4499FE0CC80A6DCE856B6D7CE1F5D63AA9B63300878E99"
+    },
+    {
+      "path": "green/hidden-healthy/resources.log",
+      "bytes": 247,
+      "sha256": "82763D7A2D8DFCF01AE151DBA75609A1B922B9773E82F0472854516AA78F018F"
+    },
+    {
+      "path": "green/hidden-healthy/run.log",
+      "bytes": 7056,
+      "sha256": "308A0FEBFBAB2C17D6A535C6FC8147D9C7376C2D43BB7B83377F21EB107CE3FB"
+    },
+    {
+      "path": "green/hidden-healthy/served-state.json",
+      "bytes": 104,
+      "sha256": "9E093BC8894E767FAB16AB230455E700BDE1EFDF48D198BA433E16FE66668649"
+    },
+    {
+      "path": "green/hidden-healthy/wire-events.jsonl",
+      "bytes": 3162,
+      "sha256": "78520AEFE9CFFAE2D45446A9D05DFD76F23A93DF63D848C0F4A7DAA66B46E991"
+    },
+    {
+      "path": "green/presentation-shrouded-healthy/actual-result.json",
+      "bytes": 192,
+      "sha256": "3B92EDD378841BC9281D180973F1CB004927AF768A487CCAC7F19722FAB84D21"
+    },
+    {
+      "path": "green/presentation-shrouded-healthy/child-identity.json",
+      "bytes": 1387,
+      "sha256": "425171E68BCFF617E0AF2C537B7DE165210BC78E880A299D3E4D2A60FE300A27"
+    },
+    {
+      "path": "green/presentation-shrouded-healthy/control-monitor.json",
+      "bytes": 263,
+      "sha256": "0FB991D62D4CC523A6A09A924BE4EED40975A9B04310D0F86CE2B145DE12A436"
+    },
+    {
+      "path": "green/presentation-shrouded-healthy/events.jsonl",
+      "bytes": 7270,
+      "sha256": "2D4127B5BCB5CB95FF166296D82CD9F4DD038C3D2DA69836A0306B77BE6CDF24"
+    },
+    {
+      "path": "green/presentation-shrouded-healthy/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green/presentation-shrouded-healthy/launch-result.json",
+      "bytes": 219,
+      "sha256": "9812F0F4A742C11A5568978F95E144E55487DAE23CD1FBDFF2FDC0AAAE9B1621"
+    },
+    {
+      "path": "green/presentation-shrouded-healthy/registration.json",
+      "bytes": 680,
+      "sha256": "B96EBC25F42D1465344271099AA0C8F28C23870195BBDC91048BA88DFB1B0645"
+    },
+    {
+      "path": "green/presentation-shrouded-healthy/resources.log",
+      "bytes": 262,
+      "sha256": "6847644C9FBFE47C6D5F4A10D0EAC72F486F66270C175AC48F72140700331094"
+    },
+    {
+      "path": "green/presentation-shrouded-healthy/run.log",
+      "bytes": 7056,
+      "sha256": "C9F26D04627B7264990C1337AC5ABC1BDE9D0D900557F1C821891E8C2832675A"
+    },
+    {
+      "path": "green/presentation-shrouded-healthy/served-state.json",
+      "bytes": 104,
+      "sha256": "9E093BC8894E767FAB16AB230455E700BDE1EFDF48D198BA433E16FE66668649"
+    },
+    {
+      "path": "green/presentation-shrouded-healthy/wire-events.jsonl",
+      "bytes": 3167,
+      "sha256": "8BD516E0256B720D2A1A1CAE94CD9ACA4EEFE4CC3F83A694FEE809C1F255AE67"
+    },
+    {
+      "path": "green/supervisor-identity.json",
+      "bytes": 965,
+      "sha256": "68C112A64C800FD625E12F97BFD6B2549551D6F94C594E51BEA80B2CAE4344B7"
+    },
+    {
+      "path": "green/teleport-capped/actual-result.json",
+      "bytes": 281,
+      "sha256": "E92F88DA12DEEF9C2B74DB11C0BAACCABE1C7398EDEB6F6B371C15FE00327C77"
+    },
+    {
+      "path": "green/teleport-capped/child-identity.json",
+      "bytes": 1357,
+      "sha256": "03F0FFBBF577AE8DB923A25CF6C1DB5E4DCDF42EEA1D7987391B62E318425406"
+    },
+    {
+      "path": "green/teleport-capped/control-monitor.json",
+      "bytes": 379,
+      "sha256": "1CD7C5A06394A0CE02997BA716EEA474486DCCD3967334A786AB0C0E2BEF6C19"
+    },
+    {
+      "path": "green/teleport-capped/events.jsonl",
+      "bytes": 1324,
+      "sha256": "89B809CA6F1567AB7A85B2E2D5D023918B454F793D82D32FF2E737A839FF6F92"
+    },
+    {
+      "path": "green/teleport-capped/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green/teleport-capped/launch-result.json",
+      "bytes": 308,
+      "sha256": "0A92F05917A34C98C96DD04028CA25BCDBDD0D1BE3A549D410E4D1327211C912"
+    },
+    {
+      "path": "green/teleport-capped/registration.json",
+      "bytes": 665,
+      "sha256": "8AC228A25B95CA3C7418FBAD809AF9A993A07D996B0746730BFCC9822C8DF50B"
+    },
+    {
+      "path": "green/teleport-capped/resources.log",
+      "bytes": 248,
+      "sha256": "F76815236246E4F65ECEBFBA91EB88EE8D3331D13650B9EFD10F232DFA6E8919"
+    },
+    {
+      "path": "green/teleport-capped/run.log",
+      "bytes": 2274,
+      "sha256": "B34DFD337194A4682ED2E80939C4269977CB5A4C22E1351AEE6072923C26A252"
+    },
+    {
+      "path": "green/teleport-capped/served-state.json",
+      "bytes": 104,
+      "sha256": "20E5FA82CF2E0F37FD4D0D827994DE7293761541CC1561A907E2E7C969B36033"
+    },
+    {
+      "path": "green/teleport-capped/wire-events.jsonl",
+      "bytes": 812,
+      "sha256": "F8C99EDD48FB1C3F956FB3523C36F28F62362CB9344A52FD13B0D99C88980491"
+    },
+    {
+      "path": "green/teleport-disconnect/actual-result.json",
+      "bytes": 257,
+      "sha256": "06784F04AC353D5E19936C65A2269D384082560EEC7449B7388DEB8C4127AA55"
+    },
+    {
+      "path": "green/teleport-disconnect/child-identity.json",
+      "bytes": 1371,
+      "sha256": "C140EFFD032CD2D2E3258B71029754FD704A150AAE271682620E89BD2BEDB083"
+    },
+    {
+      "path": "green/teleport-disconnect/control-monitor.json",
+      "bytes": 356,
+      "sha256": "0AEC082C72822A86BEF212F15997D6738F4A7CD7169120E685AED19C37061E75"
+    },
+    {
+      "path": "green/teleport-disconnect/events.jsonl",
+      "bytes": 1225,
+      "sha256": "63F10274A69B645DBD2119043B20B07A11E650227F77E1328F788A9A11F0B77C"
+    },
+    {
+      "path": "green/teleport-disconnect/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green/teleport-disconnect/launch-result.json",
+      "bytes": 284,
+      "sha256": "72B8D74CE71BD0C74D3D0F30C6F3D99642D42CE361D0A68A5397BF2BD67726BA"
+    },
+    {
+      "path": "green/teleport-disconnect/registration.json",
+      "bytes": 673,
+      "sha256": "1E3D546CDB2F771D6E54AB4A1D4D1F8EFEE62F246B83F36EF654B36770FF63DD"
+    },
+    {
+      "path": "green/teleport-disconnect/resources.log",
+      "bytes": 250,
+      "sha256": "979A8F31E790BE3ED9283130C0A90E3DD35063AEDBD3AF25FEE618AAA227BA3F"
+    },
+    {
+      "path": "green/teleport-disconnect/run.log",
+      "bytes": 768,
+      "sha256": "AA65776A1853EAAB01643B47E1AB8A8C285D7DFEF1DB3641C5200D2732DFB91B"
+    },
+    {
+      "path": "green/teleport-disconnect/served-state.json",
+      "bytes": 104,
+      "sha256": "20E5FA82CF2E0F37FD4D0D827994DE7293761541CC1561A907E2E7C969B36033"
+    },
+    {
+      "path": "green/teleport-disconnect/wire-events.jsonl",
+      "bytes": 763,
+      "sha256": "5881BEEF988889A0DE2CF0B0D25EF47236FA052A428806A4B97D3EE501B71586"
+    },
+    {
+      "path": "green/teleport-healthy-compat/actual-result.json",
+      "bytes": 192,
+      "sha256": "93F49DE0DE029E8810C49C63D163BE070264946E34182DECF3FD8BE4BD7C7A18"
+    },
+    {
+      "path": "green/teleport-healthy-compat/child-identity.json",
+      "bytes": 1375,
+      "sha256": "CFA61FE3ACBD546A68BBA58A0E410B9BC6BABA0D2F94D1DF80C4E4E191BC2795"
+    },
+    {
+      "path": "green/teleport-healthy-compat/control-monitor.json",
+      "bytes": 263,
+      "sha256": "EA9D90E4D66511DBD1D0E83F943AC916D24AB8E29EE1A6A4A4BDF1C5A69D629D"
+    },
+    {
+      "path": "green/teleport-healthy-compat/events.jsonl",
+      "bytes": 4985,
+      "sha256": "2D8FB098272C257AB8FCC2835F8B2118637432AE30645F460437D865E4C8F8FF"
+    },
+    {
+      "path": "green/teleport-healthy-compat/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green/teleport-healthy-compat/launch-result.json",
+      "bytes": 219,
+      "sha256": "599F06B53932F4025DEB2C042AA391C36639AF122D38475DE8765521A5A16F8C"
+    },
+    {
+      "path": "green/teleport-healthy-compat/registration.json",
+      "bytes": 674,
+      "sha256": "3EEE827839BB6637D3F9546A076AE362A986DAB76E671B3472BD2C7629013B70"
+    },
+    {
+      "path": "green/teleport-healthy-compat/resources.log",
+      "bytes": 256,
+      "sha256": "40F5410A9B962F598FF38DC7AA6BA00714F72170D220F8B04501763D72D7F8F3"
+    },
+    {
+      "path": "green/teleport-healthy-compat/run.log",
+      "bytes": 3167,
+      "sha256": "93B887CCAF3F2AA3F6F2D5ACADCF78ACB9869724BDDF1F6E247AA5EC5BA7A587"
+    },
+    {
+      "path": "green/teleport-healthy-compat/served-state.json",
+      "bytes": 104,
+      "sha256": "64C869CF82B7F0ED695894C91113F83252F22349C223CC3AA20711E3F67B5083"
+    },
+    {
+      "path": "green/teleport-healthy-compat/wire-events.jsonl",
+      "bytes": 2884,
+      "sha256": "E147CF73F2B58945CC1E90E1A566E11B639A6C6BE8B93B370788B320833C45FD"
+    },
+    {
+      "path": "green/teleport-healthy/actual-result.json",
+      "bytes": 192,
+      "sha256": "0FFFB0D9FD9159AF45B938CC074970400F428B51B8541FFCB0524BAF84194436"
+    },
+    {
+      "path": "green/teleport-healthy/child-identity.json",
+      "bytes": 1361,
+      "sha256": "E1A9F2B7E8233415B59595507A6FEE21D49E9602C1DC6E8B14F8212E600B978D"
+    },
+    {
+      "path": "green/teleport-healthy/control-monitor.json",
+      "bytes": 262,
+      "sha256": "300A0840E2327B8431BA116C8B9CE00A1306B70A4919C7BB66C6268FF317539E"
+    },
+    {
+      "path": "green/teleport-healthy/events.jsonl",
+      "bytes": 5833,
+      "sha256": "34E3907C8911CFEFD15BBA406B420AEF91019C2510819773718BABDA5EE6F8C8"
+    },
+    {
+      "path": "green/teleport-healthy/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green/teleport-healthy/launch-result.json",
+      "bytes": 219,
+      "sha256": "E14164BF8438E86276EA73E12D483087CB370101B3B1FC1B44053CD1CFB7C497"
+    },
+    {
+      "path": "green/teleport-healthy/registration.json",
+      "bytes": 667,
+      "sha256": "20C5B7F3FF7F25EE66F1B6E1A24008345A059525987B4B8FCC64406DE5DF754C"
+    },
+    {
+      "path": "green/teleport-healthy/resources.log",
+      "bytes": 249,
+      "sha256": "4E7FB17BE930B198C83CA594A8B1867A9A5E3D21BE48266F74CC7A4BDD1A8DA8"
+    },
+    {
+      "path": "green/teleport-healthy/run.log",
+      "bytes": 4669,
+      "sha256": "2856CDDC01885A7B0C872FD0E816F8D2ED6606634400B93E3435841279E6397F"
+    },
+    {
+      "path": "green/teleport-healthy/served-state.json",
+      "bytes": 104,
+      "sha256": "64C869CF82B7F0ED695894C91113F83252F22349C223CC3AA20711E3F67B5083"
+    },
+    {
+      "path": "green/teleport-healthy/wire-events.jsonl",
+      "bytes": 2807,
+      "sha256": "BD09C60D63D0E52F5598771EC823CC63795B2B4EB987E99DEBE8E8AF5712FFD5"
+    },
+    {
+      "path": "green/teleport-incomplete-key/actual-result.json",
+      "bytes": 271,
+      "sha256": "C2300C2AD9CCEB56B63005CF0439680306AFBADCE27B04C919CCD332FCDD219B"
+    },
+    {
+      "path": "green/teleport-incomplete-key/child-identity.json",
+      "bytes": 1389,
+      "sha256": "CA004C6B28EBF0C216D488BEA8FA052C4F2C714DE1F6B369C15BA1FC56085AEE"
+    },
+    {
+      "path": "green/teleport-incomplete-key/control-monitor.json",
+      "bytes": 369,
+      "sha256": "EB48E70658E460E3166BB7C5610E85C32D4ADF8F7FFEF0C002490AAA09E6FBB7"
+    },
+    {
+      "path": "green/teleport-incomplete-key/events.jsonl",
+      "bytes": 1324,
+      "sha256": "1245061408C3DFC4DA7B919125352420D4BAB486A6112B00CED4C56B90CF92F5"
+    },
+    {
+      "path": "green/teleport-incomplete-key/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green/teleport-incomplete-key/launch-result.json",
+      "bytes": 298,
+      "sha256": "78956A1F18EC3D21003F855B22FD1A4FCFC25AE2B17EBD153C774AB55ABD8136"
+    },
+    {
+      "path": "green/teleport-incomplete-key/registration.json",
+      "bytes": 681,
+      "sha256": "00721A4C1BA83D5F91181585B6005B5FF3B15836ED536DFD993F3A8336B19041"
+    },
+    {
+      "path": "green/teleport-incomplete-key/resources.log",
+      "bytes": 256,
+      "sha256": "BA79AE00656AC727D89D3D61130E1EB3F2DB71ABCD135B54AE8FE92C0FC2C534"
+    },
+    {
+      "path": "green/teleport-incomplete-key/run.log",
+      "bytes": 2250,
+      "sha256": "5F1C938C19E58DF79562AD1A0DDA29F232B0FE5518E6528DDBB225C82C1CD221"
+    },
+    {
+      "path": "green/teleport-incomplete-key/served-state.json",
+      "bytes": 104,
+      "sha256": "20E5FA82CF2E0F37FD4D0D827994DE7293761541CC1561A907E2E7C969B36033"
+    },
+    {
+      "path": "green/teleport-incomplete-key/wire-events.jsonl",
+      "bytes": 814,
+      "sha256": "7E7FCBEE386C09A50FCEBDD79B899CEF2BE8A3C64D7F3D3A82C56D66AD6C1588"
+    },
+    {
+      "path": "green/teleport-interrupt/child-identity.json",
+      "bytes": 1369,
+      "sha256": "F5BA73441F8270B7B3A257644631A68E23131A8F508BF6EE5030E5E68B6C4750"
+    },
+    {
+      "path": "green/teleport-interrupt/events.jsonl",
+      "bytes": 1422,
+      "sha256": "284870BB27AEE43F1439569A9541C2F92372D36C4FD251D618DC5E525DB8DBE9"
+    },
+    {
+      "path": "green/teleport-interrupt/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green/teleport-interrupt/interrupt-error.json",
+      "bytes": 77,
+      "sha256": "8F84882BAB8E4492E433AE4E79F8054A2938F019BF59AEE226711AC44FE97875"
+    },
+    {
+      "path": "green/teleport-interrupt/interrupt-sent.json",
+      "bytes": 58,
+      "sha256": "F6DBC26ABF930C80945CBEC66A25649B2A477AE35DE42A65071620E1462D5C5B"
+    },
+    {
+      "path": "green/teleport-interrupt/registration.json",
+      "bytes": 671,
+      "sha256": "694198D188C511ADDD5273846087CF4515EC6B5E14764D4EDEE1705618F69751"
+    },
+    {
+      "path": "green/teleport-interrupt/resources.log",
+      "bytes": 251,
+      "sha256": "60D4B691951757063B078C4B3AE8D0A27D6B79C23B43E14CDC6905B944D96AF2"
+    },
+    {
+      "path": "green/teleport-interrupt/run.log",
+      "bytes": 768,
+      "sha256": "AA65776A1853EAAB01643B47E1AB8A8C285D7DFEF1DB3641C5200D2732DFB91B"
+    },
+    {
+      "path": "green/teleport-interrupt/served-state.json",
+      "bytes": 104,
+      "sha256": "20E5FA82CF2E0F37FD4D0D827994DE7293761541CC1561A907E2E7C969B36033"
+    },
+    {
+      "path": "green/teleport-interrupt/wire-events.jsonl",
+      "bytes": 878,
+      "sha256": "4CD18A34B243C8025C21141109FE91057EC2349DF2B34DFD2E3EB4A062D1482C"
+    },
+    {
+      "path": "green/teleport-malformed/actual-result.json",
+      "bytes": 269,
+      "sha256": "DDC8A8645F7EDAC25FDE4551EE0E86AEEE04B4C6B429F93120DDE157B8D2DDC4"
+    },
+    {
+      "path": "green/teleport-malformed/child-identity.json",
+      "bytes": 1369,
+      "sha256": "768D92411D0811E5A0030D25839A098B74A8E3A27E342A6A4C1282DABCA67BEE"
+    },
+    {
+      "path": "green/teleport-malformed/control-monitor.json",
+      "bytes": 367,
+      "sha256": "7625368E9B464C731071B42523C8B072353C4D3097F42F0F7FFA56848C389E29"
+    },
+    {
+      "path": "green/teleport-malformed/events.jsonl",
+      "bytes": 1322,
+      "sha256": "5C4A7F683F41C1DD9976FA4B42BFF6C482686F7622C8F7C1B425D07B6D3A7A99"
+    },
+    {
+      "path": "green/teleport-malformed/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green/teleport-malformed/launch-result.json",
+      "bytes": 296,
+      "sha256": "3F61E31ABDB8624DEAEAE51E334DFC7525C85CA5788D559D93A8534B1CA60B04"
+    },
+    {
+      "path": "green/teleport-malformed/registration.json",
+      "bytes": 671,
+      "sha256": "844F5A101C2FE5F6C4E275486B1711834574BE76F8307552A21CA79C8C2917BA"
+    },
+    {
+      "path": "green/teleport-malformed/resources.log",
+      "bytes": 251,
+      "sha256": "BDC43B971CE0E26DE96A0BC6618E5ABD1740C9FE7943AB5A84E61B16780AA5F2"
+    },
+    {
+      "path": "green/teleport-malformed/run.log",
+      "bytes": 2276,
+      "sha256": "7CC5A196E4B00ABC46B38DD91410E51DF7020C66DDE274540F15954AFA8B4762"
+    },
+    {
+      "path": "green/teleport-malformed/served-state.json",
+      "bytes": 104,
+      "sha256": "20E5FA82CF2E0F37FD4D0D827994DE7293761541CC1561A907E2E7C969B36033"
+    },
+    {
+      "path": "green/teleport-malformed/wire-events.jsonl",
+      "bytes": 813,
+      "sha256": "91E6D86AF25F57B77508754EC3A0E48280149328323E199510AF15BC528DE8FA"
+    },
+    {
+      "path": "green/teleport-mirror/actual-result.json",
+      "bytes": 233,
+      "sha256": "A2960B1871CD823589DFF107026945E1CA80D2BA95D58B135FFB94293BDDD573"
+    },
+    {
+      "path": "green/teleport-mirror/child-identity.json",
+      "bytes": 1355,
+      "sha256": "E1C986F2740531AF30FA5776E17EB9E8CA3176B077F09BD111A3FAE8C1C80F0B"
+    },
+    {
+      "path": "green/teleport-mirror/control-monitor.json",
+      "bytes": 334,
+      "sha256": "2F6989870DBEEB00B090FF50699C8ACF11A9176625F5E2D849AC84FA90D35A0E"
+    },
+    {
+      "path": "green/teleport-mirror/events.jsonl",
+      "bytes": 31502,
+      "sha256": "025A1FA16FF166B154C9C11F2DA81892ED01951351148AB750BE0E9EFEA0E61A"
+    },
+    {
+      "path": "green/teleport-mirror/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green/teleport-mirror/launch-result.json",
+      "bytes": 260,
+      "sha256": "CDA0E2EB2E34F8E1093A3659F67A0A3590FAAC523611AB0AD93886C5738149B3"
+    },
+    {
+      "path": "green/teleport-mirror/registration.json",
+      "bytes": 665,
+      "sha256": "A163B866D9F41F1832116C0BA5DC10B4FDFC1CD295E871EADB96D1F3BAE8C253"
+    },
+    {
+      "path": "green/teleport-mirror/resources.log",
+      "bytes": 246,
+      "sha256": "5EA3DDE07FF1A2427C46C0A49D666A696C0D16834241FBF778B3A234F3F54BD4"
+    },
+    {
+      "path": "green/teleport-mirror/run.log",
+      "bytes": 2270,
+      "sha256": "A3D5AF6A75CF67F6435FF892FA22C014636FDD8BF3A5691D3CAA1E4F50CCEA81"
+    },
+    {
+      "path": "green/teleport-mirror/served-state.json",
+      "bytes": 104,
+      "sha256": "20E5FA82CF2E0F37FD4D0D827994DE7293761541CC1561A907E2E7C969B36033"
+    },
+    {
+      "path": "green/teleport-mirror/wire-events.jsonl",
+      "bytes": 20295,
+      "sha256": "B09D3D3C115AF2374899F3666C3D02E681C07C8503C0860C292F8B57D633E8DD"
+    },
+    {
+      "path": "green/teleport-no-eligible/actual-result.json",
+      "bytes": 234,
+      "sha256": "0C03DF73078043E3D3D5A83605F3468FA607671132CD7A62994142CC10451EE8"
+    },
+    {
+      "path": "green/teleport-no-eligible/child-identity.json",
+      "bytes": 1377,
+      "sha256": "6D6062AC2DAC870BB58C044E506F9E05D35835A24F06B08C92EA8BA7A6DBE5B4"
+    },
+    {
+      "path": "green/teleport-no-eligible/control-monitor.json",
+      "bytes": 334,
+      "sha256": "1E4709982478E8D51C1F6305F1EC22713965D62CC084C93A2509EA3256B71299"
+    },
+    {
+      "path": "green/teleport-no-eligible/events.jsonl",
+      "bytes": 31192,
+      "sha256": "B06F177B1687D49EEB3E81E39672B81415A3976E6F7731D6312838487CCCB9E4"
+    },
+    {
+      "path": "green/teleport-no-eligible/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green/teleport-no-eligible/launch-result.json",
+      "bytes": 261,
+      "sha256": "826DD8CB5C52EA22ECE3DC06AC14664E788021C7E37543E1533DC06A49CC0722"
+    },
+    {
+      "path": "green/teleport-no-eligible/registration.json",
+      "bytes": 675,
+      "sha256": "4F47BA3289CE496EE3AFF3D1B85A06A26C22421ABDBF946A6049C44FAF6B87DF"
+    },
+    {
+      "path": "green/teleport-no-eligible/resources.log",
+      "bytes": 253,
+      "sha256": "D4A77EC892CCA2B3079EA5AC25A5E6BFD286108DCE55D58937EA56D08B91F150"
+    },
+    {
+      "path": "green/teleport-no-eligible/run.log",
+      "bytes": 768,
+      "sha256": "AA65776A1853EAAB01643B47E1AB8A8C285D7DFEF1DB3641C5200D2732DFB91B"
+    },
+    {
+      "path": "green/teleport-no-eligible/served-state.json",
+      "bytes": 104,
+      "sha256": "20E5FA82CF2E0F37FD4D0D827994DE7293761541CC1561A907E2E7C969B36033"
+    },
+    {
+      "path": "green/teleport-no-eligible/wire-events.jsonl",
+      "bytes": 20081,
+      "sha256": "71E2B67282BECDDAB0465BF34D96358104132F50066E05784DA37790F0CA6648"
+    },
+    {
+      "path": "green/teleport-stale/actual-result.json",
+      "bytes": 234,
+      "sha256": "0A4B5E6D2E2DE15DF7CEA804619EDB1290F9762F42CF6567E13D93077460042C"
+    },
+    {
+      "path": "green/teleport-stale/child-identity.json",
+      "bytes": 1353,
+      "sha256": "74EBFF0418A269A54583BE84142B136526EB263F1353BE7645A9D953C15E4F84"
+    },
+    {
+      "path": "green/teleport-stale/control-monitor.json",
+      "bytes": 334,
+      "sha256": "C3D76349ABDD7D02E246448E256506C48AA0E0376E6B2DB913E26689C5BEBD83"
+    },
+    {
+      "path": "green/teleport-stale/events.jsonl",
+      "bytes": 31398,
+      "sha256": "48F09EA61294CC0B1C92BEC2905E8AAE036F3707ACDE0AEBE47F2B65F2849E8F"
+    },
+    {
+      "path": "green/teleport-stale/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green/teleport-stale/launch-result.json",
+      "bytes": 261,
+      "sha256": "BE8F4A99114FD9BB27957134BC3F0D2C4A517C64DA91E0D40C5601D54A6FA140"
+    },
+    {
+      "path": "green/teleport-stale/registration.json",
+      "bytes": 663,
+      "sha256": "6ACCA015743395D44D7F5A39C8560EDD473F8EA4BF1FB1B76B7A4DFF9856EB93"
+    },
+    {
+      "path": "green/teleport-stale/resources.log",
+      "bytes": 247,
+      "sha256": "4FE3A4BB910BF93A0039A1B1E7DFC82F304FEF341FC597AE03A0146B870BDD66"
+    },
+    {
+      "path": "green/teleport-stale/run.log",
+      "bytes": 2270,
+      "sha256": "BDB953B5A6E85E9DE22798EE810778FD01E40E60CAB3D471CC522A8055DDB1F9"
+    },
+    {
+      "path": "green/teleport-stale/served-state.json",
+      "bytes": 104,
+      "sha256": "20E5FA82CF2E0F37FD4D0D827994DE7293761541CC1561A907E2E7C969B36033"
+    },
+    {
+      "path": "green/teleport-stale/wire-events.jsonl",
+      "bytes": 20217,
+      "sha256": "19ED79E97C197852D30D386DE209BA73D2B607BA490EA445B561988F019F3FA4"
+    },
+    {
+      "path": "green/teleport-startup/actual-result.json",
+      "bytes": 191,
+      "sha256": "DA91BC0948C54A6FDF647111D11EF8B9E4EA4486EEAD5989EF2A37D519A8B100"
+    },
+    {
+      "path": "green/teleport-startup/child-identity.json",
+      "bytes": 1361,
+      "sha256": "F1381FE4084CD1F49986C1F22413DBE9071AA603C82989319923AF804CFA8328"
+    },
+    {
+      "path": "green/teleport-startup/control-monitor.json",
+      "bytes": 262,
+      "sha256": "01739EBB676A295ABAE819BE6DC49CA12A85CE3B34D5B1B4AFA73F7265D26A72"
+    },
+    {
+      "path": "green/teleport-startup/events.jsonl",
+      "bytes": 5778,
+      "sha256": "4EA1D60280006E60BEBBFA605BB50995D21DF24965960A1C7FC99954F809DC94"
+    },
+    {
+      "path": "green/teleport-startup/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green/teleport-startup/launch-result.json",
+      "bytes": 218,
+      "sha256": "7AEA6CF458A831A21634686D4AC25D9156D00F50510BE33258B7A6B565FDA1A0"
+    },
+    {
+      "path": "green/teleport-startup/registration.json",
+      "bytes": 667,
+      "sha256": "BC41184D38DE28E9080BDADBBB39233EE15BBB08FB894FF640E06DE9236E8C35"
+    },
+    {
+      "path": "green/teleport-startup/resources.log",
+      "bytes": 249,
+      "sha256": "11ADB36190141386BAA92D4EB09D8C5468B987DB0FA868E1A4F23D67534C629B"
+    },
+    {
+      "path": "green/teleport-startup/run.log",
+      "bytes": 4671,
+      "sha256": "B7AAFD675346EF1BD9AD69356F36709040EE7419691C75B7444675B4AC73FD92"
+    },
+    {
+      "path": "green/teleport-startup/served-state.json",
+      "bytes": 104,
+      "sha256": "64C869CF82B7F0ED695894C91113F83252F22349C223CC3AA20711E3F67B5083"
+    },
+    {
+      "path": "green/teleport-startup/wire-events.jsonl",
+      "bytes": 2806,
+      "sha256": "98949D2AF93940247A65AD371B02766C01C8F0D091C5D30EFE5C1A8A32897FED"
+    },
+    {
+      "path": "green/teleport-wrong-owner/actual-result.json",
+      "bytes": 234,
+      "sha256": "BA692B9C0DAAEE49DE38964D47E29070FC941B4A7C2FE14B8B2778FFB3F5D383"
+    },
+    {
+      "path": "green/teleport-wrong-owner/child-identity.json",
+      "bytes": 1377,
+      "sha256": "930FABC0A4A2F3047967734FD650755C93F18B325FA015C28A1620D6679251E3"
+    },
+    {
+      "path": "green/teleport-wrong-owner/control-monitor.json",
+      "bytes": 333,
+      "sha256": "DDCA2BBE134FB0191A312813F32D5CC36C1D7CF0E6CECB99D56068EE5F376097"
+    },
+    {
+      "path": "green/teleport-wrong-owner/events.jsonl",
+      "bytes": 31392,
+      "sha256": "8E61F84D22946336A535F8DCFC78A06CAA91D224FFF51166DB0F5C9C33CB0E76"
+    },
+    {
+      "path": "green/teleport-wrong-owner/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "green/teleport-wrong-owner/launch-result.json",
+      "bytes": 261,
+      "sha256": "28CEA8CA81F355F0D3AB160D2F14AF3A9D0E91B673ABA98A8BF3F02AD1A242C0"
+    },
+    {
+      "path": "green/teleport-wrong-owner/registration.json",
+      "bytes": 675,
+      "sha256": "8DDA1867FFFA462C3A9960E3E316358A41486C126C0D3CC8D851DA3F30D67715"
+    },
+    {
+      "path": "green/teleport-wrong-owner/resources.log",
+      "bytes": 253,
+      "sha256": "EC84B43830C38D75B068418292F7134527FF65EE66555A8D0A07CFB551FC9C4E"
+    },
+    {
+      "path": "green/teleport-wrong-owner/run.log",
+      "bytes": 2270,
+      "sha256": "330C40DE4469A9267ACFE4EB66417B25323EC8C303F406F55D2C86D7F6B73EC3"
+    },
+    {
+      "path": "green/teleport-wrong-owner/served-state.json",
+      "bytes": 104,
+      "sha256": "20E5FA82CF2E0F37FD4D0D827994DE7293761541CC1561A907E2E7C969B36033"
+    },
+    {
+      "path": "green/teleport-wrong-owner/wire-events.jsonl",
+      "bytes": 20211,
+      "sha256": "E2F0EE5C2706BC16E28A676C9AEE8FA60CCD0D4D65CFE39296AFCDD2F853E215"
+    },
+    {
+      "path": "lifecycle_causal.py",
+      "bytes": 11844,
+      "sha256": "94F8BC51F6DCE8BE5CBCB99E54807C45AC999B2DC57752D478104AE027D2BB1E"
+    },
+    {
+      "path": "preregister.json",
+      "bytes": 396,
+      "sha256": "32E7AB76E3E1CC7BAC1C58CC80204046E79E603854BA3AD45C8D820BD34AD232"
+    },
+    {
+      "path": "qualify.py",
+      "bytes": 7615,
+      "sha256": "EA0AE48C4B54DF911E1B0B0A35BCDF132AD6DE039DF33B2840881CD469BB173E"
+    },
+    {
+      "path": "red-cpu-cleanup.json",
+      "bytes": 7327,
+      "sha256": "9ABA57DC06E3C4D73042AE2C11B426240F9E420B4F4A695ABE98AF1796E2D9B2"
+    },
+    {
+      "path": "red-cpu-registration.json",
+      "bytes": 760,
+      "sha256": "156FE7C8869309A59215C4E17D97B44342C6777BE10E7A3FBCD5DF7290C68E43"
+    },
+    {
+      "path": "red-freeze.json",
+      "bytes": 2379,
+      "sha256": "E5F724C24CB28A9D171385A1C806B005043B02F92C1EB6AAE8AA577D07DB6932"
+    },
+    {
+      "path": "red-process.json",
+      "bytes": 856,
+      "sha256": "FD19941B35528FA2A9633709E8D6BA0E69DE68A503C7C9FB1BC2B49D2D1629AD"
+    },
+    {
+      "path": "red-qualify.py.txt",
+      "bytes": 6984,
+      "sha256": "E0FE2355682C06348AB6D31276BE0F9B77717A56651234999016B7CBDAD54C56"
+    },
+    {
+      "path": "red-r1-cpu-cleanup.json",
+      "bytes": 2782,
+      "sha256": "FC1B576B482BBA3A97CD72FF6EA2EE9E72DF8308B4A74A9566AF66283FBBB626"
+    },
+    {
+      "path": "red-r1-cpu-registration.json",
+      "bytes": 766,
+      "sha256": "33A9417338108763BB4ED9C0D2956A7689344B788DC6E389E3E28D5E185BFD79"
+    },
+    {
+      "path": "red-r1-fixture.py.txt",
+      "bytes": 9556,
+      "sha256": "64DEBB91DA1FFAF68758BD71D791ED17508BB3879C45F1D68A92C6A6BAE3B2A2"
+    },
+    {
+      "path": "red-r1-freeze.json",
+      "bytes": 2379,
+      "sha256": "6D4ACE024D67CCCC3FA2359E1EE9327903A0FF856D310961DBDE7E9CB2DEFEE6"
+    },
+    {
+      "path": "red-r1-process.json",
+      "bytes": 859,
+      "sha256": "5EE4C9D2C6A477EAF02056DB095393E137D3A76C0DE66113395013C287ABA4B1"
+    },
+    {
+      "path": "red-r1-stderr.txt",
+      "bytes": 801,
+      "sha256": "5333779DFF16D5E7C4391E0D03444377F5C165CCF6D3CE4D6EE3D4783B523D74"
+    },
+    {
+      "path": "red-r1-stdout.txt",
+      "bytes": 0,
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+      "path": "red-r1/supervisor-identity.json",
+      "bytes": 967,
+      "sha256": "3283DAAD0B812C57FCCF96E136C2E8F1D77D79E30A1704CD276DEEE0545B0723"
+    },
+    {
+      "path": "red-r1/teleport-healthy/actual-result.json",
+      "bytes": 192,
+      "sha256": "10582246378670696F3F4AEC8F45BD1F89752388E3B8868C335C3E8117C06870"
+    },
+    {
+      "path": "red-r1/teleport-healthy/child-identity.json",
+      "bytes": 1363,
+      "sha256": "7A1F87524622486AF2F93EF7A426E77D60EE661B4F836102EA325C61814375D4"
+    },
+    {
+      "path": "red-r1/teleport-healthy/control-monitor.json",
+      "bytes": 263,
+      "sha256": "C942CA2B4CC307DC8A70EAA440F890E91B9DA3EB07E8E535C63D3333BA3C2839"
+    },
+    {
+      "path": "red-r1/teleport-healthy/events.jsonl",
+      "bytes": 4984,
+      "sha256": "9B767CD8E0BAC0A733A9FA8955230E4136001515A38D936FA0D74551DBF84FE0"
+    },
+    {
+      "path": "red-r1/teleport-healthy/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "red-r1/teleport-healthy/launch-result.json",
+      "bytes": 219,
+      "sha256": "6E8D092E42FB786BD7BA334A2DF13EADB00432261DC79FEEA4F46EFE0369B6C3"
+    },
+    {
+      "path": "red-r1/teleport-healthy/registration.json",
+      "bytes": 668,
+      "sha256": "C2BB89EED8F60C0A460B3B4876AB577614E34294ABA7468F9DC39BD2B2FF9F75"
+    },
+    {
+      "path": "red-r1/teleport-healthy/resources.log",
+      "bytes": 250,
+      "sha256": "FB803056E62436FCA182D31258425D056B6F6A41D8EAF0F872AE857ED616B8A0"
+    },
+    {
+      "path": "red-r1/teleport-healthy/run.log",
+      "bytes": 3167,
+      "sha256": "493DE87948827E3ED26050811E009BA3A8505810B45BB87BDFA9A965BE067D9E"
+    },
+    {
+      "path": "red-r1/teleport-healthy/served-state.json",
+      "bytes": 104,
+      "sha256": "64C869CF82B7F0ED695894C91113F83252F22349C223CC3AA20711E3F67B5083"
+    },
+    {
+      "path": "red-r1/teleport-healthy/wire-events.jsonl",
+      "bytes": 2883,
+      "sha256": "E4CE811272CF0CFF9E8530A50302E6547F77E702F13DF8C8059010C18C7B3186"
+    },
+    {
+      "path": "red-run-cpu.ps1.txt",
+      "bytes": 3146,
+      "sha256": "8461856D2FE82B0407B98588903DED7E12483015A82C4232E6FBE669C947C29C"
+    },
+    {
+      "path": "red-stderr.txt",
+      "bytes": 0,
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+      "path": "red-stdout.txt",
+      "bytes": 909,
+      "sha256": "4C8565501634079A781FAACDD2C112C26AF79C0AB1AE3D3E2C05F9A203B7BBC4"
+    },
+    {
+      "path": "red-stream-cpu-cleanup.json",
+      "bytes": 2826,
+      "sha256": "BEBC2EA18630AA3E108F841773D4B89F347080EEC50DD43065E69487CC87E6FE"
+    },
+    {
+      "path": "red-stream-cpu-registration.json",
+      "bytes": 774,
+      "sha256": "8F8A41AC91177938DE951433951A90016C19607218032F1C98B60AE3B99ECE28"
+    },
+    {
+      "path": "red-stream-freeze.json",
+      "bytes": 2966,
+      "sha256": "5AE508F3A3BA31D55005CB0806837AB7CF362CC00483985295C1354E55A40D11"
+    },
+    {
+      "path": "red-stream-process.json",
+      "bytes": 863,
+      "sha256": "E8F7BD67444424497F4F566599D54957FC14E2D6BA5B4B5BD892F03307AFE06C"
+    },
+    {
+      "path": "red-stream-source-fixture_game.py.txt",
+      "bytes": 9990,
+      "sha256": "B9CC457CD8A2F5E45989C965E74DAA94F84E7CDE30ECA7A230F302AA6FC1F2F5"
+    },
+    {
+      "path": "red-stream-source-qualify.py.txt",
+      "bytes": 7572,
+      "sha256": "F1219E27DCE72A74AEED78FDFC10B9C0F718B9EE73439F0BF116565FDC9E561B"
+    },
+    {
+      "path": "red-stream-source-run-cpu.ps1.txt",
+      "bytes": 3203,
+      "sha256": "EF2551099738BF51FB6DD52BBEA4BC302F69718633C0EECC1D67885EEFCE3A9B"
+    },
+    {
+      "path": "red-stream-stderr.txt",
+      "bytes": 1125,
+      "sha256": "5A2F845AFC84F73AC0D6E04EA8EBF15002138DFC0055A55B3E03CFA444D83E26"
+    },
+    {
+      "path": "red-stream-stdout.txt",
+      "bytes": 0,
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+      "path": "red-stream/supervisor-identity.json",
+      "bytes": 975,
+      "sha256": "9589EE6D60422EE373FDF5E0CF4A4D8683A0F90991BC2A213F61D8C3BF48829B"
+    },
+    {
+      "path": "red-stream/teleport-complete-burst/actual-result.json",
+      "bytes": 233,
+      "sha256": "35C724278B42998DE6B3D32514271899FA0A63AD2D4882953AFBFAC243C61A53"
+    },
+    {
+      "path": "red-stream/teleport-complete-burst/child-identity.json",
+      "bytes": 1399,
+      "sha256": "1EEF6B68302E51C93F80CF9554C6FB1E64A9EA41CA24F4DB4AF41815B85B3407"
+    },
+    {
+      "path": "red-stream/teleport-complete-burst/control-monitor.json",
+      "bytes": 329,
+      "sha256": "BEDAC7A12502A7815D4A93084C789A36E0A424517417F2430563EAA07312AEA6"
+    },
+    {
+      "path": "red-stream/teleport-complete-burst/events.jsonl",
+      "bytes": 1323,
+      "sha256": "641EE3B7946F985E84B2833B6B85EFEAFB940C29477F10B92B86F3EB26227B3C"
+    },
+    {
+      "path": "red-stream/teleport-complete-burst/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "red-stream/teleport-complete-burst/launch-result.json",
+      "bytes": 260,
+      "sha256": "B94E83236B2B1711DF55AAF3E3B81F973FD6A58A8ED36AF3A869EE2BE5BB1183"
+    },
+    {
+      "path": "red-stream/teleport-complete-burst/registration.json",
+      "bytes": 686,
+      "sha256": "6FFF22A888A08F776958E462BDD14D732B0D2AF82A9FCD944A10F8A32653B8F2"
+    },
+    {
+      "path": "red-stream/teleport-complete-burst/resources.log",
+      "bytes": 261,
+      "sha256": "49810628726D61F1FDCC3DF7439439B4A1794CC61BDC46E7D700C2A313F23C6D"
+    },
+    {
+      "path": "red-stream/teleport-complete-burst/run.log",
+      "bytes": 80570,
+      "sha256": "185A583B8EC1EE53C2ED99DE4D46EF348D4384288B3A53D9F2D83E3326B5889D"
+    },
+    {
+      "path": "red-stream/teleport-complete-burst/served-state.json",
+      "bytes": 104,
+      "sha256": "20E5FA82CF2E0F37FD4D0D827994DE7293761541CC1561A907E2E7C969B36033"
+    },
+    {
+      "path": "red-stream/teleport-complete-burst/wire-events.jsonl",
+      "bytes": 813,
+      "sha256": "680303C1357709CB43C3DBC1AA9B46929150856D3C8CF3E135AEA0A4BB6271FC"
+    },
+    {
+      "path": "red-system-cpu-cleanup.json",
+      "bytes": 2810,
+      "sha256": "A886252F8FF9A24C1167D503E937224AB5B2A075472C64CD453AF1463D21B94F"
+    },
+    {
+      "path": "red-system-cpu-registration.json",
+      "bytes": 773,
+      "sha256": "3625FAB7E5737681E1091B619FEAF1BD7C6F287B0882CCD92F6EB26C3CC68260"
+    },
+    {
+      "path": "red-system-fixture.py.txt",
+      "bytes": 9675,
+      "sha256": "859BAC156CC0289185EE8D871B97E4E6B7152CDEABCD7009D2D44D92C6E42DA3"
+    },
+    {
+      "path": "red-system-freeze.json",
+      "bytes": 2966,
+      "sha256": "B9AB14637EC1B013DBA5D3D86763E09E1D6B6A0EFB386FD0B1FE692EAC7A6F27"
+    },
+    {
+      "path": "red-system-gate.py.txt",
+      "bytes": 8824,
+      "sha256": "58C5A712718E258DF5B839E48699EA00360A08A9604C87EE73DDAC8506CC9529"
+    },
+    {
+      "path": "red-system-process.json",
+      "bytes": 861,
+      "sha256": "A532FEE2F648A445D08D116731D2DC998878F1DB6187069B9A3CF706FE95A0CD"
+    },
+    {
+      "path": "red-system-qualify.py.txt",
+      "bytes": 7325,
+      "sha256": "6EF422651D79EF0D957959DCB24AD58DC7D59F2114450761297328373D1F89BE"
+    },
+    {
+      "path": "red-system-stderr.txt",
+      "bytes": 1118,
+      "sha256": "4285BA94D3FEB54C2882FFB65144A2022591786C0CDB955FEF8F90E94F285BC0"
+    },
+    {
+      "path": "red-system-stdout.txt",
+      "bytes": 0,
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+      "path": "red-system/supervisor-identity.json",
+      "bytes": 975,
+      "sha256": "35D6BD6A6565ED94A459C1B0E34F4643920CFE2FD8E852D9C3D79CE159AF4027"
+    },
+    {
+      "path": "red-system/teleport-later-wave/actual-result.json",
+      "bytes": 234,
+      "sha256": "40B2D94F68C93F218BD9DC3D2F27AABFE80E6C91E109D57576025A1505BC9ACF"
+    },
+    {
+      "path": "red-system/teleport-later-wave/child-identity.json",
+      "bytes": 1383,
+      "sha256": "B189616F26A7E7F27CFA46C92680BC352FBFD6ECD5205FE276FD6190AA59BEC0"
+    },
+    {
+      "path": "red-system/teleport-later-wave/control-monitor.json",
+      "bytes": 334,
+      "sha256": "E3F73E0930CDB2C612110D1014AF5290B7347A4F1C3F9C5F52D024DD60E5F412"
+    },
+    {
+      "path": "red-system/teleport-later-wave/events.jsonl",
+      "bytes": 31418,
+      "sha256": "2D511C816066F2696C1D6C37FD51ABD034043810417F1BA09FA7FEB4A9F7FFC7"
+    },
+    {
+      "path": "red-system/teleport-later-wave/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "red-system/teleport-later-wave/launch-result.json",
+      "bytes": 261,
+      "sha256": "247EDB7CAE1C18A454073EB3D51EC4D97FEAD826ED9FBE4267498CD9A474752C"
+    },
+    {
+      "path": "red-system/teleport-later-wave/registration.json",
+      "bytes": 678,
+      "sha256": "D13CDBF4747439639150A474E5A8086CFE687C1043237E6816A2E13C66DEE144"
+    },
+    {
+      "path": "red-system/teleport-later-wave/resources.log",
+      "bytes": 257,
+      "sha256": "F52699C2EA533AF64F366212BB712486CA719A266EC8565E321FD341A321476B"
+    },
+    {
+      "path": "red-system/teleport-later-wave/run.log",
+      "bytes": 2128,
+      "sha256": "21AFD9F2D19E80B20C77CD0891C0F88BCAA976CBDC82DBE61B9895C3AB60CA38"
+    },
+    {
+      "path": "red-system/teleport-later-wave/served-state.json",
+      "bytes": 104,
+      "sha256": "20E5FA82CF2E0F37FD4D0D827994DE7293761541CC1561A907E2E7C969B36033"
+    },
+    {
+      "path": "red-system/teleport-later-wave/wire-events.jsonl",
+      "bytes": 20288,
+      "sha256": "C6D7320D83C3137D3F1800FFCDFE8D8964FA5072161F75BF603ADE56E7EFAA5B"
+    },
+    {
+      "path": "red/behavior-red.json",
+      "bytes": 918,
+      "sha256": "D22BF87D6A60B9C932705173A109C6DABA7E5A7A9E23540CB2F942381D024013"
+    },
+    {
+      "path": "red/closure.json",
+      "bytes": 106,
+      "sha256": "7BD91709B11F73C60894C90F676D1465CB38A38FC439A65551711CD362C80080"
+    },
+    {
+      "path": "red/hidden-healthy/actual-result.json",
+      "bytes": 190,
+      "sha256": "701354BEC6DC108B6E224D9A94BEA982CD4B564C54702ED1EACF7E00D65AF81A"
+    },
+    {
+      "path": "red/hidden-healthy/child-identity.json",
+      "bytes": 1351,
+      "sha256": "4432E8D70683055CAD7C8E0AF991B26320793335AB81E24DDFCF0128043371C6"
+    },
+    {
+      "path": "red/hidden-healthy/control-monitor.json",
+      "bytes": 263,
+      "sha256": "5F629B5E3EDA7550191A110AE2C86F82881E9D7D49FEC592EC5072F71124C8D1"
+    },
+    {
+      "path": "red/hidden-healthy/events.jsonl",
+      "bytes": 6001,
+      "sha256": "F253EE8BA8407C158CC9A2B03B709CDFAD56F0F7351B3406DCCF58A044521A90"
+    },
+    {
+      "path": "red/hidden-healthy/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "red/hidden-healthy/launch-result.json",
+      "bytes": 217,
+      "sha256": "441F78F07FFD68BCB7FE841BB974786A1A908811A0C339E7141D981A77FFE638"
+    },
+    {
+      "path": "red/hidden-healthy/registration.json",
+      "bytes": 663,
+      "sha256": "8EE77D0501BE2E261E50A099F7B0AECF8B211956F60D7833B6AE94E7A3087D3C"
+    },
+    {
+      "path": "red/hidden-healthy/resources.log",
+      "bytes": 243,
+      "sha256": "7712E112A8A78312230EC9D96A3C7AD9C5460BA8552F812294571B28BF5C130E"
+    },
+    {
+      "path": "red/hidden-healthy/run.log",
+      "bytes": 4048,
+      "sha256": "A2BE89681061E87C7566709B50A3BA506FBC7855DD85C0E4AA6104BC90B419E2"
+    },
+    {
+      "path": "red/hidden-healthy/served-state.json",
+      "bytes": 104,
+      "sha256": "9E093BC8894E767FAB16AB230455E700BDE1EFDF48D198BA433E16FE66668649"
+    },
+    {
+      "path": "red/hidden-healthy/wire-events.jsonl",
+      "bytes": 3288,
+      "sha256": "80F4A01BD89A969108DB0651AA5AC2DA0BC24E7F41BF0FB0E8E10C55B3873B7B"
+    },
+    {
+      "path": "red/presentation-shrouded-healthy/actual-result.json",
+      "bytes": 192,
+      "sha256": "E6F607ADB346A518222F054002E7CE8F471C0295C67EE78786B65BC72C16117F"
+    },
+    {
+      "path": "red/presentation-shrouded-healthy/child-identity.json",
+      "bytes": 1383,
+      "sha256": "43975A2C775A70B122AC8D3351FA9D369174B8FD85D1B52ADF8DFBBA2BEC42C4"
+    },
+    {
+      "path": "red/presentation-shrouded-healthy/control-monitor.json",
+      "bytes": 263,
+      "sha256": "B76C3E2358B99A4A9D395235230ED545ABB91D009363D0AF1D42DACD06CD862B"
+    },
+    {
+      "path": "red/presentation-shrouded-healthy/events.jsonl",
+      "bytes": 5996,
+      "sha256": "4FA9FBF08346620D37C4BE3C0196C05A8D8D96C260961D2FBB9248609F644A0E"
+    },
+    {
+      "path": "red/presentation-shrouded-healthy/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "red/presentation-shrouded-healthy/launch-result.json",
+      "bytes": 219,
+      "sha256": "6E6F29DDE1502F05460E155330C04A6D69018E0FCBB60DADA332D1F0A7F79061"
+    },
+    {
+      "path": "red/presentation-shrouded-healthy/registration.json",
+      "bytes": 678,
+      "sha256": "4FA94C892AE83C60290AAC4F6D4B9CFB12637ECF6EEFAE7264DB02EC33366B40"
+    },
+    {
+      "path": "red/presentation-shrouded-healthy/resources.log",
+      "bytes": 260,
+      "sha256": "9D1F6062E49D819199786B52D59C3C2129706335AED7007F730EA46B7EB80476"
+    },
+    {
+      "path": "red/presentation-shrouded-healthy/run.log",
+      "bytes": 4048,
+      "sha256": "E1130450BEFCE9CA173A19DD9CD041B9F37054AECABB8C4279F7BD0E60DCDB6B"
+    },
+    {
+      "path": "red/presentation-shrouded-healthy/served-state.json",
+      "bytes": 104,
+      "sha256": "9E093BC8894E767FAB16AB230455E700BDE1EFDF48D198BA433E16FE66668649"
+    },
+    {
+      "path": "red/presentation-shrouded-healthy/wire-events.jsonl",
+      "bytes": 3298,
+      "sha256": "697D37734308E01EE112DB6E131922C2C3661DD638E43C4020C0205D6E4842C5"
+    },
+    {
+      "path": "red/supervisor-identity.json",
+      "bytes": 960,
+      "sha256": "32A3894EAD32635FAACDB6AC29FF3C9A5E5EC301B71B5ED08C0224092366A1F1"
+    },
+    {
+      "path": "red/teleport-healthy-compat/actual-result.json",
+      "bytes": 192,
+      "sha256": "7403BEAEFD3847BE0B80C3AFF1388E869F1E85C81071F36E063C53ED10967320"
+    },
+    {
+      "path": "red/teleport-healthy-compat/child-identity.json",
+      "bytes": 1371,
+      "sha256": "1908CF49BD42D708DF7F231289F208DD18178145448E1B15C4FC576E68A01F0D"
+    },
+    {
+      "path": "red/teleport-healthy-compat/control-monitor.json",
+      "bytes": 263,
+      "sha256": "7B78D487E7E09B45774B0678411518797FA3E22B81FE61815B51BC32B3A2E52D"
+    },
+    {
+      "path": "red/teleport-healthy-compat/events.jsonl",
+      "bytes": 4990,
+      "sha256": "52E23A5587CAC464F10D550C2956C33048068EE2D1807EEC687E4A1AB7BE57DA"
+    },
+    {
+      "path": "red/teleport-healthy-compat/in-wait",
+      "bytes": 44,
+      "sha256": "9627189843581FE9B5D13CFEDC28022B65AE789199E424A831DA2DCF0021BD2F"
+    },
+    {
+      "path": "red/teleport-healthy-compat/launch-result.json",
+      "bytes": 219,
+      "sha256": "51DDFD5468E9DC275FC3B54DC4E79BE1F2A6EEDB6A5DC6821BC60808C9FD4FE7"
+    },
+    {
+      "path": "red/teleport-healthy-compat/registration.json",
+      "bytes": 672,
+      "sha256": "C1BE48ED4B7DAB1E9B452C884AA9088DB120CB41C05F22485EDE6007D74CD1AC"
+    },
+    {
+      "path": "red/teleport-healthy-compat/resources.log",
+      "bytes": 254,
+      "sha256": "0CB761F20D040C3615CE6574376BCD53ED41B22E007FBACB18B1C225D8E32895"
+    },
+    {
+      "path": "red/teleport-healthy-compat/run.log",
+      "bytes": 3167,
+      "sha256": "493DE87948827E3ED26050811E009BA3A8505810B45BB87BDFA9A965BE067D9E"
+    },
+    {
+      "path": "red/teleport-healthy-compat/served-state.json",
+      "bytes": 104,
+      "sha256": "64C869CF82B7F0ED695894C91113F83252F22349C223CC3AA20711E3F67B5083"
+    },
+    {
+      "path": "red/teleport-healthy-compat/wire-events.jsonl",
+      "bytes": 2884,
+      "sha256": "0310510D2E77D2D80FC83A6FB1FF95A145CF6405B2F360330C26C9D18B030477"
+    },
+    {
+      "path": "red/teleport-healthy/child-identity.json",
+      "bytes": 1357,
+      "sha256": "E0298FD87F73EE4AB5CE2AF540FD0A0E63E421D466CD0E2997C5649659816864"
+    },
+    {
+      "path": "red/teleport-healthy/control-monitor.json",
+      "bytes": 342,
+      "sha256": "285DCE034E0AA96D58F885460F41B45A460BC3FB4196290084C591470DA2BAB9"
+    },
+    {
+      "path": "red/teleport-healthy/launch-result.json",
+      "bytes": 270,
+      "sha256": "11CBB2B6859340385283DE541DAC496E1807CC2BA768E0A152B7C675F0280063"
+    },
+    {
+      "path": "red/teleport-healthy/registration.json",
+      "bytes": 665,
+      "sha256": "E9A8684807591B9857EFA1A7C6C9F595573E35A6C0AA384A78758AA156AAEB64"
+    },
+    {
+      "path": "red/teleport-healthy/resources.log",
+      "bytes": 247,
+      "sha256": "8108A578A7C77C88AFD9797C778A3B7E727B9A453985042BCAA6303A8A5D911F"
+    },
+    {
+      "path": "red/teleport-healthy/run.log",
+      "bytes": 0,
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+      "path": "red/teleport-healthy/wire-events.jsonl",
+      "bytes": 64,
+      "sha256": "C4F0336F85510653DC607AD15445BA6EB299B2EBDF316B657EEDCAF3B7E73AB2"
+    },
+    {
+      "path": "run-cpu.ps1",
+      "bytes": 3203,
+      "sha256": "EF2551099738BF51FB6DD52BBEA4BC302F69718633C0EECC1D67885EEFCE3A9B"
+    },
+    {
+      "path": "sourcepatch-vssealed56016.patch",
+      "bytes": 5788,
+      "sha256": "6B259152897DC3EE0A82666989205DACA3B000A79B1002A58D1AB99E1A75E670"
+    }
+  ]
+}

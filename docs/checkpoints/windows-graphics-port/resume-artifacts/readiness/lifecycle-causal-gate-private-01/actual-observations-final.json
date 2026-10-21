@@ -1,0 +1,1392 @@
+{
+  "scope": "HELPER not Game",
+  "process": {
+    "pid": 36944,
+    "parentPid": 43876,
+    "cimLiveWitness": true,
+    "cim": {
+      "ProcessId": 36944,
+      "ParentProcessId": 43876,
+      "ExecutablePath": "<USERPROFILE>\\AppData\\Local\\uv\\cache\\environments-v2\\control-monitor-task8-0044c22f2c592d49\\Scripts\\python.exe",
+      "CommandLine": "\"<USERPROFILE>\\AppData\\Local\\uv\\cache\\environments-v2\\control-monitor-task8-0044c22f2c592d49\\Scripts\\python.exe\" -B <REPO>\\.omo\\evidence\\windows-modern-water-d3d11\\20261016152026\\task-8\\readiness\\lifecycle-causal-gate-private-01\\qualify.py green-r2"
+    },
+    "startedBeforeStartProcess": "2026-10-18T16:27:33.4100216+08:00",
+    "ended": "2026-10-18T16:28:05.4988778+08:00",
+    "wallSeconds": 32.089,
+    "timeoutMilliseconds": 120000,
+    "timedOut": false,
+    "exitCode": 0,
+    "reaped": true
+  },
+  "caseCount": 19,
+  "cases": [
+    {
+      "case": "destroy-replacement-healthy",
+      "result": {
+        "pid": 28156,
+        "returncode": 0,
+        "timed_out": false,
+        "elapsed_seconds": 0.8341423000092618,
+        "evidence_frame": 30,
+        "screenshot_frames": [],
+        "control_quit_requested": true,
+        "control_error": null
+      },
+      "connections": 1,
+      "early": [],
+      "releases": [
+        {
+          "event": "render_release",
+          "value": 1,
+          "wall": 159738.89203
+        },
+        {
+          "event": "render_release",
+          "value": 3,
+          "wall": 159738.9209207
+        }
+      ],
+      "proofs": [
+        {
+          "event": "native-proof",
+          "proof": {
+            "binding": {
+              "object_id": 41,
+              "drawable_id": 71,
+              "systems": [
+                141,
+                241
+              ]
+            },
+            "key": {
+              "frame": 101,
+              "generation": 1,
+              "capture": 11,
+              "colour": 123,
+              "depth": 456,
+              "view": 11,
+              "target": [
+                1280,
+                720,
+                10,
+                1
+              ]
+            },
+            "logic": 5,
+            "render": 100,
+            "systems": [
+              141,
+              241
+            ],
+            "position": [
+              10,
+              20,
+              29
+            ],
+            "patch": 17,
+            "end_offset": 2270,
+            "presentation": false,
+            "system_provenance": [
+              "initial-inspector-inventory",
+              "initial-inspector-inventory"
+            ]
+          }
+        },
+        {
+          "event": "native-proof",
+          "proof": {
+            "binding": {
+              "object_id": 42,
+              "drawable_id": 72,
+              "systems": [
+                142,
+                242
+              ]
+            },
+            "key": {
+              "frame": 102,
+              "generation": 1,
+              "capture": 12,
+              "colour": 123,
+              "depth": 456,
+              "view": 12,
+              "target": [
+                1280,
+                720,
+                10,
+                1
+              ]
+            },
+            "logic": 10,
+            "render": 101,
+            "systems": [
+              142,
+              242
+            ],
+            "position": [
+              500,
+              300,
+              29
+            ],
+            "patch": 17,
+            "end_offset": 5043,
+            "presentation": false,
+            "system_provenance": [
+              "initial-inspector-inventory",
+              "initial-inspector-inventory"
+            ]
+          }
+        }
+      ],
+      "released": "released",
+      "quit": true,
+      "interrupt": null,
+      "bytes": 5043
+    },
+    {
+      "case": "hidden-healthy",
+      "result": {
+        "pid": 8468,
+        "returncode": 0,
+        "timed_out": false,
+        "elapsed_seconds": 0.8331381999887526,
+        "evidence_frame": 30,
+        "screenshot_frames": [],
+        "control_quit_requested": true,
+        "control_error": null
+      },
+      "connections": 1,
+      "early": [],
+      "releases": [
+        {
+          "event": "render_release",
+          "value": 1,
+          "wall": 159737.21013
+        },
+        {
+          "event": "render_release",
+          "value": 2,
+          "wall": 159737.2391172
+        },
+        {
+          "event": "render_release",
+          "value": 3,
+          "wall": 159737.2684598
+        }
+      ],
+      "proofs": [
+        {
+          "event": "native-proof",
+          "proof": {
+            "binding": {
+              "object_id": 41,
+              "drawable_id": 71,
+              "systems": [
+                141,
+                241
+              ]
+            },
+            "key": {
+              "frame": 101,
+              "generation": 1,
+              "capture": 11,
+              "colour": 123,
+              "depth": 456,
+              "view": 11,
+              "target": [
+                1280,
+                720,
+                10,
+                1
+              ]
+            },
+            "logic": 5,
+            "render": 100,
+            "systems": [
+              141,
+              241
+            ],
+            "position": [
+              10,
+              20,
+              29
+            ],
+            "patch": 17,
+            "end_offset": 2270,
+            "presentation": false,
+            "system_provenance": [
+              "initial-inspector-inventory",
+              "initial-inspector-inventory"
+            ]
+          }
+        },
+        {
+          "event": "native-proof",
+          "proof": {
+            "binding": {
+              "object_id": 41,
+              "drawable_id": 71,
+              "systems": [
+                141,
+                241
+              ]
+            },
+            "key": {
+              "frame": 102,
+              "generation": 1,
+              "capture": 12,
+              "colour": 123,
+              "depth": 456,
+              "view": 12,
+              "target": [
+                1280,
+                720,
+                10,
+                1
+              ]
+            },
+            "logic": 9,
+            "render": 101,
+            "systems": [
+              141,
+              241
+            ],
+            "position": [
+              10,
+              20,
+              29
+            ],
+            "patch": 17,
+            "end_offset": 4661,
+            "presentation": true,
+            "system_provenance": [
+              "initial-inspector-inventory",
+              "initial-inspector-inventory"
+            ]
+          }
+        },
+        {
+          "event": "native-proof",
+          "proof": {
+            "binding": {
+              "object_id": 41,
+              "drawable_id": 71,
+              "systems": [
+                141,
+                241
+              ]
+            },
+            "key": {
+              "frame": 103,
+              "generation": 1,
+              "capture": 13,
+              "colour": 123,
+              "depth": 456,
+              "view": 13,
+              "target": [
+                1280,
+                720,
+                10,
+                1
+              ]
+            },
+            "logic": 13,
+            "render": 102,
+            "systems": [
+              141,
+              241
+            ],
+            "position": [
+              10,
+              20,
+              29
+            ],
+            "patch": 17,
+            "end_offset": 7056,
+            "presentation": false,
+            "system_provenance": [
+              "initial-inspector-inventory",
+              "initial-inspector-inventory"
+            ]
+          }
+        }
+      ],
+      "released": "released",
+      "quit": true,
+      "interrupt": null,
+      "bytes": 7056
+    },
+    {
+      "case": "presentation-shrouded-healthy",
+      "result": {
+        "pid": 45264,
+        "returncode": 0,
+        "timed_out": false,
+        "elapsed_seconds": 0.8295511000033002,
+        "evidence_frame": 30,
+        "screenshot_frames": [],
+        "control_quit_requested": true,
+        "control_error": null
+      },
+      "connections": 1,
+      "early": [],
+      "releases": [
+        {
+          "event": "render_release",
+          "value": 1,
+          "wall": 159738.0490512
+        },
+        {
+          "event": "render_release",
+          "value": 2,
+          "wall": 159738.0787403
+        },
+        {
+          "event": "render_release",
+          "value": 3,
+          "wall": 159738.1082781
+        }
+      ],
+      "proofs": [
+        {
+          "event": "native-proof",
+          "proof": {
+            "binding": {
+              "object_id": 41,
+              "drawable_id": 71,
+              "systems": [
+                141,
+                241
+              ]
+            },
+            "key": {
+              "frame": 101,
+              "generation": 1,
+              "capture": 11,
+              "colour": 123,
+              "depth": 456,
+              "view": 11,
+              "target": [
+                1280,
+                720,
+                10,
+                1
+              ]
+            },
+            "logic": 5,
+            "render": 100,
+            "systems": [
+              141,
+              241
+            ],
+            "position": [
+              10,
+              20,
+              29
+            ],
+            "patch": 17,
+            "end_offset": 2270,
+            "presentation": false,
+            "system_provenance": [
+              "initial-inspector-inventory",
+              "initial-inspector-inventory"
+            ]
+          }
+        },
+        {
+          "event": "native-proof",
+          "proof": {
+            "binding": {
+              "object_id": 41,
+              "drawable_id": 71,
+              "systems": [
+                141,
+                241
+              ]
+            },
+            "key": {
+              "frame": 102,
+              "generation": 1,
+              "capture": 12,
+              "colour": 123,
+              "depth": 456,
+              "view": 12,
+              "target": [
+                1280,
+                720,
+                10,
+                1
+              ]
+            },
+            "logic": 9,
+            "render": 101,
+            "systems": [
+              141,
+              241
+            ],
+            "position": [
+              10,
+              20,
+              29
+            ],
+            "patch": 17,
+            "end_offset": 4661,
+            "presentation": true,
+            "system_provenance": [
+              "initial-inspector-inventory",
+              "initial-inspector-inventory"
+            ]
+          }
+        },
+        {
+          "event": "native-proof",
+          "proof": {
+            "binding": {
+              "object_id": 41,
+              "drawable_id": 71,
+              "systems": [
+                141,
+                241
+              ]
+            },
+            "key": {
+              "frame": 103,
+              "generation": 1,
+              "capture": 13,
+              "colour": 123,
+              "depth": 456,
+              "view": 13,
+              "target": [
+                1280,
+                720,
+                10,
+                1
+              ]
+            },
+            "logic": 13,
+            "render": 102,
+            "systems": [
+              141,
+              241
+            ],
+            "position": [
+              10,
+              20,
+              29
+            ],
+            "patch": 17,
+            "end_offset": 7056,
+            "presentation": false,
+            "system_provenance": [
+              "initial-inspector-inventory",
+              "initial-inspector-inventory"
+            ]
+          }
+        }
+      ],
+      "released": "released",
+      "quit": true,
+      "interrupt": null,
+      "bytes": 7056
+    },
+    {
+      "case": "teleport-capped",
+      "result": {
+        "pid": 12648,
+        "returncode": 0,
+        "timed_out": false,
+        "elapsed_seconds": 0.6052615999942645,
+        "evidence_frame": 0,
+        "screenshot_frames": [],
+        "control_quit_requested": false,
+        "control_error": "native: malformed fresh row; UNKNOWN: native: duplicate/out-of-order canonical row; UNKNOWN"
+      },
+      "connections": 1,
+      "early": [],
+      "releases": [
+        {
+          "event": "render_release",
+          "value": 1,
+          "wall": 159765.3659774
+        }
+      ],
+      "proofs": [],
+      "released": "released",
+      "quit": false,
+      "interrupt": null,
+      "bytes": 2274
+    },
+    {
+      "case": "teleport-complete-burst",
+      "result": {
+        "pid": 37716,
+        "returncode": 0,
+        "timed_out": false,
+        "elapsed_seconds": 0.8357203000050504,
+        "evidence_frame": 30,
+        "screenshot_frames": [],
+        "control_quit_requested": true,
+        "control_error": null
+      },
+      "connections": 1,
+      "early": [],
+      "releases": [
+        {
+          "event": "render_release",
+          "value": 1,
+          "wall": 159743.1614146
+        },
+        {
+          "event": "render_release",
+          "value": 2,
+          "wall": 159743.2023312
+        }
+      ],
+      "proofs": [
+        {
+          "event": "native-proof",
+          "proof": {
+            "binding": {
+              "object_id": 41,
+              "drawable_id": 71,
+              "systems": [
+                141,
+                241
+              ]
+            },
+            "key": {
+              "frame": 101,
+              "generation": 1,
+              "capture": 11,
+              "colour": 123,
+              "depth": 456,
+              "view": 11,
+              "target": [
+                1280,
+                720,
+                10,
+                1
+              ]
+            },
+            "logic": 5,
+            "render": 100,
+            "systems": [
+              141,
+              241
+            ],
+            "position": [
+              10,
+              20,
+              29
+            ],
+            "patch": 17,
+            "end_offset": 80570,
+            "presentation": false,
+            "system_provenance": [
+              "initial-inspector-inventory",
+              "initial-inspector-inventory"
+            ]
+          }
+        },
+        {
+          "event": "native-proof",
+          "proof": {
+            "binding": {
+              "object_id": 41,
+              "drawable_id": 71,
+              "systems": [
+                141,
+                241
+              ]
+            },
+            "key": {
+              "frame": 102,
+              "generation": 1,
+              "capture": 12,
+              "colour": 123,
+              "depth": 456,
+              "view": 12,
+              "target": [
+                1280,
+                720,
+                10,
+                1
+              ]
+            },
+            "logic": 10,
+            "render": 101,
+            "systems": [
+              141,
+              241
+            ],
+            "position": [
+              500,
+              300,
+              29
+            ],
+            "patch": 17,
+            "end_offset": 161271,
+            "presentation": false,
+            "system_provenance": [
+              "initial-inspector-inventory",
+              "initial-inspector-inventory"
+            ]
+          }
+        }
+      ],
+      "released": "released",
+      "quit": true,
+      "interrupt": null,
+      "bytes": 161271
+    },
+    {
+      "case": "teleport-disconnect",
+      "result": {
+        "pid": 41124,
+        "returncode": 0,
+        "timed_out": false,
+        "elapsed_seconds": 0.6331169999903068,
+        "evidence_frame": 0,
+        "screenshot_frames": [],
+        "control_quit_requested": false,
+        "control_error": "inspect: control/log response failed: the game closed the connection"
+      },
+      "connections": 1,
+      "early": [],
+      "releases": [],
+      "proofs": [],
+      "released": "released",
+      "quit": false,
+      "interrupt": null,
+      "bytes": 768
+    },
+    {
+      "case": "teleport-empty-inventory",
+      "result": {
+        "pid": 2880,
+        "returncode": 0,
+        "timed_out": false,
+        "elapsed_seconds": 0.8276638999814168,
+        "evidence_frame": 30,
+        "screenshot_frames": [],
+        "control_quit_requested": true,
+        "control_error": null
+      },
+      "connections": 1,
+      "early": [],
+      "releases": [
+        {
+          "event": "render_release",
+          "value": 1,
+          "wall": 159742.3196901
+        },
+        {
+          "event": "render_release",
+          "value": 2,
+          "wall": 159742.3480831
+        }
+      ],
+      "proofs": [
+        {
+          "event": "native-proof",
+          "proof": {
+            "binding": {
+              "object_id": 41,
+              "drawable_id": 71,
+              "systems": []
+            },
+            "key": {
+              "frame": 101,
+              "generation": 1,
+              "capture": 11,
+              "colour": 123,
+              "depth": 456,
+              "view": 11,
+              "target": [
+                1280,
+                720,
+                10,
+                1
+              ]
+            },
+            "logic": 5,
+            "render": 100,
+            "systems": [
+              141,
+              241
+            ],
+            "position": [
+              10,
+              20,
+              29
+            ],
+            "patch": 17,
+            "end_offset": 1986,
+            "presentation": false,
+            "system_provenance": [
+              "canonical-live-observed-not-in-initial-inspector-inventory",
+              "canonical-live-observed-not-in-initial-inspector-inventory"
+            ]
+          }
+        },
+        {
+          "event": "native-proof",
+          "proof": {
+            "binding": {
+              "object_id": 41,
+              "drawable_id": 71,
+              "systems": []
+            },
+            "key": {
+              "frame": 102,
+              "generation": 1,
+              "capture": 12,
+              "colour": 123,
+              "depth": 456,
+              "view": 12,
+              "target": [
+                1280,
+                720,
+                10,
+                1
+              ]
+            },
+            "logic": 9,
+            "render": 101,
+            "systems": [
+              141,
+              241
+            ],
+            "position": [
+              500,
+              300,
+              29
+            ],
+            "patch": 17,
+            "end_offset": 4101,
+            "presentation": false,
+            "system_provenance": [
+              "canonical-live-observed-not-in-initial-inspector-inventory",
+              "canonical-live-observed-not-in-initial-inspector-inventory"
+            ]
+          }
+        }
+      ],
+      "released": "released",
+      "quit": true,
+      "interrupt": null,
+      "bytes": 4101
+    },
+    {
+      "case": "teleport-healthy",
+      "result": {
+        "pid": 41732,
+        "returncode": 0,
+        "timed_out": false,
+        "elapsed_seconds": 0.8545269999885932,
+        "evidence_frame": 30,
+        "screenshot_frames": [],
+        "control_quit_requested": true,
+        "control_error": null
+      },
+      "connections": 1,
+      "early": [],
+      "releases": [
+        {
+          "event": "render_release",
+          "value": 1,
+          "wall": 159736.346092
+        },
+        {
+          "event": "render_release",
+          "value": 2,
+          "wall": 159736.3766373
+        }
+      ],
+      "proofs": [
+        {
+          "event": "native-proof",
+          "proof": {
+            "binding": {
+              "object_id": 41,
+              "drawable_id": 71,
+              "systems": [
+                141,
+                241
+              ]
+            },
+            "key": {
+              "frame": 101,
+              "generation": 1,
+              "capture": 11,
+              "colour": 123,
+              "depth": 456,
+              "view": 11,
+              "target": [
+                1280,
+                720,
+                10,
+                1
+              ]
+            },
+            "logic": 5,
+            "render": 100,
+            "systems": [
+              141,
+              241
+            ],
+            "position": [
+              10,
+              20,
+              29
+            ],
+            "patch": 17,
+            "end_offset": 2270,
+            "presentation": false,
+            "system_provenance": [
+              "initial-inspector-inventory",
+              "initial-inspector-inventory"
+            ]
+          }
+        },
+        {
+          "event": "native-proof",
+          "proof": {
+            "binding": {
+              "object_id": 41,
+              "drawable_id": 71,
+              "systems": [
+                141,
+                241
+              ]
+            },
+            "key": {
+              "frame": 102,
+              "generation": 1,
+              "capture": 12,
+              "colour": 123,
+              "depth": 456,
+              "view": 12,
+              "target": [
+                1280,
+                720,
+                10,
+                1
+              ]
+            },
+            "logic": 9,
+            "render": 101,
+            "systems": [
+              141,
+              241
+            ],
+            "position": [
+              500,
+              300,
+              29
+            ],
+            "patch": 17,
+            "end_offset": 4669,
+            "presentation": false,
+            "system_provenance": [
+              "initial-inspector-inventory",
+              "initial-inspector-inventory"
+            ]
+          }
+        }
+      ],
+      "released": "released",
+      "quit": true,
+      "interrupt": null,
+      "bytes": 4669
+    },
+    {
+      "case": "teleport-healthy-compat",
+      "result": {
+        "pid": 26368,
+        "returncode": 0,
+        "timed_out": false,
+        "elapsed_seconds": 0.8631607000133954,
+        "evidence_frame": 30,
+        "screenshot_frames": [],
+        "control_quit_requested": true,
+        "control_error": null
+      },
+      "connections": 1,
+      "early": [
+        {
+          "event": "mutation_before_render",
+          "value": "watercaptureteleport player:PlyrCivilian WaterFixtureLow 500 300",
+          "wall": 159739.713922
+        }
+      ],
+      "releases": [
+        {
+          "event": "render_release",
+          "value": 2,
+          "wall": 159739.7383079
+        }
+      ],
+      "proofs": [],
+      "released": "released",
+      "quit": true,
+      "interrupt": null,
+      "bytes": 3167
+    },
+    {
+      "case": "teleport-incomplete-key",
+      "result": {
+        "pid": 19844,
+        "returncode": 0,
+        "timed_out": false,
+        "elapsed_seconds": 1.5778585999796633,
+        "evidence_frame": 0,
+        "screenshot_frames": [],
+        "control_quit_requested": false,
+        "control_error": "native: malformed fresh row; UNKNOWN: inspect: duplicate/missing/unexpected field"
+      },
+      "connections": 1,
+      "early": [],
+      "releases": [
+        {
+          "event": "render_release",
+          "value": 1,
+          "wall": 159759.0304555
+        }
+      ],
+      "proofs": [],
+      "released": "released",
+      "quit": false,
+      "interrupt": null,
+      "bytes": 2250
+    },
+    {
+      "case": "teleport-interrupt",
+      "result": null,
+      "connections": 1,
+      "early": [],
+      "releases": [
+        {
+          "event": "render_release",
+          "value": 1,
+          "wall": 159767.2649477
+        }
+      ],
+      "proofs": [],
+      "released": "released",
+      "quit": false,
+      "interrupt": {
+        "error": "KeyboardInterrupt",
+        "outcome_returned": false,
+        "propagated": true
+      },
+      "bytes": 768
+    },
+    {
+      "case": "teleport-later-wave",
+      "result": {
+        "pid": 33768,
+        "returncode": 0,
+        "timed_out": false,
+        "elapsed_seconds": 0.8462129000108689,
+        "evidence_frame": 30,
+        "screenshot_frames": [],
+        "control_quit_requested": true,
+        "control_error": null
+      },
+      "connections": 1,
+      "early": [],
+      "releases": [
+        {
+          "event": "render_release",
+          "value": 1,
+          "wall": 159741.4806978
+        },
+        {
+          "event": "render_release",
+          "value": 2,
+          "wall": 159741.5082232
+        }
+      ],
+      "proofs": [
+        {
+          "event": "native-proof",
+          "proof": {
+            "binding": {
+              "object_id": 41,
+              "drawable_id": 71,
+              "systems": [
+                141
+              ]
+            },
+            "key": {
+              "frame": 101,
+              "generation": 1,
+              "capture": 11,
+              "colour": 123,
+              "depth": 456,
+              "view": 11,
+              "target": [
+                1280,
+                720,
+                10,
+                1
+              ]
+            },
+            "logic": 5,
+            "render": 100,
+            "systems": [
+              141,
+              241
+            ],
+            "position": [
+              10,
+              20,
+              29
+            ],
+            "patch": 17,
+            "end_offset": 2128,
+            "presentation": false,
+            "system_provenance": [
+              "initial-inspector-inventory",
+              "canonical-live-observed-not-in-initial-inspector-inventory"
+            ]
+          }
+        },
+        {
+          "event": "native-proof",
+          "proof": {
+            "binding": {
+              "object_id": 41,
+              "drawable_id": 71,
+              "systems": [
+                141
+              ]
+            },
+            "key": {
+              "frame": 102,
+              "generation": 1,
+              "capture": 12,
+              "colour": 123,
+              "depth": 456,
+              "view": 12,
+              "target": [
+                1280,
+                720,
+                10,
+                1
+              ]
+            },
+            "logic": 9,
+            "render": 101,
+            "systems": [
+              141,
+              241
+            ],
+            "position": [
+              500,
+              300,
+              29
+            ],
+            "patch": 17,
+            "end_offset": 4385,
+            "presentation": false,
+            "system_provenance": [
+              "initial-inspector-inventory",
+              "canonical-live-observed-not-in-initial-inspector-inventory"
+            ]
+          }
+        }
+      ],
+      "released": "released",
+      "quit": true,
+      "interrupt": null,
+      "bytes": 4385
+    },
+    {
+      "case": "teleport-malformed",
+      "result": {
+        "pid": 40088,
+        "returncode": 0,
+        "timed_out": false,
+        "elapsed_seconds": 0.6072601999912877,
+        "evidence_frame": 0,
+        "screenshot_frames": [],
+        "control_quit_requested": false,
+        "control_error": "native: malformed fresh row; UNKNOWN: native: malformed unsigned field; UNKNOWN"
+      },
+      "connections": 1,
+      "early": [],
+      "releases": [
+        {
+          "event": "render_release",
+          "value": 1,
+          "wall": 159764.7506204
+        }
+      ],
+      "proofs": [],
+      "released": "released",
+      "quit": false,
+      "interrupt": null,
+      "bytes": 2276
+    },
+    {
+      "case": "teleport-mirror",
+      "result": {
+        "pid": 33724,
+        "returncode": 0,
+        "timed_out": true,
+        "elapsed_seconds": 4.784263799985638,
+        "evidence_frame": 0,
+        "screenshot_frames": [],
+        "control_quit_requested": false,
+        "control_error": "inspect: deadline expired awaiting fresh state"
+      },
+      "connections": 1,
+      "early": [],
+      "releases": [
+        {
+          "event": "render_release",
+          "value": 1,
+          "wall": 159753.6167863
+        }
+      ],
+      "proofs": [],
+      "released": "released",
+      "quit": false,
+      "interrupt": null,
+      "bytes": 2270
+    },
+    {
+      "case": "teleport-no-eligible",
+      "result": {
+        "pid": 42448,
+        "returncode": 0,
+        "timed_out": true,
+        "elapsed_seconds": 4.760004199983086,
+        "evidence_frame": 0,
+        "screenshot_frames": [],
+        "control_quit_requested": false,
+        "control_error": "inspect: deadline expired awaiting fresh state"
+      },
+      "connections": 1,
+      "early": [],
+      "releases": [
+        {
+          "event": "render_release",
+          "value": 1,
+          "wall": 159760.7001743
+        }
+      ],
+      "proofs": [],
+      "released": "released",
+      "quit": false,
+      "interrupt": null,
+      "bytes": 768
+    },
+    {
+      "case": "teleport-stale",
+      "result": {
+        "pid": 42020,
+        "returncode": 0,
+        "timed_out": true,
+        "elapsed_seconds": 4.792601199995261,
+        "evidence_frame": 0,
+        "screenshot_frames": [],
+        "control_quit_requested": false,
+        "control_error": "inspect: deadline expired awaiting fresh state"
+      },
+      "connections": 1,
+      "early": [],
+      "releases": [
+        {
+          "event": "render_release",
+          "value": 1,
+          "wall": 159748.7721333
+        }
+      ],
+      "proofs": [],
+      "released": "released",
+      "quit": false,
+      "interrupt": null,
+      "bytes": 2270
+    },
+    {
+      "case": "teleport-startup",
+      "result": {
+        "pid": 37436,
+        "returncode": 0,
+        "timed_out": false,
+        "elapsed_seconds": 0.8520233999879565,
+        "evidence_frame": 30,
+        "screenshot_frames": [],
+        "control_quit_requested": true,
+        "control_error": null
+      },
+      "connections": 1,
+      "early": [],
+      "releases": [
+        {
+          "event": "render_release",
+          "value": 1,
+          "wall": 159740.6595764
+        },
+        {
+          "event": "render_release",
+          "value": 2,
+          "wall": 159740.6878085
+        }
+      ],
+      "proofs": [
+        {
+          "event": "native-proof",
+          "proof": {
+            "binding": {
+              "object_id": 41,
+              "drawable_id": 71,
+              "systems": [
+                141,
+                241
+              ]
+            },
+            "key": {
+              "frame": 101,
+              "generation": 1,
+              "capture": 11,
+              "colour": 123,
+              "depth": 456,
+              "view": 11,
+              "target": [
+                1280,
+                720,
+                10,
+                1
+              ]
+            },
+            "logic": 8,
+            "render": 100,
+            "systems": [
+              141,
+              241
+            ],
+            "position": [
+              10,
+              20,
+              29
+            ],
+            "patch": 17,
+            "end_offset": 2270,
+            "presentation": false,
+            "system_provenance": [
+              "initial-inspector-inventory",
+              "initial-inspector-inventory"
+            ]
+          }
+        },
+        {
+          "event": "native-proof",
+          "proof": {
+            "binding": {
+              "object_id": 41,
+              "drawable_id": 71,
+              "systems": [
+                141,
+                241
+              ]
+            },
+            "key": {
+              "frame": 102,
+              "generation": 1,
+              "capture": 12,
+              "colour": 123,
+              "depth": 456,
+              "view": 12,
+              "target": [
+                1280,
+                720,
+                10,
+                1
+              ]
+            },
+            "logic": 12,
+            "render": 101,
+            "systems": [
+              141,
+              241
+            ],
+            "position": [
+              500,
+              300,
+              29
+            ],
+            "patch": 17,
+            "end_offset": 4671,
+            "presentation": false,
+            "system_provenance": [
+              "initial-inspector-inventory",
+              "initial-inspector-inventory"
+            ]
+          }
+        }
+      ],
+      "released": "released",
+      "quit": true,
+      "interrupt": null,
+      "bytes": 4671
+    },
+    {
+      "case": "teleport-unfinished",
+      "result": {
+        "pid": 22872,
+        "returncode": 0,
+        "timed_out": false,
+        "elapsed_seconds": 0.6139248000108637,
+        "evidence_frame": 0,
+        "screenshot_frames": [],
+        "control_quit_requested": false,
+        "control_error": "native: incomplete-buffer overflow; UNKNOWN"
+      },
+      "connections": 1,
+      "early": [],
+      "releases": [
+        {
+          "event": "render_release",
+          "value": 1,
+          "wall": 159765.9849438
+        }
+      ],
+      "proofs": [],
+      "released": "released",
+      "quit": false,
+      "interrupt": null,
+      "bytes": 66329
+    },
+    {
+      "case": "teleport-wrong-owner",
+      "result": {
+        "pid": 22340,
+        "returncode": 0,
+        "timed_out": true,
+        "elapsed_seconds": 4.738967299985234,
+        "evidence_frame": 0,
+        "screenshot_frames": [],
+        "control_quit_requested": false,
+        "control_error": "inspect: deadline expired awaiting fresh state"
+      },
+      "connections": 1,
+      "early": [],
+      "releases": [
+        {
+          "event": "render_release",
+          "value": 1,
+          "wall": 159744.0026017
+        }
+      ],
+      "proofs": [],
+      "released": "released",
+      "quit": false,
+      "interrupt": null,
+      "bytes": 2270
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "status": "SOURCE_ONLY_UNAPPLIED_AUTHOR",
+  "artifacts": [
+    {
+      "name": "candidate.patch",
+      "bytes": 14419,
+      "sha256": "e588ffea178f655f3023c4b70852ecf93ba0dfae4ed3bb9e9e867c5d0cab35a4"
+    },
+    {
+      "name": "DoneClaim.md",
+      "bytes": 11897,
+      "sha256": "0c27a89cfb14a08d45b55d33ffa169e9eca61f6a3702bf60f93825ac2d1e5a26"
+    },
+    {
+      "name": "pins.json",
+      "bytes": 8439,
+      "sha256": "0965698b78067117ccf1c519b8fb699688546d99936475ea1ba4b98cab88809e"
+    },
+    {
+      "name": "source-proof.json",
+      "bytes": 5080,
+      "sha256": "478da551a25344ee3b7553cd2d07049d2b9531dc5a12f79b0456bb3b59b718cf"
+    },
+    {
+      "name": "cleanup.json",
+      "bytes": 685,
+      "sha256": "cc2d6970bb25dba604febde73a5bf4059b6b7a03013268d425855f2677aa499d"
+    }
+  ],
+  "inputsUnchangedAtSeal": true,
+  "inputCount": 16,
+  "runtime": "UNRUN",
+  "readHoldsReleased": true
+}

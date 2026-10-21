@@ -1,0 +1,1047 @@
+{
+  "scope": "P/R private helper PIN/RED + sole focused GREEN, immutable read release; native Game UNRUN",
+  "files": [
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/.debug-journal.md",
+      "bytes": 754,
+      "sha256": "ebb0953a49146c2f1d7293de8837b38059281551c7fc3978dc5ae971341b27b6"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/cleanup.json",
+      "bytes": 1253,
+      "sha256": "dfccb4f8205a28f4a6641ff0e9d08107b0dcd564b923e326941df758dd65f1dd"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/DoneClaim.md",
+      "bytes": 5173,
+      "sha256": "12dc29060b1457738d769afe93abf1eeb48dbec70b1b616b23a1aa4c519170d0"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/fixture_green.py",
+      "bytes": 8850,
+      "sha256": "fddeb0a211d1afc9226746f54e4c22d79cb8baee55222a7163bf8388448d6abd"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/fixture_protocol.py",
+      "bytes": 995,
+      "sha256": "bd5500dabeacf8916a1be256c6081c25d6d500f7ea7df707c629a7f9b2d5da00"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/fixture_red.py.txt",
+      "bytes": 6107,
+      "sha256": "d8bf15a998a273f80f61e3e9c4977117107b78bb098e3eb94e59bf9e76f854a8"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/fixture_rows.py",
+      "bytes": 2886,
+      "sha256": "edcfc25aef2237f3140d8767e09d4b37325dd9e60cdd6d16ac4cde9cca267be2"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/cpu-cleanup.json",
+      "bytes": 24375,
+      "sha256": "7832edf77e410f11312e20b767f57b8f428112cb484fadcc2d1bb38c17309699"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/cpu-registration.json",
+      "bytes": 969,
+      "sha256": "ad1e77035300c820b7991562fdfb7c5afce151ece1007bc7078fd351ced101c8"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/fixture-cleanup.json",
+      "bytes": 1396,
+      "sha256": "324ce69262b9c70261d7a65847c5b5c7873ebb583fe1a5bb2e0d3b7697389e10"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/image-cleanup-intent.json",
+      "bytes": 3300,
+      "sha256": "c652fb267d2291d2a5dadb9b5c3dcbaab5411a40b1088fb694880066444990f2"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/observed-closure-facts.json",
+      "bytes": 6238,
+      "sha256": "c040d50854c85a4750c045bb7b0b60aa07ad25c0e8a41ea18dfcc1cde9e16eae"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-blank/child-identity.json",
+      "bytes": 1369,
+      "sha256": "5049c9562f446fcdf4b42812dffaf4d63d6ae6793144a9e649c6f5ffc58ea244"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-blank/control-monitor.json",
+      "bytes": 346,
+      "sha256": "5a8d5b555f5ba4263a7ff93c0b49ac2c3e4db0b6bc71f604989428946f94c116"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-blank/events.jsonl",
+      "bytes": 6131,
+      "sha256": "ae00d9eb0080da8229470b4c0b53bbe59dd4e62a1686b061c2c2b590c2317dc1"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-blank/in-file-wait",
+      "bytes": 39,
+      "sha256": "abd9c75d8faa5159aca6781d823b25f67e83d615ad410a46a10c569ce561aa92"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-blank/launch-result.json",
+      "bytes": 275,
+      "sha256": "79ea16e2852dd87faa34851f7c8ffe6542417a17a97d613d687252cd1bc3bee1"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-blank/proof.json",
+      "bytes": 774,
+      "sha256": "e564aa135de072bc47f023dbdddcef4f04de3504b827e339b90be457520aea78"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-blank/registration.json",
+      "bytes": 662,
+      "sha256": "426fdff07f596e6720f25313da876db8bc7b36ba9ca52345ad8761a448c8134b"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-blank/resources.log",
+      "bytes": 244,
+      "sha256": "1ee561094be1feaf4a056b709bfc6c7a02cc77dcac6bf3a535b3e08342d61a46"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-blank/run.log",
+      "bytes": 2855,
+      "sha256": "86c573780e25c4abd5121f9637a354d5266b90c51144a89150e74899c964d72e"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-blank/served-state.json",
+      "bytes": 271,
+      "sha256": "b1766e07a1078828d66042d7184c854d143e746cfdfe075bf367fe57ea6209da"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-blank/state-latest.json",
+      "bytes": 238,
+      "sha256": "b3b048e7ac691c0fb4ce83b7a64bd9272a2e49140f9349345c26b92f8c0aa1ff"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-blank/wire-events.jsonl",
+      "bytes": 4854,
+      "sha256": "0d5f509be121c22a14177a9379a8f2e26f669835868d5e777c0d7e34bd7f10f8"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-disconnect/child-identity.json",
+      "bytes": 1388,
+      "sha256": "04eb4f1f86c415bf5359a4cb852839ad04c17802ec1a3382f8a8b0b4034ebff1"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-disconnect/control-monitor.json",
+      "bytes": 352,
+      "sha256": "a63be4d26345192ce3615b2bfeedcf3cbbd0f74d2c5af5a1945b61a72930e795"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-disconnect/events.jsonl",
+      "bytes": 5831,
+      "sha256": "dd16431e61116b4d2247070e41a489fac52597f427bac9cd70f8673a04aaf733"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-disconnect/in-file-wait",
+      "bytes": 39,
+      "sha256": "abd9c75d8faa5159aca6781d823b25f67e83d615ad410a46a10c569ce561aa92"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-disconnect/launch-result.json",
+      "bytes": 281,
+      "sha256": "5912ceaa338acf859f5e271ddb70945062edc4c866a3f66b4e9c80da00c31580"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-disconnect/proof.json",
+      "bytes": 786,
+      "sha256": "cabcd992390406c3664d9e37a230facbbba2acbcaf24bdeec79a5b4869156b62"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-disconnect/registration.json",
+      "bytes": 672,
+      "sha256": "a31e59650df935bcfac2a6b0d0d054c3e9149c95e08e3ec699a81ae11daa9469"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-disconnect/resources.log",
+      "bytes": 249,
+      "sha256": "f4a973dbe990866eac01ee56338f1ce384414bdc9345c8ba2c762909047f1036"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-disconnect/run.log",
+      "bytes": 2855,
+      "sha256": "86c573780e25c4abd5121f9637a354d5266b90c51144a89150e74899c964d72e"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-disconnect/served-state.json",
+      "bytes": 272,
+      "sha256": "04a3e2f27ea96880eb7d2981706ac3dbf6ae4094be7fb6a283223d416cfab590"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-disconnect/state-latest.json",
+      "bytes": 239,
+      "sha256": "c0903272c6e49e09daaa289284769da912eba90bd5cb963cabf43b3fe224e06c"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-disconnect/wire-events.jsonl",
+      "bytes": 4388,
+      "sha256": "2bb32f3e6196a15e937f75d74b4079c0ed68bcbbd4348fc77dfd59a5bfdbc812"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-existing/child-identity.json",
+      "bytes": 1381,
+      "sha256": "49cea7518e40ba040d281ce9686ba5cec33ec9de7e52ba4474afdb91d7bcca1f"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-existing/control-monitor.json",
+      "bytes": 335,
+      "sha256": "c7d5ccb46b5891a95f1e6aba969769a88804ec4f61b983938e369b3be1a28649"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-existing/events.jsonl",
+      "bytes": 5634,
+      "sha256": "708c01112275677410ba6003c2c9b35c9fb27386d41c471786bf553fd03f0c11"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-existing/launch-result.json",
+      "bytes": 264,
+      "sha256": "6774788ec6219e434b3eb3bf10121c365f2c64dc21e68a12c5da2685d3331dea"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-existing/proof.json",
+      "bytes": 767,
+      "sha256": "0989d2095f31a78a9138694d4b4bd50bc0f81f77a4b74eef4c19a69b50e41390"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-existing/registration.json",
+      "bytes": 668,
+      "sha256": "104a7f1f282af936ea28829574f6f11d6402e8c5780140bc5afaa3c3aba94397"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-existing/resources.log",
+      "bytes": 247,
+      "sha256": "387c107f225cd8899e28db7b75cfdf0ac426b08151e42064fcb49e6f0c30c087"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-existing/run.log",
+      "bytes": 2855,
+      "sha256": "86c573780e25c4abd5121f9637a354d5266b90c51144a89150e74899c964d72e"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-existing/served-state.json",
+      "bytes": 272,
+      "sha256": "671ccd8273fb5d1a35de04003c463ae2d70ee94a4de088128ac3d43947b3b405"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-existing/state-latest.json",
+      "bytes": 239,
+      "sha256": "d34f9bc992814e030a35c3baa08e30272fefedbf786c98d2e1937f2d6b8b3662"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-existing/wire-events.jsonl",
+      "bytes": 3261,
+      "sha256": "eb1b8bf9834aaf93f8228452c8a68eed20dd0499ccb1db9a0cbddf7c9e0af05e"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-healthy/child-identity.json",
+      "bytes": 1376,
+      "sha256": "3c4afb97213f8ad5c3a13098911e2b72d02756326c03f3b887a79c280e42c345"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-healthy/control-monitor.json",
+      "bytes": 262,
+      "sha256": "1357de1a03a6baec1c1d81c6c52d0b9b2ca87e8c5e64d24938f2991d86656142"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-healthy/events.jsonl",
+      "bytes": 8889,
+      "sha256": "93c94b924955b68fe14a296374379bd52a2e121188f37c6918dec1e4cae57c80"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-healthy/in-file-wait",
+      "bytes": 39,
+      "sha256": "abd9c75d8faa5159aca6781d823b25f67e83d615ad410a46a10c569ce561aa92"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-healthy/launch-result.json",
+      "bytes": 219,
+      "sha256": "d113c4edf32d8642e6a62ba1129252da40545955d7ab7d5c898a97ee2bd4f0e1"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-healthy/proof.json",
+      "bytes": 701,
+      "sha256": "455e203c665794e2d929d4dd07a812b8cb65423db33cda062c5e8ed731c63cdf"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-healthy/registration.json",
+      "bytes": 666,
+      "sha256": "06ebc5c2821156ca30ae07ef1a79c27bc29354fe8926a20142f2d6f41cb36960"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-healthy/resources.log",
+      "bytes": 246,
+      "sha256": "008e312622db741f3cbeb094c427435b35a4e7db5d129419be778e38ee64dfd0"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-healthy/run.log",
+      "bytes": 4343,
+      "sha256": "984c04bc911bb99fde9cf23d72701e78f7c54ec3af5496b882c1e5183814eeb6"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-healthy/served-state.json",
+      "bytes": 270,
+      "sha256": "42c79c9bf9079e1d82cab21fa380cc6c519ec00b054fc9ad6477d912764e09d5"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-healthy/state-latest.json",
+      "bytes": 237,
+      "sha256": "0726cdfa91be7be844f0013cc2353984b72952dc13cb78b8cf6812bdf78f8f8e"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-healthy/wire-events.jsonl",
+      "bytes": 6927,
+      "sha256": "f280153167658778e63c9905ea75eb583675cc672a8bba0582a85d32a051aba0"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-incomplete/child-identity.json",
+      "bytes": 1388,
+      "sha256": "d055b3f688f21367939520f38bb55de4649803872eef96b33e394c1709a0f502"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-incomplete/control-monitor.json",
+      "bytes": 334,
+      "sha256": "4cbabe349425439268d1dba528ae34bbbf93ec53b1c6305522a68294a484e083"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-incomplete/events.jsonl",
+      "bytes": 9790,
+      "sha256": "eae2eeadbab5d3237d6a022d9e34c8285e5eebb734e93754e29df6345c02481e"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-incomplete/in-file-wait",
+      "bytes": 39,
+      "sha256": "abd9c75d8faa5159aca6781d823b25f67e83d615ad410a46a10c569ce561aa92"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-incomplete/launch-result.json",
+      "bytes": 261,
+      "sha256": "d5db3a558c9d29fc5c7662af0aa801ea1bfa7fefb853db2b3a17a66dff89ba05"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-incomplete/proof.json",
+      "bytes": 766,
+      "sha256": "5ecd8f2ff75c6e9a092b07ab33149a25618c0f5fc21cfb6283bc043b2e6470ed"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-incomplete/registration.json",
+      "bytes": 672,
+      "sha256": "c5f5b6e176f2a0a81a9e5d7b3c6e8a580a6951bb56eb500582e3d7c2fac1c11c"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-incomplete/resources.log",
+      "bytes": 249,
+      "sha256": "d257377edb900cf892b6c746793ee2b93740fbfb6d3fe35ab76d65f3f79cf2f4"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-incomplete/run.log",
+      "bytes": 2855,
+      "sha256": "86c573780e25c4abd5121f9637a354d5266b90c51144a89150e74899c964d72e"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-incomplete/served-state.json",
+      "bytes": 272,
+      "sha256": "04a3e2f27ea96880eb7d2981706ac3dbf6ae4094be7fb6a283223d416cfab590"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-incomplete/state-latest.json",
+      "bytes": 239,
+      "sha256": "c0903272c6e49e09daaa289284769da912eba90bd5cb963cabf43b3fe224e06c"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-incomplete/wire-events.jsonl",
+      "bytes": 6905,
+      "sha256": "255a0716bb591de08b6342b653c7fe475bfa725fa26b929fd6dff1ad56426f58"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-interrupt/child-identity.json",
+      "bytes": 1385,
+      "sha256": "687e0c26ee6a11da640a5bccd7d8ee732c3e57d34cb8de7eba4ac6d112636ab9"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-interrupt/events.jsonl",
+      "bytes": 5933,
+      "sha256": "009101e978ceeafb6ad9af244d217b1be908140ece3bb4bcba45ee5c27ac1e19"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-interrupt/in-file-wait",
+      "bytes": 39,
+      "sha256": "abd9c75d8faa5159aca6781d823b25f67e83d615ad410a46a10c569ce561aa92"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-interrupt/interrupt-signal.json",
+      "bytes": 99,
+      "sha256": "de5b92f231f6517ed372783d275ef1c6da6c3cbd713bf5b003887c7e5ab9cc62"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-interrupt/proof.json",
+      "bytes": 174,
+      "sha256": "8e35e1dfe0ed0b171c7e427ca24dabf3d561b7fc882d92ff76a9d15ab80be8a2"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-interrupt/registration.json",
+      "bytes": 669,
+      "sha256": "7d533209f2f7993aeaf894b325aff825d4e93fc9d3c311a77f58b21792dc2b15"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-interrupt/resources.log",
+      "bytes": 248,
+      "sha256": "5451c402a413238dc161dcd1392a434645be357f4093f74a3d58cd74e0114df7"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-interrupt/run.log",
+      "bytes": 2855,
+      "sha256": "86c573780e25c4abd5121f9637a354d5266b90c51144a89150e74899c964d72e"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-interrupt/served-state.json",
+      "bytes": 272,
+      "sha256": "04a3e2f27ea96880eb7d2981706ac3dbf6ae4094be7fb6a283223d416cfab590"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-interrupt/state-latest.json",
+      "bytes": 239,
+      "sha256": "c0903272c6e49e09daaa289284769da912eba90bd5cb963cabf43b3fe224e06c"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-interrupt/wire-events.jsonl",
+      "bytes": 4438,
+      "sha256": "f869474029e355b6ec64c8d46d30d49bb26a44d93264d56cea609e3c79c9bab7"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-malformed/child-identity.json",
+      "bytes": 1385,
+      "sha256": "841dea41b517c7f06e4bb379c5b952eb834822b574a71560caa668352dda9c66"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-malformed/control-monitor.json",
+      "bytes": 335,
+      "sha256": "ec58c53a7baacc92a4ce92c2da44144e244bfdf0fa463de3a7fe81e09610fb1b"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-malformed/events.jsonl",
+      "bytes": 6126,
+      "sha256": "231bb7120668a88564a4987fac5e926e44c25ff9db9f034c648a2c9fc8d5d15a"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-malformed/in-file-wait",
+      "bytes": 39,
+      "sha256": "abd9c75d8faa5159aca6781d823b25f67e83d615ad410a46a10c569ce561aa92"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-malformed/launch-result.json",
+      "bytes": 265,
+      "sha256": "8e8f1abd3719203728be61d00bc8668e324521f253aa5d2f7f3494b6e70e081c"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-malformed/proof.json",
+      "bytes": 768,
+      "sha256": "af2fe41661707f73f893b7048ee7803a98baf88a1de24bee2a6ea35b9fff15f7"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-malformed/registration.json",
+      "bytes": 670,
+      "sha256": "620214007a8a7244f0477e3e3c8a8cb93d37c3e25cdee8074f6fe18f9d18ab65"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-malformed/resources.log",
+      "bytes": 248,
+      "sha256": "3ca5c35e369ebd82f6b1e616d0f7a81344bc1f00675c99e472b6906110f5eee5"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-malformed/run.log",
+      "bytes": 2855,
+      "sha256": "86c573780e25c4abd5121f9637a354d5266b90c51144a89150e74899c964d72e"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-malformed/served-state.json",
+      "bytes": 271,
+      "sha256": "b1766e07a1078828d66042d7184c854d143e746cfdfe075bf367fe57ea6209da"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-malformed/state-latest.json",
+      "bytes": 238,
+      "sha256": "b3b048e7ac691c0fb4ce83b7a64bd9272a2e49140f9349345c26b92f8c0aa1ff"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-malformed/wire-events.jsonl",
+      "bytes": 4876,
+      "sha256": "6c2c8dd4855321bec49d3caed3ca2dd42a464e1bf1592cd6c08793d54adcd574"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-multiple/child-identity.json",
+      "bytes": 1381,
+      "sha256": "2c807025d6cd85592209c14ad75714c943ae426562fb9bc8027956db1d8b0905"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-multiple/control-monitor.json",
+      "bytes": 320,
+      "sha256": "7be8addff803c93bad893f29ae65fe7c25da35345b57a60d223e5b01b104cf71"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-multiple/events.jsonl",
+      "bytes": 5836,
+      "sha256": "e16a17b1587c8afa2480e968ff8b4d7e76d59d583c460225f466a23b2d4d8227"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-multiple/launch-result.json",
+      "bytes": 248,
+      "sha256": "ff586f83deb7af7ed8a44f2aab5b7fcb43cc85d6e182f72a6e7ffee8e17d218b"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-multiple/proof.json",
+      "bytes": 751,
+      "sha256": "f9b9f10b3eea1edd22147f1851a0c493d92797977d3137fae1cdcd58172f502a"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-multiple/registration.json",
+      "bytes": 668,
+      "sha256": "61f31e84902d61fcb6243d0cce2a1cc4d5f28f8bf91f009925fdb910421213f7"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-multiple/resources.log",
+      "bytes": 247,
+      "sha256": "52b69cd13a81848d59d17e0013a67a8245dcf82c01e8e27a2243bdd7feae0939"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-multiple/run.log",
+      "bytes": 2855,
+      "sha256": "86c573780e25c4abd5121f9637a354d5266b90c51144a89150e74899c964d72e"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-multiple/served-state.json",
+      "bytes": 272,
+      "sha256": "04a3e2f27ea96880eb7d2981706ac3dbf6ae4094be7fb6a283223d416cfab590"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-multiple/state-latest.json",
+      "bytes": 239,
+      "sha256": "c0903272c6e49e09daaa289284769da912eba90bd5cb963cabf43b3fe224e06c"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/pause-multiple/wire-events.jsonl",
+      "bytes": 4237,
+      "sha256": "c6aa91179aa4f721e2ded4af73e0780584366402680a1f97942362b2706833f3"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/preregister.json",
+      "bytes": 608,
+      "sha256": "7ee43eb0531dc5f1fbffe96664597f3c51d48c7606408d09361da415ced9df42"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/process.json",
+      "bytes": 435,
+      "sha256": "a7c2a7c12a020d218dcf1b66a14769ee8e0bad8faab0520d3e9f815f134c5742"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/proof.json",
+      "bytes": 9340,
+      "sha256": "be0637b526fd7c3f08eb55e738246daa519b6ff126bea048c139c868838e7aea"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/python-identity.json",
+      "bytes": 942,
+      "sha256": "296b9046f9a4d269a15545a8706a8548d2f498ab5c14a8d2e9331117195fcffe"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/reset-healthy/child-identity.json",
+      "bytes": 1377,
+      "sha256": "f95eb526ef5ecdd10818a59ca36d93426d53b49ee57650ac8552189af132fd88"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/reset-healthy/control-monitor.json",
+      "bytes": 262,
+      "sha256": "bf05e3add5136c29b55b2f204fc9fe95579216a22d6fc616e11931445075d735"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/reset-healthy/events.jsonl",
+      "bytes": 8485,
+      "sha256": "87413a102b3db06c663faa0c540215bc34ffa0a4f2a2b0d979608aa7b2043aa2"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/reset-healthy/launch-result.json",
+      "bytes": 218,
+      "sha256": "ccb3d6708663935037e9569fd5dbdd1f57df9c15e069c1d33aa31863eb5fa44e"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/reset-healthy/proof.json",
+      "bytes": 700,
+      "sha256": "1e45db4df9afa24a8a56b1e1260fcf6b0783d89d6c4f059d5b43b9f8c7692692"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/reset-healthy/registration.json",
+      "bytes": 666,
+      "sha256": "119a7fa09108c932792e87be2c641e5b082b4f8b063094a6e59706ade8df39f0"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/reset-healthy/resources.log",
+      "bytes": 246,
+      "sha256": "2dd0c2e98fffa1399e73ae31adb351bb50727b87675220235f5b23316c849830"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/reset-healthy/run.log",
+      "bytes": 6011,
+      "sha256": "c657c91c29c7465ee0902199e397fa85aab2ac8e9be4556e01b275a8928a10b8"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/reset-healthy/served-state.json",
+      "bytes": 270,
+      "sha256": "9a219f617e91c9fd0f0cbb0f4547969dc72c96b075738c751a35851610b97015"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/reset-healthy/state-latest.json",
+      "bytes": 237,
+      "sha256": "3e6230cfbd1303448725a19de9551a350a14b43040357e01605af8fe7e5a571d"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/reset-healthy/wire-events.jsonl",
+      "bytes": 4102,
+      "sha256": "14c6157db1aeac0be7ad255a7f7ae1c1abf49ad8bdcd1a987f865838742075a5"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/reset-no-reuse/child-identity.json",
+      "bytes": 1379,
+      "sha256": "0e901753e20d7164c4dac332af79c50df9257f1890e7608b43fd5494ab9d15b3"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/reset-no-reuse/control-monitor.json",
+      "bytes": 353,
+      "sha256": "a6c20937923504c0c769477db9348a51ba0a315407e8ee99f85d76d67f551f5c"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/reset-no-reuse/events.jsonl",
+      "bytes": 5863,
+      "sha256": "682b71313001311c06818339201bd635aaedb9be7e84d889e8aace807a075382"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/reset-no-reuse/launch-result.json",
+      "bytes": 280,
+      "sha256": "598629b0e02dbdcfbc0bb929d990bd3a79ae033d7945c531cf6707a3ca422a04"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/reset-no-reuse/proof.json",
+      "bytes": 781,
+      "sha256": "bfe4f5d3518f9fcc8523ac504fb3d11b9c23ce43da8f538616d0aa9195fff235"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/reset-no-reuse/registration.json",
+      "bytes": 668,
+      "sha256": "2dc358113e7a88c912643c5975a4526788b1d381c6ab707eedb763c4d8523eb6"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/reset-no-reuse/resources.log",
+      "bytes": 245,
+      "sha256": "e06bba1642a1d30edb8989b3fe6dcbcb3cb6fd527d75667409ba1e948f4dc596"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/reset-no-reuse/run.log",
+      "bytes": 3899,
+      "sha256": "13733e4f08b6954eb32a22ad68dea4af0e158f02c9ec49985b12a0110a5e6df7"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/reset-no-reuse/served-state.json",
+      "bytes": 270,
+      "sha256": "dd7fe89ec451415ad2774efa2387b26fdc669e9aa2554a2b6cbab9c9e2756c5f"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/reset-no-reuse/state-latest.json",
+      "bytes": 237,
+      "sha256": "e6093181a4a2eb49eaecbad2125a0e2f0b5d7ae42131e100e76d456c73265a14"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/reset-no-reuse/wire-events.jsonl",
+      "bytes": 3059,
+      "sha256": "3cf40951a0bff768eacfa7b86bdd1ceda567e99f69526117635edffb02b5af0c"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/reset-stale/child-identity.json",
+      "bytes": 1380,
+      "sha256": "1401fb0acb1c1ded4a445b7871a0d7fc43df57cc89ed3d09c0181ed178188935"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/reset-stale/control-monitor.json",
+      "bytes": 334,
+      "sha256": "d6990428361b5526d60bc67ed1ffdcd04cd46ab0d31cac0ec662ae033c8f5398"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/reset-stale/events.jsonl",
+      "bytes": 4380,
+      "sha256": "abf3c5a41ae1f970a3c24336107e4b9102d2eb704f64b2ece2eec9fbcc2f0495"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/reset-stale/launch-result.json",
+      "bytes": 261,
+      "sha256": "f1ced0a3c151fa26bb70b3b59d3a81218352e8273c9b9b542a2083df66cc373b"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/reset-stale/proof.json",
+      "bytes": 760,
+      "sha256": "e9eac93a0a718bf9ffa23a786a3657e633b3cff3125cc7f3892c03ce4788327c"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/reset-stale/registration.json",
+      "bytes": 668,
+      "sha256": "4d4cbb4f9ee71c7e4e059ceee9e0c176f6930d1e66738145c17ff5944be25353"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/reset-stale/resources.log",
+      "bytes": 244,
+      "sha256": "26aa4fb82cd0cfdb35b3179d92c5ea48ac504a66f39ca704fa7c4ebef115b37c"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/reset-stale/run.log",
+      "bytes": 3484,
+      "sha256": "f24ae689fa3e1aecc379e34e9f6cf8a85937f18aac79af3979cb81f4a0112713"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/reset-stale/served-state.json",
+      "bytes": 271,
+      "sha256": "c19c1dbd5bdfeac5728be7dc8ba4803b02c0d43d8c37798643f0dc9a266b791c"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/reset-stale/state-latest.json",
+      "bytes": 238,
+      "sha256": "42b8fb42781d4cb72dc4ac4c92de90c5fd79700a15bd571cbecc443369c291f2"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/reset-stale/wire-events.jsonl",
+      "bytes": 2729,
+      "sha256": "9079e8ce36257f98dc58ecbe5f4f518e017727c750928d9a0b9b9713cf35f7f7"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/scratch-cleanup-intent.json",
+      "bytes": 321,
+      "sha256": "b0617e8af222e147ab920808ba08821bfe62f26b1a2b1951107c2242673aa8c8"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/stderr.txt",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green/stdout.json",
+      "bytes": 10097,
+      "sha256": "e18c2915245ed9020af1ed3914a71ace91324cd5a813c16463fc034008ef8050"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green-freeze.json",
+      "bytes": 6336,
+      "sha256": "427ae50736962c8be11c7e9894b80124ac1be58e477f648103a878a26afd45b4"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green-launcher-freeze.json",
+      "bytes": 871,
+      "sha256": "8d3683e1072d9fbbeaae36d202a4751820916e9fd013a5e030a2e49df68eb992"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/green-tests-first.md",
+      "bytes": 1809,
+      "sha256": "38c62464aa9bb97c24717950923a287243c92485755eafe634d0ff660473e8f3"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/manifest.json",
+      "bytes": 8580,
+      "sha256": "f63a49bdf9b4122ce8999f1e9c47268d494b8c24e8b60cbcd293db06f01eab6f"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/old_fixed_controller.py",
+      "bytes": 5319,
+      "sha256": "9935e4366b4ad6c3700d4b84a6cfa0d5be44550d06261c8d0300a1436f082146"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/pause_reset.py",
+      "bytes": 7096,
+      "sha256": "c5e616a52c077ea1c54fe729e98f0299dbb3eccadc92e3b537b43a999fb6426b"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/preregister.json",
+      "bytes": 747,
+      "sha256": "6ba04e0588426f499cc7725146f2a8b27e633adde41bfb72b53c21f7a2067163"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/process_identity.py",
+      "bytes": 2168,
+      "sha256": "88f424c0c956e041e1dd7a9037dae1b8495346ff155c88a2291c6a76765f829e"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/pr_transport.py",
+      "bytes": 4353,
+      "sha256": "77ff67efc1b014eca8bf235cbaff4e21bb1ea5856ea54f0732d837f67abfb048"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/qualify_green.py",
+      "bytes": 4381,
+      "sha256": "b2464822df3919bb8d8f59c6089e19bddd6040194c1c09b757e6084182858380"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/qualify_red.py",
+      "bytes": 3367,
+      "sha256": "c935b45dc515d811ca760cea59b4c1d976c8a67461ce31fa2c07e6f47c67bddf"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/cpu-cleanup.json",
+      "bytes": 9058,
+      "sha256": "fb8c21e10d020197abe81269b722cbb872a1402ae6300d9a311ac55be04967d5"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/cpu-registration.json",
+      "bytes": 903,
+      "sha256": "88b94276f145c73692d9386e6cc83b224fb0570edbe5af7a6fc803eabae2f092"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/DoneClaim.md",
+      "bytes": 1668,
+      "sha256": "7bd77206795a52b37d7c9b0cc228726c2d8779492e7c698d2ca3086167d5becc"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/fixture-cleanup.json",
+      "bytes": 382,
+      "sha256": "0e8907b12bbbc5a16ab16bd77f68b5644c471e51cccbef146dc0ac5ccd074131"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/pause/actual-proof.json",
+      "bytes": 587,
+      "sha256": "6a0f42a3dd1643beebac8d4d3e7612d3bc383c100f580dddf767e5bd334bf49c"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/pause/child-identity.json",
+      "bytes": 1369,
+      "sha256": "3b0e9d20b026214d8be5b8e02225fe038957b336f284e173aafe3bd60ae555d4"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/pause/control-monitor.json",
+      "bytes": 262,
+      "sha256": "8650481aab45d9002c6355549394232a5937aeb04c13e5d2d5a4c1379e8263af"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/pause/controller-events.jsonl",
+      "bytes": 3750,
+      "sha256": "9c2d3a5711bd9853c601bc00f4822164e53b8cdd41fc5531de279eb61a062e3f"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/pause/launch-result.json",
+      "bytes": 218,
+      "sha256": "fdb36da9211c055f43927e325fc4c73afcbd73ba6746aab6b5da76dc68ac8bee"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/pause/registration.json",
+      "bytes": 684,
+      "sha256": "af1375145a314bdbfb4b905aa60a9831b2a9b49dda7747c197749dc4d58ba7b3"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/pause/resources.log",
+      "bytes": 236,
+      "sha256": "070ccfb8ab95ebbb3ac69fcdb34c907fa28f908f2153a1f61c4749e093783518"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/pause/run.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/pause/served-state.json",
+      "bytes": 233,
+      "sha256": "80cd1265c7b43019aa4d30df7d23ef6d4c2e50459778e35acfc2408a27822877"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/pause/wire-events.jsonl",
+      "bytes": 6454,
+      "sha256": "f5a7d176f72ac373d10f8f2bd668c77025f26c3b25659529fc4cd411d9f1486d"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/pin/actual-proof.json",
+      "bytes": 587,
+      "sha256": "bdd7ff7fe811845ba39041f6f3407a0e91387ca3fcb2d1a5ac79224528fd1693"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/pin/child-identity.json",
+      "bytes": 1353,
+      "sha256": "4a2887e0611e0774edc62f1ae849a27639bc45e8d3d6a212dce1277f00d19f4e"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/pin/control-monitor.json",
+      "bytes": 261,
+      "sha256": "a749b15dc8eb0e642f8d928f03178b1321368da28ca12f806f1993f0deb7ad8f"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/pin/controller-events.jsonl",
+      "bytes": 3749,
+      "sha256": "e38a6e05e24db54d1dfa8711f071dd55045dca3b8452d2006935f2b057f347e4"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/pin/launch-result.json",
+      "bytes": 218,
+      "sha256": "5c3767333a9963e7dfe88c5200ac08db08734b4236d7b940389fcb1d55b985e0"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/pin/registration.json",
+      "bytes": 676,
+      "sha256": "317f0d9f0a4c6eab305bd3bb97a044dfdd1d5618b36432a02d9e06880dbaed99"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/pin/resources.log",
+      "bytes": 234,
+      "sha256": "50b37133eb52808dd62547cb6fed3d93042b1c89d922b55b74f120fb1fbbe146"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/pin/run.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/pin/served-state.json",
+      "bytes": 233,
+      "sha256": "80cd1265c7b43019aa4d30df7d23ef6d4c2e50459778e35acfc2408a27822877"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/pin/wire-events.jsonl",
+      "bytes": 6452,
+      "sha256": "4ae0aa21257cf9e073a8881612402b68a08cf166f501df217e2a90d5ea26758b"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/process.json",
+      "bytes": 846,
+      "sha256": "f626c986e7a2a18c343044ba56e37733bd10307973c28d504c8ec03f0302fe52"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/proof.json",
+      "bytes": 667,
+      "sha256": "1cf93d1603f0828fe846e1b212ba6f8ad5823cbb3555aa62211e747af983639b"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/python-identity.json",
+      "bytes": 937,
+      "sha256": "cd68618a52080982073133eee8b289e5d407c9a126fa1a1c11cb0a86db1f6b54"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/reset/actual-proof.json",
+      "bytes": 587,
+      "sha256": "01293656bcfd9171606e802a3479f588b5d30c6862f3f44c8f515313e10f8d3e"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/reset/child-identity.json",
+      "bytes": 1369,
+      "sha256": "1b642d42404aeef2860b04e893209ae12265a3a53145f22294128d22d44ca9e6"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/reset/control-monitor.json",
+      "bytes": 262,
+      "sha256": "1abbe2345d7b7e3ea1262fca89969ff95b13a6bac2a8c2bc883282440dce1cc1"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/reset/controller-events.jsonl",
+      "bytes": 3752,
+      "sha256": "e55a8b00a5d79064cb7bb42c4e83b715158e3d854ec28c26cc6e78ae218feded"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/reset/launch-result.json",
+      "bytes": 218,
+      "sha256": "dfa7958b2b2fddb8af5a38c8c2129ded7f0a83472296448ccc1f387210195366"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/reset/registration.json",
+      "bytes": 684,
+      "sha256": "1f892ec5ce9de84a40594a8dc7ed39faf7772489fadfc2a8ed99a2ebb4371938"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/reset/resources.log",
+      "bytes": 236,
+      "sha256": "7c704747d65a343c4dfb37a5acb613bc0b0dbc3a2e785ce05a9ad81f9d211410"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/reset/run.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/reset/served-state.json",
+      "bytes": 233,
+      "sha256": "80cd1265c7b43019aa4d30df7d23ef6d4c2e50459778e35acfc2408a27822877"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/reset/wire-events.jsonl",
+      "bytes": 6451,
+      "sha256": "3829ce6b77defa74265aa6eec683a26e028ca1cdf3ee848465509a0fdf821cf9"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/scratch-cleanup-intent.json",
+      "bytes": 319,
+      "sha256": "7ead71925e04dbea18dfc7c998687003cd47fa1f3111357d71359b9f2b1d8266"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/stderr.txt",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/stdout.json",
+      "bytes": 669,
+      "sha256": "d814fc2a91d6f7a0e94f7471593ff394d7b8d52c7f4b41187208bbb72ace65c9"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red/test-authored-first.json",
+      "bytes": 243,
+      "sha256": "d570235e72c6676160516ffd88c2b7625391364a03389120ba9c0aa17a20af4f"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red-freeze.json",
+      "bytes": 3566,
+      "sha256": "acd2034592bd5f6fa43223f31a4a97ad4125f649356b45417c1978da9e84b387"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red-launcher-freeze.json",
+      "bytes": 1030,
+      "sha256": "367d7a9a3cd0c551060dc7c3f2af73490897f66135dc8c2e4bee5095ffc0d484"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/red-seal.json",
+      "bytes": 15617,
+      "sha256": "8271d3c092464bc487506886ea0da3c9733c0bb6eb329b4e403f63137456f378"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/run-cpu.ps1",
+      "bytes": 250,
+      "sha256": "485d50b43bcb477931821dd65a6d86bb3d5c47fb8ad0c2df9480e92bba4acba1"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/run-green-cpu.ps1",
+      "bytes": 5967,
+      "sha256": "9a6edd130f584d6a9b86ccd569b25995210c9a3c5d9dfd5e3a2142de329aa073"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/run-red-cpu.ps1",
+      "bytes": 5928,
+      "sha256": "ed90c8c8b483bcff39d369dd69f2e96aa031bb132e3caa270598287588e12e10"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/source-intent.md",
+      "bytes": 4344,
+      "sha256": "013ed154351cdedfa3b39d216822ded443a5824f5d949343aae6a299c2c694a6"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/test_green.py",
+      "bytes": 7612,
+      "sha256": "7ad1851d343f4bf3c5cb0c0b21924bab9d14bdd92bcf0f5811f044a1497babc0"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/pause-reset-private-successor-01/test_red.py",
+      "bytes": 4135,
+      "sha256": "b2816b5fa0a0cc0eb135be6becee1beef345a4526103ffa003a2ec0865e6b3ba"
+    }
+  ],
+  "totalBytes": 439671,
+  "results": {
+    "red": "QUALIFIED_BEHAVIOR_RED",
+    "green": "QUALIFIED_FOCUSED_GREEN",
+    "greenMatchedCases": 11,
+    "cpuRc": 0,
+    "reaped": true,
+    "timeout": false,
+    "capMilliseconds": 120000
+  },
+  "cleanup": "dfccb4f8205a28f4a6641ff0e9d08107b0dcd564b923e326941df758dd65f1dd",
+  "hold": "no future runtime/binding authorization"
+}

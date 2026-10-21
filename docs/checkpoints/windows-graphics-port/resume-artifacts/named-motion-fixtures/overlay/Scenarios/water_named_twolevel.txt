@@ -1,0 +1,4 @@
+5 watercapturemove player:PlyrCivilian WaterFixtureLow 1060 425
+5 watercapturemove player:PlyrCivilian WaterFixtureHigh 1060 1375
+120 watercapturestop player:PlyrCivilian WaterFixtureLow
+120 watercapturestop player:PlyrCivilian WaterFixtureHigh

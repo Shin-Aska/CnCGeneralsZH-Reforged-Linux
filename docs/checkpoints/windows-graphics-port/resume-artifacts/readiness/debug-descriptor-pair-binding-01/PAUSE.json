@@ -1,0 +1,44 @@
+{
+  "status": "PAUSED_PARTIAL",
+  "reason": "Human requested STOP NOW, conveyed by parent; wrap up only",
+  "timestamp": "2026-10-18T09:06:58.338Z",
+  "complete": [
+    "run_debug_pair.py source candidate authored",
+    "bound_inputs.py fresh140 pins (original133 preserved plus Debug/named/source additions)",
+    "manifest.json two fixed future cases",
+    "run-future.ps1 literal qualified PS7/C78/Python case launcher",
+    "source-selected.json current107 inventory",
+    "sourceproof.json existing native API/raw review only",
+    "cleanup.json preparation no-resource receipt"
+  ],
+  "partial": [
+    "DoneClaim and artifact-seal not authored",
+    "Independent binding review not performed",
+    "No Python import/CPU/static execution or Game qualification of new mode guard",
+    "Both Debug normal/wireframe Games UNRUN"
+  ],
+  "knownHashes": {
+    "body": "9CC483BFCD57C147254FDE04059BF30C59F160560C59B1198FBA31E8D866BAB0",
+    "bound": "98BBBA48A8CBA5D08EE5B24B2DABE55DADF61AE8623E23A422A5D653E0AA1F46",
+    "manifest": "94D19D143376CD7CCB959F4DCEB4FFCE555C3E9EF07372D522AE92B4E957FE67",
+    "launcher": "B3863FE38526BA27EAE550F6B98FD8B46D26BBA03B6F5A65F48E2B7391280F0E",
+    "sourceproof": "7AB1CBF19FB76B9D77BAFF7CAF3FB0B3B5845AA24181CCF09C3A109BE365B2C7",
+    "cleanup": "1993525F6DC9D23F02898AA8826F81233B9EF5CD27FE7E836468A83C3CA5EB0D"
+  },
+  "resourcesCreated": [],
+  "activePids": [],
+  "ports": [],
+  "runtimeOwnedWrites": [],
+  "processesSpawnedDuringPreparation": [],
+  "environmentMutation": false,
+  "cwdMutation": false,
+  "sourceProductEdits": false,
+  "stageCopiesDuringPreparation": false,
+  "readholdsReleased": true,
+  "retainedBuilds": {
+    "Debug": "454CD1646AD42A8C7BDB50D64F942CA72AE3898B28FC502351FB254C2AB41404",
+    "Release": "573649D2FEF6C85B21D43252BE28AD0083C556A743CD51492B49F16231E5A7D0",
+    "DebugBuildIndependent": "301F636580C7E4032831080420BB1D08B81997877541EE411336FA0A75B98A52"
+  },
+  "noFurtherAction": "No Game/build/stage/QA/resume until human resumes through parent"
+}

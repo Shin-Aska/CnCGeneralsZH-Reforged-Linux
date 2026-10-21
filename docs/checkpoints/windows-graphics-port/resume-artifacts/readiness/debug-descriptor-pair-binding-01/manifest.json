@@ -1,0 +1,829 @@
+{
+  "scope": "source-only two fixed same-Debug normal/wireframe bindings; NO GAME authorized by preparation",
+  "actualGameAuthorized": false,
+  "actualCpuExecution": false,
+  "runtime": {
+    "selectedSource": {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/debug-descriptor-pair-binding-01/source-selected.json",
+      "bytes": 26012,
+      "sha256": "A2839EFDED3858E69B8BCB737ABE90E23B8DDAEEFF3E1CA41E5F6E821F9A87A6"
+    },
+    "built": {
+      "path": "<REPO>/build64/Debug/generals.exe",
+      "bytes": 40470016,
+      "sha256": "454CD1646AD42A8C7BDB50D64F942CA72AE3898B28FC502351FB254C2AB41404"
+    },
+    "stage": {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-1/helper/authored-user-map-path-8/farm/generals-task8-debug-descriptor-1.exe",
+      "bytes": 40470016,
+      "sha256": "454CD1646AD42A8C7BDB50D64F942CA72AE3898B28FC502351FB254C2AB41404"
+    },
+    "isolation": {
+      "path": "<REPO>/GeneralsMD/Code/Tools/water-check/isolation.py",
+      "bytes": 4410,
+      "sha256": "F5B6F418D7E9F539C1827D317EA1C770CE3D5336B2C6C3FB71C49399EC190CE9"
+    },
+    "video": {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/motion-clock-binding-01/native_video_task8.py",
+      "bytes": 6834,
+      "sha256": "592C92D2617370EEBAF49317474095CA79C4FBD083AAFC346C94499B26F5FAF0"
+    },
+    "producer": {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/motion-clock-binding-01/producer_observation.py",
+      "bytes": 11781,
+      "sha256": "2E13D12DBDD9E5635ACCA4D9DB2391989240FAEF7FD6D43FC54B987433EFCAA3"
+    }
+  },
+  "selectedInputs": [
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/surfaceclass.cpp",
+      "bytes": 46070,
+      "sha256": "7A326959CC7F5DA836E10CC08C1F4334DB0774D3D4DC6DA9BCDA594920F5CB6E"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/surfaceclass.h",
+      "bytes": 6891,
+      "sha256": "589A68FB4B8A696E7191F2D68F3BC63312B7A69F053AC15A09DFF086362037B2"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/CMakeLists.txt",
+      "bytes": 196198,
+      "sha256": "EE5B7D4189B8097246B922B309F034DFD4CB21599896AE7E3CCC43CE81502FA7"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/GameEngine/Include/Common/GameCommon.h",
+      "bytes": 26363,
+      "sha256": "1D3C0BCB47AC8457D1D7F4261E6AF734AFB45F5FD3FBD05566550DAE21C487C9"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/GameEngine/Include/Common/GameEngine.h",
+      "bytes": 10650,
+      "sha256": "0408F308CF23392FF1174859C805BC059FCB83B6E6BC9734978469382A91C05F"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/GameEngine/Source/Common/CommandLine.cpp",
+      "bytes": 102705,
+      "sha256": "420242AE05EDDDA25A9E9FD7CC91EDE8089743ADDEE51BAE71D1FAB5326B29D8"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/GameEngine/Source/Common/GameEngine.cpp",
+      "bytes": 153168,
+      "sha256": "DAAFA7FA3B687423A7E0B4AA318C2AE8203325BC40AC59EB072DE56ADC79D6C2"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/GameEngineDevice/Include/W3DDevice/GameClient/W3DShaderManager.h",
+      "bytes": 14519,
+      "sha256": "70382B39E93929B69C3031AF6B55BC818874B6EA4FBCE2E98A376427D8C77397"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/GameEngineDevice/Include/W3DDevice/GameClient/W3DWater.h",
+      "bytes": 23170,
+      "sha256": "B490DA3BAB06B6233D279ECD0AE6CC61B7C87398FC2F74A894C88F806C51DDC1"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DDisplay.cpp",
+      "bytes": 190163,
+      "sha256": "2CBD498B75C64B9974EC59C1EF6E6805EA9F413DAC5869FEEE776D0580D161D1"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DShaderManager.cpp",
+      "bytes": 174330,
+      "sha256": "AF598BD1727580E79732FD965D3F6E8FCF60E44FA2D89B7434EF1CA4A2BDE4E4"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/Water/W3DWater.cpp",
+      "bytes": 301223,
+      "sha256": "7FFCA83EF204639D11411C370552009627C16D9EFB60846122BA92DBB325CCA3"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Include/Platform/WaterCaptureClock.h",
+      "bytes": 2197,
+      "sha256": "3BBC5E85AC1315F04E451980B7C79183A3BE8729EE16ACC695D3B0912C07A04E"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Include/Platform/WaterFftSampling.h",
+      "bytes": 25191,
+      "sha256": "2C3130EFDD1EE92CA2A1829932D200A7E1696B2081B5968D07FD61AEDC904D69"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Include/Platform/WaterGpuShaders.h",
+      "bytes": 1989,
+      "sha256": "65F5774156F0540801512D4E16DD785EAF36AFD13D42D51626C8E3E9E170F5E0"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Include/Platform/WaterRenderAdapters.h",
+      "bytes": 1212,
+      "sha256": "04F7CC9033C38C7F3A9E00AFF6C31318995044722AEEB10A078A2D8AAA544A8F"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Include/Platform/WaterRenderBridge.h",
+      "bytes": 11798,
+      "sha256": "CCCC0FAD32B07E56DA0435977421BCECACD7F79D5E31488DA723977CC13C22B6"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Include/Platform/WaterRenderPacket.h",
+      "bytes": 14977,
+      "sha256": "96D4A8DA58761CB95E582F7ED04D5E67D94ACE239149DA5AF92771CC5541FEB3"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Include/Platform/WaterShaderLayout.h",
+      "bytes": 4498,
+      "sha256": "531BF8535E09C9074E5365FCDE6568930A1DEF5E5722C76B69D0E025B929D092"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11backend.cpp",
+      "bytes": 132184,
+      "sha256": "6C2998C98A034083A9F994DED481BA25936FEA1EB32B6C1EA720BE996952541E"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11backend.h",
+      "bytes": 48589,
+      "sha256": "22F435379A1A90357FDFB2A9AA12EBB92854630E6093ED1DABB012C080953C24"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11device.cpp",
+      "bytes": 16008,
+      "sha256": "5772191C34A25C692F4861A64A1E7E98FF19F1F731FB6C8D515EBBDD3BFE5967"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11device.h",
+      "bytes": 7060,
+      "sha256": "DF0FBC56595E1B162D7D8A577D7231DBDA69408F5592C4BF42397746412DCED4"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11runtime.cpp",
+      "bytes": 27137,
+      "sha256": "63294EC7F48A44247E77A9F80EFAC9E031B1C28525693F3A2E9E9C2F3AA6D065"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11state.cpp",
+      "bytes": 18483,
+      "sha256": "6A644B040C33B008E5B2FD1D44FF61577AF508C82EB43983EBCCC5E5980B74F0"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11texture.cpp",
+      "bytes": 33286,
+      "sha256": "E75665DDD5FEAC09DE1AE3F9F819F5087601969D9D45BADC33E39A37E5FC4C8B"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11water.cpp",
+      "bytes": 91601,
+      "sha256": "EFB5B715EA0EDC4C0D0520B32F40919557CF553CC0B50AE38E08F4EFF75D5D54"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11water.h",
+      "bytes": 9528,
+      "sha256": "092DB66690C16A1A3DD81446D388B50F05809EC3A1D1B54B74052C6E248079FE"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11waterfft.cpp",
+      "bytes": 13139,
+      "sha256": "B583CDFFFCB1E597D48759F27EFFCB996D7C087E30C1409470580A7E9B2DB7D9"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11waterfft.h",
+      "bytes": 1685,
+      "sha256": "716CF6C5757298F31C8E1AD2BBBBEC78391849595E1FA99016124BB03D255E8A"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx8wrapper.cpp",
+      "bytes": 195211,
+      "sha256": "7837E97A84F4468A88664759359CE43D449DE31A8F5FB9E2B40BBD34D7E7D282"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx8wrapper.h",
+      "bytes": 72163,
+      "sha256": "6362116DA2934954135D4B2BC3B6AEED9A6908AA83920E15CAA701376AD3BC23"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/engineshader.cpp",
+      "bytes": 109588,
+      "sha256": "2AC7DA51657713CB61620E0BB44ED0419FFFE7E7F28AD6F219EB4A737A66F5BA"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/ffshader.cpp",
+      "bytes": 25174,
+      "sha256": "CABB79661C4ACC773183E58D198677301778EA9BF2784251A1E7A514A4825C0E"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/ffvertex.cpp",
+      "bytes": 32653,
+      "sha256": "9A597288FDC0BED6BA5407584A59826D6A9EFE504C87ACCBCDFFA10D88205E5C"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/texture.cpp",
+      "bytes": 52387,
+      "sha256": "7406D8D2A2B6D69B8DB440E24842B0B6B892DC0FCC45075ABDC596DE00EA3BA8"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/texture.h",
+      "bytes": 16567,
+      "sha256": "406164168F876AA4D0ADB0B04319DE86F0641DB4F02D6D6F6E5AA1EE017C58E5"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/texturefilter.cpp",
+      "bytes": 11935,
+      "sha256": "ECA31F0955C3CDAB3CC327F37855FC9F4F6A698CFD45E6BED7C2881AE2F903D5"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/texturefilter.h",
+      "bytes": 5929,
+      "sha256": "A7F63D3C87F268DCBC080CDF99D0EFEFF83B8957D348D06C2B5B461BEB44E7F5"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/Dx11DriverEvidence.h",
+      "bytes": 625,
+      "sha256": "07545E3407ECE5DF5208236D76095AE0F4C5408DFFA631E63EC29E8CF52E1322"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/test_dx11backend.cpp",
+      "bytes": 42839,
+      "sha256": "714F5EE719D6882C7733CB95F393CEDEFA24CC886ED662CD5EB32B3B9A03C492"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/test_dx11device.cpp",
+      "bytes": 5621,
+      "sha256": "2F18B7F6D69ACD5251A5EC34EBC409EF13B613DB4A75759D99A76914CC26809E"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/test_dx11pipeline.cpp",
+      "bytes": 17242,
+      "sha256": "2919D2A784E9EBA8876514D887329EA4F320A61437782240C8C626B0ABC84681"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/test_dx11water_dirty_mirror.cpp",
+      "bytes": 14331,
+      "sha256": "2380985B512BA7E1FC412FFBC93F53D60B57DECAFB17DE2ED3FFBCB58D8BCC62"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/test_dx11water_fft.cpp",
+      "bytes": 6745,
+      "sha256": "89590C1A87B8C09E9D0ABA2A492D5E868E8889AB57732D560692E7FC5C533B82"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/test_dx11water_hull.cpp",
+      "bytes": 3670,
+      "sha256": "AD73E3840CFB13C14361053338FE1E9E2B409F81C778FF6392F3143751988A07"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/test_dx11water_optics.cpp",
+      "bytes": 15630,
+      "sha256": "3A51EDA518172A5CA9085C54045353020FBEF11E837038033C11D1AC15736FA9"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/test_dx11water_samplers.cpp",
+      "bytes": 14326,
+      "sha256": "6081537017187E6E66521ABFC633458A5679EA18BF9C3C0A2732996B6CF2C9AC"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/test_dx11water_scene_inputs.cpp",
+      "bytes": 13706,
+      "sha256": "FC827D7635F163BE5FDB1E76AE3A0B4325C94B180F6A75FFA9392C9746830EFA"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/test_dx11water_scene.cpp",
+      "bytes": 23021,
+      "sha256": "080CA37B13143F6763856C0F09C992EF5E263131862FAF1273D9D12BCF462423"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/test_dx11water_surface.cpp",
+      "bytes": 26092,
+      "sha256": "21774BA2C622605930837732D8DD5687F91B4DAC549B15177D98AAEB3F1000C8"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/test_dx11water_vessel.cpp",
+      "bytes": 8614,
+      "sha256": "A1D6C5F314776E4C8ED3ADBA47CA231BF74E0A45077D7EF41645E7A924094D2D"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/test_gameengine_stubs.cpp",
+      "bytes": 4336,
+      "sha256": "061EE02E25673C613CCCB5BC584E60BC29EBBC7F66B3002145B509CEC69F226E"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/test_gameengine.cpp",
+      "bytes": 787702,
+      "sha256": "F7A9D04648D82E2ADA854E296634F56D81BD26F251343777F0A581D9F61585AB"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/test_harness.h",
+      "bytes": 2653,
+      "sha256": "DD0AB5CC3EB54C84D1EFFA8033C5487FC221687C7FC0F0686DC58E29B8454D61"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/test_main.cpp",
+      "bytes": 3645,
+      "sha256": "C6532F3F47FEAA338B35F5D372EFCF75811BB9166661A34102A5A0E2C0AE4E9B"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/test_water_fft_reference.cpp",
+      "bytes": 12779,
+      "sha256": "5C59FE0D523B7646FFDDC570FE0C94A8CB257026BBFD8CA6BC5A4C8400A41860"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/test_water_grid.cpp",
+      "bytes": 317684,
+      "sha256": "96E4303D6EC2D8184765D72873FFE37C1E41D237B5E3BBB0F28C7D523B41A021"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/test_water_optical_model.cpp",
+      "bytes": 2217,
+      "sha256": "08A93DE04BDC1C68F338341BF4CAA1DDD228D2E1685B5F2AB3F5D2EC7E9EB779"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/test_water_render_packet.cpp",
+      "bytes": 19392,
+      "sha256": "589B17B9D9CFFB7AD206A5616666277EC7BB2ECEB61953C0786194077514F676"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/test_water_shore_policy.cpp",
+      "bytes": 10670,
+      "sha256": "800FDADD934B4B6CA15E2D8B5943CD2716C10ADF04C69847E12BC04B753F2A05"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/WaterDx11DirtyMirrorFixture.h",
+      "bytes": 19485,
+      "sha256": "7D266C7EDC39433EA9B70B5BFC0DAF4B4589FC6769FBBAD4415B67D3613613E8"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/WaterDx11FftEndToEndTests.h",
+      "bytes": 10294,
+      "sha256": "7E8FB42993FBB29A0C23F9BD6ABBC100FC94B0152BE3FC9650FBA6F4E4ABF81B"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/WaterDx11FftFailureTests.h",
+      "bytes": 10220,
+      "sha256": "158F5C58EE65066E1DDA6130AF55BA0CF86F8682DFAEB6B762C06D2F1B626588"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/WaterDx11FftGeometryTests.h",
+      "bytes": 10944,
+      "sha256": "B62AF24253E80F42F534217B00E6997C0C039554B3F579CF76D69D4E2121AE36"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/WaterDx11FftLifecycleTests.h",
+      "bytes": 7968,
+      "sha256": "7D9246957FBE0FA784358A67DF53638A9B8963E7C2D34CF8410462D21C1AE21C"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/WaterDx11FftNumericalTests.h",
+      "bytes": 8764,
+      "sha256": "02DD4206727920449DEF1C182688758F17772DFDF6816D3F48A0420B5C4B7F1C"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/WaterDx11FftOracle.h",
+      "bytes": 3064,
+      "sha256": "8E53C7C8EB9EE0C77C454363408590CE97798BE7DDF06AC4CA0E45704024C320"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/WaterDx11FftReadback.h",
+      "bytes": 4408,
+      "sha256": "C53421363FF0B36B3F63FB3F0B0B89FE1288F58AE8C7832B9E071640EC529756"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/WaterDx11FftStateTests.h",
+      "bytes": 7701,
+      "sha256": "4F54AE8AFBA90BDB3FABE0ED52A7A0D4ACFCD7E8985813E380096D985455421D"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/WaterDx11HullFixture.h",
+      "bytes": 15009,
+      "sha256": "2F4388D357AB46AF5AC62A161BCC0B7E83E6B68E2EB3D2A0C3BE0F7FC5E57BCA"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/WaterDx11SurfaceFixture.h",
+      "bytes": 17543,
+      "sha256": "06C73DF5FD7F2A91D08A099A04BB9750FCD9A42A4B86E9DB86B1E9F5E3623FE4"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/WaterDx11VesselFixture.h",
+      "bytes": 21828,
+      "sha256": "FC9715768E3C8D41D0D56352A229F0348686F80D7DD3B0C2CF5C68AC4BB0E265"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/WaterFftReference.h",
+      "bytes": 11754,
+      "sha256": "B28273BD562F0B9419886472F8D8B233129FA73BF20515CBF893EBC49E863075"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/test_dx11texture.cpp",
+      "bytes": 16795,
+      "sha256": "FFDBED36AC8EF0717ABC5A06B8EAD9B8A24B2AF4CB5F23D19540E35997C68C67"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DParticleSys.cpp",
+      "bytes": 87821,
+      "sha256": "DC9B619BAA055901731602DCACE0DED0A59584564AD9E50B57418293B6D596AA"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/WaterDx11PointGroupFixture.h",
+      "bytes": 9171,
+      "sha256": "170008EFC909DDFE8B9B5427BDAE3391B636F97DBDA109E7A28A3751F0E7EFA2"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/test_dx11water_point_group_view.cpp",
+      "bytes": 4279,
+      "sha256": "AB0ADFACC94047A9E189925CAED3FADC04418176D0633C95EA87FE2AC4D0360F"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/pointgr.cpp",
+      "bytes": 89656,
+      "sha256": "28EDFAD8500DF78870E2D8F1A39E4674BFAC6C6B9A140DFAAFC8523D18D43388"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/formconv.cpp",
+      "bytes": 11430,
+      "sha256": "59057B12B6CD55D5F9C0E3D29941D179BF559C69ECFE191F5950ADCE1CD04B9D"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/formconv.h",
+      "bytes": 3272,
+      "sha256": "A7FCEE7D92649B12EA8D475F122D4A44586199D2B02F92E44C38C2104F0C9FDD"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/ww3d.cpp",
+      "bytes": 105932,
+      "sha256": "38486A845DF7564CF65D5E6C70B28BD328077AC65554016475AFBA8D42863BEB"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/GameEngine/Source/GameLogic/System/ScenarioDrill.cpp",
+      "bytes": 97728,
+      "sha256": "92F5AB59732450192A16995207BFFA6986E3897E4F190D757C54D339AFFD2437"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/GameEngine/Include/GameLogic/ScenarioDrill.h",
+      "bytes": 11483,
+      "sha256": "8F317B5DA89E20C61D6336C67B999BB14AB70D299201BA110F3C8D7F2BB5C55B"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/test_water_capture_named_actor.cpp",
+      "bytes": 4604,
+      "sha256": "118B1C16D57C317C28D4513665548690A71A72DFFB408CCF9253F7F9A6171109"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/GameEngine/Include/GameLogic/Object.h",
+      "bytes": 45513,
+      "sha256": "A01D68DC82FDDCBEAFCA6393DF573198498C3AE4619441E82F6E15B99DA318BE"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/GameEngine/Include/GameLogic/GameLogic.h",
+      "bytes": 25249,
+      "sha256": "A63E2C86C51B689DCD40570C3F82258C04978CC39230E1BF4A9D78D934B09B1B"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/GameEngine/Source/GameLogic/System/GameLogic.cpp",
+      "bytes": 227275,
+      "sha256": "C9C16756795A5AEF2D5510E90EAD0C02C8C63C6183BF5A12679ABA167B6C24BE"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/GameEngine/Include/GameClient/Drawable.h",
+      "bytes": 43874,
+      "sha256": "ECF7E9EC49CF602AC4951CFB42C992D641E1FA4D403E5943CE03DA04DC7AA8DB"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/GameEngine/Source/GameClient/Drawable.cpp",
+      "bytes": 250215,
+      "sha256": "9F98B5B3711045E522FFC49EE2DC8E5D0EA0AFBF0503437B27622BDF62D21C5D"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/GameEngine/Include/Common/Thing.h",
+      "bytes": 9080,
+      "sha256": "BEB90E2B575B23D5C179578550C23D7BB3B124DB40DA1750D2A69A020C68F37E"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/GameEngine/Source/Common/Thing/Thing.cpp",
+      "bytes": 13328,
+      "sha256": "C868B354887E0A2F3A57B60272251E4FC84AFEEED9DA0F69BFEC9BA4774ADBE4"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/GameEngine/Include/Common/ThingFactory.h",
+      "bytes": 5700,
+      "sha256": "AAC9CE5C89D20B888D6B2D8AE6CD0D84B5188951353A1EC660B8415A05BA745E"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/GameEngine/Source/Common/Thing/ThingFactory.cpp",
+      "bytes": 26334,
+      "sha256": "6B4EA60B08797EF0C651B3A607D8C4312134FE7FA9BB71E13EEFE734820C637D"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/GameEngine/Source/Common/System/ControlServer.cpp",
+      "bytes": 34312,
+      "sha256": "EEA6923846D61778AD00E7C3159CA19F176489762302882434D8A23636B89B95"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Include/Platform/WaterCaptureFixture.h",
+      "bytes": 1687,
+      "sha256": "73FAE8F3F7446A008A3B1C2588310889260F319A81C5DDD821E91523AF87138D"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Include/Lib/BaseType.h",
+      "bytes": 20888,
+      "sha256": "57E7BD64703733B5CB6E9A87393075C22553820B0327837016D566C551120A26"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/owner-lifecycle-fixture-seam.md",
+      "bytes": 10130,
+      "sha256": "70AE73A0659258EE0D5AAAF6D65D950D48988DC03332A82E0B71560D853EC436"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/named-motion-fixtures-01/assets/overlay/Data/INI/Object/WaterCaptureCarrier.ini",
+      "bytes": 1898,
+      "sha256": "FED127A367B355D2FA4A43D53A9F875B4E1E3C91FBCD2C5BF8EAF639068EB465"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/native/named-actor-green-build-01/source-freeze.json",
+      "bytes": 19603,
+      "sha256": "0623A9CAA5A6D3E2E7852547079617FD29BD0B86BBBF8226A27B42F4C9111398"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Include/Platform/WaterFoamHistory.h",
+      "bytes": 19238,
+      "sha256": "BB7F6BC966FCC6FAFAD76315CE907FB80BBADDBFA11A77773248CAACFE9AF33D"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Include/Platform/WaterFoamShading.h",
+      "bytes": 19793,
+      "sha256": "E3C857A319224C02543C5AE984F1B55282E8AD322BA01AF611525AAA739A8BC7"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Libraries/Include/Platform/WaterHullModel.h",
+      "bytes": 13176,
+      "sha256": "D106C64D40B68381CA86EDEBF791EB377619E9B246E80C504EE172ACE0C23206"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/test_water_capture_owner_lifecycle.cpp",
+      "bytes": 6713,
+      "sha256": "4A5672F673C7F47C9FE7A4AF104A369B0087CBE37FA7B3A82953E34105C50C90"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/test_dx11water_foam_view_history.cpp",
+      "bytes": 10590,
+      "sha256": "B94285D011E3B0CE4B40A82463814D974F4942EA923C8AFDE63BB33FAA1FB47F"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-1/helper/authored-user-map-path-8/farm/generals-task8-named-actor-1.exe",
+      "bytes": 16110592,
+      "sha256": "E470E3B5FACCDF0B80B5B2290F4CAAA2DCEB6A9A0BAE50BD9AAA18C10BB586C0"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tests/test_water_capture_registry_witness.cpp",
+      "bytes": 3609,
+      "sha256": "7BC87604BB208BA38D03B9EE9D9E452223B0CA5435095CA5AC5A8D3491AA7DBD"
+    },
+    {
+      "path": "<REPO>/build64/Release/generals.exe",
+      "bytes": 16124928,
+      "sha256": "573649D2FEF6C85B21D43252BE28AD0083C556A743CD51492B49F16231E5A7D0"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-1/helper/authored-user-map-path-8/farm/generals-task8-probe-green-1.exe",
+      "bytes": 16124928,
+      "sha256": "573649D2FEF6C85B21D43252BE28AD0083C556A743CD51492B49F16231E5A7D0"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tools/water-check/runtime.py",
+      "bytes": 15887,
+      "sha256": "AD0810F7AC0FABAB23B3B9C2D424C18D987135A41B5B5BE107B8C7E21026B510"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tools/water-check/isolation.py",
+      "bytes": 4410,
+      "sha256": "F5B6F418D7E9F539C1827D317EA1C770CE3D5336B2C6C3FB71C49399EC190CE9"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tools/bigfile.py",
+      "bytes": 8481,
+      "sha256": "945B6D2BAFBA21A22ADBF6627870FAB094D54AAE2EB171D3DAFA9DD55B58619E"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-6/scene-input-repair/native-process-runner.ps1",
+      "bytes": 2048,
+      "sha256": "C78A26C2B58081CD9810CED579C6D1350FAA528A164FBFB8C8AEC45C08877790"
+    },
+    {
+      "path": "C:/Program Files (x86)/PowerShell/7/pwsh.exe",
+      "bytes": 267320,
+      "sha256": "59133C8A915124E7F6045BBEC7EBE378D160DEAA44BD84FFF86EB688E577218B"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/motion-clock-binding-01/native_video_task8.py",
+      "bytes": 6834,
+      "sha256": "592C92D2617370EEBAF49317474095CA79C4FBD083AAFC346C94499B26F5FAF0"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/motion-clock-binding-01/producer_observation.py",
+      "bytes": 11781,
+      "sha256": "2E13D12DBDD9E5635ACCA4D9DB2391989240FAEF7FD6D43FC54B987433EFCAA3"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tools/water-check/models.py",
+      "bytes": 2333,
+      "sha256": "C588CF67EEB90D6E0B6B8DDC6DFD9BEACE435924CE7372DD4F9A83EA83F156E3"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tools/water-check/bitmap.py",
+      "bytes": 3522,
+      "sha256": "65010050725EE9DF7CA67B2F7B7AE62B75E6CE5BE3031DC534894CF7B943EAFE"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tools/water-check/capture_archive.py",
+      "bytes": 17080,
+      "sha256": "B94AB06BD1A230647907801D00A7E79D73C8BB281068551ACAB750FBBDEB1A99"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tools/water-check/control_monitor.py",
+      "bytes": 4411,
+      "sha256": "CC345CCA65E878D866B447754A5DB73BD49A2F25C92EF7BE20DC248A9F818315"
+    },
+    {
+      "path": "<USERPROFILE>/AppData/Local/uv/cache/environments-v2/control-monitor-task8-0044c22f2c592d49/Scripts/python.exe",
+      "bytes": 255200,
+      "sha256": "553A3AB1745F76010992BEB8BE8E37252E064324FDD878A11BB04D34F861DAC5"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tools/water-check/evidence.py",
+      "bytes": 3535,
+      "sha256": "B2E916278AC6B5E649D6914BC15FA901940A8EF0BE9314F11E300E18105739F4"
+    },
+    {
+      "path": "<REPO>/GeneralsMD/Code/Tools/control_client.py",
+      "bytes": 7100,
+      "sha256": "7BC287D6062494E24178A9495555560923C89692F52041BC4BF2DAD2067E3F55"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/particle-consumer-binding-01/assets/overlay/Maps/Water Positive Fixture v1/Water Positive Fixture v1.map",
+      "bytes": 238949,
+      "sha256": "170DE80408748526D2766E79F2547DB198BE8AA14E6177FA54DCBAE18802BEE5"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/particle-consumer-binding-01/assets/overlay/Maps/Water Positive Fixture v1/map.ini",
+      "bytes": 81,
+      "sha256": "13A570AA3320888756A3305A9193553402FFD6B1CB0008837FA0342C68BD99ED"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/particle-consumer-binding-01/assets/overlay/Data/INI/Object/WaterCaptureCarrier.ini",
+      "bytes": 1898,
+      "sha256": "FED127A367B355D2FA4A43D53A9F875B4E1E3C91FBCD2C5BF8EAF639068EB465"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/particle-consumer-binding-01/assets/overlay/Scenarios/water_capture_carrier.txt",
+      "bytes": 342,
+      "sha256": "E01FFAB9F736CFE4A9AEAEDF9DDEB04C4484887C13FECA85C03386FC82F4B6ED"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/particle-consumer-binding-01/assets/scenes.json",
+      "bytes": 2783,
+      "sha256": "56D539E2C946859D2CA43B584CB71B5F4EC3D84E5F086B3BCC7EE7E1C0AD4133"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/particle-consumer-binding-01/assets/WaterValidationGameData.fragment.ini",
+      "bytes": 521,
+      "sha256": "769361C62E87BE4611442BF6A17CE7D0D6D7068DC73585A00E398147A288D7DB"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/particle-consumer-binding-01/assets/WaterPositiveV1MapCache.ini",
+      "bytes": 448,
+      "sha256": "E6DFE655B3F062703F98EC9E6CA07A2C9288371847B71D6C73F6D2FCB5D30900"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/probe-green-pair-binding/source-selected.json",
+      "bytes": 26065,
+      "sha256": "B01161A15F7D7C5B611C4C3DE63AF7D9D10A11A988F7055F997E25EFE9D490F2"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/probe-green-pair-binding/run_baseline.py",
+      "bytes": 10496,
+      "sha256": "00C7DEADD6266B9945B77FE8B511DFA06D02F32A42791B0BCB5067687167D119"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/probe-green-pair-binding/run_probe.py",
+      "bytes": 10523,
+      "sha256": "87F0A32B06163910BE1DBF826A2D54A476A2BADD32EFE253F9BC3874D1FD4A36"
+    },
+    {
+      "path": "<REPO>/build64/Debug/generals.exe",
+      "bytes": 40470016,
+      "sha256": "454CD1646AD42A8C7BDB50D64F942CA72AE3898B28FC502351FB254C2AB41404"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-1/helper/authored-user-map-path-8/farm/generals-task8-debug-descriptor-1.exe",
+      "bytes": 40470016,
+      "sha256": "454CD1646AD42A8C7BDB50D64F942CA72AE3898B28FC502351FB254C2AB41404"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/named-motion-fixtures-01/assets/overlay/Maps/Water Named Twolevel Fixture/map.ini",
+      "bytes": 80,
+      "sha256": "8FE25F5494933680EDA34C7E4918726818E370790A449D612384E8AF6EAAC0D2"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/named-motion-fixtures-01/assets/overlay/Maps/Water Named Twolevel Fixture/Water Named Twolevel Fixture.map",
+      "bytes": 445378,
+      "sha256": "A0C05F8BF40FA8D9187366D18AA9C1FBDD8DD65F9C80DA12CB663F91BFAE49D2"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/named-motion-fixtures-01/assets/overlay/Scenarios/water_named_twolevel.txt",
+      "bytes": 249,
+      "sha256": "6364BFB2A79688CDEDBDA3E9CE8D0F914CF3BCA1AD52EAD3FFCF594AED424525"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/named-motion-fixtures-01/assets/WaterNamedTwolevelFixtureMapCache.ini",
+      "bytes": 466,
+      "sha256": "BEE3D88D3A5CC5BE581CEAA660A7AD66E6243FEE895EFF5F056E7DD157EFE7E7"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/debug-descriptor-pair-binding-01/source-selected.json",
+      "bytes": 26012,
+      "sha256": "A2839EFDED3858E69B8BCB737ABE90E23B8DDAEEFF3E1CA41E5F6E821F9A87A6"
+    }
+  ],
+  "preservedOriginalCurrentInputs": 133,
+  "selectedCppCount": 107,
+  "assets": [
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/named-motion-fixtures-01/assets/overlay/Data/INI/Object/WaterCaptureCarrier.ini",
+      "bytes": 1898,
+      "sha256": "FED127A367B355D2FA4A43D53A9F875B4E1E3C91FBCD2C5BF8EAF639068EB465"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/named-motion-fixtures-01/assets/overlay/Maps/Water Named Twolevel Fixture/map.ini",
+      "bytes": 80,
+      "sha256": "8FE25F5494933680EDA34C7E4918726818E370790A449D612384E8AF6EAAC0D2"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/named-motion-fixtures-01/assets/overlay/Maps/Water Named Twolevel Fixture/Water Named Twolevel Fixture.map",
+      "bytes": 445378,
+      "sha256": "A0C05F8BF40FA8D9187366D18AA9C1FBDD8DD65F9C80DA12CB663F91BFAE49D2"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/named-motion-fixtures-01/assets/overlay/Scenarios/water_named_twolevel.txt",
+      "bytes": 249,
+      "sha256": "6364BFB2A79688CDEDBDA3E9CE8D0F914CF3BCA1AD52EAD3FFCF594AED424525"
+    },
+    {
+      "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/named-motion-fixtures-01/assets/WaterNamedTwolevelFixtureMapCache.ini",
+      "bytes": 466,
+      "sha256": "BEE3D88D3A5CC5BE581CEAA660A7AD66E6243FEE895EFF5F056E7DD157EFE7E7"
+    }
+  ],
+  "body": {
+    "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/debug-descriptor-pair-binding-01/run_debug_pair.py",
+    "bytes": 12649,
+    "sha256": "9CC483BFCD57C147254FDE04059BF30C59F160560C59B1198FBA31E8D866BAB0"
+  },
+  "bound": {
+    "path": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/readiness/debug-descriptor-pair-binding-01/bound_inputs.py",
+    "bytes": 28425,
+    "sha256": "98BBBA48A8CBA5D08EE5B24B2DABE55DADF61AE8623E23A422A5D653E0AA1F46"
+  },
+  "future": {
+    "normal": {
+      "output": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/native/debug-descriptor-normal-actual-01",
+      "execution": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/native/debug-descriptor-normal-actual-01-execution",
+      "case": "normal",
+      "wireframe": false,
+      "pictures": [
+        180,
+        181,
+        182
+      ],
+      "terminal": 300,
+      "gameCapSeconds": 600,
+      "outerCapMilliseconds": 2100000
+    },
+    "wireframe": {
+      "output": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/native/debug-descriptor-wireframe-actual-01",
+      "execution": "<REPO>/.omo/evidence/windows-modern-water-d3d11/20261016152026/task-8/native/debug-descriptor-wireframe-actual-01-execution",
+      "case": "wireframe",
+      "wireframe": true,
+      "pictures": [
+        180,
+        181,
+        182
+      ],
+      "terminal": 300,
+      "gameCapSeconds": 600,
+      "outerCapMilliseconds": 2100000
+    }
+  },
+  "defaults": {
+    "WaterStyle": 1,
+    "features": "production default; no overrides/refusal/probe/sorted/templatefilter",
+    "requestedDriver": "hardware",
+    "clock": "picture",
+    "fixture": "carrier",
+    "takeover": false,
+    "camera": [
+      900,
+      -600,
+      3600,
+      90,
+      -70
+    ]
+  },
+  "acceptance": {
+    "normal": "strict unchanged2E13 actual hardware ReadyFFT/Issued + actual normal capture/clock/CRC300/control/reap; eligible queried SOLID3 rows retained; complete owner review separate",
+    "wireframe": "no ModernReadyFFT/currentbridge requirement; actual eligible live attached known foam owner ordinary/nonmirror/unadmitted+particles/built positive + nativeactive both + samerender span + madeExactly1/refusedsame + RSquery1/WIREFRAMEenum2; missingsoftwarelog driverUNKNOWN does not alone fail functional negative; manual owner/image join required",
+    "both": "actual3BMP180182/fullclock/normal300CRC/controlquit/normal0/reap/noTimeout; unknown cap512/missing view remainsUNKNOWN; ACK/loaded4 not allran"
+  },
+  "cleanupPlan": "Future preregister exact original PIDs/birth/path/argv/port/envCWD/extracthelper; exact7 transaction paths prehashed/contained before removal, no GameData materialization; retain raw3BMP/options/logs. No resources now."
+}

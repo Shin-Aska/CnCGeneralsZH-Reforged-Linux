@@ -1,0 +1,250 @@
+--- a/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DParticleSys.cpp
++++ b/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DParticleSys.cpp
+@@ -201,6 +201,62 @@
+     return lines<512;
+ }
+ 
++// sorted-native-witness begin: diagnostic only, fixed three-frame window.
++static bool SortedNativeWitnessRow()
++{
++    static const char *option=std::getenv("ZH_SORTED_NATIVE_WITNESS");
++    if(!option || std::strcmp(option,"1")!=0) return false;
++    const unsigned frame=WW3D::Get_Frame_Count();
++    if(frame<390 || frame>392) return false;
++    static unsigned priorFrame=0,rows=0;
++    if(priorFrame!=frame) { priorFrame=frame; rows=0; }
++    if(rows==512) {
++        ++rows;
++        std::fprintf(stderr,"sorted-native-witness: INVALID overflow frame=%u limit=512\n",frame);
++    }
++    if(rows>=512) return false;
++    ++rows;
++    return true;
++}
++// sorted-native-witness end
++// sorted-native-witness begin: independent queue qualification, no observer budget.
++static void traceSortedNativeQueue(ParticleSystem *sys,const PointGroupClass::SortingBillboardRange &range,unsigned quads)
++{
++    static const char *filter=std::getenv("ZH_WATER_PARTICLE_TRACE_TEMPLATE");
++    if(!sys || !sys->getTemplate() || !filter ||
++        std::strcmp(filter,sys->getTemplate()->getName().str())!=0 ||
++        sys->getAttachedDrawable()!=INVALID_DRAWABLE_ID || sys->getAttachedObject()!=INVALID_ID ||
++        !SortedNativeWitnessRow()) return;
++    if(!TheGlobalData || !TheGameLogic || !TheGameClient ||
++        !WaterCaptureFixture::Enabled(std::getenv("ZH_WATER_CAPTURE_FIXTURE"),TheGlobalData->m_controlPort,
++            TheGameLogic->isInGame() && !TheGameLogic->isInShellGame(),TheGameLogic->isInMultiplayerGame(),
++            TheGameLogic->isInReplayGame()) || !Direct3D11_Is_Active()) return;
++    WaterRenderBridge::Bridge *bridge=WaterRenderBridge::GetActiveBridge();
++    WaterRenderBridge::CurrentView before={},after={};
++    const bool validBefore=bridge && bridge->QueryCurrentView(before) && WaterRenderBridge::ValidCurrentView(before);
++    const bool validAfter=bridge && bridge->QueryCurrentView(after) && WaterRenderBridge::ValidCurrentView(after);
++    const bool stable=validBefore && validAfter && before.frameId==after.frameId &&
++        before.resourceGeneration==after.resourceGeneration && before.captureSerial==after.captureSerial &&
++        before.colourIdentity==after.colourIdentity && before.depthIdentity==after.depthIdentity &&
++        before.viewIdentity==after.viewIdentity && before.targetWidth==after.targetWidth &&
++        before.targetHeight==after.targetHeight && before.targetFormat==after.targetFormat &&
++        before.targetSamples==after.targetSamples && WaterRenderBridge::SameViewState(before.viewState,after.viewState);
++    std::fprintf(stderr,"sorted-native-witness: queue frame=%u logic=%u system=%u template=%s drawable=%u object=%u array=%p offset=%u quads=%u skipped=0 "
++        "view-before=(valid:%d frame:%llu generation:%llu capture:%llu colour:%llu depth:%llu identity:%llu target:%u,%u,%u,%u) "
++        "view-after=(valid:%d frame:%llu generation:%llu capture:%llu colour:%llu depth:%llu identity:%llu target:%u,%u,%u,%u) view-stable=%d\n",
++        WW3D::Get_Frame_Count(),TheGameLogic->getFrame(),(UnsignedInt)sys->getSystemID(),sys->getTemplate()->getName().str(),
++        (UnsignedInt)sys->getAttachedDrawable(),(UnsignedInt)sys->getAttachedObject(),
++        static_cast<void *>(range.Array),unsigned(range.Offset),quads,
++        (int)validBefore,(unsigned long long)before.frameId,(unsigned long long)before.resourceGeneration,
++        (unsigned long long)before.captureSerial,(unsigned long long)before.colourIdentity,
++        (unsigned long long)before.depthIdentity,(unsigned long long)before.viewIdentity,
++        before.targetWidth,before.targetHeight,before.targetFormat,before.targetSamples,
++        (int)validAfter,(unsigned long long)after.frameId,(unsigned long long)after.resourceGeneration,
++        (unsigned long long)after.captureSerial,(unsigned long long)after.colourIdentity,
++        (unsigned long long)after.depthIdentity,(unsigned long long)after.viewIdentity,
++        after.targetWidth,after.targetHeight,after.targetFormat,after.targetSamples,(int)stable);
++}
++// sorted-native-witness end
+ // One-template, default-off attribution for the existing detached-particle fixture only.
+ // It never expands the canonical vessel observer or claims a sorted queue is a native draw.
+ static Bool traceWindowsParticleCandidate(ParticleSystem *sys,const char *phase,Bool skipped,
+@@ -1740,8 +1796,13 @@
+ 		if (nextFill < m_billboardFills.size() && m_billboardFills[ nextFill ].system == sys)
+ 		{
+ 			BillboardFill &fill = m_billboardFills[ nextFill++ ];
+-			PointGroupClass::Insert_Sorted_Billboards( &fill.range, fill.drawn, fill.texture, fill.shader, fill.glow != FALSE );
+ #ifdef _WIN32
++            // sorted-native-witness begin
++            traceSortedNativeQueue(sys,fill.range,unsigned(fill.drawn));
++            // sorted-native-witness end
++#endif
++			PointGroupClass::Insert_Sorted_Billboards( &fill.range, fill.drawn, fill.texture, fill.shader, fill.glow != FALSE );
++#ifdef _WIN32
+ 			if(candidateObserved) traceWindowsParticleCandidate(sys,"sorted-queued-unattributed",FALSE,unsigned(fill.drawn));
+ #endif
+ 			fill.texture->Release_Ref();	// the draw state took its own reference
+--- a/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/sortingrenderer.cpp
++++ b/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/sortingrenderer.cpp
+@@ -54,6 +54,30 @@
+ #include <algorithm>
+ #include "Lib/Clock.h"		// Clock_Ticks: QueryPerformanceCounter on Windows, a monotonic clock elsewhere
+ #include "dx11runtime.h"
++#ifdef _WIN32
++#include "ww3d.h"
++#include <cstdio>
++#include <cstdlib>
++#include <cstring>
++// sorted-native-witness begin: diagnostic only, fixed three-frame window.
++static bool SortedNativeWitnessRow()
++{
++    static const char *option=std::getenv("ZH_SORTED_NATIVE_WITNESS");
++    if(!option || std::strcmp(option,"1")!=0) return false;
++    const unsigned frame=WW3D::Get_Frame_Count();
++    if(frame<390 || frame>392) return false;
++    static unsigned priorFrame=0,rows=0;
++    if(priorFrame!=frame) { priorFrame=frame; rows=0; }
++    if(rows==512) {
++        ++rows;
++        std::fprintf(stderr,"sorted-native-witness: INVALID overflow frame=%u limit=512\n",frame);
++    }
++    if(rows>=512) return false;
++    ++rows;
++    return true;
++}
++// sorted-native-witness end
++#endif
+ 
+ #ifdef _INTERNAL
+ // for occasional debugging...
+@@ -667,6 +691,14 @@
+ // neither does the picture.
+ static void Flush_Sorting_Batch(const TempIndexStruct* entries,unsigned entry_count,unsigned vertex_count,unsigned index_count)
+ {
++#ifdef _WIN32
++    // sorted-native-witness begin: render-thread serial, no resource metadata.
++    static unsigned witnessSerial=0;
++    const unsigned witnessBatch=SortedNativeWitnessRow()?++witnessSerial:0;
++    if(witnessBatch) std::fprintf(stderr,"sorted-native-witness: batch frame=%u batch=%u entries=%u vertices=%u indices=%u\n",
++        WW3D::Get_Frame_Count(),witnessBatch,entry_count,vertex_count,index_count);
++    // sorted-native-witness end
++#endif
+ 	BatchCopyJob job;
+ 	job.entries=entries;
+ 	job.offsets=Compute_Batch_Offsets(entries,entry_count);
+@@ -696,6 +728,23 @@
+ 
+ 		try {
+ 		Run_Parallel(chunks,1,Write_Batch_Indices,&job);
++#ifdef _WIN32
++        // sorted-native-witness begin: same offsets and exact index pattern written above.
++        if(witnessBatch) for(unsigned e=0;e<entry_count;++e) {
++            if(!SortedNativeWitnessRow()) break;
++            const TempIndexStruct &entry=entries[e];
++            const SortingNodeStruct *state=overlapping_nodes[entry.idx];
++            const unsigned v=job.offsets[e].vertex;
++            const bool quad=Entry_Is_Quad(entry);
++            std::fprintf(stderr,"sorted-native-witness: entry frame=%u batch=%u entry=%u node=%u array=%p source-first=%u source-relative=%u quad=%d dest-vertex=%u dest-index=%u count=%u indices=(%u,%u,%u,%u,%u,%u)\n",
++                WW3D::Get_Frame_Count(),witnessBatch,e,unsigned(entry.idx),
++                static_cast<void *>(state->sorting_state.vertex_buffers[0]),
++                unsigned(state->sorting_state.vba_offset+state->sorting_state.index_base_offset+state->min_vertex_index),
++                unsigned(entry.tri.i),quad?1:0,v,job.offsets[e].index,quad?6u:3u,
++                v,v+1,v+2,quad?v+2:0,quad?v+3:0,quad?v:0);
++        }
++        // sorted-native-witness end
++#endif
+ 		IndexBufferExceptionFunc();
+ 		} catch(...) {
+ 			IndexBufferExceptionFunc();
+@@ -732,7 +781,21 @@
+ 				Direct3D11_Set_Soft_Particles(state->quads);
+ 				SunShadow::ReceiverExclusion sunReceivers(DX8Wrapper::_Get_D3D_Device(), state->excludeSunReceivers);
+ 				SunShadow::CasterEffectScope casterEffect(DX8Wrapper::_Get_D3D_Device(), state->casterEffect);
++#ifdef _WIN32
++    // sorted-native-witness begin: synchronous bracket around this one existing call.
++    if(witnessBatch && SortedNativeWitnessRow())
++        std::fprintf(stderr,"sorted-native-witness: run-begin frame=%u batch=%u first-index=%u indices=%u first-vertex=%u vertices=%u\n",
++            WW3D::Get_Frame_Count(),witnessBatch,run_first_index,run_triangles*3,run_first_vertex,vertex_cursor-run_first_vertex);
++    // sorted-native-witness end
++#endif
+ 				DX8Wrapper::Draw_Triangles(run_first_index,run_triangles,run_first_vertex,vertex_cursor-run_first_vertex);
++#ifdef _WIN32
++    // sorted-native-witness begin: synchronous bracket around this one existing call.
++    if(witnessBatch && SortedNativeWitnessRow())
++        std::fprintf(stderr,"sorted-native-witness: run-end frame=%u batch=%u first-index=%u indices=%u first-vertex=%u vertices=%u\n",
++            WW3D::Get_Frame_Count(),witnessBatch,run_first_index,run_triangles*3,run_first_vertex,vertex_cursor-run_first_vertex);
++    // sorted-native-witness end
++#endif
+ 				run_first_index=index_cursor;
+ 				run_first_vertex=vertex_cursor;
+ 				run_triangles=0;
+@@ -750,7 +813,21 @@
+ 	{
+ 		SunShadow::ReceiverExclusion sunReceivers(DX8Wrapper::_Get_D3D_Device(), overlapping_nodes[node_id]->excludeSunReceivers);
+ 		SunShadow::CasterEffectScope casterEffect(DX8Wrapper::_Get_D3D_Device(), overlapping_nodes[node_id]->casterEffect);
++#ifdef _WIN32
++    // sorted-native-witness begin: synchronous bracket around this one existing call.
++    if(witnessBatch && SortedNativeWitnessRow())
++        std::fprintf(stderr,"sorted-native-witness: run-begin frame=%u batch=%u first-index=%u indices=%u first-vertex=%u vertices=%u\n",
++            WW3D::Get_Frame_Count(),witnessBatch,run_first_index,run_triangles*3,run_first_vertex,vertex_cursor-run_first_vertex);
++    // sorted-native-witness end
++#endif
+ 		DX8Wrapper::Draw_Triangles(run_first_index,run_triangles,run_first_vertex,vertex_cursor-run_first_vertex);
++#ifdef _WIN32
++    // sorted-native-witness begin: synchronous bracket around this one existing call.
++    if(witnessBatch && SortedNativeWitnessRow())
++        std::fprintf(stderr,"sorted-native-witness: run-end frame=%u batch=%u first-index=%u indices=%u first-vertex=%u vertices=%u\n",
++            WW3D::Get_Frame_Count(),witnessBatch,run_first_index,run_triangles*3,run_first_vertex,vertex_cursor-run_first_vertex);
++    // sorted-native-witness end
++#endif
+ 	}
+ 	SunShadow::SetSmokeGlow(DX8Wrapper::_Get_D3D_Device(),false);
+ 	Direct3D11_Set_Soft_Particles(false);
+--- a/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx8wrapper.cpp
++++ b/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx8wrapper.cpp
+@@ -102,6 +102,27 @@
+ 
+ #if defined(_WIN32)
+ #include <stdlib.h>	// getenv
++#include <cstdio>
++#include <cstdlib>
++#include <cstring>
++// sorted-native-witness begin: diagnostic only, fixed three-frame window.
++static bool SortedNativeWitnessRow()
++{
++    static const char *option=std::getenv("ZH_SORTED_NATIVE_WITNESS");
++    if(!option || std::strcmp(option,"1")!=0) return false;
++    const unsigned frame=WW3D::Get_Frame_Count();
++    if(frame<390 || frame>392) return false;
++    static unsigned priorFrame=0,rows=0;
++    if(priorFrame!=frame) { priorFrame=frame; rows=0; }
++    if(rows==512) {
++        ++rows;
++        std::fprintf(stderr,"sorted-native-witness: INVALID overflow frame=%u limit=512\n",frame);
++    }
++    if(rows>=512) return false;
++    ++rows;
++    return true;
++}
++// sorted-native-witness end
+ 
+ /* ZH_D3D9_DEVTYPE=nullref is for measuring, not playing: the reference rasterizer's NULL device
+ 	 takes every call and draws nothing, so a run times the game's own work in the Direct3D 9
+@@ -2906,10 +2927,22 @@
+ 				// A fan is still dropped: Direct3D 11 has no fan topology, and its indices would
+ 				// have to be rebuilt.
+ 				if (primitive_type==D3DPT_TRIANGLELIST) {
+-					Direct3D11_Draw_Indexed_Triangles(
++					const bool nativeAccepted=Direct3D11_Draw_Indexed_Triangles(
+ 						polygon_count*3,
+ 						start_index+render_state.iba_offset,
+ 						render_state.index_base_offset+render_state.vba_offset);
++                    (void)nativeAccepted;
++#ifdef _WIN32
++                    // sorted-native-witness begin: returned result of the unchanged native call.
++                    if(SortedNativeWitnessRow())
++                        std::fprintf(stderr,"sorted-native-witness: native frame=%u vb=%p ib=%p iba=%u vba=%u index-base=%u first-index=%u indices=%u min-vertex=%u vertices=%u accepted=%d\n",
++                            WW3D::Get_Frame_Count(),static_cast<void *>(render_state.vertex_buffers[0]),
++                            static_cast<void *>(render_state.index_buffer),unsigned(render_state.iba_offset),
++                            unsigned(render_state.vba_offset),unsigned(render_state.index_base_offset),
++                            unsigned(start_index+render_state.iba_offset),unsigned(polygon_count)*3,
++                            unsigned(min_vertex_index),unsigned(vertex_count),nativeAccepted?1:0);
++                    // sorted-native-witness end
++#endif
+ 				}
+ 				else if (primitive_type==D3DPT_TRIANGLESTRIP) {
+ 					// n indices make n-2 triangles, which is the count the caller passed.
