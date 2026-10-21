@@ -55,6 +55,7 @@ void Sdl_Read_Slot_Lines(const std::string &hlsl, unsigned int slots, std::vecto
 }
 
 SdlProgramCache::SdlProgramCache(SDL_GPUDevice *device) :
+	WaterOptions(WaterGpuShaders::SnapshotEnvironment(WaterGpuShaders::Target::Sdl3Gpu,1)),
 	Device(device),
 	Built(0),
 	Refused(0),
@@ -223,23 +224,30 @@ const SdlProgram &SdlProgramCache::Vertex_Program(const VertexPipelineDescriptio
 
 const SdlProgram &SdlProgramCache::Water_Vertex_Program(const VertexPipelineDescription &description)
 {
-	if (SdlProgram *found = WaterVertexByBytes.Find(&description, sizeof(description))) {
+	WaterGpuShaders::Variant variant=WaterOptions.flat;
+	variant.vertex=WaterGpuShaders::Vertex::Fft;
+	variant.materialFvf=description.FVF;
+	const std::string waterKey=WaterGpuShaders::Key(variant);
+	struct { VertexPipelineDescription Description; char VariantKey[128]; } lookup = {};
+	memcpy(&lookup.Description,&description,sizeof(description));
+	snprintf(lookup.VariantKey,sizeof(lookup.VariantKey),"%s",waterKey.c_str());
+	if (SdlProgram *found = WaterVertexByBytes.Find(&lookup, sizeof(lookup))) {
 		++found->Uses;
 		return *found;
 	}
-	const std::string key = "water-fft:" + VertexShader_Key(description);
+	const std::string key = waterKey + ":" + VertexShader_Key(description);
 	std::map<std::string, SdlProgram>::iterator existing = VertexPrograms.find(key);
 	if (existing != VertexPrograms.end()) {
 		++existing->second.Uses;
-		WaterVertexByBytes.Add(&description, sizeof(description), &existing->second);
+		WaterVertexByBytes.Add(&lookup, sizeof(lookup), &existing->second);
 		return existing->second;
 	}
-	std::string hlsl;
+	std::string hlsl,base;
 	const bool generated = !description.LightingEnabled
-		&& VertexShader_Generate(description, VERTEX_SHADER_TARGET_D3D11, hlsl)
-		&& WaterFftSampling::WrapVertex(hlsl) && SDL3_Shader_Retarget(hlsl, true);
+		&& VertexShader_Generate(description, VERTEX_SHADER_TARGET_D3D11, base)
+		&& WaterGpuShaders::GenerateVertex(variant,base,hlsl);
 	const SdlProgram &made = Make(VertexPrograms, key, generated, hlsl, true);
-	WaterVertexByBytes.Add(&description, sizeof(description), &VertexPrograms[key]);
+	WaterVertexByBytes.Add(&lookup, sizeof(lookup), &VertexPrograms[key]);
 	return made;
 }
 
@@ -267,16 +275,22 @@ const SdlProgram &SdlProgramCache::Engine_Vertex_Program(int program)
 const SdlProgram &SdlProgramCache::Engine_Pixel_Program(int program, const PixelPipelineDescription &pipeline)
 {
 	// The program and the pipeline description, side by side, as the lookup's bytes.
-	struct { int Program; PixelPipelineDescription Pipeline; } lookup;
+	struct { int Program; PixelPipelineDescription Pipeline; char VariantKey[128]; } lookup;
 	memset(&lookup, 0, sizeof(lookup));
 	lookup.Program = program;
 	memcpy(&lookup.Pipeline, &pipeline, sizeof(pipeline));	// padding and all, as the caller built it
+	const bool flatWater=program==ENGINE_SHADER_WATER_TRAPEZOID;
+	const bool riverWater=program==ENGINE_SHADER_WATER_RIVER;
+	const WaterGpuShaders::Variant *water=flatWater?&WaterOptions.flat:riverWater?&WaterOptions.river:NULL;
+	const std::string waterKey=water!=NULL?WaterGpuShaders::Key(*water):std::string();
+	if(water!=NULL) snprintf(lookup.VariantKey,sizeof(lookup.VariantKey),"%s",waterKey.c_str());
 	if (SdlProgram *found = EnginePixelByBytes.Find(&lookup, sizeof(lookup))) {
 		++found->Uses;
 		return *found;
 	}
 	const EngineShaderProgram engine = (EngineShaderProgram)program;
-	const std::string key = std::string("engine:") + EngineShader_Name(engine) + CombinerShader_Pipeline_Key(pipeline);
+	const std::string key = std::string("engine:") + EngineShader_Name(engine)
+		+ waterKey + CombinerShader_Pipeline_Key(pipeline);
 	std::map<std::string, SdlProgram>::iterator existing = PixelPrograms.find(key);
 	if (existing != PixelPrograms.end()) {
 		++existing->second.Uses;
@@ -284,7 +298,8 @@ const SdlProgram &SdlProgramCache::Engine_Pixel_Program(int program, const Pixel
 		return existing->second;
 	}
 	std::string hlsl;
-	const bool written = EngineShader_Pixel_Program(engine, pipeline, hlsl, COMBINER_SHADER_TARGET_SDL3_GPU);
+	const bool written = water!=NULL ? WaterGpuShaders::GenerateSurfacePixel(*water,pipeline,hlsl)
+		: EngineShader_Pixel_Program(engine, pipeline, hlsl, COMBINER_SHADER_TARGET_SDL3_GPU);
 	const SdlProgram &made = Make(PixelPrograms, key, written, hlsl, false);
 	EnginePixelByBytes.Add(&lookup, sizeof(lookup), &PixelPrograms[key]);
 	return made;
@@ -333,13 +348,19 @@ const SdlProgram &SdlProgramCache::Shore_Pixel_Program(const CombinerDescription
 // Preserve the shared alpha/discard logic but expose no fragment color output on a depth-only pass.
 const SdlProgram &SdlProgramCache::Sun_Pixel_Program(const CombinerDescription &description, int engine)
 {
-    struct { CombinerDescription Description; int Engine; } lookup = {};
+    const bool flatWater=engine==ENGINE_SHADER_WATER_TRAPEZOID;
+    const bool riverWater=engine==ENGINE_SHADER_WATER_RIVER;
+    const WaterGpuShaders::Variant *water=flatWater?&WaterOptions.flat:riverWater?&WaterOptions.river:NULL;
+    const std::string waterKey=water!=NULL?WaterGpuShaders::Key(*water):std::string();
+    struct { CombinerDescription Description; int Engine; char VariantKey[128]; } lookup = {};
     memcpy(&lookup.Description, &description, sizeof(description));
     lookup.Engine = engine;
+    if(water!=NULL) snprintf(lookup.VariantKey,sizeof(lookup.VariantKey),"%s",waterKey.c_str());
     if (SdlProgram *found=SunPixelByBytes.Find(&lookup,sizeof(lookup))) { ++found->Uses; return *found; }
     const bool fixed = engine == ENGINE_SHADER_NONE;
     const std::string key = "sun-caster:" + (fixed ? CombinerShader_Key(description)
-        : std::string(EngineShader_Name((EngineShaderProgram)engine))+CombinerShader_Pipeline_Key(description.PixelPipeline));
+        : std::string(EngineShader_Name((EngineShaderProgram)engine))
+			+waterKey+CombinerShader_Pipeline_Key(description.PixelPipeline));
     auto existing = PixelPrograms.find(key);
     if (existing != PixelPrograms.end()) {
         ++existing->second.Uses;
@@ -348,6 +369,7 @@ const SdlProgram &SdlProgramCache::Sun_Pixel_Program(const CombinerDescription &
     }
     std::string hlsl;
     bool generated = fixed ? CombinerShader_Generate(description,COMBINER_SHADER_TARGET_SDL3_GPU,hlsl)
+        : water!=NULL ? WaterGpuShaders::GenerateSurfacePixel(*water,description.PixelPipeline,hlsl)
         : EngineShader_Pixel_Program((EngineShaderProgram)engine,description.PixelPipeline,hlsl,COMBINER_SHADER_TARGET_SDL3_GPU);
     const std::string entry="float4 main(Input input) : SV_Target";
     const size_t at=hlsl.find(entry);

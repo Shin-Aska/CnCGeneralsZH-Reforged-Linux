@@ -1,0 +1,7 @@
+90 spawn player:player1 WaterCaptureCarrier 1 260 280
+120 move player:player1 WaterCaptureCarrier 760 280
+195 stop player:player1 WaterCaptureCarrier
+225 move player:player1 WaterCaptureCarrier 300 280
+270 stop player:player1 WaterCaptureCarrier
+300 move player:player1 WaterCaptureCarrier 860 280
+420 stop player:player1 WaterCaptureCarrier

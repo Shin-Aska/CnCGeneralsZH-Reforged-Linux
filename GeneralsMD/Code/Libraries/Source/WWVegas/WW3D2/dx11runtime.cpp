@@ -28,6 +28,7 @@
 #include "dx11post.h"
 #include "dx11texture.h"
 #include "dx11twin.h"
+#include "dx11water.h"
 
 static bool Requested = false;
 static bool PresentRequested = false;
@@ -92,11 +93,6 @@ bool Direct3D11_Create(HWND window, unsigned width, unsigned height)
 	if (!Device.Create(window, width, height)) {
 		return false;
 	}
-	if (!Backend.Initialise(&Device)) {
-		Device.Release();
-		return false;
-	}
-
 	Backend.Set_Dump_Directory(DumpDirectory.c_str());
 	std::string cache_path = ShaderCacheDirectory;
 	if (!cache_path.empty() && cache_path[cache_path.size() - 1] != '\\' && cache_path[cache_path.size() - 1] != '/') {
@@ -105,6 +101,10 @@ bool Direct3D11_Create(HWND window, unsigned width, unsigned height)
 	cache_path += SHADER_CACHE_FILE;
 	Backend.Set_Shader_Cache_Path(cache_path.c_str());
 	Backend.Load_Shipped_Programs(SHIPPED_SHADER_FILE);
+	if (!Backend.Initialise(&Device)) {
+		Device.Release();
+		return false;
+	}
 
 	// The chain is the one thing here that is allowed to fail without taking the backend with it:
 	// a machine whose compiler refuses the passes still gets the frame, just not the effect.
@@ -137,7 +137,10 @@ bool Direct3D11_Resize(unsigned width, unsigned height)
 	if (Device.Get_Width() == width && Device.Get_Height() == height) {
 		return true;
 	}
-	return Device.Resize(width, height);
+	Backend.Before_Resize();
+	const bool resized = Device.Resize(width, height);
+	Backend.After_Resize();
+	return resized;
 }
 
 bool Direct3D11_Is_Active()
@@ -153,6 +156,15 @@ DX11DeviceClass * Direct3D11_Device()
 DX11BackendClass * Direct3D11_Backend()
 {
 	return Active ? &Backend : NULL;
+}
+
+namespace WaterRenderBridge {
+
+Bridge *GetActiveBridge()
+{
+	return Active ? Backend.Water_Owner() : NULL;
+}
+
 }
 
 void Direct3D11_Mirror_Render_State(unsigned state, unsigned value)
@@ -697,6 +709,7 @@ void Direct3D11_End_Scene(bool flip_frames)
 	}
 	if (Active && flip_frames) {
 		Backend.Save_Shader_Cache_If_Due();
+		if (Backend.Water_Owner() != NULL) Backend.Water_Owner()->Advance_Presented_Frame();
 	}
 }
 

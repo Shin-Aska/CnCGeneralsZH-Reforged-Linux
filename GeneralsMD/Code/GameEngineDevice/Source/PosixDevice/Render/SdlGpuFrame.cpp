@@ -341,14 +341,7 @@ struct SdlGpuFrame::OceanResources
 // scratch; never sample a texture attached for writing, even at a different mip level.
 static std::string Ocean_Mip_Hlsl()
 {
-	std::string source=WaterFftSpectrum::Resources(6);
-	source+="Result main(float4 position:SV_Position) { int2 p=int2(position.xy)*2; int level=(int)Parameters.z-1; Result result;\n";
-	for(unsigned i=0;i<6;++i) {
-		const std::string s=std::to_string(i);
-		source+="result.v"+s+"=(T"+s+".Load(int3(p,level))+T"+s+".Load(int3(p+int2(1,0),level))+T"+s+
-			".Load(int3(p+int2(0,1),level))+T"+s+".Load(int3(p+int2(1,1),level)))*0.25;\n";
-	}
-	return source+"return result; }\n";
+	return WaterFftSpectrum::MipHlsl();
 }
 
 void SdlGpuFrame::Release_Ocean()

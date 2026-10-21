@@ -34,10 +34,12 @@
 #include "SdlResourceMirror.h"
 
 #include "engineshader.h"
+#include "dx8wrapper.h"
 #include "ffshader.h"
 #include "ffvertex.h"
 #include "Platform/WaterFftSampling.h"
 #include "Platform/WaterFoamHistory.h"
+#include "Platform/WaterRenderBridge.h"
 
 #include <SDL3/SDL.h>
 
@@ -50,6 +52,31 @@
 #if defined(__linux__)
 #include <execinfo.h> // bounded opt-in CPU attribution; no GPU queries/readbacks
 #endif
+
+namespace WaterRenderBridge {
+namespace {
+class PosixWaterBridge final : public Bridge
+{
+public:
+	Capability GetCapability() const override
+	{
+		return {BackendKind::SdlGpu,ProductionRequired|Feature::CoastalSurf|Feature::CoastalCrest,
+			CapabilityReason::None};
+	}
+	PrepareStatus PreparePatch(const PrepareRequest &,PreparedPatch &) override { return PrepareStatus::Unavailable; }
+	SubmissionReceipt SubmitPreparedPatch(const PreparedPatch &) override { return {}; }
+	bool QueryCurrentView(CurrentView &) const override { return false; }
+	void End(std::uint64_t) override {}
+	void InvalidateResources(std::uint64_t) override {}
+	void InvalidateMap() override {}
+};
+}
+Bridge *GetActiveBridge()
+{
+	static PosixWaterBridge bridge;
+	return DX8Wrapper::_Get_D3D_Device()?&bridge:NULL;
+}
+}
 
 bool PosixDevice9::Coastal_Bind(uint64_t revision,const WaterCoastalDomain::Domain &domain,
     const WaterShoreHistory::Mapping &mapping,double level,const std::vector<WaterCoastalSurf::Lookup> &lookup)
@@ -509,49 +536,40 @@ bool PosixDevice9::Water_Foam_History_Available() const
 
 void PosixDevice9::Build_Water_Constants(const SdlPixelConstants &pixel_constants, SdlWaterPixelConstants &water) const
 {
-	memset(&water, 0, sizeof(water));
-	water.Combiner = pixel_constants;
-	float view_projection[16], inverse_view[16];
-	multiply(&Transforms[D3DTS_VIEW]._11, &Transforms[D3DTS_PROJECTION]._11, view_projection);
-	if (!render_inverse(view_projection, water.WorldFromClip)
-		|| !render_inverse(&Transforms[D3DTS_VIEW]._11, inverse_view)) {
-		memset(water.WorldFromClip, 0, sizeof(water.WorldFromClip));
-		memset(inverse_view, 0, sizeof(inverse_view));
-		for (unsigned i = 0; i < 4; ++i) water.WorldFromClip[i * 5] = inverse_view[i * 5] = 1.0f;
+	using namespace WaterRenderPacket;
+	SceneInput scene={};
+	memcpy(scene.view,&Transforms[D3DTS_VIEW]._11,sizeof(scene.view));
+	memcpy(scene.projection,&Transforms[D3DTS_PROJECTION]._11,sizeof(scene.projection));
+	memcpy(scene.combiner,&pixel_constants,sizeof(pixel_constants));
+	scene.viewport={(float)Viewport.X,(float)Viewport.Y,(float)Viewport.Width,(float)Viewport.Height,Viewport.MinZ,Viewport.MaxZ};
+	SurfaceInput surface={};
+	surface.river=PixelShaderConstants[1][1]>.5f;
+	memcpy(&surface.waterParameters,PixelShaderConstants[1],sizeof(surface.waterParameters));
+	memcpy(&surface.reflectionArea,PixelShaderConstants[2],sizeof(surface.reflectionArea));
+	memcpy(&scene.sunDirection,PixelShaderConstants[3],sizeof(scene.sunDirection));
+	memcpy(&scene.sunColour,PixelShaderConstants[4],sizeof(scene.sunColour));
+	memcpy(&surface.terrainParameters,PixelShaderConstants[5],sizeof(surface.terrainParameters));
+	memcpy(&surface.opticalParameters,PixelShaderConstants[6],sizeof(surface.opticalParameters));
+	memcpy(&surface.hullParameters,PixelShaderConstants[7],sizeof(surface.hullParameters));
+	const unsigned hulls=!surface.river&&surface.hullParameters.x>=0&&surface.hullParameters.x<=8
+		&& floor(surface.hullParameters.x)==surface.hullParameters.x?(unsigned)surface.hullParameters.x:8;
+	surface.meanHulls={reinterpret_cast<const WaterShaderLayout::Float4 *>(PixelShaderConstants[8]),hulls*10,80};
+	surface.contactHulls={reinterpret_cast<const WaterShaderLayout::Float4 *>(PixelShaderConstants[96]),hulls*10,80};
+	memcpy(surface.foamFillLights,PixelShaderConstants[90],sizeof(surface.foamFillLights));
+	if(Water_Foam_History_Available()) {
+		surface.foamHistoryAvailable=true;
+		memcpy(&surface.foamHistoryArea,PixelShaderConstants[88],sizeof(surface.foamHistoryArea));
+		memcpy(&surface.foamHistoryParameters,PixelShaderConstants[89],sizeof(surface.foamHistoryParameters));
 	}
-	water.CameraPosition[0] = inverse_view[12];
-	water.CameraPosition[1] = inverse_view[13];
-	water.CameraPosition[2] = inverse_view[14];
-	// Both SV_Position.z and sampled scene depth include the viewport's depth range. Compose its
-	// inverse into the unprojection so custom MinZ/MaxZ use the same shader path as the normal range.
-	const float depth_range = Viewport.MaxZ - Viewport.MinZ;
-	if (depth_range > 1.0e-8f) {
-		for (unsigned int column = 0; column < 4; ++column) {
-			const float z_row = water.WorldFromClip[8 + column] / depth_range;
-			water.WorldFromClip[12 + column] -= Viewport.MinZ * z_row;
-			water.WorldFromClip[8 + column] = z_row;
-		}
+	WaterShaderLayout::PixelConstants constants={};
+	WaterShaderLayout::HullPacketConstants packets={};
+	ValidationError error=ValidationError::None;
+	if(!PackConstants(scene,surface,constants,packets,&error)) {
+		Identity(scene.view);Identity(scene.projection);
+		PackConstants(scene,surface,constants,packets,NULL);
 	}
-	water.Viewport[0] = (float)Viewport.X + 0.5f;
-	water.Viewport[1] = (float)Viewport.Y + 0.5f;
-	water.Viewport[2] = (float)Viewport.Width;
-	water.Viewport[3] = (float)Viewport.Height;
-	memcpy(water.WaterParameters, PixelShaderConstants[1], sizeof(water.WaterParameters));
-	memcpy(water.ReflectionArea, PixelShaderConstants[2], sizeof(water.ReflectionArea));
-	memcpy(water.SunDirection, PixelShaderConstants[3], sizeof(water.SunDirection));
-	memcpy(water.SunColour, PixelShaderConstants[4], sizeof(water.SunColour));
-	memcpy(water.TerrainParameters, PixelShaderConstants[5], sizeof(water.TerrainParameters));
-	memcpy(water.OpticalParameters, PixelShaderConstants[6], sizeof(water.OpticalParameters));
-	memcpy(water.HullParameters, PixelShaderConstants[7], sizeof(water.HullParameters));
-	memcpy(water.HullData, PixelShaderConstants[8], sizeof(water.HullData));
-	memcpy(water.ContactHullData, PixelShaderConstants[96], sizeof(water.ContactHullData));
-	memcpy(water.FoamFillLights, PixelShaderConstants[90], sizeof(water.FoamFillLights));
-	if (Water_Foam_History_Available()) {
-		memcpy(water.FoamHistoryArea, PixelShaderConstants[88], sizeof(water.FoamHistoryArea));
-		memcpy(water.FoamHistoryParameters, PixelShaderConstants[89], sizeof(water.FoamHistoryParameters));
-	}
-	// River draws must never inherit a preceding ocean draw's hull field.
-	if (water.WaterParameters[1] > 0.5f) water.HullParameters[0] = 0;
+	static_assert(sizeof(water)==sizeof(constants.Common),"SDL water adapter layout");
+	memcpy(&water,&constants.Common,sizeof(water));
 }
 
 void PosixDevice9::Build_Water_Visual_Constants(const SdlWaterPixelConstants &water, SdlWaterVisualPixelConstants &visual) const

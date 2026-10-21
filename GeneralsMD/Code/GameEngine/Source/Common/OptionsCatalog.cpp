@@ -646,3 +646,17 @@ void saveOptionsToPreferences( UserPreferences& pref )
 		pref[ AsciiString( def.iniKey ) ] = formatOptionValue( def, def.get() );
 	}
 }
+
+Bool commitWaterStylePreference( UserPreferences& pref, Int requestedStyle )
+{
+	const OptionDef *waterStyle = findOptionDef( "WaterStyle" );
+	if( waterStyle == NULL )
+		return false;
+
+	const Int value = clampOptionValue( *waterStyle, requestedStyle );
+	pref[ AsciiString( waterStyle->iniKey ) ] = formatOptionValue( *waterStyle, value );
+	if( !pref.write() )
+		return false;
+	waterStyle->set( value );
+	return true;
+}

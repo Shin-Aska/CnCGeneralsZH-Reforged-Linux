@@ -44,6 +44,7 @@
 #include <limits>
 #include "Platform/WaterFftSpectrum.h"
 #include "Platform/WaterFftSampling.h"
+#include "Platform/WaterGpuShaders.h"
 #include "Platform/WaterFoamShading.h"
 #include "Platform/WaterFoamEnvironment.h"
 #include "Platform/WaterShoreFoam.h"
@@ -69,6 +70,18 @@ static int failures = 0;
 
 #define CHECK(condition) \
 	do { if (!(condition)) { ++failures; printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #condition); } } while (0)
+
+static bool generate_environment_water_for_test(EngineShaderProgram program,
+	const PixelPipelineDescription &pipeline,std::string &hlsl)
+{
+	const WaterGpuShaders::EnvironmentSnapshot options=WaterGpuShaders::SnapshotEnvironment(
+		WaterGpuShaders::Target::Sdl3Gpu,1);
+	if(program==ENGINE_SHADER_WATER_TRAPEZOID)
+		return WaterGpuShaders::GenerateSurfacePixel(options.flat,pipeline,hlsl);
+	if(program==ENGINE_SHADER_WATER_RIVER)
+		return WaterGpuShaders::GenerateSurfacePixel(options.river,pipeline,hlsl);
+	return false;
+}
 
 // Bind the production fragment layout even when a normal-only fixture has no mesh hulls.
 static void push_empty_visual_water(SDL_GPUCommandBuffer *commands,const SdlWaterPixelConstants &water)
@@ -691,8 +704,8 @@ static void check_gpu_water_mesh_correction(SdlGpuFrame *frame)
 	const std::string previousDebug=previous?previous:"";
 	CHECK(setenv("ZH_WATER_DEBUG","normal",1)==0);
 	PixelPipelineDescription pixelDescription={};std::string pixelSource;
-	const bool generated=EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pixelDescription,
-		pixelSource,COMBINER_SHADER_TARGET_SDL3_GPU);
+	const bool generated=generate_environment_water_for_test(ENGINE_SHADER_WATER_TRAPEZOID,
+		pixelDescription,pixelSource);
 	if(hadDebug) CHECK(setenv("ZH_WATER_DEBUG",previousDebug.c_str(),1)==0);
 	else CHECK(unsetenv("ZH_WATER_DEBUG")==0);
 	CHECK(generated);if(!generated) return;
@@ -1372,8 +1385,7 @@ static void check_gpu_water_refraction_footprint(SdlGpuFrame *frame)
     const std::string savedContact=oldContact?oldContact:"";
     CHECK(setenv("ZH_WATER_HULL_CONTACT","0",1)==0);
     CHECK(unsetenv("ZH_WATER_DEBUG")==0);
-    const bool generated=EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pd,ps,
-        COMBINER_SHADER_TARGET_SDL3_GPU);
+    const bool generated=generate_environment_water_for_test(ENGINE_SHADER_WATER_TRAPEZOID,pd,ps);
     if(hadDebug)CHECK(setenv("ZH_WATER_DEBUG",savedDebug.c_str(),1)==0);
     else CHECK(unsetenv("ZH_WATER_DEBUG")==0);
     if(hadContact)CHECK(setenv("ZH_WATER_HULL_CONTACT",savedContact.c_str(),1)==0);
@@ -1663,8 +1675,7 @@ static void check_gpu_water_refraction_coordinates(SdlGpuFrame *frame)
     const std::string savedContact=oldContact?oldContact:"";
     CHECK(setenv("ZH_WATER_HULL_CONTACT","0",1)==0);
     CHECK(unsetenv("ZH_WATER_DEBUG")==0);
-    const bool generated=EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pd,ps,
-        COMBINER_SHADER_TARGET_SDL3_GPU);
+    const bool generated=generate_environment_water_for_test(ENGINE_SHADER_WATER_TRAPEZOID,pd,ps);
     if(hadDebug)CHECK(setenv("ZH_WATER_DEBUG",savedDebug.c_str(),1)==0);
     else CHECK(unsetenv("ZH_WATER_DEBUG")==0);
     if(hadContact)CHECK(setenv("ZH_WATER_HULL_CONTACT",savedContact.c_str(),1)==0);
@@ -2484,7 +2495,7 @@ static void check_gpu_water_visual_zero_effect_skip(SdlGpuFrame *frame)
 	CHECK(unsetenv("ZH_WATER_HULL_CONTACT")==0); // Exercise the ordinary launch default.
 	CHECK(unsetenv("ZH_WATER_DEBUG")==0);
 	PixelPipelineDescription description={};std::string production;
-	const bool generated=EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,description,production,COMBINER_SHADER_TARGET_SDL3_GPU);
+	const bool generated=generate_environment_water_for_test(ENGINE_SHADER_WATER_TRAPEZOID,description,production);
 	if(hadContact)CHECK(setenv("ZH_WATER_HULL_CONTACT",savedContact.c_str(),1)==0);else CHECK(unsetenv("ZH_WATER_HULL_CONTACT")==0);
 	if(hadDebug)CHECK(setenv("ZH_WATER_DEBUG",savedDebug.c_str(),1)==0);else CHECK(unsetenv("ZH_WATER_DEBUG")==0);
 	CHECK(generated);if(!generated)return;
@@ -5480,7 +5491,7 @@ static void check_gpu_water_hull_normal(SdlGpuFrame *frame)
 	resources.device=frame->Device();
 	const char *previous=getenv("ZH_WATER_DEBUG");const bool hadDebug=previous!=NULL;const std::string oldDebug=previous?previous:"";
 	CHECK(setenv("ZH_WATER_DEBUG","normal",1)==0);
-	PixelPipelineDescription pd={};std::string ps;const bool generated=EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pd,ps,COMBINER_SHADER_TARGET_SDL3_GPU);
+	PixelPipelineDescription pd={};std::string ps;const bool generated=generate_environment_water_for_test(ENGINE_SHADER_WATER_TRAPEZOID,pd,ps);
 	if(hadDebug)CHECK(setenv("ZH_WATER_DEBUG",oldDebug.c_str(),1)==0);else CHECK(unsetenv("ZH_WATER_DEBUG")==0);
 	CHECK(generated);if(!generated)return;
 	VertexPipelineDescription vd={};vd.FVF=FF_FVF_XYZ|FF_FVF_NORMAL|FF_FVF_DIFFUSE|FF_FVF_TEX2;vd.StageCount=4;
@@ -7091,17 +7102,18 @@ float4 main(float4 pixel:SV_Position):SV_Target0 {
 static void check_gpu_water_coastal_crest(SdlGpuFrame *frame)
 {
     struct Env {
-        bool present;std::string saved;
-        Env(){const char*p=getenv("ZH_WATER_COAST_CREST");present=p!=nullptr;saved=p?p:"";}
-        ~Env(){if(present)setenv("ZH_WATER_COAST_CREST",saved.c_str(),1);else unsetenv("ZH_WATER_COAST_CREST");}
-    }restore;
+        const char *key;bool present;std::string saved;
+        explicit Env(const char *name):key(name),present(getenv(name)!=nullptr),saved(getenv(name)?getenv(name):""){}
+        ~Env(){if(present)setenv(key,saved.c_str(),1);else unsetenv(key);}
+    }restore("ZH_WATER_COAST_CREST"),restoreSurf("ZH_WATER_SURF_GPU");
+    CHECK(setenv("ZH_WATER_SURF_GPU","1",1)==0);
     PixelPipelineDescription description={};std::string baseline,production,disabled;
     CHECK(unsetenv("ZH_WATER_COAST_CREST")==0);
-    bool generated=EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,description,baseline,COMBINER_SHADER_TARGET_SDL3_GPU);CHECK(generated);if(!generated)return;
+    bool generated=generate_environment_water_for_test(ENGINE_SHADER_WATER_TRAPEZOID,description,baseline);CHECK(generated);if(!generated)return;
     CHECK(setenv("ZH_WATER_COAST_CREST","0",1)==0);
-    generated=EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,description,disabled,COMBINER_SHADER_TARGET_SDL3_GPU);CHECK(generated&&disabled==baseline);if(!generated)return;
+    generated=generate_environment_water_for_test(ENGINE_SHADER_WATER_TRAPEZOID,description,disabled);CHECK(generated&&disabled==baseline);if(!generated)return;
     CHECK(setenv("ZH_WATER_COAST_CREST","1",1)==0);
-    generated=EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,description,production,COMBINER_SHADER_TARGET_SDL3_GPU);CHECK(generated);if(!generated)return;
+    generated=generate_environment_water_for_test(ENGINE_SHADER_WATER_TRAPEZOID,description,production);CHECK(generated);if(!generated)return;
     const std::string helper=WaterCoastalCrest::Source();const size_t at=production.find(helper);CHECK(at!=std::string::npos);if(at==std::string::npos)return;
     const std::string marker="    // All screen derivatives are evaluated before the eligibility branch.";
     const size_t begin=production.find(marker),end=production.find("    float3 normal = normalize(float3(-slope, 1.0));",begin);
@@ -7114,7 +7126,7 @@ static void check_gpu_water_coastal_crest(SdlGpuFrame *frame)
     // Compile both actual production variants with opt-in, not merely the small helper fixture.
     std::vector<unsigned char> fullSpirv;std::string fullError;
     CHECK(SDL3_Compile_HLSL_To_SPIRV(production,false,fullSpirv,fullError));
-    std::string river;generated=EngineShader_Pixel_Program(ENGINE_SHADER_WATER_RIVER,description,river,COMBINER_SHADER_TARGET_SDL3_GPU);CHECK(generated);
+    std::string river;generated=generate_environment_water_for_test(ENGINE_SHADER_WATER_RIVER,description,river);CHECK(generated);
     if(generated)CHECK(SDL3_Compile_HLSL_To_SPIRV(river,false,fullSpirv,fullError));
     struct Query {float f[6][4];};std::vector<Query> queries;
     for(unsigned i=0;i<32;++i) {
@@ -7590,7 +7602,7 @@ static void check_gpu_water_shore_depth_gate(SdlGpuFrame *frame)
     PixelPipelineDescription description={};std::string production;
     const char *old=getenv("ZH_WATER_SHORE_FOAM");const bool had=old!=nullptr;const std::string saved=old?old:"";
     CHECK(setenv("ZH_WATER_SHORE_FOAM","1",1)==0);
-    const bool generated=EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,description,production,COMBINER_SHADER_TARGET_SDL3_GPU);
+    const bool generated=generate_environment_water_for_test(ENGINE_SHADER_WATER_TRAPEZOID,description,production);
     if(had)CHECK(setenv("ZH_WATER_SHORE_FOAM",saved.c_str(),1)==0);else CHECK(unsetenv("ZH_WATER_SHORE_FOAM")==0);
     CHECK(generated);if(!generated)return;
     const size_t pixelAt=production.find("float2 waterScenePixel("),pixelEnd=production.find("// Depth is a point-sampled",pixelAt);
@@ -8038,7 +8050,7 @@ static void check_gpu_water_coastal_presentation(SdlGpuFrame *frame)
     const std::string savedOption=oldOption?oldOption:"",savedDebug=oldDebug?oldDebug:"";
     CHECK(setenv("ZH_WATER_SURF_GPU","1",1)==0);CHECK(unsetenv("ZH_WATER_DEBUG")==0);
     PixelPipelineDescription pd={};std::string production;
-    const bool generated=EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pd,production,COMBINER_SHADER_TARGET_SDL3_GPU);
+    const bool generated=generate_environment_water_for_test(ENGINE_SHADER_WATER_TRAPEZOID,pd,production);
     if(hadOption)CHECK(setenv("ZH_WATER_SURF_GPU",savedOption.c_str(),1)==0);else CHECK(unsetenv("ZH_WATER_SURF_GPU")==0);
     if(hadDebug)CHECK(setenv("ZH_WATER_DEBUG",savedDebug.c_str(),1)==0);else CHECK(unsetenv("ZH_WATER_DEBUG")==0);
     CHECK(generated);if(!generated)return;

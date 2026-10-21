@@ -1015,6 +1015,9 @@ void PointGroupClass::Render(RenderInfoClass &rinfo)
 
 	// restore the matrices
 	DX8Wrapper::Set_Transform(D3DTS_VIEW,view);
+#if defined(_WIN32)
+	if (Direct3D11_Is_Active()) DX8Wrapper::Apply_Render_State_Changes();
+#endif
 }
 
 

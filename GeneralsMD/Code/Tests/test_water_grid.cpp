@@ -197,7 +197,7 @@ TEST(water_optical_context_keeps_enclosed_pools_clear_inside_an_ocean_polygon)
 	std::vector<uint8_t> heights(width*height,20);
 	for (int y=0;y<height;++y) for (int x=0;x<18;++x) heights[y*width+x]=0;
 	for (int y=10;y<31;++y) for (int x=28;x<47;++x) heights[y*width+x]=0;
-	std::vector<Polygon> polygons={opticalRectangle(-100,-100,600,500)};
+	std::vector<WaterOpticalContext::Polygon> polygons={opticalRectangle(-100,-100,600,500)};
 	Field field;
 	CHECK(Build(heights.data(),width,height,border,10,1,4,polygons,field));
 	CHECK_EQ(field.ocean[20*width+4],255);
@@ -214,7 +214,7 @@ TEST(water_optical_context_polygon_union_cannot_invent_a_water_connection)
 	const int side=60;
 	std::vector<uint8_t> heights(side*side,0);
 	Field field;
-	std::vector<Polygon> polygons={opticalRectangle(-100,-100,180,700),opticalRectangle(300,100,550,500)};
+	std::vector<WaterOpticalContext::Polygon> polygons={opticalRectangle(-100,-100,180,700),opticalRectangle(300,100,550,500)};
 	CHECK(Build(heights.data(),side,side,0,10,1,4,polygons,field));
 	CHECK_EQ(field.ocean[30*side+3],255);
 	CHECK_EQ(field.ocean[30*side+42],0); // Low terrain between polygons is not authored water.
@@ -233,7 +233,7 @@ TEST(water_optical_context_uses_the_playable_boundary_and_has_no_texture_edge_sh
 	const int side=40,border=5;
 	std::vector<uint8_t> heights(side*side,0);
 	Field field;
-	std::vector<Polygon> polygons={opticalRectangle(-100,-100,500,500)};
+	std::vector<WaterOpticalContext::Polygon> polygons={opticalRectangle(-100,-100,500,500)};
 	CHECK(Build(heights.data(),side,side,border,10,1,4,polygons,field));
 	CHECK_EQ(field.ocean[0],255);
 	CHECK_EQ(field.ocean[side*side-1],255);
@@ -254,7 +254,7 @@ TEST(water_optical_context_concave_polygon_preserves_its_dry_notch)
 	using namespace WaterOpticalContext;
 	const int side=60;
 	std::vector<uint8_t> heights(side*side,0);
-	std::vector<Polygon> polygons={{{{-10,-10,4},{600,-10,4},{600,600,4},{400,600,4},
+	std::vector<WaterOpticalContext::Polygon> polygons={{{{-10,-10,4},{600,-10,4},{600,600,4},{400,600,4},
 		{400,200,4},{200,200,4},{200,600,4},{-10,600,4}}}};
 	Field field;
 	CHECK(Build(heights.data(),side,side,0,10,1,4,polygons,field));
@@ -270,7 +270,7 @@ TEST(water_optical_context_refreshes_terrain_level_dimensions_and_polygon_geomet
 	const int side=40;
 	std::vector<uint8_t> heights(side*side,20);
 	for (int y=10;y<31;++y) for (int x=10;x<31;++x) heights[y*side+x]=0;
-	std::vector<Polygon> polygons={opticalRectangle(-100,-100,500,500)};
+	std::vector<WaterOpticalContext::Polygon> polygons={opticalRectangle(-100,-100,500,500)};
 	Field field;
 	CHECK(Build(heights.data(),side,side,0,10,1,4,polygons,field));
 	CHECK_EQ(field.ocean[20*side+20],0);
@@ -279,7 +279,7 @@ TEST(water_optical_context_refreshes_terrain_level_dimensions_and_polygon_geomet
 	CHECK_EQ(field.ocean[20*side+20],255);
 	CHECK(Build(heights.data(),side,side,0,10,1,8,polygons,field));
 	CHECK_EQ(field.ocean[20*side+20],0);
-	const std::vector<Polygon> before=polygons;
+	const std::vector<WaterOpticalContext::Polygon> before=polygons;
 	CHECK(SamePolygons(before,polygons));
 	polygons[0].points[0].z=8;
 	CHECK(!SamePolygons(before,polygons));
@@ -299,7 +299,7 @@ TEST(water_optical_context_bounds_and_shore_fade)
 	CHECK_EQ(Offshore(100),1);
 	CHECK_EQ(Offshore(1000),1);
 	std::vector<uint8_t> heights(16,0);
-	std::vector<Polygon> polygons={opticalRectangle(-10,-10,100,100)};
+	std::vector<WaterOpticalContext::Polygon> polygons={opticalRectangle(-10,-10,100,100)};
 	Field field;
 	CHECK(Build(heights.data(),4,4,0,10,1,4,polygons,field));
 	CHECK(!Build(heights.data(),MaxDimension+1,2,0,10,1,4,polygons,field));
@@ -1019,7 +1019,7 @@ TEST(water_hull_contact_clips_actual_mesh_and_excludes_unreachable_superstructur
 	// The greatest projected extent is strictly inside the slab. Endpoint-plane
 	// slices alone miss it; a collision rectangle would include unsupported corners.
 	CHECK(WaterHullContact::ProjectTriangle({7,0,1},{-2,-3,-1},{-2,3,4},3,points));
-	const Polygon polygon=BuildPolygon(points);CHECK(polygon.count>=3);
+	const WaterHullModel::Polygon polygon=BuildPolygon(points);CHECK(polygon.count>=3);
 	float maxX=-1e30f,minY=1e30f,maxY=-1e30f;
 	for(unsigned i=0;i<polygon.count;++i) {
 		maxX=(std::max)(maxX,polygon.points[i].x);minY=(std::min)(minY,polygon.points[i].y);maxY=(std::max)(maxY,polygon.points[i].y);
@@ -1069,7 +1069,7 @@ TEST(water_hull_contact_current_slab_stabilizes_a_tilted_keel_without_changing_m
 			CHECK(WaterHullContact::ProjectTriangle(a,b,c,3,contact));
 			CHECK(WaterHullContact::ProjectTriangle(c,b,a,3,reversed));
 		}
-		const Polygon exact=BuildPolygon(mean),envelope=BuildPolygon(contact),reverse=BuildPolygon(reversed);
+		const WaterHullModel::Polygon exact=BuildPolygon(mean),envelope=BuildPolygon(contact),reverse=BuildPolygon(reversed);
 		CHECK(exact.count>=3 && envelope.count>=3 && envelope.count<=MaxVertices);
 		CHECK(reverse.count==envelope.count);
 		for(unsigned i=0;i<envelope.count;++i) {
@@ -1080,7 +1080,7 @@ TEST(water_hull_contact_current_slab_stabilizes_a_tilted_keel_without_changing_m
 		for(unsigned i=0;i<exact.count;++i) CHECK(SignedDistance(exact.points[i],envelope)<=.0002f+envelope.error);
 		CHECK(SignedDistance({0,7},envelope)<0 && SignedDistance({0,-7},envelope)<0);
 		// Building a new current-transform envelope never mutates the original mean contour.
-		const Polygon meanAfter=BuildPolygon(mean);CHECK(meanAfter.count==exact.count);
+		const WaterHullModel::Polygon meanAfter=BuildPolygon(mean);CHECK(meanAfter.count==exact.count);
 		for(unsigned i=0;i<exact.count;++i) CHECK(exact.points[i].x==meanAfter.points[i].x && exact.points[i].y==meanAfter.points[i].y);
 		if(pitch==0 && roll==0) CHECK(SignedDistance({0,7},exact)>4); // Meaningful tiny-keel control.
 	}
@@ -1382,8 +1382,8 @@ TEST(water_foam_horizon_window_preserves_near_water_across_yaw_pitch_and_resize)
 		CHECK(nearHits==(pitch<.5?2u:0u));
 	}
 	// A very distant centre/upper hit must not displace finite nearby lower hits.
-	const Point far[5]={{1,0,-.000001},{1,-.4,-.2},{1,.4,-.2},{1,-.4,-.00001},{1,.4,-.00001}};
-	const auto prioritized=Choose({0,0,30},far,0);
+	const Point distantPoints[5]={{1,0,-.000001},{1,-.4,-.2},{1,.4,-.2},{1,-.4,-.00001},{1,.4,-.00001}};
+	const auto prioritized=Choose({0,0,30},distantPoints,0);
 	CHECK(inside(prioritized,{150,-60,0},128) && inside(prioritized,{150,60,0},128));
 	CHECK(inside(prioritized,{0,0,0},128));
 	// Below-water and fully upward views remain finite and bounded without inventing
@@ -1409,17 +1409,17 @@ TEST(water_foam_horizon_window_preserves_near_water_across_yaw_pitch_and_resize)
 TEST(water_foam_stern_spread_is_size_bounded_and_emission_remains_time_integrated)
 {
 	using namespace WaterFoamHistory;
-	Sample small,large,tiny,huge;
-	auto hull=foamTestHull(0,0,30,0);CHECK(MakeSample(hull,0,small));
+	Sample smallShape,large,tiny,huge;
+	auto hull=foamTestHull(0,0,30,0);CHECK(MakeSample(hull,0,smallShape));
 	hull.data[1][3]=74;CHECK(MakeSample(hull,0,large));
 	hull.data[1][3]=1;CHECK(MakeSample(hull,0,tiny));
 	hull.data[1][3]=4096;CHECK(MakeSample(hull,0,huge));
-	CHECK(std::abs(small.width[0]-2.8)<1e-12 && tiny.width[0]==2.5);
+	CHECK(std::abs(smallShape.width[0]-2.8)<1e-12 && tiny.width[0]==2.5);
 	CHECK(large.width[0]>29 && large.width[0]<30 && huge.width[0]==30);
-	CHECK(small.width[0]/small.halfWidth>large.width[0]/large.halfWidth);
-	CHECK(small.width[1]==.65 && large.width[1]==3 && huge.width[1]==3);
-	CHECK(std::abs(small.rate[0]-2*(.8+.25*std::sqrt(30.0)))<1e-12);
-	CHECK(std::abs(small.rate[1]/small.rate[0]-.22)<1e-12);
+	CHECK(smallShape.width[0]/smallShape.halfWidth>large.width[0]/large.halfWidth);
+	CHECK(smallShape.width[1]==.65 && large.width[1]==3 && huge.width[1]==3);
+	CHECK(std::abs(smallShape.rate[0]-2*(.8+.25*std::sqrt(30.0)))<1e-12);
+	CHECK(std::abs(smallShape.rate[1]/smallShape.rate[0]-.22)<1e-12);
 	// A short live section must accumulate by elapsed dose time. Repeating the same
 	// render cannot stamp another full-opacity blob, even with the stronger response.
 	const Mapping map={-12.5,-.5,1,1,1,1};History history;
@@ -3067,11 +3067,11 @@ TEST(water_bow_pressure_size_speed_and_half_height_are_independently_measured)
 		CHECK(BowPressure(beam,70).amplitude>BowPressure(beam,14).amplitude*3);
 		CHECK(BowPressure(beam,500).amplitude==BowPressure(beam,250).amplitude);
 	}
-	const auto small=BowPressure(8.37f,70),large=BowPressure(54,70);
-	CHECK(large.along>small.along && large.across>small.across && large.amplitude>small.amplitude);
+	const auto smallShape=BowPressure(8.37f,70),large=BowPressure(54,70);
+	CHECK(large.along>smallShape.along && large.across>smallShape.across && large.amplitude>smallShape.amplitude);
 	// Armed old model: it saturates at speed14 and peaks eight units beyond
 	// the contact bow. Neither behavior is allowed to pass as pressure response.
-	CHECK(std::abs(1.9*std::exp(-1.0)-small.amplitude)>2);
+	CHECK(std::abs(1.9*std::exp(-1.0)-smallShape.amplitude)>2);
 	CHECK(std::abs(BowPressure(8.37f,14).amplitude-BowPressure(8.37f,70).amplitude)>2);
 }
 
@@ -3635,9 +3635,9 @@ TEST(water_bow_refinement_protected_only_or_nonfresh_geometry_cannot_admit)
 	CHECK(HasRefinableDemand(mesh,view,corners,actual.prepared));
 	for(auto &vertex:mesh.vertices) vertex.lattice=-1;const auto nonfresh=mesh;
 	CHECK(!HasRefinableDemand(mesh,view,corners,actual.prepared));CHECK(bowTestSameMesh(mesh,nonfresh));
-	const Point small[4]={{-20,-20},{20,-20},{20,20},{-20,20}};
-	Mesh protectedMesh;CHECK(Build(small,view.projection,view.resolution,protectedMesh));CHECK(!protectedMesh.indices.empty());
-	CHECK(!HasRefinableDemand(protectedMesh,view,small,actual.prepared));
+	const Point smallShape[4]={{-20,-20},{20,-20},{20,20},{-20,20}};
+	Mesh protectedMesh;CHECK(Build(smallShape,view.projection,view.resolution,protectedMesh));CHECK(!protectedMesh.indices.empty());
+	CHECK(!HasRefinableDemand(protectedMesh,view,smallShape,actual.prepared));
 }
 
 #include "Platform/WaterShoreFoam.h"
@@ -3860,7 +3860,7 @@ TEST(water_shore_optical_metadata_preserves_rg_and_cannot_create_polygon_or_deep
     using namespace WaterOpticalContext;
     const int side=48;std::vector<uint8_t> heights(side*side,0);
     for(int y=0;y<side;++y)for(int x=0;x<16;++x)heights[y*side+x]=20;
-    const std::vector<Polygon> polygons={opticalRectangle(-10,-10,600,600)};Field field;
+    const std::vector<WaterOpticalContext::Polygon> polygons={opticalRectangle(-10,-10,600,600)};Field field;
     CHECK(Build(heights.data(),side,side,0,10,1,4,polygons,field));
     CHECK(field.exposure.size()==heights.size() && field.coast.size()==heights.size());
     for(int y=0;y<side;++y)for(int x=0;x<side;++x) {
@@ -4918,9 +4918,16 @@ TEST(water_default_bow_refinement_matches_explicit_contour)
         bool had;std::string value;
         RestoreOption():had(getenv("ZH_WATER_BOW_SHOULDER")!=nullptr),
             value(getenv("ZH_WATER_BOW_SHOULDER")?getenv("ZH_WATER_BOW_SHOULDER"):""){}
-        ~RestoreOption(){if(had)setenv("ZH_WATER_BOW_SHOULDER",value.c_str(),1);else unsetenv("ZH_WATER_BOW_SHOULDER");}
+        static int Set(const char *value) {
+#if defined(_WIN32)
+            return _putenv_s("ZH_WATER_BOW_SHOULDER",value?value:"");
+#else
+            return value?setenv("ZH_WATER_BOW_SHOULDER",value,1):unsetenv("ZH_WATER_BOW_SHOULDER");
+#endif
+        }
+        ~RestoreOption(){Set(had?value.c_str():nullptr);}
     } restore;
-    CHECK(unsetenv("ZH_WATER_BOW_SHOULDER")==0);
+    CHECK(RestoreOption::Set(nullptr)==0);
     using namespace WaterBowRefinement;
     for(unsigned i=0;i<3;++i) {
         const auto hull=WaterBowShoulderTest::CapturedHull(i);
@@ -5120,9 +5127,9 @@ TEST(water_bow_shoulder_large_hull_scale_cap_support_and_small_boat_identity)
     // Small captured PT bodies, including reverse/rotation in the prior test, must
     // retain the exact old6-cap scalar. No tolerance can hide a changed footprint.
     for(unsigned pose=0;pose<3;++pose) {
-        const auto h=T::CapturedHull(pose);const auto small=T::contour(h);CHECK(small.width<6);
+        const auto h=T::CapturedHull(pose);const auto smallShape=T::contour(h);CHECK(smallShape.width<6);
         for(double x:{-45.31,20.31,38.17,43.13,46.21})for(double y:{-11.13,-2.17,6.19,10.23}) {
-            const auto p=S::ToWorld(small,{x,y});
+            const auto p=S::ToWorld(smallShape,{x,y});
             CHECK(T::oracle(h,p.x,p.y)==T::oracle(h,p.x,p.y,6));
         }
     }

@@ -27,6 +27,7 @@
 
 #include "test_harness.h"
 
+#include "Dx11DriverEvidence.h"
 #include "dx11backend.h"
 #include "dx11resource.h"
 
@@ -111,6 +112,7 @@ TEST(dx11backend_a_draw_set_up_the_d3d9_way_lands_in_the_render_target)
 	DX11DeviceClass device;
 	device.Request_Debug_Layer();
 	CHECK(device.Create_Offscreen());
+	verify_dx11_test_driver(device);
 	ID3D11Device * d3d = device.Get_Device();
 
 	DX11BackendClass backend;
@@ -215,6 +217,7 @@ TEST(dx11backend_a_light_is_carried_into_camera_space)
 {
 	DX11DeviceClass device;
 	CHECK(device.Create_Offscreen());
+	verify_dx11_test_driver(device);
 	ID3D11Device * d3d = device.Get_Device();
 
 	DX11BackendClass backend;
@@ -327,6 +330,7 @@ TEST(dx11backend_the_same_state_resolves_to_one_pipeline)
 {
 	DX11DeviceClass device;
 	CHECK(device.Create_Offscreen());
+	verify_dx11_test_driver(device);
 
 	DX11BackendClass backend;
 	CHECK(backend.Initialise(&device));
@@ -376,6 +380,7 @@ TEST(dx11backend_the_smoke_glow_is_read_from_the_normal)
 {
 	DX11DeviceClass device;
 	CHECK(device.Create_Offscreen());
+	verify_dx11_test_driver(device);
 	ID3D11Device * d3d = device.Get_Device();
 
 	DX11BackendClass backend;
@@ -471,6 +476,7 @@ TEST(dx11backend_an_additive_draw_takes_the_glow_gain_past_white)
 {
 	DX11DeviceClass device;
 	CHECK(device.Create_Offscreen());
+	verify_dx11_test_driver(device);
 	ID3D11Device * d3d = device.Get_Device();
 
 	DX11BackendClass backend;
@@ -568,6 +574,7 @@ TEST(dx11backend_compiled_programs_are_kept_in_the_cache_file)
 
 	DX11DeviceClass device;
 	CHECK(device.Create_Offscreen());
+	verify_dx11_test_driver(device);
 
 	DX11BackendClass writer;
 	CHECK(writer.Initialise(&device));
@@ -635,6 +642,7 @@ TEST(dx11backend_the_alpha_test_cuts_the_pixels_the_comparison_rejects)
 	DX11DeviceClass device;
 	device.Request_Debug_Layer();
 	CHECK(device.Create_Offscreen());
+	verify_dx11_test_driver(device);
 	ID3D11Device * d3d = device.Get_Device();
 
 	DX11BackendClass backend;
@@ -756,6 +764,7 @@ TEST(dx11backend_a_draw_that_samples_its_own_target_reads_what_was_drawn)
 	DX11DeviceClass device;
 	device.Request_Debug_Layer();
 	CHECK(device.Create_Offscreen());
+	verify_dx11_test_driver(device);
 	ID3D11Device * d3d = device.Get_Device();
 
 	DX11BackendClass backend;
@@ -841,6 +850,7 @@ TEST(dx11backend_a_draw_sampling_the_scene_stand_in_reads_the_scene)
 {
 	DX11DeviceClass device;
 	CHECK(device.Create_Offscreen());
+	verify_dx11_test_driver(device);
 	ID3D11Device * d3d = device.Get_Device();
 
 	DX11BackendClass backend;
@@ -932,6 +942,7 @@ TEST(dx11backend_a_draw_with_nothing_bound_is_counted_as_refused)
 {
 	DX11DeviceClass device;
 	CHECK(device.Create_Offscreen());
+	verify_dx11_test_driver(device);
 
 	DX11BackendClass backend;
 	CHECK(backend.Initialise(&device));
@@ -961,6 +972,7 @@ TEST(dx11backend_the_smoke_map_holds_each_casters_three_sums)
 {
 	DX11DeviceClass device;
 	CHECK(device.Create_Offscreen());
+	verify_dx11_test_driver(device);
 	ID3D11Device * d3d = device.Get_Device();
 
 	DX11BackendClass backend;

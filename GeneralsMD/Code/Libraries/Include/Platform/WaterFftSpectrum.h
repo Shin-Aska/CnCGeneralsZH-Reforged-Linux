@@ -161,6 +161,16 @@ Result main(float4 position:SV_Position) {
     for(unsigned i=0;i<Maps;++i) {const std::string s=std::to_string(i);source+="result.v"+s+"=butterfly(T"+s+".SampleLevel(S"+s+",a,0),T"+s+".SampleLevel(S"+s+",b,0),entry.xy);\n";}
     return source+"return result; }\n";
 }
+inline std::string MipHlsl() {
+    std::string source=Resources(6);
+    source+="Result main(float4 position:SV_Position) { int2 p=int2(position.xy)*2; int level=(int)Parameters.z-1; Result result;\n";
+    for(unsigned i=0;i<6;++i) {
+        const std::string s=std::to_string(i);
+        source+="result.v"+s+"=(T"+s+".Load(int3(p,level))+T"+s+".Load(int3(p+int2(1,0),level))+T"+s+
+            ".Load(int3(p+int2(0,1),level))+T"+s+".Load(int3(p+int2(1,1),level)))*0.25;\n";
+    }
+    return source+"return result; }\n";
+}
 inline std::string PostHlsl() {
     std::string source=Resources(6);
     source+="Result main(float4 position:SV_Position) { int2 pixel=int2(position.xy);float sign=((pixel.x+pixel.y)&1)?-1.0:1.0;float scale=sign*Parameters.x*Parameters.x;float2 uv=(float2(pixel)+0.5)/Parameters.x;Result result;\n";

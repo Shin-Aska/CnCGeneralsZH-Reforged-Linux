@@ -36,6 +36,7 @@
 
 #include <cstddef>
 #include "Platform/WaterHullVisualLayout.h"
+#include "Platform/WaterShaderLayout.h"
 #include "../../../../Libraries/Source/WWVegas/WW3D2/ffvertex.h" // MAXIMUM_VERTEX_STAGES, MAXIMUM_VERTEX_LIGHTS
 
 struct SdlVertexConstants
@@ -105,6 +106,9 @@ struct SdlWaterPixelConstants
 	float VolumeParameters[4];
 };
 static_assert(sizeof(SdlWaterPixelConstants) == WaterHullVisualLayout::VertexCommonRegisters * 16, "water uniform packing");
+static_assert(sizeof(SdlWaterPixelConstants)==sizeof(WaterShaderLayout::CommonConstants),"shared water common ABI");
+static_assert(offsetof(SdlWaterPixelConstants,WorldFromClip)==offsetof(WaterShaderLayout::CommonConstants,WorldFromClip),"shared inverse clip offset");
+static_assert(offsetof(SdlWaterPixelConstants,ContactHullData)==offsetof(WaterShaderLayout::CommonConstants,ContactHullData),"shared contact offset");
 
 // Fragment-only extension after the shared water vertex/pixel prefix.
 struct SdlWaterVisualPixelConstants
@@ -114,6 +118,8 @@ struct SdlWaterVisualPixelConstants
 };
 static_assert(sizeof(SdlWaterVisualPixelConstants)==WaterHullVisualLayout::FragmentCommonRegisters*16,
 	"fragment hull metadata packing");
+static_assert(sizeof(SdlWaterVisualPixelConstants)==sizeof(WaterShaderLayout::PixelConstants),"shared water pixel ABI");
+static_assert(offsetof(SdlWaterVisualPixelConstants,VisualHullMeta)==offsetof(WaterShaderLayout::PixelConstants,VisualHullMeta),"shared metadata offset");
 
 // A generator adding a block must have an explicit recording/binding path. The mesh packet
 // is the only four-block fragment layout; ordinary shaders cannot silently inherit its data.

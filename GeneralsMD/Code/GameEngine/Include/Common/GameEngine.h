@@ -97,8 +97,10 @@ Bool GameEngine_isShadowCaptureClock( void );
 	actually see it. */
 #define LOGIC_CATCHUP_BUDGET_MS	8.0f
 
+Bool GameEngine_videoNeedsClientFrame( Int frame, Int firstFrame, Int lastFrame, Bool liveGame );
 /** Whether the catch-up loop may start another logic tick this pass. */
-Bool GameEngine_mayStartAnotherCatchupTick( Int ticksSoFar, Int maxTicks, Real elapsedMsInLoop );
+Bool GameEngine_mayStartAnotherCatchupTick( Int ticksSoFar, Int maxTicks, Real elapsedMsInLoop,
+	Bool videoClientFrame = FALSE, Bool networkPaced = FALSE );
 
 /** A rate sampled every half second, averaged, and the whole number written on screen for it. */
 struct RateReading

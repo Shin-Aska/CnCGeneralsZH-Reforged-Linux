@@ -38,6 +38,7 @@
 #include "View.h"
 #include "GameClient/Color.h"
 #include "GameClient/GameFont.h"
+#include "Platform/WaterRenderBridge.h"
 
 class View;
 
@@ -54,6 +55,31 @@ class Radar;
 class Image;
 class DisplayString;
 enum StaticGameLODLevel : Int;
+
+struct WaterStyleStatus
+{
+	Int requestedStyle;
+	Int effectiveStyle;
+	WaterRenderBridge::Capability capability;
+
+	Bool isModernSelectable() const { return capability.Available(); }
+	Bool isProductionReady() const
+	{
+		return WaterRenderBridge::HasAll( capability.features, WaterRenderBridge::ProductionRequired );
+	}
+};
+
+inline WaterStyleStatus MakeWaterStyleStatus( Int requestedStyle, Int effectiveStyle,
+	const WaterRenderBridge::Capability& capability )
+{
+	WaterStyleStatus result = { requestedStyle != 0 ? 1 : 0, effectiveStyle != 0 ? 1 : 0, capability };
+	return result;
+}
+
+inline Int WaterStyleRequestForOptions( const WaterStyleStatus& status, Int catalogRequest )
+{
+	return status.isModernSelectable() ? status.requestedStyle : ( catalogRequest != 0 ? 1 : 0 );
+}
 /**
  * The Display class implements the Display interface
  */
@@ -196,6 +222,15 @@ public:
 	virtual Bool isLetterBoxed( void ) { return FALSE; }	//WST 10/2/2002. Added query interface
 	void setLetterBoxAspect( Real widthOverHeight ) { m_letterBoxAspect = widthOverHeight; }	///< the picture the bars leave; 16:9 is the game's, and draws nothing on a 16:9 screen
 	virtual const WideChar *getRendererName( void ) const = 0;	///< the graphics API the picture is presented through, for the HUD corner
+	virtual WaterStyleStatus getWaterStyleStatus( void ) const
+	{
+		const WaterRenderBridge::Capability unavailable = {
+			WaterRenderBridge::BackendKind::Unavailable,
+			0,
+			WaterRenderBridge::CapabilityReason::UnsupportedBackend,
+		};
+		return MakeWaterStyleStatus( 1, 0, unavailable );
+	}
 
 	virtual void setCinematicText( AsciiString string ) { m_cinematicText = string; }
 	virtual void setCinematicFont( GameFont *font ) { m_cinematicFont = font; }

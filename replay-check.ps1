@@ -53,18 +53,48 @@ param(
 	# the games' user data folder (ZH_USER_DATA_DIR, which EarlyOptions.h honours on Windows too), so that
 	# several of these can run side by side: each recording is written to Replays\00000000.rep there.
 	# Empty: the player's own, in Documents, as always
-	[string] $UserDataDir = ""
+	[string] $UserDataDir = "",
+	# prove the harness detects one valid replay-header mutation, without counting a crash or rejection
+	[switch] $VerifyControl
 )
 
 $ErrorActionPreference = "Stop"
-$env:ZH_UNATTENDED = "1"	# every game this starts is unattended: no box may wait on a person (EarlyCommandLine.h)
+$controlHelper = Join-Path $PSScriptRoot "GeneralsMD\Code\Tools\replay-control.ps1"
+. $controlHelper
+$savedEnvironment = @{}
+if ($VerifyControl) {
+	foreach ($name in @("ZH_UNATTENDED", "ZH_USER_DATA_DIR", "ZH_PLATFORM", "PATH")) {
+		$savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
+	}
+}
+
+try {
+	if (-not $VerifyControl) {
+		$env:ZH_UNATTENDED = "1"	# every game this starts is unattended: no box may wait on a person (EarlyCommandLine.h)
+	}
 
 $exePath = Join-Path $RunDir $Exe
-if (-not (Test-Path $exePath)) { throw "no $Exe in $RunDir" }
+if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) { throw "no $Exe in $RunDir" }
 
 # The game writes its replays here and always to the same name, so a run has to be moved aside
 # before the next one overwrites it.
-if ($UserDataDir -ne "") {
+if ($VerifyControl) {
+	if ([string]::IsNullOrWhiteSpace($UserDataDir)) { throw "-VerifyControl requires a fresh private -UserDataDir" }
+	$privateUserData = [IO.Path]::GetFullPath($UserDataDir)
+	$runPath = [IO.Path]::GetFullPath($RunDir)
+	$driveRoot = [IO.Path]::GetPathRoot($privateUserData)
+	$userProfile = [IO.Path]::GetFullPath($env:USERPROFILE)
+	$documents = [Environment]::GetFolderPath([Environment+SpecialFolder]::MyDocuments)
+	if ($privateUserData -eq $driveRoot -or $privateUserData -eq $userProfile -or
+		(-not [string]::IsNullOrWhiteSpace($documents) -and $privateUserData -eq [IO.Path]::GetFullPath($documents)) -or
+		$privateUserData -eq $runPath -or $privateUserData.StartsWith($runPath + [IO.Path]::DirectorySeparatorChar,
+			[StringComparison]::OrdinalIgnoreCase)) {
+		throw "unsafe -UserDataDir for replay control: $privateUserData"
+	}
+	if (Test-Path -LiteralPath $privateUserData) { throw "-VerifyControl requires a fresh, nonexistent -UserDataDir" }
+	New-Item -ItemType Directory -Path $privateUserData | Out-Null
+	$replayDir = Join-Path $privateUserData "Replays"
+} elseif ($UserDataDir -ne "") {
 	New-Item -ItemType Directory -Force $UserDataDir | Out-Null
 	$env:ZH_USER_DATA_DIR = (Resolve-Path $UserDataDir).Path		# every game started below inherits it
 	$replayDir = Join-Path $env:ZH_USER_DATA_DIR "Replays"
@@ -85,13 +115,29 @@ function Invoke-Run([string[]] $extra, [string] $prefix)
 	# DebugLogFileI.txt Internal.  None may be left from an earlier run to be read as this one's.
 	$logNames = @("DebugLogFile.txt", "DebugLogFileD.txt", "DebugLogFileI.txt") | ForEach-Object { Join-Path $RunDir "$prefix$_" }
 	$logNames | Where-Object { Test-Path $_ } | ForEach-Object { Remove-Item $_ -Force }
-	$proc = Start-Process -FilePath $exePath -ArgumentList $args -WorkingDirectory $RunDir -PassThru
+	if ($VerifyControl) {
+		$start = [Diagnostics.ProcessStartInfo]::new()
+		$start.FileName = [IO.Path]::GetFullPath($exePath)
+		$start.WorkingDirectory = [IO.Path]::GetFullPath($RunDir)
+		$start.UseShellExecute = $false
+		foreach ($argument in $args) { $null = $start.ArgumentList.Add([string] $argument) }
+		$start.Environment["ZH_UNATTENDED"] = "1"
+		$start.Environment["ZH_USER_DATA_DIR"] = $privateUserData
+		$proc = [Diagnostics.Process]::new()
+		$proc.StartInfo = $start
+		if (-not $proc.Start()) { throw "failed to start $exePath" }
+	} else {
+		$proc = Start-Process -FilePath $exePath -ArgumentList $args -WorkingDirectory $RunDir -PassThru
+	}
 	$proc.PriorityClass = 'AboveNormal'
 	$null = $proc.Handle		# kept, so ExitCode is still there after the exit
 	if (-not $proc.WaitForExit($TimeoutMinutes * 60 * 1000)) {
 		$proc.Kill()
 		$proc.WaitForExit()
 		Write-Host ("KILLED ({0} wedged past {1} min) " -f $prefix, $TimeoutMinutes) -NoNewline
+		if ($VerifyControl) {
+			return [pscustomobject]@{ CRC = ""; Frame = -1; Result = ""; Built = 0; ExitCode = $proc.ExitCode; TimedOut = $true }
+		}
 		return $null
 	}
 	# The codes an unattended run (ZH_UNATTENDED, -headless) leaves by name instead of waiting on a box;
@@ -100,16 +146,82 @@ function Invoke-Run([string[]] $extra, [string] $prefix)
 		2 { Write-Host ("exit 2: {0} stopped unattended (no base game, or a broken INI) " -f $prefix) -NoNewline }
 	}
 	$log = $logNames | Where-Object { Test-Path $_ } | Select-Object -First 1
-	if ($null -eq $log) { return $null }
-	$crcLine = Select-String -Path $log -Pattern "HEADLESS CRC: (0x[0-9A-F]+) at frame (\d+)" | Select-Object -Last 1
-	$resLine = Select-String -Path $log -Pattern "HEADLESS RESULT: (.+)$" | Select-Object -Last 1
-	if ($null -eq $crcLine) { return $null }
+	if ($null -eq $log) {
+		if ($VerifyControl) { return [pscustomobject]@{ CRC = ""; Frame = -1; Result = ""; Built = 0; ExitCode = $proc.ExitCode; TimedOut = $false } }
+		return $null
+	}
+	$crcLine = Select-String -LiteralPath $log -Pattern "HEADLESS CRC: (0x[0-9A-F]+) at frame (\d+)" | Select-Object -Last 1
+	$resLine = Select-String -LiteralPath $log -Pattern "HEADLESS RESULT: (.+)$" | Select-Object -Last 1
+	$built = @(Select-String -LiteralPath $log -Pattern "AI BUILT frame [1-9]").Count
+	if ($null -eq $crcLine) {
+		if ($VerifyControl) { return [pscustomobject]@{ CRC = ""; Frame = -1; Result = if ($resLine) { $resLine.Matches[0].Groups[1].Value } else { "" }; Built = $built; ExitCode = $proc.ExitCode; TimedOut = $false } }
+		return $null
+	}
 	return [pscustomobject]@{
 		CRC    = $crcLine.Matches[0].Groups[1].Value
 		Frame  = [int] $crcLine.Matches[0].Groups[2].Value
 		Result = if ($resLine) { $resLine.Matches[0].Groups[1].Value } else { "" }
+		Built = $built
+		ExitCode = $proc.ExitCode
+		TimedOut = $false
 	}
 }
+
+if ($VerifyControl) {
+	$controlFailures = 0
+	foreach ($seed in $Seeds) {
+		Write-Host ("seed {0}: verifying positive runs ... " -f $seed) -NoNewline
+		if (Test-Path -LiteralPath $lastReplay) { Remove-Item -LiteralPath $lastReplay -Force }
+		$mapArgs = @("-randommap", $seed, $Players)
+		if ($MapCells -gt 0) { $mapArgs += $MapCells }
+		$live = Invoke-Run ($mapArgs + @("-autoskirmish", $Players, "-aidiff", $Difficulty,
+			"-seed", $seed, "-observer")) "det$($seed)_live"
+		$kept = Join-Path $replayDir ("determinism{0}.rep" -f $seed)
+		if (Test-Path -LiteralPath $lastReplay) { Move-Item -LiteralPath $lastReplay -Destination $kept }
+		$untouchedCopy = Join-Path $replayDir ("determinism{0}.untouched.rep" -f $seed)
+		if (Test-Path -LiteralPath $kept) { Copy-Item -LiteralPath $kept -Destination $untouchedCopy }
+		$untouched = Invoke-Run @("-replay", ("determinism{0}" -f $seed)) "det$($seed)_back"
+		if (Test-Path -LiteralPath $lastReplay) { Remove-Item -LiteralPath $lastReplay -Force }
+		$repeat = Invoke-Run ($mapArgs + @("-autoskirmish", $Players, "-aidiff", $Difficulty,
+			"-seed", $seed, "-observer")) "det$($seed)_again"
+		$positive = Get-ReplayControlClassification $live $untouched $repeat $null $null $MaxFrames
+		$mutation = $null
+		$mutated = $null
+		$classification = $positive
+		if ($positive.Code -eq "mutation_invalid") {
+			try {
+				$mutatedPath = Join-Path $replayDir ("determinism{0}.control.rep" -f $seed)
+				# The retained named replay is the source; the separate untouched copy independently proves its identity.
+				$mutation = New-ReplayControlMutation $untouchedCopy (Join-Path $replayDir ("determinism{0}.verified.rep" -f $seed)) $mutatedPath
+				$mutated = Invoke-Run @("-replay", ("determinism{0}.control" -f $seed)) "det$($seed)_control"
+				$classification = Get-ReplayControlClassification $live $untouched $repeat $mutated $mutation $MaxFrames
+			} catch {
+				$classification = [pscustomobject]@{ Code = "mutation_invalid"; ControlDetected = $false }
+				$mutation = [pscustomobject]@{ Valid = $false; Error = $_.Exception.Message }
+			}
+		}
+		$record = [pscustomobject]@{
+			Schema = "replay-control-v1"
+			Seed = $seed
+			ExpectedFrame = $MaxFrames
+			Classification = $classification.Code
+			ControlDetected = $classification.ControlDetected
+			Live = $live
+			UntouchedReplay = $untouched
+			RepeatLive = $repeat
+			MutatedReplay = $mutated
+			Mutation = $mutation
+		}
+		$record | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $privateUserData ("replay-control-seed{0}.json" -f $seed)) -Encoding utf8
+		if ($classification.ControlDetected) {
+			Write-Host ("CONTROL DETECTED: frame {0}, live {1}, mutated {2}" -f $MaxFrames, $live.CRC, $mutated.CRC)
+		} else {
+			Write-Host ("CONTROL FAILED: {0}" -f $classification.Code)
+			$controlFailures++
+		}
+	}
+	$scriptExitCode = $controlFailures
+} else {
 
 $failures = 0
 $diverged = 0		# of the failures, the seeds whose two runs finished and disagreed
@@ -163,4 +275,13 @@ else
 	# a run that crashed, wrote nothing or was killed at -TimeoutMinutes compared nothing: a failure, not a verdict
 	Write-Host ("{0} of {1} gave no result to compare (crashed, killed or wrote no replay); nothing was compared." -f $failures, $Seeds.Count)
 }
-exit $failures
+	$scriptExitCode = $failures
+}
+} finally {
+	if ($VerifyControl) {
+		foreach ($name in $savedEnvironment.Keys) {
+			[Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name], "Process")
+		}
+	}
+}
+exit $scriptExitCode

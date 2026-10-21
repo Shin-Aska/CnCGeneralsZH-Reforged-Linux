@@ -116,12 +116,29 @@ enum ScenarioParseResult
 // ------------------------------------------------------------------------------------------------
 /** One parsed line.  Which fields carry anything depends on the action - see the enum above. */
 // ------------------------------------------------------------------------------------------------
+// Default-off capture fixture lifecycle only; no gameplay command or save-format extension.
+enum ScenarioCaptureOperation
+{
+    SCENARIO_CAPTURE_NONE = 0,
+    SCENARIO_CAPTURE_TELEPORT,
+    SCENARIO_CAPTURE_HIDDEN,
+    SCENARIO_CAPTURE_SHROUDED, // direct Drawable presentation flag, not causal FOW
+    SCENARIO_CAPTURE_DESTROY,
+    SCENARIO_CAPTURE_SPAWN,
+    SCENARIO_CAPTURE_INSPECT // read-only registry diagnostics, not native issue proof
+};
+
 struct ScenarioAction
 {
 	UnsignedInt frame;						///< the logic frame this fires on
 	ScenarioActionType action;
 	Int slot;											///< the seat, the same number -side takes; not an index into ThePlayerList
 	AsciiString capturePlayerName; // optional player:<internal-name>, exact disposable fixture only
+	AsciiString captureActorName; // dedicated capture fixture: exact authored objectName
+	ScenarioCaptureOperation captureOperation;
+	Bool captureState; // hidden/shrouded commands accept exactly 0 or 1
+    UnsignedInt captureInspectObjectID;
+    UnsignedInt captureInspectDrawableID;
 	AsciiString selector;					///< a template name, or "*" for everything that seat owns
 	Coord2D at;										///< spawn, move, attackmove and arrive target, or the offset from atStart
 	Int atStart;									///< the start position at is measured from, SCENARIO_NO_START for none

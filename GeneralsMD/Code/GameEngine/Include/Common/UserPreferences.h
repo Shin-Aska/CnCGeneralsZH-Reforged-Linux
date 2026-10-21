@@ -47,6 +47,20 @@ class Money;
 
 typedef std::map<AsciiString, AsciiString> PreferenceMap;
 
+enum UserPreferencesWriteFault
+{
+	USER_PREFERENCES_WRITE_OK,
+	USER_PREFERENCES_WRITE_TEMP_OPEN,
+	USER_PREFERENCES_WRITE_FORMATTED,
+	USER_PREFERENCES_WRITE_SHORT,
+	USER_PREFERENCES_WRITE_FLUSH,
+	USER_PREFERENCES_WRITE_SYNC,
+	USER_PREFERENCES_WRITE_CLOSE,
+	USER_PREFERENCES_WRITE_REPLACE,
+};
+
+extern void Set_User_Preferences_Write_Fault_For_Test( UserPreferencesWriteFault fault );
+
 // The superweapon option is one of the SUPERWEAPONS_ modes now, and every lobby stores it under the
 // same key.  A file written before the dropdown existed holds EA's Yes/No, where Yes meant one of
 // each and nothing more, so it reads back as the mode that bans them.  Each lobby keeps its own

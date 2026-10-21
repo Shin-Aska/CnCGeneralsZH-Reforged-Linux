@@ -74,6 +74,7 @@ public:
 	// True when the adapter was created by WARP rather than by a driver.  The picture is the same
 	// and the speed is not, so anything measuring frame time has to know which one it got.
 	bool Is_Software() const { return Software; }
+	D3D_FEATURE_LEVEL Get_Feature_Level() const { return FeatureLevel; }
 
 	ID3D11Device * Get_Device() const { return Device; }
 	ID3D11DeviceContext * Get_Context() const { return Context; }

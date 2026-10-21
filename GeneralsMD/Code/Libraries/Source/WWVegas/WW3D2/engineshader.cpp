@@ -26,9 +26,11 @@
 #include "Platform/WaterHullModel.h"
 #include "Platform/WaterHullVisual.h"
 #include "Platform/WaterFftSampling.h"
+#include "Platform/WaterGpuShaders.h"
 #include "Platform/WaterFoamShading.h"
 #include "Platform/WaterFoamEnvironment.h"
 #include "Platform/WaterShoreFoam.h"
+#include "Platform/WaterShoreOverlay.h"
 #include "Platform/WaterCoastalCrest.h"
 
 #include <stdio.h>
@@ -113,6 +115,64 @@ static const EngineShaderEntry * entry_for(EngineShaderProgram program)
 		}
 	}
 	return NULL;
+}
+
+static const char * water_debug_name(WaterGpuShaders::DebugMode mode)
+{
+	using WaterGpuShaders::DebugMode;
+	switch (mode) {
+	case DebugMode::None: return NULL;
+	case DebugMode::Depth: return "depth";
+	case DebugMode::Bed: return "bed";
+	case DebugMode::Reflection: return "reflection";
+	case DebugMode::Normal: return "normal";
+	case DebugMode::Highlight: return "highlight";
+	case DebugMode::Offshore: return "offshore";
+	case DebugMode::WaveCage: return "wave-cage";
+	case DebugMode::CageWash: return "cage-wash";
+	case DebugMode::ShoreHistory: return "shore-history";
+	case DebugMode::ShoreHistoryTerms: return "shore-history-terms";
+	case DebugMode::Shore: return "shore";
+	case DebugMode::ShoreRaw: return "shore-raw";
+	case DebugMode::ShoreSourceTerms: return "shore-source-terms";
+	case DebugMode::Foam: return "foam";
+	case DebugMode::Vessel: return "vessel";
+	case DebugMode::Pressure: return "pressure";
+	case DebugMode::ResolvedNormal: return "resolved-normal";
+	case DebugMode::Roughness: return "roughness";
+	case DebugMode::PressureRetention: return "pressure-retention";
+	case DebugMode::Footprint: return "footprint";
+	case DebugMode::FootprintPath: return "footprint-path";
+	case DebugMode::FootprintColour: return "footprint-colour";
+	case DebugMode::FootprintReasons: return "footprint-reasons";
+	case DebugMode::FootprintOverlay: return "footprint-overlay";
+	case DebugMode::HullDepth: return "contact-depth";
+	case DebugMode::HullDepthSuppression: return "contact-depth-masks";
+	case DebugMode::HullDepthHeight: return "contact-depth-height";
+	case DebugMode::ContactMesh: return "contact-mesh";
+	case DebugMode::ContactMeshAlpha: return "contact-mesh-alpha";
+	case DebugMode::ContactMaterial: return "contact-material";
+	case DebugMode::ContactLighting: return "contact-lighting";
+	case DebugMode::ContactMeshQuery: return "contact-mesh-query";
+	case DebugMode::ContactMeshSources: return "contact-mesh-sources";
+	case DebugMode::BowRetention: return "bow-retention";
+	case DebugMode::CoastalSurf: return "coastal-surf";
+	case DebugMode::CoastalDensity: return "coastal-density";
+	case DebugMode::CoastalMaterial: return "coastal-material";
+	}
+	return NULL;
+}
+
+static WaterGpuShaders::DebugMode water_debug_mode(const char *name)
+{
+	using WaterGpuShaders::DebugMode;
+	if (name == NULL) return DebugMode::None;
+	for (unsigned value = 1; value <= static_cast<unsigned>(DebugMode::CoastalMaterial); ++value) {
+		const DebugMode mode = static_cast<DebugMode>(value);
+		const char *candidate = water_debug_name(mode);
+		if (candidate != NULL && strcmp(candidate, name) == 0) return mode;
+	}
+	return DebugMode::None;
 }
 
 // The declaration every transcribed vertex program opens with.  The constant bank is the engine's
@@ -494,15 +554,15 @@ static bool write_engine_pixel_program(EngineShaderProgram program,
 // SDL map water has a dedicated, explicitly packed uniform block (SdlWaterPixelConstants).
 // Runtime-generated normal detail, terrain depth, refraction and the coloured planar reflection
 // are composed before the existing shore/shroud alpha blend. No additional assets are required.
-static void write_modern_water(std::string &hlsl, bool river)
+static void write_modern_water(std::string &hlsl, const WaterGpuShaders::Variant &variant)
 {
-	const char *coastalSurfOption=getenv("ZH_WATER_SURF_GPU");
-	const bool coastalSurf=!river && coastalSurfOption && strcmp(coastalSurfOption,"1")==0;
-	const bool bowLift=WaterBowLift::Enabled();
-	const bool visualContact=WaterHullVisual::Enabled();
-	const char *visualDebugOption=getenv("ZH_WATER_DEBUG");
-	const bool visualDiagnostic=visualContact && visualDebugOption &&
-		(strcmp(visualDebugOption,"contact-mesh-query")==0 || strcmp(visualDebugOption,"contact-mesh-sources")==0);
+	const bool river=variant.surface==WaterGpuShaders::Surface::River;
+	const bool coastalSurf=variant.coastalSurf;
+	const bool bowLift=variant.bowLift;
+	const bool visualContact=variant.meshContact;
+	const bool visualDiagnostic=visualContact &&
+		(variant.debug==WaterGpuShaders::DebugMode::ContactMeshQuery ||
+		 variant.debug==WaterGpuShaders::DebugMode::ContactMeshSources);
 	hlsl.clear();
 	for (unsigned stage = 0; stage < (coastalSurf?16u:15u); ++stage) {
 		if(stage>=8 && stage<14) continue;
@@ -695,17 +755,28 @@ WaterRefractionSample waterRefractedScene(float2 originalPixel, float2 offset,
         // discontinuously changes absorption and also contaminates neighbouring derivatives.
         bool nearestValid = waterRefractionHit(nearestTexel, world, opticalWorld, view, nearestHit);
         [branch] if (nearestValid) {
-            float4 validWeights = float4(0, 0, 0, 0);
+)HLSL";
+		if(variant.target==WaterGpuShaders::Target::NativeD3D11) hlsl+=R"HLSL(            float4 validWeights = nearest==0 ? float4(weights.x,0,0,0)
+                : nearest==1 ? float4(0,weights.y,0,0)
+                : nearest==2 ? float4(0,0,weights.z,0) : float4(0,0,0,weights.w);
+)HLSL";
+		else hlsl+=R"HLSL(            float4 validWeights = float4(0, 0, 0, 0);
             validWeights[nearest] = weights[nearest];
-            bool completeFootprint = true;
+)HLSL";
+		hlsl+=R"HLSL(            bool completeFootprint = true;
             [unroll] for (int i = 0; i < 4; ++i) {
                 [branch] if (i != nearest && weights[i] > 0.0) {
                     float2 texel = waterScenePixel(lower + float2(i & 1, (i >> 1) & 1));
                     float3 neighbourHit;
                     bool valid = all(texel == nearestTexel)
                         || waterRefractionHit(texel, world, opticalWorld, view, neighbourHit);
-                    validWeights[i] = valid ? weights[i] : 0.0;
-                    completeFootprint = completeFootprint && valid;
+)HLSL";
+			if(variant.target==WaterGpuShaders::Target::NativeD3D11) hlsl+=R"HLSL(                    float acceptedWeight=valid ? weights[i] : 0.0;
+                    validWeights+=acceptedWeight*float4(i==0?1:0,i==1?1:0,i==2?1:0,i==3?1:0);
+)HLSL";
+			else hlsl+=R"HLSL(                    validWeights[i] = valid ? weights[i] : 0.0;
+)HLSL";
+		hlsl+=R"HLSL(                    completeFootprint = completeFootprint && valid;
                 }
             }
             result.pixel = candidate;
@@ -742,7 +813,7 @@ WaterRefractionSample waterRefractedScene(float2 originalPixel, float2 offset,
 	hlsl += WaterSurfaceModel::OceanShaderSource();
 	hlsl += WaterOpticalModel::GetHlslSource();
 	hlsl += WaterHullModel::GetHlslSource();
-	hlsl += WaterFftSampling::PixelSource(bowLift,WaterBowShoulder::Enabled(),true);
+	hlsl += WaterFftSampling::PixelSource(bowLift,variant.bowShoulder,true);
 	hlsl += WaterWaveCageShader::Source(false);
 	char oceanBound[96];
 	snprintf(oceanBound, sizeof(oceanBound), "static const float oceanDisplacementBound = %.9g;\n",
@@ -858,14 +929,12 @@ float4 oceanMeshHullDiagnostic(float3 world,float level,float time,float offshor
 	hlsl += WaterFoamShading::MaterialSource();
 	hlsl += WaterFoamEnvironment::HlslSource();
 	hlsl += WaterShoreFoam::Source();
-	const char *coastalCrestOption=getenv("ZH_WATER_COAST_CREST");
-	const bool coastalCrest=coastalCrestOption && strcmp(coastalCrestOption,"1")==0;
+	const bool coastalCrest=variant.coastalCrest;
 	if(coastalCrest) hlsl+=WaterCoastalCrest::Source();
 	hlsl += WaterShoreFoam::HistorySource();
 	if(coastalSurf) hlsl+=WaterCoastalPresentation::Source();
 	// Comparison switch is resolved at shader generation, never per pixel/frame.
-	const char *shoreOption=getenv("ZH_WATER_SHORE_FOAM");
-	hlsl += (!shoreOption || strcmp(shoreOption,"0")!=0)
+	hlsl += variant.shoreFoam
 		? "static const bool shoreFoamEnabled=true;\n" : "static const bool shoreFoamEnabled=false;\n";
 	hlsl += R"HLSL(
 float4 main(Input input) : SV_Target
@@ -1430,7 +1499,7 @@ float4 main(Input input) : SV_Target
 		hlsl += "    current = float4(saturate(surface) * edge.rgb, saturate(depth * 2.0) * lerp(input.Diffuse.a * base.a, step(0.001, input.Diffuse.a * base.a), SceneParameters.x));\n";
 	}
 	// Developer captures isolate the actual water inputs; normal game output is unaffected.
-	const char *debug = getenv("ZH_WATER_DEBUG");
+	const char *debug = water_debug_name(variant.debug);
 	if(coastalSurf && debug && strcmp(debug,"coastal-surf")==0)
 		hlsl+="current=float4(gpuCoastRaw,gpuCoastGate,gpuCoastFoam,1.0);\n";
 	if(coastalSurf && debug && strcmp(debug,"coastal-density")==0)
@@ -1540,12 +1609,11 @@ current.rgb=auditReasons;
 }
 
 // Opt-in original-scene-depth attribution. Normal shader text remains unchanged.
-static int water_hull_depth_diagnostic()
+static int water_hull_depth_diagnostic(WaterGpuShaders::DebugMode mode)
 {
-	const char *mode=getenv("ZH_WATER_DEBUG");
-	if(mode && strcmp(mode,"contact-depth")==0) return 1;
-	if(mode && strcmp(mode,"contact-depth-masks")==0) return 2;
-	if(mode && strcmp(mode,"contact-depth-height")==0) return 3;
+	if(mode==WaterGpuShaders::DebugMode::HullDepth) return 1;
+	if(mode==WaterGpuShaders::DebugMode::HullDepthSuppression) return 2;
+	if(mode==WaterGpuShaders::DebugMode::HullDepthHeight) return 3;
 	return 0;
 }
 
@@ -1645,6 +1713,152 @@ current=float4(hullDepthRegion*saturate(0.5+0.5*(world.z-baseLevel)/fftVerticalB
 )HLSL";
 }
 
+bool WaterGpuShaders::DebugNeedsMeshContact(DebugMode mode)
+{
+	return mode==DebugMode::ContactMesh || mode==DebugMode::ContactMeshAlpha
+		|| mode==DebugMode::ContactMaterial || mode==DebugMode::ContactLighting
+		|| mode==DebugMode::ContactMeshQuery || mode==DebugMode::ContactMeshSources;
+}
+
+bool WaterGpuShaders::DebugNeedsCoastalSurf(DebugMode mode)
+{
+	return mode==DebugMode::CoastalSurf || mode==DebugMode::CoastalDensity
+		|| mode==DebugMode::CoastalMaterial;
+}
+
+bool WaterGpuShaders::Valid(const Variant &variant)
+{
+	if (variant.target!=Target::NativeD3D11 && variant.target!=Target::Sdl3Gpu) return false;
+	if (variant.materialFvf==0) return false;
+	if (variant.debug>DebugMode::CoastalMaterial) return false;
+	if (variant.surface==Surface::Shore) {
+		return variant.vertex==Vertex::Analytic && !variant.meshContact && !variant.coastalSurf
+			&& !variant.coastalCrest && !variant.bowLift && variant.debug==DebugMode::None;
+	}
+	if (variant.surface!=Surface::Flat && variant.surface!=Surface::River) return false;
+	if (variant.vertex!=Vertex::Analytic && variant.vertex!=Vertex::Fft) return false;
+	if (variant.coastalCrest && !variant.coastalSurf) return false;
+	if (variant.surface==Surface::River &&
+		(variant.vertex!=Vertex::Analytic || variant.coastalSurf)) return false;
+	if (DebugNeedsMeshContact(variant.debug) && !variant.meshContact) return false;
+	if (DebugNeedsCoastalSurf(variant.debug) && !variant.coastalSurf) return false;
+	if (variant.debug==DebugMode::BowRetention && !variant.bowLift) return false;
+	return true;
+}
+
+std::string WaterGpuShaders::Key(const Variant &variant)
+{
+	return "water:"+std::to_string(static_cast<unsigned>(variant.target))+":"
+		+std::to_string(static_cast<unsigned>(variant.surface))+":"
+		+std::to_string(static_cast<unsigned>(variant.vertex))+":"
+		+std::to_string(variant.meshContact)+":"+std::to_string(variant.coastalSurf)+":"
+		+std::to_string(variant.coastalCrest)+":"+std::to_string(variant.shoreFoam)+":"
+		+std::to_string(variant.bowLift)+":"+std::to_string(variant.bowShoulder)+":"
+		+std::to_string(static_cast<unsigned>(variant.debug))+":"+std::to_string(variant.materialFvf);
+}
+
+bool WaterGpuShaders::GenerateVertex(const Variant &variant, const std::string &base,
+	std::string &hlsl)
+{
+	hlsl.clear();
+	if (!Valid(variant) || variant.surface==Surface::Shore || base.empty()) return false;
+	hlsl=base;
+	if (variant.vertex==Vertex::Fft
+		&& !WaterFftSampling::WrapVertex(hlsl,variant.bowLift,variant.bowShoulder)) {
+		hlsl.clear();
+		return false;
+	}
+	if (variant.target==Target::Sdl3Gpu && !SDL3_Shader_Retarget(hlsl,true)) {
+		hlsl.clear();
+		return false;
+	}
+	return true;
+}
+
+bool WaterGpuShaders::GenerateSurfacePixel(const Variant &variant,
+	const PixelPipelineDescription &pipeline,std::string &hlsl)
+{
+	hlsl.clear();
+	if (!Valid(variant) || variant.surface==Surface::Shore) return false;
+	write_modern_water(hlsl,variant);
+	const int hullDepthDiagnostic=water_hull_depth_diagnostic(variant.debug);
+	if(hullDepthDiagnostic) write_water_hull_depth_diagnostic(hlsl);
+	if (!CombinerShader_Append_Pixel_Pipeline(pipeline,hlsl)) {
+		hlsl.clear();
+		return false;
+	}
+	if(hullDepthDiagnostic) finish_water_hull_depth_diagnostic(hlsl,hullDepthDiagnostic);
+	if(variant.debug==DebugMode::BowRetention)
+		hlsl += "// Encode raw bow measurements after ordinary clipping/fog/alpha test.\n"
+			"current=float4(fftBowRetentionDebug(spectral,fftWeight,saturate(input.Specular.y),fftDamping),1.0);\n";
+	if(variant.debug==DebugMode::ContactMesh)
+		hlsl += "// Raw actual-height source, combined fresh source, and final material coverage.\ncurrent=float4(meshHullEffects.x,freshFoam,vesselFoam,1.0);\n";
+	if(variant.debug==DebugMode::ContactMeshAlpha)
+		hlsl += "// Raw actual-height source, final material coverage, and original compositing alpha.\ncurrent=float4(meshHullEffects.x,vesselFoam,current.a,1.0);\n";
+	if(variant.debug==DebugMode::ContactMaterial)
+		hlsl += "// Lit vessel material before coverage and legacy fog/shroud composition.\ncurrent=float4(waterDisplay(vesselRadiance),1.0);\n";
+	if(variant.debug==DebugMode::ContactLighting)
+		hlsl += "// Surface sun cosine, actual direct-light visibility, and original fog visibility.\ncurrent=float4(saturate(dot(normal,light)),sunVisible*FoamFillLights[0].w,saturate(input.Fog),1.0);\n";
+	if(variant.debug==DebugMode::ContactMeshQuery)
+		hlsl += "current=oceanMeshHullDiagnostic(world,baseLevel,time,offshore,hullWave,footprint,waveImpact,0);\n";
+	if(variant.debug==DebugMode::ContactMeshSources)
+		hlsl += "current=oceanMeshHullDiagnostic(world,baseLevel,time,offshore,hullWave,footprint,waveImpact,1);\n";
+	hlsl += "    return current;\n}\n";
+	if (variant.target==Target::Sdl3Gpu && !SDL3_Shader_Retarget(hlsl,false)) {
+		hlsl.clear();
+		return false;
+	}
+	return true;
+}
+
+bool WaterGpuShaders::GenerateShorePixel(const Variant &variant,const std::string &base,
+	std::string &hlsl)
+{
+	hlsl.clear();
+	if (!Valid(variant) || variant.surface!=Surface::Shore || base.empty()) return false;
+	hlsl=base;
+	if (!WaterShoreOverlay::WrapPixel(hlsl)) {
+		hlsl.clear();
+		return false;
+	}
+	if (variant.target==Target::Sdl3Gpu && !SDL3_Shader_Retarget(hlsl,false)) {
+		hlsl.clear();
+		return false;
+	}
+	return true;
+}
+
+WaterGpuShaders::EnvironmentSnapshot WaterGpuShaders::SnapshotEnvironment(Target target,
+	std::uint32_t materialFvf)
+{
+	EnvironmentSnapshot snapshot;
+	Variant &variant=snapshot.flat;
+	variant.target=target;
+	variant.surface=Surface::Flat;
+	variant.vertex=WaterFftSampling::Enabled() ? Vertex::Fft : Vertex::Analytic;
+	variant.meshContact=WaterHullVisual::Enabled();
+	const char *coastalSurf=getenv("ZH_WATER_SURF_GPU");
+	variant.coastalSurf=coastalSurf!=NULL && strcmp(coastalSurf,"1")==0;
+	const char *coastalCrest=getenv("ZH_WATER_COAST_CREST");
+	variant.coastalCrest=variant.coastalSurf && coastalCrest!=NULL && strcmp(coastalCrest,"1")==0;
+	const char *shoreFoam=getenv("ZH_WATER_SHORE_FOAM");
+	variant.shoreFoam=shoreFoam==NULL || strcmp(shoreFoam,"0")!=0;
+	variant.bowLift=WaterBowLift::Enabled();
+	variant.bowShoulder=WaterBowShoulder::Enabled();
+	variant.debug=water_debug_mode(getenv("ZH_WATER_DEBUG"));
+	if ((DebugNeedsMeshContact(variant.debug) && !variant.meshContact)
+		|| (DebugNeedsCoastalSurf(variant.debug) && !variant.coastalSurf)
+		|| (variant.debug==DebugMode::BowRetention && !variant.bowLift)) variant.debug=DebugMode::None;
+	variant.materialFvf=materialFvf;
+	snapshot.river=variant;
+	snapshot.river.surface=Surface::River;
+	snapshot.river.vertex=Vertex::Analytic;
+	snapshot.river.coastalSurf=false;
+	snapshot.river.coastalCrest=false;
+	if (DebugNeedsCoastalSurf(snapshot.river.debug)) snapshot.river.debug=DebugMode::None;
+	return snapshot;
+}
+
 bool EngineShader_Pixel_Program(EngineShaderProgram program,
 	const PixelPipelineDescription & pipeline, std::string & hlsl, CombinerShaderTarget target)
 {
@@ -1655,33 +1869,10 @@ bool EngineShader_Pixel_Program(EngineShaderProgram program,
 	}
 	if (target == COMBINER_SHADER_TARGET_SDL3_GPU) {
 		if (program == ENGINE_SHADER_WATER_TRAPEZOID || program == ENGINE_SHADER_WATER_RIVER) {
-			write_modern_water(hlsl, program == ENGINE_SHADER_WATER_RIVER);
-			const int hullDepthDiagnostic=water_hull_depth_diagnostic();
-			if(hullDepthDiagnostic) write_water_hull_depth_diagnostic(hlsl);
-			if (!CombinerShader_Append_Pixel_Pipeline(pipeline, hlsl)) return false;
-			if(hullDepthDiagnostic) finish_water_hull_depth_diagnostic(hlsl,hullDepthDiagnostic);
-			const bool visualContact=WaterHullVisual::Enabled();
-			const char *waterDebug=getenv("ZH_WATER_DEBUG");
-			if(WaterBowLift::Enabled() && waterDebug && strcmp(waterDebug,"bow-retention")==0)
-				hlsl += "// Encode raw bow measurements after ordinary clipping/fog/alpha test.\n"
-					"current=float4(fftBowRetentionDebug(spectral,fftWeight,saturate(input.Specular.y),fftDamping),1.0);\n";
-			if(visualContact && waterDebug && strcmp(waterDebug,"contact-mesh")==0)
-				hlsl += "// Raw actual-height source, combined fresh source, and final material coverage.\ncurrent=float4(meshHullEffects.x,freshFoam,vesselFoam,1.0);\n";
-			if(visualContact && waterDebug && strcmp(waterDebug,"contact-mesh-alpha")==0)
-				hlsl += "// Raw actual-height source, final material coverage, and original compositing alpha.\ncurrent=float4(meshHullEffects.x,vesselFoam,current.a,1.0);\n";
-			if(visualContact && waterDebug && strcmp(waterDebug,"contact-material")==0)
-				hlsl += "// Lit vessel material before coverage and legacy fog/shroud composition.\ncurrent=float4(waterDisplay(vesselRadiance),1.0);\n";
-			if(visualContact && waterDebug && strcmp(waterDebug,"contact-lighting")==0)
-				hlsl += "// Surface sun cosine, actual direct-light visibility, and original fog visibility.\ncurrent=float4(saturate(dot(normal,light)),sunVisible*FoamFillLights[0].w,saturate(input.Fog),1.0);\n";
-			if(visualContact && waterDebug &&
-				(strcmp(waterDebug,"contact-mesh-query")==0 || strcmp(waterDebug,"contact-mesh-sources")==0)) {
-				// Evaluate and encode after the ordinary pipeline; no diagnostic changes normal water.
-				hlsl += strcmp(waterDebug,"contact-mesh-query")==0
-					? "current=oceanMeshHullDiagnostic(world,baseLevel,time,offshore,hullWave,footprint,waveImpact,0);\n"
-					: "current=oceanMeshHullDiagnostic(world,baseLevel,time,offshore,hullWave,footprint,waveImpact,1);\n";
-			}
-			hlsl += "    return current;\n}\n";
-			return SDL3_Shader_Retarget(hlsl, false);
+			static const WaterGpuShaders::EnvironmentSnapshot water=WaterGpuShaders::SnapshotEnvironment(
+				WaterGpuShaders::Target::Sdl3Gpu,1);
+			return WaterGpuShaders::GenerateSurfacePixel(
+				program==ENGINE_SHADER_WATER_RIVER?water.river:water.flat,pipeline,hlsl);
 		}
 		return write_engine_pixel_program(program, pipeline, hlsl, EngineShader_Paints_Ground(program))
 			&& SDL3_Shader_Retarget(hlsl, false);

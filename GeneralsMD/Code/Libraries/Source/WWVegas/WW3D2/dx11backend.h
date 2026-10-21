@@ -59,6 +59,8 @@
 #include <unordered_map>
 #include <vector>
 
+class DX11WaterClass;
+
 // Two everywhere except the water, which binds four: the river texture, the sparkles, the noise
 // and the shroud.  This is what ffshader and ffvertex generate for, and a fifth is a draw this
 // refuses rather than draws wrongly.
@@ -191,6 +193,13 @@ public:
 	// buffer.  D3D11 wants the depth buffer to match the target's size, so one is made for each
 	// size a target comes in and kept; the engine uses two or three of them in a match.
 	void Set_Render_Target(ID3D11RenderTargetView * target);
+	ID3D11RenderTargetView * Current_Render_Target() const;
+	ID3D11DepthStencilView * Current_Depth_Target() const;
+	ID3D11ShaderResourceView * Current_Depth_Texture() const;
+	void Current_View_Projection(float view[16], float projection[16]) const;
+	DX11WaterClass * Water_Owner() const { return Water; }
+	void Before_Resize();
+	void After_Resize();
 
 	// The sun's own depth buffer, which the caster pass draws into and everything that receives a
 	// shadow samples.  Begin binds it as the only output, takes the viewport with it and clears it;
@@ -330,6 +339,7 @@ public:
 	const char * First_Compiler_Error() const { return CompilerError.c_str(); }
 
 private:
+	friend class DX11WaterClass;
 	DX11BackendClass(const DX11BackendClass &);
 	DX11BackendClass & operator=(const DX11BackendClass &);
 
@@ -416,6 +426,13 @@ private:
 	};
 	// A draw that is painting the world and can take a shadow from the sun's map.
 	bool Shadow_Receiving() const;
+	bool Water_Shadow_Receiving() const;
+	void Build_Physical_Scene_Constants(PixelConstantBlock & constants, float viewport_x,
+		float viewport_y, float viewport_width, float viewport_height, bool receives_shadow,
+		bool camera_space, const float shadow_from_clip[16]);
+	void Build_Water_Physical_Scene_Constants(PixelConstantBlock & constants,
+		const float view[16], const float projection[16], float viewport_x, float viewport_y,
+		float viewport_width, float viewport_height, bool receives_shadow);
 
 	bool Resolve(Pipeline & pipeline);
 	bool Build_Vertex_Description(VertexPipelineDescription & description) const;
@@ -440,6 +457,7 @@ private:
 	ID3D11SamplerState * Sampler_State(unsigned sampler);
 
 	DX11DeviceClass * Device;
+	DX11WaterClass * Water;
 
 	DX11StateBlockClass RenderStates;
 	DX11SamplerBlockClass Samplers[DX11_BACKEND_TEXTURE_STAGES];
@@ -757,8 +775,16 @@ private:
 	unsigned long long DrawsIntoTargets;
 	ID3D11RenderTargetView * CurrentTarget;
 	ID3D11DepthStencilView * CurrentDepth;
-	std::map<unsigned long long, ID3D11DepthStencilView *> TargetDepths;
+	struct TargetDepth
+	{
+		ID3D11Texture2D * Surface;
+		ID3D11DepthStencilView * View;
+		ID3D11ShaderResourceView * Texture;
+	};
+	std::map<unsigned long long, TargetDepth> TargetDepths;
 	ID3D11DepthStencilView * Depth_For(unsigned width, unsigned height);
+	ID3D11ShaderResourceView * Depth_Texture_For(unsigned width, unsigned height) const;
+	void Release_Target_Depths();
 
 	// A draw that samples the target it is drawing into reads a copy of it taken just before the
 	// draw.  Direct3D 9 handed such a draw whatever had been drawn so far; Direct3D 11 unbinds a

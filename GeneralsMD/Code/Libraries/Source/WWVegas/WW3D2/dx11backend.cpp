@@ -22,6 +22,7 @@
 
 #include "dx11layout.h"
 #include "dx11resource.h"
+#include "dx11water.h"
 
 #include <d3dcommon.h>
 #include <stdio.h>
@@ -197,6 +198,7 @@ static void inverse_transpose(const float source[16], float result[16])
 
 DX11BackendClass::DX11BackendClass()
 	: Device(NULL)
+	, Water(NULL)
 	, VertexFormat(0)
 	, StreamBuffer(NULL)
 	, StreamStride(0)
@@ -353,6 +355,7 @@ DX11BackendClass::~DX11BackendClass()
 
 bool DX11BackendClass::Initialise(DX11DeviceClass * device)
 {
+	Shutdown();
 	Device = device;
 	Forget_Bindings();
 
@@ -378,7 +381,29 @@ bool DX11BackendClass::Initialise(DX11DeviceClass * device)
 	}
 
 	description.ByteWidth = sizeof(EngineConstants);
-	return SUCCEEDED(Device->Get_Device()->CreateBuffer(&description, NULL, &EngineConstantBuffer));
+	if (FAILED(Device->Get_Device()->CreateBuffer(&description, NULL, &EngineConstantBuffer))) {
+		Shutdown();
+		return false;
+	}
+	Water = new DX11WaterClass;
+	if (Water == NULL || !Water->Initialise(Device, this)) {
+		delete Water;
+		Water = NULL;
+		Shutdown();
+		return false;
+	}
+	return true;
+}
+
+void DX11BackendClass::Release_Target_Depths()
+{
+	for (std::map<unsigned long long, TargetDepth>::iterator entry = TargetDepths.begin();
+			entry != TargetDepths.end(); ++entry) {
+		if (entry->second.Texture != NULL) entry->second.Texture->Release();
+		if (entry->second.View != NULL) entry->second.View->Release();
+		if (entry->second.Surface != NULL) entry->second.Surface->Release();
+	}
+	TargetDepths.clear();
 }
 
 void DX11BackendClass::Release_Cached()
@@ -419,15 +444,13 @@ void DX11BackendClass::Release_Cached()
 	}
 	RasterizerStates.clear();
 
-	for (std::map<unsigned long long, ID3D11DepthStencilView *>::iterator entry
-			= TargetDepths.begin(); entry != TargetDepths.end(); ++entry) {
-		if (entry->second != NULL) {
-			entry->second->Release();
-		}
-	}
-	TargetDepths.clear();
+	Release_Target_Depths();
 	CurrentTarget = NULL;
 	CurrentDepth = NULL;
+	if (CurrentTargetResource != NULL) {
+		CurrentTargetResource->Release();
+		CurrentTargetResource = NULL;
+	}
 
 	for (SamplerStateMap::iterator entry = SamplerStates.begin();
 			entry != SamplerStates.end(); ++entry) {
@@ -438,6 +461,11 @@ void DX11BackendClass::Release_Cached()
 
 void DX11BackendClass::Shutdown()
 {
+	if (Water != NULL) {
+		Water->Shutdown();
+		delete Water;
+		Water = NULL;
+	}
 	if (ShaderCacheChanged) {
 		Save_Shader_Cache();
 		ShaderCacheChanged = false;
@@ -492,6 +520,32 @@ void DX11BackendClass::Shutdown()
 	RenderStates.Set_Shadow_Caster_Pass(false);
 	Note_Shadow_State_Changed();
 	Device = NULL;
+}
+
+void DX11BackendClass::Before_Resize()
+{
+	if (Water != NULL) Water->Before_Resize();
+	Release_Scene_Colour();
+	Release_Scene_Depth();
+	if (TargetCopy != NULL) {
+		TargetCopyView->Release();
+		TargetCopy->Release();
+		TargetCopyView = NULL;
+		TargetCopy = NULL;
+	}
+	Release_Target_Depths();
+	if (CurrentTargetResource != NULL) {
+		CurrentTargetResource->Release();
+		CurrentTargetResource = NULL;
+	}
+	CurrentTarget = NULL;
+	CurrentDepth = NULL;
+}
+
+void DX11BackendClass::After_Resize()
+{
+	if (Water != NULL) Water->After_Resize();
+	Forget_Bindings();
 }
 
 /** The sun's depth buffer.  One surface with two views of it, because a depth buffer that is also
@@ -1773,37 +1827,72 @@ ID3D11DepthStencilView * DX11BackendClass::Depth_For(unsigned width, unsigned he
 	}
 
 	const unsigned long long key = (static_cast<unsigned long long>(width) << 32) | height;
-	std::map<unsigned long long, ID3D11DepthStencilView *>::const_iterator existing
+	std::map<unsigned long long, TargetDepth>::const_iterator existing
 		= TargetDepths.find(key);
 	if (existing != TargetDepths.end()) {
-		return existing->second;
+		return existing->second.View;
 	}
 
 	ID3D11Texture2D * texture = NULL;
-	ID3D11ShaderResourceView * unused = NULL;
-	if (!DX11Resource_Create_Texture(Device->Get_Device(), width, height, 1, D3DFMT_D24S8,
-			D3DPOOL_DEFAULT, D3DUSAGE_DEPTHSTENCIL, &texture, &unused)) {
+	D3D11_TEXTURE2D_DESC texture_description;
+	memset(&texture_description, 0, sizeof(texture_description));
+	texture_description.Width = width;
+	texture_description.Height = height;
+	texture_description.MipLevels = 1;
+	texture_description.ArraySize = 1;
+	texture_description.Format = DXGI_FORMAT_R24G8_TYPELESS;
+	texture_description.SampleDesc.Count = 1;
+	texture_description.Usage = D3D11_USAGE_DEFAULT;
+	texture_description.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
+	if (FAILED(Device->Get_Device()->CreateTexture2D(&texture_description, NULL, &texture))) {
 		Note_Refusal("the device refused a depth buffer for a render target");
-		TargetDepths[key] = NULL;
+		TargetDepth empty = { NULL, NULL, NULL };
+		TargetDepths[key] = empty;
 		return NULL;
 	}
 
 	ID3D11DepthStencilView * view = NULL;
-	if (FAILED(Device->Get_Device()->CreateDepthStencilView(texture, NULL, &view))) {
+	D3D11_DEPTH_STENCIL_VIEW_DESC view_description;
+	memset(&view_description, 0, sizeof(view_description));
+	view_description.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+	view_description.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
+	if (FAILED(Device->Get_Device()->CreateDepthStencilView(texture, &view_description, &view))) {
 		Note_Refusal("the device refused a depth view for a render target");
-		view = NULL;
+		texture->Release();
+		TargetDepth empty = { NULL, NULL, NULL };
+		TargetDepths[key] = empty;
+		return NULL;
 	}
-	else {
-		// A new depth texture holds whatever the driver left in it, which reads as everything being
-		// nearer than anything about to be drawn.  Nothing else clears this one: the engine's own
-		// clear goes to whichever surface Direct3D 9 has bound, and this surface has no D3D9 twin.
-		Device->Get_Context()->ClearDepthStencilView(view,
-			D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+	ID3D11ShaderResourceView * texture_view = NULL;
+	D3D11_SHADER_RESOURCE_VIEW_DESC texture_view_description;
+	memset(&texture_view_description, 0, sizeof(texture_view_description));
+	texture_view_description.Format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
+	texture_view_description.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+	texture_view_description.Texture2D.MipLevels = 1;
+	if (FAILED(Device->Get_Device()->CreateShaderResourceView(texture,
+			&texture_view_description, &texture_view))) {
+		Note_Refusal("the device refused a texture view for a render target depth buffer");
+		view->Release();
+		texture->Release();
+		TargetDepth empty = { NULL, NULL, NULL };
+		TargetDepths[key] = empty;
+		return NULL;
 	}
-	texture->Release();
-
-	TargetDepths[key] = view;
+	Device->Get_Context()->ClearDepthStencilView(view,
+		D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+	TargetDepth held = { texture, view, texture_view };
+	TargetDepths[key] = held;
 	return view;
+}
+
+ID3D11ShaderResourceView * DX11BackendClass::Depth_Texture_For(unsigned width, unsigned height) const
+{
+	if (width == Device->Get_Width() && height == Device->Get_Height()) {
+		return Device->Get_Depth_Texture();
+	}
+	const unsigned long long key = (static_cast<unsigned long long>(width) << 32) | height;
+	std::map<unsigned long long, TargetDepth>::const_iterator existing = TargetDepths.find(key);
+	return existing != TargetDepths.end() ? existing->second.Texture : NULL;
 }
 
 // The last few target changes rather than the first few: the first are the loading screen's, and
@@ -1830,6 +1919,10 @@ void DX11BackendClass::Set_Render_Target(ID3D11RenderTargetView * target)
 		Trace_Target("back buffer", 0, 0);
 		CurrentTarget = NULL;
 		CurrentDepth = NULL;
+		if (CurrentTargetResource != NULL) {
+			CurrentTargetResource->Release();
+			CurrentTargetResource = NULL;
+		}
 		ID3D11RenderTargetView * back_buffer = Device->Get_Scene_View();
 		if (back_buffer != NULL) {
 			Device->Get_Context()->OMSetRenderTargets(1, &back_buffer,
@@ -1856,20 +1949,56 @@ void DX11BackendClass::Set_Render_Target(ID3D11RenderTargetView * target)
 		height = description.Height;
 		texture->Release();
 	}
-	resource->Release();
-
 	if (width == 0 || height == 0) {
+		resource->Release();
 		return;
 	}
 
 	++TargetsBound;
 	Trace_Target("texture", width, height);
 	CurrentTarget = target;
+	if (CurrentTargetResource != NULL) CurrentTargetResource->Release();
 	CurrentTargetResource = resource;
 	CurrentDepth = Depth_For(width, height);
 	Device->Get_Context()->OMSetRenderTargets(1, &CurrentTarget, CurrentDepth);
 	Forget_Bindings();
 	Set_Viewport(0, 0, width, height);
+}
+
+ID3D11RenderTargetView * DX11BackendClass::Current_Render_Target() const
+{
+	return CurrentTarget != NULL ? CurrentTarget : Device->Get_Scene_View();
+}
+
+ID3D11DepthStencilView * DX11BackendClass::Current_Depth_Target() const
+{
+	return CurrentTarget != NULL ? CurrentDepth : Device->Get_Depth_Stencil_View();
+}
+
+ID3D11ShaderResourceView * DX11BackendClass::Current_Depth_Texture() const
+{
+	if (CurrentTarget == NULL) return Device->Get_Depth_Texture();
+	ID3D11Resource * resource = NULL;
+	CurrentTarget->GetResource(&resource);
+	if (resource == NULL) return NULL;
+	ID3D11Texture2D * texture = NULL;
+	unsigned width = 0, height = 0;
+	if (SUCCEEDED(resource->QueryInterface(__uuidof(ID3D11Texture2D),
+			reinterpret_cast<void **>(&texture)))) {
+		D3D11_TEXTURE2D_DESC description;
+		texture->GetDesc(&description);
+		width = description.Width;
+		height = description.Height;
+		texture->Release();
+	}
+	resource->Release();
+	return Depth_Texture_For(width, height);
+}
+
+void DX11BackendClass::Current_View_Projection(float view[16], float projection[16]) const
+{
+	memcpy(view, View, sizeof(View));
+	memcpy(projection, Projection, sizeof(Projection));
 }
 
 void DX11BackendClass::Set_Viewport(unsigned x, unsigned y, unsigned width, unsigned height)
@@ -1907,6 +2036,16 @@ void DX11BackendClass::Clear(bool colour, bool depth, const float colour_value[4
 		? CurrentTarget : Device->Get_Scene_View();
 	ID3D11DepthStencilView * depth_view = (CurrentTarget != NULL)
 		? CurrentDepth : Device->Get_Depth_Stencil_View();
+	if (Water != NULL) {
+		ID3D11Resource * colour_resource = NULL;
+		ID3D11Resource * depth_resource = NULL;
+		if (colour && target != NULL) target->GetResource(&colour_resource);
+		if (depth && depth_view != NULL) depth_view->GetResource(&depth_resource);
+		if (colour_resource != NULL) Water->Invalidate_Source(colour_resource);
+		if (depth_resource != NULL) Water->Invalidate_Source(depth_resource);
+		if (colour_resource != NULL) colour_resource->Release();
+		if (depth_resource != NULL) depth_resource->Release();
+	}
 
 	if (colour && target != NULL) {
 		Device->Get_Context()->ClearRenderTargetView(target, colour_value);
@@ -2413,19 +2552,6 @@ void DX11BackendClass::Upload_Pixel_Constants()
 
 	PixelConstantBlock pixel_block;
 	memset(&pixel_block, 0, sizeof(pixel_block));
-	RenderStates.Get_Texture_Factor(pixel_block.TextureFactor);
-
-	const DWORD fog_colour = RenderStates.Get_Render_State(D3DRS_FOGCOLOR);
-	pixel_block.FogColour[0] = static_cast<float>((fog_colour >> 16) & 0xff) / 255.0f;
-	pixel_block.FogColour[1] = static_cast<float>((fog_colour >> 8) & 0xff) / 255.0f;
-	pixel_block.FogColour[2] = static_cast<float>(fog_colour & 0xff) / 255.0f;
-	pixel_block.FogColour[3] = static_cast<float>((fog_colour >> 24) & 0xff) / 255.0f;
-
-	// D3DRS_ALPHAREF is an eight bit level and it goes up as one, not as a fraction: the generated
-	// clip rounds the pixel's alpha to a level first, because that is the comparison Direct3D 9 made
-	// and comparing fractions instead moves every alpha tested edge by up to half a level.
-	pixel_block.AlphaReference[0] =
-		static_cast<float>(RenderStates.Get_Render_State(D3DRS_ALPHAREF) & 0xff);
 
 	// A camera space draw's pixels go back to the world through the scene camera's view, not through
 	// the identity it was drawn with; see Set_Scene_View in the header.
@@ -2450,6 +2576,9 @@ void DX11BackendClass::Upload_Pixel_Constants()
 			}
 		}
 	}
+	Build_Physical_Scene_Constants(pixel_block, 0.0f, 0.0f,
+		static_cast<float>(ViewportWidth), static_cast<float>(ViewportHeight), ShadowReceiving,
+		camera_space, ShadowReceiving ? ShadowFromClip : NULL);
 	if (effect != DRAW_EFFECT_NONE) {
 		pixel_block.ShadowViewport[0] = (ViewportWidth > 0)
 			? 1.0f / static_cast<float>(ViewportWidth) : 0.0f;
@@ -2460,24 +2589,7 @@ void DX11BackendClass::Upload_Pixel_Constants()
 	}
 
 	if (ShadowReceiving) {
-		pixel_block.VolumeParameters[0] = SmokeMapFilled ? SmokeStrength : 0.0f;
-		pixel_block.VolumeParameters[1] = SmokeMapFilled ? SMOKE_SELF_SHADOW_GAIN : 0.0f;
-		pixel_block.VolumeParameters[2] = camera_space ? 1.0f : 0.0f;
-		pixel_block.VolumeParameters[3] = SMOKE_SELF_SHADOW_CURVE;
 		memcpy(pixel_block.ShadowFromClip, ShadowFromClip, sizeof(pixel_block.ShadowFromClip));
-		pixel_block.ShadowParameters[0] = (ShadowMapSize > 0)
-			? 1.0f / static_cast<float>(ShadowMapSize) : 0.0f;
-		pixel_block.ShadowParameters[1] = ShadowBias;
-		pixel_block.ShadowParameters[2] = ShadowStrength;
-		pixel_block.ShadowParameters[3] = ShadowRadius;
-		pixel_block.ShadowViewport[0] = (ViewportWidth > 0)
-			? 1.0f / static_cast<float>(ViewportWidth) : 0.0f;
-		pixel_block.ShadowViewport[1] = (ViewportHeight > 0)
-			? 1.0f / static_cast<float>(ViewportHeight) : 0.0f;
-		pixel_block.ShadowSoftness[0] = ShadowNarrowestRadius;
-		pixel_block.ShadowSoftness[1] = ShadowTexelsPerGap;
-		pixel_block.ShadowSoftness[2] = ShadowUnitsPerDepth;
-		pixel_block.ShadowSoftness[3] = ShadowSkyFill;
 		memcpy(pixel_block.WorldFromClip, WorldFromClip, sizeof(pixel_block.WorldFromClip));
 		pixel_block.HeadlightParameters[0] = static_cast<float>(HeadlightCount);
 		memcpy(&pixel_block.HeadlightParameters[1], HeadlightGain, sizeof(HeadlightGain));
@@ -2520,6 +2632,63 @@ void DX11BackendClass::Upload_Pixel_Constants()
 			PixelConstantsHeld = true;
 		}
 	}
+}
+
+bool DX11BackendClass::Water_Shadow_Receiving() const
+{
+	return ShadowReceiving && !ShadowMapBound && ShadowMapTexture != NULL;
+}
+
+void DX11BackendClass::Build_Physical_Scene_Constants(PixelConstantBlock & pixel_block,
+	float viewport_x, float viewport_y, float viewport_width, float viewport_height,
+	bool receives_shadow, bool camera_space, const float shadow_from_clip[16])
+{
+	RenderStates.Get_Texture_Factor(pixel_block.TextureFactor);
+	const DWORD fog_colour = RenderStates.Get_Render_State(D3DRS_FOGCOLOR);
+	pixel_block.FogColour[0] = static_cast<float>((fog_colour >> 16) & 0xff) / 255.0f;
+	pixel_block.FogColour[1] = static_cast<float>((fog_colour >> 8) & 0xff) / 255.0f;
+	pixel_block.FogColour[2] = static_cast<float>(fog_colour & 0xff) / 255.0f;
+	pixel_block.FogColour[3] = static_cast<float>((fog_colour >> 24) & 0xff) / 255.0f;
+	pixel_block.AlphaReference[0] =
+		static_cast<float>(RenderStates.Get_Render_State(D3DRS_ALPHAREF) & 0xff);
+	if (!receives_shadow || shadow_from_clip == NULL) return;
+	memcpy(pixel_block.ShadowFromClip, shadow_from_clip, sizeof(pixel_block.ShadowFromClip));
+	pixel_block.ShadowParameters[0] = (ShadowMapSize > 0)
+		? 1.0f / static_cast<float>(ShadowMapSize) : 0.0f;
+	pixel_block.ShadowParameters[1] = ShadowBias;
+	pixel_block.ShadowParameters[2] = ShadowStrength;
+	pixel_block.ShadowParameters[3] = ShadowRadius;
+	pixel_block.ShadowViewport[0] = viewport_width > 0.0f ? 1.0f / viewport_width : 0.0f;
+	pixel_block.ShadowViewport[1] = viewport_height > 0.0f ? 1.0f / viewport_height : 0.0f;
+	pixel_block.ShadowViewport[2] = viewport_x;
+	pixel_block.ShadowViewport[3] = viewport_y;
+	pixel_block.ShadowSoftness[0] = ShadowNarrowestRadius;
+	pixel_block.ShadowSoftness[1] = ShadowTexelsPerGap;
+	pixel_block.ShadowSoftness[2] = ShadowUnitsPerDepth;
+	pixel_block.ShadowSoftness[3] = ShadowSkyFill;
+	pixel_block.VolumeParameters[0] = SmokeMapFilled ? SmokeStrength : 0.0f;
+	pixel_block.VolumeParameters[1] = SmokeMapFilled ? SMOKE_SELF_SHADOW_GAIN : 0.0f;
+	pixel_block.VolumeParameters[2] = camera_space ? 1.0f : 0.0f;
+	pixel_block.VolumeParameters[3] = SMOKE_SELF_SHADOW_CURVE;
+}
+
+void DX11BackendClass::Build_Water_Physical_Scene_Constants(PixelConstantBlock & pixel_block,
+	const float view[16], const float projection[16], float viewport_x, float viewport_y,
+	float viewport_width, float viewport_height, bool receives_shadow)
+{
+	float shadow_from_clip[16];
+	const float * resolved_shadow = NULL;
+	if (receives_shadow) {
+		float scene_clip[16];
+		float clip_to_world[16];
+		multiply(view, projection, scene_clip);
+		if (invert(scene_clip, clip_to_world)) {
+			multiply(clip_to_world, SunViewProjection, shadow_from_clip);
+			resolved_shadow = shadow_from_clip;
+		}
+	}
+	Build_Physical_Scene_Constants(pixel_block, viewport_x, viewport_y, viewport_width,
+		viewport_height, receives_shadow, false, resolved_shadow);
 }
 
 void DX11BackendClass::Forget_Last_State_Objects()

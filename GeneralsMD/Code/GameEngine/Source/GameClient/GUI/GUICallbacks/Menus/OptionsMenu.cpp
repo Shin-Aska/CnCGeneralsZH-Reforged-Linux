@@ -230,6 +230,7 @@ extern void DoResolutionDialog();
 // the options layout has been taken down and nothing is reading a window out of it any more.
 //
 static Bool pendingShellRebuild = FALSE;
+static Int pendingWaterStyle = 1;
 //
 
 static Bool ignoreSelected = FALSE;
@@ -1063,16 +1064,21 @@ static void fillCatalogWidgets( void )
 		if( widget == NULL )
 			continue;
 
-#ifdef _WIN32
-        // Modern water is provided by the SDL renderer; Windows keeps its existing water.
-        if (strcmp(def.iniKey, "WaterStyle") == 0) {
-            widget->winHide(TRUE);
-            GameWindow *label=TheWindowManager->winGetWindowFromId(NULL,NAMEKEY("OptionsMenu.wnd:LabelWaterStyle"));
-            if (label) label->winHide(TRUE);
-            continue;
-        }
-#endif
-		const Int value = clampOptionValue( def, def.get() );
+		Int value = clampOptionValue( def, def.get() );
+		if( strcmp( def.iniKey, "WaterStyle" ) == 0 )
+		{
+			const WaterStyleStatus status = TheDisplay->getWaterStyleStatus();
+			pendingWaterStyle = WaterStyleRequestForOptions( status, def.get() );
+			value = status.isModernSelectable() ? pendingWaterStyle : 0;
+			widget->winEnable( status.isModernSelectable() );
+			widget->winSetTooltip( TheGameText->fetch(
+				status.isModernSelectable() ? "TOOLTIP:WaterStyle" : "TOOLTIP:WaterStyleUnavailable" ) );
+			GameWindow *label = TheWindowManager->winGetWindowFromId(
+				NULL, NAMEKEY( "OptionsMenu.wnd:LabelWaterStyle" ) );
+			if( label != NULL )
+				label->winSetText( TheGameText->fetch(
+					status.isModernSelectable() ? "GUI:WaterStyle" : "GUI:WaterStyleUnavailable" ) );
+		}
 
 		switch( def.kind )
 		{
@@ -1116,6 +1122,20 @@ static void readCatalogWidgets( OptionPreferences &out )
 		GameWindow *widget = findOptionWidget( def );
 		if( widget == NULL )
 			continue;
+		if( strcmp( def.iniKey, "WaterStyle" ) == 0 )
+		{
+			const WaterStyleStatus status = TheDisplay->getWaterStyleStatus();
+			if( status.isModernSelectable() )
+			{
+				Int selected = -1;
+				GadgetComboBoxGetSelectedPos( widget, &selected );
+				if( selected >= 0 )
+					pendingWaterStyle = clampOptionValue( def, def.lo + selected );
+			}
+			else
+				pendingWaterStyle = WaterStyleRequestForOptions( status, def.get() );
+			continue;
+		}
 
 		Int value;
 		switch( def.kind )
@@ -2978,6 +2998,12 @@ WindowMsgHandledType OptionsMenuSystem( GameWindow *window, UnsignedInt msg,
 			else if (controlID == buttonAccept )
 			{
 				saveOptions();
+				if( pref != NULL && !commitWaterStylePreference( *pref, pendingWaterStyle ) )
+				{
+					MessageBoxOk( TheGameText->fetch( "GUI:Error" ),
+						TheGameText->fetch( "GUI:OptionsSaveFailed" ), NULL );
+					return MSG_HANDLED;
+				}
 				// Hotkeys.ini, and every key read again from it
 				OptionsHotkeysSave();
 
@@ -2987,7 +3013,6 @@ WindowMsgHandledType OptionsMenuSystem( GameWindow *window, UnsignedInt msg,
 
 				if (pref)
 				{
-					pref->write();
 					delete pref;
 					pref = NULL;
 				}

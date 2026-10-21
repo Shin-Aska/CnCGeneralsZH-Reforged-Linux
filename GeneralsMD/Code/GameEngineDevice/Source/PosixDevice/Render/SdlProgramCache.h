@@ -43,6 +43,7 @@
 #include <unordered_map>
 #include <vector>
 #include <vector>
+#include "Platform/WaterGpuShaders.h"
 
 struct SDL_GPUDevice;
 struct SDL_GPUShader;
@@ -111,6 +112,7 @@ private:
 	};
 	ByBytes VertexByBytes, PixelByBytes, EngineVertexByBytes, EnginePixelByBytes, WaterVertexByBytes, ShorePixelByBytes, SunPixelByBytes;
 
+	WaterGpuShaders::EnvironmentSnapshot WaterOptions;
 	SDL_GPUDevice *Device;
 	std::map<std::string, SdlProgram> VertexPrograms;
 	std::map<std::string, SdlProgram> PixelPrograms;

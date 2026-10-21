@@ -1182,6 +1182,18 @@ TOOLTIP:WaterStyle
 "Classic uses the original water, sparkles, reflections and wakes. Modern adds waves, shoreline detail and hull foam. Applied when you Accept."
 END
 
+TOOLTIP:WaterStyleUnavailable
+"Modern water is unavailable with the active renderer. Your Modern preference is preserved; Classic is used until a supported renderer is active."
+END
+
+GUI:OptionsSaveFailed
+"Your settings could not be saved. The previous settings are unchanged. Try Accept again, or choose Back to cancel."
+END
+
+GUI:WaterStyleUnavailable
+"Water style (Modern unavailable)"
+END
+
 LAN:ErrorModMismatch
 "This game runs different mods. The host's mods: %s. Start the game with the same mods, in the same order, to join."
 END

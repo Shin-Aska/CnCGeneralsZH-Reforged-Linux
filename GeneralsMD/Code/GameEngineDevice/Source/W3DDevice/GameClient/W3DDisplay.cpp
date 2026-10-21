@@ -78,6 +78,7 @@ static void drawFramerateBar(void);
 #include "GameLogic/Object.h"
 #include "GameClient/Keyboard.h"		// TheKeyboard; on Windows WinMain.h brought it too
 #include "Platform/SleepMilliseconds.h"
+#include "Platform/WaterRenderBridge.h"
 #if !defined(_WIN32)
 #include "Platform/RendererName.h"
 #endif
@@ -4783,6 +4784,29 @@ const WideChar *W3DDisplay::getRendererName(void) const
 	// or "Headless" with no window (Platform/RendererName.h).
 	return PosixRenderer_Name();
 #endif
+}
+
+WaterStyleStatus W3DDisplay::getWaterStyleStatus(void) const
+{
+	WaterRenderBridge::Capability capability = {
+		WaterRenderBridge::BackendKind::Unavailable,
+		0,
+		WaterRenderBridge::CapabilityReason::NoDevice,
+	};
+	WaterRenderBridge::Bridge *bridge = WaterRenderBridge::GetActiveBridge();
+	if( bridge != NULL )
+		capability = bridge->GetCapability();
+#if defined(_WIN32)
+	else if( DX8Wrapper::_Get_D3D_Device() != NULL )
+	{
+		capability.backend = WaterRenderBridge::BackendKind::D3D9;
+		capability.reason = WaterRenderBridge::CapabilityReason::UnsupportedBackend;
+	}
+#endif
+
+	const Int requested = TheGlobalData != NULL ? TheGlobalData->m_waterStyle : 1;
+	const Int effective = TheWaterRenderObj != NULL ? TheWaterRenderObj->getEffectiveWaterStyle() : 0;
+	return MakeWaterStyleStatus( requested, effective, capability );
 }
 
 

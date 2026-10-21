@@ -69,11 +69,24 @@
 #include "Platform/WaterHullVisual.h"
 #include "Platform/WaterSurfaceModel.h"
 #include "Platform/WaterFftSampling.h"
+#include "Platform/WaterGpuShaders.h"
 #include "Platform/WaterFoamEnvironment.h"
 #include "sdl3target.h"
 #include <limits>
 
 namespace {
+
+bool generate_environment_water_for_test(EngineShaderProgram program,
+	const PixelPipelineDescription &pipeline,std::string &hlsl)
+{
+	const WaterGpuShaders::EnvironmentSnapshot options=WaterGpuShaders::SnapshotEnvironment(
+		WaterGpuShaders::Target::Sdl3Gpu,1);
+	if(program==ENGINE_SHADER_WATER_TRAPEZOID)
+		return WaterGpuShaders::GenerateSurfacePixel(options.flat,pipeline,hlsl);
+	if(program==ENGINE_SHADER_WATER_RIVER)
+		return WaterGpuShaders::GenerateSurfacePixel(options.river,pipeline,hlsl);
+	return false;
+}
 
 struct Tally
 {
@@ -1193,9 +1206,9 @@ TEST(shore_source_terms_reports_actual_front_and_is_absent_from_normal_source)
     for(auto program:{ENGINE_SHADER_WATER_TRAPEZOID,ENGINE_SHADER_WATER_RIVER}) {
         PixelPipelineDescription description={};std::string normal,diagnostic;
         CHECK(unsetenv("ZH_WATER_DEBUG")==0);
-        CHECK(EngineShader_Pixel_Program(program,description,normal,COMBINER_SHADER_TARGET_SDL3_GPU));
+        CHECK(generate_environment_water_for_test(program,description,normal));
         CHECK(setenv("ZH_WATER_DEBUG","shore-source-terms",1)==0);
-        CHECK(EngineShader_Pixel_Program(program,description,diagnostic,COMBINER_SHADER_TARGET_SDL3_GPU));
+        CHECK(generate_environment_water_for_test(program,description,diagnostic));
         const std::string start="\n    // Shore source attribution (M5i):";
         const std::string finish="    // End shore source attribution. Only the opt-in diagnostic recomputes residence.\n";
         const size_t begin=diagnostic.find(start),end=diagnostic.find(finish,begin);
@@ -1237,8 +1250,8 @@ TEST(coastal_surf_optional_texture_contract_compiles_with_exact_hull_contact)
             CHECK(setenv("ZH_WATER_SURF_GPU",enabled?"1":"0",1)==0);
             for(unsigned river=0;river<2;++river) {
                 std::string pixel,log,msl,why;std::vector<unsigned char>spirv;
-                const bool generated=EngineShader_Pixel_Program(river?ENGINE_SHADER_WATER_RIVER:ENGINE_SHADER_WATER_TRAPEZOID,
-                    pipeline,pixel,COMBINER_SHADER_TARGET_SDL3_GPU);
+                const bool generated=generate_environment_water_for_test(
+					river?ENGINE_SHADER_WATER_RIVER:ENGINE_SHADER_WATER_TRAPEZOID,pipeline,pixel);
                 CHECK(generated);if(!generated)continue;
                 if(!enabled){if(river)riverWithoutSurf=pixel;else flatWithoutSurf=pixel;}
                 if(enabled&&river)CHECK(pixel==riverWithoutSurf); // river source exactly independent of surf switch
@@ -1258,7 +1271,7 @@ TEST(coastal_surf_optional_texture_contract_compiles_with_exact_hull_contact)
         // same generated flat program as the explicit off mode, not merely its slots.
         for(const char *value:{static_cast<const char *>(nullptr),"true","01"}) {
             if(value)CHECK(setenv("ZH_WATER_SURF_GPU",value,1)==0);else CHECK(unsetenv("ZH_WATER_SURF_GPU")==0);
-            std::string pixel;CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,pixel,COMBINER_SHADER_TARGET_SDL3_GPU));
+            std::string pixel;CHECK(generate_environment_water_for_test(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,pixel));
             CHECK(pixel==flatWithoutSurf);
         }
     }
@@ -1276,7 +1289,7 @@ TEST(water_mesh_contact_diagnostics_compile_with_the_shared_contact_material)
     for(const char *mode:{"contact-mesh-query","contact-mesh-sources"}) {
         CHECK(setenv(debug.key,mode,1)==0);
         std::string pixel,log,msl,why;std::vector<unsigned char> spirv;
-        CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,pixel,COMBINER_SHADER_TARGET_SDL3_GPU));
+        CHECK(generate_environment_water_for_test(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,pixel));
         const bool compiled=SDL3_Compile_HLSL_To_SPIRV(pixel,false,spirv,log);
         if(!compiled)printf("mesh contact diagnostic %s: %s\n",mode,log.c_str());
         CHECK(compiled);if(!compiled)continue;
@@ -1331,9 +1344,9 @@ TEST(water_plain_launch_matches_explicit_validated_settings)
             if(mode)CHECK(setenv(debug.key,mode,1)==0);else CHECK(unsetenv(debug.key)==0);
             for(auto program:{ENGINE_SHADER_WATER_TRAPEZOID,ENGINE_SHADER_WATER_RIVER}) {
                 configure(disabled,false);std::string defaultPixel;
-                CHECK(EngineShader_Pixel_Program(program,pipeline,defaultPixel,COMBINER_SHADER_TARGET_SDL3_GPU));
+                CHECK(generate_environment_water_for_test(program,pipeline,defaultPixel));
                 configure(disabled,true);std::string explicitPixel;
-                CHECK(EngineShader_Pixel_Program(program,pipeline,explicitPixel,COMBINER_SHADER_TARGET_SDL3_GPU));
+                CHECK(generate_environment_water_for_test(program,pipeline,explicitPixel));
                 CHECK(defaultPixel==explicitPixel);
             }
         }

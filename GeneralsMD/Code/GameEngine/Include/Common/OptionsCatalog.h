@@ -163,4 +163,6 @@ extern void loadOptionsFromPreferences( UserPreferences& pref );
 	* run does not end up on disk. */
 extern void saveOptionsToPreferences( UserPreferences& pref );
 
+extern Bool commitWaterStylePreference( UserPreferences& pref, Int requestedStyle );
+
 #endif // __OPTIONSCATALOG_H_

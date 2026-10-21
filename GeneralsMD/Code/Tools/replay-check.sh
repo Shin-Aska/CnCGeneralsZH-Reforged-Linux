@@ -41,7 +41,7 @@
 #
 # Usage: replay-check.sh --generals <path> | --app <.app> | --package <folder> [--data <dir>] [--seeds "0 1"] [--players 2]
 #          [--aidiff brutal] [--maxframes 24000] [--cells <n>] [--extra "<args>"]
-#          [--control] [--extended] [--keep] [--log-lines <regex>]
+#          [--control] [--verify-control] [--timeout-seconds <n>] [--extended] [--keep] [--log-lines <regex>]
 #   --data            a folder holding zerohour/ (with the base game in zerohour/ZH_Generals, as the
 #                     install has it); default $ZH_DATA_DIR
 #   --cells           playable cells a side of the generated map.  Default: none given, so the
@@ -54,6 +54,9 @@
 #   --control         the harness's own armed control: before the playback, the kept replay's game
 #                     seed (SD= in its header) has its last digit changed, so the playback plays a
 #                     different world from the same commands, and every seed must be reported DIVERGED
+#   --verify-control  first require live, untouched replay and repeat live agreement, then require a
+#                     valid one-byte SD mutation to complete at the same frame with a different CRC
+#   --timeout-seconds maximum wall time for each child run; --verify-control defaults to 3600
 #   --extended        the wider backstop, not in ctest: seeds 2 to 5, each at 2 and at 4 players (eight
 #                     matches), at --maxframes (default 24000).  --seeds and --players are ignored
 #   --keep            leave the temporary folder and the logs, and say where
@@ -89,6 +92,7 @@
 set -u
 # Every game this starts is unattended: no box, chooser or crash report may wait on a person (EarlyCommandLine.h).
 export ZH_UNATTENDED=1
+. "$(cd "$(dirname "$0")" && pwd)/replay-control.sh"
 
 GENERALS=""
 APP=""
@@ -100,9 +104,11 @@ SEEDS="0 1"
 PLAYERS=2
 AIDIFF=brutal
 MAXFRAMES=24000		# logic frames, 60 a second: 6 min 40 s of game time
+TIMEOUT_SECONDS=""
 CELLS=""
 EXTRA=""
 CONTROL=0
+VERIFY_CONTROL=0
 EXTENDED=0
 KEEP=0
 LOG_LINES=""
@@ -120,15 +126,25 @@ while [ $# -gt 0 ]; do
 		--players) PLAYERS="$2"; shift 2;;
 		--aidiff) AIDIFF="$2"; shift 2;;
 		--maxframes) MAXFRAMES="$2"; shift 2;;
+		--timeout-seconds) TIMEOUT_SECONDS="$2"; shift 2;;
 		--cells) CELLS="$2"; shift 2;;
 		--extra) EXTRA="$2"; shift 2;;
 		--control) CONTROL=1; shift;;
+		--verify-control) VERIFY_CONTROL=1; shift;;
 		--extended) EXTENDED=1; shift;;
 		--keep) KEEP=1; shift;;
 		--log-lines) LOG_LINES="$2"; shift 2;;
 		*) echo "replay-check: unknown argument $1" >&2; exit 2;;
 	esac
 done
+
+if [ "$CONTROL" -eq 1 ] && [ "$VERIFY_CONTROL" -eq 1 ]; then
+	echo "replay-check: --control and --verify-control are separate modes" >&2
+	exit 2
+fi
+if [ "$VERIFY_CONTROL" -eq 1 ]; then KEEP=1; [ -n "$TIMEOUT_SECONDS" ] || TIMEOUT_SECONDS=3600; fi
+case "$TIMEOUT_SECONDS" in *[!0-9]*) echo "replay-check: --timeout-seconds must be a positive integer" >&2; exit 2;; esac
+if [ -n "$TIMEOUT_SECONDS" ] && [ "$TIMEOUT_SECONDS" -le 0 ]; then echo "replay-check: --timeout-seconds must be a positive integer" >&2; exit 2; fi
 
 if [ $INSTALLED -eq 1 ]; then
 	if [ -z "$REPLAY_CHECK_RUNNER" ]; then
@@ -224,6 +240,33 @@ fi
 
 
 # ---- a run ---------------------------------------------------------------------------------------
+run_limited() {
+	if [ -z "$TIMEOUT_SECONDS" ]; then "$@"; return; fi
+	perl -MPOSIX=:sys_wait_h -e '
+		my $limit = shift;
+		my $pid = fork();
+		die "fork: $!\n" unless defined $pid;
+		if ($pid == 0) {
+			POSIX::setpgid(0, 0);
+			exec @ARGV or die "exec: $!\n";
+		}
+		my $timed_out = 0;
+		local $SIG{ALRM} = sub { $timed_out = 1; kill "TERM", -$pid; };
+		alarm $limit;
+		my $waited;
+		do { $waited = waitpid($pid, 0); } while ($waited < 0 && !$timed_out);
+		alarm 0;
+		if ($timed_out) {
+			select undef, undef, undef, 0.2;
+			kill "KILL", -$pid;
+			waitpid($pid, 0);
+			exit 124;
+		}
+		my $status = $?;
+		exit(WIFEXITED($status) ? WEXITSTATUS($status) : 128 + WTERMSIG($status));
+	' "$TIMEOUT_SECONDS" "$@"
+}
+
 # Sets RUN_CRC and RUN_FRAME from the run's last HEADLESS CRC line, RUN_RESULT from its HEADLESS
 # RESULT line, RUN_BUILT to the number of structures the AI put up after frame 0, and RUN_BUILT_NAMES
 # to their distinct template names, sorted (port defect 33's check reads the Supply Centers there); empty
@@ -235,15 +278,17 @@ run_game() {	# run_game <log prefix> <switches...>
 	# -noFPSLimit as replay-check.ps1 has it: nothing paces a headless run, and it cannot touch the
 	# logic.  -multiInstance so that a run does not wait on another copy's lock.
 	if [ -n "$APP" ]; then
-		( cd "$WORK" && HOME="$WORK/home" ZH_USER_DATA_DIR="$USERDATA" $REPLAY_CHECK_RUNNER "$GENERALS" -headless -quickstart -noshellmap \
+		( cd "$WORK" && HOME="$WORK/home" ZH_USER_DATA_DIR="$USERDATA" run_limited $REPLAY_CHECK_RUNNER "$GENERALS" -headless -quickstart -noshellmap \
 			-multiInstance -noFPSLimit -maxframes "$MAXFRAMES" -logPrefix "$prefix" "$@" $EXTRA \
 			> "$WORK/${prefix}.out" 2> "$WORK/${prefix}.err" )
 	else
-		( cd "$ROOT" && ZH_USER_DATA_DIR="$USERDATA" $REPLAY_CHECK_RUNNER "$GENERALS" -headless -root "$ROOT" -overlay "$OVERLAY" -quickstart -noshellmap \
+		( cd "$ROOT" && ZH_USER_DATA_DIR="$USERDATA" run_limited $REPLAY_CHECK_RUNNER "$GENERALS" -headless -root "$ROOT" -overlay "$OVERLAY" -quickstart -noshellmap \
 			-multiInstance -noFPSLimit -maxframes "$MAXFRAMES" -logPrefix "$prefix" "$@" $EXTRA \
 			> "$WORK/${prefix}.out" 2> "$WORK/${prefix}.err" )
 	fi
 	RUN_STATUS=$?
+	RUN_TIMED_OUT=0
+	if [ "$RUN_STATUS" -eq 124 ]; then RUN_TIMED_OUT=1; fi
 	RUN_CRC=""; RUN_FRAME=""; RUN_RESULT=""; RUN_BUILT=0; RUN_BUILT_NAMES=""; RUN_STATS=""; RUN_LOG_LINES=""
 	# --app, --package: the bundle or package must have found its own overlay (PosixMain says so on stderr);
 	# a run that did not is reported as having no result
@@ -285,12 +330,15 @@ for match in $MATCHES; do
 	# -observer, so every side is AI and the command stream is the AI's own decisions
 	run_game "${name}_live" -randommap "$seed" "$players" $CELLS -autoskirmish "$players" \
 		-aidiff "$AIDIFF" -seed "$seed" -observer
-	LIVE_CRC="$RUN_CRC"; LIVE_FRAME="$RUN_FRAME"; LIVE_BUILT="$RUN_BUILT"; LIVE_STATS="$RUN_STATS"; LIVE_BUILT_NAMES="$RUN_BUILT_NAMES"
+	LIVE_CRC="$RUN_CRC"; LIVE_FRAME="$RUN_FRAME"; LIVE_RESULT="$RUN_RESULT"; LIVE_STATUS="$RUN_STATUS"; LIVE_TIMEOUT="$RUN_TIMED_OUT"; LIVE_BUILT="$RUN_BUILT"; LIVE_STATS="$RUN_STATS"; LIVE_BUILT_NAMES="$RUN_BUILT_NAMES"
 	if [ -n "$RUN_LOG_LINES" ]; then printf '\n%s\n' "$RUN_LOG_LINES"; fi
 	if [ -z "$LIVE_CRC" ]; then echo "no result from the live run (exit $RUN_STATUS)"; failures=$((failures + 1)); continue; fi
 	if [ ! -f "$REPLAYS/00000000.rep" ]; then echo "the live run wrote no replay"; failures=$((failures + 1)); continue; fi
 	# out of the way of the next recording, and under a name -replay can be given
 	mv -- "$REPLAYS/00000000.rep" "$REPLAYS/determinism${seed}_${players}.rep"
+	if [ "$VERIFY_CONTROL" -eq 1 ]; then
+		cp "$REPLAYS/determinism${seed}_${players}.rep" "$REPLAYS/determinism${seed}_${players}.untouched.rep"
+	fi
 	if [ "$CONTROL" -eq 1 ]; then
 		# the same length, so nothing after it in the header moves
 		perl -0777 -pi -e 's/SD=(\d*)(\d);/"SD=".$1.(($2+1)%10).";"/e' "$REPLAYS/determinism${seed}_${players}.rep"
@@ -298,13 +346,51 @@ for match in $MATCHES; do
 	printf 'frame %s, CRC %s, %s structures built after frame 0 (%s); playing back ... ' "$LIVE_FRAME" "$LIVE_CRC" "$LIVE_BUILT" "$RUN_RESULT"
 
 	run_game "${name}_back" -replay "determinism${seed}_${players}"
-	BACK_CRC="$RUN_CRC"; BACK_FRAME="$RUN_FRAME"
+	BACK_CRC="$RUN_CRC"; BACK_FRAME="$RUN_FRAME"; BACK_RESULT="$RUN_RESULT"; BACK_STATUS="$RUN_STATUS"; BACK_TIMEOUT="$RUN_TIMED_OUT"
 
 	printf 'again ... '
 	rm -f -- "$REPLAYS/00000000.rep"
 	run_game "${name}_again" -randommap "$seed" "$players" $CELLS -autoskirmish "$players" \
 		-aidiff "$AIDIFF" -seed "$seed" -observer
-	AGAIN_CRC="$RUN_CRC"; AGAIN_FRAME="$RUN_FRAME"
+	AGAIN_CRC="$RUN_CRC"; AGAIN_FRAME="$RUN_FRAME"; AGAIN_RESULT="$RUN_RESULT"; AGAIN_STATUS="$RUN_STATUS"; AGAIN_TIMEOUT="$RUN_TIMED_OUT"
+
+	if [ "$VERIFY_CONTROL" -eq 1 ]; then
+		RC_LIVE_CRC="$LIVE_CRC"; RC_LIVE_FRAME="$LIVE_FRAME"; RC_LIVE_RESULT="$LIVE_RESULT"; RC_LIVE_BUILT="$LIVE_BUILT"; RC_LIVE_STATUS="$LIVE_STATUS"; RC_LIVE_TIMEOUT="$LIVE_TIMEOUT"
+		RC_BACK_CRC="$BACK_CRC"; RC_BACK_FRAME="$BACK_FRAME"; RC_BACK_RESULT="$BACK_RESULT"; RC_BACK_STATUS="$BACK_STATUS"; RC_BACK_TIMEOUT="$BACK_TIMEOUT"
+		RC_AGAIN_CRC="$AGAIN_CRC"; RC_AGAIN_FRAME="$AGAIN_FRAME"; RC_AGAIN_RESULT="$AGAIN_RESULT"; RC_AGAIN_STATUS="$AGAIN_STATUS"; RC_AGAIN_TIMEOUT="$AGAIN_TIMEOUT"
+		RC_CONTROL_CRC=""; RC_CONTROL_FRAME=-1; RC_CONTROL_RESULT=""; RC_CONTROL_STATUS=1; RC_CONTROL_TIMEOUT=0
+		RC_MUTATION_VALID=0; RC_MUTATION_FIELDS=0; RC_MUTATION_CHANGED=0
+		RC_MUTATION_LENGTH_BEFORE=0; RC_MUTATION_LENGTH_AFTER=0
+		RC_MUTATION_BEFORE_SHA=""; RC_MUTATION_UNTOUCHED_SHA=""; RC_MUTATION_AFTER_SHA=""
+		replay_control_classify "$MAXFRAMES" >/dev/null 2>&1 || true
+		if [ "$RC_CLASSIFICATION" = mutation_invalid ]; then
+			if replay_control_mutate "$REPLAYS/determinism${seed}_${players}.untouched.rep" \
+				"$REPLAYS/determinism${seed}_${players}.verified.rep" \
+				"$REPLAYS/determinism${seed}_${players}.control.rep"; then
+				run_game "${name}_control" -replay "determinism${seed}_${players}.control"
+				RC_CONTROL_CRC="$RUN_CRC"; RC_CONTROL_FRAME="$RUN_FRAME"; RC_CONTROL_RESULT="$RUN_RESULT"; RC_CONTROL_STATUS="$RUN_STATUS"; RC_CONTROL_TIMEOUT="$RUN_TIMED_OUT"
+				replay_control_classify "$MAXFRAMES" >/dev/null 2>&1 || true
+			else
+				RC_CLASSIFICATION=mutation_invalid; RC_CONTROL_DETECTED=0
+			fi
+		fi
+		{
+			printf 'schema\tseed\texpected_frame\tclassification\tcontrol_detected\tlive_exit\tlive_frame\tlive_crc\tback_exit\tback_frame\tback_crc\tagain_exit\tagain_frame\tagain_crc\tcontrol_exit\tcontrol_frame\tcontrol_crc\tmutation_fields\tmutation_changed\tlength_before\tlength_after\tbefore_sha256\tuntouched_sha256\tafter_sha256\n'
+			printf 'replay-control-v1\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+				"$seed" "$MAXFRAMES" "$RC_CLASSIFICATION" "$RC_CONTROL_DETECTED" \
+				"$RC_LIVE_STATUS" "${RC_LIVE_FRAME:--1}" "$RC_LIVE_CRC" "$RC_BACK_STATUS" "${RC_BACK_FRAME:--1}" "$RC_BACK_CRC" \
+				"$RC_AGAIN_STATUS" "${RC_AGAIN_FRAME:--1}" "$RC_AGAIN_CRC" "$RC_CONTROL_STATUS" "${RC_CONTROL_FRAME:--1}" "$RC_CONTROL_CRC" \
+				"${RC_MUTATION_FIELDS:-0}" "${RC_MUTATION_CHANGED:-0}" "${RC_MUTATION_LENGTH_BEFORE:-0}" "${RC_MUTATION_LENGTH_AFTER:-0}" \
+				"${RC_MUTATION_BEFORE_SHA:-}" "${RC_MUTATION_UNTOUCHED_SHA:-}" "${RC_MUTATION_AFTER_SHA:-}"
+		} > "$WORK/replay-control-${seed}-${players}.tsv"
+		if [ "$RC_CONTROL_DETECTED" -eq 1 ]; then
+			echo "CONTROL DETECTED: completed frame $RC_CONTROL_FRAME, live $RC_LIVE_CRC, mutated $RC_CONTROL_CRC"
+		else
+			echo "CONTROL FAILED: $RC_CLASSIFICATION"
+			failures=$((failures + 1))
+		fi
+		continue
+	fi
 
 	bad=""
 	# An idle match agrees with itself and proves nothing: a divergence in movement, combat or the AI

@@ -28,6 +28,7 @@
 
 #include "test_harness.h"
 
+#include "Dx11DriverEvidence.h"
 #include "dx11device.h"
 
 // Two sizes, neither of them the other's multiple, so a resize that quietly kept the old numbers
@@ -58,6 +59,7 @@ TEST(dx11device_creates_a_device_with_no_window_at_all)
 {
 	DX11DeviceClass device;
 	CHECK(device.Create_Offscreen());
+	verify_dx11_test_driver(device);
 	CHECK(device.Is_Created());
 	CHECK(device.Get_Device() != NULL);
 	CHECK(device.Get_Context() != NULL);
@@ -73,11 +75,13 @@ TEST(dx11device_releasing_leaves_it_creatable_again)
 {
 	DX11DeviceClass device;
 	CHECK(device.Create_Offscreen());
+	verify_dx11_test_driver(device);
 	device.Release();
 	CHECK(!device.Is_Created());
 	CHECK(device.Get_Device() == NULL);
 
 	CHECK(device.Create_Offscreen());
+	verify_dx11_test_driver(device);
 	CHECK(device.Is_Created());
 }
 
@@ -88,6 +92,7 @@ TEST(dx11device_creates_a_swap_chain_and_both_views)
 
 	DX11DeviceClass device;
 	CHECK(device.Create(window, FIRST_WIDTH, FIRST_HEIGHT));
+	verify_dx11_test_driver(device);
 	CHECK(device.Has_Swap_Chain());
 	CHECK(device.Get_Back_Buffer_View() != NULL);
 	CHECK(device.Get_Depth_Stencil_View() != NULL);
@@ -109,6 +114,7 @@ TEST(dx11device_a_resize_rebuilds_the_views_around_the_new_buffers)
 
 	DX11DeviceClass device;
 	CHECK(device.Create(window, FIRST_WIDTH, FIRST_HEIGHT));
+	verify_dx11_test_driver(device);
 
 	CHECK(device.Resize(SECOND_WIDTH, SECOND_HEIGHT));
 	CHECK_EQ(device.Get_Width(), SECOND_WIDTH);

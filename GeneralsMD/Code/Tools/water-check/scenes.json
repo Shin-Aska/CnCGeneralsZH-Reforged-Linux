@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "scenes": [
+    {
+      "id": "tournament-island",
+      "map_path": "Maps/Tournament Island/Tournament Island.map",
+      "camera": {"x": 400, "y": 1000},
+      "screenshot_frame": 240,
+      "max_frames": 300,
+      "water_roi": {"x": 80, "y": 60, "width": 1120, "height": 400},
+      "scenario": null,
+      "required_assets": [],
+      "expected": {
+        "min_water_pixels": 500,
+        "min_luma": 0.0,
+        "max_luma": 1.0,
+        "requires_motion": false,
+        "requires_vessel": false
+      }
+    },
+    {
+      "id": "winding-river",
+      "map_path": "Maps/Winding River/Winding River.map",
+      "camera": {"x": 1300, "y": 1700},
+      "screenshot_frame": 240,
+      "max_frames": 300,
+      "water_roi": {"x": 80, "y": 60, "width": 1120, "height": 400},
+      "scenario": null,
+      "required_assets": [],
+      "expected": {
+        "min_water_pixels": 300,
+        "min_luma": 0.0,
+        "max_luma": 1.0,
+        "requires_motion": false,
+        "requires_vessel": false
+      }
+    },
+    {
+      "id": "golden-oasis",
+      "map_path": "Maps/Golden Oasis/Golden Oasis.map",
+      "camera": {"x": 1750, "y": 1500},
+      "screenshot_frame": 600,
+      "max_frames": 660,
+      "water_roi": {"x": 80, "y": 60, "width": 1120, "height": 400},
+      "scenario": null,
+      "required_assets": [],
+      "expected": {
+        "min_water_pixels": 300,
+        "min_luma": 0.0,
+        "max_luma": 1.0,
+        "requires_motion": false,
+        "requires_vessel": false
+      }
+    },
+    {
+      "id": "water-fixture",
+      "map_path": "Maps/Water Validation/Water Validation.map",
+      "camera": {"x": 560, "y": 300},
+      "screenshot_frame": 720,
+      "max_frames": 960,
+      "water_roi": {"x": 80, "y": 60, "width": 1120, "height": 400},
+      "scenario": "water_capture_carrier",
+      "game_data_append": "WaterValidationGameData.fragment.ini",
+      "required_assets": [
+        "Maps/Water Validation/Water Validation.map",
+        "Maps/Water Validation/map.ini",
+        "Data/INI/Object/WaterCaptureCarrier.ini",
+        "Scenarios/water_capture_carrier.txt"
+      ],
+      "expected": {
+        "min_water_pixels": 1000,
+        "min_luma": 0.0,
+        "max_luma": 1.0,
+        "requires_motion": true,
+        "requires_vessel": true
+      },
+      "route": {
+        "player_name": "player1",
+        "template": "WaterCaptureCarrier",
+        "poses": [
+          {"frame": 180, "x": 260, "y": 280, "phase": "spawn"},
+          {"frame": 390, "x": 760, "y": 280, "phase": "outbound-stop"},
+          {"frame": 540, "x": 300, "y": 280, "phase": "reverse-stop"},
+          {"frame": 840, "x": 860, "y": 280, "phase": "long-move-stop"}
+        ]
+      }
+    }
+  ]
+}

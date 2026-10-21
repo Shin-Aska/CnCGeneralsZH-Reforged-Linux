@@ -19,7 +19,7 @@ inline uint32_t Hash(int x, int y, uint32_t seed)
     return n;
 }
 inline float Unit(uint32_t n) { return float(n >> 8) / 16777216.0f; }
-inline float Saturate(float v) { return std::max(0.0f, std::min(1.0f, v)); }
+inline float Saturate(float v) { return (std::max)(0.0f, (std::min)(1.0f, v)); }
 inline float Smooth(float v) { v = Saturate(v); return v*v*(3.0f-2.0f*v); }
 inline int Wrap(int n, int period) { return (n % period + period) % period; }
 

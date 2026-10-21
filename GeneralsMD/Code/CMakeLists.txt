@@ -694,11 +694,11 @@ target_link_libraries(dx11post PUBLIC dx11device d3d11)
 # The renderer itself: the engine's D3D9-shaped calls taken as they are and resolved
 # into a D3D11 pipeline at the moment of the draw.  Ties the five pieces above
 # together, which is why it is the last of them and the one with a drawing test.
-add_library(dx11backend STATIC ${WW}/WW3D2/dx11backend.cpp)
+add_library(dx11backend STATIC ${WW}/WW3D2/dx11backend.cpp ${WW}/WW3D2/dx11water.cpp ${WW}/WW3D2/dx11waterfft.cpp)
 set_target_properties(dx11backend PROPERTIES CXX_STANDARD 17)
 target_include_directories(dx11backend PUBLIC ${WW}/WW3D2)
 target_link_libraries(dx11backend PUBLIC dx11device dx11state dx11layout dx11resource
-  engineshader ffshader ffvertex)
+  dx11texture engineshader ffshader ffvertex)
 
 # ---- ww3d2 (renderer core) ------------------------------------------------
 # wwshade is header-only here on purpose: no .dsp links wwshade.lib and its
@@ -2137,6 +2137,21 @@ endfunction()
 add_lib_test(test_msvc_float_casts)
 target_include_directories(test_msvc_float_casts PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Libraries/Include)
 
+add_lib_test(test_water_optical_model)
+set_target_properties(test_water_optical_model PROPERTIES CXX_STANDARD 17)
+
+add_executable(test_water_fft_reference ${TESTS}/test_water_fft_reference.cpp)
+set_target_properties(test_water_fft_reference PROPERTIES CXX_STANDARD 17)
+target_include_directories(test_water_fft_reference PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Libraries/Include)
+target_link_libraries(test_water_fft_reference PRIVATE test_harness)
+add_test(NAME test_water_fft_reference COMMAND test_water_fft_reference)
+
+add_lib_test(test_water_render_packet)
+set_target_properties(test_water_render_packet PROPERTIES CXX_STANDARD 17)
+
+add_lib_test(test_water_shore_policy)
+set_target_properties(test_water_shore_policy PROPERTIES CXX_STANDARD 17)
+
 add_lib_test(test_wwmath wwmath wwlib wwsaveload wwdebug)
 target_include_directories(test_wwmath PRIVATE ${WW}/WWLib ${WW}/WWSaveLoad ${WW}/Wwutil)
 # R1, smooth motion: W3DSmoothMotion.h's blend and verdicts, header-only over WWMath.
@@ -2206,6 +2221,38 @@ add_lib_test(test_ffshadercompile ffshader)
 add_lib_test(test_dx11pipeline dx11device dx11state dx11layout ffshader ffvertex)
 add_lib_test(test_dx11resource dx11resource dx11device)
 add_lib_test(test_engineshader engineshader)
+add_lib_test(test_dx11water engineshader ffshader ffvertex)
+set_target_properties(test_dx11water PROPERTIES CXX_STANDARD 17)
+set_tests_properties(test_dx11water PROPERTIES TIMEOUT 300)
+add_lib_test(test_dx11water_scene dx11backend)
+set_target_properties(test_dx11water_scene PROPERTIES CXX_STANDARD 17)
+add_lib_test(test_dx11water_scene_inputs dx11backend)
+set_target_properties(test_dx11water_scene_inputs PROPERTIES CXX_STANDARD 17)
+set_tests_properties(test_dx11water_scene_inputs PROPERTIES TIMEOUT 300)
+add_lib_test(test_dx11water_surface dx11backend)
+set_target_properties(test_dx11water_surface PROPERTIES CXX_STANDARD 17)
+add_lib_test(test_dx11water_samplers dx11backend)
+set_target_properties(test_dx11water_samplers PROPERTIES CXX_STANDARD 17)
+set_tests_properties(test_dx11water_samplers PROPERTIES TIMEOUT 600)
+add_lib_test(test_dx11water_optics dx11backend)
+set_target_properties(test_dx11water_optics PROPERTIES CXX_STANDARD 17)
+set_tests_properties(test_dx11water_optics PROPERTIES TIMEOUT 300)
+add_lib_test(test_dx11water_fft dx11backend)
+set_target_properties(test_dx11water_fft PROPERTIES CXX_STANDARD 17)
+set_tests_properties(test_dx11water_fft PROPERTIES TIMEOUT 1200)
+add_lib_test(test_dx11water_hull dx11backend)
+set_target_properties(test_dx11water_hull PROPERTIES CXX_STANDARD 17)
+set_tests_properties(test_dx11water_hull PROPERTIES TIMEOUT 1200)
+add_lib_test(test_dx11water_vessel dx11backend)
+set_target_properties(test_dx11water_vessel PROPERTIES CXX_STANDARD 17)
+set_tests_properties(test_dx11water_vessel PROPERTIES TIMEOUT 1200 RUN_SERIAL TRUE)
+add_lib_test(test_dx11water_dirty_mirror ww3d2 wwsaveload wwlib wwmath wwdebug user32)
+target_sources(test_dx11water_dirty_mirror PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Tests/test_dx11water_point_group_view.cpp)
+target_sources(test_dx11water_dirty_mirror PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Tests/test_dx11water_foam_view_history.cpp)
+set_target_properties(test_dx11water_dirty_mirror PROPERTIES CXX_STANDARD 17)
+set_tests_properties(test_dx11water_dirty_mirror PROPERTIES TIMEOUT 1200 RUN_SERIAL TRUE)
+target_include_directories(test_dx11water_dirty_mirror PRIVATE
+  ${WW}/WW3D2 ${WW}/WWLib ${WW}/WWMath ${WW}/WWDebug ${WW}/WWSaveLoad ${WW}/Wwutil)
 add_lib_test(test_dx11backend dx11backend)
 add_lib_test(test_dx11post dx11post dx11device user32)
 add_lib_test(test_dx11twin dx11twin dx11device)
@@ -2232,13 +2279,13 @@ endif()  # ZH_PLATFORM_WINDOWS - Windows-only support library tests
 # each what it lacks; outside _DEBUG it compiles to nothing, so a Release link is unchanged.
 if(MSVC)
   foreach(name test_wwlib test_wwmath test_smooth_motion wwmath_selfcheck test_wwsaveload test_wwutil
-               test_ww3d2 gametext_csf test_premain_strings test_premain_unicode)
+               test_ww3d2 test_dx11water_dirty_mirror gametext_csf test_premain_strings test_premain_unicode)
     if(TARGET ${name})
       target_sources(${name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Tests/debug_build_stubs.cpp)
     endif()
   endforeach()
   foreach(name test_wwlib test_wwmath test_smooth_motion wwmath_selfcheck test_wwsaveload test_wwutil
-               test_ww3d2)
+               test_ww3d2 test_dx11water_dirty_mirror)
     if(TARGET ${name})
       target_compile_definitions(${name} PRIVATE ZH_DEBUG_STUBS_WWVEGAS)
     endif()
@@ -2313,7 +2360,7 @@ if(ZH_PLATFORM_POSIX)
 endif()
 # the well-known Dict keys and a handful of device/exe entry points live in
 # GameEngineDevice, which Phase 4 ports; stand-ins until then.
-target_sources(test_gameengine PRIVATE ${TESTS}/test_gameengine_stubs.cpp)
+target_sources(test_gameengine PRIVATE ${TESTS}/test_gameengine_stubs.cpp ${TESTS}/test_water_capture_named_actor.cpp ${TESTS}/test_water_capture_owner_lifecycle.cpp ${TESTS}/test_water_capture_registry_witness.cpp)
 set_target_properties(test_gameengine PROPERTIES CXX_STANDARD 17)
 # 454 cases in 98 s in Release; a Debug build runs them far slower (W3), so its ceiling is its own.
 set_tests_properties(test_gameengine PROPERTIES TIMEOUT 2700)

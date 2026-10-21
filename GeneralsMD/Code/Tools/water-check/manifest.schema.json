@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://generals-zh.example/water-check-manifest.schema.json",
+  "title": "Water validation manifest",
+  "type": "object",
+  "required": ["schema_version", "classification"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "classification": {"enum": ["passed", "failed", "unavailable"]},
+    "platform": {"enum": ["windows", "linux", "macos"]},
+    "backend": {"enum": ["d3d11", "vulkan", "metal"]},
+    "executable_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "data_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "asset_count": {"type": "integer", "minimum": 1},
+    "scenes": {"type": "array"},
+    "reason": {"type": "string"}
+  },
+  "additionalProperties": true
+}

@@ -71,8 +71,8 @@ inline void Check(){
 
     // Fine maps keep their original lattice; an entirely wet sea still has no
     // physical coast and must not gain source nodes merely to fill the atlas.
-    Map small(11,11);Ridges(small);if(!small.Build())return;Domain fine;
-    CHECK(small.Install(fine)==Result::Ready&&fine.Grid().spacing==5);
+    Map smallMap(11,11);Ridges(smallMap);if(!smallMap.Build())return;Domain fine;
+    CHECK(smallMap.Install(fine)==Result::Ready&&fine.Grid().spacing==5);
     Map sea(260,260);sea.level=4;sea.Full();if(!sea.Build())return;Domain empty;
     CHECK(sea.Install(empty)==Result::Ready&&empty.Nodes().empty()&&empty.Grid().spacing==5);
 }

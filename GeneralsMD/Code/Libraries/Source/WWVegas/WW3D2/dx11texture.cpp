@@ -506,7 +506,9 @@ static ID3D11ShaderResourceView * mirror(ID3D11Device * device, ID3D11DeviceCont
 		view->Release();
 		if (texture_is_dirty(texture)) {
 			const double refresh_started = DX11Resource_Milliseconds_Now();
-			refresh_copy(context, view, texture);
+			if (!refresh_copy(context, view, texture)) {
+				return NULL;
+			}
 			clear_dirty(texture);
 			FrameCopyMilliseconds += DX11Resource_Milliseconds_Now() - refresh_started;
 			++FrameCopyCount;
@@ -610,6 +612,9 @@ ID3D11ShaderResourceView * DX11Texture_Mirror(ID3D11Device * device, ID3D11Devic
 	}
 
 	ID3D11ShaderResourceView * const view = mirror(device, context, texture);
+	if (view == NULL && texture_is_dirty(texture)) {
+		return NULL;
+	}
 	if (answer == MirrorAnswers.end()) {
 		// Without the watch nothing would take the answer back when the texture goes.
 		TextureWatch * const watch = new TextureWatch(texture);

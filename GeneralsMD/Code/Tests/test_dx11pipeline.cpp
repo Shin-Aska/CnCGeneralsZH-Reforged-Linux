@@ -33,6 +33,7 @@
 
 #include "test_harness.h"
 
+#include "Dx11DriverEvidence.h"
 #include "dx11device.h"
 #include "dx11layout.h"
 #include "dx11state.h"
@@ -210,6 +211,7 @@ TEST(dx11pipeline_a_generated_program_draws_the_vertex_colour_it_was_given)
 	DX11DeviceClass device;
 	device.Request_Debug_Layer();
 	CHECK(device.Create_Offscreen());
+	verify_dx11_test_driver(device);
 	ID3D11Device * d3d = device.Get_Device();
 	ID3D11DeviceContext * context = device.Get_Context();
 

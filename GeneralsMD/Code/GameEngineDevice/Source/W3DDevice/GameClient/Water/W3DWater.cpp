@@ -37,9 +37,12 @@
 #include "stdio.h"
 #include <cstdlib>
 #include <chrono>
+#include <limits>
 #include "Lib/Clock.h"
 #include "Platform/WaterSurfaceModel.h"
+#include "Platform/WaterCaptureFixture.h"
 #include "Platform/WaterCoastalCrest.h"
+#include "Platform/WaterRenderAdapters.h"
 #include "Platform/WaterShoreOverlay.h"
 #include "Platform/WaterFoamWindow.h"
 #include "Platform/WaterFoamParticlePolicy.h"
@@ -126,6 +129,23 @@
 #define WATER_REFLECTION_AREA_MARGIN 0.05f	//slack around the water's screen area, so filtering at its edge reads inside it
 #define WATER_REFLECTION_STRENGTH 0.55f	//how far a reflected object darkens the water under it
 #define WATER_REFLECTION_SKY_COLOR Vector3(1.0f,1.0f,1.0f)	//white, so where nothing stands the water keeps its own colour
+
+#ifdef _WIN32
+static unsigned long long waterDiagnosticHash(const void *data,size_t size)
+{
+	const unsigned char *bytes=static_cast<const unsigned char *>(data);
+	unsigned long long result=1469598103934665603ull;
+	for(size_t i=0;i<size;++i) { result^=bytes[i];result*=1099511628211ull; }
+	return result;
+}
+
+static Bool waterFixtureDiagnosticsEnabled(void)
+{
+	return TheGlobalData&&TheGameLogic&&WaterCaptureFixture::Enabled(getenv("ZH_WATER_CAPTURE_FIXTURE"),
+		TheGlobalData->m_controlPort,TheGameLogic->isInGame()&&!TheGameLogic->isInShellGame(),
+		TheGameLogic->isInMultiplayerGame(),TheGameLogic->isInReplayGame());
+}
+#endif
 
 #define SEA_BUMP_SCALE		(0.06f)		//scales the du/dv offsets stored in bump map (~ amount to perturb)
 #define BUMP_SIZE (50.f)
@@ -459,6 +479,36 @@ Bool WaterRenderObjClass::hasModernVesselFoam(UnsignedInt objectID) const
 	return m_useModernWater && !m_renderingMirror && m_trapezoidWaterPixelShader && m_modernFoamDrawFrame==WW3D::Get_Frame_Count() &&
 		std::find(m_modernFoamDrawObjectIDs.begin(),m_modernFoamDrawObjectIDs.end(),objectID)!=m_modernFoamDrawObjectIDs.end();
 #else
+	if(!m_useModernWater||m_renderingMirror||m_modernAcceptedRegions.empty()) return FALSE;
+	WaterRenderBridge::Bridge *bridge=WaterRenderBridge::GetActiveBridge();
+	WaterRenderBridge::CurrentView current={};
+	if(!bridge||!bridge->QueryCurrentView(current)||!WaterRenderBridge::ValidCurrentView(current)) return FALSE;
+	const WaterShoreOverlay::Stamp currentStamp=WaterShoreOverlay::StampOf(current);
+	for(size_t h=0;h<m_modernHulls.size()&&h<m_modernHullObjectIDs.size();++h) if(m_modernHullObjectIDs[h]==objectID) {
+		const WaterHullModel::Hull &hull=m_modernHulls[h];
+		double minimumX=(std::numeric_limits<double>::max)(),minimumY=minimumX;
+		double maximumX=-(std::numeric_limits<double>::max)(),maximumY=maximumX;
+		auto include=[&](const WaterHullModel::Hull &shape) {
+			const double major=shape.data[1][2]+122.0,minor=shape.data[1][3]+122.0;
+			const double ax=shape.data[1][0],ay=shape.data[1][1],px=-ay,py=ax;
+			const double cx=shape.data[0][0],cy=shape.data[0][1];
+			for(int x=-1;x<=1;x+=2) for(int y=-1;y<=1;y+=2) {
+				const double pxWorld=cx+x*ax*major+y*px*minor,pyWorld=cy+x*ay*major+y*py*minor;
+				minimumX=(std::min)(minimumX,pxWorld);minimumY=(std::min)(minimumY,pyWorld);
+				maximumX=(std::max)(maximumX,pxWorld);maximumY=(std::max)(maximumY,pyWorld);
+			}
+		};
+		include(hull);
+		if(h<m_modernContactHulls.size()) include(m_modernContactHulls[h]);
+		WaterShoreOverlay::Polygon footprint;footprint.count=4;footprint.level=hull.data[0][2];
+		footprint.points[0]={minimumX,minimumY};footprint.points[1]={maximumX,minimumY};
+		footprint.points[2]={maximumX,maximumY};footprint.points[3]={minimumX,maximumY};
+		for(const auto &region:m_modernAcceptedRegions)
+			if((region.ownership&WaterShoreOverlay::OwnVessel)
+				&&WaterShoreOverlay::SameStamp(currentStamp,region.stamp))
+				return WaterShoreOverlay::CoveredByUnion(footprint,currentStamp,m_modernAcceptedRegions.data(),
+					m_modernAcceptedRegions.size(),WaterShoreOverlay::OwnVessel);
+	}
 	return FALSE;
 #endif
 }
@@ -497,7 +547,6 @@ Real WaterRenderObjClass::modernHullDamping(Real x,Real y,Real level) const
 
 void WaterRenderObjClass::updateModernWaterHulls(void)
 {
-#ifndef _WIN32
 	m_modernHulls.clear();
 	m_modernContactHulls.clear();
 	m_modernVisualHulls.clear();
@@ -924,7 +973,6 @@ void WaterRenderObjClass::updateModernWaterHulls(void)
 			m_modernHullObjectIDs.push_back((UnsignedInt)candidate.object->getID());
 		}
 	}
-#endif
 }
 
 // Foam is stored in world-space path sections. The sampled window only controls raster cost;
@@ -949,7 +997,6 @@ void WaterRenderObjClass::invalidateModernWaterShore(void)
 
 void WaterRenderObjClass::updateModernWaterShore(void)
 {
-#ifndef _WIN32
 	if(m_modernShoreAttempted!=m_modernShoreRevision) {
 		m_modernShoreAttempted=m_modernShoreRevision;m_modernShoreReady=FALSE;
 		std::vector<double> levels;
@@ -1007,12 +1054,10 @@ void WaterRenderObjClass::updateModernWaterShore(void)
 		if(result==WaterShoreHistory::AdvanceResult::Rewound)
 			for(ModernFoamTexture &field:m_modernFoamTextures) field.valid=FALSE;
 	}
-#endif
 }
 
 void WaterRenderObjClass::bindModernWaterFoam(Real level,Bool river)
 {
-#ifndef _WIN32
 	D3DXVECTOR4 area(0,0,0,0),parameters(0,level,0,m_modernWaveTime);
 	TextureClass *texture=NULL;
 	const char *enabled=getenv("ZH_WATER_FOAM_HISTORY");
@@ -1102,6 +1147,7 @@ void WaterRenderObjClass::bindModernWaterFoam(Real level,Bool river)
 			}
 		}
 	}
+#ifndef _WIN32
 	DX8Wrapper::_Get_D3D_Device()->SetPixelShaderConstantF(88,area,1);
 	DX8Wrapper::_Get_D3D_Device()->SetPixelShaderConstantF(89,parameters,1);
 	DX8Wrapper::Set_DX8_Texture(14,texture?texture->Peek_D3D_Texture():NULL);
@@ -1145,13 +1191,22 @@ void WaterRenderObjClass::registerWaterStyleShaders(void)
 
 void WaterRenderObjClass::synchronizeWaterStyle(void)
 {
-#ifndef _WIN32
-    const Bool modern = !TheGlobalData || TheGlobalData->m_waterStyle != 0;
+    const Bool requested = !TheGlobalData || TheGlobalData->m_waterStyle != 0;
+    const Bool modern = requested && modernWaterBackendAvailable();
     if (modern == m_useModernWater) return;
 
     // Apply before any reflected or main-scene water draw. Existing recorded draws keep
     // their immutable GPU programs; both styles have separate program/pipeline cache keys.
     m_useModernWater = modern;
+#ifdef _WIN32
+	m_modernCaptureScope.End();
+	if (m_useModernWater) {
+		if (m_waterType==WATER_TYPE_0_TRANSLUCENT && m_pReflectionTexture && !m_pClassicReflectionTexture)
+			m_pClassicReflectionTexture=DX8Wrapper::Create_Render_Target(WATER_REFLECTION_SIZE,WATER_REFLECTION_SIZE);
+	} else {
+		REF_PTR_RELEASE(m_pClassicReflectionTexture);
+	}
+#endif
     registerWaterStyleShaders();
     clearModernWaterFoam();
     clearModernWaterHulls();
@@ -1160,14 +1215,31 @@ void WaterRenderObjClass::synchronizeWaterStyle(void)
     m_modernObstacles.clear();
     m_modernPatchObstacles.clear();
     m_modernObstacleIndex.Clear();
+	m_modernAcceptedRegions.clear();
     m_modernProfile = ModernWaterProfile();
     m_modernProfileEnabled = FALSE;
+#ifdef _WIN32
+	m_classicReflectionReady = FALSE;
+	m_modernReflectionPairReady = FALSE;
+#endif
 
     // Classic clears the mirror to white; Modern clears it transparent. Bypass the
     // stationary-camera reuse once, so neither style samples the other's background.
     m_reflectionReused = TRUE;
     // Keep wave time, capture/pause clock, gameplay levels and water-grid motion intact.
-#endif
+}
+
+Bool WaterRenderObjClass::modernWaterBackendAvailable(void) const
+{
+	WaterRenderBridge::Bridge *bridge=WaterRenderBridge::GetActiveBridge();
+	return bridge && bridge->GetCapability().Available();
+}
+
+Bool WaterRenderObjClass::nativeModernWaterBackend(void) const
+{
+	WaterRenderBridge::Bridge *bridge=WaterRenderBridge::GetActiveBridge();
+	return bridge && bridge->GetCapability().Available()
+		&& bridge->GetCapability().backend==WaterRenderBridge::BackendKind::NativeD3D11;
 }
 
 void WaterRenderObjClass::setupModernWaterShader(Bool river,Bool heightCorrection,Bool waveCage)
@@ -1278,7 +1350,6 @@ void WaterRenderObjClass::setupModernWaterShader(Bool river,Bool heightCorrectio
 // The terrain fallback refreshes when the map heights or dimensions change.
 void WaterRenderObjClass::updateModernWaterTextures(void)
 {
-#ifndef _WIN32
 	if (!m_modernBedTexture) {
 		const Int side=256;
 		std::vector<UnsignedInt> pixels(side*side);
@@ -1346,7 +1417,6 @@ void WaterRenderObjClass::updateModernWaterTextures(void)
 		surface->Unlock();
 	}
 	REF_PTR_RELEASE(surface);
-#endif
 }
 
 void WaterRenderObjClass::clearModernWaterOpticalTextures(void)
@@ -1362,7 +1432,6 @@ void WaterRenderObjClass::clearModernWaterOpticalTextures(void)
 
 void WaterRenderObjClass::refreshModernWaterOpticalPolygons(void)
 {
-#ifndef _WIN32
 	std::vector<WaterOpticalContext::Polygon> polygons;
 	size_t points=0;
 	Bool valid=TRUE;
@@ -1385,12 +1454,10 @@ void WaterRenderObjClass::refreshModernWaterOpticalPolygons(void)
 		m_modernOpticalPolygons.swap(polygons);
 		m_modernOpticalPolygonsValid=valid;
 	}
-#endif
 }
 
 TextureClass *WaterRenderObjClass::modernWaterOpticalTexture(Real level)
 {
-#ifndef _WIN32
 	if (!m_modernOpticalPolygonsValid) return NULL;
 	for (size_t i=0;i<m_modernOpticalTextures.size();++i)
 		if (m_modernOpticalTextures[i].level==level) return m_modernOpticalTextures[i].texture;
@@ -1450,9 +1517,6 @@ TextureClass *WaterRenderObjClass::modernWaterOpticalTexture(Real level)
 		}
 	if (oceanMaxX>=0) cached.oceanExtent=max(oceanMaxX-oceanMinX,oceanMaxY-oceanMinY)*MAP_XY_FACTOR;
 	return texture;
-#else
-	return NULL;
-#endif
 }
 
 
@@ -1512,9 +1576,7 @@ WaterRenderObjClass::~WaterRenderObjClass(void)
 WaterRenderObjClass::WaterRenderObjClass(void)
 	: m_modernCaptureClock(LOGICFRAMES_PER_SECOND)
 {
-#ifndef _WIN32
-	m_useModernWater = !TheGlobalData || TheGlobalData->m_waterStyle != 0;
-#endif
+	m_useModernWater = (!TheGlobalData || TheGlobalData->m_waterStyle != 0) && modernWaterBackendAvailable();
 	memset( &m_settings, 0, sizeof( m_settings ) );
 	m_dx=0;
 	m_dy=0;
@@ -1529,6 +1591,12 @@ WaterRenderObjClass::WaterRenderObjClass(void)
 	m_waterType = WATER_TYPE_0_TRANSLUCENT;
 	m_tod=TIME_OF_DAY_AFTERNOON;
 	m_pReflectionTexture=NULL;
+#ifdef _WIN32
+	m_pClassicReflectionTexture=NULL;
+	m_classicReflectionReady=FALSE;
+	m_modernReflectionPairReady=FALSE;
+	m_modernFixturePatchAttempt=0;
+#endif
 	m_reflectionLevel=0;
 	m_reflectionAreaMin.Set(-1.0f, -1.0f);
 	m_reflectionAreaMax.Set(1.0f, 1.0f);
@@ -2026,6 +2094,13 @@ RenderResult WaterRenderObjClass::generateIndexBuffer(Int sizeX, Int sizeY)
 //-------------------------------------------------------------------------------------------------
 void WaterRenderObjClass::ReleaseResources(void)
 {
+#ifdef _WIN32
+	m_modernCaptureScope.End();
+#endif
+	if (++m_modernResourceGeneration==0) ++m_modernResourceGeneration;
+	m_modernAcceptedRegions.clear();
+	if (WaterRenderBridge::Bridge *bridge=WaterRenderBridge::GetActiveBridge())
+		bridge->InvalidateResources(m_modernResourceGeneration);
 	clearModernWaterFoam(FALSE);
 	// CPU admissions survive device resource refresh, including a resize while paused.
 	clearModernWaterHulls(FALSE);
@@ -2039,6 +2114,11 @@ void WaterRenderObjClass::ReleaseResources(void)
 	REF_PTR_RELEASE(m_indexBuffer);
 
 	REF_PTR_RELEASE(m_pReflectionTexture);
+#ifdef _WIN32
+	REF_PTR_RELEASE(m_pClassicReflectionTexture);
+	m_classicReflectionReady=FALSE;
+	m_modernReflectionPairReady=FALSE;
+#endif
 	SAFE_RELEASE(m_vertexBufferD3D);
 	SAFE_RELEASE(m_indexBufferD3D);
 	releaseWaterTwins();
@@ -2147,6 +2227,12 @@ void WaterRenderObjClass::ReAcquireResources(void)
 
 	if (m_waterType == WATER_TYPE_0_TRANSLUCENT)
 		m_pReflectionTexture = DX8Wrapper::Create_Render_Target (WATER_REFLECTION_SIZE, WATER_REFLECTION_SIZE);
+#ifdef _WIN32
+	if (m_useModernWater && m_waterType == WATER_TYPE_0_TRANSLUCENT)
+		m_pClassicReflectionTexture = DX8Wrapper::Create_Render_Target (WATER_REFLECTION_SIZE, WATER_REFLECTION_SIZE);
+	m_classicReflectionReady=FALSE;
+	m_modernReflectionPairReady=FALSE;
+#endif
 
 	if (m_waterTrackSystem)
 		m_waterTrackSystem->ReAcquireResources();
@@ -2413,6 +2499,12 @@ void WaterRenderObjClass::updateMapOverrides(void)
 // ------------------------------------------------------------------------------------------------
 void WaterRenderObjClass::reset( void )
 {
+#ifdef _WIN32
+	m_modernCaptureScope.End();
+#endif
+	m_modernAcceptedRegions.clear();
+	m_modernPatchSerial=0;
+	if (WaterRenderBridge::Bridge *bridge=WaterRenderBridge::GetActiveBridge()) bridge->InvalidateMap();
 	m_modernCaptureClock.Reset(); // map/reset boundary, never texture-only resource refresh
 	invalidateModernWaterShore();
 	clearModernWaterFoam();
@@ -2545,25 +2637,28 @@ void WaterRenderObjClass::update( void )
 		// introduce a load-duration origin or a discontinuity at the first recorded subframe.
 		// Sun-shadow comparison screenshots use the same absolute picture clock as
 		// water videos, so a slower capture pass cannot change the comparison's waves.
-		const bool captureClock=GameEngine_isShadowCaptureClock() || WaterCaptureClock::Enabled(getenv("ZH_WATER_CAPTURE_CLOCK"),
+		const double actualPicture=GameEngine_pictureFrame();
+		const bool shadowCaptureClock=GameEngine_isShadowCaptureClock();
+		const bool captureClock=shadowCaptureClock || WaterCaptureClock::Enabled(getenv("ZH_WATER_CAPTURE_CLOCK"),
 			TheGlobalData->m_controlPort,TheGlobalData->m_videoStartFrame,TheGlobalData->m_videoEndFrame,
 			TheGameLogic->isInGame() && !TheGameLogic->isInShellGame(),
 			TheGameLogic->isInMultiplayerGame(),TheGameLogic->isInReplayGame());
 		double capturePicture=0;
 		if(captureClock) {
-			const WaterCaptureClock::Sample sample=m_modernCaptureClock.Update(GameEngine_pictureFrame(),waterFrozen);
+			const WaterCaptureClock::Sample sample=m_modernCaptureClock.Update(actualPicture,waterFrozen);
 			capturePicture=sample.picture;m_modernWaveTime=(Real)sample.seconds;elapsedSec=(Real)sample.elapsed;
 		} else {
 			m_modernCaptureClock.Reset();
 			m_modernWaveTime = WaterSurfaceModel::AdvanceTime(m_modernWaveTime, elapsedSec, false, false, false);
 		}
-#ifndef _WIN32
+		if(const char *trace=getenv("ZH_WATER_CAPTURE_CLOCK_TRACE");trace && strcmp(trace,"0")!=0)
+			fprintf(stderr,"[water-capture-clock] enabled=%d shadow=%d picture=%.9g seconds=%.9g elapsed=%.9g frozen=%d\n",
+				captureClock?1:0,shadowCaptureClock?1:0,actualPicture,double(m_modernWaveTime),double(elapsedSec),waterFrozen?1:0);
 		// Client updates are independent of water visibility and reflected render recursion.
 		// Build every level once, then advance the fixed-world source even when the camera pans away.
-		if(m_useModernWater && m_trapezoidWaterPixelShader) {
+		if(m_useModernWater && (m_trapezoidWaterPixelShader || nativeModernWaterBackend())) {
 			updateModernWaterTextures();refreshModernWaterOpticalPolygons();updateModernWaterShore();
 		}
-#endif
 		if(captureClock) {
 			// Reconstruct all water presentation phases, including legacy fallback textures, from
 			// the same absolute time. No repeated-add drift and no inherited shell/load phase.
@@ -2806,11 +2901,66 @@ void WaterRenderObjClass::updateRenderTargetTextures(CameraClass *cam)
 //-------------------------------------------------------------------------------------------------
 void WaterRenderObjClass::renderMirror(CameraClass *cam, Real level)
 {
-#ifdef EXTENDED_STATS
-	if (DX8Wrapper::stats.m_disableWater) {
+#ifdef _WIN32
+	if (m_useModernWater && m_waterType==WATER_TYPE_0_TRANSLUCENT) {
+		const char *pairTraceSetting=getenv("ZH_WATER_PAIR_TRACE");
+		const Bool pairTrace=pairTraceSetting&&strcmp(pairTraceSetting,"0")!=0;
+		auto tracePair=[&](const char *phase,TextureClass *target,Bool ready) {
+			if(!pairTrace) return;
+			const Matrix3D cameraTransform=cam?cam->Get_Transform():Matrix3D(1);
+			const unsigned char *cameraBytes=reinterpret_cast<const unsigned char*>(&cameraTransform);
+			unsigned long long cameraHash=1469598103934665603ull;
+			for(size_t i=0;i<sizeof(cameraTransform);++i) { cameraHash^=cameraBytes[i];cameraHash*=1099511628211ull; }
+			Vector2 viewportMin(0,0),viewportMax(0,0);
+			if(cam) cam->Get_Viewport(viewportMin,viewportMax);
+			IDirect3DBaseTexture9 *nativeTarget=target?target->Peek_D3D_Base_Texture():NULL;
+			WaterRenderBridge::CurrentView current={};
+			WaterRenderBridge::Bridge *bridge=WaterRenderBridge::GetActiveBridge();
+			const Bool currentReady=bridge&&bridge->QueryCurrentView(current);
+			fprintf(stderr,"water-reflection-pair: phase=%s ready=%d target=%p camera=%p camera_hash=%016llx "
+				"viewport=(%.9g,%.9g,%.9g,%.9g) level=%.9g picture=%.17g logic=%u render=%u sync=%u "
+				"wave=%.9g river=(%.9g,%.9g,%.9g) bump=(%d,%.9g) foam=(%.17g,%u,%u) shore=(%.17g,%.17g) "
+				"current=(%d,%llu,%llu,%llu)\n",
+				phase,ready?1:0,(void*)nativeTarget,(void*)cam,cameraHash,
+				double(viewportMin.X),double(viewportMin.Y),double(viewportMax.X),double(viewportMax.Y),double(level),
+				GameEngine_pictureFrame(),TheGameLogic?TheGameLogic->getFrame():0,
+				unsigned(WW3D::Get_Frame_Count()),unsigned(WW3D::Get_Sync_Time()),double(m_modernWaveTime),
+				double(m_riverVOrigin),double(m_riverXOffset),double(m_riverYOffset),m_iBumpFrame,double(m_bumpFrameAccum),
+				m_modernFoamHistory.Time(),unsigned(m_modernFoamHistory.SegmentCount()),unsigned(m_modernFoamHistory.TrackedCount()),
+				m_modernShoreHistory.Time(),m_modernShoreHistory.CommittedTime(),currentReady?1:0,
+				(unsigned long long)current.frameId,(unsigned long long)current.resourceGeneration,
+				(unsigned long long)current.captureSerial);
+		};
+		m_classicReflectionReady=FALSE;
+		m_modernReflectionPairReady=FALSE;
+		if (m_pClassicReflectionTexture) {
+			tracePair("before-white",m_pClassicReflectionTexture,FALSE);
+			const Bool classicReady=renderMirrorTarget(cam,level,m_pClassicReflectionTexture,FALSE);
+			tracePair("after-white",m_pClassicReflectionTexture,classicReady);
+			const Bool modernReady=classicReady&&renderMirrorTarget(cam,level,m_pReflectionTexture,TRUE);
+			if(classicReady) tracePair("after-black",m_pReflectionTexture,modernReady);
+			m_classicReflectionReady=classicReady;
+			m_modernReflectionPairReady=classicReady&&modernReady;
+			if(m_classicReflectionReady) return;
+			REF_PTR_RELEASE(m_pClassicReflectionTexture);
+		}
+		tracePair("before-white-primary",m_pReflectionTexture,FALSE);
+		m_classicReflectionReady=renderMirrorTarget(cam,level,m_pReflectionTexture,FALSE);
+		tracePair("after-white-primary",m_pReflectionTexture,m_classicReflectionReady);
 		return;
 	}
 #endif
+	renderMirrorTarget(cam,level,m_pReflectionTexture,m_useModernWater);
+}
+
+Bool WaterRenderObjClass::renderMirrorTarget(CameraClass *cam, Real level, TextureClass *target, Bool modernClear)
+{
+#ifdef EXTENDED_STATS
+	if (DX8Wrapper::stats.m_disableWater) {
+		return FALSE;
+	}
+#endif
+	if (!cam || !target || !target->Is_Initialized() || !m_pDev) return FALSE;
 	Matrix3D	OldCameraMatrix=cam->Get_Transform();
 	Matrix4x4	FullMatrix4(cam->Get_Transform());	//copy 3x4 matrix into a 4x4
 	Vector3		WaterNormal(0,0,1);	//normal of plane used for reflection
@@ -2840,20 +2990,16 @@ void WaterRenderObjClass::renderMirror(CameraClass *cam, Real level)
 	Matrix3D reflectedTransform(rRight,rUp,rN,rPos);
 
 
-	DX8Wrapper::Set_Render_Target_With_Z((TextureClass*)m_pReflectionTexture);
+	DX8Wrapper::Set_Render_Target_With_Z(target);
 
 	// Clear the backbuffer
 	// The sea's cloud plane fills its background; map water has no such plane, so its target is
 	// cleared to white, which the overlay multiplies in as no change at all.
-#ifdef _WIN32
-	WW3D::Begin_Render(m_waterType == WATER_TYPE_0_TRANSLUCENT,true,WATER_REFLECTION_SKY_COLOR);
-#else
 	// Modern water supplies its own sky. Classic multiplies a white-background mirror.
-	if (m_useModernWater)
+	if (modernClear)
 		WW3D::Begin_Render(m_waterType == WATER_TYPE_0_TRANSLUCENT,true,Vector3(0,0,0),0.0f);
 	else
 		WW3D::Begin_Render(m_waterType == WATER_TYPE_0_TRANSLUCENT,true,WATER_REFLECTION_SKY_COLOR);
-#endif
 
 	cam->Set_Transform( reflectedTransform );
 
@@ -2908,6 +3054,7 @@ void WaterRenderObjClass::renderMirror(CameraClass *cam, Real level)
 
 	// Change the rendertarget back to the main backbuffer
 	DX8Wrapper::Set_Render_Target((IDirect3DSurface9 *)NULL);
+	return SUCCEEDED(m_pDev->TestCooperativeLevel());
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2922,12 +3069,10 @@ void WaterRenderObjClass::renderMirror(CameraClass *cam, Real level)
 	*	This algorithm doesn't apply to translucent water, which is rendered into a
 	*   texture and rendered at end of scene. */
 //-------------------------------------------------------------------------------------------------
-#ifndef _WIN32
 static double modernWaterProfileMilliseconds()
 {
 	return std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
-#endif
 DECLARE_PERF_TIMER(Water)
 void WaterRenderObjClass::Render(RenderInfoClass & rinfo)
 {
@@ -2965,13 +3110,17 @@ void WaterRenderObjClass::Render(RenderInfoClass & rinfo)
 	WaterShoreOverlay::Scope shoreScope(DX8Wrapper::_Get_D3D_Device(),
 		m_useModernWater && m_waterType==WATER_TYPE_0_TRANSLUCENT && m_trapezoidWaterPixelShader &&
 		!TheGlobalData->m_isWorldBuilder && !TheGlobalData->m_usingWaterTrackEditor);
+#endif
 	m_modernProfileEnabled=m_useModernWater && std::getenv("ZH_WATER_PROFILE")!=NULL;
 	m_modernFoamDrawFrame=~0u;m_modernFoamDrawObjectIDs.clear();
 	const double profileRenderStart=m_modernProfileEnabled?modernWaterProfileMilliseconds():0;
+#ifndef _WIN32
 	RenderUInt32 oldModernCoordIndex=0,oldModernTransformFlags=0;
 	RenderUInt32 oldModernBaseCoordIndex=0,oldModernBaseTransformFlags=0;
 	IDirect3DBaseTexture9 *oldModernBed=NULL,*oldModernOptical=NULL,*oldModernFoam=NULL;
+#endif
 	if (m_useModernWater) {
+#ifndef _WIN32
 		DX8Wrapper::_Get_D3D_Device()->GetTextureStageState(0,D3DTSS_TEXCOORDINDEX,&oldModernBaseCoordIndex);
 		DX8Wrapper::_Get_D3D_Device()->GetTextureStageState(0,D3DTSS_TEXTURETRANSFORMFLAGS,&oldModernBaseTransformFlags);
 		DX8Wrapper::_Get_D3D_Device()->GetTextureStageState(1,D3DTSS_TEXCOORDINDEX,&oldModernCoordIndex);
@@ -2979,10 +3128,17 @@ void WaterRenderObjClass::Render(RenderInfoClass & rinfo)
 		DX8Wrapper::_Get_D3D_Device()->GetTexture(7,&oldModernBed);
 		DX8Wrapper::_Get_D3D_Device()->GetTexture(4,&oldModernOptical);
 		DX8Wrapper::_Get_D3D_Device()->GetTexture(14,&oldModernFoam);
+#endif
 		updateModernWaterTextures();
 		refreshModernWaterOpticalPolygons();
 		m_modernRenderCamera=&rinfo.Camera;
 		m_modernCamera=rinfo.Camera.Get_Position();
+#ifdef _WIN32
+		m_modernCaptureScope.Begin();
+		m_modernAcceptedRegions.clear();
+		m_modernDispatch={};
+		m_modernFixturePatchAttempt=0;
+#endif
 		Int modernPatches=0,modernFlatPatches=0,visibleFlatPatches=0;
 		Real highestModernWater=m_level;
 		Bool hasModernWater=FALSE;
@@ -3071,7 +3227,6 @@ void WaterRenderObjClass::Render(RenderInfoClass & rinfo)
 		}
 		if (m_modernProfileEnabled) m_modernProfile.obstacles+=modernWaterProfileMilliseconds()-profilePhaseStart;
 	}
-#endif
 
 	switch(m_waterType)
 	{
@@ -3215,6 +3370,15 @@ void WaterRenderObjClass::Render(RenderInfoClass & rinfo)
 		default:
 			break;
 	}//switch
+#ifdef _WIN32
+	if (m_useModernWater) {
+		WaterRenderBridge::Bridge *bridge=WaterRenderBridge::GetActiveBridge();
+		if (bridge) bridge->End(std::uint64_t(WW3D::Get_Frame_Count())+1);
+		m_modernCaptureScope.End();
+		m_modernBowAdmissions.End();
+		m_modernRenderCamera=NULL;
+	}
+#endif
 #ifndef _WIN32
 	if (m_useModernWater) {
 		DX8Wrapper::Set_DX8_Texture_Stage_State(0,D3DTSS_TEXCOORDINDEX,oldModernBaseCoordIndex);
@@ -3575,18 +3739,23 @@ void WaterRenderObjClass::renderWater(void)
 						m_modernBowPatchOwner=reinterpret_cast<uintptr_t>(pTrig);m_modernBowPatchPart=unsigned(k);
 						drawTrapezoidWater(points); continue;
 					}
+#else
+					if (m_useModernWater && nativeModernWaterBackend()) {
+						m_modernBowPatchOwner=reinterpret_cast<uintptr_t>(pTrig);m_modernBowPatchPart=unsigned(k);
+						if (drawModernWaterPatch(points,FALSE)) continue;
+					}
 #endif
 					if ( TheGlobalData->m_featherWater )
 					{
 						for (int r = 0; r < TheGlobalData->m_featherWater; ++r)
 						{
-							drawTrapezoidWater(points);
+							drawTrapezoidWater(points,FALSE);
 							points[0].Z += (FEATHER_THICKNESS/TheGlobalData->m_featherWater);
 						}
 					}
 
 					else
-						drawTrapezoidWater(points);
+						drawTrapezoidWater(points,FALSE);
 
 
 				}
@@ -3870,6 +4039,11 @@ void WaterRenderObjClass::renderWaterMesh(void)
 		if (void *mirror=vertexLock.Begin(waterVertexTwin, vb, 0, lockBytes, D3DLOCK_DISCARD))
 			vb=(MaterMeshVertexFormat*)mirror;
 	}
+#ifdef _WIN32
+	MaterMeshVertexFormat *classicGridVertices=vb;
+	const char *gridTraceSetting=getenv("ZH_WATER_GRID_TRACE");
+	const Bool gridTrace=waterFixtureDiagnosticsEnabled()&&gridTraceSetting&&strcmp(gridTraceSetting,"0")!=0;
+#endif
 	Int diffuse;
 	diffuse = setting->waterDiffuse&0x00ffffff;
 	Int alpha = (setting->waterDiffuse & 0xff000000)>>24;
@@ -3931,8 +4105,8 @@ void WaterRenderObjClass::renderWaterMesh(void)
 			if (m_useModernWater && m_trapezoidWaterPixelShader) {
 				Vector3 world;
 				Matrix3D::Transform_Vector(Transform,Vector3(x,y,pData->height),&world);
-				vb->u2=0.0f;
-				vb->v2=world.Z;
+				const WaterRenderAdapters::GridMetadata metadata=WaterRenderAdapters::ModernGridMetadata(world.Z);
+				vb->u2=metadata.u2;vb->v2=metadata.v2;
 			}
 #endif
 			//old slow code
@@ -3941,10 +4115,80 @@ void WaterRenderObjClass::renderWaterMesh(void)
 			pData++;
 		}
 	}
+#ifdef _WIN32
+	std::vector<MaterMeshVertexFormat> nativeGridVertices;
+	const unsigned long long classicGridBeforeHash=gridTrace?waterDiagnosticHash(classicGridVertices,lockBytes):0;
+	if(nativeModernWaterBackend()) {
+		nativeGridVertices.assign(classicGridVertices,classicGridVertices+mx*my);
+		for(MaterMeshVertexFormat &vertex:nativeGridVertices) {
+			Vector3 world;
+			Matrix3D::Transform_Vector(Transform,Vector3(vertex.x,vertex.y,vertex.z),&world);
+			vertex.x=world.X;vertex.y=world.Y;vertex.z=world.Z;
+#ifdef USE_MESH_NORMALS
+			Vector3 normal;
+			Matrix3D::Rotate_Vector(Transform,Vector3(vertex.nx,vertex.ny,vertex.nz),&normal);
+			if(normal.Length()>0.000001f) normal.Normalize();
+			vertex.nx=normal.X;vertex.ny=normal.Y;vertex.nz=normal.Z;
+#endif
+			const WaterRenderAdapters::GridMetadata metadata=WaterRenderAdapters::ModernGridMetadata(world.Z);
+			vertex.u2=metadata.u2;vertex.v2=metadata.v2;
+		}
+	}
+#endif
 
 	vertexLock.End();
 
 	m_vertexBufferD3D->Unlock();
+
+#ifdef _WIN32
+	const unsigned char *classicTwinBytes=waterVertexTwin&&waterVertexTwin->Mirror()
+		&&waterVertexTwin->Byte_Count()>=unsigned(m_vertexBufferD3DOffset*sizeof(MaterMeshVertexFormat)+lockBytes)
+		?static_cast<const unsigned char *>(waterVertexTwin->Mirror())+m_vertexBufferD3DOffset*sizeof(MaterMeshVertexFormat):NULL;
+	const unsigned long long classicGridAfterHash=gridTrace&&classicTwinBytes?waterDiagnosticHash(classicTwinBytes,lockBytes):0;
+	if(gridTrace) {
+		MaterMeshVertexFormat first={},last={};
+		if(!nativeGridVertices.empty()) { first=nativeGridVertices.front();last=nativeGridVertices.back(); }
+		fprintf(stderr,"water-grid-route: event=prepared layout=%u stride=%u vertices=%u indices=%u classic-before=%016llx classic-after=%016llx carrier=%016llx "
+			"first=(%.9g,%.9g,%.9g,%.9g,%.9g) last=(%.9g,%.9g,%.9g,%.9g,%.9g) classic-equal=%d\n",
+			unsigned(WATER_MESH_FVF),unsigned(sizeof(MaterMeshVertexFormat)),unsigned(mx*my),unsigned(m_numIndices),
+			classicGridBeforeHash,classicGridAfterHash,
+			nativeGridVertices.empty()?0:waterDiagnosticHash(nativeGridVertices.data(),nativeGridVertices.size()*sizeof(MaterMeshVertexFormat)),
+			double(first.x),double(first.y),double(first.z),double(first.u2),double(first.v2),
+			double(last.x),double(last.y),double(last.z),double(last.u2),double(last.v2),
+			classicTwinBytes&&classicGridBeforeHash==classicGridAfterHash?1:0);
+	}
+	if(nativeModernWaterBackend()&&WaterShoreOverlay::ShouldAttempt(m_modernDispatch)) {
+		Bool preparedReady=FALSE,submitted=FALSE;
+		if(!nativeGridVertices.empty()&&m_numIndices>=3&&waterIndexTwin&&waterIndexTwin->Mirror()
+			&&waterIndexTwin->Byte_Count()>=unsigned(m_numIndices)*sizeof(UnsignedShort)) {
+			WaterRenderBridge::BatchRequest batch={};batch.partId=1;batch.topology=WaterRenderBridge::Topology::TriangleStrip;
+			batch.indexFormat=WaterRenderBridge::IndexFormat::UInt16;batch.vertexLayout=WATER_MESH_FVF;
+			batch.vertexStride=sizeof(MaterMeshVertexFormat);batch.vertexCount=static_cast<std::uint32_t>(nativeGridVertices.size());
+			batch.indexCount=m_numIndices;batch.primitiveCount=m_numIndices-2;
+			batch.vertices=nativeGridVertices.data();batch.indices=waterIndexTwin->Mirror();
+			batch.vertexBytes=nativeGridVertices.size()*sizeof(MaterMeshVertexFormat);
+			batch.indexBytes=unsigned(m_numIndices)*sizeof(UnsignedShort);
+			const size_t corner[4]={0,size_t(mx-1),size_t(my-1)*mx+mx-1,size_t(my-1)*mx};
+			WaterRenderBridge::CoveragePoint coverage[4];
+			for(Int n=0;n<4;++n) coverage[n]={nativeGridVertices[corner[n]].x,nativeGridVertices[corner[n]].y};
+			WaterRenderBridge::PreparedPatch prepared={};
+			if((preparedReady=prepareNativeWaterBatches(&batch,1,coverage,4,m_modernOpticalLevel,FALSE,FALSE,
+				WaterRenderBridge::FftEligibility::Ineligible,FALSE,prepared)))
+				submitted=submitModernWaterPatch(prepared,FALSE);
+			else
+				WaterShoreOverlay::PreEmissionRefused(m_modernDispatch);
+		} else {
+			WaterShoreOverlay::PreEmissionRefused(m_modernDispatch);
+		}
+		if(gridTrace) fprintf(stderr,"water-grid-route: event=submit prepared=%d submitted=%d admissions=%u classic-fallback=%d\n",
+			preparedReady?1:0,submitted?1:0,unsigned(m_modernAcceptedRegions.size()),submitted?0:1);
+		if(submitted) {
+			m_vertexBufferD3DOffset+=mx*my;
+			Debug_Statistics::Record_DX8_Polys_And_Vertices(m_numIndices-2,mx*my,ShaderClass::_PresetOpaqueShader);
+			return;
+		}
+	}
+#endif
 
 	Matrix3D tm(Transform);
 
@@ -4357,9 +4601,308 @@ Real WaterRenderObjClass::modernWaterDamping(Real x, Real y, Real z, Real offsho
 // Render-only geometry keeps a complete analytic CPU fallback. Projected ocean interiors carry
 // optional FFT displacement metadata in the unlit normal channel; every authored edge retains the
 // same canonical analytic samples regardless of whether the GPU ocean field is available.
-void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool river, Real riverStart, Real riverEnd)
+Bool WaterRenderObjClass::submitModernWaterPatch(const WaterRenderBridge::PreparedPatch &prepared, Bool ownershipEligible)
 {
-#ifndef _WIN32
+	using namespace WaterRenderBridge;
+	Bool routeTrace=FALSE;
+#ifdef _WIN32
+	const char *routeTraceSetting=getenv("ZH_WATER_ROUTE_TRACE");
+	routeTrace=waterFixtureDiagnosticsEnabled()&&routeTraceSetting&&strcmp(routeTraceSetting,"0")!=0;
+	unsigned acceptedOwnership=WaterShoreOverlay::OwnNone;
+#endif
+	const size_t admissionsBefore=m_modernAcceptedRegions.size();
+	WaterRenderBridge::Bridge *bridge=GetActiveBridge();if(!bridge) return WaterShoreOverlay::PreEmissionRefused(m_modernDispatch);
+	const SubmissionReceipt receipt=bridge->SubmitPreparedPatch(prepared);
+	if(receipt.status==SubmitStatus::Refused) {
+		if(routeTrace) fprintf(stderr,"water-route: event=submit-refused patch=%llu commands=%u batches=%u admissions=%u\n",
+			(unsigned long long)prepared.patchId,receipt.commandsIssued,receipt.batchesIssued,unsigned(admissionsBefore));
+		return WaterShoreOverlay::PreEmissionRefused(m_modernDispatch);
+	}
+	if(receipt.status==SubmitStatus::DeviceLost) {
+		if(routeTrace) fprintf(stderr,"water-route: event=device-lost patch=%llu commands=%u batches=%u admissions-before=%u admissions-after=0\n",
+			(unsigned long long)prepared.patchId,receipt.commandsIssued,receipt.batchesIssued,unsigned(admissionsBefore));
+		WaterShoreOverlay::DeviceLost(m_modernDispatch);m_modernAcceptedRegions.clear();return TRUE;
+	}
+	WaterShoreOverlay::Issued(m_modernDispatch);
+	if(ownershipEligible&&HasAll(bridge->GetCapability().features,ProductionRequired)) {
+		WaterShoreOverlay::AcceptedRegion region;
+		unsigned ownership=WaterShoreOverlay::ReplacementOwnership(prepared);
+#ifdef _WIN32
+		if(prepared.packet.constants.Common.FftParameters.y<=0.5f) ownership&=~WaterShoreOverlay::OwnVessel;
+#endif
+		if(WaterShoreOverlay::Accept(receipt,prepared,ownership,region)) {
+			if(!m_modernAcceptedRegions.empty()&&m_modernAcceptedRegions.front().stamp.frame!=region.stamp.frame)
+				m_modernAcceptedRegions.clear();
+			if(m_modernAcceptedRegions.size()<WaterShoreOverlay::MaxRegions) {
+				m_modernAcceptedRegions.push_back(region);
+#ifdef _WIN32
+				acceptedOwnership=region.ownership;
+#endif
+			}
+		}
+	}
+#ifdef _WIN32
+	if(routeTrace) fprintf(stderr,"water-ownership: frame=%llu generation=%llu capture=%llu patch=%llu ownership=%u vessel-y=%.9g atlas-level=%.9g water-level=%.9g channels=%.9g mirror=%u\n",
+		(unsigned long long)receipt.frameId,(unsigned long long)receipt.resourceGeneration,
+		(unsigned long long)receipt.captureSerial,(unsigned long long)receipt.patchId,acceptedOwnership,
+		prepared.packet.constants.Common.FftParameters.y,prepared.packet.constants.Common.FoamHistoryParameters.y,
+		prepared.waterLevel,prepared.packet.constants.Common.FoamHistoryParameters.x,unsigned(m_renderingMirror));
+	if(routeTrace) fprintf(stderr,"water-route: event=issued attempt=%u frame=%llu patch=%llu capture=%llu commands=%u batches=%u coverage=%d ownership-eligible=%d admissions-before=%u admissions-after=%u black=%p white=%p\n",
+		m_modernFixturePatchAttempt,(unsigned long long)receipt.frameId,(unsigned long long)receipt.patchId,
+		(unsigned long long)receipt.captureSerial,receipt.commandsIssued,receipt.batchesIssued,receipt.coveragePublished?1:0,
+		ownershipEligible?1:0,unsigned(admissionsBefore),unsigned(m_modernAcceptedRegions.size()),
+		(void*)(m_pReflectionTexture?m_pReflectionTexture->Peek_D3D_Base_Texture():NULL),
+		(void*)(m_pClassicReflectionTexture?m_pClassicReflectionTexture->Peek_D3D_Base_Texture():NULL));
+#endif
+	return TRUE;
+}
+
+#ifdef _WIN32
+namespace {
+class NativeWaterStage3State
+{
+	RenderStateStruct state;
+	IDirect3DBaseTexture9 *texture;
+	Matrix4x4 transform;
+	DWORD stages[8], samplers[13], materialSamplers[13];
+	bool valid;
+	static const D3DTEXTURESTAGESTATETYPE stageNames[8];
+public:
+	NativeWaterStage3State() : texture(NULL),valid(false)
+	{
+		DX8Wrapper::Apply_Render_State_Changes();
+		DX8Wrapper::Flush_Deferred_D3D9_State();
+		DX8Wrapper::Get_Render_State(state);
+		IDirect3DDevice9 *device=DX8Wrapper::_Get_D3D_Device();
+		if(!device || FAILED(device->GetTexture(3,&texture))
+			|| FAILED(device->GetTransform(D3DTS_TEXTURE3,reinterpret_cast<D3DMATRIX *>(&transform)))) return;
+		for(unsigned i=0;i<8;++i) if(FAILED(device->GetTextureStageState(3,stageNames[i],&stages[i])))return;
+		for(unsigned i=0;i<13;++i) if(FAILED(device->GetSamplerState(3,D3DSAMPLERSTATETYPE(i+1),&samplers[i])))return;
+		for(unsigned i=0;i<13;++i) if(FAILED(device->GetSamplerState(0,D3DSAMPLERSTATETYPE(i+1),&materialSamplers[i])))return;
+		valid=true;
+	}
+	~NativeWaterStage3State()
+	{
+		if(valid) {
+			DX8Wrapper::Set_Texture(3,state.Textures[3]);
+			DX8Wrapper::Apply_Render_State_Changes();
+			DX8Wrapper::Set_DX8_Texture(3,texture);
+			for(unsigned i=0;i<8;++i) DX8Wrapper::Set_DX8_Texture_Stage_State(3,stageNames[i],stages[i]);
+			for(unsigned i=0;i<13;++i) DX8Wrapper::Set_DX8_Texture_Stage_State(3,D3DSAMPLERSTATETYPE(i+1),samplers[i]);
+			for(unsigned i=0;i<13;++i) DX8Wrapper::Set_DX8_Texture_Stage_State(0,D3DSAMPLERSTATETYPE(i+1),materialSamplers[i]);
+			DX8Wrapper::_Set_DX8_Transform(D3DTS_TEXTURE3,transform);
+			DX8Wrapper::Flush_Deferred_D3D9_State();
+		}
+		if(texture)texture->Release();
+	}
+	bool Valid() const {return valid;}
+};
+const D3DTEXTURESTAGESTATETYPE NativeWaterStage3State::stageNames[8]={
+	D3DTSS_TEXCOORDINDEX,D3DTSS_TEXTURETRANSFORMFLAGS,D3DTSS_COLORARG1,D3DTSS_COLORARG2,
+	D3DTSS_ALPHAARG1,D3DTSS_ALPHAARG2,D3DTSS_COLOROP,D3DTSS_ALPHAOP};
+}
+
+Bool WaterRenderObjClass::prepareNativeWaterBatches(const WaterRenderBridge::BatchRequest *batches, size_t batchCount,
+	const WaterRenderBridge::CoveragePoint *coverage, size_t coverageCount, Real level,
+	Bool river, Bool waveCage, WaterRenderBridge::FftEligibility fftEligibility,
+	Bool fixtureFlatPatch, WaterRenderBridge::PreparedPatch &prepared)
+{
+	using namespace WaterRenderBridge;
+	const char *routeTraceSetting=getenv("ZH_WATER_ROUTE_TRACE");
+	const Bool routeTrace=waterFixtureDiagnosticsEnabled()&&routeTraceSetting&&strcmp(routeTraceSetting,"0")!=0;
+	WaterRenderBridge::Bridge *bridge=WaterRenderBridge::GetActiveBridge();
+	if(!bridge||!m_modernRenderCamera||!batches||!batchCount||batchCount>MaxPreparedBatches
+		||!coverage||coverageCount<3) {
+		if(routeTrace) fprintf(stderr,"water-route: event=prepare status=not-called reason=helper-guard bridge=%d camera=%d batches=%d batch-count=%zu batch-capacity=%zu coverage=%d coverage-count=%zu\n",
+			bridge?1:0,m_modernRenderCamera?1:0,batches?1:0,batchCount,batchCount,coverage?1:0,coverageCount);
+		return FALSE;
+	}
+	if(m_waterType==WATER_TYPE_0_TRANSLUCENT&&!m_modernReflectionPairReady) {
+		if(routeTrace) fprintf(stderr,"water-route: event=prepare status=not-called reason=reflection-pair-unready batch-count=%zu batch-capacity=%zu\n",
+			batchCount,batchCount);
+		return FALSE;
+	}
+	WaterRenderPacket::Inputs inputs={};
+	Matrix3D view;m_modernRenderCamera->Get_View_Matrix(&view);
+	WaterRenderAdapters::DeviceView(view,inputs.scene.view);
+	D3DMATRIX projection={};D3DVIEWPORT9 viewport={};
+	IDirect3DDevice9 *device=DX8Wrapper::_Get_D3D_Device();
+	HRESULT projectionResult=E_FAIL,viewportResult=E_FAIL;
+	if(device) {
+		projectionResult=device->GetTransform(D3DTS_PROJECTION,&projection);
+		if(SUCCEEDED(projectionResult)) viewportResult=device->GetViewport(&viewport);
+	}
+	if(!device||FAILED(projectionResult)||FAILED(viewportResult)) {
+		if(routeTrace) fprintf(stderr,"water-route: event=prepare status=not-called reason=device-view-query projection=%08lx viewport=%08lx\n",
+			(unsigned long)projectionResult,(unsigned long)viewportResult);
+		return FALSE;
+	}
+	memcpy(inputs.scene.projection,&projection,sizeof(inputs.scene.projection));
+	Int targetWidth,targetHeight,targetBits;bool targetWindowed;
+	WW3D::Get_Render_Target_Resolution(targetWidth,targetHeight,targetBits,targetWindowed);
+	inputs.scene.viewport={float(viewport.X),float(viewport.Y),float(viewport.Width),float(viewport.Height),
+		viewport.MinZ,viewport.MaxZ};
+	const Coord3D &sun=TheGlobalData->m_terrainLightPos[0];const RGBColor &sunColour=TheGlobalData->m_terrainDiffuse[0];
+	inputs.scene.sunDirection={-sun.x,-sun.y,-sun.z,0};inputs.scene.sunColour={sunColour.red,sunColour.green,sunColour.blue,0};
+	for(Int i=0;i<4;++i) inputs.scene.shadowFromClip[i][i]=1;
+	auto resource=[](TextureClass *texture) {
+		WaterRenderPacket::Resource result={};
+		IDirect3DBaseTexture9 *nativeTexture=texture?texture->Peek_D3D_Base_Texture():NULL;
+		if(nativeTexture&&texture->Get_Width()>0&&texture->Get_Height()>0) {
+			const std::uint64_t capacity=std::uint64_t(texture->Get_Width())*texture->Get_Height();
+			if(capacity>(std::numeric_limits<std::uint32_t>::max)()) return result;
+			result.identity=nativeTexture;result.type=WaterRenderPacket::ResourceType::Texture2D;result.available=true;
+			result.width=texture->Get_Width();result.height=texture->Get_Height();result.layers=1;
+			result.capacity=static_cast<std::uint32_t>(capacity);
+		}
+		return result;
+	};
+	WaterRenderPacket::SurfaceInput &surface=inputs.surface;surface.river=river;
+	bindModernWaterFoam(level,river);
+	const Bool reflection=m_pReflectionTexture&&!m_renderingMirror&&m_reflectionAreaMax.X>m_reflectionAreaMin.X
+		&&m_reflectionAreaMax.Y>m_reflectionAreaMin.Y;
+	surface.waterParameters={m_modernWaveTime,river?1.0f:0.0f,reflection?1.0f:0.0f,m_reflectionLevel};
+	surface.fftParameters.y=!river&&WaterVesselWaves::Enabled()?1.0f:0.0f;
+	surface.reflectionArea={m_reflectionAreaMin.X,m_reflectionAreaMin.Y,m_reflectionAreaMax.X,m_reflectionAreaMax.Y};
+	WorldHeightMap *heightMap=TheTerrainRenderObject?TheTerrainRenderObject->getMap():NULL;
+	surface.terrainParameters={heightMap?heightMap->getBorderSize()*MAP_XY_FACTOR:0.0f,
+		m_modernHeightSide*MAP_XY_FACTOR,255.0f*MAP_HEIGHT_SCALE,m_modernHeightTexture?1.0f:0.0f};
+	TextureClass *optical=river?NULL:modernWaterOpticalTexture(m_modernOpticalLevel);
+	surface.opticalParameters={TheWaterTransparency->m_transparentWaterDepth,
+		TheWaterTransparency->m_minWaterOpacity,optical?1.0f:0.0f,!river?1.0f:0.0f};
+	const RGBColor &ambient=TheGlobalData->m_terrainAmbient[0];
+	surface.hullParameters={river?0.0f:float(m_modernHulls.size()),ambient.red,ambient.green,ambient.blue};
+	if(!river&&!m_modernHulls.empty()) {
+		surface.meanHulls={reinterpret_cast<const WaterShaderLayout::Float4 *>(&m_modernHulls[0].data[0][0]),
+			m_modernHulls.size()*WaterHullModel::RegistersPerHull,WaterHullModel::MaxHulls*WaterHullModel::RegistersPerHull};
+		if(m_modernContactHulls.size()==m_modernHulls.size())
+			surface.contactHulls={reinterpret_cast<const WaterShaderLayout::Float4 *>(&m_modernContactHulls[0].data[0][0]),
+				m_modernContactHulls.size()*WaterHullModel::RegistersPerHull,WaterHullModel::MaxHulls*WaterHullModel::RegistersPerHull};
+	}
+	WaterShaderLayout::Float4 metadata[WaterHullVisualLayout::MaxHulls]={};
+	WaterShaderLayout::Float4 packets[WaterHullVisualLayout::PacketRegisters]={};
+	if(!river&&WaterHullVisual::Enabled()) for(size_t h=0;h<m_modernVisualHulls.size()&&h<WaterHullVisualLayout::MaxHulls;++h) {
+		memcpy(&metadata[h],m_modernVisualHulls[h].metadata,sizeof(metadata[h]));
+		memcpy(&packets[h*WaterHullVisualLayout::RegistersPerHull],m_modernVisualHulls[h].data,sizeof(m_modernVisualHulls[h].data));
+	}
+	surface.visualHullMetadata={metadata,river?0:m_modernVisualHulls.size(),WaterHullVisualLayout::MaxHulls};
+	surface.visualHullPackets={packets,river?0:m_modernVisualHulls.size()*WaterHullVisualLayout::RegistersPerHull,
+		WaterHullVisualLayout::PacketRegisters};
+	surface.meshContactAvailable=!river&&WaterHullVisual::Enabled()&&!m_modernVisualHulls.empty()
+		&&m_modernVisualHulls.size()==m_modernHulls.size();
+	for(Int i=0;i<4;++i) surface.foamFillLights[i]={};surface.foamFillLights[0].w=TheGlobalData->m_numGlobalLights>0?1.0f:0.0f;
+	for(Int lightIndex=1;lightIndex<min(3,TheGlobalData->m_numGlobalLights);++lightIndex) {
+		const Coord3D &position=TheGlobalData->m_terrainLightPos[lightIndex];
+		const RGBColor &diffuse=TheGlobalData->m_terrainDiffuse[lightIndex];
+		Vector3 direction(-position.x,-position.y,-position.z);const float magnitude=direction.Length();
+		if(magnitude>0.000001f) direction/=magnitude;else direction=Vector3(0,0,0);
+		const Int slot=(lightIndex-1)*2;
+		surface.foamFillLights[slot]={direction.X,direction.Y,direction.Z,surface.foamFillLights[slot].w};
+		surface.foamFillLights[slot+1]={diffuse.red,diffuse.green,diffuse.blue,0};
+	}
+	if(!river) for(const ModernFoamTexture &field:m_modernFoamTextures) if(field.level==level&&field.valid) {
+		surface.foamHistory=resource(field.texture);surface.foamHistoryAvailable=surface.foamHistory.available;
+		surface.foamHistoryArea={float(field.mapping.originX),float(field.mapping.originY),
+			float(1.0/field.mapping.widthWorld),float(1.0/field.mapping.heightWorld)};
+		surface.foamHistoryParameters={float(field.channels),level,
+			float(max(field.mapping.widthWorld/field.mapping.widthPixels,field.mapping.heightWorld/field.mapping.heightPixels)),field.timestamp};
+		break;
+	}
+	surface.authoredMaterial=resource(m_riverTexture);surface.authoredMaterialAvailable=surface.authoredMaterial.available;
+	surface.reflection=resource(reflection?m_pReflectionTexture:m_whiteTexture);surface.reflectionAvailable=surface.reflection.available;
+	TextureClass *heightTexture=m_modernHeightTexture;
+	Bool selectedWaveCage=FALSE;
+	if(waveCage) for(const ModernOpticalTexture &cached:m_modernOpticalTextures)
+		if(cached.level==m_modernOpticalLevel&&cached.waveCage){heightTexture=cached.waveCage;selectedWaveCage=TRUE;break;}
+	surface.heightWaveCage=resource(heightTexture);surface.heightWaveCageAvailable=selectedWaveCage&&surface.heightWaveCage.available;
+	surface.terrainHeight=resource(m_modernHeightTexture);surface.terrainAvailable=surface.terrainHeight.available;
+	surface.optical=resource(optical);surface.opticalAvailable=surface.optical.available;
+	surface.bed=resource(m_modernBedTexture);surface.bedAvailable=surface.bed.available;
+	PrepareRequest request={};request.frameId=std::uint64_t(WW3D::Get_Frame_Count())+1;
+	request.resourceGeneration=m_modernResourceGeneration;request.patchId=++m_modernPatchSerial;
+	if(!request.patchId) request.patchId=++m_modernPatchSerial;
+	if(!m_modernCaptureScope.Stamp(request)) {
+		if(routeTrace) fprintf(stderr,"water-route: event=prepare status=not-called reason=capture-scope-inactive frame=%llu generation=%llu capture=%llu patch=%llu batch-count=%zu batch-capacity=%zu target=(%d,%d,0,0)\n",
+			(unsigned long long)request.frameId,(unsigned long long)request.resourceGeneration,
+			(unsigned long long)request.captureSerial,(unsigned long long)request.patchId,
+			batchCount,batchCount,targetWidth,targetHeight);
+		return FALSE;
+	}
+	request.batches=batches;request.batchCount=batchCount;request.batchCapacity=batchCount;
+	request.coverage=coverage;request.coverageCount=coverageCount;request.coverageCapacity=coverageCount;request.waterLevel=level;
+	request.viewIdentity=reinterpret_cast<std::uintptr_t>(m_modernRenderCamera);
+	request.targetWidth=targetWidth;request.targetHeight=targetHeight;request.fftEligibility=fftEligibility;request.inputs=inputs;
+	if(fixtureFlatPatch&&waterFixtureDiagnosticsEnabled()) {
+		const UnsignedInt attempt=++m_modernFixturePatchAttempt;
+		const char *refuse=getenv("ZH_WATER_REFUSE_PATCH");
+		if(refuse&&strcmp(refuse,"2")==0&&attempt==2) {
+			if(const char *trace=getenv("ZH_WATER_ROUTE_TRACE");trace&&strcmp(trace,"0")!=0)
+				fprintf(stderr,"water-route: event=preflight-refused attempt=%u frame=%llu patch=%llu reason=fixture-second-flat admissions=%u black=%p white=%p\n",
+					attempt,(unsigned long long)request.frameId,(unsigned long long)request.patchId,
+					unsigned(m_modernAcceptedRegions.size()),
+					(void*)(m_pReflectionTexture?m_pReflectionTexture->Peek_D3D_Base_Texture():NULL),
+					(void*)(m_pClassicReflectionTexture?m_pClassicReflectionTexture->Peek_D3D_Base_Texture():NULL));
+			return FALSE;
+		}
+	}
+	NativeWaterStage3State stage3State;
+	if(!stage3State.Valid()) return FALSE;
+	if(!m_riverTexture) return FALSE;
+	TextureFilterClass materialFilter=m_riverTexture->Get_Filter();
+	materialFilter.Set_Mag_Filter(TextureFilterClass::FILTER_TYPE_BEST);
+	materialFilter.Set_Min_Filter(TextureFilterClass::FILTER_TYPE_BEST);
+	materialFilter.Set_Mip_Mapping(TextureFilterClass::FILTER_TYPE_BEST);
+	materialFilter.Apply(0);
+	if(!river) {
+		DX8Wrapper::Set_DX8_Texture_Stage_State(0,D3DSAMP_MINFILTER,D3DTEXF_LINEAR);
+		DX8Wrapper::Set_DX8_Texture_Stage_State(0,D3DSAMP_MAGFILTER,D3DTEXF_LINEAR);
+	}
+	if(river) {
+		if(!m_riverAlphaEdge) return FALSE;
+		if(!m_riverAlphaEdge->Is_Initialized()) m_riverAlphaEdge->Init();
+		DX8Wrapper::Set_Texture(3,m_riverAlphaEdge);
+	} else if(TheTerrainRenderObject->getShroud()) {
+		if(!TheTerrainRenderObject->getShroud()->getShroudTexture()
+			|| !W3DShaderManager::setShroudTex(3)) return FALSE;
+	} else {
+		if(!m_whiteTexture) return FALSE;
+		if(!m_whiteTexture->Is_Initialized()) {
+			m_whiteTexture->Init();
+			SurfaceClass *surface=m_whiteTexture->Get_Surface_Level();
+			if(!surface)return FALSE;
+			surface->DrawPixel(0,0,0xffffffff);REF_PTR_RELEASE(surface);
+		}
+		DX8Wrapper::Set_Texture(3,m_whiteTexture);
+		DX8Wrapper::Set_DX8_Texture_Stage_State(3,D3DTSS_TEXCOORDINDEX,D3DTSS_TCI_CAMERASPACEPOSITION);
+		DX8Wrapper::Set_DX8_Texture_Stage_State(3,D3DTSS_TEXTURETRANSFORMFLAGS,D3DTTFF_COUNT2);
+		Matrix4x4 identity(1);DX8Wrapper::_Set_DX8_Transform(D3DTS_TEXTURE3,identity);
+	}
+	DX8Wrapper::Apply_Render_State_Changes();
+	if(routeTrace) fprintf(stderr,"water-producer: frame=%llu generation=%llu capture=%llu patch=%llu eligibility=%u river=%u vessel-y=%.9g cage-requested=%u cage=%u cage-id=%p cage-valid=%u terrain-id=%p terrain-valid=%u water-level=%.9g atlas-level=%.9g atlas-channels=%.9g\n",
+		(unsigned long long)request.frameId,(unsigned long long)request.resourceGeneration,
+		(unsigned long long)request.captureSerial,(unsigned long long)request.patchId,unsigned(request.fftEligibility),
+		unsigned(request.inputs.surface.river),request.inputs.surface.fftParameters.y,unsigned(waveCage),
+		unsigned(request.inputs.surface.heightWaveCageAvailable),(void*)request.inputs.surface.heightWaveCage.identity,
+		unsigned(request.inputs.surface.heightWaveCage.available),(void*)request.inputs.surface.terrainHeight.identity,
+		unsigned(request.inputs.surface.terrainAvailable),request.waterLevel,
+		request.inputs.surface.foamHistoryParameters.y,request.inputs.surface.foamHistoryParameters.x);
+	const PrepareStatus status=bridge->PreparePatch(request,prepared);
+	if(routeTrace) fprintf(stderr,"water-route: event=prepare status=%u reason=bridge frame=%llu generation=%llu capture=%llu patch=%llu batch-count=%zu batch-capacity=%zu target=(%u,%u,%u,%u)\n",
+		unsigned(status),(unsigned long long)request.frameId,(unsigned long long)request.resourceGeneration,
+		(unsigned long long)request.captureSerial,(unsigned long long)request.patchId,
+		request.batchCount,request.batchCapacity,request.targetWidth,request.targetHeight,
+		request.targetFormat,request.targetSamples);
+	return status==PrepareStatus::Ready;
+}
+#endif
+
+Bool WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool river, Real riverStart, Real riverEnd,
+	std::vector<WaterRenderBridge::PreparedPatch> *preparedPatches)
+{
+#ifdef _WIN32
+	if(nativeModernWaterBackend()&&!WaterShoreOverlay::ShouldAttempt(m_modernDispatch))
+		return WaterShoreOverlay::BlockedResult(m_modernDispatch);
+#endif
 	m_modernOpticalLevel=points[0].Z;
 	Vector3 boundsMin=points[0],boundsMax=points[0];
 	for (Int i=1;i<4;++i) {
@@ -4372,7 +4915,7 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 		boundsMax.X+=WaterFftGeometry::MaxHorizontalDisplacement;boundsMax.Y+=WaterFftGeometry::MaxHorizontalDisplacement;
 	}
 	// Include all wave crests in culling; offscreen authored patches do not evaluate any modes.
-	if (m_modernRenderCamera && m_modernRenderCamera->Cull_Box(AABoxClass((boundsMin+boundsMax)*0.5f,(boundsMax-boundsMin)*0.5f))) return;
+	if (m_modernRenderCamera && m_modernRenderCamera->Cull_Box(AABoxClass((boundsMin+boundsMax)*0.5f,(boundsMax-boundsMin)*0.5f))) return TRUE;
 	const ModernOpticalTexture *oceanContext=NULL;
 	if (!river && modernWaterOpticalTexture(m_modernOpticalLevel))
 		for (size_t field=0;field<m_modernOpticalTextures.size();++field)
@@ -4592,14 +5135,13 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 	}
 
 	if (m_modernProfileEnabled) m_modernProfile.mesh+=modernWaterProfileMilliseconds()-profileMeshStart;
-	if (projected && projectedMesh.indices.empty()) return;
+	if (projected && projectedMesh.indices.empty()) return TRUE;
 	if (!projected) m_modernRetainedVertices+=vertexCount;
 	const Bool waveCage=projected && waveCageAvailable;
 	const double profileFillStart=m_modernProfileEnabled?modernWaterProfileMilliseconds():0;
-	DynamicVBAccessClass vertices(BUFFER_TYPE_DYNAMIC_DX8,dynamic_fvf_type,vertexCount);
+	std::vector<VertexFormatXYZNDUV2> preparedVertices(vertexCount);
 	{
-		DynamicVBAccessClass::WriteLockClass lock(&vertices);
-		VertexFormatXYZNDUV2 *grid=lock.Get_Formatted_Vertex_Array();
+		VertexFormatXYZNDUV2 *grid=preparedVertices.data();
 		VertexFormatXYZNDUV2 *vertex=grid;
 		W3DShroud *shroud=TheTerrainRenderObject?TheTerrainRenderObject->getShroud():NULL;
 		if (projected) {
@@ -4792,6 +5334,52 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 	if (m_modernProfileEnabled) {
 		profileSubmitStart=modernWaterProfileMilliseconds();m_modernProfile.fill+=profileSubmitStart-profileFillStart;
 	}
+	if(nativeModernWaterBackend()) {
+		using namespace WaterRenderBridge;
+		WaterRenderBridge::Bridge *bridge=WaterRenderBridge::GetActiveBridge();
+		if(!bridge||!m_modernRenderCamera) return WaterShoreOverlay::PreEmissionRefused(m_modernDispatch);
+		std::vector<std::vector<UnsignedShort>> indexStorage;
+		if(projected) {
+			for(size_t first=0;first<projectedMesh.indices.size();first+=65532) {
+				const size_t count=min(size_t(65532),projectedMesh.indices.size()-first);
+				indexStorage.emplace_back(projectedMesh.indices.begin()+first,projectedMesh.indices.begin()+first+count);
+			}
+		} else {
+			const Int batchRows=WaterSurfaceModel::IndexBatchRows(cells);
+			for(Int row=0;row<cells;row+=batchRows) {
+				const Int rows=min(batchRows,cells-row),triangles=rows*cells*2;
+				indexStorage.emplace_back(size_t(triangles)*3);UnsignedShort *index=indexStorage.back().data();
+				for(Int j=row;j<row+rows;++j) for(Int i=0;i<cells;++i) {
+					const Int a=j*side+i,b=a+1,c=a+side,d=c+1;
+					*index++=a;*index++=d;*index++=c;*index++=a;*index++=b;*index++=d;
+				}
+			}
+		}
+		if(indexStorage.empty()||indexStorage.size()>MaxPreparedBatches)
+			return WaterShoreOverlay::PreEmissionRefused(m_modernDispatch);
+		std::vector<BatchRequest> batches(indexStorage.size());
+		for(size_t i=0;i<indexStorage.size();++i) {
+			BatchRequest &batch=batches[i];batch.partId=i+1;batch.topology=Topology::TriangleList;
+			batch.indexFormat=IndexFormat::UInt16;batch.vertexLayout=dynamic_fvf_type;
+			batch.vertexStride=sizeof(VertexFormatXYZNDUV2);batch.vertexCount=vertexCount;
+			batch.indexCount=(std::uint32_t)indexStorage[i].size();batch.primitiveCount=batch.indexCount/3;
+			batch.vertices=preparedVertices.data();batch.indices=indexStorage[i].data();
+			batch.vertexBytes=preparedVertices.size()*sizeof(preparedVertices[0]);
+			batch.indexBytes=indexStorage[i].size()*sizeof(indexStorage[i][0]);
+		}
+		CoveragePoint coverage[4];for(Int i=0;i<4;++i) coverage[i]={points[i].X,points[i].Y};
+		PreparedPatch prepared={};
+		if(!prepareNativeWaterBatches(batches.data(),batches.size(),coverage,4,points[0].Z,river,waveCage,
+			river?FftEligibility::Ineligible:FftEligibility::ProjectedFlat,!river,prepared))
+			return WaterShoreOverlay::PreEmissionRefused(m_modernDispatch);
+		if(preparedPatches) {preparedPatches->push_back(prepared);return TRUE;}
+		return submitModernWaterPatch(prepared);
+	}
+	DynamicVBAccessClass vertices(BUFFER_TYPE_DYNAMIC_DX8,dynamic_fvf_type,vertexCount);
+	{
+		DynamicVBAccessClass::WriteLockClass lock(&vertices);
+		memcpy(lock.Get_Formatted_Vertex_Array(),preparedVertices.data(),preparedVertices.size()*sizeof(preparedVertices[0]));
+	}
 	Matrix3D transform(1);
 	DX8Wrapper::Set_Transform(D3DTS_WORLD,transform);
 	DX8Wrapper::Set_Vertex_Buffer(vertices);
@@ -4807,7 +5395,9 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 	WaterShoreOverlay::Quad shorePatch;shorePatch.level=points[0].Z;
 	Bool planar=TRUE;
 	for(Int i=0;i<4;++i) {shorePatch.xy[i*2]=points[i].X;shorePatch.xy[i*2+1]=points[i].Y;planar=planar && points[i].Z==points[0].Z;}
+#ifndef _WIN32
 	PosixWaterShorePatch(DX8Wrapper::_Get_D3D_Device(),!river && !meshDebug && planar?&shorePatch:NULL);
+#endif
 	// Legacy dynamic index buffers store their count in 16 bits. Keep a shared vertex grid and
 	// submit bounded row batches; even a 128-cell ocean patch cannot truncate its index count.
 	if (projected) {
@@ -4834,7 +5424,9 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 		DX8Wrapper::Draw_Triangles(0,triangles,0,vertexCount);
 	}
 	}
+#ifndef _WIN32
 	PosixWaterShorePatch(DX8Wrapper::_Get_D3D_Device(),NULL);
+#endif
 	if (meshDebug) DX8Wrapper::Set_DX8_Render_State(D3DRS_FILLMODE,D3DFILL_SOLID);
 	// Legacy water particles can be replaced only after this view has submitted the
 	// modern surface for their hull's level. Cached or offscreen hulls alone are not enough.
@@ -4853,7 +5445,7 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 	}
 	DX8Wrapper::Set_DX8_Render_State(D3DRS_CULLMODE,cull);
 	if (m_modernProfileEnabled) m_modernProfile.submit+=modernWaterProfileMilliseconds()-profileSubmitStart;
-#endif
+	return TRUE;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4873,10 +5465,15 @@ void WaterRenderObjClass::drawRiverWater(PolygonTrigger *pTrig)
 	m_drawingRiver = true;
 #ifndef _WIN32
 	if (m_useModernWater && m_riverWaterPixelShader) {
+#else
+	if (m_useModernWater && nativeModernWaterBackend()) {
+#endif
 		Int inner=pTrig->getRiverStart(),outer=inner+1;
 		if (inner<0 || inner>=pTrig->getNumPoints()-1) return;
 		Vector3 previous[2];
 		Real along=0;
+		std::vector<WaterRenderBridge::PreparedPatch> preparedPatches;
+		Bool complete=TRUE;
 		for (Int row=0;row<=rectangleCount;++row) {
 			const ICoord3D &a=*pTrig->getPoint(outer),&b=*pTrig->getPoint(inner);
 			Vector3 next[2]={Vector3(a.x,a.y,a.z),Vector3(b.x,b.y,b.z)};
@@ -4884,16 +5481,22 @@ void WaterRenderObjClass::drawRiverWater(PolygonTrigger *pTrig)
 				const Real length=((next[0]-previous[0]).Length()+(next[1]-previous[1]).Length())*0.5f;
 				const Real width=max((next[1]-next[0]).Length(),1.0f);
 				Vector3 patch[4]={previous[0],previous[1],next[1],next[0]};
-				drawModernWaterPatch(patch,TRUE,along,along+length/width);
+				if(!drawModernWaterPatch(patch,TRUE,along,along+length/width,&preparedPatches)) {complete=FALSE;break;}
 				along+=length/width;
 			}
 			previous[0]=next[0]; previous[1]=next[1];
 			outer=(outer+1)%pTrig->getNumPoints();
 			inner=(inner+pTrig->getNumPoints()-1)%pTrig->getNumPoints();
 		}
-		return;
+		if(complete) {
+			Bool emitted=FALSE;
+			for(const WaterRenderBridge::PreparedPatch &prepared:preparedPatches) {
+				if(!submitModernWaterPatch(prepared)) {if(emitted)return;complete=FALSE;break;}
+				emitted=TRUE;
+			}
+			if(complete||emitted)return;
+		}
 	}
-#endif
 
 	//allocate 2 triangles per side with 3 indices per triangle
 	DynamicIBAccessClass ib_access(BUFFER_TYPE_DYNAMIC_DX8,(rectangleCount+1)*2*3);
@@ -5121,6 +5724,17 @@ void WaterRenderObjClass::drawReflection(Int triangleCount, Int vertexCount)
 #endif
 	if (!m_pReflectionTexture || !m_reflectionPixelShader)
 		return;	//the card refused a render target or a pixel shader
+	TextureClass *reflectionTexture=m_pReflectionTexture;
+#ifdef _WIN32
+	if (m_useModernWater && m_classicReflectionReady && m_pClassicReflectionTexture)
+		reflectionTexture=m_pClassicReflectionTexture;
+	if(waterFixtureDiagnosticsEnabled())
+		if(const char *trace=getenv("ZH_WATER_ROUTE_TRACE");trace&&strcmp(trace,"0")!=0)
+			fprintf(stderr,"water-route: event=classic-reflection-bind triangles=%d vertices=%d target=%p companion=%d attempt=%u admissions=%u\n",
+				triangleCount,vertexCount,(void*)reflectionTexture->Peek_D3D_Base_Texture(),
+				reflectionTexture==m_pClassicReflectionTexture?1:0,m_modernFixturePatchAttempt,
+				unsigned(m_modernAcceptedRegions.size()));
+#endif
 
 	// multiplied into the water, so it keeps the colour it was drawn with and the shroud already on it
 	DX8Wrapper::Set_Shader(ShaderClass::_PresetMultiplicativeShader);
@@ -5150,7 +5764,7 @@ void WaterRenderObjClass::drawReflection(Int triangleCount, Int vertexCount)
 	D3DXMATRIX viewToTexture = projection * clipToTexture * screenToArea;
 	DX8Wrapper::_Set_DX8_Transform(D3DTS_TEXTURE0, *(Matrix4x4*)&viewToTexture);
 
-	DX8Wrapper::Set_DX8_Texture(0, m_pReflectionTexture->Peek_D3D_Texture());
+	DX8Wrapper::Set_DX8_Texture(0, reflectionTexture->Peek_D3D_Texture());
 	DX8Wrapper::Set_DX8_Texture_Stage_State(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
 	DX8Wrapper::Set_DX8_Texture_Stage_State(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
 	DX8Wrapper::Set_DX8_Texture_Stage_State(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
@@ -5274,10 +5888,12 @@ void WaterRenderObjClass::setupFlatWaterShader(Bool heightCorrection,Bool waveCa
 //-------------------------------------------------------------------------------------------------
 //Draw a 4 sided flat water area.
 //-------------------------------------------------------------------------------------------------
-void WaterRenderObjClass::drawTrapezoidWater(Vector3 points[4])
+void WaterRenderObjClass::drawTrapezoidWater(Vector3 points[4], Bool allowModern)
 {
 #ifndef _WIN32
-	if (m_useModernWater && m_trapezoidWaterPixelShader) { drawModernWaterPatch(points,FALSE); return; }
+	if (allowModern && m_useModernWater && m_trapezoidWaterPixelShader && drawModernWaterPatch(points,FALSE)) return;
+#else
+	if (allowModern && m_useModernWater && nativeModernWaterBackend() && drawModernWaterPatch(points,FALSE)) return;
 #endif
 	Vector3 origin(points[0]);
 	Vector3 uVec1(points[1]);

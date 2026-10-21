@@ -20,7 +20,7 @@
 .DESCRIPTION
   The Windows counterpart of the port's post-merge checks on macOS and Linux (W2). In order:
     1. build.bat -Config (skip with -SkipBuild), then ZH_GAME_DATA set on the build tree when -DataDir is given;
-    2. ctest, minus the audio and video tests (no sound on a CI machine) and, in session 0, minus the GPU tests;
+    2. parallel CPU ctest jobs, excluding audio/video and all native GPU jobs;
     3. the desktop part: the GPU tests, then replay-check.ps1 for every E1 run at once, each on its own farm of
        the data with its own user data folder (ZH_USER_DATA_DIR, which Windows honours too). The runs
        are -Seeds at -MaxFrames, or -Runs "seed@frames" pairs when the seeds need different lengths.
@@ -84,7 +84,7 @@ param(
 	# SHA-256 go in the summary, before the tests and again from the desktop part, so the DLL used is on record
 	[string] $DllProbe = "",
 	# internal: "desktop" when the script is running its desktop part, and where that part writes its result
-	[string] $Phase = "all",
+	[ValidateSet('all', 'cpu', 'desktop')] [string] $Phase = "all",
 	[string] $CheckedOut = "",	# internal: what the -Bundle/-Ref hand-over checked out, for the summary
 	[string] $ResultFile = ""
 )
@@ -92,6 +92,11 @@ param(
 # Continue, not Stop: Windows PowerShell 5.1 turns a native command's stderr, under 2>&1, into a terminating
 # error, and ctest writes "Errors while running CTest" there. Failures are counted by exit status instead.
 $ErrorActionPreference = "Continue"
+$ciHelper = Join-Path $PSScriptRoot 'GeneralsMD\Code\Tools\windows-ci-gpu.ps1'
+if (-not (Test-Path -LiteralPath $ciHelper -PathType Leaf)) { throw "CI helper is missing: $ciHelper" }
+. $ciHelper
+$savedEnvironment = Get-CiEnvironment @('ZH_UNATTENDED', 'ZH_USER_DATA_DIR', 'ZH_PLATFORM', 'PATH')
+try {
 $env:ZH_UNATTENDED = "1"	# every game this starts is unattended: no box may wait on a person (EarlyCommandLine.h)
 # through powershell -File an array arrives as one comma-joined string: -Seeds, -Runs and -ExpectCrc alike
 $Seeds = @($Seeds | ForEach-Object { $_.Split(',') } | Where-Object { $_ -ne "" } | ForEach-Object { [int]$_ })
@@ -109,7 +114,6 @@ $arm64 = if ($Platform -ne "") { $Platform -eq "ARM64" } else { $env:PROCESSOR_A
 $Build = Join-Path $Root $(if ($arm64) { "build-arm64" } else { "build64" })
 $RunDir = Join-Path $Root "GeneralsMD\Run"
 $NoSound = "test_milesaudiomanager|miles_smoke|test_miles_miniaudio|test_binkvideo|bink_smoke"
-$GpuTests = "^(dx9_smoke|dx9_smoke_msaa|test_dx11device)$"
 
 function Get-CtestExe {
 	$cache = Join-Path $Build "CMakeCache.txt"
@@ -191,13 +195,17 @@ function Get-DllProbe {
 
 function Invoke-DesktopPart {
 	$r = [ordered]@{ Gpu = "not run"; E1 = "not run"; Crcs = @{}; DataUnchanged = $null; Log = @(); Dll = "" }
+	if ((Get-Process -Id $PID).SessionId -eq 0) {
+		$r.Gpu = 'UNAVAILABLE (session 0 has no interactive desktop)'
+		return $r
+	}
 	if ($DllProbe -ne "") { $r.Dll = Get-DllProbe }
 	$tools = Get-CtestExe
-	Push-Location $Build
-	$gpu = & $tools.CTest -C $Config -R $GpuTests --output-on-failure 2>&1
-	Pop-Location
-	$r.Log += $gpu
-	$r.Gpu = if ($LASTEXITCODE -eq 0) { "passed" } else { "FAILED" }
+	$gpu = Invoke-CiTestLane -CTest $tools.CTest -Build $Build -Config $Config -WorkDir $WorkDir -Lane gpu
+	$r.Log += $gpu.Log
+	$r.GpuCoverage = $gpu
+	$r.Gpu = if ($gpu.Classification -eq 'passed') { 'passed' } else { "$($gpu.Classification) ($($gpu.Detail))" }
+	if ($gpu.Classification -eq 'UNAVAILABLE') { return $r }
 
 	if ($DataDir -ne "") {
 		$zh = Join-Path $DataDir "zerohour"
@@ -258,7 +266,7 @@ if ($Phase -eq "desktop") {
 	$json = $result | ConvertTo-Json -Depth 4
 	$json | Out-File -Encoding utf8 "$ResultFile.partial"
 	Move-Item -Force "$ResultFile.partial" $ResultFile
-	exit 0
+	exit $(if ($result.Gpu -eq 'passed' -and ($DataDir -eq '' -or $result.E1 -eq 'played back the same')) { 0 } else { 1 })
 }
 
 # ---- the main part --------------------------------------------------------------------------------------
@@ -320,17 +328,22 @@ if ($DllProbe -ne "") { $summary += "dll probe (tests): $(Get-DllProbe)" }
 if ($DataDir -ne "") { & $tools.CMake -S (Join-Path $Root "GeneralsMD\Code") -B $Build "-DZH_GAME_DATA=$DataDir" | Out-Null }
 
 $session0 = (Get-Process -Id $PID).SessionId -eq 0
-Push-Location $Build
-$exclude = if ($session0) { "$NoSound|dx9_smoke|dx9_smoke_msaa|test_dx11device" } else { $NoSound }
 $phaseClock = [Diagnostics.Stopwatch]::StartNew()
-$ctestOut = & $tools.CTest -C $Config -j4 --timeout 900 --output-on-failure -E $exclude 2>&1
+$cpu = Invoke-CiTestLane -CTest $tools.CTest -Build $Build -Config $Config -WorkDir $WorkDir -Lane cpu -NoSound $NoSound
+$ctestOut = $cpu.Log
 $ctestTook = "$([int]$phaseClock.Elapsed.TotalSeconds) s"
-$ctestExit = $LASTEXITCODE
-Pop-Location
+$ctestExit = if ($cpu.Classification -eq 'passed') { 0 } else { 1 }
 New-Item -ItemType Directory -Force $WorkDir | Out-Null
 $ctestOut | ForEach-Object { "$_" } | Out-File -Encoding utf8 (Join-Path $WorkDir "ctest.log")		# the failing tests' own output
 $summary += "ctest: " + $(if ($ctestExit -eq 0) { "passed ($ctestTook)" } else { $failed = $true; "FAILED ($ctestTook; the output: $(Join-Path $WorkDir 'ctest.log'))" })
 $ctestOut | Select-String -Pattern 'tests passed|\*\*\*' | ForEach-Object { $summary += "  " + $_.Line.Trim() }
+$summary += "CPU coverage: $($cpu.Classification), $($cpu.Detail)"
+$cpu | ConvertTo-Json -Depth 5 | Out-File -Encoding utf8 (Join-Path $WorkDir 'cpu-result.json')
+if ($Phase -eq 'cpu') {
+	$summary | ForEach-Object { Write-Host $_ }
+	Write-Host 'GPU tests and rendered gameplay: UNRUN (CPU phase requested)'
+	exit $ctestExit
+}
 
 # the desktop part: here, or in the interactive session through a one-off task
 $phaseClock = [Diagnostics.Stopwatch]::StartNew()
@@ -365,7 +378,8 @@ if ($session0) {
 	# each only when given: Windows PowerShell drops an empty argument to a program, which would leave its name bare
 	$platformArgs = @(if ($Platform -ne "") { "-Platform", $Platform }) + @(if ($DllPath -ne "") { "-DllPath", $DllPath }) +
 		@(if ($DllProbe -ne "") { "-DllProbe", $DllProbe })
-	& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath -Phase desktop -ResultFile $resultFile -Config $Config -MaxFrames $MaxFrames -WorkDir $WorkDir -Runs ($Runs -join ',') -DataDir $DataDir @platformArgs
+	$dataArgs = @(if ($DataDir -ne "") { "-DataDir", $DataDir })
+	& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath -Phase desktop -ResultFile $resultFile -Config $Config -MaxFrames $MaxFrames -WorkDir $WorkDir -Runs ($Runs -join ',') @dataArgs @platformArgs
 }
 $desktopTook = "$([int]$phaseClock.Elapsed.TotalSeconds) s"
 if (-not (Test-Path $resultFile)) {
@@ -392,3 +406,6 @@ Write-Host ""
 $summary | ForEach-Object { Write-Host $_ }
 Write-Host $(if ($failed) { "WINDOWS CHECK FAILED" } else { "WINDOWS CHECK PASSED" })
 exit $(if ($failed) { 1 } else { 0 })
+} finally {
+	Restore-CiEnvironment $savedEnvironment
+}

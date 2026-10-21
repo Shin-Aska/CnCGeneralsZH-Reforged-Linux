@@ -100,11 +100,11 @@ public:
                 for(int x=0;x<2*(width-1);++x) {
                     const int ix=x/2,iy=y/2;const float fx=(x%2)*.5f,fy=(y%2)*.5f;
                     // Include a one-terrain-cell margin around support for wet-only spreading.
-                    bool near=false;
-                    for(int yy=(std::max)(0,iy-1);yy<=(std::min)(height-1,iy+2)&&!near;++yy)
+                    bool nearCoast=false;
+                    for(int yy=(std::max)(0,iy-1);yy<=(std::min)(height-1,iy+2)&&!nearCoast;++yy)
                         for(int xx=(std::max)(0,ix-1);xx<=(std::min)(width-1,ix+2);++xx)
-                            near=near||f.coast[size_t(yy)*width+xx]!=0;
-                    if(!near||FieldSample(f.ocean,width,ix,iy,fx,fy)>0)continue;
+                            nearCoast=nearCoast||f.coast[size_t(yy)*width+xx]!=0;
+                    if(!nearCoast||FieldSample(f.ocean,width,ix,iy,fx,fy)>0)continue;
                     const double worldX=next.grid.originX+x*next.grid.spacing;
                     if(!Covered(row,worldX,worldX))continue;
                     const float terrain=Height(heights,width,height,x*.5,y*.5,heightScale);

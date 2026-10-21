@@ -54,6 +54,12 @@
 #include "GameClient/GameClient.h"
 #include "GameClient/Drawable.h"
 #include "Platform/WaterFoamParticlePolicy.h"
+#ifdef _WIN32
+#include "Platform/WaterRenderBridge.h"
+#include "Platform/WaterCaptureFixture.h"
+#include "Common/ThingTemplate.h"
+#include "WW3D2/dx11device.h"
+#endif
 #include <map>
 #include <cstdio>
 #include <cstdlib>
@@ -109,6 +115,92 @@ static void traceNativeRippleDiagnostic(ParticleSystem *sys,UnsignedInt owner,Bo
 }
 #endif
 
+#ifdef _WIN32
+// Optional attribution only; no graphics/owner query unless explicitly enabled.
+struct WindowsVesselDrawSpan {
+    unsigned pipelinesBefore,pipelinesAfter;
+    unsigned long long madeBefore,madeAfter,refusedBefore,refusedAfter;
+    UnsignedInt renderBefore,renderAfter;
+    Bool activeBefore,activeAfter;
+};
+
+static Bool traceWindowsVesselParticle(ParticleSystem *sys,unsigned phase,Bool skipped,unsigned built,
+    const WindowsVesselDrawSpan *span=NULL)
+{
+    static const bool enabled=WaterFoamParticlePolicy::SameResource(std::getenv("ZH_WATER_PARTICLE_TRACE"),"1");
+    static unsigned lines=0;
+    if(!enabled || lines>=512 || !Direct3D11_Is_Active() || !sys || !sys->getTemplate() ||
+        !TheGameLogic || !TheGameClient || !TheWaterRenderObj) return FALSE;
+    const AsciiString name=sys->getTemplate()->getName(),texture=sys->getParticleTypeName();
+    if(!WaterFoamParticlePolicy::KnownSurfaceFoam(name.str(),texture.str())) return FALSE;
+    const Bool ordinary=!sys->shouldBillboard() && !sys->isUsingDrawables() &&
+        !sys->isUsingStreak() && !sys->isUsingSmudge() && sys->getVolumeParticleDepth()==0;
+    if(!ordinary) return FALSE;
+    const Object *owner=NULL;
+    if(sys->getAttachedDrawable()!=INVALID_DRAWABLE_ID) {
+        const Drawable *drawable=TheGameClient->findDrawableByID(sys->getAttachedDrawable());
+        if(drawable) owner=drawable->getObject();
+    } else if(sys->getAttachedObject()!=INVALID_ID) owner=TheGameLogic->findObjectByID(sys->getAttachedObject());
+    if(!owner || owner->isDestroyed()) return FALSE;
+    const UnsignedInt system=(UnsignedInt)sys->getSystemID(),render=(UnsignedInt)WW3D::Get_Frame_Count();
+    const Bool mirror=ShaderClass::Is_Backface_Culling_Inverted();
+    WaterRenderBridge::Bridge *bridge=WaterRenderBridge::GetActiveBridge();
+    WaterRenderBridge::CurrentView before={},after={};
+    const bool validBefore=bridge && bridge->QueryCurrentView(before) && WaterRenderBridge::ValidCurrentView(before);
+    const Bool admitted=TheWaterRenderObj->hasModernVesselFoam(owner->getID());
+    const bool validAfter=bridge && bridge->QueryCurrentView(after) && WaterRenderBridge::ValidCurrentView(after);
+    const bool stable=validBefore && validAfter && before.frameId==after.frameId &&
+        before.resourceGeneration==after.resourceGeneration && before.captureSerial==after.captureSerial &&
+        before.colourIdentity==after.colourIdentity && before.depthIdentity==after.depthIdentity &&
+        before.viewIdentity==after.viewIdentity && before.targetWidth==after.targetWidth &&
+        before.targetHeight==after.targetHeight && before.targetFormat==after.targetFormat &&
+        before.targetSamples==after.targetSamples && WaterRenderBridge::SameViewState(before.viewState,after.viewState);
+    const Coord3D *position=owner->getPosition();
+    const Real level=TheWaterRenderObj->getWaterHeight(position->x,position->y);
+    // Read the actual retained native point span only; NULL is UNKNOWN, never inferred solid.
+    Bool nativeRSQueried=FALSE;
+    unsigned nativeRSEnum=0;
+    const char *nativeRSFill="UNKNOWN";
+    if(phase==1 && span && !skipped && built>0 && span->activeBefore && span->activeAfter &&
+        span->renderBefore==span->renderAfter && span->madeAfter>span->madeBefore &&
+        span->refusedAfter==span->refusedBefore && TheGlobalData &&
+        WaterCaptureFixture::Enabled(std::getenv("ZH_WATER_CAPTURE_FIXTURE"),TheGlobalData->m_controlPort,
+            TheGameLogic->isInGame() && !TheGameLogic->isInShellGame(),
+            TheGameLogic->isInMultiplayerGame(),TheGameLogic->isInReplayGame())) {
+        const DX11DeviceClass *device=Direct3D11_Device();
+        ID3D11DeviceContext *context=device?device->Get_Context():NULL;
+        if(context) {
+            ID3D11RasterizerState *state=NULL;
+            context->RSGetState(&state);
+            nativeRSQueried=TRUE;
+            if(state) {
+                D3D11_RASTERIZER_DESC description;
+                state->GetDesc(&description);
+                nativeRSEnum=unsigned(description.FillMode);
+                nativeRSFill=description.FillMode==D3D11_FILL_WIREFRAME?"WIREFRAME":
+                    (description.FillMode==D3D11_FILL_SOLID?"SOLID":"OTHER");
+                state->Release();
+            }
+        }
+    }
+    ++lines;
+    std::fprintf(stderr,"water-particle-observe: phase=%s template=%s texture=%s system=%u owner=%u drawable=%u object=%u logic=%u render=%u mirror=%d ordinary=%d particles=%u built=%u skipped=%d admitted=%d view-before=%d view-after=%d view-stable=%d frame=%llu generation=%llu capture=%llu colour=%llu depth=%llu view=%llu target=(%u,%u,%u,%u) owner-position=(%.9g,%.9g,%.9g) water-at-owner=%.9g stats-sampled=%d stats-active=(%d,%d) stats-render=(%u,%u) pipelines=(%u,%u) draws-made=(%llu,%llu) draws-refused=(%llu,%llu) native-rs-query=%d native-rs-fill=%s native-rs-enum=%u record=%u/512\n",
+        phase==0?"main-decision":"point-render-returned",name.str(),texture.str(),system,(UnsignedInt)owner->getID(),
+        (UnsignedInt)sys->getAttachedDrawable(),(UnsignedInt)sys->getAttachedObject(),TheGameLogic->getFrame(),render,
+        (int)mirror,(int)ordinary,(UnsignedInt)sys->getParticleCount(),built,(int)skipped,(int)admitted,
+        (int)validBefore,(int)validAfter,(int)stable,(unsigned long long)before.frameId,
+        (unsigned long long)before.resourceGeneration,(unsigned long long)before.captureSerial,
+        (unsigned long long)before.colourIdentity,(unsigned long long)before.depthIdentity,(unsigned long long)before.viewIdentity,
+        before.targetWidth,before.targetHeight,before.targetFormat,before.targetSamples,
+        position->x,position->y,position->z,level,span?1:0,
+        span?(int)span->activeBefore:0,span?(int)span->activeAfter:0,
+        span?span->renderBefore:0,span?span->renderAfter:0,span?span->pipelinesBefore:0,span?span->pipelinesAfter:0,
+        span?span->madeBefore:0,span?span->madeAfter:0,span?span->refusedBefore:0,span?span->refusedAfter:0,
+        (int)nativeRSQueried,nativeRSFill,nativeRSEnum,lines);
+    return lines<512;
+}
+#endif
+
 // Modern water replaces only verified vessel-surface particles, after that hull's water draw.
 static Bool replaceLegacyVesselFoam(ParticleSystem *sys)
 {
@@ -143,10 +235,113 @@ static Bool replaceLegacyVesselFoam(ParticleSystem *sys)
     // immediately restores the original particle draw, including in this experiment.
     return legacySkip || diagnosticSkip;
 #else
-    return FALSE;
+    if(!Direct3D11_Is_Active() || !sys || !TheWaterRenderObj || !TheGameClient ||
+        !TheGameLogic || !sys->getTemplate() || ShaderClass::Is_Backface_Culling_Inverted()) return FALSE;
+    const Bool ordinaryGroundParticle=!sys->shouldBillboard() && !sys->isUsingDrawables() &&
+        !sys->isUsingStreak() && !sys->isUsingSmudge() && sys->getVolumeParticleDepth()==0;
+    const AsciiString name=sys->getTemplate()->getName(),texture=sys->getParticleTypeName();
+    if(!ordinaryGroundParticle || !WaterFoamParticlePolicy::KnownSurfaceFoam(name.str(),texture.str()))
+        return FALSE;
+    const Object *owner=NULL;
+    if(sys->getAttachedDrawable()!=INVALID_DRAWABLE_ID) {
+        const Drawable *drawable=TheGameClient->findDrawableByID(sys->getAttachedDrawable());
+        if(drawable) owner=drawable->getObject();
+    } else if(sys->getAttachedObject()!=INVALID_ID) {
+        owner=TheGameLogic->findObjectByID(sys->getAttachedObject());
+    }
+    if(!owner || owner->isDestroyed()) return FALSE;
+    return WaterFoamParticlePolicy::Replace(name.str(),texture.str(),ordinaryGroundParticle,TRUE,
+        TheWaterRenderObj->hasModernVesselFoam(owner->getID()),FALSE);
 #endif
 }
 
+#ifdef _WIN32
+// Fixture-only stale decision; restore the healthy view before the original point draw.
+class WindowsVesselResolverProbe {
+    ParticleSystem *system=NULL;const Object *owner=NULL;WaterRenderBridge::Bridge *bridge=NULL;
+    WaterRenderBridge::CurrentView pin={},restored={};Matrix4x4 saved,changed;WindowsVesselDrawSpan span={};
+    unsigned logic=0,render=0,built=0;bool participating=false,changedView=false,finite=false;
+    bool staleValid=true,staleAdmitted=true,staleSkipped=true,restoreOK=false,sampled=false;
+    static bool SameKey(const WaterRenderBridge::CurrentView &a,const WaterRenderBridge::CurrentView &b)
+    {
+        return a.frameId==b.frameId&&a.resourceGeneration==b.resourceGeneration&&a.captureSerial==b.captureSerial
+            &&a.colourIdentity==b.colourIdentity&&a.depthIdentity==b.depthIdentity&&a.viewIdentity==b.viewIdentity
+            &&a.targetWidth==b.targetWidth&&a.targetHeight==b.targetHeight&&a.targetFormat==b.targetFormat
+            &&a.targetSamples==b.targetSamples&&WaterRenderBridge::SameViewState(a.viewState,b.viewState);
+    }
+    void Restore()
+    {
+        if(!changedView)return;
+        DX8Wrapper::Set_Transform(D3DTS_VIEW,saved);DX8Wrapper::Apply_Render_State_Changes();changedView=false;
+    }
+    void Key(const char *phase,const WaterRenderBridge::CurrentView &k) const
+    {
+        std::fprintf(stderr,"water-resolver-probe-key: phase=%s owner=%u system=%u logic=%u render=%u frame=%llu generation=%llu capture=%llu colour=%llu depth=%llu view=%llu target=(%u,%u,%u,%u) viewport=(%.9g,%.9g,%.9g,%.9g,%.9g,%.9g)\n",
+            phase,(unsigned)owner->getID(),(unsigned)system->getSystemID(),logic,render,(unsigned long long)k.frameId,
+            (unsigned long long)k.resourceGeneration,(unsigned long long)k.captureSerial,(unsigned long long)k.colourIdentity,
+            (unsigned long long)k.depthIdentity,(unsigned long long)k.viewIdentity,k.targetWidth,k.targetHeight,k.targetFormat,k.targetSamples,
+            k.viewState.viewport.x,k.viewState.viewport.y,k.viewState.viewport.width,k.viewState.viewport.height,k.viewState.viewport.minDepth,k.viewState.viewport.maxDepth);
+        for(unsigned r=0;r<4;++r)std::fprintf(stderr,"water-resolver-probe-matrix: phase=%s system=%u render=%u row=%u view=(%.9g,%.9g,%.9g,%.9g) projection=(%.9g,%.9g,%.9g,%.9g)\n",
+            phase,(unsigned)system->getSystemID(),render,r,k.viewState.view[r*4],k.viewState.view[r*4+1],k.viewState.view[r*4+2],k.viewState.view[r*4+3],
+            k.viewState.projection[r*4],k.viewState.projection[r*4+1],k.viewState.projection[r*4+2],k.viewState.projection[r*4+3]);
+    }
+public:
+    explicit WindowsVesselResolverProbe(ParticleSystem *sys)
+    {
+        if(!WaterFoamParticlePolicy::SameResource(std::getenv("ZH_WATER_RESOLVER_PROBE"),"stale-view"))return;
+        if(!Direct3D11_Is_Active()||!TheGlobalData||!TheGameLogic||!TheGameClient||!TheWaterRenderObj||!sys||!sys->getTemplate())return;
+        logic=TheGameLogic->getFrame();if(logic<390||logic>392)return;
+        if(!WaterCaptureFixture::Enabled(std::getenv("ZH_WATER_CAPTURE_FIXTURE"),TheGlobalData->m_controlPort,
+            TheGameLogic->isInGame()&&!TheGameLogic->isInShellGame(),TheGameLogic->isInMultiplayerGame(),TheGameLogic->isInReplayGame()))return;
+        if(ShaderClass::Is_Backface_Culling_Inverted()||sys->shouldBillboard()||sys->isUsingDrawables()
+            ||sys->isUsingStreak()||sys->isUsingSmudge()||sys->getVolumeParticleDepth()!=0||sys->getParticleCount()==0)return;
+        const AsciiString name=sys->getTemplate()->getName(),texture=sys->getParticleTypeName();
+        if(!WaterFoamParticlePolicy::KnownSurfaceFoam(name.str(),texture.str()))return;
+        if(sys->getAttachedDrawable()!=INVALID_DRAWABLE_ID) {
+            const Drawable *draw=TheGameClient->findDrawableByID(sys->getAttachedDrawable());if(draw)owner=draw->getObject();
+        } else if(sys->getAttachedObject()!=INVALID_ID)owner=TheGameLogic->findObjectByID(sys->getAttachedObject());
+        if(!owner||owner->isDestroyed()||!owner->getTemplate()||owner->getTemplate()->getName()!=WaterCaptureFixture::Template)return;
+        bridge=WaterRenderBridge::GetActiveBridge();
+        if(!bridge||!bridge->QueryCurrentView(pin)||!WaterRenderBridge::ValidCurrentView(pin)
+            ||!TheWaterRenderObj->hasModernVesselFoam(owner->getID())||!replaceLegacyVesselFoam(sys))return;
+        system=sys;render=WW3D::Get_Frame_Count();participating=true;Key("healthy-pin",pin);
+        DX8Wrapper::Get_Transform(D3DTS_VIEW,saved);changed=saved;changed[0][3]+=1.0f;finite=changed[0][3]!=saved[0][3];
+        for(unsigned r=0;r<4;++r)for(unsigned c=0;c<4;++c)finite=finite&&std::isfinite(saved[r][c])&&std::isfinite(changed[r][c]);
+        std::fprintf(stderr,"water-resolver-probe-change: system=%u render=%u finite-distinct=%u logical-x=(%.9g,%.9g)\n",
+            (unsigned)system->getSystemID(),render,unsigned(finite),saved[0][3],changed[0][3]);
+        if(!finite)return;
+        changedView=true;DX8Wrapper::Set_Transform(D3DTS_VIEW,changed);DX8Wrapper::Apply_Render_State_Changes();
+        WaterRenderBridge::CurrentView stale={};staleValid=bridge->QueryCurrentView(stale);staleAdmitted=TheWaterRenderObj->hasModernVesselFoam(owner->getID());
+    }
+    void Decision(Bool skipped)
+    {
+        if(!participating)return;
+        staleSkipped=skipped;Restore();restoreOK=bridge->QueryCurrentView(restored)&&WaterRenderBridge::ValidCurrentView(restored)
+            &&SameKey(pin,restored)&&TheWaterRenderObj->hasModernVesselFoam(owner->getID());Key("restored-before-points",restored);
+    }
+    bool WantsPointSample() const { return participating; }
+    void PointReturned(unsigned count,const WindowsVesselDrawSpan *sample)
+    {
+        if(!participating)return;
+        built=count;if(sample){span=*sample;sampled=true;}
+    }
+    ~WindowsVesselResolverProbe()
+    {
+        Restore();if(!participating)return;
+        const bool issued=sampled&&built>0&&span.activeBefore&&span.activeAfter&&span.renderBefore==render&&span.renderAfter==render
+            &&span.madeAfter==span.madeBefore+1&&span.refusedAfter==span.refusedBefore;
+        WaterRenderBridge::CurrentView after={};const bool postKey=bridge->QueryCurrentView(after)&&SameKey(pin,after);
+        const bool pass=finite&&!staleValid&&!staleAdmitted&&!staleSkipped&&restoreOK&&issued&&postKey
+            &&logic==TheGameLogic->getFrame()&&render==WW3D::Get_Frame_Count();
+        std::fprintf(stderr,"water-resolver-probe-result: template=%s texture=%s owner=%u drawable=%u object=%u system=%u logic=%u render=%u particles=%u finite=%u stale-valid=%u stale-admitted=%u actual-skipped=%u restore=%u post-key=%u sampled=%u built=%u active=(%u,%u) stats-render=(%u,%u) made=(%llu,%llu) refused=(%llu,%llu) result=%u\n",
+            system->getTemplate()->getName().str(),system->getParticleTypeName().str(),(unsigned)owner->getID(),(unsigned)system->getAttachedDrawable(),
+            (unsigned)system->getAttachedObject(),(unsigned)system->getSystemID(),logic,render,(unsigned)system->getParticleCount(),unsigned(finite),
+            unsigned(staleValid),unsigned(staleAdmitted),unsigned(staleSkipped),unsigned(restoreOK),unsigned(postKey),unsigned(sampled),built,
+            unsigned(span.activeBefore),unsigned(span.activeAfter),span.renderBefore,span.renderAfter,span.madeBefore,span.madeAfter,
+            span.refusedBefore,span.refusedAfter,unsigned(pass));
+    }
+};
+#endif
 /** The preset a particle shader type draws with, and whether it names one at all.  An invalid type
 	* leaves the point group's previous shader in place on the old path, so it does not take the
 	* direct one. */
@@ -1422,7 +1617,15 @@ void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 		if (!sys) {
 			continue;
 		}
+#ifdef _WIN32
+		WindowsVesselResolverProbe resolverProbe(sys);
+		const Bool vesselSkipped=replaceLegacyVesselFoam(sys);
+		resolverProbe.Decision(vesselSkipped);
+		const Bool vesselObserved=traceWindowsVesselParticle(sys,0,vesselSkipped,0);
+		if (vesselSkipped)
+#else
 		if (replaceLegacyVesselFoam(sys))
+#endif
 			continue;
 
 		// only look at particle/point style systems
@@ -1647,7 +1850,28 @@ void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 					m_pointGroup->RenderVolumeParticle( rinfo, sys->getVolumeParticleDepth() );
 				}
 				else
+				{
+#ifdef _WIN32
+					WindowsVesselDrawSpan vesselSpan;
+					const Bool vesselSampled=vesselObserved || resolverProbe.WantsPointSample();
+					if(vesselSampled) {
+						vesselSpan.activeBefore=Direct3D11_Is_Active();
+						vesselSpan.renderBefore=WW3D::Get_Frame_Count();
+						Direct3D11_Statistics(vesselSpan.pipelinesBefore,vesselSpan.madeBefore,vesselSpan.refusedBefore);
+					}
+#endif
 					m_pointGroup->Render( rinfo );
+#ifdef _WIN32
+					if(vesselSampled) {
+						Direct3D11_Statistics(vesselSpan.pipelinesAfter,vesselSpan.madeAfter,vesselSpan.refusedAfter);
+						vesselSpan.renderAfter=WW3D::Get_Frame_Count();
+						vesselSpan.activeAfter=Direct3D11_Is_Active();
+						if(vesselObserved)
+						traceWindowsVesselParticle(sys,1,FALSE,unsigned(count),&vesselSpan);
+					}
+					resolverProbe.PointReturned(unsigned(count),vesselSampled?&vesselSpan:NULL);
+#endif
+				}
 		
 			}
 		}

@@ -49,6 +49,8 @@
 #include "GameLogic/TerrainLogic.h"
 #include "GameClient/ControlBar.h"	// COMMAND_FIRED_BY_SCRIPT, the flag every script-fired power carries
 #include "GameClient/ParticleSys.h"
+#include "GameClient/Drawable.h"
+#include "GameClient/GameClient.h"
 #include "GameClient/TerrainVisual.h"	// removeAllBibs, after the build check lights them
 #include "GameLogic/PartitionManager.h"
 #include "GameLogic/Module/BodyModule.h"
@@ -56,6 +58,7 @@
 
 #include "Platform/WaterCaptureFixture.h"
 #include <cstdio>
+#include <climits>
 #include <cstdlib>
 #include <cstring>
 
@@ -188,7 +191,7 @@ static Bool parseActionType( const AsciiString &token, ScenarioActionType *actio
 {
 	if (token == "spawn")
 		*action = SCENARIO_ACTION_SPAWN;
-	else if (token == "move")
+	else if (token == "move" || token == "watercapturemove")
 		*action = SCENARIO_ACTION_MOVE;
 	else if (token == "playermove")
 		*action = SCENARIO_ACTION_PLAYERMOVE;
@@ -202,7 +205,7 @@ static Bool parseActionType( const AsciiString &token, ScenarioActionType *actio
 		*action = SCENARIO_ACTION_ENTER;
 	else if (token == "dock")
 		*action = SCENARIO_ACTION_DOCK;
-	else if (token == "stop")
+	else if (token == "stop" || token == "watercapturestop")
 		*action = SCENARIO_ACTION_STOP;
 	else if (token == "arrive")
 		*action = SCENARIO_ACTION_ARRIVE;
@@ -351,6 +354,68 @@ static Int tokensNeededFor( ScenarioActionType action )
 	return SCENARIO_TOKENS_STOP;
 }
 
+static ScenarioCaptureOperation captureOperationFor(const AsciiString& verb)
+{
+    if (verb == "watercaptureteleport") return SCENARIO_CAPTURE_TELEPORT;
+    if (verb == "watercapturehidden") return SCENARIO_CAPTURE_HIDDEN;
+    if (verb == "watercaptureshrouded") return SCENARIO_CAPTURE_SHROUDED;
+    if (verb == "watercapturedestroy") return SCENARIO_CAPTURE_DESTROY;
+    if (verb == "watercapturespawn") return SCENARIO_CAPTURE_SPAWN;
+    if (verb == "watercaptureinspect") return SCENARIO_CAPTURE_INSPECT;
+    return SCENARIO_CAPTURE_NONE;
+}
+
+// Both registry APIs index through Int; reject overflow before multiplication/casting.
+static Bool parseCaptureLookupID(const AsciiString& token, UnsignedInt* result)
+{
+    const char *word = token.str();
+    if (!word || !*word) return FALSE;
+    UnsignedInt value = 0;
+    for (; *word; ++word) {
+        if (*word < '0' || *word > '9') return FALSE;
+        const UnsignedInt digit = (UnsignedInt)(*word - '0');
+        if (value > ((UnsignedInt)INT_MAX - digit) / 10u) return FALSE;
+        value = value * 10u + digit;
+    }
+    if (value == 0) return FALSE;
+    *result = value;
+    return TRUE;
+}
+
+static ScenarioParseResult parseCaptureLifecycle(const AsciiString* tokens, Int count,
+    UnsignedInt frame, ScenarioCaptureOperation operation, ScenarioAction* action)
+{
+    if (tokens[2] != "player:PlyrCivilian" || !WaterCaptureFixture::ValidPlayerName(tokens[3].str()))
+        return SCENARIO_PARSE_BAD_SLOT;
+    const Bool coords = operation == SCENARIO_CAPTURE_TELEPORT || operation == SCENARIO_CAPTURE_SPAWN;
+    const Bool state = operation == SCENARIO_CAPTURE_HIDDEN || operation == SCENARIO_CAPTURE_SHROUDED;
+    const Bool inspect = operation == SCENARIO_CAPTURE_INSPECT;
+    if (count != ((coords || inspect) ? 6 : (state ? 5 : 4))) return SCENARIO_PARSE_MISSING_ARGS;
+    UnsignedInt objectID = 0, drawableID = 0;
+    if (inspect && (!parseCaptureLookupID(tokens[4], &objectID)
+        || !parseCaptureLookupID(tokens[5], &drawableID))) return SCENARIO_PARSE_BAD_COUNT;
+    if (coords && (!WaterCaptureFixture::ValidCoordinate(tokens[4].str())
+        || !WaterCaptureFixture::ValidCoordinate(tokens[5].str()))) return SCENARIO_PARSE_BAD_POSITION;
+    if (state && tokens[4] != "0" && tokens[4] != "1") return SCENARIO_PARSE_BAD_ACTION;
+    *action = ScenarioAction();
+    action->frame = frame;
+    action->action = SCENARIO_ACTION_STOP; // dedicated operation dispatch, never an ordinary stop
+    action->captureOperation = operation;
+    action->captureState = state && tokens[4] == "1";
+    action->captureInspectObjectID = objectID;
+    action->captureInspectDrawableID = drawableID;
+    action->capturePlayerName = "PlyrCivilian";
+    action->captureActorName = tokens[3];
+    action->selector = WaterCaptureFixture::Template;
+    action->count = 1;
+    action->atStart = SCENARIO_NO_START;
+    if (coords) {
+        action->at.x = (Real)std::strtod(tokens[4].str(), NULL);
+        action->at.y = (Real)std::strtod(tokens[5].str(), NULL);
+    }
+    return SCENARIO_PARSE_OK;
+}
+
 ScenarioParseResult ScenarioDrill_parseLine( const char *line, ScenarioAction *action )
 {
 	AsciiString tokens[ SCENARIO_MAX_TOKENS ];
@@ -366,17 +431,24 @@ ScenarioParseResult ScenarioDrill_parseLine( const char *line, ScenarioAction *a
 	if (!parseWholeNumber( tokens[ 0 ], &frame ))
 		return SCENARIO_PARSE_BAD_FRAME;
 
+    const ScenarioCaptureOperation operation = captureOperationFor(tokens[1]);
+    if (operation != SCENARIO_CAPTURE_NONE)
+        return parseCaptureLifecycle(tokens, count, (UnsignedInt)frame, operation, action);
 	ScenarioActionType actionType;
 	if (!parseActionType( tokens[ 1 ], &actionType ))
 		return SCENARIO_PARSE_BAD_ACTION;
 
+	const Bool namedCapture = tokens[1] == "watercapturemove" || tokens[1] == "watercapturestop";
+	if (namedCapture && (tokens[2] != "player:PlyrCivilian"
+		|| !WaterCaptureFixture::ValidPlayerName(tokens[3].str())))
+		return SCENARIO_PARSE_BAD_SLOT;
 	Int slot = 0;
 	AsciiString capturePlayerName;
 	const char *ownerToken = tokens[2].str();
 	if (std::strncmp(ownerToken, "player:", 7) == 0)
 	{
 		if (!WaterCaptureFixture::ValidPlayerName(ownerToken + 7)
-			|| tokens[3] != WaterCaptureFixture::Template
+			|| (!namedCapture && tokens[3] != WaterCaptureFixture::Template)
 			|| (actionType != SCENARIO_ACTION_SPAWN && actionType != SCENARIO_ACTION_MOVE
 				&& actionType != SCENARIO_ACTION_STOP))
 			return SCENARIO_PARSE_BAD_SLOT;
@@ -392,7 +464,12 @@ ScenarioParseResult ScenarioDrill_parseLine( const char *line, ScenarioAction *a
 	action->action = actionType;
 	action->slot = slot;
 	action->capturePlayerName = capturePlayerName;
-	action->selector = tokens[ 3 ];
+	action->captureActorName = namedCapture ? tokens[3] : AsciiString::TheEmptyString;
+    action->captureOperation = SCENARIO_CAPTURE_NONE;
+    action->captureState = FALSE;
+    action->captureInspectObjectID = 0;
+    action->captureInspectDrawableID = 0;
+	action->selector = namedCapture ? AsciiString(WaterCaptureFixture::Template) : tokens[3];
 	action->at.x = 0.0f;
 	action->at.y = 0.0f;
 	action->atStart = SCENARIO_NO_START;
@@ -828,7 +905,7 @@ static Object *findNearestCivilian( const AsciiString &selector, const Coord3D *
 	  pathfinder puts every destination to: a tank set on a cliff or in the sea is taken away again
 	  rather than left to drive out.  Aircraft are not asked: anything on a JetAIUpdate, the Comanche
 	  included, is made on its ground-only taxiing set, which would refuse it on every cliff. */
-static Bool spawnOne( const ScenarioAction &action, const ThingTemplate *tmpl, Team *team, const Coord3D *pos )
+static Bool spawnOne( const ScenarioAction &action, const ThingTemplate *tmpl, Team *team, const Coord3D *pos, Object **created = NULL )
 {
 	Object *obj = TheThingFactory->newObject( tmpl, team );
 	if (obj == NULL)
@@ -866,6 +943,7 @@ static Bool spawnOne( const ScenarioAction &action, const ThingTemplate *tmpl, T
 
 	team->setActive();
 	TheAI->pathfinder()->addObjectToPathfindMap( obj );
+    if (created) *created = obj;
 	return TRUE;
 }
 
@@ -1871,6 +1949,178 @@ static Bool executeConstruct( const ScenarioAction &action, Player *player, cons
 	return TRUE;
 }
 
+// Per-command logic-phase observation: no saved pointers, mutation or render-point claim.
+static Bool inspectWaterCaptureRegistry(const ScenarioAction& action)
+{
+    if (!TheGlobalData || !TheGameLogic || !TheGameClient || !ThePlayerList
+        || !WaterCaptureFixture::Enabled(std::getenv("ZH_WATER_CAPTURE_FIXTURE"),
+            TheGlobalData->m_controlPort, TheGameLogic->isInGame() && !TheGameLogic->isInShellGame(),
+            TheGameLogic->isInMultiplayerGame(), TheGameLogic->isInReplayGame())
+        || action.capturePlayerName != "PlyrCivilian"
+        || !WaterCaptureFixture::ValidPlayerName(action.captureActorName.str())
+        || action.selector != WaterCaptureFixture::Template || action.count != 1
+        || action.captureInspectObjectID == 0 || action.captureInspectObjectID > (UnsignedInt)INT_MAX
+        || action.captureInspectDrawableID == 0 || action.captureInspectDrawableID > (UnsignedInt)INT_MAX)
+        return FALSE;
+    Player *civilian = ThePlayerList->findPlayerWithNameKey(NAMEKEY("PlyrCivilian"));
+    if (!civilian) return FALSE;
+    Object *named = NULL;
+    for (Object *obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject()) {
+        if (obj->getName() != action.captureActorName) continue;
+        if (named || obj->getControllingPlayer() != civilian
+            || !selectorMatches(AsciiString(WaterCaptureFixture::Template), obj)) return FALSE;
+        named = obj; // destroyed/pending is reportable while still registered
+    }
+    Object *old = TheGameLogic->findObjectByID((ObjectID)action.captureInspectObjectID);
+    Drawable *oldDraw = TheGameClient->findDrawableByID((DrawableID)action.captureInspectDrawableID);
+    std::fprintf(stderr, "water-capture-inspect: logic=%u client=%u query-object=%u object-found=%d object-destroyed=%d query-drawable=%u drawable-found=%d named-found=%d game-birth=UNKNOWN object-birth=UNKNOWN drawable-birth=UNKNOWN current-view=UNKNOWN\n",
+        TheGameLogic->getFrame(), TheGameClient->getFrame(), action.captureInspectObjectID,
+        old != NULL, old ? (int)old->isDestroyed() : -1, action.captureInspectDrawableID, oldDraw != NULL, named != NULL);
+    const UnsignedInt namedID = named ? (UnsignedInt)named->getID() : 0;
+    Drawable *bound = named ? named->getDrawable() : NULL;
+    const UnsignedInt drawID = bound ? (UnsignedInt)bound->getID() : 0;
+    Drawable *draw = drawID ? TheGameClient->findDrawableByID((DrawableID)drawID) : NULL;
+    if (named) {
+        const Coord3D pos = *named->getPosition();
+        std::fprintf(stderr, "water-capture-inspect-owner: name=%s object=%u destroyed=%d dead=%d player=%d template=%s drawable=%u drawable-found=%d x=%.3f y=%.3f z=%.3f hidden=%d shrouded=%d\n",
+            named->getName().str(), namedID, (int)named->isDestroyed(), (int)named->isEffectivelyDead(),
+            (int)named->getControllingPlayer()->getPlayerIndex(), named->getTemplate()->getName().str(),
+            drawID, draw != NULL, pos.x, pos.y, pos.z,
+            draw ? (int)draw->isDrawableEffectivelyHidden() : -1, draw ? (int)draw->getFullyObscuredByShroud() : -1);
+    }
+    unsigned matched = 0, reported = 0;
+    if (TheParticleSystemManager) {
+        const ParticleSystemManager::ParticleSystemList& systems = TheParticleSystemManager->getAllParticleSystems();
+        for (ParticleSystemManager::ParticleSystemList::const_iterator it = systems.begin(); it != systems.end(); ++it) {
+            ParticleSystem *sys = *it;
+            if (!sys) continue;
+            const UnsignedInt object = (UnsignedInt)sys->getAttachedObject();
+            const UnsignedInt drawable = (UnsignedInt)sys->getAttachedDrawable();
+            if (object != action.captureInspectObjectID && drawable != action.captureInspectDrawableID
+                && (!namedID || object != namedID) && (!drawID || drawable != drawID)) continue;
+            ++matched;
+            if (reported >= 64) continue;
+            ++reported;
+            std::fprintf(stderr, "water-capture-inspect-system: system=%u attached-object=%u attached-drawable=%u system-start-frame=%u game-birth=UNKNOWN native-issue=UNKNOWN\n",
+                (unsigned)sys->getSystemID(), object, drawable, sys->getStartFrame());
+        }
+    }
+    std::fprintf(stderr, "water-capture-inspect-systems: manager=%d matched=%u reported=%u truncated=%d\n",
+        TheParticleSystemManager != NULL, matched, reported, matched != reported);
+    return TRUE; // successful inspection includes genuinely missing old registry entries
+}
+
+// Opt-in owner lifecycle fixture. Spawn uses spawnOne -> newObject -> friend_createObject,
+// including its normal pathfinding/build-completion bootstrap, with no assigned IDs.
+static Bool executeWaterCaptureLifecycle(const ScenarioAction& action)
+{
+    if (!TheGlobalData || !TheGameLogic || !ThePlayerList || !TheTerrainLogic || !TheAI
+        || !TheThingFactory || !TheControlBar
+        || !WaterCaptureFixture::Enabled(std::getenv("ZH_WATER_CAPTURE_FIXTURE"),
+            TheGlobalData->m_controlPort, TheGameLogic->isInGame() && !TheGameLogic->isInShellGame(),
+            TheGameLogic->isInMultiplayerGame(), TheGameLogic->isInReplayGame())
+        || action.capturePlayerName != "PlyrCivilian"
+        || !WaterCaptureFixture::ValidPlayerName(action.captureActorName.str())
+        || action.selector != WaterCaptureFixture::Template || action.count != 1
+        || action.atStart != SCENARIO_NO_START || !std::isfinite(action.at.x) || !std::isfinite(action.at.y)
+        || std::fabs(action.at.x) > 1000000.0f || std::fabs(action.at.y) > 1000000.0f)
+        return FALSE;
+    Player *player = ThePlayerList->findPlayerWithNameKey(NAMEKEY("PlyrCivilian"));
+    if (!player) return FALSE;
+    Object *fixture = NULL;
+    unsigned carriers = 0;
+    for (Object *obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject()) {
+        if (selectorMatches(AsciiString(WaterCaptureFixture::Template), obj)) ++carriers;
+        if (obj->getName() != action.captureActorName) continue;
+        // Pending deletion still reserves its name. Replacement requires later registry removal.
+        if (fixture || obj->isDestroyed() || !isOrderableMatch(player, AsciiString(WaterCaptureFixture::Template), obj)) return FALSE;
+        fixture = obj;
+    }
+    if (action.captureOperation == SCENARIO_CAPTURE_SPAWN) {
+        // Single-object commands, at most eight registered carriers including pending deletions.
+        if (fixture || carriers >= 8) return FALSE;
+        const ThingTemplate *tmpl = TheThingFactory->findTemplate(AsciiString(WaterCaptureFixture::Template), FALSE);
+        Team *team = player->getDefaultTeam();
+        if (!tmpl || !team) return FALSE;
+        Coord3D pos;
+        pos.x = action.at.x;
+        pos.y = action.at.y;
+        pos.z = TheTerrainLogic->getGroundHeight(pos.x, pos.y);
+        if (!std::isfinite(pos.z) || !spawnOne(action, tmpl, team, &pos, &fixture)) return FALSE;
+        if (!isOrderableMatch(player, AsciiString(WaterCaptureFixture::Template), fixture)) {
+            TheGameLogic->destroyObject(fixture);
+            return FALSE;
+        }
+        fixture->setName(action.captureActorName);
+        ++theScenarioUnitsSpawned;
+    } else {
+        if (!fixture) return FALSE;
+        if (action.captureOperation == SCENARIO_CAPTURE_TELEPORT) {
+            Coord3D pos = *fixture->getPosition(); // preserve physical Z for same-level XY relocation
+            pos.x = action.at.x;
+            pos.y = action.at.y;
+            fixture->setPosition(&pos);
+        } else if (action.captureOperation == SCENARIO_CAPTURE_HIDDEN
+            || action.captureOperation == SCENARIO_CAPTURE_SHROUDED) {
+            Drawable *drawable = fixture->getDrawable();
+            if (!drawable) return FALSE;
+            if (action.captureOperation == SCENARIO_CAPTURE_HIDDEN) drawable->setDrawableHidden(action.captureState);
+            else drawable->setFullyObscuredByShroud(action.captureState); // presentation flag only, not FOW
+        } else if (action.captureOperation == SCENARIO_CAPTURE_DESTROY) {
+            const ObjectID id = fixture->getID();
+            TheGameLogic->destroyObject(fixture); // normal deferred deletion, no pointer use afterward
+            Object *current = TheGameLogic->findObjectByID(id);
+            std::fprintf(stderr, "water-capture-lifecycle: operation=%d object=%u registry=%d destroyed=%d\n",
+                (int)action.captureOperation, (unsigned)id, current != NULL, current ? (int)current->isDestroyed() : -1);
+            return current == NULL || current->isDestroyed(); // marked, not a claim of lookup removal
+        } else return FALSE;
+    }
+    const Coord3D actual = *fixture->getPosition();
+    Drawable *drawable = fixture->getDrawable();
+    std::fprintf(stderr, "water-capture-lifecycle: operation=%d name=%s object=%u drawable=%u x=%.3f y=%.3f z=%.3f hidden=%d shrouded=%d\n",
+        (int)action.captureOperation, action.captureActorName.str(), (unsigned)fixture->getID(),
+        drawable ? (unsigned)drawable->getID() : 0, actual.x, actual.y, actual.z,
+        drawable ? (int)drawable->isDrawableEffectivelyHidden() : -1,
+        drawable ? (int)drawable->getFullyObscuredByShroud() : -1);
+    return TRUE;
+}
+
+// Dedicated opt-in fixture commands: exact map objectName, never a template selector.
+static Bool executeNamedWaterCaptureFixture(const ScenarioAction& action)
+{
+	if (!TheGlobalData || !TheGameLogic || !ThePlayerList || !TheTerrainLogic || !TheAI
+		|| !WaterCaptureFixture::Enabled(std::getenv("ZH_WATER_CAPTURE_FIXTURE"),
+			TheGlobalData->m_controlPort, TheGameLogic->isInGame() && !TheGameLogic->isInShellGame(),
+			TheGameLogic->isInMultiplayerGame(), TheGameLogic->isInReplayGame())
+		|| action.capturePlayerName != "PlyrCivilian"
+		|| !WaterCaptureFixture::ValidPlayerName(action.captureActorName.str())
+		|| action.selector != WaterCaptureFixture::Template || action.count != 1
+		|| action.atStart != SCENARIO_NO_START || !std::isfinite(action.at.x) || !std::isfinite(action.at.y)
+		|| std::fabs(action.at.x) > 1000000.0f || std::fabs(action.at.y) > 1000000.0f
+		|| (action.action != SCENARIO_ACTION_MOVE && action.action != SCENARIO_ACTION_STOP))
+		return FALSE;
+	Player *player = ThePlayerList->findPlayerWithNameKey(NAMEKEY("PlyrCivilian"));
+	if (!player) return FALSE;
+	Object *fixture = NULL;
+	for (Object *obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject())
+	{
+		if (obj->isEffectivelyDead() || obj->getName() != action.captureActorName) continue;
+		if (fixture || !isOrderableMatch(player, AsciiString(WaterCaptureFixture::Template), obj)) return FALSE;
+		fixture = obj;
+	}
+	Coord3D dest;
+	if (!fixture || !resolveScenarioPosition(action, &dest)) return FALSE;
+	AIGroup *group = TheAI->createGroup();
+	if (!group) return FALSE;
+	group->add(fixture);
+	if (action.action == SCENARIO_ACTION_MOVE)
+		group->groupMoveToPosition(&dest, FALSE, CMD_FROM_SCRIPT);
+	else
+		group->groupIdle(CMD_FROM_SCRIPT);
+	TheAI->destroyGroup(group);
+	return TRUE;
+}
+
 // The campaign has stable internal player names but may have no skirmish seat.
 // This path can command only one explicitly installed disposable capture template.
 static Bool executeWaterCaptureFixture(const ScenarioAction& action)
@@ -1938,6 +2188,12 @@ static Bool executeRepeat( const ScenarioAction &action, Player *player )
 
 Bool ScenarioDrill_execute( const ScenarioAction &action )
 {
+    if (action.captureOperation == SCENARIO_CAPTURE_INSPECT)
+        return inspectWaterCaptureRegistry(action);
+    if (action.captureOperation != SCENARIO_CAPTURE_NONE)
+        return executeWaterCaptureLifecycle(action);
+	if (action.captureActorName.isNotEmpty())
+		return executeNamedWaterCaptureFixture(action);
 	if (action.capturePlayerName.isNotEmpty())
 		return executeWaterCaptureFixture(action);
 

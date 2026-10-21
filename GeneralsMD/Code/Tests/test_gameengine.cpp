@@ -1487,8 +1487,6 @@ TEST(logic_tick_is_wall_clock_paced_not_render_paced)
 	 difference between the two situations the catch-up loop is ever in. Measured on Twilight Flame
 	 with eight Brutal AI: three 25ms ticks back to back with no picture in between is where the
 	 91ms and 113ms frames came from. So the loop is bounded by a clock as well. */
-extern Bool GameEngine_mayStartAnotherCatchupTick( Int ticksSoFar, Int maxTicks, Real elapsedMsInLoop );
-
 TEST(catchup_stops_paying_debt_when_the_logic_tick_is_what_is_slow)
 {
 	const Int cap30 = GameEngine_logicCatchupMaxFrames( 30 );		// 3
@@ -1526,6 +1524,55 @@ TEST(catchup_stops_paying_debt_when_the_logic_tick_is_what_is_slow)
 	while( GameEngine_mayStartAnotherCatchupTick( ticks, cap30, elapsed ) );
 	CHECK_EQ( cap30, ticks );
 	CHECK_NEAR( 6.0f, elapsed, 0.01f );
+}
+
+static Int nextClientFrameAfterCatchup( Int frame, Int firstFrame, Int lastFrame, Bool liveGame, Bool networkPaced )
+{
+	Real accum = 0.0f;
+	Real elapsed = 0.0f;
+	Int ticks = 0;
+	const Int cap = GameEngine_logicCatchupMaxFrames( 60 );
+	// 51ms owes three 60Hz ticks without relying on floating-point equality at 50ms.
+	Bool due = GameEngine_isLogicFrameDue( accum, 51.0f, 60 );
+	while (due)
+	{
+		++frame;
+		elapsed += 2.0f;
+		if (!GameEngine_mayStartAnotherCatchupTick( ++ticks, cap, elapsed,
+			GameEngine_videoNeedsClientFrame( frame, firstFrame, lastFrame, liveGame ), networkPaced ))
+			break;
+		due = GameEngine_isLogicFrameDue( accum, 0.0f, 60 );
+	}
+	return frame;
+}
+
+TEST(video_capture_boundary_preserves_existing_catchup_controls)
+{
+	CHECK_EQ( nextClientFrameAfterCatchup( 388, 0, 0, TRUE, FALSE ), 391 );
+	CHECK_EQ( nextClientFrameAfterCatchup( 388, 390, 392, FALSE, FALSE ), 391 );
+	CHECK_EQ( nextClientFrameAfterCatchup( 393, 390, 392, TRUE, FALSE ), 396 );
+	CHECK_EQ( nextClientFrameAfterCatchup( 388, 390, 392, TRUE, TRUE ), 391 );
+	CHECK( GameEngine_mayStartAnotherCatchupTick( 1, 6, 2.0f, TRUE, TRUE ) );
+	CHECK( !GameEngine_mayStartAnotherCatchupTick( 6, 6, 2.0f, TRUE, TRUE ) );
+	CHECK( !GameEngine_mayStartAnotherCatchupTick( 1, 6, LOGIC_CATCHUP_BUDGET_MS, TRUE, TRUE ) );
+}
+
+TEST(video_capture_boundary_matches_the_existing_fast_mode_range)
+{
+	CHECK( !GameEngine_videoNeedsClientFrame( 388, 390, 392, TRUE ) );
+	CHECK( GameEngine_videoNeedsClientFrame( 389, 390, 392, TRUE ) );
+	CHECK( GameEngine_videoNeedsClientFrame( 390, 390, 392, TRUE ) );
+	CHECK( GameEngine_videoNeedsClientFrame( 392, 390, 392, TRUE ) );
+	CHECK( !GameEngine_videoNeedsClientFrame( 393, 390, 392, TRUE ) );
+	CHECK( !GameEngine_videoNeedsClientFrame( 389, 390, 392, FALSE ) );
+	CHECK( !GameEngine_videoNeedsClientFrame( 389, 390, 0, TRUE ) );
+}
+
+TEST(video_capture_boundary_returns_to_the_client_before_the_first_recorded_frame)
+{
+	const Int nextClientFrame = nextClientFrameAfterCatchup( 388, 390, 392, TRUE, FALSE );
+	printf( "capture boundary: next client frame after 388 is %d (expected 389)\n", nextClientFrame );
+	CHECK_EQ( nextClientFrame, 389 );
 }
 
 /* AnimateWindowManager.cpp: the same argument one layer up. The menu animations
@@ -17693,3 +17740,4 @@ TEST(modfactions_prefix_the_last_part_of_a_file_path)
 #include "test_game_results.inc"
 #include "test_map_ini_rollback.inc"
 #include "test_hostile_map.inc"
+#include "test_water_settings.inc"

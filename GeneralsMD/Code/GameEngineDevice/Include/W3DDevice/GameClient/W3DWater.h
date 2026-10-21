@@ -59,6 +59,9 @@
 #include "Platform/WaterFoamHistory.h"
 #include "Platform/WaterShoreSource.h"
 #include "Platform/WaterCoastalRender.h"
+#include "Platform/WaterRenderBridge.h"
+#include "Platform/WaterRenderAdapters.h"
+#include "Platform/WaterShoreOverlay.h"
 
 class MeshModelClass;
 
@@ -151,6 +154,7 @@ public:
 	void replaceSkyboxTexture(const AsciiString& oldTexName, const AsciiString& newTextName);
 	Bool hasModernVesselFoam(UnsignedInt objectID) const; ///< replacement was submitted for this hull in the current render frame
 	Bool isModernWaterMirrorForOwner(UnsignedInt objectID) const; ///< owner's surface foam must not reflect back into the same water plane
+	Int getEffectiveWaterStyle() const { return m_useModernWater ? 1 : 0; }
 
 protected:
 	DX8IndexBufferClass			*m_indexBuffer;	///<indices defining quad
@@ -198,6 +202,13 @@ protected:
 	Real				m_bumpFrameAccum;	///<fractional carry, so the flipbook can run slower than one frame per tick
 	Real				m_fBumpScale;	///<scales bump map uv perturbation
 	TextureClass * m_pReflectionTexture;	///<render target for reflection
+#ifdef _WIN32
+	TextureClass *m_pClassicReflectionTexture;
+	Bool m_classicReflectionReady;
+	Bool m_modernReflectionPairReady;
+	UnsignedInt m_modernFixturePatchAttempt;
+	WaterRenderAdapters::CaptureScope m_modernCaptureScope;
+#endif
 	Real m_reflectionLevel;	///<height of the water plane the reflection texture was rendered for
 	Vector2 m_reflectionAreaMin;	///<lower left of the screen area the reflection texture covers, -1 to 1
 	Vector2 m_reflectionAreaMax;	///<upper right of the same area
@@ -237,6 +248,9 @@ protected:
 	TextureClass *m_whiteTexture;		///< a texture containing only white used for NULL pixel shader stages.
 	TextureClass *m_waterNoiseTexture;
 	Bool m_useModernWater = FALSE; // active render style; synchronized before mirror/surface draws
+	uint64_t m_modernResourceGeneration = 1, m_modernPatchSerial = 0;
+	WaterShoreOverlay::DispatchState m_modernDispatch;
+	std::vector<WaterShoreOverlay::AcceptedRegion> m_modernAcceptedRegions;
 	TextureClass *m_modernHeightTexture = NULL;
 	TextureClass *m_modernBedTexture = NULL;
 	Real m_modernWaveTime = 0.0f;
@@ -360,14 +374,15 @@ protected:
 
 	Setting m_settings[ TIME_OF_DAY_COUNT ];	///< settings for each time of day
 	void drawRiverWater(PolygonTrigger *pTrig);
-	void drawTrapezoidWater(Vector3 points[4]);
+	void drawTrapezoidWater(Vector3 points[4], Bool allowModern = TRUE);
 	void loadSetting ( Setting *skySetting, TimeOfDay timeOfDay );	///<init sky/water settings from GDF
 	void renderSky(void);	///<draw the sky layer (clouds, stars, etc.)
 	void testCurvedWater(void);	///<draw the sky layer (clouds, stars, etc.)
 	void renderSkyBody(Matrix3D *mat);	///<draw the sky body (sun, moon, etc.)
 	void renderWaterMesh(void);			///<draw the water surface mesh (deformed 3d mesh).
 	RenderResult initBumpMap(LPDIRECT3DTEXTURE9 *pTex, TextureClass *pBumpSource);	///<copies data into bump-map format.
-	void renderMirror(CameraClass *cam, Real level);	///< Draw reflected scene into texture
+	void renderMirror(CameraClass *cam, Real level);
+	Bool renderMirrorTarget(CameraClass *cam, Real level, TextureClass *target, Bool modernClear);
 	void drawReflection(Int triangleCount, Int vertexCount);	///< Lay the reflection over the water just drawn
 	void drawSea(RenderInfoClass & rinfo);	///< Draw the surface of the water
 	///bounding box of frustum clipped polygon plane
@@ -376,6 +391,8 @@ protected:
 	void setupFlatWaterShader(Bool heightCorrection=FALSE,Bool waveCage=FALSE);
 	void setupJbaWaterShader(void);
 	void synchronizeWaterStyle(void);
+	Bool modernWaterBackendAvailable(void) const;
+	Bool nativeModernWaterBackend(void) const;
 	void registerWaterStyleShaders(void);
 	void setupModernWaterShader(Bool river,Bool heightCorrection=FALSE,Bool waveCage=FALSE);
 	void updateModernWaterTextures(void);
@@ -391,7 +408,15 @@ protected:
 	void clearModernWaterOpticalTextures(void);
 	void refreshModernWaterOpticalPolygons(void);
 	TextureClass *modernWaterOpticalTexture(Real level);
-	void drawModernWaterPatch(const Vector3 points[4], Bool river, Real riverStart = 0, Real riverEnd = 1);
+	Bool drawModernWaterPatch(const Vector3 points[4], Bool river, Real riverStart = 0, Real riverEnd = 1,
+		std::vector<WaterRenderBridge::PreparedPatch> *preparedPatches = NULL);
+	Bool submitModernWaterPatch(const WaterRenderBridge::PreparedPatch &prepared, Bool ownershipEligible=TRUE);
+#ifdef _WIN32
+	Bool prepareNativeWaterBatches(const WaterRenderBridge::BatchRequest *batches, size_t batchCount,
+		const WaterRenderBridge::CoveragePoint *coverage, size_t coverageCount, Real level,
+		Bool river, Bool waveCage, WaterRenderBridge::FftEligibility fftEligibility,
+		Bool fixtureFlatPatch, WaterRenderBridge::PreparedPatch &prepared);
+#endif
 	Real modernWaterDamping(Real x, Real y, Real z, Real offshore=0.0f, Real *obstacleAttenuation=NULL, Real *terrainDepth=NULL, Real *hullFreeDamping=NULL, Real *hullFreeObstacle=NULL) const;
 	Bool m_renderingMirror = FALSE; ///< prevents a water draw sampling the mirror being written
 	void cleanupJbaWaterShader(void);

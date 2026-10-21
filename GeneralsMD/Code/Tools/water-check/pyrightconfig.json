@@ -1,0 +1,6 @@
+{
+  "include": [".", "../water-check.py"],
+  "extraPaths": [".", ".."],
+  "typeCheckingMode": "standard",
+  "reportImplicitRelativeImport": false
+}

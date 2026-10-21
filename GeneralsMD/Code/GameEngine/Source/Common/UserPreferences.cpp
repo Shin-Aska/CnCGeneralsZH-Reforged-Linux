@@ -36,6 +36,17 @@
 #include "PreRTS.h"	// This must go first in EVERY cpp file int the GameEngine
 #include "zhio.h"
 
+#include <atomic>
+
+#ifdef _WIN32
+#include <io.h>
+#include <share.h>
+#else
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
+
 //-----------------------------------------------------------------------------
 // USER INCLUDES //////////////////////////////////////////////////////////////
 //-----------------------------------------------------------------------------
@@ -73,6 +84,9 @@
 // PRIVATE DATA ///////////////////////////////////////////////////////////////
 //-----------------------------------------------------------------------------
 
+static UserPreferencesWriteFault s_userPreferencesWriteFault = USER_PREFERENCES_WRITE_OK;
+static std::atomic<unsigned long> s_userPreferencesTemporarySerial( 0 );
+
 //-----------------------------------------------------------------------------
 // PUBLIC DATA ////////////////////////////////////////////////////////////////
 //-----------------------------------------------------------------------------
@@ -106,6 +120,83 @@ static AsciiString realAsStr(Real val)
 	return ret;
 }
 
+static AsciiString makePreferenceTemporaryPath( const AsciiString& destination )
+{
+	AsciiString result;
+#ifdef _WIN32
+	const unsigned long process = GetCurrentProcessId();
+#else
+	const unsigned long process = (unsigned long)getpid();
+#endif
+	result.format( "%s.tmp.%lu.%lu", destination.str(), process, ++s_userPreferencesTemporarySerial );
+	return result;
+}
+
+static FILE *openExclusivePreferenceTemporary( const AsciiString& path )
+{
+	if( s_userPreferencesWriteFault == USER_PREFERENCES_WRITE_TEMP_OPEN )
+		return NULL;
+
+#ifdef _WIN32
+	return _fsopen( path.str(), "wbx", _SH_DENYRW );
+#else
+	const int descriptor = open( path.str(), O_WRONLY | O_CREAT | O_EXCL, 0666 );
+	if( descriptor < 0 )
+		return NULL;
+	FILE *file = fdopen( descriptor, "wb" );
+	if( file == NULL )
+		close( descriptor );
+	return file;
+#endif
+}
+
+static Bool syncPreferenceTemporary( FILE *file )
+{
+	if( s_userPreferencesWriteFault == USER_PREFERENCES_WRITE_SYNC )
+		return false;
+#ifdef _WIN32
+	return _commit( _fileno( file ) ) == 0;
+#else
+	return fsync( fileno( file ) ) == 0;
+#endif
+}
+
+#ifdef _WIN32
+static std::wstring preferenceWidePath( const char *path )
+{
+	const int length = MultiByteToWideChar( CP_ACP, 0, path, -1, NULL, 0 );
+	if( length <= 0 )
+		return std::wstring();
+	std::wstring result( (size_t)length, L'\0' );
+	if( MultiByteToWideChar( CP_ACP, 0, path, -1, &result[ 0 ], length ) == 0 )
+		return std::wstring();
+	return result;
+}
+#endif
+
+static Bool publishPreferenceTemporary( const AsciiString& temporary, const AsciiString& destination )
+{
+	if( s_userPreferencesWriteFault == USER_PREFERENCES_WRITE_REPLACE )
+		return false;
+
+#ifdef _WIN32
+	const std::wstring temporaryWide = preferenceWidePath( temporary.str() );
+	const std::wstring destinationWide = preferenceWidePath( destination.str() );
+	if( temporaryWide.empty() || destinationWide.empty() )
+		return false;
+	const DWORD attributes = GetFileAttributesW( destinationWide.c_str() );
+	if( attributes != INVALID_FILE_ATTRIBUTES )
+		return ReplaceFileW( destinationWide.c_str(), temporaryWide.c_str(), NULL,
+			REPLACEFILE_IGNORE_MERGE_ERRORS, NULL, NULL ) != FALSE;
+	return MoveFileW( temporaryWide.c_str(), destinationWide.c_str() ) != FALSE;
+#else
+	struct stat metadata;
+	if( stat( destination.str(), &metadata ) == 0 && chmod( temporary.str(), metadata.st_mode & 07777 ) != 0 )
+		return false;
+	return rename( temporary.str(), destination.str() ) == 0;
+#endif
+}
+
 //-----------------------------------------------------------------------------
 // PUBLIC FUNCTIONS ///////////////////////////////////////////////////////////
 //-----------------------------------------------------------------------------
@@ -121,6 +212,11 @@ UserPreferences::UserPreferences( void )
 
 UserPreferences::~UserPreferences( void )
 {
+}
+
+void Set_User_Preferences_Write_Fault_For_Test( UserPreferencesWriteFault fault )
+{
+	s_userPreferencesWriteFault = fault;
 }
 
 #define LINE_LEN 2048
@@ -164,19 +260,41 @@ Bool UserPreferences::write( void )
 	if (m_filename.isEmpty())
 		return false;
 
-	FILE *fp = zh_fopen(m_filename.str(), "w");
-	if (fp)
+	AsciiString temporary;
+	FILE *fp = NULL;
+	for( Int attempt = 0; attempt < 100 && fp == NULL; ++attempt )
 	{
-		PreferenceMap::const_iterator it = begin();
-		while (it != end())
-		{
-			fprintf(fp, "%s = %s\n", it->first.str(), it->second.str());
-			++it;
-		}
-		fclose(fp);
-		return true;
+		temporary = makePreferenceTemporaryPath( m_filename );
+		fp = openExclusivePreferenceTemporary( temporary );
+		if( s_userPreferencesWriteFault == USER_PREFERENCES_WRITE_TEMP_OPEN )
+			break;
 	}
-	return false;
+	if( fp == NULL )
+		return false;
+
+	Bool success = true;
+	for( PreferenceMap::const_iterator it = begin(); success && it != end(); ++it )
+	{
+		if( s_userPreferencesWriteFault == USER_PREFERENCES_WRITE_FORMATTED )
+			success = false;
+		else if( s_userPreferencesWriteFault == USER_PREFERENCES_WRITE_SHORT )
+			success = fwrite( it->first.str(), 1, 1, fp ) == 0;
+		else
+			success = fprintf( fp, "%s = %s\n", it->first.str(), it->second.str() ) >= 0;
+	}
+
+	if( success )
+		success = s_userPreferencesWriteFault != USER_PREFERENCES_WRITE_FLUSH && fflush( fp ) == 0;
+	if( success )
+		success = syncPreferenceTemporary( fp );
+	const Bool closed = fclose( fp ) == 0;
+	if( !closed || s_userPreferencesWriteFault == USER_PREFERENCES_WRITE_CLOSE )
+		success = false;
+	if( success )
+		success = publishPreferenceTemporary( temporary, m_filename );
+	if( !success )
+		remove( temporary.str() );
+	return success;
 }
 
 Bool UserPreferences::getBool(AsciiString key, Bool defaultValue) const

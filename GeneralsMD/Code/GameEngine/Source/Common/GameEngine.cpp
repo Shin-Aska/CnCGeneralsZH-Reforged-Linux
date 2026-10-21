@@ -1595,9 +1595,15 @@ Int GameEngine_logicCatchupMaxFrames( Int logicFps )
 	return frames < 1 ? 1 : frames;
 }
 
-Bool GameEngine_mayStartAnotherCatchupTick( Int ticksSoFar, Int maxTicks, Real elapsedMsInLoop )
+Bool GameEngine_videoNeedsClientFrame( Int frame, Int firstFrame, Int lastFrame, Bool liveGame )
 {
-	if (ticksSoFar >= maxTicks)
+	return lastFrame > 0 && liveGame && frame + 1 >= firstFrame && frame <= lastFrame;
+}
+
+Bool GameEngine_mayStartAnotherCatchupTick( Int ticksSoFar, Int maxTicks, Real elapsedMsInLoop,
+	Bool videoClientFrame, Bool networkPaced )
+{
+	if (ticksSoFar >= maxTicks || (videoClientFrame && !networkPaced))
 		return FALSE;
 	return elapsedMsInLoop < LOGIC_CATCHUP_BUDGET_MS;
 }
@@ -2854,10 +2860,9 @@ void GameEngine::update( void )
 			 logic frame is the one picture of it.  Paced by the wall clock, a pass that fell behind would
 			 run two logic frames back to back and the video would jump over one. */
 		const Int videoLogicFrame = (Int)TheGameLogic->getFrame();
-		fastMode = fastMode || ( TheGlobalData->m_videoEndFrame > 0 && TheGameLogic->isInGame()
-														 && !TheGameLogic->isInShellGame()
-														 && videoLogicFrame + 1 >= TheGlobalData->m_videoStartFrame
-														 && videoLogicFrame <= TheGlobalData->m_videoEndFrame );
+		fastMode = fastMode || GameEngine_videoNeedsClientFrame( videoLogicFrame,
+			TheGlobalData->m_videoStartFrame, TheGlobalData->m_videoEndFrame,
+			TheGameLogic->isInGame() && !TheGameLogic->isInShellGame() );
 
 		static UnsignedInt prevLogicTime = Clock_Milliseconds();
 		static Real logicAccumMs = 0.0f;
@@ -2944,7 +2949,10 @@ void GameEngine::update( void )
 					break;
 				tCatchupNow = Clock_Ticks();
 				if (!GameEngine_mayStartAnotherCatchupTick( logicTicksThisPass, maxTicksThisPass,
-																									 engineElapsedMS( tCatchupStart, tCatchupNow ) ))
+					engineElapsedMS( tCatchupStart, tCatchupNow ),
+					GameEngine_videoNeedsClientFrame( (Int)TheGameLogic->getFrame(),
+						TheGlobalData->m_videoStartFrame, TheGlobalData->m_videoEndFrame,
+						TheGameLogic->isInGame() && !TheGameLogic->isInShellGame() ), networkPaced ))
 					break;
 				if (networkPaced)
 				{
