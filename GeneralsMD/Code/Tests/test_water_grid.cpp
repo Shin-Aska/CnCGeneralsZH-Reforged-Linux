@@ -5375,6 +5375,8 @@ TEST(water_coastal_domain_stride_two_capacity_preserves_fine_connectivity_and_te
 #include "GameClient/GameClient.h"
 #include "GameClient/InGameUI.h"
 #include "GameClient/TerrainRoads.h"
+#include "Common/LogicThread.h"
+#include "GameLogic/PolygonTrigger.h"
 #include "GameLogic/SidesList.h"
 #include "../Tools/WaterPreviewReflectionBar.h"
 #include "assetmgr.h"
@@ -5409,6 +5411,10 @@ public:
     }
     void clearReflectionRefresh() { m_reflectionReused=FALSE; }
     bool reflectionNeedsRefresh() const { return m_reflectionReused; }
+    const std::vector<WaterOpticalContext::Polygon> &opticalPolygonsForDraw() {
+        refreshModernWaterOpticalPolygons();
+        return m_modernOpticalPolygons;
+    }
 #endif
     void prepareShaders(IDirect3DDevice9 *device) {
         const RenderUInt32 tokens[]={0xffff0101u,0x0000ffffu};
@@ -5469,6 +5475,56 @@ public:
 }
 
 #if defined(__linux__)
+TEST(water_polygon_draw_snapshot_survives_live_height_geometry_and_lifetime_changes)
+{
+    boot();
+    const Int savedStyle=TheGlobalData->m_waterStyle;
+    TheWritableGlobalData->m_waterStyle=0;
+    WaterTransparencySetting *saved=(WaterTransparencySetting*)TheWaterTransparency.getNonOverloadedPointer();
+    WaterTransparencySetting *settings=newInstance(WaterTransparencySetting);
+    TheWaterTransparency=settings;
+    PolygonTrigger *area=newInstance(PolygonTrigger)(4);
+    const ICoord3D original[]={{0,0,4},{80,0,4},{80,60,4},{0,60,4}};
+    for(const ICoord3D &point:original) area->addPoint(point);
+    area->setWaterArea(TRUE);
+    PolygonTrigger::addPolygonTrigger(area);
+    {
+        LiveWaterStyleProbe water;
+        // The shared polygon snapshot and its optical consumer need no GPU or running logic.
+        water.takeReadsForRender();
+        auto checkDraw=[&](bool present,Int offset,Int level) {
+            const Int previous=LogicThread::g_windowOpen.exchange(1);
+            const auto &polygons=water.opticalPolygonsForDraw();
+            CHECK_EQ(polygons.size(),present?1u:0u);
+            if(present && polygons.size()==1) {
+                CHECK_EQ(polygons[0].points.size(),4u);
+                if(polygons[0].points.size()==4) for(unsigned i=0;i<4;++i) {
+                    CHECK_EQ(polygons[0].points[i].x,original[i].x+offset);
+                    CHECK_EQ(polygons[0].points[i].y,original[i].y+offset);
+                    CHECK_EQ(polygons[0].points[i].z,level);
+                }
+            }
+            LogicThread::g_windowOpen.store(previous);
+        };
+        checkDraw(true,0,4);
+        for(Int i=0;i<4;++i) {
+            ICoord3D changed={original[i].x+20,original[i].y+20,12};
+            area->setPoint(changed,i);
+        }
+        checkDraw(true,0,4);
+        water.takeReadsForRender();
+        checkDraw(true,20,12);
+        PolygonTrigger::removePolygonTrigger(area);
+        area->deleteInstance();
+        checkDraw(true,20,12);
+        water.takeReadsForRender();
+        checkDraw(false,0,0);
+    }
+    TheWaterTransparency=saved;
+    settings->deleteInstance();
+    TheWritableGlobalData->m_waterStyle=savedStyle;
+}
+
 namespace {
 class PathExportAssets : public WW3DAssetManager
 {

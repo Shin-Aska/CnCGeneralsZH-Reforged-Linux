@@ -16,6 +16,7 @@ class W3DWaterPathScene
 public:
     W3DWaterPathScene();
     ~W3DWaterPathScene();
+    void takeReadsForRender(BaseHeightMapRenderObjClass *terrain);
     bool Update(SceneClass *scene, BaseHeightMapRenderObjClass *terrain, RenderObjClass *water,
         const WaterPathTracing::View *view=nullptr);
     const std::vector<WaterPathTracing::Triangle> &Triangles() const;

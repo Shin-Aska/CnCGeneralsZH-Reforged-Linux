@@ -110,6 +110,9 @@ private:
 	{
 		ParticleSystem *	system;
 		Real							fade;				///< ParticleSystem::getStealthFade, above zero
+#if defined(__linux__)
+		ObjectID owner;					///< vessel foam's attached object at the sync point
+#endif
 	};
 
 	void refreshFrameView( void );

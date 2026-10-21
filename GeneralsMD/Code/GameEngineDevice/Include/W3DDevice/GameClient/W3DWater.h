@@ -65,6 +65,7 @@
 #include "Platform/WaterPathTracingSchedule.h"
 #endif
 
+class Drawable;
 class MeshModelClass;
 class W3DWaterPathScene;
 
@@ -132,6 +133,9 @@ public:
 	void reset( void );  ///< reset any resources we need to
 	void load(void);	///< load/setup any map dependent features
 	void update( void ); ///< update phase of the water
+#if defined(__linux__)
+	void takeReadsForRender(void);
+#endif
 	void enableWaterGrid(Bool state);	///< used to active custom water for special maps. (i.e DAM).  The grid is TerrainLogic's WaterGrid; this builds its buffers
 	void updateMapOverrides(void);	///< used to update any map specific map overrides for water appearance.
 	void setTimeOfDay(TimeOfDay tod); ///<change sky/water for time of day
@@ -260,6 +264,37 @@ protected:
 		Vector3 position; Real radius,height,major,minor,cosine,sine; Bool box,hasHull=FALSE;
 	};
 	std::vector<ModernWaterObstacle> m_modernObstacles, m_modernPatchObstacles;
+#if defined(__linux__)
+	struct ModernWaterObject {
+		Drawable *drawable;
+		Vector3 position;
+		Real level;
+		WaterVesselMotion::Point initialVelocity;
+		Bool vessel;
+	};
+	std::unordered_map<UnsignedInt,ModernWaterObject> m_modernObjectsForDraw;
+	std::vector<UnsignedInt> m_modernObstacleObjectIDs;
+	UnsignedInt m_modernMotionFrame=0;
+	Bool m_modernMotionFrozen=FALSE,m_modernReadsReady=FALSE;
+	struct WaterPolygonForDraw {
+		std::vector<ICoord3D> points;
+		Coord3D center;
+		Real radius;
+		Int riverStart;
+		Bool river;
+		uintptr_t owner;
+		Bool isWaterArea() const { return TRUE; }
+		Bool isRiver() const { return river; }
+		Int getNumPoints() const { return Int(points.size()); }
+		const ICoord3D *getPoint(Int i) const { if (i<0) i=0; if (i>=getNumPoints()) i=getNumPoints()-1; return &points[i]; }
+		Int getRiverStart() const { return riverStart; }
+		void getCenterXY(Coord3D *p) const { *p=center; }
+		Real getRadius() const { return radius; }
+	};
+	std::vector<WaterPolygonForDraw> m_waterPolygonsForDraw;
+	void takeWaterPolygonsForDraw(void);
+	void synchronizeWaterReflection(void);
+#endif
 	WaterObstacleIndex::Grid m_modernObstacleIndex;
 	std::vector<WaterObstacleIndex::Influence> m_modernObstacleInfluences;
 	struct ModernHullCache {
@@ -351,7 +386,11 @@ protected:
 	};
 
 	Setting m_settings[ TIME_OF_DAY_COUNT ];	///< settings for each time of day
+#if defined(__linux__)
+	void drawRiverWater(const WaterPolygonForDraw *pTrig);
+#else
 	void drawRiverWater(PolygonTrigger *pTrig);
+#endif
 	void drawTrapezoidWater(Vector3 points[4]);
 	void loadSetting ( Setting *skySetting, TimeOfDay timeOfDay );	///<init sky/water settings from GDF
 	void renderSky(void);	///<draw the sky layer (clouds, stars, etc.)

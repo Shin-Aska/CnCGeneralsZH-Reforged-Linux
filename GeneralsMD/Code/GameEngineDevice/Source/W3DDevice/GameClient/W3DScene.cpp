@@ -506,7 +506,7 @@ void RTS3DScene::Visibility_Check(CameraClass * camera)
 			// The Modern mirror admits ordinary scene models, but the cursor and order feedback
 			// are still UI even when their models live in the world scene.
 			if (modernFullMirror && (robj == TheWaterRenderObj ||
-				(draw && draw->testDrawableStatus(DRAWABLE_STATUS_NO_SAVE)) ||
+				(draw && draw->isNoSaveForDraw()) ||
 				(TheInGameUI && ((W3DInGameUI *)TheInGameUI)->isWorldSpaceUI(robj, draw))))
 			{
 				robj->Set_Visible(false);
@@ -2236,7 +2236,7 @@ void RTS3DScene::Visibility_Check(CameraClass * camera)
 			// The Modern mirror admits ordinary scene models, but the cursor and order feedback
 			// are still UI even when their models live in the world scene.
 			if (modernFullMirror && (robj == TheWaterRenderObj ||
-				(draw && draw->testDrawableStatus(DRAWABLE_STATUS_NO_SAVE)) ||
+				(draw && draw->isNoSaveForDraw()) ||
 				(TheInGameUI && ((W3DInGameUI *)TheInGameUI)->isWorldSpaceUI(robj, draw))))
 			{
 				robj->Set_Visible(false);

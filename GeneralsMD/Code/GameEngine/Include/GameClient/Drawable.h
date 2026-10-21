@@ -518,6 +518,12 @@ public:
   //	inline UnsignedByte getFullyObscuredByShroudWithCheatSpy(void) {return (UnsignedByte)m_drawableFullyObscuredByShroud | 128;}//8 looks like a zero in most fonts
 
 	Bool getDrawsInMirror() const { if( LogicThread::isInsideWindow() ) return m_lookForDraw.drawsInMirror; return BitTest(m_status, DRAWABLE_STATUS_DRAWS_IN_MIRROR) || isKindOf(KINDOF_CAN_CAST_REFLECTIONS); }
+	Bool isNoSaveForDraw() const {
+#if defined(__linux__)
+		if( LogicThread::isInsideWindow() ) return m_lookForDraw.noSave;
+#endif
+		return testDrawableStatus( DRAWABLE_STATUS_NO_SAVE );
+	}
 
 	/** LOGIC-THREAD.md phase 3, step 3b.  How the drawable looks, as the render reads it: hidden, stealth,
 		* opacity, tint, the mirror and dynamic light flags.  The tick writes these fields beside the render
@@ -529,6 +535,9 @@ public:
 		Bool						hidden;
 		Bool						fullyObscured;
 		Bool						drawsInMirror;
+#if defined(__linux__)
+		Bool						noSave;
+#endif
 		Bool						receivesDynamicLights;
 		Bool						hasTintColor;
 		Bool						hasSelectionColor;
