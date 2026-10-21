@@ -157,20 +157,11 @@ if [ "$ART" -eq 1 ] && ! ls "$BUILD/overlay"/Reforged*.big >/dev/null 2>&1; then
 fi
 
 # ---- what generals needs of the system ---------------------------------------------------------------------
-needs="$(in_sdk "readelf -d '$GENERALS' | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p'; echo '--'; objdump -T '$GENERALS'")" \
-	|| fail "cannot read generals' dynamic section"
-libs="$(sed '/^--$/q' <<< "$needs" | grep -v '^--$')"
-glibc="$(printf '%s\n' "$needs" | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1)"
-[ -n "$glibc" ] || fail "cannot read generals' glibc symbols"
+glibc="$(in_sdk ". '$CODE/Tools/package-common.sh' && package_check_linux_abi '$GENERALS' '$HOST' '$ARCH'")" \
+	|| fail "generals failed the portable ABI/dependency checks"
 if [ "$HOST" -eq 1 ]; then
 	echo "linux-portable: a host build: generals needs $glibc, so it runs only where glibc is that new or newer" >&2
-else
-	[ "$(printf '%s\n%s\n' "$glibc" GLIBC_2.31 | sort -V | tail -1)" = GLIBC_2.31 ] || fail "refused: generals needs $glibc, newer than GLIBC_2.31"
 fi
-! grep -qE 'GLIBCXX_|CXXABI_' <<< "$needs" || fail "refused: generals needs libstdc++ symbols (it must link it statically)"
-allowed='^(libc\.so\.6|libm\.so\.6|libdl\.so\.2|libpthread\.so\.0|librt\.so\.1|ld-linux-x86-64\.so\.2|ld-linux-aarch64\.so\.1|libfontconfig\.so\.1)$'
-extra="$(printf '%s\n' "$libs" | grep -vE "$allowed")"
-[ -z "$extra" ] || fail "refused: generals needs shared libraries a SteamOS may lack: $(printf '%s ' $extra)"
 
 # ---- the folder --------------------------------------------------------------------------------------------
 rm -rf -- "$OUT" "$OUT.tar.zst" "$OUT.zip" "$OUT.sha256"
@@ -375,6 +366,12 @@ README_EOF
 
 sed -i "s/@GLIBC@/${glibc#GLIBC_}/" "$OUT/README.txt" || fail "cannot complete README.txt"
 
+# x86_64 --no-art is the public CI package path. Audit it before making any archive; the existing
+# aarch64 developer build is outside the x86_64 release helper's supported package metadata.
+if [ "$ART" -eq 0 ] && [ "$ARCH" = x86_64 ]; then
+	python3 "$CODE/Tools/linux-release.py" audit-portable "$OUT" || fail "the engine-only folder contains unexpected files"
+fi
+
 size="$(du -sh "$OUT" | cut -f1)"
 if [ "$TAR" -eq 1 ]; then
 	tar -C "$(dirname "$OUT")" -I 'zstd -T0 -10' -cf "$OUT.tar.zst" "$(basename "$OUT")" || fail "cannot pack $OUT.tar.zst"
@@ -388,20 +385,7 @@ if [ "$TAR" -eq 1 ] || [ "$ZIP" -eq 1 ]; then
 		|| fail "cannot write $OUT.sha256"
 fi
 if [ -n "$APPIMAGETOOL" ]; then
-	[ -x "$APPIMAGETOOL" ] && [ -f "$RUNTIME" ] || fail "--appimage needs an appimagetool and --runtime a type-2 runtime file"
-	A="$OUT.AppDir"
-	rm -rf -- "$A" "$OUT.AppImage"
-	cp -al "$OUT" "$A" 2>/dev/null || cp -R "$OUT" "$A" || fail "cannot make $A"
-	rm -f "$A/bin/generals.debug"		# the AppImage is for playing; the debug file stays in the folder and its tarball
-	cp "$OUT/zero-hour-reforged.sh" "$A/AppRun" && cp "$OUT/share/applications/zero-hour-reforged.desktop" "$A/" \
-		&& cp "$OUT/share/icons/hicolor/128x128/apps/zero-hour-reforged.png" "$A/zero-hour-reforged.png" \
-		&& ln -s zero-hour-reforged.png "$A/.DirIcon" || fail "cannot complete $A"
-	ARCH="$ARCH" "$APPIMAGETOOL" --no-appstream --runtime-file "$RUNTIME" "$A" "$OUT.AppImage" > "$OUT.appimagetool.log" 2>&1 \
-		|| { tail -5 "$OUT.appimagetool.log" >&2; rm -rf -- "$A"; fail "appimagetool failed"; }
-	rm -rf -- "$A"
-	# a type-2 runtime answers --appimage-offset with where its squashfs starts, without mounting anything
-	offset="$("$OUT.AppImage" --appimage-offset 2>/dev/null)"
-	case "$offset" in ''|*[!0-9]*) fail "the AppImage does not answer --appimage-offset: its runtime is not a type-2 runtime";; esac
+	package_make_appimage "$OUT" "$APPIMAGETOOL" "$RUNTIME" "$ARCH" || fail "AppImage creation failed"
 fi
 STARTED=""
 echo "linux-portable: $OUT ($size$( [ "$TAR" -eq 1 ] && echo ", packed $(du -sh "$OUT.tar.zst" | cut -f1)")$( [ "$ZIP" -eq 1 ] && echo ", zip $(du -sh "$OUT.zip" | cut -f1)")$( [ -n "$APPIMAGETOOL" ] && echo ", AppImage $(du -sh "$OUT.AppImage" | cut -f1)")): commit $commit, needs $glibc, $(printf '%s\n' $ENTRIES | wc -l) licence entries for $(printf '%s\n' $linked | wc -l) linked libraries, art $( [ "$ART" -eq 1 ] && echo included || echo left out)"

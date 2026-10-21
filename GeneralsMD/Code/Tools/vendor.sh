@@ -27,6 +27,7 @@
 # is in place costs one directory check per library and nothing else.
 #
 #   --force   re-fetch even what is already there
+#   --no-art  fetch code dependencies only; do not query art manifests or download game art (CI)
 #
 # What it cannot get is the game itself: the .big files from a Zero Hour install go next to the
 # executable in GeneralsMD/Run, and the base game's in Run/ZH_Generals. The game says so on startup
@@ -35,10 +36,12 @@
 set -euo pipefail
 
 force=
+art=1
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --force|-f) force=1 ;;
+    --no-art) art=0 ;;
     -h|--help) sed -n '3,$p' "$0" | sed -n '/^[^#]/q; s/^#\{1\} \{0,1\}//p'; exit 0 ;;
     *) echo "[vendor] ERROR: unknown argument '$1' (try --force)" >&2; exit 1 ;;
   esac
@@ -728,5 +731,9 @@ install_spirv_cross
 install_shadercross
 install_freetype
 install_ffmpeg
-install_art
+if [ "$art" -eq 1 ]; then
+  install_art
+else
+  step 'skipping upscaled art (--no-art); code dependencies only'
+fi
 step 'everything the build needs is in place'

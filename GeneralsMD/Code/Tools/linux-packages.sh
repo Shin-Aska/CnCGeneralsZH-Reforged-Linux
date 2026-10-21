@@ -29,18 +29,23 @@
 #   <out>/SHA256SUMS
 #
 # Usage: linux-packages.sh --build <folder> --out <folder> --cmake <cmake> --appimagetool <tool> --runtime <file>
-#          [--formats "appimage deb rpm arch flatpak"] [--no-build] [--jobs <n>]
+#          [--formats "appimage deb rpm arch flatpak"] [--no-build] [--jobs <n>] [--portable <tarball>]
 #   --build, --cmake, --jobs, --no-build   as linux-portable.sh takes them
+#   --portable                             import an already-checked portable tarball instead of building;
+#                                          --build is still the packaging work/cache directory; no --cmake needed
 #   --appimagetool, --runtime              linux-portable.sh's --appimage and --runtime (needed for appimage)
 #   --formats                              which to make (default: all five; the tarball always)
-# Every step runs in docker (the user in its group): the sniper SDK for the folder, fedora:latest for the .deb,
+# The engine is built once: --portable lets separate CI packaging jobs reuse the same checked binary and
+# tarball without a compiler or the original build tree. Its ELF, ABI, metadata and engine-only layout are
+# checked again. It cannot be combined with --no-build (which stages from an existing compiler build tree).
+# Building and native packaging run in docker (the user in its group): the sniper SDK for the folder, fedora:latest for the .deb,
 # the .rpm and the Flatpak (flatpak-builder in a --privileged container, as its sandbox needs), archlinux:latest
 # for makepkg.  The Flatpak's runtime and SDK (org.freedesktop 25.08) are kept in <build>/flatpak-cache between
 # runs.  Maintainer: ZH_PACKAGE_MAINTAINER ("Name <address>"), else this user's git identity.
 # Exit status: 0 all made; 1 a step failed (it says which).
 
 set -u
-BUILD="" OUT="" CMAKE="" APPIMAGETOOL="" RUNTIME="" FORMATS="appimage deb rpm arch flatpak" NOBUILD="" JOBS=""
+BUILD="" OUT="" CMAKE="" APPIMAGETOOL="" RUNTIME="" FORMATS="appimage deb rpm arch flatpak" NOBUILD="" JOBS="" PORTABLE=""
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--build) BUILD="$2"; shift 2;;
@@ -50,6 +55,7 @@ while [ $# -gt 0 ]; do
 		--runtime) RUNTIME="$2"; shift 2;;
 		--formats) FORMATS="$2"; shift 2;;
 		--no-build) NOBUILD=--no-build; shift;;
+		--portable) PORTABLE="$2"; shift 2;;
 		--jobs) JOBS="$2"; shift 2;;
 		*) echo "linux-packages: unknown argument $1" >&2; exit 2;;
 	esac
@@ -57,22 +63,47 @@ done
 fail() { echo "linux-packages: $*" >&2; exit 1; }
 wants() { case " $FORMATS " in *" $1 "*) return 0;; esac; return 1; }
 [ -n "$BUILD" ] && [ -n "$OUT" ] || fail "--build and --out are required"
-command -v docker > /dev/null || fail "no docker"
+[ -z "$PORTABLE" ] || [ -z "$NOBUILD" ] || fail "--portable and --no-build are mutually exclusive"
+if [ -z "$PORTABLE" ] || wants deb || wants rpm || wants arch || wants flatpak; then
+	command -v docker > /dev/null || fail "no docker"
+fi
 CODE="$(cd "$(dirname "$0")/.." && pwd)"
 P="$CODE/Tools/linux-packages"
+. "$CODE/Tools/package-common.sh"
 mkdir -p "$OUT" "$BUILD" && OUT="$(cd "$OUT" && pwd)" && BUILD="$(cd "$BUILD" && pwd)" || fail "cannot make $OUT or $BUILD"
 W="$BUILD/packages"		# the folder, and each format's work
+if [ -n "$PORTABLE" ]; then
+	[ -f "$PORTABLE" ] || fail "--portable must name a portable .tar.zst archive"
+	PORTABLE="$(readlink -f "$PORTABLE")" || fail "cannot resolve --portable"
+	case "$PORTABLE" in "$W"/*) fail "--portable must be outside the packaging work directory $W";; esac
+fi
 rm -rf -- "$W" && mkdir -p "$W" || fail "cannot make $W"
 MAINTAINER="${ZH_PACKAGE_MAINTAINER:-$(git -C "$CODE" config user.name) <$(git -C "$CODE" config user.email)>}"
 case "$MAINTAINER" in *"<>"*|" <"*) fail "set ZH_PACKAGE_MAINTAINER, or a git identity";; esac
 
-# ---- 1. the folder, engine only (and the AppImage), checked by linux-portable.sh -------------------------
-portable=( --build "$BUILD" --out "$W/ZeroHourReforged-linux-x86_64" --no-art $NOBUILD )
-[ -n "$CMAKE" ] && portable+=( --cmake "$CMAKE" )
-[ -n "$JOBS" ] && portable+=( --jobs "$JOBS" )
-wants appimage && portable+=( --appimage "$APPIMAGETOOL" --runtime "$RUNTIME" )
-bash "$CODE/Tools/linux-portable.sh" "${portable[@]}" || fail "linux-portable.sh failed"
+# ---- 1. the folder, engine only, originally built and checked by linux-portable.sh ---------------------
 F="$W/ZeroHourReforged-linux-x86_64"
+if [ -n "$PORTABLE" ]; then
+	python3 "$CODE/Tools/linux-release.py" extract-portable "$PORTABLE" "$W" || fail "unsafe or invalid portable archive"
+	glibc="$(package_check_linux_abi "$F/bin/generals" 0 x86_64)" || fail "the imported binary failed the portable ABI/dependency checks"
+	grep -Eq '^Zero Hour Reforged [0-9]+\.[0-9]+\.[0-9]+ for Linux \(x86_64\)$' "$F/VERSION" \
+		|| fail "the imported VERSION must describe an x86_64 Linux build"
+	grep -Eq '^built in registry\.gitlab\.steamos\.cloud/steamrt/sniper/sdk([:@][^[:space:]]+)?$' "$F/VERSION" \
+		|| fail "the imported package must have been built in the sniper SDK, not with --host"
+	grep -Fxq "needs glibc $glibc or newer, and fontconfig; art left out" "$F/VERSION" \
+		|| fail "the imported VERSION does not match its engine-only ABI"
+	# Preserve the build job's tarball byte-for-byte: every package job publishes the same input.
+	cp "$PORTABLE" "$F.tar.zst" || fail "cannot copy the portable archive"
+else
+	portable=( --build "$BUILD" --out "$F" --no-art $NOBUILD )
+	[ -n "$CMAKE" ] && portable+=( --cmake "$CMAKE" )
+	[ -n "$JOBS" ] && portable+=( --jobs "$JOBS" )
+	bash "$CODE/Tools/linux-portable.sh" "${portable[@]}" || fail "linux-portable.sh failed"
+fi
+python3 "$CODE/Tools/linux-release.py" audit-portable "$F" || fail "the engine-only folder contains unexpected files"
+if wants appimage; then
+	package_make_appimage "$F" "$APPIMAGETOOL" "$RUNTIME" x86_64 || fail "AppImage creation failed"
+fi
 VERSION="$(sed -n 's/^Zero Hour Reforged \([0-9.]*\) for Linux.*/\1/p' "$F/VERSION")"
 [ -n "$VERSION" ] || fail "no version in $F/VERSION"
 TARBALL_SHA="$(sha256sum "$F.tar.zst" | cut -d ' ' -f 1)"

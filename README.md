@@ -9,12 +9,48 @@ source, with Linux graphics improvements and upstream's gameplay, AI and interfa
 [![last commit](https://img.shields.io/github/last-commit/Shin-Aska/CnCGeneralsZH-Reforged-Linux/main?style=for-the-badge)](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/commits/main)
 [![license](https://img.shields.io/badge/license-GPL--3.0%20%2B%20EA%20terms-0d1117?style=for-the-badge)](LICENSE.md)
 
-[Graphics highlights](#graphics-highlights) · [Build](#build) · [Play](#play) · [Tests](#tests) ·
+[Downloads](#downloads) · [Graphics highlights](#graphics-highlights) · [Build](#build) · [Play](#play) · [Tests](#tests) ·
 [Linux guide](docs/linux.md) ·
 [Changes](CHANGELOG.md) · [Contributing](CONTRIBUTING.md)
 
 **You need your own installed copies of Generals and Zero Hour.**
 Game data and optional upscaled art are not included.
+
+## Downloads
+
+Tagged builds publish packages to [GitHub Releases](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/releases)
+after the build and package checks pass. For a pull request or manual build, open the
+[Linux workflow](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/actions/workflows/linux-release.yml),
+select the completed run, and download the `linux-x86_64-packages` artifact. A manual build is available
+through **Run workflow** once the workflow is on the default branch; it does not publish a release.
+
+| Format | Intended use |
+|:--|:--|
+| `.AppImage` | One executable file; make it executable and launch it. Use `--appimage-extract-and-run` if FUSE is unavailable. |
+| `ZeroHourReforged-linux-x86_64.tar.zst` | Extract anywhere and run `zero-hour-reforged.sh`; includes a separate debug-symbol file. |
+| `.deb` | Debian and Ubuntu package managers. |
+| `.rpm` | Fedora and openSUSE package managers. |
+| `.pkg.tar.zst` | Arch Linux, installed with `pacman -U`. |
+| `.flatpak` | Local Flatpak bundle, installed with `flatpak install --user ./<bundle>.flatpak`; requires the Freedesktop 25.08 runtime. |
+
+Every download set includes `SHA256SUMS`. After downloading all listed files, verify them with:
+
+```sh
+sha256sum --check SHA256SUMS
+```
+
+The distributed engine targets **x86_64 Linux with glibc 2.31 or newer**. It is built in Valve's Steam
+Runtime **sniper** SDK with static libstdc++ and libgcc; native packages also need fontconfig and a
+working Vulkan driver. The Flatpak uses its declared runtime and still needs a compatible host graphics
+driver. This ABI baseline is separate from the distributions checked by a particular workflow run.
+CI checks package installation and missing-data startup on Debian 12, Ubuntu 24.04, Fedora, openSUSE
+Tumbleweed and Arch; the AppImage is checked on Debian 12. These checks do not establish gameplay or
+hardware compatibility on every distribution.
+
+Packages contain the engine and this repository's overlay, **no original game data or upscaled art**.
+Point the launcher at your own legally obtained Generals and Zero Hour installation. See
+[CI and release details](PORTING.md#github-actions-builds-and-releases) for triggers, permissions,
+the compatibility checks and testing limits.
 
 ## Graphics highlights
 
@@ -106,7 +142,7 @@ Other build commands:
 ```
 
 The output folder links to files in the build tree, so it is not a standalone package.
-See [packaging](PORTING.md#linux-packages) for the inherited release scripts.
+See [packaging](PORTING.md#linux-packages) for the release scripts and compatibility-container builds.
 
 ## Play
 
@@ -196,6 +232,14 @@ ctest --test-dir build-linux --output-on-failure
 
 Asset-dependent tests skip unless `ZH_GAME_DATA` is configured. See the
 [Linux guide](docs/linux.md#checks-with-game-data) for game-data setup and GPU, replay and screenshot checks.
+
+GitHub Actions builds the engine and tests once in the sniper SDK, then runs the available tests with
+Lavapipe and Xvfb on a standard CPU runner. The run summary reports skipped tests. Public CI supplies no
+game data: replay CRCs, gameplay screenshots, original textures/audio/movies and full multiplayer checks
+remain separate local validation. Synthetic renderer tests can run without those assets; they do not
+test physical GPUs, Steam Deck Game Mode or the desktop folder chooser. The
+[workflow documentation](PORTING.md#github-actions-builds-and-releases) defines the gates; consult the
+actual run for its results.
 
 **Known NVIDIA test failure:** `ffref_capture_selfcheck` has a two-pixel reference mismatch on the
 tested RTX 4060 setup. It passes on the tested Intel UHD 770. This failure stops

@@ -3104,6 +3104,7 @@ Tests/test_install_root.cpp
 Tests/test_install_textures.cpp
 Tests/test_lan_broadcast.cpp
 Tests/test_linux_portable.sh
+Tests/test_linux_release.py
 Tests/test_macos_app.sh
 Tests/test_main.cpp
 Tests/test_map_ini_rollback.inc
@@ -3140,6 +3141,7 @@ Tests/test_support.cpp
 Tests/test_terrain_golden.cpp
 Tests/test_user_data_guard.cpp
 Tests/test_userfolders.cpp
+Tests/test_vendor_no_art.sh
 Tests/test_w3dlayout.cpp
 Tests/test_water_grid.cpp
 Tests/test_water_path_gpu.cpp
@@ -4016,6 +4018,7 @@ Tools/linux-packages/PKGBUILD
 Tools/linux-packages/io.github.olcayseygan.ZeroHourReforged.metainfo.xml
 Tools/linux-packages/io.github.olcayseygan.ZeroHourReforged.yml
 Tools/linux-portable.sh
+Tools/linux-release.py
 Tools/lobby_spot.py
 Tools/lobbyroom_layout.py
 Tools/lobbysettings_layout.py

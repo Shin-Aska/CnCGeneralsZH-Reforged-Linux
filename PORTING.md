@@ -4,6 +4,8 @@ This document retains the upstream port's architecture and cross-platform histor
 focuses on Linux: start with [README.md](README.md) for setup and [docs/linux.md](docs/linux.md)
 for the Ubuntu 26.04.1, GCC 16 and NVIDIA RTX 4060 validation record. Platform and packaging
 results below describe upstream work unless the Linux validation record explicitly confirms them.
+The [GitHub Actions section](#github-actions-builds-and-releases) documents this fork's automated release
+gates; it is not a record of a completed GitHub run.
 
 This branch ports the Zero Hour engine off Windows without changing what the game computes. A match
 recorded on one platform plays back to the same world checksum on every other, and the Windows x64 build
@@ -80,9 +82,11 @@ clang} x {arm64, amd64}) from a Mac or a Linux host with Docker.
 
 **The Steam Deck and other distributions.** `GeneralsMD/Code/Tools/linux-portable.sh --build <dir> --out
 <dir> --cmake <Linux CMake 3.29+>` builds inside Valve's Steam Runtime 3 "sniper" SDK container and makes one
-folder that runs on SteamOS and any desktop Linux of the last five years with nothing installed
-(`--appimage` also makes an AppImage). It refuses a binary that needs a newer glibc, any shared libstdc++,
-or a library whose licence is not listed. The folder's `README.txt` tells players how to add it to Steam.
+folder targeting glibc 2.31 or newer, with static libstdc++ and libgcc (`--appimage` also makes an AppImage).
+The host still needs fontconfig and a working Vulkan driver. It refuses a binary that needs glibc newer
+than 2.31, any shared libstdc++ symbols, an unexpected shared dependency or an unlisted static-library
+licence. The folder's `README.txt` tells players how to add it to Steam. This is a glibc compatibility
+baseline, not proof that every distribution, driver or Steam Deck configuration has been tested.
 
 #### Linux packages
 
@@ -91,7 +95,8 @@ an AppImage, a `.deb`, an `.rpm`, an Arch `.pkg.tar.zst` and a single-file `.fla
 portable folder as a `.tar.zst`, and `SHA256SUMS`. They are meant to be attached to a GitHub release; no
 repository (Flathub, AUR, a PPA or COPR) is involved.
 
-```
+```sh
+GeneralsMD/Code/Tools/vendor.sh --no-art
 GeneralsMD/Code/Tools/linux-packages.sh --build <build folder> --out <out folder> \
   --cmake <Kitware's CMake 3.29+ for Linux>/bin/cmake --appimagetool <appimagetool> --runtime <type-2 runtime>
 ```
@@ -115,13 +120,123 @@ GeneralsMD/Code/Tools/linux-packages.sh --build <build folder> --out <out folder
   without `XDG_DATA_HOME`, and `~/.var/app/io.github.olcayseygan.ZeroHourReforged/data` inside the Flatpak).
   Whatever installs the art puts it there. Without it the game plays at the original textures.
 
-`Tools/linux-packages-check.sh` proves the files on clean containers:
+With locally supplied original game data, `Tools/linux-packages-check.sh --data <folder>` checks the
+files on clean containers:
+
 - **E1 at the three pins**, through the installed `/usr/bin/zero-hour-reforged`, on an install with only the
   required dependencies and no network;
 - **one software-rendered frame** (Xvfb and Mesa's lavapipe) on a default install.
 
-It passes on Debian 12, Ubuntu 24.04, Fedora, openSUSE Tumbleweed and Arch Linux, and for the AppImage. The
-Flatpak's E1 passes on a Steam Deck, as a user installation run through `flatpak run`.
+The upstream port recorded these checks passing on Debian 12, Ubuntu 24.04, Fedora, openSUSE Tumbleweed
+and Arch Linux, and for the AppImage. It also recorded Flatpak E1 passing on a Steam Deck through a user
+installation. Those historical results are not a validation of this fork's current GitHub build.
+
+##### GitHub Actions builds and releases
+
+[`.github/workflows/linux-release.yml`](.github/workflows/linux-release.yml) uses standard
+`ubuntu-24.04` x86_64 CPU runners. It has these triggers:
+
+| Trigger | Result |
+|:--|:--|
+| `pull_request` | Validate the proposed source, build packages and run the checks; no release publication. |
+| `workflow_dispatch` | Build the selected ref on demand; download the packages from the run's artifacts. |
+| A pushed version tag matching `v*` | Validate the version, build and check packages, then publish them to the existing tag's GitHub Release. |
+
+Release tags must use a numeric `vMAJOR.MINOR.PATCH` base matching the engine's generated version;
+a suffix such as `v3.2.0-linux.1` can identify a Linux release of engine 3.2.0. Other `v*` tags fail
+validation. A manual run against a tag still does not publish. The release job verifies that the tag
+exists; it does not create a missing tag.
+
+The workflow has read-only repository permissions by default. Only the final release job receives
+`contents: write`; it runs after the required build, packaging and distribution-check jobs have passed.
+It uses GitHub's built-in token, with no game-data secret or personal access token. Enable Actions and
+allow the workflow's pinned actions under the repository's action policy. Repository or organization
+restrictions may additionally need to permit release publication. The existing commit-message workflow
+is independent and remains in place.
+
+The manual **Run workflow** control becomes available after this workflow exists on the default branch.
+Tag publication creates a draft, uploads the checked package set, and then publishes it. An interrupted
+draft can be resumed. An already published release is left unchanged: a rerun succeeds only if its
+package checksums and downloaded assets match. Use a new version tag for changed packages; rebuilt
+archives normally differ because `VERSION` records the build time.
+
+**One engine build.** `vendor.sh --no-art` fetches code dependencies without querying art manifests.
+`linux-portable.sh` builds in the sniper SDK, never with `--host`, and retains its glibc 2.31 ceiling,
+static C++ runtime, shared-dependency allowlist and link-line licence checks. Tests are built in the same
+CMake/Ninja tree, reusing those objects. The resulting checked portable tarball feeds separate native
+packaging and Flatpak jobs through `linux-packages.sh --portable <tarball>`; neither recompiles the engine.
+The scripts remain the source of package layout and metadata.
+
+Native packaging produces AppImage, DEB, RPM and Arch packages alongside the portable tarball. Flatpak
+packaging uses the declared Freedesktop 25.08 runtime/SDK and runs its existing privileged Docker
+container on a separate fresh hosted runner, because Flatpak's nested sandbox needs it. The final job
+checks the expected file inventory, combines the package checksums into `SHA256SUMS`, and verifies them
+before upload. The completed download artifact is **`linux-x86_64-packages`**. Release files are the
+same checked package set; the workflow does not submit them to Flathub, AUR, a PPA or COPR.
+
+**Resource limits and caching.** Dependency-download archives and pinned external tools are cached;
+Flatpak's runtime/SDK cache is bounded and separate. Build trees, `GeneralsMD/Run`, original data, art,
+captures and player settings are not caches or release artifacts. Separate packaging and per-distribution
+jobs prevent all SDK and distribution images accumulating on one runner. Build/test parallelism and job
+timeouts are bounded; exact limits are in the workflow. `linux-check.sh` remains available for its
+GCC/Clang and architecture matrix, but CI reuses the sniper tree instead of creating those additional
+Ubuntu builds. The nested `linux_portable_check` rebuild is likewise omitted because the release path
+already runs the portable builder and its ABI/licence checks.
+
+**External tool pins.** Verified against the official repositories on 2026-10-21:
+
+| Component | Selected release or source |
+|:--|:--|
+| Checkout | [`actions/checkout` v7.0.1](https://github.com/actions/checkout/releases/tag/v7.0.1) |
+| Cache | [`actions/cache` v6.1.0](https://github.com/actions/cache/releases/tag/v6.1.0) |
+| Artifact upload/download | [`actions/upload-artifact` v7.0.2](https://github.com/actions/upload-artifact/releases/tag/v7.0.2) / [`actions/download-artifact` v8.0.2](https://github.com/actions/download-artifact/releases/tag/v8.0.2) |
+| CMake | [Kitware 3.31.12 Linux x86_64](https://github.com/Kitware/CMake/releases/tag/v3.31.12); retains compatibility with older vendored CMake policies |
+| AppImage tools | [appimagetool 1.9.1](https://github.com/AppImage/appimagetool/releases/tag/1.9.1), [type-2 runtime 20251108](https://github.com/AppImage/type2-runtime/releases/tag/20251108) |
+
+Actions use full commit hashes. `.github/scripts/linux-ci-tools.sh` records the exact official download
+URLs and SHA-256 hashes, checks downloads again on cache hits, and extracts tools without installing
+them system-wide. AppImage tooling uses numbered/dated releases instead of mutable `continuous` URLs.
+The [official Sniper SDK](https://gitlab.steamos.cloud/steamrt/sniper/sdk) is pulled once per build and
+resolved to a digest reused for every compiler invocation; the portable `VERSION` records that digest.
+The existing Fedora/Arch packaging and distro-check images track their distribution tags. Dependency
+package updates and Sniper updates therefore remain first-run compatibility risks, with explicit gates.
+
+Runner budgets follow GitHub's [hosted runner specifications](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#standard-github-hosted-runners-for-public-repositories)
+and [execution limits](https://docs.github.com/en/actions/reference/limits). The isolated Flatpak
+container uses the privilege arrangement documented by the [official Flatpak actions](https://github.com/flatpak/flatpak-github-actions).
+Release creation uses the GitHub CLI's [`--verify-tag` and draft support](https://cli.github.com/manual/gh_release_create).
+
+**What public CI checks.** CTest runs the asset-independent engine/library checks and synthetic renderer
+checks with Mesa Lavapipe and Xvfb. GPU selfchecks must actually execute in that environment; a missing
+software-rendering device is not successful rendering validation. Test output and the job summary report
+skips. `ffref_capture_selfcheck` uses its synthetic round-trip mode when no external captures are supplied.
+Tests that have both synthetic and original-data portions can pass their synthetic portion while reporting
+the unavailable portion separately.
+
+Distribution checks use the existing package-check script's explicit data-free mode:
+
+```sh
+GeneralsMD/Code/Tools/linux-packages-check.sh --packages <release-files> --no-data \
+  --distros "debian-12 ubuntu-24.04 fedora opensuse-tumbleweed archlinux appimage" --remove-images
+```
+
+CI runs each distribution on a fresh runner. These checks install the actual package with its required
+dependencies, verify layout and dynamic linking, and exercise the installed launcher against an empty
+game-data directory. They cover Debian 12, Ubuntu 24.04, Fedora, openSUSE Tumbleweed, Arch Linux and the
+AppImage on Debian 12. They intentionally verify the expected missing-data error, not a playable match.
+Flatpak construction is checked separately; its desktop portal and a full `flatpak run` game session
+still require local validation.
+
+**What remains local.** Original Generals and Zero Hour data are never fetched, committed, bundled or
+uploaded by CI. Replay CRC pins, data-backed rendering/screenshots, maps, movies, original audio and
+textures, and full multiplayer behavior require a legal local installation and the existing full-data
+checks. Windows/Rosetta oracles require their own platforms and tooling. Software rendering also leaves
+physical GPU drivers, Steam Deck hardware/Game Mode, audio devices and the interactive folder chooser
+untested. A successful workflow establishes the checks named in that run, not those unavailable checks.
+
+Download tagged packages from [GitHub Releases](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/releases),
+or PR/manual artifacts from the [workflow's runs](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/actions/workflows/linux-release.yml).
+After downloading the files listed in the checksum manifest, run `sha256sum --check SHA256SUMS`.
 
 ### Windows
 

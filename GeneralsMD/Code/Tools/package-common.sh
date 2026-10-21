@@ -25,6 +25,61 @@
 #   license_entry <entry> <folder>
 #       copies that entry's files into <folder>; CODE, REPO and BUILD are the caller's
 
+# package_check_linux_abi <binary> <allow-newer-glibc:0|1> <x86_64|aarch64>
+# Print the highest required GLIBC version on success. The portable builder calls this inside the SDK;
+# a packaging-only job calls it on the imported binary, without loading or executing that binary.
+package_check_linux_abi() {
+	local binary="$1" host="${2:-0}" arch="$3" header dynamic symbols libs glibc extra machine
+	header="$(LC_ALL=C readelf -h "$binary")" || { echo "cannot read the ELF header of $binary" >&2; return 1; }
+	case "$arch" in
+		x86_64) machine='Advanced Micro Devices X86-64';;
+		aarch64) machine=AArch64;;
+		*) echo "unsupported Linux package architecture: $arch" >&2; return 1;;
+	esac
+	if ! grep -Eq 'Class:[[:space:]]+ELF64' <<< "$header" || ! grep -Eq "Machine:[[:space:]]+$machine$" <<< "$header"; then
+		echo "refused: $binary is not an ELF64 $arch binary" >&2; return 1
+	fi
+	dynamic="$(LC_ALL=C readelf -d "$binary")" && symbols="$(LC_ALL=C objdump -T "$binary")" \
+		|| { echo "cannot read $binary's dynamic section or symbols" >&2; return 1; }
+	libs="$(sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p' <<< "$dynamic")"
+	glibc="$(grep -o 'GLIBC_[0-9.]*' <<< "$symbols" | sort -uV | tail -1)"
+	[ -n "$glibc" ] || { echo "cannot read $binary's glibc symbols" >&2; return 1; }
+	if [ "$host" -ne 1 ] && [ "$(printf '%s\n%s\n' "$glibc" GLIBC_2.31 | sort -V | tail -1)" != GLIBC_2.31 ]; then
+		echo "refused: generals needs $glibc, newer than GLIBC_2.31" >&2; return 1
+	fi
+	if grep -qE 'GLIBCXX_|CXXABI_' <<< "$symbols"; then
+		echo "refused: generals needs libstdc++ symbols (it must link it statically)" >&2; return 1
+	fi
+	extra="$(grep -vE '^(libc\.so\.6|libm\.so\.6|libdl\.so\.2|libpthread\.so\.0|librt\.so\.1|ld-linux-x86-64\.so\.2|ld-linux-aarch64\.so\.1|libfontconfig\.so\.1)$' <<< "$libs" || true)"
+	[ -z "$extra" ] || { echo "refused: generals needs shared libraries a SteamOS may lack: $extra" >&2; return 1; }
+	printf '%s\n' "$glibc"
+}
+
+# package_make_appimage <portable folder> <appimagetool> <type-2 runtime> <architecture>
+# The original build and CI's packaging-only jobs use the same AppDir construction. Nothing is downloaded.
+package_make_appimage() {
+	local folder="$1" tool="$2" runtime="$3" arch="$4" appdir="$1.AppDir" offset
+	[ -x "$tool" ] && [ -f "$runtime" ] || { echo "AppImage creation needs an executable appimagetool and a type-2 runtime file" >&2; return 1; }
+	rm -rf -- "$appdir" "$folder.AppImage"
+	if ! cp -al "$folder" "$appdir" 2>/dev/null; then
+		rm -rf -- "$appdir"
+		cp -R "$folder" "$appdir" || { echo "cannot make $appdir" >&2; return 1; }
+	fi
+	rm -f "$appdir/bin/generals.debug" # the debug file stays in the portable tarball
+	if ! { cp "$folder/zero-hour-reforged.sh" "$appdir/AppRun" && cp "$folder/share/applications/zero-hour-reforged.desktop" "$appdir/" \
+		&& cp "$folder/share/icons/hicolor/128x128/apps/zero-hour-reforged.png" "$appdir/zero-hour-reforged.png" \
+		&& ln -s zero-hour-reforged.png "$appdir/.DirIcon"; }; then
+		rm -rf -- "$appdir"; echo "cannot complete $appdir" >&2; return 1
+	fi
+	if ! ARCH="$arch" "$tool" --no-appstream --runtime-file "$runtime" "$appdir" "$folder.AppImage" > "$folder.appimagetool.log" 2>&1; then
+		tail -5 "$folder.appimagetool.log" >&2; rm -rf -- "$appdir"; echo "appimagetool failed" >&2; return 1
+	fi
+	rm -rf -- "$appdir"
+	# A type-2 runtime answers this without FUSE or mounting anything.
+	offset="$("$folder.AppImage" --appimage-offset 2>/dev/null)" || { echo "the AppImage runtime failed" >&2; return 1; }
+	case "$offset" in ''|*[!0-9]*) echo "the AppImage does not answer --appimage-offset: its runtime is not a type-2 runtime" >&2; return 1;; esac
+}
+
 package_link_libraries() {
 	python3 - "$1" "$2" <<'LINK_EOF'
 import re, sys
