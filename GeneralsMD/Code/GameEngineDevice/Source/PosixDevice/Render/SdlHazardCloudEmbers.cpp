@@ -217,7 +217,6 @@ bool makeResources(SdlGpuFrame *frame, const SdlTarget &target)
         = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
     depthSampler = SDL_CreateGPUSampler(gpu, &sampler);
     if (!depthSampler) return fail(SDL_GetError());
-    std::fprintf(stderr, "hazard-cloud: nuclear embers initialized (24-96 GPU billboards over the full nuclear footprint)\n");
     return true;
 }
 
@@ -318,8 +317,6 @@ void shutdown()
         if (vertexShader) SDL_ReleaseGPUShader(gpu, vertexShader);
         if (pixelShader) SDL_ReleaseGPUShader(gpu, pixelShader);
     }
-    if (renderedFrames) std::fprintf(stderr, "hazard-cloud: nuclear embers rendered-frames=%u status=%s\n",
-        renderedFrames, failed ? "FAIL" : "OK");
     abandon();
 }
 

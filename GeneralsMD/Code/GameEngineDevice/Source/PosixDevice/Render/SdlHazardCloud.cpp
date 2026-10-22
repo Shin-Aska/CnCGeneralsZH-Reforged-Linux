@@ -142,7 +142,7 @@ struct Layer::Impl {
 
 void fail(const char *reason)
 {
-    if (!failed) std::fprintf(stderr, "cloud-preview: volumetric renderer FAIL: %s\n", reason);
+    if (!failed) std::fprintf(stderr, "hazard-cloud: volumetric renderer FAIL: %s\n", reason);
     failed = true;
 }
 
@@ -365,8 +365,6 @@ bool resizeFieldCache(unsigned index)
     cache.lighting = { lighting, nullptr, description.width, description.height };
     cache.side = side;
     cachedInputsValid = false;
-    std::fprintf(stderr, "cloud-preview: volume-cache field=%u grid=%ux%ux%u atlas=%ux%u spacing=%.3f\n",
-        index, side, side, CacheSlices, description.width, description.height, extent / (side - 1));
     return true;
 }
 
@@ -404,14 +402,7 @@ bool prepareCaches(SdlHazardCloudUniforms &uniforms, SDL_GPUTexture *sceneDepth,
     inputs.Scene[0] = inputs.Scene[1] = inputs.Scene[2] = 0;
     inputs.Settings[1] = inputs.Settings[3] = 0;
     std::fill(inputs.CachePass, inputs.CachePass + 4, 0.0f);
-    // Preview-only stress measurement: include full cache construction in every
-    // rendered frame, even when rendering outruns simulation. This bounds the
-    // cost when other effects leave only one render per simulation update.
-    static const bool forceRebuild = []() {
-        const char *value = std::getenv("ZH_CLOUD_PREVIEW_REBUILD_EVERY_FRAME");
-        return value && value[0] == '1';
-    }();
-    if (!forceRebuild && cachedInputsValid && cachedFlowUploads == flowUploads
+    if (cachedInputsValid && cachedFlowUploads == flowUploads
         && std::memcmp(&inputs, &cachedInputs, sizeof(inputs)) == 0) return true;
 
     bool rebuilt = false;
@@ -837,10 +828,7 @@ bool renderVolume()
     flowUsedBatch = frame->Batch();
     // Recorded state is private to this draw. The next engine draw rebinds its
     // own pipeline, samplers and uniforms without any D3D9 state restoration.
-    if (++renderedFrames == 1)
-        std::fprintf(stderr, "cloud-preview: volumetric draw active; world-space density, "
-            "scene-depth clipping, half-resolution %ux%u with depth-aware composite, %.0f ray steps\n",
-            shared.lowTarget.Width, shared.lowTarget.Height, Steps);
+    ++renderedFrames;
     return true;
 }
 void setFields(const FieldState *values, unsigned count)
@@ -1004,8 +992,6 @@ void shutdown()
     initialized = false;
     if (shared.users) --shared.users;
     if (!shared.users) releaseShared(alive);
-    std::fprintf(stderr, "cloud-preview: volume-cache rebuilds=%u field-bakes=%u rendered-frames=%u\n",
-        cacheUpdates, cacheBakes, renderedFrames);
     frame = nullptr;
     gpu = nullptr;
     cachedInputsValid = false;

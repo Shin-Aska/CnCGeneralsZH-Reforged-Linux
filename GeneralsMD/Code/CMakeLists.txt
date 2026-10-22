@@ -1963,34 +1963,6 @@ if(ZH_PLATFORM_POSIX)
     DEPENDS ${ZH_OVERLAY_INPUTS} ${CMAKE_CURRENT_SOURCE_DIR}/Tools/stage-overlay.sh
     COMMENT "Staging the fork's overlay (P1)" VERBATIM)
   add_custom_target(zh_overlay ALL DEPENDS ${CMAKE_BINARY_DIR}/overlay.staged)
-  # An isolated, harmless effects scene. This target shares the real client/renderer
-  # libraries, but its entry point, scene controller and map never enter generals.
-  find_package(Python3 COMPONENTS Interpreter QUIET)
-  if(ZH_PLATFORM_LINUX AND Python3_Interpreter_FOUND)
-    set(ZH_CLOUD_PREVIEW_DIR ${CMAKE_BINARY_DIR}/cloud-preview)
-    set(ZH_CLOUD_PREVIEW_MAP ${ZH_CLOUD_PREVIEW_DIR}/overlay/Maps/CloudPreview/CloudPreview.map)
-    add_custom_command(OUTPUT ${ZH_CLOUD_PREVIEW_MAP}
-      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/Tools/cloud_preview/generate_map.py
-              ${ZH_CLOUD_PREVIEW_MAP} --inspection-yard
-      DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Tools/cloud_preview/generate_map.py
-      COMMENT "Generating the cloud preview's inspection yard" VERBATIM)
-    add_custom_target(cloud_preview_map DEPENDS ${ZH_CLOUD_PREVIEW_MAP})
-    add_executable(cloud_preview EXCLUDE_FROM_ALL
-      ${CMAKE_CURRENT_SOURCE_DIR}/Tools/cloud_preview.cpp
-      ${CMAKE_CURRENT_SOURCE_DIR}/Tools/CloudPreviewScene.cpp
-      ${CMAKE_CURRENT_SOURCE_DIR}/Tools/CloudPreviewSources.cpp
-      ${CMAKE_CURRENT_SOURCE_DIR}/Tools/CloudPreviewVolume.cpp
-      ${CMAKE_CURRENT_SOURCE_DIR}/Tools/CloudPreviewFlow.cpp
-      ${CMAKE_CURRENT_SOURCE_DIR}/Tools/CloudPreviewColors.cpp
-      ${CMAKE_CURRENT_SOURCE_DIR}/Tools/CloudPreviewColorPanel.cpp)
-    set_target_properties(cloud_preview PROPERTIES CXX_STANDARD 17)
-    target_include_directories(cloud_preview PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Main ${GENERATED})
-    target_compile_definitions(cloud_preview PRIVATE
-      CLOUD_PREVIEW_DIRECTORY="${ZH_CLOUD_PREVIEW_DIR}"
-      CLOUD_PREVIEW_GAME_OVERLAY="${CMAKE_BINARY_DIR}/overlay")
-    target_link_libraries(cloud_preview PRIVATE sdldevice installroot)
-    add_dependencies(cloud_preview zh_overlay cloud_preview_map)
-  endif()
 
   add_custom_command(
     OUTPUT ${CMAKE_BINARY_DIR}/overlay-dev.staged
