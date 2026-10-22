@@ -444,18 +444,12 @@ These do not belong to one change.
 | **A `Debug` or `_INTERNAL` build of this tree does not compile on x64, and did not before this port started.** | **Windows, 2026-09-29: done for x64 Debug; `_INTERNAL` not built.** The build and what it then found are fixed: a Debug CI run on the Windows CI VM (`windows-ci.ps1 -Config Debug`): the build, ctest 50 of 50 with order_cameos_selfcheck skipped (no numpy there), the GPU tests, and E1 0@1200 playing back to 0xE5C34BF3, Release's pin. Before that, as found on 2026-09-27: `windows-ci.ps1 -Config Debug` on 2026-09-27 stops in `wwdebug` at `Debug.h:244`. A port change spelled `SimpleProfiler`'s four counters `Int64`, which wwdebug's files do not declare; `__int64` was the compiler's own. Only wwdebug compiles `DEBUG_PROFILE`, because only it lacks `RELEASE_DEBUG_LOGGING`. Three Debug-only test links fail too: `GameEngineDebug.lib` (gametext_csf, test_premain_strings, test_premain_unicode), `debugdebug.lib` (test_debug), and `DebugLog` (test_wwdownload). The fix is in this tree now. `GameCommon.h:59` defines `DUMP_PERF_STATS` in every `_DEBUG` or `_INTERNAL` build. `PerfTimer.h` compiled `GetPrecisionTimer` under that define, and its body was an `__asm RDTSC` block — `USE_QPF` was never defined, so the assembly was the live branch, not the dead one. This project is x64 only (`CMakeLists.txt:48-52` refuses anything else) and **MSVC does not accept `__asm` on x64 at all**. `-DPERF_TIMERS=ON` reaches the same code in a Release build. Found by B2, which has replaced the block with the clock shim, so the configurations should build again — but nobody has confirmed either the breakage or the fix on a Windows machine, and the conclusion rests on reading the preprocessor rather than on a compiler's answer. **It also means an early claim that "every remaining `__asm` block is inside `#if 0`" was wrong**; it has been corrected. The only other `__asm` in the tree, `WWMath/vp.cpp`, is expanded solely inside `#if defined(__ICL)` and is genuinely dead. |
 | **`#pragma pack` layout is assumed, not measured, on MSVC.** | **Windows, 2026-09-27: checked.** The B4 and L1 `sizeof`/`offsetof` asserts compile under MSVC (rows 208, 248, 267). B4 adds `sizeof`/`offsetof` asserts. They will be checked by a clang build only. If MSVC disagrees on any packed struct, the asserts fire there and the build fails loudly — which is the good outcome, but it happens on someone else's machine, later. |
 
-## Linux hazard cloud proposal (2026-10-19)
+## Volumetric hazard clouds (2026-10-22)
 
-The production volume implementation and preview target compile on Linux. The
-new particle recognition, owner/lifetime tracking, terrain caches and infantry
-wakes are enabled only on Linux. Other platforms retain their original ground
-fields; shared option metadata and no-op resource hooks still compile there.
-`SdlRenderMatrix.h` is a small, pure matrix helper. Scene-depth capture and
-vertex texture bindings are generic prerequisites; no other rendering feature is included. Windows and
-macOS compilation and runtime validation remain open.
-
-The independent review restored non-Linux field-key grouping, owner selection,
-emitter grace periods and initial-delay behavior. An `unifdef` MSVC/macOS view
-comparison against reference/3.1.0 confirms that the key, owner lookup and fade
-function bodies retain their original source after preprocessing. This textual
-check does not establish compiler or runtime compatibility.
+Windows compiles the neutral cloud core (`Platform/HazardCloud.h`, `HazardCloudPolicy.h`,
+`HazardCloudFlow`, `HazardCloud.cpp`) and links `HazardCloudUnsupported.cpp`, so
+`HazardCloud::Supported()` is false there: the Cloud style selector is hidden and the ground fields
+take upstream's original keys, owner choice, grace period and initial-delay behaviour, because every
+extended rule in `W3DParticleSys.cpp` is conditioned on that capability. The SDL backend
+(`SdlHazardCloud*.cpp`) is built only where the SDL GPU renderer is. A Direct3D 11 backend would
+replace `HazardCloudUnsupported.cpp` and implement `HazardCloud::Layer`.

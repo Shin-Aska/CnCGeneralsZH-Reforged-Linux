@@ -73,6 +73,7 @@
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/ScriptEngine.h"
 #include "WWDownload/Registry.h"
+#include "Platform/HazardCloud.h"
 //added by saad
 //used to access a messagebox that does "ok" and "cancel"
 #include "GameClient/MessageBox.h"
@@ -1129,16 +1130,17 @@ static void fillCatalogWidgets( void )
 		if( widget == NULL )
 			continue;
 
-#if !defined(__linux__)
 		if (strcmp(def.iniKey, "CloudStyle") == 0)
 		{
-			widget->winHide(TRUE);
+			// The display is initialized before the shell. Query when the menu
+			// opens so a reused layout also reflects the current device.
+			const Bool supported = HazardCloud::Supported();
+			widget->winHide(!supported);
 			GameWindow *label = TheWindowManager->winGetWindowFromId(
 				NULL, NAMEKEY("OptionsMenu.wnd:LabelCloudStyle"));
-			if (label) label->winHide(TRUE);
-			continue;
+			if (label) label->winHide(!supported);
+			if (!supported) continue;
 		}
-#endif
 
 		const Int value = clampOptionValue( def, def.get() );
 
@@ -1183,6 +1185,10 @@ static void readCatalogWidgets( OptionPreferences &out )
 		const OptionDef& def = TheOptionCatalog[ i ];
 		GameWindow *widget = findOptionWidget( def );
 		if( widget == NULL )
+			continue;
+
+		// A hidden, unfilled combo must not overwrite the player's opt-in.
+		if (strcmp(def.iniKey, "CloudStyle") == 0 && !HazardCloud::Supported())
 			continue;
 
 		Int value;

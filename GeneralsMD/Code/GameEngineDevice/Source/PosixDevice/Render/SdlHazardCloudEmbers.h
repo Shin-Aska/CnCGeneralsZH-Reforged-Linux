@@ -5,7 +5,7 @@
 class SdlGpuFrame;
 struct SdlTarget;
 struct SDL_GPUTexture;
-namespace SdlHazardCloud { struct FieldState; }
+namespace HazardCloud { struct FieldState; }
 
 namespace SdlHazardCloudEmbers {
 
@@ -14,11 +14,11 @@ namespace SdlHazardCloudEmbers {
 // contains x, y, width, height, min depth and max depth in native GPU form.
 // Resources are created only when an active nuclear field first needs them.
 bool prepare(SdlGpuFrame *frame, const SdlTarget &target,
-             const SdlHazardCloud::FieldState *fields, unsigned fieldCount);
+             const HazardCloud::FieldState *fields, unsigned fieldCount);
 
 bool render(SdlGpuFrame *frame, const SdlTarget &target, SDL_GPUTexture *sceneDepth,
             const float viewProjection[16], const float viewport[6],
-            const SdlHazardCloud::FieldState *fields, unsigned fieldCount,
+            const HazardCloud::FieldState *fields, unsigned fieldCount,
             float timeSeconds, SDL_GPUTexture *terrainTexture = nullptr,
             const bool *terrainEnabled = nullptr);
 bool validationPassed();

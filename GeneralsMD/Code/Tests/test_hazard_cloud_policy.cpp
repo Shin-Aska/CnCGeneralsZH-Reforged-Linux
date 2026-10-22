@@ -1,8 +1,11 @@
 #include "test_harness.h"
 #include "Platform/HazardCloudPolicy.h"
+#include "Platform/HazardCloud.h"
+#include "Platform/HazardCloudFlow.h"
 
 #include <initializer_list>
 #include <limits>
+#include <type_traits>
 
 using namespace HazardCloudPolicy;
 
@@ -117,7 +120,7 @@ TEST(hazard_cloud_fringe_covers_original_rotated_breathing_quads)
     CHECK(visualFringe(50.0f) > 50.0f * std::sqrt(2.0f));
     CHECK_EQ(visualFringe(-1.0f), 0.0f);
     CHECK_EQ(visualFringe(std::numeric_limits<float>::infinity()), 0.0f);
-    CHECK_EQ(visualFringe(std::numeric_limits<float>::max()), 0.0f);
+    CHECK_EQ(visualFringe((std::numeric_limits<float>::max)()), 0.0f);
 }
 
 TEST(hazard_cloud_admission_rejects_invalid_values_without_changing_footprints)
@@ -142,4 +145,74 @@ TEST(hazard_cloud_admission_rejects_invalid_values_without_changing_footprints)
     CHECK(!validField(0, 0, 0, 80, 18, 1, 1, 0, -1));
     CHECK(!validField(0, 0, 0, 80, 18, 1, 1, 0, 4));
     CHECK(!validField(0, 0, 0, 1e30f, 18, 1, 1, 0, 0));
+}
+
+
+// This target deliberately links the no-backend implementation on every
+// platform. It keeps the public API and device-free transport independently
+// usable when a game build has no volumetric renderer (Windows today).
+static_assert(std::is_abstract<HazardCloud::Layer>::value, "Layer must remain a backend interface");
+static_assert(std::has_virtual_destructor<HazardCloud::Layer>::value, "Layer is owned through the interface");
+static_assert(std::is_same<HazardCloud::Body, HazardCloudFlow::Body>::value, "Flow and renderer share body geometry");
+
+TEST(hazard_cloud_no_backend_reports_unavailable_and_creates_no_layer)
+{
+    CHECK(!HazardCloud::Supported());
+    CHECK(HazardCloud::CreateLayer() == nullptr);
+}
+
+TEST(hazard_cloud_neutral_palette_and_cache_policy_need_no_device)
+{
+    using HazardCloud::Layer;
+    CHECK_EQ(HazardCloud::TerrainGridSide, 129u);
+    CHECK_EQ(&HazardCloud::defaultPalette(4), &HazardCloud::defaultPalette(0));
+    for (unsigned index = 0; index < 4; ++index) {
+        const HazardCloud::Palette &palette = HazardCloud::defaultPalette(index);
+        CHECK(std::isfinite(palette.main.r) && std::isfinite(palette.shadow.r));
+        CHECK(palette.brightness > 0.0f && palette.brightness <= 2.0f);
+        CHECK(palette.transparency >= 0.0f && palette.transparency <= 1.0f);
+    }
+    HazardCloud::FieldState fields[2] = {
+        {{0, 0, 0}, 40, 18, 1, 0, 1, 0, 0},
+        {{80, 0, 0}, 80, 18, 1, 1, 1, 0, 0}
+    };
+    const std::uint64_t shared = Layer::estimateCacheBytes(nullptr, 0);
+    const std::uint64_t first = Layer::estimateCacheBytes(fields, 1);
+    const std::uint64_t second = Layer::estimateCacheBytes(fields + 1, 1);
+    CHECK(first > shared);
+    CHECK(second > first);
+    CHECK_EQ(Layer::estimateCacheBytes(fields, 2), first + second - shared);
+    const std::uint64_t rejected = (std::numeric_limits<std::uint64_t>::max)();
+    CHECK_EQ(Layer::estimateCacheBytes(nullptr, 1), rejected);
+    CHECK_EQ(Layer::estimateCacheBytes(fields, 3), rejected);
+    fields[0].radius = std::numeric_limits<float>::quiet_NaN();
+    CHECK_EQ(Layer::estimateCacheBytes(fields, 1), rejected);
+}
+
+TEST(hazard_cloud_neutral_flow_advances_and_resets_without_a_renderer)
+{
+    HazardCloudFlow::Flow flow;
+    CHECK(!flow.valid());
+    flow.setDomain(-80, -40, 80, 40);
+    CHECK(flow.valid());
+    const HazardCloud::Body body = {0, 0, 0, 30, 0, 3, 15};
+    for (unsigned step = 0; step < 30; ++step)
+        flow.step(1.0f / 60.0f, &body, 1);
+    CHECK(flow.valid());
+    CHECK_EQ(flow.activeBodies(), 1u);
+    CHECK(flow.maxDisturbance() > 0.0f && flow.maxDisturbance() <= 1.0f);
+    const float disturbance = flow.maxDisturbance();
+    flow.step(0.0f, nullptr, 0);
+    CHECK_EQ(flow.maxDisturbance(), disturbance);
+    flow.reset();
+    CHECK(flow.valid());
+    CHECK_EQ(flow.domainMinX(), -80.0f);
+    CHECK_EQ(flow.domainMaxY(), 40.0f);
+    CHECK_EQ(flow.activeBodies(), 0u);
+    CHECK_EQ(flow.maxDisturbance(), 0.0f);
+    for (unsigned slot = 0; slot < flow.width() * flow.height() * 4; ++slot)
+        if (flow.data()[slot] != 0.0f) {
+            CHECK(false);
+            break;
+        }
 }

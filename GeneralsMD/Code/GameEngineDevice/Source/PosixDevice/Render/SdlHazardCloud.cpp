@@ -17,7 +17,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <limits>
 #include <string>
 #include <vector>
 
@@ -59,12 +58,6 @@ struct SharedResources {
     SdlTarget heatBackground = {};
 };
 SharedResources shared;
-constexpr std::array<Palette, 4> approved = {{
-    {{0.769999981f, 0.939999998f, 0.550000012f}, {0.125490203f, 0.31764707f, 0.0549019612f}, 0.699999988f, 0.670000017f},
-    {{0.749019623f, 0.670588255f, 0.469999999f}, {0.298039228f, 0.184313729f, 0.0705882385f}, 1.29999995f, 0.0f},
-    {{0.660000026f, 0.75999999f, 1.0f}, {0.0649999976f, 0.100000001f, 0.209999993f}, 1.52999997f, 0.769999981f},
-    {{0.839999974f, 0.629999995f, 1.0f}, {0.192156866f, 0.0470588244f, 0.235294119f}, 1.32000005f, 0.74000001f},
-}};
 
 unsigned cacheSide(const FieldState &field)
 {
@@ -105,8 +98,6 @@ void releaseShared(bool deviceAlive)
 }
 } // namespace
 
-const Palette &defaultPalette(unsigned index) { return approved[index < 4 ? index : 0]; }
-
 struct Layer::Impl {
     FieldState fieldStates[2] = {};
     unsigned fieldCount = 0;
@@ -123,8 +114,8 @@ struct Layer::Impl {
     unsigned flowUploads = 0;
     uint64_t flowUsedBatch = ~uint64_t(0);
     std::vector<Body> bodies;
-    SdlHazardCloudFlow::Flow flow;
-    std::array<Palette, 4> palettes = approved;
+    HazardCloudFlow::Flow flow;
+    std::array<Palette, 4> palettes = {{defaultPalette(0), defaultPalette(1), defaultPalette(2), defaultPalette(3)}};
     SdlGpuFrame *frame = nullptr;
     SDL_GPUDevice *gpu = nullptr;
     SDL_GPUTexture *flowTexture = nullptr;
@@ -946,6 +937,7 @@ void update(float timeSeconds)
 bool initialize()
 {
     if (initialized) return !failed;
+    if (!HazardCloud::Supported()) return false;
     failed = false;
     PosixDevice9 *device = static_cast<PosixDevice9 *>(DX8Wrapper::_Get_D3D_Device());
     if (!device || !(frame = device->Get_Gpu()) || !(gpu = frame->Device())) {
@@ -1071,20 +1063,6 @@ unsigned Layer::activeBodies() const { return impl->flow.activeBodies(); }
 float Layer::maxDisturbance() const { return impl->flow.maxDisturbance(); }
 unsigned Layer::interactionUploads() const { return impl->flowUploads; }
 unsigned Layer::renderedFrames() const { return impl->renderedFrames; }
-std::uint64_t Layer::estimateCacheBytes(const FieldState *fields, unsigned count)
-{
-    if (count > 2 || (count && !fields)) return std::numeric_limits<std::uint64_t>::max();
-    std::uint64_t result = (192u * 96u * 4u + TerrainGridSide * TerrainGridSide * 2u) * sizeof(float);
-    for (unsigned i = 0; i < count; ++i) {
-        if (!std::isfinite(fields[i].radius) || !std::isfinite(fields[i].fringe)
-            || fields[i].radius < 0 || fields[i].fringe < 0)
-            return std::numeric_limits<std::uint64_t>::max();
-        if (fields[i].radius <= 0.001f || fields[i].height <= 0.002f || fields[i].density <= 0.00001f) continue;
-        const std::uint64_t side = cacheSide(fields[i]);
-        result += side * side * CacheSlices * 10u; // R16F density + RGBA16F light.
-    }
-    return result;
-}
 std::uint64_t Layer::estimatedCacheBytes() const
 {
     std::uint64_t result = impl->flowTexture ? 192u * 96u * 4u * sizeof(float) : 0;
@@ -1096,3 +1074,27 @@ std::uint64_t Layer::estimatedCacheBytes() const
 void Layer::shutdown() { impl->shutdown(); }
 
 } // namespace SdlHazardCloud
+
+namespace HazardCloud {
+
+bool Supported()
+{
+    PosixDevice9 *device = dynamic_cast<PosixDevice9 *>(DX8Wrapper::_Get_D3D_Device());
+    SdlGpuFrame *frame = device ? device->Get_Gpu() : nullptr;
+    if (!frame || !frame->Device() || !frame->Supports_Scene_Depth()) return false;
+    const SDL_GPUTextureUsageFlags usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+    return SDL_GPUTextureSupportsFormat(frame->Device(), SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT,
+               SDL_GPU_TEXTURETYPE_2D, usage)
+        && SDL_GPUTextureSupportsFormat(frame->Device(), SDL_GPU_TEXTUREFORMAT_R16_FLOAT,
+               SDL_GPU_TEXTURETYPE_2D, usage)
+        && SDL_GPUTextureSupportsFormat(frame->Device(), SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT,
+               SDL_GPU_TEXTURETYPE_2D, SDL_GPU_TEXTUREUSAGE_SAMPLER);
+}
+
+std::unique_ptr<Layer> CreateLayer()
+{
+    if (!Supported()) return nullptr;
+    return std::make_unique<SdlHazardCloud::Layer>();
+}
+
+} // namespace HazardCloud

@@ -15127,7 +15127,7 @@ TEST(order_lines_are_a_live_check_box_that_starts_on)
 	TheWritableGlobalData = saved;
 }
 
-TEST(cloud_style_defaults_to_volumetric_and_preserves_an_explicit_classic_choice)
+TEST(cloud_style_defaults_to_classic_and_preserves_an_explicit_volumetric_choice)
 {
     GlobalData *saved = TheWritableGlobalData;
     GlobalData *scratch = NEW GlobalData;
@@ -15136,7 +15136,7 @@ TEST(cloud_style_defaults_to_volumetric_and_preserves_an_explicit_classic_choice
     CHECK(cloud != NULL);
     if (cloud) {
         UserPreferences pref;
-        CHECK_EQ(scratch->m_cloudStyle, 1);
+        CHECK_EQ(scratch->m_cloudStyle, 0);
         CHECK_EQ(cloud->kind, OPTION_ENUM);
         CHECK_EQ(cloud->apply, APPLY_LIVE);
         CHECK_EQ(cloud->lo, 0);
@@ -15145,7 +15145,7 @@ TEST(cloud_style_defaults_to_volumetric_and_preserves_an_explicit_classic_choice
         // The cloud appearance is independent of the existing smoke-shadow option.
         scratch->m_volumetricSmokeShadows = FALSE;
         loadOptionsFromPreferences(pref);
-        CHECK_EQ(cloud->get(), 1);
+        CHECK_EQ(cloud->get(), 0);
         pref["CloudStyle"] = "0";
         loadOptionsFromPreferences(pref);
         CHECK_EQ(cloud->get(), 0);
@@ -15154,6 +15154,8 @@ TEST(cloud_style_defaults_to_volumetric_and_preserves_an_explicit_classic_choice
         pref["CloudStyle"] = "1";
         loadOptionsFromPreferences(pref);
         CHECK_EQ(cloud->get(), 1);
+        saveOptionsToPreferences(pref);
+        CHECK_STR(pref["CloudStyle"].str(), "1");
         CHECK(!scratch->m_volumetricSmokeShadows);
     }
     delete scratch;

@@ -1,8 +1,8 @@
-// Persistent planar smoke transport for SDL hazard clouds.
+// Backend-neutral persistent planar smoke transport for hazard clouds.
 // Distributed under the repository's GPL-3.0 terms; see LICENSE.md.
 #pragma once
 
-namespace SdlHazardCloudFlow {
+namespace HazardCloudFlow {
 
 // World coordinates and world units per second. The caller supplies the current
 // velocity, not displacement since the last rendered frame. Body order need not
@@ -57,4 +57,4 @@ private:
     Impl *impl;
 };
 
-} // namespace SdlHazardCloudFlow
+} // namespace HazardCloudFlow

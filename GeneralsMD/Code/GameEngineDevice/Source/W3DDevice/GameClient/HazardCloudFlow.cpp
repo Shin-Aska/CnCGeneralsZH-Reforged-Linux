@@ -1,12 +1,12 @@
-// Persistent planar smoke transport shared by SDL hazard clouds and their preview.
+// Backend-neutral persistent planar smoke transport for hazard clouds.
 // Distributed under the repository's GPL-3.0 terms; see LICENSE.md.
-#include "Platform/SdlHazardCloudFlow.h"
+#include "Platform/HazardCloudFlow.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 
-namespace SdlHazardCloudFlow {
+namespace HazardCloudFlow {
 namespace {
 
 constexpr unsigned GridWidth = 192;
@@ -27,7 +27,7 @@ struct Cell {
 
 float clamp(float value, float lo, float hi)
 {
-    return std::max(lo, std::min(hi, value));
+    return (std::max)(lo, (std::min)(hi, value));
 }
 
 void limitVector(float &x, float &y, float limit)
@@ -69,8 +69,8 @@ struct Flow::Impl {
         float gx = clamp((x - minX) / cellWidth - 0.5f, 0.0f, float(GridWidth - 1));
         float gy = clamp((y - minY) / cellHeight - 0.5f, 0.0f, float(GridHeight - 1));
         unsigned ix = static_cast<unsigned>(gx), iy = static_cast<unsigned>(gy);
-        unsigned nx = std::min(ix + 1, GridWidth - 1);
-        unsigned ny = std::min(iy + 1, GridHeight - 1);
+        unsigned nx = (std::min)(ix + 1, GridWidth - 1);
+        unsigned ny = (std::min)(iy + 1, GridHeight - 1);
         return mix(mix(cells[iy * GridWidth + ix], cells[iy * GridWidth + nx], gx - ix),
                    mix(cells[ny * GridWidth + ix], cells[ny * GridWidth + nx], gx - ix), gy - iy);
     }
@@ -81,8 +81,8 @@ struct Flow::Impl {
         const float displacementDecay = std::exp(-1.05f * FixedStep);
         // Conservative explicit diffusion after semi-Lagrangian backtracing. The
         // coefficient is bounded even for accidentally tiny preview domains.
-        const float diffuseX = std::min(0.12f, 4.0f * FixedStep / (cellWidth * cellWidth));
-        const float diffuseY = std::min(0.12f, 4.0f * FixedStep / (cellHeight * cellHeight));
+        const float diffuseX = (std::min)(0.12f, 4.0f * FixedStep / (cellWidth * cellWidth));
+        const float diffuseY = (std::min)(0.12f, 4.0f * FixedStep / (cellHeight * cellHeight));
         for (unsigned y = 0; y < GridHeight; ++y) {
             for (unsigned x = 0; x < GridWidth; ++x) {
                 unsigned index = y * GridWidth + x;
@@ -90,9 +90,9 @@ struct Flow::Impl {
                 Cell next = sample(minX + (x + 0.5f) * cellWidth - old.vx * FixedStep,
                                    minY + (y + 0.5f) * cellHeight - old.vy * FixedStep);
                 const Cell &left = cells[y * GridWidth + (x ? x - 1 : x)];
-                const Cell &right = cells[y * GridWidth + std::min(x + 1, GridWidth - 1)];
+                const Cell &right = cells[y * GridWidth + (std::min)(x + 1, GridWidth - 1)];
                 const Cell &down = cells[(y ? y - 1 : y) * GridWidth + x];
-                const Cell &up = cells[std::min(y + 1, GridHeight - 1) * GridWidth + x];
+                const Cell &up = cells[(std::min)(y + 1, GridHeight - 1) * GridWidth + x];
                 next.vx += (left.vx + right.vx - 2 * old.vx) * diffuseX
                          + (down.vx + up.vx - 2 * old.vx) * diffuseY;
                 next.vy += (left.vy + right.vy - 2 * old.vy) * diffuseX
@@ -117,10 +117,10 @@ struct Flow::Impl {
         float sideX = -directionY, sideY = directionX;
         float radius = body.radius;
         float extent = radius * 5.0f;
-        int firstX = std::max(0, int(std::floor((body.x - extent - minX) / cellWidth)));
-        int lastX = std::min(int(GridWidth) - 1, int(std::ceil((body.x + extent - minX) / cellWidth)));
-        int firstY = std::max(0, int(std::floor((body.y - extent - minY) / cellHeight)));
-        int lastY = std::min(int(GridHeight) - 1, int(std::ceil((body.y + extent - minY) / cellHeight)));
+        int firstX = (std::max)(0, int(std::floor((body.x - extent - minX) / cellWidth)));
+        int lastX = (std::min)(int(GridWidth) - 1, int(std::ceil((body.x + extent - minX) / cellWidth)));
+        int firstY = (std::max)(0, int(std::floor((body.y - extent - minY) / cellHeight)));
+        int lastY = (std::min)(int(GridHeight) - 1, int(std::ceil((body.y + extent - minY) / cellHeight)));
         for (int y = firstY; y <= lastY; ++y) {
             for (int x = firstX; x <= lastX; ++x) {
                 float offsetX = minX + (x + 0.5f) * cellWidth - body.x;
@@ -143,7 +143,7 @@ struct Flow::Impl {
                     float circulation = -sign * speed * 0.36f;
                     targetAlong += -vortexSide * circulation * vortex;
                     targetSide += vortexAlong * circulation * vortex;
-                    weight = std::max(weight, vortex);
+                    weight = (std::max)(weight, vortex);
                 }
                 targetAlong *= BodyFlowStrength;
                 targetSide *= BodyFlowStrength;
@@ -165,7 +165,7 @@ struct Flow::Impl {
             // Outflow vanishes smoothly at the domain edge, preventing a clamped
             // sampler from carrying disturbance indefinitely beyond the field.
             unsigned x = index % GridWidth, y = index / GridWidth;
-            unsigned edge = std::min(std::min(x, GridWidth - 1 - x), std::min(y, GridHeight - 1 - y));
+            unsigned edge = (std::min)((std::min)(x, GridWidth - 1 - x), (std::min)(y, GridHeight - 1 - y));
             if (edge < 3) {
                 float fade = float(edge) / 3.0f;
                 cell.vx *= fade; cell.vy *= fade;
@@ -189,7 +189,7 @@ struct Flow::Impl {
             pixels[index * 4 + 1] = cell.dy;
             pixels[index * 4 + 2] = 0;
             pixels[index * 4 + 3] = 0;
-            peak = std::max(peak, std::sqrt(cell.dx * cell.dx + cell.dy * cell.dy) / MaxDisplacement);
+            peak = (std::max)(peak, std::sqrt(cell.dx * cell.dx + cell.dy * cell.dy) / MaxDisplacement);
         }
     }
 
@@ -232,7 +232,7 @@ struct Flow::Impl {
         if (!configured || deltaSeconds == 0) return;
         std::array<Body, MaxBodies> usable = {};
         bodyCount = 0;
-        for (unsigned index = 0; index < std::min(count, MaxBodies); ++index) {
+        for (unsigned index = 0; index < (std::min)(count, MaxBodies); ++index) {
             Body body = bodies[index];
             if (!std::isfinite(body.x) || !std::isfinite(body.y) || !std::isfinite(body.z)
                 || !std::isfinite(body.vx) || !std::isfinite(body.vy)
@@ -254,7 +254,7 @@ struct Flow::Impl {
         }
         // A stalled frame is capped instead of doing an unbounded catch-up burst.
         // Normal 30/60/120 Hz callers execute the same fixed integration steps.
-        remainder += std::min(deltaSeconds, 0.25f);
+        remainder += (std::min)(deltaSeconds, 0.25f);
         bool advanced = false;
         while (remainder + 1.0e-9 >= FixedStep) {
             transport();
@@ -292,4 +292,4 @@ bool Flow::valid() const { return impl->configured && impl->healthy; }
 float Flow::maxDisturbance() const { return impl->peak; }
 unsigned Flow::activeBodies() const { return impl->bodyCount; }
 
-} // namespace SdlHazardCloudFlow
+} // namespace HazardCloudFlow

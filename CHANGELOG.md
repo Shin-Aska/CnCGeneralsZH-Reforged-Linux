@@ -8,6 +8,18 @@ found and fixed â€” EA's own, not port damage.**
 
 ---
 
+## Volumetric hazard clouds
+
+- Options > Graphics has a Cloud style choice, Classic or Volumetric, that switches live.
+  Classic, the original toxin and radiation effects, stays the default; Volumetric is an
+  opt-in while its cost in a crowded battle is measured.
+- Volumetric draws the toxin, beta, gamma and nuclear fields as moving smoke with the
+  hazards' actual radii and lifetimes. Low smoke follows the terrain and stirs around
+  visible infantry; nuclear fields fade in across their whole area with darker billows,
+  rising embers and heat shimmer. Gameplay damage and simulation are unchanged.
+- It needs a renderer that supports it, today the SDL GPU renderer on Linux and macOS.
+  Elsewhere the choice is hidden. A field it cannot admit keeps the Classic effect.
+
 ## A rank ladder for every army
 
 - Three chevrons are now a whole army's ladder. An American unit climbs 28 promotions from E-1 Private to General of the Army, a Chinese one 19 from Private to General, a GLA one 20 from Recruit to Supreme Liberator. Every unit starts unranked with a bare health bar and no bonus; from the first promotion on, each grade wears its own insignia beside the health bar and floats it up over the unit's head the moment it is earned. Hover the portrait for the rank's name and how far the next one is: "Next rank 340/420 XP".
@@ -2340,16 +2352,3 @@ The whole HUD is on the hardware. Four colours carry it, and they mean the same 
 - Internet play. LAN works: two separate PCs have played each other on one network. Matches over the internet wait on Reforged's own lobby server, which is still on paper.
 - A frame through Direct3D 11 still costs a little more than it does through the old renderer: 7.6ms against 6.3ms in a screen full of inferno cannon fire. `-d3d9` on the command line puts the old renderer back on its own.
 - You need to own the game; no game data ships here.
-
-## Volumetric hazard clouds on Linux (2026-10-18)
-
-- Cloud style appears on the Graphics page, with live Classic / Volumetric
-  choices. The shared demo renderer now draws the game's toxin, beta, gamma and
-  nuclear fields using the approved colors, actual hazard radii and lifetimes.
-- Low smoke follows terrain and responds visually to passing infantry. Nuclear
-  fields fade in across their full area, with darker billows, rising embers and
-  heat distortion. The renderer has bounded caches and preserves Classic effects
-  when a field cannot be admitted; gameplay damage and simulation are unchanged.
-- The preview has per-cloud color, brightness and transparency controls, with
-  structures, props and baseline water for judging visibility. The approved preset
-  uses 67% toxin, 77% beta and 74% gamma transparency; nuclear remains at 0%.

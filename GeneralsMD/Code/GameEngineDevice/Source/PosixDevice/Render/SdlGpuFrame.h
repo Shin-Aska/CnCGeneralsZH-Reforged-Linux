@@ -158,8 +158,10 @@ public:
 	bool Batch_Is_Full();
 	/// The scene depth-stencil format; colour-only passes omit that attachment.
 	unsigned int Depth_Format() const { return DepthFormat; }
-	/// Includes sampling only when a supported Linux scene-depth format is available.
+	/// Includes sampling only when a complete scene-depth/R32F format path is available.
 	unsigned int Depth_Usage() const;
+	/// Device capability selected at frame creation, including the R32F resolve target.
+	bool Supports_Scene_Depth() const { return DepthSampleable; }
 	/// Sampleable device depth captured after opaque scene draws, once per target/frame.
 	/// The result is borrowed for immediate draw recording; callers must not release it.
 	/// Returns null when unavailable so callers can keep their existing effect.

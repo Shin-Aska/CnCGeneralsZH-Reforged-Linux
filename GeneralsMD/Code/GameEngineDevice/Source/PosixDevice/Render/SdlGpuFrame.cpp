@@ -183,7 +183,6 @@ SdlGpuFrame * SdlGpuFrame::Create(RenderWindow window, unsigned int width, unsig
 	frame->DepthFormat = SDL_GPUTextureSupportsFormat(frame->GpuDevice, SDL_GPU_TEXTUREFORMAT_D24_UNORM_S8_UINT,
 		SDL_GPU_TEXTURETYPE_2D, SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET)
 		? SDL_GPU_TEXTUREFORMAT_D24_UNORM_S8_UINT : SDL_GPU_TEXTUREFORMAT_D32_FLOAT_S8_UINT;
-#if defined(__linux__)
 	// Cloud clipping is optional: retain the original target-only depth format
 	// when no complete sampleable depth/R32F combination is supported.
 	if (SDL_GPUTextureSupportsFormat(frame->GpuDevice, SDL_GPU_TEXTUREFORMAT_R32_FLOAT,
@@ -199,7 +198,6 @@ SdlGpuFrame * SdlGpuFrame::Create(RenderWindow window, unsigned int width, unsig
 			}
 		}
 	}
-#endif
 	if (!frame->Create_Targets(width, height)) {
 		error = std::string("the back buffer: ") + SDL_GetError();
 		delete frame;

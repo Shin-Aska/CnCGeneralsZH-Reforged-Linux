@@ -2,7 +2,7 @@
 // Distributed under the repository's GPL-3.0 terms; see LICENSE.md.
 #include "PreRTS.h"
 #include "SdlHazardCloudEmbers.h"
-#include "Platform/SdlHazardCloud.h"
+#include "Platform/HazardCloud.h"
 #include "WW3D2/sdl3shadercompile.h"
 #include "SdlGpuFrame.h"
 
@@ -223,7 +223,7 @@ bool makeResources(SdlGpuFrame *frame, const SdlTarget &target)
 } // namespace
 
 bool prepare(SdlGpuFrame *frame, const SdlTarget &target,
-             const SdlHazardCloud::FieldState *fields, unsigned fieldCount)
+             const HazardCloud::FieldState *fields, unsigned fieldCount)
 {
     if (failed || !frame || !frame->Device() || !target.Colour || !target.Depth
         || fieldCount > 2 || (fieldCount && !fields)) return false;
@@ -239,7 +239,7 @@ bool prepare(SdlGpuFrame *frame, const SdlTarget &target,
 
 bool render(SdlGpuFrame *frame, const SdlTarget &target, SDL_GPUTexture *sceneDepth,
             const float viewProjection[16], const float viewport[6],
-            const SdlHazardCloud::FieldState *fields, unsigned fieldCount,
+            const HazardCloud::FieldState *fields, unsigned fieldCount,
             float timeSeconds, SDL_GPUTexture *terrainTexture, const bool *terrainEnabled)
 {
     if (failed) return false;

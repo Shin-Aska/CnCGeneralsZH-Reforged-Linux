@@ -194,7 +194,8 @@ static float depth_at(const std::vector<uint8_t> &bytes, unsigned int width, uns
 static void check_scene_depth_snapshot(SdlGpuFrame *frame)
 {
 	const SdlTarget scene = frame->Back_Buffer_Target();
-	if (!(frame->Depth_Usage() & SDL_GPU_TEXTUREUSAGE_SAMPLER)) {
+	CHECK(frame->Supports_Scene_Depth() == bool(frame->Depth_Usage() & SDL_GPU_TEXTUREUSAGE_SAMPLER));
+	if (!frame->Supports_Scene_Depth()) {
 		CHECK(frame->Scene_Depth(scene) == NULL);
 		printf("sdl_gpu_frame_selfcheck: sampled depth unavailable; fallback checked\n");
 		return;

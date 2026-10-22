@@ -1819,7 +1819,6 @@ GameEngineDevice/Source/PosixDevice/Render/SdlGpuFrameBatch.cpp
 GameEngineDevice/Source/PosixDevice/Render/SdlHazardCloud.cpp
 GameEngineDevice/Source/PosixDevice/Render/SdlHazardCloudEmbers.cpp
 GameEngineDevice/Source/PosixDevice/Render/SdlHazardCloudEmbers.h
-GameEngineDevice/Source/PosixDevice/Render/SdlHazardCloudFlow.cpp
 GameEngineDevice/Source/PosixDevice/Render/SdlHazardCloudShader.cpp
 GameEngineDevice/Source/PosixDevice/Render/SdlHazardCloudShader.h
 GameEngineDevice/Source/PosixDevice/Render/SdlPipelineCache.cpp
@@ -1882,6 +1881,9 @@ GameEngineDevice/Source/W3DDevice/GameClient/GUI/Gadget/W3DVerticalSlider.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/GUI/W3DGameFont.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/GUI/W3DGameWindow.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/GUI/W3DGameWindowManager.cpp
+GameEngineDevice/Source/W3DDevice/GameClient/HazardCloud.cpp
+GameEngineDevice/Source/W3DDevice/GameClient/HazardCloudFlow.cpp
+GameEngineDevice/Source/W3DDevice/GameClient/HazardCloudUnsupported.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/HeightMap.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/Shaders/MotionBlur.nvv
 GameEngineDevice/Source/W3DDevice/GameClient/Shaders/Trees.nvp
@@ -1970,6 +1972,8 @@ Libraries/Include/Platform/D3D9Posix.h
 Libraries/Include/Platform/D3D9PosixMath.h
 Libraries/Include/Platform/DoubleClickTime.h
 Libraries/Include/Platform/EngineShaderName.h
+Libraries/Include/Platform/HazardCloud.h
+Libraries/Include/Platform/HazardCloudFlow.h
 Libraries/Include/Platform/HazardCloudPolicy.h
 Libraries/Include/Platform/IsWindows9x.h
 Libraries/Include/Platform/LoadTiming.h
@@ -1981,7 +1985,6 @@ Libraries/Include/Platform/PosixD3D9/d3d9types.h
 Libraries/Include/Platform/RenderTypes.h
 Libraries/Include/Platform/RendererName.h
 Libraries/Include/Platform/SdlHazardCloud.h
-Libraries/Include/Platform/SdlHazardCloudFlow.h
 Libraries/Include/Platform/SleepMilliseconds.h
 Libraries/Include/Platform/StrdupAsWindows.h
 Libraries/Include/rts/debug.h
