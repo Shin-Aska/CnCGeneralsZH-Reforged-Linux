@@ -35,8 +35,9 @@ Running it on its own output changes nothing.
     python lobbyroom_layout.py selfcheck
 
 reads the tracked layouts back and checks that every window the menu code names is there, that the
-script reproduces the tracked file byte for byte, that every window is authored at 1920x1080 and
-that no two visible controls in one container overlap. Run by CTest as lobbyroom_selfcheck. Layouts
+script reproduces the tracked file apart from Git's LF/CRLF checkout conversion, that every window
+is authored at 1920x1080 and that no two visible controls in one container overlap. Run by CTest as
+lobbyroom_selfcheck. Layouts
 are not in the multiplayer INI checksum.
 """
 
@@ -594,7 +595,9 @@ def selfcheck():
                             % (menu, len(stale), stale[0]))
         try:
             rebuilt = build(wndlayout.parse(tracked), menu).text()
-            if rebuilt != tracked:
+            # The writer emits CRLF, but Git checks these text masters out with LF on Linux.
+            # Ignore only that conversion; every other byte must still match the generator.
+            if rebuilt.replace("\r\n", "\n") != tracked.replace("\r\n", "\n"):
                 problems.append("%s.wnd is not what lobbyroom_layout.py writes; regenerate it" % menu)
         except (KeyError, ValueError) as error:
             problems.append("%s.wnd no longer builds: %s" % (menu, error))

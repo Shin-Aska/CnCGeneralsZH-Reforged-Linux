@@ -25,8 +25,8 @@
 #             X11 optdepends), Xvfb, and Mesa's software Vulkan (lavapipe): one windowed skirmish frame, written
 #             with -screenshot, which must be a picture (many colours), not a blank.
 #
-#   deb       debian:12 and ubuntu:24.04            rpm   fedora:latest and opensuse/tumbleweed
-#   arch      archlinux:latest                      appimage   debian:12, run with APPIMAGE_EXTRACT_AND_RUN
+#   deb       debian:12, ubuntu:22.04 and ubuntu:24.04    rpm   fedora:latest and opensuse/tumbleweed
+#   arch      archlinux:latest                          appimage   debian:12 and ubuntu:22.04, extract-and-run
 #
 # No run needs a person: the Zero Hour folder is given (Registry.ini for E1, -root for the frame), every run is
 # unattended (ZH_UNATTENDED=1, which also keeps the launcher from fetching the art), and each has a time limit.
@@ -37,7 +37,8 @@
 # missing-data errors, not gameplay, replay CRCs or a rendered game frame. No data directory is mounted.
 #
 # Usage: linux-packages-check.sh --packages <folder> (--data <folder> | --no-data)
-#          [--formats "deb rpm arch appimage"] [--distros "debian-12 ubuntu-24.04 fedora opensuse-tumbleweed archlinux appimage"]
+#          [--formats "deb rpm arch appimage"]
+#          [--distros "ubuntu-22.04 appimage-ubuntu-22.04 debian-12 ubuntu-24.04 fedora opensuse-tumbleweed archlinux appimage"]
 #          [--no-draw] [--remove-images]
 #   --packages   linux-packages.sh's --out
 #   --data       a folder holding zerohour/ (the base game in zerohour/ZH_Generals), as replay-check.sh takes it
@@ -60,7 +61,7 @@ while [ $# -gt 0 ]; do
 done
 [ "$NO_DATA" -eq 0 ] || [ -z "$DATA" ] || { echo "linux-packages-check: --no-data and --data are mutually exclusive" >&2; exit 2; }
 for distro in $DISTROS; do
-	case "$distro" in debian-12|ubuntu-24.04|fedora|opensuse-tumbleweed|archlinux|appimage) ;;
+	case "$distro" in debian-12|ubuntu-22.04|ubuntu-24.04|fedora|opensuse-tumbleweed|archlinux|appimage|appimage-ubuntu-22.04) ;;
 		*) echo "linux-packages-check: unknown distribution $distro" >&2; exit 2;;
 	esac
 done
@@ -116,8 +117,8 @@ install_cmd() {
 		opensuse*:drawn) echo "zypper -q -n install --allow-unsigned-rpm '$RPM' xvfb-run xorg-x11-server-Xvfb";;
 		arch*:minimal) echo "pacman -Sy --noconfirm && pacman -U --noconfirm '$ARCHPKG'";;
 		arch*:drawn) echo "pacman -Sy --noconfirm && pacman -U --noconfirm '$ARCHPKG' && pacman -S --noconfirm vulkan-icd-loader vulkan-swrast libx11 libxkbcommon libxcursor libxrandr libxi alsa-lib dbus xorg-server-xvfb";;
-		appimage:minimal) echo "apt-get -q update && DEBIAN_FRONTEND=noninteractive apt-get -q -y install --no-install-recommends libfontconfig1";;
-		appimage:drawn) echo "apt-get -q update && DEBIAN_FRONTEND=noninteractive apt-get -q -y install libfontconfig1 libvulkan1 mesa-vulkan-drivers libx11-6 libxext6 libxcursor1 libxi6 libxrandr2 libxkbcommon0 xvfb";;
+		appimage*:minimal) echo "apt-get -q update && DEBIAN_FRONTEND=noninteractive apt-get -q -y install --no-install-recommends libfontconfig1";;
+		appimage*:drawn) echo "apt-get -q update && DEBIAN_FRONTEND=noninteractive apt-get -q -y install libfontconfig1 libvulkan1 mesa-vulkan-drivers libx11-6 libxext6 libxcursor1 libxi6 libxrandr2 libxkbcommon0 xvfb";;
 	esac
 }
 
@@ -241,11 +242,13 @@ check_selected() {	# <label> <image> <format> <package path>: do not require uns
 for format in $FORMATS; do
 	case "$format" in
 		deb) check_selected debian-12 debian:12 deb "$DEB"
+			check_selected ubuntu-22.04 ubuntu:22.04 deb "$DEB"
 			check_selected ubuntu-24.04 ubuntu:24.04 deb "$DEB";;
 		rpm) check_selected fedora fedora:latest rpm "$RPM"
 			check_selected opensuse-tumbleweed opensuse/tumbleweed rpm "$RPM";;
 		arch) check_selected archlinux archlinux:latest arch "$ARCHPKG";;
-		appimage) check_selected appimage debian:12 appimage "$APPIMAGE";;
+		appimage) check_selected appimage debian:12 appimage "$APPIMAGE"
+			check_selected appimage-ubuntu-22.04 ubuntu:22.04 appimage "$APPIMAGE";;
 		*) say "unknown format $format"; failed=$((failed + 1));;
 	esac
 done

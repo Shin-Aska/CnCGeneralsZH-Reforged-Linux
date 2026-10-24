@@ -1456,19 +1456,28 @@ float4 main(float4 position:SV_Position):SV_Target0
         true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,false,true};
     unsigned renders=0,armedLeaks=0,checked=0,missingColourChecks=0;
     CHECK(frame->Flush());
-    for(unsigned resize=0;resize<2;++resize) {
-        const unsigned width=40u<<resize,height=(rows*4+12)<<resize;
-        const float viewportWidth=24,viewportHeight=float(rows*4+4),lastX=27.5f,lastY=3.5f+viewportHeight-1;
+    for(unsigned resize=0;resize<4;++resize) {
+        // Binary dimensions isolate the refraction arithmetic from permitted sampler
+        // coordinate rounding. Nonbinary runs cover exact and one-ULP-inside edges.
+        const unsigned width=resize<2?(64u<<resize):resize==2?40u:1920u,
+            height=resize<2?(128u<<resize):(rows*4+12);
+        const float viewportX=resize==3?994.5f:4.5f,viewportWidth=24,viewportHeight=float(rows*4+4),
+            lastX=viewportX+viewportWidth-1,lastY=3.5f+viewportHeight-1;
         float cases[rows][12]={};
         for(unsigned row=0;row<rows;++row){
-            cases[row][0]=9.5f;cases[row][1]=5.5f+row*4;
+            cases[row][0]=viewportX+5;cases[row][1]=5.5f+row*4;
             cases[row][2]=offsets[row][0];cases[row][3]=offsets[row][1];cases[row][6]=1;
         }
         cases[7][7]=-.4f;cases[8][7]=.4f;
         cases[9][4]=.8f;cases[9][6]=.6f; // below z, but in front along the raster view ray
         cases[10][0]=lastX;cases[11][0]=lastX;cases[11][1]=lastY;
         cases[14][4]=.6f;cases[14][6]=.8f;cases[14][7]=-.5f; // forward of raster, behind optical surface
-        cases[15][0]=4.5f;
+        cases[15][0]=viewportX;
+        if(resize==3) {
+            // Float normalization at width1920 pushes this just across1017.5.
+            // All weights are positive, so an inclusive footprint check is unsafe.
+            cases[11][1]=97.5f;cases[11][2]=-1.0f/16384;cases[11][3]=.375f;
+        }
         ti.format=colourDescription.format;ti.usage=SDL_GPU_TEXTUREUSAGE_SAMPLER;ti.width=width;ti.height=height;
         r.colour=SDL_CreateGPUTexture(r.device,&ti);ti.format=SDL_GPU_TEXTUREFORMAT_R32_FLOAT;
         r.depth=SDL_CreateGPUTexture(r.device,&ti);ti.format=colourDescription.format;ti.width=ti.height=1;
@@ -1477,7 +1486,7 @@ float4 main(float4 position:SV_Position):SV_Target0
         std::vector<float> pixels(width*height*4),depth(width*height,.5f);
         for(unsigned y=0;y<height;++y)for(unsigned x=0;x<width;++x){
             const unsigned p=(y*width+x)*4;
-            const bool outside=x<4 || x>27 || y<3 || y>unsigned(lastY);
+            const bool outside=x<unsigned(viewportX) || x>unsigned(lastX) || y<3 || y>unsigned(lastY);
             pixels[p]=outside?1.0f:float(x)/width;pixels[p+1]=outside?0.0f:float(y)/height;
             pixels[p+2]=outside?1.0f:0.0f;pixels[p+3]=1;
             if(outside)depth[y*width+x]=0; // even invalid off-viewport neighbours must be ignored
@@ -1524,7 +1533,7 @@ float4 main(float4 position:SV_Position):SV_Target0
         SDL_EndGPUCopyPass(copy);CHECK(SDL_SubmitGPUCommandBuffer(upload));SDL_ReleaseGPUTransferBuffer(r.device,transfer);
         SdlWaterPixelConstants water={};water.WorldFromClip[0]=viewportWidth/2;water.WorldFromClip[5]=viewportHeight/2;
         water.WorldFromClip[10]=-10;water.WorldFromClip[15]=1;
-        water.Viewport[0]=4.5f;water.Viewport[1]=3.5f;water.Viewport[2]=viewportWidth;water.Viewport[3]=viewportHeight;
+        water.Viewport[0]=viewportX;water.Viewport[1]=3.5f;water.Viewport[2]=viewportWidth;water.Viewport[3]=viewportHeight;
         water.SceneParameters[0]=1;water.SceneParameters[1]=1.0f/width;water.SceneParameters[2]=1.0f/height;
         water.TerrainParameters[1]=1;
         auto render=[&](bool old,bool depthAvailable,bool colourAvailable){
@@ -1565,7 +1574,7 @@ float4 main(float4 position:SV_Position):SV_Target0
             const double weights[4]={(1-fx)*(1-fy),fx*(1-fy),(1-fx)*fy,fx*fy};
             double value=0,weight=0;
             for(unsigned tap=0;tap<4;++tap)if((validTaps[row]&(1u<<tap)) && weights[tap]>0) {
-                const int xx=std::max(4,std::min(27,x+int(tap&1))),
+                const int xx=std::max(int(viewportX),std::min(int(lastX),x+int(tap&1))),
                     yy=std::max(3,std::min(int(lastY),y+int(tap>>1)));
                 value+=weights[tap]*pixels[(yy*width+xx)*4+channel];weight+=weights[tap];
             }
@@ -1573,17 +1582,22 @@ float4 main(float4 position:SV_Position):SV_Target0
         };
         for(unsigned row=0;row<rows;++row){
             const float *f=cases[row],*got=&actual[row*columns*4],*missing=&fallback[row*columns*4];
-            const float px=accepted[row]?std::max(4.5f,std::min(lastX,f[0]+f[2])):f[0];
+            const float px=accepted[row]?std::max(viewportX,std::min(lastX,f[0]+f[2])):f[0];
             const float py=accepted[row]?std::max(3.5f,std::min(lastY,f[1]+f[3])):f[1];
             CHECK(std::abs(got[0]-px)<2e-6f && std::abs(got[1]-py)<2e-6f && got[2]==float(accepted[row]));
             CHECK(missing[0]==f[0] && missing[1]==f[1] && missing[2]==0);
             for(unsigned c=0;c<3;++c){
-                CHECK(std::abs(got[4+c]-filteredColour(row,px,py,c))<3e-6f);
+                const bool hardwareInterior=resize>=2 && validTaps[row]==15 && accepted[row]
+                    && std::floor(px-.5f)+.5f>viewportX && std::floor(px-.5f)+1.5f<lastX
+                    && std::floor(py-.5f)+.5f>3.5f && std::floor(py-.5f)+1.5f<lastY
+                    && px-.5f!=std::floor(px-.5f) && py-.5f!=std::floor(py-.5f);
+                if(hardwareInterior) CHECK(got[4+c]==old[row*columns*4+4+c]);
+                else CHECK(std::abs(got[4+c]-filteredColour(row,px,py,c))<3e-6f);
                 CHECK(std::abs(missing[4+c]-sampleColour(f[0],f[1],c))<3e-6f);
             }
             const unsigned nx=unsigned(std::floor(px)),ny=unsigned(std::floor(py));
-            const float bottom[3]={nx+.5f-16.5f,3.5f+viewportHeight/2-(ny+.5f),-10*depth[ny*width+nx]};
-            const float world[3]={f[0]-16.5f,3.5f+viewportHeight/2-f[1],0};
+            const float bottom[3]={nx+.5f-(viewportX+viewportWidth/2),3.5f+viewportHeight/2-(ny+.5f),-10*depth[ny*width+nx]};
+            const float world[3]={f[0]-(viewportX+viewportWidth/2),3.5f+viewportHeight/2-f[1],0};
             float distance2=0,fallbackDistance2=0;
             for(unsigned c=0;c<3;++c){
                 CHECK(std::abs(got[8+c]-bottom[c])<3e-5f);
@@ -1622,9 +1636,21 @@ float4 main(float4 position:SV_Position):SV_Target0
         CHECK(std::abs(actual[21*columns*4+3]-20.0f)>14.0f);
         // All-valid RGB mixture retains hardware bilinear values. Differently deep neighbours
         // do not turn transport into averaged depth: nearest red has depth2, not weighted3.9375.
-        CHECK(std::abs(actual[23*columns*4+4]-.5625f)<3e-6f);
-        CHECK(std::abs(actual[23*columns*4+5]-.25f)<3e-6f);
-        CHECK(std::abs(actual[23*columns*4+6]-.375f)<3e-6f);
+        if(resize<2) {
+            CHECK(std::abs(actual[23*columns*4+4]-.5625f)<3e-6f);
+            CHECK(std::abs(actual[23*columns*4+5]-.25f)<3e-6f);
+            CHECK(std::abs(actual[23*columns*4+6]-.375f)<3e-6f);
+        }
+        // At the nonbinary viewport boundary the old normalized-coordinate
+        // shortcut leaks blue on Mesa. The validated texel path must stay exact.
+        CHECK(actual[11*columns*4+6]==0);
+        if(resize==3) {
+            CHECK(actual[11*columns*4]<lastX && actual[11*columns*4]>lastX-.0001f);
+            const float normalized=actual[11*columns*4]*(1.0f/width);
+            CHECK(normalized*width>lastX); // normalized arithmetic crosses the viewport edge
+            printf("sdl_gpu_frame_selfcheck: one-ULP viewport edge blue: validated %.9g hardware control %.9g\n",
+                double(actual[11*columns*4+6]),double(old[11*columns*4+6]));
+        }
         CHECK(std::abs(actual[23*columns*4+3]-2.0f)<3e-5f);
         CHECK(std::abs(actual[24*columns*4+4]-15.0f/29)<3e-6f);
         CHECK(std::abs(actual[24*columns*4+5]-5.0f/29)<3e-6f);
@@ -1637,8 +1663,8 @@ float4 main(float4 position:SV_Position):SV_Target0
         SDL_ReleaseGPUTexture(r.device,r.colour);r.colour=NULL;SDL_ReleaseGPUTexture(r.device,r.depth);r.depth=NULL;
         SDL_ReleaseGPUTexture(r.device,r.white);r.white=NULL;
     }
-    CHECK(renders==10 && checked==54 && armedLeaks==26 && missingColourChecks==108);
-    printf("sdl_gpu_frame_selfcheck: M4D production depth-aware colour filter: %u renders, %u cases at two sizes, %u armed nearest-only leaks, %u missing-colour checks; independent normalized colours, nearest transport, both surfaces/rays, clear depth, margins, viewport and fallback passed\n",renders,checked,armedLeaks,missingColourChecks);
+    CHECK(renders==20 && checked==108 && armedLeaks==52 && missingColourChecks==216);
+    printf("sdl_gpu_frame_selfcheck: M4D production depth-aware colour filter: %u renders, %u cases at four sizes (binary arithmetic/nonbinary exact and one-ULP boundaries), %u armed nearest-only leaks, %u missing-colour checks; independent normalized colours, nearest transport, both surfaces/rays, clear depth, margins, viewport and fallback passed\n",renders,checked,armedLeaks,missingColourChecks);
 }
 #endif // __linux__
 
@@ -3402,28 +3428,43 @@ static void check_gpu_foam_history_tiles(SdlGpuFrame *frame)
         if(!record(6,3)||!record(7,1)||!record(8,2))return;CHECK(mirrors.Textures_Uploaded()==6);
         const auto values=read_float_targets(frame,&r.target,1,4,rows);
         CHECK(values.size()==size_t(rows)*4*4);if(values.size()!=size_t(rows)*4*4)return;
-        auto reference=[&](unsigned revision,unsigned tile,unsigned w,unsigned h,const Query&q,unsigned channel){
+        auto reference=[&](unsigned revision,unsigned tile,unsigned w,unsigned h,const Query&q,unsigned channel,bool wrap=false){
             const double x=double(q.uvLevelTime[0])*w-.5,y=double(q.uvLevelTime[1])*h-.5;
             const int ix=int(std::floor(x)),iy=int(std::floor(y));const double fx=x-ix,fy=y-iy;double value=0;
             for(unsigned dy=0;dy<2;++dy)for(unsigned dx=0;dx<2;++dx){
-                const unsigned sx=unsigned((std::max)(0,(std::min)(int(w)-1,ix+int(dx))));
-                const unsigned sy=unsigned((std::max)(0,(std::min)(int(h)-1,iy+int(dy))));
+                const unsigned sx=wrap?unsigned(((ix+int(dx))%int(w)+int(w))%int(w)):
+                    unsigned((std::max)(0,(std::min)(int(w)-1,ix+int(dx))));
+                const unsigned sy=wrap?unsigned(((iy+int(dy))%int(h)+int(h))%int(h)):
+                    unsigned((std::max)(0,(std::min)(int(h)-1,iy+int(dy))));
                 const unsigned shift=channel<3?16-channel*8:24;
                 value+=double((texel(revision,tile,sx,sy)>>shift)&255)/255*(dx?fx:1-fx)*(dy?fy:1-fy);
             }return value;
         };
         const unsigned flags[bands]={7,7,7,5,6,7,3,1,2};
-        // The unchanged UNORM legacy sampler also rounds filtered values; it is not a
-        // double-precision bilinear evaluator. Bound that independent scalar comparison
-        // by one16-bit normalized unit; packed-vs-legacy remains BIT-EXACT below.
-        const double scalarTolerance=1.0/65535.0+1e-7;
+        // Vulkan permits fixed-point filtering of the BGRA8 source. Two bilinear
+        // lerps can round by half an 8-bit unit each; a 16-bit output assumption
+        // incorrectly rejects Mesa's byte-precision sampler. These binary query
+        // coordinates fit even Vulkan's minimum four subtexel fraction bits (the
+        // 1/4096 edge probes are clamped). Keep centres tight and packed-vs-legacy
+        // BIT-EXACT, and prove below that nearest/tile mistakes exceed this bound.
+        // https://docs.vulkan.org/spec/latest/chapters/textures.html#textures-texel-linear-filtering
+        const double scalarTolerance=1.0/255.0+1e-7;
         double maximum=0,topDifference=0,legacyMaximum=0,centreMaximum=0;
-        unsigned exactTop=0,checks=0,roundingExamples=0;
+        unsigned exactTop=0,checks=0,roundingExamples=0,nearestControls=0,wrongTileControls=0,wrapControls=0;
         for(unsigned band=0;band<bands;++band)for(unsigned i=0;i<count;++i){
             const unsigned rev=band==0?0:band<5?1:2,w=band<5?8:4,h=band<5?4:8;
             const Query&q=queries[i];const size_t row=size_t(band*count+i)*16;
             for(unsigned c=0;c<4;++c){
                 const double top=reference(rev,0,w,h,q,c),bottom=(flags[band]&4)?reference(rev,1,w,h,q,c):0;
+                const unsigned sx=unsigned((std::max)(0,(std::min)(int(w)-1,int(std::floor(double(q.uvLevelTime[0])*w)))));
+                const unsigned sy=unsigned((std::max)(0,(std::min)(int(h)-1,int(std::floor(double(q.uvLevelTime[1])*h)))));
+                const unsigned shift=c<3?16-c*8:24;
+                const double nearest=double((texel(rev,0,sx,sy)>>shift)&255)/255;
+                nearestControls+=std::abs(nearest-top)>2*scalarTolerance;
+                wrongTileControls+=(flags[band]&4) && std::abs(top-bottom)>2*scalarTolerance;
+                wrapControls+=std::abs(reference(rev,0,w,h,q,c,true)-top)>2*scalarTolerance;
+                const double centreX=double(q.uvLevelTime[0])*w-.5,centreY=double(q.uvLevelTime[1])*h-.5;
+                const bool atCentre=centreX==std::floor(centreX)&&centreY==std::floor(centreY);
                 for(unsigned column=0;column<3;++column){const double expected=column==2?bottom:top;
                     const double error=std::abs(values[row+column*4+c]-expected);maximum=(std::max)(maximum,error);
                     if(column==1) {
@@ -3434,7 +3475,9 @@ static void check_gpu_foam_history_tiles(SdlGpuFrame *frame)
                             printf("history legacy rounding: band%u uv(%.8g,%.8g) c%u expected %.10g actual %.10g error %.10g\n",
                                 band,double(q.uvLevelTime[0]),double(q.uvLevelTime[1]),c,expected,double(values[row+column*4+c]),error);}
                     }
-                    CHECK(std::isfinite(values[row+column*4+c])&&error<scalarTolerance);++checks;}
+                    CHECK(std::isfinite(values[row+column*4+c])&&error<scalarTolerance);
+                    if(atCentre) CHECK(error<.0000001); // every byte/channel in both tiles, not just legacy
+                    ++checks;}
                 const double difference=std::abs(values[row+c]-values[row+4+c]);topDifference=(std::max)(topDifference,difference);
                 CHECK(values[row+c]==values[row+4+c]);exactTop+=values[row+c]==values[row+4+c];
             }
@@ -3453,6 +3496,8 @@ static void check_gpu_foam_history_tiles(SdlGpuFrame *frame)
         }
         CHECK(exactTop==bands*count*4&&maximum<scalarTolerance&&topDifference==0);
         CHECK(centreMaximum<.0000001);
+        CHECK(nearestControls>100 && wrongTileControls>100 && wrapControls>100);
+        printf("sdl_gpu_frame_selfcheck: history armed nearest=%u wrong-tile=%u wrap=%u controls exceed twice the BGRA8 filter bound\n",nearestControls,wrongTileControls,wrapControls);
         printf("sdl_gpu_frame_selfcheck: history legacy scalar rounding max %.10g, texel centres %.10g; tile-vs-legacy difference %.10g\n",legacyMaximum,centreMaximum,topDifference);
         r.atlas->Release();r.atlas=nullptr;r.legacy->Release();r.legacy=nullptr;mirrors.Collect_Dead();CHECK(frame->Flush());
         printf("sdl_gpu_frame_selfcheck: history tiles: %u scalar samples max %.9g, %u exact legacy/top components; bottom bytes, seam/edges/fractional/outside, shore flags1/2/3/5/6/7, queued A/B, reuse, deferred release, resize and shape recreation checked\n",checks,maximum,exactTop);
@@ -4611,7 +4656,8 @@ static void check_gpu_foam_material(SdlGpuFrame *frame)
 	q=base;q.sky[3]=1;const unsigned linearCapture=add(q);
 	q.uv[0]=13.5f/32;q.mapping[2]=0;const unsigned linearBlack=add(q);
 	q.uv[0]=20.5f/32;q.uv[1]=5.5f/32;const unsigned linearEmpty=add(q);
-	q.uv[0]=4.0f/32;q.uv[1]=8.5f/32;add(q); // half-valid linear radiance, no second alpha multiply
+	q.uv[0]=4.0f/32;q.uv[1]=8.5f/32;
+	q.sky[0]=q.sky[1]=q.sky[2]=0;add(q); // half-valid linear radiance, no second alpha multiply
 	const unsigned rows=unsigned(queries.size()),columns=5,side=32;
 	// SDL Vulkan binds each uniform slot with a 4 KiB range. Keep added fixtures
 	// in bounded batches so rows after 31 cannot silently read zero-valued queries.

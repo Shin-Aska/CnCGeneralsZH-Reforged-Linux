@@ -8,6 +8,12 @@ found and fixed â€” EA's own, not port damage.**
 
 ---
 
+## Linux compatibility baseline (2026-10-24)
+
+- Linux packages target Ubuntu 22.04 and newer, with separate startup checks for the DEB and AppImage.
+- Water refraction no longer picks up a thin fringe from scenery outside the visible water viewport
+  on some graphics drivers.
+
 ## Linux fork synchronized with v3.3.0 (2026-10-24)
 
 - Includes upstream v3.3.0 gameplay, AI, language and rendering fixes.

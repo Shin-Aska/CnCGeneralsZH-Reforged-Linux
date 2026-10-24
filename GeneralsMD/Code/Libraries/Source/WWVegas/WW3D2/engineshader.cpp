@@ -857,7 +857,13 @@ WaterRefractionSample waterRefractedScene(float2 originalPixel, float2 offset,
             // A mask rather than validWeights[nearest]: FXC cannot write a vector at a runtime index,
             // and DXC's HLSL 2021 takes no vector ternary.
             float4 validWeights = weights * float4(int4(0, 1, 2, 3) == nearest);
-            bool completeFootprint = true;
+            // Hardware filtering may round normalized coordinates just across a texel or
+            // subviewport edge. Use it only when every tap has positive weight and
+            // the whole footprint is inside the view; otherwise load validated taps.
+            bool completeFootprint = all(weights > 0.0)
+                && all(lower > max(float2(0.5, 0.5), Viewport.xy))
+                && all(lower + 1.0 < min(1.0 / SceneParameters.yz - 0.5,
+                    Viewport.xy + Viewport.zw - 1.0));
             [unroll] for (int i = 0; i < 4; ++i) {
                 [branch] if (i != nearest && weights[i] > 0.0) {
                     float2 texel = waterScenePixel(lower + float2(i & 1, (i >> 1) & 1));

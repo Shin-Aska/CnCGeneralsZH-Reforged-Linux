@@ -135,11 +135,13 @@ installation. Those historical results are not a validation of this fork's curre
 
 ##### GitHub Actions builds and releases
 
-[`.github/workflows/linux-release.yml`](.github/workflows/linux-release.yml) uses standard
-`ubuntu-24.04` x86_64 CPU runners. It has these triggers:
+[`.github/workflows/linux-release.yml`](.github/workflows/linux-release.yml) builds in Sniper and runs
+the software-rendering tests on a standard `ubuntu-22.04` x86_64 CPU runner. Packaging and distribution
+checks use `ubuntu-24.04` runners with the target distributions in containers. It has these triggers:
 
 | Trigger | Result |
 |:--|:--|
+| A push to `main` | Build and check the current baseline; download packages from the run's artifacts. |
 | `pull_request` | Validate the proposed source, build packages and run the checks; no release publication. |
 | `workflow_dispatch` | Build the selected ref on demand; download the packages from the run's artifacts. |
 | A pushed version tag matching `v*` | Validate the version, build and check packages, then publish them to the existing tag's GitHub Release. |
@@ -168,6 +170,11 @@ static C++ runtime, shared-dependency allowlist and link-line licence checks. Te
 CMake/Ninja tree, reusing those objects. The resulting checked portable tarball feeds separate native
 packaging and Flatpak jobs through `linux-packages.sh --portable <tarball>`; neither recompiles the engine.
 The scripts remain the source of package layout and metadata.
+
+Ubuntu 22.04 is the minimum Ubuntu distribution targeted by CI. Synthetic renderer tests use its Mesa
+software Vulkan driver, and both the DEB and AppImage run in clean `ubuntu:22.04` containers. The
+stricter glibc 2.31 ABI ceiling remains in place;
+the compiler runs inside Sniper, so a developer's newer host GCC/glibc cannot raise the release ABI.
 
 Native packaging produces AppImage, DEB, RPM and Arch packages alongside the portable tarball. Flatpak
 packaging uses the declared Freedesktop 25.08 runtime/SDK and runs its existing privileged Docker
@@ -219,13 +226,14 @@ Distribution checks use the existing package-check script's explicit data-free m
 
 ```sh
 GeneralsMD/Code/Tools/linux-packages-check.sh --packages <release-files> --no-data \
-  --distros "debian-12 ubuntu-24.04 fedora opensuse-tumbleweed archlinux appimage" --remove-images
+  --distros "ubuntu-22.04 appimage-ubuntu-22.04 debian-12 ubuntu-24.04 fedora opensuse-tumbleweed archlinux appimage" --remove-images
 ```
 
 CI runs each distribution on a fresh runner. These checks install the actual package with its required
 dependencies, verify layout and dynamic linking, and exercise the installed launcher against an empty
-game-data directory. They cover Debian 12, Ubuntu 24.04, Fedora, openSUSE Tumbleweed, Arch Linux and the
-AppImage on Debian 12. They intentionally verify the expected missing-data error, not a playable match.
+game-data directory. They cover Debian 12, Ubuntu 22.04 and 24.04, Fedora, openSUSE Tumbleweed, Arch Linux
+and the AppImage on Ubuntu 22.04 and Debian 12. They verify the expected missing-data error; a playable
+match requires the separate data-backed checks.
 Flatpak construction is checked separately; its desktop portal and a full `flatpak run` game session
 still require local validation.
 

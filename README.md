@@ -20,7 +20,7 @@ Game data and optional upscaled art are not included.
 ## Downloads
 
 Tagged builds publish packages to [GitHub Releases](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/releases)
-after the build and package checks pass. For a pull request or manual build, open the
+after the build and package checks pass. For a main-branch, pull request or manual build, open the
 [Linux workflow](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/actions/workflows/linux-release.yml),
 select the completed run, and download the `linux-x86_64-packages` artifact. A manual build is available
 through **Run workflow** once the workflow is on the default branch; it does not publish a release.
@@ -44,8 +44,10 @@ The distributed engine targets **x86_64 Linux with glibc 2.31 or newer**. It is 
 Runtime **sniper** SDK with static libstdc++ and libgcc; native packages also need fontconfig and a
 working Vulkan driver. The Flatpak uses its declared runtime and still needs a compatible host graphics
 driver. This ABI baseline is separate from the distributions checked by a particular workflow run.
-CI checks package installation and missing-data startup on Debian 12, Ubuntu 24.04, Fedora, openSUSE
-Tumbleweed and Arch; the AppImage is checked on Debian 12. These checks do not establish gameplay or
+**Ubuntu 22.04 is the minimum Ubuntu release targeted by CI**, with both DEB and AppImage installation
+and startup checks plus synthetic renderer tests on Mesa's software Vulkan driver. CI also checks
+Debian 12, Ubuntu 24.04, Fedora, openSUSE Tumbleweed and Arch; the
+AppImage is additionally checked on Debian 12. These checks do not establish gameplay or
 hardware compatibility on every distribution.
 
 Packages contain the engine and this repository's overlay, **no original game data or upscaled art**.

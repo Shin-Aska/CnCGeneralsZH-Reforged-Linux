@@ -22,8 +22,9 @@ ships them. Running it on its own output changes nothing.
     python mapselect_layout.py selfcheck
 
 checks the tracked pickers: every window the menu code names is there, the script reproduces the
-file byte for byte, everything is authored at 1920x1080, the list stays inside the seat table, and
-the preview and the two buttons sit exactly where the room's own preview and Select Map do.
+file apart from Git's LF/CRLF checkout conversion, everything is authored at 1920x1080, the list
+stays inside the seat table, and the preview and the two buttons sit exactly where the room's own
+preview and Select Map do.
 Run by CTest as mapselect_selfcheck. Layouts are not in the multiplayer INI checksum.
 """
 
@@ -159,7 +160,9 @@ def selfcheck():
             problems.append("%s.wnd: %d windows not authored at 1920x1080, %s first" % (menu, len(stale), stale[0]))
         try:
             rebuilt = build(wndlayout.parse(tracked), load_room(menu)).text()
-            if rebuilt != tracked:
+            # The writer emits CRLF, but Git checks these text masters out with LF on Linux.
+            # Ignore only that conversion; every other byte must still match the generator.
+            if rebuilt.replace("\r\n", "\n") != tracked.replace("\r\n", "\n"):
                 problems.append("%s.wnd is not what mapselect_layout.py writes from %s.wnd; regenerate it"
                                 % (menu, PICKERS[menu]))
         except (KeyError, ValueError) as error:
