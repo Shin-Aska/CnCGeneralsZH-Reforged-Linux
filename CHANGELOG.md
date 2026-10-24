@@ -13,6 +13,8 @@ found and fixed â€” EA's own, not port damage.**
 - Linux packages target Ubuntu 22.04 and newer, with separate startup checks for the DEB and AppImage.
 - Water refraction no longer picks up a thin fringe from scenery outside the visible water viewport
   on some graphics drivers.
+- Files added or renamed outside the game are now found on Linux even when rapid changes share
+  the same filesystem timestamp.
 
 ## Linux fork synchronized with v3.3.0 (2026-10-24)
 

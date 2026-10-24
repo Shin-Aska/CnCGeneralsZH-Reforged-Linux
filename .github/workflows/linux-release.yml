@@ -89,6 +89,30 @@ jobs:
           echo "ZH_SNIPER_SDK=$sdk" >> "$GITHUB_ENV"
           echo "SDK: \`$sdk\`" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Check filesystem compatibility before the full engine build
+        run: |
+          sdk_args=(--rm --platform linux/amd64 -u "$(id -u):$(id -g)" -e HOME=/tmp
+            -v "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE"
+            -v "$RUNNER_TEMP/build:$RUNNER_TEMP/build"
+            -v "$RUNNER_TEMP/ci-tools:$RUNNER_TEMP/ci-tools:ro"
+            -w "$RUNNER_TEMP/build")
+          # Use the portable builder's exact compiler/link settings. These small
+          # targets run on the minimum host first; the engine reuses their objects.
+          docker run "${sdk_args[@]}" "$ZH_SNIPER_SDK" \
+            "$ZH_CMAKE" -S "$GITHUB_WORKSPACE/GeneralsMD/Code" -B "$RUNNER_TEMP/build" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=gcc-14 -DCMAKE_CXX_COMPILER=g++-14 \
+            '-DCMAKE_EXE_LINKER_FLAGS=-static-libstdc++ -static-libgcc' \
+            -DPython3_EXECUTABLE=/usr/bin/python3 -DZH_GAME_DATA= -DZH_SPIRV_VAL=/usr/bin/spirv-val \
+            2>&1 | tee "$RUNNER_TEMP/reports/filesystem-configure.log"
+          docker run "${sdk_args[@]}" "$ZH_SNIPER_SDK" \
+            "$ZH_CMAKE" --build "$RUNNER_TEMP/build" --parallel "$ZH_BUILD_JOBS" \
+            --target test_posixpath test_install_root test_posixlocalfilesystem \
+            2>&1 | tee "$RUNNER_TEMP/reports/filesystem-build.log"
+          "$(dirname "$ZH_CMAKE")/ctest" --test-dir "$RUNNER_TEMP/build" \
+            --no-tests=error --timeout 60 --output-on-failure \
+            -R '^(test_posixpath|test_install_root|test_posixlocalfilesystem)$' \
+            2>&1 | tee "$RUNNER_TEMP/reports/filesystem-tests.log"
+
       - name: Build and audit the engine-only portable folder
         run: |
           bash GeneralsMD/Code/Tools/linux-portable.sh \

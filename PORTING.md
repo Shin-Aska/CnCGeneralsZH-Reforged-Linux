@@ -167,7 +167,9 @@ archives normally differ because `VERSION` records the build time.
 **One engine build.** `vendor.sh --no-art` fetches code dependencies without querying art manifests.
 `linux-portable.sh` builds in the sniper SDK, never with `--host`, and retains its glibc 2.31 ceiling,
 static C++ runtime, shared-dependency allowlist and link-line licence checks. Tests are built in the same
-CMake/Ninja tree, reusing those objects. The resulting checked portable tarball feeds separate native
+CMake/Ninja tree, reusing those objects. Small filesystem checks run first on Ubuntu 22.04 so path and
+directory-cache regressions fail before the full engine compilation. The resulting checked portable
+tarball feeds separate native
 packaging and Flatpak jobs through `linux-packages.sh --portable <tarball>`; neither recompiles the engine.
 The scripts remain the source of package layout and metadata.
 

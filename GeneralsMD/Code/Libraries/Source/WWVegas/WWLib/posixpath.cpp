@@ -30,6 +30,9 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#if defined(__linux__)
+#include <sys/inotify.h>
+#endif
 
 #include <algorithm>
 #include <map>
@@ -44,6 +47,9 @@ namespace {
 struct Listing
 {
 	struct timespec modified;
+	dev_t device;
+	ino_t inode;
+	bool watched;
 	std::map<std::string, std::vector<std::string> > by_folded;
 };
 
@@ -60,6 +66,67 @@ std::map<std::string, Listing> & listings()	// by real directory; "" is the curr
 {
 	static std::map<std::string, Listing> s_listings;
 	return s_listings;
+}
+
+// A timestamp can repeat even when its fields have nanosecond precision. Linux queues directory
+// entry changes synchronously, so a listing watched before its snapshot can be reused only after
+// draining those notifications. Changes are rare in the asset roots: drop all snapshots and watches
+// together instead of keeping alias-path/watch-descriptor bookkeeping or unbounded old watches.
+int & directory_notification_fd()
+{
+	static int fd = -1;
+	return fd;
+}
+
+void reset_directory_notifications()
+{
+	int & fd = directory_notification_fd();
+	if (fd >= 0) close(fd);
+	fd = -1;
+}
+
+bool poll_directory_changes()
+{
+#if defined(__linux__)
+	int & fd = directory_notification_fd();
+	if (fd >= 0) {
+		char events[4096];
+		bool changed = false;
+		for (;;) {
+			const ssize_t got = read(fd, events, sizeof(events));
+			// Closing below discards the rest; do not wait for a busy writer to stop producing events.
+			if (got > 0) { changed = true; break; }
+			if (got < 0 && errno == EINTR) continue;
+			if (got == 0 || (got < 0 && errno != EAGAIN && errno != EWOULDBLOCK)) changed = true;
+			break;
+		}
+		// Includes watch removal, unmount and queue overflow: none permits trusting a snapshot.
+		if (changed) {
+			reset_directory_notifications();
+			listings().clear();
+		}
+	}
+	if (fd < 0) fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
+	return fd >= 0;
+#else
+	return false;
+#endif
+}
+
+bool watch_directory(DIR * handle)
+{
+#if defined(__linux__)
+	const int fd = directory_notification_fd();
+	// Bind the watch to this exact open directory, even if its path or a symlink changes while
+	// taking the snapshot. Missing /proc support merely disables reuse of this listing.
+	char directory[64];
+	snprintf(directory, sizeof(directory), "/proc/self/fd/%d", dirfd(handle));
+	return fd >= 0 && inotify_add_watch(fd, directory,
+		IN_CREATE | IN_DELETE | IN_MOVED_FROM | IN_MOVED_TO | IN_DELETE_SELF | IN_MOVE_SELF
+		| IN_UNMOUNT | IN_ONLYDIR) >= 0;
+#else
+	return false;
+#endif
 }
 
 std::set<std::string> & reported()			// ambiguities already logged, by directory and folded name
@@ -112,30 +179,37 @@ std::string parent_of(const std::string & real_path)
 	return real_path.substr(0, slash);
 }
 
-bool modification_time(const std::string & directory, struct timespec & modified)
+bool directory_status(const std::string & directory, struct stat & status)
 {
-	struct stat status;
 	if (stat(directory.empty() ? "." : directory.c_str(), &status) != 0 || !S_ISDIR(status.st_mode)) {
 		return false;
 	}
-#if defined(__APPLE__)
-	modified = status.st_mtimespec;
-#else
-	modified = status.st_mtim;
-#endif
 	return true;
 }
 
-// The listing of a directory, read again only when its modification time has moved.  Called with
-// g_lock held.  NULL when the directory cannot be read.
+struct timespec modification_time(const struct stat & status)
+{
+#if defined(__APPLE__)
+	return status.st_mtimespec;
+#else
+	return status.st_mtim;
+#endif
+}
+
+// Called with g_lock held. Without reliable notifications, metadata alone cannot validate a
+// snapshot, so rescan. NULL when the directory cannot be read.
 const Listing * listing_of(const std::string & directory)
 {
-	struct timespec now;
-	if (!modification_time(directory, now)) {
+	const bool notifications = poll_directory_changes();
+	std::map<std::string, Listing>::iterator cached = listings().find(directory);
+	struct stat status;
+	if (!directory_status(directory, status)) {
 		return NULL;
 	}
-	std::map<std::string, Listing>::iterator cached = listings().find(directory);
-	if (cached != listings().end() && cached->second.modified.tv_sec == now.tv_sec
+	const struct timespec now = modification_time(status);
+	if (notifications && cached != listings().end() && cached->second.watched
+		&& cached->second.device == status.st_dev && cached->second.inode == status.st_ino
+		&& cached->second.modified.tv_sec == now.tv_sec
 		&& cached->second.modified.tv_nsec == now.tv_nsec) {
 		return &cached->second;
 	}
@@ -144,8 +218,18 @@ const Listing * listing_of(const std::string & directory)
 	if (handle == NULL) {
 		return NULL;
 	}
+	// Watch before fstat/readdir: mutations while taking this snapshot stay queued. The handle
+	// binds the watch, metadata and entries to one inode despite path replacement or aliases.
+	const bool watched = notifications && watch_directory(handle);
+	if (fstat(dirfd(handle), &status) != 0) {
+		closedir(handle);
+		return NULL;
+	}
 	Listing fresh;
-	fresh.modified = now;
+	fresh.modified = modification_time(status);
+	fresh.device = status.st_dev;
+	fresh.inode = status.st_ino;
+	fresh.watched = watched;
 	while (struct dirent * entry = readdir(handle)) {
 		const std::string name = entry->d_name;
 		if (name == "." || name == "..") continue;
@@ -315,6 +399,7 @@ void PosixPath_Forget_All()
 {
 	std::lock_guard<std::mutex> guard(g_lock);
 	listings().clear();
+	reset_directory_notifications();
 	reported().clear();
 }
 

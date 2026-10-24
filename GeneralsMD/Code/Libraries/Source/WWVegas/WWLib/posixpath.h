@@ -33,16 +33,13 @@
 **   - A component that does not exist keeps the engine's spelling when the intent allows creating
 **     it, as Windows would have created it.
 **
-** Directory listings are cached, each against its directory's modification time, which POSIX changes
-** whenever an entry is added or removed.  So a lookup that misses costs one stat when nothing has
-** changed, which matters: the engine probes the local file system before the archives for every
-** asset, and most of those probes miss.
-**
-** On a volume with coarse timestamps - exFAT, where the Steam installs on this project's machines
-** sit, keeps them to two seconds - two changes inside one tick leave the time where it was.  That is
-** harmless there and not a reason to change the cache: exFAT is case-insensitive, so the exact try
-** always finds an existing file and the cache is never consulted.  The case-sensitive volumes the
-** cache exists for (APFS case-sensitive, ext4, overlayfs) keep nanoseconds.
+** On Linux, directory listings are cached against their directory's identity and modification time,
+** with inotify watching before the listing is read and queued changes checked before reuse. Even a
+** timestamp with nanosecond fields can repeat across rapid changes; timestamps alone cannot prove
+** a cached miss or a case-collision choice current. A change discards the snapshots and watches.
+** Without usable notifications (including other POSIX platforms), lookups rescan instead. Unchanged
+** watched directories keep the cache: the engine probes loose files before archives for every asset,
+** and most probes miss. The exact-spelling try still comes first on every volume.
 **
 ** POSIX only.  Windows opens the engine's spelling as it is.
 */

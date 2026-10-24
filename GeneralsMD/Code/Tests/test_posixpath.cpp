@@ -431,6 +431,75 @@ TEST(engine_paths_resolve_on_this_volume)
 	remove_tree(root);
 }
 
+// Timestamp precision is not a freshness guarantee: multiple directory changes can share one
+// kernel/filesystem tick. Restore one fixed mtime after each external mutation to exercise that
+// condition deterministically, without sleeps or depending on the host's filesystem speed.
+TEST(case_cache_notices_changes_with_an_unchanged_directory_mtime)
+{
+	const std::string root = temp_root("test_posixpath_cache");
+	make_directory(root);
+	if (!is_case_sensitive(root)) {
+		printf("  unchanged-mtime cache checks need a case-sensitive volume\n");
+		remove_tree(root);
+		return;
+	}
+	const struct timespec fixed[2] = { { 1600000000, 0 }, { 1600000000, 0 } };
+	auto freeze_mtime = [&]() { CHECK_EQ(utimensat(AT_FDCWD, root.c_str(), fixed, 0), 0); };
+	std::string real;
+	PosixPath_Forget_All();
+	freeze_mtime();
+	CHECK(!PosixPath_Resolve((root + "/NEW.TXT").c_str(), POSIX_PATH_EXISTING, real));
+	write_file(root + "/New.txt", "new");
+	freeze_mtime();
+	CHECK_STR(resolved_contents(root + "/NEW.TXT").c_str(), "new");
+
+	// A still-existing old winner does not prove its cached byte-order choice is current.
+	write_file(root + "/foo.txt", "lower");
+	freeze_mtime();
+	PosixPath_Forget_All();
+	CHECK_STR(resolved_contents(root + "/FOO.TXT").c_str(), "lower");
+	write_file(root + "/Foo.txt", "upper");
+	freeze_mtime();
+	CHECK_STR(resolved_contents(root + "/FOO.TXT").c_str(), "upper");
+	CHECK_STR(resolved_contents(root + "/foo.txt").c_str(), "lower");
+
+	CHECK_EQ(rename((root + "/Foo.txt").c_str(), (root + "/Moved.txt").c_str()), 0);
+	freeze_mtime();
+	CHECK_STR(resolved_contents(root + "/MOVED.TXT").c_str(), "upper");
+	CHECK_EQ(unlink((root + "/Moved.txt").c_str()), 0);
+	freeze_mtime();
+	CHECK(!PosixPath_Resolve((root + "/MOVED.TXT").c_str(), POSIX_PATH_EXISTING, real));
+	CHECK_STR(resolved_contents(root + "/FOO.TXT").c_str(), "lower");
+
+	CHECK(!PosixPath_Resolve((root + "/EMPTYDIR").c_str(), POSIX_PATH_EXISTING, real));
+	make_directory(root + "/EmptyDir");
+	freeze_mtime();
+	struct stat status = {};
+	CHECK_EQ(zh_stat((root + "/EMPTYDIR").c_str(), &status), 0);
+	CHECK(S_ISDIR(status.st_mode));
+
+	// Alias paths share an inotify watch descriptor. A change must invalidate both snapshots,
+	// and replacing the target directory must not reuse the old inode's listing/watch.
+	const std::string shared = root + "/Shared", alias = root + "/Alias";
+	make_directory(shared);
+	CHECK_EQ(symlink("Shared", alias.c_str()), 0);
+	CHECK_EQ(utimensat(AT_FDCWD, shared.c_str(), fixed, 0), 0);
+	CHECK(!PosixPath_Resolve((shared + "/ADDED.TXT").c_str(), POSIX_PATH_EXISTING, real));
+	CHECK(!PosixPath_Resolve((alias + "/ADDED.TXT").c_str(), POSIX_PATH_EXISTING, real));
+	write_file(shared + "/Added.txt", "shared");
+	CHECK_EQ(utimensat(AT_FDCWD, shared.c_str(), fixed, 0), 0);
+	CHECK_STR(resolved_contents(shared + "/ADDED.TXT").c_str(), "shared");
+	CHECK_STR(resolved_contents(alias + "/ADDED.TXT").c_str(), "shared");
+	CHECK_EQ(rename(shared.c_str(), (root + "/Previous").c_str()), 0);
+	make_directory(shared);
+	write_file(shared + "/Other.txt", "replacement");
+	CHECK_EQ(utimensat(AT_FDCWD, shared.c_str(), fixed, 0), 0);
+	CHECK_STR(resolved_contents(shared + "/OTHER.TXT").c_str(), "replacement");
+	CHECK_STR(resolved_contents(alias + "/OTHER.TXT").c_str(), "replacement");
+	PosixPath_Forget_All();
+	remove_tree(root);
+}
+
 TEST(engine_paths_resolve_on_a_case_sensitive_volume)
 {
 #if defined(__APPLE__)
