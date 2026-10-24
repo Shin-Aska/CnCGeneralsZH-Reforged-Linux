@@ -44,6 +44,7 @@
 #include "Common/SkirmishPreferences.h"
 #include "GameLogic/GameLogic.h"
 #include "GameClient/AnimateWindowManager.h"
+#include "GameClient/CampaignManager.h"
 #include "GameClient/WindowLayout.h"
 #include "GameClient/Gadget.h"
 #include "GameClient/Shell.h"
@@ -495,6 +496,11 @@ void reallyDoStart( void )
 			 with the skirmish lobby's seed here and nowhere else, so the same mission played from the
 			 two menus was not the same mission. */
 		InitRandom(0);
+
+		/* Nor is it a campaign mission.  The campaign manager still held whatever campaign was played
+			 last, so the load picked that campaign's screen and read the briefing of a mission that was
+			 not being played - or of none, when that campaign had been played through. */
+		TheCampaignManager->setCampaign( AsciiString::TheEmptyString );
 
 		GameMessage *msg = TheMessageStream->appendMessage( GameMessage::MSG_NEW_GAME );
 		msg->appendIntegerArgument(GAME_SINGLE_PLAYER);

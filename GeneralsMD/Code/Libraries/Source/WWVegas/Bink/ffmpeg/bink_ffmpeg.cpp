@@ -497,8 +497,9 @@ int __stdcall BinkGoto(HBINK handle, unsigned int frame, int)
 	}
 #if defined(_WIN32)
 	if (movie->voice != NULL) {
+		// The flush lands on the mixer's next pass, which may still read what is queued, so the
+		// chunks stay in audioQueued: queueAudioFrame pops them once BuffersQueued says they are gone.
 		movie->voice->FlushSourceBuffers();
-		movie->audioQueued.clear();
 	}
 #else
 	AIL_ex_flush_pcm(movie->pcm);

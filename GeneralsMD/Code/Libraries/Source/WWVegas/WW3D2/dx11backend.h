@@ -69,6 +69,13 @@ const unsigned DX11_BACKEND_TEXTURE_STAGES = 4;
 // itself and has to reach one past it.
 const unsigned DX11_BACKEND_STAGE_STATES = 33;
 
+// D3DCOMPILE_SKIP_OPTIMIZATION, which the Modern water's pixel programs compile with.  The
+// optimiser spends 34 s on each of them (about 11 thousand instructions, mostly inlined copies of
+// the noise and hash helpers) and 4.5 s without it.  The driver optimises the bytecode again
+// either way: the frame time stayed inside run-to-run noise and the picture did not change
+// (2026-10-23, docs/porting/windows-impact.md).
+const unsigned DX11_MODERN_WATER_COMPILE_FLAGS = 1u << 2;
+
 class DX11BackendClass
 {
 public:
@@ -140,6 +147,13 @@ public:
 	// The engine's own float4 shader constant bank, as it sets it.  The transcribed programs index
 	// it by the same register number the SetVertexShaderConstantF call used.
 	void Set_Vertex_Program_Constant(unsigned first_register, const float * values, unsigned count);
+
+	// The Modern water's float4 registers as W3DWater sets them (Platform/WaterConstants.h), up to
+	// DX11_WATER_REGISTERS.  Only a Modern water draw reads them, through dx11water.cpp's blocks.
+	void Set_Water_Constants(unsigned first_register, const float * values, unsigned count);
+	// What the Modern water drew with, for the shutdown report: its draws, the GPU ocean's updates,
+	// or why the analytic surface stood in for it.
+	std::string Water_Report() const;
 	void Set_Stream_Source(ID3D11Buffer * buffer, unsigned stride, unsigned offset);
 	void Set_Indices(ID3D11Buffer * buffer, DXGI_FORMAT format);
 
@@ -164,8 +178,8 @@ public:
 
 	// Keep every compiled program in this file across runs: read now, written while the game runs
 	// (Save_Shader_Cache_If_Due) and at Shutdown when a program was compiled that the file did not
-	// hold.  A program compiled mid-match costs 25 to 60ms on the frame that first needs it, which is
-	// the stutter a new explosion brought.
+	// hold.  A program compiled on the frame that first needs it costs that frame 100 to 130ms of
+	// FXC, the stutter a new explosion brought; Set_Compile_Off_Frame moves most of them to a worker.
 	void Set_Shader_Cache_Path(const char * path);
 	// The programs that ship with the game, compiled by Microsoft's d3dcompiler_47 when the file was
 	// recorded (Tools/record-dx11-shaders.ps1): read after the user's cache, so for the same source a
@@ -178,6 +192,10 @@ public:
 	// is killed, keeps what it compiled.
 	void Save_Shader_Cache_If_Due();
 	unsigned Compiled_Program_Count() const { return static_cast<unsigned>(CompiledPrograms.size()); }
+	// A pixel program from outside the backend (the post chain's haze) through the same cache, so
+	// only the first run that meets it compiles it.  False when the compiler refused it.
+	bool Compile_Pixel_Program(const std::string & source, const char * name,
+		std::vector<unsigned char> & bytecode);
 
 	// Binds the swap chain's back buffer and depth buffer and sets the viewport over the whole of
 	// it.  D3D11 keeps no default target: without this every draw is complete, legal, and lands
@@ -234,6 +252,21 @@ public:
 	// the smoke billboards' runs.  An unlit draw with a normal takes it; any other ignores it.
 	void Set_Smoke_Glow(bool glow);
 
+	// The draws that follow are billboards of a fire or explosion system, carrying each particle's
+	// age and seed in the second coordinate set (ffshader.h, FIRE_LOOK_SAMPLING).  Only the sorting
+	// pool sets it, around those systems' runs.  A draw it does not suit takes none (Fire_Look).
+	void Set_Fire_Look(bool fire);
+
+	// The draws that follow are an Emissive particle system's billboards, a fireball's alpha blended
+	// body: they give light, so they take neither the sun's shadow nor the smoke's shade.  Only the
+	// sorting pool sets it, around those systems' runs.
+	void Set_Emissive(bool emissive);
+
+	// The draws that follow are a house colour mesh under the Team Glow option: its hue is added again
+	// after the shade, past white, for the bloom (ffshader.h, TeamGlow).  The mesh renderer sets it
+	// around such a mesh's draws.  A draw it does not suit takes none (Team_Glow).
+	void Set_Team_Glow(bool glow);
+
 	// The look the draws that follow are dressed in (a DRAW_EFFECT_* value, ffshader.h) and its
 	// four numbers: wall clock seconds, strength, a per-object seed and the object's opacity.  The
 	// mesh renderer sets it around one object's draws and puts DRAW_EFFECT_NONE back after them.
@@ -253,9 +286,21 @@ public:
 	// Whether the draws are going into the scene's own target.
 	bool Draws_Into_Scene() const;
 
+	// Where the scene is going now: its own target, or a screen filter's texture drawn over the
+	// scene's depth; NULL for a mirror or the sun's map.
+	ID3D11RenderTargetView * Scene_Target() const;
+
 	// The scene's target, its depth and the draws' viewport bound again after a pass that bound
 	// its own on the context mid-scene (the post chain's occlusion).
 	void Resume_Scene();
+
+	// The scene camera's clip space back into the world, out of Set_Scene_View's view and the
+	// projection held with it, for a pass over the world that reads its depth (the prototype map
+	// haze).  False when Set_Scene_View has not run since Open_Frame, when that projection is not a
+	// perspective one or the matrix has no inverse.
+	bool Scene_World_From_Clip(float world_from_clip[16]) const;
+	// The top of a frame, before any scene of it: Scene_World_From_Clip waits for this frame's view.
+	void Open_Frame();
 
 	// What an additive draw (ONE, ONE) into the scene is worth, for the Glow option: the blend
 	// takes the draw's colour times this through the blend factor, so fire, muzzle flashes and
@@ -354,6 +399,30 @@ public:
 	const char * Target_Trace(unsigned index) const
 		{ return (index < TargetTrace.size()) ? TargetTrace[index].c_str() : ""; }
 	const char * First_Compiler_Error() const { return CompilerError.c_str(); }
+
+	// A program for a pass of someone else's (the hazard clouds), compiled once and kept in the
+	// shader cache with the generated ones, so a second run compiles nothing.  The flags are
+	// D3DCompile's first flag word; zero is its default optimisation.
+	bool Compile_Program(const std::string & source, const char * name, const char * profile,
+		std::vector<unsigned char> & bytecode, unsigned flags = 0);
+
+	// A generated fixed-function program missing from both caches is compiled on a worker thread
+	// rather than on the frame that first meets it, which cost that frame 100 to 130ms of FXC: the
+	// draws that want it are refused until it lands, about a tenth of a second, and the frame goes
+	// on without them.  Only a scene draw through a perspective camera takes this road.  These still
+	// compile on the spot: a draw into a texture or into the sun's map (drawn once, or a shadow
+	// lost), a pre-transformed one or one under an identity or orthographic projection (the
+	// interface, Render2D's quads, the filters), a multiplicative pass (the terrain's shroud pass:
+	// left out, it would show shrouded ground) and an engine shader (terrain, water, trees).  Roads
+	// and bridges are fixed-function and may wait.  Off unless asked for, so a test that draws and
+	// reads back sees its draw.
+	void Set_Compile_Off_Frame(bool enabled) { CompileOffFrame = enabled; }
+	// Programs the worker compiled, the longest one took from queue to landing, and the draws
+	// refused while their program was being compiled.
+	void Compile_Statistics(unsigned & compiled_off_frame, double & longest_milliseconds,
+		unsigned long long & draws_waited) const
+		{ compiled_off_frame = ProgramsCompiledOffFrame; longest_milliseconds = LongestOffFrameMilliseconds;
+		  draws_waited = DrawsWaitedForProgram; }
 
 private:
 	DX11BackendClass(const DX11BackendClass &);
@@ -509,6 +578,23 @@ private:
 	// What the viewport is, so a pre-transformed vertex can be put back into clip space.
 	unsigned ViewportWidth;
 	unsigned ViewportHeight;
+	unsigned ViewportX;
+	unsigned ViewportY;
+
+	// The Modern water (dx11water.cpp): its registers, the stages past the fourth, the copies of the
+	// scene it refracts through, the GPU ocean and the displaced vertex programs.  Prepare runs
+	// before a water draw binds anything, because the ocean's passes take the context; Bind after
+	// the draw's own bindings, Unbind after the draw.
+	struct WaterResources;
+	WaterResources * Water;
+	static WaterResources * Create_Water();
+	static void Destroy_Water(WaterResources * water);
+	void Set_Water_Texture(unsigned stage, ID3D11ShaderResourceView * texture);
+	bool Prepare_Water();
+	void Bind_Water();
+	void Unbind_Water();
+	void Water_Scene_Changed(ID3D11Resource * target);	// null: a new frame, every copy is old
+	void Release_Water();
 
 	// The sun's depth buffer and the two views of it: one to draw into, one to sample.  The
 	// viewport the frame was using is kept while it is bound, because the map is square and the
@@ -543,12 +629,25 @@ private:
 	float ShadowFromClipProjection[16];
 	bool ShadowFromClipValid;
 
-	// Set_Scene_View's matrix, and whether it has been set.
+	// Set_Scene_View's matrix, and whether it has been set; and the projection held when it was,
+	// which is the scene camera's own (Set_Scene_View follows the camera's Apply).
 	float SceneView[16];
+	float SceneProjection[16];
 	bool SceneViewKnown;
+	// Set_Scene_View ran since the last Open_Frame: the haze reprojects with this frame's camera or
+	// not at all (the shadow pass returns before handing the view over on a frame it skips).
+	bool SceneViewThisFrame;
 	bool Camera_Space_Draw() const;
 	bool SmokeGlow;
 	bool Smoke_Glow() const;
+	// Set_Fire_Look, and which way the current draw wears it (a FIRE_LOOK_* value).
+	bool FireLook;
+	unsigned Fire_Look() const;
+	// Set_Emissive: the current draws take no shadow and no smoke shade (Shadow_Receiving).
+	bool Emissive;
+	// Set_Team_Glow, and whether the current draw takes it.
+	bool TeamGlow;
+	bool Team_Glow() const;
 	// Set_Draw_Effect's look and numbers, and the look the current draw takes after the checks.
 	unsigned DrawEffect;
 	float DrawEffectNumbers[4];
@@ -926,8 +1025,6 @@ private:
 	bool Any_Missing_Texture() const;
 	void Dump_Program(const std::string & key, const std::string & vertex_hlsl,
 		const std::string & pixel_hlsl);
-	bool Compile_Program(const std::string & source, const char * name, const char * profile,
-		std::vector<unsigned char> & bytecode);
 	void Save_Shader_Cache() const;
 
 	std::string CompilerError;
@@ -936,6 +1033,30 @@ private:
 	// Bytecode by the hash of the profile and the source it was compiled from.  Two pipelines that
 	// generate the same vertex program share one compile, and so do two runs through the file.
 	std::map<unsigned long long, std::vector<unsigned char> > CompiledPrograms;
+
+	// The worker that compiles off the frame (Set_Compile_Off_Frame), made with its first job and
+	// joined in Shutdown.  It runs D3DCompile and nothing else: the device and the context stay on
+	// this thread, so a device reset leaves it nothing to touch.
+	struct CompileWorker;
+	CompileWorker * Worker;
+	bool CompileOffFrame;
+	// Pipelines waiting on the worker, by key, with the hashes of their two programs.
+	std::map<std::string, std::pair<unsigned long long, unsigned long long> > PendingPipelines;
+	// Programs the worker could not compile: the pipeline then compiles on the spot, which records
+	// the compiler's error and refuses it the usual way.
+	std::map<unsigned long long, bool> FailedOffFrame;
+	unsigned ProgramsCompiledOffFrame;
+	double LongestOffFrameMilliseconds;
+	unsigned long long DrawsWaitedForProgram;
+	// Whether the draw being resolved may wait for the worker (Set_Compile_Off_Frame has which may not).
+	bool Compiles_Off_Frame() const;
+	bool Program_Settled(unsigned long long hash) const
+		{ return CompiledPrograms.count(hash) != 0 || FailedOffFrame.count(hash) != 0; }
+	bool Queue_Off_Frame(unsigned long long hash, const std::string & source, const char * name,
+		const char * profile, unsigned flags);
+	void Take_Off_Frame_Programs();
+	void Stop_Compile_Worker();
+
 	std::string ShaderCachePath;
 	bool ShaderCacheChanged;
 	unsigned ShippedPrograms;

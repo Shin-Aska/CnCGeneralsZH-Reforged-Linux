@@ -462,7 +462,8 @@ static const char * findGameMessageNameByType(GameMessage::Type type)
 	* therefore not stop the slot from matching. Every other modifier still has to match exactly,
 	* and a slot the player deliberately bound to shift is compared as-is.  The Force Attack hold is
 	* the same: shift on top of it queues the circle, so pressing shift must neither end the hold nor
-	* stop it from starting. */
+	* stop it from starting.  So are the camera's rotate keys: shift held over them flips the 45 degree
+	* steps (InGameUI::update), and a key let go with shift down still has to end the turn. */
 //-------------------------------------------------------------------------------------------------
 static Bool metaIgnoresShift(const MetaMapRec *map)
 {
@@ -470,7 +471,9 @@ static Bool metaIgnoresShift(const MetaMapRec *map)
 										map->m_meta <= GameMessage::MSG_META_COMMAND_SLOT18;
 	const Bool forceAttackHold = map->m_meta == GameMessage::MSG_META_BEGIN_FORCEATTACK ||
 															 map->m_meta == GameMessage::MSG_META_END_FORCEATTACK;
-	return ( slot || forceAttackHold ) && (map->m_modState & SHIFT) == 0;
+	const Bool cameraRotate = map->m_meta >= GameMessage::MSG_META_BEGIN_CAMERA_ROTATE_LEFT &&
+														map->m_meta <= GameMessage::MSG_META_END_CAMERA_ROTATE_RIGHT;
+	return ( slot || forceAttackHold || cameraRotate ) && (map->m_modState & SHIFT) == 0;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -888,8 +891,22 @@ MetaMapRec *MetaMap::getMetaMapRec(GameMessage::Type t)
 	m->m_displayName.clear();
 	m->m_next = m_metaMaps;
 	m_metaMaps = m;
-	
+
 	return m;
+}
+
+//-------------------------------------------------------------------------------------------------
+void MetaMap::keepArrowsForCamera()
+{
+	for( MetaMapRec *map = m_metaMaps; map; map = map->m_next )
+	{
+		const Bool arrow = map->m_key == MK_UP || map->m_key == MK_DOWN || map->m_key == MK_LEFT || map->m_key == MK_RIGHT;
+		if( arrow && map->m_modState == NONE )
+		{
+			DEBUG_LOG(( "HOTKEYS: %s on a bare arrow, moved to Ctrl so the arrow scrolls\n", findGameMessageNameByType( map->m_meta ) ));
+			map->m_modState = CTRL;
+		}
+	}
 }
 
 //-------------------------------------------------------------------------------------------------

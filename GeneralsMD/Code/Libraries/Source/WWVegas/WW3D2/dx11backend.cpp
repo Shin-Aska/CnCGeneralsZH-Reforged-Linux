@@ -23,6 +23,11 @@
 #include "dx11resource.h"
 
 #include <d3dcommon.h>
+#include <condition_variable>
+#include <deque>
+#include <mutex>
+#include <set>
+#include <thread>
 #include <stdio.h>
 #include <string.h>
 #include <windows.h>
@@ -97,13 +102,15 @@ static unsigned read_program_file(const char * path,
 	return count;
 }
 
-// FNV-1a over the profile and the source, which between them decide the bytecode.  The generated
-// text is the key rather than the pipeline's state key, so a build that changes what a state
-// generates compiles again instead of drawing with the previous build's program.
-static unsigned long long program_hash(const char * profile, const std::string & source)
+// FNV-1a over the profile, the source and the compiler flags, which between them decide the
+// bytecode.  The generated text is the key rather than the pipeline's state key, so a build that
+// changes what a state generates compiles again instead of drawing with the previous build's
+// program.  Default flags add nothing, so every key from before the flags existed still matches.
+static unsigned long long program_hash(const char * profile, const std::string & source, unsigned flags)
 {
 	const unsigned long long FNV_OFFSET = 14695981039346656037ULL;
 	const unsigned long long FNV_PRIME = 1099511628211ULL;
+	const unsigned BITS_PER_BYTE = 8;
 
 	unsigned long long hash = FNV_OFFSET;
 	for (const char * cursor = profile; *cursor != '\0'; ++cursor) {
@@ -111,6 +118,9 @@ static unsigned long long program_hash(const char * profile, const std::string &
 	}
 	for (size_t index = 0; index < source.size(); ++index) {
 		hash = (hash ^ static_cast<unsigned char>(source[index])) * FNV_PRIME;
+	}
+	for (unsigned remaining = flags; remaining != 0; remaining >>= BITS_PER_BYTE) {
+		hash = (hash ^ static_cast<unsigned char>(remaining)) * FNV_PRIME;
 	}
 	return hash;
 }
@@ -214,6 +224,11 @@ DX11BackendClass::DX11BackendClass()
 	, PipelinesBuilt(0)
 	, FrameBuildMilliseconds(0.0)
 	, FrameBuildCount(0)
+	, Worker(NULL)
+	, CompileOffFrame(false)
+	, ProgramsCompiledOffFrame(0)
+	, LongestOffFrameMilliseconds(0.0)
+	, DrawsWaitedForProgram(0)
 	, ShaderCacheChanged(false)
 	, ShippedPrograms(0)
 	, LastShaderCacheSave(0)
@@ -245,6 +260,9 @@ DX11BackendClass::DX11BackendClass()
 	, ShadowSkyFill(0.0f)
 	, ShadowReceiving(false)
 	, SmokeGlow(false)
+	, FireLook(false)
+	, Emissive(false)
+	, TeamGlow(false)
 	, AdditiveGain(1.0f)
 	, GlowDraw(false)
 	, SceneStandIn(NULL)
@@ -297,7 +315,9 @@ DX11BackendClass::DX11BackendClass()
 	set_identity(View);
 	set_identity(Projection);
 	set_identity(SceneView);
+	set_identity(SceneProjection);
 	SceneViewKnown = false;
+	SceneViewThisFrame = false;
 	SmokeMapSurface = NULL;
 	SmokeMapTarget = NULL;
 	SmokeMapTexture = NULL;
@@ -336,6 +356,9 @@ DX11BackendClass::DX11BackendClass()
 	}
 	ViewportWidth = 1;
 	ViewportHeight = 1;
+	ViewportX = 0;
+	ViewportY = 0;
+	Water = Create_Water();
 
 	// The device's own defaults, so a stage nobody has written to is a stage that is off.
 	for (unsigned stage = 0; stage < DX11_BACKEND_TEXTURE_STAGES; ++stage) {
@@ -352,6 +375,7 @@ DX11BackendClass::DX11BackendClass()
 DX11BackendClass::~DX11BackendClass()
 {
 	Shutdown();
+	Destroy_Water(Water);
 }
 
 bool DX11BackendClass::Initialise(DX11DeviceClass * device)
@@ -514,11 +538,14 @@ void DX11BackendClass::Release_Cached()
 
 void DX11BackendClass::Shutdown()
 {
+	// Before the save, so what the worker finished goes into the file.
+	Stop_Compile_Worker();
 	if (ShaderCacheChanged) {
 		Save_Shader_Cache();
 		ShaderCacheChanged = false;
 	}
 	Release_Cached();
+	Release_Water();
 
 	Release_Constant_Ring(EngineConstantRing);
 	Release_Constant_Ring(PixelConstantRing);
@@ -1025,6 +1052,13 @@ void DX11BackendClass::Set_Scene_View(const float view[16])
 		SceneViewKnown = true;
 		ConstantsChanged = true;
 	}
+	memcpy(SceneProjection, Projection, sizeof(SceneProjection));
+	SceneViewThisFrame = true;
+}
+
+void DX11BackendClass::Open_Frame()
+{
+	SceneViewThisFrame = false;
 }
 
 void DX11BackendClass::Set_Smoke_Glow(bool glow)
@@ -1035,6 +1069,67 @@ void DX11BackendClass::Set_Smoke_Glow(bool glow)
 	}
 }
 
+void DX11BackendClass::Set_Fire_Look(bool fire)
+{
+	if (FireLook != fire) {
+		FireLook = fire;
+		PipelineChanged = true;
+	}
+}
+
+void DX11BackendClass::Set_Emissive(bool emissive)
+{
+	if (Emissive != emissive) {
+		Emissive = emissive;
+		PipelineChanged = true;
+	}
+}
+
+void DX11BackendClass::Set_Team_Glow(bool glow)
+{
+	if (TeamGlow != glow) {
+		TeamGlow = glow;
+		PipelineChanged = true;
+	}
+}
+
+/** An opaque fixed-function draw into the scene's own target, under no other look: blended, the
+		stripe would add light behind a fading or cloaked body, and a mirror, a portrait or the sun's
+		map has no bloom to feed.  Like Additive_Glow it wants the half float scene (a gain off one)
+		and not Classic, whose picture is -d3d9's (SoftParticlesAllowed carries that setting). */
+bool DX11BackendClass::Team_Glow() const
+{
+	return TeamGlow && AdditiveGain != 1.0f && SoftParticlesAllowed
+		&& !ShadowMapBound && CurrentTarget == NULL
+		&& VertexProgram == ENGINE_SHADER_NONE && PixelProgram == ENGINE_SHADER_NONE
+		&& (VertexFormat & D3DFVF_XYZRHW) == 0
+		&& RenderStates.Get_Render_State(D3DRS_ALPHABLENDENABLE) == FALSE
+		&& Draw_Effect() == DRAW_EFFECT_NONE;
+}
+
+/** Which way a fire billboard wears its look: through the colour for a blend that adds it
+		unweighted, through the alpha otherwise.  Off under Classic, whose picture is -d3d9's
+		(SoftParticlesAllowed carries that setting), and off for anything but a one-stage fixed-function
+		draw with a second coordinate set to read, and for a multiplicative blend, which a burnt-away
+		flame would darken rather than leave. */
+unsigned DX11BackendClass::Fire_Look() const
+{
+	if (!FireLook || !SoftParticlesAllowed || ShadowMapBound
+		|| VertexProgram != ENGINE_SHADER_NONE || PixelProgram != ENGINE_SHADER_NONE
+		|| (VertexFormat & D3DFVF_XYZRHW) != 0
+		|| (VertexFormat & D3DFVF_TEXCOUNT_MASK) < D3DFVF_TEX2
+		|| StageStates[1][D3DTSS_COLOROP] != D3DTOP_DISABLE
+		|| RenderStates.Get_Render_State(D3DRS_ALPHABLENDENABLE) == FALSE) {
+		return FIRE_LOOK_NONE;
+	}
+	const DWORD source = RenderStates.Get_Render_State(D3DRS_SRCBLEND);
+	const DWORD destination = RenderStates.Get_Render_State(D3DRS_DESTBLEND);
+	if (source == D3DBLEND_DESTCOLOR || source == D3DBLEND_ZERO || destination == D3DBLEND_SRCCOLOR) {
+		return FIRE_LOOK_NONE;
+	}
+	return (source == D3DBLEND_ONE) ? FIRE_LOOK_COLOUR : FIRE_LOOK_ALPHA;
+}
+
 void DX11BackendClass::Set_Additive_Gain(float gain)
 {
 	if (AdditiveGain != gain) {
@@ -1042,6 +1137,9 @@ void DX11BackendClass::Set_Additive_Gain(float gain)
 		// The factor goes with the blend state when it is bound, so the next draw binds again.
 		StateObjectsChanged = true;
 		Bound.Blend = NULL;
+		if (TeamGlow) {
+			PipelineChanged = true;		// Team_Glow reads it
+		}
 	}
 }
 
@@ -1094,6 +1192,17 @@ unsigned DX11BackendClass::Requested_Draw_Effect(float parameters[4]) const
 bool DX11BackendClass::Draws_Into_Scene() const
 {
 	return CurrentTarget == NULL && !ShadowMapBound;
+}
+
+ID3D11RenderTargetView * DX11BackendClass::Scene_Target() const
+{
+	if (ShadowMapBound) {
+		return NULL;
+	}
+	if (CurrentTarget == NULL) {
+		return Device->Get_Scene_View();
+	}
+	return CurrentDepth == Device->Get_Depth_Stencil_View() ? CurrentTarget : NULL;
 }
 
 /** The black and white view, the motion blur and the cross fade draw the whole scene into a target
@@ -1448,6 +1557,22 @@ static bool invert(const float in[16], float out[16])
 	return true;
 }
 
+bool DX11BackendClass::Scene_World_From_Clip(float world_from_clip[16]) const
+{
+	// The scene camera the shadow pass handed over at the top of the frame, not whatever the last
+	// draw left: a camera space particle run leaves an identity view, the interface an orthographic
+	// projection.  Every perspective draw of the scene shares the camera's projection.
+	// Its projection too, not the one the last draw left: the haze goes on after the water and the
+	// translucent meshes, and depth read back through any other projection lands the pixel at
+	// another distance along its own ray.
+	if (!SceneViewThisFrame || SceneProjection[11] == 0.0f) {
+		return false;
+	}
+	float scene_clip[16];
+	multiply(SceneView, SceneProjection, scene_clip);
+	return invert(scene_clip, world_from_clip);
+}
+
 /** What is in the map, read back once.  A caster pass that drew nothing leaves every texel at the
 		clear value, which no draw count tells apart from a pass that drew the whole world. */
 std::string DX11BackendClass::Shadow_Map_Report()
@@ -1580,6 +1705,9 @@ void DX11BackendClass::Set_Texture(unsigned stage, ID3D11ShaderResourceView * te
 			TexturesChanged = true;
 		}
 		Textures[stage] = texture;
+	}
+	else {
+		Set_Water_Texture(stage, texture);
 	}
 }
 
@@ -1832,6 +1960,8 @@ void DX11BackendClass::Load_Shipped_Programs(const char * path)
 
 void DX11BackendClass::Save_Shader_Cache_If_Due()
 {
+	// Once a frame, so a program whose effect was gone before it landed still reaches the file.
+	Take_Off_Frame_Programs();
 	if (!ShaderCacheChanged) {
 		return;
 	}
@@ -1873,9 +2003,9 @@ void DX11BackendClass::Save_Shader_Cache() const
 }
 
 bool DX11BackendClass::Compile_Program(const std::string & source, const char * name,
-	const char * profile, std::vector<unsigned char> & bytecode)
+	const char * profile, std::vector<unsigned char> & bytecode, unsigned flags)
 {
-	const unsigned long long hash = program_hash(profile, source);
+	const unsigned long long hash = program_hash(profile, source, flags);
 	std::map<unsigned long long, std::vector<unsigned char> >::const_iterator known
 		= CompiledPrograms.find(hash);
 	if (known != CompiledPrograms.end()) {
@@ -1890,7 +2020,7 @@ bool DX11BackendClass::Compile_Program(const std::string & source, const char * 
 
 	ID3DBlob * code = NULL;
 	ID3DBlob * errors = NULL;
-	if (FAILED(compiler(source.c_str(), source.size(), name, NULL, NULL, ENTRY_POINT, profile, 0, 0,
+	if (FAILED(compiler(source.c_str(), source.size(), name, NULL, NULL, ENTRY_POINT, profile, flags, 0,
 			&code, &errors))) {
 		Record_Compiler_Error(name, errors);
 		return false;
@@ -1906,6 +2036,186 @@ bool DX11BackendClass::Compile_Program(const std::string & source, const char * 
 	CompiledPrograms[hash] = bytecode;
 	ShaderCacheChanged = true;
 	return true;
+}
+
+// Jobs waiting at once.  A frame meets a handful of new programs at most; past this a program
+// compiles on the spot, as before.
+static const size_t COMPILE_QUEUE_LIMIT = 64;
+
+// Two threads, because one left the last of a match's first eight new programs waiting 0.9 s.
+static const unsigned COMPILE_THREADS = 2;
+
+// Threads that run D3DCompile, which d3dcompiler_47 allows from any thread.  They never see the
+// device, the context or the backend's maps: jobs go in and bytecode comes out under one lock, and
+// the render thread moves the bytecode into CompiledPrograms.
+struct DX11BackendClass::CompileWorker
+{
+	struct Job
+	{
+		unsigned long long Hash;
+		std::string Source;
+		std::string Name;
+		std::string Profile;
+		unsigned Flags;
+		double Queued;
+	};
+	struct Done
+	{
+		unsigned long long Hash;
+		bool Compiled;
+		std::vector<unsigned char> Bytecode;
+		double Milliseconds;
+	};
+
+	explicit CompileWorker(D3DCompileFunction compiler)
+		: Compiler(compiler), Stopping(false)
+	{
+		for (unsigned index = 0; index < COMPILE_THREADS; ++index) {
+			Threads[index] = std::thread(&CompileWorker::Run, this);
+		}
+	}
+
+	void Run()
+	{
+		for (;;) {
+			Job job;
+			{
+				std::unique_lock<std::mutex> hold(Lock);
+				Wake.wait(hold, [this] { return Stopping || !Jobs.empty(); });
+				if (Stopping) {
+					return;
+				}
+				job = std::move(Jobs.front());
+				Jobs.pop_front();
+			}
+			Done done;
+			done.Hash = job.Hash;
+			ID3DBlob * code = NULL;
+			ID3DBlob * errors = NULL;
+			done.Compiled = SUCCEEDED(Compiler(job.Source.c_str(), job.Source.size(), job.Name.c_str(), NULL,
+				NULL, ENTRY_POINT, job.Profile.c_str(), job.Flags, 0, &code, &errors));
+			if (done.Compiled) {
+				const unsigned char * bytes = static_cast<const unsigned char *>(code->GetBufferPointer());
+				done.Bytecode.assign(bytes, bytes + code->GetBufferSize());
+				code->Release();
+			}
+			if (errors != NULL) {
+				errors->Release();
+			}
+			done.Milliseconds = DX11Resource_Milliseconds_Now() - job.Queued;
+			std::lock_guard<std::mutex> hold(Lock);
+			Finished.push_back(std::move(done));
+		}
+	}
+
+	D3DCompileFunction Compiler;
+	std::mutex Lock;
+	std::condition_variable Wake;
+	std::deque<Job> Jobs;
+	std::vector<Done> Finished;
+	std::set<unsigned long long> Queued;	// queued, running or finished and not yet taken
+	bool Stopping;
+	std::thread Threads[COMPILE_THREADS];
+};
+
+bool DX11BackendClass::Compiles_Off_Frame() const
+{
+	if (!CompileOffFrame || VertexProgram != ENGINE_SHADER_NONE || PixelProgram != ENGINE_SHADER_NONE
+		|| CurrentTarget != NULL || ShadowMapBound || (VertexFormat & D3DFVF_XYZRHW) != 0) {
+		return false;
+	}
+	// A perspective projection has nought in its corner; Render2D's identity and an orthographic
+	// overlay have one, and those are the interface.  Camera-space particles keep the perspective.
+	if (Projection[15] != 0.0f) {
+		return false;
+	}
+	if (RenderStates.Get_Render_State(D3DRS_ALPHABLENDENABLE) != FALSE) {
+		const DWORD source = RenderStates.Get_Render_State(D3DRS_SRCBLEND);
+		const DWORD destination = RenderStates.Get_Render_State(D3DRS_DESTBLEND);
+		if (source == D3DBLEND_DESTCOLOR || source == D3DBLEND_ZERO || destination == D3DBLEND_SRCCOLOR) {
+			return false;
+		}
+	}
+	return true;
+}
+
+bool DX11BackendClass::Queue_Off_Frame(unsigned long long hash, const std::string & source,
+	const char * name, const char * profile, unsigned flags)
+{
+	if (Worker == NULL) {
+		D3DCompileFunction compiler = compiler_function();
+		if (compiler == NULL) {
+			return false;
+		}
+		Worker = new CompileWorker(compiler);
+	}
+	std::lock_guard<std::mutex> hold(Worker->Lock);
+	if (Worker->Queued.count(hash) != 0) {
+		return true;
+	}
+	if (Worker->Jobs.size() >= COMPILE_QUEUE_LIMIT) {
+		return false;
+	}
+	CompileWorker::Job job = { hash, source, name, profile, flags, DX11Resource_Milliseconds_Now() };
+	Worker->Jobs.push_back(std::move(job));
+	Worker->Queued.insert(hash);
+	Worker->Wake.notify_one();
+	return true;
+}
+
+void DX11BackendClass::Take_Off_Frame_Programs()
+{
+	if (Worker == NULL) {
+		return;
+	}
+	std::vector<CompileWorker::Done> finished;
+	{
+		std::lock_guard<std::mutex> hold(Worker->Lock);
+		finished.swap(Worker->Finished);
+		for (size_t index = 0; index < finished.size(); ++index) {
+			Worker->Queued.erase(finished[index].Hash);
+		}
+	}
+	for (size_t index = 0; index < finished.size(); ++index) {
+		CompileWorker::Done & done = finished[index];
+		if (!done.Compiled) {
+			FailedOffFrame[done.Hash] = true;
+			continue;
+		}
+		CompiledPrograms[done.Hash].swap(done.Bytecode);
+		ShaderCacheChanged = true;
+		++ProgramsCompiledOffFrame;
+		if (done.Milliseconds > LongestOffFrameMilliseconds) {
+			LongestOffFrameMilliseconds = done.Milliseconds;
+		}
+	}
+}
+
+void DX11BackendClass::Stop_Compile_Worker()
+{
+	if (Worker == NULL) {
+		return;
+	}
+	{
+		std::lock_guard<std::mutex> hold(Worker->Lock);
+		Worker->Stopping = true;
+	}
+	Worker->Wake.notify_all();
+	// At most the compile each thread is in the middle of; the jobs behind them are dropped and
+	// queued again by the next draw that wants them.
+	for (unsigned index = 0; index < COMPILE_THREADS; ++index) {
+		Worker->Threads[index].join();
+	}
+	Take_Off_Frame_Programs();
+	delete Worker;
+	Worker = NULL;
+	PendingPipelines.clear();
+}
+
+bool DX11BackendClass::Compile_Pixel_Program(const std::string & source, const char * name,
+	std::vector<unsigned char> & bytecode)
+{
+	return Compile_Program(source, name, PIXEL_PROFILE, bytecode);
 }
 
 // The key has characters a file name cannot carry, so it becomes the file's first line and the
@@ -1933,6 +2243,7 @@ void DX11BackendClass::Begin_Scene()
 {
 	SceneDepthStale = true;
 	SceneColourStale = true;
+	Water_Scene_Changed(NULL);
 
 	// A scene can begin with a render target already set: the water's reflection and the shadow
 	// projector both set theirs and then call WW3D::Begin_Render, and forcing the back buffer here
@@ -2085,6 +2396,8 @@ void DX11BackendClass::Set_Viewport(unsigned x, unsigned y, unsigned width, unsi
 	viewport.MaxDepth = 1.0f;
 	Device->Get_Context()->RSSetViewports(1, &viewport);
 
+	ViewportX = x;
+	ViewportY = y;
 	ViewportWidth = (width == 0) ? 1 : width;
 	ViewportHeight = (height == 0) ? 1 : height;
 	ConstantsChanged = true;
@@ -2101,6 +2414,12 @@ void DX11BackendClass::Clear(bool colour, bool depth, const float colour_value[4
 
 	if (colour && target != NULL) {
 		Device->Get_Context()->ClearRenderTargetView(target, colour_value);
+		ID3D11Resource * cleared = CurrentTargetResource;
+		if (CurrentTarget == NULL) {
+			target->GetResource(&cleared);
+			cleared->Release();	// the device holds the scene target for as long as it lives
+		}
+		Water_Scene_Changed(cleared);
 	}
 	if (depth && depth_view != NULL) {
 		Device->Get_Context()->ClearDepthStencilView(depth_view,
@@ -2144,6 +2463,8 @@ bool DX11BackendClass::Build_Combiner_Description(CombinerDescription & descript
 	description.SmokeGlow = Smoke_Glow();
 	description.SoftParticle = Soft_Particle();
 	description.DrawEffect = Draw_Effect();
+	description.FireLook = Fire_Look();
+	description.TeamGlow = Team_Glow();
 	return description.StageCount > 0;
 }
 
@@ -2155,6 +2476,9 @@ bool DX11BackendClass::Shadow_Receiving() const
 {
 	if (!ShadowReceiving || ShadowMapBound || ShadowMapTexture == NULL) {
 		return false;
+	}
+	if (Emissive) {
+		return false;		// a fireball's body blended over the frame: it gives light, it takes no shade
 	}
 	// A transcribed terrain or road program takes one too: the ground is where a shadow is seen,
 	// and those programs carry the sampling whether a frame has a map or not.  The water and the
@@ -2230,6 +2554,7 @@ bool DX11BackendClass::Build_Vertex_Description(VertexPipelineDescription & desc
 	description.FogVertexMode = RenderStates.Get_Render_State(D3DRS_FOGVERTEXMODE);
 	description.SmokeGlow = Smoke_Glow();
 	description.SoftParticle = Soft_Particle() != SOFT_PARTICLE_NONE;
+	description.FireLook = Fire_Look() != FIRE_LOOK_NONE;
 	return true;
 }
 
@@ -2332,6 +2657,20 @@ bool DX11BackendClass::Resolve(Pipeline & pipeline)
 		Refuse(key, static_cast<RefusalReason>(refused->second));
 		return false;
 	}
+	// The same key drawn where it may not wait (into a texture, say) compiles on the spot below.
+	const bool off_frame = Compiles_Off_Frame();
+	if (off_frame && !PendingPipelines.empty()) {
+		std::map<std::string, std::pair<unsigned long long, unsigned long long> >::iterator pending
+			= PendingPipelines.find(key);
+		if (pending != PendingPipelines.end()) {
+			Take_Off_Frame_Programs();
+			if (!Program_Settled(pending->second.first) || !Program_Settled(pending->second.second)) {
+				++DrawsWaitedForProgram;
+				return false;
+			}
+			PendingPipelines.erase(pending);
+		}
+	}
 
 	const double build_started = DX11Resource_Milliseconds_Now();
 	std::string vertex_hlsl;
@@ -2365,8 +2704,28 @@ bool DX11BackendClass::Resolve(Pipeline & pipeline)
 
 	std::vector<unsigned char> vertex_code;
 	std::vector<unsigned char> pixel_code;
+	// The Modern water writes a dynamically indexed array, which shader model 4 refuses; every other
+	// program keeps the profile and flags its cached and shipped bytecode was compiled with.
+	const bool modern_water = EngineShader_Is_Modern_Water(PixelProgram);
+	const char * const pixel_profile = modern_water ? "ps_5_0" : PIXEL_PROFILE;
+	const unsigned pixel_flags = modern_water ? DX11_MODERN_WATER_COMPILE_FLAGS : 0;
+	// A scene draw of a generated program neither cache holds waits for the worker (the header has
+	// which draws do not).  A full queue compiles here, as before.
+	if (off_frame) {
+		const unsigned long long vertex_hash = program_hash(VERTEX_PROFILE, vertex_hlsl, 0);
+		const unsigned long long pixel_hash = program_hash(pixel_profile, pixel_hlsl, pixel_flags);
+		const bool vertex_missing = !Program_Settled(vertex_hash);
+		const bool pixel_missing = !Program_Settled(pixel_hash);
+		if ((vertex_missing || pixel_missing)
+			&& (!vertex_missing || Queue_Off_Frame(vertex_hash, vertex_hlsl, "ffvertex", VERTEX_PROFILE, 0))
+			&& (!pixel_missing || Queue_Off_Frame(pixel_hash, pixel_hlsl, "ffshader", pixel_profile, pixel_flags))) {
+			PendingPipelines[key] = std::make_pair(vertex_hash, pixel_hash);
+			++DrawsWaitedForProgram;
+			return false;
+		}
+	}
 	if (!Compile_Program(vertex_hlsl, "ffvertex", VERTEX_PROFILE, vertex_code)
-		|| !Compile_Program(pixel_hlsl, "ffshader", PIXEL_PROFILE, pixel_code)) {
+		|| !Compile_Program(pixel_hlsl, "ffshader", pixel_profile, pixel_code, pixel_flags)) {
 		Refuse(key, REFUSED_NO_PROGRAM);
 		return false;
 	}
@@ -2610,9 +2969,11 @@ void DX11BackendClass::Upload_Pixel_Constants()
 	const bool camera_space = Camera_Space_Draw();
 	const float * const world_to_camera = (camera_space && SceneViewKnown) ? SceneView : View;
 
-	// A look takes its pixel back to the world the same way, with or without a sun's map.
+	// A look takes its pixel back to the world the same way, with or without a sun's map, and so
+	// does a program that reads the scene's depth (the foam water).
 	const unsigned effect = Draw_Effect();
-	if (ShadowReceiving || effect != DRAW_EFFECT_NONE) {
+	const bool reads_depth = EngineShader_Reads_Scene_Depth(PixelProgram);
+	if (ShadowReceiving || effect != DRAW_EFFECT_NONE || reads_depth) {
 		if (!ShadowFromClipValid
 			|| memcmp(ShadowFromClipView, world_to_camera, sizeof(View)) != 0
 			|| memcmp(ShadowFromClipProjection, Projection, sizeof(Projection)) != 0) {
@@ -2628,7 +2989,7 @@ void DX11BackendClass::Upload_Pixel_Constants()
 			}
 		}
 	}
-	if (effect != DRAW_EFFECT_NONE) {
+	if (effect != DRAW_EFFECT_NONE || reads_depth) {
 		pixel_block.ShadowViewport[0] = (ViewportWidth > 0)
 			? 1.0f / static_cast<float>(ViewportWidth) : 0.0f;
 		pixel_block.ShadowViewport[1] = (ViewportHeight > 0)
@@ -2962,6 +3323,17 @@ void DX11BackendClass::Bind_State_Objects()
 			Bound.SceneDepth = depth;
 		}
 	}
+	// The foam water reads the same copy, which W3DWater takes before it draws.  Into another
+	// target's depth it reads none, and a null view reads zero, which the program takes as deep.
+	if (EngineShader_Reads_Scene_Depth(PixelProgram)) {
+		ID3D11ShaderResourceView * const depth =
+			(CurrentTarget == NULL || CurrentDepth == Device->Get_Depth_Stencil_View())
+			? SceneDepthCopyView : NULL;
+		if (!known || depth != Bound.SceneDepth) {
+			context->PSSetShaderResources(DX11_BACKEND_TEXTURE_STAGES + 3, 1, &depth);
+			Bound.SceneDepth = depth;
+		}
+	}
 
 	// The scene's colour at t8 for the cloak, read with Load.  Set_Draw_Effect took the copy.
 	if (Draw_Effect() == DRAW_EFFECT_CLOAK) {
@@ -3123,13 +3495,25 @@ bool DX11BackendClass::Draw_Indexed(unsigned index_count, unsigned start_index,
 		++DrawsRefused;
 		return false;
 	}
+	// The sun's map has no water in it, and a water program there only writes its depth.
+	const bool water = EngineShader_Is_Modern_Water(PixelProgram) && !ShadowMapBound;
+	if (water && !Prepare_Water()) {
+		++DrawsRefused;
+		return false;
+	}
 
 	ID3D11DeviceContext * context = Device->Get_Context();
 	Upload_Constants();
 	Bind_State_Objects();
 
 	Bind_Pipeline(pipeline, StreamBuffer, StreamStride, StreamOffset, IndexBuffer, IndexFormat, topology);
+	if (water) {
+		Bind_Water();
+	}
 	context->DrawIndexed(index_count, start_index, base_vertex);
+	if (water) {
+		Unbind_Water();
+	}
 
 	++DrawsMade;
 	// The soft particles' copy of the depth is behind whatever this wrote into the scene's depth
@@ -3168,6 +3552,11 @@ bool DX11BackendClass::Draw_Triangles(unsigned vertex_count, unsigned start_vert
 		++DrawsRefused;
 		return false;
 	}
+	const bool water = EngineShader_Is_Modern_Water(PixelProgram) && !ShadowMapBound;
+	if (water && !Prepare_Water()) {
+		++DrawsRefused;
+		return false;
+	}
 
 	ID3D11DeviceContext * context = Device->Get_Context();
 	Upload_Constants();
@@ -3175,7 +3564,13 @@ bool DX11BackendClass::Draw_Triangles(unsigned vertex_count, unsigned start_vert
 
 	Bind_Pipeline(pipeline, StreamBuffer, StreamStride, StreamOffset, NULL, DXGI_FORMAT_UNKNOWN,
 		D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	if (water) {
+		Bind_Water();
+	}
 	context->Draw(vertex_count, start_vertex);
+	if (water) {
+		Unbind_Water();
+	}
 
 	++DrawsMade;
 	// The soft particles' copy of the depth is behind whatever this wrote into the scene's depth

@@ -73,7 +73,9 @@ enum EngineShaderProgram
 	ENGINE_SHADER_MONOCHROME,
 	// Explicit Classic variants keep the SDL shader cache independent of the selected water style.
 	ENGINE_SHADER_WATER_CLASSIC_TRAPEZOID,
-	ENGINE_SHADER_WATER_CLASSIC_RIVER
+	ENGINE_SHADER_WATER_CLASSIC_RIVER,
+	ENGINE_SHADER_WATER_TRAPEZOID_FOAM,
+	ENGINE_SHADER_WATER_RIVER_FOAM
 };
 
 // The name the engine loaded the shader under: a path for the ones that ship as files
@@ -98,6 +100,17 @@ bool EngineShader_Pixel_Program(EngineShaderProgram program,
 // Which transcribed programs paint the ground, and so read the sun's shadow map.  The water and
 // the trees are not among them: both have shadows of their own.
 bool EngineShader_Paints_Ground(EngineShaderProgram program);
+
+// Which transcribed programs read the scene's depth copy at t7: the foam water, for how deep the
+// water is under each pixel.  The copy is the soft particles' (DX11BackendClass::Take_Scene_Depth).
+bool EngineShader_Reads_Scene_Depth(EngineShaderProgram program);
+
+// The two programs the Modern water style draws with: the plain names, which W3DWater registers
+// only under that style.  Their text reads the water's own constant block and fifteen stages.
+inline bool EngineShader_Is_Modern_Water(EngineShaderProgram program)
+{
+	return program == ENGINE_SHADER_WATER_TRAPEZOID || program == ENGINE_SHADER_WATER_RIVER;
+}
 
 // What the pipeline cache keys this program under and what the dump calls its file.
 const char * EngineShader_Name(EngineShaderProgram program);

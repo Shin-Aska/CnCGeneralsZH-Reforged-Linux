@@ -137,4 +137,17 @@ struct Scope {
     Scope &operator=(const Scope &)=delete;
 };
 }
+#else
+// The Direct3D 11 backend draws the Modern water without the shore overlay's second pass yet: the
+// coast keeps the foam the surface shader draws itself.
+struct IDirect3DDevice9;
+inline void PosixWaterShorePatch(IDirect3DDevice9 *,const WaterShoreOverlay::Quad *) {}
+inline void PosixWaterShoreTrack(IDirect3DDevice9 *,const WaterShoreOverlay::Quad *) {}
+namespace WaterShoreOverlay {
+struct Scope {
+    Scope(IDirect3DDevice9 *,bool) {}
+    Scope(const Scope &)=delete;
+    Scope &operator=(const Scope &)=delete;
+};
+}
 #endif

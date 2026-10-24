@@ -3324,12 +3324,26 @@ static int theLinkTester = 0;
 #endif
 
 //-----------------------------------------------------------------------------
-void* STLSpecialAlloc::allocate(size_t __n) 
-{  
+/**
+	The allocator counts bytes in an Int, and the operators below are handed a size_t.  A request past
+	INT_MAX used to narrow on the way in, to a negative count or to whatever its low 32 bits said, and the caller
+	(a vector value-initialising its elements) wrote its full size past the end of what it got.  Such a
+	request is a bug somewhere; it fails here as out of memory instead of corrupting the heap.
+*/
+static Int dmaRequestSize(size_t size)
+{
+	if (size > (size_t)INT_MAX)
+		throw ERROR_OUT_OF_MEMORY;
+	return (Int)size;
+}
+
+//-----------------------------------------------------------------------------
+void* STLSpecialAlloc::allocate(size_t __n)
+{
 	++theLinkTester;
 	preMainInitMemoryManager();
 	DEBUG_ASSERTCRASH(TheDynamicMemoryAllocator != NULL, ("must init memory manager before calling global operator new"));
-	return TheDynamicMemoryAllocator->allocateBytes(__n, "STL_"); 
+	return TheDynamicMemoryAllocator->allocateBytes(dmaRequestSize(__n), "STL_");
 }
 
 //-----------------------------------------------------------------------------
@@ -3375,7 +3389,7 @@ void *operator new(size_t size)
 	++theLinkTester;
 	preMainInitMemoryManager();
 	DEBUG_ASSERTCRASH(TheDynamicMemoryAllocator != NULL, ("must init memory manager before calling global operator new"));
-	return TheDynamicMemoryAllocator->allocateBytes(size, "global operator new");
+	return TheDynamicMemoryAllocator->allocateBytes(dmaRequestSize(size), "global operator new");
 }
 
 //-----------------------------------------------------------------------------
@@ -3387,7 +3401,7 @@ void *operator new[](size_t size)
 	++theLinkTester;
 	preMainInitMemoryManager();
 	DEBUG_ASSERTCRASH(TheDynamicMemoryAllocator != NULL, ("must init memory manager before calling global operator new"));
-	return TheDynamicMemoryAllocator->allocateBytes(size, "global operator new[]");
+	return TheDynamicMemoryAllocator->allocateBytes(dmaRequestSize(size), "global operator new[]");
 }
  
 //-----------------------------------------------------------------------------
@@ -3472,9 +3486,9 @@ void* operator new(size_t size, const char * fname, int)
 	preMainInitMemoryManager();
 	DEBUG_ASSERTCRASH(TheDynamicMemoryAllocator != NULL, ("must init memory manager before calling global operator new"));
 #ifdef MEMORYPOOL_DEBUG
-	return TheDynamicMemoryAllocator->allocateBytesImplementation(size, fname);
+	return TheDynamicMemoryAllocator->allocateBytesImplementation(dmaRequestSize(size), fname);
 #else
-	return TheDynamicMemoryAllocator->allocateBytesImplementation(size);
+	return TheDynamicMemoryAllocator->allocateBytesImplementation(dmaRequestSize(size));
 #endif
 }
 
@@ -3500,9 +3514,9 @@ void* operator new[](size_t size, const char * fname, int)
 	preMainInitMemoryManager();
 	DEBUG_ASSERTCRASH(TheDynamicMemoryAllocator != NULL, ("must init memory manager before calling global operator new"));
 #ifdef MEMORYPOOL_DEBUG
-	return TheDynamicMemoryAllocator->allocateBytesImplementation(size, fname);
+	return TheDynamicMemoryAllocator->allocateBytesImplementation(dmaRequestSize(size), fname);
 #else
-	return TheDynamicMemoryAllocator->allocateBytesImplementation(size);
+	return TheDynamicMemoryAllocator->allocateBytesImplementation(dmaRequestSize(size));
 #endif
 }
 

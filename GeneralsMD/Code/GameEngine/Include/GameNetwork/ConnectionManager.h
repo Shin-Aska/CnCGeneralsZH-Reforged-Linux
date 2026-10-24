@@ -144,6 +144,8 @@ public:
 	
 	Int getAverageFPS( void );
 	Int getSlotAverageFPS(Int slot);
+	Real getSlotAverageLatency(Int slot);
+	Int getSlowestSlot( void );
 
 #if defined(_DEBUG) || defined(_INTERNAL)
 	void debugPrintConnectionCommands();

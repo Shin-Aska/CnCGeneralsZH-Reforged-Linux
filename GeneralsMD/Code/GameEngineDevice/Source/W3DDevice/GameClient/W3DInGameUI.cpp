@@ -1043,7 +1043,10 @@ void W3DInGameUI::takeBuildGrid( void )
 
 			if( blocked && cell->getType() == PathfindCell::CELL_OBSTACLE )
 			{
-				blocked = !BuildAssistant_isHiddenFromLocalPlayer( TheGameLogic->findObjectByID( cell->getObstacleID() ) );
+				// the cell can still name an object the tick has already destroyed; nothing is left to
+				// hide, and the pathfinder still refuses the cell, so it draws red
+				const Object *obstacle = TheGameLogic->findObjectByID( cell->getObstacleID() );
+				blocked = obstacle == NULL || !BuildAssistant_isHiddenFromLocalPlayer( obstacle );
 			}
 			else if( blocked && cell->getType() == PathfindCell::CELL_RUBBLE )
 			{

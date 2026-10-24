@@ -1919,10 +1919,17 @@ void DX8TextureCategoryClass::Render(void)
 
 		// The object's look on the Direct3D 11 frame (RTS3DScene::renderOneObject picks it), for this
 		// mesh's draws only.  A sorted mesh draws later, from the sorting pool, which keeps the look
-		// and its sun-shadow coverage with its triangles (SortingRendererClass::Insert_Triangles).
+		// with its triangles (SortingRendererClass::Insert_Triangles), and on Linux its sun shadow
+		// coverage too.
 		const unsigned draw_effect = mesh->Get_Draw_Effect();
 		if (draw_effect != 0) {
 			SunShadow::SetCasterEffect(DX8Wrapper::_Get_D3D_Device(),draw_effect, mesh->Get_Draw_Effect_Parameters());
+		}
+		// A house colour mesh under the Team Glow option.  Immediate draws only: a sorted one draws later,
+		// after this has been put back, and goes without.
+		const bool team_glow = mesh->Peek_Model()->Get_Flag(MeshGeometryClass::TEAM_GLOW) != 0;
+		if (team_glow) {
+			Direct3D11_Set_Team_Glow(true);
 		}
 
 		if ((!!mesh->Peek_Model()->Get_Flag(MeshGeometryClass::SORT)) && WW3D::Is_Sorting_Enabled()) {
@@ -1982,6 +1989,9 @@ void DX8TextureCategoryClass::Render(void)
 		if (draw_effect != 0) {
 			static const float no_effect[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 			SunShadow::SetCasterEffect(DX8Wrapper::_Get_D3D_Device(),0, no_effect);
+		}
+		if (team_glow) {
+			Direct3D11_Set_Team_Glow(false);
 		}
 //--------------------------------------------------------------------
 		if (mesh->Get_ObjectScale() != 1.0f)

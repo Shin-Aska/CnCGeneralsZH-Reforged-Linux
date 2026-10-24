@@ -38,6 +38,9 @@ void CRCSnapshotRing::clear( void )
 		m_snapshots[i].m_randomSeed = 0;
 		m_snapshots[i].m_valid = FALSE;
 		m_snapshots[i].m_objects.clear();
+		for( Int s = 0; s < CRC_SECTION_COUNT; ++s )
+			m_snapshots[i].m_sectionCRC[s] = 0;
+		m_snapshots[i].m_players.clear();
 	}
 	m_writeSlot = -1;
 	m_numSnapshots = 0;
@@ -61,6 +64,9 @@ void CRCSnapshotRing::beginSnapshot( UnsignedInt frame )
 	snap.m_valid = FALSE;
 	// keep the vector's capacity - the object count barely changes from one CRC frame to the next
 	snap.m_objects.clear();
+	for( Int s = 0; s < CRC_SECTION_COUNT; ++s )
+		snap.m_sectionCRC[s] = 0;
+	snap.m_players.clear();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -79,6 +85,29 @@ void CRCSnapshotRing::addObject( UnsignedInt id, UnsignedInt runningCRC,
 	entry.m_health = health;
 
 	m_snapshots[ m_writeSlot ].m_objects.push_back( entry );
+}
+
+//-------------------------------------------------------------------------------------------------
+void CRCSnapshotRing::setSectionCRC( CRCSection section, UnsignedInt runningCRC )
+{
+	if( m_writeSlot < 0 )
+		return;
+
+	m_snapshots[ m_writeSlot ].m_sectionCRC[ section ] = runningCRC;
+}
+
+//-------------------------------------------------------------------------------------------------
+void CRCSnapshotRing::addPlayer( UnsignedInt money, Int skillPoints, Int sciencePurchasePoints )
+{
+	if( m_writeSlot < 0 )
+		return;
+
+	CRCPlayerEntry entry;
+	entry.m_money = money;
+	entry.m_skillPoints = skillPoints;
+	entry.m_sciencePurchasePoints = sciencePurchasePoints;
+
+	m_snapshots[ m_writeSlot ].m_players.push_back( entry );
 }
 
 //-------------------------------------------------------------------------------------------------

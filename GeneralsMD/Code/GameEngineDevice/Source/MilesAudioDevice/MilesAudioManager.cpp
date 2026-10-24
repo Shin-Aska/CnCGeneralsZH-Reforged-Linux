@@ -1909,8 +1909,13 @@ void MilesAudioManager::notifyOfAudioCompletion( UnsignedIntPtr audioCompleted, 
 
 	playing->m_audioEventRTS->advanceNextPlayPortion();
 	if (playing->m_audioEventRTS->getNextPlayPortion() != PP_Done) {
+		// Closed and forgotten before the next portion opens, as startNextLoop does: opening it can
+		// make the cache evict a file, and closeAnySamplesUsingFile would find this sound still
+		// naming the one it just closed, then stop and free it, its event and its handle in the
+		// middle of this call, and close that file a second time.
+		closeFile(playing->m_file);
+		playing->m_file = NULL;
 		if (playing->m_type == PAT_Sample) {
-			closeFile(playing->m_file);	// close it so as not to leak it.
 			playing->m_file = playSample(playing->m_audioEventRTS, playing->m_sample);
 			
 			// If we don't have a file now, then we should drop to the stopped status so that 
@@ -1919,7 +1924,6 @@ void MilesAudioManager::notifyOfAudioCompletion( UnsignedIntPtr audioCompleted, 
 				return;
 			}
 		} else if (playing->m_type == PAT_3DSample) {
-			closeFile(playing->m_file);	// close it so as not to leak it.
 			playing->m_file = playSample3D(playing->m_audioEventRTS, playing->m_3DSample);
 
 			// If we don't have a file now, then we should drop to the stopped status so that 

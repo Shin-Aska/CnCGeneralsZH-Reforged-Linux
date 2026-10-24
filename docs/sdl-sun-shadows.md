@@ -974,3 +974,20 @@ not been refreshed. The staged patch remains byte-identical to
 `build-linux/shadow-phase1/01-baselines-and-modes.patch`; unrelated settings are unchanged.
 No dependencies were installed and no commit was made. The broader shader-source generation
 and duplicate FFT storage concerns remain separate architectural work.
+
+
+## Upstream 3.3.0 renderer integration
+
+The sync retains the Linux defaults, diagnostic shadow modes, four reflection modes,
+modern-water receiving and the validation history above. Shared hazard-cloud state now uses
+the backend-neutral core and capability checks; the isolated Linux preview keeps its existing
+controls and cache stress measurements through an adapter. Ordinary SDL cloak casters use
+the coverage-only shader helper, and sun-depth diagnostics use the independent extracted
+allocation/readback path. Main-view tree batching reserves capacity for trees visible on screen
+before admitting trees visible only to the sun camera.
+
+Modern water keeps the fork's extended optical and projection block. The new Direct3D 11
+modern-water backend binds the same six-layer FFT array layout and a typed analytic fallback.
+Its water shadow constants remain neutral; Linux retains its mapped sun and smoke receiving.
+Historical executable hashes and validation results above describe their recorded revisions;
+they do not establish validation of this merge.

@@ -86,6 +86,7 @@ public:
 private:
 	std::vector< UnsignedByte > m_heights;
 };
+struct SunShadowCasterCull;
 
 #define no_TIMING_TESTS	1
 
@@ -203,7 +204,7 @@ public:
 	void stepTrees(void);	///< W3DTreeBuffer::stepTrees, at the render's sync point
 	void takeWaypointsForRender(void);	///< W3DWaypointBuffer::takeReadsForRender, at the render's sync point
 	void renderTrees(CameraClass * camera); ///< renders the tree buffer.
-	void renderTreeShadowCasters(RenderInfoClass &sunInfo, CameraClass *sceneCamera, const SunShadowCasterCull &cull);
+	Int renderTreeShadowCasters(RenderInfoClass &sunInfo, CameraClass *sceneCamera, const SunShadowCasterCull &cull);
 
 	void addProp(Int id, Coord3D location, Real angle, Real scale, const AsciiString &modelName);
 	void removeProp(Int id);

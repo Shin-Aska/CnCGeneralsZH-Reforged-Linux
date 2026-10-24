@@ -374,6 +374,10 @@ static void transform_point(const float source[3], const float matrix[16], float
 	}
 }
 
+// Visual-only inverse for reconstructing the water surface from depth. Double intermediates keep
+// distant camera translations stable; this does not reach simulation or replay arithmetic.
+
+
 static void transform_direction(const float source[3], const float matrix[16], float result[4])
 {
 	for (unsigned column = 0; column < 4; ++column) {
@@ -960,7 +964,7 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	if (vertex_engine==ENGINE_SHADER_NONE) vertex.SmokeGlow = combiner.SmokeGlow;
 	// The dedicated generated water vertex path deliberately avoids arbitrary engine-program
 	// pairing. Only this path may bind native FFT textures to the vertex stage.
-	const bool fft_requested = pixel_engine == ENGINE_SHADER_WATER_TRAPEZOID
+	const bool fft_requested = !SunActive && pixel_engine == ENGINE_SHADER_WATER_TRAPEZOID
 		&& vertex_engine == ENGINE_SHADER_NONE && !vertex.LightingEnabled
 		&& PixelShaderConstants[6][2] > 0.5f && PixelShaderConstants[6][3] > 0.5f
 		&& WaterFftSampling::Enabled();
@@ -987,7 +991,7 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	const ShoreRegion *shore_region=NULL;
 	SDL_GPUTexture *shore_depth=NULL;
 	bool shore_overlay=false;
-	if(ShoreActive && ShoreHasTrack && pixel_engine==ENGINE_SHADER_NONE && vertex_engine==ENGINE_SHADER_NONE
+	if(!SunActive && ShoreActive && ShoreHasTrack && pixel_engine==ENGINE_SHADER_NONE && vertex_engine==ENGINE_SHADER_NONE
 		&& RenderStates[D3DRS_FILLMODE]==D3DFILL_SOLID && !RenderStates[D3DRS_ZWRITEENABLE] && RenderStates[D3DRS_ALPHABLENDENABLE]
 		&& RenderStates[D3DRS_SRCBLEND]==D3DBLEND_SRCALPHA && RenderStates[D3DRS_DESTBLEND]==D3DBLEND_INVSRCALPHA
 		&& !combiner.ShadowReceiving && !combiner.SoftParticle && !combiner.DrawEffect && !combiner.SmokeGlow
@@ -1078,7 +1082,7 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	if(!draw.Pipeline && shore_overlay) {
 		shore_overlay=false;pixel_program=legacy_pixel_program;
 		if(Sdl_Pipeline_Key(states,call.Type,vertex_program.Shader,pixel_program->Shader,FVF,
-			SdlGpuFrame::Target_Format(),Gpu->Depth_Format(),key,refusal)) draw.Pipeline=Pipelines->Pipeline(key);
+			target.Colour ? SdlGpuFrame::Target_Format() : 0,Gpu->Target_Depth_Format(target),key,refusal)) draw.Pipeline=Pipelines->Pipeline(key);
 	}
 	phases.Mark("pipeline");
 	if (draw.Pipeline == NULL) {

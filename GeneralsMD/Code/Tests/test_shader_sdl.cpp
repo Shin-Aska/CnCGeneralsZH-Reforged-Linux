@@ -239,8 +239,8 @@ TEST(runtime_bed_material_is_tileable_deterministic_and_has_distinct_relief)
 
 TEST(classic_water_uses_the_original_program_and_separate_cache_identity)
 {
-    // D3D11 retains the original transcription. Classic on SDL must be exactly that
-    // program after binding retargeting, including fog/alpha-test variants.
+    // Both backends now use the plain identities for Modern water. The explicit Classic
+    // identities retain the original ps_1_1 transcription across fog/alpha-test variants.
     for (unsigned river=0; river<2; ++river) for (unsigned state=0; state<4; ++state) {
         const auto original=river?ENGINE_SHADER_WATER_RIVER:ENGINE_SHADER_WATER_TRAPEZOID;
         const auto classic=river?ENGINE_SHADER_WATER_CLASSIC_RIVER:ENGINE_SHADER_WATER_CLASSIC_TRAPEZOID;
@@ -249,7 +249,21 @@ TEST(classic_water_uses_the_original_program_and_separate_cache_identity)
         pipeline.AlphaTestEnabled=(state&2)!=0;
         pipeline.AlphaFunction=FF_CMP_GREATEREQUAL;
         std::string expected,actual,modern;
-        CHECK(EngineShader_Pixel_Program(original,pipeline,expected,COMBINER_SHADER_TARGET_D3D11));
+        CHECK(EngineShader_Pixel_Program(classic,pipeline,expected,COMBINER_SHADER_TARGET_D3D11));
+        // Pin the original assembly arithmetic independently of the cross-target comparison.
+        // These are the saturating multiply/mad chain for flat water and the separate river sparkle.
+        if (river) {
+            CHECK(expected.find("current.rgb = saturate(input.Diffuse.rgb * texel0.rgb);")!=std::string::npos);
+            CHECK(expected.find("current.a = saturate(texel0.a * texel3.a);")!=std::string::npos);
+            CHECK(expected.find("sparkle = saturate(sparkle * input.Diffuse.a);")!=std::string::npos);
+            CHECK(expected.find("current.rgb = saturate(current.rgb + sparkle);")!=std::string::npos);
+        } else {
+            CHECK(expected.find("float4 current = saturate(input.Diffuse * texel0);")!=std::string::npos);
+            CHECK(expected.find("current.rgb = saturate(texel1.rgb * texel2.rgb + current.rgb);")!=std::string::npos);
+            CHECK(expected.find("current.rgb = saturate(current.rgb * texel3.rgb);")!=std::string::npos);
+        }
+        CHECK(expected.find("OceanMaps")==std::string::npos);
+        CHECK(expected.find("MaterialOptics")==std::string::npos);
         CHECK(SDL3_Shader_Retarget(expected,false));
         CHECK(EngineShader_Pixel_Program(classic,pipeline,actual,COMBINER_SHADER_TARGET_SDL3_GPU));
         CHECK(actual==expected);

@@ -533,7 +533,12 @@ Bool ConnectionManager::processNetCommand(NetCommandRef *ref) {
 
 	if (msg->getNetCommandType() == NETCOMMANDTYPE_RUNAHEADMETRICS) {
 		processRunAheadMetrics((NetRunAheadMetricsCommandMsg *)msg);
-		return TRUE;
+
+		// the packet router passes them on to everyone else (updateRunAhead)
+		UnsignedByte relay = ref->getRelay();
+		relay = relay & (0xff ^ (1 << m_localSlot));
+		ref->setRelay(relay);
+		return FALSE;
 	}
 
 	if (msg->getNetCommandType() == NETCOMMANDTYPE_KEEPALIVE) {
@@ -1317,25 +1322,34 @@ void ConnectionManager::updateRunAhead(Int oldRunAhead, Int frameRate, Bool didS
 	time_t curTime = Clock_Milliseconds();
 
 	if ((lasttimesent == 0) || ((curTime - lasttimesent) > TheGlobalData->m_networkRunAheadMetricsTime)) {
+		m_latencyAverages[m_localSlot] = m_frameMetrics.getAverageLatency();
+
+		// FrameMetrics measures the logic frame rate again (it briefly measured the display rate,
+		// see FrameMetrics::doPerFrameMetrics), so EA's original rule applies once more: a
+		// self-slug is a *voluntary* slowdown to let the room catch up, not this machine running
+		// out of capacity.  Reporting the slugged rate as our capability would feed the slowdown
+		// back into minFps and shrink the run-ahead that the slug was buying margin for.  EA left
+		// this half commented out for the other seats, so only the packet router's own slug was
+		// forgiven and the room was commanded down to a frame or two under 30 on every lossy link.
+		if (didSelfSlug) {
+			m_fpsAverages[m_localSlot] = frameRate;
+		} else {
+			m_fpsAverages[m_localSlot] = m_frameMetrics.getAverageFPS();
+		}
+
+		/* EA sent these to the packet router alone, so only the router knew who was slow.  Everyone
+			 gets them now, the router's own included, and the Tab screen shows each player's ping and
+			 frame rate on every machine.  The router relays them like a chat line (processNetCommand). */
+		NetRunAheadMetricsCommandMsg *metrics = newInstance(NetRunAheadMetricsCommandMsg);
+		metrics->setPlayerID(m_localSlot);
+		metrics->setID(GenerateNextCommandID());
+		metrics->setAverageLatency(m_latencyAverages[m_localSlot]);
+		metrics->setAverageFps(m_fpsAverages[m_localSlot]);
+		sendLocalCommand(metrics, 0xff ^ (1 << m_localSlot));
+		metrics->detach();
+
 		if (m_localSlot == m_packetRouterSlot) {
 			// We are the packet router, time to compute a new run ahead for this game.
-			m_latencyAverages[m_localSlot] = m_frameMetrics.getAverageLatency();
-
-			// FrameMetrics measures the logic frame rate again (it briefly measured the display rate,
-			// see FrameMetrics::doPerFrameMetrics), so EA's original rule applies once more: a
-			// self-slug is a *voluntary* slowdown to let the room catch up, not this machine running
-			// out of capacity.  Reporting the slugged rate as our capability would feed the slowdown
-			// back into minFps and shrink the run-ahead that the slug was buying margin for.
-			if (didSelfSlug) {
-				m_fpsAverages[m_localSlot] = frameRate;
-			} else {
-				m_fpsAverages[m_localSlot] = m_frameMetrics.getAverageFPS();
-			}
-			if (didSelfSlug) {
-				//DEBUG_LOG(("ConnectionManager::updateRunAhead - local player run ahead metrics, fps = %d, actual fps = %d, latency = %f, didSelfSlug = true\n", m_fpsAverages[m_localSlot], m_frameMetrics.getAverageFPS(), m_latencyAverages[m_localSlot]));
-			} else {
-				//DEBUG_LOG(("ConnectionManager::updateRunAhead - local player run ahead metrics, fps = %d, latency = %f, didSelfSlug = false\n", m_fpsAverages[m_localSlot], m_latencyAverages[m_localSlot]));
-			}
 			Int minFps;
 			Int minFpsPlayer;
 			getMinimumFps(minFps, minFpsPlayer);
@@ -1430,35 +1444,6 @@ void ConnectionManager::updateRunAhead(Int oldRunAhead, Int frameRate, Bool didS
 
 			msg->detach();
 			msg2->detach();
-		} else {
-			// We are not the packet router, send our metrics info to the packet router.
-			NetRunAheadMetricsCommandMsg *msg = newInstance(NetRunAheadMetricsCommandMsg);
-			msg->setPlayerID(m_localSlot);
-			if (DoesCommandRequireACommandID(msg->getNetCommandType())) {
-				msg->setID(GenerateNextCommandID());
-			}
-			msg->setAverageLatency(m_frameMetrics.getAverageLatency());
-
-			/* See above.  EA left this half commented out, so only the packet router's own slug was
-				 forgiven: the other seat's voluntary 10 % slowdown came back as its capacity and the
-				 room was commanded down to it, a frame or two under 30 on every lossy link. */
-			if (didSelfSlug) {
-				msg->setAverageFps(frameRate);
-			} else {
-				msg->setAverageFps(m_frameMetrics.getAverageFPS());
-			}
-			if (didSelfSlug) {
-				//DEBUG_LOG(("ConnectionManager::updateRunAhead - average latency = %f, average fps = %d, actual fps = %d, didSelfSlug = true\n", m_frameMetrics.getAverageLatency(), m_frameMetrics.getAverageFPS(), m_frameMetrics.getAverageFPS()));
-			} else {
-				//DEBUG_LOG(("ConnectionManager::updateRunAhead - average latency = %f, average fps = %d, didSelfSlug = false\n", m_frameMetrics.getAverageLatency(), m_frameMetrics.getAverageFPS()));
-			}
-			// Every other m_connections[m_packetRouterSlot] in this file is bounds tested first; this one
-			// was not, and it is the one that runs twice a second.  m_packetRouterSlot is MAX_SLOTS when
-			// the fallback plan has run out, and used to be able to hold a whole IP address.
-			if ((m_packetRouterSlot < MAX_SLOTS) && (m_connections[m_packetRouterSlot] != NULL)) {
-				m_connections[m_packetRouterSlot]->sendNetCommandMsg(msg, 1 << m_packetRouterSlot);
-			}
-			msg->detach();
 		}
 		lasttimesent = curTime;
 	}
@@ -2487,12 +2472,30 @@ Int ConnectionManager::getSlotAverageFPS(Int slot) {
 	if ((slot < 0) || (slot >= MAX_SLOTS)) {
 		return -1;
 	}
-	if ((m_packetRouterSlot != m_localSlot) && (slot == m_localSlot)) {
-		// our framerate data isn't valid for other players unless we are the
-		// packet router, so don't fake someone out.
+	return m_fpsAverages[slot];
+}
+
+/// the slot's last reported round trip to the packet router, in seconds (FrameMetrics), or 0
+Real ConnectionManager::getSlotAverageLatency(Int slot) {
+	// the router's own figure times every client's acks, so one laggy client made the host look laggy
+	if ((slot < 0) || (slot >= MAX_SLOTS) || (slot == (Int)m_packetRouterSlot)) {
+		return 0.0f;
+	}
+	return m_latencyAverages[slot];
+}
+
+/// the player whose frame rate sets the room's speed, as the packet router picks him, or -1 when
+/// he keeps up with the match anyway
+Int ConnectionManager::getSlowestSlot( void ) {
+	Int minFps;
+	Int minFpsPlayer;
+	getMinimumFps(minFps, minFpsPlayer);
+	// nobody is holding the room back while everyone keeps within 10 % of the match's speed; a frame
+	// or two of jitter under the cap would otherwise light a different player every half second
+	if (minFps * 10 >= getMatchFps() * 9) {
 		return -1;
 	}
-	return m_fpsAverages[slot];
+	return minFpsPlayer;
 }
 
 /**

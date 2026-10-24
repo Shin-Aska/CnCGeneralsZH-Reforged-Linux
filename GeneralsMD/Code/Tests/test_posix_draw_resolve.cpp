@@ -40,6 +40,7 @@
 #include "ffshader.h"
 #include "ffvertex.h"
 #include "Platform/SunShadowMode.h"
+#include "Platform/WaterConstants.h"
 
 #include <math.h>
 #include <stddef.h>
@@ -480,6 +481,29 @@ static void check_constants(PosixDevice9 *device)
 			// products, and this checks the uploaded inverse rather than float dot rounding.
 			identity += double(water.ClipFromWorld[r * 4 + k]) * water.WorldFromClip[k * 4 + c];
 		CHECK(fabs(identity - (r == c ? 1.0 : 0.0)) < 0.0001);
+	}
+	// Both backends feed the same water shader. Exercise the D3D11 CPU builder on
+	// Linux too, so a merge cannot silently move its optics or projection tail.
+	static_assert(sizeof(WaterConstants::Block) == sizeof(SdlWaterPixelConstants), "shared water ABI");
+	static_assert(sizeof(WaterConstants::VisualBlock) == sizeof(SdlWaterVisualPixelConstants), "shared hull ABI");
+	static_assert(offsetof(WaterConstants::Block, MaterialOptics) == offsetof(SdlWaterPixelConstants, MaterialOptics), "shared optics offset");
+	static_assert(offsetof(WaterConstants::Block, ClipFromWorld) == offsetof(SdlWaterPixelConstants, ClipFromWorld), "shared projection offset");
+	float shared_registers[WaterHullVisualLayout::PixelRegisterCount][4] = {};
+	shared_registers[ModernWaterMaterial::RegisterOptics][0] = 0.9f;
+	shared_registers[ModernWaterMaterial::RegisterOptics][1] = 1.0f;
+	device->SetPixelShaderConstantF(ModernWaterMaterial::RegisterOptics,
+		shared_registers[ModernWaterMaterial::RegisterOptics], 1);
+	device->Build_Water_Constants(pixel, water);
+	const D3DMATRIX shared_view = matrix_of(view), shared_projection = matrix_of(projection);
+	const WaterConstants::Camera shared_camera = { &shared_view.m[0][0], &shared_projection.m[0][0],
+		float(depth_viewport.X), float(depth_viewport.Y), float(depth_viewport.Width), float(depth_viewport.Height),
+		depth_viewport.MinZ, depth_viewport.MaxZ };
+	WaterConstants::Block shared_water;
+	WaterConstants::Fill(shared_registers, shared_camera, false, shared_water);
+	CHECK(memcmp(shared_water.MaterialOptics, water.MaterialOptics, sizeof(water.MaterialOptics)) == 0);
+	for (unsigned i = 0; i < 16; ++i) {
+		CHECK(near_value(shared_water.WorldFromClip[i], water.WorldFromClip[i]));
+		CHECK(near_value(shared_water.ClipFromWorld[i], water.ClipFromWorld[i]));
 	}
 	depth_viewport.MinZ = 0;
 	depth_viewport.MaxZ = 1;

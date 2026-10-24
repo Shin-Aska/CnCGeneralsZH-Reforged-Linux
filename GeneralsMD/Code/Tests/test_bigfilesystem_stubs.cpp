@@ -66,6 +66,7 @@ void INI::load(AsciiString, INILoadType, Xfer *) { unreachable("INI::load"); }
 
 FileSystem *TheFileSystem = NULL;
 File *FileSystem::openFile(const Char *, Int) { unreachable("FileSystem::openFile"); return NULL; }
+// FileSystemPaths.cpp supplies the real archive path classification helpers.
 
 // GameDataGone (Common/Debug.h): an archive read failed because its drive went away.  Every archive this
 // test opens is on the local install and stays there, so that never happens here.

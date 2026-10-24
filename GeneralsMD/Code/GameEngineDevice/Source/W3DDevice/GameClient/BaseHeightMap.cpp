@@ -2951,15 +2951,15 @@ flushVertexBuffer1:
 /** Renders (draws) the trees. Since the trees are transparent, this has to be
 called after flush. */
 //=============================================================================
-void BaseHeightMapRenderObjClass::renderTreeShadowCasters(RenderInfoClass &sunInfo, CameraClass *sceneCamera, const SunShadowCasterCull &cull)
+Int BaseHeightMapRenderObjClass::renderTreeShadowCasters(RenderInfoClass &sunInfo, CameraClass *sceneCamera, const SunShadowCasterCull &cull)
 {
-	if (!m_map || !Scene || !m_treeBuffer) return;
+	if (!m_map || !Scene || !m_treeBuffer) return 0;
 	DX8Wrapper::Set_Transform(D3DTS_WORLD, Transform);
 	DX8Wrapper::Set_Material(m_vertexMaterialClass);
 	RTS3DScene *scene = (RTS3DScene *)Scene;
 	RefRenderObjListIterator lights(scene->getDynamicLights());
 	m_treeBuffer->drawTrees(sceneCamera, &lights, &sunInfo.Camera);
-	m_treeBuffer->drawModelShadowCasters(sunInfo,cull);
+	return m_treeBuffer->getSunCasterTrees() + m_treeBuffer->drawModelShadowCasters(sunInfo,cull);
 }
 
 void BaseHeightMapRenderObjClass::renderTrees(CameraClass * camera)

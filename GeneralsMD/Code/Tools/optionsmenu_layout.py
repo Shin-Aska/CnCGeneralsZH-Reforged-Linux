@@ -226,6 +226,9 @@ NEW_CONTROLS = [
     (LABEL,  "LabelMenuTransitionSpeed", "GUI:MenuTransitionSpeed"),
     (SLIDER, "SliderMenuTransitionSpeed", None),
     (CHECK,  "CheckTurboModeMissions", "GUI:TurboModeMissions"),
+    (CHECK,  "CheckMapLight",          "GUI:MapLight"),
+    (CHECK,  "CheckTeamGlow",          "GUI:TeamGlow"),
+    (CHECK,  "CheckWaterFoam",         "GUI:WaterFoam"),
 ]
 
 # EA's check boxes that shipped HIDDEN off the panel's right edge with working code behind them in
@@ -339,7 +342,10 @@ GROUP_LAYOUT = [
             ("check", "CheckClassicGraphics"),
             setting("LabelMSAA", "ComboBoxMSAA"),
             setting("LabelTextureFilter", "ComboBoxTextureFilter"),
-            setting("LabelAnisotropy", "SliderAnisotropy", "ValueAnisotropy")]),
+            setting("LabelAnisotropy", "SliderAnisotropy", "ValueAnisotropy"),
+            # the Lighting column is full with the water and cloud styles
+            ("check", "CheckMapLight"),
+            ("check", "CheckTeamGlow")]),
         ("GUI:OptionsGroupLighting", [
             setting("LabelLightingStyle", "ComboBoxLightingStyle"),
             setting("LabelBloom", "ComboBoxBloom"),
@@ -356,6 +362,7 @@ GROUP_LAYOUT = [
         ("GUI:OptionsGroupExtras", [
             ("check", "CheckShowProps"),
             ("check", "CheckSmoothWater"),
+            ("check", "CheckWaterFoam"),
             ("check", "CheckExtraAnimations"),
             ("check", "CheckTreeSway"),
             ("check", "CheckBehindBuilding")]),

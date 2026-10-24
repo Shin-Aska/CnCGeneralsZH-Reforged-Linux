@@ -31,3 +31,6 @@ build64/
 
 # Water scene banks contain proprietary game imagery and stay local.
 *.wbank
+
+# JetBrains IDE settings
+.idea/

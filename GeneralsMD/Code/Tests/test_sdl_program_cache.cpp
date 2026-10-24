@@ -96,8 +96,12 @@ static void check_live_water_style_programs(PosixDevice9 *device,SdlProgramCache
         CHECK(program.Shader!=NULL);
         if (!pass) programs[style]=&program;
         CHECK(&program==programs[style]);
+#if defined(__linux__)
         if (style&1) CHECK(program.SamplerSlots==6 && program.UniformBuffers==1);
         else CHECK(program.SamplerSlots>6);
+#else
+        CHECK(program.SamplerSlots==6 && program.UniformBuffers==1);
+#endif
     }
     CHECK(cache.Programs_Built()==built+4);
     CHECK(programs[0]->Shader!=programs[1]->Shader && programs[2]->Shader!=programs[3]->Shader);

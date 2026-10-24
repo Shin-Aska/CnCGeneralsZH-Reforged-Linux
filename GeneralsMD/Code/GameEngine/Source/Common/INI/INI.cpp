@@ -100,6 +100,7 @@ static const BlockParse theTypeTable[] =
 	{ "CommandButton",			INI::parseCommandButtonDefinition },
 	{ "CommandButtonHotKey",	INI::parseCommandButtonHotKeyDefinition },
 	{ "CommandBarGrid",			INI::parseCommandBarGridDefinition },
+	{ "FixedOrderKeys",			INI::parseFixedOrderKeysDefinition },
 	{ "CommandMap",					INI::parseMetaMapDefinition },
 	{ "CommandSet",					INI::parseCommandSetDefinition },
 	{ "ControlBarScheme",		INI::parseControlBarSchemeDefinition },
@@ -138,6 +139,7 @@ static const BlockParse theTypeTable[] =
 	{ "ShellMenuScheme",		INI::parseShellMenuSchemeDefinition },
 	{ "Terrain",						INI::parseTerrainDefinition },
 	{ "Upgrade",						INI::parseUpgradeDefinition },
+	{ "Veterancy",					GlobalData::parseVeterancyDefinition },
 	{ "Video",							INI::parseVideoDefinition },
 	{ "WaterSet",						INI::parseWaterSettingDefinition },
 	{ "WaterTransparency",	INI::parseWaterTransparencyDefinition},
@@ -745,8 +747,28 @@ Bool ModNamespace::isAssetField( const std::string &field )
 	return FALSE;
 }
 
+/// "0", "6", "-1.5", "25%": digits with at most a sign, points and a closing percent
+static Bool isNumber( const std::string &word )
+{
+	Bool digit = FALSE;
+	for (size_t i = 0; i < word.size(); ++i)
+	{
+		const char c = word[ i ];
+		if (c >= '0' && c <= '9')
+			digit = TRUE;
+		else if (!(c == '.' || ((c == '-' || c == '+') && i == 0) || (c == '%' && i + 1 == word.size())))
+			return FALSE;
+	}
+	return digit;
+}
+
 Bool ModNamespace::isNameOrAsset( const std::string &word, Bool assetField ) const
 {
+	// A number is a number.  An animation's distance and repeat count sit in a file field, and with a
+	// texture called 6.dds in the mod "IdleAnimation = X.X 0 6" read "M2~6", which is no Int: a parse
+	// error at load under -modfactions.
+	if (isNumber( word ))
+		return FALSE;
 	const Names &names = m_mods[ m_active ];
 	return names.all.count( word ) != 0 || (assetField && isAsset( names, word ));
 }

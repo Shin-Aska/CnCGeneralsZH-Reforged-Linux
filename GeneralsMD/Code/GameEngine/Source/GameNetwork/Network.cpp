@@ -170,6 +170,8 @@ public:
 
 	Int getAverageFPS() { return m_conMgr->getAverageFPS(); }
 	Int getSlotAverageFPS(Int slot);
+	Real getSlotAverageLatency(Int slot) { return m_conMgr ? m_conMgr->getSlotAverageLatency(slot) : 0.0f; }
+	Int getSlowestSlot( void ) { return m_conMgr ? m_conMgr->getSlowestSlot() : -1; }
 
 	void attachTransport(Transport *transport);
 	void initTransport();

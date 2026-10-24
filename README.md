@@ -4,7 +4,8 @@ Command & Conquer: Generals Zero Hour for **64-bit Linux**, using **SDL3 and Vul
 No Wine or Proton required.
 
 Based on [Zero Hour Reforged](https://github.com/olcayseygan/CnCGeneralsZH-Reforged) and EA's released
-source, with Linux graphics improvements and upstream's gameplay, AI and interface changes.
+source, synchronized with upstream **v3.3.0**, with Linux graphics improvements and upstream's
+gameplay, AI and interface changes.
 
 [![last commit](https://img.shields.io/github/last-commit/Shin-Aska/CnCGeneralsZH-Reforged-Linux/main?style=for-the-badge)](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/commits/main)
 [![license](https://img.shields.io/badge/license-GPL--3.0%20%2B%20EA%20terms-0d1117?style=for-the-badge)](LICENSE.md)
@@ -141,7 +142,7 @@ Other build commands:
 ./build-linux.sh Release test       # build, test, then stage if the tests pass
 ```
 
-The output folder links to files in the build tree, so it is not a standalone package.
+The output folder copies its runtime overlay and can be moved. It still uses your installed game data.
 See [packaging](PORTING.md#linux-packages) for the release scripts and compatibility-container builds.
 
 ## Play

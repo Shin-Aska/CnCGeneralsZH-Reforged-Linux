@@ -654,6 +654,75 @@ static const RMGBiome theBiomes[RMG_BIOME_COUNT] =
 	},
 };
 
+/* A style is a shipped map's character with a new layout every seed: Tools/RandomMapLab/mapstyle.py
+	measures the map and prints the entry (--cpp). Every style so far is a bowl: the starts stand on
+	a ring of plateaus above a lower middle, each with one ramp down into it, a ridge on the ring
+	between two neighbours and its dock on its own plateau, no water. It is compiled in rather than
+	read from a file because every machine in a match, and every replay, rebuilds the map from its
+	name, and the style is in the name. Distances are the shipped map's cells: a base is a base
+	whatever the player count, and the map grows round it, only a map smaller than
+	rmgStyleSmallestCells shrinking the base with it (m_styleScale). */
+struct RMGStyle
+{
+	const char *m_name;			///< the token in the map's name and on the command line
+	Int m_cells;				///< the shipped map's playable size, which the distances below are measured at
+	Real m_startRing;			///< a start's distance from the middle, a share of half the map
+	Real m_raise;				///< height bytes a start's plateau stands above the bowl
+	Real m_ridge;				///< and the ridge between two starts above the plateau
+	Real m_flat;				///< cells of flat pad round a start
+	Real m_plateau;				///< cells of plateau round a start, to the rim and along the ring
+	Real m_rampWidth;			///< cells across the way down into the bowl where it leaves the plateau
+	Real m_homeSupply;			///< cells in a straight line from a start to its dock
+	Int m_piles;				///< small supply piles a player, out towards both neighbours
+	TimeOfDay m_timeOfDay;
+	RMGBiome m_biome;
+};
+
+static const RMGStyle theStyles[] =
+{
+	{	// twilight, from maps\Twilight Flame\Twilight Flame.map
+		"twilight", 443, 0.809f, 110.000f, 56.000f, 30.500f, 53.750f, 57.000f, 33.950f, 4, TIME_OF_DAY_AFTERNOON,
+		{
+			{ "DirtMediumType10", "SandMediumType6", "SandMediumType10", "CliffLargeType10" },
+			{ "TreeDogwood8", "TreeDogwood3", "TreeDogwood4", "TreeDogwood1" },
+			{ "Rocks2Brown", "Rocks1Brown", "Rocks3Brown", "RockClusterLarge01" },
+			"TwoLaneOld", 0.111f,
+			{ 0.216f, 0.200f, 0.169f }, { 1.000f, 1.000f, 0.914f },
+			{ 0.216f, 0.200f, 0.169f }, { 1.000f, 1.000f, 0.914f },
+			{ -0.894f, -0.190f, -0.407f },
+			{ { 150, 126, 90 }, { 178, 154, 110 }, { 196, 172, 130 }, { 118, 108, 96 } }
+		}
+	},
+};
+static const Int RMG_STYLE_COUNT = sizeof(theStyles) / sizeof(theStyles[0]);
+
+/// The bowl a style stands on: rolling low ground, no shelves, no water, thin woods.
+static const RMGMapTypeShape theBowlType =
+	//	amp		valley	gorge	shelf	lakes	area	river	forest	wood	massif
+	{	1.10f,	0.0f,	0.0f,	1.0f,	-9,		0.0f,	FALSE,	0.14f,	FALSE,	0.0f	};
+
+#define RMG_BOWL_CLIFF_CELLS	7.0f	///< cells the rim takes from the bowl's floor to the plateau
+#define RMG_BOWL_FACE_CELLS		4.0f	///< and a ridge's face, which is lower, so steeper to stay a cliff
+#define RMG_BOWL_RAMP_GRADE		2.75f	///< height bytes a ramp down into the bowl falls per cell, on average
+#define RMG_BOWL_RAMP_MIN		24.0f	///< cells, the shortest that ramp may be on a small map
+#define RMG_BOWL_RIDGE_RISE		22.0f	///< cells the way up a ridge takes to climb
+#define RMG_BOWL_CORE_CELLS		50.0f	///< cells of bowl floor between the ramps' feet and the middle
+
+static Real rmgUnit( Real t )
+{
+	if( t < 0.0f ) return 0.0f;
+	if( t > 1.0f ) return 1.0f;
+	return t;
+}
+
+/** The smallest map that holds a style's bases at full size: behind a start, its plateau in front,
+	the ramp down and some bowl floor, either side of the middle. */
+static Int rmgStyleSmallestCells( const RMGStyle& style )
+{
+	return (Int)( 2.0f * ( ( 1.0f - style.m_startRing ) * (Real)style.m_cells * 0.5f + 0.85f * style.m_plateau
+		+ style.m_raise / RMG_BOWL_RAMP_GRADE + RMG_BOWL_CORE_CELLS ) + 0.5f );
+}
+
 static Int rmgBiomeFor( Int seed )
 {
 	return (Int)( hashCell( seed, 9001, 1 ) % (UnsignedInt)RMG_BIOME_COUNT );
@@ -855,6 +924,7 @@ public:
 	Bool underwaterAtCell( Int x, Int y ) const;
 
 	RandomMapSettings m_settings;
+	const RMGStyle *m_style;			///< the shipped map this one is in the style of, or NULL
 	const RMGMapTypeShape *m_type;		///< what kind of map the seed rolled
 	const RMGBiome *m_biome;			///< and what it is made of
 	TimeOfDay m_timeOfDay;				///< the hour the map is lit for
@@ -889,6 +959,9 @@ public:
 	std::vector<RMGBlend> m_blends;
 
 private:
+	void placeBowlStarts( void );
+	Real bowlRimAt( Real unitX, Real unitY ) const;
+	Real bowlHeight( Real cellX, Real cellY, Real noise ) const;
 	void buildHeights( const UnsignedByte perm[512] );
 	void placeLakes( const UnsignedByte perm[512] );
 	void growBasin( const UnsignedByte perm[512], Int seedX, Int seedY, Int targetCells, Real fillRise,
@@ -990,6 +1063,15 @@ private:
 
 	UnsignedByte m_perm[512];			///< the seed's noise permutation, for the stamps that wobble
 
+	// A style's bowl, worked out with its starts (placeBowlStarts), in cells.
+	Real m_styleScale;					///< the generated map's size over the shipped one's, held to 0.6 - 1.2
+	Real m_bowlSeatRing;				///< starts' distance from the middle
+	Real m_bowlRim;						///< the rim's, before it wanders
+	Real m_bowlRampLength;
+	Real m_bowlRidgeStart;				///< round the ring from a start, where the ridge begins to climb
+	std::vector<RMGPoint> m_seatDirections;	///< each start's bearing from the middle, a unit vector
+	std::vector<Real> m_seatRims;		///< and the rim's distance on that bearing
+
 	std::map<Int, Short> m_blendLookup;	///< tile and shape to the table entry that holds them
 	std::vector<RMGSite> m_sites;		///< everything placed so far, with its elbow room
 	std::vector<char> m_routeLock;		///< cells on a walk to somebody's money, which pads leave alone
@@ -1018,6 +1100,127 @@ private:
 	std::vector<RMGLane> m_lanes;
 	std::vector<UnsignedByte> m_laneDist;	///< cells to the nearest route, capped at RMG_LANE_FAR
 };
+
+//-----------------------------------------------------------------------------
+// A style's bowl
+//-----------------------------------------------------------------------------
+
+/** A style's starts go down before the ground, because the ground is built round them: one seat a
+	turn of the ring, the ring turned by the seed, each seat nudged a little round it and in or out so
+	no two maps share an outline. Ordered round the ring, which is the order connectStarts joins
+	neighbours in. */
+void RMGLayout::placeBowlStarts( void )
+{
+	const Real playable = (Real)m_settings.m_playableCells;
+	const Real half = playable * 0.5f;
+	const Real k = m_styleScale;
+	const Int players = m_settings.m_numPlayers;
+
+	m_bowlSeatRing = half - ( 1.0f - m_style->m_startRing ) * (Real)m_style->m_cells * 0.5f * k;
+	m_bowlRim = m_bowlSeatRing - 0.85f * m_style->m_plateau * k;
+	m_bowlRampLength = m_style->m_raise / RMG_BOWL_RAMP_GRADE * k;
+	if( m_bowlRampLength < RMG_BOWL_RAMP_MIN )
+		m_bowlRampLength = RMG_BOWL_RAMP_MIN;
+	m_bowlRidgeStart = 0.8f * m_style->m_plateau * k;
+
+	const Real margin = RMG_FLAT_RADIUS + RMG_START_MARGIN;
+	const Real turn = hashUnit( m_settings.m_seed, 9001, 31 ) * 2.0f * PI;
+	const Real seatArc = 2.0f * PI / (Real)players;
+
+	m_starts.clear();
+	m_seatDirections.clear();
+	m_seatRims.clear();
+	for( Int i = 0; i < players; i++ )
+	{
+		Real angle = turn + seatArc * ( (Real)i + 0.16f * ( hashUnit( m_settings.m_seed, i, 9031 ) - 0.5f ) );
+		Real ring = m_bowlSeatRing + 0.06f * half * ( hashUnit( m_settings.m_seed, i, 9032 ) - 0.5f );
+
+		RMGPoint start;
+		start.m_cellX = half + ring * Cos( angle );
+		start.m_cellY = half + ring * Sin( angle );
+		if( start.m_cellX < margin ) start.m_cellX = margin;
+		if( start.m_cellY < margin ) start.m_cellY = margin;
+		if( start.m_cellX > playable - margin ) start.m_cellX = playable - margin;
+		if( start.m_cellY > playable - margin ) start.m_cellY = playable - margin;
+		m_starts.push_back( start );
+
+		// the spoke through the seat as it ended up, so its ramp leaves from in front of it
+		Real dx = start.m_cellX - half;
+		Real dy = start.m_cellY - half;
+		Real length = sqrtf( dx * dx + dy * dy );
+		RMGPoint toward;
+		toward.m_cellX = dx / length;
+		toward.m_cellY = dy / length;
+		m_seatDirections.push_back( toward );
+		m_seatRims.push_back( bowlRimAt( toward.m_cellX, toward.m_cellY ) );
+	}
+}
+
+/// How far the rim is from the middle on this bearing. It wanders, so the bowl is no circle.
+Real RMGLayout::bowlRimAt( Real unitX, Real unitY ) const
+{
+	Real wander = 2.0f * fractalNoise( m_perm, unitX * 2.4f + 71.0f, unitY * 2.4f - 13.0f, 3 );
+	if( wander > 1.0f ) wander = 1.0f;
+	if( wander < -1.0f ) wander = -1.0f;
+	return m_bowlRim * ( 1.0f + 0.06f * wander );
+}
+
+/** The ground of a bowl at a cell, from the roll the noise gave it there. Out past the rim it is the
+	plateau, the style's raise above the floor with most of the roll taken off; the rim is a cliff all
+	round. In front of each start a ramp runs from the rim down into the bowl as a spur with steep
+	sides, its top a plateau's depth in front of the seat. Round the ring from a seat the plateau climbs
+	to a ridge once it is a plateau's width from the seat, so neighbours are joined over high ground and
+	each base reads as its own shelf: one way down, two up. */
+Real RMGLayout::bowlHeight( Real cellX, Real cellY, Real noise ) const
+{
+	const Real half = (Real)m_settings.m_playableCells * 0.5f;
+	const Real k = m_styleScale;
+	Real dx = cellX - half;
+	Real dy = cellY - half;
+	Real r = sqrtf( dx * dx + dy * dy );
+	Real ux = r > 0.5f ? dx / r : 1.0f;
+	Real uy = r > 0.5f ? dy / r : 0.0f;
+
+	// the seat whose spoke is nearest in bearing
+	UnsignedInt seat = 0;
+	Real nearest = -2.0f;
+	for( UnsignedInt i = 0; i < m_seatDirections.size(); i++ )
+	{
+		Real dot = ux * m_seatDirections[i].m_cellX + uy * m_seatDirections[i].m_cellY;
+		if( dot > nearest )
+		{
+			nearest = dot;
+			seat = i;
+		}
+	}
+	const RMGPoint& toward = m_seatDirections[seat];
+	Real along = dx * toward.m_cellX + dy * toward.m_cellY;
+	Real across = fabsf( dx * toward.m_cellY - dy * toward.m_cellX );
+
+	Real plateau = fadeCurve( rmgUnit( ( r - bowlRimAt( ux, uy ) + RMG_BOWL_CLIFF_CELLS ) / RMG_BOWL_CLIFF_CELLS ) );
+
+	// The ramp is cut no wider than the shipped map's ways down, and its banks take half as much again.
+	const Real rampHalf = 0.25f * m_style->m_rampWidth * k;
+	const Real bank = 0.5f * rampHalf;
+	Real lift = plateau;
+	Real ramp = fadeCurve( rmgUnit( ( along - m_seatRims[seat] + m_bowlRampLength ) / m_bowlRampLength ) );
+	if( along > 0.0f && ramp > plateau )
+	{
+		Real weight = 1.0f - fadeCurve( rmgUnit( ( across - rampHalf ) / bank ) );
+		lift = plateau + weight * ( ramp - plateau );
+	}
+
+	/* The ridge starts a plateau's width round the ring from the seat, measured at the seats'
+		distance, so it is a wedge out to the map's edge. Its face is a cliff but for one way up, as
+		wide as the way down, where the ring through the seats crosses it. */
+	Real gentle = 1.0f - fadeCurve( rmgUnit( ( fabsf( r - m_bowlSeatRing ) - rampHalf ) / bank ) );
+	Real rise = RMG_BOWL_FACE_CELLS + gentle * ( RMG_BOWL_RIDGE_RISE * k - RMG_BOWL_FACE_CELLS );
+	Real over = ( ATan2( across, along ) - m_bowlRidgeStart / m_bowlSeatRing ) * r;
+	Real ridge = fadeCurve( rmgUnit( over / rise ) ) * plateau;
+
+	return RMG_BASE_HEIGHT + noise * ( 1.0f - 0.95f * lift * ( 1.0f - 0.5f * ridge ) )
+		+ m_style->m_raise * lift + m_style->m_ridge * ridge;
+}
 
 //-----------------------------------------------------------------------------
 // Height field
@@ -1054,6 +1257,9 @@ void RMGLayout::buildHeights( const UnsignedByte perm[512] )
 
 			Real cellX = (Real)(x - RMG_BORDER_CELLS);
 			Real cellY = (Real)(y - RMG_BORDER_CELLS);
+
+			if( m_style )
+				raw = bowlHeight( cellX, cellY, raw - RMG_BASE_HEIGHT );
 
 			/* The massif goes in before the valleys and is spared by them, so its top is one table
 				and not a table with the valley field's ditches through it. The outline wanders with a
@@ -1149,7 +1355,7 @@ void RMGLayout::buildHeights( const UnsignedByte perm[512] )
 			Real softFloor = m_waterHeight + RMG_LAKE_BANK + 5.0f;
 			Real softRange = 16.0f;
 			Real eased = h;
-			if( eased < softFloor + softRange )
+			if( !m_style && eased < softFloor + softRange )		// a style has no water to keep a bank for
 				eased = softFloor + softRange / ( 1.0f + ( softFloor + softRange - eased ) / softRange );
 
 			Real detail = RMG_TERRACE_DETAIL * fractalNoise( perm, (Real)x * detailScale + 61.0f,
@@ -2078,7 +2284,7 @@ void RMGLayout::placeLakes( const UnsignedByte perm[512] )
 	m_riverLine.clear();
 	m_riverAngle = 0.0f;
 
-	if( m_settings.m_playableCells < RMG_LAKE_MIN_CELLS )
+	if( m_settings.m_playableCells < RMG_LAKE_MIN_CELLS || m_style )
 		return;
 
 	Int playable = m_settings.m_playableCells;
@@ -2982,13 +3188,20 @@ void RMGLayout::shapeBases( void )
 		}
 
 		Real flat = RMG_BASE_FLAT_FLOOR;
+		Real swing = RMG_BASE_FLAT_SWING;
+		Real blend = RMG_BLEND_RADIUS;
+		if( m_style )
+		{
+			flat = 0.75f * m_style->m_flat * m_styleScale;
+			swing = 0.25f * m_style->m_flat * m_styleScale;
+			blend = flat + 12.0f * m_styleScale;
+		}
 		if( flat > nearestOther * 0.45f )
 			flat = nearestOther * 0.45f;
-		Real widest = flat + RMG_BASE_FLAT_SWING;
+		Real widest = flat + swing;
 		if( widest > nearestOther * 0.45f )
 			widest = nearestOther * 0.45f;
 
-		Real blend = RMG_BLEND_RADIUS;
 		if( blend > nearestOther * 0.9f )
 			blend = nearestOther * 0.9f;
 		if( blend < flat + 4.0f )
@@ -4287,6 +4500,15 @@ void RMGLayout::buildTerrainClasses( const UnsignedByte perm[512] )
 			// it puts the line above anything the noise ever climbs to.
 			// The line scales with the map type's relief, so a plain still has its brown rises and
 			// highlands are not brown from the foot of every hill.
+			/* A style's dirt is half the plateaus', and with no water its sand is patches on the low
+				ground, so the bowl and the shelves each mix two grounds the way the shipped map does. */
+			else if( m_style )
+			{
+				if( height > RMG_BASE_HEIGHT + 0.55f * m_style->m_raise + wobble * 8.0f && wobble > 0.0f )
+					terrainClass = RMG_TERRAIN_DIRT;
+				else if( wobble > 0.1f )
+					terrainClass = RMG_TERRAIN_SAND;
+			}
 			else if( height > RMG_BASE_HEIGHT + ( 8.0f + wobble * 5.0f ) * m_type->m_amplitude )
 				terrainClass = RMG_TERRAIN_DIRT;
 
@@ -5496,22 +5718,50 @@ void RMGLayout::placeSupplyAndDerricks( void )
 		Real m_clearance;
 		Real m_pad;
 		Real m_blend;
+		Int m_maxLead;		///< the most a rival may trail by: low keeps it between two seats
 	};
 	const RMGMoney theMoney[] =
 	{
-		{ "SupplyDock", "SupplyDock", homeRing, 0.0f, RMG_SITE_CLEARANCE, RMG_PAD_RADIUS, RMG_PAD_BLEND },
-		{ "TechOilDerrick", "Derrick", derrickRing, PI * 0.5f, RMG_SITE_CLEARANCE, RMG_PAD_RADIUS, RMG_PAD_BLEND },
-		{ "TechOilDerrick", "Derrick", derrickRing + 12.0f, -PI * 0.5f, RMG_SITE_CLEARANCE, RMG_PAD_RADIUS, RMG_PAD_BLEND },
-		{ "SupplyPileSmall", "SupplyPile", pileRing, PI * 0.25f, RMG_PILE_CLEARANCE, RMG_PILE_PAD, RMG_PILE_BLEND },
-		{ "SupplyPileSmall", "SupplyPile", pileRing + 10.0f, -PI * 0.25f, RMG_PILE_CLEARANCE, RMG_PILE_PAD, RMG_PILE_BLEND },
+		{ "SupplyDock", "SupplyDock", homeRing, 0.0f, RMG_SITE_CLEARANCE, RMG_PAD_RADIUS, RMG_PAD_BLEND, RMG_MONEY_NO_RIVAL },
+		{ "TechOilDerrick", "Derrick", derrickRing, PI * 0.5f, RMG_SITE_CLEARANCE, RMG_PAD_RADIUS, RMG_PAD_BLEND, RMG_MONEY_NO_RIVAL },
+		{ "TechOilDerrick", "Derrick", derrickRing + 12.0f, -PI * 0.5f, RMG_SITE_CLEARANCE, RMG_PAD_RADIUS, RMG_PAD_BLEND, RMG_MONEY_NO_RIVAL },
+		{ "SupplyPileSmall", "SupplyPile", pileRing, PI * 0.25f, RMG_PILE_CLEARANCE, RMG_PILE_PAD, RMG_PILE_BLEND, RMG_MONEY_NO_RIVAL },
+		{ "SupplyPileSmall", "SupplyPile", pileRing + 10.0f, -PI * 0.25f, RMG_PILE_CLEARANCE, RMG_PILE_PAD, RMG_PILE_BLEND, RMG_MONEY_NO_RIVAL },
 	};
-	const Int numMoney = sizeof(theMoney) / sizeof(theMoney[0]);
+	std::vector<RMGMoney> moneyList( theMoney, theMoney + sizeof(theMoney) / sizeof(theMoney[0]) );
+
+	/* A style's money is the shipped map's: the dock on the player's own plateau, out behind the base,
+		one derrick down in the bowl in front of it, and the small piles out on the ridges towards both
+		neighbours, near enough the midline to be fought over. No contested dock. */
+	if( m_style )
+	{
+		const Real k = m_styleScale;
+		const Real derrick = m_bowlSeatRing - 0.6f * ( m_bowlRim - m_bowlRampLength );
+		const Real neighbour = 2.0f * m_bowlSeatRing * Sin( PI / (Real)players );
+		const Int pileLead = (Int)( 0.15f * neighbour );
+		const RMGMoney dock = { "SupplyDock", "SupplyDock", m_style->m_homeSupply * k, 0.0f,
+			RMG_SITE_CLEARANCE, RMG_PAD_RADIUS, RMG_PAD_BLEND, RMG_MONEY_NO_RIVAL };
+		const RMGMoney oil = { "TechOilDerrick", "Derrick", derrick, PI,
+			RMG_SITE_CLEARANCE, RMG_PAD_RADIUS, RMG_PAD_BLEND, RMG_MONEY_NO_RIVAL };
+		moneyList.clear();
+		moneyList.push_back( dock );
+		moneyList.push_back( oil );
+		for( Int p = 0; p < m_style->m_piles; p++ )
+		{
+			const RMGMoney pile = { "SupplyPileSmall", "SupplyPile", 0.42f * neighbour + 8.0f * (Real)( p / 2 ),
+				( p % 2 ) ? -PI * 0.5f : PI * 0.5f, RMG_PILE_CLEARANCE, RMG_PILE_PAD, RMG_PILE_BLEND,
+				pileLead > RMG_MONEY_LEAD ? pileLead : RMG_MONEY_LEAD };
+			moneyList.push_back( pile );
+		}
+	}
+
+	const Int numMoney = (Int)moneyList.size();
 	static const Int theBands[] = { 1, 3, 6, 10 };
 	const Int numBands = sizeof(theBands) / sizeof(theBands[0]);
 
 	for( Int m = 0; m < numMoney; m++ )
 	{
-		const RMGMoney& money = theMoney[m];
+		const RMGMoney& money = moneyList[m];
 		walkFromStarts( walk, owner, lead );
 		Int target = (Int)(money.m_ring * RMG_MONEY_WALK_STRETCH + 0.5f);
 
@@ -5526,7 +5776,7 @@ void RMGLayout::placeSupplyAndDerricks( void )
 			Bool walked = TRUE;
 			for( Int b = 0; b < numBands && !found; b++ )
 				found = findSiteByWalk( walk, owner, lead, i, target, theBands[b], RMG_MONEY_LEAD,
-																RMG_MONEY_NO_RIVAL, bearing, money.m_clearance, &site );
+																money.m_maxLead, bearing, money.m_clearance, &site );
 			if( !found )
 				found = findSiteByWalk( walk, owner, lead, i, target, 16, 1, RMG_MONEY_NO_RIVAL,
 																bearing, money.m_clearance * 0.5f, &site );
@@ -5569,6 +5819,9 @@ void RMGLayout::placeSupplyAndDerricks( void )
 			reserveSite( site.m_cellX, site.m_cellY, money.m_clearance );
 		}
 	}
+
+	if( m_style )
+		return;
 
 	/* The contested docks: one walk target for every seat, half the shortest walk any player has
 		to a neighbour, so no seat's fight is closer to home than another's. */
@@ -6561,10 +6814,13 @@ void RMGLayout::buildObjects( const UnsignedByte perm[512] )
 								 + RMG_MASSIF_RIM );
 	}
 	placeSupplyAndDerricks();
-	placeTowns();
+	// the shipped map a style comes from has neither a town nor a bunker on it
+	if( !m_style )
+		placeTowns();
 	if( m_type->m_massif > 0.0f )
 		m_sites.erase( m_sites.begin() + massifSite );
-	placeBunkers();
+	if( !m_style )
+		placeBunkers();
 	placeShoreWaves();
 	placeScenery( perm );
 }
@@ -6596,6 +6852,21 @@ void RMGLayout::build( const RandomMapSettings& settings )
 	m_timeOfDay = rmgTimeOfDayFor( m_settings.m_seed );
 	m_snowy = rmgSnowsOn( m_settings.m_seed );
 
+	// A style fixes what the seed would have picked; the seed still lays out the ground.
+	m_style = NULL;
+	m_styleScale = 1.0f;
+	if( m_settings.m_style > 0 )
+	{
+		m_style = &theStyles[m_settings.m_style - 1];
+		m_type = &theBowlType;
+		m_biome = &m_style->m_biome;
+		m_timeOfDay = m_style->m_timeOfDay;
+		m_snowy = FALSE;
+		m_styleScale = (Real)m_settings.m_playableCells / (Real)rmgStyleSmallestCells( *m_style );
+		if( m_styleScale > 1.0f ) m_styleScale = 1.0f;
+		if( m_styleScale < 0.6f ) m_styleScale = 0.6f;
+	}
+
 	m_width = m_settings.m_playableCells + 2 * RMG_BORDER_CELLS;
 	m_height = m_width;
 	m_waterHeight = RMG_BASE_HEIGHT - RMG_WATER_DROP;
@@ -6604,6 +6875,8 @@ void RMGLayout::build( const RandomMapSettings& settings )
 	seedPermutation( m_settings.m_seed, m_perm );
 	const UnsignedByte *perm = m_perm;
 
+	if( m_style )
+		placeBowlStarts();
 	buildHeights( perm );
 	placeLakes( perm );
 	m_heights.swap( m_landHeights );
@@ -6614,7 +6887,8 @@ void RMGLayout::build( const RandomMapSettings& settings )
 		uncarved = m_heights;
 	carveLakeBasins();
 
-	chooseStarts();
+	if( !m_style )
+		chooseStarts();
 	m_baseLevelled.clear();
 	openFordsAtStarts( uncarved );
 	flattenBases();
@@ -6623,6 +6897,15 @@ void RMGLayout::build( const RandomMapSettings& settings )
 	connectStarts();
 	if( m_type->m_massif > 0.0f )
 		carveMassifRamps();
+	// the bowl's ramps, so no rock is set on one
+	for( UnsignedInt i = 0; m_style && i < m_starts.size(); i++ )
+	{
+		RMGPoint ramp;
+		Real out = m_seatRims[i] - 0.5f * m_bowlRampLength;
+		ramp.m_cellX = (Real)m_settings.m_playableCells * 0.5f + m_seatDirections[i].m_cellX * out;
+		ramp.m_cellY = (Real)m_settings.m_playableCells * 0.5f + m_seatDirections[i].m_cellY * out;
+		m_ramps.push_back( ramp );
+	}
 
 	/* Objects before textures, because placing them changes the ground: every dock, derrick,
 		bunker and town levels a pad under itself, and a pad moves the cliffs and the shore lines
@@ -7004,12 +7287,35 @@ void RandomMapGenerator::clampSettings( RandomMapSettings& settings )
 	if( settings.m_numPlayers < MIN_PLAYERS ) settings.m_numPlayers = MIN_PLAYERS;
 	if( settings.m_numPlayers > MAX_PLAYERS ) settings.m_numPlayers = MAX_PLAYERS;
 
-	// Nought means "whatever this many players need".
+	if( settings.m_style < 0 || settings.m_style > RMG_STYLE_COUNT )
+		settings.m_style = 0;
+
+	/* Nought means "whatever this many players need". A style's eight-player map is the shipped
+		map's own size and the other counts scale off it the way the normal size does. */
 	if( settings.m_playableCells <= 0 )
+	{
 		settings.m_playableCells = cellsFor( RANDOM_MAP_SIZE_NORMAL, settings.m_numPlayers );
+		if( settings.m_style > 0 )
+		{
+			const RMGStyle& style = theStyles[settings.m_style - 1];
+			settings.m_playableCells = settings.m_playableCells * style.m_cells / cellsFor( RANDOM_MAP_SIZE_NORMAL, MAX_PLAYERS );
+			if( settings.m_playableCells < rmgStyleSmallestCells( style ) )
+				settings.m_playableCells = rmgStyleSmallestCells( style );
+		}
+	}
 
 	if( settings.m_playableCells < MIN_CELLS ) settings.m_playableCells = MIN_CELLS;
 	if( settings.m_playableCells > MAX_CELLS ) settings.m_playableCells = MAX_CELLS;
+}
+
+Int RandomMapGenerator::styleNamed( const char *name )
+{
+	for( Int i = 0; i < RMG_STYLE_COUNT; i++ )
+	{
+		if( AsciiString( name ).compareNoCase( theStyles[i].m_name ) == 0 )
+			return i + 1;
+	}
+	return 0;
 }
 
 void RandomMapGenerator::generate( const RandomMapSettings& settings, std::vector<char>& mapBytes )
@@ -7292,8 +7598,9 @@ static void generatedMapPathsFor( const RandomMapSettings& clamped, AsciiString&
 																	AsciiString& previewPath )
 {
 	AsciiString name;
-	name.format( "RMG_v%d_%d_%dp_%dc", RANDOM_MAP_GENERATOR_VERSION, clamped.m_seed,
-							 clamped.m_numPlayers, clamped.m_playableCells );
+	name.format( "RMG_v%d_%d_%dp_%dc%s%s", RANDOM_MAP_GENERATOR_VERSION, clamped.m_seed,
+							 clamped.m_numPlayers, clamped.m_playableCells, clamped.m_style > 0 ? "_" : "",
+							 clamped.m_style > 0 ? theStyles[clamped.m_style - 1].m_name : "" );
 
 	AsciiString dir;
 	dir.format( "%sMaps\\%s", TheGlobalData->getPath_UserData().str(), name.str() );
@@ -7315,23 +7622,42 @@ static Bool settingsFromGeneratedPath( const AsciiString& path, RandomMapSetting
 	// whichever case it arrives in
 	leaf.toLower();
 
-	Int version = 0, seed = 0, players = 0, cells = 0;
-	if( sscanf( leaf.str(), "rmg_v%d_%d_%dp_%dc", &version, &seed, &players, &cells ) != 4 )
+	Int version = 0, seed = 0, players = 0, cells = 0, read = 0;
+	if( sscanf( leaf.str(), "rmg_v%d_%d_%dp_%dc%n", &version, &seed, &players, &cells, &read ) != 4 )
 		return FALSE;
 
 	if( version != RANDOM_MAP_GENERATOR_VERSION )
 		return FALSE;
 
+	// "_twilight" after the size is a style; a name for one this build does not have is not ours
+	Int style = 0;
+	const char *rest = leaf.str() + read;
+	if( *rest == '_' )
+	{
+		const char *dot = strchr( rest, '.' );
+		Int length = ( dot ? (Int)( dot - rest ) : (Int)strlen( rest ) ) - 1;
+		char token[32];
+		if( length >= (Int)sizeof(token) )
+			return FALSE;
+		memcpy( token, rest + 1, length );
+		token[length] = 0;
+		style = RandomMapGenerator::styleNamed( token );
+		if( style == 0 )
+			return FALSE;
+	}
+
 	settingsOut.m_seed = seed;
 	settingsOut.m_numPlayers = players;
 	settingsOut.m_playableCells = cells;
+	settingsOut.m_style = style;
 
 	// a name carrying settings the generator would clamp names bytes it never produced
 	RandomMapSettings clamped = settingsOut;
 	RandomMapGenerator::clampSettings( clamped );
 	return clamped.m_seed == settingsOut.m_seed
 			&& clamped.m_numPlayers == settingsOut.m_numPlayers
-			&& clamped.m_playableCells == settingsOut.m_playableCells;
+			&& clamped.m_playableCells == settingsOut.m_playableCells
+			&& clamped.m_style == settingsOut.m_style;
 }
 
 /** The falling snow is not map data: SnowManager draws it when the Weather block says
@@ -7367,7 +7693,7 @@ static Bool isSnowRulesPath( const AsciiString& path )
 		folder.removeLastChar();
 
 	RandomMapSettings settings;
-	return settingsFromGeneratedPath( folder, settings ) && rmgSnowsOn( settings.m_seed );
+	return settingsFromGeneratedPath( folder, settings ) && settings.m_style == 0 && rmgSnowsOn( settings.m_seed );
 }
 
 Bool isGeneratedMapPath( const AsciiString& path )
@@ -7389,7 +7715,8 @@ static RMGStagedMap *findStagedMap( const RandomMapSettings& settings )
 
 		if( theStagedMaps[i].m_settings.m_seed == settings.m_seed
 				&& theStagedMaps[i].m_settings.m_numPlayers == settings.m_numPlayers
-				&& theStagedMaps[i].m_settings.m_playableCells == settings.m_playableCells )
+				&& theStagedMaps[i].m_settings.m_playableCells == settings.m_playableCells
+				&& theStagedMaps[i].m_settings.m_style == settings.m_style )
 			return &theStagedMaps[i];
 	}
 

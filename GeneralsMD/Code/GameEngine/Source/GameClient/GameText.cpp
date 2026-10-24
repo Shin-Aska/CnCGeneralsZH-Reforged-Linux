@@ -258,6 +258,8 @@ static const char *const TheTextLanguageOverlays[ TEXT_LANGUAGE_COUNT ] =
 	NULL,
 	"Data\\Turkish\\Generals.str",
 	"Data\\German\\Generals.str",
+	"Data\\Ukrainian\\Generals.str",
+	"Data\\Russian\\Generals.str",
 };
 
 //----------------------------------------------------------------------------

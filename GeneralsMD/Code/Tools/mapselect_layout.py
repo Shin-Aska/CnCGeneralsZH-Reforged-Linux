@@ -28,6 +28,7 @@ Run by CTest as mapselect_selfcheck. Layouts are not in the multiplayer INI chec
 """
 
 import os
+import re
 import sys
 
 import wndlayout
@@ -47,6 +48,7 @@ NAMED = ["ButtonOK", "ButtonBack", "ListboxMap", "RadioButtonSystemMaps", "Radio
 PADDING = 12
 TITLE_HEIGHT = 32
 TAB_HEIGHT = 36
+MAP_ROWS = 4096
 
 
 def box(window):
@@ -106,7 +108,12 @@ def build(layout, room_layout):
     room.need(layout, "RadioButtonUserMaps").place(inner_left + inner_width - tab_width, tab_top, tab_width, TAB_HEIGHT)
 
     list_top = tab_top + TAB_HEIGHT + room.GAP
-    room.need(layout, "ListboxMap").place(inner_left, list_top, inner_width, top + height - PADDING - list_top)
+    listbox = room.need(layout, "ListboxMap")
+    listbox.place(inner_left, list_top, inner_width, top + height - PADDING - list_top)
+    # EA's 100 rows (300 in skirmish) with AUTOPURGE 0 dropped every map past them without a word;
+    # the list fills 2-player maps first, so a big Maps folder lost every 6 to 8 player map
+    at = listbox.prop_index("LISTBOXDATA")
+    listbox.props[at] = re.sub(r"LENGTH: \d+", "LENGTH: %d" % MAP_ROWS, listbox.props[at])
 
     map_window = room.need(layout, "WinMapPreview")
     map_window.place(*preview)

@@ -73,6 +73,8 @@
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/ScriptEngine.h"
 #include "WWDownload/Registry.h"
+#include "Platform/HazardCloud.h"
+#include "Platform/ModernWaterBuild.h"
 //added by saad
 //used to access a messagebox that does "ok" and "cancel"
 #include "GameClient/MessageBox.h"
@@ -1122,8 +1124,13 @@ static void fillCatalogWidgets( void )
 {
 	const Color entryColor = GameMakeColor( 255, 255, 255, 255 );
 
-#if !defined(__linux__)
-	// The reflection row is Linux-only and therefore absent from this platform's catalog.
+#if defined(__linux__)
+	const Bool reflectionSupported = ModernWater::Supported();
+#else
+	// The reflection row is absent from this platform's catalog.
+	const Bool reflectionSupported = FALSE;
+#endif
+	// Keep the group in step with the device, including a reused layout.
 	const char *reflectionControls[] = {
 		"OptionsMenu.wnd:GroupHeadingEffects3",
 		"OptionsMenu.wnd:LabelWaterReflection",
@@ -1134,9 +1141,8 @@ static void fillCatalogWidgets( void )
 		GameWindow *widget = TheWindowManager->winGetWindowFromId(
 			NULL, TheNameKeyGenerator->nameToKey(AsciiString(reflectionControls[i])) );
 		if( widget )
-			widget->winHide(TRUE);
+			widget->winHide(!reflectionSupported);
 	}
-#endif
 
 	for( Int i = 0; i < TheOptionCatalogCount; ++i )
 	{
@@ -1145,18 +1151,31 @@ static void fillCatalogWidgets( void )
 		if( widget == NULL )
 			continue;
 
-#if !defined(__linux__)
-        // These alternate surfaces are provided by the Linux renderer.
-        if (strcmp(def.iniKey, "WaterStyle") == 0 || strcmp(def.iniKey, "CloudStyle") == 0) {
-            widget->winHide(TRUE);
-            const char *labelName = strcmp(def.iniKey, "WaterStyle") == 0
-                ? "OptionsMenu.wnd:LabelWaterStyle" : "OptionsMenu.wnd:LabelCloudStyle";
-            GameWindow *label=TheWindowManager->winGetWindowFromId(
-                NULL, TheNameKeyGenerator->nameToKey(AsciiString(labelName)));
-            if (label) label->winHide(TRUE);
-            continue;
-        }
-#endif
+		if (strcmp(def.iniKey, "WaterReflection") == 0 && !reflectionSupported)
+			continue;
+
+		if (strcmp(def.iniKey, "WaterStyle") == 0)
+		{
+			// The Linux renderer and Direct3D 11 draw the Modern water; -d3d9, -headless and macOS do not.
+			const Bool supported = ModernWater::Supported();
+			widget->winHide(!supported);
+			GameWindow *label = TheWindowManager->winGetWindowFromId(
+				NULL, NAMEKEY("OptionsMenu.wnd:LabelWaterStyle"));
+			if (label) label->winHide(!supported);
+			if (!supported) continue;
+		}
+		if (strcmp(def.iniKey, "CloudStyle") == 0)
+		{
+			// The display is initialized before the shell. Query when the menu
+			// opens so a reused layout also reflects the current device.
+			const Bool supported = HazardCloud::Supported();
+			widget->winHide(!supported);
+			GameWindow *label = TheWindowManager->winGetWindowFromId(
+				NULL, NAMEKEY("OptionsMenu.wnd:LabelCloudStyle"));
+			if (label) label->winHide(!supported);
+			if (!supported) continue;
+		}
+
 		const Int value = clampOptionValue( def, def.get() );
 
 		switch( def.kind )
@@ -1200,6 +1219,14 @@ static void readCatalogWidgets( OptionPreferences &out )
 		const OptionDef& def = TheOptionCatalog[ i ];
 		GameWindow *widget = findOptionWidget( def );
 		if( widget == NULL )
+			continue;
+
+		// A hidden, unfilled combo must not overwrite the player's opt-in.
+		if (strcmp(def.iniKey, "CloudStyle") == 0 && !HazardCloud::Supported())
+			continue;
+		if (strcmp(def.iniKey, "WaterStyle") == 0 && !ModernWater::Supported())
+			continue;
+		if (strcmp(def.iniKey, "WaterReflection") == 0 && !ModernWater::Supported())
 			continue;
 
 		Int value;
@@ -2825,6 +2852,14 @@ void OptionsMenuInit( WindowLayout *layout, void *userData )
 //
 //		if (checkAudioHardware)
 //			checkAudioHardware->winEnable(FALSE);
+	}
+
+	// three looks only the Direct3D 11 picture draws; under -d3d9 their boxes keep the saved value, greyed
+	if( !TheGlobalData->m_direct3D11 )
+	{
+		static const char *const direct3D11Only[] = { "MapLight", "TeamGlow", "WaterFoam" };
+		for( Int i = 0; i < (Int)( sizeof( direct3D11Only ) / sizeof( direct3D11Only[ 0 ] ) ); ++i )
+			findOptionWidget( *findOptionDef( direct3D11Only[ i ] ) )->winEnable( FALSE );
 	}
 
 

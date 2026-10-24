@@ -4179,7 +4179,9 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 {
 	// A failed, disabled or empty pass must not expose the previous view's shadow.
 	SunShadow::Clear(DX8Wrapper::_Get_D3D_Device());
+#if defined(__linux__)
 	DX8Wrapper::Flush_Deferred_D3D9_State();
+#endif
 	const SunShadow::Mode mode = SunShadow::RequestedMode();
 	// Trees historically cast under either shadow option. Smoke has its own option;
 	// it may keep an otherwise empty depth capture alive without enabling geometry.
@@ -4420,7 +4422,7 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 	// and changing that preference does not remove trees from an already loaded map.
 #if defined(__linux__)
 	if (geometryShadows)
-		TheTerrainRenderObject->renderTreeShadowCasters(sunInfo, &sceneCamera, casterCull);
+		castersCounted += TheTerrainRenderObject->renderTreeShadowCasters(sunInfo, &sceneCamera, casterCull);
 #endif
 	TheDX8MeshRenderer.Flush();
 	/* A mesh the material system calls translucent goes to the sort lists rather than to the mesh
@@ -4464,12 +4466,17 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 	// The smoke goes into a map of its own through the sun the casters were just drawn with.
 	// past the map's limit the smoke nearest the camera wins: the freecam's box is centred on the
 	// map's middle, which is not where it is looking from
+#if defined(__linux__)
 	if (mode == SunShadow::Mode::Mapped && captured)
 		fillSmokeMap( transform, wholeMap ? sceneCamera.Get_Position() : focus, halfWidth, farClip );
 	else {
 		SunShadow::FillSmoke(DX8Wrapper::_Get_D3D_Device(), NULL, 0, 0.0f );
 		forgetSmokeInSunMap();
 	}
+#else
+	// Direct3D 11 retains its established independent smoke fill after depth capture.
+	fillSmokeMap( transform, wholeMap ? sceneCamera.Get_Position() : focus, halfWidth, farClip );
+#endif
 
 	// The frame's own camera, put back: the view, the projection and the viewport all went with the
 	// sun.  Without this everything drawn after the pass is drawn from the sun's seat, which is the
@@ -4517,10 +4524,15 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 	if (TheGlobalData->m_lightingStyle == LIGHTING_STYLE_REFORGED && TheGlobalData->m_shadowMapStrength <= 0.0f)
 		strength = SHADOW_MAP_REFORGED_STRENGTH;
 
+#if defined(__linux__)
 	DX8Wrapper::Flush_Deferred_D3D9_State();
 	const bool receiving = captured && mode == SunShadow::Mode::Mapped
 		&& SunShadow::Parameters(DX8Wrapper::_Get_D3D_Device(), depthBias, strength, widest,
 			narrowest, penumbra / worldPerTexel, unitsPerUnitOfDepth, skyFill);
+#else
+	const bool receiving = SunShadow::Parameters(DX8Wrapper::_Get_D3D_Device(), depthBias, strength, widest,
+			narrowest, penumbra / worldPerTexel, unitsPerUnitOfDepth, skyFill);
+#endif
 
 	/* Said last, and only on the way out: everything above can bail, and the volumes have to know
 		 whether this frame's shadows are in the map or still theirs to draw.  The count of casters is
@@ -4544,7 +4556,14 @@ void W3DVolumetricShadowManager::renderShadowMap( CameraClass &sceneCamera )
 	// The report costs a full stall of the pipeline, so it is one line a second rather than one a
 	// frame: what it answers is whether the pass draws the world at all, and that does not change
 	// thirty times a second.
-	if (TheGlobalData->m_shadowMapReport && castersCounted > 0)
+#if defined(__linux__)
+	// Foliage, bridges and smoke do not increment the volume-caster count.
+	// Report any completed capture so those settings remain diagnosable.
+	const bool hasReportableCapture = captured;
+#else
+	const bool hasReportableCapture = castersCounted > 0;
+#endif
+	if (TheGlobalData->m_shadowMapReport && hasReportableCapture)
 	{
 		static UnsignedInt nextReportFrame = 0;
 		const UnsignedInt frame = TheGameLogic ? TheGameLogic->getFrame() : 0;

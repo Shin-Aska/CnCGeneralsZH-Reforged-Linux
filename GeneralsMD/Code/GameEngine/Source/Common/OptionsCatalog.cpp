@@ -130,6 +130,9 @@ OPTION_BOOL_ACCESSORS( m_volumetricSmokeShadows )
 OPTION_BOOL_ACCESSORS( m_useCloudMap )
 OPTION_BOOL_ACCESSORS( m_smokeFireLighting )
 OPTION_BOOL_ACCESSORS( m_explosionDebrisTrails )
+OPTION_BOOL_ACCESSORS( m_mapLight )
+OPTION_BOOL_ACCESSORS( m_teamGlow )
+OPTION_BOOL_ACCESSORS( m_waterFoam )
 OPTION_INT_ACCESSORS( m_shadowQuality )
 
 //-----------------------------------------------------------------------------
@@ -552,6 +555,25 @@ const OptionDef TheOptionCatalog[] =
 	{ "DebrisTrails",							OPT_WND( "CheckDebrisTrails" ), "GUI:DebrisTrails",
 		OPTION_BOOL, APPLY_LIVE, 0, 1,
 		get_m_explosionDebrisTrails, set_m_explosionDebrisTrails },
+
+	// Three Direct3D 11 looks, all off by default; the menu greys them under -d3d9.  Warm light is a
+	// low late afternoon sun put into each map's lights as the map loads (WorldHeightMap), so it waits
+	// for the next map, and a light haze over low ground that aircraft part, pushed every frame
+	// (W3DShaderManager).  Team glow marks a house colour mesh as it is recoloured for its side,
+	// which happens as a map's models are made.  On Options > Graphics.
+	{ "MapLight",									OPT_WND( "CheckMapLight" ), "GUI:MapLight",
+		OPTION_BOOL, APPLY_NEXT_MAP, 0, 1,
+		get_m_mapLight, set_m_mapLight },
+
+	{ "TeamGlow",									OPT_WND( "CheckTeamGlow" ), "GUI:TeamGlow",
+		OPTION_BOOL, APPLY_NEXT_MAP, 0, 1,
+		get_m_teamGlow, set_m_teamGlow },
+
+	// Foam, a shore band and the sun's shadow on rivers and lakes; the water asks every frame.  Off
+	// under Classic graphics too.  On Options > Effects beside Soft Shorelines.
+	{ "WaterFoam",								OPT_WND( "CheckWaterFoam" ), "GUI:WaterFoam",
+		OPTION_BOOL, APPLY_LIVE, 0, 1,
+		get_m_waterFoam, set_m_waterFoam },
 
 	// The size of the sun's depth map.  The shadow pass asks for it every frame and the backend makes
 	// the map again when the size changes, so a new level shows on the next frame.  On Options >

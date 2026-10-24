@@ -270,8 +270,10 @@ static void showSelectiveButtons( Int show )
 // that flashes the panel in would show it again.
 static void showMissionMenu( const char *group )
 {
+	// a mod's Campaign.ini can leave a side's campaign out (End of Days has only the challenge ones);
+	// setCampaign found none, and that side's panel comes up with every button greyed
 	Campaign *campaign = TheCampaignManager->getCurrentCampaign();
-	Mission *mission = campaign->getNextMission( NULL );
+	Mission *mission = campaign ? campaign->getNextMission( NULL ) : NULL;
 	for( Int i = 0; i < MISSION_BUTTONS; ++i )
 	{
 		UnicodeString label;

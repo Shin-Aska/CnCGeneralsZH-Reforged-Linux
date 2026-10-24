@@ -229,8 +229,9 @@ public:
 	/// Draws the trees.  Uses camera for culling.
 	void drawTrees(CameraClass * camera, RefRenderObjListIterator *pDynamicLightsIterator,
 		const CameraClass *sunCamera = NULL);
-	void drawModelShadowCasters(RenderInfoClass &sunInfo, const SunShadowCasterCull &cull);
 	void stepTrees(void);	///< the toppling and pushed trees, once a logic frame, at the render's sync point
+	Int drawModelShadowCasters(RenderInfoClass &sunInfo, const SunShadowCasterCull &cull); ///< the object trees drawn into the sun's map
+	Int getSunCasterTrees(void) const {return m_sunCasterTrees;} ///< batched trees the last sun pass drew
 	/// Called when the view changes, and sort key needs to be recalculated.
 	/// Normally sortKey gets calculated when a tree becomes visible.
 	void doFullUpdate(void) {m_updateAllKeys = true;};
@@ -269,6 +270,7 @@ private:
 	struct ShadowRange { Int first, count; };
 	std::vector<ShadowRange> m_shadowRanges[MAX_BUFFERS];
 	Bool m_lastShadowsForProps = FALSE;
+	Int m_sunCasterTrees = 0;
 	IDirect3DPixelShader9 *	m_dwTreePixelShader;	///<D3D pixel shader
 	IDirect3DVertexShader9 * m_dwTreeVertexShader;	///<D3D vertex shader
 	IDirect3DVertexDeclaration9 * m_treeVertexDeclaration;	///<what D3D8 carried beside the shader

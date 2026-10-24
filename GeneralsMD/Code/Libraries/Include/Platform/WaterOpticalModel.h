@@ -32,10 +32,10 @@ WATER_OPTICAL_CLARITY_CONSTANTS(WATER_OPTICAL_CLARITY_CPP_CONSTANTS)
 
 // Comparisons also define a deterministic NaN/Infinity policy in both languages: NaN and negative
 // path/weights become zero, positive infinity saturates, and invalid reference depth uses 0.25.
-inline float Unit(float value) { return value>=0.0f?std::min(value,1.0f):0.0f; }
-inline float Path(float value) { return value>=0.0f?std::min(value,MaximumFiniteInput):0.0f; }
+inline float Unit(float value) { return value>=0.0f?(std::min)(value,1.0f):0.0f; }
+inline float Path(float value) { return value>=0.0f?(std::min)(value,MaximumFiniteInput):0.0f; }
 inline float ReferenceDepth(float value) {
-    return value>=MinimumReferenceDepth?std::min(value,MaximumFiniteInput):MinimumReferenceDepth;
+    return value>=MinimumReferenceDepth?(std::min)(value,MaximumFiniteInput):MinimumReferenceDepth;
 }
 // Only terrain depths classify a shallow shelf. A ship hull or submerged object
 // can shorten the optical ray without turning a broad offshore basin into clear water.
@@ -44,8 +44,8 @@ inline float ReferenceDepth(float value) {
 inline float ClarityEligibility(float terrainDepth,float surroundingDepth,float offshore) {
     if (!(std::abs(terrainDepth)<=MaximumFiniteInput) || !(std::abs(surroundingDepth)<=MaximumFiniteInput)
         || !(std::abs(offshore)<=MaximumFiniteInput)) return 0.0f;
-    const float depth=Unit((std::max(terrainDepth,0.0f)-ClarityShallowDepth)/(ClarityMaximumDepth-ClarityShallowDepth));
-    const float relief=Unit((std::max(surroundingDepth-terrainDepth,0.0f)-ClarityReliefStart)
+    const float depth=Unit(((std::max)(terrainDepth,0.0f)-ClarityShallowDepth)/(ClarityMaximumDepth-ClarityShallowDepth));
+    const float relief=Unit(((std::max)(surroundingDepth-terrainDepth,0.0f)-ClarityReliefStart)
         /(ClarityReliefFull-ClarityReliefStart));
     const float depthWeight=1.0f-depth*depth*(3.0f-2.0f*depth);
     const float shelfWeight=relief*relief*(3.0f-2.0f*relief);
@@ -59,14 +59,14 @@ inline float RayShift(float heightDelta,float viewZ,float offshoreFactor,float d
     if (!(offshoreFactor>0.0f) || !(viewZ>0.0f) || !(viewZ<=MaximumFiniteInput)
         || !(std::abs(heightDelta)<=MaximumFiniteInput)) return 0.0f;
     const float bound=RayHeightBoundScale*Path(displacementBound);
-    const float shift=Unit(offshoreFactor)*std::max(-bound,std::min(heightDelta,bound))
-        /std::max(viewZ,RayMinimumViewZ);
-    const float sceneLimit=std::max(Path(sceneRayDistance)-RaySurfaceMargin,0.0f);
-    const float cameraLimit=std::max(Path(cameraDistance)-RaySurfaceMargin,0.0f);
-    return std::max(-sceneLimit,std::min(shift,cameraLimit));
+    const float shift=Unit(offshoreFactor)*(std::max)(-bound,(std::min)(heightDelta,bound))
+        /(std::max)(viewZ,RayMinimumViewZ);
+    const float sceneLimit=(std::max)(Path(sceneRayDistance)-RaySurfaceMargin,0.0f);
+    const float cameraLimit=(std::max)(Path(cameraDistance)-RaySurfaceMargin,0.0f);
+    return (std::max)(-sceneLimit,(std::min)(shift,cameraLimit));
 }
 inline float OffshoreExtinction(float transparentDepth,float minOpacity) {
-    const float remaining=std::max(1.0f-Unit(minOpacity),MinimumReferenceTransmission);
+    const float remaining=(std::max)(1.0f-Unit(minOpacity),MinimumReferenceTransmission);
     return -std::log(remaining)/ReferenceDepth(transparentDepth);
 }
 inline RGB Transmission(float path,float riverBlend,float offshoreFactor,float referenceDepth,float opacity,float clarity=0.0f) {
@@ -77,9 +77,9 @@ inline RGB Transmission(float path,float riverBlend,float offshoreFactor,float r
     // Clarity relaxes the legacy artistic opacity independently of natural depth extinction.
     // Even maximum clarity retains coloured absorption and eventually hides a deep bed.
     const float authored=path*Unit(offshoreFactor)*(1.0f-Unit(clarity))*OffshoreExtinction(referenceDepth,opacity);
-    return {std::exp(-std::min(materialPath*BaseExtinction.r+authored,MaximumExponent)),
-        std::exp(-std::min(materialPath*BaseExtinction.g+authored,MaximumExponent)),
-        std::exp(-std::min(materialPath*BaseExtinction.b+authored,MaximumExponent))};
+    return {std::exp(-(std::min)(materialPath*BaseExtinction.r+authored,MaximumExponent)),
+        std::exp(-(std::min)(materialPath*BaseExtinction.g+authored,MaximumExponent)),
+        std::exp(-(std::min)(materialPath*BaseExtinction.b+authored,MaximumExponent))};
 }
 // Source-function radiances in linear RGB; these are not extinction coefficients.
 #define WATER_OPTICAL_SOURCE_CPP(clearR,clearG,clearB,riverR,riverG,riverB,oceanR,oceanG,oceanB,ambient,faceMin,faceRange) \
@@ -90,7 +90,7 @@ WATER_OPTICAL_SOURCE_PRESETS(WATER_OPTICAL_SOURCE_CPP)
 inline float SourceOffshore(float riverBlend,float effectiveOffshore) {
     // The caller has already excluded the river share from offshore. Cap malformed overlap;
     // multiplying by (1-river) here would apply that gate twice at continuous transitions.
-    return std::min(Unit(effectiveOffshore),1.0f-Unit(riverBlend));
+    return (std::min)(Unit(effectiveOffshore),1.0f-Unit(riverBlend));
 }
 inline RGB MaterialSource(float riverBlend,float effectiveOffshore) {
     const float river=Unit(riverBlend),offshore=SourceOffshore(river,effectiveOffshore);

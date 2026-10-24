@@ -108,6 +108,7 @@ static void drawFramerateBar(void);
 #include "W3DDevice/GameClient/W3DView.h"
 #include "W3DDevice/GameClient/W3DTerrainTracks.h"
 #include "W3DDevice/GameClient/W3DWater.h"
+#include "Platform/ModernWaterBuild.h"
 #include "W3DDevice/GameClient/W3DVideobuffer.h"
 #include "W3DDevice/GameClient/W3DShaderManager.h"
 #include "W3DDevice/GameClient/W3DDebugDisplay.h"
@@ -548,12 +549,20 @@ W3DDisplay::~W3DDisplay()
 			texturesMirrored, texturesReused, texturesRefused,
 			pipelines, drawsMade, drawsRefused));
 		if( Direct3D11_Is_Active() )
+		{
 			DEBUG_LOG(("-dx11 constants: %s\n", Direct3D11_Constant_Path()));
+			DEBUG_LOG(("-dx11 water: %s\n", Direct3D11_Water_Report().c_str()));
+		}
 		unsigned programsShipped = 0;
 		unsigned programsHeld = 0;
-		Direct3D11_Program_Statistics( programsShipped, programsHeld );
-		DEBUG_LOG(("-dx11 programs: %u shipped with the game, %u held at the end\n",
-			programsShipped, programsHeld));
+		unsigned programsOffFrame = 0;
+		double longestOffFrame = 0.0;
+		unsigned long long drawsWaited = 0;
+		Direct3D11_Program_Statistics( programsShipped, programsHeld, programsOffFrame, longestOffFrame,
+			drawsWaited );
+		DEBUG_LOG(("-dx11 programs: %u shipped with the game, %u held at the end; %u compiled off the "
+			"frame (longest %.0f ms), %I64u draws left out while they compiled\n",
+			programsShipped, programsHeld, programsOffFrame, longestOffFrame, drawsWaited));
 
 		unsigned long long noBuffer = 0;
 		unsigned long long noStage = 0;
@@ -2337,7 +2346,7 @@ static void takeReadsForRender( Bool renders )
 	TheInGameUI->recordDraw();
 	TheTerrainRenderObject->takeWaypointsForRender();
 	TheTerrainRenderObject->stepTrees();	// before the particles: a falling tree's FX makes systems
-#if defined(__linux__)
+#if ZH_MODERN_WATER
 	if( TheWaterRenderObj )
 		TheWaterRenderObj->takeReadsForRender();
 #endif
@@ -2681,6 +2690,10 @@ AGAIN:
 			// After the smooth motion, so a lamp's light sits where its model is drawn this frame.
 			if (primaryW3DView && primaryW3DView->get3DCamera())
 				W3DModelDraw::lightHeadlights(primaryW3DView->get3DCamera()->Get_Position());
+
+			// Once a frame and before any view draws, so a script's blur or black and white filter
+			// does not freeze the haze the way pushing it from the default filter did.
+			W3DShaderManager::pushProtoHaze();
 
 			if (TheWaterRenderObj)
 				TheWaterRenderObj->updateRenderTargetTextures(primaryW3DView->get3DCamera());	//do a render into each texture

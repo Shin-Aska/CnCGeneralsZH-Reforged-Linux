@@ -110,6 +110,16 @@ wash coverage, contact proximity, and the incoming crest gate. Rivers, enclosed 
 and authored patch seams retain their existing wave treatment. Missing cage resources
 fall back to ordinary terrain damping.
 
+## Upstream synchronization: v3.3.0 (2026-10-24)
+
+Merged upstream tag `v3.3.0` (`f036c761`) into the Linux fork, preserving its four
+water reflection modes, Hybrid default, Modern water, Volumetric clouds, mapped
+sun shadows, preview tools and Linux packaging. The merge retains upstream's
+renderer capability checks, shared hazard-cloud core, shader work and gameplay fixes.
+
+See [the v3.3.0 integration record](upstream-sync-3.3.0.md) for reconciliation decisions,
+checks and remaining validation limits. The older records below describe earlier builds.
+
 ## Upstream synchronization (2026-10-15)
 
 Merged upstream `e81b9f6a` (v3.0.1, 86 incoming commits) while preserving the Linux

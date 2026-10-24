@@ -33,10 +33,12 @@
 #include "Common/MessageBoxFlags.h"	// MessageBoxWrapper and its flags
 #include "Platform/SleepMilliseconds.h"
 #include "Platform/WaterCaptureClock.h"
+#include "Platform/ModernWaterBuild.h"
 #if !defined(_WIN32)
 #include <unistd.h>		// getpid, for the model-checksum cache's scratch file
 #endif
 #include "Lib/Clock.h"
+#include <exception>
 
 #include "Lib/WideCharFns.h"
 
@@ -1045,7 +1047,14 @@ void GameEngine::init( int argc, char *argv[] )
 		// The first place the archives can answer it, and before anything builds a path under
 		// Data\<language>: GlobalLanguage, GameText, the CommandMap, speech and localized art all ask after this.
 		{
-			const AsciiString registryLanguage = GetRegistryLanguage();
+			AsciiString registryLanguage = GetRegistryLanguage();
+			AsciiString named;
+			if (!GetStringFromRegistry( "", "Language", named ))
+			{
+				const AsciiString shipped = TheFileSystem->zeroHourLanguage();
+				if (!shipped.isEmpty())
+					registryLanguage = shipped;
+			}
 			const AsciiString language = TheFileSystem->installedLanguage( registryLanguage );
 			if (language.isEmpty())
 			{
@@ -1055,11 +1064,10 @@ void GameEngine::init( int argc, char *argv[] )
 				_exit(1);
 			}
 			if (language.compareNoCase( registryLanguage ) != 0)
-			{
 				DEBUG_LOG(("GameEngine::init - Language=%s has no Data\\%s\\Language.ini, using %s\n",
 					registryLanguage.str(), registryLanguage.str(), language.str()));
+			if (language.compareNoCase( GetRegistryLanguage() ) != 0)
 				SetRegistryLanguage( language );
-			}
 		}
 
 		initSubsystem(TheWritableGlobalData, "TheWritableGlobalData", MSGNEW("GameEngineSubsystem") GlobalData(), &xferCRC, "Data\\INI\\Default\\GameData.ini", "Data\\INI\\GameData.ini");
@@ -1097,7 +1105,7 @@ void GameEngine::init( int argc, char *argv[] )
 		ini.load( AsciiString( "Data\\INI\\Water.ini" ), INI_LOAD_OVERWRITE, &xferCRC );
 		// Visual material rules have their own parser, shared with the standalone preview.
 		// They do not change gameplay state or the legacy map WaterTransparency values.
-#if defined(__linux__)
+#if ZH_MODERN_WATER
 		loadModernWaterSettings();
 #endif
 		ini.load( AsciiString( "Data\\INI\\Default\\Weather.ini" ), INI_LOAD_OVERWRITE, &xferCRC );
@@ -1177,6 +1185,8 @@ void GameEngine::init( int argc, char *argv[] )
 		// -modfactions: each mod's own Rank.ini, the table its factions climb (RankInfoStore::getRankInfo)
 		initFactionSubsystem(TheRankInfoStore,"TheRankInfoStore", MSGNEW("GameEngineSubsystem") RankInfoStore(), &xferCRC, NULL, "Data\\INI\\Rank.ini");
 		initFactionSubsystem(ThePlayerTemplateStore,"ThePlayerTemplateStore", MSGNEW("GameEngineSubsystem") PlayerTemplateStore(), &xferCRC, "Data\\INI\\Default\\PlayerTemplate.ini", "Data\\INI\\PlayerTemplate.ini");
+		// The fork's own factions: a new name is added after EA's, an existing one is edited in place
+		ini.load( AsciiString( "Data\\INI\\PlayerTemplateReforged.ini" ), INI_LOAD_MULTIFILE, &xferCRC );
 		initSubsystem(TheParticleSystemManager,"TheParticleSystemManager", createParticleSystemManager(), NULL);
 
 	#ifdef DUMP_PERF_STATS///////////////////////////////////////////////////////////////////////////
@@ -1198,6 +1208,9 @@ void GameEngine::init( int argc, char *argv[] )
 			 one of EA's that nothing fires broke under a mod whose Weapon.ini leaves it out (Contra's Paladin
 			 found no infantry laser and crashed); a new name here exists whatever Weapon.ini loaded. */
 		ini.load( AsciiString( "Data\\INI\\WeaponReforged.ini" ), INI_LOAD_OVERWRITE, &xferCRC );
+		/* Turkiye's own weapons.  OVERWRITE rather than MULTIFILE: a patch file may only edit a weapon
+			 that exists, and every one of these is new. */
+		ini.load( AsciiString( "Data\\INI\\TurkiyeWeaponReforged.ini" ), INI_LOAD_OVERWRITE, &xferCRC );
 		initFactionSubsystem(TheObjectCreationListStore,"TheObjectCreationListStore", MSGNEW("GameEngineSubsystem") ObjectCreationListStore(), &xferCRC, "Data\\INI\\Default\\ObjectCreationList.ini", "Data\\INI\\ObjectCreationList.ini");
 		/* Lists EA left out or got wrong, before any object names one: a list parsed again is cleared
 			 and replaced whole, and a new name is simply added. */
@@ -1230,6 +1243,8 @@ void GameEngine::init( int argc, char *argv[] )
 		/* Mistakes in EA's data for the nine generals, patched the same way: a copy that missed the
 			 original's change, a wrong faction's sound, an icon naming an upgrade that does not exist. */
 		ini.load( AsciiString( "Data\\INI\\FixesReforged.ini" ), INI_LOAD_MULTIFILE, &xferCRC );
+		// Turkiye's objects, reskins of the American ones, so they come after the balance and fixes they copy
+		ini.load( AsciiString( "Data\\INI\\TurkiyeReforged.ini" ), INI_LOAD_MULTIFILE, &xferCRC );
 
 	#ifdef DUMP_PERF_STATS///////////////////////////////////////////////////////////////////////////
 	GetPrecisionTimer(&endTime64);//////////////////////////////////////////////////////////////////
@@ -1263,6 +1278,8 @@ void GameEngine::init( int argc, char *argv[] )
 			 keep their whole AIData there, as retail does, and End of Days' AIData.ini is an empty block. */
 		INI::loadModPasses( "Data\\INI\\Default\\AIData.ini", &xferCRC );
 		INI::loadModPasses( "Data\\INI\\AIData.ini", &xferCRC );
+		// SideInfo and SkirmishBuildList for the fork's factions: a side named again is edited, a new one added
+		ini.load( AsciiString( "Data\\INI\\AIDataReforged.ini" ), INI_LOAD_MULTIFILE, &xferCRC );
 		initSubsystem(TheGameLogic,"TheGameLogic", createGameLogic(), NULL);
 		initSubsystem(TheTeamFactory,"TheTeamFactory", MSGNEW("GameEngineSubsystem") TeamFactory(), NULL);
 		initSubsystem(TheCrateSystem,"TheCrateSystem", MSGNEW("GameEngineSubsystem") CrateSystem(), &xferCRC, "Data\\INI\\Default\\Crate.ini", "Data\\INI\\Crate.ini");
@@ -1284,6 +1301,7 @@ void GameEngine::init( int argc, char *argv[] )
 		AsciiString fname;
 		fname.format("Data\\%s\\CommandMap.ini", GetRegistryLanguage().str());
 		initSubsystem(TheMetaMap,"TheMetaMap", MSGNEW("GameEngineSubsystem") MetaMap(), NULL, fname.str(), NULL);
+		TheMetaMap->keepArrowsForCamera();
 
 #if defined(_DEBUG) || defined(_INTERNAL)
 		ini.load("Data\\INI\\CommandMapDebug.ini", INI_LOAD_MULTIFILE, NULL);
@@ -3431,7 +3449,27 @@ void GameEngine::execute( void )
 					catch (...)
 					{
 					}
-					RELEASE_CRASH(("Uncaught Exception in GameEngine::update"));
+					/* A C++ throw carries no exception record, so the report's "Last error" stayed empty
+						 and named nothing (crash reports 1194 and 1198, both Shockwave Chaos matches).  Say
+						 what was thrown; a fault the SEH translator dumped keeps the old reason. */
+					char why[ 160 ];
+					try
+					{
+						throw;
+					}
+					catch (ErrorCode ec)
+					{
+						snprintf( why, sizeof(why), "Uncaught ErrorCode 0x%08x in GameEngine::update", (UnsignedInt)ec );
+					}
+					catch (const std::exception &e)
+					{
+						snprintf( why, sizeof(why), "Uncaught std::exception in GameEngine::update: %s", e.what() );
+					}
+					catch (...)
+					{
+						snprintf( why, sizeof(why), "Uncaught Exception in GameEngine::update" );
+					}
+					RELEASE_CRASH((why));
 				}	// catch
 				tFrameEnd = Clock_Ticks();
 				// from the last picture an earlier part of the pass presented, if it presented any

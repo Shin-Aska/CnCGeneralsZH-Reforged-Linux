@@ -37,6 +37,7 @@
 #include "WW3D2/streak.h"
 #include "WW3D2/rinfo.h"
 #include "WWLib/bittype.h"
+#include "Platform/ModernWaterBuild.h"
 
 #include <vector>
 
@@ -73,6 +74,7 @@ private:
 	ShareBufferClass<Vector4> *m_RGBABuffer;		///< array of particle color and alpha
 	ShareBufferClass<float> *m_sizeBuffer;			///< array of particle sizes
 	ShareBufferClass<uint8> *m_angleBuffer;			///< array of particle orientations
+	ShareBufferClass<uint8> *m_frameBuffer;			///< array of particle flipbook frames
 	Bool m_readyToRender;											///< if true, it is OK to render
 
 public:
@@ -90,6 +92,7 @@ public:
 		Int																			drawn;						///< written by the job
 		UnsignedInt															pastLimit;				///< written by the job: on-screen particles past capacity
 		Bool																		glow;							///< written by the job: the fire's glow is in the normals, not the colour
+		Bool																		fire;							///< the template's FireLook: each particle's age and seed go in v2
 	};
 
 	/// One particle the sun's smoke map can take, as the last particle update left it.
@@ -110,7 +113,7 @@ private:
 	{
 		ParticleSystem *	system;
 		Real							fade;				///< ParticleSystem::getStealthFade, above zero
-#if defined(__linux__)
+#if ZH_MODERN_WATER
 		ObjectID owner;					///< vessel foam's attached object at the sync point
 #endif
 	};

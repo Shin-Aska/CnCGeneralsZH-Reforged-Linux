@@ -696,7 +696,15 @@ TextureClass * W3DAssetManager::Recolor_Texture_One_Time(TextureClass *texture, 
 
 	Int psize;
 	psize=PixelSize(desc);
-	DEBUG_ASSERTCRASH( psize == 2 || psize == 4, ("Can't Recolor Texture %s", name) );
+	// The palette remap reads 16- and 32-bit pixels and nothing else.  A mod's house-colour texture
+	// shipped compressed (DXT) or in another format has nothing it can remap, and Direct3D 9 refuses
+	// the scratch surface for some of them (a DXT image whose sides are not multiples of 4), which
+	// left newsurf without a surface for Copy to crash on.  The unit keeps the texture uncoloured.
+	if (psize != 2 && psize != 4)
+	{
+		DEBUG_LOG(("Can't recolor texture %s: format %d is not 16 or 32 bit\n", name, (Int)desc.Format));
+		return NULL;
+	}
 
 	oldsurf=texture->Get_Surface_Level();
 
@@ -966,6 +974,10 @@ int W3DAssetManager::Recolor_Mesh(RenderObjClass *robj, const int color)
 		strncasecmp(meshName,"HOUSECOLOR", 10) == 0)
 	{	for (i=0; i<material->Vertex_Material_Count(); i++)
 			Recolor_Vertex_Material(material->Peek_Vertex_Material(i),color);
+		// The whole mesh is the side's colour, so the whole mesh glows (Direct3D 11 only).  The model
+		// is this recoloured prototype's own: Make_Mesh_Unique cloned it.
+		if (TheGlobalData->m_teamGlow)
+			model->Set_Flag(MeshGeometryClass::TEAM_GLOW, true);
 		didRecolor=1;
 	}
 

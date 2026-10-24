@@ -44,6 +44,7 @@
 #include "Common/GameCommon.h"
 #include "Common/Money.h"
 #include "Common/WindowMode.h"
+#include "GameClient/RadiusDecal.h"
 
 // FORWARD DECLARATIONS ///////////////////////////////////////////////////////////////////////////
 struct FieldParse;
@@ -51,10 +52,119 @@ enum _TerrainLOD : Int;
 class GlobalData;
 class INI;
 class WeaponBonusSet;
+class ThingTemplate;
 enum BodyDamageType : Int;
 enum AIDebugOptions : Int;
 
 // PUBLIC /////////////////////////////////////////////////////////////////////////////////////////
+
+/// the sides whose ranks carry their own bonuses (m_veterancyWeaponBonus and the rest)
+enum VeterancySide
+{
+	VETERANCY_SIDE_NONE = -1,
+	VETERANCY_SIDE_AMERICA,
+	VETERANCY_SIDE_CHINA,
+	VETERANCY_SIDE_GLA,
+	VETERANCY_SIDE_TURKIYE,
+
+	VETERANCY_SIDE_COUNT
+};
+
+/// America, China, GLA, Turkiye: the side in each rank insignia's image name and each rank's label
+extern const char *const TheVeterancySideNames[VETERANCY_SIDE_COUNT];
+
+enum { RANK_GRADES_MAX = 32 };	///< promotions a side's ladder may have; America's 28 is the longest
+
+/// the stats a grade carries, each looked up per grade in RankLadder::m_stat
+enum RankStat
+{
+	RANK_STAT_RATE_OF_FIRE,
+	RANK_STAT_DAMAGE,
+	RANK_STAT_HEALTH,
+	RANK_STAT_RANGE,
+	RANK_STAT_SPEED,
+	RANK_STAT_SELF_REPAIR,		///< share of max health healed a second, not a multiplier
+
+	RANK_STAT_COUNT
+};
+
+/** What a grade carries besides its stats, the Perk_<side> lines.  A grade holds every perk of the
+	* grades below it, and of one kind the strongest, so a later line of the same kind replaces an
+	* earlier one by being larger. */
+enum RankPerk
+{
+	RANK_PERK_SIGHT,							///< own shroud clearing, a multiplier
+	RANK_PERK_STILL_GUARD,				///< share of damage taken away while standing still
+	RANK_PERK_MEND,								///< share of max health healed a second once SelfRepairDelay unhurt
+	RANK_PERK_SPOTTER,						///< sees as a spotter does (ThingTemplate SpotterSight), and is jammed as one
+	RANK_PERK_SCATTER,						///< share of its own weapons' scatter taken away
+	RANK_PERK_DEATH_RALLY,				///< on death, allies within its aura radius take this share less damage for RallyTime
+	RANK_PERK_DETECT,							///< stealthed enemies within this radius are detected
+	RANK_PERK_AURA_RADIUS,				///< its aura radius, a multiplier
+	RANK_PERK_AURA_RATE_OF_FIRE,	///< the first of the aura perks, in RankAura order
+	RANK_PERK_AURA_SIGHT,
+	RANK_PERK_AURA_GUARD,
+	RANK_PERK_AURA_RANGE,
+
+	RANK_PERK_COUNT
+};
+
+/** A leader's bonus to friendly units within its aura radius, refilled once a second.  Of one kind a
+	* unit takes the strongest leader's and nothing more.  RALLY is the death rally, timed instead. */
+enum RankAura
+{
+	RANK_AURA_RATE_OF_FIRE,				///< added to weapon rate of fire, up to RankAuraRateOfFireCap
+	RANK_AURA_SIGHT,							///< shroud clearing, 1 + this
+	RANK_AURA_GUARD,							///< damage taken, 1 - this
+	RANK_AURA_RANGE,							///< an artillery weapon's range, added
+	RANK_AURA_RALLY,							///< damage taken, 1 - this, until the rally runs out
+
+	RANK_AURA_COUNT,
+	RANK_AURA_PASSED = RANK_AURA_RALLY	///< the kinds the once-a-second pass writes
+};
+
+extern const char *const TheRankPerkNames[RANK_PERK_COUNT + 1];
+extern const char *const TheRankAuraNames[RANK_AURA_COUNT];
+
+/** One side's rank ladder, the Veterancy block in BalanceReforged.ini (docs/plans/RANK-LADDER.md).
+	* A unit's grade is a pure function of its experience and its template's E, its regular
+	* ExperienceValue: the step to grade g costs E x ratio^(g-1), the ratio set so the top grade costs
+	* m_top x E. EA's level follows the grade through the pins. Nothing here is saved; the grade is
+	* recomputed from the experience whenever it is needed. */
+struct RankLadder
+{
+	Int		m_grades;													///< promotions; 0 is a side without a ladder, on EA's four levels
+	Real	m_top;														///< experience to the top grade, in same-class kills (E)
+	Int		m_pin[LEVEL_COUNT];								///< the grade each EA level starts on; m_pin[LEVEL_REGULAR] is 0
+	Int		m_heroStart;											///< the insignia a hero wears at grade 0
+	Real	m_statTop[RANK_STAT_COUNT];				///< each stat at the top of the ladder
+	Real	m_auraRadius;											///< a leader's aura radius before RANK_PERK_AURA_RADIUS
+	Real	m_perkAt[RANK_GRADES_MAX + 1][RANK_PERK_COUNT];	///< the perks a grade's own lines name, 0 for none
+
+	// filled by finish()
+	Real	m_ratio;
+	Real	m_total[RANK_GRADES_MAX + 1];			///< experience to hold grade g, in E
+	Real	m_stat[RANK_GRADES_MAX + 1][RANK_STAT_COUNT];	///< each stat at grade g
+	Real	m_perk[RANK_GRADES_MAX + 1][RANK_PERK_COUNT];	///< each perk grade g holds, the strongest of its grade and those below
+
+	void clear();
+	/** The ratio from m_grades and m_top, the totals, and the stats: worth (rate of fire times damage
+		* times health) is 1 + worthGain x sqrt(experience / top) at each grade's experience, and every
+		* stat is its top value raised to ln(worth) / ln(worth at the top), so the split holds all the way up. */
+	void finish( Real worthGain );
+	Int threshold( Int unitValue, Int grade ) const;						///< experience to hold the grade, rounded once
+	Int gradeOf( Int unitValue, Int experience ) const;					///< the highest grade the experience holds
+	VeterancyLevel levelOf( Int grade ) const;									///< the EA level whose pin the grade has passed
+	/** A gain clipped one point short of the second threshold above the current grade, so one kill
+		* lifts one grade at most. Experience past the next-to-last grade is not clipped. */
+	Int clipGain( Int unitValue, Int experience, Int gain ) const;
+	Int insigniaIndex( Int grade, Bool hero ) const;						///< a hero's insignia runs from m_heroStart to the top over its grades
+	Real perk( Int grade, RankPerk perk ) const;								///< what the grade holds of the kind, 0 for nothing
+	Real auraRadius( Int grade ) const;													///< m_auraRadius times the AURA_RADIUS perk
+	Real aura( Int grade, RankAura aura ) const;								///< what a leader of this grade gives; RALLY is its death rally
+
+	static Int unitValue( const ThingTemplate *thing );				///< E: the regular ExperienceValue, else half the Veteran threshold, at least 1
+};
 
 const Int MAX_GLOBAL_LIGHTS	= 3;
 
@@ -89,8 +199,10 @@ enum TextLanguageType
 	TEXT_LANGUAGE_ENGLISH	= 0,
 	TEXT_LANGUAGE_TURKISH	= 1,
 	TEXT_LANGUAGE_GERMAN	= 2,
+	TEXT_LANGUAGE_UKRAINIAN	= 3,
+	TEXT_LANGUAGE_RUSSIAN	= 4,
 
-	TEXT_LANGUAGE_COUNT		= 3,
+	TEXT_LANGUAGE_COUNT		= 5,
 };
 
 /** The LightingStyle option.  Classic draws a map's lights as the map gives them; Reforged takes
@@ -142,6 +254,7 @@ public:
 	Int getEffectiveParticleCap() const { return (m_particleCapOverride > 0) ? m_particleCapOverride : m_maxParticleCount; }
 
 	static void parseGameDataDefinition( INI* ini );
+	static void parseVeterancyDefinition( INI* ini );	///< the Veterancy block, m_veterancy*
 
 	//-----------------------------------------------------------------------------------------------
 	struct TerrainLighting
@@ -209,11 +322,11 @@ public:
 	Bool m_shadowsForParticles;		// "ShadowsForParticles": big alpha-blended particle clouds drop a soft blob on the ground
 	Bool m_volumetricSmokeShadows;	// "VolumetricSmokeShadows": smoke and dust shade the world and themselves through the sun's map (Direct3D 11)
 	Bool m_smokeFireLighting;		// "SmokeFireLighting": smoke takes light from the fire beside it
-	Int m_waterStyle;					// "WaterStyle": 0 = Classic, 1 = Modern (SDL); applied between render frames
+	Int m_waterStyle;					// "WaterStyle": 0 = Classic, 1 = Modern (when supported); applied between render frames
 #if defined(__linux__)
-	Int m_waterReflection;			// "WaterReflection": 0 = Legacy, 1 = SSR, 2 = Hybrid (legacy + SSR); Modern water
+	Int m_waterReflection;			// "WaterReflection": 0 = Legacy, 1 = SSR, 2 = Hybrid, 3 = experimental path tracing; Modern water
 #endif
-	Int m_cloudStyle;					// "CloudStyle": 0 = Classic, 1 = Volumetric toxin/radiation clouds (SDL); visual only
+	Int m_cloudStyle;					// "CloudStyle": 0 = Classic, 1 = Volumetric (when supported); visual only
 	Bool m_explosionDebrisTrails;	// "DebrisTrails": blasts throw smoke-trailing fragments and burning shrapnel
 	Int m_shadowQuality;				// "ShadowQuality": the sun's depth map at 1024, 2048 or 4096 texels a side (Direct3D 11)
 	Bool m_classicGraphics;				// "ClassicGraphics": the game's own art, tile, shadows and picture; read at startup
@@ -535,11 +648,34 @@ public:
 	Bool m_skirmishLobbyOnStart;			///< -skirmishlobby: open the skirmish staging room instead of stopping at the main menu
 	Bool m_optionsMenuOnStart;				///< -optionsmenu: open the options screen over the main menu at startup
 	Bool m_randomMapsInMenus;					///< -randommaps: offer the generated maps in the map lists (off until the generator is finished)
+	Bool m_mapLight;								///< "MapLight": warm low sun, ground haze and aircraft wakes (Direct3D 11, client only)
+	Bool m_teamGlow;								///< "TeamGlow": bright house colour glows (Direct3D 11, client only)
+	Bool m_waterFoam;								///< "WaterFoam": foam, shore band and the sun's shadow on water (Direct3D 11, client only)
 
 	Int m_maxParticleCount;						///< maximum number of particles that can exist
 	Int m_maxFieldParticleCount;			///< maximum number of field-type particles that can exist (roughly)
 	WeaponBonusSet* m_weaponBonusSet;
 	Real m_healthBonus[LEVEL_COUNT];			///< global bonuses to health for veterancy.
+
+	/** The rank ladders, the Veterancy block in BalanceReforged.ini.  A unit whose template's Side starts
+		* with America, China or GLA (so every general's copy too) climbs its side's ladder, and its stats
+		* come from the grade instead of EA's VETERAN, ELITE and HERO lines and HealthBonus_*; Boss and
+		* civilian units keep EA's.  A side's weapon table holds what the grade does not (China's HORDE)
+		* and counts from the Veteran pin on. */
+	RankLadder m_rankLadder[VETERANCY_SIDE_COUNT];
+	Real m_rankWorthGain;																					///< worth at the top of every ladder is 1 + this
+	Int m_rankCrateGrades;																				///< grades a veterancy crate gives per EA level it would have
+	WeaponBonusSet* m_veterancyWeaponBonus[VETERANCY_SIDE_COUNT];	///< NULL: nothing beyond the grade
+	UnsignedInt m_veterancySelfRepairDelay;												///< frames unhurt before self-repair starts
+	Real m_rankAuraRateOfFireCap;																	///< the most a rate-of-fire aura adds
+	UnsignedInt m_rankRallyTime;																	///< frames a death rally lasts
+	RadiusDecalTemplate m_rankAuraRing[RANK_AURA_COUNT];					///< the ground ring under a selected leader, one per aura kind (client)
+
+	static VeterancySide veterancySideOf( const ThingTemplate *thing );
+	const RankLadder *getRankLadder( const ThingTemplate *thing ) const;	///< NULL: the thing's side keeps EA's levels
+	const WeaponBonusSet *getVeterancyWeaponBonus( const ThingTemplate *thing, VeterancyLevel level ) const;
+	Real getRankStat( const ThingTemplate *thing, Int grade, RankStat stat ) const;	///< the grade's stat, or none without a ladder
+	Real getRankHealthBonus( const ThingTemplate *thing, VeterancyLevel level, Int grade ) const;	///< the grade's on a ladder, else HealthBonus_*
 	Real m_defaultStructureRubbleHeight;	///< for rubbled structures, compress height to this if none specified
 
 	AsciiString m_shellMapName;				///< Holds the shell map name

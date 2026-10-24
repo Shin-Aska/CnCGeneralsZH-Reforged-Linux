@@ -506,6 +506,18 @@ Bool DumbProjectileBehavior::calcFlightPath(Bool recalcNumSegments)
 	{
 		retailSegments = m_flightPathSegments > 1 ? (m_flightPathSegments - 1) / LOGICFRAMES_PER_RETAIL_FRAME + 1 : m_flightPathSegments;
 	}
+	// A speed of zero or next to it (every crash report of this ran End of Days) asks for a flight of hundreds of
+	// millions of frames, or an infinite one that comes back as INT_MIN. The path that size needs is
+	// gigabytes, and a request past 2 GB came back from the allocator short and was written past its
+	// end. Ten minutes of flight is more than any shell flies; past that the path is as wrong as one
+	// off the map.
+	const Int MAX_RETAIL_SEGMENTS = 10 * 60 * RETAIL_LOGICFRAMES_PER_SECOND;
+	if (retailSegments < 0 || retailSegments > MAX_RETAIL_SEGMENTS)
+	{
+		DEBUG_LOG(("DumbProjectileBehavior: '%s' asked for a flight of %d frames at speed %g, dropped\n",
+			getObject()->getTemplate()->getName().str(), retailSegments, m_flightPathSpeed));
+		return false;
+	}
 	VecCoord3D retailPath;
 	flightCurve.getSegmentPoints( retailSegments, &retailPath );
 	m_flightPathSegments = retailSegments > 1 ? (retailSegments - 1) * LOGICFRAMES_PER_RETAIL_FRAME + 1 : retailSegments;

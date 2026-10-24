@@ -485,7 +485,7 @@ bool SdlGpuFrame::Record_Passes(SDL_GPUCommandBuffer * commands, SDL_GPUBuffer *
 			break;
 		}
 		if (command->IsDepthSnapshot) {
-			if (!Resolve_Water_Depth(commands, command->BlitSource, command->BlitDestination,
+			if (!Resolve_Scene_Depth(commands, command->BlitSource, command->BlitDestination,
 				(unsigned int)command->Rect[2], (unsigned int)command->Rect[3])) return false;
 			continue;
 		}

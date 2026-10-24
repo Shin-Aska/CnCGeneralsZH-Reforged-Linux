@@ -123,6 +123,19 @@ static void parseRetailPerFrameFactorRandom( INI *ini, void *instance, void *sto
 	scaleRandomVariable( store, ConvertRetailPerFrameFactor );
 }
 
+/// "FlipbookGrid": frames a side, kept as its log2 because the point group's frame tables are indexed
+/// that way.  1 is a plain card; anything but a power of two up to 16 stops the load.
+static void parseFlipbookGrid( INI *ini, void * /*instance*/, void *store, const void * /*userData*/ )
+{
+	const UnsignedInt side = INI::scanUnsignedInt( ini->getNextToken() );
+	UnsignedByte log2 = 0;
+	while (log2 < 4 && (1u << log2) < side)
+		++log2;
+	if ((1u << log2) != side)
+		throw INI_INVALID_DATA;
+	*(UnsignedByte *)store = log2;
+}
+
 static void parseRetailPerFrameSquaredReal( INI *ini, void *instance, void *store, const void *userData )
 {
 	INI::parseReal( ini, instance, store, userData );
@@ -373,6 +386,13 @@ Particle::Particle( ParticleSystem *system, const ParticleInfo *info )
 	m_createTimestamp = TheGameClient->getFrame();
 	m_personality = 0;
 
+	// Drawn only when the system's template is a flipbook that asks for it, so every other system
+	// leaves the client's random stream as it was.
+	const ParticleSystemTemplate *flipbook = system->getTemplate();
+	m_flipbookStart = 0;
+	if (flipbook->getFlipbookGridLog2() != 0 && flipbook->isFlipbookRandomStart())
+		m_flipbookStart = (UnsignedByte)GameClientRandomValue( 0, ( 1 << ( 2 * flipbook->getFlipbookGridLog2() ) ) - 1 );
+
 	m_size = info->m_size;
 	m_sizeRate = info->m_sizeRate;
 	m_sizeRateDamping = info->m_sizeRateDamping;
@@ -429,6 +449,26 @@ Particle::~Particle()
 	TheParticleSystemManager->removeParticle(this);
 
 	//DEBUG_ASSERTLOG(!(totalParticleCount % 100 == 0), ( "TotalParticleCount = %d\n", m_totalParticleCount ));
+}
+
+// ------------------------------------------------------------------------------------------------
+/** The age is the logic frames the particle has lived, so the frames run on the game's clock and stop
+	* with it.  A particle with no lifetime never ages and keeps its first frame.  Reads only the
+	* particle and its template, so the render's fill jobs may call it. */
+// ------------------------------------------------------------------------------------------------
+UnsignedInt Particle::getFlipbookFrame( void ) const
+{
+	const ParticleSystemTemplate *flipbook = m_system->getTemplate();
+	const UnsignedInt frames = 1u << ( 2 * flipbook->getFlipbookGridLog2() );
+	if (frames == 1 || m_lifetime == 0)
+		return m_flipbookStart;
+
+	const UnsignedInt age = m_lifetime - m_lifetimeLeft;
+	if (flipbook->getFlipbookRate() > 0.0f)
+		return ( m_flipbookStart + (UnsignedInt)( age * flipbook->getFlipbookRate() * SECONDS_PER_LOGICFRAME_REAL ) ) % frames;
+
+	const UnsignedInt frame = m_flipbookStart + (UnsignedInt)( (Real)age / (Real)m_lifetime * (Real)( frames - m_flipbookStart ) );
+	return frame < frames ? frame : frames - 1;
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -2737,6 +2777,10 @@ Bool ParticleSystem::shouldCastGroundShadow( void ) const
 	if (m_shaderType != ALPHA && m_shaderType != ALPHA_TEST)
 		return FALSE;
 
+	// a fireball's body gives light and throws no shadow
+	if (m_template->isEmissive())
+		return FALSE;
+
 	// the sun's map holds this cloud already and shades the ground under it through its own density
 	if (m_inSunMap)
 		return FALSE;
@@ -3367,6 +3411,11 @@ const FieldParse ParticleSystemTemplate::m_fieldParseTable[] =
 	{ "SlavePosOffset",					INI::parseCoord3D,														NULL,		offsetof( ParticleSystemTemplate, m_slavePosOffset ) },
 	{ "PerParticleAttachedSystem",		INI::parseAsciiString,								NULL,		offsetof( ParticleSystemTemplate, m_attachedSystemName ) },
 	{ "ExplosionDebrisTrail",				INI::parseBool,												NULL,		offsetof( ParticleSystemTemplate, m_explosionDebrisTrail ) },
+	{ "FireLook",										INI::parseBool,												NULL,		offsetof( ParticleSystemTemplate, m_fireLook ) },
+	{ "Emissive",										INI::parseBool,												NULL,		offsetof( ParticleSystemTemplate, m_emissive ) },
+	{ "FlipbookGrid",								parseFlipbookGrid,										NULL,		offsetof( ParticleSystemTemplate, m_flipbookGridLog2 ) },
+	{ "FlipbookRate",								INI::parseReal,												NULL,		offsetof( ParticleSystemTemplate, m_flipbookRate ) },
+	{ "FlipbookRandomStart",				INI::parseBool,												NULL,		offsetof( ParticleSystemTemplate, m_flipbookRandomStart ) },
 
 	{ "Lifetime",								parseRetailFramesRandom,	NULL,		offsetof( ParticleSystemTemplate, m_lifetime ) },
 	{ "SystemLifetime",					INI::parseRetailFramesUnsignedInt,						NULL,		offsetof( ParticleSystemTemplate, m_systemLifetime ) },
@@ -3540,6 +3589,11 @@ ParticleSystemTemplate::ParticleSystemTemplate( const AsciiString &name ) :
 	m_slaveTemplate = NULL;
 	//
 	m_explosionDebrisTrail = FALSE;
+	m_fireLook = FALSE;
+	m_emissive = FALSE;
+	m_flipbookGridLog2 = 0;
+	m_flipbookRate = 0.0f;
+	m_flipbookRandomStart = FALSE;
 }
 
 // ------------------------------------------------------------------------------------------------

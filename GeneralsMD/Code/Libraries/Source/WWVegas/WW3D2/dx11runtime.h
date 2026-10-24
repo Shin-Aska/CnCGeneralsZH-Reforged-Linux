@@ -110,6 +110,10 @@ DX11BufferTwinClass * Direct3D11_Twin_Index_Buffer(unsigned byte_count, bool dyn
 // first bind and kept on it, so nothing in the loaders has to know this exists.
 void Direct3D11_Mirror_Texture(unsigned stage, struct IDirect3DBaseTexture9 * texture);
 
+// The shroud texture the terrain draws its fog with, handed to the Warm Light haze with the
+// terrain's world to texture mapping (DX11Post_Set_Haze_Shroud).  Null reads everything as in sight.
+void Direct3D11_Set_Haze_Shroud(struct IDirect3DBaseTexture9 * texture, const float rect[4]);
+
 // The vehicle headlights for the frame, nearest the camera first, eight floats each: world
 // position, reach, world direction, cosine of the cone's edge; and what a pixel gains per channel
 // per unit of their light.  A Direct3D 9 run ignores them.
@@ -170,6 +174,18 @@ void Direct3D11_Set_Scene_View(const float view[16]);
 // The draws that follow carry a fire's glow in their normals, to be added after the shade
 // (DX11BackendClass::Set_Smoke_Glow).  The sorting pool sets it around the smoke billboards' runs.
 void Direct3D11_Set_Smoke_Glow(bool glow);
+
+// The draws that follow are a fire or explosion system's billboards, with each particle's age and
+// seed in the second coordinate set (DX11BackendClass::Set_Fire_Look).  The sorting pool sets it.
+void Direct3D11_Set_Fire_Look(bool fire);
+
+// The draws that follow are an Emissive particle system's billboards, which take no shadow and no
+// smoke shade (DX11BackendClass::Set_Emissive).  The sorting pool sets it.
+void Direct3D11_Set_Emissive(bool emissive);
+
+// The draws that follow are a house colour mesh that glows past white for the bloom
+// (DX11BackendClass::Set_Team_Glow, the Team Glow option).  The mesh renderer sets it around the mesh.
+void Direct3D11_Set_Team_Glow(bool glow);
 
 // The look one object's draws are dressed in (DRAW_EFFECT_* in ffshader.h) and its four numbers
 // (DX11BackendClass::Set_Draw_Effect).  The mesh renderer sets it around a mesh's draws and puts
@@ -316,6 +332,11 @@ void Direct3D11_Register_Engine_Shader(const void * shader, const char * file_pa
 void Direct3D11_Mirror_Vertex_Shader_Constant(unsigned first_register, const float * values,
 	unsigned count);
 
+// The Modern water's pixel registers, c0 to the last hull packet (DX11_WATER_REGISTERS), which
+// W3DWater sets for its own draws and nothing else reads; and what its draws did, for the log.
+void Direct3D11_Set_Water_Constants(unsigned first_register, const float * values, unsigned count);
+std::string Direct3D11_Water_Report();
+
 // The draw, made alongside the Direct3D 9 one rather than instead of it: phase 2 is finished when
 // the D3D11 picture can replace the D3D9 one, and until then both have to be able to produce it.
 // False means the backend could not resolve a pipeline for this state and drew nothing, which is
@@ -356,7 +377,10 @@ void Direct3D11_Statistics(unsigned & pipelines_built, unsigned long long & draw
 
 // How many compiled programs came with the game (dx11shaders.shipped) and how many the backend holds now,
 // shipped, cached and compiled together: a run whose held count exceeds the shipped one compiled something.
-void Direct3D11_Program_Statistics(unsigned & shipped, unsigned & held);
+// Of those compiled, how many the worker built off the frame, the longest one from queue to landing, and
+// the draws left out while they were built.
+void Direct3D11_Program_Statistics(unsigned & shipped, unsigned & held, unsigned & off_frame,
+	double & longest_milliseconds, unsigned long long & draws_waited);
 
 // What the frame since the last call spent building pipelines and copying textures, and how many
 // of each, how many times the soft particles copied the scene's depth, and how many constant blocks

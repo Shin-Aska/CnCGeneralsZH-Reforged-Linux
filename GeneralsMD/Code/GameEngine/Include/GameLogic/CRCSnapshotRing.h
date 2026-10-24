@@ -45,6 +45,28 @@ struct CRCObjectEntry
 	Real m_health;
 };
 
+/* Every object's running CRC can agree and the world CRC still differ (the v3.2.0 reports 1127/1134,
+	 1143/1148 and 1264/1265 did): then what split is something getCRC folds in after the objects.  So
+	 keep the running CRC at the end of each part as well, in getCRC's order, and the first section
+	 that differs between two dumps names the part. */
+enum CRCSection
+{
+	CRC_SECTION_OBJECTS,			///< after the object walk
+	CRC_SECTION_PARTITION,		///< after the logic random seed and the partition manager's shroud
+	CRC_SECTION_PLAYERS,			///< after the player list: battle plans, skill and science points, money
+	CRC_SECTION_AI,						///< after the pathfinder, the AI data and the AI groups
+	CRC_SECTION_SCRIPTS,			///< after the script engine
+	CRC_SECTION_COUNT
+};
+
+/// the player list's CRCed numbers, so a dump says which purse or which points moved
+struct CRCPlayerEntry
+{
+	UnsignedInt m_money;
+	Int m_skillPoints;
+	Int m_sciencePurchasePoints;
+};
+
 struct CRCSnapshot
 {
 	UnsignedInt m_frame;
@@ -52,6 +74,8 @@ struct CRCSnapshot
 	UnsignedInt m_randomSeed;
 	Bool m_valid;										///< FALSE until endSnapshot() closes it
 	std::vector<CRCObjectEntry> m_objects;
+	UnsignedInt m_sectionCRC[ CRC_SECTION_COUNT ];	///< world CRC at the end of each CRCSection
+	std::vector<CRCPlayerEntry> m_players;					///< by player index
 };
 
 //-------------------------------------------------------------------------------------------------
@@ -68,6 +92,8 @@ public:
 	void beginSnapshot( UnsignedInt frame );										///< start filling the next slot
 	void addObject( UnsignedInt id, UnsignedInt runningCRC,
 									Real x, Real y, Real z, Real health );				///< record one object's running CRC
+	void setSectionCRC( CRCSection section, UnsignedInt runningCRC );	///< record the world CRC at a section's end
+	void addPlayer( UnsignedInt money, Int skillPoints, Int sciencePurchasePoints );	///< record the next player's numbers
 	void endSnapshot( UnsignedInt totalCRC, UnsignedInt randomSeed );	///< close the slot being filled
 
 	Int getNewestSlot( void ) const;														///< -1 when no snapshot is complete

@@ -45,6 +45,7 @@
 #include "GameClient/GameText.h"
 #include "GameClient/Display.h"
 #include "GameClient/Image.h"
+#include "GameClient/Mouse.h"
 #include "GameClient/UIStyle.h"
 #include "GameLogic/GameLogic.h" // SUPERWEAPON_RESTRICT_COUNT
 #include "GameLogic/AI.h" // AIPersonality, for the personality column
@@ -874,6 +875,32 @@ static void setSeatPlayerWidth(GameWindow *window, Int width)
 		window->winSetSize(width, height);
 }
 
+static UnicodeString personaTooltip(Int persona)
+{
+	AsciiString label;
+	label.format("GUI:AIPersonaTooltip%s", aiPersonalityName((AIPersonality)persona));
+	return TheGameText->fetch(label);
+}
+
+// the box's own text, its arrow and its edit field all say what the picked personality does
+static void personaComboTooltip(GameWindow *window, WinInstanceData *, UnsignedInt)
+{
+	GameWindow *combo = BitTest(window->winGetStyle(), GWS_COMBO_BOX) ? window : window->winGetParent();
+	Int pos = 0;
+	GadgetComboBoxGetSelectedPos(combo, &pos);
+	TheMouse->setCursorTooltip(personaTooltip((Int)(intptr_t)GadgetComboBoxGetItemData(combo, pos)));
+}
+
+// an open list says what the line under the pointer does
+static void personaListTooltip(GameWindow *listBox, WinInstanceData *, UnsignedInt mouse)
+{
+	Int row, col;
+	GadgetListBoxGetEntryBasedOnXY(listBox, LOLONGTOSHORT(mouse), HILONGTOSHORT(mouse), row, col);
+	if (row == -1 || col == -1)
+		return;
+	TheMouse->setCursorTooltip(personaTooltip((Int)(intptr_t)GadgetListBoxGetItemData(listBox, row, col)), 0);
+}
+
 void InitAIPersonaComboBoxes(GameWindow *parent, const char *layoutFilename,
 														 GameWindow *comboPersona[], NameKeyType comboPersonaID[])
 {
@@ -894,6 +921,10 @@ void InitAIPersonaComboBoxes(GameWindow *parent, const char *layoutFilename,
 			GadgetListBoxSetListLength(listBox, AIPERSONA_COUNT);
 		// sixteen lines from a lower seat ran off the bottom of the screen; eight and a scroll bar
 		GadgetComboBoxSetMaxDisplay(comboPersona[i], min((Int)AIPERSONA_COUNT, 8));
+		comboPersona[i]->winSetTooltipFunc(personaComboTooltip);
+		GadgetComboBoxGetEditBox(comboPersona[i])->winSetTooltipFunc(personaComboTooltip);
+		GadgetComboBoxGetDropDownButton(comboPersona[i])->winSetTooltipFunc(personaComboTooltip);
+		listBox->winSetTooltipFunc(personaListTooltip);
 
 		GadgetComboBoxReset(comboPersona[i]);
 		const Color color = comboPersona[i]->winGetEnabledTextColor();

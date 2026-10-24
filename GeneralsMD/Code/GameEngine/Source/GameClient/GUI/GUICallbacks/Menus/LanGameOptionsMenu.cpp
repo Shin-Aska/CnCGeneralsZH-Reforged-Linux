@@ -240,16 +240,19 @@ static void playerTooltip(GameWindow *window,
 	if (idx == -1)
 		return;
 
-	// was i, the loop counter above: it only escaped its scope under VC6, and the
-	// loop breaks the instant it sets idx = i, so the two are the same value here.
-	LANGameSlot *slot = TheLAN->GetMyGame()->getLANSlot(idx);
-	if (!slot)
+	// The host leaving drops the game at once, and the menu stays on screen while the shell pops it
+	// back to the lobby: a pointer resting on a slot then has no game to name a player from.
+	LANGameInfo *myGame = TheLAN->GetMyGame();
+	if (!myGame)
+	{
+		TheMouse->setCursorTooltip( UnicodeString::TheEmptyString );
 		return;
+	}
 
-	LANPlayer *player = slot->getUser();
+	LANPlayer *player = myGame->getLANSlot(idx)->getUser();
 	if (!player)
 	{
-		DEBUG_ASSERTCRASH(TheLAN->GetMyGame()->getIP(i) == 0, ("No player info in listbox!"));
+		DEBUG_ASSERTCRASH(myGame->getIP(idx) == 0, ("No player info in listbox!"));
 		TheMouse->setCursorTooltip( UnicodeString::TheEmptyString );
 		return;
 	}

@@ -460,7 +460,7 @@ Int parseMapName(char *args[], int num)
 }
 
 // parseRandomMap =============================================================
-/** -randommap <seed> [players] [cells|small|normal|large]: generate a skirmish map from the seed,
+/** -randommap <seed> [players] [cells|small|normal|large] [style]: generate a skirmish map from the seed,
 	keep it in memory under the name
 	"RMG_v<generator version>_<seed>_<players>p_<cells>c", then point -map at it.  The version is in
 	the name because it is in the bytes: a build that generates a different map from the same seed
@@ -468,8 +468,9 @@ Int parseMapName(char *args[], int num)
 	downstream has to know: the file system serves that name out of the generator, so the map cache
 	lists it like any hand-made map and -autoskirmish starts on it.  The same seed gives the same
 	map on every machine, so both sides of a network game can be handed the same command line.
-	The last argument is either a cell count outright or one of the three sizes, which are counts
-	that grow with the number of players rather than fixed ones. */
+	The size is either a cell count outright or one of the three sizes, which are counts
+	that grow with the number of players rather than fixed ones. A style name last ("twilight")
+	makes a map in that shipped map's style and adds "_<style>" to the name. */
 //=============================================================================
 Int parseRandomMap(char *args[], int num)
 {
@@ -507,6 +508,9 @@ Int parseRandomMap(char *args[], int num)
 			eaten++;
 		}
 	}
+
+	if (num > eaten && RandomMapGenerator::styleNamed( args[eaten] ) != 0)
+		settings.m_style = RandomMapGenerator::styleNamed( args[eaten++] );
 
 	AsciiString path;
 	if (!stageRandomMap( settings, path ))
@@ -1761,13 +1765,13 @@ Int parseDirect3D9(char *args[], int num)
 	return 1;
 }
 
-/* -language <english|turkish|german>: the language the game's words are in for this run, over whatever
+/* -language <english|turkish|german|ukrainian|russian>: the language the game's words are in for this run, over whatever
 	 * the Options menu saved.  The string table is built once, while the game starts and after this
 	 * line is read, so this is how the launcher lets a player pick a language before the first menu.
 	 * The names follow TextLanguageType.  A name this build does not know leaves the saved one. */
 Int parseTextLanguage(char *args[], int num)
 {
-	static const char *const TheTextLanguageNames[ TEXT_LANGUAGE_COUNT ] = { "english", "turkish", "german" };
+	static const char *const TheTextLanguageNames[ TEXT_LANGUAGE_COUNT ] = { "english", "turkish", "german", "ukrainian", "russian" };
 
 	if (TheWritableGlobalData && num > 1)
 	{

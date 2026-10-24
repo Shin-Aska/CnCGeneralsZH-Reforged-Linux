@@ -402,6 +402,13 @@ void GameLogic::clearGameData( Bool showScoreScreen )
 	if( !isInShellGame() )
 		TheWritableGlobalData->m_noDraw = 0;
 
+	// A single-player start is two passes: the first puts the load screen up and plays its movie, the
+	// next update loads the map.  Cleared in between, that start is off, and its load screen goes now:
+	// the reset below closes every video stream, the load screen's own among them, and a later start
+	// that found it still up drew through it and then deleted it, closing that stream a second time.
+	deleteLoadScreen();
+	m_startNewGame = FALSE;
+
 	TheGameEngine->reset();
 	setGameMode(GAME_NONE);
 //	m_background->bringForward();
@@ -2625,17 +2632,25 @@ void GameLogic::logicMessageDispatcher( GameMessage *msg, AIGroup *orderedGroup 
 			ViewLocation loc;
 			const Coord3D &pos = msg->getArgument( 0 )->location;
 			loc.init( pos.x, pos.y, pos.z, msg->getArgument( 1 )->real, msg->getArgument( 2 )->real, msg->getArgument( 3 )->real );
-			TheObserverCamera.notePlayerView( thisPlayer->getPlayerIndex(), loc );
+			const Int playerIndex = thisPlayer->getPlayerIndex();
+			const Mouse::MouseCursor cursor = (Mouse::MouseCursor)(msg->getArgument( 4 )->integer);
+			const ICoord2D mousePos = msg->getArgument( 5 )->pixel;
 
-			// a replay shows the recorded player's pointer too, while the watcher is not using his own
-			if (TheRecorder->getMode() == RECORDERMODETYPE_PLAYBACK && TheObserverCamera.getMode() == OBSERVER_CAMERA_PLAYER
-					&& TheObserverCamera.getFollowedPlayerIndex() == thisPlayer->getPlayerIndex() && !TheLookAtTranslator->hasMouseMovedRecently())
-			{
-				TheMouse->setCursor( (Mouse::MouseCursor)(msg->getArgument( 4 )->integer) );
-				ICoord2D mousePos = msg->getArgument( 5 )->pixel;
-				TheMouse->setPosition( mousePos.x, mousePos.y );
-				TheLookAtTranslator->setCurrentPos( mousePos );
-			}
+			/* All of it is the watcher's camera and pointer, which the render reads while the tick runs
+				 beside it: the cursor change rebuilds the pointer's text and picture, so it waits for the
+				 tick's end like every other client call the tick makes. */
+			LogicThread::callAfterTick( [playerIndex, loc, cursor, mousePos]() {
+				TheObserverCamera.notePlayerView( playerIndex, loc );
+
+				// a replay shows the recorded player's pointer too, while the watcher is not using his own
+				if (TheRecorder->getMode() == RECORDERMODETYPE_PLAYBACK && TheObserverCamera.getMode() == OBSERVER_CAMERA_PLAYER
+						&& TheObserverCamera.getFollowedPlayerIndex() == playerIndex && !TheLookAtTranslator->hasMouseMovedRecently())
+				{
+					TheMouse->setCursor( cursor );
+					TheMouse->setPosition( mousePos.x, mousePos.y );
+					TheLookAtTranslator->setCurrentPos( mousePos );
+				}
+			} );
 			break;
 		}
 

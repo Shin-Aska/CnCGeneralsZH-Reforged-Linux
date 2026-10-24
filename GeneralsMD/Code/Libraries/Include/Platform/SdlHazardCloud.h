@@ -3,34 +3,17 @@
 #pragma once
 
 #include "Lib/BaseType.h"
+#include "Platform/HazardCloud.h"
 #include "Platform/SdlHazardCloudFlow.h"
 #include <cstdint>
 
 namespace SdlHazardCloud {
 
-constexpr unsigned TerrainGridSide = 129;
-
-struct FieldState {
-    Coord3D ground;
-    float radius;
-    float height;       // Full world-space height above the sampled ground.
-    float density;
-    float palette;      // 0 toxin, 1 radiation, 2 anthrax blue, 3 gamma purple.
-    float formation;
-    float release;
-    float fringe;
-};
+constexpr unsigned TerrainGridSide = HazardCloud::TerrainGridSide;
+using FieldState = HazardCloud::FieldState;
 using Body = SdlHazardCloudFlow::Body;
-struct Color { float r, g, b; };
-struct Palette {
-    Color main, shadow;
-    float brightness;
-    // 0 retains full optical density; 1 makes only the smoke invisible.
-    // Formation, footprint, wakes, heat and embers remain independent.
-    float transparency = 0.0f;
-};
-
-// Stable user-approved palette, independent of preview files or game options.
+using Color = HazardCloud::Color;
+using Palette = HazardCloud::Palette;
 const Palette &defaultPalette(unsigned index);
 
 // Main render thread only. Owns up to two fields with independent density,

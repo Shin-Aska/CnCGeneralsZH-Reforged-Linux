@@ -58,6 +58,7 @@ void Direct3D11_Mirror_Light_Disabled(unsigned) {}
 DX11BufferTwinClass * Direct3D11_Twin_Vertex_Buffer(unsigned, bool) { return NULL; }
 DX11BufferTwinClass * Direct3D11_Twin_Index_Buffer(unsigned, bool) { return NULL; }
 void Direct3D11_Mirror_Texture(unsigned, struct IDirect3DBaseTexture9 *) {}
+void Direct3D11_Set_Haze_Shroud(struct IDirect3DBaseTexture9 *, const float [4]) {}
 
 void Direct3D11_Set_Headlights(const float *, unsigned, const float [3]) {}
 void Direct3D11_Set_Blast_Lights(const float *, unsigned) {}
@@ -75,6 +76,9 @@ void Direct3D11_Clear_Shadow_Parameters() {}
 bool Direct3D11_Fill_Smoke_Map(const float *, unsigned, float) { return false; }
 void Direct3D11_Set_Scene_View(const float [16]) {}
 void Direct3D11_Set_Smoke_Glow(bool) {}
+void Direct3D11_Set_Fire_Look(bool) {}
+void Direct3D11_Set_Emissive(bool) {}
+void Direct3D11_Set_Team_Glow(bool) {}
 void Direct3D11_Set_Draw_Effect(unsigned, const float [4]) {}
 bool Direct3D11_Draw_Effects() { return false; }
 void Direct3D11_Allow_Draw_Effects(bool) {}
@@ -139,6 +143,8 @@ void Direct3D11_Mirror_Vertex_Shader(const void *) {}
 // transcriptions by the name they were registered under, as the Direct3D 11 backend does (A3e).
 void Direct3D11_Register_Engine_Shader(const void * shader, const char * name) { PosixDevice_Name_Shader(shader, name); }
 void Direct3D11_Mirror_Vertex_Shader_Constant(unsigned, const float *, unsigned) {}
+void Direct3D11_Set_Water_Constants(unsigned, const float *, unsigned) {}
+std::string Direct3D11_Water_Report() { return std::string("no Direct3D 11 backend"); }
 bool Direct3D11_Draw_Indexed_Triangles(unsigned, unsigned, unsigned) { return false; }
 bool Direct3D11_Draw_Indexed_Strip(unsigned, unsigned, unsigned) { return false; }
 bool Direct3D11_Draw_User_Strip(const void *, unsigned, unsigned) { return false; }
@@ -168,10 +174,14 @@ void Direct3D11_Statistics(unsigned & pipelines_built, unsigned long long & draw
 	draws_refused = 0;
 }
 
-void Direct3D11_Program_Statistics(unsigned & shipped, unsigned & held)
+void Direct3D11_Program_Statistics(unsigned & shipped, unsigned & held, unsigned & off_frame,
+	double & longest_milliseconds, unsigned long long & draws_waited)
 {
 	shipped = 0;
 	held = 0;
+	off_frame = 0;
+	longest_milliseconds = 0.0;
+	draws_waited = 0;
 }
 void Direct3D11_Take_Frame_Cost(double & pipeline_milliseconds, unsigned & pipelines,
 	double & texture_milliseconds, unsigned & textures, unsigned & depth_copies,

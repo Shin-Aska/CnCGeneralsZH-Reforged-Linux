@@ -34,6 +34,7 @@
 #include <vector>
 
 #include "always.h"
+#include "Platform/ModernWaterBuild.h"
 #include "rendobj.h"
 #include "w3d_file.h"
 #include "dx8vertexbuffer.h"			 
@@ -133,7 +134,7 @@ public:
 	void reset( void );  ///< reset any resources we need to
 	void load(void);	///< load/setup any map dependent features
 	void update( void ); ///< update phase of the water
-#if defined(__linux__)
+#if ZH_MODERN_WATER
 	void takeReadsForRender(void);
 #endif
 	void enableWaterGrid(Bool state);	///< used to active custom water for special maps. (i.e DAM).  The grid is TerrainLogic's WaterGrid; this builds its buffers
@@ -264,7 +265,7 @@ protected:
 		Vector3 position; Real radius,height,major,minor,cosine,sine; Bool box,hasHull=FALSE;
 	};
 	std::vector<ModernWaterObstacle> m_modernObstacles, m_modernPatchObstacles;
-#if defined(__linux__)
+#if ZH_MODERN_WATER
 	struct ModernWaterObject {
 		Drawable *drawable;
 		Vector3 position;
@@ -293,6 +294,7 @@ protected:
 	};
 	std::vector<WaterPolygonForDraw> m_waterPolygonsForDraw;
 	void takeWaterPolygonsForDraw(void);
+	void takeMotionReadsForRender(void);
 	void synchronizeWaterReflection(void);
 #endif
 	WaterObstacleIndex::Grid m_modernObstacleIndex;
@@ -361,6 +363,8 @@ protected:
 	IDirect3DPixelShader9 *	m_riverWaterPixelShader;		///<D3D pixel shader.
 	IDirect3DPixelShader9 *	m_trapezoidWaterPixelShader;	///<D3D pixel shader
 	IDirect3DPixelShader9 *	m_reflectionPixelShader;	///<darkens water where the reflection texture holds something
+	IDirect3DPixelShader9 *	m_riverWaterFoamPixelShader;	///<the river's bytecode again, named for the D3D11 foam program (WaterFoam)
+	IDirect3DPixelShader9 *	m_trapezoidWaterFoamPixelShader;	///<the trapezoid's bytecode again, named for the D3D11 foam program
 	TextureClass *m_waterSparklesTexture;
 	Real m_riverXOffset;
 	Real m_riverYOffset;
@@ -386,7 +390,7 @@ protected:
 	};
 
 	Setting m_settings[ TIME_OF_DAY_COUNT ];	///< settings for each time of day
-#if defined(__linux__)
+#if ZH_MODERN_WATER
 	void drawRiverWater(const WaterPolygonForDraw *pTrig);
 #else
 	void drawRiverWater(PolygonTrigger *pTrig);

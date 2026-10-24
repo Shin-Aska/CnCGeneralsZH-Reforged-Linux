@@ -5,6 +5,12 @@ production SDL renderer, GPU FFT, Modern water shader and `ModernWater.ini` pars
 the game. The default synthetic scene requires no game assets, save or running match.
 `--scene` also replays a locally banked game view for reflection comparisons.
 
+The game enables Modern water on Linux's SDL GPU renderer and on Windows when Direct3D 11
+presents the frame. macOS, Windows Direct3D 9 and headless runs retain Classic water.
+Linux retains the selectable Legacy, SSR, Hybrid and experimental Path traced reflection
+modes described below; Windows uses the Modern planar reflection. The native preview
+and scene-bank reflection comparisons use the SDL renderer.
+
 ## Configuration and matching
 
 On an ordinary launch the tool looks beside its executable for

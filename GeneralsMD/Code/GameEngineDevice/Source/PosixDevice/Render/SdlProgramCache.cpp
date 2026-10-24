@@ -31,8 +31,8 @@
 #include <SDL3/SDL.h>
 
 #include <stdio.h>
-#include <stdlib.h>
 #include "SdlSunShadowDebug.h"
+#include <stdlib.h>
 #include <string.h>
 
 void Sdl_Read_Slot_Lines(const std::string &hlsl, unsigned int slots, std::vector<int> &textures, std::vector<int> &samplers)

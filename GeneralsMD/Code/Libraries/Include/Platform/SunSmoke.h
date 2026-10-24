@@ -58,23 +58,26 @@ inline unsigned Project(const float *sun, const float *casters, unsigned count, 
     out.clear();
     if (!casters || !sun) return 0;
     if (count > MaxCasters) count = MaxCasters;
-    const float across = std::sqrt(sun[0]*sun[0]+sun[4]*sun[4]+sun[8]*sun[8]);
-    const float deep = std::sqrt(sun[2]*sun[2]+sun[6]*sun[6]+sun[10]*sun[10]);
-    out.reserve(count*SplatFloats);
-    for (unsigned i=0; i<count; ++i) {
-        const float *c=casters+i*5;
-        bool finite=true; for (unsigned k=0;k<5;++k) finite=finite && std::isfinite(c[k]);
-        const float w=c[0]*sun[3]+c[1]*sun[7]+c[2]*sun[11]+sun[15];
-        if (!finite || !std::isfinite(w) || w<=0 || c[3]<=0 || c[4]<=0) continue;
-        const float x=(c[0]*sun[0]+c[1]*sun[4]+c[2]*sun[8]+sun[12])/w;
-        const float y=(c[0]*sun[1]+c[1]*sun[5]+c[2]*sun[9]+sun[13])/w;
-        const float z=(c[0]*sun[2]+c[1]*sun[6]+c[2]*sun[10]+sun[14])/w;
-        const float radius=c[3]*across, spread=0.5f*c[3]*deep;
-        if (!std::isfinite(x+y+z+radius+spread) || x < -1-radius || x > 1+radius
-            || y < -1-radius || y > 1+radius || z < -spread || z > 1+spread) continue;
-        const float splat[]={x,y,z,radius,c[4],spread};
-        out.insert(out.end(),splat,splat+SplatFloats);
+    const float across = std::sqrt(sun[0] * sun[0] + sun[4] * sun[4] + sun[8] * sun[8]);
+    const float deep = std::sqrt(sun[2] * sun[2] + sun[6] * sun[6] + sun[10] * sun[10]);
+    out.reserve(count * SplatFloats);
+    for (unsigned i = 0; i < count; ++i) {
+        const float *caster = casters + i * 5;
+        bool finite = true;
+        for (unsigned k = 0; k < 5; ++k)
+            finite = finite && std::isfinite(caster[k]);
+        const float w = caster[0] * sun[3] + caster[1] * sun[7] + caster[2] * sun[11] + sun[15];
+        if (!finite || !std::isfinite(w) || w <= 0 || caster[3] <= 0 || caster[4] <= 0) continue;
+        const float x = (caster[0] * sun[0] + caster[1] * sun[4] + caster[2] * sun[8] + sun[12]) / w;
+        const float y = (caster[0] * sun[1] + caster[1] * sun[5] + caster[2] * sun[9] + sun[13]) / w;
+        const float z = (caster[0] * sun[2] + caster[1] * sun[6] + caster[2] * sun[10] + sun[14]) / w;
+        const float radius = caster[3] * across;
+        const float spread = 0.5f * caster[3] * deep;
+        if (!std::isfinite(x + y + z + radius + spread) || x < -1 - radius || x > 1 + radius
+            || y < -1 - radius || y > 1 + radius || z < -spread || z > 1 + spread) continue;
+        const float splat[] = {x, y, z, radius, caster[4], spread};
+        out.insert(out.end(), splat, splat + SplatFloats);
     }
-    return unsigned(out.size()/SplatFloats);
+    return unsigned(out.size() / SplatFloats);
 }
 }

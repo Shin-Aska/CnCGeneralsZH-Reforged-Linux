@@ -34,7 +34,7 @@
 	rather than desyncing partway through it. The fingerprint test in
 	test_gameengine.cpp fails until the version and the recorded CRCs agree, so
 	the bump cannot be forgotten. */
-#define RANDOM_MAP_GENERATOR_VERSION 15
+#define RANDOM_MAP_GENERATOR_VERSION 16
 
 /// How much ground the map gives everybody, before the per-player share.
 enum RandomMapSize
@@ -54,8 +54,9 @@ struct RandomMapSettings
 	Int m_seed;						///< drives the whole layout
 	Int m_playableCells;			///< cells per side of the playable area
 	Int m_numPlayers;				///< start positions to place
+	Int m_style;					///< 0: the seed picks the kind of map; else a shipped map's style (RandomMapGenerator::styleNamed)
 
-	RandomMapSettings() : m_seed(0), m_playableCells(0), m_numPlayers(2) { }
+	RandomMapSettings() : m_seed(0), m_playableCells(0), m_numPlayers(2), m_style(0) { }
 };
 
 class RandomMapGenerator
@@ -82,6 +83,10 @@ public:
 
 	/// Settings clamped the way generate() clamps them, so callers can report the truth.
 	static void clampSettings( RandomMapSettings& settings );
+
+	/** The style a name such as "twilight" stands for, 0 when none does. A style is baked into the
+		exe rather than read from a file, because every machine rebuilds the map from its name. */
+	static Int styleNamed( const char *name );
 };
 
 /** Generate the map and its preview and keep both in memory under a path in the

@@ -333,7 +333,7 @@ void MissileAIUpdate::projectileFireAtObjectOrPosition( const Object *victim, co
 void MissileAIUpdate::projectileLeadVictim( const Object *victim )
 {
 	const PhysicsBehavior *victimPhysics = victim->getPhysics();
-	if (m_isTrackingTarget || victimPhysics == NULL || victim->isAboveTerrain())
+	if (m_isTrackingTarget || victimPhysics == NULL || victim->isAboveTerrain() || getCurLocomotor() == NULL)
 		return;
 
 	const Coord3D *from = getObject()->getPosition();
@@ -756,6 +756,11 @@ void MissileAIUpdate::updateChaseOffset()
 	const Real SWAY_FADE_FAR = 150.0f;
 	const Real SWAY_FADE_NEAR = 60.0f;
 
+	// a mod missile can come without a locomotor and fly on its launch force alone; nothing to steer
+	Locomotor* curLoco = getCurLocomotor();
+	if (curLoco == NULL)
+		return;
+
 	Coord3D offset;
 	offset.zero();
 	Object* victim = m_isTrackingTarget ? getGoalObject() : NULL;
@@ -788,7 +793,7 @@ void MissileAIUpdate::updateChaseOffset()
 		}
 	}
 
-	getCurLocomotor()->setChaseOffset(offset);
+	curLoco->setChaseOffset(offset);
 }
 
 //-------------------------------------------------------------------------------------------------

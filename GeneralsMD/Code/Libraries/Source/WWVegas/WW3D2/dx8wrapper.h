@@ -516,6 +516,11 @@ public:
 	static void Set_DX8_Texture_Stage_State(unsigned stage, D3DTEXTURESTAGESTATETYPE state, unsigned value);
 	static void Set_DX8_Texture_Stage_State(unsigned stage, D3DSAMPLERSTATETYPE state, unsigned value);
 	static void Set_DX8_Texture(unsigned int stage, IDirect3DBaseTexture9* texture);
+	// What the wrapper last set, which a deferred Direct3D 9 device (Defer_D3D9_State) may not hold yet.
+	// False while Invalidate_Cached_Render_States has left the state unknown.
+	static bool Get_DX8_Texture_Stage_State(unsigned stage, D3DTEXTURESTAGESTATETYPE state, unsigned & value)
+		{ value = TextureStageStates[stage][state]; return value != 0x12345678; }
+	static IDirect3DBaseTexture9* Get_DX8_Texture(unsigned stage) { return Textures[stage]; }
 	static void Set_Light_Environment(LightEnvironmentClass* light_env);
 	static LightEnvironmentClass* Get_Light_Environment() { return Light_Environment; }
 	static void Set_Fog(bool enable, const Vector3 &color, float start, float end);
@@ -1426,6 +1431,7 @@ WWINLINE void DX8Wrapper::Set_DX8_Texture(unsigned int stage, IDirect3DBaseTextu
 {
   	if (stage >= MAX_TEXTURE_STAGES)
   	{	DX8CALL(SetTexture(stage, texture));
+		Direct3D11_Mirror_Texture(stage, texture);
   		return;
   	}
 

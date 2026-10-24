@@ -573,6 +573,30 @@ TEST(installed_language_falls_back_to_english_when_its_data_is_missing)
 	std::filesystem::remove( "Data", ec );		// only if this test made it; a non-empty one stays
 }
 
+/* A German Zero Hour on Linux has no Language in Registry.ini, and english found the base game's
+   English.big: Generals' text, Zero Hour's strings missing.  The loose <language>ZH.big names it. */
+TEST(zero_hour_language_is_the_one_its_language_archive_names)
+{
+	CHECK( bootOnce() );
+
+	// an empty folder of its own: the cwd may be Run, whose EnglishZH.big a case-blind Windows
+	// answers to, and a polishZH.big left there would be a real archive to the game
+	const std::filesystem::path home = std::filesystem::current_path();
+	const std::filesystem::path dir = std::filesystem::temp_directory_path() / "zh_zerohour_language";
+	std::filesystem::remove_all( dir );
+	std::filesystem::create_directory( dir );
+	std::filesystem::current_path( dir );
+
+	CHECK_STR( TheFileSystem->zeroHourLanguage().str(), "" );
+
+	// the probe's own spelling: this test's local file system is fopen's, not the game's case-blind one
+	writeFile( "polishZH.big", "" );
+	CHECK_STR( TheFileSystem->zeroHourLanguage().str(), "polish" );
+
+	std::filesystem::current_path( home );
+	std::filesystem::remove_all( dir );
+}
+
 /* An unknown block name aborts the whole file - INI::load throws
    INI_UNKNOWN_TOKEN and the blocks after it never get read.  Worth pinning:
    nothing in the loader skips unknown blocks, so an INI written for a newer
@@ -746,6 +770,18 @@ TEST(weapon_reforged_ini_makes_the_paladin_infantry_laser_without_eas_weapons)
 	CHECK_NEAR( laser->getUnmodifiedAttackRange(), 65.0f, 0.01f );
 	CHECK_EQ( laser->getClipSize(), 2 );
 	CHECK_STR( laser->getLaserName().str(), "PointDefenseLaserBeam" );
+
+	/* a shot-down plane's crash spares its own player and allies, and still hits enemies */
+	const char *crashWeapons[] = { "Reforged_JetCrashBlast", "Reforged_BigJetCrashBlast", "Reforged_JetCrashFireWeapon" };
+	for( Int i = 0; i < 3; ++i )
+	{
+		const WeaponTemplate *crash = TheWeaponStore->findWeaponTemplate( crashWeapons[i] );
+		CHECK( crash != NULL );
+		if( crash == NULL )
+			continue;
+		CHECK( ( crash->getAffectsMask() & WEAPON_AFFECTS_ALLIES ) == 0 );
+		CHECK( ( crash->getAffectsMask() & WEAPON_AFFECTS_ENEMIES ) != 0 );
+	}
 }
 
 /* WeaponReforged.ini also keeps copies of EA weapons FixesReforged.ini hands out, under EA's names,
@@ -4010,6 +4046,88 @@ TEST(statemachine_outlives_the_owner_that_lets_go_of_it_mid_update)
 	}
 }
 
+/* The same hold for a change of state that does not come from an update.  Issue 123: a hunt or attack
+   state set its sub-machine's state, the onEnter on the way made the parent leave, the parent dropped
+   the sub-machine, and the transition carried on in freed memory - the state map read empty, the
+   machine fell back to its default attack state, and the game hung on that frame.  Here the first
+   state lets go of the machine in its onEnter and fails into the second. */
+static Bool s_letGoMachineDestroyed = FALSE;
+static Bool s_secondStateEntered = FALSE;
+static Bool s_machineAliveInSecondState = FALSE;
+
+class LetGoState : public State
+{
+	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(LetGoState, "ContinueState")
+public:
+	LetGoState(StateMachine *machine) : State(machine, "LetGoState") {}
+	virtual StateReturnType onEnter() { getMachine()->deleteInstance(); return STATE_FAILURE; }
+	virtual StateReturnType update() { return STATE_CONTINUE; }
+protected:
+	virtual void crc(Xfer *xfer) {}
+	virtual void xfer(Xfer *xfer) {}
+	virtual void loadPostProcess() {}
+};
+EMPTY_DTOR(LetGoState)
+
+class SecondState : public State
+{
+	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(SecondState, "SuccessState")
+public:
+	SecondState(StateMachine *machine) : State(machine, "SecondState") {}
+	virtual StateReturnType onEnter()
+	{
+		s_secondStateEntered = TRUE;
+		s_machineAliveInSecondState = !s_letGoMachineDestroyed;
+		return STATE_CONTINUE;
+	}
+	virtual StateReturnType update() { return STATE_CONTINUE; }
+protected:
+	virtual void crc(Xfer *xfer) {}
+	virtual void xfer(Xfer *xfer) {}
+	virtual void loadPostProcess() {}
+};
+EMPTY_DTOR(SecondState)
+
+class LetGoStateMachine : public StateMachine
+{
+	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(LetGoStateMachine, "StateMachinePool")
+public:
+	LetGoStateMachine() : StateMachine(NULL, "letgo")
+	{
+		defineState(0, newInstance(LetGoState)(this), 1, 1);
+		defineState(1, newInstance(SecondState)(this), 1, 1);
+	}
+};
+
+LetGoStateMachine::~LetGoStateMachine() { s_letGoMachineDestroyed = TRUE; }
+
+TEST(statemachine_outlives_the_owner_that_lets_go_of_it_mid_transition)
+{
+	CHECK(bootOnce());
+
+	GlobalData *savedGlobals = TheWritableGlobalData;
+	if (savedGlobals == NULL)
+		TheWritableGlobalData = NEW GlobalData;
+
+	s_letGoMachineDestroyed = FALSE;
+	s_secondStateEntered = FALSE;
+	s_machineAliveInSecondState = FALSE;
+	StateMachine *machine = newInstance(LetGoStateMachine);
+
+	/* the owner's reference goes in the first state's onEnter; the transition it fails into still runs
+	   on a live machine, and the machine goes when the transition is done */
+	machine->initDefaultState();
+	CHECK(s_secondStateEntered);
+	CHECK(s_machineAliveInSecondState);
+	CHECK(s_letGoMachineDestroyed);
+
+	if (savedGlobals == NULL)
+	{
+		delete TheWritableGlobalData;
+		TheWritableGlobalData = NULL;
+	}
+}
+
 
 /* ------------------------------------------------------------------------------------------------
  * The A* open list.
@@ -4652,6 +4770,36 @@ TEST(controlbar_force_attack_slot_is_under_attack_move)
 		GUI_COMMAND_FORCE_ATTACK ), 0 );
 }
 
+/* FixedOrderKeys, Enabled = No: the keys as shipped.  The German Guard is W and its rally point U, and
+   a Humvee (V) or Nachschublager (N) keeps the letter the fixed keys took from it */
+TEST(hotkeys_fixed_order_keys_switch_off_gives_the_labels_letters)
+{
+	const std::map< std::string, WideChar > none;
+	CHECK( HotKeyManager::fixedOrderKeys() );
+	CHECK_EQ( HotKeyManager::buttonKeyIn( AsciiString( "Command_Guard" ), 'W', GUI_COMMAND_GUARD, none ), (WideChar)'G' );
+	CHECK_EQ( HotKeyManager::buttonKeyIn( AsciiString( "Command_ConstructAmericaVehicleHumvee" ), 'V',
+		GUI_COMMAND_UNIT_BUILD, none ), 0 );
+
+	HotKeyManager::setFixedOrderKeys( FALSE );
+	CHECK_EQ( HotKeyManager::buttonKeyIn( AsciiString( "Command_Guard" ), 'W', GUI_COMMAND_GUARD, none ), (WideChar)'W' );
+	CHECK_EQ( HotKeyManager::buttonKeyIn( AsciiString( "Command_SetRallyPoint" ), 'u', GUI_COMMAND_SET_RALLY_POINT, none ), (WideChar)'U' );
+	CHECK_EQ( HotKeyManager::buttonKeyIn( AsciiString( "Command_UpgradeChinaMines" ), 'L', GUI_COMMAND_PLAYER_UPGRADE, none ), (WideChar)'L' );
+	CHECK_EQ( HotKeyManager::buttonKeyIn( AsciiString( "Command_ConstructAmericaVehicleHumvee" ), 'V',
+		GUI_COMMAND_UNIT_BUILD, none ), (WideChar)'V' );
+	CHECK_EQ( HotKeyManager::fixedKey( AsciiString( "Command_Stop" ), GUI_COMMAND_STOP ), 0 );
+	HotKeyManager::setFixedOrderKeys( TRUE );
+
+	// the file carries the switch through the options page's Accept, and leaves it out when on
+	const std::vector< HotkeyCommandRow > rows = Hotkeys_commandRows( HOTKEYS_COMMAND_MAP );
+	HotkeysFile file = Hotkeys_parse( "FixedOrderKeys\r\n  Enabled = No\r\nEnd\r\n", rows );
+	CHECK( !file.fixedOrderKeys );
+	const std::string text = Hotkeys_format( file, rows );
+	CHECK( text.find( "FixedOrderKeys\r\n  Enabled = No\r\nEnd\r\n" ) != std::string::npos );
+	CHECK( !Hotkeys_parse( text, rows ).fixedOrderKeys );
+	file.fixedOrderKeys = TRUE;
+	CHECK( Hotkeys_format( file, rows ).find( "FixedOrderKeys" ) == std::string::npos );
+}
+
 TEST(metamap_format_chord_names_the_hold)
 {
 	CHECK( MetaMap_formatChord( MK_NONE, CTRL, COMMANDUSABLE_GAME ) == UnicodeString( u"Ctrl" ) );
@@ -4660,6 +4808,38 @@ TEST(metamap_format_chord_names_the_hold)
 	CHECK( MetaMap_formatChord( MK_NONE, ALT, COMMANDUSABLE_GAME ) == UnicodeString( u"Alt" ) );
 	CHECK( MetaMap_formatChord( MK_NONE, CTRL, COMMANDUSABLE_NONE ).isEmpty() );
 	CHECK( MetaMap_chordLabel( GameMessage::MSG_META_BEGIN_FORCEATTACK ) == UnicodeString( u"Ctrl" ) );
+}
+
+struct MetaRecProbe : public MetaMap
+{
+	using MetaMap::getMetaMapRec;
+};
+
+// Data\German\CommandMap.ini binds next/previous unit and worker to bare arrows; English to Ctrl (#102)
+TEST(metamap_bare_arrows_stay_with_the_camera)
+{
+	static const char GERMAN[] =
+		"CommandMap SELECT_NEXT_UNIT\r\n  Key = KEY_RIGHT\r\n  Transition = DOWN\r\n  Modifiers = NONE\r\n  UseableIn = GAME\r\n  Category = SELECTION\r\nEnd\r\n"
+		"CommandMap SELECT_PREV_WORKER\r\n  Key = KEY_DOWN\r\n  Transition = DOWN\r\n  Modifiers = NONE\r\n  UseableIn = GAME\r\n  Category = SELECTION\r\nEnd\r\n"
+		"CommandMap SELECT_TEAM1\r\n  Key = KEY_1\r\n  Transition = DOWN\r\n  Modifiers = NONE\r\n  UseableIn = GAME\r\n  Category = SELECTION\r\nEnd\r\n";
+	const std::vector< HotkeyCommandRow > rows = Hotkeys_commandRows( GERMAN );
+	CHECK( rows.size() > 3 );
+	CHECK( rows[ 0 ].binding == HotkeyBinding( "KEY_RIGHT", "CTRL" ) );
+	CHECK( rows[ 1 ].binding == HotkeyBinding( "KEY_DOWN", "CTRL" ) );
+	CHECK( rows[ 2 ].binding == HotkeyBinding( "KEY_1", "NONE" ) );
+
+	MetaRecProbe map;
+	MetaMapRec *next = map.getMetaMapRec( GameMessage::MSG_META_SELECT_NEXT_UNIT );
+	next->m_key = MK_RIGHT;
+	MetaMapRec *ctrl = map.getMetaMapRec( GameMessage::MSG_META_SELECT_PREV_UNIT );
+	ctrl->m_key = MK_LEFT;
+	ctrl->m_modState = CTRL;
+	MetaMapRec *team = map.getMetaMapRec( GameMessage::MSG_META_SELECT_TEAM1 );
+	team->m_key = MK_1;
+	map.keepArrowsForCamera();
+	CHECK_EQ( (Int)next->m_modState, (Int)CTRL );
+	CHECK_EQ( (Int)ctrl->m_modState, (Int)CTRL );
+	CHECK_EQ( (Int)team->m_modState, (Int)NONE );
 }
 
 TEST(controlbar_stance_key_takes_what_the_buttons_leave)
@@ -5095,6 +5275,50 @@ TEST(crcsnapshotring_names_the_diverging_frame_from_a_crc_value)
 
 	// a CRC nobody recorded names no frame at all, rather than the wrong one
 	CHECK_EQ( ring.findSlotByCRC( 0x44444444 ), -1 );
+}
+
+TEST(crcsnapshotring_keeps_each_section_and_player_of_the_frame_it_belongs_to)
+{
+	CRCSnapshotRing ring;
+
+	// the parts after the objects are what split when every object agrees
+	ring.beginSnapshot( 30 );
+	ring.setSectionCRC( CRC_SECTION_OBJECTS, 0x10 );
+	ring.setSectionCRC( CRC_SECTION_PLAYERS, 0x30 );
+	ring.addPlayer( 0, 0, 0 );
+	ring.addPlayer( 25000, 7, 1 );
+	ring.setSectionCRC( CRC_SECTION_SCRIPTS, 0x50 );
+	ring.endSnapshot( 0x50, 0 );
+
+	// each frame holds only what was recorded for it
+	ring.beginSnapshot( 31 );
+	ring.setSectionCRC( CRC_SECTION_AI, 0x40 );
+	ring.endSnapshot( 0x60, 0 );
+
+	const CRCSnapshot *first = ring.getSlot( ring.findSlotByCRC( 0x50 ) );
+	const CRCSnapshot *second = ring.getSlot( ring.findSlotByCRC( 0x60 ) );
+	CHECK( first != NULL && second != NULL );
+	if( first == NULL || second == NULL )
+		return;
+
+	CHECK_EQ( (Int)first->m_sectionCRC[ CRC_SECTION_OBJECTS ], 0x10 );
+	CHECK_EQ( (Int)first->m_sectionCRC[ CRC_SECTION_PARTITION ], 0 );
+	CHECK_EQ( (Int)first->m_sectionCRC[ CRC_SECTION_PLAYERS ], 0x30 );
+	CHECK_EQ( (Int)first->m_sectionCRC[ CRC_SECTION_SCRIPTS ], 0x50 );
+	CHECK_EQ( (Int)first->m_players.size(), 2 );
+	CHECK_EQ( (Int)first->m_players[1].m_money, 25000 );
+	CHECK_EQ( first->m_players[1].m_skillPoints, 7 );
+	CHECK_EQ( first->m_players[1].m_sciencePurchasePoints, 1 );
+
+	CHECK_EQ( (Int)second->m_sectionCRC[ CRC_SECTION_OBJECTS ], 0 );
+	CHECK_EQ( (Int)second->m_sectionCRC[ CRC_SECTION_AI ], 0x40 );
+	CHECK_EQ( (Int)second->m_players.size(), 0 );
+
+	// with no snapshot open both are no-ops, as addObject is
+	ring.clear();
+	ring.setSectionCRC( CRC_SECTION_AI, 1 );
+	ring.addPlayer( 1, 1, 1 );
+	CHECK_EQ( ring.getNumSnapshots(), 0 );
 }
 
 TEST(crcsnapshotring_still_holds_the_frame_a_late_mismatch_report_asks_for)
@@ -11014,14 +11238,15 @@ TEST(the_generator_still_turns_a_seed_into_the_bytes_it_used_to)
 {
 	CHECK( bootOnce() );
 
-	CHECK_EQ( RANDOM_MAP_GENERATOR_VERSION, 15 );
+	CHECK_EQ( RANDOM_MAP_GENERATOR_VERSION, 16 );
 
-	struct RMGFingerprint { Int m_seed, m_players, m_cells; UnsignedInt m_crc; };
+	struct RMGFingerprint { Int m_seed, m_players, m_cells, m_style; UnsignedInt m_crc; };
 	static const RMGFingerprint theFingerprints[] =
 	{
-		{ 0, 2, 64, 0x47856063 },
-		{ 12345, 4, 96, 0x2863C7D9 },
-		{ 7, 8, 128, 0x2D7288D3 },
+		{ 0, 2, 64, 0, 0x47856463 },
+		{ 12345, 4, 96, 0, 0x2863C7E9 },
+		{ 7, 8, 128, 0, 0x317288D3 },
+		{ 7, 4, 200, 1, 0x100AD66B },
 	};
 	const Int numFingerprints = sizeof(theFingerprints) / sizeof(theFingerprints[0]);
 
@@ -11031,11 +11256,12 @@ TEST(the_generator_still_turns_a_seed_into_the_bytes_it_used_to)
 		settings.m_seed = theFingerprints[i].m_seed;
 		settings.m_numPlayers = theFingerprints[i].m_players;
 		settings.m_playableCells = theFingerprints[i].m_cells;
+		settings.m_style = theFingerprints[i].m_style;
 
 		UnsignedInt crc = RandomMapGenerator::fingerprint( settings );
 		if( crc != theFingerprints[i].m_crc )
-			printf( "  fingerprint seed %d players %d cells %d is 0x%08X\n",
-				settings.m_seed, settings.m_numPlayers, settings.m_playableCells, crc );
+			printf( "  fingerprint seed %d players %d cells %d style %d is 0x%08X\n",
+				settings.m_seed, settings.m_numPlayers, settings.m_playableCells, settings.m_style, crc );
 
 		CHECK( crc == theFingerprints[i].m_crc );
 	}
@@ -11134,6 +11360,103 @@ TEST(a_generated_map_is_served_out_of_memory_and_written_nowhere)
 	// nothing else is one of ours, and neither is a name from another generator version
 	CHECK( !isGeneratedMapPath( AsciiString( "Maps\\Tournament Desert\\Tournament Desert.map" ) ) );
 	CHECK( !isGeneratedMapPath( AsciiString( "Maps\\RMG_v1_7_2p_96c\\RMG_v1_7_2p_96c.map" ) ) );
+
+	delete TheWritableGlobalData;
+	TheWritableGlobalData = saved;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Not a check: with RMG_DUMP set to "<dir> <seed>,<players>,<cells>,<style> ..." it writes each
+	map and its preview into dir, for mapscore.py and mapstyle.py to read. Nothing else writes a
+	generated map anywhere. Run as test_gameengine.exe write_the_maps_RMG_DUMP_names. */
+//-------------------------------------------------------------------------------------------------
+TEST(write_the_maps_RMG_DUMP_names)
+{
+	const char *dump = getenv( "RMG_DUMP" );
+	if( dump == NULL )
+		return;
+	CHECK( bootOnce() );
+
+	char dir[MAX_PATH];
+	Int read = 0;
+	CHECK( sscanf( dump, "%259s%n", dir, &read ) == 1 );
+	const char *next = dump + read;
+	RandomMapSettings settings;
+	while( sscanf( next, " %d,%d,%d,%d%n", &settings.m_seed, &settings.m_numPlayers,
+				 &settings.m_playableCells, &settings.m_style, &read ) == 4 )
+	{
+		next += read;
+		RandomMapGenerator::clampSettings( settings );
+		std::vector<char> map, preview;
+		RandomMapGenerator::generate( settings, map );
+		RandomMapGenerator::generatePreview( settings, preview );
+
+		char name[MAX_PATH];
+		snprintf( name, sizeof(name), "%s\\rmg_%d_%dp_%dc_s%d", dir, settings.m_seed, settings.m_numPlayers,
+			settings.m_playableCells, settings.m_style );
+		AsciiString file;
+		file.format( "%s.map", name );
+		FILE *out = fopen( file.str(), "wb" );
+		CHECK( out != NULL );
+		fwrite( &map[0], 1, map.size(), out );
+		fclose( out );
+		file.format( "%s.tga", name );
+		out = fopen( file.str(), "wb" );
+		CHECK( out != NULL );
+		fwrite( &preview[0], 1, preview.size(), out );
+		fclose( out );
+		printf( "  wrote %s.map (%d bytes)\n", name, (Int)map.size() );
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A map in a shipped map's style is rebuilt from its name like any other, so the style has to be
+	in the name and read back out of it; a name for a style this build does not have is not ours. */
+//-------------------------------------------------------------------------------------------------
+TEST(a_style_map_is_named_for_its_style_and_rebuilt_from_the_name)
+{
+	CHECK( bootOnce() );
+
+	GlobalData *saved = TheWritableGlobalData;
+	TheWritableGlobalData = NEW GlobalData;
+
+	CHECK_EQ( RandomMapGenerator::styleNamed( "Twilight" ), 1 );
+	CHECK_EQ( RandomMapGenerator::styleNamed( "dusk" ), 0 );
+
+	RandomMapSettings settings;
+	settings.m_seed = 77;
+	settings.m_numPlayers = 4;
+	settings.m_playableCells = 200;
+	settings.m_style = 1;
+
+	AsciiString path;
+	CHECK( stageRandomMap( settings, path ) );
+	CHECK( path.endsWithNoCase( "_77_4p_200c_twilight.map" ) );
+
+	std::vector<char> styled, plain;
+	RandomMapGenerator::generate( settings, styled );
+	RandomMapSettings unstyled = settings;
+	unstyled.m_style = 0;
+	RandomMapGenerator::generate( unstyled, plain );
+	CHECK( styled != plain );
+
+	const char *bytes = NULL;
+	Int size = 0;
+	CHECK( generatedMapBytes( path, &bytes, &size ) );
+	CHECK_EQ( size, (Int)styled.size() );
+	CHECK( size == (Int)styled.size() && memcmp( bytes, &styled[0], styled.size() ) == 0 );
+
+	AsciiString unknown;
+	unknown.format( "Maps\\RMG_v%d_77_4p_200c_dusk\\RMG_v%d_77_4p_200c_dusk.map",
+		RANDOM_MAP_GENERATOR_VERSION, RANDOM_MAP_GENERATOR_VERSION );
+	CHECK( !isGeneratedMapPath( unknown ) );
+
+	// with no size given, eight players get the shipped map's own
+	RandomMapSettings sized;
+	sized.m_numPlayers = 8;
+	sized.m_style = 1;
+	RandomMapGenerator::clampSettings( sized );
+	CHECK_EQ( sized.m_playableCells, 443 );
 
 	delete TheWritableGlobalData;
 	TheWritableGlobalData = saved;
@@ -12628,32 +12951,186 @@ TEST(ground_flood_goes_round_the_wall_nearest_first)
 	CHECK_EQ( count, 3 );		// the source and its two side neighbours
 }
 
-/** Another factory only when every one standing has kept a unit waiting for AI_FACTORY_BACKLOG_SECONDS,
-	 and another tech building until three are standing. */
-TEST(extra_factory_follows_the_queue_and_tech_stops_at_three)
+/** Another factory only when every one standing has stayed busy for the rung's backlog, with no cap on
+	 how many. */
+TEST(extra_factory_follows_the_queue)
 {
-	const UnsignedInt BACKLOG = AI_FACTORY_BACKLOG_SECONDS * LOGICFRAMES_PER_SECOND;
+	TAiData data;
+	for( Int s = 0; s < AISKILL_COUNT; ++s )
+	{
+		// every rung waits, Hard the shortest
+		CHECK( data.m_skill[ s ].m_factoryBacklogSeconds > 0.0f );
+		if( s > 0 )
+			CHECK( data.m_skill[ s ].m_factoryBacklogSeconds < data.m_skill[ s - 1 ].m_factoryBacklogSeconds );
+	}
+	const Int PASS = 10 * LOGICFRAMES_PER_SECOND;		// the spend pass that samples it
+	const Int EASY = aiBacklogSamples( data.m_skill[ AISKILL_EASY ].m_factoryBacklogSeconds, PASS );
+	const Int HARD = aiBacklogSamples( data.m_skill[ AISKILL_BRUTAL ].m_factoryBacklogSeconds, PASS );
+	CHECK_EQ( 9, EASY );		// 90 s
+	CHECK_EQ( 8, aiBacklogSamples( data.m_skill[ AISKILL_MEDIUM ].m_factoryBacklogSeconds, PASS ) );		// 75 s, rounded up
+	CHECK_EQ( 5, HARD );		// 45 s, rounded up
+	CHECK_EQ( 1, aiBacklogSamples( 0.0f, PASS ) );
+	CHECK_EQ( AI_FACTORY_HISTORY_PASSES, aiBacklogSamples( 3600.0f, PASS ) );
 
 	// nothing left standing: put one back
-	CHECK( aiWantsAnotherFactory( 0, 0, 0, 0 ) );
+	CHECK( aiWantsAnotherFactory( 0, 0, 0, 0, HARD ) );
 
 	// one already going up is the building this would ask for
-	CHECK( !aiWantsAnotherFactory( 0, 1, 0, 0 ) );
-	CHECK( !aiWantsAnotherFactory( 2, 1, 4, BACKLOG ) );
+	CHECK( !aiWantsAnotherFactory( 0, 1, 0, 0, HARD ) );
+	CHECK( !aiWantsAnotherFactory( 2, 1, 0x1F, HARD, HARD ) );
 
-	// one with an empty queue, or only the unit it is building, has room
-	CHECK( !aiWantsAnotherFactory( 2, 0, 0, BACKLOG ) );
-	CHECK( !aiWantsAnotherFactory( 1, 0, 1, BACKLOG ) );
+	// barracks or war factories are full on a pass when every one was busy on it, its queue or a unit
+	// let out since the last pass; one idle the whole pass is the spare
+	CHECK( !aiQueueKindFull( 2, 0 ) );
+	CHECK( !aiQueueKindFull( 2, 1 ) );
+	CHECK( aiQueueKindFull( 2, 2 ) );
+	CHECK( !aiQueueKindFull( 0, 0 ) );
 
-	// a team landing in the queue all at once is a batch, not a factory falling behind: the
-	// opening's training no longer buys a second barracks
-	CHECK( !aiWantsAnotherFactory( 1, 0, 5, 0 ) );
-	CHECK( !aiWantsAnotherFactory( 1, 0, 5, BACKLOG - 1 ) );
+	// the window has to be in: four full passes are not a 45 s window, five are
+	UnsignedInt history = 0;
+	Int count = 0;
+	for( Int i = 0; i < HARD - 1; ++i )
+		aiSampleFactories( &history, &count, TRUE, 0 );
+	CHECK( !aiWantsAnotherFactory( 1, 0, history, count, HARD ) );
+	aiSampleFactories( &history, &count, TRUE, 0 );
+	CHECK( aiWantsAnotherFactory( 1, 0, history, count, HARD ) );
 
-	// every finished one has kept a unit waiting the whole time
-	CHECK( aiWantsAnotherFactory( 1, 0, 2, BACKLOG ) );
-	CHECK( aiWantsAnotherFactory( 3, 0, 2, BACKLOG + 600 ) );
+	// an idle gap, a factory found between two units, used to start the wait again; 4 of 5 is 80% and
+	// passes, and on Easy 8 of 9 passes too
+	history = 0; count = 0;
+	aiSampleFactories( &history, &count, TRUE, 0 );
+	aiSampleFactories( &history, &count, FALSE, 0 );
+	aiSampleFactories( &history, &count, TRUE, 0 );
+	aiSampleFactories( &history, &count, TRUE, 0 );
+	aiSampleFactories( &history, &count, TRUE, 0 );
+	CHECK( aiWantsAnotherFactory( 1, 0, history, count, HARD ) );
+	CHECK( aiWantsAnotherFactory( 2, 0, 0x1FE, 9, EASY ) );		// 8 of 9, the newest idle
+	// under 80% holds: 3 of 5, 7 of 9
+	CHECK( !aiWantsAnotherFactory( 1, 0, 0x15, 5, HARD ) );
+	CHECK( !aiWantsAnotherFactory( 2, 0, 0x1F6, 9, EASY ) );
 
+	// the window rolls: old full passes drop out of it
+	for( Int i = 0; i < 2; ++i )
+		aiSampleFactories( &history, &count, FALSE, 0 );
+	CHECK( !aiWantsAnotherFactory( 1, 0, history, count, HARD ) );		// 3 of the last 5
+
+	// one going up empties it, and the new one has to fill a whole window again
+	aiSampleFactories( &history, &count, TRUE, 1 );
+	CHECK_EQ( 0u, history );
+	CHECK_EQ( 0, count );
+	for( Int i = 0; i < HARD - 1; ++i )
+		aiSampleFactories( &history, &count, TRUE, 0 );
+	CHECK( !aiWantsAnotherFactory( 2, 0, history, count, HARD ) );
+	aiSampleFactories( &history, &count, TRUE, 0 );
+	CHECK( aiWantsAnotherFactory( 2, 0, history, count, HARD ) );		// a third: no cap
+	CHECK( aiWantsAnotherFactory( 9, 0, history, count, HARD ) );
+
+	// the history keeps 32 passes and the count stops there
+	for( Int i = 0; i < 40; ++i )
+		aiSampleFactories( &history, &count, TRUE, 0 );
+	CHECK_EQ( AI_FACTORY_HISTORY_PASSES, count );
+	CHECK( aiWantsAnotherFactory( 1, 0, history, count, AI_FACTORY_HISTORY_PASSES ) );
+}
+
+/** An airfield goes by its parking, not its queue: every one with its parking taken while the computer
+	 wants an aircraft, on 80% of the rung's window, gives another. */
+TEST(extra_airfield_follows_the_parking)
+{
+	TAiData data;
+	const Int HARD = aiBacklogSamples( data.m_skill[ AISKILL_BRUTAL ].m_factoryBacklogSeconds, 10 * LOGICFRAMES_PER_SECOND );
+
+	// full takes every airfield's parking and an aircraft refused for it
+	CHECK( aiAirfieldsFull( 2, 2, TRUE ) );
+	CHECK( !aiAirfieldsFull( 2, 1, TRUE ) );		// one still has a place
+	CHECK( !aiAirfieldsFull( 2, 2, FALSE ) );		// parked full, but nothing waits for a place
+	CHECK( !aiAirfieldsFull( 0, 0, TRUE ) );
+
+	// parking full and an aircraft waiting over the window: another airfield
+	UnsignedInt history = 0;
+	Int count = 0;
+	for( Int i = 0; i < HARD; ++i )
+		aiSampleFactories( &history, &count, aiAirfieldsFull( 1, 1, TRUE ), 0 );
+	CHECK( aiWantsAnotherFactory( 1, 0, history, count, HARD ) );
+
+	// jets lost free places for two passes: 3 of 5 holds it
+	aiSampleFactories( &history, &count, aiAirfieldsFull( 1, 0, TRUE ), 0 );
+	aiSampleFactories( &history, &count, aiAirfieldsFull( 1, 0, TRUE ), 0 );
+	CHECK( !aiWantsAnotherFactory( 1, 0, history, count, HARD ) );
+
+	// the new airfield going up starts the window again, and it has to fill before the next
+	aiSampleFactories( &history, &count, TRUE, 1 );
+	CHECK( !aiWantsAnotherFactory( 2, 0, history, count, HARD ) );
+	for( Int i = 0; i < HARD; ++i )
+		aiSampleFactories( &history, &count, aiAirfieldsFull( 2, 2, TRUE ), 0 );
+	CHECK( aiWantsAnotherFactory( 2, 0, history, count, HARD ) );		// no cap
+}
+
+/** A site that cannot be finished is given up: builders dying on the way with nothing built between,
+	 or a site away from home standing still for the rung's stall.  Its spot then waits out the retry. */
+TEST(stuck_building_site_is_given_up)
+{
+	TAiData data;
+	for( Int s = 0; s < AISKILL_COUNT; ++s )
+	{
+		CHECK( data.m_skill[ s ].m_siteStallSeconds > 0.0f );
+		CHECK( data.m_skill[ s ].m_siteBuildersLost > 0 );
+		CHECK( data.m_skill[ s ].m_siteRetrySeconds > 0.0f );
+		if( s > 0 )		// a higher rung gives up no later
+		{
+			CHECK( data.m_skill[ s ].m_siteStallSeconds <= data.m_skill[ s - 1 ].m_siteStallSeconds );
+			CHECK( data.m_skill[ s ].m_siteBuildersLost <= data.m_skill[ s - 1 ].m_siteBuildersLost );
+		}
+	}
+	const AIDifficultyProfile &hard = data.m_skill[ AISKILL_BRUTAL ];
+	const UnsignedInt STALL = (UnsignedInt)REAL_TO_INT( hard.m_siteStallSeconds * LOGICFRAMES_PER_SECOND );
+	const Int LOST = hard.m_siteBuildersLost;
+	const ObjectID A = (ObjectID)10, B = (ObjectID)11, C = (ObjectID)12;
+
+	AISiteWatch w = { (ObjectID)1, 0.0f, 100, INVALID_ID, 0 };
+	CHECK_EQ( (Int)AISITE_KEEP, (Int)aiWatchSite( &w, 0.0f, A, TRUE, 100 + STALL - 1, STALL, LOST ) );
+	CHECK_EQ( (Int)AISITE_STALLED, (Int)aiWatchSite( &w, 0.0f, A, TRUE, 100 + STALL, STALL, LOST ) );
+	// at home the stall is off: a busy dozer, not a trap
+	CHECK_EQ( (Int)AISITE_KEEP, (Int)aiWatchSite( &w, 0.0f, A, TRUE, 100 + 10 * STALL, 0, LOST ) );
+
+	// progress resets the clock
+	w = AISiteWatch{ (ObjectID)1, 0.0f, 100, INVALID_ID, 0 };
+	CHECK_EQ( (Int)AISITE_KEEP, (Int)aiWatchSite( &w, 5.0f, A, TRUE, 100 + STALL, STALL, LOST ) );
+	CHECK_EQ( 100 + STALL, w.m_progressFrame );
+
+	// one death counts once, however many passes see it
+	w = AISiteWatch{ (ObjectID)1, 0.0f, 100, INVALID_ID, 0 };
+	for( Int pass = 0; pass < 5; ++pass )
+		aiWatchSite( &w, 0.0f, A, FALSE, 101 + pass, STALL, LOST );
+	CHECK_EQ( 1, w.m_buildersLost );
+	// a second builder lost with nothing built gives it up
+	CHECK_EQ( (Int)AISITE_KEEP, (Int)aiWatchSite( &w, 0.0f, B, TRUE, 200, STALL, LOST ) );
+	CHECK_EQ( (Int)AISITE_BUILDERS_LOST, (Int)aiWatchSite( &w, 0.0f, B, FALSE, 210, STALL, 2 ) );
+
+	// a builder that got some of it up before dying is not a trap: the count starts over
+	w = AISiteWatch{ (ObjectID)1, 0.0f, 100, INVALID_ID, 0 };
+	aiWatchSite( &w, 0.0f, A, FALSE, 110, STALL, 2 );
+	CHECK_EQ( (Int)AISITE_KEEP, (Int)aiWatchSite( &w, 30.0f, B, TRUE, 120, STALL, 2 ) );
+	CHECK_EQ( 0, w.m_buildersLost );
+	CHECK_EQ( (Int)AISITE_KEEP, (Int)aiWatchSite( &w, 30.0f, B, FALSE, 130, STALL, 2 ) );
+	CHECK_EQ( (Int)AISITE_BUILDERS_LOST, (Int)aiWatchSite( &w, 30.0f, C, FALSE, 140, STALL, 2 ) );
+
+	// the spot: cooling until its frame, only near it
+	std::vector<AICooledSpot> spots;
+	AICooledSpot spot;
+	spot.m_pos.set( 1000.0f, 1000.0f, 0.0f );
+	spot.m_until = 500;
+	spots.push_back( spot );
+	Coord3D inside, outside;		// near and far are macros on Windows
+	inside.set( 1000.0f + AI_COOLED_SITE_RADIUS - 1.0f, 1000.0f, 0.0f );
+	outside.set( 1000.0f + AI_COOLED_DOCK_RADIUS + 1.0f, 1000.0f, 0.0f );
+	CHECK( aiSpotCooling( spots, &inside, AI_COOLED_SITE_RADIUS, 499 ) );
+	CHECK( !aiSpotCooling( spots, &inside, AI_COOLED_SITE_RADIUS, 500 ) );
+	CHECK( !aiSpotCooling( spots, &outside, AI_COOLED_DOCK_RADIUS, 0 ) );
+	CHECK( aiSpotCooling( spots, &outside, AI_COOLED_DOCK_RADIUS + 2.0f, 0 ) );
+}
+
+TEST(another_tech_building_until_three_stand)
+{
 	CHECK( aiWantsAnotherTechBuilding( 0, 0 ) );
 	CHECK( aiWantsAnotherTechBuilding( AI_TECH_BUILDING_COPIES - 1, 0 ) );
 	CHECK( !aiWantsAnotherTechBuilding( 2, 1 ) );
@@ -13016,20 +13493,6 @@ TEST(the_bank_target_and_the_upgrade_the_army_pays_for)
 	CHECK_EQ( 6000, aiBankTarget( 200.0f, 30.0f, 4000 ) );
 	CHECK_EQ( 12000, aiBankTarget( 200.0f, 60.0f, 4000 ) );
 
-	// another factory only when the bank is over target and has not come down over the window, and the
-	// rung's cap is not reached: the first cut sized it from income and a Hard AI earning 93 a second
-	// never added one to the two it had
-	CHECK( aiWantsMoreProduction( 56700, 56000, 4000, 2, 8, 0.0f ) );					// over target and still rising
-	CHECK( aiWantsMoreProduction( 9000, 9000, 4000, 2, 8, 0.0f ) );						// over target and flat
-	CHECK( !aiWantsMoreProduction( 9000, 12000, 4000, 2, 8, 0.0f ) );					// coming down: what stands spends it
-	CHECK( !aiWantsMoreProduction( 3000, 1000, 4000, 2, 8, 2.0f ) );					// under target
-	CHECK( !aiWantsMoreProduction( 56700, 56000, 4000, 8, 8, 2.0f ) );				// at the cap
-	CHECK( !aiWantsMoreProduction( 56700, 56000, 4000, 3, 3, 2.0f ) );
-	// a busy Hard AI's bank swings, so past twice the target it adds one whatever the trend
-	CHECK( aiWantsMoreProduction( 52200, 60000, 4000, 4, 8, 2.0f ) );
-	CHECK( !aiWantsMoreProduction( 8000, 9000, 4000, 4, 8, 2.0f ) );					// at twice, not past it
-	CHECK( !aiWantsMoreProduction( 52200, 60000, 4000, 4, 8, 0.0f ) );				// a rung without the multiple
-
 	// the surplus budget: the rung's share of thirty seconds' income, never past the excess
 	CHECK_EQ( 0, aiSurplusBudget( 3000, 4000, 100.0f, 1.0f ) );					// under target, nothing
 	CHECK_EQ( 3000, aiSurplusBudget( 60000, 4000, 100.0f, 1.0f ) );				// Hard: a window's income a pass
@@ -13099,7 +13562,6 @@ TEST(the_bank_target_and_the_upgrade_the_army_pays_for)
 		CHECK( upper.m_upgradePayoff < lower.m_upgradePayoff );
 		CHECK( upper.m_upgradeStartSeconds < lower.m_upgradeStartSeconds );
 		CHECK( upper.m_surplusShare > lower.m_surplusShare );
-		CHECK( upper.m_maxProduction >= lower.m_maxProduction );
 		// every rung waits out an opening and sends no trickle, Hard the shortest wait and the biggest
 		// floor; every rung keeps its artillery behind the line, Hard the farthest
 		CHECK( lower.m_firstPushSeconds > 0.0f && upper.m_firstPushSeconds > 0.0f );
@@ -13107,13 +13569,8 @@ TEST(the_bank_target_and_the_upgrade_the_army_pays_for)
 		CHECK( upper.m_minAttackPower > lower.m_minAttackPower && lower.m_minAttackPower > 0.0f );
 		CHECK( upper.m_siegeTrail > lower.m_siegeTrail && lower.m_siegeTrail > 0.0f );
 	}
-	// Hard builds past its plan with a bank past twice its target, Medium only past a bigger multiple and
-	// to a lower cap, Easy never; Medium out-armies Easy and Hard out-armies Medium, which an equal share
-	// and cap for the two lower rungs had undone
-	CHECK( data.m_skill[ AISKILL_BRUTAL ].m_maxProduction > data.m_skill[ AISKILL_MEDIUM ].m_maxProduction );
-	CHECK( data.m_skill[ AISKILL_BRUTAL ].m_factoryBankMultiple > 0.0f );
-	CHECK( data.m_skill[ AISKILL_MEDIUM ].m_factoryBankMultiple > data.m_skill[ AISKILL_BRUTAL ].m_factoryBankMultiple );
-	CHECK_EQ( 0.0f, data.m_skill[ AISKILL_EASY ].m_factoryBankMultiple );
+	// Medium out-armies Easy and Hard out-armies Medium, which an equal share for the two lower rungs
+	// had undone
 	CHECK( data.m_skill[ AISKILL_BRUTAL ].m_surplusShare >= 4.0f * data.m_skill[ AISKILL_MEDIUM ].m_surplusShare );
 	// Easy fires the retail S curve; Medium drives the Particle Cannon's beam at walking pace, Hard
 	// steers it often enough to count as the double click that drives it fast
@@ -14831,7 +15288,7 @@ TEST(order_lines_are_a_live_check_box_that_starts_on)
 	TheWritableGlobalData = saved;
 }
 
-TEST(water_style_defaults_to_modern_and_preserves_an_explicit_classic_choice)
+TEST(water_style_keeps_platform_default_and_persists_each_choice)
 {
     GlobalData *saved=TheWritableGlobalData;
     GlobalData *scratch=NEW GlobalData;
@@ -14840,9 +15297,14 @@ TEST(water_style_defaults_to_modern_and_preserves_an_explicit_classic_choice)
     CHECK(water!=NULL);
     if (water) {
         UserPreferences pref;
-        CHECK_EQ(scratch->m_waterStyle,1);
+#if defined(__linux__)
+        const Int defaultStyle = 1; // the Linux fork defaults to Modern
+#else
+        const Int defaultStyle = 0; // retain upstream's Classic default
+#endif
+        CHECK_EQ(scratch->m_waterStyle,defaultStyle);
         loadOptionsFromPreferences(pref);
-        CHECK_EQ(water->get(),1);
+        CHECK_EQ(water->get(),defaultStyle);
         pref["WaterStyle"]="0";
         loadOptionsFromPreferences(pref);
         CHECK_EQ(water->get(),0);
@@ -14909,7 +15371,7 @@ TEST(water_reflections_default_to_hybrid_and_persist_each_mode)
 }
 #endif
 
-TEST(cloud_style_defaults_to_volumetric_and_preserves_an_explicit_classic_choice)
+TEST(cloud_style_keeps_platform_default_and_persists_each_choice)
 {
     GlobalData *saved = TheWritableGlobalData;
     GlobalData *scratch = NEW GlobalData;
@@ -14918,7 +15380,12 @@ TEST(cloud_style_defaults_to_volumetric_and_preserves_an_explicit_classic_choice
     CHECK(cloud != NULL);
     if (cloud) {
         UserPreferences pref;
-        CHECK_EQ(scratch->m_cloudStyle, 1);
+#if defined(__linux__)
+        const Int defaultStyle = 1; // the Linux fork defaults to Volumetric
+#else
+        const Int defaultStyle = 0; // retain upstream's Classic default
+#endif
+        CHECK_EQ(scratch->m_cloudStyle, defaultStyle);
         CHECK_EQ(cloud->kind, OPTION_ENUM);
         CHECK_EQ(cloud->apply, APPLY_LIVE);
         CHECK_EQ(cloud->lo, 0);
@@ -14928,7 +15395,7 @@ TEST(cloud_style_defaults_to_volumetric_and_preserves_an_explicit_classic_choice
         scratch->m_waterStyle = 0;
         scratch->m_volumetricSmokeShadows = FALSE;
         loadOptionsFromPreferences(pref);
-        CHECK_EQ(cloud->get(), 1);
+        CHECK_EQ(cloud->get(), defaultStyle);
         pref["CloudStyle"] = "0";
         loadOptionsFromPreferences(pref);
         CHECK_EQ(cloud->get(), 0);
@@ -14938,6 +15405,8 @@ TEST(cloud_style_defaults_to_volumetric_and_preserves_an_explicit_classic_choice
         loadOptionsFromPreferences(pref);
         CHECK_EQ(cloud->get(), 1);
         CHECK_EQ(scratch->m_waterStyle, 0);
+        saveOptionsToPreferences(pref);
+        CHECK_STR(pref["CloudStyle"].str(), "1");
         CHECK(!scratch->m_volumetricSmokeShadows);
     }
     delete scratch;
@@ -18047,7 +18516,7 @@ TEST(every_shipped_master_is_fork_owned_and_retail_files_are_not)
 		if (relative == "Scripts/SkirmishScripts.scb")
 			continue;
 		// the post-build copy keeps Data\ in front of these and puts the rest at the top of Run
-		const char *underData[] = { "INI/", "Scripts/", "Turkish/", "German/" };
+		const char *underData[] = { "INI/", "Scripts/", "Turkish/", "German/", "Ukrainian/", "Russian/" };
 		Bool keepsData = relative == "Patch.str";
 		for (const char *prefix : underData)
 			keepsData = keepsData || relative.rfind(prefix, 0) == 0;
@@ -18393,6 +18862,12 @@ TEST(modfactions_prefix_the_mods_own_art)
 	strcpy( line, "  ShowSubObject = AVRanger" );			// a sub-object, not a file
 	CHECK( names.rewriteLine( line, sizeof( line ) ) );
 	CHECK_STR( line, "  ShowSubObject = AVRanger" );
+
+	// a texture named like a number leaves the animation's numbers alone
+	names.addAsset( 0, "Art\\Textures\\6.dds" );
+	strcpy( line, "  IdleAnimation = AVRanger_SKL.AVRanger_STND 0 6" );
+	CHECK( names.rewriteLine( line, sizeof( line ) ) );
+	CHECK_STR( line, "  IdleAnimation = M1~AVRanger_SKL.AVRanger_STND 0 6" );
 }
 
 // -modfactions: the file in a path-shaped word is its last part, past either slash

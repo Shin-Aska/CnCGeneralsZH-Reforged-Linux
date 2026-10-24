@@ -6,7 +6,8 @@
  * with the semantics that file relies on; the rest of Miles is not.
  *
  * What maps onto what:
- *   HSAMPLE / H3DSAMPLE  -> one IXAudio2SourceVoice each, fed a whole PCM WAV image in one buffer.
+ *   HSAMPLE / H3DSAMPLE  -> one IXAudio2SourceVoice each, fed its own copy of a whole PCM WAV
+ *                           image in one buffer.
  *   HSTREAM / HAUDIO     -> a file decoded by FFmpeg through the game's own file callbacks, fed to
  *                           a source voice in ~200ms buffers by the service thread below.
  *   3D positioning       -> distance attenuation and a stereo pan computed here, not by XAudio2's
@@ -226,13 +227,59 @@ unsigned int decodeAdpcm(const WaveImage &wave, std::vector<short> *out)
 // Voices
 // ---------------------------------------------------------------------------------------------
 
+// The PCM a sample's voice reads.  XAudio2 reads a submitted buffer on its own mixer thread until
+// that buffer's OnBufferEnd, and Stop and FlushSourceBuffers only take effect on the mixer's next
+// pass.  A voice fed a pointer into the game's file image went on reading it after
+// AIL_stop_sample had returned and the file cache had freed the image, which was an access
+// violation inside xaudio2_9.dll with no game frame on the stack.  The voice reads this copy
+// instead: the Sample holds one reference and every buffer still queued holds another, which
+// OnBufferEnd gives back on the mixer thread.
+struct SampleData
+{
+	volatile LONG references;
+	unsigned int bytes;
+
+	const BYTE *pcm() const { return (const BYTE *)(this + 1); }
+};
+
+SampleData *copySampleData(const unsigned char *pcm, unsigned int bytes)
+{
+	SampleData *data = (SampleData *)malloc(sizeof(SampleData) + bytes);
+	data->references = 1;
+	data->bytes = bytes;
+	memcpy(data + 1, pcm, bytes);
+	return data;
+}
+
+void releaseSampleData(SampleData *data)
+{
+	if (data != NULL && InterlockedDecrement(&data->references) == 0) {
+		free(data);
+	}
+}
+
+// Runs on the mixer thread, so it takes no lock: DestroyVoice is called holding g_engine.lock and
+// waits for this thread.
+class SampleVoiceCallback : public IXAudio2VoiceCallback
+{
+public:
+	STDMETHOD_(void, OnVoiceProcessingPassStart)(UINT32) {}
+	STDMETHOD_(void, OnVoiceProcessingPassEnd)() {}
+	STDMETHOD_(void, OnStreamEnd)() {}
+	STDMETHOD_(void, OnBufferStart)(void *) {}
+	STDMETHOD_(void, OnBufferEnd)(void *context) { releaseSampleData((SampleData *)context); }
+	STDMETHOD_(void, OnLoopEnd)(void *) {}
+	STDMETHOD_(void, OnVoiceError)(void *, HRESULT) {}
+};
+
+SampleVoiceCallback g_sampleCallback;
+
 struct Sample
 {
 	bool is3D;
 	IXAudio2SourceVoice *voice;
 	WAVEFORMATEX format;
-	const unsigned char *data;
-	unsigned int dataBytes;
+	SampleData *data;
 	float volume;
 	float pan;
 	unsigned int baseRate;
@@ -300,6 +347,7 @@ struct Engine
 	HANDLE serviceThread;
 	volatile LONG serviceRunning;
 	std::vector<Sample *> samples;
+	std::vector<IXAudio2SourceVoice *> retiredVoices;
 	std::vector<Stream *> streams;
 	Listener listener;
 	bool started;
@@ -413,6 +461,20 @@ void destroyVoice(IXAudio2SourceVoice **voice)
 	}
 }
 
+// A sample voice is not destroyed on the spot: the buffers still queued on it hold SampleData
+// references, and only OnBufferEnd gives them back, which a destroyed voice no longer calls.  It
+// is stopped and flushed here, and the service thread destroys it once the mixer has retired its
+// last buffer.  Under the lock.
+void retireVoice(IXAudio2SourceVoice **voice)
+{
+	if (*voice != NULL) {
+		(*voice)->Stop(0);
+		(*voice)->FlushSourceBuffers();
+		g_engine.retiredVoices.push_back(*voice);
+		*voice = NULL;
+	}
+}
+
 bool ensureVoice(Sample *sample, const WAVEFORMATEX &format)
 {
 	if (g_engine.xaudio == NULL) {
@@ -428,9 +490,9 @@ bool ensureVoice(Sample *sample, const WAVEFORMATEX &format)
 		return true;
 	}
 
-	destroyVoice(&sample->voice);
+	retireVoice(&sample->voice);
 	sample->format = format;
-	return SUCCEEDED(g_engine.xaudio->CreateSourceVoice(&sample->voice, &format, 0, 4.0f));
+	return SUCCEEDED(g_engine.xaudio->CreateSourceVoice(&sample->voice, &format, 0, 4.0f, &g_sampleCallback));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -686,6 +748,17 @@ DWORD WINAPI serviceThreadMain(LPVOID)
 		std::vector<HSTREAM> streamHandles;
 
 		EnterCriticalSection(&g_engine.lock);
+		for (size_t i = 0; i < g_engine.retiredVoices.size(); ) {
+			XAUDIO2_VOICE_STATE state;
+			g_engine.retiredVoices[i]->GetState(&state);
+			if (state.BuffersQueued == 0) {
+				g_engine.retiredVoices[i]->DestroyVoice();
+				g_engine.retiredVoices.erase(g_engine.retiredVoices.begin() + i);
+			} else {
+				++i;
+			}
+		}
+
 		for (size_t i = 0; i < g_engine.samples.size(); ++i) {
 			Sample *sample = g_engine.samples[i];
 			if (sample->voice == NULL) {
@@ -1065,6 +1138,13 @@ void AILCALL AIL_shutdown(void)
 		g_engine.serviceThread = NULL;
 	}
 
+	// whatever the service thread had not destroyed yet; the references their buffers hold go with
+	// the process
+	for (size_t i = 0; i < g_engine.retiredVoices.size(); ++i) {
+		g_engine.retiredVoices[i]->DestroyVoice();
+	}
+	g_engine.retiredVoices.clear();
+
 	if (g_engine.master != NULL) {
 		g_engine.master->DestroyVoice();
 		g_engine.master = NULL;
@@ -1203,7 +1283,8 @@ void AILCALL AIL_release_sample_handle(HSAMPLE handle)
 			break;
 		}
 	}
-	destroyVoice(&sample->voice);
+	retireVoice(&sample->voice);
+	releaseSampleData(sample->data);
 	LeaveCriticalSection(&g_engine.lock);
 	delete sample;
 }
@@ -1224,8 +1305,8 @@ void AILCALL AIL_init_sample(HSAMPLE handle)
 	sample->volume = 1.0f;
 	sample->pan = DEFAULT_PAN;
 	sample->endOfSample = NULL;
+	releaseSampleData(sample->data);
 	sample->data = NULL;
-	sample->dataBytes = 0;
 	LeaveCriticalSection(&g_engine.lock);
 }
 
@@ -1241,8 +1322,8 @@ S32 AILCALL AIL_set_sample_file(HSAMPLE handle, const void *file_image, S32)
 	sample->playing = false;
 	const bool ready = ensureVoice(sample, wave.format);
 	if (ready) {
-		sample->data = wave.data;
-		sample->dataBytes = wave.dataBytes;
+		releaseSampleData(sample->data);
+		sample->data = copySampleData(wave.data, wave.dataBytes);
 		sample->baseRate = wave.format.nSamplesPerSec;
 		sample->rate = wave.format.nSamplesPerSec;
 		refreshSampleOutput(sample);
@@ -1264,13 +1345,17 @@ void AILCALL AIL_start_sample(HSAMPLE handle)
 
 	XAUDIO2_BUFFER buffer;
 	memset(&buffer, 0, sizeof(buffer));
-	buffer.AudioBytes = sample->dataBytes;
-	buffer.pAudioData = sample->data;
+	buffer.AudioBytes = sample->data->bytes;
+	buffer.pAudioData = sample->data->pcm();
 	buffer.Flags = XAUDIO2_END_OF_STREAM;
+	buffer.pContext = sample->data;
+	InterlockedIncrement(&sample->data->references);	// the buffer's, given back by OnBufferEnd
 	if (SUCCEEDED(sample->voice->SubmitSourceBuffer(&buffer))) {
 		refreshSampleOutput(sample);
 		sample->voice->Start(0);
 		sample->playing = true;
+	} else {
+		releaseSampleData(sample->data);
 	}
 	LeaveCriticalSection(&g_engine.lock);
 }

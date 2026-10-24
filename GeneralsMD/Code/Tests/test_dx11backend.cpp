@@ -29,9 +29,15 @@
 
 #include "dx11backend.h"
 #include "dx11resource.h"
+#include "dx11water.h"
+#include "Platform/HazardCloudCore.h"
+#include "Platform/WaterConstants.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include <chrono>
+#include <thread>
 #include <vector>
 
 static const unsigned TARGET_SIZE = 64;
@@ -362,6 +368,117 @@ TEST(dx11backend_the_same_state_resolves_to_one_pipeline)
 	backend.Statistics(pipelines, made, refused);
 	CHECK_EQ(pipelines, 2u);
 	CHECK_EQ(refused, 0ull);
+
+	indices->Release();
+	vertices->Release();
+	backend.Shutdown();
+}
+
+// The pass-through state under a perspective projection, the only kind of scene draw that may wait
+// for the worker: an identity projection is how Render2D draws the interface.
+static void configure_perspective_pass_through(DX11BackendClass & backend)
+{
+	configure_unlit_pass_through(backend);
+	float perspective[16];
+	set_identity(perspective);
+	perspective[11] = 1.0f;
+	perspective[15] = 0.0f;
+	backend.Set_Transform(D3DTS_PROJECTION, perspective);
+}
+
+// With the compile off the frame, a state neither cache holds leaves its draws out until the
+// worker has its two programs: the second draw of the same state queues nothing more, and the
+// draw after they land is made from them with no compile of its own.
+TEST(dx11backend_a_missing_program_compiles_off_the_frame)
+{
+	DX11DeviceClass device;
+	CHECK(device.Create_Offscreen());
+
+	DX11BackendClass backend;
+	CHECK(backend.Initialise(&device));
+	backend.Set_Compile_Off_Frame(true);
+
+	ID3D11Buffer * vertices = NULL;
+	CHECK(DX11Resource_Create_Vertex_Buffer(device.Get_Device(), sizeof(QUAD_VERTICES),
+		D3DPOOL_MANAGED, 0, QUAD_VERTICES, &vertices));
+
+	ID3D11Buffer * indices = NULL;
+	CHECK(DX11Resource_Create_Index_Buffer(device.Get_Device(), sizeof(QUAD_INDICES),
+		D3DPOOL_MANAGED, 0, QUAD_INDICES, &indices));
+
+	backend.Set_Viewport(0, 0, TARGET_SIZE, TARGET_SIZE);
+	configure_perspective_pass_through(backend);
+	backend.Set_Stream_Source(vertices, sizeof(BackendVertex), 0);
+	backend.Set_Indices(indices, DXGI_FORMAT_R16_UINT);
+
+	CHECK(!backend.Draw_Indexed_Triangles(6, 0, 0));
+	CHECK(!backend.Draw_Indexed_Triangles(6, 0, 0));
+
+	// FXC takes about a tenth of a second for these two; twenty seconds is a hung worker.
+	const unsigned WAIT_STEPS = 2000;
+	bool drawn = false;
+	for (unsigned step = 0; step < WAIT_STEPS && !drawn; ++step) {
+		std::this_thread::sleep_for(std::chrono::milliseconds(10));
+		drawn = backend.Draw_Indexed_Triangles(6, 0, 0);
+	}
+	CHECK(drawn);
+
+	unsigned off_frame = 0;
+	double longest = 0.0;
+	unsigned long long waited = 0;
+	backend.Compile_Statistics(off_frame, longest, waited);
+	CHECK_EQ(off_frame, 2u);
+	CHECK(waited >= 2ull);
+	CHECK(longest > 0.0);
+
+	unsigned pipelines = 0;
+	unsigned long long made = 0;
+	unsigned long long refused = 0;
+	backend.Statistics(pipelines, made, refused);
+	CHECK_EQ(pipelines, 1u);
+	CHECK_EQ(made, 1ull);
+
+	indices->Release();
+	vertices->Release();
+	backend.Shutdown();
+}
+
+// A key still waiting on the worker is drawn at once by a draw that may not wait: the same state
+// under Render2D's identity projection compiles on the spot rather than leaving the interface out.
+TEST(dx11backend_a_draw_that_may_not_wait_compiles_a_pending_key_on_the_spot)
+{
+	DX11DeviceClass device;
+	CHECK(device.Create_Offscreen());
+
+	DX11BackendClass backend;
+	CHECK(backend.Initialise(&device));
+	backend.Set_Compile_Off_Frame(true);
+
+	ID3D11Buffer * vertices = NULL;
+	CHECK(DX11Resource_Create_Vertex_Buffer(device.Get_Device(), sizeof(QUAD_VERTICES),
+		D3DPOOL_MANAGED, 0, QUAD_VERTICES, &vertices));
+
+	ID3D11Buffer * indices = NULL;
+	CHECK(DX11Resource_Create_Index_Buffer(device.Get_Device(), sizeof(QUAD_INDICES),
+		D3DPOOL_MANAGED, 0, QUAD_INDICES, &indices));
+
+	backend.Set_Viewport(0, 0, TARGET_SIZE, TARGET_SIZE);
+	configure_perspective_pass_through(backend);
+	backend.Set_Stream_Source(vertices, sizeof(BackendVertex), 0);
+	backend.Set_Indices(indices, DXGI_FORMAT_R16_UINT);
+
+	CHECK(!backend.Draw_Indexed_Triangles(6, 0, 0));
+	float identity[16];
+	set_identity(identity);
+	backend.Set_Transform(D3DTS_PROJECTION, identity);
+	CHECK(backend.Draw_Indexed_Triangles(6, 0, 0));
+
+	unsigned pipelines = 0;
+	unsigned long long made = 0;
+	unsigned long long refused = 0;
+	backend.Statistics(pipelines, made, refused);
+	CHECK_EQ(pipelines, 1u);
+	CHECK_EQ(made, 1ull);
 
 	indices->Release();
 	vertices->Release();
@@ -1142,4 +1259,193 @@ TEST(dx11backend_the_smoke_map_holds_each_casters_three_sums)
 	staging->Release();
 	resource->Release();
 	backend.Shutdown();
+}
+
+// The volumetric hazard clouds' text is the SDL GPU backend's too, written for DXC.  Every pass of
+// it has to go through the compiler this backend uses at shader model 5, and the device has to take
+// what comes out, or the clouds go Classic on the first hazard of the match.
+TEST(dx11backend_the_hazard_cloud_programs_compile_at_shader_model_5)
+{
+	DX11DeviceClass device;
+	CHECK(device.Create_Offscreen());
+	DX11BackendClass backend;
+	CHECK(backend.Initialise(&device));
+
+	struct Program { std::string source; bool vertex; };
+	const Program programs[] = {
+		{ HazardCloud::vertexShader(), true },
+		{ HazardCloud::pixelShader(HazardCloud::Pass::Volume, false), false },
+		{ HazardCloud::pixelShader(HazardCloud::Pass::Composite, false), false },
+		{ HazardCloud::pixelShader(HazardCloud::Pass::Density, false), false },
+		{ HazardCloud::pixelShader(HazardCloud::Pass::Lighting, false), false },
+		{ HazardCloud::pixelShader(HazardCloud::Pass::Heat, false), false },
+		{ HazardCloud::emberVertexShader(false), true },
+		{ HazardCloud::emberPixelShader(false), false },
+	};
+	for (const Program & program : programs) {
+		std::vector<unsigned char> code;
+		const bool compiled = backend.Compile_Program(program.source, "hazardcloud",
+			program.vertex ? "vs_5_0" : "ps_5_0", code);
+		if (!compiled) {
+			printf("  %s\n", backend.First_Compiler_Error());
+		}
+		CHECK(compiled);
+		if (!compiled) {
+			continue;
+		}
+		ID3D11DeviceChild * made = NULL;
+		const HRESULT result = program.vertex
+			? device.Get_Device()->CreateVertexShader(&code[0], code.size(), NULL, (ID3D11VertexShader **)&made)
+			: device.Get_Device()->CreatePixelShader(&code[0], code.size(), NULL, (ID3D11PixelShader **)&made);
+		CHECK(SUCCEEDED(result));
+		if (made != NULL) {
+			made->Release();
+		}
+	}
+	backend.Shutdown();
+}
+
+// The fixed-function vertex state the modern ocean patch draws with: an unlit XYZNDUV2 vertex,
+// four stages (the base, the mirror's projection, the camera space noise and the shroud), fog.
+static VertexPipelineDescription water_vertex_description()
+{
+	VertexPipelineDescription description;
+	memset(&description, 0, sizeof(description));
+	description.FVF = D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_DIFFUSE | D3DFVF_TEX2;
+	description.ColourVertexEnabled = true;
+	description.DiffuseMaterialSource = D3DMCS_COLOR1;
+	description.StageCount = 4;
+	description.Stages[1].TextureCoordinateIndex = 1;
+	description.Stages[2].TextureCoordinateIndex = D3DTSS_TCI_CAMERASPACEPOSITION;
+	description.Stages[2].TextureTransformFlags = D3DTTFF_COUNT2;
+	description.Stages[3].TextureCoordinateIndex = D3DTSS_TCI_CAMERASPACEPOSITION;
+	description.Stages[3].TextureTransformFlags = D3DTTFF_COUNT2;
+	description.FogEnabled = true;
+	description.FogVertexMode = D3DFOG_LINEAR;
+	return description;
+}
+
+// The Modern water's text is the SDL GPU backend's too.  Its two surfaces, the displaced ocean's
+// vertex half and the FFT passes all have to come through the compiler at shader model 5 (the
+// surfaces write a dynamically indexed array, which shader model 4 refuses) and be taken by the
+// device, or the water draws nothing with Modern selected.
+TEST(dx11backend_the_modern_water_programs_compile_at_shader_model_5)
+{
+	DX11DeviceClass device;
+	CHECK(device.Create_Offscreen());
+	DX11BackendClass backend;
+	CHECK(backend.Initialise(&device));
+
+	PixelPipelineDescription pipeline;
+	memset(&pipeline, 0, sizeof(pipeline));
+	pipeline.FogEnabled = true;
+	struct Program { std::string source; const char * profile; const char * name; unsigned flags; };
+	std::vector<Program> programs;
+	for (const EngineShaderProgram water : { ENGINE_SHADER_WATER_TRAPEZOID, ENGINE_SHADER_WATER_RIVER }) {
+		Program program = { std::string(), "ps_5_0", EngineShader_Name(water), DX11_MODERN_WATER_COMPILE_FLAGS };
+		CHECK(EngineShader_Pixel_Program(water, pipeline, program.source));
+		programs.push_back(program);
+	}
+	Program ocean = { std::string(), "vs_5_0", "water vertex", 0 };
+	CHECK(DX11Water_Ocean_Vertex_Program(water_vertex_description(), ocean.source));
+	programs.push_back(ocean);
+	for (unsigned pass = 0; pass < DX11_WATER_OCEAN_PASSES; ++pass) {
+		const Program fft = { DX11Water_Ocean_Pass_Program(pass), "ps_5_0", "ocean pass", 0 };
+		programs.push_back(fft);
+	}
+	const Program fullscreen = { DX11Water_Ocean_Pass_Vertex_Program(), "vs_5_0", "ocean vertex", 0 };
+	programs.push_back(fullscreen);
+
+	for (const Program & program : programs) {
+		std::vector<unsigned char> code;
+		const bool vertex = program.profile[0] == 'v';
+		const unsigned started = GetTickCount();
+		const bool compiled = backend.Compile_Program(program.source, program.name, program.profile, code,
+			program.flags);
+		printf("  %s: %s in %u ms\n", program.name, compiled ? "compiled" : "refused",
+			GetTickCount() - started);
+		if (!compiled) {
+			printf("  %s\n", backend.First_Compiler_Error());
+		}
+		CHECK(compiled);
+		if (!compiled) {
+			continue;
+		}
+		ID3D11DeviceChild * made = NULL;
+		const HRESULT result = vertex
+			? device.Get_Device()->CreateVertexShader(&code[0], code.size(), NULL, (ID3D11VertexShader **)&made)
+			: device.Get_Device()->CreatePixelShader(&code[0], code.size(), NULL, (ID3D11PixelShader **)&made);
+		CHECK(SUCCEEDED(result));
+		if (made != NULL) {
+			made->Release();
+		}
+	}
+	backend.Shutdown();
+}
+
+// The block the Modern water's two stages read, built from W3DWater's registers and the draw's
+// camera.  A camera standing at (10, 20, 30) has to come back out of the inverted view, the
+// registers land in their fields, a river draw drops the hulls, and the foam atlas is read only
+// when stage 14 holds one.
+TEST(dx11backend_the_modern_water_constants_are_built_from_the_registers)
+{
+	static float registers[DX11_WATER_REGISTERS][4];
+	memset(registers, 0, sizeof(registers));
+	const float time = 12.5f;
+	const float hulls = 3.0f;
+	registers[1][0] = time;
+	registers[6][2] = 1.0f;
+	registers[7][0] = hulls;
+	registers[88][0] = 100.0f;
+	registers[88][2] = 0.01f;
+	registers[88][3] = 0.01f;
+	registers[89][0] = 1.0f;
+	registers[89][2] = 4.0f;
+	registers[WaterHullVisualLayout::MetadataRegister][3] = 1.0f;
+	registers[ModernWaterMaterial::RegisterOptics][0] = 0.90f;
+	registers[ModernWaterMaterial::RegisterOptics][1] = 1.0f;
+
+	const float x = 10.0f, y = 20.0f, z = 30.0f;
+	const float view[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -x, -y, -z, 1 };
+	const float projection[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, -1, 0 };
+	const WaterConstants::Camera camera = { view, projection, 0.0f, 0.0f, 800.0f, 600.0f, 0.0f, 1.0f };
+
+	CHECK(WaterConstants::FoamHistoryRegisters(registers));
+	CHECK(WaterConstants::FoamHistoryAtlas(registers, 64, 64));
+	WaterConstants::Block block;
+	WaterConstants::Fill(registers, camera, true, block);
+	CHECK(fabsf(block.CameraPosition[0] - x) < 0.001f);
+	CHECK(fabsf(block.CameraPosition[1] - y) < 0.001f);
+	CHECK(fabsf(block.CameraPosition[2] - z) < 0.001f);
+	CHECK(block.WaterParameters[0] == time);
+	CHECK(block.MaterialOptics[0] == 0.90f && block.MaterialOptics[1] == 1.0f);
+	float identity[16];
+	WaterConstants::Multiply(block.WorldFromClip, block.ClipFromWorld, identity);
+	for (unsigned row = 0; row < 4; ++row)
+		for (unsigned column = 0; column < 4; ++column)
+			CHECK(fabsf(identity[row * 4 + column] - (row == column ? 1.0f : 0.0f)) < 0.001f);
+	CHECK(block.OpticalParameters[2] == 1.0f);
+	CHECK(block.HullParameters[0] == hulls);
+	CHECK(block.FoamHistoryArea[0] == 100.0f);
+	CHECK(block.Viewport[0] == 0.5f && block.Viewport[2] == 800.0f);
+	WaterConstants::VisualBlock visual;
+	WaterConstants::FillVisual(block, registers, visual);
+	CHECK(visual.VisualHullMeta[0][3] == 1.0f);
+
+	WaterConstants::Fill(registers, camera, false, block);
+	CHECK(block.FoamHistoryArea[0] == 0.0f);
+	WaterConstants::Camera ranged = camera;
+	ranged.minZ = 0.2f; ranged.maxZ = 0.8f;
+	WaterConstants::Fill(registers, ranged, false, block);
+	WaterConstants::Multiply(block.WorldFromClip, block.ClipFromWorld, identity);
+	for (unsigned row = 0; row < 4; ++row)
+		for (unsigned column = 0; column < 4; ++column)
+			CHECK(fabsf(identity[row * 4 + column] - (row == column ? 1.0f : 0.0f)) < 0.001f);
+
+	registers[1][1] = 1.0f;
+	CHECK(!WaterConstants::FoamHistoryRegisters(registers));
+	WaterConstants::Fill(registers, camera, false, block);
+	CHECK(block.HullParameters[0] == 0.0f);
+	WaterConstants::FillVisual(block, registers, visual);
+	CHECK(visual.VisualHullMeta[0][3] == 0.0f);
 }

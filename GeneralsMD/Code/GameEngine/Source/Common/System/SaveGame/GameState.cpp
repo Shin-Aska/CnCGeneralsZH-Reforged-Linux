@@ -756,12 +756,15 @@ void GameState::loadCheckpoint( AsciiString filepath, const std::function< void(
 	TheGameEngine->reset();
 	afterReset();
 
+	// The post-process is part of the load, as it is in loadGame: a Cold Fusion plant's Control Rods
+	// put its power back there, and outside the load that browned the player out or in again and
+	// idled buildings whose update modules were not back on the sleepy heap yet, "sleepy update module
+	// illegal index" on a replay rewind.  The save already holds every building's power state.
+	LatchRestore<Bool> inLoadGame( m_isInLoadGame, TRUE );
+
 	TheGhostObjectManager->saveLockGhostObjects( TRUE );
 	TheGameLogic->setLoadingWithoutScreen( TRUE );
-	{
-		LatchRestore<Bool> inLoadGame( m_isInLoadGame, TRUE );
-		xferSaveData( &xferLoad, SNAPSHOT_SAVELOAD );
-	}
+	xferSaveData( &xferLoad, SNAPSHOT_SAVELOAD );
 	TheGameLogic->setLoadingWithoutScreen( FALSE );
 	xferLoad.close();
 	TheGhostObjectManager->saveLockGhostObjects( FALSE );

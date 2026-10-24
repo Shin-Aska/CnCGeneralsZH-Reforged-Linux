@@ -102,7 +102,10 @@ static const EngineShaderEntry ENGINE_SHADERS[] = {
 		FLAT_TERRAIN_OPENING, TERRAIN_NOISE_2_CHAIN },
 	{ ENGINE_SHADER_ROAD_NOISE_2, "roadnoise2.pso", "engine:roadnoise2",
 		ROAD_NOISE_2_OPENING, ROAD_NOISE_2_CHAIN },
-	{ ENGINE_SHADER_MONOCHROME, "monochrome.pso", "engine:monochrome", NULL, NULL }
+	{ ENGINE_SHADER_MONOCHROME, "monochrome.pso", "engine:monochrome", NULL, NULL },
+	{ ENGINE_SHADER_WATER_TRAPEZOID_FOAM, "trapezoid water foam ps.1.1", "engine:trapezoidwaterfoam",
+		NULL, NULL },
+	{ ENGINE_SHADER_WATER_RIVER_FOAM, "river water foam ps.1.1", "engine:riverwaterfoam", NULL, NULL }
 };
 
 static const unsigned ENGINE_SHADER_COUNT = sizeof(ENGINE_SHADERS) / sizeof(ENGINE_SHADERS[0]);
@@ -219,7 +222,8 @@ static void write_trees(std::string & hlsl)
 // ffshader's declarations, member for member and in the same order, so a transcribed pixel program
 // is bound with the same constant buffer, the same textures and the same samplers as a generated
 // one.  Reading fewer of them than are declared costs nothing.
-static void write_pixel_preamble(std::string & hlsl, bool volumetric = false)
+static void write_pixel_preamble(std::string & hlsl, bool volumetric = false,
+	const char * declarations = NULL)
 {
 	for (unsigned stage = 0; stage < MAXIMUM_COMBINER_STAGES; ++stage) {
 		char line[128];
@@ -265,6 +269,9 @@ static void write_pixel_preamble(std::string & hlsl, bool volumetric = false)
 	hlsl += SHADOW_SAMPLING;
 	if (volumetric) {
 		hlsl += VOLUMETRIC_SAMPLING;
+	}
+	if (declarations != NULL) {
+		hlsl += declarations;
 	}
 	hlsl +=
 		"\n"
@@ -349,6 +356,135 @@ static void write_river_water(std::string & hlsl)
 		"    sparkle = saturate(sparkle + texel3.rgb);\n"
 		"    sparkle = saturate(sparkle * input.Diffuse.a);\n"
 		"    current.rgb = saturate(current.rgb + sparkle);\n";
+}
+
+/*
+** The water with foam on it (the Water Foam option), Direct3D 11 only: the SDL3 text is the plain water.
+**
+** How deep the water is under a pixel comes out of the scene's depth, the soft particles' copy at
+** t7, which W3DWater takes right before it draws: the ground and every opaque object are in it and
+** the water is not.  The pixel and what stands behind it both go back to the world through
+** WorldFromClip, and the depth is the height between them.  The backend uploads that matrix and
+** ShadowViewport for every program that reads the scene's depth, sun's map or not; a cleared depth
+** or no copy at all (a null view reads zero) counts as deep water: no foam band, no edge.
+**
+** Where the foam sits comes from TexCoord2, which both waters fill with the camera position taken
+** back to the world, times NOISE_REPEAT_FACTOR (1/16), plus the scroll: times sixteen it is the
+** world drifting with the water, interpolated exactly, where the depth's way back would shimmer.
+** The swell's phase rides in TextureFactor.g and turns the two noise layers round circles in
+** opposite directions, so the flecks boil instead of sliding.  A feathered trapezoid hands over the
+** curve the shoreline tiles wrote into the frame's alpha (TextureFactor.r times 32 is the depth
+** that turns opaque, .a the deepest opacity) and W3DWater blends on the source alpha in place of
+** the destination's, so the shallow foam is not faded out with the water around it.
+**
+** The sun's shadow lands on the surface last but the shroud, through SHADOW_APPLY, the way the
+** ground takes it.  Every number to tune is a WATER_FOAM_ constant at the top of the text.
+*/
+static const char * const WATER_FOAM_SAMPLING =
+	"Texture2D SceneDepth : register(t7);\n"
+	"\n"
+	"static const float  WATER_FOAM_SHORE_DEPTH = 3.5;   // world units of water the shore band reaches through\n"
+	"static const float  WATER_FOAM_EDGE = 0.6;          // world units over which the water fades into the bank\n"
+	"static const float  WATER_FOAM_FINE = 0.22;         // fleck noise, cells per world unit\n"
+	"static const float  WATER_FOAM_BROAD = 0.03;        // the patches the flecks gather in\n"
+	"static const float  WATER_FOAM_SWIRL = 1.4;         // how far a cycle moves the fine layer, in cells\n"
+	"static const float  WATER_FOAM_CAPS = 0.55;         // whitecap strength\n"
+	"static const float  WATER_FOAM_CAP_LOW = 0.42;      // fine times broad where a fleck starts\n"
+	"static const float  WATER_FOAM_CAP_HIGH = 0.62;     // and where it is solid\n"
+	"static const float  WATER_FOAM_OPACITY = 0.85;      // how opaque full foam makes the water\n"
+	"static const float3 WATER_FOAM_COLOUR = float3(0.90, 0.94, 0.96);\n"
+	"\n"
+	"float foam_hash(float2 p)\n"
+	"{\n"
+	"    float3 q = frac(p.xyx * 0.1031);\n"
+	"    q += dot(q, q.yzx + 33.33);\n"
+	"    return frac((q.x + q.y) * q.z);\n"
+	"}\n"
+	"\n"
+	"float foam_noise(float2 p)\n"
+	"{\n"
+	"    float2 i = floor(p);\n"
+	"    float2 f = frac(p);\n"
+	"    f = f * f * (3.0 - 2.0 * f);\n"
+	"    return lerp(lerp(foam_hash(i), foam_hash(i + float2(1.0, 0.0)), f.x),\n"
+	"                lerp(foam_hash(i + float2(0.0, 1.0)), foam_hash(i + float2(1.0, 1.0)), f.x), f.y);\n"
+	"}\n"
+	"\n"
+	"float3 foam_world(float2 pixel, float depth)\n"
+	"{\n"
+	"    float2 ndc = float2(pixel.x * ShadowViewport.x * 2.0 - 1.0, 1.0 - pixel.y * ShadowViewport.y * 2.0);\n"
+	"    float4 world = mul(float4(ndc, depth, 1.0), WorldFromClip);\n"
+	"    return world.xyz / world.w;\n"
+	"}\n"
+	"\n"
+	"float foam_water_depth(float4 position)\n"
+	"{\n"
+	"    float scene = SceneDepth.Load(int3(position.xy, 0)).r;\n"
+	"    if (ShadowViewport.x <= 0.0 || scene <= 0.0 || scene >= 1.0) return 1000.0;\n"
+	"    return max(foam_world(position.xy, position.z).z - foam_world(position.xy, scene).z, 0.0);\n"
+	"}\n"
+	"\n"
+	"float foam_amount(float2 world, float depth, float phase)\n"
+	"{\n"
+	"    float angle = phase * 6.2831853;\n"
+	"    float2 swirl = float2(cos(angle), sin(angle)) * WATER_FOAM_SWIRL;\n"
+	"    float fine = foam_noise(world * WATER_FOAM_FINE + swirl);\n"
+	"    float broad = foam_noise(world * WATER_FOAM_BROAD - swirl.yx * 0.15);\n"
+	"    float caps = smoothstep(WATER_FOAM_CAP_LOW, WATER_FOAM_CAP_HIGH, fine * broad) * WATER_FOAM_CAPS;\n"
+	"    // A band that thins with depth, frayed by the fine grain so it laps rather than strokes.\n"
+	"    float shore = 1.0 - saturate(depth / WATER_FOAM_SHORE_DEPTH);\n"
+	"    float band = smoothstep(0.25, 0.65, shore * (0.55 + 0.45 * fine) + shore * shore * 0.4);\n"
+	"    return saturate(max(caps, band));\n"
+	"}\n"
+	"\n";
+
+// The foam, the feather and the bank's fade, after the water's own colour and before the shadow.
+// shade is how bright the vertex colour lets the foam be, which carries the river's shroud.
+static void write_water_foam(std::string & hlsl, const char * edge_alpha)
+{
+	hlsl +=
+		"    float water_depth = foam_water_depth(input.Position);\n"
+		"    float foam = foam_amount(input.TexCoord2 * 16.0, water_depth, TextureFactor.g);\n"
+		"    if (TextureFactor.a > 0.0) {\n"
+		"        current.a = min(water_depth / max(TextureFactor.r * 32.0, 0.01), TextureFactor.a);\n"
+		"    }\n"
+		"    float shade = max(input.Diffuse.r, max(input.Diffuse.g, input.Diffuse.b));\n"
+		"    current.rgb = lerp(current.rgb, WATER_FOAM_COLOUR * shade, foam);\n"
+		"    current.a = lerp(current.a, ";
+	hlsl += edge_alpha;
+	hlsl +=
+		", foam * WATER_FOAM_OPACITY) * saturate(water_depth / WATER_FOAM_EDGE);\n";
+	hlsl += SHADOW_APPLY;
+}
+
+static void write_trapezoid_water_foam(std::string & hlsl)
+{
+	write_pixel_preamble(hlsl, true, WATER_FOAM_SAMPLING);
+	hlsl +=
+		"    float4 current = saturate(input.Diffuse * texel0);\n"
+		"    current.rgb = saturate(texel1.rgb * texel2.rgb + current.rgb);\n";
+	write_water_foam(hlsl, "1.0");
+	hlsl += "    current.rgb = saturate(current.rgb * texel3.rgb);\n";
+}
+
+// The river's edge texture fades its ends as well as its banks, and the foam stops where it does.
+static void write_river_water_foam(std::string & hlsl)
+{
+	write_pixel_preamble(hlsl, true, WATER_FOAM_SAMPLING);
+	hlsl +=
+		"    float4 current;\n"
+		"    current.rgb = saturate(input.Diffuse.rgb * texel0.rgb);\n"
+		"    current.a = saturate(texel0.a * texel3.a);\n"
+		"    float3 sparkle = saturate(texel1.rgb * texel2.rgb);\n"
+		"    sparkle = saturate(sparkle + texel3.rgb);\n"
+		"    sparkle = saturate(sparkle * input.Diffuse.a);\n"
+		"    current.rgb = saturate(current.rgb + sparkle);\n";
+	write_water_foam(hlsl, "texel3.a");
+}
+
+bool EngineShader_Reads_Scene_Depth(EngineShaderProgram program)
+{
+	return program == ENGINE_SHADER_WATER_TRAPEZOID_FOAM || program == ENGINE_SHADER_WATER_RIVER_FOAM;
 }
 
 /*
@@ -499,7 +635,11 @@ static bool write_engine_pixel_program(EngineShaderProgram program,
 static void write_modern_water(std::string &hlsl, bool river)
 {
 	const char *coastalSurfOption=getenv("ZH_WATER_SURF_GPU");
+#if defined(__linux__)
 	const bool coastalSurf=!river && coastalSurfOption && strcmp(coastalSurfOption,"1")==0;
+#else
+	const bool coastalSurf=false;
+#endif
 	const bool bowLift=WaterBowLift::Enabled();
 	const bool visualContact=WaterHullVisual::Enabled();
 	const char *visualDebugOption=getenv("ZH_WATER_DEBUG");
@@ -714,8 +854,9 @@ WaterRefractionSample waterRefractedScene(float2 originalPixel, float2 offset,
         // discontinuously changes absorption and also contaminates neighbouring derivatives.
         bool nearestValid = waterRefractionHit(nearestTexel, world, opticalWorld, view, nearestHit);
         [branch] if (nearestValid) {
-            float4 validWeights = float4(0, 0, 0, 0);
-            validWeights[nearest] = weights[nearest];
+            // A mask rather than validWeights[nearest]: FXC cannot write a vector at a runtime index,
+            // and DXC's HLSL 2021 takes no vector ternary.
+            float4 validWeights = weights * float4(int4(0, 1, 2, 3) == nearest);
             bool completeFootprint = true;
             [unroll] for (int i = 0; i < 4; ++i) {
                 [branch] if (i != nearest && weights[i] > 0.0) {
@@ -1780,6 +1921,7 @@ bool EngineShader_Pixel_Program(EngineShaderProgram program,
 		hlsl.clear();
 		return false;
 	}
+	const bool modern_water = EngineShader_Is_Modern_Water(program);
 	if (target == COMBINER_SHADER_TARGET_SDL3_GPU) {
 #if defined(__linux__)
 		if (program == ENGINE_SHADER_WATER_TRAPEZOID || program == ENGINE_SHADER_WATER_RIVER) {
@@ -1815,6 +1957,14 @@ bool EngineShader_Pixel_Program(EngineShaderProgram program,
 		return write_engine_pixel_program(program, pipeline, hlsl, EngineShader_Paints_Ground(program))
 			&& SDL3_Shader_Retarget(hlsl, false);
 	}
+	// Direct3D 11 draws the Modern water from the same text, bound by dx11water.cpp.  The Classic
+	// style registers the classic names, whose transcription is the one this target always wrote.
+	if (modern_water) {
+		write_modern_water(hlsl, program == ENGINE_SHADER_WATER_RIVER);
+		if (!CombinerShader_Append_Pixel_Pipeline(pipeline, hlsl)) return false;
+		hlsl += "    return current;\n}\n";
+		return true;
+	}
 	return write_engine_pixel_program(program, pipeline, hlsl, true);
 }
 
@@ -1835,6 +1985,22 @@ static bool write_engine_pixel_program(EngineShaderProgram program,
 	}
 	else if (program == ENGINE_SHADER_WATER_REFLECTION) {
 		write_water_reflection(hlsl);
+	}
+	else if (program == ENGINE_SHADER_WATER_TRAPEZOID_FOAM) {
+		if (volumetric) {
+			write_trapezoid_water_foam(hlsl);
+		}
+		else {
+			write_trapezoid_water(hlsl);	// SDL3: no scene depth and no WorldFromClip in its block
+		}
+	}
+	else if (program == ENGINE_SHADER_WATER_RIVER_FOAM) {
+		if (volumetric) {
+			write_river_water_foam(hlsl);
+		}
+		else {
+			write_river_water(hlsl);
+		}
 	}
 	else if (program == ENGINE_SHADER_MONOCHROME) {
 		write_monochrome(hlsl);

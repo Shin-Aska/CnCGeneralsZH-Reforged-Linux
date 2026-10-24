@@ -207,6 +207,10 @@ public:
 	UnsignedInt getPersonality(void) { return m_personality; };
 	void setPersonality(UnsignedInt p) { m_personality = p; };
 
+	/// The cell of its template's flipbook this particle shows now (ParticleSystemTemplate's Flipbook
+	/// fields), counted row by row from the top left; 0 for a card that is not a flipbook.
+	UnsignedInt getFlipbookFrame( void ) const;
+
 protected:
 
 	// snapshot methods
@@ -244,6 +248,7 @@ protected:
 
 
 	Bool							m_diesThisUpdate;											///< set on the job pool, read when the dead are removed; never saved
+	UnsignedByte			m_flipbookStart;											///< the flipbook cell it starts on; drawing only, never saved
 public:
 	Bool							m_inSystemList;
 	Bool							m_inOverallList;
@@ -619,6 +624,26 @@ public:
 	Bool isExplosionDebrisTrail( void ) const { return m_explosionDebrisTrail; }
 	void setExplosionDebrisTrail( Bool on ) { m_explosionDebrisTrail = on; }
 
+	/** "FireLook = Yes": a flame or explosion system, whose billboards the Direct3D 11 frame draws
+		* with a temperature ramp over their life, edges that burn away and a flicker
+		* (W3DParticleSys.cpp, FIRE_LOOK_SAMPLING in ffshader.h).  Drawing only. */
+	Bool isFireLook( void ) const { return m_fireLook; }
+
+	/** "FlipbookGrid = 8": the card is a square atlas of 8 by 8 frames (2, 4, 8 or 16 a side), row by
+		* row from the top left, and each particle shows one at a time.  "FlipbookRate" is frames a
+		* second, looping; 0 (the default) plays the frames once over the particle's life.
+		* "FlipbookRandomStart = Yes" starts each particle on a frame from the client's random stream,
+		* and a particle playing once then runs from there to the last.  Drawing only, and only for
+		* billboards and the point group: a streak or a ground field still draws the whole atlas. */
+	/** "Emissive = Yes": an alpha blended system that gives light rather than takes it, a fireball's
+		* body: no glow from nearby fires and lights, and nothing cast into the sun's smoke map, so it
+		* neither shades itself nor darkens the ground under it.  Drawing only. */
+	Bool isEmissive( void ) const { return m_emissive; }
+
+	UnsignedInt getFlipbookGridLog2( void ) const { return m_flipbookGridLog2; }
+	Real getFlipbookRate( void ) const { return m_flipbookRate; }
+	Bool isFlipbookRandomStart( void ) const { return m_flipbookRandomStart; }
+
 	// This function was made const because of update modules' module data being all const.
 	ParticleSystem *createSlaveSystem( Bool createSlaves = TRUE ) const ;					///< if returns non-NULL, it is a slave system for use
 
@@ -643,6 +668,11 @@ protected:
 protected:
 	AsciiString								m_name;													///< the name of this template
 	Bool											m_explosionDebrisTrail;						///< switched off with the DebrisTrails option (client only)
+	Bool											m_fireLook;												///< drawn with the Direct3D 11 fire look (client only)
+	Bool											m_emissive;												///< alpha blended but takes no light and casts no smoke shadow (client only)
+	UnsignedByte							m_flipbookGridLog2;								///< log2 of the flipbook's frames a side, 0 for a plain card (client only)
+	Real											m_flipbookRate;										///< flipbook frames a second, looping; 0 plays once over the life (client only)
+	Bool											m_flipbookRandomStart;						///< each particle starts on a random flipbook frame (client only)
 
 	// This has to be mutable because of the delayed initialization thing in createSlaveSystem
 	mutable const ParticleSystemTemplate *m_slaveTemplate;		///< if non-NULL, use this to create a slave system

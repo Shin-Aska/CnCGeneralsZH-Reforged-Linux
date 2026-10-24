@@ -53,7 +53,8 @@ namespace WaterShoreHistory { struct Mapping; }
 namespace WaterPathTracing { struct Triangle; struct View; }
 
 /// Where a pass draws: a colour texture of Target_Format() and a depth-stencil of Depth_Format(), the
-/// same size.  The back buffer is one; a render-target surface's GPU texture is another (A3d).
+/// same size.  The back buffer is one; a render-target surface's GPU texture is another (A3d).  Either
+/// attachment may be absent: the sun target is depth only, the cloud caches colour only.
 struct SdlTarget
 {
 	SDL_GPUTexture * Colour;
@@ -176,10 +177,11 @@ public:
 	/// Whether the batch has grown enough that the next draw should flush first: its staged and uploaded bytes,
 	/// or its draws (BatchDrawLimit).  Counts the flushes the draw limit asks for.
 	bool Batch_Is_Full();
-	/// The depth-stencil's SDL_GPUTextureFormat.  Every pass has it attached.
+	/// The scene depth-stencil format; colour-only passes omit that attachment.
 	unsigned int Depth_Format() const { return DepthFormat; }
 	/// Sampling is optional on older devices. The selected depth format supports this complete usage.
 	unsigned int Depth_Usage() const;
+	bool Supports_Scene_Depth() const { return DepthSampleable; }
 
 	/// Flush, then the back buffer to the window through the gamma ramp (null: none, a straight blit).
 	bool Present(const uint16_t (*ramp)[256]);
@@ -247,8 +249,10 @@ public:
 	/// Device depth (0..1), resolved into an independent R32_FLOAT texture between render passes.
 	/// Null if sampled depth is unsupported. Never aliases the depth attachment used by water.
 	SDL_GPUTexture * Water_Depth(const SdlTarget &source);
+	SDL_GPUTexture * Scene_Depth(const SdlTarget &source) { return Water_Depth(source); }
 	/// Read-only lookup; never captures after water/overlays have already changed the scene.
 	SDL_GPUTexture * Ready_Water_Depth(const SdlTarget &source, uint64_t &serial) const;
+	SDL_GPUTexture * Ready_Scene_Depth(const SdlTarget &source, uint64_t &serial) const { return Ready_Water_Depth(source, serial); }
 	/// Lazy, GPU-only Phillips spectrum/IFFT. Previous draws finish recording before maps change;
 	/// repeated paused times reuse the same field. Failure leaves the analytic water fallback usable.
 	bool Prepare_Ocean(float time);
@@ -377,6 +381,7 @@ private:
 	unsigned SmokeCount = 0;
 	bool Create_Sun_Smoke();
 	void Release_Sun_Smoke();
+	void Release_Sun_Shadow();
 	bool Fail_Sun_Smoke(const char *reason);
 	unsigned int SunShadowSize = 0;
 	struct WaterSnapshot
@@ -391,9 +396,9 @@ private:
 	uint64_t WaterFrame = 0;
 	uint64_t WaterCaptureSerial = 0;
 	bool DepthSampleable = false;
-	SDL_GPUShader *WaterDepthVertex = NULL, *WaterDepthPixel = NULL;
-	SDL_GPUGraphicsPipeline *WaterDepthPipeline = NULL;
-	SDL_GPUSampler *WaterDepthSampler = NULL;
+	SDL_GPUShader *SceneDepthVertex = NULL, *SceneDepthPixel = NULL;
+	SDL_GPUGraphicsPipeline *SceneDepthPipeline = NULL;
+	SDL_GPUSampler *SceneDepthSampler = NULL;
 	struct OceanResources;
 	OceanResources *Ocean = NULL;
 	bool OceanFailed = false, OceanReady = false;
@@ -416,8 +421,8 @@ private:
 	WaterSnapshot *Water_Snapshot(const SdlTarget &source, bool capture = true);
 	void Invalidate_Water_Snapshots(SDL_GPUTexture *colour, SDL_GPUTexture *depth);
 	void Refresh_Water_Snapshots();
-	bool Create_Water_Depth_Pipeline();
-	bool Resolve_Water_Depth(struct SDL_GPUCommandBuffer *commands, SDL_GPUTexture *source,
+	bool Create_Scene_Depth_Pipeline();
+	bool Resolve_Scene_Depth(struct SDL_GPUCommandBuffer *commands, SDL_GPUTexture *source,
 		SDL_GPUTexture *destination, unsigned int width, unsigned int height);
 	bool Copy_To_Front(struct SDL_GPUCommandBuffer * commands);
 	unsigned int DepthFormat;			///< an SDL_GPUTextureFormat: D24S8 where there is one, else D32S8

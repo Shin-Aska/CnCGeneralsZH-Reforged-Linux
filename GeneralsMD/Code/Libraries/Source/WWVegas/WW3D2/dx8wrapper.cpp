@@ -944,6 +944,18 @@ bool DX8Wrapper::Create_Device(void)
 	** Initialize all subsystems
 	*/
 	Do_Onetime_Device_Dependent_Inits();
+
+	/* A device that cannot make the 128x128 stand-in texture cannot make any texture, and calling it
+		 created only moved the fault: every load that fails ends on the stand-in, so the first one
+		 (exmask_g.tga in the screen cross fade) released a null texture during startup.  Seen three
+		 times in a row on one machine in the v3.2.0 reports, Direct3D 11 with a dxgi.dll in the game
+		 folder.  Refusing the device here gives the player the Direct3D failure message instead. */
+	IDirect3DTexture9 * missing = MissingTexture::_Get_Missing_Texture();
+	if (missing == NULL) {
+		Release_Device();
+		return false;
+	}
+	missing->Release();
 	return true;
 }
 
