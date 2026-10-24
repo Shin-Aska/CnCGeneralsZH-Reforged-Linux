@@ -156,6 +156,16 @@ class LinuxReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "destination already exists"):
             release.extract_portable(archive, destination)
 
+    def test_digest_streams_files_without_python311_helpers(self):
+        # Jammy's Python 3.10 lacks file_digest. Also cross multiple read boundaries
+        # and include every byte value so the portable helper cannot omit a chunk.
+        path = self.work / "digest-input"
+        with mock.patch.object(release.hashlib, "file_digest", create=True,
+                               side_effect=AssertionError("unavailable on Python 3.10")):
+            for payload in (b"", bytes(range(256)) * 8193):
+                path.write_bytes(payload)
+                self.assertEqual(release.digest(path), hashlib.sha256(payload).hexdigest())
+
     def test_forbidden_game_and_player_files_are_refused_without_partial_output(self):
         names = (
             "share/zero-hour-reforged/overlay/INIZH.BIG",

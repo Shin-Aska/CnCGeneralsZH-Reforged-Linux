@@ -142,8 +142,12 @@ def verify_tag(version_file, tag):
 
 
 def digest(path):
+    # hashlib.file_digest requires Python 3.11; the Ubuntu 22.04 baseline has 3.10.
+    checksum = hashlib.sha256()
     with Path(path).open("rb") as source:
-        return hashlib.file_digest(source, "sha256").hexdigest()
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            checksum.update(chunk)
+    return checksum.hexdigest()
 
 
 def verify_checksums(folder):
