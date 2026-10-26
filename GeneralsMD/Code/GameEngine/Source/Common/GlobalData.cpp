@@ -1293,6 +1293,7 @@ GlobalData::GlobalData()
 
 	m_preloadEverything = FALSE;
 	m_preloadReport = FALSE;
+	m_assetPreloading = TRUE;
 
 	m_netMinPlayers = 1; // allowing sandbox mode
 

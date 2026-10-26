@@ -116,6 +116,11 @@ are unchanged. This also affects Windows: verification remains **OPEN** for MSVC
 selection/move/attack and special-command voices, map overrides, and mission transitions. The
 retained-memory risk is now up to 256 MiB, plus active file copies and the decoded sample cache.
 
+The default-on `AssetPreloading` option in Options > Interface controls this audio cache on the
+next map. It is persisted through OptionsCatalog and defaults on when an older Options.ini lacks
+the key. The checkbox, tooltip, default and cache gate are shared with Windows; Windows menu
+display and persistence verification remain **OPEN**. Visual asset preloading is unchanged.
+
 ## Ledger
 
 ### Linux rendering extraction audit (2026-10-18)

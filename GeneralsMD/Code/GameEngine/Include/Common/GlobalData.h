@@ -401,6 +401,7 @@ public:
 
 	Bool m_preloadEverything;			///< Preload everything, everywhere (for debugging only)
 	Bool m_preloadReport;					///< dump a log of all W3D assets that are being preloaded.
+	Bool m_assetPreloading;				///< Cache audio during loading; next map.
 
 	Real m_partitionCellSize;
 

@@ -568,6 +568,20 @@ TEST(carrier_selection_move_and_attack_variants_are_all_available_without_disk_r
 	TestAudio *audio = theAudio();
 	const std::vector<AsciiString> names = { "AircraftCarrierVoiceSelect", "AircraftCarrierVoiceMove", "AircraftCarrierVoiceAttack" };
 	audio->AudioManager::reset();
+	TheWritableGlobalData->m_assetPreloading = FALSE;
+	audio->preloadAudioEvents(names);
+	AudioEventRTS probe(names.front());
+	audio->getInfoForAudioEvent(&probe);
+	std::vector<AsciiString> probeFiles;
+	probe.getPreloadFilenames(probeFiles);
+	CHECK( !probeFiles.empty() );
+	if (!probeFiles.empty())
+	{
+		File *disabled = audio->openPreloadedAudioFile(probeFiles.front().str());
+		CHECK( disabled == NULL );
+		if (disabled) disabled->close();
+	}
+	TheWritableGlobalData->m_assetPreloading = TRUE;
 	audio->preloadAudioEvents(names);
 	Int clips = 0;
 	double longestDecodeMS = 0;

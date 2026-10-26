@@ -1564,6 +1564,14 @@ GUI:OptionsGroupMenus
 "Menus"
 END
 
+GUI:AssetPreloading
+"Asset Preloading"
+END
+
+TOOLTIP:AssetPreloading
+"Preload audio while a map loads to reduce first-use pauses. Uses extra memory and can lengthen loading. Changes apply to the next map."
+END
+
 GUI:OptionsGroupSpeed
 "Game Speed"
 END

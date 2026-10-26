@@ -16451,6 +16451,34 @@ TEST(cloud_style_keeps_platform_default_and_persists_each_choice)
     TheWritableGlobalData = saved;
 }
 
+TEST(asset_preloading_defaults_on_and_persists_both_choices_for_the_next_map)
+{
+	const OptionDef *preload = findOptionDef("AssetPreloading");
+	CHECK( preload != NULL );
+	if (!preload) return;
+	CHECK_EQ( preload->kind, OPTION_BOOL );
+	CHECK_EQ( preload->apply, APPLY_NEXT_MAP );
+	CHECK_STR( preload->widgetName, "OptionsMenu.wnd:CheckAssetPreloading" );
+	GlobalData *saved = TheWritableGlobalData;
+	GlobalData *scratch = NEW GlobalData;
+	TheWritableGlobalData = scratch;
+	UserPreferences pref;
+	CHECK( scratch->m_assetPreloading );
+	loadOptionsFromPreferences(pref); // an old file has no key and must retain the enabled default
+	CHECK_EQ( preload->get(), 1 );
+	for (Int value = 0; value <= 1; ++value)
+	{
+		preload->set(value);
+		saveOptionsToPreferences(pref);
+		CHECK_STR( pref["AssetPreloading"].str(), value ? "yes" : "no" );
+		preload->set(1 - value);
+		loadOptionsFromPreferences(pref);
+		CHECK_EQ( preload->get(), value );
+	}
+	delete scratch;
+	TheWritableGlobalData = saved;
+}
+
 TEST(option_catalog_round_trips_every_key_through_options_ini)
 {
 	/* Every row has to survive the trip out to Options.ini and back, at both ends of its range.

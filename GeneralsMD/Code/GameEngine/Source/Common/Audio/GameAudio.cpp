@@ -389,7 +389,7 @@ void AudioManager::preloadAudioEvents(const std::vector<AsciiString>& events)
 	// warming the OS cache: stream service shares an engine lock with the main thread, so a later
 	// disk read can hold the picture even while the mix keeps playing. No event is played here.
 	const char *enabled = getenv("ZH_AUDIO_PRELOAD");
-	if ((enabled && enabled[0] == '0') || !TheGlobalData->m_audioOn || events.empty())
+	if ((enabled && enabled[0] == '0') || !TheGlobalData->m_assetPreloading || !TheGlobalData->m_audioOn || events.empty())
 		return;
 	const size_t budget = 256u * 1024u * 1024u;
 	const Int maxFileSize = 16 * 1024 * 1024;
