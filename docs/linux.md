@@ -268,6 +268,24 @@ has not been established. The tolerance and test expectations have not been chan
 The NVIDIA test run reports this failure alongside successful menu and skirmish rendering. These
 checks cover the scenes and draws exercised, rather than every graphics feature.
 
+## Mission audio preloading
+
+Mission loading retains scripted sound effects, dialogue and music, the map drawables’ ambient
+and movement sounds, and sounds named in loaded effect definitions in a bounded 128 MiB cache.
+Mission and ambient sounds get the budget before the wider effect library. Each encoded file is limited to 16 MiB; missing files and files beyond
+those limits keep the normal loading path. Both action branches, grouped scripts and audio-wait
+conditions are scanned without executing scripts or selecting random sound variants. Effect
+definitions are inspected without playing effects, using their current map overrides. Localization
+and map audio overrides are resolved before caching. Streams receive independent RAM files, and
+the cache is released between missions. Sound-effect decompression still uses the existing sample
+cache; this change removes disk reads for cached sounds rather than pre-decoding every effect.
+
+For a timing comparison, launch the same build with `ZH_AUDIO_PRELOAD=0` to disable preloading.
+The default enables it. `ZH_AUDIO_TIMING=1` reports stream opens and slow audio reads or sample
+loads to stderr, including filenames, to identify sounds not covered by the cache. `AUDIO PRELOAD` in the debug log reports the file count, resident size,
+skipped files and loading time. Background timing runs must still use isolated user data and a
+file-link install root; `ZH_ALLOW_AUDIO=1 ZH_AUDIO_BACKEND=null` exercises audio processing silently.
+
 ## Checks with game data
 
 Commands below run from the repository root. Keep proprietary game files outside Git. Create a

@@ -1321,6 +1321,36 @@ TEST(fxlist_reforged_ini_parses_and_keeps_its_light)
 	CHECK_EQ( lit, blocks );
 }
 
+TEST(fxlist_audio_preload_names_follow_map_overrides_without_playing_effects)
+{
+	CHECK( bootOnce() );
+	FXListStore store;
+	FXListStore *saved = TheFXListStore;
+	TheFXListStore = &store;
+	writeFile(TEST_INI, "FXList AudioPreloadProbe\n  Sound\n    Name = PreloadOriginal\n  End\nEnd\n");
+	CHECK( loadIni(TEST_INI) );
+	const UnsignedInt seed = GetGameLogicRandomSeedCRC();
+	std::vector<AsciiString> names;
+	store.collectAudioEvents(names);
+	CHECK_EQ( names.size(), 1u );
+	if (!names.empty()) CHECK_STR( names[0].str(), "PreloadOriginal" );
+	writeFile(TEST_INI, "FXList AudioPreloadProbe\n  Sound\n    Name = PreloadReplacement\n  End\nEnd\n");
+	INI ini;
+	ini.load(AsciiString(TEST_INI), INI_LOAD_CREATE_OVERRIDES, NULL);
+	names.clear();
+	store.collectAudioEvents(names);
+	CHECK_EQ( names.size(), 1u );
+	if (!names.empty()) CHECK_STR( names[0].str(), "PreloadReplacement" );
+	store.reset();
+	names.clear();
+	store.collectAudioEvents(names);
+	CHECK_EQ( names.size(), 1u );
+	if (!names.empty()) CHECK_STR( names[0].str(), "PreloadOriginal" );
+	CHECK_EQ( GetGameLogicRandomSeedCRC(), seed );
+	TheFXListStore = saved;
+	remove(TEST_INI);
+}
+
 /* ReleaseCrashInfo.txt's stack trace is the only stack this port gets - there is
    no debugger on the porting machine - and it came back empty on the first real
    crash, which is worth catching here rather than in the middle of a launch. */

@@ -112,6 +112,7 @@ public:
 		Note that primary and/or secondary can be null, so you must check for this.
 	*/
 	virtual void doFXObj(const FXObjectView* primary, const FXObjectView* secondary = NULL) const;
+	virtual AsciiString getAudioEventName() const { return AsciiString::TheEmptyString; }
 
 private:
 
@@ -155,6 +156,7 @@ public:
 		Toss the contents.
 	*/
 	void clear();
+	void collectAudioEvents(std::vector<AsciiString>& events) const;
 
 	/**
 		add a nugget to the list. It belongs to the FXList, who is responsible for freeing it.
@@ -239,6 +241,7 @@ public:
 		return NULL if no such FXList exists.
 	*/
 	const FXList *findFXList( const char* name ) const;
+	void collectAudioEvents(std::vector<AsciiString>& events) const;
 	
 	static void parseFXListDefinition(INI* ini);
 

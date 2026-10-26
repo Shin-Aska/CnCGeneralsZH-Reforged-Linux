@@ -110,6 +110,18 @@ static void AILCALLBACK streamingFileClose(AILFILEHANDLE fileHandle);
 static S32 AILCALLBACK streamingFileSeek(AILFILEHANDLE fileHandle, S32 offset, U32 type);
 static U32 AILCALLBACK streamingFileRead(AILFILEHANDLE fileHandle, void *buffer, U32 bytes);
 
+static Bool audioTimingAsked()
+{
+	static const Bool asked = getenv("ZH_AUDIO_TIMING") != NULL;
+	return asked;
+}
+
+static double audioElapsedMS(Int64 started)
+{
+	const Int64 frequency = Clock_Ticks_Per_Second();
+	return frequency ? (double)(Clock_Ticks() - started) * 1000.0 / frequency : 0.0;
+}
+
 //-------------------------------------------------------------------------------------------------
 /* "Is this sound one of these?", asked of a sound that is already playing or already queued.
 	 EA read the type straight through the info pointer at fifteen places in this file and checked
@@ -3440,7 +3452,10 @@ U32 AILCALLBACK streamingFileOpen(char const *fileName, AILFILEHANDLE *file_hand
 {
 	// The handle is a File*, so it is pointer sized - the cast to a 32-bit U32 that used to be here
 	// threw half of every pointer away and was guarded by a debug-only crash saying as much.
-	(*file_handle) = (AILFILEHANDLE) TheFileSystem->openFile(fileName, File::READ | File::STREAMING);
+	File *file = TheAudio->openPreloadedAudioFile(fileName);
+	if (audioTimingAsked()) fprintf(stderr, "AUDIO STREAM OPEN: %s (%s)\n", fileName, file ? "preloaded" : "disk");
+	if (!file) file = TheFileSystem->openFile(fileName, File::READ | File::STREAMING);
+	(*file_handle) = (AILFILEHANDLE) file;
 	return ((*file_handle) != 0);
 }
 
@@ -3459,7 +3474,15 @@ S32 AILCALLBACK streamingFileSeek(AILFILEHANDLE fileHandle, S32 offset, U32 type
 //-------------------------------------------------------------------------------------------------
 U32 AILCALLBACK streamingFileRead(AILFILEHANDLE file_handle, void *buffer, U32 bytes)
 {
-	return ((File*) file_handle)->read(buffer, bytes);
+	const Int64 started = audioTimingAsked() ? Clock_Ticks() : 0;
+	File *file = (File*) file_handle;
+	const U32 result = file->read(buffer, bytes);
+	if (audioTimingAsked())
+	{
+		const double ms = audioElapsedMS(started);
+		if (ms >= 20.0) fprintf(stderr, "AUDIO STREAM READ: %s, %u bytes in %.1f ms\n", file->getName(), bytes, ms);
+	}
+	return result;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3536,7 +3559,10 @@ void *AudioFileCache::openFile( AudioEventRTS *eventToOpenFrom )
 	}
 
 	// Couldn't find the file, so actually open it.
-	File *file = TheFileSystem->openFile(strToFind.str());
+	const Int64 started = audioTimingAsked() ? Clock_Ticks() : 0;
+	File *file = TheAudio->openPreloadedAudioFile(strToFind.str());
+	const Bool preloaded = file != NULL;
+	if (!file) file = TheFileSystem->openFile(strToFind.str());
 	if (!file) {
 		DEBUG_ASSERTLOG(strToFind.isEmpty(), ("Missing Audio File: '%s'\n", strToFind.str()));
 		return NULL;
@@ -3593,6 +3619,11 @@ void *AudioFileCache::openFile( AudioEventRTS *eventToOpenFrom )
 	}
 
 	m_openFiles[strToFind] = openedAudioFile;
+	if (audioTimingAsked())
+	{
+		const double ms = audioElapsedMS(started);
+		if (ms >= 20.0) fprintf(stderr, "AUDIO SAMPLE LOAD: %s (%s), %.1f ms\n", strToFind.str(), preloaded ? "preloaded" : "disk", ms);
+	}
 	return openedAudioFile.m_file;
 }
 

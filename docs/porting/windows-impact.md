@@ -88,6 +88,23 @@ Three things the checks found:
 - **The Preloading memory log lines print garbage on a machine with more than 2 GB free** (row 147). They pass
   `size_t` through `%d`, as the `MEMORYSTATUS` fields did before the change. Latent and log only.
 
+## Mission audio cache (2026-10-24)
+
+`GameAudio.h/.cpp`, `AudioEventRTS.h/.cpp`, `GameLogic.cpp`, `FXList.h/.cpp` and
+`MilesAudioManager.cpp` add a 128 MiB loading-screen cache of encoded audio from map scripts,
+drawable ambient/movement sounds and loaded effect definitions. This shared change also
+runs on Windows. Playback and WAV-duration queries use independent RAM files for cache hits;
+uncached files retain their original path. Cached bytes are copied into each opened file, so
+clearing the mission cache cannot invalidate an active decoder. Preloading does not play sounds,
+execute scripts or advance random streams. It does not change the save/replay format.
+
+Windows verification is **OPEN**: build with MSVC, replay the USA mission 2 opening with and without
+`ZH_AUDIO_PRELOAD=0`, confirm dialogue timing and sound playback, and change missions while music
+is playing. Risks are longer loading screens, up to 128 MiB of retained encoded audio plus copies
+for active streams, and regressions in file ownership or localization. Linux audio tests and the
+mission comparison are recorded in the task's validation results; they do not establish Windows
+runtime compatibility.
+
 ## Ledger
 
 ### Linux rendering extraction audit (2026-10-18)

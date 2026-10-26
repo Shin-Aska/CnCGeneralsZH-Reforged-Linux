@@ -52,6 +52,9 @@
 #include "Common/AudioAffect.h"
 #include "Common/AudioEventInfo.h"
 #include "Common/AudioEventRTS.h"
+#include "Common/AudioRandomValue.h"
+#include "Common/RandomValue.h"
+#include "GameLogic/LogicRandomValue.h"
 #include "Common/AudioHandleSpecialValues.h"
 #include "Common/AudioSettings.h"
 #include "Common/FileSystem.h"
@@ -384,6 +387,8 @@ TEST(headless_makes_the_same_manager_and_never_opens_a_device)
 	// and it takes events and updates as the Windows headless run does, playing nothing
 	Pick any = pickEvent( AT_SoundEffect, ST_UI, 0, 5.0 );
 	CHECK( !any.name.isEmpty() );
+	headless->preloadAudioEvents({any.name});
+	CHECK( headless->openPreloadedAudioFile(any.file.str()) == NULL );
 	const AudioHandle handle = play( any );
 	headless->runFor( 100 );
 	CHECK( !headless->isCurrentlyPlaying( handle ) );
@@ -419,6 +424,7 @@ TEST(a_2d_sound_plays_ends_and_is_freed_on_the_main_threads_sweep)
 	if (pick.name.isEmpty())
 		return;
 	printf( "  2D: %s, %s, %.2f s\n", pick.name.str(), pick.file.str(), pick.seconds );
+	audio->preloadAudioEvents({pick.name});
 	CHECK( AIL_ex_start_capture( capturePath( "2d" ).c_str() ) != 0 );
 	const AudioHandle handle = play( pick );
 	audio->runFor( 50 );		// the request is taken on the next tick
@@ -442,6 +448,7 @@ TEST(a_streamed_sound_is_heard_for_as_long_as_its_file_lasts)
 	CHECK( !pick.name.isEmpty() );
 	if (pick.name.isEmpty())
 		return;
+	audio->preloadAudioEvents({pick.name});
 	CHECK( AIL_ex_start_capture( capturePath( "stream" ).c_str() ) != 0 );
 	const AudioHandle handle = play( pick );
 	audio->runFor( (int)(pick.seconds * 1000) + 800 );
@@ -536,6 +543,9 @@ TEST(two_track_changes_in_one_update_leave_one_track_playing)
 TEST(with_sound_switched_off_nothing_is_heard)
 {
 	TestAudio *audio = theAudio();
+	// The preceding test leaves old tracks fading for a second. setOn prevents new sounds; it
+	// does not stop those tracks. Start this check silent, as when it runs by itself.
+	audio->reset();
 	const Pick pick = pickEvent( AT_SoundEffect, ST_UI, ST_WORLD, 1.5 );
 	audio->setOn( FALSE, AudioAffect_All );
 	CHECK( AIL_ex_start_capture( capturePath( "off" ).c_str() ) != 0 );
@@ -546,6 +556,66 @@ TEST(with_sound_switched_off_nothing_is_heard)
 	const Heard h = readCapture( capturePath( "off" ) );
 	CHECK( h.ok );
 	CHECK( rms( h.left ) + rms( h.right ) < 0.0005 );
+}
+
+TEST(preloaded_audio_preserves_bytes_random_streams_and_independent_file_lifetimes)
+{
+	TestAudio *audio = theAudio();
+	const Pick pick = pickEvent( AT_Streaming, 0, 0, 4.0 );
+	CHECK( !pick.name.isEmpty() );
+	if (pick.name.isEmpty()) return;
+	AsciiString variants;
+	for (const auto& entry : audio->getAllAudioEvents())
+		if (entry.second->m_soundType == AT_SoundEffect && entry.second->m_sounds.size() > 1
+				&& BitTest(entry.second->m_control, AC_RANDOM))
+		{
+			variants = entry.first;
+			break;
+		}
+	CHECK( !variants.isEmpty() );
+	InitRandom(173);
+	const Int expectedLogic = GameLogicRandomValue(0, 1000000);
+	const Int expectedAudio = GameAudioRandomValue(0, 1000000);
+	InitRandom(173);
+	audio->preloadAudioEvents({pick.name, pick.name, variants, AsciiString("MissingPreloadEvent")});
+	CHECK_EQ( GameLogicRandomValue(0, 1000000), expectedLogic );
+	CHECK_EQ( GameAudioRandomValue(0, 1000000), expectedAudio );
+	AudioEventRTS variantEvent(variants);
+	audio->getInfoForAudioEvent(&variantEvent);
+	std::vector<AsciiString> variantFiles;
+	variantEvent.getPreloadFilenames(variantFiles);
+	Int cachedVariants = 0;
+	for (const AsciiString& name : variantFiles)
+		if (File *file = audio->openPreloadedAudioFile(name.str()))
+		{
+			++cachedVariants;
+			file->close();
+		}
+	CHECK( cachedVariants > 1 );
+	File *first = audio->openPreloadedAudioFile(pick.file.str());
+	std::string alternate = pick.file.str();
+	for (char& c : alternate) { if (c == '\\') c = '/'; else if (c >= 'a' && c <= 'z') c -= 'a' - 'A'; }
+	File *second = audio->openPreloadedAudioFile(alternate.c_str());
+	File *original = TheFileSystem->openFile(pick.file.str());
+	CHECK( first && second && original );
+	if (first && second && original)
+	{
+		const Int size = original->size();
+		CHECK_EQ( first->size(), size );
+		std::vector<char> expected(size), cached(size);
+		CHECK_EQ( original->read(expected.data(), size), size );
+		CHECK_EQ( first->read(cached.data(), size), size );
+		CHECK( expected == cached );
+		CHECK_EQ( second->position(), 0 );
+		// Clearing the next mission's cache cannot invalidate a decoder's already open file.
+		audio->AudioManager::reset();
+		CHECK( audio->openPreloadedAudioFile(pick.file.str()) == NULL );
+		CHECK_EQ( second->read(cached.data(), size), size );
+		CHECK( expected == cached );
+	}
+	if (first) first->close();
+	if (second) second->close();
+	if (original) original->close();
 }
 
 // ---- ScopedMutex off Windows keeps Windows' semantics ---------------------------------------------
