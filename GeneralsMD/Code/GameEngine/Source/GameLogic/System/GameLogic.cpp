@@ -2297,6 +2297,8 @@ void GameLogic::startNewGame( Bool loadingSaveGame )
 		{
 			TheGameClient->preloadAssets( TheGlobalData->m_timeOfDay );
 		}
+		if (TheGlobalData->m_assetPreloading)
+			TheDisplay->preloadRenderPipelines();
 	}
 
 	//put this here somewhat randomly.

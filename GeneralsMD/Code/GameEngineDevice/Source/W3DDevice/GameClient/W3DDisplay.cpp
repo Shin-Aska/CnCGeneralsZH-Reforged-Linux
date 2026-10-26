@@ -80,6 +80,7 @@ static void drawFramerateBar(void);
 #include "GameLogic/Object.h"
 #include "GameClient/Keyboard.h"		// TheKeyboard; on Windows WinMain.h brought it too
 #include "Platform/SleepMilliseconds.h"
+#include "Platform/RenderWarmup.h"
 #if !defined(_WIN32)
 #include "Platform/RendererName.h"
 #endif
@@ -5081,6 +5082,20 @@ void W3DDisplay::dumpModelAssets(const char *path)
 	}
 }
 #endif	//only include above code in debug and internal
+//-------------------------------------------------------------------------------------------------
+/** Create common renderer programs and pipelines while the loading screen is active. */
+//-------------------------------------------------------------------------------------------------
+void W3DDisplay::preloadRenderPipelines()
+{
+	if (!TheGlobalData->m_assetPreloading || TheGlobalData->m_noRenderDevice) return;
+	const char *enabled = getenv("ZH_RENDER_PRELOAD");
+	if (enabled && enabled[0] == '0') return;
+	const RenderWarmupStats stats = Preload_Render_Pipelines(DX8Wrapper::_Get_D3D_Device(), TheGlobalData->m_waterStyle == 1);
+	DEBUG_LOG(("RENDER PRELOAD: %u programs, %u pipelines, %u attempts, %u unavailable, %.0f ms%s\n",
+		stats.Programs, stats.Pipelines, stats.Attempts, stats.Failed, stats.Milliseconds,
+		stats.Limited ? " (budget reached)" : ""));
+}
+
 //-------------------------------------------------------------------------------------------------
 /** Preload using the W3D asset manager the model referenced by the string parameter */
 //-------------------------------------------------------------------------------------------------

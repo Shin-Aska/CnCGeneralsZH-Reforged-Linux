@@ -121,6 +121,16 @@ next map. It is persisted through OptionsCatalog and defaults on when an older O
 the key. The checkbox, tooltip, default and cache gate are shared with Windows; Windows menu
 display and persistence verification remain **OPEN**. Visual asset preloading is unchanged.
 
+### SDL shader/pipeline warmup (2026-10-26)
+
+The same option now calls Display's optional `preloadRenderPipelines` during mission loading.
+W3DDisplay forwards through `Platform/RenderWarmup.h`; the SDL device creates a bounded set of
+common programs/pipelines in its existing caches using local descriptions, without modifying
+bindings, uploading/drawing assets or advancing simulation/camera/particles. Windows's adapter is
+an explicit no-op: its existing D3D9/D3D11 renderer and shader caches are unchanged. The Display
+virtual method, W3DDisplay override and option tooltip are shared; MSVC compile/menu verification
+remain **OPEN**. macOS's SDL runtime is also unverified. Linux validation is recorded separately.
+
 ## Ledger
 
 ### Linux rendering extraction audit (2026-10-18)

@@ -398,7 +398,7 @@ const OptionDef TheOptionCatalog[] =
 		OPTION_INT, APPLY_LIVE, 25, 400,
 		get_m_menuTransitionSpeed, set_m_menuTransitionSpeed },
 
-	// Loading-screen audio cache; next map.
+	// Loading-screen audio cache and optional backend shader/pipeline warmup; next map.
 	{ "AssetPreloading", OPT_WND( "CheckAssetPreloading" ), "GUI:AssetPreloading",
 		OPTION_BOOL, APPLY_NEXT_MAP, 0, 1,
 		get_m_assetPreloading, set_m_assetPreloading },

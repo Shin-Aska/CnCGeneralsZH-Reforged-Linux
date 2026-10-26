@@ -286,7 +286,16 @@ the cache is released between missions. Sound-effect decompression still uses th
 cache; this change removes disk reads for cached sounds rather than pre-decoding every effect.
 
 Options > Interface > Asset Preloading controls this cache and is enabled by default, including
-for existing Options.ini files without the new key. Changes apply to the next map.
+for existing Options.ini files without the new key. Changes apply to the next map. The setting
+also warms common SDL renderer shaders and graphics pipelines after the existing model/texture
+preload. Warmup creates reusable GPU objects from local state descriptions; it does not bind a
+scene, upload assets, draw, advance particles, move the camera or run a simulation tick. Water,
+ordinary lit/alpha-tested meshes, sun receivers/casters and common unlit/transparent draws get a
+bounded set of variants. Other combinations still compile on demand. Work is limited to 192
+pipeline requests and a three-second budget checked between requests; an individual driver/compiler
+call can exceed the remaining budget. Objects stay in the normal caches until device reset or
+destruction. `RENDER PRELOAD` logs new program/pipeline counts, unavailable combinations, time and
+budget status. `ZH_RENDER_PRELOAD=0` disables only graphics warmup for an audio-enabled comparison.
 For a timing comparison, `ZH_AUDIO_PRELOAD=0` forces it off regardless of the saved setting.
 `ZH_AUDIO_TIMING=1` reports stream opens and slow audio reads or sample
 loads to stderr, including filenames, to identify sounds not covered by the cache. `AUDIO PRELOAD` in the debug log reports the file count, resident size,

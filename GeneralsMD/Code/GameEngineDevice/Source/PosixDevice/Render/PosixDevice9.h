@@ -49,6 +49,7 @@
 #include "Platform/WaterShoreOverlay.h"
 #include "Platform/WaterCoastalRender.h"
 #include "Platform/WaterHullVisualLayout.h"
+#include "Platform/RenderWarmup.h"
 #include <memory>
 
 #include <atomic>
@@ -212,6 +213,7 @@ public:
 	/// -offscreen's presents, paced at hz a second (0: unpaced); SdlGpuFrame::Set_Offscreen_Presents.
 	void Present_Offscreen(unsigned int hz);
 	SdlGpuFrame * Get_Gpu() const { return Gpu; }
+	RenderWarmupStats Warm_Up_Render_Pipelines(bool modernWater, unsigned pipelineLimit = 192, unsigned budgetMS = 3000);
 #if defined(__linux__)
 	// Standalone preview only; injects exact sampled inputs for the currently bound target.
 	bool Inject_Water_Snapshot(const std::vector<uint8_t> &bgra, const std::vector<float> &depth);
