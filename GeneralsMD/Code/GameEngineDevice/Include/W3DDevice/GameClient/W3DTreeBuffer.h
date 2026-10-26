@@ -135,7 +135,8 @@ typedef struct {
 	Int			swayType;					///< Which sway array entry we are using.
 
 	Int			firstIndex;				///< First index in the vertex buffer for this tree.
-	Int     bufferNdx;				///< Which vertex buffer this is in.
+	Int     bufferNdx;				///< Which vertex buffer this is in, -1 when the last fill left it out.
+	Bool		moved;						///< Its vertices changed since updateVertexBuffer last wrote them.
 
 	// Topple parameters. [7/7/2003]
 	Real					m_angularVelocity;				///< Velocity in degrees per frame (or is it radians per frame?)
@@ -271,6 +272,15 @@ private:
 	std::vector<ShadowRange> m_shadowRanges[MAX_BUFFERS];
 	Bool m_lastShadowsForProps = FALSE;
 	Int m_sunCasterTrees = 0;
+	// What the last sun pass culled against: both views' frustum planes, the silhouette stretch and
+	// ShadowsForProps.  The next pass with the same key and no tree changed keeps its visible flags
+	// rather than walking every tree again; any tree change or a screen-only cull drops the key.
+	enum { SUN_CULL_KEY = 2*6*4 + 4 };
+	Real m_sunCullKey[SUN_CULL_KEY];
+	Int m_sunCullTrees = 0;
+	Bool m_sunCullValid = FALSE;
+	Bool m_movedSinceCull = FALSE;	///< a tree moved since the last full cull (a sinking one's sort key moves)
+	std::vector<Int> m_movedTrees;	///< the trees with moved set, in the order stepTrees moved them
 	IDirect3DPixelShader9 *	m_dwTreePixelShader;	///<D3D pixel shader
 	IDirect3DVertexShader9 * m_dwTreeVertexShader;	///<D3D vertex shader
 	IDirect3DVertexDeclaration9 * m_treeVertexDeclaration;	///<what D3D8 carried beside the shader

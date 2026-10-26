@@ -488,6 +488,7 @@ static unsigned long long s_smoothPasses = 0;
 W3DDisplay::~W3DDisplay()
 {
 	W3DParticleSystemManager::releaseCloudResources();
+	W3DParticleSystemManager::releaseGpuResources();
 	// R1: how each captured model was treated per tick, for the snap rules' tuning.
 	{
 		const unsigned long long *counts = SmoothMotion_Counts();
@@ -2905,6 +2906,19 @@ AGAIN:
 					if( Direct3D11_Take_Present_Failure( presentResult ) )
 						DEBUG_LOG(("DX11 PRESENT refused at frame %d: 0x%08X, logged once\n",
 							TheGameLogic->getFrame(), (UnsignedInt)presentResult));
+
+					/* A removed device (a driver reset after a GPU hang, a driver update, the card gone)
+						 never presents again.  The game used to play on blind until the player killed it,
+						 which reached us as a crash report with nothing in it.  No re-creation: the crash
+						 report names the reason instead. */
+					const long removedReason = Direct3D11_Device_Removed_Reason();
+					if( removedReason != 0 )
+					{
+						char reason[ 256 ];
+						snprintf( reason, ARRAY_SIZE(reason), "Graphics device removed at frame %d (DXGI reason 0x%08X): the graphics driver reset or the graphics card stopped responding",
+							TheGameLogic->getFrame(), (UnsignedInt)removedReason );
+						ReleaseCrash( reason );
+					}
 				}
 
 				/* End_Render is where a lost device is noticed and reset, and that reset is the most

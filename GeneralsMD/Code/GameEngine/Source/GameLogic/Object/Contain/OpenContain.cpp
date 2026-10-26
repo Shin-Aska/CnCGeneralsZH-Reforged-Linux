@@ -290,6 +290,22 @@ void OpenContain::addOrRemoveObjFromWorld(Object* obj, Bool add)
 //-------------------------------------------------------------------------------------------------
 void OpenContain::addToContain( Object *rider )
 {
+	//
+	// Only the object's own contain module may hold riders.  A mod that gives an object two contain
+	// modules gets both onCollide calls, and the one Object::getContain() does not name took the
+	// rider into a list nothing else looks at: the rider's exit, death and destruction all go through
+	// getContain(), so it was deleted while still on that list, and the next redeployOccupants put a
+	// freed object at a fire point.  That is the shape of the RebornV5 crash, a Lazr_AmericaVehicleHumvee
+	// taking a pilot.
+	//
+	if( getObject()->getContain() != this )
+	{
+		DEBUG_LOG(( "'%s' has more than one contain module; '%s' goes only into the one getContain() names\n",
+								getObject()->getTemplate()->getName().str(),
+								rider->getTemplate()->getName().str() ));
+		return;
+	}
+
 	if( getObject()->checkAndDetonateBoobyTrap(rider) )
 	{
 		// Whoops, I was mined.  Cancel if I (or they) am now dead.

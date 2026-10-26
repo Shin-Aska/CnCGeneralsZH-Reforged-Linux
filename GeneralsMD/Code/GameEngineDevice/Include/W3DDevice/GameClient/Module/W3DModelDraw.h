@@ -178,6 +178,7 @@ struct ModelConditionInfo
 		Int							m_fxBone;											///< the FX bone for this barrel (zero == no bone)
 		Int							m_muzzleFlashBone;						///< the muzzle-flash subobj bone for this barrel (zero == none)
 		Matrix3D				m_projectileOffsetMtx;				///< where the projectile fires from
+		Bool						m_hasProjectileLaunchBone;		///< m_projectileOffsetMtx is a launch bone, posed the way the turret's art faces; else identity
 #if defined(_DEBUG) || defined(_INTERNAL)
 		AsciiString			m_muzzleFlashBoneName;
 #endif
@@ -193,6 +194,7 @@ struct ModelConditionInfo
 			m_fxBone = 0;
 			m_muzzleFlashBone = 0;
 			m_projectileOffsetMtx.Make_Identity();
+			m_hasProjectileLaunchBone = false;
 #if defined(_DEBUG) || defined(_INTERNAL)
 			m_muzzleFlashBoneName.clear();
 #endif

@@ -31,6 +31,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <windows.h>
+#if defined(_M_X64) || defined(_M_IX86) || defined(__SSE__)
+#include <xmmintrin.h>
+#endif
 
 typedef HRESULT (WINAPI *D3DCompileFunction)(LPCVOID source_data, SIZE_T source_size,
 	LPCSTR source_name, const D3D_SHADER_MACRO * defines, ID3DInclude * include,
@@ -332,6 +335,19 @@ DX11BackendClass::DX11BackendClass()
 	SmokeMapRefused = false;
 	SmokeMapFilled = false;
 	SmokeStrength = 0.0f;
+	memset(ShadowCasterVertexShaders, 0, sizeof(ShadowCasterVertexShaders));
+	memset(ShadowCasterLayouts, 0, sizeof(ShadowCasterLayouts));
+	ShadowCasterAlphaTest = NULL;
+	ShadowCasterInstances = NULL;
+	ShadowCasterCapacity = 0;
+	ShadowCasterBones = NULL;
+	ShadowCasterBonesView = NULL;
+	ShadowCasterBonesCapacity = 0;
+	ShadowCasterRefused = false;
+	ShadowSkinSource = NULL;
+	ShadowSkinCapacity = 0;
+	ShadowSkinUsed = 0;
+	ShadowSkinGeneration = 1;
 	memset(Headlights, 0, sizeof(Headlights));
 	HeadlightCount = 0;
 	memset(HeadlightGain, 0, sizeof(HeadlightGain));
@@ -585,6 +601,7 @@ void DX11BackendClass::Shutdown()
 	ShadowMapSize = 0;
 	ShadowMapBound = false;
 	Release_Smoke_Map();
+	Release_Shadow_Casters();
 	Release_Scene_Depth();
 	Release_Scene_Colour();
 	RenderStates.Set_Shadow_Caster_Pass(false);
@@ -1033,6 +1050,482 @@ bool DX11BackendClass::Fill_Smoke_Map(const float * casters, unsigned count, flo
 	SmokeMapFilled = true;
 	SmokeStrength = strength;
 	ConstantsChanged = true;
+	return true;
+}
+
+// A caster's depth and nothing else.  The position goes through the instance's product of world,
+// view and projection the way the generated vertex programs take it through theirs
+// (ffvertex.cpp: mul of the model position by a row major matrix), so the same vertex lands on the
+// same depth.  No pixel program for an opaque caster: the pass writes no colour, and it discards
+// nothing.
+#define SHADOW_CASTER_INSTANCE_INPUT \
+	"    float4 Row0 : WORLDVIEWPROJECTION0;\n" \
+	"    float4 Row1 : WORLDVIEWPROJECTION1;\n" \
+	"    float4 Row2 : WORLDVIEWPROJECTION2;\n" \
+	"    float4 Row3 : WORLDVIEWPROJECTION3;\n"
+#define SHADOW_CASTER_PROJECT(position) \
+	"    float4x4 world_view_projection = float4x4(caster.Row0, caster.Row1, caster.Row2, caster.Row3);\n" \
+	"    return mul(float4(" position ", 1.0), world_view_projection);\n"
+
+static const char SHADOW_CASTER_VERTEX_PROGRAM[] =
+	"struct Caster\n"
+	"{\n"
+	"    float3 Position : POSITION;\n"
+	SHADOW_CASTER_INSTANCE_INPUT
+	"};\n"
+	"float4 main(Caster caster) : SV_Position\n"
+	"{\n"
+	SHADOW_CASTER_PROJECT("caster.Position")
+	"}\n";
+
+// An alpha tested caster carries stage 0's coordinates to the pixel program, untransformed, as the
+// generated programs pass them for a stage without a mapper.
+static const char SHADOW_CASTER_ALPHA_VERTEX_PROGRAM[] =
+	"struct Caster\n"
+	"{\n"
+	"    float3 Position : POSITION;\n"
+	"    float2 TexCoord : TEXCOORD;\n"
+	SHADOW_CASTER_INSTANCE_INPUT
+	"};\n"
+	"struct Output\n"
+	"{\n"
+	"    float4 Position : SV_Position;\n"
+	"    float2 TexCoord : TEXCOORD0;\n"
+	"};\n"
+	"Output main(Caster caster)\n"
+	"{\n"
+	"    Output output;\n"
+	"    float4x4 world_view_projection = float4x4(caster.Row0, caster.Row1, caster.Row2, caster.Row3);\n"
+	"    output.Position = mul(float4(caster.Position, 1.0), world_view_projection);\n"
+	"    output.TexCoord = caster.TexCoord;\n"
+	"    return output;\n"
+	"}\n";
+
+// A skin's vertex through its bone the way MeshGeometryClass::get_deformed_vertices takes it
+// (Matrix3D::Transform_Vector: each row's dot with the position plus its translation), then through
+// view and projection with the identity world the texture category's walk gives a skin.  The
+// bones are three rows each, the pass's skins one after another.
+static const char SHADOW_CASTER_SKIN_VERTEX_PROGRAM[] =
+	"Buffer<float4> Bones : register(t0);\n"
+	"struct Caster\n"
+	"{\n"
+	"    float3 Position : POSITION;\n"
+	"    uint Bone : BONE;\n"
+	SHADOW_CASTER_INSTANCE_INPUT
+	"    uint FirstBone : FIRSTBONE;\n"
+	"};\n"
+	"float4 main(Caster caster) : SV_Position\n"
+	"{\n"
+	"    uint row = (caster.FirstBone + caster.Bone) * 3;\n"
+	"    float4 x = Bones[row];\n"
+	"    float4 y = Bones[row + 1];\n"
+	"    float4 z = Bones[row + 2];\n"
+	"    float3 p = caster.Position;\n"
+	"    float3 skinned = float3(x.x * p.x + x.y * p.y + x.z * p.z + x.w,\n"
+	"        y.x * p.x + y.y * p.y + y.z * p.z + y.w,\n"
+	"        z.x * p.x + z.y * p.y + z.z * p.z + z.w);\n"
+	SHADOW_CASTER_PROJECT("skinned")
+	"}\n";
+
+// ShaderClass::Apply's test for an opaque material (reference 0x60, greater or equal) on stage 0's
+// alpha, rounded to a level first as ffshader.cpp's ALPHA_LEVEL does.  The material's diffuse
+// alpha that stage 0 multiplies by is one for every caster taken (Add_Shadow_Caster).
+static const char SHADOW_CASTER_ALPHA_PIXEL_PROGRAM[] =
+	"Texture2D Texture0 : register(t0);\n"
+	"SamplerState Sampler0 : register(s0);\n"
+	"struct Input\n"
+	"{\n"
+	"    float4 Position : SV_Position;\n"
+	"    float2 TexCoord : TEXCOORD0;\n"
+	"};\n"
+	"void main(Input input)\n"
+	"{\n"
+	"    float alpha_level = floor(Texture0.Sample(Sampler0, input.TexCoord).a * 255.0 + 0.5);\n"
+	"    clip(alpha_level - 96.0);\n"
+	"}\n";
+
+#undef SHADOW_CASTER_INSTANCE_INPUT
+#undef SHADOW_CASTER_PROJECT
+
+static const unsigned SHADOW_CASTER_MATRIX_FLOATS = 16;
+// The matrix, the first bone and three floats of padding.
+static const unsigned SHADOW_CASTER_INSTANCE_FLOATS = 20;
+static const unsigned SHADOW_CASTER_FIRST_BONE_BYTES = SHADOW_CASTER_MATRIX_FLOATS * sizeof(float);
+static const unsigned SHADOW_CASTER_ROWS_A_BONE = 3;
+static const unsigned SHADOW_CASTER_FIRST_INSTANCES = 1024;
+static const unsigned SHADOW_CASTER_FIRST_BONE_ROWS = 4096;
+static const unsigned SHADOW_SKIN_FIRST_VERTICES = 65536;
+
+void DX11BackendClass::Release_Shadow_Casters()
+{
+	IUnknown ** const held[] = {
+		(IUnknown **)&ShadowCasterVertexShaders[0], (IUnknown **)&ShadowCasterVertexShaders[1],
+		(IUnknown **)&ShadowCasterVertexShaders[2], (IUnknown **)&ShadowCasterLayouts[0],
+		(IUnknown **)&ShadowCasterLayouts[1], (IUnknown **)&ShadowCasterLayouts[2],
+		(IUnknown **)&ShadowCasterAlphaTest, (IUnknown **)&ShadowCasterInstances,
+		(IUnknown **)&ShadowCasterBonesView, (IUnknown **)&ShadowCasterBones,
+		(IUnknown **)&ShadowSkinSource,
+	};
+	for (unsigned index = 0; index < sizeof(held) / sizeof(held[0]); ++index) {
+		if (*held[index] != NULL) {
+			(*held[index])->Release();
+			*held[index] = NULL;
+		}
+	}
+	ShadowCasterCapacity = 0;
+	ShadowCasterBonesCapacity = 0;
+	ShadowCasterRefused = false;
+	ShadowSkinCapacity = 0;
+	ShadowSkinUsed = 0;
+	++ShadowSkinGeneration;
+}
+
+bool DX11BackendClass::Make_Shadow_Caster_Program()
+{
+	if (ShadowCasterAlphaTest != NULL) {
+		return true;
+	}
+	if (ShadowCasterRefused) {
+		return false;
+	}
+	const D3D11_INPUT_ELEMENT_DESC rigid[] = {
+		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+		{ "WORLDVIEWPROJECTION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 0, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
+		{ "WORLDVIEWPROJECTION", 1, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 16, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
+		{ "WORLDVIEWPROJECTION", 2, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 32, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
+		{ "WORLDVIEWPROJECTION", 3, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 48, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
+	};
+	// The coordinates come from the vertex buffer bound a second time at slot 2, its offset moved on
+	// to the stage's set, so one layout serves every vertex format.
+	const D3D11_INPUT_ELEMENT_DESC alpha_tested[] = {
+		rigid[0], rigid[1], rigid[2], rigid[3], rigid[4],
+		{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 2, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+	};
+	const D3D11_INPUT_ELEMENT_DESC skinned[] = {
+		rigid[0], rigid[1], rigid[2], rigid[3], rigid[4],
+		{ "BONE", 0, DXGI_FORMAT_R32_UINT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+		{ "FIRSTBONE", 0, DXGI_FORMAT_R32_UINT, 1, SHADOW_CASTER_FIRST_BONE_BYTES, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
+	};
+	struct Program
+	{
+		const char * Source;
+		const char * Name;
+		const D3D11_INPUT_ELEMENT_DESC * Elements;
+		unsigned ElementCount;
+	};
+	const Program programs[3] = {
+		{ SHADOW_CASTER_VERTEX_PROGRAM, "shadowcaster", rigid, sizeof(rigid) / sizeof(rigid[0]) },
+		{ SHADOW_CASTER_ALPHA_VERTEX_PROGRAM, "shadowcasteralpha", alpha_tested,
+			sizeof(alpha_tested) / sizeof(alpha_tested[0]) },
+		{ SHADOW_CASTER_SKIN_VERTEX_PROGRAM, "shadowcasterskin", skinned, sizeof(skinned) / sizeof(skinned[0]) },
+	};
+	ID3D11Device * device = Device->Get_Device();
+	std::vector<unsigned char> code;
+	bool made = true;
+	for (unsigned kind = 0; kind < 3 && made; ++kind) {
+		made = Compile_Program(programs[kind].Source, programs[kind].Name, VERTEX_PROFILE, code)
+			&& SUCCEEDED(device->CreateVertexShader(&code[0], code.size(), NULL, &ShadowCasterVertexShaders[kind]))
+			&& SUCCEEDED(device->CreateInputLayout(programs[kind].Elements, programs[kind].ElementCount,
+				&code[0], code.size(), &ShadowCasterLayouts[kind]));
+	}
+	made = made && Compile_Program(SHADOW_CASTER_ALPHA_PIXEL_PROGRAM, "shadowcasteralphatest", PIXEL_PROFILE, code)
+		&& SUCCEEDED(device->CreatePixelShader(&code[0], code.size(), NULL, &ShadowCasterAlphaTest));
+	if (!made) {
+		Note_Refusal("the device would not make the instanced shadow caster programs");
+		Release_Shadow_Casters();
+		ShadowCasterRefused = true;
+		return false;
+	}
+	return true;
+}
+
+bool DX11BackendClass::Upload_Shadow_Skin(const ShadowSkinVertex * vertices, unsigned count,
+	unsigned & first_vertex)
+{
+	if (Device == NULL) {
+		return false;
+	}
+	ID3D11Device * device = Device->Get_Device();
+	if (ShadowSkinSource == NULL || ShadowSkinUsed + count > ShadowSkinCapacity) {
+		unsigned capacity = (ShadowSkinCapacity != 0) ? ShadowSkinCapacity * 2 : SHADOW_SKIN_FIRST_VERTICES;
+		while (capacity < count) {
+			capacity *= 2;
+		}
+		if (ShadowSkinSource != NULL) {
+			ShadowSkinSource->Release();
+			ShadowSkinSource = NULL;
+		}
+		ShadowSkinCapacity = 0;
+		ShadowSkinUsed = 0;
+		++ShadowSkinGeneration;
+		D3D11_BUFFER_DESC buffer;
+		memset(&buffer, 0, sizeof(buffer));
+		buffer.ByteWidth = capacity * sizeof(ShadowSkinVertex);
+		buffer.Usage = D3D11_USAGE_DEFAULT;
+		buffer.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+		if (FAILED(device->CreateBuffer(&buffer, NULL, &ShadowSkinSource))) {
+			Note_Refusal("the device refused the shadow skin source");
+			ShadowSkinSource = NULL;
+			return false;
+		}
+		ShadowSkinCapacity = capacity;
+	}
+	D3D11_BOX box;
+	box.left = ShadowSkinUsed * sizeof(ShadowSkinVertex);
+	box.right = (ShadowSkinUsed + count) * sizeof(ShadowSkinVertex);
+	box.top = 0;
+	box.bottom = 1;
+	box.front = 0;
+	box.back = 1;
+	Device->Get_Context()->UpdateSubresource(ShadowSkinSource, 0, &box, vertices, 0, 0);
+	first_vertex = ShadowSkinUsed;
+	ShadowSkinUsed += count;
+	return true;
+}
+
+// The world matrix the texture category's walk puts on the device for a Matrix3D's three rows:
+// Matrix4x4(Matrix3D).Transpose(), Direct3D 9's layout, the translation in the last row.
+static void world_from_rows(const float rows[12], float world[16])
+{
+	for (unsigned row = 0; row < 3; ++row) {
+		world[row * 4 + 0] = rows[0 * 4 + row];
+		world[row * 4 + 1] = rows[1 * 4 + row];
+		world[row * 4 + 2] = rows[2 * 4 + row];
+		world[row * 4 + 3] = 0.0f;
+	}
+	world[12] = rows[3];
+	world[13] = rows[7];
+	world[14] = rows[11];
+	world[15] = 1.0f;
+}
+
+#if defined(_M_X64) || defined(_M_IX86) || defined(__SSE__)
+// multiply()'s product a row of four columns at a time: every element still starts from nought
+// and adds its four products in index order, each a multiply and then an add, never a fused
+// multiply-add, so the floats are multiply()'s to the bit.
+static void multiply_rows(const float left[16], const float right[16], float result[16])
+{
+	const __m128 right0 = _mm_loadu_ps(right);
+	const __m128 right1 = _mm_loadu_ps(right + 4);
+	const __m128 right2 = _mm_loadu_ps(right + 8);
+	const __m128 right3 = _mm_loadu_ps(right + 12);
+	for (unsigned row = 0; row < 4; ++row) {
+		const float * const factors = left + row * 4;
+		__m128 sum = _mm_setzero_ps();
+		sum = _mm_add_ps(sum, _mm_mul_ps(_mm_set1_ps(factors[0]), right0));
+		sum = _mm_add_ps(sum, _mm_mul_ps(_mm_set1_ps(factors[1]), right1));
+		sum = _mm_add_ps(sum, _mm_mul_ps(_mm_set1_ps(factors[2]), right2));
+		sum = _mm_add_ps(sum, _mm_mul_ps(_mm_set1_ps(factors[3]), right3));
+		_mm_storeu_ps(result + row * 4, sum);
+	}
+}
+#else
+static void multiply_rows(const float left[16], const float right[16], float result[16])
+{
+	multiply(left, right, result);
+}
+#endif
+
+static const float IDENTITY_ROWS[12] ={ 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f };
+
+bool DX11BackendClass::Upload_Shadow_Casters(const float * const * worlds, const unsigned * first_bones,
+	unsigned instance_count, const float * const * bones, unsigned bone_count)
+{
+	if (Device == NULL || !ShadowMapBound || !Make_Shadow_Caster_Program()) {
+		return false;
+	}
+	if (instance_count == 0) {
+		return true;
+	}
+
+	ID3D11Device * device = Device->Get_Device();
+	ID3D11DeviceContext * context = Device->Get_Context();
+	if (ShadowCasterCapacity < instance_count) {
+		if (ShadowCasterInstances != NULL) {
+			ShadowCasterInstances->Release();
+			ShadowCasterInstances = NULL;
+		}
+		ShadowCasterCapacity = 0;
+		unsigned capacity = SHADOW_CASTER_FIRST_INSTANCES;
+		while (capacity < instance_count) {
+			capacity *= 2;
+		}
+		D3D11_BUFFER_DESC buffer;
+		memset(&buffer, 0, sizeof(buffer));
+		buffer.ByteWidth = capacity * SHADOW_CASTER_INSTANCE_FLOATS * sizeof(float);
+		buffer.Usage = D3D11_USAGE_DYNAMIC;
+		buffer.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+		buffer.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+		if (FAILED(device->CreateBuffer(&buffer, NULL, &ShadowCasterInstances))) {
+			Note_Refusal("the device refused the shadow casters' instance buffer");
+			ShadowCasterInstances = NULL;
+			return false;
+		}
+		ShadowCasterCapacity = capacity;
+	}
+	const unsigned row_count = bone_count * SHADOW_CASTER_ROWS_A_BONE;
+	if (ShadowCasterBonesCapacity < row_count) {
+		if (ShadowCasterBonesView != NULL) {
+			ShadowCasterBonesView->Release();
+			ShadowCasterBonesView = NULL;
+		}
+		if (ShadowCasterBones != NULL) {
+			ShadowCasterBones->Release();
+			ShadowCasterBones = NULL;
+		}
+		ShadowCasterBonesCapacity = 0;
+		unsigned capacity = SHADOW_CASTER_FIRST_BONE_ROWS;
+		while (capacity < row_count) {
+			capacity *= 2;
+		}
+		D3D11_BUFFER_DESC buffer;
+		memset(&buffer, 0, sizeof(buffer));
+		buffer.ByteWidth = capacity * 4 * sizeof(float);
+		buffer.Usage = D3D11_USAGE_DYNAMIC;
+		buffer.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+		buffer.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+		D3D11_SHADER_RESOURCE_VIEW_DESC view;
+		memset(&view, 0, sizeof(view));
+		view.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+		view.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+		view.Buffer.FirstElement = 0;
+		view.Buffer.NumElements = capacity;
+		if (FAILED(device->CreateBuffer(&buffer, NULL, &ShadowCasterBones))
+				|| FAILED(device->CreateShaderResourceView(ShadowCasterBones, &view, &ShadowCasterBonesView))) {
+			Note_Refusal("the device refused the shadow casters' bone buffer");
+			if (ShadowCasterBones != NULL) {
+				ShadowCasterBones->Release();
+				ShadowCasterBones = NULL;
+			}
+			ShadowCasterBonesView = NULL;
+			return false;
+		}
+		ShadowCasterBonesCapacity = capacity;
+	}
+
+	/* Each instance's matrix as Upload_Vertex_Constants makes it, world times view, then times the
+		 projection, written straight into the mapped buffer.  The same two products in the same order
+		 are the same floats.  Every identity world (the skins, and meshes at the origin) has the same
+		 product, made once. */
+	D3D11_MAPPED_SUBRESOURCE mapped;
+	if (FAILED(context->Map(ShadowCasterInstances, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+		return false;
+	}
+	float identity[16];
+	world_from_rows(IDENTITY_ROWS, identity);
+	float identity_view[16];
+	float identity_product[16];
+	multiply(identity, View, identity_view);
+	multiply(identity_view, Projection, identity_product);
+	float * target = static_cast<float *>(mapped.pData);
+	for (unsigned instance = 0; instance < instance_count; ++instance, target += SHADOW_CASTER_INSTANCE_FLOATS) {
+		if (worlds[instance] == NULL) {
+			memcpy(target, identity_product, sizeof(identity_product));
+		} else {
+			float world[16];
+			float world_view[16];
+			world_from_rows(worlds[instance], world);
+			multiply_rows(world, View, world_view);
+			multiply_rows(world_view, Projection, target);
+		}
+		// The padding too: a write-combined buffer left with gaps goes out in pieces.
+		const unsigned tail[SHADOW_CASTER_INSTANCE_FLOATS - SHADOW_CASTER_MATRIX_FLOATS] ={ first_bones[instance], 0, 0, 0 };
+		memcpy(target + SHADOW_CASTER_MATRIX_FLOATS, tail, sizeof(tail));
+	}
+	context->Unmap(ShadowCasterInstances, 0);
+
+	if (row_count != 0) {
+		if (FAILED(context->Map(ShadowCasterBones, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+			return false;
+		}
+		float * rows = static_cast<float *>(mapped.pData);
+		for (unsigned bone = 0; bone < bone_count; ++bone, rows += SHADOW_CASTER_ROWS_A_BONE * 4) {
+			memcpy(rows, bones[bone], SHADOW_CASTER_ROWS_A_BONE * 4 * sizeof(float));
+		}
+		context->Unmap(ShadowCasterBones, 0);
+	}
+	return true;
+}
+
+bool DX11BackendClass::Draw_Shadow_Casters(const ShadowCasterRun * runs, unsigned run_count)
+{
+	if (run_count == 0) {
+		return true;
+	}
+	ID3D11DeviceContext * context = Device->Get_Context();
+	bool alpha_tested = false;
+	for (unsigned index = 0; index < run_count && !alpha_tested; ++index) {
+		alpha_tested = runs[index].Kind == SHADOW_CASTER_ALPHA_TESTED;
+	}
+	if (alpha_tested) {
+		if (Textures[0] == NULL) {
+			return false;
+		}
+		ID3D11SamplerState * const sampler = Sampler_State(0);
+		context->PSSetShaderResources(0, 1, &Textures[0]);
+		context->PSSetSamplers(0, 1, &sampler);
+	}
+	context->VSSetShaderResources(0, 1, &ShadowCasterBonesView);
+
+	/* The cull and the depth test are each run's own, the rest of the rasterizer and depth state
+		 (the bias, the clipping, the depth writes the caster pass forces) is what the pass holds, which
+		 is what the mesh renderer's draws would have read.  Built through the render states so a
+		 state object is the one those draws would have been given; both go back as they were. */
+	const DWORD held_cull = RenderStates.Get_Stored_Render_State(D3DRS_CULLMODE);
+	const DWORD held_depth = RenderStates.Get_Stored_Render_State(D3DRS_ZFUNC);
+	ID3D11Buffer * bound_vertices = NULL;
+	unsigned bound_stride = 0;
+	unsigned bound_texture_offset = 0;
+	ID3D11Buffer * bound_indices = NULL;
+	bool bound_strip = false;
+	bool states_known = false;
+	ShadowCasterKind bound_kind = SHADOW_CASTER_RIGID;
+	for (unsigned index = 0; index < run_count; ++index) {
+		const ShadowCasterRun & run = runs[index];
+		if (!states_known || run.CullMode != RenderStates.Get_Stored_Render_State(D3DRS_CULLMODE)
+				|| run.DepthFunction != RenderStates.Get_Stored_Render_State(D3DRS_ZFUNC)) {
+			Set_Render_State(D3DRS_CULLMODE, run.CullMode);
+			Set_Render_State(D3DRS_ZFUNC, run.DepthFunction);
+			context->RSSetState(Rasterizer_State());
+			context->OMSetDepthStencilState(Depth_Stencil_State(), RenderStates.Get_Stencil_Reference());
+			states_known = true;
+		}
+		if (index == 0 || run.Kind != bound_kind) {
+			context->IASetInputLayout(ShadowCasterLayouts[run.Kind]);
+			context->VSSetShader(ShadowCasterVertexShaders[run.Kind], NULL, 0);
+			context->PSSetShader((run.Kind == SHADOW_CASTER_ALPHA_TESTED) ? ShadowCasterAlphaTest : NULL, NULL, 0);
+			bound_kind = run.Kind;
+			bound_vertices = NULL;
+		}
+		ID3D11Buffer * const vertices = (run.Kind == SHADOW_CASTER_SKINNED) ? ShadowSkinSource : run.Vertices;
+		const unsigned stride = (run.Kind == SHADOW_CASTER_SKINNED) ? sizeof(ShadowSkinVertex) : run.Stride;
+		if (vertices != bound_vertices || stride != bound_stride || run.TextureOffset != bound_texture_offset) {
+			ID3D11Buffer * const buffers[3] = { vertices, ShadowCasterInstances, vertices };
+			const UINT strides[3] = { stride, SHADOW_CASTER_INSTANCE_FLOATS * sizeof(float), stride };
+			const UINT offsets[3] = { 0, 0, run.TextureOffset };
+			context->IASetVertexBuffers(0, 3, buffers, strides, offsets);
+			bound_vertices = vertices;
+			bound_stride = stride;
+			bound_texture_offset = run.TextureOffset;
+		}
+		if (index == 0 || run.Indices != bound_indices) {
+			context->IASetIndexBuffer(run.Indices, DXGI_FORMAT_R16_UINT, 0);
+			bound_indices = run.Indices;
+		}
+		if (index == 0 || run.Strip != bound_strip) {
+			context->IASetPrimitiveTopology(run.Strip
+				? D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP : D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+			bound_strip = run.Strip;
+		}
+		context->DrawIndexedInstanced(run.IndexCount, run.InstanceCount, run.StartIndex,
+			static_cast<INT>(run.BaseVertex), run.FirstInstance);
+		++DrawsMade;
+	}
+	Set_Render_State(D3DRS_CULLMODE, held_cull);
+	Set_Render_State(D3DRS_ZFUNC, held_depth);
+	ID3D11ShaderResourceView * const no_view = NULL;
+	context->VSSetShaderResources(0, 1, &no_view);
+	Forget_Bindings();
 	return true;
 }
 

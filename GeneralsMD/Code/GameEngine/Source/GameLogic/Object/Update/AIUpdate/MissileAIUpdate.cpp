@@ -688,7 +688,8 @@ void MissileAIUpdate::doKillState(void)
 	{
 		Coord3D aim;
 		Weapon::pointFromBodyOffset(getGoalObject(), m_aimOffset, aim);
-		Real closeEnough = curLoco->getMaxSpeedForCondition(BODY_PRISTINE);
+		// a missile with no locomotor (an immobile hazard a mod fires as one) gets the 1.0 the idle check below uses
+		Real closeEnough = curLoco ? curLoco->getMaxSpeedForCondition(BODY_PRISTINE) : 1.0f;
 		const Coord3D* pos = obj->getPosition();
 		// over the point and on the body: the height the locomotor holds over a goal is its own
 		if (sqr(aim.x - pos->x) + sqr(aim.y - pos->y) < sqr(closeEnough)

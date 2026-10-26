@@ -399,6 +399,29 @@ void W3DTreeBuffer::cull(const CameraClass * camera, const CameraClass *sunCamer
 		 shadow can reach the view is in the batch too.  It lies flat at the tree's base. */
 	Real stretchX, stretchY;
 	const Bool castsSilhouette = treeSilhouetteShadows(m_dwTreeVertexShader) && treeShadowStretch(stretchX, stretchY);
+	/* The sun pass culls every frame, and with the camera still the answer is the same flags, the same
+		 keys and the same count as last time: every input is in the key, and every change to a tree's
+		 bounds or type comes through m_anythingChanged or a new tree, which drop it. */
+	if (sunCamera) {
+		static_assert(sizeof(PlaneClass) == 4*sizeof(Real), "the key copies the frustum planes as floats");
+		Real key[SUN_CULL_KEY];
+		memcpy(key, camera->Get_Frustum_Planes(), 6*sizeof(PlaneClass));
+		memcpy(key+24, sunCamera->Get_Frustum_Planes(), 6*sizeof(PlaneClass));
+		key[48] = castsSilhouette ? 1.0f : 0.0f;
+		key[49] = castsSilhouette ? stretchX : 0.0f;
+		key[50] = castsSilhouette ? stretchY : 0.0f;
+		key[51] = TheGlobalData->m_shadowsForProps ? 1.0f : 0.0f;
+		if (m_sunCullValid && m_sunCullTrees == m_numTrees && memcmp(key, m_sunCullKey, sizeof(key)) == 0) {
+			m_updateAllKeys = false;
+			return;
+		}
+		memcpy(m_sunCullKey, key, sizeof(key));
+		m_sunCullTrees = m_numTrees;
+		m_sunCullValid = TRUE;
+	} else {
+		m_sunCullValid = FALSE;
+	}
+	m_movedSinceCull = FALSE;
 	/* The sun's box holds trees the screen does not, and they go into the same buffers the screen
 		 draws from.  The fill takes trees in index order and stops at MAX_BUFFERS, so a box over dense
 		 woodland (the freecam's is the whole map) would push trees in plain view out.  The screen's own
@@ -853,6 +876,15 @@ void W3DTreeBuffer::loadTreesInVertexAndIndexBuffers(RefRenderObjListIterator *p
 	Int curTree=0;
 	Int bNdx;
 	for (bNdx=0; bNdx<MAX_BUFFERS; ++bNdx) m_shadowRanges[bNdx].clear();
+	// A slot is only a tree's while this fill gives it one: updateVertexBuffer writes a moved tree
+	// into its slot alone, and a slot left over from an older fill now holds some other tree.
+	// The fill writes every tree it takes in as it stands, so nothing moved is left to write.
+	for (curTree=0; curTree<m_numTrees; curTree++) {
+		m_trees[curTree].bufferNdx = -1;
+		m_trees[curTree].moved = false;
+	}
+	m_movedTrees.clear();
+	curTree = 0;
 	const GlobalData::TerrainLighting *objectLighting = TheGlobalData->m_terrainObjectsLighting[TheGlobalData->m_timeOfDay];
 	for (bNdx=0; bNdx<MAX_BUFFERS; bNdx++) {
 		m_curNumTreeVertices[bNdx] = 0;
@@ -931,8 +963,6 @@ void W3DTreeBuffer::loadTreesInVertexAndIndexBuffers(RefRenderObjListIterator *p
 
 
 			Int startVertex = m_curNumTreeVertices[bNdx];
-			m_trees[curTree].firstIndex = startVertex;
-			m_trees[curTree].bufferNdx = bNdx;
 			Int i;
 			Int numVertex = m_treeTypes[type].m_mesh->Peek_Model()->Get_Vertex_Count();
 			Vector3 *pVert = m_treeTypes[type].m_mesh->Peek_Model()->Get_Vertex_Array();
@@ -952,6 +982,8 @@ void W3DTreeBuffer::loadTreesInVertexAndIndexBuffers(RefRenderObjListIterator *p
 					bNdx, m_curNumTreeIndices[bNdx], curTree, m_numTrees));
 				break;
 			}
+			m_trees[curTree].firstIndex = startVertex;
+			m_trees[curTree].bufferNdx = bNdx;
 
 			const Vector2*uvs=m_treeTypes[type].m_mesh->Peek_Model()->Get_UV_Array_By_Index(0);
 			
@@ -1139,85 +1171,84 @@ void W3DTreeBuffer::loadTreesInVertexAndIndexBuffers(RefRenderObjListIterator *p
 //=============================================================================
 // W3DTreeBuffer::updateVertexBuffer
 //=============================================================================
-/** Updates the push aside offset in vertex buffer. */
+/** Writes the trees stepTrees moved into their own slots and nothing else.  It used to lock each
+whole buffer, and on Direct3D 11 a static buffer's unlock copies and uploads every byte it locked:
+about a megabyte a buffer, four buffers, for one bush a soldier walked through, and in a crowd that
+was most passes.  stepTrees lists the trees it moved; each buffer takes one lock over the span its
+moved trees cover, so a move is written once, by whichever pass comes first. */
 //=============================================================================
 void W3DTreeBuffer::updateVertexBuffer(void)
 {
 	if (!m_indexTree[0] || !m_vertexTree[0] || !m_initialized) {
 		return;
 	}
+	Int lo[MAX_BUFFERS], hi[MAX_BUFFERS];
 	Int bNdx;
-	for	(bNdx = 0; bNdx<MAX_BUFFERS; bNdx++) {
-		if (m_curNumTreeIndices[bNdx]==0) {
-			break;
-		}
-		VertexFormatXYZNDUV1 *vb;
-		// Lock the buffers.
-	#ifdef USE_STATIC
-		DX8VertexBufferClass::WriteLockClass lockVtxBuffer(m_vertexTree[bNdx], 0);
-	#else 
-		DX8VertexBufferClass::WriteLockClass lockVtxBuffer(m_vertexTree[bNdx], D3DLOCK_DISCARD);
-	#endif
-		vb=(VertexFormatXYZNDUV1*)lockVtxBuffer.Get_Vertex_Array();
-
-		//
-		// The lock fails when the device has gone out from under us, and everything below writes
-		// through this pointer without looking.  Same shape as the tank tracks flush: give up on
-		// this buffer, the next frame will push the trees aside again.
-		//
-		if (vb == NULL) {
+	for (bNdx=0; bNdx<MAX_BUFFERS; bNdx++) {
+		lo[bNdx] = MAX_TREE_VERTEX;
+		hi[bNdx] = 0;
+	}
+	Int kept = 0;
+	Int n;
+	for (n=0; n<(Int)m_movedTrees.size(); n++) {
+		TTree &tree = m_trees[m_movedTrees[n]];
+		// Deleted, culled out or left out of the fill: the fill that next takes it in writes it as it
+		// stands then.
+		if (tree.treeType<0 || !tree.visible || tree.bufferNdx<0) {
+			tree.moved = false;
 			continue;
 		}
+		const Int end = tree.firstIndex + m_treeTypes[tree.treeType].m_mesh->Peek_Model()->Get_Vertex_Count();
+		if (tree.firstIndex < lo[tree.bufferNdx]) lo[tree.bufferNdx] = tree.firstIndex;
+		if (end > hi[tree.bufferNdx]) hi[tree.bufferNdx] = end;
+		m_movedTrees[kept++] = m_movedTrees[n];
+	}
+	m_movedTrees.resize(kept);
 
-		VertexFormatXYZNDUV1 *curVb;
-
-		Int curTree;
-		for (curTree=0; curTree<m_numTrees; curTree++) {
-			if (m_trees[curTree].bufferNdx!=bNdx) {
+	for (bNdx=0; bNdx<MAX_BUFFERS; bNdx++) {
+		if (hi[bNdx] <= lo[bNdx]) {
+			continue;
+		}
+		DX8VertexBufferClass::AppendLockClass lockVtxBuffer(m_vertexTree[bNdx], lo[bNdx], hi[bNdx]-lo[bNdx]);
+		VertexFormatXYZNDUV1 *vb = (VertexFormatXYZNDUV1*)lockVtxBuffer.Get_Vertex_Array();
+		// The lock fails when the device has gone out from under us: its trees wait for the next pass.
+		if (vb == NULL) {
+			m_anyPushChanged = true;
+			continue;
+		}
+		for (n=0; n<(Int)m_movedTrees.size(); n++) {
+			TTree &tree = m_trees[m_movedTrees[n]];
+			if (tree.bufferNdx != bNdx) {
 				continue;
 			}
-			Int type = m_trees[curTree].treeType;
-			if (type<0) {
-				continue; // Deleted tree. [6/9/2003]
-			}
-			if (m_trees[curTree].pushAsideDelta==0.0f && m_trees[curTree].m_toppleState == TOPPLE_UPRIGHT) {
-				continue; // not toppling or pushed, no need to update. jba [7/11/2003]
-			}
-			m_anyPushChanged = true;
-			if (!m_trees[curTree].visible) continue;
-			Real scale = m_trees[curTree].scale;
-			Vector3 loc = m_trees[curTree].location;
-			Real theSin = m_trees[curTree].sin;
-			Real theCos = m_trees[curTree].cos;
-			if (type<0 || m_treeTypes[type].m_mesh == 0) {
-				type = 0;
-			}
+			tree.moved = false;
+			const Int type = tree.treeType;
+			const Int numVertex = m_treeTypes[type].m_mesh->Peek_Model()->Get_Vertex_Count();
+			const Vector3 *pVert = m_treeTypes[type].m_mesh->Peek_Model()->Get_Vertex_Array();
+			VertexFormatXYZNDUV1 *curVb = vb + (tree.firstIndex - lo[bNdx]);
 
-			Int startVertex = m_trees[curTree].firstIndex;
-			curVb = vb+startVertex;
-			Int i;
-			Int numVertex = m_treeTypes[type].m_mesh->Peek_Model()->Get_Vertex_Count();
-			Vector3 *pVert = m_treeTypes[type].m_mesh->Peek_Model()->Get_Vertex_Array();
-
-			for (i=0; i<numVertex; i++) {
+			const Real scale = tree.scale;
+			const Vector3 loc = tree.location;
+			const Real theSin = tree.sin;
+			const Real theCos = tree.cos;
+			for (Int i=0; i<numVertex; i++) {
 				Real x = pVert[i].X;
 				Real y = pVert[i].Y;
 
-				
 				Vector3 vLoc;
 				x += m_treeTypes[type].m_offset.X;
 				y += m_treeTypes[type].m_offset.Y;
 				vLoc.X = x*scale*theCos - y*scale*theSin;
 				vLoc.Y = y*scale*theCos + x*scale*theSin;
-				vLoc.Z = pVert[i].Z*scale; 
+				vLoc.Z = pVert[i].Z*scale;
 				vLoc.Z += m_treeTypes[type].m_offset.Z;
 
-				if (m_trees[curTree].m_toppleState != TOPPLE_UPRIGHT) {
-					m_trees[curTree].m_mtx.Transform_Vector(m_trees[curTree].m_mtx, vLoc, &vLoc);
+				if (tree.m_toppleState != TOPPLE_UPRIGHT) {
+					tree.m_mtx.Transform_Vector(tree.m_mtx, vLoc, &vLoc);
 				} else {
-					if (m_trees[curTree].pushAside>0.0f) {
-						vLoc.X += pVert[i].Z * m_trees[curTree].pushAside * m_trees[curTree].pushAsideCos * m_treeTypes[type].m_data->m_maxOutwardMovement;
-						vLoc.Y += pVert[i].Z * m_trees[curTree].pushAside * m_trees[curTree].pushAsideSin* m_treeTypes[type].m_data->m_maxOutwardMovement;
+					if (tree.pushAside>0.0f) {
+						vLoc.X += pVert[i].Z * tree.pushAside * tree.pushAsideCos * m_treeTypes[type].m_data->m_maxOutwardMovement;
+						vLoc.Y += pVert[i].Z * tree.pushAside * tree.pushAsideSin* m_treeTypes[type].m_data->m_maxOutwardMovement;
 					}
 					vLoc.X += loc.X;
 					vLoc.Y += loc.Y;
@@ -1227,11 +1258,20 @@ void W3DTreeBuffer::updateVertexBuffer(void)
 				curVb->x = vLoc.X;
 				curVb->y = vLoc.Y;
 				curVb->z = vLoc.Z;
-				curVb->ny = 1.0f - m_treeTypes[type].m_data->m_darkening*m_trees[curTree].pushAside;
+				curVb->ny = 1.0f - m_treeTypes[type].m_data->m_darkening*tree.pushAside;
 				curVb++;
 			}
-		}		
+		}
 	}
+
+	// what a failed lock left stays listed
+	kept = 0;
+	for (n=0; n<(Int)m_movedTrees.size(); n++) {
+		if (m_trees[m_movedTrees[n]].moved) {
+			m_movedTrees[kept++] = m_movedTrees[n];
+		}
+	}
+	m_movedTrees.resize(kept);
 }
 
 //-----------------------------------------------------------------------------
@@ -1461,6 +1501,7 @@ void W3DTreeBuffer::clearAllTrees(void)
 	m_numShadowTextures = 0;
 
 	m_numTrees=0;
+	m_movedTrees.clear();
 	m_bounds.lo.x = m_bounds.lo.y = 0;
 	m_bounds.hi.x = m_bounds.hi.y = 1;
 	REF_PTR_RELEASE(m_treeTexture);
@@ -1667,6 +1708,7 @@ void W3DTreeBuffer::addTree(DrawableID id, Coord3D location, Real scale, Real an
 
 	m_trees[m_numTrees].firstIndex = 0;
 	m_trees[m_numTrees].bufferNdx = -1;
+	m_trees[m_numTrees].moved = false;
 
 	//
 	// swayType is a vertex shader constant index counted from c8, and c8 itself is the all-zero
@@ -2197,11 +2239,17 @@ void W3DTreeBuffer::stepTrees( void )
 		if (type<0) { // deleted.
 			continue;
 		}
+		// A tree whose vertices move this logic frame is marked, and only such a tree: one lying still
+		// on the ground, or held up in the fog, rewrites nothing.
+		Bool moved = false;
 		if(m_trees[curTree].m_toppleState == TOPPLE_FALLING ||
 			 m_trees[curTree].m_toppleState == TOPPLE_FOGGED) {
+			const W3DToppleState before = m_trees[curTree].m_toppleState;
 			updateTopplingTree(m_trees+curTree);
+			moved = before != TOPPLE_FOGGED || m_trees[curTree].m_toppleState != TOPPLE_FOGGED;
 		} else if(m_trees[curTree].m_toppleState == TOPPLE_DOWN) {
 			if (m_treeTypes[type].m_data->m_killWhenToppled) {
+				moved = true;
 				if (m_trees[curTree].m_sinkFramesLeft==0) {
 					m_trees[curTree].treeType = DELETED_TREE_TYPE; // delete it. [7/11/2003]
 					m_anythingChanged = true; // need to regenerate trees. [7/11/2003]
@@ -2211,6 +2259,7 @@ void W3DTreeBuffer::stepTrees( void )
 				m_trees[curTree].m_mtx.Set_Translation(m_trees[curTree].location);
 			}
 		} else if (m_trees[curTree].pushAsideDelta!=0.0f) {
+			moved = true;
 			m_trees[curTree].pushAside += m_trees[curTree].pushAsideDelta;
 			if (m_trees[curTree].pushAside>=1.0f) {
 				m_trees[curTree].pushAsideDelta = -1.0/(Real)m_treeTypes[type].m_data->m_framesToMoveInward;
@@ -2218,6 +2267,14 @@ void W3DTreeBuffer::stepTrees( void )
 				m_trees[curTree].pushAsideDelta = 0.0f;
 				m_trees[curTree].pushAside = 0.0f;
 			}
+		}
+		if (moved) {
+			if (!m_trees[curTree].moved) {
+				m_trees[curTree].moved = true;
+				m_movedTrees.push_back(curTree);
+			}
+			m_anyPushChanged = true;
+			m_movedSinceCull = true;
 		}
 	}
 }
@@ -2299,6 +2356,12 @@ void W3DTreeBuffer::drawTrees(CameraClass * camera, RefRenderObjListIterator *pD
 	// culling them against its own frustum left the screen drawing the mirror's trees until the
 	// next cull, and with the mirror skipping frames the trees flickered between the two sets.  The
 	// mirror draws what the screen culled, which is what stands near the water it lands on.
+	// A tree that came or went since the last cull drops the sun pass's key, whichever pass sees the
+	// change first.  A moved one only matters to a cull asked to redo the sort keys: a sinking tree's
+	// key follows its height.
+	if (m_anythingChanged || (m_movedSinceCull && m_updateAllKeys)) {
+		m_sunCullValid = FALSE;
+	}
 	if (sunCamera || (m_updateAllKeys && !ShaderClass::Is_Backface_Culling_Inverted())) {
 		cull(camera, sunCamera);
 	}

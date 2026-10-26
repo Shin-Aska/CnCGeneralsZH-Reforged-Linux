@@ -2759,11 +2759,12 @@ void GameLogic::logicMessageDispatcher( GameMessage *msg, AIGroup *orderedGroup 
 #endif
 				}
 
-				//UnsignedInt oldCRC = m_cachedCRCs[msg->getPlayerIndex()];
 				UnsignedInt newCRC = msg->getArgument(0)->integer;
 				//DEBUG_LOG(("Recieved CRC of %8.8X from %ls on frame %d\n", newCRC,
 					//thisPlayer->getPlayerDisplayName().str(), m_frame));
-				m_cachedCRCs[msg->getPlayerIndex()] = newCRC; // to mask problem: = (oldCRC < newCRC)?newCRC:oldCRC;
+				// by the frame it was computed on (argument 2): one execution frame can carry several (GameLogic.cpp, MSG_LOGIC_CRC)
+				const UnsignedInt crcFrame = (UnsignedInt)msg->getArgument(2)->integer;
+				m_cachedCRCs[crcFrame][msg->getPlayerIndex()] = newCRC;
 			}
 			else if (TheRecorder && TheRecorder->getMode() == RECORDERMODETYPE_PLAYBACK)
 			{

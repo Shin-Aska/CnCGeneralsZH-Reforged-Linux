@@ -973,6 +973,14 @@ GUI:Detail
 "Hazır Ayar"
 END
 
+GUI:GraphicsQuality
+"Performans / Kalite"
+END
+
+TOOLTIP:GraphicsQuality
+"Sol en hızlı görüntü, sağ en güzeli. Sürgüyü çekince bu sayfadaki ve Efektler sayfasındaki kutular ayarlanır, ucuz olanlar önce açılır; dört hazır ayar sürgünün üstündeki noktalardır. Sonra bir kutuyu değiştirirseniz hazır ayar Özel olur. Kabul Et'e basınca uygulanır; bazı ayarlar bir sonraki haritayı ya da oyunun bir sonraki açılışını bekler."
+END
+
 GUI:Faction
 "Ordu"
 END
@@ -1099,10 +1107,6 @@ END
 
 TOOLTIP:ProviderType
 "Ses Sağlayıcınızı seçin"
-END
-
-TOOLTIP:SpeakerType
-"Hoparlör Yapılandırmanızı seçin"
 END
 
 TOOLTIP:Resolution
@@ -14701,6 +14705,10 @@ GUI:SignalAttentionPlaced
 "%s: buraya bakın!"
 END
 
+GUI:RequestMoneyChat
+"Paraya ihtiyacım var!"
+END
+
 GUI:GamePaused
 "Oyun duraklatıldı."
 END
@@ -14766,7 +14774,7 @@ GUI:DetailNote3
 END
 
 GUI:DetailNote4
-"Bu sayfadaki ve Efektler sayfasındaki kutuları kendiniz seçtiniz. Kabul Et'e basınca olduğu gibi kaydedilir."
+"Bu sayfadaki ve Efektler sayfasındaki kutuları kendiniz seçtiniz ya da sürgü iki hazır ayarın arasında duruyor. Kabul Et'e basınca olduğu gibi kaydedilir."
 END
 
 GUI:TextureFilter
@@ -15091,6 +15099,82 @@ END
 
 TOOLTIP:AmbientVolume
 "Kuşlar, rüzgâr, su ve kasabanın uğultusu. Efekt Sesi artık bunları değiştirmez; çatışma yüksek kalırken çevresi sessiz kalabilir."
+END
+
+GUI:MasterVolume
+"Genel Ses"
+END
+
+TOOLTIP:MasterVolume
+"Oyunun tamamını açar ya da kısar: müzik, efektler, konuşmalar, ortam ve videolar. Öteki sürgüler karışımı ayarlar, bu sürgü karışımın ne kadar yüksek çalacağını."
+END
+
+GUI:OptionsGroupMusic
+"Müzik"
+END
+
+GUI:DynamicMusic
+"Müzik Çatışmayı İzlesin"
+END
+
+TOOLTIP:DynamicMusic
+"Çatışma ya da çevrim içi maçta müzik savaşa göre değişir: ortalık sakinken tarafının sakin parçalarından biri, kameranın yakınında ya da birliklerine ateş açılınca daha sert bir parça çalar, çarpışma bittikten birkaç saniye sonra sakin müziğe döner. Kapalıyken müzik özgün oyundaki gibi çalar."
+END
+
+GUI:OptionsGroupOutput
+"Çıkış"
+END
+
+GUI:AudioDevice
+"Çıkış Aygıtı"
+END
+
+TOOLTIP:AudioDevice
+"Oyunun sesinin çıktığı hoparlör ya da kulaklık. Varsayılan Windows'u izler, kulaklık takınca onunla birlikte geçer. Kabul Et'e bastığınızda uygulanır."
+END
+
+GUI:AudioDeviceDefault
+"Varsayılan"
+END
+
+GUI:SpeakerType
+"Hoparlör Düzeni"
+END
+
+TOOLTIP:SpeakerType
+"Savaş alanındaki seslerin çevrenize nasıl yerleştiği. Kulaklıkta her kulak kendi zamanlamasını ve tınısını alır, böylece arkanızdaki ya da yanınızdaki bir ses oradan duyulur. 5.1 ve 7.1 sesleri çevresel hoparlörlere dağıtır; Linux ve macOS'ta stereo çalar. Kabul Et'e bastığınızda uygulanır."
+END
+
+GUI:SpeakerType0
+"Stereo Hoparlör"
+END
+
+GUI:SpeakerType1
+"Kulaklık"
+END
+
+GUI:SpeakerType2
+"5.1 Çevresel"
+END
+
+GUI:SpeakerType3
+"7.1 Çevresel"
+END
+
+GUI:MuteInBackground
+"Arka Planda Sessiz"
+END
+
+TOOLTIP:MuteInBackground
+"Başka bir pencere öndeyken oyunu susturur. Kapalıyken oyun bir tarayıcının arkasında ya da ikinci monitörde de duyulur."
+END
+
+GUI:LegacySound
+"Eski Ses"
+END
+
+TOOLTIP:LegacySound
+"Özgün oyunun sesi: haritada yankı yok, uzaklık, tepe ya da bina boğukluğu yok, uzak ve geçen seslerde gecikme ya da perde kayması yok, büyük patlamalardan sonra kısılma yok, savaş seslerine ve birlik cevaplarına sınır yok, sınırlayıcı yok, harita ambiyansı yok, müzik de çatışmayı izlemez. Ana ses, cihaz ve hoparlörler yine geçerlidir. Hemen etkili olur."
 END
 
 GUI:IsometricCamera
@@ -15478,7 +15562,7 @@ TOOLTIP:StatArmor
 END
 
 TOOLTIP:StatArmorStronger
-"güçlenir"
+"güçlenir, her vuruşun daha azı geçer"
 END
 
 TOOLTIP:StatNewWeapon
@@ -15497,12 +15581,44 @@ TOOLTIP:StatNewWeaponFigures
 "%d hasar, %d menzil"
 END
 
+TOOLTIP:StatHealthHint
+"(zırhtan sonra kaldırabileceği hasar)"
+END
+
+TOOLTIP:StatDamageHint
+"(ana silah, atış başına, zırhtan önce)"
+END
+
+TOOLTIP:StatAttackSpeedHint
+"(saniyedeki atış, şarjör doldurma dahil)"
+END
+
+TOOLTIP:StatDamagePerSecondHint
+"(hasar × atış hızı)"
+END
+
+TOOLTIP:StatRangeHint
+"(10, yerleştirme ızgarasının bir karesi)"
+END
+
+TOOLTIP:StatTimeHint
+"(şu anki enerjiniz ve fabrikalarınızla)"
+END
+
 TOOLTIP:Upgrades
 "GELİŞTİRMELER"
 END
 
 TOOLTIP:UpgradeChanges
 "ETKİLEDİKLERİ"
+END
+
+TOOLTIP:UpgradesHint
+"(onsuz → onunla)"
+END
+
+TOOLTIP:UpgradeChangesHint
+"(yalın birlik → bununla)"
 END
 
 TOOLTIP:UpgradeOwned
@@ -15611,6 +15727,14 @@ END
 
 GUI:CampaignMission
 "GÖREV %d"
+END
+
+GUI:CampaignZeroHour
+"GENERALS ZERO HOUR"
+END
+
+GUI:CampaignGenerals
+"GENERALS"
 END
 
 GUI:MapCorrupt
@@ -16111,6 +16235,10 @@ END
 
 GUI:HotkeysCommandSIGNAL_ATTENTION
 "İşaret: buraya bak"
+END
+
+GUI:HotkeysCommandREQUEST_MONEY
+"Müttefiklerden para iste"
 END
 
 GUI:HotkeysCommandBEGIN_WAYPOINTS
@@ -17088,7 +17216,7 @@ CONTROLBAR:ConstructTurkiyeInfantrySpotter
 END
 
 CONTROLBAR:ToolTipTurkiyeInfantrySpotter
-"500 görür, dururken gizlenir, neredeyse hiç savaşmaz. Tepeye çıkınca arkadaki topçunun gözü olur."
+"500 görür, neredeyse hiç savaşmaz. Gizlenemez, menzil dışında tutun. Tepeye çıkınca arkadaki topçunun gözü olur."
 END
 
 OBJECT:TurkiyeInfantryMaroonBeret
@@ -17408,7 +17536,7 @@ SCIENCE:TurkiyeFuelResupply
 END
 
 CONTROLBAR:ToolTipTurkiyeScienceFuelResupply
-"Bayraktar her uçuşta bir mühimmat, Akıncı bir bomba fazla taşır."
+"Bayraktar her uçuşta bir mühimmat fazla taşır."
 END
 
 SCIENCE:TurkiyeSwarmMunition
@@ -17480,7 +17608,7 @@ CONTROLBAR:UpgradeTurkiyeFuelCell
 END
 
 CONTROLBAR:ToolTipUpgradeTurkiyeFuelCell
-"Bayraktar ve Akıncı hedefin üstünde iki kat kalır, iki kat mühimmatla."
+"Bayraktar hedefin üstünde iki kat kalır, iki kat mühimmatla."
 END
 
 UPGRADE:TurkiyeSwarmSoftware
@@ -17555,8 +17683,32 @@ CONTROLBAR:ConstructTurkiyeKarguBase
 "Kar&gu İHA Üssü"
 END
 
+OBJECT:TurkiyeHarekatMerkezi
+"Harekat Merkezi"
+END
+
+CONTROLBAR:ConstructTurkiyeHarekatMerkezi
+"Har&ekat Merkezi"
+END
+
+CONTROLBAR:ToolTipTurkiyeHarekatMerkezi
+"Türkiye'nin teknoloji binası. Bütün ordu aynı anda tek bir savaş planıyla savaşır: Bombardıman, Ara ve Yok Et ya da Hattı Koru. İleri Eğitim ve Kimyasal Koruma Giysileri araştırır; Kargu İHA Üssü'nü, Sakarya'yı, Koral'ı, Akıncı'yı ve Bordo Bereli'yi açar. \n \n Gereken: Fabrika veya Hava Alanı \n Gereken Enerji: 2"
+END
+
+OBJECT:TurkiyeKapalicarsi
+"Kapalıçarşı"
+END
+
+CONTROLBAR:ConstructTurkiyeKapalicarsi
+"K&apalıçarşı"
+END
+
+CONTROLBAR:ToolTipTurkiyeKapalicarsi
+"Türkiye'nin karaborsası. Her 2 saniyede 20 öder; Bayraktar, Akıncı ve Kızılelma için Karşı Tedbirler, istihkam takımı için İşçi Ayakkabıları satar. \n \n Gereken: Fabrika"
+END
+
 CONTROLBAR:ToolTipTurkiyeKarguBase
-"Haritanın herhangi bir yerine on altı kamikaze İHA'dan oluşan bir sürü gönderir. Her biri dairedeki en değerli hedeflerden birini bulur ve üstüne dalar; dağınık ordular en çok zarar görür. \n \n Gereken: Fabrika, Radar Kulesi \n Gereken Enerji: 10 \n Geri Sayım: 5:00"
+"Haritanın herhangi bir yerine on altı kamikaze İHA'dan oluşan bir sürü gönderir. Her biri dairedeki en değerli hedeflerden birini bulur ve üstüne dalar; dağınık ordular en çok zarar görür. Tavana tırmanıp Scud füzesi gibi iner, yolda hiçbir şey onları vuramaz. \n \n Gereken: Harekat Merkezi \n Gereken Enerji: 10 \n Geri Sayım: 5:00"
 END
 
 CONTROLBAR:TurkiyeKarguSwarm
@@ -17569,4 +17721,76 @@ END
 
 GUI:SuperweaponTurkiyeKarguSwarm
 "Kargu Sürüsü"
+END
+
+GUI:RandomMapTemplate
+"Harita türü"
+END
+
+GUI:RandomMapAnyTemplate
+"Sürpriz yap"
+END
+
+GUI:RandomMapSize
+"Harita boyutu"
+END
+
+GUI:RandomMapSizeTiny
+"Minik"
+END
+
+GUI:RandomMapSizeSmall
+"Küçük"
+END
+
+GUI:RandomMapSizeMedium
+"Orta"
+END
+
+GUI:RandomMapSizeLarge
+"Büyük"
+END
+
+GUI:RandomMapSizeHuge
+"Çok Büyük"
+END
+
+GUI:FactionPickTitle
+"Ordu Seç"
+END
+
+GUI:FactionPickRandomAll
+"Hepsi Rastgele"
+END
+
+GUI:FactionPickCustom
+"Özel Seçim"
+END
+
+GUI:FactionPickConfirm
+"Onayla: %s"
+END
+
+GUI:FactionPickRandom
+"Rastgele, maç başlarken bu ordulardan birini sizin için seçer."
+END
+
+GUI:FactionPickLeftOut
+"Rastgele şunları hiç seçmez: %s. Eklemek için Özel Seçim'den işaretleyin."
+END
+
+GUI:FactionPickPool
+"Rastgele, solda işaretli %d ordudan birini seçer (toplam %d). Bir orduya tıklayarak onu ekleyin ya da çıkarın."
+END
+
+GUI:FactionPickRandomSide
+"Rastgele %s"
+END
+
+GUI:FactionPickSideHint
+"Bir tarafın kutusu o tarafın tamamını işaretler ya da kaldırır; adına tıklamak çekilişte yalnızca o tarafı bırakır."
+END
+
+GUI:FactionPickSideNameHint
+"Bir tarafın rastgele bir ordusuyla oynamak için o tarafın adına tıklayın."
 END

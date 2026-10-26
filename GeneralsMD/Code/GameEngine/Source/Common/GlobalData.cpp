@@ -47,6 +47,7 @@
 #include "Common/file.h"
 #include "Common/FileSystem.h"
 #include "Common/GameAudio.h"
+#include "Common/GameLOD.h"	// STATIC_GAME_LOD_HIGH, whose step on the quality slider is the slider's default
 #include "Common/INI.h"
 #include "Common/Monitors.h"
 #include "Common/OptionsCatalog.h"
@@ -809,6 +810,7 @@ Real RankLadder::aura( Int grade, RankAura aura ) const
 	{ "NetworkPlayerSilenceTime", INI::parseInt, NULL, offsetof(GlobalData, m_networkPlayerSilenceTime) },
 	{ "NetworkStallCeilingTime", INI::parseInt, NULL, offsetof(GlobalData, m_networkStallCeilingTime) },
 	{ "NetworkPlayerTimeoutTime", INI::parseInt, NULL, offsetof(GlobalData, m_networkPlayerTimeoutTime) },
+	{ "NetworkSilentPlayerDropTime", INI::parseInt, NULL, offsetof(GlobalData, m_networkSilentPlayerDropTime) },
 	{ "NetworkDisconnectScreenNotifyTime", INI::parseInt, NULL, offsetof(GlobalData, m_networkDisconnectScreenNotifyTime) },
 	
 	{ "KeyboardCameraRotateSpeed", INI::parseReal, NULL, offsetof( GlobalData, m_keyboardCameraRotateSpeed ) },
@@ -981,11 +983,13 @@ GlobalData::GlobalData()
 #endif
 	m_explosionDebrisTrails = TRUE;
 	m_shadowQuality = 1;					//medium, the 2048 map the shadows always had
+	m_graphicsQuality = TheGraphicsQualityAnchors[ STATIC_GAME_LOD_HIGH ];	//a preset moves it to its own step as the menu opens
 	m_classicGraphics = FALSE;
 	m_lightingStyle = LIGHTING_STYLE_REFORGED;
 	m_shadowMap = TRUE;						//the sun's own shadows are what the game draws with now
 	m_shadowMapOnly = TRUE;				//and they replace the stencil volumes rather than joining them
 	m_shadowMapReport = FALSE;
+	m_shadowMapOldCasters = FALSE;
 	m_shadowMapPenumbra = 0.0f;		//zero anywhere here means the built-in value stands
 	m_shadowMapSkyFill = 0.0f;
 	m_shadowMapStrength = 0.0f;
@@ -1066,7 +1070,6 @@ GlobalData::GlobalData()
 	m_lanLobbyOnStart = FALSE;
 	m_skirmishLobbyOnStart = FALSE;
 	m_optionsMenuOnStart = FALSE;
-	m_randomMapsInMenus = FALSE;
 	m_mapLight = FALSE;
 	m_teamGlow = FALSE;
 	m_waterFoam = FALSE;
@@ -1245,6 +1248,9 @@ GlobalData::GlobalData()
 	m_particleGroundBounce = FALSE;
 	m_smokeThickness = 0.0f;
 	m_particleCapOverride = 0;
+	m_gpuParticleCapacity = 1 << 20;
+	m_gpuParticleCapacityOverride = -1;
+	m_gpuParticleCheck = FALSE;
 	m_noDynamicLODOverride = FALSE;
 	m_maxFieldParticleCount = 30;
 	
@@ -1396,6 +1402,10 @@ GlobalData::GlobalData()
 	m_networkPlayerSilenceTime = 12000;
 	m_networkStallCeilingTime = 20000;
 	m_networkPlayerTimeoutTime = 60000;
+	/* Retail GameData.ini sets the timeout above to 60s, and the disconnect screen counted it from
+		 the moment the screen opened, so a crashed player held everyone else for 72s.  The drop now
+		 counts from the player's last packet and waits this long; retail sets no such key. */
+	m_networkSilentPlayerDropTime = 30000;
 	m_networkDisconnectScreenNotifyTime = 15000;
 
 	m_isBreakableMovie = FALSE;
@@ -1446,6 +1456,10 @@ GlobalData::GlobalData()
 	// Half the effects slider's 80: birds, wind and water used to play at the battle's volume and
 	// covered the replies and the guns.
 	m_ambientVolume = 40;
+	m_masterVolume = 100;
+	m_dynamicMusic = TRUE;
+	m_legacySound = FALSE;
+	m_muteInBackground = TRUE;	// retail's: loseFocus on every deactivation
   m_3DSoundPref = false;
 
 	m_keyboardDefaultScrollFactor = m_keyboardScrollFactor = 0.5f;

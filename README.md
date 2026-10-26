@@ -4,8 +4,9 @@ Command & Conquer: Generals Zero Hour for **64-bit Linux**, using **SDL3 and Vul
 No Wine or Proton required.
 
 Based on [Zero Hour Reforged](https://github.com/olcayseygan/CnCGeneralsZH-Reforged) and EA's released
-source, synchronized with upstream **v3.3.0**, with Linux graphics improvements and upstream's
-gameplay, AI and interface changes.
+source, synchronized with upstream **v3.4.2**, with Linux graphics improvements and upstream's
+gameplay, AI, audio and interface changes. New in this sync: French text, generated maps,
+a full army picker, battle-responsive music and expanded positional audio.
 
 [![last commit](https://img.shields.io/github/last-commit/Shin-Aska/CnCGeneralsZH-Reforged-Linux/main?style=for-the-badge)](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/commits/main)
 [![license](https://img.shields.io/badge/license-GPL--3.0%20%2B%20EA%20terms-0d1117?style=for-the-badge)](LICENSE.md)

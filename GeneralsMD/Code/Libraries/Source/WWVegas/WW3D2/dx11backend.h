@@ -119,6 +119,9 @@ public:
 	// Copy the scene's depth for the soft particles if anything wrote it since the last copy.  The
 	// sorting pool calls it at the top of each flush, before any particle run resolves its program.
 	void Take_Scene_Depth();
+	// The copy Take_Scene_Depth keeps, for a pass drawn behind the backend's back that fades where
+	// it meets the world (the GPU particles).  Null before the first copy and under Classic.
+	ID3D11ShaderResourceView * Scene_Depth_Copy() const { return SceneDepthCopyView; }
 	// How many depth copies Take_Scene_Depth made since the last call.  Taking it resets it.
 	unsigned Take_Frame_Depth_Copies();
 	// Off under the Classic graphics setting, whose picture is -d3d9's: no draw fades, no copy.
@@ -129,6 +132,7 @@ public:
 			PipelineChanged = true;
 		}
 	}
+	bool Soft_Particles_Allowed() const { return SoftParticlesAllowed; }
 
 	// The engine bound a texture at this stage that has no D3D11 copy - a render target it drew
 	// into, most often.  Sampling white there paints a full screen quad over the frame, so a draw
@@ -239,6 +243,58 @@ public:
 	// sun's light and keeps its older shade.  ffshader.h, VOLUMETRIC_SAMPLING, says what the map holds.
 	bool Fill_Smoke_Map(const float * casters, unsigned count, float strength);
 	ID3D11ShaderResourceView * Smoke_Map() const { return SmokeMapFilled ? SmokeMapTexture : NULL; }
+
+	// The opaque casters of the sun's depth pass, drawn depth only and instanced: one run is one
+	// piece of one mesh model (a buffer pair, an index range, a cull and a depth test), drawn once
+	// for each of its instances.  Upload_Shadow_Casters takes the pass's instances, each a world as
+	// the three rows of a Matrix3D (NULL for an identity world) and the first bone of a skinned one,
+	// and the pass's bones, three rows of a Matrix3D each, and writes them straight into the mapped
+	// buffers; it is false, with nothing written, when the device refused a program or a buffer, and
+	// the caller draws them the old way.  Each instance's world is the matrix the texture category's
+	// walk sets (the Matrix3D transposed into Direct3D 9's layout) and its position goes through the
+	// product Upload_Vertex_Constants builds, in the same order, so the map holds the depth the
+	// generated programs wrote.  An alpha tested run samples the texture and
+	// sampler on stage 0 as they stand, so Draw_Shadow_Casters is handed the runs of one texture at
+	// a time, and is false, with nothing drawn, when alpha tested runs find no texture there.  A
+	// skinned run's vertices are the shadow skin source.  Only while the map is bound.  Every run
+	// counts in Draws_Made.
+	enum ShadowCasterKind
+	{
+		SHADOW_CASTER_RIGID,
+		SHADOW_CASTER_ALPHA_TESTED,
+		SHADOW_CASTER_SKINNED
+	};
+	struct ShadowCasterRun
+	{
+		ShadowCasterKind Kind;
+		ID3D11Buffer * Vertices;
+		unsigned Stride;
+		unsigned TextureOffset;		///< bytes into a vertex to stage 0's coordinates, alpha tested only
+		ID3D11Buffer * Indices;
+		unsigned StartIndex;
+		unsigned IndexCount;
+		unsigned BaseVertex;
+		bool Strip;
+		DWORD CullMode;			///< D3DCULL
+		DWORD DepthFunction;	///< D3DCMPFUNC
+		unsigned FirstInstance;
+		unsigned InstanceCount;
+	};
+	struct ShadowSkinVertex
+	{
+		float Position[3];		///< the bind pose, in its bone's space
+		unsigned Bone;
+	};
+	bool Upload_Shadow_Casters(const float * const * worlds, const unsigned * first_bones,
+		unsigned instance_count, const float * const * bones, unsigned bone_count);
+	bool Draw_Shadow_Casters(const ShadowCasterRun * runs, unsigned run_count);
+
+	// The bind poses of the skins the depth pass skins on the GPU, appended a model at a time and
+	// kept across passes.  A model whose vertices do not fit starts a new, larger buffer, and so does
+	// a release of the device; either moves the generation on, and a model uploaded under an older
+	// generation uploads again.  False when the device refused the buffer.
+	bool Upload_Shadow_Skin(const ShadowSkinVertex * vertices, unsigned count, unsigned & first_vertex);
+	unsigned Shadow_Skin_Generation() const { return ShadowSkinGeneration; }
 
 	// The scene camera's view, which a camera space draw's pixels go back to the world through: the
 	// sorted particles are written in camera space and drawn with an identity world and view
@@ -687,6 +743,24 @@ private:
 	bool SmokeMapRefused;
 	bool SmokeMapFilled;
 	float SmokeStrength;
+	// Draw_Shadow_Casters' programs and layouts a kind of run, the alpha test's pixel program, the
+	// instance buffer and the bones' buffer, both of which grow by doubling and are written once a
+	// pass, and the skin source.  Made on the first pass.
+	bool Make_Shadow_Caster_Program();
+	void Release_Shadow_Casters();
+	ID3D11VertexShader * ShadowCasterVertexShaders[3];
+	ID3D11InputLayout * ShadowCasterLayouts[3];
+	ID3D11PixelShader * ShadowCasterAlphaTest;
+	ID3D11Buffer * ShadowCasterInstances;
+	unsigned ShadowCasterCapacity;
+	ID3D11Buffer * ShadowCasterBones;
+	ID3D11ShaderResourceView * ShadowCasterBonesView;
+	unsigned ShadowCasterBonesCapacity;
+	bool ShadowCasterRefused;
+	ID3D11Buffer * ShadowSkinSource;
+	unsigned ShadowSkinCapacity;
+	unsigned ShadowSkinUsed;
+	unsigned ShadowSkinGeneration;
 	// Set_Headlights' slots, eight floats each, how many are lit and the gain per channel.
 	float Headlights[HEADLIGHT_SLOTS][8];
 	unsigned HeadlightCount;

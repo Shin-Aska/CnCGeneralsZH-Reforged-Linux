@@ -4497,6 +4497,26 @@ void Object::crc( Xfer *xfer )
 }  // end crc
 
 //-------------------------------------------------------------------------------------------------
+/** One module's xfer, which names the module when it throws.  A release build compiles the
+	* DEBUG_CRASH of GameState::xferSaveData out, so without this a save, a load or a replay
+	* checkpoint that died in a mod's module said only the last "Xfer Object" line (report 1858). */
+//-------------------------------------------------------------------------------------------------
+static void xferModule( Xfer *xfer, BehaviorModule *module, const Object *obj )
+{
+	try
+	{
+		xfer->xferSnapshot( module );
+	}
+	catch( ... )
+	{
+		DEBUG_LOG(( "Object::xfer - module %s (%s) of %s id=%d failed to xfer\n",
+			KEYNAME( module->getModuleNameKey() ).str(), KEYNAME( module->getModuleTagNameKey() ).str(),
+			obj->getTemplate()->getName().str(), obj->getID() ));
+		throw;
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
 /** Object xfer implemtation
 	* Version Info:
 	* 1: Initial version 
@@ -4839,7 +4859,7 @@ void Object::xfer( Xfer *xfer )
 			xfer->beginBlock();
 
 			// xfer data
-			xfer->xferSnapshot( module );
+			xferModule( xfer, module, this );
 
 			// end data block
 			xfer->endBlock();
@@ -4895,7 +4915,7 @@ void Object::xfer( Xfer *xfer )
 			{
 
 				// xfer the data into this module
-				xfer->xferSnapshot( module );
+				xferModule( xfer, module, this );
 
 			}  // end else
 			

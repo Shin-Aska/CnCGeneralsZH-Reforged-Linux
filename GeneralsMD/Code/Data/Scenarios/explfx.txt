@@ -1,5 +1,5 @@
-# Footage of the flipbook explosions (ReforgedExplosionFire/Smoke in ParticleSystemReforged.ini) on
-# Twilight Flame, close: tank shells bursting (WeaponFX_GenericTankShellDetonation), tanks dying
+# Footage of the explosions (FXListReforged.ini; the flipbook ones of v3.3.0 to v3.4.1 against EA's
+# fireballs in experiments/proofs/2026-10-25/explosions) on Twilight Flame, close: tank shells bursting (WeaponFX_GenericTankShellDetonation), tanks dying
 # (FX_GenericTankDeathExplosion) and medium buildings falling (FX_StructureMediumDeath). An American
 # base at start 0 (537,3188) on the firelook spots; Crusaders and Paladins meet Battlemasters and
 # Overlords east of it, while a second Overlord group shells the barracks and the War Factory.

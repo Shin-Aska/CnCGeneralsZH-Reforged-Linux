@@ -201,8 +201,9 @@ enum TextLanguageType
 	TEXT_LANGUAGE_GERMAN	= 2,
 	TEXT_LANGUAGE_UKRAINIAN	= 3,
 	TEXT_LANGUAGE_RUSSIAN	= 4,
+	TEXT_LANGUAGE_FRENCH	= 5,
 
-	TEXT_LANGUAGE_COUNT		= 5,
+	TEXT_LANGUAGE_COUNT		= 6,
 };
 
 /** The LightingStyle option.  Classic draws a map's lights as the map gives them; Reforged takes
@@ -252,6 +253,8 @@ public:
 	Bool isDynamicLODEnabled() const { return m_enableDynamicLOD && !m_noDynamicLODOverride; }
 	/// The particle ceiling in force: -particlecap's, or the options slider's MaxParticleCount.
 	Int getEffectiveParticleCap() const { return (m_particleCapOverride > 0) ? m_particleCapOverride : m_maxParticleCount; }
+	/// The Direct3D 11 particle ring in force: -gpuparticles' (0 included, which is off), or the detail preset's.
+	Int getEffectiveGpuParticleCapacity() const { return (m_gpuParticleCapacityOverride >= 0) ? m_gpuParticleCapacityOverride : m_gpuParticleCapacity; }
 
 	static void parseGameDataDefinition( INI* ini );
 	static void parseVeterancyDefinition( INI* ini );	///< the Veterancy block, m_veterancy*
@@ -329,10 +332,12 @@ public:
 	Int m_cloudStyle;					// "CloudStyle": 0 = Classic, 1 = Volumetric (when supported); visual only
 	Bool m_explosionDebrisTrails;	// "DebrisTrails": blasts throw smoke-trailing fragments and burning shrapnel
 	Int m_shadowQuality;				// "ShadowQuality": the sun's depth map at 1024, 2048 or 4096 texels a side (Direct3D 11)
+	Int m_graphicsQuality;			// "GraphicsQuality": where the options menu's Performance / Quality slider stands; Custom takes the particle ring from the preset at or below it
 	Bool m_classicGraphics;				// "ClassicGraphics": the game's own art, tile, shadows and picture; read at startup
 	Int m_lightingStyle;					// "LightingStyle": LightingStyleType; the map's lights are rebalanced as each map loads
 	Bool m_shadowMap;							// "-shadowmap": draw the casters into the sun's depth buffer as well
 	Bool m_shadowMapReport;				// "-shadowmapreport": log what ended up in that buffer, once a second
+	Bool m_shadowMapOldCasters;		// "-shadowmapoldcasters": every caster through the mesh renderer, none instanced
 	Bool m_shadowMapOnly;					// "-shadowmaponly": the map's shadows with the stencil volumes' own darkening off
 	Real m_shadowMapPenumbra;			// "-shadowtune": penumbra per world unit of gap under the caster, 0 for the built-in
 	Real m_shadowMapSkyFill;			// how much of a wide shadow the sky fills back in
@@ -342,6 +347,9 @@ public:
 	Bool m_particleGroundBounce;	// "-particlebounce": terrain collision on for every particle system
 	Real m_smokeThickness;				// "-smoke": how much longer and thicker every smoke system runs, 0 for shipped behaviour
 	Int  m_particleCapOverride;		// "-particlecap": stand in for the options slider's MaxParticleCount, 0 to use it
+	Int  m_gpuParticleCapacity;		// spawn-record slots in the Direct3D 11 particle ring, the detail preset's GpuParticleCapacity; 0 keeps every particle on the CPU
+	Int  m_gpuParticleCapacityOverride;	// "-gpuparticles": stand in for the preset's ring for one run, -1 to use it
+	Bool m_gpuParticleCheck;			// "-gpuparticlecheck": run the CPU path beside the GPU one and log the closed form's largest error
 	Int  m_textureReductionFactor;	//how much to cut texture resolution: 2 is half, 3 is quarter, etc.
 	Bool m_enableBehindBuildingMarkers;
 	Real m_waterPositionX;
@@ -647,7 +655,6 @@ public:
 	Bool m_lanLobbyOnStart;						///< -lanlobby: open the LAN lobby instead of stopping at the main menu
 	Bool m_skirmishLobbyOnStart;			///< -skirmishlobby: open the skirmish staging room instead of stopping at the main menu
 	Bool m_optionsMenuOnStart;				///< -optionsmenu: open the options screen over the main menu at startup
-	Bool m_randomMapsInMenus;					///< -randommaps: offer the generated maps in the map lists (off until the generator is finished)
 	Bool m_mapLight;								///< "MapLight": warm low sun, ground haze and aircraft wakes (Direct3D 11, client only)
 	Bool m_teamGlow;								///< "TeamGlow": bright house colour glows (Direct3D 11, client only)
 	Bool m_waterFoam;								///< "WaterFoam": foam, shore band and the sun's shadow on water (Direct3D 11, client only)
@@ -694,6 +701,10 @@ public:
   Real m_SFXVolumeFactor;           ///< Factor applied to loudness of SFX volume
   Real m_voiceVolumeFactor;         ///< Factor applied to loudness of voice volume
 	Int m_ambientVolume;							///< "AmbientVolume" in Options.ini: percent for looping world ambience, in place of the effects slider
+	Int m_masterVolume;								///< "MasterVolume" in Options.ini: percent every other slider is multiplied by, music and speech included
+	Bool m_dynamicMusic;							///< "DynamicMusic" in Options.ini: a skirmish's music follows the fight (MusicManager::update)
+	Bool m_legacySound;								///< "LegacySound" in Options.ini: retail's mix, none of the v3.4 processing (MilesAudioManager::applyLegacySound)
+	Bool m_muteInBackground;					///< "MuteInBackground" in Options.ini: silent while another window has the focus (WinMain's WM_ACTIVATE)
   Bool m_3DSoundPref;               ///< Whether user wants to use 3DSound or not
 
 	Bool m_animateWindows;						///< Should we animate window transitions?
@@ -802,6 +813,7 @@ public:
 	UnsignedInt m_networkPlayerSilenceTime;		      	///< The number of milliseconds we can go without hearing anything at all from a player before a stall is treated as a disconnect rather than a slow game.
 	UnsignedInt m_networkStallCeilingTime;		      	///< The number of milliseconds a stall can last with everyone still talking before we bring up the disconnect screen anyway.
 	UnsignedInt m_networkPlayerTimeoutTime;		      	///< The number of milliseconds between when a player's last keep alive command was recieved and when they are considered disconnected from the game.
+	UnsignedInt m_networkSilentPlayerDropTime;	      	///< The number of milliseconds a player can go without sending anything before the disconnect screen drops them; replaces m_networkPlayerTimeoutTime there.
 	UnsignedInt	m_networkDisconnectScreenNotifyTime;  ///< The number of milliseconds between when the disconnect screen comes up and when the other players are notified that we are on the disconnect screen.
 	
 	Real				m_keyboardCameraRotateSpeed;    ///< How fast the camera rotates when rotated via keyboard controls.

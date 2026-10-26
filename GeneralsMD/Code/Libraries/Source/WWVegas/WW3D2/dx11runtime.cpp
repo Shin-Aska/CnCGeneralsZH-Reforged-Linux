@@ -620,6 +620,51 @@ bool Direct3D11_Fill_Smoke_Map(const float * casters, unsigned count, float stre
 	return Active ? Backend.Fill_Smoke_Map(casters, count, strength) : false;
 }
 
+bool Direct3D11_Upload_Shadow_Casters(const float * const * worlds, const unsigned * first_bones,
+	unsigned instance_count, const float * const * bones, unsigned bone_count)
+{
+	return Active && Backend.Upload_Shadow_Casters(worlds, first_bones, instance_count, bones, bone_count);
+}
+
+bool Direct3D11_Upload_Shadow_Skin(const DX11ShadowSkinVertex * vertices, unsigned count,
+	unsigned & first_vertex)
+{
+	return Active && Backend.Upload_Shadow_Skin(
+		reinterpret_cast<const DX11BackendClass::ShadowSkinVertex *>(vertices), count, first_vertex);
+}
+
+unsigned Direct3D11_Shadow_Skin_Generation()
+{
+	return Backend.Shadow_Skin_Generation();
+}
+
+bool Direct3D11_Draw_Shadow_Casters(const DX11ShadowCasterRun * runs, unsigned run_count)
+{
+	if (!Active) {
+		return false;
+	}
+	static std::vector<DX11BackendClass::ShadowCasterRun> backend_runs;
+	backend_runs.resize(run_count);
+	for (unsigned index = 0; index < run_count; ++index) {
+		const DX11ShadowCasterRun & run = runs[index];
+		DX11BackendClass::ShadowCasterRun & backend_run = backend_runs[index];
+		backend_run.Kind = static_cast<DX11BackendClass::ShadowCasterKind>(run.Kind);
+		backend_run.Vertices = (run.Vertices != NULL) ? run.Vertices->Buffer() : NULL;
+		backend_run.Stride = run.Stride;
+		backend_run.TextureOffset = run.TextureOffset;
+		backend_run.Indices = run.Indices->Buffer();
+		backend_run.StartIndex = run.StartIndex;
+		backend_run.IndexCount = run.IndexCount;
+		backend_run.BaseVertex = run.BaseVertex;
+		backend_run.Strip = run.Strip;
+		backend_run.CullMode = run.CullMode;
+		backend_run.DepthFunction = run.DepthFunction;
+		backend_run.FirstInstance = run.FirstInstance;
+		backend_run.InstanceCount = run.InstanceCount;
+	}
+	return Backend.Draw_Shadow_Casters(run_count ? &backend_runs[0] : NULL, run_count);
+}
+
 void Direct3D11_Set_Scene_View(const float view[16])
 {
 	if (Active) {
@@ -1065,6 +1110,14 @@ bool Direct3D11_Take_Present_Failure(long & result)
 	PresentFailureReported = true;
 	result = PresentFailure;
 	return true;
+}
+
+long Direct3D11_Device_Removed_Reason()
+{
+	if (!Active || SUCCEEDED(Device.Last_Present_Result())) {
+		return S_OK;
+	}
+	return Device.Device_Removed_Reason();
 }
 
 void Direct3D11_Mirror_Stream_Source(DX11BufferTwinClass * twin, unsigned stride, unsigned offset)

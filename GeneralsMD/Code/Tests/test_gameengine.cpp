@@ -13,7 +13,9 @@
 /* Standard-library headers precede crc.h's BaseType.h min/max macros, which otherwise
    expand inside filesystem's stream and locale headers on GCC. */
 #include <filesystem>
+#include <fstream>
 #include <limits>
+#include <sstream>
 #include <string>
 
 /* crc.h pulls winsock2.h, so it has to come before anything that drags in
@@ -39,16 +41,22 @@
 #include "Common/FileWriteQueue.h"
 #include "Common/MapObject.h"
 #include "Common/RandomMapGenerator.h"
+#include "Common/RandomMapTemplate.h"
 #include "Common/StackDump.h"
 #if defined(__linux__)
 #include <dlfcn.h>
 #include <unistd.h>
 #endif
 #include "Lib/Trig.h"
+#include "Lib/Clock.h"
 #include "GameNetwork/Connection.h"
 #include "GameLogic/CRCSnapshotRing.h"
 #include "GameNetwork/GameDataMatch.h"
 #include "GameNetwork/GameInfo.h"
+#include "Common/PlayerTemplate.h"
+#include "GameClient/ChallengeGenerals.h"
+#include "GameClient/FactionPicker.h"
+#include "GameClient/UIStyle.h"
 #include "GameNetwork/FrameResendPolicy.h"
 #include "GameLogic/FPUControl.h"
 #include "GameNetwork/StallJudgement.h"
@@ -597,10 +605,12 @@ TEST(zero_hour_language_is_the_one_its_language_archive_names)
 	std::filesystem::remove_all( dir );
 }
 
-/* An unknown block name aborts the whole file - INI::load throws
-   INI_UNKNOWN_TOKEN and the blocks after it never get read.  Worth pinning:
-   nothing in the loader skips unknown blocks, so an INI written for a newer
-   build breaks an older one outright. */
+/* An unknown block name aborts the whole file - INI::load throws and the
+   blocks after it never get read.  Worth pinning: nothing in the loader skips
+   unknown blocks, so an INI written for a newer build breaks an older one
+   outright.  The throw is an INIException naming the file and the block: a
+   bare INI_UNKNOWN_TOKEN reached GameEngine::init as "Uncaught Exception
+   during initialization." (v3.3.0 crash reports, a mod's Rank.ini). */
 TEST(ini_unknown_block_aborts_the_file)
 {
 	CHECK( bootOnce() );
@@ -617,6 +627,36 @@ TEST(ini_unknown_block_aborts_the_file)
 
 	CHECK( loadIni( TEST_INI ) == FALSE );
 	CHECK_EQ( WaterSettings[ TIME_OF_DAY_EVENING ].m_waterRepeatCount, -1 );
+
+	Bool named = FALSE;
+	try
+	{
+		INI ini;
+		ini.load( AsciiString( TEST_INI ), INI_LOAD_OVERWRITE, NULL );
+	}
+	catch( const INIException &e )
+	{
+		named = e.mFailureMessage && strstr( e.mFailureMessage, TEST_INI ) && strstr( e.mFailureMessage, "ThisBlockTypeDoesNotExist" );
+	}
+	CHECK( named );
+
+	remove( TEST_INI );
+}
+
+/* Some editors start a file with a UTF-8 byte order mark, which glued itself
+   to the first block's name and made it unknown. */
+TEST(ini_utf8_bom_is_skipped)
+{
+	CHECK( bootOnce() );
+
+	writeFile( TEST_INI,
+		"\xEF\xBB\xBFWaterSet EVENING\r\n"
+		"  WaterRepeatCount = 5\r\n"
+		"End\r\n" );
+
+	WaterSettings[ TIME_OF_DAY_EVENING ].m_waterRepeatCount = -1;
+	CHECK( loadIni( TEST_INI ) );
+	CHECK_EQ( WaterSettings[ TIME_OF_DAY_EVENING ].m_waterRepeatCount, 5 );
 
 	remove( TEST_INI );
 }
@@ -1960,6 +2000,17 @@ TEST(hotkeys_file_reads_the_launchers_rows_and_leaves_its_defaults_out)
 		water = rows[ each ].id == "CYCLE_WATER_REFLECTION" ? &rows[ each ] : water;
 	CHECK( water != NULL && water->category == "INTERFACE" && water->binding.key.empty() && water->usableIn == "GAME" );
 #endif
+	// the requests to the allies start on Alt and Z, X, C and V, as the launcher writes them (issue 129)
+	static const char *const ASKS[][ 2 ] = { { "SIGNAL_ATTACK", "KEY_Z" }, { "SIGNAL_DEFEND", "KEY_X" },
+		{ "SIGNAL_ATTENTION", "KEY_C" }, { "REQUEST_MONEY", "KEY_V" } };
+	for( size_t ask = 0; ask < sizeof( ASKS ) / sizeof( ASKS[ 0 ] ); ask++ )
+	{
+		Bool found = FALSE;
+		for( size_t each = 0; each < rows.size(); each++ )
+			found = found || ( rows[ each ].id == ASKS[ ask ][ 0 ] && rows[ each ].launcherDefault
+				&& rows[ each ].binding == HotkeyBinding( ASKS[ ask ][ 1 ], "ALT" ) && rows[ each ].category == "INFORMATION" );
+		CHECK( found );
+	}
 
 	// the launcher's own defaults in the player's part are no change of his
 	const HotkeysFile mine = Hotkeys_parse(
@@ -2305,6 +2356,15 @@ TEST(each_signal_key_drops_its_own_smoke)
 	CHECK( Command_signalKindForMeta( GameMessage::MSG_META_SIGNAL_DEFEND ) == SIGNAL_DEFEND );
 	CHECK( Command_signalKindForMeta( GameMessage::MSG_META_SIGNAL_ATTENTION ) == SIGNAL_ATTENTION );
 	CHECK( Command_signalKindForMeta( GameMessage::MSG_META_PLACE_BEACON ) == SIGNAL_KIND_COUNT );
+}
+
+/* CommandXlat.cpp: attack and defend signals are also requests to the computer allies (issue 129),
+   look here is only smoke. */
+TEST(attack_and_defend_signals_ask_the_computer_allies)
+{
+	CHECK( Command_teamRequestForSignal( SIGNAL_ATTACK ) == AIREQ_ATTACK );
+	CHECK( Command_teamRequestForSignal( SIGNAL_DEFEND ) == AIREQ_HELP );
+	CHECK( Command_teamRequestForSignal( SIGNAL_ATTENTION ) == -1 );
 }
 
 /* GameLogicDispatch.cpp: one signal a second per player. */
@@ -3181,6 +3241,454 @@ TEST(particle_already_leaving_the_surface_is_only_lifted_clear)
 	CHECK_NEAR(pos.z, 0.0f, 1e-5f);
 	CHECK_NEAR(vel.z, 2.0f, 1e-5f);
 	CHECK_NEAR(vel.x, 1.0f, 1e-5f);
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// Particle closed form
+//
+// ParticleClosedForm.h says where Particle::update leaves a particle after k
+// updates without running them.  A real Particle needs a live system and the
+// manager, so the replica below is Particle::update's arithmetic copied line
+// for line (no wind, no ground, no upTowardsEmitter).  A change to that
+// function has to be made here as well.
+//////////////////////////////////////////////////////////////////////////////
+
+#include "GameClient/ParticleClosedForm.h"
+
+struct ParticleReplica
+{
+	Coord3D pos, vel, accel;
+	Real velDamping, angleZ, angularRateZ, angularDamping, size, sizeRate, sizeRateDamping;
+	Keyframe alphaKey[ MAX_KEYFRAMES ];
+	RGBColorKeyframe colorKey[ MAX_KEYFRAMES ];
+	Real alpha, alphaRate;
+	Int alphaTargetKey;
+	RGBColor color, colorRate;
+	Int colorTargetKey;
+	Real colorScale;
+	UnsignedInt lifetime, lifetimeLeft, createTimestamp;
+
+	void computeAlphaRate()
+	{
+		if (alphaKey[ alphaTargetKey ].frame == 0)
+		{
+			alphaRate = 0.0f;
+			return;
+		}
+		Real delta = alphaKey[ alphaTargetKey ].value - alphaKey[ alphaTargetKey - 1 ].value;
+		UnsignedInt time = alphaKey[ alphaTargetKey ].frame - alphaKey[ alphaTargetKey - 1 ].frame;
+		alphaRate = delta / time;
+	}
+
+	void computeColorRate()
+	{
+		if (colorKey[ colorTargetKey ].frame == 0)
+		{
+			colorRate.red = colorRate.green = colorRate.blue = 0.0f;
+			return;
+		}
+		UnsignedInt time = colorKey[ colorTargetKey ].frame - colorKey[ colorTargetKey - 1 ].frame;
+		colorRate.red = ( colorKey[ colorTargetKey ].color.red - colorKey[ colorTargetKey - 1 ].color.red ) / time;
+		colorRate.green = ( colorKey[ colorTargetKey ].color.green - colorKey[ colorTargetKey - 1 ].color.green ) / time;
+		colorRate.blue = ( colorKey[ colorTargetKey ].color.blue - colorKey[ colorTargetKey - 1 ].color.blue ) / time;
+	}
+
+	Bool isInvisible( const ParticleUpdateContext &context )
+	{
+		switch (context.shaderType)
+		{
+			case ParticleSystemInfo::ADDITIVE:
+				if (colorTargetKey >= MAX_KEYFRAMES || colorKey[ colorTargetKey ].frame == 0)
+					return ( color.red + color.green + color.blue ) <= 0.06f;
+				return false;
+			case ParticleSystemInfo::ALPHA:
+				if (alphaTargetKey >= MAX_KEYFRAMES || alphaKey[ alphaTargetKey ].frame == 0)
+					return alpha < 0.02f;
+				return false;
+			default:
+				return false;
+		}
+	}
+
+	Bool update( const ParticleUpdateContext &context )
+	{
+		if (context.gravity != 0.0f)
+			accel.z += context.gravity;
+		vel.x += accel.x;
+		vel.y += accel.y;
+		vel.z += accel.z;
+		vel.x *= velDamping;
+		vel.y *= velDamping;
+		vel.z *= velDamping;
+		pos.x += vel.x + context.driftVelocity.x;
+		pos.y += vel.y + context.driftVelocity.y;
+		pos.z += vel.z + context.driftVelocity.z;
+
+		angleZ += angularRateZ;
+		angularRateZ *= angularDamping;
+		size += sizeRate;
+		sizeRate *= sizeRateDamping;
+
+		if (context.shaderType != ParticleSystemInfo::ADDITIVE)
+		{
+			alpha += alphaRate;
+			if (alphaTargetKey < MAX_KEYFRAMES && alphaKey[ alphaTargetKey ].frame)
+			{
+				if (context.clientFrame - createTimestamp >= alphaKey[ alphaTargetKey ].frame)
+				{
+					alpha = alphaKey[ alphaTargetKey ].value;
+					alphaTargetKey++;
+					computeAlphaRate();
+				}
+			}
+			else
+				alphaRate = 0.0f;
+			alpha = particleClosedFormClamp01( alpha );
+		}
+
+		color.red += colorRate.red;
+		color.green += colorRate.green;
+		color.blue += colorRate.blue;
+		if (colorTargetKey < MAX_KEYFRAMES && colorKey[ colorTargetKey ].frame)
+		{
+			if (context.clientFrame - createTimestamp >= colorKey[ colorTargetKey ].frame)
+			{
+				colorTargetKey++;
+				computeColorRate();
+			}
+		}
+		else
+			colorRate.red = colorRate.green = colorRate.blue = 0.0f;
+		color.red = particleClosedFormClamp01( color.red + colorScale );
+		color.green = particleClosedFormClamp01( color.green + colorScale );
+		color.blue = particleClosedFormClamp01( color.blue + colorScale );
+
+		accel.z = accel.y = accel.x = 0.0f;
+
+		if (lifetimeLeft)
+		{
+			if (--lifetimeLeft == 0)
+				return false;
+			UnsignedInt fadeFrames = lifetime / PARTICLE_CLOSED_FORM_FADE_LIFETIME_DIVISOR;
+			if (fadeFrames > PARTICLE_CLOSED_FORM_FADE_MAX_FRAMES)
+				fadeFrames = PARTICLE_CLOSED_FORM_FADE_MAX_FRAMES;
+			else if (fadeFrames == 0)
+				fadeFrames = 1;
+			if (lifetimeLeft <= fadeFrames)
+			{
+				const Real envelope = (Real)( lifetimeLeft - 1 ) / (Real)fadeFrames;
+				if (context.shaderType == ParticleSystemInfo::ALPHA && alpha > envelope)
+					alpha = envelope;
+				if (context.shaderType == ParticleSystemInfo::ADDITIVE)
+				{
+					Real brightest = color.red > color.green ? color.red : color.green;
+					brightest = brightest > color.blue ? brightest : color.blue;
+					if (brightest > envelope)
+					{
+						const Real scale = envelope / brightest;
+						color.red *= scale;
+						color.green *= scale;
+						color.blue *= scale;
+					}
+				}
+			}
+		}
+		return !isInvisible( context );
+	}
+};
+
+/// a system and a particle of it the closed-form tests start from; keys all off
+static void closedFormSetup( ParticleSystemInfo *system, ParticleInfo *info,
+														 ParticleSystemInfo::ParticleShaderType shader, UnsignedInt lifetime )
+{
+	system->m_shaderType = shader;
+	system->m_driftVelocity.set( 0.25f, -0.5f, 0.125f );
+	system->m_gravity = -0.05f;
+	for( Int i = 0; i < MAX_KEYFRAMES; ++i )
+	{
+		system->m_alphaKey[ i ].frame = 0;
+		system->m_colorKey[ i ].frame = 0;
+		system->m_colorKey[ i ].color.red = system->m_colorKey[ i ].color.green = system->m_colorKey[ i ].color.blue = 0.0f;
+		info->m_alphaKey[ i ].value = 0.0f;
+	}
+	info->m_pos.set( 10.0f, 20.0f, 30.0f );
+	info->m_vel.set( 1.5f, -0.75f, 2.0f );
+	info->m_velDamping = 0.95f;
+	info->m_angleZ = 0.3f;
+	info->m_angularRateZ = 0.05f;
+	info->m_angularDamping = 0.9f;
+	info->m_size = 2.0f;
+	info->m_sizeRate = 0.4f;
+	info->m_sizeRateDamping = 0.98f;
+	info->m_colorScale = 0.0f;
+	info->m_lifetime = lifetime;
+}
+
+static void closedFormColorKey( ParticleSystemInfo *system, Int key, Real red, Real green, Real blue, UnsignedInt frame )
+{
+	system->m_colorKey[ key ].color.red = red;
+	system->m_colorKey[ key ].color.green = green;
+	system->m_colorKey[ key ].color.blue = blue;
+	system->m_colorKey[ key ].frame = frame;
+}
+
+static void closedFormAlphaKey( ParticleSystemInfo *system, ParticleInfo *info, Int key, Real value, UnsignedInt frame )
+{
+	system->m_alphaKey[ key ].frame = frame;
+	info->m_alphaKey[ key ].value = value;
+}
+
+struct ClosedFormRun
+{
+	Real				kinematic;			///< worst relative error over position, velocity, size and angle
+	Real				alpha;					///< worst alpha error before the fade window
+	Real				color;					///< worst colour error before the fade window
+	Real				overEnvelope;		///< how far above the envelope the closed form sat inside the window
+	Int					deathMismatches;
+	UnsignedInt	diedAt;					///< the update the replica returned false on
+};
+
+static Real closedFormRelative( Real a, Real b )
+{
+	return fabsf( a - b ) / ( 1.0f + fabsf( b ) );
+}
+
+static void closedFormWorst( Real *worst, Real error )
+{
+	if (!( error <= *worst ))
+		*worst = error;
+}
+
+static ClosedFormRun closedFormAgainstUpdate( const ParticleSystemInfo &system, ParticleInfo info )
+{
+	for( Int i = 0; i < MAX_KEYFRAMES; ++i )
+	{
+		info.m_alphaKey[ i ].frame = system.m_alphaKey[ i ].frame;
+		info.m_colorKey[ i ] = system.m_colorKey[ i ];
+	}
+
+	const UnsignedInt birth = 1000;
+	ParticleGpuSpawn spawn;
+	ParticleGpuSystemEntry entry;
+	particleGpuSpawnPack( info, birth, 3, 7, &spawn );
+	particleGpuSystemEntryBuild( system, &entry );
+
+	// the replica takes the alpha values the spawn record kept, so quantising is not counted as error
+	ParticleReplica p;
+	p.pos = info.m_pos;
+	p.vel = info.m_vel;
+	p.accel.zero();
+	p.velDamping = info.m_velDamping;
+	p.angleZ = info.m_angleZ;
+	p.angularRateZ = info.m_angularRateZ;
+	p.angularDamping = info.m_angularDamping;
+	p.size = info.m_size;
+	p.sizeRate = info.m_sizeRate;
+	p.sizeRateDamping = info.m_sizeRateDamping;
+	for( Int i = 0; i < MAX_KEYFRAMES; ++i )
+	{
+		p.alphaKey[ i ].value = particleGpuSpawnAlphaKey( spawn, i );
+		p.alphaKey[ i ].frame = info.m_alphaKey[ i ].frame;
+		p.colorKey[ i ] = info.m_colorKey[ i ];
+	}
+	p.alpha = p.alphaKey[ 0 ].value;
+	p.alphaTargetKey = 1;
+	p.computeAlphaRate();
+	p.color = p.colorKey[ 0 ].color;
+	p.colorTargetKey = 1;
+	p.computeColorRate();
+	p.colorScale = info.m_colorScale;
+	p.lifetime = p.lifetimeLeft = info.m_lifetime;
+	p.createTimestamp = birth;
+
+	ParticleUpdateContext context;
+	context.driftVelocity = system.m_driftVelocity;
+	context.gravity = system.m_gravity;
+	context.shaderType = system.m_shaderType;
+	context.windMotion = ParticleSystemInfo::WIND_MOTION_NOT_USED;
+	context.groundCollision = FALSE;
+	context.groundBounce = 0.0f;
+	context.groundFriction = 0.0f;
+
+	UnsignedInt fadeFrames = info.m_lifetime / PARTICLE_CLOSED_FORM_FADE_LIFETIME_DIVISOR;
+	if (fadeFrames > PARTICLE_CLOSED_FORM_FADE_MAX_FRAMES)
+		fadeFrames = PARTICLE_CLOSED_FORM_FADE_MAX_FRAMES;
+	else if (fadeFrames == 0)
+		fadeFrames = 1;
+
+	ClosedFormRun run = {};
+	for( UnsignedInt k = 1; k <= info.m_lifetime; ++k )
+	{
+		context.clientFrame = birth + k - 1;
+		const Bool alive = p.update( context );
+
+		ParticleClosedFormState s;
+		particleClosedFormEvaluate( spawn, entry, (Real)k, &s );
+		if (s.m_dead == alive)
+			++run.deathMismatches;
+		if (!alive)
+		{
+			run.diedAt = k;
+			break;
+		}
+
+		closedFormWorst( &run.kinematic, closedFormRelative( s.m_pos.x, p.pos.x ) );
+		closedFormWorst( &run.kinematic, closedFormRelative( s.m_pos.y, p.pos.y ) );
+		closedFormWorst( &run.kinematic, closedFormRelative( s.m_pos.z, p.pos.z ) );
+		closedFormWorst( &run.kinematic, closedFormRelative( s.m_vel.x, p.vel.x ) );
+		closedFormWorst( &run.kinematic, closedFormRelative( s.m_vel.y, p.vel.y ) );
+		closedFormWorst( &run.kinematic, closedFormRelative( s.m_vel.z, p.vel.z ) );
+		closedFormWorst( &run.kinematic, closedFormRelative( s.m_size, p.size ) );
+		closedFormWorst( &run.kinematic, closedFormRelative( s.m_angleZ, p.angleZ ) );
+
+		const UnsignedInt left = info.m_lifetime - k;
+		if (left > fadeFrames)
+		{
+			closedFormWorst( &run.alpha, fabsf( s.m_alpha - p.alpha ) );
+			closedFormWorst( &run.color, fabsf( s.m_color.red - p.color.red ) );
+			closedFormWorst( &run.color, fabsf( s.m_color.green - p.color.green ) );
+			closedFormWorst( &run.color, fabsf( s.m_color.blue - p.color.blue ) );
+		}
+		else
+		{
+			const Real envelope = (Real)( left - 1 ) / (Real)fadeFrames;
+			Real strength = s.m_alpha;
+			if (system.m_shaderType == ParticleSystemInfo::ADDITIVE)
+			{
+				strength = s.m_color.red > s.m_color.green ? s.m_color.red : s.m_color.green;
+				strength = strength > s.m_color.blue ? strength : s.m_color.blue;
+			}
+			closedFormWorst( &run.overEnvelope, strength - envelope );
+		}
+	}
+	return run;
+}
+
+static void closedFormCheckRun( const ClosedFormRun &run, UnsignedInt diedAt )
+{
+	CHECK( run.kinematic < 5e-4f );
+	CHECK( run.alpha < 1e-4f );
+	CHECK( run.color < 1e-4f );
+	CHECK( run.overEnvelope < 1e-5f );
+	CHECK_EQ( run.deathMismatches, 0 );
+	CHECK_EQ( run.diedAt, diedAt );
+}
+
+// VelocityDamping 0 is in the shipped data (jet exhaust): the velocity is gone after the first
+// update and only the drift moves it.  Alpha snaps to 0 at its last key and isInvisible kills it.
+TEST(particle_closed_form_follows_update_with_zero_damping)
+{
+	ParticleSystemInfo system;
+	ParticleInfo info;
+	closedFormSetup( &system, &info, ParticleSystemInfo::ALPHA, 90 );
+	info.m_velDamping = 0.0f;
+	info.m_angularDamping = 0.0f;
+	info.m_sizeRateDamping = 0.0f;
+	closedFormAlphaKey( &system, &info, 0, 0.25f, 0 );
+	closedFormAlphaKey( &system, &info, 1, 1.0f, 20 );
+	closedFormAlphaKey( &system, &info, 2, 0.0f, 60 );
+	closedFormColorKey( &system, 0, 1.0f, 0.5f, 0.0f, 0 );
+	closedFormColorKey( &system, 1, 0.0f, 0.5f, 1.0f, 40 );
+
+	closedFormCheckRun( closedFormAgainstUpdate( system, info ), 61 );
+}
+
+// d = 1 takes the series branch, which is exact there.  ADDITIVE leaves alpha at key 0 whatever
+// the alpha keys say; the colour overshoots each key by one rate and dies black past the last.
+TEST(particle_closed_form_follows_update_with_unit_damping)
+{
+	ParticleSystemInfo system;
+	ParticleInfo info;
+	closedFormSetup( &system, &info, ParticleSystemInfo::ADDITIVE, 200 );
+	info.m_velDamping = 1.0f;
+	info.m_angularDamping = 1.0f;
+	info.m_sizeRateDamping = 1.0f;
+	closedFormAlphaKey( &system, &info, 0, 0.6f, 0 );
+	closedFormAlphaKey( &system, &info, 1, 0.1f, 10 );
+	closedFormColorKey( &system, 0, 1.0f, 1.0f, 1.0f, 0 );
+	closedFormColorKey( &system, 1, 1.0f, 0.5f, 0.25f, 30 );
+	closedFormColorKey( &system, 2, 0.0f, 0.0f, 0.0f, 50 );
+
+	closedFormCheckRun( closedFormAgainstUpdate( system, info ), 51 );
+
+	// a constant colour is capped by the envelope and goes black on the last update before its age
+	closedFormSetup( &system, &info, ParticleSystemInfo::ADDITIVE, 60 );
+	closedFormColorKey( &system, 0, 0.8f, 0.4f, 0.2f, 0 );
+	closedFormCheckRun( closedFormAgainstUpdate( system, info ), 59 );
+}
+
+// The usual case.  colorScale pushes red into the clamp at 1 before its key and the next segment
+// brings it down from there, not from where an unclamped sum would have been.
+TEST(particle_closed_form_follows_update_with_damping_and_clamps)
+{
+	ParticleSystemInfo system;
+	ParticleInfo info;
+	closedFormSetup( &system, &info, ParticleSystemInfo::ALPHA, 300 );
+	info.m_colorScale = 0.01f;
+	closedFormAlphaKey( &system, &info, 0, 0.0f, 0 );
+	closedFormAlphaKey( &system, &info, 1, 0.8f, 30 );
+	closedFormAlphaKey( &system, &info, 2, 0.8f, 200 );
+	closedFormColorKey( &system, 0, 0.5f, 0.5f, 0.5f, 0 );
+	closedFormColorKey( &system, 1, 1.0f, 0.2f, 0.9f, 40 );
+	closedFormColorKey( &system, 2, 0.1f, 0.9f, 0.0f, 100 );
+
+	closedFormCheckRun( closedFormAgainstUpdate( system, info ), 299 );
+
+	info.m_colorScale = -0.02f;
+	closedFormCheckRun( closedFormAgainstUpdate( system, info ), 299 );
+}
+
+// Dampings a hair either side of 1 over a long life: the velocity's (1 - d) k stays in the series
+// branch, the angle's crosses into the quotient branch, and the size grows by d > 1.
+TEST(particle_closed_form_follows_update_with_damping_near_one)
+{
+	ParticleSystemInfo system;
+	ParticleInfo info;
+	closedFormSetup( &system, &info, ParticleSystemInfo::ALPHA, 1200 );
+	info.m_velDamping = 0.99995f;
+	info.m_angularDamping = 0.9999f;
+	info.m_sizeRateDamping = 1.00002f;
+	info.m_colorScale = -0.0005f;
+	closedFormAlphaKey( &system, &info, 0, 0.5f, 0 );
+	closedFormColorKey( &system, 0, 0.9f, 0.6f, 0.3f, 0 );
+
+	closedFormCheckRun( closedFormAgainstUpdate( system, info ), 1199 );
+}
+
+// A key earlier than the one before it is taken on the very next update, its rate divided by an
+// unsigned difference that wrapped.  A key with frame 0 ends the table.
+TEST(particle_closed_form_takes_keys_out_of_order_one_update_each)
+{
+	ParticleSystemInfo system;
+	ParticleInfo info;
+	closedFormSetup( &system, &info, ParticleSystemInfo::ALPHA, 120 );
+	closedFormAlphaKey( &system, &info, 0, 0.0f, 0 );
+	closedFormAlphaKey( &system, &info, 1, 1.0f, 20 );
+	closedFormAlphaKey( &system, &info, 2, 0.2f, 8 );
+	closedFormAlphaKey( &system, &info, 3, 0.6f, 40 );
+	closedFormColorKey( &system, 0, 0.0f, 0.0f, 0.0f, 0 );
+	closedFormColorKey( &system, 1, 1.0f, 0.5f, 0.0f, 16 );
+	closedFormColorKey( &system, 2, 0.0f, 1.0f, 0.5f, 4 );
+	closedFormColorKey( &system, 3, 0.5f, 0.5f, 1.0f, 30 );
+
+	ParticleGpuSystemEntry entry;
+	particleGpuSystemEntryBuild( system, &entry );
+	CHECK_EQ( entry.m_alphaSegmentCount, 3u );
+	CHECK_EQ( entry.m_alphaSegment[ 0 ].m_end, 21u );
+	CHECK_EQ( entry.m_alphaSegment[ 1 ].m_end, 22u );
+	CHECK_EQ( entry.m_alphaSegment[ 2 ].m_end, 41u );
+	CHECK( entry.m_alphaSegment[ 1 ].m_time > 4.0e9f );
+	CHECK_EQ( entry.m_colorSegmentCount, 3u );
+	CHECK_EQ( entry.m_colorSegment[ 0 ].m_end, 17u );
+	CHECK_EQ( entry.m_colorSegment[ 1 ].m_end, 18u );
+	CHECK_EQ( entry.m_colorSegment[ 2 ].m_end, 31u );
+
+	closedFormCheckRun( closedFormAgainstUpdate( system, info ), 119 );
+
+	closedFormAlphaKey( &system, &info, 2, 0.2f, 0 );
+	particleGpuSystemEntryBuild( system, &entry );
+	CHECK_EQ( entry.m_alphaSegmentCount, 1u );
+	closedFormCheckRun( closedFormAgainstUpdate( system, info ), 119 );
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -5408,6 +5916,34 @@ TEST(crcsnapshotring_never_hands_back_a_half_written_frame)
 	CHECK_EQ( ring.getNumSnapshots(), 0 );
 }
 
+TEST(crcsnapshotring_gives_each_frame_the_commands_executed_before_it)
+{
+	CRCSnapshotRing ring;
+	fillSnapshot( ring, 30, 0x30, 1 );
+
+	// a run of one player's commands of one type on one frame folds into one entry
+	ring.addCommand( 30, 1, 7, 0xA );
+	ring.addCommand( 30, 1, 7, 0xB );
+	ring.addCommand( 30, 2, 7, 0xC );
+	fillSnapshot( ring, 31, 0x31, 1 );
+	fillSnapshot( ring, 32, 0x32, 1 );
+
+	const CRCSnapshot *first = ring.getSlot( ring.findSlotByFrame( 30 ) );
+	const CRCSnapshot *second = ring.getSlot( ring.findSlotByFrame( 31 ) );
+	const CRCSnapshot *third = ring.getSlot( ring.findSlotByFrame( 32 ) );
+	CHECK( first != NULL && second != NULL && third != NULL );
+	if( first == NULL || second == NULL || third == NULL )
+		return;
+
+	CHECK_EQ( (Int)first->m_commands.size(), 0 );
+	CHECK_EQ( (Int)second->m_commands.size(), 2 );
+	CHECK_EQ( (Int)second->m_commands[0].m_count, 2 );
+	CHECK_EQ( (Int)second->m_commands[0].m_argHash, 0xA * 33 + 0xB );
+	CHECK_EQ( second->m_commands[1].m_player, 2 );
+	CHECK_EQ( (Int)third->m_commands.size(), 0 );
+	CHECK_EQ( ring.findSlotByFrame( 33 ), -1 );
+}
+
 /* --------------------------------------------------------------------------------------------
 	 A lockstep game only stays in step if both machines feed the same numbers into it, and the
 	 join request is the last moment at which that is a refused join instead of a desynced match.
@@ -6910,6 +7446,171 @@ TEST(gameslot_restores_the_pre_randomization_setup_on_a_restart)
 	fixed.reset();
 	CHECK( !fixed.hasSavedOriginalSetup() );
 	CHECK_EQ( fixed.getOriginalColor(), -1 );
+}
+
+/* A front-end title is set in capitals, and towupper in the C locale stops at ASCII: the army
+	 screen's Turkish title came out "ORDU SEç".  Turkish's i takes its dot along only in Turkish. */
+TEST(capitals_reach_turkish_and_cyrillic_letters)
+{
+	GlobalData *saved = TheWritableGlobalData;
+	TheWritableGlobalData = NEW GlobalData;
+	const UnicodeString words( u"ordu se\u00e7, \u015fi\u011f \u00f6\u00fc \u0131 \u0437\u0456\u0491" );
+	TheWritableGlobalData->m_textLanguage = TEXT_LANGUAGE_TURKISH;
+	CHECK( UIStyle::capitals( words ) == UnicodeString( u"ORDU SE\u00c7, \u015e\u0130\u011e \u00d6\u00dc I \u0417\u0406\u0490" ) );
+	// a map's name is English whatever the language, so its i stays plain
+	CHECK( UIStyle::nameCapitals( UnicodeString( u"Twilight Flame" ) ) == UnicodeString( u"TWILIGHT FLAME" ) );
+	TheWritableGlobalData->m_textLanguage = TEXT_LANGUAGE_ENGLISH;
+	CHECK( UIStyle::capitals( words ) == UnicodeString( u"ORDU SE\u00c7, \u015eI\u011e \u00d6\u00dc I \u0417\u0406\u0490" ) );
+	CHECK( UIStyle::capitals( UnicodeString( u"\u00df \u00f7" ) ) == UnicodeString( u"\u00df \u00f7" ) );
+	delete TheWritableGlobalData;
+	TheWritableGlobalData = saved;
+}
+
+/* The army screen's side box is ticked while the whole side is in the pool, and a click puts the
+	 side in or takes it out; untick one army and the box clears, tick it back and the box is ticked. */
+TEST(army_screen_side_box_follows_the_side_armies)
+{
+	const UnsignedInt usa = 0xFu;			// USA and its three generals
+	const UnsignedInt china = 0xF0u;
+	CHECK( FactionPickerSideTicked( 0xFFu, usa ) );
+	CHECK( !FactionPickerSideTicked( 0xFEu, usa ) );
+	CHECK( !FactionPickerSideTicked( 0xFFu, 0 ) );	// Observer has no armies to tick
+	CHECK_EQ( FactionPickerToggleSide( 0xFFu, usa ), china );
+	CHECK_EQ( FactionPickerToggleSide( china, usa ), 0xFFu );
+	// a side partly in comes in whole on the first click
+	CHECK_EQ( FactionPickerToggleSide( 0x12u, usa ), 0x1Fu );
+	CHECK( FactionPickerSideTicked( FactionPickerToggleSide( 0x12u, usa ), usa ) );
+}
+
+static Bool drawIs( Int pick, Bool oldFactionsOnly, const std::vector<Int> &want )
+{
+	std::vector<Int> draw;
+	GetRandomDraw( pick, oldFactionsOnly, draw );
+	return draw == want;
+}
+
+// A seat's Random narrowed to a pool rides in its faction number, which every lobby message, slot
+// string, save and replay already carries, so the pool has to come back out of the number whole and
+// the draw has to be that pool on every machine.  Turkiye's RandomExcluded, read from the shipped
+// master, keeps it out of a plain Random and out of the default pool; a pool can still tick it in.
+TEST(random_pool_round_trips_and_plain_random_leaves_out_turkiye)
+{
+	CHECK( bootOnce() );
+	PlayerTemplateStore *savedStore = ThePlayerTemplateStore;
+	ChallengeGenerals *savedGenerals = TheChallengeGenerals;
+	ChallengeGenerals generals;	// no persona, so no general is locked
+	TheChallengeGenerals = &generals;
+	ThePlayerTemplateStore = NEW PlayerTemplateStore;
+	ThePlayerTemplateStore->init();
+
+	// Turkiye's block as the master ships it, the fields the draw reads
+	std::string turkiye;
+	{
+		std::ifstream master( std::string( ZH_CODE_DIR ) + "/Data/INI/PlayerTemplateReforged.ini" );
+		CHECK( master.good() );
+		std::string line;
+		Bool inBlock = FALSE;
+		while( std::getline( master, line ) )
+		{
+			std::istringstream words( line );
+			std::string first, second;
+			words >> first >> second;
+			if( first == "PlayerTemplate" )
+				inBlock = second == "FactionTurkiye";
+			if( !inBlock )
+				continue;
+			if( first == "PlayerTemplate" || first == "Side" || first == "StartingBuilding" || first == "OldFaction" || first == "RandomExcluded" || first == "End" )
+				turkiye += line + "\n";
+			if( first == "End" )
+				inBlock = FALSE;
+		}
+	}
+	CHECK( turkiye.find( "RandomExcluded" ) != std::string::npos );
+
+	std::string text =
+		"PlayerTemplate FactionObserver\n  Side = Observer\nEnd\n"
+		"PlayerTemplate FactionAmerica\n  Side = America\n  StartingBuilding = AmericaCommandCenter\n  OldFaction = Yes\nEnd\n"
+		"PlayerTemplate FactionAmericaAirForceGeneral\n  Side = AmericaAirForceGeneral\n  StartingBuilding = AirF_AmericaCommandCenter\nEnd\n"
+		"PlayerTemplate FactionChina\n  Side = China\n  StartingBuilding = ChinaCommandCenter\n  OldFaction = Yes\nEnd\n";
+	text += turkiye;
+	writeFile( TEST_INI, text.c_str() );
+	CHECK( loadIni( TEST_INI ) );
+	CHECK_EQ( ThePlayerTemplateStore->getPlayerTemplateCount(), 5 );
+	CHECK( ThePlayerTemplateStore->getNthPlayerTemplate( 4 )->isRandomExcluded() );
+
+	// the observer has no command center, so the pool's bits are America, Air Force, China, Turkiye
+	std::vector<Int> candidates;
+	GetRandomPoolCandidates( candidates );
+	const Int four[] = { 1, 2, 3, 4 };
+	CHECK( candidates == std::vector<Int>( four, four + 4 ) );
+	CHECK_EQ( GetDefaultRandomPool(), 0x7u );
+
+	// plain Random never lands on Turkiye, and the old-factions rule narrows it further
+	const Int three[] = { 1, 2, 3 };
+	const Int old[] = { 1, 3 };
+	CHECK( drawIs( PLAYERTEMPLATE_RANDOM, FALSE, std::vector<Int>( three, three + 3 ) ) );
+	CHECK( drawIs( PLAYERTEMPLATE_RANDOM, TRUE, std::vector<Int>( old, old + 2 ) ) );
+
+	// the default pool and an empty one are plain Random, so a lobby that ticked nothing new sends -1
+	CHECK_EQ( EncodeRandomPool( GetDefaultRandomPool() ), (Int)PLAYERTEMPLATE_RANDOM );
+	CHECK_EQ( EncodeRandomPool( 0 ), (Int)PLAYERTEMPLATE_RANDOM );
+	CHECK_EQ( DecodeRandomPool( PLAYERTEMPLATE_RANDOM ), 0x7u );
+
+	// America and Turkiye: the pick is a Random, a valid faction number, and gives the pool back
+	const Int pick = EncodeRandomPool( 0x9 );
+	CHECK( pick < PLAYERTEMPLATE_RANDOM_POOL );
+	CHECK( IsRandomPlayerTemplate( pick ) );
+	CHECK( IsValidPlayerTemplatePick( pick ) );
+	CHECK_EQ( DecodeRandomPool( pick ), 0x9u );
+	const Int ticked[] = { 1, 4 };
+	CHECK( drawIs( pick, FALSE, std::vector<Int>( ticked, ticked + 2 ) ) );
+	// Turkiye alone in a limited-armies game leaves nothing, so it draws as plain Random
+	CHECK( drawIs( EncodeRandomPool( 0x8 ), TRUE, std::vector<Int>( old, old + 2 ) ) );
+
+	// the widest pool still round-trips; one past it, and the unused negatives, are refused
+	const UnsignedInt widest = ( 1u << RANDOM_POOL_BITS ) - 1;
+	CHECK_EQ( DecodeRandomPool( EncodeRandomPool( widest ) ), widest );
+	CHECK( IsValidPlayerTemplatePick( EncodeRandomPool( widest ) ) );
+	CHECK( !IsValidPlayerTemplatePick( EncodeRandomPool( widest ) - 1 ) );
+	CHECK( !IsValidPlayerTemplatePick( -3 ) );
+	CHECK( !IsValidPlayerTemplatePick( PLAYERTEMPLATE_RANDOM_POOL ) );
+	CHECK( !IsValidPlayerTemplatePick( 5 ) );
+	CHECK( IsValidPlayerTemplatePick( PLAYERTEMPLATE_OBSERVER ) );
+	CHECK( IsValidPlayerTemplatePick( 4 ) );
+
+	// the slot string carries a pool as its mask in hex, nine bytes at the widest where the number was eleven
+	CHECK_STR( PlayerTemplateSlotField( pick ).str(), "P9" );
+	CHECK_STR( PlayerTemplateSlotField( PLAYERTEMPLATE_RANDOM ).str(), "-1" );
+	CHECK_STR( PlayerTemplateSlotField( 3 ).str(), "3" );
+	CHECK_EQ( PlayerTemplateSlotField( EncodeRandomPool( widest ) ).getLength(), 9 );
+	CHECK_EQ( PlayerTemplateFromSlotField( PlayerTemplateSlotField( pick ) ), pick );
+	CHECK_EQ( PlayerTemplateFromSlotField( PlayerTemplateSlotField( EncodeRandomPool( widest ) ) ), EncodeRandomPool( widest ) );
+	CHECK_EQ( PlayerTemplateFromSlotField( AsciiString( "-2" ) ), (Int)PLAYERTEMPLATE_OBSERVER );
+	CHECK( !IsValidPlayerTemplatePick( PlayerTemplateFromSlotField( AsciiString( "P0" ) ) ) );
+	CHECK( !IsValidPlayerTemplatePick( PlayerTemplateFromSlotField( AsciiString( "PFFFFFFFF" ) ) ) );
+
+	// the preferences keep a pool by names, so a template added in front of them leaves the pool its armies
+	CHECK_STR( PlayerTemplatePreference( pick ).str(), "Random:FactionAmerica,FactionTurkiye" );
+	CHECK_STR( PlayerTemplatePreference( 2 ).str(), "2" );
+	CHECK_EQ( PlayerTemplateFromPreference( PlayerTemplatePreference( pick ) ), pick );
+	CHECK_EQ( PlayerTemplateFromPreference( AsciiString( "Random:FactionTurkiye,FactionGone" ) ), EncodeRandomPool( 0x8 ) );
+	CHECK_EQ( PlayerTemplateFromPreference( AsciiString( "Random:FactionGone" ) ), (Int)PLAYERTEMPLATE_RANDOM );
+	CHECK_EQ( PlayerTemplateFromPreference( AsciiString( "3" ) ), 3 );
+	// a pool a build before the names wrote by number is dropped, its bits being anyone's now
+	CHECK_EQ( PlayerTemplateFromPreference( AsciiString( "-25" ) ), (Int)PLAYERTEMPLATE_RANDOM );
+
+	// a seat on a pool keeps its start spot; only an observer gives it up
+	GameSlot slot;
+	slot.setStartPos( 3 );
+	slot.setPlayerTemplate( pick );
+	CHECK_EQ( slot.getStartPos(), 3 );
+	slot.setPlayerTemplate( PLAYERTEMPLATE_OBSERVER );
+	CHECK_EQ( slot.getStartPos(), -1 );
+
+	remove( TEST_INI );
+	delete ThePlayerTemplateStore;
+	ThePlayerTemplateStore = savedStore;
+	TheChallengeGenerals = savedGenerals;
 }
 
 // The game's fingerprint over a BitFlags used to be taken with sizeof(this) - the size of the
@@ -10725,7 +11426,7 @@ TEST(town_streets_meet_only_at_shared_ends_so_the_renderer_builds_junctions)
 }
 
 //-------------------------------------------------------------------------------------------------
-/** A map has to hold the players it is generated for.  The three sizes are three different maps
+/** A map has to hold the players it is generated for.  The five sizes are five different maps
 	for the same game, and every one of them grows with the number of players rather than packing
 	eight bases into a duel map. */
 //-------------------------------------------------------------------------------------------------
@@ -10752,11 +11453,15 @@ TEST(map_size_is_chosen_and_then_grows_with_the_players)
 		Int smallCells = RandomMapGenerator::cellsFor( RANDOM_MAP_SIZE_SMALL, players );
 		Int normalCells = RandomMapGenerator::cellsFor( RANDOM_MAP_SIZE_NORMAL, players );
 		Int largeCells = RandomMapGenerator::cellsFor( RANDOM_MAP_SIZE_LARGE, players );
+		Int tinyCells = RandomMapGenerator::cellsFor( RANDOM_MAP_SIZE_TINY, players );
+		Int hugeCells = RandomMapGenerator::cellsFor( RANDOM_MAP_SIZE_HUGE, players );
 
+		CHECK( tinyCells < smallCells );
 		CHECK( smallCells < normalCells );
 		CHECK( normalCells < largeCells );
-		CHECK( smallCells >= RandomMapGenerator::MIN_CELLS );
-		CHECK( largeCells <= RandomMapGenerator::MAX_CELLS );
+		CHECK( largeCells < hugeCells );
+		CHECK( tinyCells >= RandomMapGenerator::MIN_CELLS );
+		CHECK( hugeCells <= RandomMapGenerator::MAX_CELLS );
 	}
 
 	// A count nobody asked for is the normal size for that many players, and the clamp says so
@@ -10774,6 +11479,28 @@ TEST(map_size_is_chosen_and_then_grows_with_the_players)
 	RandomMapGenerator::generate( settings, bytes );
 	parseGeneratedMap( bytes );
 	CHECK_EQ( theRMGParse.m_boundaryX, settings.m_playableCells );
+}
+
+TEST(a_template_map_gives_each_player_the_ground_a_seat_has_on_the_template)
+{
+	// Twilight Flame: 486 by 469 playable, eight seats
+	const Int TEMPLATE_X = 486, TEMPLATE_Y = 469, TEMPLATE_SEATS = 8;
+
+	CHECK_EQ( RandomMapGenerator::cellsForTemplate( RANDOM_MAP_SIZE_NORMAL, 8, TEMPLATE_X, TEMPLATE_Y, TEMPLATE_SEATS ), 477 );
+	CHECK_EQ( RandomMapGenerator::cellsForTemplate( RANDOM_MAP_SIZE_NORMAL, 4, TEMPLATE_X, TEMPLATE_Y, TEMPLATE_SEATS ), 477 );
+	CHECK_EQ( RandomMapGenerator::cellsForTemplate( RANDOM_MAP_SIZE_NORMAL, 2, TEMPLATE_X, TEMPLATE_Y, TEMPLATE_SEATS ), 477 );
+	CHECK_EQ( RandomMapGenerator::cellsForTemplate( RANDOM_MAP_SIZE_HUGE, 8, TEMPLATE_X, TEMPLATE_Y, TEMPLATE_SEATS ), 708 );
+	// past the template's seats each player adds a seat's ground
+	CHECK( RandomMapGenerator::cellsForTemplate( RANDOM_MAP_SIZE_NORMAL, 6, TEMPLATE_X, TEMPLATE_Y, 4 ) >
+		RandomMapGenerator::cellsForTemplate( RANDOM_MAP_SIZE_NORMAL, 4, TEMPLATE_X, TEMPLATE_Y, 4 ) );
+	for( Int size = 0; size + 1 < RANDOM_MAP_SIZE_COUNT; size++ )
+		for( Int players = RandomMapGenerator::MIN_PLAYERS; players <= RandomMapGenerator::MAX_PLAYERS; players++ )
+			CHECK( RandomMapGenerator::cellsForTemplate( (RandomMapSize)size, players, TEMPLATE_X, TEMPLATE_Y, TEMPLATE_SEATS ) <
+				RandomMapGenerator::cellsForTemplate( (RandomMapSize)( size + 1 ), players, TEMPLATE_X, TEMPLATE_Y, TEMPLATE_SEATS ) );
+
+	// no template, or one this machine does not have, is the plain table
+	CHECK_EQ( RandomMapGenerator::cellsFor( RANDOM_MAP_SIZE_LARGE, 6, AsciiString::TheEmptyString ),
+		RandomMapGenerator::cellsFor( RANDOM_MAP_SIZE_LARGE, 6 ) );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -11268,15 +11995,15 @@ TEST(the_generator_still_turns_a_seed_into_the_bytes_it_used_to)
 {
 	CHECK( bootOnce() );
 
-	CHECK_EQ( RANDOM_MAP_GENERATOR_VERSION, 16 );
+	CHECK_EQ( RANDOM_MAP_GENERATOR_VERSION, 17 );
 
 	struct RMGFingerprint { Int m_seed, m_players, m_cells, m_style; UnsignedInt m_crc; };
 	static const RMGFingerprint theFingerprints[] =
 	{
-		{ 0, 2, 64, 0, 0x47856463 },
-		{ 12345, 4, 96, 0, 0x2863C7E9 },
-		{ 7, 8, 128, 0, 0x317288D3 },
-		{ 7, 4, 200, 1, 0x100AD66B },
+		{ 0, 2, 64, 0, 0x47856863 },
+		{ 12345, 4, 96, 0, 0x2863C7F9 },
+		{ 7, 8, 128, 0, 0x357288D3 },
+		{ 7, 4, 200, 1, 0x100AD67B },
 	};
 	const Int numFingerprints = sizeof(theFingerprints) / sizeof(theFingerprints[0]);
 
@@ -11396,6 +12123,43 @@ TEST(a_generated_map_is_served_out_of_memory_and_written_nowhere)
 }
 
 //-------------------------------------------------------------------------------------------------
+/** The room makes its generated map again whenever a seat fills or empties: the seed and the size
+	stay, the player count and the cells that size gives it change, and going back gives the first
+	name again. */
+//-------------------------------------------------------------------------------------------------
+TEST(a_generated_map_restaged_for_another_seat_count_keeps_seed_and_size)
+{
+	CHECK( bootOnce() );
+
+	GlobalData *saved = TheWritableGlobalData;
+	TheWritableGlobalData = NEW GlobalData;
+
+	RandomMapSettings settings;
+	settings.m_seed = 7171;
+	settings.m_numPlayers = 2;
+	settings.m_playableCells = RandomMapGenerator::cellsFor( RANDOM_MAP_SIZE_LARGE, 2 );
+	AsciiString twoPlayers;
+	CHECK( stageRandomMap( settings, twoPlayers ) );
+
+	AsciiString fivePlayers;
+	CHECK( restageRandomMap( twoPlayers, 5, fivePlayers ) );
+	AsciiString expected;
+	expected.format( "_7171_5p_%dc.map", RandomMapGenerator::cellsFor( RANDOM_MAP_SIZE_LARGE, 5 ) );
+	CHECK( fivePlayers.endsWithNoCase( expected.str() ) );
+	CHECK( TheFileSystem->doesFileExist( fivePlayers.str() ) );
+
+	AsciiString back;
+	CHECK( restageRandomMap( fivePlayers, 2, back ) );
+	CHECK( back.compareNoCase( twoPlayers ) == 0 );
+
+	AsciiString none;
+	CHECK( !restageRandomMap( AsciiString( "Maps\\Tournament Desert\\Tournament Desert.map" ), 4, none ) );
+
+	delete TheWritableGlobalData;
+	TheWritableGlobalData = saved;
+}
+
+//-------------------------------------------------------------------------------------------------
 /** Not a check: with RMG_DUMP set to "<dir> <seed>,<players>,<cells>,<style> ..." it writes each
 	map and its preview into dir, for mapscore.py and mapstyle.py to read. Nothing else writes a
 	generated map anywhere. Run as test_gameengine.exe write_the_maps_RMG_DUMP_names. */
@@ -11437,6 +12201,187 @@ TEST(write_the_maps_RMG_DUMP_names)
 		fclose( out );
 		printf( "  wrote %s.map (%d bytes)\n", name, (Int)map.size() );
 	}
+}
+
+static std::vector<AsciiString> theTestCivilians;
+
+/// A town building, by the names RMG_TEMPLATE_CIVILIANS listed, for the tests that have no object INI.
+static Bool isListedCivilian( const char *name )
+{
+	for( size_t i = 0; i < theTestCivilians.size(); i++ )
+		if( theTestCivilians[i].compareNoCase( name ) == 0 )
+			return TRUE;
+	return FALSE;
+}
+
+static Bool readWholeFile( const char *path, std::vector<char>& bytes )
+{
+	FILE *in = fopen( path, "rb" );
+	if( in == NULL )
+		return FALSE;
+	fseek( in, 0, SEEK_END );
+	bytes.resize( ftell( in ) );
+	fseek( in, 0, SEEK_SET );
+	size_t read = bytes.empty() ? 0 : fread( &bytes[0], 1, bytes.size(), in );
+	fclose( in );
+	return read == bytes.size();
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A template map is a synthesis from another map's bytes, and it is rebuilt from its name on every
+	machine, so it has to come out the same twice and leave every start able to walk to every other.
+	The exemplar here is a generated Twilight-style map, the one exemplar a test can make without the
+	game's archives; the shipped maps are RMG_TEMPLATE_DUMP's. */
+//-------------------------------------------------------------------------------------------------
+TEST(a_template_map_comes_out_the_same_twice_and_every_start_walks_to_every_other)
+{
+	CHECK( bootOnce() );
+
+	RandomMapSettings exemplarSettings;
+	exemplarSettings.m_seed = 31;
+	exemplarSettings.m_numPlayers = 4;
+	exemplarSettings.m_style = 1;
+	RandomMapGenerator::clampSettings( exemplarSettings );
+	std::vector<char> exemplar;
+	RandomMapGenerator::generate( exemplarSettings, exemplar );
+
+	// the bytes themselves, pinned like the generator's: a change here is a change to every template map's name
+	static const UnsignedInt theTemplateFingerprints[2] = { 0xF9D5107Cu, 0x4035FBF7u };
+	for( Int players = 2; players <= 8; players += 6 )
+	{
+		RandomMapSettings settings;
+		settings.m_seed = 900 + players;
+		settings.m_numPlayers = players;
+		settings.m_playableCells = RandomMapGenerator::cellsFor( RANDOM_MAP_SIZE_NORMAL, players );
+
+		std::vector<char> first, second, preview;
+		RMGTemplateReport report;
+		// once inline and once on a pool: the floods the generator forks must not change a byte
+		const Int POOL_WORKERS = 4;
+		CHECK( rmgSynthesise( settings, exemplar, NULL, first, &preview, &report ) );
+		JobSystem::init( POOL_WORKERS );
+		CHECK( rmgSynthesise( settings, exemplar, NULL, second, NULL, NULL ) );
+		JobSystem::shutdown();
+		CHECK( !first.empty() && first == second );
+		CHECK( first.size() > 4 && memcmp( &first[0], "CkMp", 4 ) == 0 );
+		CHECK_EQ( report.m_cutOffStarts, 0 );
+		CHECK_EQ( report.m_cutOffSites, 0 );
+		CHECK( report.m_patches > 0 );
+		CHECK_EQ( (Int)preview.size(), 18 + RandomMapGenerator::PREVIEW_PIXELS * RandomMapGenerator::PREVIEW_PIXELS * 3 );
+		CHECK_EQ( report.m_pads, players );
+		if( report.m_cutOffStarts || report.m_cutOffSites )
+			printf( "  %d players: %d starts, %d sites cut off\n%s", players, report.m_cutOffStarts, report.m_cutOffSites,
+				report.m_notes.str() );
+		CRC crc;
+		Int version = RANDOM_MAP_GENERATOR_VERSION;
+		crc.computeCRC( &version, sizeof(version) );
+		crc.computeCRC( &first[0], (Int)first.size() );
+		if( crc.get() != theTemplateFingerprints[players == 2 ? 0 : 1] )
+			printf( "  %d players: fingerprint 0x%08X\n", players, crc.get() );
+		CHECK_EQ( crc.get(), theTemplateFingerprints[players == 2 ? 0 : 1] );
+	}
+
+	// a template whose bytes end early is refused, not read past
+	{
+		RandomMapSettings settings;
+		settings.m_seed = 902;
+		settings.m_numPlayers = 2;
+		settings.m_playableCells = RandomMapGenerator::cellsFor( RANDOM_MAP_SIZE_NORMAL, 2 );
+		std::vector<char> cut( exemplar.begin(), exemplar.begin() + exemplar.size() / 2 ), none;
+		CHECK( !rmgSynthesise( settings, cut, NULL, none, NULL, NULL ) );
+		CHECK( none.empty() );
+	}
+
+	// the template's name and its CRC ride in the generated map's name, and a template not installed is dropped
+	AsciiString token, path;
+	CHECK( rmgTemplateToken( AsciiString( "maps\\twilight flame\\twilight flame.map" ), token ) );
+	CHECK_STR( token.str(), "twilight flame" );
+	rmgTemplateFromToken( token, path );
+	CHECK_STR( path.str(), "maps\\twilight flame\\twilight flame.map" );
+	CHECK( !rmgTemplateToken( AsciiString( "maps\\twilight flame\\other.map" ), token ) );
+
+	RandomMapSettings missing;
+	missing.m_template = "maps\\no such map\\no such map.map";
+	RandomMapGenerator::clampSettings( missing );
+	CHECK( missing.m_template.isEmpty() );
+	CHECK_EQ( missing.m_templateCRC, 0u );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Not a check: with RMG_TEMPLATE_DUMP set to "<dir> <exemplar.map> <seed>,<players>,<cells> ..." it
+	synthesises each map from the exemplar (a .map taken out of the game's archive, packed or not) and
+	writes it and its preview into dir, with the report and the time it took. RMG_TEMPLATE_CIVILIANS
+	names a file of town building names, one a line, standing in for the object INI. Run as
+	test_gameengine.exe write_the_maps_RMG_TEMPLATE_DUMP_names. */
+//-------------------------------------------------------------------------------------------------
+TEST(write_the_maps_RMG_TEMPLATE_DUMP_names)
+{
+	const char *dump = getenv( "RMG_TEMPLATE_DUMP" );
+	if( dump == NULL )
+		return;
+	CHECK( bootOnce() );
+
+	const char *civilians = getenv( "RMG_TEMPLATE_CIVILIANS" );
+	if( civilians )
+	{
+		std::vector<char> list;
+		CHECK( readWholeFile( civilians, list ) );
+		std::string all( list.begin(), list.end() );
+		size_t from = 0;
+		while( from < all.size() )
+		{
+			size_t end = all.find_first_of( "\r\n", from );
+			if( end == std::string::npos ) end = all.size();
+			if( end > from )
+				theTestCivilians.push_back( AsciiString( all.substr( from, end - from ).c_str() ) );
+			from = end + 1;
+		}
+	}
+
+	char dir[MAX_PATH], source[MAX_PATH];
+	Int read = 0;
+	CHECK( sscanf( dump, "%259s %259s%n", dir, source, &read ) == 2 );
+	std::vector<char> exemplar;
+	CHECK( readWholeFile( source, exemplar ) );
+	const char *next = dump + read;
+	// the pool the game starts, so the time is the one a player waits
+	JobSystem::init();
+	RandomMapSettings settings;
+	while( sscanf( next, " %d,%d,%d%n", &settings.m_seed, &settings.m_numPlayers, &settings.m_playableCells, &read ) == 3 )
+	{
+		next += read;
+		RandomMapGenerator::clampSettings( settings );
+		std::vector<char> map, preview;
+		RMGTemplateReport report;
+		const Int64 frequency = Clock_Ticks_Per_Second();
+		const Int64 before = Clock_Ticks();
+		Bool built = rmgSynthesise( settings, exemplar, civilians ? isListedCivilian : NULL, map, &preview, &report );
+		const Int64 after = Clock_Ticks();
+		CHECK( built );
+		if( !built )
+			continue;
+
+		char name[MAX_PATH];
+		snprintf( name, sizeof(name), "%s\\synth_%d_%dp_%dc", dir, settings.m_seed, settings.m_numPlayers, settings.m_playableCells );
+		AsciiString file;
+		file.format( "%s.map", name );
+		FILE *out = fopen( file.str(), "wb" );
+		CHECK( out != NULL );
+		fwrite( &map[0], 1, map.size(), out );
+		fclose( out );
+		file.format( "%s.tga", name );
+		out = fopen( file.str(), "wb" );
+		CHECK( out != NULL );
+		fwrite( &preview[0], 1, preview.size(), out );
+		fclose( out );
+		printf( "  wrote %s.map (%d bytes) in %.2f s: %d pads, %d ramps cut, %d patches, %d bridges, %d rivers, %d towns, %d tech, %d road "
+			"segments, %d trees, %d scenery; cut off %d starts, %d sites, %d tech\n%s",
+			name, (Int)map.size(), frequency ? (double)( after - before ) / (double)frequency : 0.0,
+			report.m_pads, report.m_ramps, report.m_patches, report.m_bridges, report.m_rivers, report.m_towns, report.m_tech,
+			report.m_roads, report.m_trees, report.m_scenery, report.m_cutOffStarts, report.m_cutOffSites, report.m_cutOffTech,
+			report.m_notes.str() );
+	}
+	JobSystem::shutdown();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -12350,8 +13295,8 @@ TEST(frames_to_kill_counts_shots_delays_and_reloads)
 	crusaderGun.m_delayFrames = 60.0f;
 	CHECK_NEAR( 480.0f, aiFramesToKill( 480.0f, crusaderGun ), 0.001f );
 
-	// the same shell through HumanArmor on a 120-health Rebel. Armor-piercing lands in full
-	// now, so two shells. At the old 10% it was 6 a shell and twenty of them.
+	// the whole shell on a 120-health Rebel: two shells. HumanArmor takes armor-piercing at 30%,
+	// so in the game it is 18 a shell and seven of them; at EA's 10% it was 6 and twenty.
 	AIShotPattern crusaderOnInfantry = crusaderGun;
 	crusaderOnInfantry.m_damagePerShot = 60.0f;
 	CHECK_NEAR( 120.0f, aiFramesToKill( 120.0f, crusaderOnInfantry ), 0.001f );
@@ -15888,12 +16833,112 @@ TEST(ultra_static_lod_is_high_with_the_ceiling_raised)
 	high.m_maxParticleCount = 3000;
 	high.m_maxTankTrackFadeDelay = 60000;
 	high.m_useHeatEffects = FALSE;
-	const StaticGameLODInfo ultra = makeUltraStaticGameLOD( high );
+	StaticGameLODInfo ultra = makeUltraStaticGameLOD( high );
+	CHECK( ultra.m_gpuParticleCapacity > high.m_gpuParticleCapacity );
+	// the page's fields are the quality slider's at Ultra's step, as GameLODManager::init sets them
+	applyGraphicsQualityStep( ultra, TheGraphicsQualityAnchors[ STATIC_GAME_LOD_ULTRA ] );
 	CHECK_EQ( ultra.m_maxParticleCount, 5000 );
 	CHECK_EQ( (Int)ultra.m_enableDynamicLOD, 0 );
 	CHECK_EQ( (Int)ultra.m_useHeatEffects, 1 );
+	CHECK_EQ( ultra.m_textureReduction, 0 );
 	// what Ultra has no opinion about is High's
 	CHECK_EQ( ultra.m_maxTankTrackFadeDelay, 60000 );
+}
+
+/* The Performance / Quality slider runs from the fastest picture to the best looking: no setting
+	 gets cheaper as it moves right, Low is its left end and Ultra its right, and the presets between
+	 come in the order the detail box names them. */
+TEST(graphics_quality_slider_only_ever_turns_settings_up)
+{
+	CHECK_EQ( TheGraphicsQualityAnchors[ STATIC_GAME_LOD_LOW ], 0 );
+	CHECK_EQ( TheGraphicsQualityAnchors[ STATIC_GAME_LOD_ULTRA ], GRAPHICS_QUALITY_STEPS - 1 );
+	CHECK( TheGraphicsQualityAnchors[ STATIC_GAME_LOD_LOW ] < TheGraphicsQualityAnchors[ STATIC_GAME_LOD_MEDIUM ] );
+	CHECK( TheGraphicsQualityAnchors[ STATIC_GAME_LOD_MEDIUM ] < TheGraphicsQualityAnchors[ STATIC_GAME_LOD_HIGH ] );
+	CHECK( TheGraphicsQualityAnchors[ STATIC_GAME_LOD_HIGH ] < TheGraphicsQualityAnchors[ STATIC_GAME_LOD_ULTRA ] );
+
+	for( Int row = 0; row < TheGraphicsQualityTableCount; ++row )
+	{
+		const GraphicsQualityRow &quality = TheGraphicsQualityTable[ row ];
+		CHECK( findGraphicsQualityRow( quality.control ) == &quality );
+		for( Int step = 1; step < GRAPHICS_QUALITY_STEPS; ++step )
+			CHECK( quality.values[ step ] >= quality.values[ step - 1 ] );
+	}
+	// Modern water is opt-in: a preset gave it to the sea of the main menu's shell map at 11 to 45 ms a pass
+	CHECK( findGraphicsQualityRow( "ComboBoxWaterStyle" ) == NULL );
+
+	// the slider's own position is a catalog row with exactly the table's steps
+	const OptionDef *slider = findOptionDef( "GraphicsQuality" );
+	CHECK( slider != NULL );
+	CHECK_EQ( slider->lo, 0 );
+	CHECK_EQ( slider->hi, GRAPHICS_QUALITY_STEPS - 1 );
+
+	// and at Low the preset turns everything the page shows down
+	StaticGameLODInfo low;
+	applyGraphicsQualityStep( low, TheGraphicsQualityAnchors[ STATIC_GAME_LOD_LOW ] );
+	CHECK_EQ( (Int)low.m_useShadowVolumes, 0 );
+	CHECK_EQ( (Int)low.m_useShadowDecals, 0 );
+	CHECK_EQ( (Int)low.m_enableDynamicLOD, 1 );
+	CHECK_EQ( low.m_textureReduction, 1 );
+}
+
+/* A preset is its column at startup, catalog rows included, while Options.ini has no quality step:
+	 the file's own keys win over the column, a file the slider has saved is left alone, and with no
+	 preset named the first preset applied fills only the rows nothing set after the load. */
+TEST(a_preset_brings_its_column_until_the_slider_has_saved_a_step)
+{
+	GlobalData *saved = TheWritableGlobalData;
+	TheWritableGlobalData = NEW GlobalData;
+	CHECK( !TheGlobalData->m_teamGlow );
+
+	UserPreferences pref;
+	pref[ AsciiString( "StaticGameLOD" ) ] = AsciiString( "Ultra" );
+	pref[ AsciiString( "MapLight" ) ] = AsciiString( "no" );
+	loadOptionsFromPreferences( pref );
+	CHECK( TheGlobalData->m_teamGlow );
+	CHECK( !TheGlobalData->m_mapLight );
+	CHECK_EQ( findOptionDef( "Smoke" )->get(), 1 );
+
+	TheWritableGlobalData->m_teamGlow = FALSE;
+	pref[ AsciiString( "GraphicsQuality" ) ] = AsciiString( "4" );
+	loadOptionsFromPreferences( pref );
+	CHECK( !TheGlobalData->m_teamGlow );
+	applyGraphicsQualityColumnAtStartup( STATIC_GAME_LOD_ULTRA );
+	CHECK( !TheGlobalData->m_teamGlow );
+
+	UserPreferences none;
+	loadOptionsFromPreferences( none );
+	CHECK( !TheGlobalData->m_teamGlow );
+	TheWritableGlobalData->m_lightingStyle = LIGHTING_STYLE_CLASSIC;	// a switch after the load
+	applyGraphicsQualityColumnAtStartup( STATIC_GAME_LOD_MEDIUM );
+	CHECK( TheGlobalData->m_teamGlow );
+	CHECK_EQ( TheGlobalData->m_lightingStyle, (Int)LIGHTING_STYLE_CLASSIC );
+	// once only
+	TheWritableGlobalData->m_teamGlow = FALSE;
+	applyGraphicsQualityColumnAtStartup( STATIC_GAME_LOD_MEDIUM );
+	CHECK( !TheGlobalData->m_teamGlow );
+
+	delete TheWritableGlobalData;
+	TheWritableGlobalData = saved;
+}
+
+/* The particle ring has no control on the options pages, so a Custom mix between two presets takes
+	 it from the preset at or below the slider's step. */
+TEST(custom_detail_takes_the_particle_ring_of_the_preset_below_the_slider)
+{
+	GlobalData *saved = TheWritableGlobalData;
+	GlobalData *scratch = NEW GlobalData;
+	TheWritableGlobalData = scratch;
+
+	GameLODManager lod;
+	scratch->m_graphicsQuality = TheGraphicsQualityAnchors[ STATIC_GAME_LOD_HIGH ] - 1;
+	CHECK( lod.setStaticLODLevel( STATIC_GAME_LOD_CUSTOM ) );
+	CHECK_EQ( TheGlobalData->m_gpuParticleCapacity, lod.m_staticGameLODInfo[ STATIC_GAME_LOD_MEDIUM ].m_gpuParticleCapacity );
+	scratch->m_graphicsQuality = TheGraphicsQualityAnchors[ STATIC_GAME_LOD_ULTRA ];
+	CHECK( lod.setStaticLODLevel( STATIC_GAME_LOD_CUSTOM ) );
+	CHECK_EQ( TheGlobalData->m_gpuParticleCapacity, lod.m_staticGameLODInfo[ STATIC_GAME_LOD_ULTRA ].m_gpuParticleCapacity );
+
+	delete scratch;					// while it is the current one: ~GlobalData reads TheWritableGlobalData
+	TheWritableGlobalData = saved;
 }
 
 TEST(effects_page_rows_reach_the_fields_the_command_line_switches_set)
@@ -17381,6 +18426,102 @@ TEST(the_superweapon_rule_is_a_mode_with_one_exception)
 	TheWritableGlobalData = saved;
 }
 
+#include "GameNetwork/LANAPI.h"
+
+/* The shortest name each human seat keeps in an options string built for the LAN budget. */
+static Int shortestHumanName( const AsciiString& options )
+{
+	Int shortest = 1 << 30;
+	const char *slots = strstr( options.str(), "S=" );
+	for( const char *p = slots + 2; *p && *p != ';'; )
+	{
+		const char *end = strchr( p, ':' );
+		if( *p == 'H' )
+			shortest = std::min( shortest, (Int)( strchr( p, ',' ) - p - 1 ) );
+		p = end + 1;
+	}
+	return shortest;
+}
+
+/* A LAN game's options string has 400 bytes, and eight humans' seats take 34 of them each before a
+	 letter of a name. EA cut the names to fit; this checks that a generated map's name never costs a
+	 seat more of its name than a shipped map's does, and that a map field reads back to its path. */
+TEST(lan_options_fit_eight_humans_on_a_generated_template_map)
+{
+	const char *const paths[] = {
+		"maps\\bombardment beach\\bombardment beach.map",
+		"userdata\\maps\\my map\\my map.map",
+		"userdata\\maps\\rmg_v17_2147483647_8p_672c\\rmg_v17_2147483647_8p_672c.map",
+		"userdata\\maps\\rmg_v17_5_2p_140c_twilight\\rmg_v17_5_2p_140c_twilight.map",
+		"userdata\\maps\\rmg_v17_2147483647_8p_672c_tffffffff_bombardment beach\\rmg_v17_2147483647_8p_672c_tffffffff_bombardment beach.map",
+	};
+	for( Int i = 0; i < 4; ++i )
+	{
+		CHECK_STR( GameInfoMapPathFromField( GameInfoMapField( AsciiString( paths[i] ) ) ).str(), paths[i] );
+		CHECK_STR( GameInfoMapPathFromField( GameInfoLobbyMapField( AsciiString( paths[i] ) ) ).str(), paths[i] );
+	}
+	CHECK_STR( GameInfoMapField( AsciiString( paths[0] ) ).str(), "maps/bombardment beach" );
+	CHECK_STR( GameInfoLobbyMapField( AsciiString( paths[0] ) ).str(), "maps/bombardment beach" );
+	CHECK_STR( GameInfoMapField( AsciiString( paths[1] ) ).str(), "userdata/maps/my map" );
+	CHECK_STR( GameInfoLobbyMapField( AsciiString( paths[1] ) ).str(), "my map" );
+	CHECK_STR( GameInfoLobbyMapField( AsciiString( paths[2] ) ).str(), "~17_zik0zj_8_io" );
+	CHECK_STR( GameInfoLobbyMapField( AsciiString( paths[3] ) ).str(), "~17_5_2_3w_twilight" );
+	// the replay's field, which the launcher reads, names a template map in full
+	CHECK_STR( GameInfoMapField( AsciiString( paths[4] ) ).str(),
+		"userdata/maps/rmg_v17_2147483647_8p_672c_tffffffff_bombardment beach" );
+	// a template map's CRC and folder go as four letters; reading them back needs the shipped maps,
+	// which replay-check on a template map covers
+	const AsciiString wire = GameInfoLobbyMapField( AsciiString( paths[4] ) );
+	CHECK( wire.startsWith( "~17_zik0zj_8_io~" ) );
+	CHECK_EQ( wire.getLength(), 20 );
+
+	GlobalData *saved = TheWritableGlobalData;
+	TheWritableGlobalData = NEW GlobalData;
+
+	SkirmishGameInfo game;
+	game.init();
+	for( Int i = 0; i < MAX_SLOTS; ++i )
+	{
+		AsciiString ascii;
+		ascii.format( "Commander%03d", i );
+		UnicodeString name;
+		name.translate( ascii );
+		GameSlot *slot = game.getSlot( i );
+		slot->setState( SLOT_PLAYER, name, 0xC0A80164u + i );
+		slot->setPort( 8088 );
+		slot->setAccept();
+		slot->setMapAvailability( TRUE );
+	}
+	game.setSeed( 2147483647 );
+	game.setMapCRC( 0xFFFFFFFFu );
+	game.setMapSize( 9999999 );
+
+	const AsciiString shipped = GameInfoOptionsString( &game, AsciiString( paths[0] ), m_lanMaxOptionsLength );
+	const AsciiString generated = GameInfoOptionsString( &game, AsciiString( paths[4] ), m_lanMaxOptionsLength );
+	printf( "    shipped   %d bytes, names keep %d: %s\n", shipped.getLength(), shortestHumanName( shipped ), shipped.str() );
+	printf( "    generated %d bytes, names keep %d: %s\n", generated.getLength(), shortestHumanName( generated ), generated.str() );
+	CHECK( !generated.isEmpty() );
+	CHECK( generated.getLength() <= m_lanMaxOptionsLength );
+	CHECK( shortestHumanName( generated ) >= shortestHumanName( shipped ) );
+	// the replay's string keeps every name whole and the map's full name
+	const AsciiString replay = GameInfoOptionsString( &game, AsciiString( paths[4] ), 0 );
+	CHECK_EQ( shortestHumanName( replay ), 12 );
+	CHECK( strstr( replay.str(), "M=00userdata/maps/rmg_v17_2147483647_8p_672c_tffffffff_bombardment beach;" ) != NULL );
+
+	// eight seats on a pool as wide as retail's armies and Turkiye (13 bits, "P1FFF") cost three bytes
+	// a seat; a wider one that does not fit is turned back to Random by the host (LANAPI::OnGameOptions)
+	for( Int i = 0; i < MAX_SLOTS; ++i )
+		game.getSlot( i )->setPlayerTemplate( PLAYERTEMPLATE_RANDOM_POOL - 0x1FFF );
+	const AsciiString pooled = GameInfoOptionsString( &game, AsciiString( paths[4] ), m_lanMaxOptionsLength );
+	printf( "    pooled    %d bytes, names keep %d\n", pooled.getLength(), shortestHumanName( pooled ) );
+	CHECK( !pooled.isEmpty() );
+	CHECK( shortestHumanName( pooled ) >= 2 );
+	CHECK( strstr( pooled.str(), ",P1FFF," ) != NULL );
+
+	delete TheWritableGlobalData;
+	TheWritableGlobalData = saved;
+}
+
 /* The lobby's Pro Rules box starts ticked, so a lobby nobody touched plays the tournament list the
 	 way every match did before the box existed.  The wire half, PR= in the options string, needs
 	 TheGameState and TheMapCache to build a string at all; replay-check carries that one. */
@@ -18442,6 +19583,39 @@ TEST(particle_cap_in_force_is_the_switch_else_the_slider)
 	TheWritableGlobalData = saved;
 }
 
+/* The GPU particle ring is the detail preset's, a million slots on Ultra halving down to Low, and
+	 -gpuparticles beats it, 0 (off) included; Custom keeps whatever ring was in force. */
+TEST(gpu_particle_ring_in_force_is_the_switch_else_the_preset)
+{
+	GlobalData *saved = TheWritableGlobalData;
+	GlobalData *scratch = NEW GlobalData;
+	TheWritableGlobalData = scratch;
+	{
+		GameLODManager lod;
+		CHECK( lod.setStaticLODLevel( STATIC_GAME_LOD_ULTRA ) );
+		CHECK_EQ( scratch->getEffectiveGpuParticleCapacity(), 1 << 20 );
+		CHECK( lod.setStaticLODLevel( STATIC_GAME_LOD_HIGH ) );
+		CHECK_EQ( scratch->getEffectiveGpuParticleCapacity(), 1 << 19 );
+		CHECK( lod.setStaticLODLevel( STATIC_GAME_LOD_MEDIUM ) );
+		CHECK_EQ( scratch->getEffectiveGpuParticleCapacity(), 1 << 18 );
+		CHECK( lod.setStaticLODLevel( STATIC_GAME_LOD_LOW ) );
+		CHECK_EQ( scratch->getEffectiveGpuParticleCapacity(), 1 << 17 );
+		// Custom takes the ring of the preset at or below the quality slider, not the last one applied
+		scratch->m_graphicsQuality = TheGraphicsQualityAnchors[ STATIC_GAME_LOD_HIGH ];
+		CHECK( lod.setStaticLODLevel( STATIC_GAME_LOD_CUSTOM ) );
+		CHECK_EQ( scratch->getEffectiveGpuParticleCapacity(), 1 << 19 );
+
+		scratch->m_gpuParticleCapacityOverride = 4096;
+		CHECK( lod.setStaticLODLevel( STATIC_GAME_LOD_ULTRA ) );
+		CHECK_EQ( scratch->m_gpuParticleCapacity, 1 << 20 );
+		CHECK_EQ( scratch->getEffectiveGpuParticleCapacity(), 4096 );
+		scratch->m_gpuParticleCapacityOverride = 0;
+		CHECK_EQ( scratch->getEffectiveGpuParticleCapacity(), 0 );
+	}
+	delete scratch;					// while it is the current one: ~GlobalData reads TheWritableGlobalData
+	TheWritableGlobalData = saved;
+}
+
 /** The Reforged lighting style keeps what a sunlit surface receives and takes it out of the shade:
 	 on an ordinary afternoon (ambient half the sun, a fill on each side) the lit side of flat ground
 	 lands within a few percent of where it was, the shadow side loses a quarter, the sun turns warmer
@@ -18546,7 +19720,7 @@ TEST(every_shipped_master_is_fork_owned_and_retail_files_are_not)
 		if (relative == "Scripts/SkirmishScripts.scb")
 			continue;
 		// the post-build copy keeps Data\ in front of these and puts the rest at the top of Run
-		const char *underData[] = { "INI/", "Scripts/", "Turkish/", "German/", "Ukrainian/", "Russian/" };
+		const char *underData[] = { "INI/", "Scripts/", "Turkish/", "German/", "Ukrainian/", "Russian/", "French/" };
 		Bool keepsData = relative == "Patch.str";
 		for (const char *prefix : underData)
 			keepsData = keepsData || relative.rfind(prefix, 0) == 0;
@@ -18579,6 +19753,7 @@ TEST(modfactions_prefix_only_the_mods_own_names)
 	names.scanLine( 0, "  Weapon = PRIMARY RetailGun" );		// a field, not a definition
 	names.scanLine( 0, "CommandSet GLA CommandSet" );				// The End of Days really has this line
 	names.scanLine( 0, "  Side = GLA" );
+	names.scanLine( 0, "ObjectCreationList OCL_Mine" );
 	names.finishScan( 0 );
 	names.setActive( 0 );
 
@@ -18586,6 +19761,13 @@ TEST(modfactions_prefix_only_the_mods_own_names)
 	strcpy( line, "Object AmericaRanger" );
 	CHECK( names.rewriteLine( line, sizeof( line ) ) );
 	CHECK_STR( line, "Object M1~AmericaRanger" );
+	// a colon parser's keyword stays the parser's, the name after it is the mod's; a label is neither
+	strcpy( line, "  FactionOCL = Faction:GLA OCL:OCL_Mine" );
+	CHECK( names.rewriteLine( line, sizeof( line ) ) );
+	CHECK_STR( line, "  FactionOCL = Faction:GLA OCL:M1~OCL_Mine" );
+	strcpy( line, "  DisplayName = OBJECT:OCL_Mine" );
+	CHECK( names.rewriteLine( line, sizeof( line ) ) );
+	CHECK_STR( line, "  DisplayName = OBJECT:OCL_Mine" );
 	strcpy( line, "  Weapon = PRIMARY RangerGun" );
 	CHECK( names.rewriteLine( line, sizeof( line ) ) );
 	CHECK_STR( line, "  Weapon = PRIMARY M1~RangerGun" );

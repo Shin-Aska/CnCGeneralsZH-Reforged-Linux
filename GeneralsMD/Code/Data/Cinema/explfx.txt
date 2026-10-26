@@ -1,4 +1,4 @@
-# Scenarios/explfx.txt filmed close, for the flipbook explosions (-video 120 1440). Three takes on
+# Scenarios/explfx.txt filmed close, for the explosions (-video 120 1440). Three takes on
 # Twilight Flame round start 0 (537,3188): Battlemasters and Crusaders trading shells with the first
 # Crusaders dying, the barracks falling under Overlord fire, and the second Crusader wave meeting the
 # Battlemasters and the Overlords.

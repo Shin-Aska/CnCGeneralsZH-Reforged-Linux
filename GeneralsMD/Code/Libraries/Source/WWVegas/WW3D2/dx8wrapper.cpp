@@ -2373,8 +2373,13 @@ void DX8Wrapper::End_Scene(bool flip_frames)
 			IsDeviceLost=true;
 		}
 
-		// If the device was lost we need to check for cooperative level and possibly reset the device
-		if (hr==D3DERR_DEVICELOST) {
+		// If the device was lost we need to check for cooperative level and possibly reset the device.
+		// Not when the Direct3D 11 device was removed: a driver reset loses this twin too, and a fault in
+		// Reset_Device would end the process before the display reports the DXGI reason next frame.
+		if (Direct3D11_Device_Removed_Reason() != 0) {
+			// the display's ReleaseCrash names it
+		}
+		else if (hr==D3DERR_DEVICELOST) {
 			hr=_Get_D3D_Device()->TestCooperativeLevel();
 			if (hr==D3DERR_DEVICENOTRESET) {
 				Reset_Device();

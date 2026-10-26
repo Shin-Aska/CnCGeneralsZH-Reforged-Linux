@@ -57,6 +57,7 @@
 #include "Common/GameEngine.h"
 #include "Common/INI.h"
 #include "Common/INIException.h"
+#include "Common/MatchHistory.h"
 #include "Common/MessageStream.h"
 #include "Common/ThingFactory.h"
 #include "Common/ThingTemplate.h"
@@ -1158,7 +1159,9 @@ void GameEngine::init( int argc, char *argv[] )
 		if (!TheGlobalData->m_audioOn)
 			DEBUG_LOG(("TheAudio: audio off, no device opened\n"));
 		else
-			DEBUG_LOG(("TheAudio: audio on, device handle %s\n", TheAudio->getDevice() != NULL ? "set" : "none (no device could be opened)"));
+			DEBUG_LOG(("TheAudio: audio on, %s\n", TheAudio->getDevice() == NULL ? "no device (none could be opened), nothing is heard"
+				: TheGlobalData->m_wavEndFrame > 0 ? "no output device: the -wav mix runs offline on the logic clock, into the file only"
+				: "output device open"));
 		//
 		// Missing music used to end the process here, with setQuitting and not one word anywhere: the
 		// game started, the window appeared for a moment and it closed again.  A player who deleted
@@ -1514,12 +1517,19 @@ void GameEngine::init( int argc, char *argv[] )
 		why.format("GameEngine::init failed with ErrorCode 0x%08x.", (UnsignedInt)ec);
 		RELEASE_CRASH((why.str()));
 	}
-	catch (INIException e)
+	catch (const INIException &e)
 	{
 		if (e.mFailureMessage)
 			RELEASE_CRASH((e.mFailureMessage));
 		else
 			RELEASE_CRASH(("Uncaught Exception during initialization."));
+	}
+	catch (decltype(INI_INVALID_DATA) code)
+	{
+		// an unnamed enum, so the ErrorCode catch above does not take it
+		AsciiString why;
+		why.format("GameEngine::init failed with INI error 0x%08x: game data (a mod's INI?) names something that is not there or cannot be used.", (UnsignedInt)code);
+		RELEASE_CRASH((why.str()));
 
 	}
 	catch (...)
@@ -2891,6 +2901,36 @@ static void updateHeadlessRun( void )
 			p->logAIPersonaSummary();
 	}
 
+	/* The score screen's graphs as numbers, for whatever reads a match afterwards (the Bot Cup's
+		 overlays): every sample, every player's build order and every event, one line each, the
+		 player being the list index the PLAYER lines use.  The display name runs to the line's end. */
+	static const char *const MATCH_EVENT_WORDS[ MATCH_EVENT_TYPE_COUNT ] = { "built", "fired", "power", "rank" };
+	for( Int i = 0; i < MAX_PLAYER_COUNT; ++i )
+	{
+		if (!TheMatchHistory.wasSampled( i ))
+			continue;
+		for( Int sample = 0; sample < TheMatchHistory.getSampleCount(); ++sample )
+			DEBUG_LOG(("HEADLESS HISTORY SAMPLE %d %u %d %d %d %d %d %d\n", i, TheMatchHistory.getSampleFrame( sample ),
+								 TheMatchHistory.getValue( sample, i, MATCH_SERIES_EARNED ), TheMatchHistory.getValue( sample, i, MATCH_SERIES_BANK ),
+								 TheMatchHistory.getValue( sample, i, MATCH_SERIES_ARMY ), TheMatchHistory.getValue( sample, i, MATCH_SERIES_BUILDINGS ),
+								 TheMatchHistory.getValue( sample, i, MATCH_SERIES_POWER ), TheMatchHistory.getValue( sample, i, MATCH_SERIES_LOST )));
+		const std::vector< MatchBuild > &builds = TheMatchHistory.getBuilds( i );
+		for( size_t build = 0; build < builds.size(); ++build )
+		{
+			AsciiString shown;
+			shown.translate( builds[ build ].thing->getDisplayName() );
+			DEBUG_LOG(("HEADLESS HISTORY BUILD %d %u %s %s\n", i, builds[ build ].frame, builds[ build ].thing->getName().str(), shown.str()));
+		}
+	}
+	const std::vector< MatchEvent > &events = TheMatchHistory.getEvents();
+	for( size_t event = 0; event < events.size(); ++event )
+	{
+		const MatchEvent &e = events[ event ];
+		if (TheMatchHistory.wasSampled( e.player ))
+			DEBUG_LOG(("HEADLESS HISTORY EVENT %d %u %s %s %d\n", e.player, e.frame, MATCH_EVENT_WORDS[ e.type ],
+								 e.thing ? e.thing->getName().str() : "-", e.rank));
+	}
+
 	if (scouting)
 		TheObserverCamera.finishScout();
 
@@ -3311,6 +3351,15 @@ void GameEngine::update( void )
 			if( windowMS >= 1000 )
 			{
 				const Real fps = (Real)fpsFrames * 1000.0f / (Real)windowMS;
+				// The sun's depth pass every second of a match, fast or slow, so its cost can be read
+				// on a machine that never drops under the gate below.  Under -shadowmapreport only.
+				if( TheGlobalData->m_shadowMapReport && TheGameLogic && TheGameLogic->isInGame()
+					&& !TheGameLogic->isInShellGame() )
+				{
+					DEBUG_LOG(("SHADOW WINDOW frame %d: cpu %.2f ms, %.0f casters, %.0f draws a picture\n",
+									 TheGameLogic->getFrame(), fpsShadowTotal / fpsFrames,
+									 (Real)fpsCasterTotal / fpsFrames, (Real)fpsShadowDrawTotal / fpsFrames));
+				}
 				if( fps < 50.0f && TheGameLogic && TheGameLogic->isInGame() && !TheGameLogic->isInShellGame() )
 				{
 					// 'hz' is the rate the simulation actually achieved and 'catchup' how many render
@@ -3430,7 +3479,7 @@ void GameEngine::execute( void )
 					// compute a frame
 					update();
 				}
-				catch (INIException e)
+				catch (const INIException &e)
 				{
 					// Release CRASH doesn't return, so don't worry about executing additional code.
 					if (e.mFailureMessage)
@@ -3460,6 +3509,16 @@ void GameEngine::execute( void )
 					catch (ErrorCode ec)
 					{
 						snprintf( why, sizeof(why), "Uncaught ErrorCode 0x%08x in GameEngine::update", (UnsignedInt)ec );
+					}
+					// The INI_* codes are an unnamed enum, so the ErrorCode catch does not take them: a
+					// module meeting data it cannot use threw one at a mod's map load (reports 1893-1899).
+					catch (decltype(INI_INVALID_DATA) code)
+					{
+						snprintf( why, sizeof(why), "Uncaught INI error 0x%08x in GameEngine::update: game data (a mod's INI?) names something that is not there or cannot be used", (UnsignedInt)code );
+					}
+					catch (XferStatus status)
+					{
+						snprintf( why, sizeof(why), "Uncaught Xfer error %d in GameEngine::update: an object could not be saved or loaded", (Int)status );
 					}
 					catch (const std::exception &e)
 					{

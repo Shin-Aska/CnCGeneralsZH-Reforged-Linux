@@ -166,6 +166,52 @@ void Direct3D11_Clear_Shadow_Parameters();
 // caller keeps its older shade under the clouds.
 bool Direct3D11_Fill_Smoke_Map(const float * casters, unsigned count, float strength);
 
+// The sun's opaque casters, depth only and instanced, while the map is bound
+// (DX11BackendClass::Upload_Shadow_Casters and Draw_Shadow_Casters): the pass's instances go up
+// once, a world an instance as the three rows of its Matrix3D (NULL for an identity world) and the
+// first bone of a skinned one, with the pass's bones, three rows of a Matrix3D each.  A run is
+// one piece of one mesh model drawn once for each of its instances.  An alpha tested run samples
+// the texture set on stage 0, so the runs are drawn a texture at a time.  False with nothing drawn
+// when there is no backend, it refused a program or a buffer, or alpha tested runs find no texture
+// on stage 0, and the caller draws those casters the old way.
+enum DX11ShadowCasterKind
+{
+	DX11_SHADOW_CASTER_RIGID,
+	DX11_SHADOW_CASTER_ALPHA_TESTED,
+	DX11_SHADOW_CASTER_SKINNED
+};
+struct DX11ShadowCasterRun
+{
+	DX11ShadowCasterKind Kind;
+	DX11BufferTwinClass * Vertices;		///< NULL for a skinned run, which reads the skin source
+	unsigned Stride;
+	unsigned TextureOffset;					///< bytes into a vertex to stage 0's coordinates
+	DX11BufferTwinClass * Indices;
+	unsigned StartIndex;
+	unsigned IndexCount;
+	unsigned BaseVertex;
+	bool Strip;
+	unsigned long CullMode;			///< D3DCULL
+	unsigned long DepthFunction;	///< D3DCMPFUNC
+	unsigned FirstInstance;
+	unsigned InstanceCount;
+};
+bool Direct3D11_Upload_Shadow_Casters(const float * const * worlds, const unsigned * first_bones,
+	unsigned instance_count, const float * const * bones, unsigned bone_count);
+bool Direct3D11_Draw_Shadow_Casters(const DX11ShadowCasterRun * runs, unsigned run_count);
+
+// A skin's bind pose for the depth pass to skin on the GPU (DX11BackendClass::Upload_Shadow_Skin):
+// a position in its bone's space and the bone, a vertex at a time.  The first vertex comes back
+// with the generation it is good for; a model uploaded under an older one uploads again.
+struct DX11ShadowSkinVertex
+{
+	float Position[3];
+	unsigned Bone;
+};
+bool Direct3D11_Upload_Shadow_Skin(const DX11ShadowSkinVertex * vertices, unsigned count,
+	unsigned & first_vertex);
+unsigned Direct3D11_Shadow_Skin_Generation();
+
 // The scene camera's view, in the device's layout, set by the shadow pass once the frame's camera is
 // back.  A draw made in camera space (identity view, perspective projection: the sorted particles)
 // looks its shadow up through it.
@@ -260,6 +306,9 @@ bool Direct3D11_Can_Tear();
 // True once, the first time a present was refused, with the HRESULT it was refused with.  WW3D2
 // has no logging in a shipping build, so the display asks and writes the line.
 bool Direct3D11_Take_Present_Failure(long & result);
+// After a refused present, why the device went: DXGI's removed reason (a driver reset, a hung or
+// removed card), or 0 while the device is alive.  A removed device never comes back.
+long Direct3D11_Device_Removed_Reason();
 
 // Wait for the monitor on the Direct3D 11 present.  DXGI takes the interval per Present, so this
 // does not need a device reset the way Direct3D 9's presentation interval does.

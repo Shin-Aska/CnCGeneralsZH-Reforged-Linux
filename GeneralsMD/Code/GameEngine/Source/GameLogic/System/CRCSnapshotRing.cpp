@@ -41,9 +41,11 @@ void CRCSnapshotRing::clear( void )
 		for( Int s = 0; s < CRC_SECTION_COUNT; ++s )
 			m_snapshots[i].m_sectionCRC[s] = 0;
 		m_snapshots[i].m_players.clear();
+		m_snapshots[i].m_commands.clear();
 	}
 	m_writeSlot = -1;
 	m_numSnapshots = 0;
+	m_pendingCommands.clear();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -67,6 +69,9 @@ void CRCSnapshotRing::beginSnapshot( UnsignedInt frame )
 	for( Int s = 0; s < CRC_SECTION_COUNT; ++s )
 		snap.m_sectionCRC[s] = 0;
 	snap.m_players.clear();
+	// the commands since the last snapshot belong to this one; swap so both vectors keep their capacity
+	snap.m_commands.swap( m_pendingCommands );
+	m_pendingCommands.clear();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -124,6 +129,32 @@ void CRCSnapshotRing::endSnapshot( UnsignedInt totalCRC, UnsignedInt randomSeed 
 }
 
 //-------------------------------------------------------------------------------------------------
+/** A run of one player's commands of one type on one frame folds into one entry, so a selection
+	* change and its order cost two entries, not one per message. */
+//-------------------------------------------------------------------------------------------------
+void CRCSnapshotRing::addCommand( UnsignedInt frame, Int player, Int type, UnsignedInt argHash )
+{
+	if( !m_pendingCommands.empty() )
+	{
+		CRCCommandEntry &last = m_pendingCommands.back();
+		if( last.m_frame == frame && last.m_player == player && last.m_type == type )
+		{
+			++last.m_count;
+			last.m_argHash = last.m_argHash * 33 + argHash;
+			return;
+		}
+	}
+
+	CRCCommandEntry entry;
+	entry.m_frame = frame;
+	entry.m_player = player;
+	entry.m_type = type;
+	entry.m_count = 1;
+	entry.m_argHash = argHash;
+	m_pendingCommands.push_back( entry );
+}
+
+//-------------------------------------------------------------------------------------------------
 Int CRCSnapshotRing::getNewestSlot( void ) const
 {
 	if( m_writeSlot < 0 )
@@ -168,6 +199,22 @@ Int CRCSnapshotRing::findSlotByCRC( UnsignedInt crc ) const
 	{
 		Int slot = getNthNewestSlot( n );
 		if( slot >= 0 && m_snapshots[ slot ].m_totalCRC == crc )
+			return slot;
+	}
+
+	return -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** CRC messages carry the frame they were computed for, so the frame that mismatched is known
+	* exactly and needs no lookup by value. */
+//-------------------------------------------------------------------------------------------------
+Int CRCSnapshotRing::findSlotByFrame( UnsignedInt frame ) const
+{
+	for( Int n = 0; n < m_numSnapshots; ++n )
+	{
+		Int slot = getNthNewestSlot( n );
+		if( slot >= 0 && m_snapshots[ slot ].m_frame == frame )
 			return slot;
 	}
 

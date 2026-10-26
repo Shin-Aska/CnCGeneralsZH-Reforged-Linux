@@ -84,6 +84,11 @@ GUI:SignalAttentionPlaced
 "%s: look here!"
 END
 
+// The money request's line in the allies' chat, in the asker's own language.
+GUI:RequestMoneyChat
+"I need money!"
+END
+
 GUI:GamePaused
 "Game paused."
 END
@@ -158,6 +163,14 @@ GUI:Detail
 "Detail Preset"
 END
 
+GUI:GraphicsQuality
+"Performance / Quality"
+END
+
+TOOLTIP:GraphicsQuality
+"Left is the fastest picture, right the best looking. Dragging it sets the boxes on this page and on Effects, the cheap ones first, and the four presets are points along it. Change a box afterwards and the preset reads Custom. Applies when you press Accept; some settings wait for the next map or the next launch."
+END
+
 GUI:DetailNote0
 "Every box on, the most particles and thick smoke, and detail never drops in a big fight. Picking it only fills in the boxes; Accept applies it."
 END
@@ -175,7 +188,7 @@ GUI:DetailNote3
 END
 
 GUI:DetailNote4
-"Your own mix of the boxes on this page and on Effects. Accept keeps it as it is."
+"Your own mix of the boxes on this page and on Effects, or a point on the slider between two presets. Accept keeps it as it is."
 END
 
 GUI:Shadows3D
@@ -608,6 +621,82 @@ TOOLTIP:AmbientVolume
 "Birds, wind, water and the hum of a town. Sound FX no longer moves these, so the battle can stay loud while the world around it stays quiet."
 END
 
+GUI:MasterVolume
+"Master Volume"
+END
+
+TOOLTIP:MasterVolume
+"Turns the whole game up or down: music, effects, voices, ambience and movies. The other sliders keep the mix, this one sets how loud the mix is."
+END
+
+GUI:OptionsGroupMusic
+"Music"
+END
+
+GUI:DynamicMusic
+"Music Follows the Fight"
+END
+
+TOOLTIP:DynamicMusic
+"In a skirmish or online match the music answers the battle: one of your side's calmer tracks while nothing happens, a harder one once guns fire near the camera or at your forces, and back to calm a few seconds after the fight ends. Off leaves the music as the original game played it."
+END
+
+GUI:OptionsGroupOutput
+"Output"
+END
+
+GUI:AudioDevice
+"Output Device"
+END
+
+TOOLTIP:AudioDevice
+"The speakers or headphones the game plays through. Default follows Windows and moves with it when you plug in a headset. Applied when you Accept."
+END
+
+GUI:AudioDeviceDefault
+"Default"
+END
+
+GUI:SpeakerType
+"Speaker Setup"
+END
+
+TOOLTIP:SpeakerType
+"How the battlefield's sounds are placed around you. Headphones give each ear its own timing and tone, so a sound behind or beside you is heard there. 5.1 and 7.1 spread them over surround speakers; on Linux and macOS they play as stereo. Applied when you Accept."
+END
+
+GUI:SpeakerType0
+"Stereo Speakers"
+END
+
+GUI:SpeakerType1
+"Headphones"
+END
+
+GUI:SpeakerType2
+"5.1 Surround"
+END
+
+GUI:SpeakerType3
+"7.1 Surround"
+END
+
+GUI:MuteInBackground
+"Mute in Background"
+END
+
+TOOLTIP:MuteInBackground
+"Silences the game while another window has the focus. Off keeps it playing behind a browser or on a second monitor."
+END
+
+GUI:LegacySound
+"Legacy Sound"
+END
+
+TOOLTIP:LegacySound
+"The original game's sound: no echo off the map, no muffling by distance, hills or buildings, no delay or pitch bend on distant and passing sounds, no dip after big blasts, no cap on battle sounds or unit replies, no limiter, no map ambience and no music following the fight. Master volume, the device and the speakers still apply. Takes effect at once."
+END
+
 GUI:IsometricCamera
 "Isometric Camera"
 END
@@ -819,6 +908,10 @@ GUI:Language4
 "Русский"
 END
 
+GUI:Language5
+"Français"
+END
+
 TOOLTIP:Language
 "The language of menus, orders, briefings and subtitles. Voices and videos stay as installed. Takes effect the next time the game starts."
 END
@@ -868,7 +961,7 @@ TOOLTIP:StatArmor
 END
 
 TOOLTIP:StatArmorStronger
-"stronger"
+"stronger, less of each hit gets through"
 END
 
 TOOLTIP:StatNewWeapon
@@ -887,6 +980,35 @@ TOOLTIP:StatNewWeaponFigures
 "%d damage, %d range"
 END
 
+// The gloss after each figure on the card: what it counts, as the card computes it.  Damage is the
+// main weapon's primary damage a shot, the weapon that does the most a second; attack speed spreads
+// a clip's reload over its shots; range is in world units, 10 to a pathfinding cell, the square the
+// placement grid draws; build time counts the player's power and how many factories make the unit.
+
+TOOLTIP:StatHealthHint
+"(damage it can take after armor)"
+END
+
+TOOLTIP:StatDamageHint
+"(main weapon, one shot, before armor)"
+END
+
+TOOLTIP:StatAttackSpeedHint
+"(shots a second, reloads counted)"
+END
+
+TOOLTIP:StatDamagePerSecondHint
+"(damage × attack speed)"
+END
+
+TOOLTIP:StatRangeHint
+"(10 is one square of the placement grid)"
+END
+
+TOOLTIP:StatTimeHint
+"(with your power and factories now)"
+END
+
 // Under the figures: a unit's upgrades, or on an upgrade's card the units it changes.
 
 TOOLTIP:Upgrades
@@ -895,6 +1017,14 @@ END
 
 TOOLTIP:UpgradeChanges
 "CHANGES"
+END
+
+TOOLTIP:UpgradesHint
+"(without it → with it)"
+END
+
+TOOLTIP:UpgradeChangesHint
+"(plain unit → with this)"
 END
 
 TOOLTIP:UpgradeOwned
@@ -1264,6 +1394,14 @@ END
 
 GUI:CampaignMission
 "MISSION %d"
+END
+
+GUI:CampaignZeroHour
+"GENERALS ZERO HOUR"
+END
+
+GUI:CampaignGenerals
+"GENERALS"
 END
 
 GUI:MapCorrupt
@@ -1754,6 +1892,10 @@ END
 
 GUI:HotkeysCommandSIGNAL_ATTENTION
 "Signal: look here"
+END
+
+GUI:HotkeysCommandREQUEST_MONEY
+"Ask allies for money"
 END
 
 GUI:HotkeysCommandBEGIN_WAYPOINTS
@@ -2827,7 +2969,7 @@ CONTROLBAR:ConstructTurkiyeInfantrySpotter
 END
 
 CONTROLBAR:ToolTipTurkiyeInfantrySpotter
-"Sees 500, hides while it stands still and barely fights. Put it on a hill and the artillery behind it can shoot."
+"Sees 500 and barely fights. It cannot hide, so keep it out of reach. Put it on a hill and the artillery behind it can shoot."
 END
 
 OBJECT:TurkiyeInfantryMaroonBeret
@@ -3147,7 +3289,7 @@ SCIENCE:TurkiyeFuelResupply
 END
 
 CONTROLBAR:ToolTipTurkiyeScienceFuelResupply
-"Bayraktar drones carry one more munition and Akinci one more bomb on every sortie."
+"Bayraktar drones carry one more munition on every sortie."
 END
 
 SCIENCE:TurkiyeSwarmMunition
@@ -3219,7 +3361,7 @@ CONTROLBAR:UpgradeTurkiyeFuelCell
 END
 
 CONTROLBAR:ToolTipUpgradeTurkiyeFuelCell
-"Bayraktar and Akinci stay over the target twice as long, with twice the munitions."
+"The Bayraktar stays over the target twice as long, with twice the munitions."
 END
 
 UPGRADE:TurkiyeSwarmSoftware
@@ -3294,8 +3436,32 @@ CONTROLBAR:ConstructTurkiyeKarguBase
 "&Kargu Drone Base"
 END
 
+OBJECT:TurkiyeHarekatMerkezi
+"Operations Center"
+END
+
+CONTROLBAR:ConstructTurkiyeHarekatMerkezi
+"&Operations Center"
+END
+
+CONTROLBAR:ToolTipTurkiyeHarekatMerkezi
+"Turkiye's technology building. The whole army fights under one battle plan at a time: Bombardment, Search and Destroy or Hold the Line. Researches Advanced Training and Chemical Suits, and opens the Kargu Drone Base, the Sakarya, the Koral, the Akinci and the Maroon Beret. \n \n Requires: Factory or Airfield \n Energy Required: 2"
+END
+
+OBJECT:TurkiyeKapalicarsi
+"Grand Bazaar"
+END
+
+CONTROLBAR:ConstructTurkiyeKapalicarsi
+"&Grand Bazaar"
+END
+
+CONTROLBAR:ToolTipTurkiyeKapalicarsi
+"Turkiye's black market. Pays 20 every 2 seconds and sells Countermeasures for the Bayraktar, the Akinci and the Kizilelma, and Worker Shoes for the engineers. \n \n Requires: Factory"
+END
+
 CONTROLBAR:ToolTipTurkiyeKarguBase
-"Sends a swarm of sixteen kamikaze drones anywhere on the map. Each one hunts down one of the most valuable targets in the circle and dives into it; spread-out armies suffer most. \n \n Requires: Factory, Radar Tower \n Energy Required: 10 \n Recharge: 5:00"
+"Sends a swarm of sixteen kamikaze drones anywhere on the map. Each one hunts down one of the most valuable targets in the circle and dives into it; spread-out armies suffer most. They climb to the ceiling and come down like Scud missiles, and nothing can shoot them on the way. \n \n Requires: Operations Center \n Energy Required: 10 \n Recharge: 5:00"
 END
 
 CONTROLBAR:TurkiyeKarguSwarm
@@ -3308,4 +3474,80 @@ END
 
 GUI:SuperweaponTurkiyeKarguSwarm
 "Kargu Swarm"
+END
+
+GUI:RandomMapTemplate
+"Map type"
+END
+
+GUI:RandomMapAnyTemplate
+"Surprise me"
+END
+
+GUI:RandomMapSize
+"Map size"
+END
+
+GUI:RandomMapSizeTiny
+"Tiny"
+END
+
+GUI:RandomMapSizeSmall
+"Small"
+END
+
+GUI:RandomMapSizeMedium
+"Medium"
+END
+
+GUI:RandomMapSizeLarge
+"Large"
+END
+
+GUI:RandomMapSizeHuge
+"Extra Large"
+END
+
+// The staging rooms' army screen, opened from a seat's army box.  %s in the Confirm label is the
+// army's name, %s in LeftOut the armies a plain Random never draws, and the two %d in Pool are the
+// ticked armies and the armies that can be ticked.
+GUI:FactionPickTitle
+"Select Army"
+END
+
+GUI:FactionPickRandomAll
+"Random All"
+END
+
+GUI:FactionPickCustom
+"Custom Selection"
+END
+
+GUI:FactionPickConfirm
+"Confirm %s"
+END
+
+GUI:FactionPickRandom
+"Random picks one of these armies for you when the match starts."
+END
+
+GUI:FactionPickLeftOut
+"Random never draws: %s. Tick it under Custom Selection to add it."
+END
+
+GUI:FactionPickPool
+"Random picks one of the %d armies ticked on the left, out of %d. Click an army to tick it or take it out."
+END
+
+// %s is a side's name as its heading reads (USA, China, a mod's side): the pool is that side and nothing else.
+GUI:FactionPickRandomSide
+"Random %s"
+END
+
+GUI:FactionPickSideHint
+"A side's box ticks or clears the whole side; its name leaves that side alone in the draw."
+END
+
+GUI:FactionPickSideNameHint
+"Click a side's name to play a random army of that side."
 END

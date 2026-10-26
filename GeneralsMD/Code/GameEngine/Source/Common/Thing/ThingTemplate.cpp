@@ -54,6 +54,7 @@
 #include "Common/Radar.h"
 #include "Common/RandomValue.h"
 #include "Common/Science.h"
+#include "Common/StackDump.h"	// g_LastErrorDump
 #include "Common/ThingTemplate.h"
 #include "Common/ThingFactory.h"
 #include "Common/ThingSort.h"
@@ -631,6 +632,14 @@ void ThingTemplate::parseModuleName(INI* ini, void *instance, void* store, const
 
 	ini->setMissingReference(FALSE);
 	ModuleData* data = TheModuleFactory->newModuleDataFromINI(ini, tokenStr, type, moduleTagStr);
+	if (data == NULL)
+	{
+		// a module name this exe does not have, usually a mod written for another build
+		g_LastErrorDump.format("[LINE: %d - FILE: '%s'] Unknown module '%s' (%s) on %s\n",
+			ini->getLineNum(), ini->getFilename().str(), tokenStr.str(), moduleTagStr.str(), self->getName().str());
+		DEBUG_LOG(("%s", g_LastErrorDump.str()));
+		throw INI_UNKNOWN_TOKEN;
+	}
 	if (ini->hasMissingReference())
 	{
 		/* read to its End and dropped: a special power module with no template faults placing the

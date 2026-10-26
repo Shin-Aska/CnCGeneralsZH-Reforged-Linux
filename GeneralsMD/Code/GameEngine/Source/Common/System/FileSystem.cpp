@@ -551,7 +551,7 @@ Bool FileSystem::isForkOwnedPath(const AsciiString& filename)
 		return TRUE;
 	return p == "data\\patch.str"
 		|| starts("data\\turkish\\") || starts("data\\german\\")
-		|| starts("data\\ukrainian\\") || starts("data\\russian\\")
+		|| starts("data\\ukrainian\\") || starts("data\\russian\\") || starts("data\\french\\")
 		|| starts("art\\textures\\reforged")
 		|| starts("window\\")
 		|| p == "install_final.bmp";

@@ -822,6 +822,7 @@ std::vector< HotkeyCommandRow > Hotkeys_commandRows( const std::string& commandM
 	unbound.push_back( commandRow( "SIGNAL_ATTACK", "INFORMATION" ) );
 	unbound.push_back( commandRow( "SIGNAL_DEFEND", "INFORMATION" ) );
 	unbound.push_back( commandRow( "SIGNAL_ATTENTION", "INFORMATION" ) );
+	unbound.push_back( commandRow( "REQUEST_MONEY", "INFORMATION" ) );
 	char name[ 32 ];
 	for( Int slot = 1; slot <= 8; slot++ )
 	{
@@ -833,13 +834,18 @@ std::vector< HotkeyCommandRow > Hotkeys_commandRows( const std::string& commandM
 		snprintf( name, sizeof( name ), "COMMAND_SLOT%02d", slot );
 		unbound.push_back( commandRow( name, "GRID" ) );
 	}
-	// LAUNCHER_DEFAULTS: I, free in the shipped map, for the next idle worker
+	// LAUNCHER_DEFAULTS: I, free in the shipped map, for the next idle worker, and Alt with Z, X, C
+	// and V, which nothing in the shipped map holds, for the requests to the allies
+	static const char *const DEFAULTS[][ 3 ] = { { "SELECT_NEXT_IDLE_WORKER", "KEY_I", "NONE" },
+		{ "SIGNAL_ATTACK", "KEY_Z", "ALT" }, { "SIGNAL_DEFEND", "KEY_X", "ALT" }, { "SIGNAL_ATTENTION", "KEY_C", "ALT" },
+		{ "REQUEST_MONEY", "KEY_V", "ALT" } };
 	for( size_t each = 0; each < unbound.size(); each++ )
-		if( unbound[ each ].id == "SELECT_NEXT_IDLE_WORKER" )
-		{
-			unbound[ each ].binding.key = "KEY_I";
-			unbound[ each ].launcherDefault = TRUE;
-		}
+		for( size_t row = 0; row < sizeof( DEFAULTS ) / sizeof( DEFAULTS[ 0 ] ); row++ )
+			if( unbound[ each ].id == DEFAULTS[ row ][ 0 ] )
+			{
+				unbound[ each ].binding = HotkeyBinding( DEFAULTS[ row ][ 1 ], DEFAULTS[ row ][ 2 ] );
+				unbound[ each ].launcherDefault = TRUE;
+			}
 
 	// HOLD_COMMANDS: KEY_NONE and a modifier in the shipped file, which the rows above leave out.
 	// Force Attack's is set from its command bar button, the other two on the commands list.

@@ -5481,8 +5481,7 @@ TEST(water_polygon_draw_snapshot_survives_live_height_geometry_and_lifetime_chan
     const Int savedStyle=TheGlobalData->m_waterStyle;
     TheWritableGlobalData->m_waterStyle=0;
     WaterTransparencySetting *saved=(WaterTransparencySetting*)TheWaterTransparency.getNonOverloadedPointer();
-    WaterTransparencySetting *settings=newInstance(WaterTransparencySetting);
-    TheWaterTransparency=settings;
+    TheWaterTransparency=newInstance(WaterTransparencySetting);
     PolygonTrigger *area=newInstance(PolygonTrigger)(4);
     const ICoord3D original[]={{0,0,4},{80,0,4},{80,60,4},{0,60,4}};
     for(const ICoord3D &point:original) area->addPoint(point);
@@ -5520,8 +5519,8 @@ TEST(water_polygon_draw_snapshot_survives_live_height_geometry_and_lifetime_chan
         water.takeReadsForRender();
         checkDraw(false,0,0);
     }
+    // WaterRenderObjClass destroyed its transparency settings when it left scope.
     TheWaterTransparency=saved;
-    settings->deleteInstance();
     TheWritableGlobalData->m_waterStyle=savedStyle;
 }
 
@@ -5780,6 +5779,12 @@ TEST(water_style_changes_at_render_boundary_without_advancing_paused_time_or_rel
 #if defined(__linux__)
             water.checkReflectionChanges();
 #endif
+            TheWritableGlobalData=NULL;water.seedPresentation();
+            water.updateRenderTargetTextures(NULL);water.checkChanged(false);
+            TheWritableGlobalData=scratch;
+            // Classic graphics keeps EA's water even with Modern asked for.
+            scratch->m_waterStyle=1;scratch->m_classicGraphics=TRUE;
+            water.seedPresentation();water.updateRenderTargetTextures(NULL);water.checkUnchanged();
         }
         device->Release();
     } else {

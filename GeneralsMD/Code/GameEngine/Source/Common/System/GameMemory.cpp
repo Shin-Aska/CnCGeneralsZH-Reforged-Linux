@@ -242,6 +242,15 @@ static Int roundUpMemBound(Int i)
 }
 
 //-----------------------------------------------------------------------------
+/** True for a value that cannot be a pointer this allocator stored in a block header or a blob.
+	User space sits below 2^48 on every 64-bit target here, and blocks, blobs and pools are at least
+	MEM_BOUND_ALIGNMENT aligned, so one mask catches ASCII or a stray Int written over the pointer. */
+static inline Bool isBadHeaderPointer(const void *p)
+{
+	return ((uintptr_t)p & (~(uintptr_t)0 << 48 | (MEM_BOUND_ALIGNMENT-1))) != 0;
+}
+
+//-----------------------------------------------------------------------------
 /* The operating system's allocator, which sysAllocateDoNotZero and sysFree below are built on.
 	 Windows: GlobalAlloc(GMEM_FIXED), GlobalSize and GlobalFree, as this file always called them.
 	 Elsewhere: malloc and free, and the block's usable size from the C library.
@@ -540,6 +549,9 @@ public:
 
 	MemoryPoolSingleBlock *allocateSingleBlock(DECLARE_LITERALSTRING_ARG1);
 	void freeSingleBlock(MemoryPoolSingleBlock *block);
+
+	Bool holdsAddress(const void *p);
+	static void crashOnCorruptBlockHeader(MemoryPoolSingleBlock *block, MemoryPool *const *pools, Int numPools);
 
 	MemoryPool *getOwningPool();
 	Int getFreeBlockCount();
@@ -1297,6 +1309,72 @@ void MemoryPoolBlob::removeBlobFromList(MemoryPoolBlob **ppHead, MemoryPoolBlob 
 
 //-----------------------------------------------------------------------------
 /**
+	true iff p lies inside this blob's block data.
+*/
+inline Bool MemoryPoolBlob::holdsAddress(const void *p)
+{
+	uintptr_t rawBlockSize = MemoryPoolSingleBlock::calcRawBlockSize(m_owningPool->getAllocationSize());
+	return (uintptr_t)p - (uintptr_t)m_blockData < (uintptr_t)m_totalBlocksInBlob * rawBlockSize;
+}
+
+//-----------------------------------------------------------------------------
+/**
+	Crash reports 1788, 1857 and 1867: a pool block header overwritten with ASCII, which only showed
+	up later as a wild read in DynamicMemoryAllocator::freeBytes or in the free-list walk.  Log the
+	pool that really holds the block and the bytes around its header, so the report names the
+	corruption and shows what was written over it, then crash.  The header's own blob pointer is what
+	is in doubt, so the holder is looked up in pools[], and the dump stays inside that blob.
+*/
+void MemoryPoolBlob::crashOnCorruptBlockHeader(MemoryPoolSingleBlock *block, MemoryPool *const *pools, Int numPools)
+{
+	MemoryPoolBlob *holder = NULL;
+	for (Int i = 0; i < numPools && holder == NULL; ++i)
+	{
+		for (MemoryPoolBlob *blob = pools[i]->m_firstBlob; blob != NULL && holder == NULL; blob = blob->m_nextBlob)
+		{
+			if (blob->holdsAddress(block))
+				holder = blob;
+		}
+	}
+
+	// without a holder the bounds are unknown, so only the header itself, which was just read
+	const char *lo = (const char *)block;
+	const char *hi = lo + sizeof(MemoryPoolSingleBlock);
+	Int poolSize = -1;
+	const char *poolName = "no pool of this allocator";
+	if (holder != NULL)
+	{
+		poolSize = holder->m_owningPool->getAllocationSize();
+		poolName = holder->m_owningPool->getPoolName();
+		const char *blobEnd = holder->m_blockData + (uintptr_t)holder->m_totalBlocksInBlob * MemoryPoolSingleBlock::calcRawBlockSize(poolSize);
+		lo = (lo - holder->m_blockData > 64) ? lo - 64 : holder->m_blockData;
+		hi = (blobEnd - hi > 32) ? hi + 32 : blobEnd;
+	}
+
+	DEBUG_LOG(("Memory pool block header at %p overwritten, in '%s' (%d bytes); offsets from the header:\n", block, poolName, poolSize));
+	for (const char *row = lo; row < hi; row += 16)
+	{
+		char hex[16*3 + 1];
+		char text[16 + 1];
+		Int n = 0;
+		for (; n < 16 && row + n < hi; ++n)
+		{
+			unsigned char c = (unsigned char)row[n];
+			snprintf(hex + n*3, 4, "%02x ", c);
+			text[n] = (c >= 0x20 && c < 0x7f) ? (char)c : '.';
+		}
+		hex[n*3] = 0;
+		text[n] = 0;
+		DEBUG_LOG(("%+5d  %-48s %s\n", (Int)(row - (const char *)block), hex, text));
+	}
+
+	char reason[96];
+	snprintf(reason, sizeof(reason), "memory pool block header overwritten (pool %d bytes)", poolSize);
+	RELEASE_CRASH(reason);
+}
+
+//-----------------------------------------------------------------------------
+/**
 	grab a free block from this blob, mark it as taken, and return it.
 	this method assumes that there is at least one free block in the blob!
 */
@@ -1305,7 +1383,12 @@ MemoryPoolSingleBlock *MemoryPoolBlob::allocateSingleBlock(DECLARE_LITERALSTRING
 	DEBUG_ASSERTCRASH(m_firstFreeBlock, ("no free blocks available in MemoryPoolBlob"));
 	
 	MemoryPoolSingleBlock *block = m_firstFreeBlock;
-	m_firstFreeBlock = block->getNextFreeBlock();
+	MemoryPoolSingleBlock *next = block->getNextFreeBlock();
+	// A free block's header written over turns its next pointer into the free-list head, and the
+	// allocation after this one faults on it with nothing to say why.  Catch it here instead.
+	if (block->getOwningBlob() != this || (next != NULL && !holdsAddress(next)))
+		crashOnCorruptBlockHeader(block, &m_owningPool, 1);
+	m_firstFreeBlock = next;
 	++m_usedBlocksInBlob;
 
 #ifdef MEMORYPOOL_INTENSE_VERIFY
@@ -1786,7 +1869,12 @@ void MemoryPool::freeBlock(void* pBlockPtr)
 	const char* tagString = block->debugGetLiteralTagString();
 #endif
 	
-	DEBUG_ASSERTCRASH(blob && blob->getOwningPool() == this, ("block does not belong to this pool"));
+	// in Release too: a block freed here becomes the free-list head allocateSingleBlock trusts
+	if (blob == NULL || isBadHeaderPointer(blob) || blob->getOwningPool() != this)
+	{
+		MemoryPool *self = this;
+		MemoryPoolBlob::crashOnCorruptBlockHeader(block, &self, 1);
+	}
 
 #ifdef MEMORYPOOL_CHECKPOINTING
 	BlockCheckpointInfo *bi = block->debugGetCheckpointInfo();
@@ -2364,8 +2452,15 @@ void DynamicMemoryAllocator::freeBytes(void* pBlockPtr)
 	}
 #endif MEMORYPOOL_DEBUG
 
-	if (block->getOwningBlob()) 
+	if (block->getOwningBlob())
 	{
+		// in Release too: a header written over used to fault right here as a wild read
+		MemoryPoolBlob *blob = block->getOwningBlob();
+		if (isBadHeaderPointer(blob))
+			MemoryPoolBlob::crashOnCorruptBlockHeader(block, m_pools, m_numPools);
+		MemoryPool *pool = blob->getOwningPool();
+		if (isBadHeaderPointer(pool) || pool->getOwningFactory() != m_factory)
+			MemoryPoolBlob::crashOnCorruptBlockHeader(block, m_pools, m_numPools);
 #ifdef MEMORYPOOL_DEBUG
 		{
 			USE_PERF_TIMER(MemoryPoolDebugging)
@@ -2381,7 +2476,7 @@ void DynamicMemoryAllocator::freeBytes(void* pBlockPtr)
 			}
 		}
 #endif MEMORYPOOL_DEBUG
-		block->getOwningBlob()->getOwningPool()->freeBlock(pBlockPtr);
+		pool->freeBlock(pBlockPtr);
 	}
 	else
 	{

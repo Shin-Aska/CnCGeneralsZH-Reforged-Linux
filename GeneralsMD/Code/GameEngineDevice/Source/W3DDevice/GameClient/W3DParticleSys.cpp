@@ -82,6 +82,31 @@
 
 #include "Common/QuickTrig.h"
 #include "Platform/MsvcFloatCasts.h"
+#include "Common/MapObject.h"
+
+// DX11GpuParticles.cpp reads the records at these strides and writes the fade window's numbers into
+// its HLSL; a change here is a change there.
+static_assert( sizeof( ParticleGpuSpawn ) == 80 && sizeof( ParticleGpuSystemEntry ) == 240,
+	"DX11GpuParticles.cpp's SpawnStride and EntryStride" );
+static_assert( PARTICLE_CLOSED_FORM_FADE_MAX_FRAMES == 16 && PARTICLE_CLOSED_FORM_FADE_LIFETIME_DIVISOR == 4,
+	"DX11GpuParticles.cpp's closed_fade" );
+static_assert( GpuParticles::SYSTEM_SLOTS <= 0x10000, "a spawn record holds its slot in 16 bits" );
+static_assert( MAX_KEYFRAMES == 8, "DX11GpuParticles.cpp's SystemEntry holds eight segments of each" );
+
+/// The ring's largest size: Evaluate dispatches a group of 64 a record, and a dispatch takes 65535.
+static const UnsignedInt GPU_PARTICLE_MOST_RECORDS = 64u * 65535u;
+
+/// The ring the detail preset or -gpuparticles asks for, held to what one dispatch can age.
+static UnsignedInt gpuCapacityAsked( void )
+{
+	const UnsignedInt asked = (UnsignedInt)TheGlobalData->getEffectiveGpuParticleCapacity();
+	return asked < GPU_PARTICLE_MOST_RECORDS ? asked : GPU_PARTICLE_MOST_RECORDS;
+}
+
+/// A system entry's m_flags as DX11GpuParticles.cpp's compute pass reads them: the system is there,
+/// and its particles rest on the terrain (ParticleBounce) instead of falling through it.
+static const UnsignedInt PARTICLE_GPU_ALIVE = 1;
+static const UnsignedInt PARTICLE_GPU_GROUND_CLAMPED = 2;
 
 #ifdef DEBUG_LOGGING
 extern Real TheParticleFillMS;
@@ -241,31 +266,13 @@ static UnsignedInt						s_fireLightsFrame;			///< the particle update they were 
 static UnsignedInt						s_fireLightsParticles;
 static UnsignedInt						s_fireLightsSystems;
 
-/** One additive or Emissive system as a point light, if it is bright enough.  An Emissive body's
-	* colour stays white while its flipbook cools to soot, so its weight falls with the life left. */
-static void gatherFireLight( ParticleSystem *sys, Real fade )
+/** One fire's light from its particles' weighted sums: w the weight, x, y and z the weighted
+	* position, sq the weighted square of it.  FALSE when it is not bright enough. */
+static Bool makeFireLight( Real w, Real x, Real y, Real z, Real sq, Real fade, FireLight &fire )
 {
-	const Bool emissive = sys->getTemplate()->isEmissive();
-	Real w = 0.0f, x = 0.0f, y = 0.0f, z = 0.0f, sq = 0.0f;
-	for (Particle *p = sys->getFirstParticle(); p; p = p->m_systemNext)
-	{
-		const RGBColor *c = p->getColor();
-		Real pw = (c->red + c->green + c->blue) * (1.0f / 3.0f) * p->getSize();
-		if (emissive && p->m_lifetime)
-			pw *= (Real)p->getLifetimeLeft() / (Real)p->m_lifetime;
-		if (pw <= 0.0f)
-			continue;
-		const Coord3D *pos = p->getPosition();
-		w += pw;
-		x += pw * pos->x;
-		y += pw * pos->y;
-		z += pw * pos->z;
-		sq += pw * (pos->x * pos->x + pos->y * pos->y + pos->z * pos->z);
-	}
 	if (w < FIRE_LIGHT_MIN_WEIGHT)
-		return;
+		return FALSE;
 
-	FireLight fire;
 	SmokeLight &light = fire.light;
 	const Real inv = 1.0f / w;
 	light.x = x * inv;
@@ -291,7 +298,93 @@ static void gatherFireLight( ParticleSystem *sys, Real fade )
 	light.invHeight = 1.0f / height;
 	light.invBelow = 1.0f / (radius * FIRE_LIGHT_BELOW_SHARE);
 	light.reachSq = reach * reach;
-	s_fireLights.push_back( fire );
+	return TRUE;
+}
+
+static void addFireLight( Real w, Real x, Real y, Real z, Real sq, Real fade )
+{
+	FireLight fire;
+	if (makeFireLight( w, x, y, z, sq, fade, fire ))
+		s_fireLights.push_back( fire );
+}
+
+/** One additive or Emissive system as a point light, if it is bright enough.  An Emissive body's
+	* colour stays white while its flipbook cools to soot, so its weight falls with the life left. */
+static void gatherFireLight( ParticleSystem *sys, Real fade )
+{
+	const Bool emissive = sys->getTemplate()->isEmissive();
+	Real w = 0.0f, x = 0.0f, y = 0.0f, z = 0.0f, sq = 0.0f;
+	for (Particle *p = sys->getFirstParticle(); p; p = p->m_systemNext)
+	{
+		const RGBColor *c = p->getColor();
+		Real pw = (c->red + c->green + c->blue) * (1.0f / 3.0f) * p->getSize();
+		if (emissive && p->m_lifetime)
+			pw *= (Real)p->getLifetimeLeft() / (Real)p->m_lifetime;
+		if (pw <= 0.0f)
+			continue;
+		const Coord3D *pos = p->getPosition();
+		w += pw;
+		x += pw * pos->x;
+		y += pw * pos->y;
+		z += pw * pos->z;
+		sq += pw * (pos->x * pos->x + pos->y * pos->y + pos->z * pos->z);
+	}
+	addFireLight( w, x, y, z, sq, fade );
+}
+
+/** The same for a GPU system, from the spawns it keeps (ParticleSystem::getGpuSample) aged in closed
+	* form to the last particle update, as a CPU particle stands then.
+	* ponytail: GPU_SPAWN_SAMPLES spawns stand in for the whole fire, so a big one weighs as a small
+	* one would; scale by a live count per slot if fires under smoke look too dim.
+	* A million particles can be thousands of such systems at sixteen closed forms each, eight
+	* milliseconds on one thread, so the systems go to the job pool, one item each, and the lit ones
+	* join s_fireLights afterwards in the order the walk found them. */
+struct GpuFireLight
+{
+	ParticleSystem *								system;
+	Real														fade;
+	UnsignedInt											slot;
+	const ParticleGpuSystemEntry *	entry;
+	FireLight												light;
+	Bool														lit;
+};
+
+static std::vector<GpuFireLight> s_gpuFireLights;	///< kept across updates so the gather does not allocate
+
+static const Int GPU_FIRE_LIGHTS_PER_CLAIM = 16;
+
+static void gatherGpuFireLight( Int index, void *context )
+{
+	GpuFireLight &fire = ( (GpuFireLight *)context )[ index ];
+	ParticleSystem *sys = fire.system;
+	const UnsignedInt slot = fire.slot;
+	const ParticleGpuSystemEntry &entry = *fire.entry;
+	const Bool emissive = sys->getTemplate()->isEmissive();
+	const UnsignedInt now = ParticleSystemManager::getParticleFrame();
+	Real w = 0.0f, x = 0.0f, y = 0.0f, z = 0.0f, sq = 0.0f;
+	for (UnsignedInt i = 0; i < sys->getGpuSampleCount(); ++i)
+	{
+		const ParticleSystem::GpuSpawnSample &sample = sys->getGpuSample( i );
+		ParticleGpuSpawn spawn;
+		particleGpuSpawnPack( sample.m_info, sample.m_birthFrame, slot, 0, &spawn );
+		const Real k = (Real)( now - sample.m_birthFrame + 1 );
+		ParticleClosedFormState state;
+		particleClosedFormEvaluate( spawn, entry, k, &state );
+		if (state.m_dead)
+			continue;
+		Real pw = (state.m_color.red + state.m_color.green + state.m_color.blue) * (1.0f / 3.0f) * state.m_size;
+		if (emissive)
+			pw *= ( spawn.m_lifetime - k ) / spawn.m_lifetime;
+		if (pw <= 0.0f)
+			continue;
+		const Coord3D &pos = state.m_pos;
+		w += pw;
+		x += pw * pos.x;
+		y += pw * pos.y;
+		z += pw * pos.z;
+		sq += pw * (pos.x * pos.x + pos.y * pos.y + pos.z * pos.z);
+	}
+	fire.lit = makeFireLight( w, x, y, z, sq, fire.fade, fire.light );
 }
 
 /** The scene's enabled light pulses, which FX lists put on explosions. */
@@ -1745,6 +1838,26 @@ W3DParticleSystemManager::W3DParticleSystemManager()
 	m_frameViewSystems = 0;
 	m_frameViewNextID = INVALID_PARTICLE_SYSTEM_ID;
 
+	// asked again on the main thread at each map's load and each draw; this may run on the logic's
+	m_gpuSupported = FALSE;
+	m_gpuCapacity = 0;
+	m_gpuRefused = FALSE;
+	m_gpuWritten = 0;
+	m_gpuTail = 0;
+	m_gpuPendingFirst = 0;
+	m_gpuLive = 0;
+	m_gpuDrainedFrame = 0;
+	m_gpuFadesDirty = FALSE;
+	m_gpuDirtyFirst = 0;
+	m_gpuDirtyEnd = 0;
+	m_gpuLastSystem = NULL;
+	m_gpuLastSlot = GPU_NO_SLOT;
+	m_gpuSliceCursor = 0;
+	m_gpuTexturesFullTold = FALSE;
+	m_gpuSpawned = 0;
+	m_gpuEvicted = 0;
+	m_gpuLogFrame = 0;
+
 	m_pointGroup = NEW PointGroupClass();
 	//m_streakLine = NULL;
 	m_streakLine = NEW StreakLineClass();
@@ -1773,6 +1886,8 @@ W3DParticleSystemManager::~W3DParticleSystemManager()
 	REF_PTR_RELEASE(m_sizeBuffer);
 	REF_PTR_RELEASE(m_angleBuffer);
 	REF_PTR_RELEASE(m_frameBuffer);
+
+	resetGpuParticles();		// the texture references it holds
 }
 
 /** A reset can be followed by an update on the same logic frame, so the fires' frame alone would
@@ -1786,6 +1901,7 @@ void W3DParticleSystemManager::reset()
 	m_fieldSystems.clear();
 	m_sunMapCasters.clear();
 	invalidateGroundFields();	// the object IDs it holds belong to the game that ended
+	resetGpuParticles();			// the client frame starts again, and every system is gone
 }
 
 void W3DParticleSystemManager::invalidateGroundFields(bool fadeIn)
@@ -1809,6 +1925,13 @@ void W3DParticleSystemManager::releaseCloudResources()
 	// keys before changing their ordering if support changed; unchanged support
 	// retains field ages/owner bindings across a resize or device reset.
 	s_fieldCloudCapabilityKnown = false;
+}
+
+/** Only for the device going: a mode change keeps the device, and with it the ring's particles,
+	* where releaseCloudResources drops the clouds' screen sized targets. */
+void W3DParticleSystemManager::releaseGpuResources()
+{
+	GpuParticles::ReleaseDevice();
 }
 
 /** LOGIC-THREAD.md phase 3.  A system's stealth fade asks its object's drawable, and a field asks for
@@ -1859,6 +1982,7 @@ void W3DParticleSystemManager::refreshFrameView( void )
 #endif
 		m_frameView.push_back( view );
 	}
+	refreshGpuSystems();
 
 	m_frameViewValid = TRUE;
 	m_sunMapCastersValid = FALSE;
@@ -2089,7 +2213,13 @@ void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 	fillJob.extentY = beY;
 	fillJob.extentZ = beZ;
 	fillJob.lightCount = 0;
-	if (TheGlobalData->m_smokeFireLighting)
+	// Only a CPU drawn smoke system takes a light (pickSmokeLights); with none, the walk over every
+	// fire, a GPU one's samples aged in closed form, is a third of a frame thrown away.
+	Bool smokeDrawn = FALSE;
+	for (size_t v = 0; v < m_frameView.size() && !smokeDrawn; ++v)
+		smokeDrawn = m_frameView[ v ].system->getShaderType() == ParticleSystemInfo::ALPHA
+			&& !m_frameView[ v ].system->getTemplate()->isEmissive();
+	if (TheGlobalData->m_smokeFireLighting && smokeDrawn)
 	{
 		// Between two particle updates nothing moves a particle; a system made in between has none
 		// yet, and the counts catch a load or anything else that adds or takes some away.
@@ -2102,6 +2232,21 @@ void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 				if (m_frameView[ v ].system->getShaderType() == ParticleSystemInfo::ADDITIVE
 						|| m_frameView[ v ].system->getTemplate()->isEmissive())
 					gatherFireLight( m_frameView[ v ].system, m_frameView[ v ].fade );
+			s_gpuFireLights.resize( m_gpuFireSystems.size() );
+			for (size_t g = 0; g < m_gpuFireSystems.size(); ++g)
+			{
+				const GpuFireSystem &fire = m_gpuFireSystems[ g ];
+				GpuFireLight &item = s_gpuFireLights[ g ];
+				item.system = fire.system;
+				item.fade = fire.fade;
+				item.slot = fire.slot;
+				item.entry = &m_gpuEntries[ fire.slot ];
+			}
+			if (!s_gpuFireLights.empty())
+				JobSystem::parallel_for( (Int)s_gpuFireLights.size(), GPU_FIRE_LIGHTS_PER_CLAIM, gatherGpuFireLight, &s_gpuFireLights[ 0 ] );
+			for (size_t g = 0; g < s_gpuFireLights.size(); ++g)
+				if (s_gpuFireLights[ g ].lit)
+					s_fireLights.push_back( s_gpuFireLights[ g ].light );
 			s_fireLightsValid = TRUE;
 			s_fireLightsFrame = m_lastLogicFrameUpdate;
 			s_fireLightsParticles = m_particleCount;
@@ -2403,6 +2548,10 @@ void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 	}
 #endif
 
+	// The GPU particles' two passes, under the sorted billboards this loop put in the sorting pool,
+	// which land over them when the pool flushes.
+	drawGpuParticles( rinfo );
+
 	//Draw any particles belonging to weather effects
 	if (TheSnowManager)
 		((W3DSnowManager *)TheSnowManager)->render(rinfo);
@@ -2414,4 +2563,459 @@ void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 		TheSmudgeManager->reset();	//clear all the smudges after rendering since we fill again each frame.
 		TheSmudgeManager->setSmudgeCountLastFrame(visibleSmudgeCount);
 	}
+}
+
+//-------------------------------------------------------------------------------------------------
+// The GPU particle path's bookkeeping (GPU-PARTICLES.md in the wrapper; GpuParticles.h is the device
+// half).  A spawn is packed into a record at the ring's head and kept on the CPU only as the frame
+// it is surely dead on, which is what the live range and the eviction count read, and counted by
+// that frame for the log line's live count.  A system gets an entry slot at its first spawn and
+// gives it back when it goes; the slot is not handed out again until the last record naming it has
+// died.  Everything goes up to the device in drawGpuParticles: the frame's records in at most two
+// pieces, the entries and fades that changed, and a few texture slices a frame.
+//-------------------------------------------------------------------------------------------------
+
+/// A particle texture's first picture, drawn into its slice: at most this many a frame.
+static const UnsignedInt GPU_SLICES_DRAWN_A_FRAME = 4;
+/// Slices looked at again a frame for a view that changed (a texture's background load finishing).
+static const UnsignedInt GPU_SLICES_CHECKED_A_FRAME = 8;
+
+/** Asked by every system's constructor, which may run on the logic thread, so it reads only what the
+	* main thread cached and calls nothing on the device. */
+Bool W3DParticleSystemManager::acceptsGpuParticles( void ) const
+{
+	return m_gpuSupported && !m_gpuRefused && TheGlobalData->getEffectiveGpuParticleCapacity() > 0
+		&& !TheGlobalData->m_headless && !TheGlobalData->m_classicGraphics;
+}
+
+void W3DParticleSystemManager::markGpuSlotDirty( UnsignedInt slot )
+{
+	if (m_gpuDirtyFirst == m_gpuDirtyEnd)
+	{
+		m_gpuDirtyFirst = slot;
+		m_gpuDirtyEnd = slot + 1;
+		return;
+	}
+	if (slot < m_gpuDirtyFirst)
+		m_gpuDirtyFirst = slot;
+	if (slot + 1 > m_gpuDirtyEnd)
+		m_gpuDirtyEnd = slot + 1;
+}
+
+/** The array slice of a particle texture, given one on its first use and queued for its picture.  A
+	* reference is held on each texture until the match ends, so its slice stays its own.  GPU_NO_SLOT
+	* once the array is full. */
+UnsignedInt W3DParticleSystemManager::gpuTextureSlice( const AsciiString &name )
+{
+	TextureClass *texture = W3DDisplay::m_assetManager->Get_Texture( name.str() );
+	std::map<TextureClass *, UnsignedInt>::const_iterator known = m_gpuTextureSlices.find( texture );
+	if (known != m_gpuTextureSlices.end())
+	{
+		texture->Release_Ref();
+		return known->second;
+	}
+	if (m_gpuTextures.size() == (size_t)GpuParticles::TEXTURE_SLICES)
+	{
+		if (!m_gpuTexturesFullTold)
+			DEBUG_LOG(( "GPUPARTICLES: the texture array is full at %d slices; %s and every texture after it stays on the CPU\n",
+				(Int)GpuParticles::TEXTURE_SLICES, name.str() ));
+		m_gpuTexturesFullTold = TRUE;
+		texture->Release_Ref();
+		return GPU_NO_SLOT;
+	}
+	const UnsignedInt slice = (UnsignedInt)m_gpuTextures.size();
+	m_gpuTextures.push_back( texture );
+	m_gpuTextureSlices[ texture ] = slice;
+	m_gpuSliceQueue.push_back( slice );
+	return slice;
+}
+
+/** The entry slot of a system, given one at its first spawn: the longest released slot if its records
+	* have all died, else a new one.  GPU_NO_SLOT when all SYSTEM_SLOTS are taken or the texture array
+	* is full, and the CPU takes the spawn; the texture refusal is kept, the slot one asked again. */
+UnsignedInt W3DParticleSystemManager::gpuSlotFor( ParticleSystem *system )
+{
+	if (system == m_gpuLastSystem)
+		return m_gpuLastSlot;
+
+	UnsignedInt slot = GPU_NO_SLOT;
+	std::unordered_map<ParticleSystem *, UnsignedInt>::const_iterator known = m_gpuSlotOf.find( system );
+	if (known != m_gpuSlotOf.end())
+		slot = known->second;
+	else
+	{
+		const UnsignedInt slice = gpuTextureSlice( system->getParticleTypeName() );
+		if (slice == GPU_NO_SLOT)
+		{
+			m_gpuSlotOf[ system ] = GPU_NO_SLOT;
+			return GPU_NO_SLOT;
+		}
+		// ponytail: only the front is looked at; a slot released later that comes free sooner waits its turn
+		if (!m_gpuFreeSlots.empty() && m_gpuSlots[ m_gpuFreeSlots.front() ].reuseFrame <= getParticleFrame())
+		{
+			slot = m_gpuFreeSlots.front();
+			m_gpuFreeSlots.pop_front();
+		}
+		else
+		{
+			if (m_gpuSlots.size() == (size_t)GpuParticles::SYSTEM_SLOTS)
+				return GPU_NO_SLOT;
+			slot = (UnsignedInt)m_gpuSlots.size();
+			m_gpuSlots.resize( slot + 1 );
+			m_gpuEntries.resize( slot + 1 );
+			m_gpuFades.resize( slot + 1 );
+		}
+
+		GpuSlot &taken = m_gpuSlots[ slot ];
+		taken.system = system;
+		taken.slice = slice;
+		taken.reuseFrame = 0;
+		ParticleGpuSystemEntry &entry = m_gpuEntries[ slot ];
+		particleGpuSystemEntryBuild( *system, &entry );
+		entry.m_textureSlice = slice;
+		entry.m_flags = PARTICLE_GPU_ALIVE | ( system->isGpuGroundClamped() ? PARTICLE_GPU_GROUND_CLAMPED : 0u );
+		// the fade is taken at the sync point (refreshGpuSystems), which runs before the next draw
+		m_gpuFades[ slot ] = 1.0f;
+		m_gpuFadesDirty = TRUE;
+		markGpuSlotDirty( slot );
+		m_gpuSlotOf[ system ] = slot;
+	}
+
+	m_gpuLastSystem = system;
+	m_gpuLastSlot = slot;
+	return slot;
+}
+
+/** The records that died since the last call off the live count.  The particle frame only goes up
+	* (a reset clears the counts); a gap of a whole ring of frames with no call means no spawn in it
+	* either, so everything counted has died. */
+void W3DParticleSystemManager::drainGpuDeaths( UnsignedInt now )
+{
+	if (now <= m_gpuDrainedFrame)
+		return;
+	if (now - m_gpuDrainedFrame >= (UnsignedInt)GPU_DEATH_FRAMES)
+	{
+		std::fill( m_gpuDeathCounts.begin(), m_gpuDeathCounts.end(), 0u );
+		m_gpuLive = 0;
+		m_gpuDrainedFrame = now;
+		return;
+	}
+	while (m_gpuDrainedFrame < now)
+	{
+		UnsignedInt &dying = m_gpuDeathCounts[ ++m_gpuDrainedFrame % GPU_DEATH_FRAMES ];
+		m_gpuLive -= dying;
+		dying = 0;
+	}
+}
+
+Bool W3DParticleSystemManager::spawnGpuParticle( ParticleSystem *system, const ParticleInfo *info )
+{
+	// Classic can come on mid-match, after the system was made eligible; its spawns go to the CPU
+	if (m_gpuRefused || TheGlobalData->m_classicGraphics)
+		return FALSE;
+	const UnsignedInt slot = gpuSlotFor( system );
+	if (slot == GPU_NO_SLOT)
+		return FALSE;
+
+	// k = now - birth + smooth reaches the lifetime one update after a CPU twin's last
+	const UnsignedInt now = getParticleFrame();
+	drainGpuDeaths( now );
+	UnsignedInt &death = m_gpuDeath[ (size_t)( m_gpuWritten % m_gpuCapacity ) ];
+	if (death > now)
+	{
+		++m_gpuEvicted;
+		--m_gpuDeathCounts[ death % GPU_DEATH_FRAMES ];
+		--m_gpuLive;
+	}
+	// ponytail: the death count's ring is 65535 frames (18 minutes), so a longer life is cut to that
+	// for the tail and the count; the compute pass still ages it by its own lifetime while it is drawn
+	const UnsignedInt life = info->m_lifetime < (UnsignedInt)GPU_DEATH_FRAMES ? info->m_lifetime : (UnsignedInt)GPU_DEATH_FRAMES - 1;
+	death = now + life;
+	++m_gpuDeathCounts[ death % GPU_DEATH_FRAMES ];
+	++m_gpuLive;
+
+	// A window drawing nothing (minimised) still spawns; past two rings of records only the newest
+	// ring could ever be drawn.
+	if (m_gpuPending.size() == 2 * (size_t)m_gpuCapacity)
+	{
+		m_gpuPending.erase( m_gpuPending.begin(), m_gpuPending.begin() + m_gpuCapacity );
+		m_gpuPendingFirst += m_gpuCapacity;
+	}
+	m_gpuPending.resize( m_gpuPending.size() + 1 );
+	particleGpuSpawnPack( *info, now, slot, (UnsignedInt)( m_gpuWritten * 2654435761u ) >> 16, &m_gpuPending.back() );
+	++m_gpuWritten;
+	++m_gpuSpawned;
+	return TRUE;
+}
+
+void W3DParticleSystemManager::releaseGpuSystem( ParticleSystem *system )
+{
+	std::unordered_map<ParticleSystem *, UnsignedInt>::iterator known = m_gpuSlotOf.find( system );
+	if (known == m_gpuSlotOf.end())
+		return;		// an eligible system that never spawned on the GPU
+	const UnsignedInt slot = known->second;
+	m_gpuSlotOf.erase( known );
+	if (m_gpuLastSystem == system)
+		m_gpuLastSystem = NULL;
+	if (slot == GPU_NO_SLOT)
+		return;		// refused for its texture, it never held one
+
+	// its records stay in the ring until they die; until then the entry culls them, and the slot waits
+	GpuSlot &freed = m_gpuSlots[ slot ];
+	freed.system = NULL;
+	freed.reuseFrame = system->getGpuLastDeathFrame() + 1;
+	m_gpuEntries[ slot ].m_flags = 0;
+	m_gpuFades[ slot ] = 0.0f;
+	m_gpuFadesDirty = TRUE;
+	markGpuSlotDirty( slot );
+	m_gpuFreeSlots.push_back( slot );
+}
+
+/** With the frame view, at the sync point: each system's stealth fade, and the fires among them for
+	* the smoke's light.  The entry is not built again here: gpuSlotFor builds it at the system's first
+	* GPU spawn, and the only writers of the keys it reads (tintAllColors from the beacon and the signal
+	* smoke, which also sets two keys of its own) run right after createParticleSystem, before any spawn;
+	* a slave's merge works on a copy.  Rebuilding and comparing every entry every update cost 0.65 ms
+	* at 3450 systems.
+	* ponytail: a key changed on a system already spawning on the GPU is not seen; give
+	* ParticleSystemInfo a key version and rebuild on a new one if anything ever does that. */
+void W3DParticleSystemManager::refreshGpuSystems( void )
+{
+	m_gpuFireSystems.clear();
+	for (UnsignedInt slot = 0; slot < (UnsignedInt)m_gpuSlots.size(); ++slot)
+	{
+		ParticleSystem *sys = m_gpuSlots[ slot ].system;
+		if (sys == NULL)
+			continue;
+		const Real fade = sys->getStealthFade();
+		const Real shown = fade > 0.0f ? fade : 0.0f;
+		if (m_gpuFades[ slot ] != shown)
+		{
+			m_gpuFades[ slot ] = shown;
+			m_gpuFadesDirty = TRUE;
+		}
+		if (fade > 0.0f && sys->getGpuSampleCount() != 0
+				&& ( sys->getShaderType() == ParticleSystemInfo::ADDITIVE || sys->getTemplate()->isEmissive() ))
+		{
+			const GpuFireSystem fire = { sys, fade, slot };
+			m_gpuFireSystems.push_back( fire );
+		}
+	}
+}
+
+/** At a map's load, after the base has loaded the particle textures: everything the device makes
+	* for the GPU path is made here, so the match's first frames pay none of it. */
+void W3DParticleSystemManager::preloadAssets( TimeOfDay timeOfDay )
+{
+	ParticleSystemManager::preloadAssets( timeOfDay );
+	// a detail preset changed since the last match asks for another ring: made again here, between
+	// matches, never in one, and a size the device refused before may be one it takes now
+	if (m_gpuCapacity != 0 && TheGlobalData->getEffectiveGpuParticleCapacity() > 0 && gpuCapacityAsked() != m_gpuCapacity)
+	{
+		m_gpuCapacity = 0;
+		m_gpuRefused = FALSE;
+	}
+	if (!prepareGpu())
+		return;
+	sendGpuGround();		// a new map: the old ground is not this one's
+
+	// Every texture an eligible template names gets its slice and picture now, drawn in one go.
+	// ponytail: the slices go in template order, so past TEXTURE_SLICES the textures left out are
+	// whichever came last, not the least used; count spawns per texture if that ever bites.
+	for (TemplateMap::const_iterator it = beginParticleSystemTemplate(); it != endParticleSystemTemplate(); ++it)
+	{
+		const ParticleSystemTemplate *tmplate = it->second;
+		if (tmplate->isGpuEligible() && !tmplate->getParticleTypeName().isEmpty()
+				&& gpuTextureSlice( tmplate->getParticleTypeName() ) == GPU_NO_SLOT)
+			break;
+	}
+	while (!m_gpuSliceQueue.empty())
+	{
+		const UnsignedInt slice = m_gpuSliceQueue.front();
+		m_gpuSliceQueue.pop_front();
+		m_gpuTextures[ slice ]->Init();
+		GpuParticles::Set_Slice_Texture( slice, m_gpuTextures[ slice ]->Peek_D3D_Base_Texture() );
+	}
+	GpuParticles::Evaluate( 0, 0, getParticleFrame(), 0.0f );		// draws the slices asked; ages nothing
+	DEBUG_LOG(( "GPUPARTICLES: %u texture slices drawn at load\n", (UnsignedInt)m_gpuTextures.size() ));
+}
+
+/** On the main thread, at a map's load and at each draw.  A device made again (a reset, a new
+	* capacity) holds nothing of what went up before: those records are lost, and every entry, fade,
+	* slice and the ground go up again. */
+Bool W3DParticleSystemManager::prepareGpu( void )
+{
+	m_gpuSupported = GpuParticles::Supported();
+	if (!m_gpuSupported || m_gpuRefused || TheGlobalData->getEffectiveGpuParticleCapacity() <= 0)
+		return FALSE;
+	if (m_gpuCapacity == 0)
+	{
+		m_gpuCapacity = gpuCapacityAsked();
+		m_gpuDeath.assign( m_gpuCapacity, 0 );
+		m_gpuDeathCounts.assign( GPU_DEATH_FRAMES, 0 );
+	}
+
+	bool fresh = false;
+	if (!GpuParticles::Prepare( m_gpuCapacity, &fresh ))
+	{
+		m_gpuRefused = TRUE;
+		m_gpuPending.clear();
+		m_gpuPendingFirst = m_gpuWritten;
+		m_gpuTail = m_gpuWritten;
+		return FALSE;
+	}
+	if (fresh)
+	{
+		if (m_gpuTail < m_gpuPendingFirst)
+			m_gpuTail = m_gpuPendingFirst;
+		m_gpuDirtyFirst = 0;
+		m_gpuDirtyEnd = (UnsignedInt)m_gpuSlots.size();
+		m_gpuFadesDirty = TRUE;
+		m_gpuSliceQueue.clear();
+		for (UnsignedInt slice = 0; slice < (UnsignedInt)m_gpuTextures.size(); ++slice)
+			m_gpuSliceQueue.push_back( slice );
+		sendGpuGround();
+	}
+	return TRUE;
+}
+
+/** The drawn terrain's heights (BaseHeightMapRenderObjClass::getDrawHeight's map) for the systems
+	* that rest on it, one texel a height map vertex so the device's bilinear read lands on the vertices
+	* as the CPU's does.
+	* ponytail: taken once a map and at a device's reset, so a crater dug in the match is not in it;
+	* send it again from the terrain's own change if a resting particle is seen floating over one. */
+void W3DParticleSystemManager::sendGpuGround( void )
+{
+	WorldHeightMap *map = TheTerrainRenderObject->getMap();
+	if (map == NULL)
+		return;		// no map loaded: a menu drawn with no shell map
+	const UnsignedInt width = (UnsignedInt)map->getXExtent();
+	const UnsignedInt height = (UnsignedInt)map->getYExtent();
+	const UnsignedByte *data = map->getDataPtr();
+	std::vector<float> heights( (size_t)width * height );
+	for (size_t i = 0; i < heights.size(); ++i)
+		heights[ i ] = data[ i ] * MAP_HEIGHT_SCALE;
+	// vertex i is at world (i - border) * MAP_XY_FACTOR, its texel's centre at (i + 0.5) / extent
+	const Real border = (Real)map->getBorderSizeInline();
+	const float mapping[ 4 ] = { 1.0f / ( MAP_XY_FACTOR * width ), 1.0f / ( MAP_XY_FACTOR * height ),
+		( border + 0.5f ) / width, ( border + 0.5f ) / height };
+	GpuParticles::Set_Ground( &heights[ 0 ], width, height, mapping );
+}
+
+/** A few queued slices' first pictures a frame, and a few drawn ones looked at again in turn, so a
+	* burst of new textures is spread over frames instead of landing in one. */
+void W3DParticleSystemManager::drawGpuSlices( void )
+{
+	const auto send = [this]( UnsignedInt slice )
+	{
+		TextureClass *texture = m_gpuTextures[ slice ];
+		texture->Init();		// as Apply would, for a texture no CPU draw has bound
+		GpuParticles::Set_Slice_Texture( slice, texture->Peek_D3D_Base_Texture() );
+	};
+	for (UnsignedInt drawn = 0; drawn < GPU_SLICES_DRAWN_A_FRAME && !m_gpuSliceQueue.empty(); ++drawn)
+	{
+		send( m_gpuSliceQueue.front() );
+		m_gpuSliceQueue.pop_front();
+	}
+	const UnsignedInt count = (UnsignedInt)m_gpuTextures.size();
+	for (UnsignedInt checked = 0; checked < GPU_SLICES_CHECKED_A_FRAME && checked < count; ++checked)
+	{
+		m_gpuSliceCursor = ( m_gpuSliceCursor + 1 ) % count;
+		send( m_gpuSliceCursor );
+	}
+}
+
+/** Both passes, from doParticles before the sorted billboards: ADDITIVE first so the smoke drawn in
+	* the ALPHA pass darkens the fire under it, as the sorting pool's back to front order mostly does. */
+void W3DParticleSystemManager::drawGpuParticles( RenderInfoClass &rinfo )
+{
+	// Classic may have come on mid-match: what is in the ring waits, undrawn, until it goes off
+	if (TheGlobalData->m_classicGraphics || !prepareGpu())
+		return;
+
+	const UnsignedInt now = getParticleFrame();
+	drainGpuDeaths( now );
+
+	// the records spawned since the last draw, the newest ring of them at most, in at most two pieces
+	const size_t pending = m_gpuPending.size();
+	if (pending != 0)
+	{
+		const UnsignedInt keep = pending < (size_t)m_gpuCapacity ? (UnsignedInt)pending : m_gpuCapacity;
+		const ParticleGpuSpawn *from = &m_gpuPending[ pending - keep ];
+		const UnsignedInt ring = (UnsignedInt)( ( m_gpuWritten - keep ) % m_gpuCapacity );
+		const UnsignedInt first = keep < m_gpuCapacity - ring ? keep : m_gpuCapacity - ring;
+		GpuParticles::Write_Spawns( ring, from, first );
+		if (first < keep)
+			GpuParticles::Write_Spawns( 0, from + first, keep - first );
+		m_gpuPending.clear();
+	}
+	m_gpuPendingFirst = m_gpuWritten;
+
+	if (m_gpuDirtyFirst != m_gpuDirtyEnd)
+	{
+		GpuParticles::Write_Systems( m_gpuDirtyFirst, &m_gpuEntries[ m_gpuDirtyFirst ], m_gpuDirtyEnd - m_gpuDirtyFirst );
+		m_gpuDirtyFirst = m_gpuDirtyEnd = 0;
+	}
+	if (m_gpuFadesDirty && !m_gpuFades.empty())
+		GpuParticles::Write_Fades( &m_gpuFades[ 0 ], (UnsignedInt)m_gpuFades.size() );
+	m_gpuFadesDirty = FALSE;
+	drawGpuSlices();
+
+	// the oldest record that may still be alive: past every overwritten one, then past the dead
+	if (m_gpuWritten - m_gpuTail > m_gpuCapacity)
+		m_gpuTail = m_gpuWritten - m_gpuCapacity;
+	while (m_gpuTail < m_gpuWritten && m_gpuDeath[ (size_t)( m_gpuTail % m_gpuCapacity ) ] <= now)
+		++m_gpuTail;
+	const UnsignedInt range = (UnsignedInt)( m_gpuWritten - m_gpuTail );
+
+	GpuParticles::Evaluate( (UnsignedInt)( m_gpuTail % m_gpuCapacity ), range, now, TheSmoothMotionAlpha );
+
+	const HazardCloud::Camera cloud = cloudCamera( rinfo.Camera );
+	GpuParticles::Camera camera;
+	memcpy( camera.view, cloud.view, sizeof( camera.view ) );
+	memcpy( camera.projection, cloud.projection, sizeof( camera.projection ) );
+	GpuParticles::Draw( ParticleSystemInfo::ADDITIVE, camera );
+	GpuParticles::Draw( ParticleSystemInfo::ALPHA, camera );
+
+#ifdef DEBUG_LOGGING
+	// GPU-PARTICLES.md's measurement line, beside PARTICLES every 100 particle updates: the records
+	// alive, those spawned and those overwritten alive since the last line, the range the passes
+	// draw, and the systems holding a slot.
+	if (m_lastLogicFrameUpdate % 100 == 0 && m_lastLogicFrameUpdate != m_gpuLogFrame)
+	{
+		m_gpuLogFrame = m_lastLogicFrameUpdate;
+		DEBUG_LOG(( "GPUPARTICLES frame %d: live %u spawned %u ring %u evicted %u systems %u\n",
+			m_lastLogicFrameUpdate, m_gpuLive, m_gpuSpawned, range, m_gpuEvicted, (UnsignedInt)m_gpuSlotOf.size() ));
+		m_gpuSpawned = 0;
+		m_gpuEvicted = 0;
+	}
+#endif
+}
+
+/** After a reset every system is gone, so nothing in the ring is drawn again, no slot waits, and the
+	* match's textures are let go for the next one's. */
+void W3DParticleSystemManager::resetGpuParticles( void )
+{
+	m_gpuTail = m_gpuWritten;
+	m_gpuPendingFirst = m_gpuWritten;
+	m_gpuPending.clear();
+	std::fill( m_gpuDeath.begin(), m_gpuDeath.end(), 0u );
+	std::fill( m_gpuDeathCounts.begin(), m_gpuDeathCounts.end(), 0u );
+	m_gpuLive = 0;
+	m_gpuSlots.clear();
+	m_gpuEntries.clear();
+	m_gpuFades.clear();
+	m_gpuFadesDirty = FALSE;
+	m_gpuFreeSlots.clear();
+	m_gpuSlotOf.clear();
+	m_gpuLastSystem = NULL;
+	m_gpuDirtyFirst = m_gpuDirtyEnd = 0;
+	m_gpuFireSystems.clear();
+	for (size_t i = 0; i < m_gpuTextures.size(); ++i)
+		m_gpuTextures[ i ]->Release_Ref();
+	m_gpuTextures.clear();
+	m_gpuTextureSlices.clear();
+	m_gpuSliceQueue.clear();
+	m_gpuSliceCursor = 0;
+	m_gpuTexturesFullTold = FALSE;
 }

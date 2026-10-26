@@ -598,7 +598,7 @@ int main( int argc, char *argv[] )
 		DEBUG_SHUTDOWN();
 	}
 	// As WinMain: name what escaped the engine, and leave through ReleaseCrash so no destructor runs.
-	catch (INIException e)
+	catch (const INIException &e)
 	{
 		RELEASE_CRASH((e.mFailureMessage ? e.mFailureMessage : "Uncaught INI exception in main"));
 	}

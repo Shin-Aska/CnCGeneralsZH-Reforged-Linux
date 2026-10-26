@@ -211,6 +211,7 @@ static const LookupListRec GameMessageMetaTypeNames[] =
 	{ "SIGNAL_ATTACK",														GameMessage::MSG_META_SIGNAL_ATTACK },
 	{ "SIGNAL_DEFEND",														GameMessage::MSG_META_SIGNAL_DEFEND },
 	{ "SIGNAL_ATTENTION",													GameMessage::MSG_META_SIGNAL_ATTENTION },
+	{ "REQUEST_MONEY",														GameMessage::MSG_META_REQUEST_MONEY },
 	{ "OPTIONS",																	GameMessage::MSG_META_OPTIONS },
 	{ "TOGGLE_LOWER_DETAILS",											GameMessage::MSG_META_TOGGLE_LOWER_DETAILS },
 	{ "TOGGLE_CONTROL_BAR",												GameMessage::MSG_META_TOGGLE_CONTROL_BAR },

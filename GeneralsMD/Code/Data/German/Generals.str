@@ -14133,6 +14133,14 @@ GUI:OptionsTabEffects
 "Effekte"
 END
 
+GUI:GraphicsQuality
+"Leistung / Qualität"
+END
+
+TOOLTIP:GraphicsQuality
+"Links das schnellste Bild, rechts das schönste. Beim Ziehen werden die Felder auf dieser Seite und unter Effekte gesetzt, die günstigen zuerst, und die vier Vorgaben sind Punkte darauf. Änderst du danach ein Feld, steht die Vorgabe auf Benutzerdefiniert. Gilt, sobald du Annehmen drückst; manche Einstellungen warten auf die nächste Karte oder den nächsten Start."
+END
+
 GUI:DetailNote0
 "Alle Optionen an, die meisten Partikel und dichter Rauch, und die Details sinken auch im großen Gefecht nie. Die Auswahl füllt nur die Felder aus; Annehmen wendet sie an."
 END
@@ -14150,7 +14158,7 @@ GUI:DetailNote3
 END
 
 GUI:DetailNote4
-"Deine eigene Mischung der Felder auf dieser Seite und unter Effekte. Annehmen behält sie bei."
+"Deine eigene Mischung der Felder auf dieser Seite und unter Effekte, oder ein Punkt auf dem Regler zwischen zwei Vorgaben. Annehmen behält sie bei."
 END
 
 GUI:TextureFilter

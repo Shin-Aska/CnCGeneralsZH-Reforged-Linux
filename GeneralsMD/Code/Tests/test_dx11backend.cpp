@@ -1261,6 +1261,330 @@ TEST(dx11backend_the_smoke_map_holds_each_casters_three_sums)
 	backend.Shutdown();
 }
 
+// The sun's depth map read back as its 24-bit depths, one a texel.
+static void read_shadow_depths(DX11DeviceClass & device, DX11BackendClass & backend,
+	std::vector<unsigned> & depths)
+{
+	ID3D11Resource * resource = NULL;
+	backend.Shadow_Map()->GetResource(&resource);
+	ID3D11Texture2D * texture = static_cast<ID3D11Texture2D *>(resource);
+	D3D11_TEXTURE2D_DESC description;
+	texture->GetDesc(&description);
+	description.Usage = D3D11_USAGE_STAGING;
+	description.BindFlags = 0;
+	description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+	ID3D11Texture2D * staging = NULL;
+	CHECK(SUCCEEDED(device.Get_Device()->CreateTexture2D(&description, NULL, &staging)));
+	device.Get_Context()->CopyResource(staging, texture);
+	D3D11_MAPPED_SUBRESOURCE mapped;
+	CHECK(SUCCEEDED(device.Get_Context()->Map(staging, 0, D3D11_MAP_READ, 0, &mapped)));
+	depths.resize(description.Width * description.Height);
+	for (unsigned y = 0; y < description.Height; ++y) {
+		const unsigned * row = reinterpret_cast<const unsigned *>(
+			static_cast<const unsigned char *>(mapped.pData) + mapped.RowPitch * y);
+		for (unsigned x = 0; x < description.Width; ++x) {
+			depths[y * description.Width + x] = row[x] & 0x00ffffff;
+		}
+	}
+	device.Get_Context()->Unmap(staging, 0);
+	staging->Release();
+	resource->Release();
+}
+
+// The instanced depth-only casters (Draw_Shadow_Casters) have to leave the sun's map holding the
+// depth the generated programs leave in it for the same mesh drawn once a copy, to the bit: a
+// mesh drawn twice, turned and moved, and tilted in depth so every texel's value is its own.
+TEST(dx11backend_instanced_shadow_casters_write_the_depth_the_old_draws_write)
+{
+	DX11DeviceClass device;
+	CHECK(device.Create_Offscreen());
+	ID3D11Device * d3d = device.Get_Device();
+
+	DX11BackendClass backend;
+	CHECK(backend.Initialise(&device));
+	configure_unlit_pass_through(backend);
+
+	// The sun's box: x and y across four units, depth over ten.
+	float sun[16];
+	set_identity(sun);
+	sun[0] = 0.5f;
+	sun[5] = 0.5f;
+	sun[10] = 0.1f;
+	backend.Set_Transform(D3DTS_PROJECTION, sun);
+
+	// Two copies of the mesh, turned by different angles and moved, in Direct3D 9's layout.
+	float worlds[2][16];
+	const float angles[2] = { 0.5236f, -1.1f };
+	const float moves[2][3] = { { 0.3f, -0.2f, 2.75f }, { -0.45f, 0.35f, 3.1f } };
+	for (unsigned copy = 0; copy < 2; ++copy) {
+		set_identity(worlds[copy]);
+		worlds[copy][0] = cosf(angles[copy]);
+		worlds[copy][1] = sinf(angles[copy]);
+		worlds[copy][4] = -sinf(angles[copy]);
+		worlds[copy][5] = cosf(angles[copy]);
+		worlds[copy][12] = moves[copy][0];
+		worlds[copy][13] = moves[copy][1];
+		worlds[copy][14] = moves[copy][2];
+	}
+
+	// The quad, tilted from front to back.
+	BackendVertex vertices_data[4];
+	memcpy(vertices_data, QUAD_VERTICES, sizeof(vertices_data));
+	const float depths_at[4] = { 0.37f, 1.91f, 4.13f, 2.59f };
+	for (unsigned index = 0; index < 4; ++index) {
+		vertices_data[index].Position[0] *= 1.3f;
+		vertices_data[index].Position[1] *= 0.9f;
+		vertices_data[index].Position[2] = depths_at[index];
+	}
+	ID3D11Buffer * vertices = NULL;
+	CHECK(DX11Resource_Create_Vertex_Buffer(d3d, sizeof(vertices_data), D3DPOOL_MANAGED, 0,
+		vertices_data, &vertices));
+	ID3D11Buffer * indices = NULL;
+	CHECK(DX11Resource_Create_Index_Buffer(d3d, sizeof(QUAD_INDICES), D3DPOOL_MANAGED, 0,
+		QUAD_INDICES, &indices));
+
+	// What renderShadowMap sets for the pass, and an opaque mesh's shader: both faces, so the
+	// cull cannot hide a difference.
+	backend.Set_Render_State(D3DRS_COLORWRITEENABLE, 0);
+	backend.Set_Render_State(D3DRS_ZENABLE, D3DZB_TRUE);
+	backend.Set_Render_State(D3DRS_ZWRITEENABLE, TRUE);
+	backend.Set_Render_State(D3DRS_ZFUNC, D3DCMP_LESSEQUAL);
+	backend.Set_Render_State(D3DRS_CULLMODE, D3DCULL_NONE);
+
+	CHECK(backend.Begin_Shadow_Map(64));
+	backend.Set_Stream_Source(vertices, sizeof(BackendVertex), 0);
+	backend.Set_Indices(indices, DXGI_FORMAT_R16_UINT);
+	for (unsigned copy = 0; copy < 2; ++copy) {
+		backend.Set_Transform(D3DTS_WORLD, worlds[copy]);
+		CHECK(backend.Draw_Indexed_Triangles(6, 0, 0));
+	}
+	backend.End_Shadow_Map();
+	std::vector<unsigned> old_depths;
+	read_shadow_depths(device, backend, old_depths);
+
+	// The pass before the instanced one has to have drawn something, or the comparison proves
+	// nothing: some texels near, some still at the far plane.
+	unsigned covered = 0;
+	for (size_t texel = 0; texel < old_depths.size(); ++texel) {
+		if (old_depths[texel] != 0x00ffffff) {
+			++covered;
+		}
+	}
+	printf("  %u of %u texels covered\n", covered, (unsigned)old_depths.size());
+	CHECK(covered > 0);
+	CHECK(covered < old_depths.size());
+
+	// The instanced draw, with the cull and depth test left somewhere else first: the run's own
+	// have to be the ones it draws with.
+	backend.Set_Render_State(D3DRS_CULLMODE, D3DCULL_CW);
+	backend.Set_Render_State(D3DRS_ZFUNC, D3DCMP_ALWAYS);
+	CHECK(backend.Begin_Shadow_Map(64));
+	DX11BackendClass::ShadowCasterRun run;
+	run.Kind = DX11BackendClass::SHADOW_CASTER_RIGID;
+	run.Vertices = vertices;
+	run.Stride = sizeof(BackendVertex);
+	run.TextureOffset = 0;
+	run.Indices = indices;
+	run.StartIndex = 0;
+	run.IndexCount = 6;
+	run.BaseVertex = 0;
+	run.Strip = false;
+	run.CullMode = D3DCULL_NONE;
+	run.DepthFunction = D3DCMP_LESSEQUAL;
+	run.FirstInstance = 0;
+	run.InstanceCount = 2;
+	// The same worlds as the rows of a Matrix3D, which is what the mesh renderer hands over.
+	float rows[2][12];
+	for (unsigned copy = 0; copy < 2; ++copy) {
+		for (unsigned row = 0; row < 3; ++row) {
+			for (unsigned column = 0; column < 4; ++column) {
+				rows[copy][row * 4 + column] = worlds[copy][column * 4 + row];
+			}
+		}
+	}
+	const float * const instance_rows[2] = { rows[0], rows[1] };
+	const unsigned first_bones[2] = { 0, 0 };
+	CHECK(backend.Upload_Shadow_Casters(instance_rows, first_bones, 2, NULL, 0));
+	CHECK(backend.Draw_Shadow_Casters(&run, 1));
+	backend.End_Shadow_Map();
+	std::vector<unsigned> lean_depths;
+	read_shadow_depths(device, backend, lean_depths);
+
+	CHECK_EQ(lean_depths.size(), old_depths.size());
+	unsigned differing = 0;
+	for (size_t texel = 0; texel < old_depths.size() && texel < lean_depths.size(); ++texel) {
+		if (old_depths[texel] != lean_depths[texel]) {
+			++differing;
+		}
+	}
+	if (differing != 0) {
+		printf("  %u texels differ\n", differing);
+	}
+	CHECK_EQ(differing, 0u);
+
+	indices->Release();
+	vertices->Release();
+	backend.Shutdown();
+}
+
+// A skin skinned in the depth pass's vertex program has to leave the depth the CPU fill leaves
+// (Matrix3D::Transform_Vector per vertex, then drawn with an identity world), within a level or
+// two of a 24-bit depth for the order the GPU adds the products in: two copies of a quad whose
+// halves hang on two bones, each copy on its own pair of bones.
+TEST(dx11backend_skinned_shadow_casters_write_the_depth_the_cpu_skinned_draws_write)
+{
+	static const unsigned BONES = 4;
+	static const unsigned DEPTH_LEVELS_ALLOWED = 2;
+	static const unsigned EDGE_TEXELS_ALLOWED = 4;
+
+	DX11DeviceClass device;
+	CHECK(device.Create_Offscreen());
+	ID3D11Device * d3d = device.Get_Device();
+
+	DX11BackendClass backend;
+	CHECK(backend.Initialise(&device));
+	configure_unlit_pass_through(backend);
+
+	float sun[16];
+	set_identity(sun);
+	sun[0] = 0.5f;
+	sun[5] = 0.5f;
+	sun[10] = 0.1f;
+	backend.Set_Transform(D3DTS_PROJECTION, sun);
+
+	// Four bones, three rows of a Matrix3D each: turned about z, tipped about x, moved.
+	float bone_rows[BONES][12];
+	const float turns[BONES] = { 0.4f, -0.7f, 1.3f, 0.15f };
+	const float tips[BONES] = { 0.2f, -0.35f, 0.1f, 0.45f };
+	const float moves[BONES][3] = {
+		{ 0.2f, -0.1f, 3.0f }, { -0.3f, 0.25f, 2.2f }, { 0.35f, 0.3f, 4.1f }, { -0.2f, -0.4f, 1.7f } };
+	for (unsigned bone = 0; bone < BONES; ++bone) {
+		const float c = cosf(turns[bone]);
+		const float s = sinf(turns[bone]);
+		const float ct = cosf(tips[bone]);
+		const float st = sinf(tips[bone]);
+		// The turn about z, then the tip about x: rows of tip * turn.
+		const float rows[3][4] = {
+			{ c, -s, 0.0f, moves[bone][0] },
+			{ ct * s, ct * c, -st, moves[bone][1] },
+			{ st * s, st * c, ct, moves[bone][2] } };
+		memcpy(bone_rows[bone], rows, sizeof(rows));
+	}
+
+	// The bind pose: the quad, its first two corners on one bone and the other two on the next.
+	DX11BackendClass::ShadowSkinVertex bind[4];
+	for (unsigned index = 0; index < 4; ++index) {
+		bind[index].Position[0] = QUAD_VERTICES[index].Position[0] * 0.8f;
+		bind[index].Position[1] = QUAD_VERTICES[index].Position[1] * 0.6f;
+		bind[index].Position[2] = 0.25f * (float)index - 0.3f;
+		bind[index].Bone = (index < 2) ? 0 : 1;
+	}
+
+	// The CPU fill's result for each copy, drawn the old way with an identity world.
+	BackendVertex deformed[2][4];
+	for (unsigned copy = 0; copy < 2; ++copy) {
+		for (unsigned index = 0; index < 4; ++index) {
+			const float * row = bone_rows[copy * 2 + bind[index].Bone];
+			const float * p = bind[index].Position;
+			deformed[copy][index] = QUAD_VERTICES[index];
+			for (unsigned axis = 0; axis < 3; ++axis) {
+				const float * r = row + axis * 4;
+				deformed[copy][index].Position[axis] = r[0] * p[0] + r[1] * p[1] + r[2] * p[2] + r[3];
+			}
+		}
+	}
+	ID3D11Buffer * vertices = NULL;
+	CHECK(DX11Resource_Create_Vertex_Buffer(d3d, sizeof(deformed), D3DPOOL_MANAGED, 0, deformed, &vertices));
+	ID3D11Buffer * indices = NULL;
+	CHECK(DX11Resource_Create_Index_Buffer(d3d, sizeof(QUAD_INDICES), D3DPOOL_MANAGED, 0,
+		QUAD_INDICES, &indices));
+
+	backend.Set_Render_State(D3DRS_COLORWRITEENABLE, 0);
+	backend.Set_Render_State(D3DRS_ZENABLE, D3DZB_TRUE);
+	backend.Set_Render_State(D3DRS_ZWRITEENABLE, TRUE);
+	backend.Set_Render_State(D3DRS_ZFUNC, D3DCMP_LESSEQUAL);
+	backend.Set_Render_State(D3DRS_CULLMODE, D3DCULL_NONE);
+
+	float identity[16];
+	set_identity(identity);
+	CHECK(backend.Begin_Shadow_Map(64));
+	backend.Set_Transform(D3DTS_WORLD, identity);
+	backend.Set_Stream_Source(vertices, sizeof(BackendVertex), 0);
+	backend.Set_Indices(indices, DXGI_FORMAT_R16_UINT);
+	for (unsigned copy = 0; copy < 2; ++copy) {
+		CHECK(backend.Draw_Indexed_Triangles(6, 0, copy * 4));
+	}
+	backend.End_Shadow_Map();
+	std::vector<unsigned> old_depths;
+	read_shadow_depths(device, backend, old_depths);
+
+	unsigned covered = 0;
+	for (size_t texel = 0; texel < old_depths.size(); ++texel) {
+		if (old_depths[texel] != 0x00ffffff) {
+			++covered;
+		}
+	}
+	printf("  %u of %u texels covered\n", covered, (unsigned)old_depths.size());
+	CHECK(covered > 0);
+	CHECK(covered < old_depths.size());
+
+	// Uploaded behind a few vertices of another model, so the base vertex is not nought.
+	DX11BackendClass::ShadowSkinVertex padding[3];
+	memset(padding, 0, sizeof(padding));
+	unsigned padding_first = 0;
+	CHECK(backend.Upload_Shadow_Skin(padding, 3, padding_first));
+	unsigned first_vertex = 0;
+	CHECK(backend.Upload_Shadow_Skin(bind, 4, first_vertex));
+	CHECK_EQ(first_vertex, padding_first + 3);
+
+	CHECK(backend.Begin_Shadow_Map(64));
+	DX11BackendClass::ShadowCasterRun run;
+	run.Kind = DX11BackendClass::SHADOW_CASTER_SKINNED;
+	run.Vertices = NULL;
+	run.Stride = 0;
+	run.TextureOffset = 0;
+	run.Indices = indices;
+	run.StartIndex = 0;
+	run.IndexCount = 6;
+	run.BaseVertex = first_vertex;
+	run.Strip = false;
+	run.CullMode = D3DCULL_NONE;
+	run.DepthFunction = D3DCMP_LESSEQUAL;
+	run.FirstInstance = 0;
+	run.InstanceCount = 2;
+	// Identity worlds, as a skin's always is.
+	const float * const worlds[2] = { NULL, NULL };
+	const unsigned first_bones[2] = { 0, 2 };
+	const float * const bones[BONES] = { bone_rows[0], bone_rows[1], bone_rows[2], bone_rows[3] };
+	CHECK(backend.Upload_Shadow_Casters(worlds, first_bones, 2, bones, BONES));
+	CHECK(backend.Draw_Shadow_Casters(&run, 1));
+	backend.End_Shadow_Map();
+	std::vector<unsigned> lean_depths;
+	read_shadow_depths(device, backend, lean_depths);
+
+	CHECK_EQ(lean_depths.size(), old_depths.size());
+	unsigned edge = 0;
+	unsigned widest = 0;
+	for (size_t texel = 0; texel < old_depths.size() && texel < lean_depths.size(); ++texel) {
+		const bool old_covered = old_depths[texel] != 0x00ffffff;
+		const bool lean_covered = lean_depths[texel] != 0x00ffffff;
+		if (old_covered != lean_covered) {
+			++edge;
+		} else {
+			const unsigned gap = (old_depths[texel] > lean_depths[texel])
+				? old_depths[texel] - lean_depths[texel] : lean_depths[texel] - old_depths[texel];
+			widest = (gap > widest) ? gap : widest;
+		}
+	}
+	printf("  %u edge texels differ, widest depth gap %u\n", edge, widest);
+	CHECK(edge <= EDGE_TEXELS_ALLOWED);
+	CHECK(widest <= DEPTH_LEVELS_ALLOWED);
+
+	indices->Release();
+	vertices->Release();
+	backend.Shutdown();
+}
+
 // The volumetric hazard clouds' text is the SDL GPU backend's too, written for DXC.  Every pass of
 // it has to go through the compiler this backend uses at shader model 5, and the device has to take
 // what comes out, or the clouds go Classic on the first hazard of the match.

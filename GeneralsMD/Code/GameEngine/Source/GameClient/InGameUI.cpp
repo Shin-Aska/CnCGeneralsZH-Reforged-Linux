@@ -1875,6 +1875,8 @@ static const char *const REPLAY_CHECKPOINT_FOLDER = "ReplayRewind";
 	* reason as the seek frame: loading one resets the interface. */
 static std::map< UnsignedInt, ReplayCheckpoint > TheReplayCheckpoints;
 static AsciiString TheReplayCheckpointsOf;
+/// a checkpoint of this replay failed to save, so no more are tried: each try is a whole save
+static Bool TheReplayCheckpointsFailed = FALSE;
 
 /** A seek back is carried out on the next client pass rather than in the click: the load resets the
 	* message stream, and the click is a message the stream is in the middle of handing round. */
@@ -1918,6 +1920,7 @@ static void forgetReplayCheckpoints( void )
 		TheLocalFileSystem->deleteFile( path.str() );
 	}
 	TheReplayCheckpoints.clear();
+	TheReplayCheckpointsFailed = FALSE;
 }
 
 static void collectPostedCRCs( GameMessageList *list, std::vector< std::pair< Int, Bool > > &crcs )
@@ -1942,7 +1945,14 @@ static void takeReplayCheckpoint( UnsignedInt frame )
 	// the command list first: what it holds reaches the logic ahead of what the stream still holds
 	collectPostedCRCs( TheCommandList, checkpoint.postedCRCs );
 	collectPostedCRCs( TheMessageStream, checkpoint.postedCRCs );
-	TheGameState->saveCheckpoint( checkpoint.path );
+	if( !TheGameState->saveCheckpoint( checkpoint.path ) )
+	{
+		// the rewind keeps the checkpoints before this one
+		DEBUG_LOG(( "REPLAY CHECKPOINT frame %u failed, no more checkpoints for this replay\n", frame ));
+		TheReplayCheckpoints.erase( frame );
+		TheReplayCheckpointsFailed = TRUE;
+		return;
+	}
 	DEBUG_LOG(( "REPLAY CHECKPOINT frame %u in %u ms\n", frame, (UnsignedInt)( Clock_Milliseconds() - startMs ) ));
 }
 
@@ -1974,8 +1984,14 @@ static void rewindReplay( UnsignedInt target )
 	const Int followed = TheObserverCamera.getFollowedPlayerIndex();
 	const Bool fog = TheObserverCamera.isFogOn();
 
-	TheGameState->loadCheckpoint( checkpoint.path,
-		[ & ]() { TheRecorder->resumePlayback( replayFile, checkpoint.cursor ); } );
+	// a failed load has cleared the match and said so; nothing is left to seek in or look at
+	if( !TheGameState->loadCheckpoint( checkpoint.path,
+		[ & ]() { TheRecorder->resumePlayback( replayFile, checkpoint.cursor ); } ) )
+	{
+		TheReplaySeekFrame = 0;
+		TheWritableGlobalData->m_TiVOFastMode = FALSE;
+		return;
+	}
 	SetGameLogicRandomState( checkpoint.random );
 
 	TheObserverCamera.setMode( cameraMode );
@@ -2031,7 +2047,7 @@ static void updateReplaySeek( void )
 	}
 
 	const UnsignedInt frame = TheGameLogic->getFrame();
-	if( TheRecorder->hasPlaybackLeft() && frame > 0
+	if( TheRecorder->hasPlaybackLeft() && frame > 0 && !TheReplayCheckpointsFailed
 			&& ( TheReplayCheckpoints.empty() || frame >= TheReplayCheckpoints.rbegin()->first + REPLAY_CHECKPOINT_FRAMES ) )
 		takeReplayCheckpoint( frame );
 
@@ -2686,15 +2702,15 @@ void InGameUI::update( void )
 	// a watcher's camera is driven for him while it is not in his own hands (ObserverCamera.h)
 	if( TheGameLogic->isInGame() && localPlayerWatching() )
 	{
-		// -directorrecord: the director has the camera all match, nothing but the radar is over the
+		// -directorrecord: the director has the camera all match, no interface and no radar is over the
 		// picture, and the glide runs on the logic clock, which is what each recorded picture is
 		UnsignedInt observerNowMs = cameraNowMs;
 		if( TheGlobalData->m_directorRecord && !TheGameLogic->isInShellGame() )
 		{
 			if( TheObserverCamera.getMode() != OBSERVER_CAMERA_DIRECTOR )
 				TheObserverCamera.setMode( OBSERVER_CAMERA_DIRECTOR );
-			if( !CinemaDirector_showsMap() )
-				CinemaDirector_setHudHidden( TRUE, TRUE );
+			if( !CinemaDirector_isHudHidden() )
+				CinemaDirector_setHudHidden( TRUE, FALSE );
 			TheMouse->setVisibility( FALSE );
 			// the picture's own time, a share of a frame before the logic frame for a -recordfps
 			// picture between two of them
@@ -8041,8 +8057,10 @@ void InGameUI::updateSignalMarks( void )
 			continue;
 		}
 
+		// puffs the GPU took have no Particle, and their system says how long the last of them lives
 		const Particle *youngest = smoke->getLastParticle();
-		const UnsignedInt left = smoke->getSystemLifetimeLeft() + ( youngest ? youngest->getLifetimeLeft() : 0 );
+		const UnsignedInt puffLeft = max( youngest ? youngest->getLifetimeLeft() : 0, smoke->getGpuLifetimeLeft() );
+		const UnsignedInt left = smoke->getSystemLifetimeLeft() + puffLeft;
 		const UnsignedInt opacity = min( (UnsignedInt)SIGNAL_MARK_OPACITY, left * SIGNAL_MARK_OPACITY / SIGNAL_MARK_FADE_OUT_FRAMES );
 		mark.decal->setOpacity( shown ? (Int)opacity : 0 );
 		index++;

@@ -166,7 +166,7 @@ private:
 	void doRelay();
 	void doKeepAlive();
 	void sendRemoteCommand(NetCommandRef *msg);
-	void ackCommand(NetCommandRef *ref, UnsignedInt localSlot);
+	void ackCommand(NetCommandRef *ref, UnsignedInt localSlot, UnsignedInt senderSlot = MAX_SLOTS);	///< senderSlot: whose connection the copy came in on, MAX_SLOTS when unknown
 
 	Bool processNetCommand(NetCommandRef *ref);
 	void processAckStage1(NetCommandMsg *msg);

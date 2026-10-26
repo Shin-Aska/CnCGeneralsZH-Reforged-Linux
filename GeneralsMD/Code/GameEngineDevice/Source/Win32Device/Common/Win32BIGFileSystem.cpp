@@ -213,6 +213,7 @@ void Win32BIGFileSystem::init() {
         // Zero Hour bigs already in the tree win over the base game's copies.
         DEBUG_LOG(("Win32BIGFileSystem::init - loading the base game's archives from '%s'\n", installPath.str()));
         loadBigFilesFromDirectory(installPath, "*.big");
+        m_baseGameDirectory = installPath;
       }
     }
 

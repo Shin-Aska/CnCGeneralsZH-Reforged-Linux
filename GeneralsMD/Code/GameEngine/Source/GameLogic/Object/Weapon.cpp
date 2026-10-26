@@ -245,7 +245,9 @@ const FieldParse WeaponTemplate::TheWeaponTemplateFieldParseTable[] =
 	{ "DeathType",								INI::parseIndexList,										TheDeathNames,		offsetof(WeaponTemplate, m_deathType) },		
 	{ "WeaponSpeed",							INI::parseVelocityReal,									NULL,							offsetof(WeaponTemplate, m_weaponSpeed) },		
 	{ "MinWeaponSpeed",						INI::parseVelocityReal,									NULL,							offsetof(WeaponTemplate, m_minWeaponSpeed) },		
-	{ "ScaleWeaponSpeed",					INI::parseBool,													NULL,							offsetof(WeaponTemplate, m_isScaleWeaponSpeed) },		
+	{ "ScaleWeaponSpeed",					INI::parseBool,													NULL,							offsetof(WeaponTemplate, m_isScaleWeaponSpeed) },
+	{ "BallisticFlightTime",			INI::parseDurationUnsignedInt,					NULL,							offsetof(WeaponTemplate, m_ballisticFlightFrames) },
+	{ "BallisticPeakHeight",			INI::parseReal,													NULL,							offsetof(WeaponTemplate, m_ballisticPeakHeight) },
 	{ "WeaponRecoil",							INI::parseAngleReal,										NULL,							offsetof(WeaponTemplate, m_weaponRecoil) },		
 	{ "MinTargetPitch",						INI::parseAngleReal,										NULL,							offsetof(WeaponTemplate, m_minTargetPitch) },		
 	{ "MaxTargetPitch",						INI::parseAngleReal,										NULL,							offsetof(WeaponTemplate, m_maxTargetPitch) },		
@@ -336,6 +338,8 @@ WeaponTemplate::WeaponTemplate() : m_nextTemplate(NULL)
 	m_weaponSpeed										= 999999.0f;	// effectively instant
 	m_minWeaponSpeed								= 999999.0f;	// effectively instant
 	m_isScaleWeaponSpeed						= FALSE;
+	m_ballisticFlightFrames					= 0;
+	m_ballisticPeakHeight						= 0.0f;
 	m_weaponRecoil									= 0.0f;		// no recoil
 	m_minTargetPitch								= -PI;
 	m_maxTargetPitch								= PI;
@@ -566,6 +570,17 @@ Real WeaponTemplate::getMinimumAttackRange() const
 Real WeaponTemplate::getUnmodifiedAttackRange() const
 {
 	return m_attackRange;
+}
+
+//-------------------------------------------------------------------------------------------------
+// A parabola that lands on time and peaks h over the line at mid flight leaves at a vertical speed of
+// (rise + 4h) over the flight time, against a horizontal speed of distance over the same time, so
+// the time cancels out of the pitch. A close target gets the steep lob, a far one the flat shot.
+Real WeaponTemplate::getBallisticLaunchPitch(const Coord3D& from, const Coord3D& to) const
+{
+	const Real PEAK_HEIGHT_TO_LAUNCH_RISE = 4.0f;
+	Real run = sqrtf(sqr(to.x - from.x) + sqr(to.y - from.y));
+	return ATan2(to.z - from.z + PEAK_HEIGHT_TO_LAUNCH_RISE * m_ballisticPeakHeight, run);
 }
 
 //-------------------------------------------------------------------------------------------------

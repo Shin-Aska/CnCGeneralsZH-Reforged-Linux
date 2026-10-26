@@ -743,6 +743,40 @@ static const char *mapFileNamePart( const AsciiString& fname )
 	return sep ? sep + 1 : fname.str();
 }
 
+// A generated map's name in the list: "<template> (Random) (N)", or "Random (N)" with no template,
+// where its file name would say "rmg_v17_..." to the player.  FALSE for any other map.
+static Bool generatedMapDisplayName( const MapCache& cache, const AsciiString& fname, Int numPlayers, UnicodeString& displayName )
+{
+	if (!isGeneratedMapPath( fname ))
+		return FALSE;
+
+	UnicodeString random = TheGameText->fetch( "GUI:Random" );
+	AsciiString templatePath;
+	if (generatedMapTemplate( fname, templatePath ))
+	{
+		MapCache::const_iterator shipped = cache.find( templatePath );
+		if (shipped != cache.end() && !shipped->second.m_nameLookupTag.isEmpty())
+			displayName = TheGameText->fetch( shipped->second.m_nameLookupTag );
+		else
+		{
+			AsciiString name = mapFileNamePart( templatePath );
+			for (Int i = 0; i < 4; ++i)
+				name.removeLastChar();
+			displayName.translate( name );
+		}
+		displayName.concat( u" (" );
+		displayName.concat( random );
+		displayName.concat( u")" );
+	}
+	else
+		displayName = random;
+
+	UnicodeString players;
+	players.format( u" (%d)", numPlayers );
+	displayName.concat( players );
+	return TRUE;
+}
+
 //Bool MapCache::addMap( AsciiString dirName, AsciiString fname, WinTimeStamp timestamp, UnsignedInt filesize, Bool isOfficial )
 Bool MapCache::addMap( AsciiString dirName, AsciiString fname, FileInfo *fileInfo, Bool isOfficial)
 {
@@ -795,6 +829,7 @@ Bool MapCache::addMap( AsciiString dirName, AsciiString fname, FileInfo *fileInf
 					(*this)[lowerFname].m_displayName.concat(extension);
 				}
 			}
+			generatedMapDisplayName( *this, lowerFname, md.m_numPlayers, (*this)[lowerFname].m_displayName );
 //			DEBUG_LOG(("MapCache::addMap - found match for map %s\n", lowerFname.str()));
 			return FALSE;	// OK, it checks out.
 		}
@@ -882,6 +917,7 @@ Bool MapCache::addMap( AsciiString dirName, AsciiString fname, FileInfo *fileInf
 		DEBUG_LOG(("Map name is now '%s'\n", WideCharAsUtf8( md.m_displayName.str() ).str()));
 		TheGameText->reset();
 	}
+	generatedMapDisplayName( *this, lowerFname, md.m_numPlayers, md.m_displayName );
 
 	getExtent(&(md.m_extent));
 
@@ -1146,17 +1182,11 @@ Bool isValidMap( AsciiString mapName, Bool isMultiplayer )
 		return FALSE;
 	TheMapCache->updateCache();
 
-	mapName.toLower();
-	MapCache::iterator it = TheMapCache->find(mapName);
-	if (it != TheMapCache->end())
-	{
-		if (isMultiplayer == it->second.m_isMultiplayer)
-		{
-			return TRUE;
-		}
-	}
-
-	return FALSE;
+	// findMap, not find: a generated map is in the cache only while the generator holds it, and one
+	// it has let go of - the room's map after a match, the one remembered from the last run - is
+	// still a map, built again from its name
+	const MapMetaData *md = TheMapCache->findMap(mapName);
+	return md != NULL && isMultiplayer == md->m_isMultiplayer;
 }  // end isValidMap
 
 //-------------------------------------------------------------------------------------------------

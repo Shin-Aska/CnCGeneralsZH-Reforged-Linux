@@ -15789,6 +15789,14 @@ GUI:Ultra
 "Ультра"
 END
 
+GUI:GraphicsQuality
+"Продуктивність / Якість"
+END
+
+TOOLTIP:GraphicsQuality
+"Ліворуч найшвидше зображення, праворуч найгарніше. Повзунок виставляє пункти на цій сторінці та в Ефектах, спершу дешеві, а чотири набори стоять на ньому точками. Змініть пункт потім, і набір стане «Власні». Застосовується кнопкою Прийняти; деякі налаштування чекають наступної мапи або наступного запуску."
+END
+
 GUI:DetailNote0
 "Усе ввімкнено, найбільше часток і густий дим, а деталізація ніколи не падає у великій битві. Вибір лише заповнює пункти; застосовує Прийняти."
 END
@@ -15806,7 +15814,7 @@ GUI:DetailNote3
 END
 
 GUI:DetailNote4
-"Ваш власний набір пунктів на цій сторінці та в Ефектах. Прийняти залишає його як є."
+"Ваш власний набір пунктів на цій сторінці та в Ефектах або точка повзунка між двома наборами. Прийняти залишає його як є."
 END
 
 GUI:TextureFilter
@@ -18258,7 +18266,7 @@ CONTROLBAR:ConstructTurkiyeInfantrySpotter
 END
 
 CONTROLBAR:ToolTipTurkiyeInfantrySpotter
-"Бачить на 500, ховається, стоячи на місці, і майже не воює. Поставте її на пагорб, і артилерія позаду зможе стріляти."
+"Бачить на 500 і майже не воює. Ховатися не вміє, тримайте її поза досяжністю. Поставте її на пагорб, і артилерія позаду зможе стріляти."
 END
 
 OBJECT:TurkiyeInfantryMaroonBeret
@@ -18578,7 +18586,7 @@ SCIENCE:TurkiyeFuelResupply
 END
 
 CONTROLBAR:ToolTipTurkiyeScienceFuelResupply
-"Дрони Bayraktar несуть на один боєприпас більше, а Akinci на одну бомбу більше за кожен виліт."
+"Дрони Bayraktar несуть на один боєприпас більше за кожен виліт."
 END
 
 SCIENCE:TurkiyeSwarmMunition
@@ -18650,7 +18658,7 @@ CONTROLBAR:UpgradeTurkiyeFuelCell
 END
 
 CONTROLBAR:ToolTipUpgradeTurkiyeFuelCell
-"Bayraktar і Akinci залишаються над ціллю вдвічі довше, з удвічі більшою кількістю боєприпасів."
+"Bayraktar залишається над ціллю вдвічі довше, з удвічі більшою кількістю боєприпасів."
 END
 
 UPGRADE:TurkiyeSwarmSoftware
@@ -18717,6 +18725,30 @@ CONTROLBAR:TooltipTurkiyeCommandoRaid
 "Рейд командос \n Перезарядка: 5:00"
 END
 
+OBJECT:TurkiyeHarekatMerkezi
+"Оперативний центр"
+END
+
+CONTROLBAR:ConstructTurkiyeHarekatMerkezi
+"&Оперативний центр"
+END
+
+CONTROLBAR:ToolTipTurkiyeHarekatMerkezi
+"Технологічна будівля Туреччини. Уся армія воює за одним бойовим планом за раз: Бомбардування, Знайти й знищити або Тримати лінію. Досліджує Покращену підготовку та Хімзахисні костюми, відкриває Базу дронів Kargu, Sakarya, Koral, Akinci і Maroon Beret. \n \n Потрібно: Завод або Аеродром \n Потрібна енергія: 2"
+END
+
+OBJECT:TurkiyeKapalicarsi
+"Капаличарши"
+END
+
+CONTROLBAR:ConstructTurkiyeKapalicarsi
+"&Капаличарши"
+END
+
+CONTROLBAR:ToolTipTurkiyeKapalicarsi
+"Чорний ринок Туреччини. Платить 20 кожні 2 секунди й продає Контрзаходи для Bayraktar, Akinci і Kizilelma та Взуття робітників для інженерів. \n \n Потрібно: Завод"
+END
+
 OBJECT:TurkiyeKarguBase
 "База дронів Kargu"
 END
@@ -18726,7 +18758,7 @@ CONTROLBAR:ConstructTurkiyeKarguBase
 END
 
 CONTROLBAR:ToolTipTurkiyeKarguBase
-"Посилає рій із шістнадцяти дронів-камікадзе в будь-яку точку карти. Кожен полює на одну з найцінніших цілей у колі й пікірує на неї; найбільше страждають розпорошені армії. \n \n Потрібно: Завод, Радарна вежа \n Потрібна енергія: 10 \n Перезарядка: 5:00"
+"Посилає рій із шістнадцяти дронів-камікадзе в будь-яку точку карти. Кожен полює на одну з найцінніших цілей у колі й пікірує на неї; найбільше страждають розпорошені армії. Вони підіймаються до стелі й падають, як ракети Scud, і дорогою їх нічим не збити. \n \n Потрібно: Оперативний центр \n Потрібна енергія: 10 \n Перезарядка: 5:00"
 END
 
 CONTROLBAR:TurkiyeKarguSwarm

@@ -370,6 +370,7 @@ void Network::init()
 	DEBUG_LOG(("NetworkPlayerSilenceTime: %d\n", TheGlobalData->m_networkPlayerSilenceTime));
 	DEBUG_LOG(("NetworkStallCeilingTime: %d\n", TheGlobalData->m_networkStallCeilingTime));
 	DEBUG_LOG(("NetworkPlayerTimeoutTime: %d\n", TheGlobalData->m_networkPlayerTimeoutTime));
+	DEBUG_LOG(("NetworkSilentPlayerDropTime: %d\n", TheGlobalData->m_networkSilentPlayerDropTime));
 	DEBUG_LOG(("NetworkDisconnectScreenNotifyTime: %d\n", TheGlobalData->m_networkDisconnectScreenNotifyTime));
 	DEBUG_LOG(("Other network stuff:\n"));
 	DEBUG_LOG(("FRAME_DATA_LENGTH = %d\n", FRAME_DATA_LENGTH));

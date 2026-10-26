@@ -420,6 +420,9 @@ public:
 	inline Real getWeaponSpeed() const { return m_weaponSpeed; }
 	inline Real getMinWeaponSpeed() const { return m_minWeaponSpeed; }
 	inline Bool isScaleWeaponSpeed() const { return m_isScaleWeaponSpeed; }
+	inline UnsignedInt getBallisticFlightFrames() const { return m_ballisticFlightFrames; }
+	inline Real getBallisticPeakHeight() const { return m_ballisticPeakHeight; }
+	Real getBallisticLaunchPitch(const Coord3D& from, const Coord3D& to) const;
 	inline Real getWeaponRecoilAmount() const { return m_weaponRecoil; }
 	inline Real getMinTargetPitch() const { return m_minTargetPitch; }
 	inline Real getMaxTargetPitch() const { return m_maxTargetPitch; }
@@ -522,6 +525,8 @@ private:
 	Real m_weaponSpeed;											///< speed of damage travel, in dist/frame
 	Real m_minWeaponSpeed;									///< speed of damage travel, in dist/frame
 	Bool m_isScaleWeaponSpeed;							///< Scale from min to normal based on range (for lobbers)
+	UnsignedInt m_ballisticFlightFrames;		///< nonzero: the shell flies a parabola and lands this many frames after launch, at any range
+	Real m_ballisticPeakHeight;							///< how far that parabola rises over the line from muzzle to target, at mid flight
 	Real m_weaponRecoil;										///< amt of recoil caused to firer, in rads
 	Real m_minTargetPitch;									///< min pitch from source->victim allowable in order to target
 	Real m_maxTargetPitch;									///< max pitch from source->victim allowable in order to target
@@ -698,6 +703,7 @@ public:
 
 	inline const WeaponTemplate* getTemplate() const { return m_template; }
 	inline WeaponSlotType getWeaponSlot() const { return m_wslot; }
+	inline Int getCurBarrel() const { return m_curBarrel; }
 	inline AsciiString getName() const { return m_template->getName(); }
 	inline UnsignedInt getLastShotFrame() const { return m_lastFireFrame; }						///< frame a shot was last fired on
 	// If we are "reloading", then m_ammoInClip is a lie.  It will say full.

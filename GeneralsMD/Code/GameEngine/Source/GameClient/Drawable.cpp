@@ -1139,6 +1139,7 @@ Int Drawable::getCurrentClientBonePositions(const char* boneNamePrefix, Int star
 	Int count = 0;
 	// the bones as drawn; asked after the tick (the uplink cannon's raised antenna, FX at bones), where
 	// what the tick deferred on this drawable is applied first
+	LogicThread::TickReachesLiveModels liveModels;	// a tick beside the render waits out the shadow pass's poses
 	for (DrawModule** dm = const_cast<Drawable*>(this)->getDrawModulesFlushed(); *dm; ++dm)
 	{
 		if (maxBones <= 0)
@@ -1170,6 +1171,7 @@ Int Drawable::getCurrentClientBonePositions(const char* boneNamePrefix, Int star
 Bool Drawable::getCurrentWorldspaceClientBonePositions(const char* boneName, Matrix3D& transform) const
 {
 	// a laser's client update and the attached models ask; the bones have to be where the tick left the drawable
+	LogicThread::TickReachesLiveModels liveModels;
 	for (DrawModule** dm = const_cast<Drawable*>(this)->getDrawModulesFlushed(); *dm; ++dm)
 	{
 		if (skipsForLogic(*dm))
@@ -3713,6 +3715,15 @@ void Drawable::drawContained( const IRegion2D *healthBarRegion )
 	//
 	if (obj->getControllingPlayer() != ThePlayerList->getLocalPlayer() &&
 			!(obj->isKindOf( KINDOF_STRUCTURE ) && container->isGarrisonable()))
+		return;
+
+	//
+	// a unit nobody can select carries a load nobody can unload: the plane a Supply Drop Zone or a
+	// paradrop sends over is a 100 slot transport, and it drew a row of 100 empty boxes across the
+	// screen whenever the data left it out of IGNORED_IN_GUI (drawIconUI's bail). Buildings are
+	// exempt, since a civilian house holds a garrison without being selectable.
+	//
+	if (!obj->isKindOf( KINDOF_STRUCTURE ) && !obj->isKindOf( KINDOF_SELECTABLE ))
 		return;
 
 	Int numTotal;

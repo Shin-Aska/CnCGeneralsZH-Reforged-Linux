@@ -24,6 +24,9 @@
  *
  *  - DebugInit, DebugLog: Debug.cpp does not compile off Windows yet.  DebugLog prints, so a
  *    DEBUG_LOG from the memory manager is not lost.
+ *  - ReleaseCrash: the memory manager stops on a corrupt block header; here that aborts.
+ *  - LogicThread's census: JobSystem::parallel_for counts itself when it runs on the logic thread,
+ *    and nothing here is one, so the flag stays FALSE and the count is never taken.
  *  - INI: SubsystemInterfaceList::initSubsystem loads INI files; nothing here initialises a
  *    subsystem through it.
  *  - TheFileSystem, FileSystem::openFile: RAMFile::open(const char*) opens through the whole file
@@ -53,11 +56,20 @@ extern "C" void DebugLog(const char *format, ...)
 	va_end(args);
 }
 
+extern "C" void ReleaseCrash(const char *reason)
+{
+	fprintf(stderr, "test_bigfilesystem: ReleaseCrash: %s\n", reason);
+	abort();
+}
+
 static void unreachable(const char *what)
 {
 	fprintf(stderr, "test_posixlocalfilesystem: %s was reached, and this test has no stand-in for it\n", what);
 	abort();
 }
+
+thread_local Bool LogicThread::t_isLogicThread = FALSE;
+void LogicThread::noteCensus(Channel) { unreachable("LogicThread::noteCensus"); }
 
 INI::INI() { unreachable("INI::INI"); }
 INI::~INI() {}
@@ -87,7 +99,3 @@ int MessageBoxWrapper(const char *text, const char *caption, unsigned int)
 	++g_messageBoxes;
 	return 1;
 }
-
-// JobSystem.cpp counts the jobs a tick hands out (LOGIC_CENSUS); this test runs no logic thread.
-thread_local Bool LogicThread::t_isLogicThread = FALSE;
-void LogicThread::noteCensus(Channel) {}
