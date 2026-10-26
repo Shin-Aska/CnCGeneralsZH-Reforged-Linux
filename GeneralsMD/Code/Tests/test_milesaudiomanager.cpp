@@ -136,6 +136,9 @@ void mountTheInstall( void )
 	linkArchives( std::string( data ) + "/zerohour", farm );
 	mkdir( (farm + "/Data").c_str(), 0777 );
 	linkArchives( std::string( data ) + "/zerohour/Data/INI", farm + "/Data/INI" );
+	// AudioManager also loads the fork's campaign speech definitions, absent from retail archives.
+	symlink( (std::string(ZH_CODE_DIR) + "/Data/INI/SpeechReforged.ini").c_str(),
+		(farm + "/Data/INI/SpeechReforged.ini").c_str() );
 	linkArchives( std::string( data ) + "/generals", farm + "/ZH_Generals" );
 	chmod( (farm + "/ZH_Generals").c_str(), 0555 );
 	chmod( (farm + "/Data/INI").c_str(), 0555 );
@@ -419,7 +422,7 @@ TEST(the_manager_opens_the_device_and_is_silent_with_nothing_playing)
 TEST(a_2d_sound_plays_ends_and_is_freed_on_the_main_threads_sweep)
 {
 	TestAudio *audio = theAudio();
-	const Pick pick = pickEvent( AT_SoundEffect, ST_UI, ST_WORLD, 1.5 );
+	const Pick pick = pickEvent( AT_SoundEffect, ST_UI | ST_VOICE, ST_WORLD, 1.5 );
 	CHECK( !pick.name.isEmpty() );
 	if (pick.name.isEmpty())
 		return;
@@ -546,6 +549,8 @@ TEST(with_sound_switched_off_nothing_is_heard)
 	// The preceding test leaves old tracks fading for a second. setOn prevents new sounds; it
 	// does not stop those tracks. Start this check silent, as when it runs by itself.
 	audio->reset();
+	// Let the null device drain the final already-mixed buffer before arming a new capture.
+	audio->runFor(100);
 	const Pick pick = pickEvent( AT_SoundEffect, ST_UI, ST_WORLD, 1.5 );
 	audio->setOn( FALSE, AudioAffect_All );
 	CHECK( AIL_ex_start_capture( capturePath( "off" ).c_str() ) != 0 );
@@ -556,6 +561,49 @@ TEST(with_sound_switched_off_nothing_is_heard)
 	const Heard h = readCapture( capturePath( "off" ) );
 	CHECK( h.ok );
 	CHECK( rms( h.left ) + rms( h.right ) < 0.0005 );
+}
+
+TEST(carrier_selection_move_and_attack_variants_are_all_available_without_disk_reads)
+{
+	TestAudio *audio = theAudio();
+	const std::vector<AsciiString> names = { "AircraftCarrierVoiceSelect", "AircraftCarrierVoiceMove", "AircraftCarrierVoiceAttack" };
+	audio->AudioManager::reset();
+	audio->preloadAudioEvents(names);
+	Int clips = 0;
+	double longestDecodeMS = 0;
+	for (const AsciiString& name : names)
+	{
+		AudioEventRTS event(name);
+		audio->getInfoForAudioEvent(&event);
+		std::vector<AsciiString> files;
+		event.getPreloadFilenames(files);
+		CHECK( !files.empty() );
+		for (const AsciiString& filename : files)
+		{
+			File *cached = audio->openPreloadedAudioFile(filename.str());
+			CHECK( cached != NULL );
+			if (cached)
+			{
+				CHECK( cached->size() > 0 );
+				cached->close();
+				++clips;
+			}
+		}
+		// Exercise the normal first-use sample decoder too, without an older decoded-cache hit.
+		AudioFileCache decoded;
+		decoded.setMaxSize(4 * 1024 * 1024);
+		event.generatePlayInfo();
+		event.generateFilename();
+		event.setNextPlayPortion(PP_Sound);
+		const auto started = std::chrono::steady_clock::now();
+		void *sample = decoded.openFile(&event);
+		const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+		if (ms > longestDecodeMS) longestDecodeMS = ms;
+		CHECK( sample != NULL );
+		if (sample) decoded.closeFile(sample);
+	}
+	printf("  carrier: %d command voice clips served from RAM; longest first-use sample decode %.2f ms\n", clips, longestDecodeMS);
+	CHECK( clips >= 10 );
 }
 
 TEST(preloaded_audio_preserves_bytes_random_streams_and_independent_file_lifetimes)

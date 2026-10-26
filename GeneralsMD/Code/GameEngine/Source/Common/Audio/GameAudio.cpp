@@ -391,7 +391,7 @@ void AudioManager::preloadAudioEvents(const std::vector<AsciiString>& events)
 	const char *enabled = getenv("ZH_AUDIO_PRELOAD");
 	if ((enabled && enabled[0] == '0') || !TheGlobalData->m_audioOn || events.empty())
 		return;
-	const size_t budget = 128u * 1024u * 1024u;
+	const size_t budget = 256u * 1024u * 1024u;
 	const Int maxFileSize = 16 * 1024 * 1024;
 	const Int64 started = Clock_Ticks();
 	size_t bytes = 0;

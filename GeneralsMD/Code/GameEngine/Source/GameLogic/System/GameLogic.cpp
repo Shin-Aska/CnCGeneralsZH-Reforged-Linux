@@ -59,6 +59,7 @@
 #include "Common/Recorder.h"
 #include "Common/StatsCollector.h"
 #include "Common/ThingFactory.h"
+#include "Common/AudioEventInfo.h"
 #include "Common/Team.h"
 #include "Common/ThingTemplate.h"
 #include "GameClient/Water.h"
@@ -210,6 +211,7 @@ static void preloadMissionAudio()
 	for (Drawable *draw = TheGameClient->firstDrawable(); draw; draw = draw->getNextDrawable())
 	{
 		const ThingTemplate *t = draw->getTemplate();
+		t->collectVoiceEvents(events);
 		const AudioEventRTS *sounds[] = { draw->getAmbientSound(), t->getSoundAmbient(),
 			t->getSoundAmbientDamaged(), t->getSoundAmbientReallyDamaged(), t->getSoundAmbientRubble(),
 			t->getSoundMoveStart(), t->getSoundMoveLoop(), t->getSoundMoveLoopDamaged(), t->getSoundCreated() };
@@ -223,6 +225,17 @@ static void preloadMissionAudio()
 		names.erase(std::unique(names.begin(), names.end()), names.end());
 		TheAudio->preloadAudioEvents(names);
 	};
+	preload(events);
+	// A unit built or reinforced later has no drawable yet. Gather every loaded template's voice
+	// slots and UnitSpecificSounds, through map overrides, before spending the rest on effects.
+	events.clear();
+	if (TheThingFactory)
+		for (const ThingTemplate *t = TheThingFactory->firstTemplate(); t; t = t->friend_getNextTemplate())
+			t->collectVoiceEvents(events);
+	// Also cover voice-tagged announcements and mod responses not attached to an object slot.
+	for (const auto& entry : TheAudio->getAllAudioEvents())
+		if (entry.second->m_soundType == AT_SoundEffect && BitTest(entry.second->m_type, ST_VOICE))
+			events.push_back(entry.first);
 	preload(events);
 	// Debris, impacts and explosions can be introduced by a weapon or a death module. Walk the
 	// loaded effect definitions without running any of them; mission audio gets the budget first.

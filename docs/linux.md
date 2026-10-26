@@ -271,11 +271,16 @@ checks cover the scenes and draws exercised, rather than every graphics feature.
 ## Mission audio preloading
 
 Mission loading retains scripted sound effects, dialogue and music, the map drawables’ ambient
-and movement sounds, and sounds named in loaded effect definitions in a bounded 128 MiB cache.
-Mission and ambient sounds get the budget before the wider effect library. Each encoded file is limited to 16 MiB; missing files and files beyond
+and movement sounds, unit voices, and sounds named in loaded effect definitions in a bounded
+256 MiB cache. Mission audio and voices of units already on the map get the budget first, then
+voices from every loaded object template and voice-tagged audio events, then the wider effect
+library. This covers units built or reinforced later, all factions, inherited/reskinned voices,
+and `Voice...` entries in `UnitSpecificSounds`, including special and upgraded commands. Creation
+and fear responses are collected from their template slots even when they lack the voice flag.
+Each encoded file is limited to 16 MiB; missing files and files beyond
 those limits keep the normal loading path. Both action branches, grouped scripts and audio-wait
 conditions are scanned without executing scripts or selecting random sound variants. Effect
-definitions are inspected without playing effects, using their current map overrides. Localization
+definitions and object templates are inspected without playing effects, using their current map overrides. Localization
 and map audio overrides are resolved before caching. Streams receive independent RAM files, and
 the cache is released between missions. Sound-effect decompression still uses the existing sample
 cache; this change removes disk reads for cached sounds rather than pre-decoding every effect.

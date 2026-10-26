@@ -1361,6 +1361,69 @@ TEST(fxlist_reforged_ini_parses_and_keeps_its_light)
 	CHECK_EQ( lit, blocks );
 }
 
+TEST(unit_voice_preload_follows_template_inheritance_map_overrides_and_reset)
+{
+	CHECK( bootOnce() );
+	GlobalData *savedGlobals = TheWritableGlobalData;
+	if (!savedGlobals) TheWritableGlobalData = NEW GlobalData;
+	AudioManager *savedAudio = TheAudio;
+	if (!savedAudio) TheAudio = NEW NullAudioManager;
+	ThingFactory *savedFactory = TheThingFactory;
+	ThingFactory factory;
+	TheThingFactory = &factory;
+	writeFile(TEST_INI,
+		"Object VoicePreloadProbe\n"
+		"  VoiceSelect = OriginalSelect\n"
+		"  VoiceCreated = OriginalCreate\n"
+		"  VoiceFear = OriginalFear\n"
+		"  VoiceAttackAir = OriginalAir\n"
+		"  VoiceGuard = OriginalGuard\n"
+		"  SoundAmbient = NotAVoice\n"
+		"  UnitSpecificSounds\n"
+		"    VoiceEnter = OriginalEnter\n"
+		"    VoiceMoveUpgraded = OriginalUpgrade\n"
+		"    VoiceEmpty = NoSound\n"
+		"    TurretMoveStart = NotAVoiceEither\n"
+		"  End\nEnd\n"
+		"ObjectReskin FutureVoicePreloadProbe VoicePreloadProbe\nEnd\n");
+	CHECK( loadIni(TEST_INI) );
+	const ThingTemplate *base = factory.findTemplate("VoicePreloadProbe");
+	const ThingTemplate *future = factory.findTemplate("FutureVoicePreloadProbe");
+	CHECK( base && future );
+	const UnsignedInt seed = GetGameLogicRandomSeedCRC();
+	std::vector<AsciiString> original, inherited;
+	base->collectVoiceEvents(original);
+	future->collectVoiceEvents(inherited);
+	CHECK_EQ( original.size(), 7u );
+	CHECK( original == inherited ); // no drawable or Object is needed for a future unit
+	writeFile(TEST_INI,
+		"Object VoicePreloadProbe\n"
+		"  VoiceSelect = MapSelect\n"
+		"  VoiceGuard = NoSound\n"
+		"  UnitSpecificSounds\n    VoiceEnter = MapEnter\n  End\nEnd\n");
+	INI ini;
+	ini.load(AsciiString(TEST_INI), INI_LOAD_CREATE_OVERRIDES, NULL);
+	std::vector<AsciiString> overridden;
+	base->collectVoiceEvents(overridden); // factory lookups return the base, not its map override
+	CHECK_EQ( overridden.size(), 5u );
+	auto contains = [](const std::vector<AsciiString>& names, const char *name) {
+		return std::find(names.begin(), names.end(), AsciiString(name)) != names.end();
+	};
+	CHECK( contains(overridden, "MapSelect") && contains(overridden, "MapEnter") );
+	CHECK( contains(overridden, "OriginalCreate") && contains(overridden, "OriginalFear") );
+	CHECK( !contains(overridden, "OriginalSelect") && !contains(overridden, "OriginalUpgrade") );
+	CHECK( !contains(overridden, "OriginalGuard") );
+	factory.reset();
+	std::vector<AsciiString> restored;
+	base->collectVoiceEvents(restored);
+	CHECK( original == restored );
+	CHECK_EQ( GetGameLogicRandomSeedCRC(), seed );
+	TheThingFactory = savedFactory;
+	if (!savedAudio) { delete TheAudio; TheAudio = NULL; }
+	if (!savedGlobals) { delete TheWritableGlobalData; TheWritableGlobalData = NULL; }
+	remove(TEST_INI);
+}
+
 TEST(fxlist_audio_preload_names_follow_map_overrides_without_playing_effects)
 {
 	CHECK( bootOnce() );

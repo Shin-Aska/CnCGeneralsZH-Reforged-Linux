@@ -150,7 +150,7 @@ class AudioManager : public SubsystemInterface
 		virtual void init();
 		virtual void postProcessLoad();
 
-		/// Cache only the current map's scripted audio, without playing it or choosing random variants.
+		/// Cache loading-screen audio, without playing it or choosing random variants.
 		void preloadAudioEvents( const std::vector<AsciiString>& events );
 		/// A private RAM file per caller: streams never share a cursor or retain cache-owned pointers.
 		File *openPreloadedAudioFile( const char *filename ) const;

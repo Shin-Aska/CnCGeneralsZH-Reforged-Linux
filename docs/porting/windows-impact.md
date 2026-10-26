@@ -105,6 +105,17 @@ for active streams, and regressions in file ownership or localization. Linux aud
 mission comparison are recorded in the task's validation results; they do not establish Windows
 runtime compatibility.
 
+### Unit voice coverage (2026-10-26)
+
+`ThingTemplate.h/.cpp` and `GameLogic.cpp` extend loading-screen preloading to unit voice slots,
+special-command `Voice...` entries in `UnitSpecificSounds`, and voice-tagged sound events. All
+loaded templates are scanned, including units not built yet and the final map overrides; voices
+for existing drawables get priority with mission audio. `GameAudio.cpp` raises the shared encoded
+cache cap to 256 MiB. The per-file limit, reset lifetime, playback fallback and random selection
+are unchanged. This also affects Windows: verification remains **OPEN** for MSVC compilation,
+selection/move/attack and special-command voices, map overrides, and mission transitions. The
+retained-memory risk is now up to 256 MiB, plus active file copies and the decoded sample cache.
+
 ## Ledger
 
 ### Linux rendering extraction audit (2026-10-18)
