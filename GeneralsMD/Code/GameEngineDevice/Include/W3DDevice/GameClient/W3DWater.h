@@ -258,16 +258,18 @@ protected:
 	Bool m_modernCpuCacheEnabled=TRUE;
 	Bool m_modernShoreObstacleBins=TRUE;
 	Bool m_modernPreparedMeshCacheEnabled=TRUE;
+	Bool m_modernCpuFftElision=TRUE;
 	WaterProjectedMeshCache::Cache m_modernTopologyCache;
 	WaterPreparedMeshCache::Cache m_modernPreparedMeshCache;
 	WaterStaticSampleCache::Cache m_modernStaticSamples;
 #endif
 	struct ModernWaterProfile {
-		double render=0,setup=0,hulls=0,obstacles=0,mesh=0,fill=0,submit=0;
+		double render=0,setup=0,hulls=0,obstacles=0,mesh=0,fill=0,submit=0,fftPrepare=0;
 		double fieldSample=0,dampingSample=0,waveSample=0,cacheSample=0;
 		size_t frames=0,vertices=0,triangles=0,patches=0,patchObstacles=0;
 		size_t attempts=0,hits=0,misses=0,samples=0,wavePoints=0;
 		size_t topologyHits=0,topologyMisses=0,staticHits=0,staticMisses=0,preparedHits=0,preparedMisses=0;
+		size_t fftPreparedPatches=0,cpuHeightsElided=0;
 	} m_modernProfile;
 	struct ModernProjectedSample { Real height,damping,obstacle,hullFreeObstacle,offshore,fftDamping,exposure; };
 	std::unordered_map<WaterProjectedMesh::WorldKey,ModernProjectedSample,WaterProjectedMesh::WorldHash> m_modernProjectedSamples;

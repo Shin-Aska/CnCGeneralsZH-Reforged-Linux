@@ -40,6 +40,15 @@ found and fixed, EA's own, not port damage.**
 - Waves, coastal effects, moving-object damping and vessel refinement continue to update each frame.
   See [the validation report](docs/modern-water-cpu-cache-validation.md) for measured savings and limits.
 
+## Linux Modern water 60 FPS target (2026-10-27)
+
+- Skips CPU wave heights that the GPU fully replaces and avoids calculating unused slopes
+  when only a height is needed, while preserving shoreline blending and fallback rendering.
+- The same SW General saved view reached a median 82.36 FPS across three RTX 4060 runs at 1080p
+  with Modern High and the same other Ultra settings. Water quality was preserved, selected water
+  pixels matched exactly, and camera movement and boat checks passed. This is not a 60 FPS minimum; see
+  [the report](docs/modern-water-60fps-goal.md) for run results and hardware limits.
+
 ## Linux Modern water 45 FPS target (2026-10-27)
 
 - Reuses unchanged terrain-clipped geometry after boat refinement and excludes distant coastal

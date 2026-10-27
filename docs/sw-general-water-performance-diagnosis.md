@@ -10,18 +10,22 @@ defect was found.
 The October 26 investigation changed documentation only; it did not implement a
 new tier. Its measurements below describe that revision, before the CPU caches.
 
-**Current status, 2026-10-27:** the bounded RTX 4060 goal keeps Modern High and
-the same 1080p / other Ultra settings. Its implementation now includes
-appearance-preserving CPU/GPU work reductions and exact reuse of the prepared,
-terrain-culled and waterline-clipped mesh after live bow refinement. Three
-comparable runs measured 19.850, 20.025 and 20.234 ms (median 20.025 ms,
-49.94 FPS). The bounded goal and its scoped validation are complete; see the
-[45 FPS goal report](modern-water-45fps-goal.md). The earlier [CPU cache
-validation](modern-water-cpu-cache-validation.md) records the previous cache
-pass and is historical for this expanded implementation. Optional geometry and
+**Current status, 2026-10-27:** the RTX 4060 saved-view goal completed at a median
+82.36 FPS across three run means (11.381, 13.128 and 12.142 ms), keeping Modern
+High, 1080p and the same other Ultra settings. Fresh checkpoint controls measured
+17.155, 16.827 and 16.568 ms (59.43 FPS median); the earlier 49.94 FPS result
+from the 45 FPS report is historical and is not a direct control. No quality
+setting changed. The final work adds scalar CPU height evaluators and skips CPU
+analytic height only where the prepared GPU FFT fully replaces it for an interior
+vertex. The selected 144,950 water pixels were RGB-identical in both normal and
+FFT-disabled comparisons; camera, boat, hull and bow checks pass. The moving-camera
+run averages 42.28 FPS, so the stationary result is not a 60 FPS minimum. One Intel
+UHD 770 Low pair went from 91.322 to 91.966 ms (10.95 to 10.87 FPS), with no
+measurable additional gain. See the [60 FPS goal report](modern-water-60fps-goal.md)
+for evidence and limitations; the earlier [45 FPS goal report](modern-water-45fps-goal.md)
+and [CPU cache validation](modern-water-cpu-cache-validation.md) remain historical. Optional geometry and
 shading tiers, reflection cadence, reduced precision and lower simulation
-frequency remain deferred. This result is a stationary-view average, not a
-45 FPS minimum; the moving-camera probe remains slower.
+frequency remain deferred.
 
 ## Saved-game comparison
 
@@ -118,14 +122,14 @@ those diagnostic ablations as player settings.
 
 ## Current implementation priorities, 2026-10-27
 
-1. **Appearance-preserving CPU reuse: implemented; runtime validation underway.**
+1. **Appearance-preserving CPU reuse: implemented and runtime validated.**
    In addition to the earlier base-lattice and static terrain/offshore/exposure
    reuse, the prepared mesh cache can now reuse the exact terrain-culled and
    waterline-clipped result, keyed after current bow refinement. Moving
    obstacles/hulls, wave heights and coastal crests continue to use current
    inputs. The previous [CPU cache validation](modern-water-cpu-cache-validation.md)
    is historical and does not validate this extension. Current goal measurements
-   and completed visual/dynamic checks are recorded in the [45 FPS goal report](modern-water-45fps-goal.md).
+   and completed visual/dynamic checks are recorded in the [60 FPS goal report](modern-water-60fps-goal.md).
 2. **Optional Water surface detail: Low / High.** After the reuse pass, consider
    a reduced projected interior lattice for Low if further geometry savings are
    needed. Preserve authored edge knots, shared seams, river/fallback geometry,
@@ -138,18 +142,22 @@ those diagnostic ablations as player settings.
    and retain High. Benchmark combined tiers only once their individual
    behaviour and visual tradeoffs are established.
 
-The latest bounded work also skips redundant GPU analytic-wave output where FFT
-weight is one and spatial slope is zero, while retaining swell derivative work;
-it writes FFT results directly into the sampled array and removes 54 packing
-copies, preserving scratch mip copies and fallback. Scoped runtime visual/dynamic
-validation is complete. Reflection cadence remains deferred.
+The latest bounded work also skips CPU analytic height evaluation only when the
+prepared GPU FFT fully replaces height for an interior vertex. Scalar CPU height
+evaluators reduce the selected shoreline/interior evaluation overhead. The earlier
+GPU work skips replaced analytic-wave output only where FFT weight is one and
+spatial slope is zero, while retaining swell derivative work; it writes FFT
+results directly into the sampled array and removes 54 packing copies, preserving
+scratch mip copies and fallback. Scoped runtime visual/dynamic validation is
+complete. Reflection cadence remains deferred.
 
 ## Reproduction artifacts
 
-Ignored local artifacts are under `build-linux/sw-water-diagnosis/`: the saved-game
-runner, individual manifests/logs/screenshots, `frame-summary.json`, and
-`shader-replay/` commands/CSV observations. No dependencies were installed, and
-the user's source saves and Options.ini were not modified.
+The October diagnosis artifacts are under `build-linux/sw-water-diagnosis/`:
+the saved-game runner, individual manifests/logs/screenshots, `frame-summary.json`,
+and `shader-replay/` commands/CSV observations. The completed RTX goal artifacts
+are under `build-linux/water-60fps-validation/`. No dependencies were installed,
+and the user's source saves and Options.ini were not modified.
 
 Game executable SHA-256:
 `d5359de932366449c7db22579cf40d1ea76e5f23dfcdc4fa404b1f0132a9c36d`.

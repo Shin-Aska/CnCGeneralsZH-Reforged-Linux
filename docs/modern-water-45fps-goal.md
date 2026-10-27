@@ -4,6 +4,9 @@ Goal completed 2026-10-27. The RTX 4060 target was reached in three consecutive
 runs, with the scoped visual, automated and motion checks completed. Further
 optimization work stops here; the limitations below remain explicit.
 
+This is the historical 45 FPS result. The later goal and fresh checkpoint
+comparison are recorded in the [60 FPS goal report](modern-water-60fps-goal.md).
+
 ## Completion target
 
 Reach at least approximately **45 FPS**, or **22.2 ms mean frame time**, on the

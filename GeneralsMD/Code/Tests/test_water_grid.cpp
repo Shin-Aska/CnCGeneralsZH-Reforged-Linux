@@ -2941,11 +2941,30 @@ TEST(water_ocean_blended_displaced_shared_edges_are_exact_through_all_morphs)
 TEST(water_ocean_height_only_evaluation_is_bit_identical_to_the_full_model)
 {
 	using namespace WaterSurfaceModel;
-	for (float time:{0.0f,3.17f,97.5f,1220.3f}) for (int i=0;i<1200;++i) {
+	for (float time:{-17.3f,0.0f,3.17f,97.5f,1220.3f}) for (int i=0;i<1200;++i) {
 		const float x=-4395.0f+i*7.731f,y=3526.0f-i*5.377f;
-		CHECK(EvaluateOceanHeight(x,y,time)==EvaluateOcean(x,y,time).height);
+		const float height=EvaluateOceanHeight(x,y,time),fullHeight=EvaluateOcean(x,y,time).height;
+		const float templateHeight=EvaluateOceanInternal<false,false>(x,y,time).height;
+		CHECK(memcmp(&height,&fullHeight,sizeof(height))==0);
+		CHECK(memcmp(&height,&templateHeight,sizeof(height))==0);
 		for (const Sample offshore: {Sample{0,0,0},Sample{0.25f,0.01f,-0.005f},Sample{1,0,0},Sample{1,0.001f,0}})
 			CHECK(EvaluateBlendedHeight(x,y,time,offshore)==EvaluateBlended(x,y,time,offshore).height);
+	}
+}
+
+TEST(water_river_height_only_evaluation_is_bit_identical_to_the_full_model)
+{
+	using namespace WaterSurfaceModel;
+	for (float time:{-17.3f,0.0f,3.17f,97.5f,1220.3f}) for (int i=0;i<1200;++i) {
+		const float x=-4395.0f+i*7.731f,y=3526.0f-i*5.377f;
+		const float height=EvaluateHeight(x,y,time),fullHeight=Evaluate(x,y,time).height;
+		CHECK(memcmp(&height,&fullHeight,sizeof(height))==0);
+		for (const Sample offshore: {Sample{-0.2f,0,0},Sample{0,0,0},Sample{0,0.01f,0},
+			Sample{0.25f,0.01f,-0.005f},Sample{0.5f,0,0},Sample{1,0,0},Sample{1.2f,0.001f,0}}) {
+			const float blended=EvaluateBlendedHeight(x,y,time,offshore);
+			const float fullBlended=EvaluateBlended(x,y,time,offshore).height;
+			CHECK(memcmp(&blended,&fullBlended,sizeof(blended))==0);
+		}
 	}
 }
 

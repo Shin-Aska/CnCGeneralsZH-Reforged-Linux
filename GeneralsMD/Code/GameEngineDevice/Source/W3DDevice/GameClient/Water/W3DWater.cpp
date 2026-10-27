@@ -3474,6 +3474,8 @@ void WaterRenderObjClass::Render(RenderInfoClass & rinfo)
 	m_modernShoreObstacleBins=!shoreBinsOption || strcmp(shoreBinsOption,"0")!=0;
 	const char *preparedOption=std::getenv("ZH_WATER_PREPARED_MESH_CACHE");
 	m_modernPreparedMeshCacheEnabled=!preparedOption || strcmp(preparedOption,"0")!=0;
+	const char *cpuFftOption=std::getenv("ZH_WATER_CPU_FFT_ELISION");
+	m_modernCpuFftElision=!cpuFftOption || strcmp(cpuFftOption,"0")!=0;
 #endif
 	m_modernFoamDrawFrame=~0u;m_modernFoamDrawObjectIDs.clear();
 	const double profileRenderStart=m_modernProfileEnabled?modernWaterProfileMilliseconds():0;
@@ -3786,6 +3788,9 @@ void WaterRenderObjClass::Render(RenderInfoClass & rinfo)
 				int(m_modernCpuCacheEnabled),m_modernProfile.topologyHits,m_modernProfile.topologyMisses,
 				m_modernProfile.staticHits,m_modernProfile.staticMisses,m_modernTopologyCache.CachedVertices(),m_modernStaticSamples.Size(),
 				m_modernProfile.preparedHits,m_modernProfile.preparedMisses,m_modernPreparedMeshCache.CachedBytes());
+			fprintf(stderr,"[water-cpu-fft] enabled=%d prepare_ms=%.4f prepared_patches=%.1f heights_elided=%.1f\n",
+				int(m_modernCpuFftElision),m_modernProfile.fftPrepare/frames,
+				m_modernProfile.fftPreparedPatches/frames,m_modernProfile.cpuHeightsElided/frames);
 			m_modernProfile=ModernWaterProfile();
 		}
 	}
@@ -5015,8 +5020,36 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 	if (projected && projectedMesh.indices.empty()) return;
 	if (!projected) m_modernRetainedVertices += vertexCount;
 	const Bool waveCage = projected && waveCageAvailable;
-	const double profileFillStart = m_modernProfileEnabled ? modernWaterProfileMilliseconds() : 0;
 	DynamicVBAccessClass vertices(BUFFER_TYPE_DYNAMIC_DX8, dynamic_fvf_type, vertexCount);
+	Bool statePreparedBeforeFill=FALSE;
+#if defined(__linux__)
+	// Acquire actual resources and the generated FFT vertex program before omitting
+	// any analytic heights. A failed preparation keeps the complete CPU fallback.
+	struct PreparedFftScope {
+		PosixDevice9 *device;
+		uint64_t token=0;
+		~PreparedFftScope() { if (token) device->End_Prepared_Water_Fft(token); }
+	} preparedFft{static_cast<PosixDevice9 *>(DX8Wrapper::_Get_D3D_Device())};
+	if (projected && !river && m_modernCpuFftElision && preparedFft.device) {
+		const double begin=m_modernProfileEnabled?modernWaterProfileMilliseconds():0;
+		Matrix3D transform(1);
+		DX8Wrapper::Set_Transform(D3DTS_WORLD,transform);
+		DX8Wrapper::Set_Vertex_Buffer(vertices);
+		DX8Wrapper::Set_Texture(0,m_riverTexture);
+		setupFlatWaterShader(TRUE,waveCage);
+		DX8Wrapper::Apply_Render_State_Changes();
+		statePreparedBeforeFill=TRUE;
+		preparedFft.token=preparedFft.device->Begin_Prepared_Water_Fft();
+		if (m_modernProfileEnabled) {
+			m_modernProfile.fftPrepare+=modernWaterProfileMilliseconds()-begin;
+			if (preparedFft.token) ++m_modernProfile.fftPreparedPatches;
+		}
+	}
+	const Bool cpuFftPrepared=preparedFft.token!=0;
+#else
+	const Bool cpuFftPrepared=FALSE;
+#endif
+	const double profileFillStart = m_modernProfileEnabled ? modernWaterProfileMilliseconds() : 0;
 	{
 		DynamicVBAccessClass::WriteLockClass lock(&vertices);
 		VertexFormatXYZNDUV2 *grid = lock.Get_Formatted_Vertex_Array();
@@ -5039,7 +5072,7 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 				return value;
 			};
 #endif
-			auto makeBaseVertex = [&](const WaterSurfaceModel::Point &p, Bool boundarySample = FALSE) {
+			auto makeBaseVertex = [&](const WaterSurfaceModel::Point &p, Bool boundarySample = FALSE, Bool directInterior = FALSE) {
 				// Sample one in 64 vertices, with the phase rotating each render. Clock reads are
 				// absent from normal runs and sparse enough not to dominate the measured work.
 				const Bool sampled = m_modernProfileEnabled && ((m_modernProfile.attempts++ + m_modernProfile.frames) & 63) == 0;
@@ -5054,6 +5087,7 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 					++m_modernProfile.samples;
 				}
 				ModernProjectedSample sample;
+				Real fftWeight=-1.0f;
 				if (cached != m_modernProjectedSamples.end()) {
 					sample = cached->second;
 					if (m_modernProfileEnabled) ++m_modernProfile.hits;
@@ -5097,21 +5131,28 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 						p.y / MAP_XY_FACTOR + m_modernHeightBorder, MAP_XY_FACTOR).height;
 #endif
 					sample.fftDamping = WaterFftGeometry::SafeDamping(hullFreeDamping, terrainDepth);
+					fftWeight=boundarySample?0.0f:fftSeam.Weight({p.x,p.y},sample.exposure);
+					const Bool elideHeight=cpuFftPrepared && directInterior && fftWeight==1.0f;
 					if (sampled) {
 						const double now = modernWaterProfileMilliseconds();
 						m_modernProfile.dampingSample += now - stamp;
 						stamp = now;
 					}
-					sample.height = sample.damping > 0 ? WaterSurfaceModel::EvaluateBlendedHeight(p.x, p.y, m_modernWaveTime,
-						offshore) * sample.damping : 0;
-					sample.height += coastalCrestHeight(p.x, p.y, offshore.height, terrainDepth, sample.obstacle, sample.damping);
+					sample.height=0;
+					if (!elideHeight) {
+						sample.height = sample.damping > 0 ? WaterSurfaceModel::EvaluateBlendedHeight(p.x, p.y, m_modernWaveTime,
+							offshore) * sample.damping : 0;
+						sample.height += coastalCrestHeight(p.x, p.y, offshore.height, terrainDepth, sample.obstacle, sample.damping);
+					} else if (m_modernProfileEnabled) ++m_modernProfile.cpuHeightsElided;
 					if (sampled) {
 						const double now = modernWaterProfileMilliseconds();
 						m_modernProfile.waveSample += now - stamp;
 						stamp = now;
 					}
-					if (m_modernProfileEnabled && sample.damping > 0) ++m_modernProfile.wavePoints;
-					if (share && m_modernProjectedSamples.size() < WaterSurfaceModel::VertexBudget) m_modernProjectedSamples.emplace(key, sample);
+					if (m_modernProfileEnabled && sample.damping > 0 && !elideHeight) ++m_modernProfile.wavePoints;
+					// The XYZ cache also serves analytic edge/transition requests. An omitted
+					// height must never be published there as a complete reusable sample.
+					if (share && !elideHeight && m_modernProjectedSamples.size() < WaterSurfaceModel::VertexBudget) m_modernProjectedSamples.emplace(key, sample);
 					if (sampled) m_modernProfile.cacheSample += modernWaterProfileMilliseconds() - stamp;
 				}
 				VertexFormatXYZNDUV2 result;
@@ -5123,7 +5164,7 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 				// CPU fallback height and authored edges retain the original combined damping.
 				// Connected coastal water shares the ocean's spectral phases. Optical R
 				// still controls colour and horizontal chop, not the wave family.
-				result.nx = boundarySample ? 0.0f : fftSeam.Weight({p.x, p.y}, sample.exposure);
+				result.nx = fftWeight>=0.0f?fftWeight:(boundarySample?0.0f:fftSeam.Weight({p.x,p.y},sample.exposure));
 				result.ny = sample.fftDamping;
 				result.nz = sample.offshore;
 				result.u1 = 0;
@@ -5216,7 +5257,7 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 				const WaterProjectedMesh::Vertex &p = projectedMesh.vertices[n];
 				if (p.boundary < 0) {
 					grid[n] = p.collar >= 0 ? correctedVertex(p.world,
-						projectedMesh.collars[p.collar]) : makeBaseVertex({Real(p.world.x), Real(p.world.y), points[0].Z});
+						projectedMesh.collars[p.collar]) : makeBaseVertex({Real(p.world.x), Real(p.world.y), points[0].Z},FALSE,p.transition<0);
 					if (p.transition >= 0) {
 						const WaterProjectedMesh::CentreTransition &transition = projectedMesh.transitions[p.transition];
 						VertexFormatXYZNDUV2 source[3];
@@ -5316,12 +5357,14 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 		profileSubmitStart = modernWaterProfileMilliseconds();
 		m_modernProfile.fill += profileSubmitStart - profileFillStart;
 	}
-	Matrix3D transform(1);
-	DX8Wrapper::Set_Transform(D3DTS_WORLD, transform);
-	DX8Wrapper::Set_Vertex_Buffer(vertices);
-	DX8Wrapper::Set_Texture(0, m_riverTexture);
-	if (river) setupJbaWaterShader();
-	else setupFlatWaterShader(TRUE, waveCage);
+	if (!statePreparedBeforeFill) {
+		Matrix3D transform(1);
+		DX8Wrapper::Set_Transform(D3DTS_WORLD, transform);
+		DX8Wrapper::Set_Vertex_Buffer(vertices);
+		DX8Wrapper::Set_Texture(0, m_riverTexture);
+		if (river) setupJbaWaterShader();
+		else setupFlatWaterShader(TRUE, waveCage);
+	}
 	RenderUInt32 cull;
 	DX8Wrapper::_Get_D3D_Device()->GetRenderState(D3DRS_CULLMODE, &cull);
 	DX8Wrapper::Set_DX8_Render_State(D3DRS_CULLMODE, D3DCULL_NONE);

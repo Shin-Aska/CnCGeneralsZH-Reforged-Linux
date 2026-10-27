@@ -12,23 +12,28 @@ mesh construction/filling that those controls left unchanged. See the
 [saved-game diagnosis](sw-general-water-performance-diagnosis.md) for the
 measurements and their limits.
 
-**Current status, 2026-10-27:** the completed bounded goal is the RTX 4060 saved-view
-target of approximately 45 FPS at the same 1080p Modern High / other Ultra
-settings, with no quality reduction. The goal implementation now includes
-neutral distant-obstacle exclusion, skipping replaced analytic GPU waves while
-retaining FFT slope work, direct FFT output into the sampled array, and exact
-reuse of prepared terrain-culled/waterline-clipped geometry after live bow
-refinement. Three comparable runs measured 19.850, 20.025 and 20.234 ms (median
-20.025 ms, 49.94 FPS). Automated, saved-view and camera/vessel checks are complete;
-the target is accepted for this stationary comparison, not as a minimum frame rate.
-See the
-[45 FPS goal report](modern-water-45fps-goal.md). The earlier
-[CPU cache validation](modern-water-cpu-cache-validation.md) is historical for
-the previous cache pass. Further optimization implementation is stopped;
-keep quality tiers, reflection cadence, precision and simulation
-frequency deferred. Preserve the working tree when choosing a checkout.
+**Current status, 2026-10-27:** the completed RTX 4060 saved-view goal reached an
+82.36 FPS median of three run means at 1080p with Modern High and the same other
+Ultra settings. The run means were 11.381, 13.128 and 12.142 ms (76.17–87.87 FPS).
+Fresh checkpoint controls measured 17.155, 16.827 and 16.568 ms (59.43 FPS median).
+The earlier 49.94 FPS result in the [45 FPS goal report](modern-water-45fps-goal.md)
+came from an earlier session and is not a direct control for this result. No water
+quality setting changed. The final work adds scalar CPU height evaluators and skips
+CPU analytic height only when the prepared GPU FFT fully replaces it for an interior
+vertex. Selected water pixels match exactly with normal and FFT-disabled paths;
+camera, boat, hull and bow checks pass. The moving-camera run averages 42.28 FPS,
+so this is not a 60 FPS minimum. An Intel UHD 770 Low pair showed no measurable
+additional gain. See the [60 FPS goal report](modern-water-60fps-goal.md) for
+results and limits. Earlier [CPU cache validation](modern-water-cpu-cache-validation.md)
+remains historical for its narrower pass. Optional quality tiers, reflection
+cadence, reduced precision and lower simulation frequency remain deferred.
 
-## New-session handoff
+## Original settings implementation handoff (historical)
+
+This handoff is retained for the initial settings work. That implementation and
+the bounded 60 FPS saved-view goal are complete; consult the current status above
+and the linked goal report for current results. Optional follow-up work remains
+deferred unless selected separately.
 
 Start by reading this plan and checking the current source revision and working
 tree. Line references describe the investigation revision and may move. Follow
@@ -57,8 +62,9 @@ Deliver the work in these stages:
    terrain/offshore/exposure pass is historical and documented in the CPU cache
    validation report. The bounded 45 FPS work extends exact reuse through the
    terrain-culled and waterline-clipped prepared mesh, keyed after live bow
-   refinement. Its runtime visual and dynamic validation remains in progress;
-   see the [45 FPS goal report](modern-water-45fps-goal.md).
+   refinement. Its runtime visual and dynamic validation is complete; see the
+   [60 FPS goal report](modern-water-60fps-goal.md). The [45 FPS goal report](modern-water-45fps-goal.md)
+   preserves results from the earlier session.
 4. **Optional quality tiers/backlog:** consider Water surface detail and Water
    shading only after the appearance-preserving CPU reuse pass. Modern foam and
    caustic controls remain later candidates. FFT storage consolidation, visibility
@@ -308,10 +314,11 @@ subsequent optional tiers.
 6. **Appearance-preserving CPU reuse (completed, 2026-10-27).** The
    caches retain the exact base projected lattice before dynamic edits and static
    terrain/offshore/exposure samples. Unit tests and source review cover cache
-   keys, invalidation and mutation isolation; native saved-view and camera-motion
-   checks are complete. Native moving-vessel and terrain-edit visual checks remain
-   outside this pass. Measurements and limits are in
-   [CPU cache validation](modern-water-cpu-cache-validation.md).
+   keys, invalidation and mutation isolation. Native saved-view, camera-motion and
+   moving-vessel/hull/bow checks are complete; terrain-edit visual checks remain
+   outside this pass. Current measurements and limits are in the
+   [60 FPS goal report](modern-water-60fps-goal.md); the narrower earlier pass is
+   recorded in [CPU cache validation](modern-water-cpu-cache-validation.md).
 7. **Optional follow-up: measure and add geometry/material tiers where justified.** Start Low mesh
    at one cell per sixteen pixels and a 64-cell analytic cap. Preserve common
    edges, boundary knots, morphing and budgets. Modern foam quality must gate
@@ -333,10 +340,13 @@ and `Data/Patch.str`.
 Reviewed again on 2026-10-26 against source, tests and Git history. Several
 current costs are deliberate correctness or compatibility tradeoffs. The tasks
 below preserve those requirements; they are not instructions to remove code
-because it looks expensive. The initial controls and CPU reuse pass are now
-implemented and measured. Integrated-GPU performance still needs further work.
-Measure follow-up gains at both Wave detail levels:
-the benefit of eliminating duplicate storage is smaller after selecting Low.
+because it looks expensive. The initial controls and CPU reuse pass are implemented
+and measured. The RTX 60 FPS saved-view goal is complete. One Intel UHD 770 Modern
+Low pair measured 91.322 ms on the baseline and 91.966 ms on the candidate, with
+no measurable additional gain; this is not broad integrated-GPU validation.
+Further integrated-GPU work remains separate from the RTX goal. Measure follow-up
+gains at both Wave detail levels: the benefit of eliminating duplicate storage is
+smaller after selecting Low.
 
 The user selected these three follow-ups on 2026-10-26:
 
