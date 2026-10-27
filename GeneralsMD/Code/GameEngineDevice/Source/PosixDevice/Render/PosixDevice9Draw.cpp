@@ -98,6 +98,9 @@ void PosixWaterShoreBegin(IDirect3DDevice9 *d,bool e) {if(d) static_cast<PosixDe
 void PosixWaterShoreEnd(IDirect3DDevice9 *d) {if(d) static_cast<PosixDevice9*>(d)->Shore_End();}
 void PosixWaterShorePatch(IDirect3DDevice9 *d,const WaterShoreOverlay::Quad *q) {if(d) static_cast<PosixDevice9*>(d)->Shore_Patch(q);}
 void PosixWaterShoreTrack(IDirect3DDevice9 *d,const WaterShoreOverlay::Quad *q) {if(d) static_cast<PosixDevice9*>(d)->Shore_Track(q);}
+bool PosixWaterGpuAvailable(IDirect3DDevice9 *d) {return d && static_cast<PosixDevice9*>(d)->Get_Gpu();}
+uint64_t PosixWaterFftBegin(IDirect3DDevice9 *d) {return d ? static_cast<PosixDevice9*>(d)->Begin_Prepared_Water_Fft() : 0;}
+void PosixWaterFftEnd(IDirect3DDevice9 *d,uint64_t token) {if(d) static_cast<PosixDevice9*>(d)->End_Prepared_Water_Fft(token);}
 
 bool PosixDevice9::Water_Fft_Requested(int vertexEngine,int pixelEngine,const VertexPipelineDescription &vertex) const
 {
@@ -1031,7 +1034,8 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	}
 	bool fft_water = PreparedWaterFft.token || (fft_requested && Gpu->Prepare_Ocean(
 		PixelShaderConstants[1][0]*WaterFftSampling::TimeScale,WaterPerformanceSettings::Applied().requestedFftResolution));
-	WaterPerformanceSettings::Applied().activeFftResolution=Gpu->Ocean_Configuration().resolution;
+	// The water pixel program below is keyed on the ocean this draw actually prepared.
+	if (fft_water) WaterPerformanceSettings::Applied().activeFftResolution=Gpu->Ocean_Configuration().resolution;
 	const SdlProgram *fft_vertex = PreparedWaterFft.token ? PreparedWaterFft.vertex
 		: fft_water ? &Programs->Water_Vertex_Program(vertex,Gpu->Ocean_Array_Output()) : NULL;
 	if (fft_vertex && fft_vertex->Shader == NULL) fft_water = false;
@@ -1174,7 +1178,7 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	const bool water_draw = pixel_engine == ENGINE_SHADER_WATER_TRAPEZOID || pixel_engine == ENGINE_SHADER_WATER_RIVER;
 	const auto &water_settings=WaterPerformanceSettings::Applied();
 	const bool ssr_colour=water_settings.sceneReflections && PixelShaderConstants[95][3]>.5f && PixelShaderConstants[95][3]<1.5f;
-	const bool water_colour=water_settings.refraction!=WaterPerformanceSettings::Off || ssr_colour;
+	const bool water_colour=WaterPerformanceSettings::SceneColourRequired(water_settings.refraction,ssr_colour);
 	if(water_draw) Gpu->Prepare_Water_Snapshot(target,water_colour,true);
 	SDL_GPUTexture *water_background = water_draw && water_colour ? Gpu->Water_Background(target) : NULL;
 	SDL_GPUTexture *water_depth = water_draw ? Gpu->Water_Depth(target) : NULL;

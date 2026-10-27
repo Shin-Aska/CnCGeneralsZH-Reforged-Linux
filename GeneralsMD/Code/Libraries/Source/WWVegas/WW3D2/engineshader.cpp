@@ -652,9 +652,7 @@ static void write_modern_water(std::string &hlsl, bool river,
 	hlsl += std::string("#define WATER_SCENE_REFLECTIONS ") + (quality.sceneReflections ? "1\n" : "0\n");
 	hlsl += "#define WATER_REFRACTION_QUALITY " + std::to_string(int(quality.refraction)) + "\n";
 #if defined(__linux__)
-	const char *analyticElision=getenv("ZH_WATER_ANALYTIC_ELISION");
-	hlsl += std::string("#define WATER_ANALYTIC_ELISION ")
-		+ (!analyticElision || strcmp(analyticElision,"0")!=0 ? "1\n" : "0\n");
+	hlsl += "#define WATER_ANALYTIC_ELISION 1\n";
 #else
 	hlsl += "#define WATER_ANALYTIC_ELISION 0\n";
 #endif

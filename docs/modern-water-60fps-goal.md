@@ -62,8 +62,7 @@ if replacement surfaces reuse old addresses; failed resets preserve it. The
 normal synchronous patch scope ends after its draws; subsequent patches and
 fallbacks are independent. No scope violations appeared in the live checks.
 
-The diagnostic `ZH_WATER_CPU_FFT_ELISION=0` retains the full CPU path. The feature
-is enabled by default on Linux; other platforms retain their existing filling
+The feature is always on for Linux, with no runtime switch; other platforms retain their existing filling
 path. Simulation frequency, FFT resolution/precision, shader material and user
 quality settings are unchanged.
 
@@ -208,7 +207,6 @@ Reproduction examples from the repository root, using fresh output names:
 
 ```sh
 python3 build-linux/water-60fps-validation/run_scene.py --cache on --gpu nvidia --water high --name fresh-high
-python3 build-linux/water-60fps-validation/run_scene.py --cache on --gpu nvidia --water high --name fresh-no-elision --env ZH_WATER_CPU_FFT_ELISION=0
 python3 build-linux/water-60fps-validation/capture_parity.py --name fresh-parity --timeout 90
 python3 build-linux/water-60fps-validation/capture_parity.py --name fresh-fallback --timeout 90 --env ZH_WATER_FFT=0
 python3 build-linux/water-60fps-validation/run_moving_boat.py --name fresh-boat

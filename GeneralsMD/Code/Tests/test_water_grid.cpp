@@ -1208,6 +1208,30 @@ TEST(water_prepared_mesh_cache_clear_refreshes_terrain_and_bounds_bypasses_prese
 	CHECK(!reused && disabled.CachedBytes()==0 && projectedCacheSameMesh(actual,input));
 }
 
+TEST(water_prepared_mesh_cache_keeps_one_entry_per_patch_and_evicts_fifo)
+{
+	using namespace WaterProjectedMesh;const auto input=preparedCacheInput();
+	int computed=0;bool reused=true;auto compute=[&](Mesh &) { ++computed; };
+	std::vector<Mesh> patches;
+	for (int patch=0;patch<3;++patch) { Mesh changed=input;changed.cells+=patch;patches.push_back(changed); }
+	WaterPreparedMeshCache::Cache cache(32u*1024u*1024u,2);
+	// Two visible patches alternate every frame; neither may evict the other.
+	for (int frame=0;frame<3;++frame) for (int patch=0;patch<2;++patch) {
+		Mesh actual=patches[patch];cache.Process(actual,5,false,false,compute,&reused);
+		CHECK(reused==(frame>0) && projectedCacheSameMesh(actual,patches[patch]));
+	}
+	CHECK(computed==2 && cache.EntryCount()==2);
+	Mesh third=patches[2];cache.Process(third,5,false,false,compute,&reused);
+	CHECK(!reused && computed==3 && cache.EntryCount()==2);
+	Mesh oldest=patches[0];cache.Process(oldest,5,false,false,compute,&reused);CHECK(!reused);
+	Mesh newest=patches[2];cache.Process(newest,5,false,false,compute,&reused);CHECK(reused);
+	WaterPreparedMeshCache::Cache disabled(32u*1024u*1024u,0);
+	for (int repeat=0;repeat<2;++repeat) {
+		Mesh actual=input;disabled.Process(actual,5,false,false,compute,&reused);
+		CHECK(!reused && disabled.EntryCount()==0 && disabled.CachedBytes()==0);
+	}
+}
+
 TEST(water_projected_clipping_preserves_reversed_shared_authored_boundaries)
 {
 	using namespace WaterProjectedMesh;

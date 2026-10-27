@@ -255,10 +255,6 @@ protected:
 	Bool m_modernProjectedCacheEnabled=TRUE;
 	Bool m_modernProfileEnabled=FALSE;
 #if defined(__linux__)
-	Bool m_modernCpuCacheEnabled=TRUE;
-	Bool m_modernShoreObstacleBins=TRUE;
-	Bool m_modernPreparedMeshCacheEnabled=TRUE;
-	Bool m_modernCpuFftElision=TRUE;
 	WaterProjectedMeshCache::Cache m_modernTopologyCache;
 	WaterPreparedMeshCache::Cache m_modernPreparedMeshCache;
 	WaterStaticSampleCache::Cache m_modernStaticSamples;

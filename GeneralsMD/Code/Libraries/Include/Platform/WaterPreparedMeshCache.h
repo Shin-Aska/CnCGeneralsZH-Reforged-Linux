@@ -1,11 +1,12 @@
-/* Exact reuse of one terrain-culled, rest-waterline-clipped projected water mesh. */
+/* Exact reuse of terrain-culled, rest-waterline-clipped projected water meshes, one per patch. */
 #pragma once
 #include "WaterProjectedMesh.h"
+#include <deque>
 
 namespace WaterPreparedMeshCache {
 class Cache {
 public:
-    explicit Cache(size_t maxBytes=32u*1024u*1024u):maxBytes_(maxBytes) {}
+    explicit Cache(size_t maxBytes=32u*1024u*1024u,size_t maxEntries=8):maxBytes_(maxBytes),maxEntries_(maxEntries) {}
 
     // The owner clears this cache when terrain, optical support or processing rules change.
     // Dynamic bow refinement is part of the complete input mesh, never an implicit key.
@@ -14,9 +15,10 @@ public:
         const Compute &compute,bool *reused=nullptr) {
         if (reused) *reused=false;
         size_t inputBytes=0;
-        if (!maxBytes_ || !std::isfinite(level) || !Measure(mesh,maxBytes_,inputBytes)) { compute(mesh);return; }
-        if (occupied_ && Same(level,level_) && cullTerrain==cullTerrain_ && waveCage==waveCage_ && Same(mesh,input_)) {
-            mesh=output_;
+        if (!maxBytes_ || !maxEntries_ || !std::isfinite(level) || !Measure(mesh,maxBytes_,inputBytes)) { compute(mesh);return; }
+        for (const Entry &entry:entries_) if (Same(level,entry.level) && cullTerrain==entry.cullTerrain &&
+            waveCage==entry.waveCage && Same(mesh,entry.input)) {
+            mesh=entry.output;
             if (reused) *reused=true;
             return;
         }
@@ -24,20 +26,25 @@ public:
         WaterProjectedMesh::Mesh before=mesh;
         compute(mesh);
         size_t outputBytes=0;
-        // Bypasses preserve the previous entry. Neither an oversized output nor invalid
+        // Bypasses preserve the existing entries. Neither an oversized output nor invalid
         // callback result can displace a valid earlier input/output pair.
         if (!Measure(mesh,maxBytes_-inputBytes,outputBytes) || !Valid(mesh)) return;
         WaterProjectedMesh::Mesh after=mesh;
         if (!Measure(before,maxBytes_,inputBytes,true) || !Measure(after,maxBytes_-inputBytes,outputBytes,true)) return;
-        std::swap(input_,before);std::swap(output_,after);
-        level_=level;cullTerrain_=cullTerrain;waveCage_=waveCage;
-        cachedBytes_=inputBytes+outputBytes;occupied_=true;
+        const size_t bytes=inputBytes+outputBytes;
+        // FIFO keeps eviction independent of frame timing, as the topology cache does.
+        while (!entries_.empty() && (entries_.size()>=maxEntries_ || cachedBytes_>maxBytes_-bytes)) {
+            cachedBytes_-=entries_.front().bytes;entries_.pop_front();
+        }
+        entries_.emplace_back();
+        Entry &entry=entries_.back();
+        std::swap(entry.input,before);std::swap(entry.output,after);
+        entry.level=level;entry.cullTerrain=cullTerrain;entry.waveCage=waveCage;entry.bytes=bytes;
+        cachedBytes_+=bytes;
     }
-    void Clear() {
-        input_=WaterProjectedMesh::Mesh{};output_=WaterProjectedMesh::Mesh{};
-        cachedBytes_=0;occupied_=false;
-    }
+    void Clear() { entries_.clear();cachedBytes_=0; }
     size_t CachedBytes() const { return cachedBytes_; }
+    size_t EntryCount() const { return entries_.size(); }
 
 private:
     static bool Same(double a,double b) {
@@ -94,9 +101,13 @@ private:
         }
         return true;
     }
-    size_t maxBytes_,cachedBytes_=0;
-    WaterProjectedMesh::Mesh input_,output_;
-    float level_=0;
-    bool occupied_=false,cullTerrain_=false,waveCage_=false;
+    struct Entry {
+        WaterProjectedMesh::Mesh input,output;
+        float level=0;
+        bool cullTerrain=false,waveCage=false;
+        size_t bytes=0;
+    };
+    size_t maxBytes_,maxEntries_,cachedBytes_=0;
+    std::deque<Entry> entries_;
 };
 }

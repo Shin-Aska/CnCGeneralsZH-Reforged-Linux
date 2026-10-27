@@ -1758,37 +1758,34 @@ TEST(fft_low_tier_preserves_energy_reality_and_filtering)
 #if defined(__linux__)
 TEST(water_analytic_remainder_elision_keeps_exact_seams_and_swell_derivatives)
 {
-    SavedShaderOption elision("ZH_WATER_ANALYTIC_ELISION"),debug("ZH_WATER_DEBUG");
+    SavedShaderOption debug("ZH_WATER_DEBUG");
     struct RestoreQuality {
         WaterPerformanceSettings::Configuration saved=WaterPerformanceSettings::Applied();
         ~RestoreQuality(){WaterPerformanceSettings::Applied()=saved;}
     } restore;
     CHECK(unsetenv(debug.name)==0);
     PixelPipelineDescription pipeline={};
-    for(unsigned enabled=0;enabled<2;++enabled) {
-        CHECK(setenv(elision.name,enabled?"1":"0",1)==0);
-        for(unsigned low=0;low<2;++low) {
-            auto &quality=WaterPerformanceSettings::Applied();quality=WaterPerformanceSettings::Configuration();
-            if(low){quality.sceneReflections=false;quality.refraction=WaterPerformanceSettings::Refraction::Off;}
-            for(auto program:{ENGINE_SHADER_WATER_TRAPEZOID,ENGINE_SHADER_WATER_RIVER}) {
-                std::string source,error,msl,why;std::vector<unsigned char> spirv;
-                CHECK(EngineShader_Pixel_Program(program,pipeline,source,COMBINER_SHADER_TARGET_SDL3_GPU));
-                CHECK(source.find(enabled?"#define WATER_ANALYTIC_ELISION 1":"#define WATER_ANALYTIC_ELISION 0")!=std::string::npos);
-                const size_t gradient=source.find("float2 fftWeightSlope=fftParameterGradient(fftWeight,parameterDx,parameterDy);");
-                const size_t branch=source.find("[branch] if(analyticRemainder)");
-                CHECK(gradient!=std::string::npos && branch!=std::string::npos && gradient<branch);
-                CHECK(source.find("|| fftWeight!=1.0 || any(fftWeightSlope!=0.0)")!=std::string::npos);
-                CHECK(source.find("waterOceanSurface(wavePosition,time,oceanSwell,analyticRemainder)")!=std::string::npos);
-                CHECK(source.find("fwidth(crestSlope)")!=std::string::npos);
-                const bool compiled=SDL3_Compile_HLSL_To_SPIRV(source,false,spirv,error);
-                if(!compiled)printf("analytic remainder elision%d low%d program%d: %s\n",enabled,low,int(program),error.c_str());
-                CHECK(compiled);if(!compiled)continue;
-                unsigned samplers=0,buffers=0;SDL3_Shader_Slots(spirv,false,samplers,buffers);
-                const char *validator=getenv("ZH_SPIRV_VAL");
-                if(validator&&*validator)CHECK(validate(validator,spirv,error));
-                CHECK(SDL3_Translate_SPIRV_To_MSL(spirv,false,msl,error));
-                CHECK(slots_kept(msl,samplers,why));
-            }
+    for(unsigned low=0;low<2;++low) {
+        auto &quality=WaterPerformanceSettings::Applied();quality=WaterPerformanceSettings::Configuration();
+        if(low){quality.sceneReflections=false;quality.refraction=WaterPerformanceSettings::Refraction::Off;}
+        for(auto program:{ENGINE_SHADER_WATER_TRAPEZOID,ENGINE_SHADER_WATER_RIVER}) {
+            std::string source,error,msl,why;std::vector<unsigned char> spirv;
+            CHECK(EngineShader_Pixel_Program(program,pipeline,source,COMBINER_SHADER_TARGET_SDL3_GPU));
+            CHECK(source.find("#define WATER_ANALYTIC_ELISION 1")!=std::string::npos);
+            const size_t gradient=source.find("float2 fftWeightSlope=fftParameterGradient(fftWeight,parameterDx,parameterDy);");
+            const size_t branch=source.find("[branch] if(analyticRemainder)");
+            CHECK(gradient!=std::string::npos && branch!=std::string::npos && gradient<branch);
+            CHECK(source.find("|| fftWeight!=1.0 || any(fftWeightSlope!=0.0)")!=std::string::npos);
+            CHECK(source.find("waterOceanSurface(wavePosition,time,oceanSwell,analyticRemainder)")!=std::string::npos);
+            CHECK(source.find("fwidth(crestSlope)")!=std::string::npos);
+            const bool compiled=SDL3_Compile_HLSL_To_SPIRV(source,false,spirv,error);
+            if(!compiled)printf("analytic remainder low%d program%d: %s\n",low,int(program),error.c_str());
+            CHECK(compiled);if(!compiled)continue;
+            unsigned samplers=0,buffers=0;SDL3_Shader_Slots(spirv,false,samplers,buffers);
+            const char *validator=getenv("ZH_SPIRV_VAL");
+            if(validator&&*validator)CHECK(validate(validator,spirv,error));
+            CHECK(SDL3_Translate_SPIRV_To_MSL(spirv,false,msl,error));
+            CHECK(slots_kept(msl,samplers,why));
         }
     }
 }

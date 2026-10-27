@@ -534,8 +534,9 @@ private:
     void applyPerformanceSettings()
     {
         WaterPerformanceSettings::Apply(options.sceneReflections,options.waveDetail,options.refraction,options.reflectionDetail);
-        WaterPerformanceSettings::Applied().sceneColourRequired = options.refraction != WaterPerformanceSettings::Off
-            || (options.sceneReflections && (options.reflection == WaterPreviewReflection::ScreenSpace
+        WaterPerformanceSettings::Applied().sceneColourRequired = WaterPerformanceSettings::SceneColourRequired(
+            WaterPerformanceSettings::Refraction(options.refraction),
+            options.sceneReflections && (options.reflection == WaterPreviewReflection::ScreenSpace
                 || options.reflection == WaterPreviewReflection::Hybrid || comparing()
                 || (options.reflection == WaterPreviewReflection::PathTraced && !pathReady)));
     }

@@ -20,9 +20,8 @@ setting and does not implement a cheaper shading tier.
   samples to the existing surface vertex budget. Linux alone enables the caches.
   Shared callers on other platforms retain the original calculation path.
 
-`ZH_WATER_CPU_CACHE=0` bypasses both caches for developer comparisons. The default
-is enabled. With `ZH_WATER_PROFILE=1`, `[water-cache]` reports reuse/miss counts and
-stored sizes. This switch is not a persisted graphics preference.
+The caches are always on for Linux Modern water; there is no runtime switch. With
+`ZH_WATER_PROFILE=1`, `[water-cache]` reports reuse/miss counts and stored sizes.
 
 ## Correctness checks
 

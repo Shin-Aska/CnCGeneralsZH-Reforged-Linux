@@ -1,6 +1,7 @@
 // Native sampling of the three-cascade Phillips ocean described by codeagent/webgl-ocean.
 // The reference uses Y-up; the game uses Z-up. The field stays entirely on the GPU.
 #pragma once
+#include <cstdint>
 #include <string>
 #include <cstdio>
 #include <cstdlib>
@@ -466,3 +467,12 @@ float2 fftParameterGradient(float value,float2 px,float2 py) {
     return source;
 }
 } // namespace WaterFftSampling
+
+#if defined(__linux__)
+class IDirect3DDevice9;
+// The W3D water renderer reaches the SDL device through these, beside PosixWaterShore*.
+bool PosixWaterGpuAvailable(IDirect3DDevice9 *);
+// Nonzero when the patch may omit analytic heights the FFT replaces; see Begin_Prepared_Water_Fft.
+uint64_t PosixWaterFftBegin(IDirect3DDevice9 *);
+void PosixWaterFftEnd(IDirect3DDevice9 *,uint64_t token);
+#endif

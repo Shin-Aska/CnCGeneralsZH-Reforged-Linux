@@ -53,7 +53,7 @@
 #if defined(__linux__)
 #include "Platform/WaterPathTracing.h"
 #include "W3DWaterPathScene.h"
-#include "../../../PosixDevice/Render/PosixDevice9.h"
+#include "Platform/WaterFftSampling.h"
 #endif
 #include "Platform/WaterTerrainCulling.h"
 #include "Platform/WaterWaveCage.h"
@@ -1175,8 +1175,7 @@ bool Supported()
 #if defined(_WIN32)
     return Direct3D11_Is_Active() && Direct3D11_Present_Is_Enabled();
 #elif defined(__linux__)
-    const auto *device=static_cast<PosixDevice9 *>(DX8Wrapper::_Get_D3D_Device());
-    return device && device->Get_Gpu();
+    return PosixWaterGpuAvailable(DX8Wrapper::_Get_D3D_Device());
 #else
     return ZH_MODERN_WATER;
 #endif
@@ -3082,9 +3081,8 @@ void WaterRenderObjClass::synchronizeWaterReflection(void)
 	const WaterScreenReflection::Mode mode = WaterScreenReflection::Resolve(
 		WaterScreenReflection::CachedEnvironment(), TheGlobalData ? TheGlobalData->m_waterReflection : 2,
 		WaterPerformanceSettings::Applied().sceneReflections);
-	WaterPerformanceSettings::Applied().sceneColourRequired =
-		WaterPerformanceSettings::Applied().refraction != WaterPerformanceSettings::Off
-		|| WaterScreenReflection::Traces(mode) || mode==WaterScreenReflection::PathTraced;
+	WaterPerformanceSettings::Applied().sceneColourRequired = WaterPerformanceSettings::SceneColourRequired(
+		WaterPerformanceSettings::Applied().refraction, WaterScreenReflection::Traces(mode));
 	if (mode != m_waterReflectionMode)
 	{
 		if (m_waterReflectionMode == WaterScreenReflection::PathTraced)
@@ -3467,17 +3465,6 @@ void WaterRenderObjClass::Render(RenderInfoClass & rinfo)
 	// Retain scope cleanup for coastal resources without admitting overlay replacement.
 	WaterShoreOverlay::Scope shoreScope(DX8Wrapper::_Get_D3D_Device(), false);
 	m_modernProfileEnabled=m_useModernWater && std::getenv("ZH_WATER_PROFILE")!=NULL;
-#if defined(__linux__)
-	// Developer A/B control: retain the original path for exact output/performance checks.
-	const char *cpuCacheOption=std::getenv("ZH_WATER_CPU_CACHE");
-	m_modernCpuCacheEnabled=!cpuCacheOption || strcmp(cpuCacheOption,"0")!=0;
-	const char *shoreBinsOption=std::getenv("ZH_WATER_SHORE_OBSTACLE_BINS");
-	m_modernShoreObstacleBins=!shoreBinsOption || strcmp(shoreBinsOption,"0")!=0;
-	const char *preparedOption=std::getenv("ZH_WATER_PREPARED_MESH_CACHE");
-	m_modernPreparedMeshCacheEnabled=!preparedOption || strcmp(preparedOption,"0")!=0;
-	const char *cpuFftOption=std::getenv("ZH_WATER_CPU_FFT_ELISION");
-	m_modernCpuFftElision=!cpuFftOption || strcmp(cpuFftOption,"0")!=0;
-#endif
 	m_modernFoamDrawFrame=~0u;m_modernFoamDrawObjectIDs.clear();
 	const double profileRenderStart=m_modernProfileEnabled?modernWaterProfileMilliseconds():0;
 	unsigned oldModernCoordIndex=0,oldModernTransformFlags=0;
@@ -3785,12 +3772,12 @@ void WaterRenderObjClass::Render(RenderInfoClass & rinfo)
 				m_modernProfile.waveSample*scale,m_modernProfile.cacheSample*scale,
 				m_modernProfile.patches?double(m_modernProfile.patchObstacles)/m_modernProfile.patches:0,
 				m_modernProfile.misses/frames,m_modernProfile.hits/frames,m_modernProfile.wavePoints/frames);
-			fprintf(stderr,"[water-cache] enabled=%d topology_hits=%zu topology_misses=%zu static_hits=%zu static_misses=%zu cached_vertices=%zu cached_samples=%zu prepared_hits=%zu prepared_misses=%zu prepared_bytes=%zu\n",
-				int(m_modernCpuCacheEnabled),m_modernProfile.topologyHits,m_modernProfile.topologyMisses,
+			fprintf(stderr,"[water-cache] topology_hits=%zu topology_misses=%zu static_hits=%zu static_misses=%zu cached_vertices=%zu cached_samples=%zu prepared_hits=%zu prepared_misses=%zu prepared_bytes=%zu\n",
+				m_modernProfile.topologyHits,m_modernProfile.topologyMisses,
 				m_modernProfile.staticHits,m_modernProfile.staticMisses,m_modernTopologyCache.CachedVertices(),m_modernStaticSamples.Size(),
 				m_modernProfile.preparedHits,m_modernProfile.preparedMisses,m_modernPreparedMeshCache.CachedBytes());
-			fprintf(stderr,"[water-cpu-fft] enabled=%d prepare_ms=%.4f prepared_patches=%.1f heights_elided=%.1f\n",
-				int(m_modernCpuFftElision),m_modernProfile.fftPrepare/frames,
+			fprintf(stderr,"[water-cpu-fft] prepare_ms=%.4f prepared_patches=%.1f heights_elided=%.1f\n",
+				m_modernProfile.fftPrepare/frames,
 				m_modernProfile.fftPreparedPatches/frames,m_modernProfile.cpuHeightsElided/frames);
 			m_modernProfile=ModernWaterProfile();
 		}
@@ -4635,9 +4622,10 @@ Real WaterRenderObjClass::modernWaterDamping(Real x, Real y, Real z, Real offsho
 	// The broad phase only omits objects whose exact narrow phase returns one. The
 	// zero-offshore circular fade also saturates at radius+9; radius+10 is conservative.
 	// Failed/outside queries retain the original ordered list and exact narrow phase.
-	Bool useBroadphase=offshore>0.0f;
 #if defined(__linux__)
-	useBroadphase=useBroadphase || m_modernShoreObstacleBins;
+	const Bool useBroadphase=TRUE;
+#else
+	const Bool useBroadphase=offshore>0.0f;
 #endif
 	const WaterObstacleIndex::Range candidates=useBroadphase?m_modernObstacleIndex.Query(x,y):WaterObstacleIndex::Range{};
 	const size_t obstacleCount=candidates.indexed?candidates.count:m_modernPatchObstacles.size();
@@ -4882,17 +4870,14 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 		if (separation > WaterSurfaceModel::MaxDisplacement*2 && projection.Prepare()) {
 #if defined(__linux__)
 			bool reused=false;
-			if (m_modernCpuCacheEnabled)
-				built=m_modernTopologyCache.Build(polygon,projection,{m_modernProjectedColumns,m_modernProjectedRows},
-					projectedMesh,m_modernProjectedBudget,boundaryKnots,&reused);
-			else
-#endif
-				built=WaterProjectedMesh::Build(polygon,projection,{m_modernProjectedColumns,m_modernProjectedRows},
-					projectedMesh,m_modernProjectedBudget,boundaryKnots);
-#if defined(__linux__)
+			built=m_modernTopologyCache.Build(polygon,projection,{m_modernProjectedColumns,m_modernProjectedRows},
+				projectedMesh,m_modernProjectedBudget,boundaryKnots,&reused);
 			if (m_modernProfileEnabled) {
 				if (reused) ++m_modernProfile.topologyHits; else ++m_modernProfile.topologyMisses;
 			}
+#else
+			built=WaterProjectedMesh::Build(polygon,projection,{m_modernProjectedColumns,m_modernProjectedRows},
+				projectedMesh,m_modernProjectedBudget,boundaryKnots);
 #endif
 		}
 		if (built) {
@@ -5002,15 +4987,14 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 				WaterTerrainCulling::CompactVertices(mesh);
 			};
 #if defined(__linux__)
-			if (m_modernCpuCacheEnabled && m_modernPreparedMeshCacheEnabled) {
-				bool reused=false;
-				m_modernPreparedMeshCache.Process(projectedMesh,points[0].Z,cullTerrain,waveCageAvailable,prepareSurface,&reused);
-				if (m_modernProfileEnabled) {
-					if (reused) ++m_modernProfile.preparedHits; else ++m_modernProfile.preparedMisses;
-				}
-			} else
+			bool reused=false;
+			m_modernPreparedMeshCache.Process(projectedMesh,points[0].Z,cullTerrain,waveCageAvailable,prepareSurface,&reused);
+			if (m_modernProfileEnabled) {
+				if (reused) ++m_modernProfile.preparedHits; else ++m_modernProfile.preparedMisses;
+			}
+#else
+			prepareSurface(projectedMesh);
 #endif
-				prepareSurface(projectedMesh);
 			vertexCount = (Int) projectedMesh.vertices.size();
 			m_modernProjectedVertices += vertexCount;
 			m_modernProjectedTriangles += projectedMesh.indices.size() / 3;
@@ -5027,11 +5011,11 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 	// Acquire actual resources and the generated FFT vertex program before omitting
 	// any analytic heights. A failed preparation keeps the complete CPU fallback.
 	struct PreparedFftScope {
-		PosixDevice9 *device;
+		IDirect3DDevice9 *device;
 		uint64_t token=0;
-		~PreparedFftScope() { if (token) device->End_Prepared_Water_Fft(token); }
-	} preparedFft{static_cast<PosixDevice9 *>(DX8Wrapper::_Get_D3D_Device())};
-	if (projected && !river && m_modernCpuFftElision && preparedFft.device) {
+		~PreparedFftScope() { if (token) PosixWaterFftEnd(device,token); }
+	} preparedFft{DX8Wrapper::_Get_D3D_Device()};
+	if (projected && !river && preparedFft.device) {
 		const double begin=m_modernProfileEnabled?modernWaterProfileMilliseconds():0;
 		Matrix3D transform(1);
 		DX8Wrapper::Set_Transform(D3DTS_WORLD,transform);
@@ -5040,7 +5024,7 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 		setupFlatWaterShader(TRUE,waveCage);
 		DX8Wrapper::Apply_Render_State_Changes();
 		statePreparedBeforeFill=TRUE;
-		preparedFft.token=preparedFft.device->Begin_Prepared_Water_Fft();
+		preparedFft.token=PosixWaterFftBegin(preparedFft.device);
 		if (m_modernProfileEnabled) {
 			m_modernProfile.fftPrepare+=modernWaterProfileMilliseconds()-begin;
 			if (preparedFft.token) ++m_modernProfile.fftPreparedPatches;
@@ -5097,8 +5081,8 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 					if (m_modernProfileEnabled) ++m_modernProfile.misses;
 #if defined(__linux__)
 					bool reused=false;
-					const WaterStaticSampleCache::Sample fields=m_modernCpuCacheEnabled
-						?m_modernStaticSamples.Get(p.x,p.y,p.z,[&](){return staticFields(p);},&reused):staticFields(p);
+					const WaterStaticSampleCache::Sample fields=
+						m_modernStaticSamples.Get(p.x,p.y,p.z,[&](){return staticFields(p);},&reused);
 					if (m_modernProfileEnabled) {
 						if(reused) ++m_modernProfile.staticHits; else ++m_modernProfile.staticMisses;
 					}

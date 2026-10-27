@@ -85,12 +85,9 @@ No dependencies or game installation updates are authorized by this goal.
   and wave time continue to update. Mesh preparation fell from about 3.8 to
   0.55–0.60 ms in the stationary target view.
 
-These changes are enabled by default on Linux. Diagnostic environment controls
-retain the old paths for comparisons: `ZH_WATER_SHORE_OBSTACLE_BINS=0`,
-`ZH_WATER_ANALYTIC_ELISION=0`, `ZH_WATER_FFT_ARRAY_OUTPUT=0`, and
-`ZH_WATER_PREPARED_MESH_CACHE=0`. `ZH_WATER_CPU_CACHE=0` also disables the prepared
-cache and the earlier base/static caches. These are developer controls, not new
-quality settings. High density, FFT precision/resolution, shading, reflection
+These changes are always on for Linux; the shore bins, analytic elision and CPU
+caches have no runtime switch. `ZH_WATER_FFT_ARRAY_OUTPUT=0` still selects the
+legacy FFT output. High density, FFT precision/resolution, shading, reflection
 refresh rules and the existing user preferences are preserved.
 
 ## Measured result
