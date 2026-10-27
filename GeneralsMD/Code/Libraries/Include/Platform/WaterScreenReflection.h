@@ -22,6 +22,10 @@ enum Mode { Mirror, ScreenSpace, Hybrid, PathTraced, SkyOnly };
 // Map-water targets; the sea keeps its separate reflection allocation.
 constexpr unsigned LegacyMirrorSize = 512;
 constexpr unsigned HybridMirrorSize = 1024;
+inline unsigned MirrorSize(Mode mode, int detail = 1) {
+	const unsigned high = mode==Hybrid || mode==PathTraced ? HybridMirrorSize : LegacyMirrorSize;
+	return detail==0 ? high/2 : high;
+}
 
 // An absent or unknown value leaves mode alone and does not override the live setting.
 inline bool Parse(const char *value, Mode &mode)
@@ -38,8 +42,9 @@ inline bool Parse(const char *value, Mode &mode)
 	return true;
 }
 
-inline Mode Resolve(const char *environment, int setting)
+inline Mode Resolve(const char *environment, int setting, bool enabled = true)
 {
+	if (!enabled) return SkyOnly;
 	Mode mode;
 	if (Parse(environment, mode)) return mode;
 	switch (setting) {

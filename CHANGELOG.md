@@ -24,6 +24,32 @@ found and fixed, EA's own, not port damage.**
 - Retains the Linux water and cloud previews, shallow-water detail and portable release packages.
 - Mission audio assets are loaded through a cache so scripted mission sounds remain available without repeatedly reopening archive data.
 
+## Linux Modern water performance controls (2026-10-26)
+
+- A Water options page groups Scene reflections, Wave detail (Low/High), Refraction (Full/Simple/Off)
+  and the existing reflection mode. Accept applies changes live; Cancel leaves the current choices alone.
+- Reflection detail (Low/High) changes planar capture resolution. High preserves the current detail;
+  Low reduces capture size. SSR and path-traced reflection resolution remain unchanged.
+- Existing profiles keep reflections on, High wave and reflection detail, and Full refraction. Settings are saved
+  separately from the water style, so Classic water and unsupported devices retain them for later use.
+
+## Linux Modern water CPU reuse (2026-10-27)
+
+- Reuses unchanged projected base meshes and static terrain, offshore and exposure samples without
+  reducing water detail. Camera, terrain and water-polygon changes refresh the affected data.
+- Waves, coastal effects, moving-object damping and vessel refinement continue to update each frame.
+  See [the validation report](docs/modern-water-cpu-cache-validation.md) for measured savings and limits.
+
+## Linux Modern water 45 FPS target (2026-10-27)
+
+- Reuses unchanged terrain-clipped geometry after boat refinement and excludes distant coastal
+  obstacles whose effect is neutral. Moving geometry and animated waves still update.
+- Skips analytic wave work already replaced by FFT and renders FFT results into the sampled
+  array, removing duplicate output storage and packing copies while retaining safe mip generation.
+- Three runs of the SW General saved view on RTX 4060 at 1080p with Modern High and other Ultra
+  settings averaged 49.4–50.4 FPS, up from the earlier cache pass's 38.1 FPS median.
+  This is a saved-view average, not a minimum frame rate. See [results and validation](docs/modern-water-45fps-goal.md).
+
 ## French
 
 - The language box under Options, Gameplay now offers Français after Русский. All 4722 lines the game shows are in French: menus, tooltips, briefings and subtitles in the words of EA's own French release, so unit names and orders read as French players have always known them, and every line Reforged added, its options, hotkeys, lobby, score screen and Turkiye included, translated to match.

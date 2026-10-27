@@ -18892,3 +18892,99 @@ END
 GUI:FactionPickSideNameHint
 "Cliquez sur le nom d'un camp pour jouer une armée aléatoire de ce camp."
 END
+
+GUI:OptionsTabWater
+"Eau"
+END
+
+GUI:OptionsGroupReflections
+"Reflets"
+END
+
+GUI:OptionsGroupModernWater
+"Eau moderne"
+END
+
+GUI:WaterReflectionEnabled
+"Reflets de scène"
+END
+
+TOOLTIP:WaterReflectionEnabled
+"Reflète la scène dans l’eau moderne. Désactivez cette option pour améliorer les performances tout en conservant la couleur du ciel et les éclats du soleil. Le mode de réflexion reste mémorisé. Appliqué quand vous cliquez sur Accepter."
+END
+
+GUI:WaterFftResolution
+"Détail des vagues"
+END
+
+GUI:WaterFftResolution0
+"Faible"
+END
+
+GUI:WaterFftResolution1
+"Élevé"
+END
+
+TOOLTIP:WaterFftResolution
+"Définit le niveau de détail des vagues de l’eau moderne. Faible améliore les performances ; Élevé affiche plus de détails. Appliqué quand vous cliquez sur Accepter."
+END
+
+GUI:WaterRefractionQuality
+"Réfraction"
+END
+
+GUI:WaterRefractionQuality0
+"Complète"
+END
+
+GUI:WaterRefractionQuality1
+"Simple"
+END
+
+GUI:WaterRefractionQuality2
+"Désactivée"
+END
+
+TOOLTIP:WaterRefractionQuality
+"Pour l’eau moderne. La réfraction complète déforme la vue sous la surface. La réfraction simple garde une eau claire sans déformation. Désactivée, l’eau est opaque et teintée pour améliorer les performances. Appliqué quand vous cliquez sur Accepter."
+END
+
+GUI:WaterReflectionDetail
+"Détail des reflets"
+END
+
+GUI:WaterReflectionDetail0
+"Faible"
+END
+
+GUI:WaterReflectionDetail1
+"Élevé"
+END
+
+TOOLTIP:WaterReflectionDetail
+"Définit la résolution des reflets de scène planaires de l’eau moderne. Faible améliore les performances ; Élevé conserve le niveau de détail actuel. La résolution SSR et du tracé de rayons reste inchangée. Appliqué quand vous cliquez sur Accepter."
+END
+
+GUI:WaterReflection
+"Mode de réflexion"
+END
+
+GUI:WaterReflection0
+"Classique"
+END
+
+GUI:WaterReflection1
+"SSR"
+END
+
+GUI:WaterReflection2
+"Hybride"
+END
+
+GUI:WaterReflection3
+"Tracé de rayons (expérimental)"
+END
+
+TOOLTIP:WaterReflection
+"Pour l’eau moderne lorsque les reflets de scène sont activés. Classique utilise les reflets d’origine. SSR reflète le contenu visible à l’écran. Hybride combine les deux et est le mode par défaut. Le tracé de rayons est une option expérimentale plus lente qui suit la géométrie de la scène. Appliqué quand vous cliquez sur Accepter."
+END

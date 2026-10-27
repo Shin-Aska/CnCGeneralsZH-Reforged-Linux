@@ -36,6 +36,7 @@
 #define SDLGPUFRAME_H
 
 #include "Platform/RenderTypes.h"
+#include "Platform/WaterFftSpectrum.h"
 
 #include <stdint.h>
 #include <string>
@@ -251,13 +252,27 @@ public:
 	/// Device depth (0..1), resolved into an independent R32_FLOAT texture between render passes.
 	/// Null if sampled depth is unsupported. Never aliases the depth attachment used by water.
 	SDL_GPUTexture * Water_Depth(const SdlTarget &source);
-	SDL_GPUTexture * Scene_Depth(const SdlTarget &source) { return Water_Depth(source); }
+	SDL_GPUTexture * Scene_Depth(const SdlTarget &source);
 	/// Read-only lookup; never captures after water/overlays have already changed the scene.
 	SDL_GPUTexture * Ready_Water_Depth(const SdlTarget &source, uint64_t &serial) const;
 	SDL_GPUTexture * Ready_Scene_Depth(const SdlTarget &source, uint64_t &serial) const { return Ready_Water_Depth(source, serial); }
 	/// Lazy, GPU-only Phillips spectrum/IFFT. Previous draws finish recording before maps change;
 	/// repeated paused times reuse the same field. Failure leaves the analytic water fallback usable.
-	bool Prepare_Ocean(float time);
+	bool Prepare_Ocean(float time, unsigned resolution=WaterFftSpectrum::Resolution);
+	WaterFftSpectrum::Configuration Ocean_Configuration() const;
+	/// Deterministic allocation-failure regression hook; never used by ordinary rendering.
+	void Fail_Next_Ocean_Rebuild_For_Test() { FailNextOceanRebuild=true; }
+	void Fail_Next_Ocean_Array_For_Test() { FailNextOceanArray=true; }
+	uint64_t Ocean_Passes() const { return OceanPasses; }
+	uint64_t Ocean_Copies() const { return OceanCopies; }
+	uint64_t Water_Colour_Captures() const { return WaterColourCaptures; }
+	uint64_t Water_Depth_Captures() const { return WaterDepthCaptures; }
+	/// Declare all scene consumers before water writes. Undemanded channels stay unavailable
+	/// until a source clear or the next frame; late consumers cannot capture earlier water.
+	void Prepare_Water_Snapshot(const SdlTarget &source, bool colour, bool depth);
+	/// In direct-array mode each logical map returns the shared array; samplers must
+	/// use Texture2DArray with the logical index as their layer.
+	bool Ocean_Array_Output() const;
 	SDL_GPUTexture * Ocean_Map(unsigned int index) const;
 	SDL_GPUTexture * Ocean_Array() const;
 	SDL_GPUSampler * Ocean_Sampler() const;
@@ -390,13 +405,14 @@ private:
 	{
 		SdlTarget Source;
 		SDL_GPUTexture *Colour, *Depth;
-		bool Ready;
+		bool ColourReady, DepthReady, Frozen;
 		uint64_t UsedFrame;
 		uint64_t CaptureSerial;
 	};
 	std::vector<WaterSnapshot> WaterSnapshots; // at most eight; replaced resources retire with their batch
 	uint64_t WaterFrame = 0;
 	uint64_t WaterCaptureSerial = 0;
+	uint64_t WaterColourCaptures = 0, WaterDepthCaptures = 0;
 	bool DepthSampleable = false;
 	SDL_GPUShader *SceneDepthVertex = NULL, *SceneDepthPixel = NULL;
 	SDL_GPUGraphicsPipeline *SceneDepthPipeline = NULL;
@@ -405,8 +421,12 @@ private:
 	OceanResources *Ocean = NULL;
 	bool OceanFailed = false, OceanReady = false;
 	float OceanTime = 0;
-	uint64_t OceanUpdates = 0;
-	bool Create_Ocean();
+	uint64_t OceanUpdates = 0, OceanPasses = 0, OceanCopies = 0;
+	uint64_t OceanPrepareFrame = UINT64_MAX;
+	unsigned OceanFailedResolution = 0, OceanRequestedResolution = 0;
+	bool FailNextOceanArray=false;
+	bool FailNextOceanRebuild = false;
+	bool Create_Ocean(WaterFftSpectrum::Configuration configuration);
 	void Release_Ocean();
 	bool Fail_Ocean(const char *reason);
 
@@ -420,7 +440,7 @@ private:
 	uint64_t CoastalSurfViewSets=0,CoastalSurfViewUpdates=0;
 	void Release_Coastal_Surf_View();
 
-	WaterSnapshot *Water_Snapshot(const SdlTarget &source, bool capture = true);
+	WaterSnapshot *Water_Snapshot(const SdlTarget &source, bool colour, bool depth, bool capture = true);
 	void Invalidate_Water_Snapshots(SDL_GPUTexture *colour, SDL_GPUTexture *depth);
 	void Refresh_Water_Snapshots();
 	bool Create_Scene_Depth_Pipeline();
@@ -440,6 +460,7 @@ private:
 		int32_t Rect[4];				///< x, y, width, height
 		uint32_t Target;				///< into Targets: where a clear or draw goes
 		bool IsBlit;					///< a copy between textures, Rect to BlitRect
+		bool IsWaterColourSnapshot;
 		bool IsDepthSnapshot;		///< sampled depth to R32_FLOAT, with neither scene attachment bound
 		SDL_GPUTexture * BlitSource;
 		SDL_GPUTexture * BlitDestination;

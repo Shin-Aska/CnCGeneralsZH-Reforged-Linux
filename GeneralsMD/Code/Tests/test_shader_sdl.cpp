@@ -74,6 +74,8 @@
 #include "Platform/WaterHullVisual.h"
 #include "Platform/WaterSurfaceModel.h"
 #include "Platform/WaterFftSampling.h"
+#include "Platform/WaterPerformanceSettings.h"
+#include "Platform/WaterMaterialProfile.h"
 #include "Platform/WaterFoamEnvironment.h"
 #include "sdl3target.h"
 #include <limits>
@@ -1719,3 +1721,212 @@ TEST(water_plain_launch_matches_explicit_validated_settings)
     }
 }
 #endif // __linux__
+
+TEST(fft_low_tier_preserves_energy_reality_and_filtering)
+{
+    using namespace WaterFftSpectrum;
+    const auto configuration=ForResolution(128);
+    CHECK(configuration.resolution==128 && configuration.phases==7 && configuration.levels==8);
+    CHECK(ForResolution(0).resolution==256);
+    const auto initial=InitialSpectrum(configuration),butterfly=Butterfly(configuration);
+    CHECK(initial==InitialSpectrum(configuration));
+    CHECK(initial.size()==128*128*3*4 && butterfly.size()==128*7*4);
+    const auto &variance=WaterFftFiltering::SpectrumVariance(configuration);
+    for(unsigned c=0;c<Cascades;++c) {
+        double energy=0,slope=0;const unsigned n=configuration.resolution;
+        for(unsigned y=0;y<n;++y) for(unsigned x=0;x<n;++x) {
+            const float *h=&initial[((c*n+y)*n+x)*4];
+            const float *opposite=&initial[((c*n+(n-y)%n)*n+(n-x)%n)*4];
+            CHECK(h[0]==opposite[2] && h[1]==-opposite[3]);
+            CHECK(h[2]==opposite[0] && h[3]==-opposite[1]);
+            double power=0;for(unsigned i=0;i<4;++i) {CHECK(std::isfinite(h[i]));power+=double(h[i])*h[i];}
+            if(x==0 || y==0 || (x==n/2 && y==n/2)) CHECK(power==0);
+            const double kx=2*Pi*(int(x)-int(n/2))/Sizes[c],ky=2*Pi*(int(y)-int(n/2))/Sizes[c];
+            energy+=power;slope+=power*(kx*kx+ky*ky);
+        }
+        CHECK(std::abs(std::sqrt(energy)*WorldScale-HeightRms[c])<HeightRms[c]*2e-7);
+        CHECK(std::abs(variance[7][c]-slope)<1e-10*(1+slope));
+        CHECK(variance[0][c]==0 && variance[8][c]==0);
+    }
+    CHECK(ButterflyHlsl(configuration).find("/7.0,")!=std::string::npos);
+    const std::string filtering=WaterFftFiltering::Source(configuration);
+    CHECK(filtering.find("fftLostSlopeVariance[8]")!=std::string::npos);
+    CHECK(filtering.find("*128.0/")!=std::string::npos);
+    CHECK(filtering.find("level,6)")!=std::string::npos);
+}
+
+#if defined(__linux__)
+TEST(water_analytic_remainder_elision_keeps_exact_seams_and_swell_derivatives)
+{
+    SavedShaderOption elision("ZH_WATER_ANALYTIC_ELISION"),debug("ZH_WATER_DEBUG");
+    struct RestoreQuality {
+        WaterPerformanceSettings::Configuration saved=WaterPerformanceSettings::Applied();
+        ~RestoreQuality(){WaterPerformanceSettings::Applied()=saved;}
+    } restore;
+    CHECK(unsetenv(debug.name)==0);
+    PixelPipelineDescription pipeline={};
+    for(unsigned enabled=0;enabled<2;++enabled) {
+        CHECK(setenv(elision.name,enabled?"1":"0",1)==0);
+        for(unsigned low=0;low<2;++low) {
+            auto &quality=WaterPerformanceSettings::Applied();quality=WaterPerformanceSettings::Configuration();
+            if(low){quality.sceneReflections=false;quality.refraction=WaterPerformanceSettings::Refraction::Off;}
+            for(auto program:{ENGINE_SHADER_WATER_TRAPEZOID,ENGINE_SHADER_WATER_RIVER}) {
+                std::string source,error,msl,why;std::vector<unsigned char> spirv;
+                CHECK(EngineShader_Pixel_Program(program,pipeline,source,COMBINER_SHADER_TARGET_SDL3_GPU));
+                CHECK(source.find(enabled?"#define WATER_ANALYTIC_ELISION 1":"#define WATER_ANALYTIC_ELISION 0")!=std::string::npos);
+                const size_t gradient=source.find("float2 fftWeightSlope=fftParameterGradient(fftWeight,parameterDx,parameterDy);");
+                const size_t branch=source.find("[branch] if(analyticRemainder)");
+                CHECK(gradient!=std::string::npos && branch!=std::string::npos && gradient<branch);
+                CHECK(source.find("|| fftWeight!=1.0 || any(fftWeightSlope!=0.0)")!=std::string::npos);
+                CHECK(source.find("waterOceanSurface(wavePosition,time,oceanSwell,analyticRemainder)")!=std::string::npos);
+                CHECK(source.find("fwidth(crestSlope)")!=std::string::npos);
+                const bool compiled=SDL3_Compile_HLSL_To_SPIRV(source,false,spirv,error);
+                if(!compiled)printf("analytic remainder elision%d low%d program%d: %s\n",enabled,low,int(program),error.c_str());
+                CHECK(compiled);if(!compiled)continue;
+                unsigned samplers=0,buffers=0;SDL3_Shader_Slots(spirv,false,samplers,buffers);
+                const char *validator=getenv("ZH_SPIRV_VAL");
+                if(validator&&*validator)CHECK(validate(validator,spirv,error));
+                CHECK(SDL3_Translate_SPIRV_To_MSL(spirv,false,msl,error));
+                CHECK(slots_kept(msl,samplers,why));
+            }
+        }
+    }
+}
+
+TEST(water_material_profiles_compile_preserve_coverage_and_shared_defaults)
+{
+    using namespace WaterMaterialProfile;
+    struct Restore {
+        Mode mode=Applied();WaterPerformanceSettings::Configuration quality=WaterPerformanceSettings::Applied();
+        ~Restore() {Applied()=mode;WaterPerformanceSettings::Applied()=quality;}
+    } restore;
+    SavedShaderOption debug("ZH_WATER_DEBUG"),surf("ZH_WATER_SURF_GPU");
+    CHECK(unsetenv("ZH_WATER_DEBUG")==0);
+    WaterPerformanceSettings::Applied()=WaterPerformanceSettings::Configuration();
+    PixelPipelineDescription pipeline={};
+    pipeline.AlphaTestEnabled=true;pipeline.AlphaFunction=FF_CMP_GREATER;pipeline.FogEnabled=true;
+    for(bool coastal:{false,true}) {
+        if(coastal) CHECK(setenv("ZH_WATER_SURF_GPU","1",1)==0);
+        else CHECK(unsetenv("ZH_WATER_SURF_GPU")==0);
+        for(auto program:{ENGINE_SHADER_WATER_TRAPEZOID,ENGINE_SHADER_WATER_RIVER}) {
+            Applied()=Full;std::string baseline,shared;
+            CHECK(EngineShader_Pixel_Program(program,pipeline,baseline,COMBINER_SHADER_TARGET_SDL3_GPU));
+            CHECK(EngineShader_Pixel_Program(program,pipeline,shared,COMBINER_SHADER_TARGET_D3D11));
+            const size_t coverage=baseline.find("    float4 current;");
+            CHECK(coverage!=std::string::npos);
+            for(unsigned i=0;i<Count;++i) {
+                Applied()=Mode(i);Mode parsed=Count;
+                CHECK(Parse(Name(Applied()),parsed) && parsed==Applied());
+                std::string source,error,d3d;std::vector<unsigned char> spirv;
+                CHECK(EngineShader_Pixel_Program(program,pipeline,source,COMBINER_SHADER_TARGET_SDL3_GPU));
+                const bool compiled=SDL3_Compile_HLSL_To_SPIRV(source,false,spirv,error);
+                if(!compiled) printf("material profile %s coastal%d program%d: %s\n",Name(Applied()),coastal,program,error.c_str());
+                CHECK(compiled);
+                const size_t tail=source.find("    float4 current;");
+                CHECK(tail!=std::string::npos);
+                if(tail!=std::string::npos && coverage!=std::string::npos)
+                    CHECK(source.substr(tail)==baseline.substr(coverage));
+                if(Applied()==Full) CHECK(source==baseline);
+                CHECK(EngineShader_Pixel_Program(program,pipeline,d3d,COMBINER_SHADER_TARGET_D3D11));
+                CHECK(d3d==shared);
+                // Confirm the compiler actually removes selected expensive sampled inputs.
+                if(compiled && (Applied()==ConstantSurface || Applied()==NoSkyReflection || Applied()==NoSeabedDetail)) {
+                    spvc_context context=NULL;CHECK(spvc_context_create(&context)==SPVC_SUCCESS);
+                    if(context) {
+                        std::vector<SpvId> words(spirv.size()/sizeof(SpvId));memcpy(words.data(),spirv.data(),spirv.size());
+                        spvc_parsed_ir ir=NULL;spvc_compiler compiler=NULL;spvc_resources resources=NULL;spvc_set active=NULL;
+                        bool reflected=spvc_context_parse_spirv(context,words.data(),words.size(),&ir)==SPVC_SUCCESS
+                            && spvc_context_create_compiler(context,SPVC_BACKEND_NONE,ir,SPVC_CAPTURE_MODE_TAKE_OWNERSHIP,&compiler)==SPVC_SUCCESS
+                            && spvc_compiler_get_active_interface_variables(compiler,&active)==SPVC_SUCCESS
+                            && spvc_compiler_create_shader_resources_for_active_variables(compiler,&resources,active)==SPVC_SUCCESS;
+                        const spvc_reflected_resource *images=NULL;size_t count=0;
+                        reflected=reflected && spvc_resources_get_resource_list_for_type(resources,SPVC_RESOURCE_TYPE_SEPARATE_IMAGE,&images,&count)==SPVC_SUCCESS;
+                        CHECK(reflected);bool depth=false;
+                        if(reflected) for(size_t j=0;j<count;++j) {
+                            const std::string name=images[j].name;
+                            if(Applied()==ConstantSurface || Applied()==NoSkyReflection) CHECK(name!="Texture1");
+                            if(Applied()==ConstantSurface || Applied()==NoSeabedDetail) CHECK(name!="Texture7");
+                            if(Applied()==ConstantSurface) CHECK(name!="Texture5");
+                            depth|=name=="Texture6";
+                        }
+                        CHECK(depth);spvc_context_destroy(context);
+                    }
+                }
+            }
+            Applied()=Full;std::string restored;
+            CHECK(EngineShader_Pixel_Program(program,pipeline,restored,COMBINER_SHADER_TARGET_SDL3_GPU));
+            CHECK(restored==baseline);
+        }
+    }
+    Mode unchanged=Full;CHECK(!Parse("low",unchanged) && unchanged==Full);
+}
+
+TEST(water_material_profiles_compile_with_every_public_water_tier)
+{
+    using namespace WaterMaterialProfile;
+    struct Restore {
+        Mode profile=Applied();WaterPerformanceSettings::Configuration quality=WaterPerformanceSettings::Applied();
+        ~Restore() {Applied()=profile;WaterPerformanceSettings::Applied()=quality;}
+    } restore;
+    SavedShaderOption debug("ZH_WATER_DEBUG"),surf("ZH_WATER_SURF_GPU");
+    CHECK(unsetenv("ZH_WATER_DEBUG")==0);CHECK(unsetenv("ZH_WATER_SURF_GPU")==0);
+    PixelPipelineDescription pipeline={};
+    pipeline.AlphaTestEnabled=true;pipeline.AlphaFunction=FF_CMP_GREATER;pipeline.FogEnabled=true;
+    unsigned variants=0;
+    for(unsigned resolution:{128u,256u}) for(unsigned refraction=0;refraction<3;++refraction)
+        for(bool reflections:{false,true}) for(auto program:{ENGINE_SHADER_WATER_TRAPEZOID,ENGINE_SHADER_WATER_RIVER})
+            for(unsigned profile=0;profile<Count;++profile) {
+                auto &quality=WaterPerformanceSettings::Applied();quality.activeFftResolution=resolution;
+                quality.refraction=WaterPerformanceSettings::Refraction(refraction);quality.sceneReflections=reflections;
+                Applied()=Mode(profile);std::string source,error;std::vector<unsigned char> spirv;
+                CHECK(EngineShader_Pixel_Program(program,pipeline,source,COMBINER_SHADER_TARGET_SDL3_GPU));
+                const bool compiled=SDL3_Compile_HLSL_To_SPIRV(source,false,spirv,error);
+                if(!compiled) printf("profile/tier %s/%u/%u/%u program%d: %s\n",Name(Applied()),resolution,refraction,reflections,program,error.c_str());
+                CHECK(compiled);++variants;
+            }
+    CHECK(variants==168);
+}
+
+TEST(water_performance_tiers_compile_both_materials_and_preserve_shared_defaults)
+{
+    struct Restore { WaterPerformanceSettings::Configuration saved=WaterPerformanceSettings::Applied();
+        ~Restore() {WaterPerformanceSettings::Applied()=saved;} } restore;
+    PixelPipelineDescription pipeline={};
+    std::string d3dBaseline;
+    CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,d3dBaseline,COMBINER_SHADER_TARGET_D3D11));
+    for(unsigned resolution:{128u,256u}) for(unsigned refraction=0;refraction<3;++refraction) for(bool reflections:{false,true}) {
+        auto &settings=WaterPerformanceSettings::Applied();settings.activeFftResolution=resolution;
+        settings.refraction=WaterPerformanceSettings::Refraction(refraction);settings.sceneReflections=reflections;
+        for(auto program:{ENGINE_SHADER_WATER_TRAPEZOID,ENGINE_SHADER_WATER_RIVER}) {
+            std::string source,error;std::vector<unsigned char> spirv;
+            CHECK(EngineShader_Pixel_Program(program,pipeline,source,COMBINER_SHADER_TARGET_SDL3_GPU));
+            const bool compiled=SDL3_Compile_HLSL_To_SPIRV(source,false,spirv,error);
+            if(!compiled) printf("water tier %u/%u/%u program%d: %s\n",resolution,refraction,reflections,program,error.c_str());
+            CHECK(compiled);
+            if(compiled && !reflections && refraction==WaterPerformanceSettings::Off) {
+                spvc_context context=NULL;CHECK(spvc_context_create(&context)==SPVC_SUCCESS);
+                if(context) {
+                    std::vector<SpvId> words(spirv.size()/sizeof(SpvId));memcpy(words.data(),spirv.data(),spirv.size());
+                    spvc_parsed_ir ir=NULL;spvc_compiler compiler=NULL;spvc_resources resources=NULL;spvc_set active=NULL;
+                    bool reflected=spvc_context_parse_spirv(context,words.data(),words.size(),&ir)==SPVC_SUCCESS
+                        && spvc_context_create_compiler(context,SPVC_BACKEND_NONE,ir,SPVC_CAPTURE_MODE_TAKE_OWNERSHIP,&compiler)==SPVC_SUCCESS
+                        && spvc_compiler_get_active_interface_variables(compiler,&active)==SPVC_SUCCESS
+                        && spvc_compiler_create_shader_resources_for_active_variables(compiler,&resources,active)==SPVC_SUCCESS;
+                    const spvc_reflected_resource *images=NULL;size_t count=0;
+                    reflected=reflected && spvc_resources_get_resource_list_for_type(resources,SPVC_RESOURCE_TYPE_SEPARATE_IMAGE,&images,&count)==SPVC_SUCCESS;
+                    CHECK(reflected);bool depth=false;
+                    if(reflected) for(size_t i=0;i<count;++i) {
+                        const std::string name=images[i].name;
+                        CHECK(name!="Texture1" && name!="Texture5" && name!="Texture7");
+                        depth|=name=="Texture6";
+                    }
+                    CHECK(depth);spvc_context_destroy(context);
+                }
+            }
+        }
+        std::string d3d;
+        CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,d3d,COMBINER_SHADER_TARGET_D3D11));
+        CHECK(d3d==d3dBaseline);
+    }
+}
+#endif

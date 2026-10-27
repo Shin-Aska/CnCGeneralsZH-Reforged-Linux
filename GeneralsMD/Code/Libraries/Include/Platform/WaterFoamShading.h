@@ -39,6 +39,7 @@ float3 waterFoamPlanarTap(float3 sky,float2 uv,float levelCoverage,bool linearCa
 }
 float3 waterFoamPlanarReflection(float3 sky,float2 uv,float2 distortion,
     float2 reflectionScale,float roughness,float levelCoverage,bool linearCapture) {
+    [branch] if(levelCoverage<=0.0) return sky;
     float2 radius=saturate(roughness)*0.008/max(reflectionScale,float2(0.001,0.001));
     float2 centre=uv+distortion;
     return waterFoamPlanarTap(sky,centre,levelCoverage,linearCapture)*0.4

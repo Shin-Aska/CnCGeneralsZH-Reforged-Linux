@@ -2078,6 +2078,7 @@ Libraries/Include/Platform/WaterHullModel.h
 Libraries/Include/Platform/WaterHullPoseCache.h
 Libraries/Include/Platform/WaterHullVisual.h
 Libraries/Include/Platform/WaterHullVisualLayout.h
+Libraries/Include/Platform/WaterMaterialProfile.h
 Libraries/Include/Platform/WaterObstacleIndex.h
 Libraries/Include/Platform/WaterOpticalContext.h
 Libraries/Include/Platform/WaterOpticalModel.h
@@ -2088,7 +2089,10 @@ Libraries/Include/Platform/WaterPathTracingScene.h
 Libraries/Include/Platform/WaterPathTracingSchedule.h
 Libraries/Include/Platform/WaterPathTracingShader.h
 Libraries/Include/Platform/WaterPathTracingView.h
+Libraries/Include/Platform/WaterPerformanceSettings.h
+Libraries/Include/Platform/WaterPreparedMeshCache.h
 Libraries/Include/Platform/WaterProjectedMesh.h
+Libraries/Include/Platform/WaterProjectedMeshCache.h
 Libraries/Include/Platform/WaterSceneBank.h
 Libraries/Include/Platform/WaterScreenReflection.h
 Libraries/Include/Platform/WaterShoreFoam.h
@@ -2096,6 +2100,7 @@ Libraries/Include/Platform/WaterShoreHistory.h
 Libraries/Include/Platform/WaterShoreOverlay.h
 Libraries/Include/Platform/WaterShoreSource.h
 Libraries/Include/Platform/WaterShoreSupport.h
+Libraries/Include/Platform/WaterStaticSampleCache.h
 Libraries/Include/Platform/WaterSurfaceModel.h
 Libraries/Include/Platform/WaterTerrainCulling.h
 Libraries/Include/Platform/WaterVesselMotion.h
@@ -4298,6 +4303,7 @@ Tools/vendor.sh
 Tools/versionUpdate/versionUpdate.cpp
 Tools/versionUpdate/versionUpdate.dsp
 Tools/vfx_tune.py
+Tools/water-performance-check.py
 Tools/water_grid_oracle_extract.py
 Tools/water_preview.cpp
 Tools/widechar_check.py

@@ -17,6 +17,16 @@ inline bool Enabled() {
     const char *value=std::getenv("ZH_WATER_FFT");
     return !value || std::strcmp(value,"0")!=0;
 }
+// Linux direct output uses one array for all six mipmapped fields; 0 selects the legacy A/B path.
+// Shared shader callers retain their independent-map defaults.
+inline bool ArrayOutputEnabled() {
+#if defined(__linux__)
+    const char *value=std::getenv("ZH_WATER_FFT_ARRAY_OUTPUT");
+    return !value || std::strcmp(value,"0")!=0;
+#else
+    return false;
+#endif
+}
 // The reference's close water-level camera uses metre-sized waves. Generals' RTS camera
 // requires a larger render scale; scale wavelength and displacement together, not normals.
 constexpr float WorldScale=WaterFftSpectrum::WorldScale;
@@ -101,9 +111,9 @@ FftHorizontalRegistration fftHorizontalRegistration(float2 p,float3 raw,float3 r
 }
 )HLSL";
 }
-inline std::string VertexSource(bool bowLift=false,bool bowShoulder=WaterBowShoulder::Enabled())
+inline std::string VertexSource(bool bowLift=false,bool bowShoulder=WaterBowShoulder::Enabled(),bool textureArray=false)
 {
-    return std::string(R"HLSL(
+    std::string source=std::string(R"HLSL(
 Texture2D FftDisplacement0 : register(t0);
 SamplerState FftSampler0 : register(s0);
 Texture2D FftDisplacement1 : register(t1);
@@ -150,10 +160,19 @@ float3 fftVertexDisplacement(float2 p,float level,float horizontalScale) {
 float3 fftVertexDisplacement(float2 p,float level) {return fftVertexDisplacement(p,level,0.0);}
 float3 fftVertexDisplacement(float2 p) {return fftVertexDisplacement(p,WaterParameters.w);}
 )HLSL";
+    if(textureArray) for(unsigned cascade=0;cascade<3;++cascade) {
+        const std::string i=std::to_string(cascade);
+        const std::string declaration="Texture2D FftDisplacement"+i;
+        source.replace(source.find(declaration),declaration.size(),"Texture2DArray FftDisplacement"+i);
+        const std::string coordinate="p/("+std::string(cascade==0?"450.0":cascade==1?"103.0":"13.0")+"*fftWorldScale)";
+        const std::string sample="FftDisplacement"+i+".SampleLevel(FftSampler"+i+","+coordinate+",0)";
+        source.replace(source.find(sample),sample.size(),"FftDisplacement"+i+".SampleLevel(FftSampler"+i+",float3("+coordinate+","+std::to_string(cascade*2)+"),0)");
+    }
+    return source;
 }
 // Add a water-only wrapper to the generated fixed vertex program. It retains the engine's
 // original projection, shroud coordinate generation and fog after moving the actual vertex.
-inline bool WrapVertex(std::string &hlsl,bool bowLift=WaterBowLift::Enabled(),bool bowShoulder=WaterBowShoulder::Enabled())
+inline bool WrapVertex(std::string &hlsl,bool bowLift=WaterBowLift::Enabled(),bool bowShoulder=WaterBowShoulder::Enabled(),bool textureArray=false)
 {
     const std::string entry="Output main(Input input)";
     const size_t at=hlsl.find(entry);
@@ -161,7 +180,7 @@ inline bool WrapVertex(std::string &hlsl,bool bowLift=WaterBowLift::Enabled(),bo
         || hlsl.find("float2 TexCoord1")==std::string::npos) return false;
     hlsl.replace(at,entry.size(),"Output waterFixedVertex(Input input)");
     hlsl+=UniformSource("WaterVertexParameters",1);
-    hlsl+=VertexSource(bowLift,bowShoulder);
+    hlsl+=VertexSource(bowLift,bowShoulder,textureArray);
     hlsl+=WaterWaveCageShader::Source(true);
     hlsl+=std::string(R"HLSL(
 Output main(Input input)
@@ -202,9 +221,9 @@ Output main(Input input)
 )HLSL";
     return true;
 }
-inline std::string PixelSource(bool bowLift=false,bool bowShoulder=WaterBowShoulder::Enabled(),bool textureArray=false)
+inline std::string PixelSource(bool bowLift=false,bool bowShoulder=WaterBowShoulder::Enabled(),bool textureArray=false,WaterFftSpectrum::Configuration configuration=WaterFftSpectrum::ForResolution(WaterFftSpectrum::Resolution))
 {
-    std::string source=CommonSource()+(bowLift?WaterBowLift::Source():std::string())+WaterVesselWaves::Source(true,bowShoulder)+WaterFftFiltering::Source()+R"HLSL(
+    std::string source=CommonSource()+(bowLift?WaterBowLift::Source():std::string())+WaterVesselWaves::Source(true,bowShoulder)+WaterFftFiltering::Source(configuration)+R"HLSL(
 )HLSL"+(bowLift?R"HLSL(struct FftSurface {
     float3 bow;
     float bowLimitedDelta;

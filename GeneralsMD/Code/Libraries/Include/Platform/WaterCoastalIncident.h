@@ -23,7 +23,7 @@ inline bool ReplaceOnce(std::string &text,const std::string &old,const std::stri
     const size_t at=text.find(old);if(at==std::string::npos||text.find(old,at+old.size())!=std::string::npos)return false;
     text.replace(at,old.size(),replacement);return true;
 }
-inline bool PixelSource(std::string &result){
+inline bool PixelSource(std::string &result,bool textureArray=false){
     result.clear();
     // Extract the actual production decoder and map-coordinate convention. A changed
     // source contract fails optional creation; it cannot silently invent another ocean.
@@ -39,9 +39,16 @@ inline bool PixelSource(std::string &result){
         if(!ReplaceOnce(sampling,"Texture"+std::to_string(8+i),"IncidentTexture"+std::to_string(4+i))
             ||!ReplaceOnce(sampling,"Sampler"+std::to_string(8+i),"IncidentSampler"+std::to_string(4+i)))return false;
     }
+    if(textureArray) for(unsigned layer=0;layer<4;++layer) {
+        const std::string slot=std::to_string(4+layer),cascade=std::to_string(layer/2);
+        const std::string coordinate="p/("+std::string(layer<2?"450.0":"103.0")+"*fftWorldScale)";
+        const std::string sample="IncidentTexture"+slot+".SampleLevel(IncidentSampler"+slot+","+coordinate+",lod["+cascade+"])",
+            arraySample="IncidentTexture"+slot+".SampleLevel(IncidentSampler"+slot+",float3("+coordinate+","+std::to_string(layer)+"),lod["+cascade+"])";
+        if(!ReplaceOnce(sampling,sample,arraySample)) return false;
+    }
     std::string source;
     for(unsigned i=0;i<SamplerCount;++i){const std::string n=std::to_string(i);
-        source+="Texture2D<float4> IncidentTexture"+n+" : register(t"+n+",space2);\n"
+        source+=std::string(textureArray && i>=4?"Texture2DArray<float4> IncidentTexture":"Texture2D<float4> IncidentTexture")+n+" : register(t"+n+",space2);\n"
             +"SamplerState IncidentSampler"+n+" : register(s"+n+",space2);\n";}
     source+="cbuffer IncidentParameters:register(b0,space3){float4 Parameters;};\n";
     source+=WaterFftSampling::CommonSource()+structure+sampling+decode

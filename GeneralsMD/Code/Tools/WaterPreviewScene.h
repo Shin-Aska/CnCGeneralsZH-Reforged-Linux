@@ -8,6 +8,7 @@
 #include "WaterPreviewReflectionBar.h"
 #include "Platform/EngineShaderName.h"
 #include "Platform/WaterSceneBank.h"
+#include "Platform/WaterPerformanceSettings.h"
 #include "engineshader.h"
 #include "SdlRenderMatrix.h"
 #include <algorithm>
@@ -57,7 +58,6 @@ public:
     {
         device=d;
         background=texture(bank.colour);
-        mirror=texture(bank.mirror);
         for (const auto &draw:bank.draws) {
             Resources r;
             r.vertices=vertexBuffer(draw.vertices.data(),draw.vertices.size(),draw.fvf);
@@ -66,7 +66,9 @@ public:
             require(device->CreatePixelShader(tokens,&r.shader),"create bank water shader");
             resources.push_back(r.shader);
             PosixDevice_Name_Shader(r.shader,draw.program==ENGINE_SHADER_WATER_RIVER?"river water ps.1.1":"trapezoid water ps.1.1");
-            for (unsigned stage=0;stage<16;++stage) r.textures[stage]=texture(draw.textures[stage]);
+            // The captured planar image is uploaded lazily by water().
+            for (unsigned stage=0;stage<16;++stage)
+                if (stage!=1) r.textures[stage]=texture(draw.textures[stage]);
             draws.push_back(r);
         }
         createOcclusion();
@@ -245,8 +247,12 @@ private:
     }
     void water(int reflection,float elapsed,bool edited,const WaterPreviewColor::Values &values,bool bubbles,int mode,float clarity)
     {
+        const bool needsPlanar=WaterPerformanceSettings::Applied().sceneReflections
+            && reflection!=WaterPreviewReflection::ScreenSpace;
+        if (needsPlanar && !mirror) mirror=texture(bank.mirror);
         for (size_t i=0;i<draws.size();++i) {
-            const auto &d=bank.draws[i]; const auto &r=draws[i];
+            const auto &d=bank.draws[i]; auto &r=draws[i];
+            if (needsPlanar && !r.textures[1]) r.textures[1]=texture(d.textures[1]);
             for (unsigned s=0;s<256;++s) device->SetRenderState(D3DRENDERSTATETYPE(s),d.renderStates[s]);
             for (unsigned s=0;s<16;++s) {
                 device->SetTexture(s,r.textures[s]);
@@ -272,11 +278,11 @@ private:
             if (!d.vertexConstants.empty()) require(device->SetVertexShaderConstantF(0,d.vertexConstants.data(),unsigned(d.vertexConstants.size()/4)),"restore bank vertex constants");
             float water[4]; std::memcpy(water,d.pixelConstants.data()+4,sizeof(water)); water[0]+=elapsed;
             IDirect3DTexture9 *reflectionTexture=d.pixelConstants[6]>.5f && r.textures[1]?r.textures[1]:mirror;
-            const bool usesMirror=mirror && reflection!=WaterPreviewReflection::ScreenSpace && reflectionTexture;
+            const bool usesMirror=WaterPerformanceSettings::Applied().sceneReflections && mirror && reflection!=WaterPreviewReflection::ScreenSpace && reflectionTexture;
             water[2]=usesMirror?1.f:0.f;
             device->SetTexture(1,usesMirror?reflectionTexture:nullptr); device->SetPixelShaderConstantF(1,water,1);
             float parameters[4]; std::memcpy(parameters,d.pixelConstants.data()+95*4,sizeof(parameters));
-            parameters[3]=reflection==WaterPreviewReflection::Mirror?0.f:1.f;
+            parameters[3]=!WaterPerformanceSettings::Applied().sceneReflections || reflection==WaterPreviewReflection::Mirror?0.f:1.f;
             if (edited) {
                 const float colour[]={values.red,values.green,values.blue,values.brightness};
                 device->SetPixelShaderConstantF(94,colour,1);

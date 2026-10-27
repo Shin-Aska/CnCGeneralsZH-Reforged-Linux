@@ -149,6 +149,14 @@ enum { WATER_STYLE_COUNT = 2 };
 // Modern water reflection modes; experimental path tracing is optional.
 enum { WATER_REFLECTION_COUNT = 4 };
 
+// Linux Modern water performance choices. Stored indices are independent of reflection mode.
+enum { WATER_FFT_RESOLUTION_COUNT = 2 }; // Low (128), High (256)
+enum { WATER_REFRACTION_QUALITY_COUNT = 3 }; // Full, Simple, Off
+enum { WATER_REFLECTION_DETAIL_COUNT = 2 }; // Low, High planar resolution; SSR/path tracing unchanged
+
+/** Linux Modern water controls which must retain their preference when the device is unsupported. */
+extern Bool isLinuxModernWaterOption( const OptionDef& def );
+
 // Classic is the original hazard effect; Volumetric is the SDL toxin/radiation cloud.
 enum { CLOUD_STYLE_COUNT = 2 };
 

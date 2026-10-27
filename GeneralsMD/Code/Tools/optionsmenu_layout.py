@@ -48,8 +48,9 @@ from wndlayout import clone
 # and the version line all start and stop.  The frame is as tall as the tallest group column needs -
 # Effects' Shadows column and Graphics' Quality column both end 312 pixels below their heading, on the
 # page's last pixel - plus the title, the tabs and the buttons, and it is centred on the 600 line: 58
-# above it, 58 below.  A column that runs past the page is refused when the layout is built.  Eight tabs
-# still fit the inner width at 87 pixels each.
+# above it, 58 below.  A column that runs past the page is refused when the layout is built.  Nine tabs
+# share the inner width. OptionsMenu.cpp hides the Linux Water tab where unsupported and restores
+# the original eight-tab widths.
 PANEL = (20, 58, 760, 484)          # left, top, width, height
 INNER_LEFT, INNER_WIDTH = 36, 728
 TITLE = (INNER_LEFT, 64, 400, 32)
@@ -63,6 +64,7 @@ TABS = [
     ("PageDisplay",  "TabDisplay",  "GUI:OptionsTabDisplay"),
     ("PageGraphics", "TabGraphics", "GUI:OptionsTabGraphics"),
     ("PageEffects",  "TabEffects",  "GUI:OptionsTabEffects"),
+    ("PageWater",    "TabWater",    "GUI:OptionsTabWater"),
     ("PageAudio",    "TabAudio",    "GUI:OptionsTabAudio"),
     ("PageControls", "TabControls", "GUI:OptionsTabControls"),
     ("PageInterface", "TabInterface", "GUI:OptionsTabInterface"),
@@ -172,6 +174,13 @@ NEW_CONTROLS = [
     (COMBO,  "ComboBoxCloudStyle",      None),
     (LABEL,  "LabelWaterReflection",   "GUI:WaterReflection"),
     (COMBO,  "ComboBoxWaterReflection", None),
+    (LABEL,  "LabelWaterReflectionDetail", "GUI:WaterReflectionDetail"),
+    (COMBO,  "ComboBoxWaterReflectionDetail", None),
+    (CHECK,  "CheckWaterReflectionEnabled", "GUI:WaterReflectionEnabled"),
+    (LABEL,  "LabelWaterFftResolution", "GUI:WaterFftResolution"),
+    (COMBO,  "ComboBoxWaterFftResolution", None),
+    (LABEL,  "LabelWaterRefractionQuality", "GUI:WaterRefractionQuality"),
+    (COMBO,  "ComboBoxWaterRefractionQuality", None),
     (LABEL,  "LabelMSAA",              "GUI:MSAA"),
     (COMBO,  "ComboBoxMSAA",           None),
     (LABEL,  "LabelBloom",             "GUI:Bloom"),
@@ -382,15 +391,22 @@ GROUP_LAYOUT = [
             ("check", "CheckExtraAnimations"),
             ("check", "CheckTreeSway"),
             ("check", "CheckBehindBuilding"),
-            # Debris is scenery animation; this also leaves room below Particles for Reflections.
+            # Debris is scenery animation.
             ("check", "CheckDebrisTrails")]),
         ("GUI:OptionsGroupParticles", [
             setting("LabelParticleCap", "ParticleCapSlider", "ValueParticleCap"),
             setting("LabelSmoke", "ComboBoxSmoke"),
             ("check", "CheckParticleBounce"),
-            ("check", "CheckSmokeFireLighting")]),
+            ("check", "CheckSmokeFireLighting")])]),
+
+    ("PageWater", [
+        ("GUI:OptionsGroupModernWater", [
+            setting("LabelWaterFftResolution", "ComboBoxWaterFftResolution"),
+            setting("LabelWaterRefractionQuality", "ComboBoxWaterRefractionQuality")]),
         ("GUI:OptionsGroupReflections", [
-            setting("LabelWaterReflection", "ComboBoxWaterReflection")])]),
+            ("check", "CheckWaterReflectionEnabled"),
+            setting("LabelWaterReflection", "ComboBoxWaterReflection"),
+            setting("LabelWaterReflectionDetail", "ComboBoxWaterReflectionDetail")])]),
 
     ("PageAudio", [
         ("GUI:OptionsGroupVolume", [
@@ -1010,24 +1026,29 @@ def selfcheck():
         if cloud_label.rect[1] != cloud.rect[1] - ROW_HEIGHT:
             problems.append("CloudStyle label must sit above its combo box")
 
-    # Reflection mode is its own Effects group, separate from the water style.
-    effects = layout.find("PageEffects")
-    reflection_label = layout.find("LabelWaterReflection")
-    reflection = layout.find("ComboBoxWaterReflection")
-    reflection_heading = layout.find("GroupHeadingEffects3")
-    if not effects or not reflection_label or not reflection or not reflection_heading:
-        problems.append("Effects must contain the Reflections group and WaterReflection setting")
-    else:
-        if any(control not in effects.children
-               for control in (reflection_label, reflection, reflection_heading)):
-            problems.append("WaterReflection and its Reflections heading must be on the Effects page")
-        if drawn_text(reflection_heading) != "GUI:OptionsGroupReflections":
-            problems.append("WaterReflection group must be titled Reflections")
-        if reflection_label.rect[1] != reflection.rect[1] - ROW_HEIGHT:
-            problems.append("WaterReflection label must sit above its combo box")
-        if (reflection_heading.rect[0] != reflection_label.rect[0]
-                or reflection_label.rect[1] != reflection_heading.rect[1] + HEADING_PITCH):
-            problems.append("WaterReflection must sit directly beneath the Reflections heading")
+    # Modern water performance controls have their own page: Effects has no room for them.
+    # Its bounds and the tab widths are checked independently of the generic overlap checks.
+    water_page = layout.find("PageWater")
+    water_controls = ["LabelWaterFftResolution", "ComboBoxWaterFftResolution",
+                      "LabelWaterRefractionQuality", "ComboBoxWaterRefractionQuality",
+                      "CheckWaterReflectionEnabled", "LabelWaterReflection", "ComboBoxWaterReflection",
+                      "LabelWaterReflectionDetail", "ComboBoxWaterReflectionDetail"]
+    for name in water_controls:
+        control = layout.find(name)
+        if not water_page or not control or control not in water_page.children:
+            problems.append("%s must be on the Water page" % name)
+        elif (control.rect[0] < PAGE[0] - TEXT_NUDGE or control.rect[1] < PAGE[1]
+              or control.rect[2] > PAGE[0] + PAGE[2] or control.rect[3] > PAGE[1] + PAGE[3]):
+            problems.append("%s extends beyond the Water page" % name)
+    for stem in ("WaterFftResolution", "WaterRefractionQuality", "WaterReflection", "WaterReflectionDetail"):
+        label, combo = layout.find("Label" + stem), layout.find("ComboBox" + stem)
+        if label and combo and (label.rect[0] != combo.rect[0] - TEXT_NUDGE
+                                or label.rect[1] != combo.rect[1] - ROW_HEIGHT):
+            problems.append("%s label must sit above its combo box" % stem)
+    for _page, tab, _text in TABS:
+        control = layout.find(tab)
+        if not control or control.rect[0] < INNER_LEFT or control.rect[2] > INNER_LEFT + INNER_WIDTH:
+            problems.append("%s extends beyond the tab strip" % tab)
 
     for problem in problems:
         print("optionsmenu: %s" % problem)
@@ -1048,7 +1069,9 @@ def main(argv):
         return 2
 
     layout = wndlayout.load(argv[1])
-    wndlayout.save(build(layout), argv[2])
+    # Keep the tracked master's LF line endings when regenerating from the shipped CRLF source.
+    with open(argv[2], "wb") as output:
+        output.write(build(layout).text().replace("\r\n", "\n").encode("latin-1"))
     print("%s: %d windows" % (argv[2], sum(1 for _ in layout.root.walk())))
     return 0
 

@@ -37,6 +37,7 @@
 #include "ffshader.h"
 #include "ffvertex.h"
 #include "Platform/WaterFftSampling.h"
+#include "Platform/WaterPerformanceSettings.h"
 #include "Platform/WaterFoamHistory.h"
 
 #include <SDL3/SDL.h>
@@ -968,8 +969,10 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		&& vertex_engine == ENGINE_SHADER_NONE && !vertex.LightingEnabled
 		&& PixelShaderConstants[6][2] > 0.5f && PixelShaderConstants[6][3] > 0.5f
 		&& WaterFftSampling::Enabled();
-	bool fft_water = fft_requested && Gpu->Prepare_Ocean(PixelShaderConstants[1][0]*WaterFftSampling::TimeScale);
-	const SdlProgram *fft_vertex = fft_water ? &Programs->Water_Vertex_Program(vertex) : NULL;
+	bool fft_water = fft_requested && Gpu->Prepare_Ocean(PixelShaderConstants[1][0]*WaterFftSampling::TimeScale,
+		WaterPerformanceSettings::Applied().requestedFftResolution);
+	WaterPerformanceSettings::Applied().activeFftResolution=Gpu->Ocean_Configuration().resolution;
+	const SdlProgram *fft_vertex = fft_water ? &Programs->Water_Vertex_Program(vertex,Gpu->Ocean_Array_Output()) : NULL;
 	if (fft_vertex && fft_vertex->Shader == NULL) fft_water = false;
 	const SdlProgram &vertex_program = vertex_engine != ENGINE_SHADER_NONE
 		? Programs->Engine_Vertex_Program(vertex_engine)
@@ -1108,7 +1111,11 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	const bool stage_indices = call.Indexed && (fan || is_dynamic(index_buffer));
 	const unsigned int index_size = (call.Indexed && index_buffer->format() == D3DFMT_INDEX32) ? 4 : 2;
 	const bool water_draw = pixel_engine == ENGINE_SHADER_WATER_TRAPEZOID || pixel_engine == ENGINE_SHADER_WATER_RIVER;
-	SDL_GPUTexture *water_background = water_draw ? Gpu->Water_Background(target) : NULL;
+	const auto &water_settings=WaterPerformanceSettings::Applied();
+	const bool ssr_colour=water_settings.sceneReflections && PixelShaderConstants[95][3]>.5f && PixelShaderConstants[95][3]<1.5f;
+	const bool water_colour=water_settings.refraction!=WaterPerformanceSettings::Off || ssr_colour;
+	if(water_draw) Gpu->Prepare_Water_Snapshot(target,water_colour,true);
+	SDL_GPUTexture *water_background = water_draw && water_colour ? Gpu->Water_Background(target) : NULL;
 	SDL_GPUTexture *water_depth = water_draw ? Gpu->Water_Depth(target) : NULL;
 	bool water_history = water_draw && Water_Foam_History_Available();
 	bool coastal_view=water_draw && fft_water && CoastalActive && water_depth

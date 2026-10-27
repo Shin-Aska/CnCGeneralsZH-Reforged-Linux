@@ -153,13 +153,16 @@ inline Sample SampleOffshore(const std::uint8_t *field,int width,int height,floa
 }
 inline const char *OceanShaderSource() {
 #define WATER_OCEAN_HLSL(kx,ky,amplitude,omega,phase) \
-    "{ float p=dot(warped,float2(" #kx "," #ky "))-seconds*" #omega "+" #phase ";" \
+    "[branch] if(fullSurface || " #kx "*" #kx "+" #ky "*" #ky "<0.18) { float p=dot(warped,float2(" #kx "," #ky "))-seconds*" #omega "+" #phase ";" \
     "float s=sin(p),c=cos(p);float4 mode;mode.x=" #amplitude "*(s+0.16*s*c);" \
     "float derivative=" #amplitude "*(c+0.16*(c*c-s*s));" \
     "float2 phaseSlope=" #kx "*wx+" #ky "*wy;mode.yz=derivative*phaseSlope;" \
     "mode.w=" #amplitude "*(-s-0.64*s*c)*dot(phaseSlope,phaseSlope)+derivative*dot(float2(" #kx "," #ky "),warpLaplacian);" \
     "value+=mode;if(" #kx "*" #kx "+" #ky "*" #ky "<0.18) swell+=mode; }\n"
-    return "float4 waterOceanSurface(float2 pxy,float seconds,out float4 swell) {\n"
+    // Even an FFT-only fragment needs swell in every neighbouring lane: crest-band
+    // filtering differentiates it before the FFT foam blend. Skip only the other
+    // modes; the swell accumulation and warp arithmetic remain the original ones.
+    return "float4 waterOceanSurface(float2 pxy,float seconds,out float4 swell,bool fullSurface) {\n"
         "float q0=dot(pxy,float2(0.0241,0.0157))-seconds*0.23+0.4;\n"
         "float q1=dot(pxy,float2(-0.0173,0.0299))-seconds*0.19+2.1;\n"
         "float s0=sin(q0),c0=cos(q0),s1=sin(q1),c1=cos(q1);\n"
@@ -178,7 +181,8 @@ inline const char *OceanShaderSource() {
         "swell=float4(swell.x*envelope,swell.yz*envelope+swell.x*envelopeSlope,"
         "swell.w*envelope+2.0*dot(swell.yz,envelopeSlope)+swell.x*lapEnvelope);\n"
         "return float4(value.x*envelope,value.yz*envelope+value.x*envelopeSlope,laplacian); }\n"
-        "float4 waterOceanSurface(float2 pxy,float seconds) { float4 swell;return waterOceanSurface(pxy,seconds,swell); }\n"
+        "float4 waterOceanSurface(float2 pxy,float seconds,out float4 swell) { return waterOceanSurface(pxy,seconds,swell,true); }\n"
+        "float4 waterOceanSurface(float2 pxy,float seconds) { float4 swell;return waterOceanSurface(pxy,seconds,swell,true); }\n"
         "float3 waterOceanWave(float2 pxy,float seconds) { return waterOceanSurface(pxy,seconds).xyz; }\n";
 #undef WATER_OCEAN_HLSL
 }

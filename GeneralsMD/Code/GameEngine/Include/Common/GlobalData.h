@@ -328,6 +328,10 @@ public:
 	Int m_waterStyle;					// "WaterStyle": 0 = Classic, 1 = Modern (when supported); applied between render frames
 #if defined(__linux__)
 	Int m_waterReflection;			// "WaterReflection": 0 = Legacy, 1 = SSR, 2 = Hybrid, 3 = experimental path tracing; Modern water
+	Bool m_waterReflectionEnabled; // "WaterReflectionEnabled": scene reflections on/off; remembers the selected mode
+	Int m_waterFftResolution;		// "WaterFftResolution": 0 = Low (128), 1 = High (256) wave simulation
+	Int m_waterRefractionQuality; // "WaterRefractionQuality": 0 = Full, 1 = Simple transmission, 2 = opaque Off
+	Int m_waterReflectionDetail; // "WaterReflectionDetail": 0 = Low, 1 = High planar scene reflection resolution
 #endif
 	Int m_cloudStyle;					// "CloudStyle": 0 = Classic, 1 = Volumetric (when supported); visual only
 	Bool m_explosionDebrisTrails;	// "DebrisTrails": blasts throw smoke-trailing fragments and burning shrapnel

@@ -329,6 +329,136 @@ screen-space trace lose them while the mirror keeps them. The default green mate
 and the steep starting camera make all reflections faint; `--mode clean --pitch 0.6`
 shows them more clearly.
 
+## Performance controls (Linux)
+
+The preview accepts the initial Modern water performance choices and the planar
+Reflection detail follow-up used by the Linux game. Omitted flags retain the existing
+appearance: reflections On, Wave detail High, refraction Full and Reflection detail High. These preview flags apply to the current process; they do
+not write the game's `Options.ini` or the material rules.
+
+| Preview flag | Choices | Behaviour |
+| --- | --- | --- |
+| `--scene-reflections` | `on`, `off` | Off skips synthetic planar rendering and path preparation, disables scene-reflection sampling, and retains sky/sun highlights. The preferred `--reflection` mode is retained. |
+| `--wave-detail` | `low`, `high` | Low uses a 128×128 production FFT; High retains 256×256. Both keep animated waves. The visible water mesh is unchanged. |
+| `--refraction` | `full`, `simple`, `off` | Full retains displaced, depth-validated transmission. Simple keeps undistorted transmission. Off uses opaque tinted water and omits transmission/seabed/caustic work. |
+| `--reflection-detail` | `low`, `high` | Planar captures only: Low uses Legacy 256×256 and Hybrid 512×512; High retains 512×512 and 1024×1024. SSR and the Path traced capture retain their existing sizes. |
+
+Scene colour is still needed by SSR/Hybrid, and by a Path traced fallback to Hybrid,
+when scene reflections are On. Refraction Off therefore removes the colour snapshot
+only when no active reflection consumer needs it. Depth is retained for remaining
+water depth/intersection consumers. Low/High use different seeded FFT phases; changing
+wave detail can visibly change the wave pattern while the simulation clock continues.
+An allocation failure can retain the current FFT size or fall back to Low; the preview
+prints requested and active dimensions separately.
+
+For example, a bounded comparison of the cheaper choices is:
+
+```sh
+./build-linux/water_preview --offscreen --frames 2 --time 18 --hide-controls \
+  --reflection hybrid --scene-reflections off --wave-detail low --refraction simple \
+  --screenshot /tmp/water-simple-low.png
+```
+
+Reflection detail changes the synthetic planar targets, including a Hybrid fallback
+from Path traced. It does not lower the SSR trace or the successful Path traced target.
+A bank retains its captured planar resolution; passing Reflection detail Low reports
+that limitation and keeps the image unchanged.
+
+Bank replay still uploads/injects its captured colour and depth inputs so the original
+fixed view can be reproduced. Scene reflections Off omits captured planar uploads and
+turns off planar/SSR sampling, but a bank cannot measure the saving from skipping a
+live game's scene capture. Use the synthetic preview's capture counters for that
+narrow check, and validate live maps separately.
+
+### Developer material cost experiments
+
+`--freeze-time` keeps the animation clock fixed for every frame: synthetic scenes
+retain `--time`, while banks retain each captured `c1.x` with zero elapsed replay
+time. The normal default continues advancing at 1/60 second in bounded runs. Combined with
+`--benchmark`, frozen runs require at least one warm-up frame and fail if any FFT
+update, pass or copy occurs after warm-up. This removes ongoing FFT work from a
+controlled material experiment; it does not remove scene captures or reflection
+producers.
+
+`--profile-material` accepts these developer-only shader ablations:
+
+| Mode | Experiment |
+| --- | --- |
+| `full` | Original shader; also the omitted-argument default. |
+| `constant-surface` | Fixed final surface radiance; retain the original raster depth, base/edge coverage and normal fog/alpha pipeline. |
+| `no-foam-lighting` | Retain the final foam coverage and layer weights with a fixed foam radiance, removing its lighting and rough reflection work. |
+| `no-sky-reflection` | Remove clear/foam reflected sky, planar and screen-space evaluation; keep the existing reflection producer and captured inputs. |
+| `no-terrain-shadow` | Remove the terrain-height sun visibility taps; retain the independent scene-shadow visibility. |
+| `no-seabed-detail` | Remove procedural bed texture/grain lighting; retain refraction, absorption and caustics. |
+| `no-caustics` | Remove curvature caustic modulation; retain bed detail and absorption. |
+
+These intentionally different images attribute work; they are **not equivalent
+quality choices** and never change game preferences. Geometry, opacity rules,
+fog, capture policy and producer work remain the same. Debug views cannot be
+combined with an ablation. Use the same view, material, resolution, time,
+reflection choice and all other options for every comparison. Keep `--hide-controls`
+set, capture screenshots separately, and compare the reported work counters exactly.
+Banks retain their fixed images and depth reconstruction/injection/composite work;
+they do not reproduce a live scene's producer costs or moving units.
+
+For the already installed Mesa layer, a bounded **windowed** diagnostic is:
+
+```sh
+SDL_GPU_DRIVER=vulkan VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/intel_icd.json \
+  VK_INSTANCE_LAYERS=VK_LAYER_MESA_overlay \
+  VK_LAYER_MESA_OVERLAY_CONFIG='frame,gpu_timing,frame_timing,fps_sampling_period=0,no_display=1,output_file=/tmp/water-material-full.csv' \
+  ./build-linux/water_preview --benchmark --frames 240 --benchmark-warmup 60 \
+  --freeze-time --profile-material full --time 18 --width 640 --height 400 \
+  --mode material --reflection hybrid --hide-controls
+```
+
+Use cumulative CSV `frame` counts to exclude startup/warm-up frames; the installed
+layer can put the first two presents in one bucket even with a zero sampling
+period. Require `frame = 1` and positive GPU timestamps on every retained row.
+A layer/driver combination returning zero timestamps is unavailable timing, not
+zero GPU cost. At the layer's default sampling period, timing columns are
+**sums over a sampling window**;
+include `frame` and divide by it for window means. Do not treat those sums as
+individual-frame latency or derive per-frame p95 from window averages.
+
+The GPU values come from command-buffer timestamps summed at presentation. They
+include all submitted preview work. Sequential paired repetitions can estimate
+the incremental aggregate cost of each ablation; they do not provide named water
+pass durations or gameplay FPS savings. The layer waits for queries at presentation,
+serializing the workload even with `no_display=1`; that option only suppresses the
+overlay's own drawing. Keep this diagnostic series separate from the host benchmark
+without the layer. No profiler installation or vendored SDL change is required.
+
+### Bounded host benchmark
+
+`--benchmark` defaults to 720 deterministic frames, discards the first 120, and reports
+median and nearest-rank p95 of the remaining host `draw()` + `Present()` durations.
+`--frames` and `--benchmark-warmup` override those counts; the warm-up count must be
+smaller than the total. Editor input is ignored during the benchmark. Optional
+`--benchmark-csv FILE.csv` writes every post-warm-up frame observation after timing
+finishes. Screenshots use a separate run, and `ZH_GPU_TIMING_SYNC` must be unset or `0`.
+
+```sh
+SDL_GPU_DRIVER=vulkan VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/intel_icd.json \
+  ./build-linux/water_preview --offscreen --benchmark --frames 720 \
+  --benchmark-warmup 120 --benchmark-csv /tmp/water-default.csv \
+  --width 640 --height 400 --time 18 --mode material --reflection hybrid --hide-controls
+```
+
+The result is explicitly **host timing without added GPU synchronization**, not GPU
+execution time. It includes normal submission, back-pressure and offscreen-present
+waits already performed by the renderer. Whole-process wall time also includes startup
+and teardown. Neither value isolates a water pass or predicts gameplay FPS. Per-pass
+GPU timings remain unavailable through the current SDL public API.
+
+The log records the selected GPU/driver/ICD, dimensions, settings and requested/active
+FFT size, plus measured and total counts for draws, FFT updates/passes/copies, colour
+and depth captures, synthetic planar renders, path preparations and bank injections.
+Compare runs with the same scene, camera, resolution, time, frame count and device.
+Keep screenshots, Vulkan validation and external profilers separate from ordinary
+timing runs. The complete environment and comparison protocol is in
+[modern-water-performance-validation.md](modern-water-performance-validation.md).
+
 ## Banked scenes
 
 Bank the saved view from the Linux game, then replay it without running a match:
@@ -423,6 +553,24 @@ Offscreen mode defaults to one frame. `--frames 180` runs three seconds with det
 1/60-second steps. `--time` sets the initial wave time; `--width` and `--height` set output
 size. Startup never loads a saved preset without `--load-preset`, including offscreen
 captures; **L** loads it explicitly during an interactive session.
+
+## Portable work checks
+
+The source-controlled checker runs 27 short synthetic cases and checks actual FFT,
+scene capture, planar/path and comparison work counters. It also verifies Low planar
+target dimensions at both wave levels. It requires an already-built preview and uses
+only Python's standard library; it installs nothing.
+
+```sh
+python3 GeneralsMD/Code/Tools/water-performance-check.py \
+  --preview build-linux/water_preview \
+  --icd /usr/share/vulkan/icd.d/intel_icd.json \
+  --output build-linux/water-performance-validation/intel/portable-final
+```
+
+Select an installed ICD for the intended GPU, or omit `--icd` to use the loader's
+normal selection. The checker saves each exact command/log and `report.json`.
+Its bounded runs are correctness checks; their process wall times are not a benchmark.
 
 ## Implementation
 
