@@ -95,7 +95,7 @@ struct Uniforms {
     Float4 skyLow;       // Linear sky radiance at the horizon.
     Float4 skyHigh;      // Linear sky radiance towards the zenith.
     Float4 counts;       // Node count, triangle count, prior sample count, max ray distance.
-    Float4 output;       // Width, height, ray origin epsilon (world units), reserved.
+    Float4 output;       // Width, height, ray origin epsilon (world units), requested motion size.
     Float4 transport;    // Secondary distance, sun distance, secondary nodes, sun nodes.
 };
 static_assert(sizeof(Uniforms)==176,"Water path tracing uniforms must match the HLSL cbuffer");
@@ -156,6 +156,7 @@ public:
 
     unsigned NodeCount() const { return static_cast<unsigned>(nodeTexels.size()/NodeTexels); }
     bool Empty() const { return triangles.empty(); }
+    unsigned SourceTriangleIndex(unsigned gpuIndex) const { return inputIndices[gpuIndex]; }
 
     // Invalid non-finite inputs and excess capacity fail without replacing the old scene.
     // Zero-area triangles are harmless and dropped; a valid empty scene is permitted.

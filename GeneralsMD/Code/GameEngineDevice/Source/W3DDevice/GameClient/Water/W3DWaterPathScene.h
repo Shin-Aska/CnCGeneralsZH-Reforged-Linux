@@ -3,6 +3,7 @@
 
 #if defined(__linux__)
 #include "Platform/WaterPathTracingScene.h"
+#include "Platform/WaterPathTracingMaterials.h"
 #include <memory>
 #include <vector>
 
@@ -20,6 +21,7 @@ public:
     bool Update(SceneClass *scene, BaseHeightMapRenderObjClass *terrain, RenderObjClass *water,
         const WaterPathTracing::View *view=nullptr);
     const std::vector<WaterPathTracing::Triangle> &Triangles() const;
+    const WaterPathTracing::PrimaryMaterialPacket &Materials() const;
     uint64_t Revision() const;
 
 private:

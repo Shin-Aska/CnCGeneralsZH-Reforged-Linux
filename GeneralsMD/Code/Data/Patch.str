@@ -1405,7 +1405,7 @@ GUI:WaterReflectionDetail1
 END
 
 TOOLTIP:WaterReflectionDetail
-"Controls planar scene reflection resolution in Modern water. Low improves performance; High preserves the current detail. SSR and path-traced reflection resolution are unaffected. Applied when you Accept."
+"Controls scene reflection detail in Modern water. Low improves performance. High gives clearer reflections, including 512 x 512 Path traced captures while moving. SSR resolution is unchanged. Applied when you Accept."
 END
 
 GUI:WaterReflection

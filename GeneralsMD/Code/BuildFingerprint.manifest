@@ -2084,6 +2084,7 @@ Libraries/Include/Platform/WaterOpticalContext.h
 Libraries/Include/Platform/WaterOpticalModel.h
 Libraries/Include/Platform/WaterPathCaptureScope.h
 Libraries/Include/Platform/WaterPathTracing.h
+Libraries/Include/Platform/WaterPathTracingMaterials.h
 Libraries/Include/Platform/WaterPathTracingMotion.h
 Libraries/Include/Platform/WaterPathTracingScene.h
 Libraries/Include/Platform/WaterPathTracingSchedule.h

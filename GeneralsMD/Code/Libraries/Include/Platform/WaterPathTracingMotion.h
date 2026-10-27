@@ -1,20 +1,31 @@
 // Capture resolution recovery for the optional water path tracer.
 #pragma once
+#include "Platform/WaterPathTracingScene.h"
 #include <cstdint>
 
 namespace WaterPathTracing {
 
+// Resolution follows the capture camera, independently of history invalidation.
+// Geometry, lighting and transport changes still invalidate accumulated samples,
+// but do not make a stationary camera less capable of resolving reflected detail.
+inline bool SameCaptureProjection(const Uniforms &a,const Uniforms &b)
+{
+    return std::memcmp(&a.originWater,&b.originWater,4*sizeof(Float4))==0
+        && std::memcmp(&a.output,&b.output,2*sizeof(float))==0
+        && a.output.w==b.output.w;
+}
+
 class MotionRecovery
 {
 public:
-    // Longer than the game's 100 ms scene refresh interval: repeated render
-    // frames of one held snapshot cannot establish that moving geometry stopped.
+    // Camera updates may arrive in held snapshots. Require both time and render
+    // observations before restoring the requested capture density.
     static constexpr uint64_t QuietMs = 150;
     static constexpr unsigned QuietFrames = 8;
 
-    bool Observe(uint64_t nowMs,bool changed)
+    bool Observe(uint64_t nowMs,bool cameraChanged)
     {
-        if(changed || (observedClock && nowMs<lastObservedMs)) {
+        if(cameraChanged || (observedClock && nowMs<lastObservedMs)) {
             reduced=true;
             unchangedFrames=0;
             lastChangeMs=nowMs;

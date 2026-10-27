@@ -85,10 +85,10 @@ TEST(water_path_refresh_failed_exports_rollback_and_reentry_remain_due)
     CHECK(schedule.ShouldRefresh(0)); // Includes unsigned clock wrap.
 }
 
-TEST(water_path_motion_does_not_restore_resolution_between_moving_snapshots)
+TEST(water_path_motion_does_not_restore_resolution_between_camera_snapshots)
 {
-    // Geometry moves on every 100 ms export. Fast render loops must not mistake
-    // eight calls with a held revision for a settled scene and resize twice.
+    // Camera snapshots change every 100 ms. Fast render loops must not mistake
+    // eight calls with a held camera for a settled projection and resize twice.
     for(unsigned fps:{30u,60u,120u,144u}) {
         RefreshSchedule refresh;
         MotionRecovery motion;
@@ -104,6 +104,61 @@ TEST(water_path_motion_does_not_restore_resolution_between_moving_snapshots)
             seenChange|=changed;
             CHECK_EQ(motion.Observe(now,changed),seenChange);
         }
+    }
+}
+
+TEST(water_path_reflection_detail_selects_requested_and_moving_capture_sizes)
+{
+    View view;
+    CHECK_EQ(view.size,256u);
+    CHECK_EQ(view.motionSize,128u);
+    for(int detail:{1,0,1,-1,2,0}) {
+        ApplyReflectionDetail(view,detail);
+        CHECK_EQ(view.size,detail==0?256u:512u);
+        CHECK_EQ(view.motionSize,detail==0?128u:512u);
+    }
+}
+
+TEST(water_path_capture_projection_ignores_history_only_inputs)
+{
+    Uniforms base{};
+    base.originWater={0,0,-5,0};base.rayTopLeft={-.5f,.5f,1,0};
+    base.rayDx={1,0,0,0};base.rayDy={0,-1,0,0};base.output={256,256,.02f,128};
+    CHECK(SameCaptureProjection(base,base));
+    for(auto field:{&Uniforms::originWater,&Uniforms::rayTopLeft,&Uniforms::rayDx,&Uniforms::rayDy}) {
+        for(unsigned component=0;component<4;++component) {
+            Uniforms changed=base;
+            Float4 &value=changed.*field;
+            if(component==0) value.x+=1;
+            if(component==1) value.y+=1;
+            if(component==2) value.z+=1;
+            if(component==3) value.w+=1;
+            CHECK(!SameCaptureProjection(base,changed));
+        }
+    }
+    Uniforms changed=base;changed.output.x=512;CHECK(!SameCaptureProjection(base,changed));
+    changed=base;changed.output.y=512;CHECK(!SameCaptureProjection(base,changed));
+    changed=base;changed.output.w=512;CHECK(!SameCaptureProjection(base,changed));
+    for(auto field:{&Uniforms::sunDirection,&Uniforms::sunRadiance,&Uniforms::skyLow,
+        &Uniforms::skyHigh,&Uniforms::counts,&Uniforms::transport}) {
+        changed=base;changed.*field={1,2,3,4};
+        CHECK(std::memcmp(&base,&changed,sizeof(base))!=0); // History must still notice this change.
+        CHECK(SameCaptureProjection(base,changed));
+    }
+    changed=base;changed.output.z=.04f;
+    CHECK(SameCaptureProjection(base,changed));
+}
+
+TEST(water_path_stationary_geometry_revisions_do_not_reduce_capture_density)
+{
+    MotionRecovery motion;
+    Uniforms previous{};previous.output={256,256,.02f,0};
+    for(unsigned revision=0;revision<100;++revision) {
+        Uniforms current=previous;
+        current.counts={float(revision+1),float(revision+2),0,1000};
+        current.sunRadiance={float(revision),.2f,.3f,0};
+        CHECK(!motion.Observe(revision*100,!SameCaptureProjection(current,previous)));
+        previous=current;
     }
 }
 

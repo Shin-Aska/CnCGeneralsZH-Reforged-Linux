@@ -152,7 +152,7 @@ enum { WATER_REFLECTION_COUNT = 4 };
 // Linux Modern water performance choices. Stored indices are independent of reflection mode.
 enum { WATER_FFT_RESOLUTION_COUNT = 2 }; // Low (128), High (256)
 enum { WATER_REFRACTION_QUALITY_COUNT = 3 }; // Full, Simple, Off
-enum { WATER_REFLECTION_DETAIL_COUNT = 2 }; // Low, High planar resolution; SSR/path tracing unchanged
+enum { WATER_REFLECTION_DETAIL_COUNT = 2 }; // Low/High planar and Path resolution; SSR unchanged
 
 /** Linux Modern water controls which must retain their preference when the device is unsupported. */
 extern Bool isLinuxModernWaterOption( const OptionDef& def );

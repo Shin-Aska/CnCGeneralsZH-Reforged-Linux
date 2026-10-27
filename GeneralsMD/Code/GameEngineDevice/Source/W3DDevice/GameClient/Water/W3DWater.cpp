@@ -3260,6 +3260,7 @@ Bool WaterRenderObjClass::updatePathTracedReflection(CameraClass *cam)
 	rayDy.Z = -rayDy.Z;
 	origin.Z = 2.0f*m_reflectionLevel-origin.Z;
 	WaterPathTracing::View view;
+	WaterPathTracing::ApplyReflectionDetail(view,WaterPerformanceSettings::Applied().reflectionDetail);
 	view.origin = {origin.X,origin.Y,origin.Z};
 	view.rayTopLeft = {topLeft.X,topLeft.Y,topLeft.Z};
 	view.rayDx = {rayDx.X,rayDx.Y,rayDx.Z};
@@ -3289,7 +3290,7 @@ Bool WaterRenderObjClass::updatePathTracedReflection(CameraClass *cam)
 		m_waterPathHasView = TRUE;
 	}
 	m_waterPathReady = WaterPathTracing::Prepare(DX8Wrapper::_Get_D3D_Device(),m_waterPathScene->Triangles(),view,
-		m_waterPathScene->Revision());
+		m_waterPathScene->Revision(),&m_waterPathScene->Materials());
 	return m_waterPathReady;
 }
 #endif

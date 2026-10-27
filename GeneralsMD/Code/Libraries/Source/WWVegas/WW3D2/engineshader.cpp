@@ -1378,7 +1378,7 @@ float4 main(Input input) : SV_Target
     float2 border = min(reflectionUV, 1.0 - reflectionUV);
     // Legacy terrain passes preserve destination alpha for shore blending, including in the
     // mirror. Its transparent-black clear gives RGB coverage even when geometry cannot write A.
-    // The path capture has explicit validity and includes sky on a geometry miss.
+    // The path capture has explicit geometry coverage; a miss uses the material sky.
     // Its black surfaces remain surfaces; RGB is never used to infer their coverage.
     float mirrorCoverage = pathTraced ? mirror.a : filteredPlanar ? 1.0 : saturate(max(max(mirror.r, mirror.g), mirror.b) * 64.0);
     if (filteredPlanar || pathTraced)
@@ -1752,6 +1752,25 @@ float4 main(Input input) : SV_Target
 	if (debug && strcmp(debug, "depth") == 0) hlsl += "current.rgb = (1.0-exp(-depth*0.04)).xxx;\n";
 	if (debug && strcmp(debug, "bed") == 0) hlsl += "current.rgb = waterDisplay(scene);\n";
 	if (debug && strcmp(debug, "reflection") == 0) hlsl += "current.rgb = waterDisplay(reflection);\n";
+	if (debug && (strcmp(debug,"path-raw")==0 || strcmp(debug,"path-coverage")==0)) {
+		hlsl+=R"HLSL(
+    // Raw capture attribution preserves the water's normal raster coverage/depth.
+    float4 pathDebugCapture=Texture1.SampleLevel(Sampler1,saturate(reflectionUV),0.0);
+    bool pathDebugInside=pathTraced && WaterParameters.z>0.5
+        && all(reflectionUV>=0.0) && all(reflectionUV<=1.0);
+)HLSL";
+		if(strcmp(debug,"path-coverage")==0)
+			hlsl+="current.rgb=pathDebugInside?saturate(pathDebugCapture.a).xxx:float3(0,0,0);\n";
+		else
+			hlsl+="current.rgb=pathDebugInside && pathDebugCapture.a>0.0?waterDisplay(pathDebugCapture.rgb/max(pathDebugCapture.a,1e-6)):float3(0,0,0);\n";
+	}
+	if(debug && strcmp(debug,"path-distorted")==0)
+		hlsl+="// Actual distorted/roughness-filtered geometry, without sky or Fresnel composition.\ncurrent.rgb=pathTraced && mirror.a>0.0?waterDisplay(mirror.rgb/max(mirror.a,1e-6)):float3(0,0,0);\n";
+	if(debug && strcmp(debug,"path-no-distortion")==0) {
+		const size_t sampleBlock=hlsl.find("#if WATER_SCENE_REFLECTIONS\n    [branch] if (filteredPlanar)");
+		if(sampleBlock!=std::string::npos)
+			hlsl.insert(sampleBlock,"    // Diagnostic: retain the complete material with an undistorted Path lookup.\n    if(pathTraced) distortion=float2(0,0);\n");
+	}
 	if (debug && strcmp(debug, "ssr") == 0)
 		hlsl += "current = float4(lerp(float3(0.05, 0.05, 0.2), ssr.colour, ssr.confidence), 1.0);\n";
 	if (debug && strcmp(debug, "ssr-hit") == 0)
@@ -2050,6 +2069,8 @@ bool EngineShader_Pixel_Program(EngineShaderProgram program,
 				hlsl += "// Lit vessel material before coverage and legacy fog/shroud composition.\ncurrent=float4(waterDisplay(vesselRadiance),1.0);\n";
 			if(visualContact && waterDebug && strcmp(waterDebug,"contact-lighting")==0)
 				hlsl += "// Surface sun cosine, actual direct-light visibility, and original fog visibility.\ncurrent=float4(saturate(dot(normal,light)),sunVisible*FoamFillLights[0].w,saturate(input.Fog),1.0);\n";
+			if(waterDebug && strcmp(waterDebug,"shadow-sources")==0)
+				hlsl += "// Separate terrain-height ray visibility, mapped sun/smoke visibility, and their combined direct-light visibility.\ncurrent=float4(terrainSun(world,light),light_reaching(input.Position),sunVisible,1.0);\n";
 			if(visualContact && waterDebug &&
 				(strcmp(waterDebug,"contact-mesh-query")==0 || strcmp(waterDebug,"contact-mesh-sources")==0)) {
 				// Evaluate and encode after the ordinary pipeline; no diagnostic changes normal water.

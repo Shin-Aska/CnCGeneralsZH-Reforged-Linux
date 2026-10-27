@@ -232,16 +232,29 @@ production shader exactly as the game sets it up:
   The main scene and its shadows
   keep their existing rendering.
 
-The path tracer uses a 256×256 planar capture and two linear RGBA16F history textures
-(1 MiB together). It traces one sample per pixel per update, averages and filters in linear
+Reflection detail High uses a 512×512 Path capture, including during camera movement.
+Low uses 256×256 while settled and 128×128 during movement. The two mipmapped linear
+RGBA16F history textures use about 5.33 MiB together at High or 1.33 MiB at settled Low.
+It traces one sample per pixel per update, averages and filters in linear
 light, and stops at 64 samples. Keeping the reflection linear through the wave lookup
-preserves the brightness of small reflected details at object edges. Authored directional
+preserves the brightness of small reflected details at object edges.
+The mip chain filters the distorted lookup's pixel footprint while preserving level-zero
+detail under magnification, reducing reflection shimmer where waves minify the capture.
+Primary misses have zero geometry coverage; the water material supplies its procedural
+sky on both sides of the capture boundary. Real black surfaces retain coverage and
+still obscure that sky. Sky lighting remains part of the indirect surface transport.
+Authored directional
 diffuse colours are converted to irradiance before the tracer applies its Lambertian BRDF;
-sky colours remain radiance. Camera, geometry, lighting or capture changes reset
-the history; there are no motion vectors or reprojection. After a camera or scene
-change it traces at 128×128, then restores 256×256 after at least 150 ms and eight
-unchanged updates. The quiet interval prevents resolution changes between moving
-scene snapshots at high frame rates.
+sky colours remain radiance. Primary rays stay at capture-pixel centres, keeping
+first-hit silhouettes fixed while secondary lighting samples remain stochastic.
+A 1e-6 barycentric tolerance prevents cracks at shared triangle edges.
+Camera, geometry, lighting and transport changes still reset the global history;
+there are no motion vectors or reprojection. Only camera origin, water plane,
+capture crop/rays or requested size trigger Low’s 128×128 motion capture. On Low, a
+quiet camera restores 256×256 after at least 150 ms and eight unchanged updates, even
+when animated geometry or lighting continues to reset accumulation. High stays at
+512×512 throughout; it traces four times the pixels of settled Low and sixteen times
+the pixels of moving Low. Whole-frame cost depends on the scene and GPU.
 A moving view can remain noisy and soft. The water shader distorts the capture with
 the existing wave lookup; it does not trace individual FFT facets or water refraction.
 
@@ -249,7 +262,13 @@ Game geometry includes eligible opaque scene meshes, props and known terrain out
 main camera view. Collection is limited to the reflected view and nearby geometry
 that can affect its indirect light or sun shadows. Fully submerged geometry is omitted.
 Terrain uses two-cell patches where shorelines, shroud and shared edges permit;
-this can lose small terrain features. Material colour is approximated per triangle. Cutout/blended
+this can lose small terrain features. Eligible opaque mesh primary hits retain UVs
+and sample bounded textures with a maximum side of 64 pixels and a full mip chain.
+An analytic ray/triangle-plane UV footprint selects trilinear filtering during
+minification. The shared texture atlas is capped at 8 MiB, enough for 96 full
+64×64 mip chains, plus separate UV/material attributes. Missing or unsupported
+materials retain their per-triangle fallback. Terrain and secondary-hit material
+colours remain per triangle, and shading normals remain flat. Cutout/blended
 meshes, particles, procedural vertex effects and separately batched trees
 and bridge decks are not represented. Failed capture setup falls back to Hybrid
 and reports the reason. This is a limited experiment, not a replacement for Hybrid.
@@ -269,11 +288,14 @@ reflections or stop casting reflected shadows. Indirect and shadow traversal als
 have work limits; exhausting them darkens that lighting contribution rather than
 assuming a clear path. Primary traversal has no such work limit.
 
-In the same busy saved game and camera view on an RTX 4060 at 1280×720, the original
-Path traced implementation averaged 9.3 FPS and this version averaged 38.0 FPS
+In the earlier geometry-scoping comparison, using the same busy saved game and camera
+view on an RTX 4060 at 1280×720, the original Path traced implementation averaged
+9.3 FPS and that optimization checkpoint averaged 38.0 FPS
 over logic frames 106000–107000. Both ran offscreen with a 60 Hz cap. These are
 whole-game timings during a live battle, not isolated GPU timings or a guarantee
-for other maps. This remains an experimental, lower-detail reflection mode.
+for other maps. They predate the close-up material and camera-resolution fixes; see
+[the current validation report](modern-water-visual-and-audio-fixes.md). This remains
+an experimental reflection mode.
 
 Run the synthetic test with:
 
@@ -321,6 +343,11 @@ confidence in red, world distance travelled divided by 700 in green and skipped 
 and the trace confidence in blue. The trace keeps a fixed spatial sampling phase, bounded
 refinement of real crossings and a CPU-uploaded projection matrix. It uses no temporal
 history; sparse hits can still produce speckled edges in SSR-only mode.
+Developer-only Path diagnostics use `ZH_WATER_DEBUG=path-raw` for undistorted
+level-zero geometry radiance, `path-coverage` for geometry coverage, and
+`path-distorted` for the filtered geometry lookup before sky/Fresnel composition.
+`path-no-distortion` keeps the normal Path material but disables its lookup nudge.
+These views isolate capture/material inputs; they do not establish temporal stability.
 The preview clears an inherited `ZH_WATER_DEBUG`; pass `--debug ssr` or `--debug ssr-hit`
 (or any other water debug view) to show one there.
 
@@ -341,7 +368,7 @@ not write the game's `Options.ini` or the material rules.
 | `--scene-reflections` | `on`, `off` | Off skips synthetic planar rendering and path preparation, disables scene-reflection sampling, and retains sky/sun highlights. The preferred `--reflection` mode is retained. |
 | `--wave-detail` | `low`, `high` | Low uses a 128×128 production FFT; High retains 256×256. Both keep animated waves. The visible water mesh is unchanged. |
 | `--refraction` | `full`, `simple`, `off` | Full retains displaced, depth-validated transmission. Simple keeps undistorted transmission. Off uses opaque tinted water and omits transmission/seabed/caustic work. |
-| `--reflection-detail` | `low`, `high` | Planar captures only: Low uses Legacy 256×256 and Hybrid 512×512; High retains 512×512 and 1024×1024. SSR and the Path traced capture retain their existing sizes. |
+| `--reflection-detail` | `low`, `high` | Low: Legacy 256×256, Hybrid 512×512, Path 256×256 settled / 128×128 moving. High: Legacy 512×512, Hybrid 1024×1024, Path 512×512 even while moving. SSR is unchanged. |
 
 Scene colour is still needed by SSR/Hybrid, and by a Path traced fallback to Hybrid,
 when scene reflections are On. Refraction Off therefore removes the colour snapshot
@@ -359,8 +386,8 @@ For example, a bounded comparison of the cheaper choices is:
   --screenshot /tmp/water-simple-low.png
 ```
 
-Reflection detail changes the synthetic planar targets, including a Hybrid fallback
-from Path traced. It does not lower the SSR trace or the successful Path traced target.
+Reflection detail changes synthetic planar and Path targets, including a Hybrid
+fallback from Path traced. It does not change the SSR trace resolution.
 A bank retains its captured planar resolution; passing Reflection detail Low reports
 that limitation and keeps the image unchanged.
 

@@ -10,7 +10,7 @@ struct Configuration {
     unsigned activeFftResolution = 256; // the successfully allocated ocean, including fallback
     Refraction refraction = Full;
     bool sceneColourRequired = true; // resolved from refraction and the effective reflection mode
-    int reflectionDetail = 1; // planar target detail; 0 Low, 1 original High
+    int reflectionDetail = 1; // scene reflection detail; 0 Low, 1 High
 };
 inline Configuration &Applied() {
     static Configuration configuration;

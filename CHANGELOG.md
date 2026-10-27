@@ -29,7 +29,7 @@ found and fixed, EA's own, not port damage.**
 - A Water options page groups Scene reflections, Wave detail (Low/High), Refraction (Full/Simple/Off)
   and the existing reflection mode. Accept applies changes live; Cancel leaves the current choices alone.
 - Reflection detail (Low/High) changes planar capture resolution. High preserves the current detail;
-  Low reduces capture size. SSR and path-traced reflection resolution remain unchanged.
+  Low reduces capture size. SSR resolution remains unchanged; Path detail is extended below.
 - Existing profiles keep reflections on, High wave and reflection detail, and Full refraction. Settings are saved
   separately from the water style, so Classic water and unsupported devices retain them for later use.
 
@@ -39,6 +39,26 @@ found and fixed, EA's own, not port damage.**
   reducing water detail. Camera, terrain and water-polygon changes refresh the affected data.
 - Waves, coastal effects, moving-object damping and vessel refinement continue to update each frame.
   See [the validation report](docs/modern-water-cpu-cache-validation.md) for measured savings and limits.
+
+## Linux Path traced water reflections (2026-10-27)
+
+- Reflection detail High now uses 512×512 Path captures even during camera movement. Low
+  retains 256×256 settled / 128×128 moving captures. The choice applies live in the game
+  and synthetic preview; higher Path detail increases tracing cost.
+
+- Filters reflected detail when waves shrink it on screen, reducing subpixel shimmer.
+- Uses the same sky across the reflection capture boundary, avoiding a change to a flatter sky
+  near its edges. Reflected objects still cover the sky, including dark surfaces.
+- Keeps reflected silhouettes fixed across lighting-history resets and avoids cracks at shared
+  triangle edges. Secondary lighting remains stochastic.
+- Preserves opaque mesh texture coordinates and bounded mipmapped primary-hit detail, instead
+  of colouring each reflected triangle from one texture sample. Secondary materials and normals
+  retain their existing approximations.
+- Restores full stationary capture resolution even when scene geometry or lighting keeps changing;
+  Low uses the smaller capture during camera movement and waits for a quiet interval before recovery.
+- Corrects missing reflected geometry reproduced on Intel UHD 770. Global history resets can
+  still leave moving scenes soft or noisy; these changes do not resolve all flicker. See
+  [the investigation and validation](docs/modern-water-visual-and-audio-fixes.md).
 
 ## Linux Modern water 60 FPS target (2026-10-27)
 

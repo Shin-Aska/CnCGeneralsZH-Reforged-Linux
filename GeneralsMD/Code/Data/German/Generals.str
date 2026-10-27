@@ -15486,7 +15486,7 @@ GUI:WaterReflectionDetail1
 END
 
 TOOLTIP:WaterReflectionDetail
-"Steuert die Auflösung planarer Szenenreflexionen im modernen Wasser. Niedrig verbessert die Leistung; Hoch erhält die aktuelle Detailstufe. Die Auflösung von SSR und Pathtracing bleibt unverändert. Wird nach Klick auf Annehmen angewendet."
+"Steuert die Details der Szenenreflexionen im modernen Wasser. Niedrig verbessert die Leistung. Hoch liefert klarere Reflexionen, auch bei Pathtracing-Aufnahmen mit 512 x 512 Pixeln während der Bewegung. Die SSR-Auflösung bleibt unverändert. Wird nach Klick auf Annehmen angewendet."
 END
 
 GUI:WaterReflection

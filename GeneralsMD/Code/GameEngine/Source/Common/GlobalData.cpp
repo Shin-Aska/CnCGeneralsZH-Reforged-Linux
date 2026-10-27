@@ -979,7 +979,7 @@ GlobalData::GlobalData()
 	m_waterReflectionEnabled = TRUE;
 	m_waterFftResolution = 1;	// High preserves the original wave simulation
 	m_waterRefractionQuality = 0; // Full preserves the original transmission and distortion
-	m_waterReflectionDetail = 1; // High preserves the original planar target sizes
+	m_waterReflectionDetail = 1; // High planar detail and 512-square Path captures
 	m_cloudStyle = 1;				// Linux keeps Volumetric unless Classic is explicitly selected
 #else
 	m_waterStyle = 0;				// other platforms retain upstream's Classic default

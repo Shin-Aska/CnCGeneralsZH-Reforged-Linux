@@ -17864,7 +17864,7 @@ GUI:WaterReflectionDetail1
 END
 
 TOOLTIP:WaterReflectionDetail
-"Modern sudaki düzlemsel sahne yansımalarının çözünürlüğünü belirler. Düşük performansı artırır; Yüksek mevcut ayrıntıyı korur. SSR ve yol izlemeli yansıma çözünürlüğü etkilenmez. Kabul Et'e basınca uygulanır."
+"Modern sudaki sahne yansımalarının ayrıntı düzeyini denetler. Düşük performansı artırır. Yüksek, hareket sırasında 512 x 512 çözünürlüklü yol izlemeli yakalamalar dahil daha net yansımalar sunar. SSR çözünürlüğü değişmez. Kabul Et'e basınca uygulanır."
 END
 
 GUI:WaterReflection

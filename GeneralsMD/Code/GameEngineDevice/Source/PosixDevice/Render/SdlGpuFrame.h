@@ -51,7 +51,7 @@ struct SDL_GPUTexture;
 struct SDL_Window;
 namespace WaterCoastalSurf { struct Node; struct Lookup; }
 namespace WaterShoreHistory { struct Mapping; }
-namespace WaterPathTracing { struct Triangle; struct View; }
+namespace WaterPathTracing { struct Triangle; struct View; struct PrimaryMaterialPacket; }
 
 /// Where a pass draws: a colour texture of Target_Format() and a depth-stencil of Depth_Format(), the
 /// same size.  The back buffer is one; a render-target surface's GPU texture is another (A3d).  Either
@@ -280,7 +280,8 @@ public:
 
 	// Allocated and dispatched only by the optional water path tracing mode.
 	bool Prepare_Water_Path(const std::vector<WaterPathTracing::Triangle> &triangles,
-		const WaterPathTracing::View &view, uint64_t revision = 0);
+		const WaterPathTracing::View &view, uint64_t revision = 0,
+		const WaterPathTracing::PrimaryMaterialPacket *materials = nullptr);
 	void Clear_Water_Path();
 	SDL_GPUTexture *Water_Path_Texture() const;
 	SDL_GPUSampler *Water_Path_Sampler() const;

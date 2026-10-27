@@ -18962,7 +18962,7 @@ GUI:WaterReflectionDetail1
 END
 
 TOOLTIP:WaterReflectionDetail
-"Définit la résolution des reflets de scène planaires de l’eau moderne. Faible améliore les performances ; Élevé conserve le niveau de détail actuel. La résolution SSR et du tracé de rayons reste inchangée. Appliqué quand vous cliquez sur Accepter."
+"Contrôle le détail des reflets de scène sur l’eau moderne. Faible améliore les performances. Élevé offre des reflets plus nets, y compris des captures par tracé de rayons en 512 x 512 pendant le déplacement. La résolution SSR reste inchangée. Appliqué quand vous cliquez sur Accepter."
 END
 
 GUI:WaterReflection

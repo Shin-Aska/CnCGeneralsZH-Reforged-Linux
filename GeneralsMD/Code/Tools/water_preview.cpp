@@ -105,7 +105,7 @@ void help()
         "and reports host draw+Present timings without added GPU synchronization.\n"
         "Use --frames/--benchmark-warmup to override; screenshots are separate runs.\n"
         "Scene reflections Off skips planar/path producers; banks retain injected inputs.\n"
-        "Reflection detail Low halves synthetic planar sides; SSR/path sizes stay unchanged.\n"
+        "Reflection detail Low halves planar sides; Path uses 256 still/128 moving versus High 512 always. SSR is unchanged.\n"
         "Banks retain their captured planar resolution even with Reflection detail Low.");
 }
 
@@ -1020,6 +1020,7 @@ private:
         const float tangent=std::tan(48.0f*Pi/360.0f),aspect=viewAspect();
         const auto reflected=[](Vec3 v) { return WaterPathTracing::Vec3{v.x,v.y,-v.z}; };
         WaterPathTracing::View view;
+        WaterPathTracing::ApplyReflectionDetail(view,WaterPerformanceSettings::Applied().reflectionDetail);
         view.origin={c.x+offset.x*c.distance,c.y+offset.y*c.distance,WaterLevel-offset.z*c.distance};
         view.rayTopLeft=reflected({-offset.x+tangent*(up.x-right.x*aspect),
             -offset.y+tangent*(up.y-right.y*aspect),-offset.z+tangent*(up.z-right.z*aspect)});
