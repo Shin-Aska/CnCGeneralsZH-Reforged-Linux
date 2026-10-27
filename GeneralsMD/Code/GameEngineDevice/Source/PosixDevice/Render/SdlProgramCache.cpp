@@ -279,7 +279,7 @@ const SdlProgram &SdlProgramCache::Engine_Pixel_Program(int program, const Pixel
 		lookup.Resolution=settings.activeFftResolution;lookup.Refraction=unsigned(settings.refraction);
 		lookup.Reflections=settings.sceneReflections?1:0;
 #if defined(__linux__)
-        lookup.MaterialProfile=unsigned(WaterMaterialProfile::Applied());
+		lookup.MaterialProfile=unsigned(WaterMaterialProfile::Applied());
 #endif
 	}
 	memcpy(&lookup.Pipeline, &pipeline, sizeof(pipeline));	// padding and all, as the caller built it
