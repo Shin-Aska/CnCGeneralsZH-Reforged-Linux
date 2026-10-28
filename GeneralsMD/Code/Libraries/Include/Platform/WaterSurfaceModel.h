@@ -46,6 +46,18 @@ inline Sample Evaluate(float x, float y, float seconds) {
 #undef WATER_MODE_EVAL
     return value;
 }
+// Displacement uses exactly the same height arithmetic without retaining the outlined
+// full evaluator's slope accumulation on the release compiler.
+inline float EvaluateHeight(float x, float y, float seconds) {
+    float height=0;
+#define WATER_MODE_HEIGHT_EVAL(kx,ky,amplitude,omega,phase) { \
+    const float p = x*kx+y*ky-seconds*omega+phase; \
+    const float s = std::sin(p), c = std::cos(p); \
+    height += amplitude*(s+0.13f*2.0f*s*c); }
+    WATER_SURFACE_MODES(WATER_MODE_HEIGHT_EVAL)
+#undef WATER_MODE_HEIGHT_EVAL
+    return height;
+}
 // Open water has its own spectrum. Height energy is shared by several crossing swells rather
 // than concentrated into the old river's first two directions. A slowly evolving coordinate
 // warp bends the crests, and a bounded packet envelope breaks their uniform strength.
@@ -72,11 +84,19 @@ inline Sample Evaluate(float x, float y, float seconds) {
  X( 0.6200f, 3.3400f,0.016f,6.02f,4.07f)
 
 struct OceanSurface { float height,dx,dy,laplacian; };
-template<bool Curvature,bool Slopes=true,bool SwellOnly=false> inline OceanSurface EvaluateOceanInternal(float x,float y,float seconds) {
+// The slowly evolving coordinate warp and packet envelope every ocean evaluator shares.
+struct OceanWarp { float q0,q1,s0,s1,px,py; };
+inline OceanWarp OceanWarpAt(float x,float y,float seconds) {
     const float q0=x*0.0241f+y*0.0157f-seconds*0.23f+0.4f;
     const float q1=x*-0.0173f+y*0.0299f-seconds*0.19f+2.1f;
-    const float s0=std::sin(q0),c0=std::cos(q0),s1=std::sin(q1),c1=std::cos(q1);
-    const float px=x+5.0f*s0,py=y+4.0f*s1;
+    const float s0=std::sin(q0),s1=std::sin(q1);
+    return {q0,q1,s0,s1,x+5.0f*s0,y+4.0f*s1};
+}
+inline float OceanEnvelope(float s0,float s1) { return 0.86f+0.14f*s0*s1; }
+template<bool Curvature,bool Slopes=true,bool SwellOnly=false> inline OceanSurface EvaluateOceanInternal(float x,float y,float seconds) {
+    const OceanWarp warp=OceanWarpAt(x,y,seconds);
+    const float s0=warp.s0,c0=std::cos(warp.q0),s1=warp.s1,c1=std::cos(warp.q1);
+    const float px=warp.px,py=warp.py;
     const float xx=1.0f+5.0f*c0*0.0241f,xy=5.0f*c0*0.0157f;
     const float yx=4.0f*c1*-0.0173f,yy=1.0f+4.0f*c1*0.0299f;
     const float q0Length2=0.0241f*0.0241f+0.0157f*0.0157f;
@@ -95,7 +115,7 @@ template<bool Curvature,bool Slopes=true,bool SwellOnly=false> inline OceanSurfa
         if (Curvature) value.laplacian+=amplitude*(-s-0.64f*s*c)*(phaseX*phaseX+phaseY*phaseY)+derivative*(kx*lapX+ky*lapY); } }
     WATER_OCEAN_MODES(WATER_OCEAN_EVAL)
 #undef WATER_OCEAN_EVAL
-    const float envelope=0.86f+0.14f*s0*s1;
+    const float envelope=OceanEnvelope(s0,s1);
     const float ex=0.14f*(c0*0.0241f*s1+s0*c1*-0.0173f);
     const float ey=0.14f*(c0*0.0157f*s1+s0*c1*0.0299f);
     const float lapEnvelope=0.14f*(-s0*s1*(q0Length2+q1Length2)+2.0f*c0*c1*qDot);
@@ -112,11 +132,19 @@ inline Sample EvaluateOcean(float x,float y,float seconds) {
     const OceanSurface value=EvaluateOceanInternal<false>(x,y,seconds);
     return {value.height,value.dx,value.dy};
 }
-// The fixed, unlit mesh vertex path does not consume ocean normals. Keep the same height
-// arithmetic while instantiating away derivatives; merely reading EvaluateOcean(...).height
-// still invokes its outlined full evaluator on the release compiler.
+// The fixed, unlit mesh vertex path does not consume ocean normals. A scalar return also
+// avoids the release compiler's spills when returning the height-only OceanSurface struct.
+// The mode accumulation matches the full model; the warp and envelope are shared with it.
 inline float EvaluateOceanHeight(float x,float y,float seconds) {
-    return EvaluateOceanInternal<false,false>(x,y,seconds).height;
+    const OceanWarp warp=OceanWarpAt(x,y,seconds);
+    float height=0;
+#define WATER_OCEAN_HEIGHT_EVAL(kx,ky,amplitude,omega,phase) { \
+    const float p=warp.px*kx+warp.py*ky-seconds*omega+phase; \
+    const float s=std::sin(p),c=std::cos(p); \
+    height+=amplitude*(s+0.16f*s*c); }
+    WATER_OCEAN_MODES(WATER_OCEAN_HEIGHT_EVAL)
+#undef WATER_OCEAN_HEIGHT_EVAL
+    return height*OceanEnvelope(warp.s0,warp.s1);
 }
 inline Sample BlendSamples(const Sample &river,const Sample &ocean,const Sample &offshore) {
     const float blend=offshore.height<0?0:(offshore.height>1?1:offshore.height);
@@ -131,9 +159,9 @@ inline Sample EvaluateBlended(float x,float y,float seconds,const Sample &offsho
     return BlendSamples(Evaluate(x,y,seconds),EvaluateOcean(x,y,seconds),offshore);
 }
 inline float EvaluateBlendedHeight(float x,float y,float seconds,const Sample &offshore) {
-    if (offshore.height<=0 && offshore.dx==0 && offshore.dy==0) return Evaluate(x,y,seconds).height;
+    if (offshore.height<=0 && offshore.dx==0 && offshore.dy==0) return EvaluateHeight(x,y,seconds);
     if (offshore.height>=1 && offshore.dx==0 && offshore.dy==0) return EvaluateOceanHeight(x,y,seconds);
-    const float river=Evaluate(x,y,seconds).height,ocean=EvaluateOceanHeight(x,y,seconds);
+    const float river=EvaluateHeight(x,y,seconds),ocean=EvaluateOceanHeight(x,y,seconds);
     const float blend=offshore.height<0?0:(offshore.height>1?1:offshore.height);
     return river+(ocean-river)*blend;
 }
@@ -153,13 +181,16 @@ inline Sample SampleOffshore(const std::uint8_t *field,int width,int height,floa
 }
 inline const char *OceanShaderSource() {
 #define WATER_OCEAN_HLSL(kx,ky,amplitude,omega,phase) \
-    "{ float p=dot(warped,float2(" #kx "," #ky "))-seconds*" #omega "+" #phase ";" \
+    "[branch] if(fullSurface || " #kx "*" #kx "+" #ky "*" #ky "<0.18) { float p=dot(warped,float2(" #kx "," #ky "))-seconds*" #omega "+" #phase ";" \
     "float s=sin(p),c=cos(p);float4 mode;mode.x=" #amplitude "*(s+0.16*s*c);" \
     "float derivative=" #amplitude "*(c+0.16*(c*c-s*s));" \
     "float2 phaseSlope=" #kx "*wx+" #ky "*wy;mode.yz=derivative*phaseSlope;" \
     "mode.w=" #amplitude "*(-s-0.64*s*c)*dot(phaseSlope,phaseSlope)+derivative*dot(float2(" #kx "," #ky "),warpLaplacian);" \
     "value+=mode;if(" #kx "*" #kx "+" #ky "*" #ky "<0.18) swell+=mode; }\n"
-    return "float4 waterOceanSurface(float2 pxy,float seconds,out float4 swell) {\n"
+    // Even an FFT-only fragment needs swell in every neighbouring lane: crest-band
+    // filtering differentiates it before the FFT foam blend. Skip only the other
+    // modes; the swell accumulation and warp arithmetic remain the original ones.
+    return "float4 waterOceanSurface(float2 pxy,float seconds,out float4 swell,bool fullSurface) {\n"
         "float q0=dot(pxy,float2(0.0241,0.0157))-seconds*0.23+0.4;\n"
         "float q1=dot(pxy,float2(-0.0173,0.0299))-seconds*0.19+2.1;\n"
         "float s0=sin(q0),c0=cos(q0),s1=sin(q1),c1=cos(q1);\n"
@@ -178,7 +209,8 @@ inline const char *OceanShaderSource() {
         "swell=float4(swell.x*envelope,swell.yz*envelope+swell.x*envelopeSlope,"
         "swell.w*envelope+2.0*dot(swell.yz,envelopeSlope)+swell.x*lapEnvelope);\n"
         "return float4(value.x*envelope,value.yz*envelope+value.x*envelopeSlope,laplacian); }\n"
-        "float4 waterOceanSurface(float2 pxy,float seconds) { float4 swell;return waterOceanSurface(pxy,seconds,swell); }\n"
+        "float4 waterOceanSurface(float2 pxy,float seconds,out float4 swell) { return waterOceanSurface(pxy,seconds,swell,true); }\n"
+        "float4 waterOceanSurface(float2 pxy,float seconds) { float4 swell;return waterOceanSurface(pxy,seconds,swell,true); }\n"
         "float3 waterOceanWave(float2 pxy,float seconds) { return waterOceanSurface(pxy,seconds).xyz; }\n";
 #undef WATER_OCEAN_HLSL
 }

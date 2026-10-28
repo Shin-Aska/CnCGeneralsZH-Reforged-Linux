@@ -71,7 +71,7 @@ public:
 	/// comes back with a null Shader and its Refusal.
 	const SdlProgram &Vertex_Program(const VertexPipelineDescription &description);
 	/// Water-only GPU displacement, retaining the generated transform/fog/shroud path.
-	const SdlProgram &Water_Vertex_Program(const VertexPipelineDescription &description);
+	const SdlProgram &Water_Vertex_Program(const VertexPipelineDescription &description, bool textureArray=false);
 	const SdlProgram &Pixel_Program(const CombinerDescription &description);
 	const SdlProgram &Sun_Pixel_Program(const CombinerDescription &description, int engine);
 	const SdlProgram &Shore_Pixel_Program(const CombinerDescription &description);
@@ -109,7 +109,7 @@ private:
 		SdlProgram *Last = NULL;
 		size_t Entries = 0;
 	};
-	ByBytes VertexByBytes, PixelByBytes, EngineVertexByBytes, EnginePixelByBytes, WaterVertexByBytes, ShorePixelByBytes, SunPixelByBytes;
+	ByBytes VertexByBytes, PixelByBytes, EngineVertexByBytes, EnginePixelByBytes, WaterVertexByBytes, WaterArrayVertexByBytes, ShorePixelByBytes, SunPixelByBytes;
 
 	SDL_GPUDevice *Device;
 	std::map<std::string, SdlProgram> VertexPrograms;

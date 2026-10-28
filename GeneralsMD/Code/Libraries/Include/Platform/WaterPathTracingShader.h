@@ -20,9 +20,13 @@ inline const char *FragmentSource()
 Texture2D<float4> PathNodes : register(t0, space2);
 Texture2D<float4> PathTriangles : register(t1, space2);
 Texture2D<float4> PathPrevious : register(t2, space2);
+Texture2D<float4> PathMaterials : register(t3, space2);
+Texture2D<float4> PathTexels : register(t4, space2);
 SamplerState PathNodesSampler : register(s0, space2);
 SamplerState PathTrianglesSampler : register(s1, space2);
 SamplerState PathPreviousSampler : register(s2, space2);
+SamplerState PathMaterialsSampler : register(s3, space2);
+SamplerState PathTexelsSampler : register(s4, space2);
 cbuffer PathUniforms : register(b0, space3) {
     float4 OriginWater;
     float4 RayTopLeft;
@@ -52,7 +56,7 @@ float pathUnit(uint value) { return float(pathHash(value)>>8)*(1.0/16777216.0); 
 float2 pathSample(uint pixel,uint dimension) {
     float2 rotation=float2(pathUnit(pixel+dimension*0x9e3779b9u),
                            pathUnit(pixel+dimension*0x85ebca6bu+0x68bc21ebu));
-    // Distinct irrational increments decorrelate the camera and diffuse continuation.
+    // Irrational increments decorrelate successive diffuse continuation samples.
     float2 increment=dimension==0u?float2(0.414213562,0.732050808)
                                   :float2(0.236067977,0.645751311);
     return frac(rotation+(Counts.z+1.0)*increment);
@@ -82,10 +86,13 @@ bool pathTriangleHit(uint triangleIndex,float3 origin,float3 direction,float min
     float inverse=1.0/determinant;
     float3 distance=origin-a;
     float u=dot(distance,p)*inverse;
-    if(u<0||u>1)return false;
+    // Adjacent faces must not both reject a ray on their shared edge due to
+    // float roundoff. Fixed primary centres exercise these seams consistently.
+    const float edgeTolerance=1e-6;
+    if(u < -edgeTolerance || u > 1.0+edgeTolerance)return false;
     float3 q=cross(distance,edge1);
     float v=dot(direction,q)*inverse;
-    if(v<0||u+v>1)return false;
+    if(v < -edgeTolerance || u+v > 1.0+edgeTolerance)return false;
     float t=dot(edge2,q)*inverse;
     if(!(t>=minimum&&t<maximum))return false;
     maximum=t;return true;
@@ -107,11 +114,13 @@ bool pathTrace(float3 origin,float3 direction,float minimum,inout float maximum,
     // fetching their bounds again. The serialized threaded layout is unchanged.
     uint deferredNodes[20];
     float deferredEntries[20];
+    // Keep descent and deferred-pop structured: divergent child-descent continues
+    // made Intel skip later subtrees. The flag retains the same front-to-back order.
     [loop] while(true) {
         if(visited>=nodeBudget) { exhausted=true;break; }
         ++visited;
         float4 high=pathNode(node*2u+1u);
-        uint tag=(uint)high.w;
+        uint tag=(uint)high.w;bool descended=false;
         if(tag!=0u) {
             uint packed=tag-1u,first=packed/4u,count=packed%4u+1u;
             [loop] for(uint i=first;i<min(first+count,(uint)Counts.y);++i) {
@@ -132,18 +141,21 @@ bool pathTrace(float3 origin,float3 direction,float minimum,inout float maximum,
                 deferredNodes[stackSize]=leftFirst?right:left;
                 deferredEntries[stackSize]=leftFirst?rightEntry:leftEntry;
                 ++stackSize;
-                node=leftFirst?left:right;continue;
-            }
-            if(hitsLeft||hitsRight) { node=hitsLeft?left:right;continue; }
-        }
-        bool resume=false;
-        [loop] while(stackSize>0u) {
-            --stackSize;
-            if(deferredEntries[stackSize]<maximum) {
-                node=deferredNodes[stackSize];resume=true;break;
+                node=leftFirst?left:right;descended=true;
+            } else if(hitsLeft||hitsRight) {
+                node=hitsLeft?left:right;descended=true;
             }
         }
-        if(!resume)break;
+        if(!descended) {
+            bool resume=false;
+            [loop] while(stackSize>0u) {
+                --stackSize;
+                if(deferredEntries[stackSize]<maximum) {
+                    node=deferredNodes[stackSize];resume=true;break;
+                }
+            }
+            if(!resume)break;
+        }
     }
     return found;
 }
@@ -164,6 +176,60 @@ void pathMaterial(uint triangleIndex,float3 ray,out float3 normal,out float3 alb
     if(dot(normal,ray)>0)normal=-normal;
     albedo=saturate(pathTriangle(triangleIndex*4u+3u).xyz);
 }
+float4 pathMaterialRecord(uint index) {
+    return PathMaterials.Load(int3(index%PathTextureWidth,index/PathTextureWidth,0));
+}
+float3 pathMaterialTexel(uint offset,int2 coordinate,int2 size) {
+    // Texture coordinates repeat, including across negative coordinates/seams.
+    coordinate=(coordinate%size+size)%size;
+    uint index=offset+(uint)coordinate.y*(uint)size.x+(uint)coordinate.x;
+    return PathTexels.Load(int3(index%PathTextureWidth,index/PathTextureWidth,0)).rgb;
+}
+float3 pathMaterialBilinear(uint offset,int2 size,float2 uv) {
+    float2 pixel=frac(uv)*float2(size)-0.5;
+    int2 first=(int2)floor(pixel);float2 weight=frac(pixel);
+    float3 low=lerp(pathMaterialTexel(offset,first,size),
+        pathMaterialTexel(offset,first+int2(1,0),size),weight.x);
+    float3 high=lerp(pathMaterialTexel(offset,first+int2(0,1),size),
+        pathMaterialTexel(offset,first+int2(1,1),size),weight.x);
+    return lerp(low,high,weight.y);
+}
+float3 pathPrimaryAlbedo(uint triangleIndex,float3 hitPoint,float3 captureRay,float3 fallback) {
+    float4 material=pathMaterialRecord(triangleIndex*3u+2u);
+    if(material.w<1.0)return fallback;
+    float4 uvAB=pathMaterialRecord(triangleIndex*3u);
+    float4 uvCSize=pathMaterialRecord(triangleIndex*3u+1u);
+    float3 a=pathTriangle(triangleIndex*4u).xyz;
+    float3 e1=pathTriangle(triangleIndex*4u+1u).xyz;
+    float3 e2=pathTriangle(triangleIndex*4u+2u).xyz;
+    float3 n=cross(e1,e2),v=hitPoint-a;
+    float inverse=1.0/dot(n,n);
+    float b=dot(cross(v,e2),n)*inverse;
+    float c=dot(cross(e1,v),n)*inverse;
+    float2 uvB=uvAB.zw-uvAB.xy,uvC=uvCSize.xy-uvAB.xy;
+    float2 uv=uvAB.xy+uvB*b+uvC*c;
+    // Differentiate the camera ray's intersection with this hit plane. Screen
+    // derivatives of neighbouring hit UVs would cross unrelated triangles/misses;
+    // this footprint remains valid at silhouettes and material seams.
+    float denominator=dot(n,captureRay);
+    float planeDistance=dot(n,hitPoint-OriginWater.xyz);
+    float3 rayDx=RayDx.xyz/Output.x,rayDy=RayDy.xyz/Output.y;
+    float3 hitDx=(rayDx*denominator-captureRay*dot(n,rayDx))*(planeDistance/(denominator*denominator));
+    float3 hitDy=(rayDy*denominator-captureRay*dot(n,rayDy))*(planeDistance/(denominator*denominator));
+    float2 uvDx=(uvB*dot(cross(hitDx,e2),n)+uvC*dot(cross(e1,hitDx),n))*inverse;
+    float2 uvDy=(uvB*dot(cross(hitDy,e2),n)+uvC*dot(cross(e1,hitDy),n))*inverse;
+    float footprint=max(length(uvDx*uvCSize.zw),length(uvDy*uvCSize.zw));
+    float lod=clamp(log2(max(1.0,footprint)),0.0,6.0);
+    uint offset=(uint)material.w-1u;
+    int2 size=(int2)uvCSize.zw;
+    [loop] for(uint level=0;level<(uint)lod && any(size>1);++level) {
+        offset+=(uint)(size.x*size.y);size=max(size/2,int2(1,1));
+    }
+    float3 colour=pathMaterialBilinear(offset,size,uv);
+    if(any(size>1) && frac(lod)>0.0)
+        colour=lerp(colour,pathMaterialBilinear(offset+(uint)(size.x*size.y),max(size/2,int2(1,1)),uv),frac(lod));
+    return saturate(material.rgb*colour);
+}
 float3 pathCosine(float3 normal,float2 xi) {
     float radius=sqrt(xi.x),angle=2.0*PathPi*xi.y;
     float3 tangent=normalize(cross(abs(normal.z)<0.999?float3(0,0,1):float3(0,1,0),normal));
@@ -175,8 +241,12 @@ float4 main(float4 position : SV_Position) : SV_Target0
 {
     uint2 pixel=(uint2)position.xy;
     uint seed=pathHash(pixel.x+pixel.y*(uint)Output.x);
-    float2 uv=(float2(pixel)+pathSample(seed,0u))/Output.xy;
-    float3 ray=normalize(RayTopLeft.xyz+RayDx.xyz*uv.x+RayDy.xyz*uv.y);
+    // Keep first-hit coverage fixed while a dynamic scene restarts lighting
+    // accumulation. Jittering this low-resolution primary ray made still objects
+    // crawl between silhouettes and material faces on every history reset.
+    float2 uv=(float2(pixel)+0.5)/Output.xy;
+    float3 captureRay=RayTopLeft.xyz+RayDx.xyz*uv.x+RayDy.xyz*uv.y;
+    float3 ray=normalize(captureRay);
     float epsilon=max(Output.z,0.0001);
     float crossing=ray.z>1e-6?(OriginWater.w-OriginWater.z)/ray.z:-1.0;
     float validity=crossing>=0.0?1.0:0.0;
@@ -189,11 +259,15 @@ float4 main(float4 position : SV_Position) : SV_Target0
         // Primary geometry keeps the full traversal budget. Cost limits affect lighting,
         // never the first-hit silhouette of the reflected object.
         if(!pathTrace(origin,ray,epsilon,distance,false,(uint)Counts.x,triangleIndex,exhausted)) {
-            radiance=pathSky(ray);
+            // Capture geometry only. The water material evaluates its environment
+            // from the actual wave normal, consistently inside/outside this crop.
+            // A miss contributes neither radiance nor geometry coverage.
+            validity=0.0;
         } else {
             float3 normal,albedo;
             pathMaterial(triangleIndex,ray,normal,albedo);
             float3 hitPoint=origin+ray*distance;
+            albedo=pathPrimaryAlbedo(triangleIndex,hitPoint,captureRay,albedo);
             float3 sun=SunDirection.xyz*rsqrt(max(dot(SunDirection.xyz,SunDirection.xyz),1e-20));
             float cosine=max(dot(normal,sun),0.0);
             if(cosine>0&&any(SunRadiance.rgb>0)) {

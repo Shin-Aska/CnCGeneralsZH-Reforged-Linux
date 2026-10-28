@@ -61,6 +61,9 @@
 #include "Platform/WaterShoreSource.h"
 #include "Platform/WaterCoastalRender.h"
 #if defined(__linux__)
+#include "Platform/WaterProjectedMeshCache.h"
+#include "Platform/WaterPreparedMeshCache.h"
+#include "Platform/WaterStaticSampleCache.h"
 #include "Platform/WaterScreenReflection.h"
 #include "Platform/WaterPathTracingView.h"
 #include "Platform/WaterPathTracingSchedule.h"
@@ -251,11 +254,18 @@ protected:
 	size_t m_modernProjectedBudget=60000,m_modernProjectedEvaluations=0;
 	Bool m_modernProjectedCacheEnabled=TRUE;
 	Bool m_modernProfileEnabled=FALSE;
+#if defined(__linux__)
+	WaterProjectedMeshCache::Cache m_modernTopologyCache;
+	WaterPreparedMeshCache::Cache m_modernPreparedMeshCache;
+	WaterStaticSampleCache::Cache m_modernStaticSamples;
+#endif
 	struct ModernWaterProfile {
-		double render=0,setup=0,hulls=0,obstacles=0,mesh=0,fill=0,submit=0;
+		double render=0,setup=0,hulls=0,obstacles=0,mesh=0,fill=0,submit=0,fftPrepare=0;
 		double fieldSample=0,dampingSample=0,waveSample=0,cacheSample=0;
 		size_t frames=0,vertices=0,triangles=0,patches=0,patchObstacles=0;
 		size_t attempts=0,hits=0,misses=0,samples=0,wavePoints=0;
+		size_t topologyHits=0,topologyMisses=0,staticHits=0,staticMisses=0,preparedHits=0,preparedMisses=0;
+		size_t fftPreparedPatches=0,cpuHeightsElided=0;
 	} m_modernProfile;
 	struct ModernProjectedSample { Real height,damping,obstacle,hullFreeObstacle,offshore,fftDamping,exposure; };
 	std::unordered_map<WaterProjectedMesh::WorldKey,ModernProjectedSample,WaterProjectedMesh::WorldHash> m_modernProjectedSamples;
@@ -432,7 +442,7 @@ protected:
 	void refreshModernWaterOpticalPolygons(void);
 	TextureClass *modernWaterOpticalTexture(Real level);
 	void drawModernWaterPatch(const Vector3 points[4], Bool river, Real riverStart = 0, Real riverEnd = 1);
-	Real modernWaterDamping(Real x, Real y, Real z, Real offshore=0.0f, Real *obstacleAttenuation=NULL, Real *terrainDepth=NULL, Real *hullFreeDamping=NULL, Real *hullFreeObstacle=NULL) const;
+	Real modernWaterDamping(Real x, Real y, Real z, Real offshore=0.0f, Real *obstacleAttenuation=NULL, Real *terrainDepth=NULL, Real *hullFreeDamping=NULL, Real *hullFreeObstacle=NULL, const Real *cachedTerrain=NULL) const;
 	Bool m_renderingMirror = FALSE; ///< prevents a water draw sampling the mirror being written
 	void cleanupJbaWaterShader(void);
 

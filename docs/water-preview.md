@@ -232,16 +232,29 @@ production shader exactly as the game sets it up:
   The main scene and its shadows
   keep their existing rendering.
 
-The path tracer uses a 256×256 planar capture and two linear RGBA16F history textures
-(1 MiB together). It traces one sample per pixel per update, averages and filters in linear
+Reflection detail High uses a 512×512 Path capture, including during camera movement.
+Low uses 256×256 while settled and 128×128 during movement. The two mipmapped linear
+RGBA16F history textures use about 5.33 MiB together at High or 1.33 MiB at settled Low.
+It traces one sample per pixel per update, averages and filters in linear
 light, and stops at 64 samples. Keeping the reflection linear through the wave lookup
-preserves the brightness of small reflected details at object edges. Authored directional
+preserves the brightness of small reflected details at object edges.
+The mip chain filters the distorted lookup's pixel footprint while preserving level-zero
+detail under magnification, reducing reflection shimmer where waves minify the capture.
+Primary misses have zero geometry coverage; the water material supplies its procedural
+sky on both sides of the capture boundary. Real black surfaces retain coverage and
+still obscure that sky. Sky lighting remains part of the indirect surface transport.
+Authored directional
 diffuse colours are converted to irradiance before the tracer applies its Lambertian BRDF;
-sky colours remain radiance. Camera, geometry, lighting or capture changes reset
-the history; there are no motion vectors or reprojection. After a camera or scene
-change it traces at 128×128, then restores 256×256 after at least 150 ms and eight
-unchanged updates. The quiet interval prevents resolution changes between moving
-scene snapshots at high frame rates.
+sky colours remain radiance. Primary rays stay at capture-pixel centres, keeping
+first-hit silhouettes fixed while secondary lighting samples remain stochastic.
+A 1e-6 barycentric tolerance prevents cracks at shared triangle edges.
+Camera, geometry, lighting and transport changes still reset the global history;
+there are no motion vectors or reprojection. Only camera origin, water plane,
+capture crop/rays or requested size trigger Low’s 128×128 motion capture. On Low, a
+quiet camera restores 256×256 after at least 150 ms and eight unchanged updates, even
+when animated geometry or lighting continues to reset accumulation. High stays at
+512×512 throughout; it traces four times the pixels of settled Low and sixteen times
+the pixels of moving Low. Whole-frame cost depends on the scene and GPU.
 A moving view can remain noisy and soft. The water shader distorts the capture with
 the existing wave lookup; it does not trace individual FFT facets or water refraction.
 
@@ -249,7 +262,13 @@ Game geometry includes eligible opaque scene meshes, props and known terrain out
 main camera view. Collection is limited to the reflected view and nearby geometry
 that can affect its indirect light or sun shadows. Fully submerged geometry is omitted.
 Terrain uses two-cell patches where shorelines, shroud and shared edges permit;
-this can lose small terrain features. Material colour is approximated per triangle. Cutout/blended
+this can lose small terrain features. Eligible opaque mesh primary hits retain UVs
+and sample bounded textures with a maximum side of 64 pixels and a full mip chain.
+An analytic ray/triangle-plane UV footprint selects trilinear filtering during
+minification. The shared texture atlas is capped at 8 MiB, enough for 96 full
+64×64 mip chains, plus separate UV/material attributes. Missing or unsupported
+materials retain their per-triangle fallback. Terrain and secondary-hit material
+colours remain per triangle, and shading normals remain flat. Cutout/blended
 meshes, particles, procedural vertex effects and separately batched trees
 and bridge decks are not represented. Failed capture setup falls back to Hybrid
 and reports the reason. This is a limited experiment, not a replacement for Hybrid.
@@ -269,11 +288,14 @@ reflections or stop casting reflected shadows. Indirect and shadow traversal als
 have work limits; exhausting them darkens that lighting contribution rather than
 assuming a clear path. Primary traversal has no such work limit.
 
-In the same busy saved game and camera view on an RTX 4060 at 1280×720, the original
-Path traced implementation averaged 9.3 FPS and this version averaged 38.0 FPS
+In the earlier geometry-scoping comparison, using the same busy saved game and camera
+view on an RTX 4060 at 1280×720, the original Path traced implementation averaged
+9.3 FPS and that optimization checkpoint averaged 38.0 FPS
 over logic frames 106000–107000. Both ran offscreen with a 60 Hz cap. These are
 whole-game timings during a live battle, not isolated GPU timings or a guarantee
-for other maps. This remains an experimental, lower-detail reflection mode.
+for other maps. They predate the close-up material and camera-resolution fixes; see
+[the current validation report](modern-water-visual-and-audio-fixes.md). This remains
+an experimental reflection mode.
 
 Run the synthetic test with:
 
@@ -321,6 +343,11 @@ confidence in red, world distance travelled divided by 700 in green and skipped 
 and the trace confidence in blue. The trace keeps a fixed spatial sampling phase, bounded
 refinement of real crossings and a CPU-uploaded projection matrix. It uses no temporal
 history; sparse hits can still produce speckled edges in SSR-only mode.
+Developer-only Path diagnostics use `ZH_WATER_DEBUG=path-raw` for undistorted
+level-zero geometry radiance, `path-coverage` for geometry coverage, and
+`path-distorted` for the filtered geometry lookup before sky/Fresnel composition.
+`path-no-distortion` keeps the normal Path material but disables its lookup nudge.
+These views isolate capture/material inputs; they do not establish temporal stability.
 The preview clears an inherited `ZH_WATER_DEBUG`; pass `--debug ssr` or `--debug ssr-hit`
 (or any other water debug view) to show one there.
 
@@ -328,6 +355,136 @@ Tilt the camera down (Alt + middle drag downward) until the towers leave the top
 screen-space trace lose them while the mirror keeps them. The default green material
 and the steep starting camera make all reflections faint; `--mode clean --pitch 0.6`
 shows them more clearly.
+
+## Performance controls (Linux)
+
+The preview accepts the initial Modern water performance choices and the planar
+Reflection detail follow-up used by the Linux game. Omitted flags retain the existing
+appearance: reflections On, Wave detail High, refraction Full and Reflection detail High. These preview flags apply to the current process; they do
+not write the game's `Options.ini` or the material rules.
+
+| Preview flag | Choices | Behaviour |
+| --- | --- | --- |
+| `--scene-reflections` | `on`, `off` | Off skips synthetic planar rendering and path preparation, disables scene-reflection sampling, and retains sky/sun highlights. The preferred `--reflection` mode is retained. |
+| `--wave-detail` | `low`, `high` | Low uses a 128×128 production FFT; High retains 256×256. Both keep animated waves. The visible water mesh is unchanged. |
+| `--refraction` | `full`, `simple`, `off` | Full retains displaced, depth-validated transmission. Simple keeps undistorted transmission. Off uses opaque tinted water and omits transmission/seabed/caustic work. |
+| `--reflection-detail` | `low`, `high` | Low: Legacy 256×256, Hybrid 512×512, Path 256×256 settled / 128×128 moving. High: Legacy 512×512, Hybrid 1024×1024, Path 512×512 even while moving. SSR is unchanged. |
+
+Scene colour is still needed by SSR/Hybrid, and by a Path traced fallback to Hybrid,
+when scene reflections are On. Refraction Off therefore removes the colour snapshot
+only when no active reflection consumer needs it. Depth is retained for remaining
+water depth/intersection consumers. Low/High use different seeded FFT phases; changing
+wave detail can visibly change the wave pattern while the simulation clock continues.
+An allocation failure can retain the current FFT size or fall back to Low; the preview
+prints requested and active dimensions separately.
+
+For example, a bounded comparison of the cheaper choices is:
+
+```sh
+./build-linux/water_preview --offscreen --frames 2 --time 18 --hide-controls \
+  --reflection hybrid --scene-reflections off --wave-detail low --refraction simple \
+  --screenshot /tmp/water-simple-low.png
+```
+
+Reflection detail changes synthetic planar and Path targets, including a Hybrid
+fallback from Path traced. It does not change the SSR trace resolution.
+A bank retains its captured planar resolution; passing Reflection detail Low reports
+that limitation and keeps the image unchanged.
+
+Bank replay still uploads/injects its captured colour and depth inputs so the original
+fixed view can be reproduced. Scene reflections Off omits captured planar uploads and
+turns off planar/SSR sampling, but a bank cannot measure the saving from skipping a
+live game's scene capture. Use the synthetic preview's capture counters for that
+narrow check, and validate live maps separately.
+
+### Developer material cost experiments
+
+`--freeze-time` keeps the animation clock fixed for every frame: synthetic scenes
+retain `--time`, while banks retain each captured `c1.x` with zero elapsed replay
+time. The normal default continues advancing at 1/60 second in bounded runs. Combined with
+`--benchmark`, frozen runs require at least one warm-up frame and fail if any FFT
+update, pass or copy occurs after warm-up. This removes ongoing FFT work from a
+controlled material experiment; it does not remove scene captures or reflection
+producers.
+
+`--profile-material` accepts these developer-only shader ablations:
+
+| Mode | Experiment |
+| --- | --- |
+| `full` | Original shader; also the omitted-argument default. |
+| `constant-surface` | Fixed final surface radiance; retain the original raster depth, base/edge coverage and normal fog/alpha pipeline. |
+| `no-foam-lighting` | Retain the final foam coverage and layer weights with a fixed foam radiance, removing its lighting and rough reflection work. |
+| `no-sky-reflection` | Remove clear/foam reflected sky, planar and screen-space evaluation; keep the existing reflection producer and captured inputs. |
+| `no-terrain-shadow` | Remove the terrain-height sun visibility taps; retain the independent scene-shadow visibility. |
+| `no-seabed-detail` | Remove procedural bed texture/grain lighting; retain refraction, absorption and caustics. |
+| `no-caustics` | Remove curvature caustic modulation; retain bed detail and absorption. |
+
+These intentionally different images attribute work; they are **not equivalent
+quality choices** and never change game preferences. Geometry, opacity rules,
+fog, capture policy and producer work remain the same. Debug views cannot be
+combined with an ablation. Use the same view, material, resolution, time,
+reflection choice and all other options for every comparison. Keep `--hide-controls`
+set, capture screenshots separately, and compare the reported work counters exactly.
+Banks retain their fixed images and depth reconstruction/injection/composite work;
+they do not reproduce a live scene's producer costs or moving units.
+
+For the already installed Mesa layer, a bounded **windowed** diagnostic is:
+
+```sh
+SDL_GPU_DRIVER=vulkan VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/intel_icd.json \
+  VK_INSTANCE_LAYERS=VK_LAYER_MESA_overlay \
+  VK_LAYER_MESA_OVERLAY_CONFIG='frame,gpu_timing,frame_timing,fps_sampling_period=0,no_display=1,output_file=/tmp/water-material-full.csv' \
+  ./build-linux/water_preview --benchmark --frames 240 --benchmark-warmup 60 \
+  --freeze-time --profile-material full --time 18 --width 640 --height 400 \
+  --mode material --reflection hybrid --hide-controls
+```
+
+Use cumulative CSV `frame` counts to exclude startup/warm-up frames; the installed
+layer can put the first two presents in one bucket even with a zero sampling
+period. Require `frame = 1` and positive GPU timestamps on every retained row.
+A layer/driver combination returning zero timestamps is unavailable timing, not
+zero GPU cost. At the layer's default sampling period, timing columns are
+**sums over a sampling window**;
+include `frame` and divide by it for window means. Do not treat those sums as
+individual-frame latency or derive per-frame p95 from window averages.
+
+The GPU values come from command-buffer timestamps summed at presentation. They
+include all submitted preview work. Sequential paired repetitions can estimate
+the incremental aggregate cost of each ablation; they do not provide named water
+pass durations or gameplay FPS savings. The layer waits for queries at presentation,
+serializing the workload even with `no_display=1`; that option only suppresses the
+overlay's own drawing. Keep this diagnostic series separate from the host benchmark
+without the layer. No profiler installation or vendored SDL change is required.
+
+### Bounded host benchmark
+
+`--benchmark` defaults to 720 deterministic frames, discards the first 120, and reports
+median and nearest-rank p95 of the remaining host `draw()` + `Present()` durations.
+`--frames` and `--benchmark-warmup` override those counts; the warm-up count must be
+smaller than the total. Editor input is ignored during the benchmark. Optional
+`--benchmark-csv FILE.csv` writes every post-warm-up frame observation after timing
+finishes. Screenshots use a separate run, and `ZH_GPU_TIMING_SYNC` must be unset or `0`.
+
+```sh
+SDL_GPU_DRIVER=vulkan VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/intel_icd.json \
+  ./build-linux/water_preview --offscreen --benchmark --frames 720 \
+  --benchmark-warmup 120 --benchmark-csv /tmp/water-default.csv \
+  --width 640 --height 400 --time 18 --mode material --reflection hybrid --hide-controls
+```
+
+The result is explicitly **host timing without added GPU synchronization**, not GPU
+execution time. It includes normal submission, back-pressure and offscreen-present
+waits already performed by the renderer. Whole-process wall time also includes startup
+and teardown. Neither value isolates a water pass or predicts gameplay FPS. Per-pass
+GPU timings remain unavailable through the current SDL public API.
+
+The log records the selected GPU/driver/ICD, dimensions, settings and requested/active
+FFT size, plus measured and total counts for draws, FFT updates/passes/copies, colour
+and depth captures, synthetic planar renders, path preparations and bank injections.
+Compare runs with the same scene, camera, resolution, time, frame count and device.
+Keep screenshots, Vulkan validation and external profilers separate from ordinary
+timing runs. The complete environment and comparison protocol is in
+[modern-water-performance-validation.md](modern-water-performance-validation.md).
 
 ## Banked scenes
 
@@ -423,6 +580,24 @@ Offscreen mode defaults to one frame. `--frames 180` runs three seconds with det
 1/60-second steps. `--time` sets the initial wave time; `--width` and `--height` set output
 size. Startup never loads a saved preset without `--load-preset`, including offscreen
 captures; **L** loads it explicitly during an interactive session.
+
+## Portable work checks
+
+The source-controlled checker runs 27 short synthetic cases and checks actual FFT,
+scene capture, planar/path and comparison work counters. It also verifies Low planar
+target dimensions at both wave levels. It requires an already-built preview and uses
+only Python's standard library; it installs nothing.
+
+```sh
+python3 GeneralsMD/Code/Tools/water-performance-check.py \
+  --preview build-linux/water_preview \
+  --icd /usr/share/vulkan/icd.d/intel_icd.json \
+  --output build-linux/water-performance-validation/intel/portable-final
+```
+
+Select an installed ICD for the intended GPU, or omit `--icd` to use the loader's
+normal selection. The checker saves each exact command/log and `report.json`.
+Its bounded runs are correctness checks; their process wall times are not a benchmark.
 
 ## Implementation
 

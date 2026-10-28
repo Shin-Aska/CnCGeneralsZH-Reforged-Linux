@@ -976,6 +976,10 @@ GlobalData::GlobalData()
 #if defined(__linux__)
 	m_waterStyle = 1;				// Linux keeps Modern unless Options.ini explicitly selects Classic
 	m_waterReflection = 2;		// Hybrid unless Options.ini selects another reflection mode
+	m_waterReflectionEnabled = TRUE;
+	m_waterFftResolution = 1;	// High preserves the original wave simulation
+	m_waterRefractionQuality = 0; // Full preserves the original transmission and distortion
+	m_waterReflectionDetail = 1; // High planar detail and 512-square Path captures
 	m_cloudStyle = 1;				// Linux keeps Volumetric unless Classic is explicitly selected
 #else
 	m_waterStyle = 0;				// other platforms retain upstream's Classic default

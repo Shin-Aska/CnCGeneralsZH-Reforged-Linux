@@ -485,8 +485,11 @@ bool SdlGpuFrame::Record_Passes(SDL_GPUCommandBuffer * commands, SDL_GPUBuffer *
 			break;
 		}
 		if (command->IsDepthSnapshot) {
-			if (!Resolve_Scene_Depth(commands, command->BlitSource, command->BlitDestination,
-				(unsigned int)command->Rect[2], (unsigned int)command->Rect[3])) return false;
+			SDL_PushGPUDebugGroup(commands,"Modern water depth capture");
+			const bool resolved=Resolve_Scene_Depth(commands, command->BlitSource, command->BlitDestination,
+				(unsigned int)command->Rect[2], (unsigned int)command->Rect[3]);
+			SDL_PopGPUDebugGroup(commands);
+			if(!resolved) return false;
 			continue;
 		}
 		if (command->IsBlit) {
@@ -504,7 +507,9 @@ bool SdlGpuFrame::Record_Passes(SDL_GPUCommandBuffer * commands, SDL_GPUBuffer *
 			blit.destination.h = (Uint32)command->BlitRect[3];
 			blit.load_op = SDL_GPU_LOADOP_LOAD;
 			blit.filter = command->BlitLinear ? SDL_GPU_FILTER_LINEAR : SDL_GPU_FILTER_NEAREST;
+			if(command->IsWaterColourSnapshot) SDL_PushGPUDebugGroup(commands,"Modern water colour capture");
 			SDL_BlitGPUTexture(commands, &blit);
+			if(command->IsWaterColourSnapshot) SDL_PopGPUDebugGroup(commands);
 			continue;
 		}
 		if (whole_clear) {
@@ -622,12 +627,15 @@ bool SdlGpuFrame::Record_Passes(SDL_GPUCommandBuffer * commands, SDL_GPUBuffer *
 				pushed_water_pixel[block]=draw.PixelWaterConstants[block];
 			}
 		}
+		const bool modernWater=draw.PixelWaterConstantsSize[0]>0;
+		if(modernWater) SDL_PushGPUDebugGroup(commands,"Modern water material");
 		if (draw.IndexSize != 0) {
 			SDL_DrawGPUIndexedPrimitives(pass, draw.Count, 1, draw.First, draw.BaseVertex, 0);
 		}
 		else {
 			SDL_DrawGPUPrimitives(pass, draw.Count, 1, draw.First, 0);
 		}
+		if(modernWater) SDL_PopGPUDebugGroup(commands);
 		last = &draw;
 	}
 	return true;

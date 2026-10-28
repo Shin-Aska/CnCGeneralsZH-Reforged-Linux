@@ -6,6 +6,8 @@
 #include "Platform/ModernWaterMaterial.h"
 #include "Platform/WaterScreenReflection.h"
 #include "Platform/WaterPathTracing.h"
+#include "Platform/WaterPerformanceSettings.h"
+#include "Platform/WaterMaterialProfile.h"
 
 #include <SDL3/SDL.h>
 #include <algorithm>
@@ -36,6 +38,10 @@ constexpr RenderUInt32 WaterFVF = D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_DIFFUSE | 
 
 struct Options {
     unsigned width = 1280, height = 800, frames = 0;
+    bool sceneReflections = true, benchmark = false, freezeTime = false;
+    WaterMaterialProfile::Mode materialProfile = WaterMaterialProfile::Full;
+    int waveDetail = 1, refraction = WaterPerformanceSettings::Full, reflectionDetail = 1;
+    unsigned benchmarkWarmup = 120;
     float time = 18.0f, strength = 0.80f, brightness = 0.67f;
     float mapDepth = 2.0f, mapOpacity = 0.8f;
     WaterPreviewCamera::State camera;
@@ -44,7 +50,7 @@ struct Options {
     bool offscreen = false, bubbles = true, props = true;
     bool controls = true, strengthSet = false, brightnessSet = false, bubblesSet = false;
     bool loadPreset = false, widthSet = false, heightSet = false;
-    std::string screenshot, colour, config, exportConfig, scene, debug;
+    std::string screenshot, colour, config, exportConfig, scene, debug, benchmarkCsv;
     std::string mapColour = "324B32", mapTexture = "TSWater03.tga";
     float underwaterClarity = -1.f; // absent: retain resolved or banked material
     float reflectionStrength = -1.f;
@@ -65,6 +71,11 @@ void help()
         "       [--reflection legacy|ssr|hybrid|path|compare] [--no-props] [--scene NAME|PATH]\n"
         "       [--yaw RADIANS] [--pitch 0.48..1.38] [--distance 180..1050]\n"
         "       [--target X Y] [--debug VIEW]\n"
+        "       [--scene-reflections on|off] [--wave-detail low|high]\n"
+        "       [--refraction full|simple|off] [--benchmark] [--benchmark-warmup N]\n"
+        "       [--benchmark-csv FILE.csv] [--reflection-detail low|high]\n"
+        "       [--freeze-time] [--profile-material full|constant-surface|no-foam-lighting|\n"
+        "           no-sky-reflection|no-terrain-shadow|no-seabed-detail|no-caustics]\n"
         "\n1 clean baseline | 2 resolved material | 3 split (baseline left / material right)\n"
         "4 legacy | 5 SSR | 6 hybrid (legacy + SSR) | 8 path traced (experimental)\n"
         "7 legacy/SSR/hybrid side by side; path tracing is separate and optional.\n"
@@ -87,9 +98,15 @@ void help()
         "--reflection mirror remains an alias for legacy.\n"
         "Scene names resolve beside the executable: water-scenes/NAME.wbank.\n"
         "--width/--height scale and letterbox that view; compare uses three bank-size targets.\n"
-        "Synthetic planar targets: legacy 512x512, hybrid 1024x1024; banks retain captured resolution.\n"
+        "Synthetic High planar targets: legacy 512x512, hybrid 1024x1024; banks retain captured resolution.\n"
         "Synthetic mode requires no game data. No game/save files are changed.\n"
-        "--offscreen defaults to one frame; captures use deterministic 1/60 s steps.");
+        "--offscreen defaults to one frame; captures use deterministic 1/60 s steps.\n"
+        "--benchmark defaults to 720 bounded frames, excludes the first 120 frames,\n"
+        "and reports host draw+Present timings without added GPU synchronization.\n"
+        "Use --frames/--benchmark-warmup to override; screenshots are separate runs.\n"
+        "Scene reflections Off skips planar/path producers; banks retain injected inputs.\n"
+        "Reflection detail Low halves planar sides; Path uses 256 still/128 moving versus High 512 always. SSR is unchanged.\n"
+        "Banks retain their captured planar resolution even with Reflection detail Low.");
 }
 
 std::string hexColour(const char *text)
@@ -134,6 +151,34 @@ Options parse(int argc, char **argv)
             return argv[++i];
         };
         if (arg == "--offscreen") o.offscreen = true;
+        else if (arg == "--benchmark") o.benchmark = true;
+        else if (arg == "--freeze-time") o.freezeTime = true;
+        else if (arg == "--profile-material") {
+            if (!WaterMaterialProfile::Parse(value(),o.materialProfile))
+                throw std::runtime_error("unknown profile-material diagnostic");
+        }
+        else if (arg == "--benchmark-csv") o.benchmarkCsv = value();
+        else if (arg == "--benchmark-warmup") o.benchmarkWarmup = integer(value(), 0, 999999);
+        else if (arg == "--scene-reflections") {
+            const std::string v = value();
+            if (v != "on" && v != "off") throw std::runtime_error("scene-reflections must be on or off");
+            o.sceneReflections = v == "on";
+        }
+        else if (arg == "--wave-detail") {
+            const std::string v = value();
+            if (v != "low" && v != "high") throw std::runtime_error("wave-detail must be low or high");
+            o.waveDetail = v == "high" ? 1 : 0;
+        }
+        else if (arg == "--reflection-detail") {
+            const std::string v = value();
+            if (v != "low" && v != "high") throw std::runtime_error("reflection-detail must be low or high");
+            o.reflectionDetail = v == "high" ? 1 : 0;
+        }
+        else if (arg == "--refraction") {
+            const std::string v = value();
+            if (v != "full" && v != "simple" && v != "off") throw std::runtime_error("refraction must be full, simple or off");
+            o.refraction = v == "off" ? WaterPerformanceSettings::Off : v == "simple" ? WaterPerformanceSettings::Simple : WaterPerformanceSettings::Full;
+        }
         else if (arg == "--no-bubbles") { o.bubbles = false; o.bubblesSet = true; }
         else if (arg == "--no-props") o.props = false;
         else if (arg == "--yaw") o.camera.yaw = number(value(), -100, 100);
@@ -186,6 +231,19 @@ Options parse(int argc, char **argv)
     }
     if (!o.scene.empty() && o.reflection == WaterPreviewReflection::PathTraced)
         throw std::runtime_error("path tracing is unavailable for scene banks: they contain images, not complete scene geometry; omit --scene to use the synthetic scene");
+    if (o.materialProfile != WaterMaterialProfile::Full &&
+        (!o.debug.empty() || (SDL_getenv("ZH_WATER_DEBUG") && *SDL_getenv("ZH_WATER_DEBUG"))))
+        throw std::runtime_error("profile-material ablations require debug views to be disabled");
+    if (o.freezeTime && o.benchmark && o.benchmarkWarmup == 0)
+        throw std::runtime_error("frozen benchmark needs at least one warmup frame to initialize FFT");
+    if (!o.benchmarkCsv.empty() && !o.benchmark) throw std::runtime_error("benchmark-csv requires --benchmark");
+    if (o.benchmark) {
+        if (!o.frames) o.frames = 720;
+        if (o.benchmarkWarmup >= o.frames) throw std::runtime_error("benchmark warmup must be less than frames");
+        if (!o.screenshot.empty()) throw std::runtime_error("benchmark screenshots must be captured in a separate run");
+        if (SDL_getenv("ZH_GPU_TIMING_SYNC") && std::strcmp(SDL_getenv("ZH_GPU_TIMING_SYNC"),"0") != 0)
+            throw std::runtime_error("benchmark requires ZH_GPU_TIMING_SYNC to be unset or 0");
+    }
     if (o.offscreen && !o.frames) o.frames = 1;
     return o;
 }
@@ -378,22 +436,34 @@ public:
 
     int run()
     {
+        WaterMaterialProfile::Applied()=options.materialProfile;
+        applyPerformanceSettings();
         initialize();
+        std::printf("Material cost diagnostic: profile=%s freeze_time=%s; ablation images are not quality equivalents.\n",
+            WaterMaterialProfile::Name(options.materialProfile),options.freezeTime?"yes":"no");
         updateTitle();
         std::printf("Controls: left-drag color sliders; H panel; L load saved colors; 1 clean baseline, 2 material, 3 split; 4 legacy (captured planar in banks), 5 SSR, 6 hybrid (legacy + SSR), 7 compare legacy/SSR/hybrid, 8 path traced (synthetic only); B bubbles; [/] pollution; Space pause; S PNG; E export rule; Esc close. %s\n",
             scene.loaded()?"FIXED CAMERA (banked frame).":"P props; arrows/right drag pan; middle drag turns; Alt+middle drag tilts (down tips down); middle click resets heading/pitch/zoom; wheel/+/- zoom; Ctrl+wheel 5x zoom; Alt+wheel tilts (forward flatter); Home/R resets camera and target.");
         uint64_t previous = SDL_GetTicksNS();
         unsigned frame = 0;
         bool done = false;
+        std::vector<double> hostFrames;
+        WorkCounts measuredStart{};
+        if (options.benchmark) hostFrames.reserve(options.frames-options.benchmarkWarmup);
         while (!done) {
             SDL_Event event;
-            while (SDL_PollEvent(&event)) handle(event, done);
+            while (SDL_PollEvent(&event)) {
+                if (!options.benchmark) handle(event, done);
+                else if (event.type == SDL_EVENT_QUIT) done = true;
+            }
             if (done) break;
             const uint64_t now = SDL_GetTicksNS();
             const float elapsed = options.frames ? 1.0f/60.0f : std::min(float(now-previous)*1.0e-9f,0.05f);
             previous = now;
-            if (frame && !paused) time += elapsed;
-            keyboard(elapsed);
+            if (frame && !paused && !options.freezeTime) time += elapsed;
+            if (!options.benchmark) keyboard(elapsed);
+            if (options.benchmark && frame == options.benchmarkWarmup) measuredStart = workCounts();
+            const uint64_t drawStart = SDL_GetTicksNS();
             draw();
             const bool last = options.frames && frame+1 >= options.frames;
             if (capture || (last && !options.screenshot.empty())) {
@@ -401,9 +471,15 @@ public:
                 capture = false;
             }
             require(device->Present(nullptr,nullptr,nullptr,nullptr),"present");
+            if (options.benchmark && frame >= options.benchmarkWarmup)
+                hostFrames.push_back(double(SDL_GetTicksNS()-drawStart)*1.0e-6);
             ++frame;
             if (last) done = true;
         }
+        if (options.benchmark) reportBenchmark(hostFrames,measuredStart,workCounts());
+        printWork("Total work",workCounts());
+        std::printf("Wave allocation: requested=%u active=%u\n",WaterPerformanceSettings::Applied().requestedFftResolution,
+            WaterPerformanceSettings::Applied().activeFftResolution);
         if (pathActive) std::printf("Water path tracing final: %s\n",WaterPathTracing::Report(device).c_str());
         if (frame) std::printf("Rendered %u frames; %u recorded draws; %llu production FFT updates; no refused draws.\n",
             frame,device->Draws_Recorded(),static_cast<unsigned long long>(device->Get_Gpu()->Ocean_Updates()));
@@ -411,6 +487,59 @@ public:
     }
 
 private:
+    struct WorkCounts {
+        uint64_t draws=0, fftUpdates=0, fftPasses=0, fftCopies=0, colourCaptures=0, depthCaptures=0;
+        uint64_t planarRenders=0, pathPrepares=0, bankInjections=0;
+    };
+    uint64_t planarRenders=0, pathPrepares=0, bankInjections=0;
+    WorkCounts workCounts() const
+    {
+        const auto *gpu=device->Get_Gpu();
+        return {device->Draws_Recorded(),gpu->Ocean_Updates(),gpu->Ocean_Passes(),gpu->Ocean_Copies(),
+            gpu->Water_Colour_Captures(),gpu->Water_Depth_Captures(),planarRenders,pathPrepares,bankInjections};
+    }
+    static void printWork(const char *label, const WorkCounts &c)
+    {
+        std::printf("%s: draws=%llu fft_updates=%llu fft_passes=%llu fft_copies=%llu colour_captures=%llu depth_captures=%llu planar_renders=%llu path_prepares=%llu bank_injections=%llu\n",
+            label,(unsigned long long)c.draws,(unsigned long long)c.fftUpdates,(unsigned long long)c.fftPasses,
+            (unsigned long long)c.fftCopies,(unsigned long long)c.colourCaptures,(unsigned long long)c.depthCaptures,
+            (unsigned long long)c.planarRenders,(unsigned long long)c.pathPrepares,(unsigned long long)c.bankInjections);
+    }
+    void reportBenchmark(std::vector<double> &samples, const WorkCounts &start, const WorkCounts &end)
+    {
+        if (samples.empty()) throw std::runtime_error("benchmark ended before measured frames");
+        if (options.freezeTime && (end.fftUpdates != start.fftUpdates
+            || end.fftPasses != start.fftPasses || end.fftCopies != start.fftCopies))
+            throw std::runtime_error("frozen material benchmark unexpectedly updated FFT after warmup");
+        if (!options.benchmarkCsv.empty()) {
+            std::ofstream output(options.benchmarkCsv);
+            output.precision(9);
+            output << "frame,host_draw_present_ms\n";
+            for (size_t i=0;i<samples.size();++i) output << options.benchmarkWarmup+i+1 << ',' << samples[i] << '\n';
+            if (!output) throw std::runtime_error("write benchmark CSV: "+options.benchmarkCsv);
+        }
+        std::sort(samples.begin(),samples.end());
+        const size_t n=samples.size();
+        const double median=n%2?samples[n/2]:(samples[n/2-1]+samples[n/2])*.5;
+        const double p95=samples[size_t(std::ceil(.95*n))-1];
+        const char *layers=SDL_getenv("VK_INSTANCE_LAYERS");
+        const bool mesa=layers && std::strstr(layers,"VK_LAYER_MESA_overlay");
+        std::printf("Benchmark host draw+Present (%s; not GPU time): warmup=%u samples=%zu median_ms=%.6f p95_ms=%.6f\n",
+            mesa?"Mesa overlay instrumented; external query waits":"unsynchronized; no added GPU wait",
+            options.benchmarkWarmup,n,median,p95);
+        printWork("Measured work",{end.draws-start.draws,end.fftUpdates-start.fftUpdates,end.fftPasses-start.fftPasses,
+            end.fftCopies-start.fftCopies,end.colourCaptures-start.colourCaptures,end.depthCaptures-start.depthCaptures,
+            end.planarRenders-start.planarRenders,end.pathPrepares-start.pathPrepares,end.bankInjections-start.bankInjections});
+    }
+    void applyPerformanceSettings()
+    {
+        WaterPerformanceSettings::Apply(options.sceneReflections,options.waveDetail,options.refraction,options.reflectionDetail);
+        WaterPerformanceSettings::Applied().sceneColourRequired = WaterPerformanceSettings::SceneColourRequired(
+            WaterPerformanceSettings::Refraction(options.refraction),
+            options.sceneReflections && (options.reflection == WaterPreviewReflection::ScreenSpace
+                || options.reflection == WaterPreviewReflection::Hybrid || comparing()
+                || (options.reflection == WaterPreviewReflection::PathTraced && !pathReady)));
+    }
     Options options;
     WaterPreviewScene::Scene scene;
     SDL_Window *window = nullptr;
@@ -597,6 +726,8 @@ private:
 
     void initialize()
     {
+        legacyMirror.size=WaterScreenReflection::MirrorSize(WaterScreenReflection::Mirror,options.reflectionDetail);
+        hybridMirror.size=WaterScreenReflection::MirrorSize(WaterScreenReflection::Hybrid,options.reflectionDetail);
         if (!SDL_Init(SDL_INIT_VIDEO)) throw std::runtime_error(std::string("SDL video: ")+SDL_GetError());
         if (!options.scene.empty()) {
             scene.load(options.scene);
@@ -639,16 +770,31 @@ private:
         require(adapter->CreateDevice(0,D3DDEVTYPE_HAL,parameters.hDeviceWindow,0,&parameters,&created),"create GPU device");
         device = static_cast<PosixDevice9 *>(created);
         if (!device->Get_Gpu()) throw std::runtime_error("no SDL GPU frame available");
+        const SDL_PropertiesID gpuProperties=SDL_GetGPUDeviceProperties(device->Get_Gpu()->Device());
+        std::printf("GPU: %s; driver: %s; driver_info: %s; ICD: %s\n",
+            SDL_GetStringProperty(gpuProperties,SDL_PROP_GPU_DEVICE_NAME_STRING,"unknown"),
+            SDL_GetStringProperty(gpuProperties,SDL_PROP_GPU_DEVICE_DRIVER_NAME_STRING,"unknown"),
+            SDL_GetStringProperty(gpuProperties,SDL_PROP_GPU_DEVICE_DRIVER_INFO_STRING,
+                SDL_GetStringProperty(gpuProperties,SDL_PROP_GPU_DEVICE_DRIVER_VERSION_STRING,"unknown")),
+            SDL_getenv("VK_ICD_FILENAMES")?SDL_getenv("VK_ICD_FILENAMES"):"loader default");
+        std::printf("Water settings: scene_reflections=%s wave_detail=%s refraction=%s reflection_detail=%s; start_time=%.6f frames=%u scene=%s\n",
+            options.sceneReflections?"on":"off",options.waveDetail?"high":"low",
+            options.refraction==0?"full":options.refraction==1?"simple":"off",options.reflectionDetail?"high":"low",options.time,options.frames,
+            options.scene.empty()?"synthetic":options.scene.c_str());
         std::printf("Renderer: %s; %ux%u; standalone production-water preview\n",SDL_GetGPUDeviceDriver(device->Get_Gpu()->Device()),options.width,options.height);
         const RenderUInt32 tokens[] = {0xffff0101u,0x0000ffffu};
         require(device->CreatePixelShader(tokens,&shader),"create water shader");
         PosixDevice_Name_Shader(shader,"trapezoid water ps.1.1");
-        if (scene.loaded()) scene.initialize(device);
+        if (scene.loaded()) {
+            scene.initialize(device);
+            if (!options.reflectionDetail)
+                std::printf("Banked planar detail retains captured resolution; Reflection detail Low cannot regenerate or resize this bank.\n");
+        }
         else {
             createMesh();
             createTextures();
             props=buildProps(-1.0e9f);
-            mirrorProps=buildProps(WaterLevel);
+            if (options.sceneReflections) mirrorProps=buildProps(WaterLevel);
         }
         reflectionBar.choice=options.reflection;
         reflectionBar.pathAvailable=!scene.loaded();
@@ -755,7 +901,7 @@ private:
 
     bool showsMirror() const
     {
-        return options.props && (options.reflection==WaterPreviewReflection::Mirror
+        return options.sceneReflections && options.props && (options.reflection==WaterPreviewReflection::Mirror
             || options.reflection==WaterPreviewReflection::Hybrid || comparing()
             || (options.reflection==WaterPreviewReflection::PathTraced && !pathReady));
     }
@@ -780,6 +926,7 @@ private:
     void drawMirror(MirrorTarget &target, const char *name, unsigned viewWidth)
     {
         createMirror(target,name);
+        ++planarRenders;
         IDirect3DSurface9 *colour=nullptr,*depth=nullptr;
         require(device->GetRenderTarget(0,&colour),"get render target");
         require(device->GetDepthStencilSurface(&depth),"get depth target");
@@ -838,7 +985,7 @@ private:
 
     void preparePathTracing()
     {
-        if (options.reflection!=WaterPreviewReflection::PathTraced) {
+        if (!options.sceneReflections || options.reflection!=WaterPreviewReflection::PathTraced) {
             if (pathActive) WaterPathTracing::Clear(device);
             pathActive=false;
             pathReady=false;
@@ -874,6 +1021,7 @@ private:
         const float tangent=std::tan(48.0f*Pi/360.0f),aspect=viewAspect();
         const auto reflected=[](Vec3 v) { return WaterPathTracing::Vec3{v.x,v.y,-v.z}; };
         WaterPathTracing::View view;
+        WaterPathTracing::ApplyReflectionDetail(view,WaterPerformanceSettings::Applied().reflectionDetail);
         view.origin={c.x+offset.x*c.distance,c.y+offset.y*c.distance,WaterLevel-offset.z*c.distance};
         view.rayTopLeft=reflected({-offset.x+tangent*(up.x-right.x*aspect),
             -offset.y+tangent*(up.y-right.y*aspect),-offset.z+tangent*(up.z-right.z*aspect)});
@@ -886,6 +1034,7 @@ private:
         view.skyHigh=WaterPathTracing::DisplayToLinear({.23f,.38f,.48f});
         view.waterLevel=WaterLevel;
         const bool wasReady=pathReady;
+        ++pathPrepares;
         pathReady=WaterPathTracing::Prepare(device,pathTriangles,view);
         if (!pathActive || pathReady!=wasReady) {
             std::printf("Water path tracing: %s%s\n",WaterPathTracing::Report(device).c_str(),
@@ -896,8 +1045,10 @@ private:
 
     void draw()
     {
+        applyPerformanceSettings();
         if (scene.loaded()) {
             require(device->BeginScene(),"begin bank scene");
+            bankInjections += comparing()?3:1;
             scene.draw(options.width,options.height,options.reflection,time,colourPanel.edited,colourPanel.values,options.bubbles,options.mode,options.underwaterClarity);
             colourPanel.draw(device,options.width,options.height);
             if (options.controls) reflectionBar.draw(device,options.width,options.height,comparing()?3:1,true);
@@ -907,6 +1058,7 @@ private:
         }
         camera();
         preparePathTracing();
+        applyPerformanceSettings(); // path setup may have selected the Hybrid fallback
         require(device->BeginScene(),"begin scene");
         if (showsMirror()) {
             if (comparing() || options.reflection==WaterPreviewReflection::Mirror)
@@ -927,6 +1079,10 @@ private:
                 drawScene();
             }
         } else drawScene();
+        // The first Legacy comparison column may need only depth, but later SSR/Hybrid
+        // columns still need the common pre-water colour from all opaque views.
+        if (comparing()) device->Get_Gpu()->Prepare_Water_Snapshot(device->Get_Gpu()->Back_Buffer_Target(),
+            WaterPerformanceSettings::Applied().sceneColourRequired,true);
         drawAllWater();
         colourPanel.draw(device,options.width,options.height);
         if (options.controls)
@@ -1034,10 +1190,10 @@ private:
     {
         // Each mode is a per-draw choice in the production shader: the mirror (c1.z, stage 1,
         // the viewport's slice of it in c2) and the trace (c95.w), as the game's water sets them.
-        const bool path=reflection==WaterPreviewReflection::PathTraced && pathReady;
+        const bool path=options.sceneReflections && reflection==WaterPreviewReflection::PathTraced && pathReady;
         if (reflection==WaterPreviewReflection::PathTraced && !path) reflection=WaterPreviewReflection::Hybrid;
         const bool mirror=showsMirror() && (reflection==WaterPreviewReflection::Mirror || reflection==WaterPreviewReflection::Hybrid);
-        const bool trace=reflection==WaterPreviewReflection::ScreenSpace || reflection==WaterPreviewReflection::Hybrid;
+        const bool trace=options.sceneReflections && (reflection==WaterPreviewReflection::ScreenSpace || reflection==WaterPreviewReflection::Hybrid);
         const float water[4]={time,0,(mirror||path)?1.f:0.f,WaterLevel};
         const float areaLeft=own?-1.f:-2.f*float(left)/float(width)-1.f;
         const float area[4]={areaLeft,-1,own?1.f:areaLeft+2.f*float(options.width)/float(width),1};

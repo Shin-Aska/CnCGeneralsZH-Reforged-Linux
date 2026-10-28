@@ -44,10 +44,12 @@
 #include "../Libraries/Source/WWVegas/WW3D2/ffshader.h"
 #include "../Libraries/Source/WWVegas/WW3D2/ffvertex.h"
 #include "Platform/EngineShaderName.h"
+#include "Platform/WaterPerformanceSettings.h"
 
 #include <SDL3/SDL.h>
 
 #include <stdio.h>
+#include <cmath>
 #include <string.h>
 #include <vector>
 
@@ -1155,6 +1157,99 @@ static PosixDevice9 *sun_fault_device(IDirect3D9 *adapter)
     return device;
 }
 
+// Exercise preparation through the actual D3D9 draw resolver. With zero FFT damping,
+// the wrapped vertex program must replace z=.75 by the metadata base level .25.
+// Depth readback therefore distinguishes the real FFT pipeline from analytic fallback.
+static void check_prepared_water_fft(IDirect3D9 *adapter)
+{
+    const char *option=getenv("ZH_WATER_FFT");const bool hadOption=option!=NULL;
+    const std::string savedOption=option?option:"";
+    const auto savedSettings=WaterPerformanceSettings::Applied();
+    setenv("ZH_WATER_FFT","1",1);
+    PosixDevice9 *device=sun_fault_device(adapter);
+    if(!device) {
+        WaterPerformanceSettings::Applied()=savedSettings;
+        if(hadOption)setenv("ZH_WATER_FFT",savedOption.c_str(),1);else unsetenv("ZH_WATER_FFT");
+        return;
+    }
+    struct V {float x,y,z,nx,ny,nz;uint32_t colour;float u0,v0,damping,level;};
+    const V vertices[]={
+        {-1,1,.75f,1,0,1,WHITE,0,0,0,.25f},{1,1,.75f,1,0,1,WHITE,0,0,0,.25f},
+        {-1,-1,.75f,1,0,1,WHITE,0,0,0,.25f},{1,1,.75f,1,0,1,WHITE,0,0,0,.25f},
+        {1,-1,.75f,1,0,1,WHITE,0,0,0,.25f},{-1,-1,.75f,1,0,1,WHITE,0,0,0,.25f}};
+    device->SetFVF(D3DFVF_XYZ|D3DFVF_NORMAL|D3DFVF_DIFFUSE|D3DFVF_TEX2);
+    const RenderUInt32 tokens[]={0xffff0101u,0x0000ffffu};IDirect3DPixelShader9 *shader=NULL;
+    CHECK(device->CreatePixelShader(tokens,&shader)==D3D_OK);
+    PosixDevice_Name_Shader(shader,"trapezoid water ps.1.1");device->SetPixelShader(shader);
+    const float constants[7][4]={{0,0,0,.25f},{0,0,1,1},{0,0,1,0},{1,1,1,1},
+        {0,1,1,0},{20,1,0,0},{0,0,0,0}};
+    CHECK(device->SetPixelShaderConstantF(1,&constants[0][0],7)==D3D_OK);
+    auto *gpu=device->Get_Gpu();
+    CHECK(device->Begin_Prepared_Water_Fft()==0); // optical/height-correction guards
+    CHECK(gpu->Ocean_Updates()==0);
+    const float context[4]={20,1,1,1};device->SetPixelShaderConstantF(6,context,1);
+    const auto clear=[&](){CHECK(device->Clear(0,NULL,D3DCLEAR_TARGET|D3DCLEAR_ZBUFFER,BLUE,1,0)==D3D_OK);};
+    const auto draw=[&](){CHECK(device->DrawPrimitiveUP(D3DPT_TRIANGLELIST,2,vertices,sizeof(V))==D3D_OK);};
+    const auto checkDepth=[&](float expected){
+        std::vector<float> depth;
+        CHECK(gpu->Read_Depth(gpu->Back_Buffer_Target().Depth,SIZE,SIZE,depth));
+        CHECK(depth.size()==SIZE*SIZE);
+        if(depth.size()==SIZE*SIZE) {
+            CHECK(std::fabs(depth[8*SIZE+8]-expected)<.001f);
+            CHECK(std::fabs(depth[24*SIZE+24]-expected)<.001f);
+        }
+    };
+    WaterPerformanceSettings::Applied().requestedFftResolution=128;
+    gpu->Fail_Next_Ocean_Rebuild_For_Test();
+    CHECK(device->Begin_Prepared_Water_Fft()==0);
+    clear();const unsigned fallbackDraws=device->Draws_Recorded();draw();
+    CHECK(device->Draws_Recorded()==fallbackDraws+1);checkDepth(.75f);
+
+    WaterPerformanceSettings::Applied().requestedFftResolution=256;
+    uint64_t token=device->Begin_Prepared_Water_Fft();CHECK(token!=0);
+    CHECK(device->Begin_Prepared_Water_Fft()==0);
+    device->End_Prepared_Water_Fft(0);device->End_Prepared_Water_Fft(token+1);
+    const auto updates=gpu->Ocean_Updates();
+    clear();const unsigned preparedDraws=device->Draws_Recorded();
+    device->SetRenderState(D3DRS_FILLMODE,D3DFILL_WIREFRAME);draw();
+    device->SetRenderState(D3DRS_FILLMODE,D3DFILL_SOLID);
+    device->SetRenderState(D3DRS_ALPHABLENDENABLE,1);
+    device->SetRenderState(D3DRS_SRCBLEND,D3DBLEND_ONE);device->SetRenderState(D3DRS_DESTBLEND,D3DBLEND_ZERO);
+    // Two independent batches retain the same prepared FFT field and vertex program.
+    CHECK(device->DrawPrimitiveUP(D3DPT_TRIANGLELIST,1,vertices,sizeof(V))==D3D_OK);
+    CHECK(device->DrawPrimitiveUP(D3DPT_TRIANGLELIST,1,vertices+3,sizeof(V))==D3D_OK);
+    CHECK(device->Draws_Recorded()==preparedDraws+3);CHECK(gpu->Ocean_Updates()==updates);
+    checkDepth(.25f);device->End_Prepared_Water_Fft(token);
+    setenv("ZH_WATER_FFT","0",1);clear();draw();checkDepth(.75f); // scope ended; complete fallback remains usable
+    setenv("ZH_WATER_FFT","1",1);
+
+    token=device->Begin_Prepared_Water_Fft();CHECK(token!=0);
+    const float later[4]={3,0,0,.25f};device->SetPixelShaderConstantF(1,later,1);
+    unsigned before=device->Draws_Recorded();draw();CHECK(device->Draws_Recorded()==before);
+    device->End_Prepared_Water_Fft(token);
+    token=device->Begin_Prepared_Water_Fft();CHECK(token!=0);
+    CHECK(gpu->Prepare_Ocean(4,256)); // a changed resource generation cannot reuse the token
+    before=device->Draws_Recorded();draw();CHECK(device->Draws_Recorded()==before);
+    device->End_Prepared_Water_Fft(token);
+    token=device->Begin_Prepared_Water_Fft();CHECK(token!=0);
+    auto parameters=device->Get_Present_Parameters();
+    auto invalidParameters=parameters;invalidParameters.BackBufferWidth=0;
+    CHECK(device->Reset(&invalidParameters)==D3DERR_INVALIDCALL);
+    clear();before=device->Draws_Recorded();draw();CHECK(device->Draws_Recorded()==before+1);
+    checkDepth(.25f); // a failed reset preserves the active scope and its bindings
+    CHECK(device->Reset(&parameters)==D3D_OK);
+    CHECK(device->Reset(&parameters)==D3D_OK); // invalid even if surface addresses are reused
+    before=device->Draws_Recorded();draw();CHECK(device->Draws_Recorded()==before);
+    device->End_Prepared_Water_Fft(token);
+    token=device->Begin_Prepared_Water_Fft();CHECK(token!=0); // reset invalidates only the old scope
+    clear();draw();checkDepth(.25f);device->End_Prepared_Water_Fft(token);
+    CHECK(device->Draw_Refusals().count("prepared water FFT scope changed before draw")==1);
+    device->SetPixelShader(NULL);shader->Release();device->Release();
+    WaterPerformanceSettings::Applied()=savedSettings;
+    if(hadOption)setenv("ZH_WATER_FFT",savedOption.c_str(),1);else unsetenv("ZH_WATER_FFT");
+    printf("prepared water FFT: failed allocation retains analytic depth; prepared program replaces height across batches; fill/blend, nested/stale guards, phase/resource/double-reset invalidation and failed-reset preservation checked\n");
+}
+
 static void check_sun_failures(IDirect3D9 *adapter)
 {
     const char *oldMode=getenv("ZH_SUN_SHADOW_MODE"),*oldFault=getenv("ZH_TEST_SUN_SHADOW_FAILURE");
@@ -1540,6 +1635,7 @@ int main()
 	check_refusal(device);
 	check_quad_derivatives(device);
 #if defined(__linux__)
+	check_prepared_water_fft(d3d);
 	check_sun_failures(d3d);
 #endif
 

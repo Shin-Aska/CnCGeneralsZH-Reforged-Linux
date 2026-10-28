@@ -68,6 +68,7 @@ struct SdlVertexConstants;
 struct SdlPixelConstants;
 struct SdlWaterPixelConstants;
 struct SdlWaterVisualPixelConstants;
+struct SdlProgram;
 
 /// AddRef and Release for one of the interfaces, counted as COM counts.
 template <class Interface>
@@ -201,6 +202,11 @@ public:
 	void Shore_End();
 	void Shore_Patch(const WaterShoreOverlay::Quad *patch);
 	void Shore_Track(const WaterShoreOverlay::Quad *track);
+	// A synchronous water-patch scope may omit fully replaced analytic vertex heights only
+	// after this succeeds. Index, cull, blend and fill changes are allowed inside the scope;
+	// changing the FFT/vertex inputs is a contract violation, never an analytic fallback.
+	uint64_t Begin_Prepared_Water_Fft();
+	void End_Prepared_Water_Fft(uint64_t token);
 
 	// What the resource code (PosixDevice9Resources.cpp) reads.
 	const D3DPRESENT_PARAMETERS & Get_Present_Parameters() const { return Parameters; }
@@ -491,6 +497,21 @@ protected:
 	SdlPipelineCache *Pipelines;
 	SdlSamplerCache *Samplers;
 	SdlResourceMirrors *Mirrors;
+	struct PreparedWaterFftDraw {
+		uint64_t token=0, oceanUpdates=0;
+		unsigned int presents=0;
+		float phase=0;
+		SdlGpuFrame *gpu=NULL;
+		SdlProgramCache *programs=NULL;
+		const SdlProgram *vertex=NULL;
+		const void *pixelShader=NULL, *vertexShader=NULL, *maps[3]={}, *array=NULL, *sampler=NULL;
+		IDirect3DSurface9 *target=NULL, *depth=NULL;
+		bool arrayOutput=false;
+		std::vector<uint8_t> description;
+	} PreparedWaterFft;
+	uint64_t PreparedWaterFftSerial=0;
+	bool Water_Fft_Requested(int vertexEngine,int pixelEngine,const VertexPipelineDescription &vertex) const;
+	bool Prepared_Water_Fft_Matches(const VertexPipelineDescription &vertex) const;
 	unsigned int DrawsRecorded;
 	unsigned int PresentCount;
 	std::map<std::string, unsigned int> DrawRefusals;

@@ -36,6 +36,8 @@
 #include "ffvertex.h"
 #include "engineshader.h"
 #include "Platform/EngineShaderName.h"
+#include "Platform/WaterPerformanceSettings.h"
+#include "Platform/WaterMaterialProfile.h"
 
 #include <SDL3/SDL.h>
 
@@ -107,6 +109,43 @@ static void check_live_water_style_programs(PosixDevice9 *device,SdlProgramCache
     CHECK(programs[0]->Shader!=programs[1]->Shader && programs[2]->Shader!=programs[3]->Shader);
     device->SetPixelShader(NULL);shader->Release();
     printf("sdl_program_cache_selfcheck: 128 water style changes on the same bound shader, four distinct cached GPU programs, no recompiles on return\n");
+}
+
+static void check_water_vertex_storage_variants(PosixDevice9 *device,SdlProgramCache &cache)
+{
+    device->SetFVF(D3DFVF_XYZ|D3DFVF_NORMAL|D3DFVF_DIFFUSE|D3DFVF_TEX2);
+    device->SetRenderState(D3DRS_LIGHTING,0);
+    device->SetRenderState(D3DRS_FOGENABLE,0);
+    VertexPipelineDescription description={};
+    const bool described=device->Build_Vertex_Description(description);CHECK(described);if(!described)return;
+    const unsigned before=cache.Programs_Built();
+    const auto *legacy=&cache.Water_Vertex_Program(description,false);
+    const auto *array=&cache.Water_Vertex_Program(description,true);
+    CHECK(legacy->Shader!=NULL && array->Shader!=NULL);
+    CHECK(legacy!=array && legacy->Shader!=array->Shader && legacy->Key!=array->Key);
+    // Three FFT samplers plus the production cage terrain sampler when retained.
+    CHECK(legacy->SamplerSlots>=3 && legacy->SamplerSlots<=4);
+    CHECK(array->SamplerSlots==legacy->SamplerSlots);
+    CHECK(legacy->UniformBuffers==2 && array->UniformBuffers==2);
+    CHECK(cache.Programs_Built()==before+2);
+    CHECK(&cache.Water_Vertex_Program(description)==legacy);
+    const unsigned built=cache.Programs_Built();
+    for(unsigned repeat=0;repeat<32;++repeat) {
+        CHECK(&cache.Water_Vertex_Program(description,false)==legacy);
+        CHECK(&cache.Water_Vertex_Program(description,true)==array);
+    }
+    // FogVertexMode is omitted from the canonical key when fog is disabled.
+    // Different bytes must still find the correct storage variant in the string map.
+    VertexPipelineDescription equivalent=description;
+    equivalent.FogVertexMode=description.FogVertexMode==D3DFOG_LINEAR?D3DFOG_NONE:D3DFOG_LINEAR;
+    CHECK(memcmp(&description,&equivalent,sizeof(description))!=0);
+    CHECK(VertexShader_Key(description)==VertexShader_Key(equivalent));
+    CHECK(&cache.Water_Vertex_Program(equivalent,false)==legacy);
+    CHECK(&cache.Water_Vertex_Program(equivalent,true)==array);
+    CHECK(&cache.Water_Vertex_Program(description,false)==legacy);
+    CHECK(&cache.Water_Vertex_Program(description,true)==array);
+    CHECK(cache.Programs_Built()==built);
+    printf("sdl_program_cache_selfcheck: FFT independent/array vertex variants distinct; default legacy, alternating byte hits and canonical string-map revisits reuse matching shaders\n");
 }
 
 int main()
@@ -202,6 +241,52 @@ int main()
 	CHECK(refused_again.Shader == NULL && cache.Programs_Refused() == refused_before + 1);
 
 	check_live_water_style_programs(device,cache);
+    const auto savedWater=WaterPerformanceSettings::Applied();
+    const SdlProgram *tiers[12]={};unsigned tier=0;PixelPipelineDescription waterPipeline={};
+    for(unsigned resolution:{128u,256u}) for(unsigned refraction=0;refraction<3;++refraction) for(bool reflections:{false,true}) {
+        auto &settings=WaterPerformanceSettings::Applied();settings.activeFftResolution=resolution;
+        settings.refraction=WaterPerformanceSettings::Refraction(refraction);settings.sceneReflections=reflections;
+        tiers[tier]=&cache.Engine_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,waterPipeline);
+        CHECK(tiers[tier]->Shader!=NULL);
+        for(unsigned prior=0;prior<tier;++prior) CHECK(tiers[prior]!=tiers[tier]);
+        CHECK(&cache.Engine_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,waterPipeline)==tiers[tier]);++tier;
+    }
+    const auto builtTiers=cache.Programs_Built();tier=0;
+    for(unsigned resolution:{128u,256u}) for(unsigned refraction=0;refraction<3;++refraction) for(bool reflections:{false,true}) {
+        auto &settings=WaterPerformanceSettings::Applied();settings.activeFftResolution=resolution;
+        settings.refraction=WaterPerformanceSettings::Refraction(refraction);settings.sceneReflections=reflections;
+        CHECK(&cache.Engine_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,waterPipeline)==tiers[tier++]);
+    }
+    CHECK(cache.Programs_Built()==builtTiers);WaterPerformanceSettings::Applied()=savedWater;
+    printf("sdl_program_cache_selfcheck: all 12 water quality byte-cache variants distinct; revisits reuse shaders\n");
+#if defined(__linux__)
+    const auto savedProfile=WaterMaterialProfile::Applied();
+    const SdlProgram *profiles[WaterMaterialProfile::Count]={};
+    const auto *terrain=&cache.Engine_Pixel_Program(ENGINE_SHADER_TERRAIN,waterPipeline);
+    for(unsigned i=0;i<WaterMaterialProfile::Count;++i) {
+        WaterMaterialProfile::Applied()=WaterMaterialProfile::Mode(i);
+        profiles[i]=&cache.Engine_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,waterPipeline);
+        CHECK(profiles[i]->Shader!=NULL);
+        for(unsigned j=0;j<i;++j) CHECK(profiles[j]!=profiles[i]);
+        CHECK(&cache.Engine_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,waterPipeline)==profiles[i]);
+        // A disabled alpha test ignores AlphaFunction in the canonical string key.
+        // Change those bytes to force the string-map path after the byte-cache miss.
+        PixelPipelineDescription equivalent=waterPipeline;equivalent.AlphaFunction=D3DCMP_ALWAYS;
+        CHECK(&cache.Engine_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,equivalent)==profiles[i]);
+        CHECK(&cache.Engine_Pixel_Program(ENGINE_SHADER_TERRAIN,waterPipeline)==terrain);
+    }
+    const auto builtProfiles=cache.Programs_Built();
+    for(unsigned i=0;i<WaterMaterialProfile::Count;++i) {
+        WaterMaterialProfile::Applied()=WaterMaterialProfile::Mode(i);
+        CHECK(&cache.Engine_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,waterPipeline)==profiles[i]);
+    }
+    CHECK(cache.Programs_Built()==builtProfiles);WaterMaterialProfile::Applied()=savedProfile;
+    printf("sdl_program_cache_selfcheck: seven developer material profiles distinct in byte/string caches, canonical revisits reuse, terrain identity unchanged\n");
+#endif
+
+
+
+	check_water_vertex_storage_variants(device,cache);
 
 	printf("sdl_program_cache_selfcheck: %s, %u programs built in %.0f ms, %u refused\n",
 		SDL_GetGPUDeviceDriver(frame->Device()), cache.Programs_Built(), cache.Milliseconds_Compiling(),

@@ -122,6 +122,10 @@ OPTION_BOOL_ACCESSORS( m_vsync )
 OPTION_INT_ACCESSORS( m_waterStyle )
 #if defined(__linux__)
 OPTION_INT_ACCESSORS( m_waterReflection )
+OPTION_BOOL_ACCESSORS( m_waterReflectionEnabled )
+OPTION_INT_ACCESSORS( m_waterFftResolution )
+OPTION_INT_ACCESSORS( m_waterRefractionQuality )
+OPTION_INT_ACCESSORS( m_waterReflectionDetail )
 #endif
 OPTION_INT_ACCESSORS( m_cloudStyle )
 OPTION_BOOL_ACCESSORS( m_classicGraphics )
@@ -478,6 +482,22 @@ const OptionDef TheOptionCatalog[] =
 	{ "WaterReflection", OPT_WND( "ComboBoxWaterReflection" ), "GUI:WaterReflection",
 		OPTION_ENUM, APPLY_LIVE, 0, WATER_REFLECTION_COUNT - 1,
 		get_m_waterReflection, set_m_waterReflection },
+
+	{ "WaterReflectionEnabled", OPT_WND( "CheckWaterReflectionEnabled" ), "GUI:WaterReflectionEnabled",
+		OPTION_BOOL, APPLY_LIVE, 0, 1,
+		get_m_waterReflectionEnabled, set_m_waterReflectionEnabled },
+
+	{ "WaterFftResolution", OPT_WND( "ComboBoxWaterFftResolution" ), "GUI:WaterFftResolution",
+		OPTION_ENUM, APPLY_LIVE, 0, WATER_FFT_RESOLUTION_COUNT - 1,
+		get_m_waterFftResolution, set_m_waterFftResolution },
+
+	{ "WaterRefractionQuality", OPT_WND( "ComboBoxWaterRefractionQuality" ), "GUI:WaterRefractionQuality",
+		OPTION_ENUM, APPLY_LIVE, 0, WATER_REFRACTION_QUALITY_COUNT - 1,
+		get_m_waterRefractionQuality, set_m_waterRefractionQuality },
+
+	{ "WaterReflectionDetail", OPT_WND( "ComboBoxWaterReflectionDetail" ), "GUI:WaterReflectionDetail",
+		OPTION_ENUM, APPLY_LIVE, 0, WATER_REFLECTION_DETAIL_COUNT - 1,
+		get_m_waterReflectionDetail, set_m_waterReflectionDetail },
 #endif
 
 	// The hazard keeps its gameplay area and lifetime; this changes its appearance only.
@@ -738,6 +758,16 @@ const OptionDef *findOptionDef( const char *iniKey )
 			return &TheOptionCatalog[ i ];
 
 	return NULL;
+}
+
+//-----------------------------------------------------------------------------
+Bool isLinuxModernWaterOption( const OptionDef& def )
+{
+	return strcmp( def.iniKey, "WaterReflection" ) == 0
+		|| strcmp( def.iniKey, "WaterReflectionEnabled" ) == 0
+		|| strcmp( def.iniKey, "WaterFftResolution" ) == 0
+		|| strcmp( def.iniKey, "WaterRefractionQuality" ) == 0
+		|| strcmp( def.iniKey, "WaterReflectionDetail" ) == 0;
 }
 
 //-----------------------------------------------------------------------------

@@ -16,12 +16,15 @@
 struct SdlGpuFrame::PathResources {
     WaterPathTracing::Scene Scene;
     uint64_t Fingerprint = 0;
-    uint64_t Revision = 0;
+    uint64_t Revision = 0, MaterialFingerprint = 0;
+    const WaterPathTracing::PrimaryMaterialPacket *MaterialSource = nullptr;
+    std::vector<WaterPathTracing::Float4> MaterialPixels;
     const void *Source = nullptr;
     WaterPathTracing::Uniforms LastView{};
     SDL_GPUTexture *Nodes = nullptr, *Triangles = nullptr, *History[2]{};
-    SDL_GPUTransferBuffer *Uploads[2]{};
-    unsigned UploadBytes[2]{}, DataHeights[2]{};
+    SDL_GPUTexture *Materials = nullptr, *Texels = nullptr;
+    SDL_GPUTransferBuffer *Uploads[4]{};
+    unsigned UploadBytes[4]{}, DataHeights[4]{};
     SDL_GPUSampler *Point = nullptr, *Linear = nullptr;
     SDL_GPUShader *Vertex = nullptr, *Pixel = nullptr;
     SDL_GPUGraphicsPipeline *Pipeline = nullptr;
@@ -46,7 +49,8 @@ void SdlGpuFrame::Clear_Water_Path()
         return;
     }
     std::fprintf(stderr, "%s\n", Water_Path_Report().c_str());
-    for (auto *texture : {WaterPath->Nodes, WaterPath->Triangles, WaterPath->History[0], WaterPath->History[1]})
+    for (auto *texture : {WaterPath->Nodes, WaterPath->Triangles, WaterPath->History[0], WaterPath->History[1],
+                          WaterPath->Materials, WaterPath->Texels})
         if (texture) SDL_ReleaseGPUTexture(GpuDevice, texture);
     for (auto *upload : WaterPath->Uploads)
         if (upload) SDL_ReleaseGPUTransferBuffer(GpuDevice, upload);
@@ -59,7 +63,7 @@ void SdlGpuFrame::Clear_Water_Path()
 }
 
 bool SdlGpuFrame::Prepare_Water_Path(const std::vector<WaterPathTracing::Triangle> &triangles,
-    const WaterPathTracing::View &view, uint64_t revision)
+    const WaterPathTracing::View &view, uint64_t revision, const WaterPathTracing::PrimaryMaterialPacket *materials)
 {
     using namespace WaterPathTracing;
     if (!WaterPath) WaterPath = new PathResources;
@@ -70,7 +74,8 @@ bool SdlGpuFrame::Prepare_Water_Path(const std::vector<WaterPathTracing::Triangl
     };
     // A failed pipeline is retried after leaving/re-entering the mode, not each frame.
     if (!p.Failure.empty()) return false;
-    if (view.size < 32 || view.size > 1024 || !std::isfinite(view.waterLevel)
+    if (view.size < 32 || view.size > 1024 || view.motionSize < 32 || view.motionSize > 1024
+        || !std::isfinite(view.waterLevel)
         || !std::isfinite(view.maxDistance) || view.maxDistance <= 0)
         return fail("invalid capture view");
     const auto four = [](Vec3 v, float w = 0) { return Float4{v.x,v.y,v.z,w}; };
@@ -82,7 +87,7 @@ bool SdlGpuFrame::Prepare_Water_Path(const std::vector<WaterPathTracing::Triangl
     constants.sunRadiance = four(view.sunRadiance);
     constants.skyLow = four(view.skyLow); constants.skyHigh = four(view.skyHigh);
     constants.counts.w = view.maxDistance;
-    constants.output = Float4{float(view.size),float(view.size),0.02f,0};
+    constants.output = Float4{float(view.size),float(view.size),0.02f,float(view.motionSize)};
     constants.transport = Float4{view.secondaryDistance,view.shadowDistance,
         float(view.secondaryNodeBudget),float(view.shadowNodeBudget)};
     if (!(view.secondaryDistance>0) || !(view.shadowDistance>0)
@@ -96,14 +101,19 @@ bool SdlGpuFrame::Prepare_Water_Path(const std::vector<WaterPathTracing::Triangl
     const bool geometryChanged = !p.Nodes || (revision
         ? p.Source != &triangles || p.Revision != revision
         : p.Revision != 0 || fingerprint != p.Fingerprint);
+    const uint64_t materialFingerprint = materials && !revision ? FingerprintPrimaryMaterials(*materials) : 0;
+    const bool materialsChanged = geometryChanged || p.MaterialSource != materials
+        || materialFingerprint != p.MaterialFingerprint;
+    if (materialsChanged && materials && !ValidPrimaryMaterials(*materials,triangles.size()))
+        return fail("invalid primary materials");
     const bool viewChanged = std::memcmp(&constants, &p.LastView, sizeof(constants)) != 0;
     const bool resolvingMotion = p.Motion.Observe(SDL_GetTicks(),
-        p.Ready && (geometryChanged || viewChanged));
-    // Motion invalidates the sample history anyway. Trace fewer pixels until the
-    // scene settles, then restart accumulation at the requested capture density.
-    const unsigned captureSize = resolvingMotion ? std::min(view.size,128u) : view.size;
-    if (geometryChanged || viewChanged) p.Samples = 0;
-    if (p.Ready && p.Samples >= 64 && p.Size == captureSize && !geometryChanged && !viewChanged) return true;
+        p.Ready && !SameCaptureProjection(constants,p.LastView));
+    // Low detail reduces density during camera motion; High retains its requested
+    // density. Scene animation resets lighting without reducing a still capture.
+    const unsigned captureSize = resolvingMotion ? std::min(view.size,view.motionSize) : view.size;
+    if (geometryChanged || materialsChanged || viewChanged) p.Samples = 0;
+    if (p.Ready && p.Samples >= 64 && p.Size == captureSize && !geometryChanged && !materialsChanged && !viewChanged) return true;
     // Previous water draws can still be queued against the history we're about to overwrite.
     if (!Flush()) return fail("pending draw submission failed");
     const SDL_GPUTextureFormat format = SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT;
@@ -132,19 +142,28 @@ bool SdlGpuFrame::Prepare_Water_Path(const std::vector<WaterPathTracing::Triangl
         sampler.min_filter = sampler.mag_filter = SDL_GPU_FILTER_NEAREST;
         p.Point = SDL_CreateGPUSampler(GpuDevice,&sampler);
         sampler.min_filter = sampler.mag_filter = SDL_GPU_FILTER_LINEAR;
+        // The wave-distorted lookup can minify this capture even while its average
+        // screen footprint is magnified. Keep level zero sharp, filtering only the
+        // radiance footprint requested by the water shader's lookup derivatives.
+        sampler.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_LINEAR;
+        sampler.max_lod = 10.0f; // The largest supported capture is 1024 square.
         p.Linear = SDL_CreateGPUSampler(GpuDevice,&sampler);
         if (!p.Pipeline || !p.Point || !p.Linear) return fail(SDL_GetError());
     }
-    const auto texture = [&](unsigned w, unsigned h, SDL_GPUTextureFormat f, SDL_GPUTextureUsageFlags usage) {
+    const auto texture = [&](unsigned w, unsigned h, SDL_GPUTextureFormat f, SDL_GPUTextureUsageFlags usage,
+                             unsigned levels=1) {
         SDL_GPUTextureCreateInfo info{};
         info.type = SDL_GPU_TEXTURETYPE_2D; info.format = f; info.usage = usage;
-        info.width = w; info.height = h; info.layer_count_or_depth = info.num_levels = 1;
+        info.width = w; info.height = h; info.layer_count_or_depth = 1; info.num_levels = levels;
         return SDL_CreateGPUTexture(GpuDevice,&info);
     };
     if (p.Size != captureSize) {
+        unsigned levels=1;
+        for(unsigned side=captureSize;side>1;side/=2) ++levels;
         for (auto *&history : p.History) {
             if (history) SDL_ReleaseGPUTexture(GpuDevice,history);
-            history = texture(captureSize,captureSize,format,SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER);
+            history = texture(captureSize,captureSize,format,
+                SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER,levels);
         }
         if (!p.History[0] || !p.History[1]) return fail(SDL_GetError());
         p.Size = captureSize; p.Samples = 0; p.Current = 0;
@@ -167,7 +186,7 @@ bool SdlGpuFrame::Prepare_Water_Path(const std::vector<WaterPathTracing::Triangl
         SDL_CancelGPUCommandBuffer(commands);
         return fail(why);
     };
-    if (geometryChanged) {
+    if (geometryChanged || materialsChanged) {
         const auto upload = [&](unsigned slot, SDL_GPUTexture *&destination, const std::vector<Float4> &data) {
             const unsigned width = DataTextureWidth;
             const unsigned height = std::max(1u,unsigned((data.size()+width-1)/width));
@@ -203,8 +222,27 @@ bool SdlGpuFrame::Prepare_Water_Path(const std::vector<WaterPathTracing::Triangl
             SDL_EndGPUCopyPass(copy);
             return true;
         };
-        if (!upload(0,p.Nodes,p.Scene.nodeTexels) || !upload(1,p.Triangles,p.Scene.triangleTexels))
+        if (geometryChanged && (!upload(0,p.Nodes,p.Scene.nodeTexels) || !upload(1,p.Triangles,p.Scene.triangleTexels)))
             return abandon(SDL_GetError());
+        if (materialsChanged) {
+            // BVH packing may reorder or omit triangles; attributes follow its
+            // source-slot mapping on both rebuilds and refits.
+            std::vector<Float4> attributes(p.Scene.triangles.size()*3);
+            if (materials) for (unsigned i=0;i<p.Scene.triangles.size();++i) {
+                const PrimaryMaterial &m=materials->triangles[p.Scene.SourceTriangleIndex(i)];
+                attributes[i*3]=m.uvAB; attributes[i*3+1]=m.uvCSize; attributes[i*3+2]=m.diffuseOffset;
+            }
+            if (!upload(2,p.Materials,attributes)) return abandon(SDL_GetError());
+            const std::vector<Float4> empty;
+            const auto &pixels=materials?materials->texels:empty;
+            // Animation normally changes geometry only. Retain the immutable
+            // texture snapshot instead of uploading the atlas on every refit.
+            if (!p.Texels || pixels.size()!=p.MaterialPixels.size()
+                || (!pixels.empty() && std::memcmp(pixels.data(),p.MaterialPixels.data(),pixels.size()*sizeof(Float4))!=0)) {
+                if (!upload(3,p.Texels,pixels)) return abandon(SDL_GetError());
+                p.MaterialPixels=pixels;
+            }
+        }
     }
     if (!p.Samples) {
         // Even an unused previous sample has a defined value on the first dispatch.
@@ -220,8 +258,9 @@ bool SdlGpuFrame::Prepare_Water_Path(const std::vector<WaterPathTracing::Triangl
     SDL_GPURenderPass *pass = SDL_BeginGPURenderPass(commands,&target,1,nullptr);
     if (!pass) return abandon(SDL_GetError());
     SDL_BindGPUGraphicsPipeline(pass,p.Pipeline);
-    SDL_GPUTextureSamplerBinding bindings[] = {{p.Nodes,p.Point},{p.Triangles,p.Point},{p.History[p.Current],p.Point}};
-    SDL_BindGPUFragmentSamplers(pass,0,bindings,3);
+    SDL_GPUTextureSamplerBinding bindings[] = {{p.Nodes,p.Point},{p.Triangles,p.Point},{p.History[p.Current],p.Point},
+        {p.Materials,p.Point},{p.Texels,p.Point}};
+    SDL_BindGPUFragmentSamplers(pass,0,bindings,5);
     p.LastView = constants;
     constants.output.x = constants.output.y = float(captureSize);
     constants.counts.x = float(p.Scene.nodeTexels.size()/2);
@@ -230,10 +269,14 @@ bool SdlGpuFrame::Prepare_Water_Path(const std::vector<WaterPathTracing::Triangl
     SDL_PushGPUFragmentUniformData(commands,0,&constants,sizeof(constants));
     SDL_DrawGPUPrimitives(pass,3,1,0,0);
     SDL_EndGPURenderPass(pass);
+    // Build from the newly averaged linear RGBA history, including geometry coverage.
+    // Temporal accumulation still reads only level zero via PathPrevious.Load.
+    SDL_GenerateMipmapsForGPUTexture(commands,p.History[next]);
     const bool submitted = SerializeSubmits ? Submit(commands) : Submit_Flush(commands);
     if (!submitted) return fail("capture submission failed");
     p.Current = next; ++p.Samples; p.Ready = true; p.Fingerprint = fingerprint;
     p.Revision = revision; p.Source = &triangles;
+    p.MaterialSource = materials; p.MaterialFingerprint = materialFingerprint;
     return true;
 }
 
@@ -254,10 +297,10 @@ std::string SdlGpuFrame::Water_Path_Report() const
 }
 
 namespace WaterPathTracing {
-bool Prepare(IDirect3DDevice9 *device, const std::vector<Triangle> &triangles, const View &view, uint64_t revision)
+bool Prepare(IDirect3DDevice9 *device, const std::vector<Triangle> &triangles, const View &view, uint64_t revision, const PrimaryMaterialPacket *materials)
 {
     auto *posix = dynamic_cast<PosixDevice9 *>(device);
-    return posix && posix->Get_Gpu() && posix->Get_Gpu()->Prepare_Water_Path(triangles,view,revision);
+    return posix && posix->Get_Gpu() && posix->Get_Gpu()->Prepare_Water_Path(triangles,view,revision,materials);
 }
 void Clear(IDirect3DDevice9 *device)
 {

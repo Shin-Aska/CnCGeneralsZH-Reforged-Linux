@@ -24,6 +24,8 @@
 #include "Platform/WaterCoastalPresentation.h"
 #include "Platform/WaterOpticalModel.h"
 #include "Platform/ModernWaterMaterial.h"
+#include "Platform/WaterPerformanceSettings.h"
+#include "Platform/WaterMaterialProfile.h"
 #include "Platform/WaterHullModel.h"
 #include "Platform/WaterHullVisual.h"
 #include "Platform/WaterFftSampling.h"
@@ -632,7 +634,8 @@ static bool write_engine_pixel_program(EngineShaderProgram program,
 // SDL map water has a dedicated, explicitly packed uniform block (SdlWaterPixelConstants).
 // Runtime-generated normal detail, terrain depth, refraction and the coloured planar reflection
 // are composed before the existing shore/shroud alpha blend. No additional assets are required.
-static void write_modern_water(std::string &hlsl, bool river)
+static void write_modern_water(std::string &hlsl, bool river,
+	const WaterPerformanceSettings::Configuration &quality = WaterPerformanceSettings::Configuration())
 {
 	const char *coastalSurfOption=getenv("ZH_WATER_SURF_GPU");
 #if defined(__linux__)
@@ -646,6 +649,13 @@ static void write_modern_water(std::string &hlsl, bool river)
 	const bool visualDiagnostic=visualContact && visualDebugOption &&
 		(strcmp(visualDebugOption,"contact-mesh-query")==0 || strcmp(visualDebugOption,"contact-mesh-sources")==0);
 	hlsl.clear();
+	hlsl += std::string("#define WATER_SCENE_REFLECTIONS ") + (quality.sceneReflections ? "1\n" : "0\n");
+	hlsl += "#define WATER_REFRACTION_QUALITY " + std::to_string(int(quality.refraction)) + "\n";
+#if defined(__linux__)
+	hlsl += "#define WATER_ANALYTIC_ELISION 1\n";
+#else
+	hlsl += "#define WATER_ANALYTIC_ELISION 0\n";
+#endif
 	for (unsigned stage = 0; stage < (coastalSurf?16u:15u); ++stage) {
 		if(stage>=8 && stage<14) continue;
 		char line[128];
@@ -911,7 +921,8 @@ WaterRefractionSample waterRefractedScene(float2 originalPixel, float2 offset,
 	hlsl += ModernWaterMaterial::OpticalSource();
 	hlsl += ModernWaterMaterial::BubbleSource();
 	hlsl += WaterHullModel::GetHlslSource();
-	hlsl += WaterFftSampling::PixelSource(bowLift,WaterBowShoulder::Enabled(),true);
+	hlsl += WaterFftSampling::PixelSource(bowLift,WaterBowShoulder::Enabled(),true,
+		WaterFftSpectrum::ForResolution(quality.activeFftResolution));
 	hlsl += WaterWaveCageShader::Source(false);
 	char oceanBound[96];
 	snprintf(oceanBound, sizeof(oceanBound), "static const float oceanDisplacementBound = %.9g;\n",
@@ -1091,16 +1102,24 @@ float4 main(Input input) : SV_Target
     float offshore = opticalContext.r * OpticalParameters.z * (1.0 - WaterParameters.y);
     // The mesh and this derivative share every mode, phase, dispersion and crest harmonic.
     // Interpolated attenuation includes shores/structures, and its product derivative is retained.
-    float2 shoreRippleSlope;
-    float3 legacyWave = waterWave(wavePosition, time, shoreRippleSlope);
+    // The product-rule weight derivative still needs the old analytic height at
+    // FFT seams. Use exact endpoints only; tiny residual weights/gradients retain
+    // the complete original evaluator. No screen derivative enters this branch.
+    float2 fftWeightSlope=fftParameterGradient(fftWeight,parameterDx,parameterDy);
+    bool analyticRemainder=!WATER_ANALYTIC_ELISION || FftParameters.x<=0.5
+        || fftWeight!=1.0 || any(fftWeightSlope!=0.0);
+    float2 shoreRippleSlope=0;
+    float3 legacyWave=0;
+    [branch] if(analyticRemainder)
+        legacyWave=waterWave(wavePosition,time,shoreRippleSlope);
     float4 oceanSwell;
-    float4 oceanSurface = waterOceanSurface(wavePosition, time, oceanSwell);
+    float4 oceanSurface = waterOceanSurface(wavePosition,time,oceanSwell,analyticRemainder);
     float3 oceanWave = oceanSurface.xyz;
     float3 wave = lerp(legacyWave, oceanWave, offshore);
     FftSurface spectral=(FftSurface)0;
     )HLSL";
-    if(bowLift) hlsl+=R"HLSL(float3 bowLiftField=0;float3 fftDampingField=float3(0,0,0);float2 fftWeightSlope=0;)HLSL";
-    else hlsl+=R"HLSL(float3 fftDampingField=float3(0,0,0);float2 fftWeightSlope=0;)HLSL";
+    if(bowLift) hlsl+=R"HLSL(float3 bowLiftField=0;float3 fftDampingField=float3(0,0,0);)HLSL";
+    else hlsl+=R"HLSL(float3 fftDampingField=float3(0,0,0);)HLSL";
     hlsl+=R"HLSL(
     float fftHorizontalWeight=0.0;
     float2 fftHorizontalWeightSlope=0;
@@ -1109,7 +1128,6 @@ float4 main(Input input) : SV_Target
         fftDampingField=vesselApplyHullDamping(wavePosition,baseLevel,
             float3(freeDamping,fftParameterGradient(freeDamping,parameterDx,parameterDy)),
             float3(fftOffshore,fftParameterGradient(fftOffshore,parameterDx,parameterDy)));
-        fftWeightSlope=fftParameterGradient(fftWeight,parameterDx,parameterDy);
         fftHorizontalWeight=fftWeight*fftOffshore;
         fftHorizontalWeightSlope=fftWeightSlope*fftOffshore
             +fftParameterGradient(fftOffshore,parameterDx,parameterDy)*fftWeight;
@@ -1337,8 +1355,9 @@ float4 main(Input input) : SV_Target
     float2 blur = roughness * 0.008 / reflectionScale;
     float4 mirror=0.0, filteredMirror=0.0;
     float2 mirrorFilterSupport=abs(blur);
-    bool pathTraced=MaterialParameters.w>1.5;
-    bool filteredPlanar=MaterialParameters.w>0.5 && !pathTraced && WaterParameters.z>0.5;
+    bool pathTraced=WATER_SCENE_REFLECTIONS && MaterialParameters.w>1.5;
+    bool filteredPlanar=WATER_SCENE_REFLECTIONS && MaterialParameters.w>0.5 && !pathTraced && WaterParameters.z>0.5;
+#if WATER_SCENE_REFLECTIONS
     [branch] if (filteredPlanar) {
         uint mirrorWidth,mirrorHeight;
         Texture1.GetDimensions(mirrorWidth,mirrorHeight);
@@ -1347,16 +1366,17 @@ float4 main(Input input) : SV_Target
         filteredMirror+=waterMirrorFiltered(reflectionUV+distortion+blur,mirrorSize)*0.25;
         filteredMirror+=waterMirrorFiltered(reflectionUV+distortion-blur,mirrorSize)*0.25;
         mirrorFilterSupport+=1.0/float2(mirrorSize);
-    } else {
+    } else if (WaterParameters.z>0.5) {
         // Keep the original reconstruction in Legacy.
         mirror=Texture1.Sample(Sampler1,saturate(reflectionUV+distortion))*0.5;
         mirror+=Texture1.Sample(Sampler1,saturate(reflectionUV+distortion+blur))*0.25;
         mirror+=Texture1.Sample(Sampler1,saturate(reflectionUV+distortion-blur))*0.25;
     }
+#endif
     float2 border = min(reflectionUV, 1.0 - reflectionUV);
     // Legacy terrain passes preserve destination alpha for shore blending, including in the
     // mirror. Its transparent-black clear gives RGB coverage even when geometry cannot write A.
-    // The path capture has explicit validity and includes sky on a geometry miss.
+    // The path capture has explicit geometry coverage; a miss uses the material sky.
     // Its black surfaces remain surfaces; RGB is never used to infer their coverage.
     float mirrorCoverage = pathTraced ? mirror.a : filteredPlanar ? 1.0 : saturate(max(max(mirror.r, mirror.g), mirror.b) * 64.0);
     if (filteredPlanar || pathTraced)
@@ -1379,7 +1399,10 @@ float4 main(Input input) : SV_Target
         reflection=lerp(skyRadiance,mirror.rgb/max(mirror.a,1e-6),coverage);
     } else reflection=lerp(skyRadiance,waterLinear(mirror.rgb),coverage);
     // MaterialParameters.w selects the traced reflection; hybrid also retains planar visibility.
-    WaterSsrSample ssr = waterScreenReflection(world, view, environmentNormal, environmentRoughness, input.Position.xy);
+    WaterSsrSample ssr = (WaterSsrSample)0;
+#if WATER_SCENE_REFLECTIONS
+    ssr = waterScreenReflection(world, view, environmentNormal, environmentRoughness, input.Position.xy);
+#endif
     // A main-camera hit cannot certify a surface hidden from that camera (a bridge underside,
     // for example). Retain the planar contribution in hybrid until geometric correspondence
     // is available. Trust includes empty sky, so it is independent of the RGB coverage heuristic.
@@ -1390,12 +1413,24 @@ float4 main(Input input) : SV_Target
     float ssrWeight=ssr.confidence*lerp(1.0,0.35,saturate(mirrorTrust));
     reflection = lerp(reflection, waterLinear(ssr.colour), ssrWeight);
     // Refraction uses the actual optical depth and shared colour/depth viewport bounds.
-    float2 refractionPixels = waterRefractionPixels(opticalDepth, view, normal, dx, dy);
-    WaterRefractionSample refractedScene = waterRefractedScene(input.Position.xy, refractionPixels,
+    float2 refractionPixels = 0.0;
+    WaterRefractionSample refractedScene = (WaterRefractionSample)0;
+    refractedScene.bottom = bottom;
+#if WATER_REFRACTION_QUALITY == 0
+    refractionPixels = waterRefractionPixels(opticalDepth, view, normal, dx, dy);
+    refractedScene = waterRefractedScene(input.Position.xy, refractionPixels,
         world, opticalWorld, view, baseLevel, bottom);
+#elif WATER_REFRACTION_QUALITY == 1
+    // Undistorted transmission reads the original scene exactly once. Depth remains
+    // independent for submerged objects, intersections and foam.
+    refractedScene.pixel = waterScenePixel(floor(input.Position.xy)+0.5);
+    [branch] if (SceneParameters.x>0.5)
+        refractedScene.colour = Texture5.Load(int3(int2(floor(refractedScene.pixel)),0)).rgb;
+#endif
     bottom = refractedScene.bottom;
     float bedDepth = max(opticalWorld.z-bottom.z, 0.0);
     float3 scene = waterLinear(refractedScene.colour);
+#if WATER_REFRACTION_QUALITY != 2
     // Material detail is fixed to the *actual* submerged scene position. Keep object materials,
     // steep cliff faces, map tint, and visibility; only exposed bed terrain receives this detail.
     float bedHeight = terrainHeight(bottom.xy);
@@ -1435,6 +1470,12 @@ float4 main(Input input) : SV_Target
     float terrainClarity=waterTerrainClarity(world.xy,baseLevel,surfaceTerrainHeight,offshore);
     float3 transmission = WaterOpticalTransmission(length(bottom-opticalWorld), WaterParameters.y,
         offshore, OpticalParameters.x, OpticalParameters.y, terrainClarity);
+#else
+    // Opaque tinted water retains the lit material source, sky and sun. No seabed
+    // textures, caustic waves, clarity taps or transmitted scene colour are evaluated.
+    float3 transmission = 0.0;
+    float caustic = 1.0;
+#endif
     // Preserve the current face-light signal, but apply it only to water's in-scattered source.
     // Transmitted terrain/object colour must not receive a second surface-light multiplier.
     float3 swellNormal=normalize(float3(-oceanSwell.yz*attenuation-correctionSlope,1));
@@ -1442,7 +1483,7 @@ float4 main(Input input) : SV_Target
     float swellLight=saturate(dot(swellNormal,light));
     float3 scatter=WaterOpticalScatteringSource(WaterParameters.y,offshore,daylight*sunVisible,swellLight);
     scatter=modernWaterMaterialSource(scatter,MaterialColor,MaterialParameters.x,daylight*sunVisible,swellLight);
-    if(MaterialParameters.y>0.0) {
+    if(MaterialParameters.y>0.0 && WATER_REFRACTION_QUALITY != 2) {
         float materialPatch=oceanNoise(wavePosition*0.009+float2(time*0.008,-time*0.006));
         transmission=modernWaterMaterialTransmission(transmission,MaterialColor.rgb,MaterialParameters.y,
             length(bottom-opticalWorld),materialPatch);
@@ -1666,8 +1707,11 @@ float4 main(Input input) : SV_Target
             oceanEnvironment(reflectedRay,light,daylight,foamRoughness),offshore);
         float foamLevelCoverage=WaterParameters.z
             *(1.0-smoothstep(0.5,2.0,abs(baseLevel-WaterParameters.w)));
-        float3 foamReflection=waterFoamPlanarReflection(foamSky,reflectionUV,distortion,
+        float3 foamReflection=foamSky;
+#if WATER_SCENE_REFLECTIONS
+        foamReflection=waterFoamPlanarReflection(foamSky,reflectionUV,distortion,
             reflectionScale,foamRoughness,foamLevelCoverage,pathTraced);
+#endif
         vesselRadiance=waterFoamRoughMaterial(vesselDiffuse,foamReflection,
             environmentFresnel,oceanViewCosine,foamRoughness);
         // Share the filtered incident reflection; exchange Fresnel only once.
@@ -1690,10 +1734,10 @@ float4 main(Input input) : SV_Target
 )HLSL";
 	if (river) {
 		hlsl += "    float4 edge = Texture3.Sample(Sampler3, float2(2.0*input.TexCoord0.x, input.TexCoord0.y));\n";
-		hlsl += "    current = float4(saturate(surface) * input.Diffuse.a, edge.a * saturate(depth * 2.0) * lerp(base.a, step(0.001, base.a), SceneParameters.x));\n";
+		hlsl += "    current = float4(saturate(surface) * input.Diffuse.a, edge.a * saturate(depth * 2.0) * lerp(base.a, step(0.001, base.a), WATER_REFRACTION_QUALITY == 2 ? 1.0 : SceneParameters.x));\n";
 	} else {
 		hlsl += "    float4 edge = Texture3.Sample(Sampler3, input.TexCoord3);\n";
-		hlsl += "    current = float4(saturate(surface) * edge.rgb, saturate(depth * 2.0) * lerp(input.Diffuse.a * base.a, step(0.001, input.Diffuse.a * base.a), SceneParameters.x));\n";
+		hlsl += "    current = float4(saturate(surface) * edge.rgb, saturate(depth * 2.0) * lerp(input.Diffuse.a * base.a, step(0.001, input.Diffuse.a * base.a), WATER_REFRACTION_QUALITY == 2 ? 1.0 : SceneParameters.x));\n";
 	}
 	// Developer captures isolate the actual water inputs; normal game output is unaffected.
 	const char *debug = getenv("ZH_WATER_DEBUG");
@@ -1706,6 +1750,25 @@ float4 main(Input input) : SV_Target
 	if (debug && strcmp(debug, "depth") == 0) hlsl += "current.rgb = (1.0-exp(-depth*0.04)).xxx;\n";
 	if (debug && strcmp(debug, "bed") == 0) hlsl += "current.rgb = waterDisplay(scene);\n";
 	if (debug && strcmp(debug, "reflection") == 0) hlsl += "current.rgb = waterDisplay(reflection);\n";
+	if (debug && (strcmp(debug,"path-raw")==0 || strcmp(debug,"path-coverage")==0)) {
+		hlsl+=R"HLSL(
+    // Raw capture attribution preserves the water's normal raster coverage/depth.
+    float4 pathDebugCapture=Texture1.SampleLevel(Sampler1,saturate(reflectionUV),0.0);
+    bool pathDebugInside=pathTraced && WaterParameters.z>0.5
+        && all(reflectionUV>=0.0) && all(reflectionUV<=1.0);
+)HLSL";
+		if(strcmp(debug,"path-coverage")==0)
+			hlsl+="current.rgb=pathDebugInside?saturate(pathDebugCapture.a).xxx:float3(0,0,0);\n";
+		else
+			hlsl+="current.rgb=pathDebugInside && pathDebugCapture.a>0.0?waterDisplay(pathDebugCapture.rgb/max(pathDebugCapture.a,1e-6)):float3(0,0,0);\n";
+	}
+	if(debug && strcmp(debug,"path-distorted")==0)
+		hlsl+="// Actual distorted/roughness-filtered geometry, without sky or Fresnel composition.\ncurrent.rgb=pathTraced && mirror.a>0.0?waterDisplay(mirror.rgb/max(mirror.a,1e-6)):float3(0,0,0);\n";
+	if(debug && strcmp(debug,"path-no-distortion")==0) {
+		const size_t sampleBlock=hlsl.find("#if WATER_SCENE_REFLECTIONS\n    [branch] if (filteredPlanar)");
+		if(sampleBlock!=std::string::npos)
+			hlsl.insert(sampleBlock,"    // Diagnostic: retain the complete material with an undistorted Path lookup.\n    if(pathTraced) distortion=float2(0,0);\n");
+	}
 	if (debug && strcmp(debug, "ssr") == 0)
 		hlsl += "current = float4(lerp(float3(0.05, 0.05, 0.2), ssr.colour, ssr.confidence), 1.0);\n";
 	if (debug && strcmp(debug, "ssr-hit") == 0)
@@ -1811,6 +1874,60 @@ current.rgb=auditReasons;
 )HLSL";
 		}
 	}
+}
+
+// Rewrite only explicit developer ablations. Full emits exactly the original source;
+// geometry, alpha/depth coverage and the appended fog/shroud pipeline stay untouched.
+// Fail closed if an edited production section no longer has its expected boundaries.
+static bool water_material_profile(std::string &hlsl)
+{
+    using namespace WaterMaterialProfile;
+    const Mode mode=Applied();
+    if(mode==Full) return true;
+    if(unsigned(mode)>=Count) return false;
+    const auto replace=[&](const char *begin,const char *end,const char *replacement) {
+        const size_t first=hlsl.find(begin);
+        if(first==std::string::npos || hlsl.find(begin,first+1)!=std::string::npos) return false;
+        const size_t last=hlsl.find(end,first+strlen(begin));
+        if(last==std::string::npos) return false;
+        hlsl.replace(first,last-first,replacement);return true;
+    };
+    switch(mode) {
+    case ConstantSurface:
+        // Everything after the original raster depth and base sample contributes
+        // only radiance. Keep that exact coverage prefix and the original tail.
+        return replace("    float3 view = normalize(CameraPosition.xyz - world + float3(0, 0, 0.00001));",
+            "    float4 current;","    float3 surface=float3(0.18,0.26,0.32);\n");
+    case NoFoamLighting:
+        // A fixed radiance retains the existing final foam coverage/layer weights.
+        // It deliberately changes lighting and is never an equivalent quality tier.
+        return replace("    float foamDiffuse=(0.22+0.78*saturate(dot(normal,light))*sunVisible)",
+            "    float4 current;",
+            "    float3 profileFoam=float3(0.5,0.5,0.5);\n"
+            "    surface=waterDisplay(waterFoamCoastLayer(surface,profileFoam,profileFoam,\n"
+            "        profileFoam,foam,vesselFoam,shoreMaterialWeight));\n");
+    case NoSkyReflection:
+        // Remove reflected sky/planar/SSR evaluation in both clear and foam lobes.
+        // Keep reflection producers and captured inputs unchanged in the renderer.
+        return replace("    float3 reflectedRay = reflect(-view, environmentNormal);",
+            "    // Refraction uses the actual optical depth",
+            "    float3 reflection=0.0;\n"
+            "    bool pathTraced=WATER_SCENE_REFLECTIONS && MaterialParameters.w>1.5;\n")
+            && replace("        float3 foamSky=waterLinear(sky);",
+                "        vesselRadiance=waterFoamRoughMaterial",
+                "        float3 foamReflection=0.0;\n");
+    case NoTerrainShadow:
+        return replace("    float sunVisible = terrainSun(world, light)",
+            "    float3 highlight =", "    float sunVisible=light_reaching(input.Position);\n");
+    case NoSeabedDetail:
+        return replace("    float bedHeight = terrainHeight(bottom.xy);",
+            "    // Caustics use the evolving surface curvature","");
+    case NoCaustics:
+        return replace("    float3 causticWave = waterWave(bottom.xy",
+            "    // Absorption follows the underwater view-ray distance",
+            "    float caustic=1.0;\n");
+    default: return false;
+    }
 }
 
 // Opt-in original-scene-depth attribution. Normal shader text remains unchanged.
@@ -1931,7 +2048,8 @@ bool EngineShader_Pixel_Program(EngineShaderProgram program,
 	if (target == COMBINER_SHADER_TARGET_SDL3_GPU) {
 #if defined(__linux__)
 		if (program == ENGINE_SHADER_WATER_TRAPEZOID || program == ENGINE_SHADER_WATER_RIVER) {
-			write_modern_water(hlsl, program == ENGINE_SHADER_WATER_RIVER);
+			write_modern_water(hlsl, program == ENGINE_SHADER_WATER_RIVER, WaterPerformanceSettings::Applied());
+			if (!water_material_profile(hlsl)) return false;
 			const int hullDepthDiagnostic=water_hull_depth_diagnostic();
 			if(hullDepthDiagnostic) write_water_hull_depth_diagnostic(hlsl);
 			if (!CombinerShader_Append_Pixel_Pipeline(pipeline, hlsl)) return false;
@@ -1949,6 +2067,8 @@ bool EngineShader_Pixel_Program(EngineShaderProgram program,
 				hlsl += "// Lit vessel material before coverage and legacy fog/shroud composition.\ncurrent=float4(waterDisplay(vesselRadiance),1.0);\n";
 			if(visualContact && waterDebug && strcmp(waterDebug,"contact-lighting")==0)
 				hlsl += "// Surface sun cosine, actual direct-light visibility, and original fog visibility.\ncurrent=float4(saturate(dot(normal,light)),sunVisible*FoamFillLights[0].w,saturate(input.Fog),1.0);\n";
+			if(waterDebug && strcmp(waterDebug,"shadow-sources")==0)
+				hlsl += "// Separate terrain-height ray visibility, mapped sun/smoke visibility, and their combined direct-light visibility.\ncurrent=float4(terrainSun(world,light),light_reaching(input.Position),sunVisible,1.0);\n";
 			if(visualContact && waterDebug &&
 				(strcmp(waterDebug,"contact-mesh-query")==0 || strcmp(waterDebug,"contact-mesh-sources")==0)) {
 				// Evaluate and encode after the ordinary pipeline; no diagnostic changes normal water.

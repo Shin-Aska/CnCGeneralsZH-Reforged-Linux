@@ -1,5 +1,5 @@
 // Experimental reflection geometry: opaque scene meshes and known terrain.
-// Materials are sampled once per triangle. Batched trees/bridge decks,
+// Primary hits retain bounded texture detail; secondary albedo is sampled per triangle. Batched trees/bridge decks,
 // particles, cutout/blended materials and procedural vertex effects are not exported.
 #if defined(__linux__)
 #include "W3DWaterPathScene.h"
@@ -95,6 +95,7 @@ struct TextureSample {
     IDirect3DTexture9 *resource = nullptr;
     unsigned width=0, height=0;
     std::vector<Vector3> colours;
+    unsigned atlasOffset=unsigned(WaterPathTracing::MaximumPrimaryTexels);
     ~TextureSample() { if (resource) resource->Release(); }
     Vector3 Sample(float u, float v) const {
         if (!width || !height || !std::isfinite(u) || !std::isfinite(v)) return Vector3(1,1,1);
@@ -211,11 +212,17 @@ struct W3DWaterPathScene::State {
     uint64_t revision=0;
     bool hasScene=false, hasTerrain=false;
     std::vector<Triangle> triangles, terrainTriangles;
+    WaterPathTracing::PrimaryMaterialPacket materials;
+    size_t materialsCommittedTexels=0;
     std::map<IDirect3DTexture9 *,std::unique_ptr<TextureSample>> textures;
+    // When the atlas is full, retain only the last uncached source for secondary
+    // centroid sampling. This bounds retained source pixels without changing that fallback.
+    std::unique_ptr<TextureSample> transientTexture;
     struct MeshTriangles {
         uint64_t fingerprint=0;
         bool valid=false;
         std::vector<Triangle> triangles;
+        std::vector<WaterPathTracing::PrimaryMaterial> materials;
         size_t skippedAlpha=0;
     };
     std::map<MeshClass *,MeshTriangles> meshTriangles;
@@ -234,6 +241,7 @@ struct W3DWaterPathScene::State {
         if (!resource) return nullptr;
         auto found=textures.find(resource);
         if (found!=textures.end()) return found->second.get();
+        if(transientTexture && transientTexture->resource==resource)return transientTexture.get();
         std::unique_ptr<TextureSample> sample(new TextureSample);
         sample->resource=resource; resource->AddRef();
         unsigned level=0;
@@ -256,6 +264,45 @@ struct W3DWaterPathScene::State {
                         locked.Pitch,description.Format,x*description.Width/sample->width,y*description.Height/sample->height);
             resource->UnlockRect(level);
         }
+        const size_t count=WaterPathTracing::PrimaryTextureTexelCount(sample->width,sample->height);
+        if(count && count<=WaterPathTracing::MaximumPrimaryTexels-materials.texels.size()) {
+            sample->atlasOffset=unsigned(materials.texels.size());
+            std::vector<WaterPathTracing::Float4> level;
+            level.reserve(sample->colours.size());
+            for(const Vector3 &colour:sample->colours)
+                level.push_back({linear(colour.X),linear(colour.Y),linear(colour.Z),1});
+            materials.texels.insert(materials.texels.end(),level.begin(),level.end());
+            unsigned width=sample->width,height=sample->height;
+            while(width>1||height>1) {
+                const unsigned nextWidth=std::max(1u,width/2),nextHeight=std::max(1u,height/2);
+                std::vector<WaterPathTracing::Float4> next(size_t(nextWidth)*nextHeight);
+                for(unsigned y=0;y<nextHeight;++y)for(unsigned x=0;x<nextWidth;++x) {
+                    // Average the complete source area. A 3-to-1 or 5-to-2
+                    // reduction must retain the last source row/column too.
+                    const double left=double(x)*width/nextWidth,right=double(x+1)*width/nextWidth;
+                    const double top=double(y)*height/nextHeight,bottom=double(y+1)*height/nextHeight;
+                    double rgb[3]={},weight=0;
+                    for(unsigned sy=unsigned(std::floor(top));sy<std::min(height,unsigned(std::ceil(bottom)));++sy)
+                        for(unsigned sx=unsigned(std::floor(left));sx<std::min(width,unsigned(std::ceil(right)));++sx) {
+                            const double area=(std::min(right,double(sx+1))-std::max(left,double(sx)))
+                                *(std::min(bottom,double(sy+1))-std::max(top,double(sy)));
+                            const auto &texel=level[size_t(sy)*width+sx];
+                            rgb[0]+=texel.x*area;rgb[1]+=texel.y*area;rgb[2]+=texel.z*area;weight+=area;
+                        }
+                    const auto unit=[&](unsigned channel) {
+                        return float(std::max(0.0,std::min(1.0,rgb[channel]/weight)));
+                    };
+                    next[size_t(y)*nextWidth+x]={unit(0),unit(1),unit(2),1};
+                }
+                materials.texels.insert(materials.texels.end(),next.begin(),next.end());
+                level.swap(next);width=nextWidth;height=nextHeight;
+            }
+        } else {
+            // Disabled primary material uses the existing secondary albedo. Do not
+            // grow a second unbounded cache of source textures after reaching the cap.
+            transientTexture=std::move(sample);
+            return transientTexture.get();
+        }
         const TextureSample *result=sample.get();
         textures.emplace(resource,std::move(sample));
         return result;
@@ -266,6 +313,7 @@ W3DWaterPathScene::W3DWaterPathScene() : m_state(new State) {}
 W3DWaterPathScene::~W3DWaterPathScene() = default;
 
 const std::vector<Triangle> &W3DWaterPathScene::Triangles() const { return m_state->triangles; }
+const WaterPathTracing::PrimaryMaterialPacket &W3DWaterPathScene::Materials() const { return m_state->materials; }
 uint64_t W3DWaterPathScene::Revision() const { return m_state->revision; }
 
 void W3DWaterPathScene::takeReadsForRender(BaseHeightMapRenderObjClass *terrain)
@@ -409,7 +457,8 @@ bool W3DWaterPathScene::Update(SceneClass *scene, BaseHeightMapRenderObjClass *t
         const float visible=shroudAt(shroud,prop->location.x,prop->location.y)/255.0f;
         if (visible>0) collect(prop->m_robj,water,ownerOf(prop->m_robj),meshes,fingerprint,seen,scope.get(),visible);
     }
-    if (m_state->hasScene && m_state->sceneHash==fingerprint.value) { m_state->failure=0; return true; }
+    if (m_state->hasScene && m_state->sceneHash==fingerprint.value
+        && m_state->materialsCommittedTexels==m_state->materials.texels.size()) { m_state->failure=0; return true; }
 
     for (auto it=m_state->meshTriangles.begin(); it!=m_state->meshTriangles.end(); ) {
         if (!seen.count(it->first)) it=m_state->meshTriangles.erase(it);
@@ -418,6 +467,7 @@ bool W3DWaterPathScene::Update(SceneClass *scene, BaseHeightMapRenderObjClass *t
     std::vector<Triangle> output;
     output.reserve(terrainIndices.size());
     for (size_t i:terrainIndices) output.push_back(m_state->terrainTriangles[i]);
+    std::vector<WaterPathTracing::PrimaryMaterial> primaryOutput(terrainIndices.size());
     size_t skippedAlpha=0;
     for (const MeshInstance &instance:meshes) {
         auto &cached=m_state->meshTriangles[instance.mesh];
@@ -425,10 +475,12 @@ bool W3DWaterPathScene::Update(SceneClass *scene, BaseHeightMapRenderObjClass *t
             if (output.size()+cached.triangles.size()>TriangleLimit)
                 return m_state->Fail(5,"scene exceeds the experimental triangle limit");
             output.insert(output.end(),cached.triangles.begin(),cached.triangles.end());
+            primaryOutput.insert(primaryOutput.end(),cached.materials.begin(),cached.materials.end());
             skippedAlpha+=cached.skippedAlpha;
             continue;
         }
         std::vector<Triangle> generated;
+        std::vector<WaterPathTracing::PrimaryMaterial> primaryGenerated;
         size_t meshSkipped=0;
         MeshModelClass *model=instance.model;
         const Vector3 *vertices=instance.posed.empty() ? model->Get_Vertex_Array() : instance.posed.data();
@@ -461,12 +513,26 @@ bool W3DWaterPathScene::Update(SceneClass *scene, BaseHeightMapRenderObjClass *t
                 diffuse+=colour*(1.0f/3.0f);
             }
             if (!opaque) { ++meshSkipped; continue; }
+            const Vector3 baseDiffuse=diffuse*instance.visibility;
+            WaterPathTracing::PrimaryMaterial primary{};
             if (shader.Get_Texturing()!=ShaderClass::TEXTURING_DISABLE && uv) {
                 const TextureSample *texture=m_state->Texture(model->Peek_Texture(p));
                 if (texture) {
                     Vector2 centre=(uv[indices[0]]+uv[indices[1]]+uv[indices[2]])*(1.0f/3.0f);
                     Vector3 texel=texture->Sample(centre.X,centre.Y);
                     diffuse.X*=texel.X; diffuse.Y*=texel.Y; diffuse.Z*=texel.Z;
+                    if(texture->atlasOffset<WaterPathTracing::MaximumPrimaryTexels) {
+                        const Vector2 &a=uv[indices[0]],&b=uv[indices[1]],&c=uv[indices[2]];
+                        // UVs address the same normalized/repeating source as the
+                        // centroid fallback, now retaining its spatial variation.
+                        if(std::isfinite(a.X)&&std::isfinite(a.Y)&&std::isfinite(b.X)&&std::isfinite(b.Y)
+                            &&std::isfinite(c.X)&&std::isfinite(c.Y)) {
+                            primary.uvAB={a.X,a.Y,b.X,b.Y};
+                            primary.uvCSize={c.X,c.Y,float(texture->width),float(texture->height)};
+                            primary.diffuseOffset={linear(baseDiffuse.X),linear(baseDiffuse.Y),linear(baseDiffuse.Z),
+                                float(texture->atlasOffset+1)};
+                        }
+                    }
                 }
             }
             if (output.size()+generated.size()>=TriangleLimit)
@@ -474,24 +540,33 @@ bool W3DWaterPathScene::Update(SceneClass *scene, BaseHeightMapRenderObjClass *t
             diffuse*=instance.visibility;
             generated.push_back({vector(points[0]),vector(points[1]),vector(points[2]),
                 {linear(diffuse.X),linear(diffuse.Y),linear(diffuse.Z)}});
+            primaryGenerated.push_back(primary);
         }
         cached.triangles.swap(generated);
+        cached.materials.swap(primaryGenerated);
         cached.fingerprint=instance.fingerprint; cached.valid=true;
         cached.skippedAlpha=meshSkipped;
         skippedAlpha+=meshSkipped;
         output.insert(output.end(),cached.triangles.begin(),cached.triangles.end());
+        primaryOutput.insert(primaryOutput.end(),cached.materials.begin(),cached.materials.end());
     }
     const bool first=!m_state->hasScene;
     // A changed material on an omitted transparent mesh need not reset accumulation.
     // Triangle contains exactly twelve floats, so comparison includes no padding.
     static_assert(sizeof(Triangle)==12*sizeof(float),"Triangle comparison requires packed float members");
-    if (first || output.size()!=m_state->triangles.size()
+    const bool materialChanged=primaryOutput.size()!=m_state->materials.triangles.size()
+        || (!primaryOutput.empty() && std::memcmp(primaryOutput.data(),m_state->materials.triangles.data(),
+            primaryOutput.size()*sizeof(WaterPathTracing::PrimaryMaterial))!=0)
+        || m_state->materialsCommittedTexels!=m_state->materials.texels.size();
+    if (first || materialChanged || output.size()!=m_state->triangles.size()
         || (!output.empty() && std::memcmp(output.data(),m_state->triangles.data(),output.size()*sizeof(Triangle))!=0))
         ++m_state->revision;
     m_state->triangles.swap(output);
+    m_state->materials.triangles.swap(primaryOutput);
+    m_state->materialsCommittedTexels=m_state->materials.texels.size();
     m_state->sceneHash=fingerprint.value; m_state->hasScene=true;
     m_state->failure=0;
-    if (first) std::fprintf(stderr,"WaterPathTracing: scene %zu triangles (%zu terrain), %zu transparent triangles omitted; per-triangle materials; batched trees and bridge decks unsupported\n",
+    if (first) std::fprintf(stderr,"WaterPathTracing: scene %zu triangles (%zu terrain), %zu transparent triangles omitted; primary textured materials; batched trees and bridge decks unsupported\n",
         m_state->triangles.size(),terrainIndices.size(),skippedAlpha);
     return true;
 }

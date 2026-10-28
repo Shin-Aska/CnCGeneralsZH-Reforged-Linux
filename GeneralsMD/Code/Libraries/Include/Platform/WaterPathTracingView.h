@@ -17,7 +17,16 @@ struct View {
     unsigned secondaryNodeBudget = 384;
     unsigned shadowNodeBudget = 512;
     unsigned size = 256;
+    unsigned motionSize = 128; // Upper bound during camera motion; size clamps smaller callers.
 };
-static_assert(sizeof(View)==31*sizeof(float),"View change detection requires no padding");
+static_assert(sizeof(View)==32*sizeof(float),"View change detection requires no padding");
+
+// Reflection detail uses the existing Low/High preference in both game and preview.
+// High preserves 512-square detail during movement; Low retains adaptive density.
+inline void ApplyReflectionDetail(View &view,int detail)
+{
+    view.size=detail==0?256u:512u;
+    view.motionSize=detail==0?128u:512u;
+}
 
 }

@@ -26,6 +26,8 @@
 #include "ffvertex.h"
 #include "sdl3target.h"
 #include "Platform/WaterFftSampling.h"
+#include "Platform/WaterPerformanceSettings.h"
+#include "Platform/WaterMaterialProfile.h"
 #include "Platform/WaterShoreOverlay.h"
 
 #include <SDL3/SDL.h>
@@ -221,25 +223,26 @@ const SdlProgram &SdlProgramCache::Vertex_Program(const VertexPipelineDescriptio
 	return made;
 }
 
-const SdlProgram &SdlProgramCache::Water_Vertex_Program(const VertexPipelineDescription &description)
+const SdlProgram &SdlProgramCache::Water_Vertex_Program(const VertexPipelineDescription &description, bool textureArray)
 {
-	if (SdlProgram *found = WaterVertexByBytes.Find(&description, sizeof(description))) {
+	ByBytes &byBytes=textureArray?WaterArrayVertexByBytes:WaterVertexByBytes;
+	if (SdlProgram *found = byBytes.Find(&description, sizeof(description))) {
 		++found->Uses;
 		return *found;
 	}
-	const std::string key = "water-fft:" + VertexShader_Key(description);
+	const std::string key = std::string(textureArray?"water-fft-array:":"water-fft:") + VertexShader_Key(description);
 	std::map<std::string, SdlProgram>::iterator existing = VertexPrograms.find(key);
 	if (existing != VertexPrograms.end()) {
 		++existing->second.Uses;
-		WaterVertexByBytes.Add(&description, sizeof(description), &existing->second);
+		byBytes.Add(&description, sizeof(description), &existing->second);
 		return existing->second;
 	}
 	std::string hlsl;
 	const bool generated = !description.LightingEnabled
 		&& VertexShader_Generate(description, VERTEX_SHADER_TARGET_D3D11, hlsl)
-		&& WaterFftSampling::WrapVertex(hlsl) && SDL3_Shader_Retarget(hlsl, true);
+		&& WaterFftSampling::WrapVertex(hlsl,WaterBowLift::Enabled(),WaterBowShoulder::Enabled(),textureArray) && SDL3_Shader_Retarget(hlsl, true);
 	const SdlProgram &made = Make(VertexPrograms, key, generated, hlsl, true);
-	WaterVertexByBytes.Add(&description, sizeof(description), &VertexPrograms[key]);
+	byBytes.Add(&description, sizeof(description), &VertexPrograms[key]);
 	return made;
 }
 
@@ -267,16 +270,26 @@ const SdlProgram &SdlProgramCache::Engine_Vertex_Program(int program)
 const SdlProgram &SdlProgramCache::Engine_Pixel_Program(int program, const PixelPipelineDescription &pipeline)
 {
 	// The program and the pipeline description, side by side, as the lookup's bytes.
-	struct { int Program; PixelPipelineDescription Pipeline; } lookup;
+	struct { int Program; PixelPipelineDescription Pipeline; unsigned Resolution,Refraction,Reflections,MaterialProfile; } lookup;
 	memset(&lookup, 0, sizeof(lookup));
 	lookup.Program = program;
+	const bool water=program==ENGINE_SHADER_WATER_TRAPEZOID || program==ENGINE_SHADER_WATER_RIVER;
+	if(water) {
+		const auto &settings=WaterPerformanceSettings::Applied();
+		lookup.Resolution=settings.activeFftResolution;lookup.Refraction=unsigned(settings.refraction);
+		lookup.Reflections=settings.sceneReflections?1:0;
+#if defined(__linux__)
+		lookup.MaterialProfile=unsigned(WaterMaterialProfile::Applied());
+#endif
+	}
 	memcpy(&lookup.Pipeline, &pipeline, sizeof(pipeline));	// padding and all, as the caller built it
 	if (SdlProgram *found = EnginePixelByBytes.Find(&lookup, sizeof(lookup))) {
 		++found->Uses;
 		return *found;
 	}
 	const EngineShaderProgram engine = (EngineShaderProgram)program;
-	const std::string key = std::string("engine:") + EngineShader_Name(engine) + CombinerShader_Pipeline_Key(pipeline);
+	const std::string key = std::string("engine:") + EngineShader_Name(engine) + CombinerShader_Pipeline_Key(pipeline)
+		+(water?":water:"+std::to_string(lookup.Resolution)+":"+std::to_string(lookup.Refraction)+":"+std::to_string(lookup.Reflections)+":profile:"+std::to_string(lookup.MaterialProfile):std::string());
 	std::map<std::string, SdlProgram>::iterator existing = PixelPrograms.find(key);
 	if (existing != PixelPrograms.end()) {
 		++existing->second.Uses;

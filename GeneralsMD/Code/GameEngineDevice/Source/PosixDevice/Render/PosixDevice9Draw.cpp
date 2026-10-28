@@ -37,6 +37,7 @@
 #include "ffshader.h"
 #include "ffvertex.h"
 #include "Platform/WaterFftSampling.h"
+#include "Platform/WaterPerformanceSettings.h"
 #include "Platform/WaterFoamHistory.h"
 
 #include <SDL3/SDL.h>
@@ -97,6 +98,67 @@ void PosixWaterShoreBegin(IDirect3DDevice9 *d,bool e) {if(d) static_cast<PosixDe
 void PosixWaterShoreEnd(IDirect3DDevice9 *d) {if(d) static_cast<PosixDevice9*>(d)->Shore_End();}
 void PosixWaterShorePatch(IDirect3DDevice9 *d,const WaterShoreOverlay::Quad *q) {if(d) static_cast<PosixDevice9*>(d)->Shore_Patch(q);}
 void PosixWaterShoreTrack(IDirect3DDevice9 *d,const WaterShoreOverlay::Quad *q) {if(d) static_cast<PosixDevice9*>(d)->Shore_Track(q);}
+bool PosixWaterGpuAvailable(IDirect3DDevice9 *d) {return d && static_cast<PosixDevice9*>(d)->Get_Gpu();}
+uint64_t PosixWaterFftBegin(IDirect3DDevice9 *d) {return d ? static_cast<PosixDevice9*>(d)->Begin_Prepared_Water_Fft() : 0;}
+void PosixWaterFftEnd(IDirect3DDevice9 *d,uint64_t token) {if(d) static_cast<PosixDevice9*>(d)->End_Prepared_Water_Fft(token);}
+
+bool PosixDevice9::Water_Fft_Requested(int vertexEngine,int pixelEngine,const VertexPipelineDescription &vertex) const
+{
+	return !SunActive && pixelEngine==ENGINE_SHADER_WATER_TRAPEZOID
+		&& vertexEngine==ENGINE_SHADER_NONE && !vertex.LightingEnabled
+		&& PixelShaderConstants[6][2]>.5f && PixelShaderConstants[6][3]>.5f
+		&& WaterFftSampling::Enabled();
+}
+
+uint64_t PosixDevice9::Begin_Prepared_Water_Fft()
+{
+	if(PreparedWaterFft.token || !Gpu || !Programs || !FVF || RenderStates[D3DRS_CLIPPLANEENABLE]) return 0;
+	int vertexEngine=ENGINE_SHADER_NONE,pixelEngine=ENGINE_SHADER_NONE;
+	if((VertexShader && !Engine_Program_Of(VertexShader,"vertex",vertexEngine))
+		|| (PixelShader && !Engine_Program_Of(PixelShader,"pixel",pixelEngine))) return 0;
+	VertexPipelineDescription vertex;
+	if(!Build_Vertex_Description(vertex) || !Water_Fft_Requested(vertexEngine,pixelEngine,vertex)) return 0;
+	const float phase=PixelShaderConstants[1][0]*WaterFftSampling::TimeScale;
+	if(!Gpu->Prepare_Ocean(phase,WaterPerformanceSettings::Applied().requestedFftResolution)) return 0;
+	WaterPerformanceSettings::Applied().activeFftResolution=Gpu->Ocean_Configuration().resolution;
+	const SdlProgram &program=Programs->Water_Vertex_Program(vertex,Gpu->Ocean_Array_Output());
+	if(!program.Shader || program.SamplerSlots>4 || !Gpu->Ocean_Array() || !Gpu->Ocean_Sampler()) return 0;
+	for(unsigned i=0;i<3;++i) if(!Gpu->Ocean_Map(i*2)) return 0;
+	PreparedWaterFftDraw &prepared=PreparedWaterFft;
+	if(!++PreparedWaterFftSerial) ++PreparedWaterFftSerial;
+	prepared.token=PreparedWaterFftSerial;prepared.oceanUpdates=Gpu->Ocean_Updates();
+	prepared.presents=PresentCount;prepared.phase=phase;prepared.gpu=Gpu;prepared.programs=Programs;
+	prepared.vertex=&program;prepared.pixelShader=PixelShader;prepared.vertexShader=VertexShader;
+	prepared.target=RenderTargets[0];prepared.depth=DepthStencil;
+	prepared.arrayOutput=Gpu->Ocean_Array_Output();prepared.array=Gpu->Ocean_Array();prepared.sampler=Gpu->Ocean_Sampler();
+	for(unsigned i=0;i<3;++i) prepared.maps[i]=Gpu->Ocean_Map(i*2);
+	const uint8_t *bytes=reinterpret_cast<const uint8_t*>(&vertex);
+	prepared.description.assign(bytes,bytes+sizeof(vertex));
+	return PreparedWaterFft.token;
+}
+
+void PosixDevice9::End_Prepared_Water_Fft(uint64_t token)
+{
+	// A failed nested begin (zero), or a stale guard, must not end another patch's scope.
+	if(token && token==PreparedWaterFft.token) {
+		PreparedWaterFft.token=0;PreparedWaterFft.vertex=NULL;
+		// Retain description capacity: this scope is entered once per visible water patch.
+	}
+}
+
+bool PosixDevice9::Prepared_Water_Fft_Matches(const VertexPipelineDescription &vertex) const
+{
+	const PreparedWaterFftDraw &p=PreparedWaterFft;
+	if(!p.token || p.token!=PreparedWaterFftSerial || p.gpu!=Gpu || p.programs!=Programs || p.presents!=PresentCount
+		|| p.pixelShader!=PixelShader || p.vertexShader!=VertexShader
+		|| p.target!=RenderTargets[0] || p.depth!=DepthStencil
+		|| p.phase!=PixelShaderConstants[1][0]*WaterFftSampling::TimeScale
+		|| p.description.size()!=sizeof(vertex) || memcmp(p.description.data(),&vertex,sizeof(vertex))!=0
+		|| p.oceanUpdates!=Gpu->Ocean_Updates() || p.arrayOutput!=Gpu->Ocean_Array_Output()
+		|| p.array!=Gpu->Ocean_Array() || p.sampler!=Gpu->Ocean_Sampler()) return false;
+	for(unsigned i=0;i<3;++i) if(p.maps[i]!=Gpu->Ocean_Map(i*2)) return false;
+	return p.vertex && p.vertex->Shader;
+}
 
 //-------------------------------------------------------------------------------------------------
 // D3D9's initial state, from its documentation of each state.  A float state holds its float's bits.
@@ -964,12 +1026,18 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	if (vertex_engine==ENGINE_SHADER_NONE) vertex.SmokeGlow = combiner.SmokeGlow;
 	// The dedicated generated water vertex path deliberately avoids arbitrary engine-program
 	// pairing. Only this path may bind native FFT textures to the vertex stage.
-	const bool fft_requested = !SunActive && pixel_engine == ENGINE_SHADER_WATER_TRAPEZOID
-		&& vertex_engine == ENGINE_SHADER_NONE && !vertex.LightingEnabled
-		&& PixelShaderConstants[6][2] > 0.5f && PixelShaderConstants[6][3] > 0.5f
-		&& WaterFftSampling::Enabled();
-	bool fft_water = fft_requested && Gpu->Prepare_Ocean(PixelShaderConstants[1][0]*WaterFftSampling::TimeScale);
-	const SdlProgram *fft_vertex = fft_water ? &Programs->Water_Vertex_Program(vertex) : NULL;
+	const bool fft_requested = Water_Fft_Requested(vertex_engine,pixel_engine,vertex);
+	// A prepared patch's CPU vertex heights can be absent. Reuse its actual FFT decision
+	// for every index batch, and refuse a violated scope instead of silently flattening it.
+	if(PreparedWaterFft.token && (!fft_requested || !Prepared_Water_Fft_Matches(vertex))) {
+		Refuse_Draw("prepared water FFT scope changed before draw");return D3D_OK;
+	}
+	bool fft_water = PreparedWaterFft.token || (fft_requested && Gpu->Prepare_Ocean(
+		PixelShaderConstants[1][0]*WaterFftSampling::TimeScale,WaterPerformanceSettings::Applied().requestedFftResolution));
+	// The water pixel program below is keyed on the ocean this draw actually prepared.
+	if (fft_water) WaterPerformanceSettings::Applied().activeFftResolution=Gpu->Ocean_Configuration().resolution;
+	const SdlProgram *fft_vertex = PreparedWaterFft.token ? PreparedWaterFft.vertex
+		: fft_water ? &Programs->Water_Vertex_Program(vertex,Gpu->Ocean_Array_Output()) : NULL;
 	if (fft_vertex && fft_vertex->Shader == NULL) fft_water = false;
 	const SdlProgram &vertex_program = vertex_engine != ENGINE_SHADER_NONE
 		? Programs->Engine_Vertex_Program(vertex_engine)
@@ -1108,7 +1176,11 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	const bool stage_indices = call.Indexed && (fan || is_dynamic(index_buffer));
 	const unsigned int index_size = (call.Indexed && index_buffer->format() == D3DFMT_INDEX32) ? 4 : 2;
 	const bool water_draw = pixel_engine == ENGINE_SHADER_WATER_TRAPEZOID || pixel_engine == ENGINE_SHADER_WATER_RIVER;
-	SDL_GPUTexture *water_background = water_draw ? Gpu->Water_Background(target) : NULL;
+	const auto &water_settings=WaterPerformanceSettings::Applied();
+	const bool ssr_colour=water_settings.sceneReflections && PixelShaderConstants[95][3]>.5f && PixelShaderConstants[95][3]<1.5f;
+	const bool water_colour=WaterPerformanceSettings::SceneColourRequired(water_settings.refraction,ssr_colour);
+	if(water_draw) Gpu->Prepare_Water_Snapshot(target,water_colour,true);
+	SDL_GPUTexture *water_background = water_draw && water_colour ? Gpu->Water_Background(target) : NULL;
 	SDL_GPUTexture *water_depth = water_draw ? Gpu->Water_Depth(target) : NULL;
 	bool water_history = water_draw && Water_Foam_History_Available();
 	bool coastal_view=water_draw && fft_water && CoastalActive && water_depth

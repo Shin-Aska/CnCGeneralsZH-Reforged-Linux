@@ -174,6 +174,11 @@ TEST(water_grid_unstepped_is_not_the_golden)
 
 #include "Platform/WaterSurfaceModel.h"
 #include "Platform/WaterProjectedMesh.h"
+#include "Platform/WaterProjectedMeshCache.h"
+#include "Platform/WaterStaticSampleCache.h"
+#include "Platform/WaterPreparedMeshCache.h"
+#include "Platform/WaterTerrainCulling.h"
+#include "Platform/WaterWaveCageMesh.h"
 #include "Platform/WaterBowRefinement.h"
 #include "Platform/WaterFftGeometry.h"
 #include "Platform/WaterVesselMotion.h"
@@ -605,19 +610,19 @@ struct IndexedTestObstacle {
 	WaterObstacleIndex::Influence influence;
 	float z,height,major,minor,cosine,sine;bool box,hasHull;
 };
-struct IndexedTestDamping { float surface,obstacle;size_t visited; };
+struct IndexedTestDamping { float surface,obstacle,hullFreeObstacle;size_t visited; };
 IndexedTestDamping indexedTestDamping(const std::vector<IndexedTestObstacle> &objects,
-	const WaterObstacleIndex::Grid *index,float x,float y,float z,float depth,float offshore)
+	const WaterObstacleIndex::Grid *index,float x,float y,float z,float depth,float offshore,bool cage=false)
 {
-	IndexedTestDamping result={WaterSurfaceModel::TerrainDamping(depth,offshore),1,0};
-	if (result.surface<=0) return result;
-	const WaterObstacleIndex::Range range=index && offshore>0?index->Query(x,y):WaterObstacleIndex::Range{};
+	IndexedTestDamping result={WaterSurfaceModel::TerrainDamping(depth,offshore),1,1,0};
+	if (result.surface<=0 && !cage) return result;
+	const WaterObstacleIndex::Range range=index?index->Query(x,y):WaterObstacleIndex::Range{};
 	const size_t count=range.indexed?range.count:objects.size();
 	for (size_t i=0;i<count;++i) {
 		const IndexedTestObstacle &o=objects[range.indexed?range.indices[i]:i];++result.visited;
 		if (z<o.z-12 || z>o.z+o.height+3) continue;
 		const float dx=x-o.influence.x,dy=y-o.influence.y;
-		if (offshore>0 && WaterSurfaceModel::BeyondObstacleFade(dx,dy,o.influence.radius)) continue;
+		if ((offshore>0 || index) && WaterSurfaceModel::BeyondObstacleFade(dx,dy,o.influence.radius)) continue;
 		float damping;
 		if (o.hasHull && offshore>0) {
 			const float legacy=offshore<1?WaterSurfaceModel::ShoreDamping(std::sqrt(dx*dx+dy*dy)-o.influence.radius):1;
@@ -626,8 +631,9 @@ IndexedTestDamping indexedTestDamping(const std::vector<IndexedTestObstacle> &ob
 			damping=WaterSurfaceModel::BoxDamping(dx*o.cosine+dy*o.sine,-dx*o.sine+dy*o.cosine,o.major,o.minor);
 			if (offshore<1) { const float legacy=WaterSurfaceModel::ShoreDamping(std::sqrt(dx*dx+dy*dy)-o.influence.radius);damping=legacy+(damping-legacy)*offshore; }
 		} else damping=WaterSurfaceModel::ShoreDamping(std::sqrt(dx*dx+dy*dy)-o.influence.radius);
-		result.obstacle=(std::min)(result.obstacle,damping);result.surface=(std::min)(result.surface,damping);
-		if (result.surface<=0) return result;
+		if (cage && !o.hasHull) result.hullFreeObstacle=(std::min)(result.hullFreeObstacle,damping);
+		if (result.surface>0) { result.obstacle=(std::min)(result.obstacle,damping);result.surface=(std::min)(result.surface,damping); }
+		if (result.surface<=0 && !cage) return result;
 	}
 	return result;
 }
@@ -653,8 +659,7 @@ TEST(water_obstacle_bins_match_ordered_damping_and_metadata_with_fewer_candidate
 		const float offshore=i%5==0?0:(i%5==1?1:unit());
 		const auto a=indexedTestDamping(obstacles,nullptr,x,y,z,depth,offshore),b=indexedTestDamping(obstacles,&index,x,y,z,depth,offshore);
 		CHECK(a.surface==b.surface && a.obstacle==b.obstacle);
-		if (offshore==0) CHECK(a.visited==b.visited);
-		else { indexedVisits+=b.visited;bruteVisits+=a.visited; }
+		indexedVisits+=b.visited;bruteVisits+=a.visited;
 		const Range range=index.Query(x,y);
 		for (size_t j=1;j<range.count;++j) CHECK(range.indices[j]>range.indices[j-1]);
 	}
@@ -670,6 +675,32 @@ TEST(water_obstacle_bins_match_ordered_damping_and_metadata_with_fewer_candidate
 		CHECK(a.surface==b.surface && a.obstacle==b.obstacle);
 	}
 	index.Clear();CHECK(!index.Query(0,0).indexed);
+}
+
+TEST(water_coastal_obstacle_bins_preserve_circular_fade_and_independent_cage_envelope)
+{
+    using namespace WaterObstacleIndex;
+    const std::vector<IndexedTestObstacle> obstacles={
+        {{0,0,54},7,30,40,30,0.6f,0.8f,true,true},
+        {{64,0,54},7,30,40,30,0.6f,0.8f,true,false},
+        {{-64,128,10},7,30,8,6,1,0,false,false}};
+    std::vector<Influence> influences;for (const auto &o:obstacles) influences.push_back(o.influence);
+    Grid index;CHECK(index.Build(influences,{-512,-512,512,512}));
+    for (float offshore:{0.0f,std::nextafter(0.0f,1.0f),0.001f,0.5f,1.0f})
+        for (float depth:{-1.0f,0.0f,0.1f,3.0f,9.0f,100.0f})
+        for (float x:{-128.0f,-64.0001f,-64.0f,-63.9999f,0.0f,54.0f,62.9999f,63.0f,63.9999f,64.0f,64.0001f,128.0f,480.0f})
+        for (float y:{0.0f,63.9999f,64.0f,128.0f,480.0f})
+        for (bool cage:{false,true}) {
+            const auto reference=indexedTestDamping(obstacles,nullptr,x,y,7,depth,offshore,cage);
+            const auto actual=indexedTestDamping(obstacles,&index,x,y,7,depth,offshore,cage);
+            CHECK(reference.surface==actual.surface && reference.obstacle==actual.obstacle &&
+                reference.hullFreeObstacle==actual.hullFreeObstacle);
+        }
+    // A zero-terrain sample still collects an independent non-hull cage envelope.
+    const auto blocked=indexedTestDamping(obstacles,&index,64,0,7,0,0,true);
+    CHECK(blocked.surface==0 && blocked.obstacle==1 && blocked.hullFreeObstacle==0);
+    const auto far=indexedTestDamping(obstacles,&index,480,480,7,100,0,true);
+    CHECK(far.surface==1 && far.obstacle==1 && far.hullFreeObstacle==1 && far.visited==0);
 }
 
 TEST(water_obstacle_bins_include_negative_boundaries_and_fail_to_complete_full_list)
@@ -774,6 +805,430 @@ TEST(water_projected_integer_cache_preserves_exact_reference_vertices_and_indice
 				CHECK(direct==old.first->second); // Bypassing the single-patch value cache changes no wave sample.
 			}
 		}
+	}
+}
+
+namespace {
+bool projectedCacheSameDouble(double a,double b)
+{
+	uint64_t aa,bb;std::memcpy(&aa,&a,sizeof(aa));std::memcpy(&bb,&b,sizeof(bb));return aa==bb;
+}
+bool projectedCacheSameMesh(const WaterProjectedMesh::Mesh &a,const WaterProjectedMesh::Mesh &b)
+{
+	if (a.cells!=b.cells || a.indices!=b.indices || a.vertices.size()!=b.vertices.size() ||
+		a.transitions.size()!=b.transitions.size() || a.collars.size()!=b.collars.size()) return false;
+	for (size_t i=0;i<a.vertices.size();++i) {
+		const auto &x=a.vertices[i],&y=b.vertices[i];
+		if (!projectedCacheSameDouble(x.world.x,y.world.x) || !projectedCacheSameDouble(x.world.y,y.world.y) ||
+			!projectedCacheSameDouble(x.edgeParameter,y.edgeParameter) || x.boundary!=y.boundary || x.knot!=y.knot ||
+			x.transition!=y.transition || x.collar!=y.collar || x.lattice!=y.lattice) return false;
+	}
+	for (size_t i=0;i<a.transitions.size();++i) {
+		const auto &x=a.transitions[i],&y=b.transitions[i];
+		if (!projectedCacheSameDouble(x.analytic,y.analytic)) return false;
+		for (int j=0;j<3;++j) if (!projectedCacheSameDouble(x.source[j].x,y.source[j].x) ||
+			!projectedCacheSameDouble(x.source[j].y,y.source[j].y) || !projectedCacheSameDouble(x.weight[j],y.weight[j])) return false;
+	}
+	for (size_t i=0;i<a.collars.size();++i) {
+		const auto &x=a.collars[i],&y=b.collars[i];
+		if (x.count!=y.count || !projectedCacheSameDouble(x.fade,y.fade)) return false;
+		for (int j=0;j<x.count;++j) if (x.edge[j]!=y.edge[j] || !projectedCacheSameDouble(x.parameter[j],y.parameter[j]) ||
+			!projectedCacheSameDouble(x.weight[j],y.weight[j])) return false;
+	}
+	return true;
+}
+std::vector<WaterProjectedMesh::BoundaryKnot> projectedCacheKnots(const WaterProjectedMesh::Point corners[4])
+{
+	using namespace WaterProjectedMesh;std::vector<BoundaryKnot> knots;
+	for (int edge=0;edge<4;++edge) {
+		Point a=corners[edge],b=corners[(edge+1)%4];if (a.x>b.x || (a.x==b.x && a.y>b.y)) std::swap(a,b);
+		for (int i=0;i<=8;++i) { const double t=i/8.;knots.push_back({{a.x+(b.x-a.x)*t,a.y+(b.y-a.y)*t},edge,i,t}); }
+	}
+	return knots;
+}
+}
+
+TEST(water_projected_topology_cache_copies_every_base_mesh_field_before_dynamic_edits)
+{
+	using namespace WaterProjectedMesh;WaterProjectedMeshCache::Cache cache;
+	const Point corners[4]={{-95,-170},{81,-110},{120,92},{-64,170}};
+	const auto projection=testWaterProjection();const auto knots=projectedCacheKnots(corners);
+	Mesh reference,actual;bool reused=true;
+	CHECK(Build(corners,projection,{18,12},reference,60000,knots));
+	CHECK(!reference.vertices.empty() && !reference.indices.empty() && !reference.transitions.empty() && !reference.collars.empty());
+	CHECK(cache.Build(corners,projection,{18,12},actual,60000,knots,&reused));CHECK(!reused);
+	CHECK(projectedCacheSameMesh(reference,actual));
+	for (int frame=0;frame<3;++frame) {
+		// Model downstream refinement, terrain culling and clipping changing every owned vector.
+		actual.vertices.front().world.x+=100;actual.vertices.front().boundary=99;
+		actual.indices.clear();actual.transitions.front().analytic=-1;actual.collars.front().fade=-1;actual.cells=0;
+		actual.vertices.push_back(Vertex{});actual.transitions.push_back(CentreTransition{});actual.collars.push_back(BoundaryCollar{});
+		CHECK(cache.Build(corners,projection,{18,12},actual,60000,knots,&reused));CHECK(reused);
+		CHECK(projectedCacheSameMesh(reference,actual));
+	}
+	CHECK(cache.EntryCount()==1 && cache.CachedVertices()==reference.vertices.size());
+	cache.Clear();CHECK(cache.EntryCount()==0 && cache.CachedVertices()==0);
+	CHECK(cache.Build(corners,projection,{18,12},actual,60000,knots,&reused));CHECK(!reused);
+	CHECK(projectedCacheSameMesh(reference,actual));
+}
+
+TEST(water_projected_topology_cache_keys_every_build_input_exactly)
+{
+	using namespace WaterProjectedMesh;WaterProjectedMeshCache::Cache cache(262144,128);
+	const Point baseCorners[4]={{-95,-170},{81,-110},{120,92},{-64,170}};
+	const Projection baseProjection=testWaterProjection();const auto baseKnots=projectedCacheKnots(baseCorners);
+	Mesh baseline;CHECK(cache.Build(baseCorners,baseProjection,{18,12},baseline,60000,baseKnots));
+	// Includes both dimensions selected from viewport size, every prepared projection scalar,
+	// exact polygon coordinates, the caller's budget, and each ordered boundary-knot member.
+	for (int input=0;input<43;++input) {
+		Point corners[4];std::copy(baseCorners,baseCorners+4,corners);Projection projection=baseProjection;
+		Resolution resolution={18,12};size_t budget=60000;auto knots=baseKnots;
+		if (input<8) {
+			double &coordinate=input%2?corners[input/2].y:corners[input/2].x;
+			coordinate=std::nextafter(coordinate,INFINITY);
+		} else if (input<17) {
+			double &value=projection.matrix[input-8];value=std::nextafter(value,INFINITY);CHECK(projection.Prepare());
+		} else if (input<26) {
+			double &value=projection.inverse[input-17];value=std::nextafter(value,INFINITY);
+		} else switch (input) {
+			case 26: projection.depth.a=.0001;break;
+			case 27: projection.depth.b=.0001;break;
+			case 28: projection.depth.c=1.01;break;
+			case 29: projection.nearDistance=.2;break;
+			case 30: projection.farDistance=9;break;
+			case 31: projection.margin=.13;break;
+			case 32: ++resolution.columns;break;
+			case 33: ++resolution.rows;break;
+			case 34: --budget;break;
+			case 35: knots[0].world.x=std::nextafter(knots[0].world.x,INFINITY);break;
+			case 36: knots[0].world.y=std::nextafter(knots[0].world.y,INFINITY);break;
+			case 37: ++knots[0].boundary;break;
+			case 38: ++knots[0].index;break;
+			case 39: knots[0].edgeParameter=.01;break;
+			case 40: std::swap(knots[0],knots[1]);break;
+			case 41: knots.pop_back();break;
+			case 42: projection.matrix[1]=-0.0;break;
+		}
+		Mesh reference,actual;bool reused=true;
+		CHECK(Build(corners,projection,resolution,reference,budget,knots));
+		CHECK(cache.Build(corners,projection,resolution,actual,budget,knots,&reused));CHECK(!reused);
+		CHECK(projectedCacheSameMesh(reference,actual));
+		CHECK(cache.Build(corners,projection,resolution,actual,budget,knots,&reused));CHECK(reused);
+		CHECK(projectedCacheSameMesh(reference,actual));
+	}
+}
+
+TEST(water_projected_topology_cache_preserves_failed_and_empty_build_results)
+{
+	using namespace WaterProjectedMesh;WaterProjectedMeshCache::Cache cache;
+	const Point corners[4]={{-500,-500},{500,-500},{500,500},{-500,500}};
+	const auto projection=testWaterProjection();Mesh baseline;CHECK(cache.Build(corners,projection,{8,8},baseline));
+	for (int failure=0;failure<3;++failure) {
+		Point changed[4];std::copy(corners,corners+4,changed);auto p=projection;size_t budget=60000;
+		if (failure==0) budget=1;
+		if (failure==1) changed[2]={-500,0}; // Concave authored polygon.
+		if (failure==2) { p.inverse[6]=1;p.inverse[8]=0; } // Failure after some appended vertices.
+		Mesh reference=baseline,actual=baseline;bool reused=true;
+		CHECK(!Build(changed,p,{8,8},reference,budget));
+		CHECK(!cache.Build(changed,p,{8,8},actual,budget,{},&reused));CHECK(!reused);
+		CHECK(projectedCacheSameMesh(reference,actual));
+		CHECK(cache.EntryCount()==1 && cache.CachedVertices()==baseline.vertices.size());
+		CHECK(cache.Build(corners,projection,{8,8},actual,60000,{},&reused));CHECK(reused);
+		CHECK(projectedCacheSameMesh(baseline,actual));
+	}
+	Point invisible[4]={{1000,1000},{1100,1000},{1100,1100},{1000,1100}};Mesh empty,actual=baseline;bool reused=true;
+	CHECK(Build(invisible,projection,{8,8},empty) && empty.vertices.empty());
+	CHECK(cache.Build(invisible,projection,{8,8},actual,60000,{},&reused));CHECK(!reused);
+	CHECK(projectedCacheSameMesh(empty,actual));
+	CHECK(cache.Build(invisible,projection,{8,8},actual,60000,{},&reused));CHECK(reused);
+	CHECK(projectedCacheSameMesh(empty,actual));
+}
+
+TEST(water_projected_topology_cache_bounds_multi_patch_storage_and_evicts_deterministically)
+{
+	using namespace WaterProjectedMesh;const auto projection=testWaterProjection();
+	const Point corners[4]={{-500,-500},{500,-500},{500,500},{-500,500}};
+	Mesh reference;CHECK(Build(corners,projection,{8,8},reference));const size_t count=reference.vertices.size();
+	WaterProjectedMeshCache::Cache cache(count*2,8);Mesh actual;bool reused=true;
+	// Distinct authored patches have identical visible meshes, but must retain separate exact keys.
+	for (int patch=0;patch<3;++patch) {
+		Point changed[4];std::copy(corners,corners+4,changed);changed[0].x-=patch;
+		CHECK(cache.Build(changed,projection,{8,8},actual,60000,{},&reused));CHECK(!reused);
+		CHECK(projectedCacheSameMesh(reference,actual));
+		CHECK(cache.CachedVertices()<=count*2 && cache.EntryCount()<=2);
+	}
+	Point retained[4];std::copy(corners,corners+4,retained);retained[0].x-=1;
+	CHECK(cache.Build(retained,projection,{8,8},actual,60000,{},&reused));CHECK(reused);
+	CHECK(cache.Build(corners,projection,{8,8},actual,60000,{},&reused));CHECK(!reused); // FIFO oldest was evicted.
+	WaterProjectedMeshCache::Cache tooSmall(count-1,8),disabled(262144,0);
+	for (auto *uncached:{&tooSmall,&disabled}) for (int repeat=0;repeat<2;++repeat) {
+		CHECK(uncached->Build(corners,projection,{8,8},actual,60000,{},&reused));CHECK(!reused);
+		CHECK(projectedCacheSameMesh(reference,actual));CHECK(uncached->EntryCount()==0 && uncached->CachedVertices()==0);
+	}
+	WaterProjectedMeshCache::Cache emptyCache(0,2);
+	for (int patch=0;patch<3;++patch) {
+		const double x=1000+patch*100.;const Point invisible[4]={{x,1000},{x+10,1000},{x+10,1100},{x,1100}};
+		CHECK(emptyCache.Build(invisible,projection,{8,8},actual));
+		CHECK(actual.vertices.empty() && emptyCache.CachedVertices()==0 && emptyCache.EntryCount()<=2);
+	}
+}
+
+namespace {
+WaterStaticSampleCache::Sample staticCacheReference(const uint8_t field[9],float x,float y,float level,float terrainOffset=0)
+{
+	const auto offshore=WaterSurfaceModel::SampleOffshore(field,3,3,x/10,y/10,10);
+	const float depth=level-(x*.2f+y*.3f+terrainOffset);
+	return {offshore,offshore.height*.7f,depth,WaterSurfaceModel::TerrainDamping(depth,offshore.height)};
+}
+bool staticCacheSameSample(const WaterStaticSampleCache::Sample &a,const WaterStaticSampleCache::Sample &b)
+{
+	const float x[]={a.offshore.height,a.offshore.dx,a.offshore.dy,a.exposure,a.terrainDepth,a.terrainDamping};
+	const float y[]={b.offshore.height,b.offshore.dx,b.offshore.dy,b.exposure,b.terrainDepth,b.terrainDamping};
+	for (int i=0;i<6;++i) { uint32_t xx,yy;std::memcpy(&xx,&x[i],4);std::memcpy(&yy,&y[i],4);if (xx!=yy) return false; }
+	return true;
+}
+}
+
+TEST(water_static_sample_cache_reuses_exact_fields_and_keys_coordinates_order_and_level)
+{
+	const uint8_t field[9]={0,40,100,70,150,220,90,190,255};
+	for (int change=0;change<4;++change) {
+		WaterStaticSampleCache::Cache cache;int computed=0;
+		const std::array<float,3> points[2]={{{1.25f,2.5f,7}},{{8,6,9}}};
+		auto read=[&](const std::array<float,3> &p,bool expectedReuse) {
+			const auto reference=staticCacheReference(field,p[0],p[1],p[2]);bool reused=!expectedReuse;
+			auto value=cache.Get(p[0],p[1],p[2],[&]() { ++computed;return reference; },&reused);
+			CHECK(reused==expectedReuse && staticCacheSameSample(value,reference));
+			value.offshore.height=-100;value.terrainDamping=-100; // Returned copies are independently editable.
+		};
+		cache.BeginRender();for (const auto &p:points) read(p,false);CHECK(computed==2 && cache.Size()==2);
+		for (int frame=0;frame<3;++frame) { cache.BeginRender();for (const auto &p:points) read(p,true); }
+		CHECK(computed==2);
+		auto changed=points[0];
+		if (change<3) changed[change]=std::nextafter(changed[change],INFINITY);
+		cache.BeginRender();
+		if (change==3) { read(points[1],false);read(points[0],false);CHECK(computed==4); }
+		else { read(changed,false);read(points[1],true);CHECK(computed==3); }
+	}
+}
+
+TEST(water_static_sample_cache_clear_refreshes_changed_terrain_and_optical_context)
+{
+	uint8_t field[9]={0,40,100,70,150,220,90,190,255};WaterStaticSampleCache::Cache cache;
+	int computed=0;float terrainOffset=0;auto compute=[&]() { ++computed;return staticCacheReference(field,8,6,7,terrainOffset); };
+	bool reused=true;const auto original=cache.Get(8,6,7,compute,&reused);CHECK(!reused && computed==1);
+	cache.BeginRender();CHECK(staticCacheSameSample(cache.Get(8,6,7,compute,&reused),original));CHECK(reused && computed==1);
+	field[0]=255;field[1]=0;terrainOffset=3;
+	const auto changed=staticCacheReference(field,8,6,7,terrainOffset);CHECK(!staticCacheSameSample(original,changed));
+	cache.Clear();CHECK(cache.Size()==0);
+	CHECK(staticCacheSameSample(cache.Get(8,6,7,compute,&reused),changed));CHECK(!reused && computed==2);
+	cache.BeginRender();CHECK(staticCacheSameSample(cache.Get(8,6,7,compute,&reused),changed));CHECK(reused && computed==2);
+}
+
+TEST(water_static_sample_cache_bounds_storage_and_bypasses_nonfinite_coordinates)
+{
+	WaterStaticSampleCache::Cache cache(2);int computed=0;bool reused=true;
+	const WaterStaticSampleCache::Sample reference={{.25f,.01f,-.02f},.4f,3,.8f};
+	auto compute=[&]() { ++computed;return reference; };
+	for (int render=0;render<2;++render) {
+		cache.BeginRender();
+		for (int i=0;i<3;++i) {
+			CHECK(staticCacheSameSample(cache.Get(float(i),1,7,compute,&reused),reference));
+			CHECK(reused==(render==1 && i<2));CHECK(cache.Size()<=2);
+		}
+	}
+	CHECK(computed==4 && cache.Size()==2);
+	cache.BeginRender();
+	const float nan=std::numeric_limits<float>::quiet_NaN(),inf=std::numeric_limits<float>::infinity();
+	for (auto p:{std::array<float,3>{{nan,1,7}},std::array<float,3>{{0,inf,7}},std::array<float,3>{{0,1,-inf}}}) {
+		CHECK(staticCacheSameSample(cache.Get(p[0],p[1],p[2],compute,&reused),reference));CHECK(!reused && cache.Size()==2);
+	}
+	CHECK(computed==7);
+	// Invalid requests do not consume sequence slots; signed zero uses the common world key.
+	CHECK(staticCacheSameSample(cache.Get(-0.0f,1,7,compute,&reused),reference));CHECK(reused && computed==7);
+	WaterStaticSampleCache::Cache disabled(0);
+	for (int repeat=0;repeat<2;++repeat) {
+		disabled.BeginRender();CHECK(staticCacheSameSample(disabled.Get(0,1,7,compute,&reused),reference));CHECK(!reused && disabled.Size()==0);
+	}
+}
+
+namespace {
+WaterProjectedMesh::Mesh preparedCacheInput()
+{
+	using namespace WaterProjectedMesh;Mesh mesh;mesh.cells=17;
+	for (Point p:{Point{2,2},Point{8,2},Point{2,8},Point{22,22},Point{25,22},Point{22,25},Point{90,90}}) {
+		Vertex v;v.world=p;mesh.vertices.push_back(v);
+	}
+	mesh.indices={0,1,2,3,4,5};
+	for (int i=0;i<2;++i) {
+		CentreTransition transition={};transition.analytic=.2+i*.1;
+		for (int j=0;j<3;++j) { transition.source[j]={double(i+j),double(i-j)};transition.weight[j]=(j+1)/6.; }
+		mesh.transitions.push_back(transition);
+		BoundaryCollar collar={};collar.count=4;collar.fade=.6+i*.1;
+		for (int j=0;j<4;++j) { collar.edge[j]=j;collar.parameter[j]=.1*j;collar.weight[j]=.1*(j+1); }
+		mesh.collars.push_back(collar);
+	}
+	return mesh;
+}
+std::vector<uint8_t> preparedCacheTerrain()
+{
+	std::vector<uint8_t> heights;
+	for (int y=0;y<4;++y) for (uint8_t h:{uint8_t(0),uint8_t(10),uint8_t(100),uint8_t(100)}) heights.push_back(h);
+	return heights;
+}
+void preparedCachePipeline(WaterProjectedMesh::Mesh &mesh,const std::vector<uint8_t> &heights,float level,bool cull,bool cage)
+{
+	if (cull) CHECK(WaterTerrainCulling::CullDryTriangles(mesh,heights.data(),4,4,0,10,1,level,0,0));
+	if (cage) CHECK(WaterWaveCageMesh::ClipRestWaterline(mesh,[&](WaterProjectedMesh::Point p) { return level-p.x; },
+		[](WaterProjectedMesh::Point) { return true; }));
+	CHECK(WaterTerrainCulling::CompactVertices(mesh));
+}
+size_t preparedCacheBytes(const WaterProjectedMesh::Mesh &mesh)
+{
+	return mesh.vertices.size()*sizeof(WaterProjectedMesh::Vertex)+mesh.indices.size()*sizeof(uint16_t)+
+		mesh.transitions.size()*sizeof(WaterProjectedMesh::CentreTransition)+mesh.collars.size()*sizeof(WaterProjectedMesh::BoundaryCollar);
+}
+}
+
+TEST(water_prepared_mesh_cache_matches_actual_cull_clip_compact_and_isolates_output_edits)
+{
+	const auto input=preparedCacheInput();const auto terrain=preparedCacheTerrain();auto reference=input;
+	preparedCachePipeline(reference,terrain,5,true,true);
+	CHECK(reference.vertices.size()==4 && reference.indices.size()==6 && !projectedCacheSameMesh(reference,input));
+	WaterPreparedMeshCache::Cache cache;int computed=0;bool reused=true;
+	auto compute=[&](WaterProjectedMesh::Mesh &mesh) { ++computed;preparedCachePipeline(mesh,terrain,5,true,true); };
+	auto actual=input;cache.Process(actual,5,true,true,compute,&reused);
+	CHECK(!reused && computed==1 && projectedCacheSameMesh(actual,reference));
+	// Each frame starts with the base/refined input; downstream draw preparation owns its result.
+	actual.vertices[0].world.x=-100;actual.indices.clear();actual.collars[0].fade=-1;
+	actual.transitions[0].analytic=-1;actual.cells=0;
+	for (int frame=0;frame<3;++frame) {
+		actual=input;cache.Process(actual,5,true,true,compute,&reused);
+		CHECK(reused && computed==1 && projectedCacheSameMesh(actual,reference));
+	}
+	CHECK(cache.CachedBytes()==preparedCacheBytes(input)+preparedCacheBytes(reference));
+}
+
+TEST(water_prepared_mesh_cache_keys_every_semantic_field_without_uninitialized_collar_tails)
+{
+	using namespace WaterProjectedMesh;const Mesh input=preparedCacheInput();
+	auto changedMisses=[&](Mesh changed,float level=5,bool cull=false,bool cage=false) {
+		WaterPreparedMeshCache::Cache cache;int computed=0;bool reused=true;
+		auto compute=[&](Mesh &) { ++computed; };Mesh initial=input;cache.Process(initial,5,false,false,compute);
+		Mesh actual=changed;cache.Process(actual,level,cull,cage,compute,&reused);
+		CHECK(!reused && computed==2 && projectedCacheSameMesh(actual,changed));
+		actual=changed;cache.Process(actual,level,cull,cage,compute,&reused);
+		CHECK(reused && computed==2 && projectedCacheSameMesh(actual,changed));
+	};
+	for (size_t i=0;i<input.vertices.size();++i) for (int field=0;field<8;++field) {
+		Mesh changed=input;auto &v=changed.vertices[i];
+		switch (field) {
+			case 0: v.world.x=std::nextafter(v.world.x,INFINITY);break;
+			case 1: v.world.y=std::nextafter(v.world.y,INFINITY);break;
+			case 2: v.boundary=0;break;
+			case 3: v.edgeParameter=std::nextafter(v.edgeParameter,INFINITY);break;
+			case 4: v.knot=0;break;
+			case 5: v.transition=0;break;
+			case 6: v.collar=0;break;
+			case 7: v.lattice=0;break;
+		}
+		changedMisses(changed);
+	}
+	for (size_t i=0;i<input.transitions.size();++i) for (int field=0;field<10;++field) {
+		Mesh changed=input;auto &t=changed.transitions[i];
+		double &value=field==9?t.analytic:field%3==0?t.source[field/3].x:field%3==1?t.source[field/3].y:t.weight[field/3];
+		value=std::nextafter(value,INFINITY);changedMisses(changed);
+	}
+	for (size_t i=0;i<input.collars.size();++i) for (int field=0;field<14;++field) {
+		Mesh changed=input;auto &c=changed.collars[i];
+		if (field==0) --c.count;
+		else if (field==1) c.fade=std::nextafter(c.fade,INFINITY);
+		else {
+			const int slot=(field-2)/3,member=(field-2)%3;
+			if (!member) c.edge[slot]=(c.edge[slot]+1)%4;
+			else { double &value=member==1?c.parameter[slot]:c.weight[slot];value=std::nextafter(value,INFINITY); }
+		}
+		changedMisses(changed);
+	}
+	for (size_t i=0;i<input.indices.size();++i) { Mesh changed=input;changed.indices[i]=(changed.indices[i]+1)%input.vertices.size();changedMisses(changed); }
+	for (int field=0;field<9;++field) {
+		Mesh changed=input;
+		switch (field) {
+			case 0: ++changed.cells;break;
+			case 1: changed.vertices.pop_back();break;
+			case 2: changed.vertices.push_back(input.vertices.back());break;
+			case 3: changed.transitions.pop_back();break;
+			case 4: changed.transitions.push_back(input.transitions.back());break;
+			case 5: changed.collars.pop_back();break;
+			case 6: changed.collars.push_back(input.collars.back());break;
+			case 7: changed.indices.resize(3);break;
+			case 8: std::swap(changed.indices[0],changed.indices[1]);break;
+		}
+		changedMisses(changed);
+	}
+	changedMisses(input,std::nextafter(5.f,INFINITY));changedMisses(input,5,true,false);changedMisses(input,5,false,true);
+	WaterPreparedMeshCache::Cache cache;int computed=0;auto compute=[&](Mesh &) { ++computed; };
+	Mesh initial=input;initial.collars[0].count=1;cache.Process(initial,0,false,false,compute);
+	Mesh same=initial;for (int i=1;i<4;++i) { same.collars[0].edge[i]=100;same.collars[0].parameter[i]=NAN;same.collars[0].weight[i]=NAN; }
+	bool reused=false;cache.Process(same,0,false,false,compute,&reused);CHECK(reused && computed==1);
+	Mesh signedZero=initial;cache.Process(signedZero,-0.0f,false,false,compute,&reused);CHECK(!reused && computed==2);
+}
+
+TEST(water_prepared_mesh_cache_clear_refreshes_terrain_and_bounds_bypasses_preserve_entry)
+{
+	using namespace WaterProjectedMesh;const auto input=preparedCacheInput();auto terrain=preparedCacheTerrain();
+	WaterPreparedMeshCache::Cache cache;int computed=0;bool reused=true;
+	auto compute=[&](Mesh &mesh) { ++computed;preparedCachePipeline(mesh,terrain,5,true,false); };
+	Mesh original=input;cache.Process(original,5,true,false,compute);CHECK(computed==1 && original.vertices.size()==3);
+	std::fill(terrain.begin(),terrain.end(),0);cache.Clear();CHECK(cache.CachedBytes()==0);
+	Mesh changed=input;cache.Process(changed,5,true,false,compute,&reused);
+	CHECK(!reused && computed==2 && changed.vertices.size()==6 && !projectedCacheSameMesh(original,changed));
+	const size_t bound=preparedCacheBytes(input)*2;WaterPreparedMeshCache::Cache bounded(bound);
+	int calls=0;auto identity=[&](Mesh &) { ++calls; };Mesh actual=input;bounded.Process(actual,5,false,false,identity);
+	CHECK(calls==1 && bounded.CachedBytes()<=bound);const size_t stored=bounded.CachedBytes();
+	for (int invalid=0;invalid<6;++invalid) {
+		Mesh request=input;float level=5;
+		if (invalid==0) request.vertices.resize(1000);
+		if (invalid==1) request.indices[0]=65535;
+		if (invalid==2) request.collars[0].count=5;
+		if (invalid==3) request.vertices[0].world.x=NAN;
+		if (invalid==4) level=INFINITY;
+		if (invalid==5) request.indices.pop_back();
+		const int before=calls;bounded.Process(request,level,false,false,identity,&reused);
+		CHECK(!reused && calls==before+1 && bounded.CachedBytes()==stored);
+		actual=input;bounded.Process(actual,5,false,false,identity,&reused);CHECK(reused && calls==before+1);
+	}
+	for (bool invalidOutput:{false,true}) {
+		Mesh request=input;++request.cells;const int before=calls;
+		bounded.Process(request,5,false,false,[&](Mesh &mesh) { ++calls;if (invalidOutput) mesh.collars[0].count=-1;else mesh.vertices.resize(1000); },&reused);
+		CHECK(!reused && calls==before+1 && bounded.CachedBytes()==stored);
+		actual=input;bounded.Process(actual,5,false,false,identity,&reused);CHECK(reused && calls==before+1);
+	}
+	WaterPreparedMeshCache::Cache disabled(0);actual=input;disabled.Process(actual,5,false,false,identity,&reused);
+	CHECK(!reused && disabled.CachedBytes()==0 && projectedCacheSameMesh(actual,input));
+}
+
+TEST(water_prepared_mesh_cache_keeps_one_entry_per_patch_and_evicts_fifo)
+{
+	using namespace WaterProjectedMesh;const auto input=preparedCacheInput();
+	int computed=0;bool reused=true;auto compute=[&](Mesh &) { ++computed; };
+	std::vector<Mesh> patches;
+	for (int patch=0;patch<3;++patch) { Mesh changed=input;changed.cells+=patch;patches.push_back(changed); }
+	WaterPreparedMeshCache::Cache cache(32u*1024u*1024u,2);
+	// Two visible patches alternate every frame; neither may evict the other.
+	for (int frame=0;frame<3;++frame) for (int patch=0;patch<2;++patch) {
+		Mesh actual=patches[patch];cache.Process(actual,5,false,false,compute,&reused);
+		CHECK(reused==(frame>0) && projectedCacheSameMesh(actual,patches[patch]));
+	}
+	CHECK(computed==2 && cache.EntryCount()==2);
+	Mesh third=patches[2];cache.Process(third,5,false,false,compute,&reused);
+	CHECK(!reused && computed==3 && cache.EntryCount()==2);
+	Mesh oldest=patches[0];cache.Process(oldest,5,false,false,compute,&reused);CHECK(!reused);
+	Mesh newest=patches[2];cache.Process(newest,5,false,false,compute,&reused);CHECK(reused);
+	WaterPreparedMeshCache::Cache disabled(32u*1024u*1024u,0);
+	for (int repeat=0;repeat<2;++repeat) {
+		Mesh actual=input;disabled.Process(actual,5,false,false,compute,&reused);
+		CHECK(!reused && disabled.EntryCount()==0 && disabled.CachedBytes()==0);
 	}
 }
 
@@ -2510,11 +2965,30 @@ TEST(water_ocean_blended_displaced_shared_edges_are_exact_through_all_morphs)
 TEST(water_ocean_height_only_evaluation_is_bit_identical_to_the_full_model)
 {
 	using namespace WaterSurfaceModel;
-	for (float time:{0.0f,3.17f,97.5f,1220.3f}) for (int i=0;i<1200;++i) {
+	for (float time:{-17.3f,0.0f,3.17f,97.5f,1220.3f}) for (int i=0;i<1200;++i) {
 		const float x=-4395.0f+i*7.731f,y=3526.0f-i*5.377f;
-		CHECK(EvaluateOceanHeight(x,y,time)==EvaluateOcean(x,y,time).height);
+		const float height=EvaluateOceanHeight(x,y,time),fullHeight=EvaluateOcean(x,y,time).height;
+		const float templateHeight=EvaluateOceanInternal<false,false>(x,y,time).height;
+		CHECK(memcmp(&height,&fullHeight,sizeof(height))==0);
+		CHECK(memcmp(&height,&templateHeight,sizeof(height))==0);
 		for (const Sample offshore: {Sample{0,0,0},Sample{0.25f,0.01f,-0.005f},Sample{1,0,0},Sample{1,0.001f,0}})
 			CHECK(EvaluateBlendedHeight(x,y,time,offshore)==EvaluateBlended(x,y,time,offshore).height);
+	}
+}
+
+TEST(water_river_height_only_evaluation_is_bit_identical_to_the_full_model)
+{
+	using namespace WaterSurfaceModel;
+	for (float time:{-17.3f,0.0f,3.17f,97.5f,1220.3f}) for (int i=0;i<1200;++i) {
+		const float x=-4395.0f+i*7.731f,y=3526.0f-i*5.377f;
+		const float height=EvaluateHeight(x,y,time),fullHeight=Evaluate(x,y,time).height;
+		CHECK(memcmp(&height,&fullHeight,sizeof(height))==0);
+		for (const Sample offshore: {Sample{-0.2f,0,0},Sample{0,0,0},Sample{0,0.01f,0},
+			Sample{0.25f,0.01f,-0.005f},Sample{0.5f,0,0},Sample{1,0,0},Sample{1.2f,0.001f,0}}) {
+			const float blended=EvaluateBlendedHeight(x,y,time,offshore);
+			const float fullBlended=EvaluateBlended(x,y,time,offshore).height;
+			CHECK(memcmp(&blended,&fullBlended,sizeof(blended))==0);
+		}
 	}
 }
 
@@ -5379,6 +5853,7 @@ TEST(water_coastal_domain_stride_two_capacity_preserves_fine_connectivity_and_te
 #include "GameLogic/PolygonTrigger.h"
 #include "GameLogic/SidesList.h"
 #include "../Tools/WaterPreviewReflectionBar.h"
+#include "Platform/WaterPerformanceSettings.h"
 #include "assetmgr.h"
 #include "dx8wrapper.h"
 #include "formconv.h"
@@ -5411,6 +5886,40 @@ public:
     }
     void clearReflectionRefresh() { m_reflectionReused=FALSE; }
     bool reflectionNeedsRefresh() const { return m_reflectionReused; }
+    void checkPerformanceChanges() {
+        using namespace WaterScreenReflection;
+        const auto saved=WaterPerformanceSettings::Applied();
+        const int mode=TheGlobalData->m_waterReflection;
+        for(int preferred:{0,1,2,3}) {
+            TheWritableGlobalData->m_waterReflection=preferred;
+            TheWritableGlobalData->m_waterReflectionEnabled=FALSE;
+            TheWritableGlobalData->m_waterFftResolution=0;
+            TheWritableGlobalData->m_waterRefractionQuality=2;
+            TheWritableGlobalData->m_waterReflectionDetail=0;
+            seedPresentation();
+            updateRenderTargetTextures(NULL); // paused/no camera must still publish Accept
+            CHECK(m_waterReflectionMode==SkyOnly);
+            CHECK(!m_pReflectionTexture && !m_waterPathScene && !m_waterPathReady);
+            CHECK_EQ(TheGlobalData->m_waterReflection,preferred);
+            CHECK(!WaterPerformanceSettings::Applied().sceneReflections);
+            CHECK_EQ(WaterPerformanceSettings::Applied().requestedFftResolution,128u);
+            CHECK(WaterPerformanceSettings::Applied().refraction==WaterPerformanceSettings::Off);
+            CHECK_EQ(WaterPerformanceSettings::Applied().reflectionDetail,0);
+            CHECK_EQ(m_modernWaveTime,37.5f);CHECK_EQ(m_level,7);
+            clearReflectionRefresh();
+            TheWritableGlobalData->m_waterReflectionEnabled=TRUE;
+            updateRenderTargetTextures(NULL);
+            const Mode expected=Resolve(CachedEnvironment(),preferred);
+            CHECK(m_waterReflectionMode==expected);
+            CHECK(bool(m_reflectionReused)==(UsesMirror(expected)||expected==PathTraced));
+        }
+        TheWritableGlobalData->m_waterReflection=mode;
+        TheWritableGlobalData->m_waterReflectionEnabled=TRUE;
+        TheWritableGlobalData->m_waterFftResolution=1;
+        TheWritableGlobalData->m_waterRefractionQuality=0;
+        TheWritableGlobalData->m_waterReflectionDetail=1;
+        WaterPerformanceSettings::Applied()=saved;
+    }
     const std::vector<WaterOpticalContext::Polygon> &opticalPolygonsForDraw() {
         refreshModernWaterOpticalPolygons();
         return m_modernOpticalPolygons;
@@ -5756,15 +6265,31 @@ TEST(water_full_mirror_admits_hybrid_and_experimental_fallback_for_modern_linux_
 
 TEST(water_style_changes_at_render_boundary_without_advancing_paused_time_or_reloading_the_map)
 {
+#if defined(__linux__)
+    boot();
+    if(!SDL_InitSubSystem(SDL_INIT_VIDEO)) {
+        std::printf("SKIP: live water style requires SDL video: %s\n",SDL_GetError());return;
+    }
+    const char *oldFrames=SDL_GetHint("ZH_OFFSCREEN_FRAMES");
+    const bool hadFrames=oldFrames!=NULL;const std::string savedFrames=oldFrames?oldFrames:"";
+    SDL_SetHint("ZH_OFFSCREEN_FRAMES","1");
+    WWMath::Init();Init_D3D_To_WW3_Conversion();
+    const bool initialized=DX8Wrapper::Init(NULL);
+    const bool ready=initialized && WW3D::Set_Render_Device(0,16,16,32,1,false,false,false)==WW3D_ERROR_OK;
+#endif
     GlobalData *saved=TheWritableGlobalData;
     GlobalData *scratch=NEW GlobalData;TheWritableGlobalData=scratch;
     WaterTransparencySetting *savedTransparency=(WaterTransparencySetting*)TheWaterTransparency.getNonOverloadedPointer();
     TheWaterTransparency=newInstance(WaterTransparencySetting);
+#if defined(__linux__)
+    IDirect3DDevice9 *device=ready?DX8Wrapper::_Get_D3D_Device():NULL;
+#else
     IDirect3D9 *d3d=Direct3DCreate9(D3D_SDK_VERSION);
     D3DPRESENT_PARAMETERS parameters={};parameters.BackBufferWidth=16;parameters.BackBufferHeight=16;
     parameters.BackBufferFormat=D3DFMT_X8R8G8B8;parameters.Windowed=TRUE;
     IDirect3DDevice9 *device=NULL;
     CHECK(d3d && d3d->CreateDevice(0,D3DDEVTYPE_HAL,NULL,0,&parameters,&device)==D3D_OK);
+#endif
     if (device) {
         {
             LiveWaterStyleProbe water;water.prepareShaders(device);
@@ -5778,6 +6303,7 @@ TEST(water_style_changes_at_render_boundary_without_advancing_paused_time_or_rel
             }
 #if defined(__linux__)
             water.checkReflectionChanges();
+            water.checkPerformanceChanges();
 #endif
             TheWritableGlobalData=NULL;water.seedPresentation();
             water.updateRenderTargetTextures(NULL);water.checkChanged(false);
@@ -5786,19 +6312,33 @@ TEST(water_style_changes_at_render_boundary_without_advancing_paused_time_or_rel
             scratch->m_waterStyle=1;scratch->m_classicGraphics=TRUE;
             water.seedPresentation();water.updateRenderTargetTextures(NULL);water.checkUnchanged();
         }
+#if !defined(__linux__)
         device->Release();
+#endif
     } else {
+#if defined(__linux__)
+        std::printf("SKIP: live water style needs an offscreen GPU renderer: %s\n",SDL_GetError());
+#endif
         ((WaterTransparencySetting*)TheWaterTransparency.getNonOverloadedPointer())->deleteInstance();
         TheWaterTransparency=NULL;
     }
-    if (d3d) d3d->Release();
     TheWaterTransparency=savedTransparency;
     delete scratch;TheWritableGlobalData=saved;
+#if defined(__linux__)
+    if(initialized) DX8Wrapper::Shutdown();
+    WWMath::Shutdown();
+    if(hadFrames) SDL_SetHint("ZH_OFFSCREEN_FRAMES",savedFrames.c_str());else SDL_ResetHint("ZH_OFFSCREEN_FRAMES");
+    SDL_QuitSubSystem(SDL_INIT_VIDEO);
+#else
+    if(d3d) d3d->Release();
+#endif
 }
 
 #if defined(__linux__)
 TEST(water_hybrid_target_resize_preserves_queued_reflections_and_refreshes_new_targets)
 {
+    struct RestoreQuality { WaterPerformanceSettings::Configuration saved=WaterPerformanceSettings::Applied();
+        ~RestoreQuality() { WaterPerformanceSettings::Applied()=saved; } } restoreQuality;
     boot();
     const bool video=SDL_InitSubSystem(SDL_INIT_VIDEO);
     if (!video) {
@@ -5819,7 +6359,7 @@ TEST(water_hybrid_target_resize_preserves_queued_reflections_and_refreshes_new_t
         WW3D::Set_Render_Device(0,64,64,32,1,false,false,false)==WW3D_ERROR_OK;
     auto *device=ready?static_cast<PosixDevice9 *>(DX8Wrapper::_Get_D3D_Device()):NULL;
     if (device && device->Get_Gpu()) {
-        std::printf("reflection target lifecycle: GPU readback across 512 -> 1024 -> 512\n");
+        std::printf("reflection target lifecycle: GPU readback across High/Low and Legacy/Hybrid targets\n");
         WaterTransparencySetting *savedTransparency=
             (WaterTransparencySetting*)TheWaterTransparency.getNonOverloadedPointer();
         TheWaterTransparency=newInstance(WaterTransparencySetting);
@@ -5828,11 +6368,16 @@ TEST(water_hybrid_target_resize_preserves_queued_reflections_and_refreshes_new_t
             water.setMirrorState(true,WaterRenderObjClass::WATER_TYPE_0_TRANSLUCENT,false);
             IDirect3DSurface9 *back=NULL;
             CHECK(device->GetBackBuffer(0,0,D3DBACKBUFFER_TYPE_MONO,&back)==D3D_OK);
-            const unsigned sizes[]={512,1024,512};
-            const RenderUInt32 colours[]={0xffff0000u,0xff00ff00u,0xff0000ffu};
+            const unsigned sizes[]={512,1024,512,256,512,1024};
+            const WaterScreenReflection::Mode modes[]={WaterScreenReflection::Mirror,WaterScreenReflection::Hybrid,
+                WaterScreenReflection::Hybrid,WaterScreenReflection::Mirror,WaterScreenReflection::Mirror,WaterScreenReflection::Hybrid};
+            const int details[]={1,1,0,0,1,1};
+            const RenderUInt32 colours[]={0xffff0000u,0xff00ff00u,0xff0000ffu,0xffffff00u,0xff00ffffu,0xffff00ffu};
+            const unsigned steps=sizeof(sizes)/sizeof(sizes[0]);
             IDirect3DBaseTexture9 *previous=NULL; // borrowed from the bound sampler
-            for (unsigned step=0;back && step<3;++step) {
-                water.setReflectionMode(step==1?WaterScreenReflection::Hybrid:WaterScreenReflection::Mirror);
+            for (unsigned step=0;back && step<steps;++step) {
+                WaterPerformanceSettings::Applied().reflectionDetail=details[step];
+                water.setReflectionMode(modes[step]);
                 water.clearReflectionRefresh();
                 TextureClass *target=water.ensureReflectionTarget();
                 CHECK(target && water.reflectionNeedsRefresh());
@@ -5857,20 +6402,20 @@ TEST(water_hybrid_target_resize_preserves_queued_reflections_and_refreshes_new_t
                 CHECK(device->SetViewport(&viewport)==D3D_OK);
                 CHECK(device->Clear(0,NULL,D3DCLEAR_TARGET|D3DCLEAR_ZBUFFER,colours[step],1.0f,0)==D3D_OK);
                 IDirect3DSurface9 *surface=target->Get_D3D_Surface_Level();
-                const RenderRect stripe={int(step*64/3),0,int((step+1)*64/3),64};
+                const RenderRect stripe={int(step*64/steps),0,int((step+1)*64/steps),64};
                 CHECK(surface && device->StretchRect(surface,NULL,back,&stripe,D3DTEXF_POINT)==D3D_OK);
                 if (surface) surface->Release();
                 DX8Wrapper::Set_Render_Target((IDirect3DSurface9 *)NULL);
             }
             // Retire old GPU copies before submitting the clears/blits which still use them.
-            // The three coloured stripes prove those queued references survive both resizes.
+            // Coloured stripes prove queued references survive every mode/detail replacement.
             DX8Wrapper::Set_DX8_Texture(1,NULL);
             DX8Wrapper::Flush_Deferred_D3D9_State();
             device->Get_Mirrors()->Collect_Dead();
             std::vector<uint8_t> pixels;
             CHECK(device->Get_Gpu()->Read_Back(device->Get_Gpu()->Back_Buffer(),64,64,pixels));
-            if (pixels.size()==64*64*4) for (unsigned step=0;step<3;++step) {
-                const size_t at=(32*64+(step*2+1)*64/6)*4;
+            if (pixels.size()==64*64*4) for (unsigned step=0;step<steps;++step) {
+                const size_t at=(32*64+(step*2+1)*64/(steps*2))*4;
                 CHECK_EQ(unsigned(pixels[at]),colours[step]&255u);
                 CHECK_EQ(unsigned(pixels[at+1]),(colours[step]>>8)&255u);
                 CHECK_EQ(unsigned(pixels[at+2]),(colours[step]>>16)&255u);

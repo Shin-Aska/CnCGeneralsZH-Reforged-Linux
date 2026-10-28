@@ -567,6 +567,9 @@ RenderResult PosixDevice9::Reset(D3DPRESENT_PARAMETERS *parameters)
 	Posix_Bind(RenderTargets[0], BackBuffer);
 	DepthSurface = depth;
 	Posix_Bind(DepthStencil, DepthSurface);
+	// Keep an active scope protective until its owner ends it. An explicit serial
+	// invalidates even two resets whose replacement surfaces reuse the old addresses.
+	if (PreparedWaterFft.token) ++PreparedWaterFftSerial;
 	return D3D_OK;
 }
 
