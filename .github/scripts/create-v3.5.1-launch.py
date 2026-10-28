@@ -16,7 +16,7 @@ MEDIA = ROOT / ".github/media/releases"
 SIZE = (1672, 941)
 GOLD = "#e8c570"
 FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-OUTPUT = MEDIA / "v3.5.1-launch-annotated-layout.png"
+OUTPUT = MEDIA / "v3.5.1-launch-annotated-layout-v2.png"
 
 
 def fitted(name, size, center=(0.5, 0.5)):
@@ -26,7 +26,7 @@ def fitted(name, size, center=(0.5, 0.5)):
 
 
 def main():
-    canvas = fitted("v3.5.1-shore-waves.png", SIZE).convert("RGBA")
+    canvas = fitted("v3.5.1-shore-waves-refraction.png", SIZE).convert("RGBA")
 
     # Match the original layout's dark fade behind its unchanged typography.
     stops = [(0, 255), (350, 253), (520, 240), (680, 180), (880, 30), (1040, 0)]

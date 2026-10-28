@@ -9,7 +9,7 @@ gameplay, AI, audio and interface changes. New since this origin's 3.4.2: more n
 optimized water performance, water quality controls and sharper path-traced water reflections,
 plus upstream's rank perks, leader auras and movement improvements.
 
-![Zero Hour Reforged Linux 3.5.1 launch image](.github/media/releases/v3.5.1-launch-annotated-layout.png)
+![Zero Hour Reforged Linux 3.5.1 launch image](.github/media/releases/v3.5.1-launch-annotated-layout-v2.png)
 
 [3.5.1 release notes](docs/releases/v3.5.1.md)
 
