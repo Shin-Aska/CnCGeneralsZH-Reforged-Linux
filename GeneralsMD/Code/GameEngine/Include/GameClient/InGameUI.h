@@ -1003,6 +1003,7 @@ public:  // ********************************************************************
 	virtual Bool getInputEnabled( void ) { LOGIC_CENSUS( CENSUS_CLIENT_READ ); return m_inputEnabled; }	///< Get the current input status
 
 	virtual void disregardDrawable( Drawable *draw );				///< Drawable is being destroyed, clean up any UI elements associated with it
+	void noteRankChanged( ObjectID id );										///< after the tick that moved its grade: it may lead now (updateAuraRings)
 
 	virtual void preDraw( void );														///< Logic which needs to occur before the UI renders
 	virtual void draw( void ) = 0;													///< Render the in-game user interface
@@ -1265,7 +1266,9 @@ protected:
 	void destroyPlacementIcons( void );													///< Destroy placement icons
 	void handleBuildPlacements( void );													///< handle updating of placement icons based on mouse pos
 	void handleRadiusCursor();																	///< handle updating of "radius cursors" that follow the mouse pos
-	void updateAuraRings();																			///< the ground ring of each aura a selected or hovered leader gives
+	void updateAuraRings();																			///< the ground ring of each aura every visible leader gives
+	/// frozen time runs the scripts with no new logic frame, so an overlay laid once a frame is laid every pass
+	Bool isTimeFrozenWithoutTick( void ) const;
 
 	void incrementSelectCount( void ) { ++m_selectCount; }			///< Increase by one the running total of "selected" drawables
 	void decrementSelectCount( void ) { --m_selectCount; }			///< Decrease by one the running total of "selected" drawables
@@ -1554,7 +1557,7 @@ protected:
 	RadiusDecal									m_curRadiusCursor;
 	RadiusCursorType						m_curRcType;
 
-	enum { AURA_RING_MAX = 32 };
+	enum { AURA_RING_MAX = 256 };	// ponytail: past this many rings on the map the rest go undrawn; the slot match is n squared
 	struct AuraRing
 	{
 		ObjectID		id;					///< INVALID_ID: a free slot
@@ -1563,6 +1566,11 @@ protected:
 		RadiusDecal	decal;
 	};
 	AuraRing										m_auraRings[AURA_RING_MAX];
+	UnsignedInt									m_auraRingsFrame = ~0u;		///< the logic frame the rings were last laid for
+	const Player							 *m_auraRingsPlayer = NULL;	///< and the local player they were laid for
+	Int													m_auraRingsShroudIndex = -1;	///< and the player whose fog the screen showed
+	std::vector<ObjectID>				m_auraLeaders;						///< everything that gave an aura at its grade when last looked at
+	Bool												m_auraLeadersFound = FALSE;	///< m_auraLeaders came from a walk over every drawable
 
 	//Floating Text Data
 	FloatingTextList						m_floatingTextList;				///< Our list of floating text

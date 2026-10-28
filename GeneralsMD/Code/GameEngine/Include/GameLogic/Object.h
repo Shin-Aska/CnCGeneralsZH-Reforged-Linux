@@ -307,8 +307,10 @@ public:
 	Real getRankSightScalar() const;												///< my own sight perk times the sight aura on me
 	Real getRankDamageTakenScalar() const;									///< guard, rally and the still guard perk, multiplied
 	Bool isSpotter() const;																	///< SpotterSight on the template, or the SPOTTER perk
+	Bool leadsRankAuras() const;														///< FALSE for a hacker: its grade's AURA_ lines give nothing
 	void onRankSightChanged( Real oldScalar );							///< look again if the rank sight moved
 	void giveRankRally();																		///< I fell: my death rally reaches the allies around me
+	void dropRankSalvage();																	///< I fell: my SALVAGE_CRATE perk leaves a crate where I lay
 	void forgoRankRally() { m_forgoRankRally = TRUE; }			///< about to be killed inside a container that let go of me first
 
 	inline const AsciiString& getName() const { return m_name; }
@@ -832,6 +834,7 @@ private:
 
 	// modules
 	BehaviorModule**							m_behaviors;	// BehaviorModule, not BehaviorModuleInterface
+	CollideModuleInterface**			m_collides;		///< the m_behaviors that are collide modules, in their order, null-terminated
 
 	// cache these, for convenience
 	ContainModuleInterface*				m_contain;

@@ -228,6 +228,10 @@ public: // AIPlayer interface, may be overridden by AISkirmishPlayer.  jba.
 	virtual void recruitSpecificAITeam(TeamPrototype *teamProto, Real recruitRadius); ///< Builds this team immediately.
 
 	virtual Bool isSkirmishAI(void) {return false;}
+	/** A skirmish AI that plays the fork's own game beside its scripts: economy, base, army, waves and
+		* tactics.  Not one whose map wrote those scripts itself (an Art of Defense map's waves), which is
+		* left to them the way a Challenge or mission opponent is. */
+	Bool runsOwnAI(void);
 	virtual Player *getAiEnemy(void) {return NULL;}	///< Solo AI attacks based on scripting.  Only skirmish auto-acquires an enemy at this point.  jba.
 	virtual Bool checkBridges(Object *unit, Waypoint *way) {return false;}
 	/** Center, Flank or Backdoor: the approach with the least enemy firepower this AI knows about.

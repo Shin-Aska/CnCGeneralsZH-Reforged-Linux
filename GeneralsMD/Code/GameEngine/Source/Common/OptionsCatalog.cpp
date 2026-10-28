@@ -457,8 +457,8 @@ const OptionDef TheOptionCatalog[] =
 
 	// Multisampling, as an index into 0/2/4/8/16 rather than a sample count - the device offers
 	// those and nothing between them, so a slider would spend most of its travel on values that
-	// silently round down.  W3DDisplay::init hands it to the device once, and only to a Direct3D 9
-	// frame: the default Direct3D 11 picture asks for no samples and smooths its edges with FXAA.
+	// silently round down.  W3DDisplay::init hands it to whichever device presents, once.  The
+	// Direct3D 11 scene takes it on its post-process target and drops its FXAA while it has samples.
 	{ "MSAA",											OPT_WND( "ComboBoxMSAA" ), "GUI:MSAA",
 		OPTION_ENUM, APPLY_RESTART, 0, OPTION_MSAA_LEVEL_COUNT - 1,
 		get_m_msaaLevel, set_m_msaaLevel },
@@ -686,8 +686,8 @@ const Int TheOptionCatalogCount = (sizeof( TheOptionCatalog ) / sizeof( TheOptio
 // The free rows all come on by step 3, except those that draw into the sun's shadow map: they come
 // on with cast shadows at step 5, since the map is not drawn without them.  Never Lower Detail is
 // free on a card that holds its frame rate and is what saves one that does not, so it waits for
-// Ultra.  Multisampling is read by Direct3D 9 alone and cost nothing measurable there at 8x on this
-// card, which another card may not repeat, so it rises through the middle.  Under Direct3D 9
+// Ultra.  Multisampling cost nothing measurable under Direct3D 9 at 8x on this card; its Direct3D
+// 11 price was never swept, so the row still rises through the middle.  Under Direct3D 9
 // MapLight, TeamGlow and WaterFoam are greyed and the slider leaves them; the shadow map and the
 // volumetric clouds are the other renderers' alone.
 //

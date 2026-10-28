@@ -207,7 +207,7 @@ Int SidesInfo::removeFromBuildList(BuildListInfo *pBuildList)
 /**
  SidesList - Constructor.
 */
-SidesList::SidesList(void) : m_numSides(0), m_numSkirmishSides(0)
+SidesList::SidesList(void) : m_numSides(0), m_numSkirmishSides(0), m_skirmishScriptsFromMap(false)
 {
 }
 
@@ -233,6 +233,7 @@ void SidesList::clear(void)
 {
 	emptySides();
 	emptyTeams();
+	m_skirmishScriptsFromMap = false;
 }
 
 
@@ -731,6 +732,7 @@ void SidesList::prepareForMP_or_Skirmish(void)
 			gotScripts = true;
 		}
 	}
+	m_skirmishScriptsFromMap = gotScripts;
 	loadModSkirmishScripts();
 	if (!gotScripts) {
 		AsciiString path = "data\\Scripts\\SkirmishScripts.scb";

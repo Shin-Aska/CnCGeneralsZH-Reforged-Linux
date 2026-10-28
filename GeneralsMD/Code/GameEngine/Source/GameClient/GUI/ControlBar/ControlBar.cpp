@@ -169,17 +169,26 @@ static void portraitRankTooltip( GameWindow *window, WinInstanceData *instData, 
 	UnicodeString text = TheGameText->fetch( label );
 
 	// what the grade carries, one line a perk: RANK:Perk<kind> takes the strength as a whole percent
-	// (a radius for DETECT, a multiple's gain for SIGHT and AURA_RADIUS)
+	// (a radius for DETECT, a grade for AURA_DRILL, seconds for DESIGNATE, a multiple's gain for SIGHT
+	// and AURA_RADIUS)
 	for( Int perk = 0; perk < RANK_PERK_COUNT; ++perk )
 	{
 		Real value = ladder->perk( grade, (RankPerk)perk );
-		if( value <= 0.0f )
+		if( value <= 0.0f || ( ( perk == RANK_PERK_AURA_RADIUS || perk >= RANK_PERK_AURA_RATE_OF_FIRE ) && !obj->leadsRankAuras() ) )
 			continue;
 		if( perk == RANK_PERK_SIGHT || perk == RANK_PERK_AURA_RADIUS )
 			value -= 1.0f;
+		const Bool plain = perk == RANK_PERK_DETECT || perk == RANK_PERK_AURA_DRILL || perk == RANK_PERK_DESIGNATE;
 		label.format( "RANK:Perk%s", TheRankPerkNames[ perk ] );
 		UnicodeString line;
-		line.format( TheGameText->fetch( label ), REAL_TO_INT( perk == RANK_PERK_DETECT ? value : value * 100.0f + 0.5f ) );
+		if( perk == RANK_PERK_MEND || perk == RANK_PERK_AURA_MEND )
+		{
+			// a heal of 0.5% to 1.25% a second reads to two places
+			const Int hundredths = REAL_TO_INT( value * 10000.0f + 0.5f );
+			line.format( TheGameText->fetch( label ), hundredths / 100, hundredths % 100 );
+		}
+		else
+			line.format( TheGameText->fetch( label ), REAL_TO_INT( plain ? value : value * 100.0f + 0.5f ) );
 		text.concat( (WideChar)'\n' );
 		text.concat( line );
 	}

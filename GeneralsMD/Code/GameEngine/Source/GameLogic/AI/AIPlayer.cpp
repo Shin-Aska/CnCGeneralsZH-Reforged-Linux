@@ -637,7 +637,7 @@ void AIPlayer::checkForSupplyCenter( BuildListInfo *info, Object *bldg )
 		// safe radius, capped at two extra - a centre with three piles beside it can keep more
 		// trucks busy, and one with a single pile cannot.
 		//
-		if( isSkirmishAI() && getSkillProfile()->m_adaptiveHarvesters )
+		if( runsOwnAI() && getSkillProfile()->m_adaptiveHarvesters )
 		{
 			Int warehouses = 0;
 			PartitionFilterAcceptByKindOf supplyOnly( MAKE_KINDOF_MASK( KINDOF_SUPPLY_SOURCE ), KINDOFMASK_NONE );
@@ -1339,7 +1339,7 @@ Bool AIPlayer::spotCooling( const Coord3D *pos )
 // ------------------------------------------------------------------------------------------------
 void AIPlayer::stageDozer( Object *dozer, const Coord3D *site )
 {
-	if( !isSkirmishAI() || !getSkillProfile()->m_stageDozers || dozer->getID() == m_repairDozer )
+	if( !runsOwnAI() || !getSkillProfile()->m_stageDozers || dozer->getID() == m_repairDozer )
 		return;
 	AIUpdateInterface *ai = dozer->getAI();
 	if( ai->getDozerAIInterface()->isAnyTaskPending() || !ai->isIdle() )
@@ -1368,13 +1368,13 @@ void AIPlayer::stageDozer( Object *dozer, const Coord3D *site )
 Object *AIPlayer::buildStructureWithDozer(const ThingTemplate *bldgPlan, BuildListInfo *info)
 {
 	// A site given up here lately is left alone until its wait runs out.
-	if (isSkirmishAI() && spotCooling(info->getLocation())) {
+	if (runsOwnAI() && spotCooling(info->getLocation())) {
 		giveUpOnSpot(info);
 		return NULL;
 	}
 	// Find a dozer.
 	Object *dozer = findDozer(info->getLocation());
-	if (dozer==NULL && isSkirmishAI() && getSkillProfile()->m_economyBuildings && isPowerThin() &&
+	if (dozer==NULL && runsOwnAI() && getSkillProfile()->m_economyBuildings && isPowerThin() &&
 			bldgPlan->isKindOf(KINDOF_FS_POWER) && !bldgPlan->isKindOf(KINDOF_CASH_GENERATOR)) {
 		// every dozer busy and the power running out: a Hard AI takes one off whatever it is doing. A China
 		// asked for a plant with 26,000 in the bank and waited 95 seconds, going dark half way, because
@@ -1458,12 +1458,12 @@ Object *AIPlayer::buildStructureWithDozer(const ThingTemplate *bldgPlan, BuildLi
 				 buildings. No spot now means no building from this entry: giveUpOnSpot drops it or
 				 sets it aside, so the rest of the list is not held behind it. */
 			static const Int NEIGHBOURS[8][2] = { {1,0}, {-1,0}, {0,1}, {0,-1}, {1,1}, {-1,1}, {1,-1}, {-1,-1} };
-			const Int searchRadius = isSkirmishAI() ? SKIRMISH_BUILD_SEARCH_CELLS : BUILD_SEARCH_CELLS;
+			const Int searchRadius = runsOwnAI() ? SKIRMISH_BUILD_SEARCH_CELLS : BUILD_SEARCH_CELLS;
 			const Int searchWidth = 2*searchRadius + 1;
-			const Int probeStride = isSkirmishAI() ? 2 : 1;		// the rings tried every other cell for a skirmish AI too
+			const Int probeStride = runsOwnAI() ? 2 : 1;		// the rings tried every other cell for a skirmish AI too
 			// A home building the skirmish AI asked for stays within the base's edge and away from an
 			// enemy.  The flood only tested that the building fits.
-			const Bool home = isSkirmishAI() && info->isPriorityBuild() && m_baseCenterSet && staysHome(bldgPlan);
+			const Bool home = runsOwnAI() && info->isPriorityBuild() && m_baseCenterSet && staysHome(bldgPlan);
 			ICoord2D origin;
 			TheAI->pathfinder()->worldToCell(&pos, &origin);
 			if (m_buildSearchCells.empty() || m_buildSearchPlan != bldgPlan ||
@@ -1510,7 +1510,7 @@ Object *AIPlayer::buildStructureWithDozer(const ThingTemplate *bldgPlan, BuildLi
 				newPos.y = pos.y + dy*PATHFIND_CELL_SIZE_F;
 				if (home && sqr(newPos.x - m_baseCenter.x) + sqr(newPos.y - m_baseCenter.y) > sqr(BASE_EDGE_REACH*m_baseRadius)) continue;
 				// a flood from a spot that is itself cut off from the base stays on that ground
-				if (isSkirmishAI() && !reachableFromBase(&newPos)) continue;
+				if (runsOwnAI() && !reachableFromBase(&newPos)) continue;
 				++probes;
 				valid = TheBuildAssistant->isLocationLegalToBuild( &newPos, bldgPlan, angle,
 																						 BuildAssistant::CLEAR_PATH |
@@ -2205,7 +2205,7 @@ Int AIPlayer::superweaponScore( Coord3D *center, Int playerNdx, Real radius, Boo
 {
 	const Int value = getPlayerSuperweaponValue( center, playerNdx, radius, targetMilitaryUnits, m_player->getPlayerIndex(),
 																							 strikeEconomyWeight(), strikeThreatWeight() );
-	if( value <= 0 || !isSkirmishAI() )
+	if( value <= 0 || !runsOwnAI() )
 		return value;
 
 	const UnsignedInt now = TheGameLogic->getFrame();
@@ -2231,12 +2231,12 @@ Int AIPlayer::superweaponScore( Coord3D *center, Int playerNdx, Real radius, Boo
 //----------------------------------------------------------------------------------------------------------
 Real AIPlayer::strikeEconomyWeight( void )
 {
-	return isSkirmishAI() ? getSkillProfile()->m_strikeEconomyWeight : 0.0f;
+	return runsOwnAI() ? getSkillProfile()->m_strikeEconomyWeight : 0.0f;
 }
 
 Real AIPlayer::strikeThreatWeight( void )
 {
-	return isSkirmishAI() ? getSkillProfile()->m_strikeThreatWeight : 0.0f;
+	return runsOwnAI() ? getSkillProfile()->m_strikeThreatWeight : 0.0f;
 }
 
 //----------------------------------------------------------------------------------------------------------
@@ -2377,7 +2377,7 @@ Bool AIPlayer::computeSuperweaponTarget(const SpecialPowerTemplate *power, Coord
 	// ponytail: a value pass per armed unit, which is only paid on a frame a superweapon is ready.
 	//
 	Player *enemy = ThePlayerList->getNthPlayer( playerNdx );
-	if( targetMilitaryUnits && enemy != NULL && isSkirmishAI() && ( strikeThreatWeight() > 0.0f || cash <= 0 ) )
+	if( targetMilitaryUnits && enemy != NULL && runsOwnAI() && ( strikeThreatWeight() > 0.0f || cash <= 0 ) )
 	{
 		const Int observerNdx = m_player->getPlayerIndex();
 		Player::PlayerTeamList::const_iterator teamIt;
@@ -2736,7 +2736,7 @@ static const ThingTemplate *missingSpotterFor( const Player *player, const TeamP
 void AIPlayer::sendForSpotters( TeamInQueue *team, const Object *gun )
 {
 	const Int spotters = getSkillProfile()->m_artillerySpotters;
-	if( !isSkirmishAI() || spotters <= 0 || !gun->getTemplate()->acquiresBeyondVision() )
+	if( !runsOwnAI() || spotters <= 0 || !gun->getTemplate()->acquiresBeyondVision() )
 		return;
 	const ThingTemplate *spotter = missingSpotterFor( m_player, team->m_team->getPrototype() );
 	const char *why = spotter == NULL ? "a team kept at home or with its own spotter" : "sends for its spotters";
@@ -2933,7 +2933,7 @@ Bool AIPlayer::isAGoodIdeaToBuildTeam( TeamPrototype *proto )
 	* a time, and not for a team still being built, whose spotters sendForSpotters has in hand. */
 Bool AIPlayer::replaceSpotter( void )
 {
-	if( !isSkirmishAI() || getSkillProfile()->m_artillerySpotters <= 0 )
+	if( !runsOwnAI() || getSkillProfile()->m_artillerySpotters <= 0 )
 		return false;
 	for( Player::PlayerTeamList::const_iterator t = m_player->getPlayerTeams()->begin(); t != m_player->getPlayerTeams()->end(); ++t )
 	{
@@ -3355,7 +3355,7 @@ void AIPlayer::rememberEnemies( void )
 {
 	const Int me = m_player->getPlayerIndex();
 	const UnsignedInt now = TheGameLogic->getFrame();
-	if( !isSkirmishAI() || (now + computeUpdatePhase( me, LEDGER_RATE )) % LEDGER_RATE != 0 )
+	if( !runsOwnAI() || (now + computeUpdatePhase( me, LEDGER_RATE )) % LEDGER_RATE != 0 )
 		return;
 
 	for( Int i = 0; i < ThePlayerList->getPlayerCount(); ++i )
@@ -3457,7 +3457,7 @@ void AIPlayer::onUnitLost( const Object *obj )
 	const Object *killer = last ? TheGameLogic->findObjectByID( last->in.m_sourceID ) : NULL;
 	if( killer && killer->getContainedBy() )
 		killer = killer->getContainedBy();
-	if( isSkirmishAI() && !obj->isKindOf( KINDOF_STRUCTURE ) && killer && killer->isKindOf( KINDOF_STRUCTURE ) &&
+	if( runsOwnAI() && !obj->isKindOf( KINDOF_STRUCTURE ) && killer && killer->isKindOf( KINDOF_STRUCTURE ) &&
 			m_player->getRelationship( killer->getTeam() ) == ENEMIES )
 		DEBUG_LOG(("AI DEFLOSS frame %d player %d '%s' worth %.0f to '%s'; team '%s' state %d source %d, %.0f from home\n", TheGameLogic->getFrame(),
 			m_player->getPlayerIndex(), obj->getTemplate()->getName().str(), aiCombatPower( obj ), killer->getTemplate()->getName().str(),
@@ -3465,16 +3465,16 @@ void AIPlayer::onUnitLost( const Object *obj )
 			obj->getAI() ? (Int)obj->getAI()->getLastCommandSource() : -1,
 			(Real)sqrt( sqr( obj->getPosition()->x - m_baseCenter.x ) + sqr( obj->getPosition()->y - m_baseCenter.y ) )));
 	// what killed a duty Ambulance, from how far, and whether this AI knew of it
-	if( isSkirmishAI() && isDutyAmbulance( obj ) )
+	if( runsOwnAI() && isDutyAmbulance( obj ) )
 		DEBUG_LOG(("AI AMBULANCE frame %d player %d %d killed by '%s' %.0f away, %s, %s\n", TheGameLogic->getFrame(), m_player->getPlayerIndex(),
 			obj->getID(), killer ? killer->getTemplate()->getName().str() : "nothing known",
 			killer ? (Real)sqrt( sqr( killer->getPosition()->x - obj->getPosition()->x ) + sqr( killer->getPosition()->y - obj->getPosition()->y ) ) : -1.0f,
 			killer && observerKnowsAbout( killer, m_player->getPlayerIndex() ) ? "known" : "unseen",
 			killer && killer->isKindOf( KINDOF_AIRCRAFT ) ? "aircraft" : killer && killer->isKindOf( KINDOF_STRUCTURE ) ? "building" : "ground"));
-	if( isSkirmishAI() && obj->isKindOf( KINDOF_STRUCTURE ) && aiCombatPower( obj ) > 0.0f )
+	if( runsOwnAI() && obj->isKindOf( KINDOF_STRUCTURE ) && aiCombatPower( obj ) > 0.0f )
 		DEBUG_LOG(("AI DEFDEAD frame %d player %d '%s' worth %.0f\n", TheGameLogic->getFrame(), m_player->getPlayerIndex(),
 			obj->getTemplate()->getName().str(), aiCombatPower( obj )));
-	if( !isSkirmishAI() || obj->isKindOf( KINDOF_STRUCTURE ) || team == NULL || team == m_player->getDefaultTeam() )
+	if( !runsOwnAI() || obj->isKindOf( KINDOF_STRUCTURE ) || team == NULL || team == m_player->getDefaultTeam() )
 		return;
 	const Real NEAR_SQR = 300.0f * 300.0f;
 	Int alive = 0;
@@ -3823,7 +3823,7 @@ Bool AIPlayer::selectTeamToBuild( void )
 	const AIDifficultyProfile *profile = getSkillProfile();
 	AIEnemyComposition enemy;
 	std::vector<AIVisibleEnemy> army;
-	const Bool skirmish = isSkirmishAI();		// a Challenge or mission opponent picks by priority alone, as EA's did
+	const Bool skirmish = runsOwnAI();		// a Challenge or mission opponent picks by priority alone, as EA's did
 	if (skirmish && profile->m_counterCompositionWeight > 0.0f)
 		computeEnemyComposition( &enemy, &army );
 
@@ -4571,7 +4571,7 @@ Object *AIPlayer::findSupplyCenter(Int minimumCash, Bool holdableOnly)
 				// Hard AI's expansion for ten minutes with a free pile one valley over.  A safe dock
 				// is preferred, the nearest of them, and the unsafe nearest only when none is safe.
 				// A mission's script picked its piles by hand and keeps EA's nearest.
-				if (!holdableOnly && isSkirmishAI() && (bestSafeWarehouse==NULL || bestSafeDistSqr>distSqr) &&
+				if (!holdableOnly && runsOwnAI() && (bestSafeWarehouse==NULL || bestSafeDistSqr>distSqr) &&
 						isLocationSafe(obj->getPosition(), obj->getTemplate())) {
 					bestSafeWarehouse = obj;
 					bestSafeDistSqr = distSqr;
@@ -4829,7 +4829,7 @@ void AIPlayer::buildSpecificAITeam( TeamPrototype *teamProto, Bool priorityBuild
 		}
 		// a share of the attack teams of a side whose guns fire past their own sight takes one of them
 		// (AISideInfo Artillery), when a factory is up to make it: the scripts it runs may name none
-		const AISideInfo *sideInfo = isSkirmishAI() ? TheAI->getAiData()->findSideInfo( m_player ) : NULL;
+		const AISideInfo *sideInfo = runsOwnAI() ? TheAI->getAiData()->findSideInfo( m_player ) : NULL;
 		const ThingTemplate *gun = NULL;
 		if (orders && sideInfo && !sideInfo->m_artillery.empty() && takesArtillery( m_player, teamProto ) &&
 				GameLogicRandomValueReal( 0.0f, 1.0f ) < getSkillProfile()->m_artilleryShare)
@@ -4911,7 +4911,7 @@ void AIPlayer::recruitSpecificAITeam(TeamPrototype *teamProto, Real recruitRadiu
 				return;
 			}
 		}
-		if (!teamProto->getTemplateInfo()->m_hasHomeLocation && !isSkirmishAI()) 
+		if (!teamProto->getTemplateInfo()->m_hasHomeLocation && !isSkirmishAI())
 		{
 			AsciiString teamStr = "Error : team '";
 			teamStr.concat(teamProto->getName());
@@ -5094,13 +5094,19 @@ Int AIPlayer::computeStructureDelay( void )
 }
 
 //----------------------------------------------------------------------------------------------------------
+Bool AIPlayer::runsOwnAI( void )
+{
+	return isSkirmishAI() && !TheSidesList->skirmishScriptsFromMap();
+}
+
+//----------------------------------------------------------------------------------------------------------
 /**
  * The bank at which a skirmish AI starts building faster.  A Challenge or mission opponent is handed
  * its fortune by the map script and builds at the pace that script was written for.
  */
 Int AIPlayer::hoardThreshold( void )
 {
-	return isSkirmishAI() ? getSkillProfile()->m_cashHoardThreshold : 0;
+	return runsOwnAI() ? getSkillProfile()->m_cashHoardThreshold : 0;
 }
 
 //----------------------------------------------------------------------------------------------------------
@@ -5248,7 +5254,7 @@ Bool AIPlayer::shouldHoldForMassing( TeamInQueue *team )
 Bool AIPlayer::holdReinforcement( Object *obj )
 {
 	Team *team = obj->getTeam();
-	if( !isSkirmishAI() || team == NULL || team == m_player->getDefaultTeam() )
+	if( !runsOwnAI() || team == NULL || team == m_player->getDefaultTeam() )
 		return FALSE;
 	const TeamTemplateInfo *info = team->getPrototype()->getTemplateInfo();
 	if( info->m_isBaseDefense || info->m_isPerimeterDefense )
@@ -5528,7 +5534,7 @@ void AIPlayer::doUpgradesAndSkills( void )
 			case 3: skillset = &sideInfo->m_skillSet4; break;
 			case 4: skillset = &sideInfo->m_skillSet5; break;
 		}
-		const Bool saves = isSkirmishAI() && getSkillProfile()->m_savesSciencePoints;
+		const Bool saves = runsOwnAI() && getSkillProfile()->m_savesSciencePoints;
 		// a Sneaky AI's points go first on whatever unlocks a unit that goes invisible
 		if (m_persona == AIPERSONA_SNEAKY) {
 			for (Int s = 0; s < skillset->m_numSkills; ++s) {
@@ -5657,8 +5663,9 @@ void AIPlayer::update( void )
 	AI_PHASE( AIP_BRIDGE,  updateBridgeRepair() );	// Handle any bridge repairs.
 	// Everything below is the skirmish AI's own. A Challenge or mission opponent is handed its money,
 	// its base, its attacks and its superweapon by the map script, which is the whole of its difficulty:
-	// run on top of that, Kwai's $30000 stood three nuclear silos a minute into the match.
-	if( isSkirmishAI() )
+	// run on top of that, Kwai's $30000 stood three nuclear silos a minute into the match.  So is a
+	// skirmish seat on a map that scripts it: an Art of Defense GLA left its wave paths for a base.
+	if( runsOwnAI() )
 	{
 		AI_PHASE( AIP_SCOUT,   doScouting() );					// Keep one unit looking at the map.
 		AI_PHASE( AIP_RETREAT, doRetreats() );					// Break off the fights we are losing.
@@ -7879,7 +7886,7 @@ Bool AIPlayer::richestGroundNear( const Coord3D *spot, Real radius, Coord3D *aim
 //----------------------------------------------------------------------------------------------------------
 Bool AIPlayer::purchaseQueueOn( void )
 {
-	return isSkirmishAI() && getSkillProfile()->m_bankTargetSeconds > 0.0f;
+	return runsOwnAI() && getSkillProfile()->m_bankTargetSeconds > 0.0f;
 }
 
 Int AIPlayer::bankTarget( void )
@@ -8260,7 +8267,7 @@ Bool AIPlayer::placeNear( const ThingTemplate *tmpl, const Coord3D *center, Real
 //----------------------------------------------------------------------------------------------------------
 AsciiString AIPlayer::chooseApproachLabel( const Coord3D *from, const AsciiString &requested, Int pathSuffix )
 {
-	if( !isSkirmishAI() || !getSkillProfile()->m_useInfluenceMapForAttackLane || from == NULL )
+	if( !runsOwnAI() || !getSkillProfile()->m_useInfluenceMapForAttackLane || from == NULL )
 		return requested;
 
 	const Int LANE_COUNT = 3;
@@ -8296,7 +8303,7 @@ AsciiString AIPlayer::chooseApproachLabel( const Coord3D *from, const AsciiStrin
 //----------------------------------------------------------------------------------------------------------
 AsciiString AIPlayer::secondApproachLabel( const Coord3D *from, const AsciiString &taken, Int pathSuffix )
 {
-	if( !isSkirmishAI() || !getSkillProfile()->m_useInfluenceMapForAttackLane )
+	if( !runsOwnAI() || !getSkillProfile()->m_useInfluenceMapForAttackLane )
 		return AsciiString::TheEmptyString;
 
 	const Int LANE_COUNT = 3;
@@ -8703,7 +8710,7 @@ static void creditAnswer( const ThingTemplate *tmpl, const Player *owner, const 
 //----------------------------------------------------------------------------------------------------------
 void AIPlayer::defendHome( void )
 {
-	if( !isSkirmishAI() )
+	if( !runsOwnAI() )
 		return;
 	Int intruders = 0;
 	std::vector<AIVisibleEnemy> army;
@@ -8880,7 +8887,7 @@ static void creditWhereNeeded( const ThingTemplate *tmpl, const Player *owner, c
 //----------------------------------------------------------------------------------------------------------
 void AIPlayer::answerArmy( void )
 {
-	if( !isSkirmishAI() || !m_baseCenterSet || !getSkillProfile()->m_answerArmy ||
+	if( !runsOwnAI() || !m_baseCenterSet || !getSkillProfile()->m_answerArmy ||
 			(TheGameLogic->getFrame() + computeUpdatePhase( m_player->getPlayerIndex(), ANSWER_RATE ) + ANSWER_RATE - ANSWER_SLOT_OFFSET) % ANSWER_RATE != 0 )
 		return;
 	if( isBaseUnderAttack() )
@@ -9675,7 +9682,7 @@ Bool AIPlayer::isMassUnit( ObjectID id ) const
 void AIPlayer::doMass( void )
 {
 	const UnsignedInt now = TheGameLogic->getFrame();
-	if( !isSkirmishAI() || !m_baseCenterSet || !getSkillProfile()->m_massUnit ||
+	if( !runsOwnAI() || !m_baseCenterSet || !getSkillProfile()->m_massUnit ||
 			(now + computeUpdatePhase( m_player->getPlayerIndex(), MASS_RATE )) % MASS_RATE != 0 )
 		return;
 	Player *enemy = getAiEnemy();
@@ -9975,7 +9982,7 @@ Bool AIPlayer::refuseHold( Team *team, const char *why, Bool logIt )
 Bool AIPlayer::holdTeamForWave( Team *team, const AsciiString &approach, Int pathSuffix, Bool logRefusal )
 {
 	// a base being hit keeps what its scripts would send out, on every rung, until the fight at home is over
-	if( team == NULL || !isSkirmishAI() )
+	if( team == NULL || !runsOwnAI() )
 		return FALSE;
 	const TeamTemplateInfo *info = team->getPrototype()->getTemplateInfo();
 	if( info->m_isBaseDefense || info->m_isPerimeterDefense )
@@ -10063,7 +10070,7 @@ Bool AIPlayer::holdTeamForWave( Team *team, const AsciiString &approach, Int pat
 //----------------------------------------------------------------------------------------------------------
 Bool AIPlayer::gateTeamAttack( Team *team, const char *cause )
 {
-	if( team == NULL || !isSkirmishAI() )
+	if( team == NULL || !runsOwnAI() )
 		return FALSE;
 	const TeamTemplateInfo *info = team->getPrototype()->getTemplateInfo();
 	if( info->m_isBaseDefense || info->m_isPerimeterDefense )
@@ -10313,7 +10320,7 @@ void AIPlayer::doWaves( void )
 		doPersonaRaids();
 	// and an Air, Infantry or Armor AI on every rung: what trainFavoured trains stands on no team, it skips
 	// the scripts' teams short of its kind, and a Hard Infantry USA sent no wave the whole match
-	if( isSkirmishAI() && ( isKindPersona() ||
+	if( runsOwnAI() && ( isKindPersona() ||
 			( ( m_persona == AIPERSONA_ATTACKER || m_persona == AIPERSONA_RUSHER ) && !getSkillProfile()->m_massBeforeAttacking ) ) )
 		personaSortie();
 	sendIdleAttackTeams();
@@ -10584,7 +10591,7 @@ struct GunshipRider
 
 Bool AIPlayer::loadGunships( void )
 {
-	if( !isSkirmishAI() || !m_baseCenterSet )
+	if( !runsOwnAI() || !m_baseCenterSet )
 		return FALSE;
 	buyGunshipChinook();
 	GunshipList list;
@@ -10827,7 +10834,7 @@ static void collectOccupiedBuildings( Object *obj, void *userData )
 //----------------------------------------------------------------------------------------------------------
 void AIPlayer::evacuateBuildings( void )
 {
-	if( !isSkirmishAI() )
+	if( !runsOwnAI() )
 		return;
 	std::vector<Object *> buildings;
 	m_player->iterateObjects( collectOccupiedBuildings, &buildings );
@@ -10879,7 +10886,7 @@ static void addMapSeats( Player *player, const Coord3D *pos, Real radius, std::v
 //----------------------------------------------------------------------------------------------------------
 void AIPlayer::garrisonBuildings( void )
 {
-	if( !isSkirmishAI() || !m_baseCenterSet )
+	if( !runsOwnAI() || !m_baseCenterSet )
 		return;
 	std::vector<Object *> seats;
 	m_player->iterateObjects( findFiringBuilding, &seats );
@@ -11275,7 +11282,7 @@ static const Int IDLE_CALLUP_SECONDS[ AISKILL_COUNT ] = { 60, 20, 0 };
 
 void AIPlayer::sendIdleAttackTeams( void )
 {
-	if( !isSkirmishAI() || !m_baseCenterSet )
+	if( !runsOwnAI() || !m_baseCenterSet )
 		return;
 	if( m_pressure != AIPRESSURE_FINISH && !getSkillProfile()->m_massBeforeAttacking )
 	{
@@ -11591,7 +11598,7 @@ Real AIPlayer::addHomeStrays( AIGroup *wave ) const
 //----------------------------------------------------------------------------------------------------------
 void AIPlayer::sendIdleUnitsHunting( void )
 {
-	if( !isSkirmishAI() || !m_baseCenterSet || m_pressure == AIPRESSURE_DEFEND || !readyToPush() )
+	if( !runsOwnAI() || !m_baseCenterSet || m_pressure == AIPRESSURE_DEFEND || !readyToPush() )
 		return;
 	const Bool finish = m_pressure == AIPRESSURE_FINISH;
 	const Bool guardsGo = finish &&
@@ -12039,7 +12046,7 @@ void AIPlayer::lendDutyChinook( void )
 
 void AIPlayer::doShuttles( void )
 {
-	if( !isSkirmishAI() || !m_baseCenterSet || m_skillLevel == AISKILL_EASY || measuringWithoutTactics() )
+	if( !runsOwnAI() || !m_baseCenterSet || m_skillLevel == AISKILL_EASY || measuringWithoutTactics() )
 		return;
 	if( (TheGameLogic->getFrame() + computeUpdatePhase( m_player->getPlayerIndex(), SHUTTLE_CHECK_RATE )) % SHUTTLE_CHECK_RATE != 0 )
 		return;
@@ -12963,7 +12970,7 @@ void AIPlayer::flyRaid( Int slot, const std::vector<AIKnownGun> &guns )
 
 void AIPlayer::doHelixes( void )
 {
-	if( !isSkirmishAI() || !m_baseCenterSet || m_skillLevel == AISKILL_EASY || measuringWithoutTactics() )
+	if( !runsOwnAI() || !m_baseCenterSet || m_skillLevel == AISKILL_EASY || measuringWithoutTactics() )
 		return;
 	if( (TheGameLogic->getFrame() + computeUpdatePhase( m_player->getPlayerIndex(), HELIX_CHECK_RATE )) % HELIX_CHECK_RATE != 0 )
 		return;
@@ -13237,7 +13244,7 @@ void AIPlayer::followPatients( void )
 
 void AIPlayer::doAmbulances( void )
 {
-	if( !isSkirmishAI() || !m_baseCenterSet || m_skillLevel == AISKILL_EASY || measuringWithoutTactics() )
+	if( !runsOwnAI() || !m_baseCenterSet || m_skillLevel == AISKILL_EASY || measuringWithoutTactics() )
 		return;
 	if( (TheGameLogic->getFrame() + computeUpdatePhase( m_player->getPlayerIndex(), AMBULANCE_CHECK_RATE )) % AMBULANCE_CHECK_RATE != 0 )
 		return;
@@ -14225,7 +14232,7 @@ static const Real SIEGE_SLACK = 60.0f;
 void AIPlayer::keepSiegeBehind( void )
 {
 	const Real trail = getSkillProfile()->m_siegeTrail;
-	if( !isSkirmishAI() || !m_baseCenterSet || trail <= 0.0f )
+	if( !runsOwnAI() || !m_baseCenterSet || trail <= 0.0f )
 		return;
 	const Coord3D &base = m_baseCenter;
 	std::vector<Object *> owned;

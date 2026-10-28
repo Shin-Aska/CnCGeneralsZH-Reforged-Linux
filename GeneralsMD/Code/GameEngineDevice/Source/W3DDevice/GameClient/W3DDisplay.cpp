@@ -483,8 +483,12 @@ static double s_aircraftLeadSum = 0.0;
 static unsigned long long s_aircraftLeadCount = 0;
 static Real s_aircraftLeadMax = 0.0f;
 static Real s_aircraftRadiusMax = 0.0f;
-static Int64 s_smoothPassTicks = 0;			// R1's blend and restore, together, over the run
+static Int64 s_smoothPassTicks = 0;			// R1's captures, blend and restore, together, over the run
 static unsigned long long s_smoothPasses = 0;
+// R1's pacing (notePacing, below): the spread of the picture's game time about the wall clock, [0] a
+// tick's state held until the next, [1] blended
+static double s_pacingSpread[2] = { 0.0, 0.0 };
+static unsigned long long s_pacingPictures = 0;
 
 W3DDisplay::~W3DDisplay()
 {
@@ -504,8 +508,11 @@ W3DDisplay::~W3DDisplay()
 			fprintf(stderr, "\n");
 		}
 		if (s_smoothPasses > 0 && getenv("ZH_SMOOTH_MOTION_STATS") != NULL)
-			fprintf(stderr, "smooth motion: blend and restore cost %.1f us a render frame over %llu frames\n",
+			fprintf(stderr, "smooth motion: capture, blend and restore cost %.1f us a render frame over %llu frames\n",
 				(double)s_smoothPassTicks * 1.0e6 / (double)Clock_Ticks_Per_Second() / (double)s_smoothPasses, s_smoothPasses);
+		if (s_pacingPictures > 0 && getenv("ZH_SMOOTH_MOTION_STATS") != NULL)
+			fprintf(stderr, "smooth motion: pacing over %llu pictures, shown game time about the wall clock spreads %.2f ms stepped, %.2f ms blended\n",
+				s_pacingPictures, sqrt(s_pacingSpread[0] / (double)s_pacingPictures), sqrt(s_pacingSpread[1] / (double)s_pacingPictures));
 		if (s_aircraftLeadCount > 0 && getenv("ZH_SMOOTH_MOTION_STATS") != NULL)
 			fprintf(stderr, "smooth motion: aircraft lead (logic position ahead of the drawn one): %llu samples, mean %.2f, max %.2f world units; the largest aircraft's bounding radius %.2f\n",
 				s_aircraftLeadCount, s_aircraftLeadSum / (double)s_aircraftLeadCount, s_aircraftLeadMax, s_aircraftRadiusMax);
@@ -849,9 +856,7 @@ static void sizeWindowToClient( Int mode, Int width, Int height )
 
 //=============================================================================
 // GlobalData carries the whole chain by default and -dx11post replaces it, "off" included.  FXAA is
-// always in the default: the Direct3D 11 swap chain takes one sample, and a multisampled scene
-// target would break the screen filters, which redirect the scene into a texture of the same size
-// and share the back buffer's depth with it.
+// always in the default, and the chain leaves it out by itself while the scene is multisampled.
 static void pushDirect3D11PostChain( void )
 {
 	// Classic graphics is the game's own picture, which is what -d3d9 draws: hard edged sprites.
@@ -1145,10 +1150,11 @@ void W3DDisplay::init( void )
 	// Multisampling has to be known before the device exists, and WW3D2 cannot read GlobalData, so
 	// the sample count is handed to it here.  msaaSamplesForLevel turns the stored index into 0, 2,
 	// 4, 8 or 16; the device degrades an unsupported one on its own.  While Direct3D 11 presents,
-	// the Direct3D 9 frame is never shown, so its samples would be memory spent on nothing; the
-	// Direct3D 11 frame is smoothed by the FXAA in its default chain instead.
+	// the Direct3D 9 frame is never shown, so its samples would be memory spent on nothing: the
+	// count goes to the Direct3D 11 scene instead, which drops its FXAA while it has samples.
 	DX8Wrapper::Set_Requested_MultiSample_Level( TheGlobalData->m_direct3D11
 		? 0 : msaaSamplesForLevel( TheGlobalData->m_msaaLevel ) );
+	Direct3D11_Set_Sample_Count( msaaSamplesForLevel( TheGlobalData->m_msaaLevel ) );
 	DX8Wrapper::Set_Requested_VSync( TheGlobalData->m_vsync != FALSE );
 	Direct3D11_Set_VSync( TheGlobalData->m_vsync != FALSE );
 	DX8Wrapper::Set_Requested_Monitor( chosenMonitor().device );
@@ -1243,8 +1249,9 @@ void W3DDisplay::init( void )
 	}
 #endif
 	// multisampling is opt-in with "-msaa" / "-msaa N" and silently degrades to whatever the
-	// device supports, so log what was actually granted
-	DEBUG_LOG(("W3DDisplay::init - multisampling: %ux\n", DX8Wrapper::Get_MultiSample_Level()));
+	// device supports, so log what was actually granted, by whichever device presents
+	DEBUG_LOG(("W3DDisplay::init - multisampling: %ux\n", Direct3D11_Present_Is_Enabled()
+		? Direct3D11_Sample_Count() : DX8Wrapper::Get_MultiSample_Level()));
 #if defined(_WIN32)
 	DEBUG_LOG(("W3DDisplay::init - vsync: %s\n", DX8Wrapper::Get_Requested_VSync() ? "on" : "off"));
 #else
@@ -2210,26 +2217,117 @@ float TheSmoothMotionAlpha = 1.0f;
 static UnsignedInt s_smoothPositionFrame = 0xFFFFFFFFu;
 static UnsignedInt s_smoothModelFrame = 0xFFFFFFFFu;
 static Bool s_smoothApplied = FALSE;
+static Bool s_smoothBehind = FALSE;		// this picture is a whole tick or more behind: nothing captured or blended
+
+/* Smooth motion's default: a blend only on a display that refreshes faster than the logic ticks.  At 60 Hz
+	 every refresh shows a new tick already, and the blend would only draw each one a tick late.  The
+	 adapter's mode is asked once. */
+static Bool displayOutpacesLogic()
+{
+	static Int refresh = -1;
+	if (refresh < 0)
+	{
+		D3DDISPLAYMODE mode;
+		memset(&mode, 0, sizeof(mode));
+		DX8Wrapper::_Get_D3D()->GetAdapterDisplayMode(WW3D::Get_Render_Device(), &mode);
+		refresh = (Int)mode.RefreshRate;
+		DEBUG_LOG(("smooth motion: the display refreshes at %d Hz, the logic ticks at %d: %s\n", refresh,
+			LOGICFRAMES_PER_SECOND, refresh > LOGICFRAMES_PER_SECOND ? "models drawn between ticks" : "no blend"));
+	}
+	return refresh > LOGICFRAMES_PER_SECOND;
+}
+
+/* With ZH_SMOOTH_MOTION_STATS, how evenly the picture's game time follows the wall clock: per window of 120
+	 pictures, the spread of shown game time about the straight line through it against the wall clock, with
+	 each tick's state held until the next (frame ticks) and blended (frame - 1 + fraction ticks).  A 60 Hz
+	 state held on a faster screen spreads a tick over the square root of 12, 4.8 ms.  The line, and not
+	 the wall clock itself, so a game the catch-up cap holds below full speed still measures; a gap over
+	 100 ms (the load, a pause, a hitch) starts the window again. */
+static void notePacing(UnsignedInt frame)
+{
+	const Int WINDOW = 120;
+	const Int SHOWN = 2;
+	// sums over the window, game time and wall time each counted from the window's start to keep them small
+	static double wallStart, wallLast, x, xx, shownStart[SHOWN], y[SHOWN], yy[SHOWN], xy[SHOWN];
+	static Int pictures = 0;
+	const double tickMs = 1000.0 / (double)LOGICFRAMES_PER_SECOND;
+	const double wallMs = (double)Clock_Ticks() * 1000.0 / (double)Clock_Ticks_Per_Second();
+	const double shown[SHOWN] = { (double)frame * tickMs,
+		((double)frame - 1.0 + (double)GameEngine_logicTickFraction()) * tickMs };
+	if (pictures > 0 && wallMs - wallLast > 100.0)
+		pictures = 0;
+	wallLast = wallMs;
+	if (pictures == 0)
+	{
+		wallStart = wallMs;
+		x = xx = 0.0;
+		for (Int i = 0; i < SHOWN; ++i)
+			y[i] = yy[i] = xy[i] = 0.0;
+	}
+	const double w = wallMs - wallStart;
+	x += w;
+	xx += w * w;
+	for (Int i = 0; i < SHOWN; ++i)
+	{
+		if (pictures == 0)
+			shownStart[i] = shown[i];
+		const double s = shown[i] - shownStart[i];
+		y[i] += s;
+		yy[i] += s * s;
+		xy[i] += w * s;
+	}
+	if (++pictures < WINDOW)
+		return;
+	const double n = (double)WINDOW;
+	const double sxx = xx - x * x / n;
+	for (Int i = 0; i < SHOWN; ++i)
+	{
+		const double sxy = xy[i] - x * y[i] / n;
+		const double syy = yy[i] - y[i] * y[i] / n;
+		s_pacingSpread[i] += syy - sxy * sxy / sxx;
+	}
+	s_pacingPictures += WINDOW;
+	pictures = 0;
+}
 
 static void smoothMotionBegin()
 {
-	// only -recordfps's pictures between two logic frames blend, from the frame before the first so
-	// that one is captured
-	TheSmoothMotionActive = !TheGlobalData->m_headless && GameEngine_videoBlends();
+	// on a display faster than the logic, unless -nosmoothmotion says no or the logic thread wants the
+	// render beside its tick; -recordfps's pictures between two logic frames always blend, from the frame
+	// before the first so that one is captured
+	const Bool video = GameEngine_videoBlends();
+	TheSmoothMotionActive = !TheGlobalData->m_headless
+		&& ((TheGlobalData->m_smoothMotion && !LogicThread::isEnabled()
+				&& (TheGlobalData->m_smoothMotionAnyDisplay || displayOutpacesLogic()))
+			|| video);
 	TheSmoothMotionAlpha = TheSmoothMotionActive ? GameEngine_logicTickFraction() : 1.0f;
-	if (!TheSmoothMotionActive)
+	// A picture a whole tick or more behind the battle shows every model at its logic transform, so it
+	// captures and blends nothing, and a game that has fallen behind pays nothing for the blend.  The next
+	// picture under a tick captures, late in its tick if need be (the transforms are still that tick's),
+	// and a capture after a tick it missed snaps.  -recordfps pictures never skip: a frame's last one has
+	// an alpha of 1, and the frame before the first blended one has to be captured.
+	s_smoothBehind = TheSmoothMotionAlpha >= 1.0f && !video;
+	static const Bool stats = getenv("ZH_SMOOTH_MOTION_STATS") != NULL;
+	if (stats && TheGameLogic->isInGame() && !TheGameLogic->isInShellGame() && !TheGameLogic->isGamePaused())
+		notePacing(TheGameClient->getFrame());
+	if (!TheSmoothMotionActive || s_smoothBehind)
 		return;
 	const UnsignedInt frame = TheGameClient->getFrame();
 	if (frame == s_smoothPositionFrame)
 		return;
+	const Int64 passStart = Clock_Ticks();
 	s_smoothPositionFrame = frame;
 	for (Drawable *draw = TheGameClient->firstDrawable(); draw != NULL; draw = draw->getNextDrawable())
 		draw->smoothMotionCapturePosition(frame);
+	s_smoothPassTicks += Clock_Ticks() - passStart;
 }
 
 static void smoothMotionApply()
 {
 	if (!TheSmoothMotionActive)
+		return;
+	++s_smoothPasses;
+	if (s_smoothBehind)
 		return;
 	const Int64 passStart = Clock_Ticks();
 	const UnsignedInt frame = TheGameClient->getFrame();
@@ -2277,7 +2375,6 @@ static void smoothMotionApply()
 	}
 	s_smoothApplied = TRUE;
 	s_smoothPassTicks += Clock_Ticks() - passStart;
-	++s_smoothPasses;
 }
 
 static void smoothMotionRestore()

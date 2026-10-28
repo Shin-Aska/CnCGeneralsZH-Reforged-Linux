@@ -2640,7 +2640,7 @@ Bool Player::calcClosestConstructionZoneLocation( const ThingTemplate *construct
 }
 
 //=============================================================================
-void Player::doBountyForKill(const Object* killer, const Object* victim)
+void Player::doBountyForKill(const Object* killer, const Object* victim, Real rankShare)
 {
 	if (!killer || !victim)
 		return;
@@ -2653,7 +2653,7 @@ void Player::doBountyForKill(const Object* killer, const Object* victim)
 	// Rounding up a product of two floats hands you an extra dollar whenever the multiplication
 	// lands a hair above a whole number - a 10% bounty on a 1000 cost unit paid 101. Take an
 	// epsilon off first, so only a genuine fraction rounds up.
-	Int bounty = REAL_TO_INT_CEIL((costToBuild * m_cashBountyPercent) - WWMATH_EPSILON);
+	Int bounty = REAL_TO_INT_CEIL((costToBuild * (m_cashBountyPercent + rankShare)) - WWMATH_EPSILON);
 	
 	if( bounty )
 	{

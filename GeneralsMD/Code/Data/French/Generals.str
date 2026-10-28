@@ -17846,7 +17846,7 @@ RANK:PerkSTILL_GUARD
 END
 
 RANK:PerkMEND
-"Hors combat : soigne %d %% par seconde"
+"Hors combat : soigne %d,%02d %% par seconde"
 END
 
 RANK:PerkSPOTTER

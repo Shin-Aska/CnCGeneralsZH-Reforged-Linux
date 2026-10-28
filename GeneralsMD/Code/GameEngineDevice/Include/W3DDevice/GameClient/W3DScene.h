@@ -77,6 +77,10 @@ public:
 	virtual void	Visibility_Check(CameraClass * camera);
 	virtual void  Render(RenderInfoClass & rinfo);
 
+	virtual void Add_Render_Object(RenderObjClass * obj);
+	virtual void Remove_Render_Object(RenderObjClass * obj);
+	virtual void Remove_All_Render_Objects(void);
+
 	void setCustomPassMode (CustomScenePassModes mode) {m_customPassMode = mode;}
 	CustomScenePassModes getCustomPassMode (void)	{return m_customPassMode;}
 
@@ -143,7 +147,8 @@ protected:
 	RenderObjClass **m_nonOccludersOrOccludees;	///<objects which are neither bockers or blockees (small rocks, shrubs, etc.).
 	Int m_numPotentialOccluders;
 	Int m_numPotentialOccludees;
-	Int m_numNonOccluderOrOccludee;	
+	Int m_numNonOccluderOrOccludee;
+	std::vector<RenderObjClass *> m_visibleObjects;	///< what the last Visibility_Check set visible, in RenderList order; a removed object is nulled
 
 	CameraClass *m_camera;
 };  // end class RTS3DScene

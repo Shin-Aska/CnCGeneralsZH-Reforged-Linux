@@ -1057,8 +1057,10 @@ Bool AIUpdateInterface::chooseLocomotorSetExplicit(LocomotorSetType wst)
 //-------------------------------------------------------------------------------------------------
 void AIUpdateInterface::refreshVeterancySpeed()
 {
+	// the grade's speed, its own SPEED perk and a leader's pace aura, each multiplying
 	const Object* obj = getObject();
-	m_locomotorSet.setSpeedFactor(TheGlobalData->getRankStat(obj->getTemplate(), obj->getRankGrade(), RANK_STAT_SPEED));
+	m_locomotorSet.setSpeedFactor(TheGlobalData->getRankStat(obj->getTemplate(), obj->getRankGrade(), RANK_STAT_SPEED)
+		* (1.0f + obj->getRankPerk(RANK_PERK_SPEED)) * (1.0f + obj->getRankAura(RANK_AURA_PACE)));
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1806,12 +1808,18 @@ static const Int  CROWD_PASS_RETRY	= ConvertRetailFrames(10);			///< queued this
 static const Real CROWD_TAPER_DIST	= PATHFIND_CELL_SIZE_F * 8.0f;	///< the band closes over the last of the route
 static const Real CROWD_PLAN_END_SLACK	= PATHFIND_CELL_SIZE_F * 3.0f;	///< how far the move state may move a planned route's end and it still be the same order
 static const Int  CROWD_BRAKE_FRAMES	= ConvertRetailFrames(8);		///< frames of closing time a brake is allowed to read
+/* EA's treads and wheels stop in a frame, so a brake aimed at touching the blocker touches it, and every
+	 touch is a blocked frame and a shove. This much air is left instead. With it, four seeds each of
+	 chokeprobe, bridgecross and towncross (and the slower release below) spent fewer blocked and wedged
+	 unit-frames than the eased vehicle drive did, and still arrived sooner. */
+static const Real CROWD_BRAKE_AIR		= 12.0f;
 static const Int  CROWD_FAN_FRAMES	= ConvertRetailFrames(12);			///< held up this long before spreading out
 static const Real CROWD_FAN_RATE		= ConvertRetailPerFrameRate(0.8f);		///< and then sideways at this much a frame
 static const Real CROWD_LANE_RATE_MIN	= ConvertRetailPerFrameRate(0.4f);	///< the slowest a lane change is taken, per frame
 // the filters below are lerp fractions per frame, written for 30 Hz
 static const Real CROWD_SEP_FILTER	= 1.0f - ConvertRetailPerFrameFactor(1.0f - 0.13f);	///< how much of a frame's sideways push is believed (~4/sec)
 static const Real CROWD_RELEASE_FILTER	= 1.0f - ConvertRetailPerFrameFactor(1.0f - 0.15f);	///< how fast the throttle comes back once a brake lifts (~half a second to full)
+static const Real CROWD_VEHICLE_RELEASE_FILTER	= 1.0f - ConvertRetailPerFrameFactor(1.0f - 0.08f);	///< and for a vehicle, whose drive is back to EA's instant one (~a second to full)
 static const Real CROWD_AIM_CRUISE	= 1.0f - ConvertRetailPerFrameFactor(1.0f - 0.23f);	///< how fast the aim follows the route while driving (~7/sec)
 static const Real CROWD_AIM_URGENT	= 1.0f - ConvertRetailPerFrameFactor(1.0f - 0.67f);	///< and while manoeuvring (~20/sec), where lag is worse than twitch
 static const Real CROWD_AIM_DEAD		= 0.035f;	///< two degrees: hold the wheel still rather than chase the noise
@@ -3655,7 +3663,7 @@ void AIUpdateInterface::crowdSteer( Coord3D& goalPos, Real& speed )
 					 speed and the time it leaves is the only thing worth reading. */
 				if (blockerMoving && !pressing)
 				{
-					const Real want = Crowd_brakeSpeed( speed, blockerSpeed, blockerGap, CROWD_BRAKE_FRAMES );
+					const Real want = Crowd_brakeSpeed( speed, blockerSpeed, blockerGap - CROWD_BRAKE_AIR, CROWD_BRAKE_FRAMES );
 					if (want < cap)
 						cap = want;
 				}
@@ -3856,7 +3864,7 @@ void AIUpdateInterface::crowdSteer( Coord3D& goalPos, Real& speed )
 	}
 	else
 	{
-		m_crowdCap = Crowd_releaseCap( m_crowdCap, cap, CROWD_RELEASE_FILTER );
+		m_crowdCap = Crowd_releaseCap( m_crowdCap, cap, foot ? CROWD_RELEASE_FILTER : CROWD_VEHICLE_RELEASE_FILTER );
 	}
 
 	if (m_crowdCap < speed)

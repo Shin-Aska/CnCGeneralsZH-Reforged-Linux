@@ -2337,6 +2337,12 @@ void W3DModelDraw::adjustAnimSpeedToMovementSpeed()
 }
 
 //-------------------------------------------------------------------------------------------------
+Real W3DModelDraw::getHullHeadingLag() const
+{
+	return getDrawable()->getDrawnHeadingLag();
+}
+
+//-------------------------------------------------------------------------------------------------
 void W3DModelDraw::adjustTransformMtx(Matrix3D& mtx) const
 {
 	const W3DModelDrawModuleData* d = getW3DModelDrawModuleData();
@@ -2921,8 +2927,9 @@ void W3DModelDraw::handleClientTurretPositioning()
 			if (obj)
 			{
 				const AIUpdateInterface* ai = obj->getAIUpdateInterface();
-				if (ai)
-					ai->getTurretRotAndPitch((WhichTurretType)tslot, &turretAngle, &turretPitch);
+				// a turret aims from the logic heading, which the drawn hull of a tank or car trails
+				if (ai && ai->getTurretRotAndPitch((WhichTurretType)tslot, &turretAngle, &turretPitch))
+					turretAngle -= getHullHeadingLag();
 			}
 
 			// do turret, if any
@@ -4376,9 +4383,18 @@ void W3DModelDraw::smoothMotionApply(Real alpha)
 {
 	if (m_renderObject == NULL || m_smoothMotion.Model != m_renderObject || m_smoothMotion.Snap != SMOOTH_BLENDED)
 		return;
-	Matrix3D shown;
-	if (SmoothMotion_Blend(m_smoothMotion.Prev, m_smoothMotion.Cur, alpha, shown) != SMOOTH_BLENDED)
+	// an unmoved model already holds its one transform: shown as blended, nothing set
+	if (m_smoothMotion.Still)
+	{
+		m_smoothMotion.Applied = true;
 		return;
+	}
+	// a whole tick on (a paused game, a pass that fell behind) is the current transform, which it holds
+	if (alpha >= 1.0f)
+		return;
+	// the parts were taken at capture, so a picture only mixes them
+	Matrix3D shown;
+	SmoothMotion_Pose(m_smoothMotion.Prev, m_smoothMotion.Cur, m_smoothMotion.Parts, alpha, shown);
 	m_renderObject->Set_Transform(shown);
 	m_smoothMotion.Applied = true;
 }
@@ -4391,7 +4407,7 @@ void W3DModelDraw::smoothMotionRestore()
 	if (!m_smoothMotion.Applied)
 		return;
 	m_smoothMotion.Applied = false;
-	if (m_renderObject != NULL && m_smoothMotion.Model == m_renderObject)
+	if (m_renderObject != NULL && m_smoothMotion.Model == m_renderObject && !m_smoothMotion.Still)
 		m_renderObject->Set_Transform(m_smoothMotion.Cur);
 }
 

@@ -193,6 +193,10 @@ namespace LogicThread
 	/** Read -logicthread and start the thread if it asks for one.  Called once, from GameEngine::init. */
 	void init( void );
 
+	/** TRUE once init started the thread (-logicthread 1 or 2).  Smooth motion stays off then, so the
+		* render may overlap the tick (W3DDisplay::draw). */
+	Bool isEnabled( void );
+
 	/** Join the thread.  Safe without an init(). */
 	void shutdown( void );
 

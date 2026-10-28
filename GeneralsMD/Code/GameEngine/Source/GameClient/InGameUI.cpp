@@ -134,7 +134,7 @@
 #include "GameLogic/Module/MobMemberSlavedUpdate.h"//ML
 #include "GameLogic/Module/SpawnBehavior.h"
 
-#include "Common/UnitTimings.h" //Contains the DO_UNIT_TIMINGS define jba.		 
+#include "Common/UnitTimings.h" //Contains the DO_UNIT_TIMINGS define jba.
 
 #ifdef _INTERNAL
 // for occasional debugging...
@@ -672,7 +672,8 @@ void InGameUI::xfer( Xfer *xfer )
 // ------------------------------------------------------------------------------------------------
 void InGameUI::loadPostProcess( void )
 {
-
+	// a loaded unit takes its grade from its experience, with no promotion to tell noteRankChanged
+	m_auraLeadersFound = FALSE;
 }  // end loadPostProcess
 
 // ------------------------------------------------------------------------------------------------
@@ -1504,46 +1505,146 @@ void InGameUI::setRadiusCursor(RadiusCursorType cursorType, const SpecialPowerTe
 }
 
 //-------------------------------------------------------------------------------------------------
-/** A leader's auras on the ground: one ring for each kind it gives, under a selected or hovered
-	* leader of the player at this machine or an ally, while that player can see it.  Every ring is the
-	* full aura radius; each kind's texture keeps to its own band of that disc (Tools/aura_rings.py),
-	* so any set of them reads as one dial.  Reads the logic's grades and draws; nothing goes back. */
+/** GameLogic::update's freeze, where the scripts run and the frame stays: a camera move freezes
+	* nothing in a multiplayer session. */
+//-------------------------------------------------------------------------------------------------
+Bool InGameUI::isTimeFrozenWithoutTick( void ) const
+{
+	return ( !TheGameEngine->isMultiplayerSession() && TheTacticalView->isTimeFrozen()
+					 && !TheTacticalView->isCameraMovementFinished() )
+				 || TheScriptEngine->isTimeFrozenDebug() || TheScriptEngine->isTimeFrozenScript();
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The aura kinds an object gives at its grade that have a ring to show, into kinds; 0 for one that
+	* leads nobody. */
+//-------------------------------------------------------------------------------------------------
+static Int ringedAuraKinds( const Object *obj, Int kinds[ RANK_AURA_COUNT ] )
+{
+	const RankLadder *ladder = TheGlobalData->getRankLadder( obj->getTemplate() );
+	if( ladder == NULL || !obj->leadsRankAuras() )
+		return 0;
+	const Int grade = obj->getRankGrade();
+	Int count = 0;
+	for( Int kind = 0; kind < RANK_AURA_COUNT; ++kind )
+		if( ladder->aura( grade, (RankAura)kind ) > 0.0f && TheGlobalData->m_rankAuraRing[ kind ].valid() )
+			kinds[ count++ ] = kind;
+	return count;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A promotion or a demotion, after its tick.  One that now leads joins the leaders updateAuraRings
+	* looks at; one that no longer does leaves there. */
+//-------------------------------------------------------------------------------------------------
+void InGameUI::noteRankChanged( ObjectID id )
+{
+	// before the first walk, or with no rings drawn at all, the walk finds it
+	if( !m_auraLeadersFound )
+		return;
+	const Object *obj = TheGameLogic->findObjectByID( id );
+	Int kinds[ RANK_AURA_COUNT ];
+	if( obj != NULL && ringedAuraKinds( obj, kinds ) > 0
+			&& std::find( m_auraLeaders.begin(), m_auraLeaders.end(), id ) == m_auraLeaders.end() )
+		m_auraLeaders.push_back( id );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A leader's auras on the ground: one ring for each kind it gives, under every leader on the map,
+	* selected or not, friend or enemy, while the player at this machine can see it: out of the fog and
+	* shroud, and not a stealthed unit it has not detected (the test the drawable's own shadow obeys).
+	* Every ring is the full aura radius; each kind's texture keeps to its own band of that disc
+	* (Tools/aura_rings.py), so any set of them reads as one dial.  Reads the logic's grades and draws;
+	* nothing goes back. */
 //-------------------------------------------------------------------------------------------------
 void InGameUI::updateAuraRings()
 {
+	// Who leads, where and through which fog moves with a tick, so the walk over every drawable runs
+	// once a logic frame and again when the fog on the screen changes hands; on every pass it was 1.8%
+	// of the main thread late in a match.  Frozen time runs scripts with no new frame, and one may move
+	// or hide a leader, so then it walks every pass.  A ring's opacity follows the icon switch and
+	// -cinema, which change between ticks, so every live ring is updated every pass.
+	Player *local = ThePlayerList->getLocalPlayer();
+	const UnsignedInt frame = TheGameLogic->getFrame();
+	const Int shroudIndex = local != NULL ? TheObserverCamera.getShroudPlayerIndex() : -1;
+	if( frame == m_auraRingsFrame && local == m_auraRingsPlayer && shroudIndex == m_auraRingsShroudIndex
+			&& !isTimeFrozenWithoutTick() )
+	{
+		for( Int slot = 0; slot < AURA_RING_MAX; ++slot )
+			if( m_auraRings[ slot ].id != INVALID_ID )
+				m_auraRings[ slot ].decal.update();
+		return;
+	}
+	m_auraRingsFrame = frame;
+	m_auraRingsPlayer = local;
+	m_auraRingsShroudIndex = shroudIndex;
+
 	struct Wanted { ObjectID id; Int kind; Real radius; Coord3D pos; };
 	Wanted wanted[ AURA_RING_MAX ];
 	Int wantedCount = 0;
 
-	Player *local = ThePlayerList->getLocalPlayer();
-	auto consider = [&]( const Drawable *draw )
+	// the rings a leader puts down, unless the local player cannot see it
+	auto want = [&]( Drawable *draw, const Object *obj )
 	{
-		const Object *obj = draw ? draw->getObject() : NULL;
-		const RankLadder *ladder = obj ? TheGlobalData->getRankLadder( obj->getTemplate() ) : NULL;
-		if( ladder == NULL || local == NULL || obj->isEffectivelyDead() || obj->getContainedBy()
-				|| ( obj->getControllingPlayer() != local && local->getRelationship( obj->getTeam() ) != ALLIES )
+		Int kinds[ RANK_AURA_COUNT ];
+		const Int kindCount = ringedAuraKinds( obj, kinds );
+		if( kindCount == 0 || obj->isEffectivelyDead() || obj->getContainedBy()
+				|| draw->isDrawableEffectivelyHidden() || draw->getFullyObscuredByShroud()
 				|| obj->getShroudedStatus( local->getPlayerIndex() ) != OBJECTSHROUD_CLEAR )
 			return;
+		const RankLadder *ladder = TheGlobalData->getRankLadder( obj->getTemplate() );
 		const Int grade = obj->getRankGrade();
-		for( Int kind = 0; kind < RANK_AURA_COUNT && wantedCount < AURA_RING_MAX; ++kind )
+		for( Int k = 0; k < kindCount && wantedCount < AURA_RING_MAX; ++k )
 		{
-			if( ladder->aura( grade, (RankAura)kind ) <= 0.0f || !TheGlobalData->m_rankAuraRing[ kind ].valid() )
-				continue;
-			Bool twice = FALSE;		// the hovered leader may be selected too
-			for( Int i = 0; i < wantedCount; ++i )
-				twice = twice || ( wanted[ i ].id == obj->getID() && wanted[ i ].kind == kind );
-			if( twice )
-				continue;
+			const Int kind = kinds[ k ];
 			wanted[ wantedCount ].id = obj->getID();
 			wanted[ wantedCount ].kind = kind;
-			wanted[ wantedCount ].radius = ladder->auraRadius( grade );
+			wanted[ wantedCount ].radius = ladder->auraRadius( grade, (RankAura)kind );
 			wanted[ wantedCount ].pos = *draw->getPosition();
 			++wantedCount;
 		}
 	};
-	consider( TheGameClient->findDrawableByID( getMousedOverDrawableID() ) );
-	for( DrawableList::const_iterator it = m_selectedDrawables.begin(); it != m_selectedDrawables.end(); ++it )
-		consider( *it );
+
+	// Who leads changes only with a grade, and a grade only with a promotion, which noteRankChanged
+	// hears of after its tick; one walk over every drawable finds those already leading.  The walk on
+	// every logic frame cost a third of a millisecond late in a match, nearly all of it on units nowhere
+	// near a leader's grade.
+	if( local != NULL )
+	{
+		if( !m_auraLeadersFound )
+		{
+			m_auraLeaders.clear();
+			for( Drawable *draw = TheGameClient->firstDrawable(); draw != NULL; draw = draw->getNextDrawable() )
+			{
+				Int kinds[ RANK_AURA_COUNT ];
+				if( draw->getObject() && ringedAuraKinds( draw->getObject(), kinds ) > 0 )
+					m_auraLeaders.push_back( draw->getObject()->getID() );
+			}
+			m_auraLeadersFound = TRUE;
+		}
+
+		// a leader gone from the game or back below a leader's grade leaves the list
+		static std::vector<Drawable *> leaders;
+		leaders.clear();
+		for( size_t i = 0; i < m_auraLeaders.size(); )
+		{
+			const Object *obj = TheGameLogic->findObjectByID( m_auraLeaders[ i ] );
+			Int kinds[ RANK_AURA_COUNT ];
+			if( obj == NULL || ringedAuraKinds( obj, kinds ) == 0 )
+			{
+				m_auraLeaders[ i ] = m_auraLeaders.back();
+				m_auraLeaders.pop_back();
+				continue;
+			}
+			if( obj->getDrawable() )
+				leaders.push_back( obj->getDrawable() );
+			++i;
+		}
+		// in the drawable list's order, newest first, as the walk met them, so the slots and the decals
+		// are made in the order they always were
+		std::sort( leaders.begin(), leaders.end(), []( const Drawable *a, const Drawable *b ) { return a->getID() > b->getID(); } );
+		for( size_t i = 0; i < leaders.size(); ++i )
+			want( leaders[ i ], leaders[ i ]->getObject() );
+	}
 
 	// a ring nobody wants goes; one whose radius changed goes too and comes back at the new size
 	for( Int slot = 0; slot < AURA_RING_MAX; ++slot )
@@ -2808,6 +2909,10 @@ void InGameUI::reset( void )
 		m_auraRings[ i ].id = INVALID_ID;
 		m_auraRings[ i ].decal.clear();
 	}
+	m_auraRingsFrame = ~0u;
+	m_auraRingsPlayer = NULL;
+	m_auraLeaders.clear();
+	m_auraLeadersFound = FALSE;
 
 	m_isQuitMenuVisible = FALSE;
 	TheObserverCamera.reset();
@@ -3081,7 +3186,16 @@ void InGameUI::message( AsciiString stringManagerLabel, ... )
 
 	// construct the final text after formatting
 	va_list args;
+	// C4840 here is va_start naming a class-typed last parameter, which both compilers handle;
+	// it is kept on everywhere else to catch a string object passed through the "...".
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable: 4840)
+#endif
   va_start( args, stringManagerLabel );
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 	WideChar buf[ UnicodeString::MAX_FORMAT_BUF_LEN ];
   // truncate rather than throw: an uncaught engine exception aborts with 0xC0000409 and no log
   // at all, so an over-long chat or script message used to be a silent hard crash.
@@ -3108,7 +3222,14 @@ void InGameUI::message( UnicodeString format, ... )
 
 	// construct the final text after formatting
 	va_list args;
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable: 4840)
+#endif
   va_start( args, format );
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 	WideChar buf[ UnicodeString::MAX_FORMAT_BUF_LEN ];
   // truncate rather than throw: an uncaught engine exception aborts with 0xC0000409 and no log
   // at all, so an over-long chat or script message used to be a silent hard crash.
@@ -9760,7 +9881,11 @@ static struct
 static void gatherProductionList( Object *obj, void *userData )
 {
 	ProductionListGather *g = (ProductionListGather *)userData;
-	appendProducerQueue( obj, g->slot, g->count, g->total );
+	// the drawable knows whether its object has a production module, where asking the object walked
+	// every module of everything the player owns
+	Drawable *draw = obj->getDrawable();
+	if( draw == NULL || draw->hasProductionModule() )
+		appendProducerQueue( obj, g->slot, g->count, g->total );
 	appendStructureUnderConstruction( obj, g->slot, g->count, g->total );
 }
 

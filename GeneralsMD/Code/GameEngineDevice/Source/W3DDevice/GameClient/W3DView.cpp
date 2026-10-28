@@ -1827,8 +1827,9 @@ void W3DView::update(void)
 	// The lock follows on every render frame, each per-retail-frame factor scaled to this frame's
 	// length (1-(1-f)^steps), so it keeps retail's pull at any frame rate. Stepping it every 33 ms
 	// while the unit moves every logic frame, 16.7 ms, put the camera a frame behind on every second
-	// one, a 2:1 judder. With smooth motion on it aims at the drawable's blended position as well.
-	const Bool smoothLock = TheSmoothMotionActive;
+	// one, a 2:1 judder. With smooth motion on it aims at the drawable's blended position as well, except
+	// on a picture a whole tick behind, which captured nothing and would find a stale one.
+	const Bool smoothLock = TheSmoothMotionActive && TheSmoothMotionAlpha < 1.0f;
 	const Real lockSteps = (Real)waypointElapsedMs / (Real)CAMERA_STEP_MSEC;
 	auto perStep = [lockSteps](Real f) -> Real { return 1.0f - powf(1.0f - f, lockSteps); };
 	if (lockSteps > 0.0f && cameraLock != INVALID_ID)

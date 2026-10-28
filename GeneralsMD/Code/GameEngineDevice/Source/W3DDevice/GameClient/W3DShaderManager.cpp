@@ -87,6 +87,7 @@
 #include "Common/GameEngine.h"
 #include "GameClient/Drawable.h"
 #include "GameClient/GameClient.h"
+#include "W3DDevice/GameClient/W3DSmoothMotion.h"
 #include <algorithm>
 #include <map>
 #include <math.h>
@@ -394,6 +395,7 @@ struct ProtoHazeSeen
 	Real velX;
 	Real velY;
 	Real seenAt;
+	UnsignedInt frame;	// the logic frame pos is from
 	Real wake;
 	Real wakeWidth;
 	Real trail[PROTO_TRAIL_POINTS][PROTO_POINT_FIELDS];
@@ -417,6 +419,7 @@ static Real protoWakeWidth(Real over)
 static std::map<DrawableID, ProtoHazeSeen> s_hazeLastSeen;
 static Int s_hazeStepNumber = 0;
 static Real s_hazeLastClock = -1.0f;
+static Real s_hazeClockLead = 0.0f;	// how far the clock is past the logic frame the drawables stand on, in seconds
 static Real s_hazeSeconds = 0.0f;
 static Real s_hazeStepDue = 0.0f;
 
@@ -647,7 +650,10 @@ static void stepProtoHaze(Real top, Real dt)
 		now.pos = pos;
 		now.velX = 0.0f;
 		now.velY = 0.0f;
-		now.seenAt = s_hazeSeconds;
+		// pos is where the drawable stood at the start of its logic frame, not at the clock's fraction
+		// of the way into the next one
+		now.seenAt = s_hazeSeconds - s_hazeClockLead;
+		now.frame = TheGameClient->getFrame();
 		now.wake = 0.0f;
 		now.trailCount = fresh ? 0 : keepProtoTrail(before.trail, before.trailCount, now.trail, 0);
 		now.step = s_hazeStepNumber;
@@ -662,8 +668,13 @@ static void stepProtoHaze(Real top, Real dt)
 
 		if (air)
 		{
-			now.velX = moveX / dt;
-			now.velY = moveY / dt;
+			/* The speed is the move over the logic frames it took. Over the step's time it came out 126 to
+				 239 a second for a Raptor holding 170: the position moves a whole frame at a time and the
+				 step falls anywhere inside one, and the wake's length and opening follow the speed, so the
+				 whole wake pulsed thirty times a second. */
+			const UnsignedInt frames = now.frame - before.frame;
+			now.velX = (frames > 0) ? moveX * LOGICFRAMES_PER_SECOND / (Real)frames : before.velX;
+			now.velY = (frames > 0) ? moveY * LOGICFRAMES_PER_SECOND / (Real)frames : before.velY;
 			const Real ground = TheTerrainRenderObject->getHeightMapHeight(pos.x, pos.y, NULL);
 			const Real over = pos.z - top;
 			// one parked on a runway or a pad is no wake; a base's planes took every slot
@@ -754,14 +765,28 @@ static void stirProtoHaze(Real top)
 	const Real now = protoHazeClock();
 	Real elapsed = now - s_hazeLastClock;
 	s_hazeLastClock = now;
+	// a blended picture's clock counts from the logic's frame, one past the client's between ticks,
+	// and the aircraft is drawn up to a frame behind its position
+	const UnsignedInt standsOn = TheGameClient->getFrame() + (TheSmoothMotionActive ? 1 : 0);
+	s_hazeClockLead = now - (Real)standsOn / (Real)LOGICFRAMES_PER_SECOND;
 	// the first frame, a new match (the clock starts again) or a long hitch moves nothing; a pause
 	// is no time at all
 	if (elapsed < 0.0f || elapsed > 0.25f)
 		elapsed = 0.0f;
 	s_hazeSeconds += elapsed;
 	// the drift wraps well before the noise's hash runs out of float precision
+	// the times kept against it go back with it, or every wake's points read as laid in the future
+	// and the wakes all vanished at the wrap
 	if (s_hazeSeconds > 4000.0f)
+	{
 		s_hazeSeconds -= 4000.0f;
+		for (std::map<DrawableID, ProtoHazeSeen>::iterator it = s_hazeLastSeen.begin(); it != s_hazeLastSeen.end(); ++it)
+		{
+			it->second.seenAt -= 4000.0f;
+			for (Int index = 0; index < it->second.trailCount; ++index)
+				it->second.trail[index][PROTO_POINT_AT] -= 4000.0f;
+		}
+	}
 	s_hazeStepDue += elapsed;
 	if (s_hazeStepDue >= 1.0f / PROTO_FIELD_RATE)
 	{
@@ -813,7 +838,8 @@ static void stirProtoHaze(Real top)
 		const Real newestAge = max(s_hazeSeconds - newest[PROTO_POINT_AT], 0.0f);
 		const Real strength = laying ? flyer.wake : newest[PROTO_POINT_STRENGTH];
 		const Real width = laying ? flyer.wakeWidth : newest[PROTO_POINT_WIDTH];
-		const Real since = min(max(s_hazeSeconds - flyer.seenAt, 0.0f), 0.1f);
+		// up to a frame behind the step's under -video, whose pictures fall between two logic frames
+		const Real since = min(max(s_hazeSeconds - flyer.seenAt, -1.0f / (Real)LOGICFRAMES_PER_SECOND), 0.1f);
 		// straight under the aircraft (the last step's place moved on by its speed), the haze being
 		// on the ground; every trail point keeps the place it was laid at, so the wake stays where it
 		// was left and the aircraft moves on

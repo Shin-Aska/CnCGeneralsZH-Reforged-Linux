@@ -94,6 +94,7 @@
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/GhostObject.h"
 #include "GameLogic/Object.h"
+#include "GameLogic/PartitionManager.h"
 #include "GameLogic/ScriptEngine.h"		// For TheScriptEngine - jkmcd
 #ifdef _INTERNAL
 // for occasional debugging...
@@ -872,10 +873,14 @@ void GameClient::update( void )
 				Object *object=draw->getObject();
 				if (object)
 				{
-					if (numNonLocalPlayers > 0)
+					// keep the other players' view of this object current too, so their fog memory is
+					// right the moment you become one of them.  Fog memory is the ghost's snapshot, and
+					// only an immobile object has a ghost (PartitionData::attachToObject); asking for a
+					// unit kept nothing and cost an observer a status call per player for every unit on
+					// the map every pass.  Whoever asks about a unit later works its answer out then.
+					const PartitionData *partition = object->friend_getPartitionData();
+					if (numNonLocalPlayers > 0 && partition != NULL && partition->getGhostObject() != NULL)
 					{
-						// keep the other players' view of this object current too, so their fog
-						// memory is right the moment you become one of them
 						Int *playerIndex=nonLocalPlayerIndices;
 						for (Int p=0; p<numNonLocalPlayers; p++, playerIndex++)
 							object->getShroudedStatus(*playerIndex);

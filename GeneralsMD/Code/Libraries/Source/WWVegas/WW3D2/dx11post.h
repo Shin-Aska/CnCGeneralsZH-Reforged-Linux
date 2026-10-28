@@ -65,9 +65,9 @@ enum DX11PostEffect
 	// screen pass and has to come out unchanged.
 	DX11_POST_COPY,
 
-	// Edge antialiasing in one pass over the finished world.  The Direct3D 9 device offers
-	// multisampling and the swap chain here asks for one sample, so this is what the D3D11 frame
-	// has against a jagged edge.
+	// Edge antialiasing in one pass over the finished world, what the D3D11 frame has against a
+	// jagged edge without multisampling.  A multisampled scene leaves it out of the chain: the
+	// edges are already resolved, and FXAA over them only blurs the textures.
 	DX11_POST_FXAA,
 
 	// Unsharp mask.  The game's textures are 2003 vintage and a 1080p window magnifies them; this
@@ -214,7 +214,9 @@ public:
 	void Shutdown();
 
 	// An empty chain is the whole feature turned off: Scene_View gives back nothing and the device
-	// keeps drawing into the swap chain the way it always has.
+	// keeps drawing into the swap chain the way it always has.  A multisampled device is the
+	// exception, since the swap chain cannot hold samples: its scene still goes into the target and
+	// reaches the screen through a copy.
 	void Set_Chain(const DX11PostEffect effects[DX11_POST_CHAIN_LIMIT], unsigned count);
 	unsigned Chain_Length() const { return ChainLength; }
 
@@ -308,13 +310,20 @@ private:
 
 	bool Create_Shaders();
 	bool Create_States();
-	bool Create_Target(Target & target, unsigned width, unsigned height, DXGI_FORMAT format);
-	bool Create_Targets(unsigned width, unsigned height, bool floating);
+	// A multisampled target is drawn into and resolved, never read, so it has no shader view.
+	bool Create_Target(Target & target, unsigned width, unsigned height, DXGI_FORMAT format,
+		unsigned samples = 1);
+	bool Create_Targets(unsigned width, unsigned height, bool floating, unsigned samples);
 	void Release_Target(Target & target);
 	void Release_Targets();
+	unsigned Scene_Samples() const;
 	bool Ensure_Buffers();
+	// The scene as a texture the passes read: the scene target itself, or with multisampling its
+	// samples resolved into SceneResolve, which is done again on every call.
+	ID3D11ShaderResourceView * Scene_Source();
 	bool Finish(const DX11PostEffect * effects, unsigned count);
-	ID3D11ShaderResourceView * Run_Bloom(ID3D11RenderTargetView * destination);
+	ID3D11ShaderResourceView * Run_Bloom(ID3D11RenderTargetView * destination,
+		ID3D11ShaderResourceView * scene);
 	void Draw_Pass(const PassSetup & pass);
 	void Describe();
 
@@ -322,6 +331,7 @@ private:
 	ID3D11VertexShader * VertexShader;
 	ID3D11PixelShader * PixelShaders[DX11_POST_SIMPLE_EFFECTS];
 	ID3D11PixelShader * ToneMapShader;
+	ID3D11PixelShader * SharpenMultisampledShader;	// the sharpen pass over a multisampled scene
 	ID3D11PixelShader * BloomExtractShader;
 	ID3D11PixelShader * BloomBlurShader;
 	ID3D11PixelShader * BloomCompositeShader;
@@ -340,6 +350,8 @@ private:
 	// turn, and they are always eight bit: the frame is back from half float by the time any of the
 	// one pass effects sees it.
 	Target SceneTarget;
+	// With multisampling, the scene target's samples resolved for the passes to read; empty without.
+	Target SceneResolve;
 	// The scene as Occlude_Scene found it, in its format, made at that pass's first use.
 	Target SceneCopy;
 	Target ChainTargets[2];
@@ -355,6 +367,7 @@ private:
 	unsigned Height;
 	unsigned BloomWidth;
 	unsigned BloomHeight;
+	unsigned TargetSamples;
 	bool TargetsAreFloat;
 	bool ShadersReady;
 	bool Resolved;

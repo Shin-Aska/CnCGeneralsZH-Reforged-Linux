@@ -100,6 +100,7 @@ Data/Cinema/minefx_scene.txt
 Data/Cinema/minefx_scene_enemy.txt
 Data/Cinema/missileapex_film.txt
 Data/Cinema/mobwatch.txt
+Data/Cinema/msaa_river.txt
 Data/Cinema/ngguard.txt
 Data/Cinema/nohud.txt
 Data/Cinema/nukedome.txt
@@ -110,6 +111,7 @@ Data/Cinema/rankauramaresal.txt
 Data/Cinema/rankauranight.txt
 Data/Cinema/rankaurasnow.txt
 Data/Cinema/rankladder.txt
+Data/Cinema/rankringsall.txt
 Data/Cinema/rankzero.txt
 Data/Cinema/readme_water.txt
 Data/Cinema/rf_ai.txt
@@ -333,6 +335,7 @@ Data/Scenarios/mobclose.txt
 Data/Scenarios/mobopen.txt
 Data/Scenarios/mobstress.txt
 Data/Scenarios/mobwin.txt
+Data/Scenarios/msaa_river.txt
 Data/Scenarios/netrepeat.txt
 Data/Scenarios/netstance.txt
 Data/Scenarios/nukefade.txt
@@ -350,12 +353,15 @@ Data/Scenarios/rankauramaresal.txt
 Data/Scenarios/rankauranight.txt
 Data/Scenarios/rankaurareplay.txt
 Data/Scenarios/rankaurasnow.txt
+Data/Scenarios/rankaurawiki.txt
 Data/Scenarios/rankladder.txt
+Data/Scenarios/rankringsall.txt
 Data/Scenarios/rankzero.txt
 Data/Scenarios/reachshot.txt
 Data/Scenarios/readme_hud.txt
 Data/Scenarios/readme_water.txt
 Data/Scenarios/repeatbuild.txt
+Data/Scenarios/retailpace.txt
 Data/Scenarios/rf_mass840.txt
 Data/Scenarios/rf_night.txt
 Data/Scenarios/rf_nightday.txt

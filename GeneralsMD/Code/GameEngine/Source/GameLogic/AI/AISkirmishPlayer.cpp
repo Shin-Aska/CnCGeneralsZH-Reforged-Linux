@@ -122,7 +122,7 @@ void AISkirmishPlayer::processBaseBuilding( void )
 	// A Hard AI in the dark does not wait out the structure timer for its power plant: a USA whose plants a
 	// superweapon took sat dark for two minutes of logic frames with a plant asked for and money coming in.
 	// Once a second rather than every frame, because a pass walks the whole plan.
-	const Bool darkRush = getSkillProfile()->m_economyBuildings && !m_player->getEnergy()->hasSufficientPower() &&
+	const Bool darkRush = runsOwnAI() && getSkillProfile()->m_economyBuildings && !m_player->getEnergy()->hasSufficientPower() &&
 		TheGameLogic->getFrame() % LOGICFRAMES_PER_SECOND == 0;
 	if (m_readyToBuildStructure || darkRush)
 	{
@@ -131,8 +131,8 @@ void AISkirmishPlayer::processBaseBuilding( void )
 		Bool isPriority = false;
 		// and a Tech AI from Medium up, whose whole plan is the tree and the superweapon at its top, and a
 		// GLA Air one, whose SCUD Storm stands in for the air force it cannot build
-		const Bool rushBigGuns = getSkillProfile()->m_economyBuildings ||
-			(m_persona != AIPERSONA_NORMAL && m_skillLevel >= AISKILL_MEDIUM && superweaponIsPlan());
+		const Bool rushBigGuns = runsOwnAI() && (getSkillProfile()->m_economyBuildings ||
+			(m_persona != AIPERSONA_NORMAL && m_skillLevel >= AISKILL_MEDIUM && superweaponIsPlan()));
 		Bool rushTaken = false;
 		// With the purchase queue the priority entries are taken by its score, the first of the best in
 		// list order, so an early drop zone does not wait behind the scripts' bunkers.
@@ -268,7 +268,9 @@ void AISkirmishPlayer::processBaseBuilding( void )
 				(!isPriority || (rushThis && !rushTaken) || planScore > bldgScore) && m_player->canBuild(curPlan);
 			const Bool couldBePower = powerPlan==NULL && curPlan->isKindOf(KINDOF_FS_POWER) &&
 				!curPlan->isKindOf(KINDOF_CASH_GENERATOR) && (isUnderPowered || info->isAutomaticBuild());
-			const Bool couldBeBuilt = bldgPlan==NULL && info->isAutomaticBuild() && info->isBuildable();
+			// The rest of the plan, unasked: a seat its map scripts builds what the scripts ask and the
+			// power, as retail's did, or an Art of Defense GLA puts up a base and leaves its waves.
+			const Bool couldBeBuilt = runsOwnAI() && bldgPlan==NULL && info->isAutomaticBuild() && info->isBuildable();
 			if (!couldBePriority && !couldBePower && !couldBeBuilt) {
 				continue;
 			}
@@ -1226,7 +1228,8 @@ void AISkirmishPlayer::doSurrender( void )
 	const UnsignedInt CHECK_FRAMES = 5 * LOGICFRAMES_PER_SECOND;
 	if( (now + 7 * (UnsignedInt)m_player->getPlayerIndex()) % CHECK_FRAMES != 0 )
 		return;
-	if( !TheRecorder->isMultiplayer() || !m_player->isPlayableSide() )
+	// a seat its map scripts may hold no base by design, an Art of Defense GLA's waves
+	if( !TheRecorder->isMultiplayer() || !m_player->isPlayableSide() || !runsOwnAI() )
 		return;
 
 	// Easy, Medium, Hard.

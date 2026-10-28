@@ -1789,6 +1789,59 @@ TEST(catchup_stops_paying_debt_when_the_logic_tick_is_what_is_slow)
 	CHECK_NEAR( 6.0f, elapsed, 0.01f );
 }
 
+/* R1, smooth motion: how far the picture is between the last two logic states, counted from when the
+	 last tick was due.  Pure arithmetic on the fine clock; a million ticks a second here. */
+extern Real GameEngine_tickFraction( Int64 now, Int64 due, Real msPerTick, Int64 ticksPerSecond );
+
+TEST(smooth_motion_tick_fraction_runs_from_the_due_time)
+{
+	const Real tick = 1000.0f / 60.0f;
+	const Int64 freq = 1000000;
+	const Int64 due = 5000000;
+
+	CHECK_NEAR( 0.0f, GameEngine_tickFraction( due, due, tick, freq ), 0.0001f );
+	CHECK_NEAR( 0.5f, GameEngine_tickFraction( due + 8333, due, tick, freq ), 0.001f );		// mid-tick
+	CHECK_NEAR( 0.9f, GameEngine_tickFraction( due + 15000, due, tick, freq ), 0.001f );
+
+	// clamped both ways: a draw a hair before the stamp shows the state before, and a paused game,
+	// which stamps no tick, is a whole tick on within one and holds the last state from then on
+	CHECK_NEAR( 0.0f, GameEngine_tickFraction( due - 100, due, tick, freq ), 0.0001f );
+	CHECK_NEAR( 1.0f, GameEngine_tickFraction( due + 16667, due, tick, freq ), 0.0001f );
+	CHECK_NEAR( 1.0f, GameEngine_tickFraction( due + 30 * freq, due, tick, freq ), 0.0001f );
+
+	// no tick length (fast mode, -turbo, TiVO, -headless) or no clock: no blend, the state as it is
+	CHECK_NEAR( 1.0f, GameEngine_tickFraction( due + 8333, due, 0.0f, freq ), 0.0001f );
+	CHECK_NEAR( 1.0f, GameEngine_tickFraction( due + 8333, due, tick, 0 ), 0.0001f );
+
+	/* The stamp GameEngine::update hands it is the pacer's plan time less the debt left once the pass's
+		 ticks are paid: that tick's due time.  Passes 6 and 7 ms apart (a 164 Hz screen) plan at uneven
+		 moments against the 16.7 ms tick, and the stamps still land exactly a tick apart, where the moment
+		 a tick finished moved with its own cost. */
+	Real accum = 0.0f;
+	Real planTime = 0.0f;
+	Real lastDue = -1.0f;
+	Int stamps = 0;
+	for( Int pass = 0; pass < 500; ++pass )
+	{
+		Real elapsed = ( pass % 3 == 0 ) ? 7.0f : 6.0f;
+		planTime += elapsed;
+		Bool ticked = FALSE;
+		while( GameEngine_isLogicFrameDue( accum, elapsed, 60 ) )
+		{
+			ticked = TRUE;
+			elapsed = 0.0f;
+		}
+		if( !ticked )
+			continue;
+		const Real stamp = planTime - accum;
+		if( lastDue >= 0.0f )
+			CHECK_NEAR( tick, stamp - lastDue, 0.01f );
+		lastDue = stamp;
+		++stamps;
+	}
+	CHECK( stamps >= 190 && stamps <= 192 );		// 3167 ms of passes, a tick every 16.7
+}
+
 /* AnimateWindowManager.cpp: the same argument one layer up. The menu animations
    count fixed steps and were authored against a capped frame rate, so with the
    renderer uncapped they have to be paced off the wall clock too or a whole
@@ -1891,6 +1944,24 @@ TEST(physics_forward_speed_is_the_projection_not_a_per_axis_norm)
 	Coord3D up; up.x = 0.0f; up.y = 0.0f; up.z = 1.0f;
 	Coord3D climb; climb.x = 0.0f; climb.y = 0.0f; climb.z = 12.0f;
 	CHECK_NEAR( PhysicsBehavior::calcForwardSpeed( climb, up ), 12.0f, 0.01f );
+}
+
+/* EA's treads and wheels drive on EA's own measure again, which is what let a tank or car cross the
+   map diagonally 1.41 times as fast as along an axis in Zero Hour: exact on the axes, 0.707 of the
+   speed at 45 degrees, and signed by the dot product. */
+TEST(physics_retail_forward_speed_keeps_eas_per_axis_norm)
+{
+	const Real speed = 40.0f;
+	const Real d = 0.70710678f;
+	Coord3D east; east.x = 1.0f; east.y = 0.0f; east.z = 0.0f;
+	Coord3D diag; diag.x = d; diag.y = d; diag.z = 0.0f;
+	Coord3D velEast; velEast.x = speed; velEast.y = 0.0f; velEast.z = 0.0f;
+	Coord3D velDiag; velDiag.x = speed * d; velDiag.y = speed * d; velDiag.z = 0.0f;
+	Coord3D velBack; velBack.x = -speed * d; velBack.y = -speed * d; velBack.z = 0.0f;
+
+	CHECK_NEAR( PhysicsBehavior::calcRetailForwardSpeed( velEast, east ), speed, 0.01f );
+	CHECK_NEAR( PhysicsBehavior::calcRetailForwardSpeed( velDiag, diag ), speed * d, 0.01f );
+	CHECK_NEAR( PhysicsBehavior::calcRetailForwardSpeed( velBack, diag ), -speed * d, 0.01f );
 }
 
 /* CommandXlat.cpp: only the attack key arms force fire. Holding ctrl used to do it too, so a
@@ -7730,6 +7801,103 @@ TEST(bitflags_crc_covers_every_word_of_the_flag_set)
 			fullMinusOne.set( i );
 	}
 	CHECK_NE( crcOfStatusMask( full ), crcOfStatusMask( fullMinusOne ) );
+}
+
+/* The game's CRC as EA wrote it, byte by byte: each whole word read in network order (htonl of a
+	 little-endian load), the running value shifted left with its top bit added back, a 1-3 byte
+	 tail added as a little-endian number (htonl twice), and the result handed out through htonl.
+	 XferCRC folds with an inline byte swap now; every CRC a replay or a joiner checks has to stay
+	 exactly this. */
+static void eaCRCAdd( UnsignedInt &crc, UnsignedInt val )
+{
+	UnsignedInt hibit = (crc & 0x80000000) ? 1 : 0;
+	crc <<= 1;
+	crc += val;
+	crc += hibit;
+}
+
+static UnsignedInt eaCRCOfBuffers( const std::vector< std::vector<UnsignedByte> > &buffers )
+{
+	UnsignedInt crc = 0;
+	for( size_t b = 0; b < buffers.size(); ++b )
+	{
+		const std::vector<UnsignedByte> &p = buffers[b];
+		Int n = (Int)p.size();
+		Int i = 0;
+		for( ; i + 4 <= n; i += 4 )
+			eaCRCAdd( crc, ((UnsignedInt)p[i] << 24) | ((UnsignedInt)p[i+1] << 16) | ((UnsignedInt)p[i+2] << 8) | p[i+3] );
+		if( i < n )
+		{
+			UnsignedInt val = 0;
+			for( Int k = 0; i + k < n; ++k )
+				val += (UnsignedInt)p[i+k] << (k*8);
+			eaCRCAdd( crc, val );
+		}
+	}
+	return (crc >> 24) | ((crc >> 8) & 0xFF00) | ((crc << 8) & 0xFF0000) | (crc << 24);
+}
+
+TEST(xfer_crc_inline_byte_swap_gives_eas_htonl_numbers)
+{
+	// pinned by hand: word 01 02 03 04 gives 0x01020304, the tail 05 makes it 0x0204060D, swapped out
+	UnsignedByte five[5] = { 1, 2, 3, 4, 5 };
+	XferCRC pinned;
+	pinned.open( "test" );
+	pinned.xferUser( five, 5 );
+	pinned.close();
+	CHECK_EQ( pinned.getCRC(), 0x0D060402u );
+
+	// random buffers of every length from 1 to 66, several to a session so the running value carries
+	UnsignedInt seed = 0x2545F491u;
+	for( Int round = 0; round < 300; ++round )
+	{
+		std::vector< std::vector<UnsignedByte> > buffers;
+		XferCRC xfer;
+		xfer.open( "test" );
+		for( Int call = 0; call < 1 + round % 5; ++call )
+		{
+			std::vector<UnsignedByte> p( 1 + (round * 5 + call * 3) % 66 );
+			for( size_t k = 0; k < p.size(); ++k )
+			{
+				seed = seed * 1664525u + 1013904223u;
+				p[k] = (UnsignedByte)(seed >> 24);
+			}
+			xfer.xferUser( &p[0], (Int)p.size() );
+			buffers.push_back( p );
+		}
+		xfer.close();
+		CHECK_EQ( xfer.getCRC(), eaCRCOfBuffers( buffers ) );
+	}
+}
+
+// A lobby or replay string carrying C=0 used to reach GameLogic's m_frame % interval and crash.
+extern Int NET_CRC_INTERVAL;
+TEST(crc_interval_is_held_between_1_and_100)
+{
+	GlobalData *saved = TheWritableGlobalData;
+	TheWritableGlobalData = NEW GlobalData;		// GameInfo::reset reads the default starting cash
+
+	SkirmishGameInfo game;
+	game.setCRCInterval( 0 );
+	CHECK_EQ( game.getCRCInterval(), 1 );
+	game.setCRCInterval( -7 );
+	CHECK_EQ( game.getCRCInterval(), 1 );
+	game.setCRCInterval( 1 );
+	CHECK_EQ( game.getCRCInterval(), 1 );
+	game.setCRCInterval( 37 );
+	CHECK_EQ( game.getCRCInterval(), 37 );
+	game.setCRCInterval( 5000 );
+	CHECK_EQ( game.getCRCInterval(), 100 );
+
+	// -NetCRCInterval writes NET_CRC_INTERVAL raw, and a host takes it through reset(), not the lobby string
+	Int savedInterval = NET_CRC_INTERVAL;
+	NET_CRC_INTERVAL = 0;
+	game.reset();
+	CHECK_EQ( game.getCRCInterval(), 1 );
+	NET_CRC_INTERVAL = savedInterval;
+
+	delete TheWritableGlobalData;
+	TheWritableGlobalData = saved;
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -19,6 +19,7 @@
 #include "dx11post.h"
 
 #include "dx11device.h"
+#include "dx11resource.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -443,25 +444,34 @@ static const char * const FXAA_SHADER_BODY =
 // Unsharp mask: the pixel plus what it has that a blur of its neighbours does not.  The amount is
 // low on purpose.  This runs over the world and the world alone, but the world holds thin wires and
 // aerials as well as ground, and anything stronger rings around them.
-static const char * const SHARPEN_SHADER_BODY =
-	"static const float SHARPEN_AMOUNT = 0.35;\n"
-	"\n"
-	"float4 main(VertexOutput input) : SV_TARGET\n"
-	"{\n"
-	"    float2 texel = TexelSize.xy;\n"
-	"    float4 centre = Source.Sample(Sampler, input.Texture);\n"
-	"    float3 left = Source.Sample(Sampler, input.Texture + float2(-texel.x, 0.0)).rgb;\n"
-	"    float3 right = Source.Sample(Sampler, input.Texture + float2(texel.x, 0.0)).rgb;\n"
-	"    float3 up = Source.Sample(Sampler, input.Texture + float2(0.0, -texel.y)).rgb;\n"
-	"    float3 down = Source.Sample(Sampler, input.Texture + float2(0.0, texel.y)).rgb;\n"
-	"    float3 neighbours = left + right + up + down;\n"
-	"    float3 sharpened = centre.rgb + (centre.rgb - neighbours * 0.25) * SHARPEN_AMOUNT;\n"
-	"    // never past the brightest or the darkest of the five: overshooting them drew a white rim\n"
-	"    // around every dark wreck inside a nuke's white cloud\n"
-	"    float3 lowest = min(centre.rgb, min(min(left, right), min(up, down)));\n"
-	"    float3 highest = max(centre.rgb, max(max(left, right), max(up, down)));\n"
-	"    return float4(clamp(sharpened, lowest, highest), centre.a);\n"
-	"}\n";
+//
+// A multisampled scene has no FXAA before this, and FXAA was what softened the ground's texture
+// grain at one sample: sharpened at 0.35 the 4x ground measured half as grainy again as -msaa 0
+// (mean absolute Laplacian 36.3 against 24.1 on one crop, 58.5 against 39.9 on another).  There the
+// same pass runs at -0.25, a light pull toward the neighbours, which brought five ground crops to
+// within 10% of -msaa 0.
+#define SHARPEN_SHADER_TEXT(amount) \
+	"static const float SHARPEN_AMOUNT = " amount ";\n" \
+	"\n" \
+	"float4 main(VertexOutput input) : SV_TARGET\n" \
+	"{\n" \
+	"    float2 texel = TexelSize.xy;\n" \
+	"    float4 centre = Source.Sample(Sampler, input.Texture);\n" \
+	"    float3 left = Source.Sample(Sampler, input.Texture + float2(-texel.x, 0.0)).rgb;\n" \
+	"    float3 right = Source.Sample(Sampler, input.Texture + float2(texel.x, 0.0)).rgb;\n" \
+	"    float3 up = Source.Sample(Sampler, input.Texture + float2(0.0, -texel.y)).rgb;\n" \
+	"    float3 down = Source.Sample(Sampler, input.Texture + float2(0.0, texel.y)).rgb;\n" \
+	"    float3 neighbours = left + right + up + down;\n" \
+	"    float3 sharpened = centre.rgb + (centre.rgb - neighbours * 0.25) * SHARPEN_AMOUNT;\n" \
+	"    // never past the brightest or the darkest of the five: overshooting them drew a white rim\n" \
+	"    // around every dark wreck inside a nuke's white cloud\n" \
+	"    float3 lowest = min(centre.rgb, min(min(left, right), min(up, down)));\n" \
+	"    float3 highest = max(centre.rgb, max(max(left, right), max(up, down)));\n" \
+	"    return float4(clamp(sharpened, lowest, highest), centre.a);\n" \
+	"}\n"
+static const char * const SHARPEN_SHADER_BODY = SHARPEN_SHADER_TEXT("0.35");
+static const char * const SHARPEN_MULTISAMPLED_SHADER_BODY = SHARPEN_SHADER_TEXT("-0.25");
+#undef SHARPEN_SHADER_TEXT
 
 // Ambient occlusion out of the frame's own depth, and nothing else.  Every pixel asks a ring of
 // neighbours how much nearer to the eye they are: at the foot of a wall half of them are in front
@@ -1002,6 +1012,7 @@ DX11PostProcessClass::DX11PostProcessClass()
 	: Device(NULL)
 	, VertexShader(NULL)
 	, ToneMapShader(NULL)
+	, SharpenMultisampledShader(NULL)
 	, BloomExtractShader(NULL)
 	, NearPlane(1.0f)
 	, FarPlane(1200.0f)
@@ -1022,6 +1033,7 @@ DX11PostProcessClass::DX11PostProcessClass()
 	, Height(0)
 	, BloomWidth(0)
 	, BloomHeight(0)
+	, TargetSamples(1)
 	, TargetsAreFloat(false)
 	, ShadersReady(false)
 	, Resolved(false)
@@ -1035,6 +1047,7 @@ DX11PostProcessClass::DX11PostProcessClass()
 	memset(HazeWorldFromClip, 0, sizeof(HazeWorldFromClip));
 	memset(PixelShaders, 0, sizeof(PixelShaders));
 	memset(&SceneTarget, 0, sizeof(SceneTarget));
+	memset(&SceneResolve, 0, sizeof(SceneResolve));
 	memset(&SceneCopy, 0, sizeof(SceneCopy));
 	memset(ChainTargets, 0, sizeof(ChainTargets));
 	memset(BloomTargets, 0, sizeof(BloomTargets));
@@ -1090,6 +1103,7 @@ void DX11PostProcessClass::Shutdown()
 	release_interface(reinterpret_cast<IUnknown **>(&BloomBlurShader));
 	release_interface(reinterpret_cast<IUnknown **>(&BloomExtractShader));
 	release_interface(reinterpret_cast<IUnknown **>(&ToneMapShader));
+	release_interface(reinterpret_cast<IUnknown **>(&SharpenMultisampledShader));
 	for (unsigned index = 0; index < DX11_POST_SIMPLE_EFFECTS; ++index) {
 		release_interface(reinterpret_cast<IUnknown **>(&PixelShaders[index]));
 	}
@@ -1165,6 +1179,8 @@ bool DX11PostProcessClass::Create_Shaders()
 	}
 
 	return compile_pixel_shader(compiler, device, TONE_MAP_SHADER_BODY, &ToneMapShader)
+		&& compile_pixel_shader(compiler, device, SHARPEN_MULTISAMPLED_SHADER_BODY,
+			&SharpenMultisampledShader)
 		&& compile_pixel_shader(compiler, device, BLOOM_EXTRACT_SHADER_BODY, &BloomExtractShader)
 		&& compile_pixel_shader(compiler, device, BLOOM_BLUR_SHADER_BODY, &BloomBlurShader)
 		&& compile_pixel_shader(compiler, device, BLOOM_COMPOSITE_SHADER_BODY,
@@ -1245,7 +1261,7 @@ bool DX11PostProcessClass::Create_States()
 }
 
 bool DX11PostProcessClass::Create_Target(Target & target, unsigned width, unsigned height,
-	DXGI_FORMAT format)
+	DXGI_FORMAT format, unsigned samples)
 {
 	ID3D11Device * device = Device->Get_Device();
 
@@ -1256,9 +1272,10 @@ bool DX11PostProcessClass::Create_Target(Target & target, unsigned width, unsign
 	description.MipLevels = 1;
 	description.ArraySize = 1;
 	description.Format = format;
-	description.SampleDesc.Count = 1;
+	description.SampleDesc.Count = samples;
 	description.Usage = D3D11_USAGE_DEFAULT;
-	description.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+	description.BindFlags = D3D11_BIND_RENDER_TARGET
+		| (samples > 1 ? 0 : D3D11_BIND_SHADER_RESOURCE);
 
 	if (FAILED(device->CreateTexture2D(&description, NULL, &target.Texture))) {
 		return false;
@@ -1266,13 +1283,16 @@ bool DX11PostProcessClass::Create_Target(Target & target, unsigned width, unsign
 	if (FAILED(device->CreateRenderTargetView(target.Texture, NULL, &target.View))) {
 		return false;
 	}
-	return SUCCEEDED(device->CreateShaderResourceView(target.Texture, NULL, &target.Resource));
+	return samples > 1
+		|| SUCCEEDED(device->CreateShaderResourceView(target.Texture, NULL, &target.Resource));
 }
 
-bool DX11PostProcessClass::Create_Targets(unsigned width, unsigned height, bool floating)
+bool DX11PostProcessClass::Create_Targets(unsigned width, unsigned height, bool floating,
+	unsigned samples)
 {
 	const DXGI_FORMAT scene_format = floating ? FLOAT_FORMAT : EIGHT_BIT_FORMAT;
-	if (!Create_Target(SceneTarget, width, height, scene_format)) {
+	if (!Create_Target(SceneTarget, width, height, scene_format, samples)
+			|| (samples > 1 && !Create_Target(SceneResolve, width, height, scene_format))) {
 		Release_Targets();
 		return false;
 	}
@@ -1300,6 +1320,7 @@ bool DX11PostProcessClass::Create_Targets(unsigned width, unsigned height, bool 
 
 	Width = width;
 	Height = height;
+	TargetSamples = samples;
 	TargetsAreFloat = floating;
 	return true;
 }
@@ -1314,6 +1335,7 @@ void DX11PostProcessClass::Release_Target(Target & target)
 void DX11PostProcessClass::Release_Targets()
 {
 	Release_Target(SceneTarget);
+	Release_Target(SceneResolve);
 	Release_Target(SceneCopy);
 	const unsigned chain_target_count = sizeof(ChainTargets) / sizeof(ChainTargets[0]);
 	for (unsigned index = 0; index < chain_target_count; ++index) {
@@ -1327,12 +1349,19 @@ void DX11PostProcessClass::Release_Targets()
 	Height = 0;
 	BloomWidth = 0;
 	BloomHeight = 0;
+	TargetSamples = 1;
 	TargetsAreFloat = false;
+}
+
+unsigned DX11PostProcessClass::Scene_Samples() const
+{
+	return (Device != NULL) ? Device->Get_Sample_Count() : 1;
 }
 
 bool DX11PostProcessClass::Ensure_Buffers()
 {
-	if (!ShadersReady || ChainLength == 0 || Device == NULL) {
+	const unsigned samples = Scene_Samples();
+	if (!ShadersReady || Device == NULL || (ChainLength == 0 && samples == 1)) {
 		return false;
 	}
 
@@ -1344,14 +1373,14 @@ bool DX11PostProcessClass::Ensure_Buffers()
 
 	const bool floating = Scene_Is_Float();
 	if (SceneTarget.View != NULL && Width == width && Height == height
-			&& TargetsAreFloat == floating) {
+			&& TargetsAreFloat == floating && TargetSamples == samples) {
 		return true;
 	}
 
 	// A resolution change makes the old set the wrong size, and a chain that gained or lost bloom
 	// makes the scene target the wrong format.  Both are for the rest of the run, not for a frame.
 	Release_Targets();
-	if (!Create_Targets(width, height, floating)) {
+	if (!Create_Targets(width, height, floating, samples)) {
 		Release_Targets();
 		strcpy(Diagnostic, "post-process off: the device refused the offscreen targets");
 		return false;
@@ -1363,6 +1392,15 @@ bool DX11PostProcessClass::Ensure_Buffers()
 ID3D11RenderTargetView * DX11PostProcessClass::Scene_View()
 {
 	return Ensure_Buffers() ? SceneTarget.View : NULL;
+}
+
+ID3D11ShaderResourceView * DX11PostProcessClass::Scene_Source()
+{
+	if (SceneResolve.Texture == NULL) {
+		return SceneTarget.Resource;
+	}
+	DX11Resource_Copy_Readable(Device->Get_Context(), SceneResolve.Texture, SceneTarget.Texture);
+	return SceneResolve.Resource;
 }
 
 void DX11PostProcessClass::Begin_Frame()
@@ -1465,7 +1503,7 @@ bool DX11PostProcessClass::Occlude_Scene(ID3D11ShaderResourceView * depth)
 		Release_Target(SceneCopy);
 		return false;
 	}
-	Device->Get_Context()->CopyResource(SceneCopy.Texture, SceneTarget.Texture);
+	DX11Resource_Copy_Readable(Device->Get_Context(), SceneCopy.Texture, SceneTarget.Texture);
 
 	PassSetup pass;
 	memset(&pass, 0, sizeof(pass));
@@ -1602,7 +1640,8 @@ void DX11PostProcessClass::Draw_Pass(const PassSetup & pass)
 	context->PSSetShaderResources(0, 2, no_resources);
 }
 
-ID3D11ShaderResourceView * DX11PostProcessClass::Run_Bloom(ID3D11RenderTargetView * destination)
+ID3D11ShaderResourceView * DX11PostProcessClass::Run_Bloom(ID3D11RenderTargetView * destination,
+	ID3D11ShaderResourceView * scene)
 {
 	const float bloom_texel_x = 1.0f / static_cast<float>(BloomWidth);
 	const float bloom_texel_y = 1.0f / static_cast<float>(BloomHeight);
@@ -1613,7 +1652,7 @@ ID3D11ShaderResourceView * DX11PostProcessClass::Run_Bloom(ID3D11RenderTargetVie
 	// The bright pass reads the full size scene and writes the quarter size target, so it is the
 	// one pass whose source and destination sizes differ.
 	pass.Shader = BloomExtractShader;
-	pass.Source = SceneTarget.Resource;
+	pass.Source = scene;
 	pass.Destination = BloomTargets[0].View;
 	pass.DestinationWidth = BloomWidth;
 	pass.DestinationHeight = BloomHeight;
@@ -1642,7 +1681,7 @@ ID3D11ShaderResourceView * DX11PostProcessClass::Run_Bloom(ID3D11RenderTargetVie
 	}
 
 	pass.Shader = BloomCompositeShader;
-	pass.Source = SceneTarget.Resource;
+	pass.Source = scene;
 	pass.Extra = BloomTargets[source].Resource;
 	pass.Destination = destination;
 	pass.DestinationWidth = Width;
@@ -1672,14 +1711,15 @@ bool DX11PostProcessClass::Finish(const DX11PostEffect * effects, unsigned count
 	const bool warp = (WarpCount > 0);
 
 	unsigned first = 0;
-	ID3D11ShaderResourceView * source = SceneTarget.Resource;
+	ID3D11ShaderResourceView * const scene = Scene_Source();
+	ID3D11ShaderResourceView * source = scene;
 	if (effects[0] == DX11_POST_BLOOM) {
 		// Bloom is the only effect that reads the half float scene, and the frame is eight bits by
 		// the time it hands over. If it is also the last thing in the chain it writes the screen.
 		const bool alone = (count == 1) && !warp;
 		ID3D11RenderTargetView * bloom_destination = alone ? back_buffer : ChainTargets[0].View;
 		if (BloomIntensity > 0.0f) {
-			source = Run_Bloom(bloom_destination);
+			source = Run_Bloom(bloom_destination, scene);
 		} else {
 			// Bloom switched off in the options: no glow, but the scene is still half floats and
 			// still has to come down to eight bits, the same way Copy_Through brings it down.  The
@@ -1687,7 +1727,7 @@ bool DX11PostProcessClass::Finish(const DX11PostEffect * effects, unsigned count
 			PassSetup tone;
 			memset(&tone, 0, sizeof(tone));
 			tone.Shader = ToneMapShader;
-			tone.Source = SceneTarget.Resource;
+			tone.Source = scene;
 			tone.Destination = bloom_destination;
 			tone.DestinationWidth = Width;
 			tone.DestinationHeight = Height;
@@ -1714,7 +1754,8 @@ bool DX11PostProcessClass::Finish(const DX11PostEffect * effects, unsigned count
 	pass.SourceHeight = Height;
 	for (unsigned index = first; index < count; ++index) {
 		const bool last = (index + 1 == count) && !warp;
-		pass.Shader = PixelShaders[effects[index]];
+		pass.Shader = (effects[index] == DX11_POST_SHARPEN && TargetSamples > 1)
+			? SharpenMultisampledShader : PixelShaders[effects[index]];
 		// The occlusion pass is the one effect that reads something other than the frame: the
 		// frame's own depth, which the device keeps as a texture as well as a depth buffer.
 		pass.Extra = (effects[index] == DX11_POST_AO) ? Device->Get_Depth_Texture() : NULL;
@@ -1741,17 +1782,18 @@ bool DX11PostProcessClass::Finish(const DX11PostEffect * effects, unsigned count
 
 bool DX11PostProcessClass::Run_Chain()
 {
-	if (!Occluded) {
-		return Finish(Chain, ChainLength);
-	}
-	// The scene took its occlusion before the particles; a chain of nothing else still has to
-	// bring the scene to the screen.
+	// The scene took its occlusion before the particles, and a multisampled one has no use for
+	// FXAA; a chain of nothing else, or none at all over a multisampled scene, still has to bring
+	// the scene to the screen.  Without either the chain runs as it was set, and an empty one with
+	// it, since an empty chain at one sample has no scene target to bring.
+	const bool multisampled = Scene_Samples() > 1;
 	DX11PostEffect effects[DX11_POST_CHAIN_LIMIT];
 	unsigned count = 0;
 	for (unsigned index = 0; index < ChainLength; ++index) {
-		if (Chain[index] != DX11_POST_AO) {
-			effects[count++] = Chain[index];
+		if ((Occluded && Chain[index] == DX11_POST_AO) || (multisampled && Chain[index] == DX11_POST_FXAA)) {
+			continue;
 		}
+		effects[count++] = Chain[index];
 	}
 	if (count == 0) {
 		effects[count++] = DX11_POST_COPY;
@@ -1761,7 +1803,7 @@ bool DX11PostProcessClass::Run_Chain()
 
 bool DX11PostProcessClass::Copy_Through()
 {
-	if (Resolved || ChainLength == 0 || !Ensure_Buffers()) {
+	if (Resolved || !Ensure_Buffers()) {
 		return false;
 	}
 
@@ -1777,7 +1819,7 @@ bool DX11PostProcessClass::Copy_Through()
 	memset(&pass, 0, sizeof(pass));
 	pass.Shader = TargetsAreFloat ? ToneMapShader : PixelShaders[DX11_POST_COPY];
 	pass.Ungraded = true;
-	pass.Source = SceneTarget.Resource;
+	pass.Source = Scene_Source();
 	pass.Destination = back_buffer;
 	pass.DestinationWidth = Width;
 	pass.DestinationHeight = Height;
@@ -1794,18 +1836,24 @@ void DX11PostProcessClass::Describe()
 	if (!ShadersReady) {
 		return;
 	}
-	if (ChainLength == 0) {
+	const unsigned samples = Scene_Samples();
+	if (ChainLength == 0 && samples == 1) {
 		strcpy(Diagnostic, "post-process off");
 		return;
 	}
 
-	std::string names;
+	std::string names = (ChainLength == 0) ? "copy" : "";
 	for (unsigned index = 0; index < ChainLength; ++index) {
 		if (index > 0) {
 			names += ",";
 		}
 		names += DX11Post_Effect_Name(Chain[index]);
 	}
-	snprintf(Diagnostic, sizeof(Diagnostic), "post-process %s over %ux%u, scene in %s", names.c_str(),
-		Width, Height, TargetsAreFloat ? "half floats" : "eight bits");
+	char multisampling[64] = "";
+	if (samples > 1) {
+		snprintf(multisampling, sizeof(multisampling), ", %ux multisampled without fxaa, sharpen softened",
+			samples);
+	}
+	snprintf(Diagnostic, sizeof(Diagnostic), "post-process %s over %ux%u, scene in %s%s", names.c_str(),
+		Width, Height, TargetsAreFloat ? "half floats" : "eight bits", multisampling);
 }

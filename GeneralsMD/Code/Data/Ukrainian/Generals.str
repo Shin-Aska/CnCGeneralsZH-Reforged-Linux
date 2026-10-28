@@ -17798,7 +17798,7 @@ RANK:PerkSTILL_GUARD
 END
 
 RANK:PerkMEND
-"Поза боєм: лікується на %d%% за секунду"
+"Поза боєм: лікується на %d.%02d%% за секунду"
 END
 
 RANK:PerkSPOTTER

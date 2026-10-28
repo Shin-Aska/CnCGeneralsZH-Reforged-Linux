@@ -17798,7 +17798,7 @@ RANK:PerkSTILL_GUARD
 END
 
 RANK:PerkMEND
-"Вне боя: лечится на %d%% в секунду"
+"Вне боя: лечится на %d.%02d%% в секунду"
 END
 
 RANK:PerkSPOTTER

@@ -475,6 +475,23 @@ Object::Object( const ThingTemplate *tt, const ObjectStatusMaskType &objectStatu
 
 	*curB = NULL;
 
+	// onCollide asks every module for its collide interface on every collision, and a swarm of
+	// aircraft collides tens of thousands of times a frame (issue 144); the answer never changes
+	Int collideCount = 0;
+	for (BehaviorModule** m = m_behaviors; *m; ++m)
+	{
+		if ((*m)->getCollide())
+			++collideCount;
+	}
+	m_collides = MSGNEW("ModulePtrs") CollideModuleInterface*[collideCount + 1];
+	CollideModuleInterface** curC = m_collides;
+	for (BehaviorModule** m = m_behaviors; *m; ++m)
+	{
+		if (CollideModuleInterface* collide = (*m)->getCollide())
+			*curC++ = collide;
+	}
+	*curC = NULL;
+
 	AIUpdateInterface *ai = getAIUpdateInterface();
 	if (ai) {
 		ai->setAttitude(getTeam()->getPrototype()->getTemplateInfo()->m_initialTeamAttitude);
@@ -678,8 +695,10 @@ Object::~Object()
 		*b = NULL;	// in case other modules call findModule from their dtor!
 	}
 
-	delete [] m_behaviors;		
+	delete [] m_behaviors;
 	m_behaviors = NULL;
+	delete [] m_collides;
+	m_collides = NULL;
 
 	if( m_experienceTracker )
 		m_experienceTracker->deleteInstance();
@@ -2261,6 +2280,12 @@ void Object::setDisabledUntil( DisabledType type, UnsignedInt frame )
 		return;
 	}
 
+	// a steady aura on it cuts a timed paralysis or EMP short
+	const UnsignedInt now = TheGameLogic->getFrame();
+	const Real steady = getRankAura( RANK_AURA_STEADY );
+	if( steady > 0.0f && ( type == DISABLED_PARALYZED || type == DISABLED_EMP ) && frame != FOREVER && frame > now )
+		frame = now + REAL_TO_UNSIGNEDINT( ( frame - now ) * ( 1.0f - steady ) );
+
 	//Handle audio events!
  	AudioEventRTS sound;
 	if( type == DISABLED_UNMANNED && !isKindOf( KINDOF_DRONE ) )
@@ -2588,11 +2613,9 @@ void Object::updateTriggerAreaFlags()
 //-------------------------------------------------------------------------------------------------
 void Object::onCollide( Object *other, const Coord3D *loc, const Coord3D *normal )
 {
-	for (BehaviorModule** m = m_behaviors; *m; ++m)
+	for (CollideModuleInterface** c = m_collides; *c; ++c)
 	{
-		CollideModuleInterface* collide = (*m)->getCollide();
-		if (!collide)
-			continue;
+		CollideModuleInterface* collide = *c;
 
 		// check each time thru the loop, in case a collide module sets it
 		if( getStatusBits().test( OBJECT_STATUS_NO_COLLISIONS ) )
@@ -3229,7 +3252,8 @@ void Object::scoreTheKill( const Object *victim )
 	{
 		controller->getScoreKeeper()->addObjectDestroyed(victim);
 		controller->addSkillPointsForKill(this, victim);
-		controller->doBountyForKill(this, victim);
+		// a rank's scavenging of its own kills or a leader's spoils aura, the larger, on top of the bounty
+		controller->doBountyForKill(this, victim, MAX(getRankPerk(RANK_PERK_SCAVENGE), getRankAura(RANK_AURA_SPOILS)));
 	}
 
 	/* Now handle experience, if we can gain any.
@@ -3520,11 +3544,12 @@ void Object::onRankChanged( VeterancyLevel oldLevel, VeterancyLevel newLevel, In
 			&& Drawable::getRankInsignia( this ) != NULL )
 		floatRankGain( ladder->insigniaIndex( newGrade, isKindOf( KINDOF_HERO ) ) );
 
-	// the portrait shows the grade, so a selected unit's bar redraws; the selection is the client's,
-	// so the client asks after the tick
+	// the portrait shows the grade, so a selected unit's bar redraws, and the aura rings look for a new
+	// leader; the selection and the rings are the client's, so the client asks after the tick
 	const ObjectID objID = getID();
 	LogicThread::callAfterTick( [objID]()
 	{
+		TheInGameUI->noteRankChanged( objID );
 		Drawable *draw = TheInGameUI->getFirstSelectedDrawable();
 		if( draw && draw->getObject() && draw->getObject()->getID() == objID )
 			TheControlBar->markUIDirty();
@@ -4533,13 +4558,14 @@ static void xferModule( Xfer *xfer, BehaviorModule *module, const Object *obj )
 	* 12: the last threat and value sightings
 	* 13: how many enemy jammers are cutting its sight
 	* 14: the rank auras on it and when its death rally ends
+	* 15: the six aura kinds mend, pace, drill, steady, capture and spoils
 	*/
 //-------------------------------------------------------------------------------------------------
 void Object::xfer( Xfer *xfer )
 {
 
 	// version
-	const XferVersion currentVersion = 14;
+	const XferVersion currentVersion = 15;
 	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
 
@@ -5003,12 +5029,20 @@ void Object::xfer( Xfer *xfer )
 	if( version >= 13 )
 		xfer->xferInt( &m_sightJammerCount );
 
-	if( version >= 14 )
+	// version 14 saved five kinds, the four before MEND and RALLY
+	if( version >= 15 )
 	{
 		for( Int aura = 0; aura < RANK_AURA_COUNT; ++aura )
 			xfer->xferReal( &m_rankAura[ aura ] );
-		xfer->xferUnsignedInt( &m_rankRallyUntil );
 	}
+	else if( version >= 14 )
+	{
+		for( Int aura = 0; aura < RANK_AURA_MEND; ++aura )
+			xfer->xferReal( &m_rankAura[ aura ] );
+		xfer->xferReal( &m_rankAura[ RANK_AURA_RALLY ] );
+	}
+	if( version >= 14 )
+		xfer->xferUnsignedInt( &m_rankRallyUntil );
 
 }  // end xfer
 
@@ -5168,6 +5202,7 @@ void Object::onDie( DamageInfo *damageInfo )
 	Bool selfInflicted = (damageInfo->in.m_sourceID == getID());
 
 	giveRankRally();
+	dropRankSalvage();
 
 	//
 	// FIRST, call our die modules - unless nothing has been built here yet, in which case they are
@@ -5612,6 +5647,15 @@ Bool Object::isSpotter() const
 }
 
 //-------------------------------------------------------------------------------------------------
+/** A hacker climbs the ladder on its payouts alone and sits at the back keyboarding, so it leads
+	* nobody: no aura, no ring, whatever its grade. */
+//-------------------------------------------------------------------------------------------------
+Bool Object::leadsRankAuras() const
+{
+	return !( m_ai && m_ai->getHackInternetAIInterface() );
+}
+
+//-------------------------------------------------------------------------------------------------
 void Object::onRankSightChanged( Real oldScalar )
 {
 	if( getRankSightScalar() != oldScalar && !m_partitionLastLook->isInvalid() )
@@ -5631,7 +5675,7 @@ void Object::giveRankRally()
 	const Real strength = ladder->aura( grade, RANK_AURA_RALLY );
 	if( strength <= 0.0f )
 		return;
-	const Real radius = ladder->auraRadius( grade );
+	const Real radius = ladder->auraRadius( grade, RANK_AURA_RALLY );
 	const UnsignedInt until = TheGameLogic->getFrame() + TheGlobalData->m_rankRallyTime;
 	for( Object *other = TheGameLogic->getFirstObject(); other; other = other->getNextObject() )
 	{
@@ -5643,6 +5687,34 @@ void Object::giveRankRally()
 	}
 	DEBUG_LOG(("RANK RALLY frame=%d template=%s strength=%.2f radius=%.0f\n", TheGameLogic->getFrame(),
 		getTemplate()->getName().str(), strength, radius));
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The cell survives its general: a crate where it fell, placed the way CreateCrateDie places one,
+	* clear of the hulk, for whoever can pick it up. */
+//-------------------------------------------------------------------------------------------------
+void Object::dropRankSalvage()
+{
+	if( m_containedBy || getRankPerk( RANK_PERK_SALVAGE_CRATE ) <= 0.0f )
+		return;
+	// a mod's data may lack the crate
+	const ThingTemplate *crateType = TheThingFactory->findTemplate( TheGlobalData->m_rankSalvageCrate );
+	if( crateType == NULL )
+		return;
+
+	Coord3D where = *getPosition(), clear;
+	FindPositionOptions options;
+	options.maxRadius = 5.0f;
+	options.relationshipObject = this;
+	options.flags = FPF_IGNORE_ALLY_OR_NEUTRAL_UNITS;
+	if( getLayer() == LAYER_GROUND && ThePartitionManager->findPositionAround( getPosition(), &options, &clear ) )
+		where = clear;
+
+	Object *crate = TheThingFactory->newObject( crateType, NULL );
+	crate->setPosition( &where );
+	crate->setLayer( getLayer() );
+	DEBUG_LOG(("RANK SALVAGE frame=%d template=%s crate=%d\n", TheGameLogic->getFrame(), getTemplate()->getName().str(),
+		crate->getID()));
 }
 
 //-------------------------------------------------------------------------------------------------

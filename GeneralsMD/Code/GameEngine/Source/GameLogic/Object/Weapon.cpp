@@ -2163,16 +2163,33 @@ void Weapon::computeBonus(const Object *source, WeaponBonusConditionFlags extraB
 		const WeaponBonusSet* sideSet = TheGlobalData->getVeterancyWeaponBonus(sourceTemplate, source->getVeterancyLevel());
 		if (sideSet)
 			sideSet->appendBonuses(flags, bonus);
-		const Real* stat = ladder->m_stat[MIN(source->getRankGrade(), ladder->m_grades)];
-		bonus.setField(WeaponBonus::RATE_OF_FIRE, bonus.getField(WeaponBonus::RATE_OF_FIRE) + stat[RANK_STAT_RATE_OF_FIRE] - 1.0f);
+		const Int grade = source->getRankGrade();
+		const Real* stat = ladder->m_stat[MIN(grade, ladder->m_grades)];
+		// and its own perks on top: a steadier rate of fire and reach, a faster one when it is nearly dead
+		Real rateOfFire = stat[RANK_STAT_RATE_OF_FIRE] - 1.0f + ladder->perk(grade, RANK_PERK_RATE_OF_FIRE);
+		const Real lastStand = ladder->perk(grade, RANK_PERK_LAST_STAND);
+		const BodyModuleInterface* body = source->getBodyModule();
+		if (lastStand > 0.0f && body->getHealth() < RANK_LAST_STAND_HEALTH * body->getMaxHealth())
+			rateOfFire += lastStand;
+		bonus.setField(WeaponBonus::RATE_OF_FIRE, bonus.getField(WeaponBonus::RATE_OF_FIRE) + rateOfFire);
 		bonus.setField(WeaponBonus::DAMAGE, bonus.getField(WeaponBonus::DAMAGE) + stat[RANK_STAT_DAMAGE] - 1.0f);
-		bonus.setField(WeaponBonus::RANGE, bonus.getField(WeaponBonus::RANGE) + stat[RANK_STAT_RANGE] - 1.0f);
+		bonus.setField(WeaponBonus::RANGE, bonus.getField(WeaponBonus::RANGE) + stat[RANK_STAT_RANGE] - 1.0f
+			+ ladder->perk(grade, RANK_PERK_RANGE));
 	}
 	else if (TheGlobalData->m_weaponBonusSet)
 		TheGlobalData->m_weaponBonusSet->appendBonuses(flags, bonus);
 
-	// a leader's auras reach any friendly unit, on a ladder or not; range only an artillery piece's
-	const Real auraRateOfFire = MIN(source->getRankAura(RANK_AURA_RATE_OF_FIRE), TheGlobalData->m_rankAuraRateOfFireCap);
+	// a leader's auras reach any friendly unit, on a ladder or not; range only an artillery piece's.
+	// The rate-of-fire aura and a Propaganda Tower's enthusiasm give the larger of the two, not both.
+	Real auraRateOfFire = MIN(source->getRankAura(RANK_AURA_RATE_OF_FIRE), TheGlobalData->m_rankAuraRateOfFireCap);
+	const WeaponBonusConditionFlags ENTHUSIASM = (1 << WEAPONBONUSCONDITION_ENTHUSIASTIC) | (1 << WEAPONBONUSCONDITION_SUBLIMINAL);
+	if (auraRateOfFire > 0.0f && (flags & ENTHUSIASM) && TheGlobalData->m_weaponBonusSet)
+	{
+		WeaponBonus enthusiasm;
+		enthusiasm.clear();
+		TheGlobalData->m_weaponBonusSet->appendBonuses(flags & ENTHUSIASM, enthusiasm);
+		auraRateOfFire -= MIN(auraRateOfFire, enthusiasm.getField(WeaponBonus::RATE_OF_FIRE) - 1.0f);
+	}
 	if (auraRateOfFire > 0.0f)
 		bonus.setField(WeaponBonus::RATE_OF_FIRE, bonus.getField(WeaponBonus::RATE_OF_FIRE) + auraRateOfFire);
 	const Real auraRange = source->getRankAura(RANK_AURA_RANGE);

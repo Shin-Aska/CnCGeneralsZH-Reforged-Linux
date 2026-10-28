@@ -162,6 +162,9 @@ public:
 	SidesInfo *findSkirmishSideInfo(AsciiString name, Int* index = NULL);
 
 	void prepareForMP_or_Skirmish(void); // After a map is loaded, save & clear any players.
+	/// the map wrote its own scripts for its skirmish players (an Art of Defense map's waves), so
+	/// prepareForMP_or_Skirmish left SkirmishScripts.scb unread
+	Bool skirmishScriptsFromMap() const { return m_skirmishScriptsFromMap; }
 
 	/** The skirmish side a computer player on pt copies its scripts from, and in *teams (when asked) the
 		* record its teams are in.  Under -modfactions a mod faction takes its own mod's side of the same
@@ -214,6 +217,7 @@ protected:
 
 	TeamsInfoRec	m_teamrec;
 	TeamsInfoRec	m_skirmishTeamrec;
+	Bool				m_skirmishScriptsFromMap;
 
 	/// -modfactions: each mod's SkirmishScripts.scb players and teams; and the standard file's players for
 	/// sides the map has none for.  Kept out of m_skirmishSides, which a map's own sides nearly fill
