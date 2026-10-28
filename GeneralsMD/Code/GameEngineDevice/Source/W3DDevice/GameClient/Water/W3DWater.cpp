@@ -1558,7 +1558,7 @@ void WaterRenderObjClass::setupModernWaterShader(Bool river, Bool heightCorrecti
 	DX8Wrapper::Set_DX8_Texture(4, optical ? optical->Peek_D3D_Texture() : NULL);
 #if defined(__linux__)
 	TextureClass *heading=NULL;D3DXVECTOR4 prevailing(0,0,0,0);
-	if(!river && optical && WaterFftSampling::Enabled() && WaterWaveHeading::Enabled())
+	if(!river && optical && WaterFftSampling::Enabled())
 		for(const ModernOpticalTexture &cached:m_modernOpticalTextures)
 			if(cached.level==m_modernOpticalLevel){heading=cached.heading;prevailing.x=cached.prevailingRotation;break;}
 	DX8Wrapper::Set_DX8_Texture(11,heading?heading->Peek_D3D_Texture():NULL);
@@ -1750,7 +1750,7 @@ TextureClass *WaterRenderObjClass::modernWaterOpticalTexture(Real level)
 	ModernOpticalTexture &cached=m_modernOpticalTextures.back();
 	cached.texture=texture;
 #if defined(__linux__)
-	if(WaterFftSampling::Enabled() && WaterWaveHeading::Enabled()) {
+	if(WaterFftSampling::Enabled()) {
 		WaterWaveHeading::Field heading;
 		if(WaterWaveHeading::Build(field.wet.data(),field.exposure.data(),m_modernHeightWidth,m_modernHeightHeight,MAP_XY_FACTOR,heading)) {
 			TextureClass *headingTexture=NEW_REF(TextureClass,(m_modernHeightSide,m_modernHeightSide,WW3D_FORMAT_A8R8G8B8,MIP_LEVELS_1));

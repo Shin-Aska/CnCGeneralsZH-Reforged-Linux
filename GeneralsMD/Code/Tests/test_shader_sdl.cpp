@@ -1965,24 +1965,17 @@ TEST(fft_heading_keeps_coastal_incident_decoder_unrotated_and_compilable)
 }
 
 #if defined(__linux__)
-TEST(fft_heading_linux_bindings_compile_and_opt_out_leaves_d3d_and_rivers_unchanged)
+TEST(fft_heading_linux_bindings_compile_and_leave_d3d_and_rivers_unheaded)
 {
-    SavedShaderOption heading("ZH_WATER_HEADING"),fft("ZH_WATER_FFT"),debug("ZH_WATER_DEBUG");
+    SavedShaderOption fft("ZH_WATER_FFT"),debug("ZH_WATER_DEBUG");
     CHECK(unsetenv(debug.name)==0);CHECK(unsetenv(fft.name)==0);
     PixelPipelineDescription pipeline={};
-    std::string baselineD3d,baselineRiver,baselinePixel;
-    CHECK(setenv(heading.name,"0",1)==0);
-    CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,baselineD3d,COMBINER_SHADER_TARGET_D3D11));
-    CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_RIVER,pipeline,baselineRiver,COMBINER_SHADER_TARGET_SDL3_GPU));
-    CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,baselinePixel,COMBINER_SHADER_TARGET_SDL3_GPU));
-    CHECK(baselinePixel.find("FftHeadingTexture")==std::string::npos);
     VertexPipelineDescription description=shader_cases_detail::plain_vertex();
     description.FVF=0x252;description.LightingEnabled=false;description.StageCount=4;
     for(unsigned i=0;i<4;++i) {
         description.Stages[i].TextureCoordinateIndex=i<2?i:0;
         description.Stages[i].TextureTransformFlags=FF_TTFF_DISABLE;
     }
-    CHECK(unsetenv(heading.name)==0);CHECK(WaterWaveHeading::Enabled());
     for(bool array:{false,true}) {
         std::string vertex;
         CHECK(VertexShader_Generate(description,VERTEX_SHADER_TARGET_D3D11,vertex));
@@ -2001,9 +1994,9 @@ TEST(fft_heading_linux_bindings_compile_and_opt_out_leaves_d3d_and_rivers_unchan
     CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,pixel,COMBINER_SHADER_TARGET_SDL3_GPU));
     CHECK(pixel.find("FftHeadingTexture")!=std::string::npos);
     CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_RIVER,pipeline,river,COMBINER_SHADER_TARGET_SDL3_GPU));
-    CHECK(river==baselineRiver);
+    CHECK(river.find("FftHeadingTexture")==std::string::npos);
     CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,d3d,COMBINER_SHADER_TARGET_D3D11));
-    CHECK(d3d==baselineD3d);
+    CHECK(d3d.find("FftHeadingTexture")==std::string::npos);
     std::vector<unsigned char> spirv;std::string error;
     const bool compiled=SDL3_Compile_HLSL_To_SPIRV(pixel,false,spirv,error);
     if(!compiled)printf("headed pixel: %s\n",error.c_str());CHECK(compiled);

@@ -3,8 +3,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <cstdlib>
-#include <cstring>
 #include <vector>
 
 namespace WaterWaveHeading {
@@ -20,10 +18,6 @@ struct Vector { float x,y; };
 // SpectrumHlsl uses h0*exp(+i*omega*t), ButterflyHlsl exp(+i*k.x).
 // Constant phase k.x+omega*t therefore travels along -k: wind (1,1) means (-1,-1).
 constexpr Vector BaseHeading={-0.7071067811865475f,-0.7071067811865475f};
-inline bool Enabled() {
-    const char *value=std::getenv("ZH_WATER_HEADING");
-    return !value || std::strcmp(value,"0")!=0;
-}
 struct Field {
     Vector prevailing=BaseHeading;
     std::vector<uint32_t> texels; // A8R8G8B8; invalid dry texels also retain prevailing RG

@@ -2049,7 +2049,7 @@ bool EngineShader_Pixel_Program(EngineShaderProgram program,
 #if defined(__linux__)
 		if (program == ENGINE_SHADER_WATER_TRAPEZOID || program == ENGINE_SHADER_WATER_RIVER) {
 			write_modern_water(hlsl, program == ENGINE_SHADER_WATER_RIVER, WaterPerformanceSettings::Applied(),
-				WaterFftSampling::Enabled() && WaterWaveHeading::Enabled());
+				WaterFftSampling::Enabled());
 			if (!water_material_profile(hlsl)) return false;
 			const int hullDepthDiagnostic=water_hull_depth_diagnostic();
 			if(hullDepthDiagnostic) write_water_hull_depth_diagnostic(hlsl);
