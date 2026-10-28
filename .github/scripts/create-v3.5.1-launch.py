@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Lay out the 3.5.1 release card without changing screenshot pixels.
+"""Lay out the 3.5.1 release card using only the original gameplay captures.
 
 Requires the already available Pillow and DejaVu Sans fonts. Run from any folder.
-Screenshots are pasted at their native dimensions, with no crop, resampling,
-retouching, colour adjustment, or text over the gameplay.
+Screenshots are proportionally resized to fit, with no cropping, retouching,
+colour adjustment, reconstruction, or text over the gameplay.
 """
 
 from pathlib import Path
@@ -27,53 +27,65 @@ def font(size, bold=False):
 
 
 def main():
-    canvas = Image.new("RGB", (2720, 1530), BACKGROUND)
+    canvas = Image.new("RGB", (2880, 1620), BACKGROUND)
     draw = ImageDraw.Draw(canvas)
 
     def text(x, y, value, size, color=WHITE, bold=False):
         draw.text((x, y), value, font=font(size, bold), fill=color, anchor="lt")
 
-    draw.rectangle((80, 76, 92, 274), fill=GOLD)
-    text(126, 82, "ZERO HOUR", 105, bold=True)
-    text(130, 212, "REFORGED LINUX", 53, color=GOLD, bold=True)
-    draw.text((2640, 70), "3.5.1", font=font(190, True), fill=GOLD, anchor="rt")
-    draw.line((80, 328, 2640, 328), fill="#354957", width=2)
+    draw.rectangle((0, 0, 1009, 1619), fill="#061b2c")
+    text(80, 122, "ZERO HOUR", 120, bold=True)
+    text(84, 280, "REFORGED LINUX", 76, color=GOLD, bold=True)
+    draw.line((84, 407, 926, 407), fill=GOLD, width=3)
+    text(64, 460, "3.5.1", 267, color=GOLD, bold=True)
 
-    text(80, 374, "MORE NATURAL WATER", 30, color=MUTED, bold=True)
-    text(1698, 374, "SHARPER WATER REFLECTIONS", 30, color=MUTED, bold=True)
+    for y in (840, 946, 1052):
+        draw.rectangle((84, y, 92, y + 51), fill=GOLD)
+    text(120, 843, "More natural water", 44, bold=True)
+    text(120, 949, "Better water performance", 44, bold=True)
+    text(120, 1055, "Sharper path-traced", 44, bold=True)
+    text(120, 1119, "water reflections", 44, bold=True)
+    draw.line((84, 1320, 926, 1320), fill=GOLD, width=3)
+    text(84, 1364, "New water quality controls", 38, color=MUTED)
+    text(84, 1432, "Reflections · Refraction · Wave detail", 29, color=MUTED)
+    text(84, 1544, "UPSTREAM 3.5.1 + LINUX IMPROVEMENTS", 24, color=GOLD,
+         bold=True)
 
     panels = [
-        (MEDIA / "v3.5.1-water.png", (80, 430)),
-        (MEDIA / "v3.5.1-reflections.png", (1698, 430)),
+        (MEDIA / "v3.5.1-water.png", (1060, 40), 1780, None),
+        (MEDIA / "v3.5.1-sunlit-water.png", (1260, 1014), None, 540),
+        (MEDIA / "v3.5.1-reflections.png", (1840, 1014), None, 540),
     ]
-    for path, (x, y) in panels:
+    expected_panels = []
+    for path, (x, y), target_width, target_height in panels:
         source = Image.open(path).convert("RGB")
-        width, height = source.size
+        if target_width is not None:
+            size = (target_width, round(source.height * target_width / source.width))
+        else:
+            size = (round(source.width * target_height / source.height), target_height)
+        panel = source.resize(size, Image.Resampling.LANCZOS)
+        width, height = panel.size
         draw.rectangle((x - 2, y - 2, x + width + 1, y + height + 1),
-                       outline="#41596a", width=2)
-        canvas.paste(source, (x, y))
+                       outline=GOLD, width=2)
+        canvas.paste(panel, (x, y))
+        expected_panels.append((path, panel, (x, y)))
 
-    text(1698, 1111, "NEW WATER QUALITY CONTROLS", 28, color=GOLD, bold=True)
-    text(1698, 1162, "Scene reflections  ·  On / Off", 29)
-    text(1698, 1207, "Refraction  ·  Full / Simple / Off", 29)
-    text(1698, 1252, "Wave detail  ·  High 256 / Low 128", 29)
-
-    draw.line((80, 1343, 2640, 1343), fill="#354957", width=2)
-    text(80, 1388, "Optimized water performance", 43, bold=True)
-    draw.text((2640, 1402), "UPSTREAM 3.5.1 + LINUX IMPROVEMENTS",
-              font=font(26, True), fill=MUTED, anchor="rt")
+    text(1060, 925, "NATURAL WAVES · ORIGINAL GAMEPLAY", 24, color=MUTED,
+         bold=True)
+    text(1260, 971, "SUNLIT WATER", 23, color=GOLD, bold=True)
+    text(1840, 971, "SHARPER REFLECTION DETAIL", 23, color=GOLD, bold=True)
 
     output = MEDIA / "v3.5.1-launch.png"
     canvas.save(output, optimize=True)
 
-    # Verify the saved artifact itself, including every original HUD/cursor pixel.
+    # Verify no changes beyond the specified proportional resampling.
     saved = Image.open(output).convert("RGB")
-    for path, (x, y) in panels:
-        source = Image.open(path).convert("RGB")
-        pasted = saved.crop((x, y, x + source.width, y + source.height))
-        if ImageChops.difference(source, pasted).getbbox() is not None:
+    for path, expected, (x, y) in expected_panels:
+        pasted = saved.crop((x, y, x + expected.width, y + expected.height))
+        if ImageChops.difference(expected, pasted).getbbox() is not None:
             raise SystemExit(f"Screenshot pixels changed: {path.name}")
-        print(f"Unchanged screenshot: {path.name}, {source.width}x{source.height}")
+        print(f"Original screenshot, proportional resize only: {path.name}, "
+              f"{expected.width}x{expected.height}")
     print(f"Saved {output} ({saved.width}x{saved.height})")
 
 
