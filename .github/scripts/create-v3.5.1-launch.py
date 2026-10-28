@@ -53,8 +53,9 @@ def main():
 
     panels = [
         (MEDIA / "v3.5.1-water.png", (1060, 40), 1780, None),
-        (MEDIA / "v3.5.1-sunlit-water.png", (1260, 1014), None, 540),
-        (MEDIA / "v3.5.1-reflections.png", (1840, 1014), None, 540),
+        (MEDIA / "v3.5.1-low-wave-detail.png", (1060, 1014), None, 500),
+        (MEDIA / "v3.5.1-sunlit-water.png", (1549, 1014), None, 500),
+        (MEDIA / "v3.5.1-reflections.png", (2086, 1014), None, 500),
     ]
     expected_panels = []
     for path, (x, y), target_width, target_height in panels:
@@ -70,10 +71,14 @@ def main():
         canvas.paste(panel, (x, y))
         expected_panels.append((path, panel, (x, y)))
 
-    text(1060, 925, "NATURAL WAVES · ORIGINAL GAMEPLAY", 24, color=MUTED,
+    text(1060, 925, "WAVES NOW FOLLOW THE SHORE", 24, color=MUTED,
          bold=True)
-    text(1260, 971, "SUNLIT WATER", 23, color=GOLD, bold=True)
-    text(1840, 971, "SHARPER REFLECTION DETAIL", 23, color=GOLD, bold=True)
+    text(1060, 971, "LOW WAVE DETAIL", 23, color=GOLD, bold=True)
+    text(1549, 971, "HIGH WAVE DETAIL", 23, color=GOLD, bold=True)
+    text(2086, 971, "SHARPER PATH TRACING REFLECTIONS", 23, color=GOLD,
+         bold=True)
+    text(1060, 1540, "128×128 FFT", 25, color=MUTED, bold=True)
+    text(1549, 1540, "256×256 FFT", 25, color=MUTED, bold=True)
 
     output = MEDIA / "v3.5.1-launch.png"
     canvas.save(output, optimize=True)
