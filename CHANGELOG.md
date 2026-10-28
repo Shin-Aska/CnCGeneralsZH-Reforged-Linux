@@ -8,6 +8,19 @@ found and fixed, EA's own, not port damage.**
 
 ---
 
+## Linux 3.5.1 release (2026-10-28)
+
+- Synchronizes with upstream 3.5.1 and packages the Linux improvements since this origin's 3.4.2.
+- Modern ocean waves turn toward the shore. Water rendering reuses unchanged work and avoids
+  duplicate CPU wave calculations, leaving more performance available for water reflections.
+- Water quality controls include reflections On/Off, refraction Full/Simple/Off, High/Low wave
+  detail (256×256 / 128×128 FFT) and High/Low reflection detail, also set by the quality presets.
+- Experimental Path traced water reflections retain more recognizable texture detail. High uses
+  512×512 captures while moving and stationary; Low uses 256×256 settled / 128×128 moving.
+- Includes upstream's rank perks and leader auras, retail ground movement, smoother motion on
+  high-refresh displays and gameplay, network and performance fixes.
+- See [the release notes](docs/releases/v3.5.1.md) for downloads, settings and known limits.
+
 ## Linux compatibility baseline (2026-10-24)
 
 - Linux packages target Ubuntu 22.04 and newer, with separate startup checks for the DEB and AppImage.
