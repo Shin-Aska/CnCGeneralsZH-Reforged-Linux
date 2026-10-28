@@ -38,6 +38,7 @@
 #include "Platform/EngineShaderName.h"
 #include "Platform/WaterPerformanceSettings.h"
 #include "Platform/WaterMaterialProfile.h"
+#include "Platform/WaterWaveHeading.h"
 
 #include <SDL3/SDL.h>
 
@@ -123,8 +124,9 @@ static void check_water_vertex_storage_variants(PosixDevice9 *device,SdlProgramC
     const auto *array=&cache.Water_Vertex_Program(description,true);
     CHECK(legacy->Shader!=NULL && array->Shader!=NULL);
     CHECK(legacy!=array && legacy->Shader!=array->Shader && legacy->Key!=array->Key);
-    // Three FFT samplers plus the production cage terrain sampler when retained.
-    CHECK(legacy->SamplerSlots>=3 && legacy->SamplerSlots<=4);
+    // Three FFT samplers plus the production cage terrain sampler when retained,
+    // and the Linux wave heading field unless ZH_WATER_HEADING=0.
+    CHECK(legacy->SamplerSlots>=3 && legacy->SamplerSlots<=(WaterWaveHeading::Enabled()?5u:4u));
     CHECK(array->SamplerSlots==legacy->SamplerSlots);
     CHECK(legacy->UniformBuffers==2 && array->UniformBuffers==2);
     CHECK(cache.Programs_Built()==before+2);

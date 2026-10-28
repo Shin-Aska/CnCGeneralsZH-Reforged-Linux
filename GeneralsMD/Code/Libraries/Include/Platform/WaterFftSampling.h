@@ -12,6 +12,7 @@
 #include "Platform/WaterBowLift.h"
 #include "Platform/WaterWaveCageShader.h"
 #include "Platform/ModernWaterMaterial.h"
+#include "Platform/WaterWaveHeading.h"
 
 namespace WaterFftSampling {
 inline bool Enabled() {
@@ -112,7 +113,95 @@ FftHorizontalRegistration fftHorizontalRegistration(float2 p,float3 raw,float3 r
 }
 )HLSL";
 }
-inline std::string VertexSource(bool bowLift=false,bool bowShoulder=WaterBowShoulder::Enabled(),bool textureArray=false)
+// Opt-in only: the shared/default generators, including the coastal text decoder, retain
+// byte-identical unrotated source. SDL supplies linear/clamp samplers in both stages.
+inline std::string HeadingSource(bool vertex) {
+    char base[128];
+    std::snprintf(base,sizeof(base),"static const float2 fftBaseHeading=float2(%.9g,%.9g);\n",
+        double(WaterWaveHeading::BaseHeading.x),double(WaterWaveHeading::BaseHeading.y));
+    return std::string(vertex?R"HLSL(
+Texture2D FftHeadingTexture : register(t4);
+SamplerState FftHeadingSampler : register(s4);
+)HLSL":R"HLSL(
+Texture2D FftHeadingTexture : register(t11);
+SamplerState FftHeadingSampler : register(s11);
+)HLSL")+base+R"HLSL(
+float2 fftRotate(float2 p,float2 cs) {return float2(cs.x*p.x-cs.y*p.y,cs.y*p.x+cs.x*p.y);}
+float3 fftRotateVector(float3 v,float2 cs) {return float3(fftRotate(v.xy,cs),v.z);}
+struct FftHeading {float2 rotation0,rotation1,weights;};
+FftHeading fftHeading(float2 p) {
+    float4 packed=FftHeadingTexture.SampleLevel(FftHeadingSampler,(p+TerrainParameters.xx+5.0)/max(TerrainParameters.y,1.0),0);
+    float2 heading=packed.rg*2.0-1.0;
+    FftHeading value;
+    // Invalid/degenerate texels use the per-level prevailing rotation, without sector blending.
+    if(packed.a<=0.0 || dot(heading,heading)<0.0025) {
+        sincos(FftParameters.w,value.rotation0.y,value.rotation0.x);
+        value.rotation1=value.rotation0;value.weights=float2(1,0);return value;
+    }
+    float phi=atan2(fftBaseHeading.x*heading.y-fftBaseHeading.y*heading.x,dot(fftBaseHeading,heading));
+    float sector=phi/0.7853981633974483,k=floor(sector),t=frac(sector);
+    float u=saturate((t-0.25)/0.5);
+    sincos(k*0.7853981633974483,value.rotation0.y,value.rotation0.x);
+    sincos((k+1.0)*0.7853981633974483,value.rotation1.y,value.rotation1.x);
+    // Explicit endpoints make the zero-weight branch exact (cos(pi/2) need not be zero).
+    value.weights=u<=0.0?float2(1,0):u>=1.0?float2(0,1):float2(cos(u*1.5707963267948966),sin(u*1.5707963267948966));
+    return value;
+}
+)HLSL";
+}
+inline std::string HeadingVertexSource() {
+    return R"HLSL(
+float3 fftRawDisplacement(float2 p) {
+    [branch] if(FftParameters.z<=0.5) return fftUnrotatedDisplacement(p);
+    FftHeading heading=fftHeading(p);float3 result=0;
+    [branch] if(heading.weights.x>0.0)
+        result+=heading.weights.x*fftRotateVector(fftUnrotatedDisplacement(fftRotate(p,heading.rotation0*float2(1,-1))),heading.rotation0);
+    [branch] if(heading.weights.y>0.0)
+        result+=heading.weights.y*fftRotateVector(fftUnrotatedDisplacement(fftRotate(p,heading.rotation1*float2(1,-1))),heading.rotation1);
+    return result;
+}
+)HLSL";
+}
+inline std::string HeadingPixelSource() {
+    return R"HLSL(
+void fftAccumulateHeading(inout FftSurface result,FftSurface value,float2 cs,float weight) {
+    result.displacement+=weight*fftRotateVector(value.displacement,cs);
+    // Chain rule for q=R(-a)p, then R(a) on displacement XY. The smooth CPU field
+    // permits ignoring spatial derivatives of the sector weights and rotations.
+    result.derivativeX+=weight*fftRotateVector(cs.x*value.derivativeX-cs.y*value.derivativeY,cs);
+    result.derivativeY+=weight*fftRotateVector(cs.y*value.derivativeX+cs.x*value.derivativeY,cs);
+    result.contactIncident+=weight*float3(value.contactIncident.x,fftRotate(value.contactIncident.yz,cs));
+    result.incidentCompression+=weight*(value.incidentCompression-1.0);
+}
+FftSurface fftRawSurface(float2 p,float3 lod) {
+    [branch] if(FftParameters.z<=0.5) return fftUnrotatedSurface(p,lod);
+    FftHeading heading=fftHeading(p);FftSurface result=(FftSurface)0;result.incidentCompression=1;
+    [branch] if(heading.weights.x>0.0)
+        fftAccumulateHeading(result,fftUnrotatedSurface(fftRotate(p,heading.rotation0*float2(1,-1)),lod),heading.rotation0,heading.weights.x);
+    [branch] if(heading.weights.y>0.0)
+        fftAccumulateHeading(result,fftUnrotatedSurface(fftRotate(p,heading.rotation1*float2(1,-1)),lod),heading.rotation1,heading.weights.y);
+    return result;
+}
+FftSurface fftRawSurface(float2 p) {return fftRawSurface(p,float3(0,0,0));}
+void fftRawAndShadingSurface(float2 p,float3 lod,out FftSurface physical,out FftSurface shading) {
+    [branch] if(FftParameters.z<=0.5) {fftUnrotatedAndShadingSurface(p,lod,physical,shading);return;}
+    FftHeading heading=fftHeading(p);
+    physical=(FftSurface)0;physical.incidentCompression=1;shading=physical;
+    FftSurface a,b;
+    [branch] if(heading.weights.x>0.0) {
+        fftUnrotatedAndShadingSurface(fftRotate(p,heading.rotation0*float2(1,-1)),lod,a,b);
+        fftAccumulateHeading(physical,a,heading.rotation0,heading.weights.x);
+        fftAccumulateHeading(shading,b,heading.rotation0,heading.weights.x);
+    }
+    [branch] if(heading.weights.y>0.0) {
+        fftUnrotatedAndShadingSurface(fftRotate(p,heading.rotation1*float2(1,-1)),lod,a,b);
+        fftAccumulateHeading(physical,a,heading.rotation1,heading.weights.y);
+        fftAccumulateHeading(shading,b,heading.rotation1,heading.weights.y);
+    }
+}
+)HLSL";
+}
+inline std::string VertexSource(bool bowLift=false,bool bowShoulder=WaterBowShoulder::Enabled(),bool textureArray=false,bool waveHeading=false)
 {
     std::string source=std::string(R"HLSL(
 Texture2D FftDisplacement0 : register(t0);
@@ -161,6 +250,13 @@ float3 fftVertexDisplacement(float2 p,float level,float horizontalScale) {
 float3 fftVertexDisplacement(float2 p,float level) {return fftVertexDisplacement(p,level,0.0);}
 float3 fftVertexDisplacement(float2 p) {return fftVertexDisplacement(p,WaterParameters.w);}
 )HLSL";
+    if(waveHeading) {
+        const std::string entry="float3 fftRawDisplacement(float2 p)";
+        source.replace(source.find(entry),entry.size(),"float3 fftUnrotatedDisplacement(float2 p)");
+        const size_t end=source.find("\n}",source.find("float3 fftUnrotatedDisplacement"))+3;
+        source.insert(end,HeadingVertexSource());
+        source=HeadingSource(true)+source;
+    }
     if(textureArray) for(unsigned cascade=0;cascade<3;++cascade) {
         const std::string i=std::to_string(cascade);
         const std::string declaration="Texture2D FftDisplacement"+i;
@@ -173,7 +269,7 @@ float3 fftVertexDisplacement(float2 p) {return fftVertexDisplacement(p,WaterPara
 }
 // Add a water-only wrapper to the generated fixed vertex program. It retains the engine's
 // original projection, shroud coordinate generation and fog after moving the actual vertex.
-inline bool WrapVertex(std::string &hlsl,bool bowLift=WaterBowLift::Enabled(),bool bowShoulder=WaterBowShoulder::Enabled(),bool textureArray=false)
+inline bool WrapVertex(std::string &hlsl,bool bowLift=WaterBowLift::Enabled(),bool bowShoulder=WaterBowShoulder::Enabled(),bool textureArray=false,bool waveHeading=false)
 {
     const std::string entry="Output main(Input input)";
     const size_t at=hlsl.find(entry);
@@ -181,7 +277,7 @@ inline bool WrapVertex(std::string &hlsl,bool bowLift=WaterBowLift::Enabled(),bo
         || hlsl.find("float2 TexCoord1")==std::string::npos) return false;
     hlsl.replace(at,entry.size(),"Output waterFixedVertex(Input input)");
     hlsl+=UniformSource("WaterVertexParameters",1);
-    hlsl+=VertexSource(bowLift,bowShoulder,textureArray);
+    hlsl+=VertexSource(bowLift,bowShoulder,textureArray,waveHeading);
     hlsl+=WaterWaveCageShader::Source(true);
     hlsl+=std::string(R"HLSL(
 Output main(Input input)
@@ -222,7 +318,7 @@ Output main(Input input)
 )HLSL";
     return true;
 }
-inline std::string PixelSource(bool bowLift=false,bool bowShoulder=WaterBowShoulder::Enabled(),bool textureArray=false,WaterFftSpectrum::Configuration configuration=WaterFftSpectrum::ForResolution(WaterFftSpectrum::Resolution))
+inline std::string PixelSource(bool bowLift=false,bool bowShoulder=WaterBowShoulder::Enabled(),bool textureArray=false,WaterFftSpectrum::Configuration configuration=WaterFftSpectrum::ForResolution(WaterFftSpectrum::Resolution),bool waveHeading=false)
 {
     std::string source=CommonSource()+(bowLift?WaterBowLift::Source():std::string())+WaterVesselWaves::Source(true,bowShoulder)+WaterFftFiltering::Source(configuration)+R"HLSL(
 )HLSL"+(bowLift?R"HLSL(struct FftSurface {
@@ -451,6 +547,18 @@ float2 fftParameterGradient(float value,float2 px,float2 py) {
     return float2(ddx(value)*py.y-ddy(value)*px.y,ddy(value)*px.x-ddx(value)*py.x)*inverse;
 }
 )HLSL";
+    if(waveHeading) {
+        // Only rename the position entry points, never fftMapSamples / fftDecodeSamples.
+        const size_t begin=source.find("FftSurface fftRawSurface(float2 p,float3 lod)");
+        const size_t end=source.find("FftSurface fftSurface(float2 p,float level,float footprint",begin);
+        std::string raw=source.substr(begin,end-begin);
+        for(const auto &names:{std::pair<const char*,const char*>{"fftRawSurface","fftUnrotatedSurface"},
+            {"fftRawAndShadingSurface","fftUnrotatedAndShadingSurface"}})
+            for(size_t at=raw.find(names.first);at!=std::string::npos;at=raw.find(names.first,at+std::strlen(names.second)))
+                raw.replace(at,std::strlen(names.first),names.second);
+        source.replace(begin,end-begin,raw+HeadingPixelSource());
+        source=HeadingSource(false)+source;
+    }
     if(textureArray) {
         // Preserve the independent-map source contract used by the coastal decoder and
         // numerical fixtures; only the material's native binding changes.

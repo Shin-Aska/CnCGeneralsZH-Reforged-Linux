@@ -361,6 +361,10 @@ protected:
 	struct ModernOpticalTexture {
 		Real level; TextureClass *texture;
 		TextureClass *waveCage=NULL;
+#if defined(__linux__)
+		TextureClass *heading=NULL;
+		Real prevailingRotation=0.0f;
+#endif
 		std::vector<UnsignedByte> waveCageSupport; // same quantized alpha sampled by the shader
 		std::vector<UnsignedByte> ocean;
 		WaterOpticalContext::Field shoreContext; // retained CPU source data, independent of texture upload success

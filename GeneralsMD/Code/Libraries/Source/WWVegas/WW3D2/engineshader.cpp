@@ -635,7 +635,7 @@ static bool write_engine_pixel_program(EngineShaderProgram program,
 // Runtime-generated normal detail, terrain depth, refraction and the coloured planar reflection
 // are composed before the existing shore/shroud alpha blend. No additional assets are required.
 static void write_modern_water(std::string &hlsl, bool river,
-	const WaterPerformanceSettings::Configuration &quality = WaterPerformanceSettings::Configuration())
+	const WaterPerformanceSettings::Configuration &quality = WaterPerformanceSettings::Configuration(),bool waveHeading=false)
 {
 	const char *coastalSurfOption=getenv("ZH_WATER_SURF_GPU");
 #if defined(__linux__)
@@ -922,7 +922,7 @@ WaterRefractionSample waterRefractedScene(float2 originalPixel, float2 offset,
 	hlsl += ModernWaterMaterial::BubbleSource();
 	hlsl += WaterHullModel::GetHlslSource();
 	hlsl += WaterFftSampling::PixelSource(bowLift,WaterBowShoulder::Enabled(),true,
-		WaterFftSpectrum::ForResolution(quality.activeFftResolution));
+		WaterFftSpectrum::ForResolution(quality.activeFftResolution),waveHeading && !river);
 	hlsl += WaterWaveCageShader::Source(false);
 	char oceanBound[96];
 	snprintf(oceanBound, sizeof(oceanBound), "static const float oceanDisplacementBound = %.9g;\n",
@@ -2048,7 +2048,8 @@ bool EngineShader_Pixel_Program(EngineShaderProgram program,
 	if (target == COMBINER_SHADER_TARGET_SDL3_GPU) {
 #if defined(__linux__)
 		if (program == ENGINE_SHADER_WATER_TRAPEZOID || program == ENGINE_SHADER_WATER_RIVER) {
-			write_modern_water(hlsl, program == ENGINE_SHADER_WATER_RIVER, WaterPerformanceSettings::Applied());
+			write_modern_water(hlsl, program == ENGINE_SHADER_WATER_RIVER, WaterPerformanceSettings::Applied(),
+				WaterFftSampling::Enabled() && WaterWaveHeading::Enabled());
 			if (!water_material_profile(hlsl)) return false;
 			const int hullDepthDiagnostic=water_hull_depth_diagnostic();
 			if(hullDepthDiagnostic) write_water_hull_depth_diagnostic(hlsl);

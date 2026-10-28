@@ -407,7 +407,7 @@ protected:
 		WaterShoreOverlay::Quad patch;
 		WaterShoreOverlay::View view;
 		float terrain[4];
-		std::shared_ptr<IDirect3DBaseTexture9> height, optical;
+		std::shared_ptr<IDirect3DBaseTexture9> height, optical, heading;
 	};
 	bool ShoreActive=false, ShoreHasPatch=false, ShoreHasTrack=false;
 	WaterShoreOverlay::Quad ShorePatch, ShoreTrack;

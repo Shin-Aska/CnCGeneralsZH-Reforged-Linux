@@ -52,6 +52,7 @@ struct Field {
     std::vector<uint8_t> exposure; // wet region connected to the playable map boundary
     std::vector<uint8_t> physicalShore; // 0..PhysicalShoreRange, terrain only; polygon edges are excluded
     std::vector<uint8_t> coast;    // terrain-coast replacement validity, inset from every nonzero ocean texel
+    std::vector<uint8_t> wet;      // exact polygon/terrain mask, before dry-edge exposure extension
 };
 inline uint32_t Texel(const Field &field,size_t n) {
     return (uint32_t(field.coast[n])<<24)|(uint32_t(field.ocean[n])<<16)
@@ -78,7 +79,7 @@ inline bool SamePolygons(const std::vector<Polygon>& a, const std::vector<Polygo
 inline bool Build(const uint8_t* heights, int width, int height, int border,
                   float spacing, float heightScale, float level,
                   const std::vector<Polygon>& polygons, Field& result) {
-    result.ocean.clear(); result.shore.clear(); result.exposure.clear(); result.coast.clear(); result.physicalShore.clear();
+    result.ocean.clear(); result.shore.clear(); result.exposure.clear(); result.coast.clear(); result.physicalShore.clear(); result.wet.clear();
     if (!heights || width<2 || height<2 || width>MaxDimension || height>MaxDimension ||
         size_t(width)*height>MaxCells || border<0 || border>(width-2)/2 || border>(height-2)/2 ||
         !std::isfinite(spacing) || spacing<=0 || !std::isfinite(heightScale) || heightScale<=0 ||
@@ -132,6 +133,7 @@ inline bool Build(const uint8_t* heights, int width, int height, int border,
         if (y>0 && (links[n-width]&PositiveY)) seed(x,y-1);
         if (y+1<height && (links[n]&PositiveY)) seed(x,y+1);
     }
+    result.wet=wet;
     result.exposure=result.ocean;
     for(uint8_t &value:result.exposure)value=value?255:0;
     result.coast.assign(count,0);

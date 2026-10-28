@@ -122,7 +122,7 @@ uint64_t PosixDevice9::Begin_Prepared_Water_Fft()
 	if(!Gpu->Prepare_Ocean(phase,WaterPerformanceSettings::Applied().requestedFftResolution)) return 0;
 	WaterPerformanceSettings::Applied().activeFftResolution=Gpu->Ocean_Configuration().resolution;
 	const SdlProgram &program=Programs->Water_Vertex_Program(vertex,Gpu->Ocean_Array_Output());
-	if(!program.Shader || program.SamplerSlots>4 || !Gpu->Ocean_Array() || !Gpu->Ocean_Sampler()) return 0;
+	if(!program.Shader || program.SamplerSlots>5 || !Gpu->Ocean_Array() || !Gpu->Ocean_Sampler()) return 0;
 	for(unsigned i=0;i<3;++i) if(!Gpu->Ocean_Map(i*2)) return 0;
 	PreparedWaterFftDraw &prepared=PreparedWaterFft;
 	if(!++PreparedWaterFftSerial) ++PreparedWaterFftSerial;
@@ -1091,7 +1091,7 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	if (pixel_program->SamplerSlots > SdlRecordedDraw::MAXIMUM_SAMPLERS)
 		retry_without_sun("receiver sampler count");
 	if (pixel_program->SamplerSlots > SdlRecordedDraw::MAXIMUM_SAMPLERS
-		|| vertex_program.SamplerSlots > (fft_water ? 4u : 0u)) {
+		|| vertex_program.SamplerSlots > (fft_water ? 5u : 0u)) {
 		Refuse_Draw("more sampler slots than a draw binds");
 		return D3D_OK;
 	}
@@ -1197,11 +1197,14 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		draw.VertexSamplers[slot] = Gpu->Ocean_Sampler();
 	}
 
+	bool water_heading=false;
 	// The GPU copies.  Bringing one up to date can flush the batch, which leaves the ones already asked
 	// for marked as used by the batch before: so ask again until a round flushes nothing.
 	for (int round = 0; round < 3; ++round) {
 		const uint64_t batch = Gpu->Batch();
 		++phases.Rounds;
+		water_heading=false;
+		SDL_GPUTexture *heading_texture=NULL;
 		draw.SamplerCount = pixel_program->SamplerSlots;
 		for (unsigned int slot = 0; slot < pixel_program->SamplerSlots; ++slot) {
 			const int texture_stage = pixel_program->SlotTexture[slot];
@@ -1245,7 +1248,29 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 				if (!draw.Textures[slot] || !draw.Samplers[slot]) return D3D_OK;
 				continue;
 			}
-			if (water_draw && texture_stage >= 11 && texture_stage < 14) {
+			if ((water_draw || (shore_region && pixel_program!=legacy_pixel_program)) && texture_stage==11) {
+				// t11 is free after the six ocean maps moved into the t8 array. A missing
+				// optional heading must disable both stages, including failed mirror uploads.
+				IDirect3DBaseTexture9 *heading=shore_region?shore_region->heading.get()
+					:fft_water && draw.VertexSamplerCount>4?Textures[11]:NULL;
+				heading_texture=heading?Mirrors->Texture(heading,refusal):NULL;
+				if(heading_texture==target.Colour || heading_texture==target.Depth)heading_texture=NULL;
+				water_heading=fft_water && heading_texture;
+				draw.Textures[slot]=heading_texture?heading_texture:Mirrors->White();
+				RenderUInt32 heading_sampler[SAMPLER_STATE_COUNT];
+				memcpy(heading_sampler,SamplerStates[4],sizeof(heading_sampler));
+				heading_sampler[D3DSAMP_ADDRESSU]=heading_sampler[D3DSAMP_ADDRESSV]=D3DTADDRESS_CLAMP;
+				heading_sampler[D3DSAMP_MINFILTER]=heading_sampler[D3DSAMP_MAGFILTER]=D3DTEXF_LINEAR;
+				heading_sampler[D3DSAMP_MIPFILTER]=D3DTEXF_NONE;
+				draw.Samplers[slot]=Samplers->Sampler(heading_sampler);
+				if(!draw.Textures[slot] || !draw.Samplers[slot])return D3D_OK;
+				if(draw.VertexSamplerCount>4) {
+					draw.VertexTextures[4]=draw.Textures[slot];
+					draw.VertexSamplers[4]=draw.Samplers[slot];
+				}
+				continue;
+			}
+			if (water_draw && texture_stage >= 12 && texture_stage < 14) {
 				// Unused slots below the foam/coastal bindings still belong to SDL's contiguous
 				// sampler range. Never mirror stale engine resources into these holes.
 				draw.Textures[slot] = Mirrors->White();
@@ -1564,6 +1589,8 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		water.SceneParameters[3] = water_depth ? 1.0f : 0.0f;
 		water.FftParameters[0] = fft_water ? 1.0f : 0.0f;
 		water.FftParameters[1] = fft_water && WaterVesselWaves::Enabled() ? 1.0f : 0.0f;
+		water.FftParameters[2] = water_heading ? 1.0f : 0.0f;
+		water.FftParameters[3] = water_heading ? PixelShaderConstants[WaterWaveHeading::PrevailingRegister][0] : 0.0f;
 		if (!water_history) water.FoamHistoryParameters[0] = 0.0f;
 		if(coastal_view) {
 			water.CoastalArea[0]=float(CoastalMapping.originX);water.CoastalArea[1]=float(CoastalMapping.originY);
@@ -1686,6 +1713,10 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 				Textures[2]->AddRef();Textures[4]->AddRef();
 				region.height=std::shared_ptr<IDirect3DBaseTexture9>(Textures[2],[](IDirect3DBaseTexture9 *t){t->Release();});
 				region.optical=std::shared_ptr<IDirect3DBaseTexture9>(Textures[4],[](IDirect3DBaseTexture9 *t){t->Release();});
+				if(Textures[11]) {
+					Textures[11]->AddRef();
+					region.heading=std::shared_ptr<IDirect3DBaseTexture9>(Textures[11],[](IDirect3DBaseTexture9 *t){t->Release();});
+				}
 				ShoreRegions.push_back(region);
 			}
 		}

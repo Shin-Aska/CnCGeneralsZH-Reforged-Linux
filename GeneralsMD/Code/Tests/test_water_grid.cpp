@@ -6432,3 +6432,9 @@ TEST(water_hybrid_target_resize_preserves_queued_reflections_and_refreshes_new_t
 }
 #endif
 #endif
+
+#include "WaterWaveHeadingTest.h"
+TEST(water_wave_heading_onshore_refraction_prevailing_fallbacks_and_determinism)
+{
+    WaterWaveHeadingTest::Check();
+}

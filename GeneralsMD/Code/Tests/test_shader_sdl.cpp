@@ -74,6 +74,7 @@
 #include "Platform/WaterHullVisual.h"
 #include "Platform/WaterSurfaceModel.h"
 #include "Platform/WaterFftSampling.h"
+#include "Platform/WaterCoastalIncident.h"
 #include "Platform/WaterPerformanceSettings.h"
 #include "Platform/WaterMaterialProfile.h"
 #include "Platform/WaterFoamEnvironment.h"
@@ -1924,6 +1925,93 @@ TEST(water_performance_tiers_compile_both_materials_and_preserve_shared_defaults
         std::string d3d;
         CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,d3d,COMBINER_SHADER_TARGET_D3D11));
         CHECK(d3d==d3dBaseline);
+    }
+}
+#endif
+
+TEST(fft_heading_opt_out_preserves_original_shared_shader_text)
+{
+    // Captured before heading support: all explicit bow/shoulder/array combinations and tiers.
+    // This also protects the coastal incident decoder's source-text surgery contract.
+    uint64_t hash=14695981039346656037ull;
+    auto append=[&](const std::string &source){for(unsigned char byte:source){hash^=byte;hash*=1099511628211ull;}};
+    for(bool bow:{false,true}) for(bool shoulder:{false,true}) for(bool array:{false,true}) {
+        const std::string vertex=WaterFftSampling::VertexSource(bow,shoulder,array);
+        CHECK(vertex==WaterFftSampling::VertexSource(bow,shoulder,array,false));
+        append(vertex);
+        for(unsigned resolution:{128u,256u,512u}) {
+            const auto config=WaterFftSpectrum::ForResolution(resolution);
+            const std::string pixel=WaterFftSampling::PixelSource(bow,shoulder,array,config);
+            CHECK(pixel==WaterFftSampling::PixelSource(bow,shoulder,array,config,false));
+            append(pixel);
+            const std::string headed=WaterFftSampling::PixelSource(bow,shoulder,array,config,true);
+            const size_t begin=pixel.find("struct FftMapSamples"),end=pixel.find("FftSurface fftRawSurface",begin);
+            CHECK(headed.find(pixel.substr(begin,end-begin))!=std::string::npos);
+        }
+    }
+    CHECK(hash==0x7321555478b0e607ull);
+}
+
+TEST(fft_heading_keeps_coastal_incident_decoder_unrotated_and_compilable)
+{
+    for(bool array:{false,true}) {
+        std::string source,error;std::vector<unsigned char> spirv;
+        CHECK(WaterCoastalIncident::PixelSource(source,array));
+        CHECK(source.find("FftHeadingTexture")==std::string::npos);
+        const bool compiled=SDL3_Compile_HLSL_To_SPIRV(source,false,spirv,error);
+        if(!compiled)printf("coastal incident: %s\n",error.c_str());
+        CHECK(compiled);
+    }
+}
+
+#if defined(__linux__)
+TEST(fft_heading_linux_bindings_compile_and_opt_out_leaves_d3d_and_rivers_unchanged)
+{
+    SavedShaderOption heading("ZH_WATER_HEADING"),fft("ZH_WATER_FFT"),debug("ZH_WATER_DEBUG");
+    CHECK(unsetenv(debug.name)==0);CHECK(unsetenv(fft.name)==0);
+    PixelPipelineDescription pipeline={};
+    std::string baselineD3d,baselineRiver,baselinePixel;
+    CHECK(setenv(heading.name,"0",1)==0);
+    CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,baselineD3d,COMBINER_SHADER_TARGET_D3D11));
+    CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_RIVER,pipeline,baselineRiver,COMBINER_SHADER_TARGET_SDL3_GPU));
+    CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,baselinePixel,COMBINER_SHADER_TARGET_SDL3_GPU));
+    CHECK(baselinePixel.find("FftHeadingTexture")==std::string::npos);
+    VertexPipelineDescription description=shader_cases_detail::plain_vertex();
+    description.FVF=0x252;description.LightingEnabled=false;description.StageCount=4;
+    for(unsigned i=0;i<4;++i) {
+        description.Stages[i].TextureCoordinateIndex=i<2?i:0;
+        description.Stages[i].TextureTransformFlags=FF_TTFF_DISABLE;
+    }
+    CHECK(unsetenv(heading.name)==0);CHECK(WaterWaveHeading::Enabled());
+    for(bool array:{false,true}) {
+        std::string vertex;
+        CHECK(VertexShader_Generate(description,VERTEX_SHADER_TARGET_D3D11,vertex));
+        CHECK(WaterFftSampling::WrapVertex(vertex,false,false,array,true));
+        CHECK(SDL3_Shader_Retarget(vertex,true));
+        std::vector<unsigned char> spirv;std::string error;
+        const bool compiled=SDL3_Compile_HLSL_To_SPIRV(vertex,true,spirv,error);
+        if(!compiled)printf("headed vertex: %s\n",error.c_str());CHECK(compiled);
+        if(compiled) {
+            unsigned samplers=0,buffers=0;SDL3_Shader_Slots(spirv,true,samplers,buffers);
+            CHECK_EQ(samplers,5u);CHECK_EQ(buffers,2u);
+            std::string msl,why;CHECK(SDL3_Translate_SPIRV_To_MSL(spirv,true,msl,error));CHECK(slots_kept(msl,samplers,why));
+        }
+    }
+    std::string pixel,river,d3d;
+    CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,pixel,COMBINER_SHADER_TARGET_SDL3_GPU));
+    CHECK(pixel.find("FftHeadingTexture")!=std::string::npos);
+    CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_RIVER,pipeline,river,COMBINER_SHADER_TARGET_SDL3_GPU));
+    CHECK(river==baselineRiver);
+    CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,d3d,COMBINER_SHADER_TARGET_D3D11));
+    CHECK(d3d==baselineD3d);
+    std::vector<unsigned char> spirv;std::string error;
+    const bool compiled=SDL3_Compile_HLSL_To_SPIRV(pixel,false,spirv,error);
+    if(!compiled)printf("headed pixel: %s\n",error.c_str());CHECK(compiled);
+    if(compiled) {
+        unsigned samplers=0,buffers=0;SDL3_Shader_Slots(spirv,false,samplers,buffers);
+        const char *surf=getenv("ZH_WATER_SURF_GPU");
+        CHECK_EQ(samplers,surf && strcmp(surf,"1")==0?16u:15u);
+        std::string msl,why;CHECK(SDL3_Translate_SPIRV_To_MSL(spirv,false,msl,error));CHECK(slots_kept(msl,samplers,why));
     }
 }
 #endif

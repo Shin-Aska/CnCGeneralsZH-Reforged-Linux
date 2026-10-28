@@ -240,7 +240,7 @@ const SdlProgram &SdlProgramCache::Water_Vertex_Program(const VertexPipelineDesc
 	std::string hlsl;
 	const bool generated = !description.LightingEnabled
 		&& VertexShader_Generate(description, VERTEX_SHADER_TARGET_D3D11, hlsl)
-		&& WaterFftSampling::WrapVertex(hlsl,WaterBowLift::Enabled(),WaterBowShoulder::Enabled(),textureArray) && SDL3_Shader_Retarget(hlsl, true);
+		&& WaterFftSampling::WrapVertex(hlsl,WaterBowLift::Enabled(),WaterBowShoulder::Enabled(),textureArray,WaterWaveHeading::Enabled()) && SDL3_Shader_Retarget(hlsl, true);
 	const SdlProgram &made = Make(VertexPrograms, key, generated, hlsl, true);
 	byBytes.Add(&description, sizeof(description), &VertexPrograms[key]);
 	return made;

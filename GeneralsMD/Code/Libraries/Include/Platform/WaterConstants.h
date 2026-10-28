@@ -34,7 +34,7 @@ struct Block
 	float OpticalParameters[4]; // authored depth/opacity, offshore context available, flat UV0 height correction available
 	float HullParameters[4]; // number of visible vessel contours, authored ambient RGB for vessel foam
 	float HullData[80][4]; // eight vessels, ten float4 registers each; runtime waterline geometry
-	float FftParameters[4]; // x: the dedicated vertex displacement and six sampled ocean maps are bound
+	float FftParameters[4]; // x: FFT bound, y: vessels, z: Linux heading bound, w: prevailing rotation from BaseHeading
 	float FoamHistoryArea[4]; // world origin XY, inverse world width/height; sampled at undisplaced surface XY
 	float FoamHistoryParameters[4]; // available, water level, cell world size, simulation time of atlas
 	float ContactHullData[80][4]; // optional foam-only contours; count < 3 falls back to the matching mean hull

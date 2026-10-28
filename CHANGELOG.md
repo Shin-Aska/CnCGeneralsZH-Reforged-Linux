@@ -93,6 +93,15 @@ found and fixed, EA's own, not port damage.**
 - The reflection mode and the water style stay as chosen. Profiles saved on Low or Medium with the
   default water choices now open the menu as Custom until a preset is picked again.
 
+## Linux Modern water follows the shore (2026-10-28)
+
+- Ocean waves no longer all cross the map in one fixed direction. Near a beach they turn to come
+  in toward it, and in open water or mid-channel they follow one prevailing heading for each map,
+  so waves no longer appear to roll away from a shore.
+- The same waves are turned, not replaced: wave size and speed are unchanged, and foam and boats
+  follow the turned waves.
+  The heading is worked out once when a map loads, so there is no extra per-frame CPU work.
+
 ## What a rank gives
 
 - America, China and GLA units now get what their rank ladder on the website promises. Rank has always raised a unit's stats; now certain grades also add a perk of their own, and the officers and leaders further up the ladder carry an aura that helps friendly units around them.
