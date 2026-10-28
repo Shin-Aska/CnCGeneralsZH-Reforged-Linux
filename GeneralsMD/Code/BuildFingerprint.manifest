@@ -2115,6 +2115,7 @@ Libraries/Include/Platform/WaterVesselWaves.h
 Libraries/Include/Platform/WaterWaveCage.h
 Libraries/Include/Platform/WaterWaveCageMesh.h
 Libraries/Include/Platform/WaterWaveCageShader.h
+Libraries/Include/Platform/WaterWaveHeading.h
 Libraries/Include/rts/debug.h
 Libraries/Include/rts/profile.h
 Libraries/Lib/.gitignore
@@ -3132,6 +3133,7 @@ Tests/WaterCoastalViewTest.h
 Tests/WaterHullContactFoamTest.h
 Tests/WaterTerrainCullingTest.h
 Tests/WaterWaveCageTest.h
+Tests/WaterWaveHeadingTest.h
 Tests/arch_diff/arch_probe.cpp
 Tests/arch_diff/known_differences.txt
 Tests/arch_diff/run_arch_diff.sh
