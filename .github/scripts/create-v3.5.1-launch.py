@@ -1,97 +1,94 @@
 #!/usr/bin/env python3
-"""Lay out the 3.5.1 release card using only the original gameplay captures.
+"""Composite original screenshots into the user's annotated launch layout.
 
-Requires the already available Pillow and DejaVu Sans fonts. Run from any folder.
-Screenshots are proportionally resized to fit, with no cropping, retouching,
-colour adjustment, reconstruction, or text over the gameplay.
+Retains the approved typography and angled panel positions. Gameplay comes only
+from the supplied screenshots, proportionally resized and clipped into panels.
+No reconstruction, retouching, recolouring or generated gameplay is used.
 """
 
 from pathlib import Path
 
-from PIL import Image, ImageChops, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 
 ROOT = Path(__file__).resolve().parents[2]
 MEDIA = ROOT / ".github/media/releases"
-FONTS = Path("/usr/share/fonts/truetype/dejavu")
-BACKGROUND = "#0b1721"
-WHITE = "#edf2f3"
-MUTED = "#aabcc7"
-GOLD = "#e3bc72"
+SIZE = (1672, 941)
+GOLD = "#e8c570"
+FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+OUTPUT = MEDIA / "v3.5.1-launch-annotated-layout.png"
 
 
-def font(size, bold=False):
-    return ImageFont.truetype(
-        str(FONTS / ("DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf")), size
-    )
+def fitted(name, size, center=(0.5, 0.5)):
+    original = Image.open(MEDIA / name).convert("RGB")
+    return ImageOps.fit(original, size, method=Image.Resampling.LANCZOS,
+                        centering=center)
 
 
 def main():
-    canvas = Image.new("RGB", (2880, 1620), BACKGROUND)
+    canvas = fitted("v3.5.1-shore-waves.png", SIZE).convert("RGBA")
+
+    # Match the original layout's dark fade behind its unchanged typography.
+    stops = [(0, 255), (350, 253), (520, 240), (680, 180), (880, 30), (1040, 0)]
+    row = Image.new("L", (SIZE[0], 1))
+    for (start, a), (end, b) in zip(stops, stops[1:]):
+        for x in range(start, end):
+            row.putpixel((x, 0), round(a + (b - a) * (x - start) / (end - start)))
+    fade = Image.new("RGBA", SIZE, "#001a2d")
+    fade.putalpha(row.resize(SIZE))
+    canvas = Image.alpha_composite(canvas, fade)
+
+    def panel(name, polygon, center=(0.5, 0.5)):
+        xs, ys = zip(*polygon)
+        box = (min(xs), min(ys), max(xs) + 1, max(ys) + 1)
+        photo = fitted(name, (box[2] - box[0], box[3] - box[1]), center)
+        layer = Image.new("RGBA", SIZE)
+        layer.paste(photo, box[:2])
+        mask = Image.new("L", SIZE)
+        ImageDraw.Draw(mask).polygon(polygon, fill=255)
+        canvas.paste(layer, (0, 0), mask)
+
+    # Same two angled inset outlines as the approved design. The left inset is
+    # split horizontally: Low 128 on top, High 256 below, as annotated.
+    low = [(739, 648), (1221, 648), (1149, 794), (640, 794)]
+    high = [(640, 794), (1149, 794), (1077, 940), (540, 940)]
+    path = [(1239, 648), (1671, 648), (1671, 940), (1097, 940)]
+    panel("v3.5.1-low-wave-detail.png", low, (0.5, 0.32))
+    panel("v3.5.1-sunlit-water.png", high, (0.5, 0.32))
+    panel("v3.5.1-reflections.png", path, (0.5, 0.55))
+
     draw = ImageDraw.Draw(canvas)
+    draw.line([(540, 940), (739, 648), (1221, 648), (1077, 940)],
+              fill=GOLD, width=3)
+    draw.line([(640, 794), (1149, 794)], fill=GOLD, width=2)
+    draw.line(path + [path[0]], fill=GOLD, width=3)
 
-    def text(x, y, value, size, color=WHITE, bold=False):
-        draw.text((x, y), value, font=font(size, bold), fill=color, anchor="lt")
+    # These pixels retain only the approved title, version, bullets and rules.
+    canvas = Image.alpha_composite(
+        canvas, Image.open(MEDIA / "v3.5.1-title-treatment.png").convert("RGBA")
+    )
 
-    draw.rectangle((0, 0, 1009, 1619), fill="#061b2c")
-    text(80, 122, "ZERO HOUR", 120, bold=True)
-    text(84, 280, "REFORGED LINUX", 76, color=GOLD, bold=True)
-    draw.line((84, 407, 926, 407), fill=GOLD, width=3)
-    text(64, 460, "3.5.1", 267, color=GOLD, bold=True)
+    def label(x, y, lines, size=17):
+        face = ImageFont.truetype(FONT, size)
+        measure = ImageDraw.Draw(canvas)
+        width = max(measure.textlength(line, font=face) for line in lines)
+        height = len(lines) * (size + 7) + 12
+        layer = Image.new("RGBA", SIZE)
+        ink = ImageDraw.Draw(layer)
+        ink.rounded_rectangle((x - 10, y - 8, x + width + 10, y + height - 8),
+                              radius=4, fill=(0, 20, 36, 215))
+        for i, line in enumerate(lines):
+            ink.text((x, y + i * (size + 7)), line, font=face,
+                     fill="#f2e3b7", anchor="lt")
+        return Image.alpha_composite(canvas, layer)
 
-    for y in (840, 946, 1052):
-        draw.rectangle((84, y, 92, y + 51), fill=GOLD)
-    text(120, 843, "More natural water", 44, bold=True)
-    text(120, 949, "Better water performance", 44, bold=True)
-    text(120, 1055, "Sharper path-traced", 44, bold=True)
-    text(120, 1119, "water reflections", 44, bold=True)
-    draw.line((84, 1320, 926, 1320), fill=GOLD, width=3)
-    text(84, 1364, "New water quality controls", 38, color=MUTED)
-    text(84, 1432, "Reflections · Refraction · Wave detail", 29, color=MUTED)
-    text(84, 1544, "UPSTREAM 3.5.1 + LINUX IMPROVEMENTS", 24, color=GOLD,
-         bold=True)
-
-    panels = [
-        (MEDIA / "v3.5.1-water.png", (1060, 40), 1780, None),
-        (MEDIA / "v3.5.1-low-wave-detail.png", (1060, 1014), None, 500),
-        (MEDIA / "v3.5.1-sunlit-water.png", (1549, 1014), None, 500),
-        (MEDIA / "v3.5.1-reflections.png", (2086, 1014), None, 500),
-    ]
-    expected_panels = []
-    for path, (x, y), target_width, target_height in panels:
-        source = Image.open(path).convert("RGB")
-        if target_width is not None:
-            size = (target_width, round(source.height * target_width / source.width))
-        else:
-            size = (round(source.width * target_height / source.height), target_height)
-        panel = source.resize(size, Image.Resampling.LANCZOS)
-        width, height = panel.size
-        draw.rectangle((x - 2, y - 2, x + width + 1, y + height + 1),
-                       outline=GOLD, width=2)
-        canvas.paste(panel, (x, y))
-        expected_panels.append((path, panel, (x, y)))
-
-    text(1060, 925, "WAVES NOW FOLLOW THE SHORE", 24, color=MUTED,
-         bold=True)
-    text(1060, 971, "LOW WAVE DETAIL", 23, color=GOLD, bold=True)
-    text(1549, 971, "HIGH WAVE DETAIL", 23, color=GOLD, bold=True)
-    text(2086, 971, "SHARPER PATH TRACING REFLECTIONS", 23, color=GOLD,
-         bold=True)
-    text(1060, 1540, "128×128 FFT", 25, color=MUTED, bold=True)
-    text(1549, 1540, "256×256 FFT", 25, color=MUTED, bold=True)
-
-    output = MEDIA / "v3.5.1-launch.png"
-    canvas.save(output, optimize=True)
-
-    # Verify no changes beyond the specified proportional resampling.
-    saved = Image.open(output).convert("RGB")
-    for path, expected, (x, y) in expected_panels:
-        pasted = saved.crop((x, y, x + expected.width, y + expected.height))
-        if ImageChops.difference(expected, pasted).getbbox() is not None:
-            raise SystemExit(f"Screenshot pixels changed: {path.name}")
-        print(f"Original screenshot, proportional resize only: {path.name}, "
-              f"{expected.width}x{expected.height}")
-    print(f"Saved {output} ({saved.width}x{saved.height})")
+    canvas = label(770, 578, ["Waves now follow the shore"], 18)
+    canvas = label(773, 669, ["LOW WAVE DETAIL · 128×128 FFT"], 16)
+    canvas = label(683, 817, ["HIGH WAVE DETAIL · 256×256 FFT"], 16)
+    canvas = label(1262, 668, ["SHARPER PATH TRACING", "REFLECTIONS"], 17)
+    canvas.convert("RGB").save(OUTPUT, optimize=True)
+    print(f"Saved {OUTPUT} ({SIZE[0]}x{SIZE[1]})")
+    print("Original angled layout; original screenshots; Low above High.")
 
 
 if __name__ == "__main__":
