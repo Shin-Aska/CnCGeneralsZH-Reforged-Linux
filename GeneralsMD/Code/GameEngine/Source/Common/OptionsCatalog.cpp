@@ -736,6 +736,16 @@ const GraphicsQualityRow TheGraphicsQualityTable[] =
 	{ "ParticleCapSlider",			1.6f,  {  500, 1000, 1500, 1500, 1500, 2000, 2500, 3000, 3500, 4000, 5000 } },
 	// the shadow map's whole cost: the scene 4.06 to 2.14 ms and the shadow pass 0.6 to 0
 	{ "Check3DShadows",					2.5f,  {    0,    0,    0,    0,    0,    1,    1,    1,    1,    1,    1 } },
+#if defined(__linux__)
+	// The Linux Water page.  Its costs are SDL GPU, never swept by the method above, so they read 0;
+	// docs/modern-water-*.md hold what was measured.  High's column is the Linux default and Low's is
+	// the Modern Low the Intel runs used.  Refraction's entries run Full, Simple, Off, so its row is
+	// the one that falls.  The reflection mode stays out: a look, and Path traced is experimental.
+	{ "CheckWaterReflectionEnabled",		0.0f, {    0,    0,    0,    0,    1,    1,    1,    1,    1,    1,    1 } },
+	{ "ComboBoxWaterRefractionQuality",	0.0f, {    2,    1,    1,    1,    1,    1,    0,    0,    0,    0,    0 } },
+	{ "ComboBoxWaterFftResolution",			0.0f, {    0,    0,    0,    0,    0,    0,    0,    1,    1,    1,    1 } },
+	{ "ComboBoxWaterReflectionDetail",	0.0f, {    0,    0,    0,    0,    0,    0,    0,    1,    1,    1,    1 } },
+#endif
 };
 
 const Int TheGraphicsQualityTableCount = sizeof( TheGraphicsQualityTable ) / sizeof( TheGraphicsQualityTable[ 0 ] );

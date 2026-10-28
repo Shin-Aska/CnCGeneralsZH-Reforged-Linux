@@ -993,17 +993,17 @@ def selfcheck():
         for key in ("GUI:%s" % setting_of(name), "TOOLTIP:%s" % setting_of(name)):
             if key not in keys:
                 problems.append("%s needs %s in Patch.str" % (name, key))
-    # every row of the quality slider names a control on Graphics or Effects and has a value for
-    # every step; a row one value short still compiles, with a 0 in the last step
+    # every row of the quality slider names a control on Graphics, Effects or the Linux Water page
+    # and has a value for every step; a row one value short still compiles, with a 0 in the last step
     steps = enum_count("GRAPHICS_QUALITY_STEPS")
     quality = read_quality_table()
     if len(quality) < 9:
         problems.append("only %d quality rows parsed, the regex has stopped matching" % len(quality))
-    on_pages = set(short(child) for page in ("PageGraphics", "PageEffects")
+    on_pages = set(short(child) for page in ("PageGraphics", "PageEffects", "PageWater")
                    for child in layout.find(page).children)
     for control, values in quality:
         if control not in on_pages:
-            problems.append("quality row %s is not a control on the Graphics or Effects page" % control)
+            problems.append("quality row %s is not a control on the Graphics, Effects or Water page" % control)
         if len(values) != steps:
             problems.append("quality row %s has %d values for %d steps" % (control, len(values), steps))
 

@@ -1210,8 +1210,12 @@ static void fillCatalogWidgets( void )
 		if( widget == NULL )
 			continue;
 
-		if (isLinuxModernWaterOption(def) && !waterSettingsSupported)
-			continue;
+		if (isLinuxModernWaterOption(def))
+		{
+			// Hidden as well as unfilled, so the quality slider leaves them with their page.
+			widget->winHide(!waterSettingsSupported);
+			if (!waterSettingsSupported) continue;
+		}
 
 		if (strcmp(def.iniKey, "WaterStyle") == 0)
 		{

@@ -85,6 +85,14 @@ found and fixed, EA's own, not port damage.**
   faster than 60 Hz, Direct3D 11 multisampling and the gameplay, network and performance fixes.
 - Keeps the Linux Modern water, Volumetric cloud and water options defaults described above.
 
+## Linux water options on the quality slider (2026-10-28)
+
+- The Performance / Quality slider and the Low, Medium, High and Ultra presets now set Scene
+  reflections, Refraction, Wave detail and Reflection detail. High and Ultra match the existing
+  Linux defaults; Low turns reflections and refraction off with Low wave and reflection detail.
+- The reflection mode and the water style stay as chosen. Profiles saved on Low or Medium with the
+  default water choices now open the menu as Custom until a preset is picked again.
+
 ## What a rank gives
 
 - America, China and GLA units now get what their rank ladder on the website promises. Rank has always raised a unit's stats; now certain grades also add a perk of their own, and the officers and leaders further up the ladder carry an aura that helps friendly units around them.

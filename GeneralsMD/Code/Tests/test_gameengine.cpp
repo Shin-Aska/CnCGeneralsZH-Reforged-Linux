@@ -16702,7 +16702,7 @@ TEST(modern_water_reflection_detail_is_retained_while_scene_reflections_are_off)
     CHECK(detail != NULL);
     if (!detail) return;
     CHECK_STR(detail->labelKey, "GUI:WaterReflectionDetail");
-    CHECK(findGraphicsQualityRow("ComboBoxWaterReflectionDetail") == NULL);
+    CHECK(findGraphicsQualityRow("ComboBoxWaterReflectionDetail") != NULL);
 
     GlobalData *saved = TheWritableGlobalData;
     GlobalData *scratch = NEW GlobalData;
@@ -16723,6 +16723,42 @@ TEST(modern_water_reflection_detail_is_retained_while_scene_reflections_are_off)
     UserPreferences missing;
     loadOptionsFromPreferences(missing);
     CHECK_EQ(scratch->m_waterReflectionDetail, 0); // absent keys do not overwrite an existing choice
+
+    delete scratch;
+    TheWritableGlobalData = saved;
+}
+
+TEST(modern_water_quality_slider_high_is_the_linux_default_and_low_is_modern_low)
+{
+    const GraphicsQualityRow *reflections = findGraphicsQualityRow("CheckWaterReflectionEnabled");
+    const GraphicsQualityRow *refraction = findGraphicsQualityRow("ComboBoxWaterRefractionQuality");
+    const GraphicsQualityRow *waves = findGraphicsQualityRow("ComboBoxWaterFftResolution");
+    const GraphicsQualityRow *detail = findGraphicsQualityRow("ComboBoxWaterReflectionDetail");
+    CHECK(reflections && refraction && waves && detail);
+    if (!reflections || !refraction || !waves || !detail) return;
+    // the reflection mode is a look, and Path traced is experimental
+    CHECK(findGraphicsQualityRow("ComboBoxWaterReflection") == NULL);
+
+    GlobalData *saved = TheWritableGlobalData;
+    GlobalData *scratch = NEW GlobalData;
+    TheWritableGlobalData = scratch;
+
+    const Int high = TheGraphicsQualityAnchors[STATIC_GAME_LOD_HIGH];
+    CHECK_EQ(reflections->values[high], scratch->m_waterReflectionEnabled ? 1 : 0);
+    CHECK_EQ(refraction->values[high], scratch->m_waterRefractionQuality);
+    CHECK_EQ(waves->values[high], scratch->m_waterFftResolution);
+    CHECK_EQ(detail->values[high], scratch->m_waterReflectionDetail);
+
+    // a Low preset with no saved step brings Modern Low, but the file's own key still wins
+    UserPreferences pref;
+    pref["StaticGameLOD"] = "Low";
+    pref["WaterFftResolution"] = "1";
+    loadOptionsFromPreferences(pref);
+    CHECK(!scratch->m_waterReflectionEnabled);
+    CHECK_EQ(scratch->m_waterRefractionQuality, 2);
+    CHECK_EQ(scratch->m_waterReflectionDetail, 0);
+    CHECK_EQ(scratch->m_waterFftResolution, 1);
+    CHECK_EQ(scratch->m_waterReflection, 2); // the mode is left as it was
 
     delete scratch;
     TheWritableGlobalData = saved;
@@ -17272,8 +17308,10 @@ TEST(graphics_quality_slider_only_ever_turns_settings_up)
 	{
 		const GraphicsQualityRow &quality = TheGraphicsQualityTable[ row ];
 		CHECK( findGraphicsQualityRow( quality.control ) == &quality );
+		// Modern water's refraction lists Full, Simple, Off: its entries fall as the picture improves
+		const Bool falls = strcmp( quality.control, "ComboBoxWaterRefractionQuality" ) == 0;
 		for( Int step = 1; step < GRAPHICS_QUALITY_STEPS; ++step )
-			CHECK( quality.values[ step ] >= quality.values[ step - 1 ] );
+			CHECK( falls ? quality.values[ step ] <= quality.values[ step - 1 ] : quality.values[ step ] >= quality.values[ step - 1 ] );
 	}
 	// Modern water is opt-in: a preset gave it to the sea of the main menu's shell map at 11 to 45 ms a pass
 	CHECK( findGraphicsQualityRow( "ComboBoxWaterStyle" ) == NULL );
