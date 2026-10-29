@@ -106,6 +106,15 @@ found and fixed, EA's own, not port damage.**
 - The reflection mode and the water style stay as chosen. Profiles saved on Low or Medium with the
   default water choices now open the menu as Custom until a preset is picked again.
 
+## Linux Modern waves bend like real swell (2026-10-29)
+
+- Waves now travel the way a swell does: they come in from the open sea, slow down and turn toward
+  the shore in the shallows, curve through channels and wrap around islands. The hard straight line
+  where waves heading for two different shores used to meet, in the middle of a channel, is gone.
+- The water behind islands is calmer, since waves have to bend around the land to get there.
+- The wave directions are worked out once when a map loads; drawing them costs well under a
+  millisecond a frame more than before.
+
 ## Linux Modern water follows the shore (2026-10-28)
 
 - Ocean waves no longer all cross the map in one fixed direction. Near a beach they turn to come

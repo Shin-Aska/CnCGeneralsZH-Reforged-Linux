@@ -1260,7 +1260,7 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 				RenderUInt32 heading_sampler[SAMPLER_STATE_COUNT];
 				memcpy(heading_sampler,SamplerStates[4],sizeof(heading_sampler));
 				heading_sampler[D3DSAMP_ADDRESSU]=heading_sampler[D3DSAMP_ADDRESSV]=D3DTADDRESS_CLAMP;
-				heading_sampler[D3DSAMP_MINFILTER]=heading_sampler[D3DSAMP_MAGFILTER]=D3DTEXF_LINEAR;
+				heading_sampler[D3DSAMP_MINFILTER]=heading_sampler[D3DSAMP_MAGFILTER]=D3DTEXF_POINT;
 				heading_sampler[D3DSAMP_MIPFILTER]=D3DTEXF_NONE;
 				draw.Samplers[slot]=Samplers->Sampler(heading_sampler);
 				if(!draw.Textures[slot] || !draw.Samplers[slot])return D3D_OK;
@@ -1591,6 +1591,9 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		water.FftParameters[1] = fft_water && WaterVesselWaves::Enabled() ? 1.0f : 0.0f;
 		water.FftParameters[2] = water_heading ? 1.0f : 0.0f;
 		water.FftParameters[3] = water_heading ? PixelShaderConstants[WaterWaveHeading::PrevailingRegister][0] : 0.0f;
+		// Production lighting never reads this fill-light W; the swell's packed-U scale rides in it, only
+		// while the field is bound, so the water preview's colour there survives every other draw.
+		if (water_heading) water.FoamFillLights[3][3] = PixelShaderConstants[WaterWaveHeading::PrevailingRegister][1];
 		if (!water_history) water.FoamHistoryParameters[0] = 0.0f;
 		if(coastal_view) {
 			water.CoastalArea[0]=float(CoastalMapping.originX);water.CoastalArea[1]=float(CoastalMapping.originY);

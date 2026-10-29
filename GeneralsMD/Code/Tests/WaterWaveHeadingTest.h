@@ -4,75 +4,93 @@
 
 namespace WaterWaveHeadingTest {
 using namespace WaterWaveHeading;
-inline Vector Decode(uint32_t texel) {
-    return {float((texel>>16)&255)/127.5f-1,float((texel>>8)&255)/127.5f-1};
-}
 inline float Dot(Vector a,Vector b){return a.x*b.x+a.y*b.y;}
+inline float Alignment(Vector a,Vector b){return Dot(a,b)/std::hypot(a.x,a.y)/std::hypot(b.x,b.y);}
 inline void Check() {
-    const int w=141,h=101;const size_t count=size_t(w)*h;
-    std::vector<uint8_t> wet(count,255),exposure(count,255);Field field,again;
-    CHECK(Build(wet.data(),exposure.data(),w,h,10,field));
+    const int w=161,h=161;const size_t count=size_t(w)*h;
+    std::vector<uint8_t> wet(count,255),exposure(count,0);Field field,again;
+    auto build=[&](Field &f){return Build(wet.data(),exposure.data(),w,h,0,10,f);};
+    auto gradient=[&](int x,int y){return DecodeGradient(field.texels[2*(y*w+x)]);};
+    auto u=[&](int x,int y){return DecodeU(field.texels[2*(y*w+x)],field.uStep);};
+    auto amplitude=[&](int x,int y){return float((field.texels[2*(y*w+x)+1]>>16)&255)/255;};
+    auto valid=[&](){for(size_t i=0;i<count;++i)CHECK((field.texels[2*i+1]>>24)==(wet[i]?255u:0u));};
+    CHECK(ReferenceWavelength()>200 && ReferenceWavelength()<1500);
+    CHECK(build(field));CHECK(field.texels.size()==2*count);valid();
     CHECK(field.prevailing.x==BaseHeading.x && field.prevailing.y==BaseHeading.y);
-    // An entirely wet grid has no synthetic land on any of its four edges.
-    for(uint32_t texel:field.texels) {
-        CHECK((texel>>24)==255 && (texel&255)==0);
-        CHECK(Dot(Decode(texel),BaseHeading)>.99f);
+    for(int y=0;y<h;++y)for(int x=0;x<w;++x) {
+        const Vector g=gradient(x,y);
+        CHECK(Alignment(g,BaseHeading)>.999f);
+        CHECK(amplitude(x,y)==1);
+        if(x+1<w)CHECK(u(x,y)>u(x+1,y));
+        if(y+1<h)CHECK(u(x,y)>u(x,y+1));
+        const double exact=-(BaseHeading.x*(w-1-x)+BaseHeading.y*(h-1-y))*10;
+        CHECK(std::abs(u(x,y)-exact)<field.uStep*.51+0.02);
     }
-    // Straight north/south beach: sea is east of land, so travel is west/onshore.
-    for(int y=0;y<h;++y) for(int x=0;x<w;++x)wet[size_t(y)*w+x]=x>10?255:0;
-    CHECK(Build(wet.data(),exposure.data(),w,h,10,field));
-    CHECK(field.prevailing.x<-.999f && std::abs(field.prevailing.y)<.001f);
-    CHECK(Decode(field.texels[50*w+12]).x<-.99f);
-    CHECK(Dot(Decode(field.texels[50*w+130]),field.prevailing)>.99f);
-    CHECK((field.texels[50*w+12]&255)==255 && (field.texels[50*w+130]&255)==0);
-    CHECK((field.texels[50*w+5]>>24)==0);
-    // Symmetric parallel banks cancel in the prevailing estimate and at mid-channel.
-    for(int y=0;y<h;++y) for(int x=0;x<w;++x)wet[size_t(y)*w+x]=x>40 && x<100?255:0;
-    CHECK(Build(wet.data(),exposure.data(),w,h,10,field));
-    CHECK(field.prevailing.x==BaseHeading.x && field.prevailing.y==BaseHeading.y);
-    CHECK(Decode(field.texels[50*w+42]).x<-.85f);
-    CHECK(Decode(field.texels[50*w+98]).x>.85f);
-    CHECK(Dot(Decode(field.texels[50*w+70]),BaseHeading)>.99f);
-    // Only exposure weights P: admitting the left bank selects west as the prevailing wind.
-    std::fill(exposure.begin(),exposure.end(),0);
-    for(int y=0;y<h;++y) for(int x=41;x<47;++x)exposure[size_t(y)*w+x]=255;
-    CHECK(Build(wet.data(),exposure.data(),w,h,10,again));
+    // Oblique incidence on a west beach: shallows near shore turn and shorten the waves.
+    // Suppress exposure to keep the oblique wind.
+    for(int y=0;y<h;++y)for(int x=0;x<w;++x)wet[y*w+x]=x>10?255:0;
+    CHECK(build(field));valid();
+    CHECK(gradient(12,80).x< -2 && std::abs(gradient(12,80).y)<.8);
+    CHECK(std::hypot(gradient(12,80).x,gradient(12,80).y)>2);
+    CHECK(Alignment(gradient(120,80),BaseHeading)>.999f);
+    // Exposure still selects the old onshore prevailing direction.
+    std::fill(exposure.begin(),exposure.end(),255);CHECK(build(again));
     CHECK(again.prevailing.x<-.999f && std::abs(again.prevailing.y)<.001f);
-    // An enclosed lake has no exposed coast and retains the base prevailing heading,
-    // while refraction still points toward each nearby shore.
     std::fill(exposure.begin(),exposure.end(),0);
-    for(int y=0;y<h;++y) for(int x=0;x<w;++x)wet[size_t(y)*w+x]=x>10 && x<130 && y>10 && y<90?255:0;
-    CHECK(Build(wet.data(),exposure.data(),w,h,10,field));
-    CHECK(field.prevailing.x==BaseHeading.x && field.prevailing.y==BaseHeading.y);
-    CHECK(Decode(field.texels[50*w+12]).x<-.85f);
-    CHECK(Decode(field.texels[50*w+128]).x>.85f);
-    CHECK(Build(wet.data(),exposure.data(),w,h,10,again));
-    CHECK(field.texels==again.texels && field.prevailing.x==again.prevailing.x && field.prevailing.y==again.prevailing.y);
-    for(size_t i=0;i<count;++i) {
-        const Vector v=Decode(field.texels[i]);
-        CHECK(std::isfinite(v.x) && std::isfinite(v.y));
-        CHECK(std::abs(std::hypot(v.x,v.y)-1)<.006f);
-        CHECK((field.texels[i]>>24)==(wet[i]?255u:0u));
+    // A diagonal channel travels along P and wraps onto both banks, never flipping between them.
+    for(int y=0;y<h;++y)for(int x=0;x<w;++x)wet[y*w+x]=std::abs(x-y)<45?255:0;
+    CHECK(build(field));valid();
+    CHECK(Alignment(gradient(80,80),BaseHeading)>.999f);
+    CHECK(gradient(58,100).x<gradient(58,100).y-.4);
+    CHECK(gradient(100,58).y<gradient(100,58).x-.4);
+    // Inflow-edge cells hold the incoming plane wave, so the few beside a shallow bank there may kink.
+    for(int y=0;y<h-3;++y)for(int x=0;x<w-3;++x)if(wet[y*w+x]) {
+        if(x+1<w && wet[y*w+x+1])CHECK(Alignment(gradient(x,y),gradient(x+1,y))>std::cos(20*WaterFftSpectrum::Pi/180));
+        if(y+1<h && wet[(y+1)*w+x])CHECK(Alignment(gradient(x,y),gradient(x,y+1))>std::cos(20*WaterFftSpectrum::Pi/180));
     }
-    // No shores in every direction: a symmetric exposed island's normals also cancel.
-    std::fill(wet.begin(),wet.end(),255);std::fill(exposure.begin(),exposure.end(),255);
-    for(int y=40;y<=60;++y)for(int x=60;x<=80;++x)wet[size_t(y)*w+x]=0;
-    CHECK(Build(wet.data(),exposure.data(),w,h,10,field));
-    CHECK(field.prevailing.x==BaseHeading.x && field.prevailing.y==BaseHeading.y);
-    // Empty water is all invalid; even these RG values encode the fallback heading.
-    std::fill(wet.begin(),wet.end(),0);
-    CHECK(Build(wet.data(),exposure.data(),w,h,10,field));
-    for(uint32_t texel:field.texels)CHECK((texel>>24)==0 && Dot(Decode(texel),BaseHeading)>.99f);
-    CHECK(!Build(nullptr,exposure.data(),w,h,10,field) && field.texels.empty());
-    CHECK(!Build(wet.data(),nullptr,w,h,10,field));
-    CHECK(!Build(wet.data(),exposure.data(),1,h,10,field));
-    CHECK(!Build(wet.data(),exposure.data(),MaxDimension+1,h,10,field));
-    CHECK(!Build(wet.data(),exposure.data(),w,h,0,field));
-    CHECK(!Build(wet.data(),exposure.data(),w,h,-1,field));
-    CHECK(!Build(wet.data(),exposure.data(),w,h,std::numeric_limits<float>::infinity(),field));
-    CHECK(!Build(wet.data(),exposure.data(),w,h,std::numeric_limits<float>::quiet_NaN(),field));
-    const uint8_t smallWet[4]={0,255,255,255},smallExposure[4]={0,255,255,255};
-    CHECK(Build(smallWet,smallExposure,2,2,std::numeric_limits<float>::min(),field));
-    CHECK(Build(smallWet,smallExposure,2,2,std::numeric_limits<float>::max(),field));
+    std::fill(wet.begin(),wet.end(),255);
+    for(int y=65;y<=95;++y)for(int x=65;x<=95;++x)wet[y*w+x]=0;
+    CHECK(build(field));valid();
+    CHECK(amplitude(50,50)<.98 && amplitude(110,110)==1);
+    // No boundary water: the upwind shores seed the entire enclosed lake.
+    for(int y=0;y<h;++y)for(int x=0;x<w;++x)wet[y*w+x]=x>10 && x<150 && y>10 && y<150?255:0;
+    CHECK(build(field));valid();CHECK(build(again));
+    CHECK(field.texels==again.texels && field.uStep==again.uStep);
+    CHECK(field.prevailing.x==again.prevailing.x && field.prevailing.y==again.prevailing.y);
+    for(size_t i=0;i<count;++i) {
+        const Vector g=DecodeGradient(field.texels[2*i]);
+        CHECK(std::isfinite(g.x) && std::isfinite(g.y) && std::isfinite(DecodeU(field.texels[2*i],field.uStep)));
+        CHECK((field.texels[2*i+1]&0x0000ffffu)==0);
+    }
+    // The independent packed words survive byte encoding, including gradient alpha.
+    for(unsigned fixed:{0u,1u,255u,256u,32768u,65535u}) {
+        const uint32_t a=((fixed>>8)<<16)|((fixed&255)<<8)|EncodeGradient(-3.25f)|(EncodeGradient(4.5f)<<24);
+        CHECK(std::abs(DecodeU(a,field.uStep)-fixed*field.uStep)<=field.uStep*.001f);
+        const Vector g=DecodeGradient(a);
+        CHECK(std::abs(g.x+3.25f)<=GradientRange/254 && std::abs(g.y-4.5f)<=GradientRange/254);
+    }
+    std::fill(wet.begin(),wet.end(),0);CHECK(build(field));
+    for(uint32_t word:field.texels)CHECK(word==0);
+    auto rejects=[&](const uint8_t *water,const uint8_t *ex,int width,int height,int border,float step) {
+        CHECK(!Build(water,ex,width,height,border,step,field));CHECK(field.texels.empty());
+    };
+    const auto water=wet.data(),ex=exposure.data();
+    rejects(nullptr,ex,w,h,0,10);rejects(water,nullptr,w,h,0,10);
+    rejects(water,ex,1,h,0,10);rejects(water,ex,w,1,0,10);
+    rejects(water,ex,MaxDimension+1,h,0,10);rejects(water,ex,w,MaxDimension+1,0,10);
+    rejects(water,ex,1025,1024,0,10);
+    rejects(water,ex,w,h,-1,10);rejects(water,ex,w,h,80,10);
+    const float inf=std::numeric_limits<float>::infinity(),nan=std::numeric_limits<float>::quiet_NaN();
+    for(float step:{0.0f,-1.0f,inf,nan})rejects(water,ex,w,h,0,step);
+    const uint8_t smallWet[4]={0,255,255,255};
+    for(float step:{(std::numeric_limits<float>::min)(),(std::numeric_limits<float>::max)()}) {
+        CHECK(Build(smallWet,smallWet,2,2,0,step,field));
+        CHECK(std::isfinite(field.uStep) && field.uStep>0);
+        for(size_t i=0;i<4;++i)CHECK(std::isfinite(DecodeU(field.texels[2*i],field.uStep)));
+    }
+    // Playable sources are inside a dry apron, independent of allocation dimensions.
+    const uint8_t insetWet[16]={0,0,0,0,0,255,255,0,0,255,255,0,0,0,0,0};
+    CHECK(Build(insetWet,insetWet,4,4,1,10,field));
+    for(size_t i=0;i<16;++i)CHECK((field.texels[2*i+1]>>24)==(insetWet[i]?255u:0u));
 }
 }

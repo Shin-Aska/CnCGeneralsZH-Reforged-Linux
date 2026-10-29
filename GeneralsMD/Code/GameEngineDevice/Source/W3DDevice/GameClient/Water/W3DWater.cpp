@@ -1560,7 +1560,7 @@ void WaterRenderObjClass::setupModernWaterShader(Bool river, Bool heightCorrecti
 	TextureClass *heading=NULL;D3DXVECTOR4 prevailing(0,0,0,0);
 	if(!river && optical && WaterFftSampling::Enabled())
 		for(const ModernOpticalTexture &cached:m_modernOpticalTextures)
-			if(cached.level==m_modernOpticalLevel){heading=cached.heading;prevailing.x=cached.prevailingRotation;break;}
+			if(cached.level==m_modernOpticalLevel){heading=cached.heading;prevailing.x=cached.prevailingRotation;prevailing.y=cached.swellStep;break;}
 	DX8Wrapper::Set_DX8_Texture(11,heading?heading->Peek_D3D_Texture():NULL);
 	setModernWaterConstants(WaterWaveHeading::PrevailingRegister,prevailing,1);
 #endif
@@ -1752,19 +1752,21 @@ TextureClass *WaterRenderObjClass::modernWaterOpticalTexture(Real level)
 #if defined(__linux__)
 	if(WaterFftSampling::Enabled()) {
 		WaterWaveHeading::Field heading;
-		if(WaterWaveHeading::Build(field.wet.data(),field.exposure.data(),m_modernHeightWidth,m_modernHeightHeight,MAP_XY_FACTOR,heading)) {
-			TextureClass *headingTexture=NEW_REF(TextureClass,(m_modernHeightSide,m_modernHeightSide,WW3D_FORMAT_A8R8G8B8,MIP_LEVELS_1));
+		if(WaterWaveHeading::Build(field.wet.data(),field.exposure.data(),
+			m_modernHeightWidth,m_modernHeightHeight,m_modernHeightBorder,MAP_XY_FACTOR,heading)) {
+			TextureClass *headingTexture=NEW_REF(TextureClass,(2*m_modernHeightSide,m_modernHeightSide,WW3D_FORMAT_A8R8G8B8,MIP_LEVELS_1));
 			SurfaceClass *headingSurface=headingTexture?headingTexture->Get_Surface_Level():NULL;
 			Int headingPitch=0;void *headingBits=headingSurface?headingSurface->Lock(&headingPitch):NULL;
-			const Bool uploaded=headingBits && headingPitch>=m_modernHeightSide*4;
+			const Bool uploaded=headingBits && headingPitch>=m_modernHeightSide*8;
 			if(uploaded)
 				for(Int y=0;y<m_modernHeightSide;++y) for(Int x=0;x<m_modernHeightSide;++x) {
 					const size_t n=size_t(min(y,m_modernHeightHeight-1))*m_modernHeightWidth+min(x,m_modernHeightWidth-1);
-					((UnsignedInt*)((char*)headingBits+y*headingPitch))[x]=heading.texels[n];
+					((UnsignedInt*)((char*)headingBits+y*headingPitch))[2*x]=heading.texels[2*n];
+					((UnsignedInt*)((char*)headingBits+y*headingPitch))[2*x+1]=heading.texels[2*n+1];
 				}
 			if(headingBits)headingSurface->Unlock();
 			REF_PTR_RELEASE(headingSurface);
-			if(uploaded){cached.heading=headingTexture;cached.prevailingRotation=WaterWaveHeading::Rotation(heading.prevailing);}
+			if(uploaded){cached.heading=headingTexture;cached.prevailingRotation=WaterWaveHeading::Rotation(heading.prevailing);cached.swellStep=heading.uStep;}
 			else REF_PTR_RELEASE(headingTexture);
 		}
 	}

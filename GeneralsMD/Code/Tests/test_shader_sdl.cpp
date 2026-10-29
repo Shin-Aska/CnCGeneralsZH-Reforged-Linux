@@ -1993,6 +1993,22 @@ TEST(fft_heading_linux_bindings_compile_and_leave_d3d_and_rivers_unheaded)
     std::string pixel,river,d3d;
     CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,pixel,COMBINER_SHADER_TARGET_SDL3_GPU));
     CHECK(pixel.find("FftHeadingTexture")!=std::string::npos);
+    const std::string field=WaterFftSampling::HeadingSource(false);
+    // Point-sampled texel centres, two packed texels for each of four cells, never hardware-filtered.
+    CHECK(field.find("FftHeadingTexture.SampleLevel(FftHeadingSampler,centre,0)")!=std::string::npos);
+    CHECK(field.find("FftHeadingTexture.SampleLevel(FftHeadingSampler,centre+float2(texel.x,0),0)")!=std::string::npos);
+    CHECK(field.find("[unroll] for(int y=0;y<2;++y) [unroll] for(int x=0;x<2;++x)")!=std::string::npos);
+    CHECK(field.find("FftHeadingTexture.Load")==std::string::npos);
+    CHECK(field.find("weight>0?value/weight:0")!=std::string::npos);
+    // The broad cascade is analytic swell; both FFT cascades turn by sectors of the refracted direction.
+    CHECK(pixel.find("fftAccumulateHeading")==std::string::npos);
+    CHECK(pixel.find("fftAccumulateChop(medium,fine,p,lod,swell.rotation0,swell.weights.x)")!=std::string::npos);
+    CHECK(WaterFftSampling::HeadingPixelSource().find("Texture12.SampleLevel(Sampler12,q/(13.0*fftWorldScale),lod.z)")!=std::string::npos);
+    const std::string chop=WaterFftSampling::HeadingPixelSource();
+    CHECK(chop.find("Texture8.")==std::string::npos && chop.find("Texture9.")==std::string::npos);
+    CHECK(chop.find("fftSwell(p,lod.x)")!=std::string::npos);
+    CHECK(chop.find("value.contactIncident=")!=std::string::npos);
+    CHECK(chop.find("value.incidentCompression=")!=std::string::npos);
     CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_RIVER,pipeline,river,COMBINER_SHADER_TARGET_SDL3_GPU));
     CHECK(river.find("FftHeadingTexture")==std::string::npos);
     CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,d3d,COMBINER_SHADER_TARGET_D3D11));

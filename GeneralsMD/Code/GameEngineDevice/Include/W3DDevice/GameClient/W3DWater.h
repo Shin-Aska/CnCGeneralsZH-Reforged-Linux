@@ -363,7 +363,7 @@ protected:
 		TextureClass *waveCage=NULL;
 #if defined(__linux__)
 		TextureClass *heading=NULL;
-		Real prevailingRotation=0.0f;
+		Real prevailingRotation=0.0f,swellStep=1.0f;
 #endif
 		std::vector<UnsignedByte> waveCageSupport; // same quantized alpha sampled by the shader
 		std::vector<UnsignedByte> ocean;
