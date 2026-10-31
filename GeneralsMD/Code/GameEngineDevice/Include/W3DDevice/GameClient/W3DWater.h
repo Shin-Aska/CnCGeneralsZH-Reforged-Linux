@@ -363,8 +363,12 @@ protected:
 		TextureClass *waveCage=NULL;
 #if defined(__linux__)
 		TextureClass *heading=NULL;
-		Real prevailingRotation=0.0f,swellStep=1.0f;
+		Real prevailingRotation=0.0f,swellStep=1.0f,localStep=0.0f;
+		std::vector<UnsignedByte> waveSupport; // geometry support; optical/material exposure stays unchanged
+		std::vector<uint32_t> localEnvelope;
+		Real waveExtent=0.0f;
 #endif
+		Bool attempted=FALSE;
 		std::vector<UnsignedByte> waveCageSupport; // same quantized alpha sampled by the shader
 		std::vector<UnsignedByte> ocean;
 		WaterOpticalContext::Field shoreContext; // retained CPU source data, independent of texture upload success
@@ -373,6 +377,10 @@ protected:
 	std::vector<ModernOpticalTexture> m_modernOpticalTextures;
 	std::vector<WaterOpticalContext::Polygon> m_modernOpticalPolygons;
 	Bool m_modernOpticalPolygonsValid = FALSE;
+#if defined(__linux__)
+	Bool m_modernWaveSourceReady=FALSE,m_modernWaveSourcePresent=FALSE;
+	Real m_modernWaveSourceLevel=0.0f;
+#endif
 	IDirect3DPixelShader9 *	m_waterPixelShader;		///<D3D pixel shader.
 	IDirect3DPixelShader9 *	m_riverWaterPixelShader;		///<D3D pixel shader.
 	IDirect3DPixelShader9 *	m_trapezoidWaterPixelShader;	///<D3D pixel shader

@@ -74,6 +74,7 @@
 #include "Platform/WaterHullVisual.h"
 #include "Platform/WaterSurfaceModel.h"
 #include "Platform/WaterFftSampling.h"
+#include "WaterHeadingLegacyReference.h"
 #include "Platform/WaterCoastalIncident.h"
 #include "Platform/WaterPerformanceSettings.h"
 #include "Platform/WaterMaterialProfile.h"
@@ -1993,17 +1994,21 @@ TEST(fft_heading_linux_bindings_compile_and_leave_d3d_and_rivers_unheaded)
     std::string pixel,river,d3d;
     CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,pixel,COMBINER_SHADER_TARGET_SDL3_GPU));
     CHECK(pixel.find("FftHeadingTexture")!=std::string::npos);
+    CHECK(pixel.find("legacyWave=fftLocalAnalyticWave(legacyWave,localAnalyticGain)")!=std::string::npos);
+    CHECK(pixel.find("oceanWave=fftLocalAnalyticWave(oceanWave,localAnalyticGain)")!=std::string::npos);
+    CHECK(pixel.find("shoreRippleSlope+=fftLocalShoreRippleHeight(wavePosition,time)*localAnalyticGain.yz")!=std::string::npos);
     const std::string field=WaterFftSampling::HeadingSource(false);
-    // Point-sampled texel centres, two packed texels for each of four cells, never hardware-filtered.
+    // Legacy A/B remain exact in the first two slots of each five-texel cell.
     CHECK(field.find("FftHeadingTexture.SampleLevel(FftHeadingSampler,centre,0)")!=std::string::npos);
     CHECK(field.find("FftHeadingTexture.SampleLevel(FftHeadingSampler,centre+float2(texel.x,0),0)")!=std::string::npos);
     CHECK(field.find("[unroll] for(int y=0;y<2;++y) [unroll] for(int x=0;x<2;++x)")!=std::string::npos);
     CHECK(field.find("FftHeadingTexture.Load")==std::string::npos);
     CHECK(field.find("weight>0?value/weight:0")!=std::string::npos);
-    // The broad cascade is analytic swell; both FFT cascades turn by sectors of the refracted direction.
+    // Broad swell and medium chop retain refraction; fine ripples use one stable wind rotation.
     CHECK(pixel.find("fftAccumulateHeading")==std::string::npos);
-    CHECK(pixel.find("fftAccumulateChop(medium,fine,p,lod,swell.rotation0,swell.weights.x)")!=std::string::npos);
-    CHECK(WaterFftSampling::HeadingPixelSource().find("Texture12.SampleLevel(Sampler12,q/(13.0*fftWorldScale),lod.z)")!=std::string::npos);
+    CHECK(pixel.find("fftAccumulateChop(medium,p,lod,swell.rotation0,swell.weights.x)")!=std::string::npos);
+    CHECK(pixel.find("fine=fftWindSurface(p,lod.z)")!=std::string::npos);
+    CHECK(WaterFftSampling::HeadingPixelSource().find("Texture12.SampleLevel(Sampler12,q/(13.0*fftWorldScale),lod)")!=std::string::npos);
     const std::string chop=WaterFftSampling::HeadingPixelSource();
     CHECK(chop.find("Texture8.")==std::string::npos && chop.find("Texture9.")==std::string::npos);
     CHECK(chop.find("fftSwell(p,lod.x)")!=std::string::npos);
@@ -2011,8 +2016,10 @@ TEST(fft_heading_linux_bindings_compile_and_leave_d3d_and_rivers_unheaded)
     CHECK(chop.find("value.incidentCompression=")!=std::string::npos);
     CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_RIVER,pipeline,river,COMBINER_SHADER_TARGET_SDL3_GPU));
     CHECK(river.find("FftHeadingTexture")==std::string::npos);
+    CHECK(river.find("fftLocalAnalyticWave")==std::string::npos);
     CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,d3d,COMBINER_SHADER_TARGET_D3D11));
     CHECK(d3d.find("FftHeadingTexture")==std::string::npos);
+    CHECK(d3d.find("fftLocalAnalyticWave")==std::string::npos);
     std::vector<unsigned char> spirv;std::string error;
     const bool compiled=SDL3_Compile_HLSL_To_SPIRV(pixel,false,spirv,error);
     if(!compiled)printf("headed pixel: %s\n",error.c_str());CHECK(compiled);
@@ -2021,6 +2028,105 @@ TEST(fft_heading_linux_bindings_compile_and_leave_d3d_and_rivers_unheaded)
         const char *surf=getenv("ZH_WATER_SURF_GPU");
         CHECK_EQ(samplers,surf && strcmp(surf,"1")==0?16u:15u);
         std::string msl,why;CHECK(SDL3_Translate_SPIRV_To_MSL(spirv,false,msl,error));CHECK(slots_kept(msl,samplers,why));
+    }
+}
+
+TEST(fft_local_water_preserves_original_swell_medium_and_compiles_numerical_fixture)
+{
+    for(bool vertex:{false,true})for(unsigned resolution:{128u,256u}) {
+        std::string original=WaterHeadingLegacyReference::HeadingSource(vertex,resolution);
+        WaterLocalWaveTest::ReplaceAll(original,"(width/2)","(width/5)");
+        WaterLocalWaveTest::ReplaceAll(original,"width/2-1","width/5-1");
+        WaterLocalWaveTest::ReplaceAll(original,"at.x*2,at.y","at.x*5,at.y");
+        WaterLocalWaveTest::ReplaceAll(original,
+            "    // The FFT cascades, the waves actually seen moving at game scale, follow the refracted\n"
+            "    // direction in 45-degree sectors. The field turns gradually and never flips across a channel,\n"
+            "    // so the pairwise sector cross-fade stays spread out. Unreached water keeps the prevailing wind.",
+            "    // Medium FFT chop follows the refracted direction in 45-degree sectors. The field turns\n"
+            "    // gradually and never flips across a channel, so the pairwise cross-fade stays spread out.\n"
+            "    // Fine FFT ripples use the map's prevailing rotation independently of this local field.");
+        const std::string current=WaterFftSampling::HeadingSource(vertex,resolution);
+        CHECK(current.compare(0,original.size(),original)==0);
+    }
+    // Compare unchanged calculations to the immutable pre-local-water evaluator.
+    // Only remove its old fine-cascade contribution and add the single wind call.
+    auto function=[](const std::string &source,const char *signature) {
+        const size_t begin=source.find(signature),end=source.find("\n}\n",begin);
+        CHECK(begin!=std::string::npos && end!=std::string::npos);
+        return begin==std::string::npos || end==std::string::npos?std::string():source.substr(begin,end+3-begin);
+    };
+    std::string originalVertex=WaterHeadingLegacyReference::HeadingVertexSource();
+    WaterLocalWaveTest::ReplaceAll(originalVertex,"float3 fftRawDisplacement(float2 p)","float3 fftLegacyDisplacement(float2 p)");
+    const std::string vertex=WaterFftSampling::HeadingVertexSource();
+    std::string mediumVertex=function(originalVertex,"float3 fftChopDisplacement(");
+    WaterLocalWaveTest::ReplaceAll(mediumVertex,
+        "    float3 c=FftDisplacement2.SampleLevel(FftSampler2,q/(13.0*fftWorldScale),0).xyz;\n","");
+    WaterLocalWaveTest::ReplaceAll(mediumVertex,"(b.xzy+c.xzy)","b.xzy");
+    CHECK(function(vertex,"float3 fftChopDisplacement(")==mediumVertex);
+    std::string legacyVertex=function(originalVertex,"float3 fftLegacyDisplacement(");
+    WaterLocalWaveTest::ReplaceAll(legacyVertex,"    return result;","    result+=fftWindDisplacement(p);\n    return result;");
+    CHECK(function(vertex,"float3 fftLegacyDisplacement(")==legacyVertex);
+    const std::string windVertex=function(vertex,"float3 fftWindDisplacement(");
+    CHECK(windVertex.find("sincos(FftParameters.w,r.y,r.x)")!=std::string::npos);
+    CHECK(windVertex.find("FftDisplacement2.SampleLevel(FftSampler2,q/(13.0*fftWorldScale),0)")!=std::string::npos);
+    CHECK(windVertex.find("swell")==std::string::npos);
+    std::string originalPixel=WaterHeadingLegacyReference::HeadingPixelSource();
+    WaterLocalWaveTest::ReplaceAll(originalPixel,"fftRawAndShadingSurface","fftLegacyAndShadingSurface");
+    WaterLocalWaveTest::ReplaceAll(originalPixel,"fftRawSurface","fftLegacySurface");
+    const std::string pixel=WaterFftSampling::HeadingPixelSource();
+    std::string mediumPixel=function(originalPixel,"void fftAccumulateChop(");
+    WaterLocalWaveTest::ReplaceAll(mediumPixel,"inout FftSurface medium,inout FftSurface fine,","inout FftSurface medium,");
+    for(const char *line:{
+        "    float4 c=Texture12.SampleLevel(Sampler12,q/(13.0*fftWorldScale),lod.z);\n",
+        "    float4 cd=Texture13.SampleLevel(Sampler13,q/(13.0*fftWorldScale),lod.z);\n",
+        "    x=float3(cd.z,c.w,cd.x)*float3(-1.5,-1.5,1);y=float3(c.w,cd.w,cd.y)*float3(-1.5,-1.5,1);\n",
+        "    fine.displacement+=w*fftRotateVector(c.xzy*float3(-1.5,-1.5,1)*fftWorldScale,r);\n",
+        "    fine.derivativeX+=w*fftRotateVector(r.x*x-r.y*y,r);\n",
+        "    fine.derivativeY+=w*fftRotateVector(r.y*x+r.x*y,r);\n"})WaterLocalWaveTest::ReplaceAll(mediumPixel,line,"");
+    CHECK(function(pixel,"void fftAccumulateChop(")==mediumPixel);
+    std::string surface=function(originalPixel,"FftSurface fftSwellSurface(");
+    WaterLocalWaveTest::ReplaceAll(surface,"fine=(FftSurface)0","fine=fftWindSurface(p,lod.z)");
+    WaterLocalWaveTest::ReplaceAll(surface,"fftAccumulateChop(medium,fine,","fftAccumulateChop(medium,");
+    CHECK(function(pixel,"FftSurface fftSwellSurface(")==surface);
+    const size_t wrappers=originalPixel.find("FftSurface fftLegacySurface(");
+    CHECK(pixel.compare(pixel.find("FftSurface fftLegacySurface("),originalPixel.size()-wrappers,originalPixel.substr(wrappers))==0);
+    const std::string windPixel=function(pixel,"FftSurface fftWindSurface(");
+    CHECK(windPixel.find("sincos(FftParameters.w,r.y,r.x)")!=std::string::npos);
+    CHECK(windPixel.find("Texture12.SampleLevel(Sampler12,q/(13.0*fftWorldScale),lod)")!=std::string::npos);
+    CHECK(windPixel.find("Texture13.SampleLevel(Sampler13,q/(13.0*fftWorldScale),lod)")!=std::string::npos);
+    CHECK(windPixel.find("fine.derivativeX=fftRotateVector(r.x*x-r.y*y,r)")!=std::string::npos);
+    CHECK(windPixel.find("fine.derivativeY=fftRotateVector(r.y*x+r.x*y,r)")!=std::string::npos);
+    CHECK(windPixel.find("swell")==std::string::npos);
+    CHECK(windPixel.find("contactIncident")==std::string::npos);
+    CHECK(windPixel.find("incidentCompression")==std::string::npos);
+    const std::string local=WaterFftSampling::LocalSource();
+    CHECK(local.find("fftMediumModes")==std::string::npos);
+    CHECK(local.find("fftPacket")==std::string::npos);
+    CHECK(local.find("float3(13,21,31)")==std::string::npos);
+    CHECK(local.find("fftStreamAdvected")!=std::string::npos);
+    CHECK(local.find("k*field.phase")==std::string::npos);
+    CHECK(local.find("velocity*elapsedGradient.x")!=std::string::npos);
+    CHECK(local.find("bankBytes-128.0")!=std::string::npos);
+    CHECK(local.find("influence[i]>0.0?")!=std::string::npos);
+    CHECK(local.find("fftStreamProject(velocity,velocityX,velocityY,shore,shoreX,shoreY)")!=std::string::npos);
+    CHECK(local.find("shoreX*remove+shore*(removeSlope*dx)")!=std::string::npos);
+    CHECK(local.find("fields.influence.x==0.0")!=std::string::npos);
+    SavedShaderOption crest("ZH_WATER_COAST_CREST"),fft("ZH_WATER_FFT");
+    CHECK(setenv(crest.name,"1",1)==0);CHECK(unsetenv(fft.name)==0);
+    PixelPipelineDescription pipeline={};std::string coastalSource,coastalError;
+    CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,coastalSource,COMBINER_SHADER_TARGET_SDL3_GPU));
+    CHECK(coastalSource.find("coastalCorrection=fftLocalAnalyticWave(coastalCorrection,localAnalyticGain)")!=std::string::npos);
+    std::vector<unsigned char> coastalSpirv;
+    const bool coastCompiled=SDL3_Compile_HLSL_To_SPIRV(coastalSource,false,coastalSpirv,coastalError);
+    if(!coastCompiled)printf("local analytic coastal correction: %s\n",coastalError.c_str());
+    CHECK(coastCompiled);
+    for(unsigned resolution:{128u,256u}) {
+        const std::string source=WaterLocalWaveTest::PixelSource(64,resolution);
+        std::vector<unsigned char> spirv;std::string error,msl;
+        const bool compiled=SDL3_Compile_HLSL_To_SPIRV(source,false,spirv,error);
+        if(!compiled)printf("local water reference fixture tier %u: %s\n",resolution,error.c_str());
+        CHECK(compiled);
+        if(compiled)CHECK(SDL3_Translate_SPIRV_To_MSL(spirv,false,msl,error));
     }
 }
 #endif

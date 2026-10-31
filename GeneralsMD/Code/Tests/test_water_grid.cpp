@@ -6438,3 +6438,77 @@ TEST(water_wave_heading_onshore_refraction_prevailing_fallbacks_and_determinism)
 {
     WaterWaveHeadingTest::Check();
 }
+#include "WaterBodyAnalysisTest.h"
+TEST(water_body_analysis_sources_shelter_connectivity_and_determinism)
+{
+    WaterBodyAnalysisTest::Check();
+}
+#include "WaterLocalWaveFieldTest.h"
+TEST(water_local_wave_field_preserves_sea_and_separate_arrivals)
+{
+    WaterLocalWaveFieldTest::Check();
+}
+
+TEST(water_elevated_river_gain_keeps_authored_height_and_bounds_wave_amplitude)
+{
+    using WaterLocalWaveField::ElevatedRiverGain;
+    // MD_USA02 has a river at 96 above a sea at 7. The engine's global
+    // clamp takes (lo,value,hi); reversing those arguments made this 89-unit
+    // separation amplify waves by more than 1100 instead of quieting them.
+    CHECK(std::fabs(ElevatedRiverGain(96,7,10)-0.06f)<1e-6f);
+    CHECK(ElevatedRiverGain(-30,7,10)==1.0f);
+    CHECK(ElevatedRiverGain(7,7,10)==1.0f);
+    CHECK(std::fabs(ElevatedRiverGain(12,7,10)-0.53f)<1e-6f);
+    CHECK(std::fabs(ElevatedRiverGain(17,7,10)-0.06f)<1e-6f);
+    CHECK(ElevatedRiverGain(-12,-12,10)==1.0f);
+    CHECK(std::fabs(ElevatedRiverGain(-7,-12,10)-0.53f)<1e-6f);
+
+    // Authored sloped patches cross both ends of the transition. Every
+    // interpolated level must stay bounded, continuous, and monotonically calmer.
+    float previous=1.0f;
+    for(int i=0;i<=1200;++i) {
+        const float level=-3.0f+i*0.1f;
+        const float gain=ElevatedRiverGain(level,7,10);
+        CHECK(std::isfinite(gain) && gain>=0.06f-1e-6f && gain<=1.0f);
+        CHECK(gain<=previous+1e-6f && previous-gain<0.015f);
+        previous=gain;
+        for(float seconds:{0.0f,1.73f,4691.0f/60.0f}) {
+            const auto wave=WaterSurfaceModel::EvaluateBlended(1020+i*0.7f,2740-i*0.3f,seconds,{0,0,0});
+            const float displaced=level+gain*wave.height;
+            CHECK(std::isfinite(displaced));
+            CHECK(std::fabs(displaced-level)<=WaterSurfaceModel::LegacyMaxDisplacement*gain+1e-4f);
+            if(level>=17)CHECK(std::fabs(displaced-level)<=WaterSurfaceModel::LegacyMaxDisplacement*0.06f+1e-4f);
+        }
+    }
+    // Invalid metadata must produce the same calm fallback as a fully elevated river.
+    const float nan=std::numeric_limits<float>::quiet_NaN();
+    const float infinity=std::numeric_limits<float>::infinity();
+    for(const std::array<float,3> input:{std::array<float,3>{nan,7,10},
+        {96,nan,10},{infinity,7,10},{96,infinity,10},{96,7,0},
+        {96,7,-10},{96,7,nan},{96,7,infinity}})
+        CHECK(std::fabs(ElevatedRiverGain(input[0],input[1],input[2])-0.06f)<1e-6f);
+}
+
+#include "WaterWavefrontTest.h"
+TEST(water_wavefront_affine_phase_and_bilinear_amplitude_are_exact)
+{
+    WaterWavefrontTest::CheckAffine();
+}
+TEST(water_wavefront_phase_gradient_and_hessian_join_across_cells)
+{
+    WaterWavefrontTest::CheckCellJoins();
+}
+TEST(water_wavefront_zero_endpoint_curvature_has_known_interior_tradeoff)
+{
+    WaterWavefrontTest::CheckCurvedPatch();
+}
+TEST(water_wavefront_derivatives_match_independent_scalar_differences)
+{
+    WaterWavefrontTest::CheckDerivatives();
+}
+
+#include "WaterBridgeConnectionsTest.h"
+TEST(water_bridge_visual_links_preserve_physical_masks_and_reject_unrelated_bodies)
+{
+    WaterBridgeConnectionsTest::Check();
+}

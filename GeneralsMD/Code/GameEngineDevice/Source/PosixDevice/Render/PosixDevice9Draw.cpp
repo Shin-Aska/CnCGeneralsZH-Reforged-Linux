@@ -1589,7 +1589,9 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		water.SceneParameters[3] = water_depth ? 1.0f : 0.0f;
 		water.FftParameters[0] = fft_water ? 1.0f : 0.0f;
 		water.FftParameters[1] = fft_water && WaterVesselWaves::Enabled() ? 1.0f : 0.0f;
-		water.FftParameters[2] = water_heading ? 1.0f : 0.0f;
+		// The original headed shader only tests z > .5. Carry the independent
+		// local-phase scale above 1 without changing that gate or a lighting colour.
+		water.FftParameters[2] = water_heading ? 1.0f + PixelShaderConstants[WaterWaveHeading::PrevailingRegister][2] : 0.0f;
 		water.FftParameters[3] = water_heading ? PixelShaderConstants[WaterWaveHeading::PrevailingRegister][0] : 0.0f;
 		// Production lighting never reads this fill-light W; the swell's packed-U scale rides in it, only
 		// while the field is bound, so the water preview's colour there survives every other draw.

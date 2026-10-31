@@ -916,6 +916,15 @@ WaterRefractionSample waterRefractedScene(float2 originalPixel, float2 offset,
 )HLSL";
 	hlsl += WaterScreenReflection::ShaderSource();
 	hlsl += WaterSurfaceModel::ShaderSource();
+	if(waveHeading && !river) {
+        hlsl+="float fftLocalShoreRippleHeight(float2 pxy,float seconds) {float value=0;\n";
+#define LOCAL_WATER_RIPPLE_HEIGHT(kx,ky,amplitude,omega,phase) \
+        "if(" #kx "*" #kx "+" #ky "*" #ky ">=1.0){float p=dot(pxy,float2(" #kx "," #ky "))-seconds*" #omega "+" #phase ";" \
+        "float s=sin(p),c=cos(p);value+=" #amplitude "*(s+0.26*s*c);}\n"
+        hlsl+=WATER_SURFACE_MODES(LOCAL_WATER_RIPPLE_HEIGHT);
+#undef LOCAL_WATER_RIPPLE_HEIGHT
+        hlsl+="return value;}\n";
+    }
 	hlsl += WaterSurfaceModel::OceanShaderSource();
 	hlsl += WaterOpticalModel::GetHlslSource();
 	hlsl += ModernWaterMaterial::OpticalSource();
@@ -1816,6 +1825,31 @@ float4 main(Input input) : SV_Target
 		hlsl += "current = float4(resolvedNormal*0.5+0.5,unresolvedSlopeVariance);\n";
 	if (debug && strcmp(debug, "roughness") == 0) hlsl += "current.rgb = float3(roughness,environmentRoughness,sqrt(unresolvedSlopeVariance));\n";
 	if (debug && strcmp(debug, "pressure-retention") == 0) hlsl += "current.rgb = fftPressureRetentionDebug(spectral,fftWeight,fftDamping,generatedFoam);\n";
+	if(waveHeading && !river) {
+        const std::string before="    float3 wave = lerp(legacyWave, oceanWave, offshore);";
+        const size_t at=hlsl.find(before);
+        if(at!=std::string::npos)hlsl.insert(at,R"HLSL(    float3 localAnalyticGain=float3(1,0,0);
+    if(analyticRemainder)localAnalyticGain=fftLocalResidualGain(wavePosition);
+    [branch] if(any(localAnalyticGain!=float3(1,0,0))) {
+        legacyWave=fftLocalAnalyticWave(legacyWave,localAnalyticGain);
+        oceanWave=fftLocalAnalyticWave(oceanWave,localAnalyticGain);
+        oceanSwell.xyz=fftLocalAnalyticWave(oceanSwell.xyz,localAnalyticGain);
+        // Curvature deliberately excludes amplitude-envelope derivatives, as
+        // the existing incident-crest foam model excludes damping footprints.
+        oceanSwell.w*=localAnalyticGain.x;
+        shoreRippleSlope*=localAnalyticGain.x;
+        if(any(localAnalyticGain.yz!=0.0))
+            shoreRippleSlope+=fftLocalShoreRippleHeight(wavePosition,time)*localAnalyticGain.yz;
+    }
+)HLSL");
+        const std::string coast="        slope+=coastalCorrection.yz;meshCorrection+=coastalCorrection.x;";
+        const size_t coastAt=hlsl.find(coast);
+        if(coastAt!=std::string::npos)hlsl.insert(coastAt,
+            "        coastalCorrection=fftLocalAnalyticWave(coastalCorrection,localAnalyticGain);\n");
+        const std::string energy="0.045*(1.0-rippleResolution*rippleResolution)*offshore*(1.0-fftWeight)";
+        const size_t energyAt=hlsl.find(energy);
+        if(energyAt!=std::string::npos)hlsl.insert(energyAt+energy.size(),"*localAnalyticGain.x*localAnalyticGain.x");
+    }
 	// Diagnostics evaluate old and current rules at the same fragment/phase/snapshot.
 	// No extra code is emitted for normal water or any unrelated debug mode.
 	if (debug && (strcmp(debug,"footprint")==0 || strcmp(debug,"footprint-path")==0 ||

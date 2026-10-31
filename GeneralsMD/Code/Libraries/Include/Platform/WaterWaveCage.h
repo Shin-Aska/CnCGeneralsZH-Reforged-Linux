@@ -166,7 +166,8 @@ inline Radii Fit(const uint8_t*heights,int width,int height,int border,float spa
 }
 
 inline bool Build(const uint8_t*heights,int width,int height,int border,float spacing,
-                  float heightScale,float level,const WaterOpticalContext::Field&shore,Field&result){
+                  float heightScale,float level,const WaterOpticalContext::Field&shore,Field&result,
+                  const uint8_t*waveSupport=nullptr){
     result=Field{};
     if(!heights||width<2||height<2||width>WaterOpticalContext::MaxDimension||height>WaterOpticalContext::MaxDimension||
        size_t(width)*height>WaterOpticalContext::MaxCells||border<0||border>(width-2)/2||border>(height-2)/2||
@@ -183,7 +184,7 @@ inline bool Build(const uint8_t*heights,int width,int height,int border,float sp
         // These support thresholds are renderer choices, not paper parameters.
         // The exact exposed-water classification excludes pools and polygon-only
         // boundaries; its guarded dry extension supports shoreline interpolation.
-        const float support=(shore.exposure[i]/255.0f)*(1-SmoothRange(CoastFullRange,CoastRange,distance))*
+        const float support=((waveSupport?waveSupport[i]:shore.exposure[i])/255.0f)*(1-SmoothRange(CoastFullRange,CoastRange,distance))*
             (1-SmoothRange(MaxRadius,2*MaxRadius,std::abs(depth)));
         if(support<=0)continue;
         const float worldX=(x-border)*spacing,worldY=(y-border)*spacing;

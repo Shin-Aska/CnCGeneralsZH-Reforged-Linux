@@ -38,6 +38,7 @@
 #include "stdio.h"
 #include <cstdlib>
 #include <chrono>
+#include <string>
 #include "Lib/Clock.h"
 #include "Platform/WaterSurfaceModel.h"
 #include "Platform/ModernWaterMaterial.h"
@@ -55,6 +56,8 @@
 #include "W3DWaterPathScene.h"
 #include "Platform/WaterFftSampling.h"
 #include "Platform/WaterWaveHeading.h"
+#include "Platform/WaterLocalWaveField.h"
+#include "Platform/WaterBridgeConnections.h"
 #endif
 #include "Platform/WaterTerrainCulling.h"
 #include "Platform/WaterWaveCage.h"
@@ -1560,7 +1563,7 @@ void WaterRenderObjClass::setupModernWaterShader(Bool river, Bool heightCorrecti
 	TextureClass *heading=NULL;D3DXVECTOR4 prevailing(0,0,0,0);
 	if(!river && optical && WaterFftSampling::Enabled())
 		for(const ModernOpticalTexture &cached:m_modernOpticalTextures)
-			if(cached.level==m_modernOpticalLevel){heading=cached.heading;prevailing.x=cached.prevailingRotation;prevailing.y=cached.swellStep;break;}
+			if(cached.level==m_modernOpticalLevel){heading=cached.heading;prevailing.x=cached.prevailingRotation;prevailing.y=cached.swellStep;prevailing.z=cached.localStep;break;}
 	DX8Wrapper::Set_DX8_Texture(11,heading?heading->Peek_D3D_Texture():NULL);
 	setModernWaterConstants(WaterWaveHeading::PrevailingRegister,prevailing,1);
 #endif
@@ -1679,6 +1682,8 @@ void WaterRenderObjClass::clearModernWaterOpticalTextures(void)
 	m_modernTopologyCache.Clear();
 	m_modernPreparedMeshCache.Clear();
 	m_modernStaticSamples.Clear();
+	m_modernWaveSourceReady=FALSE;
+	m_modernWaveSourcePresent=FALSE;
 #endif
 	m_modernObstacleIndex.Clear();
 	for (size_t i=0;i<m_modernOpticalTextures.size();++i) {
@@ -1724,17 +1729,71 @@ TextureClass *WaterRenderObjClass::modernWaterOpticalTexture(Real level)
 {
 #if ZH_MODERN_WATER
 	if (!m_modernOpticalPolygonsValid) return NULL;
-	for (size_t i=0;i<m_modernOpticalTextures.size();++i)
-		if (m_modernOpticalTextures[i].level==level) return m_modernOpticalTextures[i].texture;
+#if defined(__linux__)
+	if(!m_modernWaveSourceReady) {
+		m_modernWaveSourceReady=TRUE;
+		// Disabled FFT keeps the ordinary lazy, visible-level optical cache.
+		if(WaterFftSampling::Enabled()) {
+			// Select across every authored flat level before visibility can choose
+			// a small edge pool first. Rivers are absent from the optical polygons.
+			WaterBodyAnalysis::SourceKind bestKind=WaterBodyAnalysis::SourceKind::None;
+			double bestArea=0;
+			float bestOpening=std::numeric_limits<float>::infinity();
+			std::vector<Real> levels;
+			for(const auto &polygon:m_modernOpticalPolygons) {
+				if(polygon.points.empty())continue;
+				const Real candidate=polygon.points.front().z;
+				bool flat=true;for(const auto &p:polygon.points)flat=flat && fabsf(p.z-candidate)<.01f;
+				if(flat && std::find(levels.begin(),levels.end(),candidate)==levels.end())levels.push_back(candidate);
+			}
+			std::sort(levels.begin(),levels.end());
+			const bool cacheAll=levels.size()<=WaterOpticalContext::MaxLevels;
+			ModernOpticalTexture winner={0,NULL};
+			for(Real candidate:levels) {
+				ModernOpticalTexture context={candidate,NULL};
+				if(!WaterOpticalContext::Build(m_modernHeights.empty()?NULL:m_modernHeights.data(),
+					m_modernHeightWidth,m_modernHeightHeight,m_modernHeightBorder,MAP_XY_FACTOR,MAP_HEIGHT_SCALE,
+					candidate,m_modernOpticalPolygons,context.shoreContext)) {
+					context.attempted=TRUE;
+					if(cacheAll)m_modernOpticalTextures.push_back(std::move(context));
+					continue;
+				}
+				WaterBodyAnalysis::Field analysis;
+				if(WaterBodyAnalysis::Build(context.shoreContext.wet.data(),context.shoreContext.links.data(),
+					m_modernHeightWidth,m_modernHeightHeight,m_modernHeightBorder,MAP_XY_FACTOR,analysis)) {
+					const bool broad=analysis.sourceKind==WaterBodyAnalysis::SourceKind::BroadSea;
+					const bool choose=broad ? bestKind!=WaterBodyAnalysis::SourceKind::BroadSea || analysis.broadCoreArea>bestArea
+						: bestKind!=WaterBodyAnalysis::SourceKind::BroadSea && analysis.sourceKind==WaterBodyAnalysis::SourceKind::ClockwisePerimeter
+							&& analysis.firstOpeningPosition<bestOpening;
+					if(choose) {
+						bestKind=analysis.sourceKind;bestArea=analysis.broadCoreArea;bestOpening=analysis.firstOpeningPosition;
+						m_modernWaveSourceLevel=candidate;m_modernWaveSourcePresent=TRUE;
+						if(!cacheAll)winner=std::move(context);
+					}
+				}
+				if(cacheAll)m_modernOpticalTextures.push_back(std::move(context));
+			}
+			// Overflow reserves only the winning source; the remaining slots retain
+			// the existing lazy visibility order, rather than the lowest elevations.
+			if(!cacheAll && m_modernWaveSourcePresent)m_modernOpticalTextures.push_back(std::move(winner));
+		}
+	}
+#endif
+	ModernOpticalTexture *entry=NULL;
+	for(auto &context:m_modernOpticalTextures)if(context.level==level){entry=&context;break;}
+	if(entry && entry->attempted)return entry->texture;
 	// Keep the first levels for this map revision. Overflow stays on the clear-water profile instead
 	// of evicting/rebuilding textures every frame on maps with many water elevations.
-	if (m_modernOpticalTextures.size()>=WaterOpticalContext::MaxLevels) return NULL;
-	m_modernOpticalTextures.push_back({level,NULL});
-	WaterOpticalContext::Field field;
-	if (!WaterOpticalContext::Build(m_modernHeights.empty()?NULL:m_modernHeights.data(),
+	if(!entry) {
+		if(m_modernOpticalTextures.size()>=WaterOpticalContext::MaxLevels)return NULL;
+		m_modernOpticalTextures.push_back({level,NULL});entry=&m_modernOpticalTextures.back();
+	}
+	ModernOpticalTexture &cached=*entry;
+	cached.attempted=TRUE;
+	WaterOpticalContext::Field &field=cached.shoreContext;
+	if (field.wet.empty() && !WaterOpticalContext::Build(m_modernHeights.empty()?NULL:m_modernHeights.data(),
 		m_modernHeightWidth,m_modernHeightHeight,m_modernHeightBorder,MAP_XY_FACTOR,MAP_HEIGHT_SCALE,
 		level,m_modernOpticalPolygons,field)) return NULL;
-	m_modernOpticalTextures.back().shoreContext=field;
 	TextureClass *texture=NEW_REF(TextureClass,(m_modernHeightSide,m_modernHeightSide,WW3D_FORMAT_A8R8G8B8,MIP_LEVELS_1));
 	SurfaceClass *surface=texture->Get_Surface_Level();
 	Int pitch; void *bits=surface->Lock(&pitch);
@@ -1747,35 +1806,103 @@ TextureClass *WaterRenderObjClass::modernWaterOpticalTexture(Real level)
 	}
 	REF_PTR_RELEASE(surface);
 	if (!bits) { REF_PTR_RELEASE(texture); return NULL; }
-	ModernOpticalTexture &cached=m_modernOpticalTextures.back();
 	cached.texture=texture;
 #if defined(__linux__)
 	if(WaterFftSampling::Enabled()) {
-		WaterWaveHeading::Field heading;
-		if(WaterWaveHeading::Build(field.wet.data(),field.exposure.data(),
-			m_modernHeightWidth,m_modernHeightHeight,m_modernHeightBorder,MAP_XY_FACTOR,heading)) {
-			TextureClass *headingTexture=NEW_REF(TextureClass,(2*m_modernHeightSide,m_modernHeightSide,WW3D_FORMAT_A8R8G8B8,MIP_LEVELS_1));
+		const char *statsOption=getenv("ZH_WATER_WAVE_STATS");
+		const bool waveStats=statsOption && strcmp(statsOption,"1")==0;
+		const auto headingStart=std::chrono::steady_clock::now();
+		std::vector<WaterBridgeConnections::Bridge> bridges;
+		if(TheTerrainLogic)for(Bridge *bridge=TheTerrainLogic->getFirstBridge();bridge;bridge=bridge->getNext()) {
+			const BridgeInfo *info=bridge->peekBridgeInfo();
+			if(level>=min(info->from.z,info->to.z))continue;
+			if(bridges.size()>=WaterBridgeConnections::MaxBridges)break;
+			bridges.push_back({{info->from.x,info->from.y},{info->to.x,info->to.y},info->bridgeWidth});
+		}
+		std::vector<WaterBodyAnalysis::VisualConnection> connections;
+		WaterBridgeConnections::Build(field.wet.data(),field.links.data(),m_modernHeightWidth,m_modernHeightHeight,
+			m_modernHeightBorder,MAP_XY_FACTOR,bridges,connections);
+		WaterLocalWaveField::Field heading;
+		const bool allowSource=m_modernWaveSourcePresent && level==m_modernWaveSourceLevel;
+		if(WaterLocalWaveField::Build(field.wet.data(),field.exposure.data(),field.links.data(),
+			m_modernHeightWidth,m_modernHeightHeight,m_modernHeightBorder,MAP_XY_FACTOR,heading,connections,allowSource)) {
+			const char *dumpPath=getenv("ZH_WATER_WAVE_FIELD_DUMP");
+			char dumpLevel[64];snprintf(dumpLevel,sizeof(dumpLevel),".level-%.6g",double(level));
+			if(dumpPath && *dumpPath)if(FILE *dump=fopen((std::string(dumpPath)+dumpLevel).c_str(),"wb")) {
+				// v2: wet, original exposure, exact links, five RGBA8 words/cell,
+				// then native float sea/energy and two floats/direction, all row +Y.
+				fprintf(dump,"WAVEFIELD 2 %d %d %d %.9g %.9g %.9g %.9g %.9g %.9g\n",
+					m_modernHeightWidth,m_modernHeightHeight,m_modernHeightBorder,double(MAP_XY_FACTOR),double(level),
+					double(heading.prevailing.x),double(heading.prevailing.y),double(heading.uStep),double(heading.localStep));
+				fwrite(field.wet.data(),1,field.wet.size(),dump);
+				fwrite(field.exposure.data(),1,field.exposure.size(),dump);
+				fwrite(field.links.data(),1,field.links.size(),dump);
+				fwrite(heading.texels.data(),sizeof(uint32_t),heading.texels.size(),dump);
+				fwrite(heading.analysis.sea.data(),sizeof(float),field.wet.size(),dump);
+				fwrite(heading.analysis.energy.data(),sizeof(float),field.wet.size(),dump);
+				fwrite(heading.analysis.direction.data(),sizeof(WaterBodyAnalysis::Direction),field.wet.size(),dump);
+				fclose(dump);
+			}
+			TextureClass *headingTexture=NEW_REF(TextureClass,(WaterLocalWaveField::TexelsPerCell*m_modernHeightSide,m_modernHeightSide,WW3D_FORMAT_A8R8G8B8,MIP_LEVELS_1));
 			SurfaceClass *headingSurface=headingTexture?headingTexture->Get_Surface_Level():NULL;
 			Int headingPitch=0;void *headingBits=headingSurface?headingSurface->Lock(&headingPitch):NULL;
-			const Bool uploaded=headingBits && headingPitch>=m_modernHeightSide*8;
+			const Bool uploaded=headingBits && headingPitch>=m_modernHeightSide*WaterLocalWaveField::TexelsPerCell*4;
 			if(uploaded)
 				for(Int y=0;y<m_modernHeightSide;++y) for(Int x=0;x<m_modernHeightSide;++x) {
 					const size_t n=size_t(min(y,m_modernHeightHeight-1))*m_modernHeightWidth+min(x,m_modernHeightWidth-1);
-					((UnsignedInt*)((char*)headingBits+y*headingPitch))[2*x]=heading.texels[2*n];
-					((UnsignedInt*)((char*)headingBits+y*headingPitch))[2*x+1]=heading.texels[2*n+1];
+					for(unsigned component=0;component<WaterLocalWaveField::TexelsPerCell;++component)
+						((UnsignedInt*)((char*)headingBits+y*headingPitch))[WaterLocalWaveField::TexelsPerCell*x+component]=
+							heading.texels[WaterLocalWaveField::TexelsPerCell*n+component];
 				}
 			if(headingBits)headingSurface->Unlock();
 			REF_PTR_RELEASE(headingSurface);
-			if(uploaded){cached.heading=headingTexture;cached.prevailingRotation=WaterWaveHeading::Rotation(heading.prevailing);cached.swellStep=heading.uStep;}
+			if(uploaded) {
+				cached.heading=headingTexture;cached.prevailingRotation=WaterWaveHeading::Rotation(heading.prevailing);
+				cached.swellStep=heading.uStep;cached.localStep=heading.localStep;
+				// Enable the quieter surface in enclosed regions and across a visual
+				// underpass without changing the original optical/material texture.
+				cached.waveSupport=field.exposure;
+				cached.localEnvelope.resize(field.wet.size());
+				for(size_t i=0;i<field.wet.size();++i)cached.localEnvelope[i]=heading.texels[WaterLocalWaveField::TexelsPerCell*i+4];
+				for(Int y=0;y<m_modernHeightHeight;++y)for(Int x=0;x<m_modernHeightWidth;++x) {
+					const int i=y*m_modernHeightWidth+x;
+					if(field.wet[i])cached.waveSupport[i]=255;
+					else for(Int yy=max(0,y-1);yy<=min(m_modernHeightHeight-1,y+1);++yy)
+						for(Int xx=max(0,x-1);xx<=min(m_modernHeightWidth-1,x+1);++xx)
+							if(field.wet[yy*m_modernHeightWidth+xx] && !field.exposure[yy*m_modernHeightWidth+xx])cached.waveSupport[i]=255;
+				}
+			}
 			else REF_PTR_RELEASE(headingTexture);
+			if(waveStats) {
+				size_t seaCells=0,localCells=0,crossingCells=0;
+				for(size_t i=0;i<field.wet.size();++i)if(field.wet[i]) {
+					const uint32_t meta=heading.texels[WaterLocalWaveField::TexelsPerCell*i+4];
+					seaCells+=(meta&255)==0;localCells+=(meta&255)!=0;
+					crossingCells+=(meta&255)!=0 && ((meta>>16)&255)!=0 && ((meta>>8)&255)!=0;
+				}
+				fprintf(stderr,"water-body: level=%.6g cells=%dx%d sea=%zu local=%zu crossing=%zu source=%d source-level=%.6g bridges=%zu links=%zu packed-bytes=%zu uploaded=%d local-converged=%d build-upload-ms=%.3f legacy-heading=(%.6g,%.6g) local-heading=(%.6g,%.6g)\n",
+					double(level),m_modernHeightWidth,m_modernHeightHeight,seaCells,localCells,crossingCells,
+					int(heading.analysis.sourceKind),double(m_modernWaveSourceLevel),bridges.size(),connections.size(),
+					heading.texels.size()*sizeof(uint32_t),int(uploaded),int(heading.localConverged),
+					std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-headingStart).count(),
+					double(heading.prevailing.x),double(heading.prevailing.y),double(heading.analysis.sourceHeading.x),double(heading.analysis.sourceHeading.y));
+				for(const auto &link:connections)fprintf(stderr,"water-body: bridge-link (%.1f,%.1f) -> (%.1f,%.1f) transmission=%.3f\n",
+					double((link.a%m_modernHeightWidth-m_modernHeightBorder)*MAP_XY_FACTOR),double((link.a/m_modernHeightWidth-m_modernHeightBorder)*MAP_XY_FACTOR),
+					double((link.b%m_modernHeightWidth-m_modernHeightBorder)*MAP_XY_FACTOR),double((link.b/m_modernHeightWidth-m_modernHeightBorder)*MAP_XY_FACTOR),double(link.transmission));
+			}
 		}
+		else if(waveStats)fprintf(stderr,"water-body: field unavailable at level %.6g; using FFT fallback\n",double(level));
 	}
 #endif
 	const char *waveCageOption=getenv("ZH_WATER_WAVE_CAGES");
 	if(WaterFftSampling::Enabled() && (!waveCageOption || strcmp(waveCageOption,"0")!=0)) {
 		WaterWaveCage::Field cage;
+		const uint8_t *waveSupport=NULL;
+#if defined(__linux__)
+		if(!cached.waveSupport.empty())waveSupport=cached.waveSupport.data();
+#endif
 		if(WaterWaveCage::Build(m_modernHeights.data(),m_modernHeightWidth,m_modernHeightHeight,
-			m_modernHeightBorder,MAP_XY_FACTOR,MAP_HEIGHT_SCALE,level,field,cage)) {
+			m_modernHeightBorder,MAP_XY_FACTOR,MAP_HEIGHT_SCALE,level,field,cage,waveSupport)) {
 			TextureClass *cageTexture=NEW_REF(TextureClass,(m_modernHeightSide,m_modernHeightSide,WW3D_FORMAT_A8R8G8B8,MIP_LEVELS_1));
 			SurfaceClass *cageSurface=cageTexture?cageTexture->Get_Surface_Level():NULL;
 			Int cagePitch=0;void *cageBits=cageSurface?cageSurface->Lock(&cagePitch):NULL;
@@ -1795,7 +1922,7 @@ TextureClass *WaterRenderObjClass::modernWaterOpticalTexture(Real level)
 			else REF_PTR_RELEASE(cageTexture); // fall back to the original height texture, with zero support
 		}
 	}
-	cached.ocean.swap(field.ocean);
+	cached.ocean=field.ocean;
 	// Retain exactly the bytes uploaded to Texture4, including its bilinear shoreline blend.
 	Int oceanMinX=m_modernHeightWidth,oceanMinY=m_modernHeightHeight,oceanMaxX=-1,oceanMaxY=-1;
 	for (Int y=0;y<m_modernHeightHeight;++y) for (Int x=0;x<m_modernHeightWidth;++x)
@@ -1803,6 +1930,14 @@ TextureClass *WaterRenderObjClass::modernWaterOpticalTexture(Real level)
 			oceanMinX=min(oceanMinX,x);oceanMinY=min(oceanMinY,y);oceanMaxX=max(oceanMaxX,x);oceanMaxY=max(oceanMaxY,y);
 		}
 	if (oceanMaxX>=0) cached.oceanExtent=max(oceanMaxX-oceanMinX,oceanMaxY-oceanMinY)*MAP_XY_FACTOR;
+#if defined(__linux__)
+	Int wetMinX=m_modernHeightWidth,wetMinY=m_modernHeightHeight,wetMaxX=-1,wetMaxY=-1;
+	if(cached.heading)for(Int y=0;y<m_modernHeightHeight;++y)for(Int x=0;x<m_modernHeightWidth;++x)
+		if(field.wet[y*m_modernHeightWidth+x]) {
+			wetMinX=min(wetMinX,x);wetMinY=min(wetMinY,y);wetMaxX=max(wetMaxX,x);wetMaxY=max(wetMaxY,y);
+		}
+	if(wetMaxX>=0)cached.waveExtent=max(wetMaxX-wetMinX,wetMaxY-wetMinY)*MAP_XY_FACTOR;
+#endif
 	return texture;
 #else
 	return NULL;
@@ -4738,6 +4873,12 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 	}
 	// Include all wave crests in culling; offscreen authored patches do not evaluate any modes.
 	if (m_modernRenderCamera && m_modernRenderCamera->Cull_Box(AABoxClass((boundsMin + boundsMax) * 0.5f, (boundsMax - boundsMin) * 0.5f))) return;
+#if defined(__linux__)
+	// A river can be the first visible patch. Resolve the map's source before
+	// deciding whether an elevated, separate watercourse can receive its waves.
+	if(river && !m_modernWaveSourceReady && !m_modernOpticalPolygons.empty() && !m_modernOpticalPolygons.front().points.empty())
+		modernWaterOpticalTexture(m_modernOpticalPolygons.front().points.front().z);
+#endif
 	const ModernOpticalTexture *oceanContext = NULL;
 	if (!river && modernWaterOpticalTexture(m_modernOpticalLevel))
 		for (size_t field = 0; field < m_modernOpticalTextures.size(); ++field)
@@ -4745,6 +4886,21 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 				oceanContext = &m_modernOpticalTextures[field];
 				break;
 			}
+	const uint8_t *spectralSupport=oceanContext?oceanContext->shoreContext.exposure.data():NULL;
+	Real waveExtent=oceanContext?oceanContext->oceanExtent:0;
+#if defined(__linux__)
+	if(oceanContext && !oceanContext->waveSupport.empty()) {
+		spectralSupport=oceanContext->waveSupport.data();waveExtent=max(waveExtent,oceanContext->waveExtent);
+	}
+#endif
+	auto legacyGain = [&](Real x,Real y) {
+#if defined(__linux__)
+		if(oceanContext && !oceanContext->localEnvelope.empty())
+			return WaterLocalWaveField::SampleLegacyGain(oceanContext->localEnvelope,m_modernHeightWidth,m_modernHeightHeight,
+				x/MAP_XY_FACTOR+m_modernHeightBorder,y/MAP_XY_FACTOR+m_modernHeightBorder,MAP_XY_FACTOR).value;
+#endif
+		return 1.0f;
+	};
 	const char *waveCageOption = getenv("ZH_WATER_WAVE_CAGES");
 	const Bool waveCageAvailable = oceanContext && oceanContext->waveCage && WaterFftSampling::Enabled()
 		&& (!waveCageOption || strcmp(waveCageOption, "0") != 0);
@@ -4765,7 +4921,7 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 		const Real encodedObstacle = WaterCoastalCrest::EncodeObstacle(obstacle);
 		if (support <= 0 || exposure <= 0 || encodedObstacle - 0.5f / 255.0f <= damping) return 0.0f;
 		return WaterCoastalCrest::Height(WaterShoreFoam::Evaluate(x, y, m_modernWaveTime).height,
-			depth, support, exposure, encodedObstacle, damping);
+			depth, support, exposure, encodedObstacle, damping)*legacyGain(x,y);
 	};
 	const Int cells = m_modernMeshCells, side = cells + 1;
 	Int vertexCount = side * side;
@@ -4863,7 +5019,7 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 	Bool projected = FALSE;
 	const float levels[4] = {points[0].Z, points[1].Z, points[2].Z, points[3].Z};
 	// Homography is defined on one plane. Authored sloped patches retain every original Z.
-	if (!river && oceanContext && oceanContext->oceanExtent > 0 && m_modernRenderCamera && WaterProjectedMesh::HasSingleLevel(levels)) {
+	if (!river && oceanContext && waveExtent > 0 && m_modernRenderCamera && WaterProjectedMesh::HasSingleLevel(levels)) {
 		WaterProjectedMesh::Projection projection;
 		Matrix3D view;
 		m_modernRenderCamera->Get_View_Matrix(&view);
@@ -4950,7 +5106,7 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 					Real terrainDepth = 0;
 					const Real damping = modernWaterDamping(Real(bow.centre.x), Real(bow.centre.y), points[0].Z, offshore.height, NULL,
 						&terrainDepth);
-					const Real exposure = WaterSurfaceModel::SampleOffshore(oceanContext->shoreContext.exposure.data(),
+					const Real exposure = WaterSurfaceModel::SampleOffshore(spectralSupport,
 					m_modernHeightWidth, m_modernHeightHeight, Real(bow.centre.x) / MAP_XY_FACTOR + m_modernHeightBorder,
 					Real(bow.centre.y) / MAP_XY_FACTOR + m_modernHeightBorder, MAP_XY_FACTOR).height;
 					const Real amplitude = fftSeam.Weight(bow.centre, exposure) * WaterFftGeometry::SafeDamping(damping, terrainDepth);
@@ -5090,7 +5246,7 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 				WaterStaticSampleCache::Sample value;
 				value.offshore=WaterSurfaceModel::SampleOffshore(oceanContext->ocean.data(),m_modernHeightWidth,m_modernHeightHeight,
 					p.x/MAP_XY_FACTOR+m_modernHeightBorder,p.y/MAP_XY_FACTOR+m_modernHeightBorder,MAP_XY_FACTOR);
-				value.exposure=WaterSurfaceModel::SampleOffshore(oceanContext->shoreContext.exposure.data(),m_modernHeightWidth,m_modernHeightHeight,
+				value.exposure=WaterSurfaceModel::SampleOffshore(spectralSupport,m_modernHeightWidth,m_modernHeightHeight,
 					p.x/MAP_XY_FACTOR+m_modernHeightBorder,p.y/MAP_XY_FACTOR+m_modernHeightBorder,MAP_XY_FACTOR).height;
 				value.terrainDepth=0.0f;value.terrainDamping=1.0f;
 				WorldHeightMap *map=TheTerrainRenderObject?TheTerrainRenderObject->getMap():NULL;
@@ -5155,7 +5311,7 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 #if defined(__linux__)
 					sample.exposure=fields.exposure;
 #else
-					sample.exposure = WaterSurfaceModel::SampleOffshore(oceanContext->shoreContext.exposure.data(),
+					sample.exposure = WaterSurfaceModel::SampleOffshore(spectralSupport,
 						m_modernHeightWidth, m_modernHeightHeight, p.x / MAP_XY_FACTOR + m_modernHeightBorder,
 						p.y / MAP_XY_FACTOR + m_modernHeightBorder, MAP_XY_FACTOR).height;
 #endif
@@ -5170,8 +5326,10 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 					sample.height=0;
 					if (!elideHeight) {
 						sample.height = sample.damping > 0 ? WaterSurfaceModel::EvaluateBlendedHeight(p.x, p.y, m_modernWaveTime,
-							offshore) * sample.damping : 0;
+							offshore) * sample.damping * legacyGain(p.x,p.y) : 0;
 						sample.height += coastalCrestHeight(p.x, p.y, offshore.height, terrainDepth, sample.obstacle, sample.damping);
+						// The optional shore correction is part of the same canonical surface.
+						// Its gain is applied in coastalCrestHeight, independently of FFT weight.
 					} else if (m_modernProfileEnabled) ++m_modernProfile.cpuHeightsElided;
 					if (sampled) {
 						const double now = modernWaterProfileMilliseconds();
@@ -5328,7 +5486,14 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 					MAP_XY_FACTOR) : WaterSurfaceModel::Sample{0, 0, 0};
 				Real obstacleAttenuation = 1.0f;
 				Real terrainDepth = 0;
-				const Real damping = modernWaterDamping(p.x, p.y, p.z, offshore.height, river ? NULL : &obstacleAttenuation, &terrainDepth);
+				Real damping = modernWaterDamping(p.x, p.y, p.z, offshore.height, river ? NULL : &obstacleAttenuation, &terrainDepth);
+#if defined(__linux__)
+				if(river && m_modernWaveSourcePresent) {
+					// A higher watercourse cannot inherit the lower sea's wave energy.
+					// Smooth per-vertex attenuation also joins authored sloped patches.
+					damping*=WaterLocalWaveField::ElevatedRiverGain(p.z,m_modernWaveSourceLevel,MAP_XY_FACTOR);
+				}
+#endif
 				// Broad water polygons also cover dry land. Those vertices cannot move, and evaluating
 				// all wave modes there was needlessly expensive on maps with many shallow pools.
 				WaterSurfaceModel::Sample wave = {0, 0, 0};
@@ -5338,7 +5503,7 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 				}
 				vertex->x = p.x;
 				vertex->y = p.y;
-				vertex->z = p.z + damping * wave.height
+				vertex->z = p.z + damping * wave.height * legacyGain(p.x,p.y)
 				+ coastalCrestHeight(p.x, p.y, offshore.height, terrainDepth, obstacleAttenuation, damping);
 				// The flat modern shader uses only alpha for colour/shroud. PRELIT_DIFFUSE passes RGB
 				// through unchanged, so red carries the obstacle profile independently of terrain.

@@ -8,6 +8,25 @@ found and fixed, EA's own, not port damage.**
 
 ---
 
+## Linux Modern water source and shelter analysis (2026-10-31)
+
+- Broad open sea retains its original wave spectrum, scale, and speed. Fine FFT
+  ripples follow a steady prevailing wind heading while larger waves turn near
+  shore; sheltered water retains weaker ripples. A map-wide analyzer
+  chooses the sea as the source for smaller connected channels; if none qualifies,
+  it chooses a sufficiently wide edge opening, scanning clockwise from the upper left.
+- Channels carry irregular surface detail along their current routes. Distortion
+  resets blend smoothly and vary across the water, avoiding repeated parallel
+  wave bands. Separate routes keep their own motion where they meet behind islands.
+  Near island shores, incoming detail slows and turns along the banks.
+  Sheltered branches, enclosed water, and elevated watercourses remain calmer.
+- Bound elevated river wave attenuation so high watercourses, including the
+  aircraft carrier map's upper branches, cannot amplify waves into vertical walls.
+- Authored bridges can carry weakened visual movement across a narrow terrain-filled
+  crossing without changing terrain, water coverage, or gameplay connectivity.
+- Smooth strength and direction interpolation keep patch boundaries continuous;
+  classification and wave fields are cached for each map revision.
+
 ## Linux 3.5.1 release (2026-10-28)
 
 - Synchronizes with upstream 3.5.1 and packages the Linux improvements since this origin's 3.4.2.

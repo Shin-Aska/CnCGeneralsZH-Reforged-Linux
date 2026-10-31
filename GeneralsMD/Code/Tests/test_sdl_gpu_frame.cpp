@@ -44,6 +44,8 @@
 #include <limits>
 #include "Platform/WaterFftSpectrum.h"
 #include "Platform/WaterFftSampling.h"
+#include "WaterHeadingLegacyReference.h"
+#include "Platform/WaterLocalWaveField.h"
 #include "Platform/WaterPerformanceSettings.h"
 #include "Platform/WaterFoamShading.h"
 #include "Platform/WaterFoamEnvironment.h"
@@ -7330,10 +7332,11 @@ static void check_gpu_water_coastal_crest_injection(SdlGpuFrame *frame,const std
     };
     const std::string composition=block("    float determinant = parameterDx.x", "    WaveCage cage=waveCage(");
     const std::string gradient=block("float2 fftParameterGradient(", "\n}")+"\n}\n";
+    const std::string localGain=block("float3 fftLocalAnalyticWave(", "\n}")+"\n}\n";
     const std::string metadata=block("    float meshCorrection=OpticalParameters.w", "    float2 materialUV=");
     const std::string offshoreSource=block("    float offshore = opticalContext.r", "    // The mesh and this derivative");
     CHECK(composition.find("slope+=coastalCorrection.yz;meshCorrection+=coastalCorrection.x;")!=std::string::npos);
-    if(composition.empty() || metadata.empty() || offshoreSource.empty() || gradient.size()<10)return;
+    if(composition.empty() || metadata.empty() || offshoreSource.empty() || gradient.size()<10 || localGain.size()<10)return;
     const std::string shore=WaterShoreFoam::Source(),crest=WaterCoastalCrest::Source();
     CHECK(production.find(shore)!=std::string::npos && production.find(crest)!=std::string::npos);
     // Each scenario occupies four raster rows so every derivative quad stays in one case.
@@ -7376,7 +7379,7 @@ static void check_gpu_water_coastal_crest_injection(SdlGpuFrame *frame,const std
     const unsigned width=16,height=unsigned(queries.size())*4;
     CHECK(queries.size()*sizeof(Query)<=4096);if(queries.size()*sizeof(Query)>4096)return;
     std::string ps="struct Query{float4 f[8];};cbuffer CoastComposition:register(b0){Query Queries["+std::to_string(queries.size())+"];};\n"
-        "struct Input{float4 Diffuse;float2 TexCoord0;};\n"+shore+crest+gradient+R"COAST(
+        "struct Input{float4 Diffuse;float2 TexCoord0;};\n"+shore+crest+gradient+localGain+R"COAST(
 float4 main(float4 pixel:SV_Position):SV_Target0 {
     uint row=(uint)pixel.y/4;Query q=Queries[row];
     float2 tile=float2((uint)pixel.x%8,(uint)pixel.y%4);
@@ -7395,6 +7398,9 @@ float4 main(float4 pixel:SV_Position):SV_Target0 {
     input.TexCoord0=float2(q.f[1].w+dot(q.f[5].zw,offset),0);
     float3 wave=float3(q.f[1].y+dot(q.f[4].zw,offset),q.f[4].zw);
     float3 legacyWave=wave,oceanWave=wave;
+    // This legacy coastal fixture keeps the actual production helper at identity.
+    // Non-unit local residual and product-rule coverage live in check_gpu_local_water.
+    float3 localAnalyticGain=float3(1,0,0);
 )COAST"+metadata+offshoreSource+composition+R"COAST(
     if(pixel.x<8)return float4(continuousHeight,slope,meshCorrection);
     return float4(normal,1);
@@ -8737,6 +8743,228 @@ static void check_gpu_water_opaque_alpha(SdlGpuFrame *frame)
 }
 #endif
 
+// Render the immutable d1b6a8b5 evaluator beside production, correcting only its
+// fine layer with an independent analytic wind oracle. The original two-texel
+// and new five-texel atlases retain identical legacy payloads.
+static void check_gpu_local_water(SdlGpuFrame *frame)
+{
+    struct Query {float point[4];};std::vector<Query> queries;
+    const float points[][2]={{1.7f,2.3f},{9.1f,8.4f},{19.3f,16.7f},{29.8f,5.1f},
+        {29.99f,12.3f},{30,12.3f},{30.01f,12.3f},{35.7f,8.7f},{45.3f,16.3f},{55.1f,6.4f},{65.4f,18.2f},{0,0}};
+    for(const auto &p:points)for(float time:{0.0f,1.3f})for(float lod:{0.0f,2.0f,5.0f})queries.push_back({{p[0],p[1],time,lod}});
+    const unsigned rows=unsigned(queries.size()),columns=55;
+    const std::string ps=WaterLocalWaveTest::PixelSource(rows);
+    const char *vs="float4 main(uint id:SV_VertexID):SV_Position{return float4(id==1?3.0:-1.0,id==2?3.0:-1.0,0,1);}";
+    struct Resources {
+        SDL_GPUDevice *device;SDL_GPUShader *vs=nullptr,*ps=nullptr;SDL_GPUGraphicsPipeline *pipeline=nullptr;
+        SDL_GPUTexture *target=nullptr,*heading[2]={};SDL_GPUSampler *sampler=nullptr;
+        ~Resources(){for(auto p:heading)if(p)SDL_ReleaseGPUTexture(device,p);if(sampler)SDL_ReleaseGPUSampler(device,sampler);
+            if(target)SDL_ReleaseGPUTexture(device,target);if(pipeline)SDL_ReleaseGPUGraphicsPipeline(device,pipeline);
+            if(vs)SDL_ReleaseGPUShader(device,vs);if(ps)SDL_ReleaseGPUShader(device,ps);}
+    } r;r.device=frame->Device();std::vector<unsigned char> spirv;std::string error;
+    bool ok=SDL3_Compile_HLSL_To_SPIRV(vs,true,spirv,error);CHECK(ok);if(!ok)return;
+    r.vs=SDL3_Create_Shader(r.device,spirv,true,error);CHECK(r.vs);if(!r.vs)return;
+    ok=SDL3_Compile_HLSL_To_SPIRV(ps,false,spirv,error);CHECK(ok);if(!ok){printf("local water PS: %s\n",error.c_str());return;}
+    unsigned samplers=0,buffers=0;SDL3_Shader_Slots(spirv,false,samplers,buffers);CHECK(samplers==2 && buffers==1);
+    r.ps=SDL3_Create_Shader(r.device,spirv,false,error);CHECK(r.ps);if(!r.ps)return;
+    SDL_GPUColorTargetDescription colour={};colour.format=SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT;
+    SDL_GPUGraphicsPipelineCreateInfo pi={};pi.vertex_shader=r.vs;pi.fragment_shader=r.ps;pi.primitive_type=SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+    pi.target_info.color_target_descriptions=&colour;pi.target_info.num_color_targets=1;
+    r.pipeline=SDL_CreateGPUGraphicsPipeline(r.device,&pi);CHECK(r.pipeline);if(!r.pipeline)return;
+    SDL_GPUTextureCreateInfo ti={};ti.type=SDL_GPU_TEXTURETYPE_2D;ti.format=colour.format;ti.usage=SDL_GPU_TEXTUREUSAGE_COLOR_TARGET;
+    ti.width=columns;ti.height=rows;ti.layer_count_or_depth=ti.num_levels=1;
+    r.target=SDL_CreateGPUTexture(r.device,&ti);CHECK(r.target);if(!r.target)return;CHECK(frame->Flush());
+    const unsigned widths[2]={40,16};std::vector<unsigned char> texels[2]={std::vector<unsigned char>(40*4*4),std::vector<unsigned char>(16*4*4)};
+    std::vector<uint32_t> envelope(8*4);std::vector<float> banks(8*4*2,0);
+    auto phase=[](unsigned char *out,unsigned u,float gx,float gy){out[0]=u>>8;out[1]=u&255;out[2]=WaterWaveHeading::EncodeGradient(gx);out[3]=WaterWaveHeading::EncodeGradient(gy);};
+    for(unsigned y=0;y<4;++y)for(unsigned x=0;x<8;++x) {
+        unsigned char *n=&texels[0][(y*40+x*5)*4],*old=&texels[1][(y*16+x*2)*4];
+        phase(old,200+x*63+y*17,x==0&&y==0?0:-.65f+.1f*x,x==0&&y==0?0:-.75f+.04f*y);old[4]=230-x*3;old[7]=255;memcpy(n,old,8);
+        phase(n+8,400+56*x+24*y,.7f,.3f);phase(n+12,800-24*x+48*y,-.3f,.6f);
+        n[16]=110+10*y;n[17]=60-5*y;n[18]=x<4?0:x==4?102:x==5?204:255;n[19]=32+4*y;
+        // Preserve the old unused zero bytes in sea, neutralize local banks,
+        // then add upstream, side and downstream island faces to arm projection.
+        if(n[18]>0) {
+            const float bankX=x==4?-.8f:x==6?.7f:0;
+            const float bankY=x==4?.1f:x==5?-.85f:x==6?.2f:0;
+            n[5]=unsigned(128+std::lround(bankX*127));n[6]=unsigned(128+std::lround(bankY*127));
+            banks[(y*8+x)*2]=(int(n[5])-128)/127.0f;banks[(y*8+x)*2+1]=(int(n[6])-128)/127.0f;
+        }
+        envelope[y*8+x]=(uint32_t(n[16])<<16)|(uint32_t(n[17])<<8)|n[18]|(uint32_t(n[19])<<24);
+    }
+    ti.height=4;ti.format=SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;ti.usage=SDL_GPU_TEXTUREUSAGE_SAMPLER;
+    for(unsigned i=0;i<2;++i){ti.width=widths[i];r.heading[i]=SDL_CreateGPUTexture(r.device,&ti);CHECK(r.heading[i]);if(!r.heading[i])return;}
+    SDL_GPUSamplerCreateInfo si={};si.min_filter=si.mag_filter=SDL_GPU_FILTER_NEAREST;
+    si.address_mode_u=si.address_mode_v=si.address_mode_w=SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+    r.sampler=SDL_CreateGPUSampler(r.device,&si);CHECK(r.sampler);if(!r.sampler)return;
+    SDL_GPUTransferBufferCreateInfo bi={};bi.usage=SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;bi.size=unsigned(texels[0].size()+texels[1].size());
+    SDL_GPUTransferBuffer *transfer=SDL_CreateGPUTransferBuffer(r.device,&bi);CHECK(transfer);if(!transfer)return;
+    void *mapped=SDL_MapGPUTransferBuffer(r.device,transfer,false);CHECK(mapped);if(!mapped){SDL_ReleaseGPUTransferBuffer(r.device,transfer);return;}
+    memcpy(mapped,texels[0].data(),texels[0].size());memcpy((unsigned char*)mapped+texels[0].size(),texels[1].data(),texels[1].size());SDL_UnmapGPUTransferBuffer(r.device,transfer);
+    SDL_GPUCommandBuffer *upload=SDL_AcquireGPUCommandBuffer(r.device);CHECK(upload);if(!upload){SDL_ReleaseGPUTransferBuffer(r.device,transfer);return;}
+    SDL_GPUCopyPass *copy=SDL_BeginGPUCopyPass(upload);CHECK(copy);
+    for(unsigned i=0;i<2;++i){SDL_GPUTextureTransferInfo from={};from.transfer_buffer=transfer;from.offset=i?unsigned(texels[0].size()):0;from.pixels_per_row=widths[i];from.rows_per_layer=4;
+        SDL_GPUTextureRegion to={};to.texture=r.heading[i];to.w=widths[i];to.h=4;to.d=1;SDL_UploadToGPUTexture(copy,&from,&to,false);}
+    SDL_EndGPUCopyPass(copy);CHECK(SDL_SubmitGPUCommandBuffer(upload));SDL_ReleaseGPUTransferBuffer(r.device,transfer);
+    auto render=[&]() {
+        SDL_GPUCommandBuffer *commands=SDL_AcquireGPUCommandBuffer(r.device);CHECK(commands);
+        SDL_GPUColorTargetInfo target={};target.texture=r.target;target.load_op=SDL_GPU_LOADOP_DONT_CARE;target.store_op=SDL_GPU_STOREOP_STORE;
+        SDL_GPURenderPass *pass=SDL_BeginGPURenderPass(commands,&target,1,nullptr);CHECK(pass);SDL_BindGPUGraphicsPipeline(pass,r.pipeline);
+        SDL_PushGPUFragmentUniformData(commands,0,queries.data(),unsigned(queries.size()*sizeof(Query)));
+        SDL_GPUTextureSamplerBinding bindings[2]={{r.heading[0],r.sampler},{r.heading[1],r.sampler}};SDL_BindGPUFragmentSamplers(pass,0,bindings,2);
+        SDL_DrawGPUPrimitives(pass,3,1,0,0);SDL_EndGPURenderPass(pass);CHECK(SDL_SubmitGPUCommandBuffer(commands));
+        return read_float_targets(frame,&r.target,1,columns,rows);
+    };
+    const auto values=render(),repeat=render();CHECK(values==repeat);CHECK(values.size()==rows*columns*4);if(values.size()!=rows*columns*4)return;
+    auto value=[&](unsigned row,unsigned col,unsigned c){return double(values[(row*columns+col)*4+c]);};
+    double maxSea=0,maxDerivative=0,maxFilteredDerivative=0,maxGainDerivative=0,maxCrossing=0,maxVertex=0,maxProduct=0;
+    double maxFallbackDerivative=0,maxBlendedDerivative=0,maxCpuGain=0,maxClockWrap=0;
+    double maxWindOracle=0,maxCoastInvariant=0,maxWindVertex=0,maxExpected=0,maxExpectedVertex=0;
+    unsigned coastArmed=0,windArmed=0,zeroGradientQueries=0,oracleFailures=0;
+    double motionError[4]={},cycleMotionError[4]={};
+    double maxBankValue=0,maxBankDerivative=0,maxProjectionDerivative=0;
+    unsigned seaQueries=0,legacyArmed=0,crossingArmed=0,filterArmed=0,travelArmed=0;
+    for(unsigned row=0;row<rows;++row) {
+        for(unsigned col=0;col<columns;++col)for(unsigned c=0;c<4;++c)CHECK(std::isfinite(value(row,col,c)));
+        const auto cpuGain=WaterLocalWaveField::SampleLegacyGain(envelope,8,4,
+            queries[row].point[0]/10,queries[row].point[1]/10,10);
+        const double expectedGain[3]={cpuGain.value,cpuGain.dx,cpuGain.dy};
+        for(unsigned c=0;c<3;++c) {
+            maxCpuGain=std::max(maxCpuGain,std::abs(value(row,24,c)-expectedGain[c]));
+            CHECK(std::abs(value(row,24,c)-expectedGain[c])<.000003);
+            CHECK(std::abs(value(row,24,c)-value(row,12,c))<.0000001);
+            CHECK(value(row,27,c)==0);
+        }
+        for(unsigned c=0;c<2;++c) {
+            maxFallbackDerivative=std::max(maxFallbackDerivative,std::abs(value(row,25,c+1)-value(row,26,c)));
+            maxBlendedDerivative=std::max(maxBlendedDerivative,std::abs(value(row,28,c+1)-value(row,29,c)));
+            CHECK(std::abs(value(row,25,c+1)-value(row,26,c))<.0001);
+            CHECK(std::abs(value(row,28,c+1)-value(row,29,c))<.0001);
+        }
+        for(unsigned channel=0;channel<2;++channel) {
+            maxClockWrap=std::max(maxClockWrap,std::abs(value(row,30,channel)));
+            CHECK(std::abs(value(row,30,channel))<.003);
+        }
+        for(unsigned channel=0;channel<4;++channel) {
+            CHECK(value(row,31,channel)==0); // zero velocity stays world anchored across a reset
+            CHECK(value(row,32,channel)==0); // chart distance never becomes a crest phase
+            if(queries[row].point[3]==0)motionError[channel]+=value(row,33,channel);
+            if(queries[row].point[3]==0 && queries[row].point[2]==0)cycleMotionError[channel]+=value(row,34,channel);
+        }
+        const double cellX=std::clamp(double(queries[row].point[0])/10,0.0,7.0),cellY=std::clamp(double(queries[row].point[1])/10,0.0,3.0);
+        const unsigned loX=std::min(unsigned(std::floor(cellX)),6u),loY=std::min(unsigned(std::floor(cellY)),2u);
+        auto quintic=[](double f){return f*f*f*(10+f*(-15+6*f));};
+        const double ux=quintic(cellX-loX),uy=quintic(cellY-loY);
+        for(unsigned channel=0;channel<2;++channel) {
+            const double lower=banks[(loY*8+loX)*2+channel]*(1-ux)+banks[(loY*8+loX+1)*2+channel]*ux;
+            const double upper=banks[((loY+1)*8+loX)*2+channel]*(1-ux)+banks[((loY+1)*8+loX+1)*2+channel]*ux;
+            const double error=std::abs(value(row,35,channel)-(lower*(1-uy)+upper*uy));
+            maxBankValue=std::max(maxBankValue,error);CHECK(error<.000002);
+        }
+        CHECK(value(row,35,2)<=1.000001);
+        for(unsigned channel=0;channel<4;++channel) {
+            maxBankDerivative=std::max(maxBankDerivative,std::abs(value(row,36,channel)));
+            maxProjectionDerivative=std::max(maxProjectionDerivative,std::abs(value(row,40,channel)));
+            CHECK(std::abs(value(row,36,channel))<.00004);
+            CHECK(std::abs(value(row,40,channel))<.000002);
+            CHECK(value(row,38,channel)==0);
+            CHECK(value(row,41,channel)==0);
+        }
+        const double expectedProjection[4]={0,.35,.8,.35};
+        for(unsigned channel=0;channel<4;++channel)CHECK(std::abs(value(row,37,channel)-expectedProjection[channel])<.0000001);
+        CHECK(std::abs(value(row,39,0))<.0000001 && std::abs(value(row,39,1))<.0000001);
+        CHECK(value(row,39,2)<std::hypot(.8,.35));
+        const bool sea=queries[row].point[0]<=30;
+        // The unchanged old total plus independently rotated fine correction must
+        // describe both physical and filtered displacement/tangents. All local
+        // points additionally exercise the residual gain's product-rule terms.
+        for(unsigned col=0;col<=6;++col)for(unsigned c=0;c<4;++c) {
+            maxExpected=std::max(maxExpected,std::abs(value(row,col,c)));
+            if(std::abs(value(row,col,c))>=.000003 && oracleFailures++<12)
+                printf("local water oracle failure: row %u p=(%.5g,%.5g) time %.5g lod %.5g column %u channel %u error %.9g\n",row,queries[row].point[0],queries[row].point[1],queries[row].point[2],queries[row].point[3],col,c,value(row,col,c));
+            CHECK(std::abs(value(row,col,c))<.000003);
+        }
+        // expectedVertex reuses the pixel path's local wave evaluation; the
+        // vertex path specializes away its tangents. Its existing independently
+        // measured reassociation allowance therefore applies here too, only
+        // where the local layer is present. Sea retains the strict oracle bound.
+        for(unsigned c=0;c<3;++c) {
+            const double error=std::abs(value(row,17,c));
+            const double bound=value(row,7,3)>0?64*std::numeric_limits<float>::epsilon()*std::max(1.0,std::abs(value(row,7,c))):.000003;
+            maxExpectedVertex=std::max(maxExpectedVertex,error);
+            if(error>=.000003)
+                printf("local water vertex oracle specialization: row %u p=(%.5g,%.5g) time %.5g lod %.5g channel %u difference %.9g bound %.9g local %.0f\n",row,queries[row].point[0],queries[row].point[1],queries[row].point[2],queries[row].point[3],c,value(row,17,c),bound,value(row,7,3));
+            CHECK(error<bound);
+        }
+        if(sea) {++seaQueries;legacyArmed+=std::abs(value(row,7,2))>.05;
+            for(unsigned col=0;col<=6;++col)for(unsigned c=0;c<4;++c)maxSea=std::max(maxSea,std::abs(value(row,col,c)));
+            for(unsigned c=0;c<4;++c){maxSea=std::max(maxSea,std::abs(value(row,23,c)));CHECK(value(row,23,c)==0);}}
+        for(unsigned col=42;col<=50;++col)for(unsigned c=0;c<3;++c) {
+            maxWindOracle=std::max(maxWindOracle,std::abs(value(row,col,c)));
+            if(std::abs(value(row,col,c))>=.000001 && oracleFailures++<12)
+                printf("fine wind oracle failure: row %u lod %.5g column %u channel %u error %.9g\n",row,queries[row].point[3],col,c,value(row,col,c));
+            CHECK(std::abs(value(row,col,c))<.000001);
+        }
+        for(unsigned c=0;c<3;++c) {
+            maxCoastInvariant=std::max(maxCoastInvariant,std::abs(value(row,51,c)));
+            maxWindVertex=std::max(maxWindVertex,std::abs(value(row,54,c)));
+            CHECK(std::abs(value(row,51,c))<.000001);
+            CHECK(std::abs(value(row,54,c))<.0000001);
+        }
+        coastArmed+=value(row,51,3)>.05;windArmed+=value(row,48,3)>.05;
+        for(unsigned c=0;c<4;++c)CHECK(value(row,53,c)==0); // fine never feeds contact/compression
+        if(queries[row].point[0]==0 && queries[row].point[1]==0) {
+            ++zeroGradientQueries;
+            for(unsigned c=0;c<4;++c) {
+                if(value(row,52,c)!=0)printf("zero-gradient legacy failure: row %u channel %u difference %.9g\n",row,c,value(row,52,c));
+                CHECK(value(row,52,c)==0);
+            }
+        }
+        for(unsigned c=0;c<2;++c) {
+            maxDerivative=std::max(maxDerivative,std::abs(value(row,8,c+1)-value(row,9,c)));
+            maxFilteredDerivative=std::max(maxFilteredDerivative,std::abs(value(row,10,c+1)-value(row,11,c)));
+            maxGainDerivative=std::max(maxGainDerivative,std::abs(value(row,12,c+1)-value(row,13,c)));
+            CHECK(std::abs(value(row,8,c+1)-value(row,9,c))<.00035);
+            CHECK(std::abs(value(row,10,c+1)-value(row,11,c))<.00035);
+            CHECK(std::abs(value(row,12,c+1)-value(row,13,c))<.00003);
+            const double expected=1.1*value(row,12,c+1)+value(row,8,c+1);
+            maxProduct=std::max(maxProduct,std::abs(value(row,22,c)-expected));CHECK(std::abs(value(row,22,c)-expected)<.000001);
+        }
+        for(unsigned col:{14u,15u})for(unsigned c=0;c<4;++c){maxCrossing=std::max(maxCrossing,std::abs(value(row,col,c)));CHECK(std::abs(value(row,col,c))<.0000001);}
+        crossingArmed+=!sea && std::abs(value(row,16,2))>.001;
+        filterArmed+=!sea && queries[row].point[3]>0 && std::abs(value(row,8,0)-value(row,10,0))>.0001;
+        CHECK(value(row,19,0)>=0);
+        // Pixel evaluation retains scalar tangents; vertex-only evaluation lets
+        // the compiler discard them. Local float reassociation measured 6.32e-6
+        // after isolating an exactly equal legacy result and equal atlas inputs.
+        // Bound this independently optimized local arithmetic by 64 float eps;
+        // the independent full-field oracle above separately bounds changed fine arithmetic.
+        for(unsigned c=0;c<3;++c) {
+            maxVertex=std::max(maxVertex,std::abs(value(row,18,c)));
+            const double localRoundoff=64*std::numeric_limits<float>::epsilon()*std::max(1.0,std::abs(value(row,7,c)));
+            CHECK(std::abs(value(row,18,c))<localRoundoff);
+        }
+        if(row%3)for(unsigned c=0;c<4;++c)CHECK(value(row,7,c)==value(row-row%3,7,c));
+        if(row%6>=3)travelArmed+=std::abs(value(row,8,0)-value(row-3,8,0))>.001;
+    }
+    CHECK(seaQueries>20 && legacyArmed>8 && crossingArmed>8 && filterArmed>8 && travelArmed>8);
+    CHECK(coastArmed>20 && windArmed>20 && zeroGradientQueries==6);
+    CHECK(motionError[3]>.001); // direction comparison is armed by actual temporal motion
+    CHECK(motionError[0]<motionError[1] && motionError[0]<motionError[2]);
+    CHECK(cycleMotionError[3]>.001);
+    CHECK(cycleMotionError[0]<cycleMotionError[1] && cycleMotionError[0]<cycleMotionError[2]);
+    // At the sea/local support boundary, the new contribution reaches zero with
+    // zero tangent; test both sides without comparing unrelated legacy phases.
+    for(unsigned offset=0;offset<6;++offset)for(unsigned col:{0u,1u,2u,17u})for(unsigned c=0;c<3;++c)CHECK(std::abs(value(6*6+offset,col,c))<.000003);
+    printf("sdl_gpu_frame_selfcheck: local water %u queries, corrected sea reference error %.9g; local scalar tangents %.9g filtered %.9g, envelope %.9g, product rule %.9g, crossing %.9g, vertex %.9g; armed crossings %u filtered %u travel %u; repeat exact\n",
+        rows,maxSea,maxDerivative,maxFilteredDerivative,maxGainDerivative,maxProduct,maxCrossing,maxVertex,crossingArmed,filterArmed,travelArmed);
+    printf("sdl_gpu_frame_selfcheck: stable fine wind: analytic physical/filtered oracle %.9g, full local field %.9g, independent vertex %.9g, coastal direction invariance %.9g, vertex %.9g; %u coastal and %u wind-rotation controls, %u exact zero-gradient legacy queries; fine contact/compression exactly absent\n",maxWindOracle,maxExpected,maxExpectedVertex,maxCoastInvariant,maxWindVertex,coastArmed,windArmed,zeroGradientQueries);
+    printf("sdl_gpu_frame_selfcheck: stream clocks max reset delta %.9g, still pools and phase-distance invariance exact; current-direction errors along %.9g against %.9g across %.9g\n",maxClockWrap,motionError[0],motionError[1],motionError[2]);
+    printf("sdl_gpu_frame_selfcheck: full-cycle stream motion 1152 samples: along %.9g against %.9g across %.9g stationary %.9g\n",cycleMotionError[0],cycleMotionError[1],cycleMotionError[2],cycleMotionError[3]);
+    printf("sdl_gpu_frame_selfcheck: island bank scalar values %.9g, bank gradients %.9g, projected velocity Jacobian %.9g; upstream slowing, side tangency, outgoing/still/independent routes armed\n",maxBankValue,maxBankDerivative,maxProjectionDerivative);
+    printf("sdl_gpu_frame_selfcheck: analytic fallback residual: CPU/GPU gain %.9g, scalar product tangents %.9g, offshore blend tangents %.9g; sea identity exact\n",maxCpuGain,maxFallbackDerivative,maxBlendedDerivative);
+}
+
 int main(int argc,char **argv)
 {
 	if (!SDL_Init(SDL_INIT_VIDEO)) {
@@ -8751,6 +8979,8 @@ int main(int argc,char **argv)
 		return 77;
 	}
 	printf("sdl_gpu_frame_selfcheck: %s\n", SDL_GetGPUDeviceDriver(frame->Device()));
+    if(argc==2 && strcmp(argv[1],"--water-local-only")==0) {check_gpu_local_water(frame);delete frame;SDL_Quit();return failures?1:0;}
+    check_gpu_local_water(frame);
 #if defined(__linux__)
     if(argc==2 && strcmp(argv[1],"--water-alpha-only")==0) {
         check_gpu_water_opaque_alpha(frame);delete frame;SDL_Quit();return failures?1:0;
