@@ -369,8 +369,10 @@ float4 main(float4 position:SV_Position):SV_Target0 {
     float budget=f.first.amplitude+f.second.amplitude;
     float2 budgetGradient=f.first.amplitudeGradient+f.second.amplitudeGradient;
     float gradientBudget=length(f.first.amplitudeGradient)+length(f.second.amplitudeGradient);
-    fftLocalArrival(w1,p,f.first,f.shore,f.shoreX,f.shoreY,lod,budget,budgetGradient,gradientBudget);
-    fftLocalArrival(w2,p,f.second,f.shore,f.shoreX,f.shoreY,lod,budget,budgetGradient,gradientBudget);
+    float footprint2=max(0.0,exp2(2*lod)-1)*fftLocalTexel*fftLocalTexel/24.0;
+    float3 clock=fftStreamNoise(p/83.0+float2(11.7,-6.3));clock.yz/=83.0;
+    fftLocalArrival(w1,p,f.first,f.shore,f.shoreX,f.shoreY,footprint2,clock,budget,budgetGradient,gradientBudget);
+    fftLocalArrival(w2,p,f.second,f.shore,f.shoreX,f.shoreY,footprint2,clock,budget,budgetGradient,gradientBudget);
     if(column==14)return float4(waves.displacement-w1.displacement-w2.displacement,waves.derivativeX.z-w1.derivativeX.z-w2.derivativeX.z);
     if(column==15)return float4(waves.derivativeY.z-w1.derivativeY.z-w2.derivativeY.z,0,0,0);
     if(column==16) {
@@ -492,6 +494,63 @@ float4 main(float4 position:SV_Position):SV_Target0 {
     if(column==52)return float4(originalDelta,originalVertexDelta);
     if(column==53) {FftSurface fine=fftWindSurface(p,lod);return float4(fine.contactIncident,fine.incidentCompression);}
     if(column==54)return float4(fftWindDisplacement(p)-fftWindSurface(p,0).displacement,0);
+    if(column>=55 && column<=63) {
+        // Compare per-cascade cache reuse against the immutable evaluator,
+        // including independently reconstructed wind rotation. Each LOD axis
+        // is isolated so an unrelated cascade cannot silently be filtered.
+        int group=(column-55)/3,component=(column-55)%3;
+        float3 mixed=group==0?float3(0,0,lod):group==1?float3(0,lod,0):float3(lod,0,0);
+        FftSurface actualPhysical,actualShading,oldPhysical,oldShading;
+        fftLegacyAndShadingSurface(p,mixed,actualPhysical,actualShading);
+        referencefftRawAndShadingSurface(p,mixed,oldPhysical,oldShading);
+        referenceFftSwell oldSwell=referencefftSwell(p,mixed.x);
+        FftSurface dc=fixtureFineCorrection(p,0,oldSwell),sc=fixtureFineCorrection(p,mixed.z,oldSwell);
+        oldPhysical.displacement+=dc.displacement;oldPhysical.derivativeX+=dc.derivativeX;oldPhysical.derivativeY+=dc.derivativeY;
+        oldShading.displacement+=sc.displacement;oldShading.derivativeX+=sc.derivativeX;oldShading.derivativeY+=sc.derivativeY;
+        float physicalError=length(actualPhysical.displacement-oldPhysical.displacement)
+            +length(actualPhysical.derivativeX-oldPhysical.derivativeX)+length(actualPhysical.derivativeY-oldPhysical.derivativeY);
+        return float4(component==0?actualShading.displacement-oldShading.displacement:
+            component==1?actualShading.derivativeX-oldShading.derivativeX:actualShading.derivativeY-oldShading.derivativeY,physicalError);
+    }
+    if(column>=64 && column<=75) {
+        // Full visible-surface temporal regression: shelter keeps the committed
+        // .06/.12 residual wind budget even against or across the current.
+        // The oracle includes evolving FFT wind AND current, rather than
+        // asserting that a composite surface must advect as current-only noise.
+        int group=(column-64)/3,component=(column-64)%3;
+        float gain=group<2?.06:.12;
+        float2 wind;sincos(FftParameters.w,wind.y,wind.x);
+        FftLocalFields route=(FftLocalFields)0;
+        route.influence=float3(1,0,0);route.legacyGain=float3(gain,0,0);
+        float2 fixtureTravel=-normalize(float2(wind.x*.043-wind.y*.027,wind.y*.043+wind.x*.027));
+        route.first.gradient=group%2==0?-fixtureTravel:fftStreamQuarterTurn(fixtureTravel);
+        route.first.amplitude=.7;
+        float3 actual[2],expected[2];float windMotion=0,currentMotion=0;
+        float3 previousFine=0,previousCurrent=0;
+        [unroll] for(int sample=0;sample<2;++sample) {
+            WaterParameters.x=query.z+sample*1.3;
+            FftLocalWaves current=fftLocalWaves(p,route,lod);
+            FftSurface original=fftLegacySurface(p,levels);
+            FftSurface visible=fftLocalSurface(original,route,current,levels,true);
+            FftSurface old=referencefftRawSurface(p,levels);
+            referenceFftSwell oldSwell=referencefftSwell(p,lod);
+            FftSurface windCorrection=fixtureFineCorrection(p,lod,oldSwell);
+            float3 oldValue=component==0?old.displacement:component==1?old.derivativeX:old.derivativeY;
+            float3 correctedWind=oldValue+(component==0?windCorrection.displacement:component==1?windCorrection.derivativeX:windCorrection.derivativeY);
+            float3 currentValue=component==0?current.shadingDisplacement:component==1?current.shadingDerivativeX:current.shadingDerivativeY;
+            actual[sample]=component==0?visible.displacement:component==1?visible.derivativeX:visible.derivativeY;
+            expected[sample]=gain*correctedWind+currentValue;
+            FftSurface fine=fixtureFineOracle(p,lod,wind);
+            float3 fineValue=component==0?fine.displacement:component==1?fine.derivativeX:fine.derivativeY;
+            if(sample==1) {windMotion=length(gain*(fineValue-previousFine));currentMotion=length(currentValue-previousCurrent);}
+            previousFine=fineValue;previousCurrent=currentValue;
+        }
+        float3 actualMotion=actual[1]-actual[0],expectedMotion=expected[1]-expected[0];
+        // Check both full endpoints as well as temporal change. A static
+        // extra fine layer would cancel from the latter but still fail here.
+        float3 endpointError=max(abs(actual[0]-expected[0]),abs(actual[1]-expected[1]));
+        return float4(max(endpointError,abs(actualMotion-expectedMotion)),min(windMotion,currentMotion));
+    }
     float variance=b.localInfluence>0.0?b.localVariance:(fftShadingVariance(float3(0,levels.yz))+b.unresolvedSlopeVariance);
     float referenceVariance=fftShadingVariance(float3(0,levels.yz))+rb.unresolvedSlopeVariance;
     return float4(variance-referenceVariance,b.unresolvedSlopeVariance-rb.unresolvedSlopeVariance,0,0);

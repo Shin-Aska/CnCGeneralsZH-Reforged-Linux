@@ -8751,8 +8751,8 @@ static void check_gpu_local_water(SdlGpuFrame *frame)
     struct Query {float point[4];};std::vector<Query> queries;
     const float points[][2]={{1.7f,2.3f},{9.1f,8.4f},{19.3f,16.7f},{29.8f,5.1f},
         {29.99f,12.3f},{30,12.3f},{30.01f,12.3f},{35.7f,8.7f},{45.3f,16.3f},{55.1f,6.4f},{65.4f,18.2f},{0,0}};
-    for(const auto &p:points)for(float time:{0.0f,1.3f})for(float lod:{0.0f,2.0f,5.0f})queries.push_back({{p[0],p[1],time,lod}});
-    const unsigned rows=unsigned(queries.size()),columns=55;
+    for(const auto &p:points)for(float time:{0.0f,1.3f})for(float lod:{0.0f,1.37f,5.0f})queries.push_back({{p[0],p[1],time,lod}});
+    const unsigned rows=unsigned(queries.size()),columns=76;
     const std::string ps=WaterLocalWaveTest::PixelSource(rows);
     const char *vs="float4 main(uint id:SV_VertexID):SV_Position{return float4(id==1?3.0:-1.0,id==2?3.0:-1.0,0,1);}";
     struct Resources {
@@ -8820,6 +8820,8 @@ static void check_gpu_local_water(SdlGpuFrame *frame)
     double maxSea=0,maxDerivative=0,maxFilteredDerivative=0,maxGainDerivative=0,maxCrossing=0,maxVertex=0,maxProduct=0;
     double maxFallbackDerivative=0,maxBlendedDerivative=0,maxCpuGain=0,maxClockWrap=0;
     double maxWindOracle=0,maxCoastInvariant=0,maxWindVertex=0,maxExpected=0,maxExpectedVertex=0;
+    double maxMixedLod=0,maxCompositeSurface=0;
+    unsigned compositeArmed[4]={};
     unsigned coastArmed=0,windArmed=0,zeroGradientQueries=0,oracleFailures=0;
     double motionError[4]={},cycleMotionError[4]={};
     double maxBankValue=0,maxBankDerivative=0,maxProjectionDerivative=0;
@@ -8911,6 +8913,19 @@ static void check_gpu_local_water(SdlGpuFrame *frame)
             CHECK(std::abs(value(row,51,c))<.000001);
             CHECK(std::abs(value(row,54,c))<.0000001);
         }
+        for(unsigned col=55;col<=63;++col)for(unsigned c=0;c<4;++c) {
+            maxMixedLod=std::max(maxMixedLod,std::abs(value(row,col,c)));
+            CHECK(std::abs(value(row,col,c))<.000003);
+        }
+        for(unsigned col=64;col<=75;++col) {
+            for(unsigned c=0;c<3;++c) {
+                maxCompositeSurface=std::max(maxCompositeSurface,std::abs(value(row,col,c)));
+                CHECK(std::abs(value(row,col,c))<.000003);
+            }
+            // Isolated fine FFT and stream motion must both be present.
+            if((col-64)%3==0 && queries[row].point[3]==0 && value(row,col,3)>.0001)
+                ++compositeArmed[(col-64)/3];
+        }
         coastArmed+=value(row,51,3)>.05;windArmed+=value(row,48,3)>.05;
         for(unsigned c=0;c<4;++c)CHECK(value(row,53,c)==0); // fine never feeds contact/compression
         if(queries[row].point[0]==0 && queries[row].point[1]==0) {
@@ -8949,6 +8964,7 @@ static void check_gpu_local_water(SdlGpuFrame *frame)
     }
     CHECK(seaQueries>20 && legacyArmed>8 && crossingArmed>8 && filterArmed>8 && travelArmed>8);
     CHECK(coastArmed>20 && windArmed>20 && zeroGradientQueries==6);
+    for(unsigned group=0;group<4;++group)CHECK(compositeArmed[group]>8);
     CHECK(motionError[3]>.001); // direction comparison is armed by actual temporal motion
     CHECK(motionError[0]<motionError[1] && motionError[0]<motionError[2]);
     CHECK(cycleMotionError[3]>.001);
@@ -8959,6 +8975,8 @@ static void check_gpu_local_water(SdlGpuFrame *frame)
     printf("sdl_gpu_frame_selfcheck: local water %u queries, corrected sea reference error %.9g; local scalar tangents %.9g filtered %.9g, envelope %.9g, product rule %.9g, crossing %.9g, vertex %.9g; armed crossings %u filtered %u travel %u; repeat exact\n",
         rows,maxSea,maxDerivative,maxFilteredDerivative,maxGainDerivative,maxProduct,maxCrossing,maxVertex,crossingArmed,filterArmed,travelArmed);
     printf("sdl_gpu_frame_selfcheck: stable fine wind: analytic physical/filtered oracle %.9g, full local field %.9g, independent vertex %.9g, coastal direction invariance %.9g, vertex %.9g; %u coastal and %u wind-rotation controls, %u exact zero-gradient legacy queries; fine contact/compression exactly absent\n",maxWindOracle,maxExpected,maxExpectedVertex,maxCoastInvariant,maxWindVertex,coastArmed,windArmed,zeroGradientQueries);
+    printf("sdl_gpu_frame_selfcheck: residual wind/current composite: isolated mixed-LOD reference %.9g, full endpoint/temporal surface oracle %.9g; residual .06 opposing/crosswind %u/%u, residual .12 %u/%u; isolated fine wind and stream motion armed\n",
+        maxMixedLod,maxCompositeSurface,compositeArmed[0],compositeArmed[1],compositeArmed[2],compositeArmed[3]);
     printf("sdl_gpu_frame_selfcheck: stream clocks max reset delta %.9g, still pools and phase-distance invariance exact; current-direction errors along %.9g against %.9g across %.9g\n",maxClockWrap,motionError[0],motionError[1],motionError[2]);
     printf("sdl_gpu_frame_selfcheck: full-cycle stream motion 1152 samples: along %.9g against %.9g across %.9g stationary %.9g\n",cycleMotionError[0],cycleMotionError[1],cycleMotionError[2],cycleMotionError[3]);
     printf("sdl_gpu_frame_selfcheck: island bank scalar values %.9g, bank gradients %.9g, projected velocity Jacobian %.9g; upstream slowing, side tangency, outgoing/still/independent routes armed\n",maxBankValue,maxBankDerivative,maxProjectionDerivative);

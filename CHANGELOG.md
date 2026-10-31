@@ -20,6 +20,8 @@ found and fixed, EA's own, not port damage.**
   wave bands. Separate routes keep their own motion where they meet behind islands.
   Near island shores, incoming detail slows and turns along the banks.
   Sheltered branches, enclosed water, and elevated watercourses remain calmer.
+- Water rendering reuses repeated work while preserving the existing current
+  direction and ripple strength.
 - Bound elevated river wave attenuation so high watercourses, including the
   aircraft carrier map's upper branches, cannot amplify waves into vertical walls.
 - Authored bridges can carry weakened visual movement across a narrow terrain-filled

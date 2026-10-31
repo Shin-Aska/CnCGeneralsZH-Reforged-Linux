@@ -282,7 +282,7 @@ void fftStreamProject(inout float2 velocity,inout float2 velocityX,inout float2 
     velocityX-=shoreX*remove+shore*(removeSlope*dx);
     velocityY-=shoreY*remove+shore*(removeSlope*dy);
 }
-void fftLocalArrival(inout FftLocalWaves value,float2 p,FftWavefrontParameters field,float2 shore,float2 shoreX,float2 shoreY,float lod,float budget,float2 budgetGradient,float gradientBudget) {
+void fftLocalArrival(inout FftLocalWaves value,float2 p,FftWavefrontParameters field,float2 shore,float2 shoreX,float2 shoreY,float footprint2,float3 clock,float budget,float2 budgetGradient,float gradientBudget) {
     [branch] if(field.amplitude==0.0 && all(field.amplitudeGradient==0.0))return;
     // Arrival distance is a direction surrogate, never a phase oscillator or a
     // speed estimate. Energy sets motion; the regularizer keeps dry/flat charts smooth.
@@ -297,8 +297,6 @@ void fftLocalArrival(inout FftLocalWaves value,float2 p,FftWavefrontParameters f
     fftStreamProject(velocity,velocityX,velocityY,shore,shoreX,shoreY);
     precise float3 sizes=float3(19,10,5.2),heights=float3(.25,.15,.09);
     precise float3 rotations=float3(.37,1.63,2.71);
-    precise float footprint2=max(0.0,exp2(2*lod)-1)*fftLocalTexel*fftLocalTexel/24.0;
-    precise float3 clock=fftStreamNoise(p/83.0+float2(11.7,-6.3));clock.yz/=83.0;
     [unroll] for(int i=0;i<3;++i) {
         precise float sn,cs;sincos(rotations[i],sn,cs);float2 rotation=float2(cs,sn);
         // Rotate the irregular pattern, not the underlying current directions.
@@ -327,11 +325,16 @@ void fftLocalArrival(inout FftLocalWaves value,float2 p,FftWavefrontParameters f
 }
 FftLocalWaves fftLocalWaves(float2 p,FftLocalFields fields,float lod) {
     precise FftLocalWaves value=(FftLocalWaves)0;
+    [branch] if(fields.first.amplitude==0.0 && all(fields.first.amplitudeGradient==0.0)
+        && fields.second.amplitude==0.0 && all(fields.second.amplitudeGradient==0.0))return value;
+    // Both routes share the spatial clock and footprint, not their current or phase.
+    precise float footprint2=max(0.0,exp2(2*lod)-1)*fftLocalTexel*fftLocalTexel/24.0;
+    precise float3 clock=fftStreamNoise(p/83.0+float2(11.7,-6.3));clock.yz/=83.0;
     float budget=fields.first.amplitude+fields.second.amplitude;
     float2 budgetGradient=fields.first.amplitudeGradient+fields.second.amplitudeGradient;
     float gradientBudget=length(fields.first.amplitudeGradient)+length(fields.second.amplitudeGradient);
-    fftLocalArrival(value,p,fields.first,fields.shore,fields.shoreX,fields.shoreY,lod,budget,budgetGradient,gradientBudget);
-    fftLocalArrival(value,p,fields.second,fields.shore,fields.shoreX,fields.shoreY,lod,budget,budgetGradient,gradientBudget);
+    fftLocalArrival(value,p,fields.first,fields.shore,fields.shoreX,fields.shoreY,footprint2,clock,budget,budgetGradient,gradientBudget);
+    fftLocalArrival(value,p,fields.second,fields.shore,fields.shoreX,fields.shoreY,footprint2,clock,budget,budgetGradient,gradientBudget);
     return value;
 }
 )HLSL";
@@ -500,10 +503,13 @@ FftSurface fftWindSurface(float2 p,float lod) {
     fine.derivativeY=fftRotateVector(r.y*x+r.x*y,r);
     return fine;
 }
-FftSurface fftSwellSurface(float2 p,float3 lod,FftSwell swell) {
-    FftSurface medium=(FftSurface)0,fine=fftWindSurface(p,lod.z);
+FftSurface fftMediumSurface(float2 p,float3 lod,FftSwell swell) {
+    FftSurface medium=(FftSurface)0;
     [branch] if(swell.weights.x>0.0) fftAccumulateChop(medium,p,lod,swell.rotation0,swell.weights.x);
     [branch] if(swell.weights.y>0.0) fftAccumulateChop(medium,p,lod,swell.rotation1,swell.weights.y);
+    return medium;
+}
+FftSurface fftComposeSwellSurface(FftSurface medium,FftSurface fine,FftSwell swell) {
     // Broad swell and medium chop carry ambient breaking and contact wash, as cascades 0 and 1 did.
     float2 breaking=medium.displacement.xy+swell.displacement.xy;
     float2 breakingX=medium.derivativeX.xy+swell.derivativeX.xy,breakingY=medium.derivativeY.xy+swell.derivativeY.xy;
@@ -520,6 +526,9 @@ FftSurface fftSwellSurface(float2 p,float3 lod,FftSwell swell) {
     value.unresolvedSlopeVariance=swell.variance;
     return value;
 }
+FftSurface fftSwellSurface(float2 p,float3 lod,FftSwell swell) {
+    return fftComposeSwellSurface(fftMediumSurface(p,lod,swell),fftWindSurface(p,lod.z),swell);
+}
 FftSurface fftLegacySurface(float2 p,float3 lod) {
     [branch] if(FftParameters.z<=0.5) return fftUnrotatedSurface(p,lod);
     return fftSwellSurface(p,lod,fftFilteredSwell(fftSwell(p,lod.x)));
@@ -528,8 +537,15 @@ FftSurface fftLegacySurface(float2 p) {return fftLegacySurface(p,float3(0,0,0));
 void fftLegacyAndShadingSurface(float2 p,float3 lod,out FftSurface physical,out FftSurface shading) {
     [branch] if(FftParameters.z<=0.5) {fftUnrotatedAndShadingSurface(p,lod,physical,shading);return;}
     FftSwell swell=fftSwell(p,lod.x);
-    physical=fftSwellSurface(p,float3(0,0,0),swell);shading=physical;
-    [branch] if(any(lod>0.0)) shading=fftSwellSurface(p,lod,fftFilteredSwell(swell));
+    FftSurface medium=fftMediumSurface(p,float3(0,0,0),swell),fine=fftWindSurface(p,0);
+    physical=fftComposeSwellSurface(medium,fine,swell);shading=physical;
+    [branch] if(any(lod>0.0)) {
+        // Reuse each resolved cascade's mip-zero value exactly. Fine-only
+        // filtering must not fetch either medium sector a second time.
+        [branch] if(lod.y>0.0)medium=fftMediumSurface(p,lod,swell);
+        [branch] if(lod.z>0.0)fine=fftWindSurface(p,lod.z);
+        shading=fftComposeSwellSurface(medium,fine,fftFilteredSwell(swell));
+    }
 }
 
 FftSurface fftLocalSurface(FftSurface original,FftLocalFields fields,FftLocalWaves waves,float3 lod,bool filtered) {
@@ -552,15 +568,21 @@ FftSurface fftRawSurface(float2 p,float3 lod) {
     [branch] if(FftParameters.z<=0.5)return fftUnrotatedSurface(p,lod);
     FftLocalFields fields=fftLocalFields(p);
     [branch] if(fields.influence.x==0.0)return fftLegacySurface(p,lod);
-    return fftLocalSurface(fftLegacySurface(p,lod),fields,fftLocalWaves(p,fields,lod.z),lod,true);
+    // Evaluate the scalar stream layer before retaining the paired FFT fields.
+    // Only its Z/slope outputs need to stay live across texture sampling.
+    FftLocalWaves waves=fftLocalWaves(p,fields,lod.z);
+    FftSurface original=fftLegacySurface(p,lod);
+    return fftLocalSurface(original,fields,waves,lod,true);
 }
 FftSurface fftRawSurface(float2 p) {return fftRawSurface(p,float3(0,0,0));}
 void fftRawAndShadingSurface(float2 p,float3 lod,out FftSurface physical,out FftSurface shading) {
     [branch] if(FftParameters.z<=0.5) {fftUnrotatedAndShadingSurface(p,lod,physical,shading);return;}
     FftLocalFields fields=fftLocalFields(p);
     [branch] if(fields.influence.x==0.0) {fftLegacyAndShadingSurface(p,lod,physical,shading);return;}
-    fftLegacyAndShadingSurface(p,lod,physical,shading);
+    // Keep the expensive stream evaluation ahead of the paired FFT outputs,
+    // reducing their live range without changing samples or arithmetic.
     FftLocalWaves waves=fftLocalWaves(p,fields,lod.z);
+    fftLegacyAndShadingSurface(p,lod,physical,shading);
     physical=fftLocalSurface(physical,fields,waves,float3(0,0,0),false);
     [branch] if(any(lod>0.0))shading=fftLocalSurface(shading,fields,waves,lod,true);
     else shading=physical;

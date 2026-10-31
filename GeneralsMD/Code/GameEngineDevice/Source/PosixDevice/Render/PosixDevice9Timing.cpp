@@ -39,6 +39,7 @@
 #include "PosixDevice9.h"
 #include "SdlCreationLog.h"
 #include "SdlGpuFrame.h"
+#include "Platform/RenderTiming.h"
 
 #include <SDL3/SDL.h>
 
@@ -68,6 +69,13 @@ struct TimingState
 	unsigned int NotVisible;	///< measured frames presented to a window that was not visible
 	unsigned int NotShown;		///< measured frames with no drawable
 	bool Offscreen;
+	bool LogicMode=false,StampValid=false;
+	std::uint32_t StampFrame=0;
+	RenderTiming::LogicWindow LogicWindow;
+	RenderTiming::LogicSequence LogicSequence;
+	std::vector<std::uint32_t> LogicFrames;
+	std::vector<Uint64> PresentNs;
+	std::string CsvPath;
 };
 
 TimingState &timing_state()
@@ -78,6 +86,18 @@ TimingState &timing_state()
 		made = true;
 		const char *asked = getenv("ZH_GPU_TIMING");
 		state.Asked = asked != NULL && sscanf(asked, "%lf,%u", &state.Delay, &state.Count) == 2 && state.Count > 0;
+		if(const char *logic=getenv("ZH_GPU_TIMING_LOGIC")) {
+			state.LogicMode=state.LogicWindow.Parse(logic);
+			state.Asked=state.LogicMode;
+			if(state.LogicMode) {
+				state.Count=state.LogicWindow.Count();
+				if(const char *csv=getenv("ZH_GPU_TIMING_CSV"))state.CsvPath=csv;
+				state.LogicFrames.reserve(state.Count);state.PresentNs.reserve(state.Count);
+				std::vector<double> *samples[]={&state.Frame,&state.Work,&state.DrawMs,&state.FlushMs,
+					&state.PresentMs,&state.AcquireMs,&state.OffscreenMs,&state.FenceMs,&state.Draws,&state.Flushes};
+				for(auto values:samples)values->reserve(state.Count);
+			} else fprintf(stderr,"PosixDevice9 timing: invalid ZH_GPU_TIMING_LOGIC (expected first,last; 1..100000 samples)\n");
+		}
 		const char *sync = getenv("ZH_GPU_TIMING_SYNC");
 		state.Sync = state.Asked && sync != NULL && sync[0] == '1';
 		state.FirstPresent = 0;
@@ -105,6 +125,12 @@ void report(const char *what, std::vector<double> values, const char *unit)
 }
 
 }  // namespace
+
+void PosixGpuTimingStampLogicFrame(std::uint32_t frame,bool eligible)
+{
+	TimingState &state=timing_state();
+	if(state.LogicMode&&!state.Reported) {state.StampFrame=frame;state.StampValid=eligible;}
+}
 
 bool PosixDevice9::Timing_Is_Asked()
 {
@@ -137,7 +163,11 @@ void PosixDevice9::Timing_Present(double present_ms, unsigned int draws)
 			(double)(state.LastPresent - state.FirstPresent) / 1.0e9, TimingDrawMs, flushes, flush_ms, present_ms, acquire_ms,
 			offscreen_ms, draws, frame_ms - TimingDrawMs - flush_ms - present_ms);
 	}
-	const bool measuring = (double)(now - state.FirstPresent) / 1.0e9 >= state.Delay && state.Frame.size() < state.Count;
+	const bool stampValid=state.StampValid;
+	state.StampValid=false;
+	const bool measuring = !state.Reported && (state.LogicMode
+		? state.LogicSequence.Observe(state.LogicWindow,stampValid,state.StampFrame)
+		: (double)(now - state.FirstPresent) / 1.0e9 >= state.Delay && state.Frame.size() < state.Count);
 	if (measuring && state.LastPresent != 0) {
 		const double frame_ms = (double)(now - state.LastPresent) / 1.0e6;
 		state.Frame.push_back(frame_ms);
@@ -150,6 +180,7 @@ void PosixDevice9::Timing_Present(double present_ms, unsigned int draws)
 		state.Flushes.push_back((double)flushes);
 		state.PresentMs.push_back(present_ms);
 		state.FenceMs.push_back(fence_ms);
+		if(state.LogicMode) {state.LogicFrames.push_back(state.StampFrame);state.PresentNs.push_back(now);}
 		if (not_visible > 0) {
 			++state.NotVisible;
 		}
@@ -159,7 +190,8 @@ void PosixDevice9::Timing_Present(double present_ms, unsigned int draws)
 	}
 	state.LastPresent = now;
 	TimingDrawMs = 0.0;
-	if (!state.Reported && state.Frame.size() == state.Count) {
+	if (!state.Reported && (state.Frame.size() == state.Count
+		|| (state.LogicMode&&stampValid&&state.StampFrame>=state.LogicWindow.last))) {
 		Timing_Report();
 	}
 }
@@ -176,6 +208,24 @@ void PosixDevice9::Timing_Report()
 		return;
 	}
 	state.Reported = true;
+	if(state.LogicMode) {
+		fprintf(stderr,"PosixDevice9 timing: LOGIC window %u..%u samples=%zu expected=%u rejected=%u status=%s%s\n",
+			state.LogicWindow.first,state.LogicWindow.last,state.Frame.size(),state.Count,state.LogicSequence.rejected,
+			state.LogicSequence.Complete(state.LogicWindow)?"complete":"INCOMPLETE",
+			state.Sync?" SERIALISED (whole-engine fences; not frame rate)":"");
+		if(!state.CsvPath.empty()) {
+			FILE *csv=fopen(state.CsvPath.c_str(),"w");
+			if(csv) {
+				fprintf(csv,"logic_frame,present_monotonic_ns,frame_ms,work_ms,device_draw_ms,device_flush_ms,device_present_ms,swapchain_wait_ms,offscreen_wait_ms,fence_ms,draws,flushes\n");
+				for(size_t i=0;i<state.Frame.size();++i)
+					fprintf(csv,"%u,%llu,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.0f,%.0f\n",
+						state.LogicFrames[i],(unsigned long long)state.PresentNs[i],state.Frame[i],state.Work[i],state.DrawMs[i],
+						state.FlushMs[i],state.PresentMs[i],state.AcquireMs[i],state.OffscreenMs[i],state.FenceMs[i],state.Draws[i],state.Flushes[i]);
+				const bool failed=ferror(csv)!=0;
+				if(fclose(csv)!=0||failed)fprintf(stderr,"PosixDevice9 timing: CSV write failed: %s\n",state.CsvPath.c_str());
+			} else fprintf(stderr,"PosixDevice9 timing: CSV open failed: %s\n",state.CsvPath.c_str());
+		}
+	} else
 	fprintf(stderr, "PosixDevice9 timing: %zu frames from %.0f s after the first Present%s%s\n", state.Frame.size(),
 		state.Delay, state.Frame.size() < state.Count ? " (the run ended before the window filled)" : "",
 		state.Sync ? ", SERIALISED (every submit waits for its fence: GPU time, not frame rate)" : "");

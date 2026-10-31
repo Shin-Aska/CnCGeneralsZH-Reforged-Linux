@@ -85,6 +85,25 @@ pass markers). Until then, report isolated water-pass GPU timings as unavailable
   a coarse total fence-wait field when `ZH_GPU_TIMING_SYNC=1`; synchronization
   serializes CPU and GPU work and changes normal frame timing. Neither mode
   measures isolated GPU water passes.
+- Linux native comparisons can instead use `ZH_GPU_TIMING_LOGIC="first,last"`
+  (inclusive, at most 100,000 samples), optionally with
+  `ZH_GPU_TIMING_CSV=/absolute/path/frames.csv`. This overrides the wall-delay
+  selector and buffers CSV output until the window ends. The render sync point
+  stamps each single-picture, active, unpaused match frame; each sampled Present
+  must follow the immediately preceding logic frame, and every requested frame
+  must appear exactly once. Require `status=complete`, the expected sample count
+  and zero rejections. Loading, duplicate/missing frames and premature exit cannot
+  silently produce a complete result. The final CSV retains frame IDs and
+  SDL-relative Present timestamps alongside the existing host/device counters.
+  Their origin is SDL initialization, so they cannot be aligned directly with
+  Python/system monotonic timestamps; retain whole-process GPU telemetry unless
+  a separately verified clock anchor is available.
+  This is still whole-engine timing. Use identical instrumentation in both
+  binaries, the same save/camera/options and a fixed logic-frame warm-up interval.
+  `ZH_WATER_CAPTURE_CLOCK=picture`, a valid `-video 1 1` and a bound control
+  listener fix animated water phase without recording inside the measured
+  window. Use `-turbo -noFPSLimit -offscreen` and `ZH_OFFSCREEN_HZ=0`; keep
+  screenshots, profiling and synchronized fence diagnostics in separate runs.
 - `water_preview` supports deterministic GPU-backed runs without game assets:
   `--offscreen --frames N`, optional `--reflection ...`, and `--screenshot`.
   `--help` lists the full options. Its scene is synthetic unless `--scene` is

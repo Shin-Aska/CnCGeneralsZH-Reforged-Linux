@@ -1689,10 +1689,15 @@ float4 main(Input input) : SV_Target
             FoamFillLights[2].xyz,FoamFillLights[3].rgb);
  )HLSL";
 	if(coastalSurf) hlsl+="    float3 coastAuthoredIrradiance=vesselIrradiance;\n";
+	// Both foam materials use the same sky integral at this fragment. Evaluate it
+	// once under their combined demand, retaining each material's admission below.
+	hlsl+="    float3 foamSkyIrradiance=0;\n    if((vesselFoam>0.0";
+	if(coastalSurf) hlsl+=" || gpuCoastFoam>0.0";
+	hlsl+=") && offshore>0.0)\n        foamSkyIrradiance=waterFoamSkyIrradiance(normal,light,daylight);\n";
 	hlsl+=R"HLSL(
     if(vesselFoam>0.0 && offshore>0.0)
         vesselIrradiance=waterFoamReplaceAmbient(vesselIrradiance,HullParameters.yzw,
-            waterFoamSkyIrradiance(normal,light,daylight),offshore);
+            foamSkyIrradiance,offshore);
  )HLSL";
 	if(coastalSurf) hlsl+=R"COAST(
     // Coast has its own ambient replacement, independent of vessel presence. Keep
@@ -1700,7 +1705,7 @@ float4 main(Input input) : SV_Target
     float3 coastIrradiance=vesselIrradiance;
     if(gpuCoastFoam>0.0 && offshore>0.0)
         coastIrradiance=waterFoamReplaceAmbient(coastAuthoredIrradiance,HullParameters.yzw,
-            waterFoamSkyIrradiance(normal,light,daylight),offshore);
+            foamSkyIrradiance,offshore);
 )COAST";
 	hlsl+=R"HLSL(
     float3 vesselDiffuse=waterLinear(vesselAlbedo)*vesselIrradiance;

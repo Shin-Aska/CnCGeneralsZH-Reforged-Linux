@@ -2007,7 +2007,7 @@ TEST(fft_heading_linux_bindings_compile_and_leave_d3d_and_rivers_unheaded)
     // Broad swell and medium chop retain refraction; fine ripples use one stable wind rotation.
     CHECK(pixel.find("fftAccumulateHeading")==std::string::npos);
     CHECK(pixel.find("fftAccumulateChop(medium,p,lod,swell.rotation0,swell.weights.x)")!=std::string::npos);
-    CHECK(pixel.find("fine=fftWindSurface(p,lod.z)")!=std::string::npos);
+    CHECK(pixel.find("fine=fftWindSurface(p,0)")!=std::string::npos);
     CHECK(WaterFftSampling::HeadingPixelSource().find("Texture12.SampleLevel(Sampler12,q/(13.0*fftWorldScale),lod)")!=std::string::npos);
     const std::string chop=WaterFftSampling::HeadingPixelSource();
     CHECK(chop.find("Texture8.")==std::string::npos && chop.find("Texture9.")==std::string::npos);
@@ -2084,12 +2084,17 @@ TEST(fft_local_water_preserves_original_swell_medium_and_compiles_numerical_fixt
         "    fine.derivativeX+=w*fftRotateVector(r.x*x-r.y*y,r);\n",
         "    fine.derivativeY+=w*fftRotateVector(r.y*x+r.x*y,r);\n"})WaterLocalWaveTest::ReplaceAll(mediumPixel,line,"");
     CHECK(function(pixel,"void fftAccumulateChop(")==mediumPixel);
-    std::string surface=function(originalPixel,"FftSurface fftSwellSurface(");
-    WaterLocalWaveTest::ReplaceAll(surface,"fine=(FftSurface)0","fine=fftWindSurface(p,lod.z)");
-    WaterLocalWaveTest::ReplaceAll(surface,"fftAccumulateChop(medium,fine,","fftAccumulateChop(medium,");
-    CHECK(function(pixel,"FftSurface fftSwellSurface(")==surface);
-    const size_t wrappers=originalPixel.find("FftSurface fftLegacySurface(");
-    CHECK(pixel.compare(pixel.find("FftSurface fftLegacySurface("),originalPixel.size()-wrappers,originalPixel.substr(wrappers))==0);
+    // The composition arithmetic is unchanged; sampling moved into reusable
+    // per-cascade helpers, so filtered evaluation can retain resolved samples.
+    const std::string oldSurface=function(originalPixel,"FftSurface fftSwellSurface(");
+    const std::string composition=function(pixel,"FftSurface fftComposeSwellSurface(");
+    const std::string compositionBegin="    // Broad swell and medium chop carry ambient breaking and contact wash";
+    CHECK(oldSurface.substr(oldSurface.find(compositionBegin))==composition.substr(composition.find(compositionBegin)));
+    const std::string paired=function(pixel,"void fftLegacyAndShadingSurface(");
+    CHECK(paired.find("if(lod.y>0.0)medium=fftMediumSurface(p,lod,swell)")!=std::string::npos);
+    CHECK(paired.find("if(lod.z>0.0)fine=fftWindSurface(p,lod.z)")!=std::string::npos);
+    CHECK(paired.find("physical=fftComposeSwellSurface(medium,fine,swell);shading=physical")!=std::string::npos);
+    CHECK(paired.find("shading=fftSwellSurface")==std::string::npos);
     const std::string windPixel=function(pixel,"FftSurface fftWindSurface(");
     CHECK(windPixel.find("sincos(FftParameters.w,r.y,r.x)")!=std::string::npos);
     CHECK(windPixel.find("Texture12.SampleLevel(Sampler12,q/(13.0*fftWorldScale),lod)")!=std::string::npos);
