@@ -708,6 +708,15 @@ Bool W3DTerrainVisual::load( AsciiString filename )
 
 }  // end load
 
+// Final terrain, bridges and authored/saved water are available at this hook.
+// Keep it separate from load(): landmark bridges are installed after that call.
+void W3DTerrainVisual::prewarmMapRenderData( void )
+{
+	if (!TheGlobalData || TheGlobalData->m_noRenderDevice || !m_waterRenderObject ||
+		!TheGameLogic || TheGameLogic->isInShellGame()) return;
+	m_waterRenderObject->prewarmStaticMapData();
+}
+
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
 void W3DTerrainVisual::enableWaterGrid( Bool enable )

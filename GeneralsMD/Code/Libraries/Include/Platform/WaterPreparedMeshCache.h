@@ -2,35 +2,76 @@
 #pragma once
 #include "WaterProjectedMesh.h"
 #include <deque>
+#include <memory>
 
 namespace WaterPreparedMeshCache {
+// Optional coarse CPU attribution; no clocks run without a Profile argument.
+struct Profile {
+    double (*clock)()=nullptr;double stamp=0,lookupMs=0,hitCopyMs=0,validationMs=0,storeCopyMs=0,storeMs=0,computeMs=0;
+    size_t probes=0,hits=0,misses=0,hitCopyBytes=0,storeCopyBytes=0;
+    void Begin(){stamp=clock();}
+    void Mark(double &phase){const double now=clock();phase+=now-stamp;stamp=now;}
+};
+inline size_t ProfileMeshBytes(const WaterProjectedMesh::Mesh&m) {
+    return m.vertices.size()*sizeof(WaterProjectedMesh::Vertex)+m.indices.size()*sizeof(uint16_t)
+        +m.transitions.size()*sizeof(WaterProjectedMesh::CentreTransition)+m.collars.size()*sizeof(WaterProjectedMesh::BoundaryCollar);
+}
 class Cache {
 public:
+    class View {
+        friend class Cache;
+        std::shared_ptr<const WaterProjectedMesh::Mesh> pinned_;
+        const WaterProjectedMesh::Mesh *fallback_=nullptr;
+        explicit View(std::shared_ptr<const WaterProjectedMesh::Mesh> mesh):pinned_(std::move(mesh)) {}
+        explicit View(const WaterProjectedMesh::Mesh &mesh):fallback_(&mesh) {}
+    public:
+        View()=default;
+        const WaterProjectedMesh::Mesh &Get() const {return pinned_?*pinned_:*fallback_;}
+        const WaterProjectedMesh::Mesh &operator*() const {return Get();}
+        const WaterProjectedMesh::Mesh *operator->() const {return &Get();}
+    };
     explicit Cache(size_t maxBytes=32u*1024u*1024u,size_t maxEntries=8):maxBytes_(maxBytes),maxEntries_(maxEntries) {}
 
     // The owner clears this cache when terrain, optical support or processing rules change.
     // Dynamic bow refinement is part of the complete input mesh, never an implicit key.
     template<class Compute>
     void Process(WaterProjectedMesh::Mesh &mesh,float level,bool cullTerrain,bool waveCage,
-        const Compute &compute,bool *reused=nullptr) {
+        const Compute &compute,bool *reused=nullptr,Profile *profile=nullptr) {
+        if(profile)profile->Begin();
         if (reused) *reused=false;
         size_t inputBytes=0;
-        if (!maxBytes_ || !maxEntries_ || !std::isfinite(level) || !Measure(mesh,maxBytes_,inputBytes)) { compute(mesh);return; }
-        for (const Entry &entry:entries_) if (Same(level,entry.level) && cullTerrain==entry.cullTerrain &&
-            waveCage==entry.waveCage && Same(mesh,entry.input)) {
-            mesh=entry.output;
+        const bool cacheable=maxBytes_&&maxEntries_&&std::isfinite(level)&&Measure(mesh,maxBytes_,inputBytes);
+        if(profile)profile->Mark(profile->validationMs);
+        if (!cacheable) { compute(mesh);if(profile)profile->Mark(profile->computeMs);return; }
+        for (const Entry &entry:entries_) {
+            if(profile)++profile->probes;
+            if (!(Same(level,entry.level) && cullTerrain==entry.cullTerrain &&
+                waveCage==entry.waveCage && Same(mesh,entry.input)))continue;
+            if(profile){profile->Mark(profile->lookupMs);++profile->hits;}
+            mesh=*entry.output;
+            if(profile){profile->Mark(profile->hitCopyMs);profile->hitCopyBytes+=ProfileMeshBytes(*entry.output);}
             if (reused) *reused=true;
             return;
         }
-        if (!Valid(mesh)) { compute(mesh);return; }
+        if(profile){profile->Mark(profile->lookupMs);++profile->misses;}
+        const bool validInput=Valid(mesh);
+        if(profile)profile->Mark(profile->validationMs);
+        if (!validInput) { compute(mesh);if(profile)profile->Mark(profile->computeMs);return; }
         WaterProjectedMesh::Mesh before=mesh;
+        if(profile){profile->Mark(profile->storeCopyMs);profile->storeCopyBytes+=inputBytes;}
         compute(mesh);
+        if(profile)profile->Mark(profile->computeMs);
         size_t outputBytes=0;
         // Bypasses preserve the existing entries. Neither an oversized output nor invalid
         // callback result can displace a valid earlier input/output pair.
-        if (!Measure(mesh,maxBytes_-inputBytes,outputBytes) || !Valid(mesh)) return;
+        const bool validOutput=Measure(mesh,maxBytes_-inputBytes,outputBytes)&&Valid(mesh);
+        if(profile)profile->Mark(profile->validationMs);
+        if (!validOutput) return;
         WaterProjectedMesh::Mesh after=mesh;
-        if (!Measure(before,maxBytes_,inputBytes,true) || !Measure(after,maxBytes_-inputBytes,outputBytes,true)) return;
+        if(profile){profile->Mark(profile->storeCopyMs);profile->storeCopyBytes+=outputBytes;}
+        const bool fits=Measure(before,maxBytes_,inputBytes,true)&&Measure(after,maxBytes_-inputBytes,outputBytes,true);
+        if(profile)profile->Mark(profile->validationMs);
+        if (!fits) return;
         const size_t bytes=inputBytes+outputBytes;
         // FIFO keeps eviction independent of frame timing, as the topology cache does.
         while (!entries_.empty() && (entries_.size()>=maxEntries_ || cachedBytes_>maxBytes_-bytes)) {
@@ -38,9 +79,70 @@ public:
         }
         entries_.emplace_back();
         Entry &entry=entries_.back();
-        std::swap(entry.input,before);std::swap(entry.output,after);
+        std::swap(entry.input,before);entry.output=std::make_shared<const WaterProjectedMesh::Mesh>(std::move(after));
         entry.level=level;entry.cullTerrain=cullTerrain;entry.waveCage=waveCage;entry.bytes=bytes;
         cachedBytes_+=bytes;
+        if(profile)profile->Mark(profile->storeMs);
+    }
+
+    // Pin a read-only cached result through this draw, including cache Clear or
+    // eviction during shader setup. Cacheable misses consume mesh's buffers;
+    // bypass views borrow the computed caller mesh, which must outlive the view.
+    // CachedBytes covers cache-owned entries; release each view after its draw.
+    // Never cast away a view's const and pass its mesh back as mutable input.
+    template<class Compute>
+    View ProcessView(WaterProjectedMesh::Mesh &mesh,float level,bool cullTerrain,bool waveCage,
+        const Compute &compute,bool *reused=nullptr,Profile *profile=nullptr) {
+        if(profile)profile->Begin();
+        if(reused)*reused=false;
+        size_t inputBytes=0;
+        const bool cacheable=maxBytes_&&maxEntries_&&std::isfinite(level)&&Measure(mesh,maxBytes_,inputBytes);
+        if(profile)profile->Mark(profile->validationMs);
+        if(!cacheable) {compute(mesh);if(profile)profile->Mark(profile->computeMs);return View(mesh);}
+        for(const Entry &entry:entries_) {
+            if(profile)++profile->probes;
+            if(!(Same(level,entry.level)&&cullTerrain==entry.cullTerrain&&waveCage==entry.waveCage&&Same(mesh,entry.input)))continue;
+            if(profile){profile->Mark(profile->lookupMs);++profile->hits;}
+            if(reused)*reused=true;
+            return View(entry.output);
+        }
+        if(profile){profile->Mark(profile->lookupMs);++profile->misses;}
+        const bool validInput=Valid(mesh);
+        if(profile)profile->Mark(profile->validationMs);
+        if(!validInput) {compute(mesh);if(profile)profile->Mark(profile->computeMs);return View(mesh);}
+        WaterProjectedMesh::Mesh before=mesh;
+        if(profile){profile->Mark(profile->storeCopyMs);profile->storeCopyBytes+=inputBytes;}
+        compute(mesh);
+        if(profile)profile->Mark(profile->computeMs);
+        size_t outputBytes=0;
+        const bool validOutput=Measure(mesh,maxBytes_-inputBytes,outputBytes)&&Valid(mesh);
+        if(profile)profile->Mark(profile->validationMs);
+        if(!validOutput)return View(mesh);
+        const bool inputFits=Measure(before,maxBytes_,inputBytes,true);
+        bool outputFits=inputFits&&Measure(mesh,maxBytes_-inputBytes,outputBytes,true);
+        if(profile)profile->Mark(profile->validationMs);
+        if(!inputFits)return View(mesh);
+        if(!outputFits) {
+            // Match Process's compact-copy admission when spare caller capacity
+            // alone exceeds the budget; never retain unaccounted moved buffers.
+            WaterProjectedMesh::Mesh compact=mesh;
+            if(profile){profile->Mark(profile->storeCopyMs);profile->storeCopyBytes+=ProfileMeshBytes(mesh);}
+            outputFits=Measure(compact,maxBytes_-inputBytes,outputBytes,true);
+            if(profile)profile->Mark(profile->validationMs);
+            if(!outputFits)return View(mesh);
+            std::swap(mesh,compact);
+        }
+        const size_t bytes=inputBytes+outputBytes;
+        while(!entries_.empty()&&(entries_.size()>=maxEntries_||cachedBytes_>maxBytes_-bytes)) {
+            cachedBytes_-=entries_.front().bytes;entries_.pop_front();
+        }
+        entries_.emplace_back();
+        Entry &entry=entries_.back();
+        std::swap(entry.input,before);entry.output=std::make_shared<const WaterProjectedMesh::Mesh>(std::move(mesh));
+        entry.level=level;entry.cullTerrain=cullTerrain;entry.waveCage=waveCage;entry.bytes=bytes;
+        cachedBytes_+=bytes;
+        if(profile)profile->Mark(profile->storeMs);
+        return View(entry.output);
     }
     void Clear() { entries_.clear();cachedBytes_=0; }
     size_t CachedBytes() const { return cachedBytes_; }
@@ -102,7 +204,8 @@ private:
         return true;
     }
     struct Entry {
-        WaterProjectedMesh::Mesh input,output;
+        WaterProjectedMesh::Mesh input;
+        std::shared_ptr<const WaterProjectedMesh::Mesh> output;
         float level=0;
         bool cullTerrain=false,waveCage=false;
         size_t bytes=0;

@@ -267,6 +267,11 @@ public:
 private:
 	W3DDrawableUpdate m_drawableUpdate;
 	Bool drawsDrawables( void );
+	Bool updateDiagnosticCameraRoute( void );
+	Bool m_diagnosticRouteCaptured;
+	Coord3D m_diagnosticRouteOrigin;
+	Real m_diagnosticRouteZoom, m_diagnosticRouteAngle, m_diagnosticRoutePitch, m_diagnosticRouteHeight;
+	double m_diagnosticRouteLastPicture, m_diagnosticRouteTracedPicture;
 
 	Bool m_freeCamera;															///< the console's freecam has the view
 	Vector3 m_freeCameraEye;

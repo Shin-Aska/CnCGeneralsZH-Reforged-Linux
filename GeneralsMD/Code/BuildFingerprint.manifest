@@ -2029,6 +2029,7 @@ Libraries/Include/MSS/.gitignore
 Libraries/Include/Platform/BreakIntoDebugger.h
 Libraries/Include/Platform/D3D9Posix.h
 Libraries/Include/Platform/D3D9PosixMath.h
+Libraries/Include/Platform/DiagnosticCameraRoute.h
 Libraries/Include/Platform/DoubleClickTime.h
 Libraries/Include/Platform/EngineShaderName.h
 Libraries/Include/Platform/HazardCloud.h
@@ -3145,10 +3146,17 @@ Tests/WaterHullContactFoamTest.h
 Tests/WaterLocalPerformanceReference.h
 Tests/WaterLocalWaveFieldTest.h
 Tests/WaterPathBuildReference.h
+Tests/WaterPreparedViewTest.h
 Tests/WaterProjectedSampleCacheTest.h
+Tests/WaterShoreHistoryReference.h
+Tests/WaterShorePreparedTest.h
 Tests/WaterShoreSourcePerfTest.h
 Tests/WaterShoreSourceReference.h
+Tests/WaterTerrainCullingReference.h
 Tests/WaterTerrainCullingTest.h
+Tests/WaterTerrainProofCacheTest.h
+Tests/WaterWaveCageCopyTest.h
+Tests/WaterWaveCageMeshReference.h
 Tests/WaterWaveCageTest.h
 Tests/WaterWaveHeadingTest.h
 Tests/WaterWavefrontTest.h
@@ -3209,6 +3217,7 @@ Tests/test_d3dx_assemble_stub.cpp
 Tests/test_d3dxportable.cpp
 Tests/test_debug.cpp
 Tests/test_detround.cpp
+Tests/test_diagnostic_camera_route.cpp
 Tests/test_dx11backend.cpp
 Tests/test_dx11device.cpp
 Tests/test_dx11layout.cpp

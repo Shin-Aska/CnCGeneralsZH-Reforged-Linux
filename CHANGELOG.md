@@ -8,6 +8,18 @@ found and fixed, EA's own, not port damage.**
 
 ---
 
+## Linux Modern water moving-camera performance (2026-11-01)
+
+- Water rendering reuses terrain calculations and avoids repeated mesh copies while
+  panning and zooming, preserving wave direction, detail and shoreline shapes. In
+  measured 1080p Hybrid runs, moving frame time falls about 6% in SWANGLE1 and 5%
+  in SWANGLE2 channels. Results vary by scene; see the
+  [measurements and limits](docs/modern-water-moving-performance.md).
+- Static water preparation now happens during mission and saved-game loading.
+  In the measured SWANGLE1 load, the delay from loading readiness to the first
+  world frame falls from 397 to 156 ms, with about 0.2 seconds of work moved into
+  loading. Animated waves and shoreline effects keep their existing timing.
+
 ## Linux Modern water source and shelter analysis (2026-10-31)
 
 - Broad open sea retains its original wave spectrum, scale, and speed. Fine FFT

@@ -204,11 +204,20 @@ public:
                         Parameters settings=Parameters()) {
         if(!ValidTime(time)||!ValidGrid(grid)||!ValidParameters(settings,grid))return BuildResult::Invalid;
         Topology candidate;const BuildResult result=candidate.Build(grid,cells);if(result!=BuildResult::Ready)return result;
+        return InstallPrepared(std::move(candidate),mapRevision,time,settings);
+    }
+    // The caller supplies a successfully built immutable topology. Its construction
+    // may run during loading; only this call establishes the live history epoch.
+    BuildResult InstallPrepared(Topology &&candidate,uint64_t mapRevision,double time,
+                                Parameters settings=Parameters()) {
+        if(!ValidTime(time)||!ValidGrid(candidate.Geometry())||!ValidParameters(settings,candidate.Geometry()))
+            return BuildResult::Invalid;
+        const size_t count=candidate.Cells().size();
         const bool reuse=installed&&revision==mapRevision&&topology.SameGeometry(candidate)
             &&settings.lifetime==parameters.lifetime&&settings.diffusivity==parameters.diffusivity&&settings.maximumRate==parameters.maximumRate;
         topology=std::move(candidate);parameters=settings;revision=mapRevision;installed=true;
         if(!reuse) {
-            committed.assign(cells.size(),{});preview.resize(cells.size());decayed.resize(cells.size());next.resize(cells.size());rates.resize(cells.size());ClearDynamic(time);
+            committed.assign(count,{});preview.resize(count);decayed.resize(count);next.resize(count);rates.resize(count);ClearDynamic(time);
         }
         return BuildResult::Ready;
     }
@@ -379,6 +388,39 @@ public:
             &&Same(mapping.originX,m.originX)&&Same(mapping.originY,m.originY)
             &&Same(mapping.widthWorld,m.widthWorld)&&Same(mapping.heightWorld,m.heightWorld)
             &&mapping.widthPixels==m.widthPixels&&mapping.heightPixels==m.heightPixels;
+    }
+    // Read-only profiling helpers. Exact center equality is deliberately stricter
+    // than geometric window overlap; stencil masks identify supported shore pixels.
+    const Mapping& DiagnosticMapping()const{return mapping;}
+    uint64_t DiagnosticRevision()const{return revision;}
+    double DiagnosticLevel()const{return level;}
+    bool DiagnosticDependenciesMatch(const Topology&t,double l,uint64_t dependency,const void *support)const {
+        return owner==&t&&supportOwner==support&&revision==dependency&&revision!=0&&Same(level,l);
+    }
+    struct DiagnosticOverlap {size_t areaPixels=0,supportedPixels=0,supportedTotal=0;};
+    DiagnosticOverlap DiagnosticExactOverlap(const Mapping&next)const {
+        DiagnosticOverlap out;
+        if(!owner||!Valid(next,level))return out;
+        const bool sameScale=mapping.widthPixels==next.widthPixels&&mapping.heightPixels==next.heightPixels
+            &&Same(mapping.widthWorld,next.widthWorld)&&Same(mapping.heightWorld,next.heightWorld);
+        std::array<bool,512> matchesX{},matchesY{};
+        auto matches=[&](const std::array<Axis,512>&axis,unsigned count,double origin,double extent,
+                         unsigned nextCount,std::array<bool,512>&result) {
+            if(!sameScale)return;
+            for(unsigned i=0;i<count;++i) {
+                const double rounded=std::round((axis[i].world-origin)*nextCount/extent-.5);
+                if(rounded<0||rounded>=nextCount)continue;
+                result[i]=Same(axis[i].world,origin+(rounded+.5)*extent/nextCount);
+            }
+        };
+        matches(horizontal,mapping.widthPixels,next.originX,next.widthWorld,next.widthPixels,matchesX);
+        matches(vertical,mapping.heightPixels,next.originY,next.heightWorld,next.heightPixels,matchesY);
+        for(unsigned y=0;y<mapping.heightPixels;++y)for(unsigned x=0;x<mapping.widthPixels;++x) {
+            const bool supported=masks[size_t(y)*mapping.widthPixels+x]!=0;
+            out.supportedTotal+=supported;
+            if(matchesX[x]&&matchesY[y]){++out.areaPixels;out.supportedPixels+=supported;}
+        }
+        return out;
     }
     template<class Support> bool Prepare(const Topology&t,const Mapping&m,double l,uint64_t dependency,const Support&support) {
         if(!dependency||!Valid(m,l))return false;

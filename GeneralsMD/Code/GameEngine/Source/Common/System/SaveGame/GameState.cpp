@@ -57,6 +57,9 @@
 #include "GameClient/InGameUI.h"
 #include "GameClient/ParticleSys.h"
 #include "GameClient/TerrainVisual.h"
+#if defined(__linux__)
+#include "Platform/RenderTiming.h"
+#endif
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/GhostObject.h"
 #include "GameLogic/PartitionManager.h"
@@ -761,6 +764,9 @@ Bool GameState::saveCheckpoint( AsciiString filepath )
 // ------------------------------------------------------------------------------------------------
 Bool GameState::loadCheckpoint( AsciiString filepath, const std::function< void( void ) > &afterReset )
 {
+#if defined(__linux__)
+	PosixGpuTimingLoadMarker("load-begin",TheGameLogic->getFrame());
+#endif
 	TheGameStateMap->clearScratchPadMaps();
 
 	XferLoad xferLoad;
@@ -831,6 +837,10 @@ SaveCode GameState::loadGame( AvailableGameInfo gameInfo )
 	// the original game's saves and this fork's older ones read as garbage here
 	if( refuseUnloadableSave( gameInfo.saveGameInfo ) )
 		return SC_INVALID_DATA;
+
+#if defined(__linux__)
+	PosixGpuTimingLoadMarker("load-begin",TheGameLogic->getFrame());
+#endif
 
 	// clear game data just like loading from the debug map load screen for mission saves
 	if( gameInfo.saveGameInfo.saveFileType == SAVE_FILE_TYPE_MISSION )
@@ -1721,8 +1731,15 @@ void GameState::gameStatePostProcessLoad( void )
 	ThePartitionManager->update();
 	ThePartitionManager->stopKeepingCellsFromSave();
 
+	// Every snapshot (including saved terrain and water polygons) is final now.
+	// This prepares only immutable presentation data, without a simulation step.
+	if (TheTerrainVisual) TheTerrainVisual->prewarmMapRenderData();
+
 	// last, so nothing the load did can draw from the stream after it is put back
 	TheGameLogic->restoreLoadedRandomState();
+#if defined(__linux__)
+	if (!TheGameLogic->isInShellGame()) PosixGpuTimingLoadMarker("load-ready",TheGameLogic->getFrame());
+#endif
 
 }  // end loadPostProcess
 

@@ -2312,6 +2312,9 @@ target_include_directories(test_wwutil PRIVATE ${WW}/Wwutil ${WW}/WWLib ${WW}/WW
 # Lib/Clock.h is header-only and links nothing, so this runs on both platforms from day one -
 # which matters, because the macOS half of that header is the half nobody has ever executed.
 add_lib_test(test_clock)
+add_lib_test(test_diagnostic_camera_route)
+set_target_properties(test_diagnostic_camera_route PROPERTIES CXX_STANDARD 17)
+target_include_directories(test_diagnostic_camera_route PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Libraries/Include)
 if(ZH_PLATFORM_LINUX)
   add_lib_test(test_water_scene_bank)
   set_target_properties(test_water_scene_bank PROPERTIES CXX_STANDARD 17)

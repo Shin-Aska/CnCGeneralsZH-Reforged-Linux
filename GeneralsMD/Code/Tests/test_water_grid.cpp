@@ -1232,6 +1232,8 @@ TEST(water_prepared_mesh_cache_keeps_one_entry_per_patch_and_evicts_fifo)
 	}
 }
 
+#include "WaterPreparedViewTest.h"
+
 TEST(water_projected_clipping_preserves_reversed_shared_authored_boundaries)
 {
 	using namespace WaterProjectedMesh;
@@ -4546,6 +4548,11 @@ TEST(water_shore_history_resource_refresh_reset_stale_gap_and_time_rewind_have_e
     auto excessive=cells;excessive.resize(MaxCells+1);CHECK(history.Install({},excessive,9,.2)==BuildResult::TooManyCells);
     CHECK(!history.ValidFor(9)); // failed new-map construction cannot expose the old map's alpha
 }
+#include "WaterShorePreparedTest.h"
+TEST(water_shore_prepared_topology_matches_frozen_live_install_phase_and_history)
+{
+    WaterShorePreparedTest::Check();
+}
 TEST(water_shore_history_atlas_sampling_preserves_rgb_world_anchor_and_density_weighted_age)
 {
     using namespace WaterShoreHistory;
@@ -5884,10 +5891,50 @@ TEST(water_wave_cage_phase_terrain_bounds_classification_and_constrained_smoothi
     WaterWaveCageTest::Check();
 }
 
+#include "WaterWaveCageCopyTest.h"
+TEST(water_wave_cage_copy_elision_matches_frozen_noops_and_crossing_chains)
+{
+    WaterWaveCageCopyTest::NoopsAndChains();
+}
+TEST(water_wave_cage_copy_elision_matches_frozen_crossings_and_vertex_budgets)
+{
+    WaterWaveCageCopyTest::CrossingsAndBudgets();
+}
+TEST(water_wave_cage_copy_elision_preserves_frozen_invalid_input_rollback)
+{
+    WaterWaveCageCopyTest::InvalidRollback();
+}
+
 #include "WaterTerrainCullingTest.h"
 TEST(water_terrain_culling_preserves_wet_interiors_displacement_and_mesh_metadata)
 {
     WaterTerrainCullingTest::Check();
+}
+
+#include "WaterTerrainProofCacheTest.h"
+TEST(water_terrain_proof_cache_matches_frozen_threshold_pond_and_boundary_outputs)
+{
+    WaterTerrainProofCacheTest::ExtremesAndThresholds();
+}
+TEST(water_terrain_proof_cache_matches_frozen_moving_projected_cull_clip_compact_pipeline)
+{
+    WaterTerrainProofCacheTest::MovingProjectedPipeline();
+}
+TEST(water_terrain_proof_cache_preserves_sample_budgets_and_65536_vertex_indices)
+{
+    WaterTerrainProofCacheTest::BudgetAndIndexLimits();
+}
+TEST(water_terrain_compaction_matches_frozen_metadata_order_and_invalid_rollback)
+{
+    WaterTerrainProofCacheTest::InvalidAndCompaction();
+}
+TEST(water_terrain_proof_cache_clear_cutoff_reuse_and_capacity_are_exact)
+{
+    WaterTerrainProofCacheTest::LifetimeAndCapacity();
+}
+TEST(water_terrain_proof_cache_rectangle_queries_match_encoded_predicate_at_thresholds)
+{
+    WaterTerrainProofCacheTest::RectangleQueries();
 }
 
 #include "WaterCoastalDomainTest.h"

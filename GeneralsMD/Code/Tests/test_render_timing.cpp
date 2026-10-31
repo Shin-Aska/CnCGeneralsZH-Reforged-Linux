@@ -48,3 +48,50 @@ TEST(render_timing_logic_window_does_not_wrap_frame_predecessor)
     sequence.Observe(window,true,UINT32_MAX);CHECK(!sequence.Observe(window,true,1));
     CHECK(!sequence.Complete(window));
 }
+
+TEST(render_timing_cold_count_is_strict_and_bounded)
+{
+    RenderTiming::ColdSequence sequence;
+    CHECK(sequence.Configure("120"));CHECK_EQ(sequence.target,120u);
+    CHECK(sequence.Configure("100000"));
+    const char *bad[]={nullptr,"","0","-1","120x"," 120","120 ","100001","999999999999999999"};
+    for(const char *text:bad)CHECK(!sequence.Configure(text));
+}
+
+TEST(render_timing_cold_keeps_the_first_post_load_transition)
+{
+    RenderTiming::ColdSequence sequence;CHECK(sequence.Configure("3"));
+    CHECK(!sequence.Observe(true,90,true));
+    CHECK(sequence.BeginLoad());CHECK(!sequence.Observe(true,99,true));
+    CHECK(sequence.Arm());CHECK(!sequence.Observe(false,99,true));
+    CHECK(sequence.Observe(true,100,true));CHECK_EQ(sequence.first,100u);
+    CHECK(sequence.Observe(true,101,true));CHECK(sequence.Observe(true,102,true));
+    CHECK(sequence.Complete());CHECK(!sequence.Observe(true,103,true));
+}
+
+TEST(render_timing_cold_never_skips_a_bad_first_frame_or_later_discontinuity)
+{
+    RenderTiming::ColdSequence noPrevious;CHECK(noPrevious.Configure("2"));
+    noPrevious.BeginLoad();noPrevious.Arm();CHECK(!noPrevious.Observe(true,100,false));
+    CHECK(!noPrevious.Observe(true,101,true));CHECK(!noPrevious.Complete());
+    CHECK_EQ(noPrevious.accepted,0u);CHECK_EQ(noPrevious.rejected,1u);
+    for(unsigned kind=0;kind<3;++kind) {
+        RenderTiming::ColdSequence broken;CHECK(broken.Configure("3"));
+        broken.BeginLoad();broken.Arm();CHECK(broken.Observe(true,100,true));
+        CHECK(!broken.Observe(kind!=2,kind==0?100:102,true));
+        CHECK(!broken.Observe(true,103,true));CHECK(!broken.Complete());
+        CHECK_EQ(broken.accepted,1u);CHECK_EQ(broken.rejected,1u);
+    }
+}
+
+TEST(render_timing_cold_requires_load_ready_and_rejects_mid_capture_reload)
+{
+    RenderTiming::ColdSequence sequence;CHECK(sequence.Configure("2"));
+    CHECK(!sequence.Arm());CHECK(!sequence.Observe(true,1,true));
+    CHECK(sequence.BeginLoad());CHECK(sequence.Arm());
+    CHECK(sequence.Observe(true,UINT32_MAX,true));
+    CHECK(!sequence.Observe(true,0,true));CHECK(!sequence.Complete());
+    RenderTiming::ColdSequence reload;CHECK(reload.Configure("2"));
+    reload.BeginLoad();reload.Arm();CHECK(reload.Observe(true,10,true));
+    CHECK(!reload.BeginLoad());CHECK(!reload.Observe(true,11,true));CHECK(!reload.Complete());
+}
