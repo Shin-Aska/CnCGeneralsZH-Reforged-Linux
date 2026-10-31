@@ -2890,6 +2890,17 @@ static void check_gpu_coastal_surf_from_ocean(SdlGpuFrame *frame)
     CHECK(field()==untouched);
     CHECK(read_float_targets(frame,&initialState,1,256,256)==initial);
 
+    // A correctly phased headed-only ocean must not advance the broad/medium
+    // coastal source. Rejection preserves both history and caller input.
+    CHECK(frame->Prepare_Ocean(float(2.35)*WaterFftSampling::TimeScale,256,WaterFftSpectrum::HeadedCascades));
+    CHECK(frame->Ocean_Ready_Cascades()==WaterFftSpectrum::HeadedCascades);
+    const auto partialFft=frame->Ocean_Updates();
+    CHECK(!frame->Prepare_Coastal_Surf_From_Ocean(revision,2.35));
+    CHECK(frame->Coastal_Surf_Updates()==resetUpdates && frame->Ocean_Updates()==partialFft);
+    CHECK(frame->Coastal_Surf_State(revision)==initialState && frame->Coastal_Surf_Time(revision)==2.25);
+    CHECK(frame->Coastal_Surf_Field_Due(revision,2.35));
+    CHECK(field()==untouched && read_float_targets(frame,&initialState,1,256,256)==initial);
+
     // An armed queued stale field must be overwritten by the real producer before
     // Advance samples it in the same command buffer; caller input upload comes first.
     uint32_t offset=0;float *poison=reinterpret_cast<float *>(frame->Upload_Space(MaxNodes*4*sizeof(float),offset));
@@ -8573,6 +8584,80 @@ float4 main(float4 pixel:SV_Position):SV_Target0 {
 }
 #endif // __linux__
 
+static void check_gpu_fft_requested_cascades(SdlGpuFrame *frame)
+{
+    using namespace WaterFftSpectrum;
+    for(unsigned resolution:{128u,256u}) {
+        CHECK(frame->Present(NULL));CHECK(frame->Prepare_Ocean(3.375f,resolution));
+        const auto config=frame->Ocean_Configuration();
+        std::vector<std::vector<float>> before(config.levels),partial(config.levels);
+        for(unsigned level=0;level<config.levels;++level)before[level]=read_ocean(frame,level);
+        const auto passes=frame->Ocean_Passes(),copies=frame->Ocean_Copies();
+        const auto generation=frame->Ocean_Generation();
+        CHECK(frame->Prepare_Ocean(4.375f,resolution,HeadedCascades));
+        CHECK(frame->Ocean_Ready_Cascades()==HeadedCascades && frame->Ocean_Generation()!=generation);
+        CHECK(frame->Ocean_Passes()-passes==2+3*config.phases);
+        CHECK(frame->Ocean_Copies()-copies==4*config.phases+(frame->Ocean_Array_Output()?0:4*config.levels));
+        for(unsigned level=0;level<config.levels;++level) {
+            partial[level]=read_ocean(frame,level);
+            const unsigned side=config.resolution>>level,plane=side*side*4;
+            CHECK(partial[level].size()==6*plane && before[level].size()==6*plane);
+            if(partial[level].size()==6*plane && before[level].size()==6*plane)
+                CHECK(std::equal(partial[level].begin(),partial[level].begin()+2*plane,before[level].begin()));
+        }
+        const auto partialUpdates=frame->Ocean_Updates(),partialGeneration=frame->Ocean_Generation();
+        CHECK(frame->Prepare_Ocean(4.375f,resolution,HeadedCascades));
+        CHECK(!frame->Prepare_Ocean(4.375f,resolution,1));
+        CHECK(frame->Ocean_Updates()==partialUpdates && frame->Ocean_Generation()==partialGeneration);
+        // Completion submits queued old readers before overwriting the broad
+        // field; its stable allocation must not change what those readers see.
+        SDL_GPUTextureCreateInfo readerInfo={};readerInfo.type=SDL_GPU_TEXTURETYPE_2D;
+        readerInfo.format=SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT;
+        readerInfo.usage=SDL_GPU_TEXTUREUSAGE_COLOR_TARGET|SDL_GPU_TEXTUREUSAGE_SAMPLER;
+        readerInfo.width=readerInfo.height=config.resolution;readerInfo.layer_count_or_depth=readerInfo.num_levels=1;
+        SDL_GPUTexture *reader=SDL_CreateGPUTexture(frame->Device(),&readerInfo);CHECK(reader);
+        if(!reader)return;
+        const int32_t rect[4]={0,0,int32_t(config.resolution),int32_t(config.resolution)};
+        frame->Record_Blit(frame->Ocean_Map(0),rect,reader,rect,false);
+        const auto readerBatch=frame->Batch();
+        // A late unheaded consumer completes every field at the same phase.
+        CHECK(frame->Prepare_Ocean(4.375f,resolution));
+        CHECK(frame->Batch()!=readerBatch);
+        CHECK(frame->Ocean_Ready_Cascades()==AllCascades && frame->Ocean_Generation()==partialGeneration);
+        CHECK(frame->Ocean_Updates()==partialUpdates+1);
+        const auto preserved=read_float_targets(frame,&reader,1,config.resolution,config.resolution);
+        CHECK(preserved.size()==config.resolution*config.resolution*4);
+        if(preserved.size()==config.resolution*config.resolution*4 && before[0].size()==6*preserved.size())
+            CHECK(std::equal(preserved.begin(),preserved.end(),before[0].begin()));
+        SDL_ReleaseGPUTexture(frame->Device(),reader);
+        for(unsigned level=0;level<config.levels;++level) {
+            const auto complete=read_ocean(frame,level);const unsigned side=config.resolution>>level,plane=side*side*4;
+            CHECK(complete.size()==partial[level].size());
+            if(complete.size()==6*plane && partial[level].size()==6*plane)
+                CHECK(std::equal(complete.begin()+2*plane,complete.end(),partial[level].begin()+2*plane));
+        }
+        CHECK(frame->Prepare_Ocean(4.375f,resolution,HeadedCascades));
+        CHECK(frame->Ocean_Ready_Cascades()==AllCascades && frame->Ocean_Updates()==partialUpdates+1);
+    }
+    // A failed rebuild must not promote restored partial storage to full readiness.
+    CHECK(frame->Present(NULL));CHECK(frame->Prepare_Ocean(5.375f,128,HeadedCascades));
+    const auto updates=frame->Ocean_Updates();SDL_GPUTexture *map=frame->Ocean_Map(2);
+    CHECK(frame->Present(NULL));frame->Fail_Next_Ocean_Rebuild_For_Test();
+    CHECK(!frame->Prepare_Ocean(5.375f,256));
+    CHECK(frame->Ocean_Ready_Cascades()==HeadedCascades && frame->Ocean_Map(2)==map && frame->Ocean_Updates()==updates);
+    CHECK(frame->Prepare_Ocean(5.375f,128));
+    CHECK(frame->Ocean_Ready_Cascades()==AllCascades && frame->Ocean_Configuration().resolution==128);
+    CHECK(frame->Present(NULL));CHECK(frame->Prepare_Ocean(5.375f,256));
+    // Failure of the optional sparse producer retains the working full producer.
+    CHECK(frame->Present(NULL));frame->Fail_Next_Ocean_Headed_For_Test();
+    CHECK(frame->Prepare_Ocean(6.375f,128,HeadedCascades));
+    CHECK(frame->Ocean_Ready_Cascades()==AllCascades);
+    const auto fullUpdates=frame->Ocean_Updates();
+    CHECK(frame->Prepare_Ocean(6.375f,128));CHECK(frame->Ocean_Updates()==fullUpdates);
+    CHECK(frame->Present(NULL));CHECK(frame->Prepare_Ocean(6.375f,256));
+    printf("sdl_gpu_frame_selfcheck: headed FFT128/256 omit broad writes/copies; active base/mips match full generation exactly; paused reuse, same-phase completion, failed rebuild readiness and optional producer fallback checked\n");
+}
+
 static void check_gpu_fft_quality_switch(SdlGpuFrame *frame)
 {
     using namespace WaterFftSpectrum;
@@ -8750,9 +8835,10 @@ static void check_gpu_local_water(SdlGpuFrame *frame)
 {
     struct Query {float point[4];};std::vector<Query> queries;
     const float points[][2]={{1.7f,2.3f},{9.1f,8.4f},{19.3f,16.7f},{29.8f,5.1f},
-        {29.99f,12.3f},{30,12.3f},{30.01f,12.3f},{35.7f,8.7f},{45.3f,16.3f},{55.1f,6.4f},{65.4f,18.2f},{0,0}};
+        {29.99f,12.3f},{30,12.3f},{30.01f,12.3f},{35.7f,8.7f},{44.7f,10.2f},{45.3f,16.3f},{46.1f,6.8f},
+        {49.99f,12.3f},{50,12.3f},{50.01f,12.3f},{55.1f,6.4f},{65.4f,18.2f},{0,0}};
     for(const auto &p:points)for(float time:{0.0f,1.3f})for(float lod:{0.0f,1.37f,5.0f})queries.push_back({{p[0],p[1],time,lod}});
-    const unsigned rows=unsigned(queries.size()),columns=76;
+    const unsigned rows=unsigned(queries.size()),columns=82;
     const std::string ps=WaterLocalWaveTest::PixelSource(rows);
     const char *vs="float4 main(uint id:SV_VertexID):SV_Position{return float4(id==1?3.0:-1.0,id==2?3.0:-1.0,0,1);}";
     struct Resources {
@@ -8781,7 +8867,9 @@ static void check_gpu_local_water(SdlGpuFrame *frame)
         unsigned char *n=&texels[0][(y*40+x*5)*4],*old=&texels[1][(y*16+x*2)*4];
         phase(old,200+x*63+y*17,x==0&&y==0?0:-.65f+.1f*x,x==0&&y==0?0:-.75f+.04f*y);old[4]=230-x*3;old[7]=255;memcpy(n,old,8);
         phase(n+8,400+56*x+24*y,.7f,.3f);phase(n+12,800-24*x+48*y,-.3f,.6f);
-        n[16]=110+10*y;n[17]=60-5*y;n[18]=x<4?0:x==4?102:x==5?204:255;n[19]=32+4*y;
+        // Exercise second-only, two-route, and first-only patches, including
+        // the exact zero-secondary edge at x=50 and both neighboring cells.
+        n[16]=x<=4?0:110+10*y;n[17]=x>=5?0:60-5*y;n[18]=x<4?0:x==4?102:x==5?204:255;n[19]=32+4*y;
         // Preserve the old unused zero bytes in sea, neutralize local banks,
         // then add upstream, side and downstream island faces to arm projection.
         if(n[18]>0) {
@@ -8820,7 +8908,8 @@ static void check_gpu_local_water(SdlGpuFrame *frame)
     double maxSea=0,maxDerivative=0,maxFilteredDerivative=0,maxGainDerivative=0,maxCrossing=0,maxVertex=0,maxProduct=0;
     double maxFallbackDerivative=0,maxBlendedDerivative=0,maxCpuGain=0,maxClockWrap=0;
     double maxWindOracle=0,maxCoastInvariant=0,maxWindVertex=0,maxExpected=0,maxExpectedVertex=0;
-    double maxMixedLod=0,maxCompositeSurface=0;
+    double maxMixedLod=0,maxCompositeSurface=0,maxLocalRecovery=0,maxLocalVertexRecovery=0;
+    unsigned firstOnly=0,secondOnly=0,bothRoutes=0;
     unsigned compositeArmed[4]={};
     unsigned coastArmed=0,windArmed=0,zeroGradientQueries=0,oracleFailures=0;
     double motionError[4]={},cycleMotionError[4]={};
@@ -8892,7 +8981,11 @@ static void check_gpu_local_water(SdlGpuFrame *frame)
         // where the local layer is present. Sea retains the strict oracle bound.
         for(unsigned c=0;c<3;++c) {
             const double error=std::abs(value(row,17,c));
-            const double bound=value(row,7,3)>0?64*std::numeric_limits<float>::epsilon()*std::max(1.0,std::abs(value(row,7,c))):.000003;
+            // Freeze the original displacement-only specialization too: adding
+            // new query points must not mistake its existing hash roundoff for
+            // a regression. Direct old/new vertices are checked below.
+            const double bound=value(row,7,3)>0?std::max(
+                64*std::numeric_limits<float>::epsilon()*std::max(1.0,std::abs(value(row,7,c))),value(row,81,3)+.000003):.000003;
             maxExpectedVertex=std::max(maxExpectedVertex,error);
             if(error>=.000003)
                 printf("local water vertex oracle specialization: row %u p=(%.5g,%.5g) time %.5g lod %.5g channel %u difference %.9g bound %.9g local %.0f\n",row,queries[row].point[0],queries[row].point[1],queries[row].point[2],queries[row].point[3],c,value(row,17,c),bound,value(row,7,3));
@@ -8926,6 +9019,22 @@ static void check_gpu_local_water(SdlGpuFrame *frame)
             if((col-64)%3==0 && queries[row].point[3]==0 && value(row,col,3)>.0001)
                 ++compositeArmed[(col-64)/3];
         }
+        for(unsigned c=0;c<3;++c) {
+            maxLocalVertexRecovery=std::max(maxLocalVertexRecovery,std::abs(value(row,81,c)));
+            if(std::abs(value(row,81,c))>=.000003)printf("local recovery vertex frozen oracle: row %u channel %u error %.9g original specialization %.9g\n",row,c,value(row,81,c),value(row,81,3));
+            CHECK(std::abs(value(row,81,c))<.000003);
+        }
+        if(value(row,81,3)>.0000076)printf("local recovery original vertex specialization: row %u error %.9g\n",row,value(row,81,3));
+        for(unsigned col=76;col<=80;++col)for(unsigned c=0;c<4;++c) {
+            const double error=std::abs(value(row,col,c));maxLocalRecovery=std::max(maxLocalRecovery,error);
+            if(error>=.000003 && oracleFailures++<12)printf("local recovery oracle: row %u column %u channel %u error %.9g\n",row,col,c,error);
+            CHECK(error<.000003);
+        }
+        if(!sea) {
+            firstOnly+=value(row,19,1)>0 && value(row,19,2)==0;
+            secondOnly+=value(row,19,1)==0 && value(row,19,2)>0;
+            bothRoutes+=value(row,19,1)>0 && value(row,19,2)>0;
+        }
         coastArmed+=value(row,51,3)>.05;windArmed+=value(row,48,3)>.05;
         for(unsigned c=0;c<4;++c)CHECK(value(row,53,c)==0); // fine never feeds contact/compression
         if(queries[row].point[0]==0 && queries[row].point[1]==0) {
@@ -8956,12 +9065,16 @@ static void check_gpu_local_water(SdlGpuFrame *frame)
         // the independent full-field oracle above separately bounds changed fine arithmetic.
         for(unsigned c=0;c<3;++c) {
             maxVertex=std::max(maxVertex,std::abs(value(row,18,c)));
-            const double localRoundoff=64*std::numeric_limits<float>::epsilon()*std::max(1.0,std::abs(value(row,7,c)));
+            const double localRoundoff=std::max(64*std::numeric_limits<float>::epsilon()*std::max(1.0,std::abs(value(row,7,c))),
+                value(row,81,3)+.000003);
             CHECK(std::abs(value(row,18,c))<localRoundoff);
         }
         if(row%3)for(unsigned c=0;c<4;++c)CHECK(value(row,7,c)==value(row-row%3,7,c));
         if(row%6>=3)travelArmed+=std::abs(value(row,8,0)-value(row-3,8,0))>.001;
     }
+    CHECK(firstOnly>=12 && secondOnly>=6 && bothRoutes>=6);
+    printf("local recovery frozen oracle: waves/fields %.9g, displacement-only vertex %.9g; first-only %u, second-only %u, both %u\n",
+        maxLocalRecovery,maxLocalVertexRecovery,firstOnly,secondOnly,bothRoutes);
     CHECK(seaQueries>20 && legacyArmed>8 && crossingArmed>8 && filterArmed>8 && travelArmed>8);
     CHECK(coastArmed>20 && windArmed>20 && zeroGradientQueries==6);
     for(unsigned group=0;group<4;++group)CHECK(compositeArmed[group]>8);
@@ -9067,6 +9180,7 @@ int main(int argc,char **argv)
 	check_gpu_water_refraction_footprint(frame);
 #endif
 	check_gpu_fft_quality_switch(frame);
+	check_gpu_fft_requested_cascades(frame);
 	check_gpu_water_material_transport(frame);
 	check_gpu_water_hull_distance(frame);
 #if defined(__linux__)

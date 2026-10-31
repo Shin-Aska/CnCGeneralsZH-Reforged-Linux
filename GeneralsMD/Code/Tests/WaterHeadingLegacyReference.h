@@ -1,6 +1,7 @@
 // Immutable headed shader reference from d1b6a8b5, before local analyzer integration.
 // Test-only: compare exact original sea evaluation, including packed inputs and FFT detail.
 #pragma once
+#include "WaterLocalPerformanceReference.h"
 namespace WaterHeadingLegacyReference {
 // Freeze the values used by the original generator too; importing current
 // artistic constants would make a changed reference pass accidentally.
@@ -261,7 +262,7 @@ float4 fixtureMap2D(float2 uv,float lod) {return fixtureMap(uv,lod,13,true);}
         {"Texture11.SampleLevel(Sampler11,","fixtureMap1D("},{"Texture12.SampleLevel(Sampler12,","fixtureMap2("},
         {"Texture13.SampleLevel(Sampler13,","fixtureMap2D("},{"FftDisplacement1.SampleLevel(FftSampler1,","fixtureMap1("},
         {"FftDisplacement2.SampleLevel(FftSampler2,","fixtureMap2("}})ReplaceAll(body,item.first,item.second);
-    source+=body;
+    source+=body+WaterLocalPerformanceReference::Source();
     source+=R"HLSL(
 // Independent closed-form answer for the sinusoidal fixture. Rotate its world
 // wavevector instead of sampling/decoding maps or copying the production chain rule.
@@ -550,6 +551,47 @@ float4 main(float4 position:SV_Position):SV_Target0 {
         // extra fine layer would cancel from the latter but still fail here.
         float3 endpointError=max(abs(actual[0]-expected[0]),abs(actual[1]-expected[1]));
         return float4(max(endpointError,abs(actualMotion-expectedMotion)),min(windMotion,currentMotion));
+    }
+    if(column==81)return float4(fftRawDisplacement(p)-fixtureOriginalRawDisplacement(p),
+        length(fixtureOriginalRawDisplacement(p)-expectedVertex));
+    if(column>=76 && column<=80) {
+        // The frozen evaluator always reads/reconstructs both routes and uses
+        // noise-coordinate Jacobians, including spatial bank/clock derivatives.
+        FftLocalFields oldFields=fixtureOriginalLocalFields(p);
+        FftLocalWaves old=fixtureOriginalLocalWaves(p,oldFields,lod);
+        if(column==76)return float4(waves.displacement.z-old.displacement.z,
+            waves.derivativeX.z-old.derivativeX.z,waves.derivativeY.z-old.derivativeY.z,waves.variance-old.variance);
+        if(column==77)return float4(waves.shadingDisplacement.z-old.shadingDisplacement.z,
+            waves.shadingDerivativeX.z-old.shadingDerivativeX.z,waves.shadingDerivativeY.z-old.shadingDerivativeY.z,0);
+        if(column==78) {
+            float error=length(f.legacyGain-oldFields.legacyGain)+length(f.influence-oldFields.influence)
+                +length(f.shore-oldFields.shore)+length(f.shoreX-oldFields.shoreX)+length(f.shoreY-oldFields.shoreY);
+            // Inactive route phase/partials are deliberately absent; only
+            // amplitudes and their gradients can make them observable.
+            error+=abs(f.first.amplitude-oldFields.first.amplitude)+length(f.first.amplitudeGradient-oldFields.first.amplitudeGradient)
+                +abs(f.second.amplitude-oldFields.second.amplitude)+length(f.second.amplitudeGradient-oldFields.second.amplitudeGradient);
+            if(f.first.amplitude>0.0)error+=length(f.first.gradient-oldFields.first.gradient)+length(f.first.hessian-oldFields.first.hessian);
+            if(f.second.amplitude>0.0)error+=length(f.second.gradient-oldFields.second.gradient)+length(f.second.hessian-oldFields.second.hessian);
+            return float4(error,0,0,0);
+        }
+        if(column==79) {
+            float4 error=0;
+            [unroll] for(int i=0;i<4;++i) {
+                WaterParameters.x=query.z+(i<2?6.0:12.0)+(i%2==0?-.001:.001);
+                FftLocalWaves now=fftLocalWaves(p,f,lod),before=fixtureOriginalLocalWaves(p,oldFields,lod);
+                error=max(error,abs(float4(now.displacement.z-before.displacement.z,
+                    now.derivativeX.z-before.derivativeX.z,now.derivativeY.z-before.derivativeY.z,now.variance-before.variance)));
+            }
+            return error;
+        }
+        // Exact still-pool branch with a nonidentity octave transform. Its
+        // derivative map must survive even though all velocity partials vanish.
+        float sn,cs;sincos(1.63,sn,cs);float2 shape=float2(1,1.65);
+        float2 q=shape*fftRotate(p,float2(cs,sn))/10.0;
+        float3 original=fftStreamAdvected(q,0,0,0,query.z,0);original.yz*=shape;
+        float2 slope=float2(cs*original.y+sn*original.z,-sn*original.y+cs*original.z)/10.0;
+        float3 now=fftStreamAdvectedWorld(q,0,0,0,shape*float2(cs,sn)/10.0,shape*float2(-sn,cs)/10.0,query.z,0);
+        return float4(now-float3(original.x,slope),0);
     }
     float variance=b.localInfluence>0.0?b.localVariance:(fftShadingVariance(float3(0,levels.yz))+b.unresolvedSlopeVariance);
     float referenceVariance=fftShadingVariance(float3(0,levels.yz))+rb.unresolvedSlopeVariance;

@@ -5,6 +5,11 @@ settings checks and separate instrumented material experiments for Modern Water.
 The Intel UHD 770 material series supplies aggregate Vulkan GPU timings; it
 does not establish named water-pass timings, production FPS or an Iris Xe result.
 
+The later [water performance recovery](modern-water-performance-recovery.md)
+records shader/Path reuse, the SWANGLE1 shoreline/CPU reuse follow-up, appearance
+checks and matched native measurements against the approved channel implementation.
+It also clarifies the native single-sample backend versus requested MSAA settings.
+
 ## Available hardware and tools
 
 Checked on 2026-10-26 in this workspace:

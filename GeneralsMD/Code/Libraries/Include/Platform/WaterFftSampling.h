@@ -168,6 +168,14 @@ float3 fftLocalAnalyticWave(float3 wave,float3 gain) {
     [branch] if(gain.x==1.0 && all(gain.yz==0.0))return wave;
     return float3(wave.x*gain.x,wave.yz*gain.x+wave.x*gain.yz);
 }
+FftWavefrontParameters fftLocalChart(float2 centres[4],float offset,float2 texel,FftWavefrontBasis basis,float spacing) {
+    float4 corners[4];float phaseStep=max(FftParameters.z-1.0,0.0);
+    [unroll] for(int i=0;i<4;++i) {
+        float4 c=round(FftHeadingTexture.SampleLevel(FftHeadingSampler,centres[i]+float2(offset*texel.x,0),0)*255.0);
+        corners[i]=float4((c.r*256+c.g)*phaseStep,(c.ba-128.0)*fftGradientRange/127.0,0);
+    }
+    return fftWavefrontInterpolatePrepared(corners[0],corners[1],corners[2],corners[3],1.0,basis,spacing);
+}
 FftLocalFields fftLocalFields(float2 p) {
     precise FftLocalFields fields=(FftLocalFields)0;fields.legacyGain=float3(1,0,0);
     if(FftParameters.z<=1.0)return fields;
@@ -191,29 +199,26 @@ FftLocalFields fftLocalFields(float2 p) {
     float3 r=fftLocalEnvelope(residual,f,spacing);r.yz*=inside;
     fields.legacyGain=float3(1-fields.influence.x+fields.influence.x*r.x,
         fields.influence.yz*(r.x-1)+fields.influence.x*r.yz);
-    [branch] if(!any(weight0>0.0) && !any(weight1>0.0))return fields;
+    bool active0=any(weight0>0.0),active1=any(weight1>0.0);
+    [branch] if(!active0 && !active1)return fields;
     float3 a=fftLocalEnvelope(weight0,f,spacing),b=fftLocalEnvelope(weight1,f,spacing);
     a.yz*=inside;b.yz*=inside;
-    float4 corners0[4],corners1[4];float4 shore0,shore1;
+    float4 shore0,shore1;
     [unroll] for(int i=0;i<4;++i) {
-        float4 c=round(FftHeadingTexture.SampleLevel(FftHeadingSampler,centres[i]+float2(2*texel.x,0),0)*255.0);
-        float4 d=round(FftHeadingTexture.SampleLevel(FftHeadingSampler,centres[i]+float2(3*texel.x,0),0)*255.0);
         // G/B of the original metadata word were unused. Sea corners retain
         // their original bytes, so explicitly supply neutral zero there.
         float2 bankBytes=round(FftHeadingTexture.SampleLevel(FftHeadingSampler,centres[i]+float2(texel.x,0),0).gb*255.0);
         float2 bank=influence[i]>0.0?(bankBytes-128.0)/127.0:float2(0,0);
         shore0[i]=bank.x;shore1[i]=bank.y;
-        // z retains its original enabled test (>0.5); z-1 carries local phase units.
-        float phaseStep=max(FftParameters.z-1.0,0.0);
-        corners0[i]=float4((c.r*256+c.g)*phaseStep,(c.ba-128.0)*fftGradientRange/127.0,0);
-        corners1[i]=float4((d.r*256+d.g)*phaseStep,(d.ba-128.0)*fftGradientRange/127.0,0);
     }
     float3 sx=fftLocalEnvelope(shore0,f,spacing),sy=fftLocalEnvelope(shore1,f,spacing);
     fields.shore=float2(sx.x,sy.x);
     fields.shoreX=float2(sx.y,sy.y)*inside.x;fields.shoreY=float2(sx.z,sy.z)*inside.y;
     FftWavefrontBasis basis=fftWavefrontPrepare(f);
-    fields.first=fftWavefrontInterpolatePrepared(corners0[0],corners0[1],corners0[2],corners0[3],1.0,basis,spacing);
-    fields.second=fftWavefrontInterpolatePrepared(corners1[0],corners1[1],corners1[2],corners1[3],1.0,basis,spacing);
+    // Nonnegative corner weights make an absent route's value and derivatives
+    // exactly zero. It cannot contribute waves, so omit its phase reads/tensor.
+    [branch] if(active0)fields.first=fftLocalChart(centres,2.0,texel,basis,spacing);
+    [branch] if(active1)fields.second=fftLocalChart(centres,3.0,texel,basis,spacing);
     fields.first.gradient*=inside;fields.second.gradient*=inside;
     fields.first.hessian*=float3(inside.x,inside.x*inside.y,inside.y);
     fields.second.hessian*=float3(inside.x,inside.x*inside.y,inside.y);
@@ -267,6 +272,33 @@ float3 fftStreamAdvected(float2 p,float2 velocity,float2 velocityX,float2 veloci
     }
     return float3(height/weight,(slope-height/weight*weightGradient)/weight);
 }
+// Differentiate directly in world coordinates. The old A*J*A^-1 velocity
+// Jacobian and A^-T clock gradient cancel with the final A^T slope map.
+// p/velocity stay in noise coordinates, preserving every hash input and height.
+float3 fftStreamAdvectedWorld(float2 p,float2 velocity,float2 velocityX,float2 velocityY,float2 basisX,float2 basisY,float time,float3 clock) {
+    const float period=12.0;
+    [branch] if(all(velocity==0.0) && all(velocityX==0.0) && all(velocityY==0.0)) {
+        float3 n=fftStreamNoise(p);return float3(n.x,dot(n.yz,basisX),dot(n.yz,basisY));
+    }
+    precise float phase=time/period+.22*clock.x;
+    precise float2 phaseGradient=.22*clock.yz;
+    precise float height=0,weight=0;float2 slope=0,weightGradient=0;
+    [unroll] for(int layer=0;layer<2;++layer) {
+        precise float age=frac(phase+.5*layer),r=age*(1-age);
+        precise float w=64*r*r*r,dw=192*r*r*(1-2*age);
+        precise float2 wg=dw*phaseGradient;
+        precise float elapsed=period*age;float2 elapsedGradient=period*phaseGradient;
+        precise float2 offset=layer*7.4*fftStreamQuarterTurn(velocity);
+        precise float2 q=p-velocity*elapsed+offset;
+        precise float2 qx=basisX-velocityX*elapsed-velocity*elapsedGradient.x+layer*7.4*fftStreamQuarterTurn(velocityX);
+        precise float2 qy=basisY-velocityY*elapsed-velocity*elapsedGradient.y+layer*7.4*fftStreamQuarterTurn(velocityY);
+        precise float3 n=fftStreamNoise(q);
+        height+=w*n.x;weight+=w;
+        slope+=w*float2(dot(n.yz,qx),dot(n.yz,qy))+wg*n.x;
+        weightGradient+=wg;
+    }
+    return float3(height/weight,(slope-height/weight*weightGradient)/weight);
+}
 // Smoothly remove only motion into the bank. |shore|^2 is the supplied fade,
 // so this never reverses the normal component or increases speed. Differentiate
 // both the incoming velocity and the spatially changing shore vector.
@@ -304,13 +336,9 @@ void fftLocalArrival(inout FftLocalWaves value,float2 p,FftWavefrontParameters f
         precise float2 q=shape*fftRotate(p,rotation)/sizes[i]+float2(13.1*i,-7.7*i);
         precise float2 v=shape*fftRotate(velocity,rotation)/sizes[i];
         precise float2 vx=shape*fftRotate(velocityX,rotation)/sizes[i],vy=shape*fftRotate(velocityY,rotation)/sizes[i];
-        // fftStreamAdvected differentiates in its noise coordinates. Supply the
-        // transformed velocity Jacobian there, then map its scalar slope back.
-        precise float2 vqx=sizes[i]*(cs*vx-sn*vy),vqy=sizes[i]*(sn*vx+cs*vy)/shape.y;
-        precise float3 localClock=float3(clock.x,sizes[i]*float2(cs*clock.y-sn*clock.z,(sn*clock.y+cs*clock.z)/shape.y));
-        precise float3 n=fftStreamAdvected(q,v,vqx,vqy,WaterParameters.x,localClock);
-        n.yz*=shape;
-        precise float2 ng=float2(cs*n.y+sn*n.z,-sn*n.y+cs*n.z)/sizes[i];
+        precise float2 basisX=shape*float2(cs,sn)/sizes[i],basisY=shape*float2(-sn,cs)/sizes[i];
+        precise float3 n=fftStreamAdvectedWorld(q,v,vx,vy,basisX,basisY,WaterParameters.x,clock);
+        precise float2 ng=n.yz;
         precise float h=heights[i]*field.amplitude*n.x;
         precise float2 slope=heights[i]*(field.amplitudeGradient*n.x+field.amplitude*ng);
         value.displacement.z+=h;value.derivativeX.z+=slope.x;value.derivativeY.z+=slope.y;

@@ -22,6 +22,12 @@ found and fixed, EA's own, not port damage.**
   Sheltered branches, enclosed water, and elevated watercourses remain calmer.
 - Water rendering reuses repeated work while preserving the existing current
   direction and ripple strength.
+- Reuse shoreline foam calculations, projected sample storage, texture samplers,
+  and repeated vertex uploads. At the measured SWANGLE1 saved camera, Hybrid
+  frame time falls about 10%, with slow-frame time improving about 21%.
+- Path traced reflections reuse shared model data and triangle calculations.
+  Frame time falls about 8% in the measured SWANGLE2 saved view, with the same
+  wave detail and reflection quality.
 - Bound elevated river wave attenuation so high watercourses, including the
   aircraft carrier map's upper branches, cannot amplify waves into vertical walls.
 - Authored bridges can carry weakened visual movement across a narrow terrain-filled

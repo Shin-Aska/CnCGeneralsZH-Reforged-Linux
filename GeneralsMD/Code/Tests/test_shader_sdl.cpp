@@ -1757,6 +1757,24 @@ TEST(fft_low_tier_preserves_energy_reality_and_filtering)
     CHECK(filtering.find("level,6)")!=std::string::npos);
 }
 
+TEST(fft_headed_producer_variants_keep_original_slots_with_four_outputs)
+{
+    using namespace WaterFftSpectrum;
+    for(unsigned resolution:{128u,256u}) {
+        const auto config=ForResolution(resolution);
+        for(const std::string &source:{SpectrumHlsl(true),ButterflyHlsl(config,true),PostHlsl(true)}) {
+            CHECK(source.find("v0")==std::string::npos && source.find("v1")==std::string::npos);
+            CHECK(source.find("v2 : SV_Target0")!=std::string::npos && source.find("v5 : SV_Target3")!=std::string::npos);
+            std::vector<unsigned char> spirv;std::string log;
+            const bool compiled=SDL3_Compile_HLSL_To_SPIRV(source,false,spirv,log);
+            if(!compiled)printf("headed FFT%u producer: %s\n",resolution,log.c_str());
+            CHECK(compiled);
+            const char *validator=getenv("ZH_SPIRV_VAL");
+            if(compiled && validator && *validator)CHECK(validate(validator,spirv,log));
+        }
+    }
+}
+
 #if defined(__linux__)
 TEST(water_analytic_remainder_elision_keeps_exact_seams_and_swell_derivatives)
 {

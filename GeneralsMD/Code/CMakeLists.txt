@@ -2282,6 +2282,9 @@ target_sources(test_hazard_cloud_policy PRIVATE
 add_lib_test(test_water_path_tracing)
 set_target_properties(test_water_path_tracing PROPERTIES CXX_STANDARD 17)
 target_include_directories(test_water_path_tracing PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Libraries/Include)
+add_lib_test(test_water_path_model_digest)
+set_target_properties(test_water_path_model_digest PROPERTIES CXX_STANDARD 17)
+target_include_directories(test_water_path_model_digest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Libraries/Include)
 
 add_lib_test(test_wwmath wwmath wwlib wwsaveload wwdebug)
 target_include_directories(test_wwmath PRIVATE ${WW}/WWLib ${WW}/WWSaveLoad ${WW}/Wwutil)

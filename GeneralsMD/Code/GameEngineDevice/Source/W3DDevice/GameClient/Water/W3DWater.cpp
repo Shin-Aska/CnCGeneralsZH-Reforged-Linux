@@ -1096,7 +1096,10 @@ void WaterRenderObjClass::invalidateModernWaterShore(void)
 	m_modernCoastalLookup.clear();
 	if (++m_modernShoreRevision == 0) m_modernShoreRevision = 1;
 	m_modernShoreAttempted = 0;
-	for (ModernFoamTexture &field : m_modernFoamTextures) field.valid = FALSE;
+	for (ModernFoamTexture &field : m_modernFoamTextures) {
+		field.valid = FALSE;
+		field.shoreLookup.Clear();field.shoreBreakup.clear();field.shoreBreakupBuild=0;
+	}
 }
 
 void WaterRenderObjClass::updateModernWaterShore(void)
@@ -1255,9 +1258,23 @@ void WaterRenderObjClass::bindModernWaterFoam(Real level, Bool river)
 					const auto &states = m_modernShoreHistory.Preview(m_modernShoreSource);
 					const WaterShoreHistory::Mapping shoreMap = {map.originX, map.originY, map.widthWorld, map.heightWorld,
 						map.widthPixels, map.heightPixels};
-					auto coverage = WaterShoreSource::Coverage;
-					atlas = WaterShoreHistory::RasterizeAlpha(m_modernShoreHistory.Domain(), states, shoreMap, level, m_modernWaveTime,
-						coverage, pixels, m_modernShoreSource.Support());
+					atlas=field.shoreLookup.Prepare(m_modernShoreHistory.Domain(),shoreMap,level,
+						m_modernShoreRevision,m_modernShoreSource.Support());
+					if(atlas) {
+						if(field.shoreBreakupBuild!=field.shoreLookup.BuildCount()) {
+							field.shoreBreakup.assign(pixels.size(),0);
+							field.shoreLookup.ForEachSample([&](size_t n,double x,double y) {
+								// SpatialBreakup returns a promoted float. Store that exact
+								// value; density and age coverage remain live on every upload.
+								field.shoreBreakup[n]=float(WaterShoreSource::SpatialBreakup(x,y));
+							});
+							field.shoreBreakupBuild=field.shoreLookup.BuildCount();
+						}
+						auto coverage=[&](const WaterShoreHistory::State&s,double,double,double,size_t n) {
+							return WaterShoreSource::CoverageFromBreakup(s,field.shoreBreakup[n]);
+						};
+						atlas=field.shoreLookup.Rasterize(states,m_modernWaveTime,coverage,pixels);
+					}
 				}
 				if (atlas) {
 					// Optional native capture evidence: report elapsed water time and the actual
@@ -1403,7 +1420,7 @@ void WaterRenderObjClass::synchronizeWaterStyle(void)
 	clearModernWaterFoam();
 	clearModernWaterHulls();
 	invalidateModernWaterShore();
-	m_modernProjectedSamples.clear();
+	m_modernProjectedSamples.Clear();
 #if defined(__linux__)
 	m_modernTopologyCache.Clear();
 	m_modernPreparedMeshCache.Clear();
@@ -1675,7 +1692,7 @@ void WaterRenderObjClass::updateModernWaterTextures(void)
 
 void WaterRenderObjClass::clearModernWaterOpticalTextures(void)
 {
-	m_modernProjectedSamples.clear();
+	m_modernProjectedSamples.Clear();
 #if defined(__linux__)
 	// The existing optical invalidation covers terrain bytes, map identity/dimensions,
 	// authored polygons/levels and device resets. Static CPU samples share that lifetime.
@@ -3717,9 +3734,9 @@ void WaterRenderObjClass::Render(RenderInfoClass & rinfo)
 		m_modernProjectedColumns=projected.columns;m_modernProjectedRows=projected.rows;
 		m_modernProjectedWidth=targetWidth;m_modernProjectedHeight=targetHeight;
 		m_modernProjectedBudget=min(size_t(60000),available/size_t(max(1,modernFlatPatches)));
-		// Per-frame reuse shares lattice vertices across flat patches/levels, while never keeping
-		// stale terrain, moving hulls, wave time or camera state from a previous render.
-		m_modernProjectedSamples.clear();
+		// Reuse hash allocations across renders, but accept values only from this render.
+		// Moving hulls, wave time, terrain and camera inputs are always evaluated afresh.
+		m_modernProjectedSamples.BeginRender();
 #if defined(__linux__)
 		m_modernStaticSamples.BeginRender();
 #endif
@@ -5264,7 +5281,7 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 				double stamp = sampled ? modernWaterProfileMilliseconds() : 0;
 				const Bool share = m_modernProjectedCacheEnabled || boundarySample;
 				const WaterProjectedMesh::WorldKey key = WaterProjectedMesh::SampleKey(p.x, p.y, p.z);
-				auto cached = share ? m_modernProjectedSamples.find(key) : m_modernProjectedSamples.end();
+				const ModernProjectedSample *cached = share ? m_modernProjectedSamples.Find(key) : nullptr;
 				if (sampled) {
 					const double now = modernWaterProfileMilliseconds();
 					m_modernProfile.cacheSample += now - stamp;
@@ -5273,8 +5290,8 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 				}
 				ModernProjectedSample sample;
 				Real fftWeight=-1.0f;
-				if (cached != m_modernProjectedSamples.end()) {
-					sample = cached->second;
+				if (cached) {
+					sample = *cached;
 					if (m_modernProfileEnabled) ++m_modernProfile.hits;
 				} else {
 					++m_modernProjectedEvaluations;
@@ -5339,7 +5356,7 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 					if (m_modernProfileEnabled && sample.damping > 0 && !elideHeight) ++m_modernProfile.wavePoints;
 					// The XYZ cache also serves analytic edge/transition requests. An omitted
 					// height must never be published there as a complete reusable sample.
-					if (share && !elideHeight && m_modernProjectedSamples.size() < WaterSurfaceModel::VertexBudget) m_modernProjectedSamples.emplace(key, sample);
+					if (share && !elideHeight) m_modernProjectedSamples.Store(key, sample);
 					if (sampled) m_modernProfile.cacheSample += modernWaterProfileMilliseconds() - stamp;
 				}
 				VertexFormatXYZNDUV2 result;

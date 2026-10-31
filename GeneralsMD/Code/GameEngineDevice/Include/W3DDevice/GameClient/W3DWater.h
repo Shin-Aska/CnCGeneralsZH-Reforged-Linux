@@ -49,6 +49,7 @@
 #include "Platform/RenderTypes.h"
 #include "Platform/WaterOpticalContext.h"
 #include "Platform/WaterProjectedMesh.h"
+#include "Platform/WaterProjectedSampleCache.h"
 #include "Platform/WaterHullVisual.h"
 #include "Platform/WaterHullVisualLayout.h"
 #include "Platform/WaterBowRefinement.h"
@@ -268,7 +269,7 @@ protected:
 		size_t fftPreparedPatches=0,cpuHeightsElided=0;
 	} m_modernProfile;
 	struct ModernProjectedSample { Real height,damping,obstacle,hullFreeObstacle,offshore,fftDamping,exposure; };
-	std::unordered_map<WaterProjectedMesh::WorldKey,ModernProjectedSample,WaterProjectedMesh::WorldHash> m_modernProjectedSamples;
+	WaterProjectedSampleCache::Cache<ModernProjectedSample> m_modernProjectedSamples;
 	Vector3 m_modernCamera;
 	CameraClass *m_modernRenderCamera = NULL;
 	struct ModernWaterObstacle {
@@ -350,6 +351,9 @@ protected:
 		unsigned channels=0; // bit0 vessel RGB, bit1 coast A, bit2 second direction tile
 		unsigned textureWidth=0,textureHeight=0;
 		Bool valid=FALSE;
+		WaterShoreHistory::RasterLookup shoreLookup;
+		std::vector<float> shoreBreakup;
+		uint64_t shoreBreakupBuild=0;
 	};
 	std::vector<ModernFoamTexture> m_modernFoamTextures;
 

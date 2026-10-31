@@ -4864,6 +4864,109 @@ TEST(water_shore_support_complexity_failure_is_atomic_and_bounded) {
 #include <set>
 #include <tuple>
 #include <cstdio>
+namespace {
+struct ShoreCountingSupport {
+    unsigned mask=15;mutable size_t lookups=0,allows=0;
+    struct Stencil {
+        const ShoreCountingSupport *owner;double x,y;
+        bool Allows(unsigned dx,unsigned dy)const {
+            ++owner->allows;
+            return (owner->mask&(1u<<(dy*2+dx))) && (dx?x>.13:x<.87) && (dy?y>.17:y<.83);
+        }
+    };
+    Stencil At(int32_t,int32_t,double,double x,double y)const {++lookups;return {this,x,y};}
+};
+}
+TEST(water_shore_raster_lookup_reuses_only_static_work_and_invalidates_dependencies) {
+    using namespace WaterShoreHistory;
+    Topology topology;auto cells=shoreFourCorners();cells.push_back({0,0,20,4});
+    CHECK(topology.Build({},cells)==BuildResult::Ready);
+    std::vector<State> states(topology.Cells().size(),{1,2});
+    Mapping mapping={-2.5,-2.5,10,10,40,32};ShoreCountingSupport support;
+    RasterLookup lookup;uint64_t revision=1;
+    struct Material {
+        std::vector<State> inputs;std::vector<double> coordinates;
+        double operator()(const State&s,double x,double y,double time) {
+            inputs.push_back(s);coordinates.insert(coordinates.end(),{x,y,time});
+            return -std::expm1(-s.density)*(.6+.2*std::sin(x*.3+y*.7+time+s.ageMoment/(s.density+.01)));
+        }
+    };
+    auto compare=[&](double level,double time) {
+        std::vector<uint32_t> seed(size_t(mapping.widthPixels)*mapping.heightPixels);
+        for(size_t i=0;i<seed.size();++i)seed[i]=0xff000000u|((uint32_t(i)*2654435761u)&0xffffffu);
+        auto expected=seed,actual=seed;Material a,b;
+        CHECK(RasterizeAlpha(topology,states,mapping,level,time,a,expected,support));
+        const auto before=support.lookups,allowBefore=support.allows,builds=lookup.BuildCount();
+        CHECK(RasterizeAlphaCached(topology,states,mapping,level,time,b,actual,support,lookup,revision));
+        CHECK(expected==actual);CHECK(a.coordinates==b.coordinates);CHECK(a.inputs.size()==b.inputs.size());
+        for(size_t i=0;i<a.inputs.size()&&i<b.inputs.size();++i) {
+            CHECK(a.inputs[i].density==b.inputs[i].density);CHECK(a.inputs[i].ageMoment==b.inputs[i].ageMoment);
+        }
+        if(lookup.BuildCount()==builds) {CHECK(support.lookups==before);CHECK(support.allows==allowBefore);}
+        CHECK(lookup.SampleCount()<=RasterLookup::MaximumPixels && lookup.TileCount()<=lookup.SampleCount());
+        CHECK(lookup.MemoryBytes()<=sizeof(RasterLookup)+13*RasterLookup::MaximumPixels);
+    };
+    compare(10,0);CHECK(lookup.BuildCount()==1);
+    for(unsigned frame=1;frame<=12;++frame) {
+        for(size_t i=0;i<states.size();++i)states[i]={frame%3?double(i+frame)*.13:0,double(i+2*frame)*.7};
+        compare(10,frame*.137);CHECK(lookup.BuildCount()==1);
+    }
+    mapping.originX+=.125;compare(10,2);CHECK(lookup.BuildCount()==2);
+    mapping.originY-=.25;compare(10,2);CHECK(lookup.BuildCount()==3);
+    mapping.widthWorld+=.75;compare(10,2);CHECK(lookup.BuildCount()==4);
+    mapping.heightWorld+=.5;compare(10,2);CHECK(lookup.BuildCount()==5);
+    mapping.widthPixels=43;compare(10,2);CHECK(lookup.BuildCount()==6);
+    mapping.heightPixels=37;compare(10,2);CHECK(lookup.BuildCount()==7);
+    compare(20,2);CHECK(lookup.BuildCount()==8);
+    support.mask=0;++revision;compare(20,2);CHECK(lookup.BuildCount()==9);
+    cells.push_back({1,0,20,5});CHECK(topology.Build({.5,-.5,5},cells)==BuildResult::Ready);
+    states.assign(topology.Cells().size(),{1.3,.7});support.mask=15;++revision;
+    compare(20,3);CHECK(lookup.BuildCount()==10);
+    ShoreCountingSupport other;
+    auto material=[](const State&s,double,double,double){return s.density;};
+    std::vector<uint32_t> pixels(size_t(mapping.widthPixels)*mapping.heightPixels,0xaabbccddu);
+    CHECK(RasterizeAlphaCached(topology,states,mapping,20,3,material,pixels,other,lookup,revision));
+    CHECK(lookup.BuildCount()==11); // support object identity is part of the key
+    const auto saved=pixels;const auto builds=lookup.BuildCount();
+    Mapping invalid=mapping;invalid.widthPixels=513;
+    CHECK(!RasterizeAlphaCached(topology,states,invalid,20,3,material,pixels,other,lookup,revision));
+    CHECK(!RasterizeAlphaCached(topology,states,mapping,20,NAN,material,pixels,other,lookup,revision));
+    CHECK(!RasterizeAlphaCached(topology,states,mapping,20,3,material,pixels,other,lookup,0));
+    CHECK(pixels==saved && lookup.BuildCount()==builds);
+    lookup.Clear();CHECK(lookup.BuildCount()==0 && lookup.SampleCount()==0 && lookup.TileCount()==0);
+}
+TEST(water_shore_raster_prepared_spatial_breakup_preserves_live_coverage_bytes) {
+    using namespace WaterShoreHistory;
+    const auto cells=shoreFourCorners();Topology topology;CHECK(topology.Build({},cells)==BuildResult::Ready);
+    WaterShoreSupport::Domain support;auto flat=[](double,double){return 0.f;};
+    CHECK(support.Build({},cells,3,3,{shoreRect(0,0,2,5),shoreRect(3,0,5,5)},flat));
+    RasterLookup lookup;uint64_t prepared=0;size_t preparations=0;std::vector<float> breakup;
+    for(unsigned camera=0;camera<4;++camera) {
+        Mapping mapping={-1+camera*.13,-.75+camera*.21,7.3,6.7,61+camera,57-camera};
+        for(unsigned frame=0;frame<16;++frame) {
+            std::vector<State> states;
+            for(unsigned i=0;i<4;++i)states.push_back({frame%4?(.05+double(frame+i)*.17):0,double(frame+2*i)*.31});
+            const double time=frame*.137+camera;
+            std::vector<uint32_t> seed(size_t(mapping.widthPixels)*mapping.heightPixels,0xa3abcdefu),expected=seed,actual=seed;
+            auto coverage=WaterShoreSource::Coverage;
+            CHECK(RasterizeAlpha(topology,states,mapping,10,time,coverage,expected,support));
+            CHECK(lookup.Prepare(topology,mapping,10,1,support));
+            if(prepared!=lookup.BuildCount()) {
+                breakup.assign(seed.size(),0);
+                lookup.ForEachSample([&](size_t n,double x,double y) {
+                    const double value=WaterShoreSource::SpatialBreakup(x,y);
+                    breakup[n]=float(value);CHECK(double(breakup[n])==value);++preparations;
+                });
+                prepared=lookup.BuildCount();
+            }
+            const auto before=preparations;
+            auto material=[&](const State&s,double,double,double,size_t n) {return WaterShoreSource::CoverageFromBreakup(s,breakup[n]);};
+            CHECK(lookup.Rasterize(states,time,material,actual));CHECK(actual==expected);
+            CHECK(preparations==before && lookup.BuildCount()==camera+1);
+        }
+    }
+    CHECK(preparations>1000);
+}
 namespace ShoreSparseRasterAudit {
 using namespace WaterShoreHistory;
 static unsigned cases=0;static uint64_t pixels=0;
@@ -4882,7 +4985,10 @@ struct Coverage {unsigned calls=0;double operator()(const State&s,double x,doubl
  return -std::expm1(-s.density)*(.55+.45*std::sin(x*.31+y*.27+time+s.ageMoment/(s.density+.0001)));}};
 template<class Support> void Compare(const Topology&t,const std::vector<State>&s,const Mapping&m,double l,const Support&support,double time=1.375){
  std::vector<uint32_t> seed(size_t(m.widthPixels)*m.heightPixels);for(size_t i=0;i<seed.size();++i)seed[i]=0xaa000000u|((uint32_t(i)*2654435761u)&0xffffffu);
- auto a=seed,b=seed;Coverage ca,cb;bool ra=Reference(t,s,m,l,time,ca,a,support),rb=RasterizeAlpha(t,s,m,l,time,cb,b,support);
+ auto a=seed,b=seed,cached=seed;Coverage ca,cb,cc;RasterLookup lookup;
+ bool ra=Reference(t,s,m,l,time,ca,a,support),rb=RasterizeAlpha(t,s,m,l,time,cb,b,support);
+ const bool rc=RasterizeAlphaCached(t,s,m,l,time,cc,cached,support,lookup,1);
+ CHECK(ra==rc);CHECK(ca.calls==cc.calls);CHECK(a==cached);
  CHECK(ra==rb);CHECK(ca.calls==cb.calls);if(a!=b){size_t at=0;while(at<a.size()&&a[at]==b[at])++at;
  std::fprintf(stderr,"RGBA mismatch case %u at %zu expected %08x actual %08x mapping %.17g %.17g %.17g %.17g %u %u level %.17g\n",cases,at,a[at],b[at],m.originX,m.originY,m.widthWorld,m.heightWorld,m.widthPixels,m.heightPixels,l);CHECK(a==b);}
  for(size_t i=0;i<seed.size();++i)CHECK((b[i]&0xffffffu)==(seed[i]&0xffffffu));++cases;pixels+=seed.size();
@@ -6512,3 +6618,7 @@ TEST(water_bridge_visual_links_preserve_physical_masks_and_reject_unrelated_bodi
 {
     WaterBridgeConnectionsTest::Check();
 }
+
+#include "WaterShoreSourcePerfTest.h"
+
+#include "WaterProjectedSampleCacheTest.h"
