@@ -4,94 +4,144 @@
 TEST(render_timing_logic_window_parser_is_strict_and_bounded)
 {
     RenderTiming::LogicWindow window;
-    CHECK(window.Parse("108420,109019"));CHECK_EQ(window.Count(),600u);
-    CHECK(window.Parse("4294967295,4294967295"));CHECK_EQ(window.Count(),1u);
+    CHECK(window.Parse("108420,109019"));
+    CHECK_EQ(window.Count(), 600u);
+    CHECK(window.Parse("4294967295,4294967295"));
+    CHECK_EQ(window.Count(), 1u);
     CHECK(window.Parse("1,100000"));
-    const char *bad[]={nullptr,"","1","1,","0,1","2,1","-1,2","1,2x","1,2,3",
-        " 1,2","1, 2","1,100001","4294967296,4294967296","999999999999999999999999,2"};
-    for(const char *text:bad)CHECK(!window.Parse(text));
+    const char *bad[] = {nullptr, "", "1",
+        "1,", "0,1", "2,1",
+        "-1,2", "1,2x", "1,2,3",
+        " 1,2", "1, 2", "1,100001",
+        "4294967296,4294967296", "999999999999999999999999,2"};
+    for (const char *text : bad)
+        CHECK(!window.Parse(text));
 }
 
 TEST(render_timing_logic_window_requires_predecessor_and_matches_exact_frames)
 {
-    RenderTiming::LogicWindow window;CHECK(window.Parse("100,699"));
+    RenderTiming::LogicWindow window;
+    CHECK(window.Parse("100,699"));
     RenderTiming::LogicSequence sequence;
-    CHECK(!sequence.Observe(window,false,99));
-    CHECK(!sequence.Observe(window,true,98));
-    CHECK(!sequence.Observe(window,true,99));
-    for(unsigned frame=100;frame<=699;++frame)CHECK(sequence.Observe(window,true,frame));
-    CHECK(sequence.Complete(window));CHECK_EQ(sequence.accepted,600u);CHECK_EQ(sequence.rejected,0u);
-    CHECK(!sequence.Observe(window,true,700));
+    CHECK(!sequence.Observe(window, false, 99));
+    CHECK(!sequence.Observe(window, true, 98));
+    CHECK(!sequence.Observe(window, true, 99));
+    for (unsigned frame = 100; frame <= 699; ++frame)
+        CHECK(sequence.Observe(window, true, frame));
+    CHECK(sequence.Complete(window));
+    CHECK_EQ(sequence.accepted, 600u);
+    CHECK_EQ(sequence.rejected, 0u);
+    CHECK(!sequence.Observe(window, true, 700));
 }
 
 TEST(render_timing_logic_window_rejects_missing_duplicate_and_unstamped_presents)
 {
-    RenderTiming::LogicWindow window;CHECK(window.Parse("10,12"));
+    RenderTiming::LogicWindow window;
+    CHECK(window.Parse("10,12"));
     RenderTiming::LogicSequence absent;
-    CHECK(!absent.Observe(window,true,10));CHECK(!absent.Complete(window));
+    CHECK(!absent.Observe(window, true, 10));
+    CHECK(!absent.Complete(window));
     RenderTiming::LogicSequence duplicate;
-    duplicate.Observe(window,true,9);CHECK(duplicate.Observe(window,true,10));
-    CHECK(!duplicate.Observe(window,true,10));CHECK(duplicate.Observe(window,true,11));
-    CHECK(duplicate.Observe(window,true,12));CHECK(!duplicate.Complete(window));
+    duplicate.Observe(window, true, 9);
+    CHECK(duplicate.Observe(window, true, 10));
+    CHECK(!duplicate.Observe(window, true, 10));
+    CHECK(duplicate.Observe(window, true, 11));
+    CHECK(duplicate.Observe(window, true, 12));
+    CHECK(!duplicate.Complete(window));
     RenderTiming::LogicSequence skipped;
-    skipped.Observe(window,true,9);CHECK(skipped.Observe(window,true,10));
-    CHECK(!skipped.Observe(window,true,12));CHECK(!skipped.Complete(window));
+    skipped.Observe(window, true, 9);
+    CHECK(skipped.Observe(window, true, 10));
+    CHECK(!skipped.Observe(window, true, 12));
+    CHECK(!skipped.Complete(window));
     RenderTiming::LogicSequence unstamped;
-    unstamped.Observe(window,true,9);unstamped.Observe(window,false,10);
-    CHECK(!unstamped.Observe(window,true,10));CHECK(!unstamped.Complete(window));
+    unstamped.Observe(window, true, 9);
+    unstamped.Observe(window, false, 10);
+    CHECK(!unstamped.Observe(window, true, 10));
+    CHECK(!unstamped.Complete(window));
 }
 
 TEST(render_timing_logic_window_does_not_wrap_frame_predecessor)
 {
-    RenderTiming::LogicWindow window;CHECK(window.Parse("1,1"));
+    RenderTiming::LogicWindow window;
+    CHECK(window.Parse("1,1"));
     RenderTiming::LogicSequence sequence;
-    sequence.Observe(window,true,UINT32_MAX);CHECK(!sequence.Observe(window,true,1));
+    sequence.Observe(window, true, UINT32_MAX);
+    CHECK(!sequence.Observe(window, true, 1));
     CHECK(!sequence.Complete(window));
 }
 
 TEST(render_timing_cold_count_is_strict_and_bounded)
 {
     RenderTiming::ColdSequence sequence;
-    CHECK(sequence.Configure("120"));CHECK_EQ(sequence.target,120u);
+    CHECK(sequence.Configure("120"));
+    CHECK_EQ(sequence.target, 120u);
     CHECK(sequence.Configure("100000"));
-    const char *bad[]={nullptr,"","0","-1","120x"," 120","120 ","100001","999999999999999999"};
-    for(const char *text:bad)CHECK(!sequence.Configure(text));
+    const char *bad[] = {nullptr, "", "0",
+        "-1", "120x", " 120",
+        "120 ", "100001", "999999999999999999"};
+    for (const char *text : bad)
+        CHECK(!sequence.Configure(text));
 }
 
 TEST(render_timing_cold_keeps_the_first_post_load_transition)
 {
-    RenderTiming::ColdSequence sequence;CHECK(sequence.Configure("3"));
-    CHECK(!sequence.Observe(true,90,true));
-    CHECK(sequence.BeginLoad());CHECK(!sequence.Observe(true,99,true));
-    CHECK(sequence.Arm());CHECK(!sequence.Observe(false,99,true));
-    CHECK(sequence.Observe(true,100,true));CHECK_EQ(sequence.first,100u);
-    CHECK(sequence.Observe(true,101,true));CHECK(sequence.Observe(true,102,true));
-    CHECK(sequence.Complete());CHECK(!sequence.Observe(true,103,true));
+    RenderTiming::ColdSequence sequence;
+    CHECK(sequence.Configure("3"));
+    CHECK(!sequence.Observe(true, 90, true));
+    CHECK(sequence.BeginLoad());
+    CHECK(!sequence.Observe(true, 99, true));
+    CHECK(sequence.Arm());
+    CHECK(!sequence.Observe(false, 99, true));
+    CHECK(sequence.Observe(true, 100, true));
+    CHECK_EQ(sequence.first, 100u);
+    CHECK(sequence.Observe(true, 101, true));
+    CHECK(sequence.Observe(true, 102, true));
+    CHECK(sequence.Complete());
+    CHECK(!sequence.Observe(true, 103, true));
 }
 
 TEST(render_timing_cold_never_skips_a_bad_first_frame_or_later_discontinuity)
 {
-    RenderTiming::ColdSequence noPrevious;CHECK(noPrevious.Configure("2"));
-    noPrevious.BeginLoad();noPrevious.Arm();CHECK(!noPrevious.Observe(true,100,false));
-    CHECK(!noPrevious.Observe(true,101,true));CHECK(!noPrevious.Complete());
-    CHECK_EQ(noPrevious.accepted,0u);CHECK_EQ(noPrevious.rejected,1u);
-    for(unsigned kind=0;kind<3;++kind) {
-        RenderTiming::ColdSequence broken;CHECK(broken.Configure("3"));
-        broken.BeginLoad();broken.Arm();CHECK(broken.Observe(true,100,true));
-        CHECK(!broken.Observe(kind!=2,kind==0?100:102,true));
-        CHECK(!broken.Observe(true,103,true));CHECK(!broken.Complete());
-        CHECK_EQ(broken.accepted,1u);CHECK_EQ(broken.rejected,1u);
+    RenderTiming::ColdSequence noPrevious;
+    CHECK(noPrevious.Configure("2"));
+    noPrevious.BeginLoad();
+    noPrevious.Arm();
+    CHECK(!noPrevious.Observe(true, 100, false));
+    CHECK(!noPrevious.Observe(true, 101, true));
+    CHECK(!noPrevious.Complete());
+    CHECK_EQ(noPrevious.accepted, 0u);
+    CHECK_EQ(noPrevious.rejected, 1u);
+    for (unsigned kind = 0; kind < 3; ++kind) {
+        RenderTiming::ColdSequence broken;
+        CHECK(broken.Configure("3"));
+        broken.BeginLoad();
+        broken.Arm();
+        CHECK(broken.Observe(true, 100, true));
+        CHECK(!broken.Observe(kind != 2, kind == 0 ? 100 : 102, true));
+        CHECK(!broken.Observe(true, 103, true));
+        CHECK(!broken.Complete());
+        CHECK_EQ(broken.accepted, 1u);
+        CHECK_EQ(broken.rejected, 1u);
     }
 }
 
 TEST(render_timing_cold_requires_load_ready_and_rejects_mid_capture_reload)
 {
-    RenderTiming::ColdSequence sequence;CHECK(sequence.Configure("2"));
-    CHECK(!sequence.Arm());CHECK(!sequence.Observe(true,1,true));
-    CHECK(sequence.BeginLoad());CHECK(sequence.Arm());
-    CHECK(sequence.Observe(true,UINT32_MAX,true));
-    CHECK(!sequence.Observe(true,0,true));CHECK(!sequence.Complete());
-    RenderTiming::ColdSequence reload;CHECK(reload.Configure("2"));
-    reload.BeginLoad();reload.Arm();CHECK(reload.Observe(true,10,true));
-    CHECK(!reload.BeginLoad());CHECK(!reload.Observe(true,11,true));CHECK(!reload.Complete());
+    RenderTiming::ColdSequence sequence;
+    CHECK(sequence.Configure("2"));
+    CHECK(!sequence.Arm());
+    CHECK(!sequence.Observe(true, 1, true));
+    CHECK(sequence.BeginLoad());
+    CHECK(sequence.Arm());
+    CHECK(sequence.Observe(true, UINT32_MAX, true));
+    CHECK(!sequence.Observe(true, 0, true));
+    CHECK(!sequence.Complete());
+    RenderTiming::ColdSequence reload;
+    CHECK(reload.Configure("2"));
+    reload.BeginLoad();
+    reload.Arm();
+    CHECK(reload.Observe(true, 10, true));
+    CHECK(!reload.BeginLoad());
+    CHECK(!reload.Observe(true, 11, true));
+    CHECK(!reload.Complete());
 }

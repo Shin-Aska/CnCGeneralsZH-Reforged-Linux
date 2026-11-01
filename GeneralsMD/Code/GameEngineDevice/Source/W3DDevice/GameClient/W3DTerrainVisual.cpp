@@ -713,7 +713,8 @@ Bool W3DTerrainVisual::load( AsciiString filename )
 void W3DTerrainVisual::prewarmMapRenderData( void )
 {
 	if (!TheGlobalData || TheGlobalData->m_noRenderDevice || !m_waterRenderObject ||
-		!TheGameLogic || TheGameLogic->isInShellGame()) return;
+		!TheGameLogic || TheGameLogic->isInShellGame())
+		return;
 	m_waterRenderObject->prewarmStaticMapData();
 }
 

@@ -2431,11 +2431,11 @@ static void takeReadsForRender( Bool renders )
 	TheDisplay->freeDeferred();
 	TheGameLogic->takeFrameForDraw();
 #if defined(__linux__)
-	PosixGpuTimingStampLogicFrame(TheGameLogic->getFrame(),renders
+	PosixGpuTimingStampLogicFrame(TheGameLogic->getFrame(), renders
 		&& !TheGlobalData->m_breakTheMovie && !TheGlobalData->m_disableRender
 		&& TheGameLogic->isInGame() && !TheGameLogic->isInShellGame()
 		&& !TheGameLogic->isLoadingMap() && !TheGameLogic->isGamePaused()
-		&& GameEngine_videoPictures()==1);
+		&& GameEngine_videoPictures() == 1);
 #endif
 	// step 3b: what the tick handed over at the window's opening writes beside the render, the client's
 	// clock, each drawable's look (after the views' update eased its fades) and the players the control

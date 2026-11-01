@@ -121,16 +121,19 @@ uint64_t PosixDevice9::Begin_Prepared_Water_Fft()
 	const float phase=PixelShaderConstants[1][0]*WaterFftSampling::TimeScale;
 	// A bound heading is provisional until the mirror upload succeeds below in
 	// Gpu_Draw. A late unheaded fallback completes the full field before recording.
-	const unsigned cascades=Textures[11] && !CoastalActive
-		? WaterFftSpectrum::HeadedCascades:WaterFftSpectrum::AllCascades;
-	if(!Gpu->Prepare_Ocean(phase,WaterPerformanceSettings::Applied().requestedFftResolution,cascades)) return 0;
+	const unsigned cascades = Textures[11] && !CoastalActive
+	? WaterFftSpectrum::HeadedCascades : WaterFftSpectrum::AllCascades;
+	if (!Gpu->Prepare_Ocean(phase, WaterPerformanceSettings::Applied().requestedFftResolution, cascades))
+		return 0;
 	WaterPerformanceSettings::Applied().activeFftResolution=Gpu->Ocean_Configuration().resolution;
 	const SdlProgram &program=Programs->Water_Vertex_Program(vertex,Gpu->Ocean_Array_Output());
-	if(!program.Shader || program.SamplerSlots>5 || !Gpu->Ocean_Array() || !Gpu->Ocean_Sampler()) return 0;
+	if (!program.Shader || program.SamplerSlots > 5 || !Gpu->Ocean_Array() || !Gpu->Ocean_Sampler())
+		return 0;
 	for(unsigned i=0;i<3;++i) if(!Gpu->Ocean_Map(i*2)) return 0;
 	PreparedWaterFftDraw &prepared=PreparedWaterFft;
 	if(!++PreparedWaterFftSerial) ++PreparedWaterFftSerial;
-	prepared.token=PreparedWaterFftSerial;prepared.oceanGeneration=Gpu->Ocean_Generation();
+	prepared.token = PreparedWaterFftSerial;
+	prepared.oceanGeneration = Gpu->Ocean_Generation();
 	prepared.presents=PresentCount;prepared.phase=phase;prepared.gpu=Gpu;prepared.programs=Programs;
 	prepared.vertex=&program;prepared.pixelShader=PixelShader;prepared.vertexShader=VertexShader;
 	prepared.target=RenderTargets[0];prepared.depth=DepthStencil;
@@ -153,13 +156,15 @@ void PosixDevice9::End_Prepared_Water_Fft(uint64_t token)
 bool PosixDevice9::Prepared_Water_Fft_Matches(const VertexPipelineDescription &vertex) const
 {
 	const PreparedWaterFftDraw &p=PreparedWaterFft;
-	if(!p.token || p.token!=PreparedWaterFftSerial || p.gpu!=Gpu || p.programs!=Programs || p.presents!=PresentCount
-		|| p.pixelShader!=PixelShader || p.vertexShader!=VertexShader
-		|| p.target!=RenderTargets[0] || p.depth!=DepthStencil
-		|| p.phase!=PixelShaderConstants[1][0]*WaterFftSampling::TimeScale
-		|| p.description.size()!=sizeof(vertex) || memcmp(p.description.data(),&vertex,sizeof(vertex))!=0
-		|| p.oceanGeneration!=Gpu->Ocean_Generation() || p.arrayOutput!=Gpu->Ocean_Array_Output()
-		|| p.array!=Gpu->Ocean_Array() || p.sampler!=Gpu->Ocean_Sampler()) return false;
+	if (!p.token || p.token != PreparedWaterFftSerial || p.gpu != Gpu || p.programs != Programs
+		|| p.presents != PresentCount
+		|| p.pixelShader != PixelShader || p.vertexShader != VertexShader
+		|| p.target != RenderTargets[0] || p.depth != DepthStencil
+		|| p.phase != PixelShaderConstants[1][0] * WaterFftSampling::TimeScale
+		|| p.description.size() != sizeof(vertex) || memcmp(p.description.data(), &vertex, sizeof(vertex)) != 0
+		|| p.oceanGeneration != Gpu->Ocean_Generation() || p.arrayOutput != Gpu->Ocean_Array_Output()
+		|| p.array != Gpu->Ocean_Array() || p.sampler != Gpu->Ocean_Sampler())
+		return false;
 	for(unsigned i=0;i<3;++i) if(p.maps[i]!=Gpu->Ocean_Map(i*2)) return false;
 	return p.vertex && p.vertex->Shader;
 }
@@ -1036,15 +1041,17 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	if(PreparedWaterFft.token && (!fft_requested || !Prepared_Water_Fft_Matches(vertex))) {
 		Refuse_Draw("prepared water FFT scope changed before draw");return D3D_OK;
 	}
-	const unsigned oceanCascades=Textures[11] && !CoastalActive
-		? WaterFftSpectrum::HeadedCascades:WaterFftSpectrum::AllCascades;
+	const unsigned oceanCascades = Textures[11] && !CoastalActive
+	? WaterFftSpectrum::HeadedCascades : WaterFftSpectrum::AllCascades;
 	bool fft_water = PreparedWaterFft.token || (fft_requested && Gpu->Prepare_Ocean(
-		PixelShaderConstants[1][0]*WaterFftSampling::TimeScale,WaterPerformanceSettings::Applied().requestedFftResolution,oceanCascades));
-	if(fft_water && CoastalActive && Gpu->Ocean_Ready_Cascades()!=WaterFftSpectrum::AllCascades) {
-		const auto generation=Gpu->Ocean_Generation();
-		if(!Gpu->Prepare_Ocean(PixelShaderConstants[1][0]*WaterFftSampling::TimeScale,
-			WaterPerformanceSettings::Applied().requestedFftResolution) || Gpu->Ocean_Generation()!=generation) {
-			Refuse_Draw("water FFT broad field unavailable");return D3D_OK;
+		PixelShaderConstants[1][0] * WaterFftSampling::TimeScale,
+		WaterPerformanceSettings::Applied().requestedFftResolution, oceanCascades));
+	if (fft_water && CoastalActive &&Gpu->Ocean_Ready_Cascades() != WaterFftSpectrum::AllCascades) {
+		const auto generation = Gpu->Ocean_Generation();
+		if (!Gpu->Prepare_Ocean(PixelShaderConstants[1][0] * WaterFftSampling::TimeScale,
+			WaterPerformanceSettings::Applied().requestedFftResolution) || Gpu->Ocean_Generation() != generation) {
+			Refuse_Draw("water FFT broad field unavailable");
+			return D3D_OK;
 		}
 	}
 	// The water pixel program below is keyed on the ocean this draw actually prepared.
@@ -1210,14 +1217,14 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		draw.VertexSamplers[slot] = Gpu->Ocean_Sampler();
 	}
 
-	bool water_heading=false;
+	bool water_heading = false;
 	// The GPU copies.  Bringing one up to date can flush the batch, which leaves the ones already asked
 	// for marked as used by the batch before: so ask again until a round flushes nothing.
 	for (int round = 0; round < 3; ++round) {
 		const uint64_t batch = Gpu->Batch();
 		++phases.Rounds;
-		water_heading=false;
-		SDL_GPUTexture *heading_texture=NULL;
+		water_heading = false;
+		SDL_GPUTexture *heading_texture = NULL;
 		draw.SamplerCount = pixel_program->SamplerSlots;
 		for (unsigned int slot = 0; slot < pixel_program->SamplerSlots; ++slot) {
 			const int texture_stage = pixel_program->SlotTexture[slot];
@@ -1261,25 +1268,27 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 				if (!draw.Textures[slot] || !draw.Samplers[slot]) return D3D_OK;
 				continue;
 			}
-			if ((water_draw || (shore_region && pixel_program!=legacy_pixel_program)) && texture_stage==11) {
+			if ((water_draw || (shore_region && pixel_program != legacy_pixel_program)) && texture_stage == 11) {
 				// t11 is free after the six ocean maps moved into the t8 array. A missing
 				// optional heading must disable both stages, including failed mirror uploads.
-				IDirect3DBaseTexture9 *heading=shore_region?shore_region->heading.get()
-					:fft_water && draw.VertexSamplerCount>4?Textures[11]:NULL;
-				heading_texture=heading?Mirrors->Texture(heading,refusal):NULL;
-				if(heading_texture==target.Colour || heading_texture==target.Depth)heading_texture=NULL;
-				water_heading=fft_water && heading_texture;
-				draw.Textures[slot]=heading_texture?heading_texture:Mirrors->White();
+				IDirect3DBaseTexture9 *heading = shore_region ? shore_region->heading.get()
+				: fft_water && draw.VertexSamplerCount > 4 ? Textures[11] : NULL;
+				heading_texture = heading ? Mirrors->Texture(heading, refusal) : NULL;
+				if (heading_texture == target.Colour || heading_texture == target.Depth)
+					heading_texture = NULL;
+				water_heading = fft_water && heading_texture;
+				draw.Textures[slot] = heading_texture ? heading_texture : Mirrors->White();
 				RenderUInt32 heading_sampler[SAMPLER_STATE_COUNT];
-				memcpy(heading_sampler,SamplerStates[4],sizeof(heading_sampler));
-				heading_sampler[D3DSAMP_ADDRESSU]=heading_sampler[D3DSAMP_ADDRESSV]=D3DTADDRESS_CLAMP;
-				heading_sampler[D3DSAMP_MINFILTER]=heading_sampler[D3DSAMP_MAGFILTER]=D3DTEXF_POINT;
-				heading_sampler[D3DSAMP_MIPFILTER]=D3DTEXF_NONE;
-				draw.Samplers[slot]=Samplers->Sampler(heading_sampler);
-				if(!draw.Textures[slot] || !draw.Samplers[slot])return D3D_OK;
-				if(draw.VertexSamplerCount>4) {
-					draw.VertexTextures[4]=draw.Textures[slot];
-					draw.VertexSamplers[4]=draw.Samplers[slot];
+				memcpy(heading_sampler, SamplerStates[4], sizeof(heading_sampler));
+				heading_sampler[D3DSAMP_ADDRESSU] = heading_sampler[D3DSAMP_ADDRESSV] = D3DTADDRESS_CLAMP;
+				heading_sampler[D3DSAMP_MINFILTER] = heading_sampler[D3DSAMP_MAGFILTER] = D3DTEXF_POINT;
+				heading_sampler[D3DSAMP_MIPFILTER] = D3DTEXF_NONE;
+				draw.Samplers[slot] = Samplers->Sampler(heading_sampler);
+				if (!draw.Textures[slot] || !draw.Samplers[slot])
+					return D3D_OK;
+				if (draw.VertexSamplerCount > 4) {
+					draw.VertexTextures[4] = draw.Textures[slot];
+					draw.VertexSamplers[4] = draw.Samplers[slot];
 				}
 				continue;
 			}
@@ -1425,11 +1434,12 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		// Heading admission depends on the uploaded resource, not the legacy pointer.
 		// Completing the broad field flushes prior readers/uploads. Keep it inside
 		// this retry loop so every mirror is resolved again if that changes the batch.
-		if(fft_water && !water_heading && Gpu->Ocean_Ready_Cascades()!=WaterFftSpectrum::AllCascades) {
-			const auto generation=Gpu->Ocean_Generation();
-			if(!Gpu->Prepare_Ocean(PixelShaderConstants[1][0]*WaterFftSampling::TimeScale,
-				WaterPerformanceSettings::Applied().requestedFftResolution) || Gpu->Ocean_Generation()!=generation) {
-				Refuse_Draw("water FFT broad field unavailable");return D3D_OK;
+		if (fft_water && !water_heading && Gpu->Ocean_Ready_Cascades() != WaterFftSpectrum::AllCascades) {
+			const auto generation = Gpu->Ocean_Generation();
+			if (!Gpu->Prepare_Ocean(PixelShaderConstants[1][0] * WaterFftSampling::TimeScale,
+				WaterPerformanceSettings::Applied().requestedFftResolution) || Gpu->Ocean_Generation() != generation) {
+				Refuse_Draw("water FFT broad field unavailable");
+				return D3D_OK;
 			}
 		}
 		if (Gpu->Batch() == batch) {
@@ -1487,29 +1497,46 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		}
 		const uint8_t *source = user ? (const uint8_t *)call.UserVertices : vertex_buffer->storage().bytes() + start;
 		const size_t shift = (size_t)skipped * stride;
-		const bool compact=shift!=0 && Gpu->Stage_Offset_Next()>=shift;
-		const size_t copiedBytes=compact?size-shift:size;
+		const bool compact = shift != 0 && Gpu->Stage_Offset_Next() >= shift;
+		const size_t copiedBytes = compact ? size - shift : size;
 		// Consecutive water index chunks read one unchanged dynamic VB range.
 		// Reuse only after all mirror/FFT retries have settled the native batch.
 		// An open lock can change bytes without another storage-version increment.
-		const bool cacheable=!user&&vertex_buffer->storage().lockCount()==0;
-		if(cacheable&&StagedVertex.Matches(Gpu,Gpu->Batch(),vertex_buffer,vertex_buffer->storage().version(),start,size,shift,stride)) {
-			draw.VertexOffset=StagedVertex.offset;
-			if(ProfileVertexStaging){++VertexStagingStats.hits;VertexStagingStats.reusedBytes+=copiedBytes;}
+		const bool cacheable = !user && vertex_buffer->storage().lockCount() == 0;
+		if (cacheable && StagedVertex.Matches(Gpu, Gpu->Batch(), vertex_buffer,
+			vertex_buffer->storage().version(), start, size, shift, stride)) {
+			draw.VertexOffset = StagedVertex.offset;
+			if (ProfileVertexStaging) {
+				++VertexStagingStats.hits;
+				VertexStagingStats.reusedBytes += copiedBytes;
+			}
 		}
 		else {
-			if(FailNextVertexStage){FailNextVertexStage=false;return D3DERR_OUTOFVIDEOMEMORY;}
-			uint32_t staged=0;
-			uint8_t *destination=Gpu->Stage((uint32_t)copiedBytes,staged);
-			if(copiedBytes&&!destination)return D3DERR_OUTOFVIDEOMEMORY;
-			if(copiedBytes)memcpy(destination,source+(compact?shift:0),copiedBytes);
-			draw.VertexOffset=compact?staged-(uint32_t)shift:staged;
-			if(!user&&ProfileVertexStaging){++VertexStagingStats.copies;VertexStagingStats.copiedBytes+=copiedBytes;}
-			if(cacheable) {
-				Posix_Bind(StagedVertex.owner,static_cast<IDirect3DVertexBuffer9*>(vertex_buffer));
-				StagedVertex.gpu=Gpu;StagedVertex.batch=Gpu->Batch();StagedVertex.version=vertex_buffer->storage().version();
-				StagedVertex.start=start;StagedVertex.size=size;StagedVertex.shift=shift;StagedVertex.stride=stride;
-				StagedVertex.offset=draw.VertexOffset;
+			if (FailNextVertexStage) {
+				FailNextVertexStage = false;
+				return D3DERR_OUTOFVIDEOMEMORY;
+			}
+			uint32_t staged = 0;
+			uint8_t *destination = Gpu->Stage((uint32_t) copiedBytes, staged);
+			if (copiedBytes && !destination)
+				return D3DERR_OUTOFVIDEOMEMORY;
+			if (copiedBytes)
+				memcpy(destination, source + (compact ? shift : 0), copiedBytes);
+			draw.VertexOffset = compact ? staged - (uint32_t) shift : staged;
+			if (!user && ProfileVertexStaging) {
+				++VertexStagingStats.copies;
+				VertexStagingStats.copiedBytes += copiedBytes;
+			}
+			if (cacheable) {
+				Posix_Bind(StagedVertex.owner, static_cast<IDirect3DVertexBuffer9 *>(vertex_buffer));
+				StagedVertex.gpu = Gpu;
+				StagedVertex.batch = Gpu->Batch();
+				StagedVertex.version = vertex_buffer->storage().version();
+				StagedVertex.start = start;
+				StagedVertex.size = size;
+				StagedVertex.shift = shift;
+				StagedVertex.stride = stride;
+				StagedVertex.offset = draw.VertexOffset;
 			}
 		}
 		draw.First = 0;
@@ -1630,11 +1657,13 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		water.FftParameters[1] = fft_water && WaterVesselWaves::Enabled() ? 1.0f : 0.0f;
 		// The original headed shader only tests z > .5. Carry the independent
 		// local-phase scale above 1 without changing that gate or a lighting colour.
-		water.FftParameters[2] = water_heading ? 1.0f + PixelShaderConstants[WaterWaveHeading::PrevailingRegister][2] : 0.0f;
+		water.FftParameters[2] = water_heading ? 1.0f
+			+ PixelShaderConstants[WaterWaveHeading::PrevailingRegister][2] : 0.0f;
 		water.FftParameters[3] = water_heading ? PixelShaderConstants[WaterWaveHeading::PrevailingRegister][0] : 0.0f;
 		// Production lighting never reads this fill-light W; the swell's packed-U scale rides in it, only
 		// while the field is bound, so the water preview's colour there survives every other draw.
-		if (water_heading) water.FoamFillLights[3][3] = PixelShaderConstants[WaterWaveHeading::PrevailingRegister][1];
+		if (water_heading)
+			water.FoamFillLights[3][3] = PixelShaderConstants[WaterWaveHeading::PrevailingRegister][1];
 		if (!water_history) water.FoamHistoryParameters[0] = 0.0f;
 		if(coastal_view) {
 			water.CoastalArea[0]=float(CoastalMapping.originX);water.CoastalArea[1]=float(CoastalMapping.originY);
@@ -1757,9 +1786,11 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 				Textures[2]->AddRef();Textures[4]->AddRef();
 				region.height=std::shared_ptr<IDirect3DBaseTexture9>(Textures[2],[](IDirect3DBaseTexture9 *t){t->Release();});
 				region.optical=std::shared_ptr<IDirect3DBaseTexture9>(Textures[4],[](IDirect3DBaseTexture9 *t){t->Release();});
-				if(Textures[11]) {
+				if (Textures[11]) {
 					Textures[11]->AddRef();
-					region.heading=std::shared_ptr<IDirect3DBaseTexture9>(Textures[11],[](IDirect3DBaseTexture9 *t){t->Release();});
+					region.heading = std::shared_ptr<IDirect3DBaseTexture9>(Textures[11], [](IDirect3DBaseTexture9 *t) {
+						t->Release();
+					});
 				}
 				ShoreRegions.push_back(region);
 			}

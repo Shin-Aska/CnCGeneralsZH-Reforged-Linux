@@ -216,7 +216,7 @@ W3DView::W3DView()
 {
 	m_diagnosticRouteCaptured = false;
 	m_diagnosticRouteLastPicture = m_diagnosticRouteTracedPicture = -1;
-	
+
 	m_3DCamera = NULL;
 	m_2DCamera = NULL;
 	m_groundLevel = 10.0;
@@ -556,12 +556,12 @@ void W3DView::buildCameraTransform( Matrix3D *transform )
 	// tick, so step the shaker by real elapsed time to keep shakes framerate-independent.
 	if (!m_diagnosticRouteCaptured)
 	{
-		static UnsignedInt prevShakeTime = cameraClockMilliseconds( this );
-		UnsignedInt nowShakeTime = cameraClockMilliseconds( this );
+		static UnsignedInt prevShakeTime = cameraClockMilliseconds(this);
+		UnsignedInt nowShakeTime = cameraClockMilliseconds(this);
 		Real shakeDt = (nowShakeTime - prevShakeTime) * 0.001f;
 		prevShakeTime = nowShakeTime;
-		if (shakeDt > 1.0f/30.0f)
-			shakeDt = 1.0f/30.0f;
+		if (shakeDt > 1.0f / 30.0f)
+			shakeDt = 1.0f / 30.0f;
 		CameraShakerSystem.Timestep(shakeDt);
 		CameraShakerSystem.Update_Camera_Shaker(sourcePos, &m_shakerAngles);
 		transform->Rotate_X(m_shakerAngles.X);
@@ -1730,7 +1730,8 @@ Bool W3DView::updateDiagnosticCameraRoute( void )
 		loaded = true;
 		FILE *file = fopen(path, "r");
 		const Bool valid = route.Read(file);
-		if (file) fclose(file);
+		if (file)
+			fclose(file);
 		if (!valid) {
 			fprintf(stderr, "ZH_CAMERA_ROUTE: rejected invalid route %s\n", path);
 			return false;
@@ -1738,7 +1739,8 @@ Bool W3DView::updateDiagnosticCameraRoute( void )
 		if (statePath && *statePath) {
 			file = fopen(statePath, "r");
 			stateLoaded = savedAnchor.Read(file);
-			if (file) fclose(file);
+			if (file)
+				fclose(file);
 			if (!stateLoaded) {
 				stateInvalid = true;
 				fprintf(stderr, "ZH_CAMERA_ROUTE: rejected invalid anchor state %s\n", statePath);
@@ -1748,8 +1750,10 @@ Bool W3DView::updateDiagnosticCameraRoute( void )
 		const char *tracePath = getenv("ZH_CAMERA_ROUTE_CSV");
 		if (tracePath && *tracePath) {
 			trace = fopen(tracePath, "w");
-			if (trace) fprintf(trace, "logic_frame,picture_frame,route_frame,video_picture,video_pictures,x,y,z,zoom,angle,eye_x,eye_y,eye_z,forward_x,forward_y,forward_z\n");
-			else fprintf(stderr, "ZH_CAMERA_ROUTE: could not open trace %s\n", tracePath);
+			if (trace)
+				fprintf(trace, "logic_frame,picture_frame,route_frame,video_picture,video_pictures,x,y,z,zoom,angle,eye_x,eye_y,eye_z,forward_x,forward_y,forward_z\n");
+			else
+				fprintf(stderr, "ZH_CAMERA_ROUTE: could not open trace %s\n", tracePath);
 		}
 	}
 	if (route.Empty() || stateInvalid || this != TheTacticalView || !TheGameLogic || !TheGameLogic->isInGame()
@@ -1783,11 +1787,20 @@ Bool W3DView::updateDiagnosticCameraRoute( void )
 		if (stateLoaded) {
 			using Anchor = DiagnosticCameraRoute::Anchor;
 			const float *v = savedAnchor.values;
-			m_pos.x = v[Anchor::PosX]; m_pos.y = v[Anchor::PosY]; m_pos.z = v[Anchor::PosZ];
-			m_zoom = v[Anchor::Zoom]; m_angle = v[Anchor::Angle]; m_pitchAngle = v[Anchor::Pitch];
-			m_heightAboveGround = v[Anchor::Height]; m_groundLevel = v[Anchor::Ground]; m_FXPitch = v[Anchor::FXPitch];
-			m_cameraOffset.x = v[Anchor::OffsetX]; m_cameraOffset.y = v[Anchor::OffsetY]; m_cameraOffset.z = v[Anchor::OffsetZ];
-			m_FOV = v[Anchor::Fov]; m_useRealZoomCam = savedAnchor.realZoom != 0;
+			m_pos.x = v[Anchor::PosX];
+			m_pos.y = v[Anchor::PosY];
+			m_pos.z = v[Anchor::PosZ];
+			m_zoom = v[Anchor::Zoom];
+			m_angle = v[Anchor::Angle];
+			m_pitchAngle = v[Anchor::Pitch];
+			m_heightAboveGround = v[Anchor::Height];
+			m_groundLevel = v[Anchor::Ground];
+			m_FXPitch = v[Anchor::FXPitch];
+			m_cameraOffset.x = v[Anchor::OffsetX];
+			m_cameraOffset.y = v[Anchor::OffsetY];
+			m_cameraOffset.z = v[Anchor::OffsetZ];
+			m_FOV = v[Anchor::Fov];
+			m_useRealZoomCam = savedAnchor.realZoom != 0;
 			m_3DCamera->Set_View_Plane(Vector2(v[Anchor::PlaneMinX], v[Anchor::PlaneMinY]),
 				Vector2(v[Anchor::PlaneMaxX], v[Anchor::PlaneMaxY]));
 			m_cameraConstraintValid = false;
@@ -1811,19 +1824,21 @@ Bool W3DView::updateDiagnosticCameraRoute( void )
 				m_FOV, planeMin.X, planeMin.Y, planeMax.X, planeMax.Y}, m_useRealZoomCam ? 1 : 0};
 			FILE *file = fopen(stateOutPath, "w");
 			Bool wrote = effective.Write(file);
-			if (file && fclose(file) != 0) wrote = false;
-			if (!wrote) fprintf(stderr, "ZH_CAMERA_ROUTE: could not write anchor state %s\n", stateOutPath);
+			if (file && fclose(file) != 0)
+				wrote = false;
+			if (!wrote)
+				fprintf(stderr, "ZH_CAMERA_ROUTE: could not write anchor state %s\n", stateOutPath);
 		}
 	}
 	const DiagnosticCameraRoute::Knot sample = route.Sample(picture);
 	Coord3D position = m_diagnosticRouteOrigin;
-	position.x += (Real)sample.x;
-	position.y += (Real)sample.y;
+	position.x += (Real) sample.x;
+	position.y += (Real) sample.y;
 	setPosition(&position);
-	setZoom(m_diagnosticRouteZoom * (Real)sample.zoom);
-	setAngle(m_diagnosticRouteAngle + (Real)sample.angle);
+	setZoom(m_diagnosticRouteZoom * (Real) sample.zoom);
+	setAngle(m_diagnosticRouteAngle + (Real) sample.angle);
 	setPitch(m_diagnosticRoutePitch);
-	m_heightAboveGround = m_diagnosticRouteHeight * (Real)sample.zoom;
+	m_heightAboveGround = m_diagnosticRouteHeight * (Real) sample.zoom;
 	m_shakeOffset.x = m_shakeOffset.y = 0;
 	setCameraTransform();
 	m_recalcCamera = false;
@@ -1834,7 +1849,8 @@ Bool W3DView::updateDiagnosticCameraRoute( void )
 			TheGameLogic->getFrame(), picture, stateLoaded ? 1 : 0,
 			naturalPosition.x, naturalPosition.y, naturalPosition.z, naturalZoom, naturalAngle,
 			naturalEye.X, naturalEye.Y, naturalEye.Z, naturalForward.X, naturalForward.Y, naturalForward.Z,
-			m_diagnosticRouteOrigin.x, m_diagnosticRouteOrigin.y, m_diagnosticRouteOrigin.z, m_diagnosticRouteZoom, m_diagnosticRouteAngle,
+			m_diagnosticRouteOrigin.x, m_diagnosticRouteOrigin.y, m_diagnosticRouteOrigin.z, m_diagnosticRouteZoom,
+			m_diagnosticRouteAngle,
 			m_pos.x, m_pos.y, m_pos.z, m_zoom, m_angle,
 			beforeEye.X, beforeEye.Y, beforeEye.Z, eye.X, eye.Y, eye.Z,
 			beforeForward.X, beforeForward.Y, beforeForward.Z, forward.X, forward.Y, forward.Z);

@@ -227,12 +227,20 @@ public:
 	SdlResourceMirrors * Get_Mirrors() const { return Mirrors; }
 	/// Draws recorded on the GPU, and the draws refused, by reason.
 	unsigned int Draws_Recorded() const { return DrawsRecorded; }
-	struct VertexStagingStatistics {uint64_t copies=0,hits=0,copiedBytes=0,reusedBytes=0;};
+	struct VertexStagingStatistics {
+		uint64_t copies = 0, hits = 0, copiedBytes = 0, reusedBytes = 0;
+	};
 	/// Opt-in with ZH_GPU_VERTEX_STAGING_PROFILE=1 when this device is constructed.
-	const VertexStagingStatistics &Vertex_Staging_Statistics()const{return VertexStagingStats;}
+	const VertexStagingStatistics &Vertex_Staging_Statistics() const {
+		return VertexStagingStats;
+	}
 	/// Deterministic regression hooks; ordinary rendering never calls these.
-	void Fail_Next_Vertex_Stage_For_Test(){FailNextVertexStage=true;}
-	bool Has_Staged_Vertex_For_Test()const{return StagedVertex.owner!=NULL;}
+	void Fail_Next_Vertex_Stage_For_Test() {
+		FailNextVertexStage = true;
+	}
+	bool Has_Staged_Vertex_For_Test() const {
+		return StagedVertex.owner != NULL;
+	}
 	const std::map<std::string, unsigned int> & Draw_Refusals() const { return DrawRefusals; }
 
 	/// Clear with a window, where the back buffer's pixels are the GPU's (the A3 design's render-target
@@ -504,7 +512,7 @@ protected:
 	SdlSamplerCache *Samplers;
 	SdlResourceMirrors *Mirrors;
 	struct PreparedWaterFftDraw {
-		uint64_t token=0, oceanGeneration=0;
+		uint64_t token = 0, oceanGeneration = 0;
 		unsigned int presents=0;
 		float phase=0;
 		SdlGpuFrame *gpu=NULL;
@@ -519,21 +527,25 @@ protected:
 	bool Water_Fft_Requested(int vertexEngine,int pixelEngine,const VertexPipelineDescription &vertex) const;
 	bool Prepared_Water_Fft_Matches(const VertexPipelineDescription &vertex) const;
 	struct StagedVertexRange {
-		IDirect3DVertexBuffer9 *owner=NULL;
-		SdlGpuFrame *gpu=NULL;
-		uint64_t batch=0;
-		uint32_t version=0,offset=0;
-		size_t start=0,size=0,shift=0;
-		unsigned stride=0;
-		bool Matches(SdlGpuFrame *frame,uint64_t nativeBatch,IDirect3DVertexBuffer9 *buffer,uint32_t storageVersion,
-			size_t byteStart,size_t byteSize,size_t prefix,unsigned vertexStride)const {
-			return owner==buffer&&gpu==frame&&batch==nativeBatch&&version==storageVersion
-				&&start==byteStart&&size==byteSize&&shift==prefix&&stride==vertexStride;
+		IDirect3DVertexBuffer9 *owner = NULL;
+		SdlGpuFrame *gpu = NULL;
+		uint64_t batch = 0;
+		uint32_t version = 0, offset = 0;
+		size_t start = 0, size = 0, shift = 0;
+		unsigned stride = 0;
+		bool Matches(SdlGpuFrame *frame, uint64_t nativeBatch, IDirect3DVertexBuffer9 *buffer,
+			uint32_t storageVersion,
+			size_t byteStart, size_t byteSize, size_t prefix, unsigned vertexStride) const {
+			return owner == buffer && gpu == frame && batch == nativeBatch && version == storageVersion
+				&& start == byteStart && size == byteSize && shift == prefix && stride == vertexStride;
 		}
 	} StagedVertex;
 	VertexStagingStatistics VertexStagingStats;
-	bool ProfileVertexStaging=false,FailNextVertexStage=false;
-	void Clear_Staged_Vertex(){Posix_Bind(StagedVertex.owner,(IDirect3DVertexBuffer9*)NULL);StagedVertex=StagedVertexRange();}
+	bool ProfileVertexStaging = false, FailNextVertexStage = false;
+	void Clear_Staged_Vertex() {
+		Posix_Bind(StagedVertex.owner, (IDirect3DVertexBuffer9 *) NULL);
+		StagedVertex = StagedVertexRange();
+	}
 	unsigned int DrawsRecorded;
 	unsigned int PresentCount;
 	std::map<std::string, unsigned int> DrawRefusals;

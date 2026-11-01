@@ -2,11 +2,12 @@
 #include "Platform/DiagnosticCameraRoute.h"
 #include <string>
 
-static bool readRoute(DiagnosticCameraRoute::Route &route, const std::string &text)
+static bool readRoute(DiagnosticCameraRoute::Route &route, const std::string & text)
 {
     FILE *file = std::tmpfile();
     CHECK(file != nullptr);
-    if (!file) return false;
+    if (!file)
+        return false;
     std::fwrite(text.data(), 1, text.size(), file);
     std::rewind(file);
     const bool result = route.Read(file);
@@ -47,7 +48,7 @@ TEST(diagnostic_camera_route_rejects_invalid_routes_atomically)
         "0,0,0,1,0\n1,0,0,1,7\n",
         "0,0,0,1,0\n1,0,0,1,0,trailing\n",
         "0,0,0,1,0\n1,0,0,1,0\nmalformed\n"
-    };
+        };
     for (const char *body : invalid) {
         DiagnosticCameraRoute::Route route;
         CHECK(!readRoute(route, std::string(header) + body));
@@ -55,7 +56,8 @@ TEST(diagnostic_camera_route_rejects_invalid_routes_atomically)
     }
     DiagnosticCameraRoute::Route route;
     CHECK(!readRoute(route, "wrong_header\n0,0,0,1,0\n1,0,0,1,0\n"));
-    CHECK(!readRoute(route, std::string(header) + "0,0,0,1,0\n1,0,0,1,0" + std::string(600, ' ')));
+    CHECK(!readRoute(route, std::string(header) + "0,0,0,1,0\n1,0,0,1,0" + std::string(600,
+        ' ')));
 }
 
 static DiagnosticCameraRoute::Anchor exampleAnchor()
@@ -68,21 +70,24 @@ static std::string anchorText(const DiagnosticCameraRoute::Anchor &anchor)
 {
     FILE *file = std::tmpfile();
     CHECK(file != nullptr);
-    if (!file) return {};
+    if (!file)
+        return {};
     CHECK(anchor.Write(file));
     std::rewind(file);
     std::string text;
     char line[256];
-    while (std::fgets(line, sizeof(line), file)) text += line;
+    while (std::fgets(line, sizeof(line), file))
+        text += line;
     std::fclose(file);
     return text;
 }
 
-static bool readAnchor(DiagnosticCameraRoute::Anchor &anchor, const std::string &text)
+static bool readAnchor(DiagnosticCameraRoute::Anchor &anchor, const std::string & text)
 {
     FILE *file = std::tmpfile();
     CHECK(file != nullptr);
-    if (!file) return false;
+    if (!file)
+        return false;
     std::fwrite(text.data(), 1, text.size(), file);
     std::rewind(file);
     const bool result = anchor.Read(file);
@@ -106,15 +111,20 @@ TEST(diagnostic_camera_anchor_rejects_invalid_or_partial_state_atomically)
 {
     const auto source = exampleAnchor();
     const std::string text = anchorText(source);
-    const char *from[] = {"STATE_V1", "zoom 1.00000012", "pitch 0.300000012", "fx_pitch 1", "offset_z 320",
-        "fov 0.870000005", "plane_max_x 0.5", "real_zoom 0", "x 1500"};
-    const char *to[] = {"STATE_V2", "zoom nan", "pitch 1.6", "fx_pitch 0", "offset_z -1",
-        "fov inf", "plane_max_x -1", "real_zoom 4294967296", "y 1500"};
-    for (size_t i = 0; i < sizeof(from)/sizeof(*from); ++i) {
+    const char *from[] = {"STATE_V1", "zoom 1.00000012",
+        "pitch 0.300000012", "fx_pitch 1", "offset_z 320",
+        "fov 0.870000005", "plane_max_x 0.5", "real_zoom 0",
+        "x 1500"};
+    const char *to[] = {"STATE_V2", "zoom nan",
+        "pitch 1.6", "fx_pitch 0", "offset_z -1",
+        "fov inf", "plane_max_x -1", "real_zoom 4294967296",
+        "y 1500"};
+    for (size_t i = 0; i < sizeof(from) / sizeof(*from); ++i) {
         std::string bad = text;
         const size_t at = bad.find(from[i]);
         CHECK(at != std::string::npos);
-        if (at == std::string::npos) continue;
+        if (at == std::string::npos)
+            continue;
         bad.replace(at, std::strlen(from[i]), to[i]);
         auto loaded = source;
         CHECK(!readAnchor(loaded, bad));

@@ -7,41 +7,65 @@ namespace WaterProjectedMeshCache {
 // Optional coarse CPU attribution. The caller supplies its existing clock; null
 // Profile arguments perform no clock reads and preserve normal cache behavior.
 struct Profile {
-    double (*clock)()=nullptr;double stamp=0,lookupMs=0,hitCopyMs=0,buildMs=0,storeMs=0;
-    size_t probes=0,hits=0,misses=0,hitCopyBytes=0,storeCopyBytes=0;
-    void Begin(){stamp=clock();}
-    void Mark(double &phase){const double now=clock();phase+=now-stamp;stamp=now;}
+    double (*clock)() = nullptr;
+    double stamp = 0, lookupMs = 0, hitCopyMs = 0, buildMs = 0, storeMs = 0;
+    size_t probes = 0, hits = 0, misses = 0, hitCopyBytes = 0, storeCopyBytes = 0;
+    void Begin() {
+        stamp = clock();
+    }
+    void Mark(double &phase) {
+        const double now = clock();
+        phase += now - stamp;
+        stamp = now;
+    }
 };
-inline size_t ProfileMeshBytes(const WaterProjectedMesh::Mesh&m) {
-    return m.vertices.size()*sizeof(WaterProjectedMesh::Vertex)+m.indices.size()*sizeof(uint16_t)
-        +m.transitions.size()*sizeof(WaterProjectedMesh::CentreTransition)+m.collars.size()*sizeof(WaterProjectedMesh::BoundaryCollar);
+
+inline size_t ProfileMeshBytes(const WaterProjectedMesh::Mesh &m) {
+    return m.vertices.size() * sizeof(WaterProjectedMesh::Vertex) + m.indices.size() * sizeof(uint16_t)
+        + m.transitions.size() * sizeof(WaterProjectedMesh::CentreTransition)
+        + m.collars.size() * sizeof(WaterProjectedMesh::BoundaryCollar);
 }
 class Cache {
 public:
     explicit Cache(size_t maxVertices=262144,size_t maxEntries=32)
         : maxVertices_(maxVertices),maxEntries_(maxEntries) {}
 
-    bool Build(const WaterProjectedMesh::Point corners[4],const WaterProjectedMesh::Projection &projection,
-        WaterProjectedMesh::Resolution resolution,WaterProjectedMesh::Mesh &out,size_t vertexBudget=60000,
-        const std::vector<WaterProjectedMesh::BoundaryKnot> &knots={},bool *reused=nullptr,Profile *profile=nullptr) {
-        if(profile)profile->Begin();
+    bool Build(const WaterProjectedMesh::Point corners[4], const WaterProjectedMesh::Projection &projection,
+        WaterProjectedMesh::Resolution resolution, WaterProjectedMesh::Mesh &out, size_t vertexBudget = 60000,
+        const std::vector<WaterProjectedMesh::BoundaryKnot> &knots = {}, bool *reused = nullptr,
+        Profile *profile = nullptr) {
+        if (profile)
+            profile->Begin();
         if (reused) *reused=false;
-        for (const Entry &entry:entries_) {
-            if(profile)++profile->probes;
-            if (!entry.Matches(corners,projection,resolution,vertexBudget,knots))continue;
-            if(profile){profile->Mark(profile->lookupMs);++profile->hits;}
+        for (const Entry &entry : entries_) {
+            if (profile)
+                ++profile->probes;
+            if (!entry.Matches(corners, projection, resolution, vertexBudget, knots))
+                continue;
+            if (profile) {
+                profile->Mark(profile->lookupMs);
+                ++profile->hits;
+            }
             // Callers refine, cull and clip their copy. None of those edits can enter the cache.
             out=entry.mesh;
-            if(profile){profile->Mark(profile->hitCopyMs);profile->hitCopyBytes+=ProfileMeshBytes(entry.mesh);}
+            if (profile) {
+                profile->Mark(profile->hitCopyMs);
+                profile->hitCopyBytes += ProfileMeshBytes(entry.mesh);
+            }
             if (reused) *reused=true;
             return true;
         }
-        if(profile){profile->Mark(profile->lookupMs);++profile->misses;}
+        if (profile) {
+            profile->Mark(profile->lookupMs);
+            ++profile->misses;
+        }
         // Preserve Build's result, including a partially built mesh on failure. A failed or
         // oversized request must not evict useful entries or masquerade as an earlier success.
-        const bool built=WaterProjectedMesh::Build(corners,projection,resolution,out,vertexBudget,knots);
-        if(profile)profile->Mark(profile->buildMs);
-        if (!built) return false;
+        const bool built = WaterProjectedMesh::Build(corners, projection, resolution, out, vertexBudget, knots);
+        if (profile)
+            profile->Mark(profile->buildMs);
+        if (!built)
+            return false;
         if (!maxEntries_ || out.vertices.size()>maxVertices_) return true;
         while (!entries_.empty() && (entries_.size()>=maxEntries_ ||
             cachedVertices_>maxVertices_-out.vertices.size())) {
@@ -49,7 +73,10 @@ public:
         }
         entries_.emplace_back(corners,projection,resolution,vertexBudget,knots,out);
         cachedVertices_+=out.vertices.size();
-        if(profile){profile->Mark(profile->storeMs);profile->storeCopyBytes+=ProfileMeshBytes(out)+knots.size()*sizeof(WaterProjectedMesh::BoundaryKnot);}
+        if (profile) {
+            profile->Mark(profile->storeMs);
+            profile->storeCopyBytes += ProfileMeshBytes(out) + knots.size() * sizeof(WaterProjectedMesh::BoundaryKnot);
+        }
         return true;
     }
     void Clear() { entries_.clear();cachedVertices_=0; }

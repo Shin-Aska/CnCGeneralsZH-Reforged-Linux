@@ -583,52 +583,77 @@ TEST(water_path_authored_diffuse_matches_lambertian_transport_units)
 }
 
 namespace {
-std::vector<Triangle> BuildParityGeometry(unsigned count,unsigned pattern)
+std::vector<Triangle> BuildParityGeometry(unsigned count, unsigned pattern)
 {
-    std::vector<Triangle> out;out.reserve(count);uint32_t random=0x12345678;
-    auto next=[&](){random=random*1664525u+1013904223u;return float((random>>8)&65535)/16-2048;};
-    for(unsigned i=0;i<count;++i) {
-        float x=next(),y=next(),z=next();
-        if(pattern==1){x=float(i%257);y=float((i/257)%251);z=float(i%7);}
-        if(pattern==2){x=float(i%19)*512;y=float(i%31)*256;z=float(i%3);}
-        Triangle t={{x,y,z},{x+1+(i%5),y+.25f,z+.5f},{x+.125f,y+2,z-.25f},
-            {float(i%17)/16,float(i%7)/6,float(i%11)/10}};
-        if(pattern==3) {
+    std::vector<Triangle> out;
+    out.reserve(count);
+    uint32_t random = 0x12345678;
+    auto next = [&]() {
+        random = random * 1664525u + 1013904223u;
+        return float((random >> 8) & 65535) / 16 - 2048;
+    };
+    for (unsigned i = 0; i < count; ++i) {
+        float x = next(), y = next(), z = next();
+        if (pattern == 1) {
+            x = float(i % 257);
+            y = float((i / 257) % 251);
+            z = float(i % 7);
+        }
+        if (pattern == 2) {
+            x = float(i % 19) * 512;
+            y = float(i % 31) * 256;
+            z = float(i % 3);
+        }
+        Triangle t = {{x, y, z}, {x + 1 + (i % 5), y + .25f, z + .5f}, {x + .125f, y + 2, z - .25f},
+            {float(i % 17) / 16, float(i % 7) / 6, float(i % 11) / 10}};
+        if (pattern == 3) {
             // Equal centroids force the original 12-float tie comparator;
             // identical triangles also retain comparator-equivalent entries.
-            const float n=1+float(i%31);
-            t.a={-n,0,0};t.b={n,1,0};t.c={0,-1,0};
-            if(i%7==0 && !out.empty())t=out.back();
+            const float n = 1 + float(i % 31);
+            t.a = {-n, 0, 0};
+            t.b = {n, 1, 0};
+            t.c = {0, -1, 0};
+            if (i % 7 == 0 && !out.empty())
+                t = out.back();
         }
-        if(pattern==4) {
+        if (pattern == 4) {
             // First-argument min/max semantics must preserve signed zero;
             // degenerate input slots must keep their original exclusion map.
-            t.a.x=(i&1)?-0.f:0.f;t.b.x=t.c.x=t.a.x;
-            if(i%5==0)t.b=t.c=t.a;
+            t.a.x = (i & 1) ? -0.f : 0.f;
+            t.b.x = t.c.x = t.a.x;
+            if (i % 5 == 0)
+                t.b = t.c = t.a;
         }
-        if(pattern==5) {
+        if (pattern == 5) {
             // Finite, nondegenerate yz faces with extreme absolute X test the
             // original scaled-centroid arithmetic without averaging rewrites.
-            t.a={std::numeric_limits<float>::max(),-1,0};
-            t.b={std::numeric_limits<float>::max(),1,0};
-            t.c={std::numeric_limits<float>::max(),0,1+float(i%4)};
+            t.a = {std::numeric_limits<float>::max(), -1, 0};
+            t.b = {std::numeric_limits<float>::max(), 1, 0};
+            t.c = {std::numeric_limits<float>::max(), 0, 1 + float(i % 4)};
         }
         out.push_back(t);
     }
     return out;
 }
-void CheckBuildParity(const Scene &actual,const WaterPathBuildReference::Scene &original)
+void CheckBuildParity(const Scene &actual, const WaterPathBuildReference::Scene &original)
 {
-    CHECK_EQ(actual.fingerprint,original.fingerprint);
-    CHECK_EQ(actual.nodeTexels.size(),original.nodeTexels.size());
-    CHECK_EQ(actual.triangles.size(),original.triangles.size());
-    CHECK_EQ(actual.triangleTexels.size(),original.triangleTexels.size());
-    if(actual.nodeTexels.size()!=original.nodeTexels.size() || actual.triangles.size()!=original.triangles.size()
-        || actual.triangleTexels.size()!=original.triangleTexels.size())return;
-    if(!actual.nodeTexels.empty())CHECK_MEM(actual.nodeTexels.data(),original.nodeTexels.data(),actual.nodeTexels.size()*sizeof(Float4));
-    if(!actual.triangles.empty())CHECK_MEM(actual.triangles.data(),original.triangles.data(),actual.triangles.size()*sizeof(Triangle));
-    if(!actual.triangleTexels.empty())CHECK_MEM(actual.triangleTexels.data(),original.triangleTexels.data(),actual.triangleTexels.size()*sizeof(Float4));
-    for(unsigned i=0;i<actual.triangles.size();++i)CHECK_EQ(actual.SourceTriangleIndex(i),original.SourceTriangleIndex(i));
+    CHECK_EQ(actual.fingerprint, original.fingerprint);
+    CHECK_EQ(actual.nodeTexels.size(), original.nodeTexels.size());
+    CHECK_EQ(actual.triangles.size(), original.triangles.size());
+    CHECK_EQ(actual.triangleTexels.size(), original.triangleTexels.size());
+    if (actual.nodeTexels.size() != original.nodeTexels.size()
+        || actual.triangles.size() != original.triangles.size()
+        || actual.triangleTexels.size() != original.triangleTexels.size())
+        return;
+    if (!actual.nodeTexels.empty())
+        CHECK_MEM(actual.nodeTexels.data(), original.nodeTexels.data(), actual.nodeTexels.size() * sizeof(Float4));
+    if (!actual.triangles.empty())
+        CHECK_MEM(actual.triangles.data(), original.triangles.data(), actual.triangles.size() * sizeof(Triangle));
+    if (!actual.triangleTexels.empty())
+        CHECK_MEM(actual.triangleTexels.data(), original.triangleTexels.data(),
+            actual.triangleTexels.size() * sizeof(Float4));
+    for (unsigned i = 0; i < actual.triangles.size(); ++i)
+        CHECK_EQ(actual.SourceTriangleIndex(i), original.SourceTriangleIndex(i));
 }
 }
 
@@ -637,26 +662,37 @@ TEST(water_path_build_precomputed_primitives_match_frozen_original_bytes)
     // Compare the actual production builder against the frozen recursive
     // evaluator, including every source-slot mapping and packed escape/leaf tag.
     // All six patterns cross empty/leaf/split boundaries and larger tree depths.
-    for(unsigned count:{0u,1u,4u,5u,7u,31u,129u,4097u,60000u})for(unsigned pattern=0;pattern<6;++pattern) {
-        const auto input=BuildParityGeometry(count,pattern);
-        Scene actual;WaterPathBuildReference::Scene original;
-        CHECK(actual.Build(input));CHECK(original.Build(input));CheckBuildParity(actual,original);
-        // Revision-backed callers bypass the content hash, retaining the same
-        // packed scene even when a previous hashed build occupied the object.
-        CHECK(actual.Build(input,false));CHECK(original.Build(input,false));CheckBuildParity(actual,original);
-    }
+    for (unsigned count :{0u, 1u, 4u, 5u, 7u, 31u, 129u, 4097u, 60000u})
+        for (unsigned pattern = 0; pattern < 6; ++pattern) {
+            const auto input = BuildParityGeometry(count, pattern);
+            Scene actual;
+            WaterPathBuildReference::Scene original;
+            CHECK(actual.Build(input));
+            CHECK(original.Build(input));
+            CheckBuildParity(actual, original);
+            // Revision-backed callers bypass the content hash, retaining the same
+            // packed scene even when a previous hashed build occupied the object.
+            CHECK(actual.Build(input, false));
+            CHECK(original.Build(input, false));
+            CheckBuildParity(actual, original);
+        }
 }
 
 TEST(water_path_build_precomputed_primitives_preserve_rejection_transaction)
 {
-    const auto input=BuildParityGeometry(31,3);
-    Scene actual;WaterPathBuildReference::Scene original;
-    CHECK(actual.Build(input));CHECK(original.Build(input));
-    const auto savedNodes=actual.nodeTexels,savedTriangles=actual.triangleTexels;
-    for(float invalid:{std::numeric_limits<float>::quiet_NaN(),std::numeric_limits<float>::infinity()}) {
-        auto bad=input;bad[17].a.x=invalid;
-        CHECK(!actual.Build(bad));CHECK(!original.Build(bad));CheckBuildParity(actual,original);
-        CHECK_MEM(actual.nodeTexels.data(),savedNodes.data(),savedNodes.size()*sizeof(Float4));
-        CHECK_MEM(actual.triangleTexels.data(),savedTriangles.data(),savedTriangles.size()*sizeof(Float4));
+    const auto input = BuildParityGeometry(31, 3);
+    Scene actual;
+    WaterPathBuildReference::Scene original;
+    CHECK(actual.Build(input));
+    CHECK(original.Build(input));
+    const auto savedNodes = actual.nodeTexels, savedTriangles = actual.triangleTexels;
+    for (float invalid :{std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity()}) {
+        auto bad = input;
+        bad[17].a.x = invalid;
+        CHECK(!actual.Build(bad));
+        CHECK(!original.Build(bad));
+        CheckBuildParity(actual, original);
+        CHECK_MEM(actual.nodeTexels.data(), savedNodes.data(), savedNodes.size() * sizeof(Float4));
+        CHECK_MEM(actual.triangleTexels.data(), savedTriangles.data(), savedTriangles.size() * sizeof(Float4));
     }
 }

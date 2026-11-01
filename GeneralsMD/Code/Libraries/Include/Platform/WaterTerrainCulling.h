@@ -15,9 +15,11 @@ constexpr size_t MaxMeshSamples = 4u * 1024u * 1024u;
 inline bool ProofCeiling(double heightScale, double level, double verticalBound, double &ceiling)
 {
     if (!std::isfinite(heightScale) || heightScale <= 0 || !std::isfinite(level) ||
-        !std::isfinite(verticalBound) || verticalBound < 0) return false;
+        !std::isfinite(verticalBound) || verticalBound < 0)
+        return false;
     const double top = level + verticalBound;
-    if (!std::isfinite(top) || !std::isfinite(255 * heightScale)) return false;
+    if (!std::isfinite(top) || !std::isfinite(255 * heightScale))
+        return false;
     const double epsilon = 8 * std::numeric_limits<float>::epsilon();
     ceiling = top + epsilon * (std::max)(1.0, (std::max)(std::abs(top), 255 * heightScale));
     return std::isfinite(ceiling);
@@ -28,7 +30,10 @@ inline bool ProofCeiling(double heightScale, double level, double verticalBound,
 // At most eight (2049 * 2049 * sizeof(uint32_t)) tables can be retained.
 class WetNodeCache
 {
-    struct Entry { int cutoff; std::vector<uint32_t> prefix; };
+    struct Entry {
+        int cutoff;
+        std::vector<uint32_t> prefix;
+    };
 public:
     static constexpr size_t MaxEntries = 8;
     class Query
@@ -48,19 +53,28 @@ public:
     {
         Query query;
         if (!maxEntries_ || !heights || width < 2 || height < 2 || width > 2048 || height > 2048 ||
-            !std::isfinite(heightScale) || heightScale <= 0 || !std::isfinite(ceiling)) return query;
+            !std::isfinite(heightScale) || heightScale <= 0 || !std::isfinite(ceiling))
+            return query;
         if (heights != heights_ || width != width_ || height != height_) {
-            Clear(); heights_ = heights; width_ = width; height_ = height;
+            Clear();
+            heights_ = heights;
+            width_ = width;
+            height_ = height;
         }
         // Use the scalar predicate itself: division/floor can round a boundary
         // differently from the multiplication used by the original proof.
         int cutoff = -1;
-        while (cutoff < 255 && double(cutoff + 1) * heightScale <= ceiling) ++cutoff;
-        query.owner = this; query.cutoff = cutoff;
-        if (cutoff < 0 || cutoff == 255) return query;
-        for (Entry &entry : entries_) if (entry.cutoff == cutoff) {
-            query.entry = &entry; return query;
-        }
+        while (cutoff < 255 && double(cutoff + 1) * heightScale <= ceiling)
+            ++cutoff;
+        query.owner = this;
+        query.cutoff = cutoff;
+        if (cutoff < 0 || cutoff == 255)
+            return query;
+        for (Entry &entry : entries_)
+            if (entry.cutoff == cutoff) {
+                query.entry = &entry;
+                return query;
+            }
         if (entries_.size() == maxEntries_) {
             bytes_ -= entries_.front().prefix.capacity() * sizeof(uint32_t);
             entries_.pop_front();
@@ -74,19 +88,31 @@ public:
     bool Prewarm(const uint8_t *heights, int width, int height, double heightScale, double ceiling)
     {
         Query query = Prepare(heights, width, height, heightScale, ceiling);
-        if (!query.owner) return false;
-        if (query.entry && query.entry->prefix.empty()) Build(*query.entry);
+        if (!query.owner)
+            return false;
+        if (query.entry && query.entry->prefix.empty())
+            Build(*query.entry);
         return true;
     }
     void Clear()
     {
-        entries_.clear(); heights_ = nullptr; width_ = height_ = 0;
+        entries_.clear();
+        heights_ = nullptr;
+        width_ = height_ = 0;
         bytes_ = builds_ = queryHits_ = 0;
     }
-    size_t CachedBytes() const { return bytes_; }
-    size_t EntryCount() const { return entries_.size(); }
-    size_t BuildCount() const { return builds_; }
-    size_t QueryHits() const { return queryHits_; }
+    size_t CachedBytes() const {
+        return bytes_;
+    }
+    size_t EntryCount() const {
+        return entries_.size();
+    }
+    size_t BuildCount() const {
+        return builds_;
+    }
+    size_t QueryHits() const {
+        return queryHits_;
+    }
 private:
     void Build(Entry &entry)
     {
@@ -100,7 +126,8 @@ private:
                     entry.prefix[size_t(y) * stride + x + 1] + row;
             }
         }
-        bytes_ += entry.prefix.capacity() * sizeof(uint32_t); ++builds_;
+        bytes_ += entry.prefix.capacity() * sizeof(uint32_t);
+        ++builds_;
     }
     const uint8_t *heights_ = nullptr;
     int width_ = 0, height_ = 0;
@@ -111,10 +138,15 @@ private:
 inline bool WetNodeCache::Query::HasWet(int firstX, int lastX, int firstY, int lastY, bool &wet)
 {
     if (!owner || firstX < 0 || firstY < 0 || lastX < firstX || lastY < firstY ||
-        lastX >= owner->width_ || lastY >= owner->height_) return false;
+        lastX >= owner->width_ || lastY >= owner->height_)
+        return false;
     ++owner->queryHits_;
-    if (cutoff < 0 || cutoff == 255) { wet = cutoff == 255; return true; }
-    if (entry->prefix.empty()) owner->Build(*entry);
+    if (cutoff < 0 || cutoff == 255) {
+        wet = cutoff == 255;
+        return true;
+    }
+    if (entry->prefix.empty())
+        owner->Build(*entry);
     const size_t stride = size_t(owner->width_) + 1;
     const auto &p = entry->prefix;
     const uint32_t right = p[size_t(lastY + 1) * stride + lastX + 1] - p[size_t(firstY) * stride + lastX + 1];
@@ -205,7 +237,8 @@ inline void Install(WaterProjectedMesh::Mesh &mesh, std::vector<uint16_t> &indic
         {
             remap[i] = int(retained);
             // Stable old-index order means the destination never passes unread input.
-            if (retained != i) mesh.vertices[retained] = mesh.vertices[i];
+            if (retained != i)
+                mesh.vertices[retained] = mesh.vertices[i];
             ++retained;
         }
     }
@@ -307,9 +340,10 @@ inline bool CullDryTriangles(
                     dry = false;
                 else if (cache && proof.HasWet(firstX, lastX, firstY, lastY, wet))
                     dry = !wet;
-                else for (int y = firstY; y <= lastY && dry; ++y)
-                {
-                    for (int x = firstX; x <= lastX; ++x)
+                else
+                    for (int y = firstY; y <= lastY && dry; ++y)
+                    {
+                        for (int x = firstX; x <= lastX; ++x)
                     {
                         if (heights[size_t(y) * width + x] * heightScale <= ceiling)
                         {

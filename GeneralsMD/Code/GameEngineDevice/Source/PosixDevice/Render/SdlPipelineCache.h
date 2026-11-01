@@ -133,7 +133,9 @@ public:
 	/// Null for a refusal (Refusal() says why) or when the device refuses it.
 	SDL_GPUSampler *Sampler(const RenderUInt32 sampler_states[14]);
 	const std::string &Refusal() const { return LastRefusal; }
-	size_t Table_Lookups() const { return TableLookups; }
+	size_t Table_Lookups() const {
+		return TableLookups;
+	}
 
 private:
 	/// A stage's 14 sampler states, compared exactly: PERF1 found the std::string key
@@ -152,7 +154,10 @@ private:
 	// Consecutive stages often alternate a few settings. Retain the last-hit shortcut,
 	// with a bounded ring for the other recent keys, including cached refusals.
 	static constexpr unsigned RecentCount = 4;
-	struct RecentEntry { Key key; SDL_GPUSampler *sampler; };
+	struct RecentEntry {
+		Key key;
+		SDL_GPUSampler *sampler;
+	};
 	RecentEntry Recent[RecentCount];
 	unsigned RecentSize, LastRecent, NextRecent;
 	size_t TableLookups;

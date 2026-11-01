@@ -1872,6 +1872,9 @@ GameEngineDevice/Source/PosixDevice/Render/SdlHazardCloudEmbers.h
 GameEngineDevice/Source/PosixDevice/Render/SdlHazardCloudFlow.cpp
 GameEngineDevice/Source/PosixDevice/Render/SdlHazardCloudShader.cpp
 GameEngineDevice/Source/PosixDevice/Render/SdlHazardCloudShader.h
+GameEngineDevice/Source/PosixDevice/Render/SdlHazardCloudShared.cpp
+GameEngineDevice/Source/PosixDevice/Render/SdlHazardCloudSharedShader.cpp
+GameEngineDevice/Source/PosixDevice/Render/SdlHazardCloudSharedShader.h
 GameEngineDevice/Source/PosixDevice/Render/SdlPipelineCache.cpp
 GameEngineDevice/Source/PosixDevice/Render/SdlPipelineCache.h
 GameEngineDevice/Source/PosixDevice/Render/SdlProgramCache.cpp
@@ -1940,6 +1943,7 @@ GameEngineDevice/Source/W3DDevice/GameClient/HazardCloud.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/HazardCloudCore.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/HazardCloudFlow.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/HazardCloudShader.cpp
+GameEngineDevice/Source/W3DDevice/GameClient/HazardCloudSharedModel.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/HazardCloudUnsupported.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/HeightMap.cpp
 GameEngineDevice/Source/W3DDevice/GameClient/Shaders/MotionBlur.nvv
@@ -2033,9 +2037,12 @@ Libraries/Include/Platform/DiagnosticCameraRoute.h
 Libraries/Include/Platform/DoubleClickTime.h
 Libraries/Include/Platform/EngineShaderName.h
 Libraries/Include/Platform/HazardCloud.h
+Libraries/Include/Platform/HazardCloudBake.h
 Libraries/Include/Platform/HazardCloudCore.h
 Libraries/Include/Platform/HazardCloudFlow.h
 Libraries/Include/Platform/HazardCloudPolicy.h
+Libraries/Include/Platform/HazardCloudShared.h
+Libraries/Include/Platform/HazardCloudSharedModel.h
 Libraries/Include/Platform/IsWindows9x.h
 Libraries/Include/Platform/LoadTiming.h
 Libraries/Include/Platform/MSVCCompat.h
@@ -3488,6 +3495,11 @@ Tools/CloudPreviewVolume.cpp
 Tools/CloudPreviewVolume.h
 Tools/CloudPreviewVolumeShader.cpp
 Tools/CloudPreviewVolumeShader.h
+Tools/CloudStressBake.h
+Tools/CloudStressModel.h
+Tools/CloudStressRenderer.h
+Tools/CloudStressScene.cpp
+Tools/CloudStressScene.h
 Tools/Compress/Compress.cpp
 Tools/Compress/Compress.dsp
 Tools/DebugWindow/DebugWindow.cpp
@@ -4149,8 +4161,12 @@ Tools/cloud_preview/generate_map.py
 Tools/cloud_preview/presets/pre-tuning.ini
 Tools/cloud_preview/presets/preferred.ini
 Tools/cloud_preview/runtime-check.md
+Tools/cloud_preview/stress-check.py
 Tools/cloud_preview/test_colors.cpp
 Tools/cloud_preview/test_flow.cpp
+Tools/cloud_preview/test_stress_bake.cpp
+Tools/cloud_preview/test_stress_model.cpp
+Tools/cloud_stress_preview.cpp
 Tools/control_client.py
 Tools/d3d9posix_check.py
 Tools/diplomacy_layout.py

@@ -1159,84 +1159,139 @@ static PosixDevice9 *sun_fault_device(IDirect3D9 *adapter)
 
 static void check_dynamic_vertex_staging_reuse(IDirect3D9 *adapter)
 {
-    const char *option=getenv("ZH_GPU_VERTEX_STAGING_PROFILE");const bool hadOption=option!=NULL;
-    const std::string savedOption=option?option:"";setenv("ZH_GPU_VERTEX_STAGING_PROFILE","1",1);
-    PosixDevice9 *device=sun_fault_device(adapter);
-    if(hadOption)setenv("ZH_GPU_VERTEX_STAGING_PROFILE",savedOption.c_str(),1);else unsetenv("ZH_GPU_VERTEX_STAGING_PROFILE");
-    if(!device)return;
-    begin(device,BLUE);
+    const char *option = getenv("ZH_GPU_VERTEX_STAGING_PROFILE");
+    const bool hadOption = option != NULL;
+    const std::string savedOption = option ? option : "";
+    setenv("ZH_GPU_VERTEX_STAGING_PROFILE", "1", 1);
+    PosixDevice9 *device = sun_fault_device(adapter);
+    if (hadOption)
+        setenv("ZH_GPU_VERTEX_STAGING_PROFILE", savedOption.c_str(), 1);
+    else
+        unsetenv("ZH_GPU_VERTEX_STAGING_PROFILE");
+    if (!device)
+        return;
+    begin(device, BLUE);
     ScreenVertex vertices[24];
-    quad(vertices,0,0,32,32,.5f,RED);quad(vertices+6,16,0,32,16,.5f,YELLOW);
-    quad(vertices+12,0,16,16,32,.5f,GREEN);quad(vertices+18,16,16,32,32,.5f,WHITE);
-    IDirect3DVertexBuffer9 *buffer=NULL;IDirect3DIndexBuffer9 *indices=NULL;void *data=NULL;
-    CHECK(device->CreateVertexBuffer(sizeof(vertices),D3DUSAGE_WRITEONLY|D3DUSAGE_DYNAMIC,SCREEN_FVF,D3DPOOL_DEFAULT,&buffer,NULL)==D3D_OK);
-    CHECK(device->CreateIndexBuffer(24*sizeof(uint16_t),0,D3DFMT_INDEX16,D3DPOOL_MANAGED,&indices,NULL)==D3D_OK);
-    if(!buffer||!indices) {if(buffer)buffer->Release();if(indices)indices->Release();device->Release();return;}
-    CHECK(buffer->Lock(0,0,&data,D3DLOCK_DISCARD)==D3D_OK);memcpy(data,vertices,sizeof(vertices));CHECK(buffer->Unlock()==D3D_OK);
-    CHECK(indices->Lock(0,0,&data,0)==D3D_OK);for(unsigned i=0;i<24;++i)static_cast<uint16_t*>(data)[i]=uint16_t(i);CHECK(indices->Unlock()==D3D_OK);
-    device->SetStreamSource(0,buffer,0,sizeof(ScreenVertex));device->SetIndices(indices);
-    auto draw=[&](int base,unsigned minimum,unsigned count,unsigned first,unsigned primitives,bool hit) {
-        const auto before=device->Vertex_Staging_Statistics();
-        CHECK(device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST,base,minimum,count,first,primitives)==D3D_OK);
-        const auto after=device->Vertex_Staging_Statistics();
-        CHECK(after.hits==before.hits+(hit?1:0));CHECK(after.copies==before.copies+(hit?0:1));
+    quad(vertices, 0, 0, 32, 32, .5f, RED);
+    quad(vertices + 6, 16, 0, 32, 16, .5f, YELLOW);
+    quad(vertices + 12, 0, 16, 16, 32, .5f, GREEN);
+    quad(vertices + 18, 16, 16, 32, 32, .5f, WHITE);
+    IDirect3DVertexBuffer9 *buffer = NULL;
+    IDirect3DIndexBuffer9 *indices = NULL;
+    void *data = NULL;
+    CHECK(device->CreateVertexBuffer(sizeof(vertices), D3DUSAGE_WRITEONLY | D3DUSAGE_DYNAMIC, SCREEN_FVF,
+        D3DPOOL_DEFAULT, &buffer, NULL) == D3D_OK);
+    CHECK(device->CreateIndexBuffer(24 * sizeof(uint16_t), 0, D3DFMT_INDEX16, D3DPOOL_MANAGED, &indices,
+        NULL) == D3D_OK);
+    if (!buffer || !indices) {
+        if (buffer)
+            buffer->Release();
+        if (indices)
+            indices->Release();
+        device->Release();
+        return;
+    }
+    CHECK(buffer->Lock(0, 0, &data, D3DLOCK_DISCARD) == D3D_OK);
+    memcpy(data, vertices, sizeof(vertices));
+    CHECK(buffer->Unlock() == D3D_OK);
+    CHECK(indices->Lock(0, 0, &data, 0) == D3D_OK);
+    for (unsigned i = 0; i < 24; ++i)
+        static_cast<uint16_t *>(data)[i] = uint16_t(i);
+    CHECK(indices->Unlock() == D3D_OK);
+    device->SetStreamSource(0, buffer, 0, sizeof(ScreenVertex));
+    device->SetIndices(indices);
+    auto draw = [&](int base, unsigned minimum, unsigned count, unsigned first, unsigned primitives, bool hit) {
+        const auto before = device->Vertex_Staging_Statistics();
+        CHECK(device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, base, minimum, count, first, primitives) == D3D_OK);
+        const auto after = device->Vertex_Staging_Statistics();
+        CHECK(after.hits == before.hits + (hit ? 1 : 0));
+        CHECK(after.copies == before.copies + (hit ? 0 : 1));
     };
-    draw(0,6,6,6,2,false);draw(0,6,6,9,1,true);draw(0,6,6,6,2,true);
-    CHECK(buffer->AddRef()==4);CHECK(buffer->Release()==3); // caller, stream and retained staging owner
-    read_back(device);CHECK_PIXEL(24,8,YELLOW);CHECK_PIXEL(8,8,BLUE);
+    draw(0, 6, 6, 6, 2, false);
+    draw(0, 6, 6, 9, 1, true);
+    draw(0, 6, 6, 6, 2, true);
+    CHECK(buffer->AddRef() == 4);
+    CHECK(buffer->Release() == 3); // caller, stream and retained staging owner
+    read_back(device);
+    CHECK_PIXEL(24, 8, YELLOW);
+    CHECK_PIXEL(8, 8, BLUE);
     // A readback submits the arena; identical data must be staged again in the new batch.
-    draw(0,6,6,6,2,false);draw(0,6,6,9,1,true);
-    CHECK(buffer->Lock(6*sizeof(ScreenVertex),6*sizeof(ScreenVertex),&data,D3DLOCK_NOOVERWRITE)==D3D_OK);
-    quad(static_cast<ScreenVertex*>(data),0,16,16,32,.5f,GREEN);CHECK(buffer->Unlock()==D3D_OK);
-    draw(0,6,6,6,2,false);draw(0,6,6,6,2,true);
+    draw(0, 6, 6, 6, 2, false);
+    draw(0, 6, 6, 9, 1, true);
+    CHECK(buffer->Lock(6 * sizeof(ScreenVertex), 6 * sizeof(ScreenVertex), &data, D3DLOCK_NOOVERWRITE) == D3D_OK);
+    quad(static_cast<ScreenVertex *>(data), 0, 16, 16, 32, .5f, GREEN);
+    CHECK(buffer->Unlock() == D3D_OK);
+    draw(0, 6, 6, 6, 2, false);
+    draw(0, 6, 6, 6, 2, true);
     // Writes during one still-open lock have the SAME version. Both draws bypass
     // the cache and preserve their own copied pixels; unlocking then misses once.
-    CHECK(buffer->Lock(6*sizeof(ScreenVertex),6*sizeof(ScreenVertex),&data,D3DLOCK_NOOVERWRITE)==D3D_OK);
-    quad(static_cast<ScreenVertex*>(data),0,0,16,16,.5f,RED);draw(0,6,6,6,2,false);
-    quad(static_cast<ScreenVertex*>(data),16,16,32,32,.5f,WHITE);draw(0,6,6,6,2,false);
-    CHECK(buffer->Unlock()==D3D_OK);draw(0,6,6,6,2,false);draw(0,6,6,6,2,true);
-    read_back(device);CHECK_PIXEL(24,8,YELLOW);CHECK_PIXEL(8,24,GREEN);CHECK_PIXEL(8,8,RED);CHECK_PIXEL(24,24,WHITE);
-    draw(0,6,6,6,2,false);
-    CHECK(buffer->Lock(0,0,&data,D3DLOCK_READONLY)==D3D_OK);draw(0,6,6,6,2,false);CHECK(buffer->Unlock()==D3D_OK);
-    draw(0,6,6,6,2,true);
+    CHECK(buffer->Lock(6 * sizeof(ScreenVertex), 6 * sizeof(ScreenVertex), &data, D3DLOCK_NOOVERWRITE) == D3D_OK);
+    quad(static_cast<ScreenVertex *>(data), 0, 0, 16, 16, .5f, RED);
+    draw(0, 6, 6, 6, 2, false);
+    quad(static_cast<ScreenVertex *>(data), 16, 16, 32, 32, .5f, WHITE);
+    draw(0, 6, 6, 6, 2, false);
+    CHECK(buffer->Unlock() == D3D_OK);
+    draw(0, 6, 6, 6, 2, false);
+    draw(0, 6, 6, 6, 2, true);
+    read_back(device);
+    CHECK_PIXEL(24, 8, YELLOW);
+    CHECK_PIXEL(8, 24, GREEN);
+    CHECK_PIXEL(8, 8, RED);
+    CHECK_PIXEL(24, 24, WHITE);
+    draw(0, 6, 6, 6, 2, false);
+    CHECK(buffer->Lock(0, 0, &data, D3DLOCK_READONLY) == D3D_OK);
+    draw(0, 6, 6, 6, 2, false);
+    CHECK(buffer->Unlock() == D3D_OK);
+    draw(0, 6, 6, 6, 2, true);
     // A failed stage cannot install a range or poison the preceding cached range.
-    device->Fail_Next_Vertex_Stage_For_Test();const auto beforeFailure=device->Vertex_Staging_Statistics();
-    const auto beforeDraws=device->Draws_Recorded();
-    CHECK(device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST,0,12,6,12,2)==D3DERR_OUTOFVIDEOMEMORY);
-    CHECK(device->Draws_Recorded()==beforeDraws);
-    CHECK(device->Vertex_Staging_Statistics().copies==beforeFailure.copies);
-    draw(0,6,6,6,2,true);
-    draw(0,12,6,12,2,false); // size and skipped prefix change
-    draw(6,6,6,6,2,false); // physical source start changes
-    device->SetStreamSource(0,buffer,6*sizeof(ScreenVertex),sizeof(ScreenVertex));
-    draw(0,6,6,6,2,true); // identical physical range through a different stream/base pair
-    draw(0,0,12,0,2,false); // same byte start/size, different skipped-prefix offset
+    device->Fail_Next_Vertex_Stage_For_Test();
+    const auto beforeFailure = device->Vertex_Staging_Statistics();
+    const auto beforeDraws = device->Draws_Recorded();
+    CHECK(device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 12, 6, 12, 2) == D3DERR_OUTOFVIDEOMEMORY);
+    CHECK(device->Draws_Recorded() == beforeDraws);
+    CHECK(device->Vertex_Staging_Statistics().copies == beforeFailure.copies);
+    draw(0, 6, 6, 6, 2, true);
+    draw(0, 12, 6, 12, 2, false); // size and skipped prefix change
+    draw(6, 6, 6, 6, 2, false); // physical source start changes
+    device->SetStreamSource(0, buffer, 6 * sizeof(ScreenVertex), sizeof(ScreenVertex));
+    draw(0, 6, 6, 6, 2, true); // identical physical range through a different stream/base pair
+    draw(0, 0, 12, 0, 2, false); // same byte start/size, different skipped-prefix offset
     // User memory is never eligible, even when its contents match a retained VB.
-    const auto userBefore=device->Vertex_Staging_Statistics();
-    CHECK(device->DrawPrimitiveUP(D3DPT_TRIANGLELIST,2,vertices,sizeof(ScreenVertex))==D3D_OK);
-    CHECK(device->Vertex_Staging_Statistics().hits==userBefore.hits && device->Vertex_Staging_Statistics().copies==userBefore.copies);
+    const auto userBefore = device->Vertex_Staging_Statistics();
+    CHECK(device->DrawPrimitiveUP(D3DPT_TRIANGLELIST, 2, vertices, sizeof(ScreenVertex)) == D3D_OK);
+    CHECK(device->Vertex_Staging_Statistics().hits == userBefore.hits
+        && device->Vertex_Staging_Statistics().copies == userBefore.copies);
     // A valid different FVF/stride must not reuse the old byte range. Point draws
     // read only the common first position/colour, avoiding layout reinterpretation.
-    device->SetStreamSource(0,buffer,0,sizeof(ScreenVertex));
-    auto strideBefore=device->Vertex_Staging_Statistics();
-    CHECK(device->DrawPrimitive(D3DPT_POINTLIST,0,1)==D3D_OK);
-    CHECK(device->Vertex_Staging_Statistics().copies==strideBefore.copies+1);
-    device->SetFVF(SCREEN_FVF|D3DFVF_SPECULAR);device->SetStreamSource(0,buffer,0,sizeof(ScreenVertex)+4);
-    strideBefore=device->Vertex_Staging_Statistics();
-    CHECK(device->DrawPrimitive(D3DPT_POINTLIST,0,1)==D3D_OK);
-    CHECK(device->Vertex_Staging_Statistics().copies==strideBefore.copies+1);
-    device->SetFVF(SCREEN_FVF);device->SetStreamSource(0,buffer,0,sizeof(ScreenVertex));
-    draw(0,6,6,6,2,false);
-    const auto stats=device->Vertex_Staging_Statistics();CHECK(stats.hits>6 && stats.reusedBytes>0 && stats.copiedBytes>stats.reusedBytes);
+    device->SetStreamSource(0, buffer, 0, sizeof(ScreenVertex));
+    auto strideBefore = device->Vertex_Staging_Statistics();
+    CHECK(device->DrawPrimitive(D3DPT_POINTLIST, 0, 1) == D3D_OK);
+    CHECK(device->Vertex_Staging_Statistics().copies == strideBefore.copies + 1);
+    device->SetFVF(SCREEN_FVF | D3DFVF_SPECULAR);
+    device->SetStreamSource(0, buffer, 0, sizeof(ScreenVertex) + 4);
+    strideBefore = device->Vertex_Staging_Statistics();
+    CHECK(device->DrawPrimitive(D3DPT_POINTLIST, 0, 1) == D3D_OK);
+    CHECK(device->Vertex_Staging_Statistics().copies == strideBefore.copies + 1);
+    device->SetFVF(SCREEN_FVF);
+    device->SetStreamSource(0, buffer, 0, sizeof(ScreenVertex));
+    draw(0, 6, 6, 6, 2, false);
+    const auto stats = device->Vertex_Staging_Statistics();
+    CHECK(stats.hits > 6 && stats.reusedBytes > 0 && stats.copiedBytes > stats.reusedBytes);
     // Stream/caller release leaves exactly the retained owner; a failed reset
     // preserves it, while a successful reset drops it before lifecycle teardown.
-    device->SetStreamSource(0,NULL,0,0);CHECK(buffer->Release()==1);CHECK(device->Has_Staged_Vertex_For_Test());
-    CHECK(buffer->AddRef()==2);CHECK(buffer->Release()==1);
-    auto parameters=device->Get_Present_Parameters(),invalid=parameters;invalid.BackBufferWidth=0;
-    CHECK(device->Reset(&invalid)==D3DERR_INVALIDCALL && device->Has_Staged_Vertex_For_Test());
-    CHECK(device->Reset(&parameters)==D3D_OK && !device->Has_Staged_Vertex_For_Test());
-    device->SetIndices(NULL);indices->Release();
-    CHECK(device->Draw_Refusals().empty());device->Release();
+    device->SetStreamSource(0, NULL, 0, 0);
+    CHECK(buffer->Release() == 1);
+    CHECK(device->Has_Staged_Vertex_For_Test());
+    CHECK(buffer->AddRef() == 2);
+    CHECK(buffer->Release() == 1);
+    auto parameters = device->Get_Present_Parameters(), invalid = parameters;
+    invalid.BackBufferWidth = 0;
+    CHECK(device->Reset(&invalid) == D3DERR_INVALIDCALL &&device->Has_Staged_Vertex_For_Test());
+    CHECK(device->Reset(&parameters) == D3D_OK && !device->Has_Staged_Vertex_For_Test());
+    device->SetIndices(NULL);
+    indices->Release();
+    CHECK(device->Draw_Refusals().empty());
+    device->Release();
     printf("dynamic VB staging: exact indexed pixels, repeated range, write/open/readonly locks, failed staging, physical range/prefix/stride, batch and retained-owner reset checked\n");
 }
 
@@ -1309,21 +1364,31 @@ static void check_prepared_water_fft(IDirect3D9 *adapter)
     // A legacy heading pointer can exist while its native mirror is unavailable.
     // Preparation may omit broad FFT work, but the unheaded draw must complete it
     // before recording; subsequent batches retain the original prepared scope.
-    IDirect3DCubeTexture9 *invalidHeading=NULL;
-    CHECK(device->CreateCubeTexture(4,1,0,D3DFMT_A8R8G8B8,D3DPOOL_MANAGED,&invalidHeading,NULL)==D3D_OK);
-    device->SetTexture(11,invalidHeading);
-    const float partialTime[4]={.75f,0,0,.25f};device->SetPixelShaderConstantF(1,partialTime,1);
-    token=device->Begin_Prepared_Water_Fft();CHECK(token!=0);
-    CHECK(gpu->Ocean_Ready_Cascades()==WaterFftSpectrum::HeadedCascades);
-    const auto partialGeneration=gpu->Ocean_Generation(),partialUpdates=gpu->Ocean_Updates();
-    unsigned completedDraws=device->Draws_Recorded();clear();const auto partialBatch=gpu->Batch();draw();
-    CHECK(device->Draws_Recorded()==completedDraws+1);
-    CHECK(gpu->Batch()!=partialBatch); // late completion really flushed the mirror retry's batch
-    CHECK(gpu->Ocean_Ready_Cascades()==WaterFftSpectrum::AllCascades);
-    CHECK(gpu->Ocean_Generation()==partialGeneration && gpu->Ocean_Updates()==partialUpdates+1);
-    completedDraws=device->Draws_Recorded();draw();CHECK(device->Draws_Recorded()==completedDraws+1);
-    CHECK(gpu->Ocean_Updates()==partialUpdates+1);checkDepth(.25f);
-    device->End_Prepared_Water_Fft(token);device->SetTexture(11,NULL);invalidHeading->Release();
+    IDirect3DCubeTexture9 *invalidHeading = NULL;
+    CHECK(device->CreateCubeTexture(4, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &invalidHeading, NULL) == D3D_OK);
+    device->SetTexture(11, invalidHeading);
+    const float partialTime[4] = {.75f, 0, 0, .25f};
+    device->SetPixelShaderConstantF(1, partialTime, 1);
+    token = device->Begin_Prepared_Water_Fft();
+    CHECK(token != 0);
+    CHECK(gpu->Ocean_Ready_Cascades() == WaterFftSpectrum::HeadedCascades);
+    const auto partialGeneration = gpu->Ocean_Generation(), partialUpdates = gpu->Ocean_Updates();
+    unsigned completedDraws = device->Draws_Recorded();
+    clear();
+    const auto partialBatch = gpu->Batch();
+    draw();
+    CHECK(device->Draws_Recorded() == completedDraws + 1);
+    CHECK(gpu->Batch() != partialBatch); // late completion really flushed the mirror retry's batch
+    CHECK(gpu->Ocean_Ready_Cascades() == WaterFftSpectrum::AllCascades);
+    CHECK(gpu->Ocean_Generation() == partialGeneration && gpu->Ocean_Updates() == partialUpdates + 1);
+    completedDraws = device->Draws_Recorded();
+    draw();
+    CHECK(device->Draws_Recorded() == completedDraws + 1);
+    CHECK(gpu->Ocean_Updates() == partialUpdates + 1);
+    checkDepth(.25f);
+    device->End_Prepared_Water_Fft(token);
+    device->SetTexture(11, NULL);
+    invalidHeading->Release();
 
     token=device->Begin_Prepared_Water_Fft();CHECK(token!=0);
     const float later[4]={3,0,0,.25f};device->SetPixelShaderConstantF(1,later,1);
@@ -1737,8 +1802,8 @@ int main()
 	check_refusal(device);
 	check_quad_derivatives(device);
 #if defined(__linux__)
-	check_dynamic_vertex_staging_reuse(d3d);
-	check_prepared_water_fft(d3d);
+    check_dynamic_vertex_staging_reuse(d3d);
+    check_prepared_water_fft(d3d);
 	check_sun_failures(d3d);
 #endif
 

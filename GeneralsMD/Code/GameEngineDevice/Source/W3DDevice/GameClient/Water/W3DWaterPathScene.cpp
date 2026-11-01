@@ -121,33 +121,38 @@ struct MeshInstance {
 // positions, transform, visibility and mesh identity remain per instance below.
 WaterPathModelDigest::Digest modelDigest(MeshModelClass *model) {
     WaterPathModelDigest::Hash digest;
-    const bool skin=model->Get_Flag(MeshGeometryClass::SKIN);
+    const bool skin = model->Get_Flag(MeshGeometryClass::SKIN);
     digest.Add(skin);
-    digest.Add(model->Get_Vertex_Count()); digest.Add(model->Get_Polygon_Count());
+    digest.Add(model->Get_Vertex_Count());
+    digest.Add(model->Get_Polygon_Count());
     // Skin geometry is hashed from each instance's world-posed vertices, as before.
-    if(!skin)digest.Bytes(model->Get_Vertex_Array(),size_t(model->Get_Vertex_Count())*sizeof(Vector3));
-    digest.Bytes(model->Get_Polygon_Array(),size_t(model->Get_Polygon_Count())*sizeof(TriIndex));
-    const Vector2 *uv=model->Get_UV_Array();
-    digest.Add(uv!=nullptr);
-    if (uv) digest.Bytes(uv,size_t(model->Get_Vertex_Count())*sizeof(Vector2));
-    const unsigned *colours=model->Get_DCG_Array(0);
-    digest.Add(colours!=nullptr);
-    if (colours) digest.Bytes(colours,size_t(model->Get_Vertex_Count())*sizeof(unsigned));
-    for (int v=0; v<model->Get_Vertex_Count(); ++v) {
-        const VertexMaterialClass *material=model->Peek_Material(v);
-        digest.Add(material!=nullptr);
-        if (material) digest.Add(material->Get_CRC());
+    if (!skin)
+        digest.Bytes(model->Get_Vertex_Array(), size_t(model->Get_Vertex_Count()) * sizeof(Vector3));
+    digest.Bytes(model->Get_Polygon_Array(), size_t(model->Get_Polygon_Count()) * sizeof(TriIndex));
+    const Vector2 *uv = model->Get_UV_Array();
+    digest.Add(uv != nullptr);
+    if (uv)
+        digest.Bytes(uv, size_t(model->Get_Vertex_Count()) * sizeof(Vector2));
+    const unsigned *colours = model->Get_DCG_Array(0);
+    digest.Add(colours != nullptr);
+    if (colours)
+        digest.Bytes(colours, size_t(model->Get_Vertex_Count()) * sizeof(unsigned));
+    for (int v = 0; v < model->Get_Vertex_Count(); ++v) {
+        const VertexMaterialClass *material = model->Peek_Material(v);
+        digest.Add(material != nullptr);
+        if (material)
+            digest.Add(material->Get_CRC());
     }
-    for (int p=0; p<model->Get_Polygon_Count(); ++p) {
+    for (int p = 0; p < model->Get_Polygon_Count(); ++p) {
         digest.Add(model->Get_Shader(p).Get_Bits());
-        TextureClass *texture=model->Peek_Texture(p);
+        TextureClass *texture = model->Peek_Texture(p);
         digest.Add(texture);
         if (texture) {
             digest.Add(texture->Is_Initialized());
             digest.Add(texture->Peek_D3D_Texture());
         }
     }
-    return {digest.value,digest.bytes};
+    return {digest.value, digest.bytes};
 }
 
 bool eligible(RenderObjClass *object, RenderObjClass *water, Drawable *draw) {
@@ -160,7 +165,8 @@ bool eligible(RenderObjClass *object, RenderObjClass *water, Drawable *draw) {
 
 void collect(RenderObjClass *object, RenderObjClass *water, Drawable *draw,
     std::vector<MeshInstance> &meshes, Hash &hash, std::set<MeshClass *> &seen,
-    const WaterPathTracing::CaptureScope *scope, WaterPathModelDigest::RefreshMemo &models, float visibility=1.0f) {
+    const WaterPathTracing::CaptureScope *scope, WaterPathModelDigest::RefreshMemo &models,
+    float visibility = 1.0f) {
     if (!eligible(object,water,draw)) return;
     if (object->Class_ID()==RenderObjClass::CLASSID_MESH) {
         MeshClass *mesh=static_cast<MeshClass *>(object);
@@ -188,10 +194,12 @@ void collect(RenderObjClass *object, RenderObjClass *water, Drawable *draw,
             if (!scope->Matches(vector(box.Center-box.Extent),vector(box.Center+box.Extent))) return;
         }
         seen.insert(mesh);
-        const uint64_t shared=models.Get(model,[&](){return modelDigest(model);});
-        instance.fingerprint=WaterPathModelDigest::Instance(shared,mesh,model,
-            &instance.transform,sizeof(instance.transform),visibility,
-            instance.posed.data(),instance.posed.size()*sizeof(Vector3));
+        const uint64_t shared = models.Get(model, [&]() {
+            return modelDigest(model);
+        });
+        instance.fingerprint = WaterPathModelDigest::Instance(shared, mesh, model,
+            &instance.transform, sizeof(instance.transform), visibility,
+            instance.posed.data(), instance.posed.size() * sizeof(Vector3));
         hash.Add(instance.fingerprint);
         meshes.push_back(std::move(instance));
         return;
@@ -200,14 +208,14 @@ void collect(RenderObjClass *object, RenderObjClass *water, Drawable *draw,
         HLodClass *lod=static_cast<HLodClass *>(object);
         const int level=lod->Get_LOD_Level();
         for (int i=0; i<lod->Get_Lod_Model_Count(level); ++i)
-            collect(lod->Peek_Lod_Model(level,i),water,draw,meshes,hash,seen,scope,models,visibility);
+            collect(lod->Peek_Lod_Model(level, i), water, draw, meshes, hash, seen, scope, models, visibility);
         for (int i=0; i<lod->Get_Additional_Model_Count(); ++i)
-            collect(lod->Peek_Additional_Model(i),water,draw,meshes,hash,seen,scope,models,visibility);
+            collect(lod->Peek_Additional_Model(i), water, draw, meshes, hash, seen, scope, models, visibility);
         return;
     }
     for (int i=0; i<object->Get_Num_Sub_Objects(); ++i) {
         RenderObjClass *child=object->Get_Sub_Object(i);
-        collect(child,water,draw,meshes,hash,seen,scope,models,visibility);
+        collect(child, water, draw, meshes, hash, seen, scope, models, visibility);
         if (child) child->Release_Ref();
     }
 }
@@ -355,30 +363,38 @@ bool W3DWaterPathScene::Update(SceneClass *scene, BaseHeightMapRenderObjClass *t
         return m_state->Fail(3,"terrain exceeds the experimental triangle limit");
     std::unique_ptr<WaterPathTracing::CaptureScope> scope;
     if (view) scope.reset(new WaterPathTracing::CaptureScope(*view));
-    const bool verify=std::getenv("ZH_WATER_PATH_VERIFY") && std::strcmp(std::getenv("ZH_WATER_PATH_VERIFY"),"1")==0;
-    const bool profile=std::getenv("ZH_WATER_PROFILE")!=nullptr;
+    const bool verify = std::getenv("ZH_WATER_PATH_VERIFY")
+        && std::strcmp(std::getenv("ZH_WATER_PATH_VERIFY"), "1") == 0;
+    const bool profile = std::getenv("ZH_WATER_PROFILE") != nullptr;
     WaterPathModelDigest::RefreshMemo models(verify); // Deliberately discarded at the end of this Update.
     struct DigestReport {
         WaterPathModelDigest::RefreshMemo &models;
         bool enabled;
-        std::chrono::steady_clock::time_point started,fingerprintDone{},terrainDone{},collectDone{};
-        void Mark(std::chrono::steady_clock::time_point &phase) {
-            if(enabled)phase=std::chrono::steady_clock::now();
+        std::chrono::steady_clock::time_point started, fingerprintDone{}, terrainDone{}, collectDone{};
+        void Mark(std::chrono::steady_clock::time_point & phase) {
+            if (enabled)
+                phase = std::chrono::steady_clock::now();
         }
         ~DigestReport() {
-            if(!enabled)return;
-            const auto &s=models.stats;
-            const auto now=std::chrono::steady_clock::now();
-            const auto elapsed=[](auto a,auto b){return std::chrono::duration<double,std::milli>(b-a).count();};
-            const bool fingerprinted=fingerprintDone!=std::chrono::steady_clock::time_point{};
-            const bool terrain=terrainDone!=std::chrono::steady_clock::time_point{};
-            const bool collected=collectDone!=std::chrono::steady_clock::time_point{};
-            std::fprintf(stderr,"[water-path-model] models=%zu hits=%zu hashed_bytes=%zu saved_bytes=%zu verified=%zu exact_mismatches=%zu verification_bytes=%zu digest_xor=%016llx terrain_fingerprint_ms=%.4f terrain_build_ms=%.4f collect_ms=%.4f export_ms=%.4f update_ms=%.4f\n",
-                s.misses,s.hits,s.hashedBytes,s.savedBytes,s.verified,s.mismatches,s.verificationBytes,(unsigned long long)s.digestXor,
-                elapsed(started,fingerprinted?fingerprintDone:now),terrain?elapsed(fingerprintDone,terrainDone):0,
-                collected?elapsed(terrainDone,collectDone):0,collected?elapsed(collectDone,now):0,elapsed(started,now));
+            if (!enabled)
+                return;
+            const auto &s = models.stats;
+            const auto now = std::chrono::steady_clock::now();
+            const auto elapsed = [](auto a, auto b) {
+                return std::chrono::duration<double, std::milli>(b - a).count();
+            };
+            const bool fingerprinted = fingerprintDone != std::chrono::steady_clock::time_point{};
+            const bool terrain = terrainDone != std::chrono::steady_clock::time_point{};
+            const bool collected = collectDone != std::chrono::steady_clock::time_point{};
+            std::fprintf(stderr, "[water-path-model] models=%zu hits=%zu hashed_bytes=%zu saved_bytes=%zu verified=%zu exact_mismatches=%zu verification_bytes=%zu digest_xor=%016llx terrain_fingerprint_ms=%.4f terrain_build_ms=%.4f collect_ms=%.4f export_ms=%.4f update_ms=%.4f\n",
+                s.misses, s.hits, s.hashedBytes, s.savedBytes, s.verified, s.mismatches, s.verificationBytes,
+                (unsigned long long) s.digestXor,
+                elapsed(started, fingerprinted ? fingerprintDone : now), terrain ? elapsed(fingerprintDone, terrainDone) : 0,
+                collected ? elapsed(terrainDone, collectDone) : 0, collected ? elapsed(collectDone, now) : 0,
+                elapsed(started, now));
         }
-    } digestReport{models,profile||verify,(profile||verify)?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{}};
+    } digestReport{models, profile || verify,
+        (profile || verify) ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{}};
     Hash ground;
     ground.Add(map); ground.Add(width); ground.Add(height); ground.Add(border);
     ground.Add(view!=nullptr);
@@ -481,7 +497,8 @@ bool W3DWaterPathScene::Update(SceneClass *scene, BaseHeightMapRenderObjClass *t
     SceneIterator *iterator=scene->Create_Iterator(false);
     if (!iterator) return m_state->Fail(4,"scene enumeration failed");
     for (iterator->First(); !iterator->Is_Done(); iterator->Next())
-        collect(iterator->Current_Item(),water,ownerOf(iterator->Current_Item()),meshes,fingerprint,seen,scope.get(),models);
+        collect(iterator->Current_Item(), water, ownerOf(iterator->Current_Item()), meshes, fingerprint, seen,
+            scope.get(), models);
     scene->Destroy_Iterator(iterator);
     // Prop clones are outside RenderList. Read their world transforms and current
     // shroud status, ignoring the camera-specific TProp::visible bit.
@@ -493,8 +510,9 @@ bool W3DWaterPathScene::Update(SceneClass *scene, BaseHeightMapRenderObjClass *t
             ?m_state->propShroud[i]:OBJECTSHROUD_INVALID;
         if (status<=OBJECTSHROUD_INVALID || status>=OBJECTSHROUD_SHROUDED) continue;
         const float visible=shroudAt(shroud,prop->location.x,prop->location.y)/255.0f;
-        if (visible>0) collect(prop->m_robj,water,ownerOf(prop->m_robj),meshes,fingerprint,seen,scope.get(),models,visible);
-    }
+            if (visible > 0)
+                collect(prop->m_robj, water, ownerOf(prop->m_robj), meshes, fingerprint, seen, scope.get(), models, visible);
+        }
     digestReport.Mark(digestReport.collectDone);
     if (m_state->hasScene && m_state->sceneHash==fingerprint.value
         && m_state->materialsCommittedTexels==m_state->materials.texels.size()) { m_state->failure=0; return true; }

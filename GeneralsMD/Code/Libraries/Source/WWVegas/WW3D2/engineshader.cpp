@@ -634,8 +634,9 @@ static bool write_engine_pixel_program(EngineShaderProgram program,
 // SDL map water has a dedicated, explicitly packed uniform block (SdlWaterPixelConstants).
 // Runtime-generated normal detail, terrain depth, refraction and the coloured planar reflection
 // are composed before the existing shore/shroud alpha blend. No additional assets are required.
-static void write_modern_water(std::string &hlsl, bool river,
-	const WaterPerformanceSettings::Configuration &quality = WaterPerformanceSettings::Configuration(),bool waveHeading=false)
+static void write_modern_water(std::string & hlsl, bool river,
+	const WaterPerformanceSettings::Configuration &quality = WaterPerformanceSettings::Configuration(),
+	bool waveHeading = false)
 {
 	const char *coastalSurfOption=getenv("ZH_WATER_SURF_GPU");
 #if defined(__linux__)
@@ -916,22 +917,22 @@ WaterRefractionSample waterRefractedScene(float2 originalPixel, float2 offset,
 )HLSL";
 	hlsl += WaterScreenReflection::ShaderSource();
 	hlsl += WaterSurfaceModel::ShaderSource();
-	if(waveHeading && !river) {
-        hlsl+="float fftLocalShoreRippleHeight(float2 pxy,float seconds) {float value=0;\n";
+	if (waveHeading && !river) {
+		hlsl += "float fftLocalShoreRippleHeight(float2 pxy,float seconds) {float value=0;\n";
 #define LOCAL_WATER_RIPPLE_HEIGHT(kx,ky,amplitude,omega,phase) \
         "if(" #kx "*" #kx "+" #ky "*" #ky ">=1.0){float p=dot(pxy,float2(" #kx "," #ky "))-seconds*" #omega "+" #phase ";" \
         "float s=sin(p),c=cos(p);value+=" #amplitude "*(s+0.26*s*c);}\n"
-        hlsl+=WATER_SURFACE_MODES(LOCAL_WATER_RIPPLE_HEIGHT);
+		hlsl += WATER_SURFACE_MODES(LOCAL_WATER_RIPPLE_HEIGHT);
 #undef LOCAL_WATER_RIPPLE_HEIGHT
-        hlsl+="return value;}\n";
-    }
+		hlsl += "return value;}\n";
+	}
 	hlsl += WaterSurfaceModel::OceanShaderSource();
 	hlsl += WaterOpticalModel::GetHlslSource();
 	hlsl += ModernWaterMaterial::OpticalSource();
 	hlsl += ModernWaterMaterial::BubbleSource();
 	hlsl += WaterHullModel::GetHlslSource();
-	hlsl += WaterFftSampling::PixelSource(bowLift,WaterBowShoulder::Enabled(),true,
-		WaterFftSpectrum::ForResolution(quality.activeFftResolution),waveHeading && !river);
+	hlsl += WaterFftSampling::PixelSource(bowLift, WaterBowShoulder::Enabled(), true,
+		WaterFftSpectrum::ForResolution(quality.activeFftResolution), waveHeading && !river);
 	hlsl += WaterWaveCageShader::Source(false);
 	char oceanBound[96];
 	snprintf(oceanBound, sizeof(oceanBound), "static const float oceanDisplacementBound = %.9g;\n",
@@ -1691,9 +1692,10 @@ float4 main(Input input) : SV_Target
 	if(coastalSurf) hlsl+="    float3 coastAuthoredIrradiance=vesselIrradiance;\n";
 	// Both foam materials use the same sky integral at this fragment. Evaluate it
 	// once under their combined demand, retaining each material's admission below.
-	hlsl+="    float3 foamSkyIrradiance=0;\n    if((vesselFoam>0.0";
-	if(coastalSurf) hlsl+=" || gpuCoastFoam>0.0";
-	hlsl+=") && offshore>0.0)\n        foamSkyIrradiance=waterFoamSkyIrradiance(normal,light,daylight);\n";
+	hlsl += "    float3 foamSkyIrradiance=0;\n    if((vesselFoam>0.0";
+	if (coastalSurf)
+		hlsl += " || gpuCoastFoam>0.0";
+	hlsl += ") && offshore>0.0)\n        foamSkyIrradiance=waterFoamSkyIrradiance(normal,light,daylight);\n";
 	hlsl+=R"HLSL(
     if(vesselFoam>0.0 && offshore>0.0)
         vesselIrradiance=waterFoamReplaceAmbient(vesselIrradiance,HullParameters.yzw,
@@ -1830,10 +1832,11 @@ float4 main(Input input) : SV_Target
 		hlsl += "current = float4(resolvedNormal*0.5+0.5,unresolvedSlopeVariance);\n";
 	if (debug && strcmp(debug, "roughness") == 0) hlsl += "current.rgb = float3(roughness,environmentRoughness,sqrt(unresolvedSlopeVariance));\n";
 	if (debug && strcmp(debug, "pressure-retention") == 0) hlsl += "current.rgb = fftPressureRetentionDebug(spectral,fftWeight,fftDamping,generatedFoam);\n";
-	if(waveHeading && !river) {
-        const std::string before="    float3 wave = lerp(legacyWave, oceanWave, offshore);";
-        const size_t at=hlsl.find(before);
-        if(at!=std::string::npos)hlsl.insert(at,R"HLSL(    float3 localAnalyticGain=float3(1,0,0);
+	if (waveHeading && !river) {
+		const std::string before = "    float3 wave = lerp(legacyWave, oceanWave, offshore);";
+		const size_t at = hlsl.find(before);
+		if (at != std::string::npos)
+			hlsl.insert(at, R"HLSL(    float3 localAnalyticGain=float3(1,0,0);
     if(analyticRemainder)localAnalyticGain=fftLocalResidualGain(wavePosition);
     [branch] if(any(localAnalyticGain!=float3(1,0,0))) {
         legacyWave=fftLocalAnalyticWave(legacyWave,localAnalyticGain);
@@ -1847,14 +1850,16 @@ float4 main(Input input) : SV_Target
             shoreRippleSlope+=fftLocalShoreRippleHeight(wavePosition,time)*localAnalyticGain.yz;
     }
 )HLSL");
-        const std::string coast="        slope+=coastalCorrection.yz;meshCorrection+=coastalCorrection.x;";
-        const size_t coastAt=hlsl.find(coast);
-        if(coastAt!=std::string::npos)hlsl.insert(coastAt,
-            "        coastalCorrection=fftLocalAnalyticWave(coastalCorrection,localAnalyticGain);\n");
-        const std::string energy="0.045*(1.0-rippleResolution*rippleResolution)*offshore*(1.0-fftWeight)";
-        const size_t energyAt=hlsl.find(energy);
-        if(energyAt!=std::string::npos)hlsl.insert(energyAt+energy.size(),"*localAnalyticGain.x*localAnalyticGain.x");
-    }
+		const std::string coast = "        slope+=coastalCorrection.yz;meshCorrection+=coastalCorrection.x;";
+		const size_t coastAt = hlsl.find(coast);
+		if (coastAt != std::string::npos)
+			hlsl.insert(coastAt,
+				"        coastalCorrection=fftLocalAnalyticWave(coastalCorrection,localAnalyticGain);\n");
+		const std::string energy = "0.045*(1.0-rippleResolution*rippleResolution)*offshore*(1.0-fftWeight)";
+		const size_t energyAt = hlsl.find(energy);
+		if (energyAt != std::string::npos)
+			hlsl.insert(energyAt + energy.size(), "*localAnalyticGain.x*localAnalyticGain.x");
+	}
 	// Diagnostics evaluate old and current rules at the same fragment/phase/snapshot.
 	// No extra code is emitted for normal water or any unrelated debug mode.
 	if (debug && (strcmp(debug,"footprint")==0 || strcmp(debug,"footprint-path")==0 ||

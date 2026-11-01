@@ -1315,7 +1315,8 @@ void GameLogic::startNewGame( Bool loadingSaveGame )
 
 	m_rankLevelLimit = 1000;	// this is reset every game.
 #if defined(__linux__)
-	if (!loadingSaveGame && !isInShellGame()) PosixGpuTimingLoadMarker("load-begin",m_frame);
+	if (!loadingSaveGame && !isInShellGame())
+		PosixGpuTimingLoadMarker("load-begin", m_frame);
 #endif
 	// the score screen's graphs are the last match's: a match clears them, the shell map never does
 	if( m_gameMode != GAME_SHELL )
@@ -2465,9 +2466,11 @@ void GameLogic::startNewGame( Bool loadingSaveGame )
 
 	// Saved heights/triggers arrive after startNewGame(TRUE); that path warms at
 	// the end of GameState::gameStatePostProcessLoad instead.
-	if (!loadingSaveGame && TheTerrainVisual) TheTerrainVisual->prewarmMapRenderData();
+	if (!loadingSaveGame && TheTerrainVisual)
+		TheTerrainVisual->prewarmMapRenderData();
 #if defined(__linux__)
-	if (!loadingSaveGame && !isInShellGame()) PosixGpuTimingLoadMarker("load-ready",m_frame);
+	if (!loadingSaveGame && !isInShellGame())
+		PosixGpuTimingLoadMarker("load-ready", m_frame);
 #endif
 	updateLoadProgress(LOAD_PROGRESS_END);
 

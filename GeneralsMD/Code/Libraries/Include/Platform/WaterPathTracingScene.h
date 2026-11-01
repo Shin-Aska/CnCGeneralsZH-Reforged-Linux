@@ -174,15 +174,15 @@ public:
             const int kind=TriangleKind(input[i]);
             if(kind<0)return false;
             if(kind==0)continue;
-            const Triangle &t=input[i];
-            primitives[i]={Minimum(t.a,Minimum(t.b,t.c)),Maximum(t.a,Maximum(t.b,t.c)),
-                Add(Add(Scale(t.a,1.f/3),Scale(t.b,1.f/3)),Scale(t.c,1.f/3))};
+            const Triangle &t = input[i];
+            primitives[i] = {Minimum(t.a, Minimum(t.b, t.c)), Maximum(t.a, Maximum(t.b, t.c)),
+                Add(Add(Scale(t.a, 1.f / 3), Scale(t.b, 1.f / 3)), Scale(t.c, 1.f / 3))};
             next.inputIncluded[i]=1;
             next.inputIndices.push_back(i);
         }
         if(!next.inputIndices.empty()) {
             next.nodeTexels.reserve(next.inputIndices.size()*NodeTexels);
-            next.BuildNode(0,static_cast<unsigned>(next.inputIndices.size()),input,primitives);
+            next.BuildNode(0, static_cast<unsigned>(next.inputIndices.size()), input, primitives);
             next.triangles.resize(next.inputIndices.size());
             next.triangleTexels.resize(next.inputIndices.size()*TriangleTexels);
             for(unsigned i=0;i<next.inputIndices.size();++i)
@@ -270,7 +270,9 @@ public:
     }
 
 private:
-    struct BuildPrimitive { Vec3 low,high,centroid; };
+    struct BuildPrimitive {
+        Vec3 low, high, centroid;
+    };
     std::vector<unsigned> inputIndices;
     std::vector<uint8_t> inputIncluded;
 
@@ -295,16 +297,17 @@ private:
         triangleTexels[index*TriangleTexels+3]={t.albedo.x,t.albedo.y,t.albedo.z,0};
     }
 
-    void BuildNode(unsigned first,unsigned count,const std::vector<Triangle> &input,
-                   const std::vector<BuildPrimitive> &primitives)
+    void BuildNode(unsigned first, unsigned count, const std::vector<Triangle> &input,
+        const std::vector<BuildPrimitive> &primitives)
     {
         Vec3 low={std::numeric_limits<float>::max(),std::numeric_limits<float>::max(),
                   std::numeric_limits<float>::max()};
         Vec3 high=Scale(low,-1),centroidLow=low,centroidHigh=high;
         for(unsigned i=first;i<first+count;++i) {
-            const BuildPrimitive &primitive=primitives[inputIndices[i]];
-            low=Minimum(low,primitive.low);high=Maximum(high,primitive.high);
-            const Vec3 centroid=primitive.centroid;
+            const BuildPrimitive &primitive = primitives[inputIndices[i]];
+            low = Minimum(low, primitive.low);
+            high = Maximum(high, primitive.high);
+            const Vec3 centroid = primitive.centroid;
             centroidLow=Minimum(centroidLow,centroid);centroidHigh=Maximum(centroidHigh,centroid);
         }
         const unsigned node=NodeCount();
@@ -318,8 +321,8 @@ private:
             std::nth_element(inputIndices.begin()+first,inputIndices.begin()+first+half,inputIndices.begin()+first+count,
                 [&](unsigned ai,unsigned bi) {
                     const Triangle &a=input[ai],&b=input[bi];
-                    const float ca=Component(primitives[ai].centroid,axis),cb=Component(primitives[bi].centroid,axis);
-                    if(ca!=cb)return ca<cb;
+                const float ca = Component(primitives[ai].centroid, axis), cb = Component(primitives[bi].centroid, axis);
+                if(ca!=cb)return ca<cb;
                     // A total ordering makes repeated builds reproducible for equal centroids.
                     const float aa[]={a.a.x,a.a.y,a.a.z,a.b.x,a.b.y,a.b.z,a.c.x,a.c.y,a.c.z,
                                       a.albedo.x,a.albedo.y,a.albedo.z};
@@ -327,7 +330,8 @@ private:
                                       b.albedo.x,b.albedo.y,b.albedo.z};
                     return std::lexicographical_compare(aa,aa+12,bb,bb+12);
                 });
-            BuildNode(first,half,input,primitives);BuildNode(first+half,count-half,input,primitives);
+            BuildNode(first, half, input, primitives);
+            BuildNode(first + half, count - half, input, primitives);
         }
         nodeTexels[node*NodeTexels].w=static_cast<float>(NodeCount());
     }

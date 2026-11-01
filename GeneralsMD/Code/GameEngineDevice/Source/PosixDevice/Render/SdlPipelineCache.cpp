@@ -520,18 +520,19 @@ void SdlSamplerCache::Remember(const Key &key, SDL_GPUSampler *sampler)
 	Recent[NextRecent] = {key, sampler};
 	LastRecent = NextRecent;
 	NextRecent = (NextRecent + 1) % RecentCount;
-	if (RecentSize < RecentCount) ++RecentSize;
+	if (RecentSize<RecentCount)
+		++RecentSize;
 }
 
 SDL_GPUSampler *SdlSamplerCache::Sampler(const RenderUInt32 sampler_states[14])
 {
 	Key key;
 	memcpy(key.States, sampler_states, sizeof(key.States));
-	if (RecentSize && key == Recent[LastRecent].key) {
+	if (RecentSize &&key == Recent[LastRecent].key) {
 		return Recent[LastRecent].sampler;
 	}
 	for (unsigned i = 0; i < RecentSize; ++i) {
-		if (i != LastRecent && key == Recent[i].key) {
+		if (i != LastRecent &&key == Recent[i].key) {
 			LastRecent = i;
 			return Recent[i].sampler;
 		}

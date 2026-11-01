@@ -765,7 +765,7 @@ Bool GameState::saveCheckpoint( AsciiString filepath )
 Bool GameState::loadCheckpoint( AsciiString filepath, const std::function< void( void ) > &afterReset )
 {
 #if defined(__linux__)
-	PosixGpuTimingLoadMarker("load-begin",TheGameLogic->getFrame());
+	PosixGpuTimingLoadMarker("load-begin", TheGameLogic->getFrame());
 #endif
 	TheGameStateMap->clearScratchPadMaps();
 
@@ -839,7 +839,7 @@ SaveCode GameState::loadGame( AvailableGameInfo gameInfo )
 		return SC_INVALID_DATA;
 
 #if defined(__linux__)
-	PosixGpuTimingLoadMarker("load-begin",TheGameLogic->getFrame());
+	PosixGpuTimingLoadMarker("load-begin", TheGameLogic->getFrame());
 #endif
 
 	// clear game data just like loading from the debug map load screen for mission saves
@@ -1733,12 +1733,14 @@ void GameState::gameStatePostProcessLoad( void )
 
 	// Every snapshot (including saved terrain and water polygons) is final now.
 	// This prepares only immutable presentation data, without a simulation step.
-	if (TheTerrainVisual) TheTerrainVisual->prewarmMapRenderData();
+	if (TheTerrainVisual)
+		TheTerrainVisual->prewarmMapRenderData();
 
 	// last, so nothing the load did can draw from the stream after it is put back
 	TheGameLogic->restoreLoadedRandomState();
 #if defined(__linux__)
-	if (!TheGameLogic->isInShellGame()) PosixGpuTimingLoadMarker("load-ready",TheGameLogic->getFrame());
+	if (!TheGameLogic->isInShellGame())
+		PosixGpuTimingLoadMarker("load-ready", TheGameLogic->getFrame());
 #endif
 
 }  // end loadPostProcess

@@ -10,7 +10,7 @@
 
 namespace WaterFftSpectrum {
 constexpr unsigned Resolution=256, Phases=8, Cascades=3, Maps=6;
-constexpr unsigned AllCascades=7, HeadedCascades=6;
+constexpr unsigned AllCascades = 7, HeadedCascades = 6;
 struct Configuration { unsigned resolution, phases, levels; };
 // Only validated tiers are accepted; unrecognised values preserve the shared default.
 constexpr Configuration ForResolution(unsigned resolution) {
@@ -113,18 +113,22 @@ inline std::vector<float> Butterfly(Configuration configuration=ForResolution(Re
 inline const char *VertexHlsl() {
     return "float4 main(uint id : SV_VertexID) : SV_Position { return float4(id==1?3.0:-1.0,id==2?3.0:-1.0,0,1); }\n";
 }
-inline std::string Resources(unsigned count,unsigned firstMap=0) {
+
+inline std::string Resources(unsigned count, unsigned firstMap = 0) {
     std::string source;
     for(unsigned i=0;i<count;++i) source+="Texture2D<float4> T"+std::to_string(i)+" : register(t"+std::to_string(i)+", space2);\nSamplerState S"+std::to_string(i)+" : register(s"+std::to_string(i)+", space2);\n";
     source+="cbuffer FftParameters : register(b0, space3) { float4 Parameters; float4 Sizes; };\n";
     source+="struct Result {\n";
-    for(unsigned i=firstMap;i<Maps;++i) source+="float4 v"+std::to_string(i)+" : SV_Target"+std::to_string(i-firstMap)+";\n";
+    for (unsigned i = firstMap; i < Maps; ++i)
+        source += "float4 v" + std::to_string(i) + " : SV_Target"
+            + std::to_string(i - firstMap) + ";\n";
     source+="};\n";
     return source;
 }
-inline std::string SpectrumHlsl(bool headedOnly=false) {
-    std::string source=Resources(3,headedOnly?2:0);
-    source+=R"HLSL(
+
+inline std::string SpectrumHlsl(bool headedOnly = false) {
+    std::string source = Resources(3, headedOnly ? 2 : 0);
+    source += R"HLSL(
 float2 cmul(float2 a,float2 b) { return float2(a.x*b.x-a.y*b.y,a.x*b.y+a.y*b.x); }
 void spectrum(float4 initial,int2 pixel,float size,out float4 a,out float4 b) {
     float2 k=6.283185307179586*(float2(pixel)-Parameters.xx*0.5)/size;
@@ -145,8 +149,9 @@ void spectrum(float4 initial,int2 pixel,float size,out float4 a,out float4 b) {
 Result main(float4 position:SV_Position) {
     int2 pixel=int2(position.xy);float2 uv=(float2(pixel)+0.5)/Parameters.x;Result result;
 )HLSL";
-    if(!headedOnly)source+="    spectrum(T0.SampleLevel(S0,uv,0),pixel,Sizes.x,result.v0,result.v1);\n";
-    source+=R"HLSL(
+    if (!headedOnly)
+        source += "    spectrum(T0.SampleLevel(S0,uv,0),pixel,Sizes.x,result.v0,result.v1);\n";
+    source += R"HLSL(
     spectrum(T1.SampleLevel(S1,uv,0),pixel,Sizes.y,result.v2,result.v3);
     spectrum(T2.SampleLevel(S2,uv,0),pixel,Sizes.z,result.v4,result.v5);
     return result;
@@ -154,8 +159,10 @@ Result main(float4 position:SV_Position) {
 )HLSL";
     return source;
 }
-inline std::string ButterflyHlsl(Configuration configuration=ForResolution(Resolution),bool headedOnly=false) {
-    std::string source=Resources(7,headedOnly?2:0);
+
+inline std::string ButterflyHlsl(Configuration configuration = ForResolution(Resolution),
+    bool headedOnly = false) {
+    std::string source = Resources(7, headedOnly ? 2 : 0);
     source+=R"HLSL(
 float4 butterfly(float4 a,float4 b,float2 w) {
     return 0.5*(a+float4(b.x*w.x-b.y*w.y,b.x*w.y+b.y*w.x,b.z*w.x-b.w*w.y,b.z*w.y+b.w*w.x));
@@ -167,16 +174,26 @@ Result main(float4 position:SV_Position) {
     float2 b=(vertical?float2(pixel.x,entry.w):float2(entry.w,pixel.y))+0.5;
     a/=Parameters.x;b/=Parameters.x;Result result;
 )HLSL";
-    for(unsigned i=headedOnly?2:0;i<Maps;++i) {const std::string s=std::to_string(i);source+="result.v"+s+"=butterfly(T"+s+".SampleLevel(S"+s+",a,0),T"+s+".SampleLevel(S"+s+",b,0),entry.xy);\n";}
+    for (unsigned i = headedOnly ? 2 : 0; i < Maps; ++i) {
+        const std::string s = std::to_string(i);
+        source += "result.v" + s + "=butterfly(T" + s
+            + ".SampleLevel(S" + s + ",a,0),T" + s
+            + ".SampleLevel(S" + s + ",b,0),entry.xy);\n";
+    }
     const std::string divisor="/8.0,";
     const size_t at=source.find(divisor);
     if(at!=std::string::npos) source.replace(at,divisor.size(),"/"+std::to_string(configuration.phases)+".0,");
     return source+"return result; }\n";
 }
-inline std::string PostHlsl(bool headedOnly=false) {
-    std::string source=Resources(6,headedOnly?2:0);
+
+inline std::string PostHlsl(bool headedOnly = false) {
+    std::string source = Resources(6, headedOnly ? 2 : 0);
     source+="Result main(float4 position:SV_Position) { int2 pixel=int2(position.xy);float sign=((pixel.x+pixel.y)&1)?-1.0:1.0;float scale=sign*Parameters.x*Parameters.x;float2 uv=(float2(pixel)+0.5)/Parameters.x;Result result;\n";
-    for(unsigned i=headedOnly?2:0;i<Maps;++i) {const std::string s=std::to_string(i);source+="result.v"+s+"=T"+s+".SampleLevel(S"+s+",uv,0)*scale;\n";}
+    for (unsigned i = headedOnly ? 2 : 0; i < Maps; ++i) {
+        const std::string s = std::to_string(i);
+        source += "result.v" + s + "=T" + s
+            + ".SampleLevel(S" + s + ",uv,0)*scale;\n";
+    }
     return source+"return result; }\n";
 }
 }

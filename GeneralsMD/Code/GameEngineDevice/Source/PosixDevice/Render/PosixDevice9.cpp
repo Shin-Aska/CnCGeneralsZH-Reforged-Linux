@@ -133,8 +133,8 @@ PosixDevice9::PosixDevice9(PosixDirect3D9 *adapter, RenderWindow window, const D
 	PixelShader(NULL)
 {
 	Adapter->AddRef();
-	const char *stagingProfile=getenv("ZH_GPU_VERTEX_STAGING_PROFILE");
-	ProfileVertexStaging=stagingProfile&&strcmp(stagingProfile,"1")==0;
+	const char *stagingProfile = getenv("ZH_GPU_VERTEX_STAGING_PROFILE");
+	ProfileVertexStaging = stagingProfile && strcmp(stagingProfile, "1") == 0;
 
 	memset(RenderTargets, 0, sizeof(RenderTargets));
 	memset(RenderStates, 0, sizeof(RenderStates));
@@ -205,9 +205,10 @@ PosixDevice9::~PosixDevice9()
 		}
 		Capture_Report();
 		Timing_Report();
-		if(ProfileVertexStaging)fprintf(stderr,"[dynamic-vb-stage] copies=%llu copied_bytes=%llu hits=%llu reused_bytes=%llu\n",
-			(unsigned long long)VertexStagingStats.copies,(unsigned long long)VertexStagingStats.copiedBytes,
-			(unsigned long long)VertexStagingStats.hits,(unsigned long long)VertexStagingStats.reusedBytes);
+		if (ProfileVertexStaging)
+			fprintf(stderr, "[dynamic-vb-stage] copies=%llu copied_bytes=%llu hits=%llu reused_bytes=%llu\n",
+				(unsigned long long) VertexStagingStats.copies, (unsigned long long) VertexStagingStats.copiedBytes,
+				(unsigned long long) VertexStagingStats.hits, (unsigned long long) VertexStagingStats.reusedBytes);
 	}
 	// The GPU objects before the device that made them; the pipelines before their shaders.
 	delete Pipelines;

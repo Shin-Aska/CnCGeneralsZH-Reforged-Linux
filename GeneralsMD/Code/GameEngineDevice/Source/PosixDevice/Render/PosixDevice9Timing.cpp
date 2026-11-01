@@ -70,20 +70,20 @@ struct TimingState
 	unsigned int NotVisible;	///< measured frames presented to a window that was not visible
 	unsigned int NotShown;		///< measured frames with no drawable
 	bool Offscreen;
-	bool LogicMode=false,StampValid=false;
-	std::uint32_t StampFrame=0;
+	bool LogicMode = false, StampValid = false;
+	std::uint32_t StampFrame = 0;
 	RenderTiming::LogicWindow LogicWindow;
 	RenderTiming::LogicSequence LogicSequence;
 	std::vector<std::uint32_t> LogicFrames;
 	std::vector<Uint64> PresentNs;
 	std::string CsvPath;
-	bool ColdMode=false;
+	bool ColdMode = false;
 	RenderTiming::ColdSequence ColdSequence;
-	Uint64 ColdLoadBeginNs=0,ColdLoadReadyNs=0,ColdPrewarmBeginNs=0,ColdPrewarmEndNs=0;
-	Uint64 ColdFirstPresentNs=0,ColdPreviousPresentNs=0;
-	std::string ColdMarkersPath,ColdCameraSha256;
-	bool ColdExpectedLoadFrameSet=false;
-	std::uint32_t ColdExpectedLoadFrame=0;
+	Uint64 ColdLoadBeginNs = 0, ColdLoadReadyNs = 0, ColdPrewarmBeginNs = 0, ColdPrewarmEndNs = 0;
+	Uint64 ColdFirstPresentNs = 0, ColdPreviousPresentNs = 0;
+	std::string ColdMarkersPath, ColdCameraSha256;
+	bool ColdExpectedLoadFrameSet = false;
+	std::uint32_t ColdExpectedLoadFrame = 0;
 };
 
 TimingState &timing_state()
@@ -94,42 +94,58 @@ TimingState &timing_state()
 		made = true;
 		const char *asked = getenv("ZH_GPU_TIMING");
 		state.Asked = asked != NULL && sscanf(asked, "%lf,%u", &state.Delay, &state.Count) == 2 && state.Count > 0;
-		if(const char *logic=getenv("ZH_GPU_TIMING_LOGIC")) {
-			state.LogicMode=state.LogicWindow.Parse(logic);
-			state.Asked=state.LogicMode;
-			if(state.LogicMode) {
-				state.Count=state.LogicWindow.Count();
-				if(const char *csv=getenv("ZH_GPU_TIMING_CSV"))state.CsvPath=csv;
-				state.LogicFrames.reserve(state.Count);state.PresentNs.reserve(state.Count);
-				std::vector<double> *samples[]={&state.Frame,&state.Work,&state.DrawMs,&state.FlushMs,
-					&state.PresentMs,&state.AcquireMs,&state.OffscreenMs,&state.FenceMs,&state.Draws,&state.Flushes};
-				for(auto values:samples)values->reserve(state.Count);
-			} else fprintf(stderr,"PosixDevice9 timing: invalid ZH_GPU_TIMING_LOGIC (expected first,last; 1..100000 samples)\n");
+		if (const char *logic = getenv("ZH_GPU_TIMING_LOGIC")) {
+			state.LogicMode = state.LogicWindow.Parse(logic);
+			state.Asked = state.LogicMode;
+			if (state.LogicMode) {
+				state.Count = state.LogicWindow.Count();
+				if (const char *csv = getenv("ZH_GPU_TIMING_CSV"))
+					state.CsvPath = csv;
+				state.LogicFrames.reserve(state.Count);
+				state.PresentNs.reserve(state.Count);
+				std::vector<double> *samples[] = {&state.Frame, &state.Work, &state.DrawMs, &state.FlushMs,
+					&state.PresentMs, &state.AcquireMs, &state.OffscreenMs, &state.FenceMs, &state.Draws, &state.Flushes};
+				for (auto values : samples)
+					values->reserve(state.Count);
+			} else
+				fprintf(stderr, "PosixDevice9 timing: invalid ZH_GPU_TIMING_LOGIC (expected first,last; 1..100000 samples)\n");
 		}
-		if(const char *cold=getenv("ZH_GPU_TIMING_COLD")) {
-			state.ColdMode=state.ColdSequence.Configure(cold);
-			if(state.LogicMode) {
-				fprintf(stderr,"PosixDevice9 timing: cold and logic-window modes are mutually exclusive\n");
-				state.ColdMode=state.LogicMode=false;
+		if (const char *cold = getenv("ZH_GPU_TIMING_COLD")) {
+			state.ColdMode = state.ColdSequence.Configure(cold);
+			if (state.LogicMode) {
+				fprintf(stderr, "PosixDevice9 timing: cold and logic-window modes are mutually exclusive\n");
+				state.ColdMode = state.LogicMode = false;
 			}
-			state.Asked=state.ColdMode;
-			if(state.ColdMode) {
-				state.Count=state.ColdSequence.target;
-				if(const char *frame=getenv("ZH_GPU_TIMING_COLD_LOAD_FRAME")) {
-					char *end=NULL;const unsigned long long value=strtoull(frame,&end,10);
-					if(*frame>='0'&&*frame<='9'&&end&&!*end&&value<=UINT32_MAX) {
-						state.ColdExpectedLoadFrameSet=true;state.ColdExpectedLoadFrame=std::uint32_t(value);
-					} else {state.ColdMode=state.Asked=false;fprintf(stderr,"PosixDevice9 timing: invalid cold load-frame selector\n");}
+			state.Asked = state.ColdMode;
+			if (state.ColdMode) {
+				state.Count = state.ColdSequence.target;
+				if (const char *frame = getenv("ZH_GPU_TIMING_COLD_LOAD_FRAME")) {
+					char *end = NULL;
+					const unsigned long long value = strtoull(frame, &end, 10);
+					if (*frame >= '0' && *frame <= '9' && end
+						&& !*end && value <= UINT32_MAX) {
+						state.ColdExpectedLoadFrameSet = true;
+						state.ColdExpectedLoadFrame = std::uint32_t(value);
+					} else {
+						state.ColdMode = state.Asked = false;
+						fprintf(stderr, "PosixDevice9 timing: invalid cold load-frame selector\n");
+					}
 				}
-				if(const char *csv=getenv("ZH_GPU_TIMING_CSV"))state.CsvPath=csv;
-				if(const char *path=getenv("ZH_GPU_TIMING_COLD_MARKERS"))state.ColdMarkersPath=path;
-				if(const char *hash=getenv("ZH_GPU_TIMING_COLD_CAMERA_SHA256"))
-					if(strlen(hash)==64&&strspn(hash,"0123456789abcdef")==64)state.ColdCameraSha256=hash;
-				state.LogicFrames.reserve(state.Count);state.PresentNs.reserve(state.Count);
-				std::vector<double> *samples[]={&state.Frame,&state.Work,&state.DrawMs,&state.FlushMs,
-					&state.PresentMs,&state.AcquireMs,&state.OffscreenMs,&state.FenceMs,&state.Draws,&state.Flushes};
-				for(auto values:samples)values->reserve(state.Count);
-			} else fprintf(stderr,"PosixDevice9 timing: invalid ZH_GPU_TIMING_COLD (expected count 1..100000, without logic-window mode)\n");
+				if (const char *csv = getenv("ZH_GPU_TIMING_CSV"))
+					state.CsvPath = csv;
+				if (const char *path = getenv("ZH_GPU_TIMING_COLD_MARKERS"))
+					state.ColdMarkersPath = path;
+				if (const char *hash = getenv("ZH_GPU_TIMING_COLD_CAMERA_SHA256"))
+					if (strlen(hash) == 64 && strspn(hash, "0123456789abcdef") == 64)
+						state.ColdCameraSha256 = hash;
+				state.LogicFrames.reserve(state.Count);
+				state.PresentNs.reserve(state.Count);
+				std::vector<double> *samples[] = {&state.Frame, &state.Work, &state.DrawMs, &state.FlushMs,
+					&state.PresentMs, &state.AcquireMs, &state.OffscreenMs, &state.FenceMs, &state.Draws, &state.Flushes};
+				for (auto values : samples)
+					values->reserve(state.Count);
+			} else
+				fprintf(stderr, "PosixDevice9 timing: invalid ZH_GPU_TIMING_COLD (expected count 1..100000, without logic-window mode)\n");
 		}
 		const char *sync = getenv("ZH_GPU_TIMING_SYNC");
 		state.Sync = state.Asked && sync != NULL && sync[0] == '1';
@@ -159,39 +175,49 @@ void report(const char *what, std::vector<double> values, const char *unit)
 
 }  // namespace
 
-void PosixGpuTimingStampLogicFrame(std::uint32_t frame,bool eligible)
+void PosixGpuTimingStampLogicFrame(std::uint32_t frame, bool eligible)
 {
-	TimingState &state=timing_state();
-	if((state.LogicMode||state.ColdMode)&&!state.Reported) {state.StampFrame=frame;state.StampValid=eligible;}
+	TimingState &state = timing_state();
+	if ((state.LogicMode || state.ColdMode) && !state.Reported) {
+		state.StampFrame = frame;
+		state.StampValid = eligible;
+	}
 }
 
-void PosixGpuTimingLoadMarker(const char *name,std::uint32_t frame)
+void PosixGpuTimingLoadMarker(const char *name, std::uint32_t frame)
 {
 	// The normal loading path does no timing-state allocation, clock read or logging.
-	static const bool asked=getenv("ZH_GPU_TIMING_COLD")!=NULL;
-	if(!asked||!name)return;
-	TimingState &state=timing_state();
-	if(!state.ColdMode||state.Reported)return;
-	const Uint64 now=SDL_GetTicksNS();
-	if(strcmp(name,"load-begin")==0) {
-		if(state.ColdSequence.BeginLoad()) {
-			state.ColdLoadBeginNs=now;state.ColdLoadReadyNs=0;
-			state.ColdPrewarmBeginNs=state.ColdPrewarmEndNs=0;
+	static const bool asked = getenv("ZH_GPU_TIMING_COLD") != NULL;
+	if (!asked || !name)
+		return;
+	TimingState &state = timing_state();
+	if (!state.ColdMode || state.Reported)
+		return;
+	const Uint64 now = SDL_GetTicksNS();
+	if (strcmp(name, "load-begin") == 0) {
+		if (state.ColdSequence.BeginLoad()) {
+			state.ColdLoadBeginNs = now;
+			state.ColdLoadReadyNs = 0;
+			state.ColdPrewarmBeginNs = state.ColdPrewarmEndNs = 0;
 		}
-	} else if(strcmp(name,"load-ready")==0) {
+	} else if (strcmp(name, "load-ready") == 0) {
 		// A -loadsave launcher may build a bootstrap world first. Its readiness
 		// never arms the requested saved world's cold window.
-		if(state.ColdExpectedLoadFrameSet&&frame!=state.ColdExpectedLoadFrame) {
-			fprintf(stderr,"PosixDevice9 cold-marker: ignored load-ready logic=%u expected=%u\n",frame,state.ColdExpectedLoadFrame);
+		if (state.ColdExpectedLoadFrameSet &&frame != state.ColdExpectedLoadFrame) {
+			fprintf(stderr, "PosixDevice9 cold-marker: ignored load-ready logic=%u expected=%u\n", frame, state.ColdExpectedLoadFrame);
 			return;
 		}
-		if(state.ColdSequence.Arm())state.ColdLoadReadyNs=now;
-	} else if(strcmp(name,"water-prewarm-start")==0) {
-		if(state.ColdSequence.loadBegun&&!state.ColdSequence.armed)state.ColdPrewarmBeginNs=now;
-	} else if(strcmp(name,"water-prewarm-end")==0) {
-		if(state.ColdPrewarmBeginNs&&!state.ColdSequence.armed)state.ColdPrewarmEndNs=now;
-	} else return;
-	fprintf(stderr,"PosixDevice9 cold-marker: %s logic=%u present_monotonic_ns=%llu\n",name,frame,(unsigned long long)now);
+		if (state.ColdSequence.Arm())
+			state.ColdLoadReadyNs = now;
+	} else if (strcmp(name, "water-prewarm-start") == 0) {
+		if (state.ColdSequence.loadBegun && !state.ColdSequence.armed)
+			state.ColdPrewarmBeginNs = now;
+	} else if (strcmp(name, "water-prewarm-end") == 0) {
+		if (state.ColdPrewarmBeginNs && !state.ColdSequence.armed)
+			state.ColdPrewarmEndNs = now;
+	} else
+		return;
+	fprintf(stderr, "PosixDevice9 cold-marker: %s logic=%u present_monotonic_ns=%llu\n", name, frame, (unsigned long long) now);
 }
 
 bool PosixDevice9::Timing_Is_Asked()
@@ -225,19 +251,20 @@ void PosixDevice9::Timing_Present(double present_ms, unsigned int draws)
 			(double)(state.LastPresent - state.FirstPresent) / 1.0e9, TimingDrawMs, flushes, flush_ms, present_ms, acquire_ms,
 			offscreen_ms, draws, frame_ms - TimingDrawMs - flush_ms - present_ms);
 	}
-	const bool stampValid=state.StampValid;
-	state.StampValid=false;
+	const bool stampValid = state.StampValid;
+	state.StampValid = false;
 	const bool measuring = !state.Reported && (state.ColdMode
-		? state.ColdSequence.Observe(stampValid,state.StampFrame,state.LastPresent!=0)
+		? state.ColdSequence.Observe(stampValid, state.StampFrame, state.LastPresent != 0)
 		: state.LogicMode
-		? state.LogicSequence.Observe(state.LogicWindow,stampValid,state.StampFrame)
-		: (double)(now - state.FirstPresent) / 1.0e9 >= state.Delay && state.Frame.size() < state.Count);
+		? state.LogicSequence.Observe(state.LogicWindow, stampValid, state.StampFrame)
+		: (double)(now - state.FirstPresent) / 1.0e9 >= state.Delay &&state.Frame.size() < state.Count);
 	if (measuring && state.LastPresent != 0) {
-		if(state.ColdMode&&state.Frame.empty()) {
-			state.ColdFirstPresentNs=now;state.ColdPreviousPresentNs=state.LastPresent;
-			fprintf(stderr,"PosixDevice9 cold-marker: first-gameplay-present logic=%u present_monotonic_ns=%llu previous_present_ns=%llu load_ready_to_present_ms=%.9f\n",
-				state.StampFrame,(unsigned long long)now,(unsigned long long)state.LastPresent,
-				(double)(now-state.ColdLoadReadyNs)/1.0e6);
+		if (state.ColdMode &&state.Frame.empty()) {
+			state.ColdFirstPresentNs = now;
+			state.ColdPreviousPresentNs = state.LastPresent;
+			fprintf(stderr, "PosixDevice9 cold-marker: first-gameplay-present logic=%u present_monotonic_ns=%llu previous_present_ns=%llu load_ready_to_present_ms=%.9f\n",
+				state.StampFrame, (unsigned long long) now, (unsigned long long) state.LastPresent,
+				(double)(now - state.ColdLoadReadyNs) / 1.0e6);
 		}
 		const double frame_ms = (double)(now - state.LastPresent) / 1.0e6;
 		state.Frame.push_back(frame_ms);
@@ -250,7 +277,10 @@ void PosixDevice9::Timing_Present(double present_ms, unsigned int draws)
 		state.Flushes.push_back((double)flushes);
 		state.PresentMs.push_back(present_ms);
 		state.FenceMs.push_back(fence_ms);
-		if(state.LogicMode||state.ColdMode) {state.LogicFrames.push_back(state.StampFrame);state.PresentNs.push_back(now);}
+		if (state.LogicMode || state.ColdMode) {
+			state.LogicFrames.push_back(state.StampFrame);
+			state.PresentNs.push_back(now);
+		}
 		if (not_visible > 0) {
 			++state.NotVisible;
 		}
@@ -261,8 +291,8 @@ void PosixDevice9::Timing_Present(double present_ms, unsigned int draws)
 	state.LastPresent = now;
 	TimingDrawMs = 0.0;
 	if (!state.Reported && (state.Frame.size() == state.Count
-		|| (state.LogicMode&&stampValid&&state.StampFrame>=state.LogicWindow.last)
-		|| (state.ColdMode&&state.ColdSequence.failed))) {
+		|| (state.LogicMode &&stampValid && state.StampFrame >= state.LogicWindow.last)
+		|| (state.ColdMode &&state.ColdSequence.failed))) {
 		Timing_Report();
 	}
 }
@@ -279,50 +309,64 @@ void PosixDevice9::Timing_Report()
 		return;
 	}
 	state.Reported = true;
-	if(state.LogicMode||state.ColdMode) {
-		if(state.ColdMode) {
-			fprintf(stderr,"PosixDevice9 timing: COLD first=%u samples=%zu expected=%u rejected=%u status=%s failure=%s; first interval includes the loading transition%s\n",
-				state.ColdSequence.first,state.Frame.size(),state.Count,state.ColdSequence.rejected,
-				state.ColdSequence.Complete()?"complete":"INCOMPLETE",state.ColdSequence.failure,
-				state.Sync?" SERIALISED (whole-engine fences; not frame rate)":"");
-			if(!state.ColdMarkersPath.empty()) {
-				FILE *markers=fopen(state.ColdMarkersPath.c_str(),"w");
-				if(markers) {
-					fprintf(markers,"{\n  \"version\":1,\n  \"status\":\"%s\",\n  \"basis\":\"native-first-post-save-world-present\",\n  \"expected_samples\":%u,\n  \"samples\":%zu,\n  \"rejected\":%u,\n  \"failure\":\"%s\",\n  \"first_visible_logic_frame\":%u,\n  \"first_visible_present_monotonic_ns\":%llu,\n  \"previous_present_monotonic_ns\":%llu,\n  \"load_ready_monotonic_ns\":%llu,\n  \"first_interval_crosses_loading\":true,\n  \"first_interval_kind\":\"previous-pre-gameplay-present-to-first-eligible-present\",\n  \"camera_state_sha256\":\"%s\"",
-						state.ColdSequence.Complete()?"complete":"INCOMPLETE",state.Count,state.Frame.size(),state.ColdSequence.rejected,
-						state.ColdSequence.failure,state.ColdSequence.first,(unsigned long long)state.ColdFirstPresentNs,
-						(unsigned long long)state.ColdPreviousPresentNs,(unsigned long long)state.ColdLoadReadyNs,state.ColdCameraSha256.c_str());
-					if(state.ColdLoadBeginNs)fprintf(markers,",\n  \"load_begin_monotonic_ns\":%llu",(unsigned long long)state.ColdLoadBeginNs);
-					if(state.ColdPrewarmBeginNs&&state.ColdPrewarmEndNs)
-						fprintf(markers,",\n  \"cache_prepare_begin_monotonic_ns\":%llu,\n  \"cache_prepare_end_monotonic_ns\":%llu",(unsigned long long)state.ColdPrewarmBeginNs,(unsigned long long)state.ColdPrewarmEndNs);
-					fprintf(markers,"\n}\n");
-					const bool failed=ferror(markers)!=0;
-					if(fclose(markers)!=0||failed)fprintf(stderr,"PosixDevice9 timing: cold marker write failed: %s\n",state.ColdMarkersPath.c_str());
-				} else fprintf(stderr,"PosixDevice9 timing: cold marker open failed: %s\n",state.ColdMarkersPath.c_str());
+	if (state.LogicMode || state.ColdMode) {
+		if (state.ColdMode) {
+			fprintf(stderr, "PosixDevice9 timing: COLD first=%u samples=%zu expected=%u rejected=%u status=%s failure=%s; first interval includes the loading transition%s\n",
+				state.ColdSequence.first, state.Frame.size(), state.Count, state.ColdSequence.rejected,
+				state.ColdSequence.Complete() ? "complete" : "INCOMPLETE",
+				state.ColdSequence.failure,
+				state.Sync ? " SERIALISED (whole-engine fences; not frame rate)" : "");
+			if (!state.ColdMarkersPath.empty()) {
+				FILE *markers = fopen(state.ColdMarkersPath.c_str(), "w");
+				if (markers) {
+					fprintf(markers, "{\n  \"version\":1,\n  \"status\":\"%s\",\n  \"basis\":\"native-first-post-save-world-present\",\n  \"expected_samples\":%u,\n  \"samples\":%zu,\n  \"rejected\":%u,\n  \"failure\":\"%s\",\n  \"first_visible_logic_frame\":%u,\n  \"first_visible_present_monotonic_ns\":%llu,\n  \"previous_present_monotonic_ns\":%llu,\n  \"load_ready_monotonic_ns\":%llu,\n  \"first_interval_crosses_loading\":true,\n  \"first_interval_kind\":\"previous-pre-gameplay-present-to-first-eligible-present\",\n  \"camera_state_sha256\":\"%s\"",
+						state.ColdSequence.Complete() ? "complete" : "INCOMPLETE",
+						state.Count, state.Frame.size(), state.ColdSequence.rejected,
+						state.ColdSequence.failure, state.ColdSequence.first, (unsigned long long) state.ColdFirstPresentNs,
+						(unsigned long long) state.ColdPreviousPresentNs, (unsigned long long) state.ColdLoadReadyNs,
+						state.ColdCameraSha256.c_str());
+					if (state.ColdLoadBeginNs)
+						fprintf(markers, ",\n  \"load_begin_monotonic_ns\":%llu", (unsigned long long) state.ColdLoadBeginNs);
+					if (state.ColdPrewarmBeginNs &&state.ColdPrewarmEndNs)
+						fprintf(markers, ",\n  \"cache_prepare_begin_monotonic_ns\":%llu,\n  \"cache_prepare_end_monotonic_ns\":%llu", (unsigned long long) state.ColdPrewarmBeginNs,
+							(unsigned long long) state.ColdPrewarmEndNs);
+					fprintf(markers, "\n}\n");
+					const bool failed = ferror(markers) != 0;
+					if (fclose(markers) != 0 || failed)
+						fprintf(stderr, "PosixDevice9 timing: cold marker write failed: %s\n", state.ColdMarkersPath.c_str());
+				} else
+					fprintf(stderr, "PosixDevice9 timing: cold marker open failed: %s\n", state.ColdMarkersPath.c_str());
 			}
-		} else fprintf(stderr,"PosixDevice9 timing: LOGIC window %u..%u samples=%zu expected=%u rejected=%u status=%s%s\n",
-			state.LogicWindow.first,state.LogicWindow.last,state.Frame.size(),state.Count,state.LogicSequence.rejected,
-			state.LogicSequence.Complete(state.LogicWindow)?"complete":"INCOMPLETE",
-			state.Sync?" SERIALISED (whole-engine fences; not frame rate)":"");
-		if(!state.CsvPath.empty()) {
-			FILE *csv=fopen(state.CsvPath.c_str(),"w");
-			if(csv) {
-				fprintf(csv,"logic_frame,present_monotonic_ns,frame_ms,work_ms,device_draw_ms,device_flush_ms,device_present_ms,swapchain_wait_ms,offscreen_wait_ms,fence_ms,draws,flushes%s\n",state.ColdMode?",cold_transition":"");
-				for(size_t i=0;i<state.Frame.size();++i) {
-					fprintf(csv,"%u,%llu,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.0f,%.0f",
-						state.LogicFrames[i],(unsigned long long)state.PresentNs[i],state.Frame[i],state.Work[i],state.DrawMs[i],
-						state.FlushMs[i],state.PresentMs[i],state.AcquireMs[i],state.OffscreenMs[i],state.FenceMs[i],state.Draws[i],state.Flushes[i]);
-					if(state.ColdMode)fprintf(csv,",%u",i==0?1u:0u);
-					fprintf(csv,"\n");
+		} else
+			fprintf(stderr, "PosixDevice9 timing: LOGIC window %u..%u samples=%zu expected=%u rejected=%u status=%s%s\n",
+				state.LogicWindow.first, state.LogicWindow.last, state.Frame.size(), state.Count,
+				state.LogicSequence.rejected,
+				state.LogicSequence.Complete(state.LogicWindow) ? "complete" : "INCOMPLETE",
+				state.Sync ? " SERIALISED (whole-engine fences; not frame rate)" : "");
+		if (!state.CsvPath.empty()) {
+			FILE *csv = fopen(state.CsvPath.c_str(), "w");
+			if (csv) {
+				fprintf(csv, "logic_frame,present_monotonic_ns,frame_ms,work_ms,device_draw_ms,device_flush_ms,device_present_ms,swapchain_wait_ms,offscreen_wait_ms,fence_ms,draws,flushes%s\n",
+					state.ColdMode ? ",cold_transition" : "");
+				for (size_t i = 0; i < state.Frame.size(); ++i) {
+					fprintf(csv, "%u,%llu,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.0f,%.0f",
+						state.LogicFrames[i], (unsigned long long) state.PresentNs[i], state.Frame[i], state.Work[i], state.DrawMs[i],
+						state.FlushMs[i], state.PresentMs[i], state.AcquireMs[i], state.OffscreenMs[i], state.FenceMs[i],
+						state.Draws[i], state.Flushes[i]);
+					if (state.ColdMode)
+						fprintf(csv, ",%u", i == 0 ? 1u : 0u);
+					fprintf(csv, "\n");
 				}
-				const bool failed=ferror(csv)!=0;
-				if(fclose(csv)!=0||failed)fprintf(stderr,"PosixDevice9 timing: CSV write failed: %s\n",state.CsvPath.c_str());
-			} else fprintf(stderr,"PosixDevice9 timing: CSV open failed: %s\n",state.CsvPath.c_str());
+				const bool failed = ferror(csv) != 0;
+				if (fclose(csv) != 0 || failed)
+					fprintf(stderr, "PosixDevice9 timing: CSV write failed: %s\n", state.CsvPath.c_str());
+			} else
+				fprintf(stderr, "PosixDevice9 timing: CSV open failed: %s\n", state.CsvPath.c_str());
 		}
 	} else
-	fprintf(stderr, "PosixDevice9 timing: %zu frames from %.0f s after the first Present%s%s\n", state.Frame.size(),
-		state.Delay, state.Frame.size() < state.Count ? " (the run ended before the window filled)" : "",
-		state.Sync ? ", SERIALISED (every submit waits for its fence: GPU time, not frame rate)" : "");
+		fprintf(stderr, "PosixDevice9 timing: %zu frames from %.0f s after the first Present%s%s\n", state.Frame.size(),
+			state.Delay, state.Frame.size() < state.Count ? " (the run ended before the window filled)" : "",
+			state.Sync ? ", SERIALISED (every submit waits for its fence: GPU time, not frame rate)" : "");
 	report("frame", state.Frame, "ms");
 	report("work (no vsync)", state.Work, "ms");
 	if (state.Offscreen) {

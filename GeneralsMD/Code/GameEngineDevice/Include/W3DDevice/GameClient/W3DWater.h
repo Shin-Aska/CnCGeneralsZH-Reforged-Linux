@@ -139,7 +139,7 @@ public:
 	void reset( void );  ///< reset any resources we need to
 	void load(void);	///< load/setup any map dependent features
 	void prewarmStaticMapData(void); ///< immutable modern water fields; never advances water/history time
-	void update( void ); ///< update phase of the water
+	void update(void); ///< update phase of the water
 #if ZH_MODERN_WATER
 	void takeReadsForRender(void);
 #endif
@@ -258,15 +258,15 @@ protected:
 	Bool m_modernProjectedCacheEnabled=TRUE;
 	Bool m_modernProfileEnabled=FALSE;
 	// Opt-in per-render CPU attribution; independent of the sampled 120-render profile.
-	Bool m_modernMotionProfileEnabled=FALSE, m_modernMotionProfileActive=FALSE;
-	uint64_t m_modernMotionProfileSerial=0;
-	double m_modernMotionFoamCpu=0, m_modernMotionAdvanceCpu=0;
-	size_t m_modernMotionFoamCalls=0, m_modernMotionAdvanceCalls=0;
+	Bool m_modernMotionProfileEnabled = FALSE, m_modernMotionProfileActive = FALSE;
+	uint64_t m_modernMotionProfileSerial = 0;
+	double m_modernMotionFoamCpu = 0, m_modernMotionAdvanceCpu = 0;
+	size_t m_modernMotionFoamCalls = 0, m_modernMotionAdvanceCalls = 0;
 	struct ModernWaterMotionGeometryProfile {
-		double mesh=0,fill=0,submit=0,refine=0,cull=0,shoreClip=0,compact=0;
-		size_t patches=0,baseVertices=0,baseTriangles=0,refinedVertices=0,refinedTriangles=0,preparedVertices=0,preparedTriangles=0;
+		double mesh = 0, fill = 0, submit = 0, refine = 0, cull = 0, shoreClip = 0, compact = 0;
+		size_t patches = 0, baseVertices = 0, baseTriangles = 0, refinedVertices = 0, refinedTriangles = 0,
+			preparedVertices = 0, preparedTriangles = 0;
 	} m_modernMotionGeometry;
-
 
 #if defined(__linux__)
 	WaterProjectedMeshCache::Cache m_modernTopologyCache;
@@ -351,18 +351,18 @@ protected:
 	WaterShoreHistory::History m_modernShoreHistory;
 	WaterShoreSource::Batch m_modernShoreSource;
 	struct ModernShorePreparation {
-		uint64_t revision=0;
-		WaterShoreHistory::BuildResult result=WaterShoreHistory::BuildResult::Invalid;
-		WaterShoreHistory::BuildResult coastalResult=WaterShoreHistory::BuildResult::Invalid;
-		size_t levels=0;
-		Bool coastalAttempted=FALSE;
+		uint64_t revision = 0;
+		WaterShoreHistory::BuildResult result = WaterShoreHistory::BuildResult::Invalid;
+		WaterShoreHistory::BuildResult coastalResult = WaterShoreHistory::BuildResult::Invalid;
+		size_t levels = 0;
+		Bool coastalAttempted = FALSE;
 		WaterShoreSource::Batch source;
 		WaterShoreHistory::Topology topology;
 		WaterCoastalDomain::Domain coastal;
 	} m_modernShorePreparation;
 	uint64_t m_modernShoreRevision=1, m_modernShoreAttempted=0;
 	Bool m_modernShoreReady=FALSE;
-	size_t m_modernShoreLevelCount=0;
+	size_t m_modernShoreLevelCount = 0;
 	WaterCoastalDomain::Domain m_modernCoastalDomain;
 	uint64_t m_modernCoastalRevision=0;
 	Bool m_modernCoastalReady=FALSE,m_modernCoastalViewReady=FALSE;
@@ -380,7 +380,7 @@ protected:
 		Bool valid=FALSE;
 		WaterShoreHistory::RasterLookup shoreLookup;
 		std::vector<float> shoreBreakup;
-		uint64_t shoreBreakupBuild=0;
+		uint64_t shoreBreakupBuild = 0;
 	};
 	std::vector<ModernFoamTexture> m_modernFoamTextures;
 
@@ -393,13 +393,13 @@ protected:
 		Real level; TextureClass *texture;
 		TextureClass *waveCage=NULL;
 #if defined(__linux__)
-		TextureClass *heading=NULL;
-		Real prevailingRotation=0.0f,swellStep=1.0f,localStep=0.0f;
+		TextureClass *heading = NULL;
+		Real prevailingRotation = 0.0f, swellStep = 1.0f, localStep = 0.0f;
 		std::vector<UnsignedByte> waveSupport; // geometry support; optical/material exposure stays unchanged
 		std::vector<uint32_t> localEnvelope;
-		Real waveExtent=0.0f;
+		Real waveExtent = 0.0f;
 #endif
-		Bool attempted=FALSE;
+		Bool attempted = FALSE;
 		std::vector<UnsignedByte> waveCageSupport; // same quantized alpha sampled by the shader
 		std::vector<UnsignedByte> ocean;
 		WaterOpticalContext::Field shoreContext; // retained CPU source data, independent of texture upload success
@@ -409,8 +409,8 @@ protected:
 	std::vector<WaterOpticalContext::Polygon> m_modernOpticalPolygons;
 	Bool m_modernOpticalPolygonsValid = FALSE;
 #if defined(__linux__)
-	Bool m_modernWaveSourceReady=FALSE,m_modernWaveSourcePresent=FALSE;
-	Real m_modernWaveSourceLevel=0.0f;
+	Bool m_modernWaveSourceReady = FALSE, m_modernWaveSourcePresent = FALSE;
+	Real m_modernWaveSourceLevel = 0.0f;
 #endif
 	IDirect3DPixelShader9 *	m_waterPixelShader;		///<D3D pixel shader.
 	IDirect3DPixelShader9 *	m_riverWaterPixelShader;		///<D3D pixel shader.

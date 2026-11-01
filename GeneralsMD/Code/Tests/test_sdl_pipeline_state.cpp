@@ -305,8 +305,9 @@ int main()
 		for (unsigned i = 0; i < 4; ++i)
 			CHECK(samplers->Sampler(recent_states[i]) == recent_samplers[i]);
 		const size_t populated = samplers->Table_Lookups();
-		for (unsigned round = 0; round < 16; ++round) for (unsigned i = 0; i < 4; ++i)
-			CHECK(samplers->Sampler(recent_states[i]) == recent_samplers[i]);
+		for (unsigned round = 0; round < 16; ++round)
+			for (unsigned i = 0; i < 4; ++i)
+				CHECK(samplers->Sampler(recent_states[i]) == recent_samplers[i]);
 		CHECK(samplers->Table_Lookups() == populated);
 		for (unsigned i = 4; i < 12; ++i) {
 			recent_states[0][D3DSAMP_MAXMIPLEVEL] = i;
