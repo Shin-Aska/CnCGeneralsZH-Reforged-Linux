@@ -8,6 +8,17 @@ found and fixed, EA's own, not port damage.**
 
 ---
 
+## Linux Modern water coastal classification (2026-11-01)
+
+- Broad coastal water split by islands now retains the original sea waves,
+  including Flash Effect's outer sea. Regions sharing a continuous coastal
+  opening qualify together; narrow channels and sheltered inland water keep
+  their calmer behavior.
+- Long open coastlines also count as sea continuing beyond the map, restoring
+  sea waves on Tournament A and at Superweapon General's exposed entrance.
+  Narrow river mouths and enclosed lakes stay quieter. Downstream openings
+  preserve the arriving movement instead of restarting strong waves.
+
 ## Linux Modern water moving-camera performance (2026-11-01)
 
 - Water rendering reuses terrain calculations and avoids repeated mesh copies while

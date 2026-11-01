@@ -121,6 +121,38 @@ inline void Check(){
         if(f.texels[i*5+4]&255)++localSamples;else ++seaSamples;
     }
     CHECK(seaSamples>100 && localSamples>100);
+    // A shallow long coastline restores the original spectrum around its one
+    // incoming opening while chart phase and energy still travel from that
+    // opening. The second long exterior edge remains a downstream local field.
+    Grid boundary(151,151);boundary.Rect(10,138,140,150);boundary.Rect(0,10,12,140);boundary.Link();
+    CHECK(build(boundary,f));CHECK(f.localConverged);Identity(boundary,f);
+    CHECK(f.analysis.sourceKind==WaterBodyAnalysis::SourceKind::BoundarySea && f.analysis.sourceCells.size()==131);
+    const int incoming=150*boundary.w+70,seaInterior=145*boundary.w+70;
+    const int bend=139*boundary.w+6,passive=70*boundary.w+6,passiveEdge=70*boundary.w;
+    CHECK(f.analysis.sea[incoming]==1 && f.analysis.sea[seaInterior]>=.5f);
+    CHECK((f.texels[incoming*5+4]&255)==0 && (f.texels[seaInterior*5+4]&255)==0);
+    CHECK(f.analysis.distance[seaInterior]>0 && f.analysis.energy[seaInterior]<1);
+    CHECK(f.analysis.exterior[passiveEdge]>0 && f.analysis.sea[passiveEdge]==0);
+    CHECK(f.analysis.distance[passiveEdge]>0 && f.analysis.energy[passiveEdge]<1);
+    CHECK((f.texels[passiveEdge*5+4]&255)==255 && (f.texels[passive*5+4]&0x00ffff00u)!=0);
+    CHECK(f.analysis.distance[passive]>f.analysis.distance[bend] && f.analysis.energy[passive]<f.analysis.energy[incoming]);
+    for(unsigned k=0;k<2;++k){
+        const float before=WaterWaveHeading::DecodeU(f.texels[bend*5+2+k],f.localStep);
+        const float after=WaterWaveHeading::DecodeU(f.texels[passive*5+2+k],f.localStep);
+        CHECK(after>before+600); // Passive exterior cannot become another phase anchor.
+    }
+    CHECK(build(boundary,again));CHECK(f.texels==again.texels && f.localStep==again.localStep);
+    // A shared broad region does not grant the distant passive coastline a
+    // second legacy-spectrum bypass or restart its transported chart phase.
+    Grid sharedBoundary(151,301);sharedBoundary.Rect(25,250,125,300);
+    sharedBoundary.Rect(50,0,100,300);sharedBoundary.Rect(25,0,125,50);sharedBoundary.Link();
+    CHECK(build(sharedBoundary,f));CHECK(f.localConverged);Identity(sharedBoundary,f);
+    const int broadPassive=75;
+    CHECK(f.analysis.sourceKind==WaterBodyAnalysis::SourceKind::BoundarySea && f.analysis.sourceCells.size()==101);
+    CHECK(f.analysis.exterior[broadPassive]>0 && f.analysis.sea[broadPassive]==0);
+    CHECK(f.analysis.distance[broadPassive]>2000 && f.analysis.energy[broadPassive]<1);
+    CHECK((f.texels[broadPassive*5+4]&255)==255 && (f.texels[broadPassive*5+4]&0x00ffff00u)!=0);
+    for(unsigned k=0;k<2;++k)CHECK(WaterWaveHeading::DecodeU(f.texels[broadPassive*5+2+k],f.localStep)>2500);
     Grid paddedStream(73,49);paddedStream.Rect(0,16,72,32);paddedStream.Link();
     CHECK(WaterLocalWaveField::Build(paddedStream.wet.data(),paddedStream.wet.data(),paddedStream.links.data(),73,49,8,10,f));
     const int apronWet=16*73,playableWet=apronWet+8,apronGhost=15*73;

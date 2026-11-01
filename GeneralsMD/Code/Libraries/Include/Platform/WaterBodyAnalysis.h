@@ -18,24 +18,42 @@ namespace WaterBodyAnalysis {
 constexpr int MaxDimension=2048;
 constexpr size_t MaxCells=1024u*1024u,MaxVisualConnections=1024;
 constexpr float CoreClearance=450,CoreArea=180000,BroadClearance=200;
+// A long open coastline is evidence of water beyond the playable crop, even
+// when the visible strip contains no large offshore core. Measure physical
+// covered links on one straight side; corners cannot add two short mouths.
+constexpr float CoastalFrontage=900;
 constexpr float SeaExpansion=220,OpeningWidth=120,AttenuationLength=2400;
 constexpr float ShelterClearance=150,CalmEnergy=.055f;
 enum : uint8_t { PositiveX=1,PositiveY=2 };
-enum class SourceKind { None,BroadSea,ClockwisePerimeter };
+enum class SourceKind { None,BroadSea,ClockwisePerimeter,BoundarySea };
 struct VisualConnection { int a,b; float transmission=.65f; };
 struct Direction {float x=0,y=0;};
 struct Field {
-    std::vector<float> sea,energy,clearance,distance,downstreamArea;
+    // Exterior is geometric evidence; sea is the original-spectrum blend near
+    // the selected source. Neither independently creates transport sources.
+    std::vector<float> exterior,sea,energy,clearance,distance,downstreamArea;
     std::vector<Direction> direction;
     std::vector<int> component,sourceCells;
     SourceKind sourceKind=SourceKind::None;
     Direction sourceHeading={0,-1}; // Persistent chart axis, from the selected physical source.
     int sourceComponent=-1;
-    double broadCoreArea=0;
+    double broadCoreArea=0; // Combined core area of the selected exterior sea group.
+    float sourceFrontage=0; // Longest covered straight frontage of the selected sea.
     int selectedCoreFirstCell=-1;
     float firstOpeningPosition=std::numeric_limits<float>::infinity();
-    unsigned qualifyingCores=0,validOpenings=0;
+    unsigned qualifyingCores=0,validOpenings=0; // Connected core pieces in qualifying sea groups.
 };
+inline bool IsSeaSource(SourceKind kind){return kind==SourceKind::BroadSea || kind==SourceKind::BoundarySea;}
+// Compare authored elevations before visibility can choose a source. Exterior
+// frontage is primary evidence; core area breaks equal-frontage ties. Exact
+// ties retain the first sorted elevation. Short fallbacks keep clockwise order.
+inline bool PreferSource(const Field&candidate,SourceKind kind,float frontage,double coreArea,float opening){
+    if(IsSeaSource(candidate.sourceKind))return !IsSeaSource(kind)
+        || candidate.sourceFrontage>frontage
+        || (candidate.sourceFrontage==frontage && candidate.broadCoreArea>coreArea);
+    return !IsSeaSource(kind) && candidate.sourceKind==SourceKind::ClockwisePerimeter
+        && (kind==SourceKind::None || candidate.firstOpeningPosition<opening);
+}
 inline float Clamp01(float a){return (std::max)(0.0f,(std::min)(1.0f,a));}
 inline bool Build(const uint8_t*wet,const uint8_t*links,int width,int height,int border,
                   float spacing,Field&result,const std::vector<VisualConnection>&connections={},bool allowSources=true) {
@@ -55,7 +73,7 @@ inline bool Build(const uint8_t*wet,const uint8_t*links,int width,int height,int
         if(y+1<height-border && (links[i]&PositiveY) && wet[i+width])visit(i+width);
     };
     result.component.assign(count,-1);result.clearance.assign(count,0);
-    result.sea.assign(count,0);result.energy.assign(count,0);result.distance.assign(count,infinity);
+    result.exterior.assign(count,0);result.sea.assign(count,0);result.energy.assign(count,0);result.distance.assign(count,infinity);
     result.direction.resize(count);result.downstreamArea.assign(count,0);
     std::vector<int> queue;queue.reserve(count);int componentCount=0;
     for(int i=0;i<count;++i)if(active(i) && result.component[i]<0){
@@ -125,6 +143,24 @@ inline bool Build(const uint8_t*wet,const uint8_t*links,int width,int height,int
     openings.erase(std::remove_if(openings.begin(),openings.end(),[&](const std::vector<int>&v){return double(v.size())*spacing<OpeningWidth;}),openings.end());
     result.validOpenings=unsigned(openings.size());
     if(!openings.empty())result.firstOpeningPosition=float(std::find(perimeter.begin(),perimeter.end(),openings.front().front())-perimeter.begin())/float(perimeter.size());
+    std::vector<int> openingId(count,-1);
+    for(size_t id=0;id<openings.size();++id)for(int i:openings[id])openingId[i]=int(id);
+    std::vector<float> frontage(openings.size(),0);
+    auto measureSide=[&](int start,int step,int nodes){
+        int previous=-1;float length=0;
+        for(int k=0;k<nodes;++k){
+            const int i=start+k*step,id=openingId[i];
+            if(id>=0){
+                length=previous>=0 && openingId[previous]==id && connected(previous,i)?length+spacing:0;
+                frontage[id]=(std::max)(frontage[id],length);
+            }else length=0;
+            previous=i;
+        }
+    };
+    measureSide((height-border-1)*width+border,1,width-2*border);
+    measureSide(border*width+border,1,width-2*border);
+    measureSide(border*width+border,width,height-2*border);
+    measureSide(border*width+width-border-1,width,height-2*border);
     std::vector<uint8_t> exposed(count,0);for(const auto&o:openings)for(int i:o)exposed[i]=1;
     // Label broad regions once, so maps with many little cores remain O(cells).
     std::vector<int> broadId(count,-1);std::vector<uint8_t> broadExposed;
@@ -134,25 +170,109 @@ inline bool Build(const uint8_t*wet,const uint8_t*links,int width,int height,int
             if(broadId[j]<0 && result.clearance[j]>=BroadClearance){broadId[j]=id;queue.push_back(j);}
         });}
     }
-    std::vector<uint8_t> seen(count,0);size_t bestSize=0;int chosenBroad=-1;
+    // Islands can split one exterior sea into several broad regions and small
+    // cores. Regions touching the same continuous physical perimeter opening
+    // share evidence of open sea. An inland canal or a visual bridge cannot
+    // join these groups, and a narrow opening is never itself a sea seed.
+    std::vector<int> broadParent(broadExposed.size());
+    for(size_t id=0;id<broadParent.size();++id)broadParent[id]=int(id);
+    auto root=[&](int id){
+        while(broadParent[id]!=id){broadParent[id]=broadParent[broadParent[id]];id=broadParent[id];}
+        return id;
+    };
+    for(const auto&o:openings){
+        int first=-1;
+        for(int i:o)if(broadId[i]>=0){
+            const int id=root(broadId[i]);
+            if(first<0)first=id;
+            else{first=root(first);broadParent[(std::max)(first,id)]=(std::min)(first,id);first=(std::min)(first,id);}
+        }
+    }
+    struct SeaGroup {size_t coreCells=0;int firstCore=-1;unsigned cores=0;bool exposed=false;};
+    std::vector<SeaGroup> groups(broadParent.size());
+    for(size_t id=0;id<broadParent.size();++id)groups[root(int(id))].exposed|=broadExposed[id]!=0;
+    for(int&i:broadId)if(i>=0)i=root(i);
+    std::vector<uint8_t> seen(count,0);
     for(int i=0;i<count;++i)if(active(i) && result.clearance[i]>=CoreClearance && !seen[i]){
         queue.clear();queue.push_back(i);seen[i]=1;
         for(size_t k=0;k<queue.size();++k)neighbours(queue[k],[&](int j){
             if(!seen[j] && result.clearance[j]>=CoreClearance){seen[j]=1;queue.push_back(j);}
         });
-        if(double(queue.size())*spacing*spacing>=CoreArea && broadExposed[broadId[i]]){
-            ++result.qualifyingCores;
-            if(queue.size()>bestSize){bestSize=queue.size();chosenBroad=broadId[i];result.sourceComponent=result.component[i];result.selectedCoreFirstCell=i;result.broadCoreArea=double(bestSize)*spacing*spacing;}
+        auto&group=groups[broadId[i]];
+        group.coreCells+=queue.size();++group.cores;
+        if(group.firstCore<0)group.firstCore=i;
+    }
+    size_t bestSize=0;int chosenBroad=-1;
+    for(size_t id=0;id<groups.size();++id){
+        const auto&group=groups[id];
+        if(group.exposed && double(group.coreCells)*spacing*spacing>=CoreArea){
+            result.qualifyingCores+=group.cores;
+            if(group.coreCells>bestSize || (group.coreCells==bestSize && group.firstCore<result.selectedCoreFirstCell)){
+                bestSize=group.coreCells;chosenBroad=int(id);result.sourceComponent=result.component[group.firstCore];
+                result.selectedCoreFirstCell=group.firstCore;result.broadCoreArea=double(bestSize)*spacing*spacing;
+            }
         }
     }
+    // Broad groups and long boundary runs establish exterior membership. Only
+    // one of them supplies incoming movement; passive openings remain passive.
+    std::vector<uint8_t> exteriorGroup(groups.size(),0),incomingGroup(groups.size(),0);
+    for(size_t id=0;id<groups.size();++id)
+        exteriorGroup[id]=groups[id].exposed && double(groups[id].coreCells)*spacing*spacing>=CoreArea;
+    int chosenOpening=-1;
+    for(size_t id=0;id<openings.size();++id)if(frontage[id]>=CoastalFrontage){
+        if(chosenOpening<0)chosenOpening=int(id);
+        for(int i:openings[id])if(broadId[i]>=0)exteriorGroup[broadId[i]]=1;
+    }
+    auto expand=[&](std::vector<float>&mask){
+        // All seeds start at distance zero; covered physical links alone may
+        // extend this local footprint. Stop once the blend has reached zero.
+        std::fill(result.distance.begin(),result.distance.end(),infinity);
+        queue.clear();
+        for(int i=0;i<count;++i)if(mask[i]>0){result.distance[i]=0;queue.push_back(i);}
+        for(size_t k=0;k<queue.size();++k){const int i=queue[k];
+            if(result.distance[i]+spacing>=SeaExpansion)continue;
+            neighbours(i,[&](int j){if(!std::isfinite(result.distance[j])){
+                result.distance[j]=result.distance[i]+spacing;queue.push_back(j);
+            }});
+        }
+        for(int i:queue)mask[i]=Clamp01(1-result.distance[i]/SeaExpansion);
+    };
+    for(int i=0;i<count;++i)if(broadId[i]>=0 && exteriorGroup[broadId[i]])result.exterior[i]=1;
+    for(size_t id=0;id<openings.size();++id)if(frontage[id]>=CoastalFrontage)
+        for(int i:openings[id])result.exterior[i]=1;
+    expand(result.exterior);
     if(chosenBroad>=0){
         result.sourceKind=SourceKind::BroadSea;queue.clear();
-        for(int i=0;i<count;++i)if(broadId[i]==chosenBroad){result.distance[i]=0;queue.push_back(i);}
-        // Unweighted graph distance softens only the selected physical sea's edge.
-        for(size_t k=0;k<queue.size();++k){const int i=queue[k];neighbours(i,[&](int j){
-            if(!std::isfinite(result.distance[j])){result.distance[j]=result.distance[i]+spacing;queue.push_back(j);}
-        });}
-        for(int i:queue){result.sea[i]=Clamp01(1-result.distance[i]/SeaExpansion);if(result.sea[i]>=.5f)result.sourceCells.push_back(i);}
+        for(int i=0;i<count;++i)if(broadId[i]==chosenBroad)result.sea[i]=1;
+        // Preserve the established broad sea's interior source footprint.
+        // BFS order also preserves the existing chart anchor accumulation.
+        expand(result.sea);
+        for(int i:queue)if(result.sea[i]>=.5f)result.sourceCells.push_back(i);
+        for(size_t id=0;id<openings.size();++id)for(int i:openings[id])if(broadId[i]==chosenBroad){
+            result.sourceFrontage=(std::max)(result.sourceFrontage,frontage[id]);break;
+        }
+    }else if(chosenOpening>=0){
+        result.sourceKind=SourceKind::BoundarySea;
+        result.sourceCells=openings[chosenOpening];
+        result.sourceComponent=result.component[result.sourceCells.front()];
+        result.sourceFrontage=frontage[chosenOpening];
+        for(int i:result.sourceCells){result.sea[i]=1;if(broadId[i]>=0)incomingGroup[broadId[i]]=1;}
+        // Boundary evidence supports a coastal neighbourhood, not an entire
+        // broad corridor that may run far inland or reach a passive opening.
+        // Limit broad seeds by covered wet-path distance from the actual source;
+        // narrow connections still cannot make an inland broad region a seed.
+        std::fill(result.distance.begin(),result.distance.end(),infinity);
+        queue=result.sourceCells;for(int i:queue)result.distance[i]=0;
+        for(size_t k=0;k<queue.size();++k){const int i=queue[k];
+            if(broadId[i]>=0 && incomingGroup[broadId[i]])result.sea[i]=1;
+            if(result.distance[i]+spacing>CoreClearance)continue;
+            neighbours(i,[&](int j){if(!std::isfinite(result.distance[j])){
+                result.distance[j]=result.distance[i]+spacing;queue.push_back(j);
+            }});
+        }
+        expand(result.sea);
+        // Keep the boundary-only source cells independent of this appearance
+        // footprint. Extra sea samples never restart arrival distance/phase.
     }else if(!openings.empty()){
         result.sourceKind=SourceKind::ClockwisePerimeter;result.sourceCells=openings.front();result.sourceComponent=result.component[result.sourceCells.front()];
     }
@@ -272,7 +392,7 @@ inline bool Build(const uint8_t*wet,const uint8_t*links,int width,int height,int
         const float baseDecay=result.distance[i]/AttenuationLength;
         const float throughGain=std::exp((std::min)(std::log(1.35f),baseDecay*.5f)*narrow*continuation);
         result.energy[i]=(std::max)(CalmEnergy,(std::min)(1.0f,std::exp(-baseDecay)*shelter*transit*throughGain));
-        if(result.sea[i]>=.5f)result.energy[i]=1;
+        if(result.sourceKind==SourceKind::BroadSea && source[i])result.energy[i]=1;
         float gx=0,gy=0;
         neighbours(i,[&](int j){if(std::isfinite(result.distance[j])){const float diff=result.distance[j]-result.distance[i];
             gx+=(j%width-i%width)*diff;gy+=(j/width-i/width)*diff;

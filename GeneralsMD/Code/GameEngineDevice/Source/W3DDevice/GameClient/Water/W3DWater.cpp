@@ -2009,6 +2009,7 @@ TextureClass *WaterRenderObjClass::modernWaterOpticalTexture(Real level)
 			// a small edge pool first. Rivers are absent from the optical polygons.
 			WaterBodyAnalysis::SourceKind bestKind=WaterBodyAnalysis::SourceKind::None;
 			double bestArea=0;
+			float bestFrontage=0;
 			float bestOpening=std::numeric_limits<float>::infinity();
 			std::vector<Real> levels;
 			for(const auto &polygon:m_modernOpticalPolygons) {
@@ -2032,12 +2033,10 @@ TextureClass *WaterRenderObjClass::modernWaterOpticalTexture(Real level)
 				WaterBodyAnalysis::Field analysis;
 				if(WaterBodyAnalysis::Build(context.shoreContext.wet.data(),context.shoreContext.links.data(),
 					m_modernHeightWidth,m_modernHeightHeight,m_modernHeightBorder,MAP_XY_FACTOR,analysis)) {
-					const bool broad=analysis.sourceKind==WaterBodyAnalysis::SourceKind::BroadSea;
-					const bool choose=broad ? bestKind!=WaterBodyAnalysis::SourceKind::BroadSea || analysis.broadCoreArea>bestArea
-						: bestKind!=WaterBodyAnalysis::SourceKind::BroadSea && analysis.sourceKind==WaterBodyAnalysis::SourceKind::ClockwisePerimeter
-							&& analysis.firstOpeningPosition<bestOpening;
+					const bool choose=WaterBodyAnalysis::PreferSource(analysis,bestKind,bestFrontage,bestArea,bestOpening);
 					if(choose) {
 						bestKind=analysis.sourceKind;bestArea=analysis.broadCoreArea;bestOpening=analysis.firstOpeningPosition;
+						bestFrontage=analysis.sourceFrontage;
 						m_modernWaveSourceLevel=candidate;m_modernWaveSourcePresent=TRUE;
 						if(!cacheAll)winner=std::move(context);
 					}

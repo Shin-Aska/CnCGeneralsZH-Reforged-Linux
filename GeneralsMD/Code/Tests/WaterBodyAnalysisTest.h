@@ -28,10 +28,89 @@ inline void Check(){
     for(size_t i=0;i<sea.wet.size();++i)CHECK(again.sea[i]==0 && again.energy[i]==CalmEnergy);
     // Subcell authored gaps can leave every sampled node wet. Each 100-world
     // strip still has real banks, and may never acquire a broad-sea core.
+    // Only the two outer strips have a long exposed side; the interior strips
+    // have short perpendicular mouths and remain passive local water.
     Grid strips(201,201);strips.Rect(0,0,200,200);strips.Link();
     for(int y=0;y<strips.h;++y)for(int x=9;x+1<strips.w;x+=10)strips.links[y*strips.w+x]&=~PositiveX;
-    CHECK(strips.Build(again));CHECK(again.sourceKind==SourceKind::ClockwisePerimeter && again.qualifyingCores==0);
+    CHECK(strips.Build(again));CHECK(again.sourceKind==SourceKind::BoundarySea && again.qualifyingCores==0);
     for(float clearance:again.clearance)CHECK(clearance<=95);
+    CHECK(again.sea[100*strips.w]>0 && again.sea[100*strips.w+100]==0);
+    CHECK(again.exterior[100*strips.w+200]>0 && again.sea[100*strips.w+200]==0);
+    // A shallow coastline need not contain broad-clearance water. Its one
+    // selected opening supplies transport; the opposite long exterior opening
+    // is diagnostic only, even though both belong to the same physical body.
+    Grid shallow(151,151);shallow.Rect(10,138,140,150);shallow.Rect(0,10,12,140);shallow.Link();
+    CHECK(shallow.Build(f));
+    const int selected=150*shallow.w+70,passive=70*shallow.w,turn=139*shallow.w+11;
+    CHECK(f.sourceKind==SourceKind::BoundarySea && f.validOpenings==2 && f.qualifyingCores==0);
+    CHECK(f.sourceFrontage==1300 && f.broadCoreArea==0 && f.sourceCells.size()==131);
+    for(int i:f.sourceCells)CHECK(i/shallow.w==150 && i%shallow.w>=10 && i%shallow.w<=140);
+    for(float clearance:f.clearance)CHECK(clearance<BroadClearance);
+    CHECK(f.component[selected]==f.component[passive] && f.component[turn]==f.component[selected]);
+    CHECK(f.sea[selected]==1 && f.exterior[selected]>0 && f.distance[selected]==0);
+    CHECK(f.exterior[passive]>0 && f.sea[passive]==0 && f.distance[passive]>0 && f.energy[passive]<1);
+    CHECK(f.sea[turn]>=.5f && f.distance[turn]>0 && f.energy[turn]<1); // No reset inside the sea blend.
+    CHECK(shallow.Build(again));
+    CHECK(f.sea==again.sea && f.exterior==again.exterior && f.sourceCells==again.sourceCells);
+    CHECK(f.distance==again.distance && f.energy==again.energy && f.sourceFrontage==again.sourceFrontage);
+    CHECK(WaterBodyAnalysis::Build(shallow.wet.data(),shallow.links.data(),shallow.w,shallow.h,0,10,again,{},false));
+    CHECK(again.sourceKind==SourceKind::None && again.sourceCells.empty() && again.exterior==f.exterior);
+    for(size_t i=0;i<shallow.wet.size();++i)if(shallow.wet[i])CHECK(again.sea[i]==0 && again.energy[i]==CalmEnergy);
+    // Frontage measures covered straight segments in world space, including
+    // the exact threshold. Sample count, corner wrapping and inland length
+    // cannot convert a subthreshold opening into sea.
+    Grid threshold(111,31);threshold.Rect(10,18,100,30);threshold.Link();CHECK(threshold.Build(f));
+    CHECK(f.sourceKind==SourceKind::BoundarySea && f.sourceFrontage==900);
+    threshold.wet[30*threshold.w+100]=0;threshold.Link();CHECK(threshold.Build(f));
+    CHECK(f.sourceKind==SourceKind::ClockwisePerimeter);for(float value:f.sea)CHECK(value==0);
+    Grid bentFrontage(101,101);bentFrontage.Rect(0,88,50,100);bentFrontage.Rect(0,50,12,100);bentFrontage.Link();
+    CHECK(bentFrontage.Build(f));CHECK(f.sourceKind==SourceKind::ClockwisePerimeter && f.validOpenings==1);
+    for(float value:f.sea)CHECK(value==0);
+    Grid brokenFrontage(121,41);brokenFrontage.Rect(10,28,110,40);brokenFrontage.Link();
+    brokenFrontage.links[40*brokenFrontage.w+60]&=~PositiveX;CHECK(brokenFrontage.Build(f));
+    CHECK(f.sourceKind==SourceKind::ClockwisePerimeter && f.validOpenings==2);
+    CHECK(f.component[40*brokenFrontage.w+30]==f.component[40*brokenFrontage.w+90]);
+    for(float value:f.sea)CHECK(value==0);
+    Grid perpendicular(121,51);perpendicular.Rect(0,18,110,30);perpendicular.Link();CHECK(perpendicular.Build(f));
+    CHECK(f.sourceKind==SourceKind::ClockwisePerimeter);for(float value:f.sea)CHECK(value==0);
+    // A short opening that comes first clockwise must not outrank a later
+    // long coastline; selection still uses only the qualifying opening.
+    Grid laterCoast(151,151);laterCoast.Rect(20,138,32,150);laterCoast.Rect(138,10,150,130);laterCoast.Link();
+    CHECK(laterCoast.Build(f));CHECK(f.sourceKind==SourceKind::BoundarySea && f.sourceFrontage==1200);
+    for(int i:f.sourceCells)CHECK(i%laterCoast.w==150);
+    CHECK(f.sea[150*laterCoast.w+26]==0 && !std::isfinite(f.distance[150*laterCoast.w+26]));
+    // The same 900-world coastline qualifies at two grid spacings.
+    Grid fineCoast(201,41);fineCoast.Rect(10,16,190,40);fineCoast.Link();
+    CHECK(WaterBodyAnalysis::Build(fineCoast.wet.data(),fineCoast.links.data(),fineCoast.w,fineCoast.h,0,5,again));
+    CHECK(again.sourceKind==SourceKind::BoundarySea && again.sourceFrontage==900);
+    // Authored elevation selection uses the same exterior evidence ordering.
+    CHECK(PreferSource(again,SourceKind::ClockwisePerimeter,0,0,0));
+    CHECK(PreferSource(again,SourceKind::BroadSea,890,1000000,0));
+    CHECK(!PreferSource(again,SourceKind::BroadSea,910,0,0));
+    CHECK(!PreferSource(again,SourceKind::BoundarySea,900,0,1)); // Exact tie keeps the incumbent.
+    Field broadCandidate=again;broadCandidate.sourceKind=SourceKind::BroadSea;broadCandidate.broadCoreArea=CoreArea;
+    CHECK(PreferSource(broadCandidate,SourceKind::BoundarySea,900,0,0));
+    Field fallback;fallback.sourceKind=SourceKind::ClockwisePerimeter;fallback.firstOpeningPosition=.1f;
+    CHECK(!PreferSource(fallback,SourceKind::BoundarySea,900,0,.9f));
+    CHECK(PreferSource(fallback,SourceKind::ClockwisePerimeter,0,0,.2f));
+    // Two long openings may touch one continuous broad region without a
+    // qualifying deep core. That shared region is exterior geometry, but must
+    // not turn a distant passive opening into original-spectrum sea or seeds.
+    Grid sharedBroad(401,401);sharedBroad.Rect(150,350,250,400);
+    sharedBroad.Rect(175,0,225,400);sharedBroad.Rect(150,0,250,50);sharedBroad.Link();
+    CHECK(sharedBroad.Build(f));
+    const int farBroad=200,midBroad=200*sharedBroad.w+200;
+    CHECK(f.sourceKind==SourceKind::BoundarySea && f.validOpenings==2 && f.qualifyingCores==0);
+    CHECK(f.sourceCells.size()==101 && f.sourceFrontage==1000);
+    for(int i:f.sourceCells)CHECK(i/sharedBroad.w==400);
+    CHECK(f.exterior[farBroad]>0 && f.sea[farBroad]==0 && f.distance[farBroad]>0 && f.energy[farBroad]<1);
+    CHECK(f.sea[midBroad]==0 && f.distance[midBroad]>0 && f.energy[midBroad]<1);
+    // A long blind continuation in the same broad region also retains its
+    // transported local field once it is far from the incoming coastline.
+    Grid blindBroad(151,251);blindBroad.Rect(25,200,125,250);blindBroad.Rect(50,10,100,220);blindBroad.Link();
+    CHECK(blindBroad.Build(f));const int blindEnd=20*blindBroad.w+75;
+    CHECK(f.sourceKind==SourceKind::BoundarySea && f.validOpenings==1 && f.qualifyingCores==0);
+    CHECK(f.exterior[blindEnd]>0 && f.sea[blindEnd]==0 && f.distance[blindEnd]>0 && f.energy[blindEnd]<1);
     // A large closed lake has a core, but no exposed broad region. It is calm.
     Grid lake(181,181);lake.Rect(10,10,170,170);lake.Link();CHECK(lake.Build(f));
     CHECK(f.sourceKind==SourceKind::None && f.sourceCells.empty());
@@ -40,6 +119,39 @@ inline void Check(){
     lake.Rect(0,85,10,96);lake.Link();CHECK(lake.Build(f));
     CHECK(f.sourceKind==SourceKind::ClockwisePerimeter && f.qualifyingCores==0);
     for(float value:f.sea)CHECK(value==0);
+    // An island stops short of one contiguous wet opening, splitting exterior
+    // water into two broad lobes. Their eligible cores (146000 and 144400)
+    // qualify together, although neither connected core reaches CoreArea.
+    Grid coast(273,281);coast.Rect(10,190,130,280);coast.Rect(142,190,262,280);
+    coast.Rect(131,272,141,280);coast.Rect(50,10,220,170);coast.Rect(67,170,78,190);
+    coast.Link();CHECK(coast.Build(f));
+    const int leftSea=250*coast.w+70,rightSea=250*coast.w+202;
+    const int canal=180*coast.w+72,inlandLake=90*coast.w+135;
+    CHECK(f.sourceKind==SourceKind::BroadSea && f.validOpenings==1 && f.broadCoreArea==290400);
+    CHECK(f.sea[leftSea]==1 && f.sea[rightSea]==1 && f.energy[leftSea]==1 && f.energy[rightSea]==1);
+    // The larger inland core (575100) shares the physical body through a thin
+    // canal, but supplies no exterior evidence and receives no sea seeds.
+    CHECK(f.component[leftSea]==f.component[inlandLake]);
+    CHECK(f.sea[canal]==0 && f.sea[inlandLake]==0 && f.energy[inlandLake]<1);
+    CHECK(coast.Build(again));
+    CHECK(f.sea==again.sea && f.sourceCells==again.sourceCells && f.energy==again.energy);
+    CHECK(f.selectedCoreFirstCell==again.selectedCoreFirstCell && f.broadCoreArea==again.broadCoreArea);
+    // A wider gap joins the broad region, but still splits its deep cores.
+    // All eligible cells count, not merely the largest connected core piece.
+    Grid splitCore(273,91);splitCore.Rect(10,10,130,90);splitCore.Rect(142,10,262,90);
+    splitCore.Rect(131,50,141,90);splitCore.Link();CHECK(splitCore.Build(f));
+    CHECK(f.sourceKind==SourceKind::BroadSea && f.broadCoreArea==310800);
+    CHECK(f.sea[70*splitCore.w+70]==1 && f.sea[70*splitCore.w+202]==1);
+    // An uncovered subcell edge splits an otherwise wet perimeter into two
+    // openings. Its subthreshold cores cannot pool through the inland detour,
+    // even though that narrow passage keeps one physical component.
+    Grid separate(273,101);separate.Rect(10,10,262,100);separate.Link();
+    for(int y=40;y<=100;++y)separate.links[y*separate.w+136]&=~PositiveX;
+    CHECK(separate.Build(f));
+    CHECK(f.component[70*separate.w+70]==f.component[70*separate.w+202]);
+    CHECK(f.sourceKind==SourceKind::BoundarySea && f.validOpenings==2 && f.qualifyingCores==0);
+    CHECK(f.sea[70*separate.w+70]>0 && f.sea[70*separate.w+202]==0);
+    CHECK(f.exterior[100*separate.w+202]>0 && f.distance[100*separate.w+202]>0 && f.energy[100*separate.w+202]<1);
     // Clockwise perimeter selection emits from one opening only. The other
     // opening remains passive even where it touches the stored map boundary.
     Grid forks(61,61);forks.Rect(0,40,60,52);forks.Rect(26,0,38,52);forks.Link();CHECK(forks.Build(f));
