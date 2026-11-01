@@ -91,6 +91,19 @@ unsigned emberConstants(const FieldState &field, unsigned index, bool terrain,
     return count;
 }
 
+bool setEmberTerrainDomain(const float domain[4], EmberConstants &constants)
+{
+    if (!domain) return false;
+    for (unsigned i = 0; i < 4; ++i) if (!std::isfinite(domain[i])) return false;
+    const float width = domain[2] - domain[0], height = domain[3] - domain[1];
+    if (!(width > 0 && height > 0) || !std::isfinite(width) || !std::isfinite(height)
+        || !std::isfinite(1.f / width) || !std::isfinite(1.f / height)) return false;
+    constants.terrain[1] = -1;
+    constants.terrain[2] = domain[0]; constants.terrain[3] = domain[1];
+    constants.scene[2] = 1.f / width; constants.scene[3] = 1.f / height;
+    return true;
+}
+
 void LayerCore::fail(const char *reason)
 {
     if (!failed) std::fprintf(stderr, "hazard-cloud: volumetric renderer FAIL: %s\n", reason);
@@ -399,6 +412,37 @@ bool LayerCore::takeBake(const Uniforms &uniforms)
 void LayerCore::heatScissor(const float viewProjection[16], const Camera &camera,
                             unsigned targetWidth, unsigned targetHeight, int rectangle[4]) const
 {
+    fieldScissor(viewProjection, camera, targetWidth, targetHeight, true, rectangle);
+}
+
+void LayerCore::volumeScissors(const float viewProjection[16], const Camera &camera,
+                               unsigned targetWidth, unsigned targetHeight,
+                               int lowRectangle[4], int compositeRectangle[4]) const
+{
+    fieldScissor(viewProjection, camera, targetWidth, targetHeight, false, compositeRectangle);
+    if (!compositeRectangle[2] || !compositeRectangle[3]) {
+        std::fill(lowRectangle, lowRectangle + 4, 0);
+        return;
+    }
+    // The composite reads the two neighbouring low texels on each axis. Keep
+    // one more low texel on either side, including outside the camera viewport:
+    // its samples use framebuffer coordinates, even for a partial viewport.
+    const int left = (std::max)(0, compositeRectangle[0] / 2 - 1);
+    const int top = (std::max)(0, compositeRectangle[1] / 2 - 1);
+    const int right = (std::min)(static_cast<int>(targetWidth / 2 + targetWidth % 2),
+        (compositeRectangle[0] + compositeRectangle[2] + 1) / 2 + 1);
+    const int bottom = (std::min)(static_cast<int>(targetHeight / 2 + targetHeight % 2),
+        (compositeRectangle[1] + compositeRectangle[3] + 1) / 2 + 1);
+    lowRectangle[0] = left;
+    lowRectangle[1] = top;
+    lowRectangle[2] = right - left;
+    lowRectangle[3] = bottom - top;
+}
+
+void LayerCore::fieldScissor(const float viewProjection[16], const Camera &camera,
+                             unsigned targetWidth, unsigned targetHeight, bool heatOnly,
+                             int rectangle[4]) const
+{
     const float left = static_cast<float>((std::min)(camera.x, targetWidth));
     const float top = static_cast<float>((std::min)(camera.y, targetHeight));
     const float right = left + (std::min)(camera.width, targetWidth - static_cast<unsigned>(left));
@@ -411,7 +455,7 @@ void LayerCore::heatScissor(const float viewProjection[16], const Camera &camera
     bool found = false;
     for (unsigned i = 0; i < fieldCount; ++i) {
         const FieldState &field = fieldStates[i];
-        if (field.palette < 0.5f || field.palette >= 1.5f || !fieldActive(i)) continue;
+        if (!fieldActive(i) || (heatOnly && (field.palette < 0.5f || field.palette >= 1.5f))) continue;
         found = true;
         const float radius = field.radius + field.fringe + MaximumDisplacement;
         for (unsigned corner = 0; corner < 8; ++corner) {
@@ -419,7 +463,7 @@ void LayerCore::heatScissor(const float viewProjection[16], const Camera &camera
                 field.ground.x + (corner & 1 ? radius : -radius),
                 field.ground.y + (corner & 2 ? radius : -radius),
                 (terrainEnabled[i] ? (corner & 4 ? terrainMax[i] : terrainMin[i]) : field.ground.z)
-                    + (corner & 4 ? field.height * 2.6f : 0.0f), 1.0f
+                    + (corner & 4 ? field.height * (heatOnly ? 2.6f : 1.0f) : 0.0f), 1.0f
             };
             float clip[4] = {};
             for (unsigned column = 0; column < 4; ++column)
@@ -437,12 +481,14 @@ void LayerCore::heatScissor(const float viewProjection[16], const Camera &camera
         }
     }
     if (!found) { rectangle[2] = rectangle[3] = 0; return; }
-    // Two pixels of conservative rasterization slack keep the projected
-    // envelope intact at viewport edges and odd framebuffer dimensions.
-    const float boundedLeft = std::clamp(std::floor(minX) - 2.0f, left, right);
-    const float boundedTop = std::clamp(std::floor(minY) - 2.0f, top, bottom);
-    const float boundedRight = std::clamp(std::ceil(maxX) + 2.0f, left, right);
-    const float boundedBottom = std::clamp(std::ceil(maxY) + 2.0f, top, bottom);
+    // The half-resolution reconstruction can spread radiance by almost two
+    // full pixels. Four pixels cover that halo, pixel-centre conventions and
+    // rounding at odd target sizes. Heat retains its existing two-pixel slack.
+    const float slack = heatOnly ? 2.0f : 4.0f;
+    const float boundedLeft = std::clamp(std::floor(minX) - slack, left, right);
+    const float boundedTop = std::clamp(std::floor(minY) - slack, top, bottom);
+    const float boundedRight = std::clamp(std::ceil(maxX) + slack, left, right);
+    const float boundedBottom = std::clamp(std::ceil(maxY) + slack, top, bottom);
     rectangle[0] = static_cast<int>(boundedLeft);
     rectangle[1] = static_cast<int>(boundedTop);
     rectangle[2] = static_cast<int>((std::max)(0.0f, boundedRight - boundedLeft));

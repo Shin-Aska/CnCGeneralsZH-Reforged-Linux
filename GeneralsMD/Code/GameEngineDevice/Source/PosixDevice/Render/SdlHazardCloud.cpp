@@ -569,6 +569,8 @@ bool BackendLayer::render(const Camera &camera)
     Uniforms uniforms;
     float viewProjection[16];
     if (!buildUniforms(camera, target.Width, target.Height, uniforms, viewProjection)) return false;
+    int lowScissor[4], compositeScissor[4];
+    volumeScissors(viewProjection, camera, target.Width, target.Height, lowScissor, compositeScissor);
 
     // Complete all potentially failing material allocations before recording
     // a visible scene draw. The adapter can safely fall back to classic clouds.
@@ -602,9 +604,10 @@ bool BackendLayer::render(const Camera &camera)
     draw.Viewport[2] = static_cast<float>(shared.lowTarget.Width);
     draw.Viewport[3] = static_cast<float>(shared.lowTarget.Height);
     draw.Viewport[5] = 1;
-    draw.Scissor[2] = static_cast<int32_t>(shared.lowTarget.Width);
-    draw.Scissor[3] = static_cast<int32_t>(shared.lowTarget.Height);
+    std::copy(lowScissor, lowScissor + 4, draw.Scissor);
     frame->Set_Target(shared.lowTarget);
+    // Neighbouring layers share this texture. Clear its entire attachment so
+    // reconstruction taps outside this layer's scissor always see zero smoke.
     frame->Clear_Back_Buffer(true, false, false, 0, 1.0f, 0);
     frame->Record_Draw(draw);
 
@@ -619,10 +622,7 @@ bool BackendLayer::render(const Camera &camera)
     std::copy(uniforms.Viewport, uniforms.Viewport + 4, draw.Viewport);
     draw.Viewport[4] = camera.minZ;
     draw.Viewport[5] = camera.maxZ;
-    draw.Scissor[0] = static_cast<int32_t>(camera.x);
-    draw.Scissor[1] = static_cast<int32_t>(camera.y);
-    draw.Scissor[2] = std::min(camera.width, target.Width - std::min(camera.x, target.Width));
-    draw.Scissor[3] = std::min(camera.height, target.Height - std::min(camera.y, target.Height));
+    std::copy(compositeScissor, compositeScissor + 4, draw.Scissor);
     frame->Set_Target(target);
     frame->Record_Draw(draw);
     SdlHazardCloudEmbers::render(frame, target, sceneDepth, viewProjection, draw.Viewport,

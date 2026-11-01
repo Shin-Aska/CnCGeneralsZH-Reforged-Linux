@@ -1623,7 +1623,9 @@ if(ZH_PLATFORM_POSIX)
     ${ZH_POSIX_RENDER_DIR}/SdlHazardCloud.cpp
     ${ZH_POSIX_RENDER_DIR}/SdlHazardCloudShader.cpp
     ${ZH_POSIX_RENDER_DIR}/SdlHazardCloudFlow.cpp
-    ${ZH_POSIX_RENDER_DIR}/SdlHazardCloudEmbers.cpp)
+    ${ZH_POSIX_RENDER_DIR}/SdlHazardCloudEmbers.cpp
+    ${ZH_POSIX_RENDER_DIR}/SdlHazardCloudShared.cpp
+    ${ZH_POSIX_RENDER_DIR}/SdlHazardCloudSharedShader.cpp)
   set_target_properties(w3ddevice PROPERTIES CXX_STANDARD 17)
   target_include_directories(w3ddevice PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Include
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Stubs ${CMAKE_CURRENT_SOURCE_DIR}/Main
@@ -2077,6 +2079,27 @@ if(ZH_PLATFORM_POSIX)
       CLOUD_PREVIEW_GAME_OVERLAY="${CMAKE_BINARY_DIR}/overlay")
     target_link_libraries(cloud_preview PRIVATE sdldevice installroot)
     add_dependencies(cloud_preview zh_overlay cloud_preview_map)
+
+    # Stress fixtures reuse the production shared-volume renderer and source model.
+    set(ZH_CLOUD_STRESS_DIR ${CMAKE_BINARY_DIR}/cloud-stress-preview)
+    set(ZH_CLOUD_STRESS_MAP ${ZH_CLOUD_STRESS_DIR}/overlay/Maps/CloudPreview/CloudPreview.map)
+    add_custom_command(OUTPUT ${ZH_CLOUD_STRESS_MAP}
+      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/Tools/cloud_preview/generate_map.py
+              ${ZH_CLOUD_STRESS_MAP}
+      DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Tools/cloud_preview/generate_map.py
+      COMMENT "Generating the isolated cloud stress fixture" VERBATIM)
+    add_custom_target(cloud_stress_map DEPENDS ${ZH_CLOUD_STRESS_MAP})
+    add_executable(cloud_stress_preview EXCLUDE_FROM_ALL
+      ${CMAKE_CURRENT_SOURCE_DIR}/Tools/cloud_stress_preview.cpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/Tools/CloudStressScene.cpp)
+    set_target_properties(cloud_stress_preview PROPERTIES CXX_STANDARD 17)
+    target_include_directories(cloud_stress_preview PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Main
+      ${GENERATED} ${ZH_POSIX_RENDER_DIR})
+    target_compile_definitions(cloud_stress_preview PRIVATE
+      CLOUD_STRESS_DIRECTORY="${ZH_CLOUD_STRESS_DIR}"
+      CLOUD_STRESS_GAME_OVERLAY="${CMAKE_BINARY_DIR}/overlay")
+    target_link_libraries(cloud_stress_preview PRIVATE sdldevice installroot)
+    add_dependencies(cloud_stress_preview zh_overlay cloud_stress_map)
   endif()
 
   add_custom_command(
@@ -2278,6 +2301,21 @@ target_sources(test_hazard_cloud_policy PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/W3DDevice/GameClient/HazardCloudShader.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/W3DDevice/GameClient/HazardCloudFlow.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/W3DDevice/GameClient/HazardCloudUnsupported.cpp)
+
+add_executable(test_cloud_stress_model EXCLUDE_FROM_ALL
+  ${CMAKE_CURRENT_SOURCE_DIR}/Tools/cloud_preview/test_stress_model.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/W3DDevice/GameClient/HazardCloudSharedModel.cpp)
+set_target_properties(test_cloud_stress_model PROPERTIES CXX_STANDARD 17)
+target_include_directories(test_cloud_stress_model PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/Tools ${CMAKE_CURRENT_SOURCE_DIR}/Libraries/Include)
+add_test(NAME test_cloud_stress_model COMMAND test_cloud_stress_model)
+
+add_executable(test_cloud_stress_bake EXCLUDE_FROM_ALL
+  ${CMAKE_CURRENT_SOURCE_DIR}/Tools/cloud_preview/test_stress_bake.cpp)
+set_target_properties(test_cloud_stress_bake PROPERTIES CXX_STANDARD 17)
+target_include_directories(test_cloud_stress_bake PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Tools
+  ${CMAKE_CURRENT_SOURCE_DIR}/Libraries/Include)
+add_test(NAME test_cloud_stress_bake COMMAND test_cloud_stress_bake)
 
 add_lib_test(test_water_path_tracing)
 set_target_properties(test_water_path_tracing PROPERTIES CXX_STANDARD 17)

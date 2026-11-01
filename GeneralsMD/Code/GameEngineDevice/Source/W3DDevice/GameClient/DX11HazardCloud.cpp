@@ -411,6 +411,8 @@ bool DX11Layer::render(const Camera &camera)
 	Uniforms uniforms;
 	float viewProjection[16];
 	if (!buildUniforms(camera, width, height, uniforms, viewProjection)) return false;
+	int lowScissor[4], compositeScissor[4];
+	volumeScissors(viewProjection, camera, width, height, lowScissor, compositeScissor);
 	if (!make(shared.device, shared.low, width / 2 + width % 2, height / 2 + height % 2, LowFormat, true))
 		return refuse("the half resolution target was refused");
 	const bool heat = uniforms.Settings[1] > 0;
@@ -459,11 +461,13 @@ bool DX11Layer::render(const Camera &camera)
 	upload(context, shared.constants, &uniforms, sizeof(uniforms));
 	const float clear[4] = {};
 	const D3D11_VIEWPORT lowViewport = { 0, 0, float(shared.low.width), float(shared.low.height), 0, 1 };
-	const D3D11_RECT lowRect = { 0, 0, LONG(shared.low.width), LONG(shared.low.height) };
+	const D3D11_RECT lowRect = { lowScissor[0], lowScissor[1], lowScissor[0] + lowScissor[2],
+		lowScissor[1] + lowScissor[3] };
 	context->RSSetViewports(1, &lowViewport);
 	context->RSSetScissorRects(1, &lowRect);
 	unbindViews(context);
 	context->OMSetRenderTargets(1, &shared.low.target, nullptr);
+	// Clear the whole shared texture, including outside this layer's scissor.
 	context->ClearRenderTargetView(shared.low.target, clear);
 	ID3D11ShaderResourceView *const volumeViews[Slots] = {
 		depth, flowTexture.view, nullptr, caches[0].lighting.view, caches[1].lighting.view, nullptr,
@@ -479,8 +483,10 @@ bool DX11Layer::render(const Camera &camera)
 	const LONG right = LONG((std::min)(camera.x + camera.width, width));
 	const LONG bottom = LONG((std::min)(camera.y + camera.height, height));
 	const D3D11_RECT sceneRect = { LONG(camera.x), LONG(camera.y), right, bottom };
+	const D3D11_RECT compositeRect = { compositeScissor[0], compositeScissor[1],
+		compositeScissor[0] + compositeScissor[2], compositeScissor[1] + compositeScissor[3] };
 	context->RSSetViewports(1, &sceneViewport);
-	context->RSSetScissorRects(1, &sceneRect);
+	context->RSSetScissorRects(1, &compositeRect);
 	unbindViews(context);
 	context->OMSetRenderTargets(1, &scene, nullptr);
 	ID3D11ShaderResourceView *const compositeViews[Slots] = {
@@ -495,6 +501,7 @@ bool DX11Layer::render(const Camera &camera)
 	// backend's own viewport sits for Direct3D 9's pixel centres.
 	const D3D11_VIEWPORT emberViewport = { float(camera.x) + 0.5f, float(camera.y) + 0.5f, float(camera.width),
 		float(camera.height), camera.minZ, camera.maxZ };
+	context->RSSetScissorRects(1, &sceneRect);
 	bool embers = false;
 	for (unsigned i = 0; i < fieldCount; ++i) {
 		if (!emberField(fieldStates[i])) continue;
