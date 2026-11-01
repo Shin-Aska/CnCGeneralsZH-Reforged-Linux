@@ -36,6 +36,7 @@
 
 // SYSTEM INCLUDES ////////////////////////////////////////////////////////////////////////////////
 #include <stdlib.h>
+#include "Platform/DiagnosticCameraRoute.h"
 #include "Lib/Clock.h"
 #if defined(_WIN32)
 #include <windows.h>
@@ -213,7 +214,9 @@ static Real getHeightAroundPos(Real x, Real y)
 //-------------------------------------------------------------------------------------------------
 W3DView::W3DView()
 {
-	
+	m_diagnosticRouteCaptured = false;
+	m_diagnosticRouteLastPicture = m_diagnosticRouteTracedPicture = -1;
+
 	m_3DCamera = NULL;
 	m_2DCamera = NULL;
 	m_groundLevel = 10.0;
@@ -551,17 +554,20 @@ void W3DView::buildCameraTransform( Matrix3D *transform )
 	//WST 11/12/2002 New camera shaker system
 	// This runs once per render frame (and again on every scrollBy), not once per 30Hz
 	// tick, so step the shaker by real elapsed time to keep shakes framerate-independent.
-	static UnsignedInt prevShakeTime = cameraClockMilliseconds( this );
-	UnsignedInt nowShakeTime = cameraClockMilliseconds( this );
-	Real shakeDt = (nowShakeTime - prevShakeTime) * 0.001f;
-	prevShakeTime = nowShakeTime;
-	if (shakeDt > 1.0f/30.0f)
-		shakeDt = 1.0f/30.0f;
-	CameraShakerSystem.Timestep(shakeDt);
-	CameraShakerSystem.Update_Camera_Shaker(sourcePos, &m_shakerAngles);
-	transform->Rotate_X(m_shakerAngles.X);
-	transform->Rotate_Y(m_shakerAngles.Y);
-	transform->Rotate_Z(m_shakerAngles.Z);
+	if (!m_diagnosticRouteCaptured)
+	{
+		static UnsignedInt prevShakeTime = cameraClockMilliseconds(this);
+		UnsignedInt nowShakeTime = cameraClockMilliseconds(this);
+		Real shakeDt = (nowShakeTime - prevShakeTime) * 0.001f;
+		prevShakeTime = nowShakeTime;
+		if (shakeDt > 1.0f / 30.0f)
+			shakeDt = 1.0f / 30.0f;
+		CameraShakerSystem.Timestep(shakeDt);
+		CameraShakerSystem.Update_Camera_Shaker(sourcePos, &m_shakerAngles);
+		transform->Rotate_X(m_shakerAngles.X);
+		transform->Rotate_Y(m_shakerAngles.Y);
+		transform->Rotate_Z(m_shakerAngles.Z);
+	}
 
 	//if (m_shakerAngles.X >= 0.0f)
 	//{
@@ -1264,6 +1270,8 @@ const Coord3D& W3DView::get3DCameraPosition() const
 void W3DView::reset( void )
 {
 	View::reset();
+	m_diagnosticRouteCaptured = false;
+	m_diagnosticRouteLastPicture = m_diagnosticRouteTracedPicture = -1;
 	m_drawableUpdate.reset();
 	// the recording outlives its replays now (Display::replay); its strings go with Display::reset
 	m_postDraw.clear();
@@ -1703,6 +1711,163 @@ ICoord2D W3DView::overlayShift( void )
 	return shift;
 }
 
+// A route is read once, only when explicitly requested. No wall-clock easing or
+// terrain-height feedback enters its pose, but the ordinary camera transform,
+// map constraints and drawable culling still consume it.
+Bool W3DView::updateDiagnosticCameraRoute( void )
+{
+	static const char *path = getenv("ZH_CAMERA_ROUTE");
+	if (!path || !*path)
+		return false;
+	static DiagnosticCameraRoute::Route route;
+	static DiagnosticCameraRoute::Anchor savedAnchor;
+	static Bool loaded = false;
+	static Bool stateLoaded = false, stateInvalid = false;
+	static const char *statePath = getenv("ZH_CAMERA_ROUTE_STATE");
+	static const char *stateOutPath = getenv("ZH_CAMERA_ROUTE_STATE_OUT");
+	static FILE *trace = NULL;
+	if (!loaded) {
+		loaded = true;
+		FILE *file = fopen(path, "r");
+		const Bool valid = route.Read(file);
+		if (file)
+			fclose(file);
+		if (!valid) {
+			fprintf(stderr, "ZH_CAMERA_ROUTE: rejected invalid route %s\n", path);
+			return false;
+		}
+		if (statePath && *statePath) {
+			file = fopen(statePath, "r");
+			stateLoaded = savedAnchor.Read(file);
+			if (file)
+				fclose(file);
+			if (!stateLoaded) {
+				stateInvalid = true;
+				fprintf(stderr, "ZH_CAMERA_ROUTE: rejected invalid anchor state %s\n", statePath);
+				return false;
+			}
+		}
+		const char *tracePath = getenv("ZH_CAMERA_ROUTE_CSV");
+		if (tracePath && *tracePath) {
+			trace = fopen(tracePath, "w");
+			if (trace)
+				fprintf(trace, "logic_frame,picture_frame,route_frame,video_picture,video_pictures,x,y,z,zoom,angle,eye_x,eye_y,eye_z,forward_x,forward_y,forward_z\n");
+			else
+				fprintf(stderr, "ZH_CAMERA_ROUTE: could not open trace %s\n", tracePath);
+		}
+	}
+	if (route.Empty() || stateInvalid || this != TheTacticalView || !TheGameLogic || !TheGameLogic->isInGame()
+		|| TheGameLogic->isInShellGame() || TheGameLogic->isInMultiplayerGame()
+		|| TheGameLogic->isInReplayGame() || m_freeCamera || m_isCameraSlaved)
+		return false;
+	// This is absolute logic time, not WW3D's rendered-picture counter: normally
+	// getFrame(), or getFrame() minus the current -recordfps subpicture fraction.
+	const double picture = GameEngine_pictureFrame();
+	if (picture < m_diagnosticRouteLastPicture) {
+		m_diagnosticRouteCaptured = false;
+		m_diagnosticRouteTracedPicture = -1;
+	}
+	m_diagnosticRouteLastPicture = picture;
+	if (picture < route.FirstFrame())
+		return false;
+	const Bool anchoring = !m_diagnosticRouteCaptured;
+	Vector3 beforeEye, beforeForward;
+	Vector3 naturalEye, naturalForward;
+	Coord3D naturalPosition;
+	Real naturalZoom = 0, naturalAngle = 0;
+	if (anchoring) {
+		beforeEye = m_3DCamera->Get_Transform().Get_Translation();
+		beforeForward = -m_3DCamera->Get_Transform().Get_Z_Vector();
+		naturalEye = beforeEye;
+		naturalForward = beforeForward;
+		naturalPosition = m_pos;
+		naturalZoom = m_zoom;
+		naturalAngle = m_angle;
+		m_diagnosticRouteCaptured = true;
+		if (stateLoaded) {
+			using Anchor = DiagnosticCameraRoute::Anchor;
+			const float *v = savedAnchor.values;
+			m_pos.x = v[Anchor::PosX];
+			m_pos.y = v[Anchor::PosY];
+			m_pos.z = v[Anchor::PosZ];
+			m_zoom = v[Anchor::Zoom];
+			m_angle = v[Anchor::Angle];
+			m_pitchAngle = v[Anchor::Pitch];
+			m_heightAboveGround = v[Anchor::Height];
+			m_groundLevel = v[Anchor::Ground];
+			m_FXPitch = v[Anchor::FXPitch];
+			m_cameraOffset.x = v[Anchor::OffsetX];
+			m_cameraOffset.y = v[Anchor::OffsetY];
+			m_cameraOffset.z = v[Anchor::OffsetZ];
+			m_FOV = v[Anchor::Fov];
+			m_useRealZoomCam = savedAnchor.realZoom != 0;
+			m_3DCamera->Set_View_Plane(Vector2(v[Anchor::PlaneMinX], v[Anchor::PlaneMinY]),
+				Vector2(v[Anchor::PlaneMaxX], v[Anchor::PlaneMaxY]));
+			m_cameraConstraintValid = false;
+			m_shakeOffset.x = m_shakeOffset.y = 0;
+			// Establish the loaded pose before checking that the identity route knot
+			// leaves it unchanged. Natural settling is separately visible in the log.
+			setCameraTransform();
+			beforeEye = m_3DCamera->Get_Transform().Get_Translation();
+			beforeForward = -m_3DCamera->Get_Transform().Get_Z_Vector();
+		}
+		m_diagnosticRouteOrigin = m_pos;
+		m_diagnosticRouteZoom = m_zoom;
+		m_diagnosticRouteAngle = m_angle;
+		m_diagnosticRoutePitch = m_pitchAngle;
+		m_diagnosticRouteHeight = m_heightAboveGround;
+		if (stateOutPath && *stateOutPath) {
+			Vector2 planeMin, planeMax;
+			m_3DCamera->Get_View_Plane(planeMin, planeMax);
+			DiagnosticCameraRoute::Anchor effective = {{m_pos.x, m_pos.y, m_pos.z, m_zoom, m_angle, m_pitchAngle,
+				m_heightAboveGround, m_groundLevel, m_FXPitch, m_cameraOffset.x, m_cameraOffset.y, m_cameraOffset.z,
+				m_FOV, planeMin.X, planeMin.Y, planeMax.X, planeMax.Y}, m_useRealZoomCam ? 1 : 0};
+			FILE *file = fopen(stateOutPath, "w");
+			Bool wrote = effective.Write(file);
+			if (file && fclose(file) != 0)
+				wrote = false;
+			if (!wrote)
+				fprintf(stderr, "ZH_CAMERA_ROUTE: could not write anchor state %s\n", stateOutPath);
+		}
+	}
+	const DiagnosticCameraRoute::Knot sample = route.Sample(picture);
+	Coord3D position = m_diagnosticRouteOrigin;
+	position.x += (Real) sample.x;
+	position.y += (Real) sample.y;
+	setPosition(&position);
+	setZoom(m_diagnosticRouteZoom * (Real) sample.zoom);
+	setAngle(m_diagnosticRouteAngle + (Real) sample.angle);
+	setPitch(m_diagnosticRoutePitch);
+	m_heightAboveGround = m_diagnosticRouteHeight * (Real) sample.zoom;
+	m_shakeOffset.x = m_shakeOffset.y = 0;
+	setCameraTransform();
+	m_recalcCamera = false;
+	if (anchoring) {
+		const Vector3 eye = m_3DCamera->Get_Transform().Get_Translation();
+		const Vector3 forward = -m_3DCamera->Get_Transform().Get_Z_Vector();
+		fprintf(stderr, "ZH_CAMERA_ROUTE anchor logic=%u route=%.6f state_loaded=%d natural_view=%.9g,%.9g,%.9g,%.9g,%.9g natural_eye=%.9g,%.9g,%.9g natural_forward=%.9g,%.9g,%.9g before_view=%.9g,%.9g,%.9g,%.9g,%.9g after_view=%.9g,%.9g,%.9g,%.9g,%.9g before_eye=%.9g,%.9g,%.9g after_eye=%.9g,%.9g,%.9g before_forward=%.9g,%.9g,%.9g after_forward=%.9g,%.9g,%.9g\n",
+			TheGameLogic->getFrame(), picture, stateLoaded ? 1 : 0,
+			naturalPosition.x, naturalPosition.y, naturalPosition.z, naturalZoom, naturalAngle,
+			naturalEye.X, naturalEye.Y, naturalEye.Z, naturalForward.X, naturalForward.Y, naturalForward.Z,
+			m_diagnosticRouteOrigin.x, m_diagnosticRouteOrigin.y, m_diagnosticRouteOrigin.z, m_diagnosticRouteZoom,
+			m_diagnosticRouteAngle,
+			m_pos.x, m_pos.y, m_pos.z, m_zoom, m_angle,
+			beforeEye.X, beforeEye.Y, beforeEye.Z, eye.X, eye.Y, eye.Z,
+			beforeForward.X, beforeForward.Y, beforeForward.Z, forward.X, forward.Y, forward.Z);
+	}
+	if (trace) {
+		if (picture == m_diagnosticRouteTracedPicture)
+			return true;
+		m_diagnosticRouteTracedPicture = picture;
+		const Vector3 eye = m_3DCamera->Get_Transform().Get_Translation();
+		const Vector3 forward = -m_3DCamera->Get_Transform().Get_Z_Vector();
+		fprintf(trace, "%u,%.6f,%.6f,%d,%d,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g\n",
+			TheGameLogic->getFrame(), picture, picture, GameEngine_videoPicture(), GameEngine_videoPictures(),
+			m_pos.x, m_pos.y, m_pos.z, m_zoom, m_angle, eye.X, eye.Y, eye.Z, forward.X, forward.Y, forward.Z);
+	}
+	return true;
+}
+
 DECLARE_PERF_TIMER(W3DView_updateView)
 void W3DView::update(void)
 {
@@ -1793,6 +1958,20 @@ void W3DView::update(void)
 			W3DDisplay::m_3DScene->destroyLightsIterator(it);
 			it = NULL;
 		}
+	}
+
+	if (updateDiagnosticCameraRoute())
+	{
+		if (TheScriptEngine->isTimeFast())
+			return;
+#ifdef DO_SEISMIC_SIMULATIONS
+		TheTerrainVisual->updateSeismicSimulations();
+#endif
+		Region3D region;
+		getAxisAlignedViewRegion(region);
+		if (drawsDrawables())
+			TheGameClient->iterateDrawablesInRegion(&region, drawDrawable, this);
+		return;
 	}
 
 	/* The freecam owns the view outright: no lock, no script, no shake, no height settle.  The look

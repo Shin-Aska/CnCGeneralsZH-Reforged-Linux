@@ -258,11 +258,23 @@ public:
 	SDL_GPUTexture * Ready_Scene_Depth(const SdlTarget &source, uint64_t &serial) const { return Ready_Water_Depth(source, serial); }
 	/// Lazy, GPU-only Phillips spectrum/IFFT. Previous draws finish recording before maps change;
 	/// repeated paused times reuse the same field. Failure leaves the analytic water fallback usable.
-	bool Prepare_Ocean(float time, unsigned resolution=WaterFftSpectrum::Resolution);
+	/// HeadedCascades may omit broad fields; a later AllCascades request completes them at this phase.
+	bool Prepare_Ocean(float time, unsigned resolution = WaterFftSpectrum::Resolution,
+		unsigned cascades = WaterFftSpectrum::AllCascades);
+	unsigned Ocean_Ready_Cascades() const {
+		return OceanReady ? OceanReadyCascades : 0;
+	}
+	/// Changes with phase/resource replacement, but not same-phase completion of missing broad fields.
+	uint64_t Ocean_Generation() const {
+		return OceanGeneration;
+	}
 	WaterFftSpectrum::Configuration Ocean_Configuration() const;
 	/// Deterministic allocation-failure regression hook; never used by ordinary rendering.
 	void Fail_Next_Ocean_Rebuild_For_Test() { FailNextOceanRebuild=true; }
 	void Fail_Next_Ocean_Array_For_Test() { FailNextOceanArray=true; }
+	void Fail_Next_Ocean_Headed_For_Test() {
+		FailNextOceanHeaded = true;
+	}
 	uint64_t Ocean_Passes() const { return OceanPasses; }
 	uint64_t Ocean_Copies() const { return OceanCopies; }
 	uint64_t Water_Colour_Captures() const { return WaterColourCaptures; }
@@ -422,10 +434,13 @@ private:
 	OceanResources *Ocean = NULL;
 	bool OceanFailed = false, OceanReady = false;
 	float OceanTime = 0;
+	unsigned OceanReadyCascades = 0;
+	uint64_t OceanGeneration = 0;
 	uint64_t OceanUpdates = 0, OceanPasses = 0, OceanCopies = 0;
 	uint64_t OceanPrepareFrame = UINT64_MAX;
 	unsigned OceanFailedResolution = 0, OceanRequestedResolution = 0;
 	bool FailNextOceanArray=false;
+	bool FailNextOceanHeaded = false;
 	bool FailNextOceanRebuild = false;
 	bool Create_Ocean(WaterFftSpectrum::Configuration configuration);
 	void Release_Ocean();

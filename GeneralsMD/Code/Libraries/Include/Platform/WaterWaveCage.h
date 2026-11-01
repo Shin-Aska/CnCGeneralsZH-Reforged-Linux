@@ -165,8 +165,9 @@ inline Radii Fit(const uint8_t*heights,int width,int height,int border,float spa
     return {rt,rn};
 }
 
-inline bool Build(const uint8_t*heights,int width,int height,int border,float spacing,
-                  float heightScale,float level,const WaterOpticalContext::Field&shore,Field&result){
+inline bool Build(const uint8_t *heights, int width, int height, int border, float spacing,
+    float heightScale, float level, const WaterOpticalContext::Field &shore, Field &result,
+    const uint8_t *waveSupport = nullptr) {
     result=Field{};
     if(!heights||width<2||height<2||width>WaterOpticalContext::MaxDimension||height>WaterOpticalContext::MaxDimension||
        size_t(width)*height>WaterOpticalContext::MaxCells||border<0||border>(width-2)/2||border>(height-2)/2||
@@ -180,12 +181,12 @@ inline bool Build(const uint8_t*heights,int width,int height,int border,float sp
         const size_t i=size_t(y)*width+x;
         const float distance=shore.physicalShore[i]*(WaterOpticalContext::PhysicalShoreRange/255);
         const float depth=level-heights[i]*heightScale;
-        // These support thresholds are renderer choices, not paper parameters.
-        // The exact exposed-water classification excludes pools and polygon-only
-        // boundaries; its guarded dry extension supports shoreline interpolation.
-        const float support=(shore.exposure[i]/255.0f)*(1-SmoothRange(CoastFullRange,CoastRange,distance))*
-            (1-SmoothRange(MaxRadius,2*MaxRadius,std::abs(depth)));
-        if(support<=0)continue;
+            // These support thresholds are renderer choices, not paper parameters.
+            // The exact exposed-water classification excludes pools and polygon-only
+            // boundaries; its guarded dry extension supports shoreline interpolation.
+            const float support = ((waveSupport ? waveSupport[i] : shore.exposure[i]) / 255.0f) * (1 - SmoothRange(CoastFullRange, CoastRange, distance)) *
+                (1 - SmoothRange(MaxRadius, 2 * MaxRadius, std::abs(depth)));
+            if(support<=0)continue;
         const float worldX=(x-border)*spacing,worldY=(y-border)*spacing;
         const auto terrain=SampleTerrain(heights,width,height,border,spacing,heightScale,worldX,worldY);
         const auto radii=Fit(heights,width,height,border,spacing,heightScale,level,worldX,worldY,terrain);

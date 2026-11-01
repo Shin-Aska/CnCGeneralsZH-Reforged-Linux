@@ -4,6 +4,8 @@
 #include "Platform/HazardCloudFlow.h"
 #include "Platform/HazardCloudCore.h"
 
+#include <algorithm>
+#include <array>
 #include <initializer_list>
 #include <limits>
 #include <type_traits>
@@ -228,6 +230,8 @@ public:
     std::uint64_t estimatedCacheBytes() const override { return 0; }
     void shutdown() override {}
     using LayerCore::flowUploaded;
+    using LayerCore::volumeScissors;
+    using LayerCore::heatScissor;
     bool bakesFrom(float cameraX)
     {
         // A perspective camera standing back from the field, moved sideways by cameraX.
@@ -305,4 +309,154 @@ TEST(hazard_cloud_shader_text_drops_register_spaces_only_for_direct3d_11)
     }
     CHECK(HazardCloud::emberVertexShader(false).find(", space") == std::string::npos);
     CHECK(HazardCloud::emberPixelShader(false).find("register(b0)") != std::string::npos);
+}
+
+TEST(hazard_cloud_embers_support_shared_terrain_without_changing_legacy_constants)
+{
+    const HazardCloud::FieldState field = {{40, 80, 12}, 40, 18.61f, 1, 1, 1, 0, 10};
+    float matrix[16] = {}, viewport[4] = {0, 0, 1280, 800};
+    HazardCloud::EmberConstants constants;
+    const unsigned count = HazardCloud::emberConstants(field, 1, true, matrix, viewport, 3, constants);
+    CHECK_EQ(constants.terrain[1], 1.f);
+    CHECK_EQ(constants.terrain[2], field.radius + field.fringe + HazardCloud::MaximumDisplacement);
+    const float domain[4] = {-128, 0, 384, 256};
+    CHECK(HazardCloud::setEmberTerrainDomain(domain, constants));
+    CHECK_EQ(constants.terrain[0], 1.f);
+    CHECK_EQ(constants.terrain[1], -1.f);
+    // The shared grid's world centre must sample its centre, independently of
+    // the source's position and the old per-source atlas index.
+    CHECK_EQ((128.f - constants.terrain[2]) * constants.scene[2], .5f);
+    CHECK_EQ((128.f - constants.terrain[3]) * constants.scene[3], .5f);
+    CHECK_EQ(constants.field[2], field.ground.z);
+    CHECK_EQ(constants.scene[0], 3.f);
+    CHECK_EQ(constants.scene[1], float(count));
+    const HazardCloud::EmberConstants valid = constants;
+    for (const std::array<float, 4> invalid : {
+            std::array<float, 4>{{0, 0, 0, 1}}, {{0, 0, 1, -1}},
+            {{0, 0, std::numeric_limits<float>::infinity(), 1}},
+            {{0, 0, std::numeric_limits<float>::denorm_min(), 1}}}) {
+        CHECK(!HazardCloud::setEmberTerrainDomain(invalid.data(), constants));
+        CHECK(std::equal(constants.scene, constants.scene + 4, valid.scene));
+        CHECK(std::equal(constants.terrain, constants.terrain + 4, valid.terrain));
+    }
+    CHECK(!HazardCloud::setEmberTerrainDomain(nullptr, constants));
+}
+
+TEST(hazard_cloud_volume_scissors_cover_terrain_both_palettes_and_reconstruction_taps)
+{
+    CoreProbe layer;
+    const HazardCloud::FieldState fields[2] = {
+        {{-55, 20, 0}, 20, 18, 1, 0, 1, 0, 8},
+        {{75, -20, 0}, 30, 25, 1, 3, 1, 0, 12}
+    };
+    layer.setFields(fields, 2);
+    std::array<float, HazardCloud::TerrainGridSide * HazardCloud::TerrainGridSide> terrain;
+    terrain.fill(-30.0f);
+    terrain.back() = 60.0f;
+    layer.setTerrain(1, terrain.data());
+    // An oblique orthographic view makes both the low and high terrain bounds
+    // affect screen Y, rather than testing only a flat overhead rectangle.
+    const float matrix[16] = {
+        0.003f, 0, 0, 0, 0, 0.002f, 0, 0,
+        0, 0.003f, 0.002f, 0, 0, 0, 0.2f, 1
+    };
+    for (unsigned odd : {0u, 1u}) {
+        HazardCloud::Camera camera = {};
+        camera.x = 13; camera.y = 17; camera.width = 640 + odd; camera.height = 358 + odd;
+        const unsigned width = 800 + odd, height = 600 + odd;
+        int low[4], composite[4];
+        layer.volumeScissors(matrix, camera, width, height, low, composite);
+        CHECK(composite[2] > 0 && composite[2] < int(camera.width));
+        CHECK(composite[3] > 0 && composite[3] < int(camera.height));
+        CHECK(composite[0] >= int(camera.x) && composite[1] >= int(camera.y));
+        CHECK(composite[0] + composite[2] <= int(camera.x + camera.width));
+        CHECK(composite[1] + composite[3] <= int(camera.y + camera.height));
+        for (unsigned i = 0; i < 2; ++i) {
+            const auto &field = fields[i];
+            const float radius = field.radius + field.fringe + HazardCloud::MaximumDisplacement;
+            // Include intermediate terrain elevations and the complete wake
+            // displacement envelope, with the two-pixel reconstruction halo.
+            for (unsigned x = 0; x <= 4; ++x)
+                for (unsigned y = 0; y <= 4; ++y)
+                    for (unsigned z = 0; z <= 4; ++z) {
+                        const float world[4] = {
+                            field.ground.x - radius + radius * x * 0.5f,
+                            field.ground.y - radius + radius * y * 0.5f,
+                            (i ? -30.0f : 0.0f) + (field.height + (i ? 90.0f : 0.0f)) * z * 0.25f, 1
+                        };
+                        float clip[4] = {};
+                        for (unsigned column = 0; column < 4; ++column)
+                            for (unsigned row = 0; row < 4; ++row)
+                                clip[column] += world[row] * matrix[row * 4 + column];
+                        const float px = camera.x + 0.5f + (clip[0] / clip[3] + 1) * camera.width * 0.5f;
+                        const float py = camera.y + 0.5f + (1 - clip[1] / clip[3]) * camera.height * 0.5f;
+                        CHECK(px - 2 >= composite[0] && px + 2 < composite[0] + composite[2]);
+                        CHECK(py - 2 >= composite[1] && py + 2 < composite[1] + composite[3]);
+                    }
+        }
+        // Reproduce the shader's tap selection at every output pixel, including
+        // the odd framebuffer's last row/column and a nonzero viewport origin.
+        for (int axis = 0; axis < 2; ++axis) {
+            const int fullSide = axis ? height : width;
+            const int lowSide = fullSide / 2 + fullSide % 2;
+            for (int pixel = composite[axis]; pixel < composite[axis] + composite[axis + 2]; ++pixel) {
+                const int first = pixel == fullSide - 1 ? lowSide - 1
+                    : static_cast<int>(std::floor((pixel - 1) * 0.5f));
+                for (int neighbour : {0, 1}) {
+                    const int tap = std::clamp(first + neighbour, 0, lowSide - 1);
+                    CHECK(tap >= low[axis] && tap < low[axis] + low[axis + 2]);
+                }
+            }
+        }
+    }
+}
+
+TEST(hazard_cloud_volume_scissors_keep_full_viewport_when_projection_is_ambiguous)
+{
+    CoreProbe layer;
+    HazardCloud::FieldState field = {{0, 0, -10}, 40, 30, 1, 0, 1, 0, 10};
+    layer.setFields(&field, 1);
+    HazardCloud::Camera camera = {};
+    camera.x = 11; camera.y = 9; camera.width = 791; camera.height = 593;
+    // The camera is inside a box crossing the perspective near plane.
+    std::array<float, 16> matrix = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, -1, 0};
+    for (unsigned problem : {0u, 1u, 2u}) {
+        if (problem == 1) { field.ground.z = -100; layer.setFields(&field, 1); }
+        if (problem == 2) matrix[0] = std::numeric_limits<float>::quiet_NaN();
+        int low[4], composite[4];
+        layer.volumeScissors(matrix.data(), camera, 801, 601, low, composite);
+        CHECK_EQ(composite[0], 11); CHECK_EQ(composite[1], 9);
+        CHECK_EQ(composite[2], 790); CHECK_EQ(composite[3], 592);
+        CHECK_EQ(low[0], 4); CHECK_EQ(low[1], 3);
+        CHECK_EQ(low[0] + low[2], 401); CHECK_EQ(low[1] + low[3], 301);
+    }
+}
+
+TEST(hazard_cloud_volume_scissors_hide_empty_and_offscreen_fields_and_cover_perspective)
+{
+    CoreProbe layer;
+    HazardCloud::Camera camera = {};
+    camera.width = 801; camera.height = 601;
+    const float matrix[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, -1, 0};
+    HazardCloud::FieldState field = {{0, 0, 200}, 20, 18, 1, 2, 1, 0, 5};
+    layer.setFields(&field, 1);
+    int low[4], composite[4];
+    layer.volumeScissors(matrix, camera, 801, 601, low, composite);
+    CHECK(composite[0] > 0 && composite[0] + composite[2] < 801);
+    CHECK(composite[1] > 0 && composite[1] + composite[3] < 601);
+    // Heat's existing nuclear-only filter must remain separate from smoke.
+    int heat[4];
+    layer.heatScissor(matrix, camera, 801, 601, heat);
+    CHECK_EQ(heat[2], 0); CHECK_EQ(heat[3], 0);
+    field.ground.x = 1000;
+    layer.setFields(&field, 1);
+    layer.volumeScissors(matrix, camera, 801, 601, low, composite);
+    CHECK_EQ(composite[2], 0); CHECK_EQ(low[2], 0); CHECK_EQ(low[3], 0);
+    field.ground.x = 0; field.density = 0;
+    layer.setFields(&field, 1);
+    layer.volumeScissors(matrix, camera, 801, 601, low, composite);
+    CHECK_EQ(composite[2], 0); CHECK_EQ(composite[3], 0);
+    layer.setFields(nullptr, 0);
+    layer.volumeScissors(matrix, camera, 801, 601, low, composite);
+    CHECK_EQ(composite[2], 0); CHECK_EQ(composite[3], 0);
 }

@@ -58,8 +58,8 @@ struct EmberConstants {
     float viewport[4];
     float field[4];
     float shape[4];
-    float scene[4];
-    float terrain[4]; // enabled, field index, sampled domain radius, reserved
+    float scene[4]; // time, billboard count; shared terrain uses ZW for inverse XY span
+    float terrain[4]; // enabled, field index, radius, reserved; index=-1 uses ZW as shared minXY
 };
 static_assert(sizeof(EmberConstants) == 144, "ember shader constant layout");
 
@@ -69,6 +69,9 @@ bool emberField(const FieldState &field);
 unsigned emberConstants(const FieldState &field, unsigned index, bool terrain,
                         const float viewProjection[16], const float viewport[4],
                         float timeSeconds, EmberConstants &constants);
+// Use one world-space terrain grid instead of the legacy two field-local grids.
+// Domain is minX,minY,maxX,maxY. Invalid domains leave the constants unchanged.
+bool setEmberTerrainDomain(const float domain[4], EmberConstants &constants);
 
 // HLSL text. SDL GPU wants explicit register spaces; FXC's shader model 5
 // rejects them, so the Direct3D 11 backend asks for the text without.
@@ -120,6 +123,11 @@ protected:
     // width zero when no field is hot.
     void heatScissor(const float viewProjection[16], const Camera &camera,
                      unsigned targetWidth, unsigned targetHeight, int rectangle[4]) const;
+    // Conservative bounds for the half-resolution volume and its depth-aware
+    // composite. The low target must still be cleared in full between layers.
+    void volumeScissors(const float viewProjection[16], const Camera &camera,
+                        unsigned targetWidth, unsigned targetHeight,
+                        int lowRectangle[4], int compositeRectangle[4]) const;
     // The device uploaded the wake grid; the next bake sees the new wakes.
     void flowUploaded() { flowDirty = false; ++flowUploads; }
     // Forget what was baked: new atlases, new terrain, a reset device.
@@ -149,6 +157,9 @@ protected:
     bool terrainDirty = false;
 
 private:
+    void fieldScissor(const float viewProjection[16], const Camera &camera,
+                      unsigned targetWidth, unsigned targetHeight, bool heatOnly,
+                      int rectangle[4]) const;
     Uniforms cachedInputs = {};
     bool cachedInputsValid = false;
     unsigned cachedFlowUploads = 0;

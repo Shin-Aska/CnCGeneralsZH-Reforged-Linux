@@ -133,6 +133,8 @@ PosixDevice9::PosixDevice9(PosixDirect3D9 *adapter, RenderWindow window, const D
 	PixelShader(NULL)
 {
 	Adapter->AddRef();
+	const char *stagingProfile = getenv("ZH_GPU_VERTEX_STAGING_PROFILE");
+	ProfileVertexStaging = stagingProfile && strcmp(stagingProfile, "1") == 0;
 
 	memset(RenderTargets, 0, sizeof(RenderTargets));
 	memset(RenderStates, 0, sizeof(RenderStates));
@@ -168,6 +170,8 @@ PosixDevice9::PosixDevice9(PosixDirect3D9 *adapter, RenderWindow window, const D
 
 PosixDevice9::~PosixDevice9()
 {
+	// The retained source must die while its resource mirror/lifetime callback is alive.
+	Clear_Staged_Vertex();
 	Clear_Sun_Shadow();
 	Sun.reset();
 	Shore_End();
@@ -201,6 +205,10 @@ PosixDevice9::~PosixDevice9()
 		}
 		Capture_Report();
 		Timing_Report();
+		if (ProfileVertexStaging)
+			fprintf(stderr, "[dynamic-vb-stage] copies=%llu copied_bytes=%llu hits=%llu reused_bytes=%llu\n",
+				(unsigned long long) VertexStagingStats.copies, (unsigned long long) VertexStagingStats.copiedBytes,
+				(unsigned long long) VertexStagingStats.hits, (unsigned long long) VertexStagingStats.reusedBytes);
 	}
 	// The GPU objects before the device that made them; the pipelines before their shaders.
 	delete Pipelines;
@@ -220,6 +228,7 @@ RenderResult PosixDevice9::Create_Gpu_Frame(bool offscreen)
 		return D3D_OK;		// -headless: no GPU device at all
 	}
 	std::string error;
+	Clear_Staged_Vertex();
 	Gpu = SdlGpuFrame::Create(Window, Parameters.BackBufferWidth, Parameters.BackBufferHeight, error);
 	if (Gpu == NULL) {
 		fprintf(stderr, "PosixDevice9: a window, and no SDL3 GPU device for it: %s\n", error.c_str());
@@ -547,6 +556,7 @@ RenderResult PosixDevice9::Reset(D3DPRESENT_PARAMETERS *parameters)
 		return !capture_submitted || failure == SdlGpuFrame::RESIZE_FLUSH_FAILED
 			? D3DERR_DEVICELOST : D3DERR_OUTOFVIDEOMEMORY;
 	}
+	Clear_Staged_Vertex();
 	Shore_End();
 	Clear_Sun_Shadow();
 	Sun.reset();

@@ -7,6 +7,7 @@ starting the game. Screenshots are retained for visual review, not treated as pr
 that the appearance is correct.
 """
 import argparse
+import csv
 import hashlib
 import importlib.util
 import json
@@ -16,6 +17,7 @@ from pathlib import Path
 import re
 import shutil
 import socket
+import statistics
 import struct
 import subprocess
 import time
@@ -32,6 +34,25 @@ PALETTES = """# Real cleanup hazards run their ordinary weapons, lifetime and da
 45 spawn 0 AmericaInfantryRanger 4 350 500 12
 60 move 0 AmericaInfantryRanger 670 500
 """
+
+
+def load_fixture(templates, overlap=False, successive=False):
+    # Unique centres avoid ambiguity in the legacy owner lookup. Simultaneous
+    # births retain the original compact load fixtures. During successive births,
+    # startup HazardFieldCoreWeapon can clean older owners within its 10-unit
+    # blast plus their 40-unit object geometry, so keep those centres farther apart.
+    # 56 also keeps the entire growth fixture inside the camera's collection box.
+    spacing = 56 if successive else 6 if overlap else 36
+    lines = ["# 128 real owners; ordinary cleanup, damage and lifetimes remain enabled."]
+    for index in range(128):
+        x = 640 + (index % 16 - 7.5) * spacing
+        y = 640 + (index // 16 - 3.5) * spacing
+        template = templates[index % len(templates)]
+        frame = 30 + index if successive else 30
+        lines.append(f"{frame} spawn 0 {template} 1 {x:g} {y:g}")
+    return "\n".join(lines) + "\n"
+
+
 CASES = {
     "palettes": dict(map=FLAT_MAP, camera=(640, 640), shot=360, stop=420,
                      palettes=[0, 1, 2, 3], fixture=PALETTES),
@@ -60,10 +81,35 @@ CASES = {
 60 move 0 AmericaVehicleComanche 300 1000
 """),
     "budget": dict(map=FLAT_MAP, camera=(640, 640), shot=360, stop=420, palettes=[0],
-                   fixture="30 spawn 0 PoisonFieldMedium 9 640 640 80\n"),
+                   owners=9, fixture="30 spawn 0 PoisonFieldMedium 9 640 640 80\n"),
+    "gamma-budget": dict(map=FLAT_MAP, camera=(640, 640), shot=360, stop=420, palettes=[3],
+                         owners=9, fixture="30 spawn 0 Chem_PoisonFieldGammaLarge 9 640 640 80\n"),
+    "cache-budget": dict(map=FLAT_MAP, camera=(640, 640), shot=360, stop=420, palettes=[1],
+                         owners=7, fixture="30 spawn 0 RadiationFieldLarge 7 640 640 40\n"),
     "lifecycle": dict(map=FLAT_MAP, camera=(640, 640), shot=150, stop=480, palettes=[1],
                       fixture="30 spawn 0 RadiationFieldSmall 1 640 640\n"),
+    "domain-growth": dict(map=FLAT_MAP, camera=(640, 640), shot=660, stop=720,
+                          palettes=[0, 1, 3], owners=3, shared=True, fixture="""# New supports grow the domain while an earlier source and its wake remain alive.
+30 spawn 0 PoisonFieldMedium 1 430 640
+45 spawn 0 AmericaInfantryRanger 4 320 640 12
+60 move 0 AmericaInfantryRanger 560 640
+150 spawn 0 Chem_PoisonFieldGammaMedium 1 850 640
+270 spawn 0 RadiationFieldSmall 1 640 850
+"""),
+    "continuous-growth": dict(map=FLAT_MAP, camera=(640, 640), shot=360, stop=420,
+                              palettes=[0], owners=128, shared=True,
+                              fixture=load_fixture(("PoisonFieldMedium",), successive=True)),
 }
+for kind, templates, palettes in (
+        ("mixed", ("PoisonFieldMedium", "PoisonFieldUpgradedMedium",
+                   "Chem_PoisonFieldGammaMedium", "RadiationFieldMedium"), [0, 1, 2, 3]),
+        ("nuclear", ("RadiationFieldMedium",), [1]),
+        ("gamma", ("Chem_PoisonFieldGammaMedium",), [3])):
+    for layout in ("distinct", "overlap"):
+        CASES[f"load-128-{kind}-{layout}"] = dict(
+            map=FLAT_MAP, camera=(640, 640), shot=360, stop=420,
+            palettes=palettes, owners=128, shared=True,
+            fixture=load_fixture(templates, overlap=layout == "overlap"))
 OPTIONS = """Resolution = 1280 800
 StaticGameLOD = Custom
 IdealStaticGameLOD = High
@@ -92,11 +138,21 @@ WaterStyle = 1
 """
 ERROR = re.compile(r"Validation Error|VUID-|hazard-cloud[^\n]*(?:FAIL|failed)|shader[^\n]*(?:compilation failed|compile failed)", re.I)
 REPORT = re.compile(r"^hazard-cloud(?P<fallback>-fallback)?: (?P<body>frame=\d+ .*)$", re.M)
+SHARED_REPORT = re.compile(r"^hazard-cloud-shared: (?P<body>frame=\d+ .*)$", re.M)
 CRC = re.compile(r"HEADLESS CRC AT LIMIT:\s*(.*?)\s+at frame (\d+)")
 
 
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def log_prefix(name):
+    # The engine retains at most 30 prefix characters. Hash long names rather
+    # than silently colliding after truncation or looking for a nonexistent log.
+    prefix = "hazard_" + name.replace("-", "_") + "_"
+    if len(prefix) > 30:
+        prefix = prefix[:20] + "_" + hashlib.sha256(name.encode()).hexdigest()[:8] + "_"
+    return prefix
 
 
 def write_json(path, value):
@@ -116,6 +172,44 @@ def records(text):
                 row[key] = float(row[key])
         result.append(row)
     return result
+
+
+def shared_records(text):
+    result = []
+    for match in SHARED_REPORT.finditer(text):
+        row = dict(re.findall(r"([\w-]+)=([^\s]+)", match["body"]))
+        for key in ("frame", "sources", "active", "baked", "pending", "max-slices", "cache"):
+            if key in row:
+                row[key] = int(row[key])
+        if "age" in row:
+            row["age"] = float(row["age"])
+        result.append(row)
+    return result
+
+
+def timing_records(path):
+    """Validate whole-engine frame evidence before calculating statistics."""
+    with path.open(newline="") as stream:
+        reader = csv.DictReader(stream, strict=True)
+        fields = reader.fieldnames or []
+        if not {"logic_frame", "frame_ms"} <= set(fields) or len(fields) != len(set(fields)):
+            raise ValueError("timing CSV requires unique logic_frame and frame_ms columns")
+        frames, values = [], []
+        for row in reader:
+            if None in row or any(value is None for value in row.values()):
+                raise ValueError("timing CSV has an inconsistent column count")
+            frames.append(int(row["logic_frame"]))
+            value = float(row["frame_ms"])
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError("timing CSV requires finite positive frame_ms")
+            values.append(value)
+    values.sort()
+    result = dict(samples=len(values), basis="whole-engine present intervals; no serialized GPU fences")
+    if values:
+        result.update(mean_ms=statistics.mean(values), median_ms=statistics.median(values),
+                      p95_ms=values[math.ceil(len(values) * .95) - 1],
+                      p99_ms=values[math.ceil(len(values) * .99) - 1], max_ms=values[-1])
+    return frames, result
 
 
 def map_crc(data):
@@ -169,14 +263,14 @@ def prepare(args, name, case, style=1, live=False, user=None, load=None):
     # The ordinary hazard FX and fade policy query real cell visibility. Turning
     # off the displayed shroud does not reveal those cells. Airborne scouts keep
     # each field visible without taking its ground-only hazard damage.
-    centres = re.findall(r"^\d+ spawn 0 \S*(?:PoisonField|RadiationField)\S* \d+ (\d+) (\d+)", case["fixture"], re.M)
+    centres = re.findall(r"^\d+ spawn 0 \S*(?:PoisonField|RadiationField)\S* \d+ ([\d.]+) ([\d.]+)", case["fixture"], re.M)
     vision = "".join(f"5 spawn 0 AmericaVehicleComanche 1 {x} {y}\n" for x, y in dict.fromkeys(centres))
     (overlay / "Scenarios/hazard_check.txt").write_text(vision + case["fixture"])
     if case["map"] == FLAT_MAP:
         write_flat_map(overlay)
     elif (args.overlay / "Maps").exists():
         (overlay / "Maps").symlink_to(args.overlay / "Maps", target_is_directory=True)
-    prefix = "hazard_" + name.replace("-", "_") + "_"
+    prefix = log_prefix(name)
     command = [str(args.generals), "-root", str(args.root), "-overlay", str(overlay),
                "-offscreen", "-multiInstance", "-noaudio", "-win", "-xres", "1280", "-yres", "800",
                "-msaa", "0", "-quickstart", "-noshellmap", "-nologo", "-novideo", "-noFPSLimit", "-noshroud",
@@ -196,12 +290,18 @@ def prepare(args, name, case, style=1, live=False, user=None, load=None):
                  "ZH_WATER_CAPTURE_CLOCK": "picture"}
     if args.gpu_debug:
         overrides["ZH_GPU_DEBUG"] = "1"
+    timing_window = [240, 359] if args.timing and name.startswith("load-128-") and not live else None
+    if timing_window:
+        overrides["ZH_GPU_TIMING_LOGIC"] = ",".join(map(str, timing_window))
+        overrides["ZH_GPU_TIMING_CSV"] = str(out / "frames.csv")
+        overrides["ZH_GPU_TIMING_SYNC"] = "0"
     if name == "water":
         overrides["ZH_WATER_PROFILE"] = "1"
     manifest = dict(case=name, command=command, environment=overrides, cloud_style=style,
                     exe_sha256=digest(args.generals), options_sha256=digest(user / "Options.ini"),
                     scenario_sha256=digest(overlay / "Scenarios/hazard_check.txt"),
-                    prepared_only=args.prepare_only, user=str(user), log_prefix=prefix, load=load)
+                    prepared_only=args.prepare_only, user=str(user), log_prefix=prefix, load=load,
+                    timing_window=timing_window)
     if case["map"] == FLAT_MAP:
         manifest["map_sha256"] = digest(overlay / FLAT_MAP)
     write_json(out / "manifest.json", manifest)
@@ -210,6 +310,9 @@ def prepare(args, name, case, style=1, live=False, user=None, load=None):
 
 def environment(manifest):
     env = dict(os.environ)
+    for key in list(env):
+        if key.startswith("ZH_GPU_TIMING"):
+            env.pop(key)
     for key in ("ZH_GPU_DEBUG", "ZH_TEST_SUN_SHADOW_FAILURE", "ZH_SUN_SHADOW_MODE",
                 "ZH_CLOUD_PREVIEW_REBUILD_EVERY_FRAME", "ZH_GPU_TIMING", "ZH_WATER_PROFILE"):
         env.pop(key, None)
@@ -229,6 +332,7 @@ def finish(args, out, user, manifest, process):
     text = (out / "run.log").read_text(errors="replace")
     engine_text = (out / "engine.log").read_text(errors="replace") if (out / "engine.log").exists() else ""
     manifest["diagnostics"] = records(text)
+    manifest["shared_diagnostics"] = shared_records(text)
     manifest["water_profiles"] = [dict(re.findall(r"(\w+)=([^ ]+)", line)) for line in text.splitlines()
                                   if line.startswith("[water-profile] ")]
     manifest["errors"] = ERROR.findall(text)
@@ -245,6 +349,19 @@ def finish(args, out, user, manifest, process):
     check("all production fixture actions accepted", not manifest["scenario_errors"])
     if not manifest["load"]:
         check("production scenario loaded", bool(re.search(r"SCENARIO: loaded .*?, [1-9]\d* actions, 0 lines refused", engine_text)))
+    if manifest.get("timing_window"):
+        timing_path = out / "frames.csv"
+        check("whole-engine timing CSV captured", timing_path.is_file())
+        if timing_path.is_file():
+            try:
+                frames, manifest["timing"] = timing_records(timing_path)
+            except (OSError, ValueError, csv.Error) as exc:
+                manifest["timing_error"] = str(exc)
+                check("timing CSV contains valid finite positive samples", False)
+            else:
+                first, last = manifest["timing_window"]
+                check("timing covers every steady-state logic frame exactly once",
+                      frames == list(range(first, last + 1)))
     return check
 
 
@@ -262,15 +379,30 @@ def assert_clouds(check, manifest, case, style):
         and r["radius"] > 0 and r["fringe"] >= 0 and 0 <= r["density"] <= 1 and 0 <= r["formation"] <= 1
         for r in active))
     check("nuclear fades across its full footprint", all(r["formation"] == 1 for r in active if r["palette"] == 1))
-    if manifest["case"] == "budget":
-        check("only the expected budget fallback occurred", all(r.get("reason") == "budget" for r in rows if r["fallback"]))
-        by_frame = {}
-        for r in active:
-            by_frame.setdefault(r["frame"], set()).add(r["owner"])
-        check("eight owners admitted without exceeding the layer limit", bool(by_frame) and max(map(len, by_frame.values())) == 8)
-        check("additional hazards retain the Classic fallback", any(r.get("reason") == "budget" for r in rows))
-    else:
-        check("all visible hazards stay volumetric", not any(r["fallback"] for r in rows))
+    check("all visible hazards stay volumetric", not any(r["fallback"] for r in rows))
+    if case.get("owners"):
+        owners = {r["owner"] for r in active}
+        check("every requested owner reached the modern path", len(owners) == case["owners"])
+        check("source saturation never selects a budget fallback", not any(
+            r.get("reason") == "budget" for r in rows))
+    shared = manifest.get("shared_diagnostics", [])
+    if case.get("shared") or manifest["case"] in ("budget", "gamma-budget", "cache-budget"):
+        check("SDL shared-volume diagnostics are present", bool(shared))
+        check("all owners coexist in an active shared snapshot", bool(shared) and
+              max(r.get("active", 0) for r in shared) >= case["owners"])
+        check("all owners reach a published shared snapshot", bool(shared) and
+              max(r.get("baked", 0) for r in shared) >= case["owners"])
+    if shared:
+        check("shared-volume cache stays within 192 MiB", all(
+            0 < r.get("cache", 0) <= 192 * 1024 * 1024 for r in shared))
+        check("injection work stays within eight slices per display frame", all(
+            0 <= r.get("max-slices", -1) <= 8 for r in shared))
+        check("published snapshot ages are finite and nonnegative", all(
+            math.isfinite(r.get("age", math.nan)) and r["age"] >= 0 for r in shared))
+        check("shared snapshot counts are consistent", all(
+            0 <= r.get("active", -1) <= r.get("sources", -1)
+            and r.get("baked", -1) >= 0 and 0 <= r.get("pending", -1) <= 24
+            for r in shared))
     if manifest["case"] == "nuclear":
         check("initial and lingering nuclear systems share one owner", len({r["owner"] for r in active}) == 1)
         check("nuclear support preserves the 200-unit hazard radius", bool(active) and all(abs(r["radius"] - 200) < .01 for r in active))
@@ -291,6 +423,21 @@ def assert_clouds(check, manifest, case, style):
         peak = max(range(len(samples)), key=lambda i: samples[i]["density"]) if samples else 0
         check("short-lived nuclear field fades without rebounding", peak + 1 < len(samples)
               and all(b["density"] <= a["density"] for a, b in zip(samples[peak:], samples[peak+1:])))
+    if manifest["case"] == "domain-growth":
+        first = [r for r in active if r["palette"] == 0]
+        check("original source age survives later domain growth", any(r["frame"] < 150 for r in first)
+              and any(r["frame"] >= 300 and r["age"] >= 3 for r in first))
+        check("domain expansion publishes the late source", any(
+            r["frame"] >= 300 and r.get("baked", 0) >= 3 for r in shared))
+    if manifest["case"] == "continuous-growth":
+        # Scenario frames use the retail 30 Hz clock and scale to the engine's
+        # 60 Hz logic clock: arrivals30..157 become60..314. Inspect a window
+        # after initial emission but before the final arrival/publication.
+        during_growth = [r for r in shared if 120 <= r["frame"] <= 300]
+        check("partial snapshots publish during continuous source growth", any(
+            0 < r.get("baked", 0) < 128 for r in during_growth))
+        check("continuous growth publishes the complete final source set", any(
+            r["frame"] >= 330 and r.get("baked", 0) == 128 for r in shared))
 
 
 def run_case(args, name, case, style=1):
@@ -417,15 +564,21 @@ def live_session(args, name, case, user=None, load=None):
     check = finish(args, out, user, manifest, process)
     check("control actions completed", "exception" not in manifest)
     active = [r for r in manifest["diagnostics"] if not r["fallback"]]
+    shared = manifest["shared_diagnostics"]
     if load:
         check("save restored live hazard objects", set(case["palettes"]) <= {r["palette"] for r in active})
         check("restored screenshot captured", (out / "restored.bmp").is_file())
+        check("save reload publishes restored sources in the shared volume", any(
+            r.get("baked", 0) >= len(case["palettes"]) for r in shared))
     else:
         first, last = manifest.get("classic_interval", [0, 0])
         middle = [r for r in manifest["diagnostics"] if first <= r["frame"] <= last]
         check("live Classic removes volume draws", last > first and not any(not r["fallback"] for r in middle))
         check("live Classic preserves the original hazard path", any(r.get("reason") == "classic" for r in middle))
         check("switching back restores active hazards", any(r["frame"] >= manifest.get("modern_after", math.inf) for r in active))
+        check("style reset republishes all active shared sources", any(
+            r["frame"] >= manifest.get("modern_after", math.inf)
+            and r.get("baked", 0) >= len(case["palettes"]) for r in shared))
         check("live choice persisted", bool(re.search(r"^CloudStyle\s*=\s*1\s*$", (user / "Options.ini").read_text(), re.M)))
         check("save file written", bool(manifest.get("save_files")))
     write_json(out / "manifest.json", manifest)
@@ -441,6 +594,7 @@ def main():
     parser.add_argument("--live", action="store_true", help="also test live Classic switching and save/reload")
     parser.add_argument("--crc-pair", action="store_true", help="repeat palettes in Classic and require equal game-state CRC")
     parser.add_argument("--gpu-debug", action="store_true")
+    parser.add_argument("--timing", action="store_true", help="retain whole-engine frames 240..359 CSV/statistics for 128-owner cases")
     parser.add_argument("--prepare-only", action="store_true")
     parser.add_argument("--timeout", type=int, default=180)
     parser.add_argument("--port", type=int)

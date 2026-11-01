@@ -1232,6 +1232,8 @@ TEST(water_prepared_mesh_cache_keeps_one_entry_per_patch_and_evicts_fifo)
 	}
 }
 
+#include "WaterPreparedViewTest.h"
+
 TEST(water_projected_clipping_preserves_reversed_shared_authored_boundaries)
 {
 	using namespace WaterProjectedMesh;
@@ -4546,6 +4548,11 @@ TEST(water_shore_history_resource_refresh_reset_stale_gap_and_time_rewind_have_e
     auto excessive=cells;excessive.resize(MaxCells+1);CHECK(history.Install({},excessive,9,.2)==BuildResult::TooManyCells);
     CHECK(!history.ValidFor(9)); // failed new-map construction cannot expose the old map's alpha
 }
+#include "WaterShorePreparedTest.h"
+TEST(water_shore_prepared_topology_matches_frozen_live_install_phase_and_history)
+{
+	WaterShorePreparedTest::Check();
+}
 TEST(water_shore_history_atlas_sampling_preserves_rgb_world_anchor_and_density_weighted_age)
 {
     using namespace WaterShoreHistory;
@@ -4864,6 +4871,172 @@ TEST(water_shore_support_complexity_failure_is_atomic_and_bounded) {
 #include <set>
 #include <tuple>
 #include <cstdio>
+namespace {
+struct ShoreCountingSupport {
+	unsigned mask = 15;
+	mutable size_t lookups = 0, allows = 0;
+	struct Stencil {
+		const ShoreCountingSupport *owner;
+		double x, y;
+		bool Allows(unsigned dx, unsigned dy) const {
+			++owner->allows;
+			return (owner->mask & (1u << (dy * 2 + dx))) && (dx ? x > .13 : x < .87) && (dy ? y > .17 : y < .83);
+		}
+	};
+	Stencil At(int32_t, int32_t, double, double x, double y) const {
+		++lookups;
+		return {this, x, y};
+	}
+};
+}
+TEST(water_shore_raster_lookup_reuses_only_static_work_and_invalidates_dependencies) {
+	using namespace WaterShoreHistory;
+	Topology topology;
+	auto cells = shoreFourCorners();
+	cells.push_back({0, 0, 20, 4});
+	CHECK(topology.Build({}, cells) == BuildResult::Ready);
+	std::vector<State> states(topology.Cells().size(), {1, 2});
+	Mapping mapping = {-2.5, -2.5, 10, 10, 40, 32};
+	ShoreCountingSupport support;
+	RasterLookup lookup;
+	uint64_t revision = 1;
+	struct Material {
+		std::vector<State> inputs;
+		std::vector<double> coordinates;
+		double operator()(const State &s, double x, double y, double time) {
+			inputs.push_back(s);
+			coordinates.insert(coordinates.end(), {x, y, time});
+			return -std::expm1(-s.density) * (.6 + .2 * std::sin(x * .3 + y * .7 + time + s.ageMoment / (s.density
+				+ .01)));
+		}
+	};
+	auto compare = [&](double level, double time) {
+		std::vector<uint32_t> seed(size_t(mapping.widthPixels) * mapping.heightPixels);
+		for (size_t i = 0; i < seed.size(); ++i)
+			seed[i] = 0xff000000u | ((uint32_t(i) * 2654435761u) & 0xffffffu);
+		auto expected = seed, actual = seed;
+		Material a, b;
+		CHECK(RasterizeAlpha(topology, states, mapping, level, time, a, expected, support));
+		const auto before = support.lookups, allowBefore = support.allows, builds = lookup.BuildCount();
+		CHECK(RasterizeAlphaCached(topology, states, mapping, level, time, b, actual, support, lookup, revision));
+		CHECK(expected == actual);
+		CHECK(a.coordinates == b.coordinates);
+		CHECK(a.inputs.size() == b.inputs.size());
+		for (size_t i = 0; i < a.inputs.size() && i < b.inputs.size(); ++i) {
+			CHECK(a.inputs[i].density == b.inputs[i].density);
+			CHECK(a.inputs[i].ageMoment == b.inputs[i].ageMoment);
+		}
+		if (lookup.BuildCount() == builds) {
+			CHECK(support.lookups == before);
+			CHECK(support.allows == allowBefore);
+		}
+		CHECK(lookup.SampleCount() <= RasterLookup::MaximumPixels &&lookup.TileCount() <= lookup.SampleCount());
+		CHECK(lookup.MemoryBytes() <= sizeof(RasterLookup) + 13 * RasterLookup::MaximumPixels);
+	};
+	compare(10, 0);
+	CHECK(lookup.BuildCount() == 1);
+	for (unsigned frame = 1; frame <= 12; ++frame) {
+		for (size_t i = 0; i < states.size(); ++i)
+			states[i] = {frame % 3 ? double(i + frame) * .13 : 0, double(i + 2 * frame) * .7};
+		compare(10, frame * .137);
+		CHECK(lookup.BuildCount() == 1);
+	}
+	mapping.originX += .125;
+	compare(10, 2);
+	CHECK(lookup.BuildCount() == 2);
+	mapping.originY -= .25;
+	compare(10, 2);
+	CHECK(lookup.BuildCount() == 3);
+	mapping.widthWorld += .75;
+	compare(10, 2);
+	CHECK(lookup.BuildCount() == 4);
+	mapping.heightWorld += .5;
+	compare(10, 2);
+	CHECK(lookup.BuildCount() == 5);
+	mapping.widthPixels = 43;
+	compare(10, 2);
+	CHECK(lookup.BuildCount() == 6);
+	mapping.heightPixels = 37;
+	compare(10, 2);
+	CHECK(lookup.BuildCount() == 7);
+	compare(20, 2);
+	CHECK(lookup.BuildCount() == 8);
+	support.mask = 0;
+	++revision;
+	compare(20, 2);
+	CHECK(lookup.BuildCount() == 9);
+	cells.push_back({1, 0, 20, 5});
+	CHECK(topology.Build({.5, -.5, 5}, cells) == BuildResult::Ready);
+	states.assign(topology.Cells().size(), {1.3, .7});
+	support.mask = 15;
+	++revision;
+	compare(20, 3);
+	CHECK(lookup.BuildCount() == 10);
+	ShoreCountingSupport other;
+	auto material = [](const State &s, double, double, double) {
+		return s.density;
+	};
+	std::vector<uint32_t> pixels(size_t(mapping.widthPixels) * mapping.heightPixels, 0xaabbccddu);
+	CHECK(RasterizeAlphaCached(topology, states, mapping, 20, 3, material, pixels, other, lookup, revision));
+	CHECK(lookup.BuildCount() == 11); // support object identity is part of the key
+	const auto saved = pixels;
+	const auto builds = lookup.BuildCount();
+	Mapping invalid = mapping;
+	invalid.widthPixels = 513;
+	CHECK(!RasterizeAlphaCached(topology, states, invalid, 20, 3, material, pixels, other, lookup, revision));
+	CHECK(!RasterizeAlphaCached(topology, states, mapping, 20, NAN, material, pixels, other, lookup, revision));
+	CHECK(!RasterizeAlphaCached(topology, states, mapping, 20, 3, material, pixels, other, lookup, 0));
+	CHECK(pixels == saved && lookup.BuildCount() == builds);
+	lookup.Clear();
+	CHECK(lookup.BuildCount() == 0 && lookup.SampleCount() == 0 && lookup.TileCount() == 0);
+}
+TEST(water_shore_raster_prepared_spatial_breakup_preserves_live_coverage_bytes) {
+	using namespace WaterShoreHistory;
+	const auto cells = shoreFourCorners();
+	Topology topology;
+	CHECK(topology.Build({}, cells) == BuildResult::Ready);
+	WaterShoreSupport::Domain support;
+	auto flat = [](double, double) {
+		return 0.f;
+	};
+	CHECK(support.Build({}, cells, 3, 3, {shoreRect(0, 0, 2, 5), shoreRect(3, 0, 5, 5)}, flat));
+	RasterLookup lookup;
+	uint64_t prepared = 0;
+	size_t preparations = 0;
+	std::vector<float> breakup;
+	for (unsigned camera = 0; camera < 4; ++camera) {
+		Mapping mapping = {-1 + camera * .13, -.75 + camera * .21, 7.3, 6.7, 61 + camera, 57 - camera};
+		for (unsigned frame = 0; frame < 16; ++frame) {
+			std::vector<State> states;
+			for (unsigned i = 0; i < 4; ++i)
+				states.push_back({frame % 4 ? (.05 + double(frame + i) * .17) : 0, double(frame + 2 * i) * .31});
+			const double time = frame * .137 + camera;
+			std::vector<uint32_t> seed(size_t(mapping.widthPixels) * mapping.heightPixels, 0xa3abcdefu),
+				expected = seed, actual = seed;
+			auto coverage = WaterShoreSource::Coverage;
+			CHECK(RasterizeAlpha(topology, states, mapping, 10, time, coverage, expected, support));
+			CHECK(lookup.Prepare(topology, mapping, 10, 1, support));
+			if (prepared != lookup.BuildCount()) {
+				breakup.assign(seed.size(), 0);
+				lookup.ForEachSample([&](size_t n, double x, double y) {
+					const double value = WaterShoreSource::SpatialBreakup(x, y);
+					breakup[n] = float(value);
+					CHECK(double(breakup[n]) == value);
+					++preparations;
+				});
+				prepared = lookup.BuildCount();
+			}
+			const auto before = preparations;
+			auto material = [&](const State &s, double, double, double, size_t n) {
+				return WaterShoreSource::CoverageFromBreakup(s, breakup[n]);
+			};
+			CHECK(lookup.Rasterize(states, time, material, actual));
+			CHECK(actual == expected);
+			CHECK(preparations == before && lookup.BuildCount() == camera + 1);
+		}
+	}
+	CHECK(preparations > 1000);
+}
 namespace ShoreSparseRasterAudit {
 using namespace WaterShoreHistory;
 static unsigned cases=0;static uint64_t pixels=0;
@@ -4882,8 +5055,15 @@ struct Coverage {unsigned calls=0;double operator()(const State&s,double x,doubl
  return -std::expm1(-s.density)*(.55+.45*std::sin(x*.31+y*.27+time+s.ageMoment/(s.density+.0001)));}};
 template<class Support> void Compare(const Topology&t,const std::vector<State>&s,const Mapping&m,double l,const Support&support,double time=1.375){
  std::vector<uint32_t> seed(size_t(m.widthPixels)*m.heightPixels);for(size_t i=0;i<seed.size();++i)seed[i]=0xaa000000u|((uint32_t(i)*2654435761u)&0xffffffu);
- auto a=seed,b=seed;Coverage ca,cb;bool ra=Reference(t,s,m,l,time,ca,a,support),rb=RasterizeAlpha(t,s,m,l,time,cb,b,support);
- CHECK(ra==rb);CHECK(ca.calls==cb.calls);if(a!=b){size_t at=0;while(at<a.size()&&a[at]==b[at])++at;
+	auto a = seed, b = seed, cached = seed;
+	Coverage ca, cb, cc;
+	RasterLookup lookup;
+	bool ra = Reference(t, s, m, l, time, ca, a, support), rb = RasterizeAlpha(t, s, m, l, time, cb, b, support);
+	const bool rc = RasterizeAlphaCached(t, s, m, l, time, cc, cached, support, lookup, 1);
+	CHECK(ra == rc);
+	CHECK(ca.calls == cc.calls);
+	CHECK(a == cached);
+	CHECK(ra==rb);CHECK(ca.calls==cb.calls);if(a!=b){size_t at=0;while(at<a.size()&&a[at]==b[at])++at;
  std::fprintf(stderr,"RGBA mismatch case %u at %zu expected %08x actual %08x mapping %.17g %.17g %.17g %.17g %u %u level %.17g\n",cases,at,a[at],b[at],m.originX,m.originY,m.widthWorld,m.heightWorld,m.widthPixels,m.heightPixels,l);CHECK(a==b);}
  for(size_t i=0;i<seed.size();++i)CHECK((b[i]&0xffffffu)==(seed[i]&0xffffffu));++cases;pixels+=seed.size();
 }
@@ -5778,10 +5958,50 @@ TEST(water_wave_cage_phase_terrain_bounds_classification_and_constrained_smoothi
     WaterWaveCageTest::Check();
 }
 
+#include "WaterWaveCageCopyTest.h"
+TEST(water_wave_cage_copy_elision_matches_frozen_noops_and_crossing_chains)
+{
+	WaterWaveCageCopyTest::NoopsAndChains();
+}
+TEST(water_wave_cage_copy_elision_matches_frozen_crossings_and_vertex_budgets)
+{
+	WaterWaveCageCopyTest::CrossingsAndBudgets();
+}
+TEST(water_wave_cage_copy_elision_preserves_frozen_invalid_input_rollback)
+{
+	WaterWaveCageCopyTest::InvalidRollback();
+}
+
 #include "WaterTerrainCullingTest.h"
 TEST(water_terrain_culling_preserves_wet_interiors_displacement_and_mesh_metadata)
 {
     WaterTerrainCullingTest::Check();
+}
+
+#include "WaterTerrainProofCacheTest.h"
+TEST(water_terrain_proof_cache_matches_frozen_threshold_pond_and_boundary_outputs)
+{
+	WaterTerrainProofCacheTest::ExtremesAndThresholds();
+}
+TEST(water_terrain_proof_cache_matches_frozen_moving_projected_cull_clip_compact_pipeline)
+{
+	WaterTerrainProofCacheTest::MovingProjectedPipeline();
+}
+TEST(water_terrain_proof_cache_preserves_sample_budgets_and_65536_vertex_indices)
+{
+	WaterTerrainProofCacheTest::BudgetAndIndexLimits();
+}
+TEST(water_terrain_compaction_matches_frozen_metadata_order_and_invalid_rollback)
+{
+	WaterTerrainProofCacheTest::InvalidAndCompaction();
+}
+TEST(water_terrain_proof_cache_clear_cutoff_reuse_and_capacity_are_exact)
+{
+	WaterTerrainProofCacheTest::LifetimeAndCapacity();
+}
+TEST(water_terrain_proof_cache_rectangle_queries_match_encoded_predicate_at_thresholds)
+{
+	WaterTerrainProofCacheTest::RectangleQueries();
 }
 
 #include "WaterCoastalDomainTest.h"
@@ -6436,5 +6656,84 @@ TEST(water_hybrid_target_resize_preserves_queued_reflections_and_refreshes_new_t
 #include "WaterWaveHeadingTest.h"
 TEST(water_wave_heading_onshore_refraction_prevailing_fallbacks_and_determinism)
 {
-    WaterWaveHeadingTest::Check();
+	WaterWaveHeadingTest::Check();
 }
+#include "WaterBodyAnalysisTest.h"
+TEST(water_body_analysis_sources_shelter_connectivity_and_determinism)
+{
+	WaterBodyAnalysisTest::Check();
+}
+#include "WaterLocalWaveFieldTest.h"
+TEST(water_local_wave_field_preserves_sea_and_separate_arrivals)
+{
+	WaterLocalWaveFieldTest::Check();
+}
+
+TEST(water_elevated_river_gain_keeps_authored_height_and_bounds_wave_amplitude)
+{
+	using WaterLocalWaveField::ElevatedRiverGain;
+	// MD_USA02 has a river at 96 above a sea at 7. The engine's global
+	// clamp takes (lo,value,hi); reversing those arguments made this 89-unit
+	// separation amplify waves by more than 1100 instead of quieting them.
+	CHECK(std::fabs(ElevatedRiverGain(96, 7, 10) - 0.06f) < 1e-6f);
+	CHECK(ElevatedRiverGain(-30, 7, 10) == 1.0f);
+	CHECK(ElevatedRiverGain(7, 7, 10) == 1.0f);
+	CHECK(std::fabs(ElevatedRiverGain(12, 7, 10) - 0.53f) < 1e-6f);
+	CHECK(std::fabs(ElevatedRiverGain(17, 7, 10) - 0.06f) < 1e-6f);
+	CHECK(ElevatedRiverGain(-12, -12, 10) == 1.0f);
+	CHECK(std::fabs(ElevatedRiverGain(-7, -12, 10) - 0.53f) < 1e-6f);
+
+	// Authored sloped patches cross both ends of the transition. Every
+	// interpolated level must stay bounded, continuous, and monotonically calmer.
+	float previous = 1.0f;
+	for (int i = 0; i <= 1200; ++i) {
+		const float level = -3.0f + i * 0.1f;
+		const float gain = ElevatedRiverGain(level, 7, 10);
+		CHECK(std::isfinite(gain) && gain >= 0.06f - 1e-6f && gain <= 1.0f);
+		CHECK(gain <= previous + 1e-6f && previous - gain < 0.015f);
+		previous = gain;
+		for (float seconds :{0.0f, 1.73f, 4691.0f / 60.0f}) {
+			const auto wave = WaterSurfaceModel::EvaluateBlended(1020 + i * 0.7f, 2740 - i * 0.3f, seconds, {0, 0, 0});
+			const float displaced = level + gain * wave.height;
+			CHECK(std::isfinite(displaced));
+			CHECK(std::fabs(displaced - level) <= WaterSurfaceModel::LegacyMaxDisplacement *gain + 1e-4f);
+			if (level >= 17)
+				CHECK(std::fabs(displaced - level) <= WaterSurfaceModel::LegacyMaxDisplacement * 0.06f + 1e-4f);
+		}
+	}
+	// Invalid metadata must produce the same calm fallback as a fully elevated river.
+	const float nan = std::numeric_limits<float>::quiet_NaN();
+	const float infinity = std::numeric_limits<float>::infinity();
+	for (const std::array<float, 3> input :{std::array<float, 3>{nan, 7, 10},
+		{96, nan, 10}, {infinity, 7, 10}, {96, infinity, 10}, {96, 7, 0},
+		{96, 7, -10}, {96, 7, nan}, {96, 7, infinity}})
+		CHECK(std::fabs(ElevatedRiverGain(input[0], input[1], input[2]) - 0.06f) < 1e-6f);
+}
+
+#include "WaterWavefrontTest.h"
+TEST(water_wavefront_affine_phase_and_bilinear_amplitude_are_exact)
+{
+	WaterWavefrontTest::CheckAffine();
+}
+TEST(water_wavefront_phase_gradient_and_hessian_join_across_cells)
+{
+	WaterWavefrontTest::CheckCellJoins();
+}
+TEST(water_wavefront_zero_endpoint_curvature_has_known_interior_tradeoff)
+{
+	WaterWavefrontTest::CheckCurvedPatch();
+}
+TEST(water_wavefront_derivatives_match_independent_scalar_differences)
+{
+	WaterWavefrontTest::CheckDerivatives();
+}
+
+#include "WaterBridgeConnectionsTest.h"
+TEST(water_bridge_visual_links_preserve_physical_masks_and_reject_unrelated_bodies)
+{
+	WaterBridgeConnectionsTest::Check();
+}
+
+#include "WaterShoreSourcePerfTest.h"
+
+#include "WaterProjectedSampleCacheTest.h"

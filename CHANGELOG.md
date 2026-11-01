@@ -8,6 +8,56 @@ found and fixed, EA's own, not port damage.**
 
 ---
 
+## Linux Modern water coastal classification (2026-11-01)
+
+- Broad coastal water split by islands now retains the original sea waves,
+  including Flash Effect's outer sea. Regions sharing a continuous coastal
+  opening qualify together; narrow channels and sheltered inland water keep
+  their calmer behavior.
+- Long open coastlines also count as sea continuing beyond the map, restoring
+  sea waves on Tournament A and at Superweapon General's exposed entrance.
+  Narrow river mouths and enclosed lakes stay quieter. Downstream openings
+  preserve the arriving movement instead of restarting strong waves.
+
+## Linux Modern water moving-camera performance (2026-11-01)
+
+- Water rendering reuses terrain calculations and avoids repeated mesh copies while
+  panning and zooming, preserving wave direction, detail and shoreline shapes. In
+  measured 1080p Hybrid runs, moving frame time falls about 6% in SWANGLE1 and 5%
+  in SWANGLE2 channels. Results vary by scene; see the
+  [measurements and limits](docs/modern-water-moving-performance.md).
+- Static water preparation now happens during mission and saved-game loading.
+  In the measured SWANGLE1 load, the delay from loading readiness to the first
+  world frame falls from 397 to 156 ms, with about 0.2 seconds of work moved into
+  loading. Animated waves and shoreline effects keep their existing timing.
+
+## Linux Modern water source and shelter analysis (2026-10-31)
+
+- Broad open sea retains its original wave spectrum, scale, and speed. Fine FFT
+  ripples follow a steady prevailing wind heading while larger waves turn near
+  shore; sheltered water retains weaker ripples. A map-wide analyzer
+  chooses the sea as the source for smaller connected channels; if none qualifies,
+  it chooses a sufficiently wide edge opening, scanning clockwise from the upper left.
+- Channels carry irregular surface detail along their current routes. Distortion
+  resets blend smoothly and vary across the water, avoiding repeated parallel
+  wave bands. Separate routes keep their own motion where they meet behind islands.
+  Near island shores, incoming detail slows and turns along the banks.
+  Sheltered branches, enclosed water, and elevated watercourses remain calmer.
+- Water rendering reuses repeated work while preserving the existing current
+  direction and ripple strength.
+- Reuse shoreline foam calculations, projected sample storage, texture samplers,
+  and repeated vertex uploads. At the measured SWANGLE1 saved camera, Hybrid
+  frame time falls about 10%, with slow-frame time improving about 21%.
+- Path traced reflections reuse shared model data and triangle calculations.
+  Frame time falls about 8% in the measured SWANGLE2 saved view, with the same
+  wave detail and reflection quality.
+- Bound elevated river wave attenuation so high watercourses, including the
+  aircraft carrier map's upper branches, cannot amplify waves into vertical walls.
+- Authored bridges can carry weakened visual movement across a narrow terrain-filled
+  crossing without changing terrain, water coverage, or gameplay connectivity.
+- Smooth strength and direction interpolation keep patch boundaries continuous;
+  classification and wave fields are cached for each map revision.
+
 ## Linux 3.5.1 release (2026-10-28)
 
 - Synchronizes with upstream 3.5.1 and packages the Linux improvements since this origin's 3.4.2.
