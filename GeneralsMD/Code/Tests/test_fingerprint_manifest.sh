@@ -41,7 +41,7 @@ check() { if eval "$1"; then echo "ok: $2"; else echo "FAIL: $2"; failed=1; fi; 
 
 mkdir -p "$T/Code/Tools"
 cp "$SCRIPT" "$T/Code/Tools/fingerprint-manifest.sh"
-g() { git -C "$T" -c user.name=check -c user.email=check@invalid -c init.defaultBranch=main "$@"; }
+g() { git -C "$T" -c user.name=check -c user.email=check@invalid -c init.defaultBranch=main -c commit.gpgsign=false "$@"; }
 g init -q
 printf 'one\n' > "$T/Code/a.txt"
 printf 'two\n' > "$T/Code/b.txt"
