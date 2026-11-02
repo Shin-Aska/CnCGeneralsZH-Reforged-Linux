@@ -8866,7 +8866,7 @@ static void check_gpu_local_water(SdlGpuFrame *frame)
 		for (float time :{0.0f, 1.3f})
 			for (float lod :{0.0f, 1.37f, 5.0f})
 				queries.push_back({{p[0], p[1], time, lod}});
-	const unsigned rows = unsigned(queries.size()), columns = 82;
+	const unsigned rows = unsigned(queries.size()), columns = 88;
 	const std::string ps = WaterLocalWaveTest::PixelSource(rows);
 	const char *vs = "float4 main(uint id:SV_VertexID):SV_Position{return float4(id==1?3.0:-1.0,id==2?3.0:-1.0,0,1);}";
 	struct Resources {
@@ -9069,6 +9069,9 @@ static void check_gpu_local_water(SdlGpuFrame *frame)
 	unsigned firstOnly = 0, secondOnly = 0, bothRoutes = 0;
 	unsigned compositeArmed[4] = {};
 	unsigned coastArmed = 0, windArmed = 0, zeroGradientQueries = 0, oracleFailures = 0;
+	double maxZeroGradientPhysical = 0, maxZeroGradientVertex = 0, maxZeroGradientBound = 0,
+		maxZeroGradientBoundFraction = 0;
+	unsigned zeroGradientOmittedMedium = 0, zeroGradientOmittedFine = 0;
 	double motionError[4] = {}, cycleMotionError[4] = {};
 	double maxBankValue = 0, maxBankDerivative = 0, maxProjectionDerivative = 0;
 	unsigned seaQueries = 0, legacyArmed = 0, crossingArmed = 0, filterArmed = 0, travelArmed = 0;
@@ -9229,11 +9232,49 @@ static void check_gpu_local_water(SdlGpuFrame *frame)
 			CHECK(value(row, 53, c) == 0); // fine never feeds contact/compression
 		if (queries[row].point[0] == 0 && queries[row].point[1] == 0) {
 			++zeroGradientQueries;
-			for (unsigned c = 0; c < 4; ++c) {
-				if (value(row, 52, c) != 0)
-					printf("zero-gradient legacy failure: row %u channel %u difference %.9g\n", row, c, value(row, 52, c));
-				CHECK(value(row, 52, c) == 0);
+			// At p=0 the frozen/modern paths share the same map samples,
+			// rotation and broad-swell operand, treated as rounded common
+			// inputs here (their evaluation has separate oracle checks).
+			// Combining medium/fine before
+			// rotation versus rotating separately permits float reassociation.
+			// Each path has at most six rounded operations per input term:
+			// combined: input add, two scales, rotation product/sum, swell add;
+			// separate: two scales, rotation product/sum, two composition adds.
+			// Sum both forward-error bounds, then account for the diagnostic
+			// GPU subtraction. No allowance applies when every input is zero.
+			const double unitRoundoff = std::numeric_limits<float>::epsilon() / 2.0;
+			const double gamma6 = 6 * unitRoundoff / (1 - 6 * unitRoundoff);
+			const double worldScale = WaterHeadingLegacyReference::WorldScale;
+			const double x = (value(row, 82, 0) + value(row, 83, 0)) * 1.5 * worldScale;
+			const double y = (value(row, 82, 1) + value(row, 83, 1)) * 1.5 * worldScale;
+			const double z = (value(row, 82, 2) + value(row, 83, 2)) * worldScale;
+			const double rx = std::abs(value(row, 82, 3)), ry = std::abs(value(row, 83, 3));
+			const double scale[3] = {rx * x + ry * y + std::abs(value(row, 84, 0)),
+				ry * x + rx * y + std::abs(value(row, 84, 1)), z + std::abs(value(row, 84, 2))};
+			bool omittedMediumFails = false, omittedFineFails = false;
+			for (unsigned c = 0; c < 3; ++c) {
+				const double bound = 2 * gamma6 * (1 + unitRoundoff) * scale[c];
+				CHECK(std::isfinite(bound) && bound >= 0);
+				const double physicalError = std::abs(value(row, 52, c));
+				const double vertexError = std::abs(value(row, 85, c));
+				maxZeroGradientPhysical = std::max(maxZeroGradientPhysical, physicalError);
+				maxZeroGradientVertex = std::max(maxZeroGradientVertex, vertexError);
+				maxZeroGradientBound = std::max(maxZeroGradientBound, bound);
+				if (bound > 0)
+					maxZeroGradientBoundFraction = std::max(maxZeroGradientBoundFraction,
+						std::max(physicalError, vertexError) / bound);
+				if (physicalError > bound || vertexError > bound)
+					printf("zero-gradient legacy failure: row %u channel %u physical %.9g vertex %.9g bound %.9g\n",
+						row, c, value(row, 52, c), value(row, 85, c), bound);
+				CHECK(physicalError <= bound);
+				CHECK(vertexError <= bound);
+				omittedMediumFails |= std::abs(value(row, 52, c) - value(row, 86, c)) > bound
+					&& std::abs(value(row, 85, c) - value(row, 86, c)) > bound;
+				omittedFineFails |= std::abs(value(row, 52, c) - value(row, 87, c)) > bound
+					&& std::abs(value(row, 85, c) - value(row, 87, c)) > bound;
 			}
+			zeroGradientOmittedMedium += omittedMediumFails;
+			zeroGradientOmittedFine += omittedFineFails;
 		}
 		for (unsigned c = 0; c < 2; ++c) {
 			maxDerivative = std::max(maxDerivative, std::abs(value(row, 8, c + 1) - value(row, 9, c)));
@@ -9277,6 +9318,7 @@ static void check_gpu_local_water(SdlGpuFrame *frame)
 		maxLocalRecovery, maxLocalVertexRecovery, firstOnly, secondOnly, bothRoutes);
 	CHECK(seaQueries > 20 && legacyArmed > 8 && crossingArmed > 8 && filterArmed > 8 && travelArmed > 8);
 	CHECK(coastArmed > 20 && windArmed > 20 && zeroGradientQueries == 6);
+	CHECK(zeroGradientOmittedMedium == zeroGradientQueries && zeroGradientOmittedFine == zeroGradientQueries);
 	for (unsigned group = 0; group < 4; ++group)
 		CHECK(compositeArmed[group] > 8);
 	CHECK(motionError[3] > .001); // direction comparison is armed by actual temporal motion
@@ -9292,8 +9334,11 @@ static void check_gpu_local_water(SdlGpuFrame *frame)
 	printf("sdl_gpu_frame_selfcheck: local water %u queries, corrected sea reference error %.9g; local scalar tangents %.9g filtered %.9g, envelope %.9g, product rule %.9g, crossing %.9g, vertex %.9g; armed crossings %u filtered %u travel %u; repeat exact\n",
 		rows, maxSea, maxDerivative, maxFilteredDerivative, maxGainDerivative, maxProduct, maxCrossing,
 		maxVertex, crossingArmed, filterArmed, travelArmed);
-	printf("sdl_gpu_frame_selfcheck: stable fine wind: analytic physical/filtered oracle %.9g, full local field %.9g, independent vertex %.9g, coastal direction invariance %.9g, vertex %.9g; %u coastal and %u wind-rotation controls, %u exact zero-gradient legacy queries; fine contact/compression exactly absent\n", maxWindOracle, maxExpected, maxExpectedVertex,
+	printf("sdl_gpu_frame_selfcheck: stable fine wind: analytic physical/filtered oracle %.9g, full local field %.9g, independent vertex %.9g, coastal direction invariance %.9g, vertex %.9g; %u coastal and %u wind-rotation controls, %u zero-gradient legacy queries; fine contact/compression exactly absent\n", maxWindOracle, maxExpected, maxExpectedVertex,
 		maxCoastInvariant, maxWindVertex, coastArmed, windArmed, zeroGradientQueries);
+	printf("sdl_gpu_frame_selfcheck: zero-gradient legacy roundoff: physical %.9g vertex %.9g, maximum component bound %.9g, maximum bound fraction %.9g; omitted medium/fine rejected in %u/%u queries\n",
+		maxZeroGradientPhysical, maxZeroGradientVertex, maxZeroGradientBound, maxZeroGradientBoundFraction,
+		zeroGradientOmittedMedium, zeroGradientOmittedFine);
 	printf("sdl_gpu_frame_selfcheck: residual wind/current composite: isolated mixed-LOD reference %.9g, full endpoint/temporal surface oracle %.9g; residual .06 opposing/crosswind %u/%u, residual .12 %u/%u; isolated fine wind and stream motion armed\n",
 		maxMixedLod, maxCompositeSurface, compositeArmed[0], compositeArmed[1], compositeArmed[2], compositeArmed[3]);
 	printf("sdl_gpu_frame_selfcheck: stream clocks max reset delta %.9g, still pools and phase-distance invariance exact; current-direction errors along %.9g against %.9g across %.9g\n", maxClockWrap, motionError[0], motionError[1], motionError[2]);

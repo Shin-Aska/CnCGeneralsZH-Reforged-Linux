@@ -1,3 +1,20 @@
+/*
+**	Copyright 2026 İlyas Akın
+**	Additional terms under GNU GPL section 7 apply: see LICENSE.md.
+**
+**	This program is free software: you can redistribute it and/or modify
+**	it under the terms of the GNU General Public License as published by
+**	the Free Software Foundation, either version 3 of the License, or
+**	(at your option) any later version.
+**
+**	This program is distributed in the hope that it will be useful,
+**	but WITHOUT ANY WARRANTY; without even the implied warranty of
+**	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+**	GNU General Public License for more details.
+**
+**	You should have received a copy of the GNU General Public License
+**	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
 // Immutable headed shader reference from d1b6a8b5, before local analyzer integration.
 // Test-only: compare exact original sea evaluation, including packed inputs and FFT detail.
 #pragma once
@@ -320,14 +337,31 @@ float2 fixtureProjected(float2 p,out float2 vx,out float2 vy) {
     fftStreamProject(v,vx,vy,float2(.6+.002*p.x,.2+.001*p.y),float2(.002,0),float2(0,.001));
     return v;
 }
+// Frozen fixture inputs for the degenerate-heading displacement check. Expose
+// terms before scale/rotation/addition so the CPU can form an absolute scale in
+// double precision, even when the final displacement cancels.
+float4 fixtureLegacyRoundoffInput(float2 p,referenceFftSwell swell,bool fine) {
+    float2 r=swell.rotation0,q=referencefftRotate(p,r*float2(1,-1));
+    float3 input=fine?fixtureMap2(q/(13.0*referencefftWorldScale),0).xzy:
+        fixtureMap1(q/(103.0*referencefftWorldScale),0).xzy;
+    return float4(abs(input),fine?r.y:r.x);
+}
 float4 main(float4 position:SV_Position):SV_Target0 {
     int column=int(position.x),row=int(position.y);float4 query=Queries[row].samplePoint;
     float2 p=query.xy;float lod=query.w;WaterParameters=float4(query.z,0,0,0);FftParameters=float4(1,0,1.125,.3);
     FftSurface a,b,ra,rb;float3 levels=float3(lod,lod,lod);
     fftRawAndShadingSurface(p,levels,a,b);referencefftRawAndShadingSurface(p,levels,ra,rb);
     float3 originalDelta=a.displacement-ra.displacement;
-    float originalVertexDelta=length(fftRawDisplacement(p)-referencefftRawDisplacement(p));
+    float3 originalVertexDifference=fftRawDisplacement(p)-referencefftRawDisplacement(p);
+    float originalVertexDelta=length(originalVertexDifference);
     referenceFftSwell originalSwell=referencefftSwell(p,lod);
+    if(column==82 || column==83)return fixtureLegacyRoundoffInput(p,originalSwell,column==83);
+    if(column==84)return float4(originalSwell.displacement,0);
+    if(column==85)return float4(originalVertexDifference,0);
+    // Deliberately omitted cascade controls use the same bound as the real
+    // comparison. Both must remain observable in every zero-gradient query.
+    if(column==86)return float4(fftMediumSurface(p,0,fftSwell(p)).displacement,0);
+    if(column==87)return float4(fftWindSurface(p,0).displacement,0);
     FftSurface correction=fixtureFineCorrection(p,0,originalSwell),filteredCorrection=fixtureFineCorrection(p,lod,originalSwell);
     ra.displacement+=correction.displacement;ra.derivativeX+=correction.derivativeX;ra.derivativeY+=correction.derivativeY;
     rb.displacement+=filteredCorrection.displacement;rb.derivativeX+=filteredCorrection.derivativeX;rb.derivativeY+=filteredCorrection.derivativeY;
