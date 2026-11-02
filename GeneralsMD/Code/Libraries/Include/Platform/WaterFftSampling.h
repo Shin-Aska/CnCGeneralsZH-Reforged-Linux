@@ -13,6 +13,7 @@
 #include "Platform/WaterWaveCageShader.h"
 #include "Platform/ModernWaterMaterial.h"
 #include "Platform/WaterWaveHeading.h"
+#include "Platform/WaterMovementCompatibilityShader.h"
 #include "Platform/WaterWavefront.h"
 
 namespace WaterFftSampling {
@@ -471,11 +472,11 @@ FftSwell fftFilteredSwell(FftSwell value) {
     value.displacement=value.shadingDisplacement;value.derivativeX=value.shadingDerivativeX;value.derivativeY=value.shadingDerivativeY;
     return value;
 }
-)HLSL" + LocalSource(resolution);
+)HLSL" + LocalSource(resolution) + WaterMovementCompatibilityShader::HeadingSource();
 }
 
 inline std::string HeadingVertexSource() {
-    return R"HLSL(
+    return WaterMovementCompatibilityShader::VertexSource() + R"HLSL(
 // The texture-array rewrite expects each cascade sampled once, at q.
 float3 fftChopDisplacement(float2 p,float2 r) {
     float2 q=fftRotate(p,r*float2(1,-1));
@@ -498,6 +499,7 @@ float3 fftLegacyDisplacement(float2 p) {
 }
 
 float3 fftRawDisplacement(float2 p) {
+    [branch] if(FftParameters.z< -0.5)return fftCompatibilityDisplacement(p);
     [branch] if(FftParameters.z<=0.5)return fftUnrotatedDisplacement(p);
     FftLocalFields fields=fftLocalFields(p);
     [branch] if(fields.influence.x==0.0)return fftLegacyDisplacement(p);
@@ -508,7 +510,7 @@ float3 fftRawDisplacement(float2 p) {
 }
 
 inline std::string HeadingPixelSource() {
-    return R"HLSL(
+    return WaterMovementCompatibilityShader::PixelSource() + R"HLSL(
 // Medium chop follows each refracted sector and feeds ambient breaking and contact wash.
 // Fine wind ripples are sampled once below, outside the sector cross-fade.
 void fftAccumulateChop(inout FftSurface medium,float2 p,float3 lod,float2 r,float w) {
@@ -596,6 +598,7 @@ FftSurface fftLocalSurface(FftSurface original,FftLocalFields fields,FftLocalWav
     return value;
 }
 FftSurface fftRawSurface(float2 p,float3 lod) {
+    [branch] if(FftParameters.z< -0.5)return fftCompatibilitySurface(p,lod);
     [branch] if(FftParameters.z<=0.5)return fftUnrotatedSurface(p,lod);
     FftLocalFields fields=fftLocalFields(p);
     [branch] if(fields.influence.x==0.0)return fftLegacySurface(p,lod);
@@ -607,6 +610,7 @@ FftSurface fftRawSurface(float2 p,float3 lod) {
 }
 FftSurface fftRawSurface(float2 p) {return fftRawSurface(p,float3(0,0,0));}
 void fftRawAndShadingSurface(float2 p,float3 lod,out FftSurface physical,out FftSurface shading) {
+    [branch] if(FftParameters.z< -0.5) {fftCompatibilityAndShadingSurface(p,lod,physical,shading);return;}
     [branch] if(FftParameters.z<=0.5) {fftUnrotatedAndShadingSurface(p,lod,physical,shading);return;}
     FftLocalFields fields=fftLocalFields(p);
     [branch] if(fields.influence.x==0.0) {fftLegacyAndShadingSurface(p,lod,physical,shading);return;}
@@ -1001,7 +1005,7 @@ float2 fftParameterGradient(float value,float2 px,float2 py) {
         source.insert(source.find(surface) + surface.size(), "\n    float localInfluence,localVariance;");
         const std::string variance = "fftShadingVariance(shadingLod)*";
         source.replace(source.find(variance), variance.size(),
-            "(shading.localInfluence>0.0?shading.localVariance:(fftShadingVariance(float3(0,shadingLod.yz))+shading.unresolvedSlopeVariance))*");
+            "(FftParameters.z< -0.5?fftShadingVariance(shadingLod):(shading.localInfluence>0.0?shading.localVariance:(fftShadingVariance(float3(0,shadingLod.yz))+shading.unresolvedSlopeVariance)))*");
     }
     if(textureArray) {
         // Preserve the independent-map source contract used by the coastal decoder and

@@ -30,7 +30,11 @@ user data and run without a visible window.
 
 ## Water reflections
 
-**Options → Effects → Reflections → Water reflection** selects **Legacy**, **SSR**,
+**Options → Water → Water Movement Behavior** is enabled by default. On uses map-aware
+wave movement; off keeps the v3.5.1 movement. **Accept** saves the choice, and it takes effect
+when the next map loads. The current map keeps its movement behavior.
+
+**Options → Water → Reflections → Water reflection** selects **Legacy**, **SSR**,
 **Hybrid** or **Path traced (experimental)** for Modern water. **Accept** applies the choice during the current game and
 saves it for later sessions; no restart is needed. Choose Modern under
 **Graphics → Water style** to use these modes.

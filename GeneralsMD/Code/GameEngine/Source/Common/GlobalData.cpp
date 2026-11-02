@@ -1042,6 +1042,7 @@ GlobalData::GlobalData()
 	m_smoothMotionAnyDisplay = FALSE;
 #if defined(__linux__)
 	m_waterStyle = 1;				// Linux keeps Modern unless Options.ini explicitly selects Classic
+	m_waterMovementBehavior = TRUE;	// Map-aware movement unless the player requests v3.5.1 behavior for the next map
 	m_waterReflection = 2;		// Hybrid unless Options.ini selects another reflection mode
 	m_waterReflectionEnabled = TRUE;
 	m_waterFftResolution = 1;	// High preserves the original wave simulation

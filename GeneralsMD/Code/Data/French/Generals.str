@@ -18905,6 +18905,14 @@ GUI:OptionsGroupModernWater
 "Eau moderne"
 END
 
+GUI:WaterMovementBehavior
+"Mouvement de l'eau"
+END
+
+TOOLTIP:WaterMovementBehavior
+"Activé : le mouvement des vagues s'adapte à la carte. Désactivé : conserve le mouvement de l'eau de la version 3.5.1. S'applique au chargement de la prochaine carte."
+END
+
 GUI:WaterReflectionEnabled
 "Reflets de scène"
 END

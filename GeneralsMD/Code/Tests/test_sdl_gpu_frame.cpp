@@ -45,6 +45,7 @@
 #include "Platform/WaterFftSpectrum.h"
 #include "Platform/WaterFftSampling.h"
 #include "WaterHeadingLegacyReference.h"
+#include "WaterMovementV351Reference.h"
 #include "Platform/WaterLocalWaveField.h"
 #include "Platform/WaterPerformanceSettings.h"
 #include "Platform/WaterFoamShading.h"
@@ -9348,6 +9349,326 @@ static void check_gpu_local_water(SdlGpuFrame *frame)
 	printf("sdl_gpu_frame_selfcheck: analytic fallback residual: CPU/GPU gain %.9g, scalar product tangents %.9g, offshore blend tangents %.9g; sea identity exact\n", maxCpuGain, maxFallbackDerivative, maxBlendedDerivative);
 }
 
+// Compare the production runtime compatibility dispatch with the frozen v3.5.1
+// decoder and sector wrappers. Synthetic asymmetric maps arm every FFT cascade;
+// the real linear/clamp heading texture still exercises interpolation and guards.
+static void check_gpu_water_movement_v351(SdlGpuFrame *frame)
+{
+	struct Query {
+		float point[4], control[4];
+	};
+	std::vector<Query> queries;
+	for (const auto &p : std::vector<std::array<float, 2>>{{-12, -8}, {0, 0}, {10, 15}, {29.9f, 12.3f},
+		{30, 25}, {45, 25}, {69.7f, 9.2f}, {95, 32}})
+		for (float time : {0.0f, 3.7f})
+			for (float lod : {0.0f, 1.3f, 4.5f})
+				for (float headed : {0.0f, 1.0f})
+					queries.push_back({{p[0], p[1], time, lod}, {headed, .37f, 0, 0}});
+	const unsigned rows = unsigned(queries.size()), columns = 18;
+	CHECK(queries.size() * sizeof(Query) <= 4096);
+	auto replace = [](std::string &s, const std::string &a, const std::string &b) {
+		WaterLocalWaveTest::ReplaceAll(s, a, b);
+	};
+	auto names = [](const std::string &source, const std::string &prefix) {
+		std::string out;
+		for (size_t at = 0; at < source.size();) {
+			const auto identifier = [](unsigned char c) {
+				return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
+			};
+			if (identifier(source[at])) {
+				size_t end = at + 1;
+				while (end < source.size() && (identifier(source[end]) || (source[end] >= '0' && source[end] <= '9')))
+					++end;
+				const std::string word = source.substr(at, end - at);
+				if (word.compare(0, 3, "fft") == 0 || word.compare(0, 3, "Fft") == 0)
+					out += prefix;
+				out += word;
+				at = end;
+			} else
+				out += source[at++];
+		}
+		return out;
+	};
+	auto source = [&](bool vertex, bool array) {
+		std::string current;
+		if (vertex) {
+			const std::string full = WaterFftSampling::VertexSource(false, false, array, true);
+			const auto begin = full.find("float3 fftUnrotatedDisplacement(float2 p)"),
+				end = full.find("float3 fftVertexDisplacement(", begin);
+			CHECK(begin != std::string::npos && end > begin);
+			if (begin == std::string::npos || end <= begin)
+				return std::string();
+			current = WaterFftSampling::CommonSource() + full.substr(begin, end - begin);
+		} else {
+			const auto config = WaterFftSpectrum::ForResolution(256);
+			const std::string full = WaterFftSampling::PixelSource(false, false, array, config, true);
+			const auto begin = full.find("struct FftSurface {"), end = full.find("FftSurface fftSurface(", begin);
+			CHECK(begin != std::string::npos && end > begin);
+			if (begin == std::string::npos || end <= begin)
+				return std::string();
+			current = WaterFftSampling::CommonSource() + WaterFftFiltering::Source(config) + full.substr(begin, end - begin);
+		}
+		CHECK(current.find("FftParameters.z< -0.5") != std::string::npos);
+		std::string reference = vertex ? WaterMovementV351Reference::VertexSource()
+			: WaterMovementV351Reference::PixelSource();
+		auto prepare = [&](std::string &text, bool frozen) {
+			replace(text, "FftParameters", frozen ? "fixtureReferenceFft" : "fixtureFft");
+			replace(text, "WaterParameters", "fixtureWater");
+			const std::string reg = vertex ? "4" : "11", slot = frozen ? "1" : "0", space = vertex ? "0" : "2";
+			replace(text, "register(t" + reg + ")", "register(t" + slot + ",space" + space + ")");
+			replace(text, "register(s" + reg + ")", "register(s" + slot + ",space" + space + ")");
+			for (unsigned c = 0; c < 6; ++c) {
+				const std::string i = std::to_string(c), stage = std::to_string(c + 8);
+				replace(text, "Texture" + stage + ".SampleLevel(Sampler" + stage + ",", "fixtureMap" + i + "(");
+				replace(text, "fftMap" + i + "(", "fixtureMap" + i + "(");
+			}
+			for (unsigned c = 0; c < 3; ++c) {
+				const std::string i = std::to_string(c);
+				replace(text, "FftDisplacement" + i + ".SampleLevel(FftSampler" + i + ",", "fixtureVertex" + i + "(");
+			}
+			text = names(text, frozen ? "reference" : "production");
+		};
+		prepare(current, false);
+		prepare(reference, true);
+		std::string out = "struct Query{float4 samplePoint,control;};cbuffer QueriesBlock:register(b0,space"
+			+ std::string(vertex ? "1" : "3") + "){Query Queries[" + std::to_string(rows) + "];};\n";
+		out += R"HLSL(
+static float4 fixtureFft,fixtureReferenceFft,fixtureWater;
+static int fixtureOmit=-1;
+static const float4 TerrainParameters=float4(0,80,0,0);
+static const float4 FoamFillLights[4]={float4(0,0,0,0),float4(0,0,0,0),float4(0,0,0,0),float4(0,0,0,.125)};
+float4 fixtureMap(float2 uv,float lod,uint cascade,bool derivative) {
+    if(fixtureOmit==(int)cascade)return 0;
+    float period=cascade==0?450.0:cascade==1?103.0:13.0;
+    float2 k=float2(.013+.017*cascade,.031-.008*cascade);
+    float sn,cs;sincos(dot(uv*period*20.0,k)+fixtureWater.x*(.19+.07*cascade)+.47*cascade,sn,cs);
+    float gain=exp2(-(.2+.1*cascade)*lod),amplitude=.023+.011*cascade;
+    if(derivative)return gain*float4(-amplitude*k*sn,.004*(cascade+1)*cs,-.003*(cascade+1)*sn);
+    return gain*float4(.02*(cascade+1)*sn,amplitude*cs,-.017*(cascade+1)*cs,.002*(cascade+1)*sn);
+}
+)HLSL";
+		for (unsigned c = 0; c < 6; ++c)
+			out += "float4 fixtureMap" + std::to_string(c) + "(float2 uv,float lod){return fixtureMap(uv,lod,"
+				+ std::to_string(c / 2) + "," + (c % 2 ? "true" : "false") + ");}\n";
+		for (unsigned c = 0; c < 3; ++c) {
+			const std::string i = std::to_string(c);
+			out += "float4 fixtureVertex" + i + "(float2 uv,float lod){return fixtureMap(uv,lod," + i + ",false);}\n";
+			out += "float4 fixtureVertex" + i + "(float3 uv,float lod){return fixtureMap(uv.xy,lod," + i + ",false);}\n";
+		}
+		out += current + reference;
+		if (vertex)
+			out += R"HLSL(
+float4 fixtureValue(Query q,uint col) {
+    fixtureWater=float4(q.samplePoint.z,0,0,0);fixtureFft=float4(1,0,q.control.x>0?-1:0,q.control.y);
+    fixtureReferenceFft=float4(1,0,q.control.x,q.control.y);fixtureOmit=-1;
+    float3 actual=productionfftRawDisplacement(q.samplePoint.xy),expected=referencefftRawDisplacement(q.samplePoint.xy);
+    if(col==0)return float4(actual-expected,0);
+    if(col==1)return float4(actual,1);
+    if(col==2){fixtureFft.z=0;return float4(actual-productionfftRawDisplacement(q.samplePoint.xy),0);}
+    fixtureOmit=(int)col-3;return float4(actual-productionfftRawDisplacement(q.samplePoint.xy),0);
+}
+struct Output{float4 position:SV_Position;nointerpolation float4 value:TEXCOORD0;};
+Output main(uint id:SV_VertexID) {
+    uint cell=id/6,row=cell/6,col=cell%6;
+    const float2 corners[6]={float2(0,0),float2(1,0),float2(0,1),float2(0,1),float2(1,0),float2(1,1)};
+    Output o;o.position=float4((float2(col,row)+corners[id%6])/float2(6,)HLSL" + std::to_string(rows) + R"HLSL()*2-1,0,1);
+    o.value=fixtureValue(Queries[row],col);return o;
+}
+)HLSL";
+		else
+			out += R"HLSL(
+float4 main(float4 pixel:SV_Position):SV_Target0 {
+    Query q=Queries[(uint)pixel.y];uint col=(uint)pixel.x;
+    fixtureWater=float4(q.samplePoint.z,0,0,0);fixtureFft=float4(1,0,q.control.x>0?-1:0,q.control.y);
+    fixtureReferenceFft=float4(1,0,q.control.x,q.control.y);fixtureOmit=-1;
+    float2 p=q.samplePoint.xy;float3 lod=float3(q.samplePoint.w*.3,q.samplePoint.w,q.samplePoint.w*.7);
+    productionFftSurface a=productionfftRawSurface(p,float3(0,0,0)),f=productionfftRawSurface(p,lod),ap,af;
+    referenceFftSurface b=referencefftRawSurface(p,float3(0,0,0)),g=referencefftRawSurface(p,lod),bp,bf;
+    productionfftRawAndShadingSurface(p,lod,ap,af);referencefftRawAndShadingSurface(p,lod,bp,bf);
+    if(col==0)return float4(a.displacement-b.displacement,0);
+    if(col==1)return float4(a.derivativeX-b.derivativeX,0);
+    if(col==2)return float4(a.derivativeY-b.derivativeY,0);
+    if(col==3)return float4(a.contactIncident-b.contactIncident,0);
+    if(col==4)return float4(a.incidentCompression-b.incidentCompression,a.localInfluence,a.localVariance,0);
+    if(col==5)return float4(f.displacement-g.displacement,0);
+    if(col==6)return float4(f.derivativeX-g.derivativeX,0);
+    if(col==7)return float4(f.derivativeY-g.derivativeY,0);
+    if(col==8)return float4(f.contactIncident-g.contactIncident,f.incidentCompression-g.incidentCompression);
+    if(col==9)return float4(ap.displacement-bp.displacement,0);
+    if(col==10)return float4(af.displacement-bf.displacement,0);
+    if(col==11)return float4(af.derivativeX-bf.derivativeX,0);
+    if(col==12)return float4(af.derivativeY-bf.derivativeY,0);
+    if(col==13)return float4(af.contactIncident-bf.contactIncident,af.incidentCompression-bf.incidentCompression);
+    if(col==14){fixtureFft.z=0;return float4(a.displacement-productionfftRawSurface(p,float3(0,0,0)).displacement,0);}
+    fixtureOmit=(int)col-15;return float4(a.displacement-productionfftRawSurface(p,float3(0,0,0)).displacement,0);
+}
+)HLSL";
+		return out;
+	};
+	struct Resources {
+		SDL_GPUDevice *device;
+		SDL_GPUShader *vs = nullptr, *ps = nullptr;
+		SDL_GPUGraphicsPipeline *pipeline = nullptr;
+		SDL_GPUTexture *heading = nullptr, *target = nullptr;
+		SDL_GPUSampler *sampler = nullptr;
+		void reset() {
+			if (pipeline)
+				SDL_ReleaseGPUGraphicsPipeline(device, pipeline);
+			if (vs)
+				SDL_ReleaseGPUShader(device, vs);
+			if (ps)
+				SDL_ReleaseGPUShader(device, ps);
+			if (target)
+				SDL_ReleaseGPUTexture(device, target);
+			pipeline = nullptr;
+			vs = ps = nullptr;
+			target = nullptr;
+		}
+		~Resources() {
+			reset();
+			if (heading)
+				SDL_ReleaseGPUTexture(device, heading);
+			if (sampler)
+				SDL_ReleaseGPUSampler(device, sampler);
+		}
+	} r;
+	r.device = frame->Device();
+	SDL_GPUTextureCreateInfo info = {};
+	info.type = SDL_GPU_TEXTURETYPE_2D;
+	info.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+	info.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER;
+	info.width = 8;
+	info.height = 4;
+	info.layer_count_or_depth = info.num_levels = 1;
+	r.heading = SDL_CreateGPUTexture(r.device, &info);
+	SDL_GPUSamplerCreateInfo sampler = {};
+	sampler.min_filter = sampler.mag_filter = SDL_GPU_FILTER_LINEAR;
+	sampler.address_mode_u = sampler.address_mode_v = sampler.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+	r.sampler = SDL_CreateGPUSampler(r.device, &sampler);
+	CHECK(r.heading && r.sampler);
+	if (!r.heading || !r.sampler)
+		return;
+	uint32_t offset = 0;
+	auto *texels = (uint8_t *)frame->Upload_Space(8 * 4 * 4, offset);
+	CHECK(texels);
+	if (!texels)
+		return;
+	for (unsigned y = 0; y < 4; ++y)
+		for (unsigned x = 0; x < 8; ++x) {
+			const float angle = (float(x) + .38f * float(y)) * .7853981633974483f;
+			uint8_t *p = texels + (y * 8 + x) * 4;
+			p[0] = uint8_t(std::lround((.5f + .5f * std::cos(angle)) * 255));
+			p[1] = uint8_t(std::lround((.5f + .5f * std::sin(angle)) * 255));
+			p[2] = uint8_t(17 + x * 29);
+			p[3] = x == 0 ? 0 : 255;
+			if (x == 3 && y == 1)
+				p[0] = p[1] = 128;
+		}
+	frame->Queue_Texture_Upload(r.heading, 0, 8, 4, offset);
+	CHECK(frame->Flush());
+	double maximum = 0;
+	unsigned armedHeading = 0, armedCascade[3] = {};
+	for (bool vertex : {false, true})
+		for (bool array : {false, true}) {
+			r.reset();
+			std::vector<unsigned char> spirv;
+			std::string error;
+			const std::string fixture = source(vertex, array);
+			CHECK(!fixture.empty());
+			if (fixture.empty())
+				return;
+			const std::string vs = vertex ? fixture : "float4 main(uint id:SV_VertexID):SV_Position{return float4(id==1?3.0:-1.0,id==2?3.0:-1.0,0,1);}";
+			const std::string ps = vertex ? "float4 main(nointerpolation float4 value:TEXCOORD0):SV_Target0{return value;}" : fixture;
+			bool ok = SDL3_Compile_HLSL_To_SPIRV(vs, true, spirv, error);
+			CHECK(ok);
+			if (!ok) {
+				printf("v3.5.1 vertex fixture: %s\n", error.c_str());
+				return;
+			}
+			r.vs = SDL3_Create_Shader(r.device, spirv, true, error);
+			CHECK(r.vs);
+			ok = SDL3_Compile_HLSL_To_SPIRV(ps, false, spirv, error);
+			CHECK(ok);
+			if (!ok) {
+				printf("v3.5.1 pixel fixture: %s\n", error.c_str());
+				return;
+			}
+			r.ps = SDL3_Create_Shader(r.device, spirv, false, error);
+			CHECK(r.ps);
+			if (!r.vs || !r.ps)
+				return;
+			SDL_GPUColorTargetDescription colour = {};
+			colour.format = SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT;
+			SDL_GPUGraphicsPipelineCreateInfo pipeline = {};
+			pipeline.vertex_shader = r.vs;
+			pipeline.fragment_shader = r.ps;
+			pipeline.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+			pipeline.target_info.color_target_descriptions = &colour;
+			pipeline.target_info.num_color_targets = 1;
+			r.pipeline = SDL_CreateGPUGraphicsPipeline(r.device, &pipeline);
+			CHECK(r.pipeline);
+			if (!r.pipeline)
+				return;
+			const unsigned width = vertex ? 6 : columns;
+			info.format = colour.format;
+			info.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET;
+			info.width = width;
+			info.height = rows;
+			r.target = SDL_CreateGPUTexture(r.device, &info);
+			CHECK(r.target);
+			if (!r.target)
+				return;
+			auto render = [&]() {
+				auto *commands = SDL_AcquireGPUCommandBuffer(r.device);
+				CHECK(commands);
+				SDL_GPUColorTargetInfo target = {};
+				target.texture = r.target;
+				target.load_op = SDL_GPU_LOADOP_DONT_CARE;
+				target.store_op = SDL_GPU_STOREOP_STORE;
+				auto *pass = SDL_BeginGPURenderPass(commands, &target, 1, nullptr);
+				CHECK(pass);
+				SDL_BindGPUGraphicsPipeline(pass, r.pipeline);
+				SDL_GPUTextureSamplerBinding bindings[2] = {{r.heading, r.sampler}, {r.heading, r.sampler}};
+				if (vertex) {
+					SDL_BindGPUVertexSamplers(pass, 0, bindings, 2);
+					SDL_PushGPUVertexUniformData(commands, 0, queries.data(), unsigned(queries.size() * sizeof(Query)));
+				} else {
+					SDL_BindGPUFragmentSamplers(pass, 0, bindings, 2);
+					SDL_PushGPUFragmentUniformData(commands, 0, queries.data(), unsigned(queries.size() * sizeof(Query)));
+				}
+				SDL_DrawGPUPrimitives(pass, vertex ? width * rows * 6 : 3, 1, 0, 0);
+				SDL_EndGPURenderPass(pass);
+				CHECK(SDL_SubmitGPUCommandBuffer(commands));
+				return read_float_targets(frame, &r.target, 1, width, rows);
+			};
+			const auto values = render(), repeat = render();
+			CHECK(values == repeat && values.size() == width * rows * 4);
+			if (values.size() != width * rows * 4)
+				return;
+			for (unsigned row = 0; row < rows; ++row)
+				for (unsigned col = 0; col < width; ++col)
+					for (unsigned c = 0; c < 4; ++c) {
+						const double value = values[(row * width + col) * 4 + c];
+						CHECK(std::isfinite(value));
+						if (col < (vertex ? 1u : 14u)) {
+							maximum = std::max(maximum, std::abs(value));
+							if (std::abs(value) >= .000003)
+								printf("v3.5.1 oracle: vertex%u array%u row%u column%u channel%u error %.9g\n", vertex, array, row, col, c, value);
+							CHECK(std::abs(value) < .000003);
+						} else if (c < 3) {
+							if (col == (vertex ? 2u : 14u))
+								armedHeading += std::abs(value) > .001;
+							if (col >= (vertex ? 3u : 15u))
+								armedCascade[col - (vertex ? 3u : 15u)] += std::abs(value) > .001;
+						}
+					}
+		}
+	CHECK(armedHeading > 20);
+	for (unsigned count : armedCascade)
+		CHECK(count > 20);
+	printf("sdl_gpu_frame_selfcheck: frozen v3.5.1 movement: %u queries, actual vertex/pixel dispatch, array/independent maps, physical/filtered/paired derivatives and contact/compression, linear heading guards/fallback, exact repeat; max error %.9g, headed controls %u, cascade controls %u/%u/%u\n", rows, maximum, armedHeading, armedCascade[0], armedCascade[1], armedCascade[2]);
+}
+
 int main(int argc,char **argv)
 {
 	if (!SDL_Init(SDL_INIT_VIDEO)) {
@@ -9362,6 +9683,12 @@ int main(int argc,char **argv)
 		return 77;
 	}
 	printf("sdl_gpu_frame_selfcheck: %s\n", SDL_GetGPUDeviceDriver(frame->Device()));
+	if (argc == 2 && strcmp(argv[1], "--water-movement-only") == 0) {
+		check_gpu_water_movement_v351(frame);
+		delete frame;
+		SDL_Quit();
+		return failures ? 1 : 0;
+	}
 	if (argc == 2 && strcmp(argv[1], "--water-local-only") == 0) {
 		check_gpu_local_water(frame);
 		delete frame;
@@ -9369,6 +9696,7 @@ int main(int argc,char **argv)
 		return failures ? 1 : 0;
 	}
 	check_gpu_local_water(frame);
+	check_gpu_water_movement_v351(frame);
 #if defined(__linux__)
     if(argc==2 && strcmp(argv[1],"--water-alpha-only")==0) {
         check_gpu_water_opaque_alpha(frame);delete frame;SDL_Quit();return failures?1:0;

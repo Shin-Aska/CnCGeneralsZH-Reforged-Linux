@@ -7776,8 +7776,55 @@ WINDOW
         END
         CHILD
         WINDOW
+          WINDOWTYPE = CHECKBOX;
+          SCREENRECT = UPPERLEFT: 40 182, BOTTOMRIGHT: 264 206, CREATIONRESOLUTION: 800 600;
+          NAME = "OptionsMenu.wnd:CheckWaterMovementBehavior";
+          STATUS = ENABLED+IMAGE+BORDER;
+          STYLE = CHECKBOX+MOUSETRACK;
+          SYSTEMCALLBACK = "[None]";
+          INPUTCALLBACK = "[None]";
+          TOOLTIPCALLBACK = "[None]";
+          DRAWCALLBACK = "[None]";
+          FONT = NAME: "Arial", SIZE: 14, BOLD: 0;
+          HEADERTEMPLATE = "MinorTitle";
+          TOOLTIPTEXT = "TOOLTIP:WaterMovementBehavior";
+          TOOLTIPDELAY = -1;
+          TEXT = "GUI:WaterMovementBehavior";
+          TEXTCOLOR = ENABLED:  255 255 255 255, ENABLEDBORDER:  0 0 0 255,
+                      DISABLED: 192 192 192 255, DISABLEDBORDER: 64 64 64 255,
+                      HILITE:   186 255 12 255, HILITEBORDER:   0 0 0 255;
+          ENABLEDDRAWDATA = IMAGE: NoImage, COLOR: 255 0 0 255, BORDERCOLOR: 255 128 128 255,
+                            IMAGE: Active-Unchecked, COLOR: 255 255 255 0, BORDERCOLOR: 128 128 255 255,
+                            IMAGE: Active-Checked, COLOR: 0 0 255 255, BORDERCOLOR: 128 128 255 255,
+                            IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                            IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                            IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                            IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                            IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                            IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0;
+          DISABLEDDRAWDATA = IMAGE: NoImage, COLOR: 128 128 128 255, BORDERCOLOR: 192 192 192 255,
+                             IMAGE: Disabled-Unchecked, COLOR: 255 255 255 0, BORDERCOLOR: 192 192 192 255,
+                             IMAGE: Disabled-Checked, COLOR: 64 64 64 255, BORDERCOLOR: 254 254 254 255,
+                             IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                             IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                             IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                             IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                             IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                             IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0;
+          HILITEDRAWDATA = IMAGE: NoImage, COLOR: 0 255 0 255, BORDERCOLOR: 128 255 128 255,
+                           IMAGE: Active-HiLighted, COLOR: 255 255 255 0, BORDERCOLOR: 128 128 255 255,
+                           IMAGE: Active-Checked, COLOR: 255 255 0 255, BORDERCOLOR: 254 254 254 255,
+                           IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                           IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                           IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                           IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                           IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0,
+                           IMAGE: NoImage, COLOR: 255 255 255 0, BORDERCOLOR: 255 255 255 0;
+        END
+        CHILD
+        WINDOW
           WINDOWTYPE = STATICTEXT;
-          SCREENRECT = UPPERLEFT: 34 182, BOTTOMRIGHT: 258 206, CREATIONRESOLUTION: 800 600;
+          SCREENRECT = UPPERLEFT: 34 210, BOTTOMRIGHT: 258 234, CREATIONRESOLUTION: 800 600;
           NAME = "OptionsMenu.wnd:LabelWaterFftResolution";
           TOOLTIPTEXT = "TOOLTIP:WaterFftResolution";
           STATUS = ENABLED;
@@ -7825,7 +7872,7 @@ WINDOW
         CHILD
         WINDOW
           WINDOWTYPE = COMBOBOX;
-          SCREENRECT = UPPERLEFT: 40 206, BOTTOMRIGHT: 264 230, CREATIONRESOLUTION: 800 600;
+          SCREENRECT = UPPERLEFT: 40 234, BOTTOMRIGHT: 264 258, CREATIONRESOLUTION: 800 600;
           NAME = "OptionsMenu.wnd:ComboBoxWaterFftResolution";
           TOOLTIPTEXT = "TOOLTIP:WaterFftResolution";
           STATUS = ENABLED+IMAGE;
@@ -8065,7 +8112,7 @@ WINDOW
         CHILD
         WINDOW
           WINDOWTYPE = STATICTEXT;
-          SCREENRECT = UPPERLEFT: 34 238, BOTTOMRIGHT: 258 262, CREATIONRESOLUTION: 800 600;
+          SCREENRECT = UPPERLEFT: 34 266, BOTTOMRIGHT: 258 290, CREATIONRESOLUTION: 800 600;
           NAME = "OptionsMenu.wnd:LabelWaterRefractionQuality";
           TOOLTIPTEXT = "TOOLTIP:WaterRefractionQuality";
           STATUS = ENABLED;
@@ -8113,7 +8160,7 @@ WINDOW
         CHILD
         WINDOW
           WINDOWTYPE = COMBOBOX;
-          SCREENRECT = UPPERLEFT: 40 262, BOTTOMRIGHT: 264 286, CREATIONRESOLUTION: 800 600;
+          SCREENRECT = UPPERLEFT: 40 290, BOTTOMRIGHT: 264 314, CREATIONRESOLUTION: 800 600;
           NAME = "OptionsMenu.wnd:ComboBoxWaterRefractionQuality";
           TOOLTIPTEXT = "TOOLTIP:WaterRefractionQuality";
           STATUS = ENABLED+IMAGE;

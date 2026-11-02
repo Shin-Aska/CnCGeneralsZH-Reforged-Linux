@@ -1348,6 +1348,14 @@ TOOLTIP:WaterStyle
 "Classic uses the original water, sparkles, reflections and wakes. Modern adds waves, shoreline detail and hull foam. Applied when you Accept."
 END
 
+GUI:WaterMovementBehavior
+"Water Movement Behavior"
+END
+
+TOOLTIP:WaterMovementBehavior
+"On uses map-aware wave movement. Off keeps v3.5.1 water movement. Applies when the next map loads."
+END
+
 GUI:WaterReflectionEnabled
 "Scene reflections"
 END

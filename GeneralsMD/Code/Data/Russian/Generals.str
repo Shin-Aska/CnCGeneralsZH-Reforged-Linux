@@ -18785,6 +18785,14 @@ GUI:OptionsGroupModernWater
 "Современная вода"
 END
 
+GUI:WaterMovementBehavior
+"Движение воды"
+END
+
+TOOLTIP:WaterMovementBehavior
+"Вкл.: движение волн учитывает геометрию карты. Выкл.: сохраняет движение воды версии 3.5.1. Применяется при загрузке следующей карты."
+END
+
 GUI:WaterReflectionEnabled
 "Отражения сцены"
 END

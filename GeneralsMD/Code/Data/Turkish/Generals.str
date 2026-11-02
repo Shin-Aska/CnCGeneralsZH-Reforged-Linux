@@ -17867,6 +17867,14 @@ GUI:OptionsGroupModernWater
 "Modern su"
 END
 
+GUI:WaterMovementBehavior
+"Su hareketi"
+END
+
+TOOLTIP:WaterMovementBehavior
+"Açık: Dalga hareketi haritaya uyarlanır. Kapalı: 3.5.1 sürümünün su hareketi korunur. Sonraki harita yüklendiğinde uygulanır."
+END
+
 GUI:WaterReflectionEnabled
 "Sahne yansımaları"
 END

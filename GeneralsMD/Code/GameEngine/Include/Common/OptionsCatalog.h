@@ -74,7 +74,7 @@ enum OptionApply
 	APPLY_DEVICE_RESET,	///< the D3D device has to be recreated before it shows
 	APPLY_RESTART,			///< only read once, before the engine exists - see EarlyOptions.h
 	APPLY_SHELL_REBUILD,	///< read as the menus are laid out: Accept builds the shell again, as a resolution change does
-	APPLY_NEXT_MAP,			///< read when a drawable is made, so what already stands keeps the old value until the next map
+	APPLY_NEXT_MAP,			///< latched as a map loads or its drawables are made; the current map keeps its prior value
 };
 
 //-----------------------------------------------------------------------------

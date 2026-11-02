@@ -37,6 +37,7 @@
 #include "ffshader.h"
 #include "ffvertex.h"
 #include "Platform/WaterFftSampling.h"
+#include "Platform/WaterMovementBehavior.h"
 #include "Platform/WaterPerformanceSettings.h"
 #include "Platform/WaterFoamHistory.h"
 
@@ -121,7 +122,9 @@ uint64_t PosixDevice9::Begin_Prepared_Water_Fft()
 	const float phase=PixelShaderConstants[1][0]*WaterFftSampling::TimeScale;
 	// A bound heading is provisional until the mirror upload succeeds below in
 	// Gpu_Draw. A late unheaded fallback completes the full field before recording.
-	const unsigned cascades = Textures[11] && !CoastalActive
+	const bool movementCompatibility = WaterMovementBehavior::Compatibility(
+		PixelShaderConstants[WaterWaveHeading::PrevailingRegister][3]);
+	const unsigned cascades = Textures[11] && !CoastalActive && !movementCompatibility
 	? WaterFftSpectrum::HeadedCascades : WaterFftSpectrum::AllCascades;
 	if (!Gpu->Prepare_Ocean(phase, WaterPerformanceSettings::Applied().requestedFftResolution, cascades))
 		return 0;
@@ -133,6 +136,7 @@ uint64_t PosixDevice9::Begin_Prepared_Water_Fft()
 	PreparedWaterFftDraw &prepared=PreparedWaterFft;
 	if(!++PreparedWaterFftSerial) ++PreparedWaterFftSerial;
 	prepared.token = PreparedWaterFftSerial;
+	prepared.movementCompatibility = movementCompatibility;
 	prepared.oceanGeneration = Gpu->Ocean_Generation();
 	prepared.presents=PresentCount;prepared.phase=phase;prepared.gpu=Gpu;prepared.programs=Programs;
 	prepared.vertex=&program;prepared.pixelShader=PixelShader;prepared.vertexShader=VertexShader;
@@ -160,6 +164,7 @@ bool PosixDevice9::Prepared_Water_Fft_Matches(const VertexPipelineDescription &v
 		|| p.presents != PresentCount
 		|| p.pixelShader != PixelShader || p.vertexShader != VertexShader
 		|| p.target != RenderTargets[0] || p.depth != DepthStencil
+		|| p.movementCompatibility != WaterMovementBehavior::Compatibility(PixelShaderConstants[WaterWaveHeading::PrevailingRegister][3])
 		|| p.phase != PixelShaderConstants[1][0] * WaterFftSampling::TimeScale
 		|| p.description.size() != sizeof(vertex) || memcmp(p.description.data(), &vertex, sizeof(vertex)) != 0
 		|| p.oceanGeneration != Gpu->Ocean_Generation() || p.arrayOutput != Gpu->Ocean_Array_Output()
@@ -1041,7 +1046,9 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	if(PreparedWaterFft.token && (!fft_requested || !Prepared_Water_Fft_Matches(vertex))) {
 		Refuse_Draw("prepared water FFT scope changed before draw");return D3D_OK;
 	}
-	const unsigned oceanCascades = Textures[11] && !CoastalActive
+	const bool movementCompatibility = WaterMovementBehavior::Compatibility(
+		PixelShaderConstants[WaterWaveHeading::PrevailingRegister][3]);
+	const unsigned oceanCascades = Textures[11] && !CoastalActive && !movementCompatibility
 	? WaterFftSpectrum::HeadedCascades : WaterFftSpectrum::AllCascades;
 	bool fft_water = PreparedWaterFft.token || (fft_requested && Gpu->Prepare_Ocean(
 		PixelShaderConstants[1][0] * WaterFftSampling::TimeScale,
@@ -1281,7 +1288,8 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 				RenderUInt32 heading_sampler[SAMPLER_STATE_COUNT];
 				memcpy(heading_sampler, SamplerStates[4], sizeof(heading_sampler));
 				heading_sampler[D3DSAMP_ADDRESSU] = heading_sampler[D3DSAMP_ADDRESSV] = D3DTADDRESS_CLAMP;
-				heading_sampler[D3DSAMP_MINFILTER] = heading_sampler[D3DSAMP_MAGFILTER] = D3DTEXF_POINT;
+				heading_sampler[D3DSAMP_MINFILTER] = heading_sampler[D3DSAMP_MAGFILTER] =
+					(shore_region ? shore_region->movementCompatibility : movementCompatibility) ? D3DTEXF_LINEAR : D3DTEXF_POINT;
 				heading_sampler[D3DSAMP_MIPFILTER] = D3DTEXF_NONE;
 				draw.Samplers[slot] = Samplers->Sampler(heading_sampler);
 				if (!draw.Textures[slot] || !draw.Samplers[slot])
@@ -1434,7 +1442,7 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		// Heading admission depends on the uploaded resource, not the legacy pointer.
 		// Completing the broad field flushes prior readers/uploads. Keep it inside
 		// this retry loop so every mirror is resolved again if that changes the batch.
-		if (fft_water && !water_heading && Gpu->Ocean_Ready_Cascades() != WaterFftSpectrum::AllCascades) {
+		if (fft_water && (!water_heading || movementCompatibility) && Gpu->Ocean_Ready_Cascades() != WaterFftSpectrum::AllCascades) {
 			const auto generation = Gpu->Ocean_Generation();
 			if (!Gpu->Prepare_Ocean(PixelShaderConstants[1][0] * WaterFftSampling::TimeScale,
 				WaterPerformanceSettings::Applied().requestedFftResolution) || Gpu->Ocean_Generation() != generation) {
@@ -1655,10 +1663,10 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		water.SceneParameters[3] = water_depth ? 1.0f : 0.0f;
 		water.FftParameters[0] = fft_water ? 1.0f : 0.0f;
 		water.FftParameters[1] = fft_water && WaterVesselWaves::Enabled() ? 1.0f : 0.0f;
-		// The original headed shader only tests z > .5. Carry the independent
-		// local-phase scale above 1 without changing that gate or a lighting colour.
-		water.FftParameters[2] = water_heading ? 1.0f
-			+ PixelShaderConstants[WaterWaveHeading::PrevailingRegister][2] : 0.0f;
+		// Snapshot the selected map movement into the accepted draw. Missing
+        // heading resources use the ordinary all-cascade fallback in either mode.
+        water.FftParameters[2] = WaterMovementBehavior::HeadingParameter(water_heading, movementCompatibility,
+            PixelShaderConstants[WaterWaveHeading::PrevailingRegister][2]);
 		water.FftParameters[3] = water_heading ? PixelShaderConstants[WaterWaveHeading::PrevailingRegister][0] : 0.0f;
 		// Production lighting never reads this fill-light W; the swell's packed-U scale rides in it, only
 		// while the field is bound, so the water preview's colour there survives every other draw.
@@ -1772,6 +1780,7 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		&& PixelShaderConstants[6][2]>.5f && PixelShaderConstants[6][3]>.5f && PixelShaderConstants[5][3]>.5f
 		&& PixelShaderConstants[1][1]<.5f && RenderStates[D3DRS_FILLMODE]==D3DFILL_SOLID && Textures[2] && Textures[4]) {
 		ShoreRegion region;region.patch=ShorePatch;
+		region.movementCompatibility = movementCompatibility;
 		region.view.colour=reinterpret_cast<std::uintptr_t>(target.Colour);region.view.depth=reinterpret_cast<std::uintptr_t>(target.Depth);
 		region.view.width=target.Width;region.view.height=target.Height;
 		if(Gpu->Ready_Water_Depth(target,region.view.capture)==water_depth) {

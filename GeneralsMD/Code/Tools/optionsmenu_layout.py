@@ -177,6 +177,7 @@ NEW_CONTROLS = [
     (LABEL,  "LabelWaterReflectionDetail", "GUI:WaterReflectionDetail"),
     (COMBO,  "ComboBoxWaterReflectionDetail", None),
     (CHECK,  "CheckWaterReflectionEnabled", "GUI:WaterReflectionEnabled"),
+    (CHECK,  "CheckWaterMovementBehavior", "GUI:WaterMovementBehavior"),
     (LABEL,  "LabelWaterFftResolution", "GUI:WaterFftResolution"),
     (COMBO,  "ComboBoxWaterFftResolution", None),
     (LABEL,  "LabelWaterRefractionQuality", "GUI:WaterRefractionQuality"),
@@ -401,6 +402,7 @@ GROUP_LAYOUT = [
 
     ("PageWater", [
         ("GUI:OptionsGroupModernWater", [
+            ("check", "CheckWaterMovementBehavior"),
             setting("LabelWaterFftResolution", "ComboBoxWaterFftResolution"),
             setting("LabelWaterRefractionQuality", "ComboBoxWaterRefractionQuality")]),
         ("GUI:OptionsGroupReflections", [
@@ -1029,7 +1031,7 @@ def selfcheck():
     # Modern water performance controls have their own page: Effects has no room for them.
     # Its bounds and the tab widths are checked independently of the generic overlap checks.
     water_page = layout.find("PageWater")
-    water_controls = ["LabelWaterFftResolution", "ComboBoxWaterFftResolution",
+    water_controls = ["CheckWaterMovementBehavior", "LabelWaterFftResolution", "ComboBoxWaterFftResolution",
                       "LabelWaterRefractionQuality", "ComboBoxWaterRefractionQuality",
                       "CheckWaterReflectionEnabled", "LabelWaterReflection", "ComboBoxWaterReflection",
                       "LabelWaterReflectionDetail", "ComboBoxWaterReflectionDetail"]

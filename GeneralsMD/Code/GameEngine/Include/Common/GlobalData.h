@@ -377,6 +377,7 @@ public:
 	Bool m_smoothMotionAnyDisplay;	// -smoothmotion: the same whatever the display's refresh rate
 	Int m_waterStyle;					// "WaterStyle": 0 = Classic, 1 = Modern (when supported); applied between render frames
 #if defined(__linux__)
+	Bool m_waterMovementBehavior; // "WaterMovementBehavior": map-aware waves; latched when the next map loads
 	Int m_waterReflection;			// "WaterReflection": 0 = Legacy, 1 = SSR, 2 = Hybrid, 3 = experimental path tracing; Modern water
 	Bool m_waterReflectionEnabled; // "WaterReflectionEnabled": scene reflections on/off; remembers the selected mode
 	Int m_waterFftResolution;		// "WaterFftResolution": 0 = Low (128), 1 = High (256) wave simulation

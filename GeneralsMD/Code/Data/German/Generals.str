@@ -15429,6 +15429,14 @@ GUI:OptionsGroupModernWater
 "Modernes Wasser"
 END
 
+GUI:WaterMovementBehavior
+"Wasserbewegung"
+END
+
+TOOLTIP:WaterMovementBehavior
+"Ein: Die Wellenbewegung passt sich der Karte an. Aus: Die Wasserbewegung aus Version 3.5.1 bleibt erhalten. Gilt beim Laden der nächsten Karte."
+END
+
 GUI:WaterReflectionEnabled
 "Szenenreflexionen"
 END

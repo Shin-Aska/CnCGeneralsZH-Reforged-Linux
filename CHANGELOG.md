@@ -8,6 +8,12 @@ found and fixed, EA's own, not port damage.**
 
 ---
 
+## Linux Modern water movement preference (2026-11-02)
+
+- A new water setting keeps the current map-aware movement enabled by default.
+  Switching it off restores the movement from 3.5.1. The choice takes effect
+  when the next map loads; the current map keeps its existing movement.
+
 ## Linux Modern water independent oceans (2026-11-02)
 
 - Separated oceans now receive their own waves, restoring movement to the eastern

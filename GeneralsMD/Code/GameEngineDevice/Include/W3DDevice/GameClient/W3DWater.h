@@ -63,6 +63,7 @@
 #include "Platform/WaterCoastalRender.h"
 #if defined(__linux__)
 #include "Platform/WaterProjectedMeshCache.h"
+#include "Platform/WaterMovementBehavior.h"
 #include "Platform/WaterPreparedMeshCache.h"
 #include "Platform/WaterTerrainCulling.h"
 #include "Platform/WaterStaticSampleCache.h"
@@ -409,6 +410,7 @@ protected:
 	std::vector<WaterOpticalContext::Polygon> m_modernOpticalPolygons;
 	Bool m_modernOpticalPolygonsValid = FALSE;
 #if defined(__linux__)
+	WaterMovementBehavior::MapSelection m_waterMovement;
 	Bool m_modernWaveSourceReady = FALSE, m_modernWaveSourcePresent = FALSE;
 	Real m_modernWaveSourceLevel = 0.0f;
 #endif

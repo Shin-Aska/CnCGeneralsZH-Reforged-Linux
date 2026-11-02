@@ -121,6 +121,7 @@ OPTION_INT_ACCESSORS( m_msaaLevel )
 OPTION_BOOL_ACCESSORS( m_vsync )
 OPTION_INT_ACCESSORS( m_waterStyle )
 #if defined(__linux__)
+OPTION_BOOL_ACCESSORS( m_waterMovementBehavior )
 OPTION_INT_ACCESSORS( m_waterReflection )
 OPTION_BOOL_ACCESSORS( m_waterReflectionEnabled )
 OPTION_INT_ACCESSORS( m_waterFftResolution )
@@ -477,6 +478,11 @@ const OptionDef TheOptionCatalog[] =
 		get_m_waterStyle, set_m_waterStyle },
 
 #if defined(__linux__)
+	// The map's water renderer snapshots this preference while the next map loads.
+	{ "WaterMovementBehavior", OPT_WND( "CheckWaterMovementBehavior" ), "GUI:WaterMovementBehavior",
+		OPTION_BOOL, APPLY_NEXT_MAP, 0, 1,
+		get_m_waterMovementBehavior, set_m_waterMovementBehavior },
+
 	// Modern water reads the mode each frame and refreshes its reflection target on a change.
 	// Keep this independent of WaterStyle so Classic can retain a choice for a later Modern switch.
 	{ "WaterReflection", OPT_WND( "ComboBoxWaterReflection" ), "GUI:WaterReflection",
@@ -774,6 +780,7 @@ const OptionDef *findOptionDef( const char *iniKey )
 Bool isLinuxModernWaterOption( const OptionDef& def )
 {
 	return strcmp( def.iniKey, "WaterReflection" ) == 0
+		|| strcmp( def.iniKey, "WaterMovementBehavior" ) == 0
 		|| strcmp( def.iniKey, "WaterReflectionEnabled" ) == 0
 		|| strcmp( def.iniKey, "WaterFftResolution" ) == 0
 		|| strcmp( def.iniKey, "WaterRefractionQuality" ) == 0

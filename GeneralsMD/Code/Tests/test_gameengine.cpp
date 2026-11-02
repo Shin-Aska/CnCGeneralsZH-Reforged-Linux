@@ -16527,6 +16527,50 @@ TEST(water_style_keeps_platform_default_and_persists_each_choice)
 }
 
 #if defined(__linux__)
+TEST(water_movement_behavior_defaults_on_and_persists_for_the_next_map)
+{
+    const OptionDef *movement = findOptionDef("WaterMovementBehavior");
+    CHECK(movement != NULL);
+    if (!movement) return;
+    CHECK_EQ(movement->kind, OPTION_BOOL);
+    CHECK_EQ(movement->apply, APPLY_NEXT_MAP);
+    CHECK_EQ(movement->lo, 0);
+    CHECK_EQ(movement->hi, 1);
+    CHECK_STR(movement->widgetName, "OptionsMenu.wnd:CheckWaterMovementBehavior");
+    CHECK_STR(movement->labelKey, "GUI:WaterMovementBehavior");
+    CHECK(isLinuxModernWaterOption(*movement));
+    CHECK(findGraphicsQualityRow("CheckWaterMovementBehavior") == NULL);
+
+    GlobalData *saved = TheWritableGlobalData;
+    GlobalData *scratch = NEW GlobalData;
+    TheWritableGlobalData = scratch;
+    // Preferences survive Classic water and a missing renderer, ready for the next Modern map.
+    scratch->m_waterStyle = 0;
+    CHECK(scratch->m_waterMovementBehavior);
+    UserPreferences missing;
+    loadOptionsFromPreferences(missing);
+    CHECK_EQ(movement->get(), 1); // old files have no key and keep the enabled default
+    for (Int value = 0; value <= 1; ++value) {
+        UserPreferences pref;
+        pref["WaterMovementBehavior"] = value ? "yes" : "no";
+        pref["StaticGameLOD"] = "Low";
+        loadOptionsFromPreferences(pref);
+        CHECK_EQ(movement->get(), value);
+        applyGraphicsQualityColumnAtStartup(STATIC_GAME_LOD_ULTRA);
+        CHECK_EQ(movement->get(), value); // presets cannot overwrite this behavior preference
+        saveOptionsToPreferences(pref);
+        CHECK_STR(pref["WaterMovementBehavior"].str(), value ? "yes" : "no");
+        movement->set(1 - value);
+        loadOptionsFromPreferences(pref);
+        CHECK_EQ(movement->get(), value);
+        CHECK_EQ(scratch->m_waterStyle, 0);
+        loadOptionsFromPreferences(missing);
+        CHECK_EQ(movement->get(), value); // an absent key also retains an existing choice
+    }
+    delete scratch;
+    TheWritableGlobalData = saved;
+}
+
 TEST(water_reflections_default_to_hybrid_and_persist_each_mode)
 {
     const OptionDef *reflection = findOptionDef("WaterReflection");

@@ -18785,6 +18785,14 @@ GUI:OptionsGroupModernWater
 "Сучасна вода"
 END
 
+GUI:WaterMovementBehavior
+"Рух води"
+END
+
+TOOLTIP:WaterMovementBehavior
+"Увімк.: рух хвиль враховує геометрію карти. Вимк.: зберігає рух води версії 3.5.1. Застосовується під час завантаження наступної карти."
+END
+
 GUI:WaterReflectionEnabled
 "Відображення сцени"
 END

@@ -421,6 +421,7 @@ protected:
 		WaterShoreOverlay::Quad patch;
 		WaterShoreOverlay::View view;
 		float terrain[4];
+		bool movementCompatibility = false;
 		std::shared_ptr<IDirect3DBaseTexture9> height, optical, heading;
 	};
 	bool ShoreActive=false, ShoreHasPatch=false, ShoreHasTrack=false;
@@ -520,7 +521,7 @@ protected:
 		const SdlProgram *vertex=NULL;
 		const void *pixelShader=NULL, *vertexShader=NULL, *maps[3]={}, *array=NULL, *sampler=NULL;
 		IDirect3DSurface9 *target=NULL, *depth=NULL;
-		bool arrayOutput=false;
+		bool arrayOutput=false, movementCompatibility=false;
 		std::vector<uint8_t> description;
 	} PreparedWaterFft;
 	uint64_t PreparedWaterFftSerial=0;

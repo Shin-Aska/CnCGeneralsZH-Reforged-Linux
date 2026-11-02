@@ -2097,6 +2097,9 @@ Libraries/Include/Platform/WaterHullVisual.h
 Libraries/Include/Platform/WaterHullVisualLayout.h
 Libraries/Include/Platform/WaterLocalWaveField.h
 Libraries/Include/Platform/WaterMaterialProfile.h
+Libraries/Include/Platform/WaterMovementBehavior.h
+Libraries/Include/Platform/WaterMovementCompatibility.h
+Libraries/Include/Platform/WaterMovementCompatibilityShader.h
 Libraries/Include/Platform/WaterObstacleIndex.h
 Libraries/Include/Platform/WaterOpticalContext.h
 Libraries/Include/Platform/WaterOpticalModel.h
@@ -3152,6 +3155,9 @@ Tests/WaterHeadingLegacyReference.h
 Tests/WaterHullContactFoamTest.h
 Tests/WaterLocalPerformanceReference.h
 Tests/WaterLocalWaveFieldTest.h
+Tests/WaterMovement351Reference.h
+Tests/WaterMovementCompatibilityTest.h
+Tests/WaterMovementV351Reference.h
 Tests/WaterPathBuildReference.h
 Tests/WaterPreparedViewTest.h
 Tests/WaterProjectedSampleCacheTest.h

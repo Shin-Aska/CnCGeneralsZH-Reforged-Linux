@@ -6106,6 +6106,36 @@ public:
     }
     void clearReflectionRefresh() { m_reflectionReused=FALSE; }
     bool reflectionNeedsRefresh() const { return m_reflectionReused; }
+    void checkMovementChanges(IDirect3DDevice9 *device) {
+        const bool requested = TheGlobalData->m_waterMovementBehavior;
+        const int style = TheGlobalData->m_waterStyle;
+        CHECK(m_waterMovement.Current()); // Safe construction default precedes map activation.
+        for (bool initial : {true, false}) {
+            TheWritableGlobalData->m_waterMovementBehavior = initial;
+            load(); // The real map callback owns the latch.
+            CHECK(m_waterMovement.Current() == initial);
+            TheWritableGlobalData->m_waterMovementBehavior = !initial;
+            clearModernWaterOpticalTextures();
+            CHECK(m_waterMovement.Current() == initial);
+            ReleaseResources(); // Device/texture invalidation cannot accept pending options.
+            CHECK(m_waterMovement.Current() == initial);
+            for (int selectedStyle : {0, 1}) {
+                TheWritableGlobalData->m_waterStyle = selectedStyle;
+                synchronizeWaterStyle();
+                CHECK(m_waterMovement.Current() == initial);
+            }
+            load();
+            CHECK(m_waterMovement.Current() == !initial);
+        }
+        TheWritableGlobalData->m_waterMovementBehavior = requested;
+        TheWritableGlobalData->m_waterStyle = style;
+        synchronizeWaterStyle();
+        load();
+        // ReleaseResources removed the fixture-only shader handles. Restore
+        // those probes before the remaining style assertions, without resetting
+        // wave time, capture-clock state or presentation data under test.
+        prepareStyleShaders(device);
+    }
     void checkPerformanceChanges() {
         using namespace WaterScreenReflection;
         const auto saved=WaterPerformanceSettings::Applied();
@@ -6145,11 +6175,14 @@ public:
         return m_modernOpticalPolygons;
     }
 #endif
-    void prepareShaders(IDirect3DDevice9 *device) {
+    void prepareStyleShaders(IDirect3DDevice9 *device) {
         const RenderUInt32 tokens[]={0xffff0101u,0x0000ffffu};
         CHECK(device->CreatePixelShader(tokens,&m_riverWaterPixelShader)==D3D_OK);
         CHECK(device->CreatePixelShader(tokens,&m_trapezoidWaterPixelShader)==D3D_OK);
         registerWaterStyleShaders();
+    }
+    void prepareShaders(IDirect3DDevice9 *device) {
+        prepareStyleShaders(device);
         m_modernWaveTime=37.5f;m_modernCaptureClock.Update(90,false);
         m_level=7;m_drawnMotionEnabled=TRUE;
     }
@@ -6524,6 +6557,7 @@ TEST(water_style_changes_at_render_boundary_without_advancing_paused_time_or_rel
 #if defined(__linux__)
             water.checkReflectionChanges();
             water.checkPerformanceChanges();
+            water.checkMovementChanges(device);
 #endif
             TheWritableGlobalData=NULL;water.seedPresentation();
             water.updateRenderTargetTextures(NULL);water.checkChanged(false);
@@ -6657,6 +6691,11 @@ TEST(water_hybrid_target_resize_preserves_queued_reflections_and_refreshes_new_t
 TEST(water_wave_heading_onshore_refraction_prevailing_fallbacks_and_determinism)
 {
 	WaterWaveHeadingTest::Check();
+}
+#include "WaterMovementCompatibilityTest.h"
+TEST(water_movement_compatibility_matches_frozen_v351_producer)
+{
+    WaterMovementCompatibilityTest::Check();
 }
 #include "WaterBodyAnalysisTest.h"
 TEST(water_body_analysis_sources_shelter_connectivity_and_determinism)
