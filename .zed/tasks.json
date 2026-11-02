@@ -1,0 +1,74 @@
+[
+  {
+    "label": "Linux: Build Release",
+    "command": "\"$ZED_WORKTREE_ROOT/build-linux.sh\"",
+    "args": ["Release"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "env": {
+      "CC": "gcc-16",
+      "CXX": "g++-16"
+    }
+  },
+  {
+    "label": "Linux: Build Release executable only",
+    "command": "\"$ZED_WORKTREE_ROOT/build-linux.sh\"",
+    "args": ["Release", "generals"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "env": {
+      "CC": "gcc-16",
+      "CXX": "g++-16"
+    },
+    "hide": "on_success"
+  },
+  {
+    "label": "Linux: Make portable release zip (this machine)",
+    "command": "bash",
+    "args": [
+      "$ZED_WORKTREE_ROOT/GeneralsMD/Code/Tools/linux-portable.sh",
+      "--host",
+      "--zip",
+      "--no-art",
+      "--build",
+      "$ZED_WORKTREE_ROOT/build-linux/release-build",
+      "--out",
+      "$ZED_WORKTREE_ROOT/build-linux/release/ZeroHourReforged-linux-x86_64"
+    ],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "env": {
+      "CC": "gcc-16",
+      "CXX": "g++-16"
+    }
+  },
+  {
+    "label": "Linux: Publish thin executable",
+    "command": "CC=gcc-16 CXX=g++-16 \"$ZED_WORKTREE_ROOT/build-linux.sh\" Release generals && exec bash \"$ZED_WORKTREE_ROOT/GeneralsMD/Code/Tools/publish-linux-executable.sh\" \"$ZED_WORKTREE_ROOT/build-linux/generals\" \"$HOME/Games/ZeroHourReforged/bin/generals\"",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "hide": "on_success"
+  },
+  {
+    "label": "Zero Hour: Publish thin executable (only)",
+    "command": "CC=gcc-16 CXX=g++-16 \"$ZED_WORKTREE_ROOT/build-linux.sh\" Release generals && exec bash \"$ZED_WORKTREE_ROOT/GeneralsMD/Code/Tools/publish-linux-executable.sh\" \"$ZED_WORKTREE_ROOT/build-linux/generals\" \"$HOME/Games/ZeroHourReforged/bin/generals\"",
+    "cwd": "$ZED_WORKTREE_ROOT"
+  },
+  {
+    "label": "Zero Hour: Publish and Play (thin executable)",
+    "command": "CC=gcc-16 CXX=g++-16 \"$ZED_WORKTREE_ROOT/build-linux.sh\" Release generals && bash \"$ZED_WORKTREE_ROOT/GeneralsMD/Code/Tools/publish-linux-executable.sh\" \"$ZED_WORKTREE_ROOT/build-linux/generals\" \"$HOME/Games/ZeroHourReforged/bin/generals\" && cd \"$HOME/Games/ZeroHourReforged\" && exec \"$HOME/Games/ZeroHourReforged/bin/generals\" -quickstart -noshellmap -multiInstance",
+    "cwd": "$ZED_WORKTREE_ROOT"
+  },
+  {
+    "label": "Zero Hour: Play (no debugger)",
+    "command": "CC=gcc-16 CXX=g++-16 \"$ZED_WORKTREE_ROOT/build-linux.sh\" Release && exec \"$ZED_WORKTREE_ROOT/build-linux/ZeroHourReforged/bin/generals\" -root \"$ZED_WORKTREE_ROOT/build-linux/play-root\" -quickstart -noshellmap -multiInstance",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "env": {
+      "ZH_USER_DATA_DIR": "$ZED_WORKTREE_ROOT/build-linux/vscode-user"
+    }
+  },
+  {
+    "label": "Zero Hour: AI skirmish (no debugger)",
+    "command": "CC=gcc-16 CXX=g++-16 \"$ZED_WORKTREE_ROOT/build-linux.sh\" Release && exec \"$ZED_WORKTREE_ROOT/build-linux/ZeroHourReforged/bin/generals\" -root \"$ZED_WORKTREE_ROOT/build-linux/play-root\" -quickstart -noshellmap -multiInstance -randommap 0 2 -autoskirmish 2 -aidiff brutal -seed 0 -observer -autocamera 10 -showHudOverlay -maxframes 12000",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "env": {
+      "ZH_USER_DATA_DIR": "$ZED_WORKTREE_ROOT/build-linux/vscode-user"
+    }
+  }
+]

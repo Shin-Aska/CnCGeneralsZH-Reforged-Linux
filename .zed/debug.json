@@ -1,0 +1,55 @@
+[
+  {
+    "label": "Zero Hour: Play (Linux)",
+    "adapter": "GDB",
+    "request": "launch",
+    "program": "$ZED_WORKTREE_ROOT/build-linux/ZeroHourReforged/bin/generals",
+    "args": [
+      "-root",
+      "$ZED_WORKTREE_ROOT/build-linux/play-root",
+      "-quickstart",
+      "-noshellmap",
+      "-multiInstance"
+    ],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "env": {
+      "ZH_USER_DATA_DIR": "$ZED_WORKTREE_ROOT/build-linux/vscode-user"
+    },
+    "stopAtBeginningOfMainSubprogram": false,
+    "build": "Linux: Build Release"
+  },
+  {
+    "label": "Zero Hour: AI skirmish (Linux)",
+    "adapter": "GDB",
+    "request": "launch",
+    "program": "$ZED_WORKTREE_ROOT/build-linux/ZeroHourReforged/bin/generals",
+    "args": [
+      "-root",
+      "$ZED_WORKTREE_ROOT/build-linux/play-root",
+      "-quickstart",
+      "-noshellmap",
+      "-multiInstance",
+      "-randommap",
+      "0",
+      "2",
+      "-autoskirmish",
+      "2",
+      "-aidiff",
+      "brutal",
+      "-seed",
+      "0",
+      "-observer",
+      "-autocamera",
+      "10",
+      "-showHudOverlay",
+      "-maxframes",
+      "12000"
+    ],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "env": {
+      "ZH_USER_DATA_DIR": "$ZED_WORKTREE_ROOT/build-linux/vscode-user"
+    },
+    "stopAtBeginningOfMainSubprogram": false,
+    "build": "Linux: Build Release"
+  }
+]
