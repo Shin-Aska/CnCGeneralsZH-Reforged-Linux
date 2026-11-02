@@ -2302,7 +2302,7 @@ target_sources(test_hazard_cloud_policy PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/W3DDevice/GameClient/HazardCloudFlow.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/W3DDevice/GameClient/HazardCloudUnsupported.cpp)
 
-add_executable(test_cloud_stress_model EXCLUDE_FROM_ALL
+add_executable(test_cloud_stress_model
   ${CMAKE_CURRENT_SOURCE_DIR}/Tools/cloud_preview/test_stress_model.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/W3DDevice/GameClient/HazardCloudSharedModel.cpp)
 set_target_properties(test_cloud_stress_model PROPERTIES CXX_STANDARD 17)
@@ -2310,7 +2310,7 @@ target_include_directories(test_cloud_stress_model PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/Tools ${CMAKE_CURRENT_SOURCE_DIR}/Libraries/Include)
 add_test(NAME test_cloud_stress_model COMMAND test_cloud_stress_model)
 
-add_executable(test_cloud_stress_bake EXCLUDE_FROM_ALL
+add_executable(test_cloud_stress_bake
   ${CMAKE_CURRENT_SOURCE_DIR}/Tools/cloud_preview/test_stress_bake.cpp)
 set_target_properties(test_cloud_stress_bake PROPERTIES CXX_STANDARD 17)
 target_include_directories(test_cloud_stress_bake PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Tools
