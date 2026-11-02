@@ -18,9 +18,13 @@ The load-time analyzer now separates three things:
   or an uncovered polygon gap.
 - `sourceCells` supplies arrival distance, phase and transported movement. An
   established broad sea retains its existing source footprint. A boundary-only
-  sea selects the first qualifying opening clockwise from the upper left. Other
-  openings remain passive. Across authored elevations, sea candidates precede
-  short fallback openings; frontage, then core area, breaks ties deterministically.
+  sea selects the first qualifying opening clockwise from the upper left. Each
+  independent transport network elects one such region: its largest qualifying
+  broad sea, or its first long coastline when no broad sea qualifies. Other
+  openings in that network remain passive. A short perimeter mouth remains a
+  single global fallback; it cannot activate every disconnected river. Across
+  authored elevations, the original primary candidate still controls selection;
+  frontage, then core area, breaks ties deterministically.
 - `sea` is the blend into the original FFT spectrum near the selected source.
   Boundary-only sources can fill adjoining broad water within 450 world units
   of covered wet-path distance, followed by the existing 220-unit transition.
@@ -32,7 +36,11 @@ simulation. A long edge-hugging water strip and a cropped sea can have identical
 visible geometry; the chosen default is sea continuation. The 900/450/220-unit
 scales are visual policy, not physical constants. Enclosed lakes, narrow river
 mouths and basins behind narrow passages retain the existing shelter behavior.
-Visual bridge connections still affect transport only.
+Visual bridge connections still affect transport only. They join source elections
+into one transport network so linked bodies share one incoming phase. They never
+join physical components, establish exterior evidence or expand the sea blend.
+Independent sources own their chart heading, phase origin and source-kind energy
+policy, preserving the primary ocean when another disconnected coast qualifies.
 
 The new work happens during the existing cached map analysis. No shader, FFT
 resolution, GPU texture layout or per-frame classification pass was added.
@@ -87,3 +95,49 @@ decoded frames of every scene were visually checked.
 Capture commands, build fingerprints, camera anchors and the final video belong
 to the task's devlog directory, outside the source/build tree:
 `/mnt/sandisk-2tb/devlog/sessions/2026-11-01-water-boundary/`.
+
+## North America: independent oceans
+
+The native North America crop contains twelve physical wet components. Its
+western ocean had a qualifying 421,300-square-unit offshore core; the eastern
+and northeastern oceans independently had long coastlines, but the previous
+single winner suppressed their forcing. Exterior geometry was present while
+arrival distance, transported phase and the full FFT blend were absent.
+
+The November 2 fix elects a source in each independent qualifying ocean. On the
+exact native 515-by-515 grid (70-sample border, 10-unit spacing, water level 25):
+
+| Physical body | Source cells before → after | Full FFT samples before → after |
+| --- | ---: | ---: |
+| Western ocean (0) | 16,782 → 16,782 | 12,000 → 12,000 |
+| Eastern/southeastern ocean (2) | 0 → 191 | 0 → 3,059 (22.30%) |
+| Northern/northeastern ocean (8) | 0 → 140 | 0 → 894 (4.91%) |
+
+The western source order, heading, sea blend, energy, direction and downstream
+analysis are preserved. Its original FFT words, encoded chart gradients and
+blend/amplitude metadata are exact. Adding the independent charts increases
+the shared packed phase step from 0.0327421 to 0.0481964 world units; the maximum
+western decoded-phase difference is 0.0403642, below the combined half-step
+quantization bound of 0.0405693. The other nine physical components retain their
+calm energy and all packed words exactly. This comparison uses the native field
+as input and recompiles the same production analysis headers; it does not claim
+a rendered before/after capture.
+
+The combined release build of `generals` and `test_water_grid` passed. Focused
+`ctest --test-dir build-linux --output-on-failure -R '^test_water_grid$'` passed:
+225 tests, 12,814,407 checks, zero failures.
+
+Regression fixtures cover one broad sea alongside two independent boundary
+seas, two independent broad seas, connected passive coastlines, bridge-unioned
+source elections, globally passive short mouths and lakes, disabled forcing,
+and exact primary analysis with decoded phase preservation. Diagnostic inputs,
+candidate fields and comparison summaries are retained outside the repository:
+`/mnt/sandisk-2tb/devlog/sessions/2026-11-02-north-america-water/`.
+
+Independent phases that touch across a subcell bank can share an interpolation
+patch in the existing atlas. Its packing-confidence guard remains conservative:
+an unresolved cross-bank phase jump suppresses local amplitude in the immediate
+bank stencil. A regression verifies unchanged primary analysis and decoded phase,
+zero unsafe bank weights, and unchanged weights two samples farther inland. This
+layout limitation is absent from the separated North America ocean comparison;
+ignoring neighbouring chart payloads would weaken interpolation safety.

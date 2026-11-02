@@ -1,3 +1,20 @@
+/*
+**	Copyright 2026 İlyas Akın
+**	Additional terms under GNU GPL section 7 apply: see LICENSE.md.
+**
+**	This program is free software: you can redistribute it and/or modify
+**	it under the terms of the GNU General Public License as published by
+**	the Free Software Foundation, either version 3 of the License, or
+**	(at your option) any later version.
+**
+**	This program is distributed in the hope that it will be useful,
+**	but WITHOUT ANY WARRANTY; without even the implied warranty of
+**	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+**	GNU General Public License for more details.
+**
+**	You should have received a copy of the GNU General Public License
+**	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
 #pragma once
 #include "Platform/WaterBodyAnalysis.h"
 
@@ -63,7 +80,9 @@ inline void Check() {
     for (float clearance : again.clearance)
         CHECK(clearance <= 95);
     CHECK(again.sea[100 * strips.w] > 0 && again.sea[100 * strips.w + 100] == 0);
-    CHECK(again.exterior[100 * strips.w + 200] > 0 && again.sea[100 * strips.w + 200] == 0);
+    CHECK(again.exterior[100 * strips.w + 200] > 0 && again.sea[100 * strips.w + 200] > 0);
+    CHECK(again.sources.size() == 2);
+    CHECK(again.energy[100 * strips.w + 100] == CalmEnergy);
     // A shallow coastline need not contain broad-clearance water. Its one
     // selected opening supplies transport; the opposite long exterior opening
     // is diagnostic only, even though both belong to the same physical body.
@@ -92,6 +111,67 @@ inline void Check() {
     for (size_t i = 0; i < shallow.wet.size(); ++i)
         if (shallow.wet[i])
             CHECK(again.sea[i] == 0 && again.energy[i] == CalmEnergy);
+    // A large western sea cannot suppress independent eastern and northern
+    // coastlines. Short mouths and a closed inland body remain unsourced.
+    Grid independent(401, 301);
+    independent.Rect(0, 20, 120, 280);
+    independent.Rect(110, 145, 220, 157);
+    independent.Link();
+    CHECK(independent.Build(f));
+    CHECK(f.sourceKind == SourceKind::BroadSea && f.sources.size() == 1);
+    independent.Rect(388, 20, 400, 150);
+    independent.Rect(180, 288, 310, 300);
+    independent.Rect(200, 0, 212, 12);
+    independent.Rect(250, 80, 290, 120);
+    independent.Link();
+    CHECK(independent.Build(again));
+    const int east = 80 * independent.w + 400, northCoast = 300 * independent.w + 240;
+    const int shortMouth = 206, closed = 100 * independent.w + 270;
+    CHECK(again.sources.size() == 3 && again.sourceKind == f.sourceKind);
+    CHECK(again.sourceComponent == again.component[f.selectedCoreFirstCell] && again.broadCoreArea == f.broadCoreArea
+        && again.sourceFrontage == f.sourceFrontage && again.selectedCoreFirstCell == f.selectedCoreFirstCell);
+    CHECK(again.sourceHeading.x == f.sourceHeading.x && again.sourceHeading.y == f.sourceHeading.y);
+    CHECK(again.sources[0].cellCount == f.sourceCells.size());
+    for (size_t k = 0; k < f.sourceCells.size(); ++k)
+        CHECK(again.sourceCells[k] == f.sourceCells[k]);
+    for (size_t i = 0; i < f.component.size(); ++i)
+        if (f.component[i] >= 0) {
+            CHECK(again.sea[i] == f.sea[i] && again.energy[i] == f.energy[i]
+                && again.distance[i] == f.distance[i] && again.downstreamArea[i] == f.downstreamArea[i]);
+            CHECK(again.direction[i].x == f.direction[i].x && again.direction[i].y == f.direction[i].y);
+        }
+    for (int i : {east, northCoast}) {
+        const auto &region = again.sources[again.componentSource[again.component[i]]];
+        CHECK(region.kind == SourceKind::BoundarySea && again.sea[i] == 1 && again.distance[i] == 0);
+        CHECK(again.energy[i] > CalmEnergy && again.energy[i] < 1); // Boundary shelter is retained.
+    }
+    for (int i : {shortMouth, closed})
+        CHECK(again.componentSource[again.component[i]] == -1 && again.sea[i] == 0
+            && !std::isfinite(again.distance[i]) && again.energy[i] == CalmEnergy);
+    CHECK(WaterBodyAnalysis::Build(independent.wet.data(), independent.links.data(), independent.w,
+        independent.h, 0, 10, again, {}, false));
+    CHECK(again.sources.empty() && again.sourceCells.empty() && again.sourceKind == SourceKind::None);
+    for (int id : again.componentSource)
+        CHECK(id == -1);
+    for (size_t i = 0; i < independent.wet.size(); ++i)
+        if (independent.wet[i])
+            CHECK(again.sea[i] == 0 && again.energy[i] == CalmEnergy && !std::isfinite(again.distance[i]));
+    // Independently qualifying deep seas each preserve their full source gain.
+    Grid twoSeas(301, 181);
+    twoSeas.Rect(0, 10, 110, 170);
+    twoSeas.Rect(190, 10, 300, 170);
+    twoSeas.Link();
+    CHECK(twoSeas.Build(f));
+    CHECK(f.sources.size() == 2 && f.sources[0].kind == SourceKind::BroadSea
+        && f.sources[1].kind == SourceKind::BroadSea);
+    const int westSea = 90 * twoSeas.w + 30, eastSea = 90 * twoSeas.w + 270;
+    CHECK(f.sea[westSea] == 1 && f.sea[eastSea] == 1 && f.energy[westSea] == 1 && f.energy[eastSea] == 1);
+    // Joining those independent candidates by an authored underpass elects one
+    // source for transport, while physical exterior evidence stays unchanged.
+    CHECK(twoSeas.Build(again, 0, {{westSea, eastSea, .65f}}));
+    CHECK(again.sources.size() == 1 && again.exterior == f.exterior);
+    const int passiveSea = again.sourceComponent == again.component[westSea] ? eastSea : westSea;
+    CHECK(again.sea[passiveSea] == 0 && again.distance[passiveSea] > 0 && again.energy[passiveSea] < 1);
     // Frontage measures covered straight segments in world space, including
     // the exact threshold. Sample count, corner wrapping and inland length
     // cannot convert a subthreshold opening into sea.

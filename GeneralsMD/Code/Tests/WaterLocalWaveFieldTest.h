@@ -1,3 +1,20 @@
+/*
+**	Copyright 2026 İlyas Akın
+**	Additional terms under GNU GPL section 7 apply: see LICENSE.md.
+**
+**	This program is free software: you can redistribute it and/or modify
+**	it under the terms of the GNU General Public License as published by
+**	the Free Software Foundation, either version 3 of the License, or
+**	(at your option) any later version.
+**
+**	This program is distributed in the hope that it will be useful,
+**	but WITHOUT ANY WARRANTY; without even the implied warranty of
+**	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+**	GNU General Public License for more details.
+**
+**	You should have received a copy of the GNU General Public License
+**	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
 #pragma once
 #include "Platform/WaterLocalWaveField.h"
 #include "WaterBodyAnalysisTest.h"
@@ -259,6 +276,86 @@ inline void Check() {
     CHECK((f.texels[apronWet * 5 + 1] & 65535) == (f.texels[playableWet * 5 + 1] & 65535));
     CHECK((f.texels[apronGhost * 5 + 1] & 65535) == (f.texels[apronWet * 5 + 1] & 65535));
     CHECK(WaterLocalWaveField::DecodeBankVector(f.texels[apronWet * 5 + 1]).y > .99f);
+    // New independent coastal sources own their chart frames. Adding them
+    // leaves the primary ocean's phase intact up to the shared packing step.
+    Grid independent(401, 301);
+    independent.Rect(0, 20, 120, 280);
+    independent.Rect(110, 145, 220, 157);
+    independent.Link();
+    CHECK(build(independent, f));
+    independent.Rect(388, 20, 400, 150);
+    independent.Rect(180, 288, 310, 300);
+    independent.Link();
+    CHECK(build(independent, again));
+    CHECK(again.localConverged && again.analysis.sources.size() == 3);
+    Identity(independent, again);
+    CHECK(again.analysis.sourceHeading.x == f.analysis.sourceHeading.x
+        && again.analysis.sourceHeading.y == f.analysis.sourceHeading.y);
+    for (size_t i = 0; i < f.analysis.component.size(); ++i)
+        if (f.analysis.component[i] >= 0)
+            for (unsigned k = 0; k < 2; ++k) {
+                const uint32_t before = f.texels[i * 5 + 2 + k], after = again.texels[i * 5 + 2 + k];
+                CHECK((before & 0xff0000ffu) == (after & 0xff0000ffu)); // Exact chart gradient.
+                CHECK(std::abs(WaterWaveHeading::DecodeU(before, f.localStep)
+                    - WaterWaveHeading::DecodeU(after, again.localStep))
+                    <= (f.localStep + again.localStep) * .501f + .001f);
+            }
+    for (int i : {80 * independent.w + 400, 300 * independent.w + 240})
+        CHECK((again.texels[i * 5 + 4] & 255) == 0); // Full FFT at both independent coasts.
+    CHECK(WaterLocalWaveField::Build(independent.wet.data(), independent.wet.data(), independent.links.data(),
+        independent.w, independent.h, 0, 10, again, {}, false));
+    CHECK(again.analysis.sources.empty() && again.localConverged);
+    for (size_t i = 0; i < independent.wet.size(); ++i)
+        if (independent.wet[i])
+            CHECK((again.texels[i * 5 + 4] & 0x00ffff00u) == 0 && (again.texels[i * 5 + 4] & 255) == 255);
+    // Adjacent independent charts may meet across an uncovered subcell bank.
+    // Keep the shared-patch packing guard: unresolved phase jumps suppress only
+    // the immediate interpolation stencil, never rotate the primary chart.
+    Grid touching(230, 301);
+    touching.Rect(10, 0, 100, 300);
+    touching.Link();
+    CHECK(build(touching, f));
+    touching.Rect(101, 0, 191, 250);
+    touching.Link();
+    for (int y = 0; y <= 250; ++y)
+        touching.links[y * touching.w + 100] &= ~WaterBodyAnalysis::PositiveX;
+    CHECK(build(touching, again));
+    CHECK(again.localConverged && again.analysis.sources.size() == 2);
+    CHECK(again.analysis.sourceHeading.x == f.analysis.sourceHeading.x
+        && again.analysis.sourceHeading.y == f.analysis.sourceHeading.y);
+    for (int y : {100, 200})
+        for (int x : {97, 98, 99, 100}) {
+            const int i = y * touching.w + x;
+            CHECK(again.analysis.energy[i] == f.analysis.energy[i]
+                && again.analysis.distance[i] == f.analysis.distance[i] && again.analysis.sea[i] == f.analysis.sea[i]);
+            for (unsigned k = 0; k < 2; ++k)
+                CHECK(std::abs(WaterWaveHeading::DecodeU(f.texels[i * 5 + 2 + k], f.localStep)
+                    - WaterWaveHeading::DecodeU(again.texels[i * 5 + 2 + k], again.localStep))
+                    <= (f.localStep + again.localStep) * .501f + .001f);
+            CHECK((f.texels[i * 5 + 4] & 0x00ffff00u) != 0);
+            if (x < 99)
+                CHECK((again.texels[i * 5 + 4] & 0x00ffff00u) == (f.texels[i * 5 + 4] & 0x00ffff00u));
+            else
+                CHECK((again.texels[i * 5 + 4] & 0x00ffff00u) == 0);
+        }
+    // Two independently eligible coasts become one source network when an
+    // authored underpass joins them; the receiving coast inherits phase delay.
+    Grid linkedCoasts(181, 151);
+    linkedCoasts.Rect(0, 10, 12, 140);
+    linkedCoasts.Rect(168, 10, 180, 140);
+    linkedCoasts.Link();
+    CHECK(build(linkedCoasts, f));
+    CHECK(f.analysis.sources.size() == 2);
+    const int receivingPort = 75 * linkedCoasts.w + 12, incomingPort = 75 * linkedCoasts.w + 168;
+    CHECK(build(linkedCoasts, again, {{receivingPort, incomingPort, .65f}}));
+    CHECK(again.localConverged && again.analysis.sources.size() == 1);
+    CHECK(again.analysis.componentSource[again.analysis.component[receivingPort]]
+        == again.analysis.componentSource[again.analysis.component[incomingPort]]);
+    CHECK(again.analysis.sea[receivingPort] == 0 && again.analysis.distance[receivingPort] > 0);
+    for (unsigned k = 0; k < 2; ++k)
+        CHECK(std::abs(WaterWaveHeading::DecodeU(again.texels[receivingPort * 5 + 2 + k], again.localStep)
+            - WaterWaveHeading::DecodeU(again.texels[incomingPort * 5 + 2 + k], again.localStep) - 1560)
+            <= 2 * again.localStep + .001f);
     // One uncovered edge partitions adjacent wet pixels. The unsourced half
     // stays calm and receives neither local chart's amplitude.
     Grid gap(61, 31);

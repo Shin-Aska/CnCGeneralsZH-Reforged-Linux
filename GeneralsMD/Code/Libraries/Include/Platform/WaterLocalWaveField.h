@@ -1,4 +1,20 @@
-/* Copyright 2026. SPDX-License-Identifier: GPL-3.0-or-later */
+/*
+**	Copyright 2026 İlyas Akın
+**	Additional terms under GNU GPL section 7 apply: see LICENSE.md.
+**
+**	This program is free software: you can redistribute it and/or modify
+**	it under the terms of the GNU General Public License as published by
+**	the Free Software Foundation, either version 3 of the License, or
+**	(at your option) any later version.
+**
+**	This program is distributed in the hope that it will be useful,
+**	but WITHOUT ANY WARRANTY; without even the implied warranty of
+**	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+**	GNU General Public License for more details.
+**
+**	You should have received a copy of the GNU General Public License
+**	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
 #pragma once
 #include "Platform/WaterWaveHeading.h"
 #include "Platform/WaterBodyAnalysis.h"
@@ -319,14 +335,17 @@ inline bool Build(const uint8_t *wet, const uint8_t *exposure, const uint8_t *li
     std::array<std::vector<double>, 2> phase;
     for (auto &u : phase)
         u.assign(count, infinity);
-    const double hx = a.sourceHeading.x, hy = a.sourceHeading.y;
-    double origin = infinity;
-    for (int i : a.sourceCells)
-        origin = (std::min)(origin, hx * (i % width - border) + hy * (i / width - border));
-    // Reserve a ghost-cell margin below the earliest source instead of clipping
-    // an affine front at zero during dry-corner extrapolation.
-    if (std::isfinite(origin))
-        origin -= 3;
+    std::vector<double> origins(a.sources.size(), infinity);
+    for (int i : a.sourceCells) {
+        const int id = a.componentSource[a.component[i]];
+        const auto heading = a.sources[id].heading;
+        origins[id] = (std::min)(origins[id], double(heading.x) * (i % width - border)
+            + double(heading.y) * (i / width - border));
+    }
+    // Reserve a ghost-cell margin independently for each incoming region.
+    for (double &origin : origins)
+        if (std::isfinite(origin))
+            origin -= 3;
     struct Component {
         int id, minx, miny, maxx, maxy;
         float arrival;
@@ -378,6 +397,9 @@ inline bool Build(const uint8_t *wet, const uint8_t *exposure, const uint8_t *li
         for (const auto &c : components) {
             if (c.cells.empty())
                 continue;
+            const int sourceRegion = a.componentSource[c.id];
+            const double hx = a.sources[sourceRegion].heading.x, hy = a.sources[sourceRegion].heading.y;
+            const double origin = origins[sourceRegion];
             std::vector<double> currentAnchors;
             for (const auto &port : incoming[size_t(c.id)])
                 for (unsigned k = 0; k < 2; ++k)

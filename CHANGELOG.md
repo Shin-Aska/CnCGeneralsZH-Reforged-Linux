@@ -8,6 +8,12 @@ found and fixed, EA's own, not port damage.**
 
 ---
 
+## Linux Modern water independent oceans (2026-11-02)
+
+- Separated oceans now receive their own waves, restoring movement to the eastern
+  and northeastern seas on North America. Enclosed lakes and narrow river mouths
+  retain their calmer behavior.
+
 ## Linux Modern water coastal classification (2026-11-01)
 
 - Broad coastal water split by islands now retains the original sea waves,
