@@ -97,13 +97,13 @@ RenderWarmupStats PosixDevice9::Warm_Up_Render_Pipelines(bool modernWater, unsig
     bool shadersOnly = true;
     auto warm = [&](const VertexPipelineDescription &v, const CombinerDescription &p, unsigned blend,
                     unsigned cull, int enginePixel = ENGINE_SHADER_NONE, bool fft = false,
-                    bool caster = false, int engineVertex = ENGINE_SHADER_NONE) {
+                    bool caster = false, int engineVertex = ENGINE_SHADER_NONE, bool waterOpenSea = false) {
         if (limited()) return;
         if (!shadersOnly) ++result.Attempts;
         const SdlProgram &vs = engineVertex != ENGINE_SHADER_NONE ? Programs->Engine_Vertex_Program(engineVertex)
             : fft ? Programs->Water_Vertex_Program(v) : Programs->Vertex_Program(v);
         const SdlProgram &ps = caster ? Programs->Sun_Pixel_Program(p, enginePixel)
-            : enginePixel != ENGINE_SHADER_NONE ? Programs->Engine_Pixel_Program(enginePixel, p.PixelPipeline)
+            : enginePixel != ENGINE_SHADER_NONE ? Programs->Engine_Pixel_Program(enginePixel, p.PixelPipeline, waterOpenSea)
             : Programs->Pixel_Program(p);
         if (!vs.Shader || !ps.Shader) { ++result.Failed; return; }
         if (shadersOnly) return;
@@ -135,8 +135,11 @@ RenderWarmupStats PosixDevice9::Warm_Up_Render_Pipelines(bool modernWater, unsig
             water.Stages[i].TextureTransformFlags = D3DTTFF_COUNT2;
         }
         const int waterPixel = modernWater ? ENGINE_SHADER_WATER_TRAPEZOID : ENGINE_SHADER_WATER_CLASSIC_TRAPEZOID;
-        if (shadersOnly)
+        if (shadersOnly) {
             warm(water, pixelDescription(0, false, false), 1, D3DCULL_NONE, waterPixel, modernWater && WaterFftSampling::Enabled());
+            if(modernWater) warm(water, pixelDescription(0, false, false), 1, D3DCULL_NONE,
+                waterPixel, WaterFftSampling::Enabled(), false, ENGINE_SHADER_NONE, true);
+        }
 
         // Common opaque/alpha-tested unit and building meshes, including the sun-receiving variants.
         const unsigned formats[] = {D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_TEX1,
@@ -154,8 +157,11 @@ RenderWarmupStats PosixDevice9::Warm_Up_Render_Pipelines(bool modernWater, unsig
                                     pixelDescription(mode, alpha, receives), 0, cull);
             }
             if (!shadersOnly && fvf == formats[0])
-                for (unsigned cull : {D3DCULL_NONE, D3DCULL_CCW})
+                for (unsigned cull : {D3DCULL_NONE, D3DCULL_CCW}) {
                     warm(water, pixelDescription(0, false, false), 1, cull, waterPixel, modernWater && WaterFftSampling::Enabled());
+                    if(modernWater) warm(water, pixelDescription(0, false, false), 1, cull,
+                        waterPixel, WaterFftSampling::Enabled(), false, ENGINE_SHADER_NONE, true);
+                }
         }
 
         // Environment-mapped and scrolling materials use a different vertex program with the same

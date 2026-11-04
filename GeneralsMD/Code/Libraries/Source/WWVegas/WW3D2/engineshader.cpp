@@ -636,7 +636,7 @@ static bool write_engine_pixel_program(EngineShaderProgram program,
 // are composed before the existing shore/shroud alpha blend. No additional assets are required.
 static void write_modern_water(std::string & hlsl, bool river,
 	const WaterPerformanceSettings::Configuration &quality = WaterPerformanceSettings::Configuration(),
-	bool waveHeading = false)
+	bool waveHeading = false, bool waterOpenSea = false)
 {
 	const char *coastalSurfOption=getenv("ZH_WATER_SURF_GPU");
 #if defined(__linux__)
@@ -932,7 +932,7 @@ WaterRefractionSample waterRefractedScene(float2 originalPixel, float2 offset,
 	hlsl += ModernWaterMaterial::BubbleSource();
 	hlsl += WaterHullModel::GetHlslSource();
 	hlsl += WaterFftSampling::PixelSource(bowLift, WaterBowShoulder::Enabled(), true,
-		WaterFftSpectrum::ForResolution(quality.activeFftResolution), waveHeading && !river);
+		WaterFftSpectrum::ForResolution(quality.activeFftResolution), waveHeading && !river, waterOpenSea && !river);
 	hlsl += WaterWaveCageShader::Source(false);
 	char oceanBound[96];
 	snprintf(oceanBound, sizeof(oceanBound), "static const float oceanDisplacementBound = %.9g;\n",
@@ -2081,7 +2081,7 @@ current=float4(hullDepthRegion*saturate(0.5+0.5*(world.z-baseLevel)/fftVerticalB
 }
 
 bool EngineShader_Pixel_Program(EngineShaderProgram program,
-	const PixelPipelineDescription & pipeline, std::string & hlsl, CombinerShaderTarget target)
+	const PixelPipelineDescription & pipeline, std::string & hlsl, CombinerShaderTarget target, bool waterOpenSea)
 {
 	// SDL ground programs share the Windows sun and smoke filters. Water keeps its own path.
 	if (target == COMBINER_SHADER_TARGET_D3D9) {
@@ -2093,7 +2093,7 @@ bool EngineShader_Pixel_Program(EngineShaderProgram program,
 #if defined(__linux__)
 		if (program == ENGINE_SHADER_WATER_TRAPEZOID || program == ENGINE_SHADER_WATER_RIVER) {
 			write_modern_water(hlsl, program == ENGINE_SHADER_WATER_RIVER, WaterPerformanceSettings::Applied(),
-				WaterFftSampling::Enabled());
+				WaterFftSampling::Enabled(), waterOpenSea && program == ENGINE_SHADER_WATER_TRAPEZOID);
 			if (!water_material_profile(hlsl)) return false;
 			const int hullDepthDiagnostic=water_hull_depth_diagnostic();
 			if(hullDepthDiagnostic) write_water_hull_depth_diagnostic(hlsl);

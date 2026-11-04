@@ -64,6 +64,7 @@
 #if defined(__linux__)
 #include "Platform/WaterProjectedMeshCache.h"
 #include "Platform/WaterMovementBehavior.h"
+#include "Platform/WaterOpenSeaSplit.h"
 #include "Platform/WaterPreparedMeshCache.h"
 #include "Platform/WaterTerrainCulling.h"
 #include "Platform/WaterStaticSampleCache.h"
@@ -398,6 +399,7 @@ protected:
 		Real prevailingRotation = 0.0f, swellStep = 1.0f, localStep = 0.0f;
 		std::vector<UnsignedByte> waveSupport; // geometry support; optical/material exposure stays unchanged
 		std::vector<uint32_t> localEnvelope;
+		WaterOpenSeaSplit::Mask localMask;
 		Real waveExtent = 0.0f;
 #endif
 		Bool attempted = FALSE;
@@ -411,6 +413,9 @@ protected:
 	Bool m_modernOpticalPolygonsValid = FALSE;
 #if defined(__linux__)
 	WaterMovementBehavior::MapSelection m_waterMovement;
+	WaterOpenSeaSplit::Cache m_modernOpenSeaCache;
+	std::vector<WaterOpenSeaSplit::Point> m_modernOpenSeaPositions;
+	std::vector<WaterOpenSeaSplit::Disc> m_modernLocalDiscs;
 	Bool m_modernWaveSourceReady = FALSE, m_modernWaveSourcePresent = FALSE;
 	Real m_modernWaveSourceLevel = 0.0f;
 #endif

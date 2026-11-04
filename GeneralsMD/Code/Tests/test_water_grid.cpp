@@ -6776,3 +6776,13 @@ TEST(water_bridge_visual_links_preserve_physical_masks_and_reject_unrelated_bodi
 #include "WaterShoreSourcePerfTest.h"
 
 #include "WaterProjectedSampleCacheTest.h"
+
+#include "WaterOpenSeaSplitTest.h"
+TEST(water_open_sea_mask_corners_dilation_clamping_and_invalid_fallback)
+{
+    WaterOpenSeaSplitTest::MaskChecks();
+}
+TEST(water_open_sea_partition_preserves_triangles_order_and_disc_guards)
+{
+    WaterOpenSeaSplitTest::PartitionChecks();
+}

@@ -8,6 +8,11 @@ found and fixed, EA's own, not port damage.**
 
 ---
 
+## Linux Modern water open sea shader (2026-11-03)
+
+- Open sea triangles use a smaller pixel program when their waves and hull
+  reflections cannot reach local shoreline waves, reducing shader overhead.
+
 ## Linux Modern water movement preference (2026-11-02)
 
 - A new water setting keeps the current map-aware movement enabled by default.

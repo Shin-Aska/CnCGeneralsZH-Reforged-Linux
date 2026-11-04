@@ -2326,6 +2326,7 @@ TextureClass *WaterRenderObjClass::modernWaterOpticalTexture(Real level)
 					cached.localEnvelope.resize(field.wet.size());
 					for (size_t i = 0; i < field.wet.size(); ++i)
 						cached.localEnvelope[i] = heading.texels[WaterLocalWaveField::TexelsPerCell *i + 4];
+					cached.localMask=WaterOpenSeaSplit::Mask(cached.localEnvelope,m_modernHeightWidth,m_modernHeightHeight);
 					for (Int y = 0; y < m_modernHeightHeight; ++y)
 						for (Int x = 0; x < m_modernHeightWidth; ++x) {
 							const int i = y * m_modernHeightWidth + x;
@@ -5411,6 +5412,11 @@ Real WaterRenderObjClass::modernWaterDamping(Real x, Real y, Real z, Real offsho
 void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool river, Real riverStart, Real riverEnd)
 {
 #if ZH_MODERN_WATER
+	struct OpenSeaScope {
+		IDirect3DDevice9 *device;
+		OpenSeaScope(IDirect3DDevice9 *d):device(d) { PosixWaterOpenSea(device,false); }
+		~OpenSeaScope() { PosixWaterOpenSea(device,false); }
+	} openSeaScope(DX8Wrapper::_Get_D3D_Device());
 	m_modernOpticalLevel = points[0].Z;
 	Vector3 boundsMin = points[0], boundsMax = points[0];
 	for (Int i = 1; i < 4; ++i) {
@@ -5844,6 +5850,13 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 #else
 	const Bool cpuFftPrepared=FALSE;
 #endif
+	const char *debug = std::getenv("ZH_WATER_DEBUG");
+	const Bool meshDebug = wireframeForDebug || (debug && strcmp(debug, "wireframe") == 0);
+#if defined(__linux__)
+	const Bool splitProjected=projected && !river && !meshDebug && oceanContext
+		&& oceanContext->localMask.Valid() && m_waterMovement.Current();
+	WaterOpenSeaSplit::Cache::Split openSeaSplit = {NULL, NULL};
+#endif
 			const double profileFillStart = (m_modernProfileEnabled
 				|| m_modernMotionProfileEnabled) ? modernWaterProfileMilliseconds() : 0;
 			{
@@ -6159,6 +6172,34 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 				}
 			}
 		}
+#if defined(__linux__)
+		if(splitProjected) {
+			m_modernLocalDiscs.clear();
+			// TC2 is the final input XY, including coarse-edge morphs. Collars and
+			// transitions above only correct Z. Cover non-FFT world.xy fallback as
+			// well as rounding with one grid cell plus the bounded horizontal chop.
+			const Real margin=MAP_XY_FACTOR+WaterFftGeometry::MaxHorizontalDisplacement;
+			if(oceanContext->localMask.Any())for(const auto &hull:m_modernHulls) {
+				const auto &position=hull.data[0], &axis=hull.data[1];
+				if(fabsf(position[2]-points[0].Z)>.1f)continue;
+				const Real range=clamp(axis[3]*2.0f,28.0f,90.0f);
+				const Real radius=std::hypot(axis[2],axis[3])+range;
+				// A contributing pixel is within R of the hull centre, and its reflection
+				// moves less than 2*range, so only shoreline that close can reach it.
+				const Real reach=3*radius+margin;
+				if(oceanContext->localMask.Touches((position[0]-reach)/MAP_XY_FACTOR+m_modernHeightBorder,
+					(position[1]-reach)/MAP_XY_FACTOR+m_modernHeightBorder,
+					(position[0]+reach)/MAP_XY_FACTOR+m_modernHeightBorder,
+					(position[1]+reach)/MAP_XY_FACTOR+m_modernHeightBorder))
+					m_modernLocalDiscs.push_back({position[0],position[1],radius+margin,2*range+margin});
+			}
+			m_modernOpenSeaPositions.resize(drawMesh.vertices.size());
+			for (size_t n = 0; n < drawMesh.vertices.size(); ++n)
+				m_modernOpenSeaPositions[n] = {grid[n].x, grid[n].y};
+			openSeaSplit = m_modernOpenSeaCache.Partitioned(drawMesh.indices, m_modernOpenSeaPositions, oceanContext->localMask,
+				MAP_XY_FACTOR, Real(m_modernHeightBorder), m_modernLocalDiscs, margin);
+		}
+#endif
 	}
 	double profileSubmitStart = 0;
 			if (m_modernProfileEnabled || m_modernMotionProfileEnabled) {
@@ -6180,8 +6221,6 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 	DX8Wrapper::_Get_D3D_Device()->GetRenderState(D3DRS_CULLMODE, &cull);
 	DX8Wrapper::Set_DX8_Render_State(D3DRS_CULLMODE, D3DCULL_NONE);
 	if (TheWaterTransparency->m_additiveBlend) DX8Wrapper::Set_DX8_Render_State(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
-	const char *debug = std::getenv("ZH_WATER_DEBUG");
-	const Bool meshDebug = wireframeForDebug || (debug && strcmp(debug, "wireframe") == 0);
 	if (meshDebug) DX8Wrapper::Set_DX8_Render_State(D3DRS_FILLMODE, D3DFILL_WIREFRAME);
 	WaterShoreOverlay::Quad shorePatch;
 	shorePatch.level = points[0].Z;
@@ -6195,16 +6234,27 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 	// Legacy dynamic index buffers store their count in 16 bits. Keep a shared vertex grid and
 	// submit bounded row batches; even a 128-cell ocean patch cannot truncate its index count.
 	if (projected) {
-				for (size_t first = 0; first < drawMesh.indices.size(); first += 65532) {
-					const size_t count = min(size_t(65532), drawMesh.indices.size() - first);
-					DynamicIBAccessClass indices(BUFFER_TYPE_DYNAMIC_DX8, (Int) count);
-			{
-				DynamicIBAccessClass::WriteLockClass lock(&indices);
-						memcpy(lock.Get_Index_Array(), drawMesh.indices.data() + first, count * sizeof(UnsignedShort));
-					}
-			DX8Wrapper::Set_Index_Buffer(indices, 0);
-			DX8Wrapper::Draw_Triangles(0, (Int) count / 3, 0, vertexCount);
-		}
+		auto drawIndices = [&](const std::vector<uint16_t> &subset) {
+			for (size_t first=0;first<subset.size();first+=65532) {
+				const size_t count=min(size_t(65532),subset.size()-first);
+				DynamicIBAccessClass indices(BUFFER_TYPE_DYNAMIC_DX8,(Int)count);
+				{
+					DynamicIBAccessClass::WriteLockClass lock(&indices);
+					memcpy(lock.Get_Index_Array(),subset.data()+first,count*sizeof(UnsignedShort));
+				}
+				DX8Wrapper::Set_Index_Buffer(indices,0);
+				DX8Wrapper::Draw_Triangles(0,(Int)count/3,0,vertexCount);
+			}
+		};
+#if defined(__linux__)
+		if(splitProjected) {
+			PosixWaterOpenSea(openSeaScope.device,true);
+			drawIndices(*openSeaSplit.open);
+			PosixWaterOpenSea(openSeaScope.device,false);
+			drawIndices(*openSeaSplit.local);
+		} else
+#endif
+			drawIndices(drawMesh.indices);
 	} else {
 		const Int batchRows = WaterSurfaceModel::IndexBatchRows(cells);
 		for (Int row = 0; row < cells; row += batchRows) {

@@ -2101,6 +2101,7 @@ Libraries/Include/Platform/WaterMovementBehavior.h
 Libraries/Include/Platform/WaterMovementCompatibility.h
 Libraries/Include/Platform/WaterMovementCompatibilityShader.h
 Libraries/Include/Platform/WaterObstacleIndex.h
+Libraries/Include/Platform/WaterOpenSeaSplit.h
 Libraries/Include/Platform/WaterOpticalContext.h
 Libraries/Include/Platform/WaterOpticalModel.h
 Libraries/Include/Platform/WaterPathCaptureScope.h
@@ -3158,6 +3159,7 @@ Tests/WaterLocalWaveFieldTest.h
 Tests/WaterMovement351Reference.h
 Tests/WaterMovementCompatibilityTest.h
 Tests/WaterMovementV351Reference.h
+Tests/WaterOpenSeaSplitTest.h
 Tests/WaterPathBuildReference.h
 Tests/WaterPreparedViewTest.h
 Tests/WaterProjectedSampleCacheTest.h

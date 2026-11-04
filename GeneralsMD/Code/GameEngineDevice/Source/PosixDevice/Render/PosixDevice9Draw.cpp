@@ -98,6 +98,7 @@ void PosixDevice9::Shore_Track(const WaterShoreOverlay::Quad *track)
 void PosixWaterShoreBegin(IDirect3DDevice9 *d,bool e) {if(d) static_cast<PosixDevice9*>(d)->Shore_Begin(e);}
 void PosixWaterShoreEnd(IDirect3DDevice9 *d) {if(d) static_cast<PosixDevice9*>(d)->Shore_End();}
 void PosixWaterShorePatch(IDirect3DDevice9 *d,const WaterShoreOverlay::Quad *q) {if(d) static_cast<PosixDevice9*>(d)->Shore_Patch(q);}
+void PosixWaterOpenSea(IDirect3DDevice9 *d,bool enabled) {if(d) static_cast<PosixDevice9*>(d)->Water_Open_Sea(enabled);}
 void PosixWaterShoreTrack(IDirect3DDevice9 *d,const WaterShoreOverlay::Quad *q) {if(d) static_cast<PosixDevice9*>(d)->Shore_Track(q);}
 bool PosixWaterGpuAvailable(IDirect3DDevice9 *d) {return d && static_cast<PosixDevice9*>(d)->Get_Gpu();}
 uint64_t PosixWaterFftBegin(IDirect3DDevice9 *d) {return d ? static_cast<PosixDevice9*>(d)->Begin_Prepared_Water_Fft() : 0;}
@@ -1069,8 +1070,11 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	const SdlProgram &vertex_program = vertex_engine != ENGINE_SHADER_NONE
 		? Programs->Engine_Vertex_Program(vertex_engine)
 		: fft_water ? *fft_vertex : Programs->Vertex_Program(vertex);
+	const bool open_sea=WaterOpenSea && !SunActive && pixel_engine==ENGINE_SHADER_WATER_TRAPEZOID;
 	const SdlProgram *pixel_program = SunActive ? &Programs->Sun_Pixel_Program(combiner, pixel_engine) : pixel_engine != ENGINE_SHADER_NONE
-		? &Programs->Engine_Pixel_Program(pixel_engine, combiner.PixelPipeline) : &Programs->Pixel_Program(combiner);
+		? &Programs->Engine_Pixel_Program(pixel_engine, combiner.PixelPipeline, open_sea) : &Programs->Pixel_Program(combiner);
+	if(open_sea && !pixel_program->Shader)
+		pixel_program=&Programs->Engine_Pixel_Program(pixel_engine,combiner.PixelPipeline);
 	const SdlProgram *legacy_pixel_program=pixel_program;
 	const auto retry_without_sun = [&](const char *reason) {
 		// Engine ground programs are shared with legacy; only generated receiving
