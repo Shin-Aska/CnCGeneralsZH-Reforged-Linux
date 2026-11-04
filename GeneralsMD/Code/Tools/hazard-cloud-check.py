@@ -111,6 +111,7 @@ for kind, templates, palettes in (
             palettes=palettes, owners=128, shared=True,
             fixture=load_fixture(templates, overlap=layout == "overlap"))
 OPTIONS = """Resolution = 1280 800
+ClassicGraphics = no
 StaticGameLOD = Custom
 IdealStaticGameLOD = High
 DynamicLOD = no

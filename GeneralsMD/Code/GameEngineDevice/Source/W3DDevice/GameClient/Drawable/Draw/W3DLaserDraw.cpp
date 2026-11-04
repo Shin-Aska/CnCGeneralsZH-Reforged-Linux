@@ -172,7 +172,7 @@ static void markBeamSeen( DrawableID parent, DrawableID target, UnsignedInt now 
 static TextureClass *s_glowTexture = NULL;
 
 // ponytail: chosen by template name so no INI field and no checksum change; a "Glow" field in
-// W3DLaserDraw is the upgrade if a mod ever wants it per beam. Every weapon laser in ZH ends in
+// W3DLaserDraw is the upgrade if a beam ever needs it on its own. Every weapon laser in ZH ends in
 // LaserBeam; the data streams, the waypoint line and the Particle Cannon's beams do not. The
 // Avenger's target designator is a marker, not a weapon, and keeps EA's thin blue line.
 static Bool beamGlows( const Thing *thing )
@@ -292,7 +292,7 @@ static Vector3 glowHue( Color inner, Color outer )
 // widens instead, and the Direct3D 11 gain takes the lines over white (GLOW_ENABLE below).
 static Real glowStrength()
 {
-	return TheGlobalData->m_bloomIntensity / 50.0f;
+	return TheGlobalData->m_classicGraphics ? 0.0f : TheGlobalData->m_bloomIntensity / 50.0f;
 }
 
 // The plain additive preset, opted into the Glow option's gain: EA's beam layers and the glow

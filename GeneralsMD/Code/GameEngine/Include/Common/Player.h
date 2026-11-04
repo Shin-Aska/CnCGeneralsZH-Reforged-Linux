@@ -181,6 +181,26 @@ Bool SuperweaponNeedsDefenses( const AsciiString &buildingName, Bool proRules, I
 Bool IncomeSharingSplits( Int incomeSharing, Bool fromTechBuilding );
 UnsignedInt IncomeAllyShare( UnsignedInt amount, Int sharers );
 
+// A skirmish computer player banks its rung's IncomePercent (AIDifficultyProfile) of what it earns by
+// playing.  What one payment comes to in a recipient's bank at that percent, rounded down, integer
+// only so every machine banks the same.  The bonus applies only when a computer earned it and a
+// computer banks it, so a human ally's cut of a computer's income stays plain and a human's income
+// never gets it.  Refunds, script grants and transfers between allies do not come through here:
+// a bonus on a refund is a queue and cancel money loop.  The score keeper counts the plain amount.
+UnsignedInt EarnedAmount( UnsignedInt amount, Int percent );
+
+// The falling-behind bonus a skirmish computer is owed over its rung's percent, in points, with its own
+// strength against its strongest living enemy's: 0 while it holds level, rising in a line to
+// AI_INCOME_BONUS_MAX at a quarter of it and below.  Integers only.
+Int IncomeBonusTarget( Int ownStrength, Int strongestEnemyStrength );
+// The strengths that target is fed: of count living players in list order, worth[i] each and allies[i]
+// a bit for every player mutually allied with i, self's side (itself and its allies) a player at a
+// time, and the highest per-player average of the other sides, each a leader in list order and the
+// players still ungrouped who are its mutual allies.  Free-for-all, every enemy is a side of one.
+void IncomeSideWorths( const Int *worth, const UnsignedInt *allies, Int count, Int self, Int *ownAverage, Int *strongestEnemyAverage );
+// One weighing's move from the bonus it has toward that target, at most AI_INCOME_BONUS_STEP.
+Int IncomeBonusStep( Int bonus, Int target );
+
 // Pro Rules, PRO-RULES.md: what every skirmish and network match refuses whoever plays it.
 // GameLogic::isProRules() says whether a match is under them; these say what they cover, by name
 // or by type, so a test can ask them without a match.
@@ -393,12 +413,20 @@ public:
 	/// return the Player's Handicap sub-object
 	inline const Handicap *getHandicap() const { return &m_handicap; }
 	inline Handicap *getHandicap() { return &m_handicap; }
+	/// the lobby's handicap as a factor, exactly 1 for a seat without one
+	inline Real getLobbyHandicap() const { return m_handicap.getGenericHandicap( Handicap::MAXHEALTH ); }
+	/// a special power's reload in frames for this seat: the template's own at no handicap
+	UnsignedInt getSpecialPowerReloadTime( const SpecialPowerTemplate *temp ) const;
 
 	/// return the Player's Money sub-object
 	inline Money *getMoney() { return &m_money; }
 	inline const Money *getMoney() const { return &m_money; }
-	/// steady income - a supply run, a hacker's payout, a derrick's - banked and scored, and split with the allies when the lobby's income sharing covers it
-	void earnIncome( UnsignedInt amount, Bool fromTechBuilding );
+	/// steady income - a supply run, a hacker's payout, a derrick's - banked and scored, and split with the allies when the lobby's income sharing covers it.  Returns what the payment came to, all banks together
+	UnsignedInt earnIncome( UnsignedInt amount, Bool fromTechBuilding );
+	/// money made by playing that nobody shares - a capture bonus, a crate, a bounty, stolen cash - banked and scored.  Returns what it came to
+	UnsignedInt earnMoney( UnsignedInt amount );
+	/// what this player banks of what it earns by playing, in percent: its rung's IncomePercent plus its falling-behind bonus for a skirmish AI, 100 for anyone else
+	Int incomePercent( void );
 
 	UnsignedInt getSupplyBoxValue();///< Many things can affect the alue of a crate, but at heart it is a GlobalData ratio.
 
@@ -613,9 +641,12 @@ public:
 	/// Get the enemy an ai player is currently focused on.  NOTE - Can be NULL.
 	Player  *getCurrentEnemy( void );
 	void noteTeamRequest( Int kind, Int from, Int enemy, const Coord3D *pos );	///< an ally's request, for this player's AI if it has one (aiPostTeamRequest)
+	void noteStrikeLaunched( const Player *launcher );	///< the word of a superweapon launch every seat hears, for this player's AI if it has one
 
 	/// Is this player a skirmish ai player?
 	Bool isSkirmishAIPlayer( void );
+	Bool aiRunsOwnAI( void ) const;		///< a computer player on the fork's AI (AIPlayer::runsOwnAI); FALSE for a human and for EA's AI
+	Bool isForkMapComputer( void ) const;	///< any computer player, the civilians included, in a match on a map the fork's AI plays (SidesList::forkAIMap)
 
 	/// Have the ai check for bridges.
 	virtual Bool checkBridges(Object *unit, Waypoint *way);
@@ -653,10 +684,21 @@ public:
 	/**
 		a convenience routine to count the number of owned objects that match a set of ThingTemplates.
 		You input the count and an array of ThingTemplate*, and provide an array of Int of the same
-		size. It fills in the array to the correct counts. This is handy because we must traverse
-		the player's list-of-objects only once.
+		size. It fills in the array to the correct counts. It reads the per-template member lists
+		below instead of walking every team, and gives the walk's answer at every call.
 	*/
 	void countObjectsByThingTemplate(Int numTmplates, const ThingTemplate* const * things, Bool ignoreDead, Int *counts, Bool ignoreUnderConstruction = TRUE ) const;
+
+	/**
+		the per-template member lists follow the team member lists: an object is in them exactly
+		while it sits on a team whose prototype this player controls. becomingTeamMember and
+		TeamPrototype::setControllingPlayer are the only callers.
+	*/
+	void addTemplateCountMember(Object *obj);
+	void removeTemplateCountMember(Object *obj);
+
+	/// whether any member of our teams, dead or alive, has a template equivalent to tmpl
+	Bool hasTemplateMember(const ThingTemplate *tmpl) const;
 
 	/**
 		simply returns the number of buildings owned by this player
@@ -853,7 +895,7 @@ public:
 
 	Real getCashBounty() const { return m_cashBountyPercent; }
 	void setCashBounty(Real percentage) { m_cashBountyPercent = percentage; }
-	void doBountyForKill(const Object* killer, const Object* victim, Real rankShare);	///< the bounty science's share plus the killer's rank share of the victim's cost
+	void doBountyForKill(const Object* killer, const Object* victim);
 
 	AcademyStats* getAcademyStats() { return &m_academyStats; }
 	const AcademyStats* getAcademyStats() const { return &m_academyStats; }
@@ -997,6 +1039,13 @@ private:
 	UnicodeString					m_generalName;		///< (SAVE) This is the name of the general the player is allowed to change.
 	
 	PlayerTeamList				m_playerTeamPrototypes;				///< ALL the teams we control, via prototype
+
+	struct TemplateCountMembers
+	{
+		const ThingTemplate		*m_template;					///< every object here answers getTemplate() with this
+		std::vector<Object *>	m_objects;						///< in no particular order; counts are sums
+	};
+	std::vector<TemplateCountMembers>	m_templateCountMembers;	///< (NO-SAVE) every member of our teams, grouped by template
 	PlayerRelationMap			*m_playerRelations;						///< allies & enemies
 	TeamRelationMap				*m_teamRelations;							///< allies & enemies
 	

@@ -42,6 +42,7 @@
 #include "Common/STLTypedefs.h"
 
 class AIGroup;
+class AIInfluenceMap;
 class AttackPriorityInfo;
 class BuildListInfo;	
 class CommandButton;
@@ -51,8 +52,10 @@ class Path;
 class Pathfinder;
 class Player;
 class PolygonTrigger;
+class SimpleObjectIterator;
 class ThingTemplate;
 class UpgradeTemplate;
+class WeaponBonus;
 class WeaponTemplate;
 
 enum GUICommandType : Int;
@@ -143,9 +146,11 @@ public:
 /** Three rungs of how well the AI plays.  Deliberately NOT GameDifficulty, which carries the same
 	* three values for a different reason: that enum answers "which scripts run" and is baked into
 	* every shipped map and .scb, into the campaign's stat bonus tables and into network messages.
-	* This one answers "how well does it play", and every rung of it plays by the player's rules - no
-	* income, build-rate, vision or stat handicap at any level, in either direction.  Keeping it a
-	* separate enum is what lets a rung be tuned in AI.ini without touching what a map's scripts do.
+	* This one answers "how well does it play".  No rung has a build-rate, vision or stat handicap, in
+	* either direction.  Income is the one bonus: a skirmish AI banks its rung's IncomePercent of what it
+	* earns by playing (Player::earnMoney), 150 on every rung and up to 300 while it falls behind its
+	* strongest enemy (AIPlayer::stepIncomeBonus).  Keeping it a separate enum is what lets a rung be
+	* tuned in AI.ini without touching what a map's scripts do.
 	* See AI-ROADMAP.md sections D6, D7 and D10.
 	*/
 //-------------------------------------------------------------------------------------------------
@@ -214,9 +219,10 @@ AIPersonality aiPersonalityFromName( const char *name );
 /** One rung of the ladder.  Every new AI behaviour adds a field here rather than a
 	* switch(difficulty) somewhere, so the whole ladder can be read, tuned and measured in one place.
 	*
-	* Nothing in here may exceed the AI's honest baseline - the top rung IS the baseline and the
-	* lower rungs are handicaps on its *decisions*.  If a field ever appears that multiplies income,
-	* build rate, vision or unit stats, the design has drifted. */
+	* Nothing in here may exceed the AI's baseline - the top rung IS the baseline and the lower rungs
+	* are handicaps on its *decisions*.  m_incomePercent is the one exception, the owner's call of
+	* 2026-11-02.  If another field ever appears that multiplies income, build rate, vision or unit
+	* stats per rung, the design has drifted. */
 //-------------------------------------------------------------------------------------------------
 struct AIDifficultyProfile
 {
@@ -280,6 +286,28 @@ struct AIDifficultyProfile
 	// Artillery that fires past its own sight
 	Int		m_artillerySpotters;						///< the side's spotters (AISideInfo m_spotter) added to a team that brings such a gun and no spotter
 	Real	m_artilleryShare;								///< the share of a side's attack teams with no such gun that are given one of its own (AISideInfo m_artillery)
+
+	// Coming under fire (AIPlayer::answerFire): what it does about a gun that is hitting it
+	Real	m_influenceSeconds;							///< how old its map of what can shoot where may be when it is read
+	Real	m_fireLookSeconds;							///< how often it looks at who is being hit, and so how late it answers
+	Real	m_fireWordRadius;								///< how far from a unit hit the rest of the group goes with it; 0 = each answers its own hit alone
+	Real	m_fireChargeOdds;								///< ours near the unit have to be worth this many times what covers the gun before they go for it
+	Real	m_fireMemorySeconds;						///< how long a gun that hit it stays on its map after it has lost sight of it
+
+	// Enemies in the base that have not hit anything yet (AIPlayer::baseSquatter)
+	Real	m_baseWatchSeconds;							///< how often it looks for them, and so how late it answers; 0 = only once something has been hit
+	Real	m_baseWatchOdds;								///< what it trains and sends at them, in times their price
+
+	// A superweapon going up, the word every seat hears (AIPlayer::dodgeStrike)
+	Real	m_strikeDodgeSeconds;						///< how long after that word its helicopters leave where they stand; 0 = they stay
+
+	// Taking more of the map (AIPlayer::doSecondBase, AIPlayer::findSupplyCenter)
+	Real	m_secondBaseSeconds;						///< no base away from home before this far into the match; 0 = never
+	Int		m_secondBases;									///< how many empty start positions it founds a base on, nearest first
+	Real	m_expansionReach;								///< how far from home, or from one of those bases, a supply center of its own choosing may go
+
+	// Income: the one bonus on the ladder (Player::incomePercent)
+	Int		m_incomePercent;								///< what a skirmish AI banks of what it earns by playing, in percent, before the falling-behind bonus; the score screen counts the 100
 };
 
 //-------------------------------------------------------------------------------------------------
@@ -319,6 +347,7 @@ struct AIKnownGun
 	Real m_y;
 	Real m_reach;
 	Real m_airReach;		///< 0 for a gun that cannot aim at a helicopter
+	ObjectID m_id;
 };
 
 //-------------------------------------------------------------------------------------------------
@@ -358,6 +387,44 @@ const Real AI_CANNOT_KILL = -1.0f;
 	* AI_CANNOT_KILL when it does no damage to it. */
 Real aiFramesToKill( Real targetHealth, const AIShotPattern &shots );
 
+/** Every field of shots but the damage: the weapon's delays, clip and opening, at these bonuses.  The
+	* AI's matchups read a template's, a unit choosing what to shoot reads its own weapon's. */
+void aiShotTiming( const WeaponTemplate *weapon, const WeaponBonus &bonus, AIShotPattern *shots );
+
+/** A unit choosing its own target (idle, attack move, after a kill, guard) ranks every candidate by
+	* this, and aiTargetBeats decides. */
+struct AITargetRating
+{
+	Int m_tier;				///< aiTargetTier
+	Real m_affinity;	///< aiArmourAffinity of our best-suited weapon against its armour
+	Real m_rate;			///< aiTargetKillRate
+	Real m_distSqr;		///< the nearer of two equal rates, for the unit that can hurt nothing there
+	ObjectID m_id;		///< the last tie, so every machine picks the same one
+};
+
+const Int AI_QUICK_KILL_FRAMES = 10 * LOGICFRAMES_PER_SECOND;
+
+/** 2 for whoever just shot us, and while something is shooting us for an armed enemy already in
+	* reach that we kill within AI_QUICK_KILL_FRAMES; 1 for any other enemy that can shoot us; 0 for
+	* the rest.  So a far target never keeps a unit from turning on its shooter, and one in reach that
+	* its weapon is made for and that dies in seconds does. */
+Int aiTargetTier( Bool shotMe, Bool underFire, Bool threatensMe, Bool inRange, Real framesToKill );
+
+/** How much a weapon is made for an armour: what the armour lets through of its damage type over the
+	* mean of what it lets through of every combat damage type (coefficients, count of them).  Tank
+	* armour stops small arms and fire and lets a tank shell through, so the shell is made for it; a
+	* truck stops less of everything, so the same shell is less its weapon.  0 for a mean of 0. */
+Real aiArmourAffinity( Real mine, const Real *coefficients, Int count );
+
+/** What one target is worth per frame spent on it: value over the frames to kill it (aiFramesToKill
+	* with our best weapon against its armour and health) plus the frames to drive gap world units at
+	* speed into reach.  0 when we cannot hurt it, or it is out of reach of a unit that cannot move. */
+Real aiTargetKillRate( Real value, Real framesToKill, Real gap, Real speed );
+
+/** Whether a takes the pick from b: the higher tier, then the armour our weapon is made for (the
+	* higher affinity), then the higher rate, then the nearer, then the lower ObjectID. */
+Bool aiTargetBeats( const AITargetRating &a, const AITargetRating &b );
+
 /** One pairing as 0..1, money for money: 0.5 an even trade, 1 when my side kills sixteen times
 	* faster for its price (or cannot be hurt back), 0 when it cannot hurt the other side. */
 Real aiMatchupScore( Real myFramesToKill, Real theirFramesToKill, Real myCost, Real theirCost );
@@ -377,10 +444,72 @@ Real aiArmyAdvantage( const Real *myValue, Int myKinds, const Real *theirValue, 
 	* 'power' is a stand-in for damage per second - the threat value the data already carries. */
 Real aiRetreatRatio( Real myHealth, Real myPower, Real enemyHealth, Real enemyPower );
 
-/** Where a force losing a fight stops: the first spot on its line home that none of the fight's
-	* guns reach (x, y, reach triples), plus one step.  FALSE and home when there is none short of it. */
+/** Where a force losing a fight stops: the first spot on its line home, or 45 or 90 degrees off it, that
+	* none of the fight's guns reach (x, y, reach triples) and that map, when given, has no enemy gun on,
+	* plus one step, on the ground (bounds: low x, low y, high x, high y).  FALSE and home when there is none
+	* short of it. */
 Bool aiRetreatFallbackPoint( Real fromX, Real fromY, Real homeX, Real homeY, Real step,
-														 const Real *guns, Int gunCount, Real *outX, Real *outY );
+														 const Real *guns, Int gunCount, const Real *bounds, Real *outX, Real *outY,
+														 const AIInfluenceMap *map = NULL );
+
+/** What a unit that has just been hit does about the gun that hit it. */
+enum AIFireAnswer
+{
+	AIFIRE_CARRY_ON,		///< it is already in a gunfight, or may not leave this one
+	AIFIRE_SHOOT_BACK,	///< the gun is in its reach: that is what it shoots now
+	AIFIRE_GO_KILL,			///< out of reach, and ours near it are enough: they go and get it
+	AIFIRE_LEAVE				///< out of reach, and ours are not enough: off the ground it covers
+};
+
+/** The rule.  A unit already shooting the gun or some other gun stays on it, and the retreat judges that
+	* fight.  One with the gun in reach turns on it.  Out of reach it goes when it can get at the gun and ours
+	* are not outgunned at the gun's own spot, and otherwise leaves if it may.  One that may not leave stays on
+	* the order it has, or with none, idle under the shells, goes for the gun at any odds and leaves if it cannot
+	* get at it.  ours and cover are in aiCombatPower's currency; odds is the rung's. */
+AIFireAnswer aiAnswerFire( Bool onTheGun, Bool fightingAGun, Bool canShootNow, Bool canGetAtIt, Real ours, Real cover, Real odds, Bool mayLeave, Bool idle );
+
+/** The odds a unit reads a gun at.  One already sent at it breaks off only well past the odds that sent it, so
+	* a reading either side of them does not turn it round halfway. */
+Real aiFireOddsNow( Real odds, Bool sentAtIt, Real margin );
+
+/** A unit that leaves a gun it was sent at has tried it.  Going back on the next good reading walked it to and
+	* fro for as long as the fight read between the odds that send and the odds that hold, so its hold ends at
+	* home. */
+Bool aiFireMayGoBack( Bool sentAtIt );
+
+/** A unit stops counting as sent at a gun once the retreat has it, or a step of its own took it away (a hurt
+	* unit pulled out, a kite), or the errand has run past the longest it can take.  Left on it, the hurt unit was
+	* walked back to the gun from its safe spot. */
+Bool aiFireAnswerOver( Bool retreatHasIt, Bool steppedAway, UnsignedInt framesOnIt, UnsignedInt maxFrames );
+
+/** A unit holding after it left a fight goes free.  The retreat ends the hold of those it looks at, and only
+	* one it has lost track of runs to staleFrames.  Nothing ends the others (a rung with no retreat, the default
+	* team): they hold holdFrames and go free once they have stopped walking, for the call-ups to have them. */
+Bool aiHolderLetGo( Bool retreatSeesIt, UnsignedInt heldFrames, Bool moving, UnsignedInt holdFrames, UnsignedInt staleFrames );
+
+/** Where a helicopter at (x, y) goes when it hears a launch: reach away from the middle of the group it hangs
+	* with (clumpX, clumpY), or off on its own line, picked by tie, when it is that middle.  Back the other way when
+	* the map ends first (bounds: low x, low y, high x, high y).  Nobody knows where the shot is going, so reach is
+	* twice the blast: from anywhere inside it, a straight flight that long ends outside whatever the heading. */
+void aiStrikeDodgeSpot( Real x, Real y, Real clumpX, Real clumpY, Real reach, const Real *bounds, Int tie, Real *outX, Real *outY );
+
+/** Whether a unit may answer a gun by leaving.  A fight at home is fought, home being where a retreat goes,
+	* and a gun out past home that is shelling it is nothing the retreat will take up, so that one it may.
+	* Away from home, a gun the retreat can see, known and within its radius, is the retreat's to judge on a
+	* rung that retreats: units leaving on one hit where the fight as a whole holds were the passivity 4264d652
+	* cost matches to take out. */
+Bool aiFireMayLeave( Bool unitAtHome, Bool gunAtHome, Bool rungRetreats, Bool gunKnown, Real gunDistance, Real retreatRadius );
+
+/** ours would lose to cover: there is something there, and ours are worth less than odds times it. */
+Bool aiOutgunned( Real ours, Real cover, Real odds );
+
+/** A body's last hit stamp is within window frames of now.  The stamp starts out as 0xffffffff. */
+Bool aiRecentlyHit( UnsignedInt hitFrame, UnsignedInt now, UnsignedInt window );
+
+/** A unit at (x, y) walking along (dirX, dirY), a unit vector, is about to walk into a gun at (gunX, gunY):
+	* it is outside the gun's reach, heading towards it, and the next lookahead of its walk comes within edge
+	* of it. */
+Bool aiWalkEntersReach( Real x, Real y, Real dirX, Real dirY, Real gunX, Real gunY, Real reach, Real edge, Real lookahead );
 
 /** A force holding where it fell back to: stay, go back to the fight it left, or give up and go home. */
 enum AIFallbackDecision { AIFALLBACK_HOLD, AIFALLBACK_RESUME, AIFALLBACK_GO_HOME };
@@ -609,6 +738,14 @@ Real aiStartOccupiedOdds( Int unlocatedEnemies, Int uncheckedPositions );
 	* building in the way. */
 Bool aiIsIncomeNotATarget( Bool isTechBuilding, Bool isCapturable, Bool isTechBaseDefense );
 
+/** What a guarding aircraft bombs first: 0 a building, 1 a vehicle, 2 a soldier, 3 anything else.
+	* An Aurora guarding a circle took the nearest thing in it, usually one infantryman, and flew home
+	* to rearm while the factory beside him stood. */
+Int aiGuardAirTargetClass( Bool isStructure, Bool isVehicle, Bool isInfantry );
+/** Whether candidate a takes a guarding aircraft's pick from b: the lower class, then the nearer, then
+	* the lower ObjectID, so every machine picks the same one. */
+Bool aiGuardAirTargetBeats( Int classA, Real distSqrA, ObjectID idA, Int classB, Real distSqrB, ObjectID idB );
+
 /** What a superweapon target is still worth, given one shot already aimed at it - 1.0 untouched,
 	* 0.0 right on top of a shot aimed this frame, climbing back over 'window' frames and with
 	* distance from that shot.
@@ -758,6 +895,15 @@ static const UnsignedInt AI_COOP_JOIN_FRAMES = 120 * LOGICFRAMES_PER_SECOND;
 void aiPostTeamRequest( Player *from, AITeamRequestKind kind, Int enemy, const Coord3D *pos );
 /** The enemy of this player's who owns what stands nearest pos, -1 for none within reach. */
 Int aiEnemyNear( const Player *of, const Coord3D *pos );
+/** The nearest of this player's own buildings that mends this unit, a repair pad for a vehicle, an
+	* airfield for an aircraft, a heal pad for infantry, or NULL.  A unit at full health has none. */
+Object *aiFindMender( Player *player, Object *unit, CommandSourceType cmdSource );
+/** The building within radius of center a soldier goes for next, or NULL: the one nearest center that
+	* is not in tried, that a player's order may enter, and that has a seat left after the owner's other
+	* men walking to it.  A building its owner has neither in sight nor remembers is left out, so nothing
+	* he has not seen decides the search.  With no such building, the nearest friendly transport on the
+	* ground with a seat left by the same test (a Humvee, a Chinook, a bunkered Overlord). */
+Object *aiFindFreeGarrison( Object *unit, const Coord3D *center, Real radius, const std::vector<ObjectID> &tried );
 
 /** A skirmish AI's purchase queue, on every rung with a bank target.  Every spender asks it before it pays, with a stable key (a
 	* template id), the price, its score and whether the thing could start right now (an idle factory,
@@ -807,6 +953,12 @@ const UnsignedInt AI_PURCHASE_HOLD_FRAMES = 40 * LOGICFRAMES_PER_SECOND;
 
 /** How long a stretch of income is measured over before the rate is taken again. */
 const UnsignedInt AI_INCOME_WINDOW_FRAMES = 30 * LOGICFRAMES_PER_SECOND;
+
+/** The falling-behind income bonus (AIPlayer::stepIncomeBonus): how often it is weighed again, how far
+	* it moves at one weighing, and its ceiling over the rung's IncomePercent, in percentage points. */
+const UnsignedInt AI_INCOME_BONUS_FRAMES = 30 * LOGICFRAMES_PER_SECOND;
+const Int AI_INCOME_BONUS_STEP = 25;
+const Int AI_INCOME_BONUS_MAX = 150;
 
 /** The bank a computer player keeps: seconds of its income, and never under the floor. */
 Int aiBankTarget( Real incomePerSecond, Real seconds, Int floor );
@@ -862,6 +1014,10 @@ enum AIPressure
 	* have, so one rifleman against nothing is not a rout. */
 Real aiWinChance( Real myPower, Real enemyPower );
 
+/** The same chance, side against side.  An ally's army counts by allyShare, and each ally of the enemy
+	* counts by the same share as an army like his, so even teams rate the way one against one does. */
+Real aiSideWinChance( Real myPower, Real alliedPower, Real enemyPower, Int enemyAllies, Real allyShare );
+
 /** The level that chance asks for.  A level is left later than it is entered, so a chance sitting on
 	* a threshold does not change the orders every two seconds: a Hard AI watching an army walk in and
 	* out of its sight changed level six times in a minute on a chance between 0.58 and 0.66.  PRESS and
@@ -883,13 +1039,10 @@ public:
 	void addSideInfo(AISideInfo *info);
 	void addFactionBuildList(AISideBuildList *buildList);
 
-	/** A side's resource, defence and skill set entry, and its skirmish build list.  Under -modfactions a
-		* mod faction's own mod's AIData.ini is loaded under "M<n>~<side>" (AI::parseAiDataDefinition), so
-		* modIndex asks for that first and falls back on retail's entry of the side when the mod has none.
-		* NULL when neither has one. */
-	const AISideInfo *findSideInfo( const AsciiString &side, Int modIndex ) const;
-	const AISideBuildList *findBuildList( const AsciiString &side, Int modIndex ) const;
-	const AISideInfo *findSideInfo( const Player *player ) const;	///< by the player's side and template's mod
+	/// a side's resource, defence and skill set entry, and its skirmish build list; NULL when it has none
+	const AISideInfo *findSideInfo( const AsciiString &side ) const;
+	const AISideBuildList *findBuildList( const AsciiString &side ) const;
+	const AISideInfo *findSideInfo( const Player *player ) const;	///< by the player's side
 
 	// --------------- inherited from Snapshot interface --------------
 	void crc( Xfer *xfer );
@@ -1024,10 +1177,16 @@ public:
 		ATTACK_BUILDINGS									= 1 << 3,
 		WITHIN_ATTACK_RANGE								= 1 << 4,
 		UNFOGGED													= 1 << 5,
-		PREFER_HIGH_THREAT								= 1 << 6		///< pick the biggest threat in range, not the nearest thing
+		PREFER_BEST_TARGET								= 1 << 6		///< pick by pickBestTarget, not the nearest thing
 	};
-	Object *findClosestEnemy( const Object *me, Real range, UnsignedInt qualifiers, 
+	Object *findClosestEnemy( const Object *me, Real range, UnsignedInt qualifiers,
 		const AttackPriorityInfo *info=NULL, PartitionFilter *optionalFilter=NULL);
+
+	/** The candidate me would rather shoot than any other, by aiTargetBeats, or NULL.  lateFilters
+		* (NULL-terminated) are asked only of a candidate that would take the lead. */
+	Object *pickBestTarget( const Object *me, SimpleObjectIterator *candidates, PartitionFilter **lateFilters );
+	/** Whether me would rather shoot a than b, by the same rule. */
+	Bool prefersTarget( const Object *me, Object *a, Object *b );
 
 	Object *findClosestRepulsor( const Object *me, Real range);
 
@@ -1047,8 +1206,6 @@ public:
 	enum FormationID getNextFormationID(void);
 
 	static void parseAiDataDefinition( INI* ini );
-	/// the key a mod's AIData entries are filed under: "M<n>~America" for mod index n-1, the side itself for retail (-1)
-	static AsciiString modSideKey( const AsciiString &side, Int modIndex );
 
 	static Int s_enemyScans;								///< see getEnemyScanCountThisFrame
 	static Real s_lastPathfindMS;						///< see getLastPathfindMS
@@ -1710,7 +1867,8 @@ public:
 	void groupEnter( Object *obj, CommandSourceType cmdSource );							///< enter the given object
 	void groupDock( Object *obj, CommandSourceType cmdSource );							///< get near given object and wait for enter clearance
 	void groupExit( Object *objectToExit, CommandSourceType cmdSource );			///< get out of this Object
-	void groupEvacuate( CommandSourceType cmdSource );												///< empty its contents
+	void groupEvacuate( CommandSourceType cmdSource, const Coord3D *at = NULL );			///< empty its contents; vehicle transports go to at first
+	static Bool unloadsWhereSent( const Object *obj );												///< a vehicle transport: Evacuate asks for a spot
 	void groupExecuteRailedTransport( CommandSourceType cmdSource );					///< execute railed transport events
 	void groupGoProne( const DamageInfo *damageInfo, CommandSourceType cmdSource );												///< life altering state change, if this AI can do it
 	void groupGuardPosition( const Coord3D *pos, GuardMode guardMode, CommandSourceType cmdSource );						///< guard the given spot

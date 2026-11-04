@@ -29,6 +29,8 @@ CASES = {
 }
 
 OPTIONS = """Resolution = 1280 720
+ClassicGraphics = no
+LightingStyle = 1
 StaticGameLOD = Custom
 IdealStaticGameLOD = High
 DynamicLOD = no

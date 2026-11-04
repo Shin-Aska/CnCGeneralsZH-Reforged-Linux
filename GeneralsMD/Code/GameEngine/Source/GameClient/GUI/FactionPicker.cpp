@@ -22,8 +22,9 @@
 // modal while it is up, in the front end's look (UIStyle.h): the armies on the left under their
 // sides' headings with Random All and Custom Selection over them, the focused army's portrait, name
 // and description on the right, Back and Confirm in the room's button row.  It reads the armies from
-// the seat's own box, so whatever the box lists (the generals, a mod's sides, Observer where the room
-// has one) is what the screen offers, and it hands the pick back through the box.
+// the seat's own box, so whatever the box lists (the sides, the generals, Observer where the room
+// has one) is what the screen offers, and it hands the pick back through the box.  Every tile is one
+// size whatever the box lists; a list taller than its place scrolls, with the wheel and a bar.
 //
 // Custom Selection ticks the Random pool.  A ticked pool goes into the seat's faction number
 // (EncodeRandomPool, GameInfo.h), which every room already sends to the host and the host to every
@@ -40,6 +41,7 @@
 #include "Common/NameKeyGenerator.h"
 #include "Common/PlayerTemplate.h"
 #include "GameClient/ChallengeGenerals.h"
+#include "GameClient/ControlBarScheme.h"
 #include "GameClient/Display.h"
 #include "GameClient/DisplayString.h"
 #include "GameClient/DisplayStringManager.h"
@@ -73,6 +75,8 @@ static const Real HEADING_HEIGHT = 34.0f;
 static const Real GROUP_GAP = 10.0f;
 static const Real CELL = 112.0f;
 static const Real CELL_GAP = 12.0f;
+static const Real BAR_WIDTH = 20.0f;			// in the 28 left over beside five columns of tiles
+static const Real BAR_MIN_THUMB = 48.0f;
 static const Real PORTRAIT_BOTTOM = 440.0f;
 static const Real BANNER_BOTTOM = 504.0f;
 static const Real DESCRIPTION_TOP = 516.0f;
@@ -82,13 +86,12 @@ static const Real SIDE_TICK = 26.0f;
 static const Real SIDE_TICK_GAP = 14.0f;
 static const Real MAX_PORTRAIT_SCALE = 4.0f;	// a 64 px side logo blown up past this is only blur
 static const Int POOL_DIM_ALPHA = 190;
-static const char *const PICKER_IMAGE_PREFIX = "FactionPicker";	// a template's own picture here, FactionPickerFactionTurkiye
 
 struct PickerCell
 {
 	Int pick;							///< the box's item data: a template or PLAYERTEMPLATE_OBSERVER
 	Int poolBit;					///< its bit in a Random pool, -1 when it cannot go in one
-	UnicodeString name;		///< the box's own line, so a mod's faction reads as the box has it
+	UnicodeString name;		///< the box's own line, so an army reads as the box has it
 	const Image *icon;
 	const Image *portrait;
 	UnicodeString strategy;
@@ -100,7 +103,6 @@ struct PickerCell
 struct PickerGroup
 {
 	AsciiString leadSide;
-	Int mod;
 	UnicodeString name;
 	DisplayString *heading;
 	ICoord2D at;
@@ -136,6 +138,10 @@ static DisplayString *s_randomMark = NULL;
 static std::vector<DisplayString *> s_featureText;
 
 static IRegion2D s_panelBox, s_tabBox[ 2 ], s_backBox, s_confirmBox, s_portraitBox, s_bannerBox, s_descriptionBox;
+static IRegion2D s_gridBox, s_barBox;
+static Int s_scroll = 0;					///< pixels of the list above the grid's top
+static Int s_scrollMax = 0;				///< 0 when the whole list fits, and then there is no bar
+static Int s_thumbGrab = -1;			///< how far down the thumb the mouse holds it, -1 when it does not
 
 //-------------------------------------------------------------------------------------------------
 static DisplayString *newText( const UnicodeString &text, GameFont *font )
@@ -261,6 +267,8 @@ static UnsignedInt listedMask( void )
 
 static Int cellAt( Int x, Int y )
 {
+	if( !isInside( s_gridBox, x, y ) )
+		return -1;
 	for( size_t each = 0; each < s_cells.size(); each++ )
 	{
 		if( isInside( s_cells[ each ].box, x, y ) )
@@ -285,6 +293,8 @@ static Int poolSide( void )
 
 static Int sideAt( Int x, Int y, Bool tickBox )
 {
+	if( !isInside( s_gridBox, x, y ) )
+		return -1;
 	for( size_t group = 0; group < s_groups.size(); group++ )
 	{
 		const PickerGroup &g = s_groups[ group ];
@@ -302,7 +312,7 @@ static Bool canConfirm( void )
 //-------------------------------------------------------------------------------------------------
 /** The armies in the box, each under the first army of its side: a general's Side begins with his
 	* side's ("AmericaLaserGeneral" under "America"), so Turkiye, on America's BaseSide but a side of its
-	* own, heads its own group, and a mod's sides stay with their mod. */
+	* own, heads its own group. */
 static void buildCells( void )
 {
 	std::vector<Int> candidates;
@@ -325,30 +335,30 @@ static void buildCells( void )
 		cell.label = NULL;
 
 		AsciiString side = "Observer";
-		Int mod = -1;
 		if( pick == PLAYERTEMPLATE_OBSERVER )
 		{
-			cell.icon = cell.portrait = TheMappedImageCollection->findImageByName( "GameinfoOBSRVR" );
+			cell.icon = TheMappedImageCollection->findImageByName( "FactionPickerObserver" );
+			if( cell.icon == NULL )
+				cell.icon = TheMappedImageCollection->findImageByName( "GameinfoOBSRVR" );
+			cell.portrait = cell.icon;
 		}
 		else
 		{
 			const PlayerTemplate *pt = ThePlayerTemplateStore->getNthPlayerTemplate( pick );
 			side = pt->getSide();
-			mod = pt->getModIndex();
 			for( size_t n = 0; n < candidates.size() && n < RANDOM_POOL_BITS; n++ )
 			{
 				if( candidates[ n ] == pick )
 					cell.poolBit = (Int)n;
 			}
-			// a retail general has the challenge screen's pictures of him; a side has its logo, unless a
-			// picture is mapped for this screen alone (Turkiye borrows America's logo everywhere else)
+			// our card for the army (FactionPickerFactionChinaNukeGeneral), a general's without one its
+			// country's; where no card is mapped, the challenge screen's pictures of a retail
+			// general, else the side's logo
+			const Image *card = ControlBarSideImage( pt, "FactionPicker" );
 			const GeneralPersona *persona = TheChallengeGenerals->getGeneralByTemplateName( pt->getName() );
-			AsciiString ownImage( PICKER_IMAGE_PREFIX );
-			ownImage.concat( pt->getName() );
-			const Image *own = TheMappedImageCollection->findImageByName( ownImage );
-			const Image *logo = own ? own : ( pt->getGeneralImage() ? pt->getGeneralImage() : pt->getSideIconImage() );
-			cell.icon = persona && persona->getBioPortraitSmall() ? persona->getBioPortraitSmall() : logo;
-			cell.portrait = persona && persona->getBioPortraitLarge() ? persona->getBioPortraitLarge() : logo;
+			const Image *logo = pt->getGeneralImage() ? pt->getGeneralImage() : pt->getSideIconImage();
+			cell.icon = card ? card : ( persona && persona->getBioPortraitSmall() ? persona->getBioPortraitSmall() : logo );
+			cell.portrait = card ? card : ( persona && persona->getBioPortraitLarge() ? persona->getBioPortraitLarge() : logo );
 			if( !pt->getTooltip().isEmpty() )
 				cell.strategy = TheGameText->fetch( pt->getTooltip() );
 			if( !pt->getGeneralFeatures().isEmpty() )
@@ -369,16 +379,15 @@ static void buildCells( void )
 		size_t group = 0;
 		for( ; group < s_groups.size(); group++ )
 		{
-			if( s_groups[ group ].mod == mod && side.startsWith( s_groups[ group ].leadSide ) )
+			if( side.startsWith( s_groups[ group ].leadSide ) )
 				break;
 		}
 		if( group == s_groups.size() )
 		{
 			PickerGroup lead;
 			lead.leadSide = side;
-			lead.mod = mod;
 			lead.name = cell.name;
-			lead.heading = newText( cell.name, UIStyle::font( UIStyle::TEXT_HEADING ) );
+			lead.heading = newText( lead.name, UIStyle::font( UIStyle::TEXT_HEADING ) );
 			lead.mask = 0;
 			s_groups.push_back( lead );
 		}
@@ -389,38 +398,34 @@ static void buildCells( void )
 	}
 }
 
-/** Places everything; the cells shrink until every group fits above the button row. */
+/** Places everything with the list at its top; what does not fit under the grid's bottom scrolls. */
 static void layout( void )
 {
 	s_panelBox = boardBox( UIStyle::ROOM_PANEL_LEFT, UIStyle::ROOM_PANEL_TOP, UIStyle::ROOM_PANEL_RIGHT, UIStyle::ROOM_PANEL_BOTTOM );
 	const Real tabWidth = ( GRID_RIGHT - LEFT - TAB_GAP ) / 2;
 	s_tabBox[ 0 ] = boardBox( LEFT, TOP, LEFT + tabWidth, TOP + TAB_HEIGHT );
 	s_tabBox[ 1 ] = boardBox( GRID_RIGHT - tabWidth, TOP, GRID_RIGHT, TOP + TAB_HEIGHT );
+	s_gridBox = boardBox( LEFT, GRID_TOP, GRID_RIGHT - BAR_WIDTH, GRID_BOTTOM );
+	s_barBox = boardBox( GRID_RIGHT - BAR_WIDTH, GRID_TOP, GRID_RIGHT, GRID_BOTTOM );
 
-	Real cell = CELL;
-	Int columns = 1;
-	for( ;; )
-	{
-		columns = max( 1, (Int)( ( GRID_RIGHT - LEFT + CELL_GAP ) / ( cell + CELL_GAP ) ) );
-		Real height = 0;
-		for( size_t group = 0; group < s_groups.size(); group++ )
-		{
-			const Int rows = ( (Int)s_groups[ group ].cells.size() + columns - 1 ) / columns;
-			height += HEADING_HEIGHT + rows * ( cell + CELL_GAP ) + GROUP_GAP;
-		}
-		if( height <= GRID_BOTTOM - GRID_TOP || cell <= 40.0f )
-			break;
-		cell -= 8.0f;
-	}
-
+	const Int columns = (Int)( ( GRID_RIGHT - LEFT + CELL_GAP ) / ( CELL + CELL_GAP ) );
 	Real y = GRID_TOP;
 	for( size_t group = 0; group < s_groups.size(); group++ )
 	{
 		PickerGroup &g = s_groups[ group ];
+		g.heading->setClipRegion( &s_gridBox );
 		g.at.x = UIStyle::boardX( LEFT );
 		g.at.y = UIStyle::boardY( y );
 		Int nameWidth, nameHeight;
-		g.heading->getSize( &nameWidth, &nameHeight );
+		// text shrinks slower than the board, and at 1024x768 the heading's letters ran under the tiles
+		const UIStyle::TextSize headingSizes[] = { UIStyle::TEXT_HEADING, UIStyle::TEXT_STRONG, UIStyle::TEXT_BODY };
+		for( size_t size = 0; size < ARRAY_SIZE( headingSizes ); size++ )
+		{
+			g.heading->setFont( UIStyle::font( headingSizes[ size ] ) );
+			g.heading->getSize( &nameWidth, &nameHeight );
+			if( nameHeight <= UIStyle::px( HEADING_HEIGHT ) )
+				break;
+		}
 		g.nameBox.lo = g.at;
 		g.nameBox.hi.x = g.at.x + nameWidth;
 		g.nameBox.hi.y = g.at.y + nameHeight;
@@ -432,21 +437,71 @@ static void layout( void )
 		y += HEADING_HEIGHT;
 		for( size_t each = 0; each < g.cells.size(); each++ )
 		{
-			const Real x = LEFT + ( each % columns ) * ( cell + CELL_GAP );
-			const Real top = y + ( each / columns ) * ( cell + CELL_GAP );
+			const Real x = LEFT + ( each % columns ) * ( CELL + CELL_GAP );
+			const Real top = y + ( each / columns ) * ( CELL + CELL_GAP );
 			PickerCell &c = s_cells[ g.cells[ each ] ];
-			c.box = boardBox( x, top, x + cell, top + cell );
+			c.box = boardBox( x, top, x + CELL, top + CELL );
+			c.box.hi.x = c.box.lo.x + UIStyle::px( CELL );	// one size however the board's corners round
+			c.box.hi.y = c.box.lo.y + UIStyle::px( CELL );
 			if( c.label )
+			{
 				c.label->setWordWrap( boxWidth( c.box ) - UIStyle::px( 8 ) );
+				c.label->setClipRegion( &s_gridBox );
+			}
 		}
-		y += ( ( (Int)g.cells.size() + columns - 1 ) / columns ) * ( cell + CELL_GAP ) + GROUP_GAP;
+		y += ( ( (Int)g.cells.size() + columns - 1 ) / columns ) * ( CELL + CELL_GAP ) + GROUP_GAP;
 	}
+	s_scroll = 0;
+	s_scrollMax = max( 0, UIStyle::boardY( y - CELL_GAP - GROUP_GAP ) - s_gridBox.hi.y );
 
 	s_portraitBox = boardBox( DETAIL_LEFT, TOP, RIGHT, PORTRAIT_BOTTOM );
 	s_bannerBox = boardBox( DETAIL_LEFT, PORTRAIT_BOTTOM + 8.0f, RIGHT, BANNER_BOTTOM );
 	s_descriptionBox = boardBox( DETAIL_LEFT, DESCRIPTION_TOP, RIGHT, GRID_BOTTOM );
 	s_backBox = boardBox( LEFT, UIStyle::ROOM_BUTTON_TOP, LEFT + UIStyle::ROOM_BUTTON_WIDTH, UIStyle::ROOM_BUTTON_BOTTOM );
 	s_confirmBox = boardBox( RIGHT - UIStyle::ROOM_WIDE_BUTTON_WIDTH, UIStyle::ROOM_BUTTON_TOP, RIGHT, UIStyle::ROOM_BUTTON_BOTTOM );
+}
+
+/** The boxes stay in screen pixels, so a scroll moves them and drawing and clicks need nothing else. */
+static void setScroll( Int scroll )
+{
+	scroll = max( 0, min( scroll, s_scrollMax ) );
+	const Int shift = s_scroll - scroll;
+	s_scroll = scroll;
+	for( size_t each = 0; each < s_cells.size(); each++ )
+	{
+		s_cells[ each ].box.lo.y += shift;
+		s_cells[ each ].box.hi.y += shift;
+	}
+	for( size_t group = 0; group < s_groups.size(); group++ )
+	{
+		PickerGroup &g = s_groups[ group ];
+		g.at.y += shift;
+		g.nameBox.lo.y += shift;
+		g.nameBox.hi.y += shift;
+		g.tickBox.lo.y += shift;
+		g.tickBox.hi.y += shift;
+	}
+}
+
+static Int thumbHeight( void )
+{
+	const Int track = boxHeight( s_barBox );
+	return max( UIStyle::px( BAR_MIN_THUMB ), track * track / ( track + s_scrollMax ) );
+}
+
+static void dragThumb( Int y )
+{
+	setScroll( FactionPickerScrollAtThumb( y - s_barBox.lo.y - s_thumbGrab, s_scrollMax, boxHeight( s_barBox ), thumbHeight() ) );
+}
+
+/// on the thumb the press takes hold of it where it is; on the track the thumb comes to the mouse
+static void pressBar( Int y )
+{
+	const Int top = s_barBox.lo.y + FactionPickerThumbTop( s_scroll, s_scrollMax, boxHeight( s_barBox ), thumbHeight() );
+	const Bool onThumb = y >= top && y < top + thumbHeight();
+	s_thumbGrab = onThumb ? y - top : thumbHeight() / 2;
+	if( !onThumb )
+		dragThumb( y );
 }
 
 /** The name, the description and the Confirm label follow the focus. */
@@ -518,6 +573,16 @@ static void refresh( void )
 	UnicodeString confirm;
 	confirm.format( TheGameText->fetch( "GUI:FactionPickConfirm" ), name.str() );
 	s_confirmText->setText( UIStyle::capitals( confirm ) );
+	// a long general's name ("USA Superweapon General") is wider than the button in the heading's letters
+	const UIStyle::TextSize sizes[] = { UIStyle::TEXT_HEADING, UIStyle::TEXT_STRONG, UIStyle::TEXT_BODY };
+	for( size_t each = 0; each < ARRAY_SIZE( sizes ); each++ )
+	{
+		s_confirmText->setFont( UIStyle::titleFont( sizes[ each ] ) );
+		Int width, height;
+		s_confirmText->getSize( &width, &height );
+		if( width <= boxWidth( s_confirmBox ) - UIStyle::px( PAD ) )
+			break;
+	}
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -535,10 +600,35 @@ static void drawCellPicture( const PickerCell &cell, const IRegion2D &box )
 		drawCentred( cell.label, box, UIStyle::INK );
 }
 
+/// the clip draws an open box's top and left line a pixel out, so only what the grid's edge cuts takes it
+static void clipIfCut( const IRegion2D &box )
+{
+	if( box.lo.y < s_gridBox.lo.y || box.hi.y > s_gridBox.hi.y )
+		TheDisplay->setClipRegion( &s_gridBox );
+	else
+		TheDisplay->enableClipping( FALSE );
+}
+
+/// the display's clip stops images and open boxes, and a filled box goes round it
+static void fillInGrid( Int x, Int y, Int width, Int height, Color color )
+{
+	const Int top = max( y, s_gridBox.lo.y );
+	const Int bottom = min( y + height, s_gridBox.hi.y );
+	if( bottom > top )
+		TheDisplay->drawFillRect( x, top, width, bottom - top, color );
+}
+
+static void panelInGrid( Int x, Int y, Int width, Int height, Color fill )
+{
+	fillInGrid( x, y, width, height, fill );
+	TheDisplay->drawOpenRect( x, y, width, height, 1.0f, UIStyle::FRAME );
+}
+
 static void drawTickBox( Int x, Int y, Int size, Bool ticked )
 {
-	UIStyle::panel( x, y, size, size, ticked ? UIStyle::ACTIVE : UIStyle::CARD );
-	if( !ticked )
+	panelInGrid( x, y, size, size, ticked ? UIStyle::ACTIVE : UIStyle::CARD );
+	// the check mark's lines go round the clip too, and half a tick says nothing
+	if( !ticked || y < s_gridBox.lo.y || y + size > s_gridBox.hi.y )
 		return;
 	const Real line = (Real)max( 2, UIStyle::px( 3 ) );
 	TheDisplay->drawLine( x + size / 5, y + size / 2, x + size * 2 / 5, y + size * 3 / 4, line, UIStyle::GROUND );
@@ -611,13 +701,15 @@ static void drawPicker( GameWindow *window, WinInstanceData *instData )
 	}
 
 	const ICoord2D mouse = TheMouse->getMouseStatus()->pos;
+	const Bool mouseInGrid = isInside( s_gridBox, mouse.x, mouse.y );
 	for( size_t group = 0; group < s_groups.size(); group++ )
 	{
 		// the name is a button (that side alone), lit under the mouse; the box is Custom Selection's
 		const PickerGroup &g = s_groups[ group ];
 		const Bool narrows = g.mask != 0;
-		const Bool hovered = narrows && isInside( g.nameBox, mouse.x, mouse.y );
+		const Bool hovered = narrows && mouseInGrid && isInside( g.nameBox, mouse.x, mouse.y );
 		g.heading->draw( g.at.x, g.at.y, hovered ? UIStyle::EDGE_LIT : UIStyle::ACTIVE, UIStyle::SHADOW );
+		clipIfCut( g.tickBox );
 		if( s_custom && narrows )
 			drawTickBox( g.tickBox.lo.x, g.tickBox.lo.y, boxWidth( g.tickBox ), FactionPickerSideTicked( s_mask, g.mask ) );
 	}
@@ -625,7 +717,11 @@ static void drawPicker( GameWindow *window, WinInstanceData *instData )
 	{
 		const PickerCell &cell = s_cells[ each ];
 		const IRegion2D &box = cell.box;
-		UIStyle::panel( box.lo.x, box.lo.y, boxWidth( box ), boxHeight( box ), UIStyle::CARD );
+		// the display's clip takes a picture wholly under the grid for a turned-over one
+		if( box.hi.y <= s_gridBox.lo.y || box.lo.y >= s_gridBox.hi.y )
+			continue;
+		clipIfCut( box );
+		panelInGrid( box.lo.x, box.lo.y, boxWidth( box ), boxHeight( box ), UIStyle::CARD );
 		drawCellPicture( cell, box );
 		const Int inset = UIStyle::px( 6 );
 
@@ -633,7 +729,7 @@ static void drawPicker( GameWindow *window, WinInstanceData *instData )
 		{
 			// out of the pool reads as greyed; an army that cannot go in a pool has no box to tick
 			if( !isTicked( cell ) )
-				TheDisplay->drawFillRect( box.lo.x, box.lo.y, boxWidth( box ), boxHeight( box ), UIStyle::withAlpha( UIStyle::GROUND, 150 ) );
+				fillInGrid( box.lo.x, box.lo.y, boxWidth( box ), boxHeight( box ), UIStyle::withAlpha( UIStyle::GROUND, 150 ) );
 			if( cell.poolBit >= 0 )
 			{
 				const Int size = UIStyle::px( SIDE_TICK );
@@ -642,8 +738,15 @@ static void drawPicker( GameWindow *window, WinInstanceData *instData )
 		}
 		if( (Int)each == s_focus )
 			UIStyle::edge( box.lo.x, box.lo.y, boxWidth( box ), boxHeight( box ) );
-		else if( isInside( box, mouse.x, mouse.y ) )
+		else if( mouseInGrid && isInside( box, mouse.x, mouse.y ) )
 			TheDisplay->drawOpenRect( box.lo.x, box.lo.y, boxWidth( box ), boxHeight( box ), 1.0f, UIStyle::EDGE_LIT );
+	}
+	TheDisplay->enableClipping( FALSE );
+	if( s_scrollMax > 0 )
+	{
+		UIStyle::panel( s_barBox.lo.x, s_barBox.lo.y, boxWidth( s_barBox ), boxHeight( s_barBox ), UIStyle::CARD );
+		const Int top = s_barBox.lo.y + FactionPickerThumbTop( s_scroll, s_scrollMax, boxHeight( s_barBox ), thumbHeight() );
+		UIStyle::button( s_barBox.lo.x, top, boxWidth( s_barBox ), thumbHeight() );
 	}
 
 	UIStyle::panel( s_portraitBox.lo.x, s_portraitBox.lo.y, boxWidth( s_portraitBox ), boxHeight( s_portraitBox ), UIStyle::CARD );
@@ -726,6 +829,10 @@ static void confirm( void )
 	if( !canConfirm() )
 		return;
 	const Int pick = s_focus >= 0 ? s_cells[ s_focus ].pick : ( s_custom ? EncodeRandomPool( s_mask & listedMask() ) : (Int)PLAYERTEMPLATE_RANDOM );
+	AsciiString pickedName;
+	if( s_focus >= 0 )
+		pickedName.translate( s_cells[ s_focus ].name );
+	DEBUG_LOG(( "FACTIONPICKER confirm pick %d \"%s\" list scrolled %d of %d\n", pick, pickedName.str(), s_scroll, s_scrollMax ));
 	GameWindow *combo = s_combo;
 	closePicker( TRUE );
 
@@ -846,8 +953,26 @@ static WindowMsgHandledType pickerInput( GameWindow *window, UnsignedInt msg, Wi
 					confirm();
 			}
 			break;
+		case GWM_WHEEL_UP:
+			setScroll( s_scroll - UIStyle::px( CELL + CELL_GAP ) );
+			break;
+		case GWM_WHEEL_DOWN:
+			setScroll( s_scroll + UIStyle::px( CELL + CELL_GAP ) );
+			break;
+		case GWM_LEFT_DOWN:
+			if( s_scrollMax > 0 && isInside( s_barBox, x, y ) )
+				pressBar( y );
+			break;
+		case GWM_LEFT_DRAG:
+			if( s_thumbGrab >= 0 )
+				dragThumb( y );
+			break;
 		case GWM_LEFT_UP:
-			releaseAt( x, y );
+			// a press that took the thumb ends here wherever the mouse went, on a tile or not
+			if( s_thumbGrab >= 0 )
+				s_thumbGrab = -1;
+			else
+				releaseAt( x, y );
 			break;
 	}
 	// nothing under the screen sees the mouse or the keys while it is up
@@ -889,6 +1014,7 @@ static void openPicker( GameWindow *combo )
 	s_custom = current < PLAYERTEMPLATE_RANDOM_POOL;
 	s_focus = -1;
 	s_lastPressCell = -1;
+	s_thumbGrab = -1;
 	for( size_t each = 0; each < s_cells.size(); each++ )
 	{
 		if( s_cells[ each ].pick == current )
@@ -904,6 +1030,8 @@ static void openPicker( GameWindow *combo )
 	s_strategyText = newText( UnicodeString::TheEmptyString, UIStyle::font( UIStyle::TEXT_STRONG ) );
 	s_randomMark = newText( UnicodeString( u"?" ), UIStyle::titleFont( UIStyle::TEXT_DISPLAY ) );
 	layout();
+	if( s_focus >= 0 )
+		setScroll( s_cells[ s_focus ].box.hi.y - s_gridBox.hi.y );	// the seat's army in view, at the foot when it has to scroll
 	s_strategyText->setWordWrap( boxWidth( s_descriptionBox ) - UIStyle::px( 2 * PAD ) );
 	refresh();
 
@@ -948,7 +1076,7 @@ void FactionPickerAttach( GameWindow *parent, const char *layoutFilename )
 		name.format( "%s:ComboBoxPlayerTemplate%d", layoutFilename, i );
 		GameWindow *combo = TheWindowManager->winGetWindowFromId( parent, NAMEKEY( name ) );
 		if( !combo )
-			continue;	// a mod's layout with fewer seats
+			continue;	// a layout with fewer seats
 		combo->winSetInputFunc( comboInput );
 		combo->winSetSystemFunc( comboSystem );
 		if( !first )
@@ -1008,4 +1136,15 @@ Bool FactionPickerSideTicked( UnsignedInt pool, UnsignedInt side )
 UnsignedInt FactionPickerToggleSide( UnsignedInt pool, UnsignedInt side )
 {
 	return FactionPickerSideTicked( pool, side ) ? pool & ~side : pool | side;
+}
+
+Int FactionPickerThumbTop( Int scroll, Int scrollMax, Int track, Int thumb )
+{
+	return scrollMax > 0 ? scroll * ( track - thumb ) / scrollMax : 0;
+}
+
+Int FactionPickerScrollAtThumb( Int thumbTop, Int scrollMax, Int track, Int thumb )
+{
+	const Int travel = track - thumb;
+	return max( 0, min( thumbTop, travel ) ) * scrollMax / travel;
 }

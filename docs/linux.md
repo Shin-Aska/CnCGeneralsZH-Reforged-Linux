@@ -30,6 +30,9 @@ user data and run without a visible window.
 
 ## Water reflections
 
+New profiles use upstream's Classic graphics and Classic water defaults. For Modern water, turn off
+**Options → Graphics → Classic graphics**, restart, then select **Modern** under **Water style**.
+
 **Options → Water → Water Movement Behavior** is enabled by default. On uses map-aware
 wave movement; off keeps the v3.5.1 movement. **Accept** saves the choice, and it takes effect
 when the next map loads. The current map keeps its movement behavior.
@@ -50,7 +53,8 @@ See the [reflection guide](water-preview.md#reflections) for details and preview
 ## Hazard clouds
 
 **Options → Graphics → Cloud style**, directly below **Water style**, selects
-**Classic** or **Volumetric**. Volumetric is the default; switching applies live and
+**Classic** or **Volumetric**. Classic is the default. To enable Volumetric clouds, turn off
+**Classic graphics** and restart first; the individual cloud-style selector then applies live and
 persists as `CloudStyle = 0` or `CloudStyle = 1` in the player's Options.ini.
 The Linux package uses the same renderer as the [isolated preview](cloud-preview.md),
 including the approved green toxin, blue beta, purple gamma and amber nuclear colors.

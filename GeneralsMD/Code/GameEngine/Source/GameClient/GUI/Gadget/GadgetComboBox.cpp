@@ -471,9 +471,9 @@ WindowMsgHandledType GadgetComboBoxSystem( GameWindow *window, UnsignedInt msg,
 					tempUString = GadgetListBoxGetTextAndColor( comboData->listBox, &color, mData2, 0 );
 									
 					GadgetTextEntrySetTextColor(comboData->editBox, color);
-					
+
 					GadgetTextEntrySetText(comboData->editBox, tempUString);
-					
+
 					TheWindowManager->winSendSystemMsg( window->winGetOwner(), 
 																		GCM_SELECTED,
 																		(WindowMsgData)window, 

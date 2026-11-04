@@ -85,7 +85,6 @@ UnicodeString LANAPIInterface::getErrorStringFromReturnType( ReturnType ret )
 		case RET_DUPLICATE_NAME:
 			return TheGameText->fetch("LAN:ErrorDuplicateName");
 		case RET_CRC_MISMATCH:
-		case RET_MOD_MISMATCH:
 			return TheGameText->fetch("LAN:ErrorCRCMismatch");
 		case RET_GAME_STARTED:
 			return TheGameText->fetch("LAN:ErrorGameStarted");
@@ -266,7 +265,11 @@ Bool LANAPI::StartAutomatedGame( AsciiString mapName, Int seed, const UnsignedIn
 			slot.setState( (SlotState)TheGlobalData->m_autoSkirmishAIState );
 			slot.setAIPersonality( TheGlobalData->autoSkirmishPersona( i ) );
 		}
-		slot.setPlayerTemplate( PLAYERTEMPLATE_RANDOM );
+		slot.setHandicap( TheGlobalData->m_autoSkirmishHandicap[ i ] );	// after setState, which clears it
+		// -side names a seat's army here too, the same words on every machine; a name nobody knows is a
+		// random draw, which then shows in the run's own log
+		const Int named = TheGlobalData->m_autoSkirmishSide[ i ].isEmpty() ? -1 : ThePlayerTemplateStore->getTemplateNumByName( TheGlobalData->m_autoSkirmishSide[ i ] );
+		slot.setPlayerTemplate( named >= 0 ? named : PLAYERTEMPLATE_RANDOM );
 		slot.setColor( -1 );			// -1 is "random" to populateRandomSideAndColor
 		slot.setStartPos( -1 );		// and to populateRandomStartPosition
 		slot.setTeamNumber( teamNumber );
@@ -605,6 +608,14 @@ void LANAPI::OnGameOptions( UnsignedInt playerIP, Int playerSlot, AsciiString op
 						DEBUG_LOG(("Rejecting invalid team %d\n", val));
 					}
 				}
+				else if (key == "Handicap")
+				{
+					if (ApplyHandicapRequest(m_currentGame, slot, val))
+					{
+						change = true;
+						shouldUnaccept = true;
+					}
+				}
 				else if (key == "NAT")
 				{
 					if ((val >= FirewallHelperClass::FIREWALL_TYPE_SIMPLE) &&
@@ -705,11 +716,6 @@ void LANAPI::OnGameJoin( ReturnType ret, LANGameInfo *theGame )
 		UnicodeString title, body;
 		title = TheGameText->fetch("LAN:JoinFailed");
 		body = getErrorStringFromReturnType(ret);
-		if (ret == RET_MOD_MISMATCH)
-		{
-			body.format(TheGameText->fetch("LAN:ErrorModMismatch").str(),
-				m_joinDeniedHostMod.isEmpty() ? TheGameText->fetch("LAN:NoMod").str() : m_joinDeniedHostMod.str());
-		}
 		MessageBoxOk(title, body, NULL);
 	}
 }

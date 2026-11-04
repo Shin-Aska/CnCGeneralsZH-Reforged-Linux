@@ -58,6 +58,7 @@
 #include "Common/ThingFactory.h"
 #include "Common/Upgrade.h"
 #include "Common/Recorder.h"
+#include "Common/Radar.h"
 
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/ExperienceTracker.h"
@@ -87,8 +88,6 @@
 #include "GameClient/GadgetStaticText.h"
 #include "GameClient/GadgetTextEntry.h"
 #include "GameClient/InGameUI.h"
-#include "GameClient/Mouse.h"
-#include "GameLogic/ExperienceTracker.h"
 #include "GameClient/WindowVideoManager.h"
 #include "GameClient/GadgetListBox.h"
 #include "GameClient/HotKey.h"
@@ -150,60 +149,6 @@ static void commandButtonTooltip(GameWindow *window,
 													UnsignedInt mouse)
 {
 	TheControlBar->showBuildTooltipLayout(window);
-}
-
-/** The portrait's tooltip for a unit on a rank ladder: its rank, and its way through the step to the
-	* next one, experience since this grade's threshold over what the step costs. */
-static void portraitRankTooltip( GameWindow *window, WinInstanceData *instData, UnsignedInt mouse )
-{
-	Drawable *draw = TheInGameUI->getFirstSelectedDrawable();
-	const Object *obj = draw ? draw->getObject() : NULL;
-	const RankLadder *ladder = obj ? TheGlobalData->getRankLadder( obj->getTemplate() ) : NULL;
-	if( ladder == NULL || !obj->getExperienceTracker()->isTrainable() )
-		return;
-
-	const Int grade = obj->getRankGrade();
-	AsciiString label;
-	label.format( "RANK:%s%d", TheVeterancySideNames[ GlobalData::veterancySideOf( obj->getTemplate() ) ],
-								ladder->insigniaIndex( grade, obj->isKindOf( KINDOF_HERO ) ) );
-	UnicodeString text = TheGameText->fetch( label );
-
-	// what the grade carries, one line a perk: RANK:Perk<kind> takes the strength as a whole percent
-	// (a radius for DETECT, a grade for AURA_DRILL, seconds for DESIGNATE, a multiple's gain for SIGHT
-	// and AURA_RADIUS)
-	for( Int perk = 0; perk < RANK_PERK_COUNT; ++perk )
-	{
-		Real value = ladder->perk( grade, (RankPerk)perk );
-		if( value <= 0.0f || ( ( perk == RANK_PERK_AURA_RADIUS || perk >= RANK_PERK_AURA_RATE_OF_FIRE ) && !obj->leadsRankAuras() ) )
-			continue;
-		if( perk == RANK_PERK_SIGHT || perk == RANK_PERK_AURA_RADIUS )
-			value -= 1.0f;
-		const Bool plain = perk == RANK_PERK_DETECT || perk == RANK_PERK_AURA_DRILL || perk == RANK_PERK_DESIGNATE;
-		label.format( "RANK:Perk%s", TheRankPerkNames[ perk ] );
-		UnicodeString line;
-		if( perk == RANK_PERK_MEND || perk == RANK_PERK_AURA_MEND )
-		{
-			// a heal of 0.5% to 1.25% a second reads to two places
-			const Int hundredths = REAL_TO_INT( value * 10000.0f + 0.5f );
-			line.format( TheGameText->fetch( label ), hundredths / 100, hundredths % 100 );
-		}
-		else
-			line.format( TheGameText->fetch( label ), REAL_TO_INT( plain ? value : value * 100.0f + 0.5f ) );
-		text.concat( (WideChar)'\n' );
-		text.concat( line );
-	}
-
-	if( grade < ladder->m_grades )
-	{
-		const Int unitValue = RankLadder::unitValue( obj->getTemplate() );
-		const Int from = ladder->threshold( unitValue, grade );
-		UnicodeString progress;
-		progress.format( TheGameText->fetch( "RANK:NextRank" ), obj->getExperienceTracker()->getCurrentExperience() - from,
-										 ladder->threshold( unitValue, grade + 1 ) - from );
-		text.concat( (WideChar)'\n' );
-		text.concat( progress );
-	}
-	TheMouse->setCursorTooltip( text );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -433,77 +378,6 @@ Bool ControlBar_commandPlaces( const Int *types, const Int *groups, const Int *p
 		}
 	}
 	return fights;
-}
-
-//-------------------------------------------------------------------------------------------------
-void ControlBar_fitCommandSlots( const Int *types, const Bool *windowed, Int count, Int *shown )
-{
-	for( Int slot = 0; slot < count; slot++ )
-		shown[ slot ] = ( windowed[ slot ] && types[ slot ] != GUI_COMMAND_NONE ) ? slot : -1;
-
-	// the shared orders first, so a mod's own button past the bar cannot take their Zero Hour slot
-	for( Int pass = 0; pass < 2; pass++ )
-	{
-		for( Int slot = 0; slot < count; slot++ )
-		{
-			if( windowed[ slot ] || types[ slot ] == GUI_COMMAND_NONE )
-				continue;
-			Int to = -1;
-			switch( types[ slot ] )
-			{
-				case GUI_COMMAND_ATTACK_MOVE:							to = 10; break;
-				case GUI_COMMAND_GUARD:
-				case GUI_COMMAND_GUARD_WITHOUT_PURSUIT:
-				case GUI_COMMAND_GUARD_FLYING_UNITS_ONLY:	to = 12; break;
-				case GUI_COMMAND_STOP:										to = 13; break;
-			}
-			if( ( to >= 0 ) != ( pass == 0 ) )
-				continue;
-			if( to < 0 || to >= count || !windowed[ to ] || shown[ to ] >= 0 )
-			{
-				to = -1;
-				for( Int each = 0; each < count && to < 0; each++ )
-					if( windowed[ each ] && shown[ each ] < 0 )
-						to = each;
-			}
-			if( to >= 0 )
-				shown[ to ] = slot;
-		}
-	}
-}
-
-//-------------------------------------------------------------------------------------------------
-Int ControlBar_forceAttackSlot( const Int *types, Int count, Bool forceFires )
-{
-	enum { SLOT = 11, ABOVE = 10 };
-	if( count <= SLOT )
-		return -1;
-	Bool fights = forceFires;
-	for( Int slot = 0; slot < count && !fights; slot++ )
-		fights = types[ slot ] == GUI_COMMAND_ATTACK_MOVE;
-	if( fights && types[ SLOT ] == GUI_COMMAND_NONE )
-		return SLOT;
-	if( forceFires && types[ ABOVE ] == GUI_COMMAND_NONE )
-		return ABOVE;
-	return -1;
-}
-
-//-------------------------------------------------------------------------------------------------
-Bool ControlBar_forceFires( const Object *obj )
-{
-	if( obj->isKindOf( KINDOF_FS_BASE_DEFENSE ) )
-		return obj->isKindOf( KINDOF_CAN_ATTACK ) || obj->isKindOf( KINDOF_SPAWNS_ARE_THE_WEAPONS )
-			|| obj->isKindOf( KINDOF_GARRISONABLE_UNTIL_DESTROYED );
-	return obj->isKindOf( KINDOF_TRANSPORT ) && obj->isKindOf( KINDOF_CAN_ATTACK );
-}
-
-//-------------------------------------------------------------------------------------------------
-Bool ControlBar_forceFires( const ThingTemplate *thing )
-{
-	if( thing->isKindOf( KINDOF_FS_BASE_DEFENSE ) )
-		return thing->isKindOf( KINDOF_CAN_ATTACK ) || thing->isKindOf( KINDOF_SPAWNS_ARE_THE_WEAPONS )
-			|| thing->isKindOf( KINDOF_GARRISONABLE_UNTIL_DESTROYED );
-	return thing->isKindOf( KINDOF_TRANSPORT ) && thing->isKindOf( KINDOF_CAN_ATTACK );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -809,206 +683,14 @@ Player *ControlBar::getWatchedPlayer( void )
 	return local;
 }
 
-/** True when a compact section gives this button a window: a real purchase the player could ever
-	* see.  A script-only button, a science a script hid and one whose root prerequisites the player's
-	* general never has would leave a hole. */
-static Bool isSciencePurchaseShown( const Player *player, const CommandButton *commandButton )
-{
-	if( commandButton == NULL || BitTest( commandButton->getOptions(), SCRIPT_ONLY ) )
-		return FALSE;
-	if( commandButton->getScienceVec().empty() )
-		return TRUE;
-	ScienceType science = commandButton->getScienceVec()[ 0 ];
-	return !player->isScienceHidden( science ) && TheScienceStore->playerHasRootPrereqsForScience( player, science );
-}
-
-/// the promotion screen's sections: rank 1, rank 3 and rank 8 (the 5 star general)
-enum { PURCHASE_SCIENCE_RANK_SECTIONS = 3 };
-
-/** Does upgrade's science name base's among its own prerequisites - Paradrop 2 over Paradrop 1? */
-static Bool isSciencePurchaseUpgradeOf( const CommandButton *upgrade, const CommandButton *base )
-{
-	if( base->getScienceVec().empty() || upgrade->getScienceVec().empty() )
-		return FALSE;
-	return TheScienceStore->isDirectPrereq( base->getScienceVec()[ 0 ], upgrade->getScienceVec()[ 0 ] );
-}
-
-/** Lays a mod faction's purchase buttons on the three rank sections of our promotion screen.  A mod's
-	* command sets were written for the mod's own screen and leave holes in ours, so the slots are not
-	* kept.  Each section is a grid of columns and rows read off its windows' positions.  A chain of
-	* upgrades - a science whose prerequisite is another science on the screen - stacks down one column,
-	* base on top, the way Zero Hour stacks Paradrop 1, 2 and 3.  A chain whose base sits in an earlier
-	* section starts in the column under that base when this section has one; the other chains take the
-	* leftmost column with room.  What is left, single skills and the part of a chain that did not fit,
-	* fills the free windows in reading order and slot order.  The windows are fixed by the layout, so a
-	* section with more buttons than windows drops the rest and the log names them. */
-static void layoutModPurchaseSciences( const Player *player, const CommandSet *const *commandSets, GameWindow **const *sectionWindows, const Int *windowCounts, const CommandButton *(*placed)[ MAX_COMMANDS_PER_SET ] )
-{
-	enum { NO_WINDOW = -1, NO_CHAIN = -1 };
-	const CommandButton *earlierButtons[ MAX_COMMANDS_PER_SET * PURCHASE_SCIENCE_RANK_SECTIONS ];
-	Int earlierColumnX[ MAX_COMMANDS_PER_SET * PURCHASE_SCIENCE_RANK_SECTIONS ];
-	Int earlierCount = 0;
-
-	for( Int section = 0; section < PURCHASE_SCIENCE_RANK_SECTIONS; section++ )
-	{
-		const CommandSet *commandSet = commandSets[ section ];
-		GameWindow **windows = sectionWindows[ section ];
-		const Int windowCount = windowCounts[ section ];
-		Int windowX[ MAX_COMMANDS_PER_SET ];
-		Int windowY[ MAX_COMMANDS_PER_SET ];
-		Int columnX[ MAX_COMMANDS_PER_SET ];
-		Int rowY[ MAX_COMMANDS_PER_SET ];
-		Int columnCount = 0;
-		Int rowCount = 0;
-		Int i;
-
-		for( i = 0; i < windowCount; i++ )
-		{
-			placed[ section ][ i ] = NULL;
-			windows[ i ]->winGetScreenPosition( &windowX[ i ], &windowY[ i ] );
-			if( std::find( columnX, columnX + columnCount, windowX[ i ] ) == columnX + columnCount )
-				columnX[ columnCount++ ] = windowX[ i ];
-			if( std::find( rowY, rowY + rowCount, windowY[ i ] ) == rowY + rowCount )
-				rowY[ rowCount++ ] = windowY[ i ];
-		}
-		std::sort( columnX, columnX + columnCount );
-		std::sort( rowY, rowY + rowCount );
-
-		// cell[column][row] is the window there, or NO_WINDOW; a filled cell turns NO_WINDOW too
-		Int cell[ MAX_COMMANDS_PER_SET ][ MAX_COMMANDS_PER_SET ];
-		for( Int column = 0; column < columnCount; column++ )
-			for( Int row = 0; row < rowCount; row++ )
-				cell[ column ][ row ] = NO_WINDOW;
-		for( i = 0; i < windowCount; i++ )
-		{
-			const Int column = std::find( columnX, columnX + columnCount, windowX[ i ] ) - columnX;
-			const Int row = std::find( rowY, rowY + rowCount, windowY[ i ] ) - rowY;
-			cell[ column ][ row ] = i;
-		}
-
-		const CommandButton *shown[ MAX_COMMANDS_PER_SET ];
-		Int shownCount = 0;
-		for( i = 0; i < MAX_COMMANDS_PER_SET; i++ )
-			if( isSciencePurchaseShown( player, commandSet->getCommandButton( i ) ) )
-				shown[ shownCount++ ] = commandSet->getCommandButton( i );
-
-		// chains of shown buttons, a base's first upgrade following it; roots first, then anything a
-		// branch or a loop left unclaimed starts a chain of its own
-		Int chainMembers[ MAX_COMMANDS_PER_SET ][ MAX_COMMANDS_PER_SET ];
-		Int chainLength[ MAX_COMMANDS_PER_SET ];
-		Int chainCount = 0;
-		Int chainOf[ MAX_COMMANDS_PER_SET ];
-		std::fill( chainOf, chainOf + shownCount, (Int)NO_CHAIN );
-		for( Int rootsOnly = 1; rootsOnly >= 0; rootsOnly-- )
-		{
-			for( Int start = 0; start < shownCount; start++ )
-			{
-				if( chainOf[ start ] != NO_CHAIN )
-					continue;
-				Bool hasBaseHere = FALSE;
-				for( Int other = 0; other < shownCount; other++ )
-					hasBaseHere |= other != start && isSciencePurchaseUpgradeOf( shown[ start ], shown[ other ] );
-				if( rootsOnly && hasBaseHere )
-					continue;
-
-				const Int chain = chainCount++;
-				chainLength[ chain ] = 0;
-				for( Int member = start; member != NO_CHAIN; )
-				{
-					chainOf[ member ] = chain;
-					chainMembers[ chain ][ chainLength[ chain ]++ ] = member;
-					Int next = NO_CHAIN;
-					for( Int upgrade = 0; upgrade < shownCount && next == NO_CHAIN; upgrade++ )
-						if( chainOf[ upgrade ] == NO_CHAIN && isSciencePurchaseUpgradeOf( shown[ upgrade ], shown[ member ] ) )
-							next = upgrade;
-					member = next;
-				}
-			}
-		}
-
-		Int leftovers[ MAX_COMMANDS_PER_SET ];
-		Int leftoverCount = 0;
-
-		auto placeButton = [&]( Int column, Int row, Int member )
-		{
-			placed[ section ][ cell[ column ][ row ] ] = shown[ member ];
-			earlierButtons[ earlierCount ] = shown[ member ];
-			earlierColumnX[ earlierCount++ ] = columnX[ column ];
-			cell[ column ][ row ] = NO_WINDOW;
-		};
-		auto freeRows = [&]( Int column )
-		{
-			Int count = 0;
-			for( Int row = 0; row < rowCount; row++ )
-				count += cell[ column ][ row ] != NO_WINDOW;
-			return count;
-		};
-		auto stackChain = [&]( Int chain, Int column )
-		{
-			Int member = 0;
-			for( Int row = 0; row < rowCount && member < chainLength[ chain ]; row++ )
-				if( cell[ column ][ row ] != NO_WINDOW )
-					placeButton( column, row, chainMembers[ chain ][ member++ ] );
-			while( member < chainLength[ chain ] )
-				leftovers[ leftoverCount++ ] = chainMembers[ chain ][ member++ ];
-		};
-
-		Bool stacked[ MAX_COMMANDS_PER_SET ] = { FALSE };
-		const Int earlierSections = earlierCount;
-		for( Int chain = 0; chain < chainCount; chain++ )
-		{
-			const CommandButton *root = shown[ chainMembers[ chain ][ 0 ] ];
-			for( Int earlier = 0; earlier < earlierSections && !stacked[ chain ]; earlier++ )
-			{
-				if( !isSciencePurchaseUpgradeOf( root, earlierButtons[ earlier ] ) )
-					continue;
-				const Int column = std::find( columnX, columnX + columnCount, earlierColumnX[ earlier ] ) - columnX;
-				if( column == columnCount )
-					continue;
-				stackChain( chain, column );
-				stacked[ chain ] = TRUE;
-			}
-		}
-		for( Int chain = 0; chain < chainCount; chain++ )
-		{
-			if( stacked[ chain ] || chainLength[ chain ] < 2 )
-				continue;
-			Int roomiest = 0;
-			for( Int column = 0; column < columnCount; column++ )
-			{
-				if( freeRows( column ) >= chainLength[ chain ] )
-				{
-					roomiest = column;
-					break;
-				}
-				if( freeRows( column ) > freeRows( roomiest ) )
-					roomiest = column;
-			}
-			stackChain( chain, roomiest );
-			stacked[ chain ] = TRUE;
-		}
-		for( Int chain = 0; chain < chainCount; chain++ )
-			if( !stacked[ chain ] )
-				leftovers[ leftoverCount++ ] = chainMembers[ chain ][ 0 ];
-
-		std::sort( leftovers, leftovers + leftoverCount );
-		Int leftover = 0;
-		for( Int row = 0; row < rowCount; row++ )
-			for( Int column = 0; column < columnCount && leftover < leftoverCount; column++ )
-				if( cell[ column ][ row ] != NO_WINDOW )
-					placeButton( column, row, leftovers[ leftover++ ] );
-		for( ; leftover < leftoverCount; leftover++ )
-			DEBUG_LOG(( "PROMOTION %s has %d windows, no room for %s\n", commandSet->getName().str(), windowCount, shown[ leftovers[ leftover ] ]->getName().str() ));
-	}
-}
-
-/** Puts one rank's placed buttons on its windows, placed[i] on windows[i].  The caller has hidden
-	* every window. */
-void ControlBar::populatePurchaseScienceRank( Player *player, const CommandButton *const *placed, GameWindow **windows, Int windowCount )
+/** Puts one rank's command set on its windows, slot i on window i.  Every promotion screen numbers its
+	* windows down the columns the same way, so a set's empty slots and its columns are the ones its
+	* author laid out.  The caller has hidden every window. */
+void ControlBar::populatePurchaseScienceRank( Player *player, const CommandSet *commandSet, GameWindow **windows, Int windowCount )
 {
 	for( Int i = 0; i < windowCount; i++ )
 	{
-		const CommandButton *commandButton = placed[ i ];
+		const CommandButton *commandButton = commandSet->getCommandButton( i );
 		GameWindow *window = windows[ i ];
 
 		if( commandButton == NULL || BitTest( commandButton->getOptions(), SCRIPT_ONLY ) )
@@ -1072,21 +754,9 @@ void ControlBar::populatePurchaseScience( Player* player )
 			commandSet8 == NULL )
 		return;
 
-	const CommandSet *sectionSets[ PURCHASE_SCIENCE_RANK_SECTIONS ] = { commandSet1, commandSet3, commandSet8 };
-	GameWindow **sectionWindows[ PURCHASE_SCIENCE_RANK_SECTIONS ] = { m_sciencePurchaseWindowsRank1, m_sciencePurchaseWindowsRank3, m_sciencePurchaseWindowsRank8 };
-	const Int windowCounts[ PURCHASE_SCIENCE_RANK_SECTIONS ] = { MAX_PURCHASE_SCIENCE_RANK_1, MAX_PURCHASE_SCIENCE_RANK_3, MAX_PURCHASE_SCIENCE_RANK_8 };
-	const CommandButton *placed[ PURCHASE_SCIENCE_RANK_SECTIONS ][ MAX_COMMANDS_PER_SET ];
-
-	// retail keeps slot i on window i, gaps and all, as Zero Hour shipped it
-	if( ControlBarIsModFaction( player->getPlayerTemplate() ) )
-		layoutModPurchaseSciences( player, sectionSets, sectionWindows, windowCounts, placed );
-	else
-		for( Int section = 0; section < PURCHASE_SCIENCE_RANK_SECTIONS; section++ )
-			for( i = 0; i < windowCounts[ section ]; i++ )
-				placed[ section ][ i ] = sectionSets[ section ]->getCommandButton( i );
-
-	for( Int section = 0; section < PURCHASE_SCIENCE_RANK_SECTIONS; section++ )
-		populatePurchaseScienceRank( player, placed[ section ], sectionWindows[ section ], windowCounts[ section ] );
+	populatePurchaseScienceRank( player, commandSet1, m_sciencePurchaseWindowsRank1, MAX_PURCHASE_SCIENCE_RANK_1 );
+	populatePurchaseScienceRank( player, commandSet3, m_sciencePurchaseWindowsRank3, MAX_PURCHASE_SCIENCE_RANK_3 );
+	populatePurchaseScienceRank( player, commandSet8, m_sciencePurchaseWindowsRank8, MAX_PURCHASE_SCIENCE_RANK_8 );
 
 	//
 	// Somebody else's screen is a read-out, not a shop: a watcher sees what that general has bought
@@ -1524,9 +1194,8 @@ void CommandSet::parseCommandButton( INI* ini, void *instance, void *store, cons
 
 	if( commandButton == NULL )
 	{
-		/* A mod's CommandButton.ini can lack a button the fork's CommandSetReforged.ini names: Contra X
-			 Beta 2 has no Early_Command_ChinaCarpetBomb, and slot 2 of Infa_ChinaCommandCenterCommandSetUpgrade
-			 threw and stopped the game at start.  The slot keeps what it held: empty for a new set and for a
+		/* A CommandButton.ini can lack a button a CommandSet names, and the unknown name threw and
+			 stopped the game at start.  The slot keeps what it held: empty for a new set and for a
 			 patched one, which parseCommandSetDefinition clears first, the parent's button for a map.ini
 			 override, which starts as a copy.  Every reader already passes over an empty slot, and the
 			 outcome depends only on the files, which are in the INI and map checksums. */
@@ -1638,6 +1307,7 @@ ControlBar::ControlBar( void )
 	for( i = 0; i < MAX_COMMANDS_PER_SET; i++ )
 	{
 		m_commandWindows[ i ] = NULL;
+		m_commandUpgradeRank[ i ] = -1;
 	// removed from multiplayer branch
 		//m_commandMarkers[ i ] = NULL;
 	}
@@ -1713,6 +1383,13 @@ ControlBar::ControlBar( void )
 	updateCommanBarBorderColors(GAME_COLOR_UNDEFINED,GAME_COLOR_UNDEFINED,GAME_COLOR_UNDEFINED,GAME_COLOR_UNDEFINED);
 	m_radarAttackGlowWindow = NULL;
 	m_remainingRadarAttackGlowFrames = 0;
+	m_trayLaidOutMask = TRAY_NOT_LAID_OUT;
+	m_trayLaidOutFor = NULL;
+	m_trayFramePlaced = FALSE;
+	m_radarFitWidth = m_radarFitHeight = 0.0f;
+	m_radarColumnShift = 0;
+	for( Int fit = 0; fit < RADAR_FIT_COUNT; fit++ )
+		m_radarFitBox[ fit ].lo.x = m_radarFitBox[ fit ].lo.y = m_radarFitBox[ fit ].hi.x = m_radarFitBox[ fit ].hi.y = 0;
 
 #if defined( _INTERNAL ) || defined( _DEBUG )
 	m_lastFrameMarkedDirty = 0;
@@ -1740,7 +1417,6 @@ ControlBar::~ControlBar( void )
 
 }  // end ~ControlBar
 void ControlBarPopupDescriptionUpdateFunc( WindowLayout *layout, void *param );
-void ControlBarPopupDescription_forgetOffset( void );
 
 //-------------------------------------------------------------------------------------------------
 // Three-panel control bar layout -----------------------------------------------------------------
@@ -1785,8 +1461,8 @@ static const Real thePanelAnchorFraction[ ControlBar::CB_PANEL_COUNT ] = { 0.0f,
 static const Real thePanelAnchorDesignX[ ControlBar::CB_PANEL_COUNT ] = { 0.0f, 400.0f, 800.0f };
 
 //-------------------------------------------------------------------------------------------------
-/** ControlBar Pro's bar (xezon and FAS, MIT; Data/Window/ControlBarPro.txt), the bar of every side,
-	* a mod faction's too (ControlBarIsModFaction).  It was painted at 1920x1080 and goes on screen in
+/** ControlBar Pro's bar (xezon and FAS, MIT; Data/Window/ControlBarPro.txt), the bar of every side.
+	* It was painted at 1920x1080 and goes on screen in
 	* three pieces: the radar pinned bottom left, the command grid bottom centre and the selection with the general's buttons
 	* bottom right.  Each is drawn at the screen's height alone, 1080 lines to one, so it keeps the
 	* painting's shape and never stretches across the width, and from 4:3 to 32:9 the world shows
@@ -2476,11 +2152,9 @@ void ControlBar_logPlacement( const char *tag, Int frame )
 		markerWin->winGetScreenPosition( &liveX, &liveY );
 
 	/* The other half of the complaint was tooltips off the screen, so put a real one up - the same
-		 call hovering a build button makes - and write down the rectangle it landed in.  This is what
-		 cleared the build popup: it is placed against BackgroundMarker's *live* screen position, and
-		 the drift never moves that window, so with the bar's children two hundred pixels high the
-		 popup was measured in exactly the same place as with them home.  Kept because it is the only
-		 thing that says so. */
+		 call hovering a build button makes - and write down the rectangle it landed in.  The popup
+		 stands on the radar's frame, so it goes wherever the drift takes the radar.  Kept because it
+		 is the only thing that says where it landed. */
 	Int tipX = -1, tipY = -1, tipW = 0, tipH = 0;
 	GameWindow *master = TheControlBar->getMasterParent();
 	GameWindow *button = master ? controlBarFirstCommandButton( master ) : NULL;
@@ -2579,7 +2253,187 @@ void ControlBar::layoutPanels( void )
 		placeInPanel( child, panelForWindow( shortWindowName( child ), designCenterX ),
 									barOrigin.x, barOrigin.y, 0, parentTop );	}
 
+	fitRadarToMap( TRUE );
+
 }  // end layoutPanels
+
+/// every place layoutPanels remembers for a window and everything under it, moved across by dx
+static void shiftPlaces( GameWindow *window, Int dx )
+{
+	ControlBarPanelPlacementMap::iterator place = theControlBarPlacement.find( window );
+	if( place != theControlBarPlacement.end() )
+		place->second.placedX += dx;
+	for( GameWindow *child = window->winGetChild(); child; child = child->winGetNext() )
+		shiftPlaces( child, dx );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A window and everything under it moved across by dx, with their remembered places, so the next
+	* layout reads them as where it left them and starts from their authored rectangles again.
+	* placeWindowAt keeps the children where they stood; this takes them along. */
+//-------------------------------------------------------------------------------------------------
+static void shiftWindowTree( GameWindow *window, Int dx )
+{
+	if( dx == 0 )
+		return;
+	Int x = 0, y = 0;
+	window->winGetPosition( &x, &y );
+	window->winSetPosition( x + dx, y );
+	shiftPlaces( window, dx );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** layoutPanels stands the radar in its square box.  A scheme with a radar frame then gives the
+	* window the map's own shape at a fixed height, pinned to the box's bottom left where the bar
+	* meets the corner of the screen: Radar::findDrawPositions then finds nothing to letterbox and a
+	* click maps to the world through the same arithmetic as before.  The blocker becomes the frame
+	* round it, which ControlBarSchemeManager::drawPainting draws, and the under-attack lamp at the
+	* radar's top right goes where that corner went.
+	*
+	* 'fromLayout' is layoutPanels having just put the three windows back where the square box has
+	* them, which is remembered against the bar's frame.  A new map without a new layout (update)
+	* fits from what was remembered, so it never has to lay the bar out again under a slide or a
+	* minimised stage. */
+//-------------------------------------------------------------------------------------------------
+void ControlBar::fitRadarToMap( Bool fromLayout )
+{
+	static NameKeyType radarID = NAMEKEY( "ControlBar.wnd:LeftHUD" );
+	static NameKeyType blockID = NAMEKEY( "ControlBar.wnd:ControlBarProBlockInputRadar" );
+	static NameKeyType listID = NAMEKEY( "ControlBar.wnd:ObserverPlayerListWindow" );
+	static NameKeyType infoID = NAMEKEY( "ControlBar.wnd:ObserverPlayerInfoWindow" );
+	static NameKeyType optionsID = NAMEKEY( "ControlBar.wnd:ButtonOptions" );
+	static NameKeyType chatID = NAMEKEY( "ControlBar.wnd:PopupCommunicator" );
+	GameWindow *const windows[ RADAR_FIT_COUNT ] =
+	{
+		TheWindowManager->winGetWindowFromId( NULL, radarID ),
+		TheWindowManager->winGetWindowFromId( NULL, blockID ),
+		m_radarAttackGlowWindow,
+		TheWindowManager->winGetWindowFromId( NULL, listID ),
+		TheWindowManager->winGetWindowFromId( NULL, infoID ),
+		TheWindowManager->winGetWindowFromId( NULL, optionsID ),
+		TheWindowManager->winGetWindowFromId( NULL, chatID ),
+	};
+	GameWindow *parent = m_contextParent[ CP_MASTER ];
+	if( parent == NULL || windows[ RADAR_FIT_RADAR ] == NULL )
+		return;
+	ICoord2D origin;
+	parent->winGetScreenPosition( &origin.x, &origin.y );
+
+	if( fromLayout )
+	{
+		// the layout has just put the column back where the square map has it
+		m_radarColumnShift = 0;
+		for( Int i = 0; i < RADAR_FIT_COUNT; i++ )
+		{
+			if( windows[ i ] == NULL )
+				continue;
+			IRegion2D &r = m_radarFitBox[ i ];
+			windows[ i ]->winGetScreenPosition( &r.lo.x, &r.lo.y );
+			windows[ i ]->winGetSize( &r.hi.x, &r.hi.y );
+			r.hi.x += r.lo.x - origin.x;
+			r.hi.y += r.lo.y - origin.y;
+			r.lo.x -= origin.x;
+			r.lo.y -= origin.y;
+		}
+	}
+
+	// ControlBar::init lays the bar out before GameEngine::init makes the radar; update() fits it then
+	if( TheRadar == NULL )
+		return;
+	const Region3D *extent = TheRadar->getMapExtent();
+	m_radarFitWidth = extent->width();
+	m_radarFitHeight = extent->height();
+
+	// between maps there is no extent; a scheme without a frame keeps the square well
+	const Image *const *frame = m_controlBarSchemeManager ? m_controlBarSchemeManager->getRadarFrame() : NULL;
+	if( frame == NULL || m_radarFitWidth <= 0.0f || m_radarFitHeight <= 0.0f )
+		return;
+
+	IRegion2D box[ RADAR_FIT_COUNT ];
+	for( Int i = 0; i < RADAR_FIT_COUNT; i++ )
+	{
+		box[ i ] = m_radarFitBox[ i ];
+		box[ i ].lo.x += origin.x;
+		box[ i ].hi.x += origin.x;
+		box[ i ].lo.y += origin.y;
+		box[ i ].hi.y += origin.y;
+	}
+
+	//
+	// The radar's height never changes with the map: the frame stands on the scheme's radar block
+	// (BlockRadar, or ControlBar.wnd's blocker where the scheme names none, the observer's 740 that
+	// its column starts at), and never above the square.  The map's shape only sets the width, which
+	// grows right from the square's left edge.  It stops where what rides on its right meets the next
+	// piece of the bar: a side's frame at the command plate's blocker, the observer's player panel at
+	// the selection's.  A map wider than that room is letterboxed by Radar::findDrawPositions inside
+	// the frame instead.
+	//
+	// W3DLeftHUDDraw paints the radar a pixel inside the window, so it is the inside that takes the
+	// map's shape; rounded, so Radar::findDrawPositions finds under a pixel to letterbox and draws none
+	//
+	enum { RADAR_BEZEL = 1 };
+	static NameKeyType productionID = NAMEKEY( "ControlBar.wnd:ControlBarProBlockInputProduction" );
+	static NameKeyType upgradesID = NAMEKEY( "ControlBar.wnd:ControlBarProBlockInputUpgrades" );
+	const Bool observer = m_controlBarSchemeManager->getCurrentSide().compareNoCase( "Observer" ) == 0;
+	const IRegion2D &square = box[ RADAR_FIT_RADAR ];
+	IRegion2D squareOuter;
+	ControlBarSchemeManager::radarFrameRect( frame, square, &squareOuter );
+	IRegion2D fit;
+	fit.lo.x = square.lo.x;
+	fit.lo.y = MAX( square.lo.y, box[ RADAR_FIT_BLOCK ].lo.y + square.lo.y - squareOuter.lo.y );
+	fit.hi.y = square.hi.y;
+	const Int insideHeight = fit.hi.y - fit.lo.y - 2 * RADAR_BEZEL;
+
+	Int room = 0;
+	GameWindow *next = TheWindowManager->winGetWindowFromId( NULL, observer ? upgradesID : productionID );
+	if( next != NULL && ( !observer || windows[ RADAR_FIT_INFO ] != NULL ) )
+	{
+		ICoord2D at;
+		next->winGetScreenPosition( &at.x, &at.y );
+		room = MAX( 0, at.x - ( observer ? box[ RADAR_FIT_INFO ].hi.x : squareOuter.hi.x ) );
+	}
+	//
+	// A wide map also stops at 4:3 of the inside height, room or not: a 2:1 map stretched the radar
+	// across half the bar and pushed everything riding on its right with it. Past that the map is
+	// letterboxed with black bands top and bottom, as a map wider than the room already was
+	//
+	static const Real RADAR_MAX_ASPECT = 4.0f / 3.0f;
+	const Int insideWidth = MIN( MIN( REAL_TO_INT( insideHeight * m_radarFitWidth / m_radarFitHeight + 0.5f ),
+		REAL_TO_INT( insideHeight * RADAR_MAX_ASPECT + 0.5f ) ),
+		square.hi.x - square.lo.x - 2 * RADAR_BEZEL + room );
+	fit.hi.x = square.lo.x + insideWidth + 2 * RADAR_BEZEL;
+	placeWindowAt( windows[ RADAR_FIT_RADAR ], fit );
+
+	IRegion2D outer;
+	ControlBarSchemeManager::radarFrameRect( frame, fit, &outer );
+	placeWindowAt( windows[ RADAR_FIT_BLOCK ], outer );
+
+	IRegion2D lamp = box[ RADAR_FIT_LAMP ];
+	const Int dx = fit.hi.x - square.hi.x, dy = fit.lo.y - square.lo.y;
+	lamp.lo.x += dx;
+	lamp.hi.x += dx;
+	lamp.lo.y += dy;
+	lamp.hi.y += dy;
+	placeWindowAt( windows[ RADAR_FIT_LAMP ], lamp );
+
+	//
+	// The observer's column stands against the frame's right edge, so a tall map's narrower frame
+	// takes the column, its plate (drawPainting) and everything on it left with it, and a wide map's
+	// wider one right.  The frame's top is the column's, so it only ever moves across.  A side's
+	// Options and Chat stand in the middle plate and stay.
+	//
+	if( !observer )
+		return;
+	m_radarColumnShift = outer.hi.x - squareOuter.hi.x;
+	for( Int i = RADAR_FIT_COLUMN_FIRST; i < RADAR_FIT_COUNT; i++ )
+	{
+		if( windows[ i ] == NULL )
+			continue;
+		ICoord2D at;
+		windows[ i ]->winGetScreenPosition( &at.x, &at.y );
+		shiftWindowTree( windows[ i ], box[ i ].lo.x + m_radarColumnShift - at.x );
+	}
+}
 
 //-------------------------------------------------------------------------------------------------
 /** Initialzie the control bar, this is our interface to the context sinsitive GUI */
@@ -2695,7 +2549,7 @@ void ControlBar::initWindows( void )
 
 		//
 		// the control bar has several windows that make up our context sensitive interface, we
-		// want those parent windows so that we can easily hide and show them to make the 
+		// want those parent windows so that we can easily hide and show them to make the
 		// interface context sensitive
 		//
 		NameKeyType id;
@@ -2786,7 +2640,7 @@ void ControlBar::initWindows( void )
 //			// set the size and position to make sure their in the same place as the buttons.
 //			m_commandMarkers[i]->winSetPosition(commandPos.x -2, commandPos.y - 2);
 //			m_commandMarkers[i]->winSetSize(commandSize.x + 2, commandSize.y + 2);
-			
+
 
 
 		}  // end for i
@@ -2827,7 +2681,6 @@ void ControlBar::initWindows( void )
 		
 		id = TheNameKeyGenerator->nameToKey( "ControlBar.wnd:CameoWindow" );
 		m_rightHUDCameoWindow = TheWindowManager->winGetWindowFromId( NULL, id );
-		m_rightHUDCameoWindow->winSetTooltipFunc( portraitRankTooltip );
 		for( i = 0; i < MAX_RIGHT_HUD_UPGRADE_CAMEOS; i++ )
 		{
 			windowName.format( "ControlBar.wnd:UnitUpgrade%d", i+1 );
@@ -2863,6 +2716,23 @@ void ControlBar::initWindows( void )
 		{
 			setControlCommand(win, findCommandButton("NonCommand_IdleWorker") );
 			win->winSetTooltipFunc(commandButtonTooltip);
+		}
+		// retail's ControlBar.wnd has none of these, and retail's CommandButton.ini none of the buttons
+		static const char *const idleButtons[][ 2 ] =
+		{
+			{ "ControlBar.wnd:ButtonIdleInfantry", "NonCommand_IdleInfantry" },
+			{ "ControlBar.wnd:ButtonIdleVehicle", "NonCommand_IdleVehicle" },
+			{ "ControlBar.wnd:ButtonIdleAircraft", "NonCommand_IdleAircraft" },
+		};
+		for( Int idle = 0; idle < 3; idle++ )
+		{
+			win = TheWindowManager->winGetWindowFromId( NULL, TheNameKeyGenerator->nameToKey( idleButtons[ idle ][ 0 ] ) );
+			const CommandButton *idleCommand = findCommandButton( idleButtons[ idle ][ 1 ] );
+			if( win && idleCommand )
+			{
+				setControlCommand( win, idleCommand );
+				win->winSetTooltipFunc( commandButtonTooltip );
+			}
 		}
 		win = TheWindowManager->winGetWindowFromId(NULL,TheNameKeyGenerator->nameToKey("ControlBar.wnd:ButtonPlaceBeacon"));
 		if( win )
@@ -2917,7 +2787,6 @@ void ControlBar::initWindows( void )
 		if(!m_animateWindowManagerForGenShortcuts)
 			m_animateWindowManagerForGenShortcuts = NEW AnimateWindowManager;
 		m_buildToolTipLayout = TheWindowManager->winCreateLayout( "ControlBarPopupDescription.wnd" );
-		ControlBarPopupDescription_forgetOffset();
 		if(m_buildToolTipLayout)
 		{
 			m_buildToolTipLayout->hide(TRUE);
@@ -3054,6 +2923,11 @@ void ControlBar::update( void )
 			clearSpecialPowerShortcutRow();
 	}
 
+	// the scheme lays the bar out before the map is loaded, so the radar takes the map's shape here
+	const Region3D *radarExtent = TheRadar->getMapExtent();
+	if( radarExtent->width() != m_radarFitWidth || radarExtent->height() != m_radarFitHeight )
+		fitRadarToMap( FALSE );
+
 	if(m_controlBarSchemeManager)
 		m_controlBarSchemeManager->update();
 
@@ -3103,6 +2977,7 @@ void ControlBar::update( void )
 	// walks every shortcut button and asks the player for its most ready special power object
 	if( logicTick )
 		updateSpecialPowerShortcut();
+	rearrangeSpecialPowerShortcutGrid();
 	// if we're an observer, don't do the complete update
 	if( m_isObserverCommandBar)
 	{
@@ -4457,28 +4332,44 @@ void ControlBar::setControlCommand( GameWindow *button, const CommandButton *com
 	// A builder standing in for an empty selection lends the keys its buildings and nothing else.
 	// Nobody selected it, so its orders keep no letter: H with nothing selected is the command map's
 	// (view the command center), not the GLA worker's switch to fake buildings, and S stops nothing.
-	Bool standInOrder = FALSE;
-	if( m_standInBuilderID != INVALID_DRAWABLE_ID && m_currentSelectedDrawable
-			&& m_currentSelectedDrawable->getID() == m_standInBuilderID
-			&& commandButton->getCommandType() != GUI_COMMAND_DOZER_CONSTRUCT )
-		for( Int slot = 0; slot < MAX_COMMANDS_PER_SET; slot++ )
-			standInOrder = standInOrder || m_commandWindows[ slot ] == button;
+	// Its buildings give up a letter the command map uses bare too (issue 128): with the grid on they
+	// sit on Q and W, and with nothing selected those still select everything and every aircraft.
+	// the command bar window slot the button sits in, -1 off the bar
+	Int barSlot = -1;
+	for( Int slot = 0; slot < MAX_COMMANDS_PER_SET; slot++ )
+		if( m_commandWindows[ slot ] == button )
+			barSlot = slot;
+	const Bool standIn = barSlot >= 0 && m_standInBuilderID != INVALID_DRAWABLE_ID && m_currentSelectedDrawable
+		&& m_currentSelectedDrawable->getID() == m_standInBuilderID;
+	const Bool standInOrder = standIn && commandButton->getCommandType() != GUI_COMMAND_DOZER_CONSTRUCT;
 
 	// the key is the one the player gave the button on the launcher's Hotkeys page, or else the
 	// game's own, the letter after the '&' in the button's label - the English label's in every
 	// language, so a Turkish or German player presses what an English one does - and the button
-	// wears it in its top left corner.
+	// wears it in its top left corner.  With the command bar grid on, a bar button's key is its
+	// window slot's letter unless the player gave it one.
 	if( TheHotKeyManager )
 	{
-		const WideChar letter = standInOrder ? 0 : HotKeyManager::playerButtonKey( commandButton->getName(),
+		WideChar letter = standInOrder ? 0 : HotKeyManager::playerButtonKey( commandButton->getName(),
 			TheGameText ? TheGameText->fetchEnglishHotKey( commandButton->getTextLabel() ) : 0,
-			commandButton->getCommandType() );
-		if( letter != 0 )
+			commandButton->getCommandType(), barSlot, barSlot >= 0 ? m_commandUpgradeRank[ barSlot ] : -1 );
+		if( standIn && letter != 0 && HotKeyManager::commandMapHolds( HotKeyManager::nameOf( letter ) ) )
+			letter = 0;
+		// the badge shows a letter only while this window holds the key: one that lost it to a
+		// stronger or earlier button shows none, and one that takes it wipes the badge it took it from
+		GameWindow *displaced = NULL;
+		const AsciiString key = letter != 0 ? HotKeyManager::nameOf( letter ) : AsciiString::TheEmptyString;
+		if( letter != 0 && TheHotKeyManager->addHotKey( button, key, barSlot, &displaced ) )
 		{
-			TheHotKeyManager->addHotKey( button, HotKeyManager::nameOf( letter ) );
 			const WideChar text[ 2 ] = { letter, 0 };
 			GadgetButtonSetText( button, UnicodeString( text ) );
 			button->winSetStatus( WIN_STATUS_SHORTCUT_BUTTON );
+			const UnicodeString shown = displaced ? displaced->winGetText() : UnicodeString::TheEmptyString;
+			if( shown.getLength() == 1 && HotKeyManager::nameOf( shown.getCharAt( 0 ) ) == key )
+			{
+				GadgetButtonSetText( displaced, UnicodeString( u"" ) );
+				displaced->winClearStatus( WIN_STATUS_SHORTCUT_BUTTON );
+			}
 		}
 		else
 		{
@@ -4761,15 +4652,30 @@ void ControlBar::showRallyPoint( const Coord3D *loc )
 /** Show a rally point marker at the world location specified.  If no location is specified
 	* any marker that we might have visible is hidden */
 // ------------------------------------------------------------------------------------------------
+void ControlBar::showIdleButtons( Bool show )
+{
+	static const NameKeyType ids[ 4 ] =
+	{
+		NAMEKEY( "ControlBar.wnd:ButtonIdleWorker" ),
+		NAMEKEY( "ControlBar.wnd:ButtonIdleInfantry" ),
+		NAMEKEY( "ControlBar.wnd:ButtonIdleVehicle" ),
+		NAMEKEY( "ControlBar.wnd:ButtonIdleAircraft" ),
+	};
+	for( Int i = 0; i < 4; i++ )
+	{
+		GameWindow *win = TheWindowManager->winGetWindowFromId( NULL, ids[ i ] );
+		if( win )
+			win->winHide( !show );
+	}
+}
+
 void ControlBar::setControlBarSchemeByPlayer(Player *p)
 {
 	LOGIC_CENSUS( CENSUS_CONTROLBAR );
 	if(m_controlBarSchemeManager)
 		m_controlBarSchemeManager->setControlBarSchemeByPlayer(p);
 
-	static NameKeyType buttonIdleWorkerID = NAMEKEY("ControlBar.wnd:ButtonIdleWorker");
 	static NameKeyType buttonGeneralID = NAMEKEY("ControlBar.wnd:ButtonGeneral");
-	GameWindow *buttonIdleWorker = TheWindowManager->winGetWindowFromId( NULL, buttonIdleWorkerID );
 	GameWindow *buttonGeneral = TheWindowManager->winGetWindowFromId( NULL, buttonGeneralID );
 
 	if( !p->isPlayerActive() )
@@ -4778,8 +4684,7 @@ void ControlBar::setControlBarSchemeByPlayer(Player *p)
 		switchToContext( CB_CONTEXT_OBSERVER_LIST, NULL );
 		DEBUG_LOG(("We're loading the Observer Command Bar\n"));
 
-		if (buttonIdleWorker)
-			buttonIdleWorker->winHide(TRUE);
+		showIdleButtons( FALSE );
 		if (buttonGeneral)
 			buttonGeneral->winEnable(FALSE);
 	}
@@ -4791,8 +4696,7 @@ void ControlBar::setControlBarSchemeByPlayer(Player *p)
 		// the stand-in builder's command set has to be evaluated again
 		markUIDirty();
 
-		if (buttonIdleWorker)
-			buttonIdleWorker->winHide(FALSE);
+		showIdleButtons( TRUE );
 		if (buttonGeneral)
 		{
 			buttonGeneral->winHide(FALSE);
@@ -4820,9 +4724,7 @@ void ControlBar::setControlBarSchemeByPlayerTemplate( const PlayerTemplate *pt)
 	if(m_controlBarSchemeManager)
 		m_controlBarSchemeManager->setControlBarSchemeByPlayerTemplate(pt);
 
-	static NameKeyType buttonIdleWorkerID = NAMEKEY("ControlBar.wnd:ButtonIdleWorker");
 	static NameKeyType buttonGeneralID = NAMEKEY("ControlBar.wnd:ButtonGeneral");
-	GameWindow *buttonIdleWorker = TheWindowManager->winGetWindowFromId( NULL, buttonIdleWorkerID );
 	GameWindow *buttonGeneral = TheWindowManager->winGetWindowFromId( NULL, buttonGeneralID );
 
 	if(pt == ThePlayerTemplateStore->findPlayerTemplate(TheNameKeyGenerator->nameToKey("FactionObserver")))
@@ -4831,8 +4733,7 @@ void ControlBar::setControlBarSchemeByPlayerTemplate( const PlayerTemplate *pt)
 		switchToContext( CB_CONTEXT_OBSERVER_LIST, NULL );
 		DEBUG_LOG(("We're loading the Observer Command Bar\n"));
 
-		if (buttonIdleWorker)
-			buttonIdleWorker->winHide(TRUE);
+		showIdleButtons( FALSE );
 		if (buttonGeneral)
 			buttonGeneral->winEnable(FALSE);
 	}
@@ -4844,8 +4745,7 @@ void ControlBar::setControlBarSchemeByPlayerTemplate( const PlayerTemplate *pt)
 		// the stand-in builder's command set has to be evaluated again
 		markUIDirty();
 
-		if (buttonIdleWorker)
-			buttonIdleWorker->winHide(FALSE);
+		showIdleButtons( TRUE );
 		if (buttonGeneral)
 		{
 			buttonGeneral->winHide(FALSE);
@@ -5472,9 +5372,7 @@ void ControlBar::initSpecialPowershortcutBar( Player *player)
 		return;
 	m_currentlyUsedSpecialPowersButtons = pt->getSpecialPowerShortcutButtonCount();
 	AsciiString layoutName, tempName, windowName, parentName;
-	// a mod faction's tray is our American one beside our American bar, whatever .wnd the mod names;
-	// its buttons are still the mod's SpecialPowerShortcutCommandSet
-	layoutName = ControlBarIsModFaction( pt ) ? AsciiString( "GenPowersShortcutBarUS.wnd" ) : pt->getSpecialPowerShortcutWinName();
+	layoutName = pt->getSpecialPowerShortcutWinName();
 	m_specialPowerLayout = TheWindowManager->winCreateLayout(layoutName);
 	m_specialPowerLayout->hide(TRUE);
 
@@ -5491,6 +5389,10 @@ void ControlBar::initSpecialPowershortcutBar( Player *player)
 	// where it was authored and where the bar's right hand panel now sits.
 	//
 	ControlBarLayoutUniform( m_specialPowerShortcutParent, 1.0f, 1.0f );
+
+	// a new layout: the stepped tray's frame is placed by the first arrangement under a scheme with a tray
+	m_trayLaidOutMask = TRAY_NOT_LAID_OUT;
+	m_trayFramePlaced = FALSE;
 
 	tempName = layoutName;
 	tempName.concat(":ButtonCommand%d");
@@ -5530,15 +5432,184 @@ void ControlBar::initSpecialPowershortcutBar( Player *player)
 }
 
 //-------------------------------------------------------------------------------------------------
-/** The shipped column, stretched with the bar, on the right edge of the screen and climbing from
-	* the top of the bar as 1.04's did.  Its frame runs most of the screen's height and took every
-	* click over the battlefield and the promotion screen beside the powers; the frame takes none
-	* now, its slots and buttons still do. */
+/** One slot's plate, from the scheme's PowerTrayImage pieces: the cell under the power and the
+	* edges, corners and step on whichever of its sides the tray's outline runs (TraySlot).  A slot
+	* draws only inside its own window, so the slots together are the outline and nothing overlaps. */
+//-------------------------------------------------------------------------------------------------
+static void drawPowerTraySlot( GameWindow *window, WinInstanceData *instData )
+{
+	const ControlBar::TraySlot *slot = (const ControlBar::TraySlot *)window->winGetUserData();
+	const Image *const *tray = TheControlBar->getControlBarSchemeManager()->getPowerTray();
+	if( slot == NULL || tray == NULL )
+		return;
+
+	Int x, y;
+	window->winGetScreenPosition( &x, &y );
+	const Int x0 = x + slot->cell.lo.x, y0 = y + slot->cell.lo.y;
+	const Int x1 = x + slot->cell.hi.x, y1 = y + slot->cell.hi.y;
+	const Int l = slot->edgeLeft, t = slot->edgeTop, b = slot->edgeBottom;
+	struct Piece { Int image, lx, ly, hx, hy; Bool wanted; };
+	const Piece pieces[] =
+	{
+		{ ControlBarScheme::TRAY_CELL, x0, y0, x1, y1, TRUE },
+		{ ControlBarScheme::TRAY_EDGE_TOP, x0, y0 - t, x1 - slot->stepRight, y0, t > 0 },
+		{ ControlBarScheme::TRAY_EDGE_LEFT, x0 - l, y0, x0, y1 - slot->stepBelow, l > 0 },
+		{ ControlBarScheme::TRAY_STEP, x0 - l, y1 - slot->stepBelow, x0, y1, slot->stepBelow > 0 },
+		{ ControlBarScheme::TRAY_CORNER_TL, x0 - l, y0 - t, x0, y0, l > 0 && t > 0 },
+		{ ControlBarScheme::TRAY_EDGE_BOTTOM, x0, y1, x1, y1 + b, b > 0 },
+		{ ControlBarScheme::TRAY_CORNER_BL, x0 - l, y1, x0, y1 + b, l > 0 && b > 0 },
+	};
+	for( Int i = 0; i < (Int)( sizeof( pieces ) / sizeof( pieces[ 0 ] ) ); i++ )
+	{
+		// a piece the art leaves out leaves the battlefield showing there
+		const Piece &p = pieces[ i ];
+		if( p.wanted && tray[ p.image ] )
+			TheDisplay->drawImage( tray[ p.image ], p.lx, p.ly, p.hx, p.hy );
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** With a scheme that names PowerTrayImage, the powers stand SPECIAL_POWER_SHORTCUT_COLS to a row
+	* in the scheme's cells, hard against the right edge of the screen, the first row on the general's
+	* tab and the rest climbing from it.  Slot i is row i / COLS and place i % COLS counted in from the
+	* edge, the order the two-key chords already read, so a row that is not full is short on the
+	* inside and the tray steps there.  Each slot window is its cell plus the edges the outline runs
+	* along it, which is what keeps a click on the plate off the world and lets one through beside it.
+	* A slot hidden mid-row (COMMAND_HIDDEN) gives its place to the next one shown.  The first
+	* arrangement under a scheme with a tray stands the frame at the tallest tray's size, before
+	* anything slides it in, and it stays there, so the slide carries the slots and a new layout never
+	* fights it.
+	*
+	* A scheme without the pieces keeps the shipped column, stretched with the bar on the
+	* right edge and climbing from the top of the bar as 1.04's did.  Either way the frame takes no
+	* click: it runs well past the powers, and once took every click over the battlefield and the
+	* promotion screen beside them. */
 //-------------------------------------------------------------------------------------------------
 void ControlBar::arrangeSpecialPowerShortcutGrid( void )
 {
-	if( m_specialPowerShortcutParent )
-		m_specialPowerShortcutParent->winSetStatus( WIN_STATUS_NO_INPUT );
+	if( m_specialPowerShortcutParent == NULL )
+		return;
+	m_specialPowerShortcutParent->winSetStatus( WIN_STATUS_NO_INPUT );
+
+	const Image *const *tray = m_controlBarSchemeManager->getPowerTray();
+	m_trayLaidOutMask = visibleSpecialPowerShortcutMask();
+	m_trayLaidOutFor = tray;
+	if( tray == NULL )
+		return;
+
+	ICoord2D origin, cell;
+	Int left, top, foot, bottom;
+	powerTrayMetrics( tray, &origin, &cell, &left, &top, &foot, &bottom );
+	if( !m_trayFramePlaced )
+	{
+		m_specialPowerShortcutParent->winSetPosition( origin.x, origin.y );
+		m_specialPowerShortcutParent->winSetSize( TheDisplay->getWidth() - origin.x, bottom - origin.y );
+		m_trayFramePlaced = TRUE;
+	}
+
+	Int shown[ MAX_SPECIAL_POWER_SHORTCUTS ];
+	Int count = 0;
+	for( Int slotIndex = 0; slotIndex < MAX_SPECIAL_POWER_SHORTCUTS; slotIndex++ )
+	{
+		if( m_trayLaidOutMask & ( 1u << slotIndex ) )
+			shown[ count++ ] = slotIndex;
+	}
+
+	const Int cols = SPECIAL_POWER_SHORTCUT_COLS;
+	const Int rows = ( count + cols - 1 ) / cols;
+	Int rowLength[ MAX_SPECIAL_POWER_SHORTCUTS / SPECIAL_POWER_SHORTCUT_COLS + 2 ];
+	for( Int r = 0; r <= rows; r++ )
+		rowLength[ r ] = r < rows ? MIN( cols, count - r * cols ) : 0;
+
+	const Int right = TheDisplay->getWidth();
+	for( Int i = 0; i < count; i++ )
+	{
+		GameWindow *slotWin = m_specialPowerShortcutButtonParents[ shown[ i ] ];
+		GameWindow *button = m_specialPowerShortcutButtons[ shown[ i ] ];
+		const Int row = i / cols, place = i % cols;
+		const Bool covered = place < rowLength[ row + 1 ];
+		const Bool innermost = place == rowLength[ row ] - 1;
+
+		TraySlot &slot = m_traySlot[ i ];
+		slot.edgeLeft = innermost ? left : 0;
+		slot.edgeTop = covered ? 0 : top;
+		slot.edgeBottom = row == 0 ? foot : 0;
+		// the short row above ends over this cell's outer neighbour: the step closes the corner there
+		slot.stepRight = !covered && place > 0 && place - 1 < rowLength[ row + 1 ] ? left : 0;
+		// and this, the short row's innermost cell, stands on a longer row
+		slot.stepBelow = innermost && row > 0 && place + 1 < rowLength[ row - 1 ] ? top : 0;
+
+		IRegion2D screen;
+		screen.hi.x = right - place * cell.x;
+		screen.lo.x = screen.hi.x - cell.x - slot.edgeLeft;
+		screen.hi.y = bottom - foot - row * cell.y + slot.edgeBottom;
+		screen.lo.y = screen.hi.y - slot.edgeBottom - cell.y - slot.edgeTop;
+		slot.cell.lo.x = slot.edgeLeft;
+		slot.cell.lo.y = slot.edgeTop;
+		slot.cell.hi.x = slot.edgeLeft + cell.x;
+		slot.cell.hi.y = slot.edgeTop + cell.y;
+
+		slotWin->winSetPosition( screen.lo.x - origin.x, screen.lo.y - origin.y );
+		slotWin->winSetSize( screen.hi.x - screen.lo.x, screen.hi.y - screen.lo.y );
+		slotWin->winSetUserData( &slot );
+		slotWin->winSetDrawFunc( drawPowerTraySlot );
+
+		Int bw, bh;
+		button->winGetSize( &bw, &bh );
+		button->winSetPosition( slot.edgeLeft + ( cell.x - bw ) / 2, slot.edgeTop + ( cell.y - bh ) / 2 );
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The slots showing a power, one bit a slot. */
+//-------------------------------------------------------------------------------------------------
+UnsignedInt ControlBar::visibleSpecialPowerShortcutMask( void )
+{
+	UnsignedInt mask = 0;
+	for( Int i = 0; i < m_currentlyUsedSpecialPowersButtons && i < MAX_SPECIAL_POWER_SHORTCUTS; i++ )
+	{
+		if( !m_specialPowerShortcutButtons[ i ]->winIsHidden() )
+			mask |= 1u << i;
+	}
+	return mask;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Lay the tray out again when a power was bought, spent or hidden, or the scheme changed its
+	* pieces; populateSpecialPowerShortcut and updateSpecialPowerShortcut are what change those. */
+//-------------------------------------------------------------------------------------------------
+void ControlBar::rearrangeSpecialPowerShortcutGrid( void )
+{
+	if( m_specialPowerShortcutParent == NULL )
+		return;
+	if( visibleSpecialPowerShortcutMask() != m_trayLaidOutMask
+			|| m_controlBarSchemeManager->getPowerTray() != m_trayLaidOutFor )
+		arrangeSpecialPowerShortcutGrid();
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The tray's numbers on this screen: the pieces at the screen's height over 1080, and the
+	* frame's top left at rest, the tallest tray's box standing on the general's tab against the
+	* right edge. */
+//-------------------------------------------------------------------------------------------------
+void ControlBar::powerTrayMetrics( const Image *const *tray, ICoord2D *origin, ICoord2D *cell,
+																	 Int *left, Int *top, Int *foot, Int *bottom )
+{
+	const Real k = TheDisplay->getHeight() / 1080.0f;
+	cell->x = REAL_TO_INT_CEIL( tray[ ControlBarScheme::TRAY_CELL ]->getImageWidth() * k );
+	cell->y = REAL_TO_INT_CEIL( tray[ ControlBarScheme::TRAY_CELL ]->getImageHeight() * k );
+	const Image *edgeLeft = tray[ ControlBarScheme::TRAY_EDGE_LEFT ];
+	const Image *edgeTop = tray[ ControlBarScheme::TRAY_EDGE_TOP ];
+	const Image *edgeFoot = tray[ ControlBarScheme::TRAY_EDGE_BOTTOM ];
+	*left = edgeLeft ? REAL_TO_INT_CEIL( edgeLeft->getImageWidth() * k ) : 0;
+	*top = edgeTop ? REAL_TO_INT_CEIL( edgeTop->getImageHeight() * k ) : 0;
+	*foot = edgeFoot ? REAL_TO_INT_CEIL( edgeFoot->getImageHeight() * k ) : 0;
+
+	const Int cols = SPECIAL_POWER_SHORTCUT_COLS;
+	const Int rows = ( MAX_SPECIAL_POWER_SHORTCUTS + cols - 1 ) / cols;
+	*bottom = TheDisplay->getHeight() - REAL_TO_INT( ( 1080 - POWER_TRAY_FOOT_Y ) * k );
+	origin->x = TheDisplay->getWidth() - cols * cell->x - *left;
+	origin->y = *bottom - *foot - rows * cell->y - *top;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5796,9 +5867,9 @@ void ControlBar::populateSpecialPowerShortcut( Player *player)
 	// only by finding it on the map and selecting it.  Every other faction's shortcut set is asked
 	// for a button that fires a power this player now holds and nothing above has shown.  Powers
 	// behind a science are left out: a general's power is bought, never captured.  "Holds" means
-	// the very power the button names, not one of its kind: mods reuse the few power types for
-	// unrelated powers (Contra's small Scud Storm is a carpet bomb by type), and a type match put
-	// another faction's button in the tray that update then hid, an empty slot left behind.
+	// the very power the button names, not one of its kind: the few power types are shared by
+	// unrelated powers, and a type match put another faction's button in the tray that update then
+	// hid, an empty slot left behind.
 	//
 	for( Int t = 0; t < ThePlayerTemplateStore->getPlayerTemplateCount(); ++t )
 	{
@@ -5841,6 +5912,7 @@ void ControlBar::populateSpecialPowerShortcut( Player *player)
 		animateSpecialPowerShortcut(TRUE);
 	}
 	updateSpecialPowerShortcut();
+	rearrangeSpecialPowerShortcutGrid();
 }
 
 //-------------------------------------------------------------------------------------------------

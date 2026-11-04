@@ -392,6 +392,8 @@ HAnimClass* W3DAnimationInfo::getAnimHandle() const
 		m_handle->Add_Ref();
 	return m_handle;
 #else
+	LogicThread::parkRender();
+	LOGIC_CENSUS( CENSUS_ASSET_LOAD );
 	HAnimClass* handle = W3DDisplay::m_assetManager->Get_HAnim(m_name.str());
 	DEBUG_ASSERTCRASH(handle, ("*** ASSET ERROR: animation %s not found\n",m_name.str()));
 	if (handle != NULL && m_naturalDurationInMsec < 0)
@@ -624,13 +626,14 @@ void ModelConditionInfo::validateCachedBones(RenderObjClass* robj, Real scale) c
 	if (m_validStuff & PRISTINE_BONES_VALID)
 		return;
 
+	// the render's call leaves the cache alone: the flag is already clear, so the map is not read, and
+	// beside a tick clearing it here raced the tick's fill
 	if (!isValidTimeToCalcLogicStuff())
-	{
-		m_pristineBones.clear();
-		m_validStuff &= ~PRISTINE_BONES_VALID;
 		return;
-	}
 
+	// R3: this cache and the asset manager below are the render's too, so a tick beside it parks it
+	// before it writes either
+	LogicThread::parkRender();
 	setFPMode();
 
 	BONEPOS_LOG(("Validating bones for %s: %s", m_modelName.str(), getDescription().str()));
@@ -758,6 +761,8 @@ void ModelConditionInfo::validateWeaponBarrelInfo() const
 		return;
 	}
 
+	// R3: a state the render switches to inside the window reads these
+	LogicThread::parkRender();
 	setFPMode();
 
 	for (int wslot = 0; wslot < WEAPONSLOT_COUNT; ++wslot)
@@ -902,12 +907,19 @@ void ModelConditionInfo::validateTurretInfo() const
 	if (m_validStuff & TURRETS_VALID)
 		return;
 
+	// the render's call leaves the bones alone: they are 0 until the flag is set, and beside a tick
+	// zeroing them here wiped the bones the tick had just found
+	if (!isValidTimeToCalcLogicStuff())
+		return;
+
+	// R3: as validateWeaponBarrelInfo
+	LogicThread::parkRender();
 	setFPMode();
 
 	for (int tslot = 0; tslot < MAX_TURRETS; ++tslot)
 	{
 		TurretInfo& tur = m_turrets[tslot];
-		if (!isValidTimeToCalcLogicStuff() || m_modelName.isEmpty())
+		if (m_modelName.isEmpty())
 		{
 			tur.m_turretAngleBone = 0;
 			tur.m_turretPitchBone = 0;
@@ -941,11 +953,8 @@ void ModelConditionInfo::validateTurretInfo() const
 		}	
 	}
 
-	if (isValidTimeToCalcLogicStuff())
-	{
-		m_validStuff |= TURRETS_VALID;
-	}
-} 
+	m_validStuff |= TURRETS_VALID;
+}
 
 //-------------------------------------------------------------------------------------------------
 const Matrix3D* ModelConditionInfo::findPristineBone(NameKeyType boneName, Int* boneIndex) const
@@ -1062,6 +1071,9 @@ W3DModelDrawModuleData::W3DModelDrawModuleData() :
 	m_okToChangeModelColor(false),
   m_particlesAttachedToAnimatedBones(false),
 	m_animationsRequirePower(true),
+	m_stabilizedTurretPitch(false),
+	m_barrelArtPitch(0.0f),
+	m_landingGearUpHeight(0.0f),
 #ifdef CACHE_ATTACH_BONE
 	m_attachToDrawableBoneOffsetValid(false),
 #endif
@@ -1257,6 +1269,10 @@ void W3DModelDrawModuleData::buildFieldParse(MultiIniFieldParse& p)
 		{ "RecoilSettleSpeed",	INI::parseVelocityReal, NULL, offsetof(W3DModelDrawModuleData, m_recoilSettle) },
 		{ "OkToChangeModelColor",	INI::parseBool, NULL, offsetof(W3DModelDrawModuleData, m_okToChangeModelColor) },
 		{ "AnimationsRequirePower",	INI::parseBool, NULL, offsetof(W3DModelDrawModuleData, m_animationsRequirePower) },
+		{ "StabilizedTurretPitch",	INI::parseBool, NULL, offsetof(W3DModelDrawModuleData, m_stabilizedTurretPitch) },
+		{ "BarrelArtPitch",	INI::parseAngleReal, NULL, offsetof(W3DModelDrawModuleData, m_barrelArtPitch) },
+		{ "LandingGearSubObject",	INI::parseAsciiString, NULL, offsetof(W3DModelDrawModuleData, m_landingGearSubObject) },
+		{ "LandingGearUpHeight",	INI::parseReal, NULL, offsetof(W3DModelDrawModuleData, m_landingGearUpHeight) },
 		{ "ParticlesAttachedToAnimatedBones",	INI::parseBool, NULL, offsetof(W3DModelDrawModuleData, m_particlesAttachedToAnimatedBones) },
 		{ "MinLODRequired",		INI::parseStaticGameLODLevel,	NULL,	offsetof(W3DModelDrawModuleData, m_minLODRequired) },
 		{ "ProjectileBoneFeedbackEnabledSlots", INI::parseBitString32, TheWeaponSlotTypeNames, offsetof(W3DModelDrawModuleData, m_projectileBoneFeedbackEnabledSlots) },
@@ -1796,6 +1812,8 @@ W3DModelDraw::W3DModelDraw(Thing *thing, const ModuleData* moduleData) : DrawMod
 	{
 		m_weaponRecoilInfoVec[i].clear();
 	}
+	for (i = 0; i < MAX_TURRETS; ++i)
+		m_drawnTurretPitch[i] = 0.0f;
 	m_needRecalcBoneParticleSystems = false;
 	m_fullyObscuredByShroud = false;
 	m_groundMotionPos.zero();
@@ -2142,7 +2160,7 @@ void W3DModelDraw::allocateContactShadow(void)
 	// shadow and a contact patch would follow it around looking like a stain.
 	const ThingTemplate *tmplate = getDrawable() ? getDrawable()->getTemplate() : NULL;
 	if (m_contactShadow != NULL || m_renderObject == NULL || tmplate == NULL
-			|| TheW3DShadowManager == NULL || !TheGlobalData->m_contactShadows
+			|| TheW3DShadowManager == NULL || !TheGlobalData->m_contactShadows || TheGlobalData->m_classicGraphics
 			|| !tmplate->isKindOf( KINDOF_STRUCTURE ))
 		return;
 
@@ -2249,7 +2267,7 @@ void W3DModelDraw::getRenderCostRecursive(RenderCost & rc,RenderObjClass * robj)
 	and a kept shadow was a building-shaped hole in the light on empty ground. */
 static Bool keepsShadowInFog(const Drawable *draw)
 {
-	if (draw == NULL)
+	if (draw == NULL || TheGlobalData->m_classicGraphics)
 		return FALSE;
 
 	const Object *obj = draw->getObject();
@@ -2334,12 +2352,6 @@ void W3DModelDraw::adjustAnimSpeedToMovementSpeed()
 			}
 		}
 	}
-}
-
-//-------------------------------------------------------------------------------------------------
-Real W3DModelDraw::getHullHeadingLag() const
-{
-	return getDrawable()->getDrawnHeadingLag();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2474,12 +2486,34 @@ void W3DModelDraw::doDrawModule(const Matrix3D* transformMtx)
 
   handleClientRecoil();
 
+	// A jet's wheels are down while it is off air locomotion (parked or taxiing: a state without
+	// JETEXHAUST), and on air locomotion while it is less than LandingGearUpHeight over the ground.
+	// JETEXHAUST alone cannot say so: the logic sets it as the takeoff roll starts and keeps it through the
+	// landing rollout.  This runs inside the logic thread's window, so it reads only what the sync point
+	// fixed: the state this module last applied, the drawable's position taken for the draw, and the drawn
+	// terrain, never the object, whose altitude cache the tick is rewriting.  A model without the
+	// sub-object (the falling jet) has no gear to show.
+	if (modData->m_landingGearSubObject.isNotEmpty() && m_renderObject && m_curState)
+	{
+		RenderObjClass* gear = m_renderObject->Get_Sub_Object_By_Name(modData->m_landingGearSubObject.str());
+		if (gear)
+		{
+			Bool airLoco = FALSE;
+			for (size_t i = 0; i < m_curState->m_conditionsYesVec.size(); ++i)
+				airLoco = airLoco || m_curState->m_conditionsYesVec[i].test(MODELCONDITION_JETEXHAUST);
+			const Coord3D* pos = getDrawable()->getPositionForDraw();
+			gear->Set_Hidden(airLoco &&
+				pos->z - TheTerrainRenderObject->getHeightMapHeight(pos->x, pos->y, NULL) > modData->m_landingGearUpHeight);
+			gear->Release_Ref();
+		}
+	}
+
 	// A vehicle on a night map lights what is in front of it (lightHeadlights).  Drawable::draw has
 	// already returned for anything hidden, stealthed or under the shroud, so an enemy's lamps never
 	// show where the enemy does not.  Rooftop lamps on buildings and aircraft lights stay beams only.
 	s_headlightDrawn = TRUE;
 	if (m_hasHeadlights && !m_hideHeadlights && m_renderObject && !m_renderObject->Is_Hidden()
-		&& Direct3D11_Is_Active())
+		&& Direct3D11_Is_Active() && !TheGlobalData->m_classicGraphics)
 	{
 		const Drawable* draw = getDrawable();
 		const Object* obj = draw->getObject();
@@ -2927,9 +2961,8 @@ void W3DModelDraw::handleClientTurretPositioning()
 			if (obj)
 			{
 				const AIUpdateInterface* ai = obj->getAIUpdateInterface();
-				// a turret aims from the logic heading, which the drawn hull of a tank or car trails
-				if (ai && ai->getTurretRotAndPitch((WhichTurretType)tslot, &turretAngle, &turretPitch))
-					turretAngle -= getHullHeadingLag();
+				if (ai)
+					ai->getTurretRotAndPitch((WhichTurretType)tslot, &turretAngle, &turretPitch);
 			}
 
 			// do turret, if any
@@ -2946,11 +2979,27 @@ void W3DModelDraw::handleClientTurretPositioning()
 				}
 			}
 
-			// do turret pitch, if any
-			if (tur.m_turretPitchBone != 0)
+			// do turret pitch, if any.  The pitch the fork's data gave a stabilized gun is the logic's aim:
+			// under Classic Graphics the barrel stays as modelled, as EA's tanks had it
+			if (tur.m_turretPitchBone != 0 && !(TheGlobalData->m_classicGraphics && getW3DModelDrawModuleData()->m_stabilizedTurretPitch))
 			{
 				if (m_curState)
 					turretPitch += tur.m_turretArtPitch;
+				// The logic aims from a hull that never tilts; the drawn one lies on the ground and rocks when
+				// it fires. A stabilized gun takes that tilt along its own heading off, and the angle the barrel
+				// is modelled at (BarrelArtPitch: a Crusader's mesh rises 4.4 degrees from its bone), so the
+				// drawn barrel stands at the logic's pitch against level ground, down the line its shell flies.
+				const W3DModelDrawModuleData* md = getW3DModelDrawModuleData();
+				if (md->m_stabilizedTurretPitch && m_renderObject && obj)
+				{
+					Vector3 heading(cosf(turretAngle), sinf(turretAngle), 0.0f);
+					Vector3 drawn = m_renderObject->Get_Transform().Rotate_Vector(heading);
+					Vector3 logic = obj->getTransformMatrix()->Rotate_Vector(heading);
+					turretPitch -= atan2f(drawn.Z, sqrtf(drawn.X * drawn.X + drawn.Y * drawn.Y))
+						- atan2f(logic.Z, sqrtf(logic.X * logic.X + logic.Y * logic.Y));
+					turretPitch -= md->m_barrelArtPitch;
+				}
+				m_drawnTurretPitch[tslot] = turretPitch;
 				Matrix3D turretPitchXfrm(1);
 				turretPitchXfrm.Rotate_Y(-turretPitch);
 				if (m_renderObject)
@@ -3054,6 +3103,17 @@ void W3DModelDraw::handleClientRecoil()
 
 				Matrix3D gunXfrm;
 				gunXfrm.Make_Identity();
+				// A barrel that is also its turret's pitch bone (a Crusader's, a Battlemaster's: the art has
+				// no other bone to pitch) keeps the pitch while it recoils, back along the pitched barrel.
+				// This matrix replaces the bone's whole control, so without it every shot snapped it level.
+				for (Int tslot = 0; tslot < MAX_TURRETS; ++tslot)
+				{
+					if (m_curState->m_turrets[tslot].m_turretPitchBone == barrels[i].m_recoilBone)
+					{
+						gunXfrm.Rotate_Y( -m_drawnTurretPitch[tslot] );
+						break;
+					}
+				}
 				gunXfrm.Translate_X( -recoils[i].m_shift );
 				//DEBUG_ASSERTLOG(recoils[i].m_shift==0.0f,("adjust bone %d by %f\n",recoils[i].m_recoilBone,recoils[i].m_shift));
 
@@ -3458,7 +3518,7 @@ void W3DModelDraw::lightHeadlights(const Vector3& cameraPosition)
 	for (size_t i = 0; i < s_headlightQueue.size(); ++i)
 	{
 		W3DModelDraw* draw = s_headlightQueue[i];
-		const Coord3D* pos = draw->getDrawable()->getPosition();
+		const Coord3D* pos = draw->getDrawable()->getPositionForDraw();
 		const Real dx = pos->x - cameraPosition.X, dy = pos->y - cameraPosition.Y, dz = pos->z - cameraPosition.Z;
 		nearest.push_back(std::make_pair(dx * dx + dy * dy + dz * dz, draw));
 	}
@@ -3683,6 +3743,7 @@ void W3DModelDraw::setModelState(const ModelConditionInfo* newState)
 		{
 			const W3DModelDrawModuleData* data = getW3DModelDrawModuleData();
 			Bool swapsTexture = !data->m_replaceTextureOld.isEmpty();
+			LOGIC_CENSUS( CENSUS_ASSET_LOAD );
 			m_renderObject = W3DDisplay::m_assetManager->Create_Render_Obj(newState->m_modelName.str(), draw->getScale(), m_hexColor,
 				swapsTexture ? data->m_replaceTextureOld.str() : NULL, swapsTexture ? data->m_replaceTextureNew.str() : NULL);
 			DEBUG_ASSERTCRASH(m_renderObject, ("*** ASSET ERROR: Model %s not found!\n",newState->m_modelName.str()));
@@ -4682,6 +4743,12 @@ void W3DModelDraw::updateProjectileClipStatus( UnsignedInt shotsRemaining, Unsig
 		return; // Only if specified.
 
 	doHideShowProjectileObjects( shotsRemaining, maxShots, slot );// Means effectively, show m of n.
+}
+
+//-------------------------------------------------------------------------------------------------
+Int W3DModelDraw::getProjectileClipFeedbackSlots() const
+{
+	return getW3DModelDrawModuleData()->m_projectileBoneFeedbackEnabledSlots;
 }
 
 //-------------------------------------------------------------------------------------------------

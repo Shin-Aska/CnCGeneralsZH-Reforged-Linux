@@ -4,10 +4,12 @@ Command & Conquer: Generals Zero Hour for **64-bit Linux**, using **SDL3 and Vul
 No Wine or Proton required.
 
 Based on [Zero Hour Reforged](https://github.com/olcayseygan/CnCGeneralsZH-Reforged) and EA's released
-source, synchronized with upstream **v3.5.1**, with Linux graphics improvements and upstream's
-gameplay, AI, audio and interface changes. New since this origin's 3.4.2: more natural water,
-optimized water performance, water quality controls and sharper path-traced water reflections,
-plus upstream's rank perks, leader auras and movement improvements.
+source. The current source is synchronized with upstream **v3.8.0**, with Linux graphics
+improvements and upstream gameplay, AI, audio and interface changes. It preserves Modern water,
+Volumetric clouds, water quality controls, Hybrid reflections and the Linux water optimizations
+as selectable enhancements. New profiles follow upstream's Classic graphics, water and cloud defaults.
+Upstream restores EA's four veterancy levels and removes mod support. The latest published Linux
+release linked below remains **v3.5.1**; this source sync does not publish a new package.
 
 ![Zero Hour Reforged Linux 3.5.1 launch image](.github/media/releases/v3.5.1-launch-annotated-layout-v2.png)
 
@@ -63,8 +65,10 @@ the compatibility checks and testing limits.
 
 ## Graphics highlights
 
-New profiles use **Volumetric clouds**, **Modern water** and **mapped sun shadows**.
-Existing settings are kept. Change **Cloud style** and **Water style** under **Options → Graphics**.
+New profiles follow upstream's **Classic graphics**, **Classic water** and **Classic clouds** defaults.
+Explicit saved settings are kept. Profiles without a **Classic graphics** setting now start in Classic
+even if they saved Modern water. To enable the Linux enhancements, turn off **Classic graphics**
+under **Options → Graphics** and restart, then choose **Cloud style** and **Water style**.
 
 ### Volumetric Clouds
 
@@ -87,7 +91,7 @@ It also receives sun and smoke shadows.
 ### Water Reflections
 
 Choose **Legacy**, **SSR**, **Hybrid** or **Path traced (experimental)** under **Options → Effects → Reflections**.
-These modes apply to Modern water. Hybrid is the default and combines planar reflections with
+These modes apply to Modern water. Hybrid is the initial reflection mode when Modern water is selected and combines planar reflections with
 screen-space reflections. SSR alone can miss objects hidden from the camera or outside the screen.
 Click **Accept** to apply and save the choice.
 

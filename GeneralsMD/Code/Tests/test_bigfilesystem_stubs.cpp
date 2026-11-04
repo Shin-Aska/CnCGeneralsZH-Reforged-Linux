@@ -40,7 +40,6 @@
 #include "Common/LogicThread.h"
 #include "Common/FileSystem.h"
 #include "Common/GameAudio.h"
-#include "Common/GlobalData.h"
 #include "Common/INI.h"
 
 extern "C" void DebugInit(int)
@@ -78,7 +77,6 @@ void INI::load(AsciiString, INILoadType, Xfer *) { unreachable("INI::load"); }
 
 FileSystem *TheFileSystem = NULL;
 File *FileSystem::openFile(const Char *, Int) { unreachable("FileSystem::openFile"); return NULL; }
-// FileSystemPaths.cpp supplies the real archive path classification helpers.
 
 // GameDataGone (Common/Debug.h): an archive read failed because its drive went away.  Every archive this
 // test opens is on the local install and stays there, so that never happens here.
@@ -87,11 +85,9 @@ extern "C" void GameDataGone(const char *what) { fprintf(stderr, "GameDataGone(%
 // The archive code's other reaches, for this test:
 //  - TheAudio: Win32BIGFileSystem::closeArchiveFile stops the music when Music.big closes; nothing
 //    closes an archive here.
-//  - TheWritableGlobalData: ArchiveFileSystem::loadMods reads -mod's settings; nothing loads mods here.
 //  - MessageBoxWrapper: the missing-base-game warning.  Counted, so the test can say the base game
 //    was found without one.
 AudioManager *TheAudio = NULL;
-GlobalData *TheWritableGlobalData = NULL;
 int g_messageBoxes = 0;
 int MessageBoxWrapper(const char *text, const char *caption, unsigned int)
 {

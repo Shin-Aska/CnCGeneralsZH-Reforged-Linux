@@ -94,9 +94,9 @@ HOTKEY_BUTTON_TOP, HOTKEY_BUTTON_WIDTH = 412, 104
 HOTKEY_COMMAND_COLUMNS = (68, 32)
 HOTKEY_BUTTON_COLUMNS = (12, 66, 22)
 # strings OptionsMenuHotkeys.cpp shows besides the captions above
-HOTKEY_STRINGS = ["GUI:HotkeysNone", "GUI:HotkeysPressKey", "GUI:HotkeysPressLetter", "GUI:HotkeysPressForceAttack",
+HOTKEY_STRINGS = ["GUI:HotkeysNone", "GUI:HotkeysPressKey", "GUI:HotkeysPressLetter",
                   "GUI:HotkeysClash", "GUI:HotkeysAlsoOn", "GUI:HotkeysFixed", "GUI:HotkeysGameKey",
-                  "GUI:HotkeysMoved", "GUI:HotkeysForceAttack", "GUI:HotkeysPick", "GUI:HotkeysOnFixedKey",
+                  "GUI:HotkeysMoved", "GUI:HotkeysPick", "GUI:HotkeysOnFixedKey",
                   "GUI:HotkeysButtonMoved", "TOOLTIP:HotkeyChange", "TOOLTIP:HotkeyClear",
                   "TOOLTIP:HotkeyDefault"]
 
@@ -197,10 +197,12 @@ NEW_CONTROLS = [
     (LABEL,  "LabelLanguage",          "GUI:Language"),
     (COMBO,  "ComboBoxLanguage",       None),
     (CHECK,  "CheckOrderLines",        "GUI:OrderLines"),
+    (CHECK,  "CheckAircraftAltitudeLine", "GUI:AircraftAltitudeLine"),
     (CHECK,  "CheckNetBox",            "GUI:NetBox"),
     (CHECK,  "CheckEmptyBuildingPips", "GUI:EmptyBuildingPips"),
     (CHECK,  "CheckZoomToCursor",      "GUI:ZoomToCursor"),
     (CHECK,  "CheckIsometricCamera",   "GUI:IsometricCamera"),
+    (CHECK,  "CheckCameraShake",       "GUI:CameraShake"),
     (CHECK,  "CheckStartAtMaxZoom",    "GUI:StartAtMaxZoom"),
     (CHECK,  "CheckSnapCamera45",      "GUI:SnapCamera45"),
     (CHECK,  "CheckGridBuild",         "GUI:GridBuild"),
@@ -250,6 +252,16 @@ NEW_CONTROLS = [
     (CHECK,  "CheckMapLight",          "GUI:MapLight"),
     (CHECK,  "CheckTeamGlow",          "GUI:TeamGlow"),
     (CHECK,  "CheckWaterFoam",         "GUI:WaterFoam"),
+    (CHECK,  "CheckGroundMarks",       "GUI:GroundMarks"),
+    (CHECK,  "CheckFirelight",         "GUI:Firelight"),
+    (CHECK,  "CheckHemiAmbient",       "GUI:HemiAmbient"),
+    (CHECK,  "CheckAmbientOcclusion",  "GUI:AmbientOcclusion"),
+    (CHECK,  "CheckInternalHdr",       "GUI:InternalHdr"),
+    (CHECK,  "CheckWeather",           "GUI:Weather"),
+    (CHECK,  "CheckWaterSplashes",     "GUI:WaterSplashes"),
+    (CHECK,  "CheckAtmosphere",        "GUI:Atmosphere"),
+    (CHECK,  "CheckStructureCollapse", "GUI:StructureCollapse"),
+    (CHECK,  "CheckSmoothMotion",      "GUI:SmoothMotion"),
     (LABEL,  "LabelGraphicsQuality",   "GUI:GraphicsQuality"),
     (SLIDER, "SliderGraphicsQuality",  None),
 ]
@@ -354,7 +366,10 @@ GROUP_LAYOUT = [
             setting("LabelFullscreenScaling", "ComboBoxFullscreenScaling"),
             ("check", "CheckVSync")]),
         ("GUI:OptionsGroupPicture", [
-            setting("GammaLabel", "SliderGamma", "ValueGamma")])]),
+            setting("GammaLabel", "SliderGamma", "ValueGamma"),
+            # every column of Graphics and Effects is full
+            ("check", "CheckStructureCollapse"),
+            ("check", "CheckSmoothMotion")])]),
 
     ("PageGraphics", [
         # the particle limit went to Effects' Particles group to make room for the quality slider
@@ -371,7 +386,8 @@ GROUP_LAYOUT = [
             setting("LabelAnisotropy", "SliderAnisotropy", "ValueAnisotropy"),
             # the Lighting column is full with the water and cloud styles
             ("check", "CheckMapLight"),
-            ("check", "CheckTeamGlow")]),
+            ("check", "CheckTeamGlow"),
+            ("check", "CheckAtmosphere")]),
         ("GUI:OptionsGroupLighting", [
             setting("LabelLightingStyle", "ComboBoxLightingStyle"),
             setting("LabelBloom", "ComboBoxBloom"),
@@ -389,16 +405,22 @@ GROUP_LAYOUT = [
             ("check", "CheckShowProps"),
             ("check", "CheckSmoothWater"),
             ("check", "CheckWaterFoam"),
+            ("check", "CheckGroundMarks"),
+            ("check", "CheckHemiAmbient"),
+            ("check", "CheckAmbientOcclusion"),
+            ("check", "CheckInternalHdr"),
             ("check", "CheckExtraAnimations"),
             ("check", "CheckTreeSway"),
-            ("check", "CheckBehindBuilding"),
-            # Debris is scenery animation.
-            ("check", "CheckDebrisTrails")]),
+            ("check", "CheckBehindBuilding")]),
         ("GUI:OptionsGroupParticles", [
             setting("LabelParticleCap", "ParticleCapSlider", "ValueParticleCap"),
             setting("LabelSmoke", "ComboBoxSmoke"),
             ("check", "CheckParticleBounce"),
-            ("check", "CheckSmokeFireLighting")])]),
+            ("check", "CheckSmokeFireLighting"),
+            ("check", "CheckFirelight"),
+            ("check", "CheckDebrisTrails"),
+            ("check", "CheckWeather"),
+            ("check", "CheckWaterSplashes")])]),
 
     ("PageWater", [
         ("GUI:OptionsGroupModernWater", [
@@ -433,7 +455,8 @@ GROUP_LAYOUT = [
             ("check", "CheckZoomToCursor"),
             ("check", "CheckStartAtMaxZoom"),
             ("check", "CheckSnapCamera45"),
-            ("check", "CheckEdgeScrollWindowed")]),
+            ("check", "CheckEdgeScrollWindowed"),
+            ("check", "CheckCameraShake")]),
         ("GUI:OptionsGroupOrders", [
             setting("LabelDragTolerance", "SliderDragTolerance", "ValueDragTolerance"),
             ("check", "CheckAlternateMouse"),
@@ -464,6 +487,7 @@ GROUP_LAYOUT = [
             setting("LabelHealthBarColors", "ComboBoxHealthBarColors"),
             setting("LabelPlayerColors", "ComboBoxPlayerColors"),
             ("check", "CheckOrderLines"),
+            ("check", "CheckAircraftAltitudeLine"),
             ("check", "CheckEmptyBuildingPips")]),
         ("GUI:OptionsGroupLanguage", [
             setting("LabelLanguage", "ComboBoxLanguage")]),
@@ -995,17 +1019,17 @@ def selfcheck():
         for key in ("GUI:%s" % setting_of(name), "TOOLTIP:%s" % setting_of(name)):
             if key not in keys:
                 problems.append("%s needs %s in Patch.str" % (name, key))
-    # every row of the quality slider names a control on Graphics, Effects or the Linux Water page
+    # every row of the quality slider names a control on Graphics, Effects, Display or the Linux Water page
     # and has a value for every step; a row one value short still compiles, with a 0 in the last step
     steps = enum_count("GRAPHICS_QUALITY_STEPS")
     quality = read_quality_table()
     if len(quality) < 9:
         problems.append("only %d quality rows parsed, the regex has stopped matching" % len(quality))
-    on_pages = set(short(child) for page in ("PageGraphics", "PageEffects", "PageWater")
+    on_pages = set(short(child) for page in ("PageGraphics", "PageEffects", "PageDisplay", "PageWater")
                    for child in layout.find(page).children)
     for control, values in quality:
         if control not in on_pages:
-            problems.append("quality row %s is not a control on the Graphics, Effects or Water page" % control)
+            problems.append("quality row %s is not a control on the Graphics, Effects, Display or Water page" % control)
         if len(values) != steps:
             problems.append("quality row %s has %d values for %d steps" % (control, len(values), steps))
 

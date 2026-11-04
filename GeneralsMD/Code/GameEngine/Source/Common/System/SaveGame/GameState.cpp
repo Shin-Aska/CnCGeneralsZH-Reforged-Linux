@@ -748,7 +748,7 @@ Bool GameState::saveCheckpoint( AsciiString filepath )
 	}
 	catch( ... )
 	{
-		// the destructor throws away what was written; a mod object whose module cannot save
+		// the destructor throws away what was written; an object whose module cannot save
 		// costs the replay its rewind, not the whole game (report 1858)
 		DEBUG_LOG(( "GameState::saveCheckpoint - '%s' could not be written\n", filepath.str() ));
 		return FALSE;
@@ -760,7 +760,7 @@ Bool GameState::saveCheckpoint( AsciiString filepath )
 /** loadGame for a checkpoint, with the recorder's turn between the reset and the load: the reset
 	* closes the replay, and the load's new game reads the players out of it.  FALSE when the load
 	* failed part way: the half-loaded match is cleared, as a replay's end clears it, and the player
-	* is told, so a mod object whose module cannot load ends the replay rather than the game. */
+	* is told, so an object whose module cannot load ends the replay rather than the game. */
 // ------------------------------------------------------------------------------------------------
 Bool GameState::loadCheckpoint( AsciiString filepath, const std::function< void( void ) > &afterReset )
 {
@@ -1495,9 +1495,13 @@ void GameState::friend_xferSaveDataForCRC( Xfer *xfer, SnapshotType which )
 	gameInfo->description.clear();
 	gameInfo->saveFileType = SAVE_FILE_TYPE_NORMAL;
 	gameInfo->missionMapName.clear();
+	// cleared for the CRC's sake and put back after: a loaded save still needs to know the map it
+	// was started on (SidesList::isForkAIMapPath), and the next save writes it out again
+	const AsciiString pristine = gameInfo->pristineMapName;
 	gameInfo->pristineMapName.clear();
 
 	xferSaveData(xfer, which);
+	gameInfo->pristineMapName = pristine;
 }
 
 // ------------------------------------------------------------------------------------------------

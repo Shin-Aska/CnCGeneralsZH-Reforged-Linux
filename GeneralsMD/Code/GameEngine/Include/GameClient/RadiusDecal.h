@@ -107,23 +107,19 @@ private:
 	UnsignedInt		m_opacityThrobTime;
 	Color					m_color;
 	Bool					m_onlyVisibleToOwningPlayer;
-	Int						m_spinTime;		///< milliseconds a turn takes, below 0 the other way; 0 stands still
-	Real					m_lightReference;	///< flat-ground light at which the opacity is as written; 0 leaves it unscaled
-	Real					m_lightScaleMin;	///< the opacity scale never falls below this (dark maps)
-	Real					m_lightScaleMax;	///< nor rises above this (bright maps)
-
-	Real lightScale() const;
 
 public:
 	RadiusDecalTemplate();
 
 	Bool valid() const { return m_name.isNotEmpty(); }
+	const AsciiString& getTexture() const { return m_name; }
 	void xferRadiusDecalTemplate( Xfer *xfer );
 
 	// please note: it is very important, for game/net sync reasons, to ensure that
 	// a valid radiusdecal is created, even if will not be visible to the local player,
 	// since some logic makes decisions based on this.
-	void createRadiusDecal(const Coord3D& pos, Real radius, const Player* owningPlayer, RadiusDecal& result) const;
+	// texture, when given, is drawn in place of the template's own, with the template's style and throb
+	void createRadiusDecal(const Coord3D& pos, Real radius, const Player* owningPlayer, RadiusDecal& result, const char* texture = NULL) const;
 
 	static void parseRadiusDecalTemplate(INI* ini, void *instance, void * store, const void* /*userData*/);
 };

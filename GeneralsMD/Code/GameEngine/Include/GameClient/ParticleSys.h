@@ -614,6 +614,16 @@ public:
 		* ParticleSystemInfo is a protected base, so the manager needs a way in. */
 	void forceSmokeBoost( const SmokeBoost &boost );
 
+	/** Classic Graphics: a system only the fork has, reached from data every machine loads, draws nothing. */
+	void emitNothing( void )
+	{
+		m_burstCount.setRange( 0.0f, 0.0f );
+		m_systemLifetime = 1;
+		m_slaveSystemName.clear();
+		m_attachedSystemName.clear();
+	}
+	void copyLookOf( const ParticleSystemTemplate *other ) { static_cast<ParticleSystemInfo&>( *this ) = *other; }
+
 	ParticleSystemTemplate( const AsciiString &name );
 
 	AsciiString getName( void ) const { return m_name; }
@@ -714,6 +724,7 @@ public:
   void setSkipParentXfrm(Bool enable) { m_skipParentXfrm = enable; } ///<disable transforming particle system with parent matrix.
 		
 	const Coord3D *getDriftVelocity( void ) { return &m_driftVelocity; }	///< get the drift velocity of the system
+	Coord3D getDriftWithWeather( void ) const;	///< that, plus the Weather option's wind on what it leans
 	Bool isGroundCollision( void ) const { return m_groundCollision; }		///< do this system's particles hit the terrain?
 	Real getGroundBounce( void ) const { return m_groundBounce; }				///< restitution against the terrain
 	Real getGroundFriction( void ) const { return m_groundFriction; }		///< drag along the terrain
@@ -840,6 +851,7 @@ public:
 	// Access to dynamically changing part of a particle system.
 	void setEmissionVolumeSphereRadius( Real newRadius ) { if (m_emissionVolumeType == SPHERE) m_emissionVolume.sphere.radius = newRadius; }
 	void setEmissionVolumeCylinderRadius( Real newRadius ) { if (m_emissionVolumeType == CYLINDER) m_emissionVolume.cylinder.radius = newRadius; }
+	void setEmissionVolumeBox( const Coord3D &halfSize ) { m_emissionVolumeType = BOX; m_emissionVolume.box.halfSize = halfSize; }
 	EmissionVolumeType getEmisionVolumeType() const { return m_emissionVolumeType; }
 	ParticlePriorityType getPriority() const { return m_priority; }
 
@@ -1004,6 +1016,7 @@ public:
 	ParticleSystemTemplate *findTemplate( const AsciiString &name ) const;
 	ParticleSystemTemplate *findParentTemplate( const AsciiString &name, int parentNum ) const;
 	ParticleSystemTemplate *newTemplate( const AsciiString &name );
+	Bool isClassicReadingForkSystems( void ) const { return m_classicReadingForkSystems; }	///< ParticleSystemReforged.ini going in under Classic Graphics
 	/// a map.ini is about to write over this template; reset() puts it back
 	void rememberTemplateBeforeMapINI( ParticleSystemTemplate *sysTemplate );
 
@@ -1112,6 +1125,7 @@ protected:
 
 private:
 	TemplateMap m_templateMap;		///< a hash map of all particle system templates
+	Bool m_classicReadingForkSystems = FALSE;
 	std::vector< std::pair<ParticleSystemTemplate *, ParticleSystemInfo> > m_beforeMapOverrides;	///< see reset()
 };
 

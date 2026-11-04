@@ -53,6 +53,7 @@
 #include "GameClient/InGameUI.h"
 #include "GameClient/ParticleSys.h"
 #include "GameClient/Shadow.h"
+#include "GameClient/Snow.h"
 
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/Object.h"
@@ -643,6 +644,11 @@ Int particleSmokeParticleCap( Int shippedCap, Real thickness )
 	if (shippedCap <= 0 || thickness <= 1.0f)
 		return shippedCap;
 
+	// the ceiling bounds what the switch adds, never what the player set: a cap already above it
+	// stays where the player put it
+	if (shippedCap >= CAP_CEILING)
+		return shippedCap;
+
 	Int raised = REAL_TO_INT( shippedCap * thickness );
 	return (raised > CAP_CEILING) ? CAP_CEILING : raised;
 }
@@ -827,7 +833,7 @@ Bool Particle::update( const ParticleUpdateContext &context )
 		else if (fadeFrames == 0)
 			fadeFrames = 1;
 
-		if (m_lifetimeLeft <= fadeFrames)
+		if (m_lifetimeLeft <= fadeFrames && !TheGlobalData->m_classicGraphics)
 		{
 			// zero on the last frame, so isInvisible below retires it on the frame it would die anyway
 			const Real envelope = (Real)(m_lifetimeLeft - 1) / (Real)fadeFrames;
@@ -1921,6 +1927,9 @@ const Coord3D *ParticleSystem::computeParticleVelocity( const Coord3D *pos )
 
 			switch( m_emissionVolumeType )
 			{
+				// a box is read as a cylinder: out across the ground from its centre line, and up at
+				// the other speed, so a flat box over a hull throws its debris up and out of it
+				case BOX:
 				case CYLINDER:
 					Coord2D disk;
 
@@ -1933,7 +1942,6 @@ const Coord3D *ParticleSystem::computeParticleVelocity( const Coord3D *pos )
 					newVel.z = otherSpeed;
 					break;
 
-				case BOX:				///< @todo Implement BOX OUTWARD velocity
 				case SPHERE:
 				{
 					newVel.x = pos->x - sysPos.x;
@@ -2086,7 +2094,7 @@ const Coord3D *ParticleSystem::computeParticlePosition( void )
 				// 1 is left , 4 is right
 				// 2 is front, 5 is right back
 
-				int side = GameClientRandomValue(0, 6);
+				int side = GameClientRandomValue(0, 5);
 				if (side % 3 == 0) {
 					// generate X, Y
 					newPos.x = GameClientRandomValueReal( -m_emissionVolume.box.halfSize.x, m_emissionVolume.box.halfSize.x );
@@ -2104,7 +2112,7 @@ const Coord3D *ParticleSystem::computeParticlePosition( void )
 					if (side == 1) {
 						newPos.x = -m_emissionVolume.box.halfSize.x;
 					} else {
-						newPos.x = m_emissionVolume.box.halfSize.y;
+						newPos.x = m_emissionVolume.box.halfSize.x;
 					}
 
 				} else if (side % 3 == 2) {
@@ -2121,8 +2129,8 @@ const Coord3D *ParticleSystem::computeParticlePosition( void )
 				newPos.x = GameClientRandomValueReal( -m_emissionVolume.box.halfSize.x, m_emissionVolume.box.halfSize.x );
 				newPos.y = GameClientRandomValueReal( -m_emissionVolume.box.halfSize.y, m_emissionVolume.box.halfSize.y );
 				newPos.z = GameClientRandomValueReal( -m_emissionVolume.box.halfSize.z, m_emissionVolume.box.halfSize.z );
-			break;
 			}
+			break;
 		}
 
 		case LINE:
@@ -2399,9 +2407,6 @@ Bool ParticleSystem::updateEmission( Int localPlayerIndex, Bool *keepSystem )
 	Bool transformSet = false;
 	const Matrix3D *parentXfrm = NULL;
 	Bool isShrouded = false;
-	// the hull of a tank or car is drawn trailing its logic heading, and exhaust and damage smoke
-	// hang off the hull as drawn (Drawable::getDrawnHeadingLag)
-	Matrix3D drawnXfrm;
 
 	if (m_attachedToDrawableID)
 	{
@@ -2412,9 +2417,7 @@ Bool ParticleSystem::updateEmission( Int localPlayerIndex, Bool *keepSystem )
 			if (attachedTo->getFullyObscuredByShroud())
 				isShrouded = true;
 
-			drawnXfrm = *attachedTo->getTransformMatrix();
-			drawnXfrm.Rotate_Z( attachedTo->getDrawnHeadingLag() );
-			parentXfrm = &drawnXfrm;
+			parentXfrm = attachedTo->getTransformMatrix();
 
 			m_lastPos = m_pos;
 			m_pos = *attachedTo->getPosition();
@@ -2440,11 +2443,7 @@ Bool ParticleSystem::updateEmission( Int localPlayerIndex, Bool *keepSystem )
       const Drawable * draw = objectAttachedTo->getDrawable();
 			m_attachedObjectDrawableForDraw = draw ? draw->getID() : INVALID_DRAWABLE_ID;
       if ( draw )
-      {
-  			drawnXfrm = *draw->getTransformMatrix();
-  			drawnXfrm.Rotate_Z( draw->getDrawnHeadingLag() );
-  			parentXfrm = &drawnXfrm;
-      }
+  			parentXfrm = draw->getTransformMatrix();
       else
   			parentXfrm = objectAttachedTo->getTransformMatrix();
       
@@ -2627,9 +2626,24 @@ Bool ParticleSystem::updateEmission( Int localPlayerIndex, Bool *keepSystem )
 // ------------------------------------------------------------------------------------------------
 /** What every particle of this system reads during this update. */
 // ------------------------------------------------------------------------------------------------
+Coord3D ParticleSystem::getDriftWithWeather( void ) const
+{
+	Coord3D drift = m_driftVelocity;
+	// The Weather option's wind leans what rises and hangs in the air.  A flame's additive and a mark
+	// laid on the ground stay put, and so does an area effect, which shows where a hazard really is.
+	if (TheSnowManager != NULL && TheSnowManager->isWeatherOn() && m_shaderType == ParticleSystemInfo::ALPHA
+			&& !m_isGroundAligned && m_priority != AREA_EFFECT)
+	{
+		const Coord3D &wind = TheSnowManager->getWeatherWind();
+		drift.x += wind.x;
+		drift.y += wind.y;
+	}
+	return drift;
+}
+
 void ParticleSystem::makeUpdateContext( ParticleUpdateContext *context ) const
 {
-	context->driftVelocity = m_driftVelocity;
+	context->driftVelocity = getDriftWithWeather();
 	context->gravity = m_gravity;
 	context->clientFrame = TheGameClient->getFrame();
 	context->shaderType = m_shaderType;
@@ -2839,6 +2853,7 @@ void ParticleSystem::addGpuSamplesToShadowBlob( ParticleShadowBlob *blob ) const
 {
 	const UnsignedInt now = ParticleSystemManager::getParticleFrame();
 	const UnsignedInt samples = getGpuSampleCount();
+	const Coord3D drift = getDriftWithWeather();
 	for (UnsignedInt i = 0; i < samples; ++i)
 	{
 		const GpuSpawnSample &sample = getGpuSample( i );
@@ -2848,8 +2863,8 @@ void ParticleSystem::addGpuSamplesToShadowBlob( ParticleShadowBlob *blob ) const
 			continue;
 
 		const Real travel = info.m_velDamping * particleDampedSum( info.m_velDamping, k );
-		const Real x = info.m_pos.x + k * m_driftVelocity.x + info.m_vel.x * travel;
-		const Real y = info.m_pos.y + k * m_driftVelocity.y + info.m_vel.y * travel;
+		const Real x = info.m_pos.x + k * drift.x + info.m_vel.x * travel;
+		const Real y = info.m_pos.y + k * drift.y + info.m_vel.y * travel;
 		const Real size = info.m_size + info.m_sizeRate * particleDampedSum( info.m_sizeRateDamping, k );
 
 		Real alpha = info.m_alphaKey[ 0 ].value;
@@ -3878,10 +3893,10 @@ void ParticleSystemManager::init( void )
 	/// Read INI data and build templates
 	INI ini;
 	ini.load( AsciiString( "Data\\INI\\ParticleSystem.ini" ), INI_LOAD_OVERWRITE, NULL );
-	// -modfactions: each mod's systems after retail's, under its names
-	INI::loadModPasses( "Data\\INI\\ParticleSystem.ini", NULL );
 	// The fork's own systems, beside EA's 1088 rather than in a loose copy of all of them
+	m_classicReadingForkSystems = TheGlobalData && TheGlobalData->m_classicGraphics;
 	ini.load( AsciiString( "Data\\INI\\ParticleSystemReforged.ini" ), INI_LOAD_OVERWRITE, NULL );
+	m_classicReadingForkSystems = FALSE;
 
 	// "-particlebounce" on the command line: every system hits the terrain, using the built-in
 	// defaults.  Without it nothing changes unless a system's INI sets GroundCollision itself.
@@ -4210,11 +4225,6 @@ ParticleSystemTemplate *ParticleSystemManager::findTemplate( const AsciiString &
 	TemplateMap::const_iterator find(m_templateMap.find(name));
 	if (find != m_templateMap.end()) {
 		sysTemplate = (*find).second;
-	}
-	else {
-		AsciiString retailName;
-		if (TheModNamespace.findRetailName(name, MODNAME_PARTICLESYSTEM, &retailName))
-			sysTemplate = findTemplate(retailName);
 	}
 
 	return sysTemplate;

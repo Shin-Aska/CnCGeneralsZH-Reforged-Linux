@@ -202,6 +202,13 @@ static NameKeyType comboBoxAIPersonaID[MAX_SLOTS] = { NAMEKEY_INVALID,NAMEKEY_IN
 																										NAMEKEY_INVALID,NAMEKEY_INVALID,
 																										NAMEKEY_INVALID,NAMEKEY_INVALID };
 
+static GameWindow *comboBoxHandicap[MAX_SLOTS] = {NULL,NULL,NULL,NULL,
+																								NULL,NULL,NULL,NULL };
+static NameKeyType comboBoxHandicapID[MAX_SLOTS] = { NAMEKEY_INVALID,NAMEKEY_INVALID,
+																										NAMEKEY_INVALID,NAMEKEY_INVALID,
+																										NAMEKEY_INVALID,NAMEKEY_INVALID,
+																										NAMEKEY_INVALID,NAMEKEY_INVALID };
+
 //static GameWindow *buttonStartPosition[MAX_SLOTS] = {NULL,NULL,NULL,NULL,
 //																								NULL,NULL,NULL,NULL };
 //
@@ -219,7 +226,7 @@ void skirmishUpdateSlotList( void );
 void skirmishPositionStartSpots( void );
 static void populateSkirmishBattleHonors( void );
 // The turbo mode box, the only speed a skirmish has besides normal.  It is the fork's control, so a
-// stock or modded SkirmishGameOptionsMenu.wnd that wins over Run/Window has none and plays at normal
+// stock SkirmishGameOptionsMenu.wnd that wins over Run/Window has none and plays at normal
 // speed.  The old game speed dropdown's "FPS" preference is left in the file and never read.
 static Bool turboBoxChecked( void )
 {
@@ -1259,12 +1266,17 @@ void InitSkirmishGameGadgets( void )
 	buttonRecordCloseID = NAMEKEY( "SkirmishGameOptionsMenu.wnd:ButtonRecordClose" );
 	recordPopover = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, NAMEKEY( "SkirmishGameOptionsMenu.wnd:RecordPopover" ) );
 	recordVeil = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, NAMEKEY( "SkirmishGameOptionsMenu.wnd:RecordVeil" ) );
-	recordPopover->winSetInputFunc( recordPopoverInput );
-	// Close's press goes to its parent, the record, which hands it up to the room; the layout gives
-	// the record no system callback, and the press died there
-	recordPopover->winSetSystemFunc( PassMessagesToParentSystem );
-	recordVeil->winSetInputFunc( recordVeilInput );
-	showRecord( FALSE );
+	// a layout from before the record (retail's, in the install folder) has neither, and
+	// no Record button to open them
+	if ( recordPopover )
+	{
+		recordPopover->winSetInputFunc( recordPopoverInput );
+		// Close's press goes to its parent, the record, which hands it up to the room; the layout gives
+		// the record no system callback, and the press died there
+		recordPopover->winSetSystemFunc( PassMessagesToParentSystem );
+		recordVeil->winSetInputFunc( recordVeilInput );
+		showRecord( FALSE );
+	}
 	textEntryMapDisplay =TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, textEntryMapDisplayID );
 	DEBUG_ASSERTCRASH(textEntryMapDisplay, ("Could not find the textEntryMapDisplay"));
 	buttonReset = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, buttonResetID );
@@ -1370,6 +1382,7 @@ void InitSkirmishGameGadgets( void )
 	}
 	
 	InitAIPersonaComboBoxes( parentSkirmishGameOptions, "SkirmishGameOptionsMenu.wnd", comboBoxAIPersona, comboBoxAIPersonaID );
+	InitHandicapComboBoxes( parentSkirmishGameOptions, "SkirmishGameOptionsMenu.wnd", comboBoxHandicap, comboBoxHandicapID );
 	InitLobbySeatVisuals( parentSkirmishGameOptions, "SkirmishGameOptionsMenu.wnd" );
 
 	populateSkirmishBattleHonors();
@@ -1396,6 +1409,7 @@ void skirmishUpdateSlotList( void )
 										comboBoxColor, comboBoxPlayerTemplate,
 									  comboBoxTeam, NULL, buttonStart, buttonMapStartPosition );
 		UpdateAIPersonaComboBoxes( TheSkirmishGameInfo, comboBoxAIPersona );
+		UpdateHandicapComboBoxes( TheSkirmishGameInfo, comboBoxHandicap, comboBoxTeam );
 		UpdateLobbySeatVisuals( TheSkirmishGameInfo );
 		updateMapStartSpots(TheSkirmishGameInfo, buttonMapStartPosition, FALSE);
     doUpdateSlotList = TRUE;
@@ -1424,6 +1438,7 @@ static const char *gadgetsToHide[] =
 	"StaticTextPlayers",
 	"StaticTextColor",
 	"StaticTextTeam",
+	"StaticTextHandicap",
 	"StaticTextFaction",
 	NULL // keep this last
 };
@@ -1431,6 +1446,7 @@ static const char *perPlayerGadgetsToHide[] =
 {
 	"ComboBoxPlayer",
 	"ComboBoxTeam",
+	"ComboBoxHandicap",
 	"ComboBoxColor",
 	"ComboBoxPlayerTemplate",
 	"ComboBoxAIPersona",
@@ -1601,7 +1617,7 @@ void SkirmishGameOptionsMenuInit( WindowLayout *layout, void *userData )
 	//updateSkirmishGameOptions();
 	//initSkirmishGameOptions();
 
-	// the turbo box, which a stock or modded layout does not have (turboBoxChecked)
+	// the turbo box, which a stock layout does not have (turboBoxChecked)
 	GameWindow *checkBoxTurbo = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, checkBoxTurboID );
 	if ( checkBoxTurbo )
 		GadgetCheckBoxSetChecked( checkBoxTurbo, prefs.getInt( "TurboMode", 0 ) != 0 );
@@ -1761,7 +1777,7 @@ WindowMsgHandledType SkirmishGameOptionsMenuInput( GameWindow *window, UnsignedI
 					// back/exit button
 					//
 					// an open record closes first
-					if( BitTest( state, KEY_STATE_UP ) && !recordPopover->winIsHidden() )
+					if( BitTest( state, KEY_STATE_UP ) && recordPopover && !recordPopover->winIsHidden() )
 						showRecord( FALSE );
 					else if( BitTest( state, KEY_STATE_UP ) )
 					{
@@ -1835,6 +1851,10 @@ WindowMsgHandledType SkirmishGameOptionsMenuSystem( GameWindow *window, Unsigned
         else if ( HandleAIPersonaSelection( TheSkirmishGameInfo, comboBoxAIPersona, comboBoxAIPersonaID, (NameKeyType)controlID ) )
         {
           // the slot has it; Skirmish.ini keeps it with the rest of the slot list
+        }
+        else if ( HandleHandicapSelection( TheSkirmishGameInfo, comboBoxHandicap, comboBoxHandicapID, (NameKeyType)controlID ) )
+        {
+          // the same
         }
         else
         {

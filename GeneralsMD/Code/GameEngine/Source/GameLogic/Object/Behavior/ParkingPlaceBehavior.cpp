@@ -241,6 +241,38 @@ Bool ParkingPlaceBehavior::hasReservedSpace(ObjectID id) const
 }
 
 //-------------------------------------------------------------------------------------------------
+/* What reserveSpace would answer, without taking the space: the airfield search asked by reserving,
+	 so every airfield it tried on the way to the nearest kept a space for that jet until it died.
+	 A dead occupant counts as gone, as purgeDead would make it. Helicopters need a space here too
+	 (they park on it), so there is no helipad shortcut as in hasAvailableSpaceFor. */
+Bool ParkingPlaceBehavior::canReserveSpace(ObjectID id) const
+{
+	if (!m_gotInfo || id == INVALID_ID)
+		return false;
+
+	for (std::vector<ParkingPlaceInfo>::const_iterator it = m_spaces.begin(); it != m_spaces.end(); ++it)
+	{
+		if (it->m_objectInSpace == id)
+			return true;
+	}
+
+	for (std::vector<ParkingPlaceInfo>::const_iterator it = m_spaces.begin(); it != m_spaces.end(); ++it)
+	{
+		if (it->m_objectInSpace != INVALID_ID)
+		{
+			Object* obj = TheGameLogic->findObjectByID(it->m_objectInSpace);
+			if (obj == NULL || obj->isEffectivelyDead())
+				return true;
+		}
+		else if (!it->m_reservedForExit)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+//-------------------------------------------------------------------------------------------------
 Int ParkingPlaceBehavior::getSpaceIndex( ObjectID id ) const
 {
 	if( id == INVALID_ID )
@@ -846,7 +878,7 @@ UpdateSleepTime ParkingPlaceBehavior::update()
 					healInfo.in.m_damageType = DAMAGE_HEALING;
 					healInfo.in.m_deathType = DEATH_NONE;
 					healInfo.in.m_sourceID = getObject()->getID();
-  				healInfo.in.m_amount = HEAL_RATE_FRAMES * d->m_healAmount * SECONDS_PER_LOGICFRAME_REAL;
+  				healInfo.in.m_amount = HEAL_RATE_FRAMES * d->m_healAmount * SECONDS_PER_LOGICFRAME_REAL * objToHeal->getHandicapHealthFactor();
 
 //          if ( objToHeal->isKindOf( KINDOF_PRODUCED_AT_HELIPAD ) )
 //            healInfo.in.m_amount += HEAL_RATE_FRAMES * d->m_extraHealAmount4Helicopters * SECONDS_PER_LOGICFRAME_REAL;

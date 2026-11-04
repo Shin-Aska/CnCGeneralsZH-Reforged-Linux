@@ -1331,8 +1331,8 @@ bool Supported()
 }
 #if ZH_MODERN_WATER
 /** The Modern style is asked for and a device draws it.  Classic graphics is the 2003 picture, so it
-		keeps EA's water whatever WaterStyle says, as it keeps the old clouds and drops the foam; the
-		quality slider and its presets put Modern into WaterStyle from Medium up. */
+		keeps EA's water whatever WaterStyle says, as it keeps the old clouds and drops the foam.  The
+		quality slider and its presets leave WaterStyle alone: Modern is the player's own pick. */
 static Bool wantsModernWater(void)
 {
 	return TheGlobalData && TheGlobalData->m_waterStyle != 0 && !TheGlobalData->m_classicGraphics
@@ -3616,7 +3616,8 @@ void WaterRenderObjClass::update( void )
 		if(captureClock) {
 			// Reconstruct all water presentation phases, including legacy fallback textures, from
 			// the same absolute time. No repeated-add drift and no inherited shell/load phase.
-			const double step=capturePicture*(AUTHORED_FPS/double(LOGICFRAMES_PER_SECOND))*WATER_SCROLL_SPEED;
+			const double step=capturePicture*(AUTHORED_FPS/double(LOGICFRAMES_PER_SECOND))
+				*(TheGlobalData->m_classicGraphics ? 1.0 : double(WATER_SCROLL_SPEED));
 			m_riverVOrigin=(Real)(0.002*step);
 			m_riverXOffset=(Real)std::fmod((0.0125*33/5000)*step,1.0);
 			m_riverYOffset=(Real)std::fmod((2*0.0125*33/5000)*step,1.0);
@@ -3624,7 +3625,7 @@ void WaterRenderObjClass::update( void )
 			m_bumpFrameAccum=(Real)(bump-std::floor(bump));
 			m_iBumpFrame=(Int)std::fmod(std::floor(bump),double(NUM_BUMP_FRAMES));
 		} else {
-		const Real step = elapsedSec * AUTHORED_FPS * WATER_SCROLL_SPEED;
+		const Real step = elapsedSec * AUTHORED_FPS * (TheGlobalData->m_classicGraphics ? 1.0f : WATER_SCROLL_SPEED);
 
 		m_riverVOrigin += 0.002f * step;
 		m_riverXOffset += (Real)(0.0125*33/5000) * step;

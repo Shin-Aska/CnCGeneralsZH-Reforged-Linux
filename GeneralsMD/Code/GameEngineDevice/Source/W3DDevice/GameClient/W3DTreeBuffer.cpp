@@ -72,6 +72,7 @@ enum
 #include "Common/Player.h"
 #include "Common/PlayerList.h"
 #include "GameLogic/ScriptEngine.h"
+#include "GameClient/Snow.h"
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/Object.h"
 #include "GameLogic/PartitionManager.h"
@@ -2225,7 +2226,7 @@ void W3DTreeBuffer::stepTrees( void )
 	}
 #if defined(__linux__)
 	// The sun pass and the main view share this sync point's breeze and pause state.
-	m_breezeForDraw = TheScriptEngine->getBreezeInfo();
+	m_breezeForDraw = weatherBreezeInfo();
 	m_pauseForDraw = pause;
 #endif
 	const UnsignedInt now = TheGameClient ? TheGameClient->getFrame() : 0;
@@ -2296,12 +2297,12 @@ void W3DTreeBuffer::drawTrees(CameraClass * camera, RefRenderObjListIterator *pD
 	// if breeze changes, always process the full update, even if not visible, 
 	// so that things offscreen won't 'pop' when first viewed
 #if defined(__linux__)
-	const BreezeInfo& info = LogicThread::isInsideWindow() ? m_breezeForDraw : TheScriptEngine->getBreezeInfo();
+	const BreezeInfo& info = LogicThread::isInsideWindow() ? m_breezeForDraw : weatherBreezeInfo();
 	Bool pause = LogicThread::isInsideWindow() ? m_pauseForDraw
 		: TheScriptEngine->isTimeFrozenScript() || TheScriptEngine->isTimeFrozenDebug()
 			|| (TheGameLogic && TheGameLogic->isGamePaused());
 #else
-	const BreezeInfo& info = TheScriptEngine->getBreezeInfo();
+	const BreezeInfo& info = weatherBreezeInfo();
 	Bool pause = TheScriptEngine->isTimeFrozenScript() || TheScriptEngine->isTimeFrozenDebug();
 	if (TheGameLogic && TheGameLogic->isGamePaused()) {
 		pause = true;

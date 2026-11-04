@@ -308,6 +308,10 @@ public:
 	ModelConditionFlags								m_ignoreConditionStates;
 	Bool															m_okToChangeModelColor;
 	Bool															m_animationsRequirePower;///< Should UnderPowered disable type pause animations in this draw module?
+	Bool															m_stabilizedTurretPitch;	///< draw a pitch bone at the logic's pitch against level ground, whatever the drawn hull's tilt
+	Real															m_barrelArtPitch;					///< with that: how far the barrel's mesh is modelled above level at rest, taken off the drawn pitch
+	AsciiString												m_landingGearSubObject;		///< a sub-object shown on the ground and hidden once the object is m_landingGearUpHeight above it
+	Real															m_landingGearUpHeight;
 #ifdef CACHE_ATTACH_BONE
 	mutable Bool											m_attachToDrawableBoneOffsetValid;
 #endif
@@ -362,8 +366,6 @@ public:
 	virtual void doDrawModule(const Matrix3D* transformMtx);
 	virtual void buildRenderObjects( Bool madeInTick );
 
-	/// the name the render object was made from; under -modfactions it keeps the "M<n>~" its Get_Name drops
-	const AsciiString& getCurrentModelName() const { return m_curState->m_modelName; }
 	/// Hands the frame's lit headlights to the Direct3D 11 frame, nearest the camera first.  Once a
 	/// frame, after the smooth motion has placed every model and before anything is drawn.
 	static void lightHeadlights(const Vector3& cameraPosition);
@@ -409,6 +411,7 @@ public:
 	virtual Bool getCurrentWorldspaceClientBonePositions(const char* boneName, Matrix3D& transform) const;
 	virtual Bool getProjectileLaunchOffset(const ModelConditionFlags& condition, WeaponSlotType wslot, Int specificBarrelToUse, Matrix3D* launchPos, WhichTurretType tur, Coord3D* turretRotPos, Coord3D* turretPitchPos = NULL) const;
 	virtual void updateProjectileClipStatus( UnsignedInt shotsRemaining, UnsignedInt maxShots, WeaponSlotType slot ); ///< This will do the show/hide work if ProjectileBoneFeedbackEnabled is set.
+	virtual Int getProjectileClipFeedbackSlots() const;
 	virtual void updateDrawModuleSupplyStatus( Int maxSupply, Int currentSupply ); ///< This will do visual feedback on Supplies carried
 	virtual void notifyDrawModuleDependencyCleared( ){}///< if you were waiting for something before you drew, it's ready now
 
@@ -475,8 +478,6 @@ protected:
 	void stopClientParticleSystems();
 	void doHideShowSubObjs(const std::vector<ModelConditionInfo::HideShowSubObjInfo>* vec);
 	virtual void adjustTransformMtx(Matrix3D& mtx) const;
-	/// how far the hull this model is drawn on trails its logic heading, which a turret aims from
-	virtual Real getHullHeadingLag() const;
 
 	Real getCurAnimDistanceCovered() const;
 	Bool setCurAnimDurationInMsec(Real duration);
@@ -531,6 +532,7 @@ private:
 	Int														m_hexColor;
 	Int														m_whichAnimInCurState;						///< the index of the currently playing anim in cur state (if any)
 	WeaponRecoilInfoVec						m_weaponRecoilInfoVec[WEAPONSLOT_COUNT];
+	Real													m_drawnTurretPitch[MAX_TURRETS];		///< the pitch handleClientTurretPositioning gave each turret's pitch bone this frame
 	Bool													m_needRecalcBoneParticleSystems;
 	Coord3D												m_groundMotionPos;								///< where stepGroundMotion last saw the unit
 	Real													m_groundMotionAngle;

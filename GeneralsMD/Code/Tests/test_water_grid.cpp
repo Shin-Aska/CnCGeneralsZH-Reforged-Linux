@@ -6532,6 +6532,8 @@ TEST(water_style_changes_at_render_boundary_without_advancing_paused_time_or_rel
 #endif
     GlobalData *saved=TheWritableGlobalData;
     GlobalData *scratch=NEW GlobalData;TheWritableGlobalData=scratch;
+    scratch->m_classicGraphics=FALSE; // Opt into the live selectors; Classic override is checked below.
+    scratch->m_waterStyle=1; // Start Modern so iteration zero exercises a real transition to Classic.
     WaterTransparencySetting *savedTransparency=(WaterTransparencySetting*)TheWaterTransparency.getNonOverloadedPointer();
     TheWaterTransparency=newInstance(WaterTransparencySetting);
 #if defined(__linux__)

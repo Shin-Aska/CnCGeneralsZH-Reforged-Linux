@@ -208,11 +208,6 @@ public:
 	Real m_groundPitch;					///< a ground vehicle's chassis pitch, roll and lift from that frame, drawn until the next one
 	Real m_groundRoll;
 	Real m_groundZ;
-	Real m_headingLag;					///< a ground vehicle's drawn heading minus its logic heading, sprung back towards 0
-	Real m_headingLagRate;			///< and how fast that changes, a logic frame
-	Real m_headingLogic;				///< the logic heading on m_headingFrame
-	UnsignedInt m_headingFrame;	///< the logic frame the heading spring last stepped on
-	Bool m_headingSeeded;				///< m_headingLogic and m_headingFrame hold a real heading and frame
 	TWheelInfo m_wheelInfo;			///< Wheel offset & angle info for a wheeled type locomotor.
 
 	DrawableLocoInfo();
@@ -474,6 +469,7 @@ public:
 		first (animation timing, a model rebuild), which an on-demand flush inside the tick runs; the
 		rest an on-demand flush leaves for after the tick. */
 	void doClientWork( const std::function<void()>& work, ClientWorkOrder order, Bool movesBones = FALSE );
+	void startCollapse();		///< the Collapse option, on the way to rubble
 
 	//---------------------------------------------------------------------------
 	void setDrawableStatus( DrawableStatus bit )  { BitSet( m_status, bit ); }
@@ -554,8 +550,11 @@ public:
 		UnsignedInt			tintStatus;
 		Vector3					tintColor;
 		Vector3					selectionColor;
+		Coord3D					position;
 	};
 	void takeLookForDraw( void );
+	/** Where it stood at the sync point, for the draw's own walks of the drawables: the Thing's cache moves with the tick. */
+	const Coord3D *getPositionForDraw( void ) const { return &m_lookForDraw.position; }
 
 	void colorFlash( const RGBColor *color, UnsignedInt decayFrames = DEF_DECAY_FRAMES, UnsignedInt attackFrames = 0, UnsignedInt sustainAtPeak = FALSE );  ///< flash a drawable in the color specified for a short time
 	void colorTint( const RGBColor *color );	 ///< tint this drawable the color specified
@@ -636,8 +635,6 @@ public:
 	const TWheelInfo *getWheelInfo(void) const { return m_locoInfo ? &m_locoInfo->m_wheelInfo : NULL; }
 	
 	const DrawableLocoInfo *getLocoInfo() const { return m_locoInfo; }
-	/// how far the drawn hull of a tank or car trails its logic heading (calcPhysicsXformGround), 0 for anything else
-	Real getDrawnHeadingLag() const { return m_locoInfo ? m_locoInfo->m_headingLag : 0.0f; }
 
 	// this method must ONLY be called from the client, NEVER From the logic, not even indirectly.
 	Bool clientOnly_getFirstRenderObjInfo(Coord3D* pos, Real* boundingSphereRadius, Matrix3D* transform);
@@ -795,9 +792,8 @@ protected:
 		Real m_totalRoll;						///< Current total roll for this frame.
 		Real m_totalYaw;						///< Current total yaw for this frame
 		Real m_totalZ;
-		Real m_headingYaw;					///< a ground vehicle's heading lag, turned before the pitch and roll
 
-		PhysicsXformInfo() : m_totalPitch(0), m_totalRoll(0), m_totalYaw(0), m_totalZ(0), m_headingYaw(0) { }
+		PhysicsXformInfo() : m_totalPitch(0), m_totalRoll(0), m_totalYaw(0), m_totalZ(0) { }
 	};
 
 	Bool calcPhysicsXform(PhysicsXformInfo& info);
@@ -902,7 +898,6 @@ private:
 	DisplayString*			m_constructDisplayString;  ///< string to display construction % complete
 	DisplayString*			m_supplyCashDisplayString; ///< string to display the cash left in a supply pile
 	Int									m_lastSupplyCashDisplayed; ///< so the string is only rebuilt when the pile shrinks
-	DisplayString*			m_productionTimeDisplayString; ///< seconds left on what this building is making
 	DisplayString*			m_chargeTimeDisplayString; ///< seconds left on a public timer charging here
 	DisplayString*			m_captionDisplayString;		///< string to display caption
 	DisplayString*			m_groupNumber;						///< string to display the group number of this drawable
@@ -928,6 +923,7 @@ private:
 	mutable Bool m_clientWorkQueued;		///< this drawable's ID is in the list flushPendingClientWork walks
 	Bool m_transformPending;						///< the tick moved it; the draw modules have not been told
 	Bool m_renderPending;								///< made in a tick: the draw modules have not built their render objects
+	Int m_clipFeedbackSlots;						///< the draw modules' getProjectileClipFeedbackSlots, or'd at creation
 	struct PendingStep
 	{
 		ModelConditionFlags condition;		///< a state an in-tick flush would have applied, when work is empty
@@ -947,14 +943,6 @@ private:
 	//Perhaps we can move this out of Drawable???
 public:
 	static void killStaticImages();
-	/// one rank insignia of the thing's side (RankLadder::insigniaIndex), at `scale` times its health bar
-	/// size; FALSE when there is none. `centred` puts its middle on `x`.
-	static Bool drawRankInsignia( const ThingTemplate *thing, Int insignia, Int x, Int top, Bool centred, Real scale, Color color );
-	static const Image *getRankInsignia( const ThingTemplate *thing, Int insignia );	///< NULL: none drawn
-	static const Image *getRankInsignia( const Object *obj );	///< what obj wears now; NULL at grade 0 and for anything that cannot climb
-	/// its health bar size: DisplayHeight high (12 when unset), width following up to 1.5 times the height, all times `scale`
-	static void rankInsigniaSize( const Image *image, Real scale, Int *width, Int *height );
-
 #ifdef DIRTY_CONDITION_FLAGS
 	// only for StDrawableDirtyStuffLocker!
 	static void friend_lockDirtyStuffForIteration();
@@ -977,6 +965,7 @@ private:
 	void drawEmoticon( const IRegion2D* healthBarRegion );
 	void drawHealthBar( const IRegion2D* healthBarRegion );					///< draw heath bar
 	void drawCaptureProgress( void );																///< the clock under the health bar of the building this one is taking
+	void drawAltitudeLine( void );																	///< the line from an aircraft in the air down to the ground under it
 	void drawHealing( const IRegion2D* healthBarRegion );						///< draw icons
 	void drawEnthusiastic( const IRegion2D* healthBarRegin );				///< draw icons
 #ifdef ALLOW_DEMORALIZE

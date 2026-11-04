@@ -320,7 +320,8 @@ retains the previous target or tries 512×512 on initial allocation.
 The synthetic comparison renders separate 512 and 1024 targets. Existing scene banks
 keep their captured resolution and demonstrate the filtering change only.
 
-In the Linux game, **Options → Effects → Reflections → Water reflection** selects
+In the Linux game, turn off **Options → Graphics → Classic graphics** and restart, then select
+**Modern** under **Water style**. **Options → Effects → Reflections → Water reflection** selects
 Legacy, SSR, Hybrid or Path traced. **Accept** applies the change live and saves `WaterReflection`
 to Options.ini (`0`, `1`, `2` or `3`, respectively). Hybrid remains the default when the
 preference is absent. These modes apply to **Modern** water, selected under Graphics;

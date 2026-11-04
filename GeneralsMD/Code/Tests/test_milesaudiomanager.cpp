@@ -171,6 +171,7 @@ public:
 		processCompletedAudio();
 		setDeviceListenerPosition();
 		processRequestList();
+		m_audioCache->waitForLoads();		// the next tick plays what this one asked the disk for, however slow the disk
 		processPlayingList();
 		processFadingList();
 	}
@@ -532,11 +533,11 @@ TEST(two_track_changes_in_one_update_leave_one_track_playing)
 		TheAudio->removeAudioEvent( AHSV_StopTheMusicFade );
 		play( pick );
 	}
-	audio->tick();
+	audio->runFor( 20 );		// one tick for the stops and to warm the file, one to start the last track
 	CHECK_EQ( audio->musicPlaying(), 1 );
 	// a track started with no stop in front of it replaces the one playing
 	play( pick );
-	audio->tick();
+	audio->runFor( 20 );
 	CHECK_EQ( audio->musicPlaying(), 1 );
 	TheAudio->removeAudioEvent( AHSV_StopTheMusic );
 	audio->runFor( 100 );
@@ -567,7 +568,7 @@ TEST(carrier_selection_move_and_attack_variants_are_all_available_without_disk_r
 {
 	TestAudio *audio = theAudio();
 	const std::vector<AsciiString> names = { "AircraftCarrierVoiceSelect", "AircraftCarrierVoiceMove", "AircraftCarrierVoiceAttack" };
-	audio->AudioManager::reset();
+	audio->reset();
 	TheWritableGlobalData->m_assetPreloading = FALSE;
 	audio->preloadAudioEvents(names);
 	AudioEventRTS probe(names.front());
@@ -603,21 +604,72 @@ TEST(carrier_selection_move_and_attack_variants_are_all_available_without_disk_r
 				++clips;
 			}
 		}
-		// Exercise the normal first-use sample decoder too, without an older decoded-cache hit.
-		AudioFileCache decoded;
-		decoded.setMaxSize(4 * 1024 * 1024);
+		// Disconnect both disk sources after preloading. A successful first decode must use the
+		// resident encoded bytes, including when the new loader performs the read on its worker.
 		event.generatePlayInfo();
 		event.generateFilename();
 		event.setNextPlayPortion(PP_Sound);
-		const auto started = std::chrono::steady_clock::now();
-		void *sample = decoded.openFile(&event);
-		const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
-		if (ms > longestDecodeMS) longestDecodeMS = ms;
-		CHECK( sample != NULL );
-		if (sample) decoded.closeFile(sample);
+		LocalFileSystem *savedLocal = TheLocalFileSystem;
+		ArchiveFileSystem *savedArchives = TheArchiveFileSystem;
+		TheLocalFileSystem = NULL;
+		TheArchiveFileSystem = NULL;
+		for (Int asynchronous = 0; asynchronous < 2; ++asynchronous)
+		{
+			AudioFileCache decoded;
+			decoded.setMaxSize(4 * 1024 * 1024);
+			const auto started = std::chrono::steady_clock::now();
+			if (asynchronous)
+			{
+				CHECK( !decoded.fileIsReady(&event, TRUE) );
+				decoded.waitForLoads();
+				CHECK( decoded.fileIsReady(&event, TRUE) );
+			}
+			void *sample = decoded.openFile(&event);
+			const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+			if (ms > longestDecodeMS) longestDecodeMS = ms;
+			CHECK( sample != NULL );
+			if (sample) decoded.closeFile(sample);
+		}
+		TheLocalFileSystem = savedLocal;
+		TheArchiveFileSystem = savedArchives;
 	}
 	printf("  carrier: %d command voice clips served from RAM; longest first-use sample decode %.2f ms\n", clips, longestDecodeMS);
 	CHECK( clips >= 10 );
+}
+
+TEST(preloaded_stream_warmup_never_opens_the_disk_sources)
+{
+	TestAudio *audio = theAudio();
+	audio->reset();
+	const Pick pick = pickEvent(AT_Streaming, 0, 0, 4.0);
+	CHECK(!pick.name.isEmpty());
+	if (pick.name.isEmpty()) return;
+	audio->preloadAudioEvents({pick.name});
+	File *resident = audio->openPreloadedAudioFile(pick.file.str());
+	CHECK(resident != NULL);
+	if (!resident) return;
+	resident->close();
+
+	class DiskReadProbe : public PosixLocalFileSystem
+	{
+	public:
+		std::atomic<unsigned> opens{0};
+		File *openFile(const Char *, Int = 0) override { ++opens; return NULL; }
+	} disk;
+	LocalFileSystem *savedLocal = TheLocalFileSystem;
+	ArchiveFileSystem *savedArchives = TheArchiveFileSystem;
+	TheLocalFileSystem = &disk;
+	TheArchiveFileSystem = NULL;
+	{
+		AudioFileCache cache;
+		CHECK(!cache.streamIsWarm(pick.file));
+		cache.waitForLoads();
+		CHECK(cache.streamIsWarm(pick.file));
+		cache.streamOpened(pick.file);
+	}
+	TheLocalFileSystem = savedLocal;
+	TheArchiveFileSystem = savedArchives;
+	CHECK_EQ(disk.opens.load(), 0u);
 }
 
 TEST(preloaded_audio_preserves_bytes_random_streams_and_independent_file_lifetimes)

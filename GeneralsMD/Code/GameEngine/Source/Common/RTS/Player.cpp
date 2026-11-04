@@ -812,7 +812,12 @@ void Player::update()
 	{
 		UnsignedInt now = TheGameLogic->getFrame();
 		//Only check and post the message once every second so we don't spam the message stream to account for lag.
-		if( now % LOGICFRAMES_PER_SECOND == 0 )
+		// Not while a mission's script holds the player's input, as EA's input gate kept it out: retaliation
+		// in an opening cinematic set the player's idle props shooting at what the script needs alive.  On
+		// China's first mission they killed the bomb truck short of the area its detonation waits for, so the
+		// cinematic never ended.
+		const Bool inputHeldByMission = TheGameLogic->isInSinglePlayerGame() && TheScriptEngine->isInputHeldByScript();
+		if( now % LOGICFRAMES_PER_SECOND == 0 && !inputHeldByMission )
 		{
 			if( TheGlobalData->m_clientRetaliationModeEnabled != isLogicalRetaliationModeEnabled() )
 			{
@@ -870,8 +875,8 @@ void Player::setDefaultTeam(void) {
 	if (dt == NULL) {
 		/* A skirmish slot takes the name of the skirmish side its general's scripts are written for
 			 (initFromDict), drops its own teamplayer<n>, and gets its teams from those scripts instead.  A
-			 general the skirmish scripts have no player for - a mod's, under the fork's SkirmishScripts.scb -
-			 is left with no team at all, and the AI read the NULL on its first pass.  Every player is given
+			 general the skirmish scripts have no player for is left with no team at all, and the AI read
+			 the NULL on its first pass.  Every player is given
 			 its default team here, so the singleton validateSides would have added is made now. */
 		DEBUG_LOG(("Player::setDefaultTeam - %s had no %s, making it\n", m_playerName.str(), tname.str()));
 		Dict d;
@@ -911,7 +916,6 @@ void Player::initFromDict(const Dict* d)
 		// poorly-formed user maps might not, which would be bad, and could crash us later. so if it doesn't
 		// actually have a skirmish player defined for this side, declare it nonskirmish... the player won't
 		// really work, but it's better than crashing.
-		// -modfactions: a mod faction may have a skirmish player of its own mod's scripts, or retail's of its side
 		skirmish = pt != NULL && TheSidesList->findSkirmishSideFor(pt, NULL) != NULL;
 
 		DEBUG_ASSERTCRASH(skirmish, ("Could not find skirmish player for side %s... quietly making into nonskirmish.", getSide().str()));
@@ -970,7 +974,6 @@ void Player::initFromDict(const Dict* d)
 		AsciiString mySide = getSide();
 		Int i;
 		AsciiString  qualTemplatePlayerName;
-		// -modfactions: a mod faction runs its own mod's skirmish scripts and teams when the mod ships them
 		TeamsInfoRec *skirmishTeams = NULL;
 		SidesInfo *skirmishSide = TheSidesList->findSkirmishSideFor(getPlayerTemplate(), &skirmishTeams);
 		const Bool found = skirmishSide != NULL;
@@ -1149,6 +1152,13 @@ void Player::becomingTeamMember(Object *obj, Bool yes, Bool objectXferLoad)
 	if (!obj)
 		return;
 
+	// Object::setOrRestoreTeam calls this right after the team member list changes, before
+	// anything below can ask for a count, and on a load too
+	if (yes)
+		addTemplateCountMember(obj);
+	else
+		removeTemplateCountMember(obj);
+
 	// energy production/consumption hooks, note we ignore things that are UNDER_CONSTRUCTION
 	if( !obj->getStatusBits().test( OBJECT_STATUS_UNDER_CONSTRUCTION ) )
 	{
@@ -1283,7 +1293,19 @@ void Player::becomingLocalPlayer(Bool yes)
 //-------------------------------------------------------------------------------------------------
 Bool Player::isSkirmishAIPlayer( void )
 {
-	return m_ai ? m_ai->isSkirmishAI() : false; 
+	return m_ai ? m_ai->isSkirmishAI() : false;
+}
+
+//-------------------------------------------------------------------------------------------------
+Bool Player::aiRunsOwnAI( void ) const
+{
+	return m_ai != NULL && m_ai->runsOwnAI();
+}
+
+//-------------------------------------------------------------------------------------------------
+Bool Player::isForkMapComputer( void ) const
+{
+	return m_playerType == PLAYER_COMPUTER && TheSidesList != NULL && TheSidesList->forkAIMap();
 }
 
 
@@ -1312,6 +1334,12 @@ void Player::noteTeamRequest( Int kind, Int from, Int enemy, const Coord3D *pos 
 {
 	if( m_ai )
 		m_ai->noteTeamRequest( (AITeamRequestKind)kind, from, enemy, pos );
+}
+
+void Player::noteStrikeLaunched( const Player *launcher )
+{
+	if( m_ai )
+		m_ai->noteStrikeLaunched( launcher );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1697,7 +1725,7 @@ void Player::onUnitLost(const Object *obj)
 //-------------------------------------------------------------------------------------------------
 Bool Player::isAIDutyAmbulance(const Object *obj) const
 {
-	return m_ai ? m_ai->isDutyAmbulance(obj) : FALSE;
+	return m_ai && m_ai->runsOwnAI() ? m_ai->isDutyAmbulance(obj) : FALSE;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1946,20 +1974,109 @@ void Player::iterateObjects( ObjectIterateFunc func, void *userData ) const
 	}
 }
 
+// Walk every team on every count, the way the count was taken before the lists, and log any
+// difference. Debug only; define it in Release for a replay-check proof run.
+#ifdef _DEBUG
+#define TEMPLATE_COUNT_CHECK
+#endif
+
+//=============================================================================
+void Player::addTemplateCountMember(Object *obj)
+{
+	// Object's constructor pins getTemplate() to the final override, and a map's INI overrides
+	// are all hung before the first object exists, so the key holds for the object's life
+	const ThingTemplate *tmpl = obj->getTemplate();
+	for (std::vector<TemplateCountMembers>::iterator it = m_templateCountMembers.begin(); it != m_templateCountMembers.end(); ++it)
+	{
+		if (it->m_template == tmpl)
+		{
+			it->m_objects.push_back(obj);
+			return;
+		}
+	}
+	m_templateCountMembers.push_back(TemplateCountMembers());
+	m_templateCountMembers.back().m_template = tmpl;
+	m_templateCountMembers.back().m_objects.push_back(obj);
+}
+
+//=============================================================================
+void Player::removeTemplateCountMember(Object *obj)
+{
+	const ThingTemplate *tmpl = obj->getTemplate();
+	for (std::vector<TemplateCountMembers>::iterator it = m_templateCountMembers.begin(); it != m_templateCountMembers.end(); ++it)
+	{
+		if (it->m_template != tmpl)
+			continue;
+
+		std::vector<Object *> &objects = it->m_objects;
+		for (size_t k = 0; k < objects.size(); ++k)
+		{
+			if (objects[k] == obj)
+			{
+				objects[k] = objects.back();
+				objects.pop_back();
+				return;
+			}
+		}
+		break;
+	}
+	DEBUG_CRASH(("Player %d leaves object %d '%s' it never counted\n", getPlayerIndex(), obj->getID(), tmpl->getName().str()));
+}
+
+//=============================================================================
+Bool Player::hasTemplateMember(const ThingTemplate *tmpl) const
+{
+	for (std::vector<TemplateCountMembers>::const_iterator it = m_templateCountMembers.begin(); it != m_templateCountMembers.end(); ++it)
+	{
+		if (!it->m_objects.empty() && it->m_template->isEquivalentTo(tmpl))
+			return true;
+	}
+	return false;
+}
+
 //=============================================================================
 void Player::countObjectsByThingTemplate(Int numTmplates, const ThingTemplate* const * things, Bool ignoreDead, Int *counts, Bool ignoreUnderConstruction ) const
 {
-	Int i;
-
-	for (i = 0; i < numTmplates; ++i)
+	for (Int i = 0; i < numTmplates; ++i)
 		counts[i] = 0;
 
-	for (PlayerTeamList::const_iterator it = m_playerTeamPrototypes.begin(); 
-			 it != m_playerTeamPrototypes.end(); 
-			 ++it)
-	{	
-		(*it)->countObjectsByThingTemplate(numTmplates, things, ignoreDead, counts, ignoreUnderConstruction);
+	// The walk counts an object once, for the first template it is equivalent to, and whether it
+	// counts at all is a question about the object alone. Every object in one list shares its
+	// template, so one equivalence pass per list stands for all of them.
+	for (std::vector<TemplateCountMembers>::const_iterator it = m_templateCountMembers.begin(); it != m_templateCountMembers.end(); ++it)
+	{
+		if (it->m_objects.empty())
+			continue;
+
+		Int i = 0;
+		while (i < numTmplates && !it->m_template->isEquivalentTo(things[i]))
+			++i;
+		if (i == numTmplates)
+			continue;
+
+		for (std::vector<Object *>::const_iterator obj = it->m_objects.begin(); obj != it->m_objects.end(); ++obj)
+		{
+			if (Team::countsTowardTemplate(*obj, ignoreDead, ignoreUnderConstruction))
+				++counts[i];
+		}
 	}
+
+#ifdef TEMPLATE_COUNT_CHECK
+	static UnsignedInt s_checks = 0;
+	static UnsignedInt s_mismatches = 0;
+	std::vector<Int> walked(numTmplates, 0);
+	for (PlayerTeamList::const_iterator it = m_playerTeamPrototypes.begin(); it != m_playerTeamPrototypes.end(); ++it)
+		(*it)->countObjectsByThingTemplate(numTmplates, things, ignoreDead, walked.data(), ignoreUnderConstruction);
+	for (Int i = 0; i < numTmplates; ++i)
+	{
+		if (walked[i] != counts[i] && ++s_mismatches <= 50)
+			DEBUG_LOG(("TEMPLATECOUNT MISMATCH: frame %u player %d '%s' lists %d walk %d (ignoreDead %d ignoreUnderConstruction %d)\n",
+				TheGameLogic->getFrame(), getPlayerIndex(), things[i] ? things[i]->getName().str() : "(null)",
+				counts[i], walked[i], ignoreDead, ignoreUnderConstruction));
+	}
+	if ((++s_checks & 0x3FFFF) == 0)
+		DEBUG_LOG(("TEMPLATECOUNT CHECK: %u calls, %u mismatches, frame %u\n", s_checks, s_mismatches, TheGameLogic->getFrame()));
+#endif
 }
 
 //=============================================================================
@@ -2640,7 +2757,7 @@ Bool Player::calcClosestConstructionZoneLocation( const ThingTemplate *construct
 }
 
 //=============================================================================
-void Player::doBountyForKill(const Object* killer, const Object* victim, Real rankShare)
+void Player::doBountyForKill(const Object* killer, const Object* victim)
 {
 	if (!killer || !victim)
 		return;
@@ -2653,13 +2770,12 @@ void Player::doBountyForKill(const Object* killer, const Object* victim, Real ra
 	// Rounding up a product of two floats hands you an extra dollar whenever the multiplication
 	// lands a hair above a whole number - a 10% bounty on a 1000 cost unit paid 101. Take an
 	// epsilon off first, so only a genuine fraction rounds up.
-	Int bounty = REAL_TO_INT_CEIL((costToBuild * (m_cashBountyPercent + rankShare)) - WWMATH_EPSILON);
+	Int bounty = REAL_TO_INT_CEIL((costToBuild * m_cashBountyPercent) - WWMATH_EPSILON);
 	
 	if( bounty )
 	{
 
-		getMoney()->deposit( bounty );
-		m_scoreKeeper.addMoneyEarned( bounty );
+		bounty = earnMoney( bounty );
 
 		// Display cash income floating over the recipient - but not to an enemy of a killer it cannot see,
 		// or the number gives the stealthed unit away. Client display only, the deposit above is logic.
@@ -2686,14 +2802,6 @@ Bool Player::hasPrereqsForScience(ScienceType t) const
 }
 
 //=============================================================================
-/** The rank table a player climbs: under -modfactions a mod faction's is its own mod's Rank.ini, so
-	* it gets that mod's ranks, points and rank sciences ("M<n>~SCIENCE_Rank3") and nothing of retail's. */
-static Int rankMod(const Player *player)
-{
-	return player->getPlayerTemplate() ? player->getPlayerTemplate()->getModIndex() : -1;
-}
-
-//=============================================================================
 /// returns TRUE if the player gained/lost levels as a result.
 Bool Player::addSkillPoints(Int delta)
 {
@@ -2702,8 +2810,8 @@ Bool Player::addSkillPoints(Int delta)
 	if( delta == 0 )
 		return false;
 
-	Int levelCap = min( TheGameLogic->getRankLevelLimit(), TheRankInfoStore->getRankLevelCount(rankMod(this)) );
-	Int pointCap = TheRankInfoStore->getRankInfo(levelCap, rankMod(this))->m_skillPointsNeeded; // Cap at lowest point of cap level, not highest.
+	Int levelCap = min( TheGameLogic->getRankLevelLimit(), TheRankInfoStore->getRankLevelCount() );
+	Int pointCap = TheRankInfoStore->getRankInfo(levelCap)->m_skillPointsNeeded; // Cap at lowest point of cap level, not highest.
 
 	Bool levelGained = FALSE;
 	m_skillPoints = min( pointCap, (m_skillPoints + delta) );
@@ -2745,7 +2853,7 @@ void Player::resetSciences()
 
 	for (Int i = 1; i <= m_rankLevel; ++i)
 	{
-		const RankInfo* rank = TheRankInfoStore->getRankInfo(i, rankMod(this));
+		const RankInfo* rank = TheRankInfoStore->getRankInfo(i);
 		if (rank)
 		{
 			for (ScienceVec::const_iterator it = rank->m_sciencesGranted.begin(); it != rank->m_sciencesGranted.end(); ++it)
@@ -2930,12 +3038,12 @@ void Player::resetRank()
 {
 	m_rankLevel = 1;
 	m_skillPoints = 0;
-	const RankInfo* nextRank = TheRankInfoStore->getRankInfo(m_rankLevel+1, rankMod(this));
+	const RankInfo* nextRank = TheRankInfoStore->getRankInfo(m_rankLevel+1);
 	m_levelUp = nextRank ? nextRank->m_skillPointsNeeded : INT_MAX;
 	m_levelDown = 0;
 	m_sciences.clear();
 	m_sciencePurchasePoints = getPlayerTemplate() ? getPlayerTemplate()->getIntrinsicSciencePurchasePoints() : 0;
-	const RankInfo* curRank = TheRankInfoStore->getRankInfo(m_rankLevel, rankMod(this));
+	const RankInfo* curRank = TheRankInfoStore->getRankInfo(m_rankLevel);
 	m_sciencePurchasePoints += curRank ? curRank->m_sciencePurchasePointsGranted : 0;
 	m_generalName = TheGameText? TheGameText->fetch("SCIENCE:GeneralName"):UnicodeString::TheEmptyString;
 	resetSciences();
@@ -2947,8 +3055,8 @@ Bool Player::setRankLevel(Int newLevel)
 {
 	if (newLevel < 1) 
 		newLevel = 1;
-	else if (newLevel > TheRankInfoStore->getRankLevelCount(rankMod(this)))
-		newLevel = TheRankInfoStore->getRankLevelCount(rankMod(this));
+	else if (newLevel > TheRankInfoStore->getRankLevelCount())
+		newLevel = TheRankInfoStore->getRankLevelCount();
 
 	if (newLevel > TheGameLogic->getRankLevelLimit())
 		newLevel = TheGameLogic->getRankLevelLimit();
@@ -2968,7 +3076,7 @@ Bool Player::setRankLevel(Int newLevel)
 
 	for (Int i = m_rankLevel + 1; i <= newLevel; ++i)
 	{
-		const RankInfo* rank = TheRankInfoStore->getRankInfo(i, rankMod(this));
+		const RankInfo* rank = TheRankInfoStore->getRankInfo(i);
 		DEBUG_ASSERTCRASH(rank, ("rank should never be null here"));
 		if (rank)
 		{
@@ -2990,7 +3098,7 @@ Bool Player::setRankLevel(Int newLevel)
 		}
 	}
 
-	const RankInfo* nextRank = TheRankInfoStore->getRankInfo(newLevel + 1, rankMod(this));
+	const RankInfo* nextRank = TheRankInfoStore->getRankInfo(newLevel + 1);
 	m_levelUp = nextRank ? nextRank->m_skillPointsNeeded : INT_MAX;
 	m_rankLevel = newLevel;
 
@@ -3473,9 +3581,77 @@ UnsignedInt IncomeAllyShare( UnsignedInt amount, Int sharers )
   return sharers > 1 ? amount / sharers : 0;
 }
 
+UnsignedInt EarnedAmount( UnsignedInt amount, Int percent )
+{
+  return amount * (UnsignedInt)percent / 100;
+}
+
+Int IncomeBonusTarget( Int ownStrength, Int strongestEnemyStrength )
+{
+  if( strongestEnemyStrength <= 0 || ownStrength >= strongestEnemyStrength )
+    return 0;
+  const Int bonus = (Int)( (Int64)4 * AI_INCOME_BONUS_MAX * ( strongestEnemyStrength - ownStrength ) / ( (Int64)3 * strongestEnemyStrength ) );
+  return bonus < AI_INCOME_BONUS_MAX ? bonus : AI_INCOME_BONUS_MAX;
+}
+
+void IncomeSideWorths( const Int *worth, const UnsignedInt *allies, Int count, Int self, Int *ownAverage, Int *strongestEnemyAverage )
+{
+  UnsignedInt grouped = 0;
+  *ownAverage = 0;
+  *strongestEnemyAverage = 0;
+  for( Int lead = 0; lead < count; ++lead )
+  {
+    if( grouped & ( 1u << lead ) )
+      continue;
+    // the leader's own side when it is this player or one of its allies, else the next enemy side
+    const Bool ours = lead == self || ( allies[ self ] & ( 1u << lead ) ) != 0;
+    Int64 sum = 0;
+    Int size = 0;
+    for( Int i = lead; i < count; ++i )
+    {
+      if( grouped & ( 1u << i ) )
+        continue;
+      const Bool member = ours ? ( i == self || ( allies[ self ] & ( 1u << i ) ) != 0 )
+                               : ( i == lead || ( allies[ lead ] & ( 1u << i ) ) != 0 );
+      if( !member )
+        continue;
+      grouped |= 1u << i;
+      sum += worth[ i ];
+      ++size;
+    }
+    const Int average = (Int)( sum / size );
+    if( ours )
+      *ownAverage = average;
+    else if( average > *strongestEnemyAverage )
+      *strongestEnemyAverage = average;
+  }
+}
+
+Int IncomeBonusStep( Int bonus, Int target )
+{
+  if( target > bonus + AI_INCOME_BONUS_STEP )
+    return bonus + AI_INCOME_BONUS_STEP;
+  if( target < bonus - AI_INCOME_BONUS_STEP )
+    return bonus - AI_INCOME_BONUS_STEP;
+  return target;
+}
+
+Int Player::incomePercent( void )
+{
+  return isSkirmishAIPlayer() ? TheAI->getDifficultyProfile( getAISkillLevel() )->m_incomePercent + m_ai->getIncomeBonus() : 100;
+}
+
+UnsignedInt Player::earnMoney( UnsignedInt amount )
+{
+  const UnsignedInt earned = EarnedAmount( amount, incomePercent() );
+  m_money.deposit( earned );
+  m_scoreKeeper.addMoneyEarned( amount );
+  return earned;
+}
+
 /* An ally is a playable side still in the match that both ends call allied.  The walk is in player
    list order, which every machine holds alike, so the split is the same in a network game. */
-void Player::earnIncome( UnsignedInt amount, Bool fromTechBuilding )
+UnsignedInt Player::earnIncome( UnsignedInt amount, Bool fromTechBuilding )
 {
   Player *allies[ MAX_PLAYER_COUNT ];
   Int allyCount = 0;
@@ -3492,15 +3668,17 @@ void Player::earnIncome( UnsignedInt amount, Bool fromTechBuilding )
   }
 
   const UnsignedInt allyShare = IncomeAllyShare( amount, allyCount + 1 );
+  const Bool skirmishAI = isSkirmishAIPlayer();
+  UnsignedInt paid = 0;
   for ( Int i = 0; i < allyCount; ++i )
   {
-    allies[ i ]->getMoney()->deposit( allyShare );
+    const UnsignedInt cut = EarnedAmount( allyShare, skirmishAI ? allies[ i ]->incomePercent() : 100 );
+    allies[ i ]->getMoney()->deposit( cut );
     allies[ i ]->getScoreKeeper()->addMoneyEarned( allyShare );
+    paid += cut;
   }
 
-  const UnsignedInt ownShare = amount - allyShare * allyCount;
-  m_money.deposit( ownShare );
-  m_scoreKeeper.addMoneyEarned( ownShare );
+  return paid + earnMoney( amount - allyShare * allyCount );
 }
 
 // one object: itself if it is a unit, and whatever units it has queued, however many each entry makes
@@ -3568,11 +3746,11 @@ Bool Player::canBuildMoreOfType( const ThingTemplate *whatToBuild, Int unitsPerO
     maxSimultaneousOfType = (UnsignedInt)cap;
   }
 
-  // the defence allowance binds computer players in skirmish and network matches and their replays;
-  // humans, and a campaign or Generals Challenge mission, keep EA's rules
+  // the defence allowance binds computer players on the fork's AI in skirmish and network matches and
+  // their replays; humans, a campaign or Generals Challenge mission and a player's own map keep EA's rules
   if ( whatToBuild->isKindOf( KINDOF_FS_SUPERWEAPON ) && TheGameLogic && !TheGameLogic->isInSinglePlayerGame()
     && SuperweaponNeedsDefenses( whatToBuild->getName(), proRules, (Int)TheGameLogic->getSuperweaponRestriction(),
-                                 getPlayerType() == PLAYER_COMPUTER ) )
+                                 aiRunsOwnAI() ) )
   {
     SuperweaponDefenseCount count = { 0, 0 };
     iterateObjects( countSuperweaponDefenses, &count );
@@ -4018,6 +4196,12 @@ void Player::addNewSharedSpecialPowerTimer( const SpecialPowerTemplate *temp, Un
 
 }
 
+UnsignedInt Player::getSpecialPowerReloadTime( const SpecialPowerTemplate *temp ) const
+{
+	const Real handicap = getLobbyHandicap();
+	return handicap == 1.0f ? temp->getReloadTime() : (UnsignedInt)( temp->getReloadTime() / handicap );
+}
+
 void Player::resetOrStartSpecialPowerReadyFrame( const SpecialPowerTemplate *temp )
 {
 
@@ -4031,7 +4215,7 @@ void Player::resetOrStartSpecialPowerReadyFrame( const SpecialPowerTemplate *tem
 		timer = &(*it);
 		if ( timer->m_templateID == lookupID )
 		{
-			timer->m_readyFrame = now + temp->getReloadTime();
+			timer->m_readyFrame = now + getSpecialPowerReloadTime( temp );
 			return;
 		}
 	}
@@ -4770,6 +4954,11 @@ void Player::crc( Xfer *xfer )
 
 	// The bank, so an income or a refund that drifted is caught before it buys something.
 	xfer->xferSnapshot( &m_money );
+
+	// The lobby's handicap, only on a seat that has one, so every other replay keeps the CRC it has.
+	Real healthHandicap = getLobbyHandicap();
+	if( healthHandicap != 1.0f )
+		xfer->xferReal( &healthHandicap );
 
 }  // end crc
 

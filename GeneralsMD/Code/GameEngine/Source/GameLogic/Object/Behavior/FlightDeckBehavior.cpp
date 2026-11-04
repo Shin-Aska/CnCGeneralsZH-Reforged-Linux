@@ -377,6 +377,13 @@ Bool FlightDeckBehavior::hasReservedSpace(ObjectID id) const
 }
 
 //-------------------------------------------------------------------------------------------------
+// what reserveSpace would answer, without taking the space (see ParkingPlaceBehavior::canReserveSpace)
+Bool FlightDeckBehavior::canReserveSpace(ObjectID id) const
+{
+	return hasReservedSpace(id) || hasAvailableSpaceFor(NULL);
+}
+
+//-------------------------------------------------------------------------------------------------
 Int FlightDeckBehavior::getSpaceIndex( ObjectID id ) const
 {
 	if( id == INVALID_ID )
@@ -1128,7 +1135,7 @@ UpdateSleepTime FlightDeckBehavior::update()
 					healInfo.in.m_damageType = DAMAGE_HEALING;
 					healInfo.in.m_deathType = DEATH_NONE;
 					healInfo.in.m_sourceID = getObject()->getID();
-					healInfo.in.m_amount = HEAL_RATE_FRAMES * data->m_healAmount * SECONDS_PER_LOGICFRAME_REAL;
+					healInfo.in.m_amount = HEAL_RATE_FRAMES * data->m_healAmount * SECONDS_PER_LOGICFRAME_REAL * objToHeal->getHandicapHealthFactor();
 					BodyModuleInterface *body = objToHeal->getBodyModule();
 					body->attemptHealing( &healInfo );
 					++it;

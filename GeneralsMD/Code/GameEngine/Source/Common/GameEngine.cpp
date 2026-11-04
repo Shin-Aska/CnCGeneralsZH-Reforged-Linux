@@ -141,6 +141,7 @@
 #include "GameNetwork/LANAPICallbacks.h"
 #include "GameNetwork/NetworkUtil.h"
 #include "GameNetwork/GameSpy/GameResultsThread.h"
+#include "GameNetwork/GeneralsOnline/OnlineBridge.h"
 
 #include "Common/version.h"
 
@@ -206,19 +207,6 @@ void initSubsystem(SUBSYSTEM*& sysref, AsciiString name, SUBSYSTEM* sys, Xfer *p
 }
 
 //-------------------------------------------------------------------------------------------------
-/** A store a faction is made of.  With -modfactions the plain load sees retail's files only, and
-	* then each mod's load under that mod's names (INI::loadModPasses); a mod's Default\ file never
-	* loads.  Without it this is initSubsystem. */
-//-------------------------------------------------------------------------------------------------
-template<class SUBSYSTEM>
-void initFactionSubsystem(SUBSYSTEM*& sysref, AsciiString name, SUBSYSTEM* sys, Xfer *pXfer, const char* path1,
-													const char* path2, const char* dirpath = NULL)
-{
-	initSubsystem(sysref, name, sys, pXfer, path1, path2, dirpath);
-	INI::loadModPasses(dirpath != NULL ? dirpath : path2, pXfer, dirpath != NULL);
-}
-
-//-------------------------------------------------------------------------------------------------
 #if defined(_WIN32)
 extern HINSTANCE ApplicationHInstance;  ///< our application instance
 extern CComModule _Module;		// ATL's module, for the embedded browser's COM; nothing off Windows uses COM
@@ -238,20 +226,6 @@ static void checksumFileContents( XferCRC &xferCRC, const char *path )
 	char *contents = file->readEntireAndClose();
 	xferCRC.xferUser( contents, fileSize );
 	delete [] contents;
-}
-
-/** The same for the command buttons and sets: with -modfactions each mod's copy after retail's, as
-	* ControlBar::init loads them. */
-static void checksumFactionFile( XferCRC &xferCRC, const char *path )
-{
-	checksumFileContents( xferCRC, path );
-	for (Int mod = 0; TheGlobalData->m_modFactions && mod < (Int)TheGlobalData->m_mods.size(); ++mod)
-	{
-		TheFileSystem->setFocus( mod );
-		if (TheFileSystem->doesFileExist( path ))
-			checksumFileContents( xferCRC, path );
-		TheFileSystem->setFocus( FILE_FOCUS_ALL );
-	}
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -354,12 +328,8 @@ static void checksumModels( XferCRC &xferCRC )
 		AsciiString model = *it;
 		model.toLower();
 
-		// the file openFile will read: a mod's loose or archived copy first (FileSystem::modLooseFile)
-		Bool inModArchive = FALSE;
-		AsciiString source = TheFileSystem->modLooseFile( model, &inModArchive );
-		if (source.isEmpty())
-			source = TheLocalFileSystem->doesFileExist( model.str() ) && !inModArchive
-				? model : TheArchiveFileSystem->getArchiveFilenameForFile( model );
+		AsciiString source = TheLocalFileSystem->doesFileExist( model.str() )
+			? model : TheArchiveFileSystem->getArchiveFilenameForFile( model );
 
 		ModelChecksum entry;
 		const Bool sourceKnown = TheLocalFileSystem->getFileInfo( source, &entry.source );
@@ -780,6 +750,7 @@ static void startAutoSkirmish( Int numPlayersWanted )
 		if (TheGlobalData->m_autoSkirmishTeam[ i ] != AUTO_SKIRMISH_TEAM_UNSET)
 			teamNumber = TheGlobalData->m_autoSkirmishTeam[ i ];
 		slot.setTeamNumber( teamNumber );
+		slot.setHandicap( TheGlobalData->m_autoSkirmishHandicap[ i ] );
 		TheSkirmishGameInfo->setSlot( i, slot );
 	}
 	TheSkirmishGameInfo->setLocalIP( TheSkirmishGameInfo->getSlot(0)->getIP() );
@@ -1139,13 +1110,12 @@ void GameEngine::init( int argc, char *argv[] )
 	#endif/////////////////////////////////////////////////////////////////////////////////////////////
 
 
-		// -modfactions: which names each mod defines, read before any of its files load
-		if (TheGlobalData->m_modFactions)
-			TheModNamespace.scanMods();
-		initFactionSubsystem(TheScienceStore,"TheScienceStore", MSGNEW("GameEngineSubsystem") ScienceStore(), &xferCRC, "Data\\INI\\Default\\Science.ini", "Data\\INI\\Science.ini");
+		initSubsystem(TheScienceStore,"TheScienceStore", MSGNEW("GameEngineSubsystem") ScienceStore(), &xferCRC, "Data\\INI\\Default\\Science.ini", "Data\\INI\\Science.ini");
 		// New sciences only: a name EA already defined stops the load
 		ini.load( AsciiString( "Data\\INI\\ScienceReforged.ini" ), INI_LOAD_MULTIFILE, &xferCRC );
 		initSubsystem(TheMultiplayerSettings,"TheMultiplayerSettings", MSGNEW("GameEngineSubsystem") MultiplayerSettings(), &xferCRC, "Data\\INI\\Default\\Multiplayer.ini", "Data\\INI\\Multiplayer.ini");
+		// The fork's player colours, after EA's eight
+		ini.load( AsciiString( "Data\\INI\\MultiplayerReforged.ini" ), INI_LOAD_OVERWRITE, &xferCRC );
 		initSubsystem(TheTerrainTypes,"TheTerrainTypes", MSGNEW("GameEngineSubsystem") TerrainTypeCollection(), &xferCRC, "Data\\INI\\Default\\Terrain.ini", "Data\\INI\\Terrain.ini");
 		initSubsystem(TheTerrainRoads,"TheTerrainRoads", MSGNEW("GameEngineSubsystem") TerrainRoadCollection(), &xferCRC, "Data\\INI\\Default\\Roads.ini", "Data\\INI\\Roads.ini");
 		initSubsystem(TheGlobalLanguageData,"TheGlobalLanguageData",MSGNEW("GameEngineSubsystem") GlobalLanguage, NULL); // must be before the game text
@@ -1169,7 +1139,7 @@ void GameEngine::init( int argc, char *argv[] )
 		//
 		// Missing music used to end the process here, with setQuitting and not one word anywhere: the
 		// game started, the window appeared for a moment and it closed again.  A player who deleted
-		// Music.big to save space, or a mod that ships without music, got that and no way to find out
+		// Music.big to save space got that and no way to find out
 		// why.  Music is not a thing the game needs to run - the audio manager already plays nothing
 		// when it has nothing - so say so in the log and carry on.
 		//
@@ -1189,9 +1159,8 @@ void GameEngine::init( int argc, char *argv[] )
 		initSubsystem(TheMessageStream,"TheMessageStream", createMessageStream(), NULL);
 		initSubsystem(TheSidesList,"TheSidesList", MSGNEW("GameEngineSubsystem") SidesList(), NULL);
 		initSubsystem(TheCaveSystem,"TheCaveSystem", MSGNEW("GameEngineSubsystem") CaveSystem(), NULL);
-		// -modfactions: each mod's own Rank.ini, the table its factions climb (RankInfoStore::getRankInfo)
-		initFactionSubsystem(TheRankInfoStore,"TheRankInfoStore", MSGNEW("GameEngineSubsystem") RankInfoStore(), &xferCRC, NULL, "Data\\INI\\Rank.ini");
-		initFactionSubsystem(ThePlayerTemplateStore,"ThePlayerTemplateStore", MSGNEW("GameEngineSubsystem") PlayerTemplateStore(), &xferCRC, "Data\\INI\\Default\\PlayerTemplate.ini", "Data\\INI\\PlayerTemplate.ini");
+		initSubsystem(TheRankInfoStore,"TheRankInfoStore", MSGNEW("GameEngineSubsystem") RankInfoStore(), &xferCRC, NULL, "Data\\INI\\Rank.ini");
+		initSubsystem(ThePlayerTemplateStore,"ThePlayerTemplateStore", MSGNEW("GameEngineSubsystem") PlayerTemplateStore(), &xferCRC, "Data\\INI\\Default\\PlayerTemplate.ini", "Data\\INI\\PlayerTemplate.ini");
 		// The fork's own factions: a new name is added after EA's, an existing one is edited in place
 		ini.load( AsciiString( "Data\\INI\\PlayerTemplateReforged.ini" ), INI_LOAD_MULTIFILE, &xferCRC );
 		initSubsystem(TheParticleSystemManager,"TheParticleSystemManager", createParticleSystemManager(), NULL);
@@ -1204,31 +1173,33 @@ void GameEngine::init( int argc, char *argv[] )
 	#endif/////////////////////////////////////////////////////////////////////////////////////////////
     
     
-		initFactionSubsystem(TheFXListStore,"TheFXListStore", MSGNEW("GameEngineSubsystem") FXListStore(), &xferCRC, "Data\\INI\\Default\\FXList.ini", "Data\\INI\\FXList.ini");
+		initSubsystem(TheFXListStore,"TheFXListStore", MSGNEW("GameEngineSubsystem") FXListStore(), &xferCRC, "Data\\INI\\Default\\FXList.ini", "Data\\INI\\FXList.ini");
 		/* The fork's own detonation light, on top of EA's list.  It is a separate file rather than a
 			 loose copy of FXList.ini because a loose copy shadows the whole 190K shipped file: it goes
 			 stale against every patch, it cannot be reviewed, and - since it lands in the INI CRC below -
 			 it silently refuses every multiplayer join from a machine that does not have the same one. */
+		TheFXListStore->setClassicDropsBlocks( TheGlobalData->m_classicGraphics );
 		ini.load( AsciiString( "Data\\INI\\FXListReforged.ini" ), INI_LOAD_OVERWRITE, &xferCRC );
-		initFactionSubsystem(TheWeaponStore,"TheWeaponStore", MSGNEW("GameEngineSubsystem") WeaponStore(), &xferCRC, NULL, "Data\\INI\\Weapon.ini");
+		TheFXListStore->setClassicDropsBlocks( FALSE );
+		initSubsystem(TheWeaponStore,"TheWeaponStore", MSGNEW("GameEngineSubsystem") WeaponStore(), &xferCRC, NULL, "Data\\INI\\Weapon.ini");
 		/* Weapons of the fork's own that BalanceReforged.ini hands out.  It cannot add one, and borrowing
-			 one of EA's that nothing fires broke under a mod whose Weapon.ini leaves it out (Contra's Paladin
-			 found no infantry laser and crashed); a new name here exists whatever Weapon.ini loaded. */
+			 one of EA's that nothing fires broke whenever a Weapon.ini left it out (the Paladin found no
+			 infantry laser and crashed); a new name here exists whatever Weapon.ini loaded. */
 		ini.load( AsciiString( "Data\\INI\\WeaponReforged.ini" ), INI_LOAD_OVERWRITE, &xferCRC );
 		/* Turkiye's own weapons.  OVERWRITE rather than MULTIFILE: a patch file may only edit a weapon
 			 that exists, and every one of these is new. */
 		ini.load( AsciiString( "Data\\INI\\TurkiyeWeaponReforged.ini" ), INI_LOAD_OVERWRITE, &xferCRC );
-		initFactionSubsystem(TheObjectCreationListStore,"TheObjectCreationListStore", MSGNEW("GameEngineSubsystem") ObjectCreationListStore(), &xferCRC, "Data\\INI\\Default\\ObjectCreationList.ini", "Data\\INI\\ObjectCreationList.ini");
+		initSubsystem(TheObjectCreationListStore,"TheObjectCreationListStore", MSGNEW("GameEngineSubsystem") ObjectCreationListStore(), &xferCRC, "Data\\INI\\Default\\ObjectCreationList.ini", "Data\\INI\\ObjectCreationList.ini");
 		/* Lists EA left out or got wrong, before any object names one: a list parsed again is cleared
 			 and replaced whole, and a new name is simply added. */
 		ini.load( AsciiString( "Data\\INI\\ObjectCreationListReforged.ini" ), INI_LOAD_OVERWRITE, &xferCRC );
-		initFactionSubsystem(TheLocomotorStore,"TheLocomotorStore", MSGNEW("GameEngineSubsystem") LocomotorStore(), &xferCRC, NULL, "Data\\INI\\Locomotor.ini");
-		initFactionSubsystem(TheSpecialPowerStore,"TheSpecialPowerStore", MSGNEW("GameEngineSubsystem") SpecialPowerStore(), &xferCRC, "Data\\INI\\Default\\SpecialPower.ini", "Data\\INI\\SpecialPower.ini");
+		initSubsystem(TheLocomotorStore,"TheLocomotorStore", MSGNEW("GameEngineSubsystem") LocomotorStore(), &xferCRC, NULL, "Data\\INI\\Locomotor.ini");
+		initSubsystem(TheSpecialPowerStore,"TheSpecialPowerStore", MSGNEW("GameEngineSubsystem") SpecialPowerStore(), &xferCRC, "Data\\INI\\Default\\SpecialPower.ini", "Data\\INI\\SpecialPower.ini");
 		/* Powers edited in place (a scan Frenzy should not give) and the Demolitions General's own
 			 Rebel Ambush, before any object names one. */
 		ini.load( AsciiString( "Data\\INI\\SpecialPowerReforged.ini" ), INI_LOAD_MULTIFILE, &xferCRC );
-		initFactionSubsystem(TheDamageFXStore,"TheDamageFXStore", MSGNEW("GameEngineSubsystem") DamageFXStore(), &xferCRC, NULL, "Data\\INI\\DamageFX.ini");
-		initFactionSubsystem(TheArmorStore,"TheArmorStore", MSGNEW("GameEngineSubsystem") ArmorStore(), &xferCRC, NULL, "Data\\INI\\Armor.ini");
+		initSubsystem(TheDamageFXStore,"TheDamageFXStore", MSGNEW("GameEngineSubsystem") DamageFXStore(), &xferCRC, NULL, "Data\\INI\\DamageFX.ini");
+		initSubsystem(TheArmorStore,"TheArmorStore", MSGNEW("GameEngineSubsystem") ArmorStore(), &xferCRC, NULL, "Data\\INI\\Armor.ini");
 		initSubsystem(TheBuildAssistant,"TheBuildAssistant", MSGNEW("GameEngineSubsystem") BuildAssistant, NULL);
 
 
@@ -1241,7 +1212,7 @@ void GameEngine::init( int argc, char *argv[] )
 
 
 
-		initFactionSubsystem(TheThingFactory,"TheThingFactory", createThingFactory(), &xferCRC, "Data\\INI\\Default\\Object.ini", NULL, "Data\\INI\\Object");
+		initSubsystem(TheThingFactory,"TheThingFactory", createThingFactory(), &xferCRC, "Data\\INI\\Default\\Object.ini", NULL, "Data\\INI\\Object");
 		/* The fork's balance, written over EA's numbers after every object, weapon and armor exists.
 			 MULTIFILE edits a template in place and leaves every field the file does not name as EA
 			 wrote it, so the file holds the changes and nothing else; an Armor block still replaces
@@ -1261,7 +1232,7 @@ void GameEngine::init( int argc, char *argv[] )
 	#endif/////////////////////////////////////////////////////////////////////////////////////////////
     
     
-		initFactionSubsystem(TheUpgradeCenter,"TheUpgradeCenter", MSGNEW("GameEngineSubsystem") UpgradeCenter, &xferCRC, "Data\\INI\\Default\\Upgrade.ini", "Data\\INI\\Upgrade.ini");
+		initSubsystem(TheUpgradeCenter,"TheUpgradeCenter", MSGNEW("GameEngineSubsystem") UpgradeCenter, &xferCRC, "Data\\INI\\Default\\Upgrade.ini", "Data\\INI\\Upgrade.ini");
 		// An upgrade parsed again is edited in place, so this file names only what changes
 		ini.load( AsciiString( "Data\\INI\\UpgradeReforged.ini" ), INI_LOAD_MULTIFILE, &xferCRC );
 		/* Command buttons and sets, which the AI, the scripts and the build checks read: logic's, so
@@ -1280,11 +1251,6 @@ void GameEngine::init( int argc, char *argv[] )
 
 	
 		initSubsystem(TheAI,"TheAI", MSGNEW("GameEngineSubsystem") AI(), &xferCRC,  "Data\\INI\\Default\\AIData.ini", "Data\\INI\\AIData.ini");
-		/* -modfactions: each mod's sides' build lists and skill sets, under "M<n>~<side>".  Unlike the
-			 other faction files this one reads the mod's Default\ copy too: ShockWave and The End of Days
-			 keep their whole AIData there, as retail does, and End of Days' AIData.ini is an empty block. */
-		INI::loadModPasses( "Data\\INI\\Default\\AIData.ini", &xferCRC );
-		INI::loadModPasses( "Data\\INI\\AIData.ini", &xferCRC );
 		// SideInfo and SkirmishBuildList for the fork's factions: a side named again is edited, a new one added
 		ini.load( AsciiString( "Data\\INI\\AIDataReforged.ini" ), INI_LOAD_MULTIFILE, &xferCRC );
 		initSubsystem(TheGameLogic,"TheGameLogic", createGameLogic(), NULL);
@@ -1345,8 +1311,8 @@ void GameEngine::init( int argc, char *argv[] )
 
 		// TheCommandStore parses these without the checksum, and the AI builds and hunts from them
 		checksumFileContents( xferCRC, "Data\\INI\\Default\\CommandButton.ini" );
-		checksumFactionFile( xferCRC, "Data\\INI\\CommandButton.ini" );
-		checksumFactionFile( xferCRC, "Data\\INI\\CommandSet.ini" );
+		checksumFileContents( xferCRC, "Data\\INI\\CommandButton.ini" );
+		checksumFileContents( xferCRC, "Data\\INI\\CommandSet.ini" );
 		checksumFileContents( xferCRC, "Data\\INI\\CommandSetReforged.ini" );
 		checksumModels( xferCRC );
 
@@ -1522,7 +1488,7 @@ void GameEngine::init( int argc, char *argv[] )
 	{
 		// an unnamed enum, so the ErrorCode catch above does not take it
 		AsciiString why;
-		why.format("GameEngine::init failed with INI error 0x%08x: game data (a mod's INI?) names something that is not there or cannot be used.", (UnsignedInt)code);
+		why.format("GameEngine::init failed with INI error 0x%08x: game data names something that is not there or cannot be used.", (UnsignedInt)code);
 		RELEASE_CRASH((why.str()));
 
 	}
@@ -1660,11 +1626,33 @@ Int GameEngine_matchFramesPerSecond( Bool turbo )
 	return fps > 1000 ? 1000 : fps;
 }
 
+Int GameEngine_missionFramesPerSecond( Int askedRetailFps, Int matchFps )
+{
+	if (askedRetailFps <= 0 || askedRetailFps >= RETAIL_LOGICFRAMES_PER_SECOND)
+		return matchFps;
+	return ConvertRetailFrames( askedRetailFps );
+}
+
+Real GameEngine_missionTimeRate( void )
+{
+	if (TheGameLogic == NULL || !TheGameLogic->isInSinglePlayerGame() || TheGameLogic->isInReplayGame())
+		return 1.0f;
+	return (Real)TheGameEngine->getFramesPerSecondLimit() / (Real)LOGICFRAMES_PER_SECOND;
+}
+
 Bool GameEngine_mayStartAnotherCatchupTick( Int ticksSoFar, Int maxTicks, Real elapsedMsInLoop )
 {
 	if (ticksSoFar >= maxTicks)
 		return FALSE;
 	return elapsedMsInLoop < LOGIC_CATCHUP_BUDGET_MS;
+}
+
+/* The debt survives on the accumulator and a pass under 16.7 ms earns less than a tick, so frames that
+	 fit drain it on their own; only a pass over the line can build it, and that one is still paid. */
+Bool GameEngine_catchupTickFitsPicture( Real passSoFarMS, Real lastTickMS )
+{
+	const Real PICTURE_MS = 16.7f;
+	return passSoFarMS >= PICTURE_MS || passSoFarMS + lastTickMS * 1.25f < PICTURE_MS;
 }
 
 /* R1, smooth motion: when the last logic tick was due and how long a tick lasts, so the renderer can
@@ -2131,16 +2119,16 @@ static void reportFrameTimeStats( void )
 						 theFrameTimes.countOver( 16.7f ), over16,
 						 theFrameTimes.countOver( 33.3f ), over33,
 						 theFrameTimes.countOver( 25.0f )));
-	// the same passes split for the logic thread plan: mean/p50/p99 of each part
-	#define PASS_SPLIT(h) (h).meanMS(), (h).percentileMS( 0.50f ), (h).percentileMS( 0.99f )
-	DEBUG_LOG(("HEADLESS PASSES TICK: %d | pass %.2f/%.2f/%.2f | sync %.2f/%.2f/%.2f | render %.2f/%.2f/%.2f | logic %.2f/%.2f/%.2f ms mean/p50/p99\n",
+	// the same passes split for the logic thread plan: mean/p50/p99/p99.9 of each part
+	#define PASS_SPLIT(h) (h).meanMS(), (h).percentileMS( 0.50f ), (h).percentileMS( 0.99f ), (h).percentileMS( 0.999f )
+	DEBUG_LOG(("HEADLESS PASSES TICK: %d | pass %.2f/%.2f/%.2f/%.2f | sync %.2f/%.2f/%.2f/%.2f | render %.2f/%.2f/%.2f/%.2f | logic %.2f/%.2f/%.2f/%.2f ms mean/p50/p99/p99.9\n",
 						 theTickPass.count(), PASS_SPLIT( theTickPass ), PASS_SPLIT( theTickSync ),
 						 PASS_SPLIT( theTickRender ), PASS_SPLIT( theTickLogic )));
-	DEBUG_LOG(("HEADLESS PASSES NOTICK: %d | pass %.2f/%.2f/%.2f | sync %.2f/%.2f/%.2f | render %.2f/%.2f/%.2f ms mean/p50/p99\n",
+	DEBUG_LOG(("HEADLESS PASSES NOTICK: %d | pass %.2f/%.2f/%.2f/%.2f | sync %.2f/%.2f/%.2f/%.2f | render %.2f/%.2f/%.2f/%.2f ms mean/p50/p99/p99.9\n",
 						 theRenderPass.count(), PASS_SPLIT( theRenderPass ), PASS_SPLIT( theRenderSync ),
 						 PASS_SPLIT( theRenderRender )));
-	DEBUG_LOG(("HEADLESS PASSES OVERLAPPED: %d | %.2f/%.2f/%.2f p99.9 %.2f ms mean/p50/p99, every pass with the tick beside the render\n",
-						 theOverlapped.count(), PASS_SPLIT( theOverlapped ), theOverlapped.percentileMS( 0.999f )));
+	DEBUG_LOG(("HEADLESS PASSES OVERLAPPED: %d | %.2f/%.2f/%.2f/%.2f ms mean/p50/p99/p99.9, every pass with the tick beside the render\n",
+						 theOverlapped.count(), PASS_SPLIT( theOverlapped )));
 	#undef PASS_SPLIT
 	if (TheGlobalData)
 	{
@@ -2748,32 +2736,6 @@ static void updateHeadlessRun( void )
 		}
 	}
 
-	// -modfactions: whose objects each side is made of, ten seconds in
-	if (TheGlobalData->m_modFactions && frame == 300)
-	{
-		Int total[ MAX_PLAYER_COUNT ] = { 0 }, namespaced[ MAX_PLAYER_COUNT ] = { 0 };
-		AsciiString example[ MAX_PLAYER_COUNT ];
-		for (Object *obj = TheGameLogic->getFirstObject(); obj != NULL; obj = obj->getNextObject())
-		{
-			const Int index = obj->getControllingPlayer()->getPlayerIndex();
-			++total[ index ];
-			if (strchr( obj->getTemplate()->getName().str(), '~' ) != NULL)
-			{
-				++namespaced[ index ];
-				if (example[ index ].isEmpty())
-					example[ index ] = obj->getTemplate()->getName();
-			}
-		}
-		for (Int i = 0; i < ThePlayerList->getPlayerCount() && i < MAX_PLAYER_COUNT; ++i)
-		{
-			Player *p = ThePlayerList->getNthPlayer( i );
-			if (!p->isPlayableSide() || p->isPlayerObserver())
-				continue;
-			DEBUG_LOG(("MODNS frame %d player %d plays %s: %d objects, %d of them a mod's, e.g. %s\n", frame, i,
-								 p->getPlayerTemplate()->getName().str(), total[ i ], namespaced[ i ], example[ i ].str()));
-		}
-	}
-
 	/* A -video range that runs up to or past -maxframes keeps the run alive until its last picture is
 		 drawn, which happens on the pass after the logic reaches that frame. */
 	Int maxGameFrames = TheGlobalData->m_maxGameFrames;
@@ -3082,19 +3044,30 @@ void GameEngine::planLogicPass( LogicPassPlan &plan )
 /* LOGIC-THREAD.md phase 3, step 3b.  The pass that overlaps: the client update up to the draw, then
 	 here the message stream and the pacer, which a pass that does not overlap runs after the client
 	 update; then the draw's sync point, and the tick goes to the logic thread as the overlap window
-	 opens (LogicThread::OverlapWindow).  A network game keeps its own order, the network's update
-	 between the message stream and the tick, and stays serialised until phase 5.  So does a -video pass:
+	 opens (LogicThread::OverlapWindow).  A network game keeps its own order (phase 5), the network's
+	 update between the message stream and the pacer that asks it whether a frame is ready, and the
+	 catch-up ticks after the draw stay serialised with both in front of each.  A -video pass stays out:
 	 planned here, the pacer moved the -recordfps picture on in front of the draw, and the picture that
 	 should have opened the next frame was drawn on the old one, numbered as a picture already taken and
 	 dropped: one picture of every recorded frame, half of them at -recordfps 120.  A tick beside the
 	 draw would move the frame the picture is numbered by while it is drawn. */
 Bool GameEngine::planOverlappedTick( void )
 {
-	if (TheNetwork != NULL || !TheGameLogic->isInGame() || TheGameLogic->isInShellGame()
+	if (!TheGameLogic->isInGame() || TheGameLogic->isInShellGame()
 			|| TheGameLogic->isLoadingMap() || isVideoPass() || GameEngine_isShadowCaptureClock())
 		return FALSE;
+#ifdef DEBUG_CRC
+	// VERIFY_CRC's two CRCs stand round the client update, and a tick beside its draw would be inside them
+	if (g_verifyClientCRC)
+		return FALSE;
+#endif
 
 	TheMessageStream->propagateMessages();
+	// Alt-F4's instant quit clears the game from inside the message stream, the network with it
+	if (!TheGameLogic->isInGame())
+		return FALSE;
+	if (TheNetwork != NULL)
+		TheNetwork->UPDATE();
 	planLogicPass( s_passPlan );
 	s_passPlanned = TRUE;
 	s_frameBeforeOverlap = TheGameLogic->getFrame();
@@ -3108,6 +3081,17 @@ Real GameEngine::msUntilNextTickDue( void )
 	if (!s_passPlanned || s_passPlan.fastMode || s_passPlan.networkPaced || m_maxFPS <= 0)
 		return 0.0f;
 	return 1000.0f / m_maxFPS - s_logicAccumMs - (Real)( Clock_Milliseconds() - s_planTimeMs );
+}
+
+Bool GameEngine::isPassPacedByClock( void )
+{
+	return s_passPlanned && !s_passPlan.fastMode && !s_passPlan.networkPaced && m_maxFPS > 0;
+}
+
+Real GameEngine_msSincePassStart( void )
+{
+	const Int64 now = Clock_Ticks();
+	return engineElapsedMS( thePassStart, now );
 }
 
 void GameEngine::update( void )
@@ -3175,11 +3159,22 @@ void GameEngine::update( void )
 					? (Int)( now % ( TheGlobalData->m_drawDelayJitterMS + 1 ) ) : 0;
 				sleepMilliseconds( TheGlobalData->m_drawDelayMS + jitter );
 			}
-			// planOverlappedTick ran it in front of the draw on a pass that may overlap
+			/* A network frame that comes due during a short draw waits for the next pass's sync point, a
+				 millisecond away, and runs beside the next render.  One that comes due during a long draw
+				 is asked for now: left to the next pass, this pass ran no frame at all, the rate this
+				 machine reports fell, and a seat drawing 130 ms took the room from 22 frames a second to 14. */
+			if (s_passPlanned && TheNetwork != NULL && !(s_passPlan.mayRun && s_passPlan.due)
+					&& Clock_Milliseconds() - s_planTimeMs > 1000u / TheNetwork->getFrameRate())
+				s_passPlanned = FALSE;
+			// planOverlappedTick ran these two in front of the draw on a pass that may overlap
 			if (!s_passPlanned)
 				TheMessageStream->propagateMessages();
 
-			if (TheNetwork != NULL)
+#ifdef ZH_ONLINE
+			OnlineBridge_Tick();
+#endif
+
+			if (TheNetwork != NULL && !s_passPlanned)
 			{
 				TheNetwork->UPDATE();
 			}
@@ -3229,13 +3224,26 @@ void GameEngine::update( void )
 				 plus the render is a dropped frame nobody files a bug about. */
 			Int64 tCatchupStart, tCatchupNow;
 			tCatchupStart = Clock_Ticks();
+			/* The tick beside the render spends the budget like one run here.  Left out, a match behind
+				 its clock ran one more tick a pass at 1 than at 0, all of them in series after the picture:
+				 3.3 against 2.3 ticks, a frame 3 ms longer on average and 5 ms at p99.9. */
+			Real tickBesideRenderMS = 0.0f, waitForTickMS = 0.0f;
+			if (overlapped)
+				LogicThread::takeOverlapTimes( tickBesideRenderMS, waitForTickMS );
 			const UnsignedInt frameBeforeTicks = overlapped ? s_frameBeforeOverlap : TheGameLogic->getFrame();
+			Real lastTickMS = tickBesideRenderMS;
 			for( ;; )
 			{
 				// TheGameLogic->UPDATE(), on the logic thread at -logicthread 1; the first of an overlapped
 				// pass has run already, beside the render
 				if (logicTicksThisPass > 0 || !overlapped)
+				{
+					Int64 tTickStart, tTickEnd;
+					tTickStart = Clock_Ticks();
 					LogicThread::runTick();
+					tTickEnd = Clock_Ticks();
+					lastTickMS = engineElapsedMS( tTickStart, tTickEnd );
+				}
 				++logicTicksThisPass;
 
 				// -maxframes' frame ends the burst, its CRC logged as it finishes (noteFrameLimit)
@@ -3252,7 +3260,12 @@ void GameEngine::update( void )
 					break;
 				tCatchupNow = Clock_Ticks();
 				if (!GameEngine_mayStartAnotherCatchupTick( logicTicksThisPass, maxTicksThisPass,
-																									 engineElapsedMS( tCatchupStart, tCatchupNow ) ))
+																									 tickBesideRenderMS + engineElapsedMS( tCatchupStart, tCatchupNow ) ))
+					break;
+				/* A match that frames fine and is only a little behind held a frame over 16.7 ms for a tick the
+					 next pass could run as well: 43% of the passes on Twilight Flame's minute 20.  A network
+					 game runs ahead by what it can, or the room falls to this machine's rate. */
+				if (!networkPaced && !GameEngine_catchupTickFitsPicture( engineElapsedMS( thePassStart, tCatchupNow ), lastTickMS ))
 					break;
 				if (networkPaced)
 				{
@@ -3299,11 +3312,8 @@ void GameEngine::update( void )
 			// One pass can pay off several ticks of debt; charge the histogram per tick, or a
 			// catch-up burst reads as one enormous logic frame that never actually happened.  The tick
 			// beside the render is charged at its own length, the pass at the wait for it.
-			Real overlapTickMS = 0.0f, overlapWaitMS = 0.0f;
-			if (overlapped)
-				LogicThread::takeOverlapTimes( overlapTickMS, overlapWaitMS );
-			GameEngine_noteLogicTime( ( logicMS + overlapTickMS ) / (Real)logicTicksThisPass, TheGameLogic->getFrame() );
-			logicMS += overlapWaitMS;
+			GameEngine_noteLogicTime( ( logicMS + tickBesideRenderMS ) / (Real)logicTicksThisPass, TheGameLogic->getFrame() );
+			logicMS += waitForTickMS;
 #endif
 		}
 
@@ -3527,7 +3537,7 @@ void GameEngine::execute( void )
 					{
 					}
 					/* A C++ throw carries no exception record, so the report's "Last error" stayed empty
-						 and named nothing (crash reports 1194 and 1198, both Shockwave Chaos matches).  Say
+						 and named nothing (crash reports 1194 and 1198).  Say
 						 what was thrown; a fault the SEH translator dumped keeps the old reason. */
 					char why[ 160 ];
 					try
@@ -3539,10 +3549,10 @@ void GameEngine::execute( void )
 						snprintf( why, sizeof(why), "Uncaught ErrorCode 0x%08x in GameEngine::update", (UnsignedInt)ec );
 					}
 					// The INI_* codes are an unnamed enum, so the ErrorCode catch does not take them: a
-					// module meeting data it cannot use threw one at a mod's map load (reports 1893-1899).
+					// module meeting data it cannot use threw one at a map load (reports 1893-1899).
 					catch (decltype(INI_INVALID_DATA) code)
 					{
-						snprintf( why, sizeof(why), "Uncaught INI error 0x%08x in GameEngine::update: game data (a mod's INI?) names something that is not there or cannot be used", (UnsignedInt)code );
+						snprintf( why, sizeof(why), "Uncaught INI error 0x%08x in GameEngine::update: game data names something that is not there or cannot be used", (UnsignedInt)code );
 					}
 					catch (XferStatus status)
 					{

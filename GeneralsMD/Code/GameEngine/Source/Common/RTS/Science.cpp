@@ -33,6 +33,7 @@
 #include "Common/INI.h"
 #include "Common/Player.h"
 #include "Common/Science.h"
+#include "Common/StackDump.h"	// g_LastErrorDump
 
 #include <algorithm>
 
@@ -95,10 +96,6 @@ ScienceType ScienceStore::getScienceFromInternalName(const AsciiString& name) co
 {
 	if (name.isEmpty())
 		return SCIENCE_INVALID;
-	// a science is its name's key, found or not, so the -modfactions retail fallback is asked every time
-	AsciiString retailName;
-	if (TheModNamespace.findRetailName(name, MODNAME_SCIENCE, &retailName))
-		return getScienceFromInternalName(retailName);
 	NameKeyType nkt = TheNameKeyGenerator->nameToKey(name);
 	ScienceType st = (ScienceType)nkt;
 	return st;
@@ -271,17 +268,6 @@ AsciiString ScienceStore::getGrantedUpgradeName(ScienceType st) const
 }
 
 //-----------------------------------------------------------------------------
-/** Does st ask for prereq directly - the way Artillery Barrage 2 asks for Artillery Barrage 1? */
-Bool ScienceStore::isDirectPrereq(ScienceType prereq, ScienceType st) const
-{
-	const ScienceInfo* si = findScienceInfo(st);
-	if (si == NULL)
-		return false;
-
-	return std::find(si->m_prereqSciences.begin(), si->m_prereqSciences.end(), prereq) != si->m_prereqSciences.end();
-}
-
-//-----------------------------------------------------------------------------
 Bool ScienceStore::isScienceGrantable(ScienceType st) const
 {
 	const ScienceInfo* si = findScienceInfo(st);
@@ -396,7 +382,9 @@ ScienceType ScienceStore::friend_lookupScience(const char* scienceName) const
 	ScienceType st = (ScienceType)nkt;
 	if (!isValidScience(st))
 	{
-		DEBUG_CRASH(("Science name %s not known! (Did you define it in Science.ini?)",scienceName));
+		// as retail, a stop; the crash report names the science, which the INI error line does not
+		g_LastErrorDump.format("Science '%s' is named but no Science block defines it\n", scienceName);
+		DEBUG_LOG(("%s", g_LastErrorDump.str()));
 		throw INI_INVALID_DATA;
 	}
 	return st;

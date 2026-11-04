@@ -65,7 +65,7 @@ second cloud drawn until 4436).
 ## What Volumetric draws
 
 Approved green toxin, blue beta, purple gamma and amber nuclear palettes use transparency defaults
-of 67%, 77%, 74% and 0%. Effects read their actual emission radius and hazard lifetime. Toxin
+of 86%, 86%, 86% and 0%. Effects read their actual emission radius and hazard lifetime. Toxin
 billows form outward; nuclear haze fades into its full footprint. Formation is capped to one quarter
 of short hazard lifetimes. Visible infantry stir the smoke; hidden, stealthed or shrouded infantry
 leave no wakes. Nothing here changes damage, weapons, movement, gameplay randomness or simulation
@@ -125,7 +125,7 @@ ctest --test-dir build-linux --output-on-failure -R '^(test_hazard_cloud_policy|
 
 On Windows `build.bat Release test` runs `test_hazard_cloud_policy` and `test_dx11backend`.
 `Scenarios/toxinslope.txt` puts a Scud Storm field on the mound at 1075, 3775 on Twilight Flame;
-with `CloudStyle = 1` in the run's Options.ini, `-camera 1075 3775 -turbo -screenshot 2200` shows
+with `ClassicGraphics = no` and `CloudStyle = 1` in the run's Options.ini, `-camera 1075 3775 -turbo -screenshot 2200` shows
 it.
 
 `Tools/hazard-cloud-check.py` also exercises `budget` (nine medium toxin fields), `gamma-budget`

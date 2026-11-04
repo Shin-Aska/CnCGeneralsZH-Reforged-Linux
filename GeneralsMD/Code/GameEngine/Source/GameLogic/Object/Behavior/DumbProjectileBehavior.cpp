@@ -63,11 +63,12 @@
 const Int DEFAULT_MAX_LIFESPAN = 10 * LOGICFRAMES_PER_SECOND;
 
 // A StraightWhenClear shell whose barrel is raised steeper than this slope is being lobbed, and takes
-// the barrel's arc on open ground too. It is the barrel against level ground and not against the line
-// to the victim: a tank's barrel cannot dip, so a target close below it stands well under the barrel,
-// and measured that way a Paladin's shot 28 away and 13 degrees down went back to EA's arc. A tank's
-// barrel sits within 3 degrees of level (the logic does not tilt the hull on a slope); a Fire Base's
-// stands 38 to 57 degrees up. The tangent of 8 degrees.
+// the barrel's arc on open ground too. It is the barrel against level ground, or against the line to
+// the victim when that climbs: a barrel that cannot dip (the Overlord's) stands well over a target close
+// below it, and measured against the line a Paladin's shot 28 away and 13 degrees down went back to
+// EA's arc, while a Crusader's barrel that pitches 12 degrees up at a tank on a ridge is aiming, not
+// lobbing. A level barrel sits within 3 degrees of level (the logic does not tilt the hull on a slope);
+// a Fire Base's stands 38 to 57 degrees up. The tangent of 8 degrees.
 const Real STRAIGHT_SHOT_MAX_BARREL_SLOPE = 0.1405f;
 
 //-----------------------------------------------------------------------------
@@ -493,6 +494,8 @@ Bool DumbProjectileBehavior::calcFlightPath(Bool recalcNumSegments)
 	targetVector.Z = controlPoints[3].z - controlPoints[0].z;
 
 	Real targetDistance = targetVector.Length();
+	Real targetRun = sqrtf( sqr( targetVector.X ) + sqr( targetVector.Y ) );
+	Real targetSlope = (targetRun > 0.0f) ? targetVector.Z / targetRun : 0.0f;
 	targetVector.Normalize();
 	Vector3 firstPointAlongLine = targetVector * (targetDistance * d->m_firstPercentIndent );
 	Vector3 secondPointAlongLine = targetVector * (targetDistance * d->m_secondPercentIndent );
@@ -508,7 +511,7 @@ Bool DumbProjectileBehavior::calcFlightPath(Bool recalcNumSegments)
 	controlPoints[1].z = highestInterveningTerrain + d->m_firstHeight;
 	controlPoints[2].z = highestInterveningTerrain + d->m_secondHeight;
 
-	if( d->m_straightWhenClear && m_launchSlope < STRAIGHT_SHOT_MAX_BARREL_SLOPE
+	if( d->m_straightWhenClear && m_launchSlope < max( targetSlope, 0.0f ) + STRAIGHT_SHOT_MAX_BARREL_SLOPE
 		&& ThePartitionManager->isClearLineOfSightTerrain( NULL, controlPoints[0], NULL, controlPoints[3] ) )
 	{
 		// A cannon shell flies the line to its victim. The arc above was ten over the highest ground on the
@@ -541,7 +544,7 @@ Bool DumbProjectileBehavior::calcFlightPath(Bool recalcNumSegments)
 	//
 	// The curve is sampled where a retail (30 Hz) frame put the shell, and the frames in between fly the
 	// straight line to the next sample, so a path looks and lasts as it did. Sampled at every frame, a
-	// fast shot met points of the curve retail never visited: mods give an instant tracer FirstHeight 300
+	// fast shot met points of the curve retail never visited: an instant tracer with FirstHeight 300
 	// and WeaponSpeed 9999, which retail sampled at its two ends only, and at 60 Hz the third of four
 	// samples flew it 200 into the air.
 	BezierSegment flightCurve( controlPoints );
@@ -559,7 +562,7 @@ Bool DumbProjectileBehavior::calcFlightPath(Bool recalcNumSegments)
 	{
 		retailSegments = m_flightPathSegments > 1 ? (m_flightPathSegments - 1) / LOGICFRAMES_PER_RETAIL_FRAME + 1 : m_flightPathSegments;
 	}
-	// A speed of zero or next to it (every crash report of this ran End of Days) asks for a flight of hundreds of
+	// A speed of zero or next to it asks for a flight of hundreds of
 	// millions of frames, or an infinite one that comes back as INT_MIN. The path that size needs is
 	// gigabytes, and a request past 2 GB came back from the allocator short and was written past its
 	// end. Ten minutes of flight is more than any shell flies; past that the path is as wrong as one

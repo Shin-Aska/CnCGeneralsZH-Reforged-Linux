@@ -293,10 +293,6 @@ ThingTemplate *ThingFactory::findTemplateInternal( const AsciiString& name, Bool
 		return tIt->second;
 	}
 
-	AsciiString retailName;
-	if (TheModNamespace.findRetailName(name, MODNAME_OBJECT, &retailName))
-		return findTemplateInternal(retailName, check);
-
 #ifdef LOAD_TEST_ASSETS
 	if (!strncmp(name.str(), TEST_STRING, strlen(TEST_STRING))) 
 	{
@@ -325,7 +321,7 @@ ThingTemplate *ThingFactory::findTemplateInternal( const AsciiString& name, Bool
 }  // end getTemplate
 
 //=============================================================================
-Object *ThingFactory::newObject( const ThingTemplate *tmplate, Team *team, ObjectStatusMaskType statusBits )
+Object *ThingFactory::newObject( const ThingTemplate *tmplate, Team *team, ObjectStatusMaskType statusBits, const Object *producer )
 {
 	if (tmplate == NULL)
 		throw ERROR_BAD_ARG;
@@ -339,11 +335,15 @@ Object *ThingFactory::newObject( const ThingTemplate *tmplate, Team *team, Objec
 			tmplate = tmp;
 	}
 
-	// a side's own reskin in place of another side's template: Turkiye is built on the American data
+	// a side's own reskin in place of another side's template: Turkiye is built on the American data.
+	// The side is the producer's when there is one.  Taken from the owner, a Turkiye player's captured
+	// China dozer put up the Kargu superweapon for an Airfield's 1000, because TurkiyeKarguBase is a
+	// reskin of ChinaAirfield, and a captured GLA Command Center trained Turkiye engineers for Workers.
 	const Player *owner = team ? team->getControllingPlayer() : NULL;
 	if (owner != NULL)
 	{
-		const ThingTemplate *own = findSideReskin( tmplate, owner->getSide() );
+		const AsciiString &side = producer ? producer->getTemplate()->getDefaultOwningSide() : owner->getSide();
+		const ThingTemplate *own = findSideReskin( tmplate, side );
 		if (own != NULL)
 			tmplate = own;
 	}
@@ -391,10 +391,14 @@ const ThingTemplate *ThingFactory::findSideReskin( const ThingTemplate *tmplate,
 	if (it != m_sideReskins.end())
 		return it->second;
 
+	// A template with build variations is only a build button: isEquivalentTo counts each variation
+	// as its equal, and EA's Toxin and Stealth Technicals roll the plain GLA chassis, so without the
+	// skip a Toxin player's chassis was swapped for Chem_GLAVehicleTechnical itself, a unit with no
+	// weapon or locomotor: the Arms Dealer charged for a Technical and nothing drove out.
 	const ThingTemplate *found = NULL;
 	for (const ThingTemplate *t = m_firstTemplate; t != NULL && found == NULL; t = t->friend_getNextTemplate())
 	{
-		if (t->getDefaultOwningSide() == side && t->isEquivalentTo( tmplate ))
+		if (t->getDefaultOwningSide() == side && t->getBuildVariations().empty() && t->isEquivalentTo( tmplate ))
 			found = (const ThingTemplate *)t->getFinalOverride();
 	}
 	m_sideReskins[ key ] = found;
@@ -448,7 +452,7 @@ AsciiString TheThingTemplateBeingParsedName;
 	TheThingTemplateBeingParsedName = name;
 #endif
 
-	/* An ObjectReskin of an object that is not there - FixesReforged.ini's SupW_SDILasers under a mod that
+	/* An ObjectReskin of an object that is not there - FixesReforged.ini's SupW_SDILasers over data that
 		 has no SDILasers - is skipped the same way as a patch of a missing object below, before a template
 		 is made for it, instead of stopping the game at start. */
 	if( reskinFrom.isNotEmpty() )
@@ -468,9 +472,9 @@ AsciiString TheThingTemplateBeingParsedName;
 	if( !thingTemplate && ini->getLoadType() == INI_LOAD_MULTIFILE && reskinFrom.isEmpty() )
 	{
 		/* A patch names an object EA's files built, and a new template made from a name that finds
-			 nothing would change no unit.  The name is missing when a mod's archives replaced EA's object
+			 nothing would change no unit.  The name is missing when other archives replaced EA's object
 			 files, and BalanceReforged.ini's price for Nuke_ChinaGattlingCannon stopped the game at start
-			 on an install carrying AlternateINI's archives.  The block is read into a
+			 on such an install.  The block is read into a
 			 template that is thrown away, so the parse stays in step and the rest of the file still applies.
 			 An ObjectReskin is new by design and still names an original that has to exist. */
 		DEBUG_LOG(( "[LINE: %d in '%s'] %s patches an object that does not exist; the block is skipped.\n", ini->getLineNum(), ini->getFilename().str(), name.str() ));
