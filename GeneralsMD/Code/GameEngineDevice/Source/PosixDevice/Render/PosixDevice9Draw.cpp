@@ -98,7 +98,11 @@ void PosixDevice9::Shore_Track(const WaterShoreOverlay::Quad *track)
 void PosixWaterShoreBegin(IDirect3DDevice9 *d,bool e) {if(d) static_cast<PosixDevice9*>(d)->Shore_Begin(e);}
 void PosixWaterShoreEnd(IDirect3DDevice9 *d) {if(d) static_cast<PosixDevice9*>(d)->Shore_End();}
 void PosixWaterShorePatch(IDirect3DDevice9 *d,const WaterShoreOverlay::Quad *q) {if(d) static_cast<PosixDevice9*>(d)->Shore_Patch(q);}
-void PosixWaterOpenSea(IDirect3DDevice9 *d,bool enabled) {if(d) static_cast<PosixDevice9*>(d)->Water_Open_Sea(enabled);}
+void PosixWaterOpenSea(IDirect3DDevice9 *d, bool enabled)
+{
+	if (d)
+		static_cast<PosixDevice9 *>(d)->Water_Open_Sea(enabled);
+}
 void PosixWaterShoreTrack(IDirect3DDevice9 *d,const WaterShoreOverlay::Quad *q) {if(d) static_cast<PosixDevice9*>(d)->Shore_Track(q);}
 bool PosixWaterGpuAvailable(IDirect3DDevice9 *d) {return d && static_cast<PosixDevice9*>(d)->Get_Gpu();}
 uint64_t PosixWaterFftBegin(IDirect3DDevice9 *d) {return d ? static_cast<PosixDevice9*>(d)->Begin_Prepared_Water_Fft() : 0;}
@@ -112,6 +116,19 @@ bool PosixDevice9::Water_Fft_Requested(int vertexEngine,int pixelEngine,const Ve
 		&& WaterFftSampling::Enabled();
 }
 
+bool PosixDevice9::Water_Movement_Compatibility() const
+{
+	return WaterMovementBehavior::Compatibility(PixelShaderConstants[WaterWaveHeading::PrevailingRegister][3]);
+}
+
+unsigned PosixDevice9::Water_Fft_Cascades(bool movementCompatibility) const
+{
+	// A bound heading is provisional until its mirror upload succeeds. Compatibility
+	// movement and coastal draws always require the complete unheaded cascade set.
+	return Textures[11] && !CoastalActive && !movementCompatibility
+		? WaterFftSpectrum::HeadedCascades : WaterFftSpectrum::AllCascades;
+}
+
 uint64_t PosixDevice9::Begin_Prepared_Water_Fft()
 {
 	if(PreparedWaterFft.token || !Gpu || !Programs || !FVF || RenderStates[D3DRS_CLIPPLANEENABLE]) return 0;
@@ -123,10 +140,8 @@ uint64_t PosixDevice9::Begin_Prepared_Water_Fft()
 	const float phase=PixelShaderConstants[1][0]*WaterFftSampling::TimeScale;
 	// A bound heading is provisional until the mirror upload succeeds below in
 	// Gpu_Draw. A late unheaded fallback completes the full field before recording.
-	const bool movementCompatibility = WaterMovementBehavior::Compatibility(
-		PixelShaderConstants[WaterWaveHeading::PrevailingRegister][3]);
-	const unsigned cascades = Textures[11] && !CoastalActive && !movementCompatibility
-	? WaterFftSpectrum::HeadedCascades : WaterFftSpectrum::AllCascades;
+	const bool movementCompatibility = Water_Movement_Compatibility();
+	const unsigned cascades = Water_Fft_Cascades(movementCompatibility);
 	if (!Gpu->Prepare_Ocean(phase, WaterPerformanceSettings::Applied().requestedFftResolution, cascades))
 		return 0;
 	WaterPerformanceSettings::Applied().activeFftResolution=Gpu->Ocean_Configuration().resolution;
@@ -165,7 +180,7 @@ bool PosixDevice9::Prepared_Water_Fft_Matches(const VertexPipelineDescription &v
 		|| p.presents != PresentCount
 		|| p.pixelShader != PixelShader || p.vertexShader != VertexShader
 		|| p.target != RenderTargets[0] || p.depth != DepthStencil
-		|| p.movementCompatibility != WaterMovementBehavior::Compatibility(PixelShaderConstants[WaterWaveHeading::PrevailingRegister][3])
+		|| p.movementCompatibility != Water_Movement_Compatibility()
 		|| p.phase != PixelShaderConstants[1][0] * WaterFftSampling::TimeScale
 		|| p.description.size() != sizeof(vertex) || memcmp(p.description.data(), &vertex, sizeof(vertex)) != 0
 		|| p.oceanGeneration != Gpu->Ocean_Generation() || p.arrayOutput != Gpu->Ocean_Array_Output()
@@ -1047,10 +1062,8 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	if(PreparedWaterFft.token && (!fft_requested || !Prepared_Water_Fft_Matches(vertex))) {
 		Refuse_Draw("prepared water FFT scope changed before draw");return D3D_OK;
 	}
-	const bool movementCompatibility = WaterMovementBehavior::Compatibility(
-		PixelShaderConstants[WaterWaveHeading::PrevailingRegister][3]);
-	const unsigned oceanCascades = Textures[11] && !CoastalActive && !movementCompatibility
-	? WaterFftSpectrum::HeadedCascades : WaterFftSpectrum::AllCascades;
+	const bool movementCompatibility = Water_Movement_Compatibility();
+	const unsigned oceanCascades = Water_Fft_Cascades(movementCompatibility);
 	bool fft_water = PreparedWaterFft.token || (fft_requested && Gpu->Prepare_Ocean(
 		PixelShaderConstants[1][0] * WaterFftSampling::TimeScale,
 		WaterPerformanceSettings::Applied().requestedFftResolution, oceanCascades));
@@ -1070,11 +1083,11 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	const SdlProgram &vertex_program = vertex_engine != ENGINE_SHADER_NONE
 		? Programs->Engine_Vertex_Program(vertex_engine)
 		: fft_water ? *fft_vertex : Programs->Vertex_Program(vertex);
-	const bool open_sea=WaterOpenSea && !SunActive && pixel_engine==ENGINE_SHADER_WATER_TRAPEZOID;
+	const bool open_sea = WaterOpenSea && !SunActive && pixel_engine == ENGINE_SHADER_WATER_TRAPEZOID;
 	const SdlProgram *pixel_program = SunActive ? &Programs->Sun_Pixel_Program(combiner, pixel_engine) : pixel_engine != ENGINE_SHADER_NONE
 		? &Programs->Engine_Pixel_Program(pixel_engine, combiner.PixelPipeline, open_sea) : &Programs->Pixel_Program(combiner);
-	if(open_sea && !pixel_program->Shader)
-		pixel_program=&Programs->Engine_Pixel_Program(pixel_engine,combiner.PixelPipeline);
+	if (open_sea && !pixel_program->Shader)
+		pixel_program = &Programs->Engine_Pixel_Program(pixel_engine, combiner.PixelPipeline);
 	const SdlProgram *legacy_pixel_program=pixel_program;
 	const auto retry_without_sun = [&](const char *reason) {
 		// Engine ground programs are shared with legacy; only generated receiving
@@ -1293,7 +1306,8 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 				memcpy(heading_sampler, SamplerStates[4], sizeof(heading_sampler));
 				heading_sampler[D3DSAMP_ADDRESSU] = heading_sampler[D3DSAMP_ADDRESSV] = D3DTADDRESS_CLAMP;
 				heading_sampler[D3DSAMP_MINFILTER] = heading_sampler[D3DSAMP_MAGFILTER] =
-					(shore_region ? shore_region->movementCompatibility : movementCompatibility) ? D3DTEXF_LINEAR : D3DTEXF_POINT;
+					(shore_region ? shore_region->movementCompatibility : movementCompatibility)
+					? D3DTEXF_LINEAR : D3DTEXF_POINT;
 				heading_sampler[D3DSAMP_MIPFILTER] = D3DTEXF_NONE;
 				draw.Samplers[slot] = Samplers->Sampler(heading_sampler);
 				if (!draw.Textures[slot] || !draw.Samplers[slot])
@@ -1446,7 +1460,8 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		// Heading admission depends on the uploaded resource, not the legacy pointer.
 		// Completing the broad field flushes prior readers/uploads. Keep it inside
 		// this retry loop so every mirror is resolved again if that changes the batch.
-		if (fft_water && (!water_heading || movementCompatibility) && Gpu->Ocean_Ready_Cascades() != WaterFftSpectrum::AllCascades) {
+		if (fft_water && (!water_heading || movementCompatibility)
+			&& Gpu->Ocean_Ready_Cascades() != WaterFftSpectrum::AllCascades) {
 			const auto generation = Gpu->Ocean_Generation();
 			if (!Gpu->Prepare_Ocean(PixelShaderConstants[1][0] * WaterFftSampling::TimeScale,
 				WaterPerformanceSettings::Applied().requestedFftResolution) || Gpu->Ocean_Generation() != generation) {
@@ -1668,9 +1683,9 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		water.FftParameters[0] = fft_water ? 1.0f : 0.0f;
 		water.FftParameters[1] = fft_water && WaterVesselWaves::Enabled() ? 1.0f : 0.0f;
 		// Snapshot the selected map movement into the accepted draw. Missing
-        // heading resources use the ordinary all-cascade fallback in either mode.
-        water.FftParameters[2] = WaterMovementBehavior::HeadingParameter(water_heading, movementCompatibility,
-            PixelShaderConstants[WaterWaveHeading::PrevailingRegister][2]);
+		// heading resources use the ordinary all-cascade fallback in either mode.
+		water.FftParameters[2] = WaterMovementBehavior::HeadingParameter(water_heading, movementCompatibility,
+			PixelShaderConstants[WaterWaveHeading::PrevailingRegister][2]);
 		water.FftParameters[3] = water_heading ? PixelShaderConstants[WaterWaveHeading::PrevailingRegister][0] : 0.0f;
 		// Production lighting never reads this fill-light W; the swell's packed-U scale rides in it, only
 		// while the field is bound, so the water preview's colour there survives every other draw.

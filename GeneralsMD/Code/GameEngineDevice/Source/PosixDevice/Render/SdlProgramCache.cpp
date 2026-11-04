@@ -268,20 +268,27 @@ const SdlProgram &SdlProgramCache::Engine_Vertex_Program(int program)
 	return made;
 }
 
-const SdlProgram &SdlProgramCache::Engine_Pixel_Program(int program, const PixelPipelineDescription &pipeline, bool waterOpenSea)
+const SdlProgram &SdlProgramCache::Engine_Pixel_Program(int program,
+	const PixelPipelineDescription &pipeline, bool waterOpenSea)
 {
 	// The program and the pipeline description, side by side, as the lookup's bytes.
-	struct { int Program; PixelPipelineDescription Pipeline; unsigned Resolution,Refraction,Reflections,MaterialProfile; bool WaterOpenSea; } lookup;
+	struct {
+		int Program;
+		PixelPipelineDescription Pipeline;
+		unsigned Resolution, Refraction, Reflections, MaterialProfile;
+		bool WaterOpenSea;
+	} lookup;
 	memset(&lookup, 0, sizeof(lookup));
 	lookup.Program = program;
 	lookup.WaterOpenSea = waterOpenSea;
-	const bool water=program==ENGINE_SHADER_WATER_TRAPEZOID || program==ENGINE_SHADER_WATER_RIVER;
-	if(water) {
-		const auto &settings=WaterPerformanceSettings::Applied();
-		lookup.Resolution=settings.activeFftResolution;lookup.Refraction=unsigned(settings.refraction);
-		lookup.Reflections=settings.sceneReflections?1:0;
+	const bool water = program == ENGINE_SHADER_WATER_TRAPEZOID || program == ENGINE_SHADER_WATER_RIVER;
+	if (water) {
+		const auto &settings = WaterPerformanceSettings::Applied();
+		lookup.Resolution = settings.activeFftResolution;
+		lookup.Refraction = unsigned(settings.refraction);
+		lookup.Reflections = settings.sceneReflections ? 1 : 0;
 #if defined(__linux__)
-		lookup.MaterialProfile=unsigned(WaterMaterialProfile::Applied());
+		lookup.MaterialProfile = unsigned(WaterMaterialProfile::Applied());
 #endif
 	}
 	memcpy(&lookup.Pipeline, &pipeline, sizeof(pipeline));	// padding and all, as the caller built it
@@ -291,7 +298,10 @@ const SdlProgram &SdlProgramCache::Engine_Pixel_Program(int program, const Pixel
 	}
 	const EngineShaderProgram engine = (EngineShaderProgram)program;
 	const std::string key = std::string("engine:") + EngineShader_Name(engine) + CombinerShader_Pipeline_Key(pipeline)
-		+(water?":water:"+std::to_string(lookup.Resolution)+":"+std::to_string(lookup.Refraction)+":"+std::to_string(lookup.Reflections)+":profile:"+std::to_string(lookup.MaterialProfile):std::string())+(waterOpenSea?":open-sea":"");
+		+ (water ? ":water:" + std::to_string(lookup.Resolution) + ":" + std::to_string(lookup.Refraction)
+			+ ":" + std::to_string(lookup.Reflections) + ":profile:" + std::to_string(lookup.MaterialProfile)
+			: std::string())
+		+ (waterOpenSea ? ":open-sea" : "");
 	std::map<std::string, SdlProgram>::iterator existing = PixelPrograms.find(key);
 	if (existing != PixelPrograms.end()) {
 		++existing->second.Uses;
@@ -299,7 +309,8 @@ const SdlProgram &SdlProgramCache::Engine_Pixel_Program(int program, const Pixel
 		return existing->second;
 	}
 	std::string hlsl;
-	const bool written = EngineShader_Pixel_Program(engine, pipeline, hlsl, COMBINER_SHADER_TARGET_SDL3_GPU, waterOpenSea);
+	const bool written = EngineShader_Pixel_Program(engine, pipeline, hlsl,
+		COMBINER_SHADER_TARGET_SDL3_GPU, waterOpenSea);
 	const SdlProgram &made = Make(PixelPrograms, key, written, hlsl, false);
 	EnginePixelByBytes.Add(&lookup, sizeof(lookup), &PixelPrograms[key]);
 	return made;

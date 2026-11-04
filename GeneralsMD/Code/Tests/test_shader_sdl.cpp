@@ -2001,61 +2001,85 @@ TEST(fft_heading_keeps_coastal_incident_decoder_unrotated_and_compilable)
 #if defined(__linux__)
 TEST(fft_open_sea_changes_only_the_pixel_local_fields_early_return)
 {
-    const std::string setup="precise FftLocalFields fields=(FftLocalFields)0;fields.legacyGain=float3(1,0,0);";
-    auto earlyReturn = [&](const std::string &full,const std::string &open) {
-        const size_t at=full.find(setup);CHECK(at!=std::string::npos);
-        if(at==std::string::npos)return;
-        std::string expected=full;expected.insert(at+setup.size(),"return fields;");
-        CHECK(open==expected);
+    const std::string setup = "precise FftLocalFields fields=(FftLocalFields)0;fields.legacyGain=float3(1,0,0);";
+    auto earlyReturn = [&](const std::string &full, const std::string &open) {
+        const size_t at = full.find(setup);
+        CHECK(at != std::string::npos);
+        if (at == std::string::npos)
+            return;
+        std::string expected = full;
+        expected.insert(at + setup.size(), "return fields;");
+        CHECK(open == expected);
     };
-    for(unsigned resolution:{128u,256u,512u}) {
-        earlyReturn(WaterFftSampling::LocalSource(resolution),WaterFftSampling::LocalSource(resolution,true));
-        earlyReturn(WaterFftSampling::HeadingSource(false,resolution),WaterFftSampling::HeadingSource(false,resolution,true));
-        CHECK(WaterFftSampling::HeadingSource(true,resolution)==WaterFftSampling::HeadingSource(true,resolution,true));
-        for(bool bow:{false,true})for(bool shoulder:{false,true})for(bool array:{false,true}) {
-            const auto config=WaterFftSpectrum::ForResolution(resolution);
-            const auto full=WaterFftSampling::PixelSource(bow,shoulder,array,config,true);
-            CHECK(full==WaterFftSampling::PixelSource(bow,shoulder,array,config,true,false));
-            earlyReturn(full,WaterFftSampling::PixelSource(bow,shoulder,array,config,true,true));
-            CHECK(WaterFftSampling::PixelSource(bow,shoulder,array,config,false)
-                ==WaterFftSampling::PixelSource(bow,shoulder,array,config,false,true));
-        }
+    for (unsigned resolution : {128u, 256u, 512u}) {
+        earlyReturn(WaterFftSampling::LocalSource(resolution), WaterFftSampling::LocalSource(resolution, true));
+        earlyReturn(WaterFftSampling::HeadingSource(false, resolution),
+            WaterFftSampling::HeadingSource(false, resolution, true));
+        CHECK(WaterFftSampling::HeadingSource(true, resolution)
+            == WaterFftSampling::HeadingSource(true, resolution, true));
+        for (bool bow : {false, true})
+            for (bool shoulder : {false, true})
+                for (bool array : {false, true}) {
+                    const auto config = WaterFftSpectrum::ForResolution(resolution);
+                    const auto full = WaterFftSampling::PixelSource(bow, shoulder, array, config, true);
+                    CHECK(full == WaterFftSampling::PixelSource(bow, shoulder, array, config, true, false));
+                    earlyReturn(full, WaterFftSampling::PixelSource(bow, shoulder, array, config, true, true));
+                    CHECK(WaterFftSampling::PixelSource(bow, shoulder, array, config, false)
+                        == WaterFftSampling::PixelSource(bow, shoulder, array, config, false, true));
+                }
     }
     // Frozen before the split: all existing full pixel and vertex sources, including heading.
-    uint64_t hash=14695981039346656037ull;
-    auto append=[&](const std::string &source) {for(unsigned char byte:source)hash=(hash^byte)*1099511628211ull;};
-    for(bool bow:{false,true})for(bool shoulder:{false,true})for(bool array:{false,true})for(bool heading:{false,true}) {
-        append(WaterFftSampling::VertexSource(bow,shoulder,array,heading));
-        for(unsigned resolution:{128u,256u,512u})
-            append(WaterFftSampling::PixelSource(bow,shoulder,array,WaterFftSpectrum::ForResolution(resolution),heading));
-    }
-    CHECK(hash==0xf9efcf17fb55bd85ull);
+    uint64_t hash = 14695981039346656037ull;
+    auto append = [&](const std::string &source) {
+        for (unsigned char byte : source)
+            hash = (hash ^ byte) * 1099511628211ull;
+    };
+    for (bool bow : {false, true})
+        for (bool shoulder : {false, true})
+            for (bool array : {false, true})
+                for (bool heading : {false, true}) {
+                    append(WaterFftSampling::VertexSource(bow, shoulder, array, heading));
+                    for (unsigned resolution : {128u, 256u, 512u})
+                        append(WaterFftSampling::PixelSource(bow, shoulder, array,
+                            WaterFftSpectrum::ForResolution(resolution), heading));
+                }
+    CHECK(hash == 0xf9efcf17fb55bd85ull);
     SavedShaderOption fft("ZH_WATER_FFT"), debug("ZH_WATER_DEBUG");
-    CHECK(unsetenv(fft.name)==0);CHECK(unsetenv(debug.name)==0);
-    PixelPipelineDescription pipeline={};
-    std::string full,open,explicitFull;
-    CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,full,COMBINER_SHADER_TARGET_SDL3_GPU));
-    CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,explicitFull,COMBINER_SHADER_TARGET_SDL3_GPU,false));
-    CHECK(full==explicitFull);
-    CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,open,COMBINER_SHADER_TARGET_SDL3_GPU,true));
-    earlyReturn(full,open);
-    std::vector<unsigned char> spirv;std::string error,msl,why;
-    const bool compiled=SDL3_Compile_HLSL_To_SPIRV(open,false,spirv,error);
-    if(!compiled)printf("open sea pixel: %s\n",error.c_str());
+    CHECK(unsetenv(fft.name) == 0);
+    CHECK(unsetenv(debug.name) == 0);
+    PixelPipelineDescription pipeline = {};
+    std::string full, open, explicitFull;
+    CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID, pipeline, full,
+        COMBINER_SHADER_TARGET_SDL3_GPU));
+    CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID, pipeline, explicitFull,
+        COMBINER_SHADER_TARGET_SDL3_GPU, false));
+    CHECK(full == explicitFull);
+    CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID, pipeline, open,
+        COMBINER_SHADER_TARGET_SDL3_GPU, true));
+    earlyReturn(full, open);
+    std::vector<unsigned char> spirv;
+    std::string error, msl, why;
+    const bool compiled = SDL3_Compile_HLSL_To_SPIRV(open, false, spirv, error);
+    if (!compiled)
+        printf("open sea pixel: %s\n", error.c_str());
     CHECK(compiled);
-    if(compiled) {
-        const char *validator=getenv("ZH_SPIRV_VAL");
-        if(validator && *validator)CHECK(validate(validator,spirv,error));
-        unsigned samplers=0,buffers=0;SDL3_Shader_Slots(spirv,false,samplers,buffers);
-        CHECK(SDL3_Translate_SPIRV_To_MSL(spirv,false,msl,error));
-        CHECK(slots_kept(msl,samplers,why));
+    if (compiled) {
+        const char *validator = getenv("ZH_SPIRV_VAL");
+        if (validator && *validator)
+            CHECK(validate(validator, spirv, error));
+        unsigned samplers = 0, buffers = 0;
+        SDL3_Shader_Slots(spirv, false, samplers, buffers);
+        CHECK(SDL3_Translate_SPIRV_To_MSL(spirv, false, msl, error));
+        CHECK(slots_kept(msl, samplers, why));
     }
-    for(auto program:{ENGINE_SHADER_WATER_RIVER,ENGINE_SHADER_WATER_CLASSIC_TRAPEZOID,ENGINE_SHADER_TERRAIN}) {
-        CHECK(EngineShader_Pixel_Program(program,pipeline,full,COMBINER_SHADER_TARGET_SDL3_GPU));
-        CHECK(EngineShader_Pixel_Program(program,pipeline,open,COMBINER_SHADER_TARGET_SDL3_GPU,true));CHECK(full==open);
+    for (auto program : {ENGINE_SHADER_WATER_RIVER, ENGINE_SHADER_WATER_CLASSIC_TRAPEZOID, ENGINE_SHADER_TERRAIN}) {
+        CHECK(EngineShader_Pixel_Program(program, pipeline, full, COMBINER_SHADER_TARGET_SDL3_GPU));
+        CHECK(EngineShader_Pixel_Program(program, pipeline, open, COMBINER_SHADER_TARGET_SDL3_GPU, true));
+        CHECK(full == open);
     }
-    CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,full,COMBINER_SHADER_TARGET_D3D11));
-    CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,open,COMBINER_SHADER_TARGET_D3D11,true));CHECK(full==open);
+    CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID, pipeline, full, COMBINER_SHADER_TARGET_D3D11));
+    CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID, pipeline, open, COMBINER_SHADER_TARGET_D3D11, true));
+    CHECK(full == open);
 }
 
 TEST(fft_heading_linux_bindings_compile_and_leave_d3d_and_rivers_unheaded)

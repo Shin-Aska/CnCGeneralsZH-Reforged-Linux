@@ -201,7 +201,7 @@ public:
 	void Shore_Begin(bool enabled);
 	void Shore_End();
 	void Shore_Patch(const WaterShoreOverlay::Quad *patch);
-	void Water_Open_Sea(bool enabled) { WaterOpenSea=enabled; }
+	void Water_Open_Sea(bool enabled) { WaterOpenSea = enabled; }
 	void Shore_Track(const WaterShoreOverlay::Quad *track);
 	// A synchronous water-patch scope may omit fully replaced analytic vertex heights only
 	// after this succeeds. Index, cull, blend and fill changes are allowed inside the scope;
@@ -426,7 +426,7 @@ protected:
 		std::shared_ptr<IDirect3DBaseTexture9> height, optical, heading;
 	};
 	bool ShoreActive=false, ShoreHasPatch=false, ShoreHasTrack=false;
-	bool WaterOpenSea=false;
+	bool WaterOpenSea = false;
 	WaterShoreOverlay::Quad ShorePatch, ShoreTrack;
 	std::vector<ShoreRegion> ShoreRegions; // <=128; COM refs released at scope end/reset/destruction
 
@@ -523,7 +523,7 @@ protected:
 		const SdlProgram *vertex=NULL;
 		const void *pixelShader=NULL, *vertexShader=NULL, *maps[3]={}, *array=NULL, *sampler=NULL;
 		IDirect3DSurface9 *target=NULL, *depth=NULL;
-		bool arrayOutput=false, movementCompatibility=false;
+		bool arrayOutput = false, movementCompatibility = false;
 		std::vector<uint8_t> description;
 	} PreparedWaterFft;
 	uint64_t PreparedWaterFftSerial=0;
@@ -589,6 +589,10 @@ protected:
 	float VertexShaderConstants[VERTEX_SHADER_CONSTANT_COUNT][4];
 	float PixelShaderConstants[PIXEL_SHADER_CONSTANT_COUNT][4];
 	D3DGAMMARAMP GammaRamp;
+
+private:
+	bool Water_Movement_Compatibility() const;
+	unsigned Water_Fft_Cascades(bool movementCompatibility) const;
 };
 
 #endif // POSIXDEVICE9_H

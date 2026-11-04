@@ -98,6 +98,21 @@ inline float Clamp01(float a) {
     return (std::max)(0.0f, (std::min)(1.0f, a));
 }
 
+namespace Detail {
+// Both classifications retain their own parent arrays. Choosing the lowest
+// root at each union keeps component and source-election identities stable.
+inline int Root(std::vector<int> &parent, int id) {
+    while (parent[id] != id) {
+        parent[id] = parent[parent[id]];
+        id = parent[id];
+    }
+    return id;
+}
+inline bool QualifiesBroadSea(bool exposed, size_t coreCells, float spacing) {
+    return exposed && double(coreCells) * spacing * spacing >= CoreArea;
+}
+} // namespace Detail
+
 inline bool Build(const uint8_t *wet, const uint8_t *links, int width, int height, int border,
     float spacing, Field &result, const std::vector<VisualConnection> &connections = {},
     bool allowSources = true) {
@@ -157,24 +172,20 @@ inline bool Build(const uint8_t *wet, const uint8_t *links, int width, int heigh
     std::vector<int> network(componentCount);
     for (int id = 0; id < componentCount; ++id)
         network[id] = id;
-    auto networkRoot = [&](int id) {
-        while (network[id] != id) {
-            network[id] = network[network[id]];
-            id = network[id];
-        }
-        return id;
+    auto validConnection = [&](const VisualConnection &c) {
+        return active(c.a) && active(c.b) && c.a != c.b && result.component[c.a] != result.component[c.b]
+            && std::isfinite(c.transmission) && c.transmission > 0 && c.transmission <= 1;
     };
     for (const auto &c : connections) {
-        if (!active(c.a) || !active(c.b) || c.a == c.b || result.component[c.a] == result.component[c.b]
-            || !std::isfinite(c.transmission) || c.transmission <= 0 || c.transmission > 1) {
+        if (!validConnection(c)) {
             result = Field{};
             return false;
         }
-        const int a = networkRoot(result.component[c.a]), b = networkRoot(result.component[c.b]);
+        const int a = Detail::Root(network, result.component[c.a]), b = Detail::Root(network, result.component[c.b]);
         network[(std::max)(a, b)] = (std::min)(a, b);
     }
     for (int &id : network)
-        id = networkRoot(id);
+        id = Detail::Root(network, id);
     // Crop edges are unknown, never banks. Wet nodes adjacent to real dry nodes
     // begin half a sample from shore, matching the reviewed offline classifier.
     constexpr float ClearanceCap = 10000;
@@ -333,22 +344,15 @@ inline bool Build(const uint8_t *wet, const uint8_t *links, int width, int heigh
     std::vector<int> broadParent(broadExposed.size());
     for (size_t id = 0; id < broadParent.size(); ++id)
         broadParent[id] = int(id);
-    auto root = [&](int id) {
-        while (broadParent[id] != id) {
-            broadParent[id] = broadParent[broadParent[id]];
-            id = broadParent[id];
-        }
-        return id;
-    };
     for (const auto &o : openings) {
         int first = -1;
         for (int i : o)
             if (broadId[i] >= 0) {
-                const int id = root(broadId[i]);
+                const int id = Detail::Root(broadParent, broadId[i]);
                 if (first < 0)
                     first = id;
                 else {
-                    first = root(first);
+                    first = Detail::Root(broadParent, first);
                     broadParent[(std::max)(first, id)] = (std::min)(first, id);
                     first = (std::min)(first, id);
                 }
@@ -362,10 +366,10 @@ inline bool Build(const uint8_t *wet, const uint8_t *links, int width, int heigh
     };
     std::vector<SeaGroup> groups(broadParent.size());
     for (size_t id = 0; id < broadParent.size(); ++id)
-        groups[root(int(id))].exposed |= broadExposed[id] != 0;
+        groups[Detail::Root(broadParent, int(id))].exposed |= broadExposed[id] != 0;
     for (int &i : broadId)
         if (i >= 0)
-            i = root(i);
+            i = Detail::Root(broadParent, i);
     std::vector<uint8_t> seen(count, 0);
     for (int i = 0; i < count; ++i)
         if (active(i) && result.clearance[i] >= CoreClearance && !seen[i]) {
@@ -393,7 +397,7 @@ inline bool Build(const uint8_t *wet, const uint8_t *links, int width, int heigh
     int chosenBroad = -1;
     for (size_t id = 0; id < groups.size(); ++id) {
         const auto &group = groups[id];
-        if (group.exposed && double(group.coreCells) * spacing * spacing >= CoreArea) {
+        if (Detail::QualifiesBroadSea(group.exposed, group.coreCells, spacing)) {
             result.qualifyingCores += group.cores;
             auto &candidate = candidates[network[result.component[group.firstCore]]];
             if (candidate.broad < 0 || group.coreCells > groups[candidate.broad].coreCells
@@ -414,7 +418,7 @@ inline bool Build(const uint8_t *wet, const uint8_t *links, int width, int heigh
     // in the same transport network remain passive, including visual links.
     std::vector<uint8_t> exteriorGroup(groups.size(), 0), incomingGroup(groups.size(), 0);
     for (size_t id = 0; id < groups.size(); ++id)
-        exteriorGroup[id] = groups[id].exposed && double(groups[id].coreCells) * spacing * spacing >= CoreArea;
+        exteriorGroup[id] = Detail::QualifiesBroadSea(groups[id].exposed, groups[id].coreCells, spacing);
     int chosenOpening = -1;
     for (size_t id = 0; id < openings.size(); ++id)
         if (frontage[id] >= CoastalFrontage) {
@@ -567,8 +571,7 @@ inline bool Build(const uint8_t *wet, const uint8_t *links, int width, int heigh
     };
     std::vector<VisualEdge> visualEdges;
     for (const auto &c : connections) {
-        if (!active(c.a) || !active(c.b) || c.a == c.b || result.component[c.a] == result.component[c.b]
-            || !std::isfinite(c.transmission) || c.transmission <= 0 || c.transmission > 1) {
+        if (!validConnection(c)) {
             result = Field{};
             return false;
         }

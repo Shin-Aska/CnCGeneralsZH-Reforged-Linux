@@ -19,6 +19,7 @@
 #include "Platform/WaterMovementBehavior.h"
 #include "Platform/WaterMovementCompatibility.h"
 #include "WaterMovement351Reference.h"
+#include <limits>
 namespace WaterMovementCompatibilityTest {
 inline void Check() {
     // Exact original producer contract includes full terrain padding, edge
@@ -29,12 +30,15 @@ inline void Check() {
         for (int y = 0; y < h; ++y)
             for (int x = 0; x < w; ++x) {
                 const int i = y * w + x;
-                bool water = scenario == 0 || (scenario == 1 ? x < 63 : scenario == 2 ? y > 17
-                    : scenario == 3 ? std::hypot(x - 48.0, y - 36.0) > 11 : (x < 31 || x > 64));
+                bool water = scenario == 0 || (scenario == 1 ? x < 63
+                    : scenario == 2 ? y > 17
+                    : scenario == 3 ? std::hypot(x - 48.0, y - 36.0) > 11
+                    : (x < 31 || x > 64));
                 wet[i] = water ? 255 : 0;
                 exposure[i] = uint8_t((x * 17 + y * 31) % 256);
             }
-        for (float spacing : {5.0f, 10.0f, 37.0f, 1000.0f}) {
+        for (float spacing : {5.0f, 10.0f, 37.0f, 1000.0f,
+            std::numeric_limits<float>::min(), std::numeric_limits<float>::max()}) {
             WaterMovementCompatibility::Field actual, repeat;
             WaterMovement351Reference::Field expected;
             CHECK(WaterMovementCompatibility::Build(wet.data(), exposure.data(), w, h, spacing, actual));

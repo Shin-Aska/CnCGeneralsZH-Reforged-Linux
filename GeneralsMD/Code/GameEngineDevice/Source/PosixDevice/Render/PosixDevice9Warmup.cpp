@@ -137,8 +137,9 @@ RenderWarmupStats PosixDevice9::Warm_Up_Render_Pipelines(bool modernWater, unsig
         const int waterPixel = modernWater ? ENGINE_SHADER_WATER_TRAPEZOID : ENGINE_SHADER_WATER_CLASSIC_TRAPEZOID;
         if (shadersOnly) {
             warm(water, pixelDescription(0, false, false), 1, D3DCULL_NONE, waterPixel, modernWater && WaterFftSampling::Enabled());
-            if(modernWater) warm(water, pixelDescription(0, false, false), 1, D3DCULL_NONE,
-                waterPixel, WaterFftSampling::Enabled(), false, ENGINE_SHADER_NONE, true);
+            if (modernWater)
+                warm(water, pixelDescription(0, false, false), 1, D3DCULL_NONE,
+                    waterPixel, WaterFftSampling::Enabled(), false, ENGINE_SHADER_NONE, true);
         }
 
         // Common opaque/alpha-tested unit and building meshes, including the sun-receiving variants.
@@ -159,8 +160,9 @@ RenderWarmupStats PosixDevice9::Warm_Up_Render_Pipelines(bool modernWater, unsig
             if (!shadersOnly && fvf == formats[0])
                 for (unsigned cull : {D3DCULL_NONE, D3DCULL_CCW}) {
                     warm(water, pixelDescription(0, false, false), 1, cull, waterPixel, modernWater && WaterFftSampling::Enabled());
-                    if(modernWater) warm(water, pixelDescription(0, false, false), 1, cull,
-                        waterPixel, WaterFftSampling::Enabled(), false, ENGINE_SHADER_NONE, true);
+                    if (modernWater)
+                        warm(water, pixelDescription(0, false, false), 1, cull,
+                            waterPixel, WaterFftSampling::Enabled(), false, ENGINE_SHADER_NONE, true);
                 }
         }
 

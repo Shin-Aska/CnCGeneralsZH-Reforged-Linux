@@ -2081,7 +2081,8 @@ current=float4(hullDepthRegion*saturate(0.5+0.5*(world.z-baseLevel)/fftVerticalB
 }
 
 bool EngineShader_Pixel_Program(EngineShaderProgram program,
-	const PixelPipelineDescription & pipeline, std::string & hlsl, CombinerShaderTarget target, bool waterOpenSea)
+	const PixelPipelineDescription & pipeline, std::string & hlsl, CombinerShaderTarget target,
+	bool waterOpenSea)
 {
 	// SDL ground programs share the Windows sun and smoke filters. Water keeps its own path.
 	if (target == COMBINER_SHADER_TARGET_D3D9) {

@@ -288,30 +288,31 @@ int main()
 
 
     {
-        PixelPipelineDescription pipeline={};
-        const auto &full=cache.Engine_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline);
-        const auto &settings=WaterPerformanceSettings::Applied();
-        unsigned profile=0;
+        PixelPipelineDescription pipeline = {};
+        const auto &full = cache.Engine_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID, pipeline);
+        const auto &settings = WaterPerformanceSettings::Applied();
+        unsigned profile = 0;
 #if defined(__linux__)
-        profile=unsigned(WaterMaterialProfile::Applied());
+        profile = unsigned(WaterMaterialProfile::Applied());
 #endif
-        const std::string expected=std::string("engine:")+EngineShader_Name(ENGINE_SHADER_WATER_TRAPEZOID)
-            +CombinerShader_Pipeline_Key(pipeline)+":water:"+std::to_string(settings.activeFftResolution)
-            +":"+std::to_string(unsigned(settings.refraction))+":"+(settings.sceneReflections?"1":"0")
-            +":profile:"+std::to_string(profile);
-        CHECK(full.Key==expected);
-        CHECK(&full==&cache.Engine_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,false));
-        const auto &open=cache.Engine_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,true);
-        CHECK(open.Shader && open.Shader!=full.Shader && open.Key==expected+":open-sea");
-        const auto built=cache.Programs_Built();
-        for(unsigned i=0;i<8;++i) {
-            CHECK(&open==&cache.Engine_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,true));
-            CHECK(&full==&cache.Engine_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline));
+        const std::string expected = std::string("engine:") + EngineShader_Name(ENGINE_SHADER_WATER_TRAPEZOID)
+            + CombinerShader_Pipeline_Key(pipeline) + ":water:" + std::to_string(settings.activeFftResolution)
+            + ":" + std::to_string(unsigned(settings.refraction)) + ":" + (settings.sceneReflections ? "1" : "0")
+            + ":profile:" + std::to_string(profile);
+        CHECK(full.Key == expected);
+        CHECK(&full == &cache.Engine_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID, pipeline, false));
+        const auto &open = cache.Engine_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID, pipeline, true);
+        CHECK(open.Shader && open.Shader != full.Shader && open.Key == expected + ":open-sea");
+        const auto built = cache.Programs_Built();
+        for (unsigned i = 0; i < 8; ++i) {
+            CHECK(&open == &cache.Engine_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID, pipeline, true));
+            CHECK(&full == &cache.Engine_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID, pipeline));
         }
-        PixelPipelineDescription equivalent=pipeline;equivalent.AlphaFunction=D3DCMP_ALWAYS;
-        CHECK(&open==&cache.Engine_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,equivalent,true));
-        CHECK(&full==&cache.Engine_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,equivalent));
-        CHECK(cache.Programs_Built()==built);
+        PixelPipelineDescription equivalent = pipeline;
+        equivalent.AlphaFunction = D3DCMP_ALWAYS;
+        CHECK(&open == &cache.Engine_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID, equivalent, true));
+        CHECK(&full == &cache.Engine_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID, equivalent));
+        CHECK(cache.Programs_Built() == built);
     }
 
 	check_water_vertex_storage_variants(device,cache);

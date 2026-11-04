@@ -79,7 +79,8 @@ public:
 	/// Direct3D 11 backend keys it: the name, and for a pixel program the alpha test and fog written into
 	/// it.  A refusal for a program with no transcription, or of the other stage.
 	const SdlProgram &Engine_Vertex_Program(int program);
-	const SdlProgram &Engine_Pixel_Program(int program, const struct PixelPipelineDescription &pipeline, bool waterOpenSea = false);
+	const SdlProgram &Engine_Pixel_Program(int program, const struct PixelPipelineDescription &pipeline,
+		bool waterOpenSea = false);
 
 	unsigned int Programs_Built() const { return Built; }
 	/// The key a program was made under, for a refusal's log line: "" for a shader this cache did not make.

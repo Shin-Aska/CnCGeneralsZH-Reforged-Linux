@@ -6176,9 +6176,9 @@ public:
     }
 #endif
     void prepareStyleShaders(IDirect3DDevice9 *device) {
-        const RenderUInt32 tokens[]={0xffff0101u,0x0000ffffu};
-        CHECK(device->CreatePixelShader(tokens,&m_riverWaterPixelShader)==D3D_OK);
-        CHECK(device->CreatePixelShader(tokens,&m_trapezoidWaterPixelShader)==D3D_OK);
+        const RenderUInt32 tokens[] = {0xffff0101u, 0x0000ffffu};
+        CHECK(device->CreatePixelShader(tokens, &m_riverWaterPixelShader) == D3D_OK);
+        CHECK(device->CreatePixelShader(tokens, &m_trapezoidWaterPixelShader) == D3D_OK);
         registerWaterStyleShaders();
     }
     void prepareShaders(IDirect3DDevice9 *device) {

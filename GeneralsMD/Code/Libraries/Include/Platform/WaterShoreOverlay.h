@@ -127,7 +127,7 @@ class IDirect3DDevice9;
 void PosixWaterShoreBegin(IDirect3DDevice9 *,bool enabled);
 void PosixWaterShoreEnd(IDirect3DDevice9 *);
 void PosixWaterShorePatch(IDirect3DDevice9 *,const WaterShoreOverlay::Quad *);
-void PosixWaterOpenSea(IDirect3DDevice9 *,bool enabled);
+void PosixWaterOpenSea(IDirect3DDevice9 *, bool enabled);
 void PosixWaterShoreTrack(IDirect3DDevice9 *,const WaterShoreOverlay::Quad *);
 namespace WaterShoreOverlay {
 struct Scope {
@@ -144,7 +144,7 @@ struct Scope {
 struct IDirect3DDevice9;
 inline void PosixWaterShorePatch(IDirect3DDevice9 *,const WaterShoreOverlay::Quad *) {}
 // The open-sea split only selects programs on the SDL device (port rule 2).
-inline void PosixWaterOpenSea(IDirect3DDevice9 *,bool) {}
+inline void PosixWaterOpenSea(IDirect3DDevice9 *, bool) {}
 inline void PosixWaterShoreTrack(IDirect3DDevice9 *,const WaterShoreOverlay::Quad *) {}
 namespace WaterShoreOverlay {
 struct Scope {

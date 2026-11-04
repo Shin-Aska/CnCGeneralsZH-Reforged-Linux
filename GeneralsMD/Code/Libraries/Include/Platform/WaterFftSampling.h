@@ -128,7 +128,7 @@ inline std::string LocalSource(unsigned resolution = WaterFftSpectrum::Resolutio
     char constants[128];
     std::snprintf(constants, sizeof(constants), "static const float fftLocalTexel=%.9g;\n",
         double(WorldScale *WaterFftSpectrum::Sizes[2] / resolution));
-    std::string source=std::string(constants) + WaterWavefront::ShaderSource() + R"HLSL(
+    std::string source = std::string(constants) + WaterWavefront::ShaderSource() + R"HLSL(
 struct FftLocalFields {
     FftWavefrontParameters first,second;
     float3 influence,legacyGain; // value and world X/Y derivatives
@@ -367,14 +367,16 @@ FftLocalWaves fftLocalWaves(float2 p,FftLocalFields fields,float lod) {
     return value;
 }
 )HLSL";
-    if(openSea) {
-        const std::string setup="precise FftLocalFields fields=(FftLocalFields)0;fields.legacyGain=float3(1,0,0);";
-        source.insert(source.find(setup)+setup.size(),"return fields;");
+    if (openSea) {
+        const std::string setup = "precise FftLocalFields fields=(FftLocalFields)0;fields.legacyGain=float3(1,0,0);";
+        source.insert(source.find(setup) + setup.size(), "return fields;");
     }
     return source;
 }
 // Opt-in Linux field; default/shared shader text remains unchanged.
-inline std::string HeadingSource(bool vertex, unsigned resolution = WaterFftSpectrum::Resolution, bool openSea = false) {
+inline std::string HeadingSource(bool vertex, unsigned resolution = WaterFftSpectrum::Resolution,
+    bool openSea = false)
+{
     char constants[2048];
     const double noiseVariance = (26.0 / 35) * (26.0 / 35) / 12;
     std::snprintf(constants, sizeof(constants),
@@ -764,7 +766,9 @@ Output main(Input input)
 }
 
 inline std::string PixelSource(bool bowLift = false, bool bowShoulder = WaterBowShoulder::Enabled(),
-    bool textureArray = false, WaterFftSpectrum::Configuration configuration = WaterFftSpectrum::ForResolution(WaterFftSpectrum::Resolution), bool waveHeading = false, bool openSea = false)
+    bool textureArray = false,
+    WaterFftSpectrum::Configuration configuration = WaterFftSpectrum::ForResolution(WaterFftSpectrum::Resolution),
+    bool waveHeading = false, bool openSea = false)
 {
     std::string source=CommonSource()+(bowLift?WaterBowLift::Source():std::string())+WaterVesselWaves::Source(true,bowShoulder)+WaterFftFiltering::Source(configuration)+R"HLSL(
 )HLSL"+(bowLift?R"HLSL(struct FftSurface {

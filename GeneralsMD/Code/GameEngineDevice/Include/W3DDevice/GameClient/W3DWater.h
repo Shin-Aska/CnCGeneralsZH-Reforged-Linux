@@ -501,6 +501,16 @@ protected:
 	RenderResult generateIndexBuffer(int sizeX, int sizeY);	///<Generate static index buufer
 	RenderResult generateVertexBuffer( Int sizeX, Int sizeY, Int vertexSize, Bool doFill);///<Generate static vertex buffer
 
+private:
+#if defined(__linux__)
+	struct ModernWaterHeadingDiagnostics;
+	void prepareModernWaterCompatibilityHeading(ModernOpticalTexture &cached, Real level,
+		const ModernWaterHeadingDiagnostics &diagnostics);
+	void prepareModernWaterMapAwareHeading(ModernOpticalTexture &cached, Real level,
+		const ModernWaterHeadingDiagnostics &diagnostics);
+	void prepareModernWaterLocalDiscs(const WaterOpenSeaSplit::Mask &mask, Real level, Real margin);
+#endif
+
 };
 
 extern WaterRenderObjClass *TheWaterRenderObj; ///<global water rendering object

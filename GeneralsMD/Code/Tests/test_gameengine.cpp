@@ -16531,7 +16531,8 @@ TEST(water_movement_behavior_defaults_on_and_persists_for_the_next_map)
 {
     const OptionDef *movement = findOptionDef("WaterMovementBehavior");
     CHECK(movement != NULL);
-    if (!movement) return;
+    if (!movement)
+        return;
     CHECK_EQ(movement->kind, OPTION_BOOL);
     CHECK_EQ(movement->apply, APPLY_NEXT_MAP);
     CHECK_EQ(movement->lo, 0);

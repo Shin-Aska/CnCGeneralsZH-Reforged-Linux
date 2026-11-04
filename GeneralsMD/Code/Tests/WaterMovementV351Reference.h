@@ -21,13 +21,12 @@
 #include <string>
 #include <cstdio>
 namespace WaterMovementV351Reference {
-inline std::string CommonSource()
-{
+inline std::string CommonSource() {
     char limits[256];
-    std::snprintf(limits,sizeof(limits),
+    std::snprintf(limits, sizeof(limits),
         "static const float fftVerticalBound=%.9g;\nstatic const float fftHorizontalBound=%.9g;\nstatic const float fftWorldScale=%.9g;\n",
-        6.8785200119018555,8.0/1.4142135623730951,20.0);
-    return std::string(limits)+R"HLSL(
+        6.8785200119018555, 8.0 / 1.4142135623730951, 20.0);
+    return std::string(limits) + R"HLSL(
 // Smooth limits make culling/floor bounds independent of the random spectrum's extrema.
 // Each XY component is bounded by the radial limit / sqrt(2), preserving the hull-clearance
 // proof even for diagonal crests. Keep the derivative in the same model as displacement.
@@ -59,15 +58,15 @@ FftHorizontalRegistration fftHorizontalRegistration(float2 p,float3 raw,float3 r
 // byte-identical unrotated source. SDL supplies linear/clamp samplers in both stages.
 inline std::string HeadingSource(bool vertex) {
     char base[128];
-    std::snprintf(base,sizeof(base),"static const float2 fftBaseHeading=float2(%.9g,%.9g);\n",
-        -0.7071067690849304,-0.7071067690849304);
-    return std::string(vertex?R"HLSL(
+    std::snprintf(base, sizeof(base), "static const float2 fftBaseHeading=float2(%.9g,%.9g);\n",
+        -0.7071067690849304, -0.7071067690849304);
+    return std::string(vertex ? R"HLSL(
 Texture2D FftHeadingTexture : register(t4);
 SamplerState FftHeadingSampler : register(s4);
-)HLSL":R"HLSL(
+)HLSL" : R"HLSL(
 Texture2D FftHeadingTexture : register(t11);
 SamplerState FftHeadingSampler : register(s11);
-)HLSL")+base+R"HLSL(
+)HLSL") + base + R"HLSL(
 float2 fftRotate(float2 p,float2 cs) {return float2(cs.x*p.x-cs.y*p.y,cs.y*p.x+cs.x*p.y);}
 float3 fftRotateVector(float3 v,float2 cs) {return float3(fftRotate(v.xy,cs),v.z);}
 struct FftHeading {float2 rotation0,rotation1,weights;};
@@ -144,7 +143,8 @@ void fftRawAndShadingSurface(float2 p,float3 lod,out FftSurface physical,out Fft
 )HLSL";
 }
 
-inline std::string PixelSource() { return CommonSource()+R"V351(
+inline std::string PixelSource() {
+    return CommonSource() + R"V351(
 struct FftSurface { float3 displacement;
     float3 derivativeX;
     float3 derivativeY;
@@ -232,13 +232,16 @@ void fftUnrotatedAndShadingSurface(float2 p,float3 lod,out FftSurface physical,o
         shading=fftDecodeSamples(samples);
     }
 }
-)V351"+HeadingSource(false)+HeadingPixelSource(); }
-inline std::string VertexSource() { return CommonSource()+R"V351(
+)V351" + HeadingSource(false) + HeadingPixelSource();
+}
+inline std::string VertexSource() {
+    return CommonSource() + R"V351(
 float3 fftUnrotatedDisplacement(float2 p) {
     float3 a=FftDisplacement0.SampleLevel(FftSampler0,p/(450.0*fftWorldScale),0).xyz;
     float3 b=FftDisplacement1.SampleLevel(FftSampler1,p/(103.0*fftWorldScale),0).xyz;
     float3 c=FftDisplacement2.SampleLevel(FftSampler2,p/(13.0*fftWorldScale),0).xyz;
     return (a.xzy*float3(-1.2,-1.2,1)+b.xzy*float3(-1.5,-1.5,1)
         +c.xzy*float3(-1.5,-1.5,1))*fftWorldScale;
-})V351"+HeadingSource(true)+HeadingVertexSource(); }
+})V351" + HeadingSource(true) + HeadingVertexSource();
+}
 }

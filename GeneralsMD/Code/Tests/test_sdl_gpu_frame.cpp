@@ -9377,7 +9377,8 @@ static void check_gpu_water_movement_v351(SdlGpuFrame *frame)
 			};
 			if (identifier(source[at])) {
 				size_t end = at + 1;
-				while (end < source.size() && (identifier(source[end]) || (source[end] >= '0' && source[end] <= '9')))
+				while (end < source.size()
+				&& (identifier(source[end]) || (source[end] >= '0' && source[end] <= '9')))
 					++end;
 				const std::string word = source.substr(at, end - at);
 				if (word.compare(0, 3, "fft") == 0 || word.compare(0, 3, "Fft") == 0)
@@ -9406,7 +9407,8 @@ static void check_gpu_water_movement_v351(SdlGpuFrame *frame)
 			CHECK(begin != std::string::npos && end > begin);
 			if (begin == std::string::npos || end <= begin)
 				return std::string();
-			current = WaterFftSampling::CommonSource() + WaterFftFiltering::Source(config) + full.substr(begin, end - begin);
+			current = WaterFftSampling::CommonSource() + WaterFftFiltering::Source(config)
+				+ full.substr(begin, end - begin);
 		}
 		CHECK(current.find("FftParameters.z< -0.5") != std::string::npos);
 		std::string reference = vertex ? WaterMovementV351Reference::VertexSource()
@@ -9414,7 +9416,8 @@ static void check_gpu_water_movement_v351(SdlGpuFrame *frame)
 		auto prepare = [&](std::string &text, bool frozen) {
 			replace(text, "FftParameters", frozen ? "fixtureReferenceFft" : "fixtureFft");
 			replace(text, "WaterParameters", "fixtureWater");
-			const std::string reg = vertex ? "4" : "11", slot = frozen ? "1" : "0", space = vertex ? "0" : "2";
+			const std::string reg = vertex ? "4" : "11", slot = frozen ? "1" : "0",
+				space = vertex ? "0" : "2";
 			replace(text, "register(t" + reg + ")", "register(t" + slot + ",space" + space + ")");
 			replace(text, "register(s" + reg + ")", "register(s" + slot + ",space" + space + ")");
 			for (unsigned c = 0; c < 6; ++c) {
@@ -9424,7 +9427,8 @@ static void check_gpu_water_movement_v351(SdlGpuFrame *frame)
 			}
 			for (unsigned c = 0; c < 3; ++c) {
 				const std::string i = std::to_string(c);
-				replace(text, "FftDisplacement" + i + ".SampleLevel(FftSampler" + i + ",", "fixtureVertex" + i + "(");
+				replace(text, "FftDisplacement" + i + ".SampleLevel(FftSampler" + i + ",",
+					"fixtureVertex" + i + "(");
 			}
 			text = names(text, frozen ? "reference" : "production");
 		};
@@ -9577,8 +9581,10 @@ float4 main(float4 pixel:SV_Position):SV_Target0 {
 			CHECK(!fixture.empty());
 			if (fixture.empty())
 				return;
-			const std::string vs = vertex ? fixture : "float4 main(uint id:SV_VertexID):SV_Position{return float4(id==1?3.0:-1.0,id==2?3.0:-1.0,0,1);}";
-			const std::string ps = vertex ? "float4 main(nointerpolation float4 value:TEXCOORD0):SV_Target0{return value;}" : fixture;
+			const std::string vs = vertex ? fixture
+				: "float4 main(uint id:SV_VertexID):SV_Position{return float4(id==1?3.0:-1.0,id==2?3.0:-1.0,0,1);}";
+			const std::string ps = vertex
+				? "float4 main(nointerpolation float4 value:TEXCOORD0):SV_Target0{return value;}" : fixture;
 			bool ok = SDL3_Compile_HLSL_To_SPIRV(vs, true, spirv, error);
 			CHECK(ok);
 			if (!ok) {
@@ -9653,7 +9659,8 @@ float4 main(float4 pixel:SV_Position):SV_Target0 {
 						if (col < (vertex ? 1u : 14u)) {
 							maximum = std::max(maximum, std::abs(value));
 							if (std::abs(value) >= .000003)
-								printf("v3.5.1 oracle: vertex%u array%u row%u column%u channel%u error %.9g\n", vertex, array, row, col, c, value);
+								printf("v3.5.1 oracle: vertex%u array%u row%u column%u channel%u error %.9g\n",
+								vertex, array, row, col, c, value);
 							CHECK(std::abs(value) < .000003);
 						} else if (c < 3) {
 							if (col == (vertex ? 2u : 14u))
@@ -9666,7 +9673,8 @@ float4 main(float4 pixel:SV_Position):SV_Target0 {
 	CHECK(armedHeading > 20);
 	for (unsigned count : armedCascade)
 		CHECK(count > 20);
-	printf("sdl_gpu_frame_selfcheck: frozen v3.5.1 movement: %u queries, actual vertex/pixel dispatch, array/independent maps, physical/filtered/paired derivatives and contact/compression, linear heading guards/fallback, exact repeat; max error %.9g, headed controls %u, cascade controls %u/%u/%u\n", rows, maximum, armedHeading, armedCascade[0], armedCascade[1], armedCascade[2]);
+	printf("sdl_gpu_frame_selfcheck: frozen v3.5.1 movement: %u queries, actual vertex/pixel dispatch, array/independent maps, physical/filtered/paired derivatives and contact/compression, linear heading guards/fallback, exact repeat; max error %.9g, headed controls %u, cascade controls %u/%u/%u\n",
+		rows, maximum, armedHeading, armedCascade[0], armedCascade[1], armedCascade[2]);
 }
 
 int main(int argc,char **argv)

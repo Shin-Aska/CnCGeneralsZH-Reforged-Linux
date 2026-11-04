@@ -45,15 +45,13 @@ inline float Rotation(Vector heading) {
     return std::atan2(BaseHeading.x * heading.y - BaseHeading.y * heading.x,
         BaseHeading.x * heading.x + BaseHeading.y * heading.y);
 }
-inline bool Build(const uint8_t *wet, const uint8_t *exposure, int width, int height, float spacing, Field &result) {
-    result = Field{};
-    if (!wet || !exposure || width < 2 || height < 2 || width > MaxDimension || height > MaxDimension
-        || size_t(width) * height > MaxCells || !std::isfinite(spacing) || spacing <= 0)
-        return false;
+namespace Detail {
+// The caller owns allocation and the capped cardinal/diagonal steps. Sweep
+// order is part of the compatibility producer's exact packed-output contract.
+inline void ComputeShoreDistances(const uint8_t *wet, int width, int height, float step,
+    float diagonal, std::vector<float> &distance)
+{
     const size_t count = size_t(width) * height;
-    // Clamp before arithmetic/conversion, including finite but extreme spacings.
-    const float step = (std::min)(spacing, DistanceCap), diagonal = (std::min)(step * 1.41421356237f, DistanceCap);
-    std::vector<float> distance(count, DistanceCap), strength(count, 0);
     for (size_t i = 0; i < count; ++i)
         if (!wet[i])
             distance[i] = 0;
@@ -87,6 +85,53 @@ inline bool Build(const uint8_t *wet, const uint8_t *exposure, int width, int he
                     relax(i, i + width + 1, diagonal);
             }
         }
+}
+
+inline void BlurWetHeadings(const uint8_t *wet, int width, int height, int radius,
+    std::vector<Vector> &values, std::vector<Vector> &scratch)
+{
+    // Sliding windows keep all three wet-only separable passes O(cells), even at tiny spacing.
+    for (int pass = 0; pass < BlurPasses; ++pass)
+        for (int axis = 0; axis < 2; ++axis) {
+            const int lines = axis ? width : height, length = axis ? height : width, stride = axis ? width : 1;
+            for (int line = 0; line < lines; ++line) {
+                const int base = axis ? line : line * width;
+                double sx = 0, sy = 0;
+                int weights = 0;
+                auto add = [&](int j, int sign) {
+                    const int i = base + j * stride;
+                    if (wet[i]) {
+                        sx += sign * values[i].x;
+                        sy += sign * values[i].y;
+                        weights += sign;
+                    }
+                };
+                for (int j = 0; j < (std::min)(length, radius + 1); ++j)
+                    add(j, 1);
+                for (int j = 0; j < length; ++j) {
+                    const int i = base + j * stride;
+                    scratch[i] = wet[i] && weights ? Vector{float(sx / weights), float(sy / weights)} : Vector{0, 0};
+                    if (j - radius >= 0)
+                        add(j - radius, -1);
+                    if (j + radius + 1 < length)
+                        add(j + radius + 1, 1);
+                }
+            }
+            values.swap(scratch);
+        }
+}
+} // namespace Detail
+
+inline bool Build(const uint8_t *wet, const uint8_t *exposure, int width, int height, float spacing, Field &result) {
+    result = Field{};
+    if (!wet || !exposure || width < 2 || height < 2 || width > MaxDimension || height > MaxDimension
+        || size_t(width) * height > MaxCells || !std::isfinite(spacing) || spacing <= 0)
+        return false;
+    const size_t count = size_t(width) * height;
+    // Clamp before arithmetic/conversion, including finite but extreme spacings.
+    const float step = (std::min)(spacing, DistanceCap), diagonal = (std::min)(step * 1.41421356237f, DistanceCap);
+    std::vector<float> distance(count, DistanceCap), strength(count, 0);
+    Detail::ComputeShoreDistances(wet, width, height, step, diagonal, distance);
     std::vector<Vector> normal(count, {0, 0}), values(count, {0, 0}), scratch(count, {0, 0});
     double meanX = 0, meanY = 0, weight = 0;
     for (int y = 0; y < height; ++y)
@@ -124,35 +169,7 @@ inline bool Build(const uint8_t *wet, const uint8_t *exposure, int width, int he
                 result.prevailing.y * (1 - s) + normal[i].y * s};
         }
     const int radius = int((std::min)(double(MaxDimension), std::ceil(double(BlurRadius) / spacing)));
-    // Sliding windows keep all three wet-only separable passes O(cells), even at tiny spacing.
-    for (int pass = 0; pass < BlurPasses; ++pass)
-        for (int axis = 0; axis < 2; ++axis) {
-            const int lines = axis ? width : height, length = axis ? height : width, stride = axis ? width : 1;
-            for (int line = 0; line < lines; ++line) {
-                const int base = axis ? line : line * width;
-                double sx = 0, sy = 0;
-                int weights = 0;
-                auto add = [&](int j, int sign) {
-                    const int i = base + j * stride;
-                    if (wet[i]) {
-                        sx += sign * values[i].x;
-                        sy += sign * values[i].y;
-                        weights += sign;
-                    }
-                };
-                for (int j = 0; j < (std::min)(length, radius + 1); ++j)
-                    add(j, 1);
-                for (int j = 0; j < length; ++j) {
-                    const int i = base + j * stride;
-                    scratch[i] = wet[i] && weights ? Vector{float(sx / weights), float(sy / weights)} : Vector{0, 0};
-                    if (j - radius >= 0)
-                        add(j - radius, -1);
-                    if (j + radius + 1 < length)
-                        add(j + radius + 1, 1);
-                }
-            }
-            values.swap(scratch);
-        }
+    Detail::BlurWetHeadings(wet, width, height, radius, values, scratch);
     auto encode = [](float value) {
         return uint32_t((std::max)(0.0f, (std::min)(255.0f, (0.5f + 0.5f * value) * 255.0f + 0.5f)));
     };
