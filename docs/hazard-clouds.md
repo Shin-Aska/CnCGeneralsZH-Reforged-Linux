@@ -67,7 +67,19 @@ second cloud drawn until 4436).
 Approved green toxin, blue beta, purple gamma and amber nuclear palettes use transparency defaults
 of 86%, 86%, 86% and 0%. Effects read their actual emission radius and hazard lifetime. Toxin
 billows form outward; nuclear haze fades into its full footprint. Formation is capped to one quarter
-of short hazard lifetimes. Visible infantry stir the smoke; hidden, stealthed or shrouded infantry
+of short hazard lifetimes. Toxin Tractor contamination uses volumetric ground clouds while firing,
+including Anthrax Beta and Gamma, as well as for the lingering field after firing stops.
+Normal toxin impacts also use their green, beta or gamma volume, including the brief gamma splash.
+The Tractor's attached continuous puddles and the damaged decorative GLA toxin tank's attached
+leak use their actual world-space particle support. The tank leak remains a visual effect; it
+gains no damage or gameplay hazard. These effects follow live-particle lifetimes, so stopping or
+destroying the emitter does not start a new long-lived cloud.
+Coincident detached impacts of the same template share one support, using the latest actual live
+particle expiry; repeated shots do not add another full cloud's opacity for every splash. Attached
+emitters retain their own stable particle-system identity. Original attached sprites are suppressed
+only when that source's replacement is admitted in the main view; Classic and unavailable rendering
+resources retain the original drawing path.
+Visible infantry stir the smoke; hidden, stealthed or shrouded infantry
 leave no wakes. Nothing here changes damage, weapons, movement, gameplay randomness or simulation
 state: Classic and Volumetric runs of the same scenario give the same game-state CRC.
 
@@ -133,6 +145,39 @@ it.
 fields must stay volumetric. It also covers 128 mixed, nuclear and gamma owners, with distinct
 and densely overlapping centres, plus late source/domain growth, terrain, water, formation/fade,
 live Classic switching, save/load and identical gameplay CRC between styles.
+The `tractor-green`, `tractor-beta` and `tractor-gamma` cases issue the actual Contaminate command
+and check for volumetric clouds both during casting and after stopping; `tractor-green-move`
+cancels casting by moving away. Gamma is researched through the Palace; `--crc-pair` also checks
+the selected tractor cases against Classic.
+The `tractor-attack-green` and `rebel-attack-beta/gamma` cases exercise real primary attack impacts;
+`gamma-splash-expiry` isolates the retail ten-frame gamma pulse. `toxin-tank-attached` damages and
+then destroys a real `GLAToxinTank` away from the map origin. Attached-source checks distinguish
+the Tractor's continuous particles from the larger detached contamination pulses. The move-away
+case cancels casting and checks the remaining particles rather than assuming the Tractor can move
+while casting. Attachment transform composition was checked by source review, and the actual prop
+fixture verifies world placement away from the origin. No requested real actor continuously emits
+these puddles while moving, so that runtime route remains unexercised. The Direct3D 11 integration
+was reviewed in source; these production fixtures run on Linux/SDL.
+`gamma-splash-rebirth` checks that a second same-position pulse after expiry starts its own formation.
+With toxin cases selected, `--live` additionally switches an active Tractor and damaged prop between
+styles, destroys the prop during Classic, and switches back while its residual particles remain.
+It also emits a brief gamma splash in each mode. `--timing` records 120 active whole-engine frames
+for primary toxin attack cases; reports retain grouped member counts and shared-source peaks.
+
+### Toxin source validation, 2026-11-05
+
+Linux/SDL Vulkan production validation passed 25 runs and 403 checks with GPU validation enabled.
+All 11 Classic/Volumetric pairs retained identical gameplay CRCs. Coverage includes actual primary
+attacks, all three contamination attachments, move-away cancellation, short gamma expiry and
+rebirth, decorative prop damage/destruction, live style switches and the existing save/reload check.
+The isolated gamma pulse reached a published shared snapshot during its short life and visibly
+faded before expiry. Repeated green/beta impacts had up to 45 live members while retaining one
+shared source, avoiding multiplied opacity. Actual sprite decisions confirmed Classic restoration
+and suppression after volumetric admission, including the destroyed prop's residual particles.
+
+Manifests, logs, captures, source counts and active-attack frame timings are consolidated in
+`build-linux/toxin-expansion-validation.json`. These are private ignored build artifacts; no
+installed game files are changed. Direct3D 11 was source-reviewed, not run on this Linux host.
 
 ### Shared SDL integration validation, 2026-11-01
 

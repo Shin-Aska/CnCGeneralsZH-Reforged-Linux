@@ -72,6 +72,7 @@
 #include <memory>
 #include <cmath>
 #include <tuple>
+#include <set>
 
 #ifdef _INTERNAL
 // for occasional debugging...
@@ -922,9 +923,12 @@ struct FieldKey
 	Int z;
 	Int palette;
 	ObjectID owner;
+	ParticleSystemID source = INVALID_PARTICLE_SYSTEM_ID;
 	bool operator<( const FieldKey &o ) const
 	{
 		if (s_fieldCloudsSupported) {
+			if (source != o.source) return source < o.source;
+			if (source != INVALID_PARTICLE_SYSTEM_ID) return false;
 			// The initial nuke emitter and its periodic radiation pulses describe
 			// one hazard. Keep its age/cache when the emitter template changes.
 			const bool bound = palette >= 0 && owner != INVALID_ID;
@@ -946,6 +950,12 @@ struct FieldKey
 	* half second with no system at the place, and the pool stays through it. */
 struct FieldState
 {
+	Bool particleSource, attachedSource, sourceRebirthPending;
+	ParticleSystemID sourceSystem;
+	ObjectID sourceParent;
+	DrawableID sourceDrawable;
+	Int sourceStart, sourceStopped;
+	UnsignedInt sourceMembers, sourceParticles, sourceCollectionPass;
 	Int born;						///< logic frame it was first seen
 	Int cloudReportFrame, cloudReportStyle;
 	Int cloudReportPalette;     ///< diagnostic-only template palette captured at the sync point; never part of FieldKey
@@ -976,6 +986,8 @@ static const Real	FIELD_STACK						= 2.5f;		///< puddles' worth of cover a spot 
 static const Real	FIELD_SATURATE				= 0.6f;		///< share of the weakest channel taken out of the colour
 
 static std::map<FieldKey, FieldState>	s_fieldStates;
+// Rebuilt for every render pass: custom/reflection passes always retain sprites.
+static std::set<ParticleSystemID> s_particleCloudAdmissions;
 struct FieldSystemOwner { ObjectID object; unsigned pass; };
 static std::map<ParticleSystemID, FieldSystemOwner> s_fieldSystemOwners;
 static unsigned s_fieldCollectionPass = 0;
@@ -1102,6 +1114,115 @@ static inline Real midValue( const GameClientRandomVariable &v )
 	return 0.5f * (v.getMinimumValue() + v.getMaximumValue());
 }
 
+// These purely visual sources follow their own particle system, never a nearby
+// cleanup hazard. In particular a moving attached emitter must not leave a new
+// field at every rounded coordinate it crosses.
+static void updateParticleCloudSource(ParticleSystem *sys, Int now)
+{
+	const char *name = sys->getTemplate()->getName().str();
+	const Int palette = HazardCloudPolicy::paletteForParticleSource(name);
+	FieldKey key = {sys->getTemplate(), 0, 0, 0, palette, INVALID_ID, sys->getSystemID()};
+	const bool attached = HazardCloudPolicy::attachedParticleSource(name);
+	if (!attached) {
+		Coord3D origin = {0, 0, 0}, world;
+		sys->getWorldEmissionPosition(origin, &world);
+		key.x = REAL_TO_INT_FLOOR(world.x + .5f);
+		key.y = REAL_TO_INT_FLOOR(world.y + .5f);
+		key.z = REAL_TO_INT_FLOOR(world.z + .5f);
+		key.source = INVALID_PARTICLE_SYSTEM_ID;
+	}
+	auto found = s_fieldStates.find(key);
+	const bool fresh = found == s_fieldStates.end();
+	// A freshly queued system has not resolved its parent transform yet. Wait
+	// for its first actual emission rather than publishing its local origin.
+	if (fresh && sys->getParticleCount() == 0) return;
+	if (fresh) {
+		FieldState state = {};
+		state.particleSource = TRUE;
+		state.attachedSource = HazardCloudPolicy::attachedParticleSource(name);
+		state.sourceSystem = sys->getSystemID();
+		state.sourceStopped = -1;
+		state.sourceStart = state.born = state.visualBorn = now;
+		state.gone = state.cloudGoneAt = state.cloudDieFrame = state.cloudReportFrame = -1;
+		state.cloudRevealAt = now;
+		found = s_fieldStates.emplace(key, state).first;
+	}
+	FieldState &state = found->second;
+	const bool firstThisFrame = fresh || state.sourceCollectionPass != s_fieldCollectionPass;
+	state.sourceCollectionPass = s_fieldCollectionPass;
+	if (firstThisFrame) state.sourceRebirthPending = !fresh && state.particleEnd <= now;
+	state.seen = now;
+	if (firstThisFrame) state.sourceStopped = now;
+	state.sourceMembers = firstThisFrame ? 1 : state.sourceMembers + 1;
+	state.sourceParticles = firstThisFrame ? sys->getParticleCount() : state.sourceParticles + sys->getParticleCount();
+	state.cloudReportPalette = palette;
+	if (sys->getAttachedObject() != INVALID_ID) state.sourceParent = sys->getAttachedObject();
+	if (sys->getAttachedDrawable() != INVALID_DRAWABLE_ID) state.sourceDrawable = sys->getAttachedDrawable();
+	state.stealth = sys->getStealthFade();
+	if (state.sourceDrawable != INVALID_DRAWABLE_ID) {
+		Drawable *draw = TheGameClient->findDrawableByID(state.sourceDrawable);
+		if (draw) {
+			if (draw->getObject()) state.sourceParent = draw->getObject()->getID();
+			if (draw->isDrawableEffectivelyHidden() || draw->getFullyObscuredByShroud()) state.stealth = 0;
+		}
+	}
+	Coord3D local = {0, 0, 0};
+	const auto volume = sys->getEmisionVolumeType();
+	if (volume == ParticleSystemInfo::LINE) {
+		local.x = .5f * (sys->m_emissionVolume.line.start.x + sys->m_emissionVolume.line.end.x);
+		local.y = .5f * (sys->m_emissionVolume.line.start.y + sys->m_emissionVolume.line.end.y);
+		local.z = .5f * (sys->m_emissionVolume.line.start.z + sys->m_emissionVolume.line.end.z);
+	}
+	// destroy() can release the parent and revert its transform to model space.
+	// Keep the last valid world support while the existing particles die.
+	if (fresh || (!state.attachedSource || sys->isEmitting()))
+		sys->getWorldEmissionPosition(local, &state.centre);
+	if (fresh && state.attachedSource && !sys->isEmitting() && sys->getFirstParticle())
+		state.centre = *sys->getFirstParticle()->getPosition();
+	Real radius = volume == ParticleSystemInfo::CYLINDER ? sys->m_emissionVolume.cylinder.radius : 1.f;
+	if (volume == ParticleSystemInfo::LINE) {
+		Coord3D start, end;
+		sys->getWorldEmissionPosition(sys->m_emissionVolume.line.start, &start);
+		sys->getWorldEmissionPosition(sys->m_emissionVolume.line.end, &end);
+		radius = WWMath::Max(1.f, .5f * std::hypot(end.x - start.x, end.y - start.y));
+	}
+	Int tail = 0;
+	for (Particle *p = sys->getFirstParticle(); p; p = p->m_systemNext) {
+		tail = WWMath::Max(tail, Int(p->getLifetimeLeft()));
+		if (volume == ParticleSystemInfo::LINE) {
+			const Coord3D *pos = p->getPosition();
+			radius = WWMath::Max(radius, std::hypot(pos->x - state.centre.x, pos->y - state.centre.y));
+		}
+	}
+	// INI timers and live particle timers are already converted to logic frames.
+	if (sys->isEmitting()) {
+		state.sourceStopped = -1;
+		const Int emission = sys->isSystemForever() ? 0 : Int(sys->getSystemLifetimeLeft());
+		tail = WWMath::Max(tail, emission + REAL_TO_INT_CEIL(sys->m_lifetime.getMaximumValue()));
+	}
+	if (state.sourceRebirthPending && tail > 0) {
+		state.sourceStart = state.born = state.visualBorn = now;
+		state.cloudHistory = FALSE;
+		state.cloudShown = state.cloudFormation = 0.f;
+		state.sourceRebirthPending = FALSE;
+	}
+	// Many stream shots land at exactly the same place. One visual support
+	// follows their longest actual tail instead of adding their opacity together.
+	state.particleEnd = firstThisFrame ? now + tail : WWMath::Max(state.particleEnd, now + tail);
+	state.radius = radius;
+	const Real half = .5f * midValue(sys->m_lifetime), rate = midValue(sys->m_sizeRate);
+	const Real damping = midValue(sys->m_sizeRateDamping);
+	state.size = WWMath::Max(1.f, midValue(sys->m_startSize)
+		+ (damping < 1.f ? rate * (1.f - powf(damping, half)) / (1.f - damping) : rate * half));
+	state.shader = sys->getShaderType();
+	state.texture = sys->getParticleTypeName();
+	state.color = sys->m_colorKey[0].color;
+	for (Int k = 1; k < MAX_KEYFRAMES; ++k) {
+		const RGBColor &c = sys->m_colorKey[k].color;
+		if (c.red + c.green + c.blue > state.color.red + state.color.green + state.color.blue) state.color = c;
+	}
+}
+
 /** A field's fade this frame, from its object's remaining life or its particles'.
 	*
 	* Under the fog the pool goes out, as the retail one did: FXList::doFXPos plays nothing where the
@@ -1111,6 +1232,12 @@ static inline Real midValue( const GameClientRandomVariable &v )
 	* left the pool at full strength for the 30 frames the systems were given to come back. */
 static Real fieldFade( FieldState &state, Int now )
 {
+	if (state.particleSource) {
+		if (now >= state.particleEnd) return 0.f;
+		if (ThePartitionManager->getShroudStatusForPlayer(TheObserverCamera.getShroudPlayerIndex(), &state.centre) != CELLSHROUD_CLEAR)
+			return 0.f;
+		return 1.f;
+	}
 	static NameKeyType key_LifetimeUpdate = NAMEKEY( "LifetimeUpdate" );
 	// A capable backend follows the owner's life between sparse emitters.
 	// Otherwise retain the upstream emitter grace, including for bound owners.
@@ -1162,6 +1289,7 @@ struct CloudLayer {
 	unsigned used = 0;
 	float terrainChecked = -100;
 	float terrainReach = -1;
+	Coord3D terrainCentre = {};
 	bool terrainValid = false;
 };
 std::array<CloudLayer, MaxCloudLayers> s_cloudLayers;
@@ -1228,6 +1356,7 @@ void releaseCloudLayers()
 
 void beginCloudPass(unsigned now)
 {
+	s_particleCloudAdmissions.clear();
 	if (!s_fieldCloudsSupported) {
 		releaseCloudLayers();
 		return;
@@ -1339,6 +1468,21 @@ bool prepareModernCloud(const FieldKey &key, FieldState &state, int now,
 	field.release = buildup.release;
 	const float endFade = std::clamp(left / (std::max)(.1f, (std::min)(3.f, lifetime * .25f)), 0.f, 1.f);
 	field.density = buildup.density * endFade * state.stealth;
+	if (state.particleSource) {
+		field.height = HazardCloudPolicy::particleSourceHeight(field.radius, field.fringe);
+		const float duration = (std::max)(1.f / LOGICFRAMES_PER_SECOND,
+			float(state.particleEnd - state.sourceStart) / LOGICFRAMES_PER_SECOND);
+		const auto sourceBuildup = HazardCloudPolicy::particleSourceBuildup(age + 1.f / LOGICFRAMES_PER_SECOND, duration, left);
+		field.formation = sourceBuildup.formation;
+		field.density = sourceBuildup.density * state.stealth;
+		field.release = state.sourceStopped < 0 ? sourceBuildup.release : 0.f;
+		// Particle sources use their own short envelope, rather than the hazard
+		// reveal ramp which could hide an entire gamma impact.
+		state.cloudShown = field.density;
+		state.cloudFormation = field.formation;
+		return HazardCloudPolicy::validField(field.ground.x, field.ground.y, field.ground.z,
+			field.radius, field.height, field.density, field.formation, field.fringe, key.palette);
+	}
 	if (state.gone >= 0) {
 		if (state.cloudGoneAt != state.gone) {
 			state.cloudGoneAt = state.gone;
@@ -1472,7 +1616,10 @@ void drawSharedClouds(const AABoxClass &view, const HazardCloud::Camera &camera,
 	}
 	const auto &stats = s_sharedCloud->stats();
 	if (std::getenv("ZH_CLOUD_REPORT")) {
-		if (s_sharedReportFrame < 0 || now < s_sharedReportFrame || now - s_sharedReportFrame >= LOGICFRAMES_PER_SECOND) {
+		const bool shortSources = std::any_of(s_sharedCloudFields.begin(), s_sharedCloudFields.end(),
+			[](const auto &entry) { return HazardCloudPolicy::paletteForParticleSource(entry.first.tmpl->getName().str()) >= 0; });
+		if (s_sharedReportFrame < 0 || now < s_sharedReportFrame
+			|| now - s_sharedReportFrame >= (shortSources ? 6 : LOGICFRAMES_PER_SECOND)) {
 			s_sharedReportFrame = now;
 			std::fprintf(stderr, "hazard-cloud-shared: frame=%d sources=%u active=%u baked=%u pending=%u max-slices=%u cache=%llu age=%.3f\n",
 				now, stats.sources, stats.activeSources, stats.bakedSources, stats.pendingSlices, stats.maxSlicesPerFrame,
@@ -1481,14 +1628,16 @@ void drawSharedClouds(const AABoxClass &view, const HazardCloud::Camera &camera,
 		for (const auto &entry : s_sharedCloudFields) {
 			auto &state = s_fieldStates.find(entry.first)->second;
 			if (state.cloudReportFrame >= 0 && now >= state.cloudReportFrame
-				&& now - state.cloudReportFrame < LOGICFRAMES_PER_SECOND && state.cloudReportStyle == 1) continue;
+				&& now - state.cloudReportFrame < (state.particleSource ? 6 : LOGICFRAMES_PER_SECOND) && state.cloudReportStyle == 1) continue;
 			state.cloudReportFrame = now; state.cloudReportStyle = 1;
 			const auto &source = entry.second;
 			const auto &field = source.field;
-			std::fprintf(stderr, "hazard-cloud: frame=%d owner=%u palette=%d radius=%.2f fringe=%.2f age=%.2f left=%.2f density=%.3f formation=%.3f bodies=%u cache=%llu\n",
+			std::fprintf(stderr, "hazard-cloud: frame=%d owner=%u palette=%d radius=%.2f fringe=%.2f age=%.2f left=%.2f density=%.3f formation=%.3f bodies=%u cache=%llu template=%s source=%s system=%u parent=%u drawable=%u x=%.2f y=%.2f z=%.2f members=%u particles=%u\n",
 				now, unsigned(state.object), entry.first.palette, field.radius, field.fringe, source.sourceAge,
 				(std::max)(0.f, source.expiry - seconds), field.density, field.formation, unsigned(bodies.size()),
-				static_cast<unsigned long long>(stats.volumeBytes));
+				static_cast<unsigned long long>(stats.volumeBytes), entry.first.tmpl->getName().str(),
+				state.attachedSource ? "attached" : "ground", unsigned(state.sourceSystem), unsigned(state.sourceParent),
+				unsigned(state.sourceDrawable), state.centre.x, state.centre.y, state.centre.z, state.sourceMembers, state.sourceParticles);
 		}
 	}
 }
@@ -1503,7 +1652,7 @@ bool drawModernCloud(const FieldKey &key, FieldState &state, float fade, float s
 #if !defined(_WIN32)
 	auto entry = s_sharedCloudFields.find(key);
 	if (entry == s_sharedCloudFields.end()) { s_cloudFallback = "invalid"; return false; }
-	if (entry->second.field.density <= .00001f) return true;
+	if (entry->second.field.density <= .00001f) return state.particleSource ? s_sharedCloudReady : true;
 	s_cloudFallback = "renderer";
 	return s_sharedCloudReady;
 #else
@@ -1516,7 +1665,7 @@ bool drawModernCloud(const FieldKey &key, FieldState &state, float fade, float s
 	const float left = (std::max)(0.f, float(remaining) / LOGICFRAMES_PER_SECOND);
 	// A fully faded modern field is intentionally invisible. Drawing Classic
 	// here would flash its puddle back during buildup/cleanup boundary frames.
-	if (field.density <= .00001f) return true;
+	if (field.density <= .00001f) return !state.particleSource;
 	s_cloudFallback = "budget";
 	s_cloudFallbackLimiter = "layers";
 	if (s_cloudDraws >= MaxCloudLayers) return false;
@@ -1554,11 +1703,19 @@ bool drawModernCloud(const FieldKey &key, FieldState &state, float fade, float s
 		slot->renderer->setFlowDomain(field.ground.x - reach, field.ground.y - reach, field.ground.x + reach, field.ground.y + reach);
 	}
 	slot->renderer->setFields(&field, 1);
+	const bool moved = slot->terrainCentre.x != field.ground.x || slot->terrainCentre.y != field.ground.y
+		|| slot->terrainCentre.z != field.ground.z;
+	const bool resized = slot->terrainReach != field.radius + field.fringe;
+	if (moved || resized) {
+		const float reach = field.radius + field.fringe + 24.f;
+		slot->renderer->setFlowDomain(field.ground.x - reach, field.ground.y - reach, field.ground.x + reach, field.ground.y + reach);
+	}
 	if (seconds < slot->terrainChecked || seconds - slot->terrainChecked >= 1.f
-		|| slot->terrainReach != field.radius + field.fringe) {
+		|| moved || resized) {
 		slot->terrainValid = updateCloudTerrain(*slot, field, onGround);
 		slot->terrainChecked = seconds;
 		slot->terrainReach = field.radius + field.fringe;
+		slot->terrainCentre = field.ground;
 	}
 	if (!slot->terrainValid) { s_cloudFallback = "terrain"; return false; }
 	std::array<HazardCloud::Body, 32> bodies;
@@ -1577,12 +1734,14 @@ bool drawModernCloud(const FieldKey &key, FieldState &state, float fade, float s
 	if (!slot->renderer->render(camera)) return false;
 	++s_cloudDraws;
 	if (std::getenv("ZH_CLOUD_REPORT") && (state.cloudReportFrame < 0 || now < state.cloudReportFrame
-		|| now - state.cloudReportFrame >= LOGICFRAMES_PER_SECOND || state.cloudReportStyle != 1)) {
+		|| now - state.cloudReportFrame >= (state.particleSource ? 6 : LOGICFRAMES_PER_SECOND) || state.cloudReportStyle != 1)) {
 		state.cloudReportFrame = now; state.cloudReportStyle = 1;
 		static unsigned lines = 0;
-		if (lines++ < 256) std::fprintf(stderr, "hazard-cloud: frame=%d owner=%u palette=%d radius=%.2f fringe=%.2f age=%.2f left=%.2f density=%.3f formation=%.3f bodies=%u cache=%llu\n",
+		if (lines++ < 256 || state.particleSource) std::fprintf(stderr, "hazard-cloud: frame=%d owner=%u palette=%d radius=%.2f fringe=%.2f age=%.2f left=%.2f density=%.3f formation=%.3f bodies=%u cache=%llu template=%s source=%s system=%u parent=%u drawable=%u x=%.2f y=%.2f z=%.2f members=%u particles=%u\n",
 			now, unsigned(state.object), key.palette, field.radius, field.fringe, age, left, field.density, field.formation, count,
-			static_cast<unsigned long long>(slot->renderer->estimatedCacheBytes()));
+			static_cast<unsigned long long>(slot->renderer->estimatedCacheBytes()), key.tmpl->getName().str(),
+			state.attachedSource ? "attached" : "ground", unsigned(state.sourceSystem), unsigned(state.sourceParent),
+			unsigned(state.sourceDrawable), state.centre.x, state.centre.y, state.centre.z, state.sourceMembers, state.sourceParticles);
 	}
 	return true;
 #endif
@@ -1609,6 +1768,11 @@ static void updateGroundFields( const std::vector<ParticleSystem *> &systems )
 	{
 		ParticleSystem *sys = systems[ f ];
 		if (cloudsSupported && sys->getInitialDelayLeft() > 0) continue;
+		if (cloudsSupported && HazardCloudPolicy::paletteForParticleSource(sys->getTemplate()->getName().str()) >= 0) {
+			updateParticleCloudSource(sys, now);
+			continue;
+		}
+		if (!isGroundField(sys)) continue;
 
 		Coord3D pos;
 		sys->getPosition( &pos );
@@ -1652,7 +1816,7 @@ static void updateGroundFields( const std::vector<ParticleSystem *> &systems )
 		if (cloudsSupported && st == s_fieldStates.end() && palette >= 0 && owner != INVALID_ID) {
 			for (auto orphan = s_fieldStates.begin(); orphan != s_fieldStates.end(); ++orphan) {
 				const FieldKey &old = orphan->first;
-				if (old.owner == INVALID_ID && old.palette == palette && old.x == key.x && old.y == key.y && old.z == key.z) {
+				if (!orphan->second.particleSource && old.owner == INVALID_ID && old.palette == palette && old.x == key.x && old.y == key.y && old.z == key.z) {
 					FieldState adopted = orphan->second;
 					adopted.object = owner;
 					s_fieldStates.erase(orphan);
@@ -1712,6 +1876,9 @@ static void updateGroundFields( const std::vector<ParticleSystem *> &systems )
 		// Classic deliberately retains palette=-1 in its grouping key. Preserve the known
 		// hazard identity separately for opt-in reporting without affecting those retail groups.
 		st->second.cloudReportPalette = HazardCloudPolicy::paletteForTemplate(sys->getTemplate()->getName().str());
+		if (st->second.cloudReportPalette < 0)
+			st->second.cloudReportPalette = HazardCloudPolicy::paletteForParticleSource(sys->getTemplate()->getName().str());
+		st->second.sourceSystem = sys->getSystemID();
 		st->second.stealth = sys->getStealthFade();
 	}
 	for (auto binding = s_fieldSystemOwners.begin(); binding != s_fieldSystemOwners.end();) {
@@ -1790,6 +1957,7 @@ static Int collectGroundFields( const AABoxClass &view, CameraClass &sceneCamera
 			&& (groundVolume || WWMath::Fabs( state.centre.z - view.Center.Z ) <= view.Extent.Z + reach);
 		if (visible) {
 			if (drawModernCloud(key, state, fade, seconds, now, camera)) {
+				if (state.particleSource) s_particleCloudAdmissions.insert(state.sourceSystem);
 				// Preserve the client's existing area-effect particle ceiling even
 				// though the replacement does not build the old puddle geometry.
 				const Real spread = state.radius / size;
@@ -1800,14 +1968,19 @@ static Int collectGroundFields( const AABoxClass &view, CameraClass &sceneCamera
 			}
 
 			if (state.cloudReportPalette >= 0 && isCloudMainPass() && std::getenv("ZH_CLOUD_REPORT") && (state.cloudReportFrame < 0 || now < state.cloudReportFrame
-				|| now - state.cloudReportFrame >= LOGICFRAMES_PER_SECOND || state.cloudReportStyle != 0)) {
+				|| now - state.cloudReportFrame >= (state.particleSource ? 6 : LOGICFRAMES_PER_SECOND) || state.cloudReportStyle != 0)) {
 				state.cloudReportFrame = now; state.cloudReportStyle = 0;
 				static unsigned lines = 0;
-				if (lines++ < 512) std::fprintf(stderr, "hazard-cloud-fallback: frame=%d owner=%u palette=%d radius=%.2f reason=%s limiter=%s\n",
-					now, unsigned(state.object), state.cloudReportPalette, state.radius, s_cloudFallback, s_cloudFallbackLimiter);
+				if (lines++ < 512 || state.particleSource) std::fprintf(stderr, "hazard-cloud-fallback: frame=%d owner=%u palette=%d radius=%.2f reason=%s limiter=%s template=%s source=%s system=%u parent=%u drawable=%u x=%.2f y=%.2f z=%.2f members=%u particles=%u\n",
+					now, unsigned(state.object), state.cloudReportPalette, state.radius, s_cloudFallback, s_cloudFallbackLimiter, key.tmpl->getName().str(),
+					state.attachedSource ? "attached" : "ground", unsigned(state.sourceSystem), unsigned(state.sourceParent),
+					unsigned(state.sourceDrawable), state.centre.x, state.centre.y, state.centre.z, state.sourceMembers, state.sourceParticles);
 			}
 
 		}
+		// A model-attached source keeps its ordinary sprites if this pass did
+		// not admit its replacement. Its local-space emitter is never a mesh field.
+		if (state.attachedSource) continue;
 
 		FieldBatch batch;
 		if (!particlePresetShader( state.shader, &batch.glow ))
@@ -2229,7 +2402,9 @@ void W3DParticleSystemManager::refreshFrameView( void )
 		if (sys == NULL || sys->isUsingDrawables())
 			continue;
 		// a field is kept with no particles too: its system still says where the pool is
-		if (isGroundField( sys ))
+		if (isGroundField( sys ) || (sys->getPriority() == AREA_EFFECT && sys->m_isGroundAligned
+			&& !sys->isUsingStreak() && sys->getVolumeParticleDepth() <= 1
+			&& HazardCloudPolicy::paletteForParticleSource(sys->getTemplate()->getName().str()) >= 0))
 			m_fieldSystems.push_back( sys );
 		if (sys->getParticleCount() == 0)
 			continue;
@@ -2617,7 +2792,24 @@ void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 			continue;
 		}
 
-		if (isGroundField( sys ))
+		const bool particleCloudAdmitted = s_particleCloudAdmissions.count(sys->getSystemID()) != 0;
+		if (HazardCloudPolicy::attachedParticleSource(sys->getTemplate()->getName().str())
+			&& isCloudMainPass() && std::getenv("ZH_CLOUD_REPORT")) {
+			static std::map<ParticleSystemID, std::pair<Int, bool>> reported;
+			const Int now = Int(TheGameLogic->getFrame());
+			auto previous = reported.find(sys->getSystemID());
+			if (previous == reported.end() || now < previous->second.first || now - previous->second.first >= 6
+				|| previous->second.second != particleCloudAdmitted) {
+				if (reported.size() > 1024) reported.clear();
+				reported[sys->getSystemID()] = {now, particleCloudAdmitted};
+				std::fprintf(stderr, "hazard-cloud-sprites: frame=%d template=%s source=attached system=%u parent=%u drawable=%u sprites=%s\n",
+					now, sys->getTemplate()->getName().str(), unsigned(sys->getSystemID()), unsigned(sys->getAttachedObject()),
+					unsigned(sys->getAttachedDrawable()), particleCloudAdmitted ? "suppressed" : "classic");
+			}
+		}
+		const bool attachedCloudSource = s_fieldCloudsSupported
+			&& HazardCloudPolicy::attachedParticleSource(sys->getTemplate()->getName().str());
+		if ((isGroundField( sys ) && !attachedCloudSource) || particleCloudAdmitted)
 			continue;	// drawn above, every field at once
 
 		/// @todo lorenzen sez: declare these outside the sys loop, and put some in registers

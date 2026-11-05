@@ -53,7 +53,84 @@ def load_fixture(templates, overlap=False, successive=False):
     return "\n".join(lines) + "\n"
 
 
+def tractor_case(palette, template, gamma=False, move=False):
+    # Exercise the player's Contaminate weapon command, not a hand-spawned
+    # lingering field. The chemical general starts with beta; gamma is researched
+    # through its real Palace queue, including the retail 60-second build time.
+    start = 1860 if gamma else 60
+    stopped = start + 180
+    fixture = ("5 spawn 0 AmericaVehicleComanche 1 640 640\n"
+               f"30 spawn 0 {template} 1 640 640\n")
+    if gamma:
+        fixture += ("30 spawn 0 Chem_GLAPalace 1 200 1000\n"
+                    "31 shiftupgrade 0 Chem_GLAPalace Chem_Upgrade_GLAAnthraxGamma\n")
+    release = f"move 0 {template} 950 640" if move else f"stop 0 {template}"
+    fixture += (f"{start} weaponat 0 {template} 640 640 secondary\n"
+                f"{stopped} {release}\n")
+    # Scenario actions use 30 Hz; diagnostic/screenshot/CRC frames use 60 Hz.
+    return dict(map=FLAT_MAP, camera=(640, 640), shot=stopped * 2 + 120,
+                stop=stopped * 2 + 240, palettes=[palette], fixture=fixture,
+                tractor=dict(template=template, start=start * 2, stopped=stopped * 2,
+                             release="move" if move else "stop"),
+                effects=[dict(template={0: "ToxinPuddleContinuous", 2: "AnthraxPuddleContinuous",
+                                        3: "AnthraxGammaPuddleContinuous"}[palette],
+                              source="attached", near=(640, 640), start=start * 2 + 60,
+                              before=stopped * 2, absent_after=stopped * 2 + 220,
+                              stable=True)])
+
+
+def toxin_attack_case(palette, template, particle, gamma=False):
+    start = 1860 if gamma else 60
+    stopped = start + 90
+    fixture = ("5 spawn 0 AmericaVehicleComanche 1 720 640\n"
+               f"30 spawn 0 {template} 1 640 640\n")
+    if gamma:
+        fixture += ("30 spawn 0 Chem_GLAPalace 1 200 1000\n"
+                    "31 shiftupgrade 0 Chem_GLAPalace Chem_Upgrade_GLAAnthraxGamma\n")
+    fixture += (f"{start} forceground 0 {template} 720 640\n"
+                f"{stopped} clickstop 0 {template}\n")
+    return dict(map=FLAT_MAP, camera=(720, 640), shot=start * 2 + 90,
+                stop=stopped * 2 + 300, palettes=[palette], fixture=fixture,
+                timing_window=[start * 2 + 30, start * 2 + 149],
+                effects=[dict(template=particle, source="ground", near=(720, 640),
+                              start=start * 2, before=stopped * 2,
+                              absent_after=stopped * 2 + (90 if gamma else 260), grouped=True)])
+
+
 CASES = {
+    "tractor-green": tractor_case(0, "GLAVehicleToxinTruck"),
+    "tractor-green-move": tractor_case(0, "GLAVehicleToxinTruck", move=True),
+    "tractor-beta": tractor_case(2, "Chem_GLAVehicleToxinTruck"),
+    "tractor-gamma": tractor_case(3, "Chem_GLAVehicleToxinTruck", gamma=True),
+    "tractor-attack-green": toxin_attack_case(0, "GLAVehicleToxinTruck", "ToxinPuddle"),
+    "rebel-attack-beta": toxin_attack_case(2, "Chem_GLAInfantryRebel", "AnthraxPuddle"),
+    "rebel-attack-gamma": toxin_attack_case(3, "Chem_GLAInfantryRebel", "GC_Chem_ToxinPuddle", gamma=True),
+    "gamma-splash-expiry": dict(map=FLAT_MAP, camera=(840, 640), shot=130, stop=240,
+                                palettes=[3], fixture="""# One retail ten-frame gamma splash: no gameplay hazard owner or later pulses.
+5 spawn 0 AmericaVehicleComanche 1 840 640
+60 particles 0 GC_Chem_ToxinPuddle 1 840 640
+""", effects=[dict(template="GC_Chem_ToxinPuddle", source="ground", near=(840, 640),
+                    start=120, before=145, absent_after=180, short=True)]),
+    "gamma-splash-rebirth": dict(map=FLAT_MAP, camera=(840, 640), shot=160, stop=270,
+                                 palettes=[3], fixture="""# A second same-position pulse arrives after expiry but inside the stale-group grace.
+5 spawn 0 AmericaVehicleComanche 1 840 640
+60 particles 0 GC_Chem_ToxinPuddle 1 840 640
+75 particles 0 GC_Chem_ToxinPuddle 1 840 640
+""", effects=[dict(template="GC_Chem_ToxinPuddle", source="ground", near=(840, 640),
+                    start=120, before=175, absent_after=220, short=True, rebirth=[120, 150])]),
+    "toxin-tank-attached": dict(map=FLAT_MAP, camera=(840, 640), shot=240, stop=1000,
+                               palettes=[0], fixture="""# One salvo damages the real decorative prop; a later salvo destroys it.
+5 spawn 0 AmericaVehicleComanche 1 840 640
+30 spawn 1 GLAToxinTank 1 840 640
+31 spawn 0 AmericaTankCrusader 10 720 640 1
+32 forceattack 0 AmericaTankCrusader 1 GLAToxinTank
+40 clickstop 0 AmericaTankCrusader
+100 tally 1 GLAToxinTank 1
+200 forceattack 0 AmericaTankCrusader 1 GLAToxinTank
+260 clickstop 0 AmericaTankCrusader
+300 tally 1 GLAToxinTank 0
+""", effects=[dict(template="ToxinTankPuddle", source="attached", near=(840, 640),
+                    start=90, before=390, absent_after=800, stable=True)]),
     "palettes": dict(map=FLAT_MAP, camera=(640, 640), shot=360, stop=420,
                      palettes=[0, 1, 2, 3], fixture=PALETTES),
     "nuclear": dict(map=FLAT_MAP, camera=(640, 640), shot=540, stop=660, palettes=[1],
@@ -110,6 +187,17 @@ for kind, templates, palettes in (
             map=FLAT_MAP, camera=(640, 640), shot=360, stop=420,
             palettes=palettes, owners=128, shared=True,
             fixture=load_fixture(templates, overlap=layout == "overlap"))
+LIVE_TOXINS = dict(map=FLAT_MAP, camera=(740, 640), palettes=[0, 3], live_effects=True, fixture="""# Both attachment routes remain active until the controlled destruction during Classic.
+5 spawn 0 AmericaVehicleComanche 1 740 640
+30 spawn 0 GLAVehicleToxinTruck 1 640 640
+30 spawn 1 GLAToxinTank 1 840 640
+31 spawn 0 AmericaTankCrusader 10 720 640 1
+32 forceattack 0 AmericaTankCrusader 1 GLAToxinTank
+40 clickstop 0 AmericaTankCrusader
+60 weaponat 0 GLAVehicleToxinTruck 640 640 secondary
+""", effects=[dict(template="ToxinPuddleContinuous", source="attached", near=(640, 640)),
+               dict(template="ToxinTankPuddle", source="attached", near=(840, 640)),
+               dict(template="GC_Chem_ToxinPuddle", source="ground", near=(740, 740))])
 OPTIONS = """Resolution = 1280 800
 ClassicGraphics = no
 StaticGameLOD = Custom
@@ -140,6 +228,7 @@ WaterStyle = 1
 ERROR = re.compile(r"Validation Error|VUID-|hazard-cloud[^\n]*(?:FAIL|failed)|shader[^\n]*(?:compilation failed|compile failed)", re.I)
 REPORT = re.compile(r"^hazard-cloud(?P<fallback>-fallback)?: (?P<body>frame=\d+ .*)$", re.M)
 SHARED_REPORT = re.compile(r"^hazard-cloud-shared: (?P<body>frame=\d+ .*)$", re.M)
+SPRITE_REPORT = re.compile(r"^hazard-cloud-sprites: (?P<body>frame=\d+ .*)$", re.M)
 CRC = re.compile(r"HEADLESS CRC AT LIMIT:\s*(.*?)\s+at frame (\d+)")
 
 
@@ -165,12 +254,23 @@ def records(text):
     for match in REPORT.finditer(text):
         row = dict(re.findall(r"(\w+)=([^ ]+)", match["body"]))
         row["fallback"] = bool(match["fallback"])
-        for key in ("frame", "owner", "palette", "bodies", "cache"):
+        for key in ("frame", "owner", "palette", "bodies", "cache", "system", "parent", "drawable", "members", "particles"):
             if key in row:
                 row[key] = int(row[key])
-        for key in ("radius", "fringe", "age", "left", "density", "formation"):
+        for key in ("radius", "fringe", "age", "left", "density", "formation", "x", "y", "z"):
             if key in row:
                 row[key] = float(row[key])
+        result.append(row)
+    return result
+
+
+def sprite_records(text):
+    result = []
+    for match in SPRITE_REPORT.finditer(text):
+        row = dict(re.findall(r"(\w+)=([^\s]+)", match["body"]))
+        for key in ("frame", "system", "parent", "drawable"):
+            if key in row:
+                row[key] = int(row[key])
         result.append(row)
     return result
 
@@ -291,7 +391,9 @@ def prepare(args, name, case, style=1, live=False, user=None, load=None):
                  "ZH_WATER_CAPTURE_CLOCK": "picture"}
     if args.gpu_debug:
         overrides["ZH_GPU_DEBUG"] = "1"
-    timing_window = [240, 359] if args.timing and name.startswith("load-128-") and not live else None
+    timing_window = None
+    if args.timing and not live:
+        timing_window = case.get("timing_window") or ([240, 359] if name.startswith("load-128-") else None)
     if timing_window:
         overrides["ZH_GPU_TIMING_LOGIC"] = ",".join(map(str, timing_window))
         overrides["ZH_GPU_TIMING_CSV"] = str(out / "frames.csv")
@@ -303,6 +405,8 @@ def prepare(args, name, case, style=1, live=False, user=None, load=None):
                     scenario_sha256=digest(overlay / "Scenarios/hazard_check.txt"),
                     prepared_only=args.prepare_only, user=str(user), log_prefix=prefix, load=load,
                     timing_window=timing_window)
+    if case.get("effects"):
+        manifest["effect_expectations"] = case["effects"]
     if case["map"] == FLAT_MAP:
         manifest["map_sha256"] = digest(overlay / FLAT_MAP)
     write_json(out / "manifest.json", manifest)
@@ -334,12 +438,17 @@ def finish(args, out, user, manifest, process):
     engine_text = (out / "engine.log").read_text(errors="replace") if (out / "engine.log").exists() else ""
     manifest["diagnostics"] = records(text)
     manifest["shared_diagnostics"] = shared_records(text)
+    manifest["sprite_diagnostics"] = sprite_records(text)
+    manifest["shared_peaks"] = {key: max((r.get(key, 0) for r in manifest["shared_diagnostics"]), default=0)
+                                for key in ("sources", "active", "baked", "pending", "max-slices", "cache")}
     manifest["water_profiles"] = [dict(re.findall(r"(\w+)=([^ ]+)", line)) for line in text.splitlines()
                                   if line.startswith("[water-profile] ")]
     manifest["errors"] = ERROR.findall(text)
     manifest["scenario_errors"] = [line for line in engine_text.splitlines()
         if "SCENARIO:" in line and any(term in line for term in ("refused", "no template", "cannot open", "no particle"))
         and "0 lines refused" not in line and not re.search(r"\b0 refused\b", line)]
+    manifest["scenario_actions"] = [line for line in engine_text.splitlines() if line.startswith("SCENARIO: frame ")]
+    manifest["scenario_expectations"] = [line for line in engine_text.splitlines() if line.startswith("HEADLESS EXPECT:")]
     manifest["crc"] = [dict(crc=m[1], frame=int(m[2])) for m in CRC.finditer(engine_text)]
     manifest["screenshots"] = [dict(path=str(p), sha256=digest(p)) for p in sorted(user.rglob("sshot*.bmp"))]
     manifest["checks"] = []
@@ -350,6 +459,9 @@ def finish(args, out, user, manifest, process):
     check("all production fixture actions accepted", not manifest["scenario_errors"])
     if not manifest["load"]:
         check("production scenario loaded", bool(re.search(r"SCENARIO: loaded .*?, [1-9]\d* actions, 0 lines refused", engine_text)))
+    if manifest["scenario_expectations"]:
+        check("all real-object state expectations passed", all("HEADLESS EXPECT: PASS:" in line
+              for line in manifest["scenario_expectations"]))
     if manifest.get("timing_window"):
         timing_path = out / "frames.csv"
         check("whole-engine timing CSV captured", timing_path.is_file())
@@ -366,13 +478,98 @@ def finish(args, out, user, manifest, process):
     return check
 
 
+def assert_effects(check, manifest, case, style):
+    manifest["effect_summaries"] = []
+    for effect in case.get("effects", []):
+        label = effect["template"]
+        matches = lambda row: row.get("template") == label and row.get("source") == effect["source"]
+        rows = [r for r in manifest["diagnostics"] if r.get("template") == label and r["fallback"] == (style == 0)]
+        sprites = [r for r in manifest["sprite_diagnostics"] if matches(r)]
+        first, last = effect.get("start", 0), effect.get("before", case["stop"] + 1)
+        during = [r for r in rows if matches(r) and first <= r["frame"] < last]
+        decisions = [r for r in sprites if first <= r["frame"] < last]
+        if style == 0:
+            if effect["source"] == "attached":
+                check(f"{label} restores original attached sprites in Classic", bool(decisions)
+                      and all(r["sprites"] == "classic" for r in decisions))
+            else:
+                check(f"{label} retains original ground rendering in Classic", bool(during)
+                      and all(r.get("reason") == "classic" for r in during))
+            continue
+        check(f"{label} reaches its own volumetric source path", bool(during)
+              and any(r.get("density", 0) > .05 for r in during))
+        near = effect["near"]
+        check(f"{label} retains finite world-space support away from the origin", bool(rows) and all(
+            all(math.isfinite(r.get(k, math.nan)) for k in ("x", "y", "z"))
+            and math.hypot(r["x"] - near[0], r["y"] - near[1]) <= effect.get("tolerance", 90)
+            for r in rows))
+        if effect.get("stable") or (effect.get("short") and not effect.get("rebirth")):
+            check(f"{label} retains one particle-system identity", bool(during)
+                  and len({r.get("system") for r in during}) == 1
+                  and all(r.get("system", 0) > 0 for r in during))
+        if effect["source"] == "attached":
+            check(f"{label} retains its attachment identity", bool(during) and all(
+                r.get("parent", 0) > 0 or r.get("drawable", 0) > 0 for r in during))
+            check(f"{label} suppresses original sprites after volumetric admission", bool(decisions)
+                  and all(r["sprites"] == "suppressed" for r in decisions))
+        if effect.get("absent_after"):
+            check(f"{label} expires without a renewed or long-lived false cloud", not any(
+                r["frame"] >= effect["absent_after"] and r.get("density", 0) > .00001 for r in rows))
+        if effect.get("grouped"):
+            check(f"{label} aggregates overlapping impacts without multiplying source opacity", any(
+                r.get("members", 0) > 1 for r in during)
+                and manifest["shared_peaks"].get("sources", 0) == 1)
+        if effect.get("short"):
+            samples = sorted({r["frame"]: r for r in during}.values(), key=lambda r: r["frame"])
+            peak = max(range(len(samples)), key=lambda i: samples[i]["density"]) if samples else 0
+            check("brief gamma splash visibly fades within its retail lifetime", len(samples) >= 3
+                  and all(0 <= r.get("left", math.inf) <= .4 for r in samples)
+                  and any(r["density"] < samples[peak]["density"] * .8 for r in samples[peak + 1:]))
+            check("brief gamma splash reaches a published shared snapshot while alive", any(
+                first <= r["frame"] < last and r.get("active", 0) >= 1 and r.get("baked", 0) >= 1
+                for r in manifest["shared_diagnostics"]))
+        if effect.get("rebirth"):
+            check("same-position gamma pulses restart their own formation after expiry", all(any(
+                born <= r["frame"] < born + 6 and r.get("age", math.inf) <= .1 for r in during)
+                for born in effect["rebirth"]))
+        manifest["effect_summaries"].append(dict(template=label, samples=len(rows),
+            systems=len({r.get("system") for r in rows}),
+            first_frame=min((r["frame"] for r in rows), default=None),
+            last_frame=max((r["frame"] for r in rows), default=None),
+            peak_density=max((r.get("density", 0) for r in rows), default=0),
+            max_radius=max((r.get("radius", 0) for r in rows), default=0),
+            max_members=max((r.get("members", 0) for r in rows), default=0),
+            max_particles=max((r.get("particles", 0) for r in rows), default=0)))
+
+
 def assert_clouds(check, manifest, case, style):
     rows = manifest["diagnostics"]
     active = [r for r in rows if not r["fallback"]]
     expected = set(case["palettes"])
+    assert_effects(check, manifest, case, style)
+    if case.get("tractor"):
+        tractor = case["tractor"]
+        template = re.escape(tractor["template"])
+        actions = "\n".join(manifest["scenario_actions"])
+        check("one real Tractor received the Contaminate ability command", bool(re.search(
+            rf"frame {tractor['start'] // 2} weaponat slot 0 '{template}' x1 secondary at \(640,640\)", actions)))
+        check(f"one real Tractor received the {tractor['release']} command", bool(re.search(
+            rf"frame {tractor['stopped'] // 2} {tractor['release']} slot 0 '{template}' x1", actions)))
+        rendered = [r for r in rows if r["fallback"] == (style == 0) and r.get("palette") in expected
+                    and (style != 0 or r.get("reason") == "classic")]
+        check("Contaminate renders the expected palette while the Tractor is spraying", any(
+            tractor["start"] + 60 <= r["frame"] < tractor["stopped"]
+            and r.get("owner") == 0 and (style == 0 or r.get("density", 0) > .1) for r in rendered))
+        check("Contaminate retains a bound lingering field after the Tractor stops spraying", any(
+            tractor["stopped"] + 60 <= r["frame"] <= case["stop"]
+            and r.get("owner", 0) != 0 and (style == 0 or r.get("density", 0) > .1) for r in rendered))
     if style == 0:
         check("Classic emits no volumetric draws", not active)
-        check("Classic retains the original hazard path", expected <= {r.get("palette") for r in rows if r.get("reason") == "classic"})
+        classic_palettes = {r.get("palette") for r in rows if r.get("reason") == "classic"}
+        if any(e["source"] == "attached" for e in case.get("effects", [])):
+            if any(r.get("sprites") == "classic" for r in manifest["sprite_diagnostics"]):
+                classic_palettes.update(expected)
+        check("Classic retains the original hazard path", expected <= classic_palettes)
         return
     check("all requested palettes reached the production renderer", expected <= {r.get("palette") for r in active})
     check("fields are finite and bounded", bool(active) and all(
@@ -493,6 +690,24 @@ def wait_frame(game, frame, timeout=45):
     raise TimeoutError(f"game did not reach frame {frame}")
 
 
+def wait_tally(game, args, user, manifest, slot, selector, expected, timeout=15):
+    """Observe the real object count without assuming every attacker fires at once."""
+    log_name = manifest["log_prefix"] + "DebugLogFile.txt"
+    paths = (user / "Logs" / log_name, args.generals.parent / log_name)
+    pattern = re.compile(rf"HEADLESS TALLY: frame \d+ slot {slot} '{re.escape(selector)}': (\d+) alive")
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        send(game, f"tally {slot} {selector}")
+        wait_frame(game, game.status()["frame"] + 6)
+        for path in paths:
+            if path.exists():
+                counts = pattern.findall(path.read_text(errors="replace"))
+                if counts and int(counts[-1]) == expected:
+                    send(game, f"tally {slot} {selector} {expected}")
+                    return game.status()["frame"]
+    raise TimeoutError(f"{selector} did not reach the expected live-object count {expected}")
+
+
 def console(game, line):
     send(game, "key KEY_TICK")
     for char in line:
@@ -534,16 +749,32 @@ def live_session(args, name, case, user=None, load=None):
                 capture(game, user, out / "restored.bmp")
                 manifest["restored_frame"] = game.status()["frame"]
             else:
-                capture(game, user, out / "volumetric-before.bmp")
+                def live_shot(filename, phase, first=None):
+                    before = game.status()["frame"]
+                    if case.get("live_effects"):
+                        send(game, "particles 0 GC_Chem_ToxinPuddle 1 740 740")
+                        wait_frame(game, before + 8)
+                    capture(game, user, out / filename)
+                    if case.get("live_effects"):
+                        manifest.setdefault("live_effect_windows", {})[phase] = [
+                            first if first is not None else before - 30, game.status()["frame"]]
+                live_shot("volumetric-before.bmp", "before")
                 console(game, "set cloudstyle 0")
                 classic = game.status()["frame"]
-                wait_frame(game, classic + 150)
-                capture(game, user, out / "classic.bmp")
+                if case.get("live_effects"):
+                    send(game, "forceattack 0 AmericaTankCrusader 1 GLAToxinTank")
+                    manifest["prop_destroy_order_frame"] = game.status()["frame"]
+                    manifest["prop_destroyed_frame"] = wait_tally(game, args, user, manifest, 1, "GLAToxinTank", 0)
+                    send(game, "clickstop 0 AmericaTankCrusader")
+                else:
+                    wait_frame(game, classic + 150)
+                live_shot("classic.bmp", "classic", classic + (5 if case.get("live_effects") else 30))
                 console(game, "set cloudstyle 1")
                 modern = game.status()["frame"]
-                wait_frame(game, modern + 150)
-                capture(game, user, out / "volumetric-after.bmp")
-                manifest["classic_interval"] = [classic + 30, modern - 30]
+                wait_frame(game, modern + (60 if case.get("live_effects") else 150))
+                live_shot("volumetric-after.bmp", "after", modern + 30)
+                margin = 5 if case.get("live_effects") else 30
+                manifest["classic_interval"] = [classic + margin, modern - margin]
                 manifest["modern_after"] = modern + 30
                 manifest["save_frame"] = game.status()["frame"]
                 send(game, "save hazard-cloud-check")
@@ -582,6 +813,24 @@ def live_session(args, name, case, user=None, load=None):
             and r.get("baked", 0) >= len(case["palettes"]) for r in shared))
         check("live choice persisted", bool(re.search(r"^CloudStyle\s*=\s*1\s*$", (user / "Options.ini").read_text(), re.M)))
         check("save file written", bool(manifest.get("save_files")))
+        if case.get("live_effects"):
+            for effect in case["effects"]:
+                label = effect["template"]
+                matches = lambda r: r.get("template") == label
+                for phase in ("before", "classic", "after"):
+                    first, last = manifest.get("live_effect_windows", {}).get(phase, [0, -1])
+                    rows = [r for r in manifest["diagnostics"] if matches(r) and first <= r["frame"] <= last]
+                    sprites = [r for r in manifest["sprite_diagnostics"] if matches(r) and first <= r["frame"] <= last]
+                    if phase == "classic" and effect["source"] == "attached":
+                        condition = bool(sprites) and all(r["sprites"] == "classic" for r in sprites)
+                    elif phase == "classic":
+                        condition = any(r["fallback"] and r.get("reason") == "classic" for r in rows)
+                    else:
+                        condition = any(not r["fallback"] and r.get("density", 0) > .05 for r in rows)
+                        if effect["source"] == "attached":
+                            condition = condition and bool(sprites) and all(r["sprites"] == "suppressed" for r in sprites)
+                    check(f"live {phase} preserves {label} coverage without duplicate sprites", condition)
+            check("prop destruction was observed during Classic", "prop_destroyed_frame" in manifest)
     write_json(out / "manifest.json", manifest)
     print(name, "PASS" if all(c["passed"] for c in manifest["checks"]) else "FAIL", flush=True)
     return manifest, user
@@ -593,9 +842,9 @@ def main():
         parser.add_argument("--" + name, type=Path, required=True)
     parser.add_argument("--case", choices=list(CASES), action="append", help="repeat to select cases; default all")
     parser.add_argument("--live", action="store_true", help="also test live Classic switching and save/reload")
-    parser.add_argument("--crc-pair", action="store_true", help="repeat palettes in Classic and require equal game-state CRC")
+    parser.add_argument("--crc-pair", action="store_true", help="repeat palettes and selected toxin-effect cases in Classic and require equal game-state CRC")
     parser.add_argument("--gpu-debug", action="store_true")
-    parser.add_argument("--timing", action="store_true", help="retain whole-engine frames 240..359 CSV/statistics for 128-owner cases")
+    parser.add_argument("--timing", action="store_true", help="retain whole-engine CSV/statistics for 128-owner and primary toxin-attack cases")
     parser.add_argument("--prepare-only", action="store_true")
     parser.add_argument("--timeout", type=int, default=180)
     parser.add_argument("--port", type=int)
@@ -615,21 +864,27 @@ def main():
     for name in dict.fromkeys(args.case or CASES):
         results.append(run_case(args, name, CASES[name]))
     if args.crc_pair:
-        modern = next((r for r in results if r["case"] == "palettes"), None)
-        if modern is None:
-            modern = run_case(args, "palettes", CASES["palettes"])
-            results.append(modern)
-        classic = run_case(args, "palettes-classic", CASES["palettes"], 0)
-        if not args.prepare_only:
-            classic["checks"].append(dict(name="Classic and Volumetric preserve the same game-state CRC", passed=bool(modern["crc"]) and modern["crc"] == classic["crc"]))
-            write_json(args.out / "palettes-classic/manifest.json", classic)
-        results.append(classic)
+        paired = [r for r in results if r["case"] == "palettes" or CASES[r["case"]].get("effects")]
+        if not any(r["case"] == "palettes" for r in paired):
+            palettes = run_case(args, "palettes", CASES["palettes"])
+            paired.append(palettes)
+            results.append(palettes)
+        for modern in paired:
+            name = modern["case"] + "-classic"
+            classic = run_case(args, name, CASES[modern["case"]], 0)
+            if not args.prepare_only:
+                classic["checks"].append(dict(name="Classic and Volumetric preserve the same game-state CRC", passed=bool(modern["crc"]) and modern["crc"] == classic["crc"]))
+                write_json(args.out / name / "manifest.json", classic)
+            results.append(classic)
     if args.live:
         live, user = live_session(args, "live", CASES["palettes"])
         results.append(live)
         if args.prepare_only or live.get("save_files"):
             loaded, _ = live_session(args, "load", CASES["palettes"], user, "hazard-cloud-check")
             results.append(loaded)
+        if any(CASES[name].get("effects") for name in dict.fromkeys(args.case or CASES)):
+            toxins, _ = live_session(args, "live-toxins", LIVE_TOXINS)
+            results.append(toxins)
     summary = dict(prepared_only=args.prepare_only, results=results)
     summary["passed"] = args.prepare_only or all(all(c["passed"] for c in r.get("checks", [])) for r in results)
     write_json(args.out / "summary.json", summary)

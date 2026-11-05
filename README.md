@@ -11,7 +11,7 @@ as selectable enhancements. New profiles follow upstream's Classic graphics, wat
 Upstream restores EA's four veterancy levels and removes mod support. The latest published Linux
 release linked below remains **v3.5.1**; this source sync does not publish a new package.
 
-![Zero Hour Reforged Linux 3.5.1 launch image](.github/media/releases/v3.5.1-launch-annotated-layout-v2.png)
+![Zero Hour Reforged Linux 3.8.0: flow-aware water and unlimited volumetric clouds](.github/media/releases/v3.8.0-launch.png)
 
 [3.5.1 release notes](docs/releases/v3.5.1.md)
 
