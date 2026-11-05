@@ -4,16 +4,15 @@ Command & Conquer: Generals Zero Hour for **64-bit Linux**, using **SDL3 and Vul
 No Wine or Proton required.
 
 Based on [Zero Hour Reforged](https://github.com/olcayseygan/CnCGeneralsZH-Reforged) and EA's released
-source. The current source is synchronized with upstream **v3.8.0**, with Linux graphics
-improvements and upstream gameplay, AI, audio and interface changes. It preserves Modern water,
-Volumetric clouds, water quality controls, Hybrid reflections and the Linux water optimizations
-as selectable enhancements. New profiles follow upstream's Classic graphics, water and cloud defaults.
-Upstream restores EA's four veterancy levels and removes mod support. The latest published Linux
-release linked below remains **v3.5.1**; this source sync does not publish a new package.
+source. **Linux v3.8.0** includes the upstream 3.8.0 gameplay, AI, audio and interface changes,
+plus flow-aware Modern water and shared volumetric clouds beyond the old eight-field limit.
+Water quality controls, Hybrid reflections and Linux rendering optimizations remain available.
+New profiles start with Classic graphics, water and clouds; the enhancements are selectable.
+EA's four veterancy levels return, and upstream mod support is removed.
 
-![Zero Hour Reforged Linux 3.8.0: flow-aware water and unlimited volumetric clouds](.github/media/releases/v3.8.0-launch.png)
+![Zero Hour Reforged Linux 3.8.0: flow-aware water and shared volumetric clouds](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/releases/download/v3.8.0/v3.8.0-launch.png)
 
-[3.5.1 release notes](docs/releases/v3.5.1.md)
+[3.8.0 release notes](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/blob/v3.8.0/docs/releases/v3.8.0.md)
 
 [![last commit](https://img.shields.io/github/last-commit/Shin-Aska/CnCGeneralsZH-Reforged-Linux/main?style=for-the-badge)](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/commits/main)
 [![license](https://img.shields.io/badge/license-GPL--3.0%20%2B%20EA%20terms-0d1117?style=for-the-badge)](LICENSE.md)
@@ -27,8 +26,9 @@ Game data and optional upscaled art are not included.
 
 ## Downloads
 
-Tagged builds publish packages to [GitHub Releases](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/releases)
-after the build and package checks pass. For a main-branch, pull request or manual build, open the
+Download **v3.8.0** from [GitHub Releases](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/releases/tag/v3.8.0).
+The release includes the six formats below and `SHA256SUMS`; its launch PNG is separate media.
+For a main-branch, pull request or manual build, open the
 [Linux workflow](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/actions/workflows/linux-release.yml),
 select the completed run, and download the `linux-x86_64-packages` artifact. A manual build is available
 through **Run workflow** once the workflow is on the default branch; it does not publish a release.
@@ -73,7 +73,10 @@ under **Options → Graphics** and restart, then choose **Cloud style** and **Wa
 ### Volumetric Clouds
 
 Toxin and nuclear clouds follow the terrain and the hazard's size and lifetime. Nuclear effects
-include heat distortion and embers. Damage and gameplay timing stay the same.
+include heat distortion and embers. Linux uses one shared volume without the old eight-field
+admission limit; additional sources still cost GPU work. Tractor contamination is volumetric while
+spraying as well as afterward, and normal toxin impacts and attached puddles use their actual
+lifetimes. Damage and gameplay timing stay the same.
 
 ![Toxin clouds over a base and nuclear haze with embers](.github/media/linux-volumetric-clouds.png)
 
@@ -81,8 +84,9 @@ include heat distortion and embers. Damage and gameplay timing stay the same.
 
 ### Modern Water
 
-Modern water adds waves, reflections and foam around boats and shorelines.
-It also receives sun and smoke shadows.
+Modern water adds waves, reflections and foam around boats and shorelines. Waves bend through
+channels and around islands, with calmer sheltered water and independent coastal seas.
+It also receives sun and smoke shadows. Water settings can restore 3.5.1 movement on the next map load.
 
 ![Ocean waves and foam around boats, beside a river and bridge](.github/media/linux-modern-water.png)
 

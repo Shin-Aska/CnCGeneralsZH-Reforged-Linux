@@ -8,6 +8,26 @@ found and fixed, EA's own, not port damage.**
 
 ---
 
+## Linux 3.8.0 release (2026-11-05)
+
+- Packages upstream 3.8.0 and the Linux improvements since this origin's 3.5.1 release.
+- Modern water follows channels and island shores, keeps sheltered water calmer and gives
+  independent coastal seas their own waves. Reuses water rendering work and offers the choice
+  of current map-aware movement or 3.5.1 movement on the next map load.
+- Linux volumetric hazard clouds share one volume without the former eight-field admission
+  limit. More fields still cost GPU work; unsupported effects and unavailable resources retain
+  Classic coverage. Local checks include 128 simultaneous fields.
+- Toxin Tractor contamination is volumetric while firing, including Beta and Gamma. Normal toxin
+  impacts, attached tractor puddles and decorative toxin tank leaks follow their actual particle
+  support and lifetime; repeated impacts at one spot share a cloud. Damage and gameplay timing
+  are unchanged by these visual changes.
+- Includes upstream's restored four veterancy levels, removal of mod support, Classic-first
+  defaults, AI improvements, interface updates and experimental Turkiye additions.
+- Publishes six engine-only Linux x86_64 package formats, with `SHA256SUMS` covering the packages
+  and the launch image supplied separately. Original game data and optional upscaled art are excluded.
+- See [the release notes](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/blob/v3.8.0/docs/releases/v3.8.0.md)
+  for downloads, settings and limits.
+
 ## Linux source synchronized with v3.8.0 (2026-11-05)
 
 - Integrates upstream v3.8.0 gameplay, AI, audio, interface and content changes. EA's four
@@ -16,7 +36,7 @@ found and fixed, EA's own, not port damage.**
   Volumetric clouds, mapped sun shadows and Hybrid reflections remain selectable, with Linux
   water quality and movement controls and rendering caches preserved.
 - Preserves mission audio preloading alongside upstream's asynchronous sound loading, and
-  retains the Linux packaging and capture tools. This source update does not publish a release.
+  retains the Linux packaging and capture tools. Included in the Linux 3.8.0 release above.
 
 ## Linux Modern water open sea shader (2026-11-03)
 
