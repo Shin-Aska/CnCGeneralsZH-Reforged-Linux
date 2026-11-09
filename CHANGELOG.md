@@ -14,11 +14,10 @@ found and fixed, EA's own, not port damage.**
   Modern water, Volumetric clouds and reflection modes.
 - Unit-production hotkeys work by default on Linux again. Reserving fixed letters for orders
   left some buttons without a shortcut, including the USA War Factory's Crusader, Humvee,
-  Ambulance, Sentry Drone and Avenger. Windows' launcher assigns replacement keys; Linux has
-  no equivalent launcher. Linux now keeps each button's original label letter by default.
-  Explicit hotkey choices are preserved.
-- Local publishing now copies every staged overlay entry, including the newer cursor and
-  command-bar assets, so the published install matches the staged build.
+  Ambulance, Sentry Drone and Avenger. Upstream relied on the Windows launcher to assign
+  replacement keys; Linux has no equivalent launcher. Linux now keeps each button's original
+  label letter by default. Explicit hotkey choices are preserved; `FixedOrderKeys` with
+  `Enabled = Yes` in `Hotkeys.ini` opts back into fixed order keys.
 - Older-version replays are incompatible with upstream 4.0.0's gameplay changes.
 - [Release notes and downloads](docs/releases/v4.0.0.md).
 
