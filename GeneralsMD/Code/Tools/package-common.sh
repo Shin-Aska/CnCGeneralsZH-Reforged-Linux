@@ -130,6 +130,7 @@ license_entry() {
 		glslang) cp "$s/glslang/LICENSE.txt" "$L/glslang-LICENSE.txt";;
 		spirv-cross) cp "$s/SPIRV-Cross/LICENSE" "$L/SPIRV-Cross-LICENSE.txt";;
 		miniaudio) cp "$s/miniaudio/LICENSE" "$L/miniaudio-LICENSE.txt";;
+		mbedtls) cp "$s/mbedtls/LICENSE" "$L/mbedTLS-LICENSE.txt";;
 		gamespy) cp "$s/GameSpy/LICENSE" "$L/GameSpy-LICENSE.txt";;
 		lzhl)		# LZH-Light's notice is the comment that opens lzhl.h (inside libcompression, unaltered)
 			awk 'NR == 1 && !/^\/\*/ { exit 1 } { print } /\*\// { exit }' "$s/Compression/LZHCompress/CompLibHeader/lzhl.h" > "$L/LZH-Light-LICENSE.txt" &&
