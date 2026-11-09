@@ -457,8 +457,8 @@ static std::map< std::string, WideChar > s_playerButtonKeys;
 static const WideChar FIXED_KEYS[] = { 'A', 'S', 'G', 'Y', 'V', 'N', 'C', 'H' };
 /** FixedOrderKeys in Hotkeys.ini: with Enabled = No none of the above holds, and every button, the
 	* orders included, wears its label's letter or the player's, as in the game as shipped.  Read with
-	* the button keys, back to on before each read. */
-static Bool s_fixedOrderKeys = TRUE;
+	* the button keys, back to HOTKEYS_FIXED_ORDER_KEYS_DEFAULT (off on Linux) before each read. */
+static Bool s_fixedOrderKeys = HOTKEYS_FIXED_ORDER_KEYS_DEFAULT;
 /** CommandBarGrid in Hotkeys.ini: a command bar button takes its window slot's letter
 	* (HotKeyManager::commandBarGridKey) in place of its fixed and label letters.  Read with the button
 	* keys, back to off before each read.  The launcher holds the same tables (hotkeys.js, GRID_ROWS
@@ -698,7 +698,7 @@ void HotKeyManager::setFixedOrderKeys( Bool fixed )
 void HotKeyManager::loadPlayerKeys( void )
 {
 	s_playerButtonKeys.clear();
-	s_fixedOrderKeys = TRUE;
+	s_fixedOrderKeys = HOTKEYS_FIXED_ORDER_KEYS_DEFAULT;
 	s_commandBarGrid = FALSE;
 	AsciiString hotkeys = TheGlobalData->getPath_UserData();
 	hotkeys.concat( "Hotkeys.ini" );
@@ -1127,8 +1127,9 @@ std::string Hotkeys_format( const HotkeysFile& file, const std::vector< HotkeyCo
 		"; Zero Hour Reforged hotkeys, written by the launcher's Hotkeys page. Only what differs from the\r\n"
 		"; game is here. The game reads it at start; it is not part of the multiplayer checksum.\r\n"
 		"\r\n";
-	if( !file.fixedOrderKeys )
-		out += "FixedOrderKeys\r\n  Enabled = No\r\nEnd\r\n\r\n";
+	// only a choice that differs from the default is written, so Yes appears only where it is off (Linux)
+	if( file.fixedOrderKeys != HOTKEYS_FIXED_ORDER_KEYS_DEFAULT )
+		out += file.fixedOrderKeys ? "FixedOrderKeys\r\n  Enabled = Yes\r\nEnd\r\n\r\n" : "FixedOrderKeys\r\n  Enabled = No\r\nEnd\r\n\r\n";
 	if( file.commandBarGrid )
 		out += "CommandBarGrid\r\n  Enabled = Yes\r\nEnd\r\n\r\n";
 	std::map< std::string, Bool > named;

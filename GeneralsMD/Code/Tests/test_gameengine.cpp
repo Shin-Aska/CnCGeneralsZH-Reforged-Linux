@@ -2440,6 +2440,7 @@ TEST(hotkeys_every_fixed_order_takes_the_players_letter)
 		{ "Command_UpgradeGLAWorkerRealCommandSet", GUI_COMMAND_OBJECT_UPGRADE, 'H' },
 		{ "Command_BecomeRealGLABarracks", GUI_COMMAND_OBJECT_UPGRADE, 'H' },
 	};
+	HotKeyManager::setFixedOrderKeys( TRUE );	// off by default on Linux (HOTKEYS_FIXED_ORDER_KEYS_DEFAULT)
 	for( size_t each = 0; each < sizeof( ORDERS ) / sizeof( ORDERS[ 0 ] ); each++ )
 	{
 		const AsciiString name( ORDERS[ each ].button );
@@ -2452,6 +2453,7 @@ TEST(hotkeys_every_fixed_order_takes_the_players_letter)
 		keys[ lower.str() ] = 0;	// Key = NONE in Hotkeys.ini
 		CHECK_EQ( HotKeyManager::buttonKeyIn( name, 'Q', ORDERS[ each ].type, keys ), 0 );
 	}
+	HotKeyManager::setFixedOrderKeys( HOTKEYS_FIXED_ORDER_KEYS_DEFAULT );
 }
 
 /* GlobalData.h: which button orders.  The classic mouse is 1.04's left button, or the right under EA's
@@ -5777,7 +5779,12 @@ TEST(hotkeys_force_attack_button_gone_from_the_bar_still_loads_from_a_file)
 TEST(hotkeys_fixed_order_keys_switch_off_gives_the_labels_letters)
 {
 	const std::map< std::string, WideChar > none;
-	CHECK( HotKeyManager::fixedOrderKeys() );
+	CHECK_EQ( HotKeyManager::fixedOrderKeys(), HOTKEYS_FIXED_ORDER_KEYS_DEFAULT );
+#if defined(__linux__)
+	// Linux has no launcher to give the buttons that lose a letter to a fixed key another one
+	CHECK( !HOTKEYS_FIXED_ORDER_KEYS_DEFAULT );
+#endif
+	HotKeyManager::setFixedOrderKeys( TRUE );
 	CHECK_EQ( HotKeyManager::buttonKeyIn( AsciiString( "Command_Guard" ), 'W', GUI_COMMAND_GUARD, none ), (WideChar)'G' );
 	CHECK_EQ( HotKeyManager::buttonKeyIn( AsciiString( "Command_ConstructAmericaVehicleHumvee" ), 'V',
 		GUI_COMMAND_UNIT_BUILD, none ), 0 );
@@ -5789,16 +5796,21 @@ TEST(hotkeys_fixed_order_keys_switch_off_gives_the_labels_letters)
 	CHECK_EQ( HotKeyManager::buttonKeyIn( AsciiString( "Command_ConstructAmericaVehicleHumvee" ), 'V',
 		GUI_COMMAND_UNIT_BUILD, none ), (WideChar)'V' );
 	CHECK_EQ( HotKeyManager::fixedKey( AsciiString( "Command_Stop" ), GUI_COMMAND_STOP ), 0 );
-	HotKeyManager::setFixedOrderKeys( TRUE );
+	HotKeyManager::setFixedOrderKeys( HOTKEYS_FIXED_ORDER_KEYS_DEFAULT );
 
-	// the file carries the switch through the options page's Accept, and leaves it out when on
+	// the file carries the switch through the options page's Accept, either way, and leaves out the default
 	const std::vector< HotkeyCommandRow > rows = Hotkeys_commandRows( HOTKEYS_COMMAND_MAP );
+	CHECK_EQ( Hotkeys_parse( "", rows ).fixedOrderKeys, HOTKEYS_FIXED_ORDER_KEYS_DEFAULT );
 	HotkeysFile file = Hotkeys_parse( "FixedOrderKeys\r\n  Enabled = No\r\nEnd\r\n", rows );
 	CHECK( !file.fixedOrderKeys );
-	const std::string text = Hotkeys_format( file, rows );
-	CHECK( text.find( "FixedOrderKeys\r\n  Enabled = No\r\nEnd\r\n" ) != std::string::npos );
-	CHECK( !Hotkeys_parse( text, rows ).fixedOrderKeys );
-	file.fixedOrderKeys = TRUE;
+	CHECK( !Hotkeys_parse( Hotkeys_format( file, rows ), rows ).fixedOrderKeys );
+	file = Hotkeys_parse( "FixedOrderKeys\r\n  Enabled = Yes\r\nEnd\r\n", rows );
+	CHECK( file.fixedOrderKeys );
+	CHECK( Hotkeys_parse( Hotkeys_format( file, rows ), rows ).fixedOrderKeys );
+	file.fixedOrderKeys = !HOTKEYS_FIXED_ORDER_KEYS_DEFAULT;
+	CHECK( Hotkeys_format( file, rows ).find( HOTKEYS_FIXED_ORDER_KEYS_DEFAULT
+		? "FixedOrderKeys\r\n  Enabled = No\r\nEnd\r\n" : "FixedOrderKeys\r\n  Enabled = Yes\r\nEnd\r\n" ) != std::string::npos );
+	file.fixedOrderKeys = HOTKEYS_FIXED_ORDER_KEYS_DEFAULT;
 	CHECK( Hotkeys_format( file, rows ).find( "FixedOrderKeys" ) == std::string::npos );
 }
 
@@ -5831,6 +5843,7 @@ TEST(hotkeys_command_bar_grid_keys_by_window_slot)
 
 	std::map< std::string, WideChar > keys;
 	const AsciiString guard( "Command_Guard" ), exit( "Command_TransportExit" ), mines( "Command_UpgradeChinaMines" );
+	HotKeyManager::setFixedOrderKeys( TRUE );	// off by default on Linux (HOTKEYS_FIXED_ORDER_KEYS_DEFAULT)
 	CHECK( !HotKeyManager::commandBarGrid() );
 	HotKeyManager::setCommandBarGrid( TRUE );
 	// the fixed keys are off on the bar: guard in slot 13 is U; off the bar it is still G
@@ -5870,6 +5883,7 @@ TEST(hotkeys_command_bar_grid_keys_by_window_slot)
 	CHECK( Hotkeys_format( Hotkeys_parse( text, rows ), rows ) == text );
 	file.commandBarGrid = FALSE;
 	CHECK( Hotkeys_format( file, rows ).find( "CommandBarGrid" ) == std::string::npos );
+	HotKeyManager::setFixedOrderKeys( HOTKEYS_FIXED_ORDER_KEYS_DEFAULT );
 }
 
 /* Issue 128: one keystroke does one thing, decided on the press.  W selected every aircraft on its

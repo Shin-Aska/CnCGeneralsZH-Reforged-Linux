@@ -208,14 +208,26 @@ struct HotkeyCommandRow
 	Bool launcherDefault;		///< a key the launcher gives a command the game leaves unbound
 };
 
+/** Whether the bar's orders hold their fixed letters (FIXED_KEYS in HotKey.cpp) when Hotkeys.ini has no
+	* FixedOrderKeys block.  A button whose label letter is a fixed one loses it; the launcher's Hotkeys
+	* page wrote each such button a new letter into Hotkeys.ini.  Linux has no launcher, so those buttons
+	* had no key at all (on the USA War Factory: Crusader, Humvee, Ambulance, Sentry Drone, Avenger and
+	* Sentry Drone Gun).  There the default is off: every button keeps its label's letter, as Zero Hour
+	* shipped, and FixedOrderKeys with Enabled = Yes turns the fixed letters on. */
+#if defined(__linux__)
+const Bool HOTKEYS_FIXED_ORDER_KEYS_DEFAULT = FALSE;
+#else
+const Bool HOTKEYS_FIXED_ORDER_KEYS_DEFAULT = TRUE;
+#endif
+
 struct HotkeysFile
 {
 	std::map< std::string, std::string > buttons;				///< button name to its letter, "" for none
 	std::map< std::string, HotkeyBinding > commands;		///< command to its key, key "" for none
 	std::string launcherPart;	///< what followed HOTKEYS_LAUNCHER_PART, verbatim; empty when the file had none
-	Bool fixedOrderKeys;			///< FixedOrderKeys' Enabled; written only when off
+	Bool fixedOrderKeys;			///< FixedOrderKeys' Enabled; written only when not HOTKEYS_FIXED_ORDER_KEYS_DEFAULT
 	Bool commandBarGrid;			///< CommandBarGrid's Enabled; written only when on
-	HotkeysFile() : fixedOrderKeys( TRUE ), commandBarGrid( FALSE ) {}
+	HotkeysFile() : fixedOrderKeys( HOTKEYS_FIXED_ORDER_KEYS_DEFAULT ), commandBarGrid( FALSE ) {}
 };
 
 /** The rows of the shipped Data\<language>\CommandMap.ini text, then the commands it leaves unbound
