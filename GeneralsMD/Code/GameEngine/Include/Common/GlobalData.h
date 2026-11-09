@@ -180,6 +180,8 @@ public:
 														///< empty is the primary.  See Common/Monitors.h.
 	Int m_msaaLevel;					///< multisampling, as an index into the levels the options menu offers
 	Bool m_vsync;						///< wait for the monitor; off is the uncapped picture the frame-rate cap removal shipped
+	Int m_frameRateLimit;			///< "FrameRateLimit": the player's picture cap as a level, frameRateLimitForLevel gives the rate
+	Bool m_noFrameRateCap;		///< -noFPSLimit: no picture cap at all, the shell's 60 included
 	Bool m_direct3D11;			///< draw and present through the Direct3D 11 backend; -d3d9 and -headless turn it off
 	AsciiString m_direct3D11DumpPath;	///< -dx11dump: where to write each generated program
 	AsciiString m_direct3D11PostChain;	///< -dx11post: the effects run over the finished D3D11 frame
@@ -221,17 +223,19 @@ public:
 	Int m_waterStyle;					// "WaterStyle": 0 = Classic, 1 = Modern (when supported); applied between render frames
 #if defined(__linux__)
 	Bool m_waterMovementBehavior; // "WaterMovementBehavior": map-aware waves; latched when the next map loads
+#endif
 	Int m_waterReflection;			// "WaterReflection": 0 = Legacy, 1 = SSR, 2 = Hybrid, 3 = experimental path tracing; Modern water
 	Bool m_waterReflectionEnabled; // "WaterReflectionEnabled": scene reflections on/off; remembers the selected mode
 	Int m_waterFftResolution;		// "WaterFftResolution": 0 = Low (128), 1 = High (256) wave simulation
 	Int m_waterRefractionQuality; // "WaterRefractionQuality": 0 = Full, 1 = Simple transmission, 2 = opaque Off
 	Int m_waterReflectionDetail; // "WaterReflectionDetail": 0 = Low, 1 = High scene reflection resolution
-#endif
 	Int m_cloudStyle;					// "CloudStyle": 0 = Classic, 1 = Volumetric (when supported); visual only
 	Bool m_explosionDebrisTrails;	// "DebrisTrails": blasts throw smoke-trailing fragments and burning shrapnel
 	Int m_shadowQuality;				// "ShadowQuality": the sun's depth map at 1024, 2048 or 4096 texels a side (Direct3D 11)
 	Int m_graphicsQuality;			// "GraphicsQuality": where the options menu's Performance / Quality slider stands; Custom takes the particle ring from the preset at or below it
 	Bool m_classicGraphics;				// "ClassicGraphics": the game's own art, tile, shadows and picture; read at startup
+	Bool m_detailedModels;				// "DetailedModels": the rebuilt models' archives mount under the Reforged look; read at startup by Win32BIGFileSystem, not from here
+	Bool m_hdTextures;						// "HDTextures": the upscaled texture and ground archives mount under the Reforged look; read at startup by Win32BIGFileSystem, not from here
 	Int m_lightingStyle;					// "LightingStyle": LightingStyleType; the map's lights are rebalanced as each map loads
 	Bool m_shadowMap;							// "-shadowmap": draw the casters into the sun's depth buffer as well
 	Bool m_shadowMapReport;				// "-shadowmapreport": log what ended up in that buffer, once a second
@@ -303,6 +307,8 @@ public:
 
 	Real m_partitionCellSize;
 
+	// read from retail GameData.ini and used by nothing: the ammo and seat trays hang off the health
+	// bar (Drawable::drawTrays). Kept so that INI still parses.
 	Coord3D m_ammoPipWorldOffset;
 	Coord3D m_containerPipWorldOffset;
 	Coord2D m_ammoPipScreenOffset;
@@ -554,6 +560,21 @@ public:
 	Int m_netGameLocalSlot;						///< -netslot <n>: which of those addresses this copy of the game is
 	Int m_netGameAISlots;							///< -netai <n>: that many AI seats after the addresses, at the -aidiff rung
 	AsciiString m_lanPlayerName;			///< -lanname <name>: the name this copy takes in the LAN lobby (empty = the one in the preferences)
+	AsciiString m_relayHost;					///< -relay <host:port>: the LAN lobby and its games go through this UDP relay (empty = real LAN; Transport.cpp)
+	UnsignedShort m_relayPort;				///< the port of it, 0 when -relay named none
+	AsciiString m_onlineHost;					///< -online <host:port>: the online service to log in to (empty = none; GameNetwork/Online)
+	UnsignedShort m_onlinePort;				///< the port of it, 0 when -online named none
+	AsciiString m_onlineCAFile;				///< -onlineca <file>: PEM CA the service's certificate is checked against (empty = the Let's Encrypt roots)
+	AsciiString m_onlineUser;					///< -onlineuser <email>: log in with this account instead of the login screen's fields
+	AsciiString m_onlinePass;					///< -onlinepass <password>: its password (a test switch: it shows in the process list)
+	AsciiString m_onlineHostGame;			///< -onlinehost <name>: host a custom game of this name once in the lobby
+	AsciiString m_onlineJoinGame;			///< -onlinejoin <name>: join the custom game of this name once it is listed
+	AsciiString m_onlineSay;					///< -onlinesay <text>: say this in the lobby and again in the staging room
+	AsciiString m_onlineMap;					///< -onlinemap <map>: the map -onlinehost sets
+	AsciiString m_onlineOptions;			///< -onlineoptions <list>: the staging room controls the -onlinehost host works (prorules,turbo,unitlimit,randommap)
+	Int m_onlineStart;								///< -onlinestart [N]: the -onlinehost host starts the game at N players (0 = never, bare = 2)
+	Bool m_quickMatchOnStart;					///< -quickmatch: go into the Quick Match queue once logged in
+	Bool m_onlineLoginOnStart;				///< -onlinelogin: open the online login screen at startup, nothing filled in
 	Bool m_lanLobbyOnStart;						///< -lanlobby: open the LAN lobby instead of stopping at the main menu
 	Bool m_skirmishLobbyOnStart;			///< -skirmishlobby: open the skirmish staging room instead of stopping at the main menu
 	Bool m_optionsMenuOnStart;				///< -optionsmenu: open the options screen over the main menu at startup
@@ -562,6 +583,7 @@ public:
 	Bool m_waterFoam;								///< "WaterFoam": foam, shore band and the sun's shadow on water (Direct3D 11, client only)
 	Bool m_groundMarks;							///< "GroundMarks": craters, stains and longer treads that fade over minutes (Direct3D 11, client only)
 	Bool m_firelight;								///< "Firelight": flames light the ground, walls and units around them (Direct3D 11, client only)
+	Bool m_heatHaze;								///< "HeatHaze", "-heathaze": the air over fire, beams and exhausts shimmers (Direct3D 11, client only)
 	Bool m_hemiAmbient;							///< "HemiAmbient": models take the ambient from the sky above and the ground below (Direct3D 11, client only)
 	Bool m_ambientOcclusion;				///< "AmbientOcclusion": corners and the ground under what stands on it darken, half size in world units (Direct3D 11, client only)
 	Bool m_weatherEffects;					///< "Weather": rain, blowing sand or snow by the map's ground, and a wind on trees and smoke (Direct3D 11, client only)

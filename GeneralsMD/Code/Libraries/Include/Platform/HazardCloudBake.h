@@ -1,4 +1,5 @@
 // Device-free bounded slice traversal for shared hazard cloud snapshots.
+// Distributed under the repository's GPL-3.0 terms; see LICENSE.md.
 #pragma once
 
 namespace HazardCloudShared {

@@ -489,24 +489,36 @@ Color:Pink
 "Pembe"
 END
 
-Color:Crimson
-"Kızıl"
-END
-
-Color:Azure
-"Gök Mavisi"
-END
-
-Color:Salmon
-"Somon"
-END
-
 Color:Teal
 "Turkuaz"
 END
 
+Color:Lime
+"Limon Yeşili"
+END
+
+Color:Navy
+"Lacivert"
+END
+
+Color:Magenta
+"Fuşya"
+END
+
+Color:Brown
+"Kahverengi"
+END
+
 Color:Lavender
 "Lavanta"
+END
+
+Color:Coral
+"Mercan"
+END
+
+Color:Olive
+"Zeytin Yeşili"
 END
 
 GUI:ShowBehindBuildings
@@ -2866,7 +2878,7 @@ TOOLTIP:Crates
 END
 
 TOOLTIP:SuperWeapons
-"Bir oyuncunun aynı anda ayakta tutabileceği süper silah sayısı. İzin Ver: parası yettiği kadar. Sınırla: her birinden bir tane, ABD Süper Silah Generali için dört. Yok: hiç yok, yalnızca Süper Silah Generali bir tane tutar. İstisna odur, çünkü zayıf ordusunun bedelini bu üç süper silahla öder."
+"Bir oyuncunun aynı anda kaç süper silahı olabilir. İzin Ver: parası neye yetiyorsa. Sınırla: bir tane, ABD Süper Silah Generali'ne dört. Yok: hiç yok, bir tek Süper Silah Generali bir tane tutar. Onun istisna olması şundan: zayıf ordusunun bedelini süper silahlarıyla ödüyor. Yok seçiliyse herkes, bilgisayar da, Çin'in geliştirmelerini almak için bir Nükleer Füze silosu kurabilir. Siloda füze yok: ateşleme düğmesi yok, geri sayım yok, anons yok."
 END
 
 DOZER:ConstructionComplete
@@ -4498,7 +4510,7 @@ CONTROLBAR:IdleWorker
 END
 
 CONTROLBAR:IdleWorkerDescription
-"Sonraki boştaki işçiyi seçmek için tıklayın"
+"Sonraki boştaki işçiyi seçmek için tıklayın. Shift ile tıklarsanız hepsi seçilir."
 END
 
 CONTROLBAR:IdleInfantry
@@ -4506,7 +4518,7 @@ CONTROLBAR:IdleInfantry
 END
 
 CONTROLBAR:IdleInfantryDescription
-"Sonraki boştaki piyadeyi seçmek için tıklayın"
+"Sonraki boştaki piyadeyi seçmek için tıklayın. Shift ile tıklarsanız hepsi seçilir."
 END
 
 CONTROLBAR:IdleVehicle
@@ -4514,7 +4526,7 @@ CONTROLBAR:IdleVehicle
 END
 
 CONTROLBAR:IdleVehicleDescription
-"Sonraki boştaki kara aracını seçmek için tıklayın"
+"Sonraki boştaki kara aracını seçmek için tıklayın. Shift ile tıklarsanız hepsi seçilir."
 END
 
 CONTROLBAR:IdleAircraft
@@ -4522,7 +4534,7 @@ CONTROLBAR:IdleAircraft
 END
 
 CONTROLBAR:IdleAircraftDescription
-"Sonraki boştaki hava aracını seçmek için tıklayın"
+"Sonraki boştaki hava aracını seçmek için tıklayın. Shift ile tıklarsanız hepsi seçilir."
 END
 
 CONTROLBAR:Beacon
@@ -10534,11 +10546,127 @@ TOOLTIP:MapMaxBrutalSuccess
 END
 
 GUI:LimitArmies
-"Orduları Sınırla"
+"Sadece Ana Ordular"
 END
 
 TOOLTIP:LimitArmies
-"Orduları geleneksel ABD, GLA ve Çin taraflarıyla sınırlamak ve general ordularını kapatmak için işaretleyin"
+"Yalnızca ana ABD, Çin ve GLA orduları seçilebilir, generallerin orduları seçilemez"
+END
+
+GUI:Lobby
+"Lobi"
+END
+
+GUI:OnlineLoginName
+"E-posta veya Kullanıcı Adı"
+END
+
+GUI:OnlineLoginTitle
+"ZERO HOUR REFORGED ÇEVRİMİÇİ"
+END
+
+GUI:OnlineSignIn
+"GİRİŞ"
+END
+
+GUI:OnlineForgotPassword
+"ŞİFREMİ UNUTTUM"
+END
+
+GUI:OnlineKeepSignedIn
+"Oturumum açık kalsın"
+END
+
+TOOLTIP:OnlineKeepSignedIn
+"Bu bilgisayarda oturumun açık kalır. Şifren hiçbir yere kaydedilmez"
+END
+
+GUI:OnlineLoginHelp
+"zerohour.gg hesabınla giriş yap: e-postan ya da kullanıcı adın, bir de şifren."
+END
+
+GUI:OnlineLoginHelpRegister
+"Hesabın yok mu? Hesap Oluştur kayıt sayfasını tarayıcında açar."
+END
+
+GUI:OnlineLoginHelpReset
+"Şifreni mi unuttun? Şifremi Unuttum sıfırlama sayfasını tarayıcında açar."
+END
+
+GUI:OnlineLoginSavedToken
+"Kayıtlı oturumun kullanılacak, şifre gerekmiyor."
+END
+
+GUI:OnlineSigningIn
+"Giriş yapılıyor..."
+END
+
+GUI:OnlineConnecting
+"Sunucuya bağlanılıyor..."
+END
+
+GUI:OnlineCannotReachServer
+"Sunucuya ulaşılamıyor. Bağlantını kontrol et, sonra tekrar denemek için Giriş'e bas."
+END
+
+GUI:OnlineOpenedInBrowser
+"Tarayıcında açıldı."
+END
+
+GUI:OnlineBrowserTestServer
+"Test sunucusu: tarayıcı açılmaz."
+END
+
+GUI:OnlineBrowserFailed
+"Tarayıcın açılamadı."
+END
+
+GUI:OnlineLoginEmpty
+"E-postanı ya da kullanıcı adını ve şifreni gir."
+END
+
+GUI:OnlineLoginBadLogin
+"E-posta, kullanıcı adı ya da şifre yanlış."
+END
+
+GUI:OnlineLoginThrottled
+"Çok fazla deneme oldu. %d saniye bekle, sonra tekrar dene."
+END
+
+GUI:OnlineLoginThrottledNoRetry
+"Çok fazla deneme oldu. Bi dakka bekle, sonra tekrar dene."
+END
+
+GUI:OnlineLoginUnavailable
+"Hesap servisine ulaşılamıyor. Birazdan tekrar dene."
+END
+
+GUI:OnlineLoginExpired
+"Şifren değişmiş. Yeniden gir."
+END
+
+GUI:OnlineLoginBanned
+"Bu hesap yasaklı."
+END
+
+GUI:OnlineLoginElsewhere
+"Bu hesapla başka bir bilgisayardan giriş yapıldı."
+END
+
+TOOLTIP:OnlinePlayerInfo
+"\n %d galibiyet/%d mağlubiyet"
+END
+
+GUI:OnlineHubWelcome
+"Zero Hour Reforged çevrimiçine hoş geldin."
+END
+
+TOOLTIP:OnlineStagingPlayerInfo
+"\n Ping: %d ms \n %d galibiyet/%d mağlubiyet \n %d bağlantı kopması \n Favori ordu: %ls"
+END
+
+GUI:???
+"Rastgele"
 END
 
 GUI:UseStats
@@ -15021,12 +15149,56 @@ TOOLTIP:VSync
 "Görüntüyü monitöre eşler, böylece ekran yırtılmaz. Kapalıyken görüntü, bilgisayarın çizebildiği kadar hızlı akar. Kabul Et'e bastığınızda uygulanır."
 END
 
+GUI:FrameRateLimit
+"FPS Sınırı"
+END
+
+GUI:FrameRateLimit0
+"Kapalı"
+END
+
+GUI:FrameRateLimit1
+"240 FPS"
+END
+
+GUI:FrameRateLimit2
+"144 FPS"
+END
+
+GUI:FrameRateLimit3
+"120 FPS"
+END
+
+GUI:FrameRateLimit4
+"60 FPS"
+END
+
+TOOLTIP:FrameRateLimit
+"Maçta saniyede en fazla kaç kare çizileceği. Sınırı düşürürsen ekran kartın daha serin ve sessiz çalışır, oyun da yavaşlamaz. Menüler zaten 60'ta durur."
+END
+
 GUI:ClassicGraphics
 "Klasik Grafikler"
 END
 
 TOOLTIP:ClassicGraphics
 "Oyunun 2003'teki görünümü: kendi kaplamaları ve zemini, eski keskin gölgeler, kabartma ayrıntısı yok, parlama ve keskinleştirme yok. Oyun böyle açılır. Reforged görüntüsü için işareti kaldırın: Yüksek hazır ayarı kutuları doldurur, oradan kaydırıcıyı oynatabilirsiniz. Oyun bir sonraki açılışında geçerli olur."
+END
+
+GUI:DetailedModels
+"Ayrıntılı Modeller"
+END
+
+TOOLTIP:DetailedModels
+"Yeniden yapılan birlikler ve binalar, Reforged görüntüsü için, indirdiyseniz. Yalnızca gördüğünüzü değiştirirler: onlara sahip olsun olmasın herkesle oynarsınız. Büyük savaşlarda daha yüksek kare hızı için işareti kaldırın. Oyun bir sonraki açılışında geçerli olur."
+END
+
+GUI:HDTextures
+"HD Dokular"
+END
+
+TOOLTIP:HDTextures
+"Bütün dokular ve zemin karoları iki kat ayrıntılı, Reforged görüntüsü için, indirdiyseniz. Yalnızca gördüğünüzü değiştirirler: onlara sahip olsun olmasın herkesle oynarsınız. Ekran kartının belleği yetmiyorsa işareti kaldırın. Oyun bir sonraki açılışında geçerli olur."
 END
 
 GUI:InfantryShadows
@@ -15378,7 +15550,7 @@ GUI:OrderLines
 END
 
 TOOLTIP:OrderLines
-"Seçili her birimden gittiği yere, oradan da sıraya aldığı her noktaya bir çizgi çeker. Kapalıyken tek bir emir çizgisiz ve işaretsiz kalır, tıklanan yerde halka da çıkmaz; sıraya alınmış rota çizgisini ve işaretlerini korur."
+"Seçili her birimden gittiği yere, oradan da sıraya aldığı her noktaya bir çizgi çeker. Kapalıyken tek bir emir çizgisiz kalır, ama hedefteki işaret ve tıklanan yerdeki halka yine çıkar; sıraya alınmış rota çizgisini korur."
 END
 
 GUI:AircraftAltitudeLine
@@ -15575,6 +15747,10 @@ END
 
 GUI:CantBuildTooManyDerrickDefenses
 "Bu petrol kuyularının çevresinde zaten iki savunmanız var."
+END
+
+TOOLTIP:TooltipProRulesBanUpgrade
+"Pro Kurallarında yasak"
 END
 
 TOOLTIP:StatSeconds
@@ -15909,6 +16085,26 @@ GUI:HudStandings
 "Sıralama"
 END
 
+GUI:HudHighestFirst
+"en yüksek üstte"
+END
+
+GUI:HudPlayerHead
+"Oyuncu"
+END
+
+GUI:HudStatUnitMoney
+"$"
+END
+
+GUI:HudStatUnitIncome
+"$/dk"
+END
+
+GUI:HudStatUnitPower
+"fazla"
+END
+
 GUI:CheatPanelTitle
 "Hileler"
 END
@@ -16235,6 +16431,14 @@ END
 
 TOOLTIP:SmoothMotion
 "60 Hz'den hızlı ekranda birimler, her konumu bir sonrakine kadar tutmak yerine son iki konumlarının arasında çizilir. 60 Hz ekranda fark görünmez. Yalnızca sizin görüntünüz değişir: oyundaki hiçbir şey bunu okumaz, diğer oyuncular kendi ayarını görür. Kabul'e basınca geçerli olur."
+END
+
+GUI:HeatHaze
+"Isı Dalgalanması"
+END
+
+TOOLTIP:HeatHaze
+"Yangınların üstünde, lazer ışınları boyunca ve füze egzozunun arkasında hava dalgalanır. Yalnızca Direct3D 11 ile, Klasik Grafikler açıkken kapalıdır. Kabul Et'e basınca uygulanır."
 END
 
 GUI:StructureCollapse
@@ -18070,4 +18274,176 @@ END
 
 CONTROLBAR:ToolTipEvacuateAt
 "Seçtiğiniz yere gidip tüm birliklere çıkma emri verin\nAlt: burada indir"
+END
+
+GUI:QMSearchTime
+"Rakip aranıyor: %d:%02d"
+END
+
+GUI:QMSearchTimePool
+"Rakip aranıyor: %d:%02d, sırada %d kişi var"
+END
+
+GUI:QMStartsIn
+"Maç %d saniyeye başlıyor"
+END
+
+GUI:QMOpponentFound
+"Rakip bulundu: %ls"
+END
+
+GUI:QMAnOpponent
+"bilinmeyen oyuncu"
+END
+
+GUI:QMOpponentLeft
+"Rakibin maç başlamadan çıktı. Tekrar sıradasın."
+END
+
+GUI:OnlinePingMs
+"%d ms"
+END
+
+GUI:OnlineRating
+"Puan %d"
+END
+
+GUI:OnlineRatingTier
+"%ls, puan %d"
+END
+
+GUI:OnlineLadderPlace
+"ligde %d."
+END
+
+GUI:OnlinePlayerNotOnline
+"Şu an çevrim içi değil"
+END
+
+GUI:OnlineTier_unranked
+"Derecesiz"
+END
+
+GUI:OnlineTier_private
+"Er"
+END
+
+GUI:OnlineTier_sergeant
+"Çavuş"
+END
+
+GUI:OnlineTier_lieutenant
+"Teğmen"
+END
+
+GUI:OnlineTier_captain
+"Yüzbaşı"
+END
+
+GUI:OnlineTier_major
+"Binbaşı"
+END
+
+GUI:OnlineTier_colonel
+"Albay"
+END
+
+GUI:OnlineTier_general
+"General"
+END
+
+GUI:OnlineLadderPrev
+"ÖNCEKİ"
+END
+
+GUI:OnlineLadderNext
+"SONRAKİ"
+END
+
+GUI:OnlineLadderButton
+"LİG"
+END
+
+GUI:OnlineLadderRank
+"#"
+END
+
+GUI:OnlineLadderPlayer
+"Oyuncu"
+END
+
+GUI:OnlineLadderRating
+"Puan"
+END
+
+GUI:OnlineLadderTier
+"Rütbe"
+END
+
+GUI:OnlineLadderWins
+"Galibiyet"
+END
+
+GUI:OnlineLadderLosses
+"Mağlubiyet"
+END
+
+GUI:OnlineLadderLoading
+"Lig yükleniyor..."
+END
+
+GUI:OnlineLadderUnavailable
+"Lig şu an açılmıyor. Bi dakka sonra tekrar dene."
+END
+
+GUI:OnlineLadderEmpty
+"Bu sayfada ligde oyuncu yok."
+END
+
+GUI:OnlineRatedResult
+"Puan %+.1f -> %d"
+END
+
+GUI:OnlineUnrated
+"Bu maç puana sayılmadı."
+END
+
+GUI:OnlineUnrated_custom
+"Özel oyunlar puana sayılmıyor."
+END
+
+GUI:OnlineUnrated_desync
+"Puana sayılmadı: oyun senkrondan çıktı."
+END
+
+GUI:OnlineUnrated_grace
+"Puana sayılmadı: bi oyuncu daha başta çıktı."
+END
+
+GUI:OnlineUnrated_nowinner
+"Puana sayılmadı: kazanan çıkmadı."
+END
+
+GUI:OnlineUnrated_unconfirmed
+"Puana sayılmadı: sonuç doğrulanamadı."
+END
+
+GUI:OnlineUnrated_stalled
+"Puana sayılmadı: sonuç doğrulanamadı."
+END
+
+GUI:OnlineUnrated_seed
+"Puana sayılmadı: iki taraf farklı sonuç bildirdi."
+END
+
+GUI:OnlineUnrated_endframe
+"Puana sayılmadı: iki taraf farklı sonuç bildirdi."
+END
+
+GUI:OnlineUnrated_winners
+"Puana sayılmadı: iki taraf farklı sonuç bildirdi."
+END
+
+GUI:OnlineUnrated_cancelled
+"Puana sayılmadı: maç iptal oldu."
 END

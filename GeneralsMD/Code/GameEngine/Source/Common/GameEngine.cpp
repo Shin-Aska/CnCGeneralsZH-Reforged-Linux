@@ -39,6 +39,7 @@
 #endif
 #include "Lib/Clock.h"
 #include <exception>
+#include <thread>		// the picture cap spins its last millisecond on std::this_thread::yield
 
 #include "Lib/WideCharFns.h"
 
@@ -67,6 +68,7 @@
 #include "Common/LocalFileSystem.h"
 #include "Common/CDManager.h"
 #include "Common/GlobalData.h"
+#include "Common/OptionsCatalog.h"		// frameRateLimitForLevel, the picture cap's rate
 #include "Common/PerfTimer.h"
 #include "Common/JobSystem.h"
 #include "Common/LogicThread.h"
@@ -141,6 +143,7 @@
 #include "GameNetwork/LANAPICallbacks.h"
 #include "GameNetwork/NetworkUtil.h"
 #include "GameNetwork/GameSpy/GameResultsThread.h"
+#include "GameNetwork/Online/OnlineQueues.h"
 #include "GameNetwork/GeneralsOnline/OnlineBridge.h"
 
 #include "Common/version.h"
@@ -309,8 +312,13 @@ static Bool isSameFile( const FileInfo &left, const FileInfo &right )
 //-------------------------------------------------------------------------------------------------
 /** Every model's bones place fire points, turret pivots and dock positions in logic, so a model
 	* that differs between two machines splits their match.  Each model's bytes go into the checksum
-	* as it resolved: a loose model beats every archive, and a later patch archive beats an earlier
-	* one.  Reading all of them is about 375 MB, so what a model hashed to is kept in the user folder
+	* as retail resolves it: a loose model beats every archive, and a later patch archive beats an
+	* earlier one, but a model in the fork's Reforged*.big counts as the retail copy it covers.  So
+	* the rebuilt models are a download a player may skip or switch off (Options > Detailed Models)
+	* and Classic Graphics, which mounts none of them, keeps the same checksum.  That holds because
+	* Tools/artpack.py only packs a model that keeps every retail bone where retail has it: what the
+	* logic reads of a model is its bones, never its meshes.
+	* Reading all of them is about 375 MB, so what a model hashed to is kept in the user folder
 	* against the size and write time of the file it came from, and read again only when that file
 	* changes. */
 //-------------------------------------------------------------------------------------------------
@@ -321,15 +329,18 @@ static void checksumModels( XferCRC &xferCRC )
 
 	const ModelChecksumMap cache = readModelChecksumCache();
 	ModelChecksumMap current;
-	Int modelsRead = 0;
+	Int modelsRead = 0, modelsCounted = 0;
 
 	for( FilenameListIter it = models.begin(); it != models.end(); ++it )
 	{
 		AsciiString model = *it;
 		model.toLower();
 
-		AsciiString source = TheLocalFileSystem->doesFileExist( model.str() )
-			? model : TheArchiveFileSystem->getArchiveFilenameForFile( model );
+		const Bool loose = TheLocalFileSystem->doesFileExist( model.str() );
+		AsciiString source = loose ? model : TheArchiveFileSystem->getRetailArchiveFilenameForFile( model );
+		if (source.isEmpty())
+			continue;		// only a Reforged archive has it, so a player without one has nothing to hash
+		++modelsCounted;
 
 		ModelChecksum entry;
 		const Bool sourceKnown = TheLocalFileSystem->getFileInfo( source, &entry.source );
@@ -345,7 +356,7 @@ static void checksumModels( XferCRC &xferCRC )
 		}
 		else
 		{
-			File *file = TheFileSystem->openFile( model.str(), File::READ );
+			File *file = loose ? TheFileSystem->openFile( model.str(), File::READ ) : TheArchiveFileSystem->openRetailFile( model );
 			Int fileSize = file->size();
 			char *contents = file->readEntireAndClose();
 			CRC modelCRC;
@@ -363,7 +374,7 @@ static void checksumModels( XferCRC &xferCRC )
 
 	if (modelsRead > 0)
 		writeModelChecksumCache( current );
-	DEBUG_LOG(( "INI CRC covers %d models, %d of them read this start\n", (Int)models.size(), modelsRead ));
+	DEBUG_LOG(( "INI CRC covers %d models, %d of them read this start\n", modelsCounted, modelsRead ));
 }
 
 Int GameEngine::getFramesPerSecondLimit( void )
@@ -1298,7 +1309,9 @@ void GameEngine::init( int argc, char *argv[] )
 		initSubsystem(TheGameState,"TheGameState", MSGNEW("GameEngineSubsystem") GameState, NULL, NULL, NULL );
 
 		// Create the interface for sending game results
-		initSubsystem(TheGameResultsQueue,"TheGameResultsQueue", GameResultsInterface::createNewGameResultsInterface(), NULL, NULL, NULL, NULL);
+		// -online rates from OnlineSendReport, so its queue drops EA's results
+		initSubsystem(TheGameResultsQueue,"TheGameResultsQueue",
+			OnlineIsEnabled() ? OnlineCreateGameResults() : GameResultsInterface::createNewGameResultsInterface(), NULL, NULL, NULL, NULL);
 
 
 	#ifdef DUMP_PERF_STATS///////////////////////////////////////////////////////////////////////////
@@ -2915,6 +2928,7 @@ static void updateHeadlessRun( void )
 static Real s_logicAccumMs = 0.0f;
 static Bool s_passPlanned = FALSE;
 static GameEngine::LogicPassPlan s_passPlan;
+static Bool s_passWasFast = FALSE;		///< the last pass ran a logic frame a pass (headless, -turbo, fast-forward, -video): no picture cap
 static UnsignedInt s_frameBeforeOverlap = 0;
 static UnsignedInt s_planTimeMs = 0;		///< when the pacer last spent the time since the one before
 static Int64 s_planTimeTicks = 0;				///< the same moment on the fine clock, for smooth motion
@@ -3201,6 +3215,7 @@ void GameEngine::update( void )
 			planLogicPass( plan );
 		s_passPlanned = FALSE;
 		const Bool fastMode = plan.fastMode;
+		s_passWasFast = fastMode;
 		const Bool networkPaced = plan.networkPaced;
 		const Bool mayCatchUp = plan.mayCatchUp;
 		// LOGIC-THREAD.md phase 3, step 3b: this pass's first tick ran beside the render and was flushed
@@ -3456,8 +3471,91 @@ extern bool DX8Wrapper_IsWindowed;
 extern HWND ApplicationHWnd;
 #endif
 
+/* The picture cap (GitHub #149, #153): the rate a pass may present at, 0 for none.  An uncapped
+	 picture held a card at 100% and 86 C, and the main menu, which draws next to nothing, ran it
+	 hottest.  The shell holds 60 whatever the player picked; a match holds the FrameRateLimit row.
+	 Never under the logic's own rate, so a pass a tick is always there to be had; the pacer runs
+	 the ticks on the wall clock and catches up in a pass, and a wait outside it moves none of them.
+	 None at all for -noFPSLimit and for a pass that ran a logic frame a pass (-headless, -turbo, a
+	 replay's fast-forward, -video): those want every pass they can get. */
+static const Int SHELL_FRAME_RATE_CAP = 60;
+
+static Int renderCapFramesPerSecond( Int logicFps )
+{
+	if (TheGlobalData->m_noFrameRateCap || TheGlobalData->m_headless || TheGlobalData->m_turbo || s_passWasFast)
+		return 0;
+	Int fps = frameRateLimitForLevel( TheGlobalData->m_frameRateLimit );
+	if (!TheGameLogic->isInGame() || TheGameLogic->isInShellGame())
+	{
+		if (fps == 0 || fps > SHELL_FRAME_RATE_CAP)
+			fps = SHELL_FRAME_RATE_CAP;
+	}
+	if (fps > 0 && fps < logicFps)
+		fps = logicFps;
+	return fps;
+}
+
+/* Hold the thread until the tick clock reads `deadline`.  A sleep cannot hit a point in time: Sleep(1)
+	 under a 1 ms timer period still ends anywhere up to 2 ms late, a whole eighth of a 144 Hz picture.
+	 So the wait sleeps to a millisecond short of it on a high resolution waitable timer (Windows 10
+	 1803 on; an older Windows gets the plain one), then yields the thread until the clock gets there. */
+#if defined(_WIN32) && !defined(CREATE_WAITABLE_TIMER_HIGH_RESOLUTION)
+#define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
+#endif
+
+static void waitForTicks( Int64 deadline )
+{
+	const Int64 perSecond = Clock_Ticks_Per_Second();
+	const Int64 sleepTicks = deadline - Clock_Ticks() - perSecond / 1000;
+	if (sleepTicks > 0)
+	{
+#if defined(_WIN32)
+		static HANDLE timer = NULL;
+		if (timer == NULL)
+			timer = CreateWaitableTimerExW( NULL, NULL, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS );
+		if (timer == NULL)
+			timer = CreateWaitableTimerW( NULL, TRUE, NULL );
+		LARGE_INTEGER due;
+		due.QuadPart = -(LONGLONG)( sleepTicks * 10000000 / perSecond );	// relative, in 100 ns
+		SetWaitableTimer( timer, &due, 0, NULL, NULL, FALSE );
+		WaitForSingleObject( timer, INFINITE );
+#else
+		std::this_thread::sleep_for( std::chrono::nanoseconds( sleepTicks * 1000000000 / perSecond ) );
+#endif
+	}
+	while (Clock_Ticks() < deadline)
+		std::this_thread::yield();
+}
+
+/** Wait out what is left of this picture's share of a second, after the present and before the next
+	* pass reads the input.  The next deadline steps on from the last, so a picture that ran late is
+	* paid back by the next one's shorter wait; one more than a whole picture late starts the count again. */
+static void waitForRenderCap( Int logicFps )
+{
+	static Int64 s_nextPicture = 0;
+	static Int s_loggedCap = -1;
+	const Int fps = renderCapFramesPerSecond( logicFps );
+	if (fps != s_loggedCap)
+	{
+		DEBUG_LOG(( "RENDER CAP %d pictures a second%s\n", fps, fps == 0 ? " (none)" : "" ));
+		s_loggedCap = fps;
+	}
+	if (fps <= 0)
+	{
+		s_nextPicture = 0;
+		return;
+	}
+	const Int64 period = Clock_Ticks_Per_Second() / fps;
+	const Int64 now = Clock_Ticks();
+	if (s_nextPicture == 0 || now - s_nextPicture > period)
+		s_nextPicture = now;
+	else if (now < s_nextPicture)
+		waitForTicks( s_nextPicture );
+	s_nextPicture += period;
+}
+
 /** -----------------------------------------------------------------------------------------------
- * The "main loop" of the game engine. It will not return until the game exits. 
+ * The "main loop" of the game engine. It will not return until the game exits.
  */
 void GameEngine::execute( void )
 {
@@ -3576,11 +3674,12 @@ void GameEngine::execute( void )
 			}	// perf
 
 			{
-				// Rendering runs uncapped everywhere now, menus included. Game speed stays
-				// constant because the logic tick is paced by wall clock inside update(), and the
-				// menus no longer need a capped loop either: AnimateWindowManager::update paces
-				// its own stepping off the wall clock, so the window animations keep the cadence
-				// they were tuned for however fast the loop runs.
+				// Game speed stays constant because the logic tick is paced by wall clock inside
+				// update(), whatever the picture rate, and AnimateWindowManager::update paces the
+				// menus' animations off the wall clock too.  So the only wait in the loop is the
+				// picture cap's, outside the pass: the logic thread is idle by now, the overlapped
+				// tick having been flushed at the end of the draw.
+				waitForRenderCap( m_maxFPS );
 				prevLoopTime = Clock_Milliseconds();
 
 		#if defined(_DEBUG) || defined(_INTERNAL)

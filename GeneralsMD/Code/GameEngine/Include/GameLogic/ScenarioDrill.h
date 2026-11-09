@@ -85,10 +85,12 @@ enum ScenarioActionType
 	SCENARIO_ACTION_SHIFTUPGRADE,			///< shiftupgrade <slot> <selector> <upgrade>; shift on an object upgrade button, bought by every unit that matches
 	SCENARIO_ACTION_DOCK,							///< dock <slot> <selector> <targetSlot> <targetSelector>; a right click on a supply point or a dock
 	SCENARIO_ACTION_CONSTRUCT,				///< construct <slot> <template> <position>; the local player's placement click, whatever is selected, as a message that is recorded and crosses the network
+	SCENARIO_ACTION_SHIFTCONSTRUCT,		///< shiftconstruct <slot> <template> <position>; the same click with shift, onto the builder's order queue
 	SCENARIO_ACTION_STANCE,						///< stance <slot> <selector> aggressive|defensive; the stance key, as MSG_SET_STANCE
 	SCENARIO_ACTION_FORCEATTACK,			///< forceattack <slot> <selector> <targetSlot> <targetSelector>; the attack key's click on one unit, as MSG_DO_FORCE_ATTACK_OBJECT
 	SCENARIO_ACTION_CLICKENTER,				///< clickenter <slot> <selector> <targetSlot> <targetSelector>; a player's click into a building or transport, as MSG_ENTER
 	SCENARIO_ACTION_WEAPONAT,					///< weaponat <slot> <selector> <position> [primary|secondary|tertiary]; a FIRE_WEAPON button's click on the ground, as MSG_DO_WEAPON_AT_LOCATION; tertiary when left out
+	SCENARIO_ACTION_SWITCHWEAPON,			///< switchweapon <slot> <selector> primary|secondary|tertiary; a SWITCH_WEAPON button (the Nuke Cannon's Neutron Shells), as MSG_SWITCH_WEAPONS
 	SCENARIO_ACTION_FORCEGROUND,			///< forceground <slot> <selector> <position>; the attack key's click on the ground, as MSG_DO_FORCE_ATTACK_GROUND
 	SCENARIO_ACTION_REAIM,						///< reaim <slot> <selector> <position>; a right click that moves a running power's aim (the Spectre Gunship's), as MSG_DO_SPECIAL_POWER_OVERRIDE_DESTINATION
 	SCENARIO_ACTION_RESPOND,					///< respond <slot> <selector> <position>; from now, how long each unit takes to point its gun at the position, fire with it pointed there, and get closer to it

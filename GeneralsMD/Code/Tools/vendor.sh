@@ -92,7 +92,7 @@ expand_source() { # archive name -> prints the unpacked root
   mkdir -p "$target"
   step "unpacking $name"
   case "$archive" in
-    *.tar.gz) tar -xf "$archive" -C "$target" || { echo "[vendor] ERROR: could not unpack $archive" >&2; return 1; } ;;
+    *.tar.gz|*.tar.bz2) tar -xf "$archive" -C "$target" || { echo "[vendor] ERROR: could not unpack $archive" >&2; return 1; } ;;
     *)        unzip -qo "$archive" -d "$target" || { echo "[vendor] ERROR: could not unpack $archive" >&2; return 1; } ;;
   esac
   local entry count=0 only=
@@ -405,7 +405,8 @@ install_gamespy_unix_patch() {
 # pin a choice that C4 has not made, and M1 is a headless build that links neither binkvideo nor
 # milesaudio, so nothing before M2 needs it.
 
-# --- The fork's own upscaled art: every 3D texture at twice its size, and the ground. Not in git -
+# --- The fork's own upscaled art: every 3D texture at twice its size, and the ground, and the
+# rebuilt models, one Reforged<Side>.big per side that Tools/artpack.py packs. Not in git -
 # ReforgedTextures.big alone is a gigabyte, ten times
 # what GitHub takes in a file, and LFS in a fork is billed to the parent repository.
 #
@@ -618,6 +619,28 @@ install_ffmpeg() {
   step "FFmpeg 8.1.2 (source tarball) -> Libraries/Source/FFmpeg"
 }
 
+# --- mbedTLS 3.6.7 (Apache-2.0), the long-term-support line: the TLS under the online service's lobby
+# connection (GameNetwork/Online), the same pin as vendor.ps1, on every platform. The tarball is checked
+# against the sha256 the release publishes beside it. Only include/, library/ and the licence are copied;
+# CMakeLists.txt compiles library/*.c itself, so upstream's build, programs and tests stay out.
+install_mbedtls() {
+  local destination="$libraries/Source/mbedtls"
+  if [ -e "$destination/include/mbedtls/build_info.h" ] && [ -z "$force" ] \
+     && grep -q 'MBEDTLS_VERSION_STRING         "3.6.7"' "$destination/include/mbedtls/build_info.h"; then return 0; fi
+  local sha='a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6'
+  local archive source hash
+  archive=$(get_file 'https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.7/mbedtls-3.6.7.tar.bz2' "$work/mbedtls-3.6.7.tar.bz2")
+  hash=$(sha256_of "$archive")
+  if [ "$hash" != "$sha" ]; then
+    rm -f "$archive"
+    echo "[vendor] ERROR: mbedtls-3.6.7.tar.bz2 has hash $hash, and the release was published as $sha" >&2
+    exit 1
+  fi
+  source=$(expand_source "$archive" 'mbedtls')
+  copy_entries "$source" "$destination" include library LICENSE
+  step "mbedTLS 3.6.7 -> Libraries/Source/mbedtls"
+}
+
 get_channel_url() {
   if [ -n "${ZHR_CHANNEL_URL:-}" ]; then printf '%s/\n' "${ZHR_CHANNEL_URL%/}"; return 0; fi
   local launcher
@@ -645,17 +668,23 @@ get_art_from_channel() {
     step 'the release channel is not reachable'
     return 0
   fi
+  # every art archive is an add-on now (addons[].files, optional.models in the first split release);
+  # a developer gets them all unless ZHR_NO_ADDONS=1, as vendor.ps1 -NoAddons
   printf '%s' "$versions" | python3 -c '
 import json, re, sys
-channel, pattern = sys.argv[1], re.compile(sys.argv[2])
+channel, pattern, addons = sys.argv[1], re.compile(sys.argv[2]), sys.argv[3] != "1"
 release = json.load(sys.stdin)["game"][0]
-for f in release["files"]:
+files = list(release["files"])
+if addons:
+    files += [f for a in release.get("addons") or [] for f in a.get("files", [])]
+    files += [f for group in (release.get("optional") or {}).values() for f in group]
+for f in files:
     if pattern.search(f["path"]):
         path = f["path"].replace("\\", "/")
         name = path.rsplit("/", 1)[-1]
         print("\t".join([name, channel + release["folder"] + "/" + path,
                          str(f["size"]), f["sha256"]]))
-' "$channel_url" "$art_pattern"
+' "$channel_url" "$art_pattern" "${ZHR_NO_ADDONS:-0}"
 }
 
 get_art_from_release() {
@@ -731,6 +760,7 @@ install_spirv_cross
 install_shadercross
 install_freetype
 install_ffmpeg
+install_mbedtls
 if [ "$art" -eq 1 ]; then
   install_art
 else

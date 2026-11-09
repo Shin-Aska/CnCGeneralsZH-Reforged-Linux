@@ -96,6 +96,10 @@
 #include "GameLogic/Object.h"
 #include "GameLogic/PartitionManager.h"
 #include "GameLogic/ScriptEngine.h"		// For TheScriptEngine - jkmcd
+#include "GameLogic/VictoryConditions.h"
+#include "GameNetwork/GameSpy/StagingRoomGameInfo.h"
+#include "GameNetwork/Online/OnlineQueues.h"
+#include "GameNetwork/Transport.h"
 #ifdef _INTERNAL
 // for occasional debugging...
 //#pragma optimize("", off)
@@ -626,6 +630,32 @@ void GameClient::registerDrawable( Drawable *draw )
 }  // end registerDrawable
 
 /** -----------------------------------------------------------------------------------------------
+ * -online, once a client pass.  The relay session gets its keepalive while the lobby has no Transport
+ * to pump it, and a match's report goes out on the first pass after the match is decided, without
+ * waiting for the score screen a player may never reach.  Here, before prepareOverlap, no tick runs
+ * beside it, so reading the victory conditions and the score keepers is safe.
+ */
+static void updateOnline( void )
+{
+	if (!OnlineIsEnabled())
+		return;
+	Transport::keepOnlineRelay();
+
+	static Bool s_reported = FALSE;
+	if (!TheGameLogic->isInGame() || TheGameLogic->getGameMode() != GAME_INTERNET
+		|| !TheGameSpyGame || !TheGameSpyGame->isGameInProgress())
+	{
+		s_reported = FALSE;
+		return;
+	}
+	if (!s_reported && TheVictoryConditions && TheVictoryConditions->getEndFrame() > 0)
+	{
+		s_reported = TRUE;
+		TheGameSpyGame->sendOnlineReport( "endframe" );
+	}
+}
+
+/** -----------------------------------------------------------------------------------------------
  * Redraw all views, update the GUI, play sound effects, etc.
  */
 DECLARE_PERF_TIMER(GameClient_update)
@@ -633,6 +663,7 @@ DECLARE_PERF_TIMER(GameClient_draw)
 void GameClient::update( void )
 {
 	USE_PERF_TIMER(GameClient_update)
+	updateOnline();
 	// create the FRAME_TICK message
 	GameMessage *frameMsg = TheMessageStream->appendMessage( GameMessage::MSG_FRAME_TICK );
 	frameMsg->appendTimestampArgument( getFrame() );
@@ -886,6 +917,12 @@ void GameClient::update( void )
 							object->getShroudedStatus(*playerIndex);
 					}
 					ObjectShroudStatus ss=object->getShroudedStatus(localPlayerIndex);
+					// EA's grace for the dead below never ran here: nothing recorded when the player last saw
+					// a drawable clear, so a shot-down aircraft or a wreck that carried on into the fog was
+					// hidden or blew up unseen there. Recorded for the dead only, so the living leave sight
+					// at once as they do now.
+					if (ss < OBJECTSHROUD_FOGGED && object->isEffectivelyDead())
+						draw->setShroudClearFrame(TheGameLogic->getFrame());
 					if (ss >= OBJECTSHROUD_FOGGED && draw->getShroudClearFrame()!=0) {
 						UnsignedInt limit = 2*LOGICFRAMES_PER_SECOND;
 						if (object->isEffectivelyDead()) {

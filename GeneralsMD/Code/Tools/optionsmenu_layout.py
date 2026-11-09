@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Rebuild OptionsMenu.wnd as eight tabbed pages on one grid.
+"""Rebuild OptionsMenu.wnd as tabbed pages on one grid.
 
 EA's options screen is one 800x600 panel with everything on it at once, and it was already full
 when it shipped: the language filter, the keyboard button and the four camera checkboxes are all
 still in the file, parked off the right edge with HIDDEN set, because there was nowhere left to put
 them.  Seventeen settings later there is no version of "find room" that works.
 
-So the screen becomes eight pages behind eight buttons: Display, Graphics, Effects, Audio, Controls,
+So the screen becomes nine pages behind nine buttons: Display, Graphics, Effects, Water, Audio, Controls,
 Interface, Network and Hotkeys, the last two lists rather than settings (build_hotkeys_page).  Every graphics setting is on Graphics or Effects, including the ones EA hid in
 a popup that only opened when Custom was picked from a combo box on another page.  Each page is a list
 of titled groups, sorted by what a setting does, flowed into three columns on one grid, so a heading,
@@ -167,8 +167,12 @@ NEW_CONTROLS = [
     (LABEL,  "LabelFullscreenScaling", "GUI:FullscreenScaling"),
     (COMBO,  "ComboBoxFullscreenScaling", None),
     (CHECK,  "CheckVSync",             "GUI:VSync"),
+    (LABEL,  "LabelFrameRateLimit",    "GUI:FrameRateLimit"),
+    (COMBO,  "ComboBoxFrameRateLimit", None),
     (CHECK,  "CheckClassicGraphics",   "GUI:ClassicGraphics"),
-    (LABEL,  "LabelWaterStyle",        "GUI:WaterStyle"),
+    (CHECK,  "CheckDetailedModels",    "GUI:DetailedModels"),
+    (CHECK,  "CheckHDTextures",        "GUI:HDTextures"),
+    (LABEL,  "LabelWaterStyle",       "GUI:WaterStyle"),
     (COMBO,  "ComboBoxWaterStyle",      None),
     (LABEL,  "LabelCloudStyle",        "GUI:CloudStyle"),
     (COMBO,  "ComboBoxCloudStyle",      None),
@@ -262,6 +266,7 @@ NEW_CONTROLS = [
     (CHECK,  "CheckAtmosphere",        "GUI:Atmosphere"),
     (CHECK,  "CheckStructureCollapse", "GUI:StructureCollapse"),
     (CHECK,  "CheckSmoothMotion",      "GUI:SmoothMotion"),
+    (CHECK,  "CheckHeatHaze",          "GUI:HeatHaze"),
     (LABEL,  "LabelGraphicsQuality",   "GUI:GraphicsQuality"),
     (SLIDER, "SliderGraphicsQuality",  None),
 ]
@@ -369,7 +374,13 @@ GROUP_LAYOUT = [
             setting("GammaLabel", "SliderGamma", "ValueGamma"),
             # every column of Graphics and Effects is full
             ("check", "CheckStructureCollapse"),
-            ("check", "CheckSmoothMotion")])]),
+            ("check", "CheckSmoothMotion"),
+            ("check", "CheckHeatHaze"),
+            # beside Classic Graphics on the Graphics page if there were room
+            ("check", "CheckDetailedModels"),
+            ("check", "CheckHDTextures"),
+            # the Screen column is full with the monitor and the resolution note
+            setting("LabelFrameRateLimit", "ComboBoxFrameRateLimit")])]),
 
     ("PageGraphics", [
         # the particle limit went to Effects' Particles group to make room for the quality slider
@@ -725,7 +736,60 @@ def build_hotkeys_page(page, templates):
         page.children.append(button)
 
 
+def update_water_page(layout):
+    """Regenerate Water and the tab strip in an existing tabbed master."""
+    old = layout.find("OptionsMenuParentOld")
+    templates = dict((name, layout.find(name)) for name in (CHECK, LABEL, COMBO, "ButtonDefaults"))
+    templates["VideoParent"] = layout.find("PageGraphics")
+    page = make_page(templates["VideoParent"], "PageWater")
+    groups = dict(GROUP_LAYOUT)["PageWater"]
+    names = set(name for _heading, items in groups for item in items
+                for name in (item[1:3] if item[0] == "setting" else item[1:2]))
+    controls = dict((name, make_control(templates[template], name, text, 0, 0, 1, 1))
+                    for template, name, text in NEW_CONTROLS if name in names)
+    groups = dict(GROUP_LAYOUT)["PageWater"]
+    index = 0
+    for column, stack in enumerate(flow(groups)):
+        left = COLUMNS[column]
+        heading_top = HEADING_TOP
+        for heading_key, items in stack:
+            name = "GroupHeadingWater%d" % index
+            index += 1
+            heading = make_heading(templates, name, heading_key)
+            heading.place(left - TEXT_NUDGE, heading_top, COLUMN_WIDTH, ROW_HEIGHT)
+            page.children.append(heading)
+            top = heading_top + HEADING_PITCH
+            for item in items:
+                names = [(item[1], top, CHECK)] if item[0] == "check" else [
+                    (item[1], top, LABEL), (item[2], top + ROW_HEIGHT, COMBO)]
+                for name, y, template in names:
+                    control = controls.pop(name)
+                    control.place(left - TEXT_NUDGE if template == LABEL else left,
+                                  y, COLUMN_WIDTH, ROW_HEIGHT)
+                    restyle(control, templates[template])
+                    if template == LABEL:
+                        control.put_prop("STATICTEXTDATA", "CENTERED: 0")
+                    page.children.append(control)
+                top += item_height(item)
+            if top > PAGE[1] + PAGE[3]:
+                raise ValueError("Water controls extend beyond the page")
+            heading_top = top + GROUP_GAP
+    if controls:
+        raise KeyError("unplaced Water controls: %s" % ", ".join(sorted(controls)))
+    tab_names = set(tab for _page, tab, _text in TABS)
+    old.children = [child for child in old.children
+                    if short(child) not in tab_names and short(child) != "PageWater"]
+    pages = [detach(old, name) for name, _tab, _text in TABS if name != "PageWater"]
+    for index, (_page, name, text) in enumerate(TABS):
+        old.children.append(make_tab(templates["ButtonDefaults"], name, text, index))
+    for name, _tab, _text in TABS:
+        old.children.append(page if name == "PageWater" else pages.pop(0))
+    return layout
+
+
 def build(layout):
+    if layout.find("PageDisplay"):
+        return update_water_page(layout)
     old = layout.find("OptionsMenuParentOld")
     templates = dict((name, layout.find(name))
                      for name in (CHECK, LABEL, COMBO, SLIDER, "VideoParent", "ButtonDefaults",
@@ -1095,9 +1159,10 @@ def main(argv):
         return 2
 
     layout = wndlayout.load(argv[1])
-    # Keep the tracked master's LF line endings when regenerating from the shipped CRLF source.
+    # Validate before opening the output, including when the tracked master is also the input.
+    result = build(layout).text().replace("\r\n", "\n").encode("latin-1")
     with open(argv[2], "wb") as output:
-        output.write(build(layout).text().replace("\r\n", "\n").encode("latin-1"))
+        output.write(result)
     print("%s: %d windows" % (argv[2], sum(1 for _ in layout.root.walk())))
     return 0
 

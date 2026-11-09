@@ -634,9 +634,7 @@ void WaterRenderObjClass::takeReadsForRender(void)
 	m_modernReadsReady=m_useModernWater && TheGameLogic && TheTerrainLogic &&
 		TheTerrainRenderObject && TheTerrainRenderObject->getMap();
 
-#if defined(__linux__)
-	if (m_waterTrackSystem) m_waterTrackSystem->takeReadsForRender();
-#endif
+if (WaterScreenReflection::Supported() && m_waterTrackSystem) m_waterTrackSystem->takeReadsForRender();
 	if (!m_modernReadsReady) return;
 	for (const Object *object=TheGameLogic->getFirstObject();object;object=object->getNextObject()) {
 		if (object->isDestroyed()) continue;
@@ -1325,10 +1323,22 @@ bool Supported()
 #elif defined(__linux__)
     return PosixWaterGpuAvailable(DX8Wrapper::_Get_D3D_Device());
 #else
-    return ZH_MODERN_WATER;
+    return false;
 #endif
 }
 }
+// The SDL water's reflections, tiers and Water page: Linux only, the one SDL host that draws Modern water.
+namespace WaterScreenReflection {
+bool Supported()
+{
+#if ZH_MODERN_WATER && !defined(_WIN32)
+	return PosixWaterGpuAvailable(DX8Wrapper::_Get_D3D_Device());
+#else
+	return false;
+#endif
+}
+}
+
 #if ZH_MODERN_WATER
 /** The Modern style is asked for and a device draws it.  Classic graphics is the 2003 picture, so it
 		keeps EA's water whatever WaterStyle says, as it keeps the old clouds and drops the foam.  The
@@ -1674,6 +1684,7 @@ void WaterRenderObjClass::synchronizeWaterStyle(void)
 	m_modernPreparedMeshCache.Clear();
 	m_modernTerrainProofCache.Clear();
 	m_modernStaticSamples.Clear();
+	m_modernCacheSettingsValid = FALSE;
 #endif
 	m_modernObstacles.clear();
 	m_modernPatchObstacles.clear();
@@ -2078,6 +2089,7 @@ void WaterRenderObjClass::clearModernWaterOpticalTextures(void)
 	m_modernPreparedMeshCache.Clear();
 	m_modernTerrainProofCache.Clear();
 	m_modernStaticSamples.Clear();
+	m_modernCacheSettingsValid = FALSE;
 	m_modernWaveSourceReady = FALSE;
 	m_modernWaveSourcePresent = FALSE;
 #endif
@@ -4244,6 +4256,26 @@ void WaterRenderObjClass::Render(RenderInfoClass & rinfo)
 		m_modernProjectedColumns=projected.columns;m_modernProjectedRows=projected.rows;
 		m_modernProjectedWidth=targetWidth;m_modernProjectedHeight=targetHeight;
 		m_modernProjectedBudget=min(size_t(60000),available/size_t(max(1,modernFlatPatches)));
+#if defined(__linux__)
+		const auto &quality = WaterPerformanceSettings::Applied();
+		WaterRenderCaches::Settings settings;
+		settings.reflectionMode = m_waterReflectionMode;
+		settings.refraction = quality.refraction;
+		settings.reflectionDetail = quality.reflectionDetail;
+		settings.requestedFftResolution = quality.requestedFftResolution;
+		settings.activeFftResolution = quality.activeFftResolution;
+		settings.sceneReflections = quality.sceneReflections;
+		settings.width = targetWidth;
+		settings.height = targetHeight;
+		if (m_modernCacheSettingsValid && !(settings == m_modernCacheSettings)) {
+			m_modernTopologyCache.Clear();
+			m_modernPreparedMeshCache.Clear();
+			m_modernTerrainProofCache.Clear();
+			m_modernStaticSamples.Clear();
+		}
+		m_modernCacheSettings = settings;
+		m_modernCacheSettingsValid = TRUE;
+#endif
 		// Reuse hash allocations across renders, but accept values only from this render.
 		// Moving hulls, wave time, terrain and camera inputs are always evaluated afresh.
 		m_modernProjectedSamples.BeginRender();
@@ -5928,9 +5960,9 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 						value.exposure = WaterSurfaceModel::SampleOffshore(spectralSupport, m_modernHeightWidth, m_modernHeightHeight,
 							p.x / MAP_XY_FACTOR + m_modernHeightBorder, p.y / MAP_XY_FACTOR + m_modernHeightBorder, MAP_XY_FACTOR).height;
 						value.terrainDepth=0.0f;value.terrainDamping=1.0f;
-				WorldHeightMap *map=TheTerrainRenderObject?TheTerrainRenderObject->getMap():NULL;
-				if (map && map->getXExtent()>1 && map->getYExtent()>1) {
-					value.terrainDepth=WaterTerrainDepth(map,p.x,p.y,p.z);
+				if (!m_modernHeights.empty() && m_modernHeightWidth>1 && m_modernHeightHeight>1) {
+					value.terrainDepth=WaterStaticSampleCache::TerrainDepth(m_modernHeights.data(),m_modernHeightWidth,m_modernHeightHeight,
+                        m_modernHeightBorder,MAP_XY_FACTOR,MAP_HEIGHT_SCALE,p.x,p.y,p.z);
 					value.terrainDamping=WaterSurfaceModel::TerrainDamping(value.terrainDepth,value.offshore.height);
 				}
 				return value;

@@ -162,6 +162,12 @@ SpecialPowerModule::SpecialPowerModule( Thing *thing, const ModuleData *moduleDa
 }  // end SpecialPowerModule
 
 //-------------------------------------------------------------------------------------------------
+SpecialPowerModuleInterface* SpecialPowerModule::getSpecialPower()
+{
+	return SuperweaponMissileSilencedInMatch( getSpecialPowerTemplate()->getSpecialPowerType() ) ? NULL : this;
+}
+
+//-------------------------------------------------------------------------------------------------
 const AudioEventRTS& SpecialPowerModule::getInitiateSound() const
 {
 	return getSpecialPowerModuleData()->m_initiateSound;
@@ -533,6 +539,10 @@ void SpecialPowerModule::createViewObject( const Coord3D *location )
 
 	if( visionRange == 0 || visionDuration == 0 )
 		return; // We don't want a view object at all.
+
+	// A no-target power (doSpecialPower, a script's command button) has no place to reveal.
+	if( location == NULL )
+		return;
 
 	AsciiString objectName = TheGlobalData->m_specialPowerViewObjectName;
 	if( objectName.isEmpty() )

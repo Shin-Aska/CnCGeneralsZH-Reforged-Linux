@@ -69,6 +69,8 @@
 #include "GameNetwork/GameSpy/BuddyThread.h"
 #include "GameNetwork/GameSpy/ThreadUtils.h"
 #include "GameNetwork/GameSpy/MainMenuUtils.h"
+#include "GameNetwork/Online/OnlineQueues.h"
+#include "GameClient/GadgetPushButton.h"
 #include "GameNetwork/GeneralsOnline/OnlineBridge.h"
 #include "GameNetwork/WOLBrowser/WebBrowser.h"
 
@@ -251,6 +253,12 @@ static void updateNumPlayersOnline(void)
 		//Removed number of players from string, and removed the argument. The number is incorrect anyways...
 		//This was a Harvard initiated fix.
 		headingStr.format(TheGameText->fetch("MOTD:NumPlayersHeading"));
+		// -online: the server's MOTD alone, without EA's "Welcome to Generals Zero Hour Online." over it;
+		// a line of our own when the server sent none
+		AsciiString trimmedMotd = aMotd;
+		trimmedMotd.trim();
+		if (OnlineIsEnabled())
+			headingStr = trimmedMotd.isEmpty() ? TheGameText->fetch("GUI:OnlineHubWelcome") : UnicodeString::TheEmptyString;
 
 		while (headingStr.nextToken(&line, UnicodeString(u"\n")))
 		{
@@ -266,7 +274,8 @@ static void updateNumPlayersOnline(void)
 
 			GadgetListBoxAddEntryText(listboxInfo, line, GameSpyColor[GSCOLOR_MOTD_HEADING], -1, -1);
 		}
-		GadgetListBoxAddEntryText(listboxInfo, UnicodeString(u" "), GameSpyColor[GSCOLOR_MOTD_HEADING], -1, -1);
+		if (!OnlineIsEnabled())
+			GadgetListBoxAddEntryText(listboxInfo, UnicodeString(u" "), GameSpyColor[GSCOLOR_MOTD_HEADING], -1, -1);
 
 		while (aMotd.nextToken(&aLine, "\n"))
 		{
@@ -317,6 +326,7 @@ void HandleNumPlayersOnline( Int numPlayersOnline )
 //-------------------------------------------------------------------------------------------------
 static std::map<AsciiString,float> s_winStats;
 static float s_totalWinPercent = 0;
+static Bool s_onlineArmiesShown = TRUE;		///< -online: the armies' answer for this opening is drawn
 
 static const char* FindNextNumber( const char* pStart )
 {
@@ -376,7 +386,39 @@ void HandleOverallStats( const char* szHTTPStats, unsigned len )
 } //HandleOverallStats
 
 
-//called only from WOLWelcomeMenuInit to set %win stats
+/* -online: the server's games and wins per army in place of GameSpy's page, through EA's own formula.
+	 Every playable side gets a figure, 0 when the answer leaves it out, so no box keeps its raw label;
+	 an answer where nobody played leaves s_winStats empty and the panel hidden. */
+static void HandleOnlineArmyStats( const std::vector<OnlineArmyRow> &rows )
+{
+	s_winStats.clear();
+	s_totalWinPercent = 0;
+	Bool anyGames = FALSE;
+	for (int i = 0; i < ThePlayerTemplateStore->getPlayerTemplateCount(); i++)
+	{
+		const PlayerTemplate* pTemplate = ThePlayerTemplateStore->getNthPlayerTemplate(i);
+		if (!pTemplate->isPlayableSide() || pTemplate->getSide().compare("Boss") == 0)
+			continue;
+		AsciiString side = pTemplate->getSide();
+		float percent = 0;
+		for (size_t r = 0; r < rows.size(); ++r)
+		{
+			if (rows[r].side == side && rows[r].games > 0)
+			{
+				anyGames = TRUE;
+				percent = (float)rows[r].wins / (float)rows[r].games;
+			}
+		}
+		if (side == "America")
+			side = "USA";  // the window's name, as EA spelled it for GameSpy
+		s_totalWinPercent += percent;
+		s_winStats.insert(std::make_pair( side, percent ));
+	}
+	if (!anyGames)
+		s_winStats.clear();
+}
+
+//called from WOLWelcomeMenuInit, and under -online again when the armies' answer lands
 static void updateOverallStats(void)
 {
 	UnicodeString percStr;
@@ -385,6 +427,19 @@ static void updateOverallStats(void)
 
 	if( s_totalWinPercent <= 0 )
 		s_totalWinPercent = 1;  //prevent divide by zero
+
+	// No figures (no GameSpy page, an -online answer not in yet, refused or with no games): the twelve
+	// boxes would show their raw "%d%%" label, so the community panel goes instead
+	static const char *community[] = { "WOLWelcomeMenu.wnd:CommunityInfoParent", "WOLWelcomeMenu.wnd:StaticTextCommunity" };
+	for (size_t i = 0; i < sizeof(community) / sizeof(community[0]); ++i)
+	{
+		// the panel and its "Daily Army Win Percentages" heading, which stands outside it
+		GameWindow *win = TheWindowManager->winGetWindowFromId( NULL, NAMEKEY(community[i]) );
+		if (win)
+			win->winHide(s_winStats.empty());
+	}
+	if (s_winStats.empty())
+		return;
 
 	std::map<AsciiString,float>::iterator it;
 	for( it = s_winStats.begin();  it != s_winStats.end();  ++it )
@@ -528,6 +583,29 @@ void WOLWelcomeMenuInit( WindowLayout *layout, void *userData )
 		if (buttonBuddies)
 			buttonBuddies->winHide(TRUE);
 	}
+	// -online: every packet goes through our relay, so EA's firewall probe (against its dead mangler
+	// servers) has nothing to find.  Quick Match and the ladder are the service's; buddies are not.
+	else if (OnlineIsEnabled())
+	{
+		// retail's hub has no Ladder button (EA reached its web ladder elsewhere), and nothing answers
+		// Buddies here: that slot becomes Ladder
+		if (buttonBuddies)
+			GadgetButtonSetText(buttonBuddies, TheGameText->fetch("GUI:OnlineLadderButton"));		// capitals, as the hub's other buttons
+		OnlineRequestStats(TheGameSpyInfo->getLocalName());
+		// the win percentages arrive after the screen drew (WOLWelcomeMenuUpdate); until then, none
+		s_winStats.clear();
+		s_onlineArmiesShown = FALSE;
+		OnlineRequestArmies();
+		// EA's "Win percentages for each army..." tooltip covered the whole panel and popped wherever the
+		// cursor rested; each army's box keeps its own name
+		static const char *panel[] = { "WOLWelcomeMenu.wnd:CommunityInfoParent", "WOLWelcomeMenu.wnd:StaticTextCommunity" };
+		for (size_t i = 0; i < sizeof(panel) / sizeof(panel[0]); ++i)
+		{
+			GameWindow *win = TheWindowManager->winGetWindowFromId( NULL, NAMEKEY(panel[i]) );
+			if (win)
+				win->winSetTooltip( UnicodeString::TheEmptyString );
+		}
+	}
 	else
 	{
 		if (TheFirewallHelper == NULL) {
@@ -577,8 +655,9 @@ void WOLWelcomeMenuInit( WindowLayout *layout, void *userData )
 
 	UpdateLocalPlayerStats();
 
+	// -online keeps no locale and shows none, so it does not ask for one
 	GameSpyMiscPreferences cPref;
-	if (cPref.getLocale() < LOC_MIN || cPref.getLocale() > LOC_MAX)
+	if ((cPref.getLocale() < LOC_MIN || cPref.getLocale() > LOC_MAX) && !OnlineIsEnabled())
 	{
 		GameSpyOpenOverlay(GSOVERLAY_LOCALESELECT);
 	}
@@ -688,6 +767,8 @@ void WOLWelcomeMenuUpdate( WindowLayout * layout, void *userData)
 					{
 						//buttonPushed = TRUE;
 						TheGameSpyInfo->setCurrentGroupRoom(resp.joinGroupRoom.id);
+						if (OnlineIsEnabled())
+							DEBUG_LOG(("ONLINE LOBBY joined room=%d\n", resp.joinGroupRoom.id));
 						//GSMessageBoxOk( TheGameText->fetch("GUI:GSErrorTitle"), TheGameText->fetch("GUI:GSGroupRoomJoinOK") );
 
 						buttonPushed = TRUE;
@@ -714,6 +795,47 @@ void WOLWelcomeMenuUpdate( WindowLayout * layout, void *userData)
 					TheShell->pop();
 				}
 				break;
+			}
+		}
+
+		// -online scripting: once per process, the click a player would make next.  -quickmatch opens Quick
+		// Match; -onlinehost, -onlinejoin and -onlinesay go to the lobby, which carries them on.
+		// -online: our own rating, tier and record arrive after the screen drew (auth.ok, stats)
+		static UnsignedInt s_onlineInfoSerial = 0;
+		OnlinePlayerInfo card;
+		if (OnlineIsEnabled() && !buttonPushed && OnlineGetPlayerInfo(TheGameSpyInfo->getLocalName(), card)
+			&& card.serial != s_onlineInfoSerial)
+		{
+			s_onlineInfoSerial = card.serial;
+			UpdateLocalPlayerStats();
+		}
+
+		// -online: the armies' answer, once per opening of the screen
+		std::vector<OnlineArmyRow> armies;
+		if (OnlineIsEnabled() && !s_onlineArmiesShown && OnlineGetArmies(armies) == ONLINE_LADDER_READY)
+		{
+			s_onlineArmiesShown = TRUE;
+			HandleOnlineArmyStats(armies);
+			updateOverallStats();
+		}
+
+		static Bool s_onlineAutoDone = FALSE;
+		if (OnlineIsEnabled() && !s_onlineAutoDone && !buttonPushed && TheGameSpyInfo->gotGroupRoomList())
+		{
+			s_onlineAutoDone = TRUE;
+			if (TheGlobalData->m_quickMatchOnStart)
+			{
+				DEBUG_LOG(("ONLINE WELCOME to=quickmatch\n"));
+				buttonPushed = TRUE;
+				nextScreen = "Menus/WOLQuickMatchMenu.wnd";
+				TheShell->pop();
+			}
+			else if (TheGlobalData->m_onlineHostGame.isNotEmpty() || TheGlobalData->m_onlineJoinGame.isNotEmpty()
+				|| TheGlobalData->m_onlineSay.isNotEmpty())
+			{
+				DEBUG_LOG(("ONLINE WELCOME to=lobby\n"));
+				TheGameSpyInfo->joinBestGroupRoom();
+				enableControls( FALSE );
 			}
 		}
 	}
@@ -885,6 +1007,10 @@ WindowMsgHandledType WOLWelcomeMenuSystem( GameWindow *window, UnsignedInt msg,
 					TheWOL->addCommand( WOL::WOLCOMMAND_REFRESH_CHANNELS );
 					*/
 				}// else if
+				else if (controlID == buttonBuddiesID && OnlineIsEnabled())
+				{
+					TheShell->push(AsciiString("Menus/WOLLadderScreen.wnd"));
+				}
 				else if (controlID == buttonBuddiesID)
 				{
 					GameSpyToggleOverlay( GSOVERLAY_BUDDY );

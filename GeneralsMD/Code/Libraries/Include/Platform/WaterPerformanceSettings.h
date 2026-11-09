@@ -1,3 +1,4 @@
+// Distributed under the repository's GPL-3.0 terms; see LICENSE.md.
 #pragma once
 
 // Render-side Linux water preferences. Updated at the water render boundary, except

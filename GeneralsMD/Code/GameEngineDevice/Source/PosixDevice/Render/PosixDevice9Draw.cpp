@@ -104,7 +104,6 @@ void PosixWaterOpenSea(IDirect3DDevice9 *d, bool enabled)
 		static_cast<PosixDevice9 *>(d)->Water_Open_Sea(enabled);
 }
 void PosixWaterShoreTrack(IDirect3DDevice9 *d,const WaterShoreOverlay::Quad *q) {if(d) static_cast<PosixDevice9*>(d)->Shore_Track(q);}
-bool PosixWaterGpuAvailable(IDirect3DDevice9 *d) {return d && static_cast<PosixDevice9*>(d)->Get_Gpu();}
 uint64_t PosixWaterFftBegin(IDirect3DDevice9 *d) {return d ? static_cast<PosixDevice9*>(d)->Begin_Prepared_Water_Fft() : 0;}
 void PosixWaterFftEnd(IDirect3DDevice9 *d,uint64_t token) {if(d) static_cast<PosixDevice9*>(d)->End_Prepared_Water_Fft(token);}
 

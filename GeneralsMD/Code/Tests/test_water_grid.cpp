@@ -6788,3 +6788,234 @@ TEST(water_open_sea_partition_preserves_triangles_order_and_disc_guards)
 {
     WaterOpenSeaSplitTest::PartitionChecks();
 }
+
+#include "Platform/WaterRenderCaches.h"
+
+#if defined(__linux__)
+namespace {
+class WaterRenderCacheProbe : public WaterRenderObjClass {
+public:
+	void seedCaches() {
+		using namespace WaterProjectedMesh;
+		const Point corners[4]={{-95,-170},{81,-110},{120,92},{-64,170}};
+		Mesh mesh;
+		CHECK(m_modernTopologyCache.Build(corners,testWaterProjection(),{16,12},mesh));
+		m_modernPreparedMeshCache.Process(mesh,5,false,false,[](Mesh &) {});
+		m_modernStaticSamples.Get(1,2,3,[]() {
+			return WaterStaticSampleCache::Sample{{.2f,.1f,0},.4f,5,1};
+		});
+		m_modernHeights.assign(81,30);
+		CHECK(m_modernTerrainProofCache.Prewarm(m_modernHeights.data(),9,9,1,10));
+		m_modernProjectedSamples.Store(SampleKey(1,2,3),{});
+		CHECK(m_modernTopologyCache.EntryCount()>0 && m_modernPreparedMeshCache.EntryCount()>0);
+		CHECK(m_modernStaticSamples.Size()>0 && m_modernTerrainProofCache.EntryCount()>0);
+		CHECK(m_modernProjectedSamples.Size()>0);
+		m_modernShorePreparation.revision=m_modernShoreRevision;
+	}
+	void checkCleared() {
+		CHECK(m_modernTopologyCache.EntryCount()==0 && m_modernPreparedMeshCache.EntryCount()==0);
+		CHECK(m_modernStaticSamples.Size()==0 && m_modernTerrainProofCache.EntryCount()==0);
+		CHECK(m_modernProjectedSamples.Size()==0);
+	}
+	void changeStyle() { m_useModernWater=TRUE;synchronizeWaterStyle(); }
+	void changeWaterPolygons() {
+		m_modernOpticalPolygonsValid=TRUE;
+		WaterOpticalContext::Polygon polygon;
+		polygon.points={{0,0,4},{80,0,4},{80,60,4},{0,60,4}};
+		m_modernOpticalPolygons={polygon};
+		// The sync snapshot now has no polygons: an authored water area was removed.
+		m_waterPolygonsForDraw.clear();
+		refreshModernWaterOpticalPolygons();
+	}
+	void checkPreparationCleared() { CHECK(m_modernShorePreparation.revision==0); }
+};
+}
+
+#endif
+
+TEST(water_authored_splash_rings_survive_every_pass_admission)
+{
+    using namespace WaterFoamParticlePolicy;
+    for(const char *name:{"AirCarrierWaterRipples","BattleShipWaterRipples"}) {
+        // Authored splash rings remain visible with modern hull foam, in the main and mirror passes.
+        CHECK(!KnownSurfaceFoam(name,"EXShockWav.tga"));
+        for(unsigned flags=0;flags<8;++flags) {
+            const bool ground=(flags&1)!=0,owner=(flags&2)!=0,admitted=(flags&4)!=0;
+            CHECK(!Replace(name,"EXShockWav.tga",ground,owner,admitted,false));
+            CHECK(!ExcludeSelfReflection(name,"EXShockWav.tga",ground,owner,admitted));
+        }
+    }
+}
+
+TEST(water_bow_pressure_size_and_speed_parameters_are_independently_measured)
+{
+    using namespace WaterVesselWaves;
+    for(float beam:{0.0f,.1f,2.5f,6.0f,8.37f,22.0f,54.0f,100.0f}) {
+        double previous=-1;
+        for(float speed:{0.0f,.3f,.3001f,1.0f,5.0f,14.0f,26.3f,40.0f,70.0f,250.0f,500.0f}) {
+            const auto expected=pressureTestParameters(beam,speed);const auto p=BowPressure(beam,speed);
+            CHECK_NEAR(p.along,expected[0],.00001);CHECK_NEAR(p.across,expected[1],.00001);CHECK_NEAR(p.amplitude,expected[2],.000003);
+            CHECK(p.along>=9 && p.along<=32 && p.across>=4 && p.across<=60 && p.amplitude>=0 && p.amplitude<=8);
+            CHECK(p.amplitude>=previous);previous=p.amplitude;
+            if(speed<=.3f) CHECK(p.amplitude==0);
+        }
+        CHECK(BowPressure(beam,70).amplitude>BowPressure(beam,14).amplitude*3);
+        CHECK(BowPressure(beam,500).amplitude==BowPressure(beam,250).amplitude);
+        // Motion starts quadratically, with zero slope at the rest threshold.
+        const auto a=BowPressure(beam,.301f),b=BowPressure(beam,.302f);
+        CHECK(a.amplitude<.000001 && b.amplitude>3.9f*a.amplitude && b.amplitude<4.1f*a.amplitude);
+    }
+    const auto slowBow=BowPressure(8.37f,70),fastBow=BowPressure(54,70);
+    CHECK(fastBow.along>slowBow.along && fastBow.across>slowBow.across && fastBow.amplitude>slowBow.amplitude);
+    CHECK(std::abs(BowPressure(8.37f,14).amplitude-BowPressure(8.37f,70).amplitude)>2);
+}
+
+#if defined(__linux__)
+TEST(water_full_mirror_admits_only_hybrid_modern_map_water)
+{
+    boot();
+    WaterTransparencySetting *saved=(WaterTransparencySetting*)TheWaterTransparency.getNonOverloadedPointer();
+    TheWaterTransparency=newInstance(WaterTransparencySetting);
+    {
+        LiveWaterStyleProbe water;
+        const WaterRenderObjClass &query=water;
+        CHECK(!query.isModernFullMirror());
+        // Every style/type/pass/mode combination uses the real render-policy query.
+        // Original reflections and Modern sea water retain the old selective mirror.
+        for(bool modern:{false,true})
+            for(int type=0;type<WaterRenderObjClass::WATER_TYPE_MAX;++type)
+                for(bool rendering:{false,true}) {
+                    water.setMirrorState(modern,(WaterRenderObjClass::WaterType)type,rendering);
+                    for (WaterScreenReflection::Mode mode : {
+                        WaterScreenReflection::Mirror, WaterScreenReflection::ScreenSpace,
+                        WaterScreenReflection::Hybrid, WaterScreenReflection::SkyOnly}) {
+                        water.setReflectionMode(mode);
+                        CHECK_EQ(bool(query.isModernFullMirror()),
+                            modern && rendering && type==WaterRenderObjClass::WATER_TYPE_0_TRANSLUCENT
+                            && (mode==WaterScreenReflection::Hybrid));
+                    }
+                }
+        water.setReflectionMode(WaterScreenReflection::Hybrid);
+        water.setMirrorState(true,WaterRenderObjClass::WATER_TYPE_0_TRANSLUCENT,false);
+        CHECK(!query.isModernFullMirror()); // the main view never borrows the broader mirror rules
+    }
+    TheWaterTransparency=saved;
+}
+#endif
+
+TEST(water_quality_keeps_scene_depth_independent_of_colour_demand)
+{
+	using namespace WaterPerformanceSettings;
+	const auto saved = Applied();
+	Apply(false, 0, Off, 0);
+	CHECK(!Applied().sceneReflections && Applied().requestedFftResolution == 128);
+	CHECK(Applied().refraction == Off && Applied().reflectionDetail == 0);
+	CHECK(!SceneColourRequired(Off, false));
+	CHECK(SceneColourRequired(Off, true));
+	CHECK(SceneColourRequired(Simple, false) && SceneColourRequired(Full, false));
+	Apply(true, 1, Full, 1);
+	CHECK(Applied().sceneReflections && Applied().requestedFftResolution == 256);
+	Applied() = saved;
+}
+
+TEST(water_render_cache_preferences_preserve_loading_data_and_invalidate_every_setting)
+{
+	using namespace WaterProjectedMesh;
+	WaterRenderCaches::Cache<float> cache;
+	WaterRenderCaches::Settings settings;
+	const Mesh input=preparedCacheInput();
+	const Point corners[4]={{-95,-170},{81,-110},{120,92},{-64,170}};
+	const auto projection=testWaterProjection();
+	const auto knots=projectedCacheKnots(corners);
+	const auto key=SampleKey(1,2,3);
+	std::vector<uint8_t> heights(81,30);
+	// Loading may fill static caches before the first view is known.
+	uint8_t field[9]={0,40,100,70,150,220,90,190,255};
+	auto populate=[&]() {
+		Mesh mesh;
+		CHECK(cache.topology.Build(corners,projection,{32,24},mesh,60000,knots));
+		mesh=input;cache.prepared.Process(mesh,5,false,false,[](Mesh &) {});
+		cache.staticSamples.BeginRender();
+		cache.staticSamples.Get(1,2,3,[&]() { return staticCacheReference(field,1,2,3); });
+		CHECK(cache.terrain.Prewarm(heights.data(),9,9,1,10));
+		cache.samples.Store(key,7);
+	};
+	populate();
+	cache.BeginRender(settings);
+	auto retained=[&]() {
+		CHECK(cache.topology.EntryCount()==1 && cache.prepared.EntryCount()==1);
+		CHECK(cache.staticSamples.Size()==1 && cache.terrain.EntryCount()==1);
+	};
+	retained();
+	CHECK(!cache.samples.Find(key)); // animated payloads never survive a render
+	for (int change=0;change<8;++change) {
+		populate();cache.BeginRender(settings);retained();
+		auto next=settings;
+		switch (change) {
+		case 0: ++next.reflectionMode;break;
+		case 1: ++next.refraction;break;
+		case 2: --next.reflectionDetail;break;
+		case 3: next.requestedFftResolution=128;break;
+		case 4: next.activeFftResolution=128;break;
+		case 5: next.sceneReflections=false;break;
+		case 6: next.width=1920;break;
+		case 7: next.height=1080;break;
+		}
+		cache.BeginRender(next);
+		CHECK(cache.topology.EntryCount()==0 && cache.prepared.EntryCount()==0);
+		CHECK(cache.staticSamples.Size()==0 && cache.terrain.EntryCount()==0 && !cache.samples.Find(key));
+		cache.BeginRender(settings);
+	}
+	populate();cache.Clear();
+	CHECK(cache.topology.EntryCount()==0 && cache.prepared.EntryCount()==0);
+	CHECK(cache.staticSamples.Size()==0 && cache.terrain.EntryCount()==0 && !cache.samples.Find(key));
+}
+
+#if defined(__linux__)
+TEST(water_render_caches_clear_at_real_style_water_edit_map_and_device_boundaries)
+{
+	boot();
+	const Int savedStyle=TheGlobalData->m_waterStyle;
+	TheWritableGlobalData->m_waterStyle=0;
+	WaterTransparencySetting *saved=(WaterTransparencySetting*)TheWaterTransparency.getNonOverloadedPointer();
+	TheWaterTransparency=newInstance(WaterTransparencySetting);
+	{
+		WaterRenderCacheProbe water;
+		water.seedCaches();water.changeStyle();water.checkCleared();water.checkPreparationCleared();
+		water.seedCaches();water.changeWaterPolygons();water.checkCleared();water.checkPreparationCleared();
+		water.seedCaches();water.reset();water.checkCleared();water.checkPreparationCleared();
+		water.seedCaches();water.ReleaseResources();water.checkCleared();
+	}
+	TheWaterTransparency=saved;
+	TheWritableGlobalData->m_waterStyle=savedStyle;
+}
+#endif
+
+TEST(water_static_terrain_snapshot_preserves_original_render_map_interpolation)
+{
+	// Frozen WaterTerrainDepth argument order and WorldHeightMapData bounds.
+	const int width=7,height=5;
+	std::vector<uint8_t> heights(width*height);
+	for (size_t i=0;i<heights.size();++i) heights[i]=uint8_t(i*37);
+	auto original=[&](float x,float y,float level,int border,float spacing,float scale) {
+		const float mx=clamp(x/spacing+border,0.0f,float(width)-1.001f);
+		const float my=clamp(y/spacing+border,0.0f,float(height)-1.001f);
+		const int ix=int(mx),iy=int(my);const float fx=mx-ix,fy=my-iy;
+		auto getHeight=[&](int column,int row) {
+			const int index=row*width+column;
+			return index>=0 && index<int(heights.size())?heights[index]:uint8_t(0);
+		};
+		const float a=getHeight(ix,iy)*(1-fx)+getHeight(ix+1,iy)*fx;
+		const float b=getHeight(ix,iy+1)*(1-fx)+getHeight(ix+1,iy+1)*fx;
+		return level-(a*(1-fy)+b*fy)*scale;
+	};
+	for (int border:{0,1}) for (float spacing:{1.f,10.f}) for (float scale:{.625f,1.f})
+		for (float level:{-0.f,0.f,7.25f,100.f})
+			for (float x:{-100.f,0.f,.123f,3.f,49.99f,60.f,10000.f})
+				for (float y:{-100.f,0.f,.456f,2.f,29.99f,40.f,10000.f}) {
+					const float expected=original(x,y,level,border,spacing,scale);
+					const float actual=WaterStaticSampleCache::TerrainDepth(heights.data(),width,height,border,spacing,scale,x,y,level);
+					CHECK(std::memcmp(&actual,&expected,sizeof(actual))==0);
+				}
+	CHECK(WaterStaticSampleCache::TerrainDepth(nullptr,0,0,0,10,1,0,0,7)==0);
+}

@@ -766,6 +766,14 @@ protected:
 							sys->rotateLocalTransformZ(mtx->Get_Z_Rotation());
 					}
 
+					// an endless system meant to ride an object, played at a bare position, has nothing
+					// to end it and would stay all match; EA ends it with its object, so drop it here
+					if (m_attachToObject && thingToAttachTo == INVALID_ID && sys->isSystemForever())
+					{
+						sys->destroy();
+						continue;
+					}
+
 					// by ID: an object the tick destroyed after asking for this is gone now, and the
 					// system lets go of it on its first update as it did of a dying one
 					if (m_attachToObject && thingToAttachTo != INVALID_ID)
@@ -1080,6 +1088,13 @@ void FXList::doFXObjNow(const FXObjectView* primary, const FXObjectView* seconda
 			const Drawable *draw = primaryObject->getDrawable();
 			hidden = draw && draw->getStealthLook() == STEALTHLOOK_INVISIBLE;
 		}
+		// A wreck still on the screen gets its blast. The dead stay drawn a while after they pass into the
+		// fog (GameClient's grace, so a shot-down aircraft is seen to crash), and a wreck that carried on
+		// from the speed it died at often blows up out there: destroyed in the same tick, it left only
+		// its fogged cells to answer, and a helicopter lying in plain view vanished without its explosion.
+		if (hidden && primary->drawable && !primary->drawable->getFullyObscuredByShroud() &&
+				(primaryObject == NULL || primaryObject->isEffectivelyDead()))
+			hidden = FALSE;
 		if (hidden)
 			return;	//the primary object is fogged, shrouded or unseen stealth so don't bother with the effect.
 	}

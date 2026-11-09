@@ -1925,6 +1925,13 @@ TEST(water_performance_tiers_compile_both_materials_and_preserve_shared_defaults
             const bool compiled=SDL3_Compile_HLSL_To_SPIRV(source,false,spirv,error);
             if(!compiled) printf("water tier %u/%u/%u program%d: %s\n",resolution,refraction,reflections,program,error.c_str());
             CHECK(compiled);
+            if (compiled) {
+                std::string msl; unsigned samplers = 0, buffers = 0;
+                SDL3_Shader_Slots(spirv, false, samplers, buffers);
+                CHECK(SDL3_Translate_SPIRV_To_MSL(spirv, false, msl, error));
+                for (int slot : msl_indices(msl, "texture")) CHECK(slot >= 0 && unsigned(slot) < samplers);
+                for (int slot : msl_indices(msl, "sampler")) CHECK(slot >= 0 && unsigned(slot) < samplers);
+            }
             if(compiled && !reflections && refraction==WaterPerformanceSettings::Off) {
                 spvc_context context=NULL;CHECK(spvc_context_create(&context)==SPVC_SUCCESS);
                 if(context) {
@@ -2289,3 +2296,112 @@ TEST(fft_local_water_preserves_original_swell_medium_and_compiles_numerical_fixt
     }
 }
 #endif
+
+#include "Platform/HazardCloudCore.h"
+#include "../GameEngineDevice/Source/PosixDevice/Render/SdlHazardCloudSharedShader.h"
+
+TEST(direct3d11_modern_water_source_matches_the_fork_baseline)
+{
+	// FNV-1a captured independently by compiling the pre-merge 25605248 generator.
+	// The fork already carries shared optical/underwater changes beyond upstream v3.8.0.
+	const uint64_t expected[] = {11028246267753338026ull, 16298955577917943940ull};
+	unsigned index = 0;
+	for (auto program : {ENGINE_SHADER_WATER_TRAPEZOID, ENGINE_SHADER_WATER_RIVER}) {
+		PixelPipelineDescription pipeline = {}; std::string source;
+		CHECK(EngineShader_Pixel_Program(program, pipeline, source, COMBINER_SHADER_TARGET_D3D11));
+		uint64_t hash = 14695981039346656037ull;
+		for (unsigned char value : source) { hash ^= value; hash *= 1099511628211ull; }
+		CHECK(hash == expected[index++]);
+	}
+}
+
+#if defined(__linux__)
+TEST(screen_reflection_modes_are_bounded_and_selected_per_draw)
+{
+	using namespace WaterScreenReflection;
+	CHECK(Resolve(nullptr,0) == Mirror && Resolve(nullptr,1) == ScreenSpace && Resolve(nullptr,2) == Hybrid);
+	CHECK(Resolve(nullptr,-1) == Hybrid && Resolve(nullptr,99) == Hybrid);
+	for (int setting = 0; setting < 3; ++setting) CHECK(Resolve(nullptr,setting, false) == SkyOnly);
+	CHECK(UsesMirror(Mirror) && UsesMirror(Hybrid) && !UsesMirror(ScreenSpace) && !UsesMirror(SkyOnly));
+	CHECK(Traces(ScreenSpace) && Traces(Hybrid) && !Traces(Mirror) && !Traces(SkyOnly));
+	for (auto program : {ENGINE_SHADER_WATER_TRAPEZOID, ENGINE_SHADER_WATER_RIVER}) {
+		PixelPipelineDescription pipeline = {}; std::string source;
+		CHECK(EngineShader_Pixel_Program(program, pipeline, source, COMBINER_SHADER_TARGET_SDL3_GPU));
+		CHECK(source.find("waterScreenReflection(world, view, environmentNormal") != std::string::npos);
+		CHECK(source.find("MaterialParameters.w>0.5") != std::string::npos);
+		CHECK(source.find("waterMirrorFiltered(reflectionUV+distortion") != std::string::npos);
+	}
+	CHECK(MirrorSize(Mirror) == 512 && MirrorSize(Hybrid) == 1024);
+	CHECK(MirrorSize(Mirror, 0) == 256 && MirrorSize(Hybrid, 0) == 512);
+}
+#endif
+
+TEST(sdl_cloak_caster_fits_the_eight_slot_draw_contract)
+{
+	for (unsigned textured = 0; textured < 2; ++textured) {
+		CombinerDescription description = {};
+		description.StageCount = 1;
+		description.Stages[0].ColourOperation = FF_TOP_SELECTARG1;
+		description.Stages[0].AlphaOperation = FF_TOP_SELECTARG1;
+		description.Stages[0].ColourArgument1 = textured ? FF_TA_TEXTURE : FF_TA_DIFFUSE;
+		description.Stages[0].AlphaArgument1 = description.Stages[0].ColourArgument1;
+		description.Stages[0].TextureBound = textured != 0;
+		description.DrawEffect = DRAW_EFFECT_CLOAK_SHADOW;
+		std::string generated;
+		CHECK(CombinerShader_Generate(description, COMBINER_SHADER_TARGET_SDL3_GPU, generated));
+		// The cosmetic cloak's scene texture is outside SDL's eight-slot layout.
+		// Ordered caster coverage must not inherit that unused declaration.
+		CHECK(generated.find("SceneColour") == std::string::npos);
+		CHECK(generated.find("effect_cloak_shadow") != std::string::npos);
+		for (unsigned depth_only = 0; depth_only < 2; ++depth_only) {
+			std::string hlsl = generated;
+			if (depth_only) {
+				// Compile the same depth-only entry point used by Sun_Pixel_Program.
+				const std::string entry = "float4 main(Input input) : SV_Target";
+				const size_t at = hlsl.find(entry);
+				CHECK(at != std::string::npos);
+				if (at == std::string::npos) continue;
+				hlsl.replace(at, entry.size(), "float4 sunCasterPixel(Input input)");
+				hlsl += "\nvoid main(Input input) { sunCasterPixel(input); }\n";
+			}
+			std::vector<unsigned char> spirv;
+			std::string log;
+			const bool compiled = SDL3_Compile_HLSL_To_SPIRV(hlsl, false, spirv, log);
+			CHECK(compiled);
+			if (!compiled) {
+				printf("  cloak caster: %s\n", log.c_str());
+				continue;
+			}
+			unsigned samplers = 0, uniforms = 0;
+			SDL3_Shader_Slots(spirv, false, samplers, uniforms);
+			CHECK(samplers <= 8);
+			CHECK_EQ(uniforms, 1u);
+		}
+	}
+}
+
+TEST(shared_cloud_programs_compile_validate_and_translate)
+{
+	using HazardCloudShared::ShaderPass;
+	const char *validator = getenv("ZH_SPIRV_VAL");
+	std::vector<std::pair<std::string, bool>> programs = {
+		{HazardCloud::vertexShader(), true},
+		{HazardCloud::emberVertexShader(true), true},
+		{HazardCloud::emberPixelShader(true), false}
+	};
+	for (unsigned pass = 0; pass < 5; ++pass)
+		programs.push_back({HazardCloudShared::sharedPixelShader(static_cast<ShaderPass>(pass)), false});
+	for (const auto &program : programs) {
+		std::vector<unsigned char> spirv;
+		std::string log, msl;
+		const bool compiled = SDL3_Compile_HLSL_To_SPIRV(program.first, program.second, spirv, log);
+		CHECK(compiled);
+		if (!compiled) { printf("shared cloud shader: %s\n", log.c_str()); continue; }
+		if (validator && *validator) CHECK(validate(validator, spirv, log));
+		else printf("SKIPPED shared cloud spirv-val: validator unavailable\n");
+		CHECK(SDL3_Translate_SPIRV_To_MSL(spirv, program.second, msl, log));
+		unsigned samplers = 0, uniforms = 0;
+		SDL3_Shader_Slots(spirv, program.second, samplers, uniforms);
+		CHECK_EQ(uniforms, program.first == HazardCloud::vertexShader() ? 0u : 1u);
+	}
+}

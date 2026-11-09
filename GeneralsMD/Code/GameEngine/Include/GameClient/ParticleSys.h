@@ -734,7 +734,11 @@ public:
 
 	void attachToDrawable( const Drawable *draw );							///< attach this particle system to a Drawable
 	void attachToObject( const Object *obj );									///< attach this particle system to an Object
-	void attachToObjectID( ObjectID id ) { m_attachedToObjectID = id; }	///< the same, for an object that may be gone already
+	void attachToObjectID( ObjectID id ) { m_attachedToObjectID = id; if (id != INVALID_ID) m_rodeObject = TRUE; }	///< the same, for an object that may be gone already
+	/// attached to an Object at some point, still true once the object has died (-heathaze's missile
+	/// exhausts keep their haze while the trail fades).  Not saved; a load sets it again for a system
+	/// still attached to its object.
+	Bool hasRiddenObject( void ) const { return m_rodeObject; }
 
 	/** LOGIC-THREAD.md phase 2, M5.  A system made inside a tick is a shell until the end of the tick:
 		* its ID and everything copied from the template, so logic can place it, attach it, stop it and
@@ -868,6 +872,10 @@ public:
 	/// How much of this system the local player sees, for the stealth of what it is attached to.
 	Real getStealthFade( void ) const;
 
+	/// TRUE if this system (or its master) hangs off a mine: EA's flare sits on the ground and takes
+	/// no soft particle fade.
+	Bool isAttachedToMine( void ) const;
+
 	/** The GPU particle path (docs/plans/GPU-PARTICLES.md).  An eligible system hands each spawn to
 		* the manager's spawnGpuParticle, which keeps it as a spawn record the vertex shader ages in
 		* closed form; no Particle is made and nothing on the CPU touches it again.  The system keeps
@@ -908,6 +916,8 @@ protected:
 	const Coord3D *computeParticleVelocity( const Coord3D *pos );	///< compute a velocity vector based on emission properties
 	const Coord3D *computePointOnUnitSphere( void );	///< compute a random point on a unit sphere
 
+	const Drawable *findAttachedDrawable( void ) const;	///< what getStealthFade and isAttachedToMine read
+
 protected:
 	/// refresh (or release) the one decal that shades the ground under this system's particles
 	void updateGroundShadow( const ParticleShadowBlob *blob );
@@ -937,6 +947,7 @@ protected:
 
 	DrawableID				m_attachedToDrawableID;					///< if non-zero, system is parented to this Drawable
 	ObjectID					m_attachedToObjectID;						///< if non-zero, system is parented to this Object
+	Bool							m_rodeObject;										///< hasRiddenObject
 	DrawableID				m_attachedObjectDrawableForDraw;	///< that Object's drawable at the last update, for getStealthFade inside the overlap window
 
 	Matrix3D					m_localTransform;								///< local orientation & position of system

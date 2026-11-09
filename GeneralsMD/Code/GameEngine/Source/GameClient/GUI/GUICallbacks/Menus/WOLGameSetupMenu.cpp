@@ -55,6 +55,7 @@
 #include "GameClient/GadgetPushButton.h"
 #include "GameClient/GadgetStaticText.h"
 #include "GameClient/GadgetCheckBox.h"
+#include "GameClient/GadgetRadioButton.h"
 #include "GameClient/MapUtil.h"
 #include "GameClient/EstablishConnectionsMenu.h"
 #include "GameClient/GameWindowTransitions.h"
@@ -63,9 +64,12 @@
 #include "GameNetwork/GameSpy/BuddyDefs.h"
 #include "GameNetwork/GameSpy/PeerDefs.h"
 #include "GameNetwork/GameSpy/PeerThread.h"
+#include "GameNetwork/GameSpy/ThreadUtils.h"
 #include "GameNetwork/GameSpy/PersistentStorageDefs.h"
 #include "GameNetwork/GameSpy/PersistentStorageThread.h"
 #include "GameNetwork/GameSpyOverlay.h"
+#include "GameNetwork/Online/OnlineQueues.h"
+#include "Lib/WideCharFns.h"
 #include "GameNetwork/NAT.h"
 #include "GameNetwork/GUIUtil.h"
 #include "GameNetwork/GameSpy/GSConfig.h"
@@ -495,11 +499,17 @@ static void playerTooltip(GameWindow *window,
 		}
 	}
 
-	playerInfo.format(TheGameText->fetch("TOOLTIP:StagingPlayerInfo"),
-		TheGameText->fetch(localeIdentifier).str(),
-		slot->getPingAsInt(),
-		totalWins, totalLosses, totalDiscons,
-		favoriteSide.str());
+	if (OnlineIsEnabled())		// no locale on this service: EA's "Region: Unknown" goes
+		playerInfo.format(TheGameText->fetch("TOOLTIP:OnlineStagingPlayerInfo"),
+			slot->getPingAsInt(),
+			totalWins, totalLosses, totalDiscons,
+			favoriteSide.str());
+	else
+		playerInfo.format(TheGameText->fetch("TOOLTIP:StagingPlayerInfo"),
+			TheGameText->fetch(localeIdentifier).str(),
+			slot->getPingAsInt(),
+			totalWins, totalLosses, totalDiscons,
+			favoriteSide.str());
 
 	UnicodeString tooltip = UnicodeString::TheEmptyString;
 	if (isLocalPlayer)
@@ -1625,6 +1635,141 @@ static Bool initDone = false;
 UnsignedInt lastSlotlistTime = 0;
 UnsignedInt enterTime = 0;
 Bool initialAcceptEnable = FALSE;
+
+/// -onlinemap: the map the -onlinehost host opens its room on, a cache path or a folder name under Maps
+static AsciiString onlineScriptMap( const AsciiString &otherwise )
+{
+	if (!OnlineIsEnabled() || TheGlobalData->m_onlineMap.isEmpty() || TheGlobalData->m_onlineHostGame.isEmpty())
+		return otherwise;
+	AsciiString name = TheGlobalData->m_onlineMap;
+	if (!TheMapCache->findMap( name ))
+		name.format( "maps\\%s\\%s.map", TheGlobalData->m_onlineMap.str(), TheGlobalData->m_onlineMap.str() );
+	if (!TheMapCache->findMap( name ))
+	{
+		DEBUG_LOG(("ONLINE MAP missing name=%s\n", TheGlobalData->m_onlineMap.str()));
+		return otherwise;
+	}
+	DEBUG_LOG(("ONLINE MAP name=%s\n", name.str()));
+	return name;
+}
+
+/* -online scripting in the staging room: -onlinesay says its line once; a -onlinejoin joiner accepts
+	 whenever the Accept button is live and it has not; the -onlinehost host with -onlinestart N presses
+	 Start once N players sit in the room and every one of them has accepted. */
+static void onlineStagingScript( void )
+{
+	if (!OnlineIsEnabled() || !parentWOLGameSetup)
+		return;
+	GameSpyStagingRoom *game = TheGameSpyInfo->getCurrentStagingRoom();
+	if (!game || !game->isInGame() || game->isGameInProgress())
+		return;
+
+	// said once a second player is seated, so somebody reads it
+	static Bool s_said = FALSE;
+	Int seated = 0;
+	for (Int i = 0; i < MAX_SLOTS; ++i)
+		if (game->getSlot( i ) && game->getSlot( i )->isHuman())
+			++seated;
+	if (!s_said && seated >= 2 && TheGlobalData->m_onlineSay.isNotEmpty())
+	{
+		s_said = TRUE;
+		UnicodeString line( MultiByteToWideCharSingleLine( TheGlobalData->m_onlineSay.str() ).c_str() );
+		PeerRequest req;
+		req.peerRequestType = PeerRequest::PEERREQUEST_MESSAGEROOM;
+		req.text = line.str();
+		req.message.isAction = FALSE;
+		TheGameSpyPeerMessageQueue->addRequest( req );
+		DEBUG_LOG(("ONLINE SAY where=staging text=%s\n", TheGlobalData->m_onlineSay.str()));
+	}
+
+	if (!TheGameSpyInfo->amIHost())
+	{
+		const Int local = game->getLocalSlotNum();
+		GameSlot *slot = local >= 0 ? game->getSlot( local ) : NULL;
+		if (TheGlobalData->m_onlineJoinGame.isNotEmpty() && slot && !slot->isAccepted()
+			&& buttonStart && buttonStart->winGetEnabled())
+		{
+			DEBUG_LOG(("ONLINE ACCEPT slot=%d\n", local));
+			TheWindowManager->winSendSystemMsg( parentWOLGameSetup, GBM_SELECTED, (WindowMsgData)buttonStart, buttonStartID );
+		}
+		return;
+	}
+
+	/* -onlineoptions prorules,turbo,unitlimit,randommap: once a second seat is taken the host flips each named
+		 check box and picks a random map through the room's own controls, as clicks would, logging whether each
+		 control was live; Start waits until that is done.  A stats room left them all dead for the host. */
+	static Int s_optionStep = 0;
+	const char *wanted = TheGlobalData->m_onlineOptions.str();
+	if (TheGlobalData->m_onlineOptions.isNotEmpty() && s_optionStep >= 0)
+	{
+		if (seated < 2)
+			return;
+		if (s_optionStep == 0)
+		{
+			const struct { const char *name; GameWindow *box; } boxes[] = {
+				{ "prorules", checkBoxProRules }, { "turbo", checkBoxTurbo }, { "unitlimit", checkBoxUnitLimit } };
+			for (Int i = 0; i < (Int)ARRAY_SIZE(boxes); ++i)
+			{
+				GameWindow *box = boxes[i].box;
+				if (!strstr( wanted, boxes[i].name ) || !box)
+					continue;
+				const Bool live = box->winGetEnabled() && !box->winIsHidden();
+				if (live)
+				{
+					GadgetCheckBoxSetChecked( box, !GadgetCheckBoxIsChecked( box ) );
+					TheWindowManager->winSendSystemMsg( parentWOLGameSetup, GBM_SELECTED, (WindowMsgData)box, box->winGetWindowId() );
+				}
+				DEBUG_LOG(("ONLINE OPTION %s live=%d on=%d\n", boxes[i].name, (Int)live, (Int)GadgetCheckBoxIsChecked( box )));
+			}
+			s_optionStep = strstr( wanted, "randommap" ) ? 1 : -1;
+			return;
+		}
+		if (s_optionStep == 1)
+		{
+			const Bool live = buttonSelectMap && buttonSelectMap->winGetEnabled() && !buttonSelectMap->winIsHidden();
+			s_optionStep = live ? 2 : -1;
+			if (live)
+				TheWindowManager->winSendSystemMsg( parentWOLGameSetup, GBM_SELECTED, (WindowMsgData)buttonSelectMap, buttonSelectMapID );
+			else
+				DEBUG_LOG(("ONLINE OPTION randommap live=0 (Select Map)\n"));
+			return;
+		}
+		GameWindow *tab = TheWindowManager->winGetWindowFromId( NULL, NAMEKEY( "WOLMapSelectMenu.wnd:RadioButtonRandomMaps" ) );
+		GameWindow *ok = TheWindowManager->winGetWindowFromId( NULL, NAMEKEY( "WOLMapSelectMenu.wnd:ButtonOK" ) );
+		if (!tab || !ok)
+			return;		// the map list is still opening
+		const Bool live = tab->winGetEnabled() && !tab->winIsHidden();
+		if (live)
+		{
+			GadgetRadioSetSelection( tab, FALSE );
+			TheWindowManager->winSendSystemMsg( tab->winGetOwner(), GBM_SELECTED, (WindowMsgData)tab, tab->winGetWindowId() );
+			TheWindowManager->winSendSystemMsg( ok->winGetOwner(), GBM_SELECTED, (WindowMsgData)ok, ok->winGetWindowId() );
+		}
+		DEBUG_LOG(("ONLINE OPTION randommap live=%d map=%s\n", (Int)live, game->getMap().str()));
+		s_optionStep = -1;
+		return;
+	}
+
+	static Bool s_started = FALSE;
+	if (s_started || TheGlobalData->m_onlineStart < 2 || TheGlobalData->m_onlineHostGame.isEmpty())
+		return;
+	Int humans = 0;
+	for (Int i = 0; i < MAX_SLOTS; ++i)
+	{
+		GameSlot *slot = game->getSlot( i );
+		if (!slot || !slot->isHuman())
+			continue;
+		if (!slot->isAccepted())
+			return;
+		++humans;
+	}
+	if (humans < TheGlobalData->m_onlineStart)
+		return;
+	s_started = TRUE;
+	DEBUG_LOG(("ONLINE START players=%d\n", humans));
+	StartPressed();
+}
+
 //-------------------------------------------------------------------------------------------------
 /** Initialize the Lan Game Options Menu */
 //-------------------------------------------------------------------------------------------------
@@ -1693,7 +1838,8 @@ void WOLGameSetupMenuInit( WindowLayout *layout, void *userData )
 		hostSlot->setPlayerTemplate( customPref.getPreferredFaction() );
 		hostSlot->setNATBehavior((FirewallHelperClass::FirewallBehaviorType)natPref.getFirewallBehavior());
 		hostSlot->setPingString(TheGameSpyInfo->getPingString());
-		game->setMap(customPref.getPreferredMap());
+		const AsciiString hostMap = onlineScriptMap( customPref.getPreferredMap() );
+		game->setMap(hostMap);
 
 		// Recorded stats games can never limit superweapons, limit armies, or have inflated starting cash.
 		// This should probably be enforced at the gamespy level as well, to prevent expoits.
@@ -1729,7 +1875,7 @@ void WOLGameSetupMenuInit( WindowLayout *layout, void *userData )
 			slot->setState( SLOT_OPEN );
 		}
 
-		AsciiString lowerMap = customPref.getPreferredMap();
+		AsciiString lowerMap = hostMap;
 		lowerMap.toLower();
 		std::map<AsciiString, MapMetaData>::iterator it = TheMapCache->find(lowerMap);
 		if (it != TheMapCache->end())
@@ -1926,7 +2072,8 @@ void WOLGameSetupMenuUpdate( WindowLayout * layout, void *userData)
 	}
 
 	GameSpyStagingRoom *room = TheGameSpyInfo->getCurrentStagingRoom();
-	if (room && !room->isGameInProgress())
+	// the shutdown clears the gadgets before its exit animation plays, and this runs through that animation
+	if (parentWOLGameSetup && room && !room->isGameInProgress())
 		fitRandomMapToRoom(room);
 
 	if (TheShell->isAnimFinished() && !buttonPushed && TheGameSpyPeerMessageQueue)
@@ -2027,6 +2174,8 @@ void WOLGameSetupMenuUpdate( WindowLayout * layout, void *userData)
 				return;
 			}
 		}
+
+		onlineStagingScript();
 
 		PeerResponse resp;
 
@@ -2253,6 +2402,8 @@ void WOLGameSetupMenuUpdate( WindowLayout * layout, void *userData)
 
 			case PeerResponse::PEERRESPONSE_MESSAGE:
 				{
+					if (OnlineIsEnabled())
+						DEBUG_LOG(("ONLINE CHAT where=staging from=%s text=%s\n", resp.nick.c_str(), WideCharAsUtf8( resp.text.c_str() ).str()));
 					TheGameSpyInfo->addChat(resp.nick.c_str(), resp.message.profileID,
 						UnicodeString(resp.text.c_str()), !resp.message.isPrivate, resp.message.isAction, listboxGameSetupChat);
 				}

@@ -10,8 +10,13 @@ desync and show the check is looking.
     python net_check.py --copies 3 --teams 2
     python net_check.py --each "-latAvg 120 -latNoise 60 -packetloss 5"
     python net_check.py --slot-args 1 "-drawdelay 100"    # one slow renderer
+    python net_check.py --slot-run 1 C:/other/Run         # copy 1 plays from another install
     python net_check.py --prove                           # must report a mismatch
     python net_check.py --each "-scenario netstance" --keys "KEY_A CTRL,KEY_H"   # the stance key, both ways
+    python net_check.py --relay 8094 --each "-latAvg 90 -latNoise 30"           # through a local relay
+
+--relay starts `node relay/relay.js` on that UDP port, gives the copies 10.0.0.x slot addresses and
+-relay 127.0.0.1:port, and prints the relay's join and stats lines (one a minute) at the end.
 
 It prints one line per copy and exits 1 when any log holds "CRC Mismatch" (0 with --prove means the
 detector did not fire, which is the failure then). docs: the multiplayer reference in the wrapper.
@@ -56,23 +61,35 @@ def parse_arguments() -> argparse.Namespace:
                         help="extra switches for one copy, repeatable")
     parser.add_argument("--slot-options", nargs=2, action="append", default=[], metavar=("SLOT", "FOLDER"),
                         help="one copy's ZH_USER_DATA_DIR, for a match between two setups, repeatable")
+    parser.add_argument("--slot-run", nargs=2, action="append", default=[], metavar=("SLOT", "FOLDER"),
+                        help="one copy's game folder (its exe, archives and log), for a match between two installs, repeatable")
     parser.add_argument("--tag", default="net", help="log prefix; copy n logs to Run/<tag><n>_DebugLogFile.txt")
     parser.add_argument("--prove", action="store_true", help="spawn on copy 0 alone at frame %d" % PROVE_FRAME)
     parser.add_argument("--prove-at", default="2192 3537", help="map position for --prove")
     parser.add_argument("--keys", default=",".join(PRESSES),
                         help="the presses, comma separated, each as the control socket's key command takes it")
+    parser.add_argument("--relay", type=int, default=0, metavar="PORT",
+                        help="play through a local relay.js on this UDP port instead of loopback")
     return parser.parse_args()
 
 
+def run_directory(arguments: argparse.Namespace, slot: int) -> str:
+    folders = {int(target): folder for target, folder in arguments.slot_run}
+    return os.path.abspath(folders[slot]) if slot in folders else RUN_DIRECTORY
+
+
 def command_line(arguments: argparse.Namespace, slot: int) -> list:
-    hosts = ",".join("127.0.0.%d" % (index + 1) for index in range(arguments.copies))
-    line = [os.path.join(RUN_DIRECTORY, EXE_NAME), "-multiInstance", "-quickstart", "-win",
+    network = "10.0.0.%d" if arguments.relay else "127.0.0.%d"
+    hosts = ",".join(network % (index + 1) for index in range(arguments.copies))
+    line = [os.path.join(run_directory(arguments, slot), EXE_NAME), "-multiInstance", "-quickstart", "-win",
             "-xres", "800", "-yres", "600", "-msaa", "0", "-noFPSLimit",
             "-netgame", hosts, "-netslot", str(slot), "-control", str(FIRST_CONTROL_PORT + slot),
             "-map", arguments.map, "-seed", str(arguments.seed),
             "-logPrefix", "%s%d_" % (arguments.tag, slot)]
     if arguments.teams:
         line += ["-teams", str(arguments.teams)]
+    if arguments.relay:
+        line += ["-relay", "127.0.0.1:%d" % arguments.relay]
     line += shlex.split(arguments.each, posix=False)
     for target, switches in arguments.slot_args:
         if int(target) == slot:
@@ -150,7 +167,20 @@ def main() -> int:
         raise SystemExit("--copies is 2 to %d, got %d" % (MAXIMUM_COPIES, arguments.copies))
 
     folders = {int(slot): folder for slot, folder in arguments.slot_options}
-    processes = [subprocess.Popen(command_line(arguments, slot), cwd=RUN_DIRECTORY,
+    relay = None
+    relay_log = os.path.join(RUN_DIRECTORY, "%s_relay.txt" % arguments.tag)
+    if arguments.relay:
+        # Two uncapped copies starve a normal-priority relay on the same machine: node went 10 to 69 s
+        # without running, the handshake timed out and the copies played without it.
+        with open(relay_log, "w") as output:
+            relay = subprocess.Popen(["node", os.path.join(os.path.dirname(os.path.abspath(__file__)), "relay", "relay.js")],
+                                     stdout=output, stderr=subprocess.STDOUT,
+                                     env=dict(os.environ, RELAY_PORT=str(arguments.relay)),
+                                     creationflags=getattr(subprocess, "ABOVE_NORMAL_PRIORITY_CLASS", 0))
+        time.sleep(1.0)
+        if relay.poll() is not None:
+            raise SystemExit("relay.js exited at once: " + open(relay_log).read())
+    processes = [subprocess.Popen(command_line(arguments, slot), cwd=run_directory(arguments, slot),
                                   env=dict(os.environ, ZH_USER_DATA_DIR=folders[slot]) if slot in folders else None)
                  for slot in range(arguments.copies)]
     games = []
@@ -175,11 +205,19 @@ def main() -> int:
         for process in processes:
             if process.poll() is None:
                 process.kill()
+        if relay is not None:
+            relay.kill()
+            relay.wait()
+
+    if relay is not None:
+        with open(relay_log, "r", errors="replace") as log:
+            for line in log:
+                print("RELAY " + line.rstrip())
 
     total = 0
     reads = 0
     for slot, (first, last, seconds) in enumerate(results):
-        log_path = os.path.join(RUN_DIRECTORY, "%s%d_DebugLogFile.txt" % (arguments.tag, slot))
+        log_path = os.path.join(run_directory(arguments, slot), "%s%d_DebugLogFile.txt" % (arguments.tag, slot))
         mismatches = count_mismatches(log_path)
         total += max(mismatches, 0)
         print("NET CHECK slot %d: frame %d, %.1f logic fps, %s mismatches, %s"

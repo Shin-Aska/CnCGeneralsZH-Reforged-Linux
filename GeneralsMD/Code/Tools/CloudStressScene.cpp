@@ -1,4 +1,4 @@
-// Real terrain, engine cameras and harmless units around an isolated cloud renderer.
+// Real terrain, engine cameras and harmless units around an isolated cloud renderer->
 #include "PreRTS.h"
 #include "CloudStressScene.h"
 #include "CloudStressRenderer.h"
@@ -47,7 +47,7 @@ namespace CloudStressScene {
 namespace {
 Settings settings;
 CloudStress::Model model;
-CloudStress::Renderer renderer;
+std::unique_ptr<CloudStress::Renderer> renderer;
 std::vector<std::unique_ptr<HazardCloud::Layer>> references;
 std::vector<RenderObjClass *> scenery;
 struct Walker { ObjectID id = INVALID_ID; Coord3D endpoints[2], previous; unsigned destination = 0; float health = 0; };
@@ -98,7 +98,7 @@ unsigned activeCount()
 
 void report()
 {
-    const auto &stats = renderer.stats();
+    const auto &stats = renderer->stats();
     const double elapsed = double(SDL_GetTicks() - startTicks) / 1000.0;
     unsigned palettes[4] = {};
     for (const auto &source : model.sources()) ++palettes[unsigned(source.field.palette)];
@@ -180,17 +180,17 @@ public:
             }
         } else {
             std::string error;
-            if (!renderer.render(camera, model, seconds, error)) { fail(error); return; }
-            if (renderer.stats().sources != settings.sources.count) {
+            if (!renderer->render(camera, model, seconds, error)) { fail(error); return; }
+            if (renderer->stats().sources != settings.sources.count) {
                 fail("renderer omitted a retained source"); return;
             }
-            if (renderer.stats().activeSources != activeCount()) {
+            if (renderer->stats().activeSources != activeCount()) {
                 fail("renderer active submissions differ from active source count"); return;
             }
         }
         ++renderedFrames;
         peakActive = std::max(peakActive, activeCount());
-        peakSubmitted = std::max(peakSubmitted, settings.reference ? activeCount() : renderer.stats().activeSources);
+        peakSubmitted = std::max(peakSubmitted, settings.reference ? activeCount() : renderer->stats().activeSources);
         const unsigned logicFrame = TheGameLogic->getFrame();
         if (logicFrame - lastReport >= LOGICFRAMES_PER_SECOND) { lastReport = logicFrame; report(); }
     }
@@ -292,6 +292,8 @@ bool initialize(const Settings &requested)
     renderedFrames = peakActive = peakSubmitted = 0; cameraReported = false; seconds = 0; startTicks = SDL_GetTicks();
     auto *device = dynamic_cast<PosixDevice9 *>(DX8Wrapper::_Get_D3D_Device());
     if (!device || !device->Get_Gpu()) { fail("SDL GPU device unavailable"); return false; }
+    renderer = CloudStress::CreateRenderer();
+    if (!renderer) { fail("shared renderer unavailable"); return false; }
     if (settings.reference) {
         for (unsigned i = 0; i < settings.sources.count; ++i) {
             auto layer = HazardCloud::CreateLayer();
@@ -307,14 +309,14 @@ bool initialize(const Settings &requested)
         std::string error;
         CloudStress::RendererConfig config; config.volumeSide = settings.volumeSide; config.slices = settings.slices;
         config.incrementalBaking = settings.incrementalBaking; config.bakeSlicesPerFrame = settings.bakeSlicesPerFrame;
-        if (!renderer.initialize(device->Get_Gpu(), config, error)) { fail(error); return false; }
+        if (!renderer->initialize(device->Get_Gpu(), config, error)) { fail(error); return false; }
         constexpr unsigned side = 129;
         std::vector<float> heights(side * side);
         for (unsigned y = 0; y < side; ++y) for (unsigned x = 0; x < side; ++x)
             heights[y * side + x] = TheTerrainLogic->getGroundHeight(
                 bounds.minX + (bounds.maxX - bounds.minX) * x / (side - 1),
                 bounds.minY + (bounds.maxY - bounds.minY) * y / (side - 1));
-        renderer.setTerrain(heights.data(), side);
+        renderer->setTerrain(heights.data(), side);
     }
     model.launch(0);
     renderObject = new StressRenderObject;
@@ -360,7 +362,7 @@ void update()
         }
     }
     const unsigned bodyCount = settings.freezeTime >= 0 ? 0 : unsigned(bodies.size());
-    renderer.setBodies(bodies.data(), bodyCount);
+    renderer->setBodies(bodies.data(), bodyCount);
     for (auto &layer : references) layer->setBodies(bodies.data(), bodyCount);
     if (settings.replayFrame && frame - startFrame == settings.replayFrame) replay();
     if (settings.paletteFrame && frame - startFrame == settings.paletteFrame) setPalette(settings.nextPalette);
@@ -372,9 +374,9 @@ void update()
 void replay()
 {
     if (!initialized || failed) return;
-    const unsigned cancelled = renderer.stats().pendingSlices, previousBaked = renderer.stats().bakedSources;
+    const unsigned cancelled = renderer->stats().pendingSlices, previousBaked = renderer->stats().bakedSources;
     model.launch(seconds);
-    renderer.reset();
+    renderer->reset();
     for (auto &layer : references) layer->reset();
     std::fprintf(stderr, "cloud-stress: replay seconds=%.3f retained=%zu cancelled-slices=%u previous-baked=%u\n",
         seconds, model.sources().size(), cancelled, previousBaked);
@@ -406,7 +408,8 @@ void shutdown()
 {
     if (renderObject) { renderObject->Remove(); renderObject->Release_Ref(); renderObject = nullptr; }
     for (auto &layer : references) layer->shutdown(); references.clear();
-    renderer.shutdown();
+    if (renderer) renderer->shutdown();
+    renderer.reset();
     for (auto *object : scenery) { object->Remove(); object->Release_Ref(); } scenery.clear();
     if (TheGameLogic) for (auto &walker : walkers) {
         if (walker.id != INVALID_ID) if (Object *object = TheGameLogic->findObjectByID(walker.id)) TheGameLogic->destroyObject(object);

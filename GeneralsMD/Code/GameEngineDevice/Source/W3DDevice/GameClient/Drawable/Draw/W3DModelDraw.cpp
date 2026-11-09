@@ -1396,6 +1396,9 @@ void W3DModelDraw::showSubObject( const AsciiString& name, Bool show )
 			info.hide = !show;
 			m_subObjectVec.push_back( info );
 		}
+		// a caller that never calls updateSubObjects (a payload carrier's shown parts) had the next
+		// projectile apply put this order on the model, and still does
+		forgetProjectileShown();
 	}
 }
 
@@ -1797,6 +1800,7 @@ W3DModelDraw::W3DModelDraw(Thing *thing, const ModuleData* moduleData) : DrawMod
 	m_headlightPass = 0;
 	m_pauseAnimation = false;
 	m_curState = NULL;
+	forgetProjectileShown();
 	m_hexColor = 0;
 	m_renderObject = NULL;
 	m_shadow = NULL;
@@ -1964,18 +1968,19 @@ void W3DModelDraw::releaseShadows(void)	///< frees all shadow resources used by 
 }
 
 /** Does this model contain any skinned (bone-deformed) geometry?  Infantry and other animated
-characters do; vehicles and structures are built from rigid sub-meshes.  Only LOD 0 is checked - that
-is the LOD the shadow system fetches its live meshes from. */
+characters do; vehicles and structures are built from rigid sub-meshes.  Only the top LOD, the full
+model, is checked - that is the LOD the shadow system fetches its live meshes from. */
 static Bool hasSkinnedGeometry(RenderObjClass *robj)
 {
 	if (robj == NULL || robj->Class_ID() != RenderObjClass::CLASSID_HLOD)
 		return FALSE;
 
 	HLodClass *hlod=(HLodClass *)robj;
+	const Int top = hlod->Get_LOD_Count()-1;
 
-	for (Int i=0; i<hlod->Get_Lod_Model_Count(0); i++)
+	for (Int i=0; i<hlod->Get_Lod_Model_Count(top); i++)
 	{
-		RenderObjClass *lodModel=hlod->Peek_Lod_Model(0,i);
+		RenderObjClass *lodModel=hlod->Peek_Lod_Model(top,i);
 
 		if (lodModel && lodModel->Class_ID() == RenderObjClass::CLASSID_MESH &&
 				((MeshClass *)lodModel)->Peek_Model()->Get_Flag(MeshGeometryClass::SKIN))
@@ -2502,9 +2507,21 @@ void W3DModelDraw::doDrawModule(const Matrix3D* transformMtx)
 			for (size_t i = 0; i < m_curState->m_conditionsYesVec.size(); ++i)
 				airLoco = airLoco || m_curState->m_conditionsYesVec[i].test(MODELCONDITION_JETEXHAUST);
 			const Coord3D* pos = getDrawable()->getPositionForDraw();
-			gear->Set_Hidden(airLoco &&
-				pos->z - TheTerrainRenderObject->getHeightMapHeight(pos->x, pos->y, NULL) > modData->m_landingGearUpHeight);
+			const Bool up = airLoco &&
+				pos->z - TheTerrainRenderObject->getHeightMapHeight(pos->x, pos->y, NULL) > modData->m_landingGearUpHeight;
+			gear->Set_Hidden(up);
 			gear->Release_Ref();
+			// every level's gear on a model with levels of detail, as hideShowSubObject does
+			if (m_renderObject->Class_ID() == RenderObjClass::CLASSID_HLOD && ((HLodClass *)m_renderObject)->Get_LOD_Count() > 1)
+			{
+				for (Int i = 0; i < m_renderObject->Get_Num_Sub_Objects(); ++i)
+				{
+					RenderObjClass* part = m_renderObject->Get_Sub_Object(i);
+					if (HLodClass::Is_Part_Or_LOD_Copy(part->Get_Name(), modData->m_landingGearSubObject.str()))
+						part->Set_Hidden(up);
+					part->Release_Ref();
+				}
+			}
 		}
 	}
 
@@ -2854,10 +2871,66 @@ static void doHideShowBoneSubObjs(Bool state, Int numSubObjects, Int boneIdx, Re
 }
 
 //-------------------------------------------------------------------------------------------------
+/** Hide or show the sub-object a ShowSubObject or HideSubObject line names, with everything on the
+	bones below its own.  The part is the first sub-object of that name, as Get_Sub_Object_By_Name finds
+	it, and on a model of one level, every retail one, that is all.  A model with levels of detail
+	carries the part once a level, and the first copy is the coarsest level's, so every copy takes the
+	order there, or an upgrade's pods would come and go as the camera zooms.  FALSE when nothing has
+	the name. */
+static Bool hideShowSubObject(RenderObjClass *fullObject, const char *name, Bool hide)
+{
+	Int objIndex;
+	RenderObjClass *subObj = fullObject->Get_Sub_Object_By_Name(name, &objIndex);
+	if (subObj == NULL)
+		return FALSE;
+	subObj->Release_Ref();
+
+	const Bool everyLevel = fullObject->Class_ID() == RenderObjClass::CLASSID_HLOD
+		&& ((HLodClass *)fullObject)->Get_LOD_Count() > 1;
+	const Int numSubObjects = fullObject->Get_Num_Sub_Objects();
+	const HTreeClass *htree = fullObject->Get_HTree();
+	for (Int i = everyLevel ? 0 : objIndex; i < (everyLevel ? numSubObjects : objIndex + 1); ++i)
+	{
+		subObj = fullObject->Get_Sub_Object(i);
+		if (i == objIndex || HLodClass::Is_Part_Or_LOD_Copy(subObj->Get_Name(), name))
+		{
+			subObj->Set_Hidden(hide);
+			//get the bone of this subobject so we can hide all other child objects that use this bone
+			//as a parent.
+			if (htree)
+				doHideShowBoneSubObjs(hide, numSubObjects, fullObject->Get_Sub_Object_Bone_Index(0, i), fullObject, htree);
+		}
+		subObj->Release_Ref();
+	}
+	return TRUE;
+}
+
+//-------------------------------------------------------------------------------------------------
 void ModelConditionInfo::WeaponBarrelInfo::setMuzzleFlashHidden(RenderObjClass *fullObject, Bool hide) const
 {
 	if (fullObject)
 	{
+		/* A model with levels of detail can carry the flash at more than one of them, and the first
+			 part on the bone overall is the coarsest level's: the top one's would keep the state it loaded
+			 with.  So the first part on the bone in each level, which for a model of one level, every
+			 retail one, is the same part as below. */
+		if (fullObject->Class_ID() == RenderObjClass::CLASSID_HLOD && ((HLodClass *)fullObject)->Get_LOD_Count() > 1)
+		{
+			HLodClass *hlod = (HLodClass *)fullObject;
+			for (Int lod = 0; lod < hlod->Get_LOD_Count(); ++lod)
+			{
+				for (Int i = 0; i < hlod->Get_Lod_Model_Count(lod); ++i)
+				{
+					if (hlod->Get_Lod_Model_Bone(lod, i) == m_muzzleFlashBone)
+					{
+						hlod->Peek_Lod_Model(lod, i)->Set_Hidden(hide);
+						break;
+					}
+				}
+			}
+			return;
+		}
+
 		RenderObjClass* childObject = fullObject->Get_Sub_Object_On_Bone(0, m_muzzleFlashBone);
 		if (childObject)
 		{
@@ -2874,6 +2947,21 @@ void ModelConditionInfo::WeaponBarrelInfo::setMuzzleFlashHidden(RenderObjClass *
 //-------------------------------------------------------------------------------------------------
 void W3DModelDraw::doHideShowSubObjs(const std::vector<ModelConditionInfo::HideShowSubObjInfo>* vec)
 {
+	// a state's own hide/show can take in the projectile parts, so they are shown again after it
+	forgetProjectileShown();
+	applyHideShowSubObjs(vec);
+}
+
+//-------------------------------------------------------------------------------------------------
+void W3DModelDraw::forgetProjectileShown()
+{
+	for (Int slot = 0; slot < WEAPONSLOT_COUNT; ++slot)
+		m_projectileShown[slot].state = NULL;
+}
+
+//-------------------------------------------------------------------------------------------------
+void W3DModelDraw::applyHideShowSubObjs(const std::vector<ModelConditionInfo::HideShowSubObjInfo>* vec)
+{
 	if (!m_renderObject)
 		return;
 
@@ -2881,36 +2969,19 @@ void W3DModelDraw::doHideShowSubObjs(const std::vector<ModelConditionInfo::HideS
 	{
 		for (std::vector<ModelConditionInfo::HideShowSubObjInfo>::const_iterator it = vec->begin(); it != vec->end(); ++it)
 		{
-			Int objIndex;
-			RenderObjClass* subObj;
-
-			if ((subObj = m_renderObject->Get_Sub_Object_By_Name(it->subObjName.str(), &objIndex)) != NULL)
-			{
-				subObj->Set_Hidden(it->hide);
-
-				const HTreeClass *htree = m_renderObject->Get_HTree();
-				if (htree)
-				{	
-					//get the bone of this subobject so we can hide all other child objects that use this bone
-					//as a parent.
-					Int boneIdx = m_renderObject->Get_Sub_Object_Bone_Index(0, objIndex);
-					doHideShowBoneSubObjs(it->hide, m_renderObject->Get_Num_Sub_Objects(), boneIdx, m_renderObject, htree);
-				}
-				subObj->Release_Ref();
-			}
-			else
+			if (!hideShowSubObject(m_renderObject, it->subObjName.str(), it->hide))
 			{
 				DEBUG_CRASH(("*** ASSET ERROR: SubObject %s not found (%s)!\n",it->subObjName.str(),getDrawable()->getTemplate()->getName().str()));
 			}
 		}
 	}
 
-	//Kris (added Aug 2002) 
+	//Kris (added Aug 2002)
 	//This is really important as it allows a person to override modelcondition show/hide objects. Used by the A10 strike
 	//September 2002 -- now used by the UpgradeSubObject system.
 	if( !m_subObjectVec.empty() )
 	{
-		updateSubObjects();
+		applySubObjectVec();
 	}
 }
 
@@ -3390,23 +3461,7 @@ void W3DModelDraw::hideGarrisonFlags(Bool hide)
 	if (!m_renderObject)
 		return;
 
-	Int objIndex;
-	RenderObjClass* subObj;
-
-	if ((subObj = m_renderObject->Get_Sub_Object_By_Name("POLE", &objIndex)) != NULL)
-	{
-		subObj->Set_Hidden(hide);
-
-		const HTreeClass *htree = m_renderObject->Get_HTree();
-		if (htree)
-		{	
-			//get the bone of this subobject so we can hide all other child objects that use this bone
-			//as a parent.
-			Int boneIdx = m_renderObject->Get_Sub_Object_Bone_Index(0, objIndex);
-			doHideShowBoneSubObjs(hide, m_renderObject->Get_Num_Sub_Objects(), boneIdx, m_renderObject, htree);
-		}
-		subObj->Release_Ref();
-	}
+	hideShowSubObject(m_renderObject, "POLE", hide);
 }
 #endif
 
@@ -4769,6 +4824,30 @@ void W3DModelDraw::doHideShowProjectileObjects( UnsignedInt showCount, UnsignedI
 	}
 	Int hideCount = maxCount - showCount;
 
+	/* Every armed drawable with projectile bones asks every frame, and the answer is nearly always
+		 the one it already shows.  Each name is a search of every part by name and then a walk of
+		 every part's bones below each copy of it, which on a model with four levels of detail of about
+		 fifty parts was a tenth of the drawn frame in an eight-AI battle.  So the same count on the
+		 same state and render object is not applied again.  Every other hide/show of this module's
+		 parts forgets it: a model state, which is also every new render object (doHideShowSubObjs),
+		 and another module's sub-object orders or a load (updateSubObjects). */
+	ProjectileShown &shown = m_projectileShown[slot];
+	// a later slot that stopped asking (its weapon gone from the set) no longer has the last word on
+	// a part it shares with this one, so this one applies again, as it did when every ask applied
+	const UnsignedInt now = TheGameLogic->getFrame();
+	for (Int later = slot + 1; later < WEAPONSLOT_COUNT; ++later)
+	{
+		if (m_projectileShown[later].state != NULL && m_projectileShown[later].askedFrame + 1 < now)
+		{
+			m_projectileShown[later].state = NULL;
+			shown.state = NULL;
+		}
+	}
+	shown.askedFrame = now;
+	if (shown.state != NULL && shown.state == m_curState && shown.robj == m_renderObject
+			&& shown.showCount == showCount && shown.maxCount == maxCount)
+		return;
+
 	std::vector<ModelConditionInfo::HideShowSubObjInfo> showHideVector;
 	ModelConditionInfo::HideShowSubObjInfo oneEntry;
 	if (m_curState->m_weaponProjectileHideShowName[slot].isEmpty())
@@ -4788,11 +4867,28 @@ void W3DModelDraw::doHideShowProjectileObjects( UnsignedInt showCount, UnsignedI
 	}
 
 	// Rather than duplicate recursive utility stuff, I will build a vector like those used by the main ShowHide setting
-	doHideShowSubObjs(&showHideVector);
+	applyHideShowSubObjs(&showHideVector);
+	shown.state = m_curState;
+	shown.robj = m_renderObject;
+	shown.showCount = showCount;
+	shown.maxCount = maxCount;
+	// the slots after this one ask after it each tick and used to have the last word on a part they
+	// share with it (the Scud Launcher's one missile on both slots), so they apply again
+	for (Int later = slot + 1; later < WEAPONSLOT_COUNT; ++later)
+		m_projectileShown[later].state = NULL;
 }
 
 //-------------------------------------------------------------------------------------------------
 void W3DModelDraw::updateSubObjects()
+{
+	// another module's hide/show (an upgrade's pods, a horde's flags, a payload, a load) can take in
+	// the projectile parts or the bones under them, so they are applied again after it
+	forgetProjectileShown();
+	applySubObjectVec();
+}
+
+//-------------------------------------------------------------------------------------------------
+void W3DModelDraw::applySubObjectVec()
 {
 	if (!m_renderObject)
 		return;
@@ -4801,24 +4897,7 @@ void W3DModelDraw::updateSubObjects()
 	{
 		for (std::vector<ModelConditionInfo::HideShowSubObjInfo>::const_iterator it = m_subObjectVec.begin(); it != m_subObjectVec.end(); ++it)
 		{
-			Int objIndex;
-			RenderObjClass* subObj;
-
-			if ((subObj = m_renderObject->Get_Sub_Object_By_Name(it->subObjName.str(), &objIndex)) != NULL)
-			{
-				subObj->Set_Hidden(it->hide);
-
-				const HTreeClass *htree = m_renderObject->Get_HTree();
-				if (htree)
-				{	
-					//get the bone of this subobject so we can hide all other child objects that use this bone
-					//as a parent.
-					Int boneIdx = m_renderObject->Get_Sub_Object_Bone_Index(0, objIndex);
-					doHideShowBoneSubObjs( it->hide, m_renderObject->Get_Num_Sub_Objects(), boneIdx, m_renderObject, htree);
-				}
-				subObj->Release_Ref();
-			}
-			else
+			if (!hideShowSubObject(m_renderObject, it->subObjName.str(), it->hide))
 			{
 				DEBUG_CRASH(("*** ASSET ERROR: SubObject %s not found (%s)!\n",it->subObjName.str(),getDrawable()->getTemplate()->getName().str()));
 			}

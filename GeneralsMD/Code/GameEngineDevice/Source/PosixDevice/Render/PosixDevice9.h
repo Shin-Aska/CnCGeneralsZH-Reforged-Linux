@@ -596,3 +596,6 @@ private:
 };
 
 #endif // POSIXDEVICE9_H
+
+// SDL water features require a live native GPU device.
+bool PosixWaterGpuAvailable(IDirect3DDevice9 *device);

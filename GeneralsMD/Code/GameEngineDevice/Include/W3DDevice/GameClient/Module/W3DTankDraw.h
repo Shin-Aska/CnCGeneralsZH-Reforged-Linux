@@ -86,7 +86,8 @@ protected:
 	RenderObjClass *m_prevRenderObj;
 
 	enum TreadType { TREAD_LEFT, TREAD_RIGHT, TREAD_MIDDLE };	//types of treads for different vehicles
-	enum {MAX_TREADS_PER_TANK=4};
+	// four belts a level of detail, for up to four levels: every level's belts scroll, so the one drawn does
+	enum {MAX_TREADS_PER_TANK=4, MAX_TREAD_LODS=4, MAX_TREAD_SLOTS=MAX_TREADS_PER_TANK*MAX_TREAD_LODS};
 
 	struct TreadObjectInfo
 	{
@@ -95,8 +96,19 @@ protected:
 		RenderObjClass::Material_Override m_materialSettings;	///<used to set current uv scroll amount.
 	};
 
-	TreadObjectInfo m_treads[MAX_TREADS_PER_TANK];
+	TreadObjectInfo m_treads[MAX_TREAD_SLOTS];
 	Int m_treadCount;
+
+	/// road wheels on bones WHEEL_L01..L08 then WHEEL_R01..R08; a slot whose bone the model lacks has m_bone 0
+	enum {WHEELS_PER_SIDE=8};
+	struct WheelInfo
+	{
+		Int		m_bone;		///<bone index in the current render object, 0 if absent
+		Real	m_radius;	///<from the meshes on the bone
+		Real	m_angle;	///<about the axle, kept across a model swap
+	};
+	WheelInfo m_wheels[2*WHEELS_PER_SIDE];
+	Bool m_hasWheels;
 
 	void createEmitters( void );					///< Create particle effects.
 	void tossEmitters( void );					///< Create particle effects.
@@ -104,6 +116,7 @@ protected:
 	void startMoveDebris( void );												///< start creating debris from the tank treads
 	void stopMoveDebris( void );												///< stop creating debris from the tank treads
 	void updateTreadObjects(void);												///< update pointers to sub-objects like treads.
+	void updateWheelBones(RenderObjClass *robj);								///< find the road wheel bones and their radii
 };
 
 #endif // _W3D_TANK_DRAW_H_

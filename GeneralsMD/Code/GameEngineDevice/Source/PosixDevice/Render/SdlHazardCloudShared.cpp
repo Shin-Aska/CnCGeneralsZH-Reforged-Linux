@@ -1,4 +1,5 @@
 // Shared hazard cloud volume with immutable, incrementally baked snapshots.
+// Distributed under the repository's GPL-3.0 terms; see LICENSE.md.
 #include "PreRTS.h"
 #include "Platform/HazardCloudShared.h"
 #include "Platform/HazardCloudSharedModel.h"
@@ -80,7 +81,25 @@ bool sceneTarget(SdlGpuFrame *frame, SdlTarget &target, std::string &error)
 }
 }
 
-struct Renderer::Impl {
+class SdlRenderer final : public Renderer {
+public:
+	SdlRenderer();
+	~SdlRenderer() override;
+	bool initialize(std::string &error) override;
+	bool initialize(SdlGpuFrame *frame, const RendererConfig &config, std::string &error);
+	bool render(const HazardCloud::Camera &camera, const Model &model, float seconds, std::string &error) override;
+	void setTerrain(const float *heights, unsigned side) override;
+	void setHeatEnabled(bool enabled) override;
+	void setBodies(const HazardCloud::Body *bodies, unsigned count) override;
+	void reset() override;
+	void shutdown() override;
+	const RendererStats &stats() const override;
+private:
+	struct Impl;
+	std::unique_ptr<Impl> impl;
+};
+
+struct SdlRenderer::Impl {
     SdlGpuFrame *frame = nullptr;
     SDL_GPUDevice *gpu = nullptr;
     RendererConfig config;
@@ -262,10 +281,10 @@ struct Renderer::Impl {
         if (pass >= 3) {
             std::copy(constants.common.Viewport, constants.common.Viewport + 4, command.Viewport);
             command.Viewport[4] = camera.minZ; command.Viewport[5] = camera.maxZ;
-            command.Scissor[0] = std::min(camera.x,target.Width);
-            command.Scissor[1] = std::min(camera.y,target.Height);
-            command.Scissor[2] = std::min(camera.width,target.Width - command.Scissor[0]);
-            command.Scissor[3] = std::min(camera.height,target.Height - command.Scissor[1]);
+            command.Scissor[0] = (std::min)(camera.x,target.Width);
+            command.Scissor[1] = (std::min)(camera.y,target.Height);
+            command.Scissor[2] = (std::min)(camera.width,target.Width - command.Scissor[0]);
+            command.Scissor[3] = (std::min)(camera.height,target.Height - command.Scissor[1]);
         } else {
             command.Viewport[2] = target.Width; command.Viewport[3] = target.Height; command.Viewport[5] = 1;
             command.Scissor[2] = target.Width; command.Scissor[3] = target.Height;
@@ -285,9 +304,9 @@ struct Renderer::Impl {
     }
 };
 
-Renderer::Renderer() : impl(new Impl) {}
-Renderer::~Renderer() { shutdown(); }
-bool Renderer::initialize(std::string &error)
+SdlRenderer::SdlRenderer() : impl(new Impl) {}
+SdlRenderer::~SdlRenderer() { shutdown(); }
+bool SdlRenderer::initialize(std::string &error)
 {
     auto *device = dynamic_cast<PosixDevice9 *>(DX8Wrapper::_Get_D3D_Device());
     if (!device || !device->Get_Gpu()) {
@@ -296,7 +315,7 @@ bool Renderer::initialize(std::string &error)
     }
     return initialize(device->Get_Gpu(), RendererConfig{}, error);
 }
-bool Renderer::initialize(SdlGpuFrame *frame, const RendererConfig &config, std::string &error)
+bool SdlRenderer::initialize(SdlGpuFrame *frame, const RendererConfig &config, std::string &error)
 {
     shutdown();
     if (!frame || !frame->Device() || config.volumeSide < 32 || config.volumeSide > 512
@@ -325,20 +344,20 @@ bool Renderer::initialize(SdlGpuFrame *frame, const RendererConfig &config, std:
     return true;
 }
 
-void Renderer::setTerrain(const float *heights, unsigned side)
+void SdlRenderer::setTerrain(const float *heights, unsigned side)
 {
     if (heights && side >= 2) impl->terrainValues.assign(heights,heights + std::size_t(side) * side);
     else impl->terrainValues.clear();
     impl->terrainSide = impl->terrainValues.empty() ? 0 : side;
     impl->terrainDirty = true;
 }
-void Renderer::setHeatEnabled(bool enabled) { impl->config.heat = enabled; }
-void Renderer::setBodies(const HazardCloud::Body *bodies, unsigned count)
+void SdlRenderer::setHeatEnabled(bool enabled) { impl->config.heat = enabled; }
+void SdlRenderer::setBodies(const HazardCloud::Body *bodies, unsigned count)
 {
     if (bodies && count) impl->bodies.assign(bodies,bodies + count);
     else impl->bodies.clear();
 }
-void Renderer::reset()
+void SdlRenderer::reset()
 {
     impl->wake.reset();
     impl->invalidate();
@@ -347,9 +366,9 @@ void Renderer::reset()
     impl->statistics.activeBodies = 0;
     impl->statistics.maxDisturbance = 0;
 }
-const RendererStats &Renderer::stats() const { return impl->statistics; }
+const RendererStats &SdlRenderer::stats() const { return impl->statistics; }
 
-bool Renderer::render(const HazardCloud::Camera &camera, const Model &model, float seconds, std::string &error)
+bool SdlRenderer::render(const HazardCloud::Camera &camera, const Model &model, float seconds, std::string &error)
 {
     Impl &p = *impl;
     if (!p.frame || !p.gpu || !std::isfinite(seconds)) { error = "shared-volume renderer is not initialized"; return false; }
@@ -370,13 +389,13 @@ bool Renderer::render(const HazardCloud::Camera &camera, const Model &model, flo
     // Model bounds include the taller heat envelope; smoke needs all slices in
     // its thin slab. Terrain extrema expand it without losing elevated support.
     float lowZ = bounds.minZ, highZ = lowZ + 0.01f;
-    for (const auto &source : model.sources()) highZ = std::max(highZ,source.field.ground.z + source.field.height);
+    for (const auto &source : model.sources()) highZ = (std::max)(highZ,source.field.ground.z + source.field.height);
     if (!p.terrainValues.empty()) {
         const auto extrema = std::minmax_element(p.terrainValues.begin(),p.terrainValues.end());
-        lowZ = std::min(lowZ,*extrema.first);
+        lowZ = (std::min)(lowZ,*extrema.first);
         float height = 0;
-        for (const auto &source : model.sources()) height = std::max(height,source.field.height);
-        highZ = std::max(highZ,*extrema.second + height);
+        for (const auto &source : model.sources()) height = (std::max)(height,source.field.height);
+        highZ = (std::max)(highZ,*extrema.second + height);
     }
     bounds.minZ = lowZ; bounds.maxZ = highZ;
     const bool domainChanged = !p.boundsValid || std::memcmp(&bounds,&p.previousBounds,sizeof(bounds)) != 0;
@@ -408,7 +427,7 @@ bool Renderer::render(const HazardCloud::Camera &camera, const Model &model, flo
     }
     for (std::size_t i = 0; i + 1 < grid.offsets.size(); ++i) {
         const unsigned count = grid.offsets[i + 1] - grid.offsets[i];
-        p.statistics.maximumBinSources = std::max(p.statistics.maximumBinSources,count);
+        p.statistics.maximumBinSources = (std::max)(p.statistics.maximumBinSources,count);
         binValues.insert(binValues.end(),{float(grid.offsets[i]),float(count),0,0});
     }
     for (unsigned id : grid.indices) indexValues.push_back(float(id));
@@ -481,7 +500,7 @@ bool Renderer::render(const HazardCloud::Camera &camera, const Model &model, flo
             p.draw(0,p.material,depth,constants,vertexOffset,camera,snapshot);
             while (!p.progress.complete()) { p.progress.next(); ++written; }
         }
-        p.statistics.maxSlicesPerFrame = std::max(p.statistics.maxSlicesPerFrame,written);
+        p.statistics.maxSlicesPerFrame = (std::max)(p.statistics.maxSlicesPerFrame,written);
         if (p.progress.complete()) {
             // Every material texel belongs to this immutable snapshot before
             // lighting can sample neighboring slices. Only completed lighting
@@ -500,14 +519,14 @@ bool Renderer::render(const HazardCloud::Camera &camera, const Model &model, flo
         auto &snapshot = p.snapshots[p.front];
         p.constantsFor(constants,snapshot);
         p.statistics.bakedSources = snapshot.activeSources;
-        p.statistics.publicationAgeSeconds = std::max(0.0f,seconds - snapshot.seconds);
+        p.statistics.publicationAgeSeconds = (std::max)(0.0f,seconds - snapshot.seconds);
         if (p.config.heat && snapshot.nuclear
             && !p.texture(p.background,target.Width,target.Height,
                 static_cast<SDL_GPUTextureFormat>(SdlGpuFrame::Target_Format()),true,error)) return false;
         if (p.config.embers && snapshot.nuclear) {
             for (const auto &source : snapshot.fields) {
                 if (!source.active || !HazardCloud::emberField(source.field)) continue;
-                const float emberTime = source.sourceAge + std::max(0.0f,seconds - snapshot.seconds);
+                const float emberTime = source.sourceAge + (std::max)(0.0f,seconds - snapshot.seconds);
                 if (!std::isfinite(emberTime)
                     || !SdlHazardCloudEmbers::prepare(p.frame,target,&source.field,1)) {
                     error = "nuclear ember preflight failed";
@@ -524,7 +543,7 @@ bool Renderer::render(const HazardCloud::Camera &camera, const Model &model, flo
                 if (!source.active || !HazardCloud::emberField(source.field)) continue;
                 // Keep the published field's support/formation/density, while
                 // advancing billboard phase smoothly between publications.
-                const float emberTime = source.sourceAge + std::max(0.0f,seconds - snapshot.seconds);
+                const float emberTime = source.sourceAge + (std::max)(0.0f,seconds - snapshot.seconds);
                 const bool terrainEnabled = source.terrain && snapshot.terrainSide >= 2;
                 const float terrainDomain[4] = {snapshot.bounds.minX,snapshot.bounds.minY,
                     snapshot.bounds.maxX,snapshot.bounds.maxY};
@@ -548,7 +567,7 @@ bool Renderer::render(const HazardCloud::Camera &camera, const Model &model, flo
     return true;
 }
 
-void Renderer::shutdown()
+void SdlRenderer::shutdown()
 {
     if (!impl || !impl->frame || !impl->gpu) return;
     Impl &p = *impl;
@@ -575,5 +594,15 @@ void Renderer::shutdown()
     if (p.point) SDL_ReleaseGPUSampler(p.gpu,p.point);
     if (p.linear) SDL_ReleaseGPUSampler(p.gpu,p.linear);
     impl.reset(new Impl);
+}
+bool Supported()
+{
+	return HazardCloud::Supported();
+}
+
+std::unique_ptr<Renderer> CreateRenderer()
+{
+	if (!Supported()) return nullptr;
+	return std::make_unique<SdlRenderer>();
 }
 }

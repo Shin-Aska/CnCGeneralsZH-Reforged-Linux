@@ -485,24 +485,36 @@ Color:Pink
 "Rose"
 END
 
-Color:Crimson
-"Cramoisi"
-END
-
-Color:Azure
-"Azur"
-END
-
-Color:Salmon
-"Saumon"
-END
-
 Color:Teal
 "Sarcelle"
 END
 
+Color:Lime
+"Citron vert"
+END
+
+Color:Navy
+"Bleu marine"
+END
+
+Color:Magenta
+"Magenta"
+END
+
+Color:Brown
+"Marron"
+END
+
 Color:Lavender
 "Lavande"
+END
+
+Color:Coral
+"Corail"
+END
+
+Color:Olive
+"Olive"
 END
 
 MSG:Testing
@@ -16033,6 +16045,34 @@ TOOLTIP:VSync
 "Cale l'image sur le moniteur pour qu'elle ne se déchire pas. Désactivé, l'image va aussi vite que la machine la dessine. Appliqué quand vous cliquez sur Accepter."
 END
 
+GUI:FrameRateLimit
+"Limite d'images par seconde"
+END
+
+GUI:FrameRateLimit0
+"Désactivée"
+END
+
+GUI:FrameRateLimit1
+"240 FPS"
+END
+
+GUI:FrameRateLimit2
+"144 FPS"
+END
+
+GUI:FrameRateLimit3
+"120 FPS"
+END
+
+GUI:FrameRateLimit4
+"60 FPS"
+END
+
+TOOLTIP:FrameRateLimit
+"Le nombre maximal d'images par seconde que le jeu dessine en partie. Une limite plus basse garde la carte graphique plus fraîche et plus silencieuse, sans ralentir le jeu. Les menus s'arrêtent toujours à 60."
+END
+
 GUI:ClassicGraphics
 "Graphismes classiques"
 END
@@ -16522,7 +16562,7 @@ GUI:SuperweaponsNone
 END
 
 TOOLTIP:Superweapons
-"Combien de chaque superarme un joueur peut avoir debout. Autoriser : autant qu'il peut en payer. Limiter : une de chaque, et quatre pour le Général superarme USA. Pas de superarmes : aucune, sauf pour le Général superarme, qui en garde une. Il fait exception parce que ses trois superarmes sont ce qu'il obtient en échange d'une armée plus faible."
+"Combien de superarmes un joueur peut avoir debout. Autoriser : autant qu'il peut en payer. Limiter : une, et quatre pour le Général superarme USA. Pas de superarmes : aucune, sauf pour le Général superarme, qui en garde une. Il fait exception parce que ses superarmes sont ce qu'il obtient en échange d'une armée plus faible. Sans superarmes, chacun, l'ordinateur aussi, peut encore bâtir un silo de missile nucléaire pour y acheter les améliorations de la Chine. Il n'a pas de missile, ni bouton de tir, ni compte à rebours, ni annonce."
 END
 
 GUI:UnitLimit
@@ -16617,6 +16657,10 @@ GUI:CantBuildTooManyDerrickDefenses
 "Vous avez déjà deux défenses autour de ces derricks."
 END
 
+TOOLTIP:TooltipProRulesBanUpgrade
+"Interdit par les règles pro"
+END
+
 GUI:HudStatArmy
 "Valeur de l'armée"
 END
@@ -16691,6 +16735,26 @@ END
 
 GUI:HudNoWorkerLeft
 "%s n'a plus d'ouvrier"
+END
+
+GUI:HudHighestFirst
+"du plus haut au plus bas"
+END
+
+GUI:HudPlayerHead
+"Joueur"
+END
+
+GUI:HudStatUnitMoney
+"$"
+END
+
+GUI:HudStatUnitIncome
+"$/min"
+END
+
+GUI:HudStatUnitPower
+"excédent"
 END
 
 GUI:BarIdleWorker

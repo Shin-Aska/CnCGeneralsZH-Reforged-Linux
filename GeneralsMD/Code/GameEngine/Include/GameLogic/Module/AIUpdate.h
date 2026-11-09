@@ -387,7 +387,8 @@ public:
 	virtual Object* construct( const ThingTemplate *what, 
 														 const Coord3D *pos, Real angle, 
 														 Player *owningPlayer,
-														 Bool isRebuild ) { return NULL; }///< construct a building
+														 Bool isRebuild,
+														 Bool takeJob = TRUE ) { return NULL; }///< construct a building; takeJob FALSE only lays the plan
 
 
 	void ignoreObstacle( const Object *obj );			///< tell the pathfinder to ignore the given object as an obstacle
@@ -772,8 +773,8 @@ public:
 	TunnelTripEnd getTunnelTripEnd() const { return m_tunnelTripEnd; }	///< how the leg from the far mouth is walked
 	void startGarrisonSearch();	///< the auto garrison key: into the nearest free seat around here, and on to the next while a building turns the unit away
 	Bool isSeekingGarrison() const { return m_isSeekingGarrison; }	///< on an auto garrison search, so a building lost on the way is no target
-#if defined(_DEBUG) || defined(_INTERNAL)	
 	inline const Coord3D *friend_getRequestedDestination() const { return &m_requestedDestination; }
+#if defined(_DEBUG) || defined(_INTERNAL)
 	inline const Coord3D *friend_getRequestedDestination2() const { return &m_requestedDestination2; }
 #endif
 

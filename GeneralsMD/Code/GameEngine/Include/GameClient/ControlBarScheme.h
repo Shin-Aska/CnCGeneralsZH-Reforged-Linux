@@ -121,7 +121,8 @@ private:
 
 /// The tooltips' art one TooltipImage prefix names (Tools/hud_command_bar.py, TIP_*): <prefix>Tip<piece> the
 /// build card's nine (ControlBarPopupDescription.wnd), <prefix>CursorTip<piece> the pointer's nine
-/// (Mouse::drawTooltip), <prefix>TipIcon<Kind> the card's figures.  NULL where the art has none.
+/// (Mouse::drawTooltip), <prefix>TipIcon<Kind> the card's figures, <prefix>TabPanel the Tab screen's painting
+/// (Diplomacy.cpp).  NULL where the art has none.
 //-----------------------------------------------------------------------------
 struct ControlBarTooltipImages
 {
@@ -130,6 +131,7 @@ struct ControlBarTooltipImages
 	const Image *head[ 3 ];					///< <prefix>TipHead{TL,T,TR}: the card's top row without the figures' well, for a card with no figures
 	const Image *cursor[ 9 ];
 	const Image *icon[ ICON_COUNT ];
+	const Image *tabPanel;
 
 	void find( const AsciiString& prefix );		///< every one NULL for an empty prefix
 };
@@ -217,6 +219,16 @@ public:
 
 	ICoord2D m_moneyUL;
 	ICoord2D m_moneyLR;
+	/// MoneyFontSize: the money readout in bold at that many of the .wnd's points (0 keeps the .wnd's
+	/// Arial 8); MoneyThousands: the amount written with a comma every three digits; MoneySignPainted:
+	/// the painting carries the currency sign, so the readout drops its own and stands left-aligned
+	Int m_moneyFontSize;
+	Bool m_moneyThousands;
+	Bool m_moneySignPainted;
+
+	/// RadarUL/LR: where LeftHUD, the radar, stands; a scheme without them leaves it where it is
+	ICoord2D m_radarUL;
+	ICoord2D m_radarLR;
 
 	ICoord2D m_minMaxUL;
 	ICoord2D m_minMaxLR;
@@ -243,8 +255,9 @@ public:
 	ICoord2D m_powerBarLR;
 
 	/// where the bar's input blockers stand when the scheme's painting is not ControlBar.wnd's
-	/// (Block<Name>UL/LR); a zero LR leaves the .wnd's rectangle
-	enum { BLOCK_RADAR, BLOCK_PRODUCTION, BLOCK_MONEY, BLOCK_UPGRADES, BLOCK_GEN_POWER, BLOCK_COUNT };
+	/// (Block<Name>UL/LR); a zero LR leaves the .wnd's rectangle.  ObserverInfo is the followed player's
+	/// panel's, a child of ObserverPlayerInfoWindow, so it shows, hides and moves with the panel
+	enum { BLOCK_RADAR, BLOCK_PRODUCTION, BLOCK_MONEY, BLOCK_UPGRADES, BLOCK_GEN_POWER, BLOCK_OBSERVER_INFO, BLOCK_COUNT };
 	ICoord2D m_blockUL[ BLOCK_COUNT ];
 	ICoord2D m_blockLR[ BLOCK_COUNT ];
 
@@ -337,10 +350,22 @@ public:
 	/// the general's powers tray's pieces (ControlBarScheme::TRAY_*) of the scheme on screen, or NULL
 	/// without a cell; the tray then keeps the shipped column
 	const Image *const *getPowerTray( void ) const;
+	/// the scheme on screen writes the money with thousands separators (MoneyThousands)
+	Bool isMoneyGrouped( void ) const;
+	/// the scheme on screen paints the currency sign itself (MoneySignPainted)
+	Bool isMoneySignPainted( void ) const;
+	/// the top of the radar's art on screen when the scheme names its own radar blocker (BlockRadar),
+	/// which is the bounding box of the painting's radar box and its ledge; otherwise 'fallback'
+	Int radarArtTop( Int fallback ) const;
 	/// the tooltips' art of the scheme on screen, or the console's when it has no card of its own
 	const ControlBarTooltipImages& getTooltipImages( void ) const;
 	/// the console's tooltips (Helpbox), which the shell wears
 	const ControlBarTooltipImages& getConsoleTooltipImages( void ) const { return m_consoleTooltip; }
+	/// the Tab screen's painting of the scheme on screen, NULL when it names none (Classic keeps EA's screen)
+	const Image *getTabPanelImage( void ) const { return m_currentScheme ? m_currentScheme->m_tooltip.tabPanel : NULL; }
+	/// one of the Tab screen's buttons beside that painting, <TooltipImage>Tab<piece> ("SendH", "Mute"), NULL
+	/// under a scheme without the painting
+	const Image *getTabImage( const char *piece ) const;
 	/// the scheme's painting, cut at the panel seams and each piece drawn where its panel stands
 	void drawPainting( ICoord2D offset, Bool foreground );
 
@@ -378,13 +403,9 @@ private:
 //-----------------------------------------------------------------------------
 // EXTERNALS //////////////////////////////////////////////////////////////////
 //-----------------------------------------------------------------------------
-/// a side's picture of one family, prefix SSObserver, SSScore, FactionPicker or Gameinfo: the prefix and
-/// the template's name (less "Faction" and "General" but for FactionPicker: SSScoreAmericaLaser,
-/// FactionPickerFactionAmericaLaserGeneral), else the prefix and the base name of the country its base
-/// side or side names (SSScoreUSA, FactionPickerFactionAmerica, GameinfoAMRCA), else NULL
-const Image *ControlBarSideImage( const PlayerTemplate *pt, const char *prefix );
-/// the side's emblem the observer's column and the rack show: ControlBarSideImage's SSObserver, else
-/// its EnabledImage
+/// the side's emblem the observer's column and the rack show: SSObserver and the template's name less a
+/// leading "Faction" and a trailing "General" (SSObserverAmericaLaser), else SSObserver<USA|China|GLA|Turkiye>
+/// for the country its base side or side names, else its EnabledImage
 const Image *ControlBarSideEmblem( const PlayerTemplate *pt );
 /// nine pieces (ControlBarScheme::FRAME_* order) filling box: the corners at their size times scale (the
 /// art's texels are 1080 pixels), the edges and the centre stretched between them.  FALSE, and nothing

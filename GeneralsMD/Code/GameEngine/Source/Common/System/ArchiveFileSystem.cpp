@@ -50,6 +50,7 @@
 #include "Common/ArchiveFile.h"
 #include "Common/ArchiveFileSystem.h"
 #include "Common/AsciiString.h"
+#include "Common/file.h"
 #include "Common/PerfTimer.h"
 
 #ifdef _INTERNAL
@@ -122,6 +123,77 @@ ArchiveFileSystem::~ArchiveFileSystem()
 		}
 		iter++;
 	}
+}
+
+static const char *archiveBaseName(const AsciiString &path)
+{
+	const char *name = path.str();
+	for (const char *c = name; *c; ++c) {
+		if (*c == '\\' || *c == '/') {
+			name = c + 1;
+		}
+	}
+	return name;
+}
+
+static Int reforgedMountRank(const AsciiString &path)
+{
+	static const char *const baseArt[] = { "ReforgedTextures.big", "ReforgedNormals.big", "ReforgedTerrain.big" };
+	const char *name = archiveBaseName(path);
+	for (Int i = 0; i < (Int)(sizeof(baseArt) / sizeof(baseArt[0])); ++i) {
+		if (strcasecmp(name, baseArt[i]) == 0) {
+			return i;
+		}
+	}
+	return (Int)(sizeof(baseArt) / sizeof(baseArt[0]));
+}
+
+Bool ArchiveFileSystem::reforgedMountsBefore(const AsciiString& a, const AsciiString& b)
+{
+	const Int ra = reforgedMountRank(a), rb = reforgedMountRank(b);
+	if (ra != rb) {
+		return ra < rb;
+	}
+	const Int byName = strcasecmp(archiveBaseName(a), archiveBaseName(b));
+	if (byName != 0) {
+		return byName < 0;
+	}
+	return strcmp(a.str(), b.str()) < 0;	// the same name in two folders: still one fixed order
+}
+
+Bool ArchiveFileSystem::isReforgedBaseArt(const AsciiString& path)
+{
+	return reforgedMountRank(path) < reforgedMountRank(AsciiString::TheEmptyString);
+}
+
+void ArchiveFileSystem::mountOverRetail(ArchiveFile *archiveFile, const AsciiString& archiveFilename)
+{
+	FilenameList models;
+	archiveFile->getFileListInDirectory(AsciiString(""), AsciiString(""), AsciiString("*.w3d"), models, TRUE);
+	for (FilenameListIter it = models.begin(); it != models.end(); ++it) {
+		AsciiString model = *it;
+		model.toLower();
+		if (m_retailModels.find(model) == m_retailModels.end()) {
+			m_retailModels[model] = getArchiveFilenameForFile(model);		// the first Reforged holder's view is retail's
+		}
+	}
+	loadIntoDirectoryTree(archiveFile, archiveFilename, TRUE);
+	m_archiveFileMap[archiveFilename] = archiveFile;
+}
+
+AsciiString ArchiveFileSystem::getRetailArchiveFilenameForFile(const AsciiString& filename) const
+{
+	AsciiString model = filename;
+	model.toLower();
+	ArchivedFileLocationMap::const_iterator it = m_retailModels.find(model);
+	return it != m_retailModels.end() ? it->second : getArchiveFilenameForFile(filename);
+}
+
+File * ArchiveFileSystem::openRetailFile(const AsciiString& filename)
+{
+	const AsciiString archiveFilename = getRetailArchiveFilenameForFile(filename);
+	ArchiveFileMap::iterator it = m_archiveFileMap.find(archiveFilename);
+	return it != m_archiveFileMap.end() ? it->second->openFile(filename.str(), File::READ) : NULL;
 }
 
 void ArchiveFileSystem::loadIntoDirectoryTree(const ArchiveFile *archiveFile, const AsciiString& archiveFilename, Bool overwrite)

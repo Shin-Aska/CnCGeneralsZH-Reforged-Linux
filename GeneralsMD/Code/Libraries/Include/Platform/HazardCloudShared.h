@@ -1,4 +1,5 @@
 // SDL shared-volume hazard clouds with bounded incremental snapshot publication.
+// Distributed under the repository's GPL-3.0 terms; see LICENSE.md.
 #pragma once
 #include "Platform/HazardCloud.h"
 #include <cstdint>
@@ -33,23 +34,22 @@ struct RendererStats {
 };
 class Renderer {
 public:
-    Renderer();
-    ~Renderer();
-    bool initialize(std::string &error);
-    bool initialize(SdlGpuFrame *frame, const RendererConfig &config, std::string &error);
-    // False guarantees no cloud draw touched scene colour; classic fallback is safe.
-    bool render(const HazardCloud::Camera &camera, const Model &model, float seconds, std::string &error);
-    // Optional shared terrain grid covering the model's XY bounds. Values are
-    // absolute world heights, copied with each snapshot and its XY bounds.
-    // Only sources with terrain=true sample this grid. nullptr restores planes.
-    void setTerrain(const float *heights, unsigned side);
-    void setHeatEnabled(bool enabled);
-    void setBodies(const HazardCloud::Body *bodies, unsigned count);
-    void reset();
-    void shutdown();
-    const RendererStats &stats() const;
-private:
-    struct Impl;
-    std::unique_ptr<Impl> impl;
+	virtual ~Renderer() = default;
+	virtual bool initialize(std::string &error) = 0;
+    virtual bool initialize(SdlGpuFrame *frame, const RendererConfig &config, std::string &error) = 0;
+	// False guarantees no cloud draw touched scene colour; classic fallback is safe.
+	virtual bool render(const HazardCloud::Camera &camera, const Model &model, float seconds, std::string &error) = 0;
+	// Optional shared terrain grid covering the model's XY bounds. Values are
+	// absolute world heights, copied with each snapshot and its XY bounds.
+	// Only sources with terrain=true sample this grid. nullptr restores planes.
+	virtual void setTerrain(const float *heights, unsigned side) = 0;
+	virtual void setHeatEnabled(bool enabled) = 0;
+	virtual void setBodies(const HazardCloud::Body *bodies, unsigned count) = 0;
+	virtual void reset() = 0;
+	virtual void shutdown() = 0;
+	virtual const RendererStats &stats() const = 0;
 };
+// Query the current backend, including before a device exists.
+bool Supported();
+std::unique_ptr<Renderer> CreateRenderer();
 }

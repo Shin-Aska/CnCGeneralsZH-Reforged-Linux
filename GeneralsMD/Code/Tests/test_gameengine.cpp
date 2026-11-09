@@ -135,6 +135,7 @@ static int GetSystemMetrics( int which )
 #endif
 #include "Common/OptionsCatalog.h"
 #include "Platform/ModernWaterBuild.h"
+#include "Platform/WaterScreenReflection.h"
 #include "Common/SubsystemInterface.h"
 #include "GameClient/GameText.h"
 #include "Common/GameLOD.h"
@@ -1336,8 +1337,10 @@ TEST(water_splashes_take_blasts_by_name_and_every_list_that_scorches)
 	 The gunfire pass added 13 of EA's gun FXLists, wider tracers and AtTarget impacts, all of
 	 which already had a muzzle light, and the faster tracers six more, each with EA's own light.
 	 The smoke-trail fragments added two of EA's blasts, the jet missile with its own light and the
-	 Particle Cannon's ground hit with one of the fork's. */
+	 Particle Cannon's ground hit with one of the fork's.  The three wreck impacts, dust and a
+	 shake by how hard an aircraft hits the ground, are dust and carry no light either. */
 static const char *const s_unlitReforgedFXList = "FXList SupW_FX_ParticleUplinkDeathInitial";
+static const char *const s_unlitReforgedImpacts = "FXList FX_Reforged_Impact";
 
 TEST(fxlist_reforged_ini_parses_and_keeps_its_light)
 {
@@ -1353,6 +1356,10 @@ TEST(fxlist_reforged_ini_parses_and_keeps_its_light)
 	CHECK( TheFXListStore->findFXList( "ScudStormMissileDetonation" ) != NULL );
 	CHECK( TheFXListStore->findFXList( "FX_BombExplosion" ) != NULL );
 	CHECK( TheFXListStore->findFXList( "NoSuchFXListIsDeclaredAnywhere" ) == NULL );
+	/* SlowDeathBehavior::doImpactFX looks these three up by name */
+	CHECK( TheFXListStore->findFXList( "FX_Reforged_ImpactLight" ) != NULL );
+	CHECK( TheFXListStore->findFXList( "FX_Reforged_ImpactMedium" ) != NULL );
+	CHECK( TheFXListStore->findFXList( "FX_Reforged_ImpactHeavy" ) != NULL );
 
 	/* and every block in the file still carries the light it exists for */
 	FILE *fp = fopen( FXLIST_REFORGED_INI, "rb" );
@@ -1362,7 +1369,8 @@ TEST(fxlist_reforged_ini_parses_and_keeps_its_light)
 	char line[ 512 ];
 	while( fgets( line, sizeof( line ), fp ) != NULL )
 	{
-		if( strncmp( line, s_unlitReforgedFXList, strlen( s_unlitReforgedFXList ) ) == 0 )
+		if( strncmp( line, s_unlitReforgedFXList, strlen( s_unlitReforgedFXList ) ) == 0 ||
+				strncmp( line, s_unlitReforgedImpacts, strlen( s_unlitReforgedImpacts ) ) == 0 )
 		{
 			open = 0;
 		}
@@ -1484,9 +1492,9 @@ TEST(fxlist_audio_preload_names_follow_map_overrides_without_playing_effects)
 
 #include "Common/MultiplayerSettings.h"
 
-/* A slot, a replay and a preference hold a colour by its place in the list, so the fork's five have
+/* A slot, a replay and a preference hold a colour by its place in the list, so the fork's eight have
    to follow EA's eight and leave them as they were.  EA's list is in INIZH.big, so it is copied here. */
-TEST(multiplayer_reforged_ini_appends_five_colours_after_eas_eight)
+TEST(multiplayer_reforged_ini_appends_eight_colours_after_eas_eight)
 {
 	static const struct { const char *tooltip; Int r, g, b, nightR, nightG, nightB; } colours[] =
 	{
@@ -1498,11 +1506,14 @@ TEST(multiplayer_reforged_ini_appends_five_colours_after_eas_eight)
 		{ "Color:SkyBlue",   50, 215, 230,   50, 215, 230 },
 		{ "Color:Purple",   150,   0, 200,  223,   0, 156 },
 		{ "Color:Pink",     255, 150, 255,  255, 130, 248 },
-		{ "Color:Crimson",  165,  15,  45,  205,  45,  80 },
-		{ "Color:Azure",      0, 165, 255,    0, 165, 255 },
-		{ "Color:Salmon",   240, 120, 135,  240, 120, 135 },
-		{ "Color:Teal",       0, 175, 140,    0, 175, 140 },
-		{ "Color:Lavender", 165, 165, 255,  165, 165, 255 },
+		{ "Color:Teal",       0, 140, 130,    0, 180, 165 },
+		{ "Color:Lime",     166, 217,   0,  166, 217,   0 },
+		{ "Color:Navy",      37,  59, 155,   70, 100, 225 },
+		{ "Color:Magenta",  201,   0, 120,  240,  30, 160 },
+		{ "Color:Brown",    164,  90,  42,  200, 120,  65 },
+		{ "Color:Lavender", 165, 139, 255,  165, 139, 255 },
+		{ "Color:Coral",    240,  90,  69,  240,  90,  69 },
+		{ "Color:Olive",    120, 140,   0,  160, 180,  20 },
 	};
 
 	CHECK( bootOnce() );
@@ -1525,9 +1536,9 @@ TEST(multiplayer_reforged_ini_appends_five_colours_after_eas_eight)
 	CHECK( loadIni( TEST_INI ) );
 	CHECK_EQ( TheMultiplayerSettings->getNumColors(), 8 );
 	CHECK( loadIni( MULTIPLAYER_REFORGED_INI ) );
-	CHECK_EQ( TheMultiplayerSettings->getNumColors(), 13 );
+	CHECK_EQ( TheMultiplayerSettings->getNumColors(), 16 );
 
-	for( Int i = 0; i < 13 && TheMultiplayerSettings->getNumColors() == 13; ++i )
+	for( Int i = 0; i < 16 && TheMultiplayerSettings->getNumColors() == 16; ++i )
 	{
 		MultiplayerColorDefinition *def = TheMultiplayerSettings->getColor( i );
 		const RGBColor day = def->getRGBValue();
@@ -3111,6 +3122,32 @@ TEST(jet_runs_out_from_a_target_it_cannot_turn_onto)
 	CHECK( !AIAttackAim_needsRunOut( 60.0f,   60.0f, R, 0.7071068f, 0.0f ) );
 }
 
+/* Locomotor.cpp: a jet that has spent its last round breaks off to the side whose turn, flown from
+   the bank it is already in, passes the target wider. */
+extern Real Locomotor_jetBreakOffSide( Real relX, Real relY, Real speed, Real yawRate, Real maxRate, Real yawAccel );
+
+TEST(jet_breaks_off_to_the_side_that_passes_the_target_wider)
+{
+	/* 4.5 a frame on a 72 circle, rolling into the full bank over half a second */
+	const Real SPEED = 4.5f;
+	const Real RATE = SPEED / 72.0f;
+	const Real ACCEL = RATE / 30.0f;
+
+	/* wings level, target nearly dead ahead: away from it, 92 clear where the other way is 87 */
+	CHECK_EQ( Locomotor_jetBreakOffSide( 200.0f,   5.0f, SPEED, 0.0f, RATE, ACCEL ), -1.0f );
+	CHECK_EQ( Locomotor_jetBreakOffSide( 200.0f,  -5.0f, SPEED, 0.0f, RATE, ACCEL ),  1.0f );
+
+	/* the target ahead and to the right of the nose, wings level: away from it, left, 130 clear */
+	CHECK_EQ( Locomotor_jetBreakOffSide( 121.0f, -113.0f, SPEED, 0.0f, RATE, ACCEL ), 1.0f );
+
+	/* the same target with the jet banked hard right onto it, the bomb just gone: rolling through to
+	   the left carries it over the target (12 clear), carrying on round passes it at 58 */
+	CHECK_EQ( Locomotor_jetBreakOffSide( 121.0f, -113.0f, SPEED, -RATE, RATE, ACCEL ), -1.0f );
+
+	/* no turn to fly: away from it */
+	CHECK_EQ( Locomotor_jetBreakOffSide( 121.0f, -113.0f, SPEED, 0.0f, 0.0f, ACCEL ), 1.0f );
+}
+
 /* JetAIUpdate.cpp: the glide down to a touchdown and the climb from a liftoff are one shape, a
    straight slope that rounds out to level at the runway and stops at the approach height. */
 extern Real JetRunway_slopeHeight( Real dist, Real maxHeight, Real slope, Real roundDist );
@@ -3567,6 +3604,18 @@ TEST(a_unit_shoots_what_its_weapon_kills_best)
 
 	/* armed beats unarmed whatever the armour or rate: no stopping for the dozer under the artillery */
 	CHECK( aiTargetBeats( targetRating( 1, 0.1f, 0.01f, 0.0f, (ObjectID)9 ), targetRating( 0, 2.0f, 100.0f, 0.0f, (ObjectID)2 ) ) );
+
+	/* ... but only among what it can hurt from where it can get.  A Patriot picked the Tomahawk
+	   launcher outside its ground range, armed and shooting it (tier 2, rate 0), over the incoming
+	   missile it could shoot down (tier 0, an unarmed projectile), and never fired at all */
+	const Real patriotOnMissile = aiTargetKillRate( 1.0f, 30.0f, 0.0f, 0.0f );
+	const Real patriotOnLauncher = aiTargetKillRate( 1200.0f, 90.0f, 75.0f, 0.0f );
+	CHECK( patriotOnMissile > 0.0f );
+	CHECK_NEAR( 0.0f, patriotOnLauncher, 0.0001f );
+	const AITargetRating missile = targetRating( aiTargetTier( FALSE, TRUE, FALSE, TRUE, 30.0f ), 1.0f, patriotOnMissile, 250000.0f, (ObjectID)9 );
+	const AITargetRating launcher = targetRating( aiTargetTier( TRUE, TRUE, TRUE, FALSE, 90.0f ), 1.31f, patriotOnLauncher, 90000.0f, (ObjectID)2 );
+	CHECK( aiTargetBeats( missile, launcher ) );
+	CHECK( !aiTargetBeats( launcher, missile ) );
 
 	/* a total order: tier, armour, rate, distance, then the lower ObjectID, the same whichever is
 	   asked first, so the pick never depends on the order the partition hands candidates out in */
@@ -8097,7 +8146,9 @@ TEST(random_pool_round_trips_and_plain_random_leaves_out_turkiye)
 	CHECK( candidates == std::vector<Int>( four, four + 4 ) );
 	CHECK_EQ( GetDefaultRandomPool(), 0x7u );
 
-	// plain Random never lands on Turkiye, and the old-factions rule narrows it further
+	// plain Random never lands on Turkiye, and the old-factions rule narrows it further; the plain
+	// draw is also Quick Match's army list, so Turkiye is not offered there
+	// (populateQMSideComboBox in WOLQuickMatchMenu.cpp)
 	const Int three[] = { 1, 2, 3 };
 	const Int old[] = { 1, 3 };
 	CHECK( drawIs( PLAYERTEMPLATE_RANDOM, FALSE, std::vector<Int>( three, three + 3 ) ) );
@@ -9836,6 +9887,21 @@ TEST(a_toxin_or_fire_death_puppet_wears_no_health_bar)
 	CHECK( Drawable_kindShowsHealthBar( healthBarKinds( KINDOF_PROJECTILE, KINDOF_SELECTABLE ) ) == FALSE );
 }
 
+/** The Artillery Barrage's guns are AIRCRAFT UNATTACKABLE IGNORED_IN_GUI with no model, and each
+	 hung an altitude line and ring in the sky. Real planes keep theirs, the power planes included. */
+TEST(artillery_barrage_guns_hang_no_altitude_line)
+{
+	CHECK( Drawable_kindWearsAltitudeLine( healthBarKinds( KINDOF_AIRCRAFT, KINDOF_UNATTACKABLE, KINDOF_IGNORED_IN_GUI ) ) == FALSE );
+	CHECK( Drawable_kindWearsAltitudeLine( healthBarKinds( KINDOF_AIRCRAFT, KINDOF_SELECTABLE ) ) == TRUE );
+	CHECK( Drawable_kindWearsAltitudeLine( healthBarKinds( KINDOF_AIRCRAFT, KINDOF_TRANSPORT, KINDOF_IGNORED_IN_GUI ) ) == TRUE );
+	// the Kargu drone is UNATTACKABLE and a real, drawn aircraft
+	CHECK( Drawable_kindWearsAltitudeLine( healthBarKinds( KINDOF_VEHICLE, KINDOF_AIRCRAFT, KINDOF_UNATTACKABLE ) ) == TRUE );
+	CHECK( Drawable_kindWearsAltitudeLine( healthBarKinds( KINDOF_AIRCRAFT, KINDOF_PROJECTILE ) ) == FALSE );
+	CHECK( Drawable_kindWearsAltitudeLine( healthBarKinds( KINDOF_AIRCRAFT, KINDOF_PARACHUTE ) ) == FALSE );
+	CHECK( Drawable_kindWearsAltitudeLine( healthBarKinds( KINDOF_AIRCRAFT, KINDOF_SMALL_MISSILE ) ) == FALSE );
+	CHECK( Drawable_kindWearsAltitudeLine( healthBarKinds( KINDOF_VEHICLE ) ) == FALSE );
+}
+
 /** The Spy Drone is VEHICLE DRONE SELECTABLE INERT NO_SELECT. INERT kept the toxin fields bare and
 	 took the drone's bar with them, so its owner never saw its health. A field stays bare. */
 TEST(the_spy_drone_wears_a_health_bar_and_a_toxin_field_does_not)
@@ -9948,6 +10014,25 @@ TEST(health_bar_smart_mode_marks_the_hurt)
 	CHECK( Drawable_healthBarModeShows( HEALTH_BAR_SMART, FALSE, TRUE, FALSE ) == TRUE );
 }
 
+/** The ammo and seat trays: every lamp at least two pixels with one between, the row ending on the
+	 tray's edge, and a continuous fill once the bar is too short for that. */
+TEST(lamp_tray_cells_fill_the_bar_or_merge)
+{
+	// ten seats over a 58 pixel tray: lamps of 4 or 5, the last one ending on the edge
+	for( Int i = 0; i < 10; ++i )
+	{
+		const Int width = Drawable_lampCellLeft( 58, 10, i + 1 ) - 1 - Drawable_lampCellLeft( 58, 10, i );
+		CHECK( width >= 4 && width <= 5 );
+	}
+	CHECK_EQ( Drawable_lampCellLeft( 58, 10, 0 ), 0 );
+	CHECK_EQ( Drawable_lampCellLeft( 58, 10, 10 ) - 1, 58 );
+
+	// exactly three pixels a lamp still cuts; one fewer merges, and so does nothing to count
+	CHECK( Drawable_lampCellLeft( 29, 10, 0 ) == 0 );
+	CHECK( Drawable_lampCellLeft( 28, 10, 0 ) == -1 );
+	CHECK( Drawable_lampCellLeft( 58, 0, 0 ) == -1 );
+}
+
 /** The setting is stored, clamped and read back like every other catalog row, and its default is
 	 what this fork has always done - nobody's game changes until they change it. */
 TEST(health_bar_mode_round_trips_through_options_ini)
@@ -10005,6 +10090,42 @@ TEST(health_bar_colors_round_trip_through_options_ini)
 	pref[ AsciiString( "HealthBarColors" ) ] = AsciiString( "7" );
 	loadOptionsFromPreferences( pref );
 	CHECK_EQ( TheGlobalData->m_healthBarColors, 1 );
+
+	delete TheWritableGlobalData;
+	TheWritableGlobalData = saved;
+}
+
+/** The picture cap (GitHub #149): off with no line, so Classic draws as fast as it always did, and
+	 each level the rate the combo box names. */
+TEST(frame_rate_limit_round_trips_through_options_ini)
+{
+	const OptionDef *def = findOptionDef( "FrameRateLimit" );
+	CHECK( def != NULL );
+	CHECK_EQ( (Int)def->kind, (Int)OPTION_ENUM );
+	CHECK_EQ( (Int)def->apply, (Int)APPLY_LIVE );
+	CHECK_EQ( def->hi, FRAME_RATE_LIMIT_COUNT - 1 );
+
+	CHECK_EQ( frameRateLimitForLevel( 0 ), 0 );
+	CHECK_EQ( frameRateLimitForLevel( 1 ), 240 );
+	CHECK_EQ( frameRateLimitForLevel( 2 ), 144 );
+	CHECK_EQ( frameRateLimitForLevel( 3 ), 120 );
+	CHECK_EQ( frameRateLimitForLevel( 4 ), 60 );
+	CHECK_EQ( frameRateLimitForLevel( FRAME_RATE_LIMIT_COUNT ), 0 );
+
+	GlobalData *saved = TheWritableGlobalData;
+	TheWritableGlobalData = NEW GlobalData;
+
+	CHECK_EQ( TheGlobalData->m_frameRateLimit, 0 );
+	CHECK_EQ( optionDefaultValue( *def ), 0 );
+
+	UserPreferences pref;
+	pref[ AsciiString( "FrameRateLimit" ) ] = AsciiString( "4" );
+	loadOptionsFromPreferences( pref );
+	CHECK_EQ( frameRateLimitForLevel( TheGlobalData->m_frameRateLimit ), 60 );
+
+	pref[ AsciiString( "FrameRateLimit" ) ] = AsciiString( "9" );
+	loadOptionsFromPreferences( pref );
+	CHECK_EQ( TheGlobalData->m_frameRateLimit, FRAME_RATE_LIMIT_COUNT - 1 );
 
 	delete TheWritableGlobalData;
 	TheWritableGlobalData = saved;
@@ -14917,6 +15038,8 @@ TEST(every_shipped_map_has_wire_letters_of_its_own)
 	names a file of town building names, one a line, standing in for the object INI. Run as
 	test_gameengine.exe write_the_maps_RMG_TEMPLATE_DUMP_names. */
 //-------------------------------------------------------------------------------------------------
+#include "Lib/Clock.h"
+
 TEST(write_the_maps_RMG_TEMPLATE_DUMP_names)
 {
 	const char *dump = getenv( "RMG_TEMPLATE_DUMP" );
@@ -19281,7 +19404,7 @@ TEST(water_movement_behavior_defaults_on_and_persists_for_the_next_map)
     CHECK_EQ(movement->hi, 1);
     CHECK_STR(movement->widgetName, "OptionsMenu.wnd:CheckWaterMovementBehavior");
     CHECK_STR(movement->labelKey, "GUI:WaterMovementBehavior");
-    CHECK(isLinuxModernWaterOption(*movement));
+    CHECK(isModernWaterOption(*movement));
     CHECK(findGraphicsQualityRow("CheckWaterMovementBehavior") == NULL);
 
     GlobalData *saved = TheWritableGlobalData;
@@ -19314,6 +19437,8 @@ TEST(water_movement_behavior_defaults_on_and_persists_for_the_next_map)
     delete scratch;
     TheWritableGlobalData = saved;
 }
+#endif
+
 
 TEST(water_reflections_default_to_hybrid_and_persist_each_mode)
 {
@@ -19391,7 +19516,7 @@ TEST(modern_water_performance_choices_round_trip_without_device_or_modern_style)
 {
     // This engine-only test has no active SDL GPU device. Preferences must still load and save
     // without one, and remain ready when Modern water becomes available again.
-    CHECK(!ModernWater::Supported());
+    CHECK(!WaterScreenReflection::Supported());
     GlobalData *saved = TheWritableGlobalData;
     GlobalData *scratch = NEW GlobalData;
     TheWritableGlobalData = scratch;
@@ -19412,7 +19537,7 @@ TEST(modern_water_performance_choices_round_trip_without_device_or_modern_style)
         CHECK_EQ(def->lo, 0);
         CHECK_EQ(def->hi, maxValues[i]);
         CHECK_STR(def->widgetName, widgets[i]);
-        CHECK(isLinuxModernWaterOption(*def));
+        CHECK(isModernWaterOption(*def));
         for (Int value = 0; value <= maxValues[i]; ++value) {
             UserPreferences pref;
             def->set(value);
@@ -19426,9 +19551,9 @@ TEST(modern_water_performance_choices_round_trip_without_device_or_modern_style)
         }
     }
     // The same classification protects every hidden water performance widget from writeback.
-    CHECK(isLinuxModernWaterOption(*findOptionDef("WaterReflection")));
-    CHECK(!isLinuxModernWaterOption(*findOptionDef("WaterStyle")));
-    CHECK(!isLinuxModernWaterOption(*findOptionDef("CloudStyle")));
+    CHECK(isModernWaterOption(*findOptionDef("WaterReflection")));
+    CHECK(!isModernWaterOption(*findOptionDef("WaterStyle")));
+    CHECK(!isModernWaterOption(*findOptionDef("CloudStyle")));
 
     delete scratch;
     TheWritableGlobalData = saved;
@@ -19516,7 +19641,7 @@ TEST(modern_water_reflection_detail_is_retained_while_scene_reflections_are_off)
     TheWritableGlobalData = saved;
 }
 
-TEST(modern_water_quality_slider_high_is_the_linux_default_and_low_is_modern_low)
+TEST(modern_water_quality_slider_high_is_the_sdl_default_and_low_is_modern_low)
 {
     const GraphicsQualityRow *reflections = findGraphicsQualityRow("CheckWaterReflectionEnabled");
     const GraphicsQualityRow *refraction = findGraphicsQualityRow("ComboBoxWaterRefractionQuality");
@@ -19567,8 +19692,6 @@ TEST(modern_water_quality_slider_high_is_the_linux_default_and_low_is_modern_low
     delete scratch;
     TheWritableGlobalData = saved;
 }
-
-#endif
 
 TEST(cloud_style_defaults_to_classic_and_persists_each_choice)
 {
@@ -20141,7 +20264,7 @@ TEST(graphics_quality_slider_only_ever_turns_settings_up)
 	// the looks of 2026-10-31 rise above High, which stays the picture the Classic box's untick gives,
 	// and every one is on at Ultra and a fork's row, so a Classic page keeps them off
 	static const char *const aboveHigh[] = { "CheckInternalHdr", "CheckHemiAmbient", "CheckGroundMarks", "CheckStructureCollapse",
-		"CheckWaterSplashes", "CheckAtmosphere", "CheckAmbientOcclusion", "CheckFirelight", "CheckWeather" };
+		"CheckWaterSplashes", "CheckAtmosphere", "CheckAmbientOcclusion", "CheckFirelight", "CheckWeather", "CheckHeatHaze" };
 	for( Int i = 0; i < (Int)( sizeof( aboveHigh ) / sizeof( aboveHigh[ 0 ] ) ); ++i )
 	{
 		const GraphicsQualityRow *look = findGraphicsQualityRow( aboveHigh[ i ] );
@@ -20207,12 +20330,14 @@ TEST(no_options_file_is_the_classic_game_with_every_added_row_off)
 		"ShadowsForProjectiles", "ShadowsForProps", "ShadowsForParticles", "VolumetricSmokeShadows", "SmokeFireLighting",
 		"DebrisTrails", "MapLight", "TeamGlow", "WaterFoam", "GroundMarks", "Firelight", "HemiAmbient", "AmbientOcclusion",
 		"Weather", "WaterSplashes", "Atmosphere", "StructureCollapse", "SmoothMotion", "InternalHdr", "Smoke", "ParticleBounce",
-		NULL
+		"HeatHaze", NULL
 	};
 	for( Int i = 0; off[ i ] != NULL; ++i )
 		CHECK_EQ( findOptionDef( off[ i ] )->get(), 0 );
 
 	CHECK_EQ( findOptionDef( "ClassicGraphics" )->get(), 1 );
+	CHECK_EQ( findOptionDef( "DetailedModels" )->get(), 1 );		// mounts nothing under Classic, and only what was downloaded
+	CHECK_EQ( findOptionDef( "HDTextures" )->get(), 1 );
 	CHECK_EQ( findOptionDef( "LegacySound" )->get(), 1 );
 	CHECK_EQ( findOptionDef( "HealthBars" )->get(), (Int)HEALTH_BAR_SELECTION );
 	CHECK_EQ( findOptionDef( "AmbientVolume" )->get(), 80 );
@@ -20893,58 +21018,54 @@ TEST(crowd_corridor_steering_point_slides_instead_of_hopping)
 	CHECK_NEAR( ends.x, pts[ 5 ].x, 0.001f );
 }
 
-TEST(a_bridge_keeps_its_width_and_its_approach_funnels_onto_it)
+TEST(crowd_corridor_has_no_band_on_a_bridge_or_at_its_approaches)
 {
-	/* A deck is a road: the band on it is what its own layer measured, so a group goes over three
-		 abreast where the bridge carries three.  The riverbank either side of the ramp is a field, and a
-		 lane held a field's width off the centre arrives beside the entrance, against the end of the
-		 railing.  So for CROWD_BRIDGE_SEAL samples before and after the deck the ground is held to
-		 the deck's width at the ramp. */
+	/* A bridge deck is not road with room either side of it, and the ground beside a bridge is a
+		 riverbank.  A lane held across either one drives the unit off the side, and a lane held on the
+		 approach arrives beside the abutment instead of at the entrance - which is a unit that never
+		 gets onto the bridge and a queue behind it that never gets anywhere.  The band closes over the
+		 deck and for CROWD_BRIDGE_SEAL samples each side of it.  A deck that kept its own width was
+		 tried and lost time over the Kandahar bridge and tanks over the long one (CrowdCorridor::sealBridges). */
 	Coord3D pts[ 20 ];
 	PathfindLayerEnum layers[ 20 ];
-	Real width[ 20 ];
 	for (Int k = 0; k < 20; k++)
 	{
 		pts[ k ].x = (Real)k * 10.0f;
 		pts[ k ].y = 0.0f;
 		pts[ k ].z = 0.0f;
 		layers[ k ] = LAYER_GROUND;
-		width[ k ] = 60.0f;					// open bank
 	}
-	for (Int k = 10; k <= 12; k++)
-	{
-		layers[ k ] = (PathfindLayerEnum)2;		// the deck: three samples of it, out over the water
-		width[ k ] = 10.0f;
-	}
-	width[ 8 ] = 5.0f;						// and a rock on the bank, narrower than the deck
+	layers[ 10 ] = (PathfindLayerEnum)2;		// the deck: three samples of it, out over the water
+	layers[ 11 ] = (PathfindLayerEnum)2;
+	layers[ 12 ] = (PathfindLayerEnum)2;
 
 	CrowdCorridor corr;
-	corr.buildForTest( pts, 20, 0.0f, layers, width );
+	corr.buildForTest( pts, 20, 15.0f, layers );
+	CHECK_EQ( corr.count(), 20 );
+
+	// open road, far from the bridge either side: the band is what it was built with
+	CHECK_NEAR( corr.at( 0 ).left, 15.0f, 0.001f );
+	CHECK_NEAR( corr.at( 5 ).right, 15.0f, 0.001f );
+	CHECK_NEAR( corr.at( 19 ).left, 15.0f, 0.001f );
+
 	corr.sealBridges();
 
-	// the deck keeps its own width
-	for (Int k = 10; k <= 12; k++)
-	{
-		CHECK_NEAR( corr.at( k ).left, 10.0f, 0.001f );
-		CHECK_NEAR( corr.at( k ).right, 10.0f, 0.001f );
-	}
-
-	// the approach at both ends is the deck's width, and a lane on it is cut to that
 	const Int sealLo = 10 - (Int)CROWD_BRIDGE_SEAL;
 	const Int sealHi = 12 + (Int)CROWD_BRIDGE_SEAL;
-	for (Int k = sealLo; k < 10; k++)
-	{
-		if (k != 8)
-			CHECK_NEAR( corr.at( k ).left, 10.0f, 0.001f );
-	}
-	for (Int k = 13; k <= sealHi; k++)
-		CHECK_NEAR( corr.at( k ).right, 10.0f, 0.001f );
-	CHECK_NEAR( corr.clampLat( 9, 40.0f ), 10.0f, 0.001f );
 
-	// it never widens anything, and the bank past the approach keeps its own band
-	CHECK_NEAR( corr.at( 8 ).left, 5.0f, 0.001f );
-	CHECK_NEAR( corr.at( sealLo - 1 ).left, 60.0f, 0.001f );
-	CHECK_NEAR( corr.at( sealHi + 1 ).right, 60.0f, 0.001f );
+	// the deck itself, and the sealed samples each side of it
+	for (Int k = sealLo; k <= sealHi; k++)
+	{
+		CHECK_NEAR( corr.at( k ).left, 0.0f, 0.001f );
+		CHECK_NEAR( corr.at( k ).right, 0.0f, 0.001f );
+		CHECK_NEAR( corr.clampLat( k, 12.0f ), 0.0f, 0.001f );
+		CHECK_NEAR( corr.clampLatAt( corr.at( k ).along, -12.0f ), 0.0f, 0.001f );
+	}
+
+	// and the road on either side of that stretch keeps its band
+	CHECK_NEAR( corr.at( sealLo - 1 ).left, 15.0f, 0.001f );
+	CHECK_NEAR( corr.at( sealHi + 1 ).right, 15.0f, 0.001f );
+	CHECK_NEAR( corr.clampLat( sealLo - 1, 12.0f ), 12.0f, 0.001f );
 
 	// a route with no bridge on it is untouched
 	CrowdCorridor plain;
@@ -21729,6 +21850,53 @@ TEST(the_superweapon_rule_is_a_mode_with_one_exception)
 	CHECK_EQ( SuperweaponBuildCap( SUPERWEAPONS_NONE, gla, AsciiString( "ChinaNuclearMissileLauncher" ) ), 1 );
 	CHECK_EQ( SuperweaponBuildCap( SUPERWEAPONS_NONE, gla, AsciiString( "Nuke_ChinaNuclearMissileLauncher" ) ), 1 );
 	CHECK_EQ( SuperweaponBuildCap( SUPERWEAPONS_NONE, superweaponGeneral, AsciiString( "SupW_AmericaNuclearMissileLauncher" ) ), 1 );
+	// the same one silo for every China general, a computer as much as a human: the cap has no say
+	// in who plays the seat
+	const char *const chinaGenerals[][ 2 ] =
+	{
+		{ "FactionChina", "ChinaNuclearMissileLauncher" },
+		{ "FactionChinaNukeGeneral", "Nuke_ChinaNuclearMissileLauncher" },
+		{ "FactionChinaTankGeneral", "Tank_ChinaNuclearMissileLauncher" },
+		{ "FactionChinaInfantryGeneral", "Infa_ChinaNuclearMissileLauncher" }
+	};
+	for ( Int g = 0; g < ARRAY_SIZE( chinaGenerals ); ++g )
+	{
+		const AsciiString general( chinaGenerals[ g ][ 0 ] ), silo( chinaGenerals[ g ][ 1 ] );
+		CHECK_EQ( SuperweaponBuildCap( SUPERWEAPONS_NONE, general, silo ), 1 );
+		CHECK_EQ( SuperweaponBuildCap( SUPERWEAPONS_LIMIT, general, silo ), 1 );
+		CHECK_EQ( SuperweaponBuildCap( SUPERWEAPONS_ALLOW, general, silo ), (Int)SUPERWEAPON_CAP_UNLIMITED );
+		// and under No, or Pro Rules, it is an upgrade building and no superweapon of anybody's
+		CHECK( SuperweaponSiloIsUpgradeBuilding( silo, FALSE, SUPERWEAPONS_NONE ) );
+		CHECK( SuperweaponSiloIsUpgradeBuilding( silo, TRUE, SUPERWEAPONS_ALLOW ) );
+		CHECK( !SuperweaponSiloIsUpgradeBuilding( silo, FALSE, SUPERWEAPONS_LIMIT ) );
+		CHECK( !SuperweaponSiloIsUpgradeBuilding( silo, FALSE, SUPERWEAPONS_ALLOW ) );
+	}
+
+	// Under No the whole matrix: every other superweapon of every side and general is barred, the
+	// Superweapon General's one cannon aside.  The cap counts every superweapon a player has together
+	// (the Superweapon link key), so 1 is one superweapon in all, not one of each.
+	struct NoRow { const char *general; const char *superweapon; Int cap; };
+	const NoRow noRows[] =
+	{
+		{ "FactionAmerica", "AmericaParticleCannonUplink", SUPERWEAPON_CAP_BANNED },
+		{ "FactionAmericaLaserGeneral", "Lazr_AmericaParticleCannonUplink", SUPERWEAPON_CAP_BANNED },
+		{ "FactionAmericaAirForceGeneral", "AirF_AmericaParticleCannonUplink", SUPERWEAPON_CAP_BANNED },
+		{ "FactionAmericaSuperWeaponGeneral", "SupW_AmericaParticleCannonUplink", 1 },
+		{ "FactionGLA", "GLAScudStorm", SUPERWEAPON_CAP_BANNED },
+		{ "FactionGLAToxinGeneral", "Chem_GLAScudStorm", SUPERWEAPON_CAP_BANNED },
+		{ "FactionGLADemolitionGeneral", "Demo_GLAScudStorm", SUPERWEAPON_CAP_BANNED },
+		{ "FactionGLAStealthGeneral", "Slth_GLAScudStorm", SUPERWEAPON_CAP_BANNED },
+		{ "FactionTurkiye", "TurkiyeKarguBase", SUPERWEAPON_CAP_BANNED }
+	};
+	for ( Int r = 0; r < ARRAY_SIZE( noRows ); ++r )
+	{
+		CHECK_EQ( SuperweaponBuildCap( SUPERWEAPONS_NONE, AsciiString( noRows[ r ].general ), AsciiString( noRows[ r ].superweapon ) ), noRows[ r ].cap );
+		CHECK( !SuperweaponSiloIsUpgradeBuilding( AsciiString( noRows[ r ].superweapon ), FALSE, SUPERWEAPONS_NONE ) );
+	}
+	// the exception is the general, not the building: another general's cannon under his name is
+	// still his one, and his cannon under anybody else's is barred
+	CHECK_EQ( SuperweaponBuildCap( SUPERWEAPONS_NONE, gla, AsciiString( "SupW_AmericaParticleCannonUplink" ) ), (Int)SUPERWEAPON_CAP_BANNED );
+	CHECK_EQ( SuperweaponBuildCap( SUPERWEAPONS_NONE, superweaponGeneral, AsciiString( "GLAScudStorm" ) ), 1 );
 	CHECK_EQ( SuperweaponBuildCap( SUPERWEAPONS_NONE, gla, AsciiString( "GLAScudStorm" ) ), (Int)SUPERWEAPON_CAP_BANNED );
 	CHECK_EQ( SuperweaponBuildCap( SUPERWEAPONS_NONE, laserGeneral, AsciiString( "Lazr_AmericaParticleCannonUplink" ) ), (Int)SUPERWEAPON_CAP_BANNED );
 	CHECK_EQ( SuperweaponBuildCap( SUPERWEAPONS_LIMIT, superweaponGeneral, AsciiString( "SupW_AmericaNuclearMissileLauncher" ) ), 4 );
@@ -22177,6 +22345,29 @@ TEST(order_queue_kinds_nest)
 
 	// buying an upgrade without shift must not throw away the list of the unit it is for
 	CHECK( !OrderQueue::isOrder( GameMessage::MSG_QUEUE_UPGRADE ) );
+
+	// going to build an unfinished structure, and unloading a transport, wait their turn too and are
+	// no post: the list goes on once the building stands or the last passenger is out
+	CHECK( OrderQueue::isQueueable( GameMessage::MSG_RESUME_CONSTRUCTION ) );
+	CHECK( OrderQueue::isQueueable( GameMessage::MSG_EVACUATE ) );
+	CHECK( OrderQueue::isQueueable( GameMessage::MSG_EXIT ) );
+	CHECK( !OrderQueue::isTerminal( GameMessage::MSG_RESUME_CONSTRUCTION ) );
+	CHECK( !OrderQueue::isTerminal( GameMessage::MSG_EVACUATE ) );
+
+	// a placement is no order to the selection: the dispatcher picks its builder and queues the
+	// building on that one (OrderQueue::queueConstruction), so the queue reads the mark for it
+	CHECK( !OrderQueue::isOrder( GameMessage::MSG_DOZER_CONSTRUCT ) );
+	CHECK( !OrderQueue::isOrder( GameMessage::MSG_DOZER_CONSTRUCT_LINE ) );
+}
+
+// The mark a placement reads for itself is used up by the read, so a placement refused on the ground
+// does not hand the mark to the player's next click.
+TEST(order_queue_mark_is_used_once)
+{
+	OrderQueue queue;
+	queue.setNextOrderMode( ORDER_QUEUE_APPEND );
+	CHECK_EQ( queue.takeNextOrderMode(), (Int)ORDER_QUEUE_APPEND );
+	CHECK_EQ( queue.takeNextOrderMode(), (Int)ORDER_QUEUE_NONE );
 }
 
 TEST(scenario_parses_the_order_lines)
@@ -22257,6 +22448,12 @@ TEST(scenario_parses_the_order_lines)
 						(Int)SCENARIO_PARSE_OK );
 	CHECK_EQ( (Int)action.action, (Int)SCENARIO_ACTION_SHIFTUPGRADE );
 	CHECK_STR( action.name.str(), "Upgrade_ChinaOverlordGattlingCannon" );
+
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "120 shiftconstruct 0 AmericaPowerPlant 720 550", &action ), (Int)SCENARIO_PARSE_OK );
+	CHECK_EQ( (Int)action.action, (Int)SCENARIO_ACTION_SHIFTCONSTRUCT );
+	CHECK_STR( action.selector.str(), "AmericaPowerPlant" );
+	CHECK_NEAR( action.at.y, 550.0f, 0.01f );
+	CHECK_EQ( (Int)ScenarioDrill_parseLine( "120 shiftconstruct 0 AmericaPowerPlant 720", &action ), (Int)SCENARIO_PARSE_MISSING_ARGS );
 
 	// a line read after one that named something must not carry that name
 	CHECK_EQ( (Int)ScenarioDrill_parseLine( "200 shiftmove 0 * 900 700", &action ), (Int)SCENARIO_PARSE_OK );
@@ -22420,6 +22617,41 @@ TEST(control_server_answers_the_rfc_handshake_example)
 	// a buffer too small to hold the 28 characters and the terminator is refused, not overrun
 	char tooSmall[ 8 ];
 	CHECK( !ControlServer_computeAcceptKey( "dGhlIHNhbXBsZSBub25jZQ==", tooSmall, sizeof( tooSmall ) ) );
+}
+
+/* Any web page the player opens can try ws://127.0.0.1:<port> while -control is on, and its browser
+ * names the page in Origin.  The project's own clients send none. */
+TEST(control_server_refuses_a_web_pages_origin)
+{
+	const char *head = "GET / HTTP/1.1\r\nHost: 127.0.0.1:8931\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n";
+	std::string request;
+
+	// control_client.py and Node's WebSocket: no Origin
+	request = std::string( head ) + "\r\n";
+	CHECK( ControlServer_originAllowed( request.c_str() ) );
+
+	const char *allowed[] = { "http://localhost", "http://localhost:5173", "https://127.0.0.1:443", "http://[::1]:8080", "http://localhost  " };
+	for( Int i = 0; i < (Int)ARRAY_SIZE( allowed ); ++i )
+	{
+		request = std::string( head ) + "Origin: " + allowed[ i ] + "\r\n\r\n";
+		CHECK( ControlServer_originAllowed( request.c_str() ) );
+	}
+	request = std::string( head ) + "oRiGiN:http://localhost:1\r\n\r\n";
+	CHECK( ControlServer_originAllowed( request.c_str() ) );
+
+	const char *refused[] = { "https://evil.example", "http://localhost.evil.example", "http://localhost:80.evil.example",
+		"http://127.0.0.1.nip.io", "http://localhost:", "", "file://", "http://LOCALHOSTX", "null" };		// null: a sandboxed iframe on any site
+	for( Int i = 0; i < (Int)ARRAY_SIZE( refused ); ++i )
+	{
+		request = std::string( head ) + "Origin: " + refused[ i ] + "\r\n\r\n";
+		CHECK( !ControlServer_originAllowed( request.c_str() ) );
+	}
+
+	// the path is the page's to choose, and must not read as a header
+	request = "GET /x\r\norigin: null HTTP/1.1\r\nOrigin: https://evil.example\r\n\r\n";
+	CHECK( !ControlServer_originAllowed( request.c_str() ) );
+	request = "GET /?origin:null HTTP/1.1\r\nOrigin: https://evil.example\r\n\r\n";
+	CHECK( !ControlServer_originAllowed( request.c_str() ) );
 }
 
 /* Telling a click from a drag.
@@ -23452,4 +23684,93 @@ TEST(file_write_queue_writes_what_the_file_calls_wrote)
 	std::filesystem::remove( queued );
 	std::filesystem::remove( direct );
 	CHECK( ca == cb );
+}
+
+/* The Reforged archives go into the tree each over the ones before it, base art first, then the
+	 model batches by name, case ignored.  A rebuilt bridge's texture in ReforgedNeutral.big has to beat
+	 the 2x upscale ReforgedTextures.big holds under the same name, which plain name order lost. */
+TEST(reforged_archives_mount_base_art_first_then_batches_by_name)
+{
+	const char *const names[] = { "ReforgedUSA.big", "reforgedterrain.big", "ReforgedNeutral.big", "ReforgedTextures.big",
+		"ReforgedChina.big", "ReforgedNormals.big", "ReforgedGLA.big", "ReforgedUI.big" };
+	const char *const mounted[] = { "ReforgedTextures.big", "ReforgedNormals.big", "reforgedterrain.big", "ReforgedChina.big",
+		"ReforgedGLA.big", "ReforgedNeutral.big", "ReforgedUI.big", "ReforgedUSA.big" };
+	std::vector<AsciiString> order( names, names + 8 );
+	std::sort( order.begin(), order.end(), ArchiveFileSystem::reforgedMountsBefore );
+	for( Int i = 0; i < 8; ++i )
+		CHECK_STR( order[i].str(), mounted[i] );
+	// the folder does not move an archive's place, only its name does
+	CHECK( ArchiveFileSystem::reforgedMountsBefore( AsciiString( "C:\\Run\\ReforgedTerrain.big" ), AsciiString( "ReforgedChina.big" ) ) );
+	CHECK( !ArchiveFileSystem::reforgedMountsBefore( AsciiString( "ReforgedUSA.big" ), AsciiString( "C:\\Run\\ReforgedGLA.big" ) ) );
+	CHECK( ArchiveFileSystem::isReforgedBaseArt( AsciiString( "C:\\Run\\reforgedterrain.big" ) ) );
+	CHECK( !ArchiveFileSystem::isReforgedBaseArt( AsciiString( "ReforgedNeutralA.big" ) ) );
+}
+
+namespace {
+	// an archive that lists names and opens nothing: all mountOverRetail reads is the listing
+	class ListingOnlyArchive : public ArchiveFile
+	{
+	public:
+		explicit ListingOnlyArchive( const char *const *paths )
+		{
+			m_file = NULL;		// ArchiveFile's constructor leaves it, and its destructor closes it
+			for( ; *paths != NULL; ++paths )
+			{
+				const char *slash = strrchr( *paths, '\\' );
+				ArchivedFileInfo info;
+				info.m_filename = slash + 1;
+				info.m_filename.toLower();
+				addFile( AsciiString( std::string( *paths, slash + 1 ).c_str() ), &info );
+			}
+		}
+		virtual Bool getFileInfo( const AsciiString&, FileInfo * ) const { return FALSE; }
+		virtual File* openFile( const Char *, Int ) { return NULL; }
+		virtual void closeAllFiles( void ) {}
+		virtual AsciiString getName( void ) { return AsciiString::TheEmptyString; }
+		virtual AsciiString getPath( void ) { return AsciiString::TheEmptyString; }
+		virtual void setSearchPriority( Int ) {}
+		virtual void close( void ) {}
+	};
+
+	class MountOrderFileSystem : public ArchiveFileSystem
+	{
+	public:
+		virtual void init( void ) {}
+		virtual void update( void ) {}
+		virtual void reset( void ) {}
+		virtual void postProcessLoad( void ) {}
+		virtual ArchiveFile* openArchiveFile( const Char * ) { return NULL; }
+		virtual void closeArchiveFile( const Char * ) {}
+		virtual void closeAllArchiveFiles( void ) {}
+		virtual void closeAllFiles( void ) {}
+		virtual Bool loadBigFilesFromDirectory( AsciiString, AsciiString, Bool, Bool ) { return FALSE; }
+		void mountRetail( ArchiveFile *art, const char *name, Bool overwrite )
+		{
+			loadIntoDirectoryTree( art, AsciiString( name ), overwrite );
+			m_archiveFileMap[ AsciiString( name ) ] = art;
+		}
+		void mountReforged( ArchiveFile *art, const char *name ) { mountOverRetail( art, AsciiString( name ) ); }
+	};
+}
+
+/* The INI CRC hashes each model as retail resolves it, so a player with the rebuilt models and one
+	 without agree.  The tree answers the batch, the retail lookup the archive it covered; a name no
+	 retail archive holds has no retail answer at all, and a second batch over the first still finds retail. */
+TEST(model_batches_leave_the_crc_its_retail_copy)
+{
+	static const char *const w3dzh[] = { "Art\\W3D\\AVTank.w3d", "Art\\W3D\\NBGattling.w3d", NULL };
+	static const char *const patch[] = { "Art\\W3D\\AVTank.w3d", NULL };
+	static const char *const usa[] = { "Art\\W3D\\AVTank.w3d", "Art\\W3D\\AVNew.w3d", "Art\\Textures\\AVTank.dds", NULL };
+	static const char *const neutral[] = { "Art\\W3D\\AVTank.w3d", NULL };
+	MountOrderFileSystem fs;
+	fs.mountRetail( new ListingOnlyArchive( w3dzh ), "W3DZH.big", FALSE );
+	fs.mountRetail( new ListingOnlyArchive( patch ), "PatchZH.big", TRUE );		// the patch pass overwrites
+	fs.mountReforged( new ListingOnlyArchive( usa ), "ReforgedUSA.big" );
+	fs.mountReforged( new ListingOnlyArchive( neutral ), "ReforgedNeutralA.big" );
+
+	CHECK_STR( fs.getArchiveFilenameForFile( AsciiString( "art\\w3d\\avtank.w3d" ) ).str(), "ReforgedNeutralA.big" );
+	CHECK_STR( fs.getRetailArchiveFilenameForFile( AsciiString( "Art\\W3D\\AVTank.w3d" ) ).str(), "PatchZH.big" );
+	CHECK_STR( fs.getRetailArchiveFilenameForFile( AsciiString( "art\\w3d\\nbgattling.w3d" ) ).str(), "W3DZH.big" );
+	CHECK_STR( fs.getRetailArchiveFilenameForFile( AsciiString( "art\\w3d\\avnew.w3d" ) ).str(), "" );
+	CHECK_STR( fs.getArchiveFilenameForFile( AsciiString( "art\\w3d\\avnew.w3d" ) ).str(), "ReforgedUSA.big" );
 }

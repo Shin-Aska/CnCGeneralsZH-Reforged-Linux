@@ -1095,6 +1095,14 @@ Int parseSmoothMotion(char *args[], int)
 	return 1;
 }
 
+/* -heathaze: the HeatHaze option on for one run, whatever Options.ini says. Client only. */
+Int parseHeatHaze(char *args[], int)
+{
+	if (TheWritableGlobalData)
+		TheWritableGlobalData->m_heatHaze = TRUE;
+	return 1;
+}
+
 /* -nosmokefirelight: smoke left unlit by the fire beside it, for one run. */
 Int parseNoSmokeFireLight(char *args[], int)
 {
@@ -1518,12 +1526,15 @@ Int parseFPSLimit(char *args[], int num)
 	 and GameEngine::execute() never sleeps for a frame budget, so rendering is already uncapped
 	 unconditionally and m_framesPerSecondLimit means game speed and nothing else.  Raising it here
 	 would just run the match in fast-forward: superweapon and build timers count real seconds off a
-	 clock ticking a thousand times too fast.  Use -fps to ask for that on purpose. */
+	 clock ticking a thousand times too fast.  Use -fps to ask for that on purpose.  Since GitHub #149
+	 there is a picture cap again, the player's FrameRateLimit and 60 in the shell, and this switch lifts
+	 both for the run: the measuring harnesses pass it to time a frame, not a wait. */
 Int parseNoFPSLimit(char *args[], int num)
 {
 	if (TheWritableGlobalData)
 	{
 		TheWritableGlobalData->m_useFpsLimit = false;
+		TheWritableGlobalData->m_noFrameRateCap = TRUE;
 	}
 	return 1;
 }
@@ -2544,6 +2555,112 @@ Int parseLanName(char *args[], int num)
 	return 2;
 }
 
+/* -relay <host:port> puts the LAN lobby and its games through a UDP relay instead of the local network,
+	 so two homes behind NAT can play (Transport.cpp has the envelope).  The host is resolved when the
+	 lobby opens; a missing port is kept as 0, which the lobby reports as a socket error. */
+static void splitHostPort( const char *arg, AsciiString &host, UnsignedShort &port )
+{
+	host = arg;
+	port = 0;
+	const char *colon = strrchr( arg, ':' );
+	if (colon)
+	{
+		host = std::string( arg, colon - arg ).c_str();
+		const Int number = atoi( colon + 1 );
+		port = (number >= 1 && number <= 65535) ? (UnsignedShort)number : 0;
+	}
+}
+
+Int parseRelay(char *args[], int num)
+{
+	if (TheWritableGlobalData && num > 1)
+		splitHostPort( args[1], TheWritableGlobalData->m_relayHost, TheWritableGlobalData->m_relayPort );
+	return 2;
+}
+
+/* -online <host:port> logs in to the online service there (GameNetwork/Online) instead of GameSpy, and the
+	 rest drive it from a script the way -lanlobby and -netgame drive the LAN (docs: ONLINE-SERVICE.md's Tests
+	 section in the owner's workspace).  Each only fills a GlobalData field; the online screens read them.
+	 Without -online none of them does anything. */
+Int parseOnline(char *args[], int num)
+{
+	if (TheWritableGlobalData && num > 1)
+		splitHostPort( args[1], TheWritableGlobalData->m_onlineHost, TheWritableGlobalData->m_onlinePort );
+	return 2;
+}
+
+static Int parseOnlineText( char *args[], int num, AsciiString GlobalData::*field )
+{
+	if (TheWritableGlobalData && num > 1)
+		TheWritableGlobalData->*field = args[1];
+	return 2;
+}
+
+Int parseOnlineCA(char *args[], int num)				{ return parseOnlineText( args, num, &GlobalData::m_onlineCAFile ); }
+/* -onlineuser also opens the online screens at startup (Shell::showShell), on top of a main menu, so it
+	 turns the shell map off the way -lanlobby does */
+Int parseOnlineUser(char *args[], int num)
+{
+	if (TheWritableGlobalData)
+		TheWritableGlobalData->m_shellMapOn = FALSE;
+	return parseOnlineText( args, num, &GlobalData::m_onlineUser );
+}
+Int parseOnlinePass(char *args[], int num)			{ return parseOnlineText( args, num, &GlobalData::m_onlinePass ); }
+Int parseOnlineHostGame(char *args[], int num)	{ return parseOnlineText( args, num, &GlobalData::m_onlineHostGame ); }
+Int parseOnlineJoin(char *args[], int num)			{ return parseOnlineText( args, num, &GlobalData::m_onlineJoinGame ); }
+/* -onlinesay is chat, kept as UTF-8 like every line the service carries.  Windows hands the switch over in
+	 the ANSI code page, which on a Turkish machine made "ı" a lone 0xFD byte. */
+Int parseOnlineSay(char *args[], int num)
+{
+	const Int used = parseOnlineText( args, num, &GlobalData::m_onlineSay );
+#if defined(_WIN32)
+	if (TheWritableGlobalData && num > 1)
+	{
+		const int wideLength = MultiByteToWideChar( CP_ACP, 0, args[1], -1, NULL, 0 );
+		std::wstring wide( wideLength > 0 ? wideLength : 1, L'\0' );
+		MultiByteToWideChar( CP_ACP, 0, args[1], -1, &wide[0], wideLength );
+		const int length = WideCharToMultiByte( CP_UTF8, 0, wide.c_str(), -1, NULL, 0, NULL, NULL );
+		std::string utf8( length > 0 ? length : 1, '\0' );
+		WideCharToMultiByte( CP_UTF8, 0, wide.c_str(), -1, &utf8[0], length, NULL, NULL );
+		TheWritableGlobalData->m_onlineSay = utf8.c_str();
+	}
+#endif
+	return used;
+}
+Int parseOnlineMap(char *args[], int num)				{ return parseOnlineText( args, num, &GlobalData::m_onlineMap ); }
+Int parseOnlineOptions(char *args[], int num)		{ return parseOnlineText( args, num, &GlobalData::m_onlineOptions ); }
+
+/* -onlinestart N: the -onlinehost host starts the game once N players (itself included) sit in the room;
+	 bare or below 2 it is 2, the first joiner. */
+Int parseOnlineStart(char *args[], int num)
+{
+	if (!TheWritableGlobalData)
+		return 1;
+	const Bool hasNumber = num > 1 && args[1][0] >= '0' && args[1][0] <= '9';
+	const Int players = hasNumber ? atoi( args[1] ) : 2;
+	TheWritableGlobalData->m_onlineStart = players < 2 ? 2 : (players > MAX_SLOTS ? MAX_SLOTS : players);
+	return hasNumber ? 2 : 1;
+}
+
+/* -onlinelogin: the online login screen at startup with empty fields, for a person trying the service by
+	 hand; the shell map goes off as it does for -onlineuser */
+Int parseOnlineLogin(char *args[], int num)
+{
+	if (TheWritableGlobalData)
+	{
+		TheWritableGlobalData->m_onlineLoginOnStart = TRUE;
+		TheWritableGlobalData->m_shellMapOn = FALSE;
+	}
+	return 1;
+}
+
+Int parseQuickMatch(char *args[], int num)
+{
+	if (TheWritableGlobalData)
+		TheWritableGlobalData->m_quickMatchOnStart = TRUE;
+	return 1;
+}
+
 /* -lanlobby starts on the LAN screen rather than the main menu.  Two copies on one machine are
    started by a script and the first thing both of them do is the same four clicks; this is those
    clicks.  It turns the shell map off with it: Shell::showShell only puts the main menu on the
@@ -2721,6 +2838,7 @@ static CommandLineParam params[] =
 	{ "-nosmoothmotion", parseNoSmoothMotion },
 	{ "-smoothmotion", parseSmoothMotion },
 	{ "-nosmokefirelight", parseNoSmokeFireLight },
+	{ "-heathaze", parseHeatHaze },
 	{ "-lighting", parseLightingStyle },
 	{ "-quickstart", parseQuickStart },
 	/* In every build: EA kept them to Debug and Internal, so a Release run could not skip the logo or the
@@ -2880,6 +2998,19 @@ static CommandLineParam params[] =
 	{ "-netai", parseNetAI },
 	{ "-lanip", parseLanIP },
 	{ "-lanname", parseLanName },
+	{ "-relay", parseRelay },
+	{ "-online", parseOnline },
+	{ "-onlineca", parseOnlineCA },
+	{ "-onlineuser", parseOnlineUser },
+	{ "-onlinepass", parseOnlinePass },
+	{ "-onlinehost", parseOnlineHostGame },
+	{ "-onlinejoin", parseOnlineJoin },
+	{ "-onlinesay", parseOnlineSay },
+	{ "-onlinemap", parseOnlineMap },
+	{ "-onlineoptions", parseOnlineOptions },
+	{ "-onlinestart", parseOnlineStart },
+	{ "-onlinelogin", parseOnlineLogin },
+	{ "-quickmatch", parseQuickMatch },
 	{ "-lanlobby", parseLanLobby },
 	{ "-skirmishlobby", parseSkirmishLobby },
 	{ "-factionpicker", parseFactionPicker },

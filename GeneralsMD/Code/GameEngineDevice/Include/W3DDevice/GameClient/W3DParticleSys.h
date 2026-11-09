@@ -115,6 +115,7 @@ public:
 		UnsignedInt															pastLimit;				///< written by the job: on-screen particles past capacity
 		Bool																		glow;							///< written by the job: the fire's glow is in the normals, not the colour
 		Bool																		fire;							///< the template's FireLook: each particle's age and seed go in v2
+		Bool																		hardEdge;					///< ParticleSystem::isAttachedToMine: no soft particle fade (Insert_Sorted_Billboards)
 	};
 
 	/// One particle the sun's smoke map can take, as the last particle update left it.
@@ -155,6 +156,8 @@ private:
 	std::vector<SystemView>		m_frameView;
 	std::vector<ParticleSystem *>	m_frameFires;			///< the additive and Emissive FireLook systems among them, for the Firelight option
 	std::vector<Real>					m_frameFireFades;		///< and their fades
+	std::vector<ParticleSystem *>	m_frameExhausts;		///< -heathaze: the additive weapon trails riding a projectile, a missile's flame
+	std::vector<Real>					m_frameExhaustFades;
 	std::vector<ParticleSystem *>	m_fieldSystems;		///< the contamination fields' systems, empty ones too
 	std::vector<SunMapCaster>	m_sunMapCasters;
 	Bool											m_frameViewValid;

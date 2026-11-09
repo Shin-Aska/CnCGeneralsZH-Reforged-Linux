@@ -489,24 +489,36 @@ Color:Pink
 "Рожевий"
 END
 
-Color:Crimson
-"Багряний"
-END
-
-Color:Azure
-"Лазурний"
-END
-
-Color:Salmon
-"Лососевий"
-END
-
 Color:Teal
 "Бірюзовий"
 END
 
+Color:Lime
+"Лаймовий"
+END
+
+Color:Navy
+"Темно-синій"
+END
+
+Color:Magenta
+"Пурпуровий"
+END
+
+Color:Brown
+"Коричневий"
+END
+
 Color:Lavender
 "Лавандовий"
+END
+
+Color:Coral
+"Кораловий"
+END
+
+Color:Olive
+"Оливковий"
 END
 
 MSG:Testing
@@ -2982,7 +2994,7 @@ TOOLTIP:Crates
 END
 
 TOOLTIP:SuperWeapons
-"Скільки суперзброї кожного виду може мати гравець одночасно. Дозволено: стільки, скільки він може оплатити. Ліміт: по одній, а для генерала суперзброї США чотири. Ні: жодної, окрім генерала суперзброї, який залишає одну. Він виняток, бо його три суперзброї — це те, чим він платить за слабшу армію."
+"Скільки суперзброї може мати гравець одночасно. Дозволено: стільки, скільки він може оплатити. Ліміт: одна, а для генерала суперзброї США чотири. Ні: жодної, окрім генерала суперзброї, який залишає одну. Він виняток, бо його суперзброя — це те, чим він платить за слабшу армію. При «Ні» будь-хто, і комп'ютер теж, може збудувати одну шахту ядерної ракети, щоб купувати в ній покращення Китаю. Ракети в ній немає: ні кнопки запуску, ні зворотного відліку, ні оголошення."
 END
 
 DOZER:ConstructionComplete
@@ -4694,7 +4706,31 @@ CONTROLBAR:IdleWorker
 END
 
 CONTROLBAR:IdleWorkerDescription
-"Натисніть, щоб вибрати наступного вільного робітника"
+"Натисніть, щоб вибрати наступного вільного робітника. Shift-клік вибирає всіх."
+END
+
+CONTROLBAR:IdleInfantry
+"Вільна піхота"
+END
+
+CONTROLBAR:IdleInfantryDescription
+"Натисніть, щоб вибрати наступного вільного піхотинця. Shift-клік вибирає всіх."
+END
+
+CONTROLBAR:IdleVehicle
+"Вільна техніка"
+END
+
+CONTROLBAR:IdleVehicleDescription
+"Натисніть, щоб вибрати наступну вільну наземну техніку. Shift-клік вибирає всю."
+END
+
+CONTROLBAR:IdleAircraft
+"Вільна авіація"
+END
+
+CONTROLBAR:IdleAircraftDescription
+"Натисніть, щоб вибрати наступний вільний літак. Shift-клік вибирає всі."
 END
 
 CONTROLBAR:Beacon
@@ -8747,6 +8783,14 @@ END
 
 TOOLTIP:StagingPlayerInfo
 "\n Регіон: %ls \n Пінг: %d мс \n %d перемог/%d поразок \n %d відключень \n Улюблена армія: %ls"
+END
+
+TOOLTIP:OnlineStagingPlayerInfo
+"\n Пінг: %d мс \n %d перемог/%d поразок \n %d відключень \n Улюблена армія: %ls"
+END
+
+TOOLTIP:OnlinePlayerInfo
+"\n перемог: %d / поразок: %d"
 END
 
 GUI:CantBuildTooCloseToSupplies
@@ -16061,6 +16105,34 @@ TOOLTIP:VSync
 "Прив'язує картинку до монітора, щоб вона не рвалася. Вимкнена — картинка йде так швидко, як малює комп'ютер. Застосовується після Прийняти."
 END
 
+GUI:FrameRateLimit
+"Обмеження FPS"
+END
+
+GUI:FrameRateLimit0
+"Вимк."
+END
+
+GUI:FrameRateLimit1
+"240 FPS"
+END
+
+GUI:FrameRateLimit2
+"144 FPS"
+END
+
+GUI:FrameRateLimit3
+"120 FPS"
+END
+
+GUI:FrameRateLimit4
+"60 FPS"
+END
+
+TOOLTIP:FrameRateLimit
+"Скільки кадрів на секунду гра малює в матчі, не більше. З меншою межею відеокарта гріється й шумить менше, а гра не сповільнюється. У меню завжди не більше 60."
+END
+
 GUI:ClassicGraphics
 "Класична графіка"
 END
@@ -16334,7 +16406,7 @@ GUI:OrderLines
 END
 
 TOOLTIP:OrderLines
-"Лінія від кожного вибраного підрозділу до місця призначення і далі крізь кожну точку в черзі. Вимк. — одиночний наказ без лінії та маркера, і клік не лишає кільця на землі; маршрут у черзі зберігає і лінію, і маркери."
+"Лінія від кожного вибраного підрозділу до місця призначення і далі крізь кожну точку в черзі. Вимк. — одиночний наказ без лінії, але маркер і кільце на місці кліку лишаються; маршрут у черзі зберігає лінію."
 END
 
 GUI:PlayerColors
@@ -16609,6 +16681,10 @@ GUI:CantBuildTooManyDerrickDefenses
 "Ви вже маєте дві оборонні споруди навколо цих нафтових вишок."
 END
 
+TOOLTIP:TooltipProRulesBanUpgrade
+"Заборонено про-правилами"
+END
+
 GUI:HudStatArmy
 "Вартість армії"
 END
@@ -16683,6 +16759,26 @@ END
 
 GUI:HudNoWorkerLeft
 "У %s не лишилося робітників"
+END
+
+GUI:HudHighestFirst
+"за спаданням"
+END
+
+GUI:HudPlayerHead
+"Гравець"
+END
+
+GUI:HudStatUnitMoney
+"$"
+END
+
+GUI:HudStatUnitIncome
+"$/хв"
+END
+
+GUI:HudStatUnitPower
+"надлишок"
 END
 
 GUI:BarIdleWorker

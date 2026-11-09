@@ -1,4 +1,5 @@
 // Device-free hazard cloud source snapshots and uncapped spatial bins.
+// Distributed under the repository's GPL-3.0 terms; see LICENSE.md.
 #pragma once
 
 #include "Platform/HazardCloud.h"

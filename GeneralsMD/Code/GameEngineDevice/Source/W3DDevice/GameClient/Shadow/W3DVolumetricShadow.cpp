@@ -914,14 +914,14 @@ Int W3DShadowGeometry::initFromHLOD(RenderObjClass *robj)
 	//Second pass: the skinned meshes the loop above deliberately skipped.  Their vertices move with
 	//the skeleton, so the silhouette has to be rebuilt from the posed vertices every frame instead of
 	//once here - but the topology (polygons, neighbors, welded vertex indices) never changes, so it is
-	//shared exactly like a rigid mesh's.  These are taken from LOD 0 because that is the LOD
-	//updateVolumes() and RenderVolume() fetch the live mesh from, and Get_Deformed_Vertices() must be
-	//called on the same mesh the indices were built from.
+	//shared exactly like a rigid mesh's.  These are taken from the top LOD, the full model, like the
+	//rigid ones above, because that is the LOD updateVolumes() and RenderVolume() fetch the live mesh
+	//from, and Get_Deformed_Vertices() must be called on the same mesh the indices were built from.
 	if (TheGlobalData && TheGlobalData->m_useShadowVolumesForSkins)
 	{
-		for (i = 0; i < hlod->Get_Lod_Model_Count(0); i++)
+		for (i = 0; i < hlod->Get_Lod_Model_Count(top); i++)
 		{
-			RenderObjClass *lodModel=hlod->Peek_Lod_Model(0,i);
+			RenderObjClass *lodModel=hlod->Peek_Lod_Model(top,i);
 
 			if (!lodModel || lodModel->Class_ID() != RenderObjClass::CLASSID_MESH)
 				continue;
@@ -1556,7 +1556,7 @@ void W3DVolumetricShadow::getRenderCost(RenderCost & rc) const
 				meshIndex=m_geometry->getMesh(j)->m_meshRobjIndex;
 
 				if (meshIndex >= 0)
-					mesh = (MeshClass *)hlod->Peek_Lod_Model(0,meshIndex);
+					mesh = (MeshClass *)hlod->Peek_Lod_Model(hlod->Get_LOD_Count()-1,meshIndex);
 				else
 					mesh = (MeshClass *)m_robj;
 
@@ -1584,8 +1584,9 @@ void W3DVolumetricShadow::RenderVolume(Int meshIndex, Int lightIndex)
 
 	Int meshRobjIndex=m_geometry->getMesh(meshIndex)->m_meshRobjIndex;
 
+	// the top LOD, which initFromHLOD built the geometry from
 	if (meshRobjIndex >= 0)
-		mesh = (MeshClass *)hlod->Peek_Lod_Model(0,meshRobjIndex);
+		mesh = (MeshClass *)hlod->Peek_Lod_Model(hlod->Get_LOD_Count()-1,meshRobjIndex);
 	else
 		mesh = (MeshClass *)m_robj;
 
@@ -2161,12 +2162,12 @@ void W3DVolumetricShadow::updateVolumes(Real zoffset)
 			meshIndex=m_geometry->getMesh(j)->m_meshRobjIndex;
 
 			if (meshIndex >= 0)
-				mesh = (MeshClass *)hlod->Peek_Lod_Model(0,meshIndex);
+				mesh = (MeshClass *)hlod->Peek_Lod_Model(hlod->Get_LOD_Count()-1,meshIndex);
 			else
 				mesh = (MeshClass *)m_robj;
 
-			if (mesh) 
-			{	
+			if (mesh)
+			{
 				if (!mesh->Is_Not_Hidden_At_All())
 					continue;
 
@@ -2258,9 +2259,13 @@ Bool W3DVolumetricShadow::poseSkinMesh(W3DShadowGeometryMesh *geomMesh, MeshClas
 
 	//The polygon indices were welded against this exact vertex array.  If the mesh we are being asked
 	//to pose is a different one (a different LOD, say) the indices would run off the end of the
-	//scratch, so bail instead of corrupting memory.
-	if (mesh->Peek_Model() == NULL || mesh->Peek_Model()->Get_Vertex_Count() != numVerts)
-	{	DEBUG_ASSERTCRASH(0, ("shadow skin vertex count changed under us"));
+	//scratch, so bail instead of corrupting memory.  Class_ID first: updateVolumes casts whatever sits
+	//at the index, and a box's name lies where a mesh keeps its Model.
+	//A rigid mesh has no bone links for Get_Deformed_Vertices to read.
+	if (mesh->Class_ID() != RenderObjClass::CLASSID_MESH || mesh->Peek_Model() == NULL || !mesh->Peek_Model()->Get_Flag(MeshGeometryClass::SKIN) || mesh->Peek_Model()->Get_Vertex_Count() != numVerts)
+	{	static Bool reported = FALSE;	//the same mismatch comes back every frame
+		DEBUG_ASSERTCRASH(reported, ("shadow skin mesh at this index is not the one the geometry was built from"));
+		reported = TRUE;
 		return FALSE;
 	}
 

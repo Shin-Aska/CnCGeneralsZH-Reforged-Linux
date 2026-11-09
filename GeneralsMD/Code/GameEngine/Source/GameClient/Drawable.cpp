@@ -295,10 +295,6 @@ const Int MAX_ENABLED_MODULES								= 16;
 
 /*static*/ Bool							Drawable::s_staticImagesInited = false;
 /*static*/ const Image*			Drawable::s_veterancyImage[LEVEL_COUNT]	= { NULL };
-/*static*/ const Image*			Drawable::s_fullAmmo = NULL;
-/*static*/ const Image*			Drawable::s_emptyAmmo = NULL;
-/*static*/ const Image*			Drawable::s_fullContainer = NULL;
-/*static*/ const Image*			Drawable::s_emptyContainer = NULL;
 /*static*/ Anim2DTemplate**	Drawable::s_animationTemplates = NULL;
 #ifdef DIRTY_CONDITION_FLAGS
 /*static*/ Int							Drawable::s_modelLockCount = 0;
@@ -315,11 +311,6 @@ const Int MAX_ENABLED_MODULES								= 16;
 	s_veterancyImage[2] = TheMappedImageCollection->findImageByName("SCVeter2");
 	s_veterancyImage[3] = TheMappedImageCollection->findImageByName("SCVeter3");
 
-	s_fullAmmo	= TheMappedImageCollection->findImageByName("SCPAmmoFull");
-	s_emptyAmmo	= TheMappedImageCollection->findImageByName("SCPAmmoEmpty");
-	s_fullContainer	= TheMappedImageCollection->findImageByName("SCPPipFull");
-	s_emptyContainer	= TheMappedImageCollection->findImageByName("SCPPipEmpty");
-	
 	s_animationTemplates = NEW Anim2DTemplate* [ MAX_ICONS ];
 
 	s_animationTemplates[ICON_DEFAULT_HEAL]			= TheAnim2DCollection->findTemplate(TheDrawableIconNames[ICON_DEFAULT_HEAL]);
@@ -457,6 +448,25 @@ Bool Drawable_structureShowsHealthBar( Bool isBridge, Bool isUnowned, Bool isGar
 	* KindOf.h as "you can mouse over it to see its health (drones!)". So a NO_SELECT object keeps
 	* its bar whatever else it is; without that the owner never saw his drone's health at all. */
 //-------------------------------------------------------------------------------------------------
+/** China's Artillery Barrage flies twelve invisible AIRCRAFT over the target, one per shell, and each
+	* hung a line and a ring in the sky. What marks them is UNATTACKABLE and IGNORED_IN_GUI together:
+	* either alone is a real plane, the Turkish Kargu drone carrying the first and every general's power
+	* plane the second. Shells, missiles, bombs and parachutes are out by kind as well, so a mod that
+	* calls one of them an aircraft does not grow a line on every round. */
+//-------------------------------------------------------------------------------------------------
+Bool Drawable_kindWearsAltitudeLine( const KindOfMaskType& kinds )
+{
+	if( !TEST_KINDOFMASK( kinds, KINDOF_AIRCRAFT ) )
+		return FALSE;
+
+	return !( ( TEST_KINDOFMASK( kinds, KINDOF_UNATTACKABLE ) && TEST_KINDOFMASK( kinds, KINDOF_IGNORED_IN_GUI ) ) ||
+						TEST_KINDOFMASK( kinds, KINDOF_PROJECTILE ) ||
+						TEST_KINDOFMASK( kinds, KINDOF_SMALL_MISSILE ) ||
+						TEST_KINDOFMASK( kinds, KINDOF_BALLISTIC_MISSILE ) ||
+						TEST_KINDOFMASK( kinds, KINDOF_PARACHUTE ) );
+}
+
+//-------------------------------------------------------------------------------------------------
 Bool Drawable_kindShowsHealthBar( const KindOfMaskType& kinds )
 {
 	if( TEST_KINDOFMASK( kinds, KINDOF_INERT ) && !TEST_KINDOFMASK( kinds, KINDOF_NO_SELECT ) )
@@ -551,9 +561,7 @@ void Drawable::takeLookForDraw( void )
 	look.hidden = isDrawableEffectivelyHidden();
 	look.fullyObscured = m_drawableFullyObscuredByShroud;
 	look.drawsInMirror = getDrawsInMirror();
-#if defined(__linux__)
 	look.noSave = testDrawableStatus( DRAWABLE_STATUS_NO_SAVE );
-#endif
 	look.receivesDynamicLights = m_receivesDynamicLights;
 	look.stealthLook = m_stealthLook;
 	look.stealthDrawnLook = m_stealthDrawnLook;
@@ -657,9 +665,7 @@ Drawable::Drawable( const ThingTemplate *thingTemplate, DrawableStatus statusBit
 	m_lookForDraw.hidden = FALSE;
 	m_lookForDraw.fullyObscured = FALSE;
 	m_lookForDraw.drawsInMirror = FALSE;
-#if defined(__linux__)
 	m_lookForDraw.noSave = BitTest( m_status, DRAWABLE_STATUS_NO_SAVE );
-#endif
 	m_lookForDraw.receivesDynamicLights = TRUE;
 	m_lookForDraw.hasTintColor = FALSE;
 	m_lookForDraw.hasSelectionColor = FALSE;
@@ -3554,14 +3560,14 @@ void Drawable::drawAltitudeLine( void )
 	// The height over terrain says nothing on a carrier's deck, which stands far above the sea bed.  The
 	// airborne flag does: a taxi locomotor has no AirborneTargetingHeight, so nothing parked ever sets
 	// it.  KINDOF_AIRCRAFT stays, because boats over deep water, drones, flares and missiles set it too.
-	if( !obj->isKindOf( KINDOF_AIRCRAFT ) || !obj->isAirborneTarget() )
+	if( !Drawable_kindWearsAltitudeLine( obj->getTemplate()->getKindOfMask() ) || !obj->isAirborneTarget() )
 		return;
 
-	// China's artillery barrage flies a plane with no draw module at all
-	if( *getDrawModulesNonDirty() == NULL )
+	// An enemy stealth plane cloaking again fades out over a moment on Direct3D 11 and is not hidden
+	// until it is gone. The line and its ring in the owner's colour would hang on at full strength
+	// and give away where it went, so they go the moment it starts to vanish.
+	if( m_stealthLook == STEALTHLOOK_INVISIBLE )
 		return;
-
-	const Color LINE_COLOR = GameMakeColor( 255, 255, 255, 120 );
 
 	Coord3D top = *obj->getPosition();
 	Coord3D bottom = top;
@@ -3601,7 +3607,142 @@ void Drawable::drawAltitudeLine( void )
 		}
 	}
 
-	TheDisplay->drawLine( topScreen.x, topScreen.y, bottomScreen.x, bottomScreen.y, 1.0f, LINE_COLOR );
+	//
+	// The line is overlay and the plane is scene, so a line drawn from the plane's pivot ran across its
+	// own fuselage. The pivot sits at the belly, and what lies over the line on the screen is the part
+	// of the hull nearer the camera. So the footprint, a circle the plane's length across at the
+	// pivot's height, is put on the screen and the line starts where it leaves that circle: under the
+	// nose of a plane flying at the camera, right at the belly of one flying across. The rotor is up
+	// in the air and never comes into it, which the bounding sphere used before did, leaving a
+	// Comanche's line hanging a rotor's length under the hull.
+	//
+	Real startX = topScreen.x, startY = topScreen.y;
+	const Real dx = bottomScreen.x - topScreen.x, dy = bottomScreen.y - topScreen.y;
+	const Real length = sqrtf( dx * dx + dy * dy );
+	Real lineLength = length;
+	if( topOn && length > 0.0f )
+	{
+		const GeometryInfo &geom = obj->getGeometryInfo();
+		const Real footprint = MAX( geom.getMajorRadius(), geom.getMinorRadius() ) * 0.85f;
+		Real trim = 0.0f;
+		const Int FOOTPRINT_POINTS = 12;
+		for( Int i = 0; i < FOOTPRINT_POINTS; ++i )
+		{
+			const Real angle = 2.0f * PI * i / FOOTPRINT_POINTS;
+			Coord3D p = top;
+			p.x += footprint * Cos( angle );
+			p.y += footprint * Sin( angle );
+			ICoord2D s;
+			if( !TheTacticalView->worldToScreen( &p, &s ) )
+				continue;		// at the screen's edge the points still on it stand in for the rest
+			const Real along = ( ( s.x - topScreen.x ) * dx + ( s.y - topScreen.y ) * dy ) / length;
+			trim = MAX( trim, along );
+		}
+		lineLength = length - trim;
+		startX = topScreen.x + dx * ( trim / length );
+		startY = topScreen.y + dy * ( trim / length );
+	}
+
+	// The owner's colour on the line, the ring and the disc inside it, so whose plane is over this
+	// spot reads from the ground as well as from the sky. Civilians and anything without a colour
+	// borrow the old white.
+	UnsignedByte ownerR = 255, ownerG = 255, ownerB = 255;
+	const Player *owner = obj->getControllingPlayer();
+	if( owner != NULL && owner->getPlayerColor() != 0 )
+	{
+		UnsignedByte a;
+		GameGetColorComponents( clientPlayerColor( owner ), &ownerR, &ownerG, &ownerB, &a );
+	}
+
+	//
+	// One pixel of the owner's colour inside three of near black, so it holds on snow and sand alike.
+	// Faint where it leaves the plane, firm where it meets the ground: the foot is the answer, the
+	// top is only where the question came from.
+	//
+	const Int SEGMENTS = 8;
+	if( lineLength > 2.0f )
+	{
+		const Real sx = ( bottomScreen.x - startX ) / SEGMENTS, sy = ( bottomScreen.y - startY ) / SEGMENTS;
+		for( Int pass = 0; pass < 2; ++pass )
+		{
+			for( Int i = 0; i < SEGMENTS; ++i )
+			{
+				const Int step = i + 1;
+				const Color color = pass == 0
+					? GameMakeColor( 0, 0, 0, (UnsignedByte)( 20 + ( 120 - 20 ) * step / SEGMENTS ) )
+					: GameMakeColor( ownerR, ownerG, ownerB, (UnsignedByte)( 50 + ( 220 - 50 ) * step / SEGMENTS ) );
+				TheDisplay->drawLine( REAL_TO_INT( startX + sx * i ), REAL_TO_INT( startY + sy * i ),
+															REAL_TO_INT( startX + sx * step ), REAL_TO_INT( startY + sy * step ),
+															pass == 0 ? 3.0f : 1.0f, color );
+			}
+		}
+	}
+
+	//
+	// A ring lying on the ground at the foot. It is flat on the terrain, so the camera squashes it to
+	// an ellipse exactly as it does the ground: a faint disc of the owner's colour, then a two pixel
+	// ring of it inside a dark one a pixel wider on each side.
+	//
+	if( !bottomOn )
+		return;
+
+	const Real ringRadius = MAX( 6.0f, MIN( 18.0f, obj->getGeometryInfo().getMajorRadius() * 0.6f ) );
+	const Int RING_POINTS = 20;
+	ICoord2D ring[ RING_POINTS ];
+	Bool ringOn[ RING_POINTS ];
+	Bool allOn = TRUE;
+	for( Int i = 0; i < RING_POINTS; ++i )
+	{
+		const Real angle = 2.0f * PI * i / RING_POINTS;
+		Coord3D p = bottom;
+		p.x += ringRadius * Cos( angle );
+		p.y += ringRadius * Sin( angle );
+		ringOn[ i ] = TheTacticalView->worldToScreen( &p, &ring[ i ] );
+		allOn = allOn && ringOn[ i ];
+	}
+
+	// the disc, one screen row at a time across the ellipse; it is convex, so each row is one span
+	if( allOn )
+	{
+		Int minY = ring[ 0 ].y, maxY = ring[ 0 ].y;
+		for( Int i = 1; i < RING_POINTS; ++i )
+		{
+			minY = MIN( minY, ring[ i ].y );
+			maxY = MAX( maxY, ring[ i ].y );
+		}
+		const Color discColor = GameMakeColor( ownerR, ownerG, ownerB, 45 );
+		for( Int y = minY; y <= maxY; ++y )
+		{
+			const Real rowY = y + 0.5f;
+			Real left = 1e9f, right = -1e9f;
+			for( Int i = 0; i < RING_POINTS; ++i )
+			{
+				const ICoord2D &a = ring[ i ];
+				const ICoord2D &b = ring[ ( i + 1 ) % RING_POINTS ];
+				if( a.y == b.y || rowY < MIN( a.y, b.y ) || rowY > MAX( a.y, b.y ) )
+					continue;
+				const Real x = a.x + ( rowY - a.y ) * ( b.x - a.x ) / (Real)( b.y - a.y );
+				left = MIN( left, x );
+				right = MAX( right, x );
+			}
+			if( right > left )
+				TheDisplay->drawFillRect( REAL_TO_INT( left ), y, REAL_TO_INT( right - left ), 1, discColor );
+		}
+	}
+
+	// a foot at the screen's edge keeps the part of its ring still on the screen
+	for( Int pass = 0; pass < 2; ++pass )
+	{
+		const Real width = pass == 0 ? 4.0f : 2.0f;
+		const Color color = pass == 0 ? GameMakeColor( 0, 0, 0, 150 ) : GameMakeColor( ownerR, ownerG, ownerB, 230 );
+		for( Int i = 0; i < RING_POINTS; ++i )
+		{
+			const Int j = ( i + 1 ) % RING_POINTS;
+			if( !ringOn[ i ] || !ringOn[ j ] )
+				continue;
+			TheDisplay->drawLine( ring[ i ].x, ring[ i ].y, ring[ j ].x, ring[ j ].y, width, color );
+		}
+	}
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -3665,8 +3806,7 @@ void Drawable::drawIconUI( void )
 #endif
 		drawDisabled( healthBarRegion );
 
-		drawAmmo( healthBarRegion );                
-		drawContained( healthBarRegion ); 
+		drawTrays( healthBarRegion );
 
 		//Moved this to last so that it shows up over contained and ammo icons.
 		drawVeterancy( healthBarRegion ); 
@@ -3754,13 +3894,171 @@ void Drawable::drawEmoticon( const IRegion2D *healthBarRegion )
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
-void Drawable::drawAmmo( const IRegion2D *healthBarRegion )
+Int Drawable_lampCellLeft( Int innerWidth, Int capacity, Int index )
 {
-	// the pips are left-justified on the health bar, as drawContained's are.  EA only drew them for a
-	// selected or moused-over unit, which has a bar; an aircraft that shows them always may have none.
-	if (!healthBarRegion)
+	// a lamp and its gap need three pixels, or the row is a striped smear nobody can count
+	if( capacity <= 0 || innerWidth + 1 < capacity * 3 )
+		return -1;
+
+	// the leftover pixels go one each to lamps spread along the row, so the last lamp ends on the
+	// tray's edge and no two lamps differ by more than a pixel
+	return index * (innerWidth + 1) / capacity;
+}
+
+namespace
+{
+	struct LampTone
+	{
+		Color top, body, shade;
+	};
+
+	LampTone makeLampTone( Int r, Int g, Int b, Int topR, Int topG, Int topB, Int shadeR, Int shadeG, Int shadeB )
+	{
+		LampTone t;
+		t.top = GameMakeColor( topR, topG, topB, 255 );
+		t.body = GameMakeColor( r, g, b, 255 );
+		t.shade = GameMakeColor( shadeR, shadeG, shadeB, 255 );
+		return t;
+	}
+
+	// a lamp lit from above: a light line along its top, the body, a darker line underneath when the
+	// tray is tall enough to spare one - what makes a row read as the panel lamps of the control bar
+	// rather than flat paint
+	void drawLamp( Int x, Int y, Int w, Int h, const LampTone &tone )
+	{
+		if( w <= 0 || h <= 0 )
+			return;
+		TheDisplay->drawFillRect( x, y, w, 1, tone.top );
+		const Int bodyHeight = h >= 3 ? h - 2 : h - 1;
+		if( bodyHeight > 0 )
+			TheDisplay->drawFillRect( x, y + 1, w, bodyHeight, tone.body );
+		if( h >= 3 )
+			TheDisplay->drawFillRect( x, y + h - 1, w, 1, tone.shade );
+	}
+
+	//
+	// The tray the rounds and the seats are counted in: a black glass strip the health bar's width,
+	// two pixels thicker than the bar so a lamp inside has a top, a body and a shade, cut into one
+	// lamp per round or seat with a one pixel black gap between neighbours. The first litA lamps burn
+	// in toneA, the next litB in toneB, the rest are dark glass. When the bar is too short to give
+	// every lamp two pixels (a far zoom, a big load) the lamps merge into one continuous fill with each
+	// tone's share of it, and a single occupant still keeps a pixel of its own.
+	//
+	Int trayHeight( const IRegion2D *bar )
+	{
+		return max( 3, (Int)(bar->hi.y - bar->lo.y) ) + 2;
+	}
+
+	// the first tray's top: two rows under the bar, the selection frame's row and one clear
+	Int trayStackTop( const IRegion2D *bar )
+	{
+		return bar->lo.y + max( 3, (Int)(bar->hi.y - bar->lo.y) ) + 2;
+	}
+
+	// a tray and the two clear rows under it
+	Int traySpan( const IRegion2D *bar )
+	{
+		return trayHeight( bar ) + 2;
+	}
+
+	void drawLampTray( const IRegion2D *bar, Int y, Int capacity, Int litA, const LampTone &toneA,
+										 Int litB, const LampTone &toneB )
+	{
+		const Int x = bar->lo.x;
+		const Int width = bar->hi.x - bar->lo.x;
+		const Int height = trayHeight( bar );
+		const Int innerWidth = width - 2;
+		const Int innerHeight = height - 2;
+		if( capacity <= 0 || innerWidth <= 0 )
+			return;
+
+		litA = max( 0, min( litA, capacity ) );
+		litB = max( 0, min( litB, capacity - litA ) );
+
+		const LampTone dark = makeLampTone( 28, 31, 30,  56, 60, 58,  20, 22, 21 );
+
+		TheDisplay->drawFillRect( x, y, width, height, GameMakeColor( 0, 0, 0, 220 ) );
+
+		if( Drawable_lampCellLeft( innerWidth, capacity, 0 ) >= 0 )
+		{
+			for( Int i = 0; i < capacity; ++i )
+			{
+				const Int left = Drawable_lampCellLeft( innerWidth, capacity, i );
+				const Int right = Drawable_lampCellLeft( innerWidth, capacity, i + 1 ) - 1;
+				const LampTone &tone = i < litA ? toneA : i < litA + litB ? toneB : dark;
+				drawLamp( x + 1 + left, y + 1, right - left, innerHeight, tone );
+			}
+		}
+		else
+		{
+			Int endA = litA > 0 ? max( 1, innerWidth * litA / capacity ) : 0;
+			Int endB = litB > 0 ? max( endA + 1, innerWidth * (litA + litB) / capacity ) : endA;
+			endA = min( endA, innerWidth );
+			endB = min( endB, innerWidth );
+			drawLamp( x + 1, y + 1, endA, innerHeight, toneA );
+			drawLamp( x + 1 + endA, y + 1, endB - endA, innerHeight, toneB );
+			drawLamp( x + 1 + endB, y + 1, innerWidth - endB, innerHeight, dark );
+		}
+	}
+}
+
+// ------------------------------------------------------------------------------------------------
+/** The rounds and the seats hang under the health bar, one lamp tray each, rounds on top. EA only
+	* drew the ammo pips for a selected or moused-over unit, which has a bar; an aircraft that shows
+	* them always may have none, and then nothing is drawn. */
+// ------------------------------------------------------------------------------------------------
+void Drawable::drawTrays( const IRegion2D *healthBarRegion )
+{
+	if( !healthBarRegion )
 		return;
 
+	Int y = trayStackTop( healthBarRegion );
+	Int total, full, infantry;
+
+	// rounds burn the reload bar's amber, so a Comanche's rockets and the wait for the next salvo read
+	// as one family; a spent round is dark glass
+	if( ammoTrayCounts( total, full ) )
+	{
+		const LampTone ROUND = makeLampTone( 255, 190, 40,  255, 232, 150,  176, 118, 16 );
+		drawLampTray( healthBarRegion, y, total, full, ROUND, 0, ROUND );
+		y += traySpan( healthBarRegion );
+	}
+
+	//
+	// Infantry first, then everything else, against the seats there are. EA's pure green and pure
+	// blue are kept as the meaning and toned down to sit with the steel of the HUD: a field green for
+	// soldiers, a steel blue for vehicles and anything else aboard.
+	//
+	if( seatTrayCounts( total, infantry, full ) )
+	{
+		const LampTone INFANTRY = makeLampTone( 120, 196, 64,  196, 240, 140,  66, 118, 34 );
+		const LampTone VEHICLE = makeLampTone( 86, 148, 214,  176, 214, 250,  44, 86, 138 );
+		drawLampTray( healthBarRegion, y, total, infantry, INFANTRY, full - infantry, VEHICLE );
+	}
+}
+
+// ------------------------------------------------------------------------------------------------
+/** The first free row under this drawable's bar and whatever trays drawTrays hangs from it, for
+	* anything else that draws under the bar: the capture clock, the enthusiasm icon. */
+// ------------------------------------------------------------------------------------------------
+Int Drawable::trayStackBottom( const IRegion2D *healthBarRegion ) const
+{
+	Int y = trayStackTop( healthBarRegion );
+	const Object *obj = getObject();
+	if( obj == NULL || obj->isEffectivelyDead() || obj->isKindOf( KINDOF_IGNORED_IN_GUI ) )
+		return y;		// drawIconUI bails before the trays for these
+
+	Int total, full, infantry;
+	if( ammoTrayCounts( total, full ) )
+		y += traySpan( healthBarRegion );
+	if( seatTrayCounts( total, infantry, full ) )
+		y += traySpan( healthBarRegion );
+	return y;
+}
+
+// ------------------------------------------------------------------------------------------------
+Bool Drawable::ammoTrayCounts( Int &numTotal, Int &numFull ) const
+{
 	const Object *obj = getObject();
 
 	//
@@ -3775,71 +4073,27 @@ void Drawable::drawAmmo( const IRegion2D *healthBarRegion )
 				(alwaysShow || isSelected() || (TheInGameUI && (TheInGameUI->getMousedOverDrawableID() == getID()))) &&
 				obj->getControllingPlayer() == ThePlayerList->getLocalPlayer()
 			))
-		return;
+		return FALSE;
 
-	Int numTotal;
-	Int numFull;
-	if (!obj->getAmmoPipShowingInfo(numTotal, numFull))
-		return;
-
-	if (!s_fullAmmo || !s_emptyAmmo)
-		return;
-
-
-	
-#ifdef SCALE_ICONS_WITH_ZOOM_ML
-	Real scale = TheGlobalData->m_ammoPipScaleFactor / CLAMP_ICON_ZOOM_FACTOR( TheTacticalView->getZoom() );
-#else
-	Real scale = 1.0f;
-#endif
-
-	Int boxWidth  = REAL_TO_INT(s_emptyAmmo->getImageWidth() * scale);
-	Int boxHeight = REAL_TO_INT(s_emptyAmmo->getImageHeight() * scale);
-	const Int SPACING = 1;
-	//Int totalWidth = (boxWidth+SPACING)*numTotal;
-
-	ICoord2D screenCenter;
-	Coord3D pos = *obj->getPosition();
-	pos.x += TheGlobalData->m_ammoPipWorldOffset.x;
-	pos.y += TheGlobalData->m_ammoPipWorldOffset.y;
-	pos.z += TheGlobalData->m_ammoPipWorldOffset.z + obj->getGeometryInfo().getMaxHeightAbovePosition();
-	if( !TheTacticalView->worldToScreen( &pos, &screenCenter ) )
-		return;
-
-	Real bounding = obj->getGeometryInfo().getBoundingSphereRadius() * scale;
-	//Int posx = screenCenter.x + REAL_TO_INT(TheGlobalData->m_ammoPipScreenOffset.x*bounding) - totalWidth;
-	//**CHANGING CODE: Left justify with health bar min
-	Int posx = healthBarRegion->lo.x;
-	Int posy = screenCenter.y + REAL_TO_INT(TheGlobalData->m_ammoPipScreenOffset.y*bounding);
-	for (Int i = 0; i < numTotal; ++i)
-	{
-		TheDisplay->drawImage(i < numFull ? s_fullAmmo : s_emptyAmmo, posx, posy + 1, posx + boxWidth, posy + 1 + boxHeight);
-		posx += boxWidth + SPACING;
-	}
+	return obj->getAmmoPipShowingInfo(numTotal, numFull) && numTotal > 0;
 }
 
 // ------------------------------------------------------------------------------------------------
-// ------------------------------------------------------------------------------------------------
-void Drawable::drawContained( const IRegion2D *healthBarRegion )
+Bool Drawable::seatTrayCounts( Int &numTotal, Int &numInfantry, Int &numFull ) const
 {
-	// the pips are left-justified on the health bar, and this is the only thing that reads it -
-	// an object with no health region (off screen, or ignored in the GUI) would deref a NULL below
-	if (!healthBarRegion)
-		return;
-
-	const Object *obj = getObject();			
+	const Object *obj = getObject();
 
 	ContainModuleInterface* container = obj->getContain();
 	if (!container)
-		return;
+		return FALSE;
 
 	// a building being put up cannot hold anyone yet, so its (empty) pips are just noise
 	if (obj->getStatusBits().test( OBJECT_STATUS_UNDER_CONSTRUCTION ))
-		return;
+		return FALSE;
 
 	// container pips are always on for own objects (was: only when selected or moused over)
 	if (!TheGlobalData->m_showObjectHealth)
-		return;
+		return FALSE;
 
 	//
 	// ...and a building you can garrison shows them whoever holds it. How many are occupied is the
@@ -3849,7 +4103,7 @@ void Drawable::drawContained( const IRegion2D *healthBarRegion )
 	//
 	if (obj->getControllingPlayer() != ThePlayerList->getLocalPlayer() &&
 			!(obj->isKindOf( KINDOF_STRUCTURE ) && container->isGarrisonable()))
-		return;
+		return FALSE;
 
 	//
 	// a unit nobody can select carries a load nobody can unload: the plane a Supply Drop Zone or a
@@ -3858,28 +4112,22 @@ void Drawable::drawContained( const IRegion2D *healthBarRegion )
 	// exempt, since a civilian house holds a garrison without being selectable.
 	//
 	if (!obj->isKindOf( KINDOF_STRUCTURE ) && !obj->isKindOf( KINDOF_SELECTABLE ))
-		return;
+		return FALSE;
 
-	Int numTotal;
-	Int numFull;
-	if (!container->getContainerPipsToShow(numTotal, numFull))
-		return;
+	if (!container->getContainerPipsToShow(numTotal, numFull) || numTotal <= 0)
+		return FALSE;
 
 	// empty containers still show their (empty) pips, unless the player switched that off for
 	// buildings: a Barracks wears ten empty boxes for the whole match otherwise
 	if (numFull == 0 && !TheGlobalData->m_showEmptyBuildingPips && obj->isKindOf( KINDOF_STRUCTURE ))
-		return;
+		return FALSE;
 
-	// a garrisonable building draws only its occupied slots: a city full of empty rows over every
-	// house is clutter, and an empty one draws nothing at all. Vehicles keep their empty boxes.
-	if (obj->isKindOf( KINDOF_STRUCTURE ) && container->isGarrisonable())
-	{
-		if (numFull == 0)
-			return;
-		numTotal = numFull;
-	}
+	// an empty garrisonable building draws nothing at all: a city with an empty tray over every house
+	// is clutter. Once someone is in, the tray counts them against every window it has.
+	if (numFull == 0 && obj->isKindOf( KINDOF_STRUCTURE ) && container->isGarrisonable())
+		return FALSE;
 
-	Int numInfantry = 0;
+	numInfantry = 0;
 	const ContainedItemsList* contained = container->getContainedItemsList();
 	if (contained)
 	{
@@ -3889,44 +4137,8 @@ void Drawable::drawContained( const IRegion2D *healthBarRegion )
 				++numInfantry;
 		}
 	}
-
-#ifdef SCALE_ICONS_WITH_ZOOM_ML
-	Real scale = TheGlobalData->m_ammoPipScaleFactor / CLAMP_ICON_ZOOM_FACTOR( TheTacticalView->getZoom() );
-#else
-	Real scale = 1.0f;
-#endif
-	Int boxWidth  = REAL_TO_INT(s_emptyContainer->getImageWidth() * scale);
-	Int boxHeight = REAL_TO_INT(s_emptyContainer->getImageHeight() * scale);
-	const Int SPACING = 1;
-	//Int totalWidth = (boxWidth+SPACING)*numTotal;
-
-	ICoord2D screenCenter;
-	Coord3D pos = *obj->getPosition();
-	pos.x += TheGlobalData->m_containerPipWorldOffset.x;
-	pos.y += TheGlobalData->m_containerPipWorldOffset.y;
-	pos.z += TheGlobalData->m_containerPipWorldOffset.z + obj->getGeometryInfo().getMaxHeightAbovePosition();
-	pos.z += healthBarArtLift( obj );	// the pips ride at the bar's height, see computeHealthRegion
-	if( !TheTacticalView->worldToScreen( &pos, &screenCenter ) )
-		return;
-
-	Real bounding = obj->getGeometryInfo().getBoundingSphereRadius() * scale;
-	
-	//Int posx = screenCenter.x + REAL_TO_INT(TheGlobalData->m_containerPipScreenOffset.x*bounding) - totalWidth;
-	//**CHANGING CODE: Left justify with health bar min
-	Int posx = healthBarRegion->lo.x;
-	Int posy = screenCenter.y + REAL_TO_INT(TheGlobalData->m_containerPipScreenOffset.y*bounding);
-
-	for (Int i = 0; i < numTotal; ++i)
-	{
-		const Color INFANTRY_COLOR = GameMakeColor(0, 255, 0, 255);
-		const Color NON_INFANTRY_COLOR = GameMakeColor(0, 0, 255, 255);
-		if (i < numFull)
-			TheDisplay->drawImage(s_fullContainer, posx, posy, posx + boxWidth, posy + boxHeight, 
-				(i < numInfantry) ? INFANTRY_COLOR : NON_INFANTRY_COLOR);
-		else
-			TheDisplay->drawImage(s_emptyContainer, posx, posy + 1, posx + boxWidth, posy + 1 + boxHeight);
-		posx += boxWidth + SPACING;
-	}
+	numInfantry = min( numInfantry, numFull );
+	return TRUE;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -4303,7 +4515,8 @@ void Drawable::drawEnthusiastic(const IRegion2D* healthBarRegion)
 			// given our scaled width and height we need to find the bottom left point to draw the image at
 			ICoord2D screen;
 			screen.x = REAL_TO_INT( healthBarRegion->lo.x + (barWidth * 0.25f) - (frameWidth * 0.5f) );
-			screen.y = healthBarRegion->hi.y + (frameHeight * 0.25);
+			screen.y = REAL_TO_INT( healthBarRegion->hi.y + (frameHeight * 0.25) );
+			screen.y = max( (Int)screen.y, trayStackBottom( healthBarRegion ) );	// under a Troop Crawler's seats, not over them
 			getIconInfo()->m_icon[ iconIndex ]->draw( screen.x, screen.y, frameWidth, frameHeight );
 							
 		}	
@@ -4824,6 +5037,20 @@ void Drawable::drawVeterancy( const IRegion2D *healthBarRegion )
 	Real vetBoxHeight = image->getImageHeight()*objScale;
 
 	//
+	// With a bar, the chevrons stand just past its right end, centred on it. EA hung them from the
+	// bar's middle over its right end, which is where the ammo and seat trays now run: an amber
+	// chevron on the last amber round. Beside the bar nothing else is drawn.
+	//
+	if( healthBarRegion )
+	{
+		const Int barHeight = max( 3, (Int)(healthBarRegion->hi.y - healthBarRegion->lo.y) );
+		const Int x = healthBarRegion->hi.x + 2;
+		const Int y = healthBarRegion->lo.y + barHeight / 2 - REAL_TO_INT( vetBoxHeight * 0.5f );
+		TheDisplay->drawImage( image, x, y, x + REAL_TO_INT( vetBoxWidth ), y + REAL_TO_INT( vetBoxHeight ) );
+		return;
+	}
+
+	//
 	// take the center position of the object, go down to it's bottom extent, and project
 	// that point to the screen, that will be the "center" of our veterancy box
 	//
@@ -4881,7 +5108,9 @@ void Drawable::drawCaptureProgress( void )
 
 	const Real barWidth = healthBarRegion.hi.x - healthBarRegion.lo.x;
 	const Real barHeight = max( 3, healthBarRegion.hi.y - healthBarRegion.lo.y );
-	const Real barTop = healthBarRegion.hi.y + 2;		// clear of the health bar, and of its outline
+	// clear of the health bar and its outline, and of the ammo and seat trays under it: a Bunker or a
+	// garrisoned house being taken wears both
+	const Real barTop = max( (Int)healthBarRegion.hi.y + 2, targetDraw->trayStackBottom( &healthBarRegion ) );
 
 	Color fillColor = GameMakeColor( 255, 255, 255, 255 );
 	const Player *owner = obj->getControllingPlayer();
@@ -5308,9 +5537,7 @@ void Drawable::drawHealthBar(const IRegion2D* healthBarRegion)
 				if( sp == NULL || sp->isReady() )
 					continue;
 				const SpecialPowerTemplate *tmpl = sp->getSpecialPowerTemplate();
-				// a silo whose missile can never fire charges towards nothing
-				if( tmpl == NULL || !tmpl->hasPublicTimer()
-						|| SuperweaponMissileSilencedInMatch( tmpl->getSpecialPowerType() ) )
+				if( tmpl == NULL || !tmpl->hasPublicTimer() )
 					continue;
 
 				ScienceType needed = sp->getRequiredScience();

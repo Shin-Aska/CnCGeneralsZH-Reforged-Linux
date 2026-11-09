@@ -489,24 +489,36 @@ Color:Pink
 "Розовый"
 END
 
-Color:Crimson
-"Багровый"
-END
-
-Color:Azure
-"Лазурный"
-END
-
-Color:Salmon
-"Лососевый"
-END
-
 Color:Teal
 "Бирюзовый"
 END
 
+Color:Lime
+"Лаймовый"
+END
+
+Color:Navy
+"Тёмно-синий"
+END
+
+Color:Magenta
+"Пурпурный"
+END
+
+Color:Brown
+"Коричневый"
+END
+
 Color:Lavender
 "Лавандовый"
+END
+
+Color:Coral
+"Коралловый"
+END
+
+Color:Olive
+"Оливковый"
 END
 
 MSG:Testing
@@ -2982,7 +2994,7 @@ TOOLTIP:Crates
 END
 
 TOOLTIP:SuperWeapons
-"Сколько супероружия каждого вида может иметь игрок одновременно. Разрешено: сколько он в состоянии оплатить. Лимит: по одному, а для генерала США по супероружию — четыре. Нет: ни одного, кроме генерала по супероружию, у которого остаётся одно. Он исключение, потому что три его супероружия — плата за более слабую армию."
+"Сколько супероружия может иметь игрок одновременно. Разрешено: сколько он в состоянии оплатить. Лимит: одно, а для генерала США по супероружию — четыре. Нет: ни одного, кроме генерала по супероружию, у которого остаётся одно. Он исключение, потому что его супероружие — плата за более слабую армию. При «Нет» любой, и компьютер тоже, может построить одну шахту ядерной ракеты, чтобы покупать в ней улучшения Китая. Ракеты в ней нет: ни кнопки запуска, ни обратного отсчёта, ни объявления."
 END
 
 DOZER:ConstructionComplete
@@ -4694,7 +4706,31 @@ CONTROLBAR:IdleWorker
 END
 
 CONTROLBAR:IdleWorkerDescription
-"Нажмите, чтобы выбрать следующего свободного рабочего"
+"Нажмите, чтобы выбрать следующего свободного рабочего. Shift-щелчок выбирает всех."
+END
+
+CONTROLBAR:IdleInfantry
+"Свободная пехота"
+END
+
+CONTROLBAR:IdleInfantryDescription
+"Нажмите, чтобы выбрать следующего свободного пехотинца. Shift-щелчок выбирает всех."
+END
+
+CONTROLBAR:IdleVehicle
+"Свободная техника"
+END
+
+CONTROLBAR:IdleVehicleDescription
+"Нажмите, чтобы выбрать следующую свободную наземную технику. Shift-щелчок выбирает всю."
+END
+
+CONTROLBAR:IdleAircraft
+"Свободная авиация"
+END
+
+CONTROLBAR:IdleAircraftDescription
+"Нажмите, чтобы выбрать следующий свободный самолёт. Shift-щелчок выбирает все."
 END
 
 CONTROLBAR:Beacon
@@ -8747,6 +8783,14 @@ END
 
 TOOLTIP:StagingPlayerInfo
 "\n Регион: %ls \n Пинг: %d мс \n %d побед/%d поражений \n %d разрывов связи \n Любимая армия: %ls"
+END
+
+TOOLTIP:OnlineStagingPlayerInfo
+"\n Пинг: %d мс \n %d побед/%d поражений \n %d разрывов связи \n Любимая армия: %ls"
+END
+
+TOOLTIP:OnlinePlayerInfo
+"\n Побед: %d / поражений: %d"
 END
 
 GUI:CantBuildTooCloseToSupplies
@@ -16061,6 +16105,34 @@ TOOLTIP:VSync
 "Привязывает картинку к частоте монитора, чтобы не было разрывов. Выключено: картинка рисуется так быстро, как может компьютер. Применяется при нажатии «Принять»."
 END
 
+GUI:FrameRateLimit
+"Ограничение FPS"
+END
+
+GUI:FrameRateLimit0
+"Выкл."
+END
+
+GUI:FrameRateLimit1
+"240 FPS"
+END
+
+GUI:FrameRateLimit2
+"144 FPS"
+END
+
+GUI:FrameRateLimit3
+"120 FPS"
+END
+
+GUI:FrameRateLimit4
+"60 FPS"
+END
+
+TOOLTIP:FrameRateLimit
+"Сколько кадров в секунду игра рисует в матче, не больше. С меньшим пределом видеокарта греется и шумит меньше, а игра не замедляется. В меню всегда не больше 60."
+END
+
 GUI:ClassicGraphics
 "Классическая графика"
 END
@@ -16334,7 +16406,7 @@ GUI:OrderLines
 END
 
 TOOLTIP:OrderLines
-"Линия от каждого выбранного юнита к цели и далее через все точки в очереди. Выключено: одиночный приказ без линии и маркера, и щелчок не оставляет кольца на земле; маршрут в очереди сохраняет и линию, и маркеры."
+"Линия от каждого выбранного юнита к цели и далее через все точки в очереди. Выключено: одиночный приказ без линии, но маркер и кольцо на месте щелчка остаются; маршрут в очереди сохраняет линию."
 END
 
 GUI:PlayerColors
@@ -16609,6 +16681,10 @@ GUI:CantBuildTooManyDerrickDefenses
 "Вокруг этих нефтяных вышек уже есть две оборонительные постройки."
 END
 
+TOOLTIP:TooltipProRulesBanUpgrade
+"Запрещено про-правилами"
+END
+
 GUI:HudStatArmy
 "Стоимость армии"
 END
@@ -16683,6 +16759,26 @@ END
 
 GUI:HudNoWorkerLeft
 "У %s не осталось рабочих"
+END
+
+GUI:HudHighestFirst
+"по убыванию"
+END
+
+GUI:HudPlayerHead
+"Игрок"
+END
+
+GUI:HudStatUnitMoney
+"$"
+END
+
+GUI:HudStatUnitIncome
+"$/мин"
+END
+
+GUI:HudStatUnitPower
+"излишек"
 END
 
 GUI:BarIdleWorker

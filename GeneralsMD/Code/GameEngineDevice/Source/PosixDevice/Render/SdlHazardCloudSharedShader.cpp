@@ -1,4 +1,5 @@
 // Shared-grid density, formation and dissipation reuse the approved cloud shader.
+// Distributed under the repository's GPL-3.0 terms; see LICENSE.md.
 #include "SdlHazardCloudSharedShader.h"
 #include "Platform/HazardCloudCore.h"
 #include <stdexcept>
@@ -35,11 +36,11 @@ std::string sharedPixelShader(ShaderPass pass)
     std::string prefix = original.substr(0, marker(original, "// Each slice has its own"));
     const auto constantsEnd = marker(prefix, "};");
     prefix.insert(constantsEnd, R"HLSL(
-    float4 StressMin;
-    float4 StressMax;
-    float4 StressGrid;
-    float4 StressBins;
-    float4 StressData;
+    float4 SharedMin;
+    float4 SharedMax;
+    float4 SharedGrid;
+    float4 SharedBins;
+    float4 SharedData;
 )HLSL");
     // A single shared support map, or the independent elevated source plane.
     const auto groundStart = marker(prefix, "float volumeGround(");
@@ -47,10 +48,10 @@ std::string sharedPixelShader(ShaderPass pass)
     prefix.replace(groundStart, groundEnd - groundStart, R"HLSL(
 float volumeGround(float2 world, float4 field, float4 shape, float fringe, float identity)
 {
-    if (StressData.z < 2.0 || identity < 0.5) return field.z - shape.x;
-    float2 uv = saturate((world - StressMin.xy) / (StressMax.xy - StressMin.xy));
-    float2 p = uv * (StressData.z - 1.0), low = floor(p), f = frac(p);
-    int2 a = (int2)low, b = min(a + 1, (int)StressData.z - 1);
+    if (SharedData.z < 2.0 || identity < 0.5) return field.z - shape.x;
+    float2 uv = saturate((world - SharedMin.xy) / (SharedMax.xy - SharedMin.xy));
+    float2 p = uv * (SharedData.z - 1.0), low = floor(p), f = frac(p);
+    int2 a = (int2)low, b = min(a + 1, (int)SharedData.z - 1);
     float ground = lerp(lerp(TerrainImage.Load(int3(a, 0)), TerrainImage.Load(int3(b.x, a.y, 0)), f.x),
         lerp(TerrainImage.Load(int3(a.x, b.y, 0)), TerrainImage.Load(int3(b, 0)), f.x), f.y);
     return ground;
@@ -60,10 +61,10 @@ float volumeGround(float2 world, float4 field, float4 shape, float fringe, float
     // their centre, age, palette and footprint differ. Keep all procedural coordinates and
     // formation masks from production, supplying only those common inputs.
     replaceOnce(prefix, "    float4 terrain = identity < 0.5 ? Terrain0 : Terrain1;",
-        "    float4 terrain = float4(StressMin.z, StressMax.z, StressData.z >= 2.0 && identity >= 0.5 ? 1.0 : 0.0, 0.0);");
+        "    float4 terrain = float4(SharedMin.z, SharedMax.z, SharedData.z >= 2.0 && identity >= 0.5 ? 1.0 : 0.0, 0.0);");
     replaceOnce(prefix,
         "float volumeDensity(float3 world, float4 field, float4 shape, float4 source, float fringe, float identity)",
-        "float stressDensity(float3 world, float4 field, float4 shape, float4 source, float fringe, float identity, float ground, float2 displacement)");
+        "float sharedDensity(float3 world, float4 field, float4 shape, float4 source, float fringe, float identity, float ground, float2 displacement)");
     replaceOnce(prefix,
         "    float ground = volumeGround(world.xy, field, float4(halfHeight, shape.yzw), fringe, identity);\n", "");
     replaceOnce(prefix,
@@ -89,8 +90,8 @@ Texture2D<float4> BinData : register(t8, space2);
 SamplerState BinSampler : register(s8, space2);
 Texture2D<float4> IndexData : register(t9, space2);
 SamplerState IndexSampler : register(s9, space2);
-Texture2D<float4> StressBackground : register(t5, space2);
-SamplerState StressBackgroundSampler : register(s5, space2);
+Texture2D<float4> SharedBackground : register(t5, space2);
+SamplerState SharedBackgroundSampler : register(s5, space2);
 
 float4 sourceAt(uint at) { return SourceData.Load(int3(at % 1024, at / 1024, 0)); }
 float4 binAt(uint at) { return BinData.Load(int3(at % 1024, at / 1024, 0)); }
@@ -103,32 +104,32 @@ uint indexAt(uint at)
 float3 atlasWorld(float2 pixel)
 {
     uint2 p = (uint2)pixel;
-    uint side = (uint)StressGrid.x, columns = (uint)StressGrid.z;
+    uint side = (uint)SharedGrid.x, columns = (uint)SharedGrid.z;
     uint z = p.x / side + p.y / side * columns;
     float3 voxel = float3(p.x % side, p.y % side, z);
-    return StressMin.xyz + voxel / float3(side - 1, side - 1, StressGrid.y - 1) * (StressMax.xyz - StressMin.xyz);
+    return SharedMin.xyz + voxel / float3(side - 1, side - 1, SharedGrid.y - 1) * (SharedMax.xyz - SharedMin.xyz);
 }
-float4 stressRead(float3 world, bool lit)
+float4 sharedRead(float3 world, bool lit)
 {
-    float3 uv = (world - StressMin.xyz) / (StressMax.xyz - StressMin.xyz);
+    float3 uv = (world - SharedMin.xyz) / (SharedMax.xyz - SharedMin.xyz);
     if (any(uv < 0) || any(uv > 1)) return 0;
-    float3 voxel = saturate(uv) * float3(StressGrid.xx - 1, StressGrid.y - 1);
-    uint z0 = (uint)floor(voxel.z), z1 = min(z0 + 1, (uint)StressGrid.y - 1);
-    uint columns = (uint)StressGrid.z;
-    float2 size = StressGrid.xx * StressGrid.zw;
-    float2 a = (float2(z0 % columns, z0 / columns) * StressGrid.x + voxel.xy + 0.5) / size;
-    float2 b = (float2(z1 % columns, z1 / columns) * StressGrid.x + voxel.xy + 0.5) / size;
+    float3 voxel = saturate(uv) * float3(SharedGrid.xx - 1, SharedGrid.y - 1);
+    uint z0 = (uint)floor(voxel.z), z1 = min(z0 + 1, (uint)SharedGrid.y - 1);
+    uint columns = (uint)SharedGrid.z;
+    float2 size = SharedGrid.xx * SharedGrid.zw;
+    float2 a = (float2(z0 % columns, z0 / columns) * SharedGrid.x + voxel.xy + 0.5) / size;
+    float2 b = (float2(z1 % columns, z1 / columns) * SharedGrid.x + voxel.xy + 0.5) / size;
     if (lit) return lerp(CacheImage1.SampleLevel(CacheSampler1, a, 0), CacheImage1.SampleLevel(CacheSampler1, b, 0), frac(voxel.z));
     return lerp(CacheImage0.SampleLevel(CacheSampler0, a, 0), CacheImage0.SampleLevel(CacheSampler0, b, 0), frac(voxel.z));
 }
 float4 inject(float3 world)
 {
-    int2 bin = (int2)floor((world.xy - StressBins.xy) / StressBins.z);
-    if (any(bin < 0) || bin.x >= (int)StressBins.w || bin.y >= (int)StressData.x) return 0;
-    float4 range = binAt((uint)bin.x + (uint)bin.y * (uint)StressBins.w);
+    int2 bin = (int2)floor((world.xy - SharedBins.xy) / SharedBins.z);
+    if (any(bin < 0) || bin.x >= (int)SharedBins.w || bin.y >= (int)SharedData.x) return 0;
+    float4 range = binAt((uint)bin.x + (uint)bin.y * (uint)SharedBins.w);
     if (range.y < 1.0) return 0;
     float sharedGround = 0.0;
-    if (StressData.z >= 2.0) sharedGround = volumeGround(world.xy, 0, 0, 0, 1);
+    if (SharedData.z >= 2.0) sharedGround = volumeGround(world.xy, 0, 0, 0, 1);
     float2 displacement = volumeInteraction(world.xy).xy;
     displacement *= min(1.0, max(FlowSettings.y, 0.0) / max(length(displacement), 0.0001));
     float4 result = 0;
@@ -139,8 +140,8 @@ float4 inject(float3 world)
         float4 history = sourceAt(id * 4 + 2), extra = sourceAt(id * 4 + 3);
         float4 shape = float4(packed.x * 0.5, packed.yzw);
         field.z += shape.x;
-        float ground = StressData.z >= 2.0 && extra.z > 0.5 ? sharedGround : field.z - max(shape.x, 0.25);
-        float density = stressDensity(world, field, shape, history, extra.x, extra.y, ground, displacement);
+        float ground = SharedData.z >= 2.0 && extra.z > 0.5 ? sharedGround : field.z - max(shape.x, 0.25);
+        float density = sharedDensity(world, field, shape, history, extra.x, extra.y, ground, displacement);
         if (density <= 0.00001) continue;
         uint palette = (uint)clamp(round(shape.z), 0.0, 3.0);
         float extinction = 0.075 * min(1.8, pow(9.3 / max(shape.x, 0.25), 0.35));
@@ -149,7 +150,7 @@ float4 inject(float3 world)
         float3 colour = PaletteShadow[palette].rgb + PaletteMain[palette].rgb * 0.84;
         if (palette == 1) {
             // Production's soot uses the unclamped source support plane.
-            float sootGround = StressData.z >= 2.0 && extra.z > 0.5 ? sharedGround : field.z - shape.x;
+            float sootGround = SharedData.z >= 2.0 && extra.z > 0.5 ? sharedGround : field.z - shape.x;
             float h = saturate((world.z - sootGround) / max(packed.x, 0.5));
             float age = history.w;
             float3 at = float3(world.xy * 0.041, h * 1.85) + float3(-0.024 * age, 0.016 * age, -0.17 * age) + float3(12.7,31.4,8.6);
@@ -168,12 +169,12 @@ float4 inject(float3 world)
 }
 float4 lightVolume(float3 world)
 {
-    float4 material = stressRead(world, false);
+    float4 material = sharedRead(world, false);
     if (material.a < 0.00001) return 0;
     const float3 sun = float3(-0.462,-0.347,0.816);
-    float optical = stressRead(world + sun * 2.5, false).a * 5.0;
-    optical += stressRead(world + sun * 8.0, false).a * 10.0;
-    optical += stressRead(world + sun * 16.0, false).a * 14.0;
+    float optical = sharedRead(world + sun * 2.5, false).a * 5.0;
+    optical += sharedRead(world + sun * 8.0, false).a * 10.0;
+    optical += sharedRead(world + sun * 16.0, false).a * 14.0;
     material.rgb *= 0.12 + 0.88 * exp(-optical * 1.20);
     return material;
 }
@@ -182,7 +183,7 @@ float4 volumeRaymarch(float2 pixel)
     float3 origin = volumeWorldAt(pixel,0), direction = normalize(volumeWorldAt(pixel,1) - origin);
     float3 safe = float3(abs(direction.x) < 1e-6 ? 1e-6 : direction.x,
         abs(direction.y) < 1e-6 ? 1e-6 : direction.y, abs(direction.z) < 1e-6 ? 1e-6 : direction.z);
-    float3 a = (StressMin.xyz - origin) / safe, b = (StressMax.xyz - origin) / safe;
+    float3 a = (SharedMin.xyz - origin) / safe, b = (SharedMax.xyz - origin) / safe;
     float3 nearAxis = min(a,b), farAxis = max(a,b);
     float first = max(0.0,max(nearAxis.x,max(nearAxis.y,nearAxis.z)));
     float last = min(farAxis.x,min(farAxis.y,farAxis.z));
@@ -198,7 +199,7 @@ float4 volumeRaymarch(float2 pixel)
     [loop] for (int sampleIndex = 0; sampleIndex < steps; ++sampleIndex) {
         if (transmittance < 0.015) break;
         float3 world = origin + direction * (first + (sampleIndex + jitter) * stride);
-        float4 coefficient = stressRead(world,true);
+        float4 coefficient = sharedRead(world,true);
         if (coefficient.a < 0.000001) continue;
         float opacity = 1.0 - exp(-coefficient.a * stride);
         radiance += transmittance * opacity * coefficient.rgb / coefficient.a;
@@ -230,7 +231,7 @@ float4 volumeRaymarch(float2 pixel)
     float3 direction = normalize(volumeWorldAt(position.xy,1) - origin);
     float limit = depth < 0.999999 ? max(0.0,dot(world - origin,direction)) : 100000.0;
     float2 offset = 0;
-    [loop] for (uint id = 0; id < (uint)StressData.y; ++id) {
+    [loop] for (uint id = 0; id < (uint)SharedData.y; ++id) {
         float4 shapeData = sourceAt(id * 4 + 1);
         if (shapeData.z < 0.5 || shapeData.z >= 1.5 || shapeData.y < 0.00001) continue;
         float4 field = sourceAt(id * 4), history = sourceAt(id * 4 + 2), extra = sourceAt(id * 4 + 3);
@@ -252,7 +253,7 @@ float4 volumeRaymarch(float2 pixel)
         float movedDepth = SceneDepth.SampleLevel(DepthSampler,pixel * Scene.xy,0).r;
         float expected = depth + dot(slope,pixel - position.xy);
         if (length(volumeWorldAt(pixel,movedDepth) - volumeWorldAt(pixel,expected)) <= tolerance)
-            return float4(StressBackground.SampleLevel(StressBackgroundSampler,pixel * Scene.xy,0).rgb,1);
+            return float4(SharedBackground.SampleLevel(SharedBackgroundSampler,pixel * Scene.xy,0).rgb,1);
         offset *= 0.5;
     }
     return 0;

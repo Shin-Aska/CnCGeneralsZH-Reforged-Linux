@@ -63,6 +63,9 @@
 #include "Common/Recorder.h"
 #include "GameClient/ControlBarScheme.h"
 #include "GameClient/Display.h"
+#include "GameClient/Gadget.h"
+#include "GameClient/GameFont.h"
+#include "GameClient/GlobalLanguage.h"
 #include "GameClient/ControlBar.h"
 #include "GameClient/Image.h"
 #include "GameClient/GameWindowManager.h"
@@ -162,6 +165,11 @@ const FieldParse ControlBarSchemeManager::m_controlBarSchemeFieldParseTable[] =
 
 	{ "MoneyUL", 		INI::parseICoord2D,				NULL, offsetof( ControlBarScheme, m_moneyUL ) },
 	{ "MoneyLR", 		INI::parseICoord2D,				NULL, offsetof( ControlBarScheme, m_moneyLR ) },
+	{ "MoneyFontSize",	INI::parseInt,					NULL, offsetof( ControlBarScheme, m_moneyFontSize ) },
+	{ "MoneyThousands",	INI::parseBool,					NULL, offsetof( ControlBarScheme, m_moneyThousands ) },
+	{ "MoneySignPainted",	INI::parseBool,				NULL, offsetof( ControlBarScheme, m_moneySignPainted ) },
+	{ "RadarUL", 		INI::parseICoord2D,				NULL, offsetof( ControlBarScheme, m_radarUL ) },
+	{ "RadarLR", 		INI::parseICoord2D,				NULL, offsetof( ControlBarScheme, m_radarLR ) },
 
 	{ "BlockRadarUL",			INI::parseICoord2D,	NULL, offsetof( ControlBarScheme, m_blockUL[ ControlBarScheme::BLOCK_RADAR ] ) },
 	{ "BlockRadarLR",			INI::parseICoord2D,	NULL, offsetof( ControlBarScheme, m_blockLR[ ControlBarScheme::BLOCK_RADAR ] ) },
@@ -173,6 +181,8 @@ const FieldParse ControlBarSchemeManager::m_controlBarSchemeFieldParseTable[] =
 	{ "BlockUpgradesLR",		INI::parseICoord2D,	NULL, offsetof( ControlBarScheme, m_blockLR[ ControlBarScheme::BLOCK_UPGRADES ] ) },
 	{ "BlockGenPowerUL",		INI::parseICoord2D,	NULL, offsetof( ControlBarScheme, m_blockUL[ ControlBarScheme::BLOCK_GEN_POWER ] ) },
 	{ "BlockGenPowerLR",		INI::parseICoord2D,	NULL, offsetof( ControlBarScheme, m_blockLR[ ControlBarScheme::BLOCK_GEN_POWER ] ) },
+	{ "BlockObserverInfoUL",	INI::parseICoord2D,	NULL, offsetof( ControlBarScheme, m_blockUL[ ControlBarScheme::BLOCK_OBSERVER_INFO ] ) },
+	{ "BlockObserverInfoLR",	INI::parseICoord2D,	NULL, offsetof( ControlBarScheme, m_blockLR[ ControlBarScheme::BLOCK_OBSERVER_INFO ] ) },
 
 	{ "IdleInfantryButtonImage",	INI::parseAsciiString,	NULL, offsetof( ControlBarScheme, m_idleButtonImage[ ControlBarScheme::IDLE_INFANTRY ] ) },
 	{ "IdleInfantryUL",				INI::parseICoord2D,	NULL, offsetof( ControlBarScheme, m_idleUL[ ControlBarScheme::IDLE_INFANTRY ] ) },
@@ -462,6 +472,11 @@ ControlBarScheme::ControlBarScheme(void)
 	
 	m_moneyLR.x = 0;
 	m_moneyLR.y = 0;
+	m_moneyFontSize = 0;
+	m_moneyThousands = FALSE;
+	m_moneySignPainted = FALSE;
+	m_radarUL.x = m_radarUL.y = 0;
+	m_radarLR.x = m_radarLR.y = 0;
 
 	for( Int i = 0; i < BLOCK_COUNT; i++ )
 	{
@@ -535,6 +550,8 @@ void ControlBarTooltipImages::find( const AsciiString& prefix )
 	findPieces( prefix, "TipHead", theFrameSuffixes, 3, head );
 	findPieces( prefix, "CursorTip", theFrameSuffixes, ControlBarScheme::FRAME_PIECE_COUNT, cursor );
 	findPieces( prefix, "TipIcon", iconSuffixes, ICON_COUNT, icon );
+	static const char *const tabSuffix[ 1 ] = { "TabPanel" };
+	findPieces( prefix, "", tabSuffix, 1, &tabPanel );
 }
 
 void ControlBarScheme::init(void)
@@ -643,7 +660,25 @@ void ControlBarScheme::init(void)
 
 	win= TheWindowManager->winGetWindowFromId( NULL, TheNameKeyGenerator->nameToKey( "ControlBar.wnd:MoneyDisplay" ) );
 	if(win)
+	{
 		placeSchemeWindow( win, m_moneyUL, m_moneyLR, resMultiplier );
+		// set every time, so a scheme without the keys (the observer's, when a player is out) gets
+		// ControlBar.wnd's Arial 8 and centring back
+		enum { WND_MONEY_FONT_SIZE = 8 };
+		const Bool own = m_moneyFontSize > 0;
+		win->winSetFont( TheFontLibrary->getFont( win->winGetFont()->nameString,
+			TheGlobalLanguageData->adjustFontSize( own ? m_moneyFontSize : WND_MONEY_FONT_SIZE ), own ) );
+		TextData *text = (TextData *)win->winGetUserData();
+		text->centered = !m_moneySignPainted;
+		if( m_moneySignPainted )
+			text->leftMargin = 0;
+	}
+
+	// a scheme whose painting has its own radar box stands the radar in it; Radar::findDrawPositions
+	// letterboxes the map inside
+	win = TheWindowManager->winGetWindowFromId( NULL, TheNameKeyGenerator->nameToKey( "ControlBar.wnd:LeftHUD" ) );
+	if( win && m_radarLR.x > m_radarUL.x )
+		placeSchemeWindow( win, m_radarUL, m_radarLR, resMultiplier );
 
 	win= TheWindowManager->winGetWindowFromId( NULL, TheNameKeyGenerator->nameToKey( "ControlBar.wnd:PowerWindow" ) );
 	if(win)
@@ -706,6 +741,7 @@ void ControlBarScheme::init(void)
 		"ControlBar.wnd:ControlBarProBlockInputMoney",
 		"ControlBar.wnd:ControlBarProBlockInputUpgrades",
 		"ControlBar.wnd:ControlBarProBlockInputGenPowerButton",
+		"ControlBar.wnd:ControlBarProBlockInputObserverPlayerInfoH",
 	};
 	for( Int i = 0; i < BLOCK_COUNT; i++ )
 	{
@@ -1219,78 +1255,45 @@ ControlBarScheme *ControlBarSchemeManager::findSchemeForSide( const AsciiString&
 }
 
 //-----------------------------------------------------------------------------
-/** How each family of side pictures is named.  SSObserver and SSScore take the template's name less a
-	* leading "Faction" and a trailing "General" (SSScoreAmericaLaser), FactionPicker the whole name
-	* (FactionPickerFactionAmericaLaserGeneral); the country's own picture is the retail name where
-	* retail has one (GameinfoAMRCA). */
-//-----------------------------------------------------------------------------
-struct SideImageNames
-{
-	const char *prefix;
-	Bool wholeName;
-	const char *country[ 4 ];	///< USA, China, GLA, Turkiye
-};
-static const SideImageNames theSideImageNames[] =
-{
-	{ "SSObserver", FALSE, { "USA", "China", "GLA", "Turkiye" } },
-	{ "SSScore", FALSE, { "USA", "China", "GLA", "Turkiye" } },
-	{ "FactionPicker", TRUE, { "FactionAmerica", "FactionChina", "FactionGLA", "FactionTurkiye" } },
-	{ "Gameinfo", FALSE, { "AMRCA", "CHINA", "GLA", "TURKIYE" } },
-};
-
-//-----------------------------------------------------------------------------
-/** Looked up by name, so a sheet that adds a picture for a general needs no INI edit and the player
-	* templates (in the INI checksum) stay as they are.  Names are case blind, so GameinfoTurkiye finds
-	* GameinfoTURKIYE and GameinfoBoss retail's GameinfoBOSS.  A general without a picture gets the
-	* country its base side names. */
-//-----------------------------------------------------------------------------
-const Image *ControlBarSideImage( const PlayerTemplate *pt, const char *prefix )
-{
-	const SideImageNames *names = NULL;
-	for( Int each = 0; each < ARRAY_SIZE( theSideImageNames ); each++ )
-	{
-		if( strcmp( theSideImageNames[ each ].prefix, prefix ) == 0 )
-			names = &theSideImageNames[ each ];
-	}
-	DEBUG_ASSERTCRASH( names != NULL, ( "ControlBarSideImage: no names for prefix %s", prefix ) );
-
-	static const std::string LEADING = "Faction";
-	static const std::string TRAILING = "General";
-	std::string general = pt->getName().str();
-	if( !names->wholeName )
-	{
-		if( general.compare( 0, LEADING.size(), LEADING ) == 0 )
-			general.erase( 0, LEADING.size() );
-		if( general.size() >= TRAILING.size() && general.compare( general.size() - TRAILING.size(), TRAILING.size(), TRAILING ) == 0 )
-			general.erase( general.size() - TRAILING.size() );
-	}
-	AsciiString name;
-	name.format( "%s%s", prefix, general.c_str() );
-	const Image *image = TheMappedImageCollection->findImageByName( name );
-	if( image != NULL )
-		return image;
-
-	const AsciiString side = pt->getBaseSide().isEmpty() ? pt->getSide() : pt->getBaseSide();
-	Int country = -1;
-	if( side.startsWithNoCase( "America" ) || side.startsWithNoCase( "USA" ) )
-		country = 0;
-	else if( side.startsWithNoCase( "China" ) )
-		country = 1;
-	else if( side.startsWithNoCase( "GLA" ) )
-		country = 2;
-	else if( side.startsWithNoCase( "Turkiye" ) )
-		country = 3;
-	if( country < 0 )
-		return NULL;
-	name.format( "%s%s", prefix, names->country[ country ] );
-	return TheMappedImageCollection->findImageByName( name );
-}
-
+/** The emblem is looked up by name, so a sheet that adds one for a general needs no INI edit and the
+	* player templates (in the INI checksum) stay as they are.  A general without one, or a faction built
+	* on another country's base side, gets that country's. */
 //-----------------------------------------------------------------------------
 const Image *ControlBarSideEmblem( const PlayerTemplate *pt )
 {
-	const Image *emblem = ControlBarSideImage( pt, "SSObserver" );
-	return emblem != NULL ? emblem : pt->getEnabledImage();
+	static const char *const PREFIX = "SSObserver";
+	static const std::string LEADING = "Faction";
+	static const std::string TRAILING = "General";
+	// FactionAmericaLaserGeneral wears SSObserverAmericaLaser, FactionTurkiye SSObserverTurkiye
+	std::string general = pt->getName().str();
+	if( general.compare( 0, LEADING.size(), LEADING ) == 0 )
+		general.erase( 0, LEADING.size() );
+	if( general.size() >= TRAILING.size() && general.compare( general.size() - TRAILING.size(), TRAILING.size(), TRAILING ) == 0 )
+		general.erase( general.size() - TRAILING.size() );
+	AsciiString name;
+	name.format( "%s%s", PREFIX, general.c_str() );
+	const Image *emblem = TheMappedImageCollection->findImageByName( name );
+	if( emblem != NULL )
+		return emblem;
+
+	const AsciiString side = pt->getBaseSide().isEmpty() ? pt->getSide() : pt->getBaseSide();
+	const char *country = NULL;
+	if( side.startsWithNoCase( "America" ) || side.startsWithNoCase( "USA" ) )
+		country = "USA";
+	else if( side.startsWithNoCase( "China" ) )
+		country = "China";
+	else if( side.startsWithNoCase( "GLA" ) )
+		country = "GLA";
+	else if( side.startsWithNoCase( "Turkiye" ) )
+		country = "Turkiye";
+	if( country != NULL )
+	{
+		name.format( "%s%s", PREFIX, country );
+		emblem = TheMappedImageCollection->findImageByName( name );
+		if( emblem != NULL )
+			return emblem;
+	}
+	return pt->getEnabledImage();
 }
 
 //-----------------------------------------------------------------------------
@@ -1336,6 +1339,30 @@ void ControlBarSchemeManager::radarFrameRect( const Image *const *frame, const I
 	outer->hi.y = radar.hi.y + REAL_TO_INT_CEIL( br->getImageHeight() * k );
 }
 
+Bool ControlBarSchemeManager::isMoneyGrouped( void ) const
+{
+	return m_currentScheme != NULL && m_currentScheme->m_moneyThousands;
+}
+
+Bool ControlBarSchemeManager::isMoneySignPainted( void ) const
+{
+	return m_currentScheme != NULL && m_currentScheme->m_moneySignPainted;
+}
+
+Int ControlBarSchemeManager::radarArtTop( Int fallback ) const
+{
+	const Int radar = ControlBarScheme::BLOCK_RADAR;
+	if( m_currentScheme == NULL || m_currentScheme->m_blockLR[ radar ].x <= m_currentScheme->m_blockUL[ radar ].x )
+		return fallback;
+	static NameKeyType blockID = TheNameKeyGenerator->nameToKey( "ControlBar.wnd:ControlBarProBlockInputRadar" );
+	GameWindow *block = TheWindowManager->winGetWindowFromId( NULL, blockID );
+	if( block == NULL )
+		return fallback;
+	Int x, y;
+	block->winGetScreenPosition( &x, &y );
+	return y;
+}
+
 const Image *const *ControlBarSchemeManager::getPowerTray( void ) const
 {
 	if( m_currentScheme == NULL || m_currentScheme->m_powerTray[ ControlBarScheme::TRAY_CELL ] == NULL )
@@ -1348,6 +1375,16 @@ const ControlBarTooltipImages& ControlBarSchemeManager::getTooltipImages( void )
 	if( m_currentScheme == NULL || m_currentScheme->m_tooltip.card[ ControlBarScheme::FRAME_TL ] == NULL )
 		return m_consoleTooltip;
 	return m_currentScheme->m_tooltip;
+}
+
+const Image *ControlBarSchemeManager::getTabImage( const char *piece ) const
+{
+	if( getTabPanelImage() == NULL )
+		return NULL;
+	AsciiString name = m_currentScheme->m_tooltipName;
+	name.concat( "Tab" );
+	name.concat( piece );
+	return TheMappedImageCollection->findImageByName( name );
 }
 
 //-----------------------------------------------------------------------------

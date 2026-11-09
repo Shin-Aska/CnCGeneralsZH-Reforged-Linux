@@ -35,6 +35,7 @@
 
 #include "dx11device.h"
 #include "dx11post.h"
+#include "dx11runtime.h"
 
 #include <d3d11.h>
 #include <windows.h>
@@ -370,6 +371,93 @@ TEST(dx11post_a_warp_bends_the_edge_its_ring_crosses_and_clearing_it_gives_the_f
 		CHECK_EQ(0u, differing_pixels(picture, result, pitch));
 		delete [] result;
 	}
+	delete [] picture;
+}
+
+// -heathaze: one splat in the middle of the frame over a far depth bends the diagonal under it and
+// nothing in the corners; the next frame, with no splat set, is the copy pass's exact one, and so is
+// one whose depth stands at the flame's.
+TEST(dx11post_a_heat_splat_bends_the_picture_under_it_and_none_leaves_it_alone)
+{
+	DeviceFixture fixture;
+	if (!fixture.Create()) {
+		printf("skip: no Direct3D 11 device on this machine\n");
+		return;
+	}
+	DX11DeviceClass & device = fixture.Get_Device();
+	DX11PostProcessClass & post = fixture.Get_Post();
+
+	unsigned char * picture = new unsigned char[SURFACE_SIZE * SURFACE_SIZE * BYTES_A_PIXEL];
+	fill_diagonal(picture);
+	const DX11PostEffect chain[] = { DX11_POST_COPY };
+	post.Set_Chain(chain, 1);
+	CHECK(post.Wants_Heat_Haze_Programs());
+	post.Compile_Heat_Haze_Programs();
+	CHECK(!post.Wants_Heat_Haze_Programs());
+
+	// Centre, half widths, then a flame at depth a half, a shift of 5% of the frame, time 0, then
+	// planes 1 and 100, a clearance of 5 and a softness of 10: the cleared depth of 1 is the far
+	// plane, far behind it.
+	const float splat[DIRECT3D11_HEAT_SPLAT_FLOATS] = {
+		0.0f, 0.0f, 0.5f, 0.5f,
+		0.5f, 0.05f, 0.0f, 0.0f,
+		1.0f, 100.0f, 5.0f, 10.0f,
+		0.0f, 0.0f, 0.0f, 0.0f };
+	// A laser's splat, the same with a level beam through the middle row and a still band 6% of
+	// the frame's height either side of it (3.8 pixels), full past another 2%: the rows on the beam
+	// keep every pixel, and the diagonal still bends in rows clear of the band.
+	float beam[DIRECT3D11_HEAT_SPLAT_FLOATS];
+	memcpy(beam, splat, sizeof(beam));
+	beam[12] = 1.0f;
+	beam[14] = 0.06f;
+	beam[15] = 0.02f;
+	const unsigned middle = SURFACE_SIZE / 2;
+	// Frame 2 sets the splat again over a depth of a half, the flame's own: a unit standing in the
+	// fire, which has to keep every pixel.  Frame 3 sets the beam's.
+	for (unsigned frame = 0; frame < 4; ++frame) {
+		post.Open_Frame();
+		post.Begin_Frame();
+		device.Set_Scene_View(post.Scene_View());
+		device.Get_Context()->ClearDepthStencilView(device.Get_Depth_Stencil_View(), D3D11_CLEAR_DEPTH,
+			(frame == 2) ? 0.5f : 1.0f, 0);
+		CHECK(write_scene(device, post, picture));
+		if (frame != 1) {
+			post.Set_Heat_Splats((frame == 3) ? beam : splat, 1);
+		}
+		CHECK_EQ(frame != 1, post.Heat_Haze_Scene(device.Get_Depth_Texture()));
+		CHECK(post.Run_Chain());
+		unsigned pitch = 0;
+		unsigned char * result = read_back_buffer(device, pitch);
+		CHECK(result != NULL);
+		if (result != NULL) {
+			if (frame == 0) {
+				CHECK(differing_pixels(picture, result, pitch) > 8u);
+				CHECK_EQ(DARK_LEVEL, pixel_level(result, pitch, 1, SURFACE_SIZE - 2));
+				CHECK_EQ(LIGHT_LEVEL, pixel_level(result, pitch, SURFACE_SIZE - 2, 1));
+			} else if (frame == 3) {
+				unsigned on_beam = 0;
+				unsigned clear_of_it = 0;
+				for (unsigned y = 0; y < SURFACE_SIZE; ++y) {
+					for (unsigned x = 0; x < SURFACE_SIZE; ++x) {
+						if (pixel_level(picture, SURFACE_SIZE * BYTES_A_PIXEL, x, y) == pixel_level(result, pitch, x, y)) {
+							continue;
+						}
+						if (y + 2 >= middle && y <= middle + 1) {
+							++on_beam;
+						} else if (y + 6 <= middle || y >= middle + 6) {
+							++clear_of_it;
+						}
+					}
+				}
+				CHECK_EQ(0u, on_beam);
+				CHECK(clear_of_it > 2u);
+			} else {
+				CHECK_EQ(0u, differing_pixels(picture, result, pitch));
+			}
+			delete [] result;
+		}
+	}
+	device.Set_Scene_View(NULL);
 	delete [] picture;
 }
 

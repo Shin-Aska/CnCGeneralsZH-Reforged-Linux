@@ -89,6 +89,10 @@ extern Real Drawable_effectiveOpacity( Real explicitOpacity, Real stealthOpacity
 extern Bool Drawable_structureShowsHealthBar( Bool isBridge, Bool isUnowned, Bool isGarrisonable,
 																							Bool isCapturable );
 
+///< whether an object of these kinds hangs an altitude line while it flies: a real aircraft, never
+///< the Artillery Barrage's invisible guns (UNATTACKABLE and IGNORED_IN_GUI), a shell, a missile or a parachute
+extern Bool Drawable_kindWearsAltitudeLine( const KindOfMaskType& kinds );
+
 ///< whether an object of these kinds is a thing that wears a health bar at all
 extern Bool Drawable_kindShowsHealthBar( const KindOfMaskType& kinds );
 
@@ -102,6 +106,10 @@ extern Real Drawable_reloadBarFraction( UnsignedInt now, UnsignedInt started, Un
 ///< whether the health bar setting lets this object show one right now
 extern Bool Drawable_healthBarModeShows( Int healthBarMode, Bool isSelected, Bool isMousedOver,
 																				 Bool isDamaged );
+
+///< where lamp `index` of `capacity` starts across a tray `innerWidth` pixels wide, one pixel between
+///< lamps; -1 when a lamp would come out under two pixels wide and the tray is one continuous fill
+extern Int Drawable_lampCellLeft( Int innerWidth, Int capacity, Int index );
 
 ///< whether these disabled flags mean the health bar is drawn blue instead of the owner's colour
 extern Bool Drawable_disabledShowsBlueHealthBar( DisabledMaskType disabledFlags );
@@ -512,16 +520,14 @@ public:
 	void allocateShadows(void); ///< create shadow resources if not already present. Used by Options screen.
 
 	void setFullyObscuredByShroud(Bool fullyObscured);
-	inline Bool getFullyObscuredByShroud(void) { return LogicThread::isInsideWindow() ? m_lookForDraw.fullyObscured : m_drawableFullyObscuredByShroud; }
+	inline Bool getFullyObscuredByShroud(void) const { return LogicThread::isInsideWindow() ? m_lookForDraw.fullyObscured : m_drawableFullyObscuredByShroud; }
 
   // Put on ice until later... M Lorenzen
   //	inline UnsignedByte getFullyObscuredByShroudWithCheatSpy(void) {return (UnsignedByte)m_drawableFullyObscuredByShroud | 128;}//8 looks like a zero in most fonts
 
 	Bool getDrawsInMirror() const { if( LogicThread::isInsideWindow() ) return m_lookForDraw.drawsInMirror; return BitTest(m_status, DRAWABLE_STATUS_DRAWS_IN_MIRROR) || isKindOf(KINDOF_CAN_CAST_REFLECTIONS); }
 	Bool isNoSaveForDraw() const {
-#if defined(__linux__)
 		if( LogicThread::isInsideWindow() ) return m_lookForDraw.noSave;
-#endif
 		return testDrawableStatus( DRAWABLE_STATUS_NO_SAVE );
 	}
 
@@ -535,9 +541,7 @@ public:
 		Bool						hidden;
 		Bool						fullyObscured;
 		Bool						drawsInMirror;
-#if defined(__linux__)
 		Bool						noSave;
-#endif
 		Bool						receivesDynamicLights;
 		Bool						hasTintColor;
 		Bool						hasSelectionColor;
@@ -958,8 +962,10 @@ private:
 	void drawConstructPercent( const IRegion2D *healthBarRegion );  ///< display % construction complete
 	void drawSupplyCash( const IRegion2D *healthBarRegion );				///< display the cash left in a supply pile
 	void drawCaption( const IRegion2D *healthBarRegion );						///< draw caption
-	void drawAmmo( const IRegion2D *healthBarRegion );							///< draw icons
-	void drawContained( const IRegion2D *healthBarRegion );					///< draw icons
+	void drawTrays( const IRegion2D *healthBarRegion );							///< rounds left and seats taken, lamp trays under the bar
+	Int trayStackBottom( const IRegion2D *healthBarRegion ) const;	///< first free row under the bar and its trays
+	Bool ammoTrayCounts( Int &numTotal, Int &numFull ) const;				///< whether the rounds tray shows, and its counts
+	Bool seatTrayCounts( Int &numTotal, Int &numInfantry, Int &numFull ) const;	///< whether the seat tray shows, and its counts
 	void drawVeterancy( const IRegion2D *healthBarRegion );					///< draw veterency information
 
 	void drawEmoticon( const IRegion2D* healthBarRegion );
@@ -994,10 +1000,6 @@ private:
 
 	static Bool							s_staticImagesInited;
 	static const Image*			s_veterancyImage[LEVEL_COUNT];
-	static const Image*			s_fullAmmo;
-	static const Image*			s_emptyAmmo;
-	static const Image*			s_fullContainer;
-	static const Image*			s_emptyContainer;
 	static Anim2DTemplate**	s_animationTemplates;
 
 #ifdef DIRTY_CONDITION_FLAGS

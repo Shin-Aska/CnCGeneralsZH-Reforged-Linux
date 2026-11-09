@@ -45,7 +45,7 @@ CONTROLBAR:IdleInfantry
 END
 
 CONTROLBAR:IdleInfantryDescription
-"Click to select the next idle infantry"
+"Click to select the next idle infantry. Shift-click selects all of them."
 END
 
 CONTROLBAR:IdleVehicle
@@ -53,7 +53,7 @@ CONTROLBAR:IdleVehicle
 END
 
 CONTROLBAR:IdleVehicleDescription
-"Click to select the next idle ground vehicle"
+"Click to select the next idle ground vehicle. Shift-click selects all of them."
 END
 
 CONTROLBAR:IdleAircraft
@@ -61,7 +61,11 @@ CONTROLBAR:IdleAircraft
 END
 
 CONTROLBAR:IdleAircraftDescription
-"Click to select the next idle aircraft"
+"Click to select the next idle aircraft. Shift-click selects all of them."
+END
+
+CONTROLBAR:IdleWorkerDescription
+"Click to select the next idle worker. Shift-click selects all of them."
 END
 
 GUI:OrderHoldPositionDescription
@@ -531,12 +535,56 @@ TOOLTIP:VSync
 "Holds the picture to the monitor so it does not tear. Off, the picture runs as fast as the machine draws. Applied when you Accept."
 END
 
+GUI:FrameRateLimit
+"Frame Rate Limit"
+END
+
+GUI:FrameRateLimit0
+"Off"
+END
+
+GUI:FrameRateLimit1
+"240 FPS"
+END
+
+GUI:FrameRateLimit2
+"144 FPS"
+END
+
+GUI:FrameRateLimit3
+"120 FPS"
+END
+
+GUI:FrameRateLimit4
+"60 FPS"
+END
+
+TOOLTIP:FrameRateLimit
+"The most pictures a second the game draws in a match. A lower limit keeps the graphics card cooler and quieter and does not slow the game down. The menus always stop at 60."
+END
+
 GUI:ClassicGraphics
 "Classic Graphics"
 END
 
 TOOLTIP:ClassicGraphics
 "The game as it looked in 2003: its own textures and ground, the old hard shadows, no bump detail and no glow or sharpening. The game opens this way. Untick it for the Reforged picture: the High preset fills in the boxes, and you can move the slider from there. Takes effect the next time the game starts."
+END
+
+GUI:DetailedModels
+"Detailed Models"
+END
+
+TOOLTIP:DetailedModels
+"The rebuilt units and buildings, for the Reforged picture, when you downloaded them. They change only what you see: you play with anyone, whether they have them or not. Untick it for a higher frame rate in big battles. Takes effect the next time the game starts."
+END
+
+GUI:HDTextures
+"HD Textures"
+END
+
+TOOLTIP:HDTextures
+"Every texture and ground tile at twice the detail, for the Reforged picture, when you downloaded them. They change only what you see: you play with anyone, whether they have them or not. Untick it on a card short of video memory. Takes effect the next time the game starts."
 END
 
 GUI:InfantryShadows
@@ -896,7 +944,7 @@ GUI:OrderLines
 END
 
 TOOLTIP:OrderLines
-"A line from each selected unit to where it is going, and on through every point it has queued. Off, a single order draws no line and no marker and a click leaves no ring on the ground; a queued route keeps its line and markers."
+"A line from each selected unit to where it is going, and on through every point it has queued. Off, a single order draws no line, but its marker and the ring where you click still show; a queued route keeps its line."
 END
 
 GUI:AircraftAltitudeLine
@@ -1319,7 +1367,7 @@ GUI:SuperweaponsNone
 END
 
 TOOLTIP:Superweapons
-"How many of each superweapon a player may have standing. Allow: as many as he can pay for. Limit: one each, and four for the USA Superweapon General. No: none at all, except the Superweapon General, who keeps one. He is the exception because his three superweapons are what he pays for a weaker army with."
+"How many superweapons a player may have standing. Allow: as many as he can pay for. Limit: one, and four for the USA Superweapon General. No: none at all, except the Superweapon General, who keeps one. He is the exception because his superweapons are what he pays for a weaker army with. Under No anyone, computer players too, may still put up one Nuclear Missile silo to buy China's upgrades in. It has no missile: no launch button, no countdown, no announcement."
 END
 
 GUI:UnitLimit
@@ -1416,6 +1464,11 @@ GUI:CantBuildTooManyDerrickDefenses
 "You already have two defenses round these oil derricks."
 END
 
+// Pro Rules, rules 6 and 12 to 14: the upgrade's card says why its button is grey
+TOOLTIP:TooltipProRulesBanUpgrade
+"Banned under Pro Rules"
+END
+
 GUI:HudStatArmy
 "Army value"
 END
@@ -1486,9 +1539,32 @@ GUI:HudArmies
 "Armies"
 END
 
-// the rack's drawer of every player ranked by the dial's stat
+// the rack's drawer of every player ranked by the picked stat
 GUI:HudStandings
 "Standings"
+END
+
+// the standings' heading when no stat key is under the pointer: the order the rows are in
+GUI:HudHighestFirst
+"highest first"
+END
+
+// the standings' column head over the names
+GUI:HudPlayerHead
+"Player"
+END
+
+// the units the standings' column head names after the stat
+GUI:HudStatUnitMoney
+"$"
+END
+
+GUI:HudStatUnitIncome
+"$/min"
+END
+
+GUI:HudStatUnitPower
+"surplus"
 END
 
 // The cheat panel the console's "trainer" command opens.
@@ -1937,6 +2013,14 @@ END
 
 TOOLTIP:SmoothMotion
 "On a screen faster than 60 Hz, units are drawn between their last two positions instead of holding each one until the next. A 60 Hz screen shows no change. Only your picture changes: nothing in the game reads it, and other players see their own setting. Applies when you press Accept."
+END
+
+GUI:HeatHaze
+"Heat Haze"
+END
+
+TOOLTIP:HeatHaze
+"The air shimmers over fires, along laser beams and behind missile exhaust. Direct3D 11 only, and off under Classic Graphics. Applies when you press Accept."
 END
 
 GUI:StructureCollapse
@@ -3708,24 +3792,36 @@ GUI:FactionPickSideNameHint
 END
 
 // the fork's player colours (MultiplayerReforged.ini); EA's eight are in the CSF
-Color:Crimson
-"Crimson"
-END
-
-Color:Azure
-"Azure"
-END
-
-Color:Salmon
-"Salmon"
-END
-
 Color:Teal
 "Teal"
 END
 
+Color:Lime
+"Lime"
+END
+
+Color:Navy
+"Navy"
+END
+
+Color:Magenta
+"Magenta"
+END
+
+Color:Brown
+"Brown"
+END
+
 Color:Lavender
 "Lavender"
+END
+
+Color:Coral
+"Coral"
+END
+
+Color:Olive
+"Olive"
 END
 
 // the LAN lobby's error box when the system bound the socket on another adapter; the first %ls is the
@@ -3734,7 +3830,402 @@ GUI:SocketRedirected
 "The LAN IP is %ls, but the system put the game's connection on %ls. A VPN split tunnel or a firewall redirected it, so nobody on your network can hear you. Turn split tunnelling off for the game and try again."
 END
 
+// the online service's one chat room; the lobby's room box shows GUI:<room name>
+GUI:Lobby
+"Lobby"
+END
+
+// EA's oldFactionsOnly box, read by players as a unit cap and mixed up with Unit Limit
+GUI:LimitArmies
+"Original Armies Only"
+END
+
+TOOLTIP:LimitArmies
+"Only the original USA, China and GLA armies can be picked, no generals' armies"
+END
+
+// a seat's colour left to chance; EA's label for it was "???"
+GUI:???
+"Random"
+END
+
+// the online login screen's one account field: the service takes the email or the nick
+GUI:OnlineLoginName
+"Email or Nickname"
+END
+
+// the online login screen under -online: its title, buttons, help text and status line
+GUI:OnlineLoginTitle
+"ZERO HOUR REFORGED ONLINE"
+END
+
+GUI:OnlineSignIn
+"SIGN IN"
+END
+
+GUI:OnlineForgotPassword
+"FORGOT PASSWORD"
+END
+
+GUI:OnlineKeepSignedIn
+"Keep me signed in"
+END
+
+TOOLTIP:OnlineKeepSignedIn
+"Stays signed in on this computer. Your password is never stored"
+END
+
+GUI:OnlineLoginHelp
+"Sign in with your zerohour.gg account: your email or your nickname, and your password."
+END
+
+GUI:OnlineLoginHelpRegister
+"No account yet? Create Account opens the sign-up page in your browser."
+END
+
+GUI:OnlineLoginHelpReset
+"Forgot your password? Forgot Password opens the reset page in your browser."
+END
+
+GUI:OnlineLoginSavedToken
+"Your saved sign-in will be used. No password needed."
+END
+
+GUI:OnlineSigningIn
+"Signing in..."
+END
+
+GUI:OnlineConnecting
+"Connecting to the server..."
+END
+
+GUI:OnlineCannotReachServer
+"The server cannot be reached. Check your connection, then press Sign In to try again."
+END
+
+GUI:OnlineOpenedInBrowser
+"Opened in your browser."
+END
+
+GUI:OnlineBrowserTestServer
+"Test server: no browser is opened."
+END
+
+GUI:OnlineBrowserFailed
+"Your browser could not be opened."
+END
+
+GUI:OnlineLoginEmpty
+"Enter your email or nickname and your password."
+END
+
+GUI:OnlineLoginBadLogin
+"Wrong email, nickname or password."
+END
+
+GUI:OnlineLoginThrottled
+"Too many attempts. Wait %d seconds and try again."
+END
+
+GUI:OnlineLoginThrottledNoRetry
+"Too many attempts. Wait a minute and try again."
+END
+
+GUI:OnlineLoginUnavailable
+"The account service cannot be reached. Try again shortly."
+END
+
+GUI:OnlineLoginExpired
+"Your password has changed. Enter it again."
+END
+
+GUI:OnlineLoginBanned
+"This account is banned."
+END
+
+GUI:OnlineLoginElsewhere
+"This account signed in from another computer."
+END
+
+// the online hub's info box when the server sent no message of the day
+GUI:OnlineHubWelcome
+"Welcome to Zero Hour Reforged online."
+END
+
+// EA's lobby and staging-room player tooltips without "Region:", which -online never knows
+TOOLTIP:OnlinePlayerInfo
+"\n %d wins/%d losses"
+END
+
+TOOLTIP:OnlineStagingPlayerInfo
+"\n Ping: %d ms \n %d wins/%d losses \n %d disconnects \n Favorite army: %ls"
+END
+
 // A vehicle transport's Evacuate asks for a spot, the transport goes there and empties; Alt empties it where it stands
 CONTROLBAR:ToolTipEvacuateAt
 "Go to the chosen spot and order all units to exit\nAlt: unload here"
+END
+
+GUI:OptionsTabWater
+"Water"
+END
+
+GUI:OptionsGroupReflections
+"Reflections"
+END
+
+GUI:OptionsGroupModernWater
+"Modern water"
+END
+
+GUI:WaterReflectionEnabled
+"Scene reflections"
+END
+
+TOOLTIP:WaterReflectionEnabled
+"Reflects the scene in Modern water. Turn off to improve performance while keeping sky colour and sun highlights. Your reflection mode is remembered. Applied when you Accept."
+END
+
+GUI:WaterFftResolution
+"Wave detail"
+END
+
+GUI:WaterFftResolution0
+"Low"
+END
+
+GUI:WaterFftResolution1
+"High"
+END
+
+TOOLTIP:WaterFftResolution
+"Controls fine detail in Modern water waves. Low improves performance; High shows more detail. Applied when you Accept."
+END
+
+GUI:WaterRefractionQuality
+"Refraction"
+END
+
+GUI:WaterRefractionQuality0
+"Full"
+END
+
+GUI:WaterRefractionQuality1
+"Simple"
+END
+
+GUI:WaterRefractionQuality2
+"Off"
+END
+
+TOOLTIP:WaterRefractionQuality
+"For Modern water. Full distorts the view below the surface. Simple keeps clear water without distortion. Off uses opaque tinted water for better performance. Applied when you Accept."
+END
+
+GUI:WaterReflectionDetail
+"Reflection detail"
+END
+
+GUI:WaterReflectionDetail0
+"Low"
+END
+
+GUI:WaterReflectionDetail1
+"High"
+END
+
+TOOLTIP:WaterReflectionDetail
+"Controls scene reflection detail in Modern water. Low improves performance. High gives clearer reflections. SSR resolution is unchanged. Applied when you Accept."
+END
+
+GUI:WaterReflection
+"Reflection mode"
+END
+
+GUI:WaterReflection0
+"Legacy"
+END
+
+GUI:WaterReflection1
+"SSR"
+END
+
+GUI:WaterReflection2
+"Hybrid"
+END
+
+TOOLTIP:WaterReflection
+"For Modern water when Scene reflections is on. Legacy uses the original reflections. SSR reflects visible screen content. Hybrid combines both and is the default. Applied when you Accept."
+END
+
+GUI:QMSearchTime
+"Searching for an opponent: %d:%02d"
+END
+
+GUI:QMSearchTimePool
+"Searching for an opponent: %d:%02d, %d in the queue"
+END
+
+GUI:QMStartsIn
+"Match starts in %d"
+END
+
+GUI:QMOpponentFound
+"Opponent found: %ls"
+END
+
+GUI:QMAnOpponent
+"unknown player"
+END
+
+GUI:QMOpponentLeft
+"Your opponent left before the match started. You are back in the queue."
+END
+
+GUI:OnlinePingMs
+"%d ms"
+END
+
+GUI:OnlineRating
+"Rating %d"
+END
+
+GUI:OnlineRatingTier
+"%ls, rating %d"
+END
+
+GUI:OnlineLadderPlace
+"#%d on the ladder"
+END
+
+GUI:OnlinePlayerNotOnline
+"Not online right now"
+END
+
+GUI:OnlineTier_unranked
+"Unranked"
+END
+
+GUI:OnlineTier_private
+"Private"
+END
+
+GUI:OnlineTier_sergeant
+"Sergeant"
+END
+
+GUI:OnlineTier_lieutenant
+"Lieutenant"
+END
+
+GUI:OnlineTier_captain
+"Captain"
+END
+
+GUI:OnlineTier_major
+"Major"
+END
+
+GUI:OnlineTier_colonel
+"Colonel"
+END
+
+GUI:OnlineTier_general
+"General"
+END
+
+GUI:OnlineLadderPrev
+"PREVIOUS"
+END
+
+GUI:OnlineLadderNext
+"NEXT"
+END
+
+GUI:OnlineLadderButton
+"LADDER"
+END
+
+GUI:OnlineLadderRank
+"#"
+END
+
+GUI:OnlineLadderPlayer
+"Player"
+END
+
+GUI:OnlineLadderRating
+"Rating"
+END
+
+GUI:OnlineLadderTier
+"Rank"
+END
+
+GUI:OnlineLadderWins
+"Wins"
+END
+
+GUI:OnlineLadderLosses
+"Losses"
+END
+
+GUI:OnlineLadderLoading
+"Loading the ladder..."
+END
+
+GUI:OnlineLadderUnavailable
+"The ladder is not available right now. Try again in a minute."
+END
+
+GUI:OnlineLadderEmpty
+"No ranked players on this page."
+END
+
+GUI:OnlineRatedResult
+"Rating %+.1f -> %d"
+END
+
+GUI:OnlineUnrated
+"This match was not rated."
+END
+
+GUI:OnlineUnrated_custom
+"Custom games are not rated."
+END
+
+GUI:OnlineUnrated_desync
+"Not rated: the game went out of sync."
+END
+
+GUI:OnlineUnrated_grace
+"Not rated: a player left right at the start."
+END
+
+GUI:OnlineUnrated_nowinner
+"Not rated: nobody won."
+END
+
+GUI:OnlineUnrated_unconfirmed
+"Not rated: the result could not be confirmed."
+END
+
+GUI:OnlineUnrated_stalled
+"Not rated: the result could not be confirmed."
+END
+
+GUI:OnlineUnrated_seed
+"Not rated: the two sides reported different results."
+END
+
+GUI:OnlineUnrated_endframe
+"Not rated: the two sides reported different results."
+END
+
+GUI:OnlineUnrated_winners
+"Not rated: the two sides reported different results."
+END
+
+GUI:OnlineUnrated_cancelled
+"Not rated: the match was called off."
 END

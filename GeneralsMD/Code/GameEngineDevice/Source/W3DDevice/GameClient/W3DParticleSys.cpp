@@ -41,6 +41,7 @@
 #include "W3DDevice/GameClient/W3DScene.h"
 #include "W3DDevice/GameClient/W3DDynamicLight.h"
 #include "W3DDevice/GameClient/W3DWater.h"
+#include "W3DDevice/GameClient/Module/W3DLaserDraw.h"
 #include "WW3D2/camera.h"
 #include "WW3D2/ww3d.h"
 #include "W3DDevice/GameClient/W3DSmoothMotion.h"
@@ -64,10 +65,9 @@
 #include "Common/ThingTemplate.h"
 #include "Platform/HazardCloudPolicy.h"
 #include "Platform/HazardCloud.h"
-#if !defined(_WIN32)
 #include "Platform/HazardCloudShared.h"
 #include "Platform/HazardCloudSharedModel.h"
-#endif
+#include <cstdio>
 #include <array>
 #include <memory>
 #include <cmath>
@@ -386,6 +386,180 @@ static void gatherFirelights( const AABoxClass &view, UnsignedInt frame, const s
 			frame, (Int)systems.size(), s_firelightGroups.count(), s_firelightCount, s_firelights[ 0 ].strength ));
 	}
 #endif
+}
+
+/** -heathaze, a prototype: each flame system in view (m_frameFires, so no new INI field) as one heat
+	* splat for the Direct3D 11 post pass (Direct3D11_Set_Heat_Splats has the layout).  The particles
+	* are summed as the Firelight sums them (sumFlames: brightness times size), and the splat is a
+	* column over their weighted centre, as wide as their spread and capped in world units, so a big
+	* explosion or a plume of grown particles cannot bend half the screen.  Its shift scales with its
+	* height on the screen and with how much flame the system holds.  Only ground well behind the
+	* flame bends (HEAT_HAZE_CLEARANCE), so a unit standing in the fire keeps its outline.  The waves
+	* themselves are in dx11post.cpp (HEAT_FREQUENCY). */
+static const Real HEAT_HAZE_MIN_RADIUS = 6.0f;		///< world units: a single flame's column half width
+static const Real HEAT_HAZE_MAX_RADIUS = 22.0f;		///< and the widest any system's gets
+static const Real HEAT_HAZE_LIFT = 1.3f;				///< the column's centre above the flames' centre, in its half widths
+static const Real HEAT_HAZE_STRETCH = 2.2f;			///< its half height over its half width
+static const Real HEAT_HAZE_AMPLITUDE = 0.18f;	///< the strongest shift, a share of the splat's half height on the screen
+static const Real HEAT_HAZE_MAX_SHIFT = 0.00525f;	///< and never more than this share of the frame; at normal zoom a column reaches it
+static const Real HEAT_HAZE_FULL = 40.0f;				///< summed brightness times size at which a system shimmers at full strength
+static const Real HEAT_HAZE_CLEARANCE = 12.0f;	///< world units behind the flames before a surface bends at all
+static const Real HEAT_HAZE_SOFTNESS = 20.0f;		///< and the further distance over which it comes up to full
+
+// A missile's exhaust (m_frameExhausts) the same way, smaller: a round splat over the trail it has
+// left behind it, not lifted, since a moving flame leaves its heat where it was. A trail's centre
+// starts at the launcher, so the haze comes up only as the trail grows (HEAT_EXHAUST_GROWN), and a
+// surface must lie further behind it than behind a fire before it bends: a launcher seen past the
+// trail kept its outline neither way alone.
+static const Real HEAT_EXHAUST_MIN_RADIUS = 3.0f;
+static const Real HEAT_EXHAUST_MAX_RADIUS = 7.0f;
+static const Real HEAT_EXHAUST_AMPLITUDE = 0.24f;
+static const Real HEAT_EXHAUST_MAX_SHIFT = 0.005f;
+static const Real HEAT_EXHAUST_FULL = 6.0f;			///< an exhaust's particles are small and few
+static const Real HEAT_EXHAUST_GROWN = 20.0f;		///< world units of the trail's spread at which it shimmers fully
+static const Real HEAT_EXHAUST_CLEARANCE = 25.0f;
+
+struct HeatLook
+{
+	Real minRadius, maxRadius, lift, stretch, amplitude, maxShift, full, grown, clearance;
+};
+static const HeatLook HEAT_LOOKS[ 2 ] =
+{
+	{ HEAT_HAZE_MIN_RADIUS, HEAT_HAZE_MAX_RADIUS, HEAT_HAZE_LIFT, HEAT_HAZE_STRETCH, HEAT_HAZE_AMPLITUDE, HEAT_HAZE_MAX_SHIFT, HEAT_HAZE_FULL, 0.0f, HEAT_HAZE_CLEARANCE },
+	{ HEAT_EXHAUST_MIN_RADIUS, HEAT_EXHAUST_MAX_RADIUS, 0.0f, 1.0f, HEAT_EXHAUST_AMPLITUDE, HEAT_EXHAUST_MAX_SHIFT, HEAT_EXHAUST_FULL, HEAT_EXHAUST_GROWN, HEAT_EXHAUST_CLEARANCE }
+};
+
+// A glowing laser's air (W3DLaserDraw::gatherHeat). No depth to hide behind, so the beam is kept
+// still by a band along it instead; HEAT_HAZE_CLEARANCE still keeps the unit it hits.
+static const Real HEAT_BEAM_RADIUS_SCALE = 0.5f;	///< a splat's radius over the halo's whole width: 5 to 11 for EA's lasers
+static const Real HEAT_BEAM_MIN_RADIUS = 5.0f;		///< world units
+static const Int HEAT_BEAM_MAX_SPLATS = 96;				///< a beam longer than that many radii spaces them wider
+static const Real HEAT_BEAM_AMPLITUDE = 0.25f;		///< as HEAT_HAZE_AMPLITUDE, larger because the sleeve is a third as wide
+static const Real HEAT_BEAM_MAX_SHIFT = 0.003f;
+static const Real HEAT_BEAM_STILL_SCALE = 1.0f;		///< the still band's half width over the body's half width
+static const Real HEAT_BEAM_STILL_FADE = 0.75f;		///< and the distance beyond it over which the bending comes up
+
+static std::vector<float> s_heatSplats;	///< kept so the gather does not allocate
+static std::vector<LaserHeat> s_heatBeams;
+
+static void gatherHeatHaze( CameraClass &camera, const std::vector<ParticleSystem *> &fires, const std::vector<Real> &fireFades,
+	const std::vector<ParticleSystem *> &exhausts, const std::vector<Real> &exhaustFades )
+{
+	s_heatSplats.clear();
+	Matrix4x4 projection;
+	camera.Get_D3D_Projection_Matrix( &projection );
+	Matrix3D view;
+	camera.Get_View_Matrix( &view );
+	float zNear, zFar;
+	camera.Get_Clip_Planes( zNear, zFar );
+	// the camera's viewport in the frame, as CameraClass::Apply sets the device's
+	const ViewportClass &viewport = camera.Get_Viewport();
+	const Real viewWidth = viewport.Max.X - viewport.Min.X;
+	const Real viewHeight = viewport.Max.Y - viewport.Min.Y;
+	const float seconds = (float)( WW3D::Get_Sync_Time() % 3600000u ) * 0.001f;
+	Int count = 0;
+	// the fires first, then the exhausts
+	for (Int kind = 0; kind < 2; ++kind)
+	for (size_t i = 0; i < ( kind ? exhausts : fires ).size() && count < (Int)DIRECT3D11_HEAT_SPLAT_LIMIT; ++i)
+	{
+		const HeatLook &look = HEAT_LOOKS[ kind ];
+		FireLights::Flames flames;
+		sumFlames( ( kind ? exhausts : fires )[ i ], flames );
+		if (flames.w <= 0.0f)
+			continue;
+		Real strength = flames.w * ( kind ? exhaustFades : fireFades )[ i ] / look.full;
+		if (strength > 1.0f)
+			strength = 1.0f;
+		const Vector3 centre( flames.x / flames.w, flames.y / flames.w, flames.z / flames.w );
+		const Real spread = flames.sq / flames.w - centre.Length2();
+		Real radius = spread > 0.0f ? WWMath::Sqrt( spread ) : 0.0f;
+		if (look.grown > 0.0f && radius < look.grown)
+			strength *= radius / look.grown;
+		radius = radius < look.minRadius ? look.minRadius : radius > look.maxRadius ? look.maxRadius : radius;
+
+		// the flames' own depth decides what stands in front; the column is drawn above them
+		Vector3 eye, columnEye;
+		Matrix3D::Transform_Vector( view, centre, &eye );
+		Matrix3D::Transform_Vector( view, Vector3( centre.X, centre.Y, centre.Z + radius * look.lift ), &columnEye );
+		if (-eye.Z <= zNear || -columnEye.Z <= zNear)
+			continue;
+		const Vector4 flameClip = projection * eye;
+		const Vector4 clip = projection * columnEye;
+		if (clip.W <= 0.0f || flameClip.W <= 0.0f)
+			continue;
+		const Real x = clip.X / clip.W;
+		const Real y = clip.Y / clip.W;
+		const Real rx = radius * projection[ 0 ][ 0 ] / clip.W;
+		const Real ry = radius * look.stretch * projection[ 1 ][ 1 ] / clip.W;
+		if (WWMath::Fabs( x ) - rx > 1.0f || WWMath::Fabs( y ) - ry > 1.0f)
+			continue;
+		Real shift = look.amplitude * ry * 0.5f * viewHeight;
+		if (shift > look.maxShift)
+			shift = look.maxShift;
+		const float splat[ DIRECT3D11_HEAT_SPLAT_FLOATS ] = {
+			// the camera's clip space into the frame's
+			(viewport.Min.X + ( x * 0.5f + 0.5f ) * viewWidth) * 2.0f - 1.0f,
+			1.0f - (viewport.Min.Y + ( 0.5f - y * 0.5f ) * viewHeight) * 2.0f,
+			rx * viewWidth, ry * viewHeight,
+			flameClip.Z / flameClip.W, shift * strength, seconds, 0.0f,
+			zNear, zFar, look.clearance, HEAT_HAZE_SOFTNESS,
+			0.0f, 0.0f, 0.0f, 0.0f };
+		s_heatSplats.insert( s_heatSplats.end(), splat, splat + DIRECT3D11_HEAT_SPLAT_FLOATS );
+		++count;
+	}
+
+	// The lasers, after the fires so a crowd of beams cannot crowd a fire out: a row of round splats
+	// down each beam, a radius apart so they blur into one sleeve, each with the beam's direction on
+	// the screen so the band the beam is drawn in stays still (dx11post.cpp, Across).
+	s_heatBeams.clear();
+	W3DLaserDraw::gatherHeat( s_heatBeams );
+	for (size_t b = 0; b < s_heatBeams.size() && count < (Int)DIRECT3D11_HEAT_SPLAT_LIMIT; ++b)
+	{
+		const LaserHeat &beam = s_heatBeams[ b ];
+		Real radius = beam.glowWidth * HEAT_BEAM_RADIUS_SCALE;
+		if (radius < HEAT_BEAM_MIN_RADIUS)
+			radius = HEAT_BEAM_MIN_RADIUS;
+		const Vector3 run = beam.end - beam.start;
+		const Real length = run.Length();
+		Int steps = (Int)( length / radius ) + 1;
+		if (steps > HEAT_BEAM_MAX_SPLATS)
+			steps = HEAT_BEAM_MAX_SPLATS;
+		const Vector3 ahead = run * ( radius / length );	// gatherHeat leaves out a beam of no length
+		for (Int s = 0; s < steps && count < (Int)DIRECT3D11_HEAT_SPLAT_LIMIT; ++s)
+		{
+			const Vector3 at = beam.start + run * ( ( s + 0.5f ) / steps );
+			Vector3 eye, aheadEye;
+			Matrix3D::Transform_Vector( view, at, &eye );
+			Matrix3D::Transform_Vector( view, at + ahead, &aheadEye );
+			if (-eye.Z <= zNear || -aheadEye.Z <= zNear)
+				continue;
+			const Vector4 clip = projection * eye;
+			const Vector4 aheadClip = projection * aheadEye;
+			if (clip.W <= 0.0f || aheadClip.W <= 0.0f)
+				continue;
+			const Real x = clip.X / clip.W;
+			const Real y = clip.Y / clip.W;
+			const Real rx = radius * projection[ 0 ][ 0 ] / clip.W;
+			const Real ry = radius * projection[ 1 ][ 1 ] / clip.W;
+			if (WWMath::Fabs( x ) - rx > 1.0f || WWMath::Fabs( y ) - ry > 1.0f)
+				continue;
+			Real shift = HEAT_BEAM_AMPLITUDE * ry * 0.5f * viewHeight;
+			if (shift > HEAT_BEAM_MAX_SHIFT)
+				shift = HEAT_BEAM_MAX_SHIFT;
+			const Real still = beam.coreRadius * projection[ 1 ][ 1 ] / clip.W * 0.5f * viewHeight;
+			const float splat[ DIRECT3D11_HEAT_SPLAT_FLOATS ] = {
+				(viewport.Min.X + ( x * 0.5f + 0.5f ) * viewWidth) * 2.0f - 1.0f,
+				1.0f - (viewport.Min.Y + ( 0.5f - y * 0.5f ) * viewHeight) * 2.0f,
+				rx * viewWidth, ry * viewHeight,
+				clip.Z / clip.W, shift * beam.light, seconds, 0.0f,
+				zNear, zFar, HEAT_HAZE_CLEARANCE, HEAT_HAZE_SOFTNESS,
+				( aheadClip.X / aheadClip.W - x ) * viewWidth, ( aheadClip.Y / aheadClip.W - y ) * viewHeight,
+				still * HEAT_BEAM_STILL_SCALE, still * HEAT_BEAM_STILL_FADE };
+			s_heatSplats.insert( s_heatSplats.end(), splat, splat + DIRECT3D11_HEAT_SPLAT_FLOATS );
+			++count;
+		}
+	}
+	Direct3D11_Set_Heat_Splats( s_heatSplats.empty() ? NULL : &s_heatSplats[ 0 ], (unsigned)count );
 }
 
 /** The same for a GPU system, from the spawns it keeps (ParticleSystem::getGpuSample) aged in closed
@@ -909,10 +1083,12 @@ static const Int	FIELD_FADE_GONE				= FIELD_FADE_OUT;	///< logic frames, a field
 // retail keys, owner choice, grace and initial delay on every platform.  Changed
 // only at the sync point (fieldCloudsSupported), never in the render, because
 // FieldKey ordering reads it and changing it while keys exist invalidates the map.
+static Int s_fieldRenderFrame = 0;
 static bool s_fieldCloudsSupported = false;
 static bool s_fieldCloudCapability = false;		///< the device's answer, asked once per device
 static bool s_fieldCloudCapabilityKnown = false;
 static bool fieldCloudsSupported();
+namespace { bool warmSharedClouds(); }
 
 static const Real	FIELD_OBJECT_REACH		= 5.0f;		///< how near the field's centre its object stands
 
@@ -1306,7 +1482,8 @@ bool warmSharedClouds()
 {
 	if (s_sharedCloud) return true;
 	if (s_sharedCloudFailed) return false;
-	auto renderer = std::make_unique<HazardCloudShared::Renderer>();
+	auto renderer = HazardCloudShared::CreateRenderer();
+	if (!renderer) return false;
 	std::string error;
 	if (!renderer->initialize(error)) {
 		std::fprintf(stderr, "hazard-cloud: shared renderer initialization failed: %s\n", error.c_str());
@@ -1457,7 +1634,7 @@ bool prepareModernCloud(const FieldKey &key, FieldState &state, int now,
 	const auto buildup = HazardCloudPolicy::visualBuildup(key.palette, state.radius >= 100.f, age, lifetime);
 	field = {};
 	field.ground = state.centre;
-	const float ground = TheTerrainRenderObject->getHeightMapHeight(state.centre.x, state.centre.y, NULL);
+	const float ground = TheTerrainRenderObject->getDrawHeight(state.centre.x, state.centre.y);
 	onGround = state.centre.z - ground < FIELD_ON_GROUND;
 	if (onGround) field.ground.z = ground;
 	field.radius = state.radius;
@@ -1576,9 +1753,9 @@ void drawSharedClouds(const AABoxClass &view, const HazardCloud::Camera &camera,
 		std::array<float, side * side> heights;
 		s_sharedTerrainValid = true;
 		for (unsigned y = 0; y < side && s_sharedTerrainValid; ++y) for (unsigned x = 0; x < side; ++x) {
-			const float z = TheTerrainRenderObject->getHeightMapHeight(
+			const float z = TheTerrainRenderObject->getDrawHeight(
 				bounds.minX + (bounds.maxX - bounds.minX) * x / (side - 1),
-				bounds.minY + (bounds.maxY - bounds.minY) * y / (side - 1), NULL);
+				bounds.minY + (bounds.maxY - bounds.minY) * y / (side - 1));
 			if (!std::isfinite(z)) { s_sharedTerrainValid = false; break; }
 			heights[y * side + x] = z;
 		}
@@ -1595,7 +1772,7 @@ void drawSharedClouds(const AABoxClass &view, const HazardCloud::Camera &camera,
 			const float dx = body.x - field.ground.x, dy = body.y - field.ground.y;
 			const float reach = field.radius + field.fringe + body.radius;
 			if (dx * dx + dy * dy > reach * reach) continue;
-			const float ground = source.terrain ? TheTerrainRenderObject->getHeightMapHeight(body.x, body.y, NULL) : field.ground.z;
+			const float ground = source.terrain ? TheTerrainRenderObject->getDrawHeight(body.x, body.y) : field.ground.z;
 			if (std::fabs(body.z - ground) < field.height) { bodies.push_back(body); break; }
 		}
 	}
@@ -1922,7 +2099,7 @@ static void updateGroundFields( const std::vector<ParticleSystem *> &systems )
 	* draws them.  Returns the puddles laid. */
 static Int collectGroundFields( const AABoxClass &view, CameraClass &sceneCamera )
 {
-	const Int now = (Int)TheGameLogic->getFrame();
+	const Int now = s_fieldRenderFrame;
 	// between the last two logic ticks, as the models are, so a pulse does not step at the logic rate
 	const Real seconds = ((Real)now + (TheSmoothMotionActive ? TheSmoothMotionAlpha : 0.0f)) / LOGICFRAMES_PER_SECOND;
 	s_fieldPuddles.clear();
@@ -2330,6 +2507,8 @@ void W3DParticleSystemManager::reset()
 	m_frameView.clear();
 	m_frameFires.clear();
 	m_frameFireFades.clear();
+	m_frameExhausts.clear();
+	m_frameExhaustFades.clear();
 	m_fieldSystems.clear();
 	m_sunMapCasters.clear();
 	invalidateGroundFields();	// the object IDs it holds belong to the game that ended
@@ -2375,6 +2554,7 @@ void W3DParticleSystemManager::releaseGpuResources()
 	* render; the render's own refreshFrameView finds the view still valid. */
 void W3DParticleSystemManager::takeReadsForRender( void )
 {
+	s_fieldRenderFrame = (Int)TheGameLogic->getFrame();
 	refreshFrameView();
 	updateGroundFields( m_fieldSystems );
 }
@@ -2395,6 +2575,8 @@ void W3DParticleSystemManager::refreshFrameView( void )
 	m_frameView.clear();
 	m_frameFires.clear();
 	m_frameFireFades.clear();
+	m_frameExhausts.clear();
+	m_frameExhaustFades.clear();
 	m_fieldSystems.clear();
 	for (ParticleSystemListIt it = m_allParticleSystemList.begin(); it != m_allParticleSystemList.end(); ++it)
 	{
@@ -2428,6 +2610,17 @@ void W3DParticleSystemManager::refreshFrameView( void )
 		{
 			m_frameFires.push_back( sys );
 			m_frameFireFades.push_back( fade );
+		}
+		// A missile's flame: a weapon's ProjectileExhaust is created attached to the projectile object
+		// (MissileAIUpdate, NeutronMissileUpdate) at WEAPON_TRAIL priority. The additive ones are the
+		// flame (MissileExhaust, the Stinger's, the Raptor's); the smoke trails (Scud, Tomahawk, TOW)
+		// blend, and laser flares are placed rather than attached to an object. hasRiddenObject stays
+		// set once the missile has hit, so the trail's haze fades with it instead of going in a frame.
+		else if (sys->getPriority() == WEAPON_TRAIL && sys->getShaderType() == ParticleSystemInfo::ADDITIVE
+				&& sys->hasRiddenObject())
+		{
+			m_frameExhausts.push_back( sys );
+			m_frameExhaustFades.push_back( fade );
 		}
 	}
 	refreshGpuSystems();
@@ -2646,6 +2839,7 @@ void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 		fill.pastLimit = 0;
 		fill.glow = FALSE;
 		fill.fire = sys->getTemplate()->isFireLook();
+		fill.hardEdge = sys->isAttachedToMine();
 		fill.texture =W3DDisplay::m_assetManager->Get_Texture( sys->getParticleTypeName().str() );
 		PointGroupClass::Reserve_Sorted_Billboards( fill.capacity, &fill.range );
 		m_billboardFills.push_back( fill );
@@ -2667,6 +2861,8 @@ void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 		s_firelightCount = 0;
 		if (TheGlobalData->m_firelight && Direct3D11_Lights_Per_Pixel())
 			gatherFirelights( bbox, m_lastLogicFrameUpdate, m_frameFires, m_frameFireFades );
+		if (TheGlobalData->m_heatHaze && !TheGlobalData->m_classicGraphics && Direct3D11_Present_Is_Enabled())
+			gatherHeatHaze( rinfo.Camera, m_frameFires, m_frameFireFades, m_frameExhausts, m_frameExhaustFades );
 	}
 	// Only a CPU drawn smoke system takes a light (pickSmokeLights); with none, the walk over every
 	// fire, a GPU one's samples aged in closed form, is a third of a frame thrown away.
@@ -2742,7 +2938,7 @@ void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 		{
 			BillboardFill &fill = m_billboardFills[ nextFill++ ];
 			PointGroupClass::Insert_Sorted_Billboards( &fill.range, fill.drawn, fill.texture, fill.shader, fill.glow != FALSE, fill.fire != FALSE,
-				sys->getTemplate()->isEmissive() != FALSE );
+				sys->getTemplate()->isEmissive() != FALSE, fill.hardEdge != FALSE );
 			fill.texture->Release_Ref();	// the draw state took its own reference
 			m_fieldParticleCount += fill.fieldIncrement * fill.drawn;
 			m_onScreenParticleCount += fill.drawn;

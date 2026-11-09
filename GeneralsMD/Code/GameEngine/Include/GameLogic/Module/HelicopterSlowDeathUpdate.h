@@ -75,6 +75,7 @@ public:
 	Real m_delayFromGroundToFinalDeath;		///< (frames) delay from when we hit the ground to final BOOM!
 	AsciiString m_finalRubbleObject;			///< final rubble object to create after it's ALL over
 	Real m_maxBraking;										///< max braking we may use during death spiral
+	Real m_momentumDriftShare;						///< share of its speed and the shot's push the wreck keeps as drift all the way down
 
 	// @todo propagate this up to SlowDeathBehaviorModuleData. I don't wanna do it today, cause its 4/3. jkmcd
 	AudioEventRTS m_deathSound;						///< Sound played during death sequence.
@@ -108,6 +109,8 @@ protected:
 	UnsignedInt m_lastSelfSpinUpdateFrame;	///< frame we last updated the self spin on
 	UnsignedInt m_bladeFlyOffFrame;		///< frame we throw the blade off at
 	UnsignedInt m_hitGroundFrame;			///< frame we hit the ground on
+	Real m_driftX;										///< ground speed the wreck carries on with, per frame: its own when it was hit plus the shot's push
+	Real m_driftY;
 
 	// @todo propagate this up to SlowDeathBehavior. I don't wanna do it today, cause its 4/3. jkmcd
 	AudioEventRTS m_deathSound;						///< Sound played during death sequence.

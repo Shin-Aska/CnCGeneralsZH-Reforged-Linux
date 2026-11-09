@@ -5,6 +5,24 @@
 #include "WaterSurfaceModel.h"
 
 namespace WaterStaticSampleCache {
+// Preserve WaterTerrainDepth's clamp(lo, value, hi) argument order and
+// WorldHeightMapData's flattened-index bounds, including samples beyond an edge.
+// The caller owns a width*height immutable draw snapshot.
+inline float TerrainDepth(const uint8_t *heights,int width,int height,int border,
+    float spacing,float heightScale,float x,float y,float level) {
+    if (!heights || width<2 || height<2) return 0.0f;
+    const float gx=x/spacing+border,gy=y/spacing+border;
+    const float mx=0.0f<gx?gx:0.0f,my=0.0f<gy?gy:0.0f;
+    const int ix=int(mx),iy=int(my);const float fx=mx-ix,fy=my-iy;
+    const auto at=[&](int column,int row) {
+        const int64_t index=int64_t(row)*width+column;
+        return index>=0 && index<int64_t(width)*height?heights[size_t(index)]:uint8_t(0);
+    };
+    const float a=at(ix,iy)*(1-fx)+at(ix+1,iy)*fx;
+    const float b=at(ix,iy+1)*(1-fx)+at(ix+1,iy+1)*fx;
+    return level-(a*(1-fy)+b*fy)*heightScale;
+}
+
 struct Sample {
     WaterSurfaceModel::Sample offshore;
     float exposure;

@@ -99,14 +99,23 @@ public:
 	SDL_GPUShader *Vertex = NULL, *Pixel = NULL;
 	SDL_GPUGraphicsPipeline *Pipeline = NULL;
 	SdlPipelineCache *Cache = NULL;
+	SDL_GPUSampler *Sampler = NULL;
 	SdlGpuFrame *Frame;
-	explicit DepthObject(SdlGpuFrame *frame, bool sun = false) : Frame(frame)
+	explicit DepthObject(SdlGpuFrame *frame, bool sun = false, bool vertexTexture = false) : Frame(frame)
 	{
 		const char *vertex =
 			"cbuffer Object : register(b0, space1) { float4 Depth; };\n"
 			"float4 main(uint id : SV_VertexID) : SV_Position {\n"
 			"float2 p = id == 0 ? float2(-0.75,-0.75) : (id == 1 ? float2(0.75,-0.75) : float2(0,0.75));\n"
 			"return float4(p,Depth.x,1); }\n";
+		if (vertexTexture) {
+			vertex =
+				"Texture2D<float> Height : register(t0, space0);\n"
+				"SamplerState HeightSampler : register(s0, space0);\n"
+				"float4 main(uint id : SV_VertexID) : SV_Position {\n"
+				"float2 p = id == 0 ? float2(-0.75,-0.75) : (id == 1 ? float2(0.75,-0.75) : float2(0,0.75));\n"
+				"return float4(p, Height.SampleLevel(HeightSampler,float2(0.5,0.5),0),1); }\n";
+		}
 		const char *pixel = sun ? "void main() {}\n" : "float4 main() : SV_Target0 { return float4(0.8,0.2,0.1,1); }\n";
 		std::vector<unsigned char> spirv;
 		std::string error;
@@ -146,18 +155,28 @@ public:
 			Pipeline = Cache->Pipeline(key);
 		} else Pipeline = SDL_CreateGPUGraphicsPipeline(frame->Device(), &info);
 		CHECK(Pipeline != NULL);
+		if (vertexTexture) {
+			SDL_GPUSamplerCreateInfo sampler = {};
+			sampler.min_filter = sampler.mag_filter = SDL_GPU_FILTER_NEAREST;
+			sampler.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
+			sampler.address_mode_u = sampler.address_mode_v = sampler.address_mode_w
+				= SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+			Sampler = SDL_CreateGPUSampler(frame->Device(), &sampler);
+			CHECK(Sampler != NULL);
+		}
 	}
 	~DepthObject()
 	{
 		Frame->Flush();
 		if (Cache) delete Cache;
 		else if (Pipeline) SDL_ReleaseGPUGraphicsPipeline(Frame->Device(), Pipeline);
+		if (Sampler) SDL_ReleaseGPUSampler(Frame->Device(), Sampler);
 		if (Vertex) SDL_ReleaseGPUShader(Frame->Device(), Vertex);
 		if (Pixel) SDL_ReleaseGPUShader(Frame->Device(), Pixel);
 	}
-	void Draw(const SdlTarget &target, float depth)
+	void Draw(const SdlTarget &target, float depth, SDL_GPUTexture *height = NULL)
 	{
-		if (!Pipeline) return;
+		if (!Pipeline || (height && !Sampler)) return;
 		Frame->Set_Target(target);
 		SdlRecordedDraw draw = {};
 		draw.Pipeline = Pipeline;
@@ -165,7 +184,13 @@ public:
 		memset(Frame->Stage(36, draw.VertexOffset), 0, 36);
 		const float values[4] = { depth, 0, 0, 0 };
 		draw.VertexConstants = Frame->Constants(0, values, sizeof(values));
-		draw.VertexConstantsSize = sizeof(values);
+		if (height) {
+			draw.VertexSamplerCount = 1;
+			draw.VertexTextures[0] = height;
+			draw.VertexSamplers[0] = Sampler;
+		} else {
+			draw.VertexConstantsSize = sizeof(values);
+		}
 		draw.Viewport[2] = (float)target.Width;
 		draw.Viewport[3] = (float)target.Height;
 		draw.Viewport[5] = 1;
@@ -9677,6 +9702,102 @@ float4 main(float4 pixel:SV_Position):SV_Target0 {
 		rows, maximum, armedHeading, armedCascade[0], armedCascade[1], armedCascade[2]);
 }
 
+static void check_colour_only_target(SdlGpuFrame *frame)
+{
+	SDL_GPUTextureCreateInfo info = {};
+	info.type = SDL_GPU_TEXTURETYPE_2D;
+	info.format = (SDL_GPUTextureFormat)SdlGpuFrame::Target_Format();
+	info.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+	info.width = WIDTH;
+	info.height = HEIGHT;
+	info.layer_count_or_depth = info.num_levels = 1;
+	SDL_GPUTexture *texture = SDL_CreateGPUTexture(frame->Device(), &info);
+	CHECK(texture != NULL);
+	if (!texture) return;
+
+	const SdlTarget colour_only = { texture, NULL, WIDTH, HEIGHT };
+	frame->Set_Target(colour_only);
+	frame->Clear_Back_Buffer(true, false, false, 0xFF123456u, 1.0f, 0);
+	std::vector<uint8_t> pixels;
+	CHECK(frame->Read_Back(texture, WIDTH, HEIGHT, pixels));
+	CHECK(pixels.size() == WIDTH * HEIGHT * 4);
+	for (size_t i = 0; i + 3 < pixels.size(); i += 4)
+		CHECK(pixels[i] == 0x56 && pixels[i + 1] == 0x34
+			&& pixels[i + 2] == 0x12 && pixels[i + 3] == 0xFF);
+
+	// Both clears are pending in one batch: changing targets must close the
+	// colour-only pass and retain the scene's normal depth/stencil attachment.
+	frame->Clear_Back_Buffer(true, false, false, 0xFFABCDEFu, 1.0f, 0);
+	frame->Set_Target(frame->Back_Buffer_Target());
+	frame->Clear_Back_Buffer(true, true, true, 0xFF102030u, 0.5f, 7);
+	CHECK(frame->Read_Back(texture, WIDTH, HEIGHT, pixels));
+	CHECK(pixels.size() == WIDTH * HEIGHT * 4 && pixels[0] == 0xEF
+		&& pixels[1] == 0xCD && pixels[2] == 0xAB && pixels[3] == 0xFF);
+	CHECK(frame->Read_Back(frame->Back_Buffer(), WIDTH, HEIGHT, pixels));
+	CHECK(pixels.size() == WIDTH * HEIGHT * 4 && pixels[0] == 0x30
+		&& pixels[1] == 0x20 && pixels[2] == 0x10 && pixels[3] == 0xFF);
+	SDL_ReleaseGPUTexture(frame->Device(), texture);
+	printf("sdl_gpu_frame_selfcheck: colour-only attachment clear/readback and scene target restoration checked\n");
+}
+
+static void check_scene_depth_snapshot(SdlGpuFrame *frame)
+{
+	const SdlTarget scene = frame->Back_Buffer_Target();
+	CHECK(frame->Supports_Scene_Depth() == bool(frame->Depth_Usage() & SDL_GPU_TEXTUREUSAGE_SAMPLER));
+	if (!frame->Supports_Scene_Depth()) {
+		CHECK(frame->Scene_Depth(scene) == NULL);
+		printf("sdl_gpu_frame_selfcheck: sampled depth unavailable; fallback checked\n");
+		return;
+	}
+	frame->Set_Target(scene);
+	frame->Clear_Back_Buffer(true, true, true, 0xFF000000u, 0.8f, 0);
+	DepthObject object(frame);
+	object.Draw(scene, 0.25f);
+	SDL_GPUTexture *snapshot = frame->Scene_Depth(scene);
+	CHECK(snapshot != NULL);
+	if (!snapshot) return;
+	std::vector<uint8_t> bytes;
+	CHECK(frame->Read_Back(snapshot, WIDTH, HEIGHT, bytes));
+	CHECK(std::fabs(depth_at(bytes, WIDTH, WIDTH / 2, HEIGHT / 2) - 0.25f) < 0.00001f);
+	CHECK(std::fabs(depth_at(bytes, WIDTH, 0, 0) - 0.8f) < 0.00001f);
+	CHECK(frame->Scene_Depth(scene) == snapshot);
+
+	SDL_GPUTextureCreateInfo info = {};
+	info.type = SDL_GPU_TEXTURETYPE_2D;
+	info.format = (SDL_GPUTextureFormat)SdlGpuFrame::Target_Format();
+	info.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+	info.width = WIDTH; info.height = HEIGHT;
+	info.layer_count_or_depth = info.num_levels = 1;
+	SDL_GPUTexture *colour = SDL_CreateGPUTexture(frame->Device(), &info);
+	CHECK(colour != NULL);
+	if (colour) {
+		const SdlTarget intermediate = { colour, frame->Depth_For(WIDTH, HEIGHT), WIDTH, HEIGHT };
+		frame->Set_Target(intermediate);
+		frame->Clear_Back_Buffer(true, true, true, 0xFF000000u, 1.0f, 0);
+		DepthObject sampled(frame, false, true);
+		sampled.Draw(intermediate, 0, snapshot);
+		SDL_GPUTexture *sampled_depth = frame->Scene_Depth(intermediate);
+		CHECK(sampled_depth != NULL);
+		if (sampled_depth) CHECK(frame->Read_Back(sampled_depth, WIDTH, HEIGHT, bytes));
+		CHECK(std::fabs(depth_at(bytes, WIDTH, WIDTH / 2, HEIGHT / 2) - 0.25f) < 0.00001f);
+		CHECK(std::fabs(depth_at(bytes, WIDTH, 0, 0) - 1.0f) < 0.00001f);
+		frame->Set_Target(scene);
+		frame->Release_After_Batch(colour, NULL);
+	}
+	frame->Clear_Back_Buffer(false, true, true, 0, 0.6f, 0);
+	CHECK(frame->Read_Back(frame->Scene_Depth(scene), WIDTH, HEIGHT, bytes));
+	CHECK(std::fabs(depth_at(bytes, WIDTH, WIDTH / 2, HEIGHT / 2) - 0.6f) < 0.00001f);
+	CHECK(frame->Present(NULL));
+	object.Draw(scene, 0.1f);
+	CHECK(frame->Read_Back(frame->Scene_Depth(scene), WIDTH, HEIGHT, bytes));
+	CHECK(std::fabs(depth_at(bytes, WIDTH, WIDTH / 2, HEIGHT / 2) - 0.1f) < 0.00001f);
+	CHECK(frame->Resize(WIDTH, HEIGHT));
+	frame->Clear_Back_Buffer(true, true, true, 0, 0.4f, 0);
+	CHECK(frame->Read_Back(frame->Scene_Depth(frame->Back_Buffer_Target()), WIDTH, HEIGHT, bytes));
+	CHECK(std::fabs(depth_at(bytes, WIDTH, WIDTH / 2, HEIGHT / 2) - 0.4f) < 0.00001f);
+	printf("sdl_gpu_frame_selfcheck: scene/object depth, vertex texture, target/frame/clear invalidation and resize checked\n");
+}
+
 int main(int argc,char **argv)
 {
 	if (!SDL_Init(SDL_INIT_VIDEO)) {
@@ -9712,6 +9833,8 @@ int main(int argc,char **argv)
     check_gpu_water_opaque_alpha(frame);
 #endif
 
+	check_colour_only_target(frame);
+	check_scene_depth_snapshot(frame);
 	check_sun_depth_target(frame);
 	check_gpu_fft_ocean(frame);
 	check_gpu_water_coastal_incident(frame);

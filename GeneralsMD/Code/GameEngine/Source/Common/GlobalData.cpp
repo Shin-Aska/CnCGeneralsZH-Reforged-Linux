@@ -664,6 +664,8 @@ GlobalData::GlobalData()
 	m_fullscreenScaling = FULLSCREEN_SCALING_STRETCH;	// what EA's fullscreen mode change gave on most monitors
 	m_msaaLevel = 0;
 	m_vsync = FALSE;
+	m_frameRateLimit = 0;
+	m_noFrameRateCap = FALSE;
 	m_direct3D11 = TRUE;
 	m_direct3D11DumpPath.clear();
 	// The Direct3D 11 frame gets every effect the backend has unless -dx11post names a chain of its
@@ -700,21 +702,23 @@ GlobalData::GlobalData()
 	m_smokeFireLighting = FALSE;
 	m_smoothMotion = FALSE;					//a model stands where the last logic tick left it until the box is ticked
 	m_smoothMotionAnyDisplay = FALSE;
-	m_waterStyle = 0;				// Classic by default; Modern remains an explicit option
-	m_cloudStyle = 0;				// Classic by default; Volumetric remains an explicit option
+	m_waterStyle = 0;				// classic by default; modern water is an explicit option
+	m_waterReflection = 2;		// Hybrid once Modern is explicitly selected
+	m_waterReflectionEnabled = TRUE;
+	m_waterFftResolution = 1;
+	m_waterRefractionQuality = 0;
+	m_waterReflectionDetail = 1;
+	m_cloudStyle = 0;				// Classic by default; volumetric hazard clouds are opt-in
 	m_explosionDebrisTrails = FALSE;
 #if defined(__linux__)
 	m_waterMovementBehavior = TRUE;	// Map-aware movement unless the player requests v3.5.1 behavior for the next map
-	m_waterReflection = 2;		// Hybrid unless Options.ini selects another reflection mode
-	m_waterReflectionEnabled = TRUE;
-	m_waterFftResolution = 1;	// High preserves the original wave simulation
-	m_waterRefractionQuality = 0; // Full preserves the original transmission and distortion
-	m_waterReflectionDetail = 1; // High planar detail and 512-square Path captures
 #endif
 	m_shadowQuality = 1;					//medium, the 2048 map the shadows always had
 	m_graphicsQuality = TheGraphicsQualityAnchors[ STATIC_GAME_LOD_HIGH ];	//a preset moves it to its own step as the menu opens
 	// Start with the upstream Classic picture on every platform. Options.ini can opt into Reforged.
 	m_classicGraphics = TRUE;
+	m_detailedModels = TRUE;			//on, as the download was asked for: only a player who has the archives sees it, and only off Classic
+	m_hdTextures = TRUE;					//the same for the upscaled textures and ground
 	m_lightingStyle = LIGHTING_STYLE_CLASSIC;
 	m_shadowMap = TRUE;						//the sun's own shadows, once ClassicGraphics is off; parseGameDataDefinition takes them back while it is on
 	m_shadowMapOnly = TRUE;				//and they replace the stencil volumes rather than joining them
@@ -798,6 +802,21 @@ GlobalData::GlobalData()
 	m_netGameLocalSlot = 0;
 	m_netGameAISlots = 0;
 	m_lanPlayerName.clear(); // the lobby name comes out of the preferences unless -lanname says otherwise
+	m_relayHost.clear(); // a real LAN unless -relay names a relay
+	m_relayPort = 0;
+	m_onlineHost.clear(); // no online service unless -online names one, and none of the -online* scripting
+	m_onlinePort = 0;
+	m_onlineCAFile.clear();
+	m_onlineUser.clear();
+	m_onlinePass.clear();
+	m_onlineHostGame.clear();
+	m_onlineJoinGame.clear();
+	m_onlineSay.clear();
+	m_onlineMap.clear();
+	m_onlineOptions.clear();
+	m_onlineStart = 0;
+	m_quickMatchOnStart = FALSE;
+	m_onlineLoginOnStart = FALSE;
 	m_lanLobbyOnStart = FALSE;
 	m_skirmishLobbyOnStart = FALSE;
 	m_optionsMenuOnStart = FALSE;
@@ -806,6 +825,7 @@ GlobalData::GlobalData()
 	m_waterFoam = FALSE;
 	m_groundMarks = FALSE;
 	m_firelight = FALSE;
+	m_heatHaze = FALSE;
 	m_hemiAmbient = FALSE;
 	m_ambientOcclusion = FALSE;
 	m_weatherEffects = FALSE;

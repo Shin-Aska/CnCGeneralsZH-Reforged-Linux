@@ -47,7 +47,9 @@
 #include "GameClient/ParticleSys.h"
 #include "W3DDevice/GameClient/W3DGameClient.h"
 #include "W3DDevice/GameClient/Module/W3DTankDraw.h"
+#include "W3DDevice/GameClient/TankWheelSpin.h"
 #include "WW3D2/matinfo.h"
+#include "WW3D2/hlod.h"
 
 #ifdef _INTERNAL
 // for occasional debugging...
@@ -97,10 +99,18 @@ W3DTankDraw::W3DTankDraw( Thing *thing, const ModuleData* moduleData )
 	m_treadDebrisLeft = NULL;
 	m_treadDebrisRight = NULL;
 
-	for (Int i=0; i<MAX_TREADS_PER_TANK; i++)
+	for (Int i=0; i<MAX_TREAD_SLOTS; i++)
 		m_treads[i].m_robj = NULL;
 
 	m_treadCount=0;
+
+	for (Int i=0; i<2*WHEELS_PER_SIDE; i++)
+	{
+		m_wheels[i].m_bone = 0;
+		m_wheels[i].m_radius = 0.0f;
+		m_wheels[i].m_angle = 0.0f;
+	}
+	m_hasWheels = FALSE;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -166,7 +176,7 @@ void W3DTankDraw::createEmitters( void )
 //-------------------------------------------------------------------------------------------------
 W3DTankDraw::~W3DTankDraw()
 {
-	for (Int i=0; i<MAX_TREADS_PER_TANK; i++)
+	for (Int i=0; i<MAX_TREAD_SLOTS; i++)
 		if (m_treads[i].m_robj)
 			REF_PTR_RELEASE(m_treads[i].m_robj);
 }
@@ -233,8 +243,13 @@ void W3DTankDraw::updateTreadObjects(void)
 
 	//Make sure this object has defined a speed for tread scrolling.
 	if (getW3DTankDrawModuleData() && getW3DTankDrawModuleData()->m_treadAnimationRate && robj)
-	{	
-		for (Int i=0; i < robj->Get_Num_Sub_Objects() && m_treadCount < MAX_TREADS_PER_TANK; i++)
+	{
+		// four belts a level, so a model with levels of detail scrolls the full model's belts as well
+		// as the coarse ones the walk meets first; a model of one level, every retail one, keeps four
+		Int levels = robj->Class_ID() == RenderObjClass::CLASSID_HLOD ? ((HLodClass *)robj)->Get_LOD_Count() : 1;
+		levels = levels < 1 ? 1 : (levels > MAX_TREAD_LODS ? MAX_TREAD_LODS : levels);
+		const Int slots = MAX_TREADS_PER_TANK * levels;
+		for (Int i=0; i < robj->Get_Num_Sub_Objects() && m_treadCount < slots; i++)
 		{
 			RenderObjClass *subObj=robj->Get_Sub_Object(i);
 			const char *meshName;
@@ -245,7 +260,7 @@ void W3DTankDraw::updateTreadObjects(void)
 			{	//check if sub-object has the correct material to do texture scrolling.
 				MaterialInfoClass *mat=subObj->Get_Material_Info();
 				if (mat)
-				{	for (Int j=0; j<mat->Vertex_Material_Count(); j++)
+				{	for (Int j=0; j<mat->Vertex_Material_Count() && m_treadCount < slots; j++)
 					{
 						VertexMaterialClass *vmaterial=mat->Peek_Vertex_Material(j);
 						LinearOffsetTextureMapperClass *mapper=(LinearOffsetTextureMapperClass *)vmaterial->Peek_Mapper();
@@ -275,7 +290,51 @@ void W3DTankDraw::updateTreadObjects(void)
 		}
 	}
 
+	updateWheelBones(robj);
 	m_prevRenderObj = robj;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Road wheels on bones WHEEL_L01..L08 (the hull's +Y side) and WHEEL_R01..R08 (-Y), any of them,
+	* each bone at its wheel's hub with local +Y toward the hull's +Y on both sides, so a positive
+	* Rotate_Y rolls every wheel forward, as on a truck's tyres. A wheel's
+	* radius is the larger of its meshes' X and Z half extents, every LOD's mesh on that bone counted,
+	* so a sprocket and a road wheel each turn at their own rate. No retail model has these bones. */
+//-------------------------------------------------------------------------------------------------
+void W3DTankDraw::updateWheelBones(RenderObjClass *robj)
+{
+	m_hasWheels = FALSE;
+	for (Int i=0; i<2*WHEELS_PER_SIDE; i++)
+	{
+		WheelInfo &wheel = m_wheels[i];
+		wheel.m_bone = 0;
+		if (robj == NULL)
+			continue;
+		char name[16];
+		sprintf(name, "WHEEL_%c%02d", i < WHEELS_PER_SIDE ? 'L' : 'R', i % WHEELS_PER_SIDE + 1);
+		Int bone = robj->Get_Bone_Index(name);
+		if (bone <= 0)
+			continue;
+		Real radius = 0.0f;
+		Int count = robj->Get_Num_Sub_Objects_On_Bone(bone);
+		for (Int j=0; j<count; j++)
+		{
+			RenderObjClass *mesh = robj->Get_Sub_Object_On_Bone(j, bone);
+			if (mesh)
+			{
+				AABoxClass box;
+				mesh->Get_Obj_Space_Bounding_Box(box);
+				radius = WWMath::Max(radius, WWMath::Max(box.Extent.X, box.Extent.Z));
+				REF_PTR_RELEASE(mesh);
+			}
+		}
+		if (radius > 0.0f)
+		{
+			wheel.m_bone = bone;
+			wheel.m_radius = radius;
+			m_hasWheels = TRUE;
+		}
+	}
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -370,6 +429,25 @@ void W3DTankDraw::doDrawModule(const Matrix3D* transformMtx)
 			// ensure coordinates of offset are in [0, 1] range:
 			offset_u = offset_u - WWMath::Floor(offset_u);
 			pTread->m_materialSettings.customUVOffset.Set(offset_u,0);
+		}
+	}
+
+	// road wheels roll over the ground their side's tread covered, at their own radius
+	if (m_hasWheels)
+	{
+		RenderObjClass *robj = getRenderObject();
+		Real halfTrack = obj->getGeometryInfo().getMinorRadius();
+		Matrix3D wheelXfrm(1);
+		for (Int i=0; i<2*WHEELS_PER_SIDE; i++)
+		{
+			WheelInfo &wheel = m_wheels[i];
+			if (wheel.m_bone == 0)
+				continue;
+			wheel.m_angle = TankWheelAngle(wheel.m_angle, forward, turn, halfTrack, i < WHEELS_PER_SIDE, wheel.m_radius);
+			wheelXfrm.Make_Identity();
+			wheelXfrm.Rotate_Y(wheel.m_angle);
+			robj->Capture_Bone(wheel.m_bone);
+			robj->Control_Bone(wheel.m_bone, wheelXfrm);
 		}
 	}
 

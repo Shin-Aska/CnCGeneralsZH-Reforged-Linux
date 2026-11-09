@@ -88,6 +88,17 @@ inline bool Compare(const Mesh &input, const Depth &depth, const Support &suppor
 }
 
 inline void NoopsAndChains() {
+	// Equal output alone does not prove copy elision. Wet no-ops must retain
+	// both buffers, and clipping must append into available vertex capacity.
+	Mesh stable=Grid();
+	const auto *vertices=stable.vertices.data();
+	const auto *indices=stable.indices.data();
+	CHECK(WaterWaveCageMesh::ClipRestWaterline(stable,[](Point) { return 1.; },[](Point) { return true; }));
+	CHECK(stable.vertices.data()==vertices && stable.indices.data()==indices);
+	Mesh clipped=Grid();clipped.vertices.reserve(1000);
+	vertices=clipped.vertices.data();
+	CHECK(WaterWaveCageMesh::ClipRestWaterline(clipped,[](Point p) { return p.x-.37; },[](Point) { return true; }));
+	CHECK(clipped.vertices.data()==vertices);
     const auto supported = [](Point) {
         return true;
     };

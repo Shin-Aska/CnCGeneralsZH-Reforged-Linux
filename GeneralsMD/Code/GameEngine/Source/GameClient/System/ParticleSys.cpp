@@ -1471,6 +1471,7 @@ ParticleSystem::ParticleSystem( const ParticleSystemTemplate *sysTemplate,
 
 	m_attachedToDrawableID = INVALID_DRAWABLE_ID;
 	m_attachedToObjectID = INVALID_ID;
+	m_rodeObject = FALSE;
 	m_attachedObjectDrawableForDraw = INVALID_DRAWABLE_ID;
 
 	m_isLocalIdentity = true;
@@ -1863,7 +1864,10 @@ void ParticleSystem::attachToDrawable( const Drawable *draw )
 void ParticleSystem::attachToObject( const Object *obj )
 {
 	if (obj)
+	{
 		m_attachedToObjectID = obj->getID();
+		m_rodeObject = TRUE;
+	}
 	else
 		m_attachedToObjectID = INVALID_ID;
 }
@@ -2244,11 +2248,13 @@ Particle *ParticleSystem::createParticle( const ParticleInfo *info,
 }
 
 // ------------------------------------------------------------------------------------------------
-/** One spawn to the manager's GPU path, kept in the sample ring if it takes it. */
+/** One spawn to the manager's GPU path, kept in the sample ring if it takes it.  A mine's glint
+ * stays on the CPU: the GPU ring draws every particle soft, and the glint needs the hard edge the
+ * sorted billboards give it (isAttachedToMine). */
 // ------------------------------------------------------------------------------------------------
 Bool ParticleSystem::spawnOnGpu( const ParticleInfo *info )
 {
-	if (info->m_lifetime == 0 || !TheParticleSystemManager->spawnGpuParticle( this, info ))
+	if (info->m_lifetime == 0 || isAttachedToMine() || !TheParticleSystemManager->spawnGpuParticle( this, info ))
 		return FALSE;
 
 	const UnsignedInt birth = ParticleSystemManager::getParticleFrame();
@@ -2953,22 +2959,7 @@ Bool ParticleSystem::shouldCastGroundShadow( void ) const
 // ------------------------------------------------------------------------------------------------
 Real ParticleSystem::getStealthFade( void ) const
 {
-	const ParticleSystem *sys = this;
-	while (sys->m_masterSystem)
-		sys = sys->m_masterSystem;
-
-	const Drawable *draw = NULL;
-	if (sys->m_attachedToDrawableID != INVALID_DRAWABLE_ID)
-		draw = TheGameClient->findDrawableByID( sys->m_attachedToDrawableID );
-	else if (LogicThread::isInsideWindow())
-		draw = TheGameClient->findDrawableByID( sys->m_attachedObjectDrawableForDraw );
-	else if (sys->m_attachedToObjectID != INVALID_ID)
-	{
-		// gone since the last particle update, which then destroys the system
-		const Object *obj = TheGameLogic->findObjectByID( sys->m_attachedToObjectID );
-		if (obj)
-			draw = obj->getDrawable();
-	}
+	const Drawable *draw = findAttachedDrawable();
 	if (draw == NULL)
 		return 1.0f;
 
@@ -2978,6 +2969,10 @@ Real ParticleSystem::getStealthFade( void ) const
 			return 0.0f;
 		case STEALTHLOOK_VISIBLE_FRIENDLY:
 		case STEALTHLOOK_VISIBLE_FRIENDLY_DETECTED:
+			// A mine's opacity is pinned at zero (StealthUpdate's mine special case), and a China mine
+			// field has no mesh: its bone lights are all its owner sees of it, at full strength as in 2003.
+			if (draw->isKindOf( KINDOF_MINE ))
+				return 1.0f;
 			// Alpha tested particles take no fade (less alpha only cuts holes in them), and a
 			// multiplying one half faded is a grey smear, so those draw whole and not at all.
 			switch (m_shaderType)
@@ -2990,6 +2985,41 @@ Real ParticleSystem::getStealthFade( void ) const
 		default:
 			return 1.0f;
 	}
+}
+
+// ------------------------------------------------------------------------------------------------
+/** The drawable this system rides on, through its master if it is a slave; NULL for a free one. */
+// ------------------------------------------------------------------------------------------------
+const Drawable *ParticleSystem::findAttachedDrawable( void ) const
+{
+	const ParticleSystem *sys = this;
+	while (sys->m_masterSystem)
+		sys = sys->m_masterSystem;
+
+	if (sys->m_attachedToDrawableID != INVALID_DRAWABLE_ID)
+		return TheGameClient->findDrawableByID( sys->m_attachedToDrawableID );
+	if (LogicThread::isInsideWindow())
+		return TheGameClient->findDrawableByID( sys->m_attachedObjectDrawableForDraw );
+	if (sys->m_attachedToObjectID != INVALID_ID)
+	{
+		// gone since the last particle update, which then destroys the system
+		const Object *obj = TheGameLogic->findObjectByID( sys->m_attachedToObjectID );
+		if (obj)
+			return obj->getDrawable();
+	}
+	return NULL;
+}
+
+// ------------------------------------------------------------------------------------------------
+/** A China mine field's flares sit on their bones at ground height.  The Direct3D 11 soft particle
+ * fade thins a sprite wherever the ground is closer behind it than its half width, which took EA's
+ * flare away entire; W3DParticleSys hands these to the sorting renderer hard edged, as -d3d9 draws
+ * them.  Client drawing only. */
+// ------------------------------------------------------------------------------------------------
+Bool ParticleSystem::isAttachedToMine( void ) const
+{
+	const Drawable *draw = findAttachedDrawable();
+	return draw != NULL && draw->isKindOf( KINDOF_MINE );
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -3355,6 +3385,8 @@ void ParticleSystem::xfer( Xfer *xfer )
 
 	// attached to object id
 	xfer->xferObjectID( &m_attachedToObjectID );
+	if( xfer->getXferMode() == XFER_LOAD && m_attachedToObjectID != INVALID_ID )
+		m_rodeObject = TRUE;	// not saved; a trail still riding its missile is one that rode it
 
 	// is local identity
 	xfer->xferBool( &m_isLocalIdentity );

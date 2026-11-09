@@ -171,6 +171,24 @@ static Int thePFWedgeWorst = 0;			///< and the longest one unit was left that wa
 static Int thePFEscapes = 0;				///< backing-out manoeuvres started
 static Int thePFCrowdRepaths = 0;		///< routes given up on because nothing on them could get past
 static Int thePFDithers = 0;					///< units caught driving a long way and gaining nothing
+/* The queue's budget is a count of cells, and the claim it makes is about the frame: these count the
+	 logic frames whose queue, the zone pass left out, ran past 3 and past 5 ms. The match's queue total
+	 hides the frames that blow the budget among the many that do not. */
+static Int thePFQueueOver3 = 0;
+static Int thePFQueueOver5 = 0;
+
+/* How long a request stood in the path queue before it was answered. The frame it went in is kept
+	 beside its slot for this count alone and nothing reads it back into a decision, so it is not
+	 saved and not in the CRC. */
+static UnsignedInt theQueuedFrame[ PATHFIND_QUEUE_LEN ];
+static Int thePFQServed = 0;					///< requests taken off the queue
+static Int64 thePFQWaitSum = 0;				///< frames they waited, summed
+static Int thePFQWaitMax = 0;					///< the longest one waited
+static Int thePFQLate = 0;						///< answered more than a second after asking
+static Int thePFQPeak = 0;						///< the deepest the queue got
+static Int thePFQFull = 0;						///< refused because the queue was full
+static Int thePFQCapFrames = 0;				///< frames the request cap stopped with requests left
+static Int thePFQCellFrames = 0;			///< frames the cell budget stopped with requests left
 
 inline void pfBump( Int slot ) { thePFCalls[ slot ]++; }
 
@@ -1792,8 +1810,14 @@ Bool PathfindCell::allocateInfo( const ICoord2D &pos )
 /**
  * Releases an info record for a cell.
  */
-void PathfindCell::releaseInfo( void ) 
-{ 
+void PathfindCell::releaseInfo( void )
+{
+	// still on a search's open or closed list: a unit left the cell while a search stopped by the
+	// queue's budget holds it.  The parent link is that search's route, and the search hands the
+	// info back itself when it ends.
+	if (m_info && (m_info->m_prevOpen || m_info->m_nextOpen || m_info->m_open || m_info->m_closed)) {
+		return;
+	}
 	// a cell that did not make it onto the final path keeps its parent link, and the info
 	// that link points at gets recycled under it - clear it before any of the early outs
 	if (m_info) {
@@ -1810,14 +1834,8 @@ void PathfindCell::releaseInfo( void )
 	}
 
 	if (m_info) {
-		DEBUG_ASSERTCRASH(m_info->m_prevOpen==NULL && m_info->m_nextOpen==NULL, ("Shouldn't be linked."));
-		DEBUG_ASSERTCRASH(m_info->m_open==NULL && m_info->m_closed==NULL, ("Shouldn't be linked."));
 		DEBUG_ASSERTCRASH(m_info->m_goalUnitID==INVALID_ID && m_info->m_posUnitID==INVALID_ID, ("Shouldn't be occupied."));
 		DEBUG_ASSERTCRASH(m_info->m_goalAircraftID==INVALID_ID , ("Shouldn't be occupied by aircraft."));
-		if (m_info->m_prevOpen || m_info->m_nextOpen || m_info->m_open || m_info->m_closed) {
-			// Bad release.  Skip for now, better leak than crash.  jba.
-			return;
-		}
 		PathfindCellInfo::releaseACellInfo(m_info);
 		m_info = NULL;
 	}
@@ -4604,9 +4622,14 @@ Pathfinder::Pathfinder( void ) :m_map(NULL),
 	m_clearance(NULL), m_clearanceDirty(true), m_clearanceFrame(0),
 	m_traffic(NULL), m_trafficCells(NULL), m_numTrafficCells(0), m_trafficDecayFrame(0),
 	m_claims(NULL), m_claimTouch(NULL),
-	m_flowCosts(false), m_flowSpeed(0), m_flowNow(0), m_flowNowBucket(0)
+	m_flowCosts(false), m_flowSpeed(0), m_flowNow(0), m_flowNowBucket(0),
+	m_queueOwnerID(INVALID_ID)
 {
 	debugPath = NULL;
+	m_search.owner = INVALID_ID;
+	m_search.done = FALSE;
+	m_search.claimed = FALSE;
+	m_search.result = NULL;
 	PathfindCellInfo::allocateCellInfos();
 	reset();
 }
@@ -5241,6 +5264,14 @@ Real Pathfinder::laneExtent( const Object *obj, const LocomotorSet& locomotorSet
 
 void Pathfinder::resetProfile( void )
 {
+	static Int64 freq = 0;
+	if( freq == 0 )
+		freq = Clock_Ticks_Per_Second();
+	const Int64 queue = thePFTicks[ PF_QUEUE ] - thePFTicks[ PF_ZONES ];
+	if( queue * 1000 > freq * 3 )
+		thePFQueueOver3++;
+	if( queue * 1000 > freq * 5 )
+		thePFQueueOver5++;
 	for( Int i = 0; i < PF_SLOTS; i++ )
 	{
 		// the frame that is ending is the only place the match totals can pick this up
@@ -5268,6 +5299,16 @@ void Pathfinder::resetMatchProfile( void )
 	thePFEscapes = 0;
 	thePFCrowdRepaths = 0;
 	thePFDithers = 0;
+	thePFQueueOver3 = 0;
+	thePFQueueOver5 = 0;
+	thePFQServed = 0;
+	thePFQWaitSum = 0;
+	thePFQWaitMax = 0;
+	thePFQLate = 0;
+	thePFQPeak = 0;
+	thePFQFull = 0;
+	thePFQCapFrames = 0;
+	thePFQCellFrames = 0;
 }
 
 void Pathfinder::bumpNoPath( void )
@@ -5329,11 +5370,18 @@ const char *Pathfinder::getMatchProfileReport( void )
 		strcpy( thePFMatchReport + len, one );
 		len += oneLen;
 	}
-	if( len < (Int)sizeof( thePFMatchReport ) - 128 )
+	if( len < (Int)sizeof( thePFMatchReport ) - 192 )
 		sprintf( thePFMatchReport + len,
-						 "| nopath %d outofcells %d blocked %d stuck %d wedge %d worst %d escape %d repath %d dither %d",
+						 "| nopath %d outofcells %d blocked %d stuck %d wedge %d worst %d escape %d repath %d dither %d queueover3ms %d queueover5ms %d",
 						 thePFNoPath, thePFOutOfCells, thePFBlockedFrames, thePFStuckFrames,
-						 thePFWedgeFrames, thePFWedgeWorst, thePFEscapes, thePFCrowdRepaths, thePFDithers );
+						 thePFWedgeFrames, thePFWedgeWorst, thePFEscapes, thePFCrowdRepaths, thePFDithers,
+						 thePFQueueOver3, thePFQueueOver5 );
+	len = strlen( thePFMatchReport );
+	if( len < (Int)sizeof( thePFMatchReport ) - 160 )
+		sprintf( thePFMatchReport + len,
+						 " | queued %d wait %.1f longest %d late %d peak %d full %d capped %d cellcapped %d",
+						 thePFQServed, thePFQServed ? (double)thePFQWaitSum / thePFQServed : 0.0, thePFQWaitMax,
+						 thePFQLate, thePFQPeak, thePFQFull, thePFQCapFrames, thePFQCellFrames );
 	return thePFMatchReport;
 }
 
@@ -5365,6 +5413,8 @@ const char *Pathfinder::getProfileReport( void )
 
 void Pathfinder::reset( void )
 {
+	dropSuspendedSearch();		// while its cells still exist
+	m_queueOwnerID = INVALID_ID;
 	m_probeBestDistSqr = 0x7FFFFFFF;
 	frameToShowObstacles = 0;
 	DEBUG_LOG(("Pathfind cell is %d bytes, PathfindCellInfo is %d bytes\n", sizeof(PathfindCell), sizeof(PathfindCellInfo)));
@@ -5713,6 +5763,7 @@ void Pathfinder::classifyObjectFootprint( Object *obj, Bool insert )
 					}
 				}
 				// recalc the wall.
+				dropSuspendedSearch();		// its cells are reset, infos and all
 				m_layers[LAYER_WALL].classifyWallCells(m_wallPieces, m_numWallPieces);
 			}
 		}
@@ -6083,6 +6134,7 @@ void Pathfinder::classifyMapCell( Int i, Int j , PathfindCell *cell)
  */
 void Pathfinder::newMap( void )
 {
+	dropSuspendedSearch();
 	m_wallHeight = TheAI->getAiData()->m_wallHeight; // may be updated by map.ini.
 	Region3D terrainExtent;
 	TheTerrainLogic->getMaximumPathfindExtent( &terrainExtent );
@@ -6146,6 +6198,7 @@ void Pathfinder::newMap( void )
  */
 void Pathfinder::classifyMap(void)
 {
+	dropSuspendedSearch();		// cell->reset() below takes the infos out from under its lists
 
 	Int i, j;
 	// for now, sample cell corners and classify cell accordingly
@@ -6391,6 +6444,63 @@ void Pathfinder::cleanOpenAndClosedLists(void) {
 #endif
 //#endif
 
+}
+
+/// the main search ended: its lists go back, and the cells it charged to earlier frames are not
+/// charged again to this one
+void Pathfinder::closeSearch( void )
+{
+	cleanOpenAndClosedLists();
+	m_cumulativeCellsAllocated -= m_search.credited;
+	m_search.credited = 0;
+	m_search.owner = INVALID_ID;
+}
+
+/// a stopped search nobody is going to want, or one whose cells are about to be reclassified
+void Pathfinder::dropSuspendedSearch( void )
+{
+	if (m_search.owner == INVALID_ID)
+		return;
+	if (m_search.done) {
+		if (m_search.result)
+			m_search.result->deleteInstance();
+		m_search.result = NULL;
+		m_search.done = FALSE;
+		m_search.owner = INVALID_ID;
+		return;
+	}
+	m_isTunneling = false;
+	closeSearch();
+	m_search.goalCell->releaseInfo();
+}
+
+/** Another search is about to use the open and closed lists while a stopped one still has its
+	* cells on them.  So the stopped one is finished now, past the frame's budget, and the answer is
+	* kept for its unit's next turn in the queue.  A unit that no longer wants that answer - gone,
+	* asking for somewhere else, or itself the one asking now - just loses the search. */
+void Pathfinder::settleSuspendedSearch( void )
+{
+	if (m_search.owner == INVALID_ID || m_search.done)
+		return;
+	Object *obj = TheGameLogic->findObjectByID( m_search.owner );
+	AIUpdateInterface *ai = obj ? obj->getAIUpdateInterface() : NULL;
+	const Coord3D *wanted = ai ? ai->friend_getRequestedDestination() : NULL;
+	if (ai == NULL || !ai->isWaitingForPath() || m_search.owner == m_queueOwnerID ||
+			wanted->x != m_search.rawTo.x || wanted->y != m_search.rawTo.y) {
+		dropSuspendedSearch();
+		return;
+	}
+	const ObjectID owner = m_search.owner;
+	const ObjectID ignoreID = m_ignoreObstacleID;
+	const Bool ignoreSites = m_ignoreUnderConstruction;
+	const Bool restricted = m_lastSearchRestricted;
+	Path *path = continueFindPath( obj, ai->getLocomotorSet(), FALSE );
+	m_ignoreObstacleID = ignoreID;
+	m_ignoreUnderConstruction = ignoreSites;
+	m_lastSearchRestricted = restricted;
+	m_search.owner = owner;
+	m_search.done = TRUE;
+	m_search.result = path;
 }
 
 
@@ -7492,10 +7602,15 @@ Bool Pathfinder::queueForPath(ObjectID id)
 	}
 	if (nextSlot==m_queuePRHead) {
 		DEBUG_LOG(("PATHFIND QUEUE FULL: object %d asks again shortly\n", id));
+		thePFQFull++;
 		return false;
 	}
 	m_queuedPathfindRequests[m_queuePRTail] = id;
+	theQueuedFrame[m_queuePRTail] = TheGameLogic->getFrame();
 	m_queuePRTail = nextSlot;
+	const Int depth = (m_queuePRTail - m_queuePRHead + PATHFIND_QUEUE_LEN) % PATHFIND_QUEUE_LEN;
+	if (depth > thePFQPeak)
+		thePFQPeak = depth;
 	if ((size_t)id >= m_isQueuedForPath.size()) {
 		m_isQueuedForPath.resize( (size_t)id + 1024, false );
 	}
@@ -7721,8 +7836,9 @@ void Pathfinder::processPathfindQueue(void)
 #pragma message("AHHHH!, forced calls to pathzonerefresh still in code...  notify M Lorenzen")
     s_stopForceCalling==FALSE || 
 #endif
-    m_zoneManager.needToCalculateZones()) 
+    m_zoneManager.needToCalculateZones())
   {
+		dropSuspendedSearch();		// its corridor is in the old zone numbers; the unit starts over
 		m_zoneManager.calculateZones(m_map, m_layers, m_extent);
 		return;
 	}
@@ -7761,29 +7877,76 @@ void Pathfinder::processPathfindQueue(void)
 	/* Kept at three per frame at 60 logic frames a second rather than halved: one and a half is not a
 		 count, two was measured worse, and the cap is there to clip a burst within a frame, which a
 		 frame half as long needs no less. */
-	enum { PATHFIND_REQUESTS_PER_FRAME = 3 };
+	/* "Many times the demand" stops being true twenty minutes into a 4v4 between Hard computers: a
+		 match then asks for close to three paths a frame, the cap holds 60% of all frames, the queue
+		 stands 300 to 600 deep, and a unit given an order waits up to 239 frames (4 s) for its path.
+		 So past 180 waiting, a second of draining at three, the cap rises by one for every 60 more,
+		 to six at most, and the cell budget still bounds the frame. Iron Dragon, four seeds of 90000
+		 frames on Hard: longest wait 239, 104, 164, 109 frames to 109, 88, 102, 97, blocked unit-frames
+		 per 1000 frames 3,696 to 3,355, wedged 933 to 925, p99.9 35.9 to 36.6 ms with four matches on
+		 the box (a one-frame control moved it to 34.6). Medium likewise, Easy never gets that deep.
+		 Up to twelve a frame cut the wait further and drove worse (blocked 3,814 to 5,402). The
+		 841-unit order is held by the cell budget, not by this, and leaves as it did. */
+	enum { PATHFIND_REQUESTS_PER_FRAME = 3, PATHFIND_DEEP_QUEUE = 180, PATHFIND_DEEP_STEP = 60,
+		PATHFIND_REQUESTS_PER_FRAME_DEEP = 6 };
+	Int requestCap = PATHFIND_REQUESTS_PER_FRAME;
+	const Int depth = (m_queuePRTail - m_queuePRHead + PATHFIND_QUEUE_LEN) % PATHFIND_QUEUE_LEN;
+	if (depth > PATHFIND_DEEP_QUEUE)
+		requestCap += (depth - PATHFIND_DEEP_QUEUE) / PATHFIND_DEEP_STEP;
+	if (requestCap > PATHFIND_REQUESTS_PER_FRAME_DEEP)
+		requestCap = PATHFIND_REQUESTS_PER_FRAME_DEEP;
 	Int requestsThisFrame = 0;
+	const UnsignedInt now = TheGameLogic->getFrame();
 
 	while (m_cumulativeCellsAllocated < PATHFIND_CELLS_PER_FRAME &&
-		requestsThisFrame < PATHFIND_REQUESTS_PER_FRAME &&
+		requestsThisFrame < requestCap &&
 		m_queuePRTail!=m_queuePRHead) {
 		++requestsThisFrame;
-		Object *obj = TheGameLogic->findObjectByID(m_queuedPathfindRequests[m_queuePRHead]);
-		m_isQueuedForPath[m_queuedPathfindRequests[m_queuePRHead]] = false;
+		const ObjectID id = m_queuedPathfindRequests[m_queuePRHead];
+		const Int waited = (Int)(now - theQueuedFrame[m_queuePRHead]);
+		Object *obj = TheGameLogic->findObjectByID(id);
+		m_isQueuedForPath[id] = false;
 		m_queuedPathfindRequests[m_queuePRHead] = INVALID_ID;
+		m_search.claimed = FALSE;
 		if (obj) {
 			AIUpdateInterface *ai = obj->getAIUpdateInterface();
 			if (ai) {
+				m_queueOwnerID = id;
 				ai->doPathfind(this);
+				m_queueOwnerID = INVALID_ID;
 #ifdef DEBUG_QPF
 				pathsFound++;
 #endif
 			}
 		}
+		// a stopped search its unit did not come back for: gone, or asking something else now
+		if (m_search.owner != INVALID_ID && !m_search.claimed) {
+			dropSuspendedSearch();
+		}
+		if (m_search.owner != INVALID_ID) {
+			// the frame's cells ran out inside this unit's search: it keeps the head of the queue and
+			// carries on from the same cell next frame, so nobody behind it is answered first
+			m_queuedPathfindRequests[m_queuePRHead] = id;
+			m_isQueuedForPath[id] = true;
+			break;
+		}
+		// counted as it leaves the queue: a search carried over frames is one request, waiting until it ends
+		thePFQServed++;
+		thePFQWaitSum += waited;
+		if (waited > thePFQWaitMax)
+			thePFQWaitMax = waited;
+		if (waited > LOGICFRAMES_PER_SECOND)
+			thePFQLate++;
 		m_queuePRHead = m_queuePRHead+1;
 		if (m_queuePRHead >= PATHFIND_QUEUE_LEN) {
 			m_queuePRHead = 0;
 		}
+	}
+	if (m_queuePRTail != m_queuePRHead) {
+		if (m_cumulativeCellsAllocated >= PATHFIND_CELLS_PER_FRAME)
+			thePFQCellFrames++;
+		else
+			thePFQCapFrames++;
 	}
 	if (pathsFound>0) {
 #ifdef DEBUG_QPF
@@ -8287,20 +8450,26 @@ Path *Pathfinder::findPath( Object *obj, const LocomotorSet& locomotorSet, const
 													 const Coord3D *rawTo)
 {
 	PathProfile pfProfile( PF_FIND );
+	// the unit whose search the budget stopped, at the head of the queue again for the same goal:
+	// carry on from the cell it stopped on, in the corridor it was laid in, or take the answer
+	// another search finished for it in the meantime
+	if (obj && obj->getID() == m_search.owner && m_search.owner == m_queueOwnerID &&
+			rawTo->x == m_search.rawTo.x && rawTo->y == m_search.rawTo.y) {
+		m_search.claimed = TRUE;
+		if (m_search.done) {
+			Path *path = m_search.result;
+			m_search.result = NULL;
+			m_search.done = FALSE;
+			m_search.owner = INVALID_ID;
+			return path;
+		}
+		return continueFindPath(obj, locomotorSet, TRUE);
+	}
+	// the main search's state is about to be laid out again; only the queue asks for it, so whatever
+	// is held is the head unit's and it has just asked for something else
+	dropSuspendedSearch();
 	if (!clientSafeQuickDoesPathExist(locomotorSet, from, rawTo)) {
 		return NULL;
-	}
-	Bool isHuman = true;
-	if (obj && obj->getControllingPlayer() && (obj->getControllingPlayer()->getPlayerType()==PLAYER_COMPUTER)) {
-		isHuman = false; // computer gets to cheat.
-	}
-
-	m_zoneManager.clearPassableFlags();
-	Path *hPat = findHierarchicalPath(isHuman, locomotorSet, from, rawTo, false);
-	if (hPat) {
-		hPat->deleteInstance();
-	}	else {
-		m_zoneManager.setAllPassable();
 	}
 
 	/* the corridor the hierarchical search laid out used to get a second, unrestricted retry
@@ -8309,7 +8478,6 @@ Path *Pathfinder::findPath( Object *obj, const LocomotorSet& locomotorSet, const
 		 is what makes a logic frame take seconds: measured searches ran to 140513 cells / 285ms
 		 against a 5000-cell-per-frame budget.  A corridor that is too tight is a corridor to
 		 widen, not a reason to drop the corridor, so the retry is gone. */
-	m_lastSearchRestricted = (hPat != NULL);
 	Path *pat = internalFindPath(obj, locomotorSet, from, rawTo);
 	if (pat!=NULL) {
 		return pat;
@@ -8373,14 +8541,6 @@ Path *Pathfinder::internalFindPath( Object *obj, const LocomotorSet& locomotorSe
 	DEBUG_LOG(("internal find path...\n"));
 #endif
 
-#if defined _DEBUG || defined _INTERNAL
-	Int startTimeMS = Clock_Milliseconds_Coarse();
-#endif
-	// release-visible timing (DebugLogFile.txt) for searches that cost a visible frame: how
-	// much was the A* itself and how much the path build/optimize after it
-	Int64 fpFreq64 = 0, fpT0 = 0;
-	fpFreq64 = Clock_Ticks_Per_Second();
-	fpT0 = Clock_Ticks();
 	Bool centerInCell = true;
 	Int radius = 0;
 	if (obj) {
@@ -8439,18 +8599,6 @@ Path *Pathfinder::internalFindPath( Object *obj, const LocomotorSet& locomotorSe
 		return NULL;
 	}
 
-	ICoord2D pos2d;
-	worldToCell(to, &pos2d);
-	if (!goalCell->allocateInfo(pos2d)) {
-		return NULL;
-	}
-	if (parentCell!=goalCell) {
-		worldToCell(&clipFrom, &pos2d);
-		if (!parentCell->allocateInfo(pos2d)) {
-			goalCell->releaseInfo();
-			return NULL;
-		}
-	}
 	//
 	// Determine if this pathfind is "tunneling" or not.
 	// A tunneling pathfind starts from within an obstacle, and is allowed
@@ -8470,14 +8618,10 @@ Path *Pathfinder::internalFindPath( Object *obj, const LocomotorSet& locomotorSe
 	zone2 =  m_zoneManager.getEffectiveZone(locomotorSet.getValidSurfaces(), isCrusher, goalCell->getZone());
 
 	if (layer==LAYER_WALL && zone1 == 0) {
-		goalCell->releaseInfo();
-		parentCell->releaseInfo();
 		return NULL;
 	}
 
 	if (destinationLayer==LAYER_WALL && zone2 == 0) {
-		goalCell->releaseInfo();
-		parentCell->releaseInfo();
 		return NULL;
 	}
 
@@ -8495,17 +8639,49 @@ Path *Pathfinder::internalFindPath( Object *obj, const LocomotorSet& locomotorSe
 
 	if ( zone1 != zone2) {
 		//DEBUG_LOG(("Intense Debug Info - Pathfind Zone screen failed-cannot reach desired location.\n"));
-		goalCell->releaseInfo();
-		parentCell->releaseInfo();
 		return NULL;
 	}
 
 	// sanity check - if destination is invalid, can't path there
 	if (validMovementPosition( isCrusher, destinationLayer, locomotorSet, to ) == false)	{
 		m_isTunneling = false;
-		goalCell->releaseInfo();
-		parentCell->releaseInfo();
 		return NULL;
+	}
+
+	/* The hierarchical pre-search lays the corridor the cell search keeps to, and it used to run in
+		 findPath before any of the screens above. A request one of them refuses needs no corridor, and
+		 its pre-search was the frame's dearest work: on the minute-20 window of Twilight Flame with
+		 eight Hard AIs a refused request's pre-search ran to 2.9 ms ahead of the closest-path fallback
+		 that answered it instead. Run here, it is asked only for a search that will happen. The
+		 screens read no corridor, the pre-search asks without a unit, and it clears the tunneling
+		 flag, so both are put back for the cell search. */
+	{
+		const Bool tunneling = m_isTunneling;
+		m_zoneManager.clearPassableFlags();
+		Path *hPat = findHierarchicalPath(isHuman, locomotorSet, from, rawTo, false);
+		if (hPat) {
+			hPat->deleteInstance();
+		}	else {
+			m_zoneManager.setAllPassable();
+		}
+		m_lastSearchRestricted = (hPat != NULL);
+		m_isTunneling = tunneling;
+		beginFlowSearch(obj);
+	}
+
+	ICoord2D pos2d;
+	worldToCell(to, &pos2d);
+	if (!goalCell->allocateInfo(pos2d)) {
+		m_isTunneling = false;
+		return NULL;
+	}
+	if (parentCell!=goalCell) {
+		worldToCell(&clipFrom, &pos2d);
+		if (!parentCell->allocateInfo(pos2d)) {
+			goalCell->releaseInfo();
+			m_isTunneling = false;
+			return NULL;
+		}
 	}
 
 	// sanity check - if source is invalid, we have to cheat
@@ -8523,7 +8699,75 @@ Path *Pathfinder::internalFindPath( Object *obj, const LocomotorSet& locomotorSe
 	// "closed" list is initially empty
 	m_closedList = NULL;
 
-	Int cellCount = 0;
+	// what the cell search needs from here on, kept where it can be picked up again next frame
+	ResumableSearch &s = m_search;
+	s.from = *from;
+	s.rawTo = *rawTo;
+	s.to = adjustTo;
+	s.goalCell = goalCell;
+	s.parentCell = parentCell;
+	s.closestCell = NULL;
+	s.closestDistanceSqr = FLT_MAX;
+	s.startCellNdx = startCellNdx;
+	s.goalCellNdx = cell;
+	s.radius = radius;
+	s.centerInCell = centerInCell;
+	s.isHuman = isHuman;
+	s.cellCount = 0;
+	s.credited = 0;
+	// only the request at the head of the queue has a budget to run out of
+	return continueFindPath(obj, locomotorSet, obj != NULL && obj->getID() == m_queueOwnerID);
+}
+
+/**
+ * The A* loop of internalFindPath, from wherever the search last stopped.  With mayStop it stops
+ * again once the queue's cells for this frame are spent: the lists stay as they are, the answer is
+ * NULL and isSearchSuspended() says why.  The budget is a count of cells, so every machine stops
+ * on the same one.
+ */
+Path *Pathfinder::continueFindPath( Object *obj, const LocomotorSet& locomotorSet, Bool mayStop )
+{
+	ResumableSearch &s = m_search;
+	if (s.owner != INVALID_ID) {
+		// a search stopped on an earlier frame: put back what it was searching with
+		beginFlowSearch(obj);
+		m_flowNow = s.flowNow;
+		m_flowNowBucket = s.flowNowBucket;
+		thePathStartDirX = s.startDirX;
+		thePathStartDirY = s.startDirY;
+		thePathStartDirValid = s.startDirValid;
+		m_isTunneling = s.isTunneling;
+		m_ignoreObstacleID = s.ignoreObstacleID;
+		m_ignoreUnderConstruction = s.ignoreUnderConstruction;
+		m_lastSearchRestricted = s.restricted;
+		/* Every cell the search owns is on its lists, which releaseInfo leaves alone - except the
+			 goal, which holds an info from the start and joins a list only once it is reached.  A unit
+			 clearing its goal or position there in between hands that info back, so it is fetched
+			 again; nothing points at it, since the goal is nobody's parent yet. */
+		if (!s.goalCell->allocateInfo(s.goalCellNdx)) {
+			dropSuspendedSearch();
+			return NULL;
+		}
+	}
+#if defined _DEBUG || defined _INTERNAL
+	Int startTimeMS = Clock_Milliseconds_Coarse();
+#endif
+	// release-visible timing (DebugLogFile.txt) for searches that cost a visible frame: how
+	// much was the A* itself and how much the path build/optimize after it
+	Int64 fpFreq64 = 0, fpT0 = 0;
+	fpFreq64 = Clock_Ticks_Per_Second();
+	fpT0 = Clock_Ticks();
+	const Coord3D *from = &s.from;
+	const Coord3D *rawTo = &s.rawTo;
+	const Coord3D *to = &s.to;
+	PathfindCell *goalCell = s.goalCell;
+	PathfindCell *parentCell = s.parentCell;
+	const Bool isHuman = s.isHuman;
+	const Bool centerInCell = s.centerInCell;
+	const Int radius = s.radius;
+	const ICoord2D startCellNdx = s.startCellNdx;
+	Int cellCount = s.cellCount;
+	const Int cellsBefore = cellCount;
 
 	/* Every other search in this file caps the cells it will look at - findClosestPath has
 		 MAX_CELL_COUNT, patchPath has CELL_LIMIT, findAttackPath has ATTACK_CELL_LIMIT - and this
@@ -8546,9 +8790,11 @@ Path *Pathfinder::internalFindPath( Object *obj, const LocomotorSet& locomotorSe
 		 A truncated route is a unit walking at a wall it cannot see round, and it pays for that with
 		 another search a second later. Three separate attempts to buy the tail with search capacity
 		 (this, twice, and the queue's cell budget) all bought it with movement instead. */
-	enum { MAX_INTERNAL_CELL_COUNT = 20000 };
-	PathfindCell *closestCell = NULL;
-	Real closestDistanceSqr = FLT_MAX;
+	/* Since the search stops at the queue's cell budget and carries on next frame, this no longer
+		 bounds a frame, so it is no longer the 20000 it was for that.  What is left for it to bound is
+		 how long one request holds the head of the queue - 40000 cells is 16 frames at 2500 a frame -
+		 and the cell-info pool, so a goal that cannot be reached still ends. */
+	enum { MAX_INTERNAL_CELL_COUNT = 40000 };
 	Bool hitCellCap = false;
 
 	//
@@ -8608,7 +8854,7 @@ Path *Pathfinder::internalFindPath( Object *obj, const LocomotorSet& locomotorSe
 										 cellCount, searchMs, buildMs, nodes, from->x, from->y, rawTo->x, rawTo->y));
 				}
 			}
-			cleanOpenAndClosedLists();
+			closeSearch();
 			parentCell->releaseInfo();
 			return path;
 		}	
@@ -8623,9 +8869,9 @@ Path *Pathfinder::internalFindPath( Object *obj, const LocomotorSet& locomotorSe
 			Int dx = IABS(goalCell->getXIndex()-parentCell->getXIndex());
 			Int dy = IABS(goalCell->getYIndex()-parentCell->getYIndex());
 			Real distSqr = (Real)(dx*dx+dy*dy);
-			if (distSqr < closestDistanceSqr) {
-				closestDistanceSqr = distSqr;
-				closestCell = parentCell;
+			if (distSqr < s.closestDistanceSqr) {
+				s.closestDistanceSqr = distSqr;
+				s.closestCell = parentCell;
 			}
 		}
 
@@ -8634,14 +8880,37 @@ Path *Pathfinder::internalFindPath( Object *obj, const LocomotorSet& locomotorSe
 
 		cellCount += examineNeighboringCells(parentCell, goalCell, locomotorSet, isHuman, centerInCell, radius, startCellNdx, obj, NO_ATTACK);
 
+		if (mayStop && m_openList != NULL &&
+				m_cumulativeCellsAllocated + (cellCount - cellsBefore) >= PATHFIND_CELLS_PER_FRAME) {
+			// the frame's cells are spent: keep the lists and carry on from here next frame, charging
+			// this frame for the part it did
+			m_cumulativeCellsAllocated += cellCount - cellsBefore;
+			s.credited += cellCount - cellsBefore;
+			s.cellCount = cellCount;
+			s.parentCell = parentCell;
+			s.owner = obj->getID();
+			s.done = FALSE;
+			s.claimed = TRUE;
+			s.flowNow = m_flowNow;
+			s.flowNowBucket = m_flowNowBucket;
+			s.startDirX = thePathStartDirX;
+			s.startDirY = thePathStartDirY;
+			s.startDirValid = thePathStartDirValid;
+			s.isTunneling = m_isTunneling;
+			s.ignoreObstacleID = m_ignoreObstacleID;
+			s.ignoreUnderConstruction = m_ignoreUnderConstruction;
+			s.restricted = m_lastSearchRestricted;
+			m_isTunneling = false;
+			return NULL;
+		}
 	}
 
 	/* the cap stopped the search - return the best partial route rather than nothing, so the unit
 		 closes on the goal and the next request picks up from there.  The partial path is built the
 		 same way a complete one is, so the caller cannot tell the difference and nothing downstream
 		 needs to learn about capped searches. */
-	if (hitCellCap && closestCell && closestCell != parentCell) {
-		Path *partial = buildActualPath( obj, locomotorSet.getValidSurfaces(), from, closestCell, centerInCell, false );
+	if (hitCellCap && s.closestCell && s.closestCell != parentCell) {
+		Path *partial = buildActualPath( obj, locomotorSet.getValidSurfaces(), from, s.closestCell, centerInCell, false );
 		if (partial) {
 			if (fpFreq64 > 0) {
 				Int64 fpTCap = 0;
@@ -8650,10 +8919,10 @@ Path *Pathfinder::internalFindPath( Object *obj, const LocomotorSet& locomotorSe
 									 TheGameLogic->getFrame(), obj ? obj->getTemplate()->getName().str() : "?",
 									 m_lastSearchRestricted ? "corridor" : "openmap",
 									 cellCount, 1000.0f * (Real)(fpTCap - fpT0) / (Real)fpFreq64,
-									 (Int)sqrt(closestDistanceSqr), from->x, from->y, rawTo->x, rawTo->y));
+									 (Int)sqrt(s.closestDistanceSqr), from->x, from->y, rawTo->x, rawTo->y));
 			}
 			m_isTunneling = false;
-			cleanOpenAndClosedLists();
+			closeSearch();
 			parentCell->releaseInfo();
 			goalCell->releaseInfo();
 			return partial;
@@ -8699,6 +8968,7 @@ Path *Pathfinder::internalFindPath( Object *obj, const LocomotorSet& locomotorSe
 
 	if (obj) {
 		Bool valid;
+		const Bool isCrusher = obj->getCrusherLevel() > 0;
 		valid = validMovementPosition( isCrusher, obj->getLayer(), locomotorSet, to ) ;
 
 		DEBUG_LOG(("%d ", TheGameLogic->getFrame()));
@@ -8728,7 +8998,7 @@ Path *Pathfinder::internalFindPath( Object *obj, const LocomotorSet& locomotorSe
 							 from->x, from->y, to->x, to->y, cellCount, failMs));
 	}
 	m_isTunneling = false;
-	cleanOpenAndClosedLists();
+	closeSearch();
 	parentCell->releaseInfo();
 	goalCell->releaseInfo();
 	return NULL;
@@ -9033,6 +9303,7 @@ Path *Pathfinder::findGroundPath( const Coord3D *from,
 	DEBUG_LOG(("Find ground path..."));
 #endif	
 	Bool centerInCell = false;
+	settleSuspendedSearch();
 	beginFlowSearch(NULL);		// the group corridor is terrain, and every member rides it
 
 	m_zoneManager.clearPassableFlags();
@@ -9499,7 +9770,17 @@ Path *Pathfinder::findHierarchicalPath( Bool isHuman, const LocomotorSet& locomo
 													 const Coord3D *to, Bool crusher)
 {
 	PathProfile pfProfile( PF_HIER );
-	return internal_findHierarchicalPath(isHuman, locomotorSet.getValidSurfaces(), from, to, crusher, FALSE);
+	/* findPath's pre-search runs ahead of the queue's cell budget and cannot stop for it, so it gets
+		 a cap of its own. Each count is a scan cell and its neighbour across the block edge, two cells
+		 on the lists, so this stops at about 5000. On Twilight Flame with eight Hard AIs, three seeds
+		 to frame 42000, no pre-search that found its corridor listed 5000 cells (the largest of the 680
+		 logged past 2500 was 4502), and every one that failed and listed more than 100 walked the whole
+		 map, 9798 to 10853, for 4 to 7 ms; most were a builder a cell from its site, whose
+		 under-construction footprint splits the block zones the search walks. A failed pre-search is a
+		 cell search on the open map, so a capped one answers the same. */
+	enum { MAX_HIERARCHICAL_CELL_COUNT = 2500 };
+	return internal_findHierarchicalPath(isHuman, locomotorSet.getValidSurfaces(), from, to, crusher, FALSE,
+		MAX_HIERARCHICAL_CELL_COUNT);
 }
 
 
@@ -9520,13 +9801,14 @@ Path *Pathfinder::findClosestHierarchicalPath( Bool isHuman, const LocomotorSet&
  * Find a short, valid path between given locations.
  * Uses A* algorithm.
  */
-Path *Pathfinder::internal_findHierarchicalPath( Bool isHuman, const LocomotorSurfaceTypeMask locomotorSurface, const Coord3D *from, 
-													 const Coord3D *rawTo, Bool crusher, Bool closestOK)
+Path *Pathfinder::internal_findHierarchicalPath( Bool isHuman, const LocomotorSurfaceTypeMask locomotorSurface, const Coord3D *from,
+													 const Coord3D *rawTo, Bool crusher, Bool closestOK, Int cellCap)
 {
 	//CRCDEBUG_LOG(("Pathfinder::findGroundPath()\n"));
 #if defined _DEBUG || defined _INTERNAL
 	Int startTimeMS = Clock_Milliseconds_Coarse();
 #endif
+	settleSuspendedSearch();
 	beginFlowSearch(NULL);		// "is there a way at all" must not be talked out of it by traffic
 
 	if (rawTo->x == 0.0f && rawTo->y == 0.0f) {
@@ -9671,6 +9953,9 @@ Path *Pathfinder::internal_findHierarchicalPath( Bool isHuman, const LocomotorSu
 	//
 	while( m_openList != NULL )
 	{
+		if (cellCap > 0 && cellCount > cellCap) {
+			break;	// the lists come off in the failure path below, open list and all
+		}
 		// take head cell off of open list - it has lowest estimated total path cost
 		parentCell = m_openList;
 		m_openList = parentCell->removeFromOpenList(m_openList);
@@ -10281,6 +10566,7 @@ Bool Pathfinder::pathDestination( 	Object *obj, const LocomotorSet& locomotorSet
 {
 	//CRCDEBUG_LOG(("Pathfinder::pathDestination()\n"));
 	if (m_isMapReady == false) return NULL;
+	settleSuspendedSearch();
 	beginFlowSearch(NULL);
 
 	if (!obj) return false;
@@ -10568,6 +10854,7 @@ Int Pathfinder::checkPathCost(Object *obj, const LocomotorSet& locomotorSet, con
 {
 	//CRCDEBUG_LOG(("Pathfinder::checkPathCost()\n"));
 	if (m_isMapReady == false) return NULL;
+	settleSuspendedSearch();
 	beginFlowSearch(NULL);		// this is a yardstick between two points, not a route anybody drives
 	enum {MAX_COST = 0x7fff0000};
 	if (!obj) return MAX_COST;
@@ -10777,6 +11064,7 @@ Path *Pathfinder::findClosestPath( Object *obj, const LocomotorSet& locomotorSet
 																	Coord3D *rawTo, Bool blocked, Real pathCostMultiplier, Bool moveAllies)
 {
 	PathProfile pfProfile( PF_CLOSEST );
+	settleSuspendedSearch();
 	beginFlowSearch(obj);
 	//CRCDEBUG_LOG(("Pathfinder::findClosestPath()\n"));
 #if defined _DEBUG || defined _INTERNAL
@@ -11855,7 +12143,8 @@ Bool Pathfinder::isGroundPathPassable( Bool isCrusher, const Coord3D& startWorld
  */
 void Pathfinder::changeBridgeState( PathfindLayerEnum layer, Bool repaired)
 {
-	if (m_layers[layer].isUnused()) return;	
+	if (m_layers[layer].isUnused()) return;
+	dropSuspendedSearch();		// the bridge's cells are reset, infos and all
 	if (m_layers[layer].setDestroyed(!repaired)) {
 		m_zoneManager.markZonesDirty( repaired );
 	}
@@ -12383,6 +12672,7 @@ Path *Pathfinder::getMoveAwayFromPath(Object* obj, Object *otherObj,
 											Path *pathToAvoid, Object *otherObj2, Path *pathToAvoid2)
 {
 	PathProfile pfProfile( PF_MOVEAWAY );
+	settleSuspendedSearch();
 	beginFlowSearch(NULL);
 	if (m_isMapReady == false) return NULL; // Should always be ok.
 #if defined _DEBUG || defined _INTERNAL
@@ -12560,6 +12850,7 @@ Path *Pathfinder::patchPath( const Object *obj, const LocomotorSet& locomotorSet
 		Path *originalPath, Bool blocked )
 {
 	PathProfile pfProfile( PF_PATCH );
+	settleSuspendedSearch();
 	beginFlowSearch(obj);
 	//CRCDEBUG_LOG(("Pathfinder::patchPath()\n"));
 #if defined _DEBUG || defined _INTERNAL
@@ -12747,6 +13038,7 @@ Path *Pathfinder::findAttackPath( const Object *obj, const LocomotorSet& locomot
 		const Object *victim, const Coord3D* victimPos, const Weapon *weapon ) 
 {
 	PathProfile pfProfile( PF_ATTACK );
+	settleSuspendedSearch();
 	beginFlowSearch(NULL);		// "where can I shoot from" is not a movement route
 	/*
 	CRCDEBUG_LOG(("Pathfinder::findAttackPath() for object %d (%s)\n", obj->getID(), obj->getTemplate()->getName().str()));
@@ -13106,6 +13398,7 @@ Path *Pathfinder::findSafePath( const Object *obj, const LocomotorSet& locomotor
 		const Coord3D *from, const Coord3D* repulsorPos1, const Coord3D* repulsorPos2, Real repulsorRadius) 
 {
 	PathProfile pfProfile( PF_SAFE );
+	settleSuspendedSearch();
 	beginFlowSearch(NULL);		// running away prices danger, not traffic
 	//CRCDEBUG_LOG(("Pathfinder::findSafePath()\n"));
 	if (m_isMapReady == false) return NULL; // Should always be ok.

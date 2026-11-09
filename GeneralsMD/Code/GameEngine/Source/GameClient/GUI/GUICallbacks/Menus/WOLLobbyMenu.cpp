@@ -58,6 +58,8 @@
 #include "GameClient/Mouse.h"
 #include "GameClient/Display.h"
 #include "GameNetwork/GameSpyOverlay.h"
+#include "GameNetwork/Online/OnlineQueues.h"
+#include "Lib/WideCharFns.h"
 #include "GameClient/GameWindowTransitions.h"
 
 #include "GameLogic/GameLogic.h"
@@ -68,6 +70,7 @@
 #include "GameNetwork/GameSpy/LadderDefs.h"
 #include "GameNetwork/GameSpy/PeerDefs.h"
 #include "GameNetwork/GameSpy/PeerThread.h"
+#include "GameNetwork/GameSpy/ThreadUtils.h"
 #include "GameNetwork/GameSpy/PersistentStorageDefs.h"
 #include "GameNetwork/GameSpy/PersistentStorageThread.h"
 #include "GameNetwork/GameSpy/LobbyUtils.h"
@@ -229,7 +232,101 @@ void SetLobbyAttemptHostJoin(Bool start)
 	s_tryingToHostOrJoin = start;
 }
 
+/* -online scripting in the lobby, once per process each: -onlinesay says its line once somebody else is in
+	 the room to read it, -onlinehost asks for a staging room the way the host popup's createGame does (no
+	 password, no observers, unrated, no ladder) three seconds after that line so the answer still reaches
+	 the lobby, -onlinejoin joins the first listed game of that name the way the Join button does. */
+static void onlineLobbyScript( void )
+{
+	static Bool s_said = FALSE, s_hosted = FALSE, s_joined = FALSE;
+	static UnsignedInt s_saidAt = 0;
+	if (!OnlineIsEnabled() || !TheGameSpyInfo->getCurrentGroupRoom() || s_tryingToHostOrJoin)
+		return;
+
+	const Bool saying = TheGlobalData->m_onlineSay.isNotEmpty();
+	if (saying && !s_said && TheGameSpyInfo->getPlayerInfoMap()->size() >= 2)
+	{
+		s_said = TRUE;
+		s_saidAt = Clock_Milliseconds();
+		// straight to the queue: sendChat would drop the staging room's copy as a repeat of this one
+		UnicodeString line( MultiByteToWideCharSingleLine( TheGlobalData->m_onlineSay.str() ).c_str() );
+		PeerRequest req;
+		req.peerRequestType = PeerRequest::PEERREQUEST_MESSAGEROOM;
+		req.text = line.str();
+		req.message.isAction = FALSE;
+		TheGameSpyPeerMessageQueue->addRequest( req );
+		DEBUG_LOG(("ONLINE SAY where=lobby text=%s\n", TheGlobalData->m_onlineSay.str()));
+	}
+
+	if (!s_hosted && TheGlobalData->m_onlineHostGame.isNotEmpty()
+		&& (!saying || (s_said && Clock_Milliseconds() - s_saidAt >= 3000)))
+	{
+		s_hosted = TRUE;
+		/* The Host button, then the host popup's name and Create Game, as a player clicks them, so the room
+			 is made under the popup's own rules.  Building the request here once hid that the popup made
+			 every online room a stats room, with every option locked for its host. */
+		GameWindow *popupName = NULL, *popupCreate = NULL, *popup = NULL;
+		if (buttonHost)
+		{
+			TheWindowManager->winSendSystemMsg( parent, GBM_SELECTED, (WindowMsgData)buttonHost, buttonHostID );
+			popup = TheWindowManager->winGetWindowFromId( NULL, NAMEKEY( "PopupHostGame.wnd:ParentHostPopUp" ) );
+			popupName = TheWindowManager->winGetWindowFromId( popup, NAMEKEY( "PopupHostGame.wnd:TextEntryGameName" ) );
+			popupCreate = TheWindowManager->winGetWindowFromId( popup, NAMEKEY( "PopupHostGame.wnd:ButtonCreateGame" ) );
+		}
+		if (!popup || !popupName || !popupCreate)
+		{
+			DEBUG_LOG(("ONLINE HOST fail popup=%d\n", popup != NULL));
+			return;
+		}
+		UnicodeString gameName;
+		gameName.translate( TheGlobalData->m_onlineHostGame );
+		GadgetTextEntrySetText( popupName, gameName );
+		TheWindowManager->winSendSystemMsg( popupCreate->winGetOwner(), GBM_SELECTED, (WindowMsgData)popupCreate, popupCreate->winGetWindowId() );
+		DEBUG_LOG(("ONLINE HOST name=%s stats=%d\n", TheGlobalData->m_onlineHostGame.str(), (Int)TheGameSpyGame->getUseStats()));
+		return;
+	}
+
+	if (!s_joined && TheGlobalData->m_onlineJoinGame.isNotEmpty())
+	{
+		UnicodeString wanted;
+		wanted.translate( TheGlobalData->m_onlineJoinGame );
+		StagingRoomMap *srm = TheGameSpyInfo->getStagingRoomList();
+		for (StagingRoomMap::iterator it = srm->begin(); it != srm->end(); ++it)
+		{
+			GameSpyStagingRoom *room = it->second;
+			if (!room || room->getGameName().compare( wanted ) != 0)
+				continue;
+			s_joined = TRUE;
+			TheLobbyQueuedUTMs.clear();
+			groupRoomToJoin = TheGameSpyInfo->getCurrentGroupRoom();
+			TheGameSpyInfo->markAsStagingRoomJoiner( it->first );
+			TheGameSpyGame->setGameName( room->getGameName() );
+			TheGameSpyGame->setLadderIP( room->getLadderIP() );
+			TheGameSpyGame->setLadderPort( room->getLadderPort() );
+			SetLobbyAttemptHostJoin( TRUE );
+			PeerRequest req;
+			req.peerRequestType = PeerRequest::PEERREQUEST_JOINSTAGINGROOM;
+			req.text = room->getGameName().str();
+			req.stagingRoom.id = it->first;
+			req.password = "";
+			TheGameSpyPeerMessageQueue->addRequest( req );
+			DEBUG_LOG(("ONLINE JOIN name=%s id=%d\n", TheGlobalData->m_onlineJoinGame.str(), it->first));
+			break;
+		}
+	}
+}
+
 // Tooltips -------------------------------------------------------------------------------
+
+/* The nick a player-list row shows.  -online writes the rating and the ping after it, and a nick has no
+	 spaces, so the first word is the nick either way. */
+static AsciiString nickInRow( GameWindow *listbox, Int row )
+{
+	AsciiString full, nick;		// nextToken leaves nick empty on an empty row
+	full.translate( GadgetListBoxGetText( listbox, row, COLUMN_PLAYERNAME ) );
+	full.nextToken( &nick, " " );
+	return nick;
+}
 
 static void playerTooltip(GameWindow *window,
 													WinInstanceData *instData,
@@ -247,11 +344,16 @@ static void playerTooltip(GameWindow *window,
 		return;
 	}
 
-	UnicodeString uName = GadgetListBoxGetText(window, row, COLUMN_PLAYERNAME);
-	AsciiString aName;
-	aName.translate(uName);
+	AsciiString aName = nickInRow(window, row);
+	UnicodeString uName;
+	uName.translate(aName);
 
 	PlayerInfoMap::iterator it = TheGameSpyInfo->getPlayerInfoMap()->find(aName);
+	if (it == TheGameSpyInfo->getPlayerInfoMap()->end())
+	{
+		TheMouse->setCursorTooltip( UnicodeString::TheEmptyString );
+		return;
+	}
 	PlayerInfo *info = &(it->second);
 	Bool isLocalPlayer = (TheGameSpyInfo->getLocalName().compareNoCase(info->m_name) == 0);
 
@@ -274,7 +376,10 @@ static void playerTooltip(GameWindow *window,
 	Int					playerWins   = info->m_wins;
 	Int					playerLosses = info->m_losses;
 	UnicodeString	playerInfo;
-	playerInfo.format(TheGameText->fetch("TOOLTIP:PlayerInfo"), TheGameText->fetch(localeIdentifier).str(), playerWins, playerLosses);
+	if (OnlineIsEnabled())		// no locale on this service: EA's "Region: Unknown" goes
+		playerInfo.format(TheGameText->fetch("TOOLTIP:OnlinePlayerInfo"), playerWins, playerLosses);
+	else
+		playerInfo.format(TheGameText->fetch("TOOLTIP:PlayerInfo"), TheGameText->fetch(localeIdentifier).str(), playerWins, playerLosses);
 
 	UnicodeString tooltip = UnicodeString::TheEmptyString;//TheGameText->fetch("TOOLTIP:PlayersInLobby");
 	if (isLocalPlayer)
@@ -329,6 +434,17 @@ static void playerTooltip(GameWindow *window,
 	UnicodeString tmp;
 	tmp.format(u"\n%ls %ls", TheGameText->fetch(sideName).str(), TheGameText->fetch(rankName).str());
 	tooltip.concat(tmp);
+
+	OnlinePlayerInfo card;
+	if (OnlineIsEnabled() && OnlineGetPlayerInfo(aName, card))
+	{
+		tmp = OnlineRatingText(card);
+		if (!tmp.isEmpty())
+		{
+			tooltip.concat(u"\n");
+			tooltip.concat(tmp);
+		}
+	}
 
 	TheMouse->setCursorTooltip( tooltip, -1, NULL, 1.5f ); // the text and width are the only params used.  the others are the default values.
 }
@@ -470,6 +586,24 @@ static Int insertPlayerInListbox(const PlayerInfo& info, Color color)
 
 	const Image *rankImg = LookupSmallRankImage(currentSide, currentRank);
 
+	// -online: the rating and the round trip to the server after the nick (nickInRow reads it back)
+	OnlinePlayerInfo card;
+	if (OnlineIsEnabled() && OnlineGetPlayerInfo(info.m_name, card))
+	{
+		UnicodeString extra;
+		if (card.hasRating)
+		{
+			extra.format(u"  %d", card.rating);
+			uStr.concat(extra);
+		}
+		if (card.ping >= 0)
+		{
+			extra.format(TheGameText->fetch("GUI:OnlinePingMs"), card.ping);
+			uStr.concat(u"  ");
+			uStr.concat(extra);
+		}
+	}
+
 #if 0  //Officer's Club (preorder image) no longer used in Zero Hour
 	Int index = GadgetListBoxAddEntryImage(listboxLobbyPlayers, preorderImg, -1, 0, w, h);
 	GadgetListBoxAddEntryImage(listboxLobbyPlayers, rankImg, index, 1, w, h);
@@ -511,9 +645,7 @@ void PopulateLobbyPlayerListbox(void)
 				break;
 			}
 			++numSelected;
-			AsciiString selectedName;
-			uStr = GadgetListBoxGetText(listboxLobbyPlayers, selectedIndices[i], COLUMN_PLAYERNAME);
-			selectedName.translate(uStr);
+			AsciiString selectedName = nickInRow(listboxLobbyPlayers, selectedIndices[i]);
 			selectedNames.insert(selectedName);
 			DEBUG_LOG(("Saving off old selection %d (%s)\n", selectedIndices[i], selectedName.str()));
 		}
@@ -957,6 +1089,8 @@ void WOLLobbyMenuUpdate( WindowLayout * layout, void *userData)
 					//buttonPushed = true;
 					TheGameSpyInfo->setCurrentGroupRoom(resp.joinGroupRoom.id);
 					TheGameSpyInfo->getPlayerInfoMap()->clear();
+					if (OnlineIsEnabled())
+						DEBUG_LOG(("ONLINE LOBBY joined room=%d\n", resp.joinGroupRoom.id));
 					GroupRoomMap::iterator iter = TheGameSpyInfo->getGroupRoomList()->find(resp.joinGroupRoom.id);
 					if (iter != TheGameSpyInfo->getGroupRoomList()->end())
 					{
@@ -1026,6 +1160,8 @@ void WOLLobbyMenuUpdate( WindowLayout * layout, void *userData)
 				break;
 			case PeerResponse::PEERRESPONSE_MESSAGE:
 				{
+					if (OnlineIsEnabled())
+						DEBUG_LOG(("ONLINE CHAT where=lobby from=%s text=%s\n", resp.nick.c_str(), WideCharAsUtf8( resp.text.c_str() ).str()));
 					TheGameSpyInfo->addChat(resp.nick.c_str(), resp.message.profileID,
 						UnicodeString(resp.text.c_str()), !resp.message.isPrivate, resp.message.isAction, listboxLobbyChat);
 				}
@@ -1047,6 +1183,8 @@ void WOLLobbyMenuUpdate( WindowLayout * layout, void *userData)
 				{
 					sawImportantMessage = TRUE;
 					SetLobbyAttemptHostJoin(FALSE);
+					if (OnlineIsEnabled())
+						DEBUG_LOG(("ONLINE HOSTED result=%d\n", (Int)resp.createStagingRoom.result));
 					if (resp.createStagingRoom.result == PEERJoinSuccess)
 					{
 						// Woohoo!  On to our next screen!
@@ -1062,6 +1200,8 @@ void WOLLobbyMenuUpdate( WindowLayout * layout, void *userData)
 				{
 					sawImportantMessage = TRUE;
 					SetLobbyAttemptHostJoin(FALSE);
+					if (OnlineIsEnabled())
+						DEBUG_LOG(("ONLINE JOINED ok=%d\n", (Int)resp.joinStagingRoom.ok));
 					Bool isHostPresent = TRUE;
 					if (resp.joinStagingRoom.ok == PEERTrue)
 					{
@@ -1312,6 +1452,8 @@ void WOLLobbyMenuUpdate( WindowLayout * layout, void *userData)
 #else
 	refreshGameList();
 #endif
+		if (!buttonPushed)
+			onlineLobbyScript();
 	}
 }// WOLLobbyMenuUpdate
 
@@ -1721,8 +1863,7 @@ WindowMsgHandledType WOLLobbyMenuSystem( GameWindow *window, UnsignedInt msg,
 					}
 
 					GPProfile profileID = 0;
-					AsciiString aName;
-					aName.translate(GadgetListBoxGetText(control, rc->pos, COLUMN_PLAYERNAME));
+					AsciiString aName = nickInRow(control, rc->pos);
 					PlayerInfoMap::iterator it = TheGameSpyInfo->getPlayerInfoMap()->find(aName);
 					if (it != TheGameSpyInfo->getPlayerInfoMap()->end())
 						profileID = it->second.m_profileID;

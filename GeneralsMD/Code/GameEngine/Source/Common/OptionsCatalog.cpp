@@ -120,17 +120,20 @@ OPTION_INT_ACCESSORS( m_windowMode )
 OPTION_INT_ACCESSORS( m_fullscreenScaling )
 OPTION_INT_ACCESSORS( m_msaaLevel )
 OPTION_BOOL_ACCESSORS( m_vsync )
+OPTION_INT_ACCESSORS( m_frameRateLimit )
 OPTION_INT_ACCESSORS( m_waterStyle )
 #if defined(__linux__)
 OPTION_BOOL_ACCESSORS( m_waterMovementBehavior )
+#endif
 OPTION_INT_ACCESSORS( m_waterReflection )
 OPTION_BOOL_ACCESSORS( m_waterReflectionEnabled )
 OPTION_INT_ACCESSORS( m_waterFftResolution )
 OPTION_INT_ACCESSORS( m_waterRefractionQuality )
 OPTION_INT_ACCESSORS( m_waterReflectionDetail )
-#endif
 OPTION_INT_ACCESSORS( m_cloudStyle )
 OPTION_BOOL_ACCESSORS( m_classicGraphics )
+OPTION_BOOL_ACCESSORS( m_detailedModels )
+OPTION_BOOL_ACCESSORS( m_hdTextures )
 OPTION_INT_ACCESSORS( m_lightingStyle )
 OPTION_INT_ACCESSORS( m_healthBarMode )
 OPTION_INT_ACCESSORS( m_healthBarColors )
@@ -162,6 +165,7 @@ OPTION_BOOL_ACCESSORS( m_atmosphere )
 OPTION_BOOL_ACCESSORS( m_structureCollapse )
 OPTION_BOOL_ACCESSORS( m_smoothMotion )
 OPTION_BOOL_ACCESSORS( m_internalHdr )
+OPTION_BOOL_ACCESSORS( m_heatHaze )
 OPTION_INT_ACCESSORS( m_shadowQuality )
 OPTION_INT_ACCESSORS( m_graphicsQuality )
 
@@ -173,6 +177,16 @@ unsigned msaaSamplesForLevel( Int level )
 	if( level <= 0 || level >= OPTION_MSAA_LEVEL_COUNT )
 		return 0;
 	return TheMsaaSamples[ level ];
+}
+
+//-----------------------------------------------------------------------------
+static const Int TheFrameRateLimits[ FRAME_RATE_LIMIT_COUNT ] = { 0, 240, 144, 120, 60 };
+
+Int frameRateLimitForLevel( Int level )
+{
+	if( level <= 0 || level >= FRAME_RATE_LIMIT_COUNT )
+		return 0;
+	return TheFrameRateLimits[ level ];
 }
 
 //-----------------------------------------------------------------------------
@@ -489,6 +503,14 @@ const OptionDef TheOptionCatalog[] =
 		OPTION_BOOL, APPLY_DEVICE_RESET, 0, 1,
 		get_m_vsync, set_m_vsync },
 
+	// A ceiling on the pictures a second, for a card that runs hot drawing hundreds of them (GitHub
+	// #149).  GameEngine::execute waits out the rest of each picture's time after the present; the
+	// logic is paced by its own clock and the cap never goes under the logic's rate.  Off is the
+	// uncapped picture.  The shell and its menus hold 60 whatever this says (#153).
+	{ "FrameRateLimit",						OPT_WND( "ComboBoxFrameRateLimit" ), "GUI:FrameRateLimit",
+		OPTION_ENUM, APPLY_LIVE, 0, FRAME_RATE_LIMIT_COUNT - 1,
+		get_m_frameRateLimit, set_m_frameRateLimit },
+
 	// Water selects a complete surface path, including geometry and reflections. The water
 	// object applies it at the next frame boundary, including while the options menu is paused.
 	{ "WaterStyle", OPT_WND( "ComboBoxWaterStyle" ), "GUI:WaterStyle",
@@ -501,6 +523,7 @@ const OptionDef TheOptionCatalog[] =
 		OPTION_BOOL, APPLY_NEXT_MAP, 0, 1,
 		get_m_waterMovementBehavior, set_m_waterMovementBehavior },
 
+#endif
 	// Modern water reads the mode each frame and refreshes its reflection target on a change.
 	// Keep this independent of WaterStyle so Classic can retain a choice for a later Modern switch.
 	{ "WaterReflection", OPT_WND( "ComboBoxWaterReflection" ), "GUI:WaterReflection",
@@ -522,9 +545,8 @@ const OptionDef TheOptionCatalog[] =
 	{ "WaterReflectionDetail", OPT_WND( "ComboBoxWaterReflectionDetail" ), "GUI:WaterReflectionDetail",
 		OPTION_ENUM, APPLY_LIVE, 0, WATER_REFLECTION_DETAIL_COUNT - 1,
 		get_m_waterReflectionDetail, set_m_waterReflectionDetail },
-#endif
 
-	// The hazard keeps its gameplay area and lifetime; this changes its appearance only.
+	// Client appearance only; hazard area, lifetime and damage remain unchanged.
 	{ "CloudStyle", OPT_WND( "ComboBoxCloudStyle" ), "GUI:CloudStyle",
 		OPTION_ENUM, APPLY_LIVE, 0, CLOUD_STYLE_COUNT - 1,
 		get_m_cloudStyle, set_m_cloudStyle },
@@ -538,6 +560,25 @@ const OptionDef TheOptionCatalog[] =
 	{ "ClassicGraphics",					OPT_WND( "CheckClassicGraphics" ), "GUI:ClassicGraphics",
 		OPTION_BOOL, APPLY_RESTART, 0, 1,
 		get_m_classicGraphics, set_m_classicGraphics },
+
+	// The rebuilt models, the Reforged*.big beside the exe other than the base art (textures, normals,
+	// terrain).  An optional download: none of them is in the INI CRC, which hashes the retail copy
+	// each one covers, so a player with them plays a player without.  Mounted before GlobalData
+	// exists, so Win32BIGFileSystem reads the key itself, and the menu treats it as it treats
+	// ClassicGraphics: the box shows the file and Accept writes only the file.  On, so a player who
+	// took the download sees it; Classic never mounts them whatever this says.
+	{ "DetailedModels",						OPT_WND( "CheckDetailedModels" ), "GUI:DetailedModels",
+		OPTION_BOOL, APPLY_RESTART, 0, 1,
+		get_m_detailedModels, set_m_detailedModels },
+
+	// The base art: ReforgedTextures (EA's textures upscaled twice), ReforgedTerrain (the ground tiles
+	// at twice the size) and ReforgedNormals, which nothing has read since the normal maps went on
+	// 2026-10-06.  An optional download like the models and out of the INI CRC the same way: no
+	// texture is in it.  Off, retail's own textures and tiles are drawn under the Reforged look; the
+	// model batches keep their own sheets.  Read before GlobalData exists, as DetailedModels is.
+	{ "HDTextures",								OPT_WND( "CheckHDTextures" ), "GUI:HDTextures",
+		OPTION_BOOL, APPLY_RESTART, 0, 1,
+		get_m_hdTextures, set_m_hdTextures },
 
 	// Who wears a health bar: everyone, everyone hurt, only the selection, or nobody.  Read every
 	// frame by the drawable that is about to draw one, so changing it shows immediately.
@@ -742,6 +783,14 @@ const OptionDef TheOptionCatalog[] =
 		OPTION_BOOL, APPLY_LIVE, 0, 1,
 		get_m_internalHdr, set_m_internalHdr },
 
+	// The air over fire, along laser beams and behind missile exhaust shimmers, at the strength the
+	// HEAT_HAZE_*, HEAT_BEAM_* and HEAT_EXHAUST_* constants in W3DParticleSys.cpp give.  The particle draw
+	// reads it every frame, and no sim reads it.  Off under Classic graphics and -d3d9; -heathaze turns it
+	// on for a run.  On Options > Display, under Picture: every column of Graphics and Effects is full.
+	{ "HeatHaze",									OPT_WND( "CheckHeatHaze" ), "GUI:HeatHaze",
+		OPTION_BOOL, APPLY_LIVE, 0, 1,
+		get_m_heatHaze, set_m_heatHaze },
+
 	// The size of the sun's depth map.  The shadow pass asks for it every frame and the backend makes
 	// the map again when the size changes, so a new level shows on the next frame.  On Options >
 	// Effects.  Classic graphics and -d3d9 draw no map at all.
@@ -844,6 +893,9 @@ const GraphicsQualityRow TheGraphicsQualityTable[] =
 	{ "CheckWaterSplashes",			0.2f,  {    0,    0,    0,    0,    0,    0,    0,    0,    1,    1,    1 } },
 	{ "CheckAtmosphere",				0.2f,  {    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    1 } },
 	{ "ComboBoxShadowQuality",	0.25f, {    0,    0,    0,    0,    0,    0,    1,    1,    1,    2,    2 } },
+	// from the DX11 GPU frame lines at 1920x1080 with -noFPSLimit, on against off: about 0.1 ms in a
+	// normal match (0.08 to 0.13), 0.2 to 0.4 in a fire-heavy one (0.07 to 0.55 at the ends)
+	{ "CheckHeatHaze",					0.25f, {    0,    0,    0,    0,    0,    0,    0,    0,    1,    1,    1 } },
 	{ "CheckAmbientOcclusion",	0.3f,  {    0,    0,    0,    0,    0,    0,    0,    0,    1,    1,    1 } },
 	{ "CheckMapLight",					0.35f, {    0,    0,    0,    0,    0,    0,    0,    0,    1,    1,    1 } },
 	{ "CheckFirelight",					0.4f,  {    0,    0,    0,    0,    0,    0,    0,    0,    0,    0,    1 } },
@@ -855,16 +907,11 @@ const GraphicsQualityRow TheGraphicsQualityTable[] =
 	{ "ParticleCapSlider",			1.6f,  {  500, 1000, 1500, 1500, 1500, 2000, 2500, 3000, 3500, 4000, 5000 } },
 	// the shadow map's whole cost: the scene 4.06 to 2.14 ms and the shadow pass 0.6 to 0
 	{ "Check3DShadows",					2.5f,  {    0,    0,    0,    0,    0,    1,    1,    1,    1,    1,    1 } },
-#if defined(__linux__)
-	// The Linux Water page.  Its costs are SDL GPU, never swept by the method above, so they read 0;
-	// docs/modern-water-*.md hold what was measured.  High's column is the Linux default and Low's is
-	// the Modern Low the Intel runs used.  Refraction's entries run Full, Simple, Off, so its row is
-	// the one that falls.  The reflection mode stays out: a look, and Path traced is experimental.
+	// SDL water quality choices. The reflection mode remains the player's chosen look.
 	{ "CheckWaterReflectionEnabled",		0.0f, {    0,    0,    0,    0,    1,    1,    1,    1,    1,    1,    1 } },
 	{ "ComboBoxWaterRefractionQuality",	0.0f, {    2,    1,    1,    1,    1,    1,    0,    0,    0,    0,    0 } },
 	{ "ComboBoxWaterFftResolution",			0.0f, {    0,    0,    0,    0,    0,    0,    0,    1,    1,    1,    1 } },
 	{ "ComboBoxWaterReflectionDetail",	0.0f, {    0,    0,    0,    0,    0,    0,    0,    1,    1,    1,    1 } },
-#endif
 };
 
 const Int TheGraphicsQualityTableCount = sizeof( TheGraphicsQualityTable ) / sizeof( TheGraphicsQualityTable[ 0 ] );
@@ -890,7 +937,7 @@ const OptionDef *findOptionDef( const char *iniKey )
 }
 
 //-----------------------------------------------------------------------------
-Bool isLinuxModernWaterOption( const OptionDef& def )
+Bool isModernWaterOption( const OptionDef& def )
 {
 	return strcmp( def.iniKey, "WaterReflection" ) == 0
 		|| strcmp( def.iniKey, "WaterMovementBehavior" ) == 0

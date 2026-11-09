@@ -4,13 +4,16 @@
 # has to get them once. build.bat runs this before it configures; running it again when everything
 # is in place costs one directory check per library and nothing else.
 #
-#   -Force   re-fetch even what is already there
+#   -Force      re-fetch even what is already there
+#   -NoAddons   leave the art add-ons (rebuilt models, HD textures) out; ZHR_NO_ADDONS=1 does the
+#               same for build.bat, which passes no switch
 #
 # What it cannot get is the game itself: the .big files from a Zero Hour install go next to
 # generals.exe in GeneralsMD\Run, and the base game's in Run\ZH_Generals. The game says so on
 # startup when they are missing.
 [CmdletBinding()]
-param([switch] $Force)
+param([switch] $Force, [switch] $NoAddons)
+if ($env:ZHR_NO_ADDONS -eq '1') { $NoAddons = $true }
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -37,7 +40,7 @@ function Expand-Source($archive, $name) {
   if (Test-Path $target) { Remove-Item -Recurse -Force $target }
   New-Item -ItemType Directory -Force -Path $target | Out-Null
   Step "unpacking $name"
-  if ($archive.EndsWith('.tar.gz')) {
+  if ($archive -match '\.tar\.(gz|bz2)$') {
     tar -xf $archive -C $target
   } else {
     Expand-Archive -Path $archive -DestinationPath $target -Force
@@ -152,7 +155,35 @@ function Install-Miniaudio {
   Step "miniaudio 0.11.25 -> Libraries\Source\miniaudio"
 }
 
-# --- The fork's own upscaled art: every 3D texture at twice its size, and the ground. Not in git -
+# --- mbedTLS 3.6.7 (Apache-2.0), the long-term-support line: the TLS under the online service's lobby
+# connection (GameNetwork\Online), the same pin as vendor.sh. The tarball is checked against the sha256
+# the release publishes beside it. Only include\, library\ and the licence are copied; CMakeLists.txt
+# compiles library\*.c itself, so upstream's build, programs and tests stay out.
+function Install-Mbedtls {
+  $destination = Join-Path $libraries 'Source\mbedtls'
+  $versionHeader = Join-Path $destination 'include\mbedtls\build_info.h'
+  if ((Test-Path $versionHeader) -and -not $Force -and
+      (Select-String -LiteralPath $versionHeader -Pattern 'MBEDTLS_VERSION_STRING         "3.6.7"' -SimpleMatch -Quiet)) { return }
+  $sha = 'A7E8BCBEC0E6F761B4AF24F25677626B35F762F68EEF79C08677A363212D11F6'
+  $archive = Get-File 'https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.7/mbedtls-3.6.7.tar.bz2' (Join-Path $work 'mbedtls-3.6.7.tar.bz2')
+  $hash = (Get-FileHash $archive -Algorithm SHA256).Hash
+  if ($hash -ne $sha) {
+    Remove-Item $archive -ErrorAction SilentlyContinue
+    throw "mbedtls-3.6.7.tar.bz2 downloaded with hash $hash, and the release was published as $sha"
+  }
+  $source = Expand-Source $archive 'mbedtls'
+  # folder by folder, so the committed .gitignore stays
+  foreach ($name in @('include', 'library')) {
+    $target = Join-Path $destination $name
+    if (Test-Path $target) { Remove-Item -Recurse -Force $target }
+    Copy-Item (Join-Path $source $name) $target -Recurse -Force
+  }
+  Copy-Item (Join-Path $source 'LICENSE') (Join-Path $destination 'LICENSE') -Force
+  Step "mbedTLS 3.6.7 -> Libraries\Source\mbedtls"
+}
+
+# --- The fork's own upscaled art: every 3D texture at twice its size, and the ground, and the
+# rebuilt models, one Reforged<Side>.big per side that Tools\artpack.py packs. Not in git -
 # ReforgedTextures.big alone is a gigabyte, ten times
 # what GitHub takes in a file, and LFS in a fork is billed to the parent repository.
 #
@@ -198,7 +229,16 @@ function Get-ArtFromChannel {
     return @()
   }
   $release = $versions.game | Select-Object -First 1
-  @($release.files | Where-Object { $_.path -match $artPattern } | ForEach-Object {
+  # Every art archive is an add-on a player picks in the launcher (addons[].files; optional.models in
+  # the first release that split them out), none of them in the mandatory files any more. A developer
+  # gets them all unless -NoAddons, so a clone draws what the release draws. The game plays without
+  # any of them and they are out of the multiplayer checksum.
+  $files = @($release.files)
+  if (-not $NoAddons) {
+    $files += @($release.addons | Where-Object { $_ } | ForEach-Object { $_.files })
+    if ($release.optional) { $files += @($release.optional.PSObject.Properties | ForEach-Object { $_.Value }) }
+  }
+  @($files | Where-Object { $_ -and $_.path -match $artPattern } | ForEach-Object {
     [pscustomobject]@{
       name   = Split-Path -Leaf $_.path
       url    = "$channelUrl$($release.folder)/$($_.path -replace '\\', '/')"
@@ -225,8 +265,9 @@ function Get-ArtFromRelease {
 }
 
 function Install-Art {
+  if ($NoAddons) { Step 'skipping the art add-ons (-NoAddons or ZHR_NO_ADDONS): the game draws what it shipped with' }
   $wanted = @(Get-ArtFromChannel)
-  if ($wanted.Count -eq 0) { $wanted = @(Get-ArtFromRelease) }
+  if ($wanted.Count -eq 0 -and -not $NoAddons) { $wanted = @(Get-ArtFromRelease) }
   if ($wanted.Count -eq 0) {
     Step 'no upscaled art is published yet, so the game will use the textures it shipped with'
     return
@@ -259,6 +300,7 @@ Install-LzhlPatch
 Install-DirectX
 Install-GameSpy
 Install-Miniaudio
+Install-Mbedtls
 # SDL3 is the platform layer for everything that is not Windows (decision 3 in PORTING.md). Windows
 # keeps Win32Device, so it is not fetched here; vendor.sh fetches it, and says it skips DirectX the
 # same way. The same holds for SDL3's Metal patch, Libraries\Source\sdl3-metal-windowless.patch:

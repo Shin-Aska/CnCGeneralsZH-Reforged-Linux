@@ -16,6 +16,7 @@
 #include <cstring>
 
 namespace WaterScreenReflection {
+bool Supported(); // Queries the current backend; false before a GPU device exists.
 
 enum Mode { Mirror, ScreenSpace, Hybrid, PathTraced, SkyOnly };
 

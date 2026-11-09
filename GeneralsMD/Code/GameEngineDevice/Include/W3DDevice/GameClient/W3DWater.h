@@ -66,6 +66,7 @@
 #include "Platform/WaterMovementBehavior.h"
 #include "Platform/WaterOpenSeaSplit.h"
 #include "Platform/WaterPreparedMeshCache.h"
+#include "Platform/WaterRenderCaches.h"
 #include "Platform/WaterTerrainCulling.h"
 #include "Platform/WaterStaticSampleCache.h"
 #include "Platform/WaterScreenReflection.h"
@@ -278,6 +279,8 @@ protected:
 	WaterPreparedMeshCache::Cache m_modernPreparedMeshCache;
 	WaterTerrainCulling::WetNodeCache m_modernTerrainProofCache{WaterOpticalContext::MaxLevels};
 	WaterStaticSampleCache::Cache m_modernStaticSamples;
+	WaterRenderCaches::Settings m_modernCacheSettings;
+	Bool m_modernCacheSettingsValid = FALSE;
 #endif
 	struct ModernWaterProfile {
 		double render=0,setup=0,hulls=0,obstacles=0,mesh=0,fill=0,submit=0,fftPrepare=0;

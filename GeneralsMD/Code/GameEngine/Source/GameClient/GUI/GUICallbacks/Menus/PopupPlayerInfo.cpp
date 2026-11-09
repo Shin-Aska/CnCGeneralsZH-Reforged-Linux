@@ -40,7 +40,6 @@
 #include "Common/GameSpyMiscPreferences.h"
 #include "Common/FileSystem.h"
 #include "GameClient/Mouse.h"
-#include "GameClient/ControlBarScheme.h"
 #include "GameClient/GameText.h"
 #include "GameClient/WindowLayout.h"
 #include "GameClient/Gadget.h"
@@ -61,6 +60,7 @@
 #include "GameNetwork/GameSpy/BuddyThread.h"
 #include "GameNetwork/GameSpy/GSConfig.h"
 #include "GameNetwork/GameSpy/LobbyUtils.h"
+#include "GameNetwork/Online/OnlineQueues.h"
 
 #include "WWDownload/Registry.h"
 
@@ -97,6 +97,7 @@ static Bool isOverlayActive = false;
 static Bool raiseMessageBox = false;
 static Int lookAtPlayerID = 0;
 static std::string lookAtPlayerName;
+static UnsignedInt s_onlineInfoSerial = 0;		///< the looked-at player's card serial when the popup last drew
 
 
 static const char *rankNames[] = {
@@ -877,7 +878,11 @@ void PopulatePlayerInfoWindows( AsciiString parentWindowName )
 		AsciiString localeID = "WOL:Locale00";
 		if (stats.locale >= LOC_MIN && stats.locale <= LOC_MAX)
 			localeID.format("WOL:Locale%2.2d", stats.locale);
-		uStr.format(TheGameText->fetch("GUI:PlayerStatistics"), lookAtPlayerName.c_str(), TheGameText->fetch(localeID).str());
+		// -online keeps no locale ("from Unknown" for everybody): the nick alone
+		if (OnlineIsEnabled())
+			uStr.format(u"%hs", parentWindowName == "PopupPlayerInfo.wnd" ? lookAtPlayerName.c_str() : TheGameSpyInfo->getLocalName().str());
+		else
+			uStr.format(TheGameText->fetch("GUI:PlayerStatistics"), lookAtPlayerName.c_str(), TheGameText->fetch(localeID).str());
 		GadgetStaticTextSetText(win, uStr);
 	}
 	win = findWindow(NULL, parentWindowName, "StaticTextGamesPlayedValue");
@@ -1076,9 +1081,7 @@ void PopulatePlayerInfoWindows( AsciiString parentWindowName )
 	win = findWindow(NULL, parentWindowName, "FactionImage");
 	if(win && pPlayerTemplate && TheRankPointValues && rankPoints)
 	{
-		// our card, as the army screen shows it: Turkiye's GeneralImage is America's logo
-		const Image *card = ControlBarSideImage(pPlayerTemplate, "FactionPicker");
-		win->winSetEnabledImage(0, card ? card : pPlayerTemplate->getGeneralImage());
+		win->winSetEnabledImage(0, pPlayerTemplate->getGeneralImage());
 //x		win->setTooltipText( sideStr );  //ex: Toxin General
 	}
 
@@ -1108,6 +1111,63 @@ void PopulatePlayerInfoWindows( AsciiString parentWindowName )
 	if(win)
 	{
 		populateBattleHonors(stats, stats.battleHonors,stats.gamesInRowWithLastGeneral,stats.lastGeneral,stats.challengeMedals, win);
+	}
+
+	// -online: the site's numbers over EA's.  The rank line says tier, rating and ladder place instead
+	// of EA's rank-point title, and the record is the site's.
+	if (OnlineIsEnabled())
+	{
+		AsciiString nick = (parentWindowName == "PopupPlayerInfo.wnd") ? AsciiString(lookAtPlayerName.c_str()) : TheGameSpyInfo->getLocalName();
+		OnlinePlayerInfo card;
+		if (OnlineGetPlayerInfo(nick, card))
+		{
+			if (card.hasStats && card.wins >= 0 && card.losses >= 0)
+			{
+				const Int games = card.games >= 0 ? card.games : card.wins + card.losses;
+				if ((win = findWindow(NULL, parentWindowName, "StaticTextWinsValue")) != NULL)
+				{
+					uStr.format(u"%d", card.wins);
+					GadgetStaticTextSetText(win, uStr);
+				}
+				if ((win = findWindow(NULL, parentWindowName, "StaticTextLossesValue")) != NULL)
+				{
+					uStr.format(u"%d", card.losses);
+					GadgetStaticTextSetText(win, uStr);
+				}
+				if ((win = findWindow(NULL, parentWindowName, "StaticTextGamesPlayedValue")) != NULL)
+				{
+					uStr.format(u"%d", games);
+					GadgetStaticTextSetText(win, uStr);
+				}
+				if ((win = findWindow(NULL, parentWindowName, "StaticTextWinPercentValue")) != NULL)
+				{
+					uStr.format(TheGameText->fetch("GUI:WinPercent"), games > 0 ? REAL_TO_INT(card.wins / (Real)games * 100.0f) : 0);
+					GadgetStaticTextSetText(win, uStr);
+				}
+			}
+			const Bool isPopup = parentWindowName == "PopupPlayerInfo.wnd";
+			UnicodeString rating = OnlineRatingText(card);
+			if (!isPopup)
+			{
+				// the hub's and Quick Match's rank box holds about a dozen letters: tier and rating only
+				if (card.hasRating && card.tier.isNotEmpty())
+					rating.format(u"%ls %d", OnlineTierName(card.tier).str(), card.rating);
+			}
+			else if (card.rank > 0)
+			{
+				UnicodeString place;
+				place.format(TheGameText->fetch("GUI:OnlineLadderPlace"), card.rank);
+				if (!rating.isEmpty())
+					rating.concat(u", ");
+				rating.concat(place);
+			}
+			if (card.notOnline)
+				rating = TheGameText->fetch("GUI:OnlinePlayerNotOnline");
+			if (!rating.isEmpty() && (win = findWindow(NULL, parentWindowName, "StaticTextRank")) != NULL)
+				GadgetStaticTextSetText(win, rating);
+			if (card.hasStats && (win = findWindow(NULL, parentWindowName, "StaticTextInProgress")) != NULL)
+				win->winHide(TRUE);
+		}
 	}
 }
 
@@ -1307,10 +1367,17 @@ void GameSpyPlayerInfoOverlayInit( WindowLayout *layout, void *userData )
 
 	GameSpyCloseOverlay(GSOVERLAY_BUDDY);
 	raiseMessageBox = true;
+	if (OnlineIsEnabled())
+	{
+		OnlineRequestStats(AsciiString(lookAtPlayerName.c_str()));
+		OnlinePlayerInfo card;
+		OnlineGetPlayerInfo(AsciiString(lookAtPlayerName.c_str()), card);
+		s_onlineInfoSerial = card.serial;
+	}
 	PopulatePlayerInfoWindows("PopupPlayerInfo.wnd");
 
-	// we're on the myinfo screen
-	if(lookAtPlayerID == TheGameSpyInfo->getLocalProfileID())
+	// we're on the myinfo screen; -online has no locale to set and filters no alphabet
+	if(lookAtPlayerID == TheGameSpyInfo->getLocalProfileID() && !OnlineIsEnabled())
 	{
 		//buttonbuttonOptions->winHide(FALSE);
 		buttonSetLocale->winHide(FALSE);
@@ -1366,6 +1433,17 @@ void GameSpyPlayerInfoOverlayUpdate( WindowLayout * layout, void *userData)
 	if (raiseMessageBox)
 		RaiseGSMessageBox();
 	raiseMessageBox = false;
+
+	// -online: the stats{nick} answer (or its noplayer) lands in the session, not the PS queue.  Only
+	// this player's card counts: the room's pings move the session's serial every few seconds, and a
+	// redraw resets the honours list to its top
+	OnlinePlayerInfo card;
+	if (OnlineIsEnabled() && isOverlayActive && OnlineGetPlayerInfo(AsciiString(lookAtPlayerName.c_str()), card)
+		&& card.serial != s_onlineInfoSerial)
+	{
+		s_onlineInfoSerial = card.serial;
+		PopulatePlayerInfoWindows("PopupPlayerInfo.wnd");
+	}
 }// GameSpyPlayerInfoOverlayUpdate
 
 //-------------------------------------------------------------------------------------------------

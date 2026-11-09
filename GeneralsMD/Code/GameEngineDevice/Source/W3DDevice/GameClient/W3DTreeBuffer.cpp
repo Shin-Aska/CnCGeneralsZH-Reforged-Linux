@@ -1836,16 +1836,19 @@ Bool W3DTreeBuffer::addModelShadow(DrawableID id, RenderObjClass *robj)
 	ms.numMesh = 0;
 	ms.visible = false;
 
-	// LOD 0 is the model as it stands closest to the camera, which is the shape worth casting
+	// the top LOD is the model as it stands closest to the camera, which is the shape worth casting
+	// (W3D keeps its levels coarsest first)
 	Int subCount = 1;
+	Int top = 0;
 	Bool isHLod = robj->Class_ID() == RenderObjClass::CLASSID_HLOD;
 	if (isHLod) {
-		subCount = ((HLodClass *)robj)->Get_Lod_Model_Count(0);
+		top = ((HLodClass *)robj)->Get_LOD_Count() - 1;
+		subCount = ((HLodClass *)robj)->Get_Lod_Model_Count(top);
 	}
 
 	Int i;
 	for (i=0; i<subCount && ms.numMesh<4; i++) {
-		RenderObjClass *sub = isHLod ? ((HLodClass *)robj)->Peek_Lod_Model(0, i) : robj;
+		RenderObjClass *sub = isHLod ? ((HLodClass *)robj)->Peek_Lod_Model(top, i) : robj;
 		if (sub == NULL || sub->Class_ID() != RenderObjClass::CLASSID_MESH) {
 			continue;
 		}
@@ -2224,11 +2227,8 @@ void W3DTreeBuffer::stepTrees( void )
 	if (TheGameLogic && TheGameLogic->isGamePaused()) {
 		pause = true;
 	}
-#if defined(__linux__)
-	// The sun pass and the main view share this sync point's breeze and pause state.
 	m_breezeForDraw = weatherBreezeInfo();
 	m_pauseForDraw = pause;
-#endif
 	const UnsignedInt now = TheGameClient ? TheGameClient->getFrame() : 0;
 	if (pause || now == m_lastTreeStepFrame) {
 		return;
@@ -2296,18 +2296,8 @@ void W3DTreeBuffer::drawTrees(CameraClass * camera, RefRenderObjListIterator *pD
 
 	// if breeze changes, always process the full update, even if not visible, 
 	// so that things offscreen won't 'pop' when first viewed
-#if defined(__linux__)
-	const BreezeInfo& info = LogicThread::isInsideWindow() ? m_breezeForDraw : weatherBreezeInfo();
-	Bool pause = LogicThread::isInsideWindow() ? m_pauseForDraw
-		: TheScriptEngine->isTimeFrozenScript() || TheScriptEngine->isTimeFrozenDebug()
-			|| (TheGameLogic && TheGameLogic->isGamePaused());
-#else
-	const BreezeInfo& info = weatherBreezeInfo();
-	Bool pause = TheScriptEngine->isTimeFrozenScript() || TheScriptEngine->isTimeFrozenDebug();
-	if (TheGameLogic && TheGameLogic->isGamePaused()) {
-		pause = true;
-	}
-#endif
+	const BreezeInfo& info = m_breezeForDraw;
+	Bool pause = m_pauseForDraw;
 	Int i;
 	if (!pause) {
 		if (info.m_breezeVersion != m_curSwayVersion) 

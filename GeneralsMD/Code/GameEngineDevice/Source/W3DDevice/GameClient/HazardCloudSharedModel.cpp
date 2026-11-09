@@ -1,3 +1,4 @@
+// Distributed under the repository's GPL-3.0 terms; see LICENSE.md.
 #include "Platform/HazardCloudSharedModel.h"
 #include "Platform/HazardCloudPolicy.h"
 

@@ -50,6 +50,8 @@
 #include "GameNetwork/GameSpy/GSConfig.h"
 #include "GameNetwork/GameSpyOverlay.h"
 #include "GameNetwork/RankPointValue.h"
+#include "GameNetwork/Transport.h"
+#include "GameNetwork/Online/OnlineQueues.h"
 #include "GameLogic/GameLogic.h"
 
 #ifdef _INTERNAL
@@ -632,13 +634,16 @@ void SetUpGameSpy( const char *motdBuffer, const char *configBuffer )
 	dir.format("%sGeneralsOnline\\Ladders", TheGlobalData->getPath_UserData().str());
 	TheLocalFileSystem->createDirectory(dir);
 
-	TheGameSpyBuddyMessageQueue = GameSpyBuddyMessageQueueInterface::createNewMessageQueue();
+	// -online: the same four interfaces, answered from our service instead of GameSpy's threads
+	const Bool online = OnlineIsEnabled();
+
+	TheGameSpyBuddyMessageQueue = online ? OnlineCreateBuddyQueue() : GameSpyBuddyMessageQueueInterface::createNewMessageQueue();
 	TheGameSpyBuddyMessageQueue->startThread();
 
-	TheGameSpyPeerMessageQueue = GameSpyPeerMessageQueueInterface::createNewMessageQueue();
+	TheGameSpyPeerMessageQueue = online ? OnlineCreatePeerQueue() : GameSpyPeerMessageQueueInterface::createNewMessageQueue();
 	TheGameSpyPeerMessageQueue->startThread();
-	
-	TheGameSpyPSMessageQueue = GameSpyPSMessageQueueInterface::createNewMessageQueue();
+
+	TheGameSpyPSMessageQueue = online ? OnlineCreatePSQueue() : GameSpyPSMessageQueueInterface::createNewMessageQueue();
 	TheGameSpyPSMessageQueue->startThread();
 
 	/*
@@ -649,16 +654,17 @@ void SetUpGameSpy( const char *motdBuffer, const char *configBuffer )
 	TheGameSpyInfo->setMOTD(motdBuffer);
 	TheGameSpyInfo->setConfig(configBuffer);
 
+	// -online hides EA's Asian / Non-Asian text boxes, so a choice saved for GameSpy filters no game list here
 	CustomMatchPreferences pref;
-	TheGameSpyInfo->setDisallowAsianText(pref.getDisallowAsianText());
-	TheGameSpyInfo->setDisallowNonAsianText( pref.getDisallowNonAsianText());
+	TheGameSpyInfo->setDisallowAsianText(pref.getDisallowAsianText() && !OnlineIsEnabled());
+	TheGameSpyInfo->setDisallowNonAsianText( pref.getDisallowNonAsianText() && !OnlineIsEnabled());
 	
 
 	TheGameSpyConfig = GameSpyConfigInterface::create(configBuffer);
 
 	TheLadderList = NEW LadderList;
 
-	ThePinger = PingerInterface::createNewPingerInterface();
+	ThePinger = online ? OnlineCreatePinger() : PingerInterface::createNewPingerInterface();
 	ThePinger->startThreads();
 
 	TheRankPointValues = NEW RankPoints;
@@ -680,6 +686,9 @@ void TearDownGameSpy( void )
 		}
 //		*/
 	}
+
+	// -online: the relay session belongs to the login being torn down
+	Transport::closeOnlineRelay();
 
 	// End our threads before we kill off the singletons they reference.  No crashy-crash for you!
 	if (TheGameSpyPSMessageQueue)

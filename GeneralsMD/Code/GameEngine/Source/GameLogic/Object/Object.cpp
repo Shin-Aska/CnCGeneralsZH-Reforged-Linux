@@ -1233,10 +1233,17 @@ Bool Object::canCrushOrSquish(Object *otherObj, CrushSquishTestType testType ) c
 {
 	DEBUG_ASSERTCRASH(this, ("null this in canCrushOrSquish"));
 
-	if( !otherObj ) 
+	if( !otherObj )
 	{
 		//Can't crush anything.
-		return false;  
+		return false;
+	}
+
+	// A wreck still sliding or tumbling on from the speed it died at (SlowDeathBehavior's momentum)
+	// is not driving over anything: it bumps, it does not crush.
+	if( isEffectivelyDead() )
+	{
+		return false;
 	}
 
 	if( isDisabledByType( DISABLED_UNMANNED ) )
@@ -5096,7 +5103,12 @@ Bool Object::affectedByUpgrade( const UpgradeTemplate *upgradeT ) const
 	for (BehaviorModule** module = m_behaviors; *module; ++module)
 	{
 		UpgradeModuleInterface* upgrade = (*module)->getUpgrade();
-		if (!upgrade)
+		// a SubObjectsUpgrade only shows or hides parts of the model, so an upgrade that does nothing
+		// else to this object does not affect it: a part drawn for Laser Missiles on a Raptor made the
+		// computer value the upgrade by its jets and buy it first, and the button and the production
+		// checks read this too. In EA's data every object one shows parts on also has a module doing
+		// the work.
+		if (!upgrade || upgrade->isSubObjectsUpgrade())
 			continue;
 
 		if( upgrade->wouldUpgrade( maskToCheck ) )

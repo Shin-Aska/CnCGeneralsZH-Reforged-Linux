@@ -78,6 +78,7 @@
 #include "WWDownload/Registry.h"
 #include "Platform/HazardCloud.h"
 #include "Platform/ModernWaterBuild.h"
+#include "Platform/WaterScreenReflection.h"
 //added by saad
 //used to access a messagebox that does "ok" and "cancel"
 #include "GameClient/MessageBox.h"
@@ -294,23 +295,12 @@ Bool OptionsHotkeysKey( UnsignedByte key, Int state );
 void OptionsHotkeysSave( void );
 void OptionsHotkeysClose( void );
 
-//-------------------------------------------------------------------------------------------------
-/** Show one page and hide the rest.
-	*
-	* The page you are on is the disabled button, which is the one piece of tab feedback available
-	* without drawing new artwork: a pressed-looking tab would need a second image per button, and
-	* the buttons are cloned from one that already exists. */
-//-------------------------------------------------------------------------------------------------
+// The Water page's rows drive the SDL Modern water, which only Linux draws.
 static Bool modernWaterSettingsSupported( void )
 {
-#if defined(__linux__)
-	return ModernWater::Supported();
-#else
-	return FALSE;
-#endif
+	return WaterScreenReflection::Supported();
 }
 
-#if defined(__linux__)
 // Nine tabs leave less space for translated captions. Fit the actual glyphs,
 // keeping the normal font wherever it already fits the button.
 static void fitWaterOptionsTabCaption( GameWindow *tab )
@@ -327,7 +317,7 @@ static void fitWaterOptionsTabCaption( GameWindow *tab )
 	for( ;; )
 	{
 		caption->setFont( font );
-		if( caption->getWidth() <= max( 1, width - 8 ) || font->pointSize <= minimum ) break;
+		if( caption->getWidth() <= (width > 8 ? width - 8 : 1) || font->pointSize <= minimum ) break;
 		GameFont *smaller = TheFontLibrary->getFont( font->nameString, font->pointSize - 1, font->bold );
 		if( !smaller ) break;
 		font = smaller;
@@ -335,9 +325,8 @@ static void fitWaterOptionsTabCaption( GameWindow *tab )
 	tab->winSetFont( font );
 	TheDisplayStringManager->freeDisplayString( caption );
 }
-#endif
 
-// Hide the Linux-only page elsewhere and give the remaining tabs their original width. Derive
+// Hide the Water page off Linux and give the remaining tabs their original width. Derive
 // the bounds from the loaded layout so shell scaling and reopening an existing layout both work.
 static void layoutOptionsTabs( void )
 {
@@ -364,12 +353,17 @@ static void layoutOptionsTabs( void )
 		const Int x = left + visible * (tabWidth + gap);
 		optionsTab[i]->winSetPosition( x, top );
 		optionsTab[i]->winSetSize( ++visible == count ? right - x : tabWidth, height );
-#if defined(__linux__)
 		if( waterSupported ) fitWaterOptionsTabCaption( optionsTab[i] );
-#endif
 	}
 }
 
+//-------------------------------------------------------------------------------------------------
+/** Show one page and hide the rest.
+	*
+	* The page you are on is the disabled button, which is the one piece of tab feedback available
+	* without drawing new artwork: a pressed-looking tab would need a second image per button, and
+	* the buttons are cloned from one that already exists. */
+//-------------------------------------------------------------------------------------------------
 static void showOptionsPage( Int which )
 {
 	if( which == OPTIONS_WATER_PAGE && !modernWaterSettingsSupported() )
@@ -1212,7 +1206,7 @@ static void fillCatalogWidgets( void )
 		if( widget == NULL )
 			continue;
 
-		if (isLinuxModernWaterOption(def))
+		if (isModernWaterOption(def))
 		{
 			// Hidden as well as unfilled, so the quality slider leaves them with their page.
 			widget->winHide(!waterSettingsSupported);
@@ -1271,6 +1265,8 @@ static void fillCatalogWidgets( void )
 	// the choice for the next start, which is the file's: GlobalData holds what this run started with
 	const Bool classicNextStart = getEarlyOptionBool( "ClassicGraphics", true );
 	GadgetCheckBoxSetChecked( findOptionWidget( *findOptionDef( "ClassicGraphics" ) ), classicNextStart );
+	GadgetCheckBoxSetChecked( findOptionWidget( *findOptionDef( "DetailedModels" ) ), getEarlyOptionBool( "DetailedModels", true ) );
+	GadgetCheckBoxSetChecked( findOptionWidget( *findOptionDef( "HDTextures" ) ), getEarlyOptionBool( "HDTextures", true ) );
 
 	// A Classic run holds these two forced in memory, and a Reforged next start reads them from the
 	// file.  Shown as forced they read Custom beside the High the player just saved, and Accept saves that.
@@ -1312,7 +1308,7 @@ static void readCatalogWidgets( OptionPreferences &out )
 			continue;
 		if (strcmp(def.iniKey, "WaterStyle") == 0 && !ModernWater::Supported())
 			continue;
-		if (isLinuxModernWaterOption(def) && !modernWaterSettingsSupported())
+		if (isModernWaterOption(def) && !modernWaterSettingsSupported())
 			continue;
 
 		Int value;
@@ -1340,7 +1336,8 @@ static void readCatalogWidgets( OptionPreferences &out )
 
 		// Only the file moves.  This run keeps the archives, the tile and the shadow pass it started with,
 		// and everything that asks GlobalData has to go on agreeing with them until the next start.
-		if( strcmp( def.iniKey, "ClassicGraphics" ) == 0 )
+		if( strcmp( def.iniKey, "ClassicGraphics" ) == 0 || strcmp( def.iniKey, "DetailedModels" ) == 0
+			|| strcmp( def.iniKey, "HDTextures" ) == 0 )
 		{
 			if( ( value != 0 ) != getEarlyOptionBool( def.iniKey, true ) )
 				out[ AsciiString( def.iniKey ) ] = formatOptionValue( def, value );
@@ -3142,7 +3139,7 @@ void OptionsMenuInit( WindowLayout *layout, void *userData )
 	// three looks only the Direct3D 11 picture draws; under -d3d9 their boxes keep the saved value, greyed
 	if( !TheGlobalData->m_direct3D11 )
 	{
-		static const char *const direct3D11Only[] = { "MapLight", "TeamGlow", "WaterFoam", "GroundMarks", "Firelight", "HemiAmbient", "AmbientOcclusion", "InternalHdr", "Weather", "WaterSplashes", "Atmosphere", "StructureCollapse" };
+		static const char *const direct3D11Only[] = { "MapLight", "TeamGlow", "WaterFoam", "GroundMarks", "Firelight", "HemiAmbient", "AmbientOcclusion", "InternalHdr", "Weather", "WaterSplashes", "Atmosphere", "StructureCollapse", "HeatHaze" };
 		for( Int i = 0; i < (Int)( sizeof( direct3D11Only ) / sizeof( direct3D11Only[ 0 ] ) ); ++i )
 			findOptionWidget( *findOptionDef( direct3D11Only[ i ] ) )->winEnable( FALSE );
 	}

@@ -51,6 +51,8 @@
 #include "Common/EarlyCommandLine.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <algorithm>
+#include <vector>
 
 #ifdef _INTERNAL
 // for occasional debugging...
@@ -134,6 +136,13 @@ Win32BIGFileSystem::~Win32BIGFileSystem() {
 // long before GlobalData exists, and the fork's upscaled art is the one thing classic has to keep
 // out of the directory tree rather than switch off afterwards.
 static Bool theClassicGraphics = FALSE;
+// Options > Detailed Models: the batches of rebuilt models, every Reforged*.big but the base art.
+// Off, they stay shut and the game draws retail's models over the upscaled textures.
+static Bool theDetailedModels = TRUE;
+// Options > HD Textures: the base art, ReforgedTextures (the 2x upscale), ReforgedTerrain and
+// ReforgedNormals. Off, they stay shut and retail's own textures and ground tiles are drawn; the
+// batches' own sheets are theirs, and those that replace a base art name replace retail's as well.
+static Bool theHDTextures = TRUE;
 static const char REFORGED_ARCHIVE_PREFIX[] = "Reforged";
 
 static Bool isReforgedArchive(const AsciiString &path)
@@ -150,6 +159,9 @@ void Win32BIGFileSystem::init() {
 	}
 
 	theClassicGraphics = getEarlyOptionBool("ClassicGraphics", true);
+	theDetailedModels = getEarlyOptionBool("DetailedModels", true);
+	theHDTextures = getEarlyOptionBool("HDTextures", true);
+	m_reforgedArt.clear();
 
 	//
 	// The exe's own directory and no further down.  This used to walk every subdirectory under it,
@@ -220,6 +232,27 @@ void Win32BIGFileSystem::init() {
     // ... except where that costs resolution: a number of the base game's textures were shipped
     // downscaled in TexturesZH.big, and load order alone made those the ones the game uses.
     prioritizeLargerFiles(TGA_DIR_PATH, "TexturesZH.big", "Textures.big");
+
+	// The fork's art goes in last, over everything retail: PatchZH.big holds the 1.04 Avenger, and a
+	// rebuilt model under a retail name has to win wherever retail keeps that name, the base game's
+	// archives included.  One fixed order settles a name several of them carry: the base art (the 2x
+	// textures, the normals, the terrain) first, then the model batches over it, so a rebuilt bridge's
+	// texture beats the upscale of the retail one.  Each name a Reforged archive holds it still wins,
+	// since the base game's pass never overwrites; what changed is that prioritizeLargerFiles no longer
+	// finds ReforgedTextures.big under its "Textures.big" and picks the base game's, so twenty retail
+	// textures nobody upscaled take the base game's larger copy as Classic always did.  mountOverRetail
+	// remembers what each model was before, which is what the INI CRC hashes, so the batches are
+	// optional to the network.
+	std::sort(m_reforgedArt.begin(), m_reforgedArt.end(), ArchiveFileSystem::reforgedMountsBefore);
+	for (size_t i = 0; i < m_reforgedArt.size(); ++i) {
+		ArchiveFile *art = openArchiveFile(m_reforgedArt[i].str());
+		if (art == NULL) {
+			continue;
+		}
+		DEBUG_LOG(("Win32BIGFileSystem::init - Reforged art %d: %s\n", (Int)i, m_reforgedArt[i].str()));
+		mountOverRetail(art, m_reforgedArt[i]);
+	}
+	m_reforgedArt.clear();
 }
 
 void Win32BIGFileSystem::reset() {
@@ -380,8 +413,23 @@ Bool Win32BIGFileSystem::loadBigFilesFromDirectory(AsciiString dir, AsciiString 
 	Bool actuallyAdded = FALSE;
 	FilenameListIter it = filenameList.begin();
 	while (it != filenameList.end()) {
-		if (theClassicGraphics && isReforgedArchive(*it)) {
-			DEBUG_LOG(("Win32BIGFileSystem::loadBigFilesFromDirectory - classic graphics, leaving %s out.\n", (*it).str()));
+		if (!dir.isEmpty() && isReforgedArchive(*it)) {
+			// The fork's art lives beside the exe only.  One in the base game's folder would come in after
+			// init's ordered pass and outrank it under Reforged while Classic ranked it by name.
+			DEBUG_LOG(("Win32BIGFileSystem::loadBigFilesFromDirectory - %s is not beside the exe, left out.\n", (*it).str()));
+			it++;
+			continue;
+		}
+		if (isReforgedArchive(*it)) {
+			// Classic draws retail and leaves all of them shut; Detailed Models off leaves the batches
+			// shut and HD Textures off the base art.  The rest wait for the end of init, which mounts them
+			// over everything retail.  None of them reaches the INI CRC either way, so which a player has
+			// decides only what he sees.
+			const Bool wanted = !theClassicGraphics && (ArchiveFileSystem::isReforgedBaseArt(*it) ? theHDTextures : theDetailedModels);
+			if (wanted && std::find(m_reforgedArt.begin(), m_reforgedArt.end(), *it) == m_reforgedArt.end()) {
+				m_reforgedArt.push_back(*it);
+			}
+			DEBUG_LOG(("Win32BIGFileSystem::loadBigFilesFromDirectory - %s %s.\n", (*it).str(), wanted ? "goes in after the retail archives" : "left out (Classic Graphics, Detailed Models or HD Textures off)"));
 			it++;
 			continue;
 		}
@@ -390,9 +438,7 @@ Bool Win32BIGFileSystem::loadBigFilesFromDirectory(AsciiString dir, AsciiString 
 
 		if (archiveFile != NULL) {
 			DEBUG_LOG(("Win32BIGFileSystem::loadBigFilesFromDirectory - loading %s into the directory tree.\n", (*it).str()));
-			// The fork's art claims over what was mounted before it: ReforgedUI.big sorts after
-			// EnglishZH.big and has to beat its Data\English\Art\Textures interface pages.
-			loadIntoDirectoryTree(archiveFile, *it, overwrite || isReforgedArchive(*it));
+			loadIntoDirectoryTree(archiveFile, *it, overwrite);
 			m_archiveFileMap[(*it)] = archiveFile;
 			DEBUG_LOG(("Win32BIGFileSystem::loadBigFilesFromDirectory - %s inserted into the archive file map.\n", (*it).str()));
 			actuallyAdded = TRUE;

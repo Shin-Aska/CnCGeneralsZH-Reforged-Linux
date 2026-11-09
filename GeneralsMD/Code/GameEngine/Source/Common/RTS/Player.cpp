@@ -1408,16 +1408,15 @@ static void doFindSpecialPowerSourceObject( Object *obj, void *userData )
 			//We just care about find an object that has *any* shortcut capable special power.
 			//Iterate through the special power modules and look for one.
 			SpecialPowerModuleInterface *spmInterface = obj->findAnyShortcutSpecialPowerModuleInterface();
-			if( spmInterface && !spmInterface->isScriptOnly()
-					&& !SuperweaponMissileSilencedInMatch( spmInterface->getSpecialPowerTemplate()->getSpecialPowerType() ) )
+			if( spmInterface && !spmInterface->isScriptOnly() )
 			{
 				info->obj = obj;
 				info->lowestReadyFrame = 0;
 				return;
 			}
 		}
-		// a missile that can never fire gets no shortcut button and no hotkey
-		else if( obj->hasSpecialPower( info->spType ) && !SuperweaponMissileSilencedInMatch( info->spType ) )
+		// a silenced missile is no special power (SpecialPowerModule::getSpecialPower): no shortcut, no hotkey
+		else if( obj->hasSpecialPower( info->spType ) )
 		{
 			SpecialPowerModuleInterface *spmInterface = obj->findSpecialPowerModuleInterface( info->spType );
 			if( spmInterface && !spmInterface->isScriptOnly() )
@@ -1467,7 +1466,7 @@ static void doCountSpecialPowersReady( Object *obj, void *userData )
 			&& !obj->testStatus( OBJECT_STATUS_SOLD ) 
 			&& !obj->isEffectivelyDead() )
 	{
-		if( obj->hasSpecialPower( info->spType ) && !SuperweaponMissileSilencedInMatch( info->spType ) )
+		if( obj->hasSpecialPower( info->spType ) )
 		{
 			SpecialPowerModuleInterface *spmInterface = obj->findSpecialPowerModuleInterface( info->spType );
 			if( spmInterface && !spmInterface->isScriptOnly() )
@@ -1882,11 +1881,10 @@ void Player::onStructureConstructionComplete( Object *builder, Object *structure
     }
   }
 
-	// a silo whose missile can never fire is announced as nothing more than a building
-	if( ( structure->hasSpecialPower( SPECIAL_NEUTRON_MISSILE ) ||
+	// a silo whose missile is silenced has no special power at all, so it is announced as a building
+	if( structure->hasSpecialPower( SPECIAL_NEUTRON_MISSILE ) ||
 			structure->hasSpecialPower( NUKE_SPECIAL_NEUTRON_MISSILE ) ||
 			structure->hasSpecialPower( SUPW_SPECIAL_NEUTRON_MISSILE ) )
-			&& !SuperweaponMissileSilencedInMatch( SPECIAL_NEUTRON_MISSILE ) )
   {
     if ( localPlayer == structure->getControllingPlayer() )
     {
@@ -3269,7 +3267,9 @@ Int SuperweaponBuildCap( Int restriction, const AsciiString &playerTemplateName,
     return isSuperweaponGeneral ? SUPERWEAPONS_LIMIT_GENERAL : SUPERWEAPONS_LIMIT_OTHERS;
 
   // the silo sells China's Uranium Shells, Nuclear Tanks and Neutron Shells, so under No every
-  // player still stands one and only its missile is refused (SuperweaponMissileSilenced)
+  // player, the computer too, still stands one, and its missile is no special power at all
+  // (SuperweaponMissileSilenced).  The computer builds it for those upgrades, never as its
+  // superweapon (IsSuperweaponInMatch).
   if ( restriction == SUPERWEAPONS_NONE && ProRulesExemptSuperweapon( buildingName ) )
     return SUPERWEAPONS_LIMIT_OTHERS;
 
@@ -3360,14 +3360,6 @@ Bool SuperweaponMissileSilencedInMatch( SpecialPowerType specialPowerType )
 {
   return SuperweaponMissileSilenced( specialPowerType, TheGameLogic->isProRules(),
                                      TheGameLogic->getSuperweaponRestriction() );
-}
-
-Bool SuperweaponSiloSilencedInMatch( const Object *structure )
-{
-  return ( structure->hasSpecialPower( SPECIAL_NEUTRON_MISSILE )
-           || structure->hasSpecialPower( NUKE_SPECIAL_NEUTRON_MISSILE )
-           || structure->hasSpecialPower( SUPW_SPECIAL_NEUTRON_MISSILE ) )
-         && SuperweaponMissileSilencedInMatch( SPECIAL_NEUTRON_MISSILE );
 }
 
 Bool ProRulesRefuseSpecialPower( const Player *player, SpecialPowerType specialPowerType )
@@ -3516,8 +3508,20 @@ Bool DefenseCountsForSuperweapons( Int buildCost )
 Bool SuperweaponNeedsDefenses( const AsciiString &buildingName, Bool proRules, Int superweaponRestriction,
                                Bool computerPlayer )
 {
-  return computerPlayer && !( ProRulesExemptSuperweapon( buildingName )
-            && SuperweaponMissileSilenced( SPECIAL_NEUTRON_MISSILE, proRules, superweaponRestriction ) );
+  return computerPlayer && !SuperweaponSiloIsUpgradeBuilding( buildingName, proRules, superweaponRestriction );
+}
+
+Bool SuperweaponSiloIsUpgradeBuilding( const AsciiString &buildingName, Bool proRules, Int superweaponRestriction )
+{
+  return ProRulesExemptSuperweapon( buildingName )
+         && SuperweaponMissileSilenced( SPECIAL_NEUTRON_MISSILE, proRules, superweaponRestriction );
+}
+
+Bool IsSuperweaponInMatch( const ThingTemplate *tmpl )
+{
+  return tmpl->isKindOf( KINDOF_FS_SUPERWEAPON )
+         && !SuperweaponSiloIsUpgradeBuilding( tmpl->getName(), TheGameLogic->isProRules(),
+                                               TheGameLogic->getSuperweaponRestriction() );
 }
 
 /* A defence counts once it stands finished, so a foundation put down and cancelled never unlocks
@@ -3535,7 +3539,7 @@ static void countSuperweaponDefenses( Object *obj, void *userData )
     return;
 
   SuperweaponDefenseCount *count = (SuperweaponDefenseCount *)userData;
-  if ( obj->isKindOf( KINDOF_FS_SUPERWEAPON ) )
+  if ( IsSuperweaponInMatch( obj->getTemplate() ) )
     count->superweapons++;
   else if ( obj->isKindOf( KINDOF_FS_BASE_DEFENSE ) && !obj->testStatus( OBJECT_STATUS_UNDER_CONSTRUCTION )
     && DefenseCountsForSuperweapons( obj->getTemplate()->friend_getBuildCost() ) )

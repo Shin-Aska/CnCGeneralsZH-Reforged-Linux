@@ -61,6 +61,8 @@
 #include "GameNetwork/GameSpy/MainMenuUtils.h"
 #include "GameNetwork/GameSpy/PeerDefs.h"
 #include "GameNetwork/GameSpy/PeerThread.h"
+#include "GameNetwork/Online/OnlineQueues.h"
+#include "Lib/Clock.h"
 #include "GameNetwork/GeneralsOnline/OnlineBridge.h"
 
 #include "WWDownload/Registry.h"
@@ -811,6 +813,16 @@ int asyncGethostbyname(char * szName)
 // time out) but at least we'll live.
 static Bool isHttpOk = TRUE;
 
+/* -online: the queues are made and the login screen pushed at once.  The MOTD and config are the last
+	 welcome's, empty before the first; the login screen remakes the queues with them once it arrives. */
+static void startOnlineService( void )
+{
+	checkingForPatchBeforeGameSpy = FALSE;
+	TheScriptEngine->signalUIInteract(TheShellHookNames[SHELL_SCRIPT_HOOK_MAIN_MENU_ONLINE_SELECTED]);
+	SetUpGameSpy( OnlineGetMOTD().str(), OnlineGetConfig().str() );
+	TheShell->push( AsciiString("Menus/GameSpyLoginProfile.wnd") );
+}
+
 void HTTPThinkWrapper( void )
 {
 	if (s_asyncDNSLookupInProgress)
@@ -899,6 +911,15 @@ void StartPatchCheck( void )
 		return;
 	}
 #endif
+	// -online: no patch check (the launcher did that) and no box: the login screen dials the service and
+	// says "Connecting..." until its welcome arrives
+	if (OnlineIsEnabled())
+	{
+		OnlineUpdate();
+		startOnlineService();
+		return;
+	}
+
 	checkingForPatchBeforeGameSpy = TRUE;
 	cantConnectBeforeOnline = FALSE;
 	timeThroughOnline++;

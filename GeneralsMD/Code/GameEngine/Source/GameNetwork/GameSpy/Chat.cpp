@@ -37,6 +37,7 @@
 #include "GameClient/GameWindowManager.h"
 #include "GameNetwork/GameSpy/PeerDefsImplementation.h"
 #include "GameNetwork/GameSpy/PeerThread.h"
+#include "GameNetwork/Online/OnlineQueues.h"
 #include "GameClient/InGameUI.h"
 #ifdef _INTERNAL
 // for occasional debugging...
@@ -174,7 +175,10 @@ Bool GameSpyInfo::sendChat( UnicodeString message, Bool isAction, GameWindow *pl
 			{
 				if (selections[i] != -1)
 				{
-					aStr.translate(GadgetListBoxGetText(playerListbox, selections[i], GadgetListBoxGetNumColumns(playerListbox)-1));
+					AsciiString row;
+					row.translate(GadgetListBoxGetText(playerListbox, selections[i], GadgetListBoxGetNumColumns(playerListbox)-1));
+					aStr.clear();
+					row.nextToken(&aStr, " ");		// -online's lobby writes rating and ping after the nick, which has no spaces
 					if (aStr.compareNoCase(TheGameSpyInfo->getLocalName()))
 					{
 						tmp.format(",%s", aStr.str());
@@ -214,6 +218,14 @@ void GameSpyInfo::addChat( AsciiString nick, Int profileID, UnicodeString msg, B
 	}
 }
 
+/* EA's "Asian text" filter counted every character past U+00FF as Asian, which dropped any line with a
+	 Turkish ı, ş or ğ (and all Cyrillic) for an English player, who has the filter on by default.  Asian
+	 scripts start at Hangul Jamo, U+1100. */
+static Bool isAsianChar( WideChar c )
+{
+	return c >= 0x1100;
+}
+
 void GameSpyInfo::addChat( PlayerInfo p, UnicodeString msg, Bool isPublic, Bool isAction, GameWindow *win )
 {
 	Int style;
@@ -233,7 +245,7 @@ void GameSpyInfo::addChat( PlayerInfo p, UnicodeString msg, Bool isPublic, Bool 
 			Int length =  msg.getLength();	
 			for(Int i = 0; i < length; ++i)
 			{
-				if(buff[i] >= 256)
+				if(isAsianChar(buff[i]))
 					return;
 			}
 		}
@@ -244,7 +256,7 @@ void GameSpyInfo::addChat( PlayerInfo p, UnicodeString msg, Bool isPublic, Bool 
 			Bool hasUnicode = FALSE;
 			for(Int i = 0; i < length; ++i)
 			{
-				if(buff[i] >= 256)
+				if(isAsianChar(buff[i]))
 				{
 					hasUnicode = TRUE;
 					break;
@@ -311,6 +323,9 @@ void GameSpyInfo::addChat( PlayerInfo p, UnicodeString msg, Bool isPublic, Bool 
 	{
 		GadgetListBoxSetItemData(win, (void *)(intptr_t)p.m_profileID, index);
 	}
+	// what online_check.py reads to know a line reached a chat box, not only the log
+	if (OnlineIsEnabled())
+		DEBUG_LOG(("ONLINE CHATBOX row=%d from=%s text=%s\n", index, p.m_name.str(), WideCharAsUtf8( msg.str() ).str()));
 }
 
 Int GameSpyInfo::addText( UnicodeString message, Color c, GameWindow *win )

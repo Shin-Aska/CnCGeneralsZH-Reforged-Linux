@@ -33,9 +33,12 @@ inline VarianceTable UnresolvedSlopeVariance(const std::vector<float>& initial, 
     return result;
 }
 inline const VarianceTable &SpectrumVariance(WaterFftSpectrum::Configuration configuration=WaterFftSpectrum::ForResolution(WaterFftSpectrum::Resolution)) {
+    if(configuration.resolution==128) {
+        static const VarianceTable low=UnresolvedSlopeVariance(WaterFftSpectrum::InitialSpectrum(WaterFftSpectrum::ForResolution(128)),WaterFftSpectrum::ForResolution(128));
+        return low;
+    }
     static const VarianceTable high=UnresolvedSlopeVariance(WaterFftSpectrum::InitialSpectrum());
-    static const VarianceTable low=UnresolvedSlopeVariance(WaterFftSpectrum::InitialSpectrum(WaterFftSpectrum::ForResolution(128)),WaterFftSpectrum::ForResolution(128));
-    return configuration.resolution==128?low:high;
+    return high;
 }
 inline std::string Source(WaterFftSpectrum::Configuration configuration=WaterFftSpectrum::ForResolution(WaterFftSpectrum::Resolution)) {
     std::string source="static const float3 fftLostSlopeVariance["+std::to_string(configuration.levels)+"]={\n";
