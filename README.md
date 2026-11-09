@@ -4,15 +4,13 @@ Command & Conquer: Generals Zero Hour for **64-bit Linux**, using **SDL3 and Vul
 No Wine or Proton required.
 
 Based on [Zero Hour Reforged](https://github.com/olcayseygan/CnCGeneralsZH-Reforged) and EA's released
-source. **Linux v3.8.0** includes the upstream 3.8.0 gameplay, AI, audio and interface changes,
-plus flow-aware Modern water and shared volumetric clouds beyond the old eight-field limit.
-Water quality controls, Hybrid reflections and Linux rendering optimizations remain available.
+source. **Linux v4.0.0** includes the upstream 4.0.0 gameplay, online and interface updates,
+and fixes missing unit-production hotkeys on Linux. Flow-aware Modern water, shared volumetric
+clouds, water quality controls and the existing reflection modes remain available.
 New profiles start with Classic graphics, water and clouds; the enhancements are selectable.
 EA's four veterancy levels return, and upstream mod support is removed.
 
-![Zero Hour Reforged Linux 3.8.0: flow-aware water and shared volumetric clouds](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/releases/download/v3.8.0/v3.8.0-launch.png)
-
-[3.8.0 release notes](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/blob/v3.8.0/docs/releases/v3.8.0.md)
+[4.0.0 release notes](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/blob/v4.0.0/docs/releases/v4.0.0.md)
 
 [![last commit](https://img.shields.io/github/last-commit/Shin-Aska/CnCGeneralsZH-Reforged-Linux/main?style=for-the-badge)](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/commits/main)
 [![license](https://img.shields.io/badge/license-GPL--3.0%20%2B%20EA%20terms-0d1117?style=for-the-badge)](LICENSE.md)
@@ -26,8 +24,8 @@ Game data and optional upscaled art are not included.
 
 ## Downloads
 
-Download **v3.8.0** from [GitHub Releases](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/releases/tag/v3.8.0).
-The release includes the six formats below and `SHA256SUMS`; its launch PNG is separate media.
+Download **v4.0.0** from [GitHub Releases](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/releases/tag/v4.0.0).
+The release includes the six formats below and `SHA256SUMS`.
 For a main-branch, pull request or manual build, open the
 [Linux workflow](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/actions/workflows/linux-release.yml),
 select the completed run, and download the `linux-x86_64-packages` artifact. A manual build is available

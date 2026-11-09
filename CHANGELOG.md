@@ -8,6 +8,20 @@ found and fixed, EA's own, not port damage.**
 
 ---
 
+## Linux 4.0.0 release (2026-11-09)
+
+- Includes upstream 4.0.0 gameplay, online and interface updates, while retaining this fork's
+  Modern water, Volumetric clouds and reflection modes.
+- Unit-production hotkeys work by default on Linux again. Reserving fixed letters for orders
+  left some buttons without a shortcut, including the USA War Factory's Crusader, Humvee,
+  Ambulance, Sentry Drone and Avenger. Windows' launcher assigns replacement keys; Linux has
+  no equivalent launcher. Linux now keeps each button's original label letter by default.
+  Explicit hotkey choices are preserved.
+- Local publishing now copies every staged overlay entry, including the newer cursor and
+  command-bar assets, so the published install matches the staged build.
+- Older-version replays are incompatible with upstream 4.0.0's gameplay changes.
+- [Release notes and downloads](docs/releases/v4.0.0.md).
+
 ## Ratings, a ladder and your opponent's name before the map loads
 
 - The online hub has a Ladder button where Buddies stood. EA's hub never had one, and nothing answers Buddies on this service. The hub stops asking a new profile for its locale, the player card stops saying "from Unknown" under every name and loses its Set Locale button and Asian text boxes, the lobby and room tooltips drop their "Region: Unknown" line, and the twelve generals' win percentages, which read "%d%%" for want of figures, now come from games played on this service, worked out the way EA's hub worked them out. A day with no figures leaves the panel off the screen. EA's yellow "Welcome to Generals Zero Hour Online." no longer sits over the server's own message, and the panel's tooltip no longer pops up wherever the cursor rests, nor does Quick Match's over the opponent you were just paired with. Quick Match's buttons are lettered in capitals like every other online screen; Stop was the one in small letters.
