@@ -38,11 +38,14 @@ for entry in \
   printf 'synthetic dependency sentinel\n' > "$sources/$entry"
 done
 mkdir -p "$sources/Compression/LZHCompress/CompLibHeader" \
-  "$sources/GameSpy/include/gamespy" "$sources/SDL3/src/gpu/metal"
+  "$sources/GameSpy/include/gamespy" "$sources/SDL3/src/gpu/metal" \
+  "$sources/mbedtls/include/mbedtls"
 printf '// Zero Hour Reforged: altered\n' > "$sources/Compression/LZHCompress/CompLibHeader/_lz.h"
 printf '// Zero Hour Reforged: C only\n// Zero Hour Reforged: GSI_UNIX\n' \
   > "$sources/GameSpy/include/gamespy/gsplatform.h"
 printf '// ZH_SDL_GPU_METAL_WINDOWLESS\n' > "$sources/SDL3/src/gpu/metal/SDL_gpu_metal.m"
+printf '#define MBEDTLS_VERSION_STRING         "3.6.7"\n' \
+  > "$sources/mbedtls/include/mbedtls/build_info.h"
 
 # Stub the external boundaries, not vendor.sh. curl always refuses network access;
 # the control run proves the fake can observe art requests when --no-art is absent.
