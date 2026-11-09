@@ -70,9 +70,17 @@ bash "$code/Tools/stage-overlay.sh" "$code/Data" "" "$transaction/next/$overlay"
 strip --strip-all -o "$transaction/next/$executable" -- "$source_exe"
 chmod 755 "$transaction/next/$executable"
 
-# These are exactly the small paths owned by stage-overlay.sh, not the entire overlay. Replacing
-# directories also removes files deleted upstream while preserving other Data/Art folders and art.
-owned=(Data/INI Data/Patch.str Data/Scripts Data/Turkish Data/German Install_Final.bmp Art/Textures Window)
+# These are exactly the small paths stage-overlay.sh just staged, not the entire overlay: each
+# entry under Data/ and Art/, and every other top-level entry. Reading them from the staged tree
+# keeps new folders (Data/Cursors in 4.0.0) from being left out. Replacing directories also removes
+# files deleted upstream while preserving other Data/Art folders and art.
+staged="$transaction/next/$overlay"
+owned=()
+while IFS= read -r -d '' entry; do
+  owned+=("${entry#"$staged"/}")
+done < <({ find "$staged" -mindepth 1 -maxdepth 1 ! -name Data ! -name Art -print0
+           find "$staged/Data" "$staged/Art" -mindepth 1 -maxdepth 1 -print0 2>/dev/null; } | sort -z)
+[ "${#owned[@]}" -gt 0 ] || fail "stage-overlay.sh staged nothing"
 paths=()
 for path in "${owned[@]}"; do paths+=("$overlay/$path"); done
 paths+=("$executable")
