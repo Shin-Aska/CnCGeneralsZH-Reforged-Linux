@@ -32,22 +32,44 @@ inline VarianceTable UnresolvedSlopeVariance(const std::vector<float>& initial, 
     }
     return result;
 }
-inline const VarianceTable &SpectrumVariance(WaterFftSpectrum::Configuration configuration=WaterFftSpectrum::ForResolution(WaterFftSpectrum::Resolution)) {
+inline const VarianceTable &SpectrumVariance(WaterFftSpectrum::Configuration configuration=WaterFftSpectrum::ForResolution(WaterFftSpectrum::Resolution),
+    bool clean=WaterCleanSpectrum::Enabled()) {
+    // A/B experiment only: unheaded/Direct3D source retains its original Phillips constants.
+    if(clean && WaterTuning::Enabled()) {
+        struct Cache {unsigned revision=~0u;VarianceTable table{};};
+        static Cache caches[2];auto &cache=caches[configuration.resolution==128?0:1];
+        if(cache.revision!=WaterTuning::SpectrumRevision()) {
+            cache.table=UnresolvedSlopeVariance(WaterFftSpectrum::InitialSpectrum(configuration,true),configuration);
+            cache.revision=WaterTuning::SpectrumRevision();
+        }
+        return cache.table;
+    }
+    if(clean) {
+        if(configuration.resolution==128) {
+            static const VarianceTable low=UnresolvedSlopeVariance(WaterFftSpectrum::InitialSpectrum(WaterFftSpectrum::ForResolution(128),true),WaterFftSpectrum::ForResolution(128));
+            return low;
+        }
+        static const VarianceTable high=UnresolvedSlopeVariance(WaterFftSpectrum::InitialSpectrum(WaterFftSpectrum::ForResolution(WaterFftSpectrum::Resolution),true));
+        return high;
+    }
     if(configuration.resolution==128) {
-        static const VarianceTable low=UnresolvedSlopeVariance(WaterFftSpectrum::InitialSpectrum(WaterFftSpectrum::ForResolution(128)),WaterFftSpectrum::ForResolution(128));
+        static const VarianceTable low=UnresolvedSlopeVariance(WaterFftSpectrum::InitialSpectrum(WaterFftSpectrum::ForResolution(128),false),WaterFftSpectrum::ForResolution(128));
         return low;
     }
-    static const VarianceTable high=UnresolvedSlopeVariance(WaterFftSpectrum::InitialSpectrum());
+    static const VarianceTable high=UnresolvedSlopeVariance(WaterFftSpectrum::InitialSpectrum(WaterFftSpectrum::ForResolution(WaterFftSpectrum::Resolution),false));
     return high;
 }
-inline std::string Source(WaterFftSpectrum::Configuration configuration=WaterFftSpectrum::ForResolution(WaterFftSpectrum::Resolution)) {
+inline std::string Source(WaterFftSpectrum::Configuration configuration=WaterFftSpectrum::ForResolution(WaterFftSpectrum::Resolution),
+    bool clean=WaterCleanSpectrum::Enabled()) {
     std::string source="static const float3 fftLostSlopeVariance["+std::to_string(configuration.levels)+"]={\n";
-    const auto &table=SpectrumVariance(configuration);
+    const auto &table=SpectrumVariance(configuration,clean);
     for(unsigned l=0;l<configuration.levels;++l) {
-        char row[192];std::snprintf(row,sizeof(row),"float3(%.9g,%.9g,%.9g)%s\n",table[l][0],table[l][1],table[l][2],l+1<configuration.levels?",":"");
+        char row[192];std::snprintf(row,sizeof(row),"float3(%.9g,%.9g,%.9g)%s\n",clean?double(float(table[l][0])):table[l][0],clean?double(float(table[l][1])):table[l][1],clean?double(float(table[l][2])):table[l][2],l+1<configuration.levels?",":"");
         source+=row;
     }
-    source+=R"HLSL(};
+    source+="};";
+    if(clean && WaterTuning::Enabled())source="#define fftLostSlopeVariance WaterTuningVariance\n";
+    source+=R"HLSL(
 float3 fftShadingLod(float footprint) {
     float3 texels=max(footprint,0.0)*256.0/(float3(450.0,103.0,13.0)*fftWorldScale);
     return clamp(log2(max(texels,float3(1,1,1))),0.0,8.0);

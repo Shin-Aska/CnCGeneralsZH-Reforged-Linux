@@ -18705,6 +18705,26 @@ TOOLTIP:WaterReflectionEnabled
 "Reflète la scène dans l’eau moderne. Désactivez cette option pour améliorer les performances tout en conservant la couleur du ciel et les éclats du soleil. Le mode de réflexion reste mémorisé. Appliqué quand vous cliquez sur Accepter."
 END
 
+GUI:WaterQuality
+"Qualité de l’eau"
+END
+
+GUI:WaterQuality0
+"Faible"
+END
+
+GUI:WaterQuality1
+"Moyenne"
+END
+
+GUI:WaterQuality2
+"Élevée"
+END
+
+TOOLTIP:WaterQuality
+"Qualité de l’eau moderne. Moyenne simplifie les reflets du soleil au loin. Faible fait aussi avancer toutes les vagues dans la même direction au lieu de les orienter vers la rive. Les réglages inférieurs améliorent les performances. Appliqué quand vous cliquez sur Accepter."
+END
+
 GUI:WaterFftResolution
 "Détail des vagues"
 END

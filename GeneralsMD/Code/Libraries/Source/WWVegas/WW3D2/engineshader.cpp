@@ -658,7 +658,7 @@ static bool write_engine_pixel_program(EngineShaderProgram program,
 // are composed before the existing shore/shroud alpha blend. No additional assets are required.
 static void write_modern_water(std::string & hlsl, bool river,
 	const WaterPerformanceSettings::Configuration &quality = WaterPerformanceSettings::Configuration(),
-	bool waveHeading = false, bool waterOpenSea = false)
+	bool waveHeading = false, bool waterOpenSea = false, bool liveTuning = false, bool cleanMain = false)
 {
 	const char *coastalSurfOption=getenv("ZH_WATER_SURF_GPU");
 #if defined(__linux__)
@@ -676,6 +676,10 @@ static void write_modern_water(std::string & hlsl, bool river,
 	hlsl += "#define WATER_REFRACTION_QUALITY " + std::to_string(int(quality.refraction)) + "\n";
 #if defined(__linux__)
 	hlsl += "#define WATER_ANALYTIC_ELISION 1\n";
+	{
+		// A/B experiment only: ZH_WATER_MEDIUM=wind prototypes one medium (docs/modern-water-single-medium.md step 3).
+		hlsl += (WaterFftSampling::OneMediumWindEnabled() && waveHeading && !river) ? "#define WATER_ONE_MEDIUM 1\n" : "#define WATER_ONE_MEDIUM 0\n";
+	}
 #else
 	hlsl += "#define WATER_ANALYTIC_ELISION 0\n";
 #endif
@@ -686,7 +690,7 @@ static void write_modern_water(std::string & hlsl, bool river,
 		hlsl += line;
 	}
 	hlsl += "Texture2DArray OceanMaps : register(t8);\nSamplerState OceanSampler : register(s8);\n";
-	hlsl += WaterFftSampling::UniformSource("CombinerConstants",0,visualContact);
+	hlsl += WaterFftSampling::UniformSource("CombinerConstants",0,visualContact,liveTuning);
 	std::string sunSampling=SHADOW_SAMPLING SUN_SMOKE_SAMPLING;
 	for(const auto &binding : {std::pair<const char*,const char*>("register(t5)","register(t9)"),
 		{"register(s5)","register(s9)"},{"register(t6)","register(t10)"},{"register(s6)","register(s10)"}}) {
@@ -938,8 +942,8 @@ WaterRefractionSample waterRefractedScene(float2 originalPixel, float2 offset,
 }
 )HLSL";
 	hlsl += WaterScreenReflection::ShaderSource();
-	hlsl += WaterSurfaceModel::ShaderSource();
-	if (waveHeading && !river) {
+	if(!cleanMain) hlsl += WaterSurfaceModel::ShaderSource();
+	if (waveHeading && !river && !cleanMain) {
 		hlsl += "float fftLocalShoreRippleHeight(float2 pxy,float seconds) {float value=0;\n";
 #define LOCAL_WATER_RIPPLE_HEIGHT(kx,ky,amplitude,omega,phase) \
         "if(" #kx "*" #kx "+" #ky "*" #ky ">=1.0){float p=dot(pxy,float2(" #kx "," #ky "))-seconds*" #omega "+" #phase ";" \
@@ -948,13 +952,13 @@ WaterRefractionSample waterRefractedScene(float2 originalPixel, float2 offset,
 #undef LOCAL_WATER_RIPPLE_HEIGHT
 		hlsl += "return value;}\n";
 	}
-	hlsl += WaterSurfaceModel::OceanShaderSource();
+	if(!cleanMain) hlsl += WaterSurfaceModel::OceanShaderSource();
 	hlsl += WaterOpticalModel::GetHlslSource();
 	hlsl += ModernWaterMaterial::OpticalSource();
 	hlsl += ModernWaterMaterial::BubbleSource();
 	hlsl += WaterHullModel::GetHlslSource();
 	hlsl += WaterFftSampling::PixelSource(bowLift, WaterBowShoulder::Enabled(), true,
-		WaterFftSpectrum::ForResolution(quality.activeFftResolution), waveHeading && !river, waterOpenSea && !river);
+		WaterFftSpectrum::ForResolution(quality.activeFftResolution), waveHeading && !river, waterOpenSea && !river,cleanMain);
 	hlsl += WaterWaveCageShader::Source(false);
 	char oceanBound[96];
 	snprintf(oceanBound, sizeof(oceanBound), "static const float oceanDisplacementBound = %.9g;\n",
@@ -988,13 +992,38 @@ float waterTerrainClarity(float2 p,float baseLevel,float terrain,float offshore)
     }
     return MaterialOptics.x*WaterOpticalClarityEligibility(terrainDepth,surroundingDepth,offshore);
 }
-float terrainWaveAttenuation(float depth, float offshore)
-{
-    float shore = saturate(depth/9.0);
-    shore = shore*shore*(3.0-2.0*shore);
-    return lerp(shore, saturate((depth-0.15)/oceanDisplacementBound), offshore);
-}
 )HLSL";
+	{
+		// A/B experiment only: ZH_WATER_DEPTH_FIX=blur averages the terrain height the wave
+		// attenuation reads over a 13-tap disc ~30 world units across; =range reaches full offshore
+		// waves over three times the displacement bound, on a smooth curve.
+		const char *depthFix = getenv("ZH_WATER_DEPTH_FIX");
+		const bool depthRange = depthFix && strcmp(depthFix, "range") == 0;
+		const bool depthBlur = depthFix && strcmp(depthFix, "blur") == 0;
+		hlsl += "float terrainWaveAttenuation(float depth, float offshore)\n{\n"
+			"    float shore = saturate(depth/9.0);\n"
+			"    shore = shore*shore*(3.0-2.0*shore);\n";
+		hlsl += depthRange
+			? "    float open = saturate((depth-0.15)/(oceanDisplacementBound*3.0));\n    open = open*open*(3.0-2.0*open);\n"
+			: "    float open = saturate((depth-0.15)/oceanDisplacementBound);\n";
+        // A/B experiment only: retain the exact original default attenuation source.
+        if (!depthRange) {
+            const std::string temporary="    float open = saturate((depth-0.15)/oceanDisplacementBound);\n";
+            hlsl.erase(hlsl.size()-temporary.size());
+            hlsl += "    return lerp(shore, saturate((depth-0.15)/oceanDisplacementBound), offshore);\n}\n";
+        } else hlsl += "    return lerp(shore, open, offshore);\n}\n";
+		hlsl += depthBlur
+			? "float waveTerrainHeight(float2 p)\n{\n"
+			  "    float sum = terrainHeight(p);\n"
+			  "    [unroll] for (int i = 0; i < 6; ++i) {\n"
+			  "        float a = i*1.04719755;\n"
+			  "        sum += terrainHeight(p + 7.5*float2(cos(a), sin(a)));\n"
+			  "        sum += terrainHeight(p + 15.0*float2(cos(a+0.52359878), sin(a+0.52359878)));\n"
+			  "    }\n"
+			  "    return sum/13.0;\n}\n"
+			: "float waveTerrainHeight(float2 p) { return terrainHeight(p); }\n";
+
+	}
 	if(visualContact) hlsl += WaterHullVisual::Source();
 	hlsl += WaterHullModel::GetEffectsHlslSource(true,visualContact);
 	if(visualContact) hlsl += R"HLSL(
@@ -1096,9 +1125,10 @@ float4 oceanMeshHullDiagnostic(float3 world,float level,float time,float offshor
 	hlsl += WaterFoamShading::Source();
 	hlsl += WaterFoamShading::MaterialSource();
 	hlsl += WaterFoamEnvironment::HlslSource();
-	hlsl += WaterShoreFoam::Source();
+	if(!cleanMain) hlsl += WaterShoreFoam::Source();
+    else hlsl += "static const float ShoreMaximumRate=1;\nbool waterShoreSceneDepth(float available,float depth) {return available>.5 && isfinite(depth) && depth>=0 && depth<.999999;}\n";
 	const char *coastalCrestOption=getenv("ZH_WATER_COAST_CREST");
-	const bool coastalCrest=coastalCrestOption && strcmp(coastalCrestOption,"1")==0;
+	const bool coastalCrest=!cleanMain && coastalCrestOption && strcmp(coastalCrestOption,"1")==0;
 	if(coastalCrest) hlsl+=WaterCoastalCrest::Source();
 	hlsl += WaterShoreFoam::HistorySource();
 	if(coastalSurf) hlsl+=WaterCoastalPresentation::Source();
@@ -1132,6 +1162,20 @@ float4 main(Input input) : SV_Target
     float2 contextUV = (world.xy + TerrainParameters.xx + 5.0) / max(TerrainParameters.y, 1.0);
     float4 opticalContext=Texture4.SampleLevel(Sampler4,contextUV,0);
     float offshore = opticalContext.r * OpticalParameters.z * (1.0 - WaterParameters.y);
+#if WATER_ONE_MEDIUM
+    // One wave model for all ocean-connected water; strength comes from the one depth field below.
+    float waveModel = step(0.5, opticalContext.b) * OpticalParameters.z * (1.0 - WaterParameters.y);
+#else
+    float waveModel = offshore;
+#endif
+    // A/B experiment only: the cached D and its exact bilinear world gradient.
+    float mediumDepth=40.0,mediumBreakFoam=0.0;
+    float3 mediumBandGains=1.0;
+#if WATER_ONE_MEDIUM
+    float4 mediumDepthField=fftMediumDepthField(wavePosition);
+    mediumDepth=mediumDepthField.x;
+    mediumBandGains=float3(smoothstep(0.0,24.0,mediumDepth),smoothstep(0.0,12.0,mediumDepth),smoothstep(0.0,4.0,mediumDepth));
+#endif
     // The mesh and this derivative share every mode, phase, dispersion and crest harmonic.
     // Interpolated attenuation includes shores/structures, and its product derivative is retained.
     // The product-rule weight derivative still needs the old analytic height at
@@ -1148,6 +1192,9 @@ float4 main(Input input) : SV_Target
     float4 oceanSurface = waterOceanSurface(wavePosition,time,oceanSwell,analyticRemainder);
     float3 oceanWave = oceanSurface.xyz;
     float3 wave = lerp(legacyWave, oceanWave, offshore);
+#if WATER_ONE_MEDIUM
+    wave = lerp(legacyWave, oceanWave, waveModel);
+#endif
     FftSurface spectral=(FftSurface)0;
     )HLSL";
     if(bowLift) hlsl+=R"HLSL(float3 bowLiftField=0;float3 fftDampingField=float3(0,0,0);)HLSL";
@@ -1191,12 +1238,16 @@ float4 main(Input input) : SV_Target
     // facets from differentiating the coarse mesh's interpolated shore attenuation.
     float surfaceTerrainHeight=TerrainParameters.w>0.5?terrainHeight(world.xy):baseLevel-20.0;
     float localTerrain = TerrainParameters.w > 0.5
-        ? terrainWaveAttenuation(baseLevel-surfaceTerrainHeight, offshore) : 1.0;
-    attenuation = lerp(attenuation, min(localTerrain, input.Diffuse.r), offshore);
+        ? terrainWaveAttenuation(baseLevel-waveTerrainHeight(world.xy), offshore) : 1.0;
+#if WATER_ONE_MEDIUM
+    // A/B experiment only: the very same fine-band envelope used by CPU vertices.
+    if (mediumDepthField.w>0.5) localTerrain=mediumBandGains.z;
+#endif
+    attenuation = lerp(attenuation, min(localTerrain, input.Diffuse.r), waveModel);
     attenuation = min(attenuation,lerp(1.0,hullEffects.z,offshore));
     float determinant = parameterDx.x * parameterDy.y - parameterDx.y * parameterDy.x;
     float invDet = abs(determinant) > 0.000001 ? 1.0 / determinant : 0.0;
-    float ou = ddx(offshore), ov = ddy(offshore);
+    float ou = ddx(waveModel), ov = ddy(waveModel);
     float2 offshoreSlope = float2(ou*parameterDy.y-ov*parameterDx.y, ov*parameterDx.x-ou*parameterDy.x)*invDet;
     wave.yz += (oceanWave.x-legacyWave.x)*offshoreSlope;
     float du = ddx(attenuation), dv = ddy(attenuation);
@@ -1244,6 +1295,10 @@ float4 main(Input input) : SV_Target
     float shoreRippleLimit=min(smoothstep(0.0,0.75,depth),min(input.Diffuse.r,hullEffects.z));
     float shoreRippleWeight=OpticalParameters.z*TerrainParameters.w
         *(1.0-WaterParameters.y)*(1.0-cageAmount*fftWeight);
+#if WATER_ONE_MEDIUM
+    // A/B experiment only: the old real-depth slope restoration would bypass D's band gains.
+    if(mediumDepthField.w>0.5) shoreRippleWeight=0.0;
+#endif
     if(FftParameters.x>0.5) {
         fftDamping=fftDampingField.x;
         float2 weightSlope=fftWeightSlope;
@@ -1638,6 +1693,14 @@ float4 main(Input input) : SV_Target
     float fftFoam=saturate(pow(max(0.0,1.2-fftCompression),7.2))
         *smoothstep(0.15,0.65,fftDamping)*saturate(input.Specular.w)*(0.2+0.8*daylight);
     crestFoam=lerp(crestFoam,fftFoam,fftWeight);
+#if WATER_ONE_MEDIUM
+    // A/B experiment only: phase-locked incoming swell breaking, gamma=0.20 effective depth.
+    // Cage mapping and all existing foam sources retain their original rules.
+    mediumBreakFoam=spectral.mediumBreakFoam*fftWeight*waveModel*(1.0-cageAmount)
+        *smoothstep(0.0,0.75,depth)*min(input.Diffuse.r,hullEffects.z);
+    foam=max(foam,mediumBreakFoam*0.65);
+    foamWithoutShore=max(foamWithoutShore,mediumBreakFoam*0.65);
+#endif
     foam = max(foam, crestFoam*0.48);
     foamWithoutShore=max(foamWithoutShore,crestFoam*0.48);
     // Generated bow/stern crests come from the displaced mesh's physical packet. Their
@@ -1785,6 +1848,72 @@ float4 main(Input input) : SV_Target
 		hlsl+="current=float4(waterFoamOpticalCoverage(gpuCoastDensityAge.x),gpuCoastDensityAge.y/14.0,gpuCoastRaw,1.0);\n";
 	if(coastalSurf && debug && strcmp(debug,"coastal-material")==0)
 		hlsl+="current=float4(gpuCoastPrevious,max(0.0,foam-gpuCoastPrevious),shoreMaterialWeight,1.0);\n";
+	// A/B experiment only: the masks that decide where waves show.
+	if (debug && strcmp(debug, "wave-masks") == 0)
+		hlsl += "current=float4(offshore,attenuation,fftWeight,1.0);\n";
+	if (debug && strcmp(debug, "wave-masks2") == 0)
+		hlsl += "current=float4(saturate(input.Specular.w),localTerrain,saturate(input.Diffuse.r),1.0);\n";
+	// A/B experiment only: shared medium and band/breaking diagnostics.
+	if (debug && strcmp(debug, "medium-depth") == 0) hlsl += "current=float4((mediumDepth/40.0).xxx,1.0);\n";
+	if (debug && strcmp(debug, "band-gains") == 0) hlsl += "current=float4(mediumBandGains,1.0);\n";
+	if (debug && strcmp(debug, "break-foam") == 0) hlsl += "current=float4(mediumBreakFoam.xxx,1.0);\n";
+    // A/B experiment only: profile diagnostics use exactly the composed shared field.
+    if(debug && (strcmp(debug,"shared-amplitude")==0 || strcmp(debug,"shared-direction")==0
+        || strcmp(debug,"shared-height")==0)) {
+        if(WaterFftSampling::SharedEnabled() && waveHeading && !river) {
+            hlsl+="{FftSharedWave sw=fftSharedWave(wavePosition,0);float active=fftMediumDepthField(wavePosition).w;\n";
+            if(strcmp(debug,"shared-amplitude")==0)
+                hlsl+="current=float4(saturate(float3(sw.longTotal/4,sw.mediumTotal/4,mediumBandGains.z))*active,1);\n";
+            else if(strcmp(debug,"shared-height")==0)
+                hlsl+="FftSurface sb=fftSharedSurface(sw,wavePosition,mediumDepthField,0,false);current=float4(saturate(0.5+sb.displacement.z/8).xxx*active,1);\n";
+            else hlsl+="float hue=frac(atan2(sw.mediumDirection.y,sw.mediumDirection.x)/6.283185307+1);"
+                "float3 rgb=saturate(abs(frac(hue+float3(0,0.666666667,0.333333333))*6-3)-1);"
+                "current=float4(rgb*saturate(sw.mediumTotal/4)*active,1);\n";
+            hlsl+="}\n";
+        } else hlsl+="current=float4(0,0,0,1);\n";
+    }
+    // A/B experiment only: clean diagnostics use the actual incident composition and final BRDF.
+    if(debug && (strcmp(debug,"clean-bands")==0 || strcmp(debug,"clean-jacobian")==0 || strcmp(debug,"clean-roughness")==0
+        || strcmp(debug,"clean-height")==0)) {
+        if(WaterCleanSpectrum::Enabled() && waveHeading && !river) {
+            // A/B experiment only: clean-height = incident surface height as grey, for motion tracking.
+            if(strcmp(debug,"clean-height")==0)
+                hlsl+="current=float4(saturate(0.5+spectral.displacement.z/(3.0*length(fftCleanRms))).xxx*mediumDepthField.w,1);\n";
+            else if(strcmp(debug,"clean-bands")==0)
+                hlsl+="current=float4(fftCleanRms*mediumBandGains*mediumDepthField.w,1);\n";
+            else if(strcmp(debug,"clean-jacobian")==0)
+                hlsl+="current=float4(lerp(saturate(spectral.incidentCompression).xxx,float3(1,0,0),saturate(fftFoam))*mediumDepthField.w,1);\n";
+            else hlsl+="current=float4(roughness.xxx*mediumDepthField.w,1);\n";
+        } else hlsl+="current=float4(0,0,0,1);\n";
+    }
+	// A/B experiment only: each field that says where water is shallow or which way waves go.
+	// A/B experiment only: why the refracted seabed sample is rejected. R = metres below the surface
+	// (0..4), G = distance beyond the surface along the view (0..8), B = depth texel valid.
+	if (debug && strcmp(debug, "refract-hit") == 0)
+		hlsl += "{float2 rhTexel=waterScenePixel(floor(input.Position.xy+refractionPixels)+0.5);"
+			"float rhD=Texture6.SampleLevel(Sampler6,rhTexel*SceneParameters.yz,0).r;"
+			"float rhValid=(rhD>=0.0&&rhD<0.999999)?1.0:0.0;float3 rhHit=scenePosition(rhTexel,rhD);"
+			"current=float4(saturate((min(world.z,opticalWorld.z)-rhHit.z)/4.0)*rhValid,"
+			"saturate(min(dot(rhHit-world,-view),dot(rhHit-opticalWorld,-view))/8.0)*rhValid,rhValid,1.0);}\n";
+	if (debug && strcmp(debug, "field-offshore") == 0) hlsl += "current=float4(offshore.xxx,1.0);\n";
+	if (debug && strcmp(debug, "field-depth") == 0) hlsl += "current=float4(localTerrain.xxx,1.0);\n";
+	if (debug && waveHeading && !river && strcmp(debug, "field-heading") == 0)
+		hlsl += "{float4 hf=fftSwellField(wavePosition);float gl=length(hf.yz);float2 hn=hf.yz/max(gl,1e-5);"
+			"float hue=atan2(hn.y,hn.x)/6.2831853+0.5;"
+			"float3 rgb=saturate(abs(frac(hue+float3(0.0,0.6666667,0.3333333))*6.0-3.0)-1.0);"
+			"current=float4(gl>1e-5?rgb*(0.25+0.75*saturate(hf.w)):float3(0.1,0.1,0.1),1.0);}\n";
+	if (debug && waveHeading && !river && strcmp(debug, "field-phase") == 0)
+		hlsl += "{float4 hf=fftSwellField(wavePosition);float s=0.5+0.5*sin(6.2831853*hf.x/431.0);"
+			"current=float4(s*(0.2+0.8*saturate(hf.w)),s*(0.2+0.8*saturate(hf.w)),0.25+0.5*s,1.0);}\n";
+	if (debug && waveHeading && !river && !cleanMain && strcmp(debug, "field-sectors") == 0)
+		hlsl += "{FftSwell sw=fftSwell(wavePosition);float mix2=2.0*sw.weights.x*sw.weights.y;"
+			"float hue=frac(atan2(sw.rotation0.y,sw.rotation0.x)/6.2831853+1.0);"
+			"float3 rgb=saturate(abs(frac(hue+float3(0.0,0.6666667,0.3333333))*6.0-3.0)-1.0);"
+			"current=float4(lerp(rgb*0.7,float3(1,1,1),mix2),1.0);}\n";
+    if(debug && cleanMain && strcmp(debug,"field-sectors")==0)hlsl+="current=float4(0,0,0,1);\n";
+    if(debug && cleanMain && strcmp(debug,"shore-source-terms")==0)hlsl+="current=float4(0,0,0,1);\n";
+	// A/B experiment only: the glitter/foam value noise on its own (needs ZH_WATER_GLITTER or _FOAM_TEX).
+	if (debug && strcmp(debug, "alive-noise") == 0) hlsl += "current.rgb = float3(aliveNoise(world.xy/8.0), frac(world.xy/8.0));\n";
 	if (debug && strcmp(debug, "depth") == 0) hlsl += "current.rgb = (1.0-exp(-depth*0.04)).xxx;\n";
 	if (debug && strcmp(debug, "bed") == 0) hlsl += "current.rgb = waterDisplay(scene);\n";
 	if (debug && strcmp(debug, "reflection") == 0) hlsl += "current.rgb = waterDisplay(reflection);\n";
@@ -1823,7 +1952,7 @@ float4 main(Input input) : SV_Target
 	if (debug && strcmp(debug, "shore") == 0) hlsl += "current.rgb = float3(shoreRate/ShoreMaximumRate,shoreSupport,opticalContext.b);\n";
 	// Opaque diagnostic removes thin-water alpha compositing from source attribution.
 	if (debug && strcmp(debug, "shore-raw") == 0) hlsl += "current = float4(shoreRate/ShoreMaximumRate,shoreSupport,opticalContext.b,1.0);\n";
-	if (debug && strcmp(debug, "shore-source-terms") == 0) hlsl += R"HLSL(
+	if (debug && !cleanMain && strcmp(debug, "shore-source-terms") == 0) hlsl += R"HLSL(
     // Shore source attribution (M5i): R actual admitted front rate / maximum rate;
     // G same model with a fixed-world terrain derivative / maximum rate;
     // B fresh-front coverage after scene wetness/terrain match, in raw [0,1] units.
@@ -1854,7 +1983,7 @@ float4 main(Input input) : SV_Target
 		hlsl += "current = float4(resolvedNormal*0.5+0.5,unresolvedSlopeVariance);\n";
 	if (debug && strcmp(debug, "roughness") == 0) hlsl += "current.rgb = float3(roughness,environmentRoughness,sqrt(unresolvedSlopeVariance));\n";
 	if (debug && strcmp(debug, "pressure-retention") == 0) hlsl += "current.rgb = fftPressureRetentionDebug(spectral,fftWeight,fftDamping,generatedFoam);\n";
-	if (waveHeading && !river) {
+	if (waveHeading && !river && !cleanMain) {
 		const std::string before = "    float3 wave = lerp(legacyWave, oceanWave, offshore);";
 		const size_t at = hlsl.find(before);
 		if (at != std::string::npos)
@@ -1940,6 +2069,273 @@ current.rgb=auditReasons;
 )HLSL";
 		}
 	}
+    // A/B experiment only: omit inactive scaffolding so the default HLSL keeps its frozen contract.
+    if (!(WaterFftSampling::OneMediumWindEnabled() && waveHeading && !river)) {
+        const std::string gate="#if WATER_ONE_MEDIUM\n";
+        for (size_t begin=hlsl.find(gate);begin!=std::string::npos;begin=hlsl.find(gate)) {
+            const size_t end=hlsl.find("#endif\n",begin),alternate=hlsl.find("#else\n",begin);
+            const std::string fallback=alternate<end?hlsl.substr(alternate+6,end-alternate-6):"";
+            hlsl.replace(begin,end+7-begin,fallback);
+        }
+        const auto replace=[&](const std::string &from,const std::string &to) {
+            for(size_t at=hlsl.find(from);at!=std::string::npos;at=hlsl.find(from,at+to.size()))
+                hlsl.replace(at,from.size(),to);
+        };
+        replace("#define WATER_ONE_MEDIUM 0\n","");
+        replace("    float waveModel = offshore;\n","");replace("waveModel","offshore");
+        replace("    // A/B experiment only: the cached D and its exact bilinear world gradient.\n","");
+        replace("    float mediumDepth=40.0,mediumBreakFoam=0.0;\n    float3 mediumBandGains=1.0;\n","");
+        const char *depthFix=getenv("ZH_WATER_DEPTH_FIX");
+        if (!depthFix || strcmp(depthFix,"blur")!=0) {
+            replace("float waveTerrainHeight(float2 p) { return terrainHeight(p); }\n","");
+            replace("baseLevel-waveTerrainHeight(world.xy)","baseLevel-surfaceTerrainHeight");
+        }
+        // New diagnostics still compile in default mode, with neutral inactive values.
+        if (visualDebugOption && (strcmp(visualDebugOption,"medium-depth")==0
+            || strcmp(visualDebugOption,"band-gains")==0 || strcmp(visualDebugOption,"break-foam")==0)) {
+            replace("(mediumDepth/40.0).xxx","float3(1,1,1)");replace("mediumBandGains","float3(1,1,1)");
+            replace("mediumBreakFoam.xxx","float3(0,0,0)");
+        }
+    }
+    // A/B experiment only: ZH_WATER_ALIVE=1 makes wave motion visible outside the sun glint. Applied as
+    // text replacements so the default source is untouched; each anchor must exist exactly once.
+    const char *aliveOption = getenv("ZH_WATER_ALIVE");
+    if (aliveOption && strcmp(aliveOption, "1") == 0) {
+        // Tunables for the sweep: ZH_WATER_ALIVE_WIDE="intensity,roughness", ZH_WATER_ALIVE_SKY="sun,horizon",
+        // ZH_WATER_ALIVE_BED="scale,offset" (cosmetic refraction depth), ZH_WATER_ALIVE_BANK (bank fresnel floor).
+        float wideGain=0.6f,wideRough=0.55f,skySun=1.2f,skyHorizon=0.5f,bedScale=2.5f,bedOffset=3.0f,bankFloor=0.8f;
+        if (const char *v=getenv("ZH_WATER_ALIVE_WIDE")) sscanf(v,"%f,%f",&wideGain,&wideRough);
+        if (const char *v=getenv("ZH_WATER_ALIVE_SKY")) sscanf(v,"%f,%f",&skySun,&skyHorizon);
+        if (const char *v=getenv("ZH_WATER_ALIVE_BED")) sscanf(v,"%f,%f",&bedScale,&bedOffset);
+        if (const char *v=getenv("ZH_WATER_ALIVE_BANK")) sscanf(v,"%f",&bankFloor);
+        const auto num=[](float value) { char text[32]; snprintf(text,sizeof(text),"%.4f",value); return std::string(text); };
+        const auto once = [&](const std::string &from, const std::string &to) {
+            const size_t at = hlsl.find(from);
+            if (at == std::string::npos || hlsl.find(from, at + 1) != std::string::npos) {
+                fprintf(stderr, "ZH_WATER_ALIVE: anchor not found exactly once: %s\n", from.c_str());
+                return;
+            }
+            hlsl.replace(at, from.size(), to);
+        };
+        // Shallow banks keep most of their reflection instead of 35%.
+        once("lerp(lerp(0.35, 1.0, smoothstep(3.0, 18.0, depth)), 1.0, offshore)",
+            "lerp(lerp("+num(bankFloor)+", 1.0, smoothstep(3.0, 18.0, depth)), 1.0, offshore)");
+        // A wide, faint second lobe: the glint thins out into scattered facets instead of ending at an edge.
+        once("    highlight = highlight / (1.0 + highlight * 0.6);\n",
+            "    highlight = highlight / (1.0 + highlight * 0.6);\n"
+            "    {\n"
+            "        float wideA2 = pow("+num(wideRough)+", 4.0);\n"
+            "        float wideDen = nDotH*nDotH*(wideA2-1.0)+1.0;\n"
+            "        float wideD = wideA2/max(3.14159265*wideDen*wideDen, 0.0000001);\n"
+            "        float wideK = "+num(wideRough)+"*"+num(wideRough)+"*0.5;\n"
+            "        float wideM = (nDotV/(nDotV*(1.0-wideK)+wideK))*(nDotL/max(nDotL*(1.0-wideK)+wideK, 0.0001));\n"
+            "        float3 wide = waterLinear(SunColour.rgb)*"+num(wideGain)+"*(wideD*wideM*sunFresnel*sunVisible/max(4.0*nDotV, 0.001));\n"
+            "        highlight += wide/(1.0+wide);\n"
+            "    }\n");
+        // The sky is brighter toward the sun and the horizon, so every ripple's tilt changes what it reflects.
+        once("    if(offshore>0.0) skyRadiance=lerp(skyRadiance,oceanEnvironment(reflectedRay,light,daylight,environmentRoughness),offshore);\n",
+            "    if(offshore>0.0) skyRadiance=lerp(skyRadiance,oceanEnvironment(reflectedRay,light,daylight,environmentRoughness),offshore);\n"
+            "    skyRadiance *= 1.0 + "+num(skySun)+"*pow(saturate(dot(reflectedRay, light)), 3.0) + "+num(skyHorizon)+"*pow(1.0-saturate(reflectedRay.z), 2.0);\n");
+        // Thin map water: a far seabed reconstructed from depth loses more precision than the water is
+        // deep, so every refracted sample fails and the bed stops moving at a camera-distance edge.
+        // ZH_WATER_REFRACT_TOL scales an allowance with camera distance (0 keeps the original test).
+        float refractTolerance = 0.0f;
+        if (const char *v = getenv("ZH_WATER_REFRACT_TOL")) sscanf(v, "%f", &refractTolerance);
+        if (refractTolerance > 0.0f)
+            once("    return hit.z <= min(world.z, opticalWorld.z) - 0.08\n",
+                "    return hit.z <= min(world.z, opticalWorld.z) - 0.08 + "+num(refractTolerance)
+                +"*length(CameraPosition.xyz - world)\n");
+        // The refraction offset is in pixels: far away a few pixels span more ground than the water is
+        // deep, so a sample shifted toward the camera fails the forward-plane test although it is under
+        // water. ZH_WATER_REFRACT_FORWARD=0 keeps only the underwater test.
+        if (const char *v = getenv("ZH_WATER_REFRACT_FORWARD"); v && strcmp(v, "0") == 0)
+            once("        && dot(hit-world, -view) >= 0.0 && dot(hit-opticalWorld, -view) >= 0.0;\n", "        ;\n");
+        // ZH_WATER_FFT_LOD_BIAS="swell,medium,fine": shift the FFT shading mip choice, so a negative fine
+        // bias keeps animated ripples further from the camera instead of averaging them into roughness.
+        if (const char *v = getenv("ZH_WATER_FFT_LOD_BIAS")) {
+            float b0 = 0.0f, b1 = 0.0f, b2 = 0.0f;
+            if (sscanf(v, "%f,%f,%f", &b0, &b1, &b2) == 3)
+                once("    return clamp(log2(max(texels,float3(1,1,1))),0.0,8.0);\n",
+                    "    return clamp(log2(max(texels,float3(1,1,1)))+float3("+num(b0)+","+num(b1)+","+num(b2)+"),0.0,8.0);\n");
+        }
+        // The seabed shifts with the waves as if the water were deeper; it still fades out at the shoreline.
+        once("    refractionPixels = waterRefractionPixels(opticalDepth, view, normal, dx, dy);\n",
+            "    refractionPixels = waterRefractionPixels(opticalDepth*"+num(bedScale)+"+"+num(bedOffset)+", view, normal, dx, dy)*smoothstep(0.15, 2.5, opticalDepth);\n");
+    }
+    // A/B experiment only: ZH_WATER_GLITTER="gain,spread,density,rate,cell" adds sparse sun twinkles whose
+    // chance falls off gently with the tilt a ripple needs to reflect the sun, so the glitter thins out
+    // instead of ending at an edge. ZH_WATER_FOAM_TEX="scale,contrast" breaks the depth-limited breaking
+    // foam band up with drifting noise. Text-inserted only when set; anchors must exist exactly once.
+    {
+        const char *glitterOption = getenv("ZH_WATER_GLITTER");
+        const char *foamTexOption = getenv("ZH_WATER_FOAM_TEX");
+        const auto onceAt = [&](const std::string &from, const std::string &to, bool after) {
+            const size_t at = hlsl.find(from);
+            if (at == std::string::npos || hlsl.find(from, at + 1) != std::string::npos) {
+                fprintf(stderr, "ZH_WATER_GLITTER/FOAM_TEX: anchor not found exactly once: %s\n", from.c_str());
+                return;
+            }
+            hlsl.insert(after ? at + from.size() : at, to);
+        };
+        const auto fmt = [](float value) { char text[32]; snprintf(text, sizeof(text), "%.4f", value); return std::string(text); };
+        if (glitterOption || foamTexOption)
+            onceAt("float4 main(Input input) : SV_Target\n",
+                "uint aliveHash(uint3 v) {\n"
+                "    v = v*1664525u + 1013904223u;\n"
+                "    v.x += v.y*v.z; v.y += v.z*v.x; v.z += v.x*v.y;\n"
+                "    v ^= v >> 16u;\n"
+                "    v.x += v.y*v.z; v.y += v.z*v.x; v.z += v.x*v.y;\n"
+                "    return v.x;\n"
+                "}\n"
+                "float aliveRand(int3 c) { return float(aliveHash(uint3(c)) & 0xffffffu)/16777215.0; }\n"
+                "float aliveNoise(float2 p) {\n"
+                "    float2 i = floor(p), f = frac(p), u = f*f*(3.0-2.0*f);\n"
+                "    int2 c = int2(i);\n"
+                "    float a = aliveRand(int3(c, 7)), b = aliveRand(int3(c+int2(1,0), 7));\n"
+                "    float e = aliveRand(int3(c+int2(0,1), 7)), d = aliveRand(int3(c+int2(1,1), 7));\n"
+                "    return lerp(lerp(a, b, u.x), lerp(e, d, u.x), u.y);\n"
+                "}\n", false);
+        if (glitterOption) {
+            float gain = 1.2f, spread = 0.12f, density = 0.35f, rate = 5.0f, cell = 1.5f;
+            sscanf(glitterOption, "%f,%f,%f,%f,%f", &gain, &spread, &density, &rate, &cell);
+            onceAt("    float daylight = saturate(max(max(SunColour.r, SunColour.g), SunColour.b));\n",
+                "    {\n"
+                "        float glCell = clamp(max(length(dx), length(dy))*" + fmt(cell) + ", 0.6, 8.0);\n"
+                "        int2 glId = int2(floor(world.xy/glCell));\n"
+                "        float glPhase = aliveRand(int3(glId, 3))*16.0;\n"
+                "        float glClock = time*" + fmt(rate) + " + glPhase;\n"
+                "        int glSlot = int(floor(glClock));\n"
+                "        float glHash = aliveRand(int3(glId.x*7 + glSlot, glId.y*13 - glSlot*3, 11));\n"
+                "        float glQ = acos(saturate(nDotH))/" + fmt(spread) + ";\n"
+                "        float glP = " + fmt(density) + "/((1.0+glQ*glQ)*(1.0+glQ*glQ));\n"
+                "        float glEnv = sin(3.14159265*frac(glClock))*step(glHash, glP);\n"
+                "        float3 glLight = waterLinear(SunColour.rgb)*" + fmt(gain) + "*glEnv*sunVisible*daylight*smoothstep(0.2, 1.5, depth);\n"
+                "        highlight += glLight/(1.0+glLight);\n"
+                "    }\n", true);
+        }
+        if (foamTexOption) {
+            float scale = 1.0f, contrast = 2.2f;
+            sscanf(foamTexOption, "%f,%f", &scale, &contrast);
+            const std::string from = "    foam=max(foam,mediumBreakFoam*0.65);\n    foamWithoutShore=max(foamWithoutShore,mediumBreakFoam*0.65);\n";
+            const size_t at = hlsl.find(from);
+            if (at == std::string::npos || hlsl.find(from, at + 1) != std::string::npos)
+                fprintf(stderr, "ZH_WATER_FOAM_TEX: anchor not found exactly once\n");
+            else
+                hlsl.replace(at, from.size(),
+                    "    {\n"
+                    // Isotropic world-space noise: rotating absolute world coordinates by a per-pixel direction
+                    // turned tiny direction changes into large lookup shifts (marble stripes).
+                    "        float2 bfQ = world.xy/" + fmt(scale) + ";\n"
+                    "        float bfNoise = aliveNoise(bfQ/20.0 + float2(0.05, 0.13)*time)*0.6\n"
+                    "            + aliveNoise(bfQ/7.0 - float2(0.09, 0.21)*time)*0.4;\n"
+                    "        float bfCore = saturate(mediumBreakFoam);\n"
+                    "        float bfLace = smoothstep(0.5 - 0.25/" + fmt(contrast) + ", 0.5 + 0.25/" + fmt(contrast) + ", bfNoise);\n"
+                    "        float bf = bfLace*smoothstep(0.0, 0.6, bfCore)*0.85;\n"
+                    "        foam = max(foam, bf);\n"
+                    "        foamWithoutShore = max(foamWithoutShore, bf);\n"
+                    "    }\n");
+        }
+    }
+    // A/B experiment only: ZH_WATER_FACET="gain,scale" is deliberately non-physical facet shading: each
+    // ripple is a little lighter where it tilts toward the sun's side and darker away from it, everywhere,
+    // independent of the reflection geometry. Same text-replacement rules as ZH_WATER_ALIVE.
+    if (const char *facetOption = getenv("ZH_WATER_FACET")) {
+        float facetGain = 0.0f, facetScale = 4.0f;
+        sscanf(facetOption, "%f,%f", &facetGain, &facetScale);
+        const std::string from = "    float3 surface = lerp(body, reflection, visibleFresnel) + highlight;\n";
+        const size_t at = hlsl.find(from);
+        if (facetGain > 0.0f && at != std::string::npos && hlsl.find(from, at + 1) == std::string::npos) {
+            char block[512];
+            snprintf(block, sizeof(block),
+                "    {\n"
+                "        float2 facetLight = normalize(light.xy + float2(0.00001, 0.0));\n"
+                "        float facet = clamp(dot(resolvedNormal.xy, facetLight)*%.4f, -1.0, 1.0);\n"
+                "        surface *= 1.0 + %.4f*facet*daylight;\n"
+                "    }\n", facetScale, facetGain);
+            hlsl.insert(at + from.size(), block);
+        } else if (facetGain > 0.0f) {
+            fprintf(stderr, "ZH_WATER_FACET: anchor not found exactly once\n");
+        }
+    }
+    // A/B experiment only: shared/clean modes replace incident-wave composition on the main level.
+    // Applied after the existing A/B switches so their exact replacement anchors survive.
+    if((WaterFftSampling::SharedEnabled() || WaterCleanSpectrum::Enabled()) && waveHeading && !river) {
+        const auto replace=[&](const std::string &from,const std::string &to) {
+            for(size_t at=hlsl.find(from);at!=std::string::npos;at=hlsl.find(from,at+to.size()))
+                hlsl.replace(at,from.size(),to);
+        };
+        replace("    float2 shoreRippleSlope=0;",
+            std::string("    if(mediumDepthField.w>0.5) {analyticRemainder=false;waveModel=1.0;}\n")
+            +(WaterFftSampling::WindRequested()?"":"    else waveModel=offshore;\n")+"    float2 shoreRippleSlope=0;");
+        replace("    float4 oceanSurface = waterOceanSurface(wavePosition,time,oceanSwell,analyticRemainder);",
+            "    float4 oceanSurface=0;oceanSwell=0;\n    if(mediumDepthField.w<0.5)oceanSurface=waterOceanSurface(wavePosition,time,oceanSwell,analyticRemainder);");
+        replace("if (mediumDepthField.w>0.5) localTerrain=mediumBandGains.z;",
+            "if (mediumDepthField.w>0.5) localTerrain=1.0;");
+        replace("&& offshore==0.0 && opticalContext.a>0.0", "&& mediumDepthField.w<0.5 && offshore==0.0 && opticalContext.a>0.0");
+        replace("mediumBreakFoam=spectral.mediumBreakFoam*", "mediumBreakFoam=(mediumDepthField.w>0.5?0.0:spectral.mediumBreakFoam)*");
+        // A/B experiment only: the forward-plane fix applies only on the shared elevation.
+        replace("float3 view, out float3 hit)","float3 view, bool sharedWater, out float3 hit)");
+        replace("float baseLevel, float3 originalBottom)","float baseLevel, float3 originalBottom, bool sharedWater)");
+        replace("world, opticalWorld, view, nearestHit)","world, opticalWorld, view, sharedWater, nearestHit)");
+        replace("world, opticalWorld, view, neighbourHit)","world, opticalWorld, view, sharedWater, neighbourHit)");
+        replace("world, opticalWorld, view, baseLevel, bottom);","world, opticalWorld, view, baseLevel, bottom, mediumDepthField.w>0.5);");
+        replace("        && dot(hit-world, -view) >= 0.0 && dot(hit-opticalWorld, -view) >= 0.0;\n",
+            "        && (sharedWater || (dot(hit-world, -view) >= 0.0 && dot(hit-opticalWorld, -view) >= 0.0));\n");
+    }
+
+    // A/B experiment only: clean shading is applied after all pre-existing replacement switches.
+    // Their anchors remain available; FOAM_TEX deliberately sees zero painted breaking here.
+    if(WaterCleanSpectrum::Enabled() && waveHeading && !river) {
+        const auto replace=[&](const std::string &from,const std::string &to) {
+            for(size_t at=hlsl.find(from);at!=std::string::npos;at=hlsl.find(from,at+to.size()))
+                hlsl.replace(at,from.size(),to);
+        };
+        // One immutable context belongs to this evaluation position. Reflected positions build their own.
+        replace("float4 mediumDepthField=fftMediumDepthField(wavePosition);",
+            "FftCleanContext cleanContext=fftCleanContext(wavePosition);\n    float4 mediumDepthField=cleanContext.depth;");
+        replace("fftSurface(wavePosition,baseLevel,max(length(parameterDx),length(parameterDy)),horizontalScale)",
+            "fftSurface(wavePosition,baseLevel,max(length(parameterDx),length(parameterDy)),horizontalScale,cleanContext)");
+        if(WaterTuning::Enabled())replace(
+            "mediumBandGains=float3(smoothstep(0.0,24.0,mediumDepth),smoothstep(0.0,12.0,mediumDepth),smoothstep(0.0,4.0,mediumDepth));",
+            "mediumBandGains=float3(smoothstep(0.0,WaterTuningDepth.x,mediumDepth),smoothstep(0.0,WaterTuningDepth.y,mediumDepth),smoothstep(0.0,WaterTuningDepth.z,mediumDepth));");
+        // D is already in both stages' displacement/derivatives; localTerrain cannot add another fade.
+        replace("    float a2 = pow(roughness, 4.0);",R"HLSL(
+    // A/B experiment only: GGX alpha^2 receives isotropic unresolved slope variance.
+    // Retain the old result on other levels; clean glint=0 disables this transfer only.
+    if(mediumDepthField.w>0.5) {
+        float cleanBase=clamp(sqrt(0.024+variance*0.24),0.126,0.34);
+        cleanBase=lerp(cleanBase,max(cleanBase,0.27),max(hullEffects.y,historyFoam.z)*0.5);
+        roughness=pow(min(1.0,pow(cleanBase,4.0)+0.5*fftCleanLook.z*unresolvedSlopeVariance),0.25);
+    }
+    float a2 = pow(roughness, 4.0);)HLSL");
+        if(!WaterCleanProfile::Get().nosss)replace("    float3 body=WaterOpticalBody(scene,transmission,scatter,caustic,SceneParameters.x);",R"HLSL(
+    // A/B experiment only: filtered crest height / local seeded RMS; no time noise or threshold step.
+    if(mediumDepthField.w>0.5) {
+        float3 localRms=fftCleanRms*mediumBandGains;
+        float heightRms=max(length(localRms),0.05);
+        float crestColour=smoothstep(0.0,1.8,max(0.0,spectral.shadingDisplacement.z)/heightRms);
+        float sunBehind=0.25+0.75*saturate(0.5-2.0*dot(resolvedNormal.xy,light.xy));
+        float viewScatter=0.35+0.65*(1.0-saturate(nDotV));
+        float amount=fftCleanLook.x*crestColour*sunBehind*viewScatter*daylight*sunVisible
+            *fftWeight*fftDamping*(1.0-cageAmount);
+        scatter=lerp(scatter,max(scatter*1.25,float3(0.055,0.24,0.16)),amount);
+    }
+    float3 body=WaterOpticalBody(scene,transmission,scatter,caustic,SceneParameters.x);)HLSL");
+        if(!WaterCleanProfile::Get().nofoam)replace("    crestFoam=lerp(crestFoam,fftFoam,fftWeight);",R"HLSL(
+    // A/B experiment only: instantaneous Jacobian whitecaps feed the existing crest-foam path.
+    if(mediumDepthField.w>0.5) {
+        float cleanWidth=0.08+fwidth(spectral.incidentCompression)*0.5;
+        fftFoam=(1.0-smoothstep(fftCleanLook.y-cleanWidth,fftCleanLook.y+cleanWidth,spectral.incidentCompression))
+            *step(0.00001,fftCleanLook.y)*min(input.Diffuse.r,hullEffects.z)*(1.0-cageAmount)*(0.2+0.8*daylight);
+    }
+    crestFoam=lerp(crestFoam,fftFoam,fftWeight);)HLSL");
+        if(WaterCleanProfile::Get().nofoam)replace("    crestFoam=lerp(crestFoam,fftFoam,fftWeight);","    if(mediumDepthField.w>0.5)fftFoam=0;\n    crestFoam=lerp(crestFoam,fftFoam,fftWeight);");
+        if(WaterCleanProfile::Get().nodepth)replace("mediumBandGains=float3(smoothstep(0.0,24.0,mediumDepth),smoothstep(0.0,12.0,mediumDepth),smoothstep(0.0,4.0,mediumDepth));","mediumBandGains=1;");
+        if(WaterCleanProfile::Get().nodepth) {
+            size_t p=hlsl.find("mediumBandGains=float3(smoothstep(");if(p!=std::string::npos) {size_t e=hlsl.find(';',p);hlsl.replace(p,e-p,"mediumBandGains=1");}
+        }
+    }
+
 }
 
 // Rewrite only explicit developer ablations. Full emits exactly the original source;
@@ -1994,6 +2390,35 @@ static bool water_material_profile(std::string &hlsl)
             "    float caustic=1.0;\n");
     default: return false;
     }
+}
+
+// Clean main-level draws have their own shader-cache identity. Remove legacy
+// material expressions as source, rather than asking the GPU compiler to infer
+// a per-fragment depth-validity predicate. Other draw variants never enter here.
+static bool specialize_clean_material(std::string &hlsl)
+{
+    const auto span=[&](const char *begin,const char *end,const char *replacement) {
+        const size_t first=hlsl.find(begin);
+        if(first==std::string::npos)return true; // an explicit material profile may omit it
+        const size_t last=hlsl.find(end,first+strlen(begin));
+        if(last==std::string::npos)return false;
+        hlsl.replace(first,last-first,replacement);return true;
+    };
+    const auto replace=[&](const char *from,const char *to) {WaterFftSampling::CleanReplace(hlsl,from,to);};
+    if(!span("#if WATER_ONE_MEDIUM\n    // One wave model", "    // A/B experiment only: the cached D", ""))return false;
+    if(!span("    bool analyticRemainder=", "    FftSurface spectral=",
+        "    float2 shoreRippleSlope=0;\n    float4 oceanSwell=0;float3 oceanWave=0,wave=0;\n"))return false;
+    if(!span("    float localTerrain = TerrainParameters.w", "    attenuation = lerp(attenuation,", "    float localTerrain=1.0;\n"))return false;
+    if(!span("    float ou = ddx(waveModel)", "    float du = ddx(attenuation)", ""))return false;
+    if(!span("    float shoreRippleLimit=", "    if(FftParameters.x>0.5) {\n        fftDamping=", "    float shoreRippleLimit=0,shoreRippleWeight=0;\n"))return false;
+    if(!span("    if(shoreFoamEnabled &&", "    // At a known hull,", ""))return false;
+    if(!span("    float curvature = -oceanSwell.w;", WaterCleanProfile::Get().nofoam?"    if(mediumDepthField.w>0.5)fftFoam=0;":"    // A/B experiment only: instantaneous Jacobian", "    float crestFoam=0,fftFoam=0;\n"))return false;
+    if(!span("#if WATER_ONE_MEDIUM\n    // A/B experiment only: phase-locked incoming swell breaking", "    foam = max(foam, crestFoam*0.48);", ""))return false;
+    replace("waveModel","1.0");
+    replace("mediumDepthField.w","1.0");
+    replace("float3 causticWave = waterWave(bottom.xy-light.xy/max(light.z,0.2)*bedDepth, time);",
+        "float3 causticWave=float3(0,spectral.derivativeX.z,spectral.derivativeY.z);");
+    return true;
 }
 
 // Opt-in original-scene-depth attribution. Normal shader text remains unchanged.
@@ -2104,7 +2529,7 @@ current=float4(hullDepthRegion*saturate(0.5+0.5*(world.z-baseLevel)/fftVerticalB
 
 bool EngineShader_Pixel_Program(EngineShaderProgram program,
 	const PixelPipelineDescription & pipeline, std::string & hlsl, CombinerShaderTarget target,
-	bool waterOpenSea)
+	bool waterOpenSea, bool waterCleanMain)
 {
 	// SDL ground programs share the Windows sun and smoke filters. Water keeps its own path.
 	if (target == COMBINER_SHADER_TARGET_D3D9) {
@@ -2116,7 +2541,8 @@ bool EngineShader_Pixel_Program(EngineShaderProgram program,
 #if defined(__linux__)
 		if (program == ENGINE_SHADER_WATER_TRAPEZOID || program == ENGINE_SHADER_WATER_RIVER) {
 			write_modern_water(hlsl, program == ENGINE_SHADER_WATER_RIVER, WaterPerformanceSettings::Applied(),
-				WaterFftSampling::Enabled(), waterOpenSea && program == ENGINE_SHADER_WATER_TRAPEZOID);
+				WaterFftSampling::Enabled(), waterOpenSea && program == ENGINE_SHADER_WATER_TRAPEZOID,true,
+                waterCleanMain && WaterCleanSpectrum::Enabled() && WaterFftSampling::Enabled() && program==ENGINE_SHADER_WATER_TRAPEZOID);
 			if (!water_material_profile(hlsl)) return false;
 			const int hullDepthDiagnostic=water_hull_depth_diagnostic();
 			if(hullDepthDiagnostic) write_water_hull_depth_diagnostic(hlsl);
@@ -2144,7 +2570,14 @@ bool EngineShader_Pixel_Program(EngineShaderProgram program,
 					? "current=oceanMeshHullDiagnostic(world,baseLevel,time,offshore,hullWave,footprint,waveImpact,0);\n"
 					: "current=oceanMeshHullDiagnostic(world,baseLevel,time,offshore,hullWave,footprint,waveImpact,1);\n";
 			}
+            if(program==ENGINE_SHADER_WATER_TRAPEZOID && WaterCleanSpectrum::Enabled() && WaterFftSampling::Enabled()
+                && waterDebug && strcmp(waterDebug,"clean-shore")==0)
+                hlsl+=WaterCleanShore::Enabled()
+                    ? "// Display-space shore diagnostic after lighting, tone mapping, fog and shroud.\ncurrent=float4(fftShoreDebug(cleanContext.tiles)*mediumDepthField.w,1);\n"
+                    : "current=float4(0,0,0,1);\n";
 			hlsl += "    return current;\n}\n";
+            if(waterCleanMain && WaterCleanSpectrum::Enabled() && WaterFftSampling::Enabled() && program==ENGINE_SHADER_WATER_TRAPEZOID
+                && !specialize_clean_material(hlsl))return false;
 			return SDL3_Shader_Retarget(hlsl, false);
 		}
 #endif // __linux__

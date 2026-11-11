@@ -35,6 +35,7 @@
 #ifndef SDLGPUFRAME_H
 #define SDLGPUFRAME_H
 
+#include "Platform/WaterCleanPrecompute.h"
 #include "Platform/RenderTypes.h"
 #include "Platform/WaterFftSpectrum.h"
 
@@ -290,6 +291,13 @@ public:
 	SDL_GPUSampler * Ocean_Sampler() const;
 	uint64_t Ocean_Updates() const { return OceanUpdates; }
 
+	// Immutable clean depth/rotation fields. Replacements retire with recorded users.
+	bool Prepare_Clean_Water(const WaterCleanPrecompute::Image &depth,const WaterCleanPrecompute::Image &rotation);
+	void Clear_Clean_Water();
+	SDL_GPUTexture *Clean_Water_Texture(unsigned index) const {return index<2?CleanWaterTextures[index]:nullptr;}
+	SDL_GPUSampler *Clean_Water_Sampler(unsigned index) const {return index<2?CleanWaterSamplers[index]:nullptr;}
+	uint64_t Clean_Water_Uploads(unsigned index) const {return index<2?CleanWaterUploads[index]:0;}
+
 	// Allocated and dispatched only by the optional water path tracing mode.
 	bool Prepare_Water_Path(const std::vector<WaterPathTracing::Triangle> &triangles,
 		const WaterPathTracing::View &view, uint64_t revision = 0,
@@ -346,6 +354,9 @@ public:
 	static unsigned int Target_Format();
 
 private:
+	SDL_GPUTexture *CleanWaterTextures[2]={nullptr,nullptr};
+	SDL_GPUSampler *CleanWaterSamplers[2]={nullptr,nullptr};
+	uint64_t CleanWaterRevisions[2]={0,0},CleanWaterFailed[2]={0,0},CleanWaterUploads[2]={0,0};
 	struct PathResources;
 	PathResources *WaterPath = nullptr;
 	/// Submits, and with SerializeSubmits waits for the fence, adding the wait to FenceMs.
@@ -443,6 +454,7 @@ private:
 	bool FailNextOceanHeaded = false;
 	bool FailNextOceanRebuild = false;
 	bool Create_Ocean(WaterFftSpectrum::Configuration configuration);
+	bool Upload_Ocean_Spectrum(bool cycle=false);
 	void Release_Ocean();
 	bool Fail_Ocean(const char *reason);
 

@@ -48,6 +48,10 @@
 #include "GameLogic/WaterGridMotion.h"
 #include "Platform/RenderTypes.h"
 #include "Platform/WaterOpticalContext.h"
+// A/B experiment only: one retained depth field per optical-map revision.
+#include "Platform/WaterMediumDepth.h"
+#include "Platform/WaterCleanPrecompute.h"
+#include "Platform/WaterSharedField.h"
 #include "Platform/WaterProjectedMesh.h"
 #include "Platform/WaterProjectedSampleCache.h"
 #include "Platform/WaterHullVisual.h"
@@ -401,6 +405,11 @@ protected:
 #if defined(__linux__)
 		TextureClass *heading = NULL;
 		Real prevailingRotation = 0.0f, swellStep = 1.0f, localStep = 0.0f;
+		bool headingManual=false;
+		uint64_t headingGeneration=0;
+		std::vector<uint32_t> cleanHeadingWords;
+		WaterCleanPrecompute::Rotation cleanRotation;
+		double headingTravelAngle = -1000.0; // clean solve key; outside any configured angle
 		std::vector<UnsignedByte> waveSupport; // geometry support; optical/material exposure stays unchanged
 		std::vector<uint32_t> localEnvelope;
 		WaterOpenSeaSplit::Mask localMask;
@@ -417,6 +426,17 @@ protected:
 	Bool m_modernOpticalPolygonsValid = FALSE;
 #if defined(__linux__)
 	WaterMovementBehavior::MapSelection m_waterMovement;
+	// A/B experiment only: snapshotted at map load, never queried in a vertex/render loop.
+	Bool m_modernOneMediumWind = FALSE;
+	// A/B experiment only: map-load snapshot and quantized shared amplitudes.
+	Bool m_modernShared = FALSE, m_modernWindRequested = FALSE;
+	// A/B experiment only: map-load clean selection; never query the environment per vertex/frame.
+	Bool m_modernClean = FALSE;
+	WaterSharedField::Field m_modernSharedField;
+	WaterMediumDepth::Field m_modernMediumDepth;
+	WaterCleanPrecompute::Image m_modernCleanDepth;
+	Bool m_modernCleanForce=FALSE;
+	Real m_modernMediumLevel = 0.0f;
 	WaterOpenSeaSplit::Cache m_modernOpenSeaCache;
 	std::vector<WaterOpenSeaSplit::Point> m_modernOpenSeaPositions;
 	std::vector<WaterOpenSeaSplit::Disc> m_modernLocalDiscs;
@@ -497,7 +517,8 @@ protected:
 	void refreshModernWaterOpticalPolygons(void);
 	TextureClass *modernWaterOpticalTexture(Real level);
 	void drawModernWaterPatch(const Vector3 points[4], Bool river, Real riverStart = 0, Real riverEnd = 1);
-	Real modernWaterDamping(Real x, Real y, Real z, Real offshore=0.0f, Real *obstacleAttenuation=NULL, Real *terrainDepth=NULL, Real *hullFreeDamping=NULL, Real *hullFreeObstacle=NULL, const Real *cachedTerrain=NULL) const;
+	// A/B experiment only: medium opts flat patches into D; rivers keep the default terrain rule.
+	Real modernWaterDamping(Real x, Real y, Real z, Real offshore=0.0f, Real *obstacleAttenuation=NULL, Real *terrainDepth=NULL, Real *hullFreeDamping=NULL, Real *hullFreeObstacle=NULL, const Real *cachedTerrain=NULL, Bool medium=FALSE) const;
 	Bool m_renderingMirror = FALSE; ///< prevents a water draw sampling the mirror being written
 	void cleanupJbaWaterShader(void);
 
@@ -510,6 +531,7 @@ private:
 	struct ModernWaterHeadingDiagnostics;
 	void prepareModernWaterCompatibilityHeading(ModernOpticalTexture &cached, Real level,
 		const ModernWaterHeadingDiagnostics &diagnostics);
+	void prepareModernWaterClean(ModernOpticalTexture &cached);
 	void prepareModernWaterMapAwareHeading(ModernOpticalTexture &cached, Real level,
 		const ModernWaterHeadingDiagnostics &diagnostics);
 	void prepareModernWaterLocalDiscs(const WaterOpenSeaSplit::Mask &mask, Real level, Real margin);

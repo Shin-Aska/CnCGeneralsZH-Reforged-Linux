@@ -38,6 +38,8 @@
 #include "Platform/EngineShaderName.h"
 #include "Platform/WaterPerformanceSettings.h"
 #include "Platform/WaterMaterialProfile.h"
+#include "Platform/WaterCleanSpectrum.h"
+#include "Platform/WaterCleanProfile.h"
 
 #include <SDL3/SDL.h>
 
@@ -111,6 +113,47 @@ static void check_live_water_style_programs(PosixDevice9 *device,SdlProgramCache
     printf("sdl_program_cache_selfcheck: 128 water style changes on the same bound shader, four distinct cached GPU programs, no recompiles on return\n");
 }
 
+static void check_clean_water_quality_programs(PosixDevice9 *device,SdlProgramCache &cache)
+{
+#if defined(__linux__)
+    if(!WaterCleanSpectrum::Enabled())return;
+    struct Restore {WaterCleanProfile::Flags flags=WaterCleanProfile::Get();
+        ~Restore(){WaterCleanProfile::Applied()=flags;}} restore;
+    device->SetFVF(D3DFVF_XYZ|D3DFVF_NORMAL|D3DFVF_DIFFUSE|D3DFVF_TEX2);
+    device->SetRenderState(D3DRS_LIGHTING,0);device->SetRenderState(D3DRS_FOGENABLE,0);
+    VertexPipelineDescription vertex={};CHECK(device->Build_Vertex_Description(vertex));
+    PixelPipelineDescription pixel={};
+    const SdlProgram *vertices[3][2]={},*pixels[3]={};unsigned keys[3]={};
+    const auto *classic=&cache.Engine_Pixel_Program(ENGINE_SHADER_WATER_CLASSIC_TRAPEZOID,pixel);
+    for(int quality:{2,1,0}) {
+        WaterCleanProfile::Apply(quality,true,true);keys[quality]=WaterCleanProfile::Key(WaterCleanProfile::Get());
+        pixels[quality]=&cache.Engine_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pixel,false,true);
+        CHECK(pixels[quality]->Shader);
+        for(int array:{0,1}) {
+            vertices[quality][array]=&cache.Water_Vertex_Program(vertex,array!=0,true);
+            CHECK(vertices[quality][array]->Shader);
+        }
+        CHECK(&cache.Engine_Pixel_Program(ENGINE_SHADER_WATER_CLASSIC_TRAPEZOID,pixel)==classic);
+    }
+    const auto built=cache.Programs_Built();
+    for(unsigned repeat=0;repeat<4;++repeat)for(int quality:{0,2,1}) {
+        WaterCleanProfile::Apply(quality,true,true);
+        CHECK(&cache.Engine_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pixel,false,true)==pixels[quality]);
+        PixelPipelineDescription equivalentPixel=pixel;equivalentPixel.AlphaFunction=D3DCMP_ALWAYS;
+        CHECK(&cache.Engine_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,equivalentPixel,false,true)==pixels[quality]);
+        for(int array:{0,1}) {
+            CHECK(&cache.Water_Vertex_Program(vertex,array!=0,true)==vertices[quality][array]);
+            VertexPipelineDescription equivalentVertex=vertex;equivalentVertex.FogVertexMode=D3DFOG_LINEAR;
+            CHECK(&cache.Water_Vertex_Program(equivalentVertex,array!=0,true)==vertices[quality][array]);
+            for(int other=0;other<3;++other)
+                CHECK((vertices[quality][array]==vertices[other][array])==(keys[quality]==keys[other]));
+        }
+        for(int other=0;other<3;++other)CHECK((pixels[quality]==pixels[other])==(keys[quality]==keys[other]));
+    }
+    CHECK(cache.Programs_Built()==built);
+#endif
+}
+
 static void check_water_vertex_storage_variants(PosixDevice9 *device,SdlProgramCache &cache)
 {
     device->SetFVF(D3DFVF_XYZ|D3DFVF_NORMAL|D3DFVF_DIFFUSE|D3DFVF_TEX2);
@@ -123,9 +166,18 @@ static void check_water_vertex_storage_variants(PosixDevice9 *device,SdlProgramC
     const auto *array=&cache.Water_Vertex_Program(description,true);
     CHECK(legacy->Shader!=NULL && array->Shader!=NULL);
     CHECK(legacy!=array && legacy->Shader!=array->Shader && legacy->Key!=array->Key);
-	// Three FFT samplers plus the production cage terrain sampler when retained,
-	// and the Linux wave heading field.
-	CHECK(legacy->SamplerSlots >= 3 && legacy->SamplerSlots <= 5);
+    // The slot count is highest reflected binding + 1. Clean depth is t5;
+    // rotation is reserved at t6 even when shore/vertex work is disabled.
+    // The compiler retains both declarations in the reflected slot layout.
+    if(WaterCleanSpectrum::Enabled() && !WaterCleanProfile::Get().nodepth) {
+        const unsigned expected=7u;
+        CHECK(legacy->SamplerSlots==expected);
+        CHECK(legacy->SlotTexture.size()==expected && legacy->SlotSampler.size()==expected);
+        if(legacy->SlotTexture.size()==expected && legacy->SlotSampler.size()==expected) {
+            CHECK(legacy->SlotTexture[5]==5 && legacy->SlotSampler[5]==5);
+            CHECK(legacy->SlotTexture[6]==6 && legacy->SlotSampler[6]==6);
+        }
+    } else CHECK(legacy->SamplerSlots >= 3 && legacy->SamplerSlots <= 5);
 	CHECK(array->SamplerSlots==legacy->SamplerSlots);
     CHECK(legacy->UniformBuffers==2 && array->UniformBuffers==2);
     CHECK(cache.Programs_Built()==before+2);
@@ -298,7 +350,8 @@ int main()
         const std::string expected = std::string("engine:") + EngineShader_Name(ENGINE_SHADER_WATER_TRAPEZOID)
             + CombinerShader_Pipeline_Key(pipeline) + ":water:" + std::to_string(settings.activeFftResolution)
             + ":" + std::to_string(unsigned(settings.refraction)) + ":" + (settings.sceneReflections ? "1" : "0")
-            + ":profile:" + std::to_string(profile);
+            + ":profile:" + std::to_string(profile)
+            + ":clean-profile:" + std::to_string(WaterCleanSpectrum::Enabled()?WaterCleanProfile::Key(WaterCleanProfile::Get()):0);
         CHECK(full.Key == expected);
         CHECK(&full == &cache.Engine_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID, pipeline, false));
         const auto &open = cache.Engine_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID, pipeline, true);
@@ -316,6 +369,7 @@ int main()
     }
 
 	check_water_vertex_storage_variants(device,cache);
+    check_clean_water_quality_programs(device,cache);
 
 	printf("sdl_program_cache_selfcheck: %s, %u programs built in %.0f ms, %u refused\n",
 		SDL_GetGPUDeviceDriver(frame->Device()), cache.Programs_Built(), cache.Milliseconds_Compiling(),

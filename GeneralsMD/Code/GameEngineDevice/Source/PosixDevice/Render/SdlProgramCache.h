@@ -71,7 +71,7 @@ public:
 	/// comes back with a null Shader and its Refusal.
 	const SdlProgram &Vertex_Program(const VertexPipelineDescription &description);
 	/// Water-only GPU displacement, retaining the generated transform/fog/shroud path.
-	const SdlProgram &Water_Vertex_Program(const VertexPipelineDescription &description, bool textureArray=false);
+	const SdlProgram &Water_Vertex_Program(const VertexPipelineDescription &description, bool textureArray=false, bool cleanMain=false);
 	const SdlProgram &Pixel_Program(const CombinerDescription &description);
 	const SdlProgram &Sun_Pixel_Program(const CombinerDescription &description, int engine);
 	const SdlProgram &Shore_Pixel_Program(const CombinerDescription &description);
@@ -80,7 +80,7 @@ public:
 	/// it.  A refusal for a program with no transcription, or of the other stage.
 	const SdlProgram &Engine_Vertex_Program(int program);
 	const SdlProgram &Engine_Pixel_Program(int program, const struct PixelPipelineDescription &pipeline,
-		bool waterOpenSea = false);
+		bool waterOpenSea = false, bool waterCleanMain = false);
 
 	unsigned int Programs_Built() const { return Built; }
 	/// The key a program was made under, for a refusal's log line: "" for a shader this cache did not make.
@@ -110,7 +110,7 @@ private:
 		SdlProgram *Last = NULL;
 		size_t Entries = 0;
 	};
-	ByBytes VertexByBytes, PixelByBytes, EngineVertexByBytes, EnginePixelByBytes, WaterVertexByBytes, WaterArrayVertexByBytes, ShorePixelByBytes, SunPixelByBytes;
+	ByBytes VertexByBytes, PixelByBytes, EngineVertexByBytes, EnginePixelByBytes, WaterVertexByBytes, WaterArrayVertexByBytes, CleanWaterVertexByBytes, CleanWaterArrayVertexByBytes, ShorePixelByBytes, SunPixelByBytes;
 
 	SDL_GPUDevice *Device;
 	std::map<std::string, SdlProgram> VertexPrograms;

@@ -222,6 +222,8 @@ SdlGpuFrame::~SdlGpuFrame()
 		SDL_ReleaseGPUFence(GpuDevice, FlushFences[i]);
 	}
 	FlushFences.clear();
+	Clear_Clean_Water();
+	for(auto *sampler:CleanWaterSamplers) if(sampler) SDL_ReleaseGPUSampler(GpuDevice,sampler);
 	Release_Coastal_Surf();
 	Release_Ocean();
 	Release_Sun_Smoke();
@@ -310,6 +312,7 @@ struct SdlGpuFrame::OceanResources
 	SDL_GPUGraphicsPipeline *Pipelines[2][4] = {};
 	SDL_GPUSampler *Point=NULL,*Linear=NULL;
 	bool ArrayOutput = false, HeadedOutput = false;
+	unsigned TuningRevision=0;
 
 	SDL_GPUTexture *Map(unsigned index) const { return ArrayOutput?Array:Maps[index]; }
 
@@ -505,36 +508,47 @@ bool SdlGpuFrame::Create_Ocean(WaterFftSpectrum::Configuration configuration)
 		} else if (headedOnly)
 			Ocean->HeadedOutput = true;
 	}
-	const std::vector<float> initial=InitialSpectrum(configuration),butterfly=Butterfly(configuration);
-	const Uint32 fieldBytes=Resolution*Resolution*4*sizeof(float),butterflyBytes=Phases*Resolution*4*sizeof(float);
-	SDL_GPUTransferBufferCreateInfo transferInfo={};transferInfo.usage=SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
-	transferInfo.size=fieldBytes*3+butterflyBytes;
-	SDL_GPUTransferBuffer *transfer=SDL_CreateGPUTransferBuffer(GpuDevice,&transferInfo);
-	if(!transfer) return Fail_Ocean(SDL_GetError());
-	void *mapped=SDL_MapGPUTransferBuffer(GpuDevice,transfer,false);
-	if(!mapped) {SDL_ReleaseGPUTransferBuffer(GpuDevice,transfer);return Fail_Ocean(SDL_GetError());}
-	memcpy(mapped,initial.data(),fieldBytes*3);memcpy((char*)mapped+fieldBytes*3,butterfly.data(),butterflyBytes);
-	SDL_UnmapGPUTransferBuffer(GpuDevice,transfer);
-	SDL_GPUCommandBuffer *commands=SDL_AcquireGPUCommandBuffer(GpuDevice);
-	if(!commands) {SDL_ReleaseGPUTransferBuffer(GpuDevice,transfer);return Fail_Ocean(SDL_GetError());}
-	SDL_GPUCopyPass *copy=SDL_BeginGPUCopyPass(commands);
-	if(!copy) {SDL_CancelGPUCommandBuffer(commands);SDL_ReleaseGPUTransferBuffer(GpuDevice,transfer);return Fail_Ocean(SDL_GetError());}
-	for(unsigned i=0;i<4;++i) {
-		SDL_GPUTextureTransferInfo upload={};upload.transfer_buffer=transfer;upload.offset=i*fieldBytes;
-		upload.pixels_per_row=i==3?Phases:Resolution;upload.rows_per_layer=Resolution;
-		SDL_GPUTextureRegion region={};region.texture=i==3?Ocean->Butterfly:Ocean->Initial[i];
-		region.w=upload.pixels_per_row;region.h=Resolution;region.d=1;
-		SDL_UploadToGPUTexture(copy,&upload,&region,false);
-	}
-	SDL_EndGPUCopyPass(copy);
-	const bool submitted=SerializeSubmits?Submit(commands):Submit_Flush(commands);
-	SDL_ReleaseGPUTransferBuffer(GpuDevice,transfer);
-	if(!submitted) return Fail_Ocean(SDL_GetError());
+	if(!Upload_Ocean_Spectrum())return Fail_Ocean(SDL_GetError());
 	if (std::getenv("ZH_WATER_PROFILE"))
 		fprintf(stderr, "[water-profile-fft-storage] resolution=%u mode=%s full_copies_per_update=%u headed_copies_per_update=%u\n",
 			Resolution, Ocean->ArrayOutput ? "array" : "legacy",
 			6 * Phases + (Ocean->ArrayOutput ? 0 : 6 * (Phases + 1)),
 			(Ocean->HeadedOutput ? 4 : 6) * (Phases + (Ocean->ArrayOutput ? 0 : Phases + 1)));
+	return true;
+}
+
+// Reuse pipelines and field storage; cycle the initial textures for in-flight readers.
+bool SdlGpuFrame::Upload_Ocean_Spectrum(bool cycle)
+{
+    using namespace WaterFftSpectrum;
+    const auto configuration=Ocean->Configuration;
+    const unsigned Resolution=configuration.resolution,Phases=configuration.phases;
+	const std::vector<float> initial=InitialSpectrum(configuration),butterfly=Butterfly(configuration);
+	const Uint32 fieldBytes=Resolution*Resolution*4*sizeof(float),butterflyBytes=Phases*Resolution*4*sizeof(float);
+	SDL_GPUTransferBufferCreateInfo transferInfo={};transferInfo.usage=SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+	transferInfo.size=fieldBytes*3+butterflyBytes;
+	SDL_GPUTransferBuffer *transfer=SDL_CreateGPUTransferBuffer(GpuDevice,&transferInfo);
+	if(!transfer) return false;
+	void *mapped=SDL_MapGPUTransferBuffer(GpuDevice,transfer,false);
+	if(!mapped) {SDL_ReleaseGPUTransferBuffer(GpuDevice,transfer);return false;}
+	memcpy(mapped,initial.data(),fieldBytes*3);memcpy((char*)mapped+fieldBytes*3,butterfly.data(),butterflyBytes);
+	SDL_UnmapGPUTransferBuffer(GpuDevice,transfer);
+	SDL_GPUCommandBuffer *commands=SDL_AcquireGPUCommandBuffer(GpuDevice);
+	if(!commands) {SDL_ReleaseGPUTransferBuffer(GpuDevice,transfer);return false;}
+	SDL_GPUCopyPass *copy=SDL_BeginGPUCopyPass(commands);
+	if(!copy) {SDL_CancelGPUCommandBuffer(commands);SDL_ReleaseGPUTransferBuffer(GpuDevice,transfer);return false;}
+	for(unsigned i=0;i<4;++i) {
+		SDL_GPUTextureTransferInfo upload={};upload.transfer_buffer=transfer;upload.offset=i*fieldBytes;
+		upload.pixels_per_row=i==3?Phases:Resolution;upload.rows_per_layer=Resolution;
+		SDL_GPUTextureRegion region={};region.texture=i==3?Ocean->Butterfly:Ocean->Initial[i];
+		region.w=upload.pixels_per_row;region.h=Resolution;region.d=1;
+		SDL_UploadToGPUTexture(copy,&upload,&region,cycle);
+	}
+	SDL_EndGPUCopyPass(copy);
+	const bool submitted=SerializeSubmits?Submit(commands):Submit_Flush(commands);
+	SDL_ReleaseGPUTransferBuffer(GpuDevice,transfer);
+	if(!submitted) return false;
+	Ocean->TuningRevision=WaterTuning::SpectrumRevision();
 	return true;
 }
 
@@ -550,6 +564,11 @@ bool SdlGpuFrame::Prepare_Ocean(float time, unsigned resolution, unsigned cascad
 	const bool rebuild=!Ocean || (boundary && Ocean->Configuration.resolution!=requested.resolution
 		&& OceanFailedResolution!=requested.resolution);
 	if(OceanFailed && !Ocean && OceanFailedResolution==requested.resolution) return false;
+    if(WaterCleanSpectrum::Enabled() && boundary && !rebuild && Ocean->TuningRevision!=WaterTuning::SpectrumRevision()) {
+        if((!Commands.empty() || !Uploads.empty()) && !Flush())return false;
+        if(!Upload_Ocean_Spectrum(true))return false; // Keep the accepted resources and retry next frame.
+        OceanReady=false;OceanReadyCascades=0;++OceanGeneration;
+    }
 	if (!rebuild && OceanReady &&time == OceanTime && (OceanReadyCascades &cascades) == cascades)
 		return true;
 	const bool completion = !rebuild && OceanReady &&time == OceanTime;
@@ -1946,3 +1965,61 @@ bool SdlGpuFrame::Inject_Water_Snapshot(const SdlTarget &target, const std::vect
 	return true;
 }
 #endif
+
+void SdlGpuFrame::Clear_Clean_Water()
+{
+    for(unsigned i=0;i<2;++i) {
+        if(CleanWaterTextures[i])Release_After_Batch(CleanWaterTextures[i],nullptr);
+        CleanWaterTextures[i]=nullptr;CleanWaterRevisions[i]=CleanWaterFailed[i]=0;
+    }
+}
+
+bool SdlGpuFrame::Prepare_Clean_Water(const WaterCleanPrecompute::Image &depth,const WaterCleanPrecompute::Image &rotation)
+{
+    const WaterCleanPrecompute::Image *images[2]={&depth,&rotation};
+    if(!depth.revision || !rotation.revision)return false;
+    if(CleanWaterRevisions[0]==depth.revision && CleanWaterRevisions[1]==rotation.revision
+        && CleanWaterTextures[0] && CleanWaterTextures[1])return true;
+    if(CleanWaterFailed[0]==depth.revision && CleanWaterFailed[1]==rotation.revision)return false;
+    SDL_GPUTexture *next[2]={nullptr,nullptr};
+    auto fail=[&]() {
+        for(auto *texture:next)if(texture)SDL_ReleaseGPUTexture(GpuDevice,texture);
+        CleanWaterFailed[0]=depth.revision;CleanWaterFailed[1]=rotation.revision;return false;
+    };
+    const SDL_GPUTextureUsageFlags usage=SDL_GPU_TEXTUREUSAGE_SAMPLER;
+    if(!SDL_GPUTextureSupportsFormat(GpuDevice,SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT,SDL_GPU_TEXTURETYPE_2D,usage))return fail();
+    for(unsigned i=0;i<2;++i) {
+        const auto &image=*images[i];
+        if(image.width<2 || image.height<2 || image.width>2048 || image.height>2048
+            || image.pixels.size()!=size_t(image.width)*image.height)return fail();
+        if(!CleanWaterSamplers[i]) {
+            SDL_GPUSamplerCreateInfo info={};
+            info.min_filter=info.mag_filter=i?SDL_GPU_FILTER_NEAREST:SDL_GPU_FILTER_LINEAR;
+            info.mipmap_mode=SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
+            info.address_mode_u=info.address_mode_v=info.address_mode_w=SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+            CleanWaterSamplers[i]=SDL_CreateGPUSampler(GpuDevice,&info);
+            if(!CleanWaterSamplers[i])return fail();
+        }
+        if(CleanWaterRevisions[i]==image.revision && CleanWaterTextures[i])continue;
+        SDL_GPUTextureCreateInfo info={};info.type=SDL_GPU_TEXTURETYPE_2D;
+        info.format=SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT;info.usage=usage;
+        info.width=image.width;info.height=image.height;info.layer_count_or_depth=1;info.num_levels=1;
+        next[i]=SDL_CreateGPUTexture(GpuDevice,&info);if(!next[i])return fail();
+    }
+    // Allocate one staging range before queuing either upload, so failure cannot
+    // leave queued references to unpublished resources.
+    size_t total=0;for(unsigned i=0;i<2;++i)if(next[i])total+=images[i]->pixels.size()*sizeof(WaterCleanPrecompute::Pixel);
+    uint32_t offset=0;auto *bytes=total?Upload_Space(uint32_t(total),offset):nullptr;
+    if(total && !bytes)return fail();
+    for(unsigned i=0;i<2;++i)if(next[i]) {
+        const auto &image=*images[i];const size_t size=image.pixels.size()*sizeof(WaterCleanPrecompute::Pixel);
+        memcpy(bytes,image.pixels.data(),size);
+        Queue_Texture_Upload(next[i],0,image.width,image.height,offset);
+        bytes+=size;offset+=uint32_t(size);
+    }
+    for(unsigned i=0;i<2;++i)if(next[i]) {
+        if(CleanWaterTextures[i])Release_After_Batch(CleanWaterTextures[i],nullptr);
+        CleanWaterTextures[i]=next[i];CleanWaterRevisions[i]=images[i]->revision;++CleanWaterUploads[i];
+    }
+    CleanWaterFailed[0]=CleanWaterFailed[1]=0;return true;
+}

@@ -1,3 +1,4 @@
+#include "Platform/WaterTuning.h"
 /*
 **	Command & Conquer Generals Zero Hour(tm)
 **	Copyright 2025 Electronic Arts Inc.
@@ -2503,6 +2504,9 @@ static void takeReadsForRender( Bool renders )
 
 void W3DDisplay::draw( void )
 {
+#if defined(__linux__)
+    if(WaterTuning::Enabled() && TheGlobalData)WaterTuning::Poll(TheGlobalData->getPath_UserData().str());
+#endif
 	USE_PERF_TIMER(W3DDisplay_draw)
 	static UnsignedInt syncTime = 0;
 
@@ -2524,6 +2528,40 @@ void W3DDisplay::draw( void )
 	// own while a map loads, so this is reached before the first frame and not only from the loop.
 	if (TheGlobalData && TheGlobalData->m_noRenderDevice) {
 		return;
+	}
+
+	// A/B experiment only: ZH_AB_CAMERA_SPIN=<degrees per second> turns the camera from -video's
+	// first frame, on the logic clock, so matched runs turn identically. ZH_AB_CAMERA_YAW=<degrees>
+	// adds a fixed turn from the save's heading.
+	{
+		static const char *spinText = getenv("ZH_AB_CAMERA_SPIN");
+		static const char *yawText = getenv("ZH_AB_CAMERA_YAW");
+		static Bool haveBase = FALSE;
+		static Real baseAngle = 0.0f;
+		if ((spinText || yawText) && TheTacticalView && TheGameLogic && TheGameLogic->isInGame()
+				&& TheGlobalData->m_videoEndFrame > 0) {
+			const Int frame = (Int)TheGameLogic->getFrame();
+			if (frame >= TheGlobalData->m_videoStartFrame) {
+				if (!haveBase) { haveBase = TRUE; baseAngle = TheTacticalView->getAngle(); }
+				const Real seconds = (Real)(frame - TheGlobalData->m_videoStartFrame) / LOGICFRAMES_PER_SECOND;
+				const Real degrees = (yawText ? (Real)atof(yawText) : 0.0f) + (spinText ? (Real)atof(spinText) : 0.0f) * seconds;
+				TheTacticalView->setAngle(baseAngle + degrees * 3.14159265f / 180.0f);
+				// ZH_AB_CAMERA_LOOK_PIXEL="x,y": once the turned view has been drawn, centre on the terrain
+				// under that pixel of it, then hold
+				static const char *lookText = getenv("ZH_AB_CAMERA_LOOK_PIXEL");
+				static Bool looked = FALSE;
+				ICoord2D pixel;
+				if (lookText && !looked && frame >= TheGlobalData->m_videoStartFrame + 2
+						&& sscanf(lookText, "%d,%d", &pixel.x, &pixel.y) == 2) {
+					looked = TRUE;
+					Coord3D world;
+					if (TheTacticalView->screenToTerrain(&pixel, &world)) {
+						TheTacticalView->lookAt(&world);
+						fprintf(stderr, "AB camera: looking at %.1f %.1f %.1f (pixel %d,%d)\n", world.x, world.y, world.z, pixel.x, pixel.y);
+					}
+				}
+			}
+		}
 	}
 
 	updateAverageFPS();

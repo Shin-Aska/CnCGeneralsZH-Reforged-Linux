@@ -705,6 +705,7 @@ GlobalData::GlobalData()
 	m_waterStyle = 0;				// classic by default; modern water is an explicit option
 	m_waterReflection = 2;		// Hybrid once Modern is explicitly selected
 	m_waterReflectionEnabled = TRUE;
+	m_waterQuality = 2; // High preserves the existing Modern water appearance.
 	m_waterFftResolution = 1;
 	m_waterRefractionQuality = 0;
 	m_waterReflectionDetail = 1;

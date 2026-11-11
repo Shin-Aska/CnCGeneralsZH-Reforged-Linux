@@ -1719,6 +1719,26 @@ TOOLTIP:WaterReflectionEnabled
 "Reflects the scene in Modern water. Turn off to improve performance while keeping sky colour and sun highlights. Your reflection mode is remembered. Applied when you Accept."
 END
 
+GUI:WaterQuality
+"Water quality"
+END
+
+GUI:WaterQuality0
+"Low"
+END
+
+GUI:WaterQuality1
+"Medium"
+END
+
+GUI:WaterQuality2
+"High"
+END
+
+TOOLTIP:WaterQuality
+"Quality of Modern water. Medium uses a simpler far-away sun glint. Low also keeps all waves travelling one way instead of turning toward the shore. Lower settings improve performance. Applied when you Accept."
+END
+
 GUI:WaterFftResolution
 "Wave detail"
 END
@@ -3984,6 +4004,26 @@ END
 
 TOOLTIP:WaterReflectionEnabled
 "Reflects the scene in Modern water. Turn off to improve performance while keeping sky colour and sun highlights. Your reflection mode is remembered. Applied when you Accept."
+END
+
+GUI:WaterQuality
+"Water quality"
+END
+
+GUI:WaterQuality0
+"Low"
+END
+
+GUI:WaterQuality1
+"Medium"
+END
+
+GUI:WaterQuality2
+"High"
+END
+
+TOOLTIP:WaterQuality
+"Quality of Modern water. Medium uses a simpler far-away sun glint. Low also keeps all waves travelling one way instead of turning toward the shore. Lower settings improve performance. Applied when you Accept."
 END
 
 GUI:WaterFftResolution

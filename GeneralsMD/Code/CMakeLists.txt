@@ -2905,6 +2905,66 @@ if(ZH_SPIRV_VAL)
   set_tests_properties(test_shader_sdl PROPERTIES ENVIRONMENT "ZH_SPIRV_VAL=${ZH_SPIRV_VAL}")
 endif()
 
+# A/B experiment only: a separate process snapshots CLEAN and checks precedence over SHARED.
+# The full shader suite covers vertex displacement, pixel normals and all clean debug views.
+if(ZH_PLATFORM_LINUX)
+  add_test(NAME test_shader_sdl_water_tuning COMMAND test_shader_sdl)
+  set_tests_properties(test_shader_sdl_water_tuning PROPERTIES
+    ENVIRONMENT "ZH_WATER_CLEAN=1;ZH_WATER_TUNING=1")
+  if(ZH_SPIRV_VAL)
+    set_property(TEST test_shader_sdl_water_tuning APPEND PROPERTY ENVIRONMENT "ZH_SPIRV_VAL=${ZH_SPIRV_VAL}")
+  endif()
+  add_test(NAME test_shader_sdl_water_clean COMMAND test_shader_sdl)
+  set_tests_properties(test_shader_sdl_water_clean PROPERTIES
+    ENVIRONMENT "ZH_WATER_CLEAN=1;ZH_WATER_SHARED=1")
+  if(ZH_SPIRV_VAL)
+    set_property(TEST test_shader_sdl_water_clean APPEND PROPERTY ENVIRONMENT "ZH_SPIRV_VAL=${ZH_SPIRV_VAL}")
+  endif()
+  # Each explicit list replaces the default, so tokens are independently measurable.
+  foreach(clean_opt none stream fused loop finelite half collapse=3 collapse=5 stream,fused stream,fused,loop,finelite,half)
+    string(REPLACE "=" "_" opt_name "${clean_opt}")
+    string(REPLACE "," "_" opt_name "${opt_name}")
+    set(opt_test test_shader_sdl_water_clean_opt_${opt_name})
+    add_test(NAME ${opt_test} COMMAND test_shader_sdl water_clean_profile_and_shore_compile)
+    set_tests_properties(${opt_test} PROPERTIES ENVIRONMENT "ZH_WATER_CLEAN=1;ZH_WATER_CLEAN_OPT=${clean_opt}")
+    if(ZH_SPIRV_VAL)
+      set_property(TEST ${opt_test} APPEND PROPERTY ENVIRONMENT "ZH_SPIRV_VAL=${ZH_SPIRV_VAL}")
+    endif()
+  endforeach()
+  foreach(shore_bands medium long_medium all)
+    add_test(NAME test_shader_sdl_water_clean_shore_${shore_bands} COMMAND test_shader_sdl water_clean_profile_and_shore_compile)
+    set_tests_properties(test_shader_sdl_water_clean_shore_${shore_bands} PROPERTIES
+      ENVIRONMENT "ZH_WATER_CLEAN=1;ZH_WATER_CLEAN_SHORE=1,800,300,3;ZH_WATER_CLEAN_SHORE_MAX_TURN=35;ZH_WATER_CLEAN_SHORE_BANDS=${shore_bands}")
+    if(ZH_SPIRV_VAL)
+      set_property(TEST test_shader_sdl_water_clean_shore_${shore_bands} APPEND PROPERTY ENVIRONMENT "ZH_SPIRV_VAL=${ZH_SPIRV_VAL}")
+    endif()
+    foreach(clean_profile nolong nomips nodepth nofoam nosss noshore flatvertex combined)
+      # Keep the original profile test names for the default (all) selection.
+      set(profile_test test_shader_sdl_water_clean_${clean_profile})
+      if(NOT shore_bands STREQUAL "all")
+        string(APPEND profile_test _${shore_bands})
+      endif()
+      set(profile_flags ${clean_profile})
+      if(clean_profile STREQUAL "combined")
+        set(profile_flags "nolong,nomips,nodepth,nofoam,nosss,noshore,flatvertex")
+      endif()
+      add_test(NAME ${profile_test} COMMAND test_shader_sdl water_clean_profile_and_shore_compile)
+      set_tests_properties(${profile_test} PROPERTIES
+        ENVIRONMENT "ZH_WATER_CLEAN=1;ZH_WATER_CLEAN_PROFILE=${profile_flags};ZH_WATER_CLEAN_SHORE=1,800,300,3;ZH_WATER_CLEAN_SHORE_BANDS=${shore_bands}")
+      if(ZH_SPIRV_VAL)
+        set_property(TEST ${profile_test} APPEND PROPERTY ENVIRONMENT "ZH_SPIRV_VAL=${ZH_SPIRV_VAL}")
+      endif()
+    endforeach()
+  endforeach()
+  add_test(NAME test_shader_sdl_water_clean_shore_force COMMAND test_shader_sdl water_clean_profile_and_shore_compile)
+  set_tests_properties(test_shader_sdl_water_clean_shore_force PROPERTIES
+    ENVIRONMENT "ZH_WATER_CLEAN=1;ZH_WATER_SHORE_FORCE=1;ZH_WATER_CLEAN_SHORE=1,800,300,3;ZH_WATER_CLEAN_SHORE_BANDS=all")
+  if(ZH_SPIRV_VAL)
+    set_property(TEST test_shader_sdl_water_clean_shore_force APPEND PROPERTY ENVIRONMENT "ZH_SPIRV_VAL=${ZH_SPIRV_VAL}")
+  endif()
+
+endif()
+
 # D6a: the glyph rasteriser against the font files' own hdmx, VDMX and gasp, read by the test's own
 # parser, plus a regression golden keyed to the files' versions.  macOS's fonts; Linux later.
 add_lib_test(test_glyph_rasteriser glyphrasteriser)
@@ -2964,6 +3024,15 @@ endif()  # ZH_PLATFORM_POSIX - shader generator checks
 # data - but it does need an interpreter, so it is only registered when one is present.
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(water_clean_defaults_probe ${TESTS}/water_clean_defaults_probe.cpp)
+    target_include_directories(water_clean_defaults_probe PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Libraries/Include ${ZH_POSIX_RENDER_DIR})
+    set_target_properties(water_clean_defaults_probe PROPERTIES CXX_STANDARD 17)
+    add_test(NAME test_water_clean_defaults COMMAND ${Python3_EXECUTABLE}
+      ${TESTS}/test_water_clean_defaults.py $<TARGET_FILE:water_clean_defaults_probe>)
+  endif()
+  add_test(NAME test_water_tuner_python
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/../../Tools/water-tuner/test_water_tuner.py)
   # Every #include in the POSIX build must name its file in the file's own case.  Windows and a
   # default macOS volume fold case and Linux does not, so a miscased include builds on the first two
   # and is a missing header on the third; the first Linux build found 298.  This catches them on a

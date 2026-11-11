@@ -9800,6 +9800,10 @@ static void check_scene_depth_snapshot(SdlGpuFrame *frame)
 
 int main(int argc,char **argv)
 {
+	// These fixtures draw the previous Modern water's generated shaders with its two heading samplers and
+	// compare them with the v3.5.1 movement oracle. Clean FFT water is now the default and binds its own
+	// samplers, so pin the previous path here unless the caller chose one; clean water has its own checks.
+	setenv("ZH_WATER_CLEAN", "0", 0);
 	if (!SDL_Init(SDL_INIT_VIDEO)) {
 		printf("sdl_gpu_frame_selfcheck: SKIP - SDL_Init: %s\n", SDL_GetError());
 		return 77;

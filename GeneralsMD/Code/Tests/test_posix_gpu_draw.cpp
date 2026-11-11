@@ -1754,6 +1754,9 @@ static void check_render_warmup(PosixDevice9 *device)
 
 int main()
 {
+	// The ocean checks here count the previous Modern water's headed cascade updates. Clean FFT water is now
+	// the default and updates its own global cascades, so pin the previous path unless the caller chose one.
+	setenv("ZH_WATER_CLEAN", "0", 0);
 	IDirect3D9 *d3d = Direct3DCreate9(D3D_SDK_VERSION);
 	D3DPRESENT_PARAMETERS parameters;
 	memset(&parameters, 0, sizeof(parameters));

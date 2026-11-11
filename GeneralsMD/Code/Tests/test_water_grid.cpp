@@ -54,6 +54,7 @@
 #include "Platform/WaterFoamParticlePolicy.h"
 #include "Platform/WaterCoastalCrest.h"
 #include "Platform/WaterCaptureClock.h"
+#include "Platform/WaterCleanProfile.h"
 #include <limits>
 #include "Platform/WaterCaptureFixture.h"
 
@@ -6817,6 +6818,35 @@ public:
 		CHECK(m_modernStaticSamples.Size()==0 && m_modernTerrainProofCache.EntryCount()==0);
 		CHECK(m_modernProjectedSamples.Size()==0);
 	}
+    void qualityMode(bool modern,bool clean) {m_useModernWater=modern;m_modernClean=clean;}
+    void synchronizeQuality() {synchronizeWaterReflection();}
+    void seedQualityData() {
+        seedCaches();m_modernWaveSourceReady=TRUE;m_modernWaveSourcePresent=TRUE;
+        m_modernMediumDepth.depth={5};m_modernCleanDepth.revision=1;
+        m_modernCleanDepth.pixels={{5,0,0,0}};
+        ModernOpticalTexture cached={4,NULL};cached.headingGeneration=17;
+        cached.cleanHeadingWords={1,2,3,4,5};cached.cleanRotation.keyed=true;
+        cached.cleanRotation.image.revision=19;m_modernOpticalTextures.push_back(std::move(cached));
+    }
+    void checkQualityData(bool retained) {
+        if(retained) {
+            CHECK(m_modernWaveSourceReady && m_modernWaveSourcePresent);
+            CHECK(m_modernMediumDepth.depth.size()==1 && m_modernCleanDepth.revision==1);
+            CHECK(m_modernOpticalTextures.size()==1);
+            if(m_modernOpticalTextures.size()==1) {
+                const auto &cached=m_modernOpticalTextures.front();
+                CHECK(cached.headingGeneration==17 && cached.cleanHeadingWords.size()==5);
+                CHECK(cached.cleanRotation.keyed && cached.cleanRotation.image.revision==19);
+            }
+            CHECK(m_modernTopologyCache.EntryCount()>0 && m_modernPreparedMeshCache.EntryCount()>0);
+            CHECK(m_modernStaticSamples.Size()>0 && m_modernTerrainProofCache.EntryCount()>0);
+        } else {
+            checkCleared();CHECK(!m_modernWaveSourceReady && !m_modernWaveSourcePresent);
+            CHECK(m_modernMediumDepth.depth.empty() && !m_modernCleanDepth.revision);
+            CHECK(m_modernOpticalTextures.empty());
+        }
+        clearModernWaterOpticalTextures();
+    }
 	void changeStyle() { m_useModernWater=TRUE;synchronizeWaterStyle(); }
 	void changeWaterPolygons() {
 		m_modernOpticalPolygonsValid=TRUE;
@@ -7019,3 +7049,142 @@ TEST(water_static_terrain_snapshot_preserves_original_render_map_interpolation)
 				}
 	CHECK(WaterStaticSampleCache::TerrainDepth(nullptr,0,0,0,10,1,0,0,7)==0);
 }
+
+// A/B experiment only: one-medium CPU field contracts.
+#include "WaterMediumDepthTest.h"
+TEST(water_medium_depth_blur_transport_sampling_and_bounds)
+{
+    WaterMediumDepthTest::Check();
+}
+
+// A/B experiment only: shared amplitude field transport and depth/turning contracts.
+#include "WaterSharedFieldTest.h"
+TEST(water_shared_field_wind_shadow_depth_turning_and_bounds)
+{
+    WaterSharedFieldTest::Check();
+}
+
+// A/B experiment only: clean FFT spectrum tests run in both environment modes.
+#include "WaterCleanPrecomputeTest.h"
+TEST(water_clean_precomputation) {WaterCleanPrecomputeTest::Check();}
+#include "WaterCleanSpectrumTest.h"
+TEST(water_clean_spectrum) {WaterCleanSpectrumTest::Check();}
+
+#include "WaterTuningTest.h"
+TEST(water_tuning_parser) {WaterTuningTest::Check();}
+
+#if defined(__linux__)
+TEST(water_tuning_live_file)
+{
+    using namespace WaterTuning;
+    struct Restore {
+        Values saved=Current();bool hadPath=std::getenv("ZH_WATER_TUNING_FILE")!=nullptr;
+        std::string path=hadPath?std::getenv("ZH_WATER_TUNING_FILE"):"";
+        ~Restore() {Apply(saved);if(hadPath)setenv("ZH_WATER_TUNING_FILE",path.c_str(),1);else unsetenv("ZH_WATER_TUNING_FILE");}
+    } restore;
+    const char *tmp=std::getenv("TMPDIR");
+    std::string pattern=std::string(tmp?tmp:"/tmp")+"/water-tuning-watch-XXXXXX";
+    char *root=mkdtemp(pattern.data());CHECK(root!=nullptr);if(!root)return;
+    const std::string file=std::string(root)+"/water-tuning.ini";
+    CHECK(setenv("ZH_WATER_TUNING_FILE",file.c_str(),1)==0);
+    const auto tick=std::chrono::steady_clock::time_point{}+std::chrono::seconds(1);
+    Watcher watcher;watcher.Poll(root,tick);
+    {std::ifstream read(file);CHECK(bool(read));std::string text((std::istreambuf_iterator<char>(read)),{});CHECK(text==Serialize(Current()));}
+    const auto before=Current();const unsigned revision=SpectrumRevision();
+    {std::ofstream write(file);write<<"wind_speed=19.5\nchop_long=.5\n";}
+    watcher.Poll(root,tick+std::chrono::milliseconds(499));
+    CHECK(Current()[WindSpeed]==before[WindSpeed]);CHECK(SpectrumRevision()==revision);
+    watcher.Poll(root,tick+std::chrono::milliseconds(500));
+    CHECK(Current()[WindSpeed]==19.5 && Current()[ChopLong]==.5);
+    CHECK(Current()[Fetch]==before[Fetch]);CHECK(SpectrumRevision()==revision+1);
+    const unsigned accepted=Revision();
+    watcher.Poll(root,tick+std::chrono::milliseconds(1000));CHECK(Revision()==accepted);
+    // A complete prefix applies, an unfinished numeric tail never does.
+    {std::ofstream write(file);write<<"glint=3.5\nwind_speed=nan\nfoam_threshold=0.";}
+    watcher.Poll(root,tick+std::chrono::milliseconds(1500));
+    CHECK(Current()[Glint]==3.5 && Current()[WindSpeed]==19.5);
+    CHECK(Current()[FoamThreshold]==before[FoamThreshold]);CHECK(SpectrumRevision()==revision+1);
+    const std::string temporary=file+".tmp";
+    {std::ofstream write(temporary);write<<"fetch=30000\n";}
+    CHECK(std::rename(temporary.c_str(),file.c_str())==0);
+    watcher.Poll(root,tick+std::chrono::milliseconds(2000));CHECK(Current()[Fetch]==30000);
+    CHECK(std::remove(file.c_str())==0);
+    // The engine's user-data path ends in a Windows separator; the default file must still land inside it.
+    CHECK(unsetenv("ZH_WATER_TUNING_FILE")==0);
+    {Watcher engine;engine.Poll((std::string(root)+"\\").c_str(),tick);
+        std::ifstream read(file);CHECK(bool(read));}
+    CHECK(std::remove(file.c_str())==0);
+    CHECK(std::remove((file+".auto").c_str())==0);CHECK(rmdir(root)==0);
+}
+#endif
+
+#include "WaterCleanCollapseTest.h"
+TEST(water_clean_tile_collapse) {WaterCleanCollapseTest::Check();}
+#include "WaterCleanStreamTest.h"
+TEST(water_clean_stream_reference) {WaterCleanStreamTest::Check();}
+
+#if defined(__linux__)
+TEST(water_clean_quality_profile_preserves_environment_flags)
+{
+    using namespace WaterCleanProfile;
+    const Flags empty;
+    CHECK(Key(Effective(empty,2,true,true))==0);
+    CHECK(Key(Effective(empty,1,true,true))==2);
+    CHECK(Key(Effective(empty,0,true,true))==(2|32));
+    Flags environment;environment.nolong=true;environment.nodepth=true;
+    environment.nofoam=true;environment.nosss=true;environment.flatvertex=true;
+    for(int quality:{0,1,2}) {
+        const auto effective=Effective(environment,quality,true,true);
+        CHECK((Key(effective)&Key(environment))==Key(environment));
+        CHECK(effective.nomips==(quality<2));CHECK(effective.noshore==(quality==0));
+        CHECK(Key(Effective(environment,quality,false,true))==Key(environment));
+        CHECK(Key(Effective(environment,quality,true,false))==Key(environment));
+    }
+    // Invalid values retain High behavior, matching the public option fallback.
+    CHECK(Key(Effective(empty,-1,true,true))==0);
+    CHECK(Key(Effective(empty,3,true,true))==0);
+}
+
+#endif // __linux__
+
+#if defined(__linux__)
+TEST(water_clean_quality_render_boundary_invalidates_dependent_cpu_data)
+{
+    boot();
+    struct Restore {
+        int quality=TheGlobalData->m_waterQuality;bool reflections=TheGlobalData->m_waterReflectionEnabled;
+        WaterCleanProfile::Flags flags=WaterCleanProfile::Get();
+        WaterPerformanceSettings::Configuration performance=WaterPerformanceSettings::Applied();
+        WaterTuning::AutoDirection direction=WaterTuning::MapDirection();
+        unsigned revision=WaterTuning::Revision(),spectrum=WaterTuning::SpectrumRevision();
+        ~Restore() {
+            TheWritableGlobalData->m_waterQuality=quality;TheWritableGlobalData->m_waterReflectionEnabled=reflections;
+            WaterCleanProfile::Applied()=flags;WaterPerformanceSettings::Applied()=performance;
+            WaterTuning::MapDirection()=direction;WaterTuning::Revision()=revision;WaterTuning::SpectrumRevision()=spectrum;
+        }
+    } restore;
+    TheWritableGlobalData->m_waterReflectionEnabled=false; // no GPU resources needed
+    WaterTransparencySetting *savedTransparency=(WaterTransparencySetting*)TheWaterTransparency.getNonOverloadedPointer();
+    TheWaterTransparency=newInstance(WaterTransparencySetting);
+    {
+    WaterRenderCacheProbe water;water.qualityMode(true,true);
+    WaterCleanProfile::Apply(2,true,true);
+    for(int quality:{2,1,0,2}) {
+        water.seedQualityData();const unsigned before=WaterCleanProfile::Key(WaterCleanProfile::Get());
+        TheWritableGlobalData->m_waterQuality=quality;water.synchronizeQuality();
+        const unsigned after=WaterCleanProfile::Key(WaterCleanProfile::Get());
+        CHECK(after==WaterCleanProfile::Key(WaterCleanProfile::Effective(WaterCleanProfile::Environment(),quality,true,true)));
+        water.checkQualityData(before==after);
+        // An unchanged render boundary keeps precomputed data and cache entries.
+        water.seedQualityData();water.synchronizeQuality();water.checkQualityData(true);
+    }
+    for(bool modern:{false,true})for(bool clean:{false,true})if(!modern || !clean) {
+        water.qualityMode(modern,clean);WaterCleanProfile::Apply(2,modern,clean);
+        water.seedQualityData();TheWritableGlobalData->m_waterQuality=0;
+        water.synchronizeQuality();water.checkQualityData(true);
+        CHECK(WaterCleanProfile::Key(WaterCleanProfile::Get())==WaterCleanProfile::Key(WaterCleanProfile::Environment()));
+    }
+    } // Destroy water before restoring the previous global transparency settings.
+    TheWaterTransparency=savedTransparency;
+}
+#endif // __linux__

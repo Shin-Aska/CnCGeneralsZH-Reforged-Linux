@@ -19511,12 +19511,14 @@ TEST(modern_water_performance_defaults_preserve_existing_appearance)
     TheWritableGlobalData = scratch;
 
     CHECK(scratch->m_waterReflectionEnabled);
+    CHECK_EQ(scratch->m_waterQuality, 2);
     CHECK_EQ(scratch->m_waterFftResolution, 1);
     CHECK_EQ(scratch->m_waterRefractionQuality, 0);
     CHECK_EQ(scratch->m_waterReflectionDetail, 1);
     UserPreferences missing;
     loadOptionsFromPreferences(missing);
     CHECK(scratch->m_waterReflectionEnabled);
+    CHECK_EQ(scratch->m_waterQuality, 2);
     CHECK_EQ(scratch->m_waterFftResolution, 1);
     CHECK_EQ(scratch->m_waterRefractionQuality, 0);
     CHECK_EQ(scratch->m_waterReflectionDetail, 1);
@@ -19537,11 +19539,11 @@ TEST(modern_water_performance_choices_round_trip_without_device_or_modern_style)
     scratch->m_waterStyle = 0;
     scratch->m_waterReflection = 3;
 
-    const char *const keys[] = { "WaterReflectionEnabled", "WaterFftResolution", "WaterRefractionQuality", "WaterReflectionDetail" };
+    const char *const keys[] = { "WaterReflectionEnabled", "WaterQuality", "WaterFftResolution", "WaterRefractionQuality", "WaterReflectionDetail" };
     const char *const widgets[] = { "OptionsMenu.wnd:CheckWaterReflectionEnabled",
-        "OptionsMenu.wnd:ComboBoxWaterFftResolution", "OptionsMenu.wnd:ComboBoxWaterRefractionQuality",
+        "OptionsMenu.wnd:ComboBoxWaterQuality", "OptionsMenu.wnd:ComboBoxWaterFftResolution", "OptionsMenu.wnd:ComboBoxWaterRefractionQuality",
         "OptionsMenu.wnd:ComboBoxWaterReflectionDetail" };
-    const Int maxValues[] = { 1, WATER_FFT_RESOLUTION_COUNT - 1, WATER_REFRACTION_QUALITY_COUNT - 1, WATER_REFLECTION_DETAIL_COUNT - 1 };
+    const Int maxValues[] = { 1, WATER_QUALITY_COUNT - 1, WATER_FFT_RESOLUTION_COUNT - 1, WATER_REFRACTION_QUALITY_COUNT - 1, WATER_REFLECTION_DETAIL_COUNT - 1 };
     for (Int i = 0; i < (Int)(sizeof(keys) / sizeof(keys[0])); ++i) {
         const OptionDef *def = findOptionDef(keys[i]);
         CHECK(def != NULL);
@@ -19578,7 +19580,7 @@ TEST(modern_water_performance_invalid_values_are_bounded_and_console_input_is_st
     GlobalData *saved = TheWritableGlobalData;
     GlobalData *scratch = NEW GlobalData;
     TheWritableGlobalData = scratch;
-    const char *const keys[] = { "WaterFftResolution", "WaterRefractionQuality", "WaterReflectionDetail" };
+    const char *const keys[] = { "WaterQuality", "WaterFftResolution", "WaterRefractionQuality", "WaterReflectionDetail" };
     for (Int i = 0; i < (Int)(sizeof(keys) / sizeof(keys[0])); ++i) {
         const OptionDef *def = findOptionDef(keys[i]);
         CHECK(def != NULL);
@@ -19623,6 +19625,33 @@ TEST(modern_water_performance_invalid_values_are_bounded_and_console_input_is_st
 }
 
 
+TEST(modern_water_quality_uses_three_levels_and_the_expected_preset_steps)
+{
+    const OptionDef *quality = findOptionDef("WaterQuality");
+    const GraphicsQualityRow *row = findGraphicsQualityRow("ComboBoxWaterQuality");
+    CHECK(quality && row);
+    if (!quality || !row) return;
+    CHECK_STR(quality->labelKey, "GUI:WaterQuality");
+    CHECK_EQ(WATER_QUALITY_COUNT, 3);
+    CHECK(isModernWaterOption(*quality)); // unsupported Water pages skip fill and writeback
+    // Classic Graphics disables fork rows through the same quality table as the other water rows.
+    CHECK(graphicsQualityRowIsReforged(*row));
+    const Int expected[] = { 0, 0, 0, 0, 1, 1, 1, 2, 2, 2, 2 };
+    CHECK_EQ((Int)(sizeof(expected) / sizeof(expected[0])), GRAPHICS_QUALITY_STEPS);
+    for (Int step = 0; step < GRAPHICS_QUALITY_STEPS; ++step)
+        CHECK_EQ(row->values[step], expected[step]);
+
+    GlobalData *saved = TheWritableGlobalData;
+    GlobalData *scratch = NEW GlobalData;
+    TheWritableGlobalData = scratch;
+    quality->set(1);
+    UserPreferences missing;
+    loadOptionsFromPreferences(missing);
+    CHECK_EQ(quality->get(), 1); // older files also retain an already chosen value
+    delete scratch;
+    TheWritableGlobalData = saved;
+}
+
 TEST(modern_water_reflection_detail_is_retained_while_scene_reflections_are_off)
 {
     const OptionDef *detail = findOptionDef("WaterReflectionDetail");
@@ -19659,10 +19688,11 @@ TEST(modern_water_quality_slider_high_is_the_sdl_default_and_low_is_modern_low)
 {
     const GraphicsQualityRow *reflections = findGraphicsQualityRow("CheckWaterReflectionEnabled");
     const GraphicsQualityRow *refraction = findGraphicsQualityRow("ComboBoxWaterRefractionQuality");
+    const GraphicsQualityRow *quality = findGraphicsQualityRow("ComboBoxWaterQuality");
     const GraphicsQualityRow *waves = findGraphicsQualityRow("ComboBoxWaterFftResolution");
     const GraphicsQualityRow *detail = findGraphicsQualityRow("ComboBoxWaterReflectionDetail");
-    CHECK(reflections && refraction && waves && detail);
-    if (!reflections || !refraction || !waves || !detail) return;
+    CHECK(reflections && refraction && quality && waves && detail);
+    if (!reflections || !refraction || !quality || !waves || !detail) return;
     // the reflection mode is a look, and Path traced is experimental
     CHECK(findGraphicsQualityRow("ComboBoxWaterReflection") == NULL);
 
@@ -19673,12 +19703,14 @@ TEST(modern_water_quality_slider_high_is_the_sdl_default_and_low_is_modern_low)
     const Int high = TheGraphicsQualityAnchors[STATIC_GAME_LOD_HIGH];
     CHECK_EQ(reflections->values[high], scratch->m_waterReflectionEnabled ? 1 : 0);
     CHECK_EQ(refraction->values[high], scratch->m_waterRefractionQuality);
+    CHECK_EQ(quality->values[high], scratch->m_waterQuality);
     CHECK_EQ(waves->values[high], scratch->m_waterFftResolution);
     CHECK_EQ(detail->values[high], scratch->m_waterReflectionDetail);
 
     const Int low = TheGraphicsQualityAnchors[STATIC_GAME_LOD_LOW];
     CHECK_EQ(reflections->values[low], 0);
     CHECK_EQ(refraction->values[low], 2);
+    CHECK_EQ(quality->values[low], 0);
     CHECK_EQ(waves->values[low], 0);
     CHECK_EQ(detail->values[low], 0);
 
@@ -19689,16 +19721,19 @@ TEST(modern_water_quality_slider_high_is_the_sdl_default_and_low_is_modern_low)
     pref["GraphicsQuality"] = "0";
     pref["WaterFftResolution"] = "1";
     loadOptionsFromPreferences(pref);
+    CHECK_EQ(scratch->m_waterQuality, 2);
     CHECK(scratch->m_waterReflectionEnabled);
     CHECK_EQ(scratch->m_waterRefractionQuality, 0);
     CHECK_EQ(scratch->m_waterReflectionDetail, 1);
     CHECK_EQ(scratch->m_waterFftResolution, 1);
     pref["WaterReflectionEnabled"] = "no";
     pref["WaterRefractionQuality"] = "2";
+    pref["WaterQuality"] = "1";
     pref["WaterReflectionDetail"] = "0";
     loadOptionsFromPreferences(pref);
     CHECK(!scratch->m_waterReflectionEnabled);
     CHECK_EQ(scratch->m_waterRefractionQuality, 2);
+    CHECK_EQ(scratch->m_waterQuality, 1);
     CHECK_EQ(scratch->m_waterReflectionDetail, 0);
     CHECK_EQ(scratch->m_waterFftResolution, 1);
     CHECK_EQ(scratch->m_waterReflection, 2); // the mode is left as it was

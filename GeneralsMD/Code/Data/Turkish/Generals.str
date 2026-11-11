@@ -18192,6 +18192,26 @@ TOOLTIP:WaterReflectionEnabled
 "Sahneyi modern suya yansıtır. Kapatmak performansı artırırken gökyüzü rengini ve güneş parıltılarını korur. Yansıma modu hatırlanır. Kabul Et'e basınca uygulanır."
 END
 
+GUI:WaterQuality
+"Su kalitesi"
+END
+
+GUI:WaterQuality0
+"Düşük"
+END
+
+GUI:WaterQuality1
+"Orta"
+END
+
+GUI:WaterQuality2
+"Yüksek"
+END
+
+TOOLTIP:WaterQuality
+"Modern suyun kalitesi. Orta, uzaktaki güneş parıltısını basitleştirir. Düşük ayrıca tüm dalgaların kıyıya yönelmek yerine tek yönde ilerlemesini sağlar. Düşük ayarlar performansı artırır. Kabul Et seçildiğinde uygulanır."
+END
+
 GUI:WaterFftResolution
 "Dalga ayrıntısı"
 END

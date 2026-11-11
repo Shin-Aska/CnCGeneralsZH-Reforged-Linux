@@ -124,6 +124,24 @@ struct SdlWaterVisualPixelConstants
 static_assert(sizeof(SdlWaterVisualPixelConstants)==WaterHullVisualLayout::FragmentCommonRegisters*16,
 	"fragment hull metadata packing");
 
+// Opt-in clean tuning extends the existing block only when the matching HLSL tail exists.
+// The ordinary layouts above and their upload sizes remain unchanged.
+struct SdlWaterTuningConstants {
+    float WaterTuningDepth[4], WaterTuningChop[4], WaterTuningLook[4], WaterTuningRms[4];
+    float WaterTuningVariance[9][4];
+    float WaterTuningShore[4];
+    float WaterTuningHeading[4];
+};
+struct SdlWaterTunedPixelConstants {
+    SdlWaterPixelConstants Water;
+    SdlWaterTuningConstants Tuning;
+};
+struct SdlWaterTunedVisualPixelConstants {
+    SdlWaterTunedPixelConstants Water;
+    float VisualHullMeta[WaterHullVisualLayout::MaxHulls][4];
+};
+static_assert(sizeof(SdlWaterTuningConstants)==15*16,"tuning tail packing");
+
 // A generator adding a block must have an explicit recording/binding path. The mesh packet
 // is the only four-block fragment layout; ordinary shaders cannot silently inherit its data.
 inline bool Sdl_Draw_Uniform_Buffers_Supported(bool water_vertex, bool water_pixel,

@@ -48,6 +48,7 @@
 #include "Platform/D3D9Posix.h"
 #include "Platform/WaterShoreOverlay.h"
 #include "Platform/WaterCoastalRender.h"
+#include "Platform/WaterCleanRender.h"
 #include "Platform/WaterHullVisualLayout.h"
 #include "Platform/RenderWarmup.h"
 #include <memory>
@@ -195,6 +196,8 @@ public:
 	bool Read_Sun_Shadow(std::vector<float> &depth);
 
 	// Render-only explicit metadata: never infers .wak ownership from texture names.
+	bool Clean_Water_Bind(const WaterCleanPrecompute::Image *,const WaterCleanPrecompute::Image *,bool);
+	void Clean_Water_Clear();
 	bool Coastal_Bind(uint64_t revision,const WaterCoastalDomain::Domain &domain,
 		const WaterShoreHistory::Mapping &mapping,double level,const std::vector<WaterCoastalSurf::Lookup> &lookup);
 	void Coastal_End() { CoastalActive=false; }
@@ -414,6 +417,7 @@ protected:
 	void Build_Sun_Constants(struct SdlEnginePixelConstants &constants) const;
 	struct SDL_GPUTexture *Sun_Texture() const;
 	struct SDL_GPUSampler *Sun_Sampler() const;
+	bool CleanWaterActive=false, CleanWaterMain=false;
 	bool CoastalActive=false;
 	uint64_t CoastalRevision=0,CoastalViewRevision=0;
 	WaterShoreHistory::Mapping CoastalMapping={};
@@ -523,7 +527,7 @@ protected:
 		const SdlProgram *vertex=NULL;
 		const void *pixelShader=NULL, *vertexShader=NULL, *maps[3]={}, *array=NULL, *sampler=NULL;
 		IDirect3DSurface9 *target=NULL, *depth=NULL;
-		bool arrayOutput = false, movementCompatibility = false;
+		bool arrayOutput = false, movementCompatibility = false, cleanMain = false;
 		std::vector<uint8_t> description;
 	} PreparedWaterFft;
 	uint64_t PreparedWaterFftSerial=0;

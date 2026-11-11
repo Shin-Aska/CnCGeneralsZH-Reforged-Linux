@@ -71,13 +71,17 @@ inline float DecodeU(uint32_t a, float step) {
 
 inline bool Build(const uint8_t *wet, const uint8_t *exposure, int width, int height, int border,
     float spacing,
-    Field &result) {
+    Field &result, const float *mediumDepth = nullptr, const Vector *travelHeading = nullptr) {
+    // A/B experiment only: optional D changes only wave travel speed, preserving default solves.
     result = Field{};
     if (!wet || !exposure || width < 2 || height < 2 || width > MaxDimension || height > MaxDimension
         || size_t(width) * height > MaxCells || border < 0 || border > (width - 2) / 2 || border > (height - 2) / 2
         || !std::isfinite(spacing) || spacing <= 0)
         return false;
     const size_t count = size_t(width) * height;
+    // A/B experiment only: reject malformed externally supplied D before the solve.
+    if (mediumDepth) for (size_t i = 0; i < count; ++i)
+        if (!std::isfinite(mediumDepth[i]) || mediumDepth[i] < 0 || mediumDepth[i] > 40) return false;
     // Clamp before arithmetic/conversion, including finite but extreme spacings.
     const float step = (std::min)(spacing, DistanceCap), diagonal = (std::min)(step * 1.41421356237f,
         DistanceCap);
@@ -140,10 +144,20 @@ inline bool Build(const uint8_t *wet, const uint8_t *exposure, int width, int he
     const double meanLength = std::hypot(meanX, meanY);
     if (weight > 0 && meanLength >= PrevailingThreshold *weight)
         result.prevailing = {float(meanX / meanLength), float(meanY / meanLength)};
+    // Clean manual travel changes the incoming plane and its upwind source edges.
+    // With no override, retain the original prevailing selection and solve exactly.
+    if (travelHeading) {
+        const float length = std::hypot(travelHeading->x, travelHeading->y);
+        if (!std::isfinite(length) || length < 1e-5f)
+            return false;
+        result.prevailing = {travelHeading->x / length, travelHeading->y / length};
+    }
     const double infinity = std::numeric_limits<double>::infinity();
     const double lambda = ReferenceWavelength(), k0 = 2 * WaterFftSpectrum::Pi / lambda;
     std::vector<double> slow(count, 1), seed(count, infinity);
-    const double deep = std::sqrt(std::tanh(k0 * DistanceCap *ShoreSlope));
+    // A/B experiment only: normalize D's deep cap to unchanged offshore wave speed.
+    const double deep = mediumDepth ? std::sqrt(std::tanh(k0 * 40.0))
+        : std::sqrt(std::tanh(k0 * DistanceCap *ShoreSlope));
     auto plane = [&](int i) {
         return double(result.prevailing.x) * (i % width - border)
             + double(result.prevailing.y) * (i / width - border);
@@ -164,7 +178,8 @@ inline bool Build(const uint8_t *wet, const uint8_t *exposure, int width, int he
     double offset = infinity;
     for (size_t i = 0; i < count; ++i)
         if (wet[i]) {
-            const double depth = (std::min)(distance[i], DistanceCap) * double(ShoreSlope);
+            // A/B experiment only: no independent distance depth model when D is supplied.
+            const double depth = mediumDepth ? mediumDepth[i] : (std::min)(distance[i], DistanceCap) * double(ShoreSlope);
             slow[i] = 1 / (std::max)(double(MinSpeed), std::sqrt(std::tanh(k0 * depth)) / deep);
             const int x = int(i) % width, y = int(i) / width;
             // Water past the upwind playable edge is part of the incoming sea, not marched back out of it.

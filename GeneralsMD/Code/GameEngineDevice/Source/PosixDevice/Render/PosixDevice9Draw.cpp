@@ -53,6 +53,17 @@
 #include <execinfo.h> // bounded opt-in CPU attribution; no GPU queries/readbacks
 #endif
 
+bool PosixDevice9::Clean_Water_Bind(const WaterCleanPrecompute::Image *depth,const WaterCleanPrecompute::Image *rotation,bool mainLevel)
+{
+    CleanWaterMain=WaterCleanSpectrum::Enabled() && mainLevel;
+    CleanWaterActive=depth && rotation && Gpu && Gpu->Prepare_Clean_Water(*depth,*rotation);
+    return CleanWaterActive;
+}
+void PosixDevice9::Clean_Water_Clear(){CleanWaterActive=false;CleanWaterMain=false;if(Gpu)Gpu->Clear_Clean_Water();}
+bool PosixWaterCleanBind(IDirect3DDevice9 *d,const WaterCleanPrecompute::Image *depth,const WaterCleanPrecompute::Image *rotation,bool mainLevel)
+{return d && static_cast<PosixDevice9*>(d)->Clean_Water_Bind(depth,rotation,mainLevel);}
+void PosixWaterCleanClear(IDirect3DDevice9 *d){if(d)static_cast<PosixDevice9*>(d)->Clean_Water_Clear();}
+
 bool PosixDevice9::Coastal_Bind(uint64_t revision,const WaterCoastalDomain::Domain &domain,
     const WaterShoreHistory::Mapping &mapping,double level,const std::vector<WaterCoastalSurf::Lookup> &lookup)
 {
@@ -124,7 +135,9 @@ unsigned PosixDevice9::Water_Fft_Cascades(bool movementCompatibility) const
 {
 	// A bound heading is provisional until its mirror upload succeeds. Compatibility
 	// movement and coastal draws always require the complete unheaded cascade set.
-	return Textures[11] && !CoastalActive && !movementCompatibility
+	// A/B experiment only: clean long waves require cascade zero even with the D atlas bound.
+	if(WaterCleanSpectrum::Enabled() && WaterCleanProfile::Get().nolong)return WaterFftSpectrum::HeadedCascades;
+	return !WaterCleanSpectrum::Enabled() && Textures[11] && !CoastalActive && !movementCompatibility
 		? WaterFftSpectrum::HeadedCascades : WaterFftSpectrum::AllCascades;
 }
 
@@ -136,7 +149,7 @@ uint64_t PosixDevice9::Begin_Prepared_Water_Fft()
 		|| (PixelShader && !Engine_Program_Of(PixelShader,"pixel",pixelEngine))) return 0;
 	VertexPipelineDescription vertex;
 	if(!Build_Vertex_Description(vertex) || !Water_Fft_Requested(vertexEngine,pixelEngine,vertex)) return 0;
-	const float phase=PixelShaderConstants[1][0]*WaterFftSampling::TimeScale;
+	const float phase=WaterFftSampling::PhaseTime(PixelShaderConstants[1][0]);
 	// A bound heading is provisional until the mirror upload succeeds below in
 	// Gpu_Draw. A late unheaded fallback completes the full field before recording.
 	const bool movementCompatibility = Water_Movement_Compatibility();
@@ -144,14 +157,15 @@ uint64_t PosixDevice9::Begin_Prepared_Water_Fft()
 	if (!Gpu->Prepare_Ocean(phase, WaterPerformanceSettings::Applied().requestedFftResolution, cascades))
 		return 0;
 	WaterPerformanceSettings::Applied().activeFftResolution=Gpu->Ocean_Configuration().resolution;
-	const SdlProgram &program=Programs->Water_Vertex_Program(vertex,Gpu->Ocean_Array_Output());
-	if (!program.Shader || program.SamplerSlots > 5 || !Gpu->Ocean_Array() || !Gpu->Ocean_Sampler())
+	const SdlProgram &program=Programs->Water_Vertex_Program(vertex,Gpu->Ocean_Array_Output(),CleanWaterMain);
+	if (!program.Shader || program.SamplerSlots > (WaterCleanSpectrum::Enabled()?7u:5u) || !Gpu->Ocean_Array() || !Gpu->Ocean_Sampler())
 		return 0;
 	for(unsigned i=0;i<3;++i) if(!Gpu->Ocean_Map(i*2)) return 0;
 	PreparedWaterFftDraw &prepared=PreparedWaterFft;
 	if(!++PreparedWaterFftSerial) ++PreparedWaterFftSerial;
 	prepared.token = PreparedWaterFftSerial;
 	prepared.movementCompatibility = movementCompatibility;
+	prepared.cleanMain = CleanWaterMain;
 	prepared.oceanGeneration = Gpu->Ocean_Generation();
 	prepared.presents=PresentCount;prepared.phase=phase;prepared.gpu=Gpu;prepared.programs=Programs;
 	prepared.vertex=&program;prepared.pixelShader=PixelShader;prepared.vertexShader=VertexShader;
@@ -179,8 +193,8 @@ bool PosixDevice9::Prepared_Water_Fft_Matches(const VertexPipelineDescription &v
 		|| p.presents != PresentCount
 		|| p.pixelShader != PixelShader || p.vertexShader != VertexShader
 		|| p.target != RenderTargets[0] || p.depth != DepthStencil
-		|| p.movementCompatibility != Water_Movement_Compatibility()
-		|| p.phase != PixelShaderConstants[1][0] * WaterFftSampling::TimeScale
+		|| p.movementCompatibility != Water_Movement_Compatibility() || p.cleanMain != CleanWaterMain
+		|| p.phase != WaterFftSampling::PhaseTime(PixelShaderConstants[1][0])
 		|| p.description.size() != sizeof(vertex) || memcmp(p.description.data(), &vertex, sizeof(vertex)) != 0
 		|| p.oceanGeneration != Gpu->Ocean_Generation() || p.arrayOutput != Gpu->Ocean_Array_Output()
 		|| p.array != Gpu->Ocean_Array() || p.sampler != Gpu->Ocean_Sampler())
@@ -600,6 +614,29 @@ bool PosixDevice9::Water_Foam_History_Available() const
 	// reinterpret a middle row as a history/direction boundary. Legacy atlases remain valid.
 	return (static_cast<unsigned>(flags)&4u)==0u || (desc.Height%2==0
 		&& desc.Width<=WaterFoamHistory::MaxAtlasSide && desc.Height<=2*WaterFoamHistory::MaxAtlasSide);
+}
+
+// Cache derived data by revision/tier; an unchanged frame only copies the accepted snapshot.
+static const SdlWaterTuningConstants &Water_Tuning_Constants(unsigned resolution)
+{
+    struct Cache {unsigned revision=~0u,spectrumRevision=~0u;SdlWaterTuningConstants data{};};
+    static Cache caches[2];auto &cache=caches[resolution==128?0:1];
+    if(cache.revision!=WaterTuning::Revision()) {
+        using namespace WaterTuning;const auto &v=Current();auto &d=cache.data;
+        WaterCleanShader::SetDrawValues(d,v);
+        if(cache.spectrumRevision!=SpectrumRevision()) {
+            const auto configuration=WaterFftSpectrum::ForResolution(resolution);
+            const auto rms=WaterFftSpectrum::SpectrumHeightRms(WaterFftSpectrum::InitialSpectrum(configuration,true));
+            const auto &variance=WaterFftFiltering::SpectrumVariance(configuration,true);
+            for(unsigned c=0;c<3;++c) {
+                d.WaterTuningRms[c]=rms[c];
+                for(unsigned l=0;l<9;++l)d.WaterTuningVariance[l][c]=variance[l][c];
+            }
+            cache.spectrumRevision=SpectrumRevision();
+        }
+        cache.revision=Revision();
+    }
+    return cache.data;
 }
 
 void PosixDevice9::Build_Water_Constants(const SdlPixelConstants &pixel_constants, SdlWaterPixelConstants &water) const
@@ -1064,11 +1101,11 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	const bool movementCompatibility = Water_Movement_Compatibility();
 	const unsigned oceanCascades = Water_Fft_Cascades(movementCompatibility);
 	bool fft_water = PreparedWaterFft.token || (fft_requested && Gpu->Prepare_Ocean(
-		PixelShaderConstants[1][0] * WaterFftSampling::TimeScale,
+		WaterFftSampling::PhaseTime(PixelShaderConstants[1][0]),
 		WaterPerformanceSettings::Applied().requestedFftResolution, oceanCascades));
-	if (fft_water && CoastalActive &&Gpu->Ocean_Ready_Cascades() != WaterFftSpectrum::AllCascades) {
+	if (fft_water && !(WaterCleanSpectrum::Enabled() && WaterCleanProfile::Get().nolong) && CoastalActive &&Gpu->Ocean_Ready_Cascades() != WaterFftSpectrum::AllCascades) {
 		const auto generation = Gpu->Ocean_Generation();
-		if (!Gpu->Prepare_Ocean(PixelShaderConstants[1][0] * WaterFftSampling::TimeScale,
+		if (!Gpu->Prepare_Ocean(WaterFftSampling::PhaseTime(PixelShaderConstants[1][0]),
 			WaterPerformanceSettings::Applied().requestedFftResolution) || Gpu->Ocean_Generation() != generation) {
 			Refuse_Draw("water FFT broad field unavailable");
 			return D3D_OK;
@@ -1077,16 +1114,17 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	// The water pixel program below is keyed on the ocean this draw actually prepared.
 	if (fft_water) WaterPerformanceSettings::Applied().activeFftResolution=Gpu->Ocean_Configuration().resolution;
 	const SdlProgram *fft_vertex = PreparedWaterFft.token ? PreparedWaterFft.vertex
-		: fft_water ? &Programs->Water_Vertex_Program(vertex,Gpu->Ocean_Array_Output()) : NULL;
+		: fft_water ? &Programs->Water_Vertex_Program(vertex,Gpu->Ocean_Array_Output(),CleanWaterMain) : NULL;
 	if (fft_vertex && fft_vertex->Shader == NULL) fft_water = false;
 	const SdlProgram &vertex_program = vertex_engine != ENGINE_SHADER_NONE
 		? Programs->Engine_Vertex_Program(vertex_engine)
 		: fft_water ? *fft_vertex : Programs->Vertex_Program(vertex);
+	const bool clean_main = fft_water && CleanWaterMain && !SunActive && pixel_engine==ENGINE_SHADER_WATER_TRAPEZOID;
 	const bool open_sea = WaterOpenSea && !SunActive && pixel_engine == ENGINE_SHADER_WATER_TRAPEZOID;
 	const SdlProgram *pixel_program = SunActive ? &Programs->Sun_Pixel_Program(combiner, pixel_engine) : pixel_engine != ENGINE_SHADER_NONE
-		? &Programs->Engine_Pixel_Program(pixel_engine, combiner.PixelPipeline, open_sea) : &Programs->Pixel_Program(combiner);
+		? &Programs->Engine_Pixel_Program(pixel_engine, combiner.PixelPipeline, open_sea,clean_main) : &Programs->Pixel_Program(combiner);
 	if (open_sea && !pixel_program->Shader)
-		pixel_program = &Programs->Engine_Pixel_Program(pixel_engine, combiner.PixelPipeline);
+		pixel_program = &Programs->Engine_Pixel_Program(pixel_engine, combiner.PixelPipeline,false,clean_main);
 	const SdlProgram *legacy_pixel_program=pixel_program;
 	const auto retry_without_sun = [&](const char *reason) {
 		// Engine ground programs are shared with legacy; only generated receiving
@@ -1100,7 +1138,7 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	};
 	if (!pixel_program->Shader) retry_without_sun("pixel program refused");
 	const ShoreRegion *shore_region=NULL;
-	SDL_GPUTexture *shore_depth=NULL;
+	SDL_GPUTexture *shore_reach=NULL;
 	bool shore_overlay=false;
 	if(!SunActive && ShoreActive && ShoreHasTrack && pixel_engine==ENGINE_SHADER_NONE && vertex_engine==ENGINE_SHADER_NONE
 		&& RenderStates[D3DRS_FILLMODE]==D3DFILL_SOLID && !RenderStates[D3DRS_ZWRITEENABLE] && RenderStates[D3DRS_ALPHABLENDENABLE]
@@ -1110,11 +1148,11 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		WaterShoreOverlay::View view;
 		view.colour=reinterpret_cast<std::uintptr_t>(target.Colour);view.depth=reinterpret_cast<std::uintptr_t>(target.Depth);
 		view.width=target.Width;view.height=target.Height;
-		shore_depth=Gpu->Ready_Water_Depth(target,view.capture);
+		shore_reach=Gpu->Ready_Water_Depth(target,view.capture);
 		SdlPixelConstants unused={};SdlWaterPixelConstants water;Build_Water_Constants(unused,water);
 		memcpy(view.worldFromClip,water.WorldFromClip,sizeof(view.worldFromClip));
 		memcpy(view.viewport,water.Viewport,sizeof(view.viewport));
-		if(shore_depth) for(const ShoreRegion &region:ShoreRegions) {
+		if(shore_reach) for(const ShoreRegion &region:ShoreRegions) {
 			if(WaterShoreOverlay::SameView(view,region.view) && WaterShoreOverlay::Contains(region.patch,ShoreTrack)) {
 				// Upload failures are optional-feature failures. Keep the original .wak draw intact.
 				SDL_GPUTexture *height=Mirrors->Texture(region.height.get(),refusal);
@@ -1134,7 +1172,7 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	if (pixel_program->SamplerSlots > SdlRecordedDraw::MAXIMUM_SAMPLERS)
 		retry_without_sun("receiver sampler count");
 	if (pixel_program->SamplerSlots > SdlRecordedDraw::MAXIMUM_SAMPLERS
-		|| vertex_program.SamplerSlots > (fft_water ? 5u : 0u)) {
+		|| vertex_program.SamplerSlots > (fft_water ? (WaterCleanSpectrum::Enabled()?7u:5u) : 0u)) {
 		Refuse_Draw("more sampler slots than a draw binds");
 		return D3D_OK;
 	}
@@ -1240,6 +1278,15 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		draw.VertexSamplers[slot] = Gpu->Ocean_Sampler();
 	}
 
+    // Vertex reflection is independent of the selected pixel diagnostic. Its
+    // displacement shader may still consume both fields when the PS uses neither.
+    if(WaterCleanSpectrum::Enabled())for(unsigned index=0;index<2;++index)if(draw.VertexSamplerCount>5+index) {
+        const bool cached=fft_water && CleanWaterActive;
+        draw.VertexTextures[5+index]=cached?Gpu->Clean_Water_Texture(index):Mirrors->White();
+        draw.VertexSamplers[5+index]=cached?Gpu->Clean_Water_Sampler(index):Samplers->Sampler(SamplerStates[0]);
+        if(!draw.VertexTextures[5+index] || !draw.VertexSamplers[5+index])return D3D_OK;
+    }
+
 	bool water_heading = false;
 	// The GPU copies.  Bringing one up to date can flush the batch, which leaves the ones already asked
 	// for marked as used by the batch before: so ask again until a round flushes nothing.
@@ -1320,12 +1367,18 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 			if (water_draw && texture_stage >= 12 && texture_stage < 14) {
 				// Unused slots below the foam/coastal bindings still belong to SDL's contiguous
 				// sampler range. Never mirror stale engine resources into these holes.
-				draw.Textures[slot] = Mirrors->White();
-				draw.Samplers[slot] = Samplers->Sampler(SamplerStates[0]);
-				if (!draw.Textures[slot] || !draw.Samplers[slot]) return D3D_OK;
-				continue;
-			}
-			if (texture_stage < 0 || texture_stage >= SAMPLER_COUNT || sampler_stage < 0 || sampler_stage >= SAMPLER_COUNT) {
+                const unsigned index=unsigned(texture_stage-12);
+                const bool cached=WaterCleanSpectrum::Enabled() && fft_water && CleanWaterActive;
+                draw.Textures[slot]=cached?Gpu->Clean_Water_Texture(index):Mirrors->White();
+                draw.Samplers[slot]=cached?Gpu->Clean_Water_Sampler(index):Samplers->Sampler(SamplerStates[0]);
+                if(draw.VertexSamplerCount>5+index) {
+                    draw.VertexTextures[5+index]=draw.Textures[slot];
+                    draw.VertexSamplers[5+index]=draw.Samplers[slot];
+                }
+                if(!draw.Textures[slot] || !draw.Samplers[slot])return D3D_OK;
+                continue;
+            }
+            if (texture_stage < 0 || texture_stage >= SAMPLER_COUNT || sampler_stage < 0 || sampler_stage >= SAMPLER_COUNT) {
 				Refuse_Draw("a program slot past the device's stages");
 				return D3D_OK;
 			}
@@ -1334,7 +1387,7 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 			if(shore_region && pixel_program!=legacy_pixel_program && texture_stage==4) texture=shore_region->optical.get();
 			double since = phases.Now();
 			draw.Textures[slot] = shore_region && pixel_program!=legacy_pixel_program && texture_stage==6
-				? (shore_depth ? shore_depth : Mirrors->White())
+				? (shore_reach ? shore_reach : Mirrors->White())
 				: water_draw && texture_stage == 5
 				? (water_background ? water_background : Mirrors->White())
 				: water_draw && texture_stage == 6
@@ -1371,10 +1424,10 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 						(unsigned)FVF,(unsigned)call.Type,call.PrimitiveCount,(int)call.Indexed,(int)user,stride);
 					fprintf(stderr,"target-alias-program: vs=%.*s ps=%.*s vertex_engine=%d pixel_engine=%d fft=%d shore=%d\n",
 						256,vertex_program.Key.c_str(),256,pixel_program->Key.c_str(),vertex_engine,pixel_engine,(int)fft_water,(int)shore_overlay);
-					fprintf(stderr,"target-alias-gpu: sample=%p colour=%p depth=%p aliases_colour=%d aliases_depth=%d target_size=%ux%u background=%p water_depth=%p shore_depth=%p\n",
+					fprintf(stderr,"target-alias-gpu: sample=%p colour=%p depth=%p aliases_colour=%d aliases_depth=%d target_size=%ux%u background=%p water_depth=%p shore_reach=%p\n",
 						(void*)draw.Textures[slot],(void*)target.Colour,(void*)target.Depth,
 						(int)(draw.Textures[slot]==target.Colour),(int)(draw.Textures[slot]==target.Depth),target.Width,target.Height,
-						(void*)water_background,(void*)water_depth,(void*)shore_depth);
+						(void*)water_background,(void*)water_depth,(void*)shore_reach);
 					fprintf(stderr,"target-alias-d3d: texture=%p target=%p target_container=%p container_is_texture=%d backbuffer=%d depth_surface=%p texture_desc=%ux%u/%u/0x%x target_desc=%ux%u/%u/0x%x depth_desc=%ux%u/%u/0x%x\n",
 						(void*)texture,(void*)RenderTargets[0],(void*)targetContainer,(int)(targetContainer && targetContainer==texture),
 						(int)(RenderTargets[0]==BackBuffer),(void*)DepthStencil,
@@ -1459,10 +1512,10 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		// Heading admission depends on the uploaded resource, not the legacy pointer.
 		// Completing the broad field flushes prior readers/uploads. Keep it inside
 		// this retry loop so every mirror is resolved again if that changes the batch.
-		if (fft_water && (!water_heading || movementCompatibility)
+		if (fft_water && !(WaterCleanSpectrum::Enabled() && WaterCleanProfile::Get().nolong) && (!water_heading || movementCompatibility)
 			&& Gpu->Ocean_Ready_Cascades() != WaterFftSpectrum::AllCascades) {
 			const auto generation = Gpu->Ocean_Generation();
-			if (!Gpu->Prepare_Ocean(PixelShaderConstants[1][0] * WaterFftSampling::TimeScale,
+			if (!Gpu->Prepare_Ocean(WaterFftSampling::PhaseTime(PixelShaderConstants[1][0]),
 				WaterPerformanceSettings::Applied().requestedFftResolution) || Gpu->Ocean_Generation() != generation) {
 				Refuse_Draw("water FFT broad field unavailable");
 				return D3D_OK;
@@ -1686,6 +1739,10 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		water.FftParameters[2] = WaterMovementBehavior::HeadingParameter(water_heading, movementCompatibility,
 			PixelShaderConstants[WaterWaveHeading::PrevailingRegister][2]);
 		water.FftParameters[3] = water_heading ? PixelShaderConstants[WaterWaveHeading::PrevailingRegister][0] : 0.0f;
+        // Clean shore uses the existing rotation slot for the spectrum's heading
+        // offset from 45 degrees. No extra binding or tuning tail in nonlive mode.
+        if(WaterCleanSpectrum::Enabled() && WaterCleanShore::Enabled() && !WaterTuning::Enabled())
+            water.FftParameters[3]=float((WaterTuning::WindAngle(WaterTuning::Configured())-45)*WaterFftSpectrum::Pi/180);
 		// Production lighting never reads this fill-light W; the swell's packed-U scale rides in it, only
 		// while the field is bound, so the water preview's colour there survives every other draw.
 		if (water_heading)
@@ -1712,24 +1769,35 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		if(pixel_program->UniformBuffers==4) {
 			SdlWaterVisualPixelConstants visual;
 			Build_Water_Visual_Constants(water,visual);
-			draw.PixelConstants=Gpu->Constants(1,&visual,sizeof(visual));
-			draw.PixelConstantsSize=sizeof(visual);
+            if(!WaterTuning::Enabled()) {
+                draw.PixelConstants=Gpu->Constants(1,&visual,sizeof(visual));
+                draw.PixelConstantsSize=sizeof(visual);
+            }
 			for(unsigned block=0;block<WaterHullVisualLayout::BlockCount;++block) {
 				const unsigned first=WaterHullVisualLayout::PacketRegister+WaterHullVisualLayout::BlockOffset(block);
 				const unsigned bytes=WaterHullVisualLayout::BlockRegisters(block)*16;
 				draw.PixelWaterConstants[block]=Gpu->Constants(1,PixelShaderConstants[first],bytes,block+1);
 				draw.PixelWaterConstantsSize[block]=bytes;
 			}
-		} else {
+		} else if(!WaterTuning::Enabled()) {
 			draw.PixelConstants = Gpu->Constants(1, &water, sizeof(water));
 			draw.PixelConstantsSize = sizeof(water);
 		}
+        if(WaterTuning::Enabled()) {
+            SdlWaterTunedVisualPixelConstants tuned{};
+            tuned.Water.Water=water;
+            tuned.Water.Tuning=Water_Tuning_Constants(WaterPerformanceSettings::Applied().activeFftResolution);
+            if(water.HullParameters[0]>0)
+                memcpy(tuned.VisualHullMeta,PixelShaderConstants[WaterHullVisualLayout::MetadataRegister],sizeof(tuned.VisualHullMeta));
+            const unsigned bytes=pixel_program->UniformBuffers==4?sizeof(tuned):sizeof(tuned.Water);
+            draw.PixelConstants=Gpu->Constants(1,&tuned,bytes);draw.PixelConstantsSize=bytes;
+        }
 		if (fft_water) {
 			// The generated water vertex program reads precisely the same per-draw hulls and
 			// water time as its pixel program. Alias the recorded bytes so a later object's
 			// constants cannot change already queued displacement or its matching normals.
 			draw.VertexWaterConstants = draw.PixelConstants;
-			draw.VertexWaterConstantsSize = sizeof(SdlWaterPixelConstants);
+			draw.VertexWaterConstantsSize = WaterTuning::Enabled()?sizeof(SdlWaterTunedPixelConstants):sizeof(SdlWaterPixelConstants);
 		}
 	}
 	else if(pixel_program->UniformBuffers!=0 && shore_region && pixel_program!=legacy_pixel_program) {

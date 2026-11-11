@@ -182,6 +182,8 @@ NEW_CONTROLS = [
     (COMBO,  "ComboBoxWaterReflectionDetail", None),
     (CHECK,  "CheckWaterReflectionEnabled", "GUI:WaterReflectionEnabled"),
     (CHECK,  "CheckWaterMovementBehavior", "GUI:WaterMovementBehavior"),
+    (LABEL,  "LabelWaterQuality", "GUI:WaterQuality"),
+    (COMBO,  "ComboBoxWaterQuality", None),
     (LABEL,  "LabelWaterFftResolution", "GUI:WaterFftResolution"),
     (COMBO,  "ComboBoxWaterFftResolution", None),
     (LABEL,  "LabelWaterRefractionQuality", "GUI:WaterRefractionQuality"),
@@ -436,6 +438,7 @@ GROUP_LAYOUT = [
     ("PageWater", [
         ("GUI:OptionsGroupModernWater", [
             ("check", "CheckWaterMovementBehavior"),
+            setting("LabelWaterQuality", "ComboBoxWaterQuality"),
             setting("LabelWaterFftResolution", "ComboBoxWaterFftResolution"),
             setting("LabelWaterRefractionQuality", "ComboBoxWaterRefractionQuality")]),
         ("GUI:OptionsGroupReflections", [
@@ -1119,7 +1122,7 @@ def selfcheck():
     # Modern water performance controls have their own page: Effects has no room for them.
     # Its bounds and the tab widths are checked independently of the generic overlap checks.
     water_page = layout.find("PageWater")
-    water_controls = ["CheckWaterMovementBehavior", "LabelWaterFftResolution", "ComboBoxWaterFftResolution",
+    water_controls = ["CheckWaterMovementBehavior", "LabelWaterQuality", "ComboBoxWaterQuality", "LabelWaterFftResolution", "ComboBoxWaterFftResolution",
                       "LabelWaterRefractionQuality", "ComboBoxWaterRefractionQuality",
                       "CheckWaterReflectionEnabled", "LabelWaterReflection", "ComboBoxWaterReflection",
                       "LabelWaterReflectionDetail", "ComboBoxWaterReflectionDetail"]
@@ -1130,7 +1133,7 @@ def selfcheck():
         elif (control.rect[0] < PAGE[0] - TEXT_NUDGE or control.rect[1] < PAGE[1]
               or control.rect[2] > PAGE[0] + PAGE[2] or control.rect[3] > PAGE[1] + PAGE[3]):
             problems.append("%s extends beyond the Water page" % name)
-    for stem in ("WaterFftResolution", "WaterRefractionQuality", "WaterReflection", "WaterReflectionDetail"):
+    for stem in ("WaterQuality", "WaterFftResolution", "WaterRefractionQuality", "WaterReflection", "WaterReflectionDetail"):
         label, combo = layout.find("Label" + stem), layout.find("ComboBox" + stem)
         if label and combo and (label.rect[0] != combo.rect[0] - TEXT_NUDGE
                                 or label.rect[1] != combo.rect[1] - ROW_HEIGHT):

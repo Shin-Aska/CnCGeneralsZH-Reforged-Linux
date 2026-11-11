@@ -226,6 +226,7 @@ public:
 #endif
 	Int m_waterReflection;			// "WaterReflection": 0 = Legacy, 1 = SSR, 2 = Hybrid, 3 = experimental path tracing; Modern water
 	Bool m_waterReflectionEnabled; // "WaterReflectionEnabled": scene reflections on/off; remembers the selected mode
+	Int m_waterQuality;			// "WaterQuality": 0 = Low, 1 = Medium, 2 = High Modern water shading
 	Int m_waterFftResolution;		// "WaterFftResolution": 0 = Low (128), 1 = High (256) wave simulation
 	Int m_waterRefractionQuality; // "WaterRefractionQuality": 0 = Full, 1 = Simple transmission, 2 = opaque Off
 	Int m_waterReflectionDetail; // "WaterReflectionDetail": 0 = Low, 1 = High scene reflection resolution

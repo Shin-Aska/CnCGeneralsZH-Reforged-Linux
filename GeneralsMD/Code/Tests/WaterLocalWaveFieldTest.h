@@ -39,6 +39,20 @@ inline void Identity(const Grid &g, const Field &f) {
 }
 
 inline void Check() {
+    { // Words 0/1 must carry the same manual travel solve through the five-word atlas.
+        const int w=33,h=25;std::vector<uint8_t> wet(w*h,255),links(w*h,3),exposure(w*h,0);
+        Field local;WaterWaveHeading::Field legacy;std::vector<uint32_t> previous;
+        for(WaterWaveHeading::Vector travel: {WaterWaveHeading::Vector{1,0},WaterWaveHeading::Vector{0,1}}) {
+            CHECK(WaterWaveHeading::Build(wet.data(),exposure.data(),w,h,0,10,legacy,nullptr,&travel));
+            CHECK(WaterLocalWaveField::Build(wet.data(),exposure.data(),links.data(),w,h,0,10,local,{},true,nullptr,&travel));
+            CHECK(local.prevailing.x==travel.x && local.prevailing.y==travel.y && local.uStep==legacy.uStep);
+            for(size_t i=0;i<wet.size();++i) {
+                CHECK(local.texels[5*i]==legacy.texels[2*i]);
+                CHECK((local.texels[5*i+1]&0xffff0000u)==legacy.texels[2*i+1]);
+            }
+            CHECK(local.texels!=previous);previous=local.texels;
+        }
+    }
     const std::vector<uint32_t> envelope = {0x20000000u, 0x60000055u, 0x900000aau, 0xe00000ffu};
     const float sampleX = .37f, sampleY = .63f, epsilon = .001f;
     const auto gain = WaterLocalWaveField::SampleLegacyGain(envelope, 2, 2, sampleX, sampleY, 10);

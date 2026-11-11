@@ -90,6 +90,33 @@ inline void Check() {
     CHECK(build(field));
     valid();
     CHECK(amplitude(50, 50) < .98 && amplitude(110, 110) == 1);
+    // Clean manual heading moves the incoming edges and retains the original
+    // shore-speed solve. A round island refracts an eastbound sea into both banks.
+    for (int y=0;y<h;++y)for (int x=0;x<w;++x)
+        wet[y*w+x]=std::hypot(float(x-80),float(y-80))<=20?0:255;
+    const Vector east={1,0},west={-1,0};
+    CHECK(Build(wet.data(),exposure.data(),w,h,0,10,field,nullptr,&east));
+    CHECK(field.prevailing.x==1 && field.prevailing.y==0);
+    CHECK(gradient(80,104).y<-.1f && gradient(80,56).y>.1f);
+    CHECK(Alignment(gradient(10,80),east)>.999f);
+    for(int y:{56,104})for(int x=45;x<100;++x)
+        CHECK(Alignment(gradient(x,y),gradient(x+1,y))>std::cos(12*WaterFftSpectrum::Pi/180));
+    const auto eastTexels=field.texels;
+    CHECK(Build(wet.data(),exposure.data(),w,h,0,10,field,nullptr,&west));
+    CHECK(field.prevailing.x==-1 && field.prevailing.y==0 && field.texels!=eastTexels);
+    CHECK(Alignment(gradient(150,80),west)>.999f);
+    // Sign test against the old swell's actual phase k*U-omega*t. On an open
+    // plane, the same crest at a later time lies at larger U, along +grad(U).
+    std::fill(wet.begin(),wet.end(),255);
+    CHECK(Build(wet.data(),exposure.data(),w,h,0,10,field,nullptr,&east));
+    const double k=2*WaterFftSpectrum::Pi/600,omega=.8,dt=k*(u(91,80)-u(90,80))/omega;
+    CHECK(dt>0 && gradient(90,80).x>.99f && std::abs(gradient(90,80).y)<1e-5f);
+    CHECK(std::abs(std::cos(k*u(91,80)-omega*dt)-std::cos(k*u(90,80)))<1e-6);
+    CHECK(u(0,80)<u(w-1,80)); // eastbound seeds are on the west edge
+    CHECK(Build(wet.data(),exposure.data(),w,h,0,10,field,nullptr,&west));
+    CHECK(u(0,80)>u(w-1,80)); // reversing travel rebuilds from the east edge
+    CHECK(build(field));
+    CHECK(field.prevailing.x==BaseHeading.x && field.prevailing.y==BaseHeading.y);
     // No boundary water: the upwind shores seed the entire enclosed lake.
     for (int y = 0; y < h; ++y)
         for (int x = 0; x < w; ++x)

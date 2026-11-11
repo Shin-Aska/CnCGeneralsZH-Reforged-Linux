@@ -268,10 +268,12 @@ inline std::vector<Vector> BankVectors(const uint8_t *wet, const uint8_t *links,
 
 inline bool Build(const uint8_t *wet, const uint8_t *exposure, const uint8_t *links,
     int width, int height, int border, float spacing, Field &result,
-    const std::vector<WaterBodyAnalysis::VisualConnection> &connections = {}, bool allowSources = true) {
+    const std::vector<WaterBodyAnalysis::VisualConnection> &connections = {}, bool allowSources = true,
+    // A/B experiment only: pass D through to the ocean heading solve, leaving local routes intact.
+    const float *mediumDepth = nullptr, const WaterWaveHeading::Vector *travelHeading = nullptr) {
     result = Field{};
     WaterWaveHeading::Field legacy;
-    if (!WaterWaveHeading::Build(wet, exposure, width, height, border, spacing, legacy)
+    if (!WaterWaveHeading::Build(wet, exposure, width, height, border, spacing, legacy, mediumDepth, travelHeading)
         || !WaterBodyAnalysis::Build(wet, links, width, height, border, spacing, result.analysis, connections,
         allowSources)) {
         result = Field{};

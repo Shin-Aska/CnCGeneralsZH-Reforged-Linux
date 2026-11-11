@@ -15553,6 +15553,26 @@ TOOLTIP:WaterReflectionEnabled
 "Spiegelt die Szene im modernen Wasser. Ausschalten verbessert die Leistung, Himmel und Sonnenreflexe bleiben erhalten. Der Reflexionsmodus bleibt gespeichert. Wird nach Klick auf Annehmen angewendet."
 END
 
+GUI:WaterQuality
+"Wasserqualität"
+END
+
+GUI:WaterQuality0
+"Niedrig"
+END
+
+GUI:WaterQuality1
+"Mittel"
+END
+
+GUI:WaterQuality2
+"Hoch"
+END
+
+TOOLTIP:WaterQuality
+"Qualität des modernen Wassers. Mittel verwendet einfacheren Sonnenglanz in der Ferne. Niedrig lässt außerdem alle Wellen in dieselbe Richtung laufen, statt sie zum Ufer zu drehen. Niedrigere Einstellungen verbessern die Leistung. Wird beim Bestätigen angewendet."
+END
+
 GUI:WaterFftResolution
 "Wellendetails"
 END

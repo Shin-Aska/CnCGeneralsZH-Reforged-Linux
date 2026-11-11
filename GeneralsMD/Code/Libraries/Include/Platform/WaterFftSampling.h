@@ -15,8 +15,21 @@
 #include "Platform/WaterWaveHeading.h"
 #include "Platform/WaterMovementCompatibilityShader.h"
 #include "Platform/WaterWavefront.h"
+#include "Platform/WaterSharedShader.h"
+#include "Platform/WaterCleanShader.h"
 
 namespace WaterFftSampling {
+inline void CleanReplace(std::string &s,const std::string &from,const std::string &to) {
+    for(size_t at=s.find(from);at!=std::string::npos;at=s.find(from,at+to.size()))s.replace(at,from.size(),to);
+}
+inline void CleanRemoveRead(std::string &s,const char *token) {
+    for(size_t p=s.find(token);p!=std::string::npos;p=s.find(token,p+15)) {
+        size_t end=p+std::strlen(token);int nesting=1;
+        for(;end<s.size() && nesting;++end) {if(s[end]=='(')++nesting;else if(s[end]==')')--nesting;}
+        s.replace(p,end-p,"float4(0,0,0,0)");
+    }
+}
+
 inline bool Enabled() {
     const char *value=std::getenv("ZH_WATER_FFT");
     return !value || std::strcmp(value,"0")!=0;
@@ -34,7 +47,22 @@ inline bool ArrayOutputEnabled() {
 // The reference's close water-level camera uses metre-sized waves. Generals' RTS camera
 // requires a larger render scale; scale wavelength and displacement together, not normals.
 constexpr float WorldScale=WaterFftSpectrum::WorldScale;
-constexpr float TimeScale=0.4f;
+// A/B experiment only: ZH_WATER_FFT_TIMESCALE overrides the FFT tempo (default 0.4).
+inline float TimeScaleFromEnvironment() {
+    const char *value=std::getenv("ZH_WATER_FFT_TIMESCALE");
+    const float scale=value ? float(std::atof(value)) : 0.4f;
+    return scale>0.0f && scale<=4.0f ? scale : 0.4f;
+}
+inline const float TimeScale=TimeScaleFromEnvironment();
+// Keep phase continuous when the live speed changes, including while the game is paused.
+inline float PhaseTime(float time) {
+    if(!WaterTuning::Enabled())return time*TimeScale;
+    static double speed=WaterTuning::Current()[WaterTuning::WaveSpeed],offset=0;
+    static float previous=time;
+    const double next=WaterTuning::Current()[WaterTuning::WaveSpeed];
+    if(next!=speed) {offset+=double(previous)*(speed-next);speed=next;}
+    previous=time;return float(double(time)*speed+offset);
+}
 constexpr unsigned SwellComponents = 4;
 constexpr double SwellWavelengths[SwellComponents] = {287, 431, 683, 1091};
 constexpr double SwellOffsets[SwellComponents] = {0.37, 2.13, 4.71, 1.19};
@@ -43,7 +71,7 @@ constexpr double SwellGravity = 9.81, SwellHorizontal = -1.2;
 constexpr double SwellHashScale = 0.1031, SwellHashOffset = 33.33;
 // Both stages consume the same immutable draw snapshot. Slot zero remains the generated
 // fixed vertex block; the vessel field is water-only slot one on the vertex stage.
-inline std::string UniformSource(const char *name,unsigned slot,bool visual_hull=false) {
+inline std::string UniformSource(const char *name,unsigned slot,bool visual_hull=false,bool live_tuning=true) {
     std::string source=std::string("cbuffer ")+name+" : register(b"+std::to_string(slot)+R"HLSL()
 {
     float4 TextureFactor;
@@ -78,6 +106,7 @@ inline std::string UniformSource(const char *name,unsigned slot,bool visual_hull
     source+=MODERN_WATER_MATERIAL_UNIFORMS(MODERN_WATER_HLSL_UNIFORM);
 #undef MODERN_WATER_HLSL_UNIFORM
     source+="    row_major float4x4 ClipFromWorld;\n";
+    if(live_tuning && WaterTuning::Enabled())source+="    float4 WaterTuningDepth;\n    float4 WaterTuningChop;\n    float4 WaterTuningLook;\n    float4 WaterTuningRms;\n    float4 WaterTuningVariance[9];\n    float4 WaterTuningShore;\n    float4 WaterTuningHeading;\n";
     if(visual_hull) source+="    float4 VisualHullMeta[8];\n";
     source+="};\n";
     if(visual_hull) source+=R"HLSL(
@@ -373,6 +402,162 @@ FftLocalWaves fftLocalWaves(float2 p,FftLocalFields fields,float lod) {
     }
     return source;
 }
+// A/B experiment only: snapshot once at shader generation, never per frame.
+inline bool SharedEnabled() {
+#if defined(__linux__)
+    static const bool enabled=[] {const char *v=std::getenv("ZH_WATER_SHARED");return v && std::strcmp(v,"1")==0;}();
+    return enabled && !WaterCleanSpectrum::Enabled(); // A/B experiment only: CLEAN wins over SHARED.
+#else
+    return false;
+#endif
+}
+// A/B experiment only: read once for shader generation, never while rendering a frame.
+inline bool WindRequested() {
+#if defined(__linux__)
+    static const bool enabled=[] { const char *value=std::getenv("ZH_WATER_MEDIUM");
+        return value && std::strcmp(value,"wind")==0; }();
+    return enabled;
+#else
+    return false;
+#endif
+}
+inline bool OneMediumWindEnabled() {return WaterCleanSpectrum::Enabled() || SharedEnabled() || WindRequested();}
+// A/B experiment only: D's extra atlas word preserves all height/cage channels and bindings.
+inline std::string MediumDepthSource(bool cleanMain=false) {
+    if(cleanMain) {
+        std::string source=R"HLSL(
+float4 fftMediumDepthField(float2 p) {
+
+    if(TerrainParameters.w<.5)return float4(1e9,0,0,1);
+    uint width,height;FftCleanDepth.GetDimensions(width,height);
+    if(width<2 || height<2)return float4(1e9,0,0,1);
+    float scale=width/max(TerrainParameters.y,1.0);
+    float2 cell=(p+TerrainParameters.xx)*scale;
+    if(any(cell<0) || any(cell>float2(width-1,height-1)))return float4(1e9,0,0,1);
+    int2 lo=min(int2(floor(cell)),int2(width-2,height-2));float2 f=cell-float2(lo);
+    float depth=FftCleanDepth.SampleLevel(FftCleanDepthSampler,(cell+.5)/float2(width,height),0).r;
+    float3 coefficients=FftCleanDepth.SampleLevel(FftCleanDepthSampler,(float2(lo)+.5)/float2(width,height),0).gba;
+    return float4(depth,(coefficients.xy+coefficients.z*f.yx)*scale,1);
+}
+float3 fftMediumGain(float4 depth,float reach) {
+    float t=saturate(depth.x/reach);
+    return float3(t*t*(3-2*t),depth.yz*(6*t*(1-t)/reach));
+}
+void fftMediumScale(inout float3 d,inout float3 dx,inout float3 dy,float3 gain) {
+    dx=dx*gain.x+d*gain.y;dy=dy*gain.x+d*gain.z;d*=gain.x;
+}
+)HLSL";
+        if(WaterCleanProfile::Get().nodepth) {
+            const size_t begin=source.find("    if(TerrainParameters.w"),end=source.find("\n}\nfloat3 fftMediumGain",begin);
+            source.replace(begin,end-begin,"    return float4(1e9,0,0,1);");
+        }
+        return source;
+    }
+    std::string source=R"HLSL(
+float4 fftMediumDepthField(float2 p) {
+    if(TerrainParameters.w<0.5 || FftParameters.z<=0.5)return float4(40,0,0,0);
+    uint width,height;FftHeadingTexture.GetDimensions(width,height);
+    const int stride=6;
+    int2 size=int2(width/stride,height);if(any(size<2))return float4(40,0,0,0);
+    float scale=(width/stride)/max(TerrainParameters.y,1.0);
+    float2 raw=(p+TerrainParameters.xx)*scale,cell=clamp(raw,0.0,float2(size-1));
+    int2 lo=min(int2(floor(cell)),size-2);float2 f=cell-float2(lo);
+    float4 depths=0;float valid=1;
+    [unroll] for(int y=0;y<2;++y) [unroll] for(int x=0;x<2;++x) {
+        int2 at=lo+int2(x,y);
+        float2 uv=(float2(at.x*stride+stride-1,at.y)+0.5)/float2(width,height);
+        float4 packed=FftHeadingTexture.SampleLevel(FftHeadingSampler,uv,0);
+        depths[y*2+x]=packed.g*40.0;valid=min(valid,packed.a);
+    }
+    float2 inside=step(0.0,raw)*step(raw,float2(size-1));
+    return float4(lerp(lerp(depths.x,depths.y,f.x),lerp(depths.z,depths.w,f.x),f.y),
+        lerp(depths.y-depths.x,depths.w-depths.z,f.y)*scale*inside.x,
+        lerp(depths.z-depths.x,depths.w-depths.y,f.x)*scale*inside.y,valid);
+}
+float3 fftMediumGain(float4 depth,float reach) {
+    float t=saturate(depth.x/reach);
+    return float3(t*t*(3-2*t),depth.yz*(6*t*(1-t)/reach));
+}
+float3 fftMediumBand(float4 depth,float reach) {
+    if(depth.w<0.5)return float3(1,0,0);
+    // The CPU already applies the fine envelope once, including obstacles/hulls.
+    // Divide it out here: the final gain is the requested band gain, never gain*fine.
+    // Cancel the shared D^2 analytically below D=4, including its finite dry-edge limit.
+    // This avoids both a raw-wave discontinuity and a tiny fine^2 denominator.
+    if(depth.x<4.0) {
+        float c=16.0/(reach*reach),denominator=3.0-0.5*depth.x;
+        return float3(c*(3.0-2.0*depth.x/reach)/denominator,
+            depth.yz*(c*(1.5-6.0/reach)/(denominator*denominator)));
+    }
+    return fftMediumGain(depth,reach);
+}
+void fftMediumScale(inout float3 d,inout float3 dx,inout float3 dy,float3 gain) {
+    dx=dx*gain.x+d*gain.y;dy=dy*gain.x+d*gain.z;d*=gain.x;
+}
+)HLSL";
+    if(WaterCleanSpectrum::Enabled()) {
+        const size_t field=source.find("float4 fftMediumDepthField"),begin=source.find("    if(TerrainParameters.w",field),end=source.find("\n}\nfloat3 fftMediumGain",begin);
+        std::string legacy=source.substr(field,end+3-field);
+        CleanReplace(legacy,"fftMediumDepthField(","fftCleanLegacyDepthField(");
+        if(WaterCleanShore::Enabled()) {
+            CleanReplace(legacy,"const int stride=6;","const int stride=7;");
+            CleanReplace(legacy,"at.x*stride+stride-1","at.x*stride+5");
+            CleanReplace(legacy,"valid=min(valid,packed.a);","valid=min(valid,step(0.5,packed.a));");
+        }
+        source.replace(begin,end-begin,R"HLSL(    if(TerrainParameters.w<0.5 || FftParameters.z<=0.5)return float4(40,0,0,0);
+    uint width,height;FftCleanDepth.GetDimensions(width,height);
+    if(width<2 || height<2)return fftCleanLegacyDepthField(p);
+    float scale=width/max(TerrainParameters.y,1.0);
+    float2 raw=(p+TerrainParameters.xx)*scale,cell=clamp(raw,0.0,float2(width-1,height-1));
+    int2 lo=min(int2(floor(cell)),int2(width-2,height-2));float2 f=cell-float2(lo);
+    // R is hardware-linear D; the exact-centre GBA lookup retains the product-rule gradient.
+    float depth=FftCleanDepth.SampleLevel(FftCleanDepthSampler,(cell+.5)/float2(width,height),0).r;
+    float3 coefficients=FftCleanDepth.SampleLevel(FftCleanDepthSampler,(float2(lo)+.5)/float2(width,height),0).gba;
+    float2 inside=step(0.0,raw)*step(raw,float2(width-1,height-1));
+    return float4(depth,(coefficients.xy+coefficients.z*f.yx)*scale*inside,1);)HLSL");
+        if(!WaterCleanProfile::Get().nodepth)source.insert(field,legacy);
+    }
+    if(WaterCleanSpectrum::Enabled() && WaterCleanProfile::Get().nodepth) {
+        const size_t begin=source.find("    if(TerrainParameters.w"),end=source.find("\n}\nfloat3 fftMediumGain",begin);
+        source.replace(begin,end-begin,"    return float4(40,0,0,step(8.0,FftParameters.w)*step(0.5,FftParameters.z)*step(0.5,TerrainParameters.w));");
+    }
+    if(WaterCleanSpectrum::Enabled() && WaterCleanProfile::Get().nodepth)
+        CleanReplace(source,"float3 fftMediumGain(float4 depth,float reach) {","float3 fftMediumGain(float4 depth,float reach) { return float3(1,0,0);");
+    return source;
+}
+// A/B experiment only: reuse the current reconstructed by fftLocalArrival, including bank projection.
+inline std::string MediumFlowSource() {
+    return R"HLSL(
+struct FftMediumFlow {float2 velocity,velocityX,velocityY;};
+void fftMediumFlowArrival(inout FftMediumFlow flow,FftWavefrontParameters field,FftLocalFields fields,float budget,float2 budgetGradient) {
+    float inverseLength=rsqrt(dot(field.gradient,field.gradient)+0.0016);
+    float2 direction=field.gradient*inverseLength;
+    float2 directionX=(field.hessian.xy-direction*dot(direction,field.hessian.xy))*inverseLength;
+    float2 directionY=(field.hessian.yz-direction*dot(direction,field.hessian.yz))*inverseLength;
+    float speed=0.12+1.1*budget;
+    float2 v=direction*speed,vx=directionX*speed+direction*(1.1*budgetGradient.x);
+    float2 vy=directionY*speed+direction*(1.1*budgetGradient.y);
+    fftStreamProject(v,vx,vy,fields.shore,fields.shoreX,fields.shoreY);
+    flow.velocity+=field.amplitude*v;
+    flow.velocityX+=field.amplitude*vx+field.amplitudeGradient.x*v;
+    flow.velocityY+=field.amplitude*vy+field.amplitudeGradient.y*v;
+}
+FftMediumFlow fftMediumFlow(float2 p) {
+    FftMediumFlow flow=(FftMediumFlow)0;
+    FftLocalFields fields=fftLocalFields(p);
+    if(fields.influence.x==0.0)return flow;
+    float budget=fields.first.amplitude+fields.second.amplitude;
+    float2 gradient=fields.first.amplitudeGradient+fields.second.amplitudeGradient;
+    fftMediumFlowArrival(flow,fields.first,fields,budget,gradient);
+    fftMediumFlowArrival(flow,fields.second,fields,budget,gradient);
+    return flow;
+}
+float2 fftMediumFlowAge() {
+    return frac(WaterParameters.x/12.0+float2(0,0.5));
+}
+float2 fftMediumFlowWeight(float2 age) {return 1.0-abs(2.0*age-1.0);}
+)HLSL";
+}
 // Opt-in Linux field; default/shared shader text remains unchanged.
 inline std::string HeadingSource(bool vertex, unsigned resolution = WaterFftSpectrum::Resolution,
     bool openSea = false)
@@ -396,14 +581,23 @@ inline std::string HeadingSource(bool vertex, unsigned resolution = WaterFftSpec
     char base[128];
     std::snprintf(base, sizeof(base), "static const float2 fftBaseHeading=float2(%.9g,%.9g);\n",
         double(WaterWaveHeading::BaseHeading.x), double(WaterWaveHeading::BaseHeading.y));
-    return std::string(vertex ? R"HLSL(
+    // A/B experiment only: immutable shader-generation selection, shared with the material.
+    const bool medium = OneMediumWindEnabled();
+    const std::string headingBase = std::string(base) + (medium
+        ? "static const bool fftOneMediumWind=true;\n" : "");
+    std::string source = std::string(vertex ? R"HLSL(
 Texture2D FftHeadingTexture : register(t4);
 SamplerState FftHeadingSampler : register(s4);
 )HLSL" : R"HLSL(
 Texture2D FftHeadingTexture : register(t11);
 SamplerState FftHeadingSampler : register(s11);
 )HLSL")
-        + constants + base + R"HLSL(
+        + (WaterCleanSpectrum::Enabled() && !WaterCleanProfile::Get().nodepth
+            ? (vertex ? "Texture2D FftCleanDepth : register(t5);SamplerState FftCleanDepthSampler : register(s5);\n"
+                        "Texture2D FftCleanRotation : register(t6);SamplerState FftCleanRotationSampler : register(s6);\n"
+                      : "Texture2D FftCleanDepth : register(t12);SamplerState FftCleanDepthSampler : register(s12);\n"
+                        "Texture2D FftCleanRotation : register(t13);SamplerState FftCleanRotationSampler : register(s13);\n") : std::string())
+        + constants + headingBase + (medium ? MediumDepthSource() : std::string()) + R"HLSL(
 float2 fftRotate(float2 p,float2 cs) {return float2(cs.x*p.x-cs.y*p.y,cs.y*p.x+cs.x*p.y);}
 float3 fftRotateVector(float3 v,float2 cs) {return float3(fftRotate(v.xy,cs),v.z);}
 struct FftSwell {float3 displacement,derivativeX,derivativeY,shadingDisplacement,shadingDerivativeX,shadingDerivativeY;float variance;
@@ -455,6 +649,11 @@ FftSwell fftSwell(float2 p,float lod) {
         value.weights=u<=0.0?float2(1,0):u>=1.0?float2(0,1):float2(cos(u*1.5707963267948966),sin(u*1.5707963267948966));
     }
     // Four non-harmonic wavelengths inside the broad band; equal powers sum to HeightRms[0]^2.
+    if(fftOneMediumWind) {
+        // A/B experiment only: medium chop follows the wind, no sector rotation or cross-fade.
+        sincos(FftParameters.w,value.rotation0.y,value.rotation0.x);
+        value.rotation1=value.rotation0;value.weights=float2(1,0);
+    }
     float3 noise=fftSwellNoise(p);
     // Mean-square normalization: smooth bilinear value noise has variance (26/35)^2/12.
     float gain=(1+fftSwellNoiseAmount*(noise.x-0.5))/fftSwellNoiseNormalization;
@@ -479,11 +678,82 @@ FftSwell fftFilteredSwell(FftSwell value) {
     value.displacement=value.shadingDisplacement;value.derivativeX=value.shadingDerivativeX;value.derivativeY=value.shadingDerivativeY;
     return value;
 }
-)HLSL" + LocalSource(resolution, openSea && !vertex) + WaterMovementCompatibilityShader::HeadingSource();
+)HLSL" + LocalSource(resolution, openSea && !vertex) + (medium ? MediumFlowSource() : std::string()) + WaterMovementCompatibilityShader::HeadingSource();
+    // A/B experiment only: omit the inactive prototype branch, retaining the default source contract.
+    if (!medium) {
+        const size_t begin=source.find("    if(fftOneMediumWind) {");
+        const size_t end=source.find("    float3 noise=fftSwellNoise(p);",begin);
+        source.erase(begin,end-begin);
+    }
+    // A/B experiment only: append depth metadata to the existing heading atlas; default text is untouched.
+    if (medium) {
+        auto replace = [&](const std::string &from, const std::string &to) {
+            for (size_t at=source.find(from); at!=std::string::npos; at=source.find(from,at+to.size()))
+                source.replace(at,from.size(),to);
+        };
+        replace("width/5", "width/6"); replace("at.x*5", "at.x*6");
+        const std::string swellFields="float2 rotation0,rotation1,weights;};";
+        source.replace(source.find(swellFields),swellFields.size(),"float2 rotation0,rotation1,weights;float4 mediumDepth;float mediumBreakFoam;};");
+        const std::string finish = "    return value;\n}\nFftSwell fftSwell(float2 p)";
+        replace(finish, R"HLSL(
+    // A/B experiment only: incoming swell crests trip the depth limit before the band fade.
+    value.mediumDepth=fftMediumDepthField(p);
+    float crest=max(0.0,value.displacement.z),D=value.mediumDepth.x;
+    value.mediumBreakFoam=smoothstep(-0.15,0.45,crest-0.20*D)*smoothstep(0.25,0.9,crest)
+        *smoothstep(0.0,2.0,D)*value.mediumDepth.w;
+    float3 band=fftMediumBand(value.mediumDepth,24.0);
+    fftMediumScale(value.displacement,value.derivativeX,value.derivativeY,band);
+    fftMediumScale(value.shadingDisplacement,value.shadingDerivativeX,value.shadingDerivativeY,band);
+    value.variance*=band.x*band.x;
+    return value;
+}
+FftSwell fftSwell(float2 p))HLSL");
+
+    }
+    // A/B experiment only: amplitude rows share the original heading binding.
+    if (SharedEnabled()) {
+        auto replace=[&](const std::string &from,const std::string &to) {
+            for(size_t at=source.find(from);at!=std::string::npos;at=source.find(from,at+to.size()))source.replace(at,from.size(),to);
+        };
+        replace("int2(width/6,height)","int2(width/6,height/3)");
+        replace("width/6-1,height-1","width/6-1,height/3-1");
+        replace("int2(width/stride,height)","int2(width/stride,height/3)");
+        // Inactive elevations retain the previous map-aware swell/sector path.
+        if(!WindRequested())replace("if(fftOneMediumWind)","if(fftOneMediumWind && fftMediumDepthField(p).w>0.5)");
+        replace("float4 packed=FftHeadingTexture.SampleLevel(FftHeadingSampler,(p+TerrainParameters.xx+5.0)/max(TerrainParameters.y,1.0),0);",
+            "uint aw,ah;FftHeadingTexture.GetDimensions(aw,ah);float side=ah/3;"
+            "float2 at=clamp(floor((p+TerrainParameters.xx+5.0)*side/max(TerrainParameters.y,1.0)),0.0,side-1);"
+            "float4 packed=FftHeadingTexture.SampleLevel(FftHeadingSampler,(float2(at.x*6,at.y)+0.5)/float2(aw,ah),0);");
+        source+=WaterSharedShader::Source(TimeScale);
+    }
+    if(WaterCleanSpectrum::Enabled() && WaterCleanShore::Enabled()) {
+        CleanReplace(source,"width/6","width/7");CleanReplace(source,"at.x*6","at.x*7");
+    }
+    // A/B experiment only: inactive elevations keep the original evaluator unless wind was explicit.
+    if(WaterCleanSpectrum::Enabled() && !WindRequested()) {
+        const std::string from="if(fftOneMediumWind)",to="if(fftOneMediumWind && fftMediumDepthField(p).w>0.5)";
+        for(size_t at=source.find(from);at!=std::string::npos;at=source.find(from,at+to.size()))source.replace(at,from.size(),to);
+    }
+    return source;
+}
+
+inline std::string CleanHeadingSource(bool vertex) {
+    std::string source=vertex
+        ? "Texture2D FftHeadingTexture : register(t4);SamplerState FftHeadingSampler : register(s4);\n"
+        : "Texture2D FftHeadingTexture : register(t11);SamplerState FftHeadingSampler : register(s11);\n";
+    if(!WaterCleanProfile::Get().nodepth)source+=vertex
+        ? "Texture2D FftCleanDepth : register(t5);SamplerState FftCleanDepthSampler : register(s5);\nTexture2D FftCleanRotation : register(t6);SamplerState FftCleanRotationSampler : register(s6);\n"
+        : "Texture2D FftCleanDepth : register(t12);SamplerState FftCleanDepthSampler : register(s12);\nTexture2D FftCleanRotation : register(t13);SamplerState FftCleanRotationSampler : register(s13);\n";
+    // Preserve map-field diagnostics without adding any legacy wave evaluators.
+    const std::string heading=HeadingSource(vertex);
+    const size_t begin=heading.find("float4 fftSwellField("),end=heading.find("// Differentiable value noise",begin);
+    char range[96];std::snprintf(range,sizeof(range),"static const float fftGradientRange=%.9g;\n",double(WaterWaveHeading::GradientRange));
+    source+=std::string(range)+heading.substr(begin,end-begin);
+    return source+MediumDepthSource(true)+"float2 fftRotate(float2 p,float2 cs) {return float2(cs.x*p.x-cs.y*p.y,cs.y*p.x+cs.x*p.y);}\n";
 }
 
 inline std::string HeadingVertexSource() {
-    return WaterMovementCompatibilityShader::VertexSource() + R"HLSL(
+    std::string source = WaterMovementCompatibilityShader::VertexSource() + R"HLSL(
 // The texture-array rewrite expects each cascade sampled once, at q.
 float3 fftChopDisplacement(float2 p,float2 r) {
     float2 q=fftRotate(p,r*float2(1,-1));
@@ -514,10 +784,68 @@ float3 fftRawDisplacement(float2 p) {
     return fields.legacyGain.x*fftLegacyDisplacement(p)+waves.displacement;
 }
 )HLSL";
+    // A/B experiment only: two-phase flow samples reset at zero triangle weight.
+    if (OneMediumWindEnabled()) {
+        auto replace=[&](const std::string &from,const std::string &to) {
+            for(size_t at=source.find(from);at!=std::string::npos;at=source.find(from,at+to.size()))
+                source.replace(at,from.size(),to);
+        };
+        replace("float3 fftChopDisplacement(float2 p,float2 r)","float3 fftUnadvectedChopDisplacement(float2 p,float2 r)");
+        replace("float3 fftWindDisplacement(float2 p)","float3 fftUnadvectedWindDisplacement(float2 p)");
+        const size_t before=source.find("float3 fftLegacyDisplacement(float2 p)");
+        source.insert(before,R"HLSL(
+float3 fftMediumFlowDisplacement(float2 p,float2 r,bool fine) {
+    FftMediumFlow flow=fftMediumFlow(p);float3 value=0;
+    if(all(flow.velocity==0.0)) {
+        value=fine?fftUnadvectedWindDisplacement(p):fftUnadvectedChopDisplacement(p,r);
+    } else {
+        float2 age=fftMediumFlowAge(),weights=fftMediumFlowWeight(age);
+        [unroll] for(int i=0;i<2;++i) {
+            float2 q=p-flow.velocity*(12.0*age[i]);
+            value+=weights[i]*(fine?fftUnadvectedWindDisplacement(q):fftUnadvectedChopDisplacement(q,r));
+        }
+    }
+    return value*fftMediumBand(fftMediumDepthField(p),fine?4.0:12.0).x;
+}
+float3 fftChopDisplacement(float2 p,float2 r) {return fftMediumFlowDisplacement(p,r,false);}
+float3 fftWindDisplacement(float2 p) {return fftMediumFlowDisplacement(p,float2(1,0),true);}
+)HLSL");
+    }
+    // A/B experiment only: shared phase replaces every incident long/medium/local layer.
+    if(SharedEnabled()) {
+        if(!WindRequested()) {
+            const std::string flow="    FftMediumFlow flow=fftMediumFlow(p);float3 value=0;";
+            source.insert(source.find(flow),"    if(fftMediumDepthField(p).w<0.5)return fine?fftUnadvectedWindDisplacement(p):fftUnadvectedChopDisplacement(p,r);\n");
+        }
+        const std::string entry="float3 fftRawDisplacement(float2 p) {";
+        source.insert(source.find(entry)+entry.size(),R"HLSL(
+    float4 sharedDepth=fftMediumDepthField(p);
+    if(sharedDepth.w>0.5) {
+        FftSharedWave sw=fftSharedWave(p,0);
+        float2 q=p;
+        float3 fine=FftDisplacement2.SampleLevel(FftSampler2,q/(13.0*fftWorldScale),0).xzy
+            *float3(-1.5,-1.5,1)*fftWorldScale;
+        return float3(0,0,sw.height)+fine*fftMediumGain(sharedDepth,4).x;
+    }
+)HLSL");
+    }
+    // A/B experiment only: clean FFT bypasses every local/sector/shared incident layer.
+    if(WaterCleanSpectrum::Enabled()) {
+        const std::string entry="float3 fftRawDisplacement(float2 p) {";
+        source.insert(source.find(entry),WaterCleanShader::VertexSource());
+        source.insert(source.find(entry)+entry.size(),
+            "\n    float4 cleanDepth=fftMediumDepthField(p);\n    if(cleanDepth.w>0.5)return fftCleanDisplacement(p,cleanDepth);\n");
+        if(!WindRequested()) {
+            const std::string flow="    FftMediumFlow flow=fftMediumFlow(p);float3 value=0;";
+            source.insert(source.find(flow),"    if(fftMediumDepthField(p).w<0.5)return fine?fftUnadvectedWindDisplacement(p):fftUnadvectedChopDisplacement(p,r);\n");
+        }
+    }
+    return source;
 }
 
-inline std::string HeadingPixelSource() {
-    return WaterMovementCompatibilityShader::PixelSource() + R"HLSL(
+
+inline std::string HeadingPixelSource(WaterFftSpectrum::Configuration configuration=WaterFftSpectrum::ForResolution(WaterFftSpectrum::Resolution)) {
+    std::string source = WaterMovementCompatibilityShader::PixelSource() + R"HLSL(
 // Medium chop follows each refracted sector and feeds ambient breaking and contact wash.
 // Fine wind ripples are sampled once below, outside the sector cross-fade.
 void fftAccumulateChop(inout FftSurface medium,float2 p,float3 lod,float2 r,float w) {
@@ -630,10 +958,125 @@ void fftRawAndShadingSurface(float2 p,float3 lod,out FftSurface physical,out Fft
     else shading=physical;
 }
 )HLSL";
+    // A/B experiment only: advection and depth products keep complete displacement derivatives.
+    if (OneMediumWindEnabled()) {
+        auto replace=[&](const std::string &from,const std::string &to) {
+            for(size_t at=source.find(from);at!=std::string::npos;at=source.find(from,at+to.size()))
+                source.replace(at,from.size(),to);
+        };
+        replace("FftSurface fftWindSurface(float2 p,float lod)","FftSurface fftUnadvectedWindSurface(float2 p,float lod)");
+        replace("FftSurface fftMediumSurface(float2 p,float3 lod,FftSwell swell)","FftSurface fftUnadvectedMediumSurface(float2 p,float3 lod,FftSwell swell)");
+        source.insert(source.find("FftSurface fftComposeSwellSurface("),R"HLSL(
+FftSurface fftMediumFlowSurface(float2 p,float3 lod,FftSwell swell,bool fine) {
+    FftMediumFlow flow=fftMediumFlow(p);FftSurface value=(FftSurface)0;
+    // Exact still-water identity avoids two identical FFT reads in the open sea.
+    if(all(flow.velocity==0.0) && all(flow.velocityX==0.0) && all(flow.velocityY==0.0)) {
+        if(fine)value=fftUnadvectedWindSurface(p,lod.z);
+        else value=fftUnadvectedMediumSurface(p,lod,swell);
+    } else {
+        float2 age=fftMediumFlowAge(),weights=fftMediumFlowWeight(age);
+        [unroll] for(int i=0;i<2;++i) {
+            float elapsed=12.0*age[i];float2 q=p-flow.velocity*elapsed;
+            FftSurface bandSample;
+            if(fine)bandSample=fftUnadvectedWindSurface(q,lod.z);
+            else bandSample=fftUnadvectedMediumSurface(q,lod,swell);
+            float2 qx=float2(1,0)-flow.velocityX*elapsed,qy=float2(0,1)-flow.velocityY*elapsed;
+            value.displacement+=weights[i]*bandSample.displacement;
+            value.derivativeX+=weights[i]*(bandSample.derivativeX*qx.x+bandSample.derivativeY*qx.y);
+            value.derivativeY+=weights[i]*(bandSample.derivativeX*qy.x+bandSample.derivativeY*qy.y);
+        }
+    }
+    float3 band=fftMediumBand(swell.mediumDepth,fine?4.0:12.0);
+    fftMediumScale(value.displacement,value.derivativeX,value.derivativeY,band);
+    value.contactIncident.yz=float2(value.derivativeX.z,value.derivativeY.z);
+    return value;
+}
+FftSurface fftMediumSurface(float2 p,float3 lod,FftSwell swell) {return fftMediumFlowSurface(p,lod,swell,false);}
+FftSurface fftWindSurface(float2 p,float lod) {
+    FftSwell metadata=(FftSwell)0;metadata.mediumDepth=fftMediumDepthField(p);
+    return fftMediumFlowSurface(p,float3(0,0,lod),metadata,true);
+}
+float fftMediumVariance(float2 p,float3 lod) {
+    float4 depth=fftMediumDepthField(p);
+    float medium=fftMediumBand(depth,12.0).x,fine=fftMediumBand(depth,4.0).x;
+    return fftShadingVariance(float3(0,lod.y,0))*medium*medium+fftShadingVariance(float3(0,0,lod.z))*fine*fine;
+}
+)HLSL");
+        replace("    value.unresolvedSlopeVariance=swell.variance;", "    value.mediumBreakFoam=swell.mediumBreakFoam;\n    value.unresolvedSlopeVariance=swell.variance;");
+        replace("fftShadingVariance(float3(0,lod.yz))", "fftMediumVariance(p,lod)");
+        // fftLocalSurface already has a sampled field and no position argument; supply p for variance.
+        replace("FftSurface fftLocalSurface(FftSurface original", "FftSurface fftLocalSurface(float2 p,FftSurface original");
+        replace("fftLocalSurface(original,", "fftLocalSurface(p,original,");
+        replace("fftLocalSurface(physical,", "fftLocalSurface(p,physical,");
+        replace("fftLocalSurface(shading,", "fftLocalSurface(p,shading,");
+    }
+    // A/B experiment only: fine stays on the global unrotated FFT; no current advection.
+    if(SharedEnabled()) {
+        const std::string helper=R"HLSL(
+FftSurface fftSharedSurface(FftSharedWave sw,float2 p,float4 depth,float lod,bool filtered) {
+    float2 q=p;
+    float4 c=Texture12.SampleLevel(Sampler12,q/(13.0*fftWorldScale),lod);
+    float4 cd=Texture13.SampleLevel(Sampler13,q/(13.0*fftWorldScale),lod);
+    float3 fine=c.xzy*float3(-1.5,-1.5,1)*fftWorldScale;
+    float3 fx=float3(cd.z,c.w,cd.x)*float3(-1.5,-1.5,1),fy=float3(c.w,cd.w,cd.y)*float3(-1.5,-1.5,1);
+    float3 gain=fftMediumGain(depth,4);
+    fftMediumScale(fine,fx,fy,gain);
+    FftSurface value=(FftSurface)0;
+    float h=filtered?sw.filteredHeight:sw.height;float2 slope=filtered?sw.filteredSlope:sw.slope;
+    value.displacement=float3(0,0,h)+fine;
+    value.derivativeX=float3(0,0,slope.x)+fx;value.derivativeY=float3(0,0,slope.y)+fy;
+    value.contactIncident=float3(h,slope);
+    // Existing crest foam consumes this steepness response; painted breaking stays zero.
+    value.incidentCompression=1-0.65*smoothstep(0.06,0.24,length(sw.slope));
+    value.localInfluence=1;
+    value.localVariance=sw.variance+fftShadingVariance(float3(0,0,lod))*gain.x*gain.x;
+    return value;
+}
+)HLSL";
+        const std::string raw="FftSurface fftRawSurface(float2 p,float3 lod) {";
+        source.insert(source.find(raw),helper);
+        source.insert(source.find(raw)+raw.size(),R"HLSL(
+    float4 sharedDepth=fftMediumDepthField(p);
+    if(sharedDepth.w>0.5) {
+        float footprint=fftSharedFootprint(lod);
+        return fftSharedSurface(fftSharedWave(p,footprint),p,sharedDepth,lod.z,true);
+    }
+)HLSL");
+        const std::string pair="void fftRawAndShadingSurface(float2 p,float3 lod,out FftSurface physical,out FftSurface shading) {";
+        source.insert(source.find(pair)+pair.size(),R"HLSL(
+    float4 sharedDepth=fftMediumDepthField(p);
+    if(sharedDepth.w>0.5) {
+        float footprint=fftSharedFootprint(lod);
+        FftSharedWave sw=fftSharedWave(p,footprint);
+        physical=fftSharedSurface(sw,p,sharedDepth,0,false);shading=physical;
+        if(any(lod>0))shading=fftSharedSurface(sw,p,sharedDepth,lod.z,true);
+        return;
+    }
+)HLSL");
+        // Flow and the one-medium wind override are inactive at other elevations.
+        const std::string flow="    FftMediumFlow flow=fftMediumFlow(p);FftSurface value=(FftSurface)0;";
+        if(!WindRequested())source.insert(source.find(flow),"    if(fftMediumDepthField(p).w<0.5) {if(fine)return fftUnadvectedWindSurface(p,lod.z);return fftUnadvectedMediumSurface(p,lod,swell); }\n");
+    }
+    // A/B experiment only: mip-zero geometry and filtered shading share the identical composition.
+    if(WaterCleanSpectrum::Enabled()) {
+        const std::string raw="FftSurface fftRawSurface(float2 p,float3 lod) {";
+        source.insert(source.find(raw),WaterCleanShader::PixelSource(configuration));
+        source.insert(source.find(raw)+raw.size(),
+            "\n    float4 cleanDepth=fftMediumDepthField(p);\n    if(cleanDepth.w>0.5)return fftCleanSurface(p,cleanDepth,lod);\n");
+        const std::string pair="void fftRawAndShadingSurface(float2 p,float3 lod,out FftSurface physical,out FftSurface shading) {";
+        source.insert(source.find(pair)+pair.size(),
+            "\n    float4 cleanDepth=fftMediumDepthField(p);\n    if(cleanDepth.w>0.5) {fftCleanAndShadingSurface(p,cleanDepth,lod,physical,shading);return;}\n");
+        if(!WindRequested()) {
+            const std::string flow="    FftMediumFlow flow=fftMediumFlow(p);FftSurface value=(FftSurface)0;";
+            source.insert(source.find(flow),"    if(fftMediumDepthField(p).w<0.5) {if(fine)return fftUnadvectedWindSurface(p,lod.z);return fftUnadvectedMediumSurface(p,lod,swell); }\n");
+        }
+    }
+    return source;
 }
 
+
 inline std::string VertexSource(bool bowLift = false, bool bowShoulder = WaterBowShoulder::Enabled(),
-    bool textureArray = false, bool waveHeading = false)
+    bool textureArray = false, bool waveHeading = false, bool cleanMain = false)
 {
     std::string source=std::string(R"HLSL(
 Texture2D FftDisplacement0 : register(t0);
@@ -682,12 +1125,33 @@ float3 fftVertexDisplacement(float2 p,float level,float horizontalScale) {
 float3 fftVertexDisplacement(float2 p,float level) {return fftVertexDisplacement(p,level,0.0);}
 float3 fftVertexDisplacement(float2 p) {return fftVertexDisplacement(p,WaterParameters.w);}
 )HLSL";
-    if (waveHeading) {
+    if(cleanMain) {
+        const size_t begin=source.find("float3 fftRawDisplacement(float2 p)"),end=source.find("\n}",begin)+3;
+        source.replace(begin,end-begin,CleanHeadingSource(true)+WaterCleanShader::VertexSource(true)
+            +"float3 fftRawDisplacement(float2 p) {FftCleanContext context=fftCleanContext(p);return "
+            +(WaterCleanShore::Enabled()?"fftCleanPreparedDisplacement(p,context.depth,context.tiles)":"fftCleanDisplacement(p,context.depth)")+";}\n");
+    }
+    if (waveHeading && !cleanMain) {
         const std::string entry = "float3 fftRawDisplacement(float2 p)";
         source.replace(source.find(entry), entry.size(), "float3 fftUnrotatedDisplacement(float2 p)");
         const size_t end = source.find("\n}",
             source.find("float3 fftUnrotatedDisplacement")) + 3;
         source.insert(end, HeadingSource(true) + HeadingVertexSource());
+    }
+    if(waveHeading && WaterCleanSpectrum::Enabled()) {
+        const std::string rawEntry=bowLift?"float3 fftVertexBowDisplacement(float2 p,float level,float horizontalScale,out float bowHeight) {":"float3 fftVertexDisplacement(float2 p,float level,float horizontalScale) {";
+        const std::string preparedRaw=std::string("float3 fftRawDisplacement(float2 p,FftCleanContext context) {")+(cleanMain?"return ":"if(context.depth.w>.5)return ")
+            +std::string(WaterCleanShore::Enabled()?"fftCleanPreparedDisplacement(p,context.depth,context.tiles)":"fftCleanDisplacement(p,context.depth)")
+            +(cleanMain?"; }\n":";return fftRawDisplacement(p); }\n");
+        source.insert(source.find(rawEntry),preparedRaw);
+        const std::string preparedEntry=bowLift?"float3 fftVertexBowDisplacement(float2 p,float level,float horizontalScale,out float bowHeight,FftCleanContext context) {":"float3 fftVertexDisplacement(float2 p,float level,float horizontalScale,FftCleanContext context) {";
+        CleanReplace(source,rawEntry,preparedEntry);
+        CleanReplace(source,"float3 displacement=fftRawDisplacement(p);","float3 displacement=fftRawDisplacement(p,context);");
+        const std::string wrapper=bowLift
+            ? "float3 fftVertexBowDisplacement(float2 p,float level,float horizontalScale,out float bowHeight) {return fftVertexBowDisplacement(p,level,horizontalScale,bowHeight,fftCleanContext(p));}\n"
+            : "float3 fftVertexDisplacement(float2 p,float level,float horizontalScale) {return fftVertexDisplacement(p,level,horizontalScale,fftCleanContext(p));}\n";
+        const std::string before=bowLift?"float3 fftVertexDisplacement(float2 p,float level,float horizontalScale) {":"// Compatibility callers without mesh metadata retain their unregistered model.";
+        source.insert(source.find(before),wrapper);
     }
     if(textureArray) for(unsigned cascade=0;cascade<3;++cascade) {
         const std::string i=std::to_string(cascade);
@@ -700,14 +1164,14 @@ float3 fftVertexDisplacement(float2 p) {return fftVertexDisplacement(p,WaterPara
                     "FftDisplacement" + i + ".SampleLevel(FftSampler" + i
                     + ",float3(" + coordinate + ","
                     + std::to_string(cascade * 2) + "),0)");
-            if (waveHeading && cascade > 0) {
+            if (waveHeading) {
                 const std::string qCoordinate = "q" + coordinate.substr(1);
                 const std::string qSample = "FftDisplacement" + i + ".SampleLevel(FftSampler"
                     + i + "," + qCoordinate + ",0)";
-                source.replace(source.find(qSample), qSample.size(),
-                    "FftDisplacement" + i + ".SampleLevel(FftSampler" + i
-                    + ",float3(" + qCoordinate + ","
-                    + std::to_string(cascade * 2) + "),0)");
+                const std::string replacement="FftDisplacement" + i + ".SampleLevel(FftSampler" + i
+                    + ",float3(" + qCoordinate + "," + std::to_string(cascade * 2) + "),0)";
+                for(size_t at=source.find(qSample);at!=std::string::npos;at=source.find(qSample,at+replacement.size()))
+                    source.replace(at,qSample.size(),replacement);
             }
         }
     return source;
@@ -715,7 +1179,7 @@ float3 fftVertexDisplacement(float2 p) {return fftVertexDisplacement(p,WaterPara
 // Add a water-only wrapper to the generated fixed vertex program. It retains the engine's
 // original projection, shroud coordinate generation and fog after moving the actual vertex.
 inline bool WrapVertex(std::string & hlsl, bool bowLift = WaterBowLift::Enabled(),
-    bool bowShoulder = WaterBowShoulder::Enabled(), bool textureArray = false, bool waveHeading = false)
+    bool bowShoulder = WaterBowShoulder::Enabled(), bool textureArray = false, bool waveHeading = false, bool cleanMain = false)
 {
     const std::string entry="Output main(Input input)";
     const size_t at=hlsl.find(entry);
@@ -723,7 +1187,7 @@ inline bool WrapVertex(std::string & hlsl, bool bowLift = WaterBowLift::Enabled(
         || hlsl.find("float2 TexCoord1")==std::string::npos) return false;
     hlsl.replace(at,entry.size(),"Output waterFixedVertex(Input input)");
     hlsl+=UniformSource("WaterVertexParameters",1);
-    hlsl += VertexSource(bowLift, bowShoulder, textureArray, waveHeading);
+    hlsl += VertexSource(bowLift, bowShoulder, textureArray, waveHeading, cleanMain);
     hlsl+=WaterWaveCageShader::Source(true);
     hlsl+=std::string(R"HLSL(
 Output main(Input input)
@@ -762,15 +1226,32 @@ Output main(Input input)
     return output;
 }
 )HLSL";
+    // A/B experiment only: main-level shared waves replace the analytic seam remainder too.
+    if(waveHeading && (SharedEnabled() || WaterCleanSpectrum::Enabled())) {
+        const std::string old="float originalHeight=input.Position.z-input.TexCoord1.y;";
+        const std::string replacement=old+"\n    if(fftMediumDepthField(parameter).w>0.5)originalHeight=0;";
+        hlsl.replace(hlsl.find(old),old.size(),replacement);
+    }
+    if(waveHeading && WaterCleanSpectrum::Enabled()) {
+        CleanReplace(hlsl,"float2 parameter=input.Position.xy;","float2 parameter=input.Position.xy;\n    FftCleanContext cleanContext=fftCleanContext(parameter);");
+        CleanReplace(hlsl,"if(fftMediumDepthField(parameter).w>0.5)originalHeight=0;","if(cleanContext.depth.w>0.5)originalHeight=0;");
+        CleanReplace(hlsl,"fftVertexBowDisplacement(parameter,input.TexCoord1.y,horizontalWeight*damping,bowHeight)","fftVertexBowDisplacement(parameter,input.TexCoord1.y,horizontalWeight*damping,bowHeight,cleanContext)");
+        CleanReplace(hlsl,"fftVertexDisplacement(parameter,input.TexCoord1.y,horizontalWeight*damping)","fftVertexDisplacement(parameter,input.TexCoord1.y,horizontalWeight*damping,cleanContext)");
+    }
+    if(cleanMain)CleanReplace(hlsl,"if(cleanContext.depth.w>0.5)originalHeight=0;","originalHeight=0;");
+    if(waveHeading && WaterCleanSpectrum::Enabled() && WaterCleanProfile::Get().nodepth)
+        CleanReplace(hlsl,"sincos(FftParameters.w,","sincos((FftParameters.w-16*step(8,FftParameters.w)),");
+    if(waveHeading && WaterCleanSpectrum::Enabled() && WaterCleanProfile::Get().nolong)
+        CleanRemoveRead(hlsl,"FftDisplacement0.SampleLevel(");
     return true;
 }
 
 inline std::string PixelSource(bool bowLift = false, bool bowShoulder = WaterBowShoulder::Enabled(),
     bool textureArray = false,
     WaterFftSpectrum::Configuration configuration = WaterFftSpectrum::ForResolution(WaterFftSpectrum::Resolution),
-    bool waveHeading = false, bool openSea = false)
+    bool waveHeading = false, bool openSea = false, bool cleanMain = false)
 {
-    std::string source=CommonSource()+(bowLift?WaterBowLift::Source():std::string())+WaterVesselWaves::Source(true,bowShoulder)+WaterFftFiltering::Source(configuration)+R"HLSL(
+    std::string source=CommonSource()+(bowLift?WaterBowLift::Source():std::string())+WaterVesselWaves::Source(true,bowShoulder)+WaterFftFiltering::Source(configuration,waveHeading && WaterCleanSpectrum::Enabled())+R"HLSL(
 )HLSL"+(bowLift?R"HLSL(struct FftSurface {
     float3 bow;
     float bowLimitedDelta;
@@ -997,7 +1478,21 @@ float2 fftParameterGradient(float value,float2 px,float2 py) {
     return float2(ddx(value)*py.y-ddy(value)*px.y,ddy(value)*px.x-ddx(value)*py.x)*inverse;
 }
 )HLSL";
-    if (waveHeading) {
+    if(cleanMain) {
+        const size_t begin=source.find("FftSurface fftDecodeSamples("),end=source.find("FftSurface fftSurface(float2 p,float level,float footprint",begin);
+        source.replace(begin,end-begin,CleanHeadingSource(false)+WaterCleanShader::PixelSource(configuration,true)+R"HLSL(
+void fftRawAndShadingSurface(float2 p,float3 lod,out FftSurface physical,out FftSurface shading) {
+    FftCleanContext context=fftCleanContext(p);
+)HLSL"+(WaterCleanShore::Enabled()
+            ?"fftCleanPreparedAndShadingSurface(p,context.depth,lod,context.tiles,physical,shading);"
+            :"fftCleanAndShadingSurface(p,context.depth,lod,physical,shading);")+"\n}\n");
+        const std::string surface="struct FftSurface {";
+        source.insert(source.find(surface)+surface.size(),"\n    float localInfluence,localVariance,mediumBreakFoam;");
+        CleanReplace(source,"fftShadingVariance(shadingLod)*","shading.localVariance*");
+        char threshold[160];std::snprintf(threshold,sizeof(threshold),"float3 shadingLod=fftShadingLod(footprint);shadingLod*=step(%.9g,shadingLod);",double(WaterCleanCollapse::ShadingLod));
+        CleanReplace(source,"float3 shadingLod=fftShadingLod(footprint);",threshold);
+    }
+    if (waveHeading && !cleanMain) {
         // Only rename the position entry points, never fftMapSamples / fftDecodeSamples.
         const size_t begin = source.find("FftSurface fftRawSurface(float2 p,float3 lod)");
         const size_t end = source.find("FftSurface fftSurface(float2 p,float level,float footprint", begin);
@@ -1009,12 +1504,47 @@ float2 fftParameterGradient(float value,float2 px,float2 py) {
                 at + std::strlen(names.second)))
                 raw.replace(at, std::strlen(names.first), names.second);
         source.replace(begin, end - begin, raw + HeadingSource(false,
-            configuration.resolution, openSea) + HeadingPixelSource());
+            configuration.resolution, openSea) + HeadingPixelSource(configuration));
         const std::string surface = "struct FftSurface {";
         source.insert(source.find(surface) + surface.size(), "\n    float localInfluence,localVariance;");
+        // A/B experiment only: incoming phase-locked swell breaking follows the same evaluator.
+        if (OneMediumWindEnabled())
+            source.insert(source.find(surface)+surface.size(), "\n    float mediumBreakFoam;");
         const std::string variance = "fftShadingVariance(shadingLod)*";
         source.replace(source.find(variance), variance.size(),
             "(FftParameters.z< -0.5?fftShadingVariance(shadingLod):(shading.localInfluence>0.0?shading.localVariance:(fftShadingVariance(float3(0,shadingLod.yz))+shading.unresolvedSlopeVariance)))*");
+        // A/B experiment only: unresolved medium/fine power has the same depth gains.
+        if (OneMediumWindEnabled()) {
+            const std::string old="fftShadingVariance(float3(0,shadingLod.yz))";
+            source.replace(source.find(old),old.size(),"fftMediumVariance(p,shadingLod)");
+        }
+    }
+    if(waveHeading && WaterCleanSpectrum::Enabled()) {
+        CleanReplace(source,"FftSurface fftSurface(float2 p,float level,float footprint,float3 horizontalScale) {",
+            "FftSurface fftSurface(float2 p,float level,float footprint,float3 horizontalScale,FftCleanContext context) {");
+        const std::string preparedCall=WaterCleanShore::Enabled()
+            ? "fftCleanPreparedAndShadingSurface(p,context.depth,shadingLod,context.tiles,value,shading)"
+            : "fftCleanAndShadingSurface(p,context.depth,shadingLod,value,shading)";
+        CleanReplace(source,"    fftRawAndShadingSurface(p,shadingLod,value,shading);",
+            (cleanMain?"    "+preparedCall+";":"    if(context.depth.w>.5)"+preparedCall+";else fftRawAndShadingSurface(p,shadingLod,value,shading);"));
+        const std::string before="// Compatibility callers without mesh metadata retain their unregistered model.";
+        source.insert(source.find(before),"FftSurface fftSurface(float2 p,float level,float footprint,float3 horizontalScale) {return fftSurface(p,level,footprint,horizontalScale,fftCleanContext(p));}\n");
+        const auto &profile=WaterCleanProfile::Get();
+        if(profile.nodepth)CleanReplace(source,"sincos(FftParameters.w,","sincos((FftParameters.w-16*step(8,FftParameters.w)),");
+        if(profile.nolong) {CleanRemoveRead(source,"Texture8.SampleLevel(");CleanRemoveRead(source,"Texture9.SampleLevel(");}
+        if(profile.nomips) {
+            CleanReplace(source,"float3 shadingLod=fftShadingLod(footprint);","float3 shadingLod=0;");
+            for(const char *name:{"value.localVariance=","value.unresolvedSlopeVariance="})
+                for(size_t p=source.find(name);p!=std::string::npos;p=source.find(name,p+std::strlen(name)+2)) {size_t e=source.find(';',p);source.replace(p,e-p,std::string(name)+"0");}
+        }
+    }
+    if(waveHeading && WaterCleanSpectrum::Enabled() && !textureArray) {
+        CleanReplace(source,"FftHeadingTexture : register(t11)","FftHeadingTexture : register(t14)");
+        CleanReplace(source,"FftHeadingSampler : register(s11)","FftHeadingSampler : register(s14)");
+        CleanReplace(source,"FftCleanDepth : register(t12)","FftCleanDepth : register(t5)");
+        CleanReplace(source,"FftCleanDepthSampler : register(s12)","FftCleanDepthSampler : register(s5)");
+        CleanReplace(source,"FftCleanRotation : register(t13)","FftCleanRotation : register(t6)");
+        CleanReplace(source,"FftCleanRotationSampler : register(s13)","FftCleanRotationSampler : register(s6)");
     }
     if(textureArray) {
         // Preserve the independent-map source contract used by the coastal decoder and

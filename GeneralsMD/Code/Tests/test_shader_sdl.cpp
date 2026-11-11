@@ -50,6 +50,7 @@
  */
 #include "test_harness.h"
 
+#include <map>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -457,16 +458,28 @@ void checkCompiledWaterUniformLayout(const std::string &source, bool vertex,
     const spvc_type type = spvc_compiler_get_type_handle(compiler, block->base_type_id);
     size_t blockSize = 0;
     CHECK(spvc_compiler_get_declared_struct_size(compiler, type, &blockSize) == SPVC_SUCCESS);
-    CHECK_EQ(blockSize, visual ? sizeof(SdlWaterVisualPixelConstants) : sizeof(SdlWaterPixelConstants));
+    const bool tuning=WaterTuning::Enabled();
+    CHECK_EQ(blockSize, tuning ? (visual?sizeof(SdlWaterTunedVisualPixelConstants):sizeof(SdlWaterTunedPixelConstants))
+        : (visual?sizeof(SdlWaterVisualPixelConstants):sizeof(SdlWaterPixelConstants)));
     const unsigned commonMembers = sizeof(WaterUniformMembers) / sizeof(WaterUniformMembers[0]);
     const unsigned memberCount = spvc_type_get_num_member_types(type);
-    CHECK_EQ(memberCount, commonMembers + (visual ? 1u : 0u));
+    const WaterUniformMember tuningMembers[]={
+        {"WaterTuningDepth",sizeof(SdlWaterPixelConstants)+offsetof(SdlWaterTuningConstants,WaterTuningDepth),16},
+        {"WaterTuningChop",sizeof(SdlWaterPixelConstants)+offsetof(SdlWaterTuningConstants,WaterTuningChop),16},
+        {"WaterTuningLook",sizeof(SdlWaterPixelConstants)+offsetof(SdlWaterTuningConstants,WaterTuningLook),16},
+        {"WaterTuningRms",sizeof(SdlWaterPixelConstants)+offsetof(SdlWaterTuningConstants,WaterTuningRms),16},
+        {"WaterTuningVariance",sizeof(SdlWaterPixelConstants)+offsetof(SdlWaterTuningConstants,WaterTuningVariance),9*16},
+        {"WaterTuningShore",sizeof(SdlWaterPixelConstants)+offsetof(SdlWaterTuningConstants,WaterTuningShore),16},
+        {"WaterTuningHeading",sizeof(SdlWaterPixelConstants)+offsetof(SdlWaterTuningConstants,WaterTuningHeading),16}};
+    const unsigned tuningCount=tuning?7:0;
+    CHECK_EQ(memberCount, commonMembers + tuningCount + (visual ? 1u : 0u));
     for (unsigned i = 0; i < memberCount; ++i) {
         const WaterUniformMember metadata = { "VisualHullMeta",
-            offsetof(SdlWaterVisualPixelConstants, VisualHullMeta),
+            tuning?offsetof(SdlWaterTunedVisualPixelConstants,VisualHullMeta):offsetof(SdlWaterVisualPixelConstants, VisualHullMeta),
             sizeof(((SdlWaterVisualPixelConstants *)NULL)->VisualHullMeta) };
-        if (i >= commonMembers && (!visual || i != commonMembers)) continue;
-        const WaterUniformMember &expected = i < commonMembers ? WaterUniformMembers[i] : metadata;
+        if(i>=commonMembers+tuningCount && (!visual || i!=commonMembers+tuningCount))continue;
+        const WaterUniformMember &expected=i<commonMembers?WaterUniformMembers[i]
+            : i<commonMembers+tuningCount?tuningMembers[i-commonMembers]:metadata;
         const char *name = spvc_compiler_get_member_name(compiler, block->base_type_id, i);
         unsigned offset = 0;
         size_t size = 0;
@@ -570,6 +583,8 @@ TEST(fft_spectral_power_bands_partition_and_join_smoothly)
 
 TEST(fft_generated_spectrum_has_normalized_separated_directional_energy)
 {
+    // A/B experiment only: clean statistics have a separate spectrum oracle in the water target.
+    if(WaterCleanSpectrum::Enabled())return;
 	using namespace WaterFftSpectrum;
 	const std::vector<float> initial=InitialSpectrum(),again=InitialSpectrum();
 	CHECK(initial==again); // repeated generation must not consume gameplay RNG/state
@@ -637,6 +652,9 @@ TEST(fft_generated_spectrum_has_normalized_separated_directional_energy)
 
 TEST(fft_generated_spectrum_preserves_real_field_and_energy_over_time)
 {
+    // A/B experiment only: full Hasselmann spreading has both propagation branches;
+    // its seeded RMS is an ensemble budget, not the one-way Phillips time-invariant norm.
+    if(WaterCleanSpectrum::Enabled())return;
 	using namespace WaterFftSpectrum;using Complex=std::complex<double>;
 	const auto initial=InitialSpectrum();const unsigned n=Resolution,texels=n*n;
 	const double times[]={0.0,2.75,61.0};
@@ -1746,13 +1764,14 @@ TEST(fft_low_tier_preserves_energy_reality_and_filtering)
             const double kx=2*Pi*(int(x)-int(n/2))/Sizes[c],ky=2*Pi*(int(y)-int(n/2))/Sizes[c];
             energy+=power;slope+=power*(kx*kx+ky*ky);
         }
-        CHECK(std::abs(std::sqrt(energy)*WorldScale-HeightRms[c])<HeightRms[c]*2e-7);
+        if(!(WaterCleanSpectrum::Enabled() && WaterCleanSpectrum::SpectrumSplit()))
+            CHECK(std::abs(std::sqrt(energy)*WorldScale-HeightRms[c])<HeightRms[c]*2e-7);
         CHECK(std::abs(variance[7][c]-slope)<1e-10*(1+slope));
         CHECK(variance[0][c]==0 && variance[8][c]==0);
     }
     CHECK(ButterflyHlsl(configuration).find("/7.0,")!=std::string::npos);
     const std::string filtering=WaterFftFiltering::Source(configuration);
-    CHECK(filtering.find("fftLostSlopeVariance[8]")!=std::string::npos);
+    CHECK(filtering.find(WaterTuning::Enabled()?"#define fftLostSlopeVariance WaterTuningVariance":"fftLostSlopeVariance[8]")!=std::string::npos);
     CHECK(filtering.find("*128.0/")!=std::string::npos);
     CHECK(filtering.find("level,6)")!=std::string::npos);
 }
@@ -1883,6 +1902,39 @@ TEST(water_material_profiles_compile_preserve_coverage_and_shared_defaults)
     Mode unchanged=Full;CHECK(!Parse("low",unchanged) && unchanged==Full);
 }
 
+TEST(water_protected_sampling_source_hashes)
+{
+    if(WaterCleanSpectrum::Enabled())return;
+    uint64_t hash=1469598103934665603ull;
+    const auto add=[&](const std::string &source){for(unsigned char c:source){hash^=c;hash*=1099511628211ull;}};
+    for(bool lift:{false,true})for(bool shoulder:{false,true})for(bool array:{false,true})for(bool heading:{false,true}) {
+        add(WaterFftSampling::VertexSource(lift,shoulder,array,heading));
+        for(unsigned resolution:{128u,256u})add(WaterFftSampling::PixelSource(lift,shoulder,array,WaterFftSpectrum::ForResolution(resolution),heading));
+    }
+    const uint64_t expected=WaterFftSampling::SharedEnabled()?0x692f0c5c6af7c3d1ull:
+        WaterFftSampling::WindRequested()?0x68746f3e518fd87bull:0x6ffc0ab0ecd4ecb7ull;
+    CHECK(hash==expected);
+}
+
+// Frozen from the dirty tree before water quality was introduced (48 sources).
+TEST(water_clean_high_sampling_source_hash)
+{
+    if(!WaterCleanSpectrum::Enabled() || WaterCleanProfile::Key(WaterCleanProfile::Environment()) ||
+        WaterTuning::Enabled() || std::getenv("ZH_WATER_CLEAN_OPT") || std::getenv("ZH_WATER_SHORE_FORCE"))return;
+    struct Restore {WaterCleanProfile::Flags flags=WaterCleanProfile::Get();
+        ~Restore(){WaterCleanProfile::Applied()=flags;}} restore;
+    WaterCleanProfile::Apply(2,true,true);
+    uint64_t hash=1469598103934665603ull;
+    const auto add=[&](const std::string &source){for(unsigned char c:source){hash^=c;hash*=1099511628211ull;}};
+    for(bool lift:{false,true})for(bool shoulder:{false,true})for(bool array:{false,true})for(bool main:{false,true}) {
+        add(WaterFftSampling::VertexSource(lift,shoulder,array,true,main));
+        for(unsigned resolution:{128u,256u})
+            add(WaterFftSampling::PixelSource(lift,shoulder,array,WaterFftSpectrum::ForResolution(resolution),true,false,main));
+    }
+    CHECK(hash==0xe2dca63fcd25d99dull);
+}
+
+static void checkCleanSpecialized(const char *view);
 TEST(water_material_profiles_compile_with_every_public_water_tier)
 {
     using namespace WaterMaterialProfile;
@@ -1905,6 +1957,7 @@ TEST(water_material_profiles_compile_with_every_public_water_tier)
                 const bool compiled=SDL3_Compile_HLSL_To_SPIRV(source,false,spirv,error);
                 if(!compiled) printf("profile/tier %s/%u/%u/%u program%d: %s\n",Name(Applied()),resolution,refraction,reflections,program,error.c_str());
                 CHECK(compiled);++variants;
+                if(WaterCleanSpectrum::Enabled() && program==ENGINE_SHADER_WATER_TRAPEZOID)checkCleanSpecialized("tier");
             }
     CHECK(variants==168);
 }
@@ -2050,7 +2103,8 @@ TEST(fft_open_sea_changes_only_the_pixel_local_fields_early_return)
                         append(WaterFftSampling::PixelSource(bow, shoulder, array,
                             WaterFftSpectrum::ForResolution(resolution), heading));
                 }
-    CHECK(hash == 0xf9efcf17fb55bd85ull);
+    // A/B experiment only: the frozen hash guards the default; wind intentionally changes these programs.
+    if (!WaterFftSampling::OneMediumWindEnabled()) CHECK(hash == 0xf9efcf17fb55bd85ull);
     SavedShaderOption fft("ZH_WATER_FFT"), debug("ZH_WATER_DEBUG");
     CHECK(unsetenv(fft.name) == 0);
     CHECK(unsetenv(debug.name) == 0);
@@ -2115,9 +2169,19 @@ TEST(fft_heading_linux_bindings_compile_and_leave_d3d_and_rivers_unheaded)
             printf("headed vertex: %s\n", error.c_str());
         CHECK(compiled);
         if (compiled) {
+            const char *validator=getenv("ZH_SPIRV_VAL");
+            if(validator && *validator)CHECK(validate(validator,spirv,error));
             unsigned samplers = 0, buffers = 0;
             SDL3_Shader_Slots(spirv, true, samplers, buffers);
-            CHECK_EQ(samplers, 5u);
+            // SDL3_Shader_Slots scans every decorated binding, including unused
+            // declarations. Clean non-nodepth emits D at 5 and rotation at 6 even
+            // for noshore/flatvertex; the descriptor span does not count executed reads.
+            const bool cacheBindings=WaterCleanSpectrum::Enabled() && !WaterCleanProfile::Get().nodepth;
+            const unsigned expectedSamplers=cacheBindings?7u:5u;
+            CHECK((vertex.find("FftCleanDepth : register(t5")!=std::string::npos)==cacheBindings);
+            CHECK((vertex.find("FftCleanRotation : register(t6")!=std::string::npos)==cacheBindings);
+            if(samplers!=expectedSamplers)printf("headed vertex array%d sampler span: actual %u expected %u\n",int(array),samplers,expectedSamplers);
+            CHECK_EQ(samplers, expectedSamplers);
             CHECK_EQ(buffers, 2u);
             std::string msl, why;
             CHECK(SDL3_Translate_SPIRV_To_MSL(spirv, true, msl, error));
@@ -2144,7 +2208,7 @@ TEST(fft_heading_linux_bindings_compile_and_leave_d3d_and_rivers_unheaded)
     CHECK(pixel.find("fine=fftWindSurface(p,0)") != std::string::npos);
     CHECK(WaterFftSampling::HeadingPixelSource().find("Texture12.SampleLevel(Sampler12,q/(13.0*fftWorldScale),lod)") != std::string::npos);
     const std::string chop = WaterFftSampling::HeadingPixelSource();
-    CHECK(chop.find("Texture8.") == std::string::npos
+    if(!WaterCleanSpectrum::Enabled())CHECK(chop.find("Texture8.") == std::string::npos
         && chop.find("Texture9.") == std::string::npos);
     CHECK(chop.find("fftSwell(p,lod.x)") != std::string::npos);
     CHECK(chop.find("value.contactIncident=") != std::string::npos);
@@ -2163,6 +2227,8 @@ TEST(fft_heading_linux_bindings_compile_and_leave_d3d_and_rivers_unheaded)
         printf("headed pixel: %s\n", error.c_str());
     CHECK(compiled);
     if (compiled) {
+        const char *validator=getenv("ZH_SPIRV_VAL");
+        if(validator && *validator)CHECK(validate(validator,spirv,error));
         unsigned samplers = 0, buffers = 0;
         SDL3_Shader_Slots(spirv, false, samplers, buffers);
         const char *surf = getenv("ZH_WATER_SURF_GPU");
@@ -2175,6 +2241,8 @@ TEST(fft_heading_linux_bindings_compile_and_leave_d3d_and_rivers_unheaded)
 
 TEST(fft_local_water_preserves_original_swell_medium_and_compiles_numerical_fixture)
 {
+    // A/B experiment only: retain all frozen comparisons for the default evaluator.
+    if (!WaterFftSampling::OneMediumWindEnabled()) {
     for (bool vertex :{false, true})
         for (unsigned resolution :{128u, 256u}) {
             std::string original = WaterHeadingLegacyReference::HeadingSource(vertex, resolution);
@@ -2258,6 +2326,7 @@ TEST(fft_local_water_preserves_original_swell_medium_and_compiles_numerical_fixt
     CHECK(windPixel.find("swell") == std::string::npos);
     CHECK(windPixel.find("contactIncident") == std::string::npos);
     CHECK(windPixel.find("incidentCompression") == std::string::npos);
+    }
     const std::string local = WaterFftSampling::LocalSource();
     CHECK(local.find("fftMediumModes") == std::string::npos);
     CHECK(local.find("fftPacket") == std::string::npos);
@@ -2283,8 +2352,16 @@ TEST(fft_local_water_preserves_original_swell_medium_and_compiles_numerical_fixt
     if (!coastCompiled)
         printf("local analytic coastal correction: %s\n", coastalError.c_str());
     CHECK(coastCompiled);
+    // A/B experiment only: the clean three-band evaluator is compiled in the dedicated view test.
+    if(WaterCleanSpectrum::Enabled())return;
     for (unsigned resolution :{128u, 256u}) {
-        const std::string source = WaterLocalWaveTest::PixelSource(64, resolution);
+        std::string source = WaterLocalWaveTest::PixelSource(64, resolution);
+        // A/B experiment only: the assembled fixture needs the production struct extension.
+        if (WaterFftSampling::OneMediumWindEnabled()) {
+            WaterLocalWaveTest::ReplaceAll(source,"struct FftSurface {","struct FftSurface {float mediumBreakFoam;");
+            WaterLocalWaveTest::ReplaceAll(source,"fftLocalSurface(original,f,","fftLocalSurface(p,original,f,");
+            WaterLocalWaveTest::ReplaceAll(source,"fftLocalSurface(original,route,","fftLocalSurface(p,original,route,");
+        }
         std::vector<unsigned char> spirv;
         std::string error, msl;
         const bool compiled = SDL3_Compile_HLSL_To_SPIRV(source, false, spirv, error);
@@ -2405,3 +2482,375 @@ TEST(shared_cloud_programs_compile_validate_and_translate)
 		CHECK_EQ(uniforms, program.first == HazardCloud::vertexShader() ? 0u : 1u);
 	}
 }
+
+#if defined(__linux__)
+// A/B experiment only: compile each new view through ShaderCross and retain the sampler contract.
+TEST(water_medium_experiment_depth_bands_breaking_and_debug_views_compile)
+{
+    SavedShaderOption debug("ZH_WATER_DEBUG");
+    const bool medium=WaterFftSampling::OneMediumWindEnabled();
+    PixelPipelineDescription pipeline={};
+    for(const char *view:{"medium-depth","band-gains","break-foam","field-offshore","field-depth",
+        "field-heading","field-phase","field-sectors","wave-masks","wave-masks2",
+        "shared-amplitude","shared-direction","shared-height",
+        "clean-bands","clean-jacobian","clean-roughness","clean-shore","clean-height"}) {
+        CHECK(setenv(debug.name,view,1)==0);
+        std::string source,error,msl,why;std::vector<unsigned char> spirv;
+        CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,source,COMBINER_SHADER_TARGET_SDL3_GPU));
+        CHECK((source.find("#define WATER_ONE_MEDIUM 1")!=std::string::npos)==medium);
+        CHECK(source.find("mediumTerrainHeight")==std::string::npos);
+        if(medium) {
+            CHECK(source.find("float4 fftMediumDepthField(float2 p)")!=std::string::npos);
+            CHECK(source.find("crest-0.20*D")!=std::string::npos);
+            CHECK(source.find("fftMediumFlowSurface")!=std::string::npos);
+        }
+        // A/B experiment only: CLEAN takes precedence; all three unrotated bands are live.
+        if(WaterCleanSpectrum::Enabled()) {
+            CHECK(!WaterFftSampling::SharedEnabled());
+            CHECK(source.find("fftCleanAndShadingSurface(p,cleanDepth,lod,physical,shading)")!=std::string::npos);
+            CHECK(source.find("if (mediumDepthField.w>0.5) localTerrain=1.0;")!=std::string::npos);
+            CHECK(source.find("fftCleanLook.z*unresolvedSlopeVariance")!=std::string::npos);
+            CHECK((source.find("spectral.shadingDisplacement.z)/heightRms")!=std::string::npos)==!WaterCleanProfile::Get().nosss);
+        }
+        if(WaterFftSampling::SharedEnabled()) {
+            CHECK(source.find("FftSharedWave fftSharedWave(float2 p,float footprint)")!=std::string::npos);
+            CHECK(source.find("side+2*at.y+word/4")!=std::string::npos);
+            CHECK(source.find("if(mediumDepthField.w>0.5) {analyticRemainder=false;waveModel=1.0;}")!=std::string::npos);
+            CHECK(source.find("if (mediumDepthField.w>0.5) localTerrain=1.0;")!=std::string::npos);
+            CHECK(source.find("mediumBreakFoam=(mediumDepthField.w>0.5?0.0:spectral.mediumBreakFoam)")!=std::string::npos);
+        } else CHECK(source.find("FftSharedWave")==std::string::npos);
+        const bool compiled=SDL3_Compile_HLSL_To_SPIRV(source,false,spirv,error);
+        if(!compiled)printf("medium debug %s: %s\n",view,error.c_str());
+        CHECK(compiled);if(!compiled)continue;
+        unsigned samplers=0,buffers=0;SDL3_Shader_Slots(spirv,false,samplers,buffers);
+        const char *validator=getenv("ZH_SPIRV_VAL");
+        if(validator&&*validator)CHECK(validate(validator,spirv,error));
+        CHECK(SDL3_Translate_SPIRV_To_MSL(spirv,false,msl,error));
+        CHECK(slots_kept(msl,samplers,why));
+        CHECK(samplers<=16);
+        if(WaterCleanSpectrum::Enabled())checkCleanSpecialized(view);
+    }
+}
+#endif
+
+#if defined(__linux__)
+TEST(water_clean_live_tuning_nondefault)
+{
+    if(!WaterTuning::Enabled())return;
+    using namespace WaterTuning;
+    struct Restore {Values saved=Current();~Restore(){Apply(saved);}} restore;
+    Values defaults;Apply(defaults);
+    const auto defaultConfig=WaterFftSpectrum::ForResolution(128);
+    CHECK(WaterFftSpectrum::InitialSpectrum(defaultConfig,true)==WaterFftSpectrum::CleanInitialSpectrum(
+        defaultConfig,WaterCleanSpectrum::Settings(),WaterCleanSpectrum::SpectrumSplit()));
+    Values changed=Parse("wind_speed=19\nfetch=80000\nswell=1.8\ntravel_angle=70\ntravel_mode=manual\n"
+        "height_long=2.4\nheight_medium=1.1\nheight_fine=.32\nsplit=spectrum\nchop_long=.8\nchop_short=2.1\n"
+        "wave_speed=.9\ndepth_long=35\ndepth_medium=17\ndepth_fine=7\ncrest_color=.6\nfoam_threshold=.88\nglint=3.2\n"
+        "sea2_share=.4\nsea2_angle=70\nsea2_wavelength=800\nsea2_spread=3\nspread=2\nshore_turn=.8\nshore_reach=1200\nshore_tile=850\nshore_sharp=5\nshore_bands=long_medium\nshore_max_turn=35\nheading_follow=.35\n",
+        Current(),[](unsigned,const char*){CHECK(false);});
+    const auto config=WaterFftSpectrum::ForResolution(128);
+    const auto before=WaterFftSpectrum::InitialSpectrum(config,true);
+    const auto oldVariance=WaterFftFiltering::SpectrumVariance(config,true);
+    PixelPipelineDescription pipeline={};std::string original;
+    CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,original,COMBINER_SHADER_TARGET_SDL3_GPU));
+    CHECK(Apply(changed)==Count-1); // spectrum split is already the approved default
+    CHECK(before!=WaterFftSpectrum::InitialSpectrum(config,true));
+    CHECK(oldVariance!=WaterFftFiltering::SpectrumVariance(config,true));
+    for(bool split:{false,true}) {
+        changed.value[Split]=split;Apply(changed);
+        for(unsigned resolution:{128u,256u}) {
+            const auto rms=WaterFftSpectrum::SpectrumHeightRms(WaterFftSpectrum::InitialSpectrum(WaterFftSpectrum::ForResolution(resolution),true));
+            double total=0,target=0;
+            for(unsigned c=0;c<3;++c) {
+                total+=rms[c]*rms[c];target+=changed.value[HeightLong+c]*changed.value[HeightLong+c];
+                if(!split)CHECK_NEAR(rms[c],changed.value[HeightLong+c],1e-6);
+            }
+            CHECK_NEAR(total,target,1e-5);
+        }
+    }
+    std::string source,log;std::vector<unsigned char> spirv;
+    CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,source,COMBINER_SHADER_TARGET_SDL3_GPU));
+    // Values live in the uploaded block: no material source/key changes while dragging.
+    CHECK(source==original);
+    CHECK(source.find("WaterTuningDepth.x,mediumDepth")!=std::string::npos);
+    CHECK(source.find("#define fftLostSlopeVariance WaterTuningVariance")!=std::string::npos);
+    CHECK(SDL3_Compile_HLSL_To_SPIRV(source,false,spirv,log));
+    checkCompiledWaterUniformLayout(source,false,"CombinerConstants",WaterHullVisual::Enabled());
+    VertexPipelineDescription vertexDescription=shader_cases_detail::plain_vertex();
+    vertexDescription.FVF=0x252;vertexDescription.StageCount=4;
+    CHECK(VertexShader_Generate(vertexDescription,VERTEX_SHADER_TARGET_D3D11,source));
+    CHECK(WaterFftSampling::WrapVertex(source,false,false,true,true));
+    CHECK(SDL3_Shader_Retarget(source,true));
+    CHECK(SDL3_Compile_HLSL_To_SPIRV(source,true,spirv,log));
+    checkCompiledWaterUniformLayout(source,true,"WaterVertexParameters",false);
+    // Speed edits retain phase at the preceding frame's time.
+    const float phase=WaterFftSampling::PhaseTime(10);
+    changed.value[WaveSpeed]=.3;Apply(changed);
+    CHECK_NEAR(WaterFftSampling::PhaseTime(10),phase,1e-5);
+    CHECK_NEAR(WaterFftSampling::PhaseTime(11),phase+.3,1e-5);
+}
+#endif
+
+#if defined(__linux__)
+static void checkCleanSamplerBindings(const std::vector<unsigned char> &spirv,bool vertex,bool array)
+{
+    std::vector<SpvId> words(spirv.size()/4);memcpy(words.data(),spirv.data(),spirv.size());
+    spvc_context context=NULL;CHECK(spvc_context_create(&context)==SPVC_SUCCESS);if(!context)return;
+    spvc_parsed_ir ir=NULL;spvc_compiler compiler=NULL;spvc_resources resources=NULL;
+    const bool parsed=spvc_context_parse_spirv(context,words.data(),words.size(),&ir)==SPVC_SUCCESS
+        && spvc_context_create_compiler(context,SPVC_BACKEND_NONE,ir,SPVC_CAPTURE_MODE_TAKE_OWNERSHIP,&compiler)==SPVC_SUCCESS
+        && spvc_compiler_create_shader_resources(compiler,&resources)==SPVC_SUCCESS;
+    CHECK(parsed);
+    if(parsed) {
+        const spvc_reflected_resource *images=NULL;size_t count=0;
+        CHECK(spvc_resources_get_resource_list_for_type(resources,SPVC_RESOURCE_TYPE_SEPARATE_IMAGE,&images,&count)==SPVC_SUCCESS);
+        std::map<unsigned,std::string> occupied;
+        for(size_t i=0;i<count;++i) {
+            const std::string name=images[i].name;const unsigned slot=spvc_compiler_get_decoration(compiler,images[i].id,SpvDecorationBinding);
+            CHECK(slot<16);CHECK(occupied.emplace(slot,name).second);
+            if(name=="FftCleanDepth")CHECK_EQ(slot,vertex?5u:(array?12u:5u));
+            if(name=="FftCleanRotation")CHECK_EQ(slot,vertex?6u:(array?13u:6u));
+            if(name=="FftHeadingTexture")CHECK_EQ(slot,vertex?4u:(array?11u:14u));
+        }
+    }
+    spvc_context_destroy(context);
+}
+static void checkCleanSpecialized(const char *view)
+{
+    PixelPipelineDescription pipeline={};std::string source,error,msl;std::vector<unsigned char> spirv;
+    const char *validator=getenv("ZH_SPIRV_VAL");
+    CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,source,COMBINER_SHADER_TARGET_SDL3_GPU,false,true));
+    for(const char *forbidden:{"waterOceanSurface(","waterWave(","waterShoreWave(","waterShoreWaveFront(",
+        "fftSwell(","fftLocalArrival(","fftLocalWaves(","fftMediumFlow(","fftChopSurface(",
+        "analyticRemainder","waveModel","mediumDepthField.w","context.depth.w","cleanDepth.w"}) {
+        if(source.find(forbidden)!=std::string::npos)printf("specialized %s retained %s\n",view,forbidden);
+        CHECK(source.find(forbidden)==std::string::npos);
+    }
+    CHECK(source.find("return float4(1e9,0,0,1);")!=std::string::npos);
+    if(WaterCleanShore::Enabled()) {
+        CHECK(source.find("t.collapsed=")!=std::string::npos);
+        CHECK(source.find("tiles.angleGradient.x")!=std::string::npos);
+        const auto &opt=WaterCleanOpt::Get();
+        if(opt.stream) {
+            CHECK(source.find("float2 vertex[3]")==std::string::npos);
+            CHECK(source.find("float2 rotation[3]")==std::string::npos);
+            CHECK(source.find("float angle[3]")==std::string::npos);
+            CHECK(source.find("return float4(1,0,0,1);")!=std::string::npos);
+            CHECK(source.find("v.rotation=fftTileRotation(tiles,i).xy;")!=std::string::npos);
+            CHECK(source.find("fftShoreStreamSurface(")!=std::string::npos || opt.fused);
+        } else CHECK(source.find("t.rotation[i]=float2(1,0);t.angle[i]=0;")!=std::string::npos);
+        CHECK((source.find("[loop]for(int i=0;i<3;++i)")!=std::string::npos ||
+            source.find("[loop] for(int i=0;i<(tiles.collapsed?1:3);++i)")!=std::string::npos)==opt.loop);
+        CHECK((source.find("min16float3")!=std::string::npos)==opt.half);
+        CHECK((source.find("if(band==2) {d.xy=0;x.xy=0;y.xy=0;}")!=std::string::npos)==opt.finelite);
+        if(opt.fused)CHECK(source.find("fftShoreAddPair(physical,shading,v,")!=std::string::npos);
+    }
+    if(!WaterCleanProfile::Get().nomips)CHECK(source.find("shadingLod*=step(0.25,shadingLod);")!=std::string::npos);
+    if(strcmp(view,"none")==0)checkCompiledWaterUniformLayout(source,false,"CombinerConstants",source.find("float4 VisualHullMeta")!=std::string::npos);
+    const bool compiled=SDL3_Compile_HLSL_To_SPIRV(source,false,spirv,error);
+    if(!compiled)printf("specialized clean material %s: %s\n",view,error.c_str());CHECK(compiled);
+    if(compiled) {
+        checkCleanSamplerBindings(spirv,false,true);
+        if(validator&&*validator)CHECK(validate(validator,spirv,error));
+        CHECK(SDL3_Translate_SPIRV_To_MSL(spirv,false,msl,error));
+        if(strcmp(view,"none")==0) {
+            unsigned instructions=0;uint32_t bound=0;memcpy(&bound,spirv.data()+12,4);
+            for(size_t i=5;i<spirv.size()/4;) {
+                uint32_t op;memcpy(&op,spirv.data()+4*i,4);if(!(op>>16))break;
+                ++instructions;i+=op>>16;
+            }
+            printf("clean main %s: %zu SPIR-V words, %u instructions, ID bound %u (not hardware registers)\n",
+                WaterCleanOpt::Describe(WaterCleanOpt::Get()).c_str(),spirv.size()/4,instructions,bound);
+        }
+        if(WaterCleanShore::Enabled() && WaterCleanOpt::Get().half) {
+            bool relaxed=false;
+            for(size_t i=5;i<spirv.size()/4;) {
+                const auto word=[&](size_t j) {uint32_t w;memcpy(&w,spirv.data()+4*j,4);return w;};
+                const uint32_t op=word(i),count=op>>16;
+                if((op&0xffff)==71 && count>=3 && word(i+2)==0)relaxed=true; // OpDecorate RelaxedPrecision
+                if(!count)break;i+=count;
+            }
+            CHECK(relaxed);
+        }
+    }
+    if(strcmp(view,"none")!=0)return;
+    for(bool array:{false,true})for(bool lift:{false,true}) {
+        source=WaterFftSampling::PixelSource(lift,WaterBowShoulder::Enabled(),array,WaterFftSpectrum::ForResolution(128),true,false,true);
+        std::string standalone=WaterFftSampling::UniformSource("WaterTest",0);
+        if(array)standalone+="Texture2DArray OceanMaps : register(t8);SamplerState OceanSampler : register(s8);\n";
+        else for(unsigned i=8;i<14;++i)standalone+="Texture2D Texture"+std::to_string(i)+" : register(t"+std::to_string(i)+");SamplerState Sampler"+std::to_string(i)+" : register(s"+std::to_string(i)+");\n";
+        standalone+=source+"\nfloat4 main(float2 p:TEXCOORD0):SV_Target {FftSurface v=fftSurface(p,WaterParameters.w,1);return float4(v.displacement+v.shadingDerivativeX+v.shadingDerivativeY+v.unresolvedSlopeVariance,1);}";
+        CHECK(SDL3_Shader_Retarget(standalone,false));
+        bool ok=SDL3_Compile_HLSL_To_SPIRV(standalone,false,spirv,error);
+        if(!ok)printf("specialized maps array%d lift%d: %s\n",int(array),int(lift),error.c_str());CHECK(ok);
+        if(ok){checkCleanSamplerBindings(spirv,false,array);if(validator&&*validator)CHECK(validate(validator,spirv,error));CHECK(SDL3_Translate_SPIRV_To_MSL(spirv,false,msl,error));}
+        VertexPipelineDescription vertex=shader_cases_detail::plain_vertex();vertex.FVF=0x252;vertex.StageCount=4;
+        CHECK(VertexShader_Generate(vertex,VERTEX_SHADER_TARGET_D3D11,source));
+        CHECK(WaterFftSampling::WrapVertex(source,lift,WaterBowShoulder::Enabled(),array,true,true));
+        CHECK(source.find("context.depth.w")==std::string::npos);
+        CHECK(source.find("fftSwell(")==std::string::npos && source.find("fftLocalArrival(")==std::string::npos);
+        CHECK(source.find("originalHeight=0;")!=std::string::npos);
+        CHECK(SDL3_Shader_Retarget(source,true));
+        ok=SDL3_Compile_HLSL_To_SPIRV(source,true,spirv,error);
+        if(!ok)printf("specialized vertex array%d lift%d: %s\n",int(array),int(lift),error.c_str());CHECK(ok);
+        if(ok){checkCleanSamplerBindings(spirv,true,array);if(validator&&*validator)CHECK(validate(validator,spirv,error));CHECK(SDL3_Translate_SPIRV_To_MSL(spirv,true,msl,error));}
+    }
+}
+
+TEST(water_clean_profile_and_shore_compile)
+{
+    if(!WaterCleanSpectrum::Enabled())return;
+    const auto &flags=WaterCleanProfile::Get();const char *validator=getenv("ZH_SPIRV_VAL");
+    SavedShaderOption debug("ZH_WATER_DEBUG");
+    for(const char *view:{"none","clean-shore","clean-height","clean-bands","clean-jacobian","clean-roughness"}) {
+        CHECK(setenv(debug.name,view,1)==0);
+        checkCleanSpecialized(view);
+        PixelPipelineDescription pipeline={};std::string source,error,msl,why;std::vector<unsigned char> spirv;
+        CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,source,COMBINER_SHADER_TARGET_SDL3_GPU));
+        if(WaterCleanShore::Enabled()) {
+            CHECK(source.find("float shoreAngle=clamp(delta*fftShoreSettings.x*smoothstep(.02,.15,field.z)*(1-smoothstep(0,fftShoreSettings.y,field.w)),-fftShoreMaxTurn,fftShoreMaxTurn);")!=std::string::npos);
+            CHECK(source.find("float2 g=fftSwellField(t.vertex[i]).yz;")!=std::string::npos);
+            CHECK(source.find("t.angle[i]=fftHeadingFollow*delta;")!=std::string::npos);
+            CHECK(source.find("t.angle[i]+=shoreAngle;")!=std::string::npos);
+            CHECK(source.find("if(fftHeadingFollow==0 && fftShoreSettings.x==0)return t;")!=std::string::npos);
+            CHECK(source.find("width/5")==std::string::npos && source.find("width/6")==std::string::npos);
+            CHECK(source.find("float2(at.x*7,at.y)")!=std::string::npos);
+            CHECK(source.find("if(!fftShoreFine) {samples.c=")!=std::string::npos);
+            CHECK(source.find("if(fftShoreFine)fftShorePairedBand(physical,shading,p,tiles,2,lod.z,")!=std::string::npos);
+            CHECK(source.find("physical=fftShoreSurface(p,depth,0,tiles);shading=physical;")==std::string::npos);
+            CHECK(source.find("if(any(lod>0))shading=fftShoreSurface(p,depth,lod,tiles);")==std::string::npos);
+            CHECK(source.find("FftSurface shadingBand=physicalBand;")!=std::string::npos);
+            CHECK(source.find("if(lod>0) {")!=std::string::npos);
+            CHECK(source.find("if(!fftShoreLong && lod.x>0)")!=std::string::npos);
+            CHECK(source.find("if(!fftShoreFine && lod.z>0)")!=std::string::npos);
+            CHECK(source.find("fftShoreFinish(physical);fftShoreFinish(shading);")!=std::string::npos);
+            CHECK(source.find("FftCleanRotation.SampleLevel(FftCleanRotationSampler,")!=std::string::npos);
+            CHECK(source.find("t.rotation[i]=cached.xy;t.angle[i]=cached.z;")!=std::string::npos);
+            CHECK(source.find("all(cacheIndex>=0) && all(cacheIndex<int2(rotationWidth,rotationHeight))")!=std::string::npos);
+            CHECK(source.find("fftRotate(p-tiles.vertex[i],inverseRotation)")!=std::string::npos);
+            CHECK(source.find("fftShoreDebug(cleanContext.tiles)")!=std::string::npos || strcmp(view,"clean-shore")!=0);
+            if(!flags.nomips)CHECK(source.find("fftShadingVariance(float3(0,0,lod.z))*fineGain.x*fineGain.x")!=std::string::npos);
+            if(WaterTuning::Enabled()) {
+                CHECK(source.find("#define fftHeadingFollow WaterTuningChop.z")!=std::string::npos);
+                CHECK(source.find("#define fftShoreMaxTurn WaterTuningHeading.w")!=std::string::npos);
+                CHECK(source.find("#define fftShoreFine (WaterTuningHeading.z>1.5)")!=std::string::npos);
+            } else {
+                const auto bands=WaterCleanShore::Get().bands;
+                CHECK(source.find(std::string("static const bool fftShoreLong=")+(bands>=1?"true;":"false;"))!=std::string::npos);
+                CHECK(source.find(std::string("static const bool fftShoreFine=")+(bands>=2?"true;":"false;"))!=std::string::npos);
+            }
+        }
+        CHECK(source.find("FftCleanContext cleanContext=fftCleanContext(wavePosition);")!=std::string::npos);
+        CHECK(source.find("float4 mediumDepthField=cleanContext.depth;")!=std::string::npos);
+        CHECK(source.find("horizontalScale,cleanContext)")!=std::string::npos);
+        CHECK(source.find("fftRawAndShadingSurface(reflected.samplePosition,shadingLod,incident,shadingIncident)")!=std::string::npos);
+        if(!flags.nodepth) {
+            CHECK(source.find("FftCleanDepth : register(t12")!=std::string::npos);
+            CHECK(source.find("FftCleanRotation : register(t13")!=std::string::npos);
+            CHECK(source.find("(cell+.5)/float2(width,height),0).r")!=std::string::npos);
+            CHECK(source.find("(coefficients.xy+coefficients.z*f.yx)*scale*inside")!=std::string::npos);
+            CHECK(source.find("if(width<2 || height<2)return fftCleanLegacyDepthField(p);")!=std::string::npos);
+            CHECK(source.find("float4 fftCleanLegacyDepthField(float2 p)")!=std::string::npos);
+        }
+        if(strcmp(view,"none")==0)checkCompiledWaterUniformLayout(source,false,"CombinerConstants",source.find("float4 VisualHullMeta")!=std::string::npos);
+        const bool compiled=SDL3_Compile_HLSL_To_SPIRV(source,false,spirv,error);
+        if(!compiled)printf("clean profile pixel %s: %s\n",view,error.c_str());CHECK(compiled);
+        if(compiled) {
+            checkCleanSamplerBindings(spirv,false,true);
+            unsigned samplers=0,buffers=0;SDL3_Shader_Slots(spirv,false,samplers,buffers);CHECK(samplers<=16);
+            if(validator&&*validator)CHECK(validate(validator,spirv,error));
+            const bool translated=SDL3_Translate_SPIRV_To_MSL(spirv,false,msl,error);if(!translated)printf("clean pixel MSL: %s\n",error.c_str());CHECK(translated);CHECK(slots_kept(msl,samplers,why));
+        }
+        if(flags.nomips)CHECK(source.find("float3 shadingLod=0;")!=std::string::npos);
+        if(flags.nodepth) {const auto p=source.find("float4 fftMediumDepthField(");const auto e=source.find("float3 fftMediumGain",p);CHECK(source.substr(p,e-p).find("SampleLevel")==std::string::npos);}
+        if(flags.noshore || flags.nodepth)CHECK(source.find("FftShoreTiles")==std::string::npos);
+        if(flags.nosss)CHECK(source.find("float crestColour=")==std::string::npos);
+        if(flags.nofoam)CHECK(source.find("float cleanWidth=")==std::string::npos);
+        // Both texture representations must lose long reads before the array rewrite.
+        for(bool array:{false,true}) {
+            source=WaterFftSampling::PixelSource(false,WaterBowShoulder::Enabled(),array,WaterFftSpectrum::ForResolution(128),true);
+            if(flags.nolong) {
+                CHECK(source.find("Texture8.SampleLevel(")==std::string::npos);CHECK(source.find("Texture9.SampleLevel(")==std::string::npos);
+                CHECK(source.find("samples.a=fftMap0(")==std::string::npos);CHECK(source.find("samples.ad=fftMap1(")==std::string::npos);
+            }
+            if(!flags.nodepth) {
+                CHECK(source.find(std::string("FftCleanDepth : register(t")+(array?"12)":"5)"))!=std::string::npos);
+                CHECK(source.find(std::string("FftCleanRotation : register(t")+(array?"13)":"6)"))!=std::string::npos);
+            }
+            CHECK(source.find(std::string("FftHeadingTexture : register(t")+(array?"11)":"14)"))!=std::string::npos);
+            std::string standalone=WaterFftSampling::UniformSource("WaterTest",0);
+            if(array)standalone+="Texture2DArray OceanMaps : register(t8);SamplerState OceanSampler : register(s8);\n";
+            else {
+                for(unsigned i=8;i<14;++i)standalone+="Texture2D Texture"+std::to_string(i)+" : register(t"+std::to_string(i)+");SamplerState Sampler"+std::to_string(i)+" : register(s"+std::to_string(i)+");\n";
+                WaterFftSampling::CleanReplace(source,"FftHeadingTexture : register(t11)","FftHeadingTexture : register(t14)");
+                WaterFftSampling::CleanReplace(source,"FftHeadingSampler : register(s11)","FftHeadingSampler : register(s14)");
+            }
+            standalone+=source+"\nfloat4 main(float2 p:TEXCOORD0):SV_Target0 {FftSurface v=fftSurface(p,WaterParameters.w,1.0);return float4(v.displacement+v.shadingDerivativeX+v.shadingDerivativeY+v.unresolvedSlopeVariance,1);}";
+            CHECK(SDL3_Shader_Retarget(standalone,false));
+            error.clear();bool standaloneCompiled=SDL3_Compile_HLSL_To_SPIRV(standalone,false,spirv,error);
+            if(!standaloneCompiled)printf("clean standalone array%d: %s\n",int(array),error.c_str());CHECK(standaloneCompiled);
+            if(standaloneCompiled) {
+                checkCleanSamplerBindings(spirv,false,array);
+                unsigned samplers=0,buffers=0;SDL3_Shader_Slots(spirv,false,samplers,buffers);CHECK(samplers<=16);
+                if(validator&&*validator)CHECK(validate(validator,spirv,error));
+                const bool translated=SDL3_Translate_SPIRV_To_MSL(spirv,false,msl,error);if(!translated)printf("clean pixel MSL: %s\n",error.c_str());CHECK(translated);CHECK(slots_kept(msl,samplers,why));
+            }
+            // WrapVertex independently compiles the stage sharing tile rotations.
+            VertexPipelineDescription vertex=shader_cases_detail::plain_vertex();vertex.FVF=0x252;vertex.StageCount=4;
+            CHECK(VertexShader_Generate(vertex,VERTEX_SHADER_TARGET_D3D11,source));
+            CHECK(WaterFftSampling::WrapVertex(source,false,false,array,true));CHECK(SDL3_Shader_Retarget(source,true));
+            CHECK(source.find("FftCleanContext cleanContext=fftCleanContext(parameter);")!=std::string::npos);
+            CHECK(source.find("if(cleanContext.depth.w>0.5)originalHeight=0;")!=std::string::npos);
+            if(!flags.nodepth) {
+                CHECK(source.find("FftCleanDepth : register(t5")!=std::string::npos);
+                CHECK(source.find("FftCleanRotation : register(t6")!=std::string::npos);
+            }
+            if(array && strcmp(view,"none")==0)checkCompiledWaterUniformLayout(source,true,"WaterVertexParameters",false);
+            error.clear();const bool vertexCompiled=SDL3_Compile_HLSL_To_SPIRV(source,true,spirv,error);
+            if(!vertexCompiled)printf("clean profile vertex: %s\n",error.c_str());CHECK(vertexCompiled);
+            if(vertexCompiled) {
+                checkCleanSamplerBindings(spirv,true,array);
+                unsigned samplers=0,buffers=0;SDL3_Shader_Slots(spirv,true,samplers,buffers);CHECK(samplers<=16);
+                if(validator&&*validator)CHECK(validate(validator,spirv,error));
+                CHECK(SDL3_Translate_SPIRV_To_MSL(spirv,true,msl,error));CHECK(slots_kept(msl,samplers,why));
+            }
+            if(flags.nolong)CHECK(source.find("FftDisplacement0.SampleLevel(")==std::string::npos);
+            if(WaterCleanShore::Enabled())CHECK(source.find("if(fftShoreFine)c=fftShoreVertexBand(p,tiles,2);")!=std::string::npos);
+            if(flags.flatvertex) {
+                const std::string entry=WaterCleanShore::Enabled()?"float3 fftCleanPreparedDisplacement(float2 p,float4 depth,FftShoreTiles tiles) {":"float3 fftCleanDisplacement(float2 p,float4 depth) {";
+                CHECK(source.find(entry+"\n    return 0;")!=std::string::npos);
+            }
+        }
+    }
+}
+
+#endif
+
+#if defined(__linux__)
+TEST(water_clean_quality_live_variants_compile_and_restore)
+{
+    if(!WaterCleanSpectrum::Enabled())return;
+    struct Restore {WaterCleanProfile::Flags flags=WaterCleanProfile::Get();
+        ~Restore(){WaterCleanProfile::Applied()=flags;}} restore;
+    SavedShaderOption debug("ZH_WATER_DEBUG");CHECK(unsetenv(debug.name)==0);
+    const auto environment=WaterCleanProfile::Environment();
+    WaterCleanProfile::Apply(2,true,true);
+    const auto highVertex=WaterFftSampling::VertexSource(false,false,true,true,true);
+    const auto highPixel=WaterFftSampling::PixelSource(false,false,true,WaterFftSpectrum::ForResolution(256),true,false,true);
+    for(int quality:{2,1,0,1,2}) {
+        WaterCleanProfile::Apply(quality,true,true);
+        CHECK(WaterCleanProfile::Get().nomips==(environment.nomips || quality<2));
+        CHECK(WaterCleanProfile::Get().noshore==(environment.noshore || quality==0));
+        // Exercises specialized pixel and both array/independent-map vertex stages,
+        // SPIR-V validation when available, translation and actual sampler bindings.
+        checkCleanSpecialized("none");
+    }
+    CHECK(WaterFftSampling::VertexSource(false,false,true,true,true)==highVertex);
+    CHECK(WaterFftSampling::PixelSource(false,false,true,WaterFftSpectrum::ForResolution(256),true,false,true)==highPixel);
+    for(bool modern:{false,true})for(bool clean:{false,true})if(!modern || !clean) {
+        WaterCleanProfile::Apply(0,modern,clean);
+        CHECK(WaterCleanProfile::Key(WaterCleanProfile::Get())==WaterCleanProfile::Key(environment));
+    }
+}
+
+#endif // __linux__

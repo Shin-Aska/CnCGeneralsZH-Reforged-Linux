@@ -2377,6 +2377,15 @@ Libraries/Include/Platform/WaterBowShoulder.h
 Libraries/Include/Platform/WaterBridgeConnections.h
 Libraries/Include/Platform/WaterCaptureClock.h
 Libraries/Include/Platform/WaterCaptureFixture.h
+Libraries/Include/Platform/WaterCleanCollapse.h
+Libraries/Include/Platform/WaterCleanOpt.h
+Libraries/Include/Platform/WaterCleanPrecompute.h
+Libraries/Include/Platform/WaterCleanProfile.h
+Libraries/Include/Platform/WaterCleanRender.h
+Libraries/Include/Platform/WaterCleanShader.h
+Libraries/Include/Platform/WaterCleanShore.h
+Libraries/Include/Platform/WaterCleanSpectrum.h
+Libraries/Include/Platform/WaterCleanStream.h
 Libraries/Include/Platform/WaterCoastalCrest.h
 Libraries/Include/Platform/WaterCoastalDomain.h
 Libraries/Include/Platform/WaterCoastalIncident.h
@@ -2402,6 +2411,7 @@ Libraries/Include/Platform/WaterHullVisual.h
 Libraries/Include/Platform/WaterHullVisualLayout.h
 Libraries/Include/Platform/WaterLocalWaveField.h
 Libraries/Include/Platform/WaterMaterialProfile.h
+Libraries/Include/Platform/WaterMediumDepth.h
 Libraries/Include/Platform/WaterMovementBehavior.h
 Libraries/Include/Platform/WaterMovementCompatibility.h
 Libraries/Include/Platform/WaterMovementCompatibilityShader.h
@@ -2426,6 +2436,8 @@ Libraries/Include/Platform/WaterProjectedSampleCache.h
 Libraries/Include/Platform/WaterRenderCaches.h
 Libraries/Include/Platform/WaterSceneBank.h
 Libraries/Include/Platform/WaterScreenReflection.h
+Libraries/Include/Platform/WaterSharedField.h
+Libraries/Include/Platform/WaterSharedShader.h
 Libraries/Include/Platform/WaterShoreFoam.h
 Libraries/Include/Platform/WaterShoreHistory.h
 Libraries/Include/Platform/WaterShoreOverlay.h
@@ -2434,6 +2446,7 @@ Libraries/Include/Platform/WaterShoreSupport.h
 Libraries/Include/Platform/WaterStaticSampleCache.h
 Libraries/Include/Platform/WaterSurfaceModel.h
 Libraries/Include/Platform/WaterTerrainCulling.h
+Libraries/Include/Platform/WaterTuning.h
 Libraries/Include/Platform/WaterVesselMotion.h
 Libraries/Include/Platform/WaterVesselWaves.h
 Libraries/Include/Platform/WaterWaveCage.h
@@ -3456,6 +3469,10 @@ Stubs/NullAudioManager.h
 Tests/WaterBodyAnalysisTest.h
 Tests/WaterBowShoulderTest.h
 Tests/WaterBridgeConnectionsTest.h
+Tests/WaterCleanCollapseTest.h
+Tests/WaterCleanPrecomputeTest.h
+Tests/WaterCleanSpectrumTest.h
+Tests/WaterCleanStreamTest.h
 Tests/WaterCoastalCapacityTest.h
 Tests/WaterCoastalDomainTest.h
 Tests/WaterCoastalFootprintTest.h
@@ -3464,6 +3481,7 @@ Tests/WaterHeadingLegacyReference.h
 Tests/WaterHullContactFoamTest.h
 Tests/WaterLocalPerformanceReference.h
 Tests/WaterLocalWaveFieldTest.h
+Tests/WaterMediumDepthTest.h
 Tests/WaterMovement351Reference.h
 Tests/WaterMovementCompatibilityTest.h
 Tests/WaterMovementV351Reference.h
@@ -3471,6 +3489,7 @@ Tests/WaterOpenSeaSplitTest.h
 Tests/WaterPathBuildReference.h
 Tests/WaterPreparedViewTest.h
 Tests/WaterProjectedSampleCacheTest.h
+Tests/WaterSharedFieldTest.h
 Tests/WaterShoreHistoryReference.h
 Tests/WaterShorePreparedTest.h
 Tests/WaterShoreSourcePerfTest.h
@@ -3478,6 +3497,7 @@ Tests/WaterShoreSourceReference.h
 Tests/WaterTerrainCullingReference.h
 Tests/WaterTerrainCullingTest.h
 Tests/WaterTerrainProofCacheTest.h
+Tests/WaterTuningTest.h
 Tests/WaterWaveCageCopyTest.h
 Tests/WaterWaveCageMeshReference.h
 Tests/WaterWaveCageTest.h
@@ -3627,6 +3647,7 @@ Tests/test_user_data_guard.cpp
 Tests/test_userfolders.cpp
 Tests/test_vendor_no_art.sh
 Tests/test_w3dlayout.cpp
+Tests/test_water_clean_defaults.py
 Tests/test_water_grid.cpp
 Tests/test_water_path_gpu.cpp
 Tests/test_water_path_model_digest.cpp
@@ -3662,6 +3683,8 @@ Tests/w3d_view/shaders/model_vs.hlsl
 Tests/w3d_view/w3d_model.cpp
 Tests/w3d_view/w3d_model.h
 Tests/w3d_view/w3d_view.cpp
+Tests/water_clean_approved.ini
+Tests/water_clean_defaults_probe.cpp
 Tests/water_grid_oracle.cpp
 Tests/water_grid_scenario.h
 Tests/widechar_gate_msvc_crt.cpp

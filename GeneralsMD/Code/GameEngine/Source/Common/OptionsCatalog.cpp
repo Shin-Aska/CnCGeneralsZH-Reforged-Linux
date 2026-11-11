@@ -127,6 +127,7 @@ OPTION_BOOL_ACCESSORS( m_waterMovementBehavior )
 #endif
 OPTION_INT_ACCESSORS( m_waterReflection )
 OPTION_BOOL_ACCESSORS( m_waterReflectionEnabled )
+OPTION_INT_ACCESSORS( m_waterQuality )
 OPTION_INT_ACCESSORS( m_waterFftResolution )
 OPTION_INT_ACCESSORS( m_waterRefractionQuality )
 OPTION_INT_ACCESSORS( m_waterReflectionDetail )
@@ -534,6 +535,11 @@ const OptionDef TheOptionCatalog[] =
 		OPTION_BOOL, APPLY_LIVE, 0, 1,
 		get_m_waterReflectionEnabled, set_m_waterReflectionEnabled },
 
+	// Modern water publishes the profile at a frame boundary and rebuilds profile-dependent caches.
+	{ "WaterQuality", OPT_WND( "ComboBoxWaterQuality" ), "GUI:WaterQuality",
+		OPTION_ENUM, APPLY_LIVE, 0, WATER_QUALITY_COUNT - 1,
+		get_m_waterQuality, set_m_waterQuality },
+
 	{ "WaterFftResolution", OPT_WND( "ComboBoxWaterFftResolution" ), "GUI:WaterFftResolution",
 		OPTION_ENUM, APPLY_LIVE, 0, WATER_FFT_RESOLUTION_COUNT - 1,
 		get_m_waterFftResolution, set_m_waterFftResolution },
@@ -910,6 +916,9 @@ const GraphicsQualityRow TheGraphicsQualityTable[] =
 	// SDL water quality choices. The reflection mode remains the player's chosen look.
 	{ "CheckWaterReflectionEnabled",		0.0f, {    0,    0,    0,    0,    1,    1,    1,    1,    1,    1,    1 } },
 	{ "ComboBoxWaterRefractionQuality",	0.0f, {    2,    1,    1,    1,    1,    1,    0,    0,    0,    0,    0 } },
+	// RTX 4060, 1920x1080, USA2/SWANGLE: baseline 11.85/6.09 ms; nomips alone
+	// 11.10/5.63 ms (-6/-8%); noshore alone 9.34/5.12 ms (-21/-16%).
+	{ "ComboBoxWaterQuality",				0.0f, {    0,    0,    0,    0,    1,    1,    1,    2,    2,    2,    2 } },
 	{ "ComboBoxWaterFftResolution",			0.0f, {    0,    0,    0,    0,    0,    0,    0,    1,    1,    1,    1 } },
 	{ "ComboBoxWaterReflectionDetail",	0.0f, {    0,    0,    0,    0,    0,    0,    0,    1,    1,    1,    1 } },
 };
@@ -942,6 +951,7 @@ Bool isModernWaterOption( const OptionDef& def )
 	return strcmp( def.iniKey, "WaterReflection" ) == 0
 		|| strcmp( def.iniKey, "WaterMovementBehavior" ) == 0
 		|| strcmp( def.iniKey, "WaterReflectionEnabled" ) == 0
+		|| strcmp( def.iniKey, "WaterQuality" ) == 0
 		|| strcmp( def.iniKey, "WaterFftResolution" ) == 0
 		|| strcmp( def.iniKey, "WaterRefractionQuality" ) == 0
 		|| strcmp( def.iniKey, "WaterReflectionDetail" ) == 0;
