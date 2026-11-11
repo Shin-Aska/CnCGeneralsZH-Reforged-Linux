@@ -8,6 +8,10 @@ found and fixed, EA's own, not port damage.**
 
 ---
 
+## Unreleased
+
+- Modern water no longer forms stretched streaks around the carrier's stern in USA Mission 2 or beside shores with strong wave turns.
+
 ## Linux 4.0.0 release (2026-11-09)
 
 - Includes upstream 4.0.0 gameplay, online and interface updates, while retaining this fork's

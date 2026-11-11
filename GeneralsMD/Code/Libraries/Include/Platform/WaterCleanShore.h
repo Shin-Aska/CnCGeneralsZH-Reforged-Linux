@@ -262,7 +262,11 @@ float3 fftShoreDebug(float2 p) {return fftShoreDebug(fftShoreTiles(p));}
         const std::string collapse=R"HLSL(    // Unwrap relative angles across +/-pi before computing the weighted mean.
     float3 angles=float3(0,t.angle[1]-t.angle[0],t.angle[2]-t.angle[0]);
     angles.yz-=6.283185307*floor((angles.yz+3.141592654)/6.283185307);
-    t.collapsed=max(angles.x,max(angles.y,angles.z))-min(angles.x,min(angles.y,angles.z))<fftTileCollapseAngle;
+    // One read stands in for the three only where all three samples land near p: each vertex
+    // rotates about itself, so equal nonzero turns still sample tile-sized distances apart.
+    float3 turn=float3(t.angle[0],t.angle[1],t.angle[2]);
+    turn-=6.283185307*floor((turn+3.141592654)/6.283185307);
+    t.collapsed=max(abs(turn.x),max(abs(turn.y),abs(turn.z)))<fftTileCollapseAngle;
     if(t.active && t.collapsed) {
         float sum=dot(t.weight,float3(1,1,1)),sx=dot(t.dx,float3(1,1,1)),sy=dot(t.dy,float3(1,1,1));
         float offset=dot(t.weight,angles)/sum,angle=t.angle[0]+offset;

@@ -61,9 +61,12 @@ FftShoreTiles fftShoreTiles(float2 p) {
     t.active=any(abs(angles)>1e-6);
     float sum=dot(weight,float3(1,1,1));
     t.debugAngle=dot(weight,angles)/max(sum,1e-5);
+    // One read stands in for the three only where all three samples land near p: each vertex
+    // rotates about itself, so equal nonzero turns still sample tile-sized distances apart.
+    float3 turn=angles-6.283185307*floor((angles+3.141592654)/6.283185307);
+    t.collapsed=max(abs(turn.x),max(abs(turn.y),abs(turn.z)))<fftTileCollapseAngle;
     float first=angles.x;angles-=first;
     angles.yz-=6.283185307*floor((angles.yz+3.141592654)/6.283185307);
-    t.collapsed=max(angles.x,max(angles.y,angles.z))-min(angles.x,min(angles.y,angles.z))<fftTileCollapseAngle;
     float offset=dot(weight,angles)/sum;
     if(t.active && t.collapsed) {
         float3 dx=(ax-weight*t.normalization.y)*inverseNorm,dy=(ay-weight*t.normalization.z)*inverseNorm;

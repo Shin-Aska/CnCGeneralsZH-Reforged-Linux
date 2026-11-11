@@ -1916,7 +1916,7 @@ TEST(water_protected_sampling_source_hashes)
     CHECK(hash==expected);
 }
 
-// Frozen from the dirty tree before water quality was introduced (48 sources).
+// High-quality clean sampling snapshot (48 sources), including the shore-turn collapse fix.
 TEST(water_clean_high_sampling_source_hash)
 {
     if(!WaterCleanSpectrum::Enabled() || WaterCleanProfile::Key(WaterCleanProfile::Environment()) ||
@@ -1931,7 +1931,7 @@ TEST(water_clean_high_sampling_source_hash)
         for(unsigned resolution:{128u,256u})
             add(WaterFftSampling::PixelSource(lift,shoulder,array,WaterFftSpectrum::ForResolution(resolution),true,false,main));
     }
-    CHECK(hash==0xe2dca63fcd25d99dull);
+    CHECK(hash==0xd56913be650ec059ull);
 }
 
 static void checkCleanSpecialized(const char *view);

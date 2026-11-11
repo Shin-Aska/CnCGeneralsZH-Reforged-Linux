@@ -576,14 +576,15 @@ source diagnostics show zero in this variant; heading/phase, clean diagnostics,
 vessel/cage foam and optional GPU coastal presentation remain available.
 
 **Tile collapse.** `WaterCleanCollapse::AngleDegrees` is **1.5 degrees**, using a
-strict `<` test on the complete span of the three periodically unwrapped angles.
-For coherent nonzero tiles, set `S=sum(w)`, `u=w/S`, mean angle `a=sum(u*angle)`
+strict `<` test on every periodically wrapped vertex turn. Agreement between
+large turns is not sufficient: each vertex rotates its sample around a different
+pivot. For tiles whose turns are all small, set `S=sum(w)`, `u=w/S`, mean angle `a=sum(u*angle)`
 and mean pivot `v=sum(u*vertex)`. Each turned band samples once at
 `q=v+R(-a)*(p-v)` and returns `S*R(a)*d(q)`. Both stages use that same surface.
 Pixel derivatives include the quotient-rule derivatives of a and v, the
 coordinate Jacobian, output-vector rotation, S, and the existing D gain product
 rule. Angle unwrapping uses floor arithmetic; only the mean rotation needs a
-sine/cosine evaluation. Noncoherent tiles retain the original three-copy blend;
+sine/cosine evaluation. Tiles with any larger turn retain the original three-copy blend;
 exactly inactive rotations retain the original global-sampling identity path.
 
 Equal input angles produce exactly that mean angle and zero angle gradient in
@@ -593,6 +594,9 @@ phases. The mean-pivot collapse is an approximation, preserves the blend's
 amplitude weight, and needs GPU visual review, particularly where adjacent tiles
 cross the collapse threshold. CPU finite differences verify the complete
 mean-pivot/rotation/weight/depth derivative chain.
+
+The carrier-stern investigation, before/after captures and verification are archived
+in `/mnt/sandisk-2tb/devlog/sessions/2026-11-12-carrier-water-and-emp-fixes/`.
 
 **Shading LOD.** `WaterCleanCollapse::ShadingLod` is **0.25**. Each band below it
 uses LOD zero for shading and lost-variance accounting, reusing the physical pair.
@@ -662,7 +666,7 @@ their existing generated shader text.
 | `loop` | on | Emit `[loop]` instead of `[unroll]` for the three-vertex walks. Gives the driver a smaller-code option; omit it to compare unrolling. |
 | `finelite` | off | For turned fine-band pixel samples, retain height and rotated slope, omit horizontal displacement and its derivative/Jacobian terms. Vertex geometry stays unchanged. No sub-1% Jacobian/foam bound has been established, so visual review is required. |
 | `half` | off | Use `min16float3` for tile-blend accumulators or decoded contributions; keep coordinates, normalisation, collapse, depth gains and final surfaces in fp32. SPIR-V validation checks `RelaxedPrecision`; native packed fp16 execution is driver-dependent. |
-| `collapse=<deg>` | 1.5 | Set the existing strict full-angle-span collapse threshold, in degrees, range 0..180. Zero disables collapse; 3 and 5 are explicit visual experiments. |
+| `collapse=<deg>` | 1.5 | Set the strict threshold on the largest absolute wrapped vertex turn, in degrees, range 0..180. Zero disables collapse; 3 and 5 are explicit visual experiments. |
 
 Examples for timing: `ZH_WATER_CLEAN_OPT=stream` tests only streaming;
 `ZH_WATER_CLEAN_OPT=stream,fused` compares unrolling against the default loop;
