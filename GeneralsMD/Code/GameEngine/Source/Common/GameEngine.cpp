@@ -1185,6 +1185,9 @@ void GameEngine::init( int argc, char *argv[] )
     
     
 		initSubsystem(TheFXListStore,"TheFXListStore", MSGNEW("GameEngineSubsystem") FXListStore(), &xferCRC, "Data\\INI\\Default\\FXList.ini", "Data\\INI\\FXList.ini");
+		// Placement fixes follow the shared gameplay changes even under Classic graphics.
+		// Load before the cosmetic overrides, whose particles and lights Classic leaves out.
+		ini.load( AsciiString( "Data\\INI\\FXListFixesReforged.ini" ), INI_LOAD_OVERWRITE, &xferCRC );
 		/* The fork's own detonation light, on top of EA's list.  It is a separate file rather than a
 			 loose copy of FXList.ini because a loose copy shadows the whole 190K shipped file: it goes
 			 stale against every patch, it cannot be reviewed, and - since it lands in the INI CRC below -

@@ -11,6 +11,8 @@ found and fixed, EA's own, not port damage.**
 ## Unreleased
 
 - Modern water no longer forms stretched streaks around the carrier's stern in USA Mission 2 or beside shores with strong wave turns.
+- EMP Pulse and EMP Patriot domes now expand to their intended size.
+- EMP Pulse flashes no longer break into screen-wide horizontal bands in Classic or Reforged graphics.
 
 ## Linux 4.0.0 release (2026-11-09)
 

@@ -1350,6 +1350,8 @@ TEST(fxlist_reforged_ini_parses_and_keeps_its_light)
 		TheFXListStore = NEW FXListStore;
 
 	/* through the game's own parser, not a lookalike */
+	CHECK( loadIni( FXLIST_FIXES_REFORGED_INI ) );
+	CHECK( TheFXListStore->findFXList( "WeaponFX_EMPPulseImpact" ) != NULL );
 	CHECK( loadIni( FXLIST_REFORGED_INI ) );
 
 	/* the blocks landed in the store, under the names the game looks them up by */

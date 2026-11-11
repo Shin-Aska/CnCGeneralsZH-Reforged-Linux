@@ -2647,6 +2647,7 @@ set_tests_properties(test_gameengine PROPERTIES TIMEOUT 2700)
 # the_options_menu_buttons_all_wear_one_font reads the tracked layout master, not Run/'s copy.
 target_compile_definitions(test_gameengine PRIVATE
   GAMEENGINE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/GameEngine"
+  FXLIST_FIXES_REFORGED_INI="${CMAKE_CURRENT_SOURCE_DIR}/Data/INI/FXListFixesReforged.ini"
   FXLIST_REFORGED_INI="${CMAKE_CURRENT_SOURCE_DIR}/Data/INI/FXListReforged.ini"
   WEAPON_REFORGED_INI="${CMAKE_CURRENT_SOURCE_DIR}/Data/INI/WeaponReforged.ini"
   MULTIPLAYER_REFORGED_INI="${CMAKE_CURRENT_SOURCE_DIR}/Data/INI/MultiplayerReforged.ini"

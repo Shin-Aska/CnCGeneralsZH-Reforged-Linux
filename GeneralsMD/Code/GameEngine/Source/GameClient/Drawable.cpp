@@ -1442,10 +1442,17 @@ void Drawable::fadeIn( UnsignedInt frames )		///< decloak object
 
 
 //-------------------------------------------------------------------------------------------------
-const Real Drawable::getScale (void) const 
-{ 
-	return m_instanceScale; 
-//	return getTemplate()->getAssetScale(); 
+/** The scale a model is built at: the template's Scale, which the asset manager bakes into the render
+	* object (Create_Render_Obj) and the bone caches are taken at.  EA returned m_instanceScale, with this
+	* line commented out under it.  The two were the same whenever a model was built, because a drawable
+	* built its model in its constructor and only EMPUpdate ever changes the instance scale, from its first
+	* update on.  Built after the tick (W3DModelDraw::buildRenderObjects), the EMP sphere took that first
+	* update's 0.08 into its model as well as into its transform, so the dome that should grow to three or
+	* four times its 30 ft radius stopped at about a tenth of that size.  The instance scale belongs to the
+	* transform alone (W3DModelDraw::doDrawModule). */
+const Real Drawable::getScale (void) const
+{
+	return getTemplate()->getAssetScale();
 }
 
 //-------------------------------------------------------------------------------------------------
