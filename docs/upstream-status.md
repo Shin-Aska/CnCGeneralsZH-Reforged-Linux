@@ -4,7 +4,7 @@ Which Linux features from this fork have been offered to upstream
 ([olcayseygan/CnCGeneralsZH-Reforged](https://github.com/olcayseygan/CnCGeneralsZH-Reforged)), and what
 happened to them. Anything not accepted upstream stays in this fork as it is.
 
-Last updated 2026-11-06. Each pull request was cut from upstream v3.8.0 (`e3e1a898`). Their branches are kept on this
+Last updated 2026-11-11. Each pull request was cut from upstream v3.8.0 (`e3e1a898`). Their branches are kept on this
 fork for later work.
 
 ## Accepted
@@ -34,6 +34,9 @@ These stay fork-only, with no pull request so far:
 - **Map-aware water movement:** waves turn toward the shore and follow channels. It's the code behind the GPU cost on the
   carrier save, and turning it off doesn't remove most of that cost.
 - **Path-traced water reflections:** experimental.
+- **Clean FFT water** (2026-11-11): one global FFT ocean (JONSWAP spectrum, per-band depth fade, filtered glint,
+  Jacobian foam) with waves turning toward the shore, plus a Water quality option (Low, Medium, High). It's now the
+  fork's Modern water on Linux; `ZH_WATER_CLEAN=0` restores the previous water. Measured cost is below.
 - **Small fixes:** finding Steam's Generals folder beside Zero Hour, path cache invalidation, and portable hotkey literals.
 - **Release packaging, CI and the developer tools** that only this fork uses.
 
@@ -43,7 +46,17 @@ Each would follow the maintainer's notes above, and each needs measurements firs
 
 - **Underwater clarity:** open it as its own pull request with before and after shots of the same views: the ruins,
   a flat offshore floor and a coast. Making it an option, off by default, would answer the "no way back to the old
-  look" objection. The commit is `5d8a58e7` on branch `feat/water-reflections-and-controls`.
+  look" objection. The commit is `5d8a58e7` on branch `feat/water-reflections-and-controls`. Measured cost
+  (2026-11-11, RTX 4060, 1080p, the same build with and without the clarity code): **+1.5%** GPU time on both an
+  open-sea and a shore-heavy scene (12.17 vs 11.99 ms, 5.99 vs 5.90 ms). Evidence:
+  [`reference/water-penalty-2026-11-11/`](reference/water-penalty-2026-11-11/README.md).
+- **Clean FFT water:** measured against upstream `main` (`bda651dd`) on the same scenes: **+8.3%** GPU time on open
+  sea (11.97 vs 11.06 ms) and **−7.5%** on a shore-heavy map (6.18 vs 6.68 ms). Water quality Low (no shore turning)
+  saved 21% on open sea, below upstream. These compare the whole fork build with upstream, so an exact figure needs
+  the water ported onto upstream `main`; upstream would also want the testing switches and tuner removed and the new
+  look off by default. It depends on the wave heading field from map-aware movement. Evidence:
+  [`reference/water-penalty-2026-11-11/`](reference/water-penalty-2026-11-11/README.md) and
+  [`reference/water-benchmark-2026-11-11/`](reference/water-benchmark-2026-11-11/README.md).
 - **Volumetric toxin effects:** just the delta over the shared volume, with SDL GPU frame times from a crowded toxin
   fight, with and without it. Upstream already has a GPU timer (`ZH_GPU_TIMING` with `ZH_GPU_TIMING_SYNC=1`) and a
   scripted, repeatable battle (`-scenario`, files in `Data/Scenarios/`). A crowded-cloud save is kept in the devlog's

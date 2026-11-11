@@ -1,0 +1,61 @@
+== p-SA0-up-1
+PosixDevice9 timing: draws           mean 2105.603  p50 2519.000  p95 2521.000  p99 2521.000  worst 2521.000 
+PosixDevice9 timing: GPU (fences)    mean   10.979  p50   10.974  p95   11.441  p99   11.864  worst   17.301 ms
+== p-SA0-new-1
+PosixDevice9 timing: draws           mean 2107.885  p50 2519.000  p95 2525.000  p99 2525.000  worst 2525.000 
+PosixDevice9 timing: GPU (fences)    mean   11.915  p50   11.925  p95   12.374  p99   12.514  worst   12.705 ms
+== p-SA0-old-1
+PosixDevice9 timing: draws           mean 2108.052  p50 2520.000  p95 2525.000  p99 2525.000  worst 2525.000 
+PosixDevice9 timing: GPU (fences)    mean   11.096  p50   11.098  p95   11.568  p99   11.759  worst   11.942 ms
+== p-SA0-old-2
+PosixDevice9 timing: draws           mean 2108.168  p50 2520.000  p95 2525.000  p99 2525.000  worst 2525.000 
+PosixDevice9 timing: GPU (fences)    mean   11.111  p50   11.122  p95   11.557  p99   11.787  worst   12.084 ms
+== p-SA0-new-2
+PosixDevice9 timing: draws           mean 2108.108  p50 2520.000  p95 2525.000  p99 2525.000  worst 2525.000 
+PosixDevice9 timing: GPU (fences)    mean   12.024  p50   12.023  p95   12.536  p99   12.739  worst   13.101 ms
+== p-SA0-up-2
+PosixDevice9 timing: draws           mean 2105.603  p50 2519.000  p95 2521.000  p99 2521.000  worst 2521.000 
+PosixDevice9 timing: GPU (fences)    mean   11.133  p50   11.144  p95   11.640  p99   11.895  worst   12.217 ms
+== p-SA0-clr-1
+PosixDevice9 timing: draws           mean 2108.078  p50 2520.000  p95 2525.000  p99 2525.000  worst 2525.000 
+PosixDevice9 timing: GPU (fences)    mean   12.176  p50   12.142  p95   12.878  p99   13.431  worst   14.282 ms
+== p-SA0-noclr-1
+PosixDevice9 timing: draws           mean 2107.895  p50 2519.000  p95 2525.000  p99 2525.000  worst 2525.000 
+PosixDevice9 timing: GPU (fences)    mean   12.029  p50   12.006  p95   12.610  p99   12.898  worst   13.261 ms
+== p-SA0-noclr-2
+PosixDevice9 timing: draws           mean 2108.148  p50 2520.000  p95 2525.000  p99 2525.000  worst 2525.000 
+PosixDevice9 timing: GPU (fences)    mean   11.955  p50   11.911  p95   12.662  p99   13.178  worst   14.274 ms
+== p-SA0-clr-2
+PosixDevice9 timing: draws           mean 2108.105  p50 2520.000  p95 2525.000  p99 2525.000  worst 2525.000 
+PosixDevice9 timing: GPU (fences)    mean   12.155  p50   12.128  p95   12.835  p99   13.326  worst   13.809 ms
+== p-upe-up-1
+PosixDevice9 timing: draws           mean 2443.945  p50 2787.000  p95 3015.000  p99 3040.000  worst 3044.000 
+PosixDevice9 timing: GPU (fences)    mean    6.568  p50    6.543  p95    7.055  p99    7.373  worst    7.647 ms
+== p-upe-new-1
+PosixDevice9 timing: draws           mean 2391.818  p50 2785.000  p95 2971.000  p99 2989.000  worst 3000.000 
+PosixDevice9 timing: GPU (fences)    mean    6.146  p50    6.121  p95    6.597  p99    6.925  worst    7.391 ms
+== p-upe-old-1
+PosixDevice9 timing: draws           mean 2404.405  p50 2786.000  p95 2976.000  p99 2987.000  worst 3001.000 
+PosixDevice9 timing: GPU (fences)    mean    7.685  p50    7.675  p95    8.039  p99    8.271  worst    8.565 ms
+== p-upe-old-2
+PosixDevice9 timing: draws           mean 2408.363  p50 2786.000  p95 2976.000  p99 2987.000  worst 3023.000 
+PosixDevice9 timing: GPU (fences)    mean    7.829  p50    7.782  p95    8.385  p99    8.704  worst    9.923 ms
+== p-upe-new-2
+PosixDevice9 timing: draws           mean 2391.200  p50 2784.000  p95 2972.000  p99 2983.000  worst 2986.000 
+PosixDevice9 timing: GPU (fences)    mean    6.216  p50    6.187  p95    6.696  p99    6.956  worst    7.388 ms
+== p-upe-up-2
+PosixDevice9 timing: draws           mean 2441.078  p50 2785.000  p95 2988.000  p99 3041.000  worst 3048.000 
+PosixDevice9 timing: GPU (fences)    mean    6.799  p50    6.766  p95    7.575  p99    8.089  worst    9.022 ms
+== p-upe-clr-1
+PosixDevice9 timing: draws           mean 2386.662  p50 2784.000  p95 2972.000  p99 2985.000  worst 2993.000 
+PosixDevice9 timing: GPU (fences)    mean    5.986  p50    5.992  p95    6.255  p99    6.389  worst    6.534 ms
+== p-upe-noclr-1
+PosixDevice9 timing: draws           mean 2387.330  p50 2785.000  p95 2973.000  p99 2992.000  worst 3007.000 
+PosixDevice9 timing: GPU (fences)    mean    5.885  p50    5.901  p95    6.169  p99    6.294  worst    6.480 ms
+== p-upe-noclr-2
+PosixDevice9 timing: draws           mean 2387.882  p50 2784.000  p95 2974.000  p99 2986.000  worst 3003.000 
+PosixDevice9 timing: GPU (fences)    mean    5.915  p50    5.932  p95    6.216  p99    6.366  worst    6.653 ms
+== p-upe-clr-2
+PosixDevice9 timing: draws           mean 2386.658  p50 2784.000  p95 2974.000  p99 2982.000  worst 2997.000 
+PosixDevice9 timing: GPU (fences)    mean    5.989  p50    6.008  p95    6.259  p99    6.447  worst    6.544 ms
+CAMPAIGN DONE

@@ -1,0 +1,39 @@
+== p3-sw-N1
+PosixDevice9 timing: GPU (fences)    mean    7.533  p50    7.536  p95    7.804  p99    7.912  worst    8.030 ms
+== p3-sw-P2a
+PosixDevice9 timing: GPU (fences)    mean    8.375  p50    8.396  p95    8.654  p99    8.883  worst    9.195 ms
+== p3-sw-P3a
+PosixDevice9 timing: GPU (fences)    mean    6.411  p50    6.458  p95    6.650  p99    6.835  worst    7.114 ms
+== p3-sw-P3b
+PosixDevice9 timing: GPU (fences)    mean    6.407  p50    6.449  p95    6.654  p99    6.806  worst    6.987 ms
+== p3-sw-P2b
+PosixDevice9 timing: GPU (fences)    mean    8.376  p50    8.395  p95    8.682  p99    8.818  worst    8.952 ms
+== p3-sw-N2
+PosixDevice9 timing: GPU (fences)    mean    7.569  p50    7.573  p95    7.904  p99    8.028  worst    8.148 ms
+== p3-us-N1
+PosixDevice9 timing: GPU (fences)    mean   10.974  p50   10.975  p95   11.365  p99   11.526  worst   12.809 ms
+== p3-us-P2a
+PosixDevice9 timing: GPU (fences)    mean   15.819  p50   15.840  p95   16.203  p99   16.399  worst   17.184 ms
+== p3-us-P3a
+PosixDevice9 timing: GPU (fences)    mean   11.845  p50   11.884  p95   12.233  p99   12.389  worst   13.461 ms
+== p3-us-P3b
+PosixDevice9 timing: GPU (fences)    mean   11.867  p50   11.920  p95   12.243  p99   12.384  worst   12.448 ms
+== p3-us-P2b
+PosixDevice9 timing: GPU (fences)    mean   15.791  p50   15.814  p95   16.210  p99   16.407  worst   16.789 ms
+== p3-us-N2
+PosixDevice9 timing: GPU (fences)    mean   10.995  p50   11.025  p95   11.389  p99   11.501  worst   11.734 ms
+== p3-us-tok-none
+PosixDevice9 timing: GPU (fences)    mean   15.819  p50   15.827  p95   16.231  p99   16.421  worst   16.482 ms
+== p3-us-tok-stream
+PosixDevice9 timing: GPU (fences)    mean   11.706  p50   11.751  p95   12.091  p99   12.225  worst   12.574 ms
+== p3-us-tok-fused
+PosixDevice9 timing: GPU (fences)    mean   12.555  p50   12.590  p95   12.952  p99   13.130  worst   13.329 ms
+== p3-us-tok-stream_fused
+PosixDevice9 timing: GPU (fences)    mean   11.887  p50   11.940  p95   12.261  p99   12.393  worst   12.586 ms
+== p3-us-tok-stream_fused_loop_collapse_3
+PosixDevice9 timing: GPU (fences)    mean   11.864  p50   11.907  p95   12.247  p99   12.340  worst   12.558 ms
+== p3-us-tok-stream_fused_loop_collapse_5
+PosixDevice9 timing: GPU (fences)    mean   11.820  p50   11.868  p95   12.205  p99   12.389  worst   12.517 ms
+== p3-us-P3c
+PosixDevice9 timing: GPU (fences)    mean   11.899  p50   11.941  p95   12.257  p99   12.445  worst   12.717 ms
+CAMPAIGN DONE

@@ -1,0 +1,92 @@
+== b-SA0-342off-1
+PosixDevice9 timing: draws           mean 2093.623  p50 2523.000  p95 2528.000  p99 2528.000  worst 2528.000 
+== b-SA0-342off-2
+PosixDevice9 timing: draws           mean 2093.603  p50 2523.000  p95 2528.000  p99 2528.000  worst 2528.000 
+== b-SA0-342on-1
+PosixDevice9 timing: draws           mean 2093.607  p50 2523.000  p95 2528.000  p99 2528.000  worst 2528.000 
+== b-SA0-342on-2
+PosixDevice9 timing: draws           mean 2093.645  p50 2523.000  p95 2528.000  p99 2528.000  worst 2528.000 
+== b-SA0-fft128
+PosixDevice9 timing: draws           mean 2108.092  p50 2520.000  p95 2525.000  p99 2525.000  worst 2525.000 
+== b-SA0-new-1
+PosixDevice9 timing: draws           mean 2108.123  p50 2520.000  p95 2525.000  p99 2525.000  worst 2525.000 
+== b-SA0-new-2
+PosixDevice9 timing: draws           mean 2108.143  p50 2520.000  p95 2525.000  p99 2525.000  worst 2525.000 
+== b-SA0-new-3
+PosixDevice9 timing: draws           mean 2108.163  p50 2520.000  p95 2525.000  p99 2525.000  worst 2525.000 
+== b-SA0-nodepth
+PosixDevice9 timing: draws           mean 2098.032  p50 2408.000  p95 2524.000  p99 2525.000  worst 3000.000 
+== b-SA0-nofoam
+PosixDevice9 timing: draws           mean 2005.472  p50 1696.000  p95 2524.000  p99 2527.000  worst 4105.000 
+== b-SA0-nomips
+PosixDevice9 timing: draws           mean 2099.523  p50 2408.000  p95 2524.000  p99 2525.000  worst 2525.000 
+== b-SA0-noshore
+PosixDevice9 timing: draws           mean 2000.052  p50 1695.000  p95 2524.000  p99 2525.000  worst 4105.000 
+== b-SA0-nosss
+PosixDevice9 timing: draws           mean 2001.228  p50 1696.000  p95 2524.000  p99 2525.000  worst 4105.000 
+== b-SA0-old-1
+PosixDevice9 timing: draws           mean 2108.168  p50 2520.000  p95 2525.000  p99 2525.000  worst 2525.000 
+== b-SA0-old-2
+PosixDevice9 timing: draws           mean 2108.138  p50 2520.000  p95 2525.000  p99 2525.000  worst 2525.000 
+== b-SA0-refllow
+PosixDevice9 timing: draws           mean 2108.168  p50 2520.000  p95 2525.000  p99 2525.000  worst 2525.000 
+== b-SA0-refloff
+PosixDevice9 timing: draws           mean 1587.667  p50 1693.000  p95 1696.000  p99 1697.000  worst 1698.000 
+== b-SA0-reflssr
+PosixDevice9 timing: draws           mean 1693.860  p50 1695.000  p95 1696.000  p99 1696.000  worst 1696.000 
+== b-SA0-refroff
+PosixDevice9 timing: draws           mean 2001.032  p50 1695.000  p95 2524.000  p99 2525.000  worst 4105.000 
+== b-SA0-refrsimple
+PosixDevice9 timing: draws           mean 2001.232  p50 1696.000  p95 2524.000  p99 2525.000  worst 4105.000 
+== b-SA0-shorelm
+PosixDevice9 timing: draws           mean 2001.193  p50 1696.000  p95 2524.000  p99 2525.000  worst 4104.000 
+== b-SA0-v351-1
+PosixDevice9 timing: draws           mean 2040.138  p50 2452.000  p95 2457.000  p99 2457.000  worst 2457.000 
+== b-SA0-v351-2
+PosixDevice9 timing: draws           mean 2040.132  p50 2452.000  p95 2457.000  p99 2457.000  worst 2457.000 
+== b-upe-342off-1
+PosixDevice9 timing: draws           mean 2396.700  p50 2728.000  p95 2995.000  p99 3017.000  worst 3029.000 
+== b-upe-342off-2
+PosixDevice9 timing: draws           mean 2394.302  p50 2725.000  p95 2990.000  p99 3006.000  worst 3028.000 
+== b-upe-342on-1
+PosixDevice9 timing: draws           mean 2396.947  p50 2725.000  p95 3001.000  p99 3018.000  worst 3028.000 
+== b-upe-342on-2
+PosixDevice9 timing: draws           mean 2401.162  p50 2728.000  p95 2998.000  p99 3022.000  worst 3041.000 
+== b-upe-fft128
+PosixDevice9 timing: draws           mean 2391.888  p50 2784.000  p95 2974.000  p99 2986.000  worst 3005.000 
+== b-upe-new-1
+PosixDevice9 timing: draws           mean 2386.493  p50 2784.000  p95 2972.000  p99 2987.000  worst 2991.000 
+== b-upe-new-2
+PosixDevice9 timing: draws           mean 2387.173  p50 2785.000  p95 2973.000  p99 2984.000  worst 2993.000 
+== b-upe-new-3
+PosixDevice9 timing: draws           mean 2397.617  p50 2784.000  p95 2972.000  p99 2986.000  worst 3000.000 
+== b-upe-nodepth
+PosixDevice9 timing: draws           mean 2344.733  p50 2772.000  p95 2874.000  p99 2956.000  worst 2968.000 
+== b-upe-nofoam
+PosixDevice9 timing: draws           mean 2308.960  p50 2702.000  p95 2811.000  p99 2828.000  worst 2832.000 
+== b-upe-nomips
+PosixDevice9 timing: draws           mean 2326.773  p50 2744.000  p95 2816.000  p99 2831.000  worst 2839.000 
+== b-upe-noshore
+PosixDevice9 timing: draws           mean 2328.263  p50 2744.000  p95 2819.000  p99 2836.000  worst 2843.000 
+== b-upe-nosss
+PosixDevice9 timing: draws           mean 2306.610  p50 2702.000  p95 2815.000  p99 2825.000  worst 2831.000 
+== b-upe-old-1
+PosixDevice9 timing: draws           mean 2402.763  p50 2786.000  p95 2975.000  p99 2983.000  worst 2993.000 
+== b-upe-old-2
+PosixDevice9 timing: draws           mean 2401.403  p50 2785.000  p95 2974.000  p99 2984.000  worst 3007.000 
+== b-upe-refllow
+PosixDevice9 timing: draws           mean 2395.685  p50 2784.000  p95 2972.000  p99 2988.000  worst 2997.000 
+== b-upe-refloff
+PosixDevice9 timing: draws           mean 1846.822  p50 1851.000  p95 1875.000  p99 1880.000  worst 1882.000 
+== b-upe-reflssr
+PosixDevice9 timing: draws           mean 1910.250  p50 1876.000  p95 1978.000  p99 1992.000  worst 1999.000 
+== b-upe-refroff
+PosixDevice9 timing: draws           mean 2307.712  p50 2701.000  p95 2812.000  p99 2820.000  worst 2829.000 
+== b-upe-refrsimple
+PosixDevice9 timing: draws           mean 2322.225  p50 2719.000  p95 2815.000  p99 2831.000  worst 2837.000 
+== b-upe-shorelm
+PosixDevice9 timing: draws           mean 2312.633  p50 2703.000  p95 2812.000  p99 2829.000  worst 2841.000 
+== b-upe-v351-1
+PosixDevice9 timing: draws           mean 2323.693  p50 2714.000  p95 2901.000  p99 2936.000  worst 2949.000 
+== b-upe-v351-2
+PosixDevice9 timing: draws           mean 2323.440  p50 2714.000  p95 2901.000  p99 2938.000  worst 2948.000 

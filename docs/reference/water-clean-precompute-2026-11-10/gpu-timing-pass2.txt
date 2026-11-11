@@ -1,0 +1,30 @@
+== p2-sw-A1
+PosixDevice9 timing: GPU (fences)    mean    7.646  p50    7.629  p95    8.028  p99    8.240  worst    8.679 ms
+== p2-sw-B1
+PosixDevice9 timing: GPU (fences)    mean    9.909  p50    9.901  p95   10.243  p99   10.425  worst   10.809 ms
+== p2-sw-N1
+PosixDevice9 timing: GPU (fences)    mean    8.345  p50    8.353  p95    8.659  p99    8.794  worst    9.157 ms
+== p2-sw-N2
+PosixDevice9 timing: GPU (fences)    mean    8.334  p50    8.343  p95    8.634  p99    8.818  worst    9.141 ms
+== p2-sw-B2
+PosixDevice9 timing: GPU (fences)    mean    9.953  p50    9.957  p95   10.261  p99   10.417  worst   10.648 ms
+== p2-sw-A2
+PosixDevice9 timing: GPU (fences)    mean    7.645  p50    7.629  p95    7.993  p99    8.229  worst    8.685 ms
+== p2-us-A1
+PosixDevice9 timing: GPU (fences)    mean   11.125  p50   11.149  p95   11.517  p99   11.656  worst   11.953 ms
+== p2-us-B1
+PosixDevice9 timing: GPU (fences)    mean   19.494  p50   19.510  p95   19.877  p99   20.013  worst   20.352 ms
+== p2-us-N1
+PosixDevice9 timing: GPU (fences)    mean   15.826  p50   15.835  p95   16.256  p99   16.436  worst   16.714 ms
+== p2-us-N2
+PosixDevice9 timing: GPU (fences)    mean   15.834  p50   15.837  p95   16.262  p99   16.464  worst   16.788 ms
+== p2-us-B2
+PosixDevice9 timing: GPU (fences)    mean   19.489  p50   19.511  p95   19.877  p99   20.020  worst   20.266 ms
+== p2-us-A2
+PosixDevice9 timing: GPU (fences)    mean   11.114  p50   11.149  p95   11.497  p99   11.629  worst   11.832 ms
+== p2-us-nodepth
+PosixDevice9 timing: GPU (fences)    mean    9.252  p50    9.243  p95    9.688  p99    9.843  worst   10.086 ms
+== p2-us-noshore
+PosixDevice9 timing: GPU (fences)    mean    9.360  p50    9.390  p95    9.744  p99    9.876  worst   10.280 ms
+== p2-us-nomips
+PosixDevice9 timing: GPU (fences)    mean    9.912  p50    9.934  p95   10.250  p99   10.392  worst   10.817 ms

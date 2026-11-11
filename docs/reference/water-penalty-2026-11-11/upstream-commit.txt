@@ -1,0 +1,1 @@
+bda651dd07fd09f0343c928e115e022daf2c2cd9 fix(gameengine): hide the seat row over an empty Barracks

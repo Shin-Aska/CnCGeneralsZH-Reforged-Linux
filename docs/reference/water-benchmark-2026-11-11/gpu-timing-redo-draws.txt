@@ -1,0 +1,23 @@
+USA-base try1 draws_p50 2520 gpu_mean_p50 mean p50
+USA-refrsimple try1 draws_p50 2520 gpu_mean_p50 mean p50
+USA-refroff try1 draws_p50 2520 gpu_mean_p50 mean p50
+USA-noshore try1 draws_p50 2520 gpu_mean_p50 mean p50
+USA-shorelm try1 draws_p50 2520 gpu_mean_p50 mean p50
+USA-nodepth try1 draws_p50 2520 gpu_mean_p50 mean p50
+USA-nomips try1 draws_p50 2520 gpu_mean_p50 mean p50
+USA-nosss try1 draws_p50 2520 gpu_mean_p50 mean p50
+USA-nofoam try1 draws_p50 2520 gpu_mean_p50 mean p50
+USA-low try1 draws_p50 2520 gpu_mean_p50 mean p50
+USA-base2 try1 draws_p50 2520 gpu_mean_p50 mean p50
+SWG-base try1 draws_p50 2785 gpu_mean_p50 mean p50
+SWG-refrsimple try1 draws_p50 2786 gpu_mean_p50 mean p50
+SWG-refroff try1 draws_p50 2785 gpu_mean_p50 mean p50
+SWG-noshore try1 draws_p50 2784 gpu_mean_p50 mean p50
+SWG-shorelm try1 draws_p50 2784 gpu_mean_p50 mean p50
+SWG-nodepth try1 draws_p50 2784 gpu_mean_p50 mean p50
+SWG-nomips try1 draws_p50 2784 gpu_mean_p50 mean p50
+SWG-nosss try1 draws_p50 2786 gpu_mean_p50 mean p50
+SWG-nofoam try1 draws_p50 2786 gpu_mean_p50 mean p50
+SWG-low try1 draws_p50 2784 gpu_mean_p50 mean p50
+SWG-base2 try1 draws_p50 2784 gpu_mean_p50 mean p50
+CAMPAIGN DONE
