@@ -26,7 +26,7 @@ inline bool SceneColourRequired(Refraction refraction, bool screenSpaceReflectio
 inline void Apply(bool reflections, int waveDetail, int refraction, int reflectionDetail = 1) {
     Configuration &configuration = Applied();
     configuration.sceneReflections = reflections;
-    configuration.requestedFftResolution = waveDetail == 0 ? 128 : 256;
+    configuration.requestedFftResolution = waveDetail == 0 ? 64 : waveDetail == 1 ? 128 : 256;
     configuration.refraction = refraction == Simple ? Simple : refraction == Off ? Off : Full;
     configuration.reflectionDetail = reflectionDetail == 0 ? 0 : 1;
 }

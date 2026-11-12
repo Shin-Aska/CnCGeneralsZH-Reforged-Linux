@@ -19408,47 +19408,31 @@ TEST(water_style_defaults_to_classic_and_persists_each_choice)
 }
 
 #if defined(__linux__)
-TEST(water_movement_behavior_defaults_on_and_persists_for_the_next_map)
+TEST(retired_water_movement_preference_is_ignored_and_removed_on_save)
 {
-    const OptionDef *movement = findOptionDef("WaterMovementBehavior");
-    CHECK(movement != NULL);
-    if (!movement)
-        return;
-    CHECK_EQ(movement->kind, OPTION_BOOL);
-    CHECK_EQ(movement->apply, APPLY_NEXT_MAP);
-    CHECK_EQ(movement->lo, 0);
-    CHECK_EQ(movement->hi, 1);
-    CHECK_STR(movement->widgetName, "OptionsMenu.wnd:CheckWaterMovementBehavior");
-    CHECK_STR(movement->labelKey, "GUI:WaterMovementBehavior");
-    CHECK(isModernWaterOption(*movement));
+    CHECK(findOptionDef("WaterMovementBehavior") == NULL);
     CHECK(findGraphicsQualityRow("CheckWaterMovementBehavior") == NULL);
 
     GlobalData *saved = TheWritableGlobalData;
     GlobalData *scratch = NEW GlobalData;
     TheWritableGlobalData = scratch;
-    // Preferences survive Classic water and a missing renderer, ready for the next Modern map.
     scratch->m_waterStyle = 0;
-    CHECK(scratch->m_waterMovementBehavior);
-    UserPreferences missing;
-    loadOptionsFromPreferences(missing);
-    CHECK_EQ(movement->get(), 1); // old files have no key and keep the enabled default
-    for (Int value = 0; value <= 1; ++value) {
+    for (const char *legacy : {"no", "yes"}) {
         UserPreferences pref;
-        pref["WaterMovementBehavior"] = value ? "yes" : "no";
-        pref["StaticGameLOD"] = "Low";
+        pref["WaterMovementBehavior"] = legacy;
+        pref["WaterShoreWaveTurning"] = "no";
+        pref["WaterWaveFiltering"] = "yes";
+        pref["WaterFftResolution"] = "128";
         loadOptionsFromPreferences(pref);
-        CHECK_EQ(movement->get(), value);
-        pref["GraphicsQuality"] = "10";
-        loadOptionsFromPreferences(pref);
-        CHECK_EQ(movement->get(), value); // the slider preference cannot overwrite movement
-        saveOptionsToPreferences(pref);
-        CHECK_STR(pref["WaterMovementBehavior"].str(), value ? "yes" : "no");
-        movement->set(1 - value);
-        loadOptionsFromPreferences(pref);
-        CHECK_EQ(movement->get(), value);
+        CHECK(!scratch->m_waterShoreWaveTurning);
+        CHECK(scratch->m_waterWaveFiltering);
+        CHECK_EQ(scratch->m_waterFftResolution, 1);
         CHECK_EQ(scratch->m_waterStyle, 0);
-        loadOptionsFromPreferences(missing);
-        CHECK_EQ(movement->get(), value); // an absent key also retains an existing choice
+        saveOptionsToPreferences(pref);
+        CHECK(pref.find(AsciiString("WaterMovementBehavior")) == pref.end());
+        CHECK_STR(pref["WaterShoreWaveTurning"].str(), "no");
+        CHECK_STR(pref["WaterWaveFiltering"].str(), "yes");
+        CHECK_STR(pref["WaterFftResolution"].str(), "128");
     }
     delete scratch;
     TheWritableGlobalData = saved;
@@ -19513,15 +19497,17 @@ TEST(modern_water_performance_defaults_preserve_existing_appearance)
     TheWritableGlobalData = scratch;
 
     CHECK(scratch->m_waterReflectionEnabled);
-    CHECK_EQ(scratch->m_waterQuality, 2);
-    CHECK_EQ(scratch->m_waterFftResolution, 1);
+    CHECK(scratch->m_waterShoreWaveTurning);
+    CHECK(scratch->m_waterWaveFiltering);
+    CHECK_EQ(scratch->m_waterFftResolution, 2);
     CHECK_EQ(scratch->m_waterRefractionQuality, 0);
     CHECK_EQ(scratch->m_waterReflectionDetail, 1);
     UserPreferences missing;
     loadOptionsFromPreferences(missing);
     CHECK(scratch->m_waterReflectionEnabled);
-    CHECK_EQ(scratch->m_waterQuality, 2);
-    CHECK_EQ(scratch->m_waterFftResolution, 1);
+    CHECK(scratch->m_waterShoreWaveTurning);
+    CHECK(scratch->m_waterWaveFiltering);
+    CHECK_EQ(scratch->m_waterFftResolution, 2);
     CHECK_EQ(scratch->m_waterRefractionQuality, 0);
     CHECK_EQ(scratch->m_waterReflectionDetail, 1);
     CHECK_EQ(scratch->m_waterReflection, 2); // existing Hybrid value is unchanged
@@ -19541,16 +19527,16 @@ TEST(modern_water_performance_choices_round_trip_without_device_or_modern_style)
     scratch->m_waterStyle = 0;
     scratch->m_waterReflection = 3;
 
-    const char *const keys[] = { "WaterReflectionEnabled", "WaterQuality", "WaterFftResolution", "WaterRefractionQuality", "WaterReflectionDetail" };
+    const char *const keys[] = { "WaterReflectionEnabled", "WaterShoreWaveTurning", "WaterWaveFiltering", "WaterFftResolution", "WaterRefractionQuality", "WaterReflectionDetail" };
     const char *const widgets[] = { "OptionsMenu.wnd:CheckWaterReflectionEnabled",
-        "OptionsMenu.wnd:ComboBoxWaterQuality", "OptionsMenu.wnd:ComboBoxWaterFftResolution", "OptionsMenu.wnd:ComboBoxWaterRefractionQuality",
+        "OptionsMenu.wnd:CheckWaterShoreWaveTurning", "OptionsMenu.wnd:CheckWaterWaveFiltering", "OptionsMenu.wnd:ComboBoxWaterFftResolution", "OptionsMenu.wnd:ComboBoxWaterRefractionQuality",
         "OptionsMenu.wnd:ComboBoxWaterReflectionDetail" };
-    const Int maxValues[] = { 1, WATER_QUALITY_COUNT - 1, WATER_FFT_RESOLUTION_COUNT - 1, WATER_REFRACTION_QUALITY_COUNT - 1, WATER_REFLECTION_DETAIL_COUNT - 1 };
+    const Int maxValues[] = { 1, 1, 1, WATER_FFT_RESOLUTION_COUNT - 1, WATER_REFRACTION_QUALITY_COUNT - 1, WATER_REFLECTION_DETAIL_COUNT - 1 };
     for (Int i = 0; i < (Int)(sizeof(keys) / sizeof(keys[0])); ++i) {
         const OptionDef *def = findOptionDef(keys[i]);
         CHECK(def != NULL);
         if (!def) continue;
-        CHECK_EQ(def->kind, i == 0 ? OPTION_BOOL : OPTION_ENUM);
+        CHECK_EQ(def->kind, i < 3 ? OPTION_BOOL : OPTION_ENUM);
         CHECK_EQ(def->apply, APPLY_LIVE);
         CHECK_EQ(def->lo, 0);
         CHECK_EQ(def->hi, maxValues[i]);
@@ -19582,7 +19568,7 @@ TEST(modern_water_performance_invalid_values_are_bounded_and_console_input_is_st
     GlobalData *saved = TheWritableGlobalData;
     GlobalData *scratch = NEW GlobalData;
     TheWritableGlobalData = scratch;
-    const char *const keys[] = { "WaterQuality", "WaterFftResolution", "WaterRefractionQuality", "WaterReflectionDetail" };
+    const char *const keys[] = { "WaterFftResolution", "WaterRefractionQuality", "WaterReflectionDetail" };
     for (Int i = 0; i < (Int)(sizeof(keys) / sizeof(keys[0])); ++i) {
         const OptionDef *def = findOptionDef(keys[i]);
         CHECK(def != NULL);
@@ -19607,18 +19593,20 @@ TEST(modern_water_performance_invalid_values_are_bounded_and_console_input_is_st
         CHECK(!parseOptionText(*def, "1.5", &value));
         CHECK_EQ(value, 47);
     }
-    const OptionDef *reflection = findOptionDef("WaterReflectionEnabled");
-    CHECK(reflection != NULL);
-    if (reflection) {
+    const char *const boolKeys[] = { "WaterReflectionEnabled", "WaterShoreWaveTurning", "WaterWaveFiltering" };
+    for (const char *key : boolKeys) {
+        const OptionDef *control = findOptionDef(key);
+        CHECK(control != NULL);
+        if (!control) continue;
         UserPreferences pref;
-        pref["WaterReflectionEnabled"] = "true";
+        pref[key] = "true";
         loadOptionsFromPreferences(pref);
-        CHECK_EQ(reflection->get(), 1);
-        pref["WaterReflectionEnabled"] = "invalid";
+        CHECK_EQ(control->get(), 1);
+        pref[key] = "invalid";
         loadOptionsFromPreferences(pref);
-        CHECK_EQ(reflection->get(), 0);
+        CHECK_EQ(control->get(), 0);
         Int value = 47;
-        CHECK(!parseOptionText(*reflection, "invalid", &value));
+        CHECK(!parseOptionText(*control, "invalid", &value));
         CHECK_EQ(value, 47);
     }
 
@@ -19627,29 +19615,135 @@ TEST(modern_water_performance_invalid_values_are_bounded_and_console_input_is_st
 }
 
 
-TEST(modern_water_quality_uses_three_levels_and_the_expected_preset_steps)
+TEST(modern_water_switches_are_independent_and_quality_is_migrated_per_missing_key)
 {
-    const OptionDef *quality = findOptionDef("WaterQuality");
-    const GraphicsQualityRow *row = findGraphicsQualityRow("ComboBoxWaterQuality");
-    CHECK(quality && row);
-    if (!quality || !row) return;
-    CHECK_STR(quality->labelKey, "GUI:WaterQuality");
-    CHECK_EQ(WATER_QUALITY_COUNT, 3);
-    CHECK(isModernWaterOption(*quality)); // unsupported Water pages skip fill and writeback
-    // Classic Graphics disables fork rows through the same quality table as the other water rows.
-    CHECK(graphicsQualityRowIsReforged(*row));
-    const Int expected[] = { 0, 0, 0, 0, 1, 1, 1, 2, 2, 2, 2 };
-    CHECK_EQ((Int)(sizeof(expected) / sizeof(expected[0])), GRAPHICS_QUALITY_STEPS);
-    for (Int step = 0; step < GRAPHICS_QUALITY_STEPS; ++step)
-        CHECK_EQ(row->values[step], expected[step]);
-
+    CHECK(findOptionDef("WaterQuality") == NULL);
+    CHECK(findGraphicsQualityRow("ComboBoxWaterQuality") == NULL);
     GlobalData *saved = TheWritableGlobalData;
     GlobalData *scratch = NEW GlobalData;
     TheWritableGlobalData = scratch;
-    quality->set(1);
-    UserPreferences missing;
-    loadOptionsFromPreferences(missing);
-    CHECK_EQ(quality->get(), 1); // older files also retain an already chosen value
+    const OptionDef *shore = findOptionDef("WaterShoreWaveTurning");
+    const OptionDef *filtering = findOptionDef("WaterWaveFiltering");
+    CHECK(shore && filtering);
+    if (shore && filtering) {
+        for (Int turning = 0; turning < 2; ++turning) for (Int filtered = 0; filtered < 2; ++filtered) {
+            shore->set(turning); filtering->set(filtered);
+            UserPreferences pref;
+            pref["WaterQuality"] = "0"; // saving removes the obsolete combined control
+            saveOptionsToPreferences(pref);
+            CHECK(pref.find(AsciiString("WaterQuality")) == pref.end());
+            shore->set(!turning); filtering->set(!filtered);
+            loadOptionsFromPreferences(pref);
+            CHECK_EQ(shore->get(), turning); CHECK_EQ(filtering->get(), filtered);
+        }
+        for (Int quality = 0; quality < 3; ++quality) {
+            UserPreferences pref;
+            AsciiString legacy; legacy.format("%d", quality);
+            pref["WaterQuality"] = legacy;
+            loadOptionsFromPreferences(pref);
+            CHECK_EQ(shore->get(), quality > 0); CHECK_EQ(filtering->get(), quality == 2);
+            // Every possible explicit switch overrides just its own legacy-derived value.
+            for (Int explicitValue = 0; explicitValue < 2; ++explicitValue) {
+                pref["WaterShoreWaveTurning"] = explicitValue ? "yes" : "no";
+                loadOptionsFromPreferences(pref);
+                CHECK_EQ(shore->get(), explicitValue); CHECK_EQ(filtering->get(), quality == 2);
+                pref.erase(AsciiString("WaterShoreWaveTurning"));
+                pref["WaterWaveFiltering"] = explicitValue ? "yes" : "no";
+                loadOptionsFromPreferences(pref);
+                CHECK_EQ(shore->get(), quality > 0); CHECK_EQ(filtering->get(), explicitValue);
+                pref.erase(AsciiString("WaterWaveFiltering"));
+            }
+        }
+        // Missing keys preserve separately chosen controls.
+        shore->set(0); filtering->set(1);
+        UserPreferences missing; loadOptionsFromPreferences(missing);
+        CHECK_EQ(shore->get(), 0); CHECK_EQ(filtering->get(), 1);
+    }
+    delete scratch;
+    TheWritableGlobalData = saved;
+}
+
+TEST(accepting_unchanged_water_controls_normalizes_only_their_legacy_preferences)
+{
+    GlobalData *saved = TheWritableGlobalData;
+    GlobalData *scratch = NEW GlobalData;
+    TheWritableGlobalData = scratch;
+    const OptionDef *shore = findOptionDef("WaterShoreWaveTurning");
+    const OptionDef *filtering = findOptionDef("WaterWaveFiltering");
+    const OptionDef *waves = findOptionDef("WaterFftResolution");
+    CHECK(shore && filtering && waves);
+    if (shore && filtering && waves) {
+        for (Int quality = 0; quality < 3; ++quality) for (Int legacyWave = 0; legacyWave < 2; ++legacyWave) {
+            UserPreferences pref;
+            AsciiString text; text.format("%d", quality); pref["WaterQuality"] = text;
+            text.format("%d", legacyWave); pref["WaterFftResolution"] = text;
+            pref["TextLanguage"] = "7"; // launcher override in GlobalData must not rewrite this
+            pref["ClassicGraphics"] = "no"; // next-start choice differs from this run
+            pref["UnrelatedPreference"] = "retain exactly";
+            loadOptionsFromPreferences(pref);
+            scratch->m_textLanguage = 0;
+            scratch->m_classicGraphics = TRUE;
+            // This is the same helper Accept calls before its unchanged-value early return.
+            saveAcceptedWaterPreference(pref, *waves, waves->get());
+            CHECK_STR(pref["WaterFftResolution"].str(), legacyWave == 0 ? "128" : "256");
+            CHECK(pref.find(AsciiString("WaterQuality")) != pref.end());
+            saveAcceptedWaterPreference(pref, *shore, shore->get());
+            CHECK(pref.find(AsciiString("WaterQuality")) != pref.end()); // one missing switch still needs it
+            saveAcceptedWaterPreference(pref, *filtering, filtering->get());
+            CHECK(pref.find(AsciiString("WaterQuality")) == pref.end());
+            CHECK_STR(pref["WaterShoreWaveTurning"].str(), quality > 0 ? "yes" : "no");
+            CHECK_STR(pref["WaterWaveFiltering"].str(), quality == 2 ? "yes" : "no");
+            saveAcceptedWaterPreference(pref, *findOptionDef("TextLanguage"), 0);
+            CHECK_STR(pref["TextLanguage"].str(), "7");
+            CHECK_STR(pref["ClassicGraphics"].str(), "no");
+            CHECK_STR(pref["UnrelatedPreference"].str(), "retain exactly");
+            CHECK_EQ((Int)pref.size(), 6);
+            shore->set(1); filtering->set(1); waves->set(0);
+            loadOptionsFromPreferences(pref);
+            CHECK_EQ(shore->get(), quality > 0); CHECK_EQ(filtering->get(), quality == 2);
+            CHECK_EQ(waves->get(), legacyWave + 1);
+        }
+        UserPreferences explicitSwitches;
+        explicitSwitches["WaterQuality"] = "0";
+        explicitSwitches["WaterShoreWaveTurning"] = "yes";
+        explicitSwitches["WaterWaveFiltering"] = "no";
+        loadOptionsFromPreferences(explicitSwitches);
+        saveAcceptedWaterPreference(explicitSwitches, *shore, shore->get());
+        saveAcceptedWaterPreference(explicitSwitches, *filtering, filtering->get());
+        CHECK(explicitSwitches.find(AsciiString("WaterQuality")) == explicitSwitches.end());
+        CHECK_STR(explicitSwitches["WaterShoreWaveTurning"].str(), "yes");
+        CHECK_STR(explicitSwitches["WaterWaveFiltering"].str(), "no");
+    }
+    delete scratch;
+    TheWritableGlobalData = saved;
+}
+
+TEST(modern_water_wave_detail_dimensions_preserve_legacy_choices)
+{
+    GlobalData *saved = TheWritableGlobalData;
+    GlobalData *scratch = NEW GlobalData;
+    TheWritableGlobalData = scratch;
+    const OptionDef *waves = findOptionDef("WaterFftResolution");
+    CHECK(waves != NULL); CHECK_EQ(WATER_FFT_RESOLUTION_COUNT, 3);
+    if (waves) {
+        const char *const stored[] = { "0", "1", "64", "128", "256" };
+        const Int expected[] = { 1, 2, 0, 1, 2 };
+        const char *const dimensions[] = { "64", "128", "256" };
+        for (Int i = 0; i < 5; ++i) {
+            UserPreferences pref; pref["WaterFftResolution"] = stored[i];
+            loadOptionsFromPreferences(pref);
+            CHECK_EQ(waves->get(), expected[i]);
+            saveOptionsToPreferences(pref);
+            CHECK_STR(pref["WaterFftResolution"].str(), dimensions[expected[i]]);
+        }
+        // The console accepts UI indices, while preference files store dimensions.
+        for (Int index = 0; index < 3; ++index) {
+            Int parsed = -1; AsciiString text; text.format("%d", index);
+            CHECK(parseOptionText(*waves, text.str(), &parsed)); CHECK_EQ(parsed, index);
+        }
+        Int parsed = -1;
+        CHECK(!parseOptionText(*waves, "64", &parsed)); CHECK_EQ(parsed, -1);
+    }
     delete scratch;
     TheWritableGlobalData = saved;
 }
@@ -19690,11 +19784,12 @@ TEST(modern_water_quality_slider_high_is_the_sdl_default_and_low_is_modern_low)
 {
     const GraphicsQualityRow *reflections = findGraphicsQualityRow("CheckWaterReflectionEnabled");
     const GraphicsQualityRow *refraction = findGraphicsQualityRow("ComboBoxWaterRefractionQuality");
-    const GraphicsQualityRow *quality = findGraphicsQualityRow("ComboBoxWaterQuality");
+    const GraphicsQualityRow *shore = findGraphicsQualityRow("CheckWaterShoreWaveTurning");
+    const GraphicsQualityRow *filtering = findGraphicsQualityRow("CheckWaterWaveFiltering");
     const GraphicsQualityRow *waves = findGraphicsQualityRow("ComboBoxWaterFftResolution");
     const GraphicsQualityRow *detail = findGraphicsQualityRow("ComboBoxWaterReflectionDetail");
-    CHECK(reflections && refraction && quality && waves && detail);
-    if (!reflections || !refraction || !quality || !waves || !detail) return;
+    CHECK(reflections && refraction && shore && filtering && waves && detail);
+    if (!reflections || !refraction || !shore || !filtering || !waves || !detail) return;
     // the reflection mode is a look, and Path traced is experimental
     CHECK(findGraphicsQualityRow("ComboBoxWaterReflection") == NULL);
 
@@ -19702,17 +19797,27 @@ TEST(modern_water_quality_slider_high_is_the_sdl_default_and_low_is_modern_low)
     GlobalData *scratch = NEW GlobalData;
     TheWritableGlobalData = scratch;
 
+    for (Int step = 0; step < GRAPHICS_QUALITY_STEPS; ++step) {
+        CHECK_EQ(shore->values[step], step >= 4 ? 1 : 0);
+        CHECK_EQ(filtering->values[step], step >= 7 ? 1 : 0);
+        CHECK_EQ(waves->values[step], step < 4 ? 0 : step < 7 ? 1 : 2);
+        CHECK(graphicsQualityRowIsReforged(*shore));
+        CHECK(graphicsQualityRowIsReforged(*filtering));
+    }
+
     const Int high = TheGraphicsQualityAnchors[STATIC_GAME_LOD_HIGH];
     CHECK_EQ(reflections->values[high], scratch->m_waterReflectionEnabled ? 1 : 0);
     CHECK_EQ(refraction->values[high], scratch->m_waterRefractionQuality);
-    CHECK_EQ(quality->values[high], scratch->m_waterQuality);
+    CHECK_EQ(shore->values[high], scratch->m_waterShoreWaveTurning ? 1 : 0);
+    CHECK_EQ(filtering->values[high], scratch->m_waterWaveFiltering ? 1 : 0);
     CHECK_EQ(waves->values[high], scratch->m_waterFftResolution);
     CHECK_EQ(detail->values[high], scratch->m_waterReflectionDetail);
 
     const Int low = TheGraphicsQualityAnchors[STATIC_GAME_LOD_LOW];
     CHECK_EQ(reflections->values[low], 0);
     CHECK_EQ(refraction->values[low], 2);
-    CHECK_EQ(quality->values[low], 0);
+    CHECK_EQ(shore->values[low], 0);
+    CHECK_EQ(filtering->values[low], 0);
     CHECK_EQ(waves->values[low], 0);
     CHECK_EQ(detail->values[low], 0);
 
@@ -19723,11 +19828,12 @@ TEST(modern_water_quality_slider_high_is_the_sdl_default_and_low_is_modern_low)
     pref["GraphicsQuality"] = "0";
     pref["WaterFftResolution"] = "1";
     loadOptionsFromPreferences(pref);
-    CHECK_EQ(scratch->m_waterQuality, 2);
+    CHECK(scratch->m_waterShoreWaveTurning);
+    CHECK(scratch->m_waterWaveFiltering);
     CHECK(scratch->m_waterReflectionEnabled);
     CHECK_EQ(scratch->m_waterRefractionQuality, 0);
     CHECK_EQ(scratch->m_waterReflectionDetail, 1);
-    CHECK_EQ(scratch->m_waterFftResolution, 1);
+    CHECK_EQ(scratch->m_waterFftResolution, 2);
     pref["WaterReflectionEnabled"] = "no";
     pref["WaterRefractionQuality"] = "2";
     pref["WaterQuality"] = "1";
@@ -19735,9 +19841,10 @@ TEST(modern_water_quality_slider_high_is_the_sdl_default_and_low_is_modern_low)
     loadOptionsFromPreferences(pref);
     CHECK(!scratch->m_waterReflectionEnabled);
     CHECK_EQ(scratch->m_waterRefractionQuality, 2);
-    CHECK_EQ(scratch->m_waterQuality, 1);
+    CHECK(scratch->m_waterShoreWaveTurning);
+    CHECK(!scratch->m_waterWaveFiltering);
     CHECK_EQ(scratch->m_waterReflectionDetail, 0);
-    CHECK_EQ(scratch->m_waterFftResolution, 1);
+    CHECK_EQ(scratch->m_waterFftResolution, 2);
     CHECK_EQ(scratch->m_waterReflection, 2); // the mode is left as it was
 
     delete scratch;

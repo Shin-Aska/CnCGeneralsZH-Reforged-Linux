@@ -28,4 +28,4 @@ with tempfile.TemporaryDirectory(prefix='water-clean-defaults-') as folder:
             first = next((i for i, (a, b) in enumerate(zip(*snapshots)) if a != b),
                          min(map(len, snapshots)))
             raise AssertionError(f'clean default/file mismatch at byte {first}, map {angle}')
-        print(f'PASS map {angle}: exact 128/256 coefficients, shader constants and phase ({len(snapshots[0])} bytes)')
+        print(f'PASS map {angle}: exact 64/128/256 coefficients, shader constants and phase ({len(snapshots[0])} bytes)')

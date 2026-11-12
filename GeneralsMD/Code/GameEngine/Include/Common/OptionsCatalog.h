@@ -113,8 +113,13 @@ extern Int clampOptionValue( const OptionDef& def, Int value );
 	* [lo,hi], and anything else is FALSE with `value` untouched rather than clamped or read as "no". */
 extern Bool parseOptionText( const OptionDef& def, const char *text, Int *value );
 
-/** A value as Options.ini stores it: "yes"/"no" for a bool, the clamped decimal otherwise. */
+/** A value as Options.ini stores it: "yes"/"no" for a bool, explicit dimensions for
+	* WaterFftResolution, and the clamped decimal otherwise. */
 extern AsciiString formatOptionValue( const OptionDef& def, Int value );
+
+/** Canonicalize a water switch or wave-detail value read from an accepted menu control,
+	* including unchanged values migrated from old files. Other preference rows stay untouched. */
+extern void saveAcceptedWaterPreference( UserPreferences& pref, const OptionDef& def, Int value );
 
 //-----------------------------------------------------------------------------
 // Multisampling is stored as an index rather than a sample count, because that is what a combo box
@@ -150,8 +155,7 @@ enum { WATER_STYLE_COUNT = 2 };
 enum { WATER_REFLECTION_COUNT = 4 };
 
 // Linux Modern water performance choices. Stored indices are independent of reflection mode.
-enum { WATER_QUALITY_COUNT = 3 }; // Low, Medium, High
-enum { WATER_FFT_RESOLUTION_COUNT = 2 }; // Low (128), High (256)
+enum { WATER_FFT_RESOLUTION_COUNT = 3 }; // Low (64), Medium (128), High (256)
 enum { WATER_REFRACTION_QUALITY_COUNT = 3 }; // Full, Simple, Off
 enum { WATER_REFLECTION_DETAIL_COUNT = 2 }; // Low/High planar and Path resolution; SSR unchanged
 

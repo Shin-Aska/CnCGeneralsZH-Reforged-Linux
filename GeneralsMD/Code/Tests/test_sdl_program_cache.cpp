@@ -123,10 +123,12 @@ static void check_clean_water_quality_programs(PosixDevice9 *device,SdlProgramCa
     device->SetRenderState(D3DRS_LIGHTING,0);device->SetRenderState(D3DRS_FOGENABLE,0);
     VertexPipelineDescription vertex={};CHECK(device->Build_Vertex_Description(vertex));
     PixelPipelineDescription pixel={};
-    const SdlProgram *vertices[3][2]={},*pixels[3]={};unsigned keys[3]={};
+    const SdlProgram *vertices[4][2]={},*pixels[4]={};unsigned keys[4]={};
     const auto *classic=&cache.Engine_Pixel_Program(ENGINE_SHADER_WATER_CLASSIC_TRAPEZOID,pixel);
-    for(int quality:{2,1,0}) {
-        WaterCleanProfile::Apply(quality,true,true);keys[quality]=WaterCleanProfile::Key(WaterCleanProfile::Get());
+    for(int quality:{3,2,1,0}) {
+        WaterCleanProfile::Apply((quality&1)!=0,(quality&2)!=0,true,true);keys[quality]=WaterCleanProfile::Key(WaterCleanProfile::Get());
+        CHECK(WaterCleanProfile::Get().noshore==(WaterCleanProfile::Environment().noshore || !(quality&1)));
+        CHECK(WaterCleanProfile::Get().nomips==(WaterCleanProfile::Environment().nomips || !(quality&2)));
         pixels[quality]=&cache.Engine_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pixel,false,true);
         CHECK(pixels[quality]->Shader);
         for(int array:{0,1}) {
@@ -136,8 +138,8 @@ static void check_clean_water_quality_programs(PosixDevice9 *device,SdlProgramCa
         CHECK(&cache.Engine_Pixel_Program(ENGINE_SHADER_WATER_CLASSIC_TRAPEZOID,pixel)==classic);
     }
     const auto built=cache.Programs_Built();
-    for(unsigned repeat=0;repeat<4;++repeat)for(int quality:{0,2,1}) {
-        WaterCleanProfile::Apply(quality,true,true);
+    for(unsigned repeat=0;repeat<4;++repeat)for(int quality:{0,2,1,3}) {
+        WaterCleanProfile::Apply((quality&1)!=0,(quality&2)!=0,true,true);
         CHECK(&cache.Engine_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pixel,false,true)==pixels[quality]);
         PixelPipelineDescription equivalentPixel=pixel;equivalentPixel.AlphaFunction=D3DCMP_ALWAYS;
         CHECK(&cache.Engine_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,equivalentPixel,false,true)==pixels[quality]);
@@ -145,10 +147,10 @@ static void check_clean_water_quality_programs(PosixDevice9 *device,SdlProgramCa
             CHECK(&cache.Water_Vertex_Program(vertex,array!=0,true)==vertices[quality][array]);
             VertexPipelineDescription equivalentVertex=vertex;equivalentVertex.FogVertexMode=D3DFOG_LINEAR;
             CHECK(&cache.Water_Vertex_Program(equivalentVertex,array!=0,true)==vertices[quality][array]);
-            for(int other=0;other<3;++other)
+            for(int other=0;other<4;++other)
                 CHECK((vertices[quality][array]==vertices[other][array])==(keys[quality]==keys[other]));
         }
-        for(int other=0;other<3;++other)CHECK((pixels[quality]==pixels[other])==(keys[quality]==keys[other]));
+        for(int other=0;other<4;++other)CHECK((pixels[quality]==pixels[other])==(keys[quality]==keys[other]));
     }
     CHECK(cache.Programs_Built()==built);
 #endif
@@ -295,8 +297,8 @@ int main()
 
 	check_live_water_style_programs(device,cache);
     const auto savedWater=WaterPerformanceSettings::Applied();
-    const SdlProgram *tiers[12]={};unsigned tier=0;PixelPipelineDescription waterPipeline={};
-    for(unsigned resolution:{128u,256u}) for(unsigned refraction=0;refraction<3;++refraction) for(bool reflections:{false,true}) {
+    const SdlProgram *tiers[18]={};unsigned tier=0;PixelPipelineDescription waterPipeline={};
+    for(unsigned resolution:{64u,128u,256u}) for(unsigned refraction=0;refraction<3;++refraction) for(bool reflections:{false,true}) {
         auto &settings=WaterPerformanceSettings::Applied();settings.activeFftResolution=resolution;
         settings.refraction=WaterPerformanceSettings::Refraction(refraction);settings.sceneReflections=reflections;
         tiers[tier]=&cache.Engine_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,waterPipeline);
@@ -305,13 +307,13 @@ int main()
         CHECK(&cache.Engine_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,waterPipeline)==tiers[tier]);++tier;
     }
     const auto builtTiers=cache.Programs_Built();tier=0;
-    for(unsigned resolution:{128u,256u}) for(unsigned refraction=0;refraction<3;++refraction) for(bool reflections:{false,true}) {
+    for(unsigned resolution:{64u,128u,256u}) for(unsigned refraction=0;refraction<3;++refraction) for(bool reflections:{false,true}) {
         auto &settings=WaterPerformanceSettings::Applied();settings.activeFftResolution=resolution;
         settings.refraction=WaterPerformanceSettings::Refraction(refraction);settings.sceneReflections=reflections;
         CHECK(&cache.Engine_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,waterPipeline)==tiers[tier++]);
     }
     CHECK(cache.Programs_Built()==builtTiers);WaterPerformanceSettings::Applied()=savedWater;
-    printf("sdl_program_cache_selfcheck: all 12 water quality byte-cache variants distinct; revisits reuse shaders\n");
+    printf("sdl_program_cache_selfcheck: all 18 water detail byte-cache variants distinct; revisits reuse shaders\n");
 #if defined(__linux__)
     const auto savedProfile=WaterMaterialProfile::Applied();
     const SdlProgram *profiles[WaterMaterialProfile::Count]={};

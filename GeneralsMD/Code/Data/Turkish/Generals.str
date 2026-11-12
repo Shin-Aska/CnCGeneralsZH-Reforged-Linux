@@ -18176,14 +18176,6 @@ GUI:OptionsGroupModernWater
 "Modern su"
 END
 
-GUI:WaterMovementBehavior
-"Su hareketi"
-END
-
-TOOLTIP:WaterMovementBehavior
-"Açık: Dalga hareketi haritaya uyarlanır. Kapalı: 3.5.1 sürümünün su hareketi korunur. Sonraki harita yüklendiğinde uygulanır."
-END
-
 GUI:WaterReflectionEnabled
 "Sahne yansımaları"
 END
@@ -18192,24 +18184,20 @@ TOOLTIP:WaterReflectionEnabled
 "Sahneyi modern suya yansıtır. Kapatmak performansı artırırken gökyüzü rengini ve güneş parıltılarını korur. Yansıma modu hatırlanır. Kabul Et'e basınca uygulanır."
 END
 
-GUI:WaterQuality
-"Su kalitesi"
+GUI:WaterShoreWaveTurning
+"Dalgaları kıyıya yönelt"
 END
 
-GUI:WaterQuality0
-"Düşük"
+TOOLTIP:WaterShoreWaveTurning
+"Modern su dalgalarını kıyıya yöneltir. Kapatmak dalgaları tek yönde tutar ve performansı artırır. Kabul Et seçildiğinde uygulanır."
 END
 
-GUI:WaterQuality1
-"Orta"
+GUI:WaterWaveFiltering
+"Dalga filtreleme"
 END
 
-GUI:WaterQuality2
-"Yüksek"
-END
-
-TOOLTIP:WaterQuality
-"Modern suyun kalitesi. Orta, uzaktaki güneş parıltısını basitleştirir. Düşük ayrıca tüm dalgaların kıyıya yönelmek yerine tek yönde ilerlemesini sağlar. Düşük ayarlar performansı artırır. Kabul Et seçildiğinde uygulanır."
+TOOLTIP:WaterWaveFiltering
+"Modern suda uzaktaki dalgaları ve güneş parıltılarını yumuşatır. Kapatmak uzak parıltıları basitleştirir ve performansı artırır. Kabul Et seçildiğinde uygulanır."
 END
 
 GUI:WaterFftResolution
@@ -18221,11 +18209,15 @@ GUI:WaterFftResolution0
 END
 
 GUI:WaterFftResolution1
+"Orta"
+END
+
+GUI:WaterFftResolution2
 "Yüksek"
 END
 
 TOOLTIP:WaterFftResolution
-"Modern su dalgalarının ince ayrıntı düzeyini belirler. Düşük performansı artırır; Yüksek daha fazla ayrıntı gösterir. Kabul Et'e basınca uygulanır."
+"Yüksek ayarlar dalgalara daha ince ayrıntılar ekler. Düşük ayarlar performansı artırır."
 END
 
 GUI:WaterRefractionQuality

@@ -122,12 +122,10 @@ OPTION_INT_ACCESSORS( m_msaaLevel )
 OPTION_BOOL_ACCESSORS( m_vsync )
 OPTION_INT_ACCESSORS( m_frameRateLimit )
 OPTION_INT_ACCESSORS( m_waterStyle )
-#if defined(__linux__)
-OPTION_BOOL_ACCESSORS( m_waterMovementBehavior )
-#endif
 OPTION_INT_ACCESSORS( m_waterReflection )
 OPTION_BOOL_ACCESSORS( m_waterReflectionEnabled )
-OPTION_INT_ACCESSORS( m_waterQuality )
+OPTION_BOOL_ACCESSORS( m_waterShoreWaveTurning )
+OPTION_BOOL_ACCESSORS( m_waterWaveFiltering )
 OPTION_INT_ACCESSORS( m_waterFftResolution )
 OPTION_INT_ACCESSORS( m_waterRefractionQuality )
 OPTION_INT_ACCESSORS( m_waterReflectionDetail )
@@ -518,13 +516,6 @@ const OptionDef TheOptionCatalog[] =
 		OPTION_ENUM, APPLY_LIVE, 0, WATER_STYLE_COUNT - 1,
 		get_m_waterStyle, set_m_waterStyle },
 
-#if defined(__linux__)
-	// The map's water renderer snapshots this preference while the next map loads.
-	{ "WaterMovementBehavior", OPT_WND( "CheckWaterMovementBehavior" ), "GUI:WaterMovementBehavior",
-		OPTION_BOOL, APPLY_NEXT_MAP, 0, 1,
-		get_m_waterMovementBehavior, set_m_waterMovementBehavior },
-
-#endif
 	// Modern water reads the mode each frame and refreshes its reflection target on a change.
 	// Keep this independent of WaterStyle so Classic can retain a choice for a later Modern switch.
 	{ "WaterReflection", OPT_WND( "ComboBoxWaterReflection" ), "GUI:WaterReflection",
@@ -536,9 +527,13 @@ const OptionDef TheOptionCatalog[] =
 		get_m_waterReflectionEnabled, set_m_waterReflectionEnabled },
 
 	// Modern water publishes the profile at a frame boundary and rebuilds profile-dependent caches.
-	{ "WaterQuality", OPT_WND( "ComboBoxWaterQuality" ), "GUI:WaterQuality",
-		OPTION_ENUM, APPLY_LIVE, 0, WATER_QUALITY_COUNT - 1,
-		get_m_waterQuality, set_m_waterQuality },
+	{ "WaterShoreWaveTurning", OPT_WND( "CheckWaterShoreWaveTurning" ), "GUI:WaterShoreWaveTurning",
+		OPTION_BOOL, APPLY_LIVE, 0, 1,
+		get_m_waterShoreWaveTurning, set_m_waterShoreWaveTurning },
+
+	{ "WaterWaveFiltering", OPT_WND( "CheckWaterWaveFiltering" ), "GUI:WaterWaveFiltering",
+		OPTION_BOOL, APPLY_LIVE, 0, 1,
+		get_m_waterWaveFiltering, set_m_waterWaveFiltering },
 
 	{ "WaterFftResolution", OPT_WND( "ComboBoxWaterFftResolution" ), "GUI:WaterFftResolution",
 		OPTION_ENUM, APPLY_LIVE, 0, WATER_FFT_RESOLUTION_COUNT - 1,
@@ -918,8 +913,9 @@ const GraphicsQualityRow TheGraphicsQualityTable[] =
 	{ "ComboBoxWaterRefractionQuality",	0.0f, {    2,    1,    1,    1,    1,    1,    0,    0,    0,    0,    0 } },
 	// RTX 4060, 1920x1080, USA2/SWANGLE: baseline 11.85/6.09 ms; nomips alone
 	// 11.10/5.63 ms (-6/-8%); noshore alone 9.34/5.12 ms (-21/-16%).
-	{ "ComboBoxWaterQuality",				0.0f, {    0,    0,    0,    0,    1,    1,    1,    2,    2,    2,    2 } },
-	{ "ComboBoxWaterFftResolution",			0.0f, {    0,    0,    0,    0,    0,    0,    0,    1,    1,    1,    1 } },
+	{ "CheckWaterShoreWaveTurning",		0.0f, {    0,    0,    0,    0,    1,    1,    1,    1,    1,    1,    1 } },
+	{ "CheckWaterWaveFiltering",			0.0f, {    0,    0,    0,    0,    0,    0,    0,    1,    1,    1,    1 } },
+	{ "ComboBoxWaterFftResolution",			0.0f, {    0,    0,    0,    0,    1,    1,    1,    2,    2,    2,    2 } },
 	{ "ComboBoxWaterReflectionDetail",	0.0f, {    0,    0,    0,    0,    0,    0,    0,    1,    1,    1,    1 } },
 };
 
@@ -949,9 +945,9 @@ const OptionDef *findOptionDef( const char *iniKey )
 Bool isModernWaterOption( const OptionDef& def )
 {
 	return strcmp( def.iniKey, "WaterReflection" ) == 0
-		|| strcmp( def.iniKey, "WaterMovementBehavior" ) == 0
 		|| strcmp( def.iniKey, "WaterReflectionEnabled" ) == 0
-		|| strcmp( def.iniKey, "WaterQuality" ) == 0
+		|| strcmp( def.iniKey, "WaterShoreWaveTurning" ) == 0
+		|| strcmp( def.iniKey, "WaterWaveFiltering" ) == 0
 		|| strcmp( def.iniKey, "WaterFftResolution" ) == 0
 		|| strcmp( def.iniKey, "WaterRefractionQuality" ) == 0
 		|| strcmp( def.iniKey, "WaterReflectionDetail" ) == 0;
@@ -987,6 +983,18 @@ static Int parseOptionValue( const OptionDef& def, const AsciiString& stored )
 		return on ? 1 : 0;
 	}
 
+	if( strcmp( def.iniKey, "WaterFftResolution" ) == 0 )
+	{
+		// Old files stored 0=128 and 1=256. New files use explicit dimensions so
+		// a saved High choice can never become Medium when the list grows.
+		char *end;
+		const long resolution = strtol( stored.str(), &end, 10 );
+		if( end == stored.str() || *end != '\0' ) return 0;
+		if( resolution == 0 || resolution == 128 ) return 1;
+		if( resolution == 1 || resolution == 256 ) return 2;
+		if( resolution == 64 ) return 0;
+		return resolution < 0 ? 0 : resolution > def.hi ? def.hi : (Int)resolution;
+	}
 	return clampOptionValue( def, atoi( stored.str() ) );
 }
 
@@ -1024,8 +1032,24 @@ AsciiString formatOptionValue( const OptionDef& def, Int value )
 		return AsciiString( value ? "yes" : "no" );
 
 	AsciiString out;
-	out.format( "%d", clampOptionValue( def, value ) );
+	const Int bounded = clampOptionValue( def, value );
+	out.format( "%d", strcmp( def.iniKey, "WaterFftResolution" ) == 0 ? (64 << bounded) : bounded );
 	return out;
+}
+
+//-----------------------------------------------------------------------------
+void saveAcceptedWaterPreference( UserPreferences& pref, const OptionDef& def, Int value )
+{
+	if( strcmp( def.iniKey, "WaterShoreWaveTurning" ) != 0
+		&& strcmp( def.iniKey, "WaterWaveFiltering" ) != 0
+		&& strcmp( def.iniKey, "WaterFftResolution" ) != 0 )
+		return;
+
+	pref[ AsciiString( def.iniKey ) ] = formatOptionValue( def, value );
+	// Keep the old migration source until both independent switches have a saved value.
+	if( pref.find( AsciiString( "WaterShoreWaveTurning" ) ) != pref.end()
+		&& pref.find( AsciiString( "WaterWaveFiltering" ) ) != pref.end() )
+		pref.erase( AsciiString( "WaterQuality" ) );
 }
 
 //-----------------------------------------------------------------------------
@@ -1074,6 +1098,18 @@ void loadOptionsFromPreferences( UserPreferences& pref )
 			TheOptionDefaults[ i ] = TheOptionCatalog[ i ].get();
 	}
 
+	// Migrate each missing control separately. Explicit new keys win regardless
+	// of their order in the file, including a file that still has WaterQuality.
+	UserPreferences::const_iterator legacy = pref.find( AsciiString( "WaterQuality" ) );
+	if( legacy != pref.end() )
+	{
+		const Int quality = atoi( legacy->second.str() );
+		if( pref.find( AsciiString( "WaterShoreWaveTurning" ) ) == pref.end() )
+			set_m_waterShoreWaveTurning( quality > 0 );
+		if( pref.find( AsciiString( "WaterWaveFiltering" ) ) == pref.end() )
+			set_m_waterWaveFiltering( quality >= 2 );
+	}
+
 	for( Int i = 0; i < TheOptionCatalogCount; ++i )
 	{
 		const OptionDef& def = TheOptionCatalog[ i ];
@@ -1102,6 +1138,8 @@ void logOptionCatalog( void )
 //-----------------------------------------------------------------------------
 void saveOptionsToPreferences( UserPreferences& pref )
 {
+	pref.erase( AsciiString( "WaterMovementBehavior" ) );
+	pref.erase( AsciiString( "WaterQuality" ) );
 	for( Int i = 0; i < TheOptionCatalogCount; ++i )
 	{
 		const OptionDef& def = TheOptionCatalog[ i ];

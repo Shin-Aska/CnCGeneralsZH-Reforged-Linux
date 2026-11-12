@@ -221,13 +221,11 @@ public:
 	Bool m_smoothMotion;				// R1: on a display faster than the logic, models drawn between their last two logic states (W3DSmoothMotion.h); -nosmoothmotion turns it off
 	Bool m_smoothMotionAnyDisplay;	// -smoothmotion: the same whatever the display's refresh rate
 	Int m_waterStyle;					// "WaterStyle": 0 = Classic, 1 = Modern (when supported); applied between render frames
-#if defined(__linux__)
-	Bool m_waterMovementBehavior; // "WaterMovementBehavior": map-aware waves; latched when the next map loads
-#endif
 	Int m_waterReflection;			// "WaterReflection": 0 = Legacy, 1 = SSR, 2 = Hybrid, 3 = experimental path tracing; Modern water
 	Bool m_waterReflectionEnabled; // "WaterReflectionEnabled": scene reflections on/off; remembers the selected mode
-	Int m_waterQuality;			// "WaterQuality": 0 = Low, 1 = Medium, 2 = High Modern water shading
-	Int m_waterFftResolution;		// "WaterFftResolution": 0 = Low (128), 1 = High (256) wave simulation
+	Bool m_waterShoreWaveTurning; // "WaterShoreWaveTurning": waves turn toward the shore
+	Bool m_waterWaveFiltering; // "WaterWaveFiltering": filter distant waves and sun glints
+	Int m_waterFftResolution;		// "WaterFftResolution": 0 = Low (64), 1 = Medium (128), 2 = High (256) wave simulation; saved as dimensions
 	Int m_waterRefractionQuality; // "WaterRefractionQuality": 0 = Full, 1 = Simple transmission, 2 = opaque Off
 	Int m_waterReflectionDetail; // "WaterReflectionDetail": 0 = Low, 1 = High scene reflection resolution
 	Int m_cloudStyle;					// "CloudStyle": 0 = Classic, 1 = Volumetric (when supported); visual only

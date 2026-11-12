@@ -36,7 +36,7 @@ int main(int argc,char **argv) {
         Require(WaterCleanShore::Enabled(),"default clean shore/heading tile path must be compiled");
         std::ofstream out(argv[1],std::ios::binary);Require(bool(out),"open snapshot");
         const auto write=[&](const auto &value){out.write(reinterpret_cast<const char*>(&value),sizeof(value));};
-        for(unsigned resolution:{128u,256u}) {
+        for(unsigned resolution:{64u,128u,256u}) {
             const auto config=WaterFftSpectrum::ForResolution(resolution);
             const auto spectrum=WaterFftSpectrum::InitialSpectrum(config);
             out.write(reinterpret_cast<const char*>(spectrum.data()),spectrum.size()*sizeof(float));

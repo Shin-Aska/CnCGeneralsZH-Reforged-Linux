@@ -620,7 +620,7 @@ bool PosixDevice9::Water_Foam_History_Available() const
 static const SdlWaterTuningConstants &Water_Tuning_Constants(unsigned resolution)
 {
     struct Cache {unsigned revision=~0u,spectrumRevision=~0u;SdlWaterTuningConstants data{};};
-    static Cache caches[2];auto &cache=caches[resolution==128?0:1];
+    static Cache caches[3];auto &cache=caches[resolution==64?0:resolution==128?1:2];
     if(cache.revision!=WaterTuning::Revision()) {
         using namespace WaterTuning;const auto &v=Current();auto &d=cache.data;
         WaterCleanShader::SetDrawValues(d,v);

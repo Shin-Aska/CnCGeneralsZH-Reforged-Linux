@@ -1703,14 +1703,6 @@ TOOLTIP:WaterStyle
 "Classic uses the original water, sparkles, reflections and wakes. Modern adds waves, shoreline detail and hull foam. Applied when you Accept."
 END
 
-GUI:WaterMovementBehavior
-"Water Movement Behavior"
-END
-
-TOOLTIP:WaterMovementBehavior
-"On uses map-aware wave movement. Off keeps v3.5.1 water movement. Applies when the next map loads."
-END
-
 GUI:WaterReflectionEnabled
 "Scene reflections"
 END
@@ -1719,24 +1711,20 @@ TOOLTIP:WaterReflectionEnabled
 "Reflects the scene in Modern water. Turn off to improve performance while keeping sky colour and sun highlights. Your reflection mode is remembered. Applied when you Accept."
 END
 
-GUI:WaterQuality
-"Water quality"
+GUI:WaterShoreWaveTurning
+"Shore wave turning"
 END
 
-GUI:WaterQuality0
-"Low"
+TOOLTIP:WaterShoreWaveTurning
+"Lets Modern water waves turn toward the shore. Turn off to keep waves travelling in one direction and improve performance. Applied when you Accept."
 END
 
-GUI:WaterQuality1
-"Medium"
+GUI:WaterWaveFiltering
+"Wave filtering"
 END
 
-GUI:WaterQuality2
-"High"
-END
-
-TOOLTIP:WaterQuality
-"Quality of Modern water. Medium uses a simpler far-away sun glint. Low also keeps all waves travelling one way instead of turning toward the shore. Lower settings improve performance. Applied when you Accept."
+TOOLTIP:WaterWaveFiltering
+"Smooths distant waves and sun glints in Modern water. Turn off for simpler distant highlights and better performance. Applied when you Accept."
 END
 
 GUI:WaterFftResolution
@@ -1748,11 +1736,15 @@ GUI:WaterFftResolution0
 END
 
 GUI:WaterFftResolution1
+"Medium"
+END
+
+GUI:WaterFftResolution2
 "High"
 END
 
 TOOLTIP:WaterFftResolution
-"Controls fine detail in Modern water waves. Low improves performance; High shows more detail. Applied when you Accept."
+"Higher settings add finer wave detail. Lower settings improve performance."
 END
 
 GUI:WaterRefractionQuality
@@ -4006,24 +3998,20 @@ TOOLTIP:WaterReflectionEnabled
 "Reflects the scene in Modern water. Turn off to improve performance while keeping sky colour and sun highlights. Your reflection mode is remembered. Applied when you Accept."
 END
 
-GUI:WaterQuality
-"Water quality"
+GUI:WaterShoreWaveTurning
+"Shore wave turning"
 END
 
-GUI:WaterQuality0
-"Low"
+TOOLTIP:WaterShoreWaveTurning
+"Lets Modern water waves turn toward the shore. Turn off to keep waves travelling in one direction and improve performance. Applied when you Accept."
 END
 
-GUI:WaterQuality1
-"Medium"
+GUI:WaterWaveFiltering
+"Wave filtering"
 END
 
-GUI:WaterQuality2
-"High"
-END
-
-TOOLTIP:WaterQuality
-"Quality of Modern water. Medium uses a simpler far-away sun glint. Low also keeps all waves travelling one way instead of turning toward the shore. Lower settings improve performance. Applied when you Accept."
+TOOLTIP:WaterWaveFiltering
+"Smooths distant waves and sun glints in Modern water. Turn off for simpler distant highlights and better performance. Applied when you Accept."
 END
 
 GUI:WaterFftResolution
@@ -4035,11 +4023,15 @@ GUI:WaterFftResolution0
 END
 
 GUI:WaterFftResolution1
+"Medium"
+END
+
+GUI:WaterFftResolution2
 "High"
 END
 
 TOOLTIP:WaterFftResolution
-"Controls fine detail in Modern water waves. Low improves performance; High shows more detail. Applied when you Accept."
+"Higher settings add finer wave detail. Lower settings improve performance."
 END
 
 GUI:WaterRefractionQuality

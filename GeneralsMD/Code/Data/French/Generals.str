@@ -18689,14 +18689,6 @@ GUI:OptionsGroupModernWater
 "Eau moderne"
 END
 
-GUI:WaterMovementBehavior
-"Mouvement de l'eau"
-END
-
-TOOLTIP:WaterMovementBehavior
-"Activé : le mouvement des vagues s'adapte à la carte. Désactivé : conserve le mouvement de l'eau de la version 3.5.1. S'applique au chargement de la prochaine carte."
-END
-
 GUI:WaterReflectionEnabled
 "Reflets de scène"
 END
@@ -18705,24 +18697,20 @@ TOOLTIP:WaterReflectionEnabled
 "Reflète la scène dans l’eau moderne. Désactivez cette option pour améliorer les performances tout en conservant la couleur du ciel et les éclats du soleil. Le mode de réflexion reste mémorisé. Appliqué quand vous cliquez sur Accepter."
 END
 
-GUI:WaterQuality
-"Qualité de l’eau"
+GUI:WaterShoreWaveTurning
+"Vagues vers le rivage"
 END
 
-GUI:WaterQuality0
-"Faible"
+TOOLTIP:WaterShoreWaveTurning
+"Oriente les vagues de l’eau moderne vers le rivage. Désactiver conserve une seule direction et améliore les performances. Appliqué après validation."
 END
 
-GUI:WaterQuality1
-"Moyenne"
+GUI:WaterWaveFiltering
+"Filtrage des vagues"
 END
 
-GUI:WaterQuality2
-"Élevée"
-END
-
-TOOLTIP:WaterQuality
-"Qualité de l’eau moderne. Moyenne simplifie les reflets du soleil au loin. Faible fait aussi avancer toutes les vagues dans la même direction au lieu de les orienter vers la rive. Les réglages inférieurs améliorent les performances. Appliqué quand vous cliquez sur Accepter."
+TOOLTIP:WaterWaveFiltering
+"Lisse les vagues et les reflets du soleil au loin dans l’eau moderne. Désactiver simplifie les reflets lointains et améliore les performances. Appliqué après validation."
 END
 
 GUI:WaterFftResolution
@@ -18734,11 +18722,15 @@ GUI:WaterFftResolution0
 END
 
 GUI:WaterFftResolution1
+"Moyen"
+END
+
+GUI:WaterFftResolution2
 "Élevé"
 END
 
 TOOLTIP:WaterFftResolution
-"Définit le niveau de détail des vagues de l’eau moderne. Faible améliore les performances ; Élevé affiche plus de détails. Appliqué quand vous cliquez sur Accepter."
+"Les réglages élevés rendent les vagues plus détaillées. Les réglages bas améliorent les performances."
 END
 
 GUI:WaterRefractionQuality

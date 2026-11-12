@@ -33,9 +33,9 @@ user data and run without a visible window.
 New profiles use upstream's Classic graphics and Classic water defaults. For Modern water, turn off
 **Options → Graphics → Classic graphics**, restart, then select **Modern** under **Water style**.
 
-**Options → Water → Water Movement Behavior** is enabled by default. On uses map-aware
-wave movement; off keeps the v3.5.1 movement. **Accept** saves the choice, and it takes effect
-when the next map loads. The current map keeps its movement behavior.
+Modern water always uses map-aware wave movement. The former **Water Movement Behavior**
+switch has been removed; old `WaterMovementBehavior` preferences are ignored and removed
+when you next Accept the options menu.
 
 **Options → Water → Reflections → Water reflection** selects **Legacy**, **SSR**,
 **Hybrid** or **Path traced (experimental)** for Modern water. **Accept** applies the choice during the current game and
@@ -102,6 +102,23 @@ fixture. Both the installed Linux launcher target and the development package we
 updated; their build IDs match the final build. The publisher retains the previous
 installed executable and managed overlay in a `.thin-publish-backup.*` directory
 inside the package and prints that recovery path after publishing.
+
+## Modern water options
+
+The Water page separates **Shore wave turning** (waves turn toward shores) and
+**Wave filtering** (smooths distant waves and sun glints). Both start enabled.
+Each can be switched off independently; accepting changes applies them to the current map.
+**Wave detail** offers Low (64×64), Medium (128×128), and High (256×256), with High
+as the default. Lower detail reduces wave simulation work without changing the water mesh.
+
+`Options.ini` stores the switches as `WaterShoreWaveTurning = yes/no` and
+`WaterWaveFiltering = yes/no`, and `WaterFftResolution` as `64`, `128`, or `256`.
+Older wave-detail values `0` and `1` still load as 128 and 256. Older
+`WaterQuality` values migrate each missing switch: Low (`0`) disables both,
+Medium (`1`) enables shore turning only, and High (`2`) enables both. Explicit new
+switches take precedence, and the next save replaces the old quality key.
+Changing these controls keeps reflection and refraction choices independent;
+selecting a global graphics preset intentionally sets its water controls too.
 
 ## Boundary-aware water
 

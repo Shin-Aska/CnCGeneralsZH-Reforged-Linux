@@ -190,7 +190,7 @@ static AsciiString describeOption( const OptionDef &def )
 	if( def.kind == OPTION_BOOL )
 		result.format( "%s = %s (yes/no)", def.iniKey, formatOptionValue( def, def.get() ).str() );
 	else
-		result.format( "%s = %s (%d..%d)", def.iniKey, formatOptionValue( def, def.get() ).str(), def.lo, def.hi );
+		result.format( "%s = %d (%d..%d)", def.iniKey, clampOptionValue( def, def.get() ), def.lo, def.hi );
 	return result;
 }
 

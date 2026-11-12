@@ -1284,10 +1284,13 @@ static void fillCatalogWidgets( void )
 	* A control shows the value GlobalData held as the menu opened, and that can be something
 	* Options.ini does not say: the launcher's -language, a -lighting switch, or ClassicGraphics
 	* forcing the light to Classic.  So only a row whose control now says something else is written;
-	* every other key stays as the launcher or the last Accept left it on disk. */
+	* every other key stays as the launcher or the last Accept left it on disk. Water controls
+	* also replace their legacy saved representation when accepted unchanged. */
 //-------------------------------------------------------------------------------------------------
 static void readCatalogWidgets( OptionPreferences &out )
 {
+	// Map-aware movement is standard; retire the old selector on the next Accept.
+	out.erase( AsciiString( "WaterMovementBehavior" ) );
 	for( Int i = 0; i < TheOptionCatalogCount; ++i )
 	{
 		const OptionDef& def = TheOptionCatalog[ i ];
@@ -1343,6 +1346,10 @@ static void readCatalogWidgets( OptionPreferences &out )
 				out[ AsciiString( def.iniKey ) ] = formatOptionValue( def, value );
 			continue;
 		}
+
+		// These valid, supported controls may still have legacy keys on disk even when
+		// their selected values have not changed. Preserve every other row's dirty-only save.
+		saveAcceptedWaterPreference( out, def, value );
 
 		if( value == def.get() )
 			continue;

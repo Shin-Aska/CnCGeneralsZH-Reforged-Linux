@@ -10,6 +10,13 @@ found and fixed, EA's own, not port damage.**
 
 ## Unreleased
 
+- Modern water always uses map-aware movement. The obsolete Water Movement Behavior switch
+  has been removed, and old saved Off values no longer select legacy movement.
+
+- Modern water now has separate Shore wave turning and Wave filtering switches, replacing
+  the combined Water quality setting. Existing choices keep the same appearance. Wave detail
+  offers Low (64), Medium (128) and High (256); saved Low and High choices retain 128 and 256.
+
 - Modern water no longer forms stretched streaks around the carrier's stern in USA Mission 2 or beside shores with strong wave turns.
 - EMP Pulse and EMP Patriot domes now expand to their intended size.
 - EMP Pulse flashes no longer break into screen-wide horizontal bands in Classic or Reforged graphics.

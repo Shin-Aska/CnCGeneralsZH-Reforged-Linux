@@ -6108,27 +6108,24 @@ public:
     void clearReflectionRefresh() { m_reflectionReused=FALSE; }
     bool reflectionNeedsRefresh() const { return m_reflectionReused; }
     void checkMovementChanges(IDirect3DDevice9 *device) {
-        const bool requested = TheGlobalData->m_waterMovementBehavior;
         const int style = TheGlobalData->m_waterStyle;
-        CHECK(m_waterMovement.Current()); // Safe construction default precedes map activation.
+        CHECK(m_waterMovement.Current());
         for (bool initial : {true, false}) {
-            TheWritableGlobalData->m_waterMovementBehavior = initial;
-            load(); // The real map callback owns the latch.
-            CHECK(m_waterMovement.Current() == initial);
-            TheWritableGlobalData->m_waterMovementBehavior = !initial;
+            m_waterMovement.Load(initial); // Simulate a retained legacy renderer snapshot.
+            load(); // Every map now activates map-aware movement.
+            CHECK(m_waterMovement.Current());
             clearModernWaterOpticalTextures();
-            CHECK(m_waterMovement.Current() == initial);
-            ReleaseResources(); // Device/texture invalidation cannot accept pending options.
-            CHECK(m_waterMovement.Current() == initial);
+            CHECK(m_waterMovement.Current());
+            ReleaseResources();
+            CHECK(m_waterMovement.Current());
             for (int selectedStyle : {0, 1}) {
                 TheWritableGlobalData->m_waterStyle = selectedStyle;
                 synchronizeWaterStyle();
-                CHECK(m_waterMovement.Current() == initial);
+                CHECK(m_waterMovement.Current());
             }
             load();
-            CHECK(m_waterMovement.Current() == !initial);
+            CHECK(m_waterMovement.Current());
         }
-        TheWritableGlobalData->m_waterMovementBehavior = requested;
         TheWritableGlobalData->m_waterStyle = style;
         synchronizeWaterStyle();
         load();
@@ -6144,7 +6141,7 @@ public:
         for(int preferred:{0,1,2,3}) {
             TheWritableGlobalData->m_waterReflection=preferred;
             TheWritableGlobalData->m_waterReflectionEnabled=FALSE;
-            TheWritableGlobalData->m_waterFftResolution=0;
+            TheWritableGlobalData->m_waterFftResolution=1;
             TheWritableGlobalData->m_waterRefractionQuality=2;
             TheWritableGlobalData->m_waterReflectionDetail=0;
             seedPresentation();
@@ -6164,9 +6161,15 @@ public:
             CHECK(m_waterReflectionMode==expected);
             CHECK(bool(m_reflectionReused)==(UsesMirror(expected)||expected==PathTraced));
         }
+        for(int index:{0,1,2}) {
+            TheWritableGlobalData->m_waterFftResolution=index;
+            updateRenderTargetTextures(NULL);
+            CHECK_EQ(WaterPerformanceSettings::Applied().requestedFftResolution,64u<<index);
+            CHECK_EQ(m_modernWaveTime,37.5f);CHECK_EQ(m_level,7);
+        }
         TheWritableGlobalData->m_waterReflection=mode;
         TheWritableGlobalData->m_waterReflectionEnabled=TRUE;
-        TheWritableGlobalData->m_waterFftResolution=1;
+        TheWritableGlobalData->m_waterFftResolution=2;
         TheWritableGlobalData->m_waterRefractionQuality=0;
         TheWritableGlobalData->m_waterReflectionDetail=1;
         WaterPerformanceSettings::Applied()=saved;
@@ -6937,14 +6940,20 @@ TEST(water_quality_keeps_scene_depth_independent_of_colour_demand)
 {
 	using namespace WaterPerformanceSettings;
 	const auto saved = Applied();
-	Apply(false, 0, Off, 0);
-	CHECK(!Applied().sceneReflections && Applied().requestedFftResolution == 128);
-	CHECK(Applied().refraction == Off && Applied().reflectionDetail == 0);
+	const unsigned resolutions[] = {64, 128, 256};
+	for (int detail = 0; detail < 3; ++detail) {
+		Apply(false, detail, Off, 0);
+		CHECK(!Applied().sceneReflections);
+		CHECK_EQ(Applied().requestedFftResolution, resolutions[detail]);
+		CHECK(Applied().refraction == Off && Applied().reflectionDetail == 0);
+		Apply(true, detail, Full, 1);
+		CHECK(Applied().sceneReflections);
+		CHECK_EQ(Applied().requestedFftResolution, resolutions[detail]);
+		CHECK(Applied().refraction == Full && Applied().reflectionDetail == 1);
+	}
 	CHECK(!SceneColourRequired(Off, false));
 	CHECK(SceneColourRequired(Off, true));
 	CHECK(SceneColourRequired(Simple, false) && SceneColourRequired(Full, false));
-	Apply(true, 1, Full, 1);
-	CHECK(Applied().sceneReflections && Applied().requestedFftResolution == 256);
 	Applied() = saved;
 }
 
@@ -7124,25 +7133,24 @@ TEST(water_clean_tile_collapse) {WaterCleanCollapseTest::Check();}
 TEST(water_clean_stream_reference) {WaterCleanStreamTest::Check();}
 
 #if defined(__linux__)
-TEST(water_clean_quality_profile_preserves_environment_flags)
+TEST(water_clean_independent_controls_preserve_environment_flags)
 {
     using namespace WaterCleanProfile;
     const Flags empty;
-    CHECK(Key(Effective(empty,2,true,true))==0);
-    CHECK(Key(Effective(empty,1,true,true))==2);
-    CHECK(Key(Effective(empty,0,true,true))==(2|32));
     Flags environment;environment.nolong=true;environment.nodepth=true;
     environment.nofoam=true;environment.nosss=true;environment.flatvertex=true;
-    for(int quality:{0,1,2}) {
-        const auto effective=Effective(environment,quality,true,true);
+    for(bool shore:{false,true}) for(bool filtering:{false,true}) {
+        const auto plain=Effective(empty,shore,filtering,true,true);
+        CHECK(plain.nomips==!filtering);CHECK(plain.noshore==!shore);
+        CHECK(Key(plain)==((filtering?0u:2u)|(shore?0u:32u)));
+        const auto effective=Effective(environment,shore,filtering,true,true);
         CHECK((Key(effective)&Key(environment))==Key(environment));
-        CHECK(effective.nomips==(quality<2));CHECK(effective.noshore==(quality==0));
-        CHECK(Key(Effective(environment,quality,false,true))==Key(environment));
-        CHECK(Key(Effective(environment,quality,true,false))==Key(environment));
+        CHECK(effective.nomips==!filtering);CHECK(effective.noshore==!shore);
+        CHECK(Key(Effective(environment,shore,filtering,false,true))==Key(environment));
+        CHECK(Key(Effective(environment,shore,filtering,true,false))==Key(environment));
+        Flags forced=environment;forced.nomips=true;forced.noshore=true;
+        CHECK(Key(Effective(forced,shore,filtering,true,true))==Key(forced));
     }
-    // Invalid values retain High behavior, matching the public option fallback.
-    CHECK(Key(Effective(empty,-1,true,true))==0);
-    CHECK(Key(Effective(empty,3,true,true))==0);
 }
 
 #endif // __linux__
@@ -7152,13 +7160,15 @@ TEST(water_clean_quality_render_boundary_invalidates_dependent_cpu_data)
 {
     boot();
     struct Restore {
-        int quality=TheGlobalData->m_waterQuality;bool reflections=TheGlobalData->m_waterReflectionEnabled;
+        bool shore=TheGlobalData->m_waterShoreWaveTurning,filtering=TheGlobalData->m_waterWaveFiltering;
+        bool reflections=TheGlobalData->m_waterReflectionEnabled;
         WaterCleanProfile::Flags flags=WaterCleanProfile::Get();
         WaterPerformanceSettings::Configuration performance=WaterPerformanceSettings::Applied();
         WaterTuning::AutoDirection direction=WaterTuning::MapDirection();
         unsigned revision=WaterTuning::Revision(),spectrum=WaterTuning::SpectrumRevision();
         ~Restore() {
-            TheWritableGlobalData->m_waterQuality=quality;TheWritableGlobalData->m_waterReflectionEnabled=reflections;
+            TheWritableGlobalData->m_waterShoreWaveTurning=shore;TheWritableGlobalData->m_waterWaveFiltering=filtering;
+            TheWritableGlobalData->m_waterReflectionEnabled=reflections;
             WaterCleanProfile::Applied()=flags;WaterPerformanceSettings::Applied()=performance;
             WaterTuning::MapDirection()=direction;WaterTuning::Revision()=revision;WaterTuning::SpectrumRevision()=spectrum;
         }
@@ -7168,19 +7178,21 @@ TEST(water_clean_quality_render_boundary_invalidates_dependent_cpu_data)
     TheWaterTransparency=newInstance(WaterTransparencySetting);
     {
     WaterRenderCacheProbe water;water.qualityMode(true,true);
-    WaterCleanProfile::Apply(2,true,true);
-    for(int quality:{2,1,0,2}) {
+    WaterCleanProfile::Apply(true,true,true,true);
+    for(bool shore:{true,false}) for(bool filtering:{true,false}) {
         water.seedQualityData();const unsigned before=WaterCleanProfile::Key(WaterCleanProfile::Get());
-        TheWritableGlobalData->m_waterQuality=quality;water.synchronizeQuality();
+        TheWritableGlobalData->m_waterShoreWaveTurning=shore;
+        TheWritableGlobalData->m_waterWaveFiltering=filtering;water.synchronizeQuality();
         const unsigned after=WaterCleanProfile::Key(WaterCleanProfile::Get());
-        CHECK(after==WaterCleanProfile::Key(WaterCleanProfile::Effective(WaterCleanProfile::Environment(),quality,true,true)));
+        CHECK(after==WaterCleanProfile::Key(WaterCleanProfile::Effective(WaterCleanProfile::Environment(),shore,filtering,true,true)));
         water.checkQualityData(before==after);
         // An unchanged render boundary keeps precomputed data and cache entries.
         water.seedQualityData();water.synchronizeQuality();water.checkQualityData(true);
     }
     for(bool modern:{false,true})for(bool clean:{false,true})if(!modern || !clean) {
-        water.qualityMode(modern,clean);WaterCleanProfile::Apply(2,modern,clean);
-        water.seedQualityData();TheWritableGlobalData->m_waterQuality=0;
+        water.qualityMode(modern,clean);WaterCleanProfile::Apply(true,true,modern,clean);
+        water.seedQualityData();TheWritableGlobalData->m_waterShoreWaveTurning=false;
+        TheWritableGlobalData->m_waterWaveFiltering=false;
         water.synchronizeQuality();water.checkQualityData(true);
         CHECK(WaterCleanProfile::Key(WaterCleanProfile::Get())==WaterCleanProfile::Key(WaterCleanProfile::Environment()));
     }

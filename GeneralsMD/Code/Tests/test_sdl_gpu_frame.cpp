@@ -8619,7 +8619,7 @@ float4 main(float4 pixel:SV_Position):SV_Target0 {
 static void check_gpu_fft_requested_cascades(SdlGpuFrame *frame)
 {
 	using namespace WaterFftSpectrum;
-	for (unsigned resolution :{128u, 256u}) {
+	for (unsigned resolution :{64u, 128u, 256u}) {
 		CHECK(frame->Present(NULL));
 		CHECK(frame->Prepare_Ocean(3.375f, resolution));
 		const auto config = frame->Ocean_Configuration();
@@ -8703,77 +8703,92 @@ static void check_gpu_fft_requested_cascades(SdlGpuFrame *frame)
 	CHECK(frame->Ocean_Updates() == fullUpdates);
 	CHECK(frame->Present(NULL));
 	CHECK(frame->Prepare_Ocean(6.375f, 256));
-	printf("sdl_gpu_frame_selfcheck: headed FFT128/256 omit broad writes/copies; active base/mips match full generation exactly; paused reuse, same-phase completion, failed rebuild readiness and optional producer fallback checked\n");
+	printf("sdl_gpu_frame_selfcheck: headed FFT64/128/256 omit broad writes/copies; active base/mips match full generation exactly; paused reuse, same-phase completion, failed rebuild readiness and optional producer fallback checked\n");
 }
 
 static void check_gpu_fft_quality_switch(SdlGpuFrame *frame)
 {
     using namespace WaterFftSpectrum;
-    CHECK(frame->Present(NULL));CHECK(frame->Prepare_Ocean(2.25f,256));
-    const auto high=read_ocean(frame);SDL_GPUTexture *old=frame->Ocean_Map(0);
-    SDL_GPUTextureCreateInfo info={};info.type=SDL_GPU_TEXTURETYPE_2D;
-    info.format=SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT;
-    info.usage=SDL_GPU_TEXTUREUSAGE_COLOR_TARGET|SDL_GPU_TEXTUREUSAGE_SAMPLER;
-    info.width=info.height=256;info.layer_count_or_depth=info.num_levels=1;
-    SDL_GPUTexture *reader=SDL_CreateGPUTexture(frame->Device(),&info);CHECK(reader);
-    CHECK(frame->Present(NULL));
-    const int32_t rect[4]={0,0,256,256};frame->Record_Blit(old,rect,reader,rect,false);
-    const auto passes=frame->Ocean_Passes(),copies=frame->Ocean_Copies();
-    CHECK(frame->Prepare_Ocean(2.25f,128));
-    CHECK(frame->Ocean_Configuration().resolution==128 && frame->Ocean_Configuration().levels==8);
-    CHECK(frame->Ocean_Map(0)!=old);
-    CHECK(frame->Ocean_Passes()-passes==23 && frame->Ocean_Copies()-copies==(frame->Ocean_Array_Output()?42:90));
-    const auto preserved=read_float_targets(frame,&reader,1,256,256);
-    CHECK(preserved.size()==256*256*4 && std::equal(preserved.begin(),preserved.end(),high.begin()));
-    SDL_ReleaseGPUTexture(frame->Device(),reader);
-    const auto low=read_ocean(frame),initial=InitialSpectrum(ForResolution(128));
-    std::array<std::vector<float>,8> lowMips;lowMips[0]=low;
-    CHECK(low.size()==6*128*128*4);check_fft_spectral_reality(initial,128);
-    double maximum=0;
-    for(unsigned c=0;c<3;++c) for(auto xy:{std::array<unsigned,2>{0,0},{17,53},{64,64},{127,7}}) {
-        double expected[8];direct_ocean(initial,c,xy[0],xy[1],2.25,expected,128);
-        for(unsigned channel=0;channel<8;++channel) {
-            const double actual=low[((c*2+channel/4)*128*128+xy[1]*128+xy[0])*4+channel%4];
-            const double error=std::abs(actual-expected[channel]);maximum=(std::max)(maximum,error);
-            CHECK(std::isfinite(actual) && error<.001+std::abs(expected[channel])*.0001);
-        }
-    }
-    for(unsigned level=1;level<8;++level) {
-        const auto mip=read_ocean(frame,level);lowMips[level]=mip;const unsigned side=128>>level,block=1u<<level;
-        for(unsigned map=0;map<6;++map) for(unsigned channel=0;channel<4;++channel) {
-            double sum=0;for(unsigned y=0;y<block;++y) for(unsigned x=0;x<block;++x) sum+=low[(map*128*128+y*128+x)*4+channel];
-            CHECK(std::abs(mip[map*side*side*4+channel]-sum/(block*block))<.00001);
-        }
-    }
-    const auto updates=frame->Ocean_Updates();CHECK(frame->Prepare_Ocean(2.25f,256));
-    CHECK(frame->Ocean_Configuration().resolution==128 && frame->Ocean_Updates()==updates);
-    CHECK(frame->Present(NULL));CHECK(frame->Prepare_Ocean(2.25f,256));
-    CHECK(frame->Ocean_Configuration().resolution==256 && frame->Ocean_Updates()==updates+1);
-    CHECK(read_ocean(frame)==high);
-    CHECK(frame->Present(NULL));CHECK(frame->Prepare_Ocean(2.25f,128));
-    CHECK(read_ocean(frame)==low);
-    const auto beforeFailure=frame->Ocean_Updates();SDL_GPUTexture *lowTexture=frame->Ocean_Map(0);
-    CHECK(frame->Present(NULL));frame->Fail_Next_Ocean_Rebuild_For_Test();
-    CHECK(frame->Prepare_Ocean(2.25f,256));
-    CHECK(frame->Ocean_Configuration().resolution==128 && frame->Ocean_Map(0)==lowTexture);
-    CHECK(frame->Ocean_Updates()==beforeFailure && read_ocean(frame)==low);
-    // A failed request is latched to avoid retrying allocation every frame; toggling
-    // away and back explicitly retries it, preserving paused simulation time.
-    CHECK(frame->Present(NULL));CHECK(frame->Prepare_Ocean(2.25f,256));
-    CHECK(frame->Ocean_Configuration().resolution==128 && frame->Ocean_Updates()==beforeFailure);
-    CHECK(frame->Prepare_Ocean(2.25f,128));
-    CHECK(frame->Present(NULL));CHECK(frame->Prepare_Ocean(2.25f,256));
-    CHECK(frame->Ocean_Configuration().resolution==256 && read_ocean(frame)==high);
-    if(WaterFftSampling::ArrayOutputEnabled() && frame->Ocean_Array_Output()) {
-        // A failed optional array allocation retains FFT through independent maps.
-        // The subsequent rebuild restores the array without changing any field value.
-        CHECK(frame->Present(NULL));frame->Fail_Next_Ocean_Array_For_Test();
-        CHECK(frame->Prepare_Ocean(2.25f,128));CHECK(!frame->Ocean_Array_Output());
-        for(unsigned level=0;level<lowMips.size();++level) CHECK(read_ocean(frame,level)==lowMips[level]);
+    for(unsigned resolution:{64u,128u}) {
+        const auto config=ForResolution(resolution);
         CHECK(frame->Present(NULL));CHECK(frame->Prepare_Ocean(2.25f,256));
-        CHECK(frame->Ocean_Array_Output() && read_ocean(frame)==high);
+        const auto high=read_ocean(frame);SDL_GPUTexture *old=frame->Ocean_Map(0);
+        SDL_GPUTextureCreateInfo info={};info.type=SDL_GPU_TEXTURETYPE_2D;
+        info.format=SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT;
+        info.usage=SDL_GPU_TEXTUREUSAGE_COLOR_TARGET|SDL_GPU_TEXTUREUSAGE_SAMPLER;
+        info.width=info.height=256;info.layer_count_or_depth=info.num_levels=1;
+        SDL_GPUTexture *reader=SDL_CreateGPUTexture(frame->Device(),&info);CHECK(reader);
+        CHECK(frame->Present(NULL));
+        const int32_t rect[4]={0,0,256,256};frame->Record_Blit(old,rect,reader,rect,false);
+        const auto passes=frame->Ocean_Passes(),copies=frame->Ocean_Copies();
+        CHECK(frame->Prepare_Ocean(2.25f,resolution));
+        CHECK(frame->Ocean_Configuration().resolution==resolution && frame->Ocean_Configuration().levels==config.levels);
+        CHECK(frame->Ocean_Map(0)!=old);
+        CHECK(frame->Ocean_Passes()-passes==2+3*config.phases && frame->Ocean_Copies()-copies==(6*config.phases+(frame->Ocean_Array_Output()?0:6*config.levels)));
+        const auto preserved=read_float_targets(frame,&reader,1,256,256);
+        CHECK(preserved.size()==256*256*4 && std::equal(preserved.begin(),preserved.end(),high.begin()));
+        SDL_ReleaseGPUTexture(frame->Device(),reader);
+        const auto low=read_ocean(frame),initial=InitialSpectrum(config);
+        std::vector<std::vector<float>> lowMips(config.levels);lowMips[0]=low;
+        CHECK(low.size()==6*resolution*resolution*4);if(low.size()!=6*resolution*resolution*4)return;
+        check_fft_spectral_reality(initial,resolution);
+        double maximum=0;
+        for(unsigned c=0;c<3;++c) for(auto xy:{std::array<unsigned,2>{0,0},{17,53},{resolution/2,resolution/2},{resolution-1,7}}) {
+            double expected[8];direct_ocean(initial,c,xy[0],xy[1],2.25,expected,resolution);
+            for(unsigned channel=0;channel<8;++channel) {
+                const double actual=low[((c*2+channel/4)*resolution*resolution+xy[1]*resolution+xy[0])*4+channel%4];
+                const double error=std::abs(actual-expected[channel]);maximum=(std::max)(maximum,error);
+                CHECK(std::isfinite(actual) && error<.001+std::abs(expected[channel])*.0001);
+            }
+        }
+        for(unsigned level=1;level<config.levels;++level) {
+            const auto mip=read_ocean(frame,level);lowMips[level]=mip;const unsigned side=resolution>>level,block=1u<<level;
+            CHECK(mip.size()==6*side*side*4);if(mip.size()!=6*side*side*4)return;
+            for(unsigned map=0;map<6;++map) for(unsigned channel=0;channel<4;++channel)
+                for(unsigned my=0;my<side;++my)for(unsigned mx=0;mx<side;++mx) {
+                    double sum=0;for(unsigned y=0;y<block;++y)for(unsigned x=0;x<block;++x)
+                        sum+=low[(map*resolution*resolution+(my*block+y)*resolution+mx*block+x)*4+channel];
+                    CHECK(std::abs(mip[(map*side*side+my*side+mx)*4+channel]-sum/(block*block))<.00001);
+                }
+        }
+        const auto updates=frame->Ocean_Updates();CHECK(frame->Prepare_Ocean(2.25f,256));
+        CHECK(frame->Ocean_Configuration().resolution==resolution && frame->Ocean_Updates()==updates);
+        CHECK(frame->Present(NULL));CHECK(frame->Prepare_Ocean(2.25f,256));
+        CHECK(frame->Ocean_Configuration().resolution==256 && frame->Ocean_Updates()==updates+1);
+        CHECK(read_ocean(frame)==high);
+        CHECK(frame->Present(NULL));CHECK(frame->Prepare_Ocean(2.25f,resolution));
+        CHECK(read_ocean(frame)==low);
+        const auto beforeFailure=frame->Ocean_Updates();SDL_GPUTexture *lowTexture=frame->Ocean_Map(0);
+        CHECK(frame->Present(NULL));frame->Fail_Next_Ocean_Rebuild_For_Test();
+        CHECK(frame->Prepare_Ocean(2.25f,256));
+        CHECK(frame->Ocean_Configuration().resolution==resolution && frame->Ocean_Map(0)==lowTexture);
+        CHECK(frame->Ocean_Updates()==beforeFailure && read_ocean(frame)==low);
+        // A failed request is latched to avoid retrying allocation every frame; toggling
+        // away and back explicitly retries it, preserving paused simulation time.
+        CHECK(frame->Present(NULL));CHECK(frame->Prepare_Ocean(2.25f,256));
+        CHECK(frame->Ocean_Configuration().resolution==resolution && frame->Ocean_Updates()==beforeFailure);
+        CHECK(frame->Prepare_Ocean(2.25f,resolution));
+        CHECK(frame->Present(NULL));CHECK(frame->Prepare_Ocean(2.25f,256));
+        CHECK(frame->Ocean_Configuration().resolution==256 && read_ocean(frame)==high);
+        if(WaterFftSampling::ArrayOutputEnabled() && frame->Ocean_Array_Output()) {
+            // A failed optional array allocation retains FFT through independent maps.
+            // The subsequent rebuild restores the array without changing any field value.
+            CHECK(frame->Present(NULL));frame->Fail_Next_Ocean_Array_For_Test();
+            CHECK(frame->Prepare_Ocean(2.25f,resolution));CHECK(!frame->Ocean_Array_Output());
+            for(unsigned level=0;level<lowMips.size();++level) CHECK(read_ocean(frame,level)==lowMips[level]);
+            CHECK(frame->Present(NULL));CHECK(frame->Prepare_Ocean(2.25f,256));
+            CHECK(frame->Ocean_Array_Output() && read_ocean(frame)==high);
+        }
+        printf("sdl_gpu_frame_selfcheck: FFT%u direct Fourier max %.9g; all mip extents, queued old reader, same-time boundary switches and deterministic restoration checked\n",resolution,maximum);
     }
-    printf("sdl_gpu_frame_selfcheck: FFT128 direct Fourier max %.9g; all mip extents, queued old reader, same-time boundary switches and deterministic restoration checked\n",maximum);
+    // Exercise adjacent-tier replacements in both directions at one paused phase.
+    for(unsigned resolution:{64u,128u,64u,256u,128u,256u}) {
+        CHECK(frame->Present(NULL));CHECK(frame->Prepare_Ocean(2.25f,resolution));
+        CHECK(frame->Ocean_Configuration().resolution==resolution);
+        const auto updates=frame->Ocean_Updates();const auto generation=frame->Ocean_Generation();
+        CHECK(frame->Prepare_Ocean(2.25f,resolution));
+        CHECK(frame->Ocean_Updates()==updates && frame->Ocean_Generation()==generation);
+    }
 }
 
 #if defined(__linux__)

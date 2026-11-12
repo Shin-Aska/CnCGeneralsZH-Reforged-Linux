@@ -705,15 +705,13 @@ GlobalData::GlobalData()
 	m_waterStyle = 0;				// classic by default; modern water is an explicit option
 	m_waterReflection = 2;		// Hybrid once Modern is explicitly selected
 	m_waterReflectionEnabled = TRUE;
-	m_waterQuality = 2; // High preserves the existing Modern water appearance.
-	m_waterFftResolution = 1;
+	m_waterShoreWaveTurning = TRUE; // Preserve the existing Modern water appearance.
+	m_waterWaveFiltering = TRUE;
+	m_waterFftResolution = 2;
 	m_waterRefractionQuality = 0;
 	m_waterReflectionDetail = 1;
 	m_cloudStyle = 0;				// Classic by default; volumetric hazard clouds are opt-in
 	m_explosionDebrisTrails = FALSE;
-#if defined(__linux__)
-	m_waterMovementBehavior = TRUE;	// Map-aware movement unless the player requests v3.5.1 behavior for the next map
-#endif
 	m_shadowQuality = 1;					//medium, the 2048 map the shadows always had
 	m_graphicsQuality = TheGraphicsQualityAnchors[ STATIC_GAME_LOD_HIGH ];	//a preset moves it to its own step as the menu opens
 	// Start with the upstream Classic picture on every platform. Options.ini can opt into Reforged.

@@ -18,7 +18,8 @@ constexpr unsigned AllCascades = 7, HeadedCascades = 6;
 struct Configuration { unsigned resolution, phases, levels; };
 // Only validated tiers are accepted; unrecognised values preserve the shared default.
 constexpr Configuration ForResolution(unsigned resolution) {
-    return resolution==128 ? Configuration{128,7,8} : Configuration{256,8,9};
+    return resolution==64 ? Configuration{64,6,7}
+        : resolution==128 ? Configuration{128,7,8} : Configuration{256,8,9};
 }
 constexpr float Sizes[Cascades]={450.0f,103.0f,13.0f};
 // Sampling and spectrum construction share one reference-to-world conversion.

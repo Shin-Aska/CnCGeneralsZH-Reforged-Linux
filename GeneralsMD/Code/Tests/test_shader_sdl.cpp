@@ -1745,41 +1745,82 @@ TEST(water_plain_launch_matches_explicit_validated_settings)
 TEST(fft_low_tier_preserves_energy_reality_and_filtering)
 {
     using namespace WaterFftSpectrum;
-    const auto configuration=ForResolution(128);
-    CHECK(configuration.resolution==128 && configuration.phases==7 && configuration.levels==8);
-    CHECK(ForResolution(0).resolution==256);
-    const auto initial=InitialSpectrum(configuration),butterfly=Butterfly(configuration);
-    CHECK(initial==InitialSpectrum(configuration));
-    CHECK(initial.size()==128*128*3*4 && butterfly.size()==128*7*4);
-    const auto &variance=WaterFftFiltering::SpectrumVariance(configuration);
-    for(unsigned c=0;c<Cascades;++c) {
-        double energy=0,slope=0;const unsigned n=configuration.resolution;
-        for(unsigned y=0;y<n;++y) for(unsigned x=0;x<n;++x) {
-            const float *h=&initial[((c*n+y)*n+x)*4];
-            const float *opposite=&initial[((c*n+(n-y)%n)*n+(n-x)%n)*4];
-            CHECK(h[0]==opposite[2] && h[1]==-opposite[3]);
-            CHECK(h[2]==opposite[0] && h[3]==-opposite[1]);
-            double power=0;for(unsigned i=0;i<4;++i) {CHECK(std::isfinite(h[i]));power+=double(h[i])*h[i];}
-            if(x==0 || y==0 || (x==n/2 && y==n/2)) CHECK(power==0);
-            const double kx=2*Pi*(int(x)-int(n/2))/Sizes[c],ky=2*Pi*(int(y)-int(n/2))/Sizes[c];
-            energy+=power;slope+=power*(kx*kx+ky*ky);
+    for(unsigned resolution:{64u,128u}) {
+        const auto configuration=ForResolution(resolution);
+        const unsigned phases=resolution==64?6:7;
+        CHECK(configuration.resolution==resolution && configuration.phases==phases && configuration.levels==phases+1);
+        CHECK(ForResolution(0).resolution==256);
+        const auto initial=InitialSpectrum(configuration),butterfly=Butterfly(configuration);
+        CHECK(initial==InitialSpectrum(configuration));
+        CHECK(initial.size()==resolution*resolution*3*4 && butterfly.size()==resolution*phases*4);
+        const auto &variance=WaterFftFiltering::SpectrumVariance(configuration);
+        for(unsigned c=0;c<Cascades;++c) {
+            double energy=0,slope=0;const unsigned n=configuration.resolution;
+            for(unsigned y=0;y<n;++y) for(unsigned x=0;x<n;++x) {
+                const float *h=&initial[((c*n+y)*n+x)*4];
+                const float *opposite=&initial[((c*n+(n-y)%n)*n+(n-x)%n)*4];
+                CHECK(h[0]==opposite[2] && h[1]==-opposite[3]);
+                CHECK(h[2]==opposite[0] && h[3]==-opposite[1]);
+                double power=0;for(unsigned i=0;i<4;++i) {CHECK(std::isfinite(h[i]));power+=double(h[i])*h[i];}
+                if(x==0 || y==0 || (x==n/2 && y==n/2)) CHECK(power==0);
+                const double kx=2*Pi*(int(x)-int(n/2))/Sizes[c],ky=2*Pi*(int(y)-int(n/2))/Sizes[c];
+                energy+=power;slope+=power*(kx*kx+ky*ky);
+            }
+            if(!(WaterCleanSpectrum::Enabled() && WaterCleanSpectrum::SpectrumSplit()))
+                CHECK(std::abs(std::sqrt(energy)*WorldScale-HeightRms[c])<HeightRms[c]*2e-7);
+            CHECK(std::abs(variance[phases][c]-slope)<1e-10*(1+slope));
+            CHECK(variance[0][c]==0);
+            for(unsigned level=configuration.levels;level<WaterFftFiltering::Levels;++level)CHECK(variance[level][c]==0);
         }
-        if(!(WaterCleanSpectrum::Enabled() && WaterCleanSpectrum::SpectrumSplit()))
-            CHECK(std::abs(std::sqrt(energy)*WorldScale-HeightRms[c])<HeightRms[c]*2e-7);
-        CHECK(std::abs(variance[7][c]-slope)<1e-10*(1+slope));
-        CHECK(variance[0][c]==0 && variance[8][c]==0);
+        CHECK(ButterflyHlsl(configuration).find("/"+std::to_string(phases)+".0,")!=std::string::npos);
+        const std::string filtering=WaterFftFiltering::Source(configuration);
+        CHECK(filtering.find(WaterTuning::Enabled()?"#define fftLostSlopeVariance WaterTuningVariance":"fftLostSlopeVariance["+std::to_string(configuration.levels)+"]")!=std::string::npos);
+        CHECK(filtering.find("*"+std::to_string(resolution)+".0/")!=std::string::npos);
+        CHECK(filtering.find("level,"+std::to_string(phases-1)+")")!=std::string::npos);
     }
-    CHECK(ButterflyHlsl(configuration).find("/7.0,")!=std::string::npos);
-    const std::string filtering=WaterFftFiltering::Source(configuration);
-    CHECK(filtering.find(WaterTuning::Enabled()?"#define fftLostSlopeVariance WaterTuningVariance":"fftLostSlopeVariance[8]")!=std::string::npos);
-    CHECK(filtering.find("*128.0/")!=std::string::npos);
-    CHECK(filtering.find("level,6)")!=std::string::npos);
+}
+
+TEST(fft_three_tier_preferences_and_variance_caches)
+{
+    using namespace WaterFftSpectrum;
+    struct Restore {WaterPerformanceSettings::Configuration saved=WaterPerformanceSettings::Applied();
+        ~Restore(){WaterPerformanceSettings::Applied()=saved;}} restore;
+    CHECK(WaterPerformanceSettings::Configuration().requestedFftResolution==256);
+    for(int detail:{0,1,2,-1,3}) {
+        WaterPerformanceSettings::Apply(true,detail,WaterPerformanceSettings::Full);
+        CHECK(WaterPerformanceSettings::Applied().requestedFftResolution==(detail==0?64u:detail==1?128u:256u));
+    }
+    for(bool clean:{false,true}) {
+        const WaterFftFiltering::VarianceTable *cached[3]={};unsigned tier=0;
+        for(unsigned resolution:{64u,128u,256u}) {
+            const auto config=ForResolution(resolution);
+            const auto expected=WaterFftFiltering::UnresolvedSlopeVariance(InitialSpectrum(config,clean),config);
+            const auto &actual=WaterFftFiltering::SpectrumVariance(config,clean);
+            CHECK(actual==expected);cached[tier++]=&actual;
+        }
+        CHECK(cached[0]!=cached[1] && cached[0]!=cached[2] && cached[1]!=cached[2]);
+        tier=0;for(unsigned resolution:{64u,128u,256u})
+            CHECK(&WaterFftFiltering::SpectrumVariance(ForResolution(resolution),clean)==cached[tier++]);
+    }
+}
+
+TEST(fft_low_full_producer_stages_compile)
+{
+    const auto config=WaterFftSpectrum::ForResolution(64);
+    for(const std::string &source:{WaterFftSpectrum::SpectrumHlsl(),WaterFftSpectrum::ButterflyHlsl(config),WaterFftSpectrum::PostHlsl()}) {
+        std::vector<unsigned char> spirv;std::string error;
+        const bool compiled=SDL3_Compile_HLSL_To_SPIRV(source,false,spirv,error);
+        if(!compiled)printf("full FFT64 producer: %s\n",error.c_str());
+        CHECK(compiled);
+        const char *validator=getenv("ZH_SPIRV_VAL");
+        if(compiled && validator && *validator)CHECK(validate(validator,spirv,error));
+    }
 }
 
 TEST(fft_headed_producer_variants_keep_original_slots_with_four_outputs)
 {
     using namespace WaterFftSpectrum;
-    for (unsigned resolution :{128u, 256u}) {
+    for (unsigned resolution :{64u, 128u, 256u}) {
         const auto config = ForResolution(resolution);
         for (const std::string & source :{SpectrumHlsl(true), ButterflyHlsl(config, true), PostHlsl(true)}) {
             CHECK(source.find("v0") == std::string::npos
@@ -1923,7 +1964,7 @@ TEST(water_clean_high_sampling_source_hash)
         WaterTuning::Enabled() || std::getenv("ZH_WATER_CLEAN_OPT") || std::getenv("ZH_WATER_SHORE_FORCE"))return;
     struct Restore {WaterCleanProfile::Flags flags=WaterCleanProfile::Get();
         ~Restore(){WaterCleanProfile::Applied()=flags;}} restore;
-    WaterCleanProfile::Apply(2,true,true);
+    WaterCleanProfile::Apply(true,true,true,true);
     uint64_t hash=1469598103934665603ull;
     const auto add=[&](const std::string &source){for(unsigned char c:source){hash^=c;hash*=1099511628211ull;}};
     for(bool lift:{false,true})for(bool shoulder:{false,true})for(bool array:{false,true})for(bool main:{false,true}) {
@@ -1947,7 +1988,7 @@ TEST(water_material_profiles_compile_with_every_public_water_tier)
     PixelPipelineDescription pipeline={};
     pipeline.AlphaTestEnabled=true;pipeline.AlphaFunction=FF_CMP_GREATER;pipeline.FogEnabled=true;
     unsigned variants=0;
-    for(unsigned resolution:{128u,256u}) for(unsigned refraction=0;refraction<3;++refraction)
+    for(unsigned resolution:{64u,128u,256u}) for(unsigned refraction=0;refraction<3;++refraction)
         for(bool reflections:{false,true}) for(auto program:{ENGINE_SHADER_WATER_TRAPEZOID,ENGINE_SHADER_WATER_RIVER})
             for(unsigned profile=0;profile<Count;++profile) {
                 auto &quality=WaterPerformanceSettings::Applied();quality.activeFftResolution=resolution;
@@ -1959,7 +2000,7 @@ TEST(water_material_profiles_compile_with_every_public_water_tier)
                 CHECK(compiled);++variants;
                 if(WaterCleanSpectrum::Enabled() && program==ENGINE_SHADER_WATER_TRAPEZOID)checkCleanSpecialized("tier");
             }
-    CHECK(variants==168);
+    CHECK(variants==252);
 }
 
 TEST(water_performance_tiers_compile_both_materials_and_preserve_shared_defaults)
@@ -1969,7 +2010,7 @@ TEST(water_performance_tiers_compile_both_materials_and_preserve_shared_defaults
     PixelPipelineDescription pipeline={};
     std::string d3dBaseline;
     CHECK(EngineShader_Pixel_Program(ENGINE_SHADER_WATER_TRAPEZOID,pipeline,d3dBaseline,COMBINER_SHADER_TARGET_D3D11));
-    for(unsigned resolution:{128u,256u}) for(unsigned refraction=0;refraction<3;++refraction) for(bool reflections:{false,true}) {
+    for(unsigned resolution:{64u,128u,256u}) for(unsigned refraction=0;refraction<3;++refraction) for(bool reflections:{false,true}) {
         auto &settings=WaterPerformanceSettings::Applied();settings.activeFftResolution=resolution;
         settings.refraction=WaterPerformanceSettings::Refraction(refraction);settings.sceneReflections=reflections;
         for(auto program:{ENGINE_SHADER_WATER_TRAPEZOID,ENGINE_SHADER_WATER_RIVER}) {
@@ -2558,8 +2599,11 @@ TEST(water_clean_live_tuning_nondefault)
     CHECK(oldVariance!=WaterFftFiltering::SpectrumVariance(config,true));
     for(bool split:{false,true}) {
         changed.value[Split]=split;Apply(changed);
-        for(unsigned resolution:{128u,256u}) {
-            const auto rms=WaterFftSpectrum::SpectrumHeightRms(WaterFftSpectrum::InitialSpectrum(WaterFftSpectrum::ForResolution(resolution),true));
+        for(unsigned resolution:{64u,128u,256u}) {
+            const auto tier=WaterFftSpectrum::ForResolution(resolution);
+            const auto initial=WaterFftSpectrum::InitialSpectrum(tier,true);
+            const auto rms=WaterFftSpectrum::SpectrumHeightRms(initial);
+            CHECK(WaterFftFiltering::SpectrumVariance(tier,true)==WaterFftFiltering::UnresolvedSlopeVariance(initial,tier));
             double total=0,target=0;
             for(unsigned c=0;c<3;++c) {
                 total+=rms[c]*rms[c];target+=changed.value[HeightLong+c]*changed.value[HeightLong+c];
@@ -2834,13 +2878,14 @@ TEST(water_clean_quality_live_variants_compile_and_restore)
         ~Restore(){WaterCleanProfile::Applied()=flags;}} restore;
     SavedShaderOption debug("ZH_WATER_DEBUG");CHECK(unsetenv(debug.name)==0);
     const auto environment=WaterCleanProfile::Environment();
-    WaterCleanProfile::Apply(2,true,true);
+    WaterCleanProfile::Apply(true,true,true,true);
     const auto highVertex=WaterFftSampling::VertexSource(false,false,true,true,true);
     const auto highPixel=WaterFftSampling::PixelSource(false,false,true,WaterFftSpectrum::ForResolution(256),true,false,true);
-    for(int quality:{2,1,0,1,2}) {
-        WaterCleanProfile::Apply(quality,true,true);
-        CHECK(WaterCleanProfile::Get().nomips==(environment.nomips || quality<2));
-        CHECK(WaterCleanProfile::Get().noshore==(environment.noshore || quality==0));
+    for(unsigned settings:{3u,2u,1u,0u,1u,2u,3u}) {
+        const bool shore=(settings&1)!=0,filtering=(settings&2)!=0;
+        WaterCleanProfile::Apply(shore,filtering,true,true);
+        CHECK(WaterCleanProfile::Get().nomips==(environment.nomips || !filtering));
+        CHECK(WaterCleanProfile::Get().noshore==(environment.noshore || !shore));
         // Exercises specialized pixel and both array/independent-map vertex stages,
         // SPIR-V validation when available, translation and actual sampler bindings.
         checkCleanSpecialized("none");
@@ -2848,7 +2893,7 @@ TEST(water_clean_quality_live_variants_compile_and_restore)
     CHECK(WaterFftSampling::VertexSource(false,false,true,true,true)==highVertex);
     CHECK(WaterFftSampling::PixelSource(false,false,true,WaterFftSpectrum::ForResolution(256),true,false,true)==highPixel);
     for(bool modern:{false,true})for(bool clean:{false,true})if(!modern || !clean) {
-        WaterCleanProfile::Apply(0,modern,clean);
+        WaterCleanProfile::Apply(false,false,modern,clean);
         CHECK(WaterCleanProfile::Key(WaterCleanProfile::Get())==WaterCleanProfile::Key(environment));
     }
 }

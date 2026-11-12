@@ -28,8 +28,8 @@ way it goes, and they disagree:
 | Medium chop | FFT cascade 1 (24-256 units) | the direction field, snapped to eight 45-degree sectors; neighbouring rotations of the same tile are cross-faded | `fftAccumulateChop`, `fftMediumSurface` |
 | Fine ripples | FFT cascade 2 (<40 units) | nothing: one prevailing rotation for the whole map | `fftWindSurface` |
 
-`WaterMovementBehavior = yes`, the default and the user's setting, selects this map-aware path; `no`
-selects the v3.5.1 sector heading, which has the same sector cross-fade.
+The game always selects map-aware movement. The old `WaterMovementBehavior` preference and
+menu switch have been retired; the v3.5.1 sector evaluator remains for compatibility tests.
 
 ## Evidence
 

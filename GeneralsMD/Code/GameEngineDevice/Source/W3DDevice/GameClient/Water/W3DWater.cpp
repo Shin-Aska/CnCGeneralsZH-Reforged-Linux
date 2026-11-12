@@ -3426,9 +3426,8 @@ void WaterRenderObjClass::ReAcquireResources(void)
 void WaterRenderObjClass::load(void)
 {
 #if defined(__linux__)
-	// The map callback owns activation. Prewarm and every later cache rebuild
-	// reuse this snapshot, even if the requested option changes mid-map.
-	m_waterMovement.Load(!TheGlobalData || TheGlobalData->m_waterMovementBehavior);
+	// Map-aware movement is standard, including profiles that saved the retired selector as Off.
+	m_waterMovement.Load(true);
 	// A/B experiment only: read once per map load, alongside movement selection.
 	const char *mediumOption = getenv("ZH_WATER_MEDIUM");
 	const char *sharedOption = getenv("ZH_WATER_SHARED");
@@ -3436,7 +3435,8 @@ void WaterRenderObjClass::load(void)
     // CLEAN implies D and takes precedence over the SHARED experiment.
     const char *cleanOption = getenv("ZH_WATER_CLEAN");
     m_modernClean = !(cleanOption && strcmp(cleanOption,"0")==0);
-    WaterCleanProfile::Apply(TheGlobalData ? TheGlobalData->m_waterQuality : 2,
+    WaterCleanProfile::Apply(!TheGlobalData || TheGlobalData->m_waterShoreWaveTurning,
+        !TheGlobalData || TheGlobalData->m_waterWaveFiltering,
         m_useModernWater, m_modernClean);
     m_modernCleanForce=getenv("ZH_WATER_SHORE_FORCE")!=NULL;
     m_modernShared = !m_modernClean && sharedOption && strcmp(sharedOption,"1")==0;
@@ -3444,8 +3444,7 @@ void WaterRenderObjClass::load(void)
     m_modernOneMediumWind = m_modernClean || m_modernShared || m_modernWindRequested;
 	const char *movementStats = getenv("ZH_WATER_WAVE_STATS");
 	if (movementStats && strcmp(movementStats, "1") == 0)
-		fprintf(stderr, "water-movement: map-load mode=%s requested=%d\n",
-			m_waterMovement.Current() ? "current" : "v3.5.1", int(!TheGlobalData || TheGlobalData->m_waterMovementBehavior));
+		fprintf(stderr, "water-movement: map-load mode=current\n");
 	clearModernWaterOpticalTextures();
 #endif
 	if (m_waterTrackSystem)
@@ -3928,9 +3927,10 @@ void WaterRenderObjClass::loadSetting( Setting *setting, TimeOfDay timeOfDay )
 #if defined(__linux__)
 void WaterRenderObjClass::synchronizeWaterReflection(void)
 {
-    // Quality changes shader sampling and the packed CPU heading payload. Publish
+    // Wave controls change shader sampling and the packed CPU heading payload. Publish
     // both together before any reflection or main water draw, even while paused.
-    if(WaterCleanProfile::Apply(TheGlobalData ? TheGlobalData->m_waterQuality : 2,
+    if(WaterCleanProfile::Apply(!TheGlobalData || TheGlobalData->m_waterShoreWaveTurning,
+        !TheGlobalData || TheGlobalData->m_waterWaveFiltering,
         m_useModernWater, m_modernClean) && m_modernClean)
         clearModernWaterOpticalTextures();
 	// Accept updates the preferences; only this boundary publishes them to the SDL

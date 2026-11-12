@@ -25,20 +25,20 @@ inline unsigned Key(const Flags &f) {
     return unsigned(f.nolong) | unsigned(f.nomips)<<1 | unsigned(f.nodepth)<<2 |
         unsigned(f.nofoam)<<3 | unsigned(f.nosss)<<4 | unsigned(f.noshore)<<5 | unsigned(f.flatvertex)<<6;
 }
-inline Flags Effective(const Flags &environment, int quality, bool modern, bool clean) {
+inline Flags Effective(const Flags &environment, bool shoreWaveTurning, bool waveFiltering, bool modern, bool clean) {
     Flags flags=environment;
 #if defined(__linux__)
     if(modern && clean) {
-        flags.nomips |= quality==0 || quality==1;
-        flags.noshore |= quality==0;
+        flags.nomips |= !waveFiltering;
+        flags.noshore |= !shoreWaveTurning;
     }
 #endif
     return flags;
 }
 inline Flags &Applied() {static Flags flags=Environment();return flags;}
 inline const Flags &Get() {return Applied();}
-inline bool Apply(int quality, bool modern, bool clean) {
-    const Flags next=Effective(Environment(),quality,modern,clean);
+inline bool Apply(bool shoreWaveTurning, bool waveFiltering, bool modern, bool clean) {
+    const Flags next=Effective(Environment(),shoreWaveTurning,waveFiltering,modern,clean);
     const bool changed=Key(next)!=Key(Applied());Applied()=next;return changed;
 }
 }

@@ -40,7 +40,7 @@ struct Options {
     unsigned width = 1280, height = 800, frames = 0;
     bool sceneReflections = true, benchmark = false, freezeTime = false;
     WaterMaterialProfile::Mode materialProfile = WaterMaterialProfile::Full;
-    int waveDetail = 1, refraction = WaterPerformanceSettings::Full, reflectionDetail = 1;
+    int waveDetail = 2, refraction = WaterPerformanceSettings::Full, reflectionDetail = 1;
     unsigned benchmarkWarmup = 120;
     float time = 18.0f, strength = 0.80f, brightness = 0.67f;
     float mapDepth = 2.0f, mapOpacity = 0.8f;
@@ -71,7 +71,7 @@ void help()
         "       [--reflection legacy|ssr|hybrid|path|compare] [--no-props] [--scene NAME|PATH]\n"
         "       [--yaw RADIANS] [--pitch 0.48..1.38] [--distance 180..1050]\n"
         "       [--target X Y] [--debug VIEW]\n"
-        "       [--scene-reflections on|off] [--wave-detail low|high]\n"
+        "       [--scene-reflections on|off] [--wave-detail low|medium|high]\n"
         "       [--refraction full|simple|off] [--benchmark] [--benchmark-warmup N]\n"
         "       [--benchmark-csv FILE.csv] [--reflection-detail low|high]\n"
         "       [--freeze-time] [--profile-material full|constant-surface|no-foam-lighting|\n"
@@ -105,6 +105,7 @@ void help()
         "and reports host draw+Present timings without added GPU synchronization.\n"
         "Use --frames/--benchmark-warmup to override; screenshots are separate runs.\n"
         "Scene reflections Off skips planar/path producers; banks retain injected inputs.\n"
+        "Wave detail Low uses 64x64, Medium 128x128 and High 256x256 FFT fields.\n"
         "Reflection detail Low halves planar sides; Path uses 256 still/128 moving versus High 512 always. SSR is unchanged.\n"
         "Banks retain their captured planar resolution even with Reflection detail Low.");
 }
@@ -166,8 +167,8 @@ Options parse(int argc, char **argv)
         }
         else if (arg == "--wave-detail") {
             const std::string v = value();
-            if (v != "low" && v != "high") throw std::runtime_error("wave-detail must be low or high");
-            o.waveDetail = v == "high" ? 1 : 0;
+            if (v != "low" && v != "medium" && v != "high") throw std::runtime_error("wave-detail must be low, medium or high");
+            o.waveDetail = v == "high" ? 2 : v == "medium" ? 1 : 0;
         }
         else if (arg == "--reflection-detail") {
             const std::string v = value();
@@ -778,7 +779,7 @@ private:
                 SDL_GetStringProperty(gpuProperties,SDL_PROP_GPU_DEVICE_DRIVER_VERSION_STRING,"unknown")),
             SDL_getenv("VK_ICD_FILENAMES")?SDL_getenv("VK_ICD_FILENAMES"):"loader default");
         std::printf("Water settings: scene_reflections=%s wave_detail=%s refraction=%s reflection_detail=%s; start_time=%.6f frames=%u scene=%s\n",
-            options.sceneReflections?"on":"off",options.waveDetail?"high":"low",
+            options.sceneReflections?"on":"off",options.waveDetail==2?"high":options.waveDetail==1?"medium":"low",
             options.refraction==0?"full":options.refraction==1?"simple":"off",options.reflectionDetail?"high":"low",options.time,options.frames,
             options.scene.empty()?"synthetic":options.scene.c_str());
         std::printf("Renderer: %s; %ux%u; standalone production-water preview\n",SDL_GetGPUDeviceDriver(device->Get_Gpu()->Device()),options.width,options.height);

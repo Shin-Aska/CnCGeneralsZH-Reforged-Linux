@@ -367,7 +367,7 @@ not write the game's `Options.ini` or the material rules.
 | Preview flag | Choices | Behaviour |
 | --- | --- | --- |
 | `--scene-reflections` | `on`, `off` | Off skips synthetic planar rendering and path preparation, disables scene-reflection sampling, and retains sky/sun highlights. The preferred `--reflection` mode is retained. |
-| `--wave-detail` | `low`, `high` | Low uses a 128×128 production FFT; High retains 256×256. Both keep animated waves. The visible water mesh is unchanged. |
+| `--wave-detail` | `low`, `medium`, `high` | Low uses a 64×64 production FFT, Medium 128×128, and High 256×256 (default). All keep animated waves. The visible water mesh is unchanged. |
 | `--refraction` | `full`, `simple`, `off` | Full retains displaced, depth-validated transmission. Simple keeps undistorted transmission. Off uses opaque tinted water and omits transmission/seabed/caustic work. |
 | `--reflection-detail` | `low`, `high` | Low: Legacy 256×256, Hybrid 512×512, Path 256×256 settled / 128×128 moving. High: Legacy 512×512, Hybrid 1024×1024, Path 512×512 even while moving. SSR is unchanged. |
 

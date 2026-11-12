@@ -37,7 +37,7 @@ inline const VarianceTable &SpectrumVariance(WaterFftSpectrum::Configuration con
     // A/B experiment only: unheaded/Direct3D source retains its original Phillips constants.
     if(clean && WaterTuning::Enabled()) {
         struct Cache {unsigned revision=~0u;VarianceTable table{};};
-        static Cache caches[2];auto &cache=caches[configuration.resolution==128?0:1];
+        static Cache caches[3];auto &cache=caches[configuration.resolution==64?0:configuration.resolution==128?1:2];
         if(cache.revision!=WaterTuning::SpectrumRevision()) {
             cache.table=UnresolvedSlopeVariance(WaterFftSpectrum::InitialSpectrum(configuration,true),configuration);
             cache.revision=WaterTuning::SpectrumRevision();
@@ -45,12 +45,20 @@ inline const VarianceTable &SpectrumVariance(WaterFftSpectrum::Configuration con
         return cache.table;
     }
     if(clean) {
+        if(configuration.resolution==64) {
+            static const VarianceTable low=UnresolvedSlopeVariance(WaterFftSpectrum::InitialSpectrum(WaterFftSpectrum::ForResolution(64),true),WaterFftSpectrum::ForResolution(64));
+            return low;
+        }
         if(configuration.resolution==128) {
             static const VarianceTable low=UnresolvedSlopeVariance(WaterFftSpectrum::InitialSpectrum(WaterFftSpectrum::ForResolution(128),true),WaterFftSpectrum::ForResolution(128));
             return low;
         }
         static const VarianceTable high=UnresolvedSlopeVariance(WaterFftSpectrum::InitialSpectrum(WaterFftSpectrum::ForResolution(WaterFftSpectrum::Resolution),true));
         return high;
+    }
+    if(configuration.resolution==64) {
+        static const VarianceTable low=UnresolvedSlopeVariance(WaterFftSpectrum::InitialSpectrum(WaterFftSpectrum::ForResolution(64),false),WaterFftSpectrum::ForResolution(64));
+        return low;
     }
     if(configuration.resolution==128) {
         static const VarianceTable low=UnresolvedSlopeVariance(WaterFftSpectrum::InitialSpectrum(WaterFftSpectrum::ForResolution(128),false),WaterFftSpectrum::ForResolution(128));

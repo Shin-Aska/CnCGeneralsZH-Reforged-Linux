@@ -15537,14 +15537,6 @@ GUI:OptionsGroupModernWater
 "Modernes Wasser"
 END
 
-GUI:WaterMovementBehavior
-"Wasserbewegung"
-END
-
-TOOLTIP:WaterMovementBehavior
-"Ein: Die Wellenbewegung passt sich der Karte an. Aus: Die Wasserbewegung aus Version 3.5.1 bleibt erhalten. Gilt beim Laden der nächsten Karte."
-END
-
 GUI:WaterReflectionEnabled
 "Szenenreflexionen"
 END
@@ -15553,24 +15545,20 @@ TOOLTIP:WaterReflectionEnabled
 "Spiegelt die Szene im modernen Wasser. Ausschalten verbessert die Leistung, Himmel und Sonnenreflexe bleiben erhalten. Der Reflexionsmodus bleibt gespeichert. Wird nach Klick auf Annehmen angewendet."
 END
 
-GUI:WaterQuality
-"Wasserqualität"
+GUI:WaterShoreWaveTurning
+"Wellen zum Ufer drehen"
 END
 
-GUI:WaterQuality0
-"Niedrig"
+TOOLTIP:WaterShoreWaveTurning
+"Dreht moderne Wasserwellen zum Ufer. Ausschalten lässt Wellen in eine Richtung laufen und verbessert die Leistung. Wird beim Bestätigen angewendet."
 END
 
-GUI:WaterQuality1
-"Mittel"
+GUI:WaterWaveFiltering
+"Wellenfilterung"
 END
 
-GUI:WaterQuality2
-"Hoch"
-END
-
-TOOLTIP:WaterQuality
-"Qualität des modernen Wassers. Mittel verwendet einfacheren Sonnenglanz in der Ferne. Niedrig lässt außerdem alle Wellen in dieselbe Richtung laufen, statt sie zum Ufer zu drehen. Niedrigere Einstellungen verbessern die Leistung. Wird beim Bestätigen angewendet."
+TOOLTIP:WaterWaveFiltering
+"Glättet entfernte Wellen und Sonnenreflexe im modernen Wasser. Ausschalten vereinfacht entfernte Reflexe und verbessert die Leistung. Wird beim Bestätigen angewendet."
 END
 
 GUI:WaterFftResolution
@@ -15582,11 +15570,15 @@ GUI:WaterFftResolution0
 END
 
 GUI:WaterFftResolution1
+"Mittel"
+END
+
+GUI:WaterFftResolution2
 "Hoch"
 END
 
 TOOLTIP:WaterFftResolution
-"Steuert die feinen Details moderner Wasserwellen. Niedrig verbessert die Leistung; Hoch zeigt mehr Details. Wird nach Klick auf Annehmen angewendet."
+"Höhere Einstellungen zeigen feinere Wellendetails. Niedrigere Einstellungen verbessern die Leistung."
 END
 
 GUI:WaterRefractionQuality
