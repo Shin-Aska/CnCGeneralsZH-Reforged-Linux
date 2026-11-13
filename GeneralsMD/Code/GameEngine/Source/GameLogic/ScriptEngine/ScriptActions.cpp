@@ -2859,6 +2859,7 @@ enum
 };
 void ScriptActions::doSpeechPlay(const AsciiString& speechName, Bool allowOverlap)
 {	
+	TheScriptEngine->notifySpeechRequested(speechName);
 	AudioEventRTS speech(speechName);
 	speech.setIsLogicalAudio(true);
 	speech.setPlayerIndex(ThePlayerList->getLocalPlayer()->getPlayerIndex());

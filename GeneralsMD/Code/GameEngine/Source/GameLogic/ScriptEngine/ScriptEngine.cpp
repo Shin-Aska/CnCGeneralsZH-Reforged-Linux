@@ -469,6 +469,7 @@ void ScriptEngine::addConditionTemplateInfo( Template *actionTemplate)
 ScriptEngine::ScriptEngine():
 m_scriptNameCacheValid(FALSE),
 m_numCounters(0),
+m_countdownTimerFrame(0),
 m_numFlags(0),
 m_callingTeam(NULL),
 m_callingObject(NULL),
@@ -5314,6 +5315,7 @@ void ScriptEngine::reset( void )
 	m_groupsByName.clear();
 
 	m_numCounters = 1;
+	m_countdownTimerFrame = 0;
 	m_numAttackInfo = 1;
 	m_numFlags = 1;
 	m_endGameTimer = -1;
@@ -5470,6 +5472,7 @@ void ScriptEngine::newMap( void )
 	m_groupsByName.clear();
 
 	m_numCounters = 1;
+	m_countdownTimerFrame = 0;
 	Int i;
 	for (i=0; i<MAX_COUNTERS; i++) {
 		m_counters[i].value = 0;
@@ -5628,6 +5631,20 @@ const char *ScriptEngine::getProfileReport( void ) { return ""; }
 #define SEQ_ADD(c,n)
 #endif
 
+void ScriptEngine::updateCountdownTimers( void )
+{
+	// FREEZE_TIME stops the world's frame number, but scripts still run. Count script passes so
+	// a frozen even frame cannot tick twice as fast, and a frozen odd frame cannot stop every timer.
+	const Bool retailTick = m_countdownTimerFrame == 0;
+	m_countdownTimerFrame = (m_countdownTimerFrame + 1) % LOGICFRAMES_PER_RETAIL_FRAME;
+	// Note - counters start at 1.  0 means not assigned.
+	for (Int i = 1; retailTick && i < m_numCounters; ++i) {
+		if (m_counters[i].isCountdownTimer && m_counters[i].value >= 0) {
+			m_counters[i].value--;
+		}
+	}
+}
+
 void ScriptEngine::update( void )
 {
 	USE_PERF_TIMER(ScriptEngine)
@@ -5706,19 +5723,9 @@ void ScriptEngine::update( void )
 		TheScriptConditions->update();
 	}
 	SCRIPT_PHASE_END( SCRIPT_PHASE_CONDITIONS );
-	// Update any countdown timers.  They count retail 30 Hz frames, one every other logic frame,
-	// because maps compare a running timer's value with numbers written for 30 Hz ("timer < 1700").
+	// Maps compare timer values with retail 30 Hz frame counts ("timer < 1700").
+	updateCountdownTimers();
 	Int i;
-	const Bool retailTick = (TheGameLogic->getFrame() % LOGICFRAMES_PER_RETAIL_FRAME) == 0;
-	// Note - counters start at 1.  0 means not assigned.
-	for (i=1; retailTick && i<m_numCounters; i++) {
-		if (m_counters[i].isCountdownTimer) {
-			// If counter has any time left, decrement.  Counters go to -1 and stop.
-			if (m_counters[i].value >= 0) {
-				m_counters[i].value--;
-			}
-		}
-	}
 
 	// Evaluate the scripts.
 	SCRIPT_PHASE_BEGIN();
@@ -7468,6 +7475,21 @@ Bool ScriptEngine::isVideoComplete( const AsciiString& completedVideo, Bool remo
 }
 
 //-------------------------------------------------------------------------------------------------
+/** A play action can arrive after a condition already began timing this speech. That old test
+ * must not declare the new request finished early. Leave unplayed names' lazy waits alone: some
+ * shipped scripts use those deliberately, and the request must not query the device or RNG. */
+//-------------------------------------------------------------------------------------------------
+void ScriptEngine::notifySpeechRequested( const AsciiString& speechName )
+{
+	for (ListAsciiStringUINTIt it = m_testingSpeech.begin(); it != m_testingSpeech.end(); ) {
+		if (it->first == speechName)
+			it = m_testingSpeech.erase(it);
+		else
+			++it;
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
 /** Determine whether a speech has completed */
 //-------------------------------------------------------------------------------------------------
 Bool ScriptEngine::isSpeechComplete( const AsciiString& testSpeech, Bool removeFromList )
@@ -9081,6 +9103,7 @@ void ScriptEngine::setGlobalDifficulty( GameDifficulty difficulty )
 	* 3: Added m_objectsShouldReceiveDifficultyBonus (JKMCD)
 	* 4: current music track info
 	* 5: add ChooseVictimAlwaysUsesNormal
+	* 6: script countdown timer subframe
 	*/
 // ------------------------------------------------------------------------------------------------
 void ScriptEngine::xfer( Xfer *xfer )
@@ -9088,7 +9111,7 @@ void ScriptEngine::xfer( Xfer *xfer )
 	Int i;
 
 	// version
-	const XferVersion currentVersion = 5;
+	const XferVersion currentVersion = 6;
 	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
 
@@ -9545,6 +9568,17 @@ void ScriptEngine::xfer( Xfer *xfer )
 	else
 	{
 		m_ChooseVictimAlwaysUsesNormal = false;
+	}
+	if (version >= 6)
+	{
+		xfer->xferUnsignedByte(&m_countdownTimerFrame);
+		if (m_countdownTimerFrame >= LOGICFRAMES_PER_RETAIL_FRAME)
+			throw SC_INVALID_DATA;
+	}
+	else
+	{
+		// Older saves have no subframe. Restart at the first half of a retail timer frame.
+		m_countdownTimerFrame = 0;
 	}
 
 	if( xfer->getXferMode() == XFER_LOAD ) {

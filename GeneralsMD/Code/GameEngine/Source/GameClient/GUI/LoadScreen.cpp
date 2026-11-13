@@ -1016,6 +1016,55 @@ void LoadScreenBoard::drawMatch( void )
 
 // SinglePlayerLoadScreen Class ///////////////////////////////////////////////
 //-----------------------------------------------------------------------------
+CampaignBriefingPlayback::CampaignBriefingPlayback(Clock clock) : m_clock(clock ? clock : Clock_Milliseconds)
+{
+	reset();
+}
+
+void CampaignBriefingPlayback::reset()
+{
+	m_attempted = FALSE;
+	m_cancelled = FALSE;
+	m_startedAt = 0;
+	m_budgetMS = 0;
+}
+
+void CampaignBriefingPlayback::update(AudioManager &audio, const AudioEventRTS &voice,
+	Int configuredSeconds, Int movieFrame, Bool skipMovie)
+{
+	// Generals cued the separate voice at frame 255. Zero Hour's own missions name no voice.
+	if (m_attempted || m_cancelled || voice.getEventName().isEmpty() || (!skipMovie && movieFrame < 255))
+		return;
+	m_attempted = TRUE;
+	if (!audio.isOn(AudioAffect_Speech) || audio.getVolume(AudioAffect_Speech) <= 0.0f)
+		return;
+
+	// Bound the budget to half the wrapping millisecond clock. No device-completion polling, and
+	// no configured integer overflow, can turn this loading-screen wait into an indefinite one.
+	const UnsignedInt maximumMS = 0x7fffffffU;
+	const Int64 configuredMS = configuredSeconds > 0 ? (Int64)configuredSeconds * 1000 : 0;
+	m_budgetMS = configuredMS > maximumMS ? maximumMS : (UnsignedInt)configuredMS;
+	const Real measuredMS = audio.getAudioLengthMS(&voice);
+	if (measuredMS >= (Real)maximumMS)
+		m_budgetMS = maximumMS;
+	else if (measuredMS > 0.0f)
+	{
+		const UnsignedInt wholeMS = (UnsignedInt)ceil(measuredMS);
+		if (wholeMS > m_budgetMS) m_budgetMS = wholeMS;
+	}
+	audio.friend_forcePlayAudioEventRTS(&voice);
+	// Opening/decoding can take time. Count from after that synchronous request, not before it.
+	m_startedAt = m_clock();
+}
+
+UnsignedInt CampaignBriefingPlayback::remainingMS() const
+{
+	if (m_cancelled || !m_attempted)
+		return 0;
+	const UnsignedInt elapsed = m_clock() - m_startedAt;
+	return elapsed >= m_budgetMS ? 0 : m_budgetMS - elapsed;
+}
+
 SinglePlayerLoadScreen::SinglePlayerLoadScreen( void )
 {
 	//Added By Sadullah Nader
@@ -1230,8 +1279,35 @@ void SinglePlayerLoadScreen::moveWindows( Int frame )
 	}
 }*/
  
+void SinglePlayerLoadScreen::startBriefingAudio(const Mission &mission, Int movieFrame, Bool skipMovie)
+{
+	if (TheGameEngine->getQuitting() || !TheGameEngine->isActive())
+		m_briefingPlayback.cancel();
+	else
+		m_briefingPlayback.update(*TheAudio, mission.m_briefingVoice, mission.m_voiceLength, movieFrame, skipMovie);
+}
+
+void SinglePlayerLoadScreen::waitForBriefingAudio()
+{
+	// Some original voices extend beyond the 800-frame movie. Let them finish over the loading
+	// image before map loading resets audio, while still processing focus loss and exit requests.
+	while (m_briefingPlayback.remainingMS() > 0)
+	{
+		TheGameEngine->serviceWindowsOS();
+		if (TheGameEngine->getQuitting() || !TheGameEngine->isActive())
+		{
+			m_briefingPlayback.cancel();
+			break;
+		}
+		TheWindowManager->update();
+		TheDisplay->draw();
+		sleepMilliseconds(10);
+	}
+}
+
 void SinglePlayerLoadScreen::init( GameInfo *game )
 {
+	m_briefingPlayback.reset();
 	//No music in SinglePlayerLoadScreen
 
 	// create the layout of the load screen
@@ -1351,6 +1427,9 @@ void SinglePlayerLoadScreen::init( GameInfo *game )
 	if ( m_videoStream == NULL )
 	{
 		m_percent->winHide(TRUE);
+		startBriefingAudio(*mission, 0, TRUE);
+		setFPMode();
+		waitForBriefingAudio();
 		return;
 	}
 
@@ -1368,6 +1447,9 @@ void SinglePlayerLoadScreen::init( GameInfo *game )
 			m_videoStream->close();
 		m_videoStream = NULL;
 
+		startBriefingAudio(*mission, 0, TRUE);
+		setFPMode();
+		waitForBriefingAudio();
 		return;
 	}
 
@@ -1379,6 +1461,11 @@ void SinglePlayerLoadScreen::init( GameInfo *game )
 		while (m_videoStream->frameIndex() < m_videoStream->frameCount() - 1 )
 		{
 			TheGameEngine->serviceWindowsOS();
+			if (TheGameEngine->getQuitting() || !TheGameEngine->isActive())
+			{
+				m_briefingPlayback.cancel();
+				break;
+			}
 
 			if(!m_videoStream->isFrameReady())
 			{
@@ -1386,20 +1473,9 @@ void SinglePlayerLoadScreen::init( GameInfo *game )
 				continue;
 			}
 
-			if (!TheGameEngine->isActive())
-			{/*	//we are alt-tabbed out, so just increment the frame
-				m_videoStream->frameNext();
-				m_videoStream->frameDecompress();*/
-
-				//Changing for MissionDisk, just skip to end.
-				break;
-			}
-			
 			m_videoStream->frameDecompress();
 			m_videoStream->frameRender(m_videoBuffer);
-
-// PULLED FROM THE MISSION DISK
-//			moveWindows( m_videoStream->frameIndex());
+			startBriefingAudio(*mission, m_videoStream->frameIndex());
 
 			m_videoStream->frameNext();
 
@@ -1433,13 +1509,22 @@ void SinglePlayerLoadScreen::init( GameInfo *game )
 	else
 	{
 		// if we're min spec'ed don't play a movie
-		
-		Int delay = mission->m_voiceLength * 1000;
-		Int begin = Clock_Milliseconds();
-		Int currTime = begin;
+		startBriefingAudio(*mission, 0, TRUE);
+		const Int64 configuredMS = mission->m_voiceLength > 0 ? (Int64)mission->m_voiceLength * 1000 : 0;
+		UnsignedInt delay = configuredMS > 0x7fffffffU ? 0x7fffffffU : (UnsignedInt)configuredMS;
+		if (!mission->m_briefingVoice.getEventName().isEmpty())
+			delay = m_briefingPlayback.remainingMS();
+		UnsignedInt begin = Clock_Milliseconds();
+		UnsignedInt currTime = begin;
 		Int fudgeFactor = 0;
-		while(begin + delay > currTime )
+		while(currTime - begin < delay)
 		{		
+			TheGameEngine->serviceWindowsOS();
+			if (TheGameEngine->getQuitting() || !TheGameEngine->isActive())
+			{
+				m_briefingPlayback.cancel();
+				break;
+			}
 			fudgeFactor = 30 * ((currTime - begin)/ INT_TO_REAL(delay ));
 			GadgetProgressBarSetProgress(m_progressBar, fudgeFactor);
 
@@ -1455,6 +1540,7 @@ void SinglePlayerLoadScreen::init( GameInfo *game )
 
 	}
 	setFPMode();
+	waitForBriefingAudio();
 	m_percent->winHide(TRUE);
 	m_ambientLoopHandle = TheAudio->addAudioEvent(&m_ambientLoop);
 	
@@ -1462,6 +1548,7 @@ void SinglePlayerLoadScreen::init( GameInfo *game )
 
 void SinglePlayerLoadScreen::reset( void )
 {
+ m_briefingPlayback.cancel();
  setLoadScreen(NULL);
  m_progressBar = NULL;
 }

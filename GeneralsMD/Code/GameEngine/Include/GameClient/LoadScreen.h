@@ -49,6 +49,26 @@ class VideoBuffer;
 class VideoStreamInterface;
 class WindowVideoManager;
 class LoadScreenBoard;
+class AudioManager;
+
+/// UI-only narration timing. A movie may end before its separately configured briefing voice.
+class CampaignBriefingPlayback
+{
+public:
+	typedef UnsignedInt (*Clock)();
+	explicit CampaignBriefingPlayback(Clock clock = NULL);
+	void reset();
+	void update(AudioManager &audio, const AudioEventRTS &voice, Int configuredSeconds, Int movieFrame, Bool skipMovie = FALSE);
+	void cancel() { m_cancelled = TRUE; }
+	UnsignedInt remainingMS() const;
+
+private:
+	Clock m_clock;
+	Bool m_attempted;
+	Bool m_cancelled;
+	UnsignedInt m_startedAt;
+	UnsignedInt m_budgetMS;
+};
 
 
 
@@ -117,8 +137,11 @@ private:
 	VideoBuffer *m_videoBuffer;
 	VideoStreamInterface *m_videoStream;
 	LoadScreenBoard *m_board;					///< the mission's name, briefing and tip, over the picture once the movie is done
+	CampaignBriefingPlayback m_briefingPlayback;
 
 	void moveWindows( Int frame );
+	void startBriefingAudio(const Mission &mission, Int movieFrame, Bool skipMovie = FALSE);
+	void waitForBriefingAudio();
 
 	AudioEventRTS m_ambientLoop;
 	AudioHandle m_ambientLoopHandle;

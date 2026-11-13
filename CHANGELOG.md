@@ -10,6 +10,22 @@ found and fixed, EA's own, not port damage.**
 
 ## Unreleased
 
+- Original Generals USA Mission 1 and other inland maps no longer crash while starting with Modern water.
+
+- The original Generals campaigns play their configured spoken loading briefings again. A long
+  briefing can finish after its movie ends, including GLA Mission 1, instead of losing its final seconds
+  when the map begins loading. Muted speech adds no extra wait.
+
+- Campaign briefing waits restart when their spoken line is cued. Checking a line before it began
+  could make the briefing advance early and skip the next line, including in Zero Hour China Mission 3.
+
+- Preloaded mission dialogue starts without waiting for unrelated sounds to finish loading, keeping
+  spoken lines aligned with the mission's briefing and cinematic cues.
+
+- The briefing after USA Zero Hour Mission 1's opening cinematic now gives each spoken line time
+  to finish. Freezing the battlefield had made its briefing timers run twice as fast, cutting out
+  some lines and making others overlap; a scene frozen on the next frame could stop its timers entirely.
+
 - Modern water always uses map-aware movement. The obsolete Water Movement Behavior switch
   has been removed, and old saved Off values no longer select legacy movement.
 

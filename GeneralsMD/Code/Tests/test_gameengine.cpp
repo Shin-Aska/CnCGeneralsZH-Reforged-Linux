@@ -23491,6 +23491,8 @@ TEST(save_older_than_60hz_loads_only_as_mission_save)
 #include "test_selection_priority.inc"
 #include "test_widechar_width.inc"
 #include "test_supply_center_save.inc"
+#include "test_script_timers.inc"
+#include "test_campaign_briefing.inc"
 #include "test_cinema.inc"
 #include "test_game_results.inc"
 #include "test_map_ini_rollback.inc"

@@ -308,6 +308,7 @@ public:
 	virtual void transferObjectName( const AsciiString& unitName, Object *pNewObject );
 	virtual void notifyOfObjectDestruction( Object *pDeadObject );
 	virtual void notifyOfCompletedVideo( const AsciiString& completedVideo );	///< Notify the script engine that a video has completed
+	void notifySpeechRequested( const AsciiString& speechName );	///< A logical speech cue invalidates any wait begun before that request
 	virtual void notifyOfTriggeredSpecialPower( Int playerIndex, const AsciiString& completedPower, ObjectID sourceObj );
 	virtual void notifyOfMidwaySpecialPower		( Int playerIndex, const AsciiString& completedPower, ObjectID sourceObj );
 	virtual void notifyOfCompletedSpecialPower( Int playerIndex, const AsciiString& completedPower, ObjectID sourceObj );
@@ -441,6 +442,9 @@ protected:
 	AttackPriorityInfo *findAttackInfo(const AsciiString& name, Bool addIfNotFound);
 
 protected:
+	/// Script passes continue while the world is frozen; timers count one retail frame per two passes.
+	void updateCountdownTimers( void );
+
 	/// Stuff to execute scripts sequentially
 	typedef std::vector<SequentialScript*> VecSequentialScriptPtr;
 	typedef VecSequentialScriptPtr::iterator VecSequentialScriptPtrIt;
@@ -461,6 +465,7 @@ protected:
 	ConditionTemplate	m_conditionTemplates[Condition::NUM_ITEMS];
 	TCounter					m_counters[MAX_COUNTERS];
 	Int								m_numCounters;
+	UnsignedByte m_countdownTimerFrame;	///< next script pass within a retail timer frame, independent of world time
 	TFlag							m_flags[MAX_FLAGS];
 	Int								m_numFlags;
 	// Looking a script up by name used to walk every side's script list, and its groups' lists, on
