@@ -7066,6 +7066,26 @@ TEST(water_medium_depth_blur_transport_sampling_and_bounds)
     WaterMediumDepthTest::Check();
 }
 
+TEST(water_clean_shore_distance_transport_handles_unbuilt_and_incomplete_fields)
+{
+    // An inland map can have optical water without a source-selected medium field. The
+    // upload still asks for its distance word: equal empty vectors are not sample data.
+    WaterMediumDepth::Field field;
+    const uint32_t neutral = 0x00ff0000u;
+    CHECK_EQ(WaterCleanShore::DistanceWord(field, 0), neutral);
+    CHECK_EQ(WaterCleanShore::DistanceWord(field, 19), neutral);
+    field.depth = {0, 10, 20};
+    CHECK_EQ(WaterCleanShore::DistanceWord(field, 0), neutral);
+    field.shoreDistance = {0, 1500};
+    CHECK_EQ(WaterCleanShore::DistanceWord(field, 1), neutral);
+    field.shoreDistance.push_back(WaterCleanShore::DistanceCap);
+    CHECK_EQ(WaterCleanShore::DistanceWord(field, 0), 0u);
+    CHECK_EQ(WaterCleanShore::DistanceWord(field, 1), 0x00800000u);
+    CHECK_EQ(WaterCleanShore::DistanceWord(field, 2), neutral);
+    CHECK_EQ(WaterCleanShore::DistanceWord(field, 3), neutral);
+    CHECK_EQ(WaterCleanShore::DistanceWord(field, std::numeric_limits<size_t>::max()), neutral);
+}
+
 // A/B experiment only: shared amplitude field transport and depth/turning contracts.
 #include "WaterSharedFieldTest.h"
 TEST(water_shared_field_wind_shadow_depth_turning_and_bounds)

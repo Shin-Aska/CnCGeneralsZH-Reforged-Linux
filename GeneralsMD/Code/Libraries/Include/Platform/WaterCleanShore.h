@@ -152,7 +152,10 @@ inline float AppliedAngle(float baseX,float baseY,float gx,float gy,const Sample
     return HeadingAngle(baseX,baseY,gx,gy,s.follow)+VertexAngle(fieldX,fieldY,shore,s);
 }
 inline uint32_t DistanceWord(const WaterMediumDepth::Field &f,size_t i) {
-    return f.shoreDistance.size()==f.depth.size()?uint32_t(EncodeDistance(f.shoreDistance[i]))<<16:0x00ff0000u;
+    // A map without a selected water source has no medium samples. Matching empty
+    // arrays do not make an index valid; retain the far-distance fallback.
+    return i<f.shoreDistance.size() && f.shoreDistance.size()==f.depth.size()
+        ?uint32_t(EncodeDistance(f.shoreDistance[i]))<<16:0x00ff0000u;
 }
 inline uint32_t Word(const WaterMediumDepth::Field &f,size_t i) {
     uint32_t d=uint32_t(WaterMediumDepth::Encode(f.depth[i]))<<8;
