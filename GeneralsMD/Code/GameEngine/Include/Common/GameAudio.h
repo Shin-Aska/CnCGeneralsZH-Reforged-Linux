@@ -152,6 +152,8 @@ class AudioManager : public SubsystemInterface
 
 		/// Cache loading-screen audio, without playing it or choosing random variants.
 		void preloadAudioEvents( const std::vector<AsciiString>& events );
+		/// Resident encoded bytes need no asynchronous disk warmup. Does not allocate a reader.
+		Bool hasPreloadedAudioFile( const char *filename ) const;
 		/// A private RAM file per caller: streams never share a cursor or retain cache-owned pointers.
 		File *openPreloadedAudioFile( const char *filename ) const;
 		virtual void reset();

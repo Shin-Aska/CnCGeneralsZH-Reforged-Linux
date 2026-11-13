@@ -4413,6 +4413,16 @@ char *AudioFileCache::warmStreamFile( const char *name, unsigned *size )
 }
 
 //-------------------------------------------------------------------------------------------------
+Bool AudioFileCache::streamIsWarm( const AsciiString &name )
+{
+	// Mission loading already read these bytes. Queuing even a no-op warmup behind a cold sound
+	// delayed dialogue while the mission's script timers kept running.
+	if (TheAudio->hasPreloadedAudioFile(name.str()))
+		return TRUE;
+	return m_loader.ready(name.str(), false, warmStreamFile);
+}
+
+//-------------------------------------------------------------------------------------------------
 void AudioFileCache::streamOpened( const AsciiString &name )
 {
 	AudioFileLoader::Loaded nothing;

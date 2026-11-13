@@ -49,6 +49,7 @@
 #include "test_harness.h"
 
 #include "PreRTS.h"
+#include "../Stubs/NullAudioManager.h"
 #include "Common/AudioAffect.h"
 #include "Common/AudioEventInfo.h"
 #include "Common/AudioEventRTS.h"
@@ -80,6 +81,8 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -662,7 +665,7 @@ TEST(preloaded_stream_warmup_never_opens_the_disk_sources)
 	TheArchiveFileSystem = NULL;
 	{
 		AudioFileCache cache;
-		CHECK(!cache.streamIsWarm(pick.file));
+		CHECK(cache.streamIsWarm(pick.file));
 		cache.waitForLoads();
 		CHECK(cache.streamIsWarm(pick.file));
 		cache.streamOpened(pick.file);
@@ -723,6 +726,7 @@ TEST(preloaded_audio_preserves_bytes_random_streams_and_independent_file_lifetim
 		CHECK_EQ( second->position(), 0 );
 		// Clearing the next mission's cache cannot invalidate a decoder's already open file.
 		audio->AudioManager::reset();
+		CHECK( !audio->hasPreloadedAudioFile(pick.file.str()) );
 		CHECK( audio->openPreloadedAudioFile(pick.file.str()) == NULL );
 		CHECK_EQ( second->read(cached.data(), size), size );
 		CHECK( expected == cached );
@@ -733,6 +737,106 @@ TEST(preloaded_audio_preserves_bytes_random_streams_and_independent_file_lifetim
 }
 
 // ---- ScopedMutex off Windows keeps Windows' semantics ---------------------------------------------
+
+namespace {
+struct HeldAudioRead
+{
+	std::mutex mutex;
+	std::condition_variable changed;
+	bool entered = false;
+	bool released = false;
+	void release()
+	{
+		std::lock_guard<std::mutex> guard(mutex);
+		released = true;
+		changed.notify_all();
+	}
+};
+HeldAudioRead *theHeldAudioRead = NULL;
+
+char *holdAudioRead(const char *, unsigned *)
+{
+	HeldAudioRead &read = *theHeldAudioRead;
+	std::unique_lock<std::mutex> guard(read.mutex);
+	read.entered = true;
+	read.changed.notify_all();
+	read.changed.wait(guard, [&read] { return read.released; });
+	return NULL;
+}
+
+class ResidentStreamTestAudio : public NullAudioManager
+{
+public:
+	ResidentStreamTestAudio()
+	{
+		// A valid, short PCM WAV. Existing asset-backed tests cover the production preloader;
+		// inject its protected registry here so this scheduling test runs without game files.
+		std::vector<char> wave(44 + 320, 0);
+		auto put = [&wave](size_t at, unsigned value, size_t count) {
+			for (size_t i = 0; i < count; ++i) wave[at + i] = (char)(value >> (8 * i));
+		};
+		memcpy(wave.data(), "RIFF", 4); put(4, wave.size() - 8, 4);
+		memcpy(wave.data() + 8, "WAVEfmt ", 8); put(16, 16, 4);
+		put(20, 1, 2); put(22, 1, 2); put(24, 16000, 4); put(28, 32000, 4);
+		put(32, 2, 2); put(34, 16, 2); memcpy(wave.data() + 36, "data", 4); put(40, 320, 4);
+		m_preloadedAudio["data/audio/speech/resident.wav"] = wave;
+	}
+};
+
+class HeldStreamTestCache : public AudioFileCache
+{
+public:
+	void holdUnrelatedLoad() { m_loader.ready("unrelated-cold-file", false, holdAudioRead); }
+};
+}
+
+TEST(resident_stream_is_ready_while_an_unrelated_load_is_blocked)
+{
+	if (!TheMemoryPoolFactory) initMemoryManager();
+	if (!TheNameKeyGenerator)
+	{
+		TheNameKeyGenerator = NEW NameKeyGenerator;
+		TheNameKeyGenerator->init();
+	}
+	AudioManager *saved = TheAudio;
+	ResidentStreamTestAudio audio;
+	TheAudio = &audio;
+	HeldAudioRead read;
+	theHeldAudioRead = &read;
+	bool entered = false, residentReady = false, coldReadyWhileHeld = true, coldReadyAfterRelease = false;
+	const AsciiString resident("DATA\\AUDIO\\SPEECH\\RESIDENT.WAV");
+	const bool present = audio.hasPreloadedAudioFile(resident.str());
+	const bool missing = audio.hasPreloadedAudioFile("data/audio/speech/missing.wav");
+	{
+		HeldStreamTestCache cache;
+		struct ReleaseOnExit
+		{
+			HeldAudioRead &read;
+			~ReleaseOnExit() { read.release(); }
+		} releaseOnExit{read};
+		cache.holdUnrelatedLoad();
+		{
+			std::unique_lock<std::mutex> guard(read.mutex);
+			entered = read.changed.wait_for(guard, std::chrono::seconds(2), [&read] { return read.entered; });
+		}
+		residentReady = cache.streamIsWarm(resident);
+		coldReadyWhileHeld = cache.streamIsWarm(AsciiString("unrelated-cold-file"));
+		// Release even when startup timed out, then drain and destroy the cache before assertions.
+		// Its destructor joins the worker, so a failed check cannot strand the held read.
+		read.release();
+		cache.waitForLoads();
+		coldReadyAfterRelease = cache.streamIsWarm(AsciiString("unrelated-cold-file"));
+		cache.streamOpened(resident);
+	}
+	theHeldAudioRead = NULL;
+	TheAudio = saved;
+	CHECK(entered);
+	CHECK(present);
+	CHECK(!missing);
+	CHECK(residentReady);
+	CHECK(!coldReadyWhileHeld);
+	CHECK(coldReadyAfterRelease);
+}
 
 TEST(scoped_mutex_waits_500_ms_then_goes_ahead_and_never_frees_a_lock_it_did_not_take)
 {

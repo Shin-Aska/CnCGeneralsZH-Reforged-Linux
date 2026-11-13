@@ -427,6 +427,12 @@ void AudioManager::preloadAudioEvents(const std::vector<AsciiString>& events)
 		frequency ? (double)(Clock_Ticks() - started) * 1000.0 / frequency : 0.0));
 }
 
+Bool AudioManager::hasPreloadedAudioFile(const char *filename) const
+{
+	std::lock_guard<std::mutex> lock(m_preloadedAudioMutex);
+	return m_preloadedAudio.find(audioPreloadKey(filename)) != m_preloadedAudio.end();
+}
+
 File *AudioManager::openPreloadedAudioFile(const char *filename) const
 {
 	std::lock_guard<std::mutex> lock(m_preloadedAudioMutex);

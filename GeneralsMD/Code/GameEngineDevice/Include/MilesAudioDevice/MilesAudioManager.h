@@ -168,7 +168,7 @@ class AudioFileCache
 		// End Protected by mutex
 
 		/// A stream opens its own file, on the main thread: this reads its start and end ahead of that.
-		Bool streamIsWarm( const AsciiString &name ) { return m_loader.ready(name.str(), false, warmStreamFile); }
+		Bool streamIsWarm( const AsciiString &name );
 		void streamOpened( const AsciiString &name );
 
 		void waitForLoads() { m_loader.waitUntilIdle(); }
