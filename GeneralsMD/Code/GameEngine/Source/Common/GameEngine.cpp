@@ -3498,6 +3498,11 @@ static Int renderCapFramesPerSecond( Int logicFps )
 	return fps;
 }
 
+Int GameEngine_renderCapFramesPerSecond( void )
+{
+	return renderCapFramesPerSecond( TheGameEngine->getFramesPerSecondLimit() );
+}
+
 /* Hold the thread until the tick clock reads `deadline`.  A sleep cannot hit a point in time: Sleep(1)
 	 under a 1 ms timer period still ends anywhere up to 2 ms late, a whole eighth of a 144 Hz picture.
 	 So the wait sleeps to a millisecond short of it on a high resolution waitable timer (Windows 10

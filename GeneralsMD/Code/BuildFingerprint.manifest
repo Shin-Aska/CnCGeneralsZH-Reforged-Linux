@@ -2072,6 +2072,7 @@ GameEngineDevice/Include/W3DDevice/GameClient/W3DAssetManagerExposed.h
 GameEngineDevice/Include/W3DDevice/GameClient/W3DBibBuffer.h
 GameEngineDevice/Include/W3DDevice/GameClient/W3DBridgeBuffer.h
 GameEngineDevice/Include/W3DDevice/GameClient/W3DBufferManager.h
+GameEngineDevice/Include/W3DDevice/GameClient/W3DCinematicCamera.h
 GameEngineDevice/Include/W3DDevice/GameClient/W3DCustomEdging.h
 GameEngineDevice/Include/W3DDevice/GameClient/W3DCustomScene.h
 GameEngineDevice/Include/W3DDevice/GameClient/W3DDebugDisplay.h
@@ -2103,6 +2104,7 @@ GameEngineDevice/Include/W3DDevice/GameClient/W3DShaderManager.h
 GameEngineDevice/Include/W3DDevice/GameClient/W3DShadow.h
 GameEngineDevice/Include/W3DDevice/GameClient/W3DShroud.h
 GameEngineDevice/Include/W3DDevice/GameClient/W3DSmoothMotion.h
+GameEngineDevice/Include/W3DDevice/GameClient/W3DSmoothMotionRate.h
 GameEngineDevice/Include/W3DDevice/GameClient/W3DSmudge.h
 GameEngineDevice/Include/W3DDevice/GameClient/W3DSnow.h
 GameEngineDevice/Include/W3DDevice/GameClient/W3DStatusCircle.h
@@ -3550,7 +3552,9 @@ Tests/test_bigfilesystem.cpp
 Tests/test_bigfilesystem_stubs.cpp
 Tests/test_binkvideo.cpp
 Tests/test_camera_behavior.inc
+Tests/test_campaign_briefing.inc
 Tests/test_cinema.inc
+Tests/test_cinematic_camera.inc
 Tests/test_clock.cpp
 Tests/test_compression.cpp
 Tests/test_crash_reporting.cpp
@@ -3631,6 +3635,7 @@ Tests/test_registryfile.cpp
 Tests/test_render_hooks.cpp
 Tests/test_render_timing.cpp
 Tests/test_road_buffer.cpp
+Tests/test_script_timers.inc
 Tests/test_sdl_gpu_depth_format.cpp
 Tests/test_sdl_gpu_frame.cpp
 Tests/test_sdl_input.cpp

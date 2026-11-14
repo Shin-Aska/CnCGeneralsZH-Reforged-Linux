@@ -75,6 +75,9 @@ Real GameEngine_missionTimeRate( void );
 Real GameEngine_logicTickFraction( void );
 Real GameEngine_tickFraction( Int64 now, Int64 due, Real msPerTick, Int64 ticksPerSecond );
 
+/** Actual current picture cap used by the main-loop pacer, 0 for uncapped. Presentation only. */
+Int GameEngine_renderCapFramesPerSecond( void );
+
 /** LOGIC-THREAD.md phase 4: a picture presented while the pass's tick still runs beside the render,
 	with another to follow in the same pass.  The frame-time histograms count each picture as a pass of
 	its own, the first with the tick, from the pass's start or the last picture to now. */

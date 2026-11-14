@@ -116,6 +116,7 @@ SdlGpuFrame::SdlGpuFrame() :
 	NotVisibleTotal(0),
 	NotShown(0),
 	NotShownTotal(0),
+	VisiblePresentSubmissions(0),
 	ShownWidth(0),
 	ShownHeight(0),
 	FlushLimit(3),
@@ -1775,13 +1776,15 @@ bool SdlGpuFrame::Present(const uint16_t (*ramp)[256])
 		return false;
 	}
 	bool ok = Record_Batch(commands) && Copy_To_Front(commands);
+	bool visibleSwapchain = false;
 	if (Window != NULL) {
 		SDL_GPUTexture * swapchain = NULL;
 		Uint32 width = 0;
 		Uint32 height = 0;
 		// Asked before the acquire: SDL keeps these flags from the window's own events (on macOS, OCCLUDED from
 		// NSWindow's occlusion state), and a window in any of them is not paced by the display.
-		if ((SDL_GetWindowFlags(Window) & (SDL_WINDOW_HIDDEN | SDL_WINDOW_OCCLUDED | SDL_WINDOW_MINIMIZED)) != 0) {
+		const bool visible = (SDL_GetWindowFlags(Window) & (SDL_WINDOW_HIDDEN | SDL_WINDOW_OCCLUDED | SDL_WINDOW_MINIMIZED)) == 0;
+		if (!visible) {
 			++NotVisible;
 			++NotVisibleTotal;
 		}
@@ -1790,6 +1793,7 @@ bool SdlGpuFrame::Present(const uint16_t (*ramp)[256])
 		const bool acquired = SDL_WaitAndAcquireGPUSwapchainTexture(commands, Window, &swapchain, &width, &height);
 		AcquireMs += (double)(SDL_GetTicksNS() - acquire_start) / 1.0e6;
 		if (acquired && swapchain != NULL) {
+			visibleSwapchain = visible;
 			if (width != ShownWidth || height != ShownHeight) {
 				// What the picture is scaled to on its way out: on a Retina Mac, the window's pixels.
 				fprintf(stderr, "SdlGpuFrame: the %ux%u back buffer is shown on a %ux%u swapchain\n", BackWidth, BackHeight,
@@ -1828,6 +1832,7 @@ bool SdlGpuFrame::Present(const uint16_t (*ramp)[256])
 	}
 	const bool submitted = Submit(commands);
 	End_Batch();
+	if (submitted && ok && visibleSwapchain) ++VisiblePresentSubmissions;
 	return submitted && ok;
 }
 

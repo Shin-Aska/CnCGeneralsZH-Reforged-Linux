@@ -189,6 +189,9 @@ public:
 
 	/// Flush, then the back buffer to the window through the gamma ramp (null: none, a straight blit).
 	bool Present(const uint16_t (*ramp)[256]);
+	/// Successful visible swapchain submissions; excludes offscreen, hidden and missing drawables.
+	/// This is an API-return serial, not GPU completion or physical scanout timing.
+	uint64_t Visible_Present_Submissions() const { return VisiblePresentSubmissions; }
 
 	/// PERF1's timing aid (PosixDevice9's ZH_GPU_TIMING): with Serialize_Submits, every submit waits for
 	/// its fence, so the waits add up to the GPU's time for the work (CPU and GPU no longer overlap, so a
@@ -370,6 +373,7 @@ private:
 	unsigned int NotVisibleTotal;	///< and since the frame was made
 	unsigned int NotShown;			///< Presents with no drawable since the last Take_Timing
 	unsigned int NotShownTotal;		///< and since the frame was made
+	uint64_t VisiblePresentSubmissions;
 	unsigned int ShownWidth;		///< the swapchain's size at the last Present that had one, which stderr gives
 	unsigned int ShownHeight;		///< whenever it changes: the back buffer is scaled to it
 	/// The mid-frame flushes still in flight, oldest first.  Each holds its command buffer, and on Direct3D 12

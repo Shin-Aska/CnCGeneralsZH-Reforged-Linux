@@ -10,6 +10,16 @@ found and fixed, EA's own, not port damage.**
 
 ## Unreleased
 
+- Single-player cinematics now smooth scripted turns, zooms and tilts between their
+  original steps, including the roughly 22-step-per-second carrier shot in Zero Hour USA Mission 2.
+  In ordinary single-player play it also removes the close-up Raptor flyover's repeated backwards
+  jumps while its camera pans, keeping the aircraft animated between simulation ticks.
+  The fix runs automatically in normal single-player play; replay, network and capture modes retain
+  their previous behavior.
+
+- An optional preview smooths moving models during slowed campaign cinematics when visible
+  presentation runs faster than the simulation. It is off by default and still needs display testing.
+
 - Original Generals USA Mission 1 and other inland maps no longer crash while starting with Modern water.
 
 - The original Generals campaigns play their configured spoken loading briefings again. A long

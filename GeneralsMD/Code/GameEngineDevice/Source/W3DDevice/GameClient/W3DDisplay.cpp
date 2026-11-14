@@ -35,6 +35,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 static void drawFramerateBar(void);
+static void resetSmoothMotionLiveRate(void);
 
 // SYSTEM INCLUDES ////////////////////////////////////////////////////////////
 #include <stdlib.h>
@@ -55,6 +56,7 @@ static void drawFramerateBar(void);
 #include "Common/ThingFactory.h"
 #include "Common/LogicThread.h"
 #include "Common/GameEngine.h"
+#include "Common/Recorder.h"
 #include "GameClient/LookAtXlat.h"
 #include "Common/GlobalData.h"
 #include "Common/Monitors.h"
@@ -77,6 +79,8 @@ static void drawFramerateBar(void);
 
 #include "GameClient/Drawable.h"
 #include "W3DDevice/GameClient/W3DSmoothMotion.h"
+#include "W3DDevice/GameClient/W3DSmoothMotionRate.h"
+#include "W3DDevice/GameClient/W3DCinematicCamera.h"
 #include "W3DDevice/GameClient/Module/W3DModelDraw.h"
 #include "GameLogic/Object.h"
 #include "GameClient/Keyboard.h"		// TheKeyboard; on Windows WinMain.h brought it too
@@ -87,6 +91,8 @@ static void drawFramerateBar(void);
 #endif
 #if !defined(_WIN32)
 #include "Platform/RendererName.h"
+#include "../../PosixDevice/Render/PosixDevice9.h"
+#include "../../PosixDevice/Render/SdlGpuFrame.h"
 #endif
 #include "GameClient/GameText.h"
 #include "GameClient/GameConsole.h"
@@ -1371,6 +1377,7 @@ void W3DDisplay::init( void )
 //=============================================================================
 void W3DDisplay::reset( void )
 {
+	resetSmoothMotionLiveRate();
 
 	Display::reset();
 
@@ -2245,11 +2252,77 @@ static Bool s_smoothBehind = FALSE;		// this picture is a whole tick or more beh
 static Bool s_pacingNoted = FALSE;			// ZH_SMOOTH_MOTION_STATS samples this pass's pictures, of s_pacingFrame
 static UnsignedInt s_pacingFrame = 0;
 
-/* Smooth motion's default: a blend only on a display that refreshes faster than the logic ticks.  At 60 Hz
-	 every refresh shows a new tick already, and the blend would only draw each one a tick late.  The
-	 adapter's mode is asked once. */
+static SmoothMotionLiveRate s_smoothLiveRate;
+
+static Bool smoothMotionLiveRateRequested()
+{
+#if defined(_WIN32)
+	// The prototype's truthful swapchain submission hook currently exists only on SDL GPU.
+	return FALSE;
+#else
+	static const Bool enabled = []() {
+		const char *value = getenv("ZH_SMOOTH_MOTION_LIVE_RATE");
+		return value != NULL && strcmp(value, "1") == 0;
+	}();
+	return enabled;
+#endif
+}
+
+static void resetSmoothMotionLiveRate(void)
+{
+	s_smoothLiveRate.reset();
+}
+
+static double smoothMotionWallSeconds()
+{
+	return (double)Clock_Ticks() / (double)Clock_Ticks_Per_Second();
+}
+
+#if !defined(_WIN32)
+static SdlGpuFrame *smoothMotionPresentFrame()
+{
+	PosixDevice9 *device = static_cast<PosixDevice9 *>(DX8Wrapper::_Get_D3D_Device());
+	return device != NULL ? device->Get_Gpu() : NULL;
+}
+
+// End_Render returns OK even when it did not show a picture. Check the backend's serial instead.
+// Intervals are successful visible swapchain API-return cadence, not physical display scanout.
+static void smoothMotionPresented(SdlGpuFrame *before, uint64_t serial)
+{
+	SdlGpuFrame *after = smoothMotionPresentFrame();
+	if (after != NULL && after == before && after->Visible_Present_Submissions() != serial)
+	{
+		const Bool wasActive = s_smoothLiveRate.enabled();
+		if (s_smoothLiveRate.submittedPresent(smoothMotionWallSeconds()) && wasActive != s_smoothLiveRate.enabled())
+			DEBUG_LOG(("smooth motion live rate: logic %d Hz, cap %d Hz, visible submission median %.2f Hz, effective %.2f Hz: %s\n",
+				TheGameEngine->getFramesPerSecondLimit(), GameEngine_renderCapFramesPerSecond(),
+				s_smoothLiveRate.measuredHz(), s_smoothLiveRate.effectiveHz(),
+				s_smoothLiveRate.enabled() ? "models drawn between ticks" : "no blend"));
+	}
+	else
+		s_smoothLiveRate.reset();
+}
+#endif
+
+static void configureSmoothMotionLiveRate()
+{
+	const Bool sceneEligible = !TheGlobalData->m_headless && !TheGlobalData->m_loadScreenRender
+		&& TheGameLogic->isInGame() && !TheGameLogic->isInShellGame() && !TheGameLogic->isGamePaused()
+		&& !GameEngine_isVideoFrame();
+	const Bool collecting = SmoothMotionLiveRate::mayMeasure(TheGlobalData->m_smoothMotion,
+		TheGlobalData->m_smoothMotionAnyDisplay, sceneEligible);
+	// POSIX's reported 60 Hz is a backend default, so only measured cadence can establish a rate.
+	s_smoothLiveRate.configure(TheGameEngine->getFramesPerSecondLimit(),
+		GameEngine_renderCapFramesPerSecond(), 0, false, true, collecting, smoothMotionWallSeconds());
+}
+
+/* Smooth motion's default: a blend only on a display that refreshes faster than the logic ticks. At 60 Hz
+	 every refresh shows a new tick already, and the blend would only draw each one a tick late. The
+	 adapter's mode is asked once. The opt-in SDL prototype instead uses the separately observed live rate. */
 static Bool displayOutpacesLogic()
 {
+	if (smoothMotionLiveRateRequested())
+		return s_smoothLiveRate.enabled();
 	static Int refresh = -1;
 	if (refresh < 0)
 	{
@@ -2322,9 +2395,14 @@ static void smoothMotionBegin()
 	// -recordfps's pictures between two logic frames always blend, from the frame before the first so that
 	// one is captured
 	const Bool video = GameEngine_videoBlends();
-	TheSmoothMotionActive = !TheGlobalData->m_headless
-		&& ((TheGlobalData->m_smoothMotion && (TheGlobalData->m_smoothMotionAnyDisplay || displayOutpacesLogic()))
-			|| video);
+	// Lifecycle observation must run even when opt-out/force/headless short-circuits selection.
+	// Returning to automatic eligibility after an override requires a fresh timing window.
+	if (smoothMotionLiveRateRequested())
+		configureSmoothMotionLiveRate();
+	TheSmoothMotionActive = SmoothMotionLiveRate::select(TheGlobalData->m_headless,
+		TheGlobalData->m_smoothMotion, TheGlobalData->m_smoothMotionAnyDisplay, video,
+		!TheGlobalData->m_headless && TheGlobalData->m_smoothMotion
+			&& !TheGlobalData->m_smoothMotionAnyDisplay && displayOutpacesLogic());
 	TheSmoothMotionAlpha = TheSmoothMotionActive ? GameEngine_logicTickFraction() : 1.0f;
 	// A picture a whole tick or more behind the battle shows every model at its logic transform, so it
 	// captures and blends nothing, and a game that has fallen behind pays nothing for the blend.  The next
@@ -2502,6 +2580,31 @@ static void takeReadsForRender( Bool renders )
 	static_cast<W3DParticleSystemManager *>( TheParticleSystemManager )->takeReadsForRender();
 }
 
+CinematicAnimationClockMode CinematicCameraModeForClientUpdate()
+{
+	CinematicAnimationClockMode mode;
+	if (!TheGameLogic || !TheGlobalData) return mode;
+	mode.singlePlayer = TheGameLogic->isInGame() && TheGameLogic->isInSinglePlayerGame();
+	mode.network = TheNetwork != NULL || TheGameLogic->isInMultiplayerGame();
+	mode.replay = TheGameLogic->isInReplayGame()
+		|| (TheRecorder && TheRecorder->getMode() == RECORDERMODETYPE_PLAYBACK);
+	mode.headless = TheGlobalData->m_headless;
+	mode.shell = TheGameLogic->isInShellGame();
+	mode.loading = TheGlobalData->m_loadScreenRender || TheGameLogic->isLoadingMap()
+		|| TheGameLogic->isLoadingSave() || TheGameLogic->isClearingGameData();
+	mode.fast = TheGlobalData->m_turbo || (TheScriptEngine && TheScriptEngine->isTimeFast());
+	mode.video = TheGlobalData->m_videoEndFrame > 0 || GameEngine_isVideoFrame();
+	mode.capture = TheGlobalData->m_screenShotFrame > 0 || s_screenShotPending || GameEngine_isShadowCaptureClock();
+	mode.pictureClock = GameEngine_videoPictures() > 1;
+	return mode;
+}
+
+bool CinematicAnimationClockFrozen(bool explicitlyFrozen, bool repeatedPicture,
+	const CinematicAnimationClockMode &mode)
+{
+	return explicitlyFrozen || (repeatedPicture && !mode.allowsRenderTime());
+}
+
 void W3DDisplay::draw( void )
 {
 #if defined(__linux__)
@@ -2656,12 +2759,15 @@ AGAIN:
 	freezeTime = freezeTime || TheScriptEngine->isTimeFrozenDebug() || TheScriptEngine->isTimeFrozenScript();
 	freezeTime = freezeTime || TheGameLogic->isGamePaused();
 
-	// hack to let client spin fast in network games but still do effects at the same pace. -MDC
-	// A -recordfps picture is a step of its own: the clock moves on each picture of a logic frame and
-	// stands still on a pane's second draw of one
+	// The legacy duplicate rule also held skeletal animation between two normal renders of one
+	// client frame. A waypoint camera keeps moving there, making a nearby aircraft jump backwards.
+	// Normal single-player play uses elapsed wall time there; real freezes and diagnostic clocks
+	// keep their previous rule. Exclude configured capture sessions, including pre/post-roll.
 	static UnsignedInt lastFrame = ~0;
 	const UnsignedInt picture = TheGameClient->getFrame() * GameEngine_videoPictures() + GameEngine_videoPicture();
-	freezeTime = freezeTime || (lastFrame == picture);
+	const bool shadowCaptureClock = GameEngine_isShadowCaptureClock();
+	const CinematicAnimationClockMode animationClockMode = CinematicCameraModeForClientUpdate();
+	freezeTime = CinematicAnimationClockFrozen(freezeTime, lastFrame == picture, animationClockMode);
 	lastFrame = picture;
 
 	/// @todo: I'm assuming the first view is our main 3D view.
@@ -2708,7 +2814,6 @@ AGAIN:
 	// Diagnostic pictures need the same animation/cloud phase even when one renderer does
 	// more work. Establish zero during loading so texture mappers inherit the same origin.
 	// This is opt-in for screenshot runs; ordinary play, multiplayer and replay keep their clock.
-	const bool shadowCaptureClock = GameEngine_isShadowCaptureClock();
 	if (shadowCaptureClock) {
 		if (!TheGameLogic->isInGame() || TheGameLogic->isInShellGame()) syncTime = 0;
 		else if (!freezeTime) syncTime = GameEngine_pictureMilliseconds();
@@ -3073,7 +3178,16 @@ AGAIN:
 				captureVideoFrame();
 				// render is all done!  -directorrecord's second fight is for the recording only and is
 				// never presented: the frame drawn next over it is
-				WW3D::End_Render(!TheObserverCamera.isDrawingSecond());
+				const Bool presents = !TheObserverCamera.isDrawingSecond();
+#if !defined(_WIN32)
+				SdlGpuFrame *presentFrame = smoothMotionLiveRateRequested() && presents ? smoothMotionPresentFrame() : NULL;
+				const uint64_t presentSerial = presentFrame != NULL ? presentFrame->Visible_Present_Submissions() : 0;
+#endif
+				WW3D::End_Render(presents);
+#if !defined(_WIN32)
+				if (smoothMotionLiveRateRequested() && presents)
+					smoothMotionPresented(presentFrame, presentSerial);
+#endif
 
 				/* A pipeline is compiled and a texture copied the first time it reaches a Direct3D 11
 					 draw, which is the frame a new explosion first shows up on.  A frame that spent more

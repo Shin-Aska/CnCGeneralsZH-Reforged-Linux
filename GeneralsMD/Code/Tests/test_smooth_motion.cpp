@@ -23,6 +23,7 @@
 
 #include "W3DDevice/GameClient/W3DSmoothMotion.h"
 #include "W3DDevice/GameClient/W3DDrawableUpdate.h"
+#include "W3DDevice/GameClient/W3DSmoothMotionRate.h"
 
 #include <math.h>
 
@@ -241,4 +242,169 @@ TEST(drawable_update_capture_pictures_skip_without_consuming_client_frame)
 	CHECK(!update.needsUpdate(1, false, 2));
 	CHECK(update.needsUpdate(1, false, 0));
 	CHECK(!update.needsUpdate(1, false, 0));
+}
+
+// Feed the production policy successful visible submission timestamps, independent of a GPU or wall-clock sleep.
+static void smooth_rate_presents(SmoothMotionLiveRate &rate, double &now, double hz, int pictures)
+{
+	for (int i = 0; i < pictures; ++i) rate.submittedPresent(now += 1.0 / hz);
+}
+
+TEST(smooth_motion_live_rate_eligibility_table_and_user_controls)
+{
+	const int logic[] = {30, 44, 60};
+	const int modes[] = {0, 60, 144};
+	for (int l = 0; l < 3; ++l)
+		for (int r = 0; r < 3; ++r)
+			for (int capped = 0; capped < 2; ++capped)
+			{
+				SmoothMotionLiveRate rate;
+				double now = 1.0;
+				const int cap = capped ? 60 : 0;
+				const double hz = modes[r] ? modes[r] : 120;
+				const double presented = cap && hz > cap ? cap : hz;
+				rate.configure(logic[l], cap, modes[r], modes[r] != 0, true, true, now);
+				CHECK(!rate.enabled()); // metadata alone must never enable the prototype
+				smooth_rate_presents(rate, now, presented, int(presented) + 2);
+				const bool expected = presented > logic[l] * 1.02;
+				CHECK_EQ(rate.enabled(), expected);
+				for (int force = 0; force < 2; ++force)
+					for (int user = 0; user < 2; ++user)
+					{
+						CHECK_EQ(SmoothMotionLiveRate::select(false, user, force, false, rate.enabled()),
+							bool(user && (force || expected)));
+						CHECK(SmoothMotionLiveRate::select(false, user, force, true, rate.enabled()));
+						CHECK(!SmoothMotionLiveRate::select(true, user, force, true, rate.enabled()));
+					}
+			}
+}
+
+TEST(smooth_motion_live_rate_uses_measurement_over_fallback_or_wrong_metadata)
+{
+	for (int trusted = 0; trusted < 2; ++trusted)
+	{
+		SmoothMotionLiveRate rate;
+		double now = 1.0;
+		rate.configure(60, 0, 60, trusted, true, true, now);
+		smooth_rate_presents(rate, now, 144, 150);
+		CHECK(rate.enabled());
+		CHECK_NEAR(rate.effectiveHz(), 144.0, 1.0e-6);
+	}
+	SmoothMotionLiveRate slow;
+	double now = 1.0;
+	slow.configure(60, 0, 144, true, true, true, now);
+	smooth_rate_presents(slow, now, 60, 65);
+	CHECK(!slow.enabled());
+	CHECK_NEAR(slow.effectiveHz(), 60.0, 1.0e-6);
+}
+
+TEST(smooth_motion_live_rate_requires_half_second_and_eight_samples)
+{
+	SmoothMotionLiveRate rate;
+	double now = 1.0;
+	rate.configure(44, 0, 0, false, true, true, now);
+	smooth_rate_presents(rate, now, 60, 30); // first submission establishes the epoch
+	CHECK(!rate.enabled());
+	smooth_rate_presents(rate, now, 60, 1);
+	CHECK(rate.enabled());
+	SmoothMotionLiveRate sparse;
+	now = 1.0;
+	sparse.configure(1, 0, 0, false, true, true, now);
+	smooth_rate_presents(sparse, now, 10, 6); // half a second, only five intervals
+	CHECK(!sparse.enabled());
+	smooth_rate_presents(sparse, now, 10, 3);
+	CHECK(sparse.enabled());
+}
+
+TEST(smooth_motion_live_rate_hysteresis_and_jitter_bursts)
+{
+	SmoothMotionLiveRate rate;
+	double now = 1.0;
+	rate.configure(60, 0, 0, false, false, true, now);
+	smooth_rate_presents(rate, now, 60.9, 65); // middle of the band stays disabled
+	CHECK(!rate.enabled());
+	smooth_rate_presents(rate, now, 62, 100);
+	CHECK(rate.enabled());
+	smooth_rate_presents(rate, now, 60.9, 100); // same band now holds enabled
+	CHECK(rate.enabled());
+	smooth_rate_presents(rate, now, 60.6, 100);
+	CHECK(!rate.enabled());
+	rate.reset();
+	smooth_rate_presents(rate, now, 60, 40);
+	CHECK(!rate.enabled());
+	smooth_rate_presents(rate, now, 200, 3); // a few fast presents cannot toggle it
+	CHECK(!rate.enabled());
+	smooth_rate_presents(rate, now, 60, 65);
+	CHECK(!rate.enabled());
+	rate.configure(44, 0, 0, false, true, true, now);
+	for (int i = 0; i < 100; ++i) // occasional slow/hasty presents leave the median at 60
+		rate.submittedPresent(now += i % 20 == 0 ? 0.08 : (i % 20 == 1 ? 0.004 : 1.0 / 60));
+	CHECK(rate.enabled());
+	CHECK_NEAR(rate.measuredHz(), 60.0, 1.0e-6);
+}
+
+TEST(smooth_motion_live_rate_pause_load_gap_and_rate_cap_transitions)
+{
+	SmoothMotionLiveRate rate;
+	double now = 1.0;
+	rate.configure(44, 60, 60, false, true, true, now);
+	smooth_rate_presents(rate, now, 60, 65);
+	CHECK(rate.enabled());
+	rate.configure(44, 60, 60, false, true, false, now); // pause/loading
+	CHECK(!rate.enabled());
+	smooth_rate_presents(rate, now, 60, 65);
+	CHECK(!rate.enabled());
+	rate.configure(44, 60, 60, false, true, true, now);
+	smooth_rate_presents(rate, now, 60, 65);
+	CHECK(rate.enabled());
+	rate.submittedPresent(now += 1.0); // long gap cannot pollute a new window
+	CHECK(!rate.enabled());
+	smooth_rate_presents(rate, now, 60, 65);
+	CHECK(rate.enabled());
+	rate.configure(60, 60, 60, false, true, true, now); // ordinary 60/60 is immediately off
+	CHECK(!rate.enabled());
+	smooth_rate_presents(rate, now, 144, 150); // hard cap dominates even inconsistent timestamps
+	CHECK(!rate.enabled());
+	rate.configure(60, 0, 60, false, true, true, now); // uncapping needs fresh evidence
+	CHECK(!rate.enabled());
+	smooth_rate_presents(rate, now, 144, 150);
+	CHECK(rate.enabled());
+	rate.configure(60, 0, 60, false, true, true, now += 0.3); // no visible submission
+	CHECK(!rate.enabled());
+	smooth_rate_presents(rate, now, 144, 150);
+	CHECK(rate.enabled());
+	rate.reset(); // explicit map load/reset
+	CHECK(!rate.enabled());
+}
+
+TEST(smooth_motion_live_rate_override_pause_load_resume_requires_fresh_evidence)
+{
+	for (int forced = 0; forced < 2; ++forced)
+	{
+		SmoothMotionLiveRate rate;
+		double now = 1.0;
+		rate.configure(44, 60, 0, false, true, SmoothMotionLiveRate::mayMeasure(true, false, true), now);
+		smooth_rate_presents(rate, now, 60, 65);
+		CHECK(rate.enabled());
+		const bool userEnabled = forced != 0;
+		rate.configure(44, 60, 0, false, true,
+			SmoothMotionLiveRate::mayMeasure(userEnabled, forced, true), now);
+		CHECK(!rate.enabled());
+		CHECK_EQ(SmoothMotionLiveRate::select(false, userEnabled, forced, false, rate.enabled()), bool(forced));
+		// Both pause and loading configure the observer even though the user override bypasses its verdict.
+		for (int unavailable = 0; unavailable < 2; ++unavailable)
+		{
+			rate.configure(44, 60, 0, false, true,
+				SmoothMotionLiveRate::mayMeasure(userEnabled, forced, false), now);
+			smooth_rate_presents(rate, now, 60, 65);
+			CHECK(!rate.enabled());
+		}
+		rate.configure(44, 60, 0, false, true, SmoothMotionLiveRate::mayMeasure(true, false, true), now);
+		CHECK(!rate.enabled());
+		smooth_rate_presents(rate, now, 60, 30);
+		CHECK(!rate.enabled());
+		smooth_rate_presents(rate, now, 60, 1);
+		CHECK(rate.enabled());
+		CHECK(SmoothMotionLiveRate::select(false, false, false, true, rate.enabled())); // video override
+	}
 }
