@@ -1,0 +1,9 @@
+<toolSet name="Zero Hour">
+  <tool name="Linux Build Release" description="Build and stage the Linux Release with the VS Code compiler settings" showInMainMenu="false" showInEditor="false" showInProject="false" showInSearchPopup="false" disabled="false" useConsole="true" showConsoleOnStdOut="true" showConsoleOnStdErr="true" synchronizeAfterRun="true">
+    <exec>
+      <option name="COMMAND" value="/usr/bin/env" />
+      <option name="PARAMETERS" value="CC=gcc-16 CXX=g++-16 &quot;$ProjectFileDir$/build-linux.sh&quot; Release" />
+      <option name="WORKING_DIRECTORY" value="$ProjectFileDir$" />
+    </exec>
+  </tool>
+</toolSet>

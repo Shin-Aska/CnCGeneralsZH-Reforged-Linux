@@ -1,0 +1,10 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Zero Hour: AI skirmish (Linux)" type="CLionExternalRunConfiguration" factoryName="Application" PROGRAM_PARAMS="&quot;-root&quot; &quot;$PROJECT_DIR$/build-linux/play-root&quot; &quot;-quickstart&quot; &quot;-noshellmap&quot; &quot;-multiInstance&quot; &quot;-randommap&quot; &quot;0&quot; &quot;2&quot; &quot;-autoskirmish&quot; &quot;2&quot; &quot;-aidiff&quot; &quot;brutal&quot; &quot;-seed&quot; &quot;0&quot; &quot;-observer&quot; &quot;-autocamera&quot; &quot;10&quot; &quot;-showHudOverlay&quot; &quot;-maxframes&quot; &quot;12000&quot;" WORKING_DIR="$PROJECT_DIR$" RUN_PATH="$PROJECT_DIR$/build-linux/ZeroHourReforged/bin/generals" PROJECT_NAME="CnCGeneralsZH-Reforged-Linux" TARGET_NAME="Linux Release" CONFIG_NAME="Release" USE_EXTERNAL_CONSOLE="false" PASS_PARENT_ENVS_2="true">
+    <envs>
+      <env name="ZH_USER_DATA_DIR" value="$PROJECT_DIR$/build-linux/vscode-user" />
+    </envs>
+    <method v="2">
+      <option name="RunConfigurationTask" enabled="true" run_configuration_name="Linux: Build Release" run_configuration_type="ShConfigurationType" />
+    </method>
+  </configuration>
+</component>

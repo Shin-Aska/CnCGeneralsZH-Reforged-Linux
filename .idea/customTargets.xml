@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="CLionExternalBuildManager">
+    <target id="7c032df4-d295-41ef-a786-1f502d72b127" name="Linux Release" defaultType="TOOL">
+      <configuration id="7d793366-9673-4df5-9684-753d700b3705" name="Release">
+        <build type="TOOL">
+          <tool actionId="CLionProjectTool_Zero Hour_Linux Build Release" />
+        </build>
+      </configuration>
+    </target>
+  </component>
+</project>

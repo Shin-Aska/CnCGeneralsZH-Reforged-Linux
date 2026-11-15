@@ -159,6 +159,18 @@ Other build commands:
 The output folder copies its runtime overlay and can be moved. It still uses your installed game data.
 See [packaging](PORTING.md#linux-packages) for the release scripts and compatibility-container builds.
 
+### CLion
+
+Open the repository root in CLion. Shared run configurations in `.run/` provide the same six
+launch options as `.vscode/launch.json`: play and AI skirmish with or without the debugger,
+publish the thin executable, and publish then play. Select one from the run configuration dropdown.
+Their pre-launch steps build with `gcc-16` and `g++-16` using the existing Linux build script.
+The publish options target `~/Games/ZeroHourReforged`, matching VS Code.
+
+The repository tracks `.idea/customTargets.xml` and `.idea/tools/Zero Hour.xml` for CLion's
+custom build target. Other `.idea` files, including workspace state and personal settings, stay ignored.
+Native debugging uses the debugger configured in your CLion toolchain.
+
 ## Play
 
 ### Launch the game

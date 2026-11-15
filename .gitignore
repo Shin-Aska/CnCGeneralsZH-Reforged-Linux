@@ -32,5 +32,9 @@ build64/
 # Water scene banks contain proprietary game imagery and stay local.
 *.wbank
 
-# JetBrains IDE settings
-.idea/
+# Share CLion build targets and their project tool; keep other IDE settings local.
+/.idea/*
+!/.idea/customTargets.xml
+!/.idea/tools/
+/.idea/tools/*
+!/.idea/tools/Zero Hour.xml
