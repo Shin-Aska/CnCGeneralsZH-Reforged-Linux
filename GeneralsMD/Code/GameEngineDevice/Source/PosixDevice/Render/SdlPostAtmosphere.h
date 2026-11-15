@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <string>
 
+struct SdlPipelineKey;
+
 struct SdlPostBorrowedView
 {
     SDL_GPUTexture *Texture = nullptr;
@@ -51,6 +53,10 @@ public:
         const SdlPostAtmosphereViews &views, const SdlPostGroundHazeSettings &transitionWarm = SdlPostGroundHazeSettings());
     // Sky after shadow preparation, before world geometry. No depth input or attachment is used.
     bool Draw_Sky(SdlGpuFrame &frame, const SdlTarget &scene);
+    // Reuse an accepted water draw's displaced vertices. This optional R32 surface
+    // keeps warm haze on visible water, rather than on the submerged scene behind it.
+    bool Record_Water_Surface(SdlGpuFrame &frame, const SdlTarget &scene,
+        const SdlRecordedDraw &draw, const SdlPipelineKey &key);
     // Weather ground haze at OpaqueScene before water; ordinary haze and horizon fade at BeforeTransparent.
     // Neither method captures depth. Captured matrix/shroud must match the copied scene packet.
     bool Apply_Ground_Haze(SdlGpuFrame &frame, const SdlTarget &scene, const SdlPostSceneInputs &inputs);

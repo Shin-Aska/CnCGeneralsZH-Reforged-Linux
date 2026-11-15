@@ -2044,6 +2044,7 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		draw.BlendConstants[3] = 1.0f;
 	}
 	Gpu->Record_Draw(draw);
+	if (water_draw) Post_Water_Surface(target, draw, key);
 #if defined(__linux__)
 	if (water_draw && Water_Bank_Is_Asked())
 		Water_Bank_Draw(call, pixel_engine, stride, reads, target, water_background, water_depth);

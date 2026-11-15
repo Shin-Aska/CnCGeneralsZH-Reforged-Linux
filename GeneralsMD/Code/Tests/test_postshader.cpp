@@ -21,6 +21,7 @@
 // They pin ALL 21 complete pixel programs and both vertex programs, including tone/grade math,
 // so extracting a shader cannot silently retune it. A deliberate shader edit must review/update
 // these baselines. This is source equivalence, not a substitute for a graphics compiler or GPU test.
+// HAZE was subsequently reviewed for optional water-surface blending (2026-11-15).
 #include "test_harness.h"
 #include "postshader.h"
 
@@ -36,7 +37,7 @@ static std::uint64_t fingerprint(const char * source)
 	return hash;
 }
 
-TEST(postshader_sources_are_byte_identical_to_original_dx11_programs)
+TEST(postshader_sources_match_reviewed_program_baselines)
 {
 	struct Baseline { PostShaderProgram Program; size_t Length; std::uint64_t Hash; };
 	const Baseline baselines[] = {
@@ -51,7 +52,7 @@ TEST(postshader_sources_are_byte_identical_to_original_dx11_programs)
 		{ POST_SHADER_WORLD_AO, 4001, UINT64_C(17413997056080837798) },
 		{ POST_SHADER_WORLD_AO_BLUR, 2596, UINT64_C(13133616914098004519) },
 		{ POST_SHADER_WORLD_AO_UPSAMPLE, 2478, UINT64_C(803955814330322769) },
-		{ POST_SHADER_HAZE, 4062, UINT64_C(10236842732324706847) },
+		{ POST_SHADER_HAZE, 4783, UINT64_C(11426069177408586079) },
 		{ POST_SHADER_SKY, 2547, UINT64_C(15455093490457882870) },
 		{ POST_SHADER_ATMOSPHERE, 3352, UINT64_C(6521191355011135268) },
 		{ POST_SHADER_BLOOM_EXTRACT, 1974, UINT64_C(9260091231664251948) },

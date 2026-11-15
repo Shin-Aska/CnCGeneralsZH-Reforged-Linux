@@ -63,6 +63,11 @@ Only client presentation changes; other players may choose their own setting. Th
 is unchanged. See the [weather qualification guide](reference/weather-enhancements-2026-11-15/README.md) for
 the implementation boundaries and current validation status.
 
+Warm Light's haze blends into a lighter tint over visible Modern water, using the
+drawn surface height rather than the submerged terrain. A gradual shoreline fade
+also follows China mission 3's moving flood mesh. The native Linux blend preserves
+fog of war and the rain transition, and works with AO and Atmosphere disabled.
+
 ## Battle marks
 
 The native Linux renderer supports **Options → Effects → Battle Marks** when Classic graphics is off.

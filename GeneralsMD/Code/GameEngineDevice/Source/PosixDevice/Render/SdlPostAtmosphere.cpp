@@ -1,5 +1,6 @@
 #include "SdlPostAtmosphere.h"
 #include "SdlPostShader.h"
+#include "SdlPipelineCache.h"
 #include "sdl3shadercompile.h"
 #include <SDL3/SDL.h>
 #include <cmath>
@@ -48,6 +49,11 @@ struct SdlPostAtmosphere::Impl
     SDL_GPUShader *Vertex=nullptr;
     SDL_GPUSampler *Clamp=nullptr,*Wrap=nullptr;
     SDL_GPUTexture *White=nullptr,*Black=nullptr;
+    SDL_GPUTexture *WaterSurface=nullptr;
+    SDL_GPUShader *WaterShader=nullptr;
+    SdlPipelineCache *WaterPipelines=nullptr; // retired before their shader; no borrowed cache keys survive Release
+    unsigned WaterWidth=0,WaterHeight=0;
+    bool WaterAvailable=false,WaterDrawn=false,WaterComplete=true,WaterRefused=false;
     SdlPostGroundHazeSettings Ground;
     SdlPostGroundHazeSettings TransitionWarm;
     SdlPostAtmosphereSettings Atmosphere;
@@ -105,7 +111,7 @@ struct SdlPostAtmosphere::Impl
             if(!Sdl_Post_Pixel_Source(ids[pass],source) || !SDL3_Compile_HLSL_To_SPIRV(source,false,spirv,error)
                 || !(p.Shader=SDL3_Create_Shader(Device,spirv,false,error)))return fail("pixel program: "+error);
             SDL3_Shader_Slots(spirv,false,p.Samplers,p.Uniforms);++Creations;
-            if(p.Samplers>4 || p.Uniforms>2)return fail("program exceeds explicit sampler/constant bindings");
+            if(p.Samplers>5 || p.Uniforms>2)return fail("program exceeds explicit sampler/constant bindings");
         }
         const unsigned slot=format_slot(format);
         if(slot>2)return fail("unsupported scene colour format");
@@ -144,6 +150,32 @@ struct SdlPostAtmosphere::Impl
         if(!bytes)return fail("fallback upload allocation failed");
         std::memset(bytes,white?255:0,4);Owner->Queue_Texture_Upload(texture,0,1,1,offset);return true;
     }
+    bool prepareWater(SdlGpuFrame &frame,const SdlTarget &scene)
+    {
+        if(WaterRefused)return false;
+        auto refused=[&](const std::string &why) {WaterRefused=true;return fail("water surface: "+why);};
+        if(!SDL_GPUTextureSupportsFormat(Device,SDL_GPU_TEXTUREFORMAT_R32_FLOAT,SDL_GPU_TEXTURETYPE_2D,
+            SDL_GPU_TEXTUREUSAGE_COLOR_TARGET|SDL_GPU_TEXTUREUSAGE_SAMPLER))return refused("R32 target unavailable");
+        if(!WaterShader) {
+            // All coverage and displacement come from the accepted VS, including
+            // CPU flood-grid motion and FFT samples. No world-state queries here.
+            const std::string source="float main(float4 position : SV_Position) : SV_Target0 { return position.z; }\n";
+            std::string error;std::vector<unsigned char> spirv;
+            if(!SDL3_Compile_HLSL_To_SPIRV(source,false,spirv,error) ||
+                !(WaterShader=SDL3_Create_Shader(Device,spirv,false,error)))return refused(error);
+            ++Creations;
+        }
+        if(!WaterPipelines)WaterPipelines=new SdlPipelineCache(Device);
+        if(WaterSurface && WaterWidth==scene.Width && WaterHeight==scene.Height)return true;
+        SDL_GPUTextureCreateInfo info={};info.type=SDL_GPU_TEXTURETYPE_2D;info.format=SDL_GPU_TEXTUREFORMAT_R32_FLOAT;
+        info.usage=SDL_GPU_TEXTUREUSAGE_COLOR_TARGET|SDL_GPU_TEXTUREUSAGE_SAMPLER;
+        info.width=scene.Width;info.height=scene.Height;info.layer_count_or_depth=info.num_levels=1;
+        SDL_GPUTexture *replacement=fault("water-target")?nullptr:SDL_CreateGPUTexture(Device,&info);
+        if(!replacement)return refused(SDL_GetError());
+        if(WaterSurface)frame.Release_After_Batch(WaterSurface,nullptr);
+        WaterSurface=replacement;WaterWidth=scene.Width;WaterHeight=scene.Height;++Creations;
+        return true;
+    }
     bool draw(Pass id,const SdlTarget &scene,SDL_GPUTexture *depth,const SdlPostGroundHazeSettings *overrideGround=nullptr)
     {
         const Program &p=Programs[id];SdlRecordedDraw draw={};draw.Pipeline=p.Pipelines[format_slot(SdlGpuFrame::Target_Colour_Format(scene))];
@@ -152,6 +184,9 @@ struct SdlPostAtmosphere::Impl
         draw.Textures[0]=Black;draw.Textures[1]=depth?depth:Black;
         draw.Textures[2]=Views.Shroud.Texture?Views.Shroud.Texture:White;
         draw.Textures[3]=Views.Sky.Texture?Views.Sky.Texture:Black;
+        const bool water=id==Haze && WaterAvailable && WaterDrawn && WaterComplete &&
+            !(overrideGround?overrideGround->BeforeWater:Ground.BeforeWater);
+        draw.Textures[4]=water?WaterSurface:White;
         for(unsigned i=0;i<p.Samplers;++i) {
             if(!draw.Textures[i] || draw.Textures[i]==scene.Colour || draw.Textures[i]==scene.Depth)return fail("pass texture aliases its scene attachment");
             draw.Samplers[i]=id==Sky && i==3?Wrap:Clamp;
@@ -166,6 +201,11 @@ struct SdlPostAtmosphere::Impl
             constants.Haze[0]=ground.Top;constants.Haze[1]=ground.Thickness;constants.Haze[2]=ground.Strength;constants.Haze[3]=ground.Reach;
             std::memcpy(constants.HazeColour,ground.Colour,sizeof(ground.Colour));constants.HazeColour[3]=ground.WaterHeight;
             constants.HazeSun[0]=ground.TowardSun[0];constants.HazeSun[1]=ground.TowardSun[1];constants.HazeSun[3]=ground.Warmth;
+            // c1 is unused by haze (blur uses it in other programs). Keep the
+            // common post block and Windows' zero/default haze path unchanged.
+            constants.BlurDirection[0]=water?1.0f:0.0f;
+            constants.BlurDirection[1]=0.35f; // restrained surface tint
+            constants.BlurDirection[2]=3.0f; // shoreline blend depth in world units
         } else {
             constants.Haze[0]=Atmosphere.Start;constants.Haze[1]=Atmosphere.Scale;constants.Haze[2]=Atmosphere.Strength;constants.Haze[3]=Atmosphere.Ground;
             std::memcpy(constants.HazeColour,Atmosphere.Horizon,sizeof(Atmosphere.Horizon));
@@ -219,11 +259,13 @@ bool SdlPostAtmosphere::Prepare(SdlGpuFrame &frame,const SdlPostProcess &post,co
     if(format_slot(format)>2)return s.fail("unsupported atmosphere scene format");
     if(((ground.Strength>0 || transitionWarm.Strength>0) && !s.program(Impl::Haze,format)) || (atmosphere.Strength>0
         && (!s.program(Impl::Sky,format) || !s.program(Impl::Fade,format))) || !s.fallback(s.White,true) || !s.fallback(s.Black,false))return false;
-    if(!same) {std::memset(s.Done,0,sizeof(s.Done));s.WarmDone=false;}
+    if(!same) {std::memset(s.Done,0,sizeof(s.Done));s.WarmDone=false;s.WaterDrawn=false;s.WaterComplete=true;}
     if(transitionWarm.Strength<=0)s.WarmDone=false;
     if(ground.Strength<=0)s.Done[Impl::Haze]=false;
     if(atmosphere.Strength<=0)s.Done[Impl::Sky]=s.Done[Impl::Fade]=false;
     s.Main=key;s.Post=&post;s.Ground=ground;s.TransitionWarm=transitionWarm;s.Atmosphere=atmosphere;s.Views=views;
+    const bool warm=(ground.Strength>0 && !ground.BeforeWater) || transitionWarm.Strength>0;
+    s.WaterAvailable=warm && s.prepareWater(frame,scene);
     std::memcpy(s.WorldFromClip,worldFromClip,sizeof(s.WorldFromClip));s.Ready=true;s.LastError.clear();return true;
 }
 bool SdlPostAtmosphere::Draw_Sky(SdlGpuFrame &frame,const SdlTarget &scene)
@@ -233,6 +275,32 @@ bool SdlPostAtmosphere::Draw_Sky(SdlGpuFrame &frame,const SdlTarget &scene)
     if(s.Done[Impl::Sky])return false;
     if(!s.draw(Impl::Sky,scene,nullptr))return false;
     s.Done[Impl::Sky]=true;return true;
+}
+bool SdlPostAtmosphere::Record_Water_Surface(SdlGpuFrame &frame,const SdlTarget &scene,
+    const SdlRecordedDraw &source,const SdlPipelineKey &sourceKey)
+{
+    Impl &s=*State;
+    if(!s.WaterAvailable || !s.WaterComplete || !s.current(frame,scene) || !scene.Depth)return false;
+    SdlPipelineKey key=sourceKey;key.PixelShader=s.WaterShader;key.ColourFormat=SDL_GPU_TEXTUREFORMAT_R32_FLOAT;
+    key.DepthFormat=frame.Target_Depth_Format(scene);key.DepthTest=true;key.DepthWrite=false;
+    key.DepthCompare=SDL_GPU_COMPAREOP_LESS_OR_EQUAL;key.StencilEnable=false;
+    key.BlendEnable=true;key.SourceColour=key.DestinationColour=SDL_GPU_BLENDFACTOR_ONE;
+    key.ColourOperation=SDL_GPU_BLENDOP_MIN;key.WriteMask=SDL_GPU_COLORCOMPONENT_R;
+    const unsigned built=s.WaterPipelines->Pipelines_Built();
+    SDL_GPUGraphicsPipeline *pipeline=s.WaterPipelines->Pipeline(key);
+    s.Creations+=s.WaterPipelines->Pipelines_Built()-built;
+    if(!pipeline){s.WaterComplete=false;return false;}
+    const SdlTarget surface={s.WaterSurface,scene.Depth,scene.Width,scene.Height,
+        frame.Target_Depth_Format(scene),SDL_GPU_TEXTUREFORMAT_R32_FLOAT};
+    frame.Set_Target(surface);
+    if(!s.WaterDrawn)frame.Clear_Back_Buffer(true,false,false,0xffffffff,1,0);
+    SdlRecordedDraw draw=source;draw.Pipeline=pipeline;draw.SamplerCount=0;
+    draw.PixelConstants=draw.PixelConstantsSize=0;
+    std::memset(draw.PixelWaterConstants,0,sizeof(draw.PixelWaterConstants));
+    std::memset(draw.PixelWaterConstantsSize,0,sizeof(draw.PixelWaterConstantsSize));
+    // Record_Draw retains the original batch offsets and every VS texture: a
+    // generic native draw would deliberately replace those constant bindings.
+    frame.Record_Draw(draw);frame.Set_Target(scene);s.WaterDrawn=true;return true;
 }
 bool SdlPostAtmosphere::Apply_Ground_Haze(SdlGpuFrame &frame,const SdlTarget &scene,const SdlPostSceneInputs &inputs)
 {
@@ -257,7 +325,8 @@ bool SdlPostAtmosphere::Apply_Transition_Warm_Haze(SdlGpuFrame &frame,const SdlT
 }
 void SdlPostAtmosphere::Abandon()
 {
-    State->Ready=false;State->Post=nullptr;State->Main={};State->Views={};State->WarmDone=false;std::memset(State->Done,0,sizeof(State->Done));
+    State->Ready=false;State->Post=nullptr;State->Main={};State->Views={};State->WarmDone=false;
+    State->WaterAvailable=State->WaterDrawn=false;State->WaterComplete=true;std::memset(State->Done,0,sizeof(State->Done));
 }
 bool SdlPostAtmosphere::Release(SdlGpuFrame &frame)
 {
@@ -269,13 +338,19 @@ bool SdlPostAtmosphere::Release(SdlGpuFrame &frame)
     if(s.Wrap)SDL_ReleaseGPUSampler(s.Device,s.Wrap);
     if(s.White)SDL_ReleaseGPUTexture(s.Device,s.White);
     if(s.Black)SDL_ReleaseGPUTexture(s.Device,s.Black);
+    if(s.WaterSurface)SDL_ReleaseGPUTexture(s.Device,s.WaterSurface);
+    delete s.WaterPipelines;s.WaterPipelines=nullptr;
+    if(s.WaterShader)SDL_ReleaseGPUShader(s.Device,s.WaterShader);
+    s.WaterSurface=nullptr;s.WaterShader=nullptr;s.WaterWidth=s.WaterHeight=0;s.WaterRefused=false;
     s.Vertex=nullptr;s.Clamp=s.Wrap=nullptr;s.White=s.Black=nullptr;s.Owner=nullptr;s.Device=nullptr;Abandon();return true;
 }
 const std::string &SdlPostAtmosphere::Error()const{return State->LastError;}
 SdlPostAtmosphereResources SdlPostAtmosphere::Resources()const
 {
     const Impl &s=*State;SdlPostAtmosphereResources result;
-    result.Textures=(s.White!=nullptr)+(s.Black!=nullptr);result.Shaders=s.Vertex!=nullptr;result.Samplers=(s.Clamp!=nullptr)+(s.Wrap!=nullptr);
+    result.Textures=(s.White!=nullptr)+(s.Black!=nullptr)+(s.WaterSurface!=nullptr);
+    result.Shaders=(s.Vertex!=nullptr)+(s.WaterShader!=nullptr);result.Samplers=(s.Clamp!=nullptr)+(s.Wrap!=nullptr);
     for(const auto &p:s.Programs){result.Shaders+=p.Shader!=nullptr;for(auto *pipeline:p.Pipelines)result.Pipelines+=pipeline!=nullptr;}
+    if(s.WaterPipelines)result.Pipelines+=s.WaterPipelines->Pipelines_Built();
     result.Creations=s.Creations;return result;
 }

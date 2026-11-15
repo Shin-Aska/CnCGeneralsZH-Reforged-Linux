@@ -1,6 +1,7 @@
 // Standalone exact sky/haze/fade fixtures. Producer policy and world/particle ordering are integrated elsewhere.
 #include "SdlPostAtmosphere.h"
 #include "SdlPostShader.h"
+#include "SdlPipelineCache.h"
 #include "sdl3shadercompile.h"
 #include <SDL3/SDL.h>
 #include <cmath>
@@ -20,7 +21,7 @@ static void cpu()
         CHECK(source.find("WorldFromClip : packoffset(c15)")!=std::string::npos);
         CHECK(SDL3_Compile_HLSL_To_SPIRV(source,false,spirv,error));
         unsigned samplers=0,uniforms=0;SDL3_Shader_Slots(spirv,false,samplers,uniforms);
-        CHECK(samplers==(id==POST_SHADER_SKY?4u:3u));CHECK(uniforms==2);
+        CHECK(samplers==(id==POST_SHADER_HAZE?5u:id==POST_SHADER_SKY?4u:3u));CHECK(uniforms==2);
         CHECK(source.find(id==POST_SHADER_SKY?"register(s3, space2)":"register(s2, space2)")!=std::string::npos);
         CHECK(SDL3_Translate_SPIRV_To_MSL(spirv,false,msl,error));CHECK(!msl.empty());
     }
@@ -102,6 +103,76 @@ static void depth(SdlGpuFrame &frame,SDL_GPUTexture *texture,unsigned w,unsigned
 {
     std::vector<float> pixels(size_t(w)*h);for(unsigned y=0;y<h;++y)for(unsigned x=0;x<w;++x)pixels[size_t(y)*w+x]=x<w/2?left:right;
     upload(frame,texture,w,h,pixels.data(),unsigned(pixels.size()*4));
+}
+static void waterHaze(SdlGpuFrame &frame)
+{
+    const unsigned w=33,h=25;
+    SdlPostProcess post;SdlPostAtmosphere module;
+    auto *sampled=texture(frame,w,h,SDL_GPU_TEXTUREFORMAT_R32_FLOAT);
+    auto *black=texture(frame,1,1,SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM);const unsigned zero=0;
+    upload(frame,black,1,1,&zero,4);
+    const std::string vs="float4 main(float3 p : POSITION) : SV_Position { return float4(p, 1); }\n";
+    std::string error;std::vector<unsigned char> spirv;
+    CHECK(SDL3_Compile_HLSL_To_SPIRV(vs,true,spirv,error));
+    SDL_GPUShader *vertex=SDL3_Create_Shader(frame.Device(),spirv,true,error);CHECK(vertex);
+    SdlPipelineKey key={};key.VertexShader=vertex;key.FVF=D3DFVF_XYZ;
+    key.Primitive=SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;key.Fill=SDL_GPU_FILLMODE_FILL;key.Cull=SDL_GPU_CULLMODE_NONE;
+    key.SourceAlpha=SDL_GPU_BLENDFACTOR_ZERO;key.DestinationAlpha=SDL_GPU_BLENDFACTOR_ONE;key.AlphaOperation=SDL_GPU_BLENDOP_ADD;
+    const float matrix[16]={1,0,0,0,0,1,0,0,0,0,-20,0,500,500,20,1};
+    SdlPostGroundHazeSettings haze;haze.Top=20;haze.Thickness=15;haze.Strength=1;haze.Reach=1000;
+    haze.Colour[0]=haze.Colour[1]=haze.Colour[2]=1;
+    SdlPostAtmosphereSettings atmosphere;SdlPostAtmosphereViews views;views.MapIdentity=701;views.MapGeneration=1;
+    auto render=[&](float left,float right,bool water,float opaque=1.0f,bool half=false,bool fog=false,float warmFraction=1.0f) {
+        SdlTarget scene,presentation=frame.Back_Buffer_Target();CHECK(post.Prepare(frame,presentation,post_settings(),scene));fill(frame,scene);
+        views.Shroud=fog?SdlPostBorrowedView{black,702,1}:SdlPostBorrowedView{};
+        auto ground=haze;SdlPostGroundHazeSettings transition;
+        if(warmFraction<1.0f){ground.Strength=0;ground.BeforeWater=true;transition=haze;transition.Strength=warmFraction;}
+        CHECK(module.Prepare(frame,post,scene,main_identity(frame,scene),matrix,ground,atmosphere,views,transition));
+        frame.Set_Target(scene);frame.Clear_Back_Buffer(false,true,false,0,opaque,0);
+        depth(frame,sampled,w,h,left,right);
+        std::vector<float> beforeDepth;CHECK(frame.Read_Depth(scene.Depth,w,h,beforeDepth));
+        if(water) {
+            const float triangle[9]={-1,-1,.1f,-1,3,.1f,3,-1,.1f};
+            SdlRecordedDraw draw={};draw.Count=3;draw.Viewport[2]=w;draw.Viewport[3]=h;draw.Viewport[5]=1;
+            draw.Scissor[2]=half?w/2:w;draw.Scissor[3]=h;
+            std::memcpy(frame.Stage(sizeof(triangle),draw.VertexOffset),triangle,sizeof(triangle));
+            CHECK(module.Record_Water_Surface(frame,scene,draw,key)==(warmFraction>0));
+            auto other=scene;other.Depth=nullptr;CHECK(!module.Record_Water_Surface(frame,other,draw,key));
+        }
+        auto in=capture(frame,scene,sampled,matrix,views);
+        if(warmFraction<1.0f)CHECK(module.Apply_Transition_Warm_Haze(frame,scene,in)==(warmFraction>0));
+        else CHECK(module.Apply_Ground_Haze(frame,scene,in));
+        auto result=read(frame,scene);alpha(result);
+        std::vector<float> hardware;CHECK(frame.Read_Depth(scene.Depth,w,h,hardware));
+        CHECK(hardware==beforeDepth); // coverage cannot alter even quantized scene depth
+        CHECK(post.Finish(frame,scene,presentation));CHECK(frame.Present(nullptr));return result;
+    };
+    const auto land=render(.3f,.9f,false),reversedLand=render(.9f,.3f,false);
+    CHECK(land!=reversedLand);
+    const auto water=render(.3f,.9f,true),reversedWater=render(.9f,.3f,true);
+    CHECK(water==reversedWater); // one surface cannot reveal rectangular bed-depth patches
+    CHECK(component(water,w,w/2,h/2)>0 && component(water,w,w/2,h/2)<component(land,w,w/2,h/2));
+    const auto half=render(.3f,.9f,true,1,true);
+    for(unsigned y=0;y<h;++y)for(unsigned x=w/2;x<w;++x)for(unsigned c=0;c<3;++c)
+        CHECK(component(half,w,x,y,c)==component(land,w,x,y,c));
+    const auto blocked=render(.3f,.9f,true,.05f);CHECK(blocked==land); // foreground geometry occludes the surface
+    const auto fog=render(.3f,.9f,true,1,false,true);CHECK(component(fog,w,w/2,h/2)==0);
+    CHECK(render(.3f,.9f,false)==land); // a later frame without water cannot reuse coverage
+    const auto rainFade=render(.3f,.9f,true,1,false,false,.5f);
+    CHECK(rainFade==render(.9f,.3f,true,1,false,false,.5f));
+    CHECK(component(rainFade,w,w/2,h/2)<=component(water,w,w/2,h/2));
+    CHECK(component(render(.3f,.9f,true,1,false,false,0),w,w/2,h/2)==0);
+    // A shore crossing retains a gradual tint instead of acquiring a hard mask edge.
+    int previous=-1;
+    for(unsigned step=0;step<=24;++step) {
+        const float bed=.1f+step*(.15f/24); // zero to three world units below the surface
+        const int shade=component(render(bed,bed,true),w,w/2,h/2);
+        if(previous>=0)CHECK(std::abs(shade-previous)<=2);
+        previous=shade;
+    }
+    CHECK(module.Release(frame));CHECK(post.Release(frame));CHECK(frame.Flush());
+    SDL_ReleaseGPUShader(frame.Device(),vertex);frame.Release_After_Batch(sampled,nullptr);frame.Release_After_Batch(black,nullptr);
+    CHECK(frame.Flush());
 }
 static int gpu()
 {
@@ -256,7 +327,7 @@ static int gpu()
             begin(up,n&1);depth(*frame,sampled,w,h,.25f,.25f);in=capture(*frame,scene,sampled,up,views);
             CHECK(module.Draw_Sky(*frame,scene));CHECK(module.Apply_Ground_Haze(*frame,scene,in));CHECK(module.Apply_Atmosphere(*frame,scene,in));end();
         }
-        CHECK(module.Resources().Creations==warm.Creations);CHECK(module.Resources().Textures==2);
+        CHECK(module.Resources().Creations==warm.Creations);CHECK(module.Resources().Textures==3);
         // A same-frame/target map reset with absent views must not reuse old sky/shroud borrows.
         const auto savedViews=views;views.Shroud={black,201,1};begin(up);
         CHECK(module.Draw_Sky(*frame,scene));
@@ -287,7 +358,7 @@ static int gpu()
         begin(up);depth(*frame,sampled,w,h,.25f,.25f);in=capture(*frame,scene,sampled,up,views);
         CHECK(!module.Apply_Ground_Haze(*frame,scene,old));CHECK(module.Draw_Sky(*frame,scene));
         CHECK(module.Apply_Ground_Haze(*frame,scene,in));CHECK(module.Apply_Atmosphere(*frame,scene,in));end();
-        CHECK(module.Resources().Creations==warm.Creations);
+        CHECK(module.Resources().Creations==warm.Creations+1); // resized water surface
         // Borrowed sky replacement is copied and may retire only after its recorded borrower.
         auto *replacement=texture(*frame,1,1,SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM);const uint32_t cyan=0xff00ffff;upload(*frame,replacement,1,1,&cyan,4);
         begin(up);views.Sky={replacement,101,2};CHECK(module.Draw_Sky(*frame,scene));
@@ -297,6 +368,7 @@ static int gpu()
         CHECK(!released.Textures && !released.Shaders && !released.Pipelines && !released.Samplers);
         frame->Release_After_Batch(sampled,nullptr);frame->Release_After_Batch(replacement,nullptr);frame->Release_After_Batch(fog,nullptr);frame->Release_After_Batch(black,nullptr);CHECK(frame->Flush());
     }
+    CHECK(frame->Resize(33,25));waterHaze(*frame);
     delete frame;SDL_Quit();return failures?1:0;
 }
 int main(int argc,char **argv)

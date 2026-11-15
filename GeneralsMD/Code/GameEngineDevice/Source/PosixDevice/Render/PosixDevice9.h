@@ -241,6 +241,7 @@ public:
 	void Post_Sky(bool drawSky = true);
 	void Post_Opaque(bool allowWorldAO);
 	void Post_Before_Transparent();
+	void Post_Water_Surface(const struct SdlTarget &, const struct SdlRecordedDraw &, const struct SdlPipelineKey &);
 	void Finish_Post(bool fallback);
 	bool Post_Replaces_Bloom() const;
 	bool Post_Active() const;

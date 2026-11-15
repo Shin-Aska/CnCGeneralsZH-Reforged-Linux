@@ -99,7 +99,8 @@ struct PostProcessConstants
 	// frame, because the bloom passes do not run at the size of the window.
 	float TexelSize[4];
 
-	// The step a separable blur takes, already in texture coordinates.
+	// The step a separable blur takes, already in texture coordinates. Haze aliases
+	// this unused slot to its optional water-surface enable, tint gain and shore depth.
 	float BlurDirection[4];
 
 	// Bloom: threshold, intensity, tone knee, soft knee. Chain AO: near, far, radius, spread.

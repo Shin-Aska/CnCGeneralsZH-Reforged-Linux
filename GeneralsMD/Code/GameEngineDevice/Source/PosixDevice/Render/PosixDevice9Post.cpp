@@ -359,13 +359,24 @@ void PosixDevice9::Post_Opaque(bool allowWorldAO)
     if (!Post_Active() || !Post->InView) return;
     const bool worldAO = allowWorldAO && Post->WorldAO;
     const bool weather = Post->EnvironmentCurrent && Post->Environment.Haze.BeforeWater && Post->Environment.Haze.Strength>0.0f;
-    if (weather && !Post->EnvironmentReady) Post_Sky(false);
+    const bool haze = Post->EnvironmentCurrent &&
+        (Post->Environment.Haze.Strength>0.0f || Post->Environment.TransitionWarmHaze.Strength>0.0f);
+    // Warm haze still composes later, but its surface recorder must be ready
+    // before the first water draw, including with sky and AO both disabled.
+    if (haze && !Post->EnvironmentReady) Post_Sky(false);
     if (!worldAO && !weather) return;
     SdlPostSceneInputs inputs;
     if (Post->inputs(*this, *Gpu, SdlSceneCapturePhase::OpaqueScene, inputs)) {
         if (worldAO) Post->Processor.Apply_World_AO(*Gpu, Post->Scene, inputs);
         if (weather && Post->EnvironmentReady) Post->Atmosphere.Apply_Ground_Haze(*Gpu, Post->Scene, inputs);
     }
+}
+void PosixDevice9::Post_Water_Surface(const SdlTarget &target, const SdlRecordedDraw &draw, const SdlPipelineKey &key)
+{
+    if (!Post_Active() || !Post->InView || SunActive || !Post->EnvironmentReady ||
+        Post->CurrentView.Pass != SdlSceneView::Main || target.Colour != Post->Scene.Colour ||
+        target.Depth != Post->Scene.Depth) return;
+    Post->Atmosphere.Record_Water_Surface(*Gpu, target, draw, key);
 }
 void PosixDevice9::Post_Before_Transparent()
 {
