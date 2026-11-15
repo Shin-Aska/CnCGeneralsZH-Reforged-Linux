@@ -1888,7 +1888,7 @@ GUI:ShadowQuality2
 END
 
 TOOLTIP:ShadowQuality
-"How sharp unit and building shadows are. High takes about 64 MB of video memory, Low frees memory on a weak card. Direct3D 11 only, and not with Classic Graphics. Applies when you press Accept."
+"How sharp unit and building shadows are. High takes about 64 MB of video memory, Low frees memory on a weak card. Off under Classic Graphics. Applies when you press Accept."
 END
 
 GUI:VolumetricSmoke
@@ -1896,7 +1896,7 @@ GUI:VolumetricSmoke
 END
 
 TOOLTIP:VolumetricSmoke
-"Smoke and dust shade the ground, the units and the smoke behind them by how thick they are. Direct3D 11 only, with a small cost in big fights. Applies when you press Accept."
+"Smoke and dust shade the ground, the units and the smoke behind them by how thick they are. Has a small cost in big fights. Applies when you press Accept."
 END
 
 GUI:LightingStyle
@@ -1936,7 +1936,7 @@ GUI:MapLight
 END
 
 TOOLTIP:MapLight
-"A low afternoon sun that lights the map warmer and casts longer shadows, and a light haze lying still over low ground. Direct3D 11 only. Applies from the next map."
+"A low afternoon sun that lights the map warmer and casts longer shadows, and a light haze lying still over low ground. Off under Classic Graphics. Applies from the next map."
 END
 
 GUI:TeamGlow
@@ -1944,7 +1944,7 @@ GUI:TeamGlow
 END
 
 TOOLTIP:TeamGlow
-"The bright patches of each side's color on units and buildings glow in that color. Direct3D 11 only. Applies from the next map."
+"The bright patches of each side's color on units and buildings glow in that color. Off under Classic Graphics. Applies from the next map."
 END
 
 GUI:WaterFoam
@@ -1952,7 +1952,7 @@ GUI:WaterFoam
 END
 
 TOOLTIP:WaterFoam
-"Rivers and lakes carry flecks of foam and a band of it along the shore, and the sun's shadows fall on the water. The sea's waves are unchanged. Direct3D 11 and Classic water only, and off under Classic Graphics. Applies when you press Accept."
+"Rivers and lakes carry flecks of foam and a band of it along the shore, and the sun's shadows fall on the water. The sea's waves are unchanged. Classic water only, and off under Classic Graphics. Applies when you press Accept."
 END
 
 GUI:GroundMarks
@@ -1960,7 +1960,7 @@ GUI:GroundMarks
 END
 
 TOOLTIP:GroundMarks
-"Shells and missiles leave burns on the ground, a fallen building leaves a dark stain with cracks in it, a nuke leaves a burnt ring, and tank treads stay dark for longer. They fade over about four minutes. Direct3D 11 only, and off under Classic Graphics. Applies when you press Accept."
+"Shells and missiles leave burns on the ground, a fallen building leaves a dark stain with cracks in it, a nuke leaves a burnt ring, and tank treads stay dark for longer. They fade over about four minutes. Off under Classic Graphics. Applies when you press Accept."
 END
 
 GUI:Firelight
@@ -1968,7 +1968,7 @@ GUI:Firelight
 END
 
 TOOLTIP:Firelight
-"Burning buildings, wrecks and explosions throw a flickering orange light on the ground, the walls and the units around them. It shows most on night maps. Direct3D 11 only, and off under Classic Graphics. Applies when you press Accept."
+"Burning buildings, wrecks and explosions throw a flickering orange light on the ground, the walls and the units around them. It shows most on night maps. Off under Classic Graphics. Applies when you press Accept."
 END
 
 GUI:HemiAmbient
@@ -1976,7 +1976,7 @@ GUI:HemiAmbient
 END
 
 TOOLTIP:HemiAmbient
-"Models take the map's ambient light from the sky above and the ground below instead of evenly, so a tank's deck is lighter than its belly. Walls keep the light they had and a night map stays dark. Direct3D 11 only, and off under Classic Graphics. Applies when you press Accept."
+"Models take the map's ambient light from the sky above and the ground below instead of evenly, so a tank's deck is lighter than its belly. Walls keep the light they had and a night map stays dark. Off under Classic Graphics. Applies when you press Accept."
 END
 
 GUI:AmbientOcclusion
@@ -1984,7 +1984,7 @@ GUI:AmbientOcclusion
 END
 
 TOOLTIP:AmbientOcclusion
-"Corners and the ground under what stands on it go darker, so a tank sits on the sand instead of hovering over it. Water and the fog of war stay out of it. Direct3D 11 only, and off under Classic Graphics. Applies when you press Accept."
+"Corners and the ground under what stands on it go darker, so a tank sits on the sand instead of hovering over it. Water and the fog of war stay out of it. Off under Classic Graphics. Applies when you press Accept."
 END
 
 GUI:InternalHdr
@@ -1992,7 +1992,7 @@ GUI:InternalHdr
 END
 
 TOOLTIP:InternalHdr
-"Fire, blasts and lasers past white keep their colour on the way to your screen instead of ending in one flat white, and team colours hold a little more of theirs. Ground and walls away from a fire stay as they were. This is inside the game's picture: your monitor still gets a normal image, and an HDR monitor gets no HDR signal. Direct3D 11 only, and off under Classic Graphics. Applies when you press Accept."
+"Fire, blasts and lasers past white keep their colour on the way to your screen instead of ending in one flat white, and team colours hold a little more of theirs. Ground and walls away from a fire stay as they were. This is inside the game's picture: your monitor still gets a normal image, and an HDR monitor gets no HDR signal. Off under Classic Graphics. Applies when you press Accept."
 END
 
 GUI:Weather
@@ -2000,7 +2000,7 @@ GUI:Weather
 END
 
 TOOLTIP:Weather
-"Rain falls, or sand blows on a desert map and snow on a snowy one, and a wind bends the trees and leans the smoke. A map with its own rain or snow keeps it and takes only the wind. Only your picture changes: what units see and hit stays the same, and other players see their own setting. Direct3D 11 only, and off under Classic Graphics. Applies when you press Accept."
+"Rain falls, or sand blows on a desert map and snow on a snowy one, and a wind bends the trees and leans the smoke. A map with its own rain or snow keeps it and takes only the wind. Only your picture changes: what units see and hit stays the same, and other players see their own setting. Off under Classic Graphics. Applies when you press Accept."
 END
 
 GUI:WaterSplashes
@@ -2008,7 +2008,7 @@ GUI:WaterSplashes
 END
 
 TOOLTIP:WaterSplashes
-"A shell, a bomb or a falling body that comes down in water throws up a splash and sends rings across the surface. Only your picture changes: nothing in the game reads it, and other players see their own setting. Direct3D 11 and Classic water only, and off under Classic Graphics. Applies when you press Accept."
+"A shell, a bomb or a falling body that comes down in water throws up a splash and sends rings across the surface. Only your picture changes: nothing in the game reads it, and other players see their own setting. Classic water only, and off under Classic Graphics. Applies when you press Accept."
 END
 
 GUI:Atmosphere
@@ -2016,7 +2016,7 @@ GUI:Atmosphere
 END
 
 TOOLTIP:Atmosphere
-"The ground far from the camera fades toward the sky's colour, and where the map ends or the camera lies flat you see a sky by the map's time of day instead of black. The ground near the camera stays clear and fog of war keeps its dark. Only your picture changes: nothing in the game reads it, and other players see their own setting. Direct3D 11 only, and off under Classic Graphics."
+"The ground far from the camera fades toward the sky's colour, and where the map ends or the camera lies flat you see a sky by the map's time of day instead of black. The ground near the camera stays clear and fog of war keeps its dark. Only your picture changes: nothing in the game reads it, and other players see their own setting. Off under Classic Graphics."
 END
 
 GUI:SmoothMotion
@@ -2032,7 +2032,7 @@ GUI:HeatHaze
 END
 
 TOOLTIP:HeatHaze
-"The air shimmers over fires, along laser beams and behind missile exhaust. Direct3D 11 only, and off under Classic Graphics. Applies when you press Accept."
+"The air shimmers over fires, along laser beams and behind missile exhaust. Off under Classic Graphics. Applies when you press Accept."
 END
 
 GUI:StructureCollapse
@@ -2040,7 +2040,7 @@ GUI:StructureCollapse
 END
 
 TOOLTIP:StructureCollapse
-"A destroyed building sinks into the ground under the blast instead of vanishing in one frame, or swapping to its rubble in one. Only your picture changes: it blocks nothing, nothing in the game reads it, and other players see their own setting. Direct3D 11 only, and off under Classic Graphics."
+"A destroyed building sinks into the ground under the blast instead of vanishing in one frame, or swapping to its rubble in one. Only your picture changes: it blocks nothing, nothing in the game reads it, and other players see their own setting. Off under Classic Graphics."
 END
 
 GUI:FormationDrag

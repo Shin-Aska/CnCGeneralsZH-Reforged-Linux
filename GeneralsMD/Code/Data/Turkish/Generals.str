@@ -16262,7 +16262,7 @@ GUI:ShadowQuality2
 END
 
 TOOLTIP:ShadowQuality
-"Birim ve bina gölgelerinin keskinliği. Yüksek yaklaşık 64 MB video belleği kullanır, Düşük zayıf kartta bellek açar. Yalnızca Direct3D 11'de ve Klasik Grafikler kapalıyken. Kabul Et'e basınca uygulanır."
+"Birim ve bina gölgelerinin keskinliği. Yüksek yaklaşık 64 MB video belleği kullanır, Düşük zayıf kartta bellek açar. Klasik Grafikler açıkken kapalıdır. Kabul Et'e basınca uygulanır."
 END
 
 GUI:VolumetricSmoke
@@ -16270,7 +16270,7 @@ GUI:VolumetricSmoke
 END
 
 TOOLTIP:VolumetricSmoke
-"Duman ve toz, arkalarındaki zemini, birimleri ve dumanı kalınlıklarına göre gölgeler. Yalnızca Direct3D 11, büyük çatışmalarda küçük bir yük getirir. Kabul Et'e basınca uygulanır."
+"Duman ve toz, arkalarındaki zemini, birimleri ve dumanı kalınlıklarına göre gölgeler. Büyük çatışmalarda küçük bir yük getirir. Kabul Et'e basınca uygulanır."
 END
 
 GUI:LightingStyle
@@ -16342,7 +16342,7 @@ GUI:MapLight
 END
 
 TOOLTIP:MapLight
-"Haritayı daha sıcak aydınlatıp daha uzun gölgeler düşüren alçak bir ikindi güneşi ve alçak zeminin üstünde kımıldamadan duran hafif bir pus. Yalnızca Direct3D 11. Bir sonraki haritada uygulanır."
+"Haritayı daha sıcak aydınlatıp daha uzun gölgeler düşüren alçak bir ikindi güneşi ve alçak zeminin üstünde kımıldamadan duran hafif bir pus. Klasik Grafikler açıkken kapalıdır. Bir sonraki haritada uygulanır."
 END
 
 GUI:TeamGlow
@@ -16350,7 +16350,7 @@ GUI:TeamGlow
 END
 
 TOOLTIP:TeamGlow
-"Birimlerin ve binaların üstündeki parlak takım rengi bölgeleri kendi renginde parlar. Yalnızca Direct3D 11. Bir sonraki haritada uygulanır."
+"Birimlerin ve binaların üstündeki parlak takım rengi bölgeleri kendi renginde parlar. Klasik Grafikler açıkken kapalıdır. Bir sonraki haritada uygulanır."
 END
 
 GUI:WaterFoam
@@ -16358,7 +16358,7 @@ GUI:WaterFoam
 END
 
 TOOLTIP:WaterFoam
-"Nehirlerde ve göllerde köpük benekleri ve kıyı boyunca bir köpük şeridi belirir, güneşin gölgeleri suya düşer. Denizin dalgaları değişmez. Yalnızca Direct3D 11 ve Klasik su ile, Klasik Grafikler açıkken kapalıdır. Kabul Et'e basınca uygulanır."
+"Nehirlerde ve göllerde köpük benekleri ve kıyı boyunca bir köpük şeridi belirir, güneşin gölgeleri suya düşer. Denizin dalgaları değişmez. Yalnızca Klasik su ile, Klasik Grafikler açıkken kapalıdır. Kabul Et'e basınca uygulanır."
 END
 
 GUI:GroundMarks
@@ -16366,7 +16366,7 @@ GUI:GroundMarks
 END
 
 TOOLTIP:GroundMarks
-"Mermiler ve füzeler yerde yanık bırakır, yıkılan bina çatlaklarla dolu koyu bir leke bırakır, nükleer patlama yanık bir halka bırakır, tank paletlerinin izi daha uzun süre koyu kalır. Yaklaşık dört dakikada silinirler. Yalnızca Direct3D 11 ile, Klasik Grafikler açıkken kapalıdır. Kabul Et'e basınca uygulanır."
+"Mermiler ve füzeler yerde yanık bırakır, yıkılan bina çatlaklarla dolu koyu bir leke bırakır, nükleer patlama yanık bir halka bırakır, tank paletlerinin izi daha uzun süre koyu kalır. Yaklaşık dört dakikada silinirler. Klasik Grafikler açıkken kapalıdır. Kabul Et'e basınca uygulanır."
 END
 
 GUI:Firelight
@@ -16374,7 +16374,7 @@ GUI:Firelight
 END
 
 TOOLTIP:Firelight
-"Yanan binalar, enkazlar ve patlamalar çevrelerindeki zemine, duvarlara ve birimlere titreyen turuncu bir ışık vurur. En çok gece haritalarında belli olur. Yalnızca Direct3D 11 ile, Klasik Grafikler açıkken kapalıdır. Kabul Et'e basınca uygulanır."
+"Yanan binalar, enkazlar ve patlamalar çevrelerindeki zemine, duvarlara ve birimlere titreyen turuncu bir ışık vurur. En çok gece haritalarında belli olur. Klasik Grafikler açıkken kapalıdır. Kabul Et'e basınca uygulanır."
 END
 
 GUI:HemiAmbient
@@ -16382,7 +16382,7 @@ GUI:HemiAmbient
 END
 
 TOOLTIP:HemiAmbient
-"Modeller haritanın ortam ışığını eşit almak yerine yukarıdan gökyüzünden, aşağıdan zeminden alır, böylece bir tankın üstü altından açık görünür. Duvarlar aynı ışıkta kalır, gece haritası karanlık kalır. Yalnızca Direct3D 11 ile, Klasik Grafikler açıkken kapalıdır. Kabul Et'e basınca uygulanır."
+"Modeller haritanın ortam ışığını eşit almak yerine yukarıdan gökyüzünden, aşağıdan zeminden alır, böylece bir tankın üstü altından açık görünür. Duvarlar aynı ışıkta kalır, gece haritası karanlık kalır. Klasik Grafikler açıkken kapalıdır. Kabul Et'e basınca uygulanır."
 END
 
 GUI:AmbientOcclusion
@@ -16390,7 +16390,7 @@ GUI:AmbientOcclusion
 END
 
 TOOLTIP:AmbientOcclusion
-"Köşeler ve bir şeyin üstünde durduğu zemin koyulaşır, böylece tank kumun üstünde uçuyormuş gibi değil kumda duruyormuş gibi görünür. Su ve savaş sisi bundan etkilenmez. Yalnızca Direct3D 11 ile, Klasik Grafikler açıkken kapalıdır. Kabul Et'e basınca uygulanır."
+"Köşeler ve bir şeyin üstünde durduğu zemin koyulaşır, böylece tank kumun üstünde uçuyormuş gibi değil kumda duruyormuş gibi görünür. Su ve savaş sisi bundan etkilenmez. Klasik Grafikler açıkken kapalıdır. Kabul Et'e basınca uygulanır."
 END
 
 GUI:InternalHdr
@@ -16398,7 +16398,7 @@ GUI:InternalHdr
 END
 
 TOOLTIP:InternalHdr
-"Ateş, patlama ve lazerler beyazı geçince ekrana düz beyaz olarak gelmek yerine renklerini korur, takım renkleri de rengini biraz daha iyi tutar. Ateşten uzak zemin ve duvarlar olduğu gibi kalır. Bu oyunun kendi görüntüsünün içindedir: monitörünüz yine normal görüntü alır, HDR monitöre HDR sinyali gitmez. Yalnızca Direct3D 11 ile, Klasik Grafikler açıkken kapalıdır. Kabul Et'e basınca uygulanır."
+"Ateş, patlama ve lazerler beyazı geçince ekrana düz beyaz olarak gelmek yerine renklerini korur, takım renkleri de rengini biraz daha iyi tutar. Ateşten uzak zemin ve duvarlar olduğu gibi kalır. Bu oyunun kendi görüntüsünün içindedir: monitörünüz yine normal görüntü alır, HDR monitöre HDR sinyali gitmez. Klasik Grafikler açıkken kapalıdır. Kabul Et'e basınca uygulanır."
 END
 
 GUI:Weather
@@ -16406,7 +16406,7 @@ GUI:Weather
 END
 
 TOOLTIP:Weather
-"Yağmur yağar, çöl haritasında kum, karlı haritada kar savrulur; rüzgâr ağaçları büker, dumanı yana yatırır. Kendi yağmuru ya da karı olan harita onu korur, yalnızca rüzgârı alır. Değişen sadece sizin görüntünüzdür: birliklerin gördüğü ve vurduğu aynı kalır, diğer oyuncular kendi ayarını görür. Yalnızca Direct3D 11 ile, Klasik Grafikler açıkken kapalıdır. Kabul Et'e basınca uygulanır."
+"Yağmur yağar, çöl haritasında kum, karlı haritada kar savrulur; rüzgâr ağaçları büker, dumanı yana yatırır. Kendi yağmuru ya da karı olan harita onu korur, yalnızca rüzgârı alır. Değişen sadece sizin görüntünüzdür: birliklerin gördüğü ve vurduğu aynı kalır, diğer oyuncular kendi ayarını görür. Klasik Grafikler açıkken kapalıdır. Kabul Et'e basınca uygulanır."
 END
 
 GUI:WaterSplashes
@@ -16414,7 +16414,7 @@ GUI:WaterSplashes
 END
 
 TOOLTIP:WaterSplashes
-"Suya düşen mermi, bomba ya da ceset su sıçratır ve yüzeyde halkalar yayar. Değişen sadece sizin görüntünüzdür: oyunda hiçbir şey bunu okumaz, diğer oyuncular kendi ayarını görür. Yalnızca Direct3D 11 ve Klasik su ile, Klasik Grafikler açıkken kapalıdır. Kabul Et'e basınca uygulanır."
+"Suya düşen mermi, bomba ya da ceset su sıçratır ve yüzeyde halkalar yayar. Değişen sadece sizin görüntünüzdür: oyunda hiçbir şey bunu okumaz, diğer oyuncular kendi ayarını görür. Yalnızca Klasik su ile, Klasik Grafikler açıkken kapalıdır. Kabul Et'e basınca uygulanır."
 END
 
 GUI:Atmosphere
@@ -16422,7 +16422,7 @@ GUI:Atmosphere
 END
 
 TOOLTIP:Atmosphere
-"Kameradan uzak zemin gökyüzünün rengine doğru solar; haritanın bittiği yerde ya da kamera yatık durduğunda siyah yerine haritanın saatine uygun bir gökyüzü görünür. Kameraya yakın zemin temiz kalır, savaş sisi karanlığını korur. Değişen sadece sizin görüntünüzdür: oyunda hiçbir şey bunu okumaz, diğer oyuncular kendi ayarını görür. Yalnızca Direct3D 11 ile, Klasik Grafikler açıkken kapalıdır."
+"Kameradan uzak zemin gökyüzünün rengine doğru solar; haritanın bittiği yerde ya da kamera yatık durduğunda siyah yerine haritanın saatine uygun bir gökyüzü görünür. Kameraya yakın zemin temiz kalır, savaş sisi karanlığını korur. Değişen sadece sizin görüntünüzdür: oyunda hiçbir şey bunu okumaz, diğer oyuncular kendi ayarını görür. Klasik Grafikler açıkken kapalıdır."
 END
 
 GUI:SmoothMotion
@@ -16438,7 +16438,7 @@ GUI:HeatHaze
 END
 
 TOOLTIP:HeatHaze
-"Yangınların üstünde, lazer ışınları boyunca ve füze egzozunun arkasında hava dalgalanır. Yalnızca Direct3D 11 ile, Klasik Grafikler açıkken kapalıdır. Kabul Et'e basınca uygulanır."
+"Yangınların üstünde, lazer ışınları boyunca ve füze egzozunun arkasında hava dalgalanır. Klasik Grafikler açıkken kapalıdır. Kabul Et'e basınca uygulanır."
 END
 
 GUI:StructureCollapse
@@ -16446,7 +16446,7 @@ GUI:StructureCollapse
 END
 
 TOOLTIP:StructureCollapse
-"Yok edilen bina bir karede kaybolmak ya da enkaza dönmek yerine patlamanın altında yere gömülür. Değişen sadece sizin görüntünüzdür: hiçbir şeyi engellemez, oyunda hiçbir şey bunu okumaz, diğer oyuncular kendi ayarını görür. Yalnızca Direct3D 11 ile, Klasik Grafikler açıkken kapalıdır."
+"Yok edilen bina bir karede kaybolmak ya da enkaza dönmek yerine patlamanın altında yere gömülür. Değişen sadece sizin görüntünüzdür: hiçbir şeyi engellemez, oyunda hiçbir şey bunu okumaz, diğer oyuncular kendi ayarını görür. Klasik Grafikler açıkken kapalıdır."
 END
 
 GUI:FormationDrag

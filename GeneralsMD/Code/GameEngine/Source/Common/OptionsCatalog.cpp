@@ -718,7 +718,8 @@ const OptionDef TheOptionCatalog[] =
 		get_m_waterFoam, set_m_waterFoam },
 
 	// Craters and a building's stain on the terrain, fading over minutes, and darker treads.  The
-	// scorch buffer asks every draw.  Off under Classic graphics and -d3d9.  On Options > Effects.
+	// shared scorch buffer draws them on Linux SDL GPU and Windows DX11. Off under Classic graphics.
+	// On Options > Effects; accepting a change applies it to the current match.
 	{ "GroundMarks",							OPT_WND( "CheckGroundMarks" ), "GUI:GroundMarks",
 		OPTION_BOOL, APPLY_LIVE, 0, 1,
 		get_m_groundMarks, set_m_groundMarks },

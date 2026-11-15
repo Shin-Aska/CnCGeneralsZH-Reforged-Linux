@@ -78,6 +78,7 @@
 #include "WWDownload/Registry.h"
 #include "Platform/HazardCloud.h"
 #include "Platform/ModernWaterBuild.h"
+#include "Platform/RendererCapabilities.h"
 #include "Platform/WaterScreenReflection.h"
 //added by saad
 //used to access a messagebox that does "ok" and "cancel"
@@ -1184,6 +1185,36 @@ static GameWindow *findOptionWidget( const OptionDef& def )
 		NULL, TheNameKeyGenerator->nameToKey( AsciiString( def.widgetName ) ) );
 }
 
+#if !defined(_WIN32)
+// Query individual implemented providers through Display. This does not change
+// the saved option or infer support from the user's DX11 preference.
+static Bool nativeRendererOptionAvailable(const OptionDef &def, Bool &supported)
+{
+    struct Requirement { const char *Key; RendererFeature Feature; };
+    static const Requirement requirements[] = {
+        {"MapLight", RendererFeature::AtmosphereHaze},
+        {"TeamGlow", RendererFeature::TeamGlow},
+        {"WaterFoam", RendererFeature::WaterFoam},
+        {"Firelight", RendererFeature::PerPixelLights},
+        {"HemiAmbient", RendererFeature::HemisphericAmbient},
+        {"AmbientOcclusion", RendererFeature::AmbientOcclusion},
+        {"InternalHdr", RendererFeature::InternalHDR},
+        {"Weather", RendererFeature::Weather},
+        {"WaterSplashes", RendererFeature::ClassicWaterSplashes},
+        {"Atmosphere", RendererFeature::AtmosphereHaze},
+        {"StructureCollapse", RendererFeature::BuildingCollapse},
+        {"HeatHaze", RendererFeature::HeatBlastDistortion}
+    };
+    for (unsigned i = 0; i < ARRAY_SIZE(requirements); ++i) {
+        if (strcmp(def.iniKey, requirements[i].Key) == 0) {
+            supported = TheDisplay && TheDisplay->supportsRendererFeature(requirements[i].Feature);
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+#endif
+
 //-------------------------------------------------------------------------------------------------
 /** GlobalData -> the controls, for every catalog row that has one.
 	*
@@ -1205,6 +1236,12 @@ static void fillCatalogWidgets( void )
 		GameWindow *widget = findOptionWidget( def );
 		if( widget == NULL )
 			continue;
+
+#if !defined(_WIN32)
+        Bool nativeSupported = FALSE;
+        if (nativeRendererOptionAvailable(def, nativeSupported))
+            widget->winEnable(nativeSupported); // match/preset locks are applied after this fill
+#endif
 
 		if (isModernWaterOption(def))
 		{
@@ -1313,6 +1350,11 @@ static void readCatalogWidgets( OptionPreferences &out )
 			continue;
 		if (isModernWaterOption(def) && !modernWaterSettingsSupported())
 			continue;
+#if !defined(_WIN32)
+        Bool nativeSupported = FALSE;
+        if (nativeRendererOptionAvailable(def, nativeSupported) && !nativeSupported)
+            continue; // disabled native rows must not overwrite saved preferences
+#endif
 
 		Int value;
 		switch( def.kind )
@@ -3143,13 +3185,20 @@ void OptionsMenuInit( WindowLayout *layout, void *userData )
 //			checkAudioHardware->winEnable(FALSE);
 	}
 
-	// three looks only the Direct3D 11 picture draws; under -d3d9 their boxes keep the saved value, greyed
+#if defined(_WIN32)
+	// Preserve the existing Windows request-based option policy.
 	if( !TheGlobalData->m_direct3D11 )
 	{
-		static const char *const direct3D11Only[] = { "MapLight", "TeamGlow", "WaterFoam", "GroundMarks", "Firelight", "HemiAmbient", "AmbientOcclusion", "InternalHdr", "Weather", "WaterSplashes", "Atmosphere", "StructureCollapse", "HeatHaze" };
+		static const char *const direct3D11Only[] = { "MapLight", "TeamGlow", "WaterFoam", "Firelight", "HemiAmbient", "AmbientOcclusion", "InternalHdr", "Weather", "WaterSplashes", "Atmosphere", "StructureCollapse", "HeatHaze" };
 		for( Int i = 0; i < (Int)( sizeof( direct3D11Only ) / sizeof( direct3D11Only[ 0 ] ) ); ++i )
 			findOptionWidget( *findOptionDef( direct3D11Only[ i ] ) )->winEnable( FALSE );
 	}
+
+#endif
+
+	// Battle Marks also run on Linux SDL GPU, independently of the DX11 preference.
+	if( GameWindow *marks = findOptionWidget( *findOptionDef( "GroundMarks" ) ) )
+		marks->winEnable( TheDisplay && TheDisplay->supportsBattleMarks() );
 
 	// A preset is its own step on the quality slider, whatever step Options.ini kept from a Custom mix,
 	// as long as the boxes show that step.  An Options.ini from before the slider can hold a preset
