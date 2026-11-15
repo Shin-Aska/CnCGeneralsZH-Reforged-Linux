@@ -243,6 +243,8 @@ class AudioManager : public SubsystemInterface
 		virtual Bool isObjectPlayingVoice( UnsignedInt objID ) const = 0;
 
 		virtual void adjustVolumeOfPlayingAudio(AsciiString eventName, Real newVolume) = 0;
+		/// Change one presentation loop's gain, preserving normal category/master mixing.
+		virtual void setAudioEventVolume(AudioHandle handle, Real volume) { }
 		virtual void removePlayingAudio( AsciiString eventName ) = 0;
 		virtual void removeAllDisabledAudio() = 0;
 		

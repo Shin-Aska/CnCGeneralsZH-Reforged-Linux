@@ -2919,6 +2919,22 @@ Bool MilesAudioManager::killLowestPrioritySoundImmediately( AudioEventRTS *event
 
 
 //-------------------------------------------------------------------------------------------------
+void MilesAudioManager::setAudioEventVolume(AudioHandle handle, Real volume)
+{
+	if (!(volume >= 0.0f)) volume = 0.0f;	// also reject NaN before it reaches the mixer
+	volume = min(volume, 1.5f);
+	// Ownership is by handle: an authored emitter using the same licensed event is untouched.
+	std::list<PlayingAudio *> *lists[] = { &m_playingSounds, &m_playing3DSounds, &m_playingStreams };
+	for (Int list = 0; list < 3; ++list)
+		for (std::list<PlayingAudio *>::iterator it = lists[list]->begin(); it != lists[list]->end(); ++it)
+			if (*it && (*it)->isPlaying() && (*it)->m_audioEventRTS->getPlayingHandle() == handle)
+			{
+				(*it)->m_audioEventRTS->setVolume(volume);
+				adjustPlayingVolume(*it);
+				return;
+			}
+}
+
 void MilesAudioManager::adjustVolumeOfPlayingAudio(AsciiString eventName, Real newVolume)
 {
 	Real pan;

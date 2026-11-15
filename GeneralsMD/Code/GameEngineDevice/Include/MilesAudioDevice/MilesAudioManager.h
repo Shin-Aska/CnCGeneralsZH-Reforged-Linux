@@ -287,6 +287,7 @@ class MilesAudioManager : public AudioManager
 		void applyOcclusion( PlayingAudio *playing );
 
 		virtual void adjustVolumeOfPlayingAudio(AsciiString eventName, Real newVolume);
+		virtual void setAudioEventVolume(AudioHandle handle, Real volume);
 
 		virtual void removePlayingAudio( AsciiString eventName );
 		virtual void removeAllDisabledAudio();

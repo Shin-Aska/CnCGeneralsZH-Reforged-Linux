@@ -166,6 +166,13 @@ void mountTheInstall( void )
 class TestAudio : public MilesAudioManager
 {
 public:
+	Real eventVolume(AudioHandle handle) const
+	{
+		for (std::list<PlayingAudio *>::const_iterator it = m_playingSounds.begin(); it != m_playingSounds.end(); ++it)
+			if (*it && (*it)->m_audioEventRTS->getPlayingHandle() == handle)
+				return (*it)->m_audioEventRTS->getVolume();
+		return -1.0f;
+	}
 	void tick( void )
 	{
 		const Coord3D listener = { 0, 0, 0 }, facing = { 0, 1, 0 };
@@ -565,6 +572,57 @@ TEST(with_sound_switched_off_nothing_is_heard)
 	const Heard h = readCapture( capturePath( "off" ) );
 	CHECK( h.ok );
 	CHECK( rms( h.left ) + rms( h.right ) < 0.0005 );
+}
+
+TEST(owned_weather_loop_gain_preserves_other_handles_ambient_mute_and_pause)
+{
+	TestAudio *audio = theAudio();
+	audio->reset();
+	audio->setOn(TRUE, AudioAffect_All);
+	AudioEventRTS event("Amb_DesertNatureWindThinLoop");
+	event.setUninterruptable(TRUE);
+	const AudioHandle first = audio->addAudioEvent(&event);
+	const AudioHandle second = audio->addAudioEvent(&event);
+	audio->runFor(150);
+	CHECK(audio->isCurrentlyPlaying(first));
+	CHECK(audio->isCurrentlyPlaying(second));
+	const Real other = audio->eventVolume(second);
+	audio->setAudioEventVolume(first, 0.25f);
+	CHECK_NEAR(audio->eventVolume(first), 0.25f, 0.001f);
+	CHECK_NEAR(audio->eventVolume(second), other, 0.001f);
+	audio->setAudioEventVolume(first, -1.0f);
+	CHECK_NEAR(audio->eventVolume(first), 0.0f, 0.001f);
+	audio->setAudioEventVolume(first, 100.0f);
+	CHECK_NEAR(audio->eventVolume(first), 1.5f, 0.001f);
+
+	// Updating a local weather gain must still pass through the Ambient slider and master mix.
+	audio->setVolume(0.0f, (AudioAffect)(AudioAffect_Ambient | AudioAffect_SystemSetting));
+	audio->setAudioEventVolume(first, 0.7f);
+	audio->runFor(150);
+	CHECK(AIL_ex_start_capture(capturePath("weather_ambient_mute").c_str()) != 0);
+	audio->runFor(200);
+	AIL_ex_stop_capture();
+	const Heard muted = readCapture(capturePath("weather_ambient_mute"));
+	CHECK(muted.ok);
+	CHECK(rms(muted.left) + rms(muted.right) < 0.0005);
+	audio->setVolume(1.0f, (AudioAffect)(AudioAffect_Ambient | AudioAffect_SystemSetting));
+	audio->pauseAudio(AudioAffect_All);
+	audio->setAudioEventVolume(first, 0.6f);
+	audio->runFor(150);
+	CHECK(AIL_ex_start_capture(capturePath("weather_paused_gain").c_str()) != 0);
+	audio->runFor(200);
+	AIL_ex_stop_capture();
+	const Heard paused = readCapture(capturePath("weather_paused_gain"));
+	CHECK(paused.ok);
+	CHECK(rms(paused.left) + rms(paused.right) < 0.0005);
+	audio->resumeAudio(AudioAffect_All);
+	audio->runFor(100);
+	CHECK(audio->isCurrentlyPlaying(first));
+	audio->removeAudioEvent(first);
+	audio->runFor(100);
+	CHECK(!audio->isCurrentlyPlaying(first));
+	CHECK(audio->isCurrentlyPlaying(second));
+	audio->reset();
 }
 
 TEST(carrier_selection_move_and_attack_variants_are_all_available_without_disk_reads)
