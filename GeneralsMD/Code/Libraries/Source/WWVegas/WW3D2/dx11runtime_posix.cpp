@@ -100,6 +100,7 @@ unsigned Direct3D11_Requested_Draw_Effect(float parameters[4])
 }
 void Direct3D11_Occlude_Scene() {}
 void Direct3D11_Ambient_Occlusion() {}
+void Direct3D11_Weather_Haze() {}
 void Direct3D11_Set_Glow_Draw(bool) {}
 void Direct3D11_Set_Scene_Stand_In(struct IDirect3DBaseTexture9 *, struct IDirect3DSurface9 *) {}
 

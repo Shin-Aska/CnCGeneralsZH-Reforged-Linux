@@ -90,8 +90,23 @@ static float HazeThickness = 1.0f;
 static float HazeStrength = 0.0f;
 static float HazeReach = 1.0f;
 static float HazeWater = -1.0e6f;
+static bool HazeBeforeWater = false;
+void DX11Post_Set_Haze_Placement(bool before_water) { HazeBeforeWater = before_water; }
+bool DX11Post_Haze_Before_Water() { return HazeBeforeWater && HazeStrength>0.0f; }
 
 static float HazeSun[4] = { 0.0f, 0.0f, 1.0f, 0.0f };
+struct HazePacket {
+    float colour[3],top,thickness,strength,reach,water,sun[3],warmth;
+};
+static HazePacket TransitionWarmHaze = {};
+void DX11Post_Set_Transition_Warm_Haze(const float colour[3],float top,float thickness,float strength,float reach,
+    float water,const float toward_sun[3],float warmth)
+{
+    memcpy(TransitionWarmHaze.colour,colour,sizeof(TransitionWarmHaze.colour));
+    memcpy(TransitionWarmHaze.sun,toward_sun,sizeof(TransitionWarmHaze.sun));
+    TransitionWarmHaze.top=top;TransitionWarmHaze.thickness=thickness;TransitionWarmHaze.strength=strength;
+    TransitionWarmHaze.reach=reach;TransitionWarmHaze.water=water;TransitionWarmHaze.warmth=warmth;
+}
 
 void DX11Post_Set_Haze(const float colour[3], float top, float thickness, float strength, float reach,
 	float water, const float toward_sun[3], float warmth)
@@ -206,6 +221,7 @@ DX11PostProcessClass::DX11PostProcessClass()
 	, Resolved(false)
 	, Occluded(false)
 	, Hazed(false)
+	, TransitionWarmHazed(false)
 	, HazeRefused(false)
 	, HazeShroudView(NULL)
 	, AtmosphereRefused(false)
@@ -614,6 +630,7 @@ void DX11PostProcessClass::Open_Frame()
 {
 	Occluded = false;
 	Hazed = false;
+	TransitionWarmHazed = false;
 }
 
 bool DX11PostProcessClass::Wants_Atmosphere_Programs() const
@@ -697,7 +714,7 @@ bool DX11PostProcessClass::Atmosphere_Scene(ID3D11ShaderResourceView * depth,
 
 bool DX11PostProcessClass::Wants_Haze_Program() const
 {
-	return HazeStrength > 0.0f && HazeShader == NULL && !HazeRefused && ShadersReady;
+	return (HazeStrength > 0.0f || TransitionWarmHaze.strength > 0.0f) && HazeShader == NULL && !HazeRefused && ShadersReady;
 }
 
 const char * DX11PostProcessClass::Haze_Program_Source() const
@@ -862,6 +879,25 @@ bool DX11PostProcessClass::Haze_Scene(ID3D11ShaderResourceView * depth,
 	Draw_Pass(pass);
 	Hazed = true;
 	return true;
+}
+
+bool DX11PostProcessClass::Transition_Warm_Haze_Scene(ID3D11ShaderResourceView *depth,const float world_from_clip[16])
+{
+    if (TransitionWarmHaze.strength<=0.0f || TransitionWarmHazed) return false;
+    const HazePacket previous={{HazeColour[0],HazeColour[1],HazeColour[2]},HazeTop,HazeThickness,HazeStrength,HazeReach,
+        HazeWater,{HazeSun[0],HazeSun[1],HazeSun[2]},HazeSun[3]};
+    const bool alreadyHazed=Hazed;
+    ID3D11ShaderResourceView *source=HazeShroudSource;
+    DX11Post_Set_Haze(TransitionWarmHaze.colour,TransitionWarmHaze.top,TransitionWarmHaze.thickness,
+        TransitionWarmHaze.strength,TransitionWarmHaze.reach,TransitionWarmHaze.water,TransitionWarmHaze.sun,TransitionWarmHaze.warmth);
+    if (alreadyHazed && HazeShroudSource==NULL) HazeShroudSource=HazeShroudView;
+    Hazed=false;
+    const bool drew=Haze_Scene(depth,world_from_clip);
+    Hazed=alreadyHazed || drew;
+    TransitionWarmHazed=drew;
+    if (!drew) HazeShroudSource=source;
+    DX11Post_Set_Haze(previous.colour,previous.top,previous.thickness,previous.strength,previous.reach,previous.water,previous.sun,previous.warmth);
+    return drew;
 }
 
 bool DX11PostProcessClass::Occlude_Scene(ID3D11ShaderResourceView * depth)

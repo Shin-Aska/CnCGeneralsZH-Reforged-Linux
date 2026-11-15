@@ -288,16 +288,24 @@ static const Real PROTO_HAZE_COLOUR[3] = { 0.88f, 0.84f, 0.76f };
 static RenderPost::Environment s_nativeEnvironment;
 static NativePostEnvironmentPolicy::MapEpoch s_nativeMapEpoch;
 #endif
+static Bool s_collectTransitionWarmHaze = FALSE;
+static Real s_transitionWarmWeight = 0.0f;
 static void setGroundHaze(const float colour[3], float top, float thickness, float strength,
-    float reach, float water, const float towardSun[3], float warmth)
+    float reach, float water, const float towardSun[3], float warmth, bool beforeWater = false)
 {
 #if defined(_WIN32)
+    if (s_collectTransitionWarmHaze) {
+        DX11Post_Set_Transition_Warm_Haze(colour,top,thickness,strength*s_transitionWarmWeight,reach,water,towardSun,warmth);
+        return;
+    }
     DX11Post_Set_Haze(colour, top, thickness, strength, reach, water, towardSun, warmth);
+    DX11Post_Set_Haze_Placement(beforeWater);
 #else
-    RenderPost::GroundHazeSettings &haze = s_nativeEnvironment.Haze;
+    RenderPost::GroundHazeSettings &haze = s_collectTransitionWarmHaze ? s_nativeEnvironment.TransitionWarmHaze : s_nativeEnvironment.Haze;
     memcpy(haze.Colour, colour, sizeof(haze.Colour)); haze.Top = top; haze.Thickness = thickness;
-    haze.Strength = strength; haze.Reach = reach; haze.WaterHeight = water;
+    haze.Strength = strength*(s_collectTransitionWarmHaze?s_transitionWarmWeight:1.0f); haze.Reach = reach; haze.WaterHeight = water;
     memcpy(haze.TowardSun, towardSun, sizeof(haze.TowardSun)); haze.Warmth = warmth;
+    haze.BeforeWater = beforeWater;
 #endif
 }
 static void setAtmosphere(const float horizon[3], const float tint[3], float start, float scale,
@@ -449,7 +457,7 @@ static void pushWeatherHaze(void)
 	Real strength;
 	TheSnowManager->getWeatherHaze(colour, &strength);
 	const float up[3] = { 0.0f, 0.0f, 1.0f };
-	setGroundHaze(colour, 1.0e5f, 1.0f, strength, PROTO_HAZE_REACH, -1.0e6f, up, 0.0f);
+	setGroundHaze(colour, 1.0e5f, 1.0f, strength, PROTO_HAZE_REACH, -1.0e6f, up, 0.0f, true);
 }
 
 /* The Atmosphere option (DX11Post_Set_Atmosphere).  The horizon's colour goes by the time of day, scaled by
@@ -497,8 +505,14 @@ static void pushAtmosphere(Bool weatherHaze)
 		if (weatherHaze)
 		{
 			Real strength;
-			TheSnowManager->getWeatherHaze(horizon, &strength);
-			memcpy(tint, horizon, sizeof(tint));
+			float storm[3];
+			TheSnowManager->getWeatherHaze(storm, &strength);
+			const Real blend = TheSnowManager->getWeatherStormEnvelope();
+			for (Int i = 0; i < 3; ++i)
+			{
+				horizon[i] += (storm[i] - horizon[i]) * blend;
+				tint[i] += (storm[i] - tint[i]) * blend;
+			}
 		}
 		TextureClass *sky = TheWaterRenderObj->getSkyTexture();
 		if (!sky->Is_Initialized())
@@ -536,6 +550,8 @@ void W3DShaderManager::invalidateNativePostEnvironment(void)
 void W3DShaderManager::pushProtoHaze(void)
 {
 #if defined(_WIN32)
+	const float zero[3]={0,0,0};
+	DX11Post_Set_Transition_Warm_Haze(zero,0,1,0,1,-1.0e6f,zero,0);
 	// The kind is NONE unless the option is on and Direct3D 11 presents.  Weather's haze takes the place
 	// of the Warm Light one while it lasts.  Either option goes off live, and the haze holds what it was
 	// last handed.
@@ -543,7 +559,13 @@ void W3DShaderManager::pushProtoHaze(void)
 		&& TheSnowManager->isVisible();
 	static Bool s_hazed = FALSE;
 	if (weatherHaze)
+	{
 		pushWeatherHaze();
+		if (TheGlobalData->m_mapLight && TheSnowManager->getWeatherStormEnvelope()<1.0f) {
+			s_collectTransitionWarmHaze=TRUE;s_transitionWarmWeight=1.0f-TheSnowManager->getWeatherStormEnvelope();
+			pushProtoHazeFrame();s_collectTransitionWarmHaze=FALSE;
+		}
+	}
 	else if (TheGlobalData->m_mapLight && Direct3D11_Is_Active())
 		pushProtoHazeFrame();
 	else if (s_hazed)
@@ -571,7 +593,13 @@ void W3DShaderManager::pushProtoHaze(void)
     const Bool weatherVisible = TheSnowManager != NULL && TheSnowManager->isVisible();
     const auto haze = NativePostEnvironmentPolicy::chooseHaze(true, false, true,
         TheGlobalData->m_mapLight, weatherActive, weatherVisible);
-    if (haze == NativePostEnvironmentPolicy::Weather) pushWeatherHaze();
+    if (haze == NativePostEnvironmentPolicy::Weather) {
+        pushWeatherHaze();
+        if (TheGlobalData->m_mapLight && TheSnowManager->getWeatherStormEnvelope()<1.0f) {
+            s_collectTransitionWarmHaze=TRUE;s_transitionWarmWeight=1.0f-TheSnowManager->getWeatherStormEnvelope();
+            pushProtoHazeFrame();s_collectTransitionWarmHaze=FALSE;
+        }
+    }
     else if (haze == NativePostEnvironmentPolicy::WarmLight) pushProtoHazeFrame();
     pushAtmosphere(haze == NativePostEnvironmentPolicy::Weather);
     // AO can need shroud even when neither atmosphere nor haze is enabled.

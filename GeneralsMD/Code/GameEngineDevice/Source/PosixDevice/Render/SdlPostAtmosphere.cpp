@@ -49,11 +49,13 @@ struct SdlPostAtmosphere::Impl
     SDL_GPUSampler *Clamp=nullptr,*Wrap=nullptr;
     SDL_GPUTexture *White=nullptr,*Black=nullptr;
     SdlPostGroundHazeSettings Ground;
+    SdlPostGroundHazeSettings TransitionWarm;
     SdlPostAtmosphereSettings Atmosphere;
     SdlPostAtmosphereViews Views;
     SdlSceneCaptureRequest Main;
     float WorldFromClip[16]={};
     bool Ready=false,Done[Count]={};
+    bool WarmDone=false;
     std::string LastError;
     unsigned long long Creations=0;
 
@@ -67,10 +69,11 @@ struct SdlPostAtmosphere::Impl
     {
         return Ready && Owner==&frame && Post && Post->Scene_Matches_Identity(frame,scene,Main);
     }
-    bool captured(SdlGpuFrame &frame,const SdlTarget &scene,const SdlPostSceneInputs &in)
+    bool captured(SdlGpuFrame &frame,const SdlTarget &scene,const SdlPostSceneInputs &in,bool ground=false)
     {
-        if(!scene.Depth || !current(frame,scene) || in.Capture.Phase!=SdlSceneCapturePhase::BeforeTransparent || !in.Capture.Depth
-            || !same_scene(Main,normalized(frame,in.Capture)))return fail("BeforeTransparent capture does not match its unresolved main scene");
+        const auto phase=ground && Ground.BeforeWater ? SdlSceneCapturePhase::OpaqueScene : SdlSceneCapturePhase::BeforeTransparent;
+        if(!scene.Depth || !current(frame,scene) || in.Capture.Phase!=phase || !in.Capture.Depth
+            || !same_scene(Main,normalized(frame,in.Capture)))return fail("capture phase does not match its unresolved main scene policy");
         if(!in.SampledDepth || in.SampledDepth==scene.Colour || in.SampledDepth==scene.Depth
             || in.DepthWidth!=scene.Width || in.DepthHeight!=scene.Height || in.DepthFormat!=SDL_GPU_TEXTUREFORMAT_R32_FLOAT
             || in.ActualSamples!=1 || in.Shroud!=Views.Shroud.Texture
@@ -141,7 +144,7 @@ struct SdlPostAtmosphere::Impl
         if(!bytes)return fail("fallback upload allocation failed");
         std::memset(bytes,white?255:0,4);Owner->Queue_Texture_Upload(texture,0,1,1,offset);return true;
     }
-    bool draw(Pass id,const SdlTarget &scene,SDL_GPUTexture *depth)
+    bool draw(Pass id,const SdlTarget &scene,SDL_GPUTexture *depth,const SdlPostGroundHazeSettings *overrideGround=nullptr)
     {
         const Program &p=Programs[id];SdlRecordedDraw draw={};draw.Pipeline=p.Pipelines[format_slot(SdlGpuFrame::Target_Colour_Format(scene))];
         draw.Count=3;draw.Viewport[2]=float(scene.Width);draw.Viewport[3]=float(scene.Height);draw.Viewport[5]=1;
@@ -159,9 +162,10 @@ struct SdlPostAtmosphere::Impl
         std::memcpy(constants.HazeShroudRect,Views.ShroudRect,sizeof(Views.ShroudRect));
         constants.HazeSun[2]=Views.Shroud.Texture?1:0;
         if(id==Haze) {
-            constants.Haze[0]=Ground.Top;constants.Haze[1]=Ground.Thickness;constants.Haze[2]=Ground.Strength;constants.Haze[3]=Ground.Reach;
-            std::memcpy(constants.HazeColour,Ground.Colour,sizeof(Ground.Colour));constants.HazeColour[3]=Ground.WaterHeight;
-            constants.HazeSun[0]=Ground.TowardSun[0];constants.HazeSun[1]=Ground.TowardSun[1];constants.HazeSun[3]=Ground.Warmth;
+            const auto &ground=overrideGround?*overrideGround:Ground;
+            constants.Haze[0]=ground.Top;constants.Haze[1]=ground.Thickness;constants.Haze[2]=ground.Strength;constants.Haze[3]=ground.Reach;
+            std::memcpy(constants.HazeColour,ground.Colour,sizeof(ground.Colour));constants.HazeColour[3]=ground.WaterHeight;
+            constants.HazeSun[0]=ground.TowardSun[0];constants.HazeSun[1]=ground.TowardSun[1];constants.HazeSun[3]=ground.Warmth;
         } else {
             constants.Haze[0]=Atmosphere.Start;constants.Haze[1]=Atmosphere.Scale;constants.Haze[2]=Atmosphere.Strength;constants.Haze[3]=Atmosphere.Ground;
             std::memcpy(constants.HazeColour,Atmosphere.Horizon,sizeof(Atmosphere.Horizon));
@@ -182,7 +186,7 @@ SdlPostAtmosphere::~SdlPostAtmosphere()
 }
 bool SdlPostAtmosphere::Prepare(SdlGpuFrame &frame,const SdlPostProcess &post,const SdlTarget &scene,
     const SdlSceneCaptureRequest &main,const float worldFromClip[16],const SdlPostGroundHazeSettings &ground,
-    const SdlPostAtmosphereSettings &atmosphere,const SdlPostAtmosphereViews &views)
+    const SdlPostAtmosphereSettings &atmosphere,const SdlPostAtmosphereViews &views,const SdlPostGroundHazeSettings &transitionWarm)
 {
     Impl &s=*State;
     const auto key=normalized(frame,main);
@@ -192,8 +196,8 @@ bool SdlPostAtmosphere::Prepare(SdlGpuFrame &frame,const SdlPostProcess &post,co
         && worldFromClip && !std::memcmp(s.WorldFromClip,worldFromClip,sizeof(s.WorldFromClip));
     s.Ready=false;
     if(s.Owner && s.Owner!=&frame)return s.fail("Release old frame owner before rebinding");
-    if(!std::isfinite(ground.Strength) || !std::isfinite(atmosphere.Strength))return s.fail("non-finite strength");
-    if(ground.Strength<=0 && atmosphere.Strength<=0) {Abandon();s.LastError.clear();return true;}
+    if(!std::isfinite(ground.Strength) || !std::isfinite(atmosphere.Strength) || !std::isfinite(transitionWarm.Strength))return s.fail("non-finite strength");
+    if(ground.Strength<=0 && atmosphere.Strength<=0 && transitionWarm.Strength<=0) {Abandon();s.LastError.clear();return true;}
     if(!post.Scene_Matches_Identity(frame,scene,key) || main.Phase!=SdlSceneCapturePhase::OpaqueScene)return s.fail("requires explicit unresolved main post scene identity");
     if(!worldFromClip || !finite(worldFromClip,16) || !finite(ground.Colour,3) || !finite(ground.TowardSun,3)
         || !std::isfinite(ground.Top) || !std::isfinite(ground.Thickness) || !std::isfinite(ground.Reach)
@@ -202,6 +206,10 @@ bool SdlPostAtmosphere::Prepare(SdlGpuFrame &frame,const SdlPostProcess &post,co
         || !std::isfinite(atmosphere.Start) || !std::isfinite(atmosphere.Scale) || !std::isfinite(atmosphere.Ground)
         || (atmosphere.Strength>0 && (atmosphere.Scale<=0 || atmosphere.MapSize[0]<=0 || atmosphere.MapSize[1]<=0)))
         return s.fail("invalid copied atmosphere/haze/camera settings");
+    if(transitionWarm.BeforeWater || !finite(transitionWarm.Colour,3) || !finite(transitionWarm.TowardSun,3)
+        || !std::isfinite(transitionWarm.Top) || !std::isfinite(transitionWarm.Thickness) || !std::isfinite(transitionWarm.Reach)
+        || !std::isfinite(transitionWarm.WaterHeight) || !std::isfinite(transitionWarm.Warmth))
+        return s.fail("invalid copied transition warm haze");
     if(!views.MapIdentity || !views.MapGeneration || !valid_view(views.Sky) || !valid_view(views.Shroud) || !finite(views.ShroudRect,4)
         || (views.Sky.Texture && (views.Sky.Texture==scene.Colour || views.Sky.Texture==scene.Depth))
         || (views.Shroud.Texture && (views.Shroud.Texture==scene.Colour || views.Shroud.Texture==scene.Depth)))
@@ -209,12 +217,13 @@ bool SdlPostAtmosphere::Prepare(SdlGpuFrame &frame,const SdlPostProcess &post,co
     s.Owner=&frame;s.Device=frame.Device();
     const unsigned format=SdlGpuFrame::Target_Colour_Format(scene);
     if(format_slot(format)>2)return s.fail("unsupported atmosphere scene format");
-    if((ground.Strength>0 && !s.program(Impl::Haze,format)) || (atmosphere.Strength>0
+    if(((ground.Strength>0 || transitionWarm.Strength>0) && !s.program(Impl::Haze,format)) || (atmosphere.Strength>0
         && (!s.program(Impl::Sky,format) || !s.program(Impl::Fade,format))) || !s.fallback(s.White,true) || !s.fallback(s.Black,false))return false;
-    if(!same)std::memset(s.Done,0,sizeof(s.Done));
+    if(!same) {std::memset(s.Done,0,sizeof(s.Done));s.WarmDone=false;}
+    if(transitionWarm.Strength<=0)s.WarmDone=false;
     if(ground.Strength<=0)s.Done[Impl::Haze]=false;
     if(atmosphere.Strength<=0)s.Done[Impl::Sky]=s.Done[Impl::Fade]=false;
-    s.Main=key;s.Post=&post;s.Ground=ground;s.Atmosphere=atmosphere;s.Views=views;
+    s.Main=key;s.Post=&post;s.Ground=ground;s.TransitionWarm=transitionWarm;s.Atmosphere=atmosphere;s.Views=views;
     std::memcpy(s.WorldFromClip,worldFromClip,sizeof(s.WorldFromClip));s.Ready=true;s.LastError.clear();return true;
 }
 bool SdlPostAtmosphere::Draw_Sky(SdlGpuFrame &frame,const SdlTarget &scene)
@@ -228,7 +237,7 @@ bool SdlPostAtmosphere::Draw_Sky(SdlGpuFrame &frame,const SdlTarget &scene)
 bool SdlPostAtmosphere::Apply_Ground_Haze(SdlGpuFrame &frame,const SdlTarget &scene,const SdlPostSceneInputs &inputs)
 {
     Impl &s=*State;if(!s.Ready || s.Ground.Strength<=0)return false;
-    if(!s.captured(frame,scene,inputs) || s.Done[Impl::Haze])return false;
+    if(!s.captured(frame,scene,inputs,true) || s.Done[Impl::Haze])return false;
     if(!s.draw(Impl::Haze,scene,inputs.SampledDepth))return false;
     s.Done[Impl::Haze]=true;return true;
 }
@@ -239,9 +248,16 @@ bool SdlPostAtmosphere::Apply_Atmosphere(SdlGpuFrame &frame,const SdlTarget &sce
     if(!s.draw(Impl::Fade,scene,inputs.SampledDepth))return false;
     s.Done[Impl::Fade]=true;return true;
 }
+bool SdlPostAtmosphere::Apply_Transition_Warm_Haze(SdlGpuFrame &frame,const SdlTarget &scene,const SdlPostSceneInputs &inputs)
+{
+    Impl &s=*State;if(!s.Ready || s.TransitionWarm.Strength<=0)return false;
+    if(!s.captured(frame,scene,inputs) || s.WarmDone)return false;
+    if(!s.draw(Impl::Haze,scene,inputs.SampledDepth,&s.TransitionWarm))return false;
+    s.WarmDone=true;return true;
+}
 void SdlPostAtmosphere::Abandon()
 {
-    State->Ready=false;State->Post=nullptr;State->Main={};State->Views={};std::memset(State->Done,0,sizeof(State->Done));
+    State->Ready=false;State->Post=nullptr;State->Main={};State->Views={};State->WarmDone=false;std::memset(State->Done,0,sizeof(State->Done));
 }
 bool SdlPostAtmosphere::Release(SdlGpuFrame &frame)
 {

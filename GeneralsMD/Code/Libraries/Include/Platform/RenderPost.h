@@ -13,6 +13,7 @@ struct Settings {
 struct GroundHazeSettings {
     float Colour[3] = {}, Top = 0, Thickness = 1, Strength = 0, Reach = 1, WaterHeight = -1.0e6f;
     float TowardSun[3] = {0,0,1}, Warmth = 0;
+    bool BeforeWater = false; // weather over opaque ground; actual water composites over it
 };
 struct AtmosphereSettings {
     float Horizon[3] = {}, Tint[3] = {1,1,1}, Start = 0, Scale = 1, Strength = 0, Ground = 0, MapSize[2] = {};
@@ -28,6 +29,7 @@ void SetHeatSplats(const float *records, unsigned count); // existing four-float
 struct Environment {
     std::uint64_t MapIdentity = 0, MapGeneration = 0;
     GroundHazeSettings Haze;
+    GroundHazeSettings TransitionWarmHaze; // only the complementary warm-light contribution during rain
     AtmosphereSettings Atmosphere;
     IDirect3DBaseTexture9 *Sky = nullptr, *Shroud = nullptr;
     float ShroudRect[4] = {0,0,1,1};

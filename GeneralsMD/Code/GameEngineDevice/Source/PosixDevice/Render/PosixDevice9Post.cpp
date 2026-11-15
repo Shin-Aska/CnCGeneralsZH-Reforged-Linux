@@ -175,7 +175,7 @@ void PosixDevice9::Begin_Post(const RenderPost::Settings &settings)
     s.Settings = {};
     s.RequestedChain = !settings.Classic && DX11Post_Parse_Chain(settings.Chain, s.Settings.Chain, s.Settings.Count) && s.Settings.Count;
     if (!s.RequestedChain && !settings.Classic && (s.WorldAO || settings.IndependentScene || (s.EnvironmentCurrent &&
-        (s.Environment.Haze.Strength > 0 || s.Environment.Atmosphere.Strength > 0)))) {
+        (s.Environment.Haze.Strength > 0 || s.Environment.TransitionWarmHaze.Strength > 0 || s.Environment.Atmosphere.Strength > 0)))) {
         s.Settings.Count = 1; s.Settings.Chain[0] = DX11_POST_COPY;
     }
     if (++s.Serial == 0) ++s.Serial;
@@ -324,7 +324,14 @@ void PosixDevice9::Post_Sky(bool drawSky)
     haze.Top = s.Environment.Haze.Top; haze.Thickness = s.Environment.Haze.Thickness;
     haze.Strength = s.Environment.Haze.Strength; haze.Reach = s.Environment.Haze.Reach;
     haze.WaterHeight = s.Environment.Haze.WaterHeight; haze.Warmth = s.Environment.Haze.Warmth;
+    haze.BeforeWater = s.Environment.Haze.BeforeWater;
     std::memcpy(haze.TowardSun, s.Environment.Haze.TowardSun, sizeof(haze.TowardSun));
+    SdlPostGroundHazeSettings warm;
+    const auto &fromWarm = s.Environment.TransitionWarmHaze;
+    std::memcpy(warm.Colour, fromWarm.Colour, sizeof(warm.Colour));
+    warm.Top=fromWarm.Top;warm.Thickness=fromWarm.Thickness;warm.Strength=fromWarm.Strength;
+    warm.Reach=fromWarm.Reach;warm.WaterHeight=fromWarm.WaterHeight;warm.Warmth=fromWarm.Warmth;
+    std::memcpy(warm.TowardSun, fromWarm.TowardSun, sizeof(warm.TowardSun));
     SdlPostAtmosphereSettings atmosphere;
     std::memcpy(atmosphere.Horizon, s.Environment.Atmosphere.Horizon, sizeof(atmosphere.Horizon));
     std::memcpy(atmosphere.Tint, s.Environment.Atmosphere.Tint, sizeof(atmosphere.Tint));
@@ -344,14 +351,20 @@ void PosixDevice9::Post_Sky(bool drawSky)
     };
     if (!mirror(s.Environment.Sky, views.Sky) || !mirror(s.Environment.Shroud, views.Shroud)) return;
     s.EnvironmentReady = s.Atmosphere.Prepare(*Gpu, s.Processor, s.Scene, view.Capture,
-        view.FullTextureWorldFromClip, haze, atmosphere, views);
+        view.FullTextureWorldFromClip, haze, atmosphere, views, warm);
     if (drawSky && s.EnvironmentReady && atmosphere.Strength > 0) s.Atmosphere.Draw_Sky(*Gpu, s.Scene);
 }
 void PosixDevice9::Post_Opaque()
 {
-    if (!Post_Active() || !Post->InView || !Post->WorldAO) return;
+    if (!Post_Active() || !Post->InView) return;
+    const bool weather = Post->EnvironmentCurrent && Post->Environment.Haze.BeforeWater && Post->Environment.Haze.Strength>0.0f;
+    if (weather && !Post->EnvironmentReady) Post_Sky(false);
+    if (!Post->WorldAO && !weather) return;
     SdlPostSceneInputs inputs;
-    if (Post->inputs(*this, *Gpu, SdlSceneCapturePhase::OpaqueScene, inputs)) Post->Processor.Apply_World_AO(*Gpu, Post->Scene, inputs);
+    if (Post->inputs(*this, *Gpu, SdlSceneCapturePhase::OpaqueScene, inputs)) {
+        if (Post->WorldAO) Post->Processor.Apply_World_AO(*Gpu, Post->Scene, inputs);
+        if (weather && Post->EnvironmentReady) Post->Atmosphere.Apply_Ground_Haze(*Gpu, Post->Scene, inputs);
+    }
 }
 void PosixDevice9::Post_Before_Transparent()
 {
@@ -369,7 +382,8 @@ void PosixDevice9::Post_Before_Transparent()
     if (Post->inputs(*this, *Gpu, SdlSceneCapturePhase::BeforeTransparent, inputs)) {
         Post->Processor.Apply_Chain_AO(*Gpu, Post->Scene, inputs);
         if (Post->EnvironmentReady) {
-            Post->Atmosphere.Apply_Ground_Haze(*Gpu, Post->Scene, inputs);
+            if (!Post->Environment.Haze.BeforeWater) Post->Atmosphere.Apply_Ground_Haze(*Gpu, Post->Scene, inputs);
+            Post->Atmosphere.Apply_Transition_Warm_Haze(*Gpu, Post->Scene, inputs);
             Post->Atmosphere.Apply_Atmosphere(*Gpu, Post->Scene, inputs);
         }
     }

@@ -292,6 +292,7 @@ void Direct3D11_Occlude_Scene();
 // is down and before the water.  The chain's own occlusion stands down for the frame.  -d3d9, Classic
 // graphics, -headless and the SDL3 port draw nothing here.
 void Direct3D11_Ambient_Occlusion();
+void Direct3D11_Weather_Haze(); // weather-only pre-water composition; ordinary haze stays later
 
 // Whether the draws that follow take the Glow option's additive gain (DX11BackendClass::
 // Set_Glow_Draw).  ShaderClass::Apply sends it from the shader's GLOW_ENABLE bit.

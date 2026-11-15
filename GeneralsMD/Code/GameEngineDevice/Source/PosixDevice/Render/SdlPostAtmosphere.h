@@ -21,6 +21,7 @@ struct SdlPostGroundHazeSettings
     float Top = 0, Thickness = 1, Strength = 0, Reach = 1, WaterHeight = -1.0e6f;
     float TowardSun[3] = {0,0,1};
     float Warmth = 0;
+    bool BeforeWater = false;
 };
 struct SdlPostAtmosphereSettings
 {
@@ -47,12 +48,13 @@ public:
     bool Prepare(SdlGpuFrame &frame, const SdlPostProcess &post, const SdlTarget &scene,
         const SdlSceneCaptureRequest &mainIdentity, const float worldFromClip[16],
         const SdlPostGroundHazeSettings &haze, const SdlPostAtmosphereSettings &atmosphere,
-        const SdlPostAtmosphereViews &views);
+        const SdlPostAtmosphereViews &views, const SdlPostGroundHazeSettings &transitionWarm = SdlPostGroundHazeSettings());
     // Sky after shadow preparation, before world geometry. No depth input or attachment is used.
     bool Draw_Sky(SdlGpuFrame &frame, const SdlTarget &scene);
-    // Ground/weather haze then horizon fade, at BeforeTransparent after AO and before particles.
+    // Weather ground haze at OpaqueScene before water; ordinary haze and horizon fade at BeforeTransparent.
     // Neither method captures depth. Captured matrix/shroud must match the copied scene packet.
     bool Apply_Ground_Haze(SdlGpuFrame &frame, const SdlTarget &scene, const SdlPostSceneInputs &inputs);
+    bool Apply_Transition_Warm_Haze(SdlGpuFrame &frame, const SdlTarget &scene, const SdlPostSceneInputs &inputs);
     bool Apply_Atmosphere(SdlGpuFrame &frame, const SdlTarget &scene, const SdlPostSceneInputs &inputs);
     void Abandon();
     bool Release(SdlGpuFrame &frame);

@@ -782,14 +782,8 @@ unsigned Direct3D11_Requested_Draw_Effect(float parameters[4])
 	return 0;
 }
 
-void Direct3D11_Occlude_Scene()
+static void prepareGroundHazeProgram()
 {
-	if (!Active || !Backend.Draws_Into_Scene()) {
-		return;
-	}
-	Backend.Resolve_Scene_Depth();
-	bool drew = Post.Occlude_Scene(Device.Get_Depth_Texture());
-	// The prototype ground haze goes on at the same moment, over the occlusion and under the fire.
 	if (Post.Wants_Haze_Program()) {
 		std::vector<unsigned char> code;
 		if (Backend.Compile_Pixel_Program(Post.Haze_Program_Source(), "dx11haze", code) && !code.empty()) {
@@ -798,9 +792,32 @@ void Direct3D11_Occlude_Scene()
 			Post.Load_Haze_Program(NULL, 0);
 		}
 	}
+}
+
+void Direct3D11_Weather_Haze()
+{
+	if (!Active || !DrawEffectsAllowed || !Backend.Draws_Into_Scene() || !DX11Post_Haze_Before_Water())
+		return;
+	prepareGroundHazeProgram();
 	float world_from_clip[16];
 	if (Backend.Scene_World_From_Clip(world_from_clip)) {
-		drew = Post.Haze_Scene(Device.Get_Depth_Texture(), world_from_clip) || drew;
+		Backend.Resolve_Scene_Depth();
+		if (Post.Haze_Scene(Device.Get_Depth_Texture(), world_from_clip)) Backend.Resume_Scene();
+	}
+}
+
+void Direct3D11_Occlude_Scene()
+{
+	if (!Active || !Backend.Draws_Into_Scene()) {
+		return;
+	}
+	Backend.Resolve_Scene_Depth();
+	bool drew = Post.Occlude_Scene(Device.Get_Depth_Texture());
+	prepareGroundHazeProgram();
+	float world_from_clip[16];
+	if (Backend.Scene_World_From_Clip(world_from_clip)) {
+		if (!DX11Post_Haze_Before_Water()) drew = Post.Haze_Scene(Device.Get_Depth_Texture(), world_from_clip) || drew;
+		drew = Post.Transition_Warm_Haze_Scene(Device.Get_Depth_Texture(), world_from_clip) || drew;
 		drew = Post.Atmosphere_Scene(Device.Get_Depth_Texture(), world_from_clip) || drew;
 	}
 	if (drew) {

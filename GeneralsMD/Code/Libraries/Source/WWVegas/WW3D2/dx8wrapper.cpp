@@ -6095,6 +6095,7 @@ void Sky() {
 void OpaqueScene() {
 #if defined(_WIN32)
 	Direct3D11_Ambient_Occlusion();
+	Direct3D11_Weather_Haze();
 #else
 	OpaqueScene(DX8Wrapper::_Get_D3D_Device());
 #endif

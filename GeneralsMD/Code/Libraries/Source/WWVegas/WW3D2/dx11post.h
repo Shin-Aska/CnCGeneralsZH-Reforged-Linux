@@ -100,6 +100,10 @@ void DX11Post_Set_Internal_Hdr(bool on);
 // sun and warmth is how much warmer the haze looks toward it.  Set every frame.
 void DX11Post_Set_Haze(const float colour[3], float top, float thickness, float strength, float reach,
 	float water, const float toward_sun[3], float warmth);
+void DX11Post_Set_Haze_Placement(bool before_water);
+bool DX11Post_Haze_Before_Water();
+void DX11Post_Set_Transition_Warm_Haze(const float colour[3],float top,float thickness,float strength,float reach,
+    float water,const float toward_sun[3],float warmth);
 
 // The view of the shroud texture the terrain draws its fog with (Direct3D11_Set_Haze_Shroud finds
 // it), and the terrain's own world to texture mapping (rect: world origin x, y, then one over the
@@ -170,6 +174,7 @@ public:
 	// moment as Occlude_Scene and under the same terms, once a frame.  World_from_clip takes the
 	// depth back to the world.  False when it drew nothing; the caller rebinds as for the other.
 	bool Haze_Scene(ID3D11ShaderResourceView * depth, const float world_from_clip[16]);
+	bool Transition_Warm_Haze_Scene(ID3D11ShaderResourceView * depth, const float world_from_clip[16]);
 
 	// The haze's program comes from the backend's cache of compiled programs (dx11shaders.cache), so
 	// only the first run that meets it compiles it.  Wants_Haze_Program is true while the haze is on
@@ -347,6 +352,7 @@ private:
 	bool Occluded;
 	// Haze_Scene ran this frame, and the matrix it handed the pass.
 	bool Hazed;
+	bool TransitionWarmHazed;
 	float HazeWorldFromClip[16];
 	// The haze program, compiled on first use, failed to compile; not tried again.
 	bool HazeRefused;

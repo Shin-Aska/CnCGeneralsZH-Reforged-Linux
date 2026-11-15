@@ -120,7 +120,7 @@ static int gpu()
         for(unsigned y=0;y<4;++y)for(unsigned x=0;x<4;++x)skyPixels[y*4+x]=colours[(x>=2)+(y>=2)*2];
         upload(*frame,sky,4,4,skyPixels,64);
         SdlPostAtmosphereViews views;views.MapIdentity=1;views.MapGeneration=1;views.Sky={sky,100,1};
-        SdlPostGroundHazeSettings haze;SdlPostAtmosphereSettings atmosphere;atmosphere.Strength=1;
+        SdlPostGroundHazeSettings haze,transitionWarm;SdlPostAtmosphereSettings atmosphere;atmosphere.Strength=1;
         atmosphere.MapSize[0]=atmosphere.MapSize[1]=1000000;atmosphere.Horizon[0]=atmosphere.Horizon[1]=atmosphere.Horizon[2]=1;
         const float up[16]={1,0,0,0,0,1,0,0,-250,-250,1,-.5f,500,500,0,1};
         const float affineUp[16]={1,0,0,0,0,1,0,0,0,0,1,0,500,500,0,1};
@@ -128,7 +128,7 @@ static int gpu()
         SdlTarget scene,presentation;
         auto begin=[&](const float *matrix,bool hdr=false) {
             presentation=frame->Back_Buffer_Target();CHECK(post.Prepare(*frame,presentation,post_settings(hdr),scene));fill(*frame,scene);
-            CHECK(module.Prepare(*frame,post,scene,main_identity(*frame,scene),matrix,haze,atmosphere,views));
+            CHECK(module.Prepare(*frame,post,scene,main_identity(*frame,scene),matrix,haze,atmosphere,views,transitionWarm));
         };
         auto end=[&](){CHECK(post.Finish(*frame,scene,presentation));CHECK(frame->Present(nullptr));};
         begin(up);frame->Set_Target(scene);frame->Clear_Back_Buffer(false,true,false,0,.375f,0);
@@ -162,6 +162,34 @@ static int gpu()
         begin(affineUp);depth(*frame,sampled,w,h,.25f,.25f);in=capture(*frame,scene,sampled,affineUp,views);
         CHECK(module.Apply_Ground_Haze(*frame,scene,in));CHECK(!module.Apply_Ground_Haze(*frame,scene,in));pixels=read(*frame,scene);alpha(pixels);
         const unsigned low=component(pixels,w,w/2,h/2);CHECK(low>16);end();
+        // Only an explicit weather placement accepts opaque-scene depth. The later atmosphere
+        // pass still requires its own BeforeTransparent capture and completion flag.
+        haze.BeforeWater=true;begin(affineUp);depth(*frame,sampled,w,h,.25f,.25f);in=capture(*frame,scene,sampled,affineUp,views);
+        CHECK(!module.Apply_Ground_Haze(*frame,scene,in));
+        auto weatherOpaque=in;weatherOpaque.Capture.Phase=SdlSceneCapturePhase::OpaqueScene;
+        CHECK(module.Apply_Ground_Haze(*frame,scene,weatherOpaque));
+        CHECK(component(read(*frame,scene),w,w/2,h/2)==low);
+        CHECK(!module.Apply_Ground_Haze(*frame,scene,weatherOpaque));end();
+        haze.BeforeWater=false;begin(affineUp);depth(*frame,sampled,w,h,.25f,.25f);in=capture(*frame,scene,sampled,affineUp,views);
+        weatherOpaque=in;weatherOpaque.Capture.Phase=SdlSceneCapturePhase::OpaqueScene;
+        CHECK(!module.Apply_Ground_Haze(*frame,scene,weatherOpaque));
+        CHECK(module.Apply_Ground_Haze(*frame,scene,in));end();
+        // Complementary rain/warm weights use one shader with independent phase completion.
+        // At either endpoint only one haze draws; the half fade never duplicates full haze.
+        for (int step=0;step<3;++step) {
+            const float envelope=step*0.5f;
+            transitionWarm=haze;transitionWarm.BeforeWater=false;transitionWarm.Strength=1.0f-envelope;
+            haze.BeforeWater=true;haze.Strength=envelope;
+            begin(affineUp);depth(*frame,sampled,w,h,.25f,.25f);in=capture(*frame,scene,sampled,affineUp,views);
+            weatherOpaque=in;weatherOpaque.Capture.Phase=SdlSceneCapturePhase::OpaqueScene;
+            CHECK(module.Apply_Ground_Haze(*frame,scene,weatherOpaque)==(step>0));
+            CHECK(!module.Apply_Transition_Warm_Haze(*frame,scene,weatherOpaque));
+            CHECK(module.Apply_Transition_Warm_Haze(*frame,scene,in)==(step<2));
+            CHECK(!module.Apply_Transition_Warm_Haze(*frame,scene,in));
+            const unsigned mixed=component(read(*frame,scene),w,w/2,h/2);
+            CHECK(step==1 ? (mixed>low/2 && mixed<=low) : mixed==low);end();
+        }
+        transitionWarm={};haze.BeforeWater=false;haze.Strength=1;
         begin(affineUp);depth(*frame,sampled,w,h,.75f,.75f);in=capture(*frame,scene,sampled,affineUp,views);
         CHECK(module.Apply_Ground_Haze(*frame,scene,in));const unsigned high=component(read(*frame,scene),w,w/2,h/2);CHECK(high>0 && low>high+16);end();
         haze.Top=.2f;begin(affineUp);depth(*frame,sampled,w,h,.5f,.5f);in=capture(*frame,scene,sampled,affineUp,views);
