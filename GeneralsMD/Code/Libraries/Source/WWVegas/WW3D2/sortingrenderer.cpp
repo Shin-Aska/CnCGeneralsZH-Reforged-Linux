@@ -158,6 +158,7 @@ public:
 	bool fire;									// a fire system's quads, age and seed in v2 (Insert_Quads)
 	bool emissive;							// an Emissive system's quads: no shadow, no smoke shade (Insert_Quads)
 	bool hard_edge;							// quads with no soft particle fade, a mine's flare (Insert_Quads)
+	bool preserve_width;				// clipped billboards retain their original soft-fade width in u2
 	// The object's Direct3D 11 look (RTS3DScene::renderOneObject) as the mesh renderer had it set
 	// when a sorted mesh queued its triangles; its draws come later, after the look is put back.
 	unsigned draw_effect;
@@ -356,7 +357,8 @@ void SortingRendererClass::Insert_Quads(
 	bool glow,
 	bool fire,
 	bool emissive,
-	bool hard_edge)
+	bool hard_edge,
+	bool preserve_width)
 {
 	const unsigned short polygon_count=quad_count*2;
 	if (!WW3D::Is_Sorting_Enabled()) {
@@ -386,6 +388,7 @@ void SortingRendererClass::Insert_Quads(
 	state->fire=fire;
 	state->emissive=emissive;
 	state->hard_edge=hard_edge;
+	state->preserve_width=preserve_width;
 	No_Draw_Effect(state);
 	state->transformed_center=Vector3(0.0f,0.0f,0.0f);
 	unsorted_list.Add_Tail(state);
@@ -743,7 +746,8 @@ static void Copy_Batch_Vertices(int chunk,void* context)
 			// A hard edged node's quads (a mine's flare on the ground) fade over a thousandth of a
 			// unit, which is the plain depth test -d3d9 draws them with.
 			const float half_width=overlapping_nodes[entry.idx]->hard_edge
-				? 0.001f : 0.5f*sqrtf(dx*dx+dy*dy+dz*dz);
+				? 0.001f : (overlapping_nodes[entry.idx]->preserve_width
+					? quad[0].u2 : 0.5f*sqrtf(dx*dx+dy*dy+dz*dz));
 			dest_verts[0].u2=half_width;
 			dest_verts[1].u2=half_width;
 			dest_verts[2].u2=half_width;

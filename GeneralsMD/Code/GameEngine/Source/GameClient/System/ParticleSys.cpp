@@ -54,6 +54,7 @@
 #include "GameClient/ParticleSys.h"
 #include "GameClient/Shadow.h"
 #include "GameClient/Snow.h"
+#include "Platform/FireSmokePolicy.h"
 
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/Object.h"
@@ -2196,6 +2197,19 @@ Particle *ParticleSystem::createParticle( const ParticleInfo *info,
 		if (TheGlobalData->m_useFX == FALSE)
 			return NULL;
 
+		// Refuse fresh combustion smoke before either the CPU allocation or the GPU pool.
+		// Keep the forced save-load path above intact: existing puffs still age and disperse.
+		// Slave particles carry their master's world emitter position in ParticleInfo too.
+		if (!TheGlobalData->m_classicGraphics && TheTerrainLogic && m_shaderType == ALPHA
+				&& FireSmokePolicy::knownSource(m_template->getName().str()))
+		{
+			Real waterZ = 0.0f;
+			const Coord3D &emitter = info->m_emitterPos;
+			const Bool hasWater = TheTerrainLogic->isUnderwater(emitter.x, emitter.y, &waterZ);
+			if (FireSmokePolicy::submerged(hasWater, emitter.z, waterZ))
+				return NULL;
+		}
+
 		//
 		// Enforce particle limit.
 		// If we are at the limit, destroy the oldest particle in order
@@ -3857,6 +3871,8 @@ Bool ParticleSystemTemplate::isGpuEligible( void ) const
 		&& m_attachedSystemName.isEmpty()
 		&& ( m_shaderType == ALPHA || m_shaderType == ADDITIVE )
 		&& !m_fireLook
+		// The quenching puff uses the CPU billboard's per-particle waterline clipping.
+		&& !FireSmokePolicy::sameName(m_name.str(), FireSmokePolicy::SteamTemplate)
 		&& m_flipbookGridLog2 == 0
 		&& !m_isParticleUpTowardsEmitter;
 }

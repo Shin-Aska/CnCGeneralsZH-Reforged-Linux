@@ -64,7 +64,8 @@ public:
 		bool glow = false,
 		bool fire = false,
 		bool emissive = false,
-		bool hard_edge = false);
+		bool hard_edge = false,
+		bool preserve_width = false);
 
 	static void Insert_VolumeParticle(
 		const SphereClass& bounding_sphere,

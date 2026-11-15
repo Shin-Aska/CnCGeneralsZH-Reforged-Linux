@@ -26,8 +26,26 @@
 #pragma once
 
 #include <math.h>
+#include <cmath>
 
 namespace FireLights {
+
+/// Fade a flame as the local water rises over its emission point, including on save load.
+/// Compare the emitter's world height, not its owner's ground height: a roof, bridge or
+/// vessel can be over flooded terrain and still have a dry fire. Smoke is independent.
+inline float waterVisibility(bool hasWater, float emitterZ, float waterZ)
+{
+	if (!hasWater || !std::isfinite(emitterZ) || !std::isfinite(waterZ))
+		return 1.0f;
+	const float depth = waterZ - emitterZ;
+	if (depth <= 0.0f)
+		return 1.0f;
+	const float fadeDepth = 2.0f;
+	if (depth >= fadeDepth)
+		return 0.0f;
+	const float t = depth / fadeDepth;
+	return 1.0f - t * t * (3.0f - 2.0f * t);
+}
 
 enum {
 	MAX_LIGHTS = 12,		///< a frame's fire lights, out of the 32 per pixel slots the pulses share

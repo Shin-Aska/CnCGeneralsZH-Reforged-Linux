@@ -40,6 +40,7 @@
 #include "WW3D2/rinfo.h"
 #include "WWLib/bittype.h"
 #include "Platform/ModernWaterBuild.h"
+#include "Platform/FireWaterEffects.h"
 
 #include <deque>
 #include <map>
@@ -100,12 +101,22 @@ private:
 	Bool m_readyToRender;											///< if true, it is OK to render
 
 public:
+	struct WaterClipSample
+	{
+		const Particle *particle;
+		Real height;
+		Bool wet;
+	};
+
 	/// One sorted billboard system's share of a frame's fill: reserved on the render thread, written by
 	/// one job, inserted into the sorting pool on the render thread again, in system list order.
 	struct BillboardFill
 	{
 		ParticleSystem *												system;
 		PointGroupClass::SortingBillboardRange	range;
+		PointGroupClass::SortingBillboardRange	overflow;
+		const WaterClipSample *waterClips;
+		Int waterClipCount, rangeCapacity, quads;
 		TextureClass *													texture;
 		ShaderClass															shader;
 		Int																			capacity;					///< quads reserved: the system's particles, at most MAX_POINTS_PER_GROUP
@@ -142,6 +153,16 @@ private:
 	};
 
 	void refreshFrameView( void );
+	Bool frameViewCurrent( void ) const;
+	Real systemVisibility( ParticleSystem *system ) const;
+	/// Submerged flames only, sampled before logic/render overlap. Every pass and light uses
+	/// the same fade; particle simulation, emission, saved state and airborne smoke are untouched.
+	std::unordered_map<ParticleSystemID, Real> m_fireWaterFades;
+	std::vector<WaterClipSample> m_waterClipSamples;
+	std::unordered_map<ParticleSystemID, std::pair<unsigned, unsigned>> m_waterClipRanges;
+	std::unordered_map<ParticleSystemID, FireWaterEffects::Contact> m_fireWaterContacts;
+	struct SteamContact { Coord3D position; UnsignedInt frame; Real scale; };
+	std::vector<SteamContact> m_recentSteam;
 
 	std::vector<BillboardFill> m_billboardFills;	///< kept across frames so the fill does not allocate
 

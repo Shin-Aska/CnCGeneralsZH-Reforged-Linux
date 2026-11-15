@@ -242,7 +242,8 @@ public:
 	/// meet the scene depth as -d3d9 draws them (a mine's flare on the ground).  Render thread only.
 	static void				Insert_Sorted_Billboards(SortingBillboardRange *range, int quads,
 										TextureClass *texture, const ShaderClass &shader, bool glow = false,
-										bool fire = false, bool emissive = false, bool hard_edge = false);
+										bool fire = false, bool emissive = false, bool hard_edge = false,
+										bool preserve_width = false);
 
 	/// One billboard's four vertices: the transform, corner table and frame UVs Render uses for a
 	/// billboarded QUADS group with per-point sizes, orientations, colours and frames, written the

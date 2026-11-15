@@ -2,6 +2,7 @@
 #include "PosixDevice9.h"
 #include "SdlGpuFrame.h"
 #include "Platform/RenderParticles.h"
+#include "Platform/FireWaterEffects.h"
 #include "ffshader.h"
 #include "ffvertex.h"
 #include "sdl3target.h"
@@ -106,6 +107,36 @@ static int gpu()
     CHECK(draw(false,true,0.5f,0.8f,false,true)==fire); // original fire math is allowed in mirrors
     CHECK(draw(true,true,0.5f,0.8f)!=fire);
     for(unsigned fault:{1u,2u,4u,8u})CHECK(draw(false,true,0.5f,0.8f,false,false,fault)==hard);
+
+    // Exercise the geometry cut on the actual native device. A quad covering the
+    // target must retain its dry half and write no fragments below the waterline.
+    auto waterQuad=[&](bool clip) {
+        RenderPost::Settings settings;device->Begin_Post(settings);
+        const auto scope=device->Begin_Post_View(true,1,100,false);
+        frame->Set_Target(frame->Back_Buffer_Target());frame->Clear_Back_Buffer(true,true,false,0,1,0);
+        state(D3DRS_SRCBLEND,D3DBLEND_SRCALPHA);state(D3DRS_DESTBLEND,D3DBLEND_INVSRCALPHA);
+        RenderParticles::SetSoftParticles(device,false);RenderParticles::SetFireLook(device,false);
+        Vertex q[8]={{-2,-2,2,0,0,0,0xFFFFFFFF,0,1,2,17.7f},
+            {2,-2,2,0,0,0,0xFFFFFFFF,1,1,2,17.7f},
+            {2,2,2,0,0,0,0xFFFFFFFF,1,0,2,17.7f},
+            {-2,2,2,0,0,0,0xFFFFFFFF,0,0,2,17.7f}};
+        const float plane[4]={0,1,0,0};
+        const auto blend=[](const Vertex &a,const Vertex &b,float t) {
+            Vertex v=a;
+            v.x+=t*(b.x-a.x);v.y+=t*(b.y-a.y);v.z+=t*(b.z-a.z);
+            v.u+=t*(b.u-a.u);v.v+=t*(b.v-a.v);return v;
+        };
+        const int pieces=clip ? FireWaterEffects::clipQuad(q,plane,blend) : 1;
+        Vertex triangles[12];unsigned count=0;
+        for(int i=0;i<pieces;++i)for(int k:{0,1,2,2,3,0})triangles[count++]=q[i*4+k];
+        CHECK(device->DrawPrimitiveUP(D3DPT_TRIANGLELIST,count/3,triangles,sizeof(Vertex))==D3D_OK);
+        std::vector<uint8_t> pixels;CHECK(frame->Read_Back(frame->Back_Buffer(),16,16,pixels));
+        device->End_Post_View(scope);return pixels;
+    };
+    const auto whole=waterQuad(false),cut=waterQuad(true);
+    CHECK(whole.size()==16*16*4 && cut.size()==whole.size());
+    if(cut.size()==16*16*4)for(unsigned y=0;y<16;++y)for(unsigned x=0;x<16;++x)
+        for(unsigned c=0;c<3;++c)CHECK(cut[(y*16+x)*4+c]==(y<8 ? whole[(y*16+x)*4+c] : 0));
     CHECK(device->SetTexture(0,nullptr)==D3D_OK);texture->Release();device->Release();api->Release();SDL_Quit();
     return failures?1:0;
 }

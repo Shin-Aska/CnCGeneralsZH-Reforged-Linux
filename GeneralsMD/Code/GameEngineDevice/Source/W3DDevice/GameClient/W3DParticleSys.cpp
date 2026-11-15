@@ -54,6 +54,7 @@
 #include "Common/LogicThread.h"
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/Object.h"
+#include "GameLogic/TerrainLogic.h"
 #include "GameLogic/Module/LifetimeUpdate.h"
 #include "GameLogic/PartitionManager.h"
 #include "GameClient/ObserverCamera.h"
@@ -61,6 +62,7 @@
 #include "GameClient/GameClient.h"
 #include "GameClient/Drawable.h"
 #include "Platform/WaterFoamParticlePolicy.h"
+#include "Platform/FireSmokePolicy.h"
 #include <map>
 #include <cstdio>
 #include <cstdlib>
@@ -801,6 +803,7 @@ struct BillboardFillJob
 {
 	W3DParticleSystemManager::BillboardFill *	fills;
 	Matrix4x4																	view;
+	Vector4 worldHeightFromView;
 	Real																			centerX, centerY, centerZ;
 	Real																			extentX, extentY, extentZ;
 	SmokeLight																lights[ SMOKE_LIGHTS_MAX ];	///< this frame's, strongest first
@@ -815,6 +818,19 @@ struct BillboardFillJob
 /// would spend more on the interlocked claim than the work is worth
 static const Int BILLBOARD_FILLS_PER_CLAIM = 4;
 
+static VertexFormatXYZNDUV2 blendWaterClipVertex(const VertexFormatXYZNDUV2 &a,
+	const VertexFormatXYZNDUV2 &b, float t)
+{
+	VertexFormatXYZNDUV2 result = a;
+#define WATER_CLIP_LERP(field) result.field = a.field + (b.field - a.field) * t
+	WATER_CLIP_LERP(x); WATER_CLIP_LERP(y); WATER_CLIP_LERP(z);
+	WATER_CLIP_LERP(nx); WATER_CLIP_LERP(ny); WATER_CLIP_LERP(nz);
+	WATER_CLIP_LERP(u1); WATER_CLIP_LERP(v1); WATER_CLIP_LERP(u2); WATER_CLIP_LERP(v2);
+#undef WATER_CLIP_LERP
+	// A billboard's packed colour is identical at all four original corners.
+	return result;
+}
+
 /** One sorted billboard system's quads, written into the range reserved for it.  Reads the system's
 	* particles and writes only that range and that fill's counts: no allocation, no device calls,
 	* nothing another job touches.  The cull and the 512-a-system cut are the ones the serial loop
@@ -823,8 +839,7 @@ static void fillBillboards( Int index, void *context )
 {
 	BillboardFillJob *job = (BillboardFillJob *)context;
 	W3DParticleSystemManager::BillboardFill &fill = job->fills[ index ];
-	VertexFormatXYZNDUV2 *quad = fill.range.Vertices;
-	Int drawn = 0;
+	Int drawn = 0, quads = 0, sampleIndex = 0;
 	SmokeLight lights[ SMOKE_LIGHTS_PER_SYSTEM ];
 	const Int lightCount = pickSmokeLights( fill.system, job->lights, job->lightCount, lights );
 	const ParticleSystemInfo::ParticleShaderType shaderType = fill.system->getShaderType();
@@ -832,6 +847,9 @@ static void fillBillboards( Int index, void *context )
 
 	for (Particle *p = fill.system->getFirstParticle(); p; p = p->m_systemNext)
 	{
+		const W3DParticleSystemManager::WaterClipSample *water = fill.waterClips && sampleIndex < fill.waterClipCount
+			? &fill.waterClips[sampleIndex] : NULL;
+		++sampleIndex;
 		const Coord3D *pos = p->getPosition();
 		const Real psize = p->getSize();
 
@@ -865,8 +883,11 @@ static void fillBillboards( Int index, void *context )
 		const unsigned packed = DX8Wrapper::Convert_Color_Clamp( Vector4( red, green, blue, alpha ) );
 		// The orientation table's index wraps, as it did on Windows (Platform/MsvcFloatCasts.h).
 		const uint8 orientation = floatToByteAsMsvc( p->getAngle() * 255.0f / (2.0f * PI) );
+		VertexFormatXYZNDUV2 clipped[8];
+		VertexFormatXYZNDUV2 *quad = fill.waterClips ? clipped : fill.range.Vertices + quads * 4;
 		PointGroupClass::Write_Billboard( quad, job->view, Vector3( pos->x, pos->y, pos->z ), psize,
 			orientation, packed, glow, flipbookLog2, flipbookLog2 ? p->getFlipbookFrame() : 0 );
+		for (Int k = 0; k < 4; ++k) { quad[k].u2 = psize; quad[k].v2 = 0.0f; }
 		if (fill.fire)
 		{
 			// FIRE_LOOK_SAMPLING's packing: a whole number below 256, the seed times eight plus the
@@ -879,7 +900,25 @@ static void fillBillboards( Int index, void *context )
 			for (Int k = 0; k < 4; ++k)
 				quad[ k ].v2 = fireAgeSeed;
 		}
-		quad += 4;
+		Int pieces = 1;
+		if (fill.waterClips)
+		{
+			if (water && water->particle == p && water->wet)
+			{
+				const Vector4 &z = job->worldHeightFromView;
+				const float plane[4] = {z.X, z.Y, z.Z, z.W - water->height - 0.05f};
+				pieces = FireWaterEffects::clipQuad(quad, plane, blendWaterClipVertex);
+			}
+			for (Int piece = 0; piece < pieces; ++piece)
+			{
+				const Int at = quads + piece;
+				VertexFormatXYZNDUV2 *destination = at < fill.rangeCapacity
+					? fill.range.Vertices + at * 4 : fill.overflow.Vertices + (at - fill.rangeCapacity) * 4;
+				std::copy(quad + piece * 4, quad + piece * 4 + 4, destination);
+			}
+		}
+		if (pieces == 0) continue;
+		quads += pieces;
 
 		if (++drawn == fill.capacity)
 		{
@@ -889,6 +928,7 @@ static void fillBillboards( Int index, void *context )
 	}
 
 	fill.drawn = drawn;
+	fill.quads = quads;
 	fill.glow = job->glowAfterShade && lightCount > 0;
 }
 
@@ -2509,6 +2549,11 @@ void W3DParticleSystemManager::reset()
 	m_frameView.clear();
 	m_frameFires.clear();
 	m_frameFireFades.clear();
+	m_fireWaterFades.clear();
+	m_waterClipSamples.clear();
+	m_waterClipRanges.clear();
+	m_fireWaterContacts.clear();
+	m_recentSteam.clear();
 	m_frameExhausts.clear();
 	m_frameExhaustFades.clear();
 	m_fieldSystems.clear();
@@ -2557,8 +2602,95 @@ void W3DParticleSystemManager::releaseGpuResources()
 void W3DParticleSystemManager::takeReadsForRender( void )
 {
 	s_fieldRenderFrame = (Int)TheGameLogic->getFrame();
+	if (!frameViewCurrent())
+	{
+		const UnsignedInt frame = TheGameLogic->getFrame();
+		m_fireWaterFades.clear();
+		m_waterClipSamples.clear();
+		m_waterClipRanges.clear();
+		m_recentSteam.erase(std::remove_if(m_recentSteam.begin(), m_recentSteam.end(), [frame](const SteamContact &c) {
+			return frame < c.frame || frame - c.frame > 2 * LOGICFRAMES_PER_SECOND;
+		}), m_recentSteam.end());
+		std::vector<SteamContact> steams;
+		if (TheTerrainLogic && !TheGlobalData->m_classicGraphics)
+			for (ParticleSystemListIt it = m_allParticleSystemList.begin(); it != m_allParticleSystemList.end(); ++it)
+			{
+				ParticleSystem *sys = *it;
+				if (!sys || sys->getParticleCount() == 0 || sys->isUsingDrawables())
+					continue;
+				const Bool fire = sys->getTemplate()->isFireLook() &&
+					(sys->getShaderType() == ParticleSystemInfo::ADDITIVE || sys->getTemplate()->isEmissive());
+				const Bool steam = FireSmokePolicy::sameName(sys->getTemplate()->getName().str(), FireSmokePolicy::SteamTemplate);
+				if (!fire && !steam)
+					continue;
+				const Coord3D local = {0.0f, 0.0f, 0.0f};
+				Coord3D emitter;
+				sys->getWorldEmissionPosition(local, &emitter);
+				Real waterZ = 0.0f;
+				const Bool hasWater = TheTerrainLogic->isUnderwater(emitter.x, emitter.y, &waterZ);
+				const Real fade = fire ? FireLights::waterVisibility(hasWater, emitter.z, waterZ) : 1.0f;
+				if (fade < 1.0f)
+					m_fireWaterFades.emplace(sys->getSystemID(), fade);
+				if (fire && m_fireWaterContacts[sys->getSystemID()].observe(hasWater, emitter.z, waterZ, frame)
+						&& sys->getStealthFade() > 0.0f && ThePartitionManager
+						&& ThePartitionManager->getShroudStatusForPlayer(TheObserverCamera.getShroudPlayerIndex(), &emitter) == CELLSHROUD_CLEAR)
+				{
+					SteamContact contact = {{emitter.x, emitter.y, waterZ + 0.15f}, frame,
+						WWMath::Clamp(sys->m_startSize.getMaximumValue() / 14.0f, 0.5f, 1.5f)};
+					Bool nearby = FALSE;
+					for (const SteamContact &recent : m_recentSteam)
+						if (std::hypot(recent.position.x - emitter.x, recent.position.y - emitter.y) < 28.0f
+								&& WWMath::Fabs(recent.position.z - contact.position.z) < 3.0f) { nearby = TRUE; break; }
+					if (!nearby && steams.size() < 8 && m_recentSteam.size() < 64)
+					{
+						steams.push_back(contact);
+						m_recentSteam.push_back(contact);
+					}
+				}
+				if (fade <= 0.0f || sys->getStealthFade() <= 0.0f) continue;
+				const unsigned first = (unsigned)m_waterClipSamples.size();
+				Bool anyWater = FALSE;
+				for (Particle *particle = sys->getFirstParticle(); particle; particle = particle->m_systemNext)
+				{
+					const Coord3D &at = *particle->getPosition();
+					Real level = 0.0f;
+					const Bool wet = TheTerrainLogic->isUnderwater(at.x, at.y, &level);
+					m_waterClipSamples.push_back({particle, level, wet});
+					anyWater = anyWater || wet;
+				}
+				if (anyWater) m_waterClipRanges.emplace(sys->getSystemID(), std::make_pair(first, (unsigned)m_waterClipSamples.size() - first));
+				else m_waterClipSamples.resize(first);
+			}
+		for (auto it = m_fireWaterContacts.begin(); it != m_fireWaterContacts.end();)
+			if (it->second.seen != frame) it = m_fireWaterContacts.erase(it); else ++it;
+		// Do not change the source list while sampling it. These short-lived client
+		// effects emit next update, above the sampled waterline, and are never saved.
+		for (const SteamContact &contact : steams)
+		{
+			ParticleSystem *steam = createParticleSystem(findTemplate(FireSmokePolicy::SteamTemplate), FALSE);
+			if (!steam) continue;
+			steam->setPosition(&contact.position);
+			steam->setSizeMultiplier(contact.scale);
+			steam->setSaveable(FALSE);
+		}
+		// Water can change a fade even when the systems and their particle counts are unchanged.
+		s_fireLightsValid = FALSE;
+	}
 	refreshFrameView();
 	updateGroundFields( m_fieldSystems );
+}
+
+Bool W3DParticleSystemManager::frameViewCurrent( void ) const
+{
+	return m_frameViewValid && m_frameViewLogicFrame == TheGameLogic->getFrame() && m_frameViewFrame == m_lastLogicFrameUpdate
+		&& m_frameViewParticles == m_particleCount && m_frameViewSystems == m_particleSystemCount
+		&& (m_frameViewNextID == m_uniqueSystemID || LogicThread::isInsideWindow());
+}
+
+Real W3DParticleSystemManager::systemVisibility( ParticleSystem *sys ) const
+{
+	const auto water = m_fireWaterFades.find(sys->getSystemID());
+	return sys->getStealthFade() * (water == m_fireWaterFades.end() ? 1.0f : water->second);
 }
 
 /** The systems a pass draws from, walked again only when a particle update or anything else that
@@ -2569,9 +2701,7 @@ void W3DParticleSystemManager::takeReadsForRender( void )
 void W3DParticleSystemManager::refreshFrameView( void )
 {
 	const UnsignedInt logicFrame = TheGameLogic->getFrame();
-	if (m_frameViewValid && m_frameViewLogicFrame == logicFrame && m_frameViewFrame == m_lastLogicFrameUpdate
-			&& m_frameViewParticles == m_particleCount && m_frameViewSystems == m_particleSystemCount
-			&& (m_frameViewNextID == m_uniqueSystemID || LogicThread::isInsideWindow()))
+	if (frameViewCurrent())
 		return;
 
 	m_frameView.clear();
@@ -2592,7 +2722,7 @@ void W3DParticleSystemManager::refreshFrameView( void )
 			m_fieldSystems.push_back( sys );
 		if (sys->getParticleCount() == 0)
 			continue;
-		const Real fade = sys->getStealthFade();
+		const Real fade = systemVisibility(sys);
 		if (fade <= 0.0f)
 			continue;
 		SystemView view;
@@ -2826,7 +2956,7 @@ void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 		if (*((UnsignedInt *)sys->getParticleTypeName().str()) == 0x44554D53)
 			continue;
 
-		BillboardFill fill;
+		BillboardFill fill = {};
 		if (sys->isUsingStreak() || !sys->shouldBillboard() || sys->getVolumeParticleDepth() > 1
 				|| !particlePresetShader( sys->getShaderType(), &fill.shader )
 				|| !PointGroupClass::Would_Sort_Billboards( fill.shader ))
@@ -2836,6 +2966,14 @@ void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 		fill.fade = m_frameView[ v ].fade;
 		fill.system = sys;
 		fill.capacity = (particles < (Int)MAX_POINTS_PER_GROUP) ? particles : (Int)MAX_POINTS_PER_GROUP;
+		const auto water = m_waterClipRanges.find(sys->getSystemID());
+		if (water != m_waterClipRanges.end())
+		{
+			fill.waterClips = &m_waterClipSamples[water->second.first];
+			fill.waterClipCount = (Int)water->second.second;
+		}
+		const Int room = fill.capacity * (fill.waterClips ? 2 : 1);
+		fill.rangeCapacity = std::min(room, (Int)MAX_POINTS_PER_GROUP);
 		fill.fieldIncrement = ( sys->getPriority() == AREA_EFFECT && sys->m_isGroundAligned != FALSE ) ? 1 : 0;
 		fill.drawn = 0;
 		fill.pastLimit = 0;
@@ -2843,13 +2981,16 @@ void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 		fill.fire = sys->getTemplate()->isFireLook();
 		fill.hardEdge = sys->isAttachedToMine();
 		fill.texture =W3DDisplay::m_assetManager->Get_Texture( sys->getParticleTypeName().str() );
-		PointGroupClass::Reserve_Sorted_Billboards( fill.capacity, &fill.range );
+		PointGroupClass::Reserve_Sorted_Billboards( fill.rangeCapacity, &fill.range );
+		if (room > fill.rangeCapacity)
+			PointGroupClass::Reserve_Sorted_Billboards(room - fill.rangeCapacity, &fill.overflow);
 		m_billboardFills.push_back( fill );
 	}
 
 	BillboardFillJob fillJob;
 	fillJob.fills = m_billboardFills.empty() ? NULL : &m_billboardFills[ 0 ];
 	DX8Wrapper::Get_Transform( D3DTS_VIEW, fillJob.view );
+	fillJob.worldHeightFromView = fillJob.view.Inverse()[2];
 	fillJob.centerX = bcX;
 	fillJob.centerY = bcY;
 	fillJob.centerZ = bcZ;
@@ -2946,8 +3087,11 @@ void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 		if (nextFill < m_billboardFills.size() && m_billboardFills[ nextFill ].system == sys)
 		{
 			BillboardFill &fill = m_billboardFills[ nextFill++ ];
-			PointGroupClass::Insert_Sorted_Billboards( &fill.range, fill.drawn, fill.texture, fill.shader, fill.glow != FALSE, fill.fire != FALSE,
-				sys->getTemplate()->isEmissive() != FALSE, fill.hardEdge != FALSE );
+			PointGroupClass::Insert_Sorted_Billboards( &fill.range, std::min(fill.quads, fill.rangeCapacity), fill.texture, fill.shader, fill.glow != FALSE, fill.fire != FALSE,
+				sys->getTemplate()->isEmissive() != FALSE, fill.hardEdge != FALSE, fill.waterClips != NULL );
+			if (fill.overflow.Array)
+				PointGroupClass::Insert_Sorted_Billboards(&fill.overflow, std::max(0, fill.quads - fill.rangeCapacity), fill.texture, fill.shader,
+					fill.glow != FALSE, fill.fire != FALSE, sys->getTemplate()->isEmissive() != FALSE, fill.hardEdge != FALSE, true);
 			fill.texture->Release_Ref();	// the draw state took its own reference
 			m_fieldParticleCount += fill.fieldIncrement * fill.drawn;
 			m_onScreenParticleCount += fill.drawn;
@@ -3468,7 +3612,7 @@ void W3DParticleSystemManager::refreshGpuSystems( void )
 		ParticleSystem *sys = m_gpuSlots[ slot ].system;
 		if (sys == NULL)
 			continue;
-		const Real fade = sys->getStealthFade();
+		const Real fade = systemVisibility(sys);
 		const Real shown = fade > 0.0f ? fade : 0.0f;
 		if (m_gpuFades[ slot ] != shown)
 		{
