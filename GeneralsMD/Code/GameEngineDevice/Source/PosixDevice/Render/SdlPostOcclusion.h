@@ -47,6 +47,9 @@ public:
     bool Release(SdlGpuFrame &frame);
     const std::string &Error() const;
     SdlPostOcclusionResources Resources() const;
+    // Per-instance injection: mutating process environment after the GPU starts races driver getenv.
+    enum class TestFailure { None, Program, Pipeline, Target, TargetAfterOne };
+    void Set_Failure_For_Test(TestFailure failure);
 private:
     struct Impl;
     Impl *State;

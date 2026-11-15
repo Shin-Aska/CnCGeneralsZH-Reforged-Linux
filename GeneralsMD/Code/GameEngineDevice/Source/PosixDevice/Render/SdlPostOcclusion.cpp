@@ -6,16 +6,10 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
-#include <cstdlib>
 #include <cstring>
 #include <vector>
 
 namespace {
-bool fault(const char *point)
-{
-    const char *requested = std::getenv("ZH_TEST_SDL_AO_FAILURE");
-    return requested && !std::strcmp(requested, point);
-}
 unsigned format_slot(unsigned format)
 {
     if (format == SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM) return 0;
@@ -73,6 +67,8 @@ struct SdlPostOcclusion::Impl
     uint64_t ExpectedViewKey = 0;
     std::string LastError;
     unsigned long long Creations = 0;
+    TestFailure FailureForTest = TestFailure::None;
+    bool fault(TestFailure point) const { return FailureForTest == point; }
 
     bool fail(const std::string &why)
     {
@@ -109,7 +105,7 @@ struct SdlPostOcclusion::Impl
     }
     bool program(Pass pass, unsigned format)
     {
-        if (fault("program")) return fail("injected AO program failure");
+        if (fault(TestFailure::Program)) return fail("injected AO program failure");
         const unsigned slot = format_slot(format);
         if (slot > 3) return fail("unsupported AO output format");
         std::string source, error;
@@ -137,7 +133,7 @@ struct SdlPostOcclusion::Impl
             ++Creations;
             if (p.Samplers > 3 || p.Uniforms > 2) return fail("AO shader exceeds explicit descriptor/uniform bindings");
         }
-        if (fault("pipeline")) return fail("injected AO pipeline failure");
+        if (fault(TestFailure::Pipeline)) return fail("injected AO pipeline failure");
         if (!p.Pipelines[slot]) {
             SDL_GPUColorTargetDescription colour = {};
             colour.format = SDL_GPUTextureFormat(format);
@@ -173,7 +169,7 @@ struct SdlPostOcclusion::Impl
     }
     SDL_GPUTexture *texture(unsigned w, unsigned h, unsigned format)
     {
-        if (fault("target")) { fail("injected AO target failure"); return nullptr; }
+        if (fault(TestFailure::Target)) { fail("injected AO target failure"); return nullptr; }
         SDL_GPUTextureCreateInfo info = {};
         info.type = SDL_GPU_TEXTURETYPE_2D; info.format = SDL_GPUTextureFormat(format);
         info.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
@@ -200,7 +196,7 @@ struct SdlPostOcclusion::Impl
         std::vector<SDL_GPUTexture *> created;
         auto ensure = [&](SDL_GPUTexture *&image, unsigned w, unsigned h, unsigned format) {
             if (image) return true;
-            if (fault("target-after-one") && created.size() == 1) return fail("injected AO partial-allocation failure");
+            if (fault(TestFailure::TargetAfterOne) && created.size() == 1) return fail("injected AO partial-allocation failure");
             image = texture(w, h, format);
             if (image) created.push_back(image);
             return image != nullptr;
@@ -265,6 +261,7 @@ struct SdlPostOcclusion::Impl
 };
 
 SdlPostOcclusion::SdlPostOcclusion() : State(new Impl) {}
+void SdlPostOcclusion::Set_Failure_For_Test(TestFailure failure) { State->FailureForTest = failure; }
 SdlPostOcclusion::~SdlPostOcclusion()
 {
     if (State->Owner && !Release(*State->Owner)) std::fprintf(stderr, "native SDL AO: queued resources retained until device teardown\n");

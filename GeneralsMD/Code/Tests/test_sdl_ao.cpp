@@ -218,12 +218,23 @@ static int gpu()
         CHECK(!post.Apply_Chain_AO(*frame,scene,transparent)); // no AO membership in copy chain
         CHECK(read(*frame,scene)==plain);finish();
 
-        for(const char *point:{"program","pipeline","target","target-after-one"}) {
+        using Failure=SdlPostOcclusion::TestFailure;
+        for(auto point:{Failure::Program,Failure::Pipeline,Failure::Target,Failure::TargetAfterOne}) {
             SdlPostProcess recovery;SdlTarget recoveredScene;
             CHECK(recovery.Prepare(*frame,presentation,settings("copy"),recoveredScene));fill_scene(*frame,recoveredScene);
             depth(*frame,early,w,h,.49f,.5f);auto recoveredInputs=inputs(*frame,recoveredScene,early,SdlSceneCapturePhase::OpaqueScene);
-            setenv("ZH_TEST_SDL_AO_FAILURE",point,1);CHECK(!recovery.Apply_World_AO(*frame,recoveredScene,recoveredInputs));
-            CHECK(read(*frame,recoveredScene)==plain);unsetenv("ZH_TEST_SDL_AO_FAILURE");
+            recovery.Set_AO_Failure_For_Test(point);CHECK(!recovery.Apply_World_AO(*frame,recoveredScene,recoveredInputs));
+            CHECK(read(*frame,recoveredScene)==plain);
+            // The injected fault belongs to recovery alone. Another module must still allocate
+            // and draw while it is active, without advancing the original capture's frame.
+            {
+                SdlPostProcess independent;SdlTarget otherScene;
+                CHECK(independent.Prepare(*frame,presentation,settings("copy"),otherScene));fill_scene(*frame,otherScene);
+                auto otherInputs=inputs(*frame,otherScene,early,SdlSceneCapturePhase::OpaqueScene);
+                CHECK(independent.Apply_World_AO(*frame,otherScene,otherInputs));
+                CHECK(independent.Finish(*frame,otherScene,presentation));CHECK(independent.Release(*frame));
+            }
+            recovery.Set_AO_Failure_For_Test(Failure::None);
             CHECK(recovery.Apply_World_AO(*frame,recoveredScene,recoveredInputs));CHECK(!recovery.Apply_World_AO(*frame,recoveredScene,recoveredInputs));
             CHECK(recovery.Finish(*frame,recoveredScene,presentation));CHECK(frame->Present(nullptr));CHECK(recovery.Release(*frame));
         }
@@ -257,7 +268,7 @@ static int gpu()
 }
 int main(int argc,char **argv)
 {
-    unsetenv("ZH_TEST_SDL_AO_FAILURE");cpu();if(failures)return 1;
+    cpu();if(failures)return 1;
     const int result=argc>1&&!std::strcmp(argv[1],"--gpu")?gpu():0;
     std::printf("SDL native AO: %u checks, %u failures\n",checks,failures);return result;
 }

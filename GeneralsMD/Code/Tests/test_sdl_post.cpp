@@ -286,9 +286,10 @@ static int check_gpu()
 
         std::vector<uint8_t> expectedRecovery;
         CHECK(run(*frame, post, bloom, pixels, expectedRecovery));
-        for (const char *point : {"prepare", "shader", "pipeline", "target", "target-after-one"}) {
+        using Failure = SdlPostProcess::TestFailure;
+        for (auto point : {Failure::Prepare, Failure::Shader, Failure::Pipeline, Failure::Target, Failure::TargetAfterOne}) {
             SdlPostProcess refused;
-            setenv("ZH_TEST_SDL_POST_FAILURE", point, 1);
+            refused.Set_Failure_For_Test(point);
             SdlTarget scene;
             const SdlTarget presentation = frame->Back_Buffer_Target();
             CHECK(!refused.Prepare(*frame, presentation, bloom, scene));
@@ -296,7 +297,11 @@ static int check_gpu()
             CHECK(!refused.Active() && refused.Additive_Gain() == 1 && !refused.Replaces_Legacy_Bloom());
             CHECK(!refused.Error().empty());
             CHECK(refused.Resources().Textures == 0); // no partially committed image transaction
-            unsetenv("ZH_TEST_SDL_POST_FAILURE");
+            // An active fault in refused must not affect another module on the same device.
+            std::vector<uint8_t> independent;
+            CHECK(run(*frame, post, bloom, pixels, independent));
+            CHECK(differences(expectedRecovery, independent) == 0);
+            refused.Set_Failure_For_Test(Failure::None);
             std::vector<uint8_t> recovered;
             CHECK(run(*frame, refused, bloom, pixels, recovered));
             CHECK(differences(expectedRecovery, recovered) == 0);
@@ -378,7 +383,6 @@ static int check_gpu()
 
 int main(int argc, char **argv)
 {
-    unsetenv("ZH_TEST_SDL_POST_FAILURE");
     check_bindings();
     if (failures) return 1;
     const int result = argc > 1 && !std::strcmp(argv[1], "--gpu") ? check_gpu() : 0;

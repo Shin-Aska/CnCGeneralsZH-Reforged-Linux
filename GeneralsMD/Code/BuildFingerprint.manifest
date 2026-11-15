@@ -987,6 +987,7 @@ GameEngine/Include/GameClient/Snow.h
 GameEngine/Include/GameClient/Statistics.h
 GameEngine/Include/GameClient/TerrainRoads.h
 GameEngine/Include/GameClient/TerrainVisual.h
+GameEngine/Include/GameClient/TreeWaterSway.h
 GameEngine/Include/GameClient/UIStyle.h
 GameEngine/Include/GameClient/UiAnimClock.h
 GameEngine/Include/GameClient/VideoPlayer.h
@@ -2376,6 +2377,8 @@ Libraries/Include/Platform/D3D9PosixMath.h
 Libraries/Include/Platform/DiagnosticCameraRoute.h
 Libraries/Include/Platform/DoubleClickTime.h
 Libraries/Include/Platform/EngineShaderName.h
+Libraries/Include/Platform/FireSmokePolicy.h
+Libraries/Include/Platform/FireWaterEffects.h
 Libraries/Include/Platform/HazardCloud.h
 Libraries/Include/Platform/HazardCloudBake.h
 Libraries/Include/Platform/HazardCloudCore.h
@@ -3711,6 +3714,7 @@ Tests/test_sun_shadow_sorting.cpp
 Tests/test_supply_center_save.inc
 Tests/test_support.cpp
 Tests/test_terrain_golden.cpp
+Tests/test_tree_water_sway.cpp
 Tests/test_user_data_guard.cpp
 Tests/test_userfolders.cpp
 Tests/test_vendor_no_art.sh

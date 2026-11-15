@@ -76,6 +76,9 @@ public:
     bool Replaces_Legacy_Bloom() const;
     const std::string &Error() const;
     SdlPostResources Resources() const;
+    enum class TestFailure { None, Prepare, Shader, Pipeline, Target, TargetAfterOne };
+    void Set_Failure_For_Test(TestFailure failure);
+    void Set_AO_Failure_For_Test(SdlPostOcclusion::TestFailure failure);
 
 private:
     struct Impl;

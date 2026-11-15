@@ -5,17 +5,11 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
-#include <cstdlib>
 #include <cstring>
 #include <vector>
 
 namespace {
 constexpr unsigned FLOAT_FORMAT = SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT;
-bool fault(const char *point)
-{
-    const char *requested = std::getenv("ZH_TEST_SDL_POST_FAILURE");
-    return requested && std::strcmp(requested, point) == 0;
-}
 bool same_target(const SdlTarget &a, const SdlTarget &b)
 {
     return a.Colour == b.Colour && a.Depth == b.Depth && a.Width == b.Width && a.Height == b.Height
@@ -54,6 +48,8 @@ struct SdlPostProcess::Impl
     bool Enabled = false, Armed = false, Finished = false, FailedFinish = false;
     std::string LastError;
     unsigned long long Creations = 0;
+    TestFailure FailureForTest = TestFailure::None;
+    bool fault(TestFailure point) const { return FailureForTest == point; }
 
     bool fail(const std::string &reason)
     {
@@ -65,7 +61,7 @@ struct SdlPostProcess::Impl
     SDL_GPUTexture *texture(unsigned width, unsigned height, unsigned format)
     {
         const auto usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
-        if (fault("target") || !SDL_GPUTextureSupportsFormat(Device, SDL_GPUTextureFormat(format),
+        if (fault(TestFailure::Target) || !SDL_GPUTextureSupportsFormat(Device, SDL_GPUTextureFormat(format),
             SDL_GPU_TEXTURETYPE_2D, usage)) {
             fail("unsupported target format or injected target failure"); return nullptr;
         }
@@ -90,7 +86,7 @@ struct SdlPostProcess::Impl
     }
     bool programs(const std::vector<PostShaderProgram> &needed, unsigned presentationFormat)
     {
-        if (fault("shader")) return fail("injected shader preparation failure");
+        if (fault(TestFailure::Shader)) return fail("injected shader preparation failure");
         std::string source, log;
         std::vector<unsigned char> spirv;
         if (!Vertex) {
@@ -126,7 +122,7 @@ struct SdlPostProcess::Impl
                 ? FLOAT_FORMAT : presentationFormat;
             SDL_GPUGraphicsPipeline *&pipeline = program.Pipelines[format_slot(format)];
             if (!pipeline) {
-                if (fault("pipeline")) return fail("injected pipeline failure");
+                if (fault(TestFailure::Pipeline)) return fail("injected pipeline failure");
                 SDL_GPUColorTargetDescription colour = {};
                 colour.format = SDL_GPUTextureFormat(format);
                 SDL_GPUGraphicsPipelineCreateInfo info = {};
@@ -155,7 +151,7 @@ struct SdlPostProcess::Impl
         std::vector<SDL_GPUTexture *> created;
         auto ensure = [&](SDL_GPUTexture *&image, unsigned w, unsigned h, unsigned f) {
             if (image) return true;
-            if (fault("target-after-one") && created.size() == 1)
+            if (fault(TestFailure::TargetAfterOne) && created.size() == 1)
                 return fail("injected failure after the first transactional target allocation");
             image = texture(w, h, f);
             if (image) created.push_back(image);
@@ -211,6 +207,11 @@ struct SdlPostProcess::Impl
 };
 
 SdlPostProcess::SdlPostProcess() : State(new Impl) {}
+void SdlPostProcess::Set_Failure_For_Test(TestFailure failure) { State->FailureForTest = failure; }
+void SdlPostProcess::Set_AO_Failure_For_Test(SdlPostOcclusion::TestFailure failure)
+{
+    State->Occlusion.Set_Failure_For_Test(failure);
+}
 SdlPostProcess::~SdlPostProcess()
 {
     if (State->Owner && !Release(*State->Owner)) {
@@ -239,7 +240,7 @@ bool SdlPostProcess::Prepare(SdlGpuFrame &frame, const SdlTarget &presentation,
     if (requested.Count > DX11_POST_CHAIN_LIMIT) return s.fail("post chain exceeds its limit");
     if (!requested.Count) { s.Settings = requested; s.LastError.clear(); return true; }
     if (requested.ActualSamples != 1) return s.fail("native post requires actual single-sample attachments");
-    if (fault("prepare")) return s.fail("injected preparation failure");
+    if (s.fault(TestFailure::Prepare)) return s.fail("injected preparation failure");
     if (!std::isfinite(requested.BloomThreshold) || !std::isfinite(requested.BloomIntensity)
         || !std::isfinite(requested.AdditiveGain) || !std::isfinite(requested.Grade))
         return s.fail("non-finite post settings");
