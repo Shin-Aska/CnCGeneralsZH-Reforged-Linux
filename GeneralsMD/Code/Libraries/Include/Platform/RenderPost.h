@@ -45,7 +45,7 @@ bool SetChain(const char *chain);
 unsigned BeginView(bool eligible, float nearPlane, float farPlane, bool reflection = false);
 void EndView(unsigned previous);
 void Sky(); // after sun preparation, before main world geometry
-void OpaqueScene();
+void OpaqueScene(bool allowWorldAO); // World AO follows the caller's option; pre-water weather haze runs independently.
 void BeforeTransparent();
 void FinishScene();
 void FinishFrame(); // no-view fallback, before HUD
@@ -71,7 +71,7 @@ bool EnvironmentAvailable(IDirect3DDevice9 *);
 unsigned BeginView(IDirect3DDevice9 *, bool, float, float, bool);
 void EndView(IDirect3DDevice9 *, unsigned);
 void Sky(IDirect3DDevice9 *);
-void OpaqueScene(IDirect3DDevice9 *);
+void OpaqueScene(IDirect3DDevice9 *, bool allowWorldAO);
 void BeforeTransparent(IDirect3DDevice9 *);
 void FinishScene(IDirect3DDevice9 *, bool fallback);
 bool ReplacesLegacyBloom(IDirect3DDevice9 *);

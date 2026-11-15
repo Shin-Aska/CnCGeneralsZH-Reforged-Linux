@@ -6092,12 +6092,12 @@ void Sky() {
 	Sky(DX8Wrapper::_Get_D3D_Device());
 #endif
 }
-void OpaqueScene() {
+void OpaqueScene(bool allowWorldAO) {
 #if defined(_WIN32)
-	Direct3D11_Ambient_Occlusion();
+	if (allowWorldAO) Direct3D11_Ambient_Occlusion();
 	Direct3D11_Weather_Haze();
 #else
-	OpaqueScene(DX8Wrapper::_Get_D3D_Device());
+	OpaqueScene(DX8Wrapper::_Get_D3D_Device(), allowWorldAO);
 #endif
 }
 void BeforeTransparent() {

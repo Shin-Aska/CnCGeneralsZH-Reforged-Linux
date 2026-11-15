@@ -354,15 +354,16 @@ void PosixDevice9::Post_Sky(bool drawSky)
         view.FullTextureWorldFromClip, haze, atmosphere, views, warm);
     if (drawSky && s.EnvironmentReady && atmosphere.Strength > 0) s.Atmosphere.Draw_Sky(*Gpu, s.Scene);
 }
-void PosixDevice9::Post_Opaque()
+void PosixDevice9::Post_Opaque(bool allowWorldAO)
 {
     if (!Post_Active() || !Post->InView) return;
+    const bool worldAO = allowWorldAO && Post->WorldAO;
     const bool weather = Post->EnvironmentCurrent && Post->Environment.Haze.BeforeWater && Post->Environment.Haze.Strength>0.0f;
     if (weather && !Post->EnvironmentReady) Post_Sky(false);
-    if (!Post->WorldAO && !weather) return;
+    if (!worldAO && !weather) return;
     SdlPostSceneInputs inputs;
     if (Post->inputs(*this, *Gpu, SdlSceneCapturePhase::OpaqueScene, inputs)) {
-        if (Post->WorldAO) Post->Processor.Apply_World_AO(*Gpu, Post->Scene, inputs);
+        if (worldAO) Post->Processor.Apply_World_AO(*Gpu, Post->Scene, inputs);
         if (weather && Post->EnvironmentReady) Post->Atmosphere.Apply_Ground_Haze(*Gpu, Post->Scene, inputs);
     }
 }
@@ -457,7 +458,7 @@ void SetWarps(IDirect3DDevice9 *d, const Warp *records, unsigned count) { if (d)
 unsigned BeginView(IDirect3DDevice9 *d, bool e, float n, float f, bool r) { return d ? static_cast<PosixDevice9 *>(d)->Begin_Post_View(e,n,f,r) : 0; }
 void EndView(IDirect3DDevice9 *d, unsigned p) { if (d) static_cast<PosixDevice9 *>(d)->End_Post_View(p); }
 void Sky(IDirect3DDevice9 *d) { if (d) static_cast<PosixDevice9 *>(d)->Post_Sky(); }
-void OpaqueScene(IDirect3DDevice9 *d) { if (d) static_cast<PosixDevice9 *>(d)->Post_Opaque(); }
+void OpaqueScene(IDirect3DDevice9 *d, bool allowWorldAO) { if (d) static_cast<PosixDevice9 *>(d)->Post_Opaque(allowWorldAO); }
 void BeforeTransparent(IDirect3DDevice9 *d) { if (d) static_cast<PosixDevice9 *>(d)->Post_Before_Transparent(); }
 void FinishScene(IDirect3DDevice9 *d, bool f) { if (d) static_cast<PosixDevice9 *>(d)->Finish_Post(f); }
 bool ReplacesLegacyBloom(IDirect3DDevice9 *d) { return d && static_cast<PosixDevice9 *>(d)->Post_Replaces_Bloom(); }

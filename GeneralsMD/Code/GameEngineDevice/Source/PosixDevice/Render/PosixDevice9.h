@@ -239,7 +239,7 @@ public:
 	bool Read_Particle_Context(SdlGpuParticlesContext &);
 	void End_Post_View(unsigned previous);
 	void Post_Sky(bool drawSky = true);
-	void Post_Opaque();
+	void Post_Opaque(bool allowWorldAO);
 	void Post_Before_Transparent();
 	void Finish_Post(bool fallback);
 	bool Post_Replaces_Bloom() const;

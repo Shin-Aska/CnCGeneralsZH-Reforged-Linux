@@ -61,6 +61,66 @@ static void check_deferred_main_camera(PosixDevice9 *device)
     DX8Wrapper::Set_Transform(D3DTS_VIEW, Matrix3D(1)); DX8Wrapper::Apply_Render_State_Changes();
 }
 
+// Exercise the public opaque-phase dispatch, including its independent weather
+// work, rather than only calling the AO module with a hand-built depth input.
+static void check_opaque_post_dispatch(PosixDevice9 *device)
+{
+    DX8Wrapper::Set_Transform(D3DTS_VIEW, Matrix3D(1));
+    Matrix4x4 projection(true);
+    projection[0][0] = projection[1][1] = .025f;
+    projection[2][2] = .001f;
+    DX8Wrapper::Set_Projection_Transform_With_Z_Bias(projection, 1, 100);
+    auto *frame = device->Get_Gpu();
+    const auto render = [&](bool option, bool permission, bool weather = false,
+                            bool classic = false, bool eligible = true, bool reflection = false) {
+        RenderPost::Environment environment;
+        if (weather) {
+            environment.MapIdentity = environment.MapGeneration = 1;
+            environment.Haze.BeforeWater = true;
+            environment.Haze.Strength = 1;
+            environment.Haze.Top = environment.Haze.Thickness = 1000;
+            environment.Haze.Reach = 1000;
+            for (float &channel : environment.Haze.Colour) channel = 1;
+        }
+        RenderPost::SetEnvironment(environment);
+        RenderPost::Settings settings;
+        settings.Chain = "copy"; settings.WorldAO = option; settings.Classic = classic;
+        RenderPost::BeginMain(settings);
+        const auto scope = RenderPost::BeginView(eligible, 1, 100, reflection);
+        SdlTarget scene; std::string error;
+        CHECK(device->Current_Gpu_Target(scene, error));
+        frame->Set_Target(scene);
+        frame->Clear_Back_Buffer(true, true, false, weather ? 0x40000000 : 0x40FFFFFF, .5f, 0);
+        frame->Clear_Rect(0, 0, 32, 64, false, true, false, 0, .49f, 0);
+        RenderPost::OpaqueScene(permission);
+        std::vector<uint8_t> pixels;
+        CHECK(frame->Read_Back(scene.Colour, 64, 64, pixels));
+        RenderPost::FinishScene(); RenderPost::EndView(scope);
+        return pixels;
+    };
+    const auto denied = render(true, false);
+    CHECK(denied.size() == 64 * 64 * 4);
+    if (denied.size() == 64 * 64 * 4) for (size_t at = 0; at < denied.size(); at += 4) {
+        CHECK(denied[at] == 255 && denied[at+1] == 255 && denied[at+2] == 255 && denied[at+3] == 0x40);
+    }
+    const auto allowed = render(true, true);
+    CHECK(allowed.size() == denied.size() && allowed != denied);
+    CHECK(render(false, true) == denied); // permission cannot enable the native option
+    const auto weather = render(false, false, true);
+    CHECK(weather.size() == denied.size());
+    bool hazed = false;
+    for (size_t at = 0; at + 3 < weather.size(); at += 4) {
+        hazed |= weather[at] > 0 || weather[at+1] > 0 || weather[at+2] > 0;
+        CHECK(weather[at+3] == 0x40);
+    }
+    CHECK(hazed); // denying AO still reaches the early weather haze provider
+    CHECK(render(true, true, false, true) == denied);
+    CHECK(render(true, true, false, false, false) == denied);
+    CHECK(render(true, true, false, false, true, true) == denied);
+    DX8Wrapper::Set_Projection_Transform_With_Z_Bias(Matrix4x4(true), 0, 1);
+    DX8Wrapper::Apply_Render_State_Changes();
+}
+
 static void check_sorted_model_packets(PosixDevice9 *device)
 {
     RenderPost::Settings settings; RenderPost::BeginMain(settings);
@@ -210,6 +270,7 @@ int main()
         return 77;
     }
     check_deferred_main_camera(device);
+    check_opaque_post_dispatch(device);
     WW3D::Enable_Sorting(true);
     check_sorted_coverage(device, false);
     check_sorted_coverage(device, true); // Reuses recycled nodes and reverses the final effect.

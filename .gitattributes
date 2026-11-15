@@ -30,3 +30,8 @@ GeneralsMD/Code/Data/INI/** text eol=crlf
 
 # The EMP demo generator writes this map INI as CRLF; keep its checksum stable in every checkout.
 docs/reference/emp-effect-2026-11-11/map/Maps/EMPDemo/map.ini text eol=crlf
+
+# Frozen evidence and pinned reproducers are verified by raw-byte hashes; preserve their Git blob bytes.
+docs/reference/weather-enhancements-2026-11-15/** -text
+docs/reference/weather-rain-startup-2026-11-15/** -text
+docs/reference/linux-renderer-parity-2026-11-15/** -text

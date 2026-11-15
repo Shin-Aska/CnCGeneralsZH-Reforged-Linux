@@ -1173,10 +1173,10 @@ void RTS3DScene::Flush(RenderInfoClass & rinfo)
 	if (m_customPassMode == SCENE_PASS_DEFAULT && Get_Extra_Pass_Polygon_Mode() == EXTRA_PASS_DISABLE && !modernFullMirror)
 		DoShadows(rinfo, true);	//draw all stencil shadows
 
-	// AO and weather ground haze compose under water. The provider admits only enabled effects;
+	// AO and weather ground haze compose under water. Pass the AO option explicitly;
 	// weather needs this phase even when AO is off, without widening reflection/extra-pass ownership.
 	if (!TheGlobalData->m_classicGraphics && m_customPassMode == SCENE_PASS_DEFAULT && Get_Extra_Pass_Polygon_Mode() == EXTRA_PASS_DISABLE)
-		RenderPost::OpaqueScene();
+		RenderPost::OpaqueScene(TheGlobalData->m_ambientOcclusion != FALSE);
 
 	WW3D::Render_And_Clear_Static_Sort_Lists(rinfo);	//draws things like water
 

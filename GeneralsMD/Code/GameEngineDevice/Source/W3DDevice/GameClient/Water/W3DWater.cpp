@@ -1866,13 +1866,13 @@ void WaterRenderObjClass::setupModernWaterShader(Bool river, Bool heightCorrecti
 #if defined(__linux__)
 	TextureClass *heading = NULL;
 	PosixWaterCleanBind(DX8Wrapper::_Get_D3D_Device(),NULL,NULL,
-        m_modernClean && !river && fabsf(m_modernOpticalLevel-m_modernMediumLevel)<.01f);
+        m_modernClean && modernWaterMediumApplies(m_modernOpticalLevel, river));
 	// A/B experiment only: wind selects the map-aware one-medium evaluator in either movement setting.
-	D3DXVECTOR4 prevailing(0, 0, 0, (m_waterMovement.Current() || m_modernWindRequested || ((m_modernShared || m_modernClean) && fabsf(m_modernOpticalLevel-m_modernMediumLevel)<.01f)) ? 0.0f : 1.0f);
+	D3DXVECTOR4 prevailing(0, 0, 0, (m_waterMovement.Current() || m_modernWindRequested || ((m_modernShared || m_modernClean) && modernWaterMediumApplies(m_modernOpticalLevel, river))) ? 0.0f : 1.0f);
 	if (!river && optical && WaterFftSampling::Enabled())
 		for (const ModernOpticalTexture &cached : m_modernOpticalTextures)
 			if (cached.level == m_modernOpticalLevel) {
-                if(m_modernClean && fabsf(m_modernOpticalLevel-m_modernMediumLevel)<.01f
+                if(m_modernClean && modernWaterMediumApplies(m_modernOpticalLevel, river)
                     && cached.cleanRotation.keyed && cached.headingTravelAngle==WaterTuning::EffectiveTravelAngle(WaterTuning::Configured())
                     && cached.headingManual==(WaterTuning::Configured()[WaterTuning::TravelMode]!=0))
                     PosixWaterCleanBind(DX8Wrapper::_Get_D3D_Device(),&m_modernCleanDepth,&cached.cleanRotation.image,true);
@@ -1882,7 +1882,7 @@ void WaterRenderObjClass::setupModernWaterShader(Bool river, Bool heightCorrecti
 				prevailing.z = cached.localStep;
 				break;
 			}
-	if(m_modernClean && WaterCleanProfile::Get().nodepth && heading && !river && fabsf(m_modernOpticalLevel-m_modernMediumLevel)<.01f)prevailing.x+=16;
+	if(m_modernClean && WaterCleanProfile::Get().nodepth && heading && !river && modernWaterMediumApplies(m_modernOpticalLevel, river))prevailing.x+=16;
 	DX8Wrapper::Set_DX8_Texture(11, heading ? heading->Peek_D3D_Texture() : NULL);
 	setModernWaterConstants(WaterWaveHeading::PrevailingRegister, prevailing, 1);
 #endif
@@ -2128,6 +2128,7 @@ void WaterRenderObjClass::clearModernWaterOpticalTextures(void)
 	m_modernWaveSourceReady = FALSE;
 	m_modernWaveSourcePresent = FALSE;
 	// A/B experiment only: share the static terrain/shoreline cache lifetime.
+	m_modernMediumReady = FALSE;
 	m_modernMediumDepth = WaterMediumDepth::Field{};
 	m_modernCleanDepth = WaterCleanPrecompute::Image{};
 	PosixWaterCleanClear(DX8Wrapper::_Get_D3D_Device());
@@ -2259,9 +2260,29 @@ void WaterRenderObjClass::prepareModernWaterCompatibilityHeading(ModernOpticalTe
 	}
 }
 
+// Publish eligibility only for this map's successfully prepared source medium. Optional
+// depth/rotation GPU caches can still fail soft without revoking a valid source selection.
+Bool WaterRenderObjClass::prepareModernWaterMedium(const WaterOpticalContext::Field &field, Real level)
+{
+    m_modernMediumReady = FALSE;
+    if (!m_modernOneMediumWind || !m_modernWaveSourcePresent || level != m_modernWaveSourceLevel
+        || !WaterMediumDepth::Build(m_modernHeights.data(), field.wet.data(), field.shore.data(),
+            m_modernHeightWidth, m_modernHeightHeight, MAP_XY_FACTOR, MAP_HEIGHT_SCALE,
+            level, m_modernMediumDepth))
+        return FALSE;
+    m_modernMediumLevel = level;
+    m_modernMediumReady = TRUE;
+    return TRUE;
+}
+
+Bool WaterRenderObjClass::modernWaterMediumApplies(Real level, Bool river) const
+{
+    return m_modernMediumReady && !river && fabsf(level - m_modernMediumLevel) < .01f;
+}
+
 void WaterRenderObjClass::prepareModernWaterClean(ModernOpticalTexture &cached)
 {
-    if(!m_modernClean || !m_modernCleanDepth.revision || !cached.headingGeneration)return;
+    if(!m_modernClean || !modernWaterMediumApplies(cached.level) || !m_modernCleanDepth.revision || !cached.headingGeneration)return;
     const auto &values=WaterTuning::Configured();
     const double angle=WaterTuning::EffectiveTravelAngle(values);const bool manual=values[WaterTuning::TravelMode]!=0;
     if(cached.headingTravelAngle!=angle || cached.headingManual!=manual)return;
@@ -2296,7 +2317,7 @@ void WaterRenderObjClass::prepareModernWaterMapAwareHeading(ModernOpticalTexture
 		m_modernHeightBorder, MAP_XY_FACTOR, bridges, connections);
 	WaterLocalWaveField::Field heading;
 	const bool allowSource = m_modernWaveSourcePresent && level == m_modernWaveSourceLevel;
-	const bool cleanMain = m_modernClean && fabsf(level-m_modernMediumLevel)<.01f;
+	const bool cleanMain = m_modernClean && modernWaterMediumApplies(level);
 	const double travelAngle = WaterTuning::EffectiveTravelAngle(WaterTuning::Configured());
 	const double radians = travelAngle * WaterFftSpectrum::Pi / 180;
 	const WaterWaveHeading::Vector travel = {float(cos(radians)), float(sin(radians))};
@@ -2304,7 +2325,7 @@ void WaterRenderObjClass::prepareModernWaterMapAwareHeading(ModernOpticalTexture
 		m_modernHeightWidth, m_modernHeightHeight, m_modernHeightBorder, MAP_XY_FACTOR, heading, connections,
 		allowSource,
 		// A/B experiment only: swell travel-time speed uses the same effective depth.
-		!m_modernClean && m_modernOneMediumWind && fabsf(level-m_modernMediumLevel)<.01f && !m_modernMediumDepth.depth.empty()
+		!m_modernClean && m_modernOneMediumWind && modernWaterMediumApplies(level) && !m_modernMediumDepth.depth.empty()
 			? m_modernMediumDepth.depth.data() : NULL,
 		cleanMain && WaterTuning::Configured()[WaterTuning::TravelMode] ? &travel : NULL)) {
 		const char *dumpPath = getenv("ZH_WATER_WAVE_FIELD_DUMP");
@@ -2328,7 +2349,7 @@ void WaterRenderObjClass::prepareModernWaterMapAwareHeading(ModernOpticalTexture
 			}
 		TextureClass *headingTexture = uploadModernWaterHeading(heading.texels, m_modernHeightWidth,
 			m_modernHeightHeight, m_modernHeightSide, WaterLocalWaveField::TexelsPerCell,
-			m_modernOneMediumWind ? &m_modernMediumDepth : NULL, fabsf(level-m_modernMediumLevel)<.01f,
+			m_modernOneMediumWind ? &m_modernMediumDepth : NULL, modernWaterMediumApplies(level),
 			m_modernShared ? &m_modernSharedField : NULL);
 		const Bool uploaded = headingTexture != NULL;
 		if (uploaded) {
@@ -2459,10 +2480,7 @@ TextureClass *WaterRenderObjClass::modernWaterOpticalTexture(Real level)
 			if (m_modernOneMediumWind && m_modernWaveSourcePresent)
 				for (const auto &context : m_modernOpticalTextures) if (context.level == m_modernWaveSourceLevel) {
 					const auto &field = context.shoreContext;
-					if (WaterMediumDepth::Build(m_modernHeights.data(), field.wet.data(), field.shore.data(),
-						m_modernHeightWidth, m_modernHeightHeight, MAP_XY_FACTOR, MAP_HEIGHT_SCALE,
-						context.level, m_modernMediumDepth)) {
-						m_modernMediumLevel = context.level;
+					if (prepareModernWaterMedium(field, context.level)) {
                         if(m_modernClean) {
                             WaterCleanShore::Build(m_modernMediumDepth,field.wet.data(),MAP_XY_FACTOR);
                             WaterCleanPrecompute::BuildDepth(m_modernMediumDepth,m_modernHeightSide,m_modernCleanDepth);
@@ -2525,13 +2543,13 @@ TextureClass *WaterRenderObjClass::modernWaterOpticalTexture(Real level)
 #if defined(__linux__)
 		// Manual edits must move the upwind seeds as well as the FFT heading.
 		// Reuse the retained optical inputs; retry on an unsuccessful upload.
-		if (m_modernClean && fabsf(level-m_modernMediumLevel)<.01f
+		if (m_modernClean && modernWaterMediumApplies(level)
 			&& (entry->headingTravelAngle != WaterTuning::EffectiveTravelAngle(WaterTuning::Configured())
                 || entry->headingManual != (WaterTuning::Configured()[WaterTuning::TravelMode]!=0))) {
 			const ModernWaterHeadingDiagnostics diagnostics = {false, std::chrono::steady_clock::now()};
 			prepareModernWaterMapAwareHeading(*entry, level, diagnostics);
 		}
-        if(m_modernClean && fabsf(level-m_modernMediumLevel)<.01f)prepareModernWaterClean(*entry);
+        if(m_modernClean && modernWaterMediumApplies(level))prepareModernWaterClean(*entry);
 #endif
 		return entry->texture;
 	}
@@ -2569,7 +2587,7 @@ TextureClass *WaterRenderObjClass::modernWaterOpticalTexture(Real level)
 		const bool waveStats = statsOption && strcmp(statsOption, "1") == 0;
 		const auto headingStart = std::chrono::steady_clock::now();
 		const ModernWaterHeadingDiagnostics diagnostics = {waveStats, headingStart};
-		if (!m_waterMovement.Current() && !m_modernWindRequested && !((m_modernShared || m_modernClean) && fabsf(level-m_modernMediumLevel)<.01f))
+		if (!m_waterMovement.Current() && !m_modernWindRequested && !((m_modernShared || m_modernClean) && modernWaterMediumApplies(level)))
 			prepareModernWaterCompatibilityHeading(cached, level, diagnostics);
 		else
 			prepareModernWaterMapAwareHeading(cached, level, diagnostics);
@@ -5687,7 +5705,7 @@ Real WaterRenderObjClass::modernWaterDamping(Real x, Real y, Real z, Real offsho
 		damping=WaterSurfaceModel::TerrainDamping(depth,offshore);
 #if defined(__linux__)
 		// A/B experiment only: fine-band reach is the sole CPU terrain envelope.
-		if (medium && m_modernOneMediumWind && !m_modernMediumDepth.depth.empty() && fabsf(z-m_modernMediumLevel)<.01f)
+		if (medium && m_modernOneMediumWind && !m_modernMediumDepth.depth.empty() && modernWaterMediumApplies(z))
 			damping=(m_modernShared || m_modernClean) ? 1.0f : WaterMediumDepth::Gain(WaterMediumDepth::Sample(m_modernMediumDepth,
 				x/MAP_XY_FACTOR+m_modernHeightBorder,y/MAP_XY_FACTOR+m_modernHeightBorder));
 #endif
@@ -6064,7 +6082,7 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 								Real(bow.centre.y) / MAP_XY_FACTOR + m_modernHeightBorder, MAP_XY_FACTOR).height;
 							// A/B experiment only: refinement budgets follow the same D envelope as exported vertices.
 							const Real fftDamping = m_modernOneMediumWind && !m_modernMediumDepth.depth.empty()
-								&& fabsf(points[0].Z-m_modernMediumLevel)<.01f ? damping : WaterFftGeometry::SafeDamping(damping, terrainDepth);
+								&& modernWaterMediumApplies(points[0].Z, river) ? damping : WaterFftGeometry::SafeDamping(damping, terrainDepth);
 							const Real amplitude = fftSeam.Weight(bow.centre, exposure) * fftDamping;
 					return WaterBowRefinement::PrepareBow(bow, bowView, prepared, amplitude);
 				};
@@ -6253,7 +6271,7 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
                         m_modernHeightBorder,MAP_XY_FACTOR,MAP_HEIGHT_SCALE,p.x,p.y,p.z);
 					value.terrainDamping=WaterSurfaceModel::TerrainDamping(value.terrainDepth,value.offshore.height);
 					// A/B experiment only: static cache and direct samples use exactly the same D rule.
-					if (m_modernOneMediumWind && !m_modernMediumDepth.depth.empty() && fabsf(p.z-m_modernMediumLevel)<.01f)
+					if (m_modernOneMediumWind && !m_modernMediumDepth.depth.empty() && modernWaterMediumApplies(p.z, river))
 						value.terrainDamping=(m_modernShared || m_modernClean) ? 1.0f : WaterMediumDepth::Gain(WaterMediumDepth::Sample(m_modernMediumDepth,
 							p.x/MAP_XY_FACTOR+m_modernHeightBorder,p.y/MAP_XY_FACTOR+m_modernHeightBorder));
 				}
@@ -6263,7 +6281,7 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 			auto makeBaseVertex = [&](const WaterSurfaceModel::Point &p, Bool boundarySample = FALSE, Bool directInterior = FALSE) {
                 // A/B experiment only: remove coastal spectral-support gains, retaining mesh collars.
 #if defined(__linux__)
-                const Bool cleanPoint=m_modernClean && fabsf(p.z-m_modernMediumLevel)<.01f;
+                const Bool cleanPoint=m_modernClean && modernWaterMediumApplies(p.z, river);
 #else
                 const Bool cleanPoint=FALSE;
 #endif
@@ -6328,7 +6346,7 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 #if defined(__linux__)
 					// A/B experiment only: do not reapply the real-depth floor ramp after D.
 					// Exact wave cages still enforce their own floor constraint.
-					if (m_modernOneMediumWind && !m_modernMediumDepth.depth.empty() && fabsf(p.z-m_modernMediumLevel)<.01f)
+					if (m_modernOneMediumWind && !m_modernMediumDepth.depth.empty() && modernWaterMediumApplies(p.z, river))
 						sample.fftDamping = hullFreeDamping;
 #endif
 					fftWeight=boundarySample?0.0f:fftSeam.Weight({p.x,p.y},cleanPoint ? 1.0f : sample.exposure);
@@ -6373,7 +6391,7 @@ void WaterRenderObjClass::drawModernWaterPatch(const Vector3 points[4], Bool riv
 #if defined(__linux__)
 				// A/B experiment only: only the exported FFT weighting uses connectivity.
 				// sample.offshore retains optical R for analytic, hull and obstacle decisions.
-				if ((m_modernWindRequested || ((m_modernShared || m_modernClean) && fabsf(p.z-m_modernMediumLevel)<.01f)))
+				if ((m_modernWindRequested || ((m_modernShared || m_modernClean) && modernWaterMediumApplies(p.z, river))))
 					result.nz = WaterSurfaceModel::SampleOffshore(oceanContext->shoreContext.exposure.data(),
 						m_modernHeightWidth,m_modernHeightHeight,p.x/MAP_XY_FACTOR+m_modernHeightBorder,
 						p.y/MAP_XY_FACTOR+m_modernHeightBorder,MAP_XY_FACTOR).height;

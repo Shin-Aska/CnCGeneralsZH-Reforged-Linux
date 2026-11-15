@@ -441,6 +441,7 @@ protected:
 	WaterCleanPrecompute::Image m_modernCleanDepth;
 	Bool m_modernCleanForce=FALSE;
 	Real m_modernMediumLevel = 0.0f;
+	Bool m_modernMediumReady = FALSE; // current source preparation, independent of optional GPU precomputes
 	WaterOpenSeaSplit::Cache m_modernOpenSeaCache;
 	std::vector<WaterOpenSeaSplit::Point> m_modernOpenSeaPositions;
 	std::vector<WaterOpenSeaSplit::Disc> m_modernLocalDiscs;
@@ -520,6 +521,10 @@ protected:
 	void clearModernWaterOpticalTextures(void);
 	void refreshModernWaterOpticalPolygons(void);
 	TextureClass *modernWaterOpticalTexture(Real level);
+#if defined(__linux__)
+	Bool prepareModernWaterMedium(const WaterOpticalContext::Field &field, Real level);
+	Bool modernWaterMediumApplies(Real level, Bool river=FALSE) const;
+#endif
 	void drawModernWaterPatch(const Vector3 points[4], Bool river, Real riverStart = 0, Real riverEnd = 1);
 	// A/B experiment only: medium opts flat patches into D; rivers keep the default terrain rule.
 	Real modernWaterDamping(Real x, Real y, Real z, Real offshore=0.0f, Real *obstacleAttenuation=NULL, Real *terrainDepth=NULL, Real *hullFreeDamping=NULL, Real *hullFreeObstacle=NULL, const Real *cachedTerrain=NULL, Bool medium=FALSE) const;

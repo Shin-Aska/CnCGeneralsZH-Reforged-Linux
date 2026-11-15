@@ -31,6 +31,26 @@ v3.8.0 doesn't have them. The maintainer can't run Linux or macOS, so the SDL si
 
 ## Not offered upstream
 
+### Windows DX11 AO option regression found during code review (2026-11-15)
+
+Review of `9f965499` through `343477ff` found a Windows regression introduced by this fork's
+`f91069a2` weather integration. With Classic graphics off and a DX11 post-processing scene active,
+the opaque-phase dispatch could apply world ambient occlusion even when **Ambient Occlusion** was off.
+
+The local fix passes the AO preference explicitly through `RenderPost::OpaqueScene(bool allowWorldAO)`.
+Windows now gates the AO call while retaining independent pre-water weather haze. The native provider
+also requires both the caller's permission and its saved AO setting. Regression coverage in
+`test_sun_shadow_sorting.cpp` exercises the actual wrapper, AO on/off, independent haze, alpha preservation
+and excluded render scopes.
+
+Fix validation passed the Release build, 11 CPU tests and five GPU tests on each of NVIDIA Vulkan and
+Lavapipe. Windows compilation and runtime remain untested; the Windows call chain received source review.
+Local logs are under `build-linux/review-fixes-evidence/`.
+
+This fix remains **uncommitted, awaiting local review**, and has not been offered upstream. Carry it with
+the renderer/weather integration; an equivalent defect in upstream's current Windows code has not been
+established.
+
 ### Expanded weather presentation (2026-11-15) — locally qualified, not offered upstream
 
 The local weather change adds gusts, layered snow, dry-ground blowing sand, intermittent

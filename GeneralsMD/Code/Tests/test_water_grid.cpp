@@ -6825,7 +6825,7 @@ public:
     void synchronizeQuality() {synchronizeWaterReflection();}
     void seedQualityData() {
         seedCaches();m_modernWaveSourceReady=TRUE;m_modernWaveSourcePresent=TRUE;
-        m_modernMediumDepth.depth={5};m_modernCleanDepth.revision=1;
+        m_modernMediumReady=TRUE;m_modernMediumDepth.depth={5};m_modernCleanDepth.revision=1;
         m_modernCleanDepth.pixels={{5,0,0,0}};
         ModernOpticalTexture cached={4,NULL};cached.headingGeneration=17;
         cached.cleanHeadingWords={1,2,3,4,5};cached.cleanRotation.keyed=true;
@@ -6834,7 +6834,7 @@ public:
     void checkQualityData(bool retained) {
         if(retained) {
             CHECK(m_modernWaveSourceReady && m_modernWaveSourcePresent);
-            CHECK(m_modernMediumDepth.depth.size()==1 && m_modernCleanDepth.revision==1);
+            CHECK(m_modernMediumReady && m_modernMediumDepth.depth.size()==1 && m_modernCleanDepth.revision==1);
             CHECK(m_modernOpticalTextures.size()==1);
             if(m_modernOpticalTextures.size()==1) {
                 const auto &cached=m_modernOpticalTextures.front();
@@ -6845,10 +6845,35 @@ public:
             CHECK(m_modernStaticSamples.Size()>0 && m_modernTerrainProofCache.EntryCount()>0);
         } else {
             checkCleared();CHECK(!m_modernWaveSourceReady && !m_modernWaveSourcePresent);
-            CHECK(m_modernMediumDepth.depth.empty() && !m_modernCleanDepth.revision);
+            CHECK(!m_modernMediumReady && m_modernMediumDepth.depth.empty() && !m_modernCleanDepth.revision);
             CHECK(m_modernOpticalTextures.empty());
         }
         clearModernWaterOpticalTextures();
+    }
+    bool mediumApplies(Real level, bool river=false) const { return modernWaterMediumApplies(level, river); }
+    bool hasCleanDepthPrecompute() const { return m_modernCleanDepth.revision!=0; }
+    bool prepareMediumMap(Real level, bool enclosed, bool failPreparation=false) {
+        clearModernWaterOpticalTextures();
+        m_modernClean=TRUE;m_modernOneMediumWind=TRUE;
+        m_modernHeightWidth=m_modernHeightHeight=33;m_modernHeightBorder=0;
+        m_modernHeights.assign(33*33,enclosed ? 40 : 0);
+        if(enclosed)for(int y=12;y<=20;++y)for(int x=12;x<=20;++x)m_modernHeights[y*33+x]=0;
+        WaterOpticalContext::Polygon polygon;
+        polygon.points={{0,0,level},{320,0,level},{320,320,level},{0,320,level}};
+        WaterOpticalContext::Field field;
+        const bool optical=WaterOpticalContext::Build(m_modernHeights.data(),33,33,0,10,.625f,level,{polygon},field);
+        CHECK(optical);if(!optical)return false;
+        WaterBodyAnalysis::Field analysis;
+        const bool classified=WaterBodyAnalysis::Build(field.wet.data(),field.links.data(),33,33,0,10,analysis);
+        CHECK(classified);if(!classified)return false;
+        m_modernWaveSourceReady=TRUE;
+        m_modernWaveSourcePresent=WaterBodyAnalysis::PreferSource(analysis,WaterBodyAnalysis::SourceKind::None,0,0,
+            std::numeric_limits<float>::infinity());
+        if(!m_modernWaveSourcePresent)return false;
+        m_modernWaveSourceLevel=level;
+        // A selected source is insufficient when its current terrain/depth preparation fails.
+        if(failPreparation)m_modernHeightWidth=1;
+        return prepareModernWaterMedium(field,level);
     }
 	void changeStyle() { m_useModernWater=TRUE;synchronizeWaterStyle(); }
 	void changeWaterPolygons() {
@@ -7219,4 +7244,55 @@ TEST(water_clean_quality_render_boundary_invalidates_dependent_cpu_data)
     } // Destroy water before restoring the previous global transparency settings.
     TheWaterTransparency=savedTransparency;
 }
+
+TEST(water_clean_medium_eligibility_tracks_current_map_source_preparation)
+{
+    boot();
+    struct Restore {
+        WaterCleanProfile::Flags profile=WaterCleanProfile::Get();
+        WaterTuning::AutoDirection direction=WaterTuning::MapDirection();
+        unsigned revision=WaterTuning::Revision(),spectrum=WaterTuning::SpectrumRevision();
+        ~Restore() {
+            WaterCleanProfile::Applied()=profile;WaterTuning::MapDirection()=direction;
+            WaterTuning::Revision()=revision;WaterTuning::SpectrumRevision()=spectrum;
+        }
+    } restore;
+    WaterTransparencySetting *saved=(WaterTransparencySetting*)TheWaterTransparency.getNonOverloadedPointer();
+    TheWaterTransparency=newInstance(WaterTransparencySetting);
+    {
+        WaterRenderCacheProbe water;
+        // Fresh source-less water is never the main medium, including the scalar's initial zero.
+        CHECK(!water.mediumApplies(0));
+        CHECK(!water.prepareMediumMap(10,true));
+        const bool freshLake=water.mediumApplies(10);
+        CHECK(!freshLake && !water.mediumApplies(0));
+        for(float seaLevel:{10.f,20.f}) {
+            CHECK(water.prepareMediumMap(seaLevel,false));
+            CHECK(water.mediumApplies(seaLevel));
+            CHECK(!water.mediumApplies(seaLevel,true));
+            CHECK(!water.mediumApplies(seaLevel+1) && !water.mediumApplies(0));
+            // Optional CPU/GPU precomputes are absent here. A valid source must retain
+            // the specialised clean path and its documented unit-gain/identity fallback.
+            CHECK(!water.hasCleanDepthPrecompute());
+            CHECK(water.mediumApplies(seaLevel));
+            CHECK(!water.prepareMediumMap(seaLevel,true));
+            CHECK(water.mediumApplies(seaLevel)==freshLake);
+            CHECK(!water.mediumApplies(0));
+        }
+        // Failed source preparation cannot publish eligibility; the next valid source recovers.
+        CHECK(!water.prepareMediumMap(10,false,true));
+        CHECK(!water.mediumApplies(10) && !water.mediumApplies(0));
+        CHECK(water.prepareMediumMap(10,false));CHECK(water.mediumApplies(10));
+        water.reset();CHECK(!water.mediumApplies(10) && !water.mediumApplies(0));
+        CHECK(water.prepareMediumMap(10,false));
+        water.load();CHECK(!water.mediumApplies(10) && !water.mediumApplies(0));
+        CHECK(water.prepareMediumMap(10,false));
+        water.ReleaseResources();CHECK(!water.mediumApplies(10) && !water.mediumApplies(0));
+        CHECK(!water.prepareMediumMap(0,true));CHECK(!water.mediumApplies(0));
+        CHECK(water.prepareMediumMap(20,false));CHECK(water.mediumApplies(20));
+        CHECK(!water.mediumApplies(10) && !water.mediumApplies(20,true));
+    }
+    TheWaterTransparency=saved;
+}
+
 #endif // __linux__
