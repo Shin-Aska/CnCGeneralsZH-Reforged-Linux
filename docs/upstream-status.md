@@ -31,6 +31,35 @@ v3.8.0 doesn't have them. The maintainer can't run Linux or macOS, so the SDL si
 
 ## Not offered upstream
 
+### Submerged fire, smoke and steam (2026-11-15) — locally validated
+
+Enhanced graphics now fades submerged additive/emissive `FireLook` sources and clips their flame
+billboards at each particle's local waterline. The same source fade reaches reflections, Firelight,
+smoke illumination and heat haze. World emission heights preserve fires on roofs, bridges and vessels
+above flooded terrain; water queries include polygon water and China mission 3's moving flood grid.
+Known combustion-smoke sources stop emitting underwater before CPU or GPU allocation, while existing
+smoke disperses over its remaining lifetime. Dust, toxins, exhaust and unknown mod systems retain
+their behavior.
+
+An observed dry-to-wet crossing produces a brief white steam puff above the surface, also clipped at
+the waterline. Nearby flame sources share a cooldown, and the first observation after loading a
+flooded save stays quiet. Steam is client-only and transient; Classic graphics, fire damage,
+mission scripts and the save format remain unchanged.
+
+The Release build and six focused CTests passed: `test_fire_lights`, `test_renderer_particles`,
+`test_gameengine`, `test_water_grid`, `test_renderer_particles_gpu` and `test_sun_shadow_sorting`.
+Native Vulkan checks include clipping readback, and a private China 3 save load reached frame 39700.
+A simulated crossing in the private session verified steam placement, clipping and expiry; the
+original save checksum stayed unchanged. The tested executable SHA is
+`965d49f9feebde249ac6399185bf7bc603c888151581122592cc5806b09fb472`.
+Local evidence is under `build-linux/fire-water-evidence/`, with the option 2 verification record in
+`option2/verification.json`.
+
+The source is committed as `43a0c976` and has **not been offered upstream**. Porting needs adaptation
+to the target renderer's sorted-billboard and soft-particle payloads, with water sampled before
+logic/render overlap.
+Windows and Metal runtime validation and a performance comparison remain unrun.
+
 ### Windows DX11 AO option regression found during code review (2026-11-15)
 
 Review of `9f965499` through `343477ff` found a Windows regression introduced by this fork's
@@ -47,7 +76,7 @@ Fix validation passed the Release build, 11 CPU tests and five GPU tests on each
 Lavapipe. Windows compilation and runtime remain untested; the Windows call chain received source review.
 Local logs are under `build-linux/review-fixes-evidence/`.
 
-This fix remains **uncommitted, awaiting local review**, and has not been offered upstream. Carry it with
+This fix is committed as `72df8189` and has not been offered upstream. Carry it with
 the renderer/weather integration; an equivalent defect in upstream's current Windows code has not been
 established.
 

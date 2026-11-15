@@ -87,6 +87,30 @@ change saved through the real Options menu's Accept also passed in a private Xvf
 Local commands, input fixtures, logs, executable hashes and screenshots are retained in
 `build-linux/battle-marks-evidence/`.
 
+## Fire below water
+
+Flame effects fade out as the local water rises over their emission point, disappearing
+two world units below the surface. The check uses the emitter's world transform, so a
+fire on a roof, bridge or vessel above flooded terrain remains visible. Water heights
+include both polygon water and the moving flood grid used by Generals' China mission 3.
+The visible flame billboards are also clipped against the water level beneath each
+particle. Clipping preserves texture coordinates, fire age, glow and the original soft
+fade width, and uses the same geometry in the main view and sorted reflections.
+
+An observed dry-to-wet crossing produces a brief white steam puff at the waterline.
+Nearby emitters share a cooldown, so a building's many flame bones do not stack clouds.
+First observations, including loading an already flooded save, establish the water
+contact state quietly. Steam is client-only, short-lived and excluded from saved effects.
+
+The particle renderer samples water before the logic/render overlap and shares the fade
+with the main view, reflections, Firelight, smoke illumination and heat haze. This applies
+to additive or emissive `FireLook` systems with either Classic or Modern water under
+enhanced graphics. Known combustion-smoke systems stop creating fresh puffs when their
+source is submerged, before either CPU or GPU allocation. Existing particles, including
+those restored from a save, disperse over their remaining lifetime. Dust, toxin clouds,
+exhaust and unknown mod systems keep their existing behavior. This is a visual change:
+burning damage, fire spreading, mission scripts and the save format are unchanged.
+
 ## Native enhancement validation (2026-11-15)
 
 The SDL3/Vulkan renderer now has native providers for the enhanced lighting, particles,
