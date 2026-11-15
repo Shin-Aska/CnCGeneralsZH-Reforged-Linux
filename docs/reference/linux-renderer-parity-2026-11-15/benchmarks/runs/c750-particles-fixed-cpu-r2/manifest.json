@@ -1,0 +1,422 @@
+{
+  "case": "benchmark",
+  "variant": "on",
+  "command": [
+    "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/feature-parity-evidence/benchmarks/c750-particles-fixed-cpu-r2/candidate/generals",
+    "-root",
+    "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/campaign-jitter-evidence/default-single-player/replay-tmp/replay-check.yTdOAL/root",
+    "-overlay",
+    "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/feature-parity-evidence/benchmarks/c750-particles-fixed-cpu-r2/overlay",
+    "-offscreen",
+    "-multiInstance",
+    "-noaudio",
+    "-win",
+    "-xres",
+    "1920",
+    "-yres",
+    "1080",
+    "-msaa",
+    "0",
+    "-quickstart",
+    "-noshellmap",
+    "-nologo",
+    "-novideo",
+    "-noFPSLimit",
+    "-noDynamicLOD",
+    "-turbo",
+    "-camera",
+    "760",
+    "850",
+    "-maxframes",
+    "1600",
+    "-particlecap",
+    "16384",
+    "-gpuparticles",
+    "0",
+    "-dx11post",
+    "off",
+    "-logPrefix",
+    "nativecheck_",
+    "-map",
+    "Maps/Alpine Assault/Alpine Assault.map",
+    "-autoskirmish",
+    "2",
+    "-takeover",
+    "-seed",
+    "1",
+    "-side",
+    "0",
+    "FactionAmerica",
+    "-side",
+    "1",
+    "FactionChina",
+    "-scenario",
+    "particles100k",
+    "-observer",
+    "-noshroud"
+  ],
+  "environment": {
+    "ZH_USER_DATA_DIR": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/feature-parity-evidence/benchmarks/c750-particles-fixed-cpu-r2/user",
+    "ZH_UNATTENDED": "1",
+    "ZH_AUDIO_BACKEND": "null",
+    "SDL_VIDEODRIVER": "offscreen",
+    "SDL_GPU_DRIVER": "vulkan",
+    "VK_DRIVER_FILES": "/usr/share/vulkan/icd.d/nvidia_icd.json",
+    "ZH_OFFSCREEN_HZ": "0",
+    "ZH_SUN_SHADOW_CAPTURE_CLOCK": "logic",
+    "ZH_WATER_CAPTURE_CLOCK": "picture",
+    "ZH_GPU_TIMING": "0,1",
+    "ZH_GPU_TIMING_LOGIC": "900,1499",
+    "ZH_GPU_TIMING_CSV": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/feature-parity-evidence/benchmarks/c750-particles-fixed-cpu-r2/timing.csv",
+    "ZH_GPU_TIMING_SYNC": "0"
+  },
+  "executable_sha256": "c7503c364f05364026d1b485ae21d9ff6aaa68bd71dd7fa95d799486cf381cfd",
+  "scenario_sha256": "f9edc4ef84fd7ef197ea250425fcff618894ab83d79cef6900c449541b8a77e2",
+  "profile_sha256": "a262a149559120cf2b447e6502cd1a949f79c484027b21bbe5bd9932122a6a04",
+  "screenshot_frame": 1499,
+  "simulation_limit": 1600,
+  "prepared_only": false,
+  "cpu_capacity": 16384,
+  "gpu_capacity": 0,
+  "acceptance_scope": "Execution/CRC/work counts only. Images and actual native range path require separate review.",
+  "private_particle_fixture": {
+    "source_archive": "INIZH.big",
+    "original_block_sha256": "8844694633571f4e582c495039a85a069af1eab3dda7f1354a815b173023fcca",
+    "overrides": {
+      "SystemLifetime": "0",
+      "Lifetime": "100000.00 100000.00",
+      "BurstDelay": "99999.00 99999.00",
+      "BurstCount": "250.00 250.00",
+      "Size": "5.00 5.00",
+      "SizeRate": "0.00 0.00",
+      "SizeRateDamping": "1.00 1.00",
+      "Alpha1": "0.40 0.40 0",
+      "Alpha2": "0.00 0.00 0",
+      "Alpha3": "0.00 0.00 0"
+    },
+    "particle_ini_sha256": "f45a9be7a5367401279f74daf853520117b2d9af7851f2922c70284f302f8aa2",
+    "target_emitters": 20,
+    "target_particles": 5000,
+    "qualification": "Prepared only; parser/admission/population equality must be measured before fair timing claim."
+  },
+  "suite": "particles-fixed",
+  "benchmark_variant": "cpu",
+  "repeat": 2,
+  "width": 1920,
+  "height": 1080,
+  "msaa": 0,
+  "sync": false,
+  "resource_audit": false,
+  "final_candidate_declared": true,
+  "timing": {
+    "first": 900,
+    "last": 1499,
+    "expected_samples": 600,
+    "warmup_logic_frames": 899,
+    "basis": "Existing native end-to-end offscreen present intervals; not hardware GPU timestamps",
+    "sync_note": "Unsynchronized primary throughput timing"
+  },
+  "candidate_checkpoint": {
+    "binary": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/feature-parity-evidence/classic-water-foam/owner-corrected-candidate/generals",
+    "sha256": "c7503c364f05364026d1b485ae21d9ff6aaa68bd71dd7fa95d799486cf381cfd",
+    "source_hashes": {
+      "GeneralsMD/Code/Libraries/Include/Platform/RenderWaterFoam.h": "a79f22ce7444cd557dea84dcbcb80e96f0f834d87cd0ed8f7bf88f2900ed3b05",
+      "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx8wrapper.cpp": "ffb474b190a558ff67c9c42b76df94a750853ec081f515309d9eab973742d6bf",
+      "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/engineshader.cpp": "ba9a7b3e5adc76b10a0ada8bb05e70caa9191610f88aabdafc2558740ecc1295",
+      "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/engineshader.h": "23b0f86b236738a282dab183a6f9c614db7d387c5b81bc87c98b5e3b91be13bd",
+      "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/ffshader.cpp": "c30c49568a38a143c5adf99de27eeb9abbc5b5ea6f87fda41ae76278ed4911c3",
+      "GeneralsMD/Code/GameEngineDevice/Source/PosixDevice/Render/PosixDevice9.h": "db3f9927fb1890e3f974e09d6df1a97e9234aca22819d3da469ad678b188965d",
+      "GeneralsMD/Code/GameEngineDevice/Source/PosixDevice/Render/PosixDevice9Post.cpp": "21bebf3a61f6d5b85beb7dd576edba09989b966de70a49869b1c2f3b2f749621",
+      "GeneralsMD/Code/GameEngineDevice/Source/PosixDevice/Render/PosixDevice9Draw.cpp": "0d6236e69001fa931ffd65fb6ff5c14a8693d3b57fad188aea73f85914da1c02",
+      "GeneralsMD/Code/GameEngineDevice/Source/PosixDevice/Render/PosixDevice9SunShadow.cpp": "f534c652278f5314c6571895f7dc77f4c721768813079ba4d44a3357727f0599",
+      "GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/Water/W3DWater.cpp": "b21b138f8f08d31e9ce8cf894d3acf6ebb7f02c3b9af0df3b958f9701cae3f4a",
+      "GeneralsMD/Code/Tests/test_renderer_water_foam.cpp": "fa58305d741db7333d2739a0979de0250cc53287012ff0352b4a47c2a1795ae5",
+      "GeneralsMD/Code/CMakeLists.txt": "da1325357047dd379cf387e4c7322dec96532ade9fabeef2ecd972ba46458e39",
+      "GeneralsMD/Code/BuildFingerprint.manifest": "8df70fc559d651395985413f522146dbaf798a4cb963fb1e97d8edbc2c3dffdc",
+      "GeneralsMD/Code/Data/Patch.str": "5bb23ff6ddbea2b9e8bf790ea6f6ca6737078a7f877f40d4517c3a5c6cdc677d",
+      "GeneralsMD/Code/Data/Turkish/Generals.str": "a4c6065daeffc150e45036d08c62faf2bac6f9a511e1168da74f27d2c501e7be"
+    },
+    "overlay_string_hashes": {
+      "Patch.str": "5bb23ff6ddbea2b9e8bf790ea6f6ca6737078a7f877f40d4517c3a5c6cdc677d",
+      "Turkish/Generals.str": "a4c6065daeffc150e45036d08c62faf2bac6f9a511e1168da74f27d2c501e7be"
+    },
+    "activation": "WaterFoam genuine lower provider registered for sampleable scene depth + R32 sampler/color-target; actual W3DWater gate enabled only requested Classic-style/nonClassicGraphics main owner with prepared independent opaque depth",
+    "checks": {
+      "broad_frozen332_cpu": "141pass/2skip/0fail; prior snapshot unchanged",
+      "owner_delta_build": "11steps passed",
+      "owner_delta_cpu": "5passed/0fail",
+      "owner_delta_gpu": {
+        "exit": 0,
+        "checks": 2108,
+        "failures": 0,
+        "actual_draws": 30,
+        "enhanced_foam_draws": 10,
+        "plain_fallback_draws": 20,
+        "log": "../owner-corrected-gpu/native-gpu.log",
+        "limits": "Native recorded draw regression; actual W3DWater in-game scene acceptance still pending."
+      },
+      "final_broad_build": {
+        "exit": 0,
+        "log": "../../final-validation/build-owner-final.log"
+      }
+    },
+    "fallback": "explicitClassic plain enum+legacy destination-alpha feather pair, never Modern program; stable capture refusal per main key",
+    "scope": "source model standin correction retained, all core providers now integrated; real water/river/pond and final combined acceptance remain pending",
+    "limits": [
+      "actual native water consumer scene evidence pending",
+      "final activated-candidate GPU CTest/full smoke pending"
+    ],
+    "build_fingerprint": "0xBCBDFF8F",
+    "review_delta": "Ready and depth admit only explicit ordinary main owners, including registered default scene stand-in; reject unregistered/special/stale RTT before enhanced CPU path. Shader formulas/layout unchanged."
+  },
+  "purpose": "timed",
+  "runner_sha256": "566c4fb3202de53500b30cd52dc27329f7b6fecb0f81b0a047774d4c7b417379",
+  "parser_snapshot_sha256": "e74da91b65b91d0d6f68954ec4521ada0754ae48ba252d0853c70513dc5a1556",
+  "helper_sha256": {
+    "native-particle-reach-check.py": "bf47777e9fdeb51a2df8dccc24323719758a7cfde8bb89f73615ca6dce52375f",
+    "portable-cosmetics-check.py": "a6b50a4c4732adb1db506007d6aef65e630ee13b71499ddae2e061c7bdb62def",
+    "control_client.py": "f3ffc7b0596a2f91b09336676dcbfd8a0882765cb732e0164a7636b69cd569ef",
+    "bigfile.py": "182a16634fdf184fd06a5f72ebce3d622dc1a3f8b26edb3936b2076eb7879e97"
+  },
+  "fair_qualification_sha256": "c082e75db04409f3a8ff398c1b521d83ceed86d0ca088febfa86ebf2cb67b2e8",
+  "hardware_before": {
+    "platform": "Linux-7.3.4-x64v3-xanmod1-x86_64-with-glibc2.43",
+    "cpu_models": [
+      "12th Gen Intel(R) Core(TM) i7-12700"
+    ],
+    "nvidia_smi": {
+      "command": [
+        "nvidia-smi",
+        "--query-gpu=name,uuid,driver_version,memory.total,memory.used,temperature.gpu,pstate,power.draw,clocks.current.graphics,clocks.current.memory",
+        "--format=csv,noheader"
+      ],
+      "returncode": 0,
+      "stdout": "NVIDIA GeForce RTX 4060, GPU-dbf5e883-04f0-6f25-aff9-3f4b44470832, 595.112.07, 8188 MiB, 529 MiB, 45, P2, [N/A], 2805 MHz, 8251 MHz\n",
+      "stderr": ""
+    }
+  },
+  "returncode": 0,
+  "wall_seconds_including_load": 6.123,
+  "hardware_after": {
+    "platform": "Linux-7.3.4-x64v3-xanmod1-x86_64-with-glibc2.43",
+    "cpu_models": [
+      "12th Gen Intel(R) Core(TM) i7-12700"
+    ],
+    "nvidia_smi": {
+      "command": [
+        "nvidia-smi",
+        "--query-gpu=name,uuid,driver_version,memory.total,memory.used,temperature.gpu,pstate,power.draw,clocks.current.graphics,clocks.current.memory",
+        "--format=csv,noheader"
+      ],
+      "returncode": 0,
+      "stdout": "NVIDIA GeForce RTX 4060, GPU-dbf5e883-04f0-6f25-aff9-3f4b44470832, 595.112.07, 8188 MiB, 533 MiB, 52, P2, [N/A], 2790 MHz, 8251 MHz\n",
+      "stderr": ""
+    }
+  },
+  "crc": [
+    "HEADLESS CRC AT LIMIT: 0x2AECE11D at frame 1600"
+  ],
+  "validation_errors": [],
+  "timer_status": [
+    "PosixDevice9 timing: LOGIC window 900..1499 samples=600 expected=600 rejected=0 status=complete"
+  ],
+  "cpu_particles": [
+    {
+      "frame": 0,
+      "live": 0,
+      "systems": 0
+    },
+    {
+      "frame": 100,
+      "live": 5000,
+      "systems": 22
+    },
+    {
+      "frame": 200,
+      "live": 5000,
+      "systems": 22
+    },
+    {
+      "frame": 300,
+      "live": 5000,
+      "systems": 22
+    },
+    {
+      "frame": 400,
+      "live": 5000,
+      "systems": 22
+    },
+    {
+      "frame": 500,
+      "live": 5000,
+      "systems": 22
+    },
+    {
+      "frame": 600,
+      "live": 5000,
+      "systems": 22
+    },
+    {
+      "frame": 700,
+      "live": 5000,
+      "systems": 22
+    },
+    {
+      "frame": 800,
+      "live": 5000,
+      "systems": 22
+    },
+    {
+      "frame": 900,
+      "live": 5000,
+      "systems": 22
+    },
+    {
+      "frame": 1000,
+      "live": 5000,
+      "systems": 22
+    },
+    {
+      "frame": 1100,
+      "live": 5000,
+      "systems": 22
+    },
+    {
+      "frame": 1200,
+      "live": 5000,
+      "systems": 22
+    },
+    {
+      "frame": 1300,
+      "live": 5000,
+      "systems": 22
+    },
+    {
+      "frame": 1400,
+      "live": 5000,
+      "systems": 22
+    },
+    {
+      "frame": 1500,
+      "live": 5000,
+      "systems": 22
+    }
+  ],
+  "gpu_particles": [],
+  "resource_counters": [
+    "PosixDevice9: 1034206 draws recorded, 1653 presents, 0 of them to a window that was not visible, 0 with no drawable",
+    "PosixDevice9: 3140 mid-frame flushes, at most 2 in flight at once, 0 waited for the ring (limit 3); 0 of the flushes for the draw limit (2048 draws)"
+  ],
+  "particle_cost": [
+    "HEADLESS PARTICLECOST: per drawn frame | update 0.036 fill 0.037 translucent flush 0.289 ms | 1.0 translucent draws | 4997 particles, 4997 on screen, peak 5000 | not drawn: 0 polygons refused by the sorting pool, 0 particles past the per-system limit"
+  ],
+  "program_counts": [
+    {
+      "program": "the engine's engine:roadnoise2",
+      "draws": 11193
+    },
+    {
+      "program": "the engine's engine:terrainnoise2",
+      "draws": 249444
+    },
+    {
+      "program": "the engine's engine:trees",
+      "draws": 3198
+    }
+  ],
+  "qualification_pictures": [],
+  "metrics": [
+    {
+      "metric": "frame_ms",
+      "samples": 600,
+      "mean": 1.5737279966666666,
+      "median": 1.5302,
+      "p95": 1.750168,
+      "minimum": 1.435505,
+      "maximum": 4.395182
+    },
+    {
+      "metric": "work_ms",
+      "samples": 600,
+      "mean": 1.572633435,
+      "median": 1.529142,
+      "p95": 1.749092,
+      "minimum": 1.434525,
+      "maximum": 4.393353
+    },
+    {
+      "metric": "device_draw_ms",
+      "samples": 600,
+      "mean": 0.4210215883333333,
+      "median": 0.41178000000000003,
+      "p95": 0.446618,
+      "minimum": 0.400571,
+      "maximum": 0.878049
+    },
+    {
+      "metric": "device_flush_ms",
+      "samples": 600,
+      "mean": 0.13033815833333334,
+      "median": 0.1262935,
+      "p95": 0.152751,
+      "minimum": 0.117251,
+      "maximum": 0.284438
+    },
+    {
+      "metric": "device_present_ms",
+      "samples": 600,
+      "mean": 0.09978152666666666,
+      "median": 0.085547,
+      "p95": 0.120085,
+      "minimum": 0.080408,
+      "maximum": 1.806249
+    },
+    {
+      "metric": "swapchain_wait_ms",
+      "samples": 600,
+      "mean": 0.0,
+      "median": 0.0,
+      "p95": 0.0,
+      "minimum": 0.0,
+      "maximum": 0.0
+    },
+    {
+      "metric": "offscreen_wait_ms",
+      "samples": 600,
+      "mean": 0.0010945616666666667,
+      "median": 0.0010155,
+      "p95": 0.00146,
+      "minimum": 0.000853,
+      "maximum": 0.009292
+    },
+    {
+      "metric": "fence_ms",
+      "samples": 600,
+      "mean": 0.0,
+      "median": 0.0,
+      "p95": 0.0,
+      "minimum": 0.0,
+      "maximum": 0.0
+    },
+    {
+      "metric": "draws",
+      "samples": 600,
+      "mean": 645.0,
+      "median": 645.0,
+      "p95": 645.0,
+      "minimum": 645.0,
+      "maximum": 645.0
+    },
+    {
+      "metric": "flushes",
+      "samples": 600,
+      "mean": 2.0,
+      "median": 2.0,
+      "p95": 2.0,
+      "minimum": 2.0,
+      "maximum": 2.0
+    }
+  ],
+  "timing_complete": true,
+  "accepted_timing_run": true
+}

@@ -1,0 +1,513 @@
+{
+  "status": "accepted_bounded_benchmarks",
+  "candidate_sha256": "c7503c364f05364026d1b485ae21d9ff6aaa68bd71dd7fa95d799486cf381cfd",
+  "scope": "Native end-to-end offscreen present intervals,1920x1080/MSAA0, not hardware timestamps or displayedFPS. Same final binary for all12fresh-process runs.",
+  "hardware": {
+    "gpu": "NVIDIA GeForce RTX4060 8GB",
+    "driver": "595.112.07",
+    "cpu": "Intel Corei7-12700",
+    "kernel": "Linux7.3.4-x64v3-xanmod1",
+    "clock_power_changes": false,
+    "power_draw": "N/A; readonly pre/post clocks,thermals,pstate included perrun"
+  },
+  "option_bundle_method": "NonClassic same-assets/water/shadows/model-state policy/GPUoffboth; only explicit controllable option bundle/post chain differs. Allthree alternating pairs retained.",
+  "particle_method": "Matched-total native-overflow comparison:5,000particles. CPUcap16384/ring0 versusCPUcap1/ring8192, actual5000CPU versus2CPU+4998native. Same20x250burst/ages/textures/blend/camera/seed and all other options. Includes normal bookkeeping costs.",
+  "windows": {
+    "bundle": [
+      2700,
+      3299
+    ],
+    "particles-fixed": [
+      900,
+      1499
+    ],
+    "samples_per_repeat": 600,
+    "repeats_per_variant": 3,
+    "samples_per_variant": 1800
+  },
+  "qualification": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/feature-parity-evidence/benchmarks/fixed5000-overflow-qualification-c750/comparison.json",
+  "qualification_visible": true,
+  "ordered_runs": [
+    {
+      "folder": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/feature-parity-evidence/benchmarks/c750-bundle-off-r1",
+      "candidate": "c7503c364f05364026d1b485ae21d9ff6aaa68bd71dd7fa95d799486cf381cfd",
+      "samples": 600,
+      "crc": [
+        "HEADLESS CRC AT LIMIT: 0xB35E379B at frame 3400"
+      ],
+      "purpose": "timed",
+      "accepted": true,
+      "cpu_cap": 16384,
+      "gpu_ring": 0
+    },
+    {
+      "folder": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/feature-parity-evidence/benchmarks/c750-bundle-on-r1",
+      "candidate": "c7503c364f05364026d1b485ae21d9ff6aaa68bd71dd7fa95d799486cf381cfd",
+      "samples": 600,
+      "crc": [
+        "HEADLESS CRC AT LIMIT: 0xB35E379B at frame 3400"
+      ],
+      "purpose": "timed",
+      "accepted": true,
+      "cpu_cap": 16384,
+      "gpu_ring": 0
+    },
+    {
+      "folder": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/feature-parity-evidence/benchmarks/c750-bundle-on-r2",
+      "candidate": "c7503c364f05364026d1b485ae21d9ff6aaa68bd71dd7fa95d799486cf381cfd",
+      "samples": 600,
+      "crc": [
+        "HEADLESS CRC AT LIMIT: 0xB35E379B at frame 3400"
+      ],
+      "purpose": "timed",
+      "accepted": true,
+      "cpu_cap": 16384,
+      "gpu_ring": 0
+    },
+    {
+      "folder": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/feature-parity-evidence/benchmarks/c750-bundle-off-r2",
+      "candidate": "c7503c364f05364026d1b485ae21d9ff6aaa68bd71dd7fa95d799486cf381cfd",
+      "samples": 600,
+      "crc": [
+        "HEADLESS CRC AT LIMIT: 0xB35E379B at frame 3400"
+      ],
+      "purpose": "timed",
+      "accepted": true,
+      "cpu_cap": 16384,
+      "gpu_ring": 0
+    },
+    {
+      "folder": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/feature-parity-evidence/benchmarks/c750-bundle-off-r3",
+      "candidate": "c7503c364f05364026d1b485ae21d9ff6aaa68bd71dd7fa95d799486cf381cfd",
+      "samples": 600,
+      "crc": [
+        "HEADLESS CRC AT LIMIT: 0xB35E379B at frame 3400"
+      ],
+      "purpose": "timed",
+      "accepted": true,
+      "cpu_cap": 16384,
+      "gpu_ring": 0
+    },
+    {
+      "folder": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/feature-parity-evidence/benchmarks/c750-bundle-on-r3",
+      "candidate": "c7503c364f05364026d1b485ae21d9ff6aaa68bd71dd7fa95d799486cf381cfd",
+      "samples": 600,
+      "crc": [
+        "HEADLESS CRC AT LIMIT: 0xB35E379B at frame 3400"
+      ],
+      "purpose": "timed",
+      "accepted": true,
+      "cpu_cap": 16384,
+      "gpu_ring": 0
+    },
+    {
+      "folder": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/feature-parity-evidence/benchmarks/c750-particles-fixed-cpu-r1",
+      "candidate": "c7503c364f05364026d1b485ae21d9ff6aaa68bd71dd7fa95d799486cf381cfd",
+      "samples": 600,
+      "crc": [
+        "HEADLESS CRC AT LIMIT: 0x2AECE11D at frame 1600"
+      ],
+      "purpose": "timed",
+      "accepted": true,
+      "cpu_cap": 16384,
+      "gpu_ring": 0,
+      "population_samples": [
+        {
+          "frame": 900,
+          "cpu": 5000,
+          "native": 0,
+          "total": 5000
+        },
+        {
+          "frame": 1000,
+          "cpu": 5000,
+          "native": 0,
+          "total": 5000
+        },
+        {
+          "frame": 1100,
+          "cpu": 5000,
+          "native": 0,
+          "total": 5000
+        },
+        {
+          "frame": 1200,
+          "cpu": 5000,
+          "native": 0,
+          "total": 5000
+        },
+        {
+          "frame": 1300,
+          "cpu": 5000,
+          "native": 0,
+          "total": 5000
+        },
+        {
+          "frame": 1400,
+          "cpu": 5000,
+          "native": 0,
+          "total": 5000
+        }
+      ],
+      "no_sort_or_system_drops": true
+    },
+    {
+      "folder": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/feature-parity-evidence/benchmarks/c750-particles-fixed-gpu-r1",
+      "candidate": "c7503c364f05364026d1b485ae21d9ff6aaa68bd71dd7fa95d799486cf381cfd",
+      "samples": 600,
+      "crc": [
+        "HEADLESS CRC AT LIMIT: 0x2AECE11D at frame 1600"
+      ],
+      "purpose": "timed",
+      "accepted": true,
+      "cpu_cap": 1,
+      "gpu_ring": 8192,
+      "population_samples": [
+        {
+          "frame": 900,
+          "cpu": 2,
+          "native": 4998,
+          "total": 5000
+        },
+        {
+          "frame": 1000,
+          "cpu": 2,
+          "native": 4998,
+          "total": 5000
+        },
+        {
+          "frame": 1100,
+          "cpu": 2,
+          "native": 4998,
+          "total": 5000
+        },
+        {
+          "frame": 1200,
+          "cpu": 2,
+          "native": 4998,
+          "total": 5000
+        },
+        {
+          "frame": 1300,
+          "cpu": 2,
+          "native": 4998,
+          "total": 5000
+        },
+        {
+          "frame": 1400,
+          "cpu": 2,
+          "native": 4998,
+          "total": 5000
+        }
+      ],
+      "no_sort_or_system_drops": true,
+      "native_work": {
+        "dispatches": 1539,
+        "draws": 3078,
+        "max_range": 4998
+      }
+    },
+    {
+      "folder": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/feature-parity-evidence/benchmarks/c750-particles-fixed-gpu-r2",
+      "candidate": "c7503c364f05364026d1b485ae21d9ff6aaa68bd71dd7fa95d799486cf381cfd",
+      "samples": 600,
+      "crc": [
+        "HEADLESS CRC AT LIMIT: 0x2AECE11D at frame 1600"
+      ],
+      "purpose": "timed",
+      "accepted": true,
+      "cpu_cap": 1,
+      "gpu_ring": 8192,
+      "population_samples": [
+        {
+          "frame": 900,
+          "cpu": 2,
+          "native": 4998,
+          "total": 5000
+        },
+        {
+          "frame": 1000,
+          "cpu": 2,
+          "native": 4998,
+          "total": 5000
+        },
+        {
+          "frame": 1100,
+          "cpu": 2,
+          "native": 4998,
+          "total": 5000
+        },
+        {
+          "frame": 1200,
+          "cpu": 2,
+          "native": 4998,
+          "total": 5000
+        },
+        {
+          "frame": 1300,
+          "cpu": 2,
+          "native": 4998,
+          "total": 5000
+        },
+        {
+          "frame": 1400,
+          "cpu": 2,
+          "native": 4998,
+          "total": 5000
+        }
+      ],
+      "no_sort_or_system_drops": true,
+      "native_work": {
+        "dispatches": 1539,
+        "draws": 3078,
+        "max_range": 4998
+      }
+    },
+    {
+      "folder": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/feature-parity-evidence/benchmarks/c750-particles-fixed-cpu-r2",
+      "candidate": "c7503c364f05364026d1b485ae21d9ff6aaa68bd71dd7fa95d799486cf381cfd",
+      "samples": 600,
+      "crc": [
+        "HEADLESS CRC AT LIMIT: 0x2AECE11D at frame 1600"
+      ],
+      "purpose": "timed",
+      "accepted": true,
+      "cpu_cap": 16384,
+      "gpu_ring": 0,
+      "population_samples": [
+        {
+          "frame": 900,
+          "cpu": 5000,
+          "native": 0,
+          "total": 5000
+        },
+        {
+          "frame": 1000,
+          "cpu": 5000,
+          "native": 0,
+          "total": 5000
+        },
+        {
+          "frame": 1100,
+          "cpu": 5000,
+          "native": 0,
+          "total": 5000
+        },
+        {
+          "frame": 1200,
+          "cpu": 5000,
+          "native": 0,
+          "total": 5000
+        },
+        {
+          "frame": 1300,
+          "cpu": 5000,
+          "native": 0,
+          "total": 5000
+        },
+        {
+          "frame": 1400,
+          "cpu": 5000,
+          "native": 0,
+          "total": 5000
+        }
+      ],
+      "no_sort_or_system_drops": true
+    },
+    {
+      "folder": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/feature-parity-evidence/benchmarks/c750-particles-fixed-cpu-r3",
+      "candidate": "c7503c364f05364026d1b485ae21d9ff6aaa68bd71dd7fa95d799486cf381cfd",
+      "samples": 600,
+      "crc": [
+        "HEADLESS CRC AT LIMIT: 0x2AECE11D at frame 1600"
+      ],
+      "purpose": "timed",
+      "accepted": true,
+      "cpu_cap": 16384,
+      "gpu_ring": 0,
+      "population_samples": [
+        {
+          "frame": 900,
+          "cpu": 5000,
+          "native": 0,
+          "total": 5000
+        },
+        {
+          "frame": 1000,
+          "cpu": 5000,
+          "native": 0,
+          "total": 5000
+        },
+        {
+          "frame": 1100,
+          "cpu": 5000,
+          "native": 0,
+          "total": 5000
+        },
+        {
+          "frame": 1200,
+          "cpu": 5000,
+          "native": 0,
+          "total": 5000
+        },
+        {
+          "frame": 1300,
+          "cpu": 5000,
+          "native": 0,
+          "total": 5000
+        },
+        {
+          "frame": 1400,
+          "cpu": 5000,
+          "native": 0,
+          "total": 5000
+        }
+      ],
+      "no_sort_or_system_drops": true
+    },
+    {
+      "folder": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/feature-parity-evidence/benchmarks/c750-particles-fixed-gpu-r3",
+      "candidate": "c7503c364f05364026d1b485ae21d9ff6aaa68bd71dd7fa95d799486cf381cfd",
+      "samples": 600,
+      "crc": [
+        "HEADLESS CRC AT LIMIT: 0x2AECE11D at frame 1600"
+      ],
+      "purpose": "timed",
+      "accepted": true,
+      "cpu_cap": 1,
+      "gpu_ring": 8192,
+      "population_samples": [
+        {
+          "frame": 900,
+          "cpu": 2,
+          "native": 4998,
+          "total": 5000
+        },
+        {
+          "frame": 1000,
+          "cpu": 2,
+          "native": 4998,
+          "total": 5000
+        },
+        {
+          "frame": 1100,
+          "cpu": 2,
+          "native": 4998,
+          "total": 5000
+        },
+        {
+          "frame": 1200,
+          "cpu": 2,
+          "native": 4998,
+          "total": 5000
+        },
+        {
+          "frame": 1300,
+          "cpu": 2,
+          "native": 4998,
+          "total": 5000
+        },
+        {
+          "frame": 1400,
+          "cpu": 2,
+          "native": 4998,
+          "total": 5000
+        }
+      ],
+      "no_sort_or_system_drops": true,
+      "native_work": {
+        "dispatches": 1539,
+        "draws": 3078,
+        "max_range": 4998
+      }
+    }
+  ],
+  "summary_frame_ms": [
+    {
+      "suite": "bundle",
+      "variant": "off",
+      "sync": "False",
+      "metric": "frame_ms",
+      "unit": "ms",
+      "repeats": "3",
+      "samples": "1800",
+      "mean": "2.4694599333333334",
+      "median": "1.854249",
+      "p95": "3.836325",
+      "minimum": "1.538758",
+      "maximum": "297.975979",
+      "repeat_mean_min": "2.1405912066666666",
+      "repeat_mean_max": "3.1261232083333335",
+      "repeat_mean_stdev": "0.5686873315056942"
+    },
+    {
+      "suite": "bundle",
+      "variant": "on",
+      "sync": "False",
+      "metric": "frame_ms",
+      "unit": "ms",
+      "repeats": "3",
+      "samples": "1800",
+      "mean": "3.2174832327777776",
+      "median": "2.72025",
+      "p95": "5.284519",
+      "minimum": "2.324652",
+      "maximum": "46.117188",
+      "repeat_mean_min": "3.1082629833333333",
+      "repeat_mean_max": "3.377472135",
+      "repeat_mean_stdev": "0.14160326237034418"
+    },
+    {
+      "suite": "particles-fixed",
+      "variant": "cpu",
+      "sync": "False",
+      "metric": "frame_ms",
+      "unit": "ms",
+      "repeats": "3",
+      "samples": "1800",
+      "mean": "1.5857495655555556",
+      "median": "1.537263",
+      "p95": "1.794738",
+      "minimum": "1.415964",
+      "maximum": "4.395182",
+      "repeat_mean_min": "1.5737279966666666",
+      "repeat_mean_max": "1.6080924466666666",
+      "repeat_mean_stdev": "0.01936816900076181"
+    },
+    {
+      "suite": "particles-fixed",
+      "variant": "gpu",
+      "sync": "False",
+      "metric": "frame_ms",
+      "unit": "ms",
+      "repeats": "3",
+      "samples": "1800",
+      "mean": "1.2923731355555557",
+      "median": "1.239265",
+      "p95": "1.65349",
+      "minimum": "1.133829",
+      "maximum": "3.948688",
+      "repeat_mean_min": "1.2786555816666667",
+      "repeat_mean_max": "1.3018519383333333",
+      "repeat_mean_stdev": "0.012165237313273498"
+    }
+  ],
+  "export": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/docs/reference/linux-renderer-parity-2026-11-15/benchmarks",
+  "portable_prepare_validation": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/docs/reference/linux-renderer-parity-2026-11-15/benchmarks/portable-prepare-validation.json",
+  "retained_outlier": {
+    "case": "bundleOFF repeat1",
+    "ms": 297.975979,
+    "policy": "Untrimmed; no cause asserted. Mean/median/p95,allrepeats and full extrema published."
+  },
+  "rejected_qualification": {
+    "path": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/feature-parity-evidence/benchmarks/fixed5000-qualification-c750/comparison.json",
+    "reason": "Expected overflow policy admitted0native atCPUcap16384. Original pictures0pixel difference; mistaken preview invisibility concern withdrawn."
+  },
+  "limitations": [
+    "No hardwareGPUtimestamp/interactiveFPS claim.",
+    "No isolated whole-port cost or per-effect cost from bundle scene.",
+    "No100k/million timing or break-even claim.",
+    "Offscreen fixed burst with overlapping250particles per emitter; exactretained/evaluatedcount is not5,000 independently distinguishable pixels.",
+    "Windows and Metal performance untested."
+  ]
+}

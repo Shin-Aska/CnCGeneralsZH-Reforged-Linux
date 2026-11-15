@@ -1,0 +1,25 @@
+{
+  "status": "passed",
+  "outside_repository_directory": "/tmp/parity-benchmark-repro-_p31rpov",
+  "checks": [
+    {
+      "suite": "bundle",
+      "variant": "on",
+      "prepare_exit": 0,
+      "same_profile": true,
+      "same_scenario": true,
+      "same_cinema": true,
+      "no_gpu_execution": true
+    },
+    {
+      "suite": "particles-fixed",
+      "variant": "gpu",
+      "prepare_exit": 0,
+      "same_profile": true,
+      "same_scenario": true,
+      "same_cinema": true,
+      "no_gpu_execution": true
+    }
+  ],
+  "scope": "Prepare-only reproduction: no GPU or original game-data writes."
+}

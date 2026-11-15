@@ -1,0 +1,113 @@
+{
+  "status": "accepted_pair",
+  "checks": {
+    "same_candidate": true,
+    "same_scene": true,
+    "same_resolution": true,
+    "same_window": true,
+    "same_crc": true,
+    "both_complete": true,
+    "same_sync": true,
+    "qualification_pictures_present": true,
+    "pictures_visually_confirmed": true,
+    "same_profile_except_documented_cpu_cap": true,
+    "cpu_gpu_variants": true,
+    "at_least_five_count_samples": true,
+    "exact_retained_populations": true,
+    "native_work_positive": true,
+    "no_live_ring_evictions": true,
+    "no_cpu_backend_gpu_records": true,
+    "same_emitter_work": true,
+    "no_sort_or_system_drops_cpu": true,
+    "no_sort_or_system_drops_gpu": true,
+    "exact_target_5000": true,
+    "stable_fixed_population": true
+  },
+  "left": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/feature-parity-evidence/benchmarks/qualification-overflow-cpu-c750",
+  "right": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/feature-parity-evidence/benchmarks/qualification-overflow-gpu-c750",
+  "candidate_sha256": "c7503c364f05364026d1b485ae21d9ff6aaa68bd71dd7fa95d799486cf381cfd",
+  "manifest_sha256": {
+    "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/feature-parity-evidence/benchmarks/qualification-overflow-cpu-c750": "12929899e9070a0fc9f8dcfa40cbef6ea6ea358904d61d169c7e4ad355613bbe",
+    "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/feature-parity-evidence/benchmarks/qualification-overflow-gpu-c750": "d784bae16510fe345cf93e220e313ad41fb83ea04e66c661937a0629957f0c89"
+  },
+  "scope": "Matched native end-to-end offscreen timer intervals; no hardware timestamp or interactive FPS claim.",
+  "parser_sha256": "e74da91b65b91d0d6f68954ec4521ada0754ae48ba252d0853c70513dc5a1556",
+  "visual_review_status": "Explicit visual confirmation supplied after image inspection",
+  "qualification_pictures": {
+    "left": [
+      {
+        "bmp": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/feature-parity-evidence/benchmarks/qualification-overflow-cpu-c750/user/sshot001.bmp",
+        "bmp_sha256": "59f50054ed3d7d6a06d7543920e8d733faf532cb7f5c9c5cf646d376347c28cf",
+        "png": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/feature-parity-evidence/benchmarks/qualification-overflow-cpu-c750/qualification-visible-0.png",
+        "png_sha256": "162c5530af00d33d3f85f2cea975ac4d949560d41e840d8616f56087734c5450",
+        "requested_frame": 1550
+      }
+    ],
+    "right": [
+      {
+        "bmp": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/feature-parity-evidence/benchmarks/qualification-overflow-gpu-c750/user/sshot001.bmp",
+        "bmp_sha256": "345b2402b19a7995728dc4b2cfe5c86ccab3a56b171091eb073711e515b95f68",
+        "png": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/feature-parity-evidence/benchmarks/qualification-overflow-gpu-c750/qualification-visible-0.png",
+        "png_sha256": "a2c951751e4c4ccdb8f890a12ed678c70ae78d0d46167d59258d5932b1fdc3d3",
+        "requested_frame": 1550
+      }
+    ]
+  },
+  "cpu_cap_policy": {
+    "left_cpu_cap": 16384,
+    "right_cpu_cap": 1,
+    "reason": "Unchanged game admits native particles only beyond the CPU particle ceiling. Compare exact same retained total and emitter work; this is a native overflow comparison, not identical CPU cap."
+  },
+  "population_samples": [
+    {
+      "frame": 900,
+      "cpu_total": 5000,
+      "gpu_cpu_fallback": 2,
+      "gpu_native": 4998,
+      "gpu_total": 5000,
+      "equal": true
+    },
+    {
+      "frame": 1000,
+      "cpu_total": 5000,
+      "gpu_cpu_fallback": 2,
+      "gpu_native": 4998,
+      "gpu_total": 5000,
+      "equal": true
+    },
+    {
+      "frame": 1100,
+      "cpu_total": 5000,
+      "gpu_cpu_fallback": 2,
+      "gpu_native": 4998,
+      "gpu_total": 5000,
+      "equal": true
+    },
+    {
+      "frame": 1200,
+      "cpu_total": 5000,
+      "gpu_cpu_fallback": 2,
+      "gpu_native": 4998,
+      "gpu_total": 5000,
+      "equal": true
+    },
+    {
+      "frame": 1300,
+      "cpu_total": 5000,
+      "gpu_cpu_fallback": 2,
+      "gpu_native": 4998,
+      "gpu_total": 5000,
+      "equal": true
+    },
+    {
+      "frame": 1400,
+      "cpu_total": 5000,
+      "gpu_cpu_fallback": 2,
+      "gpu_native": 4998,
+      "gpu_total": 5000,
+      "equal": true
+    }
+  ],
+  "fair_particle_comparison_qualified": true,
+  "passed": true
+}

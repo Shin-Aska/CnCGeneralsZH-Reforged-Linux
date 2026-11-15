@@ -1,0 +1,560 @@
+[
+  {
+    "run": "c750-bundle-off-r1",
+    "candidate_sha256": "c7503c364f05364026d1b485ae21d9ff6aaa68bd71dd7fa95d799486cf381cfd",
+    "runner_sha256": "566c4fb3202de53500b30cd52dc27329f7b6fecb0f81b0a047774d4c7b417379",
+    "profile_sha256": "a262a149559120cf2b447e6502cd1a949f79c484027b21bbe5bd9932122a6a04",
+    "scenario_sha256": "ce366273e6424afb7de247cf6117ca787357a8bc939d8ec855b110acd586e729",
+    "crc": [
+      "HEADLESS CRC AT LIMIT: 0xB35E379B at frame 3400"
+    ],
+    "hardware_before": {
+      "platform": "Linux-7.3.4-x64v3-xanmod1-x86_64-with-glibc2.43",
+      "cpu_models": [
+        "12th Gen Intel(R) Core(TM) i7-12700"
+      ],
+      "nvidia_smi": {
+        "command": [
+          "nvidia-smi",
+          "--query-gpu=name,uuid,driver_version,memory.total,memory.used,temperature.gpu,pstate,power.draw,clocks.current.graphics,clocks.current.memory",
+          "--format=csv,noheader"
+        ],
+        "returncode": 0,
+        "stdout": "NVIDIA GeForce RTX 4060, GPU-dbf5e883-04f0-6f25-aff9-3f4b44470832, 595.112.07, 8188 MiB, 533 MiB, 43, P8, [N/A], 210 MHz, 405 MHz\n",
+        "stderr": ""
+      }
+    },
+    "hardware_after": {
+      "platform": "Linux-7.3.4-x64v3-xanmod1-x86_64-with-glibc2.43",
+      "cpu_models": [
+        "12th Gen Intel(R) Core(TM) i7-12700"
+      ],
+      "nvidia_smi": {
+        "command": [
+          "nvidia-smi",
+          "--query-gpu=name,uuid,driver_version,memory.total,memory.used,temperature.gpu,pstate,power.draw,clocks.current.graphics,clocks.current.memory",
+          "--format=csv,noheader"
+        ],
+        "returncode": 0,
+        "stdout": "NVIDIA GeForce RTX 4060, GPU-dbf5e883-04f0-6f25-aff9-3f4b44470832, 595.112.07, 8188 MiB, 533 MiB, 47, P2, [N/A], 2805 MHz, 8251 MHz\n",
+        "stderr": ""
+      }
+    },
+    "resource_counters": [
+      "PosixDevice9: 4204765 draws recorded, 3453 presents, 0 of them to a window that was not visible, 0 with no drawable",
+      "PosixDevice9: 7202 mid-frame flushes, at most 4 in flight at once, 432 waited for the ring (limit 3); 4 of the flushes for the draw limit (2048 draws)"
+    ]
+  },
+  {
+    "run": "c750-bundle-on-r1",
+    "candidate_sha256": "c7503c364f05364026d1b485ae21d9ff6aaa68bd71dd7fa95d799486cf381cfd",
+    "runner_sha256": "566c4fb3202de53500b30cd52dc27329f7b6fecb0f81b0a047774d4c7b417379",
+    "profile_sha256": "85b5cde913cb895042b2a9e5539d371fc9ba79e833a1ae0822ebacfb8cc9d811",
+    "scenario_sha256": "ce366273e6424afb7de247cf6117ca787357a8bc939d8ec855b110acd586e729",
+    "crc": [
+      "HEADLESS CRC AT LIMIT: 0xB35E379B at frame 3400"
+    ],
+    "hardware_before": {
+      "platform": "Linux-7.3.4-x64v3-xanmod1-x86_64-with-glibc2.43",
+      "cpu_models": [
+        "12th Gen Intel(R) Core(TM) i7-12700"
+      ],
+      "nvidia_smi": {
+        "command": [
+          "nvidia-smi",
+          "--query-gpu=name,uuid,driver_version,memory.total,memory.used,temperature.gpu,pstate,power.draw,clocks.current.graphics,clocks.current.memory",
+          "--format=csv,noheader"
+        ],
+        "returncode": 0,
+        "stdout": "NVIDIA GeForce RTX 4060, GPU-dbf5e883-04f0-6f25-aff9-3f4b44470832, 595.112.07, 8188 MiB, 533 MiB, 46, P2, [N/A], 2805 MHz, 8251 MHz\n",
+        "stderr": ""
+      }
+    },
+    "hardware_after": {
+      "platform": "Linux-7.3.4-x64v3-xanmod1-x86_64-with-glibc2.43",
+      "cpu_models": [
+        "12th Gen Intel(R) Core(TM) i7-12700"
+      ],
+      "nvidia_smi": {
+        "command": [
+          "nvidia-smi",
+          "--query-gpu=name,uuid,driver_version,memory.total,memory.used,temperature.gpu,pstate,power.draw,clocks.current.graphics,clocks.current.memory",
+          "--format=csv,noheader"
+        ],
+        "returncode": 0,
+        "stdout": "NVIDIA GeForce RTX 4060, GPU-dbf5e883-04f0-6f25-aff9-3f4b44470832, 595.112.07, 8188 MiB, 529 MiB, 55, P2, [N/A], 2790 MHz, 8251 MHz\n",
+        "stderr": ""
+      }
+    },
+    "resource_counters": [
+      "PosixDevice9: 4187806 draws recorded, 3453 presents, 0 of them to a window that was not visible, 0 with no drawable",
+      "PosixDevice9: 11535 mid-frame flushes, at most 4 in flight at once, 3891 waited for the ring (limit 3); 3 of the flushes for the draw limit (2048 draws)"
+    ]
+  },
+  {
+    "run": "c750-bundle-on-r2",
+    "candidate_sha256": "c7503c364f05364026d1b485ae21d9ff6aaa68bd71dd7fa95d799486cf381cfd",
+    "runner_sha256": "566c4fb3202de53500b30cd52dc27329f7b6fecb0f81b0a047774d4c7b417379",
+    "profile_sha256": "85b5cde913cb895042b2a9e5539d371fc9ba79e833a1ae0822ebacfb8cc9d811",
+    "scenario_sha256": "ce366273e6424afb7de247cf6117ca787357a8bc939d8ec855b110acd586e729",
+    "crc": [
+      "HEADLESS CRC AT LIMIT: 0xB35E379B at frame 3400"
+    ],
+    "hardware_before": {
+      "platform": "Linux-7.3.4-x64v3-xanmod1-x86_64-with-glibc2.43",
+      "cpu_models": [
+        "12th Gen Intel(R) Core(TM) i7-12700"
+      ],
+      "nvidia_smi": {
+        "command": [
+          "nvidia-smi",
+          "--query-gpu=name,uuid,driver_version,memory.total,memory.used,temperature.gpu,pstate,power.draw,clocks.current.graphics,clocks.current.memory",
+          "--format=csv,noheader"
+        ],
+        "returncode": 0,
+        "stdout": "NVIDIA GeForce RTX 4060, GPU-dbf5e883-04f0-6f25-aff9-3f4b44470832, 595.112.07, 8188 MiB, 529 MiB, 50, P2, [N/A], 2790 MHz, 8251 MHz\n",
+        "stderr": ""
+      }
+    },
+    "hardware_after": {
+      "platform": "Linux-7.3.4-x64v3-xanmod1-x86_64-with-glibc2.43",
+      "cpu_models": [
+        "12th Gen Intel(R) Core(TM) i7-12700"
+      ],
+      "nvidia_smi": {
+        "command": [
+          "nvidia-smi",
+          "--query-gpu=name,uuid,driver_version,memory.total,memory.used,temperature.gpu,pstate,power.draw,clocks.current.graphics,clocks.current.memory",
+          "--format=csv,noheader"
+        ],
+        "returncode": 0,
+        "stdout": "NVIDIA GeForce RTX 4060, GPU-dbf5e883-04f0-6f25-aff9-3f4b44470832, 595.112.07, 8188 MiB, 529 MiB, 56, P2, [N/A], 2790 MHz, 8251 MHz\n",
+        "stderr": ""
+      }
+    },
+    "resource_counters": [
+      "PosixDevice9: 4187886 draws recorded, 3453 presents, 0 of them to a window that was not visible, 0 with no drawable",
+      "PosixDevice9: 11534 mid-frame flushes, at most 4 in flight at once, 3936 waited for the ring (limit 3); 3 of the flushes for the draw limit (2048 draws)"
+    ]
+  },
+  {
+    "run": "c750-bundle-off-r2",
+    "candidate_sha256": "c7503c364f05364026d1b485ae21d9ff6aaa68bd71dd7fa95d799486cf381cfd",
+    "runner_sha256": "566c4fb3202de53500b30cd52dc27329f7b6fecb0f81b0a047774d4c7b417379",
+    "profile_sha256": "a262a149559120cf2b447e6502cd1a949f79c484027b21bbe5bd9932122a6a04",
+    "scenario_sha256": "ce366273e6424afb7de247cf6117ca787357a8bc939d8ec855b110acd586e729",
+    "crc": [
+      "HEADLESS CRC AT LIMIT: 0xB35E379B at frame 3400"
+    ],
+    "hardware_before": {
+      "platform": "Linux-7.3.4-x64v3-xanmod1-x86_64-with-glibc2.43",
+      "cpu_models": [
+        "12th Gen Intel(R) Core(TM) i7-12700"
+      ],
+      "nvidia_smi": {
+        "command": [
+          "nvidia-smi",
+          "--query-gpu=name,uuid,driver_version,memory.total,memory.used,temperature.gpu,pstate,power.draw,clocks.current.graphics,clocks.current.memory",
+          "--format=csv,noheader"
+        ],
+        "returncode": 0,
+        "stdout": "NVIDIA GeForce RTX 4060, GPU-dbf5e883-04f0-6f25-aff9-3f4b44470832, 595.112.07, 8188 MiB, 529 MiB, 49, P2, [N/A], 2790 MHz, 8251 MHz\n",
+        "stderr": ""
+      }
+    },
+    "hardware_after": {
+      "platform": "Linux-7.3.4-x64v3-xanmod1-x86_64-with-glibc2.43",
+      "cpu_models": [
+        "12th Gen Intel(R) Core(TM) i7-12700"
+      ],
+      "nvidia_smi": {
+        "command": [
+          "nvidia-smi",
+          "--query-gpu=name,uuid,driver_version,memory.total,memory.used,temperature.gpu,pstate,power.draw,clocks.current.graphics,clocks.current.memory",
+          "--format=csv,noheader"
+        ],
+        "returncode": 0,
+        "stdout": "NVIDIA GeForce RTX 4060, GPU-dbf5e883-04f0-6f25-aff9-3f4b44470832, 595.112.07, 8188 MiB, 533 MiB, 51, P2, [N/A], 2790 MHz, 8251 MHz\n",
+        "stderr": ""
+      }
+    },
+    "resource_counters": [
+      "PosixDevice9: 4204450 draws recorded, 3453 presents, 0 of them to a window that was not visible, 0 with no drawable",
+      "PosixDevice9: 7203 mid-frame flushes, at most 4 in flight at once, 431 waited for the ring (limit 3); 5 of the flushes for the draw limit (2048 draws)"
+    ]
+  },
+  {
+    "run": "c750-bundle-off-r3",
+    "candidate_sha256": "c7503c364f05364026d1b485ae21d9ff6aaa68bd71dd7fa95d799486cf381cfd",
+    "runner_sha256": "566c4fb3202de53500b30cd52dc27329f7b6fecb0f81b0a047774d4c7b417379",
+    "profile_sha256": "a262a149559120cf2b447e6502cd1a949f79c484027b21bbe5bd9932122a6a04",
+    "scenario_sha256": "ce366273e6424afb7de247cf6117ca787357a8bc939d8ec855b110acd586e729",
+    "crc": [
+      "HEADLESS CRC AT LIMIT: 0xB35E379B at frame 3400"
+    ],
+    "hardware_before": {
+      "platform": "Linux-7.3.4-x64v3-xanmod1-x86_64-with-glibc2.43",
+      "cpu_models": [
+        "12th Gen Intel(R) Core(TM) i7-12700"
+      ],
+      "nvidia_smi": {
+        "command": [
+          "nvidia-smi",
+          "--query-gpu=name,uuid,driver_version,memory.total,memory.used,temperature.gpu,pstate,power.draw,clocks.current.graphics,clocks.current.memory",
+          "--format=csv,noheader"
+        ],
+        "returncode": 0,
+        "stdout": "NVIDIA GeForce RTX 4060, GPU-dbf5e883-04f0-6f25-aff9-3f4b44470832, 595.112.07, 8188 MiB, 533 MiB, 47, P2, [N/A], 2805 MHz, 8251 MHz\n",
+        "stderr": ""
+      }
+    },
+    "hardware_after": {
+      "platform": "Linux-7.3.4-x64v3-xanmod1-x86_64-with-glibc2.43",
+      "cpu_models": [
+        "12th Gen Intel(R) Core(TM) i7-12700"
+      ],
+      "nvidia_smi": {
+        "command": [
+          "nvidia-smi",
+          "--query-gpu=name,uuid,driver_version,memory.total,memory.used,temperature.gpu,pstate,power.draw,clocks.current.graphics,clocks.current.memory",
+          "--format=csv,noheader"
+        ],
+        "returncode": 0,
+        "stdout": "NVIDIA GeForce RTX 4060, GPU-dbf5e883-04f0-6f25-aff9-3f4b44470832, 595.112.07, 8188 MiB, 533 MiB, 48, P2, [N/A], 2805 MHz, 8251 MHz\n",
+        "stderr": ""
+      }
+    },
+    "resource_counters": [
+      "PosixDevice9: 4204457 draws recorded, 3453 presents, 0 of them to a window that was not visible, 0 with no drawable",
+      "PosixDevice9: 7202 mid-frame flushes, at most 4 in flight at once, 431 waited for the ring (limit 3); 4 of the flushes for the draw limit (2048 draws)"
+    ]
+  },
+  {
+    "run": "c750-bundle-on-r3",
+    "candidate_sha256": "c7503c364f05364026d1b485ae21d9ff6aaa68bd71dd7fa95d799486cf381cfd",
+    "runner_sha256": "566c4fb3202de53500b30cd52dc27329f7b6fecb0f81b0a047774d4c7b417379",
+    "profile_sha256": "85b5cde913cb895042b2a9e5539d371fc9ba79e833a1ae0822ebacfb8cc9d811",
+    "scenario_sha256": "ce366273e6424afb7de247cf6117ca787357a8bc939d8ec855b110acd586e729",
+    "crc": [
+      "HEADLESS CRC AT LIMIT: 0xB35E379B at frame 3400"
+    ],
+    "hardware_before": {
+      "platform": "Linux-7.3.4-x64v3-xanmod1-x86_64-with-glibc2.43",
+      "cpu_models": [
+        "12th Gen Intel(R) Core(TM) i7-12700"
+      ],
+      "nvidia_smi": {
+        "command": [
+          "nvidia-smi",
+          "--query-gpu=name,uuid,driver_version,memory.total,memory.used,temperature.gpu,pstate,power.draw,clocks.current.graphics,clocks.current.memory",
+          "--format=csv,noheader"
+        ],
+        "returncode": 0,
+        "stdout": "NVIDIA GeForce RTX 4060, GPU-dbf5e883-04f0-6f25-aff9-3f4b44470832, 595.112.07, 8188 MiB, 533 MiB, 46, P2, [N/A], 2805 MHz, 8251 MHz\n",
+        "stderr": ""
+      }
+    },
+    "hardware_after": {
+      "platform": "Linux-7.3.4-x64v3-xanmod1-x86_64-with-glibc2.43",
+      "cpu_models": [
+        "12th Gen Intel(R) Core(TM) i7-12700"
+      ],
+      "nvidia_smi": {
+        "command": [
+          "nvidia-smi",
+          "--query-gpu=name,uuid,driver_version,memory.total,memory.used,temperature.gpu,pstate,power.draw,clocks.current.graphics,clocks.current.memory",
+          "--format=csv,noheader"
+        ],
+        "returncode": 0,
+        "stdout": "NVIDIA GeForce RTX 4060, GPU-dbf5e883-04f0-6f25-aff9-3f4b44470832, 595.112.07, 8188 MiB, 529 MiB, 53, P2, [N/A], 2790 MHz, 8251 MHz\n",
+        "stderr": ""
+      }
+    },
+    "resource_counters": [
+      "PosixDevice9: 4187784 draws recorded, 3453 presents, 0 of them to a window that was not visible, 0 with no drawable",
+      "PosixDevice9: 11535 mid-frame flushes, at most 4 in flight at once, 3905 waited for the ring (limit 3); 3 of the flushes for the draw limit (2048 draws)"
+    ]
+  },
+  {
+    "run": "c750-particles-fixed-cpu-r1",
+    "candidate_sha256": "c7503c364f05364026d1b485ae21d9ff6aaa68bd71dd7fa95d799486cf381cfd",
+    "runner_sha256": "566c4fb3202de53500b30cd52dc27329f7b6fecb0f81b0a047774d4c7b417379",
+    "profile_sha256": "a262a149559120cf2b447e6502cd1a949f79c484027b21bbe5bd9932122a6a04",
+    "scenario_sha256": "f9edc4ef84fd7ef197ea250425fcff618894ab83d79cef6900c449541b8a77e2",
+    "crc": [
+      "HEADLESS CRC AT LIMIT: 0x2AECE11D at frame 1600"
+    ],
+    "hardware_before": {
+      "platform": "Linux-7.3.4-x64v3-xanmod1-x86_64-with-glibc2.43",
+      "cpu_models": [
+        "12th Gen Intel(R) Core(TM) i7-12700"
+      ],
+      "nvidia_smi": {
+        "command": [
+          "nvidia-smi",
+          "--query-gpu=name,uuid,driver_version,memory.total,memory.used,temperature.gpu,pstate,power.draw,clocks.current.graphics,clocks.current.memory",
+          "--format=csv,noheader"
+        ],
+        "returncode": 0,
+        "stdout": "NVIDIA GeForce RTX 4060, GPU-dbf5e883-04f0-6f25-aff9-3f4b44470832, 595.112.07, 8188 MiB, 529 MiB, 46, P2, [N/A], 2805 MHz, 8251 MHz\n",
+        "stderr": ""
+      }
+    },
+    "hardware_after": {
+      "platform": "Linux-7.3.4-x64v3-xanmod1-x86_64-with-glibc2.43",
+      "cpu_models": [
+        "12th Gen Intel(R) Core(TM) i7-12700"
+      ],
+      "nvidia_smi": {
+        "command": [
+          "nvidia-smi",
+          "--query-gpu=name,uuid,driver_version,memory.total,memory.used,temperature.gpu,pstate,power.draw,clocks.current.graphics,clocks.current.memory",
+          "--format=csv,noheader"
+        ],
+        "returncode": 0,
+        "stdout": "NVIDIA GeForce RTX 4060, GPU-dbf5e883-04f0-6f25-aff9-3f4b44470832, 595.112.07, 8188 MiB, 529 MiB, 53, P2, [N/A], 2790 MHz, 8251 MHz\n",
+        "stderr": ""
+      }
+    },
+    "resource_counters": [
+      "PosixDevice9: 1034310 draws recorded, 1653 presents, 0 of them to a window that was not visible, 0 with no drawable",
+      "PosixDevice9: 3140 mid-frame flushes, at most 2 in flight at once, 0 waited for the ring (limit 3); 0 of the flushes for the draw limit (2048 draws)"
+    ]
+  },
+  {
+    "run": "c750-particles-fixed-gpu-r1",
+    "candidate_sha256": "c7503c364f05364026d1b485ae21d9ff6aaa68bd71dd7fa95d799486cf381cfd",
+    "runner_sha256": "566c4fb3202de53500b30cd52dc27329f7b6fecb0f81b0a047774d4c7b417379",
+    "profile_sha256": "f0b0c5b3d7147ca68265e822e816752511c2c9990adb74385befaa343e167862",
+    "scenario_sha256": "f9edc4ef84fd7ef197ea250425fcff618894ab83d79cef6900c449541b8a77e2",
+    "crc": [
+      "HEADLESS CRC AT LIMIT: 0x2AECE11D at frame 1600"
+    ],
+    "hardware_before": {
+      "platform": "Linux-7.3.4-x64v3-xanmod1-x86_64-with-glibc2.43",
+      "cpu_models": [
+        "12th Gen Intel(R) Core(TM) i7-12700"
+      ],
+      "nvidia_smi": {
+        "command": [
+          "nvidia-smi",
+          "--query-gpu=name,uuid,driver_version,memory.total,memory.used,temperature.gpu,pstate,power.draw,clocks.current.graphics,clocks.current.memory",
+          "--format=csv,noheader"
+        ],
+        "returncode": 0,
+        "stdout": "NVIDIA GeForce RTX 4060, GPU-dbf5e883-04f0-6f25-aff9-3f4b44470832, 595.112.07, 8188 MiB, 529 MiB, 46, P2, [N/A], 2805 MHz, 8251 MHz\n",
+        "stderr": ""
+      }
+    },
+    "hardware_after": {
+      "platform": "Linux-7.3.4-x64v3-xanmod1-x86_64-with-glibc2.43",
+      "cpu_models": [
+        "12th Gen Intel(R) Core(TM) i7-12700"
+      ],
+      "nvidia_smi": {
+        "command": [
+          "nvidia-smi",
+          "--query-gpu=name,uuid,driver_version,memory.total,memory.used,temperature.gpu,pstate,power.draw,clocks.current.graphics,clocks.current.memory",
+          "--format=csv,noheader"
+        ],
+        "returncode": 0,
+        "stdout": "NVIDIA GeForce RTX 4060, GPU-dbf5e883-04f0-6f25-aff9-3f4b44470832, 595.112.07, 8188 MiB, 529 MiB, 52, P2, [N/A], 2790 MHz, 8251 MHz\n",
+        "stderr": ""
+      }
+    },
+    "resource_counters": [
+      "GPUPARTICLES SDL: native compute ring=8192 buffer-bytes=4915200 array-bytes=22369280",
+      "GPUPARTICLES SDL: dispatches=1539 reused=0 draws=3078 max-range=4998 slice-copies=55 writes=3 buffer-bytes=4915200 array-bytes=22369280",
+      "PosixDevice9: 1034206 draws recorded, 1653 presents, 0 of them to a window that was not visible, 0 with no drawable",
+      "PosixDevice9: 3254 mid-frame flushes, at most 4 in flight at once, 16 waited for the ring (limit 3); 0 of the flushes for the draw limit (2048 draws)"
+    ]
+  },
+  {
+    "run": "c750-particles-fixed-gpu-r2",
+    "candidate_sha256": "c7503c364f05364026d1b485ae21d9ff6aaa68bd71dd7fa95d799486cf381cfd",
+    "runner_sha256": "566c4fb3202de53500b30cd52dc27329f7b6fecb0f81b0a047774d4c7b417379",
+    "profile_sha256": "f0b0c5b3d7147ca68265e822e816752511c2c9990adb74385befaa343e167862",
+    "scenario_sha256": "f9edc4ef84fd7ef197ea250425fcff618894ab83d79cef6900c449541b8a77e2",
+    "crc": [
+      "HEADLESS CRC AT LIMIT: 0x2AECE11D at frame 1600"
+    ],
+    "hardware_before": {
+      "platform": "Linux-7.3.4-x64v3-xanmod1-x86_64-with-glibc2.43",
+      "cpu_models": [
+        "12th Gen Intel(R) Core(TM) i7-12700"
+      ],
+      "nvidia_smi": {
+        "command": [
+          "nvidia-smi",
+          "--query-gpu=name,uuid,driver_version,memory.total,memory.used,temperature.gpu,pstate,power.draw,clocks.current.graphics,clocks.current.memory",
+          "--format=csv,noheader"
+        ],
+        "returncode": 0,
+        "stdout": "NVIDIA GeForce RTX 4060, GPU-dbf5e883-04f0-6f25-aff9-3f4b44470832, 595.112.07, 8188 MiB, 529 MiB, 46, P2, [N/A], 2805 MHz, 8251 MHz\n",
+        "stderr": ""
+      }
+    },
+    "hardware_after": {
+      "platform": "Linux-7.3.4-x64v3-xanmod1-x86_64-with-glibc2.43",
+      "cpu_models": [
+        "12th Gen Intel(R) Core(TM) i7-12700"
+      ],
+      "nvidia_smi": {
+        "command": [
+          "nvidia-smi",
+          "--query-gpu=name,uuid,driver_version,memory.total,memory.used,temperature.gpu,pstate,power.draw,clocks.current.graphics,clocks.current.memory",
+          "--format=csv,noheader"
+        ],
+        "returncode": 0,
+        "stdout": "NVIDIA GeForce RTX 4060, GPU-dbf5e883-04f0-6f25-aff9-3f4b44470832, 595.112.07, 8188 MiB, 529 MiB, 53, P2, [N/A], 2790 MHz, 8251 MHz\n",
+        "stderr": ""
+      }
+    },
+    "resource_counters": [
+      "GPUPARTICLES SDL: native compute ring=8192 buffer-bytes=4915200 array-bytes=22369280",
+      "GPUPARTICLES SDL: dispatches=1539 reused=0 draws=3078 max-range=4998 slice-copies=55 writes=3 buffer-bytes=4915200 array-bytes=22369280",
+      "PosixDevice9: 1034206 draws recorded, 1653 presents, 0 of them to a window that was not visible, 0 with no drawable",
+      "PosixDevice9: 3254 mid-frame flushes, at most 4 in flight at once, 6 waited for the ring (limit 3); 0 of the flushes for the draw limit (2048 draws)"
+    ]
+  },
+  {
+    "run": "c750-particles-fixed-cpu-r2",
+    "candidate_sha256": "c7503c364f05364026d1b485ae21d9ff6aaa68bd71dd7fa95d799486cf381cfd",
+    "runner_sha256": "566c4fb3202de53500b30cd52dc27329f7b6fecb0f81b0a047774d4c7b417379",
+    "profile_sha256": "a262a149559120cf2b447e6502cd1a949f79c484027b21bbe5bd9932122a6a04",
+    "scenario_sha256": "f9edc4ef84fd7ef197ea250425fcff618894ab83d79cef6900c449541b8a77e2",
+    "crc": [
+      "HEADLESS CRC AT LIMIT: 0x2AECE11D at frame 1600"
+    ],
+    "hardware_before": {
+      "platform": "Linux-7.3.4-x64v3-xanmod1-x86_64-with-glibc2.43",
+      "cpu_models": [
+        "12th Gen Intel(R) Core(TM) i7-12700"
+      ],
+      "nvidia_smi": {
+        "command": [
+          "nvidia-smi",
+          "--query-gpu=name,uuid,driver_version,memory.total,memory.used,temperature.gpu,pstate,power.draw,clocks.current.graphics,clocks.current.memory",
+          "--format=csv,noheader"
+        ],
+        "returncode": 0,
+        "stdout": "NVIDIA GeForce RTX 4060, GPU-dbf5e883-04f0-6f25-aff9-3f4b44470832, 595.112.07, 8188 MiB, 529 MiB, 45, P2, [N/A], 2805 MHz, 8251 MHz\n",
+        "stderr": ""
+      }
+    },
+    "hardware_after": {
+      "platform": "Linux-7.3.4-x64v3-xanmod1-x86_64-with-glibc2.43",
+      "cpu_models": [
+        "12th Gen Intel(R) Core(TM) i7-12700"
+      ],
+      "nvidia_smi": {
+        "command": [
+          "nvidia-smi",
+          "--query-gpu=name,uuid,driver_version,memory.total,memory.used,temperature.gpu,pstate,power.draw,clocks.current.graphics,clocks.current.memory",
+          "--format=csv,noheader"
+        ],
+        "returncode": 0,
+        "stdout": "NVIDIA GeForce RTX 4060, GPU-dbf5e883-04f0-6f25-aff9-3f4b44470832, 595.112.07, 8188 MiB, 533 MiB, 52, P2, [N/A], 2790 MHz, 8251 MHz\n",
+        "stderr": ""
+      }
+    },
+    "resource_counters": [
+      "PosixDevice9: 1034206 draws recorded, 1653 presents, 0 of them to a window that was not visible, 0 with no drawable",
+      "PosixDevice9: 3140 mid-frame flushes, at most 2 in flight at once, 0 waited for the ring (limit 3); 0 of the flushes for the draw limit (2048 draws)"
+    ]
+  },
+  {
+    "run": "c750-particles-fixed-cpu-r3",
+    "candidate_sha256": "c7503c364f05364026d1b485ae21d9ff6aaa68bd71dd7fa95d799486cf381cfd",
+    "runner_sha256": "566c4fb3202de53500b30cd52dc27329f7b6fecb0f81b0a047774d4c7b417379",
+    "profile_sha256": "a262a149559120cf2b447e6502cd1a949f79c484027b21bbe5bd9932122a6a04",
+    "scenario_sha256": "f9edc4ef84fd7ef197ea250425fcff618894ab83d79cef6900c449541b8a77e2",
+    "crc": [
+      "HEADLESS CRC AT LIMIT: 0x2AECE11D at frame 1600"
+    ],
+    "hardware_before": {
+      "platform": "Linux-7.3.4-x64v3-xanmod1-x86_64-with-glibc2.43",
+      "cpu_models": [
+        "12th Gen Intel(R) Core(TM) i7-12700"
+      ],
+      "nvidia_smi": {
+        "command": [
+          "nvidia-smi",
+          "--query-gpu=name,uuid,driver_version,memory.total,memory.used,temperature.gpu,pstate,power.draw,clocks.current.graphics,clocks.current.memory",
+          "--format=csv,noheader"
+        ],
+        "returncode": 0,
+        "stdout": "NVIDIA GeForce RTX 4060, GPU-dbf5e883-04f0-6f25-aff9-3f4b44470832, 595.112.07, 8188 MiB, 533 MiB, 45, P2, [N/A], 2805 MHz, 8251 MHz\n",
+        "stderr": ""
+      }
+    },
+    "hardware_after": {
+      "platform": "Linux-7.3.4-x64v3-xanmod1-x86_64-with-glibc2.43",
+      "cpu_models": [
+        "12th Gen Intel(R) Core(TM) i7-12700"
+      ],
+      "nvidia_smi": {
+        "command": [
+          "nvidia-smi",
+          "--query-gpu=name,uuid,driver_version,memory.total,memory.used,temperature.gpu,pstate,power.draw,clocks.current.graphics,clocks.current.memory",
+          "--format=csv,noheader"
+        ],
+        "returncode": 0,
+        "stdout": "NVIDIA GeForce RTX 4060, GPU-dbf5e883-04f0-6f25-aff9-3f4b44470832, 595.112.07, 8188 MiB, 533 MiB, 47, P2, [N/A], 2790 MHz, 8251 MHz\n",
+        "stderr": ""
+      }
+    },
+    "resource_counters": [
+      "PosixDevice9: 1034258 draws recorded, 1653 presents, 0 of them to a window that was not visible, 0 with no drawable",
+      "PosixDevice9: 3140 mid-frame flushes, at most 2 in flight at once, 0 waited for the ring (limit 3); 0 of the flushes for the draw limit (2048 draws)"
+    ]
+  },
+  {
+    "run": "c750-particles-fixed-gpu-r3",
+    "candidate_sha256": "c7503c364f05364026d1b485ae21d9ff6aaa68bd71dd7fa95d799486cf381cfd",
+    "runner_sha256": "566c4fb3202de53500b30cd52dc27329f7b6fecb0f81b0a047774d4c7b417379",
+    "profile_sha256": "f0b0c5b3d7147ca68265e822e816752511c2c9990adb74385befaa343e167862",
+    "scenario_sha256": "f9edc4ef84fd7ef197ea250425fcff618894ab83d79cef6900c449541b8a77e2",
+    "crc": [
+      "HEADLESS CRC AT LIMIT: 0x2AECE11D at frame 1600"
+    ],
+    "hardware_before": {
+      "platform": "Linux-7.3.4-x64v3-xanmod1-x86_64-with-glibc2.43",
+      "cpu_models": [
+        "12th Gen Intel(R) Core(TM) i7-12700"
+      ],
+      "nvidia_smi": {
+        "command": [
+          "nvidia-smi",
+          "--query-gpu=name,uuid,driver_version,memory.total,memory.used,temperature.gpu,pstate,power.draw,clocks.current.graphics,clocks.current.memory",
+          "--format=csv,noheader"
+        ],
+        "returncode": 0,
+        "stdout": "NVIDIA GeForce RTX 4060, GPU-dbf5e883-04f0-6f25-aff9-3f4b44470832, 595.112.07, 8188 MiB, 533 MiB, 45, P2, [N/A], 2805 MHz, 8251 MHz\n",
+        "stderr": ""
+      }
+    },
+    "hardware_after": {
+      "platform": "Linux-7.3.4-x64v3-xanmod1-x86_64-with-glibc2.43",
+      "cpu_models": [
+        "12th Gen Intel(R) Core(TM) i7-12700"
+      ],
+      "nvidia_smi": {
+        "command": [
+          "nvidia-smi",
+          "--query-gpu=name,uuid,driver_version,memory.total,memory.used,temperature.gpu,pstate,power.draw,clocks.current.graphics,clocks.current.memory",
+          "--format=csv,noheader"
+        ],
+        "returncode": 0,
+        "stdout": "NVIDIA GeForce RTX 4060, GPU-dbf5e883-04f0-6f25-aff9-3f4b44470832, 595.112.07, 8188 MiB, 533 MiB, 53, P2, [N/A], 2790 MHz, 8251 MHz\n",
+        "stderr": ""
+      }
+    },
+    "resource_counters": [
+      "GPUPARTICLES SDL: native compute ring=8192 buffer-bytes=4915200 array-bytes=22369280",
+      "GPUPARTICLES SDL: dispatches=1539 reused=0 draws=3078 max-range=4998 slice-copies=55 writes=3 buffer-bytes=4915200 array-bytes=22369280",
+      "PosixDevice9: 1034310 draws recorded, 1653 presents, 0 of them to a window that was not visible, 0 with no drawable",
+      "PosixDevice9: 3254 mid-frame flushes, at most 4 in flight at once, 16 waited for the ring (limit 3); 0 of the flushes for the draw limit (2048 draws)"
+    ]
+  }
+]

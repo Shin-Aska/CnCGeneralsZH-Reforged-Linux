@@ -1,0 +1,2 @@
+# Set GENERALS, GAME_ROOT, BASE_OVERLAY, RUN_OUT and QUALIFICATION explicitly.
+python3 ./reproduction/run_benchmark.py --candidate "$GENERALS" --sha256 c7503c364f05364026d1b485ae21d9ff6aaa68bd71dd7fa95d799486cf381cfd --approved-final --root "$GAME_ROOT" --overlay "$BASE_OVERLAY" --suite bundle --variant on --repeat 2 --out "$RUN_OUT/c750-bundle-on-r2" --run

@@ -1,0 +1,20 @@
+{
+  "source_archive": "INIZH.big",
+  "original_block_sha256": "8844694633571f4e582c495039a85a069af1eab3dda7f1354a815b173023fcca",
+  "overrides": {
+    "SystemLifetime": "0",
+    "Lifetime": "100000.00 100000.00",
+    "BurstDelay": "99999.00 99999.00",
+    "BurstCount": "250.00 250.00",
+    "Size": "5.00 5.00",
+    "SizeRate": "0.00 0.00",
+    "SizeRateDamping": "1.00 1.00",
+    "Alpha1": "0.40 0.40 0",
+    "Alpha2": "0.00 0.00 0",
+    "Alpha3": "0.00 0.00 0"
+  },
+  "particle_ini_sha256": "f45a9be7a5367401279f74daf853520117b2d9af7851f2922c70284f302f8aa2",
+  "target_emitters": 20,
+  "target_particles": 5000,
+  "qualification": "Prepared only; parser/admission/population equality must be measured before fair timing claim."
+}

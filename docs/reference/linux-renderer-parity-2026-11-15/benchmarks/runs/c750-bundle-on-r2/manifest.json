@@ -1,0 +1,494 @@
+{
+  "case": "benchmark",
+  "variant": "on",
+  "command": [
+    "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/feature-parity-evidence/benchmarks/c750-bundle-on-r2/candidate/generals",
+    "-root",
+    "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/campaign-jitter-evidence/default-single-player/replay-tmp/replay-check.yTdOAL/root",
+    "-overlay",
+    "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/feature-parity-evidence/benchmarks/c750-bundle-on-r2/overlay",
+    "-offscreen",
+    "-multiInstance",
+    "-noaudio",
+    "-win",
+    "-xres",
+    "1920",
+    "-yres",
+    "1080",
+    "-msaa",
+    "0",
+    "-quickstart",
+    "-noshellmap",
+    "-nologo",
+    "-novideo",
+    "-noFPSLimit",
+    "-noDynamicLOD",
+    "-turbo",
+    "-camera",
+    "760",
+    "3668",
+    "-maxframes",
+    "3400",
+    "-particlecap",
+    "16384",
+    "-gpuparticles",
+    "0",
+    "-dx11post",
+    "bloom,fxaa",
+    "-logPrefix",
+    "nativecheck_",
+    "-map",
+    "Maps/Twilight Flame/Twilight Flame.map",
+    "-autoskirmish",
+    "2",
+    "-takeover",
+    "-seed",
+    "7",
+    "-side",
+    "0",
+    "FactionAmericaSuperWeaponGeneral",
+    "-side",
+    "1",
+    "FactionGLA",
+    "-scenario",
+    "looks4",
+    "-noshroud",
+    "-cinema",
+    "looks4"
+  ],
+  "environment": {
+    "ZH_USER_DATA_DIR": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/feature-parity-evidence/benchmarks/c750-bundle-on-r2/user",
+    "ZH_UNATTENDED": "1",
+    "ZH_AUDIO_BACKEND": "null",
+    "SDL_VIDEODRIVER": "offscreen",
+    "SDL_GPU_DRIVER": "vulkan",
+    "VK_DRIVER_FILES": "/usr/share/vulkan/icd.d/nvidia_icd.json",
+    "ZH_OFFSCREEN_HZ": "0",
+    "ZH_SUN_SHADOW_CAPTURE_CLOCK": "logic",
+    "ZH_WATER_CAPTURE_CLOCK": "picture",
+    "ZH_GPU_TIMING": "0,1",
+    "ZH_GPU_TIMING_LOGIC": "2700,3299",
+    "ZH_GPU_TIMING_CSV": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/feature-parity-evidence/benchmarks/c750-bundle-on-r2/timing.csv",
+    "ZH_GPU_TIMING_SYNC": "0"
+  },
+  "executable_sha256": "c7503c364f05364026d1b485ae21d9ff6aaa68bd71dd7fa95d799486cf381cfd",
+  "scenario_sha256": "ce366273e6424afb7de247cf6117ca787357a8bc939d8ec855b110acd586e729",
+  "profile_sha256": "85b5cde913cb895042b2a9e5539d371fc9ba79e833a1ae0822ebacfb8cc9d811",
+  "screenshot_frame": 3299,
+  "simulation_limit": 3400,
+  "prepared_only": false,
+  "cpu_capacity": 16384,
+  "gpu_capacity": 0,
+  "acceptance_scope": "Execution/CRC/work counts only. Images and actual native range path require separate review.",
+  "cinema_original_sha256": "af8e3af9d9581256d3d8c3eb07fafb8d7489d5e6092c394ad5f4b6567eadf22e",
+  "cinema_private_sha256": "e8210232ab0d74c2097fccc4929cecbdbec7dfbb498d3a0f2861afdfc67a9b05",
+  "suite": "bundle",
+  "benchmark_variant": "on",
+  "repeat": 2,
+  "width": 1920,
+  "height": 1080,
+  "msaa": 0,
+  "sync": false,
+  "resource_audit": false,
+  "final_candidate_declared": true,
+  "timing": {
+    "first": 2700,
+    "last": 3299,
+    "expected_samples": 600,
+    "warmup_logic_frames": 2699,
+    "basis": "Existing native end-to-end offscreen present intervals; not hardware GPU timestamps",
+    "sync_note": "Unsynchronized primary throughput timing"
+  },
+  "candidate_checkpoint": {
+    "binary": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/feature-parity-evidence/classic-water-foam/owner-corrected-candidate/generals",
+    "sha256": "c7503c364f05364026d1b485ae21d9ff6aaa68bd71dd7fa95d799486cf381cfd",
+    "source_hashes": {
+      "GeneralsMD/Code/Libraries/Include/Platform/RenderWaterFoam.h": "a79f22ce7444cd557dea84dcbcb80e96f0f834d87cd0ed8f7bf88f2900ed3b05",
+      "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx8wrapper.cpp": "ffb474b190a558ff67c9c42b76df94a750853ec081f515309d9eab973742d6bf",
+      "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/engineshader.cpp": "ba9a7b3e5adc76b10a0ada8bb05e70caa9191610f88aabdafc2558740ecc1295",
+      "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/engineshader.h": "23b0f86b236738a282dab183a6f9c614db7d387c5b81bc87c98b5e3b91be13bd",
+      "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/ffshader.cpp": "c30c49568a38a143c5adf99de27eeb9abbc5b5ea6f87fda41ae76278ed4911c3",
+      "GeneralsMD/Code/GameEngineDevice/Source/PosixDevice/Render/PosixDevice9.h": "db3f9927fb1890e3f974e09d6df1a97e9234aca22819d3da469ad678b188965d",
+      "GeneralsMD/Code/GameEngineDevice/Source/PosixDevice/Render/PosixDevice9Post.cpp": "21bebf3a61f6d5b85beb7dd576edba09989b966de70a49869b1c2f3b2f749621",
+      "GeneralsMD/Code/GameEngineDevice/Source/PosixDevice/Render/PosixDevice9Draw.cpp": "0d6236e69001fa931ffd65fb6ff5c14a8693d3b57fad188aea73f85914da1c02",
+      "GeneralsMD/Code/GameEngineDevice/Source/PosixDevice/Render/PosixDevice9SunShadow.cpp": "f534c652278f5314c6571895f7dc77f4c721768813079ba4d44a3357727f0599",
+      "GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/Water/W3DWater.cpp": "b21b138f8f08d31e9ce8cf894d3acf6ebb7f02c3b9af0df3b958f9701cae3f4a",
+      "GeneralsMD/Code/Tests/test_renderer_water_foam.cpp": "fa58305d741db7333d2739a0979de0250cc53287012ff0352b4a47c2a1795ae5",
+      "GeneralsMD/Code/CMakeLists.txt": "da1325357047dd379cf387e4c7322dec96532ade9fabeef2ecd972ba46458e39",
+      "GeneralsMD/Code/BuildFingerprint.manifest": "8df70fc559d651395985413f522146dbaf798a4cb963fb1e97d8edbc2c3dffdc",
+      "GeneralsMD/Code/Data/Patch.str": "5bb23ff6ddbea2b9e8bf790ea6f6ca6737078a7f877f40d4517c3a5c6cdc677d",
+      "GeneralsMD/Code/Data/Turkish/Generals.str": "a4c6065daeffc150e45036d08c62faf2bac6f9a511e1168da74f27d2c501e7be"
+    },
+    "overlay_string_hashes": {
+      "Patch.str": "5bb23ff6ddbea2b9e8bf790ea6f6ca6737078a7f877f40d4517c3a5c6cdc677d",
+      "Turkish/Generals.str": "a4c6065daeffc150e45036d08c62faf2bac6f9a511e1168da74f27d2c501e7be"
+    },
+    "activation": "WaterFoam genuine lower provider registered for sampleable scene depth + R32 sampler/color-target; actual W3DWater gate enabled only requested Classic-style/nonClassicGraphics main owner with prepared independent opaque depth",
+    "checks": {
+      "broad_frozen332_cpu": "141pass/2skip/0fail; prior snapshot unchanged",
+      "owner_delta_build": "11steps passed",
+      "owner_delta_cpu": "5passed/0fail",
+      "owner_delta_gpu": {
+        "exit": 0,
+        "checks": 2108,
+        "failures": 0,
+        "actual_draws": 30,
+        "enhanced_foam_draws": 10,
+        "plain_fallback_draws": 20,
+        "log": "../owner-corrected-gpu/native-gpu.log",
+        "limits": "Native recorded draw regression; actual W3DWater in-game scene acceptance still pending."
+      },
+      "final_broad_build": {
+        "exit": 0,
+        "log": "../../final-validation/build-owner-final.log"
+      }
+    },
+    "fallback": "explicitClassic plain enum+legacy destination-alpha feather pair, never Modern program; stable capture refusal per main key",
+    "scope": "source model standin correction retained, all core providers now integrated; real water/river/pond and final combined acceptance remain pending",
+    "limits": [
+      "actual native water consumer scene evidence pending",
+      "final activated-candidate GPU CTest/full smoke pending"
+    ],
+    "build_fingerprint": "0xBCBDFF8F",
+    "review_delta": "Ready and depth admit only explicit ordinary main owners, including registered default scene stand-in; reject unregistered/special/stale RTT before enhanced CPU path. Shader formulas/layout unchanged."
+  },
+  "purpose": "timed",
+  "runner_sha256": "566c4fb3202de53500b30cd52dc27329f7b6fecb0f81b0a047774d4c7b417379",
+  "parser_snapshot_sha256": "e74da91b65b91d0d6f68954ec4521ada0754ae48ba252d0853c70513dc5a1556",
+  "helper_sha256": {
+    "native-particle-reach-check.py": "bf47777e9fdeb51a2df8dccc24323719758a7cfde8bb89f73615ca6dce52375f",
+    "portable-cosmetics-check.py": "a6b50a4c4732adb1db506007d6aef65e630ee13b71499ddae2e061c7bdb62def",
+    "control_client.py": "f3ffc7b0596a2f91b09336676dcbfd8a0882765cb732e0164a7636b69cd569ef",
+    "bigfile.py": "182a16634fdf184fd06a5f72ebce3d622dc1a3f8b26edb3936b2076eb7879e97"
+  },
+  "hardware_before": {
+    "platform": "Linux-7.3.4-x64v3-xanmod1-x86_64-with-glibc2.43",
+    "cpu_models": [
+      "12th Gen Intel(R) Core(TM) i7-12700"
+    ],
+    "nvidia_smi": {
+      "command": [
+        "nvidia-smi",
+        "--query-gpu=name,uuid,driver_version,memory.total,memory.used,temperature.gpu,pstate,power.draw,clocks.current.graphics,clocks.current.memory",
+        "--format=csv,noheader"
+      ],
+      "returncode": 0,
+      "stdout": "NVIDIA GeForce RTX 4060, GPU-dbf5e883-04f0-6f25-aff9-3f4b44470832, 595.112.07, 8188 MiB, 529 MiB, 50, P2, [N/A], 2790 MHz, 8251 MHz\n",
+      "stderr": ""
+    }
+  },
+  "returncode": 0,
+  "wall_seconds_including_load": 14.587,
+  "hardware_after": {
+    "platform": "Linux-7.3.4-x64v3-xanmod1-x86_64-with-glibc2.43",
+    "cpu_models": [
+      "12th Gen Intel(R) Core(TM) i7-12700"
+    ],
+    "nvidia_smi": {
+      "command": [
+        "nvidia-smi",
+        "--query-gpu=name,uuid,driver_version,memory.total,memory.used,temperature.gpu,pstate,power.draw,clocks.current.graphics,clocks.current.memory",
+        "--format=csv,noheader"
+      ],
+      "returncode": 0,
+      "stdout": "NVIDIA GeForce RTX 4060, GPU-dbf5e883-04f0-6f25-aff9-3f4b44470832, 595.112.07, 8188 MiB, 529 MiB, 56, P2, [N/A], 2790 MHz, 8251 MHz\n",
+      "stderr": ""
+    }
+  },
+  "crc": [
+    "HEADLESS CRC AT LIMIT: 0xB35E379B at frame 3400"
+  ],
+  "validation_errors": [],
+  "timer_status": [
+    "PosixDevice9 timing: LOGIC window 2700..3299 samples=600 expected=600 rejected=0 status=complete"
+  ],
+  "cpu_particles": [
+    {
+      "frame": 0,
+      "live": 0,
+      "systems": 0
+    },
+    {
+      "frame": 100,
+      "live": 13,
+      "systems": 3
+    },
+    {
+      "frame": 200,
+      "live": 16,
+      "systems": 3
+    },
+    {
+      "frame": 300,
+      "live": 18,
+      "systems": 3
+    },
+    {
+      "frame": 400,
+      "live": 20,
+      "systems": 3
+    },
+    {
+      "frame": 500,
+      "live": 20,
+      "systems": 3
+    },
+    {
+      "frame": 600,
+      "live": 37,
+      "systems": 8
+    },
+    {
+      "frame": 700,
+      "live": 76,
+      "systems": 9
+    },
+    {
+      "frame": 800,
+      "live": 76,
+      "systems": 11
+    },
+    {
+      "frame": 900,
+      "live": 80,
+      "systems": 11
+    },
+    {
+      "frame": 1000,
+      "live": 74,
+      "systems": 11
+    },
+    {
+      "frame": 1100,
+      "live": 53,
+      "systems": 11
+    },
+    {
+      "frame": 1200,
+      "live": 62,
+      "systems": 15
+    },
+    {
+      "frame": 1300,
+      "live": 68,
+      "systems": 15
+    },
+    {
+      "frame": 1400,
+      "live": 65,
+      "systems": 14
+    },
+    {
+      "frame": 1500,
+      "live": 66,
+      "systems": 14
+    },
+    {
+      "frame": 1600,
+      "live": 308,
+      "systems": 32
+    },
+    {
+      "frame": 1700,
+      "live": 507,
+      "systems": 85
+    },
+    {
+      "frame": 1800,
+      "live": 630,
+      "systems": 161
+    },
+    {
+      "frame": 1900,
+      "live": 962,
+      "systems": 138
+    },
+    {
+      "frame": 2000,
+      "live": 271,
+      "systems": 81
+    },
+    {
+      "frame": 2100,
+      "live": 530,
+      "systems": 164
+    },
+    {
+      "frame": 2200,
+      "live": 945,
+      "systems": 281
+    },
+    {
+      "frame": 2300,
+      "live": 708,
+      "systems": 336
+    },
+    {
+      "frame": 2400,
+      "live": 1615,
+      "systems": 424
+    },
+    {
+      "frame": 2500,
+      "live": 1879,
+      "systems": 502
+    },
+    {
+      "frame": 2600,
+      "live": 2061,
+      "systems": 715
+    },
+    {
+      "frame": 2700,
+      "live": 1544,
+      "systems": 510
+    },
+    {
+      "frame": 2800,
+      "live": 1085,
+      "systems": 400
+    },
+    {
+      "frame": 2900,
+      "live": 960,
+      "systems": 394
+    },
+    {
+      "frame": 3000,
+      "live": 863,
+      "systems": 377
+    },
+    {
+      "frame": 3100,
+      "live": 722,
+      "systems": 366
+    },
+    {
+      "frame": 3200,
+      "live": 675,
+      "systems": 318
+    },
+    {
+      "frame": 3300,
+      "live": 264,
+      "systems": 139
+    }
+  ],
+  "gpu_particles": [],
+  "resource_counters": [
+    "PosixDevice9: 4187886 draws recorded, 3453 presents, 0 of them to a window that was not visible, 0 with no drawable",
+    "PosixDevice9: 11534 mid-frame flushes, at most 4 in flight at once, 3936 waited for the ring (limit 3); 3 of the flushes for the draw limit (2048 draws)"
+  ],
+  "particle_cost": [
+    "HEADLESS PARTICLECOST: per drawn frame | update 0.044 fill 0.070 translucent flush 0.952 ms | 159.6 translucent draws | 515 particles, 204 on screen, peak 2245 | not drawn: 0 polygons refused by the sorting pool, 0 particles past the per-system limit"
+  ],
+  "program_counts": [
+    {
+      "program": "the engine's engine:roadnoise2",
+      "draws": 6798
+    },
+    {
+      "program": "the engine's engine:terrainnoise2",
+      "draws": 1359600
+    },
+    {
+      "program": "the engine's engine:trees",
+      "draws": 6798
+    }
+  ],
+  "qualification_pictures": [],
+  "metrics": [
+    {
+      "metric": "frame_ms",
+      "samples": 600,
+      "mean": 3.1082629833333333,
+      "median": 2.673361,
+      "p95": 5.290499,
+      "minimum": 2.35047,
+      "maximum": 9.84229
+    },
+    {
+      "metric": "work_ms",
+      "samples": 600,
+      "mean": 3.1071611933333334,
+      "median": 2.6722859999999997,
+      "p95": 5.287148,
+      "minimum": 2.349197,
+      "maximum": 9.840628
+    },
+    {
+      "metric": "device_draw_ms",
+      "samples": 600,
+      "mean": 0.9169124783333333,
+      "median": 0.7640675,
+      "p95": 1.517789,
+      "minimum": 0.711067,
+      "maximum": 6.456256
+    },
+    {
+      "metric": "device_flush_ms",
+      "samples": 600,
+      "mean": 0.3877237416666667,
+      "median": 0.28886199999999995,
+      "p95": 0.996071,
+      "minimum": 0.24705,
+      "maximum": 1.722621
+    },
+    {
+      "metric": "device_present_ms",
+      "samples": 600,
+      "mean": 0.11816425333333333,
+      "median": 0.061673500000000006,
+      "p95": 0.351372,
+      "minimum": 0.050825,
+      "maximum": 0.663206
+    },
+    {
+      "metric": "swapchain_wait_ms",
+      "samples": 600,
+      "mean": 0.0,
+      "median": 0.0,
+      "p95": 0.0,
+      "minimum": 0.0,
+      "maximum": 0.0
+    },
+    {
+      "metric": "offscreen_wait_ms",
+      "samples": 600,
+      "mean": 0.00110179,
+      "median": 0.0009534999999999999,
+      "p95": 0.001724,
+      "minimum": 0.000717,
+      "maximum": 0.007387
+    },
+    {
+      "metric": "fence_ms",
+      "samples": 600,
+      "mean": 0.0,
+      "median": 0.0,
+      "p95": 0.0,
+      "minimum": 0.0,
+      "maximum": 0.0
+    },
+    {
+      "metric": "draws",
+      "samples": 600,
+      "mean": 1247.525,
+      "median": 1176.0,
+      "p95": 1835.0,
+      "minimum": 1125.0,
+      "maximum": 1895.0
+    },
+    {
+      "metric": "flushes",
+      "samples": 600,
+      "mean": 3.195,
+      "median": 3.0,
+      "p95": 4.0,
+      "minimum": 3.0,
+      "maximum": 4.0
+    }
+  ],
+  "timing_complete": true,
+  "accepted_timing_run": true
+}

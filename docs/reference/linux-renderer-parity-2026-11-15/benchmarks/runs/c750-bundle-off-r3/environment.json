@@ -1,0 +1,15 @@
+{
+  "ZH_USER_DATA_DIR": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/feature-parity-evidence/benchmarks/c750-bundle-off-r3/user",
+  "ZH_UNATTENDED": "1",
+  "ZH_AUDIO_BACKEND": "null",
+  "SDL_VIDEODRIVER": "offscreen",
+  "SDL_GPU_DRIVER": "vulkan",
+  "VK_DRIVER_FILES": "/usr/share/vulkan/icd.d/nvidia_icd.json",
+  "ZH_OFFSCREEN_HZ": "0",
+  "ZH_SUN_SHADOW_CAPTURE_CLOCK": "logic",
+  "ZH_WATER_CAPTURE_CLOCK": "picture",
+  "ZH_GPU_TIMING": "0,1",
+  "ZH_GPU_TIMING_LOGIC": "2700,3299",
+  "ZH_GPU_TIMING_CSV": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/feature-parity-evidence/benchmarks/c750-bundle-off-r3/timing.csv",
+  "ZH_GPU_TIMING_SYNC": "0"
+}

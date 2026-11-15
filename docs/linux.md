@@ -50,6 +50,119 @@ scene coverage. It builds a scene BVH on the CPU and traces on the GPU, accumula
 a stationary view over 64 frames. Hybrid remains the default.
 See the [reflection guide](water-preview.md#reflections) for details and preview controls.
 
+## Battle marks
+
+The native Linux renderer supports **Options → Effects → Battle Marks** when Classic graphics is off.
+The option starts off for new profiles. Accepting a change applies it to the current match and saves it
+as `GroundMarks = yes/no` in Options.ini.
+
+Shell and missile impacts leave burns, destroyed buildings leave stains and cracks, large blasts add
+a burnt ring, and tank treads keep their dark section for longer. Ground marks hold for about one
+minute and fade over the next three. Turning the option off removes the current ground marks;
+turning it back on allows new marks. Map-authored scorches keep their existing behavior.
+
+Battle marks use the shared terrain/scorch renderer. Linux requires an active SDL GPU device,
+including offscreen rendering; a headless run draws none. Windows retains its Direct3D 11 requirement.
+Classic graphics suppresses the feature while retaining the saved preference.
+
+Validation on 2026-11-14 used the native Vulkan executable and isolated game data. The option-off and
+Classic pictures matched the previous executable pixel for pixel. Paired scenes with marks on/off
+kept the same gameplay CRC, including a real tank attack and destroyed building. Captures verified
+the initial marks, reduced opacity during fading, and identical on/off pictures after expiry.
+Live console changes persisted and enabled new marks without restarting the match. A checkbox
+change saved through the real Options menu's Accept also passed in a private Xvfb window.
+Local commands, input fixtures, logs, executable hashes and screenshots are retained in
+`build-linux/battle-marks-evidence/`.
+
+## Native enhancement validation (2026-11-15)
+
+The SDL3/Vulkan renderer now has native providers for the enhanced lighting, particles,
+model appearances, post-processing, environment effects and Classic-water foam. Options use
+individual renderer capabilities; Linux does not pretend to be the Direct3D 11 backend.
+Classic graphics keeps its existing exclusions and saved preferences. Feature availability is
+independent of whether its checkbox is currently selected.
+
+The current validation candidate is `c7503c364f05364026d1b485ae21d9ff6aaa68bd71dd7fa95d799486cf381cfd`
+(SHA-256), with source fingerprint `BCBDFF8F`. The final runs used a Release build on the
+RTX 4060 (driver 595.112.07), Core i7-12700 and native Vulkan. The broad build passed. The CPU pass had **141 passes, two skips and no
+failures**; the skips needed game data and a MinGW compiler, respectively. The narrow final
+foam correction then passed five CPU/fingerprint checks. All **24 final GPU/mixed checks
+passed**, with no Vulkan validation errors, covering shader bindings, delayed draws, scene
+captures, reset/recreation, resource ownership, model effects, particles, water and sorting.
+These results supplement the older platform results below; they do not replace their limits.
+
+An additional default capture/replay reference check reproduced the documented two-pixel
+NVIDIA mismatch in draw 1, worst pixel `(33, 20)`. Actual GPU replay still matches its captured
+picture, and all seven generated capture/program/texture files match retained baseline bytes.
+HEAD and current generators emit byte-identical vertex/pixel HLSL and SPIR-V for that exact
+ordinary draw. The numerical cause remains unresolved; neither source nor tolerance was changed
+to hide it.
+
+The lighting checks cover headlights, blast/Firelight, hemisphere ambient and emissive draws,
+including legacy fallback and reflection/shadow isolation. Native post-processing has separate
+scene captures for ambient occlusion, particles and refraction; water keeps its own snapshots.
+Internal HDR is selected only for the appropriate post chain. Turning that chain off keeps
+independent environment effects on an ungraded, eight-bit scene with additive gain one.
+Ordinary smoke/fire copy-through comparisons, real cloak and initial-load Team Glow checks,
+and the existing water/cloud/HUD comparisons are retained in the local evidence. Team Glow
+continues to follow initial asset loading, so change it before the next map.
+
+Actual native particle stress runs reached 107,999 and 1,012,898 live GPU particles, with matching
+on/off simulation checksums. Those were earlier immutable candidates, with their exact workload
+and resource limits recorded separately; they are not an equal-load speed comparison. Corrected
+native reach-overlay scenes visibly match the baked overlay's footprint, including the existing
+layering below later bridges/models and shroud. The overlay hook captures ground and roads,
+not a later bridge deck.
+
+Classic-water foam passed **12 real-game runs in six on/off pairs** on the current candidate:
+pond, river, their HDR variants, Classic graphics and Modern water. The foam appears at the
+shallow banks; deep water and the lower HUD remain unchanged. Classic and Modern on/off
+pictures are pixel-identical, and every pair retained gameplay CRC `A00B3F2F` at frame 300.
+A separate 2,108-check GPU fixture covers whole plain-water/feather fallback and admission of
+registered main views while rejecting special off-screen targets. Modern water's existing
+reflection paths remain separate. Three short actual Modern-water HDR checks also passed:
+SSR selected its screen-space path without an unused mirror, Hybrid refreshed its planar
+mirror, and Path traced reached a ready scene. All kept the same gameplay CRC and rendered
+cleanly; this is a smoke check, not a repeat of every reflection-quality case.
+
+The remaining model, environment, combat and supported-options UI checks have closed. The
+staged package passed a real HDR/foam match without an overlay override: its frame-240 picture
+was pixel-identical to the explicit-overlay candidate, and its frame-300 gameplay CRC was
+`A00B3F2F`. The build-tree package contains the exact tested executable and matching overlay;
+no stripping or rebuilding changed its identity. Previous package files remain in the local
+validation evidence for recovery.
+
+Twelve timed runs measured native end-to-end offscreen present intervals at 1920×1080/MSAA0,
+with three alternating pairs and 1,800 samples per variant. These are not hardware GPU times
+or displayed/vsynced FPS:
+
+| Measured scene | Mean interval |
+|:--|--:|
+| Selected enhancement option bundle off | 2.469 ms |
+| Same scene, option bundle on | 3.217 ms |
+| Fixed 5,000 particles on CPU | 1.586 ms |
+| Same total, 2 CPU + 4,998 native particles | 1.292 ms |
+
+The particle comparison measured an 18.5% lower mean interval. It deliberately uses different
+CPU ceilings to exercise the existing overflow policy; it is neither an identical-cap nor a
+pure-GPU comparison. The bundle measures the selected options' cost in one authored scene,
+not the cost of the whole port. All repeats and a 297.976 ms OFF-run outlier were retained.
+The [benchmark report and reproduction bundle](reference/linux-renderer-parity-2026-11-15/benchmarks/README.md)
+contain median/p95 values, raw samples, settings, qualification and limitations. No 100k/million
+particle speedup or break-even claim follows from these measurements.
+
+Root's independent final audit accepted engineering and delivery completion, including the
+feature bindings, source/package identity, runtime evidence, benchmarks and disclosed reference
+residual. Normal shutdown is separately authorized and pending root's terminal action; this
+document does not claim that shutdown has already happened. Windows and Metal runtime checks were not
+run; shader translation checks include MSL. Native scene attachments remain single-sampled,
+as before this work; the post route does not silently replace a multisampled native scene.
+
+Local hashes, source snapshots, commands, logs and screenshots are under
+`build-linux/feature-parity-evidence/`; the final check inventory is in `final-validation/`,
+and the water scenes are in `classic-water-foam/actual-scenes-acceptance.json`.
+All game runs use private profiles and copied/file-linked data. The installed game is unchanged.
+
 ## Hazard clouds
 
 **Options → Graphics → Cloud style**, directly below **Water style**, selects

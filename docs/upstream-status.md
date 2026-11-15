@@ -4,8 +4,10 @@ Which Linux features from this fork have been offered to upstream
 ([olcayseygan/CnCGeneralsZH-Reforged](https://github.com/olcayseygan/CnCGeneralsZH-Reforged)), and what
 happened to them. Anything not accepted upstream stays in this fork as it is.
 
-Last updated 2026-11-11. Each pull request was cut from upstream v3.8.0 (`e3e1a898`). Their branches are kept on this
-fork for later work.
+The existing pull-request history below was last reviewed 2026-11-11. Those pull requests were cut from upstream
+v3.8.0 (`e3e1a898`); their branches remain on this fork. A separate campaign-fix audit was added 2026-11-14 against
+upstream `main` snapshot [`2788b259`](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/commit/2788b25956f81fc49031a9025fd3c738a8440299).
+It does not re-verify the older pull-request statuses below. No pull request was opened in that audit.
 
 ## Accepted
 
@@ -28,6 +30,98 @@ v3.8.0 doesn't have them. The maintainer can't run Linux or macOS, so the SDL si
 | Volumetric Contaminate, toxin impact clouds and attached toxin puddles | [#171](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/171), closed | More volumetric effects add GPU work to the heaviest frames, and nothing measured it. An earlier volumetric smoke feature was removed from the game over GPU cost. | A separate pull request with just these effects, plus SDL GPU frame times from a crowded toxin fight, with and without them |
 
 ## Not offered upstream
+
+### Native Linux renderer parity validated 2026-11-15 — local, not offered upstream
+
+This fork now implements the renderer enhancements through native SDL3/Vulkan: soft particles and procedural
+fire, GPU particles, per-pixel/Firelight and hemispheric lighting, model status effects and team glow,
+HDR/post-processing, ambient occlusion, sky/haze/weather, fire/beam/exhaust heat and blast distortion,
+distance-field range overlays, Classic-water foam/splashes, building collapse and the associated camera effects.
+Battle Marks, shared volumetric clouds and the existing Modern-water paths remain available. Options query
+actual providers; native support does not report a false Direct3D 11 identity. This work has **not been offered
+upstream**; no new pull request or upstream acceptance is claimed.
+
+The validated local candidate is
+`c7503c364f05364026d1b485ae21d9ff6aaa68bd71dd7fa95d799486cf381cfd`.
+Evidence includes source-equivalence/translation and numeric GPU tests, plus actual game scenes with passive
+queued-packet inspection, observed screenshots and matching gameplay checksums for paired scenarios:
+
+- Sand, Rain and Snow producers; visible sky and distant-ground fade with live disable/restore; isolated
+  day/night Warm Light, preserving weather precedence.
+- Ordinary soft/fire packets, fire/beam/exhaust heat, blast warp, contact AO, HDR, shared clouds, terrain marks
+  and readable HUD. The four firelook controls share `D9AE416E@960`; the same-actor combined pair shares
+  `AE779F5A@960`. Dynamic bundle images are contrasts, not isolated per-pixel effect oracles.
+- Severe explosion kick and a separate large-building collapse jolt. The collapse/Classic pair shares
+  `63B8C63C@540`; the native STRONG shake and consumed presented-camera offset were observed.
+- Authored model status effects, same-subject EMP recovery, team glow and Classic controls; real range-overlay
+  placement after the camera-state correction; native particle admission, overflow, ordering and lifetime checks.
+- Pond and river foam, including HDR and Classic/Modern exclusions; actual Modern-water SSR/Hybrid/PT smokes.
+  The final GPU/mixed test suite passed 24/24 checks.
+- Full-provider options passed 42 actual UI checks with 16 observed screenshots, covering toggles, Accept/reopen,
+  Classic and the original High preset. An earlier limited-provider candidate separately proved unsupported-row
+  value preservation. English Water Foam hover text was checked; Turkish text received source/key checks only.
+
+The staged package contains this exact binary and its matching 262-entry overlay. A real HDR water scene ran
+without an explicit `-overlay` argument, recorded 903 enhanced foam packets, captured frame 240, exited normally
+with `A00B3F2F@300`, and matched the explicit-overlay reference image exactly. No Vulkan validation errors were
+reported in that smoke. The canonical local acceptance ledger is
+`build-linux/feature-parity-evidence/acceptance-ledger.json`; commands, source identities, rejected fixture runs,
+images and limits remain under that evidence tree. Runtime validation here is NVIDIA RTX 4060/Vulkan on Linux;
+Windows and Metal runtime/performance validation is not claimed. Native post-processing currently uses actual
+single-sample scene targets. These bounded scenes do not imply exhaustive map/campaign coverage.
+
+Validation limits also remain visible: the preceding broad CPU selection passed 141 checks and skipped two
+(`test_bigfilesystem`: no `ZH_DATA_DIR`; `ffprogram_values_check`: no MinGW compiler). The narrow final foam-owner
+change separately passed five CPU checks and 2,108 GPU assertions before the final 24/24 GPU/mixed suite.
+A separate default fixed-function capture roundtrip **failed its nominal reference comparison** at 2 of 1,675
+written pixels (worst RGB: GPU 2/50/65 versus reference 3/53/65 at 33,20). Capture replay agrees, and the failing
+draw's generated HLSL/SPIR-V is byte-identical to the baseline; the numerical cause remains unresolved. This is
+not reported as a pass or attributed to a driver. Exact results are retained in
+`build-linux/feature-parity-evidence/final-validation/ffref-default-roundtrip/result.json`.
+
+The [benchmark report](reference/linux-renderer-parity-2026-11-15/benchmarks/README.md),
+[results CSV](reference/linux-renderer-parity-2026-11-15/benchmarks/results.csv) and
+[accepted method/identities](reference/linux-renderer-parity-2026-11-15/benchmarks/acceptance.json) retain all
+12 fresh-process timed runs, raw samples, settings, commands and reproduction scripts. Measurements use the same
+candidate at 1920×1080/MSAA 0 on an RTX 4060 8 GB (driver 595.112.07), Intel Core i7-12700 and Linux
+7.3.4-x64v3-xanmod1. They are **native end-to-end offscreen present intervals in milliseconds**, not hardware GPU
+timestamps or displayed FPS. Three alternating pairs per comparison supply 600 post-warmup samples per repeat,
+1,800 per variant; all six paired gameplay checksums and particle count audits passed.
+
+| Comparison / variant | Mean ms | Median ms | p95 ms |
+|---|---:|---:|---:|
+| Controllable option bundle off | 2.469 | 1.854 | 3.836 |
+| Controllable option bundle on | 3.217 | 2.720 | 5.285 |
+| Matched total 5,000 particles: CPU only | 1.586 | 1.537 | 1.795 |
+| Matched total 5,000 particles: 2 CPU + 4,998 native | 1.292 | 1.239 | 1.653 |
+
+The bundle comparison holds nonClassic assets, water, shadows, model-state policy and GPU-particle policy fixed;
+it measures selected controllable options in one authored scene, not the cost of the entire port or each effect.
+The particle result is an **overflow-policy comparison**, with CPU ceiling 16,384/native ring disabled versus
+CPU ceiling 1/native ring 8,192. Actual retained counts are 5,000 CPU versus 2 CPU + 4,998 native: not equal CPU
+caps and not a pure-GPU workload. All 20 emitters were retained without drops; visible output and exact counts
+were qualified before timing. Mean interval was 18.5% lower in this measured workload. No 100k/million-particle
+speedup or break-even load is inferred. All repeats and the OFF repeat-1 297.976 ms outlier are retained without
+trimming or best-run selection. No clock/power tuning was performed; read-only pre/post snapshots are retained,
+not continuous thermal monitoring. These measurements do not replace the older water/upstream results below.
+
+### Campaign, cinematic and startup fixes audited 2026-11-14
+
+The detailed evidence, pinned source links, port boundaries and upstream validation plan are in
+[`campaign-fixes-upstream-handoff.md`](campaign-fixes-upstream-handoff.md). These classifications are source-review
+results only; no upstream build or runtime campaign validation was performed.
+
+| Fork commit / slice | Tracker status for future work |
+|---|---|
+| `6732c980` frozen-world countdown phase | Candidate that needs adaptation to upstream's native 30 Hz clock and game-speed-scaled retail-tick accounting. Test 100%, 125%, 150% and 200%; do not cherry-pick the fork modulo helper. |
+| `6732c980` matching speech-request wait reset | Candidate: upstream's lazy speech wait can predate the matching cue; add exact-name invalidation and a deterministic pre-query/request regression. |
+| `6732c980` original `GEN_*` briefing voice start | Candidate load-screen integration gap. The campaign content/config already exists upstream; movie, minimum-spec and no-movie start paths need review. A post-voice wait budget is supporting work only after playback is restored. |
+| `dd607c49` resident encoded-audio readiness | Blocked on separately porting the fork's encoded RAM cache. Not a standalone fix to upstream's ordinary asynchronous cold-file loader. |
+| `f7e94b27` A1 fractional camera pose; A2 repeated-frame animation clock | Reachable candidates, but adapt the scaled camera clock and preserve upstream render/session exclusions. Validate on upstream clocks and new traces. |
+| `f7e94b27` B live-submission eligibility | Fork's specific 60 Hz/44 Hz false-negative does not apply: upstream's static 60 Hz gate passes at its native 30 Hz logic rate. A measured live policy is only a conditional improvement pending an upstream case. |
+| `52cbad0c` Clean FFT shoreline distance guard | Fork-only helper is absent upstream with its Clean FFT dependency. No standalone upstream port or upstream crash claim. Revisit only with a separate Clean FFT port or an upstream-owned reproduction. |
+
+This addendum records local dispositions only. It is not a search for existing public pull requests or issues.
 
 These stay fork-only, with no pull request so far:
 
