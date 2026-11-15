@@ -157,6 +157,10 @@ public:
 	void updateRenderTargetTextures(CameraClass *cam);	///< renders into any required textures.	
 	void ReleaseResources(void);	///< Release all dx8 resources so the device can be reset.
 	void ReAcquireResources(void);  ///< Reacquire all resources after device reset.
+	Bool getWeatherSurfaceHeight(Real x, Real y, Real *height, Vector3 *normal=NULL) const; ///< rendered polygon water only; no logic reads or simulation changes
+	Bool hasWeatherWaterInBox(Real minX,Real minY,Real maxX,Real maxY,Real terrainMinimum) const;
+	UnsignedInt weatherSurfaceRevision(void) const { return m_weatherSurfaceRevision; }
+	Bool isRenderingReflection(void) const { return m_renderingMirror; }
 	Real getWaterHeight(Real x, Real y);	///<return water height at given point - for use by WB.
 
 	void replaceSkyboxTexture(const AsciiString& oldTexName, const AsciiString& newTextName);
@@ -519,6 +523,7 @@ protected:
 	void drawModernWaterPatch(const Vector3 points[4], Bool river, Real riverStart = 0, Real riverEnd = 1);
 	// A/B experiment only: medium opts flat patches into D; rivers keep the default terrain rule.
 	Real modernWaterDamping(Real x, Real y, Real z, Real offshore=0.0f, Real *obstacleAttenuation=NULL, Real *terrainDepth=NULL, Real *hullFreeDamping=NULL, Real *hullFreeObstacle=NULL, const Real *cachedTerrain=NULL, Bool medium=FALSE) const;
+	UnsignedInt m_weatherSurfaceRevision=1;
 	Bool m_renderingMirror = FALSE; ///< prevents a water draw sampling the mirror being written
 	void cleanupJbaWaterShader(void);
 

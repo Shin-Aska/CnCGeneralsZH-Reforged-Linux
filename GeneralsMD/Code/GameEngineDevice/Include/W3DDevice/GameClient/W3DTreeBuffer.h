@@ -317,6 +317,7 @@ private:
 	BreezeInfo m_breezeForDraw{};
 	Bool m_pauseForDraw = FALSE;
 	Real		m_curSwayStep[MAX_SWAY_TYPES];
+	Short m_curSwayPeriod;	///< period used to create cached random steps; phase scaling never rewrites them
 	Real		m_curSwayFactor[MAX_SWAY_TYPES];
 
 	W3DProjectedShadow *m_shadow;

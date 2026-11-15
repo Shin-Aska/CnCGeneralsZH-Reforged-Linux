@@ -135,15 +135,28 @@ class SnowManager : public SubsystemInterface
 	Bool isVisible(void) const { return m_isVisible; }	///< a script has not hidden the weather.
 	WeatherKind getWeatherKind(void) const { return m_weatherKind; }	///< NONE while the option is off.
 	const Coord3D &getWeatherWind(void) const { return m_weatherWind; }	///< what the option's wind adds to smoke per update.
+	Real getWeatherGust(void) const { return m_weatherGust; }
+	Real getWeatherIntensity(void) const { return m_weatherIntensity; }
+	Real getWeatherStormEnvelope(void) const { return m_weatherStormEnvelope; }
 	void getWeatherHaze(float colour[3], Real *strength) const;	///< the still ground haze that goes with the kind.
 
   protected :
 
 	void setWeatherWind(Real strength);	///< the option's breeze and smoke drift, along the script's breeze direction.
+	void setWeatherPresentation(Real gust, Real intensity, Real dt, Real envelope = 1.0f);	///< render-local sample after kind/visibility/provider selection.
+	void stopWeatherAmbience(void);
+	void updateWeatherAmbience(Real dt);
 
 	Bool				m_weatherOn;
 	WeatherKind			m_weatherKind;
 	Coord3D				m_weatherWind;
+	Real m_weatherGust;
+	Real m_weatherIntensity;
+	Real m_weatherStormEnvelope;
+	UnsignedInt m_weatherAmbientHandle;
+	WeatherKind m_weatherAmbientKind;
+	Real m_weatherAmbientRetry;
+	Real m_weatherAmbientBaseVolume;
 
 	Real				*m_startingHeights;
 	Real				m_time;	///<time elapsed since it started snowing.

@@ -73,6 +73,7 @@ enum
 #include "Common/PlayerList.h"
 #include "GameLogic/ScriptEngine.h"
 #include "GameClient/Snow.h"
+#include "GameClient/WeatherBreezeMath.h"
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/Object.h"
 #include "GameLogic/PartitionManager.h"
@@ -510,6 +511,7 @@ it's sortKey */
 //=============================================================================
 void W3DTreeBuffer::updateSway(const BreezeInfo& info)
 {
+	m_curSwayPeriod=info.m_breezePeriod;
 	Int i;
 	for	(i=0; i<NUM_SWAY_ENTRIES; i++) {
 		Real factor = Cos(i*2.0f*PI/(NUM_SWAY_ENTRIES+1.0f));
@@ -1326,6 +1328,7 @@ W3DTreeBuffer::W3DTreeBuffer(void)
 	allocateTreeBuffers();
 	m_initialized = true;
 	m_curSwayVersion = -1;
+	m_curSwayPeriod = 1;
 	m_lastSwayFrame = 0xffffffff;	// so the first drawTrees always steps
 	m_lastTreeStepFrame = 0xffffffff;
 
@@ -2304,6 +2307,18 @@ void W3DTreeBuffer::drawTrees(CameraClass * camera, RefRenderObjListIterator *pD
 		{
 			updateSway(info);
 		}		
+		if (TheSnowManager != NULL && TheSnowManager->isWeatherOn() && TheSnowManager->isVisible()
+			&& TheSnowManager->getWeatherGust() > 0.0f)
+		{
+			// Only the displacement table follows gusts/rain fades. Preserve the phase, per-tree
+			// type and random speed factors; updateSway would reset all of those on every frame.
+			for (Int sample = 0; sample < NUM_SWAY_ENTRIES; ++sample)
+			{
+				const Real angle = info.m_lean + info.m_intensity * Cos(sample * 2.0f * PI / (NUM_SWAY_ENTRIES + 1.0f));
+				const Real sine = Sin(angle);
+				m_swayOffsets[sample].Set(info.m_directionVec.x * sine, info.m_directionVec.y * sine, Cos(angle) - 1.0f);
+			}
+		}
 	}
 
 	//
@@ -2320,7 +2335,7 @@ void W3DTreeBuffer::drawTrees(CameraClass * camera, RefRenderObjListIterator *pD
 	Vector3 swayFactor[MAX_SWAY_TYPES];
 	for (i=0; i<MAX_SWAY_TYPES; i++) {
 		if (stepSway) {
-			m_curSwayOffset[i] += m_curSwayStep[i];
+			m_curSwayOffset[i] += WeatherBreezeMath::step(m_curSwayStep[i],m_curSwayPeriod,info.m_breezePeriod);
 			if (m_curSwayOffset[i] > NUM_SWAY_ENTRIES-1) {
 				m_curSwayOffset[i] -= NUM_SWAY_ENTRIES-1;
 			}

@@ -2768,6 +2768,10 @@ endif()
 # T1c (defect 17): the water grid's step, moved to the top of each logic frame, against the original
 # code's output under EA's one-pass-per-frame loop (Tests/water_grid_oracle.cpp), under catch-up too.
 add_lib_test(test_water_grid gameengine)
+add_executable(test_weather_particle_math ${TESTS}/test_weather_particle_math.cpp)
+target_include_directories(test_weather_particle_math PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Include ${CMAKE_CURRENT_SOURCE_DIR}/GameEngine/Include)
+set_target_properties(test_weather_particle_math PROPERTIES CXX_STANDARD 17)
+add_test(NAME test_weather_particle_math COMMAND test_weather_particle_math)
 target_sources(test_water_grid PRIVATE ${TESTS}/test_gameengine_stubs.cpp)
 set_target_properties(test_water_grid PROPERTIES CXX_STANDARD 17)
 if(ZH_PLATFORM_POSIX)

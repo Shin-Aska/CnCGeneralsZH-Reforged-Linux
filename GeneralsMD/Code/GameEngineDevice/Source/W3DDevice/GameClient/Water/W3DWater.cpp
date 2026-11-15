@@ -77,6 +77,7 @@
 #include "W3DDevice/GameClient/W3DWater.h"
 #include "W3DDevice/GameClient/HeightMap.h"
 #include "W3DDevice/GameClient/W3DShroud.h"
+#include "W3DDevice/GameClient/WeatherParticleMath.h"
 #include "W3DDevice/GameClient/W3DWaterTracks.h"
 #include "W3DDevice/GameClient/W3DAssetManager.h"
 #include "texture.h"
@@ -604,19 +605,38 @@ Bool WaterRenderObjClass::hasModernVesselFoam(UnsignedInt objectID) const
 #if ZH_MODERN_WATER
 void WaterRenderObjClass::takeWaterPolygonsForDraw(void)
 {
-	LOGIC_WINDOW_READ( WINDOW_TERRAIN );
-	m_waterPolygonsForDraw.clear();
-	for (PolygonTrigger *trigger=PolygonTrigger::getFirstPolygonTrigger();trigger;trigger=trigger->getNext()) {
-		if (!trigger->isWaterArea() || trigger->getNumPoints()<1) continue;
-		WaterPolygonForDraw polygon;
-		polygon.center.z=0.0f;
-		polygon.river=trigger->isRiver();polygon.riverStart=trigger->getRiverStart();
-		polygon.owner=reinterpret_cast<uintptr_t>(trigger);
-		trigger->getCenterXY(&polygon.center);polygon.radius=trigger->getRadius();
-		polygon.points.reserve(trigger->getNumPoints());
-		for (Int i=0;i<trigger->getNumPoints();++i) polygon.points.push_back(*trigger->getPoint(i));
-		m_waterPolygonsForDraw.push_back(std::move(polygon));
-	}
+    LOGIC_WINDOW_READ( WINDOW_TERRAIN );
+    size_t index=0;
+    Bool geometryChanged=FALSE;
+    for (PolygonTrigger *trigger=PolygonTrigger::getFirstPolygonTrigger();trigger;trigger=trigger->getNext()) {
+        if (!trigger->isWaterArea() || trigger->getNumPoints()<1) continue;
+        WaterPolygonForDraw polygon;
+        polygon.center.z=0.0f;
+        polygon.river=trigger->isRiver(); polygon.riverStart=trigger->getRiverStart();
+        polygon.owner=reinterpret_cast<uintptr_t>(trigger);
+        trigger->getCenterXY(&polygon.center); polygon.radius=trigger->getRadius();
+        polygon.points.reserve(trigger->getNumPoints());
+        for (Int i=0;i<trigger->getNumPoints();++i) polygon.points.push_back(*trigger->getPoint(i));
+        // Exact geometry comparison: a hash collision must never leave newly flooded dust visible.
+        // Replace entries in place, reusing the outer vector without a second geometry snapshot.
+        if (index<m_waterPolygonsForDraw.size()) {
+            const WaterPolygonForDraw &old=m_waterPolygonsForDraw[index];
+            if (old.river!=polygon.river || old.riverStart!=polygon.riverStart || old.points.size()!=polygon.points.size())
+                geometryChanged=TRUE;
+            else for (size_t i=0;i<old.points.size();++i) {
+                const ICoord3D &a=old.points[i],&b=polygon.points[i];
+                if (a.x!=b.x || a.y!=b.y || a.z!=b.z) { geometryChanged=TRUE; break; }
+            }
+            m_waterPolygonsForDraw[index]=std::move(polygon);
+        } else {
+            m_waterPolygonsForDraw.push_back(std::move(polygon)); geometryChanged=TRUE;
+        }
+        ++index;
+    }
+    if (index!=m_waterPolygonsForDraw.size()) {
+        m_waterPolygonsForDraw.resize(index); geometryChanged=TRUE;
+    }
+    if (geometryChanged) ++m_weatherSurfaceRevision;
 }
 
 void WaterRenderObjClass::takeMotionReadsForRender(void)
@@ -5524,6 +5544,88 @@ static Real wobble(Real baseV, Real offset, Bool wobble)
 	if (!wobble) return 0;
 	offset = sin(2*PI*baseV - 3*offset);
 	return offset/22;
+}
+
+// Match the triangles submitted by renderWater/drawRiverWater, including sloping rivers.
+// The modern render snapshot is already owned by this frame; weather never follows logic handles.
+Bool WaterRenderObjClass::getWeatherSurfaceHeight(Real x, Real y, Real *height, Vector3 *normal) const
+{
+    Bool found = FALSE;
+    Real highest = -1.0e30f;
+    Vector3 surfaceNormal(0.0f,0.0f,1.0f);
+    const auto triangle = [&](const ICoord3D &a, const ICoord3D &b, const ICoord3D &c) {
+        const WeatherParticleMath::Point aa={double(a.x),double(a.y),double(a.z)};
+        const WeatherParticleMath::Point bb={double(b.x),double(b.y),double(b.z)};
+        const WeatherParticleMath::Point cc={double(c.x),double(c.y),double(c.z)};
+        Real z;
+        WeatherParticleMath::Point triangleNormal;
+        if (!WeatherParticleMath::triangleHeight(aa,bb,cc,x,y,&z,&triangleNormal)) return;
+        if (!found || z>highest) {
+            highest=z; found=TRUE;
+            surfaceNormal.Set(Real(triangleNormal.x),Real(triangleNormal.y),Real(triangleNormal.z));
+        }
+    };
+#if ZH_MODERN_WATER
+    for (const WaterPolygonForDraw &polygon:m_waterPolygonsForDraw) {
+        const WaterPolygonForDraw *p=&polygon;
+#else
+    for (PolygonTrigger *p=PolygonTrigger::getFirstPolygonTrigger();p;p=p->getNext()) {
+        if (!p->isWaterArea()) continue;
+#endif
+        const Int count=p->getNumPoints();
+        if (count<3) continue;
+        if (p->isRiver()) {
+            Int inner=p->getRiverStart(), outer=inner+1;
+            if (inner<0 || outer>=count) continue;
+            for (Int row=0;row<count/2-1;++row) {
+                const Int nextOuter=(outer+1)%count, nextInner=(inner+count-1)%count;
+                triangle(*p->getPoint(outer),*p->getPoint(inner),*p->getPoint(nextInner));
+                triangle(*p->getPoint(outer),*p->getPoint(nextInner),*p->getPoint(nextOuter));
+                outer=nextOuter; inner=nextInner;
+            }
+        } else {
+            for (Int i=1;i<count-1;++i)
+                triangle(*p->getPoint(0),*p->getPoint(i),*p->getPoint(i+1));
+        }
+    }
+    if (found && height) *height=highest;
+    if (found && normal) *normal=surfaceNormal;
+    return found;
+}
+
+// Conservative land-dust admission: test the whole cache cell against the actual water
+// triangles. A terrain minimum rejects broad authored water polygons hidden under dry land.
+Bool WaterRenderObjClass::hasWeatherWaterInBox(Real minX,Real minY,Real maxX,Real maxY,Real terrainMinimum) const
+{
+    const auto triangle=[&](const ICoord3D &a,const ICoord3D &b,const ICoord3D &c) {
+        return WeatherParticleMath::triangleOverlapsBoxAbove(
+            {double(a.x),double(a.y),double(a.z)},{double(b.x),double(b.y),double(b.z)},
+            {double(c.x),double(c.y),double(c.z)},minX,minY,maxX,maxY,terrainMinimum);
+    };
+#if ZH_MODERN_WATER
+    for (const WaterPolygonForDraw &polygon:m_waterPolygonsForDraw) {
+        const WaterPolygonForDraw *p=&polygon;
+#else
+    for (PolygonTrigger *p=PolygonTrigger::getFirstPolygonTrigger();p;p=p->getNext()) {
+        if (!p->isWaterArea()) continue;
+#endif
+        const Int count=p->getNumPoints();
+        if (count<3) continue;
+        if (p->isRiver()) {
+            Int inner=p->getRiverStart(),outer=inner+1;
+            if (inner<0 || outer>=count) continue;
+            for (Int row=0;row<count/2-1;++row) {
+                const Int nextOuter=(outer+1)%count,nextInner=(inner+count-1)%count;
+                if (triangle(*p->getPoint(outer),*p->getPoint(inner),*p->getPoint(nextInner)) ||
+                    triangle(*p->getPoint(outer),*p->getPoint(nextInner),*p->getPoint(nextOuter))) return TRUE;
+                outer=nextOuter; inner=nextInner;
+            }
+        } else {
+            for (Int i=1;i<count-1;++i)
+                if (triangle(*p->getPoint(0),*p->getPoint(i),*p->getPoint(i+1))) return TRUE;
+        }
+    }
+    return FALSE;
 }
 
 /**Utility function used to query water heights in a manner that works in both RTS and WB.*/

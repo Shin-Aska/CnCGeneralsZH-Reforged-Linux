@@ -992,6 +992,7 @@ GameEngine/Include/GameClient/UiAnimClock.h
 GameEngine/Include/GameClient/VideoPlayer.h
 GameEngine/Include/GameClient/View.h
 GameEngine/Include/GameClient/Water.h
+GameEngine/Include/GameClient/WeatherBreezeMath.h
 GameEngine/Include/GameClient/WinInstanceData.h
 GameEngine/Include/GameClient/WindowLayout.h
 GameEngine/Include/GameClient/WindowVideoManager.h
@@ -2123,6 +2124,7 @@ GameEngineDevice/Include/W3DDevice/GameClient/W3DWaterTracks.h
 GameEngineDevice/Include/W3DDevice/GameClient/W3DWaypointBuffer.h
 GameEngineDevice/Include/W3DDevice/GameClient/W3DWebBrowser.h
 GameEngineDevice/Include/W3DDevice/GameClient/W3DWindowHooks.h
+GameEngineDevice/Include/W3DDevice/GameClient/WeatherParticleMath.h
 GameEngineDevice/Include/W3DDevice/GameClient/WorldHeightMap.h
 GameEngineDevice/Include/W3DDevice/GameClient/camerashakesystem.h
 GameEngineDevice/Include/W3DDevice/GameLogic/W3DGameLogic.h
@@ -3721,6 +3723,7 @@ Tests/test_water_path_tracing.cpp
 Tests/test_water_preview_preset.cpp
 Tests/test_water_scene_bank.cpp
 Tests/test_water_tracks.cpp
+Tests/test_weather_particle_math.cpp
 Tests/test_widechar_crc_gate.cpp
 Tests/test_widechar_file.cpp
 Tests/test_widechar_format.cpp

@@ -22,6 +22,8 @@
 
 #include "W3DDevice/GameClient/W3DSnow.h"
 #include "W3DDevice/GameClient/HeightMap.h"
+#include "W3DDevice/GameClient/W3DWater.h"
+#include "W3DDevice/GameClient/W3DShroud.h"
 #if defined(__linux__)
 #include "W3DDevice/GameClient/W3DShaderManager.h"
 #include "Platform/RenderPost.h"
@@ -29,6 +31,7 @@
 #include "Platform/RendererCapabilities.h"
 #endif
 #include "Common/GlobalData.h"
+#include "Common/RandomValue.h"
 #include "GameClient/View.h"
 #include "GameLogic/ScriptEngine.h"
 #include "WW3D2/dx8wrapper.h"
@@ -71,8 +74,12 @@ W3DSnowManager::W3DSnowManager(void)
 	m_snowTexture=NULL;
 	m_VertexBufferD3D=NULL;
 	m_weatherDrops=NULL;
-	m_weatherTextures[0]=NULL;
-	m_weatherTextures[1]=NULL;
+	for (Int i=0;i<WEATHER_LAYER_COUNT;++i) m_weatherTextures[i]=NULL;
+	m_weatherContactTextures[0]=m_weatherContactTextures[1]=NULL;
+	m_weatherContacts=NULL; m_weatherContactTracks=NULL;
+    m_weatherDustCells=NULL; m_weatherDustEpoch=0; m_weatherDustRevision=~0U;
+    m_weatherDustWater=NULL; m_weatherRainSeed=1; m_weatherRainMatchSeed=0;
+	clearWeatherMotion();
 	m_weatherTime=0.0;
 	m_weatherMap=NULL;
 	m_weatherMapData=NULL;
@@ -88,6 +95,9 @@ W3DSnowManager::~W3DSnowManager()
 {
 	ReleaseResources();
 	delete [] m_weatherDrops;
+	delete [] m_weatherContacts;
+	delete [] m_weatherContactTracks;
+	delete [] m_weatherDustCells;
 }
 
 // Direct3D 11 has no point sprites at all: the fixed-function primitive that expands one vertex
@@ -122,8 +132,9 @@ void W3DSnowManager::init( void )
 void W3DSnowManager::ReleaseResources(void)
 {
 	REF_PTR_RELEASE(m_snowTexture);
-	REF_PTR_RELEASE(m_weatherTextures[0]);
-	REF_PTR_RELEASE(m_weatherTextures[1]);
+	for (Int i=0;i<WEATHER_LAYER_COUNT;++i) REF_PTR_RELEASE(m_weatherTextures[i]);
+	REF_PTR_RELEASE(m_weatherContactTextures[0]);
+	REF_PTR_RELEASE(m_weatherContactTextures[1]);
 
 	if (m_VertexBufferD3D)
 		m_VertexBufferD3D->Release();
@@ -218,6 +229,7 @@ void W3DSnowManager::updateIniSettings(void)
 void W3DSnowManager::reset( void )
 {
 	SnowManager::reset();
+	clearWeatherMotion();
 #if defined(__linux__)
     // Client/map reset is authoritative even when an allocator reuses every map
     // and sample address. Ordinary snow and the Windows weather lifecycle stay unchanged.
@@ -225,7 +237,7 @@ void W3DSnowManager::reset( void )
     m_weatherOn = FALSE; m_weatherKind = WEATHER_KIND_NONE; m_weatherTime = 0.0;
     m_weatherMap = NULL; m_weatherMapData = NULL; m_weatherMapWidth = m_weatherMapHeight = 0;
     m_weatherSandCells = m_weatherCells = 0;
-    REF_PTR_RELEASE(m_weatherTextures[0]); REF_PTR_RELEASE(m_weatherTextures[1]);
+    for (Int i=0;i<WEATHER_LAYER_COUNT;++i) REF_PTR_RELEASE(m_weatherTextures[i]);
 #endif
 }
 
@@ -242,10 +254,19 @@ void W3DSnowManager::update(void)
 #else
 	m_weatherOn = TheGlobalData->m_weatherEffects && !TheGlobalData->m_classicGraphics && Direct3D11_Present_Is_Enabled();
 #endif
-	if (m_weatherOn)
+	if (m_weatherOn && m_isVisible)
 		updateWeather();
+	else if (m_weatherOn)
+	{
+		setWeatherPresentation(0.0f,0.0f,WW3D::Get_Frame_Time()/1000.0f,0.0f);
+		if (m_weatherTime!=0.0) clearWeatherMotion();
+	}
 	else
+	{
 		m_weatherKind = WEATHER_KIND_NONE;
+		setWeatherPresentation(0.0f,0.0f,WW3D::Get_Frame_Time()/1000.0f,0.0f);
+		if (m_weatherTime!=0.0) clearWeatherMotion();
+	}
 }
 
 /* The Weather option (Options > Effects, Direct3D 11, off under Classic).  A client's picture and no
@@ -270,17 +291,40 @@ struct WeatherLayer
 };
 
 // The battlefield reads first: motion is what says weather, so a layer stays sparse and faint.  Sand's
-// streaks all fly above the ground and its cards go over everything, so they cost the most picture.
-static const WeatherLayer WEATHER_LAYERS[WEATHER_KIND_COUNT][2] =
+// layers remain over verified dry ground; small low cards cannot wash across the water.
+static const WeatherLayer WEATHER_LAYERS[WEATHER_KIND_COUNT][3] =
 {
-	{ { NULL }, { NULL } },
-	{ { "EXRainDrop.tga", 6000, 45.0f, 1100.0f, 44.0f, 3.0f, 0xb8d8e4f0, 0.0f, FALSE }, { NULL } },
-	{ { "EXRainDrop.tga", 3500, 130.0f, 25.0f, 64.0f, 3.0f, 0x90ecd4a4, 150.0f, FALSE },
-		{ "EXCloud01.tga", 70, 65.0f, 4.0f, 260.0f, 260.0f, 0x1cd0ac7c, 170.0f, TRUE } },
-	{ { "EXSnowFlake1.tga", 6000, 8.5f, 46.0f, 2.4f, 2.4f, 0xd0e8eef4, 0.0f, TRUE }, { NULL } }
+    { { NULL }, { NULL }, { NULL } },
+    { { "EXRainDrop.tga", 6000, 45.0f, 1100.0f, 44.0f, 3.0f, 0xb8d8e4f0, 0.0f, FALSE }, { NULL }, { NULL } },
+    { { "EXRainDrop.tga", 2200, 145.0f, 19.0f, 40.0f, 1.8f, 0x64ecd4a4, 95.0f, FALSE },
+      { "EXRainDrop.tga", 1000, 95.0f, 10.0f, 30.0f, 1.2f, 0x48d8c8a4, 200.0f, FALSE },
+      { "EXCloud01.tga", 60, 52.0f, 3.0f, 20.0f, 52.0f, 0x20d0ac7c, 36.0f, TRUE } },
+    { { "EXSnowFlake1.tga", 2800, 11.0f, 48.0f, 2.0f, 2.0f, 0xc8e8eef4, 0.0f, TRUE },
+      { "EXSnowFlake1.tga", 2000, 19.0f, 34.0f, 3.2f, 3.2f, 0xb0e8eef4, 0.0f, TRUE },
+      { "EXSnowFlake1.tga", 1000, 6.0f, 63.0f, 1.3f, 1.3f, 0x98d8e2ee, 0.0f, TRUE } }
 };
 
-static const Real WEATHER_WIND_STRENGTH[WEATHER_KIND_COUNT] = { 0.5f, 0.8f, 1.0f, 0.35f };
+// Stable render-local seeds: weather must not consume the gameplay/random particle stream.
+static Real weatherSeed(UnsignedInt n)
+{
+    n ^= n >> 16; n *= 0x7feb352dU; n ^= n >> 15; n *= 0x846ca68bU; n ^= n >> 16;
+    return Real(n & 0x00ffffffU) / 16777216.0f;
+}
+
+void W3DSnowManager::clearWeatherMotion(void)
+{
+    for (Int i=0;i<WEATHER_LAYER_COUNT;++i) {
+        m_weatherMotion[i].reset();
+    }
+    m_weatherTime=0.0;
+    m_weatherRainEnvelope=0.0f; m_weatherParticleDensity=0.0f;
+    ++m_weatherDustEpoch; m_weatherDustFrame=~0U; m_weatherDustQueries=0;
+    m_weatherContactNext=m_weatherContactCursor=0;
+    m_weatherContactFrame=~0U;
+    if (m_weatherContacts) for (Int i=0;i<WEATHER_CONTACT_COUNT;++i) m_weatherContacts[i].born=-10.0;
+    if (m_weatherContactTracks) for (Int i=0;i<WEATHER_CONTACT_TRACKS;++i) m_weatherContactTracks[i].valid=FALSE;
+}
+
 static const Int WEATHER_MAX_DROPS = 8192;
 static const Real WEATHER_TILE_STEP = 2048.0f;
 static const Real WEATHER_TILE_MIN = 512.0f;
@@ -290,24 +334,37 @@ static const Real WEATHER_EYE_CLEARANCE = 0.55f;	// of the eye's height: nothing
 
 void W3DSnowManager::updateWeather(void)
 {
-	m_weatherTime = fmod(m_weatherTime + WW3D::Get_Frame_Time() / 1000.0, 3600.0);
+	const Real dt=WWMath::Clamp(WW3D::Get_Frame_Time()/1000.0f,0.0f,0.1f);
+	// Never multiply a changing wind by elapsed time: integrate displacement once per update.
+	m_weatherTime += dt;
 
 	WorldHeightMap *map = TheTerrainRenderObject != NULL ? TheTerrainRenderObject->getMap() : NULL;
+    const UnsignedInt matchSeed=GetGameLogicRandomSeed();
 #if defined(__linux__)
     const Bool mapChanged = map != NULL && (map != m_weatherMap || map->getDataPtr() != m_weatherMapData
-        || map->getXExtent() != m_weatherMapWidth || map->getYExtent() != m_weatherMapHeight);
+        || map->getXExtent() != m_weatherMapWidth || map->getYExtent() != m_weatherMapHeight
+        || matchSeed != m_weatherRainMatchSeed);
     if (mapChanged)
 #else
-	if (map != NULL && (map != m_weatherMap || map->getDataPtr() != m_weatherMapData || map->getXExtent() != m_weatherMapWidth))
+	if (map != NULL && (map != m_weatherMap || map->getDataPtr() != m_weatherMapData
+        || map->getXExtent() != m_weatherMapWidth || matchSeed != m_weatherRainMatchSeed))
 #endif
 	{
+		clearWeatherMotion();
 		m_weatherMap = map;
 		m_weatherMapData = map->getDataPtr();
 		m_weatherMapWidth = map->getXExtent();
 #if defined(__linux__)
         m_weatherMapHeight = map->getYExtent();
 #endif
-		map->countSandCells(&m_weatherSandCells, &m_weatherCells);
+        map->countSandCells(&m_weatherSandCells, &m_weatherCells);
+        m_weatherRainSeed=WeatherParticleMath::hash(UnsignedInt(map->getXExtent())^
+            (UnsignedInt(map->getYExtent())<<16)^UnsignedInt(m_weatherSandCells));
+        const Int samples=map->getXExtent()*map->getYExtent();
+        for (Int i=0;i<8 && samples>0;++i)
+            m_weatherRainSeed=WeatherParticleMath::hash(m_weatherRainSeed^map->getDataPtr()[(samples-1)*i/7]);
+        m_weatherRainMatchSeed=matchSeed;
+        m_weatherRainSeed=WeatherParticleMath::rainSeedForMatch(m_weatherRainSeed,matchSeed);
 		DEBUG_LOG(("WEATHER map is %d sand of %d cells\n", m_weatherSandCells, m_weatherCells));
 	}
 
@@ -316,26 +373,54 @@ void W3DSnowManager::updateWeather(void)
 	if (kind != m_weatherKind)
 	{
 		m_weatherKind = kind;
-		REF_PTR_RELEASE(m_weatherTextures[0]);
-		REF_PTR_RELEASE(m_weatherTextures[1]);
+		clearWeatherMotion();
+		for (Int i=0;i<WEATHER_LAYER_COUNT;++i) REF_PTR_RELEASE(m_weatherTextures[i]);
 	}
-	setWeatherWind(WEATHER_WIND_STRENGTH[kind]);
+    const Bool active=m_isVisible && map!=NULL;
+    const WeatherParticleMath::Presentation sample=WeatherParticleMath::sample(m_weatherTime);
+    const Real gust=kind==WEATHER_KIND_NONE ? 1.0f : sample.gust;
+    const Real intensity=kind==WEATHER_KIND_NONE ? 1.0f : sample.intensity;
+    if (!active) clearWeatherMotion();
+    m_weatherRainEnvelope=kind==WEATHER_KIND_RAIN ?
+        WeatherParticleMath::rainSpell(m_weatherTime,m_weatherRainSeed).envelope : 1.0f;
+    m_weatherParticleDensity=intensity;
+    // A dry interval changes presentation only: the selected rain kind and its clock keep advancing.
+    setWeatherPresentation(active ? gust : 0.0f,active ? intensity*m_weatherRainEnvelope : 0.0f,dt,
+        active ? m_weatherRainEnvelope : 0.0f);
+    const Coord2D &wind=weatherBreezeInfo().m_directionVec;
+    for (Int i=0;i<WEATHER_LAYER_COUNT;++i) {
+        const WeatherLayer &layer=WEATHER_LAYERS[kind][i];
+        if (!layer.texture) continue;
+        m_weatherMotion[i].advance(dt,wind.x,wind.y,layer.along,layer.down,getWeatherGust());
+    }
 }
 
 void W3DSnowManager::renderWeather(RenderInfoClass &rinfo)
 {
+    if (m_weatherKind==WEATHER_KIND_RAIN && m_weatherRainEnvelope<=0.0f) return;
+    if (m_weatherKind==WEATHER_KIND_SAND) {
+        const UnsignedInt revision=TheWaterRenderObj ? TheWaterRenderObj->weatherSurfaceRevision() : 0;
+        if (m_weatherDustWater!=TheWaterRenderObj || m_weatherDustRevision!=revision) {
+            m_weatherDustWater=TheWaterRenderObj; m_weatherDustRevision=revision; ++m_weatherDustEpoch;
+        }
+        if (m_weatherDustFrame!=WW3D::Get_Frame_Count()) {
+            m_weatherDustFrame=WW3D::Get_Frame_Count(); m_weatherDustQueries=0;
+        }
+    }
 	if (m_weatherDrops == NULL)
 	{
 		m_weatherDrops = NEW WeatherDrop[WEATHER_MAX_DROPS];
 		for (Int i = 0; i < WEATHER_MAX_DROPS; ++i)
 		{
-			m_weatherDrops[i].x = rand() / (Real)RAND_MAX;
-			m_weatherDrops[i].y = rand() / (Real)RAND_MAX;
-			m_weatherDrops[i].phase = rand() / (Real)RAND_MAX;
+			m_weatherDrops[i].x = weatherSeed(i*4U+1U);
+			m_weatherDrops[i].y = weatherSeed(i*4U+2U);
+			m_weatherDrops[i].phase = weatherSeed(i*4U+3U);
+			m_weatherDrops[i].size = 0.65f+0.7f*weatherSeed(i*4U+4U);
 		}
 	}
 	if (!m_indexBuffer)
 		ReAcquireResources();
+	if (!m_indexBuffer) return;
 
 	Matrix4x4 identity(true);
 	DX8Wrapper::Set_Transform(D3DTS_WORLD, identity);
@@ -358,9 +443,9 @@ void W3DSnowManager::renderWeather(RenderInfoClass &rinfo)
 #else
 	Direct3D11_Set_Emissive(true);
 #endif
-	drawWeatherLayer(rinfo, 0, light);
-	if (WEATHER_LAYERS[m_weatherKind][1].texture != NULL)
-		drawWeatherLayer(rinfo, 1, light);
+	for (Int i=0;i<WEATHER_LAYER_COUNT;++i)
+		if (WEATHER_LAYERS[m_weatherKind][i].texture) drawWeatherLayer(rinfo,i,light);
+	if (m_weatherKind==WEATHER_KIND_RAIN) drawWeatherContacts(rinfo,light);
 #if defined(__linux__)
     RenderLighting::SetEmissive(false);
 #else
@@ -374,11 +459,9 @@ void W3DSnowManager::drawWeatherLayer(RenderInfoClass &rinfo, Int layerIndex, Re
 	if (m_weatherTextures[layerIndex] == NULL)
 		m_weatherTextures[layerIndex] = WW3DAssetManager::Get_Instance()->Get_Texture(layer.texture);
 	DX8Wrapper::Set_Texture(0, m_weatherTextures[layerIndex]);
-	// A card wider than a unit would cut a hard line where it meets the ground, so it takes no depth:
-	// a cloud between the eye and the ground goes over all of it anyway.
+	// Dust cards use ordinary depth testing, so units/terrain can occlude the drifting veil.
 	ShaderClass shader(ShaderClass::_PresetAlphaShader);
-	if (layer.height > 0.0f && layer.facesCamera)
-		shader.Set_Depth_Compare(ShaderClass::PASS_ALWAYS);
+
 	// A near vertical streak past the point under the camera turns its back to it at a steep tilt.
 	shader.Set_Cull_Mode(ShaderClass::CULL_MODE_DISABLE);
 	DX8Wrapper::Set_Shader(shader);
@@ -408,9 +491,62 @@ void W3DSnowManager::drawWeatherLayer(RenderInfoClass &rinfo, Int layerIndex, Re
 	const Real top = layer.height > 0.0f ? ground + layer.height : eye.Z - (eye.Z - ground) * WEATHER_EYE_CLEARANCE;
 
 	const Coord2D &wind = weatherBreezeInfo().m_directionVec;
-	const Real shiftX = (Real)fmod(m_weatherTime * wind.x * layer.along, (double)tile);
-	const Real shiftY = (Real)fmod(m_weatherTime * wind.y * layer.along, (double)tile);
-	const Real fallen = (Real)fmod(m_weatherTime * layer.down / depth, 1.0);
+	const Real shiftX = (Real)fmod(m_weatherMotion[layerIndex].x, (double)tile);
+	const Real shiftY = (Real)fmod(m_weatherMotion[layerIndex].y, (double)tile);
+	const Real fallen = (Real)fmod(m_weatherMotion[layerIndex].fall / depth, 1.0);
+
+    if (m_weatherKind==WEATHER_KIND_RAIN && layerIndex==0 && m_weatherContactFrame!=WW3D::Get_Frame_Count()) {
+        m_weatherContactFrame=WW3D::Get_Frame_Count();
+        if (!m_weatherContacts) {
+            m_weatherContacts=NEW WeatherContact[WEATHER_CONTACT_COUNT];
+            m_weatherContactTracks=NEW WeatherContactTrack[WEATHER_CONTACT_TRACKS];
+            for (Int i=0;i<WEATHER_CONTACT_COUNT;++i) m_weatherContacts[i].born=-10.0;
+            for (Int i=0;i<WEATHER_CONTACT_TRACKS;++i) m_weatherContactTracks[i].valid=FALSE;
+        }
+        // Bound height/water queries separately from the falling-particle budget. These are the
+        // same trajectories as up to the first 256 rendered drops. At low frame rates a smaller
+        // active set keeps every revisit below .24 seconds and half a fall cycle.
+        WorldHeightMap *map=TheTerrainRenderObject->getMap();
+        W3DShroud *shroud=TheTerrainRenderObject->getShroud();
+        const Real contactDt=WWMath::Clamp(WW3D::Get_Frame_Time()/1000.0f,0.0f,0.1f);
+        const Int tracks=WeatherParticleMath::contactTrackCount(contactDt,depth,layer.down);
+        for (Int attempt=0;attempt<48;++attempt) {
+            const Int index=m_weatherContactCursor%tracks;
+            m_weatherContactCursor=(index+1)%tracks;
+            const WeatherDrop &drop=m_weatherDrops[index];
+            WeatherContactTrack &track=m_weatherContactTracks[index];
+            const Real phase=drop.phase+fallen;
+            const Vector3 now(weatherWrap(drop.x*tile+shiftX,originX,tile),
+                weatherWrap(drop.y*tile+shiftY,originY,tile),top-(phase-(Int)phase)*depth);
+            const Vector3 previous=track.position;
+            const double elapsed=m_weatherTime-track.sampled;
+            const Bool hadSample=track.valid && track.tile==tile;
+            track.position=now; track.sampled=m_weatherTime; track.tile=tile; track.valid=TRUE;
+            if (!hadSample || now.Z>=previous.Z || elapsed<=0.0 || elapsed>=0.3
+                || fabs(now.X-previous.X)>=80.0f || fabs(now.Y-previous.Y)>=80.0f
+                || weatherSeed(index+913U)>getWeatherIntensity()) continue;
+            const Real border=map->getBorderSize()*MAP_XY_FACTOR;
+            if (now.X< -border || now.Y< -border ||
+                now.X>=(map->getXExtent()-1)*MAP_XY_FACTOR-border ||
+                now.Y>=(map->getYExtent()-1)*MAP_XY_FACTOR-border) continue;
+            if (shroud && shroud->getShroudLevel(REAL_TO_INT_FLOOR(now.X/shroud->getCellWidth()),
+                REAL_TO_INT_FLOOR(now.Y/shroud->getCellHeight()))<240) continue;
+            Coord3D terrainNormal;
+            Real surface=TheTerrainRenderObject->getHeightMapHeight(now.X,now.Y,&terrainNormal);
+            Vector3 normal(terrainNormal.x,terrainNormal.y,terrainNormal.z);
+            Real waterHeight=surface;
+            Vector3 waterNormal;
+            const Bool hasWater=TheWaterRenderObj && TheWaterRenderObj->getWeatherSurfaceHeight(now.X,now.Y,&waterHeight,&waterNormal);
+            const WeatherParticleMath::Surface hit=WeatherParticleMath::surface(surface,hasWater,waterHeight);
+            if (hit.water) normal=waterNormal;
+            if (!WeatherParticleMath::crossesSurface(previous.Z,now.Z,hit.height,elapsed,
+                now.X-previous.X,now.Y-previous.Y)) continue;
+            WeatherContact &contact=m_weatherContacts[m_weatherContactNext];
+            m_weatherContactNext=(m_weatherContactNext+1)%WEATHER_CONTACT_COUNT;
+            contact.position.Set(now.X,now.Y,hit.height+0.45f);
+            contact.normal=normal; contact.born=m_weatherTime; contact.water=hit.water;
+        }
+    }
 
 	// A streak lies along its flight and takes its width across the view, so it never turns edge on.
 	const Matrix3D &eyeFrame = camera.Get_Transform();
@@ -423,7 +559,7 @@ void W3DSnowManager::drawWeatherLayer(RenderInfoClass &rinfo, Int layerIndex, Re
 	}
 	else
 	{
-		axis.Set(wind.x * layer.along, wind.y * layer.along, -layer.down);
+		axis.Set(wind.x * layer.along*getWeatherGust(), wind.y * layer.along*getWeatherGust(), -layer.down);
 		axis.Normalize();
 		Vector3::Cross_Product(eyeFrame.Get_Z_Vector(), axis, &side);
 		side.Normalize();
@@ -450,20 +586,37 @@ void W3DSnowManager::drawWeatherLayer(RenderInfoClass &rinfo, Int layerIndex, Re
 			VertexFormatXYZNDUV2 *verts = lock.Get_Formatted_Vertex_Array();
 			for (Int i = 0; i < batch; ++i)
 			{
-				const WeatherDrop &drop = m_weatherDrops[done + i];
-				const Real x = weatherWrap(drop.x * tile + shiftX, originX, tile);
-				const Real y = weatherWrap(drop.y * tile + shiftY, originY, tile);
+				const Int dropIndex=done+i;
+				const WeatherDrop &drop = m_weatherDrops[(dropIndex+layerIndex*2017)%WEATHER_MAX_DROPS];
+				const Real drift=m_weatherKind==WEATHER_KIND_SNOW ?
+                    Real(sin(m_weatherTime*(0.6f+drop.size*0.35f)+drop.phase*6.283185f))*9.0f*drop.size : 0.0f;
+                const Real x = weatherWrap(drop.x * tile + shiftX + drift, originX, tile);
+                const Real y = weatherWrap(drop.y * tile + shiftY + drift*0.6f, originY, tile);
 				const Real phase = drop.phase + fallen;
-				const Real z = top - (phase - (Int)phase) * depth;
-				for (Int corner = 0; corner < 4; ++corner)
-				{
-					verts->x = x + corners[corner].X;
-					verts->y = y + corners[corner].Y;
-					verts->z = z + corners[corner].Z;
+				Real z = top - (phase - (Int)phase) * depth;
+                if (m_weatherKind==WEATHER_KIND_SAND && layerIndex==2)
+                    z=TheTerrainRenderObject->getHeightMapHeight(x,y,NULL)+10.0f+(1.0f-(phase-(Int)phase))*20.0f;
+				Real density=WWMath::Clamp((m_weatherParticleDensity-weatherSeed(dropIndex+913U))*8.0f,0.0f,1.0f)
+                    *m_weatherRainEnvelope;
+                const Real scale=drop.size*(0.94f+0.06f*getWeatherGust());
+                if (m_weatherKind==WEATHER_KIND_SAND) {
+                    Real minX=x,maxX=x,minY=y,maxY=y;
+                    for (Int corner=0;corner<4;++corner) {
+                        const Real px=x+corners[corner].X*scale,py=y+corners[corner].Y*scale;
+                        minX=min(minX,px); maxX=max(maxX,px); minY=min(minY,py); maxY=max(maxY,py);
+                    }
+                    density*=weatherDustFootprintFade(minX,minY,maxX,maxY);
+                }
+                const UnsignedInt dropColour=(colour&0x00ffffffU) | (UnsignedInt((colour>>24)*density)<<24);
+                for (Int corner = 0; corner < 4; ++corner)
+                {
+                    verts->x = x + corners[corner].X*scale;
+                    verts->y = y + corners[corner].Y*scale;
+                    verts->z = z + corners[corner].Z*scale;
 					verts->nx = 0;	//keep AGP write-combining active
 					verts->ny = 0;
 					verts->nz = 0;
-					verts->diffuse = colour;
+					verts->diffuse = dropColour;
 					verts->u1 = CORNER_U[corner];
 					verts->v1 = CORNER_V[corner];
 					verts->u2 = 0;
@@ -476,6 +629,123 @@ void W3DSnowManager::drawWeatherLayer(RenderInfoClass &rinfo, Int layerIndex, Re
 		DX8Wrapper::Draw_Triangles(0, batch * 2, 0, batch * 4);
 		done += batch;
 	}
+}
+
+// World-anchored 96-unit cells cover the full dust-card footprint, with a 32-unit soft
+// dry-side shore margin. Unknown/stale cells deny dust; only 32 cells may inspect water per frame.
+Bool W3DSnowManager::weatherDustCellDry(Int x,Int y,Real *arrival)
+{
+    *arrival=0.0f;
+    if (!m_weatherDustCells) {
+        m_weatherDustCells=NEW WeatherDustCell[WEATHER_DUST_CACHE_DIM*WEATHER_DUST_CACHE_DIM];
+        for (Int i=0;i<WEATHER_DUST_CACHE_DIM*WEATHER_DUST_CACHE_DIM;++i) m_weatherDustCells[i].epoch=0;
+    }
+    const UnsignedInt slot=(UnsignedInt(y)&63U)*WEATHER_DUST_CACHE_DIM+(UnsignedInt(x)&63U);
+    WeatherDustCell &cell=m_weatherDustCells[slot];
+    const Bool wasDry=cell.epoch==m_weatherDustEpoch && cell.x==x && cell.y==y && cell.dry;
+    const double previousAdmission=wasDry ? cell.admitted : m_weatherTime;
+    if (cell.epoch==m_weatherDustEpoch && cell.x==x && cell.y==y && m_weatherTime-cell.sampled<10.0) {
+        *arrival=WeatherParticleMath::dustArrival(m_weatherTime-cell.admitted,cell.dry);
+        return cell.dry;
+    }
+    if (m_weatherDustQueries>=32) return FALSE;
+    ++m_weatherDustQueries;
+    cell.x=x; cell.y=y; cell.epoch=m_weatherDustEpoch; cell.sampled=m_weatherTime;
+    cell.admitted=previousAdmission; cell.dry=FALSE;
+    WorldHeightMap *map=TheTerrainRenderObject->getMap();
+    if (!map) return FALSE;
+    const Real minX=x*96.0f,minY=y*96.0f,maxX=minX+96.0f,maxY=minY+96.0f;
+    const Int border=map->getBorderSize();
+    const Int lowX=REAL_TO_INT_FLOOR(minX/MAP_XY_FACTOR)+border;
+    const Int lowY=REAL_TO_INT_FLOOR(minY/MAP_XY_FACTOR)+border;
+    const Int highX=REAL_TO_INT_CEIL(maxX/MAP_XY_FACTOR)+border;
+    const Int highY=REAL_TO_INT_CEIL(maxY/MAP_XY_FACTOR)+border;
+    if (lowX<0 || lowY<0 || highX>=map->getXExtent() || highY>=map->getYExtent()) return FALSE;
+    Real terrainMinimum=1.0e30f;
+    // Every terrain vertex in/enclosing the cell gives a conservative lower bound, not just
+    // a center sample that could miss a small pond or the bend of a river.
+    for (Int iy=lowY;iy<=highY;++iy) for (Int ix=lowX;ix<=highX;++ix)
+        terrainMinimum=min(terrainMinimum,map->getHeight(ix,iy)*MAP_HEIGHT_SCALE);
+    cell.dry=!TheWaterRenderObj || !TheWaterRenderObj->hasWeatherWaterInBox(minX,minY,maxX,maxY,terrainMinimum);
+    cell.admitted=previousAdmission;
+    *arrival=WeatherParticleMath::dustArrival(m_weatherTime-cell.admitted,cell.dry);
+    return cell.dry;
+}
+
+Real W3DSnowManager::weatherDustFootprintFade(Real minX,Real minY,Real maxX,Real maxY)
+{
+    const Real margin=32.0f;
+    const Int lowX=REAL_TO_INT_FLOOR((minX-margin)/96.0f),lowY=REAL_TO_INT_FLOOR((minY-margin)/96.0f);
+    const Int highX=REAL_TO_INT_FLOOR((maxX+margin)/96.0f),highY=REAL_TO_INT_FLOOR((maxY+margin)/96.0f);
+    Real fade=1.0f;
+    for (Int y=lowY;y<=highY;++y) for (Int x=lowX;x<=highX;++x) {
+        Real arrival;
+        if (weatherDustCellDry(x,y,&arrival)) { fade=min(fade,arrival); continue; }
+        fade=min(fade,WeatherParticleMath::footprintShoreFade(minX,minY,maxX,maxY,
+            x*96.0,y*96.0,(x+1)*96.0,(y+1)*96.0,margin));
+        if (fade<=0.0f) return 0.0f;
+    }
+    return fade;
+}
+
+void W3DSnowManager::drawWeatherContacts(RenderInfoClass &rinfo, Real light)
+{
+    if (!m_weatherContacts) return;
+    // Both are licensed EA assets already used by the water splash effect. A low-alpha
+    // expanding surface ring reads as a raindrop; the land card is a brief upward spray.
+    const char *textures[2]={ "EXWater04.tga", "EXShockWav.tga" };
+    const Matrix3D &eye=rinfo.Camera.Get_Transform();
+    static const Real u[4]={0.0f,0.0f,1.0f,1.0f}, v[4]={0.0f,1.0f,1.0f,0.0f};
+    for (Int pass=0;pass<2;++pass) {
+        if (!m_weatherContactTextures[pass])
+            m_weatherContactTextures[pass]=WW3DAssetManager::Get_Instance()->Get_Texture(textures[pass]);
+        DX8Wrapper::Set_Texture(0,m_weatherContactTextures[pass]);
+        ShaderClass shader(ShaderClass::_PresetAlphaShader);
+        if (pass) shader.Set_Dst_Blend_Func(ShaderClass::DSTBLEND_ONE);
+        shader.Set_Cull_Mode(ShaderClass::CULL_MODE_DISABLE);
+        DX8Wrapper::Set_Shader(shader);
+        DynamicVBAccessClass vb(BUFFER_TYPE_DYNAMIC_DX8,dynamic_fvf_type,WEATHER_CONTACT_COUNT*4);
+        Int count=0;
+        {
+            DynamicVBAccessClass::WriteLockClass lock(&vb);
+            VertexFormatXYZNDUV2 *verts=lock.Get_Formatted_Vertex_Array();
+            for (Int i=0;i<WEATHER_CONTACT_COUNT;++i) {
+                const WeatherContact &contact=m_weatherContacts[i];
+                const Real age=Real(m_weatherTime-contact.born), lifetime=pass ? 0.75f : 0.24f;
+                if (contact.water!=(pass!=0) || age<0.0f || age>=lifetime) continue;
+                W3DShroud *shroud=TheTerrainRenderObject->getShroud();
+                if (shroud && shroud->getShroudLevel(REAL_TO_INT_FLOOR(contact.position.X/shroud->getCellWidth()),
+                    REAL_TO_INT_FLOOR(contact.position.Y/shroud->getCellHeight()))<240) continue;
+                const Real size=pass ? 2.4f+age*13.0f : 1.8f+age*8.0f;
+                AABoxClass bounds(contact.position,Vector3(size,size,size));
+                if (CollisionMath::Overlap_Test(rinfo.Camera.Get_Frustum(),bounds)==CollisionMath::OUTSIDE) continue;
+                Vector3 side,axis;
+                if (pass) {
+                    // Rings lie in the exact authored triangle plane, including sloping rivers.
+                    Vector3::Cross_Product(Vector3(0.0f,1.0f,0.0f),contact.normal,&side);
+                    side.Normalize(); Vector3::Cross_Product(contact.normal,side,&axis);
+                    side*=size; axis*=size;
+                } else {
+                    side=eye.Get_X_Vector()*size;
+                    axis.Set(0.0f,0.0f,size*(1.0f-age/lifetime));
+                }
+                const Vector3 corners[4]={-side-axis,-side+axis,side+axis,side-axis};
+                const Real fade=(1.0f-age/lifetime)*(pass ? 0.65f : 0.70f)*m_weatherRainEnvelope;
+                const UnsignedInt colour=(UnsignedInt(255.0f*fade)<<24) |
+                    (UnsignedInt(208.0f*light)<<16) | (UnsignedInt(224.0f*light)<<8) | UnsignedInt(238.0f*light);
+                const Vector3 center=contact.position+(pass ? Vector3(0,0,0) : Vector3(0,0,size*0.5f));
+                for (Int corner=0;corner<4;++corner) {
+                    const Vector3 point=center+corners[corner];
+                    verts->x=point.X; verts->y=point.Y; verts->z=point.Z;
+                    verts->nx=verts->ny=verts->nz=0.0f; verts->diffuse=colour;
+                    verts->u1=u[corner]; verts->v1=v[corner]; verts->u2=verts->v2=0.0f;
+                    ++verts;
+                }
+                ++count;
+            }
+        }
+        if (count) { DX8Wrapper::Set_Vertex_Buffer(vb); DX8Wrapper::Draw_Triangles(0,count*2,0,count*4); }
+    }
 }
 
 #define MAXIMUM_CAMERA_DISTANCE 100000	//maximum distance of camera position from world origin.
@@ -637,6 +907,8 @@ flush_particles:
 
 void W3DSnowManager::render(RenderInfoClass &rinfo)
 {
+	// Weather is composed once in the main view; reflected cameras cannot advance contacts.
+	if (m_weatherKind!=WEATHER_KIND_NONE && TheWaterRenderObj && TheWaterRenderObj->isRenderingReflection()) return;
 	if (m_weatherKind != WEATHER_KIND_NONE && m_isVisible)
 	{
 		renderWeather(rinfo);

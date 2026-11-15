@@ -23,6 +23,7 @@
 #define _W3DSNOW_H_
 
 #include "GameClient/Snow.h"
+#include "W3DDevice/GameClient/WeatherParticleMath.h"
 
 class DX8IndexBufferClass;
 class RenderInfoClass;
@@ -51,11 +52,32 @@ class W3DSnowManager : public SnowManager
 	void	updateWeather(void);
 	void	renderWeather(RenderInfoClass &rinfo);
 	void	drawWeatherLayer(RenderInfoClass &rinfo, Int layer, Real light);
+	void drawWeatherContacts(RenderInfoClass &rinfo, Real light);
+	void clearWeatherMotion(void);
+	Bool weatherDustCellDry(Int x,Int y,Real *arrival);
+	Real weatherDustFootprintFade(Real minX,Real minY,Real maxX,Real maxY);
 
 	// The Weather option.  None of it is allocated, loaded or read while the option is off.
-	struct WeatherDrop { Real x, y, phase; };	///< a drop's place in its tile and in its fall, 0 to 1
+	struct WeatherDrop { Real x, y, phase, size; };	///< a drop's place in its tile and in its fall, 0 to 1
 	WeatherDrop *m_weatherDrops;
-	TextureClass *m_weatherTextures[2];
+	enum { WEATHER_LAYER_COUNT = 3, WEATHER_CONTACT_COUNT = 192, WEATHER_CONTACT_TRACKS = 256 };
+	TextureClass *m_weatherTextures[WEATHER_LAYER_COUNT];
+	TextureClass *m_weatherContactTextures[2];
+	struct WeatherContact { Vector3 position, normal; double born; Bool water; };
+	struct WeatherContactTrack { Vector3 position; double sampled; Real tile; Bool valid; };
+	WeatherContact *m_weatherContacts;
+	WeatherContactTrack *m_weatherContactTracks;
+	Int m_weatherContactNext, m_weatherContactCursor;
+	UnsignedInt m_weatherContactFrame;
+	WeatherParticleMath::Motion m_weatherMotion[WEATHER_LAYER_COUNT];
+    enum { WEATHER_DUST_CACHE_DIM=64 };
+    struct WeatherDustCell { Int x,y; UnsignedInt epoch; double sampled,admitted; Bool dry; };
+    WeatherDustCell *m_weatherDustCells;
+    UnsignedInt m_weatherDustEpoch,m_weatherDustRevision,m_weatherDustFrame;
+    const void *m_weatherDustWater;
+    Int m_weatherDustQueries;
+    UnsignedInt m_weatherRainSeed,m_weatherRainMatchSeed;
+    Real m_weatherRainEnvelope,m_weatherParticleDensity;
 	double m_weatherTime;			///< seconds; double, because it is multiplied by a speed and wrapped by the tile
 	const void *m_weatherMap;		///< the map m_weatherSandCells was counted on, with its samples: see W3DShaderManager's haze
 	const void *m_weatherMapData;

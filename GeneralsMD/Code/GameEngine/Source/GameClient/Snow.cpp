@@ -30,8 +30,15 @@
 
 #include "PreRTS.h"	// This must go first in EVERY cpp file int the Game
 #include "GameClient/Snow.h"
+#include "GameClient/WeatherBreezeMath.h"
 #include "GameClient/View.h"
 #include "GameLogic/ScriptEngine.h"
+#include "GameLogic/GameLogic.h"
+#include "Common/GameAudio.h"
+#include "Common/AudioEventRTS.h"
+#include "Common/AudioEventInfo.h"
+#include "Common/AudioAffect.h"
+#include "Common/DynamicAudioEventInfo.h"
 
 #ifdef _INTERNAL
 // for occasional debugging...
@@ -43,12 +50,19 @@ SnowManager *TheSnowManager=NULL;
 
 SnowManager::SnowManager()
 {
+	m_startingHeights = NULL;
 	m_time = 0;
 	m_velocity = 1;
 	m_isVisible = TRUE;	//default to showing if it's enabled via INI.
 	m_weatherOn = FALSE;
 	m_weatherKind = WEATHER_KIND_NONE;
 	m_weatherWind.zero();
+	m_weatherGust = m_weatherIntensity = 0.0f;
+	m_weatherStormEnvelope = 0.0f;
+	m_weatherAmbientHandle = 0;
+	m_weatherAmbientKind = WEATHER_KIND_NONE;
+	m_weatherAmbientRetry = 0.0f;
+	m_weatherAmbientBaseVolume = 0.0f;
 }
 
 void SnowManager::init( void )
@@ -102,7 +116,97 @@ static BreezeInfo s_weatherBreeze;
 
 const BreezeInfo &weatherBreezeInfo(void)
 {
-	return (TheSnowManager != NULL && TheSnowManager->isWeatherOn()) ? s_weatherBreeze : TheScriptEngine->getBreezeInfo();
+	return (TheSnowManager != NULL && TheSnowManager->isWeatherOn() && TheSnowManager->isVisible()
+		&& TheSnowManager->getWeatherGust() > 0.0f) ? s_weatherBreeze : TheScriptEngine->getBreezeInfo();
+}
+
+// The tree's envelope version stays fixed; the renderer refreshes only displacement, retaining
+// its phase and random sway types. Smoke and the quiet rain spells use the same sample.
+void SnowManager::setWeatherPresentation(Real gust, Real intensity, Real dt, Real envelope)
+{
+	const Bool active = m_weatherOn && m_isVisible && gust > 0.0f;
+	m_weatherGust = active ? gust : 0.0f;
+	m_weatherIntensity = active ? intensity : 0.0f;
+	m_weatherStormEnvelope = active ? min(max(envelope, 0.0f), 1.0f) : 0.0f;
+	if (active)
+	{
+		static const Real STRENGTHS[WEATHER_KIND_COUNT] = { 0.5f, 0.8f, 1.0f, 0.35f };
+		setWeatherWind(STRENGTHS[m_weatherKind] * gust * intensity);
+	}
+	else
+		m_weatherWind.zero();
+	updateWeatherAmbience(dt);
+}
+
+void SnowManager::stopWeatherAmbience(void)
+{
+	if (m_weatherAmbientHandle != 0 && TheAudio != NULL)
+		TheAudio->removeAudioEvent(m_weatherAmbientHandle);
+	m_weatherAmbientHandle = 0;
+	m_weatherAmbientKind = WEATHER_KIND_NONE;
+	m_weatherAmbientRetry = 0.0f;
+}
+
+void SnowManager::updateWeatherAmbience(Real dt)
+{
+	// Authored precipitation and ambient emitters keep their own sound design. Existing lowest
+	// priority looping world sounds use the normal Ambient slider, master volume and focus/pause.
+	const Bool active = m_weatherIntensity > 0.0f && m_weatherKind != WEATHER_KIND_NONE
+		&& !TheWeatherSetting->m_snowEnabled && TheAudio != NULL && TheAudio->getDevice() != NULL
+		&& TheAudio->isOn(AudioAffect_Sound) && TheAudio->getAmbientVolume(FALSE) > 0.0f;
+	if (!active || m_weatherAmbientKind != m_weatherKind)
+		stopWeatherAmbience();
+	if (!active)
+		return;
+	static const char *EVENTS[WEATHER_KIND_COUNT] = { "", "RainStereoLoop",
+		"Amb_DesertNatureWindThickLoop", "Amb_WinterNatureWindLoop" };
+	static const char *NAMES[WEATHER_KIND_COUNT] = { "", "WeatherPresentationRainLoop",
+		"WeatherPresentationSandLoop", "WeatherPresentationSnowLoop" };
+	AudioEventRTS source(EVENTS[m_weatherKind]);
+	// Check even after admission: a map ambience bed or authored emitter can start later.
+	// The weather owns a distinct event/handle, so this query never mistakes its own loop for one.
+	Bool authoredPlaying = TheAudio->isPlayingAlready(&source);
+	const Coord3D positionalQuery = { 0.0f, 0.0f, 0.0f };
+	source.setPosition(&positionalQuery);
+	authoredPlaying = authoredPlaying || TheAudio->isPlayingAlready(&source);
+	if (!TheAudio->isValidAudioEvent(&source) || authoredPlaying)
+	{
+		stopWeatherAmbience();
+		return;
+	}
+	if (m_weatherAmbientHandle != 0 && TheAudio->isCurrentlyPlaying(m_weatherAmbientHandle))
+	{
+		TheAudio->setAudioEventVolume(m_weatherAmbientHandle, m_weatherAmbientBaseVolume
+			* m_weatherIntensity * (0.75f + 0.25f * m_weatherGust));
+		return;
+	}
+	// Snow updates before GameClient's freeze gate. Do not admit a new/retried loop during a
+	// pause; retain an established paused handle so resume does not restart its audio phase.
+	if (TheGameLogic == NULL || TheGameLogic->isGamePaused())
+		return;
+	m_weatherAmbientRetry -= min(max(dt, 0.0f), 0.25f);
+	if (m_weatherAmbientRetry > 0.0f)
+		return;
+	m_weatherAmbientRetry = 2.0f;
+	m_weatherAmbientKind = m_weatherKind;
+	const AsciiString name(NAMES[m_weatherKind]);
+	if (TheAudio->findAudioEventInfo(name) == NULL)
+	{
+		// Retail's stereo rain is a critical UI cinematic cue. Reuse its licensed samples in a
+		// level-specific ambient event so weather obeys Ambience and never alters the authored cue.
+		DynamicAudioEventInfo *ambient = newInstance(DynamicAudioEventInfo)(*source.getAudioEventInfo());
+		ambient->overrideAudioName(name);
+		ambient->overridePriority(AP_LOWEST);
+		ambient->m_type = ST_WORLD | ST_EVERYONE;
+		TheAudio->addAudioEventInfo(ambient);
+	}
+	AudioEventRTS sound(name);
+	TheAudio->getInfoForAudioEvent(&sound);
+	if (!AudioManager::isAmbientSound(sound.getAudioEventInfo()))
+		return;
+	m_weatherAmbientBaseVolume = sound.getVolume() * 0.55f;
+	sound.setVolume(m_weatherAmbientBaseVolume * m_weatherIntensity * (0.75f + 0.25f * m_weatherGust));
+	m_weatherAmbientHandle = TheAudio->addAudioEvent(&sound);
 }
 
 void SnowManager::setWeatherWind(Real strength)
@@ -111,7 +215,7 @@ void SnowManager::setWeatherWind(Real strength)
 	s_weatherBreeze = script;
 	s_weatherBreeze.m_intensity = max(script.m_intensity, WEATHER_SWAY * strength);
 	s_weatherBreeze.m_lean = max(script.m_lean, WEATHER_LEAN * strength);
-	s_weatherBreeze.m_breezePeriod = min(script.m_breezePeriod, WEATHER_BREEZE_PERIOD);
+	s_weatherBreeze.m_breezePeriod = (Short)WeatherBreezeMath::period(script.m_breezePeriod,WEATHER_BREEZE_PERIOD,m_weatherStormEnvelope);
 	// the kind too: a tree buffer outlives its map, and the next map may blow harder
 	s_weatherBreeze.m_breezeVersion = script.m_breezeVersion + WEATHER_BREEZE_VERSION + (Short)m_weatherKind;
 	m_weatherWind.x = script.m_directionVec.x * WEATHER_SMOKE_DRIFT * strength;
@@ -134,21 +238,35 @@ void SnowManager::getWeatherHaze(float colour[3], Real *strength) const
 	colour[0] = COLOURS[m_weatherKind][0] * red;
 	colour[1] = COLOURS[m_weatherKind][1] * green;
 	colour[2] = COLOURS[m_weatherKind][2] * blue;
-	*strength = STRENGTHS[m_weatherKind] * (0.299f * red + 0.587f * green + 0.114f * blue);
+	// Clouded light follows the storm sample in the sky/horizon and haze only. Retain each
+	// channel of the authored sunlight: a cold night stays a cold night, with no time-of-day write.
+	const Real cloud = m_weatherKind == WEATHER_KIND_RAIN ? 0.18f : 0.10f;
+	const Real shade = 1.0f - cloud * min(m_weatherIntensity * (0.75f + 0.25f * m_weatherGust), 1.4f);
+	for (Int i = 0; i < 3; ++i)
+		colour[i] *= shade;
+	// Match the storm's changing density without touching world lighting or the map's day/night.
+	*strength = STRENGTHS[m_weatherKind] * m_weatherIntensity * (0.85f + 0.15f * m_weatherGust)
+		* (0.299f * red + 0.587f * green + 0.114f * blue);
 }
 
 void SnowManager::setVisible(Bool showWeather)
 {
 	m_isVisible = showWeather;
+	if (!showWeather)
+		setWeatherPresentation(0.0f, 0.0f, 0.0f);
 }
 
 void SnowManager::reset(void)
 {
 	m_isVisible = TRUE;	//default to showing if it's enabled via INI.
+	m_weatherOn = FALSE;
+	m_weatherKind = WEATHER_KIND_NONE;
+	setWeatherPresentation(0.0f, 0.0f, 0.0f);
 }
 
 SnowManager::~SnowManager()
 {
+	stopWeatherAmbience();
 	delete [] m_startingHeights;
 	m_startingHeights=NULL;
 }
