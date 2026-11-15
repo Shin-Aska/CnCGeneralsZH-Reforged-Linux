@@ -197,7 +197,7 @@ public:
 	void addScorch(Vector3 location, Real radius, Scorches type);
 	/// The Battle Marks option: a burn that fades, on the ring's fixed cap.  Nothing without the option.
 	void addGroundMark(const Vector3 &location, Real radius, Int type);
-	/// The option, and a picture that draws it: Direct3D 11 and not Classic.
+	/// The option, a supported renderer (Linux SDL GPU / Windows DX11), and not Classic.
 	static Bool groundMarksOn(void);
 	/// Everything added so far came with the map and is not to be thrown away to make room.
 	void markScorchesStatic(void);

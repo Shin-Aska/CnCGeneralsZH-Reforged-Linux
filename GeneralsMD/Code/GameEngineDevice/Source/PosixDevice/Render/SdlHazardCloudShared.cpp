@@ -42,39 +42,14 @@ bool sceneTarget(SdlGpuFrame *frame, SdlTarget &target, std::string &error)
 {
     auto *device = dynamic_cast<PosixDevice9 *>(DX8Wrapper::_Get_D3D_Device());
     if (!device || device->Get_Gpu() != frame) { error = "the shared cloud GPU device was replaced"; return false; }
-    IDirect3DSurface9 *current = nullptr, *back = nullptr, *depth = nullptr;
-    device->GetRenderTarget(0,&current);
-    device->GetBackBuffer(0,0,D3DBACKBUFFER_TYPE_MONO,&back);
-    device->GetDepthStencilSurface(&depth);
-    SdlResourceMirrors *mirrors = device->Get_Mirrors();
     target = {};
-    if (current && current == back) target = frame->Back_Buffer_Target();
-    else if (current && mirrors) {
-        D3DSURFACE_DESC description;
-        if (current->GetDesc(&description) == D3D_OK) {
-            target.Width = description.Width; target.Height = description.Height;
-            IDirect3DTexture9 *texture = nullptr;
-            if (current->GetContainer(IID_IDirect3DTexture9,reinterpret_cast<void **>(&texture)) == D3D_OK && texture) {
-                IDirect3DSurface9 *level = nullptr;
-                texture->GetSurfaceLevel(0,&level);
-                if (level == current) target.Colour = mirrors->Texture(texture,error);
-                if (level) level->Release();
-                texture->Release();
-            } else target.Colour = mirrors->Surface(current,false,error);
-        }
+    if (!device->Current_Gpu_Target(target, error) || !target.Colour || !target.Depth) {
+        if (error.empty()) error = "could not resolve shared cloud native scene target";
+        return false;
     }
-    if (target.Colour && mirrors) {
-        D3DSURFACE_DESC description;
-        if (depth && mirrors->Has_Copy(depth) && depth->GetDesc(&description) == D3D_OK
-            && description.Width == target.Width && description.Height == target.Height)
-            target.Depth = mirrors->Surface(depth,true,error);
-        else target.Depth = frame->Depth_For(target.Width,target.Height);
-    }
-    if (current) current->Release();
-    if (back) back->Release();
-    if (depth) depth->Release();
-    if (!target.Colour || !target.Depth) {
-        if (error.empty()) error = "could not resolve shared cloud scene target";
+    const unsigned format = SdlGpuFrame::Target_Colour_Format(target);
+    if (format != SdlGpuFrame::Target_Format() && format != VolumeFormat) {
+        error = "unsupported shared cloud scene colour format";
         return false;
     }
     return true;
@@ -106,7 +81,7 @@ struct SdlRenderer::Impl {
     RendererStats statistics;
     CameraCore cameraCore;
     SDL_GPUShader *vertex = nullptr, *pixels[5] = {};
-    SDL_GPUGraphicsPipeline *pipelines[5] = {};
+    SDL_GPUGraphicsPipeline *pipelines[5] = {}, *hdrPipelines[2] = {};
     SDL_GPUSampler *point = nullptr, *linear = nullptr;
     SdlTarget material = {}, low = {}, background = {};
     struct Snapshot {
@@ -182,7 +157,7 @@ struct SdlRenderer::Impl {
     bool texture(SdlTarget &target, unsigned width, unsigned height, SDL_GPUTextureFormat format,
                  bool renderable, std::string &error)
     {
-        if (target.Colour && target.Width == width && target.Height == height) return true;
+        if (target.Colour && target.Width == width && target.Height == height && target.ColourFormat == unsigned(format)) return true;
         SDL_GPUTextureCreateInfo info = {};
         info.type = SDL_GPU_TEXTURETYPE_2D;
         info.format = format;
@@ -193,7 +168,7 @@ struct SdlRenderer::Impl {
         SDL_GPUTexture *made = SDL_CreateGPUTexture(gpu, &info);
         if (!made) { error = SDL_GetError(); return false; }
         retire(target);
-        target = {made, nullptr, width, height};
+        target = {made, nullptr, width, height, 0, unsigned(format)};
         return true;
     }
     bool upload(SdlTarget &target, const std::vector<float> &values, unsigned width,
@@ -244,6 +219,11 @@ struct SdlRenderer::Impl {
                 ? static_cast<SDL_GPUTextureFormat>(frame->Depth_Format()) : SDL_GPU_TEXTUREFORMAT_INVALID;
             pipelines[i] = SDL_CreateGPUGraphicsPipeline(gpu, &description);
             if (!pipelines[i]) { error = SDL_GetError(); return false; }
+            if (i >= 3) {
+                colour.format = VolumeFormat;
+                hdrPipelines[i-3] = SDL_CreateGPUGraphicsPipeline(gpu, &description);
+                if (!hdrPipelines[i-3]) { error = SDL_GetError(); return false; }
+            }
         }
         SDL_GPUSamplerCreateInfo sampler = {};
         sampler.min_filter = sampler.mag_filter = SDL_GPU_FILTER_NEAREST;
@@ -260,7 +240,7 @@ struct SdlRenderer::Impl {
               unsigned slice = ~0u)
     {
         SdlRecordedDraw command = {};
-        command.Pipeline = pipelines[pass]; command.VertexOffset = vertexOffset; command.Count = 3;
+        command.Pipeline = pass >= 3 && SdlGpuFrame::Target_Colour_Format(target) == VolumeFormat ? hdrPipelines[pass-3] : pipelines[pass]; command.VertexOffset = vertexOffset; command.Count = 3;
         command.PixelConstants = frame->Constants(1, &constants, sizeof(constants));
         command.PixelConstantsSize = sizeof(constants);
         command.SamplerCount = 10;
@@ -522,7 +502,7 @@ bool SdlRenderer::render(const HazardCloud::Camera &camera, const Model &model, 
         p.statistics.publicationAgeSeconds = (std::max)(0.0f,seconds - snapshot.seconds);
         if (p.config.heat && snapshot.nuclear
             && !p.texture(p.background,target.Width,target.Height,
-                static_cast<SDL_GPUTextureFormat>(SdlGpuFrame::Target_Format()),true,error)) return false;
+                static_cast<SDL_GPUTextureFormat>(SdlGpuFrame::Target_Colour_Format(target)),true,error)) return false;
         if (p.config.embers && snapshot.nuclear) {
             for (const auto &source : snapshot.fields) {
                 if (!source.active || !HazardCloud::emberField(source.field)) continue;
@@ -589,6 +569,7 @@ void SdlRenderer::shutdown()
         for (auto *target : snapshotTargets) if (target->Colour) SDL_ReleaseGPUTexture(p.gpu,target->Colour);
     }
     for (auto *pipeline : p.pipelines) if (pipeline) SDL_ReleaseGPUGraphicsPipeline(p.gpu,pipeline);
+    for (auto *pipeline : p.hdrPipelines) if (pipeline) SDL_ReleaseGPUGraphicsPipeline(p.gpu,pipeline);
     for (auto *shader : p.pixels) if (shader) SDL_ReleaseGPUShader(p.gpu,shader);
     if (p.vertex) SDL_ReleaseGPUShader(p.gpu,p.vertex);
     if (p.point) SDL_ReleaseGPUSampler(p.gpu,p.point);

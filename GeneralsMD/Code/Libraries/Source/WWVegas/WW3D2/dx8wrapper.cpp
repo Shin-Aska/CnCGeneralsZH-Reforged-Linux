@@ -86,6 +86,26 @@
 #include "ffprobe.h"
 #include "ffshadercache.h"
 #include "dx11runtime.h"
+#include "Platform/RenderLighting.h"
+#include "Platform/RenderPost.h"
+#include "Platform/RenderParticles.h"
+#include "Platform/RenderEffects.h"
+#include "Platform/RenderWaterFoam.h"
+#include "postprocess.h"
+#if !defined(_WIN32)
+struct SdlMainViewSnapshot;
+struct SdlGpuParticlesContext;
+bool PosixGpuParticles_Context(IDirect3DDevice9 *, SdlGpuParticlesContext &);
+enum class SdlSceneCapturePhase;
+bool PosixRenderer_Main_View(IDirect3DDevice9 *, SdlMainViewSnapshot &);
+bool PosixRenderer_Capture_Main_View(IDirect3DDevice9 *, SdlSceneCapturePhase, SdlMainViewSnapshot &);
+#endif
+#if defined(_WIN32)
+#include "dx11device.h"
+#endif
+#if defined(__linux__)
+#include "Platform/RendererName.h"
+#endif
 #include "pot.h"
 #include "wwprofile.h"
 #include "ffactory.h"
@@ -1758,6 +1778,101 @@ bool DX8Wrapper::Has_Stencil(void)
 	bool has_stencil = (_PresentParameters.AutoDepthStencilFormat == D3DFMT_D24S8 ||
 						_PresentParameters.AutoDepthStencilFormat == D3DFMT_D24X4S4);
 	return has_stencil;
+}
+
+bool DX8Wrapper::Supports_Battle_Marks(void)
+{
+	return Supports_Renderer_Feature(RendererFeature::BattleMarks);
+}
+
+bool DX8Wrapper::Supports_Renderer_Feature(RendererFeature feature)
+{
+#if !defined(_WIN32)
+	return PosixRenderer_Supports_Feature(_Get_D3D_Device(), feature);
+#else
+	if (feature == RendererFeature::GpuParticles) {
+		// Match the existing GPU-particle provider without depending on GameEngineDevice.
+		DX11DeviceClass *device = Direct3D11_Device();
+		return Direct3D11_Present_Is_Enabled() && Direct3D11_Backend() && device && device->Get_Device()
+			&& device->Get_Device()->GetFeatureLevel() >= D3D_FEATURE_LEVEL_11_0;
+	}
+	// These enhancement providers are the DX11 presentation path on Windows.
+	return feature >= RendererFeature::BattleMarks && feature < RendererFeature::Count
+		&& Direct3D11_Present_Is_Enabled();
+#endif
+}
+
+namespace RenderLighting {
+void SetHeadlights(const float *lights, unsigned count, const float gain[3])
+{
+#if defined(_WIN32)
+	Direct3D11_Set_Headlights(lights,count,gain);
+#else
+	SetHeadlights(DX8Wrapper::_Get_D3D_Device(),lights,count,gain);
+#endif
+}
+void SetBlastLights(const float *lights, unsigned count)
+{
+#if defined(_WIN32)
+	Direct3D11_Set_Blast_Lights(lights,count);
+#else
+	SetBlastLights(DX8Wrapper::_Get_D3D_Device(),lights,count);
+#endif
+}
+bool LightsPerPixel()
+{
+#if defined(_WIN32)
+	return Direct3D11_Lights_Per_Pixel();
+#else
+	return LightsPerPixel(DX8Wrapper::_Get_D3D_Device());
+#endif
+}
+bool PrepareTerrainLighting()
+{
+#if defined(_WIN32)
+	return Direct3D11_Lights_Per_Pixel();
+#else
+	return PrepareTerrainLighting(DX8Wrapper::_Get_D3D_Device());
+#endif
+}
+void UseTerrainCpuLighting()
+{
+#if !defined(_WIN32)
+	UseTerrainCpuLighting(DX8Wrapper::_Get_D3D_Device());
+#endif
+}
+void SetHemiAmbient(bool enabled)
+{
+#if defined(_WIN32)
+	Direct3D11_Set_Hemi_Ambient(enabled);
+#else
+	SetHemiAmbient(DX8Wrapper::_Get_D3D_Device(),enabled);
+#endif
+}
+void SetEmissive(bool emissive)
+{
+#if defined(_WIN32)
+	Direct3D11_Set_Emissive(emissive);
+#else
+	SetEmissive(DX8Wrapper::_Get_D3D_Device(),emissive);
+#endif
+}
+void AllowTeamGlow(bool allowed)
+{
+#if !defined(_WIN32)
+    AllowTeamGlow(DX8Wrapper::_Get_D3D_Device(), allowed);
+#else
+    (void)allowed; // Windows keeps the original initial-load mesh tagging policy.
+#endif
+}
+void SetTeamGlow(bool glow)
+{
+#if defined(_WIN32)
+	Direct3D11_Set_Team_Glow(glow);
+#else
+	SetTeamGlow(DX8Wrapper::_Get_D3D_Device(),glow);
+#endif
+}
 }
 
 int DX8Wrapper::Get_Render_Device_Count(void)
@@ -3981,14 +4096,112 @@ void DX8Wrapper::Set_Light(unsigned index,const LightClass &light)
 //! directional lights to produce the lighting.
 /*! 5/27/02 KJM Added shader light environment support
 */
+static D3DLIGHT9 convert_environment_light(const LightEnvironmentClass &environment, int l)
+{
+	D3DLIGHT9 light;
+			memset(&light,0, sizeof(D3DLIGHT9));
+
+			light.Type=D3DLIGHT_DIRECTIONAL;
+			(Vector3&)light.Diffuse=environment.Get_Light_Diffuse(l);
+			Vector3 dir=-environment.Get_Light_Direction(l);
+			light.Direction=(const D3DVECTOR&)(dir);
+
+			// (gth) TODO: put specular into LightEnvironment?  Much work to be done on lights :-)'
+			if (l==0) {
+				light.Specular.r = light.Specular.g = light.Specular.b = 1.0f;
+			}
+
+			if (environment.isPointLight(l)) {
+				light.Type = D3DLIGHT_POINT;
+				(Vector3&)light.Diffuse=environment.getPointDiffuse(l);
+				(Vector3&)light.Ambient=environment.getPointAmbient(l);
+				light.Position = (const D3DVECTOR&)environment.getPointCenter(l);
+				light.Range = environment.getPointOrad(l);
+
+				// Inverse linear light 1/(1+D)
+				double a,b;
+				b = environment.getPointOrad(l);
+				a = environment.getPointIrad(l);
+
+//(gth) CNC3 Generals code for the attenuation factors is causing the lights to over-brighten
+//I'm changing the Attenuation0 parameter to 1.0 to avoid this problem.
+#if 0
+				light.Attenuation0=0.01f;
+#else
+				light.Attenuation0=1.0f;
+#endif
+				if (fabs(a-b)<1e-5)
+					// if the attenuation range is too small assume uniform with cutoff
+					light.Attenuation1=0.0f;
+				else
+					// this will cause the light to drop to half intensity at the first far attenuation
+					light.Attenuation1=(float) 0.1/a;
+
+				light.Attenuation2=8.0f/(b*b);
+			}
+
+	return light;
+}
+
+#if !defined(_WIN32)
+static RenderLighting::VertexEnvironment environment_packet(const LightEnvironmentClass &environment)
+{
+	RenderLighting::VertexEnvironment result = {};
+	result.Count = environment.Get_Light_Count();
+	result.Ambient = DX8Wrapper::Convert_Color(environment.Get_Equivalent_Ambient(),0.0f);
+	for (unsigned i=0;i<result.Count;++i) {
+		const D3DLIGHT9 light=convert_environment_light(environment,i);
+		auto &to=result.Lights[i];
+		to.Type=light.Type==D3DLIGHT_POINT ? RenderLighting::LightType::Point
+			: light.Type==D3DLIGHT_SPOT ? RenderLighting::LightType::Spot : RenderLighting::LightType::Directional;
+		memcpy(to.Diffuse,&light.Diffuse,sizeof(to.Diffuse));
+		memcpy(to.Specular,&light.Specular,sizeof(to.Specular));
+		memcpy(to.Ambient,&light.Ambient,sizeof(to.Ambient));
+		memcpy(to.Position,&light.Position,sizeof(to.Position));
+		memcpy(to.Direction,&light.Direction,sizeof(to.Direction));
+		to.Range=light.Range;to.Falloff=light.Falloff;
+		to.Attenuation[0]=light.Attenuation0;to.Attenuation[1]=light.Attenuation1;to.Attenuation[2]=light.Attenuation2;
+		to.Theta=light.Theta;to.Phi=light.Phi;
+	}
+	return result;
+}
+#endif
+
+#if !defined(_WIN32)
+void DX8Wrapper::Apply_Queued_Light_Environment(const RenderStateStruct &state)
+{
+	render_state.HasLightingEnvironment=state.HasLightingEnvironment;
+	render_state.HasStaticLighting=state.HasStaticLighting;
+	render_state.FullLighting=state.FullLighting;
+	if (state.HasStaticLighting) render_state.StaticLighting=state.StaticLighting;
+	RenderLighting::SetEnvironments(_Get_D3D_Device(),state.FullLighting,
+		state.HasStaticLighting ? &state.StaticLighting : NULL);
+	render_state.HasNativeAmbient=state.HasNativeAmbient;
+	render_state.NativeAmbient=state.NativeAmbient;
+	if (state.HasNativeAmbient) Set_DX8_Render_State(D3DRS_AMBIENT,state.NativeAmbient);
+}
+#endif
+
 void DX8Wrapper::Set_Light_Environment(LightEnvironmentClass* light_env)
 {
 	// Shader light environment support															*
 //	if (Light_Environment && light_env && (*Light_Environment)==(*light_env)) return;
 
 	Light_Environment=light_env;
+#if !defined(_WIN32)
+	RenderLighting::VertexEnvironment full = {}, staticPacket = {};
+	LightEnvironmentClass alternate;
+	const bool hasAlternate = light_env && light_env->Get_Static_Lighting(alternate);
+	if (light_env) full = environment_packet(*light_env);
+	if (hasAlternate) staticPacket = environment_packet(alternate);
+	render_state.HasLightingEnvironment = light_env != NULL;
+	render_state.HasStaticLighting = hasAlternate;
+	render_state.FullLighting = full;
+	render_state.StaticLighting = staticPacket;
+	RenderLighting::SetEnvironments(_Get_D3D_Device(),full,hasAlternate ? &staticPacket : NULL);
+#endif
 
-	if (light_env) 
+	if (light_env)
 	{
 		int light_count = light_env->Get_Light_Count();
 		unsigned int color=Convert_Color(light_env->Get_Equivalent_Ambient(),0.0f);
@@ -4001,50 +4214,11 @@ void DX8Wrapper::Set_Light_Environment(LightEnvironmentClass* light_env)
 #endif
 		}
 
-		D3DLIGHT9 light;		
+		D3DLIGHT9 light;
 		int l;
 		for (l =0;l<light_count;++l) {
-			
-			memset(&light,0, sizeof(D3DLIGHT9));
-			
-			light.Type=D3DLIGHT_DIRECTIONAL;
-			(Vector3&)light.Diffuse=light_env->Get_Light_Diffuse(l);
-			Vector3 dir=-light_env->Get_Light_Direction(l);
-			light.Direction=(const D3DVECTOR&)(dir);
 
-			// (gth) TODO: put specular into LightEnvironment?  Much work to be done on lights :-)'
-			if (l==0) {
-				light.Specular.r = light.Specular.g = light.Specular.b = 1.0f;
-			}
-
-			if (light_env->isPointLight(l)) {
-				light.Type = D3DLIGHT_POINT;
-				(Vector3&)light.Diffuse=light_env->getPointDiffuse(l);
-				(Vector3&)light.Ambient=light_env->getPointAmbient(l);
-				light.Position = (const D3DVECTOR&)light_env->getPointCenter(l);
-				light.Range = light_env->getPointOrad(l);
-				
-				// Inverse linear light 1/(1+D)
-				double a,b;
-				b = light_env->getPointOrad(l);
-				a = light_env->getPointIrad(l);
-
-//(gth) CNC3 Generals code for the attenuation factors is causing the lights to over-brighten
-//I'm changing the Attenuation0 parameter to 1.0 to avoid this problem.				
-#if 0
-				light.Attenuation0=0.01f;
-#else
-				light.Attenuation0=1.0f;
-#endif
-				if (fabs(a-b)<1e-5)
-					// if the attenuation range is too small assume uniform with cutoff
-					light.Attenuation1=0.0f;
-				else
-					// this will cause the light to drop to half intensity at the first far attenuation
-					light.Attenuation1=(float) 0.1/a;
-	
-				light.Attenuation2=8.0f/(b*b);
-			}
+			light=convert_environment_light(*light_env,l);
 
 			Set_Light(l,&light);
 		}
@@ -4059,6 +4233,7 @@ void DX8Wrapper::Set_Light_Environment(LightEnvironmentClass* light_env)
 		}
 	}
 */
+
 }
 
 IDirect3DSurface9 * DX8Wrapper::_Get_DX8_Front_Buffer()
@@ -5847,6 +6022,149 @@ SurfaceClass * DX8Wrapper::Copy_Surface_To_System_Memory(IDirect3DSurface9 * sou
 	return surface;
 }
 
+namespace RenderPost {
+bool EnvironmentAvailable() {
+#if defined(_WIN32)
+	return Direct3D11_Present_Is_Enabled();
+#else
+	return EnvironmentAvailable(DX8Wrapper::_Get_D3D_Device());
+#endif
+}
+void SetEnvironment(const Environment &environment) {
+#if !defined(_WIN32)
+	SetEnvironment(DX8Wrapper::_Get_D3D_Device(), environment);
+#else
+	(void)environment;
+#endif
+}
+bool SetChain(const char *chain) {
+#if defined(_WIN32)
+	return Direct3D11_Post_Chain(chain);
+#else
+	DX11PostEffect effects[DX11_POST_CHAIN_LIMIT]; unsigned count = 0;
+	return DX11Post_Parse_Chain(chain, effects, count);
+#endif
+}
+void BeginMain(const Settings &settings) {
+#if !defined(_WIN32)
+	BeginMain(DX8Wrapper::_Get_D3D_Device(), settings);
+#else
+	(void)settings;
+#endif
+}
+unsigned BeginView(bool eligible, float nearPlane, float farPlane, bool reflection) {
+#if !defined(_WIN32)
+    IDirect3DDevice9 *device = DX8Wrapper::_Get_D3D_Device();
+    if (!device) return 0;
+    // Camera::Apply defers VIEW through the wrapper while PROJECTION is immediate.
+    // Commit the canonical camera before native owners snapshot either matrix.
+    DX8Wrapper::Apply_Render_State_Changes();
+    return BeginView(device, eligible, nearPlane, farPlane, reflection);
+#else
+	(void)eligible; (void)nearPlane; (void)farPlane; (void)reflection; return 0;
+#endif
+}
+void EndView(unsigned previous) {
+#if !defined(_WIN32)
+	EndView(DX8Wrapper::_Get_D3D_Device(), previous);
+#else
+	(void)previous;
+#endif
+}
+void SetWarps(const Warp *warps, unsigned count) {
+#if !defined(_WIN32)
+	SetWarps(DX8Wrapper::_Get_D3D_Device(), warps, count);
+#else
+	(void)warps; (void)count; // Windows producer keeps its original DX11 call.
+#endif
+}
+void SetHeatSplats(const float *records, unsigned count) {
+#if !defined(_WIN32)
+	SetHeatSplats(DX8Wrapper::_Get_D3D_Device(), records, count);
+#else
+	Direct3D11_Set_Heat_Splats(records, count);
+#endif
+}
+void Sky() {
+#if defined(_WIN32)
+	Direct3D11_Atmosphere_Sky();
+#else
+	Sky(DX8Wrapper::_Get_D3D_Device());
+#endif
+}
+void OpaqueScene() {
+#if defined(_WIN32)
+	Direct3D11_Ambient_Occlusion();
+#else
+	OpaqueScene(DX8Wrapper::_Get_D3D_Device());
+#endif
+}
+void BeforeTransparent() {
+#if defined(_WIN32)
+	Direct3D11_Occlude_Scene();
+#else
+	BeforeTransparent(DX8Wrapper::_Get_D3D_Device());
+#endif
+}
+void FinishScene() {
+#if defined(_WIN32)
+	Direct3D11_Finish_Scene();
+#else
+	FinishScene(DX8Wrapper::_Get_D3D_Device(), false);
+#endif
+}
+void FinishFrame() {
+#if defined(_WIN32)
+	Direct3D11_Finish_Scene();
+#else
+	FinishScene(DX8Wrapper::_Get_D3D_Device(), true);
+#endif
+}
+bool ReplacesLegacyBloom() {
+#if defined(_WIN32)
+	return Direct3D11_Is_Active();
+#else
+	return ReplacesLegacyBloom(DX8Wrapper::_Get_D3D_Device());
+#endif
+}
+bool SceneActive() {
+#if defined(_WIN32)
+	return Direct3D11_Is_Active();
+#else
+	return SceneActive(DX8Wrapper::_Get_D3D_Device());
+#endif
+}
+void SetSceneStandIn(IDirect3DBaseTexture9 *texture, IDirect3DSurface9 *surface) {
+#if defined(_WIN32)
+	Direct3D11_Set_Scene_Stand_In(texture, surface);
+#else
+	SetSceneStandIn(DX8Wrapper::_Get_D3D_Device(), texture, surface);
+#endif
+}
+void SetGlowDraw(bool enabled) {
+#if defined(_WIN32)
+	Direct3D11_Set_Glow_Draw(enabled);
+#else
+	SetGlowDraw(DX8Wrapper::_Get_D3D_Device(), enabled);
+#endif
+}
+}
+
+#if !defined(_WIN32)
+bool PosixGpuParticles_Context(SdlGpuParticlesContext &context)
+{
+	return PosixGpuParticles_Context(DX8Wrapper::_Get_D3D_Device(), context);
+}
+bool PosixRenderer_Main_View(SdlMainViewSnapshot &snapshot)
+{
+	return PosixRenderer_Main_View(DX8Wrapper::_Get_D3D_Device(), snapshot);
+}
+bool PosixRenderer_Capture_Main_View(SdlSceneCapturePhase phase, SdlMainViewSnapshot &snapshot)
+{
+	return PosixRenderer_Capture_Main_View(DX8Wrapper::_Get_D3D_Device(), phase, snapshot);
+}
+#endif
+
 bool DX8Wrapper::Device_Is_Ready()
 {
 	IDirect3DDevice9 * device=_Get_D3D_Device();
@@ -5856,4 +6174,83 @@ bool DX8Wrapper::Device_Is_Ready()
 	// the four callers ask this before building geometry, which can be a long way from a present.
 	// Deliberately not a DX8CALL - a lost device is the answer here, not an error to log.
 	return device->TestCooperativeLevel()==D3D_OK;
+}
+
+namespace RenderParticles {
+void AllowEnhancements(bool allowed) {
+#if defined(_WIN32)
+    Direct3D11_Allow_Soft_Particles(allowed);
+#else
+    AllowEnhancements(DX8Wrapper::_Get_D3D_Device(), allowed);
+#endif
+}
+void SetSoftParticles(bool enabled) {
+#if defined(_WIN32)
+    Direct3D11_Set_Soft_Particles(enabled);
+#else
+    SetSoftParticles(DX8Wrapper::_Get_D3D_Device(), enabled);
+#endif
+}
+void SetFireLook(bool enabled) {
+#if defined(_WIN32)
+    Direct3D11_Set_Fire_Look(enabled);
+#else
+    SetFireLook(DX8Wrapper::_Get_D3D_Device(), enabled);
+#endif
+}
+void TakeSceneDepth() {
+#if defined(_WIN32)
+    Direct3D11_Take_Scene_Depth();
+#else
+    TakeSceneDepth(DX8Wrapper::_Get_D3D_Device());
+#endif
+}
+}
+
+namespace RenderEffects {
+void AllowDrawEffects(bool allowed) {
+#if defined(_WIN32)
+    Direct3D11_Allow_Draw_Effects(allowed);
+#else
+    AllowDrawEffects(DX8Wrapper::_Get_D3D_Device(), allowed);
+#endif
+}
+bool DrawEffectsAvailable() {
+#if defined(_WIN32)
+    return Direct3D11_Draw_Effects();
+#else
+    return DrawEffectsAvailable(DX8Wrapper::_Get_D3D_Device());
+#endif
+}
+bool TakesDrawEffect(unsigned effect) {
+#if defined(_WIN32)
+    return Direct3D11_Takes_Draw_Effect(effect);
+#else
+    return TakesDrawEffect(DX8Wrapper::_Get_D3D_Device(), effect);
+#endif
+}
+void SetDrawEffect(unsigned effect,const float parameters[4]) {
+#if defined(_WIN32)
+    Direct3D11_Set_Draw_Effect(effect,parameters);
+#else
+    SetDrawEffect(DX8Wrapper::_Get_D3D_Device(),effect,parameters);
+#endif
+}
+unsigned RequestedDrawEffect(float parameters[4]) {
+#if defined(_WIN32)
+    return Direct3D11_Requested_Draw_Effect(parameters);
+#else
+    return RequestedDrawEffect(DX8Wrapper::_Get_D3D_Device(),parameters);
+#endif
+}
+}
+
+namespace RenderWaterFoam {
+bool Ready() {
+#if !defined(_WIN32)
+    return Ready(DX8Wrapper::_Get_D3D_Device());
+#else
+    return Direct3D11_Present_Is_Enabled();
+#endif
+}
 }

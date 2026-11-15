@@ -28,6 +28,8 @@
 // W3D Particle System implementation
 // Author: Michael S. Booth, November 2001
 
+#include "Platform/RenderLighting.h"
+#include "Platform/RenderPost.h"
 #include "Common/GlobalData.h"
 #include "Lib/Clock.h"
 #include "GameClient/Color.h"
@@ -559,7 +561,7 @@ static void gatherHeatHaze( CameraClass &camera, const std::vector<ParticleSyste
 			++count;
 		}
 	}
-	Direct3D11_Set_Heat_Splats( s_heatSplats.empty() ? NULL : &s_heatSplats[ 0 ], (unsigned)count );
+	RenderPost::SetHeatSplats( s_heatSplats.empty() ? NULL : &s_heatSplats[ 0 ], (unsigned)count );
 }
 
 /** The same for a GPU system, from the spawns it keeps (ParticleSystem::getGpuSample) aged in closed
@@ -2859,9 +2861,14 @@ void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 	if (!ShaderClass::Is_Backface_Culling_Inverted())
 	{
 		s_firelightCount = 0;
-		if (TheGlobalData->m_firelight && Direct3D11_Lights_Per_Pixel())
+		if (TheGlobalData->m_firelight && RenderLighting::LightsPerPixel())
 			gatherFirelights( bbox, m_lastLogicFrameUpdate, m_frameFires, m_frameFireFades );
-		if (TheGlobalData->m_heatHaze && !TheGlobalData->m_classicGraphics && Direct3D11_Present_Is_Enabled())
+		if (TheGlobalData->m_heatHaze && !TheGlobalData->m_classicGraphics &&
+#if defined(__linux__)
+            DX8Wrapper::Supports_Renderer_Feature(RendererFeature::HeatBlastDistortion))
+#else
+            Direct3D11_Present_Is_Enabled())
+#endif
 			gatherHeatHaze( rinfo.Camera, m_frameFires, m_frameFireFades, m_frameExhausts, m_frameExhaustFades );
 	}
 	// Only a CPU drawn smoke system takes a light (pickSmokeLights); with none, the walk over every
@@ -2908,6 +2915,8 @@ void W3DParticleSystemManager::doParticles(RenderInfoClass &rinfo)
 	fillJob.glowAfterShade = Direct3D11_Present_Is_Enabled();
 #if defined(__linux__)
 	fillJob.glowAfterShade = fillJob.glowAfterShade
+		// The native ordinary-particle shader carries smoke glow even with the user post chain off.
+		|| (!TheGlobalData->m_classicGraphics && DX8Wrapper::Supports_Renderer_Feature(RendererFeature::PerPixelLights))
 		|| SunShadow::OwnsSceneShadows(DX8Wrapper::_Get_D3D_Device());
 #endif
 	JobSystem::parallel_for( (Int)m_billboardFills.size(), BILLBOARD_FILLS_PER_CLAIM, fillBillboards, &fillJob );

@@ -203,7 +203,7 @@ void SdlProgramCache::ByBytes::Add(const void *bytes, size_t size, SdlProgram *p
 	Last = program;
 }
 
-const SdlProgram &SdlProgramCache::Vertex_Program(const VertexPipelineDescription &description)
+const SdlProgram &SdlProgramCache::Vertex_Program(const VertexPipelineDescription &description, bool staticLighting)
 {
 	if (SdlProgram *found = VertexByBytes.Find(&description, sizeof(description))) {
 		++found->Uses;
@@ -218,6 +218,8 @@ const SdlProgram &SdlProgramCache::Vertex_Program(const VertexPipelineDescriptio
 	}
 	std::string hlsl;
 	const bool generated = VertexShader_Generate(description, VERTEX_SHADER_TARGET_SDL3_GPU, hlsl);
+	if (staticLighting && Sdl_Sun_Shadow_Fault("receiver-static-vertex"))
+		hlsl += "\n#error injected static lighting vertex compilation failure\n";
 	const SdlProgram &made = Make(VertexPrograms, key, generated, hlsl, true);
 	VertexByBytes.Add(&description, sizeof(description), &VertexPrograms[key]);
 	return made;

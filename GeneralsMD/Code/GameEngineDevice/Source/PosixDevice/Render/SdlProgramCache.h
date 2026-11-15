@@ -69,7 +69,7 @@ public:
 
 	/// The program for the description, made the first time it is asked for.  Never null: a refusal
 	/// comes back with a null Shader and its Refusal.
-	const SdlProgram &Vertex_Program(const VertexPipelineDescription &description);
+	const SdlProgram &Vertex_Program(const VertexPipelineDescription &description, bool staticLighting = false);
 	/// Water-only GPU displacement, retaining the generated transform/fog/shroud path.
 	const SdlProgram &Water_Vertex_Program(const VertexPipelineDescription &description, bool textureArray=false, bool cleanMain=false);
 	const SdlProgram &Pixel_Program(const CombinerDescription &description);

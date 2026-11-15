@@ -34,6 +34,7 @@
 #define _GAME_DISPLAY_H_
 
 #include <stdio.h>
+#include "Platform/RendererCapabilities.h"
 #include <functional>
 #include <vector>
 #include "Common/SubsystemInterface.h"
@@ -222,6 +223,8 @@ public:
 	virtual Bool isLetterBoxed( void ) { return FALSE; }	//WST 10/2/2002. Added query interface
 	void setLetterBoxAspect( Real widthOverHeight ) { m_letterBoxAspect = widthOverHeight; }	///< the picture the bars leave; 16:9 is the game's, and draws nothing on a 16:9 screen
 	virtual const WideChar *getRendererName( void ) const = 0;	///< the graphics API the picture is presented through, for the HUD corner
+	virtual Bool supportsRendererFeature( RendererFeature feature ) const { return FALSE; }
+	virtual Bool supportsBattleMarks( void ) const { return FALSE; }	///< whether the current renderer can draw Battle Marks
 
 	virtual void setCinematicText( AsciiString string ) { m_cinematicText = string; }
 	virtual void setCinematicFont( GameFont *font ) { m_cinematicFont = font; }

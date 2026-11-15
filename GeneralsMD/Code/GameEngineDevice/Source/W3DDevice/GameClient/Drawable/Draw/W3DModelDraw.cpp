@@ -36,6 +36,7 @@
 
 #define NO_DEBUG_CRC
 
+#include "Platform/RenderLighting.h"
 #include "Platform/WaterCaptureFixture.h"
 #include <cstdlib>
 #include "Common/crc.h"
@@ -2530,7 +2531,7 @@ void W3DModelDraw::doDrawModule(const Matrix3D* transformMtx)
 	// show where the enemy does not.  Rooftop lamps on buildings and aircraft lights stay beams only.
 	s_headlightDrawn = TRUE;
 	if (m_hasHeadlights && !m_hideHeadlights && m_renderObject && !m_renderObject->Is_Hidden()
-		&& Direct3D11_Is_Active() && !TheGlobalData->m_classicGraphics)
+		&& DX8Wrapper::Supports_Renderer_Feature(RendererFeature::PerPixelLights) && !TheGlobalData->m_classicGraphics)
 	{
 		const Drawable* draw = getDrawable();
 		const Object* obj = draw->getObject();
@@ -3624,7 +3625,7 @@ void W3DModelDraw::lightHeadlights(const Vector3& cameraPosition)
 		const Real moon = sqrtf((map[c] > 0.15f ? map[c] : 0.15f) * (mean > 0.15f ? mean : 0.15f));
 		gain[c] = LAMP[c] / moon;
 	}
-	Direct3D11_Set_Headlights(&lights[0][0], count, gain);
+	RenderLighting::SetHeadlights(&lights[0][0], count, gain);
 }
 
 //-------------------------------------------------------------------------------------------------

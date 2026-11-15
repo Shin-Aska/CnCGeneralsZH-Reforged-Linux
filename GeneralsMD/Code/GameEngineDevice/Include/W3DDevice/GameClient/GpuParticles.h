@@ -23,8 +23,9 @@
 // (which slot a system has, where the ring's head and tail are, what died) is the particle
 // manager's, in W3DParticleSys.cpp; this only holds what the device holds.
 //
-// DX11GpuParticles.cpp is the Direct3D 11 answer.  GpuParticlesUnsupported.cpp answers for every
-// build without one, where Supported is false and the particle manager never asks for the rest.
+// DX11GpuParticles.cpp implements Direct3D 11; SdlGpuParticlesAdapter.cpp forwards to the native
+// SDL storage/compute module when integrated. GpuParticlesUnsupported.cpp keeps other builds on
+// the CPU. Supported describes actual device availability independently of user options.
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 #pragma once
@@ -53,8 +54,8 @@ struct Camera
 	float projection[ 16 ];
 };
 
-/// Direct3D 11 presents on a feature level 11 device.  False under -d3d9, the SDL3 builds and
-/// -headless; the caller adds the Classic setting and the pool size.
+/// An implemented live GPU device path is available, including outside active scene draws.
+/// False for unsupported/headless devices; the caller adds Classic and the pool size.
 bool Supported();
 
 /** Make, or find still there, the ring of capacity records, the system table, the texture array and

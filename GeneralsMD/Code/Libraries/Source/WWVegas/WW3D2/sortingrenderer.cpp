@@ -1,3 +1,5 @@
+#include "Platform/RenderParticles.h"
+#include "Platform/RenderEffects.h"
 /*
 **	Command & Conquer Generals Zero Hour(tm)
 **	Copyright 2025 Electronic Arts Inc.
@@ -40,6 +42,7 @@
  * Functions:                                                                                  *
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
+#include "Platform/RenderLighting.h"
 #include "Platform/SunShadow.h"
 #include "sortingrenderer.h"
 #include "dx8vertexbuffer.h"
@@ -263,7 +266,7 @@ void SortingRendererClass::Insert_Triangles(
 	state->fire=false;
 	state->emissive=false;
 	state->hard_edge=false;
-	state->draw_effect=Direct3D11_Requested_Draw_Effect(state->draw_effect_parameters);
+	state->draw_effect=RenderEffects::RequestedDrawEffect(state->draw_effect_parameters);
 
 	SortingVertexBufferClass* vertex_buffer=static_cast<SortingVertexBufferClass*>(state->sorting_state.vertex_buffers[0]);
 	WWASSERT(vertex_buffer);
@@ -509,6 +512,9 @@ void SortingRendererClass::Insert_To_Sorting_Pool(SortingNodeStruct* state)
 
 static void Apply_Render_State(RenderStateStruct& render_state)
 {
+#if !defined(_WIN32)
+	DX8Wrapper::Apply_Queued_Light_Environment(render_state);
+#endif
 
 
 
@@ -564,6 +570,13 @@ static void Apply_Render_State(RenderStateStruct& render_state)
 
 static bool Same_Draw_State(const RenderStateStruct& a, const RenderStateStruct& b)
 {
+#if !defined(_WIN32)
+	if (a.HasLightingEnvironment!=b.HasLightingEnvironment || a.HasStaticLighting!=b.HasStaticLighting
+		|| a.HasNativeAmbient!=b.HasNativeAmbient) return false;
+	if (a.HasNativeAmbient && a.NativeAmbient!=b.NativeAmbient) return false;
+	if (a.HasLightingEnvironment && memcmp(&a.FullLighting,&b.FullLighting,sizeof(a.FullLighting))) return false;
+	if (a.HasStaticLighting && memcmp(&a.StaticLighting,&b.StaticLighting,sizeof(a.StaticLighting))) return false;
+#endif
 	if (a.shader.Get_Bits()!=b.shader.Get_Bits() || a.material!=b.material) return false;
 	for (int i=0;i<DX8Wrapper::Get_Current_Caps()->Get_Max_Textures_Per_Pass();++i) {
 		if (a.Textures[i]!=b.Textures[i]) return false;
@@ -983,10 +996,10 @@ static void Draw_Run(SortingNodeStruct* state,unsigned first_index,unsigned tria
 {
 	Apply_Render_State(state->sorting_state);
 	SunShadow::SetSmokeGlow(DX8Wrapper::_Get_D3D_Device(),state->glow);
-	Direct3D11_Set_Fire_Look(state->fire);
-	Direct3D11_Set_Emissive(state->emissive);
-	Direct3D11_Set_Soft_Particles(state->quads);
-	Direct3D11_Set_Draw_Effect(state->draw_effect,state->draw_effect_parameters);
+	RenderParticles::SetFireLook(state->fire);
+	RenderLighting::SetEmissive(state->emissive);
+	RenderParticles::SetSoftParticles(state->quads);
+	RenderEffects::SetDrawEffect(state->draw_effect,state->draw_effect_parameters);
 	SunShadow::ReceiverExclusion sunReceivers(DX8Wrapper::_Get_D3D_Device(), state->excludeSunReceivers);
 	SunShadow::CasterEffectScope casterEffect(DX8Wrapper::_Get_D3D_Device(), state->casterEffect);
 	DX8Wrapper::Draw_Triangles(first_index,triangles,first_vertex,vertex_count);
@@ -1069,11 +1082,11 @@ static void Flush_Sorting_Batch(const TempIndexStruct* entries,unsigned entry_co
 	}
 	Draw_Run(overlapping_nodes[run_class],run_first_index,run_triangles,run_first_vertex,vertex_cursor-run_first_vertex);
 	SunShadow::SetSmokeGlow(DX8Wrapper::_Get_D3D_Device(),false);
-	Direct3D11_Set_Fire_Look(false);
-	Direct3D11_Set_Emissive(false);
-	Direct3D11_Set_Soft_Particles(false);
+	RenderParticles::SetFireLook(false);
+	RenderLighting::SetEmissive(false);
+	RenderParticles::SetSoftParticles(false);
 	static const float no_effect[4]={0.0f,0.0f,0.0f,0.0f};
-	Direct3D11_Set_Draw_Effect(0,no_effect);
+	RenderEffects::SetDrawEffect(0,no_effect);
 
 	tDrawEnd = Clock_Ticks();
 	flush_profile_draw_ms += flushProfileElapsedMS(tCopyEnd, tDrawEnd);
@@ -1105,7 +1118,7 @@ void SortingRendererClass::Flush_Sorting_Pool()
 	// billboards in it takes none.
 	for (unsigned node=0;node<overlapping_node_count;++node) {
 		if (overlapping_nodes[node]->quads) {
-			Direct3D11_Take_Scene_Depth();
+			RenderParticles::TakeSceneDepth();
 			break;
 		}
 	}

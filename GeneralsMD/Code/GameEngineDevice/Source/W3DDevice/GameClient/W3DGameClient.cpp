@@ -56,6 +56,10 @@
 #include "GameLogic/TerrainLogic.h"
 #include "GameClient/View.h"
 #include "WW3D2/dx11runtime.h"
+#include "WW3D2/dx8wrapper.h"
+#if defined(__linux__)
+#include "Platform/RendererName.h"
+#endif
 #include "W3DDevice/GameClient/W3DAssetManager.h"
 #include "W3DDevice/GameClient/W3DGameClient.h"
 #include "W3DDevice/GameClient/W3DStatusCircle.h"
@@ -191,9 +195,15 @@ void W3DGameClient::structureFell(const Coord3D *pos, Real radius)
 	addGroundMark(pos, radius * 0.8f, GroundMarks::CRACKS);
 
 	// a big one jolts the camera on top of what its FX shakes, a step under a nuke's kick; a barracks or
-	// a tower does not.  Not under Classic or Direct3D 9, which keep the old shake.
+	// a tower does not. Classic and Windows Direct3D 9 keep the old shake; native GPUs use the same jolt.
 	const Real JOLT_FROM_RADIUS = 40.0f;
-	if (radius >= JOLT_FROM_RADIUS && TheTacticalView && !TheGlobalData->m_classicGraphics && Direct3D11_Present_Is_Enabled())
+	if (radius >= JOLT_FROM_RADIUS && TheTacticalView && !TheGlobalData->m_classicGraphics
+#if defined(__linux__)
+		&& PosixRenderer_Has_Gpu(DX8Wrapper::_Get_D3D_Device())
+#else
+		&& Direct3D11_Present_Is_Enabled()
+#endif
+		)
 		TheTacticalView->shake(pos, View::SHAKE_STRONG);
 }
 
@@ -201,11 +211,12 @@ void W3DGameClient::structureFell(const Coord3D *pos, Real radius)
 /** The Water Splashes option: a blast or a falling body came down at pos.  In water it throws a splash
 	* and, where the water has depth, foam and rings, sized by radius, from the surface.
 	* ParticleSystemReforged.ini holds the systems, outside the multiplayer checksum.  Classic Graphics
-	* and Direct3D 9 keep EA's water, and the Modern water style its own foam. */
+	* and renderers without this provider keep EA's water; Modern water has its own foam. */
 //-------------------------------------------------------------------------------------------------
 void W3DGameClient::splashInWater(const Coord3D *pos, Real radius)
 {
-	if (!TheGlobalData->m_waterSplashes || TheGlobalData->m_classicGraphics || TheGlobalData->m_waterStyle != 0 || !Direct3D11_Present_Is_Enabled())
+	if (!TheGlobalData->m_waterSplashes || TheGlobalData->m_classicGraphics || TheGlobalData->m_waterStyle != 0
+		|| !DX8Wrapper::Supports_Renderer_Feature(RendererFeature::ClassicWaterSplashes))
 		return;
 	const Coord3D at = *pos;
 	LOGIC_AFTER_TICK( [=]() { splashInWater( &at, radius ); } );
@@ -264,7 +275,8 @@ void W3DGameClient::splashInWater(const Coord3D *pos, Real radius)
 //-------------------------------------------------------------------------------------------------
 void W3DGameClient::structureCollapsing(Drawable *draw, Real height)
 {
-	if (TheGlobalData->m_classicGraphics || !Direct3D11_Present_Is_Enabled() || W3DDisplay::m_3DScene == NULL)
+	if (TheGlobalData->m_classicGraphics || !DX8Wrapper::Supports_Renderer_Feature(RendererFeature::BuildingCollapse)
+		|| W3DDisplay::m_3DScene == NULL)
 		return;
 	// a slab of foundation or a mine's stub has nothing to go down
 	const Real MIN_HEIGHT = 8.0f;

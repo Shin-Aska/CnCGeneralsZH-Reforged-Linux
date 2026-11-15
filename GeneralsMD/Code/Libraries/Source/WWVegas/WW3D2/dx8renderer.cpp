@@ -42,6 +42,8 @@
 //#define ENABLE_CATEGORY_LOG
 //#define ENABLE_STRIPING
 
+#include "Platform/RenderLighting.h"
+#include "Platform/RenderEffects.h"
 #include "Platform/SunShadow.h"
 #include "dx8renderer.h"
 #include "dx8wrapper.h"
@@ -1929,12 +1931,15 @@ void DX8TextureCategoryClass::Render(void)
 		const unsigned draw_effect = mesh->Get_Draw_Effect();
 		if (draw_effect != 0) {
 			SunShadow::SetCasterEffect(DX8Wrapper::_Get_D3D_Device(),draw_effect, mesh->Get_Draw_Effect_Parameters());
+#if !defined(_WIN32)
+            RenderEffects::SetDrawEffect(draw_effect, mesh->Get_Draw_Effect_Parameters());
+#endif
 		}
 		// A house colour mesh under the Team Glow option.  Immediate draws only: a sorted one draws later,
 		// after this has been put back, and goes without.
 		const bool team_glow = mesh->Peek_Model()->Get_Flag(MeshGeometryClass::TEAM_GLOW) != 0;
 		if (team_glow) {
-			Direct3D11_Set_Team_Glow(true);
+			RenderLighting::SetTeamGlow(true);
 		}
 
 		if ((!!mesh->Peek_Model()->Get_Flag(MeshGeometryClass::SORT)) && WW3D::Is_Sorting_Enabled()) {
@@ -1994,9 +1999,12 @@ void DX8TextureCategoryClass::Render(void)
 		if (draw_effect != 0) {
 			static const float no_effect[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 			SunShadow::SetCasterEffect(DX8Wrapper::_Get_D3D_Device(),0, no_effect);
+#if !defined(_WIN32)
+            RenderEffects::SetDrawEffect(0, no_effect);
+#endif
 		}
 		if (team_glow) {
-			Direct3D11_Set_Team_Glow(false);
+			RenderLighting::SetTeamGlow(false);
 		}
 //--------------------------------------------------------------------
 		if (mesh->Get_ObjectScale() != 1.0f)

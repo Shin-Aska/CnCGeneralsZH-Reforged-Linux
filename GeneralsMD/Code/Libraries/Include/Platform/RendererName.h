@@ -31,6 +31,10 @@
 
 #if !defined(_WIN32)
 const char16_t *PosixRenderer_Name(void);
+
+struct IDirect3DDevice9;
+// Query the current device, including an offscreen GPU. A headless device has no GPU.
+bool PosixRenderer_Has_Gpu(IDirect3DDevice9 *device);
 #endif
 
 #endif // RENDERERNAME_H

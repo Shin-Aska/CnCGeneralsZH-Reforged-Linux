@@ -34,6 +34,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 // SYSTEM INCLUDES ////////////////////////////////////////////////////////////
+#include "Platform/RenderLighting.h"
 #include "Platform/SunShadow.h"
 #include <stdlib.h>
 #include "Lib/Clock.h"
@@ -78,6 +79,8 @@
 
 #include "WW3D2/shdlib.h"
 #include "WW3D2/dx11runtime.h"
+#include "Platform/RenderPost.h"
+#include "Platform/RenderEffects.h"
 #include "WW3D2/ffshader.h"
 #include "Platform/RenderTypes.h"
 #include "W3DDevice/GameClient/Module/W3DModelDraw.h"
@@ -121,7 +124,7 @@ static Bool theTranslucentPass = FALSE;
 
 static Bool wearsCloak( const Drawable *draw )
 {
-	if( !Direct3D11_Draw_Effects() )
+	if( !RenderEffects::DrawEffectsAvailable() )
 		return FALSE;
 	const StealthLookType look = draw->getStealthDrawnLook();
 	const Real fade = draw->getStealthFade();
@@ -131,11 +134,11 @@ static Bool wearsCloak( const Drawable *draw )
 		if( draw->isKindOf( KINDOF_MINE ) )
 			return FALSE;
 		// a frame that cannot draw the cloak (a screen filter holds the target) draws him by opacity
-		return Direct3D11_Takes_Draw_Effect( DRAW_EFFECT_CLOAK );
+		return RenderEffects::TakesDrawEffect( DRAW_EFFECT_CLOAK );
 	}
 	// revealed fades in the translucent pass so the heat can come up from nothing
 	if( look == STEALTHLOOK_VISIBLE_DETECTED && fade < 0.99f )
-		return Direct3D11_Takes_Draw_Effect( DRAW_EFFECT_REVEALED );
+		return RenderEffects::TakesDrawEffect( DRAW_EFFECT_REVEALED );
 	return FALSE;
 }
 
@@ -802,7 +805,7 @@ void RTS3DScene::renderSpecificDrawables(RenderInfoClass &rinfo, Int numDrawable
 //=============================================================================
 static unsigned chooseDrawEffect( const Drawable *draw, Bool translucentPass, float parameters[4] )
 {
-	if ( !Direct3D11_Draw_Effects() )
+	if ( !RenderEffects::DrawEffectsAvailable() )
 		return DRAW_EFFECT_NONE;
 
 	unsigned effect = DRAW_EFFECT_NONE;
@@ -837,7 +840,7 @@ static unsigned chooseDrawEffect( const Drawable *draw, Bool translucentPass, fl
 
 	// A frame the backend would draw the look in nowhere (a screen filter or a mirror holds the
 	// target, or the device made no copy for the cloak) keeps the heat vision and the tint instead.
-	if ( effect != DRAW_EFFECT_NONE && !Direct3D11_Takes_Draw_Effect( effect ) )
+	if ( effect != DRAW_EFFECT_NONE && !RenderEffects::TakesDrawEffect( effect ) )
 		return DRAW_EFFECT_NONE;
 
 	if ( effect != DRAW_EFFECT_NONE )
@@ -1058,6 +1061,10 @@ void RTS3DScene::renderOneObject(RenderInfoClass &rinfo, RenderObjClass *robj, I
     // added here as well they would light the model twice.
     if( draw && draw->getReceivesDynamicLights() && !Direct3D11_Lights_Per_Pixel() )
     {
+#if !defined(_WIN32)
+		if (DX8Wrapper::Supports_Renderer_Feature(RendererFeature::PerPixelLights))
+			lightEnv.Capture_Static_Lighting();
+#endif
 		  // dynamic lights
 		  RefRenderObjListIterator dynaLightIt(&m_dynamicLightList);	
 		  for (dynaLightIt.First(); !dynaLightIt.Is_Done(); dynaLightIt.Next())
@@ -1169,7 +1176,7 @@ void RTS3DScene::Flush(RenderInfoClass & rinfo)
 	// The Ambient Occlusion option goes on under the water and every translucent draw, none of which
 	// writes depth: the water takes no corner's shade from its bed and only the bed's shows through it.
 	if (TheGlobalData->m_ambientOcclusion && !TheGlobalData->m_classicGraphics && m_customPassMode == SCENE_PASS_DEFAULT && Get_Extra_Pass_Polygon_Mode() == EXTRA_PASS_DISABLE)
-		Direct3D11_Ambient_Occlusion();
+		RenderPost::OpaqueScene();
 
 	WW3D::Render_And_Clear_Static_Sort_Lists(rinfo);	//draws things like water
 
@@ -1195,7 +1202,7 @@ void RTS3DScene::Flush(RenderInfoClass & rinfo)
 			// The Direct3D 11 chain's ambient occlusion goes on here, over the world with every
 			// corner in its depth and under the fire and smoke, which write none: put on the
 			// finished frame it shaded a fireball by the chimneys and trees behind it.
-			Direct3D11_Occlude_Scene();
+			RenderPost::BeforeTransparent();
 			DoParticles(rinfo);	//queue up particles for rendering.
 		}
 
@@ -1299,6 +1306,11 @@ void RTS3DScene::updatePlayerColorPasses(void)
 DECLARE_PERF_TIMER(NonTerrainRender)
 void RTS3DScene::Render(RenderInfoClass & rinfo)
 {
+	float postNear, postFar;
+	rinfo.Camera.Get_Clip_Planes(postNear, postFar);
+	RenderPost::ViewScope postView(m_customPassMode == SCENE_PASS_DEFAULT &&
+		!ShaderClass::Is_Backface_Culling_Inverted() && Get_Extra_Pass_Polygon_Mode() == EXTRA_PASS_DISABLE,
+		postNear, postFar, ShaderClass::Is_Backface_Culling_Inverted());
 	// Covers both submission and Flush, including sorted draws. Nested reflections and
 	// custom passes cannot borrow the main view's map or its stencil ownership.
 	SunShadow::SceneScope sunScene(DX8Wrapper::_Get_D3D_Device(),
@@ -1437,7 +1449,7 @@ void RTS3DScene::Render(RenderInfoClass & rinfo)
 		too.  Client only: the lights are what FX lists put up and nothing in logic reads them. */
 static void handBlastLights(RefRenderObjListClass &dynamicLights, const Vector3 &camera)
 {
-	if (!Direct3D11_Lights_Per_Pixel())
+	if (!RenderLighting::LightsPerPixel())
 		return;
 
 	static std::vector< std::pair<Real, W3DDynamicLight*> > nearest;
@@ -1500,7 +1512,7 @@ static void handBlastLights(RefRenderObjListClass &dynamicLights, const Vector3 
 		slot[8] = lightAmbient.X / base[0]; slot[9] = lightAmbient.Y / base[1]; slot[10] = lightAmbient.Z / base[2];
 		slot[11] = 0.0f;
 	}
-	Direct3D11_Set_Blast_Lights(&lights[0][0], count);
+	RenderLighting::SetBlastLights(&lights[0][0], count);
 }
 
 void RTS3DScene::Customized_Render( RenderInfoClass &rinfo )
@@ -1532,7 +1544,7 @@ void RTS3DScene::Customized_Render( RenderInfoClass &rinfo )
 		// Before the frame for the same reason: it has to lie under all of it.  The pass above has just
 		// handed the backend the camera it needs.
 		if (TheGlobalData->m_atmosphere)
-			Direct3D11_Atmosphere_Sky();
+			RenderPost::Sky();
 	}
 
 	Int localPlayerIndex = ThePlayerList ? TheObserverCamera.getShroudPlayerIndex() : 0;
@@ -1566,7 +1578,7 @@ void RTS3DScene::Customized_Render( RenderInfoClass &rinfo )
 		}
 	}
 
-	Direct3D11_Set_Hemi_Ambient(TheGlobalData->m_hemiAmbient);
+	RenderLighting::SetHemiAmbient(TheGlobalData->m_hemiAmbient && !TheGlobalData->m_classicGraphics);
 
 	// After the lights' fade has stepped and before the terrain and the models are lit.
 	if (m_customPassMode == SCENE_PASS_DEFAULT && !ShaderClass::Is_Backface_Culling_Inverted())

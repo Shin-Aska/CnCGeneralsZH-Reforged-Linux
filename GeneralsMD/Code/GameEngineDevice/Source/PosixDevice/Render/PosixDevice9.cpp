@@ -170,6 +170,12 @@ PosixDevice9::PosixDevice9(PosixDirect3D9 *adapter, RenderWindow window, const D
 
 PosixDevice9::~PosixDevice9()
 {
+	// Final owner teardown: no new draws can enter this device. Submit borrowed readers while every
+	// cache is alive; if command acquisition fails, explicitly discard CPU packets before freeing them.
+	if (Gpu && Gpu->Has_Pending_Work() && !Gpu->Flush() && Gpu->Has_Pending_Work())
+		Gpu->Discard_Pending_Work_For_Teardown();
+	if (Gpu) Gpu->Release_Owner_Hooks_For_Teardown();
+	Release_Post();
 	// The retained source must die while its resource mirror/lifetime callback is alive.
 	Clear_Staged_Vertex();
 	Clear_Sun_Shadow();
@@ -235,6 +241,7 @@ RenderResult PosixDevice9::Create_Gpu_Frame(bool offscreen)
 		return D3DERR_NOTAVAILABLE;
 	}
 	Set_Renderer_Name(SDL_GetGPUDeviceDriver(Gpu->Device()));
+	GpuDeviceGeneration = Gpu->Scene_Generation();
 	Programs = new SdlProgramCache(Gpu->Device());
 	Pipelines = new SdlPipelineCache(Gpu->Device());
 	Pipelines->Describe_Shader = [this](const SDL_GPUShader *shader) { return Programs->Key_Of(shader); };
@@ -556,6 +563,7 @@ RenderResult PosixDevice9::Reset(D3DPRESENT_PARAMETERS *parameters)
 		return !capture_submitted || failure == SdlGpuFrame::RESIZE_FLUSH_FAILED
 			? D3DERR_DEVICELOST : D3DERR_OUTOFVIDEOMEMORY;
 	}
+	Invalidate_Post_Route();
 	Clear_Staged_Vertex();
 	Shore_End();
 	Clear_Sun_Shadow();
@@ -1038,7 +1046,41 @@ RenderResult PosixDevice9::SetPixelShaderConstantF(unsigned int start, const flo
 	return D3D_OK;
 }
 
-bool PosixWaterGpuAvailable(IDirect3DDevice9 *device)
+bool PosixRenderer_Has_Gpu(IDirect3DDevice9 *device)
 {
 	return device && static_cast<PosixDevice9 *>(device)->Get_Gpu();
+}
+
+namespace {
+bool (*FeatureProviders[static_cast<unsigned>(RendererFeature::Count)])(IDirect3DDevice9 *) = {};
+}
+bool PosixRenderer_Register_Feature_Provider(RendererFeature feature, bool (*provider)(IDirect3DDevice9 *))
+{
+	const unsigned index = static_cast<unsigned>(feature);
+	if (index >= static_cast<unsigned>(RendererFeature::Count) || !provider) return false;
+	if (FeatureProviders[index] && FeatureProviders[index] != provider) return false;
+	FeatureProviders[index] = provider;
+	return true;
+}
+bool PosixRenderer_Supports_Feature(IDirect3DDevice9 *device, RendererFeature feature)
+{
+	if (!PosixRenderer_Has_Gpu(device)) return false;
+	// Only completed providers belong here. GPU availability is not feature parity.
+	switch (feature) {
+	case RendererFeature::BattleMarks:
+	case RendererFeature::PerPixelLights:
+	case RendererFeature::HemisphericAmbient:
+	// These consumers use existing ordinary particle quads and cloned mesh/HLOD draws.
+	case RendererFeature::ClassicWaterSplashes:
+	case RendererFeature::BuildingCollapse: return true;
+	default:
+		const unsigned index = static_cast<unsigned>(feature);
+		return index < static_cast<unsigned>(RendererFeature::Count) && FeatureProviders[index]
+			&& FeatureProviders[index](device);
+	}
+}
+
+bool PosixWaterGpuAvailable(IDirect3DDevice9 *device)
+{
+	return PosixRenderer_Has_Gpu(device);
 }

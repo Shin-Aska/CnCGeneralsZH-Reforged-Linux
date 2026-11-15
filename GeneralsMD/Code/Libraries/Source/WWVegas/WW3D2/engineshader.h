@@ -101,9 +101,21 @@ bool EngineShader_Pixel_Program(EngineShaderProgram program,
 // the trees are not among them: both have shadows of their own.
 bool EngineShader_Paints_Ground(EngineShaderProgram program);
 
-// Which transcribed programs read the scene's depth copy at t7: the foam water, for how deep the
-// water is under each pixel.  The copy is the soft particles' (DX11BackendClass::Take_Scene_Depth).
+// Which transcribed programs read normalized scene depth at t7: the two Classic foam programs.
+// Modern water has its own resource/constant layout and is not classified here. The depth copy
+// must match the current colour target in pixel coordinates and contain opaque geometry before
+// water. SceneDepth.Load needs no sampler; SDL still reserves texture/sampler slots through 7.
 bool EngineShader_Reads_Scene_Depth(EngineShaderProgram program);
+
+// The shared extended b0 layout, used only by ground receivers and the two Classic foam programs.
+// This is not the separate Modern-water block. Classic foam reads TextureFactor at byte 0,
+// ShadowViewport at 288, and row-major WorldFromClip at 368. ShadowViewport.xy is the inverse
+// full attachment size. WorldFromClip must undo that full-texture NDC mapping, including the
+// actual viewport offset/extent and depth range, so SV_Position.z reconstructs the water surface
+// and the copied depth reconstructs the opaque scene in the same world coordinates. No half-pixel
+// geometry adjustment is needed. The declared block ends at byte 2528; uploading the existing
+// 2544-byte shared block (including its unused draw-effect tail) is valid.
+bool EngineShader_Uses_Extended_Pixel_Constants(EngineShaderProgram program);
 
 // The two programs the Modern water style draws with: the plain names, which W3DWater registers
 // only under that style.  Their text reads the water's own constant block and fifteen stages.

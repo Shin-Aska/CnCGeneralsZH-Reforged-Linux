@@ -250,11 +250,8 @@ bool CombinerShader_Generate(const CombinerDescription & description, CombinerSh
 	// Its cloak caster needs only ordered coverage, without cosmetic scene resources.
 	if (target == COMBINER_SHADER_TARGET_SDL3_GPU) {
 		CombinerDescription supported = description;
-		// Scene-depth fading and cosmetic refraction still have separate SDL integration work.
-		supported.SoftParticle = SOFT_PARTICLE_NONE;
-		// The fire look's coordinates come out of the Direct3D 11 vertex half, which SDL does not run.
-		supported.FireLook = FIRE_LOOK_NONE;
-		if (supported.DrawEffect != DRAW_EFFECT_CLOAK_SHADOW) supported.DrawEffect = DRAW_EFFECT_NONE;
+		// The native sorted-billboard path supplies the original width/age payload and
+		// independently validated depth; model refraction has its own colour capture.
 		return generate_combiners(supported, target, hlsl, true)
 			&& SDL3_Shader_Retarget(hlsl, false);
 	}
@@ -266,9 +263,9 @@ static bool generate_combiners(const CombinerDescription & description,
 {
 	const bool sdl = target == COMBINER_SHADER_TARGET_SDL3_GPU;
 	if (sdl) target = COMBINER_SHADER_TARGET_D3D11;
-	// Depth-faded particles remain Windows-only until SDL supplies the scene depth at t7.
+	// The native path supplies independently validated scene depth at t7.
 	const bool soft = volumetric && description.SoftParticle != SOFT_PARTICLE_NONE;
-	// SDL accepts only the cloak caster variant; Windows also supplies the cosmetic scene effects.
+	// Both backends consume the shared cosmetic effects; the caster keeps its minimal helper.
 	const unsigned effect = (volumetric && description.DrawEffect < DRAW_EFFECT_COUNT)
 		? description.DrawEffect : DRAW_EFFECT_NONE;
 	// The fire look reads no constant, but the vertex half that feeds it is the D3D11 one's.
@@ -425,9 +422,9 @@ static bool generate_combiners(const CombinerDescription & description,
 			hlsl += SOFT_PARTICLE_SAMPLING;
 		}
 		if (effect != DRAW_EFFECT_NONE) {
-			// SDL admits only the cloak caster. The complete cosmetic helper declares
-			// SceneColour at t8 even when unused, exceeding its eight-slot draw layout.
-			hlsl += sdl ? CLOAK_SHADOW_SAMPLING : DRAW_EFFECT_SAMPLING;
+            // The depth-only caster needs no cosmetic scene resources. Ordinary
+            // effects use the exact shared helper and the native immutable t8 copy.
+            hlsl += sdl && effect == DRAW_EFFECT_CLOAK_SHADOW ? CLOAK_SHADOW_SAMPLING : DRAW_EFFECT_SAMPLING;
 		}
 		if (fire != FIRE_LOOK_NONE) {
 			hlsl += FIRE_LOOK_SAMPLING;

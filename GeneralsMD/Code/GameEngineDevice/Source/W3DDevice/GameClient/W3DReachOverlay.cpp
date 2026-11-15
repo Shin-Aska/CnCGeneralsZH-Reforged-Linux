@@ -1,6 +1,6 @@
 // The ground a defence can hit, on the terrain.  Direct3D 11 draws it in DX11ReachOverlay.cpp from
 // the distance fields themselves; this file picks the pass and holds the fixed-function one that
-// -d3d9, SDL3 and a refused Direct3D 11 program fall back to.
+// a renderer without a native provider or a refused native program falls back to.
 // Distributed under the repository's GPL-3.0 terms; see LICENSE.md.
 #include "W3DDevice/GameClient/W3DReachOverlay.h"
 
@@ -332,6 +332,9 @@ void W3DReachOverlay_Release( void )
 	s_baked.clear();
 #ifdef _WIN32
 	DX11ReachOverlay_Release();
+#else
+	if( !SdlReachOverlay_Release() )
+		DEBUG_LOG( ( "REACHOVERLAY: native owner retained until queued readers submit\n" ) );
 #endif
 }
 
@@ -351,10 +354,13 @@ void W3DReachOverlay_Draw( CameraClass &camera )
 
 	for( size_t i = 0; i < s_baked.size(); ++i )
 		s_baked[ i ].used = FALSE;
-	// Direct3D 11 is asked with no fields too, so it lets go of its textures
+	// Native passes are asked with no fields too, so they let go of their textures
 	Bool drawn = fields.empty();
 #ifdef _WIN32
 	drawn = DX11ReachOverlay_Draw( camera, fields ) || drawn;
+#else
+	if( DX8Wrapper::Supports_Renderer_Feature( RendererFeature::DistanceFieldReachOverlay ) )
+		drawn = SdlReachOverlay_Draw( camera, fields ) || drawn;
 #endif
 	if( !drawn )
 		drawFixedFunction( fields );

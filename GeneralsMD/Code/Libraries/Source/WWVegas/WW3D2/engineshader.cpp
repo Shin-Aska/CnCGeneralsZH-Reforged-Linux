@@ -263,7 +263,7 @@ static void write_pixel_preamble(std::string & hlsl, bool volumetric = false,
 		"    float4 ShadowSoftness;\n"
 		"    float4 Sky;\n"
 		"    float4 SkyUp;\n";
-	// The smoke's field follows them, on the Direct3D 11 text alone (VOLUMETRIC_SAMPLING).
+	// Ground receivers and Classic foam share the extended block (VOLUMETRIC_SAMPLING).
 	if (volumetric) {
 		hlsl += VOLUMETRIC_CONSTANTS;
 	}
@@ -361,7 +361,7 @@ static void write_river_water(std::string & hlsl)
 }
 
 /*
-** The water with foam on it (the Water Foam option), Direct3D 11 only: the SDL3 text is the plain water.
+** The water with foam on it (the Water Foam option), shared by Direct3D 11 and SDL3.
 **
 ** How deep the water is under a pixel comes out of the scene's depth, the soft particles' copy at
 ** t7, which W3DWater takes right before it draws: the ground and every opaque object are in it and
@@ -509,6 +509,11 @@ static void write_river_water_foam(std::string & hlsl)
 bool EngineShader_Reads_Scene_Depth(EngineShaderProgram program)
 {
 	return program == ENGINE_SHADER_WATER_TRAPEZOID_FOAM || program == ENGINE_SHADER_WATER_RIVER_FOAM;
+}
+
+bool EngineShader_Uses_Extended_Pixel_Constants(EngineShaderProgram program)
+{
+	return EngineShader_Paints_Ground(program) || EngineShader_Reads_Scene_Depth(program);
 }
 
 /*
@@ -2581,7 +2586,7 @@ bool EngineShader_Pixel_Program(EngineShaderProgram program,
 			return SDL3_Shader_Retarget(hlsl, false);
 		}
 #endif // __linux__
-		return write_engine_pixel_program(program, pipeline, hlsl, EngineShader_Paints_Ground(program))
+		return write_engine_pixel_program(program, pipeline, hlsl, EngineShader_Uses_Extended_Pixel_Constants(program))
 			&& SDL3_Shader_Retarget(hlsl, false);
 	}
 	// Direct3D 11 draws the Modern water from the same text, bound by dx11water.cpp.  The Classic
@@ -2618,7 +2623,7 @@ static bool write_engine_pixel_program(EngineShaderProgram program,
 			write_trapezoid_water_foam(hlsl);
 		}
 		else {
-			write_trapezoid_water(hlsl);	// SDL3: no scene depth and no WorldFromClip in its block
+			write_trapezoid_water(hlsl);
 		}
 	}
 	else if (program == ENGINE_SHADER_WATER_RIVER_FOAM) {

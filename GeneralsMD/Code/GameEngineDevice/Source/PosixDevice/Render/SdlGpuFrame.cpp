@@ -27,6 +27,9 @@
 #include "Platform/WaterCoastalIncident.h"
 #include "Platform/WaterCoastalView.h"
 #include <memory>
+#include <array>
+#include <map>
+#include <exception>
 #include "SdlSunShadowDebug.h"
 
 #include <SDL3/SDL.h>
@@ -37,6 +40,16 @@
 
 // The back buffer's format.  D3D9's X8R8G8B8 and A8R8G8B8 are these bytes in this order.
 static const SDL_GPUTextureFormat BACK_BUFFER_FORMAT = SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM;
+
+namespace {
+struct FrameOwnerHooks {
+	std::array<SdlGpuFrame::OwnerReleaseHook, 8> Hooks = {};
+	unsigned Count = 0;
+	bool TearingDown = false;
+};
+// Renderer-owner thread only. External module state never changes the frame's object layout.
+std::map<SdlGpuFrame *, FrameOwnerHooks> NativeOwnerHooks;
+}
 
 // The gamma pass: one triangle over the whole target, and each channel looked up in its ramp.  Written
 // for SDL3's register spaces (sdl3target.h: pixel textures and samplers in space2).  The ramp is read
@@ -93,6 +106,13 @@ bool Sdl_Gamma_Is_Identity(const uint16_t (*ramp)[256])
 		}
 	}
 	return true;
+}
+
+// Main-thread resource generations stay distinct even if SDL recycles handles after device recreation.
+static uint64_t next_scene_generation()
+{
+	static uint64_t generation = 0;
+	return ++generation;
 }
 
 unsigned int SdlGpuFrame::Target_Format()
@@ -153,8 +173,8 @@ SdlGpuFrame::SdlGpuFrame() :
 	RampTexture(NULL),
 	PointSampler(NULL)
 {
+	SceneGeneration = next_scene_generation();
 	memset(LastConstants,0,sizeof(LastConstants));memset(LastConstantsSize,0,sizeof(LastConstantsSize));
-	memset(ClearPipelines, 0, sizeof(ClearPipelines));
 	InFlight[0] = InFlight[1] = NULL;
 	// ZH_GPU_FLUSH_LIMIT=<n>: at most n mid-frame flushes in flight (default 3); 0 lets them pile up as before
 	// the ring, which is how the ring's effect is measured.
@@ -212,6 +232,7 @@ SdlGpuFrame::~SdlGpuFrame()
 	if (GpuDevice == NULL) {
 		return;
 	}
+	Release_Owner_Hooks_For_Teardown();
 	for (int i = 0; i < 2; ++i) {
 		if (InFlight[i] != NULL) {
 			SDL_WaitForGPUFences(GpuDevice, true, &InFlight[i], 1);
@@ -223,18 +244,18 @@ SdlGpuFrame::~SdlGpuFrame()
 		SDL_ReleaseGPUFence(GpuDevice, FlushFences[i]);
 	}
 	FlushFences.clear();
+	Discard_Pending_Work_For_Teardown();
 	Clear_Clean_Water();
 	for(auto *sampler:CleanWaterSamplers) if(sampler) SDL_ReleaseGPUSampler(GpuDevice,sampler);
 	Release_Coastal_Surf();
 	Release_Ocean();
 	Release_Sun_Smoke();
 	Release_Targets();
-	Commands.clear();
-	End_Batch();
 	Clear_Water_Path();
 	Release_Sun_Shadow();
 	if (StreamBuffer != NULL) SDL_ReleaseGPUBuffer(GpuDevice, StreamBuffer);
-	for (int i = 0; i < 8; ++i) if (ClearPipelines[i] != NULL) SDL_ReleaseGPUGraphicsPipeline(GpuDevice, ClearPipelines[i]);
+	for (const ClearPipelineEntry &entry : ClearPipelines)
+		SDL_ReleaseGPUGraphicsPipeline(GpuDevice, entry.Pipeline);
 	if (ClearVertex != NULL) SDL_ReleaseGPUShader(GpuDevice, ClearVertex);
 	if (ClearPixel != NULL) SDL_ReleaseGPUShader(GpuDevice, ClearPixel);
 	if (Transfer != NULL) SDL_ReleaseGPUTransferBuffer(GpuDevice, Transfer);
@@ -950,6 +971,7 @@ bool SdlGpuFrame::Install_Coastal_Surf(uint64_t revision,
 SdlTarget SdlGpuFrame::Coastal_Surf_Field_Target(uint64_t revision) const
 {
 	SdlTarget target={};
+	target.ColourFormat=SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT;
 	if(CoastalSurf && CoastalSurf->Revision==revision) {
 		target.Colour=CoastalSurf->Input;target.Width=target.Height=WaterCoastalSurf::AtlasSide;
 	}
@@ -1424,6 +1446,37 @@ bool SdlGpuFrame::Resolve_Scene_Depth(SDL_GPUCommandBuffer *commands, SDL_GPUTex
 	return true;
 }
 
+bool SdlGpuFrame::Capture_Scene_Depth(const SdlTarget &source, SDL_GPUTexture *destination)
+{
+	if (!DepthSampleable || !source.Depth || !source.Width || !source.Height || !destination ||
+		destination == source.Depth || destination == source.Colour || !Create_Scene_Depth_Pipeline())
+		return false;
+	if (Has_Pending_Work() && !Flush()) return false;
+	SDL_GPUCommandBuffer *commands = SDL_AcquireGPUCommandBuffer(GpuDevice);
+	if (!commands) return false;
+	if (!Resolve_Scene_Depth(commands, source.Depth, destination, source.Width, source.Height)) {
+		SDL_CancelGPUCommandBuffer(commands);
+		return false;
+	}
+	return SerializeSubmits ? Submit(commands) : Submit_Flush(commands);
+}
+
+bool SdlGpuFrame::Capture_Scene_Colour(const SdlTarget &source, SDL_GPUTexture *destination)
+{
+    if (!source.Colour || !source.Width || !source.Height || !destination ||
+        destination == source.Colour || destination == source.Depth) return false;
+    if (Has_Pending_Work() && !Flush()) return false;
+    SDL_GPUCommandBuffer *commands = SDL_AcquireGPUCommandBuffer(GpuDevice);
+    if (!commands) return false;
+    SDL_GPUCopyPass *copy = SDL_BeginGPUCopyPass(commands);
+    if (!copy) { SDL_CancelGPUCommandBuffer(commands); return false; }
+    SDL_GPUTextureLocation from = {}, to = {};
+    from.texture = source.Colour; to.texture = destination;
+    SDL_CopyGPUTextureToTexture(copy, &from, &to, source.Width, source.Height, 1, false);
+    SDL_EndGPUCopyPass(copy);
+    return SerializeSubmits ? Submit(commands) : Submit_Flush(commands);
+}
+
 bool SdlGpuFrame::Resize(unsigned int width, unsigned int height, ResizeFailure *failure)
 {
 	if (failure) *failure = RESIZE_NONE;
@@ -1436,11 +1489,17 @@ bool SdlGpuFrame::Resize(unsigned int width, unsigned int height, ResizeFailure 
 		if (failure) *failure = RESIZE_FLUSH_FAILED;
 		return false;
 	}
+	if (FailNextResize) {
+		FailNextResize = false;
+		if (failure) *failure = RESIZE_ALLOCATION_FAILED;
+		return false;
+	}
 	if (!Create_Targets(width, height)) {
 		if (failure) *failure = RESIZE_ALLOCATION_FAILED;
 		return false;
 	}
 	TargetSet = false;
+	SceneGeneration = next_scene_generation();
 	return true;
 }
 
@@ -1463,6 +1522,68 @@ void SdlGpuFrame::Clear_Back_Buffer(bool colour, bool depth, bool stencil, uint3
 	Commands.push_back(command);
 }
 
+
+bool SdlGpuFrame::Has_Pending_Work() const
+{
+	return !Commands.empty() || !Uploads.empty() || !Draws.empty() || !StreamBytes.empty() ||
+		!UploadBytes.empty() || !ConstantBytes.empty() || !DeadTextures.empty() || !DeadBuffers.empty();
+}
+
+bool SdlGpuFrame::Register_Owner_Release_Hook(OwnerReleaseHook hook)
+{
+	if (!GpuDevice || !hook) return false;
+	try {
+		FrameOwnerHooks &entry = NativeOwnerHooks[this];
+		if (entry.TearingDown) return false;
+		for (unsigned i = 0; i < entry.Count; ++i) if (entry.Hooks[i] == hook) return true;
+		if (entry.Count == entry.Hooks.size()) return false;
+		entry.Hooks[entry.Count++] = hook;
+		return true;
+	} catch (const std::exception &) { return false; }
+}
+
+void SdlGpuFrame::Unregister_Owner_Release_Hook(OwnerReleaseHook hook)
+{
+	auto found = NativeOwnerHooks.find(this);
+	if (found == NativeOwnerHooks.end()) return;
+	FrameOwnerHooks &entry = found->second;
+	for (unsigned i = 0; i < entry.Count; ++i) if (entry.Hooks[i] == hook) {
+		for (unsigned next = i + 1; next < entry.Count; ++next) entry.Hooks[next - 1] = entry.Hooks[next];
+		entry.Hooks[--entry.Count] = nullptr;
+		break;
+	}
+	if (!entry.Count && !entry.TearingDown) NativeOwnerHooks.erase(found);
+}
+
+void SdlGpuFrame::Release_Owner_Hooks_For_Teardown()
+{
+	auto found = NativeOwnerHooks.find(this);
+	if (found == NativeOwnerHooks.end() || found->second.TearingDown) return;
+	FrameOwnerHooks &entry = found->second;
+	entry.TearingDown = true;
+	const auto hooks = entry.Hooks;
+	const unsigned count = entry.Count;
+	entry.Count = 0; // consume before callbacks can unregister or reenter
+	if (Has_Pending_Work() && !Flush()) Discard_Pending_Work_For_Teardown();
+	for (unsigned i = 0; i < count; ++i) {
+		if (hooks[i](this)) continue;
+		Discard_Pending_Work_For_Teardown();
+		if (!hooks[i](this)) {
+			// A registered callback may retain resources for ordinary refusal, but must release once
+			// final-owner discard removed every CPU reader. Continuing would leave a dangling owner.
+			fprintf(stderr, "SdlGpuFrame: native owner hook refused an empty final teardown\n");
+			std::terminate();
+		}
+	}
+	NativeOwnerHooks.erase(this);
+}
+
+void SdlGpuFrame::Discard_Pending_Work_For_Teardown()
+{
+	// Submitted commands already hold their SDL resources. Only unsubmitted CPU packets are dropped.
+	// End_Batch also takes ownership of the deferred resource retirements away from this frame.
+	End_Batch();
+}
 
 bool SdlGpuFrame::Flush()
 {
@@ -1770,6 +1891,7 @@ bool SdlGpuFrame::Copy_To_Front(SDL_GPUCommandBuffer * commands)
 
 bool SdlGpuFrame::Present(const uint16_t (*ramp)[256])
 {
+	++SceneFrame;
 	Refresh_Water_Snapshots();
 	SDL_GPUCommandBuffer * commands = SDL_AcquireGPUCommandBuffer(GpuDevice);
 	if (commands == NULL) {
@@ -1839,6 +1961,7 @@ bool SdlGpuFrame::Present(const uint16_t (*ramp)[256])
 bool SdlGpuFrame::Present_To(SDL_GPUTexture * target, unsigned int width, unsigned int height,
 	const uint16_t (*ramp)[256])
 {
+	++SceneFrame;
 	Refresh_Water_Snapshots();
 	SDL_GPUCommandBuffer * commands = SDL_AcquireGPUCommandBuffer(GpuDevice);
 	if (commands == NULL) {

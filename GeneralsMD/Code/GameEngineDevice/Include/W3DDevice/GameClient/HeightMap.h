@@ -151,6 +151,9 @@ protected:
 		DynamicLightInputs lights[MAX_ENABLED_DYNAMIC_LIGHTS];
 	};
 	DynamicLightPass m_lastRelight;	///< compared with memcmp, so only ever written by memset and memcpy
+#if !defined(_WIN32)
+	Bool m_dynamicLightingPerPixel = FALSE; // whether GPU tiles currently contain static-only diffuse
+#endif
 	Bool m_lastRelightValid;	///< false once anything has rewritten the vertex buffers since that relight
 
 	UnsignedInt doTheDynamicLight(VERTEX_FORMAT *vb, VERTEX_FORMAT *vbMirror, Vector3*light, Vector3*normal, const DynamicLightInputs lights[], const Int lightsHere[], Int numHere);

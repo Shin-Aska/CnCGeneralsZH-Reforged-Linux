@@ -19,7 +19,11 @@
 #define SUN_VALUES(X) \
     X(RenderStates) X(TextureStageStates) X(SamplerStates) X(Transforms) X(Viewport) \
     X(Material) X(Lights) X(LightsEnabled) X(ClipPlanes) X(StreamOffsets) X(StreamStrides) \
-    X(DeclarationIsCurrent) X(FVF) X(VertexShaderConstants) X(PixelShaderConstants) X(SmokeGlow)
+    X(DeclarationIsCurrent) X(FVF) X(VertexShaderConstants) X(PixelShaderConstants) X(SmokeGlow) \
+    X(Headlights) X(HeadlightGain) X(HeadlightCount) X(BlastLights) X(BlastLightCount) \
+    X(HemiAmbient) X(EmissiveDraw) X(TeamGlowDraw) X(GlowDraw) X(ParticlesAllowed) X(SoftParticlesDraw) X(FireLookDraw) X(ModelEffectsAllowed) X(ModelEffect) X(ModelEffectParameters) X(TeamGlowAllowed) X(StaticLightingAvailable) \
+    X(FullEnvironmentLights) X(FullEnvironmentCount) X(FullEnvironmentAmbient) \
+    X(StaticLights) X(StaticLightsEnabled) X(StaticAmbient) X(TerrainLighting)
 #define SUN_REFS(X) X(DepthStencil) X(Indices) X(Declaration) X(VertexShader) X(PixelShader)
 #define SUN_REF_ARRAYS(X) X(RenderTargets) X(Textures) X(Streams)
 
@@ -157,8 +161,8 @@ bool PosixDevice9::Fill_Sun_Smoke(const float *casters, unsigned count, float st
 
 void PosixDevice9::Set_Sun_Caster_Effect(unsigned effect, const float parameters[4])
 {
-    // Cosmetic scene effects need their own capture path. This pass implements only the
-    // Windows cloak's shadow coverage, independently of Direct3D11_Draw_Effects().
+    // Cosmetic model state and its colour capture are separate. This pass implements
+    // only the cloak's shadow coverage, independently of ordinary model admission.
     SunCasterEffect = SunActive && effect==DRAW_EFFECT_CLOAK_SHADOW ? effect : DRAW_EFFECT_NONE;
     SunCasterOpacity = parameters && std::isfinite(parameters[3]) ? std::max(0.0f,std::min(1.0f,parameters[3])) : 1.0f;
 }
@@ -304,6 +308,7 @@ bool PosixDevice9::Enter_Sun_Scene(bool eligible)
         Clear_Sun_Shadow();
         SunReceiversAtSceneStart = SunSolidReceivers + SunGroundReceivers;
         ++SunSceneGeneration;
+        TerrainLighting.Committed = false;
     } else ++SunSceneExclusions;
     return owns;
 }
@@ -313,7 +318,10 @@ void PosixDevice9::Leave_Sun_Scene(bool eligible)
     if (!SunSceneDepth) return;
     if (!eligible && SunSceneExclusions) --SunSceneExclusions;
     --SunSceneDepth;
-    if (eligible) Clear_Sun_Shadow(); // recorded draws already own their constants/bindings
+    if (eligible) {
+        TerrainLighting.Committed = false;
+        Clear_Sun_Shadow(); // recorded draws already own their constants/bindings
+    }
 }
 
 bool PosixDevice9::Sun_Owns_Scene_Shadows()
@@ -339,8 +347,9 @@ void PosixDevice9::Exclude_Sun_Receivers(bool exclude)
 
 bool PosixDevice9::Sun_Receiving(int vertexProgram, int pixelProgram, const SdlTarget &target) const
 {
-    const bool water = pixelProgram==ENGINE_SHADER_WATER_TRAPEZOID || pixelProgram==ENGINE_SHADER_WATER_RIVER;
-    if (SunExclusions || (ShoreActive && !water) || !SunReceiverFailure.empty() || !Sun_Receives_Target(target) || (FVF & D3DFVF_XYZRHW)
+    const bool water = pixelProgram==ENGINE_SHADER_WATER_TRAPEZOID || pixelProgram==ENGINE_SHADER_WATER_RIVER
+        || EngineShader_Reads_Scene_Depth(static_cast<EngineShaderProgram>(pixelProgram));
+    if (EmissiveDraw || SunExclusions || (ShoreActive && !water) || !SunReceiverFailure.empty() || !Sun_Receives_Target(target) || (FVF & D3DFVF_XYZRHW)
         || !RenderStates[D3DRS_ZENABLE] || RenderStates[D3DRS_FILLMODE] != D3DFILL_SOLID
         || (RenderStates[D3DRS_COLORWRITEENABLE] & 7u) != 7u) return false;
     const bool ground = EngineShader_Paints_Ground(static_cast<EngineShaderProgram>(pixelProgram));
@@ -357,6 +366,51 @@ bool PosixDevice9::Sun_Receiving(int vertexProgram, int pixelProgram, const SdlT
     return true;
 }
 
+bool PosixDevice9::Commit_Terrain_Lighting()
+{
+    if (!Gpu || SunActive || SunSceneExclusions) return false;
+    SdlTarget target={};std::string error;
+    if (!Resolve_Target(target,error)) return false;
+    auto &policy=TerrainLighting;
+    const bool same=policy.Committed && policy.Scene==SunSceneGeneration && policy.Frame==Gpu->Scene_Frame() && policy.Generation==Gpu->Scene_Generation()
+        && policy.Colour==target.Colour && policy.Depth==target.Depth && policy.Width==target.Width && policy.Height==target.Height
+        && !std::memcmp(&policy.View,&Transforms[D3DTS_VIEW],sizeof(policy.View))
+        && !std::memcmp(&policy.Projection,&Transforms[D3DTS_PROJECTION],sizeof(policy.Projection))
+        && !std::memcmp(&policy.Viewport,&Viewport,sizeof(Viewport));
+    if (same) return policy.Pixel;
+    policy={};policy.Committed=true;policy.Scene=SunSceneGeneration;policy.Frame=Gpu->Scene_Frame();policy.Generation=Gpu->Scene_Generation();
+    policy.Colour=target.Colour;policy.Depth=target.Depth;policy.Width=target.Width;policy.Height=target.Height;
+    policy.View=Transforms[D3DTS_VIEW];policy.Projection=Transforms[D3DTS_PROJECTION];policy.Viewport=Viewport;
+    policy.Pixel=SunReceiverFailure.empty() && Sun_Receives_Target(target);
+    if (policy.Pixel) {
+        std::memcpy(policy.WorldFromClip,Sun->WorldFromClip,sizeof(policy.WorldFromClip));
+        policy.ShadowViewport[0]=1.0f/Viewport.Width;policy.ShadowViewport[1]=1.0f/Viewport.Height;
+        policy.ShadowViewport[2]=Viewport.X+.5f;policy.ShadowViewport[3]=Viewport.Y+.5f;
+    }
+    return policy.Pixel;
+}
+
+bool PosixDevice9::Terrain_Lighting_Receives(int pixelProgram,const SdlTarget &target) const
+{
+    const auto &policy=TerrainLighting;
+    if (!Gpu || !policy.Committed || !policy.Pixel || policy.Scene!=SunSceneGeneration || policy.Frame!=Gpu->Scene_Frame() || policy.Generation!=Gpu->Scene_Generation()
+        || SunActive || SunSceneExclusions || SunExclusions || EmissiveDraw
+        || !EngineShader_Paints_Ground(static_cast<EngineShaderProgram>(pixelProgram))
+        || !RenderStates[D3DRS_ZENABLE] || RenderStates[D3DRS_FILLMODE]!=D3DFILL_SOLID
+        || (RenderStates[D3DRS_COLORWRITEENABLE]&7u)!=7u) return false;
+    if (RenderStates[D3DRS_ALPHABLENDENABLE]
+        && (RenderStates[D3DRS_SRCBLEND]!=D3DBLEND_SRCALPHA || RenderStates[D3DRS_DESTBLEND]!=D3DBLEND_INVSRCALPHA)) return false;
+    return policy.Colour==target.Colour && policy.Depth==target.Depth && policy.Width==target.Width && policy.Height==target.Height
+        && !std::memcmp(&policy.View,&Transforms[D3DTS_VIEW],sizeof(policy.View))
+        && !std::memcmp(&policy.Projection,&Transforms[D3DTS_PROJECTION],sizeof(policy.Projection))
+        && !std::memcmp(&policy.Viewport,&Viewport,sizeof(Viewport));
+}
+void PosixDevice9::Build_Terrain_Light_View(SdlEnginePixelConstants &constants) const
+{
+    std::memcpy(constants.WorldFromClip,TerrainLighting.WorldFromClip,sizeof(constants.WorldFromClip));
+    std::memcpy(constants.ShadowViewport,TerrainLighting.ShadowViewport,sizeof(constants.ShadowViewport));
+}
+
 void PosixDevice9::Build_Sun_Constants(SdlEnginePixelConstants &constants) const
 {
     std::memcpy(constants.ShadowFromClip,Sun->FromClip,sizeof(Sun->FromClip));
@@ -371,7 +425,6 @@ void PosixDevice9::Build_Sun_Constants(SdlEnginePixelConstants &constants) const
     constants.VolumeParameters[2] = Sun_Camera_Space() ? 1 : 0;
     constants.VolumeParameters[3] = SunSmoke::SelfCurve;
     std::memcpy(constants.WorldFromClip,Sun->WorldFromClip,sizeof(Sun->WorldFromClip));
-    // Headlight/Blast counts stay zero. Linux still supplies its existing vertex lights.
 }
 SDL_GPUTexture *PosixDevice9::Sun_Texture() const { return Sun ? Sun->Target.Depth : nullptr; }
 SDL_GPUSampler *PosixDevice9::Sun_Sampler() const { return Sun ? Sun->Sampler : nullptr; }

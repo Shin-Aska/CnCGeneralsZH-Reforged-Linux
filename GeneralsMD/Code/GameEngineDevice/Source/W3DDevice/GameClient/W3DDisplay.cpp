@@ -65,6 +65,10 @@ static void resetSmoothMotionLiveRate(void);
 #include "ffprobe.h"
 #include "ffshadercache.h"
 #include "dx11runtime.h"
+#include "Platform/RenderPost.h"
+#include "Platform/RenderParticles.h"
+#include "Platform/RenderEffects.h"
+#include "Platform/RenderLighting.h"
 #include "Common/PerfTimer.h"
 #include "Common/JobSystem.h"
 #include "Common/FileSystem.h"
@@ -870,11 +874,11 @@ static void sizeWindowToClient( Int mode, Int width, Int height )
 static void pushDirect3D11PostChain( void )
 {
 	// Classic graphics is the game's own picture, which is what -d3d9 draws: hard edged sprites.
-	Direct3D11_Allow_Soft_Particles( !TheGlobalData->m_classicGraphics );
+	RenderParticles::AllowEnhancements( !TheGlobalData->m_classicGraphics );
 	// and its own looks for the power outage, the EMP and the two stealth states
-	Direct3D11_Allow_Draw_Effects( !TheGlobalData->m_classicGraphics );
+	RenderEffects::AllowDrawEffects( !TheGlobalData->m_classicGraphics );
 	const AsciiString & requested = TheGlobalData->m_direct3D11PostChain;
-	if( !Direct3D11_Post_Chain( requested.str() ) && !requested.isEmpty() )
+	if( !RenderPost::SetChain( requested.str() ) && !requested.isEmpty() )
 	{
 		DEBUG_LOG(( "-dx11post: '%s' names no effect this build has, so no chain runs\n", requested.str() ));
 	}
@@ -2607,6 +2611,9 @@ bool CinematicAnimationClockFrozen(bool explicitlyFrozen, bool repeatedPicture,
 
 void W3DDisplay::draw( void )
 {
+#if !defined(_WIN32)
+    if (TheGlobalData) RenderLighting::AllowTeamGlow(TheGlobalData->m_teamGlow != FALSE);
+#endif
 #if defined(__linux__)
     if(WaterTuning::Enabled() && TheGlobalData)WaterTuning::Poll(TheGlobalData->getPath_UserData().str());
 #endif
@@ -3040,6 +3047,8 @@ AGAIN:
 		{
 			USE_PERF_TIMER(BigAssRenderLoop)
 			static Bool couldRender = true;
+			if (!TheGlobalData->m_breakTheMovie && !TheGlobalData->m_disableRender && !TheGlobalData->m_loadScreenRender)
+				W3DShaderManager::beginMainPostScene();
 			if ((TheGlobalData->m_breakTheMovie == FALSE) && (TheGlobalData->m_disableRender == false) && WW3D::Begin_Render( true, true, Vector3( 0.0f, 0.0f, 0.0f ), TheWaterTransparency->m_minWaterOpacity ) == WW3D_ERROR_OK)		
 			{
 				
@@ -3072,7 +3081,7 @@ AGAIN:
 				// was finished and before the health bars went over it.  This is the frame that
 				// drew no view at all: without it the scene would sit in the offscreen texture with
 				// the command bar drawn over a black screen.
-				Direct3D11_Finish_Scene();
+				RenderPost::FinishFrame();
 
 				// draw the user interface
 				TheInGameUI->DRAW();
@@ -5296,6 +5305,16 @@ static void captureVideoFrame(void)
 void W3DDisplay::toggleMovieCapture(void)
 {
 	WW3D::Toggle_Movie_Capture("Movie",30);
+}
+
+Bool W3DDisplay::supportsRendererFeature(RendererFeature feature) const
+{
+	return DX8Wrapper::Supports_Renderer_Feature(feature);
+}
+
+Bool W3DDisplay::supportsBattleMarks(void) const
+{
+	return DX8Wrapper::Supports_Battle_Marks();
 }
 
 /** Asks the device rather than the switch: a machine that cannot make a Direct3D 11 device carries

@@ -43,8 +43,8 @@ struct SharedResources {
     SDL_GPUShader *densityPixelShader = nullptr;
     SDL_GPUShader *lightingPixelShader = nullptr;
     SDL_GPUGraphicsPipeline *volumePipeline = nullptr;
-    SDL_GPUGraphicsPipeline *compositePipeline = nullptr;
-    SDL_GPUGraphicsPipeline *heatPipeline = nullptr;
+    SDL_GPUGraphicsPipeline *compositePipeline[2] = {};
+    SDL_GPUGraphicsPipeline *heatPipeline[2] = {};
     SDL_GPUGraphicsPipeline *densityPipeline = nullptr;
     SDL_GPUGraphicsPipeline *lightingPipeline = nullptr;
     SDL_GPUSampler *depthSampler = nullptr;
@@ -71,8 +71,8 @@ void releaseShared(bool deviceAlive)
         if (shared.densityPixelShader) SDL_ReleaseGPUShader(shared.gpu, shared.densityPixelShader);
         if (shared.lightingPixelShader) SDL_ReleaseGPUShader(shared.gpu, shared.lightingPixelShader);
         if (shared.volumePipeline) SDL_ReleaseGPUGraphicsPipeline(shared.gpu, shared.volumePipeline);
-        if (shared.compositePipeline) SDL_ReleaseGPUGraphicsPipeline(shared.gpu, shared.compositePipeline);
-        if (shared.heatPipeline) SDL_ReleaseGPUGraphicsPipeline(shared.gpu, shared.heatPipeline);
+        for (auto *pipeline : shared.compositePipeline) if (pipeline) SDL_ReleaseGPUGraphicsPipeline(shared.gpu, pipeline);
+        for (auto *pipeline : shared.heatPipeline) if (pipeline) SDL_ReleaseGPUGraphicsPipeline(shared.gpu, pipeline);
         if (shared.densityPipeline) SDL_ReleaseGPUGraphicsPipeline(shared.gpu, shared.densityPipeline);
         if (shared.lightingPipeline) SDL_ReleaseGPUGraphicsPipeline(shared.gpu, shared.lightingPipeline);
         if (shared.depthSampler) SDL_ReleaseGPUSampler(shared.gpu, shared.depthSampler);
@@ -194,14 +194,17 @@ bool BackendLayer::makeResources()
     target.blend_state.src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE;
     target.blend_state.dst_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
     target.blend_state.alpha_blend_op = SDL_GPU_BLENDOP_ADD;
-    description.fragment_shader = shared.compositePixelShader;
     description.target_info.has_depth_stencil_target = true;
     description.target_info.depth_stencil_format = static_cast<SDL_GPUTextureFormat>(frame->Depth_Format());
-    shared.compositePipeline = SDL_CreateGPUGraphicsPipeline(gpu, &description);
-    if (!shared.compositePipeline) { fail(SDL_GetError()); return false; }
-    description.fragment_shader = shared.heatPixelShader;
-    shared.heatPipeline = SDL_CreateGPUGraphicsPipeline(gpu, &description);
-    if (!shared.heatPipeline) { fail(SDL_GetError()); return false; }
+    for (unsigned format = 0; format < 2; ++format) {
+        target.format = format ? LowTargetFormat : static_cast<SDL_GPUTextureFormat>(SdlGpuFrame::Target_Format());
+        description.fragment_shader = shared.compositePixelShader;
+        shared.compositePipeline[format] = SDL_CreateGPUGraphicsPipeline(gpu, &description);
+        if (!shared.compositePipeline[format]) { fail(SDL_GetError()); return false; }
+        description.fragment_shader = shared.heatPixelShader;
+        shared.heatPipeline[format] = SDL_CreateGPUGraphicsPipeline(gpu, &description);
+        if (!shared.heatPipeline[format]) { fail(SDL_GetError()); return false; }
+    }
     target = {};
     target.format = DensityTargetFormat;
     description.fragment_shader = shared.densityPixelShader;
@@ -274,16 +277,16 @@ bool BackendLayer::resizeLowTarget(unsigned width, unsigned height)
     // Recorded passes retain the old texture until this batch is submitted;
     // SDL then keeps it alive until the GPU has finished those users.
     if (shared.lowTarget.Colour) frame->Release_After_Batch(shared.lowTarget.Colour, nullptr);
-    shared.lowTarget = { texture, nullptr, lowWidth, lowHeight };
+    shared.lowTarget = { texture, nullptr, lowWidth, lowHeight, 0, LowTargetFormat };
     return true;
 }
 
 bool BackendLayer::prepareHeatBackground(const SdlTarget &target)
 {
-    if (!shared.heatBackground.Colour || shared.heatBackground.Width != target.Width || shared.heatBackground.Height != target.Height) {
+    if (!shared.heatBackground.Colour || shared.heatBackground.Width != target.Width || shared.heatBackground.Height != target.Height || shared.heatBackground.ColourFormat != SdlGpuFrame::Target_Colour_Format(target)) {
         SDL_GPUTextureCreateInfo description = {};
         description.type = SDL_GPU_TEXTURETYPE_2D;
-        description.format = static_cast<SDL_GPUTextureFormat>(SdlGpuFrame::Target_Format());
+        description.format = static_cast<SDL_GPUTextureFormat>(SdlGpuFrame::Target_Colour_Format(target));
         description.usage = LowTargetUsage;
         description.width = target.Width;
         description.height = target.Height;
@@ -292,7 +295,7 @@ bool BackendLayer::prepareHeatBackground(const SdlTarget &target)
         SDL_GPUTexture *texture = SDL_CreateGPUTexture(gpu, &description);
         if (!texture) { fail(SDL_GetError()); return false; }
         if (shared.heatBackground.Colour) frame->Release_After_Batch(shared.heatBackground.Colour, nullptr);
-        shared.heatBackground = { texture, nullptr, target.Width, target.Height };
+        shared.heatBackground = { texture, nullptr, target.Width, target.Height, 0, SdlGpuFrame::Target_Colour_Format(target) };
     }
     return true;
 }
@@ -336,8 +339,8 @@ bool BackendLayer::resizeFieldCache(unsigned index)
         return false;
     }
     retireCache(cache);
-    cache.density = { density, nullptr, description.width, description.height };
-    cache.lighting = { lighting, nullptr, description.width, description.height };
+    cache.density = { density, nullptr, description.width, description.height, 0, DensityTargetFormat };
+    cache.lighting = { lighting, nullptr, description.width, description.height, 0, LowTargetFormat };
     cache.side = side;
     invalidateBake();
     return true;
@@ -491,52 +494,15 @@ bool BackendLayer::uploadFlow()
 
 bool BackendLayer::resolveSceneTarget(PosixDevice9 *device, SdlTarget &target)
 {
-    IDirect3DSurface9 *current = nullptr, *back = nullptr, *depth = nullptr;
-    device->GetRenderTarget(0, &current);
-    device->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &back);
-    device->GetDepthStencilSurface(&depth);
-    SdlResourceMirrors *mirrors = device->Get_Mirrors();
     std::string reason;
     target = {};
-    if (current && current == back) target = frame->Back_Buffer_Target();
-    else if (current && mirrors) {
-        D3DSURFACE_DESC description;
-        if (current->GetDesc(&description) == D3D_OK) {
-            target.Width = description.Width;
-            target.Height = description.Height;
-            // The main scene can be an engine-owned postprocessing texture.
-            // Its surface and texture share one GPU allocation, so resolve the
-            // texture's existing mirror rather than creating a separate surface.
-            IDirect3DTexture9 *texture = nullptr;
-            if (current->GetContainer(IID_IDirect3DTexture9, reinterpret_cast<void **>(&texture)) == D3D_OK
-                && texture) {
-                IDirect3DSurface9 *level = nullptr;
-                texture->GetSurfaceLevel(0, &level);
-                if (level == current) target.Colour = mirrors->Texture(texture, reason);
-                if (level) level->Release();
-                texture->Release();
-            } else {
-                target.Colour = mirrors->Surface(current, false, reason);
-            }
-        }
+    if (!device->Current_Gpu_Target(target, reason) || !target.Colour || !target.Depth || !target.Width || !target.Height) {
+        fail(reason.empty() ? "could not resolve the current native scene colour/depth target" : reason.c_str());
+        return false;
     }
-    if (target.Colour && mirrors) {
-        D3DSURFACE_DESC description;
-        // Explicit depth surfaces already used by opaque scene draws have a
-        // mirror. The implicit depth surface is owned by SdlGpuFrame instead;
-        // the device also borrows its size-matched depth for intermediate targets.
-        // Read only a known explicit mirror, never allocate an empty depth here.
-        if (depth && mirrors->Has_Copy(depth) && depth->GetDesc(&description) == D3D_OK
-            && description.Width == target.Width && description.Height == target.Height)
-            target.Depth = mirrors->Surface(depth, true, reason);
-        else
-            target.Depth = frame->Depth_For(target.Width, target.Height);
-    }
-    if (current) current->Release();
-    if (back) back->Release();
-    if (depth) depth->Release();
-    if (!target.Colour || !target.Depth || !target.Width || !target.Height) {
-        fail(reason.empty() ? "could not resolve the current scene colour/depth target" : reason.c_str());
+    const unsigned format = SdlGpuFrame::Target_Colour_Format(target);
+    if (format != SdlGpuFrame::Target_Format() && format != LowTargetFormat) {
+        fail("unsupported cloud scene colour format");
         return false;
     }
     return true;
@@ -614,7 +580,7 @@ bool BackendLayer::render(const Camera &camera)
     // Target changes close the low-resolution pass before the composite samples
     // it. Both draws keep the original camera/depth uniforms; only the low pass's
     // raster viewport changes. No extra submission or GPU wait is necessary.
-    draw.Pipeline = shared.compositePipeline;
+    draw.Pipeline = shared.compositePipeline[SdlGpuFrame::Target_Colour_Format(target) == LowTargetFormat];
     draw.SamplerCount = 5;
     bindTerrain(draw);
     draw.Textures[2] = shared.lowTarget.Colour;
@@ -636,7 +602,7 @@ bool BackendLayer::render(const Camera &camera)
             // Include the smoke and embers in the refraction. Warping only the
             // background makes heat disappear under a dense cloud's opacity.
             captureHeatBackground(target);
-            heatDraw.Pipeline = shared.heatPipeline;
+            heatDraw.Pipeline = shared.heatPipeline[SdlGpuFrame::Target_Colour_Format(target) == LowTargetFormat];
             heatDraw.SamplerCount = 7;
             heatDraw.Textures[5] = shared.heatBackground.Colour;
             heatDraw.Samplers[5] = shared.cacheSampler;

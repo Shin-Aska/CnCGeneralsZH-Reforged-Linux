@@ -34,9 +34,9 @@ namespace ReachLook
 	const Real RippleWidth = 3.0f;
 }
 
-/** This frame's fields on the ground.  Called from the terrain pass once the ground, the roads, the
-	* bridges and the tracks are down and before the shroud and any model: the shroud darkens it with
-	* the ground, every unit and building stands on it, and the interface is drawn long after. */
+/** This frame's fields on the ground.  Called from the terrain pass once the ground and its roads
+	* are down, before props, bridges, tracks and shroud. Later geometry covers it, the shroud darkens
+	* it with the ground, and the interface is drawn long after. */
 void W3DReachOverlay_Draw( CameraClass &camera );
 
 /** Lets go of every texture and Direct3D 11 object the overlay holds, for the terrain going away or a
@@ -48,5 +48,13 @@ void W3DReachOverlay_Release( void );
 	* not, so the first defence selected does not pay for the compile. */
 Bool DX11ReachOverlay_Draw( CameraClass &camera, const std::vector< const ReachOverlayField * > &fields );
 void DX11ReachOverlay_Release( void );
+
+#if !defined(_WIN32)
+/** Native SDL pass. False leaves the existing baked terrain sheet eligible.
+ * Empty selections still enter the adapter to retire the versioned field cache. */
+Bool SdlReachOverlay_Draw( CameraClass &camera, const std::vector< const ReachOverlayField * > &fields );
+/** False retains the native owner until queued readers can be submitted. */
+Bool SdlReachOverlay_Release( void );
+#endif
 
 #endif

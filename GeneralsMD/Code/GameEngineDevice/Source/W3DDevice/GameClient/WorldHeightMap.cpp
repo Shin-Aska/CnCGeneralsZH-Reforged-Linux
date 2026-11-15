@@ -56,6 +56,9 @@
 #include "W3DDevice/GameClient/W3DShadow.h"
 
 #include "Common/file.h"
+#if defined(__linux__)
+#include "Platform/RenderPost.h"
+#endif
 
 #ifdef _INTERNAL
 // for occasional debugging...
@@ -524,7 +527,13 @@ Bool WorldHeightMap::ParseLightingDataChunk(DataChunkInput &file, DataChunkInfo 
 				after.diffuse.red, after.diffuse.green, after.diffuse.blue));
 		}
 		// a Direct3D 11 look like the haze that goes with it, so -d3d9 keeps the map's own sun
+#if defined(__linux__)
+        // Map lighting is loaded before a post scene exists. Use stable renderer
+        // admission, never the transient main-scene route or a DX11 identity.
+        if (TheGlobalData->m_mapLight && !TheGlobalData->m_classicGraphics && RenderPost::EnvironmentAvailable()) {
+#else
 		if (TheGlobalData->m_mapLight && TheGlobalData->m_direct3D11) {
+#endif
 			for (i=TIME_OF_DAY_FIRST; i<TIME_OF_DAY_COUNT; i++) {
 				mapLightSun(TheWritableGlobalData->m_terrainLighting[i][0]);
 				mapLightSun(TheWritableGlobalData->m_terrainObjectsLighting[i][0]);

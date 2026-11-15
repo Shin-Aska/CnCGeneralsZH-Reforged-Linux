@@ -131,6 +131,8 @@ public:
 	virtual void takeScreenShot(void);						//save screenshot to file
 	virtual void toggleMovieCapture(void);			//enable AVI or frame capture mode.
 	virtual const WideChar *getRendererName(void) const;
+	virtual Bool supportsRendererFeature(RendererFeature feature) const;
+	virtual Bool supportsBattleMarks(void) const;
 
 	virtual void toggleLetterBox(void);	///<enabled letter-boxed display
 	virtual void enableLetterBox(Bool enable);	///<forces letter-boxed display on/off

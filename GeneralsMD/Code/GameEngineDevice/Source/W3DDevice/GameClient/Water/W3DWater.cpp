@@ -36,6 +36,7 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "Platform/SunShadow.h"
+#include "Platform/RenderWaterFoam.h"
 #include "Platform/ModernWaterBuild.h"
 #if defined(__linux__)
 #include "Platform/RenderTiming.h"
@@ -331,8 +332,12 @@ static Bool wireframeForDebug = 0;
 
 static Bool waterFoam(void)
 {
-	return TheGlobalData->m_waterFoam && !TheGlobalData->m_classicGraphics
-		&& TheGlobalData->m_waterStyle == 0 && Direct3D11_Present_Is_Enabled();
+    return TheGlobalData->m_waterFoam && !TheGlobalData->m_classicGraphics && TheGlobalData->m_waterStyle == 0
+#if defined(__linux__)
+        && DX8Wrapper::Supports_Renderer_Feature(RendererFeature::WaterFoam) && RenderWaterFoam::Ready();
+#else
+        && Direct3D11_Present_Is_Enabled();
+#endif
 }
 
 // What the foam programs read out of the texture factor: green is the swell's phase, alpha the
@@ -4327,11 +4332,16 @@ void WaterRenderObjClass::Render(RenderInfoClass & rinfo)
 #endif
 	}
 #endif
-	if (waterFoam()) Direct3D11_Take_Scene_Depth();
+	#if defined(_WIN32)
+    if (waterFoam()) Direct3D11_Take_Scene_Depth();
+#else
+    // waterFoam's native admission takes its independent opaque-scene copy.
+    (void)waterFoam();
+#endif
 
 #if defined(__linux__)
 	SunShadow::ReceiverExclusion sunReceivers(DX8Wrapper::_Get_D3D_Device(),
-		!(m_useModernWater && m_waterType==WATER_TYPE_0_TRANSLUCENT));
+		!((m_useModernWater && m_waterType==WATER_TYPE_0_TRANSLUCENT) || waterFoam()));
 #endif
 #if ZH_MODERN_WATER
 	// A modern water patch proves surface coverage, not replacement surf coverage.

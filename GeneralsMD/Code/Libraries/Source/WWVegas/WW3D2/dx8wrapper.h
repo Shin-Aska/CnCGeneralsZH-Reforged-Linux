@@ -51,6 +51,8 @@
 #include "always.h"
 #include "dllist.h"
 #include <d3d9.h>
+#include "Platform/RendererCapabilities.h"
+#include "Platform/RenderLighting.h"
 #include "Platform/RenderTypes.h"	// the Win32 types the device interface crosses with, engine-named
 #include "d3dx9runtime.h"
 #include "d3dx9math.h"
@@ -208,6 +210,11 @@ struct RenderStateStruct
 	TextureBaseClass * Textures[MAX_TEXTURE_STAGES];
 	D3DLIGHT9 Lights[4];
 	bool LightEnable[4];
+#if !defined(_WIN32)
+	bool HasLightingEnvironment = false, HasStaticLighting = false, HasNativeAmbient = false;
+	unsigned NativeAmbient = 0;
+	RenderLighting::VertexEnvironment FullLighting = {}, StaticLighting = {};
+#endif
   //unsigned lightsHash;
 	Matrix4x4 world;
 	Matrix4x4 view;
@@ -460,6 +467,11 @@ public:
 	static bool Is_Initted(void) { return IsInitted; }
 
 	static bool Has_Stencil (void);
+
+	// Battle Marks use the shared terrain/scorch renderer on Linux SDL GPU and Windows DX11.
+	// This is device availability only; the client applies its option and Classic graphics gates.
+	static bool Supports_Battle_Marks (void);
+	static bool Supports_Renderer_Feature(RendererFeature feature);
 	static void Get_Format_Name(unsigned int format, StringClass *tex_format);
 
 	/*
@@ -484,6 +496,9 @@ public:
 	static void Set_Index_Buffer_Index_Offset(unsigned offset);
 
 	static void Get_Render_State(RenderStateStruct& state);
+#if !defined(_WIN32)
+	static void Apply_Queued_Light_Environment(const RenderStateStruct &state);
+#endif
 	static void Set_Render_State(const RenderStateStruct& state);
 	static void Release_Render_State();
 
@@ -1331,6 +1346,9 @@ WWINLINE void DX8Wrapper::Set_DX8_Light(int index, D3DLIGHT9* light)
 
 WWINLINE void DX8Wrapper::Set_DX8_Render_State(D3DRENDERSTATETYPE state, unsigned value)
 {
+#if !defined(_WIN32)
+	if (state==D3DRS_AMBIENT) { render_state.HasNativeAmbient=true;render_state.NativeAmbient=value; }
+#endif
 	// Can't monitor state changes because setShader call to GERD may change the states!
 	if (RenderStates[state]==value) return;
 
@@ -1510,6 +1528,10 @@ WWINLINE void DX8Wrapper::Set_Alpha (const float alpha, unsigned int &color)
 WWINLINE void DX8Wrapper::Get_Render_State(RenderStateStruct& state)
 {
 	state=render_state;
+#if !defined(_WIN32)
+	state.HasNativeAmbient=true;
+	state.NativeAmbient=RenderStates[D3DRS_AMBIENT];
+#endif
 }
 
 WWINLINE void DX8Wrapper::Get_Shader(ShaderClass& shader)
@@ -1731,6 +1753,9 @@ WWINLINE void DX8Wrapper::Set_Render_State(const RenderStateStruct& state)
 
 	render_state=state;
 	render_state_changed=0xffffffff;
+#if !defined(_WIN32)
+	Apply_Queued_Light_Environment(state);
+#endif
 
 	if (render_state.index_buffer) {
 		render_state.index_buffer->Add_Engine_Ref();
@@ -1828,6 +1853,14 @@ WWINLINE RenderStateStruct& RenderStateStruct::operator= (const RenderStateStruc
 		REF_PTR_SET(Textures[i],src.Textures[i]);
 	}
 
+#if !defined(_WIN32)
+	HasLightingEnvironment=src.HasLightingEnvironment;
+	HasStaticLighting=src.HasStaticLighting;
+	HasNativeAmbient=src.HasNativeAmbient;
+	NativeAmbient=src.NativeAmbient;
+	if (HasLightingEnvironment) FullLighting=src.FullLighting;
+	if (HasStaticLighting) StaticLighting=src.StaticLighting;
+#endif
 	LightEnable[0]=src.LightEnable[0];
 	LightEnable[1]=src.LightEnable[1];
 	LightEnable[2]=src.LightEnable[2];

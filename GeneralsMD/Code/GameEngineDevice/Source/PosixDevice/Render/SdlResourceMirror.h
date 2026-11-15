@@ -54,6 +54,7 @@ class PosixImage;
 class SdlGpuFrame;
 struct SDL_GPUBuffer;
 struct SDL_GPUTexture;
+struct SdlGpuParticleTextureView;
 
 /// How a level of `format` goes up: the SDL_GPUTextureFormat it is sampled as, and whether its bytes
 /// go up as they are (else they are expanded to B8G8R8A8).  `bc_ok` says whether the GPU samples BC
@@ -81,6 +82,8 @@ public:
 	/// Whether the object already has a GPU copy: a render target nothing has drawn into has none, and its
 	/// CPU image is then the current one.
 	bool Has_Copy(const void * owner) const;
+	/// Checked reader barrier and stable logical/content identity for native texture-array consumers.
+	static bool Native_Texture_View(IDirect3DBaseTexture9 *, SdlGpuParticleTextureView &, std::string &);
 	/// A standalone render-target (colour) or depth surface's GPU texture, made on first use (A3d).  Its
 	/// pixels are the GPU's: nothing is uploaded from its image.
 	SDL_GPUTexture * Surface(IDirect3DSurface9 * surface, bool depth, std::string & refusal);
@@ -105,6 +108,7 @@ private:
 		uint32_t Size;						///< a buffer's
 		bool Native;						///< a texture's levels go up as they are
 		std::vector<uint32_t> Versions;		///< what the copy holds, one per level (one for a buffer)
+		uint64_t Identity = 0, Generation = 0; ///< independent of allocator address reuse
 		uint64_t UsedBatch;					///< the last batch a draw recorded it in
 	};
 

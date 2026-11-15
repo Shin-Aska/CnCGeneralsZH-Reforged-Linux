@@ -106,6 +106,11 @@
 #include "WW3D2/predlod.h"
 #include "WW3D2/ww3d.h"
 #include "WW3D2/dx11runtime.h"
+#include "Platform/RenderPost.h"
+#if defined(__linux__)
+#include "WW3D2/dx8wrapper.h"
+#include "Platform/RendererName.h"
+#endif
 #if defined(_WIN32)
 #include "dx11post.h"	//DX11Post_Set_Warps; the library is not built off Windows
 #endif
@@ -3109,7 +3114,7 @@ void W3DView::draw( void )
 	tPostChainStart = Clock_Ticks();
 #endif
 	updateScreenDistortions();
-	Direct3D11_Finish_Scene();
+	RenderPost::FinishScene();
 #ifdef DEBUG_LOGGING
 	tPostChainEnd = Clock_Ticks();
 	ThePostChainMS = viewElapsedMS( tPostChainStart, tPostChainEnd );
@@ -4751,8 +4756,13 @@ void W3DView::shake( const Coord3D *epicenter, CameraShakeType shakeType )
 
 	// Every SEVERE shake (a nuke, a Scud warhead, a bomb truck) is a kick: three times the range, since
 	// at 150 units a nuke in plain view moved nothing at all, a third harder at the epicentre, up to
-	// MaxShakeIntensity, and no rumble after it.  Not under Classic or Direct3D 9.
-	const Bool kick = shakeType == SHAKE_SEVERE && !TheGlobalData->m_classicGraphics && Direct3D11_Present_Is_Enabled();
+	// MaxShakeIntensity, and no rumble after it. Classic and Windows Direct3D 9 keep the old shake.
+	const Bool kick = shakeType == SHAKE_SEVERE && !TheGlobalData->m_classicGraphics
+#if defined(__linux__)
+		&& PosixRenderer_Has_Gpu(DX8Wrapper::_Get_D3D_Device());
+#else
+		&& Direct3D11_Present_Is_Enabled();
+#endif
 	const Real range = TheGlobalData->m_maxShakeRange * (kick ? 3.0f : 1.0f);
 	if (dist > range)
 		return;
@@ -4775,9 +4785,8 @@ void W3DView::shake( const Coord3D *epicenter, CameraShakeType shakeType )
 }
 
 //-------------------------------------------------------------------------------------------------
-/** A blast that bends the picture.  Only the Direct3D 11 post chain draws it: under Direct3D 9 the
-	* warps are handed over all the same and no pass reads them, and off Windows the list is dropped
-	* at the next draw.  A fifth blast on a full list pushes the oldest off. */
+/** A blast that bends the picture.  The enhanced native or Direct3D 11 post chain draws it;
+	* an inactive user chain leaves the picture unchanged.  A fifth blast on a full list pushes the oldest off. */
 //-------------------------------------------------------------------------------------------------
 void W3DView::addScreenDistortion( const Coord3D *epicenter, const ScreenDistortionInfo &info )
 {
@@ -4831,7 +4840,10 @@ static Real distortionEase( Real x )
 //-------------------------------------------------------------------------------------------------
 void W3DView::updateScreenDistortions( void )
 {
-#if defined(_WIN32)
+#if defined(_WIN32) || defined(__linux__)
+#if defined(__linux__)
+    using DX11PostWarp = RenderPost::Warp;
+#endif
 	DX11PostWarp warps[MAX_SCREEN_DISTORTIONS];
 	Int warpCount = 0;
 	const Real displayWidth = (Real)TheDisplay->getWidth();
@@ -4924,7 +4936,11 @@ void W3DView::updateScreenDistortions( void )
 		warp.RingSquash = squash;
 	}
 	m_distortionCount = kept;
+#if defined(_WIN32)
 	DX11Post_Set_Warps(warps, (unsigned)warpCount);
+#else
+    RenderPost::SetWarps(warps, (unsigned)warpCount);
+#endif
 #else
 	m_distortionCount = 0;
 #endif

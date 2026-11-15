@@ -20,7 +20,7 @@ namespace {
 SDL_GPUDevice *gpu = nullptr;
 SDL_GPUShader *vertexShader = nullptr;
 SDL_GPUShader *pixelShader = nullptr;
-SDL_GPUGraphicsPipeline *pipeline = nullptr;
+SDL_GPUGraphicsPipeline *pipelines[2] = {};
 SDL_GPUSampler *depthSampler = nullptr;
 bool failed = false;
 unsigned renderedFrames = 0;
@@ -67,8 +67,11 @@ bool makeResources(SdlGpuFrame *frame)
     // Clouds render only into the main scene. Its implicit and mirrored depth
     // surfaces use the frame's scene format, independently of shadow targets.
     description.target_info.depth_stencil_format = static_cast<SDL_GPUTextureFormat>(frame->Depth_Format());
-    pipeline = SDL_CreateGPUGraphicsPipeline(gpu, &description);
-    if (!pipeline) return fail(SDL_GetError());
+    for (unsigned format = 0; format < 2; ++format) {
+        colour.format = format ? SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT : static_cast<SDL_GPUTextureFormat>(SdlGpuFrame::Target_Format());
+        pipelines[format] = SDL_CreateGPUGraphicsPipeline(gpu, &description);
+        if (!pipelines[format]) return fail(SDL_GetError());
+    }
     SDL_GPUSamplerCreateInfo sampler = {};
     sampler.min_filter = sampler.mag_filter = SDL_GPU_FILTER_NEAREST;
     sampler.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
@@ -84,7 +87,7 @@ bool makeResources(SdlGpuFrame *frame)
 bool initialize(SdlGpuFrame *frame)
 {
     if (failed || !frame || !frame->Device()) return false;
-    if (!pipeline && !makeResources(frame)) return false;
+    if (!pipelines[0] && !makeResources(frame)) return false;
     return gpu == frame->Device() || fail("the graphics device was replaced");
 }
 
@@ -93,6 +96,8 @@ bool prepare(SdlGpuFrame *frame, const SdlTarget &target,
 {
     if (failed || !frame || !frame->Device() || !target.Colour || !target.Depth
         || fieldCount > 2 || (fieldCount && !fields)) return false;
+    const unsigned format = SdlGpuFrame::Target_Colour_Format(target);
+    if (format != SdlGpuFrame::Target_Format() && format != SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT) return false;
     for (unsigned i = 0; i < fieldCount; ++i) {
         if (!HazardCloud::emberField(fields[i])) continue;
         if (!initialize(frame)) return false;
@@ -112,6 +117,9 @@ bool render(SdlGpuFrame *frame, const SdlTarget &target, SDL_GPUTexture *sceneDe
         || !target.Width || !target.Height || !viewProjection || !viewport
         || fieldCount > 2 || (fieldCount && !fields) || !std::isfinite(timeSeconds))
         return fail("invalid rendering inputs");
+    const unsigned format = SdlGpuFrame::Target_Colour_Format(target);
+    if (format != SdlGpuFrame::Target_Format() && format != SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT)
+        return fail("unsupported ember scene colour format");
     if (terrainDomain) {
         HazardCloud::EmberConstants check = {};
         if (!HazardCloud::setEmberTerrainDomain(terrainDomain, check))
@@ -129,7 +137,7 @@ bool render(SdlGpuFrame *frame, const SdlTarget &target, SDL_GPUTexture *sceneDe
         if (terrainDomain) HazardCloud::setEmberTerrainDomain(terrainDomain, constants);
         const float pixelConstants[4] = { 1.0f / target.Width, 1.0f / target.Height, 0, 0 };
         SdlRecordedDraw draw = {};
-        draw.Pipeline = pipeline;
+        draw.Pipeline = pipelines[SdlGpuFrame::Target_Colour_Format(target) == SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT];
         // SV_VertexID creates each billboard; the common batch still binds a
         // valid staging buffer even though this pipeline has no vertex inputs.
         std::memset(frame->Stage(16, draw.VertexOffset), 0, 16);
@@ -162,7 +170,7 @@ bool validationPassed() { return !failed; }
 void shutdown()
 {
     if (gpu) {
-        if (pipeline) SDL_ReleaseGPUGraphicsPipeline(gpu, pipeline);
+        for (auto *pipeline : pipelines) if (pipeline) SDL_ReleaseGPUGraphicsPipeline(gpu, pipeline);
         if (depthSampler) SDL_ReleaseGPUSampler(gpu, depthSampler);
         if (vertexShader) SDL_ReleaseGPUShader(gpu, vertexShader);
         if (pixelShader) SDL_ReleaseGPUShader(gpu, pixelShader);
@@ -176,7 +184,7 @@ void abandon()
 {
     gpu = nullptr;
     vertexShader = pixelShader = nullptr;
-    pipeline = nullptr;
+    pipelines[0] = pipelines[1] = nullptr;
     depthSampler = nullptr;
     renderedFrames = 0;
     failed = false;
