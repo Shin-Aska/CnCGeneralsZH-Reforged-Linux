@@ -1,0 +1,246 @@
+{
+  "command": [
+    "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/candidate-v4/generals",
+    "-root",
+    "/mnt/passport/E-Drive/Linux Steam Library/steamapps/common/Command & Conquer Generals - Zero Hour",
+    "-overlay",
+    "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/primary-runs/rain-enhanced-on-r3/overlay",
+    "-offscreen",
+    "-multiInstance",
+    "-win",
+    "-xres",
+    "1920",
+    "-yres",
+    "1080",
+    "-msaa",
+    "0",
+    "-quickstart",
+    "-noshellmap",
+    "-nologo",
+    "-novideo",
+    "-noFPSLimit",
+    "-noDynamicLOD",
+    "-turbo",
+    "-camera",
+    "640",
+    "600",
+    "-maxframes",
+    "25320",
+    "-particlecap",
+    "3000",
+    "-gpuparticles",
+    "0",
+    "-dx11post",
+    "off",
+    "-logPrefix",
+    "weather_71cdbf1b1594_",
+    "-map",
+    "Maps/WeatherEvidence/WeatherEvidence.map",
+    "-autoskirmish",
+    "2",
+    "-observer",
+    "-seed",
+    "7",
+    "-side",
+    "0",
+    "FactionAmerica",
+    "-side",
+    "1",
+    "FactionChina",
+    "-scenario",
+    "weather_evidence",
+    "-startingcash",
+    "1",
+    "-peacetime",
+    "10",
+    "-screenshot",
+    "25380"
+  ],
+  "environment": {
+    "ZH_USER_DATA_DIR": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/primary-runs/rain-enhanced-on-r3/user",
+    "ZH_UNATTENDED": "1",
+    "ZH_AUDIO_BACKEND": "null",
+    "SDL_VIDEODRIVER": "offscreen",
+    "SDL_GPU_DRIVER": "vulkan",
+    "ZH_OFFSCREEN_HZ": "0",
+    "ZH_SUN_SHADOW_CAPTURE_CLOCK": "logic",
+    "ZH_WATER_CAPTURE_CLOCK": "picture",
+    "VK_DRIVER_FILES": "/usr/share/vulkan/icd.d/nvidia_icd.json",
+    "ZH_ALLOW_AUDIO": "1",
+    "ZH_GPU_TIMING": "0,1",
+    "ZH_GPU_TIMING_LOGIC": "601,25200",
+    "ZH_GPU_TIMING_CSV": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/primary-runs/rain-enhanced-on-r3/timing.csv",
+    "ZH_GPU_TIMING_SYNC": "0"
+  },
+  "candidate_sha256": "917e182cbd5f9f7fff24a10c2331996cbeb26f25be82d05d779f5e028e8ef55c",
+  "kind": "rain",
+  "variant": "on",
+  "repeat": 3,
+  "map_sha256": "6dc4dec8c5671302ef3762d291c6026059d80fec6b5d9355c48c95d528b841fa",
+  "profile_sha256": "8528afb53b99f5e9ccc58caecef59927e51c9c0c4c0ca51d821261e07645c306",
+  "first": 601,
+  "last": 25200,
+  "night": false,
+  "atmosphere": "on",
+  "maplight": "on",
+  "freecam": null,
+  "passive": false,
+  "audio": true,
+  "idle_ai": true,
+  "capture_clock_arm_frame": 25380,
+  "capture_outside_timing_window": true,
+  "capture_clock_arm_inert": true,
+  "runner_sha256": "b92c34f710f3d8208b0b33b424613470db6298caf0df58981d1b5f809a8d6309",
+  "generator_sha256": "748ace731c680c90dd5ff5caf7e4b428879fcf7f4d71bb5dc17e70564d605169",
+  "log_prefix": "weather_71cdbf1b1594_",
+  "scenario_sha256": "68b4ee00352522f56623f4efb7a43de6c473cf6ac94f83d5e4197fdd83057eee",
+  "warmup_logic_frames": 600,
+  "profile_common_sha256": "18f036577501ae74785035a3074264482d0e65f5cdeee7fe9ba6c1d3c172de50",
+  "overlay_inventory_sha256": "b407239259c7a1f33a6ea32e35cc783751ac1071fcff96be67118c539fab7917",
+  "label": "enhanced-on",
+  "sample_window_simulated_seconds": 410.0,
+  "expected_samples": 24600,
+  "width": 1920,
+  "height": 1080,
+  "platform": "Linux-7.3.4-x64v3-xanmod1-x86_64-with-glibc2.43",
+  "cpu": [
+    "12th Gen Intel(R) Core(TM) i7-12700"
+  ],
+  "weather_clock": "Existing deterministic W3D capture clock: one logic frame = 1/60s; armed at startup by an existing screenshot request",
+  "timing_basis": "Native end-to-end offscreen present intervals, not GPU timestamps/FPS; real null-backend audio mixer enabled",
+  "admission_sha256": "3e49171cafc623ad696527df5ef9880362db285a57ab9aab04362d2ffb33784d",
+  "rain_seed": 2096055520,
+  "phase_helper_sha256": "b51a3ae85cf5894562b8a1155bff645e0999109a7ae29f693ce946ea913cab1e",
+  "phase_source_sha256": "9cffe39d0a62a874acd3499c908cc02483859b0b9bb31777fae05d36bcd23d82",
+  "phase_tool_source_sha256": "772269c41bfababb6984eb8c0c8175e867f4043633a08233bc4c47b28cb24706",
+  "retail_inventory_sha256": "e1f3f682d900b362315113be0d758d128d01c75abb04347e6e2068181c3d1de0",
+  "expected_crc": "0x29B3E8BA",
+  "expected_crc_frame": 25320,
+  "hardware_before": {
+    "platform": "Linux-7.3.4-x64v3-xanmod1-x86_64-with-glibc2.43",
+    "nvidia_smi": {
+      "command": [
+        "nvidia-smi",
+        "--query-gpu=name,uuid,driver_version,memory.total,memory.used,temperature.gpu,pstate,power.draw,clocks.current.graphics,clocks.current.memory",
+        "--format=csv,noheader"
+      ],
+      "returncode": 0,
+      "stdout": "NVIDIA GeForce RTX 4060, GPU-dbf5e883-04f0-6f25-aff9-3f4b44470832, 595.112.07, 8188 MiB, 245 MiB, 49, P2, [N/A], 2790 MHz, 8251 MHz\n",
+      "stderr": ""
+    }
+  },
+  "returncode": 0,
+  "wall_seconds": 252.68855004099896,
+  "hardware_after": {
+    "platform": "Linux-7.3.4-x64v3-xanmod1-x86_64-with-glibc2.43",
+    "nvidia_smi": {
+      "command": [
+        "nvidia-smi",
+        "--query-gpu=name,uuid,driver_version,memory.total,memory.used,temperature.gpu,pstate,power.draw,clocks.current.graphics,clocks.current.memory",
+        "--format=csv,noheader"
+      ],
+      "returncode": 0,
+      "stdout": "NVIDIA GeForce RTX 4060, GPU-dbf5e883-04f0-6f25-aff9-3f4b44470832, 595.112.07, 8188 MiB, 245 MiB, 55, P2, [N/A], 2790 MHz, 8251 MHz\n",
+      "stderr": ""
+    }
+  },
+  "candidate_after_sha256": "917e182cbd5f9f7fff24a10c2331996cbeb26f25be82d05d779f5e028e8ef55c",
+  "engine_log_provenance": {
+    "path": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/candidate-v4/weather_71cdbf1b1594_DebugLogFile.txt",
+    "new_for_run": true,
+    "sha256": "d806198a323089b0664bc77f1d26734fc4db9079e3fdd359953d82b35ef0e6f0"
+  },
+  "crc": [
+    "HEADLESS CRC AT LIMIT: 0x29B3E8BA at frame 25320"
+  ],
+  "validation_errors": [],
+  "timer_status": [
+    "PosixDevice9 timing: LOGIC window 601..25200 samples=24600 expected=24600 rejected=0 status=complete"
+  ],
+  "metrics": {
+    "frame_ms": {
+      "samples": 24600,
+      "mean": 9.804130775243902,
+      "median": 9.682049,
+      "p95": 10.757241,
+      "minimum": 7.778155,
+      "maximum": 18.694995
+    },
+    "work_ms": {
+      "samples": 24600,
+      "mean": 9.803008107154472,
+      "median": 9.6808715,
+      "p95": 10.755895,
+      "minimum": 7.777139,
+      "maximum": 18.692149
+    },
+    "device_draw_ms": {
+      "samples": 24600,
+      "mean": 0.3385517119105691,
+      "median": 0.30723999999999996,
+      "p95": 0.552215,
+      "minimum": 0.2052,
+      "maximum": 6.283636
+    },
+    "device_flush_ms": {
+      "samples": 24600,
+      "mean": 6.697161446666667,
+      "median": 6.761900000000001,
+      "p95": 7.135817,
+      "minimum": 2.670716,
+      "maximum": 8.899058
+    },
+    "device_present_ms": {
+      "samples": 24600,
+      "mean": 0.060054985650406505,
+      "median": 0.0548745,
+      "p95": 0.085089,
+      "minimum": 0.040749,
+      "maximum": 1.877815
+    },
+    "swapchain_wait_ms": {
+      "samples": 24600,
+      "mean": 0.0,
+      "median": 0.0,
+      "p95": 0.0,
+      "minimum": 0.0,
+      "maximum": 0.0
+    },
+    "offscreen_wait_ms": {
+      "samples": 24600,
+      "mean": 0.0011226680894308944,
+      "median": 0.001062,
+      "p95": 0.001579,
+      "minimum": 0.000679,
+      "maximum": 0.021218
+    },
+    "fence_ms": {
+      "samples": 24600,
+      "mean": 0.0,
+      "median": 0.0,
+      "p95": 0.0,
+      "minimum": 0.0,
+      "maximum": 0.0
+    },
+    "draws": {
+      "samples": 24600,
+      "mean": 351.8445528455285,
+      "median": 360.0,
+      "p95": 469.0,
+      "minimum": 244.0,
+      "maximum": 570.0
+    },
+    "flushes": {
+      "samples": 24600,
+      "mean": 4.241178861788618,
+      "median": 4.0,
+      "p95": 5.0,
+      "minimum": 4.0,
+      "maximum": 7.0
+    }
+  },
+  "timing_csv_sha256": "4ee7f5bc9d1824d6166d9068eed8e45a4c1b76eb7b19cdf1292bb111f90ef845",
+  "crc_admitted": true,
+  "overlay_after_inventory_sha256": "b407239259c7a1f33a6ea32e35cc783751ac1071fcff96be67118c539fab7917",
+  "accepted": true
+}

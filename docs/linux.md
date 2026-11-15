@@ -50,6 +50,19 @@ scene coverage. It builds a scene BVH on the CPU and traces on the GPU, accumula
 a stationary view over 64 frames. Hybrid remains the default.
 See the [reflection guide](water-preview.md#reflections) for details and preview controls.
 
+## Weather
+
+**Options → Effects → Weather** adds rain, blowing sand or drifting snow according to the map, with gusts,
+ambient sound and atmospheric haze/sky lighting. Rain comes in short spells with longer dry breaks and
+soft transitions. Maps can start clear or rainy; the opening varies with the match seed and remains
+reproducible for a fixed seed or replay. Maps with their own authored rain or snow keep that behavior. Low blowing dust stays on
+dry ground rather than crossing water, and rain can leave brief ground splashes and water rings.
+
+The option starts off for new profiles. Classic graphics suppresses it while retaining the saved preference.
+Only client presentation changes; other players may choose their own setting. The separate Heat Haze option
+is unchanged. See the [weather qualification guide](reference/weather-enhancements-2026-11-15/README.md) for
+the implementation boundaries and current validation status.
+
 ## Battle marks
 
 The native Linux renderer supports **Options → Effects → Battle Marks** when Classic graphics is off.

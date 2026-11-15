@@ -1,0 +1,52 @@
+Breakpoint 1 at 0x8974a0: file /mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DDisplay.cpp, line 4475.
+
+This GDB supports auto-downloading debuginfo from the following URLs:
+  <https://debuginfod.ubuntu.com>
+Debuginfod has been disabled.
+To make this setting permanent, add 'set debuginfod enabled off' to .gdbinit.
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/usr/lib/x86_64-linux-gnu/libthread_db.so.1".
+[New Thread 0x7ffff772a6c0 (LWP 147448)]
+generals: overlay /mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/v4-matrix-sand-night/overlay, searched before the install
+[New Thread 0x7ffff2aeb6c0 (LWP 147449)]
+[New Thread 0x7ffff22ea6c0 (LWP 147450)]
+[New Thread 0x7ffff1ae96c0 (LWP 147451)]
+[New Thread 0x7ffff12e86c0 (LWP 147452)]
+[New Thread 0x7ffff0ae76c0 (LWP 147453)]
+[New Thread 0x7ffff02e66c0 (LWP 147454)]
+[New Thread 0x7fffefae56c0 (LWP 147455)]
+[New Thread 0x7fffef2e46c0 (LWP 147456)]
+[New Thread 0x7fffeeae36c0 (LWP 147457)]
+[New Thread 0x7fffee2e26c0 (LWP 147458)]
+[New Thread 0x7fffedae16c0 (LWP 147459)]
+[New Thread 0x7fffed2e06c0 (LWP 147460)]
+[New Thread 0x7fffecadf6c0 (LWP 147461)]
+[New Thread 0x7fffec2de6c0 (LWP 147462)]
+[New Thread 0x7fffebadd6c0 (LWP 147463)]
+[New Thread 0x7fffeb2dc6c0 (LWP 147464)]
+[New Thread 0x7fffeaadb6c0 (LWP 147465)]
+[New Thread 0x7fffea2da6c0 (LWP 147466)]
+[New Thread 0x7fffe9ad96c0 (LWP 147467)]
+generals: refused to delete "Data\INI\INIZH.big": the install root is read-only (P1)
+ModernWater: loaded 2 material rules from Data\INI\ModernWater.ini
+[New Thread 0x7fffe92d86c0 (LWP 147469)]
+[New Thread 0x7fffe89c66c0 (LWP 147470)]
+[New Thread 0x7fffe81c56c0 (LWP 147471)]
+[New Thread 0x7fffe79c46c0 (LWP 147472)]
+Installed Vulkan doesn't implement the VK_EXT_headless_surface extension
+[New Thread 0x7fffdcbff6c0 (LWP 147480)]
+[New Thread 0x7fffd23ff6c0 (LWP 147481)]
+[New Thread 0x7fffd1bfe6c0 (LWP 147483)]
+[New Thread 0x7fffd13fd6c0 (LWP 147484)]
+[New Thread 0x7fffd09fc6c0 (LWP 147486)]
+PosixDevice9: offscreen, 1280x720, unpaced
+[New Thread 0x7fffba8f56c0 (LWP 147487)]
+[New Thread 0x7fffb655f6c0 (LWP 147488)]
+water-shore-domain: revision=3 result=3 cells=0 edges=0 levels=0 tiles=0 support_vertices=0 support_work=0
+SunShadow: requested mapped
+D3DX: D3DXCompileShader (to D3D9 bytecode; the SDL3 GPU draw compiles its own) is not available off Windows yet; the call fails
+ZH_WATER_CLEAN_OPT=stream,collapse=1.5
+[New Thread 0x7fffb538e6c0 (LWP 147490)]
+water auto sea: source=WaterWaveHeading::prevailing travel=0.000 field unavailable; configured fallback effective=-135.000 mode=auto
+/tmp/weather-v4-snapshot.gdb:14: Error in sourced command file:
+No symbol "TheGlobalData" in current context.

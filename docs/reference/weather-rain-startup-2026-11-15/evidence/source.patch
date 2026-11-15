@@ -1,0 +1,2272 @@
+diff --git a/GeneralsMD/Code/BuildFingerprint.manifest b/GeneralsMD/Code/BuildFingerprint.manifest
+index f67d24f7..f93dc696 100644
+--- a/GeneralsMD/Code/BuildFingerprint.manifest
++++ b/GeneralsMD/Code/BuildFingerprint.manifest
+@@ -992,6 +992,7 @@ GameEngine/Include/GameClient/UiAnimClock.h
+ GameEngine/Include/GameClient/VideoPlayer.h
+ GameEngine/Include/GameClient/View.h
+ GameEngine/Include/GameClient/Water.h
++GameEngine/Include/GameClient/WeatherBreezeMath.h
+ GameEngine/Include/GameClient/WinInstanceData.h
+ GameEngine/Include/GameClient/WindowLayout.h
+ GameEngine/Include/GameClient/WindowVideoManager.h
+@@ -2123,6 +2124,7 @@ GameEngineDevice/Include/W3DDevice/GameClient/W3DWaterTracks.h
+ GameEngineDevice/Include/W3DDevice/GameClient/W3DWaypointBuffer.h
+ GameEngineDevice/Include/W3DDevice/GameClient/W3DWebBrowser.h
+ GameEngineDevice/Include/W3DDevice/GameClient/W3DWindowHooks.h
++GameEngineDevice/Include/W3DDevice/GameClient/WeatherParticleMath.h
+ GameEngineDevice/Include/W3DDevice/GameClient/WorldHeightMap.h
+ GameEngineDevice/Include/W3DDevice/GameClient/camerashakesystem.h
+ GameEngineDevice/Include/W3DDevice/GameLogic/W3DGameLogic.h
+@@ -3721,6 +3723,7 @@ Tests/test_water_path_tracing.cpp
+ Tests/test_water_preview_preset.cpp
+ Tests/test_water_scene_bank.cpp
+ Tests/test_water_tracks.cpp
++Tests/test_weather_particle_math.cpp
+ Tests/test_widechar_crc_gate.cpp
+ Tests/test_widechar_file.cpp
+ Tests/test_widechar_format.cpp
+diff --git a/GeneralsMD/Code/CMakeLists.txt b/GeneralsMD/Code/CMakeLists.txt
+index 028f071c..9a29979b 100644
+--- a/GeneralsMD/Code/CMakeLists.txt
++++ b/GeneralsMD/Code/CMakeLists.txt
+@@ -2768,6 +2768,10 @@ endif()
+ # T1c (defect 17): the water grid's step, moved to the top of each logic frame, against the original
+ # code's output under EA's one-pass-per-frame loop (Tests/water_grid_oracle.cpp), under catch-up too.
+ add_lib_test(test_water_grid gameengine)
++add_executable(test_weather_particle_math ${TESTS}/test_weather_particle_math.cpp)
++target_include_directories(test_weather_particle_math PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Include ${CMAKE_CURRENT_SOURCE_DIR}/GameEngine/Include)
++set_target_properties(test_weather_particle_math PROPERTIES CXX_STANDARD 17)
++add_test(NAME test_weather_particle_math COMMAND test_weather_particle_math)
+ target_sources(test_water_grid PRIVATE ${TESTS}/test_gameengine_stubs.cpp)
+ set_target_properties(test_water_grid PROPERTIES CXX_STANDARD 17)
+ if(ZH_PLATFORM_POSIX)
+diff --git a/GeneralsMD/Code/GameEngine/Include/Common/GameAudio.h b/GeneralsMD/Code/GameEngine/Include/Common/GameAudio.h
+index 0bc253a6..2d7fd0c8 100644
+--- a/GeneralsMD/Code/GameEngine/Include/Common/GameAudio.h
++++ b/GeneralsMD/Code/GameEngine/Include/Common/GameAudio.h
+@@ -243,6 +243,8 @@ class AudioManager : public SubsystemInterface
+ 		virtual Bool isObjectPlayingVoice( UnsignedInt objID ) const = 0;
+ 
+ 		virtual void adjustVolumeOfPlayingAudio(AsciiString eventName, Real newVolume) = 0;
++		/// Change one presentation loop's gain, preserving normal category/master mixing.
++		virtual void setAudioEventVolume(AudioHandle handle, Real volume) { }
+ 		virtual void removePlayingAudio( AsciiString eventName ) = 0;
+ 		virtual void removeAllDisabledAudio() = 0;
+ 		
+diff --git a/GeneralsMD/Code/GameEngine/Include/GameClient/Snow.h b/GeneralsMD/Code/GameEngine/Include/GameClient/Snow.h
+index 2a035fb5..49c9b0e3 100644
+--- a/GeneralsMD/Code/GameEngine/Include/GameClient/Snow.h
++++ b/GeneralsMD/Code/GameEngine/Include/GameClient/Snow.h
+@@ -135,15 +135,28 @@ class SnowManager : public SubsystemInterface
+ 	Bool isVisible(void) const { return m_isVisible; }	///< a script has not hidden the weather.
+ 	WeatherKind getWeatherKind(void) const { return m_weatherKind; }	///< NONE while the option is off.
+ 	const Coord3D &getWeatherWind(void) const { return m_weatherWind; }	///< what the option's wind adds to smoke per update.
++	Real getWeatherGust(void) const { return m_weatherGust; }
++	Real getWeatherIntensity(void) const { return m_weatherIntensity; }
++	Real getWeatherStormEnvelope(void) const { return m_weatherStormEnvelope; }
+ 	void getWeatherHaze(float colour[3], Real *strength) const;	///< the still ground haze that goes with the kind.
+ 
+   protected :
+ 
+ 	void setWeatherWind(Real strength);	///< the option's breeze and smoke drift, along the script's breeze direction.
++	void setWeatherPresentation(Real gust, Real intensity, Real dt, Real envelope = 1.0f);	///< render-local sample after kind/visibility/provider selection.
++	void stopWeatherAmbience(void);
++	void updateWeatherAmbience(Real dt);
+ 
+ 	Bool				m_weatherOn;
+ 	WeatherKind			m_weatherKind;
+ 	Coord3D				m_weatherWind;
++	Real m_weatherGust;
++	Real m_weatherIntensity;
++	Real m_weatherStormEnvelope;
++	UnsignedInt m_weatherAmbientHandle;
++	WeatherKind m_weatherAmbientKind;
++	Real m_weatherAmbientRetry;
++	Real m_weatherAmbientBaseVolume;
+ 
+ 	Real				*m_startingHeights;
+ 	Real				m_time;	///<time elapsed since it started snowing.
+diff --git a/GeneralsMD/Code/GameEngine/Include/GameClient/WeatherBreezeMath.h b/GeneralsMD/Code/GameEngine/Include/GameClient/WeatherBreezeMath.h
+new file mode 100644
+index 00000000..37d63d6b
+--- /dev/null
++++ b/GeneralsMD/Code/GameEngine/Include/GameClient/WeatherBreezeMath.h
+@@ -0,0 +1,20 @@
++// Render-only breeze timing. No random draws, game state or phase resets.
++#pragma once
++
++namespace WeatherBreezeMath {
++inline int period(int scriptPeriod, int stormPeriod, float envelope)
++{
++    if (!(envelope>0.0f)) return scriptPeriod;
++    const int wet=scriptPeriod<stormPeriod ? scriptPeriod : stormPeriod;
++    if (envelope>=1.0f) return wet;
++    return int(scriptPeriod+(wet-scriptPeriod)*envelope+0.5f);
++}
++inline float step(float cachedStep, int cachedPeriod, int desiredPeriod)
++{
++    // Preserve legacy/off arithmetic exactly; never repeatedly rescale the cached random step.
++    if (cachedPeriod==desiredPeriod) return cachedStep;
++    if (cachedPeriod<=0 || desiredPeriod<=0) return 0.0f;
++    const float ratio=float(cachedPeriod)/float(desiredPeriod);
++    return cachedStep*ratio;
++}
++}
+diff --git a/GeneralsMD/Code/GameEngine/Source/GameClient/Snow.cpp b/GeneralsMD/Code/GameEngine/Source/GameClient/Snow.cpp
+index f06bfd22..31a544c8 100644
+--- a/GeneralsMD/Code/GameEngine/Source/GameClient/Snow.cpp
++++ b/GeneralsMD/Code/GameEngine/Source/GameClient/Snow.cpp
+@@ -30,8 +30,15 @@
+ 
+ #include "PreRTS.h"	// This must go first in EVERY cpp file int the Game
+ #include "GameClient/Snow.h"
++#include "GameClient/WeatherBreezeMath.h"
+ #include "GameClient/View.h"
+ #include "GameLogic/ScriptEngine.h"
++#include "GameLogic/GameLogic.h"
++#include "Common/GameAudio.h"
++#include "Common/AudioEventRTS.h"
++#include "Common/AudioEventInfo.h"
++#include "Common/AudioAffect.h"
++#include "Common/DynamicAudioEventInfo.h"
+ 
+ #ifdef _INTERNAL
+ // for occasional debugging...
+@@ -43,12 +50,19 @@ SnowManager *TheSnowManager=NULL;
+ 
+ SnowManager::SnowManager()
+ {
++	m_startingHeights = NULL;
+ 	m_time = 0;
+ 	m_velocity = 1;
+ 	m_isVisible = TRUE;	//default to showing if it's enabled via INI.
+ 	m_weatherOn = FALSE;
+ 	m_weatherKind = WEATHER_KIND_NONE;
+ 	m_weatherWind.zero();
++	m_weatherGust = m_weatherIntensity = 0.0f;
++	m_weatherStormEnvelope = 0.0f;
++	m_weatherAmbientHandle = 0;
++	m_weatherAmbientKind = WEATHER_KIND_NONE;
++	m_weatherAmbientRetry = 0.0f;
++	m_weatherAmbientBaseVolume = 0.0f;
+ }
+ 
+ void SnowManager::init( void )
+@@ -102,7 +116,97 @@ static BreezeInfo s_weatherBreeze;
+ 
+ const BreezeInfo &weatherBreezeInfo(void)
+ {
+-	return (TheSnowManager != NULL && TheSnowManager->isWeatherOn()) ? s_weatherBreeze : TheScriptEngine->getBreezeInfo();
++	return (TheSnowManager != NULL && TheSnowManager->isWeatherOn() && TheSnowManager->isVisible()
++		&& TheSnowManager->getWeatherGust() > 0.0f) ? s_weatherBreeze : TheScriptEngine->getBreezeInfo();
++}
++
++// The tree's envelope version stays fixed; the renderer refreshes only displacement, retaining
++// its phase and random sway types. Smoke and the quiet rain spells use the same sample.
++void SnowManager::setWeatherPresentation(Real gust, Real intensity, Real dt, Real envelope)
++{
++	const Bool active = m_weatherOn && m_isVisible && gust > 0.0f;
++	m_weatherGust = active ? gust : 0.0f;
++	m_weatherIntensity = active ? intensity : 0.0f;
++	m_weatherStormEnvelope = active ? min(max(envelope, 0.0f), 1.0f) : 0.0f;
++	if (active)
++	{
++		static const Real STRENGTHS[WEATHER_KIND_COUNT] = { 0.5f, 0.8f, 1.0f, 0.35f };
++		setWeatherWind(STRENGTHS[m_weatherKind] * gust * intensity);
++	}
++	else
++		m_weatherWind.zero();
++	updateWeatherAmbience(dt);
++}
++
++void SnowManager::stopWeatherAmbience(void)
++{
++	if (m_weatherAmbientHandle != 0 && TheAudio != NULL)
++		TheAudio->removeAudioEvent(m_weatherAmbientHandle);
++	m_weatherAmbientHandle = 0;
++	m_weatherAmbientKind = WEATHER_KIND_NONE;
++	m_weatherAmbientRetry = 0.0f;
++}
++
++void SnowManager::updateWeatherAmbience(Real dt)
++{
++	// Authored precipitation and ambient emitters keep their own sound design. Existing lowest
++	// priority looping world sounds use the normal Ambient slider, master volume and focus/pause.
++	const Bool active = m_weatherIntensity > 0.0f && m_weatherKind != WEATHER_KIND_NONE
++		&& !TheWeatherSetting->m_snowEnabled && TheAudio != NULL && TheAudio->getDevice() != NULL
++		&& TheAudio->isOn(AudioAffect_Sound) && TheAudio->getAmbientVolume(FALSE) > 0.0f;
++	if (!active || m_weatherAmbientKind != m_weatherKind)
++		stopWeatherAmbience();
++	if (!active)
++		return;
++	static const char *EVENTS[WEATHER_KIND_COUNT] = { "", "RainStereoLoop",
++		"Amb_DesertNatureWindThickLoop", "Amb_WinterNatureWindLoop" };
++	static const char *NAMES[WEATHER_KIND_COUNT] = { "", "WeatherPresentationRainLoop",
++		"WeatherPresentationSandLoop", "WeatherPresentationSnowLoop" };
++	AudioEventRTS source(EVENTS[m_weatherKind]);
++	// Check even after admission: a map ambience bed or authored emitter can start later.
++	// The weather owns a distinct event/handle, so this query never mistakes its own loop for one.
++	Bool authoredPlaying = TheAudio->isPlayingAlready(&source);
++	const Coord3D positionalQuery = { 0.0f, 0.0f, 0.0f };
++	source.setPosition(&positionalQuery);
++	authoredPlaying = authoredPlaying || TheAudio->isPlayingAlready(&source);
++	if (!TheAudio->isValidAudioEvent(&source) || authoredPlaying)
++	{
++		stopWeatherAmbience();
++		return;
++	}
++	if (m_weatherAmbientHandle != 0 && TheAudio->isCurrentlyPlaying(m_weatherAmbientHandle))
++	{
++		TheAudio->setAudioEventVolume(m_weatherAmbientHandle, m_weatherAmbientBaseVolume
++			* m_weatherIntensity * (0.75f + 0.25f * m_weatherGust));
++		return;
++	}
++	// Snow updates before GameClient's freeze gate. Do not admit a new/retried loop during a
++	// pause; retain an established paused handle so resume does not restart its audio phase.
++	if (TheGameLogic == NULL || TheGameLogic->isGamePaused())
++		return;
++	m_weatherAmbientRetry -= min(max(dt, 0.0f), 0.25f);
++	if (m_weatherAmbientRetry > 0.0f)
++		return;
++	m_weatherAmbientRetry = 2.0f;
++	m_weatherAmbientKind = m_weatherKind;
++	const AsciiString name(NAMES[m_weatherKind]);
++	if (TheAudio->findAudioEventInfo(name) == NULL)
++	{
++		// Retail's stereo rain is a critical UI cinematic cue. Reuse its licensed samples in a
++		// level-specific ambient event so weather obeys Ambience and never alters the authored cue.
++		DynamicAudioEventInfo *ambient = newInstance(DynamicAudioEventInfo)(*source.getAudioEventInfo());
++		ambient->overrideAudioName(name);
++		ambient->overridePriority(AP_LOWEST);
++		ambient->m_type = ST_WORLD | ST_EVERYONE;
++		TheAudio->addAudioEventInfo(ambient);
++	}
++	AudioEventRTS sound(name);
++	TheAudio->getInfoForAudioEvent(&sound);
++	if (!AudioManager::isAmbientSound(sound.getAudioEventInfo()))
++		return;
++	m_weatherAmbientBaseVolume = sound.getVolume() * 0.55f;
++	sound.setVolume(m_weatherAmbientBaseVolume * m_weatherIntensity * (0.75f + 0.25f * m_weatherGust));
++	m_weatherAmbientHandle = TheAudio->addAudioEvent(&sound);
+ }
+ 
+ void SnowManager::setWeatherWind(Real strength)
+@@ -111,7 +215,7 @@ void SnowManager::setWeatherWind(Real strength)
+ 	s_weatherBreeze = script;
+ 	s_weatherBreeze.m_intensity = max(script.m_intensity, WEATHER_SWAY * strength);
+ 	s_weatherBreeze.m_lean = max(script.m_lean, WEATHER_LEAN * strength);
+-	s_weatherBreeze.m_breezePeriod = min(script.m_breezePeriod, WEATHER_BREEZE_PERIOD);
++	s_weatherBreeze.m_breezePeriod = (Short)WeatherBreezeMath::period(script.m_breezePeriod,WEATHER_BREEZE_PERIOD,m_weatherStormEnvelope);
+ 	// the kind too: a tree buffer outlives its map, and the next map may blow harder
+ 	s_weatherBreeze.m_breezeVersion = script.m_breezeVersion + WEATHER_BREEZE_VERSION + (Short)m_weatherKind;
+ 	m_weatherWind.x = script.m_directionVec.x * WEATHER_SMOKE_DRIFT * strength;
+@@ -134,21 +238,35 @@ void SnowManager::getWeatherHaze(float colour[3], Real *strength) const
+ 	colour[0] = COLOURS[m_weatherKind][0] * red;
+ 	colour[1] = COLOURS[m_weatherKind][1] * green;
+ 	colour[2] = COLOURS[m_weatherKind][2] * blue;
+-	*strength = STRENGTHS[m_weatherKind] * (0.299f * red + 0.587f * green + 0.114f * blue);
++	// Clouded light follows the storm sample in the sky/horizon and haze only. Retain each
++	// channel of the authored sunlight: a cold night stays a cold night, with no time-of-day write.
++	const Real cloud = m_weatherKind == WEATHER_KIND_RAIN ? 0.18f : 0.10f;
++	const Real shade = 1.0f - cloud * min(m_weatherIntensity * (0.75f + 0.25f * m_weatherGust), 1.4f);
++	for (Int i = 0; i < 3; ++i)
++		colour[i] *= shade;
++	// Match the storm's changing density without touching world lighting or the map's day/night.
++	*strength = STRENGTHS[m_weatherKind] * m_weatherIntensity * (0.85f + 0.15f * m_weatherGust)
++		* (0.299f * red + 0.587f * green + 0.114f * blue);
+ }
+ 
+ void SnowManager::setVisible(Bool showWeather)
+ {
+ 	m_isVisible = showWeather;
++	if (!showWeather)
++		setWeatherPresentation(0.0f, 0.0f, 0.0f);
+ }
+ 
+ void SnowManager::reset(void)
+ {
+ 	m_isVisible = TRUE;	//default to showing if it's enabled via INI.
++	m_weatherOn = FALSE;
++	m_weatherKind = WEATHER_KIND_NONE;
++	setWeatherPresentation(0.0f, 0.0f, 0.0f);
+ }
+ 
+ SnowManager::~SnowManager()
+ {
++	stopWeatherAmbience();
+ 	delete [] m_startingHeights;
+ 	m_startingHeights=NULL;
+ }
+diff --git a/GeneralsMD/Code/GameEngineDevice/Include/MilesAudioDevice/MilesAudioManager.h b/GeneralsMD/Code/GameEngineDevice/Include/MilesAudioDevice/MilesAudioManager.h
+index 671e80d9..844024d3 100644
+--- a/GeneralsMD/Code/GameEngineDevice/Include/MilesAudioDevice/MilesAudioManager.h
++++ b/GeneralsMD/Code/GameEngineDevice/Include/MilesAudioDevice/MilesAudioManager.h
+@@ -287,6 +287,7 @@ class MilesAudioManager : public AudioManager
+ 		void applyOcclusion( PlayingAudio *playing );
+ 
+ 		virtual void adjustVolumeOfPlayingAudio(AsciiString eventName, Real newVolume);
++		virtual void setAudioEventVolume(AudioHandle handle, Real volume);
+ 
+ 		virtual void removePlayingAudio( AsciiString eventName );
+ 		virtual void removeAllDisabledAudio();
+diff --git a/GeneralsMD/Code/GameEngineDevice/Include/W3DDevice/GameClient/W3DSnow.h b/GeneralsMD/Code/GameEngineDevice/Include/W3DDevice/GameClient/W3DSnow.h
+index 91299986..dd3b5626 100644
+--- a/GeneralsMD/Code/GameEngineDevice/Include/W3DDevice/GameClient/W3DSnow.h
++++ b/GeneralsMD/Code/GameEngineDevice/Include/W3DDevice/GameClient/W3DSnow.h
+@@ -23,6 +23,7 @@
+ #define _W3DSNOW_H_
+ 
+ #include "GameClient/Snow.h"
++#include "W3DDevice/GameClient/WeatherParticleMath.h"
+ 
+ class DX8IndexBufferClass;
+ class RenderInfoClass;
+@@ -51,11 +52,32 @@ class W3DSnowManager : public SnowManager
+ 	void	updateWeather(void);
+ 	void	renderWeather(RenderInfoClass &rinfo);
+ 	void	drawWeatherLayer(RenderInfoClass &rinfo, Int layer, Real light);
++	void drawWeatherContacts(RenderInfoClass &rinfo, Real light);
++	void clearWeatherMotion(void);
++	Bool weatherDustCellDry(Int x,Int y,Real *arrival);
++	Real weatherDustFootprintFade(Real minX,Real minY,Real maxX,Real maxY);
+ 
+ 	// The Weather option.  None of it is allocated, loaded or read while the option is off.
+-	struct WeatherDrop { Real x, y, phase; };	///< a drop's place in its tile and in its fall, 0 to 1
++	struct WeatherDrop { Real x, y, phase, size; };	///< a drop's place in its tile and in its fall, 0 to 1
+ 	WeatherDrop *m_weatherDrops;
+-	TextureClass *m_weatherTextures[2];
++	enum { WEATHER_LAYER_COUNT = 3, WEATHER_CONTACT_COUNT = 192, WEATHER_CONTACT_TRACKS = 256 };
++	TextureClass *m_weatherTextures[WEATHER_LAYER_COUNT];
++	TextureClass *m_weatherContactTextures[2];
++	struct WeatherContact { Vector3 position, normal; double born; Bool water; };
++	struct WeatherContactTrack { Vector3 position; double sampled; Real tile; Bool valid; };
++	WeatherContact *m_weatherContacts;
++	WeatherContactTrack *m_weatherContactTracks;
++	Int m_weatherContactNext, m_weatherContactCursor;
++	UnsignedInt m_weatherContactFrame;
++	WeatherParticleMath::Motion m_weatherMotion[WEATHER_LAYER_COUNT];
++    enum { WEATHER_DUST_CACHE_DIM=64 };
++    struct WeatherDustCell { Int x,y; UnsignedInt epoch; double sampled,admitted; Bool dry; };
++    WeatherDustCell *m_weatherDustCells;
++    UnsignedInt m_weatherDustEpoch,m_weatherDustRevision,m_weatherDustFrame;
++    const void *m_weatherDustWater;
++    Int m_weatherDustQueries;
++    UnsignedInt m_weatherRainSeed,m_weatherRainMatchSeed;
++    Real m_weatherRainEnvelope,m_weatherParticleDensity;
+ 	double m_weatherTime;			///< seconds; double, because it is multiplied by a speed and wrapped by the tile
+ 	const void *m_weatherMap;		///< the map m_weatherSandCells was counted on, with its samples: see W3DShaderManager's haze
+ 	const void *m_weatherMapData;
+diff --git a/GeneralsMD/Code/GameEngineDevice/Include/W3DDevice/GameClient/W3DTreeBuffer.h b/GeneralsMD/Code/GameEngineDevice/Include/W3DDevice/GameClient/W3DTreeBuffer.h
+index fb687ce2..1ae89f18 100644
+--- a/GeneralsMD/Code/GameEngineDevice/Include/W3DDevice/GameClient/W3DTreeBuffer.h
++++ b/GeneralsMD/Code/GameEngineDevice/Include/W3DDevice/GameClient/W3DTreeBuffer.h
+@@ -317,6 +317,7 @@ private:
+ 	BreezeInfo m_breezeForDraw{};
+ 	Bool m_pauseForDraw = FALSE;
+ 	Real		m_curSwayStep[MAX_SWAY_TYPES];
++	Short m_curSwayPeriod;	///< period used to create cached random steps; phase scaling never rewrites them
+ 	Real		m_curSwayFactor[MAX_SWAY_TYPES];
+ 
+ 	W3DProjectedShadow *m_shadow;
+diff --git a/GeneralsMD/Code/GameEngineDevice/Include/W3DDevice/GameClient/W3DWater.h b/GeneralsMD/Code/GameEngineDevice/Include/W3DDevice/GameClient/W3DWater.h
+index 8632d1fa..76577185 100644
+--- a/GeneralsMD/Code/GameEngineDevice/Include/W3DDevice/GameClient/W3DWater.h
++++ b/GeneralsMD/Code/GameEngineDevice/Include/W3DDevice/GameClient/W3DWater.h
+@@ -157,6 +157,10 @@ public:
+ 	void updateRenderTargetTextures(CameraClass *cam);	///< renders into any required textures.	
+ 	void ReleaseResources(void);	///< Release all dx8 resources so the device can be reset.
+ 	void ReAcquireResources(void);  ///< Reacquire all resources after device reset.
++	Bool getWeatherSurfaceHeight(Real x, Real y, Real *height, Vector3 *normal=NULL) const; ///< rendered polygon water only; no logic reads or simulation changes
++	Bool hasWeatherWaterInBox(Real minX,Real minY,Real maxX,Real maxY,Real terrainMinimum) const;
++	UnsignedInt weatherSurfaceRevision(void) const { return m_weatherSurfaceRevision; }
++	Bool isRenderingReflection(void) const { return m_renderingMirror; }
+ 	Real getWaterHeight(Real x, Real y);	///<return water height at given point - for use by WB.
+ 
+ 	void replaceSkyboxTexture(const AsciiString& oldTexName, const AsciiString& newTextName);
+@@ -519,6 +523,7 @@ protected:
+ 	void drawModernWaterPatch(const Vector3 points[4], Bool river, Real riverStart = 0, Real riverEnd = 1);
+ 	// A/B experiment only: medium opts flat patches into D; rivers keep the default terrain rule.
+ 	Real modernWaterDamping(Real x, Real y, Real z, Real offshore=0.0f, Real *obstacleAttenuation=NULL, Real *terrainDepth=NULL, Real *hullFreeDamping=NULL, Real *hullFreeObstacle=NULL, const Real *cachedTerrain=NULL, Bool medium=FALSE) const;
++	UnsignedInt m_weatherSurfaceRevision=1;
+ 	Bool m_renderingMirror = FALSE; ///< prevents a water draw sampling the mirror being written
+ 	void cleanupJbaWaterShader(void);
+ 
+diff --git a/GeneralsMD/Code/GameEngineDevice/Include/W3DDevice/GameClient/WeatherParticleMath.h b/GeneralsMD/Code/GameEngineDevice/Include/W3DDevice/GameClient/WeatherParticleMath.h
+new file mode 100644
+index 00000000..efc4dda7
+--- /dev/null
++++ b/GeneralsMD/Code/GameEngineDevice/Include/W3DDevice/GameClient/WeatherParticleMath.h
+@@ -0,0 +1,165 @@
++// Render-only weather arithmetic, independent of game state and random streams.
++#pragma once
++#include <cmath>
++#include <cstdint>
++
++namespace WeatherParticleMath {
++struct Presentation {
++    float gust, intensity;
++};
++inline Presentation sample(double seconds)
++{
++    Presentation result;
++    result.gust=1.0f+0.23f*float(std::sin(seconds*0.37))+0.12f*float(std::sin(seconds*0.91+0.7));
++    result.intensity=0.88f+0.10f*float(std::sin(seconds*0.13+0.8))+0.02f*float(std::sin(seconds*0.43));
++    return result;
++}
++inline std::uint32_t hash(std::uint32_t value)
++{
++    value^=value>>16; value*=0x7feb352dU; value^=value>>15; value*=0x846ca68bU; value^=value>>16;
++    return value;
++}
++inline float unitSeed(std::uint32_t value) { return float(hash(value)&0x00ffffffU)/16777216.0f; }
++inline std::uint32_t rainSeedForMatch(std::uint32_t mapSeed,std::uint32_t matchSeed)
++{
++    // Read the match's immutable seed without drawing from any shared random stream.
++    return hash(mapSeed^hash(matchSeed+0x9e3779b9U));
++}
++struct RainSpell {
++    float envelope;
++    double slotStart, wetStart, plateauStart, plateauEnd, wetEnd, slotEnd;
++};
++inline float eased(float x)
++{
++    if (x<=0) return 0;
++    if (x>=1) return 1;
++    return x*x*(3.0f-2.0f*x);
++}
++inline RainSpell rainSpell(double seconds,std::uint32_t seed)
++{
++    RainSpell result={0,0,0,0,0,0,0};
++    if (!std::isfinite(seconds) || seconds<0.0) return result;
++    const double slotLength=210.0;
++    // Start at a seeded point in the weather cycle, including its longer dry interval.
++    // The opening can already be wet or clear; it is not forced to begin a storm.
++    const double openingPhase=slotLength*unitSeed(seed^0x85ebca6bU);
++    const double phasedSeconds=seconds+openingPhase;
++    const double slotNumber=std::floor(phasedSeconds/slotLength);
++    const std::uint32_t slot=std::uint32_t(std::fmod(slotNumber,4294967296.0));
++    const std::uint32_t key=hash(seed^hash(slot+0x9e3779b9U));
++    const double lead=16.0*unitSeed(key+1U);
++    const double length=48.0+8.0*unitSeed(key+2U);
++    const double fade=6.0+2.0*unitSeed(key+3U);
++    const double local=std::fmod(phasedSeconds,slotLength);
++    result.slotStart=seconds-local; result.slotEnd=result.slotStart+slotLength;
++    result.wetStart=result.slotStart+lead; result.wetEnd=result.wetStart+length;
++    result.plateauStart=result.wetStart+fade; result.plateauEnd=result.wetEnd-fade;
++    if (local<lead || local>=lead+length) return result;
++    const float enter=eased(float((local-lead)/fade));
++    const float leave=eased(float((lead+length-local)/fade));
++    result.envelope=enter<leave ? enter : leave;
++    return result;
++}
++struct Motion {
++    double x, y, fall;
++    void reset() { x=y=fall=0.0; }
++    void advance(float dt, float windX, float windY, float along, float down, float gust)
++    {
++        if (!std::isfinite(dt) || !std::isfinite(windX) || !std::isfinite(windY)
++            || !std::isfinite(gust) || dt<=0.0f) return;
++        if (dt>0.1f) dt=0.1f; // a stalled presentation never catches up in one visible jump
++        x+=double(windX)*along*gust*dt;
++        y+=double(windY)*along*gust*dt;
++        fall+=double(down)*(0.92f+0.08f*gust)*dt;
++    }
++};
++inline int contactTrackCount(float dt, float depth, float down)
++{
++    // 48 samples per frame remain enough at low frame rates by tracking fewer drops.
++    // Revisit before a quarter second and half a fall cycle, rather than accepting stale hits.
++    if (!std::isfinite(dt) || dt<=0.0f || depth<=0.0f || down<=0.0f) return 48;
++    const float halfCycle=depth/(2.0f*down);
++    const float interval=halfCycle<0.24f ? halfCycle : 0.24f;
++    if (interval/dt>=6.0f) return 256;
++    int frames=int(std::floor(interval/dt));
++    if (frames<1) frames=1;
++    return frames*48;
++}
++struct Surface {
++    float height;
++    bool water;
++};
++inline Surface surface(float terrainHeight, bool hasWater, float waterHeight)
++{
++    Surface result;
++    result.water=hasWater && std::isfinite(waterHeight) && waterHeight>terrainHeight+0.1f;
++    result.height=result.water ? waterHeight : terrainHeight;
++    return result;
++}
++inline bool crossesSurface(float previousZ, float currentZ, float height,
++    double elapsed, float deltaX, float deltaY)
++{
++    // Wrapping, a camera teleport/zoom, and an old sample are not a physical ground contact.
++    return elapsed>0.0 && elapsed<0.3 && std::fabs(deltaX)<80.0f && std::fabs(deltaY)<80.0f
++        && currentZ<previousZ && currentZ<=height && previousZ>height;
++}
++struct Point { double x, y, z; };
++inline bool triangleHeight(const Point &a, const Point &b, const Point &c,
++    double x, double y, float *height, Point *normal=nullptr)
++{
++    const double det=(b.y-c.y)*(a.x-c.x)+(c.x-b.x)*(a.y-c.y);
++    if (std::fabs(det)<0.0001) return false;
++    const double u=((b.y-c.y)*(x-c.x)+(c.x-b.x)*(y-c.y))/det;
++    const double v=((c.y-a.y)*(x-c.x)+(a.x-c.x)*(y-c.y))/det;
++    if (u<0.0 || v<0.0 || u+v>1.0) return false;
++    *height=float(u*a.z+v*b.z+(1.0-u-v)*c.z);
++    if (!std::isfinite(*height)) return false;
++    if (normal) {
++        const double abX=b.x-a.x, abY=b.y-a.y, abZ=b.z-a.z;
++        const double acX=c.x-a.x, acY=c.y-a.y, acZ=c.z-a.z;
++        normal->x=abY*acZ-abZ*acY;
++        normal->y=abZ*acX-abX*acZ;
++        normal->z=abX*acY-abY*acX;
++        const double length=std::sqrt(normal->x*normal->x+normal->y*normal->y+normal->z*normal->z);
++        const double scale=(normal->z<0.0 ? -1.0 : 1.0)/length;
++        normal->x*=scale; normal->y*=scale; normal->z*=scale;
++    }
++    return true;
++}
++inline bool triangleOverlapsBoxAbove(const Point &a,const Point &b,const Point &c,
++    double minX,double minY,double maxX,double maxY,double terrainMinimum)
++{
++    Point input[12]={a,b,c}, output[12]; int count=3;
++    for (int edge=0;edge<4 && count;++edge) {
++        int nextCount=0;
++        const double bound=edge==0 ? minX : edge==1 ? maxX : edge==2 ? minY : maxY;
++        for (int i=0;i<count;++i) {
++            const Point &p=input[i], &q=input[(i+1)%count];
++            const double pv=edge<2 ? p.x : p.y, qv=edge<2 ? q.x : q.y;
++            const bool pin=(edge==0 || edge==2) ? pv>=bound : pv<=bound;
++            const bool qin=(edge==0 || edge==2) ? qv>=bound : qv<=bound;
++            if (pin) output[nextCount++]=p;
++            if (pin!=qin) {
++                const double t=(bound-pv)/(qv-pv);
++                output[nextCount++]={p.x+t*(q.x-p.x),p.y+t*(q.y-p.y),p.z+t*(q.z-p.z)};
++            }
++        }
++        count=nextCount;
++        for (int i=0;i<count;++i) input[i]=output[i];
++    }
++    for (int i=0;i<count;++i) if (input[i].z>terrainMinimum+0.1) return true;
++    return false;
++}
++inline float dustArrival(double elapsed,bool verifiedDry)
++{
++    return verifiedDry && std::isfinite(elapsed) ? eased(float(elapsed/0.6)) : 0.0f;
++}
++inline float footprintShoreFade(double minX,double minY,double maxX,double maxY,
++    double wetMinX,double wetMinY,double wetMaxX,double wetMaxY,double fadeDistance)
++{
++    const double dx=minX>wetMaxX ? minX-wetMaxX : wetMinX>maxX ? wetMinX-maxX : 0.0;
++    const double dy=minY>wetMaxY ? minY-wetMaxY : wetMinY>maxY ? wetMinY-maxY : 0.0;
++    return eased(float(std::sqrt(dx*dx+dy*dy)/fadeDistance));
++}
++
++}
+diff --git a/GeneralsMD/Code/GameEngineDevice/Source/MilesAudioDevice/MilesAudioManager.cpp b/GeneralsMD/Code/GameEngineDevice/Source/MilesAudioDevice/MilesAudioManager.cpp
+index ee4dffcb..6e40a735 100644
+--- a/GeneralsMD/Code/GameEngineDevice/Source/MilesAudioDevice/MilesAudioManager.cpp
++++ b/GeneralsMD/Code/GameEngineDevice/Source/MilesAudioDevice/MilesAudioManager.cpp
+@@ -2919,6 +2919,22 @@ Bool MilesAudioManager::killLowestPrioritySoundImmediately( AudioEventRTS *event
+ 
+ 
+ //-------------------------------------------------------------------------------------------------
++void MilesAudioManager::setAudioEventVolume(AudioHandle handle, Real volume)
++{
++	if (!(volume >= 0.0f)) volume = 0.0f;	// also reject NaN before it reaches the mixer
++	volume = min(volume, 1.5f);
++	// Ownership is by handle: an authored emitter using the same licensed event is untouched.
++	std::list<PlayingAudio *> *lists[] = { &m_playingSounds, &m_playing3DSounds, &m_playingStreams };
++	for (Int list = 0; list < 3; ++list)
++		for (std::list<PlayingAudio *>::iterator it = lists[list]->begin(); it != lists[list]->end(); ++it)
++			if (*it && (*it)->isPlaying() && (*it)->m_audioEventRTS->getPlayingHandle() == handle)
++			{
++				(*it)->m_audioEventRTS->setVolume(volume);
++				adjustPlayingVolume(*it);
++				return;
++			}
++}
++
+ void MilesAudioManager::adjustVolumeOfPlayingAudio(AsciiString eventName, Real newVolume)
+ {
+ 	Real pan;
+diff --git a/GeneralsMD/Code/GameEngineDevice/Source/PosixDevice/Render/PosixDevice9Post.cpp b/GeneralsMD/Code/GameEngineDevice/Source/PosixDevice/Render/PosixDevice9Post.cpp
+index 17e0e088..b7000a0b 100644
+--- a/GeneralsMD/Code/GameEngineDevice/Source/PosixDevice/Render/PosixDevice9Post.cpp
++++ b/GeneralsMD/Code/GameEngineDevice/Source/PosixDevice/Render/PosixDevice9Post.cpp
+@@ -175,7 +175,7 @@ void PosixDevice9::Begin_Post(const RenderPost::Settings &settings)
+     s.Settings = {};
+     s.RequestedChain = !settings.Classic && DX11Post_Parse_Chain(settings.Chain, s.Settings.Chain, s.Settings.Count) && s.Settings.Count;
+     if (!s.RequestedChain && !settings.Classic && (s.WorldAO || settings.IndependentScene || (s.EnvironmentCurrent &&
+-        (s.Environment.Haze.Strength > 0 || s.Environment.Atmosphere.Strength > 0)))) {
++        (s.Environment.Haze.Strength > 0 || s.Environment.TransitionWarmHaze.Strength > 0 || s.Environment.Atmosphere.Strength > 0)))) {
+         s.Settings.Count = 1; s.Settings.Chain[0] = DX11_POST_COPY;
+     }
+     if (++s.Serial == 0) ++s.Serial;
+@@ -324,7 +324,14 @@ void PosixDevice9::Post_Sky(bool drawSky)
+     haze.Top = s.Environment.Haze.Top; haze.Thickness = s.Environment.Haze.Thickness;
+     haze.Strength = s.Environment.Haze.Strength; haze.Reach = s.Environment.Haze.Reach;
+     haze.WaterHeight = s.Environment.Haze.WaterHeight; haze.Warmth = s.Environment.Haze.Warmth;
++    haze.BeforeWater = s.Environment.Haze.BeforeWater;
+     std::memcpy(haze.TowardSun, s.Environment.Haze.TowardSun, sizeof(haze.TowardSun));
++    SdlPostGroundHazeSettings warm;
++    const auto &fromWarm = s.Environment.TransitionWarmHaze;
++    std::memcpy(warm.Colour, fromWarm.Colour, sizeof(warm.Colour));
++    warm.Top=fromWarm.Top;warm.Thickness=fromWarm.Thickness;warm.Strength=fromWarm.Strength;
++    warm.Reach=fromWarm.Reach;warm.WaterHeight=fromWarm.WaterHeight;warm.Warmth=fromWarm.Warmth;
++    std::memcpy(warm.TowardSun, fromWarm.TowardSun, sizeof(warm.TowardSun));
+     SdlPostAtmosphereSettings atmosphere;
+     std::memcpy(atmosphere.Horizon, s.Environment.Atmosphere.Horizon, sizeof(atmosphere.Horizon));
+     std::memcpy(atmosphere.Tint, s.Environment.Atmosphere.Tint, sizeof(atmosphere.Tint));
+@@ -344,14 +351,20 @@ void PosixDevice9::Post_Sky(bool drawSky)
+     };
+     if (!mirror(s.Environment.Sky, views.Sky) || !mirror(s.Environment.Shroud, views.Shroud)) return;
+     s.EnvironmentReady = s.Atmosphere.Prepare(*Gpu, s.Processor, s.Scene, view.Capture,
+-        view.FullTextureWorldFromClip, haze, atmosphere, views);
++        view.FullTextureWorldFromClip, haze, atmosphere, views, warm);
+     if (drawSky && s.EnvironmentReady && atmosphere.Strength > 0) s.Atmosphere.Draw_Sky(*Gpu, s.Scene);
+ }
+ void PosixDevice9::Post_Opaque()
+ {
+-    if (!Post_Active() || !Post->InView || !Post->WorldAO) return;
++    if (!Post_Active() || !Post->InView) return;
++    const bool weather = Post->EnvironmentCurrent && Post->Environment.Haze.BeforeWater && Post->Environment.Haze.Strength>0.0f;
++    if (weather && !Post->EnvironmentReady) Post_Sky(false);
++    if (!Post->WorldAO && !weather) return;
+     SdlPostSceneInputs inputs;
+-    if (Post->inputs(*this, *Gpu, SdlSceneCapturePhase::OpaqueScene, inputs)) Post->Processor.Apply_World_AO(*Gpu, Post->Scene, inputs);
++    if (Post->inputs(*this, *Gpu, SdlSceneCapturePhase::OpaqueScene, inputs)) {
++        if (Post->WorldAO) Post->Processor.Apply_World_AO(*Gpu, Post->Scene, inputs);
++        if (weather && Post->EnvironmentReady) Post->Atmosphere.Apply_Ground_Haze(*Gpu, Post->Scene, inputs);
++    }
+ }
+ void PosixDevice9::Post_Before_Transparent()
+ {
+@@ -369,7 +382,8 @@ void PosixDevice9::Post_Before_Transparent()
+     if (Post->inputs(*this, *Gpu, SdlSceneCapturePhase::BeforeTransparent, inputs)) {
+         Post->Processor.Apply_Chain_AO(*Gpu, Post->Scene, inputs);
+         if (Post->EnvironmentReady) {
+-            Post->Atmosphere.Apply_Ground_Haze(*Gpu, Post->Scene, inputs);
++            if (!Post->Environment.Haze.BeforeWater) Post->Atmosphere.Apply_Ground_Haze(*Gpu, Post->Scene, inputs);
++            Post->Atmosphere.Apply_Transition_Warm_Haze(*Gpu, Post->Scene, inputs);
+             Post->Atmosphere.Apply_Atmosphere(*Gpu, Post->Scene, inputs);
+         }
+     }
+diff --git a/GeneralsMD/Code/GameEngineDevice/Source/PosixDevice/Render/SdlPostAtmosphere.cpp b/GeneralsMD/Code/GameEngineDevice/Source/PosixDevice/Render/SdlPostAtmosphere.cpp
+index 64574bb6..5dcd049d 100644
+--- a/GeneralsMD/Code/GameEngineDevice/Source/PosixDevice/Render/SdlPostAtmosphere.cpp
++++ b/GeneralsMD/Code/GameEngineDevice/Source/PosixDevice/Render/SdlPostAtmosphere.cpp
+@@ -49,11 +49,13 @@ struct SdlPostAtmosphere::Impl
+     SDL_GPUSampler *Clamp=nullptr,*Wrap=nullptr;
+     SDL_GPUTexture *White=nullptr,*Black=nullptr;
+     SdlPostGroundHazeSettings Ground;
++    SdlPostGroundHazeSettings TransitionWarm;
+     SdlPostAtmosphereSettings Atmosphere;
+     SdlPostAtmosphereViews Views;
+     SdlSceneCaptureRequest Main;
+     float WorldFromClip[16]={};
+     bool Ready=false,Done[Count]={};
++    bool WarmDone=false;
+     std::string LastError;
+     unsigned long long Creations=0;
+ 
+@@ -67,10 +69,11 @@ struct SdlPostAtmosphere::Impl
+     {
+         return Ready && Owner==&frame && Post && Post->Scene_Matches_Identity(frame,scene,Main);
+     }
+-    bool captured(SdlGpuFrame &frame,const SdlTarget &scene,const SdlPostSceneInputs &in)
++    bool captured(SdlGpuFrame &frame,const SdlTarget &scene,const SdlPostSceneInputs &in,bool ground=false)
+     {
+-        if(!scene.Depth || !current(frame,scene) || in.Capture.Phase!=SdlSceneCapturePhase::BeforeTransparent || !in.Capture.Depth
+-            || !same_scene(Main,normalized(frame,in.Capture)))return fail("BeforeTransparent capture does not match its unresolved main scene");
++        const auto phase=ground && Ground.BeforeWater ? SdlSceneCapturePhase::OpaqueScene : SdlSceneCapturePhase::BeforeTransparent;
++        if(!scene.Depth || !current(frame,scene) || in.Capture.Phase!=phase || !in.Capture.Depth
++            || !same_scene(Main,normalized(frame,in.Capture)))return fail("capture phase does not match its unresolved main scene policy");
+         if(!in.SampledDepth || in.SampledDepth==scene.Colour || in.SampledDepth==scene.Depth
+             || in.DepthWidth!=scene.Width || in.DepthHeight!=scene.Height || in.DepthFormat!=SDL_GPU_TEXTUREFORMAT_R32_FLOAT
+             || in.ActualSamples!=1 || in.Shroud!=Views.Shroud.Texture
+@@ -141,7 +144,7 @@ struct SdlPostAtmosphere::Impl
+         if(!bytes)return fail("fallback upload allocation failed");
+         std::memset(bytes,white?255:0,4);Owner->Queue_Texture_Upload(texture,0,1,1,offset);return true;
+     }
+-    bool draw(Pass id,const SdlTarget &scene,SDL_GPUTexture *depth)
++    bool draw(Pass id,const SdlTarget &scene,SDL_GPUTexture *depth,const SdlPostGroundHazeSettings *overrideGround=nullptr)
+     {
+         const Program &p=Programs[id];SdlRecordedDraw draw={};draw.Pipeline=p.Pipelines[format_slot(SdlGpuFrame::Target_Colour_Format(scene))];
+         draw.Count=3;draw.Viewport[2]=float(scene.Width);draw.Viewport[3]=float(scene.Height);draw.Viewport[5]=1;
+@@ -159,9 +162,10 @@ struct SdlPostAtmosphere::Impl
+         std::memcpy(constants.HazeShroudRect,Views.ShroudRect,sizeof(Views.ShroudRect));
+         constants.HazeSun[2]=Views.Shroud.Texture?1:0;
+         if(id==Haze) {
+-            constants.Haze[0]=Ground.Top;constants.Haze[1]=Ground.Thickness;constants.Haze[2]=Ground.Strength;constants.Haze[3]=Ground.Reach;
+-            std::memcpy(constants.HazeColour,Ground.Colour,sizeof(Ground.Colour));constants.HazeColour[3]=Ground.WaterHeight;
+-            constants.HazeSun[0]=Ground.TowardSun[0];constants.HazeSun[1]=Ground.TowardSun[1];constants.HazeSun[3]=Ground.Warmth;
++            const auto &ground=overrideGround?*overrideGround:Ground;
++            constants.Haze[0]=ground.Top;constants.Haze[1]=ground.Thickness;constants.Haze[2]=ground.Strength;constants.Haze[3]=ground.Reach;
++            std::memcpy(constants.HazeColour,ground.Colour,sizeof(ground.Colour));constants.HazeColour[3]=ground.WaterHeight;
++            constants.HazeSun[0]=ground.TowardSun[0];constants.HazeSun[1]=ground.TowardSun[1];constants.HazeSun[3]=ground.Warmth;
+         } else {
+             constants.Haze[0]=Atmosphere.Start;constants.Haze[1]=Atmosphere.Scale;constants.Haze[2]=Atmosphere.Strength;constants.Haze[3]=Atmosphere.Ground;
+             std::memcpy(constants.HazeColour,Atmosphere.Horizon,sizeof(Atmosphere.Horizon));
+@@ -182,7 +186,7 @@ SdlPostAtmosphere::~SdlPostAtmosphere()
+ }
+ bool SdlPostAtmosphere::Prepare(SdlGpuFrame &frame,const SdlPostProcess &post,const SdlTarget &scene,
+     const SdlSceneCaptureRequest &main,const float worldFromClip[16],const SdlPostGroundHazeSettings &ground,
+-    const SdlPostAtmosphereSettings &atmosphere,const SdlPostAtmosphereViews &views)
++    const SdlPostAtmosphereSettings &atmosphere,const SdlPostAtmosphereViews &views,const SdlPostGroundHazeSettings &transitionWarm)
+ {
+     Impl &s=*State;
+     const auto key=normalized(frame,main);
+@@ -192,8 +196,8 @@ bool SdlPostAtmosphere::Prepare(SdlGpuFrame &frame,const SdlPostProcess &post,co
+         && worldFromClip && !std::memcmp(s.WorldFromClip,worldFromClip,sizeof(s.WorldFromClip));
+     s.Ready=false;
+     if(s.Owner && s.Owner!=&frame)return s.fail("Release old frame owner before rebinding");
+-    if(!std::isfinite(ground.Strength) || !std::isfinite(atmosphere.Strength))return s.fail("non-finite strength");
+-    if(ground.Strength<=0 && atmosphere.Strength<=0) {Abandon();s.LastError.clear();return true;}
++    if(!std::isfinite(ground.Strength) || !std::isfinite(atmosphere.Strength) || !std::isfinite(transitionWarm.Strength))return s.fail("non-finite strength");
++    if(ground.Strength<=0 && atmosphere.Strength<=0 && transitionWarm.Strength<=0) {Abandon();s.LastError.clear();return true;}
+     if(!post.Scene_Matches_Identity(frame,scene,key) || main.Phase!=SdlSceneCapturePhase::OpaqueScene)return s.fail("requires explicit unresolved main post scene identity");
+     if(!worldFromClip || !finite(worldFromClip,16) || !finite(ground.Colour,3) || !finite(ground.TowardSun,3)
+         || !std::isfinite(ground.Top) || !std::isfinite(ground.Thickness) || !std::isfinite(ground.Reach)
+@@ -202,6 +206,10 @@ bool SdlPostAtmosphere::Prepare(SdlGpuFrame &frame,const SdlPostProcess &post,co
+         || !std::isfinite(atmosphere.Start) || !std::isfinite(atmosphere.Scale) || !std::isfinite(atmosphere.Ground)
+         || (atmosphere.Strength>0 && (atmosphere.Scale<=0 || atmosphere.MapSize[0]<=0 || atmosphere.MapSize[1]<=0)))
+         return s.fail("invalid copied atmosphere/haze/camera settings");
++    if(transitionWarm.BeforeWater || !finite(transitionWarm.Colour,3) || !finite(transitionWarm.TowardSun,3)
++        || !std::isfinite(transitionWarm.Top) || !std::isfinite(transitionWarm.Thickness) || !std::isfinite(transitionWarm.Reach)
++        || !std::isfinite(transitionWarm.WaterHeight) || !std::isfinite(transitionWarm.Warmth))
++        return s.fail("invalid copied transition warm haze");
+     if(!views.MapIdentity || !views.MapGeneration || !valid_view(views.Sky) || !valid_view(views.Shroud) || !finite(views.ShroudRect,4)
+         || (views.Sky.Texture && (views.Sky.Texture==scene.Colour || views.Sky.Texture==scene.Depth))
+         || (views.Shroud.Texture && (views.Shroud.Texture==scene.Colour || views.Shroud.Texture==scene.Depth)))
+@@ -209,12 +217,13 @@ bool SdlPostAtmosphere::Prepare(SdlGpuFrame &frame,const SdlPostProcess &post,co
+     s.Owner=&frame;s.Device=frame.Device();
+     const unsigned format=SdlGpuFrame::Target_Colour_Format(scene);
+     if(format_slot(format)>2)return s.fail("unsupported atmosphere scene format");
+-    if((ground.Strength>0 && !s.program(Impl::Haze,format)) || (atmosphere.Strength>0
++    if(((ground.Strength>0 || transitionWarm.Strength>0) && !s.program(Impl::Haze,format)) || (atmosphere.Strength>0
+         && (!s.program(Impl::Sky,format) || !s.program(Impl::Fade,format))) || !s.fallback(s.White,true) || !s.fallback(s.Black,false))return false;
+-    if(!same)std::memset(s.Done,0,sizeof(s.Done));
++    if(!same) {std::memset(s.Done,0,sizeof(s.Done));s.WarmDone=false;}
++    if(transitionWarm.Strength<=0)s.WarmDone=false;
+     if(ground.Strength<=0)s.Done[Impl::Haze]=false;
+     if(atmosphere.Strength<=0)s.Done[Impl::Sky]=s.Done[Impl::Fade]=false;
+-    s.Main=key;s.Post=&post;s.Ground=ground;s.Atmosphere=atmosphere;s.Views=views;
++    s.Main=key;s.Post=&post;s.Ground=ground;s.TransitionWarm=transitionWarm;s.Atmosphere=atmosphere;s.Views=views;
+     std::memcpy(s.WorldFromClip,worldFromClip,sizeof(s.WorldFromClip));s.Ready=true;s.LastError.clear();return true;
+ }
+ bool SdlPostAtmosphere::Draw_Sky(SdlGpuFrame &frame,const SdlTarget &scene)
+@@ -228,7 +237,7 @@ bool SdlPostAtmosphere::Draw_Sky(SdlGpuFrame &frame,const SdlTarget &scene)
+ bool SdlPostAtmosphere::Apply_Ground_Haze(SdlGpuFrame &frame,const SdlTarget &scene,const SdlPostSceneInputs &inputs)
+ {
+     Impl &s=*State;if(!s.Ready || s.Ground.Strength<=0)return false;
+-    if(!s.captured(frame,scene,inputs) || s.Done[Impl::Haze])return false;
++    if(!s.captured(frame,scene,inputs,true) || s.Done[Impl::Haze])return false;
+     if(!s.draw(Impl::Haze,scene,inputs.SampledDepth))return false;
+     s.Done[Impl::Haze]=true;return true;
+ }
+@@ -239,9 +248,16 @@ bool SdlPostAtmosphere::Apply_Atmosphere(SdlGpuFrame &frame,const SdlTarget &sce
+     if(!s.draw(Impl::Fade,scene,inputs.SampledDepth))return false;
+     s.Done[Impl::Fade]=true;return true;
+ }
++bool SdlPostAtmosphere::Apply_Transition_Warm_Haze(SdlGpuFrame &frame,const SdlTarget &scene,const SdlPostSceneInputs &inputs)
++{
++    Impl &s=*State;if(!s.Ready || s.TransitionWarm.Strength<=0)return false;
++    if(!s.captured(frame,scene,inputs) || s.WarmDone)return false;
++    if(!s.draw(Impl::Haze,scene,inputs.SampledDepth,&s.TransitionWarm))return false;
++    s.WarmDone=true;return true;
++}
+ void SdlPostAtmosphere::Abandon()
+ {
+-    State->Ready=false;State->Post=nullptr;State->Main={};State->Views={};std::memset(State->Done,0,sizeof(State->Done));
++    State->Ready=false;State->Post=nullptr;State->Main={};State->Views={};State->WarmDone=false;std::memset(State->Done,0,sizeof(State->Done));
+ }
+ bool SdlPostAtmosphere::Release(SdlGpuFrame &frame)
+ {
+diff --git a/GeneralsMD/Code/GameEngineDevice/Source/PosixDevice/Render/SdlPostAtmosphere.h b/GeneralsMD/Code/GameEngineDevice/Source/PosixDevice/Render/SdlPostAtmosphere.h
+index 5f10ae7e..a2cddc8c 100644
+--- a/GeneralsMD/Code/GameEngineDevice/Source/PosixDevice/Render/SdlPostAtmosphere.h
++++ b/GeneralsMD/Code/GameEngineDevice/Source/PosixDevice/Render/SdlPostAtmosphere.h
+@@ -21,6 +21,7 @@ struct SdlPostGroundHazeSettings
+     float Top = 0, Thickness = 1, Strength = 0, Reach = 1, WaterHeight = -1.0e6f;
+     float TowardSun[3] = {0,0,1};
+     float Warmth = 0;
++    bool BeforeWater = false;
+ };
+ struct SdlPostAtmosphereSettings
+ {
+@@ -47,12 +48,13 @@ public:
+     bool Prepare(SdlGpuFrame &frame, const SdlPostProcess &post, const SdlTarget &scene,
+         const SdlSceneCaptureRequest &mainIdentity, const float worldFromClip[16],
+         const SdlPostGroundHazeSettings &haze, const SdlPostAtmosphereSettings &atmosphere,
+-        const SdlPostAtmosphereViews &views);
++        const SdlPostAtmosphereViews &views, const SdlPostGroundHazeSettings &transitionWarm = SdlPostGroundHazeSettings());
+     // Sky after shadow preparation, before world geometry. No depth input or attachment is used.
+     bool Draw_Sky(SdlGpuFrame &frame, const SdlTarget &scene);
+-    // Ground/weather haze then horizon fade, at BeforeTransparent after AO and before particles.
++    // Weather ground haze at OpaqueScene before water; ordinary haze and horizon fade at BeforeTransparent.
+     // Neither method captures depth. Captured matrix/shroud must match the copied scene packet.
+     bool Apply_Ground_Haze(SdlGpuFrame &frame, const SdlTarget &scene, const SdlPostSceneInputs &inputs);
++    bool Apply_Transition_Warm_Haze(SdlGpuFrame &frame, const SdlTarget &scene, const SdlPostSceneInputs &inputs);
+     bool Apply_Atmosphere(SdlGpuFrame &frame, const SdlTarget &scene, const SdlPostSceneInputs &inputs);
+     void Abandon();
+     bool Release(SdlGpuFrame &frame);
+diff --git a/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DScene.cpp b/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DScene.cpp
+index dd7e663c..8adfe40e 100644
+--- a/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DScene.cpp
++++ b/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DScene.cpp
+@@ -1173,9 +1173,9 @@ void RTS3DScene::Flush(RenderInfoClass & rinfo)
+ 	if (m_customPassMode == SCENE_PASS_DEFAULT && Get_Extra_Pass_Polygon_Mode() == EXTRA_PASS_DISABLE && !modernFullMirror)
+ 		DoShadows(rinfo, true);	//draw all stencil shadows
+ 
+-	// The Ambient Occlusion option goes on under the water and every translucent draw, none of which
+-	// writes depth: the water takes no corner's shade from its bed and only the bed's shows through it.
+-	if (TheGlobalData->m_ambientOcclusion && !TheGlobalData->m_classicGraphics && m_customPassMode == SCENE_PASS_DEFAULT && Get_Extra_Pass_Polygon_Mode() == EXTRA_PASS_DISABLE)
++	// AO and weather ground haze compose under water. The provider admits only enabled effects;
++	// weather needs this phase even when AO is off, without widening reflection/extra-pass ownership.
++	if (!TheGlobalData->m_classicGraphics && m_customPassMode == SCENE_PASS_DEFAULT && Get_Extra_Pass_Polygon_Mode() == EXTRA_PASS_DISABLE)
+ 		RenderPost::OpaqueScene();
+ 
+ 	WW3D::Render_And_Clear_Static_Sort_Lists(rinfo);	//draws things like water
+diff --git a/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DShaderManager.cpp b/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DShaderManager.cpp
+index fb646f06..756fe476 100644
+--- a/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DShaderManager.cpp
++++ b/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DShaderManager.cpp
+@@ -288,16 +288,24 @@ static const Real PROTO_HAZE_COLOUR[3] = { 0.88f, 0.84f, 0.76f };
+ static RenderPost::Environment s_nativeEnvironment;
+ static NativePostEnvironmentPolicy::MapEpoch s_nativeMapEpoch;
+ #endif
++static Bool s_collectTransitionWarmHaze = FALSE;
++static Real s_transitionWarmWeight = 0.0f;
+ static void setGroundHaze(const float colour[3], float top, float thickness, float strength,
+-    float reach, float water, const float towardSun[3], float warmth)
++    float reach, float water, const float towardSun[3], float warmth, bool beforeWater = false)
+ {
+ #if defined(_WIN32)
++    if (s_collectTransitionWarmHaze) {
++        DX11Post_Set_Transition_Warm_Haze(colour,top,thickness,strength*s_transitionWarmWeight,reach,water,towardSun,warmth);
++        return;
++    }
+     DX11Post_Set_Haze(colour, top, thickness, strength, reach, water, towardSun, warmth);
++    DX11Post_Set_Haze_Placement(beforeWater);
+ #else
+-    RenderPost::GroundHazeSettings &haze = s_nativeEnvironment.Haze;
++    RenderPost::GroundHazeSettings &haze = s_collectTransitionWarmHaze ? s_nativeEnvironment.TransitionWarmHaze : s_nativeEnvironment.Haze;
+     memcpy(haze.Colour, colour, sizeof(haze.Colour)); haze.Top = top; haze.Thickness = thickness;
+-    haze.Strength = strength; haze.Reach = reach; haze.WaterHeight = water;
++    haze.Strength = strength*(s_collectTransitionWarmHaze?s_transitionWarmWeight:1.0f); haze.Reach = reach; haze.WaterHeight = water;
+     memcpy(haze.TowardSun, towardSun, sizeof(haze.TowardSun)); haze.Warmth = warmth;
++    haze.BeforeWater = beforeWater;
+ #endif
+ }
+ static void setAtmosphere(const float horizon[3], const float tint[3], float start, float scale,
+@@ -449,7 +457,7 @@ static void pushWeatherHaze(void)
+ 	Real strength;
+ 	TheSnowManager->getWeatherHaze(colour, &strength);
+ 	const float up[3] = { 0.0f, 0.0f, 1.0f };
+-	setGroundHaze(colour, 1.0e5f, 1.0f, strength, PROTO_HAZE_REACH, -1.0e6f, up, 0.0f);
++	setGroundHaze(colour, 1.0e5f, 1.0f, strength, PROTO_HAZE_REACH, -1.0e6f, up, 0.0f, true);
+ }
+ 
+ /* The Atmosphere option (DX11Post_Set_Atmosphere).  The horizon's colour goes by the time of day, scaled by
+@@ -497,8 +505,14 @@ static void pushAtmosphere(Bool weatherHaze)
+ 		if (weatherHaze)
+ 		{
+ 			Real strength;
+-			TheSnowManager->getWeatherHaze(horizon, &strength);
+-			memcpy(tint, horizon, sizeof(tint));
++			float storm[3];
++			TheSnowManager->getWeatherHaze(storm, &strength);
++			const Real blend = TheSnowManager->getWeatherStormEnvelope();
++			for (Int i = 0; i < 3; ++i)
++			{
++				horizon[i] += (storm[i] - horizon[i]) * blend;
++				tint[i] += (storm[i] - tint[i]) * blend;
++			}
+ 		}
+ 		TextureClass *sky = TheWaterRenderObj->getSkyTexture();
+ 		if (!sky->Is_Initialized())
+@@ -536,6 +550,8 @@ void W3DShaderManager::invalidateNativePostEnvironment(void)
+ void W3DShaderManager::pushProtoHaze(void)
+ {
+ #if defined(_WIN32)
++	const float zero[3]={0,0,0};
++	DX11Post_Set_Transition_Warm_Haze(zero,0,1,0,1,-1.0e6f,zero,0);
+ 	// The kind is NONE unless the option is on and Direct3D 11 presents.  Weather's haze takes the place
+ 	// of the Warm Light one while it lasts.  Either option goes off live, and the haze holds what it was
+ 	// last handed.
+@@ -543,7 +559,13 @@ void W3DShaderManager::pushProtoHaze(void)
+ 		&& TheSnowManager->isVisible();
+ 	static Bool s_hazed = FALSE;
+ 	if (weatherHaze)
++	{
+ 		pushWeatherHaze();
++		if (TheGlobalData->m_mapLight && TheSnowManager->getWeatherStormEnvelope()<1.0f) {
++			s_collectTransitionWarmHaze=TRUE;s_transitionWarmWeight=1.0f-TheSnowManager->getWeatherStormEnvelope();
++			pushProtoHazeFrame();s_collectTransitionWarmHaze=FALSE;
++		}
++	}
+ 	else if (TheGlobalData->m_mapLight && Direct3D11_Is_Active())
+ 		pushProtoHazeFrame();
+ 	else if (s_hazed)
+@@ -571,7 +593,13 @@ void W3DShaderManager::pushProtoHaze(void)
+     const Bool weatherVisible = TheSnowManager != NULL && TheSnowManager->isVisible();
+     const auto haze = NativePostEnvironmentPolicy::chooseHaze(true, false, true,
+         TheGlobalData->m_mapLight, weatherActive, weatherVisible);
+-    if (haze == NativePostEnvironmentPolicy::Weather) pushWeatherHaze();
++    if (haze == NativePostEnvironmentPolicy::Weather) {
++        pushWeatherHaze();
++        if (TheGlobalData->m_mapLight && TheSnowManager->getWeatherStormEnvelope()<1.0f) {
++            s_collectTransitionWarmHaze=TRUE;s_transitionWarmWeight=1.0f-TheSnowManager->getWeatherStormEnvelope();
++            pushProtoHazeFrame();s_collectTransitionWarmHaze=FALSE;
++        }
++    }
+     else if (haze == NativePostEnvironmentPolicy::WarmLight) pushProtoHazeFrame();
+     pushAtmosphere(haze == NativePostEnvironmentPolicy::Weather);
+     // AO can need shroud even when neither atmosphere nor haze is enabled.
+diff --git a/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DSnow.cpp b/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DSnow.cpp
+index 2cd3bfd8..df85cbf0 100644
+--- a/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DSnow.cpp
++++ b/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DSnow.cpp
+@@ -22,6 +22,8 @@
+ 
+ #include "W3DDevice/GameClient/W3DSnow.h"
+ #include "W3DDevice/GameClient/HeightMap.h"
++#include "W3DDevice/GameClient/W3DWater.h"
++#include "W3DDevice/GameClient/W3DShroud.h"
+ #if defined(__linux__)
+ #include "W3DDevice/GameClient/W3DShaderManager.h"
+ #include "Platform/RenderPost.h"
+@@ -29,6 +31,7 @@
+ #include "Platform/RendererCapabilities.h"
+ #endif
+ #include "Common/GlobalData.h"
++#include "Common/RandomValue.h"
+ #include "GameClient/View.h"
+ #include "GameLogic/ScriptEngine.h"
+ #include "WW3D2/dx8wrapper.h"
+@@ -71,8 +74,12 @@ W3DSnowManager::W3DSnowManager(void)
+ 	m_snowTexture=NULL;
+ 	m_VertexBufferD3D=NULL;
+ 	m_weatherDrops=NULL;
+-	m_weatherTextures[0]=NULL;
+-	m_weatherTextures[1]=NULL;
++	for (Int i=0;i<WEATHER_LAYER_COUNT;++i) m_weatherTextures[i]=NULL;
++	m_weatherContactTextures[0]=m_weatherContactTextures[1]=NULL;
++	m_weatherContacts=NULL; m_weatherContactTracks=NULL;
++    m_weatherDustCells=NULL; m_weatherDustEpoch=0; m_weatherDustRevision=~0U;
++    m_weatherDustWater=NULL; m_weatherRainSeed=1; m_weatherRainMatchSeed=0;
++	clearWeatherMotion();
+ 	m_weatherTime=0.0;
+ 	m_weatherMap=NULL;
+ 	m_weatherMapData=NULL;
+@@ -88,6 +95,9 @@ W3DSnowManager::~W3DSnowManager()
+ {
+ 	ReleaseResources();
+ 	delete [] m_weatherDrops;
++	delete [] m_weatherContacts;
++	delete [] m_weatherContactTracks;
++	delete [] m_weatherDustCells;
+ }
+ 
+ // Direct3D 11 has no point sprites at all: the fixed-function primitive that expands one vertex
+@@ -122,8 +132,9 @@ void W3DSnowManager::init( void )
+ void W3DSnowManager::ReleaseResources(void)
+ {
+ 	REF_PTR_RELEASE(m_snowTexture);
+-	REF_PTR_RELEASE(m_weatherTextures[0]);
+-	REF_PTR_RELEASE(m_weatherTextures[1]);
++	for (Int i=0;i<WEATHER_LAYER_COUNT;++i) REF_PTR_RELEASE(m_weatherTextures[i]);
++	REF_PTR_RELEASE(m_weatherContactTextures[0]);
++	REF_PTR_RELEASE(m_weatherContactTextures[1]);
+ 
+ 	if (m_VertexBufferD3D)
+ 		m_VertexBufferD3D->Release();
+@@ -218,6 +229,7 @@ void W3DSnowManager::updateIniSettings(void)
+ void W3DSnowManager::reset( void )
+ {
+ 	SnowManager::reset();
++	clearWeatherMotion();
+ #if defined(__linux__)
+     // Client/map reset is authoritative even when an allocator reuses every map
+     // and sample address. Ordinary snow and the Windows weather lifecycle stay unchanged.
+@@ -225,7 +237,7 @@ void W3DSnowManager::reset( void )
+     m_weatherOn = FALSE; m_weatherKind = WEATHER_KIND_NONE; m_weatherTime = 0.0;
+     m_weatherMap = NULL; m_weatherMapData = NULL; m_weatherMapWidth = m_weatherMapHeight = 0;
+     m_weatherSandCells = m_weatherCells = 0;
+-    REF_PTR_RELEASE(m_weatherTextures[0]); REF_PTR_RELEASE(m_weatherTextures[1]);
++    for (Int i=0;i<WEATHER_LAYER_COUNT;++i) REF_PTR_RELEASE(m_weatherTextures[i]);
+ #endif
+ }
+ 
+@@ -242,10 +254,19 @@ void W3DSnowManager::update(void)
+ #else
+ 	m_weatherOn = TheGlobalData->m_weatherEffects && !TheGlobalData->m_classicGraphics && Direct3D11_Present_Is_Enabled();
+ #endif
+-	if (m_weatherOn)
++	if (m_weatherOn && m_isVisible)
+ 		updateWeather();
++	else if (m_weatherOn)
++	{
++		setWeatherPresentation(0.0f,0.0f,WW3D::Get_Frame_Time()/1000.0f,0.0f);
++		if (m_weatherTime!=0.0) clearWeatherMotion();
++	}
+ 	else
++	{
+ 		m_weatherKind = WEATHER_KIND_NONE;
++		setWeatherPresentation(0.0f,0.0f,WW3D::Get_Frame_Time()/1000.0f,0.0f);
++		if (m_weatherTime!=0.0) clearWeatherMotion();
++	}
+ }
+ 
+ /* The Weather option (Options > Effects, Direct3D 11, off under Classic).  A client's picture and no
+@@ -270,17 +291,40 @@ struct WeatherLayer
+ };
+ 
+ // The battlefield reads first: motion is what says weather, so a layer stays sparse and faint.  Sand's
+-// streaks all fly above the ground and its cards go over everything, so they cost the most picture.
+-static const WeatherLayer WEATHER_LAYERS[WEATHER_KIND_COUNT][2] =
++// layers remain over verified dry ground; small low cards cannot wash across the water.
++static const WeatherLayer WEATHER_LAYERS[WEATHER_KIND_COUNT][3] =
+ {
+-	{ { NULL }, { NULL } },
+-	{ { "EXRainDrop.tga", 6000, 45.0f, 1100.0f, 44.0f, 3.0f, 0xb8d8e4f0, 0.0f, FALSE }, { NULL } },
+-	{ { "EXRainDrop.tga", 3500, 130.0f, 25.0f, 64.0f, 3.0f, 0x90ecd4a4, 150.0f, FALSE },
+-		{ "EXCloud01.tga", 70, 65.0f, 4.0f, 260.0f, 260.0f, 0x1cd0ac7c, 170.0f, TRUE } },
+-	{ { "EXSnowFlake1.tga", 6000, 8.5f, 46.0f, 2.4f, 2.4f, 0xd0e8eef4, 0.0f, TRUE }, { NULL } }
++    { { NULL }, { NULL }, { NULL } },
++    { { "EXRainDrop.tga", 6000, 45.0f, 1100.0f, 44.0f, 3.0f, 0xb8d8e4f0, 0.0f, FALSE }, { NULL }, { NULL } },
++    { { "EXRainDrop.tga", 2200, 145.0f, 19.0f, 40.0f, 1.8f, 0x64ecd4a4, 95.0f, FALSE },
++      { "EXRainDrop.tga", 1000, 95.0f, 10.0f, 30.0f, 1.2f, 0x48d8c8a4, 200.0f, FALSE },
++      { "EXCloud01.tga", 60, 52.0f, 3.0f, 20.0f, 52.0f, 0x20d0ac7c, 36.0f, TRUE } },
++    { { "EXSnowFlake1.tga", 2800, 11.0f, 48.0f, 2.0f, 2.0f, 0xc8e8eef4, 0.0f, TRUE },
++      { "EXSnowFlake1.tga", 2000, 19.0f, 34.0f, 3.2f, 3.2f, 0xb0e8eef4, 0.0f, TRUE },
++      { "EXSnowFlake1.tga", 1000, 6.0f, 63.0f, 1.3f, 1.3f, 0x98d8e2ee, 0.0f, TRUE } }
+ };
+ 
+-static const Real WEATHER_WIND_STRENGTH[WEATHER_KIND_COUNT] = { 0.5f, 0.8f, 1.0f, 0.35f };
++// Stable render-local seeds: weather must not consume the gameplay/random particle stream.
++static Real weatherSeed(UnsignedInt n)
++{
++    n ^= n >> 16; n *= 0x7feb352dU; n ^= n >> 15; n *= 0x846ca68bU; n ^= n >> 16;
++    return Real(n & 0x00ffffffU) / 16777216.0f;
++}
++
++void W3DSnowManager::clearWeatherMotion(void)
++{
++    for (Int i=0;i<WEATHER_LAYER_COUNT;++i) {
++        m_weatherMotion[i].reset();
++    }
++    m_weatherTime=0.0;
++    m_weatherRainEnvelope=0.0f; m_weatherParticleDensity=0.0f;
++    ++m_weatherDustEpoch; m_weatherDustFrame=~0U; m_weatherDustQueries=0;
++    m_weatherContactNext=m_weatherContactCursor=0;
++    m_weatherContactFrame=~0U;
++    if (m_weatherContacts) for (Int i=0;i<WEATHER_CONTACT_COUNT;++i) m_weatherContacts[i].born=-10.0;
++    if (m_weatherContactTracks) for (Int i=0;i<WEATHER_CONTACT_TRACKS;++i) m_weatherContactTracks[i].valid=FALSE;
++}
++
+ static const Int WEATHER_MAX_DROPS = 8192;
+ static const Real WEATHER_TILE_STEP = 2048.0f;
+ static const Real WEATHER_TILE_MIN = 512.0f;
+@@ -290,24 +334,37 @@ static const Real WEATHER_EYE_CLEARANCE = 0.55f;	// of the eye's height: nothing
+ 
+ void W3DSnowManager::updateWeather(void)
+ {
+-	m_weatherTime = fmod(m_weatherTime + WW3D::Get_Frame_Time() / 1000.0, 3600.0);
++	const Real dt=WWMath::Clamp(WW3D::Get_Frame_Time()/1000.0f,0.0f,0.1f);
++	// Never multiply a changing wind by elapsed time: integrate displacement once per update.
++	m_weatherTime += dt;
+ 
+ 	WorldHeightMap *map = TheTerrainRenderObject != NULL ? TheTerrainRenderObject->getMap() : NULL;
++    const UnsignedInt matchSeed=GetGameLogicRandomSeed();
+ #if defined(__linux__)
+     const Bool mapChanged = map != NULL && (map != m_weatherMap || map->getDataPtr() != m_weatherMapData
+-        || map->getXExtent() != m_weatherMapWidth || map->getYExtent() != m_weatherMapHeight);
++        || map->getXExtent() != m_weatherMapWidth || map->getYExtent() != m_weatherMapHeight
++        || matchSeed != m_weatherRainMatchSeed);
+     if (mapChanged)
+ #else
+-	if (map != NULL && (map != m_weatherMap || map->getDataPtr() != m_weatherMapData || map->getXExtent() != m_weatherMapWidth))
++	if (map != NULL && (map != m_weatherMap || map->getDataPtr() != m_weatherMapData
++        || map->getXExtent() != m_weatherMapWidth || matchSeed != m_weatherRainMatchSeed))
+ #endif
+ 	{
++		clearWeatherMotion();
+ 		m_weatherMap = map;
+ 		m_weatherMapData = map->getDataPtr();
+ 		m_weatherMapWidth = map->getXExtent();
+ #if defined(__linux__)
+         m_weatherMapHeight = map->getYExtent();
+ #endif
+-		map->countSandCells(&m_weatherSandCells, &m_weatherCells);
++        map->countSandCells(&m_weatherSandCells, &m_weatherCells);
++        m_weatherRainSeed=WeatherParticleMath::hash(UnsignedInt(map->getXExtent())^
++            (UnsignedInt(map->getYExtent())<<16)^UnsignedInt(m_weatherSandCells));
++        const Int samples=map->getXExtent()*map->getYExtent();
++        for (Int i=0;i<8 && samples>0;++i)
++            m_weatherRainSeed=WeatherParticleMath::hash(m_weatherRainSeed^map->getDataPtr()[(samples-1)*i/7]);
++        m_weatherRainMatchSeed=matchSeed;
++        m_weatherRainSeed=WeatherParticleMath::rainSeedForMatch(m_weatherRainSeed,matchSeed);
+ 		DEBUG_LOG(("WEATHER map is %d sand of %d cells\n", m_weatherSandCells, m_weatherCells));
+ 	}
+ 
+@@ -316,26 +373,54 @@ void W3DSnowManager::updateWeather(void)
+ 	if (kind != m_weatherKind)
+ 	{
+ 		m_weatherKind = kind;
+-		REF_PTR_RELEASE(m_weatherTextures[0]);
+-		REF_PTR_RELEASE(m_weatherTextures[1]);
++		clearWeatherMotion();
++		for (Int i=0;i<WEATHER_LAYER_COUNT;++i) REF_PTR_RELEASE(m_weatherTextures[i]);
+ 	}
+-	setWeatherWind(WEATHER_WIND_STRENGTH[kind]);
++    const Bool active=m_isVisible && map!=NULL;
++    const WeatherParticleMath::Presentation sample=WeatherParticleMath::sample(m_weatherTime);
++    const Real gust=kind==WEATHER_KIND_NONE ? 1.0f : sample.gust;
++    const Real intensity=kind==WEATHER_KIND_NONE ? 1.0f : sample.intensity;
++    if (!active) clearWeatherMotion();
++    m_weatherRainEnvelope=kind==WEATHER_KIND_RAIN ?
++        WeatherParticleMath::rainSpell(m_weatherTime,m_weatherRainSeed).envelope : 1.0f;
++    m_weatherParticleDensity=intensity;
++    // A dry interval changes presentation only: the selected rain kind and its clock keep advancing.
++    setWeatherPresentation(active ? gust : 0.0f,active ? intensity*m_weatherRainEnvelope : 0.0f,dt,
++        active ? m_weatherRainEnvelope : 0.0f);
++    const Coord2D &wind=weatherBreezeInfo().m_directionVec;
++    for (Int i=0;i<WEATHER_LAYER_COUNT;++i) {
++        const WeatherLayer &layer=WEATHER_LAYERS[kind][i];
++        if (!layer.texture) continue;
++        m_weatherMotion[i].advance(dt,wind.x,wind.y,layer.along,layer.down,getWeatherGust());
++    }
+ }
+ 
+ void W3DSnowManager::renderWeather(RenderInfoClass &rinfo)
+ {
++    if (m_weatherKind==WEATHER_KIND_RAIN && m_weatherRainEnvelope<=0.0f) return;
++    if (m_weatherKind==WEATHER_KIND_SAND) {
++        const UnsignedInt revision=TheWaterRenderObj ? TheWaterRenderObj->weatherSurfaceRevision() : 0;
++        if (m_weatherDustWater!=TheWaterRenderObj || m_weatherDustRevision!=revision) {
++            m_weatherDustWater=TheWaterRenderObj; m_weatherDustRevision=revision; ++m_weatherDustEpoch;
++        }
++        if (m_weatherDustFrame!=WW3D::Get_Frame_Count()) {
++            m_weatherDustFrame=WW3D::Get_Frame_Count(); m_weatherDustQueries=0;
++        }
++    }
+ 	if (m_weatherDrops == NULL)
+ 	{
+ 		m_weatherDrops = NEW WeatherDrop[WEATHER_MAX_DROPS];
+ 		for (Int i = 0; i < WEATHER_MAX_DROPS; ++i)
+ 		{
+-			m_weatherDrops[i].x = rand() / (Real)RAND_MAX;
+-			m_weatherDrops[i].y = rand() / (Real)RAND_MAX;
+-			m_weatherDrops[i].phase = rand() / (Real)RAND_MAX;
++			m_weatherDrops[i].x = weatherSeed(i*4U+1U);
++			m_weatherDrops[i].y = weatherSeed(i*4U+2U);
++			m_weatherDrops[i].phase = weatherSeed(i*4U+3U);
++			m_weatherDrops[i].size = 0.65f+0.7f*weatherSeed(i*4U+4U);
+ 		}
+ 	}
+ 	if (!m_indexBuffer)
+ 		ReAcquireResources();
++	if (!m_indexBuffer) return;
+ 
+ 	Matrix4x4 identity(true);
+ 	DX8Wrapper::Set_Transform(D3DTS_WORLD, identity);
+@@ -358,9 +443,9 @@ void W3DSnowManager::renderWeather(RenderInfoClass &rinfo)
+ #else
+ 	Direct3D11_Set_Emissive(true);
+ #endif
+-	drawWeatherLayer(rinfo, 0, light);
+-	if (WEATHER_LAYERS[m_weatherKind][1].texture != NULL)
+-		drawWeatherLayer(rinfo, 1, light);
++	for (Int i=0;i<WEATHER_LAYER_COUNT;++i)
++		if (WEATHER_LAYERS[m_weatherKind][i].texture) drawWeatherLayer(rinfo,i,light);
++	if (m_weatherKind==WEATHER_KIND_RAIN) drawWeatherContacts(rinfo,light);
+ #if defined(__linux__)
+     RenderLighting::SetEmissive(false);
+ #else
+@@ -374,11 +459,9 @@ void W3DSnowManager::drawWeatherLayer(RenderInfoClass &rinfo, Int layerIndex, Re
+ 	if (m_weatherTextures[layerIndex] == NULL)
+ 		m_weatherTextures[layerIndex] = WW3DAssetManager::Get_Instance()->Get_Texture(layer.texture);
+ 	DX8Wrapper::Set_Texture(0, m_weatherTextures[layerIndex]);
+-	// A card wider than a unit would cut a hard line where it meets the ground, so it takes no depth:
+-	// a cloud between the eye and the ground goes over all of it anyway.
++	// Dust cards use ordinary depth testing, so units/terrain can occlude the drifting veil.
+ 	ShaderClass shader(ShaderClass::_PresetAlphaShader);
+-	if (layer.height > 0.0f && layer.facesCamera)
+-		shader.Set_Depth_Compare(ShaderClass::PASS_ALWAYS);
++
+ 	// A near vertical streak past the point under the camera turns its back to it at a steep tilt.
+ 	shader.Set_Cull_Mode(ShaderClass::CULL_MODE_DISABLE);
+ 	DX8Wrapper::Set_Shader(shader);
+@@ -408,9 +491,62 @@ void W3DSnowManager::drawWeatherLayer(RenderInfoClass &rinfo, Int layerIndex, Re
+ 	const Real top = layer.height > 0.0f ? ground + layer.height : eye.Z - (eye.Z - ground) * WEATHER_EYE_CLEARANCE;
+ 
+ 	const Coord2D &wind = weatherBreezeInfo().m_directionVec;
+-	const Real shiftX = (Real)fmod(m_weatherTime * wind.x * layer.along, (double)tile);
+-	const Real shiftY = (Real)fmod(m_weatherTime * wind.y * layer.along, (double)tile);
+-	const Real fallen = (Real)fmod(m_weatherTime * layer.down / depth, 1.0);
++	const Real shiftX = (Real)fmod(m_weatherMotion[layerIndex].x, (double)tile);
++	const Real shiftY = (Real)fmod(m_weatherMotion[layerIndex].y, (double)tile);
++	const Real fallen = (Real)fmod(m_weatherMotion[layerIndex].fall / depth, 1.0);
++
++    if (m_weatherKind==WEATHER_KIND_RAIN && layerIndex==0 && m_weatherContactFrame!=WW3D::Get_Frame_Count()) {
++        m_weatherContactFrame=WW3D::Get_Frame_Count();
++        if (!m_weatherContacts) {
++            m_weatherContacts=NEW WeatherContact[WEATHER_CONTACT_COUNT];
++            m_weatherContactTracks=NEW WeatherContactTrack[WEATHER_CONTACT_TRACKS];
++            for (Int i=0;i<WEATHER_CONTACT_COUNT;++i) m_weatherContacts[i].born=-10.0;
++            for (Int i=0;i<WEATHER_CONTACT_TRACKS;++i) m_weatherContactTracks[i].valid=FALSE;
++        }
++        // Bound height/water queries separately from the falling-particle budget. These are the
++        // same trajectories as up to the first 256 rendered drops. At low frame rates a smaller
++        // active set keeps every revisit below .24 seconds and half a fall cycle.
++        WorldHeightMap *map=TheTerrainRenderObject->getMap();
++        W3DShroud *shroud=TheTerrainRenderObject->getShroud();
++        const Real contactDt=WWMath::Clamp(WW3D::Get_Frame_Time()/1000.0f,0.0f,0.1f);
++        const Int tracks=WeatherParticleMath::contactTrackCount(contactDt,depth,layer.down);
++        for (Int attempt=0;attempt<48;++attempt) {
++            const Int index=m_weatherContactCursor%tracks;
++            m_weatherContactCursor=(index+1)%tracks;
++            const WeatherDrop &drop=m_weatherDrops[index];
++            WeatherContactTrack &track=m_weatherContactTracks[index];
++            const Real phase=drop.phase+fallen;
++            const Vector3 now(weatherWrap(drop.x*tile+shiftX,originX,tile),
++                weatherWrap(drop.y*tile+shiftY,originY,tile),top-(phase-(Int)phase)*depth);
++            const Vector3 previous=track.position;
++            const double elapsed=m_weatherTime-track.sampled;
++            const Bool hadSample=track.valid && track.tile==tile;
++            track.position=now; track.sampled=m_weatherTime; track.tile=tile; track.valid=TRUE;
++            if (!hadSample || now.Z>=previous.Z || elapsed<=0.0 || elapsed>=0.3
++                || fabs(now.X-previous.X)>=80.0f || fabs(now.Y-previous.Y)>=80.0f
++                || weatherSeed(index+913U)>getWeatherIntensity()) continue;
++            const Real border=map->getBorderSize()*MAP_XY_FACTOR;
++            if (now.X< -border || now.Y< -border ||
++                now.X>=(map->getXExtent()-1)*MAP_XY_FACTOR-border ||
++                now.Y>=(map->getYExtent()-1)*MAP_XY_FACTOR-border) continue;
++            if (shroud && shroud->getShroudLevel(REAL_TO_INT_FLOOR(now.X/shroud->getCellWidth()),
++                REAL_TO_INT_FLOOR(now.Y/shroud->getCellHeight()))<240) continue;
++            Coord3D terrainNormal;
++            Real surface=TheTerrainRenderObject->getHeightMapHeight(now.X,now.Y,&terrainNormal);
++            Vector3 normal(terrainNormal.x,terrainNormal.y,terrainNormal.z);
++            Real waterHeight=surface;
++            Vector3 waterNormal;
++            const Bool hasWater=TheWaterRenderObj && TheWaterRenderObj->getWeatherSurfaceHeight(now.X,now.Y,&waterHeight,&waterNormal);
++            const WeatherParticleMath::Surface hit=WeatherParticleMath::surface(surface,hasWater,waterHeight);
++            if (hit.water) normal=waterNormal;
++            if (!WeatherParticleMath::crossesSurface(previous.Z,now.Z,hit.height,elapsed,
++                now.X-previous.X,now.Y-previous.Y)) continue;
++            WeatherContact &contact=m_weatherContacts[m_weatherContactNext];
++            m_weatherContactNext=(m_weatherContactNext+1)%WEATHER_CONTACT_COUNT;
++            contact.position.Set(now.X,now.Y,hit.height+0.45f);
++            contact.normal=normal; contact.born=m_weatherTime; contact.water=hit.water;
++        }
++    }
+ 
+ 	// A streak lies along its flight and takes its width across the view, so it never turns edge on.
+ 	const Matrix3D &eyeFrame = camera.Get_Transform();
+@@ -423,7 +559,7 @@ void W3DSnowManager::drawWeatherLayer(RenderInfoClass &rinfo, Int layerIndex, Re
+ 	}
+ 	else
+ 	{
+-		axis.Set(wind.x * layer.along, wind.y * layer.along, -layer.down);
++		axis.Set(wind.x * layer.along*getWeatherGust(), wind.y * layer.along*getWeatherGust(), -layer.down);
+ 		axis.Normalize();
+ 		Vector3::Cross_Product(eyeFrame.Get_Z_Vector(), axis, &side);
+ 		side.Normalize();
+@@ -450,20 +586,37 @@ void W3DSnowManager::drawWeatherLayer(RenderInfoClass &rinfo, Int layerIndex, Re
+ 			VertexFormatXYZNDUV2 *verts = lock.Get_Formatted_Vertex_Array();
+ 			for (Int i = 0; i < batch; ++i)
+ 			{
+-				const WeatherDrop &drop = m_weatherDrops[done + i];
+-				const Real x = weatherWrap(drop.x * tile + shiftX, originX, tile);
+-				const Real y = weatherWrap(drop.y * tile + shiftY, originY, tile);
++				const Int dropIndex=done+i;
++				const WeatherDrop &drop = m_weatherDrops[(dropIndex+layerIndex*2017)%WEATHER_MAX_DROPS];
++				const Real drift=m_weatherKind==WEATHER_KIND_SNOW ?
++                    Real(sin(m_weatherTime*(0.6f+drop.size*0.35f)+drop.phase*6.283185f))*9.0f*drop.size : 0.0f;
++                const Real x = weatherWrap(drop.x * tile + shiftX + drift, originX, tile);
++                const Real y = weatherWrap(drop.y * tile + shiftY + drift*0.6f, originY, tile);
+ 				const Real phase = drop.phase + fallen;
+-				const Real z = top - (phase - (Int)phase) * depth;
+-				for (Int corner = 0; corner < 4; ++corner)
+-				{
+-					verts->x = x + corners[corner].X;
+-					verts->y = y + corners[corner].Y;
+-					verts->z = z + corners[corner].Z;
++				Real z = top - (phase - (Int)phase) * depth;
++                if (m_weatherKind==WEATHER_KIND_SAND && layerIndex==2)
++                    z=TheTerrainRenderObject->getHeightMapHeight(x,y,NULL)+10.0f+(1.0f-(phase-(Int)phase))*20.0f;
++				Real density=WWMath::Clamp((m_weatherParticleDensity-weatherSeed(dropIndex+913U))*8.0f,0.0f,1.0f)
++                    *m_weatherRainEnvelope;
++                const Real scale=drop.size*(0.94f+0.06f*getWeatherGust());
++                if (m_weatherKind==WEATHER_KIND_SAND) {
++                    Real minX=x,maxX=x,minY=y,maxY=y;
++                    for (Int corner=0;corner<4;++corner) {
++                        const Real px=x+corners[corner].X*scale,py=y+corners[corner].Y*scale;
++                        minX=min(minX,px); maxX=max(maxX,px); minY=min(minY,py); maxY=max(maxY,py);
++                    }
++                    density*=weatherDustFootprintFade(minX,minY,maxX,maxY);
++                }
++                const UnsignedInt dropColour=(colour&0x00ffffffU) | (UnsignedInt((colour>>24)*density)<<24);
++                for (Int corner = 0; corner < 4; ++corner)
++                {
++                    verts->x = x + corners[corner].X*scale;
++                    verts->y = y + corners[corner].Y*scale;
++                    verts->z = z + corners[corner].Z*scale;
+ 					verts->nx = 0;	//keep AGP write-combining active
+ 					verts->ny = 0;
+ 					verts->nz = 0;
+-					verts->diffuse = colour;
++					verts->diffuse = dropColour;
+ 					verts->u1 = CORNER_U[corner];
+ 					verts->v1 = CORNER_V[corner];
+ 					verts->u2 = 0;
+@@ -478,6 +631,123 @@ void W3DSnowManager::drawWeatherLayer(RenderInfoClass &rinfo, Int layerIndex, Re
+ 	}
+ }
+ 
++// World-anchored 96-unit cells cover the full dust-card footprint, with a 32-unit soft
++// dry-side shore margin. Unknown/stale cells deny dust; only 32 cells may inspect water per frame.
++Bool W3DSnowManager::weatherDustCellDry(Int x,Int y,Real *arrival)
++{
++    *arrival=0.0f;
++    if (!m_weatherDustCells) {
++        m_weatherDustCells=NEW WeatherDustCell[WEATHER_DUST_CACHE_DIM*WEATHER_DUST_CACHE_DIM];
++        for (Int i=0;i<WEATHER_DUST_CACHE_DIM*WEATHER_DUST_CACHE_DIM;++i) m_weatherDustCells[i].epoch=0;
++    }
++    const UnsignedInt slot=(UnsignedInt(y)&63U)*WEATHER_DUST_CACHE_DIM+(UnsignedInt(x)&63U);
++    WeatherDustCell &cell=m_weatherDustCells[slot];
++    const Bool wasDry=cell.epoch==m_weatherDustEpoch && cell.x==x && cell.y==y && cell.dry;
++    const double previousAdmission=wasDry ? cell.admitted : m_weatherTime;
++    if (cell.epoch==m_weatherDustEpoch && cell.x==x && cell.y==y && m_weatherTime-cell.sampled<10.0) {
++        *arrival=WeatherParticleMath::dustArrival(m_weatherTime-cell.admitted,cell.dry);
++        return cell.dry;
++    }
++    if (m_weatherDustQueries>=32) return FALSE;
++    ++m_weatherDustQueries;
++    cell.x=x; cell.y=y; cell.epoch=m_weatherDustEpoch; cell.sampled=m_weatherTime;
++    cell.admitted=previousAdmission; cell.dry=FALSE;
++    WorldHeightMap *map=TheTerrainRenderObject->getMap();
++    if (!map) return FALSE;
++    const Real minX=x*96.0f,minY=y*96.0f,maxX=minX+96.0f,maxY=minY+96.0f;
++    const Int border=map->getBorderSize();
++    const Int lowX=REAL_TO_INT_FLOOR(minX/MAP_XY_FACTOR)+border;
++    const Int lowY=REAL_TO_INT_FLOOR(minY/MAP_XY_FACTOR)+border;
++    const Int highX=REAL_TO_INT_CEIL(maxX/MAP_XY_FACTOR)+border;
++    const Int highY=REAL_TO_INT_CEIL(maxY/MAP_XY_FACTOR)+border;
++    if (lowX<0 || lowY<0 || highX>=map->getXExtent() || highY>=map->getYExtent()) return FALSE;
++    Real terrainMinimum=1.0e30f;
++    // Every terrain vertex in/enclosing the cell gives a conservative lower bound, not just
++    // a center sample that could miss a small pond or the bend of a river.
++    for (Int iy=lowY;iy<=highY;++iy) for (Int ix=lowX;ix<=highX;++ix)
++        terrainMinimum=min(terrainMinimum,map->getHeight(ix,iy)*MAP_HEIGHT_SCALE);
++    cell.dry=!TheWaterRenderObj || !TheWaterRenderObj->hasWeatherWaterInBox(minX,minY,maxX,maxY,terrainMinimum);
++    cell.admitted=previousAdmission;
++    *arrival=WeatherParticleMath::dustArrival(m_weatherTime-cell.admitted,cell.dry);
++    return cell.dry;
++}
++
++Real W3DSnowManager::weatherDustFootprintFade(Real minX,Real minY,Real maxX,Real maxY)
++{
++    const Real margin=32.0f;
++    const Int lowX=REAL_TO_INT_FLOOR((minX-margin)/96.0f),lowY=REAL_TO_INT_FLOOR((minY-margin)/96.0f);
++    const Int highX=REAL_TO_INT_FLOOR((maxX+margin)/96.0f),highY=REAL_TO_INT_FLOOR((maxY+margin)/96.0f);
++    Real fade=1.0f;
++    for (Int y=lowY;y<=highY;++y) for (Int x=lowX;x<=highX;++x) {
++        Real arrival;
++        if (weatherDustCellDry(x,y,&arrival)) { fade=min(fade,arrival); continue; }
++        fade=min(fade,WeatherParticleMath::footprintShoreFade(minX,minY,maxX,maxY,
++            x*96.0,y*96.0,(x+1)*96.0,(y+1)*96.0,margin));
++        if (fade<=0.0f) return 0.0f;
++    }
++    return fade;
++}
++
++void W3DSnowManager::drawWeatherContacts(RenderInfoClass &rinfo, Real light)
++{
++    if (!m_weatherContacts) return;
++    // Both are licensed EA assets already used by the water splash effect. A low-alpha
++    // expanding surface ring reads as a raindrop; the land card is a brief upward spray.
++    const char *textures[2]={ "EXWater04.tga", "EXShockWav.tga" };
++    const Matrix3D &eye=rinfo.Camera.Get_Transform();
++    static const Real u[4]={0.0f,0.0f,1.0f,1.0f}, v[4]={0.0f,1.0f,1.0f,0.0f};
++    for (Int pass=0;pass<2;++pass) {
++        if (!m_weatherContactTextures[pass])
++            m_weatherContactTextures[pass]=WW3DAssetManager::Get_Instance()->Get_Texture(textures[pass]);
++        DX8Wrapper::Set_Texture(0,m_weatherContactTextures[pass]);
++        ShaderClass shader(ShaderClass::_PresetAlphaShader);
++        if (pass) shader.Set_Dst_Blend_Func(ShaderClass::DSTBLEND_ONE);
++        shader.Set_Cull_Mode(ShaderClass::CULL_MODE_DISABLE);
++        DX8Wrapper::Set_Shader(shader);
++        DynamicVBAccessClass vb(BUFFER_TYPE_DYNAMIC_DX8,dynamic_fvf_type,WEATHER_CONTACT_COUNT*4);
++        Int count=0;
++        {
++            DynamicVBAccessClass::WriteLockClass lock(&vb);
++            VertexFormatXYZNDUV2 *verts=lock.Get_Formatted_Vertex_Array();
++            for (Int i=0;i<WEATHER_CONTACT_COUNT;++i) {
++                const WeatherContact &contact=m_weatherContacts[i];
++                const Real age=Real(m_weatherTime-contact.born), lifetime=pass ? 0.75f : 0.24f;
++                if (contact.water!=(pass!=0) || age<0.0f || age>=lifetime) continue;
++                W3DShroud *shroud=TheTerrainRenderObject->getShroud();
++                if (shroud && shroud->getShroudLevel(REAL_TO_INT_FLOOR(contact.position.X/shroud->getCellWidth()),
++                    REAL_TO_INT_FLOOR(contact.position.Y/shroud->getCellHeight()))<240) continue;
++                const Real size=pass ? 2.4f+age*13.0f : 1.8f+age*8.0f;
++                AABoxClass bounds(contact.position,Vector3(size,size,size));
++                if (CollisionMath::Overlap_Test(rinfo.Camera.Get_Frustum(),bounds)==CollisionMath::OUTSIDE) continue;
++                Vector3 side,axis;
++                if (pass) {
++                    // Rings lie in the exact authored triangle plane, including sloping rivers.
++                    Vector3::Cross_Product(Vector3(0.0f,1.0f,0.0f),contact.normal,&side);
++                    side.Normalize(); Vector3::Cross_Product(contact.normal,side,&axis);
++                    side*=size; axis*=size;
++                } else {
++                    side=eye.Get_X_Vector()*size;
++                    axis.Set(0.0f,0.0f,size*(1.0f-age/lifetime));
++                }
++                const Vector3 corners[4]={-side-axis,-side+axis,side+axis,side-axis};
++                const Real fade=(1.0f-age/lifetime)*(pass ? 0.65f : 0.70f)*m_weatherRainEnvelope;
++                const UnsignedInt colour=(UnsignedInt(255.0f*fade)<<24) |
++                    (UnsignedInt(208.0f*light)<<16) | (UnsignedInt(224.0f*light)<<8) | UnsignedInt(238.0f*light);
++                const Vector3 center=contact.position+(pass ? Vector3(0,0,0) : Vector3(0,0,size*0.5f));
++                for (Int corner=0;corner<4;++corner) {
++                    const Vector3 point=center+corners[corner];
++                    verts->x=point.X; verts->y=point.Y; verts->z=point.Z;
++                    verts->nx=verts->ny=verts->nz=0.0f; verts->diffuse=colour;
++                    verts->u1=u[corner]; verts->v1=v[corner]; verts->u2=verts->v2=0.0f;
++                    ++verts;
++                }
++                ++count;
++            }
++        }
++        if (count) { DX8Wrapper::Set_Vertex_Buffer(vb); DX8Wrapper::Draw_Triangles(0,count*2,0,count*4); }
++    }
++}
++
+ #define MAXIMUM_CAMERA_DISTANCE 100000	//maximum distance of camera position from world origin.
+ #define ISPOW2(x)  (x && (x & (x-1)) == 0)	//is a number a power of 2?
+ #define MODPOW2(x,y) ((x) & (y-1))		//mod '%' operator for powers of 2.
+@@ -637,6 +907,8 @@ flush_particles:
+ 
+ void W3DSnowManager::render(RenderInfoClass &rinfo)
+ {
++	// Weather is composed once in the main view; reflected cameras cannot advance contacts.
++	if (m_weatherKind!=WEATHER_KIND_NONE && TheWaterRenderObj && TheWaterRenderObj->isRenderingReflection()) return;
+ 	if (m_weatherKind != WEATHER_KIND_NONE && m_isVisible)
+ 	{
+ 		renderWeather(rinfo);
+@@ -901,4 +1173,4 @@ flush_particles:
+ 			totalPart -= numberInBatch;
+ 		}
+ 	}
+-}
+\ No newline at end of file
++}
+diff --git a/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DTreeBuffer.cpp b/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DTreeBuffer.cpp
+index f91c0ce0..34ebf1ac 100644
+--- a/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DTreeBuffer.cpp
++++ b/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DTreeBuffer.cpp
+@@ -73,6 +73,7 @@ enum
+ #include "Common/PlayerList.h"
+ #include "GameLogic/ScriptEngine.h"
+ #include "GameClient/Snow.h"
++#include "GameClient/WeatherBreezeMath.h"
+ #include "GameLogic/GameLogic.h"
+ #include "GameLogic/Object.h"
+ #include "GameLogic/PartitionManager.h"
+@@ -510,6 +511,7 @@ it's sortKey */
+ //=============================================================================
+ void W3DTreeBuffer::updateSway(const BreezeInfo& info)
+ {
++	m_curSwayPeriod=info.m_breezePeriod;
+ 	Int i;
+ 	for	(i=0; i<NUM_SWAY_ENTRIES; i++) {
+ 		Real factor = Cos(i*2.0f*PI/(NUM_SWAY_ENTRIES+1.0f));
+@@ -1326,6 +1328,7 @@ W3DTreeBuffer::W3DTreeBuffer(void)
+ 	allocateTreeBuffers();
+ 	m_initialized = true;
+ 	m_curSwayVersion = -1;
++	m_curSwayPeriod = 1;
+ 	m_lastSwayFrame = 0xffffffff;	// so the first drawTrees always steps
+ 	m_lastTreeStepFrame = 0xffffffff;
+ 
+@@ -2304,6 +2307,18 @@ void W3DTreeBuffer::drawTrees(CameraClass * camera, RefRenderObjListIterator *pD
+ 		{
+ 			updateSway(info);
+ 		}		
++		if (TheSnowManager != NULL && TheSnowManager->isWeatherOn() && TheSnowManager->isVisible()
++			&& TheSnowManager->getWeatherGust() > 0.0f)
++		{
++			// Only the displacement table follows gusts/rain fades. Preserve the phase, per-tree
++			// type and random speed factors; updateSway would reset all of those on every frame.
++			for (Int sample = 0; sample < NUM_SWAY_ENTRIES; ++sample)
++			{
++				const Real angle = info.m_lean + info.m_intensity * Cos(sample * 2.0f * PI / (NUM_SWAY_ENTRIES + 1.0f));
++				const Real sine = Sin(angle);
++				m_swayOffsets[sample].Set(info.m_directionVec.x * sine, info.m_directionVec.y * sine, Cos(angle) - 1.0f);
++			}
++		}
+ 	}
+ 
+ 	//
+@@ -2320,7 +2335,7 @@ void W3DTreeBuffer::drawTrees(CameraClass * camera, RefRenderObjListIterator *pD
+ 	Vector3 swayFactor[MAX_SWAY_TYPES];
+ 	for (i=0; i<MAX_SWAY_TYPES; i++) {
+ 		if (stepSway) {
+-			m_curSwayOffset[i] += m_curSwayStep[i];
++			m_curSwayOffset[i] += WeatherBreezeMath::step(m_curSwayStep[i],m_curSwayPeriod,info.m_breezePeriod);
+ 			if (m_curSwayOffset[i] > NUM_SWAY_ENTRIES-1) {
+ 				m_curSwayOffset[i] -= NUM_SWAY_ENTRIES-1;
+ 			}
+diff --git a/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/Water/W3DWater.cpp b/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/Water/W3DWater.cpp
+index 0cb5bcaa..009605ef 100644
+--- a/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/Water/W3DWater.cpp
++++ b/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/Water/W3DWater.cpp
+@@ -77,6 +77,7 @@
+ #include "W3DDevice/GameClient/W3DWater.h"
+ #include "W3DDevice/GameClient/HeightMap.h"
+ #include "W3DDevice/GameClient/W3DShroud.h"
++#include "W3DDevice/GameClient/WeatherParticleMath.h"
+ #include "W3DDevice/GameClient/W3DWaterTracks.h"
+ #include "W3DDevice/GameClient/W3DAssetManager.h"
+ #include "texture.h"
+@@ -604,19 +605,38 @@ Bool WaterRenderObjClass::hasModernVesselFoam(UnsignedInt objectID) const
+ #if ZH_MODERN_WATER
+ void WaterRenderObjClass::takeWaterPolygonsForDraw(void)
+ {
+-	LOGIC_WINDOW_READ( WINDOW_TERRAIN );
+-	m_waterPolygonsForDraw.clear();
+-	for (PolygonTrigger *trigger=PolygonTrigger::getFirstPolygonTrigger();trigger;trigger=trigger->getNext()) {
+-		if (!trigger->isWaterArea() || trigger->getNumPoints()<1) continue;
+-		WaterPolygonForDraw polygon;
+-		polygon.center.z=0.0f;
+-		polygon.river=trigger->isRiver();polygon.riverStart=trigger->getRiverStart();
+-		polygon.owner=reinterpret_cast<uintptr_t>(trigger);
+-		trigger->getCenterXY(&polygon.center);polygon.radius=trigger->getRadius();
+-		polygon.points.reserve(trigger->getNumPoints());
+-		for (Int i=0;i<trigger->getNumPoints();++i) polygon.points.push_back(*trigger->getPoint(i));
+-		m_waterPolygonsForDraw.push_back(std::move(polygon));
+-	}
++    LOGIC_WINDOW_READ( WINDOW_TERRAIN );
++    size_t index=0;
++    Bool geometryChanged=FALSE;
++    for (PolygonTrigger *trigger=PolygonTrigger::getFirstPolygonTrigger();trigger;trigger=trigger->getNext()) {
++        if (!trigger->isWaterArea() || trigger->getNumPoints()<1) continue;
++        WaterPolygonForDraw polygon;
++        polygon.center.z=0.0f;
++        polygon.river=trigger->isRiver(); polygon.riverStart=trigger->getRiverStart();
++        polygon.owner=reinterpret_cast<uintptr_t>(trigger);
++        trigger->getCenterXY(&polygon.center); polygon.radius=trigger->getRadius();
++        polygon.points.reserve(trigger->getNumPoints());
++        for (Int i=0;i<trigger->getNumPoints();++i) polygon.points.push_back(*trigger->getPoint(i));
++        // Exact geometry comparison: a hash collision must never leave newly flooded dust visible.
++        // Replace entries in place, reusing the outer vector without a second geometry snapshot.
++        if (index<m_waterPolygonsForDraw.size()) {
++            const WaterPolygonForDraw &old=m_waterPolygonsForDraw[index];
++            if (old.river!=polygon.river || old.riverStart!=polygon.riverStart || old.points.size()!=polygon.points.size())
++                geometryChanged=TRUE;
++            else for (size_t i=0;i<old.points.size();++i) {
++                const ICoord3D &a=old.points[i],&b=polygon.points[i];
++                if (a.x!=b.x || a.y!=b.y || a.z!=b.z) { geometryChanged=TRUE; break; }
++            }
++            m_waterPolygonsForDraw[index]=std::move(polygon);
++        } else {
++            m_waterPolygonsForDraw.push_back(std::move(polygon)); geometryChanged=TRUE;
++        }
++        ++index;
++    }
++    if (index!=m_waterPolygonsForDraw.size()) {
++        m_waterPolygonsForDraw.resize(index); geometryChanged=TRUE;
++    }
++    if (geometryChanged) ++m_weatherSurfaceRevision;
+ }
+ 
+ void WaterRenderObjClass::takeMotionReadsForRender(void)
+@@ -5526,6 +5546,88 @@ static Real wobble(Real baseV, Real offset, Bool wobble)
+ 	return offset/22;
+ }
+ 
++// Match the triangles submitted by renderWater/drawRiverWater, including sloping rivers.
++// The modern render snapshot is already owned by this frame; weather never follows logic handles.
++Bool WaterRenderObjClass::getWeatherSurfaceHeight(Real x, Real y, Real *height, Vector3 *normal) const
++{
++    Bool found = FALSE;
++    Real highest = -1.0e30f;
++    Vector3 surfaceNormal(0.0f,0.0f,1.0f);
++    const auto triangle = [&](const ICoord3D &a, const ICoord3D &b, const ICoord3D &c) {
++        const WeatherParticleMath::Point aa={double(a.x),double(a.y),double(a.z)};
++        const WeatherParticleMath::Point bb={double(b.x),double(b.y),double(b.z)};
++        const WeatherParticleMath::Point cc={double(c.x),double(c.y),double(c.z)};
++        Real z;
++        WeatherParticleMath::Point triangleNormal;
++        if (!WeatherParticleMath::triangleHeight(aa,bb,cc,x,y,&z,&triangleNormal)) return;
++        if (!found || z>highest) {
++            highest=z; found=TRUE;
++            surfaceNormal.Set(Real(triangleNormal.x),Real(triangleNormal.y),Real(triangleNormal.z));
++        }
++    };
++#if ZH_MODERN_WATER
++    for (const WaterPolygonForDraw &polygon:m_waterPolygonsForDraw) {
++        const WaterPolygonForDraw *p=&polygon;
++#else
++    for (PolygonTrigger *p=PolygonTrigger::getFirstPolygonTrigger();p;p=p->getNext()) {
++        if (!p->isWaterArea()) continue;
++#endif
++        const Int count=p->getNumPoints();
++        if (count<3) continue;
++        if (p->isRiver()) {
++            Int inner=p->getRiverStart(), outer=inner+1;
++            if (inner<0 || outer>=count) continue;
++            for (Int row=0;row<count/2-1;++row) {
++                const Int nextOuter=(outer+1)%count, nextInner=(inner+count-1)%count;
++                triangle(*p->getPoint(outer),*p->getPoint(inner),*p->getPoint(nextInner));
++                triangle(*p->getPoint(outer),*p->getPoint(nextInner),*p->getPoint(nextOuter));
++                outer=nextOuter; inner=nextInner;
++            }
++        } else {
++            for (Int i=1;i<count-1;++i)
++                triangle(*p->getPoint(0),*p->getPoint(i),*p->getPoint(i+1));
++        }
++    }
++    if (found && height) *height=highest;
++    if (found && normal) *normal=surfaceNormal;
++    return found;
++}
++
++// Conservative land-dust admission: test the whole cache cell against the actual water
++// triangles. A terrain minimum rejects broad authored water polygons hidden under dry land.
++Bool WaterRenderObjClass::hasWeatherWaterInBox(Real minX,Real minY,Real maxX,Real maxY,Real terrainMinimum) const
++{
++    const auto triangle=[&](const ICoord3D &a,const ICoord3D &b,const ICoord3D &c) {
++        return WeatherParticleMath::triangleOverlapsBoxAbove(
++            {double(a.x),double(a.y),double(a.z)},{double(b.x),double(b.y),double(b.z)},
++            {double(c.x),double(c.y),double(c.z)},minX,minY,maxX,maxY,terrainMinimum);
++    };
++#if ZH_MODERN_WATER
++    for (const WaterPolygonForDraw &polygon:m_waterPolygonsForDraw) {
++        const WaterPolygonForDraw *p=&polygon;
++#else
++    for (PolygonTrigger *p=PolygonTrigger::getFirstPolygonTrigger();p;p=p->getNext()) {
++        if (!p->isWaterArea()) continue;
++#endif
++        const Int count=p->getNumPoints();
++        if (count<3) continue;
++        if (p->isRiver()) {
++            Int inner=p->getRiverStart(),outer=inner+1;
++            if (inner<0 || outer>=count) continue;
++            for (Int row=0;row<count/2-1;++row) {
++                const Int nextOuter=(outer+1)%count,nextInner=(inner+count-1)%count;
++                if (triangle(*p->getPoint(outer),*p->getPoint(inner),*p->getPoint(nextInner)) ||
++                    triangle(*p->getPoint(outer),*p->getPoint(nextInner),*p->getPoint(nextOuter))) return TRUE;
++                outer=nextOuter; inner=nextInner;
++            }
++        } else {
++            for (Int i=1;i<count-1;++i)
++                if (triangle(*p->getPoint(0),*p->getPoint(i),*p->getPoint(i+1))) return TRUE;
++        }
++    }
++    return FALSE;
++}
++
+ /**Utility function used to query water heights in a manner that works in both RTS and WB.*/
+ Real WaterRenderObjClass::getWaterHeight(Real x, Real y)
+ {
+diff --git a/GeneralsMD/Code/Libraries/Include/Platform/RenderPost.h b/GeneralsMD/Code/Libraries/Include/Platform/RenderPost.h
+index a5d6010d..bc9ba36e 100644
+--- a/GeneralsMD/Code/Libraries/Include/Platform/RenderPost.h
++++ b/GeneralsMD/Code/Libraries/Include/Platform/RenderPost.h
+@@ -13,6 +13,7 @@ struct Settings {
+ struct GroundHazeSettings {
+     float Colour[3] = {}, Top = 0, Thickness = 1, Strength = 0, Reach = 1, WaterHeight = -1.0e6f;
+     float TowardSun[3] = {0,0,1}, Warmth = 0;
++    bool BeforeWater = false; // weather over opaque ground; actual water composites over it
+ };
+ struct AtmosphereSettings {
+     float Horizon[3] = {}, Tint[3] = {1,1,1}, Start = 0, Scale = 1, Strength = 0, Ground = 0, MapSize[2] = {};
+@@ -28,6 +29,7 @@ void SetHeatSplats(const float *records, unsigned count); // existing four-float
+ struct Environment {
+     std::uint64_t MapIdentity = 0, MapGeneration = 0;
+     GroundHazeSettings Haze;
++    GroundHazeSettings TransitionWarmHaze; // only the complementary warm-light contribution during rain
+     AtmosphereSettings Atmosphere;
+     IDirect3DBaseTexture9 *Sky = nullptr, *Shroud = nullptr;
+     float ShroudRect[4] = {0,0,1,1};
+diff --git a/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11post.cpp b/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11post.cpp
+index 6f2a2d5b..0d3c7e38 100644
+--- a/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11post.cpp
++++ b/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11post.cpp
+@@ -90,8 +90,23 @@ static float HazeThickness = 1.0f;
+ static float HazeStrength = 0.0f;
+ static float HazeReach = 1.0f;
+ static float HazeWater = -1.0e6f;
++static bool HazeBeforeWater = false;
++void DX11Post_Set_Haze_Placement(bool before_water) { HazeBeforeWater = before_water; }
++bool DX11Post_Haze_Before_Water() { return HazeBeforeWater && HazeStrength>0.0f; }
+ 
+ static float HazeSun[4] = { 0.0f, 0.0f, 1.0f, 0.0f };
++struct HazePacket {
++    float colour[3],top,thickness,strength,reach,water,sun[3],warmth;
++};
++static HazePacket TransitionWarmHaze = {};
++void DX11Post_Set_Transition_Warm_Haze(const float colour[3],float top,float thickness,float strength,float reach,
++    float water,const float toward_sun[3],float warmth)
++{
++    memcpy(TransitionWarmHaze.colour,colour,sizeof(TransitionWarmHaze.colour));
++    memcpy(TransitionWarmHaze.sun,toward_sun,sizeof(TransitionWarmHaze.sun));
++    TransitionWarmHaze.top=top;TransitionWarmHaze.thickness=thickness;TransitionWarmHaze.strength=strength;
++    TransitionWarmHaze.reach=reach;TransitionWarmHaze.water=water;TransitionWarmHaze.warmth=warmth;
++}
+ 
+ void DX11Post_Set_Haze(const float colour[3], float top, float thickness, float strength, float reach,
+ 	float water, const float toward_sun[3], float warmth)
+@@ -206,6 +221,7 @@ DX11PostProcessClass::DX11PostProcessClass()
+ 	, Resolved(false)
+ 	, Occluded(false)
+ 	, Hazed(false)
++	, TransitionWarmHazed(false)
+ 	, HazeRefused(false)
+ 	, HazeShroudView(NULL)
+ 	, AtmosphereRefused(false)
+@@ -614,6 +630,7 @@ void DX11PostProcessClass::Open_Frame()
+ {
+ 	Occluded = false;
+ 	Hazed = false;
++	TransitionWarmHazed = false;
+ }
+ 
+ bool DX11PostProcessClass::Wants_Atmosphere_Programs() const
+@@ -697,7 +714,7 @@ bool DX11PostProcessClass::Atmosphere_Scene(ID3D11ShaderResourceView * depth,
+ 
+ bool DX11PostProcessClass::Wants_Haze_Program() const
+ {
+-	return HazeStrength > 0.0f && HazeShader == NULL && !HazeRefused && ShadersReady;
++	return (HazeStrength > 0.0f || TransitionWarmHaze.strength > 0.0f) && HazeShader == NULL && !HazeRefused && ShadersReady;
+ }
+ 
+ const char * DX11PostProcessClass::Haze_Program_Source() const
+@@ -864,6 +881,25 @@ bool DX11PostProcessClass::Haze_Scene(ID3D11ShaderResourceView * depth,
+ 	return true;
+ }
+ 
++bool DX11PostProcessClass::Transition_Warm_Haze_Scene(ID3D11ShaderResourceView *depth,const float world_from_clip[16])
++{
++    if (TransitionWarmHaze.strength<=0.0f || TransitionWarmHazed) return false;
++    const HazePacket previous={{HazeColour[0],HazeColour[1],HazeColour[2]},HazeTop,HazeThickness,HazeStrength,HazeReach,
++        HazeWater,{HazeSun[0],HazeSun[1],HazeSun[2]},HazeSun[3]};
++    const bool alreadyHazed=Hazed;
++    ID3D11ShaderResourceView *source=HazeShroudSource;
++    DX11Post_Set_Haze(TransitionWarmHaze.colour,TransitionWarmHaze.top,TransitionWarmHaze.thickness,
++        TransitionWarmHaze.strength,TransitionWarmHaze.reach,TransitionWarmHaze.water,TransitionWarmHaze.sun,TransitionWarmHaze.warmth);
++    if (alreadyHazed && HazeShroudSource==NULL) HazeShroudSource=HazeShroudView;
++    Hazed=false;
++    const bool drew=Haze_Scene(depth,world_from_clip);
++    Hazed=alreadyHazed || drew;
++    TransitionWarmHazed=drew;
++    if (!drew) HazeShroudSource=source;
++    DX11Post_Set_Haze(previous.colour,previous.top,previous.thickness,previous.strength,previous.reach,previous.water,previous.sun,previous.warmth);
++    return drew;
++}
++
+ bool DX11PostProcessClass::Occlude_Scene(ID3D11ShaderResourceView * depth)
+ {
+ 	if (Occluded || Resolved || !ShadersReady || SceneTarget.View == NULL
+diff --git a/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11post.h b/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11post.h
+index 9311a2ee..39b30d3d 100644
+--- a/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11post.h
++++ b/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11post.h
+@@ -100,6 +100,10 @@ void DX11Post_Set_Internal_Hdr(bool on);
+ // sun and warmth is how much warmer the haze looks toward it.  Set every frame.
+ void DX11Post_Set_Haze(const float colour[3], float top, float thickness, float strength, float reach,
+ 	float water, const float toward_sun[3], float warmth);
++void DX11Post_Set_Haze_Placement(bool before_water);
++bool DX11Post_Haze_Before_Water();
++void DX11Post_Set_Transition_Warm_Haze(const float colour[3],float top,float thickness,float strength,float reach,
++    float water,const float toward_sun[3],float warmth);
+ 
+ // The view of the shroud texture the terrain draws its fog with (Direct3D11_Set_Haze_Shroud finds
+ // it), and the terrain's own world to texture mapping (rect: world origin x, y, then one over the
+@@ -170,6 +174,7 @@ public:
+ 	// moment as Occlude_Scene and under the same terms, once a frame.  World_from_clip takes the
+ 	// depth back to the world.  False when it drew nothing; the caller rebinds as for the other.
+ 	bool Haze_Scene(ID3D11ShaderResourceView * depth, const float world_from_clip[16]);
++	bool Transition_Warm_Haze_Scene(ID3D11ShaderResourceView * depth, const float world_from_clip[16]);
+ 
+ 	// The haze's program comes from the backend's cache of compiled programs (dx11shaders.cache), so
+ 	// only the first run that meets it compiles it.  Wants_Haze_Program is true while the haze is on
+@@ -347,6 +352,7 @@ private:
+ 	bool Occluded;
+ 	// Haze_Scene ran this frame, and the matrix it handed the pass.
+ 	bool Hazed;
++	bool TransitionWarmHazed;
+ 	float HazeWorldFromClip[16];
+ 	// The haze program, compiled on first use, failed to compile; not tried again.
+ 	bool HazeRefused;
+diff --git a/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11runtime.cpp b/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11runtime.cpp
+index 61be9efe..89401869 100644
+--- a/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11runtime.cpp
++++ b/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11runtime.cpp
+@@ -782,14 +782,8 @@ unsigned Direct3D11_Requested_Draw_Effect(float parameters[4])
+ 	return 0;
+ }
+ 
+-void Direct3D11_Occlude_Scene()
++static void prepareGroundHazeProgram()
+ {
+-	if (!Active || !Backend.Draws_Into_Scene()) {
+-		return;
+-	}
+-	Backend.Resolve_Scene_Depth();
+-	bool drew = Post.Occlude_Scene(Device.Get_Depth_Texture());
+-	// The prototype ground haze goes on at the same moment, over the occlusion and under the fire.
+ 	if (Post.Wants_Haze_Program()) {
+ 		std::vector<unsigned char> code;
+ 		if (Backend.Compile_Pixel_Program(Post.Haze_Program_Source(), "dx11haze", code) && !code.empty()) {
+@@ -798,9 +792,32 @@ void Direct3D11_Occlude_Scene()
+ 			Post.Load_Haze_Program(NULL, 0);
+ 		}
+ 	}
++}
++
++void Direct3D11_Weather_Haze()
++{
++	if (!Active || !DrawEffectsAllowed || !Backend.Draws_Into_Scene() || !DX11Post_Haze_Before_Water())
++		return;
++	prepareGroundHazeProgram();
++	float world_from_clip[16];
++	if (Backend.Scene_World_From_Clip(world_from_clip)) {
++		Backend.Resolve_Scene_Depth();
++		if (Post.Haze_Scene(Device.Get_Depth_Texture(), world_from_clip)) Backend.Resume_Scene();
++	}
++}
++
++void Direct3D11_Occlude_Scene()
++{
++	if (!Active || !Backend.Draws_Into_Scene()) {
++		return;
++	}
++	Backend.Resolve_Scene_Depth();
++	bool drew = Post.Occlude_Scene(Device.Get_Depth_Texture());
++	prepareGroundHazeProgram();
+ 	float world_from_clip[16];
+ 	if (Backend.Scene_World_From_Clip(world_from_clip)) {
+-		drew = Post.Haze_Scene(Device.Get_Depth_Texture(), world_from_clip) || drew;
++		if (!DX11Post_Haze_Before_Water()) drew = Post.Haze_Scene(Device.Get_Depth_Texture(), world_from_clip) || drew;
++		drew = Post.Transition_Warm_Haze_Scene(Device.Get_Depth_Texture(), world_from_clip) || drew;
+ 		drew = Post.Atmosphere_Scene(Device.Get_Depth_Texture(), world_from_clip) || drew;
+ 	}
+ 	if (drew) {
+diff --git a/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11runtime.h b/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11runtime.h
+index 07427f90..bcc844b2 100644
+--- a/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11runtime.h
++++ b/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11runtime.h
+@@ -292,6 +292,7 @@ void Direct3D11_Occlude_Scene();
+ // is down and before the water.  The chain's own occlusion stands down for the frame.  -d3d9, Classic
+ // graphics, -headless and the SDL3 port draw nothing here.
+ void Direct3D11_Ambient_Occlusion();
++void Direct3D11_Weather_Haze(); // weather-only pre-water composition; ordinary haze stays later
+ 
+ // Whether the draws that follow take the Glow option's additive gain (DX11BackendClass::
+ // Set_Glow_Draw).  ShaderClass::Apply sends it from the shader's GLOW_ENABLE bit.
+diff --git a/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11runtime_posix.cpp b/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11runtime_posix.cpp
+index f547058a..5c3adcae 100644
+--- a/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11runtime_posix.cpp
++++ b/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx11runtime_posix.cpp
+@@ -100,6 +100,7 @@ unsigned Direct3D11_Requested_Draw_Effect(float parameters[4])
+ }
+ void Direct3D11_Occlude_Scene() {}
+ void Direct3D11_Ambient_Occlusion() {}
++void Direct3D11_Weather_Haze() {}
+ void Direct3D11_Set_Glow_Draw(bool) {}
+ void Direct3D11_Set_Scene_Stand_In(struct IDirect3DBaseTexture9 *, struct IDirect3DSurface9 *) {}
+ 
+diff --git a/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx8wrapper.cpp b/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx8wrapper.cpp
+index e64e8378..9c11a004 100644
+--- a/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx8wrapper.cpp
++++ b/GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/dx8wrapper.cpp
+@@ -6095,6 +6095,7 @@ void Sky() {
+ void OpaqueScene() {
+ #if defined(_WIN32)
+ 	Direct3D11_Ambient_Occlusion();
++	Direct3D11_Weather_Haze();
+ #else
+ 	OpaqueScene(DX8Wrapper::_Get_D3D_Device());
+ #endif
+diff --git a/GeneralsMD/Code/Tests/test_milesaudiomanager.cpp b/GeneralsMD/Code/Tests/test_milesaudiomanager.cpp
+index 2daa2664..d953e9fc 100644
+--- a/GeneralsMD/Code/Tests/test_milesaudiomanager.cpp
++++ b/GeneralsMD/Code/Tests/test_milesaudiomanager.cpp
+@@ -166,6 +166,13 @@ void mountTheInstall( void )
+ class TestAudio : public MilesAudioManager
+ {
+ public:
++	Real eventVolume(AudioHandle handle) const
++	{
++		for (std::list<PlayingAudio *>::const_iterator it = m_playingSounds.begin(); it != m_playingSounds.end(); ++it)
++			if (*it && (*it)->m_audioEventRTS->getPlayingHandle() == handle)
++				return (*it)->m_audioEventRTS->getVolume();
++		return -1.0f;
++	}
+ 	void tick( void )
+ 	{
+ 		const Coord3D listener = { 0, 0, 0 }, facing = { 0, 1, 0 };
+@@ -567,6 +574,57 @@ TEST(with_sound_switched_off_nothing_is_heard)
+ 	CHECK( rms( h.left ) + rms( h.right ) < 0.0005 );
+ }
+ 
++TEST(owned_weather_loop_gain_preserves_other_handles_ambient_mute_and_pause)
++{
++	TestAudio *audio = theAudio();
++	audio->reset();
++	audio->setOn(TRUE, AudioAffect_All);
++	AudioEventRTS event("Amb_DesertNatureWindThinLoop");
++	event.setUninterruptable(TRUE);
++	const AudioHandle first = audio->addAudioEvent(&event);
++	const AudioHandle second = audio->addAudioEvent(&event);
++	audio->runFor(150);
++	CHECK(audio->isCurrentlyPlaying(first));
++	CHECK(audio->isCurrentlyPlaying(second));
++	const Real other = audio->eventVolume(second);
++	audio->setAudioEventVolume(first, 0.25f);
++	CHECK_NEAR(audio->eventVolume(first), 0.25f, 0.001f);
++	CHECK_NEAR(audio->eventVolume(second), other, 0.001f);
++	audio->setAudioEventVolume(first, -1.0f);
++	CHECK_NEAR(audio->eventVolume(first), 0.0f, 0.001f);
++	audio->setAudioEventVolume(first, 100.0f);
++	CHECK_NEAR(audio->eventVolume(first), 1.5f, 0.001f);
++
++	// Updating a local weather gain must still pass through the Ambient slider and master mix.
++	audio->setVolume(0.0f, (AudioAffect)(AudioAffect_Ambient | AudioAffect_SystemSetting));
++	audio->setAudioEventVolume(first, 0.7f);
++	audio->runFor(150);
++	CHECK(AIL_ex_start_capture(capturePath("weather_ambient_mute").c_str()) != 0);
++	audio->runFor(200);
++	AIL_ex_stop_capture();
++	const Heard muted = readCapture(capturePath("weather_ambient_mute"));
++	CHECK(muted.ok);
++	CHECK(rms(muted.left) + rms(muted.right) < 0.0005);
++	audio->setVolume(1.0f, (AudioAffect)(AudioAffect_Ambient | AudioAffect_SystemSetting));
++	audio->pauseAudio(AudioAffect_All);
++	audio->setAudioEventVolume(first, 0.6f);
++	audio->runFor(150);
++	CHECK(AIL_ex_start_capture(capturePath("weather_paused_gain").c_str()) != 0);
++	audio->runFor(200);
++	AIL_ex_stop_capture();
++	const Heard paused = readCapture(capturePath("weather_paused_gain"));
++	CHECK(paused.ok);
++	CHECK(rms(paused.left) + rms(paused.right) < 0.0005);
++	audio->resumeAudio(AudioAffect_All);
++	audio->runFor(100);
++	CHECK(audio->isCurrentlyPlaying(first));
++	audio->removeAudioEvent(first);
++	audio->runFor(100);
++	CHECK(!audio->isCurrentlyPlaying(first));
++	CHECK(audio->isCurrentlyPlaying(second));
++	audio->reset();
++}
++
+ TEST(carrier_selection_move_and_attack_variants_are_all_available_without_disk_reads)
+ {
+ 	TestAudio *audio = theAudio();
+diff --git a/GeneralsMD/Code/Tests/test_sdl_atmosphere.cpp b/GeneralsMD/Code/Tests/test_sdl_atmosphere.cpp
+index ead41e52..8027c463 100644
+--- a/GeneralsMD/Code/Tests/test_sdl_atmosphere.cpp
++++ b/GeneralsMD/Code/Tests/test_sdl_atmosphere.cpp
+@@ -120,7 +120,7 @@ static int gpu()
+         for(unsigned y=0;y<4;++y)for(unsigned x=0;x<4;++x)skyPixels[y*4+x]=colours[(x>=2)+(y>=2)*2];
+         upload(*frame,sky,4,4,skyPixels,64);
+         SdlPostAtmosphereViews views;views.MapIdentity=1;views.MapGeneration=1;views.Sky={sky,100,1};
+-        SdlPostGroundHazeSettings haze;SdlPostAtmosphereSettings atmosphere;atmosphere.Strength=1;
++        SdlPostGroundHazeSettings haze,transitionWarm;SdlPostAtmosphereSettings atmosphere;atmosphere.Strength=1;
+         atmosphere.MapSize[0]=atmosphere.MapSize[1]=1000000;atmosphere.Horizon[0]=atmosphere.Horizon[1]=atmosphere.Horizon[2]=1;
+         const float up[16]={1,0,0,0,0,1,0,0,-250,-250,1,-.5f,500,500,0,1};
+         const float affineUp[16]={1,0,0,0,0,1,0,0,0,0,1,0,500,500,0,1};
+@@ -128,7 +128,7 @@ static int gpu()
+         SdlTarget scene,presentation;
+         auto begin=[&](const float *matrix,bool hdr=false) {
+             presentation=frame->Back_Buffer_Target();CHECK(post.Prepare(*frame,presentation,post_settings(hdr),scene));fill(*frame,scene);
+-            CHECK(module.Prepare(*frame,post,scene,main_identity(*frame,scene),matrix,haze,atmosphere,views));
++            CHECK(module.Prepare(*frame,post,scene,main_identity(*frame,scene),matrix,haze,atmosphere,views,transitionWarm));
+         };
+         auto end=[&](){CHECK(post.Finish(*frame,scene,presentation));CHECK(frame->Present(nullptr));};
+         begin(up);frame->Set_Target(scene);frame->Clear_Back_Buffer(false,true,false,0,.375f,0);
+@@ -162,6 +162,34 @@ static int gpu()
+         begin(affineUp);depth(*frame,sampled,w,h,.25f,.25f);in=capture(*frame,scene,sampled,affineUp,views);
+         CHECK(module.Apply_Ground_Haze(*frame,scene,in));CHECK(!module.Apply_Ground_Haze(*frame,scene,in));pixels=read(*frame,scene);alpha(pixels);
+         const unsigned low=component(pixels,w,w/2,h/2);CHECK(low>16);end();
++        // Only an explicit weather placement accepts opaque-scene depth. The later atmosphere
++        // pass still requires its own BeforeTransparent capture and completion flag.
++        haze.BeforeWater=true;begin(affineUp);depth(*frame,sampled,w,h,.25f,.25f);in=capture(*frame,scene,sampled,affineUp,views);
++        CHECK(!module.Apply_Ground_Haze(*frame,scene,in));
++        auto weatherOpaque=in;weatherOpaque.Capture.Phase=SdlSceneCapturePhase::OpaqueScene;
++        CHECK(module.Apply_Ground_Haze(*frame,scene,weatherOpaque));
++        CHECK(component(read(*frame,scene),w,w/2,h/2)==low);
++        CHECK(!module.Apply_Ground_Haze(*frame,scene,weatherOpaque));end();
++        haze.BeforeWater=false;begin(affineUp);depth(*frame,sampled,w,h,.25f,.25f);in=capture(*frame,scene,sampled,affineUp,views);
++        weatherOpaque=in;weatherOpaque.Capture.Phase=SdlSceneCapturePhase::OpaqueScene;
++        CHECK(!module.Apply_Ground_Haze(*frame,scene,weatherOpaque));
++        CHECK(module.Apply_Ground_Haze(*frame,scene,in));end();
++        // Complementary rain/warm weights use one shader with independent phase completion.
++        // At either endpoint only one haze draws; the half fade never duplicates full haze.
++        for (int step=0;step<3;++step) {
++            const float envelope=step*0.5f;
++            transitionWarm=haze;transitionWarm.BeforeWater=false;transitionWarm.Strength=1.0f-envelope;
++            haze.BeforeWater=true;haze.Strength=envelope;
++            begin(affineUp);depth(*frame,sampled,w,h,.25f,.25f);in=capture(*frame,scene,sampled,affineUp,views);
++            weatherOpaque=in;weatherOpaque.Capture.Phase=SdlSceneCapturePhase::OpaqueScene;
++            CHECK(module.Apply_Ground_Haze(*frame,scene,weatherOpaque)==(step>0));
++            CHECK(!module.Apply_Transition_Warm_Haze(*frame,scene,weatherOpaque));
++            CHECK(module.Apply_Transition_Warm_Haze(*frame,scene,in)==(step<2));
++            CHECK(!module.Apply_Transition_Warm_Haze(*frame,scene,in));
++            const unsigned mixed=component(read(*frame,scene),w,w/2,h/2);
++            CHECK(step==1 ? (mixed>low/2 && mixed<=low) : mixed==low);end();
++        }
++        transitionWarm={};haze.BeforeWater=false;haze.Strength=1;
+         begin(affineUp);depth(*frame,sampled,w,h,.75f,.75f);in=capture(*frame,scene,sampled,affineUp,views);
+         CHECK(module.Apply_Ground_Haze(*frame,scene,in));const unsigned high=component(read(*frame,scene),w,w/2,h/2);CHECK(high>0 && low>high+16);end();
+         haze.Top=.2f;begin(affineUp);depth(*frame,sampled,w,h,.5f,.5f);in=capture(*frame,scene,sampled,affineUp,views);
+diff --git a/GeneralsMD/Code/Tests/test_weather_particle_math.cpp b/GeneralsMD/Code/Tests/test_weather_particle_math.cpp
+new file mode 100644
+index 00000000..e2b954e7
+--- /dev/null
++++ b/GeneralsMD/Code/Tests/test_weather_particle_math.cpp
+@@ -0,0 +1,240 @@
++#include "W3DDevice/GameClient/WeatherParticleMath.h"
++#include "GameClient/WeatherBreezeMath.h"
++#include <cstdio>
++#include <cstdlib>
++#include <cstring>
++#include <limits>
++#include <initializer_list>
++
++static int failures=0;
++static void expect(bool condition,const char *message)
++{
++    if (!condition) { std::fprintf(stderr,"FAIL: %s\n",message); ++failures; }
++}
++int main(int argc,char **argv)
++{
++    using namespace WeatherParticleMath;
++    // A cached random speed factor and phase must survive every point of a rain fade.
++    const float cachedStep=0.71f,initialPhase=19.25f;
++    expect(WeatherBreezeMath::period(150,90,0)==150 && WeatherBreezeMath::period(150,90,1)==90,
++        "fully dry and wet rain use the script and storm periods respectively");
++    expect(WeatherBreezeMath::period(150,90,.5f)==120 && WeatherBreezeMath::period(60,90,.5f)==60,
++        "period blends through a fade without slowing a stronger scripted breeze");
++    expect(WeatherBreezeMath::step(cachedStep,150,150)==cachedStep,
++        "ordinary off/dry period retains the exact legacy step bits");
++    const float dryStep=WeatherBreezeMath::step(cachedStep,90,150);
++    const float wetStep=WeatherBreezeMath::step(cachedStep,90,90);
++    expect(std::fabs(wetStep/dryStep-150.0f/90.0f)<0.00001f,
++        "dry cached storm steps restore the default 150-frame script speed rather than 90");
++    float previous=0;
++    for (int i=0;i<=100;++i) {
++        const int desired=WeatherBreezeMath::period(150,90,float(i)/100);
++        const float delta=WeatherBreezeMath::step(cachedStep,90,desired);
++        expect(delta>=previous && delta<=cachedStep,"fade advances phase monotonically within original random speed bounds");
++        previous=delta;
++    }
++    float phase=initialPhase;int lastFrame=-1;
++    for (int render=0;render<240;++render) {
++        const int frame=render/4;const bool paused=frame>=20 && frame<30;
++        if (!paused && frame!=lastFrame) {
++            lastFrame=frame;phase+=WeatherBreezeMath::step(cachedStep,90,150);
++        }
++    }
++    expect(std::fabs(phase-(initialPhase+50*dryStep))<0.0002f,
++        "paused and repeated render frames never advance tree phase; resumed dry phase keeps its original origin");
++    expect(cachedStep==0.71f,"fading never rewrites the cached random step");
++    if (argc==4 && (std::strcmp(argv[1],"--rain-window")==0 || std::strcmp(argv[1],"--rain-opening")==0)) {
++        const bool opening=std::strcmp(argv[1],"--rain-opening")==0;
++        const double seconds=opening ? 0.0 : std::strtod(argv[2],nullptr);
++        const std::uint32_t seed=opening ? rainSeedForMatch(std::uint32_t(std::strtoul(argv[2],nullptr,0)),
++            std::uint32_t(std::strtoul(argv[3],nullptr,0))) : std::uint32_t(std::strtoul(argv[3],nullptr,0));
++        const RainSpell spell=rainSpell(seconds,seed);
++        std::printf("{\"weatherSeed\":%u,\"envelope\":%.9g,\"slotStart\":%.9g,\"wetStart\":%.9g,\"plateauStart\":%.9g,"
++            "\"plateauEnd\":%.9g,\"wetEnd\":%.9g,\"slotEnd\":%.9g}\n",seed,spell.envelope,
++            spell.slotStart,spell.wetStart,spell.plateauStart,spell.plateauEnd,spell.wetEnd,spell.slotEnd);
++        return 0;
++    }
++    Motion motion; motion.reset();
++    for (int i=0;i<100;++i) motion.advance(0.01f,1.0f,-0.5f,130.0f,25.0f,1.0f);
++    expect(std::fabs(motion.x-130.0)<0.001 && std::fabs(motion.y+65.0)<0.001,
++        "integrated wind agrees with one second of travel");
++    expect(std::fabs(motion.fall-25.0)<0.001,"vertical travel uses the same elapsed time");
++    const double before=motion.x;
++    motion.advance(0.01f,1.0f,-0.5f,130.0f,25.0f,1.5f);
++    expect(std::fabs(motion.x-before-1.95)<0.001,"gust changes velocity without reprojecting elapsed position");
++    motion.advance(0.0f,1,1,130,25,1);
++    motion.advance(-1.0f,1,1,130,25,1);
++    motion.advance(std::numeric_limits<float>::quiet_NaN(),1,1,130,25,1);
++    expect(std::fabs(motion.x-before-1.95)<0.001,"paused/invalid steps do not advance position");
++    const double stalled=motion.x;
++    motion.advance(10.0f,1,0,130,25,1);
++    expect(std::fabs(motion.x-stalled-13.0)<0.001,"a stalled frame has a bounded presentation step");
++    const Presentation left=sample(3599.999),right=sample(3600.001);
++    expect(std::fabs(left.gust-right.gust)<0.001 && std::fabs(left.intensity-right.intensity)<0.001,
++        "gust and density remain continuous across the old one-hour clock boundary");
++    motion.reset();
++    double seconds=0;
++    for (int i=0;i<1000000;++i) {
++        seconds+=0.016;
++        const Presentation p=sample(seconds);
++        const double previous=motion.x;
++        motion.advance(0.016f,0.6f,-0.8f,145,19,p.gust);
++        if (!std::isfinite(motion.x) || !std::isfinite(motion.y) || !std::isfinite(motion.fall)
++            || p.gust<0.65f || p.gust>1.35f || p.intensity<0.75f || p.intensity>1.01f
++            || std::fabs(motion.x-previous)>1.9) {
++            expect(false,"long-running weather stays finite, bounded and continuous"); break;
++        }
++    }
++    motion.reset();
++    expect(motion.x==0 && motion.y==0 && motion.fall==0,"reset discards travel from the previous map/kind");
++    expect(!surface(20,false,100).water,"missing polygon water cannot create a ripple");
++    expect(!surface(20,true,19).water,"terrain above water receives a ground splash");
++    expect(!surface(20,true,20.05f).water,"shore tolerance avoids coplanar water z-fighting");
++    const Surface wet=surface(20,true,25);
++    expect(wet.water && wet.height==25,"water above terrain receives a waterline ripple");
++    expect(!surface(20,true,std::numeric_limits<float>::quiet_NaN()).water,"invalid water height cannot create a ripple");
++    expect(crossesSurface(30,24,25,0.1,1,2),"downward trajectory crossing the waterline emits one contact");
++    expect(!crossesSurface(24,30,25,0.1,1,2),"fall wrap is not a contact");
++    expect(!crossesSurface(30,24,25,0.4,1,2),"stale trajectories do not emit contacts");
++    expect(!crossesSurface(30,24,25,0.1,100,2),"camera/tile teleport does not emit a contact");
++    expect(!crossesSurface(24,20,25,0.1,1,2),"already submerged particle does not emit again");
++    const int rates[]={15,20,30,60};
++    for (int fps:rates) for (float depth:{384.0f,1536.0f}) {
++        const float dt=1.0f/fps;
++        const int tracks=contactTrackCount(dt,depth,1100.0f);
++        expect(tracks>=48 && tracks<=256,"contact work stays within the bounded tracked set");
++        double sampled[256]; float previousZ[256];
++        for (int i=0;i<256;++i) { sampled[i]=-1; previousZ[i]=0; }
++        int cursor=0,contacts=0,continuous=0;
++        for (int frame=0;frame<240;++frame) {
++            const double time=frame*double(dt);
++            for (int i=0;i<48;++i) {
++                const int index=cursor; cursor=(cursor+1)%tracks;
++                const float phase=float(std::fmod(time*1100/depth+double(index)/tracks,1.0));
++                const float z=100.0f-phase*depth;
++                if (sampled[index]>=0) {
++                    const double elapsed=time-sampled[index];
++                    expect(elapsed<0.3 && elapsed<depth/1100.0,
++                        "15/20/30/60 FPS revisit remains timely and cannot skip a full fall cycle");
++                    ++continuous;
++                    if (crossesSurface(previousZ[index],z,0,elapsed,0,0)) ++contacts;
++                }
++                sampled[index]=time; previousZ[index]=z;
++            }
++        }
++        expect(continuous>0 && contacts>0,"rain contacts remain active at 15/20/30/60 FPS");
++    }
++    const std::uint32_t rainSeed=rainSeedForMatch(12345,7);
++    int wetOpenings=0,dryOpenings=0;
++    for (std::uint32_t match=0;match<1024;++match) {
++        const std::uint32_t seed=rainSeedForMatch(12345,match);
++        const RainSpell opening=rainSpell(0,seed);
++        expect(opening.slotStart<=0 && opening.slotEnd>0,
++            "a randomized opening lies within a valid weather slot");
++        if (opening.envelope>0) ++wetOpenings; else ++dryOpenings;
++    }
++    expect(wetOpenings>0 && dryOpenings>wetOpenings,
++        "new match seeds produce both rainy and clear openings, with clear starts more common");
++    expect(rainSeedForMatch(12345,7)!=rainSeedForMatch(12345,8)
++        && rainSeedForMatch(12345,7)!=rainSeedForMatch(54321,7),
++        "map and immutable match seed both influence weather without a random-stream draw");
++    // The slot containing time zero may have begun before the map loaded. Check full future slots.
++    for (int cycle=1;cycle<=20;++cycle) {
++        const RainSpell spell=rainSpell(cycle*210.0+20.0,rainSeed);
++        expect(spell.wetEnd-spell.wetStart>=48 && spell.wetEnd-spell.wetStart<=56,
++            "rain wet episodes have bounded minute-scale lengths");
++        expect(spell.plateauEnd-spell.plateauStart>=32,
++            "each wet spell retains a full thirty-second active benchmark window");
++        expect(rainSpell(spell.wetStart,rainSeed).envelope==0
++            && rainSpell(spell.wetEnd,rainSeed).envelope==0,
++            "wet episode boundaries are dry without a hard opacity pop");
++        expect(rainSpell((spell.plateauStart+spell.plateauEnd)*0.5,rainSeed).envelope==1,
++            "active plateau has full rain occupancy");
++        expect(rainSpell(spell.wetEnd+20,rainSeed).envelope==0,
++            "long dry break suppresses rain");
++        const RainSpell next=rainSpell((cycle+1)*210.0+20,rainSeed);
++        expect(next.wetStart-spell.wetEnd>=138 && next.wetStart-spell.wetEnd<=178,
++            "dry intervals are longer than wet episodes");
++        for (double edge:{spell.wetStart,spell.plateauStart,spell.plateauEnd,spell.wetEnd,spell.slotEnd}) {
++            const double h=0.001;
++            const double l=rainSpell(edge-h,rainSeed).envelope,m=rainSpell(edge,rainSeed).envelope;
++            const double r=rainSpell(edge+h,rainSeed).envelope;
++            expect(std::fabs(l-r)<0.001 && std::fabs((r-m)-(m-l))/h<0.001,
++                "rain fade value and first derivative are continuous at every timing boundary");
++        }
++    }
++    const RainSpell first=rainSpell(0,rainSeed),reset=rainSpell(0,rainSeed);
++    expect(first.wetStart==reset.wetStart && first.plateauEnd==reset.plateauEnd,
++        "reset replays the same local cosmetic rain schedule");
++    expect(first.envelope==reset.envelope && first.slotStart==reset.slotStart,
++        "the same map and match seed reproduce the opening for replay/capture");
++    expect(rainSpell(230,1).wetStart!=rainSpell(230,2).wetStart,
++        "independent local seeds choose independent later episode timing");
++    expect(rainSpell(std::numeric_limits<double>::infinity(),rainSeed).envelope==0
++        && rainSpell(-10,rainSeed).envelope==0,"invalid weather time is dry and finite");
++    for (double time:{1.0e12,1.0e100,1.0e300}) {
++        const RainSpell spell=rainSpell(time,rainSeed);
++        expect(std::isfinite(spell.envelope) && spell.envelope>=0 && spell.envelope<=1
++            && std::isfinite(spell.slotStart) && std::isfinite(spell.wetEnd),
++            "very large finite time cannot overflow rain scheduling or hashes");
++    }
++    const RainSpell future=rainSpell(first.slotEnd+0.001,rainSeed);
++    const double nextPlateau=(future.plateauStart+future.plateauEnd)*0.5;
++    double dryClock=0;
++    while (dryClock<nextPlateau) dryClock+=1.0/60.0;
++    expect(rainSpell(dryClock,rainSeed).envelope>0,
++        "continuing the selected rain clock traverses the dry break and reaches the next wet spell");
++    const Presentation beforeSchedule=sample(260);
++    rainSpell(260,rainSeed);
++    const Presentation afterSchedule=sample(260);
++    expect(beforeSchedule.gust==afterSchedule.gust && beforeSchedule.intensity==afterSchedule.intensity,
++        "rain scheduling cannot alter the sand or snow presentation sample");
++    const Point shoreA={0,0,10},shoreB={100,0,10},shoreC={0,100,10};
++    expect(triangleOverlapsBoxAbove(shoreA,shoreB,shoreC,5,5,15,15,0),
++        "dust footprint above water is rejected");
++    expect(triangleOverlapsBoxAbove(shoreA,shoreB,shoreC,-5,5,5,15,0),
++        "a footprint crossing the shoreline is rejected even when its center is on land");
++    expect(!triangleOverlapsBoxAbove(shoreA,shoreB,shoreC,80,80,90,90,0),
++        "water triangle bounding-box overlap cannot reject dry ground outside its triangle");
++    expect(!triangleOverlapsBoxAbove(shoreA,shoreB,shoreC,5,5,15,15,20),
++        "broad water polygons hidden below dry terrain do not suppress land dust");
++    expect(footprintShoreFade(-20,0,-10,10,0,0,96,96,32)>0
++        && footprintShoreFade(-20,0,-10,10,0,0,96,96,32)<1,
++        "dust fades on the dry side before its footprint reaches water");
++    expect(footprintShoreFade(-10,0,1,10,0,0,96,96,32)==0,
++        "any water overlap suppresses the complete dust footprint");
++    expect(footprintShoreFade(-60,0,-40,10,0,0,96,96,32)==1,
++        "dust well inside verified dry land keeps its normal opacity");
++    expect(dustArrival(0,true)==0 && dustArrival(0.3,true)>0 && dustArrival(0.3,true)<1
++        && dustArrival(0.6,true)==1,"newly verified dry cells ease from zero through a ramp to full dust");
++    expect(dustArrival(10,false)==0,"unknown and wet cells never admit dust");
++    const double resolution=20.0,revisionResolution=25.0,resetResolution=0.0;
++    expect(dustArrival(25-resolution,true)==1 && dustArrival(25-revisionResolution,true)==0
++        && dustArrival(0-resetResolution,true)==0,
++        "revision and map reset resolution timestamps restart the dust arrival ramp");
++    const Point a={0,0,10},b={10,0,20},c={0,10,30}; float height=0;
++    expect(triangleHeight(a,b,c,2,3,&height) && std::fabs(height-18)<0.001,
++        "render water triangle returns its sloping surface height");
++    expect(triangleHeight(c,b,a,2,3,&height) && std::fabs(height-18)<0.001,
++        "water triangle winding does not change the height");
++    Point normal,reverse;
++    expect(triangleHeight(a,b,c,2,3,&height,&normal),"sloped river provides an orientation");
++    expect(normal.z>0 && std::fabs(normal.x*normal.x+normal.y*normal.y+normal.z*normal.z-1)<0.000001,
++        "sloped river normal points upward and is normalized");
++    expect(std::fabs(normal.x*10+normal.z*10)<0.000001
++        && std::fabs(normal.y*10+normal.z*20)<0.000001,
++        "ring orientation is perpendicular to both sloping water edges");
++    expect(std::fabs(normal.x)>0.1 && std::fabs(normal.y)>0.1,
++        "sloped river ring cannot retain a horizontal plane");
++    expect(triangleHeight(c,b,a,2,3,&height,&reverse)
++        && std::fabs(normal.x-reverse.x)+std::fabs(normal.y-reverse.y)+std::fabs(normal.z-reverse.z)<0.000001,
++        "water ring orientation is independent of triangle winding");
++    const Point flatA={0,0,12},flatB={10,0,12},flatC={0,10,12};
++    expect(triangleHeight(flatA,flatB,flatC,2,3,&height,&normal)
++        && normal.x==0 && normal.y==0 && normal.z==1,
++        "pond ring retains the horizontal water plane");
++    expect(!triangleHeight(a,b,c,9,9,&height),"point outside water triangle is rejected");
++    expect(!triangleHeight(a,a,c,0,0,&height),"degenerate water geometry is rejected");
++    if (!failures) std::puts("weather particle math: all checks passed");
++    return failures ? 1 : 0;
++}

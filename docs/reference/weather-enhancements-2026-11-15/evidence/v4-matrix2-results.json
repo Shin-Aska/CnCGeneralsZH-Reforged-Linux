@@ -1,0 +1,37 @@
+[
+  {
+    "name": "rain-pond",
+    "returncode": 0,
+    "manifest": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/v4-matrix2-rain-pond/manifest.json"
+  },
+  {
+    "name": "rain-day",
+    "returncode": 0,
+    "manifest": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/v4-matrix2-rain-day/manifest.json"
+  },
+  {
+    "name": "rain-night",
+    "returncode": 0,
+    "manifest": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/v4-matrix2-rain-night/manifest.json"
+  },
+  {
+    "name": "rain-atmosphere-off",
+    "returncode": 0,
+    "manifest": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/v4-matrix2-rain-atmosphere-off/manifest.json"
+  },
+  {
+    "name": "sand-night",
+    "returncode": 0,
+    "manifest": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/v4-matrix2-sand-night/manifest.json"
+  },
+  {
+    "name": "sand-atmosphere-off",
+    "returncode": 0,
+    "manifest": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/v4-matrix2-sand-atmosphere-off/manifest.json"
+  },
+  {
+    "name": "snow-day",
+    "returncode": 0,
+    "manifest": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/v4-matrix2-snow-day/manifest.json"
+  }
+]

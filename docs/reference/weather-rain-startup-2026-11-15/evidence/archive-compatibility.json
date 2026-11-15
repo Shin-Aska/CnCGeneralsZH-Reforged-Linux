@@ -1,0 +1,20 @@
+{
+  "frozen_v4_header_sha256": "9cffe39d0a62a874acd3499c908cc02483859b0b9bb31777fae05d36bcd23d82",
+  "local_source_commits": [
+    "0529ecef571322d20342100890abed17f9c1cbf8",
+    "e12ff8b82045de9320ab3f30ad12f09e19ed22be",
+    "f91069a2913cedc997b93f3d38b40bff3170d702"
+  ],
+  "original_delivery_inventory_sha256": "3299188d43ae8f0bc0607d941db6d3c2d6b3ab2816aa812190735ad10da36198",
+  "original_raw_evidence_changed": [],
+  "original_raw_evidence_files": 445,
+  "reason": "Freeze the measured v4 header and make archive verification independent of the evolving live rain schedule; original raw evidence remains unchanged.",
+  "refreshed_delivery_inventory": {
+    "sha256": "4f2ea8a6d5a4a292941f31dc317beeafda65e59df40da1ab227cc7ed22d2a9aa",
+    "size": 83939
+  },
+  "refreshed_evidence_inventory": {
+    "sha256": "2f0bce0c1f2b2d34b3c74d2e6c504a45044ee5829d74f3c66aeb65aba8f2d851",
+    "size": 77632
+  }
+}

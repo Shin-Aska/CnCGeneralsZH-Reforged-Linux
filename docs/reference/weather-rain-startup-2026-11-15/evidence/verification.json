@@ -1,0 +1,21 @@
+{
+  "head": "9770afa04a82ada1837554e587f8e73d1d399b83",
+  "candidate_sha256": "7a40e7d9e5a8630ef6021bbfa2cd2bb02d950dc4eadd6e685f23ed9a6910c50a",
+  "candidate_size": 450219320,
+  "source_fingerprint": "83496524/4804",
+  "source_patch_sha256": "66137ba0b5ee39cbf0c3fd81943a348c6fbd5e9d4fad48c217767b452c78413a",
+  "header_sha256": "398c6aa22062a01fb9687ec0bd629c6bc1e7be7299f2f388e6bdf9b96ad3c436",
+  "staged_binary": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/ZeroHourReforged/bin/generals",
+  "staged_sha256": "7a40e7d9e5a8630ef6021bbfa2cd2bb02d950dc4eadd6e685f23ed9a6910c50a",
+  "package_asset_files_verified": 262,
+  "package_overlay_inventory_sha256": "b407239259c7a1f33a6ea32e35cc783751ac1071fcff96be67118c539fab7917",
+  "prior_v4_binary_sha256": "917e182cbd5f9f7fff24a10c2331996cbeb26f25be82d05d779f5e028e8ef55c",
+  "checks": {
+    "focused_ctest": "4/4 passed",
+    "native_gpu_runs": "5/5 accepted",
+    "repeated_seed_7_image_identical": true,
+    "seed_7_gameplay_crc": "0x71E74433 at frame 360; current, repeated current and v4 agree"
+  },
+  "full_benchmark_repeated": false,
+  "benchmark_note": "The original 27-run timing matrix measures v4, not this follow-up."
+}

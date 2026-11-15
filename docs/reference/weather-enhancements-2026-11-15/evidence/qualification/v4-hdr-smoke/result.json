@@ -1,0 +1,30 @@
+{
+  "status": "passed",
+  "candidate_sha256": "917e182cbd5f9f7fff24a10c2331996cbeb26f25be82d05d779f5e028e8ef55c",
+  "returncode": 0,
+  "crc": "0x2FA1C4E6",
+  "crc_frame": 3240,
+  "internal_hdr": true,
+  "actual_scene_format": 29,
+  "format_name": "R16G16B16A16_FLOAT",
+  "active_post_count": 2,
+  "post_chain": [
+    "bloom",
+    "fxaa"
+  ],
+  "early_weather_recorded": true,
+  "transition_warm_recorded": true,
+  "weather_strength": 0.0740650222,
+  "warm_strength": 0.0633857548,
+  "validation_errors": 0,
+  "timing": false,
+  "note": "Private profile+existing debug logging, actual render read-only GDB probe. Prepared manifest predates HDR modification; hdr-launch.json and captured Options.ini describe actual run.",
+  "actual_profile_sha256": "1a4f8648c3223b67c147d1c0076d28e73ee16e5d01e19f06477c15ab33790f6c",
+  "actual_launch_sha256": "40e1b169b8d4ff1b927ae0e183346048bc92266778e6a7525c84b7df32ce86c4",
+  "engine_log_sha256": "f9cf366b85008e89a9736cf1ca6249e811c8188ba6c3b809705e9565d726180a",
+  "probe_sha256": "49004be7dd3f6d91415dd67d21228078ba923bb75473ca7f62319ab7356fe89b",
+  "picture_sha256": "59b6c81e0935558aa3b6fc8851c80f48a365a6cd8c59044fc41013bd495ca52f",
+  "environment_overrides": {
+    "ZH_GPU_DEBUG": "1"
+  }
+}

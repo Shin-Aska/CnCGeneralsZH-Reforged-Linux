@@ -1,0 +1,11 @@
+{
+  "lease": "B exclusive GPU/audio qualification lease granted to A; no timed runs",
+  "files": {
+    "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/candidate-v3/generals": "00a43e7abfaf469741225869930d131c986026b5838cf15ed8ec8d66723d47d4",
+    "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/docs/reference/weather-enhancements-2026-11-15/reproduction/run_weather.py": "e83055abc6d92301bf02e181658970afc27b082bf3f15af30f6902c60e97d1c1",
+    "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/docs/reference/weather-enhancements-2026-11-15/reproduction/generate_map.py": "748ace731c680c90dd5ff5caf7e4b428879fcf7f4d71bb5dc17e70564d605169",
+    "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/particle-runtime/run_weather.py": "e8c43d7f1733de2b590943af0a375d8a9f2797afbfbfac5c4d96b7539b2d5684",
+    "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/particle-runtime/generate_map.py": "748ace731c680c90dd5ff5caf7e4b428879fcf7f4d71bb5dc17e70564d605169",
+    "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/candidate-v3-rain-shoreline/user/Options.ini": "6afd048b7c45bed1b85b94e94c249462748562cf582541cc3a6d4f12ed5b88a6"
+  }
+}

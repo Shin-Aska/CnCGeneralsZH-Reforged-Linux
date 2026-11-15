@@ -1,0 +1,108 @@
+{
+  "schema": 1,
+  "qualified": true,
+  "scope": "Matched full endpoint headless CRCs plus actual visible baseline/final observer admission; every primary must independently match the endpoint CRC/frame.",
+  "runner_sha256": "b92c34f710f3d8208b0b33b424613470db6298caf0df58981d1b5f809a8d6309",
+  "generator_sha256": "748ace731c680c90dd5ff5caf7e4b428879fcf7f4d71bb5dc17e70564d605169",
+  "overlay_inventory_sha256": "b407239259c7a1f33a6ea32e35cc783751ac1071fcff96be67118c539fab7917",
+  "phase_helper_path": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/rain-series",
+  "phase_helper_sha256": "b51a3ae85cf5894562b8a1155bff645e0999109a7ae29f693ce946ea913cab1e",
+  "phase_source_path": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/GeneralsMD/Code/GameEngineDevice/Include/W3DDevice/GameClient/WeatherParticleMath.h",
+  "phase_source_sha256": "9cffe39d0a62a874acd3499c908cc02483859b0b9bb31777fae05d36bcd23d82",
+  "phase_tool_source_path": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/docs/reference/weather-enhancements-2026-11-15/reproduction/rain_series.cpp",
+  "phase_tool_source_sha256": "772269c41bfababb6984eb8c0c8175e867f4043633a08233bc4c47b28cb24706",
+  "phase_window_helper_path": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/candidate-v4/rain-window-helper",
+  "phase_window_helper_sha256": "9d3ce065e39381dcf712501657f7de6e6b865028db925bba2bd691423c6492d0",
+  "retail_inventory_path": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/retail-assets.json",
+  "retail_inventory_sha256": "e1f3f682d900b362315113be0d758d128d01c75abb04347e6e2068181c3d1de0",
+  "retail_root": "/mnt/passport/E-Drive/Linux Steam Library/steamapps/common/Command & Conquer Generals - Zero Hour",
+  "retail_full_hash_policy": "Fully verify content at admission and after all primary runs; each run checks pinned inventory and file sizes.",
+  "vulkan_icd": "/usr/share/vulkan/icd.d/nvidia_icd.json",
+  "clock_frame_offset": 1,
+  "clock_formula": "floor((logic_frame-1)*1000/60)/1000",
+  "clock_stamp_stage": "takeReadsForRender stamps TheGameLogic frame; phase samples describe the current draw, not earlier screenshot-request entry.",
+  "rain_seed_proof": {
+    "artifact_sha256": "917e182cbd5f9f7fff24a10c2331996cbeb26f25be82d05d779f5e028e8ef55c",
+    "map_sha256": "6dc4dec8c5671302ef3762d291c6026059d80fec6b5d9355c48c95d528b841fa",
+    "observed_seed": 2096055520,
+    "run_log_path": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/admission-visible-final-rain/run.log",
+    "run_log_sha256": "3b71aa94719cabb6688fe22e21548d79251670a1f65461798d936d5e76f3a137",
+    "manifest_path": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/admission-visible-final-rain/manifest.json",
+    "manifest_sha256": "15061fb569b39b0efcf1b62290aec8596015ae042c2696caf49585835a1c165c"
+  },
+  "artifacts": {
+    "baseline-on": {
+      "sha256": "c7503c364f05364026d1b485ae21d9ff6aaa68bd71dd7fa95d799486cf381cfd",
+      "variant": "on"
+    },
+    "enhanced-on": {
+      "sha256": "917e182cbd5f9f7fff24a10c2331996cbeb26f25be82d05d779f5e028e8ef55c",
+      "variant": "on"
+    },
+    "enhanced-off": {
+      "sha256": "917e182cbd5f9f7fff24a10c2331996cbeb26f25be82d05d779f5e028e8ef55c",
+      "variant": "off"
+    }
+  },
+  "cases": {
+    "rain": {
+      "map_sha256": "6dc4dec8c5671302ef3762d291c6026059d80fec6b5d9355c48c95d528b841fa",
+      "scenario_sha256": "68b4ee00352522f56623f4efb7a43de6c473cf6ac94f83d5e4197fdd83057eee",
+      "profile_common_sha256": "18f036577501ae74785035a3074264482d0e65f5cdeee7fe9ba6c1d3c172de50",
+      "first": 601,
+      "last": 25200,
+      "width": 1920,
+      "height": 1080,
+      "audio": true,
+      "idle_ai": true,
+      "expected_crc": "0x29B3E8BA",
+      "expected_crc_frame": 25320,
+      "rain_seed": 2096055520,
+      "headless_admission_manifests": [
+        "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/admission-headless-rain-baseline-on/manifest.json",
+        "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/admission-headless-rain-enhanced-on/manifest.json",
+        "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/admission-headless-rain-enhanced-off/manifest.json"
+      ]
+    },
+    "sand": {
+      "map_sha256": "9304c53c63f0207b44048f65ad074622b5b9c5dbce46e926118d5c96e96d05b0",
+      "scenario_sha256": "68b4ee00352522f56623f4efb7a43de6c473cf6ac94f83d5e4197fdd83057eee",
+      "profile_common_sha256": "18f036577501ae74785035a3074264482d0e65f5cdeee7fe9ba6c1d3c172de50",
+      "first": 601,
+      "last": 2400,
+      "width": 1920,
+      "height": 1080,
+      "audio": true,
+      "idle_ai": true,
+      "expected_crc": "0xF7D76419",
+      "expected_crc_frame": 2520,
+      "rain_seed": null,
+      "headless_admission_manifests": [
+        "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/admission-headless-sand-baseline-on/manifest.json",
+        "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/admission-headless-sand-enhanced-on/manifest.json",
+        "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/admission-headless-sand-enhanced-off/manifest.json"
+      ]
+    },
+    "snow": {
+      "map_sha256": "07b0e696d861254c26be2fe216b922fd97984fe212e99fa0bfaac9a1ee9ae135",
+      "scenario_sha256": "68b4ee00352522f56623f4efb7a43de6c473cf6ac94f83d5e4197fdd83057eee",
+      "profile_common_sha256": "18f036577501ae74785035a3074264482d0e65f5cdeee7fe9ba6c1d3c172de50",
+      "first": 601,
+      "last": 2400,
+      "width": 1920,
+      "height": 1080,
+      "audio": true,
+      "idle_ai": true,
+      "expected_crc": "0xF7D76419",
+      "expected_crc_frame": 2520,
+      "rain_seed": null,
+      "headless_admission_manifests": [
+        "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/admission-headless-snow-baseline-on/manifest.json",
+        "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/admission-headless-snow-enhanced-on/manifest.json",
+        "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/admission-headless-snow-enhanced-off/manifest.json"
+      ]
+    }
+  },
+  "source_patch_sha256": "6c526f4f1e8c96ba524e2016cde9ca4fc4a2bf898ed71aeffd5524c6db3a0bca",
+  "baseline_overlay_note": "Dereferenced frozen accepted staged package; no mutable input overlay symlinks."
+}

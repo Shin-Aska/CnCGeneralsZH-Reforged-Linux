@@ -31,6 +31,29 @@ v3.8.0 doesn't have them. The maintainer can't run Linux or macOS, so the SDL si
 
 ## Not offered upstream
 
+### Expanded weather presentation (2026-11-15) — locally qualified, not offered upstream
+
+The local weather change adds gusts, layered snow, dry-ground blowing sand, intermittent
+enhanced rain with land/water contacts, ambient audio and coupled haze/sky lighting. Authored precipitation
+keeps its existing behavior. Weather remains optional and presentation-only; Classic/off/provider gates remain.
+Water-aware dust and pre-water haze composition address shoreline readability. Rain fades crossfade the
+existing warm haze when enabled, with explicit native and Windows phase ownership.
+
+The accepted staged baseline is preserved separately from this work. The measured v4 executable SHA `917e182cbd5f9f7fff24a10c2331996cbeb26f25be82d05d779f5e028e8ef55c`
+passed scoped private-profile Vulkan/audio/lifecycle/HDR qualification and 27 matched baseline/final/off
+runs (253,800 raw intervals). Active weather costs about +0.3 ms median, +0.4 ms mean and +0.9–1.0 ms p95
+on the controlled scene; dry duty cycle is reported separately. The later randomized rain-startup follow-up
+allows clear or rainy map openings, reproducible from the map and match seeds. Its executable SHA
+`7a40e7d9e5a8630ef6021bbfa2cd2bb02d950dc4eadd6e685f23ed9a6910c50a` passed 4 focused CTests and 5 native
+GPU checks, including repeated opening pixels and unchanged same-seed gameplay CRC versus v4. It is staged
+only in the build-tree package. The 27-run timings remain v4 measurements; they were not repeated for this
+follow-up. See the [startup evidence](reference/weather-rain-startup-2026-11-15/README.md) and
+[v4 weather evidence guide](reference/weather-enhancements-2026-11-15/README.md) for exact identities,
+results and boundaries. Local source commits are `0529ecef` (audio), `e12ff8b8` (weather) and `f91069a2`
+(haze/lighting), all on `main`. Windows and physical-speaker qualification remain unrun. This work has
+**not been offered upstream**. No push, pull request or upstream runtime validation is claimed. Existing
+history below is retained unchanged.
+
 ### Native Linux renderer parity validated 2026-11-15 — local, not offered upstream
 
 This fork now implements the renderer enhancements through native SDL3/Vulkan: soft particles and procedural

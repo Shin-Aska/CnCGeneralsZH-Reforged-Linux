@@ -1,0 +1,21 @@
+Installed Vulkan doesn't implement the VK_EXT_headless_surface extension
+native SDL atmosphere: sky requested outside its unresolved main scene
+native SDL atmosphere: capture phase does not match its unresolved main scene policy
+native SDL atmosphere: capture phase does not match its unresolved main scene policy
+native SDL atmosphere: capture phase does not match its unresolved main scene policy
+native SDL atmosphere: capture phase does not match its unresolved main scene policy
+native SDL atmosphere: capture phase does not match its unresolved main scene policy
+native SDL atmosphere: requires independent matching R32 depth and the copied camera/shroud mapping
+native SDL atmosphere: requires explicit unresolved main post scene identity
+native SDL atmosphere: capture phase does not match its unresolved main scene policy
+native SDL atmosphere: injected program preparation failure
+native SDL atmosphere: injected pipeline preparation failure
+native SDL atmosphere: injected fallback texture allocation failure
+native SDL atmosphere: injected fallback texture allocation failure
+native SDL atmosphere: requires explicit unresolved main post scene identity
+native SDL atmosphere: requires explicit nonaliasing borrowed view identities/generations and map epoch
+native SDL atmosphere: capture phase does not match its unresolved main scene policy
+GPU: NVIDIA GeForce RTX 4060; driver vulkan
+horizon distance near/far: 13/70
+ground haze low/high/fog: 62/20/4
+SDL atmosphere/haze: 5405 checks, 0 failures

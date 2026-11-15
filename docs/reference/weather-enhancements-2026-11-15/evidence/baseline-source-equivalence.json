@@ -1,0 +1,21 @@
+{
+  "accepted_binary_sha256": "c7503c364f05364026d1b485ae21d9ff6aaa68bd71dd7fa95d799486cf381cfd",
+  "accepted_source_fingerprint": "BCBDFF8F/4801 (prior accepted evidence)",
+  "frozen_at_head": "9770afa04a82ada1837554e587f8e73d1d399b83",
+  "source_equivalence": [
+    ".gitignore",
+    ".idea/customTargets.xml",
+    ".idea/tools/Zero Hour.xml",
+    ".run/Linux Build Release executable only.run.xml",
+    ".run/Linux Build Release.run.xml",
+    ".run/Zero Hour AI skirmish Linux.run.xml",
+    ".run/Zero Hour AI skirmish no debugger.run.xml",
+    ".run/Zero Hour Play Linux.run.xml",
+    ".run/Zero Hour Play no debugger.run.xml",
+    ".run/Zero Hour Publish and Play.run.xml",
+    ".run/Zero Hour Publish thin executable.run.xml",
+    "GeneralsMD/Code/Tools/macos-app-licenses.txt",
+    "README.md"
+  ],
+  "verification_note": "Root confirmed intervening commits change IDE/run config,README,.gitignore and macOS license text only; no runtime/weather/options/assets/CMake/tests change."
+}

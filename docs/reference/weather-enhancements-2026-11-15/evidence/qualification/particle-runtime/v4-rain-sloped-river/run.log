@@ -1,0 +1,120 @@
+Breakpoint 1 at 0x8974a0: file /mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DDisplay.cpp, line 4475.
+
+This GDB supports auto-downloading debuginfo from the following URLs:
+  <https://debuginfod.ubuntu.com>
+Debuginfod has been disabled.
+To make this setting permanent, add 'set debuginfod enabled off' to .gdbinit.
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/usr/lib/x86_64-linux-gnu/libthread_db.so.1".
+[New Thread 0x7ffff772a6c0 (LWP 140443)]
+generals: overlay /mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/particle-runtime/v4-rain-sloped-river/overlay, searched before the install
+[New Thread 0x7ffff2aeb6c0 (LWP 140444)]
+[New Thread 0x7ffff22ea6c0 (LWP 140445)]
+[New Thread 0x7ffff1ae96c0 (LWP 140446)]
+[New Thread 0x7ffff12e86c0 (LWP 140447)]
+[New Thread 0x7ffff0ae76c0 (LWP 140448)]
+[New Thread 0x7ffff02e66c0 (LWP 140449)]
+[New Thread 0x7fffefae56c0 (LWP 140450)]
+[New Thread 0x7fffef2e46c0 (LWP 140451)]
+[New Thread 0x7fffeeae36c0 (LWP 140452)]
+[New Thread 0x7fffee2e26c0 (LWP 140453)]
+[New Thread 0x7fffedae16c0 (LWP 140454)]
+[New Thread 0x7fffed2e06c0 (LWP 140455)]
+[New Thread 0x7fffecadf6c0 (LWP 140456)]
+[New Thread 0x7fffec2de6c0 (LWP 140457)]
+[New Thread 0x7fffebadd6c0 (LWP 140458)]
+[New Thread 0x7fffeb2dc6c0 (LWP 140459)]
+[New Thread 0x7fffeaadb6c0 (LWP 140460)]
+[New Thread 0x7fffea2da6c0 (LWP 140461)]
+[New Thread 0x7fffe9ad96c0 (LWP 140462)]
+generals: refused to delete "Data\INI\INIZH.big": the install root is read-only (P1)
+ModernWater: loaded 2 material rules from Data\INI\ModernWater.ini
+[New Thread 0x7fffe92d86c0 (LWP 140467)]
+Installed Vulkan doesn't implement the VK_EXT_headless_surface extension
+[New Thread 0x7fffdc9ff6c0 (LWP 140469)]
+[New Thread 0x7fffdc1fe6c0 (LWP 140470)]
+[New Thread 0x7fffdb8bd6c0 (LWP 140473)]
+[New Thread 0x7fffdb0bc6c0 (LWP 140474)]
+[New Thread 0x7fffda49b6c0 (LWP 140476)]
+PosixDevice9: offscreen, 1280x720, unpaced
+[New Thread 0x7fffc3fff6c0 (LWP 140477)]
+[New Thread 0x7fffbfd966c0 (LWP 140478)]
+water-shore-domain: revision=3 result=3 cells=0 edges=0 levels=0 tiles=0 support_vertices=0 support_work=0
+SunShadow: requested mapped
+D3DX: D3DXCompileShader (to D3D9 bytecode; the SDL3 GPU draw compiles its own) is not available off Windows yet; the call fails
+ZH_WATER_CLEAN_OPT=stream,collapse=1.5
+[New Thread 0x7fffbebc56c0 (LWP 140485)]
+WEATHER_FRAME logic=760 time=12.6330007 seed=2096055520 envelope=1 kind=1 intensity=0.929329693 gust=0.726735711 waterModern=1 contactNext=35
+VIEWER index=4 observer=1 tod=2
+WATER_SHROUD level=255
+WATER_CONTACT x=837.8 y=442.5 z=68.91 age=0.05 normal=(-0.102899,0,0.994692)
+WATER_CONTACT x=418.5 y=431.1 z=25.54 age=0.033 normal=(-0.102899,0,0.994692)
+WATER_CONTACT x=466.1 y=478.4 z=30.46 age=0.033 normal=(-0.102899,0,0.994692)
+WATER_CONTACT x=788.6 y=455.9 z=63.83 age=0.017 normal=(-0.102899,0,0.994692)
+WATER_CONTACT x=443.7 y=453.7 z=28.14 age=0.017 normal=(-0.102899,0,0.994692)
+WATER_CONTACT x=716.7 y=421.9 z=56.39 age=0.017 normal=(-0.102899,0,0.994692)
+WATER_CONTACT x=408.4 y=425.3 z=24.49 age=0.4 normal=(-0.102899,0,0.994692)
+WATER_CONTACT x=456 y=472.6 z=29.41 age=0.4 normal=(-0.102899,0,0.994692)
+WATER_CONTACT x=778.5 y=450.1 z=62.78 age=0.383 normal=(-0.102899,0,0.994692)
+WATER_CONTACT x=433.6 y=447.9 z=27.09 age=0.383 normal=(-0.102899,0,0.994692)
+WATER_CONTACT x=460.8 y=456.4 z=29.91 age=0.35 normal=(-0.102899,0,0.994692)
+WATER_CONTACT x=670.5 y=489.7 z=51.6 age=0.333 normal=(-0.102899,0,0.994692)
+WATER_CONTACT x=474.4 y=494.5 z=31.32 age=0.317 normal=(-0.102899,0,0.994692)
+WATER_CONTACT x=686.1 y=511.5 z=53.22 age=0.317 normal=(-0.102899,0,0.994692)
+WATER_CONTACT x=883.9 y=496.9 z=73.68 age=0.317 normal=(-0.102899,0,0.994692)
+WATER_CONTACT x=620 y=488.9 z=46.38 age=0.317 normal=(-0.102899,0,0.994692)
+WATER_CONTACT x=399 y=441.2 z=23.52 age=0.3 normal=(-0.102899,0,0.994692)
+WATER_CONTACT x=473.4 y=503.8 z=31.21 age=0.25 normal=(-0.102899,0,0.994692)
+WATER_CONTACT x=460.9 y=494.4 z=29.92 age=0.25 normal=(-0.102899,0,0.994692)
+WATER_CONTACT x=417 y=433.5 z=25.38 age=0.25 normal=(-0.102899,0,0.994692)
+WATER_CONTACT x=609.5 y=516.8 z=45.3 age=0.233 normal=(-0.102899,0,0.994692)
+WATER_CONTACT x=607.3 y=437.3 z=45.07 age=0.233 normal=(-0.102899,0,0.994692)
+WATER_CONTACT x=417.9 y=477.8 z=25.47 age=0.233 normal=(-0.102899,0,0.994692)
+WATER_CONTACT x=510.3 y=425.5 z=35.03 age=0.217 normal=(-0.102899,0,0.994692)
+WATER_CONTACT x=428.6 y=486.2 z=26.58 age=0.217 normal=(-0.102899,0,0.994692)
+WATER_CONTACT x=520.1 y=456.2 z=36.05 age=0.183 normal=(-0.102899,0,0.994692)
+WATER_CONTACT x=594.3 y=469.3 z=43.72 age=0.167 normal=(-0.102899,0,0.994692)
+WATER_CONTACT x=759.6 y=445.2 z=60.82 age=0.167 normal=(-0.102899,0,0.994692)
+WATER_CONTACT x=708.5 y=508.8 z=55.53 age=0.15 normal=(-0.102899,0,0.994692)
+WATER_CONTACT x=516.3 y=476.9 z=35.65 age=0.117 normal=(-0.102899,0,0.994692)
+WATER_CONTACT x=679.9 y=480.3 z=52.58 age=0.1 normal=(-0.102899,0,0.994692)
+WATER_CONTACT x=659.8 y=469.7 z=50.5 age=0.083 normal=(-0.102899,0,0.994692)
+WATER_CONTACT x=534 y=441.8 z=37.48 age=0.083 normal=(-0.102899,0,0.994692)
+WATER_CONTACT x=682.1 y=455.9 z=52.8 age=0.083 normal=(-0.102899,0,0.994692)
+CONTACT_COUNTS water=34 liveLand=97
+[Thread 0x7fffbebc56c0 (LWP 140485) exited]
+[Thread 0x7fffbfd966c0 (LWP 140478) exited]
+generals: refused to write "ffprobe.txt": the install root is read-only (P1)
+[Thread 0x7fffc3fff6c0 (LWP 140477) exited]
+PosixDevice9: 115913 draws recorded, 953 presents, 0 of them to a window that was not visible, 0 with no drawable
+PosixDevice9: 2822 mid-frame flushes, at most 4 in flight at once, 804 waited for the ring (limit 3); 0 of the flushes for the draw limit (2048 draws)
+PosixDevice9:   drawn with the engine's engine:riverwater: 1796
+PosixDevice9:   drawn with the engine's engine:terrainnoise2: 49500
+PosixDevice9:   drawn with the engine's engine:trees: 2247
+[Thread 0x7fffda49b6c0 (LWP 140476) exited]
+[Thread 0x7fffdb0bc6c0 (LWP 140474) exited]
+[Thread 0x7fffdc1fe6c0 (LWP 140470) exited]
+[Thread 0x7fffdb8bd6c0 (LWP 140473) exited]
+[Thread 0x7fffdc9ff6c0 (LWP 140469) exited]
+[Thread 0x7fffe92d86c0 (LWP 140467) exited]
+[Thread 0x7fffe9ad96c0 (LWP 140462) exited]
+[Thread 0x7fffea2da6c0 (LWP 140461) exited]
+[Thread 0x7fffeaadb6c0 (LWP 140460) exited]
+[Thread 0x7fffeb2dc6c0 (LWP 140459) exited]
+[Thread 0x7fffebadd6c0 (LWP 140458) exited]
+[Thread 0x7fffec2de6c0 (LWP 140457) exited]
+[Thread 0x7fffecadf6c0 (LWP 140456) exited]
+[Thread 0x7fffed2e06c0 (LWP 140455) exited]
+[Thread 0x7fffedae16c0 (LWP 140454) exited]
+[Thread 0x7fffee2e26c0 (LWP 140453) exited]
+[Thread 0x7fffeeae36c0 (LWP 140452) exited]
+[Thread 0x7fffef2e46c0 (LWP 140451) exited]
+[Thread 0x7fffefae56c0 (LWP 140450) exited]
+[Thread 0x7ffff02e66c0 (LWP 140449) exited]
+[Thread 0x7ffff0ae76c0 (LWP 140448) exited]
+[Thread 0x7ffff12e86c0 (LWP 140447) exited]
+[Thread 0x7ffff1ae96c0 (LWP 140446) exited]
+[Thread 0x7ffff22ea6c0 (LWP 140445) exited]
+[Thread 0x7ffff2aeb6c0 (LWP 140444) exited]
+[Thread 0x7ffff772a6c0 (LWP 140443) exited]
+[Inferior 1 (process 140440) exited normally]

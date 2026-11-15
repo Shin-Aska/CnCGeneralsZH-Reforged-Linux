@@ -1,0 +1,72 @@
+[
+  {
+    "name": "rain-pond",
+    "returncode": 1,
+    "manifest": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/v4-matrix-rain-pond/manifest.json"
+  },
+  {
+    "name": "rain-day",
+    "returncode": 1,
+    "manifest": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/v4-matrix-rain-day/manifest.json"
+  },
+  {
+    "name": "rain-night",
+    "returncode": 1,
+    "manifest": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/v4-matrix-rain-night/manifest.json"
+  },
+  {
+    "name": "rain-atmosphere-off",
+    "returncode": 1,
+    "manifest": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/v4-matrix-rain-atmosphere-off/manifest.json"
+  },
+  {
+    "name": "sand-night",
+    "returncode": 1,
+    "manifest": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/v4-matrix-sand-night/manifest.json"
+  },
+  {
+    "name": "sand-atmosphere-off",
+    "returncode": 1,
+    "manifest": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/v4-matrix-sand-atmosphere-off/manifest.json"
+  },
+  {
+    "name": "snow-day",
+    "returncode": 1,
+    "manifest": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/v4-matrix-snow-day/manifest.json"
+  },
+  {
+    "name": "snow-night",
+    "returncode": 0,
+    "manifest": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/v4-matrix-snow-night/manifest.json"
+  },
+  {
+    "name": "snow-atmosphere-off",
+    "returncode": 0,
+    "manifest": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/v4-matrix-snow-atmosphere-off/manifest.json"
+  },
+  {
+    "name": "classic-on",
+    "returncode": 0,
+    "manifest": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/v4-matrix-classic-on/manifest.json"
+  },
+  {
+    "name": "classic-off",
+    "returncode": 0,
+    "manifest": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/v4-matrix-classic-off/manifest.json"
+  },
+  {
+    "name": "authored-on",
+    "returncode": 0,
+    "manifest": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/v4-matrix-authored-on/manifest.json"
+  },
+  {
+    "name": "authored-off",
+    "returncode": 0,
+    "manifest": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/v4-matrix-authored-off/manifest.json"
+  },
+  {
+    "name": "rain-dry-maplight-off",
+    "returncode": 0,
+    "manifest": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/v4-matrix-rain-dry-maplight-off/manifest.json"
+  }
+]

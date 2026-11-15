@@ -1,0 +1,29 @@
+{
+  "seed": 2096055520,
+  "first": {
+    "envelope": 1,
+    "slotStart": 0,
+    "wetStart": 0,
+    "plateauStart": 6.25625408,
+    "plateauEnd": 48.4827043,
+    "wetEnd": 54.7389584,
+    "slotEnd": 210
+  },
+  "next": {
+    "envelope": 0.579199016,
+    "slotStart": 210,
+    "wetStart": 225.974471,
+    "plateauStart": 233.253937,
+    "plateauEnd": 272.705471,
+    "wetEnd": 279.984938,
+    "slotEnd": 420
+  },
+  "shots": [
+    10,
+    50.4827043,
+    55.5389584,
+    120,
+    227.974471,
+    235.253937
+  ]
+}

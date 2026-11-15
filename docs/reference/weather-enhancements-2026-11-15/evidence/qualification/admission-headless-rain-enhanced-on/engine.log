@@ -1,0 +1,1679 @@
+Log /mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/candidate-v4/weather_eaa6a94f4060_DebugLogFile.txt opened: Sun Nov 15 14:23:05 2026
+
+*** Initing Memory Manager prior to main!
+Create GeneralsMutex okay.
+CRC message is 1095
+================================================================================
+Generals version 4.0 (Release)
+Build date: Nov 15 2026 13:11:57
+Build location: Linux
+Built by: cmake
+================================================================================
+JobSystem: 19 worker threads
+Win32BIGFileSystem::openArchiveFile - opening BIG file AudioEnglishZH.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 58326522 bytes
+Win32BIGFileSystem::openArchiveFile - 794 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading AudioEnglishZH.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - AudioEnglishZH.big inserted into the archive file map.
+Win32BIGFileSystem::openArchiveFile - opening BIG file AudioZH.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 23965542 bytes
+Win32BIGFileSystem::openArchiveFile - 287 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading AudioZH.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - AudioZH.big inserted into the archive file map.
+Win32BIGFileSystem::openArchiveFile - opening BIG file EnglishZH.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 80472928 bytes
+Win32BIGFileSystem::openArchiveFile - 75 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading EnglishZH.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - EnglishZH.big inserted into the archive file map.
+Win32BIGFileSystem::openArchiveFile - opening BIG file gensecZH.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 787464 bytes
+Win32BIGFileSystem::openArchiveFile - 1 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading gensecZH.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - gensecZH.big inserted into the archive file map.
+Win32BIGFileSystem::openArchiveFile - opening BIG file INIZH.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 18764687 bytes
+Win32BIGFileSystem::openArchiveFile - 135 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading INIZH.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - INIZH.big inserted into the archive file map.
+Win32BIGFileSystem::openArchiveFile - opening BIG file MapsZH.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 39749312 bytes
+Win32BIGFileSystem::openArchiveFile - 299 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading MapsZH.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - MapsZH.big inserted into the archive file map.
+Win32BIGFileSystem::openArchiveFile - opening BIG file Music.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 786724 bytes
+Win32BIGFileSystem::openArchiveFile - 1 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading Music.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - Music.big inserted into the archive file map.
+Win32BIGFileSystem::openArchiveFile - opening BIG file MusicZH.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 34741916 bytes
+Win32BIGFileSystem::openArchiveFile - 8 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading MusicZH.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - MusicZH.big inserted into the archive file map.
+Win32BIGFileSystem::openArchiveFile - opening BIG file PatchData.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 127 bytes
+Win32BIGFileSystem::openArchiveFile - 1 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading PatchData.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - PatchData.big inserted into the archive file map.
+Win32BIGFileSystem::openArchiveFile - opening BIG file PatchINI.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 53717 bytes
+Win32BIGFileSystem::openArchiveFile - 1 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading PatchINI.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - PatchINI.big inserted into the archive file map.
+Win32BIGFileSystem::openArchiveFile - opening BIG file PatchWindow.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 260789 bytes
+Win32BIGFileSystem::openArchiveFile - 2 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading PatchWindow.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - PatchWindow.big inserted into the archive file map.
+Win32BIGFileSystem::openArchiveFile - opening BIG file PatchZH.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 118822 bytes
+Win32BIGFileSystem::openArchiveFile - 3 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading PatchZH.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - PatchZH.big inserted into the archive file map.
+Win32BIGFileSystem::openArchiveFile - opening BIG file ShadersZH.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 996 bytes
+Win32BIGFileSystem::openArchiveFile - 8 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading ShadersZH.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - ShadersZH.big inserted into the archive file map.
+Win32BIGFileSystem::openArchiveFile - opening BIG file SpeechEnglishZH.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 254275694 bytes
+Win32BIGFileSystem::openArchiveFile - 2430 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading SpeechEnglishZH.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - SpeechEnglishZH.big inserted into the archive file map.
+Win32BIGFileSystem::openArchiveFile - opening BIG file SpeechZH.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 6174552 bytes
+Win32BIGFileSystem::openArchiveFile - 12 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading SpeechZH.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - SpeechZH.big inserted into the archive file map.
+Win32BIGFileSystem::openArchiveFile - opening BIG file TerrainZH.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 8660432 bytes
+Win32BIGFileSystem::openArchiveFile - 149 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading TerrainZH.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - TerrainZH.big inserted into the archive file map.
+Win32BIGFileSystem::openArchiveFile - opening BIG file TexturesZH.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 222753036 bytes
+Win32BIGFileSystem::openArchiveFile - 3546 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading TexturesZH.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - TexturesZH.big inserted into the archive file map.
+Win32BIGFileSystem::openArchiveFile - opening BIG file W3DEnglishZH.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 2696872 bytes
+Win32BIGFileSystem::openArchiveFile - 16 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading W3DEnglishZH.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - W3DEnglishZH.big inserted into the archive file map.
+Win32BIGFileSystem::openArchiveFile - opening BIG file W3DZH.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 189741064 bytes
+Win32BIGFileSystem::openArchiveFile - 4432 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading W3DZH.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - W3DZH.big inserted into the archive file map.
+Win32BIGFileSystem::openArchiveFile - opening BIG file WindowZH.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 8493653 bytes
+Win32BIGFileSystem::openArchiveFile - 80 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading WindowZH.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - WindowZH.big inserted into the archive file map.
+Win32BIGFileSystem::openArchiveFile - opening BIG file PatchData.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 127 bytes
+Win32BIGFileSystem::openArchiveFile - 1 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading PatchData.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - PatchData.big inserted into the archive file map.
+Win32BIGFileSystem::openArchiveFile - opening BIG file PatchINI.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 53717 bytes
+Win32BIGFileSystem::openArchiveFile - 1 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading PatchINI.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - PatchINI.big inserted into the archive file map.
+Win32BIGFileSystem::openArchiveFile - opening BIG file PatchWindow.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 260789 bytes
+Win32BIGFileSystem::openArchiveFile - 2 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading PatchWindow.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - PatchWindow.big inserted into the archive file map.
+Win32BIGFileSystem::openArchiveFile - opening BIG file PatchZH.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 118822 bytes
+Win32BIGFileSystem::openArchiveFile - 3 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading PatchZH.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - PatchZH.big inserted into the archive file map.
+Win32BIGFileSystem::init - no base game archives in the registered folder ''
+Win32BIGFileSystem::init - loading the base game's archives from 'ZH_Generals\'
+Win32BIGFileSystem::openArchiveFile - opening BIG file ZH_Generals\Audio.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 127940044 bytes
+Win32BIGFileSystem::openArchiveFile - 1720 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading ZH_Generals\Audio.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - ZH_Generals\Audio.big inserted into the archive file map.
+Win32BIGFileSystem::openArchiveFile - opening BIG file ZH_Generals\AudioEnglish.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 104744592 bytes
+Win32BIGFileSystem::openArchiveFile - 1772 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading ZH_Generals\AudioEnglish.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - ZH_Generals\AudioEnglish.big inserted into the archive file map.
+Win32BIGFileSystem::openArchiveFile - opening BIG file ZH_Generals\English.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 2774948 bytes
+Win32BIGFileSystem::openArchiveFile - 10 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading ZH_Generals\English.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - ZH_Generals\English.big inserted into the archive file map.
+Win32BIGFileSystem::openArchiveFile - opening BIG file ZH_Generals\gensec.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 787464 bytes
+Win32BIGFileSystem::openArchiveFile - 1 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading ZH_Generals\gensec.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - ZH_Generals\gensec.big inserted into the archive file map.
+Win32BIGFileSystem::openArchiveFile - opening BIG file ZH_Generals\INI.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 7607479 bytes
+Win32BIGFileSystem::openArchiveFile - 92 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading ZH_Generals\INI.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - ZH_Generals\INI.big inserted into the archive file map.
+Win32BIGFileSystem::openArchiveFile - opening BIG file ZH_Generals\maps.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 23554152 bytes
+Win32BIGFileSystem::openArchiveFile - 135 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading ZH_Generals\maps.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - ZH_Generals\maps.big inserted into the archive file map.
+Win32BIGFileSystem::openArchiveFile - opening BIG file ZH_Generals\Music.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 158818808 bytes
+Win32BIGFileSystem::openArchiveFile - 50 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading ZH_Generals\Music.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - ZH_Generals\Music.big inserted into the archive file map.
+Win32BIGFileSystem::openArchiveFile - opening BIG file ZH_Generals\Patch.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 1462590 bytes
+Win32BIGFileSystem::openArchiveFile - 9 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading ZH_Generals\Patch.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - ZH_Generals\Patch.big inserted into the archive file map.
+Win32BIGFileSystem::openArchiveFile - opening BIG file ZH_Generals\shaders.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 1200 bytes
+Win32BIGFileSystem::openArchiveFile - 10 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading ZH_Generals\shaders.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - ZH_Generals\shaders.big inserted into the archive file map.
+Win32BIGFileSystem::openArchiveFile - opening BIG file ZH_Generals\Speech.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 13479230 bytes
+Win32BIGFileSystem::openArchiveFile - 18 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading ZH_Generals\Speech.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - ZH_Generals\Speech.big inserted into the archive file map.
+Win32BIGFileSystem::openArchiveFile - opening BIG file ZH_Generals\SpeechEnglish.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 269104188 bytes
+Win32BIGFileSystem::openArchiveFile - 1552 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading ZH_Generals\SpeechEnglish.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - ZH_Generals\SpeechEnglish.big inserted into the archive file map.
+Win32BIGFileSystem::openArchiveFile - opening BIG file ZH_Generals\Terrain.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 48342856 bytes
+Win32BIGFileSystem::openArchiveFile - 233 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading ZH_Generals\Terrain.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - ZH_Generals\Terrain.big inserted into the archive file map.
+Win32BIGFileSystem::openArchiveFile - opening BIG file ZH_Generals\Textures.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 333031108 bytes
+Win32BIGFileSystem::openArchiveFile - 3748 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading ZH_Generals\Textures.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - ZH_Generals\Textures.big inserted into the archive file map.
+Win32BIGFileSystem::openArchiveFile - opening BIG file ZH_Generals\W3D.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 184549391 bytes
+Win32BIGFileSystem::openArchiveFile - 4556 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading ZH_Generals\W3D.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - ZH_Generals\W3D.big inserted into the archive file map.
+Win32BIGFileSystem::openArchiveFile - opening BIG file ZH_Generals\Window.big
+Win32BIGFileSystem::openArchiveFile - size of archive file is 7962700 bytes
+Win32BIGFileSystem::openArchiveFile - 78 are contained in archive
+Win32BIGFileSystem::loadBigFilesFromDirectory - loading ZH_Generals\Window.big into the directory tree.
+Win32BIGFileSystem::loadBigFilesFromDirectory - ZH_Generals\Window.big inserted into the archive file map.
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/aametalwall_d.dds (21992 bytes) from ZH_Generals\Textures.big wins over the 5608 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/aametalwall_e.dds (21992 bytes) from ZH_Generals\Textures.big wins over the 5608 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/abarfrccmd_d.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/abarfrccmd_ds.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/abarfrccmd_e.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/abarfrccmdwnd_n.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 22000 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/abpatriot_d.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/abpatriot_e.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/abpwrplant_d.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/abpwrplant_ds.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/abpwrplant_e.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/abpwrplant_es.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/abpwrplant_n.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/atcemblock02_d.dds (21992 bytes) from ZH_Generals\Textures.big wins over the 5608 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/atcemblock02_ds.dds (21992 bytes) from ZH_Generals\Textures.big wins over the 5608 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/atcemblock02_e.dds (21992 bytes) from ZH_Generals\Textures.big wins over the 5608 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/atcemblock02_es.dds (21992 bytes) from ZH_Generals\Textures.big wins over the 5608 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/atcemwall01_d.dds (21992 bytes) from ZH_Generals\Textures.big wins over the 5608 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/atcemwall01_ds.dds (21992 bytes) from ZH_Generals\Textures.big wins over the 5608 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/atcemwall01_e.dds (21992 bytes) from ZH_Generals\Textures.big wins over the 5608 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/atcemwall01_es.dds (21992 bytes) from ZH_Generals\Textures.big wins over the 5608 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/atcemwall02_d.dds (21992 bytes) from ZH_Generals\Textures.big wins over the 5608 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/atcemwall02_ds.dds (21992 bytes) from ZH_Generals\Textures.big wins over the 5608 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/atcemwall02_e.dds (21992 bytes) from ZH_Generals\Textures.big wins over the 5608 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/atcemwall02_n.dds (21992 bytes) from ZH_Generals\Textures.big wins over the 5608 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/atcemwall06_d.dds (21992 bytes) from ZH_Generals\Textures.big wins over the 5608 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/atcemwall06_ds.dds (21992 bytes) from ZH_Generals\Textures.big wins over the 5608 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/atcemwall06_e.dds (21992 bytes) from ZH_Generals\Textures.big wins over the 5608 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/atcemwall06_es.dds (21992 bytes) from ZH_Generals\Textures.big wins over the 5608 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/atcemwall06_n.dds (21992 bytes) from ZH_Generals\Textures.big wins over the 5608 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/atcemwall07_d.dds (21992 bytes) from ZH_Generals\Textures.big wins over the 5608 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/atcemwall07_ds.dds (21992 bytes) from ZH_Generals\Textures.big wins over the 5608 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/atcemwall07_e.dds (21992 bytes) from ZH_Generals\Textures.big wins over the 5608 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/atcemwall07_es.dds (21992 bytes) from ZH_Generals\Textures.big wins over the 5608 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/atcemwall07_n.dds (21992 bytes) from ZH_Generals\Textures.big wins over the 5608 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/atcemwalltrim01_d.dds (5640 bytes) from ZH_Generals\Textures.big wins over the 1544 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/atcemwalltrim01_ds.dds (5640 bytes) from ZH_Generals\Textures.big wins over the 1544 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/atcemwalltrim01_e.dds (5640 bytes) from ZH_Generals\Textures.big wins over the 1544 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/atcemwalltrim01_es.dds (5640 bytes) from ZH_Generals\Textures.big wins over the 1544 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/atpanelroof_d.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/atpanelroof_ds.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/atpanelroof_e.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/atpanelroof_es.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/atroofparts01_d.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/atroofparts01_ds.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/atroofparts01_e.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/atroofparts01_es.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/atroofparts01_n.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/atsilo2_d.dds (21992 bytes) from ZH_Generals\Textures.big wins over the 5608 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/atsilo2_e.dds (21992 bytes) from ZH_Generals\Textures.big wins over the 5608 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbairport.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbairport_d.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbairport_dg.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbairport_dn.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbairport_dng.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbairport_e.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbairport_en.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbairport_g.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbairport_n.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbairport_ng.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbairport_r.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbairport_rn.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbarchse.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbarchse_d.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbarchse_e.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbarchse_g.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbarchse_gd.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbarchse_n.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbbaikgrnd.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbbaikgrnd_d.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbbaikgrnd_e.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbbaikhang01.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbbaikhang01_d.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbbaikhang01_e.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbbaikhang01_r.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbbaikrock.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbbaikrock_d.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbbaikrock_e.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbbrnshed.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbbrnshed_d.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbbrnshed_dg.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbbrnshed_ds.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbbrnshed_dsg.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbbrnshed_dsn.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbbrnshed_dsng.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbbrnshed_e.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbbrnshed_es.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbbrnshed_esn.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbbrnshed_g.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbbrnshed_s.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbbrnshed_sn.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbchembunk_ds.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbchembunk_es.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbchembunk_r.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbchembunk_rs.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbchembunk_s.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbchemfact_d.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbchemfact_dg.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbchemfact_ds.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbchemfact_dsg.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbchemfact_e.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbchemfact_es.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbchemfact_g.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbchemfact_r.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbchemfact_rs.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbchemfact_s.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbchemfact_sg.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbcnvstr01.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbcnvstr01_d.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbcnvstr01_dg.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbcnvstr01_dng.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbcnvstr01_e.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbcnvstr01_en.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbcnvstr01_g.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbcnvstr01_n.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbcnvstr01_ng.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbcnvstr01_r.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbeuropkg.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbeuropkg_d.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbeuropkg_dg.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbeuropkg_dn.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbeuropkg_e.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbeuropkg_en.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbeuropkg_g.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbeuropkg_n.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbeuropkg_r.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbeuropkg_rblack.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbfwfctry.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbfwfctry_d.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbfwfctry_dg.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbfwfctry_dn.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbfwfctry_dng.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbfwfctry_e.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbfwfctry_g.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbfwfctry_n.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbfwfctry_r.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbh2oplnt.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbh2oplnt_d.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbh2oplnt_dg.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbh2oplnt_e.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbh2oplnt_en.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbh2oplnt_g.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbh2oplnt_r.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbindwhs01.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbindwhs01_d.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbindwhs01_dg.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbindwhs01_e.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbindwhs01_g.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbindwhs01_r.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbindwhs02.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbindwhs02_d.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbindwhs02_dg.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbindwhs02_dn.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbindwhs02_dng.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbindwhs02_dsg.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbindwhs02_e.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbindwhs02_g.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbindwhs02_n.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbindwhs02_ng.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbindwhs02_r.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbindwhs02_rn.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmectdrl1.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmectdrl1_d.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmectdrl1_dg.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmectdrl1_dn.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmectdrl1_dng.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmectdrl1_e.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmectdrl1_en.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmectdrl1_g.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmectdrl1_n.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmectdrl1_ng.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmectdrl1_r.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmectdrl1_rn.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmectdrl2.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmectdrl2_d.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmectdrl2_dg.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmectdrl2_e.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmectdrl2_g.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmectdrl2_r.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis03.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis03_d.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis03_dg.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis03_ds.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis03_dsg.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis03_e.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis03_es.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis03_r.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis03_rs.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis03_s.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis03_s_black2.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis03_sblack1.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis03_sg.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis06.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis06_d.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis06_dg.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis06_dgn.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis06_dn.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis06_ds.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis06_dsg.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis06_e.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis06_en.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis06_es.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis06_g.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis06_n.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis06_ng.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis06_r.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis06_rs.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis06_s.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis06_sg.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis08.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis08_d.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis08_dg.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis08_dn.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis08_e.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis08_en.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis08_g.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis08_n.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis08_ng.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbmogdis08_r.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbnhongk01.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbnhongk01_d.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbnhongk01a.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbnhongk01a_d.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbnhongk01a_e.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbnhongk02top.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbnhongk02top_d.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbnhongk02top_e.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbnhongk03.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbnhongk03_d.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbnsubst_wall.dds (87528 bytes) from ZH_Generals\Textures.big wins over the 21992 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbnsubst_wall_r.dds (174928 bytes) from ZH_Generals\Textures.big wins over the 43856 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cboilrfny.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cboilrfny_d.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cboilrfny_dg.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cboilrfny_ds.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cboilrfny_dsg.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cboilrfny_e.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cboilrfny_es.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cboilrfny_g.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cboilrfny_n.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cboilrfny_r.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cboilrfny_rs.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cboilrfny_s.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cboilrfny_sg.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cboldmslm.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cboldmslm_d.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cboldmslm_dg.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cboldmslm_e.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cboldmslm_g.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cboldmslm_r.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cboldmslm_rn.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbsovbldg.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbsovbldg_d.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbsovbldg_dg.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbsovbldg_dn.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbsovbldg_e.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbsovbldg_eblack.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbsovbldg_g.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbsovbldg_n.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbsovbldg_ng.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbsovbldg_r.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbsovrdio.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbsovrdio_d.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbsovrdio_dg.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbsovrdio_dn.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbsovrdio_e.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbsovrdio_eblack.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbsovrdio_g.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbsovrdio_n.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbsovrdio_ng.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbsovrdio_r.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbsovrdio_rblack.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbsstadiumfield.dds (87528 bytes) from ZH_Generals\Textures.big wins over the 21992 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbsstadiumfield_d.dds (87528 bytes) from ZH_Generals\Textures.big wins over the 21992 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbsstadiumfield_e.dds (87528 bytes) from ZH_Generals\Textures.big wins over the 21992 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbsstadiumfield_r.dds (87528 bytes) from ZH_Generals\Textures.big wins over the 21992 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbsstadiumparts.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbsstadiumparts_d.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbsstadiumparts_e.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbsstadiumparts_r.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtampico.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtaprtmn1.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtaprtmn1_d.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtaprtmn1_dg.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtaprtmn1_dn.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtaprtmn1_ds.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtaprtmn1_dsg.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtaprtmn1_e.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtaprtmn1_en.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtaprtmn1_es.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtaprtmn1_g.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtaprtmn1_n.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtaprtmn1_ng.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtaprtmn1_r.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtaprtmn1_rn.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtaprtmn1_rs.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtaprtmn1_s.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtaprtmn1_sg.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtmplhvn.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtmplhvn_dm1.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtmplhvn_dm2.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtmplhvn_dm3.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtower01.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtower01_d.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtower01_dg.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtower01_dn.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtower01_dng.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtower01_e.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtower01_en.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtower01_g.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtower01_n.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtower01_ng.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtower01_r.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtower02_n.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtower05.dds (43848 bytes) from ZH_Generals\Textures.big wins over the 11080 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtower05_d.dds (43848 bytes) from ZH_Generals\Textures.big wins over the 11080 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtower05_e.dds (43848 bytes) from ZH_Generals\Textures.big wins over the 11080 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtower05_g.dds (43848 bytes) from ZH_Generals\Textures.big wins over the 11080 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtower05_gd.dds (43848 bytes) from ZH_Generals\Textures.big wins over the 11080 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtower05_r.dds (43848 bytes) from ZH_Generals\Textures.big wins over the 11080 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtschlhs.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtschlhs_d.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtschlhs_dg.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtschlhs_dn.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtschlhs_dng.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtschlhs_e.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtschlhs_en.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtschlhs_en2.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtschlhs_g.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtschlhs_n.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtschlhs_ng.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtschlhs_r.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtschlhs_rn.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbtschlhs_rn2.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbwrfwhrs.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbwrfwhrs2.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbwrfwhrs2_d.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbwrfwhrs2_dn.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbwrfwhrs2_e.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbwrfwhrs2_en.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbwrfwhrs2_g.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbwrfwhrs2_n.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbwrfwhrs2_r.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbwrfwhrs_d.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbwrfwhrs_dg.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbwrfwhrs_dn.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbwrfwhrs_dng.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbwrfwhrs_e.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbwrfwhrs_en.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbwrfwhrs_g.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbwrfwhrs_n.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbwrfwhrs_ng.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cbwrfwhrs_r.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/cvtrneng.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/nbbrrckrf_d.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/nbbrrckrf_ds.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/nbbrrckrf_e.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/nbbrrckrf_es.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/nbconyard_d.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/nbconyard_ds.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/nbconyard_e.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/nbconyard_es.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/nbconyard_n.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 22000 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/nbwarfact_d.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/nbwarfact_ds.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/nbwarfact_e.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/nbwarfact_es.dds (174904 bytes) from ZH_Generals\Textures.big wins over the 43832 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/nbwarfact_n.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 22000 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/nbwarfact_snow_d.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/nbwarfact_snow_e.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/ntpwrplantslab_n.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/ntroofs_d.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/ntroofs_ds.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/ntroofs_e.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/ntroofs_es.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/ntwalls01_n.dds (43856 bytes) from ZH_Generals\Textures.big wins over the 11088 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/ntwalls02_n.dds (21992 bytes) from ZH_Generals\Textures.big wins over the 5608 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/ntwalls03_n.dds (21992 bytes) from ZH_Generals\Textures.big wins over the 5608 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/ntwalls04_en.dds (43856 bytes) from ZH_Generals\Textures.big wins over the 11088 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/ntwalls04_n.dds (43856 bytes) from ZH_Generals\Textures.big wins over the 11088 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/pajnkdlr.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/pmbricks.dds (174928 bytes) from ZH_Generals\Textures.big wins over the 11088 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/pmbricks_s.dds (174928 bytes) from ZH_Generals\Textures.big wins over the 11088 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/pmcargonet.dds (87536 bytes) from ZH_Generals\Textures.big wins over the 22000 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/pmcargonet_d.dds (87536 bytes) from ZH_Generals\Textures.big wins over the 22000 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/pmconsup01.dds (87536 bytes) from ZH_Generals\Textures.big wins over the 22000 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/pmconsup01_d.dds (87536 bytes) from ZH_Generals\Textures.big wins over the 22000 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/pmconsup01_s.dds (87536 bytes) from ZH_Generals\Textures.big wins over the 22000 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/pmcrane.dds (87536 bytes) from ZH_Generals\Textures.big wins over the 22000 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/pmcrane_d.dds (87536 bytes) from ZH_Generals\Textures.big wins over the 22000 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/pmdock01.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/pmdrainpipe.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/pmgsstgtk01.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/pmgsstgtk01_d.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/pmgsstrgtk02.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/pmgsstrgtk02_d.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/pmoilsttk.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/pmoilsttk_d.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/pmsign01.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/pmtent.dds (87536 bytes) from ZH_Generals\Textures.big wins over the 22000 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/pmtent_s.dds (87536 bytes) from ZH_Generals\Textures.big wins over the 22000 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/pmtorch_d.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 2872 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/pmtorch_n.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 2872 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/pmtoxictnk.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/pmtoxictnk_d.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/pmtoxictnk_e.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/pmwallstn1.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/pmwtrsttk.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/pmwtrsttk_d.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/ptpalm02b.dds (1520 bytes) from ZH_Generals\Textures.big wins over the 824 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/rubble.dds (87536 bytes) from ZH_Generals\Textures.big wins over the 22000 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/scca10strike_usa.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/sccambush_gla.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/sccanthraxbomb_gla.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/sccartillerybarrage_china.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/sccclustermines_china.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/sccemppulse_china.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/sccfuelairbomb_usa.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/sccguard_generic.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/sccnapalmstrike_china.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/sccnuclearmissile_china.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/sccparadrop_usa.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/sccparticlecanon_usa.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/sccradar_gla.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/sccrepair.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/sccscudstorm_gla.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/sccspydrone_usa.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/sccspysatellite_usa.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/ubburnbarr.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/ubburnbarr_d.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/ubpalwall_d.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/ubpalwall_e.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/ubpalwall_es.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/ubpalwall_n.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/ubpalwall_r.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utcloth2_d.dds (22000 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utdoor03_d.dds (21992 bytes) from ZH_Generals\Textures.big wins over the 5608 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utdoor03_e.dds (21992 bytes) from ZH_Generals\Textures.big wins over the 5608 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utlilwall2_d.dds (11080 bytes) from ZH_Generals\Textures.big wins over the 2888 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utlilwall2_ds.dds (11080 bytes) from ZH_Generals\Textures.big wins over the 2888 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utlilwall2_e.dds (11080 bytes) from ZH_Generals\Textures.big wins over the 2888 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utlilwall2_es.dds (11080 bytes) from ZH_Generals\Textures.big wins over the 2888 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utlilwall_d.dds (11080 bytes) from ZH_Generals\Textures.big wins over the 2888 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utlilwall_e.dds (11080 bytes) from ZH_Generals\Textures.big wins over the 2888 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utlilwall_es.dds (11080 bytes) from ZH_Generals\Textures.big wins over the 2888 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utlilwall_f.dds (11080 bytes) from ZH_Generals\Textures.big wins over the 2888 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utlilwall_r.dds (11080 bytes) from ZH_Generals\Textures.big wins over the 2888 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utplates_d.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utplates_e.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utscudparts02_d.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/uttwrwall_d.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/uttwrwall_ds.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/uttwrwall_e.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/uttwrwall_es.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utwall3_d.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utwall3_ds.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utwall3_e.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utwall3_es.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utwall3_n.dds (87536 bytes) from ZH_Generals\Textures.big wins over the 22000 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utwall_d.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utwall_e.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utwall_es.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utwall_f.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utwall_fn.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utwall_n.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utwall_r.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utwallarm_d.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utwallarm_e.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utwallg_d.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utwallg_ds.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utwallg_e.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utwallg_es.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utwallg_n.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utwallg_r.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utwallpris_d.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utwallpris_ds.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utwallwht_n.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/utwallwht_r.dds (43832 bytes) from ZH_Generals\Textures.big wins over the 11064 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/ztrefinery01.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/ztrefinery01_d.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+ArchiveFileSystem::prioritizeLargerFiles - Art/Textures/ztrefinery01_e.dds (349680 bytes) from ZH_Generals\Textures.big wins over the 87536 byte copy in TexturesZH.big
+User data folder: /mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/admission-headless-rain-enhanced-on/user\
+EXE CRC: 0x024C0E7D (no user data folder 0)
+Hostname is 'richard-mainpc'
+Failed call to getifaddrs; errno is 1
+Hostname is 'richard-mainpc'
+Failed call to getifaddrs; errno is 1
+Command-line args: -root /mnt/passport/E-Drive/Linux Steam Library/steamapps/common/Command & Conquer Generals - Zero Hour -overlay /mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/admission-headless-rain-enhanced-on/overlay -multiInstance -win -xres 1920 -yres 1080 -msaa 0 -quickstart -noshellmap -nologo -novideo -noFPSLimit -noDynamicLOD -turbo -camera 640 600 -maxframes 25320 -particlecap 3000 -gpuparticles 0 -dx11post off -logPrefix weather_eaa6a94f4060_ -map Maps/WeatherEvidence/WeatherEvidence.map -autoskirmish 2 -observer -seed 7 -side 0 FactionAmerica -side 1 FactionChina -scenario weather_evidence -startingcash 1 -peacetime 10 -screenshot 25380 -headless -noaudio
+Looking in data\Generals.str for string file
+Looking in data\english\Generals.csf for compiled string file
+Looking in Data\Patch.str for string file
+TheAudio: audio off, no device opened
+[LINE: 95 in 'Data\INI\WeaponReforged.ini'] Weapon 'Demo_DestroyedWeapon' is already defined; the block is skipped.
+[LINE: 115 in 'Data\INI\WeaponReforged.ini'] Weapon 'Demo_TerroristOnCombatBikeSuicideDynamitePack' is already defined; the block is skipped.
+[LINE: 135 in 'Data\INI\WeaponReforged.ini'] Weapon 'Chem_DemoTrapDetonationWeaponBeta' is already defined; the block is skipped.
+[LINE: 153 in 'Data\INI\WeaponReforged.ini'] Weapon 'Chem_DemoTrapDetonationWeaponGamma' is already defined; the block is skipped.
+[LINE: 171 in 'Data\INI\WeaponReforged.ini'] Weapon 'Chem_ToxinShellWeaponGamma' is already defined; the block is skipped.
+[LINE: 189 in 'Data\INI\WeaponReforged.ini'] Weapon 'ToxinShellWeaponUpgraded' is already defined; the block is skipped.
+THRUST locos may not have zero m_minSpeed; healing...
+CommandStore: 908 command buttons, 495 command sets
+W3DDisplay::init - ground tiles 64 pixels, 0 HD tiles to draw them from
+W3DDisplay::init - renderer runtime: the POSIX Direct3D 9 device (posixd3d9)
+W3DDisplay::init - multisampling: 0x
+W3DDisplay::init - vsync: always on (the SDL GPU swapchain's VSYNC; D3D9 asked for off, which is not used; -offscreen paces by ZH_OFFSCREEN_HZ instead)
+W3DDisplay::init - present: discard
+W3DDisplay::init - adapter: Zero Hour Reforged D3D9 (SDL3 GPU)
+W3DDisplay::init - quality: filter 0 aniso 0 particles 3000 (in force 3000) shadows vol 1 decal 1 trees 1 heat 1 dynamicLOD off
+OPTIONS CameraBoundaryMargin=0 EdgeScrollInWindowedMode=0 CameraSnapTo45=0 BuildGrid=0 BuildSnapTo45=0 BuildSnapToNeighbour=0 BuildNudge=0 WheelZoomToCursor=0 ZoomSpeed=100 IsometricCamera=0 CameraShake=1 OpenAtMaxZoom=0 TurboMode=0 DragTolerance=25 AmbientVolume=70 MasterVolume=100 DynamicMusic=0 LegacySound=1 MuteInBackground=1 FormationDrag=0 BuildWithoutWorker=0 ChromaLighting=0 MenuTransitionSpeed=100 AssetPreloading=1 TextureFilter=0 Anisotropy=0 Bloom=0 WindowMode=2 FullscreenScaling=0 MSAA=0 VSync=0 FrameRateLimit=0 WaterStyle=1 WaterReflection=2 WaterReflectionEnabled=1 WaterShoreWaveTurning=1 WaterWaveFiltering=1 WaterFftResolution=2 WaterRefractionQuality=0 WaterReflectionDetail=1 CloudStyle=0 ClassicGraphics=0 DetailedModels=1 HDTextures=1 HealthBars=2 HealthBarColors=0 PlayerColors=0 OrderLines=0 AircraftAltitudeLine=1 ShowNetBox=0 EmptyBuildingPips=1 TextLanguage=0 UseShadowVolumesForSkins=0 ShadowsForProjectiles=0 ShadowsForProps=0 ShadowsForParticles=0 VolumetricSmokeShadows=0 UseCloudMap=1 LightingStyle=0 SmokeFireLighting=0 DebrisTrails=0 MapLight=1 TeamGlow=0 WaterFoam=0 GroundMarks=0 Firelight=0 HemiAmbient=0 AmbientOcclusion=0 Weather=1 WaterSplashes=0 Atmosphere=1 StructureCollapse=0 SmoothMotion=0 InternalHdr=0 HeatHaze=0 ShadowQuality=0 Smoke=0 ParticleBounce=0 GraphicsQuality=7
+OPTIONS in force: detail Custom reduction 0 particles 3000 volumes 1 decals 1 lightmap 1 softwater 1 scaffolds 1 sway 1 heat 1 dynamicLOD 0 trees 1; shadow map 1 post chain 'off' smooth motion 0
+ShaderManager ChipsetID 9
+ParseBitString: Invalid flag 'DISABLED'.
+ParseBitString: Invalid flag 'DISABLED'.
+TEXT MISSING 'Entry'
+ParseBitString: Invalid flag 'DISABLED'.
+TEXT MISSING '[None]'
+Pathfind cell is 24 bytes, PathfindCellInfo is 64 bytes
+ScriptEngine::setGlobalDifficulty(1)
+GameEngine::setFramesPerSecondLimit() - setting max fps to 60 (TheGlobalData->m_useFpsLimit == 0)
+TEXT MISSING 'GUI:SaveView5Description'
+TEXT MISSING 'GUI:SaveView5'
+TEXT MISSING 'GUI:SaveView6Description'
+TEXT MISSING 'GUI:SaveView6'
+TEXT MISSING 'GUI:SaveView7Description'
+TEXT MISSING 'GUI:SaveView7'
+TEXT MISSING 'GUI:SaveView8Description'
+TEXT MISSING 'GUI:SaveView8'
+TEXT MISSING 'GUI:ViewView5Description'
+TEXT MISSING 'GUI:ViewView5'
+TEXT MISSING 'GUI:ViewView6Description'
+TEXT MISSING 'GUI:ViewView6'
+TEXT MISSING 'GUI:ViewView7Description'
+TEXT MISSING 'GUI:ViewView7'
+TEXT MISSING 'GUI:ViewView8Description'
+TEXT MISSING 'GUI:ViewView8'
+TEXT MISSING 'GUI:AddTeam0Description'
+TEXT MISSING 'GUI:AddTeam0'
+TEXT MISSING 'GUI:AddTeam1Description'
+TEXT MISSING 'GUI:AddTeam1'
+TEXT MISSING 'GUI:AddTeam2Description'
+TEXT MISSING 'GUI:AddTeam2'
+TEXT MISSING 'GUI:AddTeam3Description'
+TEXT MISSING 'GUI:AddTeam3'
+TEXT MISSING 'GUI:AddTeam4Description'
+TEXT MISSING 'GUI:AddTeam4'
+TEXT MISSING 'GUI:AddTeam5Description'
+TEXT MISSING 'GUI:AddTeam5'
+TEXT MISSING 'GUI:AddTeam6Description'
+TEXT MISSING 'GUI:AddTeam6'
+TEXT MISSING 'GUI:AddTeam7Description'
+TEXT MISSING 'GUI:AddTeam7'
+TEXT MISSING 'GUI:AddTeam8Description'
+TEXT MISSING 'GUI:AddTeam8'
+TEXT MISSING 'GUI:AddTeam9Description'
+TEXT MISSING 'GUI:AddTeam9'
+TEXT MISSING 'GUI:SelectHeroDescription'
+TEXT MISSING 'GUI:SelectHero'
+INI CRC covers 8894 models, 8894 of them read this start
+INI CRC is 0x777408A0
+LocomotorCheck: 54 things had an AI module with locomotors replaced, 0 of them left without a SET_NORMAL
+ReskinCheck: TurkiyeElectronicWarfareMarker lacks behaviour modules its source SpySatellitePing has: DynamicShroudClearingRangeUpdate StealthDetectorUpdate
+ReskinCheck: TurkiyeSatelliteGuidanceMarker lacks behaviour modules its source SpySatellitePing has: DynamicShroudClearingRangeUpdate StealthDetectorUpdate
+ReskinCheck: TurkiyeUavReconMarker lacks behaviour modules its source SpySatellitePing has: DynamicShroudClearingRangeUpdate StealthDetectorUpdate
+ReskinCheck: TurkiyeVehicleMobileRadar lacks behaviour modules its source GLAVehicleRadarVan has: GrantUpgradeCreate RadarUpgrade OCLSpecialPower UnpauseSpecialPowerUpgrade AutoHealBehavior
+ReskinCheck: TurkiyeAltayGunHulk lacks behaviour modules its source DeadCrusaderHulk has: LifetimeUpdate
+ReskinCheck: TurkiyeAltayTurretHulk lacks behaviour modules its source DeadCrusaderHulk has: LifetimeUpdate
+ReskinCheck: TurkiyeInfantrySpotter lacks behaviour modules its source AmericaInfantryPathfinder has: StealthUpdate
+ReskinCheck: TurkiyeKapalicarsi lacks behaviour modules its source GLABlackMarket has: RebuildHoleExposeDie
+ReskinCheck: TurkiyeHarekatMerkezi lacks behaviour modules its source AmericaStrategyCenter has: SpyVisionSpecialPower SpyVisionUpdate
+ReskinCheck: TurkiyeRadarTower lacks behaviour modules its source ChinaSpeakerTower has: PropagandaTowerBehavior GenerateMinefieldBehavior CommandSetUpgrade ArmorUpgrade
+ReskinCheck: TurkiyeCommandCenter lacks behaviour modules its source AmericaCommandCenter has: SpecialAbility SpectreGunshipDeploymentUpdate
+ReskinCheck: 286 reskins, 11 of them lacking a behaviour module their source has
+GameEngine::setFramesPerSecondLimit() - setting max fps to 60 (TheGlobalData->m_useFpsLimit == 0)
+TEXT MISSING 'MAP:NoTest'
+MapCache::addMap(): caching 'maps\weatherevidence\weatherevidence.map' because 'maps\weatherevidence\weatherevidence.map' was not found
+Missing TheKey_mapName!
+  filesize = 259270 bytes
+  displayName = weatherevidence.map (2)
+  CRC = 76CA9562
+  timestamp = -969185281
+  isOfficial = no
+  isMultiplayer = yes
+  numPlayers = 2
+  extent = (0.00,0.00) -> (1280.00,1280.00)
+    waypoint Player_1_Start: (180.00,180.00)
+    waypoint Player_2_Start: (1100.00,1100.00)
+GameInfo::setSlot - setting slot 0 to be player Hard AI with IP 0.0.0.0
+GameInfo::setSlot - setting slot 1 to be player Hard AI with IP 0.0.0.0
+GameInfo::setSlot - setting slot 2 to be player Closed with IP 0.0.0.0
+GameInfo::setSlot - setting slot 3 to be player Closed with IP 0.0.0.0
+GameInfo::setSlot - setting slot 4 to be player Closed with IP 0.0.0.0
+GameInfo::setSlot - setting slot 5 to be player Closed with IP 0.0.0.0
+GameInfo::setSlot - setting slot 6 to be player Closed with IP 0.0.0.0
+GameInfo::setSlot - setting slot 7 to be player Closed with IP 0.0.0.0
+-autoskirmish: 2 slots on 'Maps\WeatherEvidence\WeatherEvidence.map', seed 7, starting cash 1, up to 60 fps, every slot AI, watching from the free camera, start positions fixed to slot order
+Pathfind cell is 24 bytes, PathfindCellInfo is 64 bytes
+GameEngine::setFramesPerSecondLimit() - setting max fps to 60 (TheGlobalData->m_useFpsLimit == 0)
+Pathfind cell is 24 bytes, PathfindCellInfo is 64 bytes
+DeepCRCSanityCheck: CRC is 28FFA2A8
+Shell:showShell() -  (no top screen)
+Shell:push(Menus/MainMenu.wnd) - stack was
+WINOWNERS: changed, captor none, grab none, lone none, focus MainMenu.wnd:MainMenuParent, modal none
+PARTICLES frame 0: 0 particles in 0 systems, 0 ground shadows
+SCENARIO: Scenarios\weather_evidence.txt line 1: frame is not a whole number
+SCENARIO: loaded 'Scenarios\weather_evidence.txt', 0 actions, 1 lines refused
+RecorderClass::updateRecord() - original game is mode 2
+GameSlot::saveOriginalSetup() - orig was color=-1, pos=-1, house=-1
+GameSlot::saveOriginalSetup() - color=-1, pos=0, house=2
+GameSlot::saveOriginalSetup() - orig was color=-1, pos=-1, house=-1
+GameSlot::saveOriginalSetup() - color=-1, pos=1, house=3
+GameSlot::saveOriginalSetup() - orig was color=-1, pos=-1, house=-1
+GameSlot::saveOriginalSetup() - color=-1, pos=-1, house=-1
+GameSlot::saveOriginalSetup() - orig was color=-1, pos=-1, house=-1
+GameSlot::saveOriginalSetup() - color=-1, pos=-1, house=-1
+GameSlot::saveOriginalSetup() - orig was color=-1, pos=-1, house=-1
+GameSlot::saveOriginalSetup() - color=-1, pos=-1, house=-1
+GameSlot::saveOriginalSetup() - orig was color=-1, pos=-1, house=-1
+GameSlot::saveOriginalSetup() - color=-1, pos=-1, house=-1
+GameSlot::saveOriginalSetup() - orig was color=-1, pos=-1, house=-1
+GameSlot::saveOriginalSetup() - color=-1, pos=-1, house=-1
+GameSlot::saveOriginalSetup() - orig was color=-1, pos=-1, house=-1
+GameSlot::saveOriginalSetup() - color=-1, pos=-1, house=-1
+GameInfo String: US=1;M=00maps/weatherevidence;MC=0;MS=0;SD=7;C=100;SR=0;SC=1;O=N;PR=1;S=CH,-1,2,0,-1:CH,-1,3,1,-1:X:X:X:X:X:X:;
+RecorderClass::startRecording - theSlotList = US=1;M=00maps/weatherevidence;MC=0;MS=0;SD=7;C=100;SR=0;SC=1;O=N;PR=1;S=CH,-1,2,0,-1:CH,-1,3,1,-1:X:X:X:X:X:X:;
+RecorderClass::startRecording() - diff=1, mode=2, FPS=60
+Setting max FPS limit to 60 FPS
+ScriptEngine::setGlobalDifficulty(1)
+GameLogic::prepareNewGame() - m_rankPointsToAddAtGameStart = 0
+Shell:hideShell() - Menus/MainMenu.wnd
+AI GROUPS frame 0: 0 listed, 0 empty swept this match
+GameEngine::setFramesPerSecondLimit() - setting max fps to 60 (TheGlobalData->m_useFpsLimit == 0)
+CAMERA: holding (640,600)
+INPUTWATCH: frame 0, input enabled 1, game paused 0, shell active 0, quit menu 0, in game 1
+RENDER CAP 0 pictures a second (none)
+WINOWNERS: changed, captor none, grab none, lone none, focus none, modal none
+Player 0 has playerTemplate index 2
+Setting color 0 to 7
+Player 1 has playerTemplate index 3
+Setting color 1 to 8
+Maps\WeatherEvidence\WeatherEvidence.map Map Name 
+Base tex height 256
+TERRAIN FULL UPDATE: 2 ms at frame 0
+Skirmish map using standard scripts data\Scripts\SkirmishScripts.scb: fork AI on, map Maps\WeatherEvidence\WeatherEvidence.map
+Looking for allies of player 0, team -1
+Player 1 is team -1
+Player 1 is enemy
+Player 0's teams are: allies=, enemies=player1
+Added side 0
+Looking for allies of player 1, team -1
+Player 0 is team -1
+Player 0 is enemy
+Player 1's teams are: allies=, enemies=player0
+Added side 1
+*** default team for player teamPlyrCivilian missing (should not be possible), adding it...
+AI PERSONA player 2 is Normal, role 1
+AI PERSONA player 3 is Normal, role 1
+AI MATCHUP PREFILL 81 units, 6561 pairs, 1.1ms
+Checking whether to cache player 0 - [], house [<NONE>]
+Checking whether to cache player 1 - [], house [Civilian]
+Checking whether to cache player 2 - [Hard AI], house [USA]
+Caching player
+Checking whether to cache player 3 - [Hard AI], house [China]
+Caching player
+Checking whether to cache player 4 - [Observer], house [Observer]
+Checking whether to cache player 5 - [], house [<NONE>]
+Checking whether to cache player 6 - [], house [<NONE>]
+Checking whether to cache player 7 - [], house [<NONE>]
+Checking whether to cache player 8 - [], house [<NONE>]
+Checking whether to cache player 9 - [], house [<NONE>]
+Checking whether to cache player 10 - [], house [<NONE>]
+Checking whether to cache player 11 - [], house [<NONE>]
+Checking whether to cache player 12 - [], house [<NONE>]
+Checking whether to cache player 13 - [], house [<NONE>]
+Checking whether to cache player 14 - [], house [<NONE>]
+Checking whether to cache player 15 - [], house [<NONE>]
+Allocating zone tables of size 256
+computing...: 0.000138, 
+Reveal shroud for Observer whose index is 4
+SLOW DRAWABLE frame 0: AmericaPowerPlant took 12.1 ms to build
+TREETYPE 0: PTFir01
+Placing starting building at waypoint Player_1_Start
+SLOW DRAWABLE frame 0: AmericaCommandCenter took 10.1 ms to build
+AI BUILT frame 0 player 2 'AmericaCommandCenter', 1 in the bank
+Placing starting object 0 (AmericaVehicleDozer)
+Placing starting building at waypoint Player_2_Start
+Adding superweapon UI timer
+SLOW DRAWABLE frame 0: ChinaCommandCenter took 8.2 ms to build
+AI BUILT frame 0 player 3 'ChinaCommandCenter', 1 in the bank
+Placing starting object 0 (ChinaVehicleDozer)
+Unknown Audio name (TruckLandingSound) asked for in ThingTemplate (TurkiyeVehicleKorkut).
+Unknown Audio name (TruckPowerslideSound) asked for in ThingTemplate (TurkiyeVehicleKorkut).
+Unknown Audio name (TruckLandingSound) asked for in ThingTemplate (SupW_AmericaTankAvenger).
+Unknown Audio name (TruckPowerslideSound) asked for in ThingTemplate (SupW_AmericaTankAvenger).
+Unknown Audio name (TruckLandingSound) asked for in ThingTemplate (Lazr_AmericaTankAvenger).
+Unknown Audio name (TruckPowerslideSound) asked for in ThingTemplate (Lazr_AmericaTankAvenger).
+setReceivesDynamicLights = FALSE: AmericaAircraftCarrier
+setReceivesDynamicLights = FALSE: AmericaAircraftCarrier
+setReceivesDynamicLights = FALSE: AmericaAircraftCarrier
+setReceivesDynamicLights = FALSE: AmericaAircraftCarrier
+Unknown Audio name (TruckLandingSound) asked for in ThingTemplate (ToxicSupplyTruck).
+Unknown Audio name (TruckPowerslideSound) asked for in ThingTemplate (ToxicSupplyTruck).
+Unknown Audio name (TruckLandingSound) asked for in ThingTemplate (Boss_TankAvenger).
+Unknown Audio name (TruckPowerslideSound) asked for in ThingTemplate (Boss_TankAvenger).
+Unknown Audio name (TruckLandingSound) asked for in ThingTemplate (Boss_VehicleDozer).
+Unknown Audio name (TruckPowerslideSound) asked for in ThingTemplate (Boss_VehicleDozer).
+Unknown Audio name (TruckLandingSound) asked for in ThingTemplate (AmericaTankAvenger).
+Unknown Audio name (TruckPowerslideSound) asked for in ThingTemplate (AmericaTankAvenger).
+Unknown Audio name (TruckLandingSound) asked for in ThingTemplate (AirF_AmericaTankAvenger).
+Unknown Audio name (TruckPowerslideSound) asked for in ThingTemplate (AirF_AmericaTankAvenger).
+PRELOAD: 819 of 2166 templates in 997 ms
+Preloading memory dwAvailPageFile 1279188992 --> 1061187584 : 218001408
+Preloading memory dwAvailPhys     1279188992 --> 1061187584 : 218001408
+Preloading memory dwAvailVirtual  -1 --> -1 : 0
+Preloading memory dwAvailPageFile 1061187584 --> 1061187584 : 0
+Preloading memory dwAvailPhys     1061187584 --> 1061187584 : 0
+Preloading memory dwAvailVirtual  -1 --> -1 : 0
+Preloading memory dwAvailPageFile 1054105600 --> 1054105600 : 0
+Preloading memory dwAvailPhys     1054105600 --> 1054105600 : 0
+Preloading memory dwAvailVirtual  -1 --> -1 : 0
+Preloading memory dwAvailPageFile 1054105600 --> 1052614656 : 1490944
+Preloading memory dwAvailPhys     1054105600 --> 1052614656 : 1490944
+Preloading memory dwAvailVirtual  -1 --> -1 : 0
+RENDER PRELOAD: 0 programs, 0 pipelines, 0 attempts, 0 unavailable, 0 ms
+CAMERA START height 300.0
+Failed to find initial camera position waypoint InitialCameraPosition
+CAMERA START height 300.0
+AI Player side is America
+AI Player build list is America's
+AI BUILT frame 0 player 2 'AmericaCommandCenter', 1 in the bank
+AI Player side is China
+AI Player build list is China's
+Adding superweapon UI timer
+AI BUILT frame 0 player 3 'ChinaCommandCenter', 1 in the bank
+setControlBarSchemeByPlayer gave side Observer the scheme of Observer
+We're loading the Observer Command Bar
+AI QUEUE frame 0 player 2 buys 'AmericaVehicleDozer' for 1000, score 90, 1201 left in the bank
+AI INCOME frame 0 player 2 side worth 6201 a player against 6601, income 150% -> 162%
+AI player 2 deduced an enemy at start position 2 without going there
+AI QUEUE frame 0 player 3 buys 'ChinaVehicleDozer' for 1000, score 90, 601 left in the bank
+AI INCOME frame 0 player 3 side worth 5601 a player against 6201, income 150% -> 169%
+AI player 3 deduced an enemy at start position 1 without going there
+AI GROUPS frame 0: 0 listed, 0 empty swept this match
+OBSCAM frame 1 first camera from player 0
+FPS 1 over 2214ms (2 frames, 1 hz, 0 catchup, logic frame 1) | client avg 2.3 max 4.7 (render avg 0.0 max 0.0 [scene 0.0, ui 0.0 (post 0.0, win 0.0), present 0.0], radar 0.0, audio 0.0, rest 2.3) | logic avg 1104.6 max 2186.6 | unaccounted 0.1ms | 0 passes without a tick, client avg 0.0
+SCENE SPLIT frame 1: shadow 0.0 ms, 0 casters, 0 shadow draws | fill 0.0 translucent 0.1 (0 draws) | sort 0.0 copy 0.0 draw 0.0 (0 entries, 0 on screen) | icons 0.0 | postchain 0.0 | scene draws 0
+AI SUPERWEAPON frame 1 player 2 skill 2 aims 'SpecialPowerSpySatellite' at (1100,1100), worth 0: structures 0 units 0, top 'none'
+OBSCAM frame 2 first camera from player 4
+computing...: 0.000144, 
+AI EXPAND frame 15 player 2 stopped by no supply center template, 1201 in the bank
+AI TECH frame 15 player 2 knows 0 of 0, owns 0
+AI DOCKS frame 15 player 2 knows 0 of 0
+AI MONEY frame 15 player 2 earned 0, 1201 in the bank
+AI EXPAND frame 22 player 3 stopped by no supply center template, 601 in the bank
+AI TECH frame 22 player 3 knows 0 of 0, owns 0
+AI DOCKS frame 22 player 3 knows 0 of 0
+AI MONEY frame 22 player 3 earned 0, 601 in the bank
+PARTICLES frame 100: 0 particles in 2 systems, 0 ground shadows
+PARTICLES frame 200: 0 particles in 2 systems, 0 ground shadows
+AI ECONOMY frame 244 player 3 builds 'ChinaPowerPlant' at (815,774), 601 in the bank, 453 from a base of radius 408, 480 by the ground from where it looked
+AI ECONOMY frame 263 player 2 builds 'AmericaPowerPlant' at (622,173), 1201 in the bank, 450 from a base of radius 404, 450 by the ground from where it looked
+AI QUEUE frame 263 player 3 saves for 'ChinaPowerPlant', 601 of 1000 in the bank, score 100, bank target 4000
+AI STAGE frame 263 player 3 dozer 6 walks 458 ahead to (815,774)
+PARTICLES frame 300: 0 particles in 2 systems, 0 ground shadows
+AI QUEUE frame 376 player 2 buys 'AmericaPowerPlant' for 800, score 100, 401 left in the bank
+PARTICLES frame 400: 0 particles in 2 systems, 0 ground shadows
+PARTICLES frame 500: 0 particles in 2 systems, 0 ground shadows
+AI DOCTRINE player 3 'China' signature 'Tank_ChinaVehicleHelix' weight 1.28
+AI DOCTRINE player 3 'China' signature 'ChinaTankOverlord' weight 1.45
+AI DOCTRINE player 3 'China' signature 'ChinaTankDragon' weight 1.21
+AI DOCTRINE player 3 'China' signature 'ChinaVehicleInfernoCannon' weight 1.18
+AI DOCTRINE player 3 'China' signature 'ChinaVehicleNukeLauncher' weight 1.15
+AI DOCTRINE player 3 'China' signature 'ChinaInfantryRedguard' weight 1.60
+AI DOCTRINE player 3 'China' signature 'ChinaVehicleHelix' weight 1.29
+AI DOCTRINE player 3 'China' 7 signature units, kind 0
+AI DOCTRINE player 2 'America' signature 'AmericaTankCrusader' weight 1.38
+AI DOCTRINE player 2 'America' signature 'AmericaTankPaladin' weight 1.35
+AI DOCTRINE player 2 'America' signature 'AmericaInfantryPathfinder' weight 1.25
+AI DOCTRINE player 2 'America' 3 signature units, kind 0
+PARTICLES frame 600: 0 particles in 2 systems, 0 ground shadows
+PARTICLES frame 700: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 800: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 900: 0 particles in 4 systems, 0 ground shadows
+AI EXPAND frame 915 player 2 stopped by no supply center template, 401 in the bank
+AI EXPAND frame 922 player 3 stopped by no supply center template, 101 in the bank
+PARTICLES frame 1000: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 1100: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 1200: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 1300: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 1400: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 1500: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 1600: 0 particles in 4 systems, 0 ground shadows
+computing...: 0.000148, 
+PARTICLES frame 1700: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 1800: 0 particles in 4 systems, 0 ground shadows
+AI INCOME frame 1800 player 2 side worth 5201 a player against 4101, income 162% -> 150%
+AI INCOME frame 1800 player 3 side worth 4101 a player against 5201, income 169% -> 192%
+AI EXPAND frame 1815 player 2 stopped by no supply center template, 401 in the bank
+AI EXPAND frame 1822 player 3 stopped by no supply center template, 101 in the bank
+PARTICLES frame 1900: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 2000: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 2100: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 2200: 0 particles in 4 systems, 0 ground shadows
+AI BUILT frame 2290 player 2 'AmericaPowerPlant', 401 in the bank
+PARTICLES frame 2300: 0 particles in 4 systems, 0 ground shadows
+AI ECONOMY frame 2300 player 3 earns 0 a second, 101 in the bank (0 a window ago), bank target 4000, keeps it
+AI ECONOMY frame 2337 player 2 earns 0 a second, 0 in the bank (0 a window ago), bank target 4000, keeps it
+PARTICLES frame 2400: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 2500: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 2600: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 2700: 0 particles in 4 systems, 0 ground shadows
+AI EXPAND frame 2715 player 2 stopped by no supply center template, 0 in the bank
+AI EXPAND frame 2722 player 3 stopped by no supply center template, 101 in the bank
+AI QUEUE frame 2761 player 3 stops saving for 'ChinaPowerPlant', timed out, 0 held back for it, 101 in the bank
+PARTICLES frame 2800: 0 particles in 4 systems, 0 ground shadows
+computing...: 0.000149, 
+PARTICLES frame 2900: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 3000: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 3100: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 3200: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 3300: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 3400: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 3500: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 3600: 0 particles in 4 systems, 0 ground shadows
+AI INCOME frame 3600 player 3 side worth 4101 a player against 4800, income 192% -> 179%
+AI GROUPS frame 3600: 2 listed, 0 empty swept this match
+AI SUPERWEAPON frame 3601 player 2 skill 2 aims 'SpecialPowerSpySatellite' at (1100,1100), worth 2950: structures 2000 units 0, top 'ChinaCommandCenter'
+AI EXPAND frame 3615 player 2 stopped by no supply center template, 0 in the bank
+AI MONEY frame 3615 player 2 earned 0, 0 in the bank
+AI EXPAND frame 3622 player 3 stopped by no supply center template, 101 in the bank
+AI MONEY frame 3622 player 3 earned 0, 101 in the bank
+PARTICLES frame 3700: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 3800: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 3900: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 4000: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 4100: 0 particles in 4 systems, 0 ground shadows
+AI ECONOMY frame 4100 player 3 earns 0 a second, 101 in the bank (101 a window ago), bank target 4000, keeps it
+AI ECONOMY frame 4137 player 2 earns 0 a second, 0 in the bank (0 a window ago), bank target 4000, keeps it
+PARTICLES frame 4200: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 4300: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 4400: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 4500: 0 particles in 4 systems, 0 ground shadows
+AI EXPAND frame 4515 player 2 stopped by no supply center template, 0 in the bank
+AI EXPAND frame 4522 player 3 stopped by no supply center template, 101 in the bank
+PARTICLES frame 4600: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 4700: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 4800: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 4900: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 5000: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 5100: 0 particles in 4 systems, 0 ground shadows
+AI QUEUE frame 5161 player 3 saves for 'ChinaPowerPlant', 101 of 1000 in the bank, score 100, bank target 4000
+PARTICLES frame 5200: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 5300: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 5400: 0 particles in 4 systems, 0 ground shadows
+AI EXPAND frame 5415 player 2 stopped by no supply center template, 0 in the bank
+AI EXPAND frame 5422 player 3 stopped by no supply center template, 101 in the bank
+PARTICLES frame 5500: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 5600: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 5700: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 5800: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 5900: 0 particles in 4 systems, 0 ground shadows
+AI ECONOMY frame 5900 player 3 earns 0 a second, 101 in the bank (101 a window ago), bank target 4000, keeps it
+AI ECONOMY frame 5937 player 2 earns 0 a second, 0 in the bank (0 a window ago), bank target 4000, keeps it
+PARTICLES frame 6000: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 6100: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 6200: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 6300: 0 particles in 4 systems, 0 ground shadows
+AI EXPAND frame 6315 player 2 stopped by no supply center template, 0 in the bank
+AI EXPAND frame 6322 player 3 stopped by no supply center template, 101 in the bank
+PARTICLES frame 6400: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 6500: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 6600: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 6700: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 6800: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 6900: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 7000: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 7100: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 7200: 0 particles in 4 systems, 0 ground shadows
+AI GROUPS frame 7200: 2 listed, 0 empty swept this match
+AI SUPERWEAPON frame 7201 player 2 skill 2 aims 'SpecialPowerSpySatellite' at (1100,1100), worth 2950: structures 2000 units 0, top 'ChinaCommandCenter'
+AI EXPAND frame 7215 player 2 stopped by no supply center template, 0 in the bank
+AI MONEY frame 7215 player 2 earned 0, 0 in the bank
+AI EXPAND frame 7222 player 3 stopped by no supply center template, 101 in the bank
+AI MONEY frame 7222 player 3 earned 0, 101 in the bank
+PARTICLES frame 7300: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 7400: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 7500: 0 particles in 4 systems, 0 ground shadows
+AI QUEUE frame 7561 player 3 stops saving for 'ChinaPowerPlant', timed out, 0 held back for it, 101 in the bank
+PARTICLES frame 7600: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 7700: 0 particles in 4 systems, 0 ground shadows
+AI ECONOMY frame 7700 player 3 earns 0 a second, 101 in the bank (101 a window ago), bank target 4000, keeps it
+AI ECONOMY frame 7737 player 2 earns 0 a second, 0 in the bank (0 a window ago), bank target 4000, keeps it
+PARTICLES frame 7800: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 7900: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 8000: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 8100: 0 particles in 4 systems, 0 ground shadows
+AI EXPAND frame 8115 player 2 stopped by no supply center template, 0 in the bank
+AI EXPAND frame 8122 player 3 stopped by no supply center template, 101 in the bank
+PARTICLES frame 8200: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 8300: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 8400: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 8500: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 8600: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 8700: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 8800: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 8900: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 9000: 0 particles in 4 systems, 0 ground shadows
+AI EXPAND frame 9015 player 2 stopped by no supply center template, 0 in the bank
+AI EXPAND frame 9022 player 3 stopped by no supply center template, 101 in the bank
+PARTICLES frame 9100: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 9200: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 9300: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 9400: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 9500: 0 particles in 4 systems, 0 ground shadows
+AI ECONOMY frame 9500 player 3 earns 0 a second, 101 in the bank (101 a window ago), bank target 4000, keeps it
+AI ECONOMY frame 9537 player 2 earns 0 a second, 0 in the bank (0 a window ago), bank target 4000, keeps it
+PARTICLES frame 9600: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 9700: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 9800: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 9900: 0 particles in 4 systems, 0 ground shadows
+AI EXPAND frame 9915 player 2 stopped by no supply center template, 0 in the bank
+AI EXPAND frame 9922 player 3 stopped by no supply center template, 101 in the bank
+AI QUEUE frame 9961 player 3 saves for 'ChinaPowerPlant', 101 of 1000 in the bank, score 100, bank target 4000
+PARTICLES frame 10000: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 10100: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 10200: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 10300: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 10400: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 10500: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 10600: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 10700: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 10800: 0 particles in 4 systems, 0 ground shadows
+AI GROUPS frame 10800: 2 listed, 0 empty swept this match
+AI SUPERWEAPON frame 10801 player 2 skill 2 aims 'SpecialPowerSpySatellite' at (1100,1100), worth 2950: structures 2000 units 0, top 'ChinaCommandCenter'
+AI EXPAND frame 10815 player 2 stopped by no supply center template, 0 in the bank
+AI MONEY frame 10815 player 2 earned 0, 0 in the bank
+AI EXPAND frame 10822 player 3 stopped by no supply center template, 101 in the bank
+AI MONEY frame 10822 player 3 earned 0, 101 in the bank
+PARTICLES frame 10900: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 11000: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 11100: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 11200: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 11300: 0 particles in 4 systems, 0 ground shadows
+AI ECONOMY frame 11300 player 3 earns 0 a second, 101 in the bank (101 a window ago), bank target 4000, keeps it
+AI ECONOMY frame 11337 player 2 earns 0 a second, 0 in the bank (0 a window ago), bank target 4000, keeps it
+PARTICLES frame 11400: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 11500: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 11600: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 11700: 0 particles in 4 systems, 0 ground shadows
+AI EXPAND frame 11715 player 2 stopped by no supply center template, 0 in the bank
+AI EXPAND frame 11722 player 3 stopped by no supply center template, 101 in the bank
+PARTICLES frame 11800: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 11900: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 12000: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 12100: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 12200: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 12300: 0 particles in 4 systems, 0 ground shadows
+AI QUEUE frame 12361 player 3 stops saving for 'ChinaPowerPlant', timed out, 0 held back for it, 101 in the bank
+PARTICLES frame 12400: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 12500: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 12600: 0 particles in 4 systems, 0 ground shadows
+AI EXPAND frame 12615 player 2 stopped by no supply center template, 0 in the bank
+AI EXPAND frame 12622 player 3 stopped by no supply center template, 101 in the bank
+PARTICLES frame 12700: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 12800: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 12900: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 13000: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 13100: 0 particles in 4 systems, 0 ground shadows
+AI ECONOMY frame 13100 player 3 earns 0 a second, 101 in the bank (101 a window ago), bank target 4000, keeps it
+AI ECONOMY frame 13137 player 2 earns 0 a second, 0 in the bank (0 a window ago), bank target 4000, keeps it
+PARTICLES frame 13200: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 13300: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 13400: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 13500: 0 particles in 4 systems, 0 ground shadows
+AI EXPAND frame 13515 player 2 stopped by no supply center template, 0 in the bank
+AI EXPAND frame 13522 player 3 stopped by no supply center template, 101 in the bank
+PARTICLES frame 13600: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 13700: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 13800: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 13900: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 14000: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 14100: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 14200: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 14300: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 14400: 0 particles in 4 systems, 0 ground shadows
+AI GROUPS frame 14400: 2 listed, 0 empty swept this match
+AI SUPERWEAPON frame 14401 player 2 skill 2 aims 'SpecialPowerSpySatellite' at (1100,1100), worth 2950: structures 2000 units 0, top 'ChinaCommandCenter'
+AI EXPAND frame 14415 player 2 stopped by no supply center template, 0 in the bank
+AI MONEY frame 14415 player 2 earned 0, 0 in the bank
+AI EXPAND frame 14422 player 3 stopped by no supply center template, 101 in the bank
+AI MONEY frame 14422 player 3 earned 0, 101 in the bank
+PARTICLES frame 14500: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 14600: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 14700: 0 particles in 4 systems, 0 ground shadows
+AI QUEUE frame 14740 player 3 buys 'ChinaVehicleDozer' for 1000, score 90, 3101 left in the bank
+AI QUEUE frame 14761 player 3 buys 'ChinaPowerPlant' for 1000, score 100, 2101 left in the bank
+AI DEFENSE frame 14774 player 2 places 'AmericaPatriotBattery' at (329,759), rank 1, score 52.82, fire clear 27 blocked 1, 0 guns near
+AI QUEUE frame 14774 player 2 buys 'AmericaVehicleDozer' for 1000, score 90, 3000 left in the bank
+PARTICLES frame 14800: 0 particles in 4 systems, 0 ground shadows
+AI QUEUE frame 14890 player 2 buys 'AmericaPatriotBattery' for 1000, score 45, 2000 left in the bank
+PARTICLES frame 14900: 0 particles in 4 systems, 0 ground shadows
+AI ECONOMY frame 14900 player 3 earns 0 a second, 2101 in the bank (101 a window ago), bank target 4000, keeps it
+AI ECONOMY frame 14937 player 2 earns 0 a second, 2000 in the bank (0 a window ago), bank target 4000, keeps it
+PARTICLES frame 15000: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 15100: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 15200: 0 particles in 4 systems, 0 ground shadows
+PARTICLES frame 15300: 0 particles in 4 systems, 0 ground shadows
+AI EXPAND frame 15315 player 2 stopped by no supply center template, 2000 in the bank
+AI EXPAND frame 15322 player 3 stopped by no supply center template, 2101 in the bank
+AI QUEUE frame 15340 player 3 buys 'ChinaBarracks' for 500, score 70, 1601 left in the bank
+computing...: 0.000150, 
+PARTICLES frame 15400: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 15500: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 15600: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 15700: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 15800: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 15900: 0 particles in 6 systems, 0 ground shadows
+AI BUILT frame 15963 player 3 'ChinaPowerPlant', 1601 in the bank
+AI DEFENSE frame 15964 player 3 places 'ChinaGattlingCannon' at (643,962), rank 1, score 65.26, fire clear 31 blocked 1, 0 guns near
+PARTICLES frame 16000: 0 particles in 6 systems, 0 ground shadows
+AI QUEUE frame 16083 player 3 buys 'ChinaGattlingCannon' for 1000, score 45, 601 left in the bank
+PARTICLES frame 16100: 0 particles in 6 systems, 0 ground shadows
+computing...: 0.000151, 
+PARTICLES frame 16200: 0 particles in 6 systems, 0 ground shadows
+AI INCOME frame 16200 player 3 side worth 8101 a player against 8800, income 179% -> 165%
+AI EXPAND frame 16215 player 2 stopped by no supply center template, 2000 in the bank
+AI EXPAND frame 16222 player 3 stopped by no supply center template, 601 in the bank
+PARTICLES frame 16300: 0 particles in 6 systems, 0 ground shadows
+AI BUILT frame 16359 player 3 'ChinaBarracks', 601 in the bank
+PARTICLES frame 16400: 0 particles in 6 systems, 0 ground shadows
+Unknown Audio name (UnderConstruction) asked for in ThingTemplate (ChinaGattlingCannon).
+PARTICLES frame 16500: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 16600: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 16700: 0 particles in 6 systems, 0 ground shadows
+AI ECONOMY frame 16700 player 3 earns 0 a second, 601 in the bank (2101 a window ago), bank target 4000, keeps it
+AI QUEUE frame 16700 player 3 buys 'ChinaInfantryRedguard' for 300, score 30, 301 left in the bank
+AI DOCTRINE frame 16700 player 3 trains 'ChinaInfantryRedguard' at 'ChinaBarracks', 1.00 of its army money on the signature, 301 in the bank
+AI QUEUE frame 16700 player 3 buys 'ChinaInfantryRedguard' for 300, score 30, 1 left in the bank
+AI DOCTRINE frame 16700 player 3 trains 'ChinaInfantryRedguard' at 'ChinaBarracks', 1.00 of its army money on the signature, 1 in the bank
+AI ECONOMY frame 16737 player 2 earns 0 a second, 2000 in the bank (2000 a window ago), bank target 4000, keeps it
+PARTICLES frame 16800: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 16900: 0 particles in 6 systems, 0 ground shadows
+computing...: 0.000153, 
+PARTICLES frame 17000: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 17100: 0 particles in 6 systems, 0 ground shadows
+AI EXPAND frame 17115 player 2 stopped by no supply center template, 2000 in the bank
+AI EXPAND frame 17122 player 3 stopped by no supply center template, 1 in the bank
+PARTICLES frame 17200: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 17300: 0 particles in 6 systems, 0 ground shadows
+PROMOTE frame=17300 player=3 template=ChinaInfantryRedguard from=REGULAR to=VETERAN xp=20
+***AI PLAYER-Unit not found in production queue.
+AI player 3 scouting with a 'ChinaInfantryRedguard'
+PROMOTE frame=17317 player=3 template=ChinaInfantryRedguard from=REGULAR to=VETERAN xp=20
+***AI PLAYER-Unit not found in production queue.
+PARTICLES frame 17400: 0 particles in 6 systems, 0 ground shadows
+AI player 3 scouting with a 'ChinaInfantryRedguard'
+PARTICLES frame 17500: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 17600: 0 particles in 6 systems, 0 ground shadows
+AI BUILT frame 17626 player 2 'AmericaPatriotBattery', 2000 in the bank
+AI RATION frame 17626 player 2 skill 2 built 'AmericaPatriotBattery', defences 1 superweapons 0
+PARTICLES frame 17700: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 17800: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 17900: 0 particles in 6 systems, 0 ground shadows
+PROMOTE frame=17917 player=3 template=ChinaInfantryRedguard from=REGULAR to=VETERAN xp=20
+***AI PLAYER-Unit not found in production queue.
+PROMOTE frame=17934 player=3 template=ChinaInfantryRedguard from=REGULAR to=VETERAN xp=20
+***AI PLAYER-Unit not found in production queue.
+AI BUILT frame 17985 player 3 'ChinaGattlingCannon', 1 in the bank
+AI RATION frame 17985 player 3 skill 2 built 'ChinaGattlingCannon', defences 1 superweapons 0
+PARTICLES frame 18000: 0 particles in 6 systems, 0 ground shadows
+AI INCOME frame 18000 player 3 side worth 8701 a player against 8800, income 165% -> 152%
+AI GROUPS frame 18000: 2 listed, 0 empty swept this match
+AI SUPERWEAPON frame 18001 player 2 skill 2 aims 'SpecialPowerSpySatellite' at (851,1165), worth 6295: structures 2500 units 1000, top 'ChinaCommandCenter'
+AI EXPAND frame 18015 player 2 stopped by no supply center template, 2000 in the bank
+AI MONEY frame 18015 player 2 earned 0, 2000 in the bank
+AI EXPAND frame 18022 player 3 stopped by no supply center template, 1 in the bank
+AI MONEY frame 18022 player 3 earned 0, 1 in the bank
+PARTICLES frame 18100: 0 particles in 6 systems, 0 ground shadows
+AI PRESSURE frame 18105 player 2 chance 0.33 level defend, 0 power (0 by the units) and 0 allied against 1500 believed and 0 allies
+PARTICLES frame 18200: 0 particles in 6 systems, 0 ground shadows
+computing...: 0.000154, 
+PARTICLES frame 18300: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 18400: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 18500: 0 particles in 6 systems, 0 ground shadows
+AI ECONOMY frame 18500 player 3 earns 0 a second, 1 in the bank (601 a window ago), bank target 4000, keeps it
+AI ECONOMY frame 18537 player 2 earns 0 a second, 2000 in the bank (2000 a window ago), bank target 4000, keeps it
+PARTICLES frame 18600: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 18700: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 18800: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 18900: 0 particles in 6 systems, 0 ground shadows
+AI EXPAND frame 18915 player 2 stopped by no supply center template, 2000 in the bank
+AI EXPAND frame 18922 player 3 stopped by no supply center template, 1 in the bank
+PARTICLES frame 19000: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 19100: 0 particles in 6 systems, 0 ground shadows
+AI FACTORY frame 19100 player 3 barracks full on 3 of the last 5 passes, 1 standing, 1 in the bank
+PARTICLES frame 19200: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 19300: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 19400: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 19500: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 19600: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 19700: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 19800: 0 particles in 6 systems, 0 ground shadows
+AI EXPAND frame 19815 player 2 stopped by no supply center template, 2000 in the bank
+AI EXPAND frame 19822 player 3 stopped by no supply center template, 1 in the bank
+PARTICLES frame 19900: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 20000: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 20100: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 20200: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 20300: 0 particles in 6 systems, 0 ground shadows
+AI ECONOMY frame 20300 player 3 earns 0 a second, 1 in the bank (1 a window ago), bank target 4000, keeps it
+AI ECONOMY frame 20337 player 2 earns 0 a second, 2000 in the bank (2000 a window ago), bank target 4000, keeps it
+PARTICLES frame 20400: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 20500: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 20600: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 20700: 0 particles in 6 systems, 0 ground shadows
+AI EXPAND frame 20715 player 2 stopped by no supply center template, 2000 in the bank
+AI EXPAND frame 20722 player 3 stopped by no supply center template, 1 in the bank
+PARTICLES frame 20800: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 20900: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 21000: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 21100: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 21200: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 21300: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 21400: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 21500: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 21600: 0 particles in 6 systems, 0 ground shadows
+AI GROUPS frame 21600: 2 listed, 0 empty swept this match
+AI SUPERWEAPON frame 21601 player 2 skill 2 aims 'SpecialPowerSpySatellite' at (931,899), worth 6014: structures 3500 units 1000, top 'ChinaCommandCenter'
+AI EXPAND frame 21615 player 2 stopped by no supply center template, 2000 in the bank
+AI MONEY frame 21615 player 2 earned 0, 2000 in the bank
+AI EXPAND frame 21622 player 3 stopped by no supply center template, 1 in the bank
+AI MONEY frame 21622 player 3 earned 0, 1 in the bank
+PARTICLES frame 21700: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 21800: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 21900: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 22000: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 22100: 0 particles in 6 systems, 0 ground shadows
+AI FACTORY frame 22100 player 3 barracks full on 0 of the last 5 passes, 1 standing, 1 in the bank
+AI ECONOMY frame 22100 player 3 earns 0 a second, 1 in the bank (1 a window ago), bank target 4000, keeps it
+AI ECONOMY frame 22137 player 2 earns 0 a second, 2000 in the bank (2000 a window ago), bank target 4000, keeps it
+PARTICLES frame 22200: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 22300: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 22400: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 22500: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 22600: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 22700: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 22800: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 22900: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 23000: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 23100: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 23200: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 23300: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 23400: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 23500: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 23600: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 23700: 0 particles in 6 systems, 0 ground shadows
+AI QUEUE frame 23775 player 2 buys 'AmericaVehicleDozer' for 1000, score 90, 5000 left in the bank
+PARTICLES frame 23800: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 23900: 0 particles in 6 systems, 0 ground shadows
+AI ECONOMY frame 23900 player 3 earns 0 a second, 1 in the bank (1 a window ago), bank target 4000, keeps it
+AI DEFENSE frame 23925 player 2 places 'AmericaFireBase' at (172,577), rank 1, score 51.45, fire clear 29 blocked 1, 1 guns near
+AI ECONOMY frame 23925 player 2 puts up defense 'AmericaFireBase', 1 of 13 standing, army 0
+AI DEFENSE frame 23925 player 2 places 'AmericaPatriotBattery' at (778,173), rank 1, score 25.26, fire clear 22 blocked 3, 2 guns near
+AI ECONOMY frame 23925 player 2 puts up defense 'AmericaPatriotBattery', 2 of 13 standing, army 0
+AI ECONOMY frame 23937 player 2 earns 0 a second, 5000 in the bank (2000 a window ago), bank target 4000, spends the rest
+AI QUEUE frame 23986 player 2 buys 'AmericaPatriotBattery' for 1000, score 45, 4000 left in the bank
+AI QUEUE frame 23987 player 2 buys 'AmericaFireBase' for 1000, score 45, 3000 left in the bank
+PARTICLES frame 24000: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 24100: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 24200: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 24300: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 24400: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 24500: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 24600: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 24700: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 24800: 0 particles in 6 systems, 0 ground shadows
+computing...: 0.000155, 
+PARTICLES frame 24900: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 25000: 0 particles in 6 systems, 0 ground shadows
+PARTICLES frame 25100: 0 particles in 6 systems, 0 ground shadows
+AI FACTORY frame 25100 player 3 barracks full on 0 of the last 5 passes, 1 standing, 1 in the bank
+PARTICLES frame 25200: 0 particles in 6 systems, 0 ground shadows
+AI INCOME frame 25200 player 3 side worth 8701 a player against 12800, income 152% -> 177%
+AI GROUPS frame 25200: 2 listed, 0 empty swept this match
+AI SUPERWEAPON frame 25201 player 2 skill 2 aims 'SpecialPowerSpySatellite' at (901,1045), worth 5630: structures 4500 units 1000, top 'ChinaCommandCenter'
+AI EXPAND frame 25215 player 2 stopped by no supply center template, 3000 in the bank
+AI MONEY frame 25215 player 2 earned 0, 3000 in the bank
+AI EXPAND frame 25222 player 3 stopped by no supply center template, 1 in the bank
+AI MONEY frame 25222 player 3 earned 0, 1 in the bank
+PARTICLES frame 25300: 0 particles in 6 systems, 0 ground shadows
+HEADLESS CRC AT LIMIT: 0x29B3E8BA at frame 25320
+HEADLESS RESULT: frame limit reached on frame 25320 (25320 frames in 3.4s wall, 7500 logic fps, 125.0x real time)
+HEADLESS PARTICLES: 6 systems, 0 particles
+HEADLESS CRC: 0x29B3E8BA at frame 25320
+HEADLESS PATHFIND: queue 25320x/3 find 19x/0 closest 6x/0 moveaway 23x/0 adjust 33x/0 goal 215x/0 pos 5048x/0 footprint 53x/0 exist 88x/0 hier 13x/0 zones 9x/1 zonemod 33x/0 movecheck 20982x expand 371x mc.expand 726x mc.line 630x mc.linepass 19618x newbucket 1387x zone.merge 2920x | nopath 0 outofcells 0 blocked 0 stuck 0 wedge 7 worst 27 escape 0 repath 0 dither 0 queueover3ms 0 queueover5ms 0 | queued 28 wait 0.2 longest 1 late 0 peak 2 full 0 capped 0 cellcapped 0
+HEADLESS SCENARIO: 0 actions, 0 ran, 1 refused, 0 units spawned
+HEADLESS STATUE: 0 stops of 3 s or more with an enemy in reach and no shot (0 infantry), 0 unit-seconds - 0 waiting for a path, 0 blocked, 0 no target, 0 target in range, 0 target out of range
+HEADLESS FRAMETIME: 25259 frames | mean 0.05 p50 0.25 p95 0.25 p99 0.25 p99.9 0.50 worst 2.11 ms (frame 23926) | over 16.7ms 0 (0.00%) | over 33.3ms 0 (0.00%) | over 25.0ms 0
+HEADLESS PASSES TICK: 25259 | pass 0.05/0.25/0.25/0.50 | sync 0.01/0.25/0.25/0.25 | render 0.00/0.25/0.25/0.25 | logic 0.03/0.25/0.25/0.50 ms mean/p50/p99/p99.9
+HEADLESS PASSES NOTICK: 0 | pass 0.00/0.00/0.00/0.00 | sync 0.00/0.00/0.00/0.00 | render 0.00/0.00/0.00/0.00 ms mean/p50/p99/p99.9
+HEADLESS PASSES OVERLAPPED: 25259 | 0.05/0.25/0.25/0.50 ms mean/p50/p99/p99.9, every pass with the tick beside the render
+QUALITY: filter 0 aniso 0 particles 3000 (in force 3000) msaaLevel 0 vsync 0 shadows vol 1 decal 1 trees 1 heat 1 dynamicLOD off
+HEADLESS SHADOWMAP: 25259 pictures | mean 0.00 p50 0.25 p95 0.25 p99 0.25 worst 0.00 ms (frame 0) | 0 casters, 0 draws a picture
+HEADLESS PARTICLECOST: per drawn frame | update 0.000 fill 0.000 translucent flush 0.000 ms | 0.0 translucent draws | 0 particles, 0 on screen, peak 0 | not drawn: 0 polygons refused by the sorting pool, 0 particles past the per-system limit
+HEADLESS LOGICTIME: 25259 ticks | mean 0.03 p50 0.25 p95 0.25 p99 0.25 p99.9 0.50 worst 2.08 ms (frame 23926) | over 33.3ms 0
+HEADLESS OBJECTS: peak 23 (frame 25202) | mean 13 over 25259 ticks
+HEADLESS JOBS: 19 worker threads, 0 allocations from a job
+HEADLESS LOGICTHREAD: off | 0 ticks on the logic thread, 25321 on the main thread | handoff 0.000/1.000/1.000 max 0.000 ms mean/p50/p99
+HEADLESS LOGICTHREAD OVERLAP: 0 ticks beside the render | wait 0.00/0.0/0.0 ms mean/p50/p99 | 0 pictures drawn again while one ran
+HEADLESS LOGICTHREAD CENSUS: drawable 0 | modelcondition 0 | audio 0 | ingameui 0 | controlbar 0 | tacticalview 0 | radar 0 | fxlist 0 | terrainvisual 0 | particles 0 | gameclient 0 | eva 0 | newdrawable 0 | clientrandom 0 | ghost 0 | messagestream 0 | display 0 | jobs 0 | ondemandflush 0 | observerlookat 0 | drawablepush 0 | destroydrawable 0 | audioread 0 | clientread 0 | assetload 0 | assetloadinwindow 0 | livemodellock 0
+HEADLESS LOGICTHREAD WINDOW: 0 windows | drawableobject 0 | findobject 0 | objectlist 0 | logicframe 0 | thing 0 | shroud 0 | partition 0 | terrain 0 | player 0 | radarobject 0 | drawablefield 0 | playerstate 0 | partitioniterate 0 | audiohandle 0
+HEADLESS LOGICTHREAD LOCKS: memory pool 0 contended enters, dma 0
+HEADLESS PLAYER 2 'Hard AI': alive | score 700 | money 0 earned 6300 spent | units 4 built 0 lost 0 killed peak 4 | buildings 3 built 0 lost | slot 0 team -1
+HEADLESS VALUE 2: units worth 0 lost, 0 killed
+HEADLESS BANK 2: 3000 in the bank
+AI CHOKE frame 25320 player 2 finds the road from (1100,1100) narrowest at (515,375), 201 road cells, 440 from the base by the ground
+HEADLESS PERSONA 2: Normal waves 0 defenses 3 aircraftShare 0.00 infantryShare 0.00 vehicleShare 0.00 gathererKills 0 wouldShare 0 superweapon 0 firstWave 0 chokeDefenses 1 chokeDist 426 chokeMined 0 demoTraps 0 favouredShare -1.00 stealthShare 0.00
+HEADLESS DOCTRINE 2: 3 signature units, kind 0, 0.00 of 0 army money on them
+HEADLESS DOCTRINE UNIT 2: AmericaTankCrusader weight 1.38 trust 1.00
+HEADLESS DOCTRINE UNIT 2: AmericaTankPaladin weight 1.35 trust 1.00
+HEADLESS DOCTRINE UNIT 2: AmericaInfantryPathfinder weight 1.25 trust 1.00
+HEADLESS PLAYER 3 'Hard AI': alive | score 1100 | money 0 earned 7000 spent | units 7 built 0 lost 0 killed peak 7 | buildings 4 built 0 lost | slot 1 team -1
+HEADLESS VALUE 3: units worth 0 lost, 0 killed
+HEADLESS BANK 3: 1 in the bank
+AI CHOKE frame 25320 player 3 finds the road from (180,180) narrowest at (675,725), 322 road cells, 645 from the base by the ground
+HEADLESS PERSONA 3: Normal waves 0 defenses 1 aircraftShare 0.00 infantryShare 1.00 vehicleShare 0.00 gathererKills 0 wouldShare 0 superweapon 0 firstWave 0 chokeDefenses 1 chokeDist 239 chokeMined 0 demoTraps 0 favouredShare -1.00 stealthShare 0.00
+HEADLESS DOCTRINE 3: 7 signature units, kind 0, 1.00 of 600 army money on them
+HEADLESS DOCTRINE UNIT 3: Tank_ChinaVehicleHelix weight 1.28 trust 1.00
+HEADLESS DOCTRINE UNIT 3: ChinaTankOverlord weight 1.45 trust 1.00
+HEADLESS DOCTRINE UNIT 3: ChinaTankDragon weight 1.21 trust 1.00
+HEADLESS DOCTRINE UNIT 3: ChinaVehicleInfernoCannon weight 1.18 trust 1.00
+HEADLESS DOCTRINE UNIT 3: ChinaVehicleNukeLauncher weight 1.15 trust 1.00
+HEADLESS DOCTRINE UNIT 3: ChinaInfantryRedguard weight 1.60 trust 1.00
+HEADLESS DOCTRINE UNIT 3: ChinaVehicleHelix weight 1.29 trust 1.00
+HEADLESS HISTORY SAMPLE 2 0 0 1201 0 1 0 0
+HEADLESS HISTORY SAMPLE 2 300 0 1201 0 1 0 0
+HEADLESS HISTORY SAMPLE 2 600 0 401 0 1 0 0
+HEADLESS HISTORY SAMPLE 2 900 0 401 0 1 0 0
+HEADLESS HISTORY SAMPLE 2 1200 0 401 0 1 0 0
+HEADLESS HISTORY SAMPLE 2 1500 0 401 0 1 0 0
+HEADLESS HISTORY SAMPLE 2 1800 0 401 0 1 0 0
+HEADLESS HISTORY SAMPLE 2 2100 0 401 0 1 0 0
+HEADLESS HISTORY SAMPLE 2 2400 0 0 0 2 5 0
+HEADLESS HISTORY SAMPLE 2 2700 0 0 0 2 5 0
+HEADLESS HISTORY SAMPLE 2 3000 0 0 0 2 5 0
+HEADLESS HISTORY SAMPLE 2 3300 0 0 0 2 5 0
+HEADLESS HISTORY SAMPLE 2 3600 0 0 0 2 5 0
+HEADLESS HISTORY SAMPLE 2 3900 0 0 0 2 5 0
+HEADLESS HISTORY SAMPLE 2 4200 0 0 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 4500 0 0 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 4800 0 0 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 5100 0 0 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 5400 0 0 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 5700 0 0 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 6000 0 0 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 6300 0 0 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 6600 0 0 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 6900 0 0 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 7200 0 0 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 7500 0 0 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 7800 0 0 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 8100 0 0 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 8400 0 0 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 8700 0 0 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 9000 0 0 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 9300 0 0 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 9600 0 0 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 9900 0 0 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 10200 0 0 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 10500 0 0 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 10800 0 0 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 11100 0 0 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 11400 0 0 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 11700 0 0 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 12000 0 0 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 12300 0 0 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 12600 0 0 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 12900 0 0 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 13200 0 0 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 13500 0 0 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 13800 0 0 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 14100 0 0 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 14400 0 0 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 14700 0 0 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 15000 0 2000 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 15300 0 2000 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 15600 0 2000 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 15900 0 2000 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 16200 0 2000 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 16500 0 2000 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 16800 0 2000 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 17100 0 2000 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 17400 0 2000 0 2 10 0
+HEADLESS HISTORY SAMPLE 2 17700 0 2000 0 3 10 0
+HEADLESS HISTORY SAMPLE 2 18000 0 2000 0 3 10 0
+HEADLESS HISTORY SAMPLE 2 18300 0 2000 0 3 10 0
+HEADLESS HISTORY SAMPLE 2 18600 0 2000 0 3 10 0
+HEADLESS HISTORY SAMPLE 2 18900 0 2000 0 3 10 0
+HEADLESS HISTORY SAMPLE 2 19200 0 2000 0 3 10 0
+HEADLESS HISTORY SAMPLE 2 19500 0 2000 0 3 10 0
+HEADLESS HISTORY SAMPLE 2 19800 0 2000 0 3 10 0
+HEADLESS HISTORY SAMPLE 2 20100 0 2000 0 3 10 0
+HEADLESS HISTORY SAMPLE 2 20400 0 2000 0 3 10 0
+HEADLESS HISTORY SAMPLE 2 20700 0 2000 0 3 10 0
+HEADLESS HISTORY SAMPLE 2 21000 0 2000 0 3 10 0
+HEADLESS HISTORY SAMPLE 2 21300 0 2000 0 3 10 0
+HEADLESS HISTORY SAMPLE 2 21600 0 2000 0 3 10 0
+HEADLESS HISTORY SAMPLE 2 21900 0 2000 0 3 10 0
+HEADLESS HISTORY SAMPLE 2 22200 0 2000 0 3 10 0
+HEADLESS HISTORY SAMPLE 2 22500 0 2000 0 3 10 0
+HEADLESS HISTORY SAMPLE 2 22800 0 2000 0 3 10 0
+HEADLESS HISTORY SAMPLE 2 23100 0 2000 0 3 10 0
+HEADLESS HISTORY SAMPLE 2 23400 0 2000 0 3 10 0
+HEADLESS HISTORY SAMPLE 2 23700 0 2000 0 3 10 0
+HEADLESS HISTORY SAMPLE 2 24000 0 3000 0 3 10 0
+HEADLESS HISTORY SAMPLE 2 24300 0 3000 0 3 10 0
+HEADLESS HISTORY SAMPLE 2 24600 0 3000 0 3 10 0
+HEADLESS HISTORY SAMPLE 2 24900 0 3000 0 3 10 0
+HEADLESS HISTORY SAMPLE 2 25200 0 3000 0 3 10 0
+HEADLESS HISTORY BUILD 2 0 AmericaCommandCenter Command Center
+HEADLESS HISTORY BUILD 2 0 AmericaVehicleDozer Construction Dozer
+HEADLESS HISTORY BUILD 2 0 AmericaCommandCenter Command Center
+HEADLESS HISTORY BUILD 2 2290 AmericaPowerPlant Cold Fusion Reactor
+HEADLESS HISTORY BUILD 2 17626 AmericaPatriotBattery Patriot Missile System
+HEADLESS HISTORY SAMPLE 3 0 0 601 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 300 0 601 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 600 0 601 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 900 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 1200 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 1500 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 1800 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 2100 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 2400 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 2700 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 3000 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 3300 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 3600 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 3900 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 4200 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 4500 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 4800 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 5100 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 5400 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 5700 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 6000 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 6300 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 6600 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 6900 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 7200 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 7500 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 7800 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 8100 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 8400 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 8700 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 9000 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 9300 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 9600 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 9900 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 10200 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 10500 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 10800 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 11100 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 11400 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 11700 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 12000 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 12300 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 12600 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 12900 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 13200 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 13500 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 13800 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 14100 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 14400 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 14700 0 101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 15000 0 2101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 15300 0 2101 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 15600 0 1601 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 15900 0 1601 0 1 0 0
+HEADLESS HISTORY SAMPLE 3 16200 0 601 0 2 10 0
+HEADLESS HISTORY SAMPLE 3 16500 0 601 0 3 10 0
+HEADLESS HISTORY SAMPLE 3 16800 0 1 0 3 10 0
+HEADLESS HISTORY SAMPLE 3 17100 0 1 0 3 10 0
+HEADLESS HISTORY SAMPLE 3 17400 0 1 2 3 10 0
+HEADLESS HISTORY SAMPLE 3 17700 0 1 2 3 10 0
+HEADLESS HISTORY SAMPLE 3 18000 0 1 4 4 10 0
+HEADLESS HISTORY SAMPLE 3 18300 0 1 4 4 10 0
+HEADLESS HISTORY SAMPLE 3 18600 0 1 4 4 10 0
+HEADLESS HISTORY SAMPLE 3 18900 0 1 4 4 10 0
+HEADLESS HISTORY SAMPLE 3 19200 0 1 4 4 10 0
+HEADLESS HISTORY SAMPLE 3 19500 0 1 4 4 10 0
+HEADLESS HISTORY SAMPLE 3 19800 0 1 4 4 10 0
+HEADLESS HISTORY SAMPLE 3 20100 0 1 4 4 10 0
+HEADLESS HISTORY SAMPLE 3 20400 0 1 4 4 10 0
+HEADLESS HISTORY SAMPLE 3 20700 0 1 4 4 10 0
+HEADLESS HISTORY SAMPLE 3 21000 0 1 4 4 10 0
+HEADLESS HISTORY SAMPLE 3 21300 0 1 4 4 10 0
+HEADLESS HISTORY SAMPLE 3 21600 0 1 4 4 10 0
+HEADLESS HISTORY SAMPLE 3 21900 0 1 4 4 10 0
+HEADLESS HISTORY SAMPLE 3 22200 0 1 4 4 10 0
+HEADLESS HISTORY SAMPLE 3 22500 0 1 4 4 10 0
+HEADLESS HISTORY SAMPLE 3 22800 0 1 4 4 10 0
+HEADLESS HISTORY SAMPLE 3 23100 0 1 4 4 10 0
+HEADLESS HISTORY SAMPLE 3 23400 0 1 4 4 10 0
+HEADLESS HISTORY SAMPLE 3 23700 0 1 4 4 10 0
+HEADLESS HISTORY SAMPLE 3 24000 0 1 4 4 10 0
+HEADLESS HISTORY SAMPLE 3 24300 0 1 4 4 10 0
+HEADLESS HISTORY SAMPLE 3 24600 0 1 4 4 10 0
+HEADLESS HISTORY SAMPLE 3 24900 0 1 4 4 10 0
+HEADLESS HISTORY SAMPLE 3 25200 0 1 4 4 10 0
+HEADLESS HISTORY BUILD 3 0 ChinaCommandCenter Command Center
+HEADLESS HISTORY BUILD 3 0 ChinaVehicleDozer Construction Dozer
+HEADLESS HISTORY BUILD 3 0 ChinaCommandCenter Command Center
+HEADLESS HISTORY BUILD 3 15963 ChinaPowerPlant Nuclear Reactor
+HEADLESS HISTORY BUILD 3 16359 ChinaBarracks Barracks
+HEADLESS HISTORY BUILD 3 17300 ChinaInfantryRedguard Red Guard
+HEADLESS HISTORY BUILD 3 17985 ChinaGattlingCannon Gattling Cannon
+Pathfind cell is 24 bytes, PathfindCellInfo is 64 bytes
+PathfindCell::~PathfindCell m_info Allocated.GameEngine::setFramesPerSecondLimit() - setting max fps to 60 (TheGlobalData->m_useFpsLimit == 1)
+Pathfind cell is 24 bytes, PathfindCellInfo is 64 bytes
+DeepCRCSanityCheck: CRC is EEF2CCC8
+Pathfind cell is 24 bytes, PathfindCellInfo is 64 bytes
+Pathfind cell is 24 bytes, PathfindCellInfo is 64 bytes
+DeepCRCSanityCheck: CRC is EEF2CCC8
+Tearing down GameSpy from MainMenuSystem(GWM_DESTROY)
+-ffshader: 0 programs compiled, 3 descriptions refused;                                                                0 draws shaded,                                                             2737 left on the fixed-function path
+
+*** Missing strings ***
+*** MISSING: 'MAP:NoTest' ***
+*** MISSING: 'GUI:SelectHero' ***
+*** MISSING: 'GUI:SelectHeroDescription' ***
+*** MISSING: 'GUI:AddTeam9' ***
+*** MISSING: 'GUI:AddTeam9Description' ***
+*** MISSING: 'GUI:AddTeam8' ***
+*** MISSING: 'GUI:AddTeam8Description' ***
+*** MISSING: 'GUI:AddTeam7' ***
+*** MISSING: 'GUI:AddTeam7Description' ***
+*** MISSING: 'GUI:AddTeam6' ***
+*** MISSING: 'GUI:AddTeam6Description' ***
+*** MISSING: 'GUI:AddTeam5' ***
+*** MISSING: 'GUI:AddTeam5Description' ***
+*** MISSING: 'GUI:AddTeam4' ***
+*** MISSING: 'GUI:AddTeam4Description' ***
+*** MISSING: 'GUI:AddTeam3' ***
+*** MISSING: 'GUI:AddTeam3Description' ***
+*** MISSING: 'GUI:AddTeam2' ***
+*** MISSING: 'GUI:AddTeam2Description' ***
+*** MISSING: 'GUI:AddTeam1' ***
+*** MISSING: 'GUI:AddTeam1Description' ***
+*** MISSING: 'GUI:AddTeam0' ***
+*** MISSING: 'GUI:AddTeam0Description' ***
+*** MISSING: 'GUI:ViewView8' ***
+*** MISSING: 'GUI:ViewView8Description' ***
+*** MISSING: 'GUI:ViewView7' ***
+*** MISSING: 'GUI:ViewView7Description' ***
+*** MISSING: 'GUI:ViewView6' ***
+*** MISSING: 'GUI:ViewView6Description' ***
+*** MISSING: 'GUI:ViewView5' ***
+*** MISSING: 'GUI:ViewView5Description' ***
+*** MISSING: 'GUI:SaveView8' ***
+*** MISSING: 'GUI:SaveView8Description' ***
+*** MISSING: 'GUI:SaveView7' ***
+*** MISSING: 'GUI:SaveView7Description' ***
+*** MISSING: 'GUI:SaveView6' ***
+*** MISSING: 'GUI:SaveView6Description' ***
+*** MISSING: 'GUI:SaveView5' ***
+*** MISSING: 'GUI:SaveView5Description' ***
+*** MISSING: '[None]' ***
+*** MISSING: 'Entry' ***
+*** End missing strings ***
+
+Log closed: Sun Nov 15 14:23:09 2026
+

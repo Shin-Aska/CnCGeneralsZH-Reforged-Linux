@@ -1,0 +1,25 @@
+Test project /mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux
+      Start   1: build_fingerprint_check
+ 1/10 Test   #1: build_fingerprint_check ...........   Passed    3.42 sec
+      Start   2: build_fingerprint_manifest
+ 2/10 Test   #2: build_fingerprint_manifest ........   Passed    0.03 sec
+      Start   3: fingerprint_manifest_selfcheck
+ 3/10 Test   #3: fingerprint_manifest_selfcheck ....   Passed    0.11 sec
+      Start  31: test_sdl_atmosphere
+ 4/10 Test  #31: test_sdl_atmosphere ...............   Passed    0.02 sec
+      Start  42: test_post_environment_producers
+ 5/10 Test  #42: test_post_environment_producers ...   Passed    0.00 sec
+      Start  80: test_postprocess
+ 6/10 Test  #80: test_postprocess ..................   Passed    0.00 sec
+      Start  81: test_postshader
+ 7/10 Test  #81: test_postshader ...................   Passed    0.00 sec
+      Start 115: test_weather_particle_math
+ 8/10 Test #115: test_weather_particle_math ........   Passed    0.02 sec
+      Start 184: unix_define_check
+ 9/10 Test #184: unix_define_check .................   Passed    1.39 sec
+      Start 188: optionsmenu_selfcheck
+10/10 Test #188: optionsmenu_selfcheck .............   Passed    0.51 sec
+
+100% tests passed, 0 tests failed out of 10
+
+Total Test time (real) =   5.50 sec

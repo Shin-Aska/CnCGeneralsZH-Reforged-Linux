@@ -1,0 +1,32 @@
+{
+  "rain": {
+    "sha256": "cf11a40620fa74c76699bf0ceac47a88b9514aee5e5867538432462d557fc4a0",
+    "rate": 48000,
+    "channels": 2,
+    "frames": 137280,
+    "wall_seconds": 2.86,
+    "peak": 0.068359375,
+    "rms": 0.00883029346327369,
+    "nonzero_samples": 272368
+  },
+  "sand": {
+    "sha256": "e3c99621d2412cb8bbca873f04ead817432e5fd7778efdeb4eba671ba5052b78",
+    "rate": 48000,
+    "channels": 2,
+    "frames": 140640,
+    "wall_seconds": 2.93,
+    "peak": 0.1192626953125,
+    "rms": 0.024630174247950515,
+    "nonzero_samples": 280972
+  },
+  "snow": {
+    "sha256": "6d6d1eb376861556292c2a65ae6ac142e307a4db06ddead2f9e9dc9671b16610",
+    "rate": 48000,
+    "channels": 2,
+    "frames": 137760,
+    "wall_seconds": 2.87,
+    "peak": 0.110504150390625,
+    "rms": 0.024679066277272014,
+    "nonzero_samples": 275228
+  }
+}

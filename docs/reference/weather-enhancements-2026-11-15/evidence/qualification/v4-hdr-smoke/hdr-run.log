@@ -1,0 +1,93 @@
+
+This GDB supports auto-downloading debuginfo from the following URLs:
+  <https://debuginfod.ubuntu.com>
+Debuginfod has been disabled.
+To make this setting permanent, add 'set debuginfod enabled off' to .gdbinit.
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/usr/lib/x86_64-linux-gnu/libthread_db.so.1".
+[New Thread 0x7ffff772a6c0 (LWP 197935)]
+generals: overlay /mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/v4-hdr-smoke/overlay, searched before the install
+[New Thread 0x7ffff2aeb6c0 (LWP 197936)]
+[New Thread 0x7ffff22ea6c0 (LWP 197937)]
+[New Thread 0x7ffff1ae96c0 (LWP 197938)]
+[New Thread 0x7ffff12e86c0 (LWP 197939)]
+[New Thread 0x7ffff0ae76c0 (LWP 197940)]
+[New Thread 0x7ffff02e66c0 (LWP 197941)]
+[New Thread 0x7fffefae56c0 (LWP 197942)]
+[New Thread 0x7fffef2e46c0 (LWP 197943)]
+[New Thread 0x7fffeeae36c0 (LWP 197944)]
+[New Thread 0x7fffee2e26c0 (LWP 197945)]
+[New Thread 0x7fffedae16c0 (LWP 197946)]
+[New Thread 0x7fffed2e06c0 (LWP 197947)]
+[New Thread 0x7fffecadf6c0 (LWP 197948)]
+[New Thread 0x7fffec2de6c0 (LWP 197949)]
+[New Thread 0x7fffebadd6c0 (LWP 197950)]
+[New Thread 0x7fffeb2dc6c0 (LWP 197951)]
+[New Thread 0x7fffeaadb6c0 (LWP 197952)]
+[New Thread 0x7fffea2da6c0 (LWP 197953)]
+[New Thread 0x7fffe9ad96c0 (LWP 197954)]
+generals: refused to delete "Data\INI\INIZH.big": the install root is read-only (P1)
+ModernWater: loaded 2 material rules from Data\INI\ModernWater.ini
+[New Thread 0x7fffe92d86c0 (LWP 197958)]
+[New Thread 0x7fffe89c66c0 (LWP 197959)]
+[New Thread 0x7fffe81c56c0 (LWP 197960)]
+[New Thread 0x7fffe79c46c0 (LWP 197961)]
+Installed Vulkan doesn't implement the VK_EXT_headless_surface extension
+[New Thread 0x7fffdd6ff6c0 (LWP 197965)]
+[New Thread 0x7fffdcefe6c0 (LWP 197966)]
+[New Thread 0x7fffcf9ff6c0 (LWP 197968)]
+[New Thread 0x7fffcf1fe6c0 (LWP 197969)]
+[New Thread 0x7fffce9fd6c0 (LWP 197971)]
+[New Thread 0x7fffcd1fc6c0 (LWP 197973)]
+PosixDevice9: offscreen, 1280x720, unpaced
+[New Thread 0x7fffb7fff6c0 (LWP 197974)]
+[New Thread 0x7fffb48cd6c0 (LWP 197975)]
+water-shore-domain: revision=3 result=3 cells=0 edges=0 levels=0 tiles=0 support_vertices=0 support_work=0
+SunShadow: requested mapped
+D3DX: D3DXCompileShader (to D3D9 bytecode; the SDL3 GPU draw compiles its own) is not available off Windows yet; the call fails
+ZH_WATER_CLEAN_OPT=stream,collapse=1.5
+[New Thread 0x7fffaed566c0 (LWP 197983)]
+water auto sea: source=WaterWaveHeading::prevailing travel=0.000 field unavailable; configured fallback effective=-135.000 mode=auto
+HDR_HAZE_RESULT kind=early format=29 expectedRGBA16F=29 recorded=1 return=true
+HDR_SCENE format=29 internalHDR=1 postCount=2 earlyDone=1 weatherStrength=0.0740650222 warmStrength=0.0633857548
+HDR_HAZE_RESULT kind=warm format=29 expectedRGBA16F=29 recorded=1 return=true
+[Thread 0x7fffaed566c0 (LWP 197983) exited]
+[Thread 0x7fffb48cd6c0 (LWP 197975) exited]
+generals: refused to write "ffprobe.txt": the install root is read-only (P1)
+[Thread 0x7fffb7fff6c0 (LWP 197974) exited]
+PosixDevice9: 1005808 draws recorded, 3293 presents, 0 of them to a window that was not visible, 0 with no drawable
+PosixDevice9: 16200 mid-frame flushes, at most 4 in flight at once, 5 waited for the ring (limit 3); 0 of the flushes for the draw limit (2048 draws)
+PosixDevice9:   drawn with the engine's engine:terrainnoise2: 175860
+PosixDevice9:   drawn with the engine's engine:trapezoidwater: 6478
+PosixDevice9:   drawn with the engine's engine:trees: 8097
+[Thread 0x7fffcd1fc6c0 (LWP 197973) exited]
+[Thread 0x7fffce9fd6c0 (LWP 197971) exited]
+[Thread 0x7fffcf1fe6c0 (LWP 197969) exited]
+[Thread 0x7fffdcefe6c0 (LWP 197966) exited]
+[Thread 0x7fffcf9ff6c0 (LWP 197968) exited]
+[Thread 0x7fffdd6ff6c0 (LWP 197965) exited]
+[Thread 0x7fffe79c46c0 (LWP 197961) exited]
+[Thread 0x7fffe81c56c0 (LWP 197960) exited]
+[Thread 0x7fffe89c66c0 (LWP 197959) exited]
+[Thread 0x7fffe92d86c0 (LWP 197958) exited]
+[Thread 0x7fffe9ad96c0 (LWP 197954) exited]
+[Thread 0x7fffea2da6c0 (LWP 197953) exited]
+[Thread 0x7fffeaadb6c0 (LWP 197952) exited]
+[Thread 0x7fffeb2dc6c0 (LWP 197951) exited]
+[Thread 0x7fffebadd6c0 (LWP 197950) exited]
+[Thread 0x7fffec2de6c0 (LWP 197949) exited]
+[Thread 0x7fffecadf6c0 (LWP 197948) exited]
+[Thread 0x7fffed2e06c0 (LWP 197947) exited]
+[Thread 0x7fffedae16c0 (LWP 197946) exited]
+[Thread 0x7fffee2e26c0 (LWP 197945) exited]
+[Thread 0x7fffeeae36c0 (LWP 197944) exited]
+[Thread 0x7fffef2e46c0 (LWP 197943) exited]
+[Thread 0x7fffefae56c0 (LWP 197942) exited]
+[Thread 0x7ffff02e66c0 (LWP 197941) exited]
+[Thread 0x7ffff0ae76c0 (LWP 197940) exited]
+[Thread 0x7ffff12e86c0 (LWP 197939) exited]
+[Thread 0x7ffff1ae96c0 (LWP 197938) exited]
+[Thread 0x7ffff22ea6c0 (LWP 197937) exited]
+[Thread 0x7ffff2aeb6c0 (LWP 197936) exited]
+[Thread 0x7ffff772a6c0 (LWP 197935) exited]
+[Inferior 1 (process 197932) exited normally]

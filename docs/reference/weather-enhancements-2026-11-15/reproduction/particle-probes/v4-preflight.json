@@ -1,0 +1,10 @@
+{
+  "candidate_sha256": "917e182cbd5f9f7fff24a10c2331996cbeb26f25be82d05d779f5e028e8ef55c",
+  "lease": "B same exclusive GPU/audio qualification lease",
+  "files": {
+    "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/particle-runtime/run_weather.py": "ac5ac9afabfbb7b15dad7c590c0d6851044630e8d7db7dd56650d31c9255a079",
+    "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/particle-runtime/generate_map.py": "748ace731c680c90dd5ff5caf7e4b428879fcf7f4d71bb5dc17e70564d605169",
+    "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/retail-assets.json": "e1f3f682d900b362315113be0d758d128d01c75abb04347e6e2068181c3d1de0",
+    "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/candidate-v4/checkpoint.json": "68aab6a3a8bc61ed1661d9c880edee587976805a91707ef77fb24034803909b7"
+  }
+}

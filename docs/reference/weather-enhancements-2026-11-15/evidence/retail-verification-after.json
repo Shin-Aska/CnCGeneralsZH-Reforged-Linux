@@ -1,0 +1,7 @@
+{
+  "policy": "Full content hash after all 27 primary runs and HDR smoke; per-run guard checked inventory and sizes only.",
+  "files_checked": 163,
+  "mismatches": [],
+  "passed": true,
+  "inventory_sha256": "e1f3f682d900b362315113be0d758d128d01c75abb04347e6e2068181c3d1de0"
+}

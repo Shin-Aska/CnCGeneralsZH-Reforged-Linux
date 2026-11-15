@@ -1,0 +1,62 @@
+{
+  "11": {
+    "at_30_seconds": {
+      "envelope": 1,
+      "plateauEnd": 64.5300765,
+      "plateauStart": 24.6311474,
+      "slotEnd": 218.550196,
+      "slotStart": 8.55019569,
+      "weatherSeed": 882932316,
+      "wetEnd": 70.8256888,
+      "wetStart": 18.335535
+    },
+    "envelope": 0,
+    "plateauEnd": -157.397529,
+    "plateauStart": -189.507581,
+    "slotEnd": 8.55019569,
+    "slotStart": -201.449804,
+    "weatherSeed": 882932316,
+    "wetEnd": -149.451869,
+    "wetStart": -197.45324
+  },
+  "5": {
+    "at_30_seconds": {
+      "envelope": 0.949483454,
+      "plateauEnd": 29.1245124,
+      "plateauStart": -8.89145398,
+      "slotEnd": 184.004195,
+      "slotStart": -25.9958053,
+      "weatherSeed": 328340478,
+      "wetEnd": 35.557929,
+      "wetStart": -15.3248706
+    },
+    "envelope": 1,
+    "plateauEnd": 29.1245124,
+    "plateauStart": -8.89145398,
+    "slotEnd": 184.004195,
+    "slotStart": -25.9958053,
+    "weatherSeed": 328340478,
+    "wetEnd": 35.557929,
+    "wetStart": -15.3248706
+  },
+  "7": {
+    "at_30_seconds": {
+      "envelope": 0,
+      "plateauEnd": -74.3514727,
+      "plateauStart": -113.791431,
+      "slotEnd": 85.5044729,
+      "slotStart": -124.495527,
+      "weatherSeed": 3770392997,
+      "wetEnd": -66.742998,
+      "wetStart": -121.399906
+    },
+    "envelope": 0,
+    "plateauEnd": -74.3514727,
+    "plateauStart": -113.791431,
+    "slotEnd": 85.5044729,
+    "slotStart": -124.495527,
+    "weatherSeed": 3770392997,
+    "wetEnd": -66.742998,
+    "wetStart": -121.399906
+  }
+}

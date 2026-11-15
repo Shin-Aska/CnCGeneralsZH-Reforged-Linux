@@ -1,0 +1,246 @@
+{
+  "command": [
+    "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/candidate-v4/generals",
+    "-root",
+    "/mnt/passport/E-Drive/Linux Steam Library/steamapps/common/Command & Conquer Generals - Zero Hour",
+    "-overlay",
+    "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/primary-runs/snow-enhanced-off-r1/overlay",
+    "-offscreen",
+    "-multiInstance",
+    "-win",
+    "-xres",
+    "1920",
+    "-yres",
+    "1080",
+    "-msaa",
+    "0",
+    "-quickstart",
+    "-noshellmap",
+    "-nologo",
+    "-novideo",
+    "-noFPSLimit",
+    "-noDynamicLOD",
+    "-turbo",
+    "-camera",
+    "640",
+    "600",
+    "-maxframes",
+    "2520",
+    "-particlecap",
+    "3000",
+    "-gpuparticles",
+    "0",
+    "-dx11post",
+    "off",
+    "-logPrefix",
+    "weather_985a921adb81_",
+    "-map",
+    "Maps/WeatherEvidence/WeatherEvidence.map",
+    "-autoskirmish",
+    "2",
+    "-observer",
+    "-seed",
+    "7",
+    "-side",
+    "0",
+    "FactionAmerica",
+    "-side",
+    "1",
+    "FactionChina",
+    "-scenario",
+    "weather_evidence",
+    "-startingcash",
+    "1",
+    "-peacetime",
+    "10",
+    "-screenshot",
+    "2580"
+  ],
+  "environment": {
+    "ZH_USER_DATA_DIR": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/primary-runs/snow-enhanced-off-r1/user",
+    "ZH_UNATTENDED": "1",
+    "ZH_AUDIO_BACKEND": "null",
+    "SDL_VIDEODRIVER": "offscreen",
+    "SDL_GPU_DRIVER": "vulkan",
+    "ZH_OFFSCREEN_HZ": "0",
+    "ZH_SUN_SHADOW_CAPTURE_CLOCK": "logic",
+    "ZH_WATER_CAPTURE_CLOCK": "picture",
+    "VK_DRIVER_FILES": "/usr/share/vulkan/icd.d/nvidia_icd.json",
+    "ZH_ALLOW_AUDIO": "1",
+    "ZH_GPU_TIMING": "0,1",
+    "ZH_GPU_TIMING_LOGIC": "601,2400",
+    "ZH_GPU_TIMING_CSV": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/primary-runs/snow-enhanced-off-r1/timing.csv",
+    "ZH_GPU_TIMING_SYNC": "0"
+  },
+  "candidate_sha256": "917e182cbd5f9f7fff24a10c2331996cbeb26f25be82d05d779f5e028e8ef55c",
+  "kind": "snow",
+  "variant": "off",
+  "repeat": 1,
+  "map_sha256": "07b0e696d861254c26be2fe216b922fd97984fe212e99fa0bfaac9a1ee9ae135",
+  "profile_sha256": "f0de81e7e86e4854011cb44f599764d5290690a60a4675bd324c93b1bcd157a3",
+  "first": 601,
+  "last": 2400,
+  "night": false,
+  "atmosphere": "on",
+  "maplight": "on",
+  "freecam": null,
+  "passive": false,
+  "audio": true,
+  "idle_ai": true,
+  "capture_clock_arm_frame": 2580,
+  "capture_outside_timing_window": true,
+  "capture_clock_arm_inert": true,
+  "runner_sha256": "b92c34f710f3d8208b0b33b424613470db6298caf0df58981d1b5f809a8d6309",
+  "generator_sha256": "748ace731c680c90dd5ff5caf7e4b428879fcf7f4d71bb5dc17e70564d605169",
+  "log_prefix": "weather_985a921adb81_",
+  "scenario_sha256": "68b4ee00352522f56623f4efb7a43de6c473cf6ac94f83d5e4197fdd83057eee",
+  "warmup_logic_frames": 600,
+  "profile_common_sha256": "18f036577501ae74785035a3074264482d0e65f5cdeee7fe9ba6c1d3c172de50",
+  "overlay_inventory_sha256": "b407239259c7a1f33a6ea32e35cc783751ac1071fcff96be67118c539fab7917",
+  "label": "enhanced-off",
+  "sample_window_simulated_seconds": 30.0,
+  "expected_samples": 1800,
+  "width": 1920,
+  "height": 1080,
+  "platform": "Linux-7.3.4-x64v3-xanmod1-x86_64-with-glibc2.43",
+  "cpu": [
+    "12th Gen Intel(R) Core(TM) i7-12700"
+  ],
+  "weather_clock": "Existing deterministic W3D capture clock: one logic frame = 1/60s; armed at startup by an existing screenshot request",
+  "timing_basis": "Native end-to-end offscreen present intervals, not GPU timestamps/FPS; real null-backend audio mixer enabled",
+  "admission_sha256": "3e49171cafc623ad696527df5ef9880362db285a57ab9aab04362d2ffb33784d",
+  "rain_seed": null,
+  "phase_helper_sha256": "b51a3ae85cf5894562b8a1155bff645e0999109a7ae29f693ce946ea913cab1e",
+  "phase_source_sha256": "9cffe39d0a62a874acd3499c908cc02483859b0b9bb31777fae05d36bcd23d82",
+  "phase_tool_source_sha256": "772269c41bfababb6984eb8c0c8175e867f4043633a08233bc4c47b28cb24706",
+  "retail_inventory_sha256": "e1f3f682d900b362315113be0d758d128d01c75abb04347e6e2068181c3d1de0",
+  "expected_crc": "0xF7D76419",
+  "expected_crc_frame": 2520,
+  "hardware_before": {
+    "platform": "Linux-7.3.4-x64v3-xanmod1-x86_64-with-glibc2.43",
+    "nvidia_smi": {
+      "command": [
+        "nvidia-smi",
+        "--query-gpu=name,uuid,driver_version,memory.total,memory.used,temperature.gpu,pstate,power.draw,clocks.current.graphics,clocks.current.memory",
+        "--format=csv,noheader"
+      ],
+      "returncode": 0,
+      "stdout": "NVIDIA GeForce RTX 4060, GPU-dbf5e883-04f0-6f25-aff9-3f4b44470832, 595.112.07, 8188 MiB, 245 MiB, 49, P2, [N/A], 2790 MHz, 8251 MHz\n",
+      "stderr": ""
+    }
+  },
+  "returncode": 0,
+  "wall_seconds": 28.505911226000535,
+  "hardware_after": {
+    "platform": "Linux-7.3.4-x64v3-xanmod1-x86_64-with-glibc2.43",
+    "nvidia_smi": {
+      "command": [
+        "nvidia-smi",
+        "--query-gpu=name,uuid,driver_version,memory.total,memory.used,temperature.gpu,pstate,power.draw,clocks.current.graphics,clocks.current.memory",
+        "--format=csv,noheader"
+      ],
+      "returncode": 0,
+      "stdout": "NVIDIA GeForce RTX 4060, GPU-dbf5e883-04f0-6f25-aff9-3f4b44470832, 595.112.07, 8188 MiB, 245 MiB, 54, P2, [N/A], 2790 MHz, 8251 MHz\n",
+      "stderr": ""
+    }
+  },
+  "candidate_after_sha256": "917e182cbd5f9f7fff24a10c2331996cbeb26f25be82d05d779f5e028e8ef55c",
+  "engine_log_provenance": {
+    "path": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/candidate-v4/weather_985a921adb81_DebugLogFile.txt",
+    "new_for_run": true,
+    "sha256": "0bdb5498b06f3c648c70a1890354e9007fe8ab8e0ebd7ad4ce569462cb1f125f"
+  },
+  "crc": [
+    "HEADLESS CRC AT LIMIT: 0xF7D76419 at frame 2520"
+  ],
+  "validation_errors": [],
+  "timer_status": [
+    "PosixDevice9 timing: LOGIC window 601..2400 samples=1800 expected=1800 rejected=0 status=complete"
+  ],
+  "metrics": {
+    "frame_ms": {
+      "samples": 1800,
+      "mean": 9.67898662888889,
+      "median": 9.565076000000001,
+      "p95": 10.280293,
+      "minimum": 7.771838,
+      "maximum": 15.469198
+    },
+    "work_ms": {
+      "samples": 1800,
+      "mean": 9.677810594444445,
+      "median": 9.5640015,
+      "p95": 10.279142,
+      "minimum": 7.770843,
+      "maximum": 15.466023
+    },
+    "device_draw_ms": {
+      "samples": 1800,
+      "mean": 0.3320080488888889,
+      "median": 0.31218650000000003,
+      "p95": 0.545852,
+      "minimum": 0.212759,
+      "maximum": 1.459314
+    },
+    "device_flush_ms": {
+      "samples": 1800,
+      "mean": 6.584015955,
+      "median": 6.686166999999999,
+      "p95": 6.924367,
+      "minimum": 2.889115,
+      "maximum": 8.478822
+    },
+    "device_present_ms": {
+      "samples": 1800,
+      "mean": 0.056075344444444446,
+      "median": 0.053201,
+      "p95": 0.074813,
+      "minimum": 0.041909,
+      "maximum": 0.221487
+    },
+    "swapchain_wait_ms": {
+      "samples": 1800,
+      "mean": 0.0,
+      "median": 0.0,
+      "p95": 0.0,
+      "minimum": 0.0,
+      "maximum": 0.0
+    },
+    "offscreen_wait_ms": {
+      "samples": 1800,
+      "mean": 0.0011760344444444444,
+      "median": 0.001101,
+      "p95": 0.001705,
+      "minimum": 0.000769,
+      "maximum": 0.008613
+    },
+    "fence_ms": {
+      "samples": 1800,
+      "mean": 0.0,
+      "median": 0.0,
+      "p95": 0.0,
+      "minimum": 0.0,
+      "maximum": 0.0
+    },
+    "draws": {
+      "samples": 1800,
+      "mean": 327.5027777777778,
+      "median": 320.5,
+      "p95": 394.0,
+      "minimum": 253.0,
+      "maximum": 394.0
+    },
+    "flushes": {
+      "samples": 1800,
+      "mean": 4.000555555555556,
+      "median": 4.0,
+      "p95": 4.0,
+      "minimum": 4.0,
+      "maximum": 5.0
+    }
+  },
+  "timing_csv_sha256": "c9d0f77fffdf9bf87c174c1da2438ba5cac093aa213b5de8ba8d31b908403f0e",
+  "crc_admitted": true,
+  "overlay_after_inventory_sha256": "b407239259c7a1f33a6ea32e35cc783751ac1071fcff96be67118c539fab7917",
+  "accepted": true
+}

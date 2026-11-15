@@ -1,0 +1,1954 @@
+{
+  "README.md": {
+    "sha256": "451793b10fa6920ab4c39b6ed403b24d973809f16b3c3424a277d5b64cdcc98d",
+    "size": 10060
+  },
+  "evidence-inventory.json": {
+    "sha256": "2f0bce0c1f2b2d34b3c74d2e6c504a45044ee5829d74f3c66aeb65aba8f2d851",
+    "size": 77632
+  },
+  "evidence/audio-final-mix-metrics.json": {
+    "sha256": "6278047ff4b3f77dcc9912adb760f3d0c5e4c3c94d60cad285e9b6d57750df9c",
+    "size": 831
+  },
+  "evidence/baseline-manifest.json": {
+    "sha256": "2c33405fbc852d8b8c3c3105f73f202939d160e502101f4bcf78b3085c2d8ad5",
+    "size": 53132
+  },
+  "evidence/baseline-source-equivalence.json": {
+    "sha256": "da045999a2cbdaf74b874169ef24bd38c11f02e3c35c3974b7ddf05075dc0573",
+    "size": 991
+  },
+  "evidence/benchmark-admission.json": {
+    "sha256": "3e49171cafc623ad696527df5ef9880362db285a57ab9aab04362d2ffb33784d",
+    "size": 6672
+  },
+  "evidence/candidate-v4-checkpoint.json": {
+    "sha256": "68aab6a3a8bc61ed1661d9c880edee587976805a91707ef77fb24034803909b7",
+    "size": 2986
+  },
+  "evidence/final-verification.json": {
+    "sha256": "84dce834e3d8b37dcea2421d0e88d5f33e96a63ada7b78d3235d715d2407618a",
+    "size": 1611
+  },
+  "evidence/headless-admission-results.json": {
+    "sha256": "0804db6ee88f722501da1da5a776fb1fdbecdb983a7ec8a4834210355c5638c3",
+    "size": 15129
+  },
+  "evidence/primary-run-order.json": {
+    "sha256": "b5229b8676402aa596ed43aa359b30ef5cca4bf729d747e11b9e046ab8a7b909",
+    "size": 44309
+  },
+  "evidence/primary-runs/rain-baseline-on-r1/engine.log": {
+    "sha256": "84472a8827403adbd34e54dabc680065de656c99d120c0e7e40de9466329e204",
+    "size": 167175
+  },
+  "evidence/primary-runs/rain-baseline-on-r1/manifest.json": {
+    "sha256": "8699e58f5a8fb3f49880057dea5d912a72bb40a1d29968c8930d553cc248bfef",
+    "size": 8046
+  },
+  "evidence/primary-runs/rain-baseline-on-r1/overlay/Maps/WeatherEvidence/WeatherEvidence.map": {
+    "sha256": "6dc4dec8c5671302ef3762d291c6026059d80fec6b5d9355c48c95d528b841fa",
+    "size": 259270
+  },
+  "evidence/primary-runs/rain-baseline-on-r1/overlay/Scenarios/weather_evidence.txt": {
+    "sha256": "68b4ee00352522f56623f4efb7a43de6c473cf6ac94f83d5e4197fdd83057eee",
+    "size": 50
+  },
+  "evidence/primary-runs/rain-baseline-on-r1/run.log": {
+    "sha256": "33b122b52cc50c4e6c7589f02055b81b4d698ef8703add93e6bb04a9758937c0",
+    "size": 3245
+  },
+  "evidence/primary-runs/rain-baseline-on-r1/timing.csv": {
+    "sha256": "8fdc92d16ad5e8275c92b3f0a598203da622a43a6bf832fca51bcc0dfeae1168",
+    "size": 2965393
+  },
+  "evidence/primary-runs/rain-baseline-on-r1/user/Options.ini": {
+    "sha256": "8528afb53b99f5e9ccc58caecef59927e51c9c0c4c0ca51d821261e07645c306",
+    "size": 502
+  },
+  "evidence/primary-runs/rain-baseline-on-r2/engine.log": {
+    "sha256": "41d6b22a10610603290ce55c4811aaeb85a41ec25e6869f8a6b35f0dd414cd6b",
+    "size": 167102
+  },
+  "evidence/primary-runs/rain-baseline-on-r2/manifest.json": {
+    "sha256": "0844f0760ed23248e3e5b9b03e028326bc07c49e46e29e2bedd0b25fce576608",
+    "size": 8045
+  },
+  "evidence/primary-runs/rain-baseline-on-r2/overlay/Maps/WeatherEvidence/WeatherEvidence.map": {
+    "sha256": "6dc4dec8c5671302ef3762d291c6026059d80fec6b5d9355c48c95d528b841fa",
+    "size": 259270
+  },
+  "evidence/primary-runs/rain-baseline-on-r2/overlay/Scenarios/weather_evidence.txt": {
+    "sha256": "68b4ee00352522f56623f4efb7a43de6c473cf6ac94f83d5e4197fdd83057eee",
+    "size": 50
+  },
+  "evidence/primary-runs/rain-baseline-on-r2/run.log": {
+    "sha256": "add5e521f08f0ef9e8489294aca2cfb5fd05952e10b38d93c4758480c4d2a634",
+    "size": 3245
+  },
+  "evidence/primary-runs/rain-baseline-on-r2/timing.csv": {
+    "sha256": "673705ce33d18a0eee7deb7444f5bb104a524c22524d0c990d4ff080f2ff7247",
+    "size": 2965480
+  },
+  "evidence/primary-runs/rain-baseline-on-r2/user/Options.ini": {
+    "sha256": "8528afb53b99f5e9ccc58caecef59927e51c9c0c4c0ca51d821261e07645c306",
+    "size": 502
+  },
+  "evidence/primary-runs/rain-baseline-on-r3/engine.log": {
+    "sha256": "f223ff12c72c166524b7101c6108a700394a3335777b0e7f173ff51824349b39",
+    "size": 167129
+  },
+  "evidence/primary-runs/rain-baseline-on-r3/manifest.json": {
+    "sha256": "75704284cb9eef3f10e24e4f5af0b3cf12ef801d1af233b6b9db073d1730d28d",
+    "size": 8043
+  },
+  "evidence/primary-runs/rain-baseline-on-r3/overlay/Maps/WeatherEvidence/WeatherEvidence.map": {
+    "sha256": "6dc4dec8c5671302ef3762d291c6026059d80fec6b5d9355c48c95d528b841fa",
+    "size": 259270
+  },
+  "evidence/primary-runs/rain-baseline-on-r3/overlay/Scenarios/weather_evidence.txt": {
+    "sha256": "68b4ee00352522f56623f4efb7a43de6c473cf6ac94f83d5e4197fdd83057eee",
+    "size": 50
+  },
+  "evidence/primary-runs/rain-baseline-on-r3/run.log": {
+    "sha256": "9ff80c4b0731fe15abe1b3e55019b003f3840717fdf26a3690349c5ec2a5ad64",
+    "size": 3245
+  },
+  "evidence/primary-runs/rain-baseline-on-r3/timing.csv": {
+    "sha256": "36f40f5be3da2e1004528ec1ae868400da7253049a521752293ff87070b01172",
+    "size": 2965036
+  },
+  "evidence/primary-runs/rain-baseline-on-r3/user/Options.ini": {
+    "sha256": "8528afb53b99f5e9ccc58caecef59927e51c9c0c4c0ca51d821261e07645c306",
+    "size": 502
+  },
+  "evidence/primary-runs/rain-enhanced-off-r1/engine.log": {
+    "sha256": "6f14f554337dc4e893ebe6a78273a84c16d2205952c587dee64224edabe18206",
+    "size": 167047
+  },
+  "evidence/primary-runs/rain-enhanced-off-r1/manifest.json": {
+    "sha256": "b1bfc0f76a0af3ce059081ba692da1bb679db42c63f4f5be86a342ce5433542e",
+    "size": 8036
+  },
+  "evidence/primary-runs/rain-enhanced-off-r1/overlay/Maps/WeatherEvidence/WeatherEvidence.map": {
+    "sha256": "6dc4dec8c5671302ef3762d291c6026059d80fec6b5d9355c48c95d528b841fa",
+    "size": 259270
+  },
+  "evidence/primary-runs/rain-enhanced-off-r1/overlay/Scenarios/weather_evidence.txt": {
+    "sha256": "68b4ee00352522f56623f4efb7a43de6c473cf6ac94f83d5e4197fdd83057eee",
+    "size": 50
+  },
+  "evidence/primary-runs/rain-enhanced-off-r1/run.log": {
+    "sha256": "86db051a6dfcc08aeb5ebd072f83f4e556463c3ed6aaadbbd9f5b9cafaaf5cb6",
+    "size": 3246
+  },
+  "evidence/primary-runs/rain-enhanced-off-r1/timing.csv": {
+    "sha256": "00c06fc4ac39c6aa8af050fd471091c2271edef17d3b6d6f3dab6144e42014e9",
+    "size": 2964524
+  },
+  "evidence/primary-runs/rain-enhanced-off-r1/user/Options.ini": {
+    "sha256": "f0de81e7e86e4854011cb44f599764d5290690a60a4675bd324c93b1bcd157a3",
+    "size": 501
+  },
+  "evidence/primary-runs/rain-enhanced-off-r2/engine.log": {
+    "sha256": "46fa19109b7f2ef7b3f9043a46b99337b5eb94a53628382be927a255d898b48c",
+    "size": 167036
+  },
+  "evidence/primary-runs/rain-enhanced-off-r2/manifest.json": {
+    "sha256": "cf1f9e481d5527d11d8fc01b2308cf1b75b53e592cbec945a1fa766fb2e236bc",
+    "size": 8023
+  },
+  "evidence/primary-runs/rain-enhanced-off-r2/overlay/Maps/WeatherEvidence/WeatherEvidence.map": {
+    "sha256": "6dc4dec8c5671302ef3762d291c6026059d80fec6b5d9355c48c95d528b841fa",
+    "size": 259270
+  },
+  "evidence/primary-runs/rain-enhanced-off-r2/overlay/Scenarios/weather_evidence.txt": {
+    "sha256": "68b4ee00352522f56623f4efb7a43de6c473cf6ac94f83d5e4197fdd83057eee",
+    "size": 50
+  },
+  "evidence/primary-runs/rain-enhanced-off-r2/run.log": {
+    "sha256": "e6f75fc127b0a50d3c5b0ed93c2352fd2b5be0403cb464ee803e43f10a150a99",
+    "size": 3246
+  },
+  "evidence/primary-runs/rain-enhanced-off-r2/timing.csv": {
+    "sha256": "e03b56a50da6a7d0aa24c03be8650bbba412c48db384690562d7542e28991d69",
+    "size": 2964956
+  },
+  "evidence/primary-runs/rain-enhanced-off-r2/user/Options.ini": {
+    "sha256": "f0de81e7e86e4854011cb44f599764d5290690a60a4675bd324c93b1bcd157a3",
+    "size": 501
+  },
+  "evidence/primary-runs/rain-enhanced-off-r3/engine.log": {
+    "sha256": "d77280073ebae1fa7a2f60a57381a27de36f33544bcd0592db4e7aaff9bed261",
+    "size": 167035
+  },
+  "evidence/primary-runs/rain-enhanced-off-r3/manifest.json": {
+    "sha256": "579e895cc3d4c45a67c03057f48f244d225b5bc8509727d1d8c1789b7e2ff5de",
+    "size": 8014
+  },
+  "evidence/primary-runs/rain-enhanced-off-r3/overlay/Maps/WeatherEvidence/WeatherEvidence.map": {
+    "sha256": "6dc4dec8c5671302ef3762d291c6026059d80fec6b5d9355c48c95d528b841fa",
+    "size": 259270
+  },
+  "evidence/primary-runs/rain-enhanced-off-r3/overlay/Scenarios/weather_evidence.txt": {
+    "sha256": "68b4ee00352522f56623f4efb7a43de6c473cf6ac94f83d5e4197fdd83057eee",
+    "size": 50
+  },
+  "evidence/primary-runs/rain-enhanced-off-r3/run.log": {
+    "sha256": "0ee18b212bf4f6e175522337432eef3d3eb5454c199d45ee075c2d2a726faa65",
+    "size": 3246
+  },
+  "evidence/primary-runs/rain-enhanced-off-r3/timing.csv": {
+    "sha256": "43eb70fd85378157304c485ad5268f74a82efb0dc926d10be31a7d5a9d6eda00",
+    "size": 2964366
+  },
+  "evidence/primary-runs/rain-enhanced-off-r3/user/Options.ini": {
+    "sha256": "f0de81e7e86e4854011cb44f599764d5290690a60a4675bd324c93b1bcd157a3",
+    "size": 501
+  },
+  "evidence/primary-runs/rain-enhanced-on-r1/engine.log": {
+    "sha256": "03a6d5a9e12bff2ec2598895332068b07c16059b1bf397e4487adf2e37f1de75",
+    "size": 167127
+  },
+  "evidence/primary-runs/rain-enhanced-on-r1/manifest.json": {
+    "sha256": "7432639ed1e8fc6e2210322e68a19ccdb6f4ed7fc14555b4e9305e853c7cf763",
+    "size": 8034
+  },
+  "evidence/primary-runs/rain-enhanced-on-r1/overlay/Maps/WeatherEvidence/WeatherEvidence.map": {
+    "sha256": "6dc4dec8c5671302ef3762d291c6026059d80fec6b5d9355c48c95d528b841fa",
+    "size": 259270
+  },
+  "evidence/primary-runs/rain-enhanced-on-r1/overlay/Scenarios/weather_evidence.txt": {
+    "sha256": "68b4ee00352522f56623f4efb7a43de6c473cf6ac94f83d5e4197fdd83057eee",
+    "size": 50
+  },
+  "evidence/primary-runs/rain-enhanced-on-r1/run.log": {
+    "sha256": "aeade207d697f1a873893e184aca0e070b79b7a9834bfd90b8e4fb953ba19e8f",
+    "size": 3245
+  },
+  "evidence/primary-runs/rain-enhanced-on-r1/timing.csv": {
+    "sha256": "e9f027bc4a0b6aafc9a1f4fc9fcfc8ad475afc358eba052242f89ec490761392",
+    "size": 2968608
+  },
+  "evidence/primary-runs/rain-enhanced-on-r1/user/Options.ini": {
+    "sha256": "8528afb53b99f5e9ccc58caecef59927e51c9c0c4c0ca51d821261e07645c306",
+    "size": 502
+  },
+  "evidence/primary-runs/rain-enhanced-on-r2/engine.log": {
+    "sha256": "b8d4f347cacd3a0e552522fcbb8cdb914a9513488018e99af5c1d51d3f18ff3a",
+    "size": 167128
+  },
+  "evidence/primary-runs/rain-enhanced-on-r2/manifest.json": {
+    "sha256": "e4ebab02c1153e64ac97cf5b6af453c879577e949cc4ae5403a36f3d4871de1a",
+    "size": 8018
+  },
+  "evidence/primary-runs/rain-enhanced-on-r2/overlay/Maps/WeatherEvidence/WeatherEvidence.map": {
+    "sha256": "6dc4dec8c5671302ef3762d291c6026059d80fec6b5d9355c48c95d528b841fa",
+    "size": 259270
+  },
+  "evidence/primary-runs/rain-enhanced-on-r2/overlay/Scenarios/weather_evidence.txt": {
+    "sha256": "68b4ee00352522f56623f4efb7a43de6c473cf6ac94f83d5e4197fdd83057eee",
+    "size": 50
+  },
+  "evidence/primary-runs/rain-enhanced-on-r2/run.log": {
+    "sha256": "91ec0f29a4e6afed25b8cfc146daa66706f225020aade40b4e1f36f86c76a87d",
+    "size": 3245
+  },
+  "evidence/primary-runs/rain-enhanced-on-r2/timing.csv": {
+    "sha256": "790252a7926180788f391377a96d5586ee5b41a31b7b45ce0ce57173e9579592",
+    "size": 2968598
+  },
+  "evidence/primary-runs/rain-enhanced-on-r2/user/Options.ini": {
+    "sha256": "8528afb53b99f5e9ccc58caecef59927e51c9c0c4c0ca51d821261e07645c306",
+    "size": 502
+  },
+  "evidence/primary-runs/rain-enhanced-on-r3/engine.log": {
+    "sha256": "d806198a323089b0664bc77f1d26734fc4db9079e3fdd359953d82b35ef0e6f0",
+    "size": 167129
+  },
+  "evidence/primary-runs/rain-enhanced-on-r3/manifest.json": {
+    "sha256": "cc1e3ab456cafdc29346783eb1ee67d6bfaf0ba35ee6c1abf0865e9b2448568f",
+    "size": 8029
+  },
+  "evidence/primary-runs/rain-enhanced-on-r3/overlay/Maps/WeatherEvidence/WeatherEvidence.map": {
+    "sha256": "6dc4dec8c5671302ef3762d291c6026059d80fec6b5d9355c48c95d528b841fa",
+    "size": 259270
+  },
+  "evidence/primary-runs/rain-enhanced-on-r3/overlay/Scenarios/weather_evidence.txt": {
+    "sha256": "68b4ee00352522f56623f4efb7a43de6c473cf6ac94f83d5e4197fdd83057eee",
+    "size": 50
+  },
+  "evidence/primary-runs/rain-enhanced-on-r3/run.log": {
+    "sha256": "1f1658edf65612621f675ebdc2ece8cd8595705e8a38ce39d2a8a84316f316e7",
+    "size": 3245
+  },
+  "evidence/primary-runs/rain-enhanced-on-r3/timing.csv": {
+    "sha256": "4ee7f5bc9d1824d6166d9068eed8e45a4c1b76eb7b19cdf1292bb111f90ef845",
+    "size": 2968123
+  },
+  "evidence/primary-runs/rain-enhanced-on-r3/user/Options.ini": {
+    "sha256": "8528afb53b99f5e9ccc58caecef59927e51c9c0c4c0ca51d821261e07645c306",
+    "size": 502
+  },
+  "evidence/primary-runs/sand-baseline-on-r1/engine.log": {
+    "sha256": "6fb9374b8ef000bd364ebb367432979279647280bfd396e5811d212b6efcc779",
+    "size": 130517
+  },
+  "evidence/primary-runs/sand-baseline-on-r1/manifest.json": {
+    "sha256": "ade2544138343a9efd15a4998e069e35cf769e1747d29b9edbf09c38b2ba9283",
+    "size": 8022
+  },
+  "evidence/primary-runs/sand-baseline-on-r1/overlay/Maps/WeatherEvidence/WeatherEvidence.map": {
+    "sha256": "9304c53c63f0207b44048f65ad074622b5b9c5dbce46e926118d5c96e96d05b0",
+    "size": 259276
+  },
+  "evidence/primary-runs/sand-baseline-on-r1/overlay/Scenarios/weather_evidence.txt": {
+    "sha256": "68b4ee00352522f56623f4efb7a43de6c473cf6ac94f83d5e4197fdd83057eee",
+    "size": 50
+  },
+  "evidence/primary-runs/sand-baseline-on-r1/run.log": {
+    "sha256": "5d521c26bc63e9439751bcc881598fec0241bd4a0c09b9f16aa2e7fcd4886a5e",
+    "size": 3235
+  },
+  "evidence/primary-runs/sand-baseline-on-r1/timing.csv": {
+    "sha256": "d7f466de4141f38cddcf40e88676554c42c78fd270372717f89eb47fd1fd88e5",
+    "size": 214428
+  },
+  "evidence/primary-runs/sand-baseline-on-r1/user/Options.ini": {
+    "sha256": "8528afb53b99f5e9ccc58caecef59927e51c9c0c4c0ca51d821261e07645c306",
+    "size": 502
+  },
+  "evidence/primary-runs/sand-baseline-on-r2/engine.log": {
+    "sha256": "91f095dcbfcdbc10b8dfaed76c971d6850acbb3242fffc569ad25505336c271e",
+    "size": 130500
+  },
+  "evidence/primary-runs/sand-baseline-on-r2/manifest.json": {
+    "sha256": "ef70c3165c6a1360d2242cfa18004d47f04e8f2b32c4faef4e843cbe60db030a",
+    "size": 8028
+  },
+  "evidence/primary-runs/sand-baseline-on-r2/overlay/Maps/WeatherEvidence/WeatherEvidence.map": {
+    "sha256": "9304c53c63f0207b44048f65ad074622b5b9c5dbce46e926118d5c96e96d05b0",
+    "size": 259276
+  },
+  "evidence/primary-runs/sand-baseline-on-r2/overlay/Scenarios/weather_evidence.txt": {
+    "sha256": "68b4ee00352522f56623f4efb7a43de6c473cf6ac94f83d5e4197fdd83057eee",
+    "size": 50
+  },
+  "evidence/primary-runs/sand-baseline-on-r2/run.log": {
+    "sha256": "deb15defe618ca8f9eca94e6e4c70a2055913104178eb9b5cd31f17f5f10d0f6",
+    "size": 3235
+  },
+  "evidence/primary-runs/sand-baseline-on-r2/timing.csv": {
+    "sha256": "d38874d408154695cd214647a42e43055397c1f3ac0adc9df011ce68251f107e",
+    "size": 214352
+  },
+  "evidence/primary-runs/sand-baseline-on-r2/user/Options.ini": {
+    "sha256": "8528afb53b99f5e9ccc58caecef59927e51c9c0c4c0ca51d821261e07645c306",
+    "size": 502
+  },
+  "evidence/primary-runs/sand-baseline-on-r3/engine.log": {
+    "sha256": "305d54847b32b2be0d7c9498522c210943636927e31fb6dec6a9646fad0e317e",
+    "size": 130501
+  },
+  "evidence/primary-runs/sand-baseline-on-r3/manifest.json": {
+    "sha256": "9d7518fe4f946d2efa190a1ac9dd9033bd0feee29ea2c441e1c258de628d5f3f",
+    "size": 8025
+  },
+  "evidence/primary-runs/sand-baseline-on-r3/overlay/Maps/WeatherEvidence/WeatherEvidence.map": {
+    "sha256": "9304c53c63f0207b44048f65ad074622b5b9c5dbce46e926118d5c96e96d05b0",
+    "size": 259276
+  },
+  "evidence/primary-runs/sand-baseline-on-r3/overlay/Scenarios/weather_evidence.txt": {
+    "sha256": "68b4ee00352522f56623f4efb7a43de6c473cf6ac94f83d5e4197fdd83057eee",
+    "size": 50
+  },
+  "evidence/primary-runs/sand-baseline-on-r3/run.log": {
+    "sha256": "294059e119ab98bd77138363f68e790b33065301d0729ae5207f26549325f654",
+    "size": 3235
+  },
+  "evidence/primary-runs/sand-baseline-on-r3/timing.csv": {
+    "sha256": "3053d0ef7f33e5a9e948208a55a6911e8e04f6c4037b2493fbdd6f5010a9a09a",
+    "size": 214347
+  },
+  "evidence/primary-runs/sand-baseline-on-r3/user/Options.ini": {
+    "sha256": "8528afb53b99f5e9ccc58caecef59927e51c9c0c4c0ca51d821261e07645c306",
+    "size": 502
+  },
+  "evidence/primary-runs/sand-enhanced-off-r1/engine.log": {
+    "sha256": "1f9a54bce462d3c67d2db56be097fd7de77c89286bea14f6838b9b6be746ce17",
+    "size": 130436
+  },
+  "evidence/primary-runs/sand-enhanced-off-r1/manifest.json": {
+    "sha256": "472269f0959df037c557197af048a9df24c0497f5517543e3a1571387fc974d6",
+    "size": 7997
+  },
+  "evidence/primary-runs/sand-enhanced-off-r1/overlay/Maps/WeatherEvidence/WeatherEvidence.map": {
+    "sha256": "9304c53c63f0207b44048f65ad074622b5b9c5dbce46e926118d5c96e96d05b0",
+    "size": 259276
+  },
+  "evidence/primary-runs/sand-enhanced-off-r1/overlay/Scenarios/weather_evidence.txt": {
+    "sha256": "68b4ee00352522f56623f4efb7a43de6c473cf6ac94f83d5e4197fdd83057eee",
+    "size": 50
+  },
+  "evidence/primary-runs/sand-enhanced-off-r1/run.log": {
+    "sha256": "ef81c23fd62b95245fc57ea6f2fb1e5bc130351a4eb5edf8e177ea194d607cf0",
+    "size": 3236
+  },
+  "evidence/primary-runs/sand-enhanced-off-r1/timing.csv": {
+    "sha256": "05cb92e7e8dd82cab05f67af741851dca604fe4ab17a1f0ea923f90fb0710629",
+    "size": 214370
+  },
+  "evidence/primary-runs/sand-enhanced-off-r1/user/Options.ini": {
+    "sha256": "f0de81e7e86e4854011cb44f599764d5290690a60a4675bd324c93b1bcd157a3",
+    "size": 501
+  },
+  "evidence/primary-runs/sand-enhanced-off-r2/engine.log": {
+    "sha256": "f6cac78fe5b548a7887b45f997fecbafeaf5136621b825e92624a64f3409ba61",
+    "size": 130412
+  },
+  "evidence/primary-runs/sand-enhanced-off-r2/manifest.json": {
+    "sha256": "b704b6286fd423843d25b387afc66cd53b3421173ef549feabc6bea7f731d0bf",
+    "size": 8005
+  },
+  "evidence/primary-runs/sand-enhanced-off-r2/overlay/Maps/WeatherEvidence/WeatherEvidence.map": {
+    "sha256": "9304c53c63f0207b44048f65ad074622b5b9c5dbce46e926118d5c96e96d05b0",
+    "size": 259276
+  },
+  "evidence/primary-runs/sand-enhanced-off-r2/overlay/Scenarios/weather_evidence.txt": {
+    "sha256": "68b4ee00352522f56623f4efb7a43de6c473cf6ac94f83d5e4197fdd83057eee",
+    "size": 50
+  },
+  "evidence/primary-runs/sand-enhanced-off-r2/run.log": {
+    "sha256": "52cb93f45df82081e4ae7a94e213c75c6aeeefb29c23f0d9021e80c2c01b3de3",
+    "size": 3236
+  },
+  "evidence/primary-runs/sand-enhanced-off-r2/timing.csv": {
+    "sha256": "713e46bd0fc8e6160342291a8f38cba548e570a2d32c636fc4b86cbd3ece1fb3",
+    "size": 214409
+  },
+  "evidence/primary-runs/sand-enhanced-off-r2/user/Options.ini": {
+    "sha256": "f0de81e7e86e4854011cb44f599764d5290690a60a4675bd324c93b1bcd157a3",
+    "size": 501
+  },
+  "evidence/primary-runs/sand-enhanced-off-r3/engine.log": {
+    "sha256": "750f02d35f1876930de3f248651b813a2ce1c0fc8025d2a16bd612e4ca44956e",
+    "size": 130435
+  },
+  "evidence/primary-runs/sand-enhanced-off-r3/manifest.json": {
+    "sha256": "815c4e52405fafadf682fc24d38bfbdbf26f40f274d3abf4cddb8c8519af9cff",
+    "size": 7994
+  },
+  "evidence/primary-runs/sand-enhanced-off-r3/overlay/Maps/WeatherEvidence/WeatherEvidence.map": {
+    "sha256": "9304c53c63f0207b44048f65ad074622b5b9c5dbce46e926118d5c96e96d05b0",
+    "size": 259276
+  },
+  "evidence/primary-runs/sand-enhanced-off-r3/overlay/Scenarios/weather_evidence.txt": {
+    "sha256": "68b4ee00352522f56623f4efb7a43de6c473cf6ac94f83d5e4197fdd83057eee",
+    "size": 50
+  },
+  "evidence/primary-runs/sand-enhanced-off-r3/run.log": {
+    "sha256": "5999d55cbf0cbefba39babdaed7706036116b35827dd977d6d0fc4efc2fdd66a",
+    "size": 3236
+  },
+  "evidence/primary-runs/sand-enhanced-off-r3/timing.csv": {
+    "sha256": "bea74485c95c5a0649420ac5d998a667afc895e5bf902b19f61de780f752d4ba",
+    "size": 214444
+  },
+  "evidence/primary-runs/sand-enhanced-off-r3/user/Options.ini": {
+    "sha256": "f0de81e7e86e4854011cb44f599764d5290690a60a4675bd324c93b1bcd157a3",
+    "size": 501
+  },
+  "evidence/primary-runs/sand-enhanced-on-r1/engine.log": {
+    "sha256": "9a3dc78396a0b2e57e33fb067dc5fa63891acccb83ef119c80698292080b13bf",
+    "size": 130462
+  },
+  "evidence/primary-runs/sand-enhanced-on-r1/manifest.json": {
+    "sha256": "8a549b83f04c720e3b8a92ddddeebd3b339c6dd6e58177f78dac2c0ae4ad7a0a",
+    "size": 7983
+  },
+  "evidence/primary-runs/sand-enhanced-on-r1/overlay/Maps/WeatherEvidence/WeatherEvidence.map": {
+    "sha256": "9304c53c63f0207b44048f65ad074622b5b9c5dbce46e926118d5c96e96d05b0",
+    "size": 259276
+  },
+  "evidence/primary-runs/sand-enhanced-on-r1/overlay/Scenarios/weather_evidence.txt": {
+    "sha256": "68b4ee00352522f56623f4efb7a43de6c473cf6ac94f83d5e4197fdd83057eee",
+    "size": 50
+  },
+  "evidence/primary-runs/sand-enhanced-on-r1/run.log": {
+    "sha256": "c70616cfb734a65dccd0a0a6c17d0d6d7b408b75273a802ae09ae1bf10a780ef",
+    "size": 3235
+  },
+  "evidence/primary-runs/sand-enhanced-on-r1/timing.csv": {
+    "sha256": "528b733926c6431530abbf1e880f91acfe10232adc4b007dae5c063a0e017d6f",
+    "size": 215039
+  },
+  "evidence/primary-runs/sand-enhanced-on-r1/user/Options.ini": {
+    "sha256": "8528afb53b99f5e9ccc58caecef59927e51c9c0c4c0ca51d821261e07645c306",
+    "size": 502
+  },
+  "evidence/primary-runs/sand-enhanced-on-r2/engine.log": {
+    "sha256": "19ea9ddd3efac4e975c4a1d0750872136b6d1b74938cff7832634ff0fee4683e",
+    "size": 130451
+  },
+  "evidence/primary-runs/sand-enhanced-on-r2/manifest.json": {
+    "sha256": "10fc0e114401d4b4f818a4de1860e8998eb43d2c7bf9871d00d3c7fe66c8779e",
+    "size": 7973
+  },
+  "evidence/primary-runs/sand-enhanced-on-r2/overlay/Maps/WeatherEvidence/WeatherEvidence.map": {
+    "sha256": "9304c53c63f0207b44048f65ad074622b5b9c5dbce46e926118d5c96e96d05b0",
+    "size": 259276
+  },
+  "evidence/primary-runs/sand-enhanced-on-r2/overlay/Scenarios/weather_evidence.txt": {
+    "sha256": "68b4ee00352522f56623f4efb7a43de6c473cf6ac94f83d5e4197fdd83057eee",
+    "size": 50
+  },
+  "evidence/primary-runs/sand-enhanced-on-r2/run.log": {
+    "sha256": "450a177f3a6051da0e667976fced35c44476500ff93a8633e29ec7ccaf9aae93",
+    "size": 3235
+  },
+  "evidence/primary-runs/sand-enhanced-on-r2/timing.csv": {
+    "sha256": "50658d3833ec80e2214ddf61d8bd8a89cafec1a07b37dcbadfd87b5ce15a78cd",
+    "size": 214907
+  },
+  "evidence/primary-runs/sand-enhanced-on-r2/user/Options.ini": {
+    "sha256": "8528afb53b99f5e9ccc58caecef59927e51c9c0c4c0ca51d821261e07645c306",
+    "size": 502
+  },
+  "evidence/primary-runs/sand-enhanced-on-r3/engine.log": {
+    "sha256": "19d443bb72d70eea6d6ce533be157d32257af0de0fb45cbe691ed098f7823e91",
+    "size": 130476
+  },
+  "evidence/primary-runs/sand-enhanced-on-r3/manifest.json": {
+    "sha256": "5854b1dfecd6e9dfc403007fa6eae8ec6482e2cdac8eb9a1f520e1bdffdb251f",
+    "size": 8009
+  },
+  "evidence/primary-runs/sand-enhanced-on-r3/overlay/Maps/WeatherEvidence/WeatherEvidence.map": {
+    "sha256": "9304c53c63f0207b44048f65ad074622b5b9c5dbce46e926118d5c96e96d05b0",
+    "size": 259276
+  },
+  "evidence/primary-runs/sand-enhanced-on-r3/overlay/Scenarios/weather_evidence.txt": {
+    "sha256": "68b4ee00352522f56623f4efb7a43de6c473cf6ac94f83d5e4197fdd83057eee",
+    "size": 50
+  },
+  "evidence/primary-runs/sand-enhanced-on-r3/run.log": {
+    "sha256": "2d9a5f4e7313c3ee901525132a43b707ebd1b0a485428aed0b9e4f8e1e1ebf9c",
+    "size": 3235
+  },
+  "evidence/primary-runs/sand-enhanced-on-r3/timing.csv": {
+    "sha256": "f6cd017c2ae3634882f521d61ba74d01d03f327fa442f64e72aefb0b5a84f877",
+    "size": 214889
+  },
+  "evidence/primary-runs/sand-enhanced-on-r3/user/Options.ini": {
+    "sha256": "8528afb53b99f5e9ccc58caecef59927e51c9c0c4c0ca51d821261e07645c306",
+    "size": 502
+  },
+  "evidence/primary-runs/snow-baseline-on-r1/engine.log": {
+    "sha256": "15261e2ceb51debf4cb6c965c44d01c7ac63e17b326bdf3614b56f3a7222f87c",
+    "size": 130476
+  },
+  "evidence/primary-runs/snow-baseline-on-r1/manifest.json": {
+    "sha256": "7452802269be4a71a3c0a10251b8a74321641f097476921988a43169aed2c4b6",
+    "size": 8014
+  },
+  "evidence/primary-runs/snow-baseline-on-r1/overlay/Maps/WeatherEvidence/WeatherEvidence.map": {
+    "sha256": "07b0e696d861254c26be2fe216b922fd97984fe212e99fa0bfaac9a1ee9ae135",
+    "size": 259274
+  },
+  "evidence/primary-runs/snow-baseline-on-r1/overlay/Scenarios/weather_evidence.txt": {
+    "sha256": "68b4ee00352522f56623f4efb7a43de6c473cf6ac94f83d5e4197fdd83057eee",
+    "size": 50
+  },
+  "evidence/primary-runs/snow-baseline-on-r1/run.log": {
+    "sha256": "e207d12a660e22460c9441bc2de7a5b42f6c11afbaf983be18aee944a55434a8",
+    "size": 3235
+  },
+  "evidence/primary-runs/snow-baseline-on-r1/timing.csv": {
+    "sha256": "7998a53073af975de83ff179e6b40048f550c49b7648bb3bab63ea8e1730eb9b",
+    "size": 214402
+  },
+  "evidence/primary-runs/snow-baseline-on-r1/user/Options.ini": {
+    "sha256": "8528afb53b99f5e9ccc58caecef59927e51c9c0c4c0ca51d821261e07645c306",
+    "size": 502
+  },
+  "evidence/primary-runs/snow-baseline-on-r2/engine.log": {
+    "sha256": "0f716853577f1bc88bd17ed54540a9ed38018404beb3a759e4fe576223bfd2d8",
+    "size": 130477
+  },
+  "evidence/primary-runs/snow-baseline-on-r2/manifest.json": {
+    "sha256": "d01934cf80550b1d75b90990876dd99323cf6075af4536e517cd5ad2a93fd319",
+    "size": 8034
+  },
+  "evidence/primary-runs/snow-baseline-on-r2/overlay/Maps/WeatherEvidence/WeatherEvidence.map": {
+    "sha256": "07b0e696d861254c26be2fe216b922fd97984fe212e99fa0bfaac9a1ee9ae135",
+    "size": 259274
+  },
+  "evidence/primary-runs/snow-baseline-on-r2/overlay/Scenarios/weather_evidence.txt": {
+    "sha256": "68b4ee00352522f56623f4efb7a43de6c473cf6ac94f83d5e4197fdd83057eee",
+    "size": 50
+  },
+  "evidence/primary-runs/snow-baseline-on-r2/run.log": {
+    "sha256": "0bea08f92b706cd1e8b81525af8e6156136bd9f75cf175cc22c59f8de54e3031",
+    "size": 3235
+  },
+  "evidence/primary-runs/snow-baseline-on-r2/timing.csv": {
+    "sha256": "b1efd2edf2c5c5ef1b72f6f520ca2c671f1a21d368b78f22c053fcbd85ccd9ad",
+    "size": 214411
+  },
+  "evidence/primary-runs/snow-baseline-on-r2/user/Options.ini": {
+    "sha256": "8528afb53b99f5e9ccc58caecef59927e51c9c0c4c0ca51d821261e07645c306",
+    "size": 502
+  },
+  "evidence/primary-runs/snow-baseline-on-r3/engine.log": {
+    "sha256": "5c4c61134ec7690bfe0900a7d6b61963da7eac56ff114060a6480b3cd11a45ef",
+    "size": 130477
+  },
+  "evidence/primary-runs/snow-baseline-on-r3/manifest.json": {
+    "sha256": "c196326b018cf3ef079f0c8779fea9cf97f8ce4add7bcc99b282894244b6491b",
+    "size": 8023
+  },
+  "evidence/primary-runs/snow-baseline-on-r3/overlay/Maps/WeatherEvidence/WeatherEvidence.map": {
+    "sha256": "07b0e696d861254c26be2fe216b922fd97984fe212e99fa0bfaac9a1ee9ae135",
+    "size": 259274
+  },
+  "evidence/primary-runs/snow-baseline-on-r3/overlay/Scenarios/weather_evidence.txt": {
+    "sha256": "68b4ee00352522f56623f4efb7a43de6c473cf6ac94f83d5e4197fdd83057eee",
+    "size": 50
+  },
+  "evidence/primary-runs/snow-baseline-on-r3/run.log": {
+    "sha256": "5ee0262c208aceae008c956876a5a086471124d338da57c71c7e9466b32dff3f",
+    "size": 3235
+  },
+  "evidence/primary-runs/snow-baseline-on-r3/timing.csv": {
+    "sha256": "7fc7dfadb8746acdf03267c54b7c73fb215b91616ad12a37b73bf4478919866c",
+    "size": 214394
+  },
+  "evidence/primary-runs/snow-baseline-on-r3/user/Options.ini": {
+    "sha256": "8528afb53b99f5e9ccc58caecef59927e51c9c0c4c0ca51d821261e07645c306",
+    "size": 502
+  },
+  "evidence/primary-runs/snow-enhanced-off-r1/engine.log": {
+    "sha256": "0bdb5498b06f3c648c70a1890354e9007fe8ab8e0ebd7ad4ce569462cb1f125f",
+    "size": 130446
+  },
+  "evidence/primary-runs/snow-enhanced-off-r1/manifest.json": {
+    "sha256": "261f7dd658c24d36384f8ba02b6b26dad986c052737754ed24305595b9056511",
+    "size": 8009
+  },
+  "evidence/primary-runs/snow-enhanced-off-r1/overlay/Maps/WeatherEvidence/WeatherEvidence.map": {
+    "sha256": "07b0e696d861254c26be2fe216b922fd97984fe212e99fa0bfaac9a1ee9ae135",
+    "size": 259274
+  },
+  "evidence/primary-runs/snow-enhanced-off-r1/overlay/Scenarios/weather_evidence.txt": {
+    "sha256": "68b4ee00352522f56623f4efb7a43de6c473cf6ac94f83d5e4197fdd83057eee",
+    "size": 50
+  },
+  "evidence/primary-runs/snow-enhanced-off-r1/run.log": {
+    "sha256": "666b1e9289a9a4e0a466306b21c57da4978af157398d836134a520f7ca3141a8",
+    "size": 3236
+  },
+  "evidence/primary-runs/snow-enhanced-off-r1/timing.csv": {
+    "sha256": "c9d0f77fffdf9bf87c174c1da2438ba5cac093aa213b5de8ba8d31b908403f0e",
+    "size": 214462
+  },
+  "evidence/primary-runs/snow-enhanced-off-r1/user/Options.ini": {
+    "sha256": "f0de81e7e86e4854011cb44f599764d5290690a60a4675bd324c93b1bcd157a3",
+    "size": 501
+  },
+  "evidence/primary-runs/snow-enhanced-off-r2/engine.log": {
+    "sha256": "25930499b98f5637e9be67cbf9801f3c2a78d6fd5fec2ff5e882403f4e08cf40",
+    "size": 130424
+  },
+  "evidence/primary-runs/snow-enhanced-off-r2/manifest.json": {
+    "sha256": "a8b8606d28f1fcaee57f1e16e571efaf83161c50ddee02500e0fc6433ad76fa7",
+    "size": 7990
+  },
+  "evidence/primary-runs/snow-enhanced-off-r2/overlay/Maps/WeatherEvidence/WeatherEvidence.map": {
+    "sha256": "07b0e696d861254c26be2fe216b922fd97984fe212e99fa0bfaac9a1ee9ae135",
+    "size": 259274
+  },
+  "evidence/primary-runs/snow-enhanced-off-r2/overlay/Scenarios/weather_evidence.txt": {
+    "sha256": "68b4ee00352522f56623f4efb7a43de6c473cf6ac94f83d5e4197fdd83057eee",
+    "size": 50
+  },
+  "evidence/primary-runs/snow-enhanced-off-r2/run.log": {
+    "sha256": "97ebe414b8f62b0941b91cdeb9c037a2d57d0f29080ac3094617ccfd148dee12",
+    "size": 3236
+  },
+  "evidence/primary-runs/snow-enhanced-off-r2/timing.csv": {
+    "sha256": "00911056eafee61575b7cb7533d4d890855b5fc5a6d9abb0680c97fcf65c671f",
+    "size": 214328
+  },
+  "evidence/primary-runs/snow-enhanced-off-r2/user/Options.ini": {
+    "sha256": "f0de81e7e86e4854011cb44f599764d5290690a60a4675bd324c93b1bcd157a3",
+    "size": 501
+  },
+  "evidence/primary-runs/snow-enhanced-off-r3/engine.log": {
+    "sha256": "f4aead1bc1f428f49a326f34dda13cb9476a0a34733056763e0f9bb30add9508",
+    "size": 130411
+  },
+  "evidence/primary-runs/snow-enhanced-off-r3/manifest.json": {
+    "sha256": "c62fee56ab1a125c355a5800f81c4ccbb0f2c8298f89b9ef468e150941399d2d",
+    "size": 7993
+  },
+  "evidence/primary-runs/snow-enhanced-off-r3/overlay/Maps/WeatherEvidence/WeatherEvidence.map": {
+    "sha256": "07b0e696d861254c26be2fe216b922fd97984fe212e99fa0bfaac9a1ee9ae135",
+    "size": 259274
+  },
+  "evidence/primary-runs/snow-enhanced-off-r3/overlay/Scenarios/weather_evidence.txt": {
+    "sha256": "68b4ee00352522f56623f4efb7a43de6c473cf6ac94f83d5e4197fdd83057eee",
+    "size": 50
+  },
+  "evidence/primary-runs/snow-enhanced-off-r3/run.log": {
+    "sha256": "98bcc59713304e0663a78730c79f8a31c26a1b9603f0fa0c1ca82850e17663cf",
+    "size": 3236
+  },
+  "evidence/primary-runs/snow-enhanced-off-r3/timing.csv": {
+    "sha256": "96b13371c113b282ce8c7a312ec355fc655da6b35ae8bdd12f0416d7c27b3909",
+    "size": 214430
+  },
+  "evidence/primary-runs/snow-enhanced-off-r3/user/Options.ini": {
+    "sha256": "f0de81e7e86e4854011cb44f599764d5290690a60a4675bd324c93b1bcd157a3",
+    "size": 501
+  },
+  "evidence/primary-runs/snow-enhanced-on-r1/engine.log": {
+    "sha256": "a8588d2c488de2eedec5061235ecea604b8482f8c2741aed6ce4fb5cb53ec449",
+    "size": 130462
+  },
+  "evidence/primary-runs/snow-enhanced-on-r1/manifest.json": {
+    "sha256": "ac20073919ac511252f7f56ca6fd9d6bff8f908f1d86aba6e71dd0b0dc6bae78",
+    "size": 7994
+  },
+  "evidence/primary-runs/snow-enhanced-on-r1/overlay/Maps/WeatherEvidence/WeatherEvidence.map": {
+    "sha256": "07b0e696d861254c26be2fe216b922fd97984fe212e99fa0bfaac9a1ee9ae135",
+    "size": 259274
+  },
+  "evidence/primary-runs/snow-enhanced-on-r1/overlay/Scenarios/weather_evidence.txt": {
+    "sha256": "68b4ee00352522f56623f4efb7a43de6c473cf6ac94f83d5e4197fdd83057eee",
+    "size": 50
+  },
+  "evidence/primary-runs/snow-enhanced-on-r1/run.log": {
+    "sha256": "a29f844269a992bd3e8307914e44c22a904c2b78bf05b5ee680e83750513ad86",
+    "size": 3235
+  },
+  "evidence/primary-runs/snow-enhanced-on-r1/timing.csv": {
+    "sha256": "94d7aca166a61616492b46c3971c4a7f7f43ab2a07f9e234226bb96f86c573b5",
+    "size": 215018
+  },
+  "evidence/primary-runs/snow-enhanced-on-r1/user/Options.ini": {
+    "sha256": "8528afb53b99f5e9ccc58caecef59927e51c9c0c4c0ca51d821261e07645c306",
+    "size": 502
+  },
+  "evidence/primary-runs/snow-enhanced-on-r2/engine.log": {
+    "sha256": "06eab379eb0e5fbc90485dcc5e5588d5302eecccea1edaf7a85ca6883f7f57dc",
+    "size": 130452
+  },
+  "evidence/primary-runs/snow-enhanced-on-r2/manifest.json": {
+    "sha256": "98a693349cd375cf42ce3ab6e92efd322e9eea002e438aab8409d311e18ccbf3",
+    "size": 7985
+  },
+  "evidence/primary-runs/snow-enhanced-on-r2/overlay/Maps/WeatherEvidence/WeatherEvidence.map": {
+    "sha256": "07b0e696d861254c26be2fe216b922fd97984fe212e99fa0bfaac9a1ee9ae135",
+    "size": 259274
+  },
+  "evidence/primary-runs/snow-enhanced-on-r2/overlay/Scenarios/weather_evidence.txt": {
+    "sha256": "68b4ee00352522f56623f4efb7a43de6c473cf6ac94f83d5e4197fdd83057eee",
+    "size": 50
+  },
+  "evidence/primary-runs/snow-enhanced-on-r2/run.log": {
+    "sha256": "e311879153f5509677aeebbb07e583ffda395b48d896a82253ff0a3eb898a642",
+    "size": 3235
+  },
+  "evidence/primary-runs/snow-enhanced-on-r2/timing.csv": {
+    "sha256": "bd72296b62909547f1f74511464f66a8f6cfa90ee1bfe917008ff371380f6d57",
+    "size": 215001
+  },
+  "evidence/primary-runs/snow-enhanced-on-r2/user/Options.ini": {
+    "sha256": "8528afb53b99f5e9ccc58caecef59927e51c9c0c4c0ca51d821261e07645c306",
+    "size": 502
+  },
+  "evidence/primary-runs/snow-enhanced-on-r3/engine.log": {
+    "sha256": "e738fb000cc5a01a473c61648a5ec59af8a0e3a967e42fc67e017ad76f50c288",
+    "size": 130451
+  },
+  "evidence/primary-runs/snow-enhanced-on-r3/manifest.json": {
+    "sha256": "ea48ed90f26893cd814317fbd171a5720019cdc80be5c067649a7716f609ed2f",
+    "size": 7981
+  },
+  "evidence/primary-runs/snow-enhanced-on-r3/overlay/Maps/WeatherEvidence/WeatherEvidence.map": {
+    "sha256": "07b0e696d861254c26be2fe216b922fd97984fe212e99fa0bfaac9a1ee9ae135",
+    "size": 259274
+  },
+  "evidence/primary-runs/snow-enhanced-on-r3/overlay/Scenarios/weather_evidence.txt": {
+    "sha256": "68b4ee00352522f56623f4efb7a43de6c473cf6ac94f83d5e4197fdd83057eee",
+    "size": 50
+  },
+  "evidence/primary-runs/snow-enhanced-on-r3/run.log": {
+    "sha256": "fd251b95fd42c0a01f0bb2d936eac4e7566c6409ace283b62080489b5a6b9fb1",
+    "size": 3235
+  },
+  "evidence/primary-runs/snow-enhanced-on-r3/timing.csv": {
+    "sha256": "b797ab9280d951df642346a603ac061fe7e07553b89ac3f76ffbcfcd60697070",
+    "size": 214990
+  },
+  "evidence/primary-runs/snow-enhanced-on-r3/user/Options.ini": {
+    "sha256": "8528afb53b99f5e9ccc58caecef59927e51c9c0c4c0ca51d821261e07645c306",
+    "size": 502
+  },
+  "evidence/qualification/admission-headless-rain-baseline-on/engine.log": {
+    "sha256": "a8b0cde69874697331aaf3b21eb9badafc0e298be3940718d873772be376c177",
+    "size": 164149
+  },
+  "evidence/qualification/admission-headless-rain-baseline-on/headless-run.log": {
+    "sha256": "9b99e4188a64152e44998b50e5bfd3040ea0bfb5dd254a3ea3c0cc91e20e5f15",
+    "size": 536
+  },
+  "evidence/qualification/admission-headless-rain-baseline-on/manifest.json": {
+    "sha256": "8148da6ee6cbf817ad417ec4dad7eea07ce52a5daa0221ff46e61027782f44c2",
+    "size": 3642
+  },
+  "evidence/qualification/admission-headless-rain-enhanced-off/engine.log": {
+    "sha256": "98d5144d0687777435f0a55cf29c2da6fc812762e420b420ed6fb5935ee6fc8a",
+    "size": 164103
+  },
+  "evidence/qualification/admission-headless-rain-enhanced-off/headless-run.log": {
+    "sha256": "34bca315fa683b0f7eb503e1a323774092dd7a0dc3fc2234698e6d392b615beb",
+    "size": 537
+  },
+  "evidence/qualification/admission-headless-rain-enhanced-off/manifest.json": {
+    "sha256": "31797e2620ffc9af787540eddcb1f4f70ce810defffb92b2b42e8bba4f88feb5",
+    "size": 3639
+  },
+  "evidence/qualification/admission-headless-rain-enhanced-on/engine.log": {
+    "sha256": "1d7b2c7f559313be1450de738e6397e286077430a0f033ea017e1b47f10d26ee",
+    "size": 164128
+  },
+  "evidence/qualification/admission-headless-rain-enhanced-on/headless-run.log": {
+    "sha256": "d90d2b4ee1143e948efd24f6e5d3556f07339b2eb75477fc8d057175131a25a8",
+    "size": 536
+  },
+  "evidence/qualification/admission-headless-rain-enhanced-on/manifest.json": {
+    "sha256": "199b40738a583b81f8bd47a3fdcc71a09e4673b8367c5f7fc6fa9e625cce8c08",
+    "size": 3634
+  },
+  "evidence/qualification/admission-headless-sand-baseline-on/engine.log": {
+    "sha256": "d41fe7a5293717841f56f1038d96c005cb0cba0f195476bf9241b64255451fac",
+    "size": 128007
+  },
+  "evidence/qualification/admission-headless-sand-baseline-on/headless-run.log": {
+    "sha256": "bdf3bf132852563da38b861399cd1806c55ad67b104e9a6b65bab49edf53bde1",
+    "size": 536
+  },
+  "evidence/qualification/admission-headless-sand-baseline-on/manifest.json": {
+    "sha256": "7bdcca1a78a79613db3e0a59fe8a522b4793e7b6182cf6af3a12c90a92526f14",
+    "size": 3635
+  },
+  "evidence/qualification/admission-headless-sand-enhanced-off/engine.log": {
+    "sha256": "16d1be7d6f80615714580978fbb7822a649977b1b2a0ac5d333cc9b92bef3d6c",
+    "size": 127997
+  },
+  "evidence/qualification/admission-headless-sand-enhanced-off/headless-run.log": {
+    "sha256": "b10f30ddca04debf960318c8797524507729d8240cc2ad770b32c6ba03186401",
+    "size": 537
+  },
+  "evidence/qualification/admission-headless-sand-enhanced-off/manifest.json": {
+    "sha256": "4c05af2248ed9d27871ff41c97efbffe7bb1108fb33ee2b0dad3e419811ba471",
+    "size": 3632
+  },
+  "evidence/qualification/admission-headless-sand-enhanced-on/engine.log": {
+    "sha256": "aa62447b47e0ebd1bfb11628d7ec1d82fb7e955385d8ed976aad7808ca8166b8",
+    "size": 127997
+  },
+  "evidence/qualification/admission-headless-sand-enhanced-on/headless-run.log": {
+    "sha256": "8947c25399688902f5f7cc057f2bcac7d344c624ce38f8dc54291fadf358a1b7",
+    "size": 536
+  },
+  "evidence/qualification/admission-headless-sand-enhanced-on/manifest.json": {
+    "sha256": "4c99dea376951aee831166cecdda6c863ac72ecd881fe2a31918692bf795d777",
+    "size": 3627
+  },
+  "evidence/qualification/admission-headless-short/engine.log": {
+    "sha256": "6a1898358b0eb76e7acaf18a80ec28753bc6754d43cde17518e8efd92e08c6f9",
+    "size": 125505
+  },
+  "evidence/qualification/admission-headless-short/run.log": {
+    "sha256": "d90d2b4ee1143e948efd24f6e5d3556f07339b2eb75477fc8d057175131a25a8",
+    "size": 536
+  },
+  "evidence/qualification/admission-headless-snow-baseline-on/engine.log": {
+    "sha256": "34f22acddf968834fb5a1e6ff210b74ef5aff6b769633632fd813e0b9f862f34",
+    "size": 128007
+  },
+  "evidence/qualification/admission-headless-snow-baseline-on/headless-run.log": {
+    "sha256": "4985c1b2710f60879ede9c97b2a855f82729b82360300fe4f8c0008e8c2b62ce",
+    "size": 536
+  },
+  "evidence/qualification/admission-headless-snow-baseline-on/manifest.json": {
+    "sha256": "6b43a2fb566f3f0aad66afba6c6a9f2dc9a0a7b3b8f5d2dd75f52bb3e2a93273",
+    "size": 3635
+  },
+  "evidence/qualification/admission-headless-snow-enhanced-off/engine.log": {
+    "sha256": "16fe91bcde5a34c0f85d7c60fc768a4e237fa5b4c556ddad8f68072a67dfe087",
+    "size": 127986
+  },
+  "evidence/qualification/admission-headless-snow-enhanced-off/headless-run.log": {
+    "sha256": "99011ef0cb2c5570543d5c9aff384fd31b8b37aae70d009f0e02b0635580be4d",
+    "size": 537
+  },
+  "evidence/qualification/admission-headless-snow-enhanced-off/manifest.json": {
+    "sha256": "1bb0e19fc8f87186402a52dea26d4a839bc266e44c78306319fadf266fa24ad9",
+    "size": 3632
+  },
+  "evidence/qualification/admission-headless-snow-enhanced-on/engine.log": {
+    "sha256": "5a0b504858a1b87fce0959200877923bafe0d615fb1b521d7de012159acaaae4",
+    "size": 127984
+  },
+  "evidence/qualification/admission-headless-snow-enhanced-on/headless-run.log": {
+    "sha256": "e92c44651bd822272e412c1fa2292dd158312cb1cd057eb068c24c98dc05b7a8",
+    "size": 536
+  },
+  "evidence/qualification/admission-headless-snow-enhanced-on/manifest.json": {
+    "sha256": "c90154de3123b1ae3c9730c2f1cc260fdadff80b352f4824c69077e67ecd2da6",
+    "size": 3627
+  },
+  "evidence/qualification/admission-visible-baseline-rain/engine.log": {
+    "sha256": "a4f79f458c8569400827d3e641b547643d4a7e1aacd06ebb8789893cfde31704",
+    "size": 127984
+  },
+  "evidence/qualification/admission-visible-baseline-rain/manifest.json": {
+    "sha256": "ab1acf1c2bbde4e32b5c6c8ba62f4ca27153a700affc26b45641749508688252",
+    "size": 5347
+  },
+  "evidence/qualification/admission-visible-baseline-rain/picture-0.png": {
+    "sha256": "78c8fcd6dc67d1678a00a26e4db775da623f639b8ab8b0d7acce94cedc3cf204",
+    "size": 3684925
+  },
+  "evidence/qualification/admission-visible-baseline-rain/run.log": {
+    "sha256": "69ba7634c412a7b9dbe9e0813c1f862b320bfb8ba71c4c3ba1eea3389320b96e",
+    "size": 1416
+  },
+  "evidence/qualification/admission-visible-baseline-rain/user/Options.ini": {
+    "sha256": "8528afb53b99f5e9ccc58caecef59927e51c9c0c4c0ca51d821261e07645c306",
+    "size": 502
+  },
+  "evidence/qualification/admission-visible-final-rain/engine.log": {
+    "sha256": "a2d4b6129bcfd4affdc9254e1dcfd2d98dd70a0f0521320592d0416e7ed07b4b",
+    "size": 127977
+  },
+  "evidence/qualification/admission-visible-final-rain/manifest.json": {
+    "sha256": "15061fb569b39b0efcf1b62290aec8596015ae042c2696caf49585835a1c165c",
+    "size": 5423
+  },
+  "evidence/qualification/admission-visible-final-rain/picture-0.png": {
+    "sha256": "72cc415047b23545fa0971cbe67d9d7614a17e41d0ae4384a01c1adae4a3ffea",
+    "size": 3690065
+  },
+  "evidence/qualification/admission-visible-final-rain/run.log": {
+    "sha256": "3b71aa94719cabb6688fe22e21548d79251670a1f65461798d936d5e76f3a137",
+    "size": 5054
+  },
+  "evidence/qualification/admission-visible-final-rain/user/Options.ini": {
+    "sha256": "8528afb53b99f5e9ccc58caecef59927e51c9c0c4c0ca51d821261e07645c306",
+    "size": 502
+  },
+  "evidence/qualification/baseline-rain-qualification-gpu/engine.log": {
+    "sha256": "e7414552f923121d62eb02aba04d76a4b1ddffdfac18c538c96a7199e986eb0e",
+    "size": 128261
+  },
+  "evidence/qualification/baseline-rain-qualification-gpu/manifest.json": {
+    "sha256": "a89f8d79e83782e72b28d68f223ca4f1c1ddc3846ac43abd29000516ece3381a",
+    "size": 2913
+  },
+  "evidence/qualification/baseline-rain-qualification-gpu/picture-0.png": {
+    "sha256": "b3fb7cadc37f2d1626844fc09c587c32c5018183a60ac98beb90f8ddc433b8ab",
+    "size": 1661285
+  },
+  "evidence/qualification/baseline-rain-qualification-gpu/run.log": {
+    "sha256": "4b87e0c196fa5ef222dc336ced03a2ee0b474b6473ce06a47154cfa0dba40ce5",
+    "size": 1415
+  },
+  "evidence/qualification/baseline-rain-qualification-gpu/user/Options.ini": {
+    "sha256": "37cc7cc1f919ed0c3b3e8a2a6092eca588d5e886b5991265571708718cc56c1e",
+    "size": 500
+  },
+  "evidence/qualification/particle-runtime/qualification-summary.json": {
+    "sha256": "23c67c4756c4e81d07b046e3e94b9f9455df50ceb822d5f1e0a5a29d8dd13d9a",
+    "size": 61890
+  },
+  "evidence/qualification/particle-runtime/v4-rain-full-cycle-river/engine.log": {
+    "sha256": "4e2f8b84be7a8f085954c2368ef10a874294adaf1caa444ed9dbb09c6cd2ff17",
+    "size": 148017
+  },
+  "evidence/qualification/particle-runtime/v4-rain-full-cycle-river/manifest.json": {
+    "sha256": "315ff8994b2003a63a57e4b4ccfe958194529c4538a77e8e48f0835cd2ad1043",
+    "size": 4998
+  },
+  "evidence/qualification/particle-runtime/v4-rain-full-cycle-river/picture-0.png": {
+    "sha256": "a2bfbdb4a813b2fd1d5a8bfb231d11d522cae0e56ea18109ad0334b06ce8fe86",
+    "size": 1468908
+  },
+  "evidence/qualification/particle-runtime/v4-rain-full-cycle-river/picture-1.png": {
+    "sha256": "cb44540d2145a58bd43d313b9280e79897316cd1a46216ad25b9c2f684bfeb44",
+    "size": 1551230
+  },
+  "evidence/qualification/particle-runtime/v4-rain-full-cycle-river/picture-2.png": {
+    "sha256": "f85a71d2904c4fd0d6c2e30ce61cfb27d43fee61b52f6d33a7d2dfbdc29ff24c",
+    "size": 1464937
+  },
+  "evidence/qualification/particle-runtime/v4-rain-full-cycle-river/picture-3.png": {
+    "sha256": "3b7c33f0580f434d08224255228516c9727fc7fee33a5c3228d4a823c42f4c5d",
+    "size": 1479926
+  },
+  "evidence/qualification/particle-runtime/v4-rain-full-cycle-river/picture-4.png": {
+    "sha256": "6469b29c4edc287dce445432fb364531ed8481a30bc25f5de11677b0655da5d2",
+    "size": 1464371
+  },
+  "evidence/qualification/particle-runtime/v4-rain-full-cycle-river/picture-5.png": {
+    "sha256": "ed4991cf090ae37052e0268ec27112704d57af3b88cd47d67cea85840bfb6bce",
+    "size": 1470825
+  },
+  "evidence/qualification/particle-runtime/v4-rain-full-cycle-river/picture-6.png": {
+    "sha256": "73dd50095b145a2a92322ee2d842f2c92556c3e6483c32c044b9dcbcc883188d",
+    "size": 1430918
+  },
+  "evidence/qualification/particle-runtime/v4-rain-full-cycle-river/run.log": {
+    "sha256": "cfd55fbbd3bdc42a5a96ffa4a668f22102fa74a15a3f93794be1460bd5fc0a0f",
+    "size": 5972
+  },
+  "evidence/qualification/particle-runtime/v4-rain-full-cycle-river/user/Options.ini": {
+    "sha256": "6afd048b7c45bed1b85b94e94c249462748562cf582541cc3a6d4f12ed5b88a6",
+    "size": 501
+  },
+  "evidence/qualification/particle-runtime/v4-rain-sloped-river/engine.log": {
+    "sha256": "21e3da35263c10faf5a43224dd86a40cd494e607ad19a9267688fbaacee7a702",
+    "size": 129131
+  },
+  "evidence/qualification/particle-runtime/v4-rain-sloped-river/manifest.json": {
+    "sha256": "bb82a03d89115c15b6eaef392c4427055608553453c25d4d648bf40b4ce9417e",
+    "size": 3475
+  },
+  "evidence/qualification/particle-runtime/v4-rain-sloped-river/picture-0.png": {
+    "sha256": "3f1d9a291f211a9beda5ff73bf59194730c6749cbbaa7cb9846ce96aa6235ac1",
+    "size": 1886385
+  },
+  "evidence/qualification/particle-runtime/v4-rain-sloped-river/run.log": {
+    "sha256": "a60bebc0ef67aa0d3ec3c6baa793b7c61b989c9f5912cf28d39e2fd6b24cdc82",
+    "size": 7155
+  },
+  "evidence/qualification/particle-runtime/v4-rain-sloped-river/user/Options.ini": {
+    "sha256": "6afd048b7c45bed1b85b94e94c249462748562cf582541cc3a6d4f12ed5b88a6",
+    "size": 501
+  },
+  "evidence/qualification/particle-runtime/v4-sand-day-observer/engine.log": {
+    "sha256": "871e795d8344dfff6271cc6966bb159ec96d06f07ef256191aafd4b27230071e",
+    "size": 128637
+  },
+  "evidence/qualification/particle-runtime/v4-sand-day-observer/frame-000.png": {
+    "sha256": "178b6202b9fa71dbf48cbcdd5213ed3cdcede911adbce6b6a94b4885170f1769",
+    "size": 1296063
+  },
+  "evidence/qualification/particle-runtime/v4-sand-day-observer/frame-030.png": {
+    "sha256": "443ff11ea332b30551711e76f0b37e61d55233b2498df4f23d5c627c78505fb8",
+    "size": 1296190
+  },
+  "evidence/qualification/particle-runtime/v4-sand-day-observer/frame-060.png": {
+    "sha256": "db64743c75c1d5954b5f8afeb806f3887430dbd5220da1e5b9e03dfd588f4c94",
+    "size": 1296106
+  },
+  "evidence/qualification/particle-runtime/v4-sand-day-observer/frame-090.png": {
+    "sha256": "a6089b662de1795d9a340296bbb12eeec033ab63ef7516e37c107924563d207d",
+    "size": 1296520
+  },
+  "evidence/qualification/particle-runtime/v4-sand-day-observer/frame-120.png": {
+    "sha256": "82b7fc47153e176d906c618b73bd3271951ebe7dc725fd4bc4c50d33766f8432",
+    "size": 1296719
+  },
+  "evidence/qualification/particle-runtime/v4-sand-day-observer/manifest.json": {
+    "sha256": "bb5f80a6084eb0907f1476957c807a8ed60fe019c2c0df667e8c75ac1b3539a4",
+    "size": 3432
+  },
+  "evidence/qualification/particle-runtime/v4-sand-day-observer/picture-0.png": {
+    "sha256": "38c3a58b3d109cc9df0dc06b283ef82cf05274ee7fad0eaf3910a9be0e933e6d",
+    "size": 1296349
+  },
+  "evidence/qualification/particle-runtime/v4-sand-day-observer/run.log": {
+    "sha256": "1a707831211168a425d678465852dfeb02993355ee243a8abe5c068fa1852f62",
+    "size": 4634
+  },
+  "evidence/qualification/particle-runtime/v4-sand-day-observer/sand-day-static.mp4": {
+    "sha256": "f6d18e408eade0bd82bcb3204d99f34aefd0596214fd2237b649e6b88b26566f",
+    "size": 738110
+  },
+  "evidence/qualification/particle-runtime/v4-sand-day-observer/user/Options.ini": {
+    "sha256": "6afd048b7c45bed1b85b94e94c249462748562cf582541cc3a6d4f12ed5b88a6",
+    "size": 501
+  },
+  "evidence/qualification/particle-runtime/v4-sand-static/engine.log": {
+    "sha256": "c3b73fc5f99c84f777a7a84ca0ea7a3ae4450a1c8018286d29b1971ffb80da12",
+    "size": 123992
+  },
+  "evidence/qualification/particle-runtime/v4-sand-static/frame-000.png": {
+    "sha256": "89543f96ff0c4129b64471da8099031ac0fd76b189973522b06defa67a0c9dbe",
+    "size": 830817
+  },
+  "evidence/qualification/particle-runtime/v4-sand-static/frame-030.png": {
+    "sha256": "8148c3cdc73d1b3a4c6ec106b0515351c0bce77b20cfd58677ba1d14ac3d5273",
+    "size": 829640
+  },
+  "evidence/qualification/particle-runtime/v4-sand-static/frame-060.png": {
+    "sha256": "b5a01acad33ab07c8bec905ae69cedc526b186c88a5f28d492f4a3fdf17f1527",
+    "size": 829808
+  },
+  "evidence/qualification/particle-runtime/v4-sand-static/frame-090.png": {
+    "sha256": "96010e65ffd5d997981e834d79adcbbac6d9f160226063943f5a35fc97420033",
+    "size": 830395
+  },
+  "evidence/qualification/particle-runtime/v4-sand-static/frame-120.png": {
+    "sha256": "3e00b3175756ef4d8e0bca5f8eb14710e583acf9670f263020de666f8e639282",
+    "size": 830216
+  },
+  "evidence/qualification/particle-runtime/v4-sand-static/manifest.json": {
+    "sha256": "7534bd69814c0d09446442a25458f6bb880997e8fe3b4823c9370147e589d415",
+    "size": 3432
+  },
+  "evidence/qualification/particle-runtime/v4-sand-static/picture-0.png": {
+    "sha256": "ac42532bfa63d5a2801116207468cb92e7ab87ac3553452d6ba76c77f51936c6",
+    "size": 829449
+  },
+  "evidence/qualification/particle-runtime/v4-sand-static/run.log": {
+    "sha256": "bc204d5492dd2dd67a13d0dabf10737a1f94870e351580d6249fae26142414a1",
+    "size": 4944
+  },
+  "evidence/qualification/particle-runtime/v4-sand-static/sand-static.mp4": {
+    "sha256": "a1530682404f4891738f3c912da8c374d87629664138aee73bda9e3cd89207b8",
+    "size": 290241
+  },
+  "evidence/qualification/particle-runtime/v4-sand-static/user/Options.ini": {
+    "sha256": "6afd048b7c45bed1b85b94e94c249462748562cf582541cc3a6d4f12ed5b88a6",
+    "size": 501
+  },
+  "evidence/qualification/particle-runtime/v4-sand-takeover-visibility/engine.log": {
+    "sha256": "39e71f332569eb62af26747d17a4be843afdaed34dd5bd1cb88648fcdafbe8c5",
+    "size": 123265
+  },
+  "evidence/qualification/particle-runtime/v4-sand-takeover-visibility/manifest.json": {
+    "sha256": "87ea27150a74f1e9af307e1165a0c655646f27d9447745c460c7448a6ed11d3e",
+    "size": 3409
+  },
+  "evidence/qualification/particle-runtime/v4-sand-takeover-visibility/picture-0.png": {
+    "sha256": "ac42532bfa63d5a2801116207468cb92e7ab87ac3553452d6ba76c77f51936c6",
+    "size": 829449
+  },
+  "evidence/qualification/particle-runtime/v4-sand-takeover-visibility/run.log": {
+    "sha256": "a8a087768c4f097c4f5befd422e402a7503b7340be9bd0b2781c1d0f38d43867",
+    "size": 4645
+  },
+  "evidence/qualification/particle-runtime/v4-sand-takeover-visibility/user/Options.ini": {
+    "sha256": "6afd048b7c45bed1b85b94e94c249462748562cf582541cc3a6d4f12ed5b88a6",
+    "size": 501
+  },
+  "evidence/qualification/particle-runtime/v4-toggle-shroud/engine.log": {
+    "sha256": "68a864ad809b1100e99a92063483b0c9779cd7cce52f100d43b15bc46dec5b63",
+    "size": 127988
+  },
+  "evidence/qualification/particle-runtime/v4-toggle-shroud/manifest.json": {
+    "sha256": "0b3274342bc635e875b8bdf5ec87df042010c023ae280db054ac369c65158406",
+    "size": 5156
+  },
+  "evidence/qualification/particle-runtime/v4-toggle-shroud/picture-0.png": {
+    "sha256": "3b80c10d57b612da6419b9ec0ad6b32a6d448825023bf61dd33fc7f89468880b",
+    "size": 1392450
+  },
+  "evidence/qualification/particle-runtime/v4-toggle-shroud/picture-1.png": {
+    "sha256": "4a609d9a48c38abe7e37c63ac742aff6196a566812917d3d71437f07c703d78f",
+    "size": 1379398
+  },
+  "evidence/qualification/particle-runtime/v4-toggle-shroud/picture-2.png": {
+    "sha256": "453015bb1d605e3630c6368c91ba581ed4a8f3e2928132e8792ed18f9d26c681",
+    "size": 1379460
+  },
+  "evidence/qualification/particle-runtime/v4-toggle-shroud/picture-3.png": {
+    "sha256": "616f555ad39c6c7965ee4ced9b51c74941ee87ef9b744ebc2a57658f2ddea2f3",
+    "size": 1413367
+  },
+  "evidence/qualification/particle-runtime/v4-toggle-shroud/picture-4.png": {
+    "sha256": "5ec47f361a6a874b6c2de3110273f29c6d29b8ff8f6b46eb7805ce9a330993c0",
+    "size": 1390753
+  },
+  "evidence/qualification/particle-runtime/v4-toggle-shroud/picture-5.png": {
+    "sha256": "bdf0ab8b0ba6a5cabf125e8f098f84ca117ca4fb0fab68d487f9727e5aa11c7e",
+    "size": 1394849
+  },
+  "evidence/qualification/particle-runtime/v4-toggle-shroud/picture-6.png": {
+    "sha256": "aae5925b91e5b25d4a8b381304799e823659b9cb6776bbed37fd6cae60a339f1",
+    "size": 1414300
+  },
+  "evidence/qualification/particle-runtime/v4-toggle-shroud/picture-7.png": {
+    "sha256": "602ef6c2ee86cb80b70b676d8e4434046e9782fb212e15acc43a78ba827a756c",
+    "size": 1401743
+  },
+  "evidence/qualification/particle-runtime/v4-toggle-shroud/run.log": {
+    "sha256": "9967a7bae5f7edf8e9aea4ca119e372a428f0837bbe23276d90d5f1811e8b70a",
+    "size": 5716
+  },
+  "evidence/qualification/particle-runtime/v4-toggle-shroud/user/Options.ini": {
+    "sha256": "6afd048b7c45bed1b85b94e94c249462748562cf582541cc3a6d4f12ed5b88a6",
+    "size": 501
+  },
+  "evidence/qualification/v4-ambient-rain/engine.log": {
+    "sha256": "4fb85ec64a151a42a7c322e9c68627af5d8bc738c5d38bc8d2cbfb122d65fbff",
+    "size": 128534
+  },
+  "evidence/qualification/v4-ambient-rain/manifest.json": {
+    "sha256": "87ad93441aeb3639ef6cc761fdba7ab1d8160ad5933342e0d5ef8128aad27f21",
+    "size": 4819
+  },
+  "evidence/qualification/v4-ambient-rain/picture-0.png": {
+    "sha256": "9f347d77c3c0f8d8b8470d157039e4b36c50494c5459ce4ad036d41326741466",
+    "size": 1570911
+  },
+  "evidence/qualification/v4-ambient-rain/run.log": {
+    "sha256": "5eaf0daf3fff449eeef53a20470b1c1a7a686cd1bf0ce4e4f948564c6baef123",
+    "size": 4854
+  },
+  "evidence/qualification/v4-ambient-rain/user/Options.ini": {
+    "sha256": "6afd048b7c45bed1b85b94e94c249462748562cf582541cc3a6d4f12ed5b88a6",
+    "size": 501
+  },
+  "evidence/qualification/v4-ambient-sand/engine.log": {
+    "sha256": "600f221b38e9b00f96223879ff5038338b5df6526f54dcbee5047fc3f5837e31",
+    "size": 128551
+  },
+  "evidence/qualification/v4-ambient-sand/manifest.json": {
+    "sha256": "7a67d381ba969ba734d0156f55b700ad2d36ba26993165e195bbabef250baa2f",
+    "size": 4819
+  },
+  "evidence/qualification/v4-ambient-sand/picture-0.png": {
+    "sha256": "a429a0f56b9fab29d339e27a35cc58b16583f54f9f036722c177ab4f312ae135",
+    "size": 1149757
+  },
+  "evidence/qualification/v4-ambient-sand/run.log": {
+    "sha256": "6c71ea576f931b7b8e40693d893165d0ca5e22011f9d699744a8fcea5aad93ac",
+    "size": 4854
+  },
+  "evidence/qualification/v4-ambient-sand/user/Options.ini": {
+    "sha256": "6afd048b7c45bed1b85b94e94c249462748562cf582541cc3a6d4f12ed5b88a6",
+    "size": 501
+  },
+  "evidence/qualification/v4-ambient-snow/engine.log": {
+    "sha256": "172bce3227ce5603f57d666f0d856a0d7adcdfcfc318977f5d38cfa510d20d48",
+    "size": 128578
+  },
+  "evidence/qualification/v4-ambient-snow/manifest.json": {
+    "sha256": "34a8915ddd2974220371dac524b4a23d68a4e986175e5c3bc4d749b87334e229",
+    "size": 5046
+  },
+  "evidence/qualification/v4-ambient-snow/picture-0.png": {
+    "sha256": "455129350ac1d59166cad23a0ff5db011ad30a5486449a96ae150c57a018001f",
+    "size": 1470937
+  },
+  "evidence/qualification/v4-ambient-snow/run.log": {
+    "sha256": "59371c22822deb7987b15b4392ed9c9f3a0544dac2d9a8460c65210d8be553de",
+    "size": 4853
+  },
+  "evidence/qualification/v4-ambient-snow/user/Options.ini": {
+    "sha256": "6afd048b7c45bed1b85b94e94c249462748562cf582541cc3a6d4f12ed5b88a6",
+    "size": 501
+  },
+  "evidence/qualification/v4-audio-lifecycle/engine.log": {
+    "sha256": "e1bf71afdec1c75c5de2325adf5f30d68b76be4b8cd948b57c0296a843565dc8",
+    "size": 128848
+  },
+  "evidence/qualification/v4-audio-lifecycle/manifest.json": {
+    "sha256": "af6245fddef5e00e9d35e0183dad2a64dfc5128fadb9255da5e7960261be0185",
+    "size": 4812
+  },
+  "evidence/qualification/v4-audio-lifecycle/picture-0.png": {
+    "sha256": "638b1f9fe69e31ba13c35c5214b2364d68397e89d5fec820850a13c56ffa05ef",
+    "size": 1569247
+  },
+  "evidence/qualification/v4-audio-lifecycle/run.log": {
+    "sha256": "1b72cacf8e94c4328b78d7f6c8c5f18ca06e2e970abfd2d0d013a06ee5147733",
+    "size": 6771
+  },
+  "evidence/qualification/v4-audio-lifecycle/user/Options.ini": {
+    "sha256": "6afd048b7c45bed1b85b94e94c249462748562cf582541cc3a6d4f12ed5b88a6",
+    "size": 501
+  },
+  "evidence/qualification/v4-hdr-smoke/engine.log": {
+    "sha256": "f9cf366b85008e89a9736cf1ca6249e811c8188ba6c3b809705e9565d726180a",
+    "size": 134674
+  },
+  "evidence/qualification/v4-hdr-smoke/hdr-launch.json": {
+    "sha256": "40e1b169b8d4ff1b927ae0e183346048bc92266778e6a7525c84b7df32ce86c4",
+    "size": 3678
+  },
+  "evidence/qualification/v4-hdr-smoke/hdr-run.log": {
+    "sha256": "a6d84890a58bbe591fba0f8019e0495c5eed24524eb165eebfff26ddfadfa3a0",
+    "size": 4857
+  },
+  "evidence/qualification/v4-hdr-smoke/manifest.json": {
+    "sha256": "a46efba2d301d48c4d374f2f672cf7198f91fc9011e43fe2c37bf223c3d67560",
+    "size": 3310
+  },
+  "evidence/qualification/v4-hdr-smoke/picture-0.png": {
+    "sha256": "59b6c81e0935558aa3b6fc8851c80f48a365a6cd8c59044fc41013bd495ca52f",
+    "size": 1425291
+  },
+  "evidence/qualification/v4-hdr-smoke/probe.gdb": {
+    "sha256": "49004be7dd3f6d91415dd67d21228078ba923bb75473ca7f62319ab7356fe89b",
+    "size": 1867
+  },
+  "evidence/qualification/v4-hdr-smoke/result.json": {
+    "sha256": "a4f75fe84e7e9d2609c23c20676901bf626c424224f0ce17aa70593707cc3457",
+    "size": 1234
+  },
+  "evidence/qualification/v4-hdr-smoke/user/Options.ini": {
+    "sha256": "1a4f8648c3223b67c147d1c0076d28e73ee16e5d01e19f06477c15ab33790f6c",
+    "size": 502
+  },
+  "evidence/qualification/v4-matrix-authored-off/engine.log": {
+    "sha256": "e26077b13be1f2ad67fa475e4bf78f2c746f030f19234a1d2e27c6ad29453b44",
+    "size": 127912
+  },
+  "evidence/qualification/v4-matrix-authored-off/manifest.json": {
+    "sha256": "c44d2b23a25607b9a1d617b1da4394423029b5cf0a40e0c49da195333ca5ea15",
+    "size": 4843
+  },
+  "evidence/qualification/v4-matrix-authored-off/picture-0.png": {
+    "sha256": "e08e5e191ab815e328b8feadc8d8e96543561d8022422d8d9e4709c8170776f2",
+    "size": 1595315
+  },
+  "evidence/qualification/v4-matrix-authored-off/run.log": {
+    "sha256": "7ab0b6ea293f5b0d182efade11fe9847021454d61ea77fdbf43fef495de76441",
+    "size": 4991
+  },
+  "evidence/qualification/v4-matrix-authored-off/user/Options.ini": {
+    "sha256": "6de5ed40ba8d025af3cb0a95b361e8ce92669ab35fec478fde6890876298a5ce",
+    "size": 500
+  },
+  "evidence/qualification/v4-matrix-authored-on/engine.log": {
+    "sha256": "49b53044cb83f8d042e54e53e31f342c14f40c70a239bb9226ba041ce8f0ac9c",
+    "size": 127965
+  },
+  "evidence/qualification/v4-matrix-authored-on/manifest.json": {
+    "sha256": "b7095c6a58c171fad6a1603fadd4c21831db6d132efd8f613ab708dba306143c",
+    "size": 4836
+  },
+  "evidence/qualification/v4-matrix-authored-on/picture-0.png": {
+    "sha256": "7579729fa8fdc246566a733645558277c946fbca71f7c97f85f1f718ee5124e9",
+    "size": 1595085
+  },
+  "evidence/qualification/v4-matrix-authored-on/run.log": {
+    "sha256": "5cee3945758296566b0f0af7a96bf14de914bccc6327e7e7805ec215ce4951f3",
+    "size": 5013
+  },
+  "evidence/qualification/v4-matrix-authored-on/user/Options.ini": {
+    "sha256": "6afd048b7c45bed1b85b94e94c249462748562cf582541cc3a6d4f12ed5b88a6",
+    "size": 501
+  },
+  "evidence/qualification/v4-matrix-classic-off/engine.log": {
+    "sha256": "d5aebbbae955d331f73157af85971951afb098d5d9d5a2e7562bea3c5040ad91",
+    "size": 127827
+  },
+  "evidence/qualification/v4-matrix-classic-off/manifest.json": {
+    "sha256": "67803b916dde335c286492f0c4d9223563e643573e9b41d4a48859fc641f9b38",
+    "size": 4838
+  },
+  "evidence/qualification/v4-matrix-classic-off/picture-0.png": {
+    "sha256": "870ea8cf0acac3a126842353787b56a2def52c45484a217c5f28a0733d843121",
+    "size": 1744773
+  },
+  "evidence/qualification/v4-matrix-classic-off/run.log": {
+    "sha256": "c8979bcaaba16916250584e62667ef4b714d05e93ffc7a4c991dac739c5f5720",
+    "size": 4780
+  },
+  "evidence/qualification/v4-matrix-classic-off/user/Options.ini": {
+    "sha256": "8338f3e1f20313c5280b0e8982e95ca259d431fc140cf9661771b3b8240250cc",
+    "size": 501
+  },
+  "evidence/qualification/v4-matrix-classic-on/engine.log": {
+    "sha256": "7c4fb5ffe3d26704a091b2ca4a770da9c8ce9514f3abe5c3221f018bc381a9ab",
+    "size": 127836
+  },
+  "evidence/qualification/v4-matrix-classic-on/manifest.json": {
+    "sha256": "b3d1b9e5f37f70eec9170252b611b9fd7044863cb9d9c56a790408f7db079d60",
+    "size": 4833
+  },
+  "evidence/qualification/v4-matrix-classic-on/picture-0.png": {
+    "sha256": "97d485737cd9f5d14c1ee5d5c0508f0ff54e3ad63c27234301930e525ea4604c",
+    "size": 1744726
+  },
+  "evidence/qualification/v4-matrix-classic-on/run.log": {
+    "sha256": "42ccfdd7a67ae9f95192b212c385edb166f683eb1bf2addfaaa5952d0bcf1989",
+    "size": 4779
+  },
+  "evidence/qualification/v4-matrix-classic-on/user/Options.ini": {
+    "sha256": "1045f29035502c700e121ac3dd7c5f678fe7471bcf671d421d8bf160cdb05847",
+    "size": 502
+  },
+  "evidence/qualification/v4-matrix-rain-dry-maplight-off/engine.log": {
+    "sha256": "ca9513603a5bb43d89e4b888fe53fadf38d6d669225659e56b143bb9f07cd670",
+    "size": 131737
+  },
+  "evidence/qualification/v4-matrix-rain-dry-maplight-off/manifest.json": {
+    "sha256": "2915139efd835846a07fdd5e8d490b804f37b1935838300acf42f275fa2f54b5",
+    "size": 4853
+  },
+  "evidence/qualification/v4-matrix-rain-dry-maplight-off/picture-0.png": {
+    "sha256": "b18ddfa53d511483bd411ea1c48914b23d4c2c15aa4fae0ef91ae9af29ad4532",
+    "size": 1684750
+  },
+  "evidence/qualification/v4-matrix-rain-dry-maplight-off/run.log": {
+    "sha256": "7b7163058b275e72df8a1fb5e2be3fe944d4b690147e1eeb029a2f58b9ffa4f3",
+    "size": 4983
+  },
+  "evidence/qualification/v4-matrix-rain-dry-maplight-off/user/Options.ini": {
+    "sha256": "37cc7cc1f919ed0c3b3e8a2a6092eca588d5e886b5991265571708718cc56c1e",
+    "size": 500
+  },
+  "evidence/qualification/v4-matrix-snow-atmosphere-off/engine.log": {
+    "sha256": "c3947c44f150021a466c795eed641ccdf7aa3261698bb2ab589eaf70cb847e91",
+    "size": 128028
+  },
+  "evidence/qualification/v4-matrix-snow-atmosphere-off/manifest.json": {
+    "sha256": "ea88bc0b22a009586a314c6ccd592721cf6bef8a112a7ce99575ff7ef1883734",
+    "size": 4989
+  },
+  "evidence/qualification/v4-matrix-snow-atmosphere-off/picture-0.png": {
+    "sha256": "f63889def62b0cf2345f961cfea58a962b13724153151c9e04e441e4cd3b30b6",
+    "size": 1095372
+  },
+  "evidence/qualification/v4-matrix-snow-atmosphere-off/run.log": {
+    "sha256": "2b4ab89e001849c2d570963dd5694021adbbb9a2d7a771f621830030d13397d6",
+    "size": 5029
+  },
+  "evidence/qualification/v4-matrix-snow-atmosphere-off/user/Options.ini": {
+    "sha256": "4f72ec402c3508502fe0a6ece1077915a092b098a9e0a80282f76a55072742ef",
+    "size": 500
+  },
+  "evidence/qualification/v4-matrix-snow-night/engine.log": {
+    "sha256": "0349f245d3e799496dedf1407679e1d1601d01a811eb3d4129d8e10278817a29",
+    "size": 128023
+  },
+  "evidence/qualification/v4-matrix-snow-night/manifest.json": {
+    "sha256": "12453806692266eb91544a263efab4eb9f5a12a0c28fd11ca8795dcfa1aa0496",
+    "size": 4960
+  },
+  "evidence/qualification/v4-matrix-snow-night/picture-0.png": {
+    "sha256": "1ab47ef14cad33dbb13c98b341f4a822cd3b817aea9a88885b2a3c79c259f090",
+    "size": 671354
+  },
+  "evidence/qualification/v4-matrix-snow-night/run.log": {
+    "sha256": "bf0e6167a90bba9eebce4fc8e98b48f2a4cb0c73d4a5e7db5d1541b940e3b260",
+    "size": 5001
+  },
+  "evidence/qualification/v4-matrix-snow-night/user/Options.ini": {
+    "sha256": "6afd048b7c45bed1b85b94e94c249462748562cf582541cc3a6d4f12ed5b88a6",
+    "size": 501
+  },
+  "evidence/qualification/v4-matrix2-rain-atmosphere-off/engine.log": {
+    "sha256": "6ba9bbd57647aad6d9c83dbb780b4f43fef2bf847377ee62eb37c772c2ce48d3",
+    "size": 128050
+  },
+  "evidence/qualification/v4-matrix2-rain-atmosphere-off/manifest.json": {
+    "sha256": "47ed962abb3edf61bc3fd00fe2bd8d762fa37da3ff90f59465b63af2b55a7fad",
+    "size": 4993
+  },
+  "evidence/qualification/v4-matrix2-rain-atmosphere-off/picture-0.png": {
+    "sha256": "4eb3ff0938e5f34f06a83295ea301308827478960fc482b74ace4619d1d992c4",
+    "size": 1091179
+  },
+  "evidence/qualification/v4-matrix2-rain-atmosphere-off/run.log": {
+    "sha256": "94b6b0754b29b3e7b957b9a7272da643d15cd3cd77c9980a1bddf0c8865da981",
+    "size": 5031
+  },
+  "evidence/qualification/v4-matrix2-rain-atmosphere-off/user/Options.ini": {
+    "sha256": "4f72ec402c3508502fe0a6ece1077915a092b098a9e0a80282f76a55072742ef",
+    "size": 500
+  },
+  "evidence/qualification/v4-matrix2-rain-day/engine.log": {
+    "sha256": "8a2d0f1549269babf8d7efc9abdca87168474f2f1e65d9160ee3d7cd98b43990",
+    "size": 128004
+  },
+  "evidence/qualification/v4-matrix2-rain-day/manifest.json": {
+    "sha256": "bf266c69bb17fb6478a6e7eb54666c8c66d58186c08a62090d7a336841b3becd",
+    "size": 4958
+  },
+  "evidence/qualification/v4-matrix2-rain-day/picture-0.png": {
+    "sha256": "b092bf36efb05b4dc073483ba12039e037601a6a6f6b00f43257d492555b00f5",
+    "size": 1082249
+  },
+  "evidence/qualification/v4-matrix2-rain-day/run.log": {
+    "sha256": "3c72a614fcb36a817ff38e423267fdb3d624e23c18e35d43456e21f03fb28b36",
+    "size": 5023
+  },
+  "evidence/qualification/v4-matrix2-rain-day/user/Options.ini": {
+    "sha256": "6afd048b7c45bed1b85b94e94c249462748562cf582541cc3a6d4f12ed5b88a6",
+    "size": 501
+  },
+  "evidence/qualification/v4-matrix2-rain-night/engine.log": {
+    "sha256": "4fd4a1028ebf7d6bbb9fe39bfd26417797ab38a7084b3c2dd910bf4d5ced7827",
+    "size": 128023
+  },
+  "evidence/qualification/v4-matrix2-rain-night/manifest.json": {
+    "sha256": "117606e3f5786cefbd1c85cfb1e2ab7d9bc71e132e83332362502fc2d0b25c80",
+    "size": 4963
+  },
+  "evidence/qualification/v4-matrix2-rain-night/picture-0.png": {
+    "sha256": "dbe6d6e65ad8fb1b22b8173f437c88481475fcaa0e42b7228ddff33a1c4a439e",
+    "size": 655271
+  },
+  "evidence/qualification/v4-matrix2-rain-night/run.log": {
+    "sha256": "a1db7e0282cf5ed43966329dc74dc58ae8fae858dd5e9c34bfc7ed68ffe5b21a",
+    "size": 5002
+  },
+  "evidence/qualification/v4-matrix2-rain-night/user/Options.ini": {
+    "sha256": "6afd048b7c45bed1b85b94e94c249462748562cf582541cc3a6d4f12ed5b88a6",
+    "size": 501
+  },
+  "evidence/qualification/v4-matrix2-rain-pond/engine.log": {
+    "sha256": "49be103d82ce3cad7b3d776337a89b5517dd2bca48e3c04653081ca8815b0750",
+    "size": 128028
+  },
+  "evidence/qualification/v4-matrix2-rain-pond/manifest.json": {
+    "sha256": "bfa5346ca93b71178466072b412c960fc1091c6d2fbacd36db43f16752a33c12",
+    "size": 4960
+  },
+  "evidence/qualification/v4-matrix2-rain-pond/picture-0.png": {
+    "sha256": "7189581cb05bcef360ed64a1f648843d8f997d6274c5f796d84ed77845cf9698",
+    "size": 1430377
+  },
+  "evidence/qualification/v4-matrix2-rain-pond/run.log": {
+    "sha256": "1ae9797793582fbd6ad74bd26d95b046e63dd09a3f095da7647d533fbfcad929",
+    "size": 5024
+  },
+  "evidence/qualification/v4-matrix2-rain-pond/user/Options.ini": {
+    "sha256": "6afd048b7c45bed1b85b94e94c249462748562cf582541cc3a6d4f12ed5b88a6",
+    "size": 501
+  },
+  "evidence/qualification/v4-matrix2-sand-atmosphere-off/engine.log": {
+    "sha256": "724ba2d30ef7034e00c2c605f6fead1a35ee20003a5770b1c3b722af92191951",
+    "size": 128051
+  },
+  "evidence/qualification/v4-matrix2-sand-atmosphere-off/manifest.json": {
+    "sha256": "0a109eed86938066b5100cf025f4914b3d34976f5c17456af970a53b97d3c19c",
+    "size": 4992
+  },
+  "evidence/qualification/v4-matrix2-sand-atmosphere-off/picture-0.png": {
+    "sha256": "c85ef67fb00c22f0906b375ad2e2065a0bd6040a9ae40eb8bb4e1a6a07a7df13",
+    "size": 1421730
+  },
+  "evidence/qualification/v4-matrix2-sand-atmosphere-off/run.log": {
+    "sha256": "96a080604a0b4e6bf5f222a738a047b5f2a94b81829c5800eb1f27e0bc5a0161",
+    "size": 5030
+  },
+  "evidence/qualification/v4-matrix2-sand-atmosphere-off/user/Options.ini": {
+    "sha256": "4f72ec402c3508502fe0a6ece1077915a092b098a9e0a80282f76a55072742ef",
+    "size": 500
+  },
+  "evidence/qualification/v4-matrix2-sand-night/engine.log": {
+    "sha256": "c57dcb49fbf71530918fa0113218dd1de3acb517b7cb8e82b1031e87b83e52da",
+    "size": 128011
+  },
+  "evidence/qualification/v4-matrix2-sand-night/manifest.json": {
+    "sha256": "bf55bdc81b04af43b7fa2a0f05a1831828a6e9f64f772d130449413c764ce647",
+    "size": 4962
+  },
+  "evidence/qualification/v4-matrix2-sand-night/picture-0.png": {
+    "sha256": "25b6fcb0868fdb296170603ce3316b132765181bc13b9e241d582c5a596b3929",
+    "size": 907007
+  },
+  "evidence/qualification/v4-matrix2-sand-night/run.log": {
+    "sha256": "9a0c8c37e7ea62d45e7f2274841900d8d306f3267395ee8992b69562bb7c0a0e",
+    "size": 5002
+  },
+  "evidence/qualification/v4-matrix2-sand-night/user/Options.ini": {
+    "sha256": "6afd048b7c45bed1b85b94e94c249462748562cf582541cc3a6d4f12ed5b88a6",
+    "size": 501
+  },
+  "evidence/qualification/v4-matrix2-snow-day/engine.log": {
+    "sha256": "bb3619769ca28ac1a08e4bde5b6edbf5e78d4d2978b4e15a0507a8f0bb73f0f0",
+    "size": 128003
+  },
+  "evidence/qualification/v4-matrix2-snow-day/manifest.json": {
+    "sha256": "97fa4d910e9a1917c0b08a7c01df0cb8417a20e57763c535b9fff8638b1557ee",
+    "size": 4957
+  },
+  "evidence/qualification/v4-matrix2-snow-day/picture-0.png": {
+    "sha256": "0650355cde584ec4b316123457a8b550350dee729ebc32cd56772121f1fd09e8",
+    "size": 1089249
+  },
+  "evidence/qualification/v4-matrix2-snow-day/run.log": {
+    "sha256": "3db42f068156d319c925d611330b63fa8be1a650f4b14c698bd34bea0943e497",
+    "size": 5022
+  },
+  "evidence/qualification/v4-matrix2-snow-day/user/Options.ini": {
+    "sha256": "6afd048b7c45bed1b85b94e94c249462748562cf582541cc3a6d4f12ed5b88a6",
+    "size": 501
+  },
+  "evidence/qualification/v4-pending-pause/engine.log": {
+    "sha256": "ac96ec08c95a6a33ac205965572c51f801e789100e8bda61d7c031572159a4a3",
+    "size": 115935
+  },
+  "evidence/qualification/v4-pending-pause/manifest.json": {
+    "sha256": "7588f04da0f32f534b5283e47ea4e43b6abebe5211395215a1aefb61e2879b6b",
+    "size": 4736
+  },
+  "evidence/qualification/v4-pending-pause/run.log": {
+    "sha256": "be8dc5274dd8e53c02ea165d2171f6274f523454c04b84b075039a816a85e7c4",
+    "size": 2559
+  },
+  "evidence/qualification/v4-pending-pause/user/Options.ini": {
+    "sha256": "6afd048b7c45bed1b85b94e94c249462748562cf582541cc3a6d4f12ed5b88a6",
+    "size": 501
+  },
+  "evidence/rejected-harness/README.md": {
+    "sha256": "63e2a093f6aba3244324a13148402e6248780474361397ea60c3b61bb2977d7d",
+    "size": 591
+  },
+  "evidence/rejected-harness/v4-matrix-rain-atmosphere-off/engine.log": {
+    "sha256": "3a3c3c0c71768d1227c00093ba3b4d8d8bf41fa9d390cd554ec3a8c44e9a931e",
+    "size": 116922
+  },
+  "evidence/rejected-harness/v4-matrix-rain-atmosphere-off/manifest.json": {
+    "sha256": "e804d4dc41dd1be29a125cacb8a30d07a1c07cf320c8df79c79ea3b7c684738b",
+    "size": 4687
+  },
+  "evidence/rejected-harness/v4-matrix-rain-atmosphere-off/run.log": {
+    "sha256": "3a9b90bbb157ee77402bd2c5be5d7718bb266c49a4aef69f8b19046889603d7d",
+    "size": 2801
+  },
+  "evidence/rejected-harness/v4-matrix-rain-atmosphere-off/user/Options.ini": {
+    "sha256": "4f72ec402c3508502fe0a6ece1077915a092b098a9e0a80282f76a55072742ef",
+    "size": 500
+  },
+  "evidence/rejected-harness/v4-matrix-rain-day/engine.log": {
+    "sha256": "0cb54f433c4805aede76b5e9dbc0d143e08cf55be8468f03665e5e99bf7c34d2",
+    "size": 116889
+  },
+  "evidence/rejected-harness/v4-matrix-rain-day/manifest.json": {
+    "sha256": "4870c4b935d4c063da0836d924241a5ce3fa446bf2c94667b78ff1252a35ba85",
+    "size": 4664
+  },
+  "evidence/rejected-harness/v4-matrix-rain-day/run.log": {
+    "sha256": "faa5b690481922e5a4bb5ab2949d70af86ff85ad37c877eea6b28953fe472584",
+    "size": 2790
+  },
+  "evidence/rejected-harness/v4-matrix-rain-day/user/Options.ini": {
+    "sha256": "6afd048b7c45bed1b85b94e94c249462748562cf582541cc3a6d4f12ed5b88a6",
+    "size": 501
+  },
+  "evidence/rejected-harness/v4-matrix-rain-night/engine.log": {
+    "sha256": "106c3e23c1eba874a4bf148566dc00c496304b37303d183571f80499e327cd0c",
+    "size": 116893
+  },
+  "evidence/rejected-harness/v4-matrix-rain-night/manifest.json": {
+    "sha256": "a95283d8d4299c49c5e74c77a74abf34bc779d3c96b091b91e0d11f87ea3d3dd",
+    "size": 4667
+  },
+  "evidence/rejected-harness/v4-matrix-rain-night/run.log": {
+    "sha256": "12600a81b540a2045f5548f5c19641dbb1de31f45321095859403a24a733e029",
+    "size": 2792
+  },
+  "evidence/rejected-harness/v4-matrix-rain-night/user/Options.ini": {
+    "sha256": "6afd048b7c45bed1b85b94e94c249462748562cf582541cc3a6d4f12ed5b88a6",
+    "size": 501
+  },
+  "evidence/rejected-harness/v4-matrix-rain-pond/engine.log": {
+    "sha256": "43e9ef2bdf79d4d1d97487a3783ecf4f13a33e0c696667ed1baa7efa039b1434",
+    "size": 117807
+  },
+  "evidence/rejected-harness/v4-matrix-rain-pond/manifest.json": {
+    "sha256": "c399fabc8b28cd1f62b823fe8dd27d1b38733feb381d38ea673a062e4ffbdfa5",
+    "size": 4664
+  },
+  "evidence/rejected-harness/v4-matrix-rain-pond/run.log": {
+    "sha256": "a87abedf9e2080f5405d61b3d2e5ac54091e069ee9e9eb883d24c8a3c8f2ee7e",
+    "size": 2791
+  },
+  "evidence/rejected-harness/v4-matrix-rain-pond/user/Options.ini": {
+    "sha256": "6afd048b7c45bed1b85b94e94c249462748562cf582541cc3a6d4f12ed5b88a6",
+    "size": 501
+  },
+  "evidence/rejected-harness/v4-matrix-sand-atmosphere-off/engine.log": {
+    "sha256": "bfb14eacb913821a00458626069a1c2d61f53eb87e1d382d2c4d2e2f01aa346b",
+    "size": 116887
+  },
+  "evidence/rejected-harness/v4-matrix-sand-atmosphere-off/manifest.json": {
+    "sha256": "bc7d52dff86a4e0f3f0dfd01f36e4ab050f30add1406402cf2cad51363c825ef",
+    "size": 4686
+  },
+  "evidence/rejected-harness/v4-matrix-sand-atmosphere-off/run.log": {
+    "sha256": "92c6478d4560db477b58ddcf458dbc537aebfffc3262beb349995fa04fece966",
+    "size": 2801
+  },
+  "evidence/rejected-harness/v4-matrix-sand-atmosphere-off/user/Options.ini": {
+    "sha256": "4f72ec402c3508502fe0a6ece1077915a092b098a9e0a80282f76a55072742ef",
+    "size": 500
+  },
+  "evidence/rejected-harness/v4-matrix-sand-night/engine.log": {
+    "sha256": "c5808e3d7c52678f21ff0cefb069c472578b36748b7df68e14959e48d88a7e37",
+    "size": 117548
+  },
+  "evidence/rejected-harness/v4-matrix-sand-night/manifest.json": {
+    "sha256": "9c1761efdf5717a2c4f10de44575be267d2a33b2655d6e05787315addc517ac0",
+    "size": 4667
+  },
+  "evidence/rejected-harness/v4-matrix-sand-night/run.log": {
+    "sha256": "87da1fd55688cc405813d5df9c34d909d9f55ec18bdbd9a16a7838ed9cea2d4a",
+    "size": 2792
+  },
+  "evidence/rejected-harness/v4-matrix-sand-night/user/Options.ini": {
+    "sha256": "6afd048b7c45bed1b85b94e94c249462748562cf582541cc3a6d4f12ed5b88a6",
+    "size": 501
+  },
+  "evidence/rejected-harness/v4-matrix-snow-day/engine.log": {
+    "sha256": "31babc1d4c23a47bb4bd7838d011b8106ca51ad4270134a1bc76aacc87386883",
+    "size": 117542
+  },
+  "evidence/rejected-harness/v4-matrix-snow-day/manifest.json": {
+    "sha256": "288f9c030311c1e835343821ec54b5b167a9f985faecd6915d311a818a5bed5c",
+    "size": 4664
+  },
+  "evidence/rejected-harness/v4-matrix-snow-day/run.log": {
+    "sha256": "bc1dc73b27088b42662b6377a92eb14d6e24d98d73c2ce98cfb2319273beb337",
+    "size": 2790
+  },
+  "evidence/rejected-harness/v4-matrix-snow-day/user/Options.ini": {
+    "sha256": "6afd048b7c45bed1b85b94e94c249462748562cf582541cc3a6d4f12ed5b88a6",
+    "size": 501
+  },
+  "evidence/retail-assets.json": {
+    "sha256": "e1f3f682d900b362315113be0d758d128d01c75abb04347e6e2068181c3d1de0",
+    "size": 24587
+  },
+  "evidence/retail-verification-after.json": {
+    "sha256": "4b400ea58a35b12ab10564251a795d76ddaf987fc1473921ba3f1d04888f4645",
+    "size": 277
+  },
+  "evidence/retail-verification-before.json": {
+    "sha256": "50e4d8869bef27248e49fe0e889980ee1b524eb89974d5af0c18c0efe4d449b8",
+    "size": 256
+  },
+  "evidence/source-snapshot/W3DDevice/GameClient/WeatherParticleMath.h": {
+    "sha256": "9cffe39d0a62a874acd3499c908cc02483859b0b9bb31777fae05d36bcd23d82",
+    "size": 6627
+  },
+  "evidence/source.patch": {
+    "sha256": "6c526f4f1e8c96ba524e2016cde9ca4fc4a2bf898ed71aeffd5524c6db3a0bca",
+    "size": 122824
+  },
+  "evidence/summary/all-repeats.md": {
+    "sha256": "c015105b6269c5dc1acc448fea6a150167a3ec397da09a9cb4aca5a4cd68cf13",
+    "size": 7234
+  },
+  "evidence/summary/component-investigation.json": {
+    "sha256": "053f47d5070c9755a85a5ba6a2a019e323dfd0b5f5cca64bc9c119d8244ac6f7",
+    "size": 5211
+  },
+  "evidence/summary/phase-results.csv": {
+    "sha256": "862a55dbe239a66e3435d2b40c281855f12c09a14827f2b1658adb7af326328e",
+    "size": 13153
+  },
+  "evidence/summary/phase-results.json": {
+    "sha256": "60b00c9fa06eba8189304a04854207028d638aa2e3f8c5e399e04a184ee995d9",
+    "size": 100283
+  },
+  "evidence/summary/rain-phase-series.csv": {
+    "sha256": "54536cda3181975c875ec90d9f4dd1fe8e9aeb3c6cd21f4b1ad19da0301ef154",
+    "size": 661344
+  },
+  "evidence/tests/audio-test-v4.log": {
+    "sha256": "7d17005773cc31eece22a5ba394aec6acf9dcb9c65b55d2c2397c99006ade4b0",
+    "size": 29
+  },
+  "evidence/tests/build-candidate-v4.log": {
+    "sha256": "659064ca6482d66de9ff349abf1ad481c31e6f59f0a4323b41b46512d9901424",
+    "size": 583957
+  },
+  "evidence/tests/cpu-v4-ctest.log": {
+    "sha256": "1e7183706811efa81d503fb92e886096ccd382746a208b603fbeec1cbebab575",
+    "size": 1297
+  },
+  "evidence/tests/gameengine-snow-ini-test.log": {
+    "sha256": "9a77c73e30956f6bae3a1357b81a96f223c234bc35b535b78776e7a4476a4e81",
+    "size": 29
+  },
+  "evidence/tests/gameengine-weather-tests.log": {
+    "sha256": "bad1e3b4f55a637c928bbebb935b1ccec85552f8593fc7307bbb01a14fa2217d",
+    "size": 29
+  },
+  "evidence/tests/native-atmosphere-v4-gpu-test.log": {
+    "sha256": "772a23b3c169cca030430aef30661e3b2084f8b5b1e6e12a0ba4ab78f2e9c425",
+    "size": 1510
+  },
+  "evidence/v4-matrix-results.json": {
+    "sha256": "3f3e20b816bd349b17107e4a15d916254e469e7641b6eabb1d513be5cf81ee6f",
+    "size": 2835
+  },
+  "evidence/v4-matrix2-results.json": {
+    "sha256": "93603f47748c21673e9912e93e98151ca98b0f9c151d54a29e62f11634ccdb7c",
+    "size": 1415
+  },
+  "performance.md": {
+    "sha256": "3c8332e97e7cbf877bd334f849074b9decf910fd80c94903a186a85ffe26b33e",
+    "size": 8352
+  },
+  "qualification.md": {
+    "sha256": "832efd5e250ce02b1d8a2da37249c2b150c9b37dbb68656e4c924867726e883c",
+    "size": 10550
+  },
+  "reproduction/README.md": {
+    "sha256": "9fcf335b7b95632cfe3f8052ae171667a09fe8f12d2ff2b9e4ad1a6e0ee2aaf8",
+    "size": 10967
+  },
+  "reproduction/bigfile.py": {
+    "sha256": "182a16634fdf184fd06a5f72ebce3d622dc1a3f8b26edb3936b2076eb7879e97",
+    "size": 8438
+  },
+  "reproduction/check_export.py": {
+    "sha256": "f1e5ddb777fb53a9454021f7eb4abb7e4a96bece97deb01da18b32b2f66992a3",
+    "size": 3773
+  },
+  "reproduction/control_client.py": {
+    "sha256": "f3ffc7b0596a2f91b09336676dcbfd8a0882765cb732e0164a7636b69cd569ef",
+    "size": 6888
+  },
+  "reproduction/generate_map.py": {
+    "sha256": "748ace731c680c90dd5ff5caf7e4b428879fcf7f4d71bb5dc17e70564d605169",
+    "size": 10000
+  },
+  "reproduction/historical/freeze-weather-admission.py": {
+    "sha256": "0e52c0af29e82a92ea87e9376cbf7c953f6879ee97b4dc2db3e0d3d80ede6e61",
+    "size": 5745
+  },
+  "reproduction/historical/prepare-weather-admission.py": {
+    "sha256": "3c7bb144c7b0a90ccf3f6dec6b58b90f568b99deb30a1605192acfb80d588c22",
+    "size": 2394
+  },
+  "reproduction/historical/run-weather-primary.py": {
+    "sha256": "33c04aa1e4e86648504188988ddb08fbd4327e60bdf9d82be4d2c38f08632200",
+    "size": 2143
+  },
+  "reproduction/historical/run-weather-v4-matrix.py": {
+    "sha256": "e45ef33c5ea3c693849ef35a8fe471936cab4d073e4feebb465f061adf9f8ccd",
+    "size": 2025
+  },
+  "reproduction/historical/run-weather-v4-matrix2.py": {
+    "sha256": "9e1822319843d93ab6b599d8694901639d63d0d68ed8582c8cae72c14ccf7886",
+    "size": 2178
+  },
+  "reproduction/particle-probes/generate_map.py": {
+    "sha256": "748ace731c680c90dd5ff5caf7e4b428879fcf7f4d71bb5dc17e70564d605169",
+    "size": 10000
+  },
+  "reproduction/particle-probes/lifecycle-shroud.gdb": {
+    "sha256": "db4593a1506b96b187f3281876d56b1564a857ed4ecb29a986253c34c11c0321",
+    "size": 5416
+  },
+  "reproduction/particle-probes/lighting.gdb": {
+    "sha256": "e004f3ee49173e2ff5d741260d492532d01ae9d86c831f132d4f87b196762ab1",
+    "size": 1231
+  },
+  "reproduction/particle-probes/mask-count.gdb": {
+    "sha256": "7b7c920a291fbea81a9132dc74d26df30bdebb419927c086d8572745dbf6b6f4",
+    "size": 2215
+  },
+  "reproduction/particle-probes/preflight.json": {
+    "sha256": "334f9fc24f3ecb35fcb2e8361b1044a8ce944861785bf02b0927b7d7872f3d4e",
+    "size": 1281
+  },
+  "reproduction/particle-probes/probe.gdb": {
+    "sha256": "dd151e53ecfd2683ee92a544bb4af81f5efcc2d35924af7b2821497544cf75c3",
+    "size": 1237
+  },
+  "reproduction/particle-probes/rain-close.txt": {
+    "sha256": "a178e41a8ae79cd80b057b7c0cc4591a23ce61eb88dd633fbe5d710aea8eef50",
+    "size": 205
+  },
+  "reproduction/particle-probes/rain-phase-plan.json": {
+    "sha256": "c91d9b28899f2abd1ecfec46a3f4d6d15d9aacfcd10fc054d1323a69545754a1",
+    "size": 509
+  },
+  "reproduction/particle-probes/rain-phases.gdb": {
+    "sha256": "f66f3b690162e6d66e8150c0d3aaa84145bd644559219ac0bf01fceac8cc53bc",
+    "size": 1178
+  },
+  "reproduction/particle-probes/river-probe.gdb": {
+    "sha256": "89ecdbc2387338df897809f9e5eec162a4ae34f60bf810ebfdf4b0036c25e565",
+    "size": 1661
+  },
+  "reproduction/particle-probes/run_weather.py": {
+    "sha256": "a9495546149ec9a789c02ffa86a19678f5170e83b2e42e92a0ce9eb66e87387f",
+    "size": 11508
+  },
+  "reproduction/particle-probes/sand-pan.gdb": {
+    "sha256": "44515ae643a6e79947e1cd8d2b706076bed06c2e68ff6c9f7dc5374fe5234be3",
+    "size": 1686
+  },
+  "reproduction/particle-probes/sand-pan.txt": {
+    "sha256": "481f924942b483924117d0bb6c3c1d2570a86821384e781ecc5cca6d576713aa",
+    "size": 159
+  },
+  "reproduction/particle-probes/v4-preflight.json": {
+    "sha256": "49d8225c04bc64ef5cb1334580f945ada408e9faa289a385bc7ff914487ea31a",
+    "size": 936
+  },
+  "reproduction/particle-probes/v4-rain-phases.gdb": {
+    "sha256": "395c3624729fa12435181187df034de774ac53ee22e694f18b85b3bcb4c13f1b",
+    "size": 1719
+  },
+  "reproduction/probes/weather-v4-ambient-rain.gdb": {
+    "sha256": "97c9d4cf7191a10b8a8e12cc0d4b8dfd797c9024fcc4a6c59ffd7b268a9a484c",
+    "size": 1224
+  },
+  "reproduction/probes/weather-v4-ambient-sand.gdb": {
+    "sha256": "3681a94767325247fb67ce0cc0d9264a6c94a5daecde4bc914202af6337a71f8",
+    "size": 1224
+  },
+  "reproduction/probes/weather-v4-ambient-snow.gdb": {
+    "sha256": "8af9f2906a50b7f0c6bc59e1114f95bcbe3c758f336554a81c32675f58c06bb1",
+    "size": 1224
+  },
+  "reproduction/probes/weather-v4-ambient-template.gdb": {
+    "sha256": "c81590c50de4ae8b097496c0ddb258df6f40a7160c7b9f5e1a133b4233d19e87",
+    "size": 1122
+  },
+  "reproduction/probes/weather-v4-hdr.gdb": {
+    "sha256": "49004be7dd3f6d91415dd67d21228078ba923bb75473ca7f62319ab7356fe89b",
+    "size": 1867
+  },
+  "reproduction/probes/weather-v4-lifecycle.gdb": {
+    "sha256": "380795eb2923574963034269cc68c7c41e0b8005f056c080d8b9e99573360f40",
+    "size": 2540
+  },
+  "reproduction/probes/weather-v4-pending.gdb": {
+    "sha256": "c24b90a6a32081a6f86bd0e2fe3f032f80803c46ecd0d118321c121d1da8e4ae",
+    "size": 3277
+  },
+  "reproduction/probes/weather-v4-seed.gdb": {
+    "sha256": "8d1cc9ea5588d78c6b770adcaf7d8bf7bb5d6d036384ba50beb0206410849d97",
+    "size": 1470
+  },
+  "reproduction/probes/weather-v4-snapshot.gdb": {
+    "sha256": "dcbab7cc015cb0ae1b68dd952a12986cb900b3f72278c6ffff27a06725e93dd1",
+    "size": 1424
+  },
+  "reproduction/rain_series.cpp": {
+    "sha256": "772269c41bfababb6984eb8c0c8175e867f4043633a08233bc4c47b28cb24706",
+    "size": 849
+  },
+  "reproduction/run_weather.py": {
+    "sha256": "b92c34f710f3d8208b0b33b424613470db6298caf0df58981d1b5f809a8d6309",
+    "size": 16892
+  },
+  "reproduction/summarize_weather.py": {
+    "sha256": "bc4ad4fc06de228d12a35d93dbd0e5b82ca33d5a663550047e39fe1e186bb682",
+    "size": 9382
+  },
+  "upstream-handoff.md": {
+    "sha256": "92b39b3ae02a16b58d9b58a053ffe6fcf7f542234df8e055022844fc06b5edc8",
+    "size": 3853
+  }
+}

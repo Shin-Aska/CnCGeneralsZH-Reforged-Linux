@@ -1,0 +1,30 @@
+generals: overlay /mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/primary-runs/snow-enhanced-off-r2/overlay, searched before the install
+generals: refused to delete "Data\INI\INIZH.big": the install root is read-only (P1)
+ModernWater: loaded 2 material rules from Data\INI\ModernWater.ini
+Installed Vulkan doesn't implement the VK_EXT_headless_surface extension
+PosixDevice9: offscreen, 1920x1080, unpaced
+water-shore-domain: revision=3 result=3 cells=0 edges=0 levels=0 tiles=0 support_vertices=0 support_work=0
+SunShadow: requested mapped
+D3DX: D3DXCompileShader (to D3D9 bytecode; the SDL3 GPU draw compiles its own) is not available off Windows yet; the call fails
+ZH_WATER_CLEAN_OPT=stream,collapse=1.5
+PosixDevice9 timing: LONG FRAME 61.6 ms at 0.0 s: device draw 27.70, flushes 0 (0.00 ms), present 3.19 (swapchain wait 0.00, offscreen wait 0.00), 130 draws; the engine's own 30.7 ms
+PosixDevice9 timing: LONG FRAME 1531.4 ms at 0.2 s: device draw 0.09, flushes 0 (0.00 ms), present 0.10 (swapchain wait 0.00, offscreen wait 0.00), 58 draws; the engine's own 1531.2 ms
+water auto sea: source=WaterWaveHeading::prevailing travel=0.000 field unavailable; configured fallback effective=-135.000 mode=auto
+PosixDevice9 timing: LONG FRAME 78.2 ms at 1.7 s: device draw 0.20, flushes 0 (0.00 ms), present 0.09 (swapchain wait 0.00, offscreen wait 0.00), 59 draws; the engine's own 77.9 ms
+PosixDevice9 timing: LONG FRAME 180.2 ms at 2.8 s: device draw 19.60, flushes 6 (2.95 ms), present 0.45 (swapchain wait 0.00, offscreen wait 0.00), 353 draws; the engine's own 157.2 ms
+PosixDevice9 timing: LOGIC window 601..2400 samples=1800 expected=1800 rejected=0 status=complete
+PosixDevice9 timing: frame           mean    9.625  p50    9.509  p95   10.233  p99   10.872  worst   20.221 ms
+PosixDevice9 timing: work (no vsync) mean    9.624  p50    9.508  p95   10.231  p99   10.870  worst   20.218 ms
+PosixDevice9 timing: OFFSCREEN (no swapchain: no vsync, no drawable; see ZH_OFFSCREEN_HZ)
+PosixDevice9 timing: offscreen wait  mean    0.001  p50    0.001  p95    0.002  p99    0.002  worst    0.004 ms
+PosixDevice9 timing: draws           mean  327.503  p50  356.000  p95  394.000  p99  394.000  worst  394.000 
+PosixDevice9 timing: device draw     mean    0.322  p50    0.305  p95    0.524  p99    0.628  worst    1.279 ms
+PosixDevice9 timing: device flush    mean    6.623  p50    6.725  p95    6.952  p99    7.014  worst    8.728 ms
+PosixDevice9 timing: flushes         mean    4.001  p50    4.000  p95    4.000  p99    4.000  worst    5.000 
+PosixDevice9 timing: device present  mean    0.054  p50    0.051  p95    0.072  p99    0.098  worst    0.160 ms
+generals: refused to write "ffprobe.txt": the install root is read-only (P1)
+PosixDevice9: 814765 draws recorded, 2573 presents, 0 of them to a window that was not visible, 0 with no drawable
+PosixDevice9: 10082 mid-frame flushes, at most 4 in flight at once, 2517 waited for the ring (limit 3); 0 of the flushes for the draw limit (2048 draws)
+PosixDevice9:   drawn with the engine's engine:terrainnoise2: 136980
+PosixDevice9:   drawn with the engine's engine:trapezoidwater: 5038
+PosixDevice9:   drawn with the engine's engine:trees: 6297

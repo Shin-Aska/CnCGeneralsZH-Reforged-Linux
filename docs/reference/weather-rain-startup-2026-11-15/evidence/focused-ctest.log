@@ -1,0 +1,78 @@
+Start testing: Nov 15 16:22 PST
+----------------------------------------------------------
+1/198 Testing: build_fingerprint_check
+1/198 Test: build_fingerprint_check
+Command: "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/GeneralsMD/Code/Tools/fingerprint-check.sh" "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/build_fingerprint" "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/generated/fingerprint/BuildFingerprint.h"
+Directory: /mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux
+"build_fingerprint_check" start time: Nov 15 16:22 PST
+Output:
+----------------------------------------------------------
+ok: the build's header holds this tree's fingerprint (0x83496524)
+ok: an LF copy and a CRLF copy (as autocrlf makes it) of all 4804 files give the same value
+ok: one byte of GameEngine/Source/Common/GlobalData.cpp changed gives another value (0xDACFEC23)
+ok: the same bytes under another name give another value
+<end of output>
+Test time =   4.77 sec
+----------------------------------------------------------
+Test Passed.
+"build_fingerprint_check" end time: Nov 15 16:22 PST
+"build_fingerprint_check" time elapsed: 00:00:04
+----------------------------------------------------------
+
+2/198 Testing: build_fingerprint_manifest
+2/198 Test: build_fingerprint_manifest
+Command: "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/GeneralsMD/Code/Tools/fingerprint-manifest.sh" "--check"
+Directory: /mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux
+"build_fingerprint_manifest" start time: Nov 15 16:22 PST
+Output:
+----------------------------------------------------------
+ok: BuildFingerprint.manifest lists exactly the tracked files (4804)
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"build_fingerprint_manifest" end time: Nov 15 16:22 PST
+"build_fingerprint_manifest" time elapsed: 00:00:00
+----------------------------------------------------------
+
+3/198 Testing: fingerprint_manifest_selfcheck
+3/198 Test: fingerprint_manifest_selfcheck
+Command: "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/GeneralsMD/Code/Tests/test_fingerprint_manifest.sh"
+Directory: /mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux
+"fingerprint_manifest_selfcheck" start time: Nov 15 16:22 PST
+Output:
+----------------------------------------------------------
+ok: it writes a manifest (wrote /mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/test-tmp/fingerprint_manifest_selfcheck/fingerprint-manifest-check.yZDBWk/Code/BuildFingerprint.manifest (3 files))
+ok: and that manifest passes --check (exit 0: ok: BuildFingerprint.manifest lists exactly the tracked files (3))
+ok: a line written twice fails --check and is named (exit 1: FAIL: BuildFingerprint.manifest lists these more than once; run Tools/fingerprint-manifest.sh and commit it:
+a.txt)
+ok: mid-merge, git ls-files names the conflicted path 3 times (the case the refusal guards)
+ok: writing refuses during the conflict and names the path (exit 1: FAIL: the index has unmerged entries (a merge or rebase stopped on a conflict); resolve and add them, then run this again:
+a.txt)
+ok: and leaves the manifest as it was
+ok: --check refuses during the conflict too (exit 1)
+<end of output>
+Test time =   0.14 sec
+----------------------------------------------------------
+Test Passed.
+"fingerprint_manifest_selfcheck" end time: Nov 15 16:22 PST
+"fingerprint_manifest_selfcheck" time elapsed: 00:00:00
+----------------------------------------------------------
+
+115/198 Testing: test_weather_particle_math
+115/198 Test: test_weather_particle_math
+Command: "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/test_weather_particle_math"
+Directory: /mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux
+"test_weather_particle_math" start time: Nov 15 16:22 PST
+Output:
+----------------------------------------------------------
+weather particle math: all checks passed
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"test_weather_particle_math" end time: Nov 15 16:22 PST
+"test_weather_particle_math" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Nov 15 16:22 PST

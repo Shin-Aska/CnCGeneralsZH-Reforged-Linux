@@ -1,0 +1,194 @@
+{
+  "README.md": {
+    "sha256": "0888f8d71b3d1f093fce1fb6836103c65268e0d003213931c55b0b7322983c43",
+    "size": 5523
+  },
+  "evidence/archive-compatibility.json": {
+    "sha256": "48b30ad7a0c6de92ba3eae69aa767cb4ea386b4f10d3aced3e4e7e8fd0bb1c50",
+    "size": 907
+  },
+  "evidence/build.log": {
+    "sha256": "fc5efbd442e03deb3f665783963ab2c57ab81ff9e9dd6350a54be42853f87890",
+    "size": 1117545
+  },
+  "evidence/dry-7-repeat/Options.ini": {
+    "sha256": "6afd048b7c45bed1b85b94e94c249462748562cf582541cc3a6d4f12ed5b88a6",
+    "size": 501
+  },
+  "evidence/dry-7-repeat/WeatherEvidence.map": {
+    "sha256": "6dc4dec8c5671302ef3762d291c6026059d80fec6b5d9355c48c95d528b841fa",
+    "size": 259270
+  },
+  "evidence/dry-7-repeat/engine.log": {
+    "sha256": "babda5a52217312e138452fa096c56986b2de8c3852ad5b71eedf8a269ada8b8",
+    "size": 125847
+  },
+  "evidence/dry-7-repeat/manifest.json": {
+    "sha256": "411baa4c1a1abc1267de08c14a72e639a8f8ffb8549005144044c1c15cae4d8e",
+    "size": 3411
+  },
+  "evidence/dry-7-repeat/picture-0.png": {
+    "sha256": "9b9f6f197f9ff5137a214dafa3a4ea2c50cffe6a21347f6d372ede3a0d0f35f9",
+    "size": 1338597
+  },
+  "evidence/dry-7-repeat/run.log": {
+    "sha256": "fce4df0b9b606393ef163ab342aa8535ca5a30c8f311d2c63a21ea1b02c33c13",
+    "size": 1386
+  },
+  "evidence/dry-7-repeat/startup-result.json": {
+    "sha256": "94ed72029be71a29e31b2e7c76d765d9d24df621e359afe3d810d03a2ce36797",
+    "size": 2522
+  },
+  "evidence/dry-7-repeat/weather_evidence.txt": {
+    "sha256": "68b4ee00352522f56623f4efb7a43de6c473cf6ac94f83d5e4197fdd83057eee",
+    "size": 50
+  },
+  "evidence/dry-7/Options.ini": {
+    "sha256": "6afd048b7c45bed1b85b94e94c249462748562cf582541cc3a6d4f12ed5b88a6",
+    "size": 501
+  },
+  "evidence/dry-7/WeatherEvidence.map": {
+    "sha256": "6dc4dec8c5671302ef3762d291c6026059d80fec6b5d9355c48c95d528b841fa",
+    "size": 259270
+  },
+  "evidence/dry-7/engine.log": {
+    "sha256": "c2dff488797698e94c95c814433217bf80e8cb34f8695e53639ed612c5fe6a59",
+    "size": 126060
+  },
+  "evidence/dry-7/manifest.json": {
+    "sha256": "84ee93ecd8e44abdc84a2d72a1a709ff36ff9316eeeaf6253983523ed83d69f9",
+    "size": 3397
+  },
+  "evidence/dry-7/picture-0.png": {
+    "sha256": "9b9f6f197f9ff5137a214dafa3a4ea2c50cffe6a21347f6d372ede3a0d0f35f9",
+    "size": 1338597
+  },
+  "evidence/dry-7/run.log": {
+    "sha256": "c3ccfc594f693d4b63b6f6a69ccfb80f5b6f6fb386a5802dbb7aedcacf995617",
+    "size": 1379
+  },
+  "evidence/dry-7/startup-result.json": {
+    "sha256": "7b337582154373d8d8e96c3e9105a48ce51f56fd52639c200f1402d0c72a759c",
+    "size": 2508
+  },
+  "evidence/dry-7/weather_evidence.txt": {
+    "sha256": "68b4ee00352522f56623f4efb7a43de6c473cf6ac94f83d5e4197fdd83057eee",
+    "size": 50
+  },
+  "evidence/focused-ctest.log": {
+    "sha256": "de5c528c46310fee52d56582454cabdf4d41a3c7424c5ed2ff1df1847598ddea",
+    "size": 4241
+  },
+  "evidence/later-wet-11/Options.ini": {
+    "sha256": "6afd048b7c45bed1b85b94e94c249462748562cf582541cc3a6d4f12ed5b88a6",
+    "size": 501
+  },
+  "evidence/later-wet-11/WeatherEvidence.map": {
+    "sha256": "6dc4dec8c5671302ef3762d291c6026059d80fec6b5d9355c48c95d528b841fa",
+    "size": 259270
+  },
+  "evidence/later-wet-11/engine.log": {
+    "sha256": "d91461949996842ac8fb40069c0ea1b23c0e9d531b0fd1b2c3acb94060874daa",
+    "size": 129642
+  },
+  "evidence/later-wet-11/manifest.json": {
+    "sha256": "9f127a678a981591dea330eacfa2080970ecc4849aa73ac893f88ce9cfc157c6",
+    "size": 3417
+  },
+  "evidence/later-wet-11/picture-0.png": {
+    "sha256": "61acb01b1fc4bc274e809f8c1a72ce0ddce9ea88873f2a5bdf1147d43f53a7b5",
+    "size": 1400844
+  },
+  "evidence/later-wet-11/run.log": {
+    "sha256": "46a8522498a570c87321a2c4f53a03ec4e3fc2fe372297c5087aab52c886b543",
+    "size": 1391
+  },
+  "evidence/later-wet-11/startup-result.json": {
+    "sha256": "e731eebd7a7daab708f6ba163596cfb8e372b41c318588d4ae48a7edfefa361a",
+    "size": 2529
+  },
+  "evidence/later-wet-11/weather_evidence.txt": {
+    "sha256": "68b4ee00352522f56623f4efb7a43de6c473cf6ac94f83d5e4197fdd83057eee",
+    "size": 50
+  },
+  "evidence/opening-predictions.json": {
+    "sha256": "fec182c77c26c783a63de4095895b9b591a6be9f4716313477a965a3bfbf4f4a",
+    "size": 1531
+  },
+  "evidence/source.patch": {
+    "sha256": "66137ba0b5ee39cbf0c3fd81943a348c6fbd5e9d4fad48c217767b452c78413a",
+    "size": 125669
+  },
+  "evidence/v4-seed-7/Options.ini": {
+    "sha256": "6afd048b7c45bed1b85b94e94c249462748562cf582541cc3a6d4f12ed5b88a6",
+    "size": 501
+  },
+  "evidence/v4-seed-7/WeatherEvidence.map": {
+    "sha256": "6dc4dec8c5671302ef3762d291c6026059d80fec6b5d9355c48c95d528b841fa",
+    "size": 259270
+  },
+  "evidence/v4-seed-7/engine.log": {
+    "sha256": "a2d5c9c867fd8bcbb8f79b7ec7ba503886272f1e086049bb3dc7eed9cdc6d7fc",
+    "size": 125852
+  },
+  "evidence/v4-seed-7/manifest.json": {
+    "sha256": "ddc7057dbb4070746bdf2be7e2d60be0827af14ff4d0e7654bfdac5298245f78",
+    "size": 3416
+  },
+  "evidence/v4-seed-7/picture-0.png": {
+    "sha256": "18ed8fb21000d145238d9fbc4c157f4c8fcb52730b99e86e21d0a0750f0f056c",
+    "size": 1338971
+  },
+  "evidence/v4-seed-7/run.log": {
+    "sha256": "f739a12a8f360ac1f8c7eae456ce72fd2e23eff4fbad87e80dfdd47b8eed559a",
+    "size": 1383
+  },
+  "evidence/v4-seed-7/startup-result.json": {
+    "sha256": "46504f1af5c546a2a75df787e280c24264a492c39f4074c1b889313d220be006",
+    "size": 2527
+  },
+  "evidence/v4-seed-7/weather_evidence.txt": {
+    "sha256": "68b4ee00352522f56623f4efb7a43de6c473cf6ac94f83d5e4197fdd83057eee",
+    "size": 50
+  },
+  "evidence/verification.json": {
+    "sha256": "cfef368f97918eb0fa59198dafb9c5e6e51c40e0d8d7b2c876dbbcae3087caa3",
+    "size": 1194
+  },
+  "evidence/wet-5/Options.ini": {
+    "sha256": "6afd048b7c45bed1b85b94e94c249462748562cf582541cc3a6d4f12ed5b88a6",
+    "size": 501
+  },
+  "evidence/wet-5/WeatherEvidence.map": {
+    "sha256": "6dc4dec8c5671302ef3762d291c6026059d80fec6b5d9355c48c95d528b841fa",
+    "size": 259270
+  },
+  "evidence/wet-5/engine.log": {
+    "sha256": "3940b5db29caba61c25de59d504b0798d1d1e190f6040cb8743e6910ba149dfd",
+    "size": 125831
+  },
+  "evidence/wet-5/manifest.json": {
+    "sha256": "19a66371f3ad3fc8583d4e8843b9216cb92e1c795a2700fbc800d499ee513e81",
+    "size": 3397
+  },
+  "evidence/wet-5/picture-0.png": {
+    "sha256": "1aafa0931c6682d691c67d3751909a88a9129c51f2cc74cc287db2d39ad49b08",
+    "size": 1342013
+  },
+  "evidence/wet-5/run.log": {
+    "sha256": "45cb066ab7e932700cae042c5bfdc3015045fc6ec0756d36be8add96aad2ab23",
+    "size": 1379
+  },
+  "evidence/wet-5/startup-result.json": {
+    "sha256": "d2509f90e5475870fa6ece7ac05a9839aaf38eac61be4c0f3d5b5b8fdb7fceba",
+    "size": 2508
+  },
+  "evidence/wet-5/weather_evidence.txt": {
+    "sha256": "68b4ee00352522f56623f4efb7a43de6c473cf6ac94f83d5e4197fdd83057eee",
+    "size": 50
+  },
+  "reproduction/check_startup.py": {
+    "sha256": "1254b91ecdb743561d1a4e205889e3f3657cef7b8f328c1f14b97e6b07c1f774",
+    "size": 3687
+  }
+}

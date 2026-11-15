@@ -1,0 +1,16 @@
+generals: overlay /mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/rain-startup-evidence/dry-7-repeat/overlay, searched before the install
+generals: refused to delete "Data\INI\INIZH.big": the install root is read-only (P1)
+ModernWater: loaded 2 material rules from Data\INI\ModernWater.ini
+Installed Vulkan doesn't implement the VK_EXT_headless_surface extension
+PosixDevice9: offscreen, 1280x720, unpaced
+water-shore-domain: revision=3 result=3 cells=0 edges=0 levels=0 tiles=0 support_vertices=0 support_work=0
+SunShadow: requested mapped
+D3DX: D3DXCompileShader (to D3D9 bytecode; the SDL3 GPU draw compiles its own) is not available off Windows yet; the call fails
+ZH_WATER_CLEAN_OPT=stream,collapse=1.5
+water auto sea: source=WaterWaveHeading::prevailing travel=0.000 field unavailable; configured fallback effective=-135.000 mode=auto
+generals: refused to write "ffprobe.txt": the install root is read-only (P1)
+PosixDevice9: 46173 draws recorded, 413 presents, 0 of them to a window that was not visible, 0 with no drawable
+PosixDevice9: 1442 mid-frame flushes, at most 4 in flight at once, 357 waited for the ring (limit 3); 0 of the flushes for the draw limit (2048 draws)
+PosixDevice9:   drawn with the engine's engine:terrainnoise2: 20340
+PosixDevice9:   drawn with the engine's engine:trapezoidwater: 1075
+PosixDevice9:   drawn with the engine's engine:trees: 897

@@ -1,0 +1,1073 @@
+{
+  "head": "9770afa04a82ada1837554e587f8e73d1d399b83",
+  "status": "",
+  "source_binary": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/ZeroHourReforged/bin/generals",
+  "files": {
+    "add-to-menu.sh": {
+      "sha256": "7a3db94c6099f74c286cbd7dee8d50002cb60db5edecda0a8daea95585c11931",
+      "size": 2723
+    },
+    "bin/generals": {
+      "sha256": "c7503c364f05364026d1b485ae21d9ff6aaa68bd71dd7fa95d799486cf381cfd",
+      "size": 450009184
+    },
+    "share/icons/hicolor/128x128/apps/zero-hour-reforged.png": {
+      "sha256": "e8142b86914c1984d9a1037d3b8a0b2796d48a5ac24525d77ee87efbb011daa9",
+      "size": 18916
+    },
+    "share/icons/hicolor/48x48/apps/zero-hour-reforged.png": {
+      "sha256": "f947265e780db428c1c89b60a3ff6dd2443f1105762f402327d48c2129fdeaa6",
+      "size": 1304
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedBarAmericaCenter.tga": {
+      "sha256": "b7fb18425cd11b8fe474b19ae4c02e56809bc337c548ce90b866cdcb5dba1ec4",
+      "size": 186890
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedBarAmericaLeft.tga": {
+      "sha256": "3e36215829005739d229af83b729f611e3bd9d2471d23e19220f3d4ce2db157b",
+      "size": 137005
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedBarAmericaRight.tga": {
+      "sha256": "63c65d168aeaef8492b83050af8545166065a5650e0c8d51821a820c760780d2",
+      "size": 157573
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedBarChinaBeacon.tga": {
+      "sha256": "38cc9430ae475c22f1e6184e5dbcc97e131871135ef00e9e75a4eaf432fe9f86",
+      "size": 8236
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedBarChinaCenter.tga": {
+      "sha256": "1275b2da79244c51ee00e37098b65d7301359af1d7962d044ae52ded7d513917",
+      "size": 272096
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedBarChinaLeft.tga": {
+      "sha256": "0f7af259d280366019ddbb9aa1f3c66d96df480e90d417964c1b921a09833631",
+      "size": 130783
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedBarChinaRight.tga": {
+      "sha256": "5b87dd6051c240dc6ad4e3935213c8eecfc64f04b058426161a34053586ed78c",
+      "size": 161297
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedBarGLACenter.tga": {
+      "sha256": "a11035498dd1f13e8f251e951a572fd631eb209eeddd47952c6288be0983cc04",
+      "size": 299033
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedBarGLALeft.tga": {
+      "sha256": "0079db56d74c11337598fbcc781c8335531c1b3242d4cd9366518f591e0be638",
+      "size": 152650
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedBarGLARight.tga": {
+      "sha256": "c7cb5cb4cbbaa6860610fda79d5fed2a1da8b6c5139e29dbfffdac5bc9e1c689",
+      "size": 175168
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedFactionTurkiye.tga": {
+      "sha256": "b1314ea3e99c68f2ad83a15cb382b005504b0d5d50ce7259979e3915a4d95025",
+      "size": 393260
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedForceAttack.tga": {
+      "sha256": "d3e7d8d68bc73c717cd23aa617573cdb5a91eb1ed10b8b4dc8318ecc62f09f73",
+      "size": 65554
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedGuardCentre.tga": {
+      "sha256": "e509d5db65c6393f1dc0e1d9f860b54107250d9dbab67edd38452c32cdca1978",
+      "size": 17037
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedGuardRing.tga": {
+      "sha256": "060db86d862d0beb64732dc403924c034cf5bcc22c92f3afaf22a375f14246dc",
+      "size": 49047
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedGuardShield.tga": {
+      "sha256": "c199f4e5bc2fe8c9888eb3eb7e240784072b2a612a50c0f867d6f12df5dde15e",
+      "size": 524332
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedHudAmericaCommandBar.dds": {
+      "sha256": "190593a4e37e6afad7c9abaebb24f871049b4f90dd3a946e04d8cefb6505060f",
+      "size": 1048704
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedHudAmericaPowers.dds": {
+      "sha256": "568c51cea6c9dab85a0f3b4c5da5a92f4d007840a3d672c7a38d65c7f6ec0ac9",
+      "size": 1048704
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedHudAmericaTabPanel.dds": {
+      "sha256": "f9b1d0611051a77d593c495c5d6bd8c30aac2644471f111df64e02c7a63b6869",
+      "size": 2097280
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedHudAmericaTabSolo.dds": {
+      "sha256": "11d9864e67d1d00bb6be60de026f4f1cab3997bcbe8a24965e547bfce6b9035c",
+      "size": 2097280
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedHudBlankTexture.tga": {
+      "sha256": "5cd83917cadbc7fb3742fad35c4cd21bbbbcbb77009b2e34e65717156895d374",
+      "size": 1068
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedHudChinaCommandBar.dds": {
+      "sha256": "1768373b20609c133272d5923ba357ada292adcda3c5cc2a0d4e5544a6d18abf",
+      "size": 1048704
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedHudChinaPowers.dds": {
+      "sha256": "944b1dc7ef395c61b765aa4cbe03f590d9a2e31c452576c4ef7779b63d8a9d5e",
+      "size": 1048704
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedHudChinaTabPanel.dds": {
+      "sha256": "ec5ff70f786cdad0d2a476e92b2a9e15a5563f073e96e27a062ebf009e922a4c",
+      "size": 2097280
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedHudChinaTabSolo.dds": {
+      "sha256": "7a0539fed9eb27c6e369bdfa709dddcb0fcef5e98f802dc859c530bb3ac91078",
+      "size": 2097280
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedHudControlButtons.dds": {
+      "sha256": "8b68682445068a16de82c71e8b772869240f81602b1c7448a6a954a842ea250b",
+      "size": 65664
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedHudDisconnectWindow.dds": {
+      "sha256": "705ccfd0b06f26d00b43db8d5decb5112d22b0e6fd95a8503a4beef4db069d40",
+      "size": 1048704
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedHudGlaCommandBar.dds": {
+      "sha256": "d770ad6f41d466d6944049cfea4bb6d4a8361b5afdc4fa5dc357397aba98cf30",
+      "size": 1048704
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedHudGlaPowers.dds": {
+      "sha256": "d327ad280b6fe3ccb7479b7583a5cbc58e6aaee018a6d16a544fd11e1787d173",
+      "size": 1048704
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedHudGlaTabPanel.dds": {
+      "sha256": "43528d98f8e35b413206f22e3761f538f8e108162c819753b497bfdb802a8278",
+      "size": 2097280
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedHudGlaTabSolo.dds": {
+      "sha256": "bafe9be2a601061554b4ab1675d4083d865391056b663d268b38074223479c8d",
+      "size": 2097280
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedHudHelpbox.dds": {
+      "sha256": "0fcff37c263a86853e31fdacd8bb867930337ffc97b39e26e72c30efd9c407ef",
+      "size": 131200
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedHudObsCommandBar.dds": {
+      "sha256": "c4972121fe8b2e2a7e5a9ebd004130ce94f6fb6a6794222718a4af2616ec90e6",
+      "size": 1048704
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedHudObsPieces.dds": {
+      "sha256": "14751c38ba00b98915dad90f0d46b9be850bd06d7879e998e7f215e7c689d5a1",
+      "size": 262272
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedHudObsPlayerWindow.dds": {
+      "sha256": "635f3c5cc5c3b2a6730d5d1c185e1f14a06b41dae3dd3188d8a7b3dbbf5aed78",
+      "size": 131200
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedHudObsSpec.dds": {
+      "sha256": "2ee97fc7516478e5cc4d867264de68bd44486abab11c7bfe2fe268bf3b13ea82",
+      "size": 262272
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedHudObsTabPanel.dds": {
+      "sha256": "81432ef443bcbc3fe64abf8b36ee0dea9e9656226b2d94284c7f35a7df94e332",
+      "size": 2097280
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedHudTurkiyeCommandBar.dds": {
+      "sha256": "61706cf70e239694cd36e4fb415dd7f74ced5f2df138d6ea35d608551a28ee34",
+      "size": 1048704
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedHudTurkiyePowers.dds": {
+      "sha256": "0f9aaeea5874c18438ea800d840ce8d739633b3c4e2e338fb273bff160c57fdc",
+      "size": 1048704
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedHudTurkiyeTabPanel.dds": {
+      "sha256": "7cefedfb22b7e3ac09e3c5cba799d74bda9fd4955c48f364d53217bc9df063eb",
+      "size": 2097280
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedHudTurkiyeTabSolo.dds": {
+      "sha256": "8d1200717d5705d9620f1bbdfeda8c57e007380e8c166edfbbdbb935564b5b52",
+      "size": 2097280
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedLaserPink.tga": {
+      "sha256": "22aef78396633c6dee2ecd1d42b8bd2f1ad639c1e28b98461164289a2d51d75a",
+      "size": 812
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedLobbySpot.tga": {
+      "sha256": "d7a9f0d089637213a8e7bd0b30ffd5fb06708f6d3bacac3442e202e29f0057fd",
+      "size": 8236
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedRadarContact.tga": {
+      "sha256": "51d8b3b39a9681a39e3ba4c7d413d6b519fee5131b681056eb1378315eb9f81c",
+      "size": 16428
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedRadarRing.tga": {
+      "sha256": "7f46a15a215170f7c23a50005dd14355e84510b28cb69ba963657b142ba54dc6",
+      "size": 16428
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedReconArea.tga": {
+      "sha256": "3753ac9bf2a3ada1e38d1c5d6723666f4b82b5766d292b15cac584b28c759bae",
+      "size": 1048620
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedReconHud.tga": {
+      "sha256": "f7f647b1403796dbf6953322ab3c5456e4ddaf3f64dc5962d49a094939c59a63",
+      "size": 262188
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedSignalAttack.tga": {
+      "sha256": "ad2037d4a16e8be9af0284f0a5d6b2acee2ffd649b3ab79d498fee1106ea2f77",
+      "size": 65580
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedSignalDefend.tga": {
+      "sha256": "99d3973eada6602b4fd254627946a126f072783b66bd8cacb1355fd0355bc896",
+      "size": 65580
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ReforgedSignalLook.tga": {
+      "sha256": "f2dc602b8782fce93da662159f7bffc683d5ceb8146266d3d8cec5c3b1e9d1ec",
+      "size": 65580
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRAirfld_Apron.tga": {
+      "sha256": "77ab25c928eecc2e7b5c7f92c665f02fa0dc4e2a3aa7848fcd31233344ec6d28",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRAirfld_Conc.tga": {
+      "sha256": "62b3047db083ca7e5820932b325507af278d068f553a6bde37ac6e630a46de3b",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRAirfld_ConcD.tga": {
+      "sha256": "3ff12ff1769b89fe5a2da2467ed7a8ce078daf565f933710f8bf4b08fc831f23",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRAirfld_Earth.tga": {
+      "sha256": "cc3cdce3e47276564a01a264cfda419cf2e325912b48637aad2c51e1130ab25f",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRAirfld_EarthD.tga": {
+      "sha256": "db5167c3493823faed4b919ccb9709696dad1ae7f084f0fe3d0ffd883f193546",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRAirfld_Heli.tga": {
+      "sha256": "5e34e9a619075b673474db576fdea3e497367b20e90cac1da5bb6ef2bb906900",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRAirfld_Lead.tga": {
+      "sha256": "67f2d5d38c723d9ae47eb72805ecd52e140dff9cab51c13e52ab5e65a2a481c3",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRAirfld_Net.tga": {
+      "sha256": "ce1133d2e661bb3bb730b90de5784ddd62eeadb9cf469d8a55240f8e24df2f13",
+      "size": 16402
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRAirfld_Pave.tga": {
+      "sha256": "327c6d51b1bf182fe9b0fe16add40095b7c0c8636e5551f237d761c3419bf4c1",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRAirfld_PaveD.tga": {
+      "sha256": "ce89a610d46f9553ae6589b5199d411336ae6071704c46a13734ede2ae09c038",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRAirfld_Plaster.tga": {
+      "sha256": "f1bef70495989d44d907d9518ac9783b970600473c9b982dbae9b2b31461579c",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRAirfld_PlasterD.tga": {
+      "sha256": "ffb25c0ad2a59a9614bf4587a1781d01d1a706bf3dd1fffc3dadf031c693054b",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRAirfld_Roof.tga": {
+      "sha256": "3a6c05bd6de240d2bb75a968619c941c205c66e915ac86316c815fd91be05788",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRAirfld_RoofD.tga": {
+      "sha256": "a5286bf41ec57eb6dc5679d75f39c28bed4daf190983ad0edf37a95fbb026381",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRAirfld_Rubble.tga": {
+      "sha256": "eef0c3083aa7f332c206e6de89f68a4d362204c769d9fbb76f462e818ec20423",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRAirfld_Runway.tga": {
+      "sha256": "2e023791b91ea8f1f84088d5f0b410dca1d5184db57474d9b0434dc0ac4608f9",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRAirfld_RwyEnd.tga": {
+      "sha256": "b8a749d367721fae5a1dd2a69e2427bc8f66cc2af2a9e1ba3001e9f3edc4e37b",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRAirfld_Scorch.tga": {
+      "sha256": "b710be23b16f70570cef894e095decb624c1f79a46703cab27bdf5cbadef21d2",
+      "size": 65554
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRAirfld_Stone.tga": {
+      "sha256": "4a735bffa21afac3fd51ca8141a187564f14b926e7bf4565d9d131d50be30a4e",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRAirfld_Taxi.tga": {
+      "sha256": "3b829d895115f97ea565c00c709c25a21fa623cd973bd2c30ca98f626a273f81",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRAirfld_Tile.tga": {
+      "sha256": "c956b55df25dac00db26d565f974a544e767e5611890c125cb50e67f3e7a0e81",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRAirfld_TileD.tga": {
+      "sha256": "1302001fa010688b68074422bbbde3d5605b25ee0f62f00c21f270f684c878b9",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRAirfld_Tower.tga": {
+      "sha256": "b30f0f6a32fa2cdcb125bf5ba2c1895117b10d0a2ad7c486a12dd9132983c3ad",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRAirfld_TowerD.tga": {
+      "sha256": "fe1be387267344006a3148f9476cef483e8402bfe511a21948eef0f0128c4470",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRAirfld_Wall.tga": {
+      "sha256": "c9e20aa03df8627b047ec0f3ce675c373430f87ce80858ee2e1f7e4275981ed2",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRAirfld_WallD.tga": {
+      "sha256": "deda3606ed3eb66a130d262e02eb006185a95909272d146f25098d67f93db927",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRAltay_Tread.tga": {
+      "sha256": "2747114d1df850601289ce93d3c3343916d576e925d6244530daef52f6a75a74",
+      "size": 12306
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRAltay_TreadWreck.tga": {
+      "sha256": "9ebd4b838da4d81b0d9ef8c79893d9ea208d626f12e96b851bbaa0af4017eec5",
+      "size": 12306
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRAltay_Wreck.tga": {
+      "sha256": "ac060a90b86fe715767da2eef404809532f2d78f5f390fad2065d25ece75f2ed",
+      "size": 196626
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRCmdHQ_Lead.tga": {
+      "sha256": "67f2d5d38c723d9ae47eb72805ecd52e140dff9cab51c13e52ab5e65a2a481c3",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRCmdHQ_Net.tga": {
+      "sha256": "ce1133d2e661bb3bb730b90de5784ddd62eeadb9cf469d8a55240f8e24df2f13",
+      "size": 16402
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRCmdHQ_Pave.tga": {
+      "sha256": "3669eb71f2fe2e544c3fa64f64875595ed5d233723b250449af43cdccc050d11",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRCmdHQ_Plaster.tga": {
+      "sha256": "f1bef70495989d44d907d9518ac9783b970600473c9b982dbae9b2b31461579c",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRCmdHQ_PlasterD.tga": {
+      "sha256": "8a9c9853eec90437fa6f35aad77f362ff123fee0e4e5f40257e00b3af5f330ac",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRCmdHQ_Rail.tga": {
+      "sha256": "21e939967216c2e06d1c36180fef9bd969854ef6cdea55036503c66d5793288c",
+      "size": 16402
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRCmdHQ_Roof.tga": {
+      "sha256": "3a6c05bd6de240d2bb75a968619c941c205c66e915ac86316c815fd91be05788",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRCmdHQ_RoofD.tga": {
+      "sha256": "8affff695276b69f43443287aaf5c825b59f284671ee626e8056fc016052cb56",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRCmdHQ_Rubble.tga": {
+      "sha256": "eef0c3083aa7f332c206e6de89f68a4d362204c769d9fbb76f462e818ec20423",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRCmdHQ_Stone.tga": {
+      "sha256": "4a735bffa21afac3fd51ca8141a187564f14b926e7bf4565d9d131d50be30a4e",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRCmdHQ_Tile.tga": {
+      "sha256": "c956b55df25dac00db26d565f974a544e767e5611890c125cb50e67f3e7a0e81",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRCmdHQ_TileD.tga": {
+      "sha256": "ef028e41aeda8ee163e32cf660779b6875d651b28e3de7bedebe03da7bb13687",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRCmdHQ_Wall.tga": {
+      "sha256": "c9e20aa03df8627b047ec0f3ce675c373430f87ce80858ee2e1f7e4275981ed2",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRCmdHQ_WallD.tga": {
+      "sha256": "ffb789b455c9a95bcd6c4ebeac8953f6cd34eaa64efc83d75c6576e9784aea03",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRDef_Earth.tga": {
+      "sha256": "152426c63c233d563bc71b75509d46809a8e0f6aedb0287772fbad63a7c738aa",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRDef_EarthD.tga": {
+      "sha256": "e1de2c7cc94632322796d5e4a37c87cdb2a3b6268a9c5952afd6c7fc222815f4",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRDef_Kule.tga": {
+      "sha256": "7f1a57a35d09898493cb17a256b0a71f3a78d6012e3d94d475e2948628ecb752",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRDef_KuleD.tga": {
+      "sha256": "7f6ae421d7cbde0086af9774fd612474a2b7de6b96a6ff8804a6d4772fcb5790",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRKizilelma_Debris.tga": {
+      "sha256": "6890e8a65a6e02349d2915207928f4170f7f35b98743b627ed49c372923d8048",
+      "size": 196626
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRKizilelma_Wreck.tga": {
+      "sha256": "fa9a0d71cb8420b04cdd31083c6dce55833c5f4fc51f57473cd6086d4ab07fcc",
+      "size": 196626
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRPwrPlt_Lead.tga": {
+      "sha256": "67f2d5d38c723d9ae47eb72805ecd52e140dff9cab51c13e52ab5e65a2a481c3",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRPwrPlt_LeadD.tga": {
+      "sha256": "8ddd02c454c8ab87a091dc37d4c69b27653451415e4ab35425ae405523009b1f",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRPwrPlt_Net.tga": {
+      "sha256": "ce1133d2e661bb3bb730b90de5784ddd62eeadb9cf469d8a55240f8e24df2f13",
+      "size": 16402
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRPwrPlt_Pave.tga": {
+      "sha256": "327c6d51b1bf182fe9b0fe16add40095b7c0c8636e5551f237d761c3419bf4c1",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRPwrPlt_PaveD.tga": {
+      "sha256": "f7e1106b1a331c74c2650b69293d127dfe4fca91632a31e347c65f4c4657e99d",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRPwrPlt_Plaster.tga": {
+      "sha256": "f1bef70495989d44d907d9518ac9783b970600473c9b982dbae9b2b31461579c",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRPwrPlt_PlasterD.tga": {
+      "sha256": "e5102cc935f63d0bf02fe89c385b8474a121152e2f1f348d82fd85d2693a6955",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRPwrPlt_Rail.tga": {
+      "sha256": "21e939967216c2e06d1c36180fef9bd969854ef6cdea55036503c66d5793288c",
+      "size": 16402
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRPwrPlt_Roof.tga": {
+      "sha256": "3a6c05bd6de240d2bb75a968619c941c205c66e915ac86316c815fd91be05788",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRPwrPlt_RoofD.tga": {
+      "sha256": "175d865c66ef8cf912913fd5c9e193fd45963f0d16464778273bfdbfc758e2bd",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRPwrPlt_Rubble.tga": {
+      "sha256": "eef0c3083aa7f332c206e6de89f68a4d362204c769d9fbb76f462e818ec20423",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRPwrPlt_Scorch.tga": {
+      "sha256": "b710be23b16f70570cef894e095decb624c1f79a46703cab27bdf5cbadef21d2",
+      "size": 65554
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRPwrPlt_Stone.tga": {
+      "sha256": "4a735bffa21afac3fd51ca8141a187564f14b926e7bf4565d9d131d50be30a4e",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRPwrPlt_StoneD.tga": {
+      "sha256": "f80607b534beeba245afe0c4660fc59908b6cd900a3bc27e31d6235dd062fef9",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRPwrPlt_Tile.tga": {
+      "sha256": "c956b55df25dac00db26d565f974a544e767e5611890c125cb50e67f3e7a0e81",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRPwrPlt_TileD.tga": {
+      "sha256": "6df59fda19eec6fbcc9cae6d16ddcc99b5e6cd065957dd6753ed966d9ff4c156",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRPwrPlt_Wall.tga": {
+      "sha256": "c9e20aa03df8627b047ec0f3ce675c373430f87ce80858ee2e1f7e4275981ed2",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRPwrPlt_WallD.tga": {
+      "sha256": "17b1181b6a06d44509b5878e544a3a8ad04b2b081b5e1a46a61a72e8f54ee6b5",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/TRPwrPlt_WallLit.tga": {
+      "sha256": "f5baaef34b6589e78cd64acfb461bb092707da2aa129140a28404d220788ad5f",
+      "size": 49170
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ZHCA_TRAirfld.tga": {
+      "sha256": "56f6e056a1797543511053f1c8428ec14fe8abdc52605e387793a7425f26143a",
+      "size": 524306
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ZHCA_TRAltay.tga": {
+      "sha256": "a23e64bd1fac1131fa72617fc0ab3df19f593326be605eb28cdb6562281e2ea8",
+      "size": 262162
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ZHCA_TRAltayD.tga": {
+      "sha256": "0deac46bb95baff02a4662d38b9e1fde5140e2a947e2ef65894636fe1f1bc2ed",
+      "size": 262162
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ZHCA_TRCmdHQ.tga": {
+      "sha256": "a38f31d310edca854b9538b9e9e15abdb401d38ef0c54af6f092c3f6dd902156",
+      "size": 524306
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ZHCA_TREngr.tga": {
+      "sha256": "8d168302aa83688bf49df165075b1ae98400c75f57c9007ebbe30b585832f5a0",
+      "size": 16923
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ZHCA_TRKizilelma.tga": {
+      "sha256": "7d59dbc32183bf2a0bca8c064453acaf4b02afd49f5ae880de1f7b60fe1813ca",
+      "size": 262162
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ZHCA_TRKizilelmaD.tga": {
+      "sha256": "514c987121f948564940e4b9bda5962572a302e2961e0e7e60f52522441d7b27",
+      "size": 262162
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ZHCA_TRMehmet.tga": {
+      "sha256": "d0104ffa0f98d92046666274c2a92bae9159ee77c4857e168ad1d1413191e6fa",
+      "size": 16923
+    },
+    "share/zero-hour-reforged/overlay/Art/Textures/ZHCA_TRPwrPlt.tga": {
+      "sha256": "a33949a3302b3b7ccbce42e346e7d02469650d8eaa0c2e78208ba58410d355a6",
+      "size": 524306
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedAttack.ani": {
+      "sha256": "0fd84adbe828241de160b85bdab225200ebc7fb628c3155b1e92b6ebe76df78d",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedAttackMove.ani": {
+      "sha256": "69684384a81322639575cfbf5ba3c5dbe03fdfcd10f01d26b39b007d1427d69e",
+      "size": 55868
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedBeacon.ani": {
+      "sha256": "6345202e1795b51c4be4e1d427ceccd0ca768abfa34511842c1b6e6686cf5d60",
+      "size": 55868
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedBoard.ani": {
+      "sha256": "55e83939659c608ca64568d115f6b9bb6eb32f90a833ffe7bdf33b79825e7aac",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedBuild.ani": {
+      "sha256": "bd8658f3b8849e1da1d1498b24fadd819b11eb7a5df0c1a276c5c17c3862839c",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedBuildInvalid.ani": {
+      "sha256": "8de905fc151a6e55bdb2940a97599318b1e5e6d4256289df28e384017c351af9",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedCapture.ani": {
+      "sha256": "bee4666f68445615fcc2d6af600d835eff30baaae538a797941696673a08d99c",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedCarBomb.ani": {
+      "sha256": "3195349afd019d5e6dca3a3c75fd9f17b53e003c36b21145624df3a9b464773e",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedChargeInvalid.ani": {
+      "sha256": "449a3a1c88cde77c366e9ce287c73c40ddad81ce59deef2741376a158eea9a6e",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedDefector.ani": {
+      "sha256": "e243850c2fa1ea1436f7f4ddb33ac3176f428495229c66545f0fd36bda8c16be",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedDisguise.ani": {
+      "sha256": "c13a234f93335df9c35bcbf4cba1049e1c340720e3331c6f2bd3d180f5479d89",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedDock.ani": {
+      "sha256": "db200ab55626989b596af70069b83714843af053db5559f34458690676f63fd7",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedEnter.ani": {
+      "sha256": "f6a027261a23ad664650a17f36c145131b8dceb0ce2c8f27cfbb240aec05f6e7",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedEnterHostile.ani": {
+      "sha256": "e7da8bf440dbec09b767df5f0fe84e5f8f1467e77f763ed26ff640ce9051ddcb",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedFireBomb.ani": {
+      "sha256": "cc75b388fb5d505bb828b6bd997d50c072e36e0f030f187fdb7008fe84b339ec",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedFlame.ani": {
+      "sha256": "3864aec7528d5ca5c07e03092edb77824acc3fcbbd450dd2b07c91446e920576",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedForceAttack.ani": {
+      "sha256": "5162081cd72803f673cfabf30c866532040ce2f98c8dfdf804dbf0ff837e87cf",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedForceAttackGround.ani": {
+      "sha256": "d4f57fa246010cec26ee3db07fc08f577886b907e69dc86c22647a65dd93c914",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedGarrison.ani": {
+      "sha256": "9a10e64b2311cc77c50896c726a4c6ce7cf390584781d52165742dafadc1d634",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedGetHealed.ani": {
+      "sha256": "4130f7de95f16e474b63ca1671ceeb16f4648461f24ab9808d72d8f004245a99",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedGetRepaired.ani": {
+      "sha256": "9ae44812869d37916838c3cb3bdf62c87d6dc309c88d8b6037468263a33d590f",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedGuard.ani": {
+      "sha256": "d744e9e5dd9f309b8b79814c3e016de77743fbbe7d30e1dc1a91601753459969",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedHack.ani": {
+      "sha256": "5cb281a21ab970a61f4f077d000be2b23ae35b4f76fe3b097ed7f2df6b856c00",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedHijack.ani": {
+      "sha256": "fdd3f05256c804c36b68e17fc51b0a17659ef6d2c4094f219908c44983df68ad",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedInvalid.ani": {
+      "sha256": "6499eab78007e625c76ec2d9754e155e14db53465db3691a25f543caa515b995",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedLaserMissile.ani": {
+      "sha256": "9935f699f30484133fe3908dcfc9a48f6cf1e2a83f9e3c3bfd336e75b5e7726d",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedMove.ani": {
+      "sha256": "eeab2eb79d4222594d4a4fc3ab439c195a4d1e5f1b78233b1e1c006b17b3b646",
+      "size": 55868
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedOutRange.ani": {
+      "sha256": "c8e3430f4e133bdd6cdf0b400540d503490329fd18da3b29758b789c558e2e60",
+      "size": 55868
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedPointer.ani": {
+      "sha256": "d2ecf883964f13325c9d5390f531791c5144270b643eb8bd03ba2d7e89e83a4b",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedRally.ani": {
+      "sha256": "43fa299eb4da5464e386b7ee41186b614dd619721505946c5aa2d3c4dbfd328b",
+      "size": 55868
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedRemoteCharge.ani": {
+      "sha256": "93e28c3276e48943c22f72cb6e8d155c67f39247c967eca734eb7ac860e9d432",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedRepair.ani": {
+      "sha256": "504445180b8287f9e6569863bd09cdd95e73fb07ed68c5d4145c19733c868603",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedResumeBuild.ani": {
+      "sha256": "4febcec2f64035d6f8ef515b63f391d223a5d23f88332e605fe06e877b0b85c7",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedSabotage.ani": {
+      "sha256": "fead750c40a3402cf1144ec769b10249c2868768aafd4c2c0bbb60d211825670",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedScroll0.ani": {
+      "sha256": "967f32c2830eae032104c86127edc5cfa40947d29dfb1103a8599cc6b8aaa54a",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedScroll1.ani": {
+      "sha256": "4fb82608cd53ae427e8086559a88877de5452bea1896def49942e5562d6c47f7",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedScroll2.ani": {
+      "sha256": "f94b2c6a59d24f9a0a6a3efe364fe55e66df2720175fbbb558ec3b88d1a290a4",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedScroll3.ani": {
+      "sha256": "f479f9df69961daa4817ddf801ccc07d9028a461f11e3d4a2004a2c61c256ee1",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedScroll4.ani": {
+      "sha256": "a60b33673b758096919733f41b4e964b4729b6cadd7f14a3489f3bb69d594125",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedScroll5.ani": {
+      "sha256": "5ad3dd64c1d4b884032c7a902271974e5fb83b33a1bce34cc4938196a450396b",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedScroll6.ani": {
+      "sha256": "77d22c329ad6205f15765939ee077647374dc0126b5151960a28f7a49344d056",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedScroll7.ani": {
+      "sha256": "6b70cd292a2d4db8511158320a5d808936973e84d2483875efc25eede487864d",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedSelect.ani": {
+      "sha256": "155f1f280b532f93dabf13ca8d4c21c00a57ab6df53740d6e17e3eafed630ad5",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedSnipe.ani": {
+      "sha256": "896bcdb77302c7ccca6b070a6e346efc794e9e840808f60c50829ff1af007d4f",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedStab.ani": {
+      "sha256": "7a7a0610b3f078b693bf55370c24545f819281a73678f75982c0860ea33cc28c",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedStabInvalid.ani": {
+      "sha256": "f69fd84bdc3f1814227ac1801a53f565b0f9b7537baaed7e7ee58d0d6246702c",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedTNT.ani": {
+      "sha256": "b59aaefa19dbccd28334d216f5ba70971fc83abc3cc179ffbe5f254cb637bbb2",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedTarget.ani": {
+      "sha256": "34c0caa7b84abc6bfd67f67795a3dbd8773688c5d86fe519cb8a84e9840b011c",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedTimedCharge.ani": {
+      "sha256": "a43dd3f4338e9d84e4c496f9e2f9b6086ae8eb3c7728cd85308df32dd75dc50f",
+      "size": 55868
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedUnload.ani": {
+      "sha256": "66f097e5fcdd15f21aec1cd31affdcd23afa90ef986288b82b10cec608bb5cbe",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedUplink.ani": {
+      "sha256": "b49b729a2b2ed84111ee083d7e3b588bb7034e373805ee547fa880c359e269f8",
+      "size": 41918
+    },
+    "share/zero-hour-reforged/overlay/Data/Cursors/ReforgedWaypoint.ani": {
+      "sha256": "91c5c87f22515bd95bdb2522ede68b1034c691dafe7e6980e94f43d74902b6fd",
+      "size": 14018
+    },
+    "share/zero-hour-reforged/overlay/Data/French/Generals.str": {
+      "sha256": "34c8e688f890aceba6c88743a521620c57f9afc7c034af27a77ba98d24bd4f3b",
+      "size": 372268
+    },
+    "share/zero-hour-reforged/overlay/Data/German/Generals.str": {
+      "sha256": "bb8010e69a5dbb5a979db16958848e07bb8841d4544773b4ca57eeab74630f67",
+      "size": 302875
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/AIDataReforged.ini": {
+      "sha256": "c6284075b4b859ee65b838c481216ee9f20d7326046b2abfaebdc278a5737f73",
+      "size": 6464
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/BalanceReforged.ini": {
+      "sha256": "1671704cc2bb59c19752ccfb70782d5647ab98cce7927847c3ab52874a45d0f0",
+      "size": 202487
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/CampaignReforged.ini": {
+      "sha256": "40159a6c39f76fe282c8d684db75f72a66b64c90a2a67782b310a65b562039fd",
+      "size": 10989
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/CommandSetReforged.ini": {
+      "sha256": "1516723e7f944e00017d1398296867f29db340bbe2bfca442cd7ed5785e7492f",
+      "size": 50024
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/ControlBarProReforged.ini": {
+      "sha256": "2eed20ae9ff96b51774fa72fa4bb4dd02d989f3e255cbb1dbd2ee357726140ab",
+      "size": 65018
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/ControlBarSchemeReforged.ini": {
+      "sha256": "95a8382d776e29cc0c5e5ac1826955843e53f2428972deb754e57374a3e817c0",
+      "size": 1072
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/FXListFixesReforged.ini": {
+      "sha256": "d6a93afd5cf3bc7291d0a27bf3d98db99417dd7676b60d89afec293d0200dfa9",
+      "size": 741
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/FXListReforged.ini": {
+      "sha256": "aa04cdf3c16a290fe7c8e9c25696e0049e22208973212a543e57a62cb59bec2a",
+      "size": 108663
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/FixesReforged.ini": {
+      "sha256": "d740232d16ad78a44adad550714cc9bd7d13fb0a316e95211e8b8064113c0d14",
+      "size": 347627
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/MappedImages/HandCreated/ReforgedBarChinaBeacon.ini": {
+      "sha256": "15a009c4af324a0f8fa1dcea50bb1210f0d415ae005c00f1feb65dca74a0ae74",
+      "size": 502
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/MappedImages/HandCreated/ReforgedFactionPicker.ini": {
+      "sha256": "0f4077c238f67f0417d8c0fc6bb5175d32821c1e7bfc13b75fa637e0f7863bec",
+      "size": 1264
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/MappedImages/HandCreated/ReforgedForceAttack.ini": {
+      "sha256": "769ed522e321516c856565105a768e8be4780107c5fd62bc5b913f4123e69ed3",
+      "size": 177
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/MappedImages/HandCreated/ReforgedGuardShield.ini": {
+      "sha256": "68a3e036109415b53445e581f73d2ca0fdbcd62074e91c769362e7ab2c836f78",
+      "size": 6569
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/MappedImages/HandCreated/ReforgedHudAmericaCommandBar.ini": {
+      "sha256": "e4452f5b89e810c21d57eec8a6683436eba7ea4a0920bb5d9131f8d303d8ae4e",
+      "size": 195
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/MappedImages/HandCreated/ReforgedHudAmericaPowers.ini": {
+      "sha256": "b2d8850040918c66dc823f21de4340eb74d39664650f402254941582147e08e4",
+      "size": 21735
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/MappedImages/HandCreated/ReforgedHudAmericaTabPanel.ini": {
+      "sha256": "2c3f64fd4c534a16b8f71bc4c3d7024fc7dd3e5f7103c2c1ff49696192f4e82b",
+      "size": 8339
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/MappedImages/HandCreated/ReforgedHudBlankTexture.ini": {
+      "sha256": "1a273e18d1ea998eb18f87854d2b2e467acd1e6e1c004795039801821245de95",
+      "size": 172
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/MappedImages/HandCreated/ReforgedHudChinaCommandBar.ini": {
+      "sha256": "b77bbdf654ca0f9cc2557150329f7cfb3398d7b727f92223d7d2f160d61a2209",
+      "size": 191
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/MappedImages/HandCreated/ReforgedHudChinaPowers.ini": {
+      "sha256": "888d556276a60d838855f10c2b3cc88f7eae76e2f9eea3fa155449c77a8caa06",
+      "size": 21311
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/MappedImages/HandCreated/ReforgedHudChinaTabPanel.ini": {
+      "sha256": "20870adbfb42ee3efd507ceb7608644e95dd23cfcd10fcd88abf4db730391960",
+      "size": 8185
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/MappedImages/HandCreated/ReforgedHudControlButtons.ini": {
+      "sha256": "d2407763e60833ac12dfaf0b020c03f3afb95e40469eac919ba6a7f52340ee40",
+      "size": 940
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/MappedImages/HandCreated/ReforgedHudDisconnectWindow.ini": {
+      "sha256": "227e31733f00800507197fd8143483f8c97da61a14f8c45f8a11741003fcf0c3",
+      "size": 1037
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/MappedImages/HandCreated/ReforgedHudGlaCommandBar.ini": {
+      "sha256": "c28a758c0bc38cd30c727d1aa9386c59969cfc82dbe6eb2361576b11625f3d80",
+      "size": 187
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/MappedImages/HandCreated/ReforgedHudGlaPowers.ini": {
+      "sha256": "3925b993b700054b58fa0e21baf943accfa9691078a978cefa9375d1e5cf620a",
+      "size": 20887
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/MappedImages/HandCreated/ReforgedHudGlaTabPanel.ini": {
+      "sha256": "bf7396cdf0214897db7a7d763a23cfd60796f517d73f2142659810625d081551",
+      "size": 8035
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/MappedImages/HandCreated/ReforgedHudHelpbox.ini": {
+      "sha256": "d95b5a83bf14767bc7fc2b355929f2f8d5ed4975cc60c5ac619158c976a23ba6",
+      "size": 5893
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/MappedImages/HandCreated/ReforgedHudObsCommandBar.ini": {
+      "sha256": "b494ab0862e60f7dfdf98f6f3cbaadef2fd4afa56798ab0ab89eb5093db9223d",
+      "size": 192
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/MappedImages/HandCreated/ReforgedHudObsPieces.ini": {
+      "sha256": "9a2695ab25134c43f923cce05e890ea8ff91956d3d8c7cc2d177519033d70665",
+      "size": 7638
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/MappedImages/HandCreated/ReforgedHudObsPlayerWindow.ini": {
+      "sha256": "187d4d0494e29cb921fef3f58d4224699413f4d96bb86e912f344c96892ca7cc",
+      "size": 194
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/MappedImages/HandCreated/ReforgedHudObsSpec.ini": {
+      "sha256": "67cf4ed1c7277e54f8b32986314ce6ee4364cf8e399fd92372817d62649eba9d",
+      "size": 8882
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/MappedImages/HandCreated/ReforgedHudObsTabPanel.ini": {
+      "sha256": "9ea7723ccce834b6bb029354cfc0c29a9b23b97f74fc3e8111e4a9b6d554726e",
+      "size": 7698
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/MappedImages/HandCreated/ReforgedHudTurkiyeCommandBar.ini": {
+      "sha256": "01c7284b40615004ef3c21800775a6de7ec8f145934399b31294f726933c2fea",
+      "size": 341
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/MappedImages/HandCreated/ReforgedHudTurkiyePowers.ini": {
+      "sha256": "535f9a3d8904818d5884d40cc51c489e06cdf2e46c6cb7dda2762ab83c35dfc6",
+      "size": 21949
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/MappedImages/HandCreated/ReforgedHudTurkiyeTabPanel.ini": {
+      "sha256": "330e2015dcc737d2ad8d5545760a3a6d7ef2c36a9d3615f3824e46cd11233c52",
+      "size": 8339
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/MappedImages/HandCreated/ReforgedLobbySpot.ini": {
+      "sha256": "100949c40b225bcc5ce0dff6ebe8fc670755f8f63dd6b74e0d64d5b8d9f5ea86",
+      "size": 692
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/MappedImages/HandCreated/ReforgedReconHud.ini": {
+      "sha256": "b19f6675c290d253d9aadd48be0cde7af71334f5dc78a25896e286578735c373",
+      "size": 1900
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/ModernWater.ini": {
+      "sha256": "9cecbb8323a45480fe760a17a0d4a4e5b8deb58c5dd5d78a16cbc283f4b9caae",
+      "size": 1722
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/Mouse.ini": {
+      "sha256": "ceea60e7eb6b26f07e2efb94c0b8ec9619ffd0b6724de7f52b97267bea3a62b6",
+      "size": 7214
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/MultiplayerReforged.ini": {
+      "sha256": "4515a43798808e92ae2f51fd9b373a719c885542b7769d51204b44a70bcf5e06",
+      "size": 1587
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/ObjectCreationListReforged.ini": {
+      "sha256": "7e5acd13a1ee2d46923a82ea5edd043dd012edb1856766228beeeb9f2f209bd5",
+      "size": 93179
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/ParticleSystemReforged.ini": {
+      "sha256": "029f50c1eb141c681fb8822d44b5ad82d7926b0ede760e23e054c72a9778698c",
+      "size": 196140
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/PlayerTemplateReforged.ini": {
+      "sha256": "ae8e076fb6b0d98a2b2d14e2eff9304d89cb9c59d55b5f2759c88049349eb409",
+      "size": 1988
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/ScienceReforged.ini": {
+      "sha256": "96e1603781962d1367df3eea39afc4a43bb93b58eb6555d9c208ead067ab03f9",
+      "size": 6891
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/SpecialPowerReforged.ini": {
+      "sha256": "1f039a149e234b79f29158bffe5e66e33aa12558f7f41925a4902f0f7e192fba",
+      "size": 6558
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/SpeechReforged.ini": {
+      "sha256": "e4294f9a49091500927c64b2d6f73686c547e0b31199b2c4516c5ee2ce4e137a",
+      "size": 98386
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/TurkiyeReforged.ini": {
+      "sha256": "b1187a7ac907d67d158fa52a46db0eea2f2e8a17d212e8a927ffcaa30f2550a3",
+      "size": 122895
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/TurkiyeWeaponReforged.ini": {
+      "sha256": "042a6148e7e6fe2d2df172001fa8e9d104b1409423770b462ced4aebf2f529d0",
+      "size": 33449
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/UpgradeReforged.ini": {
+      "sha256": "33e2a80c1090e86a094986a19db6595b4a08bc7874822e035962c87050af4853",
+      "size": 3766
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/VideoReforged.ini": {
+      "sha256": "26a9c7474f9137d311a54690ccff35d1880958a8a7417dffba7b1e1cdbebc5bf",
+      "size": 3707
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/WeaponReforged.ini": {
+      "sha256": "01e98d177bdf994fc66b634b56d86375de737a3f59ca20da35b6fd63cb0235a2",
+      "size": 8460
+    },
+    "share/zero-hour-reforged/overlay/Data/INI/WindowTransitionsReforged.ini": {
+      "sha256": "22cbaaf56a9b8a15924d94dec4e51b75ac1b16fbea9ea5099925e9fce107eca7",
+      "size": 16985
+    },
+    "share/zero-hour-reforged/overlay/Data/Patch.str": {
+      "sha256": "5bb23ff6ddbea2b9e8bf790ea6f6ca6737078a7f877f40d4517c3a5c6cdc677d",
+      "size": 82812
+    },
+    "share/zero-hour-reforged/overlay/Data/Russian/Generals.str": {
+      "sha256": "516260a1b3b2035ab38275fde6ff62063f703d946c4efe6378fc80a4aba0aa03",
+      "size": 477360
+    },
+    "share/zero-hour-reforged/overlay/Data/Scripts/SkirmishScripts.scb": {
+      "sha256": "0197fe8d63358802eb9891e60c7ab37f57b153ab700aaf9c26125777825377e3",
+      "size": 2272913
+    },
+    "share/zero-hour-reforged/overlay/Data/Scripts/SkirmishScriptsRetail.scb": {
+      "sha256": "8f93862b751f289b052206b87170cc840044cb66660fbf6ae30d5782c1d73776",
+      "size": 2272629
+    },
+    "share/zero-hour-reforged/overlay/Data/Turkish/Generals.str": {
+      "sha256": "a4c6065daeffc150e45036d08c62faf2bac6f9a511e1168da74f27d2c501e7be",
+      "size": 354928
+    },
+    "share/zero-hour-reforged/overlay/Data/Ukrainian/Generals.str": {
+      "sha256": "e7cb422e6f299f09ee9146c4c59aae16356cb512f80fe83955d162df63d37b4d",
+      "size": 473524
+    },
+    "share/zero-hour-reforged/overlay/Install_Final.bmp": {
+      "sha256": "2ed298c2702fe4081a4044ae2bb3a2417ec85378f8ea2403ccf800db836e3dc8",
+      "size": 1440054
+    },
+    "share/zero-hour-reforged/overlay/Window/ControlBar.wnd": {
+      "sha256": "7b953d0c5e986ade75bcf164d82f1f171b6e3d7f1c0a3abccd0c9799017cd045",
+      "size": 326869
+    },
+    "share/zero-hour-reforged/overlay/Window/ControlBarPopupDescription.wnd": {
+      "sha256": "08bca755858584f48d9663e2d9a03222c0ddcf15bad976029f249bd4c9e47d31",
+      "size": 9432
+    },
+    "share/zero-hour-reforged/overlay/Window/ControlBarPro.txt": {
+      "sha256": "4d0cfa0e9c5e0acefa4e31511e923dc58788aa54e31e00e2902291561b45df74",
+      "size": 1351
+    },
+    "share/zero-hour-reforged/overlay/Window/Diplomacy.wnd": {
+      "sha256": "75ae885c67ee37eeca4eb1f21e370a60294b8467a356dedc38b9bce2ed19bd1a",
+      "size": 410332
+    },
+    "share/zero-hour-reforged/overlay/Window/GenPowersShortcutBarChina.wnd": {
+      "sha256": "1aa33f9d5a411ec891a2939a217452f20566c60f43048633db92d8253f08239e",
+      "size": 74478
+    },
+    "share/zero-hour-reforged/overlay/Window/GenPowersShortcutBarGLA.wnd": {
+      "sha256": "28ff5badeafd0806e71526ff807d3ab314f770c1ba852c90391c5db768b0f886",
+      "size": 74410
+    },
+    "share/zero-hour-reforged/overlay/Window/GenPowersShortcutBarUS.wnd": {
+      "sha256": "da2fc01894ad56fc393180a815aaf7d141aff6ddb6b5b17a8b2e88096582fe08",
+      "size": 74431
+    },
+    "share/zero-hour-reforged/overlay/Window/GeneralsExpPoints.wnd": {
+      "sha256": "5efc8e2f41295508d63786944454c4de332cb94bd5140b000343afb94c64c19f",
+      "size": 100460
+    },
+    "share/zero-hour-reforged/overlay/Window/InGameChat.wnd": {
+      "sha256": "854d3674777cfff911c9cac2c5bd373c4d26daeab23295926f08bf5c8d384364",
+      "size": 12999
+    },
+    "share/zero-hour-reforged/overlay/Window/Menus/Defeat.wnd": {
+      "sha256": "8284476169056d7a0b73b0938baffc855329ecc7b843d0fd1359f595039c7b11",
+      "size": 6178
+    },
+    "share/zero-hour-reforged/overlay/Window/Menus/DisconnectScreen.wnd": {
+      "sha256": "b97780d8cde2a949d44e5f7322ebe62670ccd7316d05ef202a16931dc8df05ca",
+      "size": 127805
+    },
+    "share/zero-hour-reforged/overlay/Window/Menus/GameSpyGameOptionsMenu.wnd": {
+      "sha256": "20fbabfecac2a448904d186708718659bc4cae6e0f78fb2c09c26e2604043a9a",
+      "size": 1633704
+    },
+    "share/zero-hour-reforged/overlay/Window/Menus/LanGameOptionsMenu.wnd": {
+      "sha256": "e5d134079aba8292d176c4a894f1e298565850c495a099106ca7b75d4528bc6a",
+      "size": 1572702
+    },
+    "share/zero-hour-reforged/overlay/Window/Menus/LanMapSelectMenu.wnd": {
+      "sha256": "86f8f72bb0a92e4bb32716cfb6217ccaa15387aeef90595aefb43107c6b0c262",
+      "size": 107667
+    },
+    "share/zero-hour-reforged/overlay/Window/Menus/LocalDefeat.wnd": {
+      "sha256": "62fbebf989849b5ea88f81571fcd5c10aca454f03cb7666090f496e941cb612b",
+      "size": 6185
+    },
+    "share/zero-hour-reforged/overlay/Window/Menus/MainMenu.wnd": {
+      "sha256": "5a107789e70f676a0d4e6d8f11a9cbebd1d5e90a4fb8bfc4db80ddef95dd35e8",
+      "size": 255964
+    },
+    "share/zero-hour-reforged/overlay/Window/Menus/ObserverQuit.wnd": {
+      "sha256": "7c728a1ce196944691cefd833ba2f99ce9fcf0cfffce8c5f06c83eeff7bfe5a1",
+      "size": 6190
+    },
+    "share/zero-hour-reforged/overlay/Window/Menus/OptionsMenuClassic.wnd": {
+      "sha256": "d6b60ee59a425d171f987fd79580b9010d70dc936db2c760db8806160b65167b",
+      "size": 1538579
+    },
+    "share/zero-hour-reforged/overlay/Window/Menus/SkirmishGameOptionsMenu.wnd": {
+      "sha256": "acd990d81a771e419e3fb973f8eda1a203eea89ba9cc283342415e93b05c0da5",
+      "size": 1532848
+    },
+    "share/zero-hour-reforged/overlay/Window/Menus/SkirmishMapSelectMenu.wnd": {
+      "sha256": "ce3bb99ac45777d70be751cc9e6d94844771710753ac3e15b6999f32d734c9e9",
+      "size": 107969
+    },
+    "share/zero-hour-reforged/overlay/Window/Menus/Victorious.wnd": {
+      "sha256": "9cbd2f37c559eea9738897c33b85ecc76ff2814050b112a74968591e22cf57bd",
+      "size": 6181
+    },
+    "share/zero-hour-reforged/overlay/Window/Menus/WOLMapSelectMenu.wnd": {
+      "sha256": "f5df3e2b2e497c891ca9357dcb1c20867ec6db2be892f2322db983e3a7e86cf9",
+      "size": 107947
+    },
+    "share/zero-hour-reforged/overlay/Window/ReplayControl.wnd": {
+      "sha256": "5493540256e46b30308a516874ce84cae06c96448a619c8feff2e608fd05f143",
+      "size": 19829
+    },
+    "share/zero-hour-reforged/overlay/Window/Trainer.wnd": {
+      "sha256": "b095233e63a3522f81a561771c2be238f36d4ce4c905aa96f18ae39553924c86",
+      "size": 24542
+    }
+  },
+  "hardware": "Linux richard-mainpc 7.3.4-x64v3-xanmod1 #0~20261110.g98ed74f SMP PREEMPT_DYNAMIC Tue Nov 10 23:15:19 UTC x86_64 GNU/Linux\nArchitecture:                            x86_64\nCPU op-mode(s):                          32-bit, 64-bit\nAddress sizes:                           46 bits physical, 48 bits virtual\nByte Order:                              Little Endian\nCPU(s):                                  20\nOn-line CPU(s) list:                     0-19\nVendor ID:                               GenuineIntel\nModel name:                              12th Gen Intel(R) Core(TM) i7-12700\nCPU family:                              6\nModel:                                   151\nThread(s) per core:                      2\nCore(s) per socket:                      12\nSocket(s):                               1\nStepping:                                2\nCPU(s) scaling MHz:                      93%\nCPU max MHz:                             4900.0000\nCPU min MHz:                             800.0000\nBogoMIPS:                                4224.00\nFlags:                                   fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush dts acpi mmx fxsr sse sse2 ss ht tm pbe syscall nx pdpe1gb rdtscp lm constant_tsc art arch_perfmon pebs bts rep_good nopl xtopology nonstop_tsc cpuid aperfmperf tsc_known_freq pni pclmulqdq dtes64 monitor ds_cpl vmx smx est tm2 ssse3 sdbg fma cx16 xtpr pdcm pcid sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand lahf_lm abm 3dnowprefetch cpuid_fault epb ssbd ibrs ibpb stibp ibrs_enhanced tpr_shadow flexpriority ept vpid ept_ad fsgsbase tsc_adjust bmi1 avx2 smep bmi2 erms invpcid rdseed adx smap clflushopt clwb intel_pt sha_ni xsaveopt xsavec xgetbv1 xsaves split_lock_detect user_shstk avx_vnni dtherm ida arat pln pts hwp hwp_notify hwp_act_window hwp_epp hwp_pkg_req hfi vnmi umip pku ospke waitpkg gfni vaes vpclmulqdq rdpid movdiri movdir64b fsrm md_clear serialize pconfig arch_lbr ibt flush_l1d arch_capabilities\nVirtualization:                          VT-x\nL1d cache:                               512 KiB (12 instances)\nL1i cache:                               512 KiB (12 instances)\nL2 cache:                                12 MiB (9 instances)\nL3 cache:                                25 MiB (1 instance)\nNUMA node(s):                            1\n00:02.0 VGA compatible controller: Intel Corporation Alder Lake-S GT1 [UHD Graphics 770] (rev 0c)\n01:00.0 VGA compatible controller: NVIDIA Corporation AD107 [GeForce RTX 4060] (rev a1)",
+  "protected_doc_sha256": "d472ce8f27a47a50411bd64c6ac3a7fd00fadfd30a0652c3fab4c748acbf438a"
+}

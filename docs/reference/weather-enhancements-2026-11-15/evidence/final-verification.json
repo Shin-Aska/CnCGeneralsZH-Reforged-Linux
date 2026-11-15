@@ -1,0 +1,26 @@
+{
+  "passed": true,
+  "head": "9770afa04a82ada1837554e587f8e73d1d399b83",
+  "baseline_files_checked": 266,
+  "baseline_mismatches": [],
+  "stage_nonbinary_files_checked": 265,
+  "stage_mismatches": [],
+  "staged_binary": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/ZeroHourReforged/bin/generals",
+  "staged_binary_sha256": "917e182cbd5f9f7fff24a10c2331996cbeb26f25be82d05d779f5e028e8ef55c",
+  "staged_binary_size": 450219616,
+  "live_build_sha256": "917e182cbd5f9f7fff24a10c2331996cbeb26f25be82d05d779f5e028e8ef55c",
+  "source_patch_sha256": "6c526f4f1e8c96ba524e2016cde9ca4fc4a2bf898ed71aeffd5524c6db3a0bca",
+  "source_equals_tested_patch": true,
+  "protected_campaign_sha256": "d472ce8f27a47a50411bd64c6ac3a7fd00fadfd30a0652c3fab4c748acbf438a",
+  "admission_sha256": "3e49171cafc623ad696527df5ef9880362db285a57ab9aab04362d2ffb33784d",
+  "frozen_method": {
+    "runner": "b92c34f710f3d8208b0b33b424613470db6298caf0df58981d1b5f809a8d6309",
+    "generator": "748ace731c680c90dd5ff5caf7e4b428879fcf7f4d71bb5dc17e70564d605169",
+    "phase_helper": "b51a3ae85cf5894562b8a1155bff645e0999109a7ae29f693ce946ea913cab1e",
+    "phase_source": "9cffe39d0a62a874acd3499c908cc02483859b0b9bb31777fae05d36bcd23d82",
+    "phase_tool_source": "772269c41bfababb6984eb8c0c8175e867f4043633a08233bc4c47b28cb24706",
+    "phase_window_helper": "9d3ce065e39381dcf712501657f7de6e6b865028db925bba2bd691423c6492d0"
+  },
+  "retail_after_passed": true,
+  "package_policy": "Exact tested executable copied without stripping/rebuilding; existing matching overlay verified. Build-tree package only; installed game untouched."
+}

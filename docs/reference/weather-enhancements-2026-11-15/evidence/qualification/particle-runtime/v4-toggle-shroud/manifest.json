@@ -1,0 +1,153 @@
+{
+  "command": [
+    "gdb",
+    "-nx",
+    "--batch",
+    "--return-child-result",
+    "-x",
+    "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/particle-runtime/lifecycle-shroud.gdb",
+    "--args",
+    "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/particle-runtime/artifact-v4/generals",
+    "-root",
+    "/mnt/passport/E-Drive/Linux Steam Library/steamapps/common/Command & Conquer Generals - Zero Hour",
+    "-overlay",
+    "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/particle-runtime/v4-toggle-shroud/overlay",
+    "-offscreen",
+    "-multiInstance",
+    "-win",
+    "-xres",
+    "1280",
+    "-yres",
+    "720",
+    "-msaa",
+    "0",
+    "-quickstart",
+    "-noshellmap",
+    "-nologo",
+    "-novideo",
+    "-noFPSLimit",
+    "-noDynamicLOD",
+    "-turbo",
+    "-camera",
+    "640",
+    "600",
+    "-maxframes",
+    "1820",
+    "-particlecap",
+    "3000",
+    "-gpuparticles",
+    "0",
+    "-dx11post",
+    "off",
+    "-logPrefix",
+    "weather_",
+    "-map",
+    "Maps/WeatherEvidence/WeatherEvidence.map",
+    "-autoskirmish",
+    "2",
+    "-seed",
+    "7",
+    "-side",
+    "0",
+    "FactionAmerica",
+    "-side",
+    "1",
+    "FactionChina",
+    "-scenario",
+    "weather_evidence",
+    "-startingcash",
+    "1",
+    "-peacetime",
+    "10",
+    "-screenshot",
+    "1750",
+    "-freecam",
+    "640.0",
+    "380.0",
+    "360.0",
+    "90.0",
+    "-60.0"
+  ],
+  "environment": {
+    "ZH_USER_DATA_DIR": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/particle-runtime/v4-toggle-shroud/user",
+    "ZH_UNATTENDED": "1",
+    "ZH_AUDIO_BACKEND": "null",
+    "SDL_VIDEODRIVER": "offscreen",
+    "SDL_GPU_DRIVER": "vulkan",
+    "VK_DRIVER_FILES": "/usr/share/vulkan/icd.d/nvidia_icd.json",
+    "ZH_OFFSCREEN_HZ": "0",
+    "ZH_SUN_SHADOW_CAPTURE_CLOCK": "logic",
+    "ZH_WATER_CAPTURE_CLOCK": "picture",
+    "ZH_ALLOW_AUDIO": "1"
+  },
+  "candidate_sha256": "917e182cbd5f9f7fff24a10c2331996cbeb26f25be82d05d779f5e028e8ef55c",
+  "kind": "rain",
+  "variant": "on",
+  "repeat": 0,
+  "map_sha256": "6dc4dec8c5671302ef3762d291c6026059d80fec6b5d9355c48c95d528b841fa",
+  "profile_sha256": "6afd048b7c45bed1b85b94e94c249462748562cf582541cc3a6d4f12ed5b88a6",
+  "first": 601,
+  "last": 1700,
+  "night": false,
+  "atmosphere": "on",
+  "maplight": "on",
+  "freecam": [
+    640.0,
+    380.0,
+    360.0,
+    90.0,
+    -60.0
+  ],
+  "passive": false,
+  "expected_samples": 1100,
+  "width": 1280,
+  "height": 720,
+  "platform": "Linux-7.3.4-x64v3-xanmod1-x86_64-with-glibc2.43",
+  "cpu": [
+    "12th Gen Intel(R) Core(TM) i7-12700"
+  ],
+  "weather_clock": "Existing deterministic W3D capture clock: one logic frame = 1/60s; primary window covers 30s after10s warmup",
+  "timing_basis": "Native end-to-end offscreen present intervals, not GPU timestamps/FPS; real null-backend audio mixer enabled",
+  "returncode": 0,
+  "wall_seconds": 15.937395347998972,
+  "crc": [
+    "HEADLESS CRC AT LIMIT: 0x311C9807 at frame 1820"
+  ],
+  "validation_errors": [],
+  "timer_status": [],
+  "pictures": [
+    {
+      "path": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/particle-runtime/v4-toggle-shroud/picture-0.png",
+      "sha256": "3b80c10d57b612da6419b9ec0ad6b32a6d448825023bf61dd33fc7f89468880b"
+    },
+    {
+      "path": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/particle-runtime/v4-toggle-shroud/picture-1.png",
+      "sha256": "4a609d9a48c38abe7e37c63ac742aff6196a566812917d3d71437f07c703d78f"
+    },
+    {
+      "path": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/particle-runtime/v4-toggle-shroud/picture-2.png",
+      "sha256": "453015bb1d605e3630c6368c91ba581ed4a8f3e2928132e8792ed18f9d26c681"
+    },
+    {
+      "path": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/particle-runtime/v4-toggle-shroud/picture-3.png",
+      "sha256": "616f555ad39c6c7965ee4ced9b51c74941ee87ef9b744ebc2a57658f2ddea2f3"
+    },
+    {
+      "path": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/particle-runtime/v4-toggle-shroud/picture-4.png",
+      "sha256": "5ec47f361a6a874b6c2de3110273f29c6d29b8ff8f6b46eb7805ce9a330993c0"
+    },
+    {
+      "path": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/particle-runtime/v4-toggle-shroud/picture-5.png",
+      "sha256": "bdf0ab8b0ba6a5cabf125e8f098f84ca117ca4fb0fab68d487f9727e5aa11c7e"
+    },
+    {
+      "path": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/particle-runtime/v4-toggle-shroud/picture-6.png",
+      "sha256": "aae5925b91e5b25d4a8b381304799e823659b9cb6776bbed37fd6cae60a339f1"
+    },
+    {
+      "path": "/mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/particle-runtime/v4-toggle-shroud/picture-7.png",
+      "sha256": "602ef6c2ee86cb80b70b676d8e4434046e9782fb212e15acc43a78ba827a756c"
+    }
+  ],
+  "accepted": true
+}

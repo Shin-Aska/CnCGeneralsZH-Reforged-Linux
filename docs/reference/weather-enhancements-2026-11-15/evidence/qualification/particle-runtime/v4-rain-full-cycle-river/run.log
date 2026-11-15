@@ -1,0 +1,107 @@
+Breakpoint 1 at 0x92db50: file /mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DSnow.cpp, line 903.
+
+This GDB supports auto-downloading debuginfo from the following URLs:
+  <https://debuginfod.ubuntu.com>
+Debuginfod has been disabled.
+To make this setting permanent, add 'set debuginfod enabled off' to .gdbinit.
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/usr/lib/x86_64-linux-gnu/libthread_db.so.1".
+[New Thread 0x7ffff772a6c0 (LWP 142155)]
+generals: overlay /mnt/sandisk-2tb/CnCGeneralsZH-Reforged-Linux/build-linux/weather-enhancements-evidence/particle-runtime/v4-rain-full-cycle-river/overlay, searched before the install
+[New Thread 0x7ffff2aeb6c0 (LWP 142156)]
+[New Thread 0x7ffff22ea6c0 (LWP 142157)]
+[New Thread 0x7ffff1ae96c0 (LWP 142158)]
+[New Thread 0x7ffff12e86c0 (LWP 142159)]
+[New Thread 0x7ffff0ae76c0 (LWP 142160)]
+[New Thread 0x7ffff02e66c0 (LWP 142161)]
+[New Thread 0x7fffefae56c0 (LWP 142162)]
+[New Thread 0x7fffef2e46c0 (LWP 142163)]
+[New Thread 0x7fffeeae36c0 (LWP 142164)]
+[New Thread 0x7fffee2e26c0 (LWP 142165)]
+[New Thread 0x7fffedae16c0 (LWP 142166)]
+[New Thread 0x7fffed2e06c0 (LWP 142167)]
+[New Thread 0x7fffecadf6c0 (LWP 142168)]
+[New Thread 0x7fffec2de6c0 (LWP 142169)]
+[New Thread 0x7fffebadd6c0 (LWP 142170)]
+[New Thread 0x7fffeb2dc6c0 (LWP 142171)]
+[New Thread 0x7fffeaadb6c0 (LWP 142172)]
+[New Thread 0x7fffea2da6c0 (LWP 142173)]
+[New Thread 0x7fffe9ad96c0 (LWP 142174)]
+generals: refused to delete "Data\INI\INIZH.big": the install root is read-only (P1)
+ModernWater: loaded 2 material rules from Data\INI\ModernWater.ini
+[New Thread 0x7fffe92d86c0 (LWP 142182)]
+[New Thread 0x7fffe89c66c0 (LWP 142183)]
+[New Thread 0x7fffdffff6c0 (LWP 142184)]
+[New Thread 0x7fffdf7fe6c0 (LWP 142185)]
+Installed Vulkan doesn't implement the VK_EXT_headless_surface extension
+[New Thread 0x7fffd31ff6c0 (LWP 142188)]
+[New Thread 0x7fffd29fe6c0 (LWP 142189)]
+[New Thread 0x7fffd20bd6c0 (LWP 142191)]
+[New Thread 0x7fffd18bc6c0 (LWP 142192)]
+[New Thread 0x7fffd0c7b6c0 (LWP 142194)]
+PosixDevice9: offscreen, 1280x720, unpaced
+[New Thread 0x7fffbac7a6c0 (LWP 142195)]
+[New Thread 0x7fffb658a6c0 (LWP 142196)]
+water-shore-domain: revision=3 result=3 cells=0 edges=0 levels=0 tiles=0 support_vertices=0 support_work=0
+SunShadow: requested mapped
+D3DX: D3DXCompileShader (to D3D9 bytecode; the SDL3 GPU draw compiles its own) is not available off Windows yet; the call fails
+ZH_WATER_CLEAN_OPT=stream,collapse=1.5
+[New Thread 0x7fffb53b96c0 (LWP 142198)]
+PHASE_SAMPLE stage=0 logic=601 time=10.0000005 seed=2096055520 envelope=1 intensity=0.94799763 gust=0.834160089 wind=(0.0684837028,0.0395390764) audio=14 on=1 visible=1 modern=1
+$1 = 1
+BREEZE_PERIOD script=300 weather=180
+LIVE_CONTACTS under024=71
+PHASE_SAMPLE stage=1 logic=3030 time=50.4830026 seed=2096055520 envelope=0.758691311 intensity=0.738791347 gust=1.01677334 wind=(0.0650543794,0.0375591591) audio=14 on=1 visible=1 modern=1
+BREEZE_PERIOD script=300 weather=209
+LIVE_CONTACTS under024=47
+PHASE_SAMPLE stage=2 logic=3334 time=55.5500029 seed=2096055520 envelope=0 intensity=0 gust=1.32795811 wind=(0,0) audio=0 on=1 visible=1 modern=1
+BREEZE_PERIOD script=300 weather=300
+LIVE_CONTACTS under024=0
+PHASE_SAMPLE stage=3 logic=7201 time=120.000006 seed=2096055520 envelope=0 intensity=0 gust=1.09998775 wind=(0,0) audio=0 on=1 visible=1 modern=1
+BREEZE_PERIOD script=300 weather=300
+LIVE_CONTACTS under024=0
+PHASE_SAMPLE stage=4 logic=13680 time=227.983012 seed=2096055520 envelope=0.18638137 intensity=0.14632003 gust=1.19170809 wind=(0.0151009494,0.00871853624) audio=2 on=1 visible=1 modern=1
+BREEZE_PERIOD script=300 weather=278
+LIVE_CONTACTS under024=13
+PHASE_SAMPLE stage=5 logic=14117 time=235.266012 seed=2096055520 envelope=1 intensity=0.888704121 gust=0.927742958 wind=(0.0714028329,0.0412244387) audio=33 on=1 visible=1 modern=1
+BREEZE_PERIOD script=300 weather=180
+LIVE_CONTACTS under024=56
+[Thread 0x7fffb53b96c0 (LWP 142198) exited]
+[Thread 0x7fffb658a6c0 (LWP 142196) exited]
+generals: refused to write "ffprobe.txt": the install root is read-only (P1)
+[Thread 0x7fffbac7a6c0 (LWP 142195) exited]
+PosixDevice9: 1850778 draws recorded, 14523 presents, 0 of them to a window that was not visible, 0 with no drawable
+PosixDevice9: 33143 mid-frame flushes, at most 4 in flight at once, 4265 waited for the ring (limit 3); 0 of the flushes for the draw limit (2048 draws)
+PosixDevice9:   drawn with the engine's engine:riverwater: 28936
+PosixDevice9:   drawn with the engine's engine:terrainnoise2: 782280
+PosixDevice9:   drawn with the engine's engine:trees: 36172
+[Thread 0x7fffd0c7b6c0 (LWP 142194) exited]
+[Thread 0x7fffd18bc6c0 (LWP 142192) exited]
+[Thread 0x7fffd29fe6c0 (LWP 142189) exited]
+[Thread 0x7fffd20bd6c0 (LWP 142191) exited]
+[Thread 0x7fffd31ff6c0 (LWP 142188) exited]
+[Thread 0x7fffdf7fe6c0 (LWP 142185) exited]
+[Thread 0x7fffdffff6c0 (LWP 142184) exited]
+[Thread 0x7fffe89c66c0 (LWP 142183) exited]
+[Thread 0x7fffe92d86c0 (LWP 142182) exited]
+[Thread 0x7fffe9ad96c0 (LWP 142174) exited]
+[Thread 0x7fffea2da6c0 (LWP 142173) exited]
+[Thread 0x7fffeaadb6c0 (LWP 142172) exited]
+[Thread 0x7fffeb2dc6c0 (LWP 142171) exited]
+[Thread 0x7fffebadd6c0 (LWP 142170) exited]
+[Thread 0x7fffec2de6c0 (LWP 142169) exited]
+[Thread 0x7fffecadf6c0 (LWP 142168) exited]
+[Thread 0x7fffed2e06c0 (LWP 142167) exited]
+[Thread 0x7fffedae16c0 (LWP 142166) exited]
+[Thread 0x7fffee2e26c0 (LWP 142165) exited]
+[Thread 0x7fffeeae36c0 (LWP 142164) exited]
+[Thread 0x7fffef2e46c0 (LWP 142163) exited]
+[Thread 0x7fffefae56c0 (LWP 142162) exited]
+[Thread 0x7ffff02e66c0 (LWP 142161) exited]
+[Thread 0x7ffff0ae76c0 (LWP 142160) exited]
+[Thread 0x7ffff12e86c0 (LWP 142159) exited]
+[Thread 0x7ffff1ae96c0 (LWP 142158) exited]
+[Thread 0x7ffff22ea6c0 (LWP 142157) exited]
+[Thread 0x7ffff2aeb6c0 (LWP 142156) exited]
+[Thread 0x7ffff772a6c0 (LWP 142155) exited]
+[Inferior 1 (process 142152) exited normally]
