@@ -289,7 +289,9 @@ TEST(engineshader_leans_a_tree_by_its_height_above_its_own_base)
 	CHECK(EngineShader_Vertex_Program(ENGINE_SHADER_TREES, hlsl));
 	CHECK(contains(hlsl, "int sway_type = (int)(input.Sway.x + 0.5);"));
 	CHECK(contains(hlsl, "float height = input.Position.z - input.Sway.z;"));
-	CHECK(contains(hlsl, "height * c[8 + sway_type].xyz + input.Position"));
+	CHECK(contains(hlsl, "height * sway + input.Position"));
+	CHECK(contains(hlsl, "saturate(frac(input.Sway.x) * 4.0)"));
+	CHECK(contains(hlsl, "lerp(c[8 + sway_type].xyz, c[8].xyz, suppression)"));
 }
 
 // mov r2, v1.yyyw then mul oD0, v2, r2: the shade multiplies the colour and leaves the alpha,

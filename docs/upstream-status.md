@@ -31,6 +31,31 @@ v3.8.0 doesn't have them. The maintainer can't run Linux or macOS, so the SDL si
 
 ## Not offered upstream
 
+### Underwater tree sway (2026-11-15) — locally validated
+
+Enhanced graphics stills submerged vertices in the batched tree renderer, smoothly restoring
+wind over three world units above the local waterline. Exposed branches retain their motion.
+Reflections, mapped sun shadows and projected silhouettes share the weight; the projected
+silhouette also accounts for the branch's vertical displacement. Water is sampled before
+logic/render overlap and updates the affected vertices as flooding changes. Classic graphics,
+legacy Windows D3D9 and the save format retain their existing behavior.
+
+The Linux Release build passed along with `test_tree_water_sway`, `test_weather_particle_math`
+and `posix_gpu_draw_selfcheck`. GPU readbacks verify opposite wind phases, dry/partial/submerged
+coverage, alpha gaps and both shadow paths. A private China 3 load verified actual vertex data:
+tree 67 has 16 submerged, eight transitioning and 26 fully exposed vertices; all 45 vertices
+of tree 75 receive zero wind, while dry tree 0 retains full wind. Final native Vulkan captures
+with Classic and Modern water exited normally after frame 39450, with no validation messages
+in those game runs. The broader GPU draw selfcheck also logs two point-list `PointSize`
+validation messages outside the tree checks, and intentionally injects shader failures.
+
+The tested final executable SHA is
+`459e87d5a8a91368ae132a7d263d2fb160c6eef645313ad94eec0422ad4cee7a`.
+Local evidence is under `build-linux/tree-water-evidence/`, including `vertex-verification.json`
+and the two final capture manifests. The original save checksum is unchanged. This work has
+**not been offered upstream**. Windows/Metal runtime qualification and performance comparisons
+remain unrun.
+
 ### Submerged fire, smoke and steam (2026-11-15) — locally validated
 
 Enhanced graphics now fades submerged additive/emissive `FireLook` sources and clips their flame

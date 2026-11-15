@@ -74,7 +74,9 @@ enum
 #include "GameLogic/ScriptEngine.h"
 #include "GameClient/Snow.h"
 #include "GameClient/WeatherBreezeMath.h"
+#include "GameClient/TreeWaterSway.h"
 #include "GameLogic/GameLogic.h"
+#include "GameLogic/TerrainLogic.h"
 #include "GameLogic/Object.h"
 #include "GameLogic/PartitionManager.h"
 #include "GameClient/ClientRandomValue.h"
@@ -100,6 +102,9 @@ enum
 #include "d3dx9runtime.h"
 #include "d3d8shadertranslate.h"
 #include "Platform/RenderTypes.h"
+#ifdef _WIN32
+#include "WW3D2/dx11runtime.h"
+#endif
 
 #ifdef _INTERNAL
 // for occasional debugging...
@@ -1121,7 +1126,8 @@ void W3DTreeBuffer::loadTreesInVertexAndIndexBuffers(RefRenderObjListIterator *p
 				curVb->x = vLoc.X;
 				curVb->y = vLoc.Y;
 				curVb->z = vLoc.Z;
-				curVb->nx = m_trees[curTree].swayType;
+				curVb->nx = TreeWaterSway::pack(m_trees[curTree].swayType,
+					m_trees[curTree].hasWaterForDraw, vLoc.Z, m_trees[curTree].waterHeightForDraw);
 				curVb->ny = 1.0f - m_treeTypes[type].m_data->m_darkening*m_trees[curTree].pushAside;
 				curVb->nz = loc.Z;
 				if (doVertexLighting) {
@@ -1261,6 +1267,8 @@ void W3DTreeBuffer::updateVertexBuffer(void)
 				curVb->x = vLoc.X;
 				curVb->y = vLoc.Y;
 				curVb->z = vLoc.Z;
+				curVb->nx = TreeWaterSway::pack(tree.swayType, tree.hasWaterForDraw,
+					vLoc.Z, tree.waterHeightForDraw);
 				curVb->ny = 1.0f - m_treeTypes[type].m_data->m_darkening*tree.pushAside;
 				curVb++;
 			}
@@ -1506,6 +1514,8 @@ void W3DTreeBuffer::clearAllTrees(void)
 
 	m_numTrees=0;
 	m_movedTrees.clear();
+	m_waterSwayForDraw = FALSE;
+	m_treeWaterDirty = TRUE;
 	m_bounds.lo.x = m_bounds.lo.y = 0;
 	m_bounds.hi.x = m_bounds.hi.y = 1;
 	REF_PTR_RELEASE(m_treeTexture);
@@ -1721,6 +1731,9 @@ void W3DTreeBuffer::addTree(DrawableID id, Coord3D location, Real scale, Real an
 	// tree that drew a zero stood perfectly still.  One tree in ten, until the next breeze change.
 	//
 	m_trees[m_numTrees].swayType = 1+GameClientRandomValue(0, MAX_SWAY_TYPES-1);
+	m_trees[m_numTrees].hasWaterForDraw = FALSE;
+	m_trees[m_numTrees].waterHeightForDraw = 0.0f;
+	m_treeWaterDirty = TRUE;
 	m_trees[m_numTrees].pushAside = 0;
 	m_trees[m_numTrees].lastFrameUpdated = 0;
 	m_trees[m_numTrees].pushAsideSource = INVALID_ID;
@@ -1750,6 +1763,7 @@ Bool W3DTreeBuffer::updateTreePosition(DrawableID id, Coord3D location, Real ang
 			m_trees[i].bounds.Radius *= m_trees[i].scale;
 			m_trees[i].bounds.Center += m_trees[i].location;
 			m_anythingChanged = true;
+			m_treeWaterDirty = TRUE;
 			return true;
 		}
 	}
@@ -2233,25 +2247,41 @@ void W3DTreeBuffer::stepTrees( void )
 	m_breezeForDraw = weatherBreezeInfo();
 	m_pauseForDraw = pause;
 	const UnsignedInt now = TheGameClient ? TheGameClient->getFrame() : 0;
-	if (pause || now == m_lastTreeStepFrame) {
+	const Bool step = !pause && now != m_lastTreeStepFrame;
+	Bool waterSway = TheTerrainLogic && m_dwTreeVertexShader && !TheGlobalData->m_classicGraphics;
+#ifdef _WIN32
+	// D3D9 still runs the original Trees.vso, which has no fractional wind weight.
+	waterSway = waterSway && Direct3D11_Is_Active();
+#endif
+	if (!step && waterSway == m_waterSwayForDraw && !m_treeWaterDirty) {
 		return;
 	}
-	m_lastTreeStepFrame = now;
+	if (step) m_lastTreeStepFrame = now;
+	m_waterSwayForDraw = waterSway;
+	m_treeWaterDirty = FALSE;
 
 	for (Int curTree=0; curTree<m_numTrees; curTree++) {
 		Int type = m_trees[curTree].treeType;
 		if (type<0) { // deleted.
 			continue;
 		}
-		// A tree whose vertices move this logic frame is marked, and only such a tree: one lying still
-		// on the ground, or held up in the fog, rewrites nothing.
-		Bool moved = false;
-		if(m_trees[curTree].m_toppleState == TOPPLE_FALLING ||
-			 m_trees[curTree].m_toppleState == TOPPLE_FOGGED) {
+		// Read moving flood grids and polygon water here, at the logic/render sync point. Every
+		// draw pass shares the cached water height and the resulting per-vertex wind weights.
+		Real waterZ = 0.0f;
+		const Bool hasWater = waterSway && TheTerrainLogic->isUnderwater(
+			m_trees[curTree].location.X, m_trees[curTree].location.Y, &waterZ);
+		if (!hasWater) waterZ = 0.0f;
+		Bool moved = hasWater != m_trees[curTree].hasWaterForDraw
+			|| waterZ != m_trees[curTree].waterHeightForDraw;
+		m_trees[curTree].hasWaterForDraw = hasWater;
+		m_trees[curTree].waterHeightForDraw = waterZ;
+		// Refreshing an option or a new tree while paused must not advance toppling/push timers.
+		if(step && (m_trees[curTree].m_toppleState == TOPPLE_FALLING ||
+			 m_trees[curTree].m_toppleState == TOPPLE_FOGGED)) {
 			const W3DToppleState before = m_trees[curTree].m_toppleState;
 			updateTopplingTree(m_trees+curTree);
-			moved = before != TOPPLE_FOGGED || m_trees[curTree].m_toppleState != TOPPLE_FOGGED;
-		} else if(m_trees[curTree].m_toppleState == TOPPLE_DOWN) {
+			moved |= before != TOPPLE_FOGGED || m_trees[curTree].m_toppleState != TOPPLE_FOGGED;
+		} else if(step && m_trees[curTree].m_toppleState == TOPPLE_DOWN) {
 			if (m_treeTypes[type].m_data->m_killWhenToppled) {
 				moved = true;
 				if (m_trees[curTree].m_sinkFramesLeft==0) {
@@ -2262,7 +2292,7 @@ void W3DTreeBuffer::stepTrees( void )
 				m_trees[curTree].location.Z -= m_treeTypes[type].m_data->m_sinkDistance/m_treeTypes[type].m_data->m_sinkFrames;
 				m_trees[curTree].m_mtx.Set_Translation(m_trees[curTree].location);
 			}
-		} else if (m_trees[curTree].pushAsideDelta!=0.0f) {
+		} else if (step && m_trees[curTree].pushAsideDelta!=0.0f) {
 			moved = true;
 			m_trees[curTree].pushAside += m_trees[curTree].pushAsideDelta;
 			if (m_trees[curTree].pushAside>=1.0f) {
@@ -2557,7 +2587,11 @@ void W3DTreeBuffer::drawTrees(CameraClass * camera, RefRenderObjListIterator *pD
 		Vector4 flat(stretchX, stretchY, -1.0f, 0);
 		DX8Wrapper::Set_Vertex_Shader_Constant(  8, &flat,  1 );
 		for	(i=0; i<MAX_SWAY_TYPES; i++) {
-			Vector4 flatSway(stretchX + swayFactor[i].X, stretchY + swayFactor[i].Y, -1.0f, 0);
+			// Project the visible deformation, including its vertical drop. Interpolating back
+			// toward c8 in the tree shader removes only wind, never the base shadow projection.
+			const TreeWaterSway::Offset projected = TreeWaterSway::silhouette(stretchX, stretchY,
+				swayFactor[i].X, swayFactor[i].Y, swayFactor[i].Z);
+			Vector4 flatSway(projected.x, projected.y, projected.z, 0);
 			DX8Wrapper::Set_Vertex_Shader_Constant(  9+i, &flatSway,  1 );
 		}
 

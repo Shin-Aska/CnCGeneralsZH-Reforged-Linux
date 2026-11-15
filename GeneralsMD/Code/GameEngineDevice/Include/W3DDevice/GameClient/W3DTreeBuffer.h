@@ -131,6 +131,8 @@ typedef struct {
 	Int			nextInPartition;
 
 	Int			swayType;					///< Which sway array entry we are using.
+	Bool hasWaterForDraw;			///< Client-only water snapshot; not saved or used by simulation.
+	Real waterHeightForDraw;
 
 	Int			firstIndex;				///< First index in the vertex buffer for this tree.
 	Int     bufferNdx;				///< Which vertex buffer this is in, -1 when the last fill left it out.
@@ -316,6 +318,8 @@ private:
 	UnsignedInt	m_lastTreeStepFrame;	///< last logic frame stepTrees moved the toppling and pushed trees on
 	BreezeInfo m_breezeForDraw{};
 	Bool m_pauseForDraw = FALSE;
+	Bool m_waterSwayForDraw = FALSE;
+	Bool m_treeWaterDirty = TRUE;
 	Real		m_curSwayStep[MAX_SWAY_TYPES];
 	Short m_curSwayPeriod;	///< period used to create cached random steps; phase scaling never rewrites them
 	Real		m_curSwayFactor[MAX_SWAY_TYPES];

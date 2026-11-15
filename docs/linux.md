@@ -116,6 +116,27 @@ those restored from a save, disperse over their remaining lifetime. Dust, toxin 
 exhaust and unknown mod systems keep their existing behavior. This is a visual change:
 burning damage, fire spreading, mission scripts and the save format are unchanged.
 
+## Tree sway below water
+
+Under enhanced graphics, batched tree vertices at or below the local water surface receive
+no wind sway. Movement eases smoothly to full strength over the first three world units
+above the surface, so exposed branches continue moving. Both Classic and Modern water use
+the same water snapshot, including China mission 3's moving flood grid. The tree's reflection,
+mapped sun shadow and projected silhouette share the same per-vertex weight. Projected
+shadows also follow the vertical component of branch movement.
+
+Water is sampled at the tree's position before logic/render overlap, and changes refresh
+the affected vertex data. Dry foliage keeps its original sway payload. Classic graphics
+and legacy Windows D3D9 retain their existing behavior; the cache is client-only and the
+save format is unchanged.
+
+The Linux Release build and three focused CTests passed on 2026-11-15. Native Vulkan
+readbacks checked submerged, partly exposed and dry geometry at opposite wind phases,
+including alpha gaps and matching mapped/projected shadows. A private China 3 save load
+confirmed the actual vertex weights and rendered with both water styles. Local captures,
+commands and vertex samples are under `build-linux/tree-water-evidence/`. Windows and
+Metal runtime qualification and performance measurements remain unrun.
+
 ## Native enhancement validation (2026-11-15)
 
 The SDL3/Vulkan renderer now has native providers for the enhanced lighting, particles,

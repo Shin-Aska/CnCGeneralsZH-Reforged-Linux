@@ -45,6 +45,7 @@
 #include "../Libraries/Source/WWVegas/WW3D2/ffvertex.h"
 #include "Platform/EngineShaderName.h"
 #include "Platform/WaterPerformanceSettings.h"
+#include "GameClient/TreeWaterSway.h"
 
 #include <SDL3/SDL.h>
 
@@ -1008,6 +1009,65 @@ static void check_sun_trees(PosixDevice9 *device)
         {-.75f,.5f,.25f,1,1,0,WHITE,0,0},{.25f,.5f,.25f,1,1,0,WHITE,1,0},
         {-.75f,-.5f,.25f,1,1,0,WHITE,0,1},{.25f,.5f,.25f,1,1,0,WHITE,1,0},
         {.25f,-.5f,.25f,1,1,0,WHITE,1,1},{-.75f,-.5f,.25f,1,1,0,WHITE,0,1}};
+
+    // Compare actual colour coverage with the mapped sun's alpha silhouette at opposite wind
+    // phases. A submerged leaf must remain still; an exposed one moves fully; a waterline leaf
+    // moves half as far. The texture's transparent half must stay empty in both passes.
+    for (int exposure=0; exposure<3; ++exposure) {
+        const float windWeight=exposure*.5f;
+        const float payload=TreeWaterSway::pack(1,true,.25f,.25f-exposure*1.5f);
+        for (auto &v:leafQuad) v.type=payload;
+        for (float phase:{-1.0f,1.0f}) {
+            const float wind[]={phase,0,0,0};device->SetVertexShaderConstantF(9,wind,1);
+            device->Clear(0,nullptr,D3DCLEAR_TARGET|D3DCLEAR_ZBUFFER,BLUE,1,0);
+            device->DrawPrimitiveUP(D3DPT_TRIANGLELIST,2,leafQuad,sizeof(TreeVertex));read_back(device);
+            std::vector<bool> colourCoverage(SIZE*SIZE);
+            for (unsigned y=0;y<SIZE;++y) for (unsigned x=0;x<SIZE;++x)
+                colourCoverage[y*SIZE+x]=near_colour(at(x,y),WHITE);
+            CHECK(SunShadow::Begin(device,32));
+            device->DrawPrimitiveUP(D3DPT_TRIANGLELIST,2,leafQuad,sizeof(TreeVertex));
+            CHECK(SunShadow::End(device));
+            std::vector<float> map;CHECK(device->Read_Sun_Shadow(map));
+            CHECK(map.size()==SIZE*SIZE);
+            if (map.size()==SIZE*SIZE) {
+                for (unsigned p=0;p<map.size();++p) CHECK(colourCoverage[p]==(map[p]<1));
+                const int shift=int(phase*windWeight*4);
+                for (int x=0;x<32;++x)
+                    CHECK((map[16*32+x]<1)==(x>=4+shift && x<12+shift));
+            }
+        }
+    }
+
+    // A flat silhouette must keep its sun projection when wind is suppressed, and include
+    // the visible branch's vertical drop when wind remains. Compare against CPU-projected
+    // geometry through the same rasterizer, rather than duplicating the shader interpolation.
+    for (int exposure=0; exposure<3; ++exposure) {
+        const float windWeight=exposure*.5f,stretch=.5f,windX=.75f,windZ=-.25f;
+        const float flat[]={stretch,0,-1,0};
+        const auto projected=TreeWaterSway::silhouette(stretch,0,windX,0,windZ);
+        const float flatWind[]={projected.x,projected.y,projected.z,0};
+        device->SetVertexShaderConstantF(8,flat,1);device->SetVertexShaderConstantF(9,flatWind,1);
+        for (auto &v:leafQuad) v.type=TreeWaterSway::pack(1,true,v.z,v.z-exposure*1.5f);
+        device->Clear(0,nullptr,D3DCLEAR_TARGET|D3DCLEAR_ZBUFFER,BLUE,1,0);
+        device->DrawPrimitiveUP(D3DPT_TRIANGLELIST,2,leafQuad,sizeof(TreeVertex));read_back(device);
+        const auto silhouette=pixels;
+        TreeVertex reference[6];
+        for (int i=0;i<6;++i) {
+            reference[i]=leafQuad[i];
+            const float height=reference[i].z-reference[i].base;
+            reference[i].x+=height*windX*windWeight;
+            reference[i].z+=height*windZ*windWeight;
+            reference[i].x+=(reference[i].z-reference[i].base)*stretch;
+            reference[i].z=reference[i].base;
+            reference[i].type=0;
+        }
+        device->SetVertexShaderConstantF(8,noSway,1);
+        device->Clear(0,nullptr,D3DCLEAR_TARGET|D3DCLEAR_ZBUFFER,BLUE,1,0);
+        device->DrawPrimitiveUP(D3DPT_TRIANGLELIST,2,reference,sizeof(TreeVertex));read_back(device);
+        CHECK(pixels==silhouette);
+    }
+    for (auto &v:leafQuad) v.type=1;
+    device->SetVertexShaderConstantF(9,sway,1);
     CHECK(SunShadow::Begin(device,32));
     device->DrawPrimitiveUP(D3DPT_TRIANGLELIST,2,leafQuad,sizeof(TreeVertex));
     CHECK(SunShadow::End(device));
@@ -1030,7 +1090,7 @@ static void check_sun_trees(PosixDevice9 *device)
     device->SetRenderState(D3DRS_CULLMODE,D3DCULL_CCW);
     }
     if(hadMode) setenv("ZH_SUN_SHADOW_MODE",savedMode.c_str(),1);else unsetenv("ZH_SUN_SHADOW_MODE");
-    printf("sun trees: displaced alpha silhouette, transparent gaps and receiving checked\n");
+    printf("sun trees: dry/partial/submerged wind, matching colour/depth and projected silhouettes, alpha gaps and receiving checked\n");
 }
 
 // Exercise the production water program through the device, including its array-typed

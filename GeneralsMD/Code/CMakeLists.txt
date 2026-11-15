@@ -1668,7 +1668,9 @@ if(ZH_PLATFORM_POSIX)
   # (77 without a GPU).
   add_executable(posix_gpu_draw_selfcheck ${CMAKE_CURRENT_SOURCE_DIR}/Tests/test_posix_gpu_draw.cpp)
   set_target_properties(posix_gpu_draw_selfcheck PROPERTIES CXX_STANDARD 17)
-  target_include_directories(posix_gpu_draw_selfcheck PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/PosixDevice/Render)
+  target_include_directories(posix_gpu_draw_selfcheck PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/PosixDevice/Render
+    ${CMAKE_CURRENT_SOURCE_DIR}/GameEngine/Include)
   target_link_libraries(posix_gpu_draw_selfcheck PRIVATE posixd3d9 SDL3::SDL3-static)
   add_test(NAME posix_gpu_draw_selfcheck COMMAND posix_gpu_draw_selfcheck)
   set_tests_properties(posix_gpu_draw_selfcheck PROPERTIES SKIP_RETURN_CODE 77)
@@ -2772,6 +2774,11 @@ add_executable(test_weather_particle_math ${TESTS}/test_weather_particle_math.cp
 target_include_directories(test_weather_particle_math PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Include ${CMAKE_CURRENT_SOURCE_DIR}/GameEngine/Include)
 set_target_properties(test_weather_particle_math PROPERTIES CXX_STANDARD 17)
 add_test(NAME test_weather_particle_math COMMAND test_weather_particle_math)
+
+add_executable(test_tree_water_sway ${TESTS}/test_tree_water_sway.cpp)
+target_include_directories(test_tree_water_sway PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/GameEngine/Include)
+set_target_properties(test_tree_water_sway PROPERTIES CXX_STANDARD 17)
+add_test(NAME test_tree_water_sway COMMAND test_tree_water_sway)
 target_sources(test_water_grid PRIVATE ${TESTS}/test_gameengine_stubs.cpp)
 set_target_properties(test_water_grid PROPERTIES CXX_STANDARD 17)
 if(ZH_PLATFORM_POSIX)
