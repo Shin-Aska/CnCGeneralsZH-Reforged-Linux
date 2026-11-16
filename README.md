@@ -26,7 +26,7 @@ wave-direction arrows follow the maintainer's marked reference.*
 
 **You need your own installed copies of Generals and Zero Hour.** Game data and optional upscaled art
 are not included. The features below describe the development branch; packaged releases may contain
-an earlier selection. See the [release notes](docs/releases/v4.0.0.md) and [upstream tracker](docs/upstream-status.md).
+an earlier selection. See the [release notes](docs/releases/v4.0.1.md) and [upstream tracker](docs/upstream-status.md).
 
 ## Experimental features
 
@@ -116,11 +116,9 @@ listed above.
 
 ## Downloads
 
-**4.0.1 release candidate:** [release notes](docs/releases/v4.0.1.md) ·
-[release checklist](docs/releases/v4.0.1-preparation.md).
-
-Download **v4.0.0** from [GitHub Releases](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/releases/tag/v4.0.0).
+Download **v4.0.1** from [GitHub Releases](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/releases/tag/v4.0.1).
 The release includes the six formats below and `SHA256SUMS`.
+[Release notes](docs/releases/v4.0.1.md) · [Publication record](docs/releases/v4.0.1-preparation.md).
 For a main-branch, pull request or manual build, open the
 [Linux workflow](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/actions/workflows/linux-release.yml),
 select the completed run, and download the `linux-x86_64-packages` artifact. A manual build is available

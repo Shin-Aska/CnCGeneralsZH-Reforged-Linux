@@ -1,6 +1,6 @@
 {
   "version": "4.0.1",
-  "status": "Prepared artwork; release not published",
+  "status": "Published with the v4.0.1 Linux release",
   "output": "v4.0.1-launch.png",
   "size": [
     1920,
@@ -86,5 +86,7 @@
     }
   ],
   "template_sha256": "b3dd29904c3c5916b19427565e6d805011c83d82d925e087562ec859930fabea",
-  "output_sha256": "2fcea772adb2f88e1c93827dfeaa026cbf33148ac4e16a46ee44c4f28290ae4f"
+  "output_sha256": "2fcea772adb2f88e1c93827dfeaa026cbf33148ac4e16a46ee44c4f28290ae4f",
+  "release_url": "https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/releases/tag/v4.0.1",
+  "published_at": "2026-11-16T17:14:04Z"
 }
