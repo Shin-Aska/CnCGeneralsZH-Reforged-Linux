@@ -41,6 +41,7 @@
 #include "GameNetwork/GameInfo.h"
 #include "GameClient/CampaignManager.h"
 #include "GameClient/ChallengeGenerals.h"
+#include <list>
 
 // FORWARD REFERENCES /////////////////////////////////////////////////////////
 
@@ -50,6 +51,7 @@ class VideoStreamInterface;
 class WindowVideoManager;
 class LoadScreenBoard;
 class AudioManager;
+class LoadingSpeechQueue;
 
 /// UI-only narration timing. A movie may end before its separately configured briefing voice.
 class CampaignBriefingPlayback
@@ -58,16 +60,53 @@ public:
 	typedef UnsignedInt (*Clock)();
 	explicit CampaignBriefingPlayback(Clock clock = NULL);
 	void reset();
+	void setQueue(LoadingSpeechQueue &queue) { m_queue = &queue; }
 	void update(AudioManager &audio, const AudioEventRTS &voice, Int configuredSeconds, Int movieFrame, Bool skipMovie = FALSE);
 	void cancel() { m_cancelled = TRUE; }
 	UnsignedInt remainingMS() const;
 
 private:
+	LoadingSpeechQueue *m_queue;
 	Clock m_clock;
 	Bool m_attempted;
 	Bool m_cancelled;
 	UnsignedInt m_startedAt;
 	UnsignedInt m_budgetMS;
+};
+
+/// Serial loading dialogue. Assets and playback advance independently; completion joins them.
+class LoadingSpeechQueue
+{
+public:
+	explicit LoadingSpeechQueue(CampaignBriefingPlayback::Clock clock = NULL);
+	void enqueue(const AudioEventRTS &voice, Real measuredLengthMS = -1.0f);
+	void update(AudioManager &audio);
+	void seal();
+	void markAssetsReady();
+	Bool isFinished() const { return m_finished; }
+	Bool hasPending() const { return m_handle != 0 || !m_pending.empty(); }
+	Int displayProgress(Int percent) const { return percent >= 100 && !m_finished ? 99 : percent; }
+	void cancel(AudioManager &audio);
+	void reset(AudioManager &audio);
+
+private:
+	struct Speech
+	{
+		AudioEventRTS event;
+		Real lengthMS;
+		Speech(const AudioEventRTS &voice, Real length) : event(voice), lengthMS(length) {}
+	};
+	void updateCompletion();
+	CampaignBriefingPlayback::Clock m_clock;
+	std::list<Speech> m_pending;
+	AudioHandle m_handle;
+	UnsignedInt m_startedAt;
+	UnsignedInt m_budgetMS;
+	Bool m_waiting;
+	Bool m_stopRequested;
+	Bool m_sealed;
+	Bool m_assetsReady;
+	Bool m_finished;
 };
 
 
@@ -87,9 +126,11 @@ public:
 	virtual void update( Int percent ); ///< Update the state of the slider bars
 	virtual void processProgress(Int playerId, Int percentage) = 0;
 	virtual void setProgressRange( Int min, Int max ) = 0;
+	virtual void finishLoading();	///< Join ready assets with queued dialogue before fading this screen out.
 protected:
 	void setLoadScreen( GameWindow *g ) { m_loadScreen = g; }
 	GameWindow *m_loadScreen;		///< The GameWindow that is our loadscreen
+	LoadingSpeechQueue m_loadingSpeech;
 
 private:
 
@@ -141,7 +182,6 @@ private:
 
 	void moveWindows( Int frame );
 	void startBriefingAudio(const Mission &mission, Int movieFrame, Bool skipMovie = FALSE);
-	void waitForBriefingAudio();
 
 	AudioEventRTS m_ambientLoop;
 	AudioHandle m_ambientLoopHandle;

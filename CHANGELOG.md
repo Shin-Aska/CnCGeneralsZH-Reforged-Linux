@@ -10,6 +10,15 @@ found and fixed, EA's own, not port damage.**
 
 ## Unreleased
 
+- Turbo Mode now keeps single-player cinematics at their authored speed and resumes double-speed
+  gameplay when control returns. General Thrax's opening no longer cuts its first line short or
+  skips later dialogue when Turbo Mode is enabled.
+
+- Challenge loading dialogue plays one line at a time while the map's assets continue loading.
+  Loading finishes only after both the assets and the speech queue are done, then transitions once.
+  General Thrax's loading taunt no longer talks over his "Greetings, General" introduction, and
+  long campaign narration can finish alongside map loading.
+
 - Single-player cinematics now smooth scripted turns, zooms and tilts between their
   original steps, including the roughly 22-step-per-second carrier shot in Zero Hour USA Mission 2.
   In ordinary single-player play it also removes the close-up Raptor flyover's repeated backwards

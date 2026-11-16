@@ -184,6 +184,7 @@ public:
 																								 It will not return until the game exits. */
 	virtual void setFramesPerSecondLimit( Int fps );	///< Set the maximum rate engine updates are allowed to occur
 	virtual Int  getFramesPerSecondLimit( void );			///< Get maxFPS.  Not inline since it is called from another lib.
+	Int getEffectiveFramesPerSecondLimit( void );		///< Authored cinematic pace while script input is held; retains the requested match speed.
 	virtual Int  getLogicFramesPerSecond( void );			///< logic frames the last second really ran; the rate a countdown on screen divides by
 	virtual void setQuitting( Bool quitting );				///< set quitting status
 	virtual Bool getQuitting(void);						///< is app getting ready to quit.
@@ -219,6 +220,7 @@ public:
 		Bool due;
 		Bool mayCatchUp;
 		Bool networkPaced;
+		Int logicFps;		///< Snapshot before a tick may run beside the renderer.
 	};
 
 protected:

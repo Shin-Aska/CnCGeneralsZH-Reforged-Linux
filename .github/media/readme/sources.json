@@ -1,0 +1,252 @@
+{
+  "capture_date": "2026-11-16",
+  "edits": "Lossless crops; the water-movement image adds arrows and a legend following the user-marked reference. No colour, exposure, game content or effect changes.",
+  "images": [
+    {
+      "output": "fleet-water.png",
+      "source": "Screenshot_20261116_154601.png",
+      "source_sha256": "7f76606f94839828dffe934fd3fc5ec3ce4a19b2699a64895f1e9d885727d201",
+      "crop_left_top_right_bottom": [
+        245,
+        55,
+        1280,
+        637
+      ],
+      "size": [
+        1035,
+        582
+      ],
+      "output_sha256": "64030501f94e2db6446036430e83ff99906b1976cb092e3e106fc1f8d1cde5b3"
+    },
+    {
+      "output": "underwater-clarity.png",
+      "source": "Screenshot_20261116_200743.png",
+      "source_sha256": "052fafe80a43e473e86132a33180cdfa2115524da45533957f016847ec280e0d",
+      "crop_left_top_right_bottom": [
+        345,
+        180,
+        1625,
+        900
+      ],
+      "size": [
+        1280,
+        720
+      ],
+      "output_sha256": "c8bf496e1edadff88cf24fc76d82c466d3ead68b476b1fa35b209223d120563c"
+    },
+    {
+      "output": "toxic-water.png",
+      "source": "Screenshot_20261116_200646.png",
+      "source_sha256": "7d5673234b50b35a1d128c6755c42bc48c57ed8440b34778e7dc5ac964b05b4b",
+      "crop_left_top_right_bottom": [
+        180,
+        85,
+        1428,
+        787
+      ],
+      "size": [
+        1248,
+        702
+      ],
+      "output_sha256": "9a991565f60be790fa30d1863fdde6db5248e8c71f9714c0a97181b574e4034b"
+    },
+    {
+      "output": "volumetric-battle.png",
+      "source": "Screenshot_20261116_202824.png",
+      "source_sha256": "4af17c4d229c2ab87a997943ce5f6caa6e64fb2e186741ce039ba73b4d48e158",
+      "crop_left_top_right_bottom": [
+        345,
+        110,
+        1560,
+        794
+      ],
+      "size": [
+        1215,
+        684
+      ],
+      "output_sha256": "f11ca918ffa56f9e2dba758054a8971824d635d52f5e84a75e5737272d59d443"
+    },
+    {
+      "output": "nuclear-aftermath.png",
+      "source": "Screenshot_20261116_200946.png",
+      "source_sha256": "f42a5811fd99d45e88ac231680b0f68071e62a705aee332aa199ecf863db796a",
+      "crop_left_top_right_bottom": [
+        250,
+        25,
+        1445,
+        697
+      ],
+      "size": [
+        1195,
+        672
+      ],
+      "output_sha256": "abf736ea9a3ad50d5dcaedacfbd06e7ef19d5bd0d73d9192f5db8b1358f21608"
+    },
+    {
+      "output": "water-movement.png",
+      "source": "Screenshot_20261116_200755.png",
+      "source_sha256": "2af3d5afa17561ce70166f48195e0d02aaf205a789adedda2939ea9b37a40060",
+      "crop_left_top_right_bottom": [
+        470,
+        180,
+        1630,
+        1015
+      ],
+      "size": [
+        1160,
+        919
+      ],
+      "output_sha256": "ba3a8371d4b3e743ac76d5bdeec8634f3de02ee9405e55f9c1e4d5e676217afd",
+      "annotations": {
+        "red": "Dominant wave travel",
+        "purple": "Local wave interaction",
+        "direction_reference": "Maintainer-marked source capture: red dominant wave travel, purple local interaction.",
+        "style": "Smooth filled curved arrows with tapered tails, consistent arrowheads, fine keylines and restrained shadows; simplified connected sweeps.",
+        "major_routes_source_coordinates": [
+          [
+            [
+              [
+                1325,
+                245
+              ],
+              [
+                1235,
+                230
+              ],
+              [
+                1160,
+                205
+              ],
+              [
+                1100,
+                218
+              ]
+            ],
+            [
+              [
+                1100,
+                218
+              ],
+              [
+                1018,
+                242
+              ],
+              [
+                947,
+                269
+              ],
+              [
+                814,
+                250
+              ]
+            ]
+          ],
+          [
+            [
+              [
+                520,
+                520
+              ],
+              [
+                622,
+                490
+              ],
+              [
+                714,
+                513
+              ],
+              [
+                804,
+                521
+              ]
+            ]
+          ],
+          [
+            [
+              [
+                928,
+                487
+              ],
+              [
+                1055,
+                478
+              ],
+              [
+                1168,
+                573
+              ],
+              [
+                1301,
+                584
+              ]
+            ]
+          ],
+          [
+            [
+              [
+                1327,
+                930
+              ],
+              [
+                1110,
+                1035
+              ],
+              [
+                680,
+                940
+              ],
+              [
+                511,
+                720
+              ]
+            ]
+          ]
+        ],
+        "minor_routes_source_coordinates": [
+          [
+            [
+              [
+                1118,
+                594
+              ],
+              [
+                1171,
+                614
+              ],
+              [
+                1197,
+                646
+              ],
+              [
+                1200,
+                695
+              ]
+            ]
+          ],
+          [
+            [
+              [
+                1355,
+                861
+              ],
+              [
+                1278,
+                840
+              ],
+              [
+                1218,
+                805
+              ],
+              [
+                1182,
+                755
+              ]
+            ]
+          ]
+        ],
+        "legend_height": 84,
+        "scene_pixels_preserved_outside_annotations": true
+      }
+    }
+  ]
+}

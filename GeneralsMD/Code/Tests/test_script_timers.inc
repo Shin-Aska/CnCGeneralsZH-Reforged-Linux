@@ -93,6 +93,85 @@ public:
 		CHECK_EQ(m_counters[3].value, -5);
 	}
 };
+
+class CinematicPacingTestEngine : public GameEngine
+{
+	LocalFileSystem *createLocalFileSystem() override { return NULL; }
+	ArchiveFileSystem *createArchiveFileSystem() override { return NULL; }
+	GameLogic *createGameLogic() override { return NULL; }
+	GameClient *createGameClient() override { return NULL; }
+	ModuleFactory *createModuleFactory() override { return NULL; }
+	ThingFactory *createThingFactory() override { return NULL; }
+	FunctionLexicon *createFunctionLexicon() override { return NULL; }
+	Radar *createRadar() override { return NULL; }
+	WebBrowser *createWebBrowser() override { return NULL; }
+	ParticleSystemManager *createParticleSystemManager() override { return NULL; }
+	AudioManager *createAudioManager() override { return NULL; }
+};
+}
+
+TEST(turbo_cinematic_pacing_preserves_dialogue_and_restores_match_speed)
+{
+	CHECK(bootOnce());
+	CountdownTestContext context;
+	GlobalData *savedData = TheWritableGlobalData;
+	TheWritableGlobalData = NEW GlobalData;
+	// Like the retained empty world, do not destroy an unbooted engine: its
+	// destructor shuts down the shared game globals owned by this test binary.
+	static CinematicPacingTestEngine *pacer = new CinematicPacingTestEngine;
+	CountdownTestEngine script;
+	ScriptEngine *savedScript = TheScriptEngine;
+	TheScriptEngine = &script;
+	TheGameEngine = pacer;
+	context.world->setGameMode(GAME_SINGLE_PLAYER);
+	pacer->setFramesPerSecondLimit(LOGICFRAMES_PER_SECOND * 2);
+	CHECK_EQ(pacer->getEffectiveFramesPerSecondLimit(), LOGICFRAMES_PER_SECOND * 2);
+
+	// Thrax holds input, but never asks for a cinematic frame rate. His second
+	// cue at frame 720 must arrive after the 11.48-second first line has finished.
+	script.setInputHeldByScript(TRUE);
+	CHECK_EQ(pacer->getFramesPerSecondLimit(), LOGICFRAMES_PER_SECOND * 2);
+	CHECK_EQ(pacer->getEffectiveFramesPerSecondLimit(), LOGICFRAMES_PER_SECOND);
+	CHECK_NEAR(GameEngine_missionTimeRate(), 1.0f, 0.001f);
+	Real debt = 0.0f;
+	Int ticks = 0, elapsedMs = 0;
+	while (ticks < 12 * LOGICFRAMES_PER_SECOND && elapsedMs < 13000)
+	{
+		++elapsedMs;
+		if (GameEngine_isLogicFrameDue(debt, 1.0f, pacer->getEffectiveFramesPerSecondLimit()))
+			++ticks;
+	}
+	CHECK(elapsedMs >= 11999 && elapsedMs <= 12001);
+
+	// Authored slow cinematics retain their own rate, even when an option or
+	// SET_FPS_LIMIT changes the requested rate while input is still held.
+	pacer->setFramesPerSecondLimit(ConvertRetailFrames(23));
+	CHECK_EQ(pacer->getEffectiveFramesPerSecondLimit(), ConvertRetailFrames(23));
+	CHECK_NEAR(GameEngine_missionTimeRate(), 23.0f / RETAIL_LOGICFRAMES_PER_SECOND, 0.001f);
+	pacer->setFramesPerSecondLimit(LOGICFRAMES_PER_SECOND * 2);
+	CHECK_EQ(pacer->getEffectiveFramesPerSecondLimit(), LOGICFRAMES_PER_SECOND);
+	script.setInputHeldByScript(FALSE);
+	CHECK_EQ(pacer->getEffectiveFramesPerSecondLimit(), LOGICFRAMES_PER_SECOND * 2);
+	CHECK_NEAR(GameEngine_missionTimeRate(), 2.0f, 0.001f);
+
+	// The same input flag in other game modes must not change their clocks.
+	script.setInputHeldByScript(TRUE);
+	const Int otherModes[] = {GAME_SKIRMISH, GAME_LAN, GAME_INTERNET, GAME_REPLAY, GAME_SHELL, GAME_NONE};
+	for (Int mode : otherModes)
+	{
+		context.world->setGameMode(mode);
+		CHECK_EQ(pacer->getEffectiveFramesPerSecondLimit(), LOGICFRAMES_PER_SECOND * 2);
+	}
+	context.world->setGameMode(GAME_SINGLE_PLAYER);
+	pacer->setFramesPerSecondLimit(LOGICFRAMES_PER_SECOND);
+	CHECK_EQ(pacer->getEffectiveFramesPerSecondLimit(), LOGICFRAMES_PER_SECOND);
+	TheScriptEngine = NULL;
+	pacer->setFramesPerSecondLimit(LOGICFRAMES_PER_SECOND * 2);
+	CHECK_EQ(pacer->getEffectiveFramesPerSecondLimit(), LOGICFRAMES_PER_SECOND * 2);
+	context.world->setGameMode(GAME_NONE);
+	TheScriptEngine = savedScript;
+	delete TheWritableGlobalData;
+	TheWritableGlobalData = savedData;
 }
 
 TEST(script_countdown_timers_keep_half_cadence_while_world_time_is_frozen)

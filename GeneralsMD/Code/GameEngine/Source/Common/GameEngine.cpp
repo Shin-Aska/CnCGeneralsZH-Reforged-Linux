@@ -382,6 +382,26 @@ Int GameEngine::getFramesPerSecondLimit( void )
 	return m_maxFPS;
 }
 
+static GameEngine::LogicPassPlan s_passPlan;
+
+Int GameEngine::getEffectiveFramesPerSecondLimit( void )
+{
+	// Extra pictures can be drawn while the script engine advances on the logic
+	// thread. Use the pass's captured rate instead of reading its live input flag.
+	if (LogicThread::isInsideWindow())
+		return s_passPlan.logicFps;
+
+	// Some challenge intros, including Thrax's, disable input without SET_FPS_LIMIT.
+	// Their fixed dialogue timers still need normal wall time, even in a turbo match.
+	// Keep the requested speed intact for saves and for the return to gameplay, and
+	// preserve any slower pace the cinematic explicitly authored.
+	if (m_maxFPS > LOGICFRAMES_PER_SECOND && TheGameLogic != NULL
+			&& TheGameLogic->isInSinglePlayerGame() && !TheGameLogic->isInReplayGame()
+			&& TheNetwork == NULL && TheScriptEngine != NULL && TheScriptEngine->isInputHeldByScript())
+		return LOGICFRAMES_PER_SECOND;
+	return m_maxFPS;
+}
+
 //-------------------------------------------------------------------------------------------------
 static const UnsignedInt LOGIC_RATE_SAMPLE_MS = 500;
 
@@ -443,7 +463,8 @@ Int GameEngine::getLogicFramesPerSecond( void )
 	// a stalled network game has no rate at all, and no countdown can say how long that lasts
 	if( m_measuredLogicFps.shown > 0 )
 		return m_measuredLogicFps.shown;
-	return m_maxFPS > 0 ? m_maxFPS : LOGICFRAMES_PER_SECOND;
+	const Int fps = getEffectiveFramesPerSecondLimit();
+	return fps > 0 ? fps : LOGICFRAMES_PER_SECOND;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1653,7 +1674,7 @@ Real GameEngine_missionTimeRate( void )
 {
 	if (TheGameLogic == NULL || !TheGameLogic->isInSinglePlayerGame() || TheGameLogic->isInReplayGame())
 		return 1.0f;
-	return (Real)TheGameEngine->getFramesPerSecondLimit() / (Real)LOGICFRAMES_PER_SECOND;
+	return (Real)TheGameEngine->getEffectiveFramesPerSecondLimit() / (Real)LOGICFRAMES_PER_SECOND;
 }
 
 Bool GameEngine_mayStartAnotherCatchupTick( Int ticksSoFar, Int maxTicks, Real elapsedMsInLoop )
@@ -2930,7 +2951,6 @@ static void updateHeadlessRun( void )
 /* The pacer's debt, and the pass's plan when planOverlappedTick asked for it in front of the draw. */
 static Real s_logicAccumMs = 0.0f;
 static Bool s_passPlanned = FALSE;
-static GameEngine::LogicPassPlan s_passPlan;
 static Bool s_passWasFast = FALSE;		///< the last pass ran a logic frame a pass (headless, -turbo, fast-forward, -video): no picture cap
 static UnsignedInt s_frameBeforeOverlap = 0;
 static UnsignedInt s_planTimeMs = 0;		///< when the pacer last spent the time since the one before
@@ -2958,6 +2978,7 @@ static void noteLogicTickDue( Int logicFps, Bool fastMode, Bool networkPaced )
 
 void GameEngine::planLogicPass( LogicPassPlan &plan )
 {
+	const Int logicFps = getEffectiveFramesPerSecondLimit();
 	// Fast-forward modes run a logic frame on every call; otherwise logic ticks at
 	// m_maxFPS Hz of wall clock, however fast the client/renderer above is running.
 #if defined(_ALLOW_DEBUG_CHEATS_IN_RELEASE)
@@ -3039,9 +3060,9 @@ void GameEngine::planLogicPass( LogicPassPlan &plan )
 	}
 	else
 	{
-		logicFrameDue = GameEngine_isLogicFrameDue(s_logicAccumMs, elapsedMs, m_maxFPS);
+		logicFrameDue = GameEngine_isLogicFrameDue(s_logicAccumMs, elapsedMs, logicFps);
 		// Fast mode means exactly one logic frame per call, by its own definition.
-		mayCatchUp = (m_maxFPS > 0);
+		mayCatchUp = (logicFps > 0);
 	}
 
 	if (!logicMayRun)
@@ -3056,6 +3077,7 @@ void GameEngine::planLogicPass( LogicPassPlan &plan )
 	plan.due = logicFrameDue;
 	plan.mayCatchUp = mayCatchUp;
 	plan.networkPaced = networkPaced;
+	plan.logicFps = logicFps;
 }
 
 /* LOGIC-THREAD.md phase 3, step 3b.  The pass that overlaps: the client update up to the draw, then
@@ -3095,14 +3117,14 @@ Bool GameEngine::planOverlappedTick( void )
 	 GameEngine_isLogicFrameDue, asked without spending anything. */
 Real GameEngine::msUntilNextTickDue( void )
 {
-	if (!s_passPlanned || s_passPlan.fastMode || s_passPlan.networkPaced || m_maxFPS <= 0)
+	if (!s_passPlanned || s_passPlan.fastMode || s_passPlan.networkPaced || s_passPlan.logicFps <= 0)
 		return 0.0f;
-	return 1000.0f / m_maxFPS - s_logicAccumMs - (Real)( Clock_Milliseconds() - s_planTimeMs );
+	return 1000.0f / s_passPlan.logicFps - s_logicAccumMs - (Real)( Clock_Milliseconds() - s_planTimeMs );
 }
 
 Bool GameEngine::isPassPacedByClock( void )
 {
-	return s_passPlanned && !s_passPlan.fastMode && !s_passPlan.networkPaced && m_maxFPS > 0;
+	return s_passPlanned && !s_passPlan.fastMode && !s_passPlan.networkPaced && s_passPlan.logicFps > 0;
 }
 
 Real GameEngine_msSincePassStart( void )
@@ -3221,6 +3243,7 @@ void GameEngine::update( void )
 		s_passWasFast = fastMode;
 		const Bool networkPaced = plan.networkPaced;
 		const Bool mayCatchUp = plan.mayCatchUp;
+		const Int logicFps = plan.logicFps;
 		// LOGIC-THREAD.md phase 3, step 3b: this pass's first tick ran beside the render and was flushed
 		// at the end of the draw
 		const Bool overlapped = LogicThread::takeOverlappedTick();
@@ -3236,7 +3259,7 @@ void GameEngine::update( void )
 			// count and the pacer's own accumulator cap stop at LOGIC_CATCHUP_MAX_FRAMES, so a logic
 			// frame that is itself over budget cannot pull the loop into a spiral.
 			Int logicTicksThisPass = 0;
-			const Int maxTicksThisPass = GameEngine_logicCatchupMaxFrames( m_maxFPS );
+			const Int maxTicksThisPass = GameEngine_logicCatchupMaxFrames( logicFps );
 			/* Bounded by the clock as well as by the count - see LOGIC_CATCHUP_BUDGET_MS.  Three
 				 25ms ticks back to back with no picture in between is the 113ms freeze; one of them
 				 plus the render is a dropped frame nobody files a bug about. */
@@ -3267,6 +3290,14 @@ void GameEngine::update( void )
 				// -maxframes' frame ends the burst, its CRC logged as it finishes (noteFrameLimit)
 				if (noteFrameLimit() && frameLimitOvershoot() == 0)
 					break;
+
+				// A script can enter or leave a cinematic in this tick. Do not spend
+				// the old speed's accumulated debt in a burst across that boundary.
+				if (!networkPaced && !fastMode && getEffectiveFramesPerSecondLimit() != logicFps)
+				{
+					s_logicAccumMs = 0.0f;
+					break;
+				}
 
 				if (!mayCatchUp)
 					break;
@@ -3311,10 +3342,10 @@ void GameEngine::update( void )
 						break;
 				}
 				// Asked last, because it is the one with a side effect: it spends the debt it reports.
-				else if (!GameEngine_isLogicFrameDue(s_logicAccumMs, 0.0f, m_maxFPS))
+				else if (!GameEngine_isLogicFrameDue(s_logicAccumMs, 0.0f, logicFps))
 					break;
 			}
-			noteLogicTickDue( m_maxFPS, fastMode, networkPaced );
+			noteLogicTickDue( getEffectiveFramesPerSecondLimit(), fastMode, networkPaced );
 			// a frame held by a scripted freeze keeps showing its last picture, rather than going back
 			// half a frame every other pass; smooth motion shows it whole too, since the update may have
 			// moved a model (a script's teleport) that the blend and its restore would put back
@@ -3500,7 +3531,7 @@ static Int renderCapFramesPerSecond( Int logicFps )
 
 Int GameEngine_renderCapFramesPerSecond( void )
 {
-	return renderCapFramesPerSecond( TheGameEngine->getFramesPerSecondLimit() );
+	return renderCapFramesPerSecond( TheGameEngine->getEffectiveFramesPerSecondLimit() );
 }
 
 /* Hold the thread until the tick clock reads `deadline`.  A sleep cannot hit a point in time: Sleep(1)
@@ -3687,7 +3718,7 @@ void GameEngine::execute( void )
 				// menus' animations off the wall clock too.  So the only wait in the loop is the
 				// picture cap's, outside the pass: the logic thread is idle by now, the overlapped
 				// tick having been flushed at the end of the draw.
-				waitForRenderCap( m_maxFPS );
+				waitForRenderCap( getEffectiveFramesPerSecondLimit() );
 				prevLoopTime = Clock_Milliseconds();
 
 		#if defined(_DEBUG) || defined(_INTERNAL)
