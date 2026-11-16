@@ -435,9 +435,9 @@ TEST(map_ini_modern_water_resolves_effective_override_without_changing_classic)
 		" TransparentWaterMinOpacity = 0.8\n"
 		"End\n");
 	CHECK(loadMapIni(TEST_INI));
-	checkWaterMaterial(45, 58, 11, .67f, 1, .80f, 1);
+	checkWaterMaterial(45, 58, 11, .55f, 1, .70f, 1);
 	// Resolve repeatedly through the cache; Classic still sees authored values.
-	checkWaterMaterial(45, 58, 11, .67f, 1, .80f, 1);
+	checkWaterMaterial(45, 58, 11, .55f, 1, .70f, 1);
 	CHECK_NEAR(TheWaterTransparency->m_standingWaterColor.red, 50 / 255.0f, .00001f);
 	CHECK_NEAR(TheWaterTransparency->m_standingWaterColor.green, 75 / 255.0f, .00001f);
 	CHECK_NEAR(TheWaterTransparency->m_standingWaterColor.blue, 50 / 255.0f, .00001f);
@@ -480,7 +480,7 @@ TEST(map_ini_modern_water_config_reload_replaces_cache_and_falls_back_atomically
 		" StandingWaterTexture = TSWater03.tga\n"
 		"End\n");
 	CHECK(loadMapIni(TEST_INI));
-	checkWaterMaterial(45, 58, 11, .67f, 1, .80f, 1);
+	checkWaterMaterial(45, 58, 11, .55f, 1, .70f, 1);
 	const char *const custom =
 		"ModernWaterRule Custom\n"
 		" MatchColors\n Color = R:50 G:75 B:50\n End\n"
@@ -495,10 +495,10 @@ TEST(map_ini_modern_water_config_reload_replaces_cache_and_falls_back_atomically
 	// A valid first rule followed by a malformed rule cannot install a partial edit.
 	const std::string malformed = std::string(custom) + "ModernWaterRule Broken\nUnknown = 1\nEnd\n";
 	fixture.loadRules(malformed.c_str());
-	checkWaterMaterial(45, 58, 11, .67f, 1, .80f, 1);
+	checkWaterMaterial(45, 58, 11, .55f, 1, .70f, 1);
 	fixture.loadRules(custom);
 	checkWaterMaterial(120, 10, 20, .5f, 1, .25f, 0);
 	fixture.files.present = FALSE;
 	loadModernWaterSettings();
-	checkWaterMaterial(45, 58, 11, .67f, 1, .80f, 1);
+	checkWaterMaterial(45, 58, 11, .55f, 1, .70f, 1);
 }

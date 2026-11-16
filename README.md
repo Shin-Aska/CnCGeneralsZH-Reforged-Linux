@@ -116,6 +116,9 @@ listed above.
 
 ## Downloads
 
+**4.0.1 release candidate:** [release notes](docs/releases/v4.0.1.md) ·
+[release checklist](docs/releases/v4.0.1-preparation.md).
+
 Download **v4.0.0** from [GitHub Releases](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/releases/tag/v4.0.0).
 The release includes the six formats below and `SHA256SUMS`.
 For a main-branch, pull request or manual build, open the

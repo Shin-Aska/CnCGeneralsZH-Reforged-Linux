@@ -69,7 +69,7 @@ and **80%** retains **4%**. Physical vertices and the reconstructed/filtered sur
 the same gain, including squared gain for unresolved glint variance. It preserves the
 wind heading and wave clock; this is resistance to wind response rather than a slower
 clock or a reversed direction. Independently generated vessel waves and bubbles remain.
-**Toxic look** (or **T**) restores the approved toxic-water material: tint **#2D3A0B**,
+**Toxic look** (or **T**) restores the toxic-water defaults: tint **#2D3A0B**,
 brightness **55%**, pollution **70%**, turbidity **100%**, roughness **69%**, damping
 **34%** and wind resistance **55%**. It leaves the bubble switch as selected.
 **Clear FX** (or **C**) zeros only the four surface controls; colour, brightness,
@@ -84,7 +84,7 @@ The same values can be supplied using `--turbidity`, `--surface-roughness`,
 `--ripple-damping` and `--wind-resistance` (each **0..1**). Explicit slider options override
 the Toxic look preset. **E** exports all four fields into the selected material rule.
 The game and banked-scene replay use the same controls and shader. The shipped
-`PollutedWater` rule and the built-in fallback share these approved defaults.
+`PollutedWater` rule and the built-in fallback share these defaults.
 
 The shipped `ClearWater` rule matches white (RGB 255,255,255) with `TWWater01.tga`.
 It keeps the neutral color and sets `UnderwaterClarity = 0.90` so submerged ruins and

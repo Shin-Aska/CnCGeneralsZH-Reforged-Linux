@@ -27,7 +27,7 @@ This spot check does not replace that audit's port boundaries or establish an up
 | Underwater clarity | Left out of #172. Upstream's [material configuration](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/blob/e4341a1f6bff1c4296340388a0ebbb9dd5c9105f/GeneralsMD/Code/Libraries/Include/Platform/ModernWaterConfig.h) has no clarity field. |
 | Reworked FFT water (Clean FFT) | Not offered upstream. Reworks the original Modern-water wave pipeline with a shared FFT ocean, JONSWAP spectrum, depth-aware attenuation, filtered glints and wave-driven foam. The accepted baseline Modern-water port does not include this rework. See the [implementation report](modern-water-clean-fft-report.md). |
 | Map-aware water movement | Not offered upstream. The newer wave-heading and depth/rotation fields remain fork work; the baseline Modern-water port is already accepted. |
-| Toxic-material turbidity, roughness, ripple damping and wind resistance; live production-water preview | Working-tree update dated 2026-11-16, not offered upstream. These controls are absent from the pinned upstream material configuration. |
+| Toxic-material turbidity, roughness, ripple damping and wind resistance; live production-water preview | Committed in this fork as `6e49914d` on 2026-11-16, not offered upstream. These controls are absent from the pinned upstream material configuration. |
 | Path-traced water reflections | Not offered upstream. Upstream's [reflection modes](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/blob/e4341a1f6bff1c4296340388a0ebbb9dd5c9105f/GeneralsMD/Code/Libraries/Include/Platform/WaterScreenReflection.h#L8) include Mirror, ScreenSpace, Hybrid and SkyOnly, without this path-tracing mode. |
 | Volumetric Contaminate, toxin impacts and attached puddles | #171 closed without merging. The shared renderer itself was accepted as #170; upstream's [recognition policy](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/blob/e4341a1f6bff1c4296340388a0ebbb9dd5c9105f/GeneralsMD/Code/Libraries/Include/Platform/HazardCloudPolicy.h) retains the narrower source set. |
 | Asset Preloading: encoded-audio cache and renderer pipeline warmup | #169 closed without merging. This is separate from accepted water-specific cache preparation in #173. |
@@ -62,14 +62,15 @@ The maintainer could not run Linux or macOS for those November ports, so the SDL
 
 ### Toxic-water materials and production-water preview (2026-11-16)
 
-The current working tree adds independent `Turbidity`, `SurfaceRoughness`, `RippleDamping` and
+Fork commit [`6e49914d`](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/commit/6e49914d62aeb85f84a89abfeb286bbdabc79b54)
+adds independent `Turbidity`, `SurfaceRoughness`, `RippleDamping` and
 `WindResistance` material controls to the game, shared INI parser and native water preview. Wind
 resistance scales actual wind-wave displacement, chop and glint response by `(1 - resistance)^2`;
 vessel waves and the bubble indicator stay independent. Surface scum has been removed; old exported
 scum fields remain readable and are ignored. The preview now binds the current production water's
 depth/direction/rotation fields and verifies accepted main-water draws instead of showing the older path.
 
-The approved `PollutedWater` rule uses tint `#2D3A0B`, brightness 0.55, pollution 0.70, turbidity 1.00,
+The `PollutedWater` rule uses tint `#2D3A0B`, brightness 0.55, pollution 0.70, turbidity 1.00,
 roughness 0.69, ripple damping 0.34 and wind resistance 0.55, with bubbles enabled. The shipped INI,
 built-in fallback and preview's Toxic Look preset agree. See [the material guide](water-preview.md).
 
@@ -77,8 +78,10 @@ The game and preview rebuilt, and the existing `test_modern_water_config`, `test
 and `test_water_grid` CTests passed. Default and Toxic Look captures were pixel-identical, with an
 accepted production main-water draw and no refused draws. Local captures, exported rules and the
 verification record are under `build-linux/water-approved-look-validation/`; earlier motion checks
-are under `build-linux/water-wind-resistance-validation/`. This is uncommitted fork work, with no
-upstream pull request or upstream runtime/performance qualification claimed.
+are under `build-linux/water-wind-resistance-validation/`. This is committed fork work, with no
+upstream pull request or upstream runtime/performance qualification claimed. The later local CI
+repair updates the source-file manifest and five map-test expectations for these defaults;
+the four affected CTest entries, including the full `test_gameengine` suite, passed locally.
 
 ### Underwater tree sway (2026-11-15) — locally validated
 
