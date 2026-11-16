@@ -15,6 +15,15 @@ TEST(water_preview_presets_reject_partial_and_trailing_edits_atomically)
         "WATER_PREVIEW_COLOR_V2 0.2 0.3 0.4 0.67 0.8",
         "WATER_PREVIEW_COLOR_V1 0.2 0.3 0.4 0.01 0.8",
         "WATER_PREVIEW_COLOR_V1 0.2 0.3 0.4 0.67 nan",
+        "WATER_PREVIEW_COLOR_V2 0.2 0.3 0.4 0.67 0.8 0.7 0.65 0.75",
+        "WATER_PREVIEW_COLOR_V2 0.2 0.3 0.4 0.67 0.8 0.7 0.65 0.75 0.6 extra",
+        "WATER_PREVIEW_COLOR_V2 0.2 0.3 0.4 0.67 0.8 nan 0.65 0.75 0.6",
+        "WATER_PREVIEW_COLOR_V2 0.2 0.3 0.4 0.67 0.8 0.7 1.1 0.75 0.6",
+        "WATER_PREVIEW_COLOR_V2 0.2 0.3 0.4 0.67 0.8 0.7 0.65 -0.1 0.6",
+        "WATER_PREVIEW_COLOR_V2 0.2 0.3 0.4 0.67 0.8 0.7 0.65 0.75 inf",
+        "WATER_PREVIEW_COLOR_V3 0.2 0.3 0.4 0.67 0.8 0.7 0.65 0.75",
+        "WATER_PREVIEW_COLOR_V3 0.2 0.3 0.4 0.67 0.8 0.7 0.65 0.75 1.1",
+        "WATER_PREVIEW_COLOR_V3 0.2 0.3 0.4 0.67 0.8 0.7 0.65 0.75 nan",
     };
     for (const char *text : invalid) {
         WaterPreviewColor::Values values;
@@ -30,6 +39,19 @@ TEST(water_preview_presets_reject_partial_and_trailing_edits_atomically)
     CHECK_NEAR(values.red, 0.2f, 0.000001f);
     CHECK_NEAR(values.brightness, 0.67f, 0.000001f);
     CHECK_NEAR(values.strength, 0.8f, 0.000001f);
+    CHECK_EQ(values.turbidity, 0.f);
+    CHECK_EQ(values.surfaceRoughness, 0.f);
+    CHECK_EQ(values.rippleDamping, 0.f);
+    CHECK_EQ(values.windResistance, 0.f);
+    std::istringstream material("WATER_PREVIEW_COLOR_V2\n0.2 0.3 0.4 0.67 0.8 0.7 0.65 0.75 0.6\n");
+    CHECK(WaterPreviewColor::readPreset(material, values));
+    CHECK_NEAR(values.turbidity, .7f, .000001f);
+    CHECK_NEAR(values.surfaceRoughness, .65f, .000001f);
+    CHECK_NEAR(values.rippleDamping, .75f, .000001f);
+    CHECK_EQ(values.windResistance, 0.f); // The removed V2 scum value must not become resistance.
+    std::istringstream resistant("WATER_PREVIEW_COLOR_V3\n0.2 0.3 0.4 0.67 0.8 0.7 0.65 0.75 0.8\n");
+    CHECK(WaterPreviewColor::readPreset(resistant, values));
+    CHECK_NEAR(values.windResistance, .8f, .000001f);
 }
 
 TEST(water_preview_default_export_preserves_loaded_rules_and_aliases)

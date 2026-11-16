@@ -8,6 +8,7 @@
 #include <initializer_list>
 #include <locale>
 #include <string>
+#include "Platform/ModernWaterConfig.h"
 
 namespace WaterPreviewColor {
 
@@ -18,11 +19,35 @@ struct Values {
     float blue = 1.f;
     float brightness = 1.f;
     float strength = 0.f;
+    float turbidity = 0.f;
+    float surfaceRoughness = 0.f;
+    float rippleDamping = 0.f;
+    float windResistance = 0.f;
 };
+
+inline void toxicLook(Values &values)
+{
+    const auto rule=ModernWaterConfig::PollutedWaterDefault();
+    values.red=rule.replacement.r/255.f;
+    values.green=rule.replacement.g/255.f;
+    values.blue=rule.replacement.b/255.f;
+    values.brightness=rule.brightness;
+    values.strength=rule.pollution;
+    values.turbidity=rule.turbidity;
+    values.surfaceRoughness=rule.surfaceRoughness;
+    values.rippleDamping=rule.rippleDamping;
+    values.windResistance=rule.windResistance;
+}
+
+inline void clearSurfaceEffects(Values &values)
+{
+    values.turbidity = values.surfaceRoughness = values.rippleDamping = values.windResistance = 0.f;
+}
 
 inline bool valid(const Values &values)
 {
-    for (float channel : {values.red, values.green, values.blue, values.strength}) {
+    for (float channel : {values.red, values.green, values.blue, values.strength,
+                         values.turbidity, values.surfaceRoughness, values.rippleDamping, values.windResistance}) {
         if (!std::isfinite(channel) || channel < 0.f || channel > 1.f)
             return false;
     }
@@ -38,9 +63,17 @@ inline bool readPreset(std::istream &input, Values &values)
     std::string version;
     Values parsed;
     if (!(input >> version >> parsed.red >> parsed.green >> parsed.blue
-          >> parsed.brightness >> parsed.strength)
-        || version != "WATER_PREVIEW_COLOR_V1" || !valid(parsed))
+          >> parsed.brightness >> parsed.strength))
         return false;
+    if (version == "WATER_PREVIEW_COLOR_V2" || version == "WATER_PREVIEW_COLOR_V3") {
+        if (!(input >> parsed.turbidity >> parsed.surfaceRoughness >> parsed.rippleDamping >> parsed.windResistance))
+            return false;
+    } else if (version != "WATER_PREVIEW_COLOR_V1")
+        return false;
+    if (!valid(parsed))
+        return false;
+    // V2's final number was surface scum. Never reinterpret it as resistance.
+    if (version == "WATER_PREVIEW_COLOR_V2") parsed.windResistance = 0.f;
     input >> std::ws;
     if (!input.eof() || input.bad())
         return false;

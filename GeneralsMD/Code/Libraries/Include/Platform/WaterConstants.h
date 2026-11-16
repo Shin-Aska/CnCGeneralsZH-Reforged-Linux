@@ -53,7 +53,8 @@ struct Block
 };
 static_assert(sizeof(Block) == WaterHullVisualLayout::VertexCommonRegisters * 16, "water uniform packing");
 static_assert(offsetof(Block, MaterialColor) == 194 * 16 && offsetof(Block, MaterialParameters) == 195 * 16
-	&& offsetof(Block, MaterialOptics) == 196 * 16 && offsetof(Block, ClipFromWorld) == 197 * 16,
+	&& offsetof(Block, MaterialOptics) == 196 * 16 && offsetof(Block, MaterialSurface) == 197 * 16
+	&& offsetof(Block, ClipFromWorld) == 198 * 16,
 	"water material tail packing");
 
 // The pixel half's b0: the block above and the hull meshes' metadata after it.
@@ -181,6 +182,7 @@ inline void Fill(const float (*registers)[4], const Camera &camera, bool history
 	std::memcpy(water.MaterialColor, registers[ModernWaterMaterial::RegisterColor], sizeof(water.MaterialColor));
 	std::memcpy(water.MaterialParameters, registers[ModernWaterMaterial::RegisterParameters], sizeof(water.MaterialParameters));
 	std::memcpy(water.MaterialOptics, registers[ModernWaterMaterial::RegisterOptics], sizeof(water.MaterialOptics));
+	std::memcpy(water.MaterialSurface, registers[ModernWaterMaterial::RegisterSurface], sizeof(water.MaterialSurface));
 	if (history) {
 		std::memcpy(water.FoamHistoryArea, registers[88], sizeof(water.FoamHistoryArea));
 		std::memcpy(water.FoamHistoryParameters, registers[89], sizeof(water.FoamHistoryParameters));

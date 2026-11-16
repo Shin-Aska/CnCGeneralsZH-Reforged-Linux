@@ -275,6 +275,9 @@ private:
             if(d.pixelConstants.size()>=(ModernWaterMaterial::RegisterOptics+1)*4)
                 std::memcpy(optics,d.pixelConstants.data()+ModernWaterMaterial::RegisterOptics*4,sizeof(optics));
             if(clarity>=0.f) optics[0]=clarity;
+            float surface[4]={};
+            if(d.pixelConstants.size()>=(ModernWaterMaterial::RegisterSurface+1)*4)
+                std::memcpy(surface,d.pixelConstants.data()+ModernWaterMaterial::RegisterSurface*4,sizeof(surface));
             if (!d.vertexConstants.empty()) require(device->SetVertexShaderConstantF(0,d.vertexConstants.data(),unsigned(d.vertexConstants.size()/4)),"restore bank vertex constants");
             float water[4]; std::memcpy(water,d.pixelConstants.data()+4,sizeof(water)); water[0]+=elapsed;
             IDirect3DTexture9 *reflectionTexture=d.pixelConstants[6]>.5f && r.textures[1]?r.textures[1]:mirror;
@@ -288,11 +291,14 @@ private:
                 device->SetPixelShaderConstantF(94,colour,1);
                 parameters[0]=values.red<1 || values.green<1 || values.blue<1 || values.brightness<1?1.f:0.f;
                 parameters[1]=values.strength; parameters[2]=bubbles?1.f:0.f;
+                surface[0]=values.turbidity; surface[1]=values.surfaceRoughness;
+                surface[2]=values.rippleDamping; surface[3]=values.windResistance;
             }
             const auto render=[&](bool baseline) {
                 device->SetPixelShaderConstantF(95,parameters,1);
                 const float baselineOptics[4]={};
                 device->SetPixelShaderConstantF(ModernWaterMaterial::RegisterOptics,baseline?baselineOptics:optics,1);
+                device->SetPixelShaderConstantF(ModernWaterMaterial::RegisterSurface,baseline?baselineOptics:surface,1);
                 device->SetFVF(d.fvf); device->SetStreamSource(0,r.vertices,0,d.stride); device->SetIndices(r.indices);
                 require(device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST,0,0,unsigned(d.vertices.size()/d.stride),0,unsigned(d.indices.size()/3)),"replay bank water");
             };

@@ -87,7 +87,7 @@ void loadModernWaterSettings()
 	fprintf(stderr, "ModernWater: loaded %u material rules from %s\n", unsigned(settings.rules.size()), path);
 }
 
-void getModernWaterMaterial(Real color[4], Real parameters[4], Real optics[4])
+void getModernWaterMaterial(Real color[4], Real parameters[4], Real optics[4], Real surface[4])
 {
 	ModernWaterSettings &settings = modernWaterSettings();
 	const RGBColor &authored = TheWaterTransparency->m_standingWaterColor;
@@ -117,6 +117,12 @@ void getModernWaterMaterial(Real color[4], Real parameters[4], Real optics[4])
 		optics[0] = material.underwaterClarity;
 		optics[1] = material.reflectionStrength - 1.0f;
 		optics[2] = optics[3] = 0.0f;
+	}
+	if (surface) {
+		surface[0] = material.turbidity;
+		surface[1] = material.surfaceRoughness;
+		surface[2] = material.rippleDamping;
+		surface[3] = material.windResistance;
 	}
 }
 

@@ -1955,7 +1955,7 @@ float4 main(float4 position : SV_Position) : SV_Target0
 // deliberately avoids a second C++ implementation of their colour conversion or extinction.
 static void check_gpu_modern_water_material(SdlGpuFrame *frame)
 {
-    const unsigned rows=12,columns=3;
+    const unsigned rows=12,columns=7;
     // display colour/brightness, tint/pollution/bubbles/reserved, path/depth/illumination/face.
     const float fixtures[rows][12]={
         {0,0,0,0, 0,0,0,0, 20,10,1,.6f},
@@ -1981,13 +1981,18 @@ static void check_gpu_modern_water_material(SdlGpuFrame *frame)
     const char *vs="float4 main(uint id:SV_VertexID):SV_Position {return float4(id==1?3.0:-1.0,id==2?3.0:-1.0,0,1);}";
     std::string ps="cbuffer Fixtures:register(b0,space3){float4 F[36];};\n";
     ps+=ModernWaterMaterial::OpticalSource();
+    ps+=ModernWaterMaterial::WindSource();
     ps+=R"HLSL(
 float4 main(float4 position:SV_Position):SV_Target0 {
     uint row=(uint)position.y,column=(uint)position.x;
     float4 colour=F[row*3],params=F[row*3+1],context=F[row*3+2];
     if(column==0)return float4(modernWaterMaterialSource(float3(.002,.035,.075),colour,params.x,context.z,context.w),1);
     if(column==1)return float4(modernWaterMaterialTransmission(float3(.8,.8,.8),colour.rgb,params.y,context.x,.5),1);
-    return float4(modernWaterBubbleFilm(colour.rgb),modernWaterBubbleWeight(params.y,params.z,context.y));
+    if(column==2)return float4(modernWaterBubbleFilm(colour.rgb),modernWaterBubbleWeight(params.y,params.z,context.y));
+    if(column==3)return float4(modernWaterTurbidTransmission(float3(.8,.8,.8),params.y,context.x),1);
+    if(column==4)return float4(modernWaterDampedNormal(normalize(float3(.3,.4,1)),params.y),1);
+    if(column==5)return float4(modernWaterSurfaceRoughness(.2,params.y),0,0,1);
+    return float4(modernWaterWindGain(params.y),modernWaterWindGain(1),modernWaterWindGain(0),1);
 })HLSL";
     std::string error;std::vector<unsigned char> spirv;
     bool compiled=SDL3_Compile_HLSL_To_SPIRV(vs,true,spirv,error);CHECK(compiled);if(!compiled)return;
@@ -2030,6 +2035,15 @@ float4 main(float4 position:SV_Position):SV_Target0 {
     CHECK(value(6,1,2)>value(6,1,0) && value(6,1,0)==value(6,1,1));
     CHECK(value(5,2,0)>value(5,2,1) && value(6,2,2)>value(6,2,1));
     CHECK(value(7,2,3)==0 && value(8,2,3)==0 && value(9,2,3)==0 && value(10,2,3)==.8f);
+    for(unsigned c=0;c<3;++c) {
+        CHECK(value(0,3,c)==.8f && value(3,3,c)==.8f); // zero turbidity is identity
+        CHECK(value(5,3,c)>0 && value(5,3,c)<.01f); // submerged detail becomes opaque
+    }
+    CHECK(value(5,4,0)<value(3,4,0) && value(5,4,1)<value(3,4,1));
+    CHECK(value(5,4,2)>value(3,4,2)); // flatter optical normal
+    CHECK(value(3,5,0)==.2f && value(5,5,0)>.7f); // roughness independent of colour
+    CHECK(value(0,6,0)==1.f && std::abs(value(5,6,0)-.04f)<.000001f);
+    CHECK(value(5,6,1)==0.f && value(5,6,2)==1.f); // full calm and zero-resistance identity
     printf("sdl_gpu_frame_selfcheck: Modern material: exact clean/white identity, gray attenuation, red/blue tint and absorption, independent pollution, brightness and bubble gates passed\n");
 }
 

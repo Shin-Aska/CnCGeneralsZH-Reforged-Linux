@@ -41,8 +41,12 @@ void CheckDefaults(const Rules &rules) {
     CHECK(rules[0].colors[0] == (Color{50, 75, 50}));
     CHECK_STR(rules[0].textures[0].c_str(), "TSWater03.tga");
     CHECK(rules[0].replacement == (Color{45, 58, 11}));
-    CHECK_NEAR(rules[0].brightness, .67f, 0.00001f);
-    CHECK_NEAR(rules[0].pollution, .80f, 0.00001f);
+    CHECK_NEAR(rules[0].brightness, .55f, 0.00001f);
+    CHECK_NEAR(rules[0].pollution, .70f, 0.00001f);
+    CHECK_EQ(rules[0].turbidity, 1.0f);
+    CHECK_NEAR(rules[0].surfaceRoughness, .69f, .00001f);
+    CHECK_NEAR(rules[0].rippleDamping, .34f, .00001f);
+    CHECK_NEAR(rules[0].windResistance, .55f, .00001f);
     CHECK_EQ(rules[0].underwaterClarity, 0.0f);
     CHECK_EQ(rules[0].reflectionStrength, 1.0f);
     CHECK(rules[0].bubbles);
@@ -59,6 +63,10 @@ void CheckDefaults(const Rules &rules) {
     CHECK_EQ(rules[1].reflectionStrength, 2.0f);
     CHECK(!rules[1].bubbles);
     CHECK(rules[1].enabled);
+    CHECK_EQ(rules[1].turbidity, 0.0f);
+    CHECK_EQ(rules[1].surfaceRoughness, 0.0f);
+    CHECK_EQ(rules[1].rippleDamping, 0.0f);
+    CHECK_EQ(rules[1].windResistance, 0.0f);
 }
 }
 
@@ -204,8 +212,8 @@ TEST(modern_water_resolution_never_carries_pollution_to_next_map)
     const Rules rules = Defaults();
     Material material = Resolve(rules, Color{50, 75, 50}, "TSWater03.tga");
     CHECK(material.color == (Color{45, 58, 11}));
-    CHECK_NEAR(material.brightness, .67f, .00001f);
-    CHECK_NEAR(material.pollution, .80f, .00001f);
+    CHECK_NEAR(material.brightness, .55f, .00001f);
+    CHECK_NEAR(material.pollution, .70f, .00001f);
     CHECK_EQ(material.underwaterClarity, 0.0f);
     CHECK_EQ(material.reflectionStrength, 1.0f);
     CHECK_EQ(material.tintAmount, 1.0f);
@@ -249,7 +257,7 @@ TEST(modern_water_clarity_matches_authored_water_and_resets_independently)
     material = Resolve(defaults, Color{50, 75, 50}, "TSWater03.tga");
     CHECK_EQ(material.underwaterClarity, 0.0f);
     CHECK_EQ(material.reflectionStrength, 1.0f);
-    CHECK_NEAR(material.pollution, .80f, .00001f);
+    CHECK_NEAR(material.pollution, .70f, .00001f);
     CHECK(material.bubbles);
 
     // Authors may combine clarity with pollution; these controls do not imply
@@ -296,6 +304,49 @@ TEST(modern_water_white_rules_keep_neutral_tint_without_disabling_other_controls
     CHECK_EQ(material.tintAmount, 1.0f);
     CHECK_NEAR(material.brightness, .70f, .00001f);
     CHECK_NEAR(material.pollution, .40f, .00001f);
+}
+
+TEST(modern_water_surface_controls_are_optional_independent_and_transactional)
+{
+    Rules rules;
+    std::string error;
+    CHECK(Parse(Changed(" Bubbles = Yes", " Bubbles = Yes\n Turbidity = 0.7\n SurfaceRoughness = 0.65\n RippleDamping = 0.75\n WindResistance = 0.6"), rules, error));
+    Material material = Resolve(rules, Color{50, 75, 50}, "TSWater03.tga");
+    CHECK_NEAR(material.turbidity, .7f, .00001f);
+    CHECK_NEAR(material.surfaceRoughness, .65f, .00001f);
+    CHECK_NEAR(material.rippleDamping, .75f, .00001f);
+    CHECK_NEAR(material.windResistance, .6f, .00001f);
+    CHECK_NEAR(material.pollution, .8f, .00001f);
+    CHECK(material.bubbles);
+    material = Resolve(rules, Color{50, 75, 50}, "Other.tga");
+    CHECK_EQ(material.turbidity, 0.0f);
+    CHECK_EQ(material.surfaceRoughness, 0.0f);
+    CHECK_EQ(material.rippleDamping, 0.0f);
+    CHECK_EQ(material.windResistance, 0.0f);
+    for (const char *field : {"Turbidity", "SurfaceRoughness", "RippleDamping", "WindResistance"}) {
+        for (const char *endpoint : {"0", "1"})
+            CHECK(Parse(Changed(" Bubbles = Yes", std::string(" ") + field + " = " + endpoint), rules, error));
+        for (const char *invalid : {"-0.01", "1.01", "nan", "inf", "0.5junk", "0.5\n "}) {
+            rules = Defaults();
+            std::string assignment = std::string(" ") + field + " = " + invalid;
+            if (std::string(invalid) == "0.5\n ") assignment += std::string(field) + " = 0.4";
+            CHECK(!Parse(Changed(" Bubbles = Yes", assignment), rules, error));
+            CHECK(error.find("line ") == 0);
+            CheckDefaults(rules);
+        }
+    }
+}
+
+TEST(modern_water_retired_scum_is_ignored_without_becoming_wind_resistance)
+{
+    Rules rules;
+    std::string error;
+    CHECK(Parse(Changed(" Bubbles = Yes", " Bubbles = Yes\n SurfaceScum = 0.9\n WindResistance = 0.8"), rules, error));
+    const auto material=Resolve(rules,Color{50,75,50},"TSWater03.tga");
+    CHECK_NEAR(material.windResistance,.8f,.00001f);
+    CHECK(material.bubbles);
+    CHECK(Parse(Changed(" Bubbles = Yes", " Bubbles = Yes\n SurfaceScum = 1"), rules, error));
+    CHECK_EQ(Resolve(rules,Color{50,75,50},"TSWater03.tga").windResistance,0.f);
 }
 
 TEST(modern_water_normalized_byte_colors_round_trip_exactly)

@@ -26,6 +26,7 @@
 #include "WaterPreviewReflectionBar.h"
 #include "WaterPreviewScene.h"
 #include "WaterPreviewCamera.h"
+#include "WaterPreviewSurface.h"
 
 namespace {
 constexpr float Pi = 3.14159265358979323846f;
@@ -54,6 +55,8 @@ struct Options {
     std::string mapColour = "324B32", mapTexture = "TSWater03.tga";
     float underwaterClarity = -1.f; // absent: retain resolved or banked material
     float reflectionStrength = -1.f;
+    float turbidity = -1.f, surfaceRoughness = -1.f, rippleDamping = -1.f, windResistance = -1.f;
+    bool toxicLook = false;
 };
 
 void help()
@@ -67,6 +70,8 @@ void help()
         "       [--map-depth N] [--map-opacity 0..1] [--export-config FILE.ini]\n"
         "       [--underwater-clarity 0..1]\n"
         "       [--reflection-strength 0..4]\n"
+        "       [--turbidity 0..1] [--surface-roughness 0..1]\n"
+        "       [--ripple-damping 0..1] [--wind-resistance 0..1] [--toxic-look]\n"
         "       [--load-preset] [--width N] [--height N] [--time SECONDS]\n"
         "       [--reflection legacy|ssr|hybrid|path|compare] [--no-props] [--scene NAME|PATH]\n"
         "       [--yaw RADIANS] [--pitch 0.48..1.38] [--distance 180..1050]\n"
@@ -87,7 +92,10 @@ void help()
         "Wheel / +/- zoom; Ctrl+wheel zooms 5x faster; Alt+wheel tilts (forward flatter).\n"
         "--target X Y starts the ground target at water level (each coordinate -700..700).\n"
         "Resets use the starting --yaw/--pitch/--distance and, for Home/R, --target.\n"
-        "H color panel: RGB, brightness, pollution; Save color stores an editor preset.\n"
+        "H material panel: RGB, brightness, pollution, turbidity, roughness, damping and wind resistance.\n"
+        "Wind resistance damps actual waves, chop and glints; 1 is calm wind with bubbles retained.\n"
+        "T applies Toxic look; C clears the four surface effects, retaining color and bubbles.\n"
+        "Save look stores all nine sliders; V1 color presets still load.\n"
         "L loads saved editor colors; --load-preset restores them at startup.\n"
         "Synthetic starts resolve the INI rules; scene starts retain the banked material.\n"
         "E writes --export-config or water-preview-rule.ini in the working directory.\n"
@@ -217,6 +225,11 @@ Options parse(int argc, char **argv)
         else if (arg == "--map-opacity") o.mapOpacity = number(value(), 0, 1);
         else if (arg == "--underwater-clarity") o.underwaterClarity = number(value(), 0, 1);
         else if (arg == "--reflection-strength") o.reflectionStrength = number(value(), 0, 4);
+        else if (arg == "--turbidity") o.turbidity = number(value(), 0, 1);
+        else if (arg == "--surface-roughness") o.surfaceRoughness = number(value(), 0, 1);
+        else if (arg == "--ripple-damping") o.rippleDamping = number(value(), 0, 1);
+        else if (arg == "--wind-resistance") o.windResistance = number(value(), 0, 1);
+        else if (arg == "--toxic-look") o.toxicLook = true;
         else if (arg == "--scene") o.scene = value();
         else if (arg == "--debug") o.debug = value();
         else if (arg == "--config") o.config = value();
@@ -429,7 +442,7 @@ public:
         if (shader) shader->Release();
         for (auto *texture : textures) texture->Release();
         if (device && pathActive) WaterPathTracing::Clear(device);
-        if (device) device->Release();
+        if (device) { device->Clean_Water_Clear(); device->Release(); }
         if (adapter) adapter->Release();
         if (window) SDL_DestroyWindow(window);
         SDL_Quit();
@@ -443,7 +456,7 @@ public:
         std::printf("Material cost diagnostic: profile=%s freeze_time=%s; ablation images are not quality equivalents.\n",
             WaterMaterialProfile::Name(options.materialProfile),options.freezeTime?"yes":"no");
         updateTitle();
-        std::printf("Controls: left-drag color sliders; H panel; L load saved colors; 1 clean baseline, 2 material, 3 split; 4 legacy (captured planar in banks), 5 SSR, 6 hybrid (legacy + SSR), 7 compare legacy/SSR/hybrid, 8 path traced (synthetic only); B bubbles; [/] pollution; Space pause; S PNG; E export rule; Esc close. %s\n",
+        std::printf("Controls: left-drag material sliders; H panel; L load saved look; T toxic look; C clear surface effects; 1 clean baseline, 2 material, 3 split; 4 legacy (captured planar in banks), 5 SSR, 6 hybrid (legacy + SSR), 7 compare legacy/SSR/hybrid, 8 path traced (synthetic only); B bubbles; [/] pollution; Space pause; S PNG; E export rule; Esc close. %s\n",
             scene.loaded()?"FIXED CAMERA (banked frame).":"P props; arrows/right drag pan; middle drag turns; Alt+middle drag tilts (down tips down); middle click resets heading/pitch/zoom; wheel/+/- zoom; Ctrl+wheel 5x zoom; Alt+wheel tilts (forward flatter); Home/R resets camera and target.");
         uint64_t previous = SDL_GetTicksNS();
         unsigned frame = 0;
@@ -481,6 +494,11 @@ public:
         printWork("Total work",workCounts());
         std::printf("Wave allocation: requested=%u active=%u\n",WaterPerformanceSettings::Applied().requestedFftResolution,
             WaterPerformanceSettings::Applied().activeFftResolution);
+        if(!scene.loaded() && WaterCleanSpectrum::Enabled())
+            std::printf("Main water: accepted_draws=%u depth_uploads=%llu rotation_uploads=%llu\n",
+                device->Main_Water_Draws_Recorded(),
+                static_cast<unsigned long long>(device->Get_Gpu()->Clean_Water_Uploads(0)),
+                static_cast<unsigned long long>(device->Get_Gpu()->Clean_Water_Uploads(1)));
         if (pathActive) std::printf("Water path tracing final: %s\n",WaterPathTracing::Report(device).c_str());
         if (frame) std::printf("Rendered %u frames; %u recorded draws; %llu production FFT updates; no refused draws.\n",
             frame,device->Draws_Recorded(),static_cast<unsigned long long>(device->Get_Gpu()->Ocean_Updates()));
@@ -551,6 +569,8 @@ private:
     IDirect3DIndexBuffer9 *indices = nullptr;
     std::vector<IDirect3DTexture9 *> textures;
     IDirect3DTexture9 *bed = nullptr, *height = nullptr, *optical = nullptr, *material = nullptr;
+    IDirect3DTexture9 *heading = nullptr;
+    WaterPreviewSurface::Field surfaceField;
     struct MirrorTarget {
         unsigned size;
         IDirect3DTexture9 *texture = nullptr;
@@ -607,6 +627,10 @@ private:
         v.blue=resolvedMaterial.color.b/255.f;
         v.brightness=resolvedMaterial.brightness;
         v.strength=resolvedMaterial.pollution;
+        v.turbidity=resolvedMaterial.turbidity;
+        v.surfaceRoughness=resolvedMaterial.surfaceRoughness;
+        v.rippleDamping=resolvedMaterial.rippleDamping;
+        v.windResistance=resolvedMaterial.windResistance;
         colourPanel.defaults=v;
         if (!options.bubblesSet) options.bubbles=resolvedMaterial.bubbles;
         colourPanel.status=resolvedMaterial.ruleName.empty()?"MAP COLOR - NO RULE MATCH":"INI MATERIAL LOADED";
@@ -625,13 +649,19 @@ private:
         if (options.loadPreset && !loadSavedColour())
             throw std::runtime_error("no valid saved preview preset at "+colourSettingsPath);
         auto &v=colourPanel.values;
+        if (options.toxicLook) WaterPreviewColor::toxicLook(v);
+        if (options.turbidity>=0) v.turbidity=options.turbidity;
+        if (options.surfaceRoughness>=0) v.surfaceRoughness=options.surfaceRoughness;
+        if (options.rippleDamping>=0) v.rippleDamping=options.rippleDamping;
+        if (options.windResistance>=0) v.windResistance=options.windResistance;
         if (options.strengthSet) v.strength=options.strength;
         if (options.brightnessSet) v.brightness=options.brightness;
         if (!options.colour.empty()) {
             const unsigned rgb=unsigned(std::strtoul(options.colour.c_str(),nullptr,16));
             v.red=float((rgb>>16)&255)/255; v.green=float((rgb>>8)&255)/255; v.blue=float(rgb&255)/255;
         }
-        if (options.strengthSet || options.brightnessSet || !options.colour.empty())
+        if (options.strengthSet || options.brightnessSet || !options.colour.empty() || options.toxicLook
+            || options.turbidity>=0 || options.surfaceRoughness>=0 || options.rippleDamping>=0 || options.windResistance>=0)
             { colourPanel.status="UNSAVED CHANGES"; colourPanel.edited=true; }
         colourPanel.visible=options.controls;
     }
@@ -662,15 +692,16 @@ private:
         std::ofstream output(temporary,std::ios::trunc);
         output.imbue(std::locale::classic());
         output.precision(9);
-        output<<"WATER_PREVIEW_COLOR_V1\n"<<v.red<<' '<<v.green<<' '<<v.blue<<' '
-            <<v.brightness<<' '<<v.strength<<'\n';
+        output<<"WATER_PREVIEW_COLOR_V3\n"<<v.red<<' '<<v.green<<' '<<v.blue<<' '
+            <<v.brightness<<' '<<v.strength<<' '<<v.turbidity<<' '<<v.surfaceRoughness<<' '
+            <<v.rippleDamping<<' '<<v.windResistance<<'\n';
         output.close();
         if (!output || std::rename(temporary.c_str(),colourSettingsPath.c_str())!=0) {
             std::remove(temporary.c_str());
             colourPanel.status="SAVE FAILED";
             return;
         }
-        colourPanel.status="COLOR SAVED";
+        colourPanel.status="LOOK SAVED";
         std::printf("Saved preview color: %s\n",colourSettingsPath.c_str());
     }
 
@@ -696,7 +727,9 @@ private:
             <<"  Brightness = "<<v.brightness<<"\n  Pollution = "<<v.strength
             <<"\n  Bubbles = "<<(options.bubbles?"Yes":"No")
             <<"\n  UnderwaterClarity = "<<resolvedMaterial.underwaterClarity
-            <<"\n  ReflectionStrength = "<<resolvedMaterial.reflectionStrength<<"\nEnd\n";
+            <<"\n  ReflectionStrength = "<<resolvedMaterial.reflectionStrength
+            <<"\n  Turbidity = "<<v.turbidity<<"\n  SurfaceRoughness = "<<v.surfaceRoughness
+            <<"\n  RippleDamping = "<<v.rippleDamping<<"\n  WindResistance = "<<v.windResistance<<"\nEnd\n";
         ModernWaterConfig::Rules parsed;
         std::string error;
         if (!ModernWaterConfig::Parse(contents.str(),parsed,error))
@@ -712,21 +745,52 @@ private:
         std::printf("Exported ModernWater rule: %s\n",path.c_str());
     }
 
-    IDirect3DTexture9 *texture(unsigned side, const std::vector<uint32_t> &pixels)
+    IDirect3DTexture9 *texture(unsigned width,unsigned height,const std::vector<uint32_t> &pixels)
     {
         IDirect3DTexture9 *result = nullptr;
-        require(device->CreateTexture(side,side,1,0,D3DFMT_A8R8G8B8,D3DPOOL_MANAGED,&result,nullptr),"create texture");
+        require(device->CreateTexture(width,height,1,0,D3DFMT_A8R8G8B8,D3DPOOL_MANAGED,&result,nullptr),"create texture");
         textures.push_back(result);
         D3DLOCKED_RECT locked = {};
         require(result->LockRect(0,&locked,nullptr,0),"lock texture");
-        for (unsigned y=0; y<side; ++y)
-            std::memcpy(static_cast<uint8_t *>(locked.pBits)+y*locked.Pitch,pixels.data()+y*side,side*4);
+        for (unsigned y=0; y<height; ++y)
+            std::memcpy(static_cast<uint8_t *>(locked.pBits)+y*locked.Pitch,pixels.data()+y*width,width*4);
         require(result->UnlockRect(0),"unlock texture");
         return result;
     }
 
+    IDirect3DTexture9 *texture(unsigned side,const std::vector<uint32_t> &pixels)
+    { return texture(side,side,pixels); }
+
+    void prepareSurface()
+    {
+        if(!WaterCleanSpectrum::Enabled())return;
+        const auto &values=WaterTuning::Configured();
+        const bool live=WaterTuning::Enabled(),force=std::getenv("ZH_WATER_SHORE_FORCE")!=nullptr;
+        const auto key=WaterCleanPrecompute::MakeKey(surfaceField.rotation.key.heading,values,force,live);
+        if(!heading || !surfaceField.rotation.keyed || key!=surfaceField.rotation.key) {
+            if(!surfaceField.build(BedExtent,WaterLevel,values,live,force))
+                throw std::runtime_error("cannot prepare production water depth/direction fields");
+            const unsigned width=WaterPreviewSurface::Field::Side*WaterPreviewSurface::Field::Words;
+            const unsigned height=WaterPreviewSurface::Field::Side;
+            if(!heading) heading=texture(width,height,surfaceField.packedHeading);
+            else {
+                D3DLOCKED_RECT locked={};
+                require(heading->LockRect(0,&locked,nullptr,0),"lock water direction field");
+                for(unsigned y=0;y<height;++y)
+                    std::memcpy(static_cast<uint8_t *>(locked.pBits)+y*locked.Pitch,
+                        surfaceField.packedHeading.data()+y*width,width*4);
+                require(heading->UnlockRect(0),"unlock water direction field");
+            }
+        }
+        if(!device->Clean_Water_Bind(&surfaceField.depth,&surfaceField.rotation.image,true))
+            throw std::runtime_error("production main-water field upload failed");
+    }
+
     void initialize()
     {
+        // The material editor must use the current game water, even when launched
+        // from a shell that retained an old water experiment's opt-out.
+        SDL_setenv_unsafe("ZH_WATER_CLEAN","1",1);
         legacyMirror.size=WaterScreenReflection::MirrorSize(WaterScreenReflection::Mirror,options.reflectionDetail);
         hybridMirror.size=WaterScreenReflection::MirrorSize(WaterScreenReflection::Hybrid,options.reflectionDetail);
         if (!SDL_Init(SDL_INIT_VIDEO)) throw std::runtime_error(std::string("SDL video: ")+SDL_GetError());
@@ -744,6 +808,11 @@ private:
             if(options.reflectionStrength>=0) resolvedMaterial.reflectionStrength=options.reflectionStrength;
             auto &v=colourPanel.values;
             v.red=c[94*4]; v.green=c[94*4+1]; v.blue=c[94*4+2]; v.brightness=c[94*4+3]; v.strength=c[95*4+1];
+            if (c.size()>=(ModernWaterMaterial::RegisterSurface+1)*4) {
+                const auto *surface=c.data()+ModernWaterMaterial::RegisterSurface*4;
+                v.turbidity=surface[0]; v.surfaceRoughness=surface[1];
+                v.rippleDamping=surface[2]; v.windResistance=surface[3];
+            }
             colourPanel.defaults=v;
             if (!options.bubblesSet) options.bubbles=c[95*4+2]>.5f;
             colourPanel.status="BANKED MATERIAL - FIXED CAMERA";
@@ -822,7 +891,9 @@ private:
             const float px=float(x)*GridCell-Extent, py=float(y)*GridCell-Extent;
             // Exact production FFT metadata: weight, free damping, offshore exposure;
             // UV0 geometric correction, UV1 attenuation and original water elevation.
-            waterGrid.push_back({px,py,WaterLevel,1.0f,0.72f,0.26f,0xffffffffu,{0,0,0.72f,WaterLevel,0,0,0,0}});
+            const bool main=WaterCleanSpectrum::Enabled();
+            waterGrid.push_back({px,py,WaterLevel,1.0f,main?1.f:0.72f,main?1.f:0.26f,
+                0xffffffffu,{0,0,main?1.f:0.72f,WaterLevel,0,0,0,0}});
         }
         std::vector<uint16_t> faces;
         faces.reserve(Grid*Grid*6);
@@ -876,6 +947,13 @@ private:
         material=texture(256,detail);
         height=texture(1,{0x00000000u}); // zero-height bed, alpha zero disables wave cages
         optical=texture(1,{0xff430000u}); // enclosed-water exposure: 0.263, no coastline
+        if(WaterCleanSpectrum::Enabled()) {
+            // A flat, fully wet synthetic map uses the game's optical/body/heading builders.
+            optical=texture(1,{0x00ffffffu}); // open water, maximum distance from land, no coast source
+            prepareSurface();
+            std::printf("Water surface: main FFT, production depth/direction fields (%dx%d).\n",
+                WaterPreviewSurface::Field::Side,WaterPreviewSurface::Field::Side);
+        }
     }
 
     // Allocate only modes that are actually shown. Compare keeps separate targets so its
@@ -1057,6 +1135,7 @@ private:
             checkDraws();
             return;
         }
+        const unsigned previousMainDraws=device->Main_Water_Draws_Recorded();
         camera();
         preparePathTracing();
         applyPerformanceSettings(); // path setup may have selected the Hybrid fallback
@@ -1091,6 +1170,8 @@ private:
         require(device->EndScene(),"end scene");
         checkDraws();
         if (!device->Get_Gpu()->Ocean_Updates()) throw std::runtime_error("production FFT did not initialize");
+        if(WaterCleanSpectrum::Enabled() && device->Main_Water_Draws_Recorded()<=previousMainDraws)
+            throw std::runtime_error("preview did not draw the production main-water path");
     }
 
     void checkDraws()
@@ -1151,12 +1232,21 @@ private:
         device->SetTexture(4,optical);
         device->SetTexture(7,material);
         device->SetPixelShader(shader);
+        prepareSurface();
+        device->SetTexture(11,heading);
         // Height and optical context describe the fixed world bed, not the moving patch.
         // Their one-texel fields are uniform; the full bed mapping still covers every offset.
         const float constants[7][4]={{time,0,0,WaterLevel},{-Extent,-Extent,Extent,Extent},
             {-.30f,-.45f,.84f,0},{.88f,.81f,.66f,1},{BedExtent,BedExtent*2,100,1},
             {options.mapDepth,options.mapOpacity,1,1},{0,.26f,.28f,.30f}};
         device->SetPixelShaderConstantF(1,&constants[0][0],7);
+        if(WaterCleanSpectrum::Enabled()) {
+            const float terrain[4]={BedExtent,WaterPreviewSurface::Field::Side*surfaceField.spacing,100,1};
+            device->SetPixelShaderConstantF(5,terrain,1);
+            const float prevailing[4]={WaterWaveHeading::Rotation(surfaceField.heading.prevailing),
+                surfaceField.heading.uStep,surfaceField.heading.localStep,0};
+            device->SetPixelShaderConstantF(WaterWaveHeading::PrevailingRegister,prevailing,1);
+        }
         const float fill[4][4]={{0,0,0,1},{0,0,0,0},{0,0,0,0},{0,0,0,0}};
         device->SetPixelShaderConstantF(90,&fill[0][0],4);
         device->SetRenderState(D3DRS_TEXTUREFACTOR,0xffffffffu);
@@ -1226,6 +1316,9 @@ private:
         const float optics[4]={enabled?resolvedMaterial.underwaterClarity:0.f,
             enabled?resolvedMaterial.reflectionStrength-1.f:0.f,0,0};
         require(device->SetPixelShaderConstantF(ModernWaterMaterial::RegisterOptics,optics,1),"set water material optics");
+        const float surface[4]={enabled?v.turbidity:0.f,enabled?v.surfaceRoughness:0.f,
+            enabled?v.rippleDamping:0.f,enabled?v.windResistance:0.f};
+        require(device->SetPixelShaderConstantF(ModernWaterMaterial::RegisterSurface,surface,1),"set water material surface");
         require(device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST,0,0,(Grid+1)*(Grid+1),0,Grid*Grid*2),"draw modern water");
     }
 
@@ -1290,6 +1383,8 @@ private:
                 case SDLK_2: options.mode=2; break;
                 case SDLK_3: options.mode=3; break;
                 case SDLK_B: options.bubbles=!options.bubbles; colourPanel.edited=true; colourPanel.status="UNSAVED CHANGES"; break;
+                case SDLK_T: WaterPreviewColor::toxicLook(colourPanel.values); colourPanel.edited=true; colourPanel.status="TOXIC LOOK - UNSAVED"; break;
+                case SDLK_C: WaterPreviewColor::clearSurfaceEffects(colourPanel.values); colourPanel.edited=true; colourPanel.status="SURFACE EFFECTS CLEARED"; break;
                 case SDLK_P: options.props=!options.props; break;
                 case SDLK_4: case SDLK_5: case SDLK_6:
                     options.reflection=reflectionBar.choice=int(event.key.key-SDLK_4); break;

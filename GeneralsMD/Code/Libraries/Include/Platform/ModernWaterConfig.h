@@ -22,21 +22,33 @@ struct Rule {
     float pollution = 0.0f;
     float underwaterClarity = 0.0f;
     float reflectionStrength = 1.0f;
+    float turbidity = 0.0f;
+    float surfaceRoughness = 0.0f;
+    float rippleDamping = 0.0f;
+    float windResistance = 0.0f;
     bool bubbles = false;
     bool enabled = true;
 };
 typedef std::vector<Rule> Rules;
 
-inline Rules Defaults() {
+inline Rule PollutedWaterDefault() {
     Rule rule;
     rule.name = "PollutedWater";
     rule.colors.push_back(Color{50, 75, 50});
     rule.textures.push_back("TSWater03.tga");
     rule.replacement = Color{45, 58, 11};
-    rule.brightness = 0.67f;
-    rule.pollution = 0.80f;
+    rule.brightness = 0.55f;
+    rule.pollution = 0.70f;
+    rule.turbidity = 1.0f;
+    rule.surfaceRoughness = 0.69f;
+    rule.rippleDamping = 0.34f;
+    rule.windResistance = 0.55f;
     rule.bubbles = true;
-    Rules rules(1, rule);
+    return rule;
+}
+
+inline Rules Defaults() {
+    Rules rules(1, PollutedWaterDefault());
     Rule clear;
     clear.name = "ClearWater";
     clear.colors.push_back(Color{255, 255, 255});
@@ -133,6 +145,10 @@ struct Material {
     float pollution = 0.0f;
     float underwaterClarity = 0.0f;
     float reflectionStrength = 1.0f;
+    float turbidity = 0.0f;
+    float surfaceRoughness = 0.0f;
+    float rippleDamping = 0.0f;
+    float windResistance = 0.0f;
     float tintAmount = 0.0f;
     bool bubbles = false;
     std::string ruleName;
@@ -151,6 +167,10 @@ inline Material Resolve(const Rules &rules, Color mapColor, const std::string &m
         material.pollution = rule->pollution;
         material.underwaterClarity = rule->underwaterClarity;
         material.reflectionStrength = rule->reflectionStrength;
+        material.turbidity = rule->turbidity;
+        material.surfaceRoughness = rule->surfaceRoughness;
+        material.rippleDamping = rule->rippleDamping;
+        material.windResistance = rule->windResistance;
         // Unity white is neutral even for matched optical/effect-only rules.
         // Lower brightness still needs the tint path to apply its attenuation.
         material.tintAmount = rule->replacement == Color{255, 255, 255} && rule->brightness == 1.0f ? 0.0f : 1.0f;
@@ -168,7 +188,8 @@ inline bool Parse(const std::string &text, Rules &result, std::string &error) {
     enum Section { Outside, InRule, InColors, InTextures } section = Outside;
     enum Field { Colors = 1, Textures = 2, Replacement = 4, Brightness = 8,
                  Pollution = 16, Bubbles = 32, Enabled = 64, UnderwaterClarity = 128,
-                 ReflectionStrength = 256 };
+                 ReflectionStrength = 256, Turbidity = 512, SurfaceRoughness = 1024,
+                 RippleDamping = 2048, WindResistance = 4096, RetiredScum = 8192 };
     Rules parsed;
     Rule current;
     unsigned fields = 0;
@@ -242,6 +263,12 @@ inline bool Parse(const std::string &text, Rules &result, std::string &error) {
             else if (key == "pollution") { field = Pollution; valid = Detail::ReadRange(value, 0.0f, 1.0f, current.pollution); }
             else if (key == "underwaterclarity") { field = UnderwaterClarity; valid = Detail::ReadRange(value, 0.0f, 1.0f, current.underwaterClarity); }
             else if (key == "reflectionstrength") { field = ReflectionStrength; valid = Detail::ReadRange(value, 0.0f, 4.0f, current.reflectionStrength); }
+            else if (key == "turbidity") { field = Turbidity; valid = Detail::ReadRange(value, 0.0f, 1.0f, current.turbidity); }
+            else if (key == "surfaceroughness") { field = SurfaceRoughness; valid = Detail::ReadRange(value, 0.0f, 1.0f, current.surfaceRoughness); }
+            else if (key == "rippledamping") { field = RippleDamping; valid = Detail::ReadRange(value, 0.0f, 1.0f, current.rippleDamping); }
+            else if (key == "windresistance") { field = WindResistance; valid = Detail::ReadRange(value, 0.0f, 1.0f, current.windResistance); }
+            // Keep older exported rules loadable, without restoring the removed effect.
+            else if (key == "surfacescum") { float ignored; field = RetiredScum; valid = Detail::ReadRange(value, 0.0f, 1.0f, ignored); }
             else if (key == "bubbles") { field = Bubbles; valid = Detail::ReadBool(value, current.bubbles); }
             else if (key == "enabled") { field = Enabled; valid = Detail::ReadBool(value, current.enabled); }
             else return Detail::Fail(error, lineNumber, "unknown field '" + key + "'");

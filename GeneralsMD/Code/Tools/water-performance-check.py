@@ -29,6 +29,15 @@ def parse_work(log):
     return counts
 
 
+def fft_work(wave, frames):
+    # Current production FFT: one synthesis, two butterfly axes and mip passes,
+    # followed by six layer copies per mip. Direct array output needs no second
+    # copy of every mip, as the older compatibility path did.
+    phases = {"low": 6, "medium": 7, "high": 8}[wave]
+    return {"fft_updates": frames, "fft_passes": frames * (2 + 3 * phases),
+            "fft_copies": frames * 6 * phases}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--preview", type=Path, default=ROOT / "build-linux/water_preview",
@@ -105,6 +114,11 @@ def main():
             row["checks"].append({"log_contains": expected_text, "passed": ok})
             if not ok:
                 failures.append(f"{label}: output did not contain {expected_text!r}")
+        main_water = re.search(r"^Main water: accepted_draws=(\d+) depth_uploads=(\d+) rotation_uploads=(\d+)$", log, re.MULTILINE)
+        main_ok = bool(main_water and all(int(value)>0 for value in main_water.groups()))
+        row["checks"].append({"production_main_water": True, "passed": main_ok})
+        if not main_ok:
+            failures.append(f"{label}: main-water drawing and both field uploads were not confirmed")
         if returncode:
             failures.append(f"{label}: preview exited {returncode}")
         if label == "path-on" and "work" in row:
@@ -128,10 +142,7 @@ def main():
     for reflections in ("on", "off"):
         for wave in ("low", "high"):
             for refraction in ("full", "simple", "off"):
-                expected = {"fft_updates": per_frame,
-                            "fft_passes": per_frame * (23 if wave == "low" else 26),
-                            "fft_copies": per_frame * (90 if wave == "low" else 102),
-                            "depth_captures": per_frame}
+                expected = dict(fft_work(wave, per_frame), depth_captures=per_frame)
                 if reflections == "off":
                     expected.update(planar_renders=0, path_prepares=0)
                 else:
@@ -189,9 +200,7 @@ def main():
             run_case(f"reflection-detail-low-{mode}-{wave}",
                      ["--reflection", mode, "--scene-reflections", "on", "--wave-detail", wave,
                       "--reflection-detail", "low", "--refraction", "full"],
-                     {"fft_updates": per_frame,
-                      "fft_passes": per_frame * (23 if wave == "low" else 26),
-                      "fft_copies": per_frame * (90 if wave == "low" else 102),
+                     {**fft_work(wave, per_frame),
                       "colour_captures": per_frame, "depth_captures": per_frame,
                       "planar_renders": per_frame, "path_prepares": 0},
                      [f"Synthetic planar target: {target} {size}x{size}."])

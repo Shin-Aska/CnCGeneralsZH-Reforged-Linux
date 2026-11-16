@@ -6074,6 +6074,7 @@ TEST(water_coastal_domain_stride_two_capacity_preserves_fine_connectivity_and_te
 #include "GameLogic/PolygonTrigger.h"
 #include "GameLogic/SidesList.h"
 #include "../Tools/WaterPreviewReflectionBar.h"
+#include "../Tools/WaterPreviewSurface.h"
 #include "Platform/WaterPerformanceSettings.h"
 #include "assetmgr.h"
 #include "dx8wrapper.h"
@@ -6444,6 +6445,76 @@ TEST(water_path_export_opaque_userdata_and_hidden_hierarchy)
     checkGeometry(true);
     scene.Remove_Render_Object(child);
     child->Release_Ref();
+}
+
+TEST(water_preview_supplies_main_water_depth_heading_and_rotation_fields)
+{
+    WaterTuning::Values values;
+    WaterPreviewSurface::Field field;
+    CHECK(field.build(2600,40,values));
+    CHECK(field.depth.width==field.Side && field.depth.height==field.Side);
+    CHECK(field.depth.revision && field.rotation.image.revision && field.rotation.keyed);
+    CHECK_EQ(field.packedHeading.size(),size_t(field.Side)*field.Side*field.Words);
+    for(size_t i=0;i<field.medium.depth.size();++i) {
+        CHECK_EQ(field.optical.wet[i],1);
+        CHECK_NEAR(field.medium.depth[i],40.f,1e-5f);
+        CHECK_EQ(field.packedHeading[i*field.Words+5],WaterCleanShore::Word(field.medium,i));
+        CHECK_EQ(field.packedHeading[i*field.Words+6],WaterCleanShore::DistanceWord(field.medium,i));
+    }
+    const auto sample=WaterCleanPrecompute::SampleDepth(field.depth,field.Border,field.Border);
+    CHECK_NEAR(sample.r,40.f,1e-5f);
+    CHECK_EQ(sample.g,0.f);
+    CHECK_EQ(sample.b,0.f);
+    values.value[WaterTuning::TravelMode]=1;
+    values.value[WaterTuning::TravelAngle]=45;
+    CHECK(field.build(2600,40,values));
+    CHECK_EQ(field.rotation.key.travelAngle,45);
+    CHECK(field.rotation.key.manual);
+    CHECK(!field.build(0,40,values));
+}
+
+TEST(water_preview_surface_sliders_and_comparison_buttons_handle_input)
+{
+    WaterPreviewColor::Panel panel;
+    panel.values.red = .25f;
+    panel.values.strength = .8f;
+    panel.defaults = panel.values;
+    const auto click = [&](float x, float y) {
+        SDL_Event event={};
+        event.type=SDL_EVENT_MOUSE_BUTTON_DOWN;
+        event.button.button=SDL_BUTTON_LEFT;
+        event.button.x=x; event.button.y=y;
+        CHECK(panel.handle(event));
+        event.type=SDL_EVENT_MOUSE_BUTTON_UP;
+        CHECK(panel.handle(event));
+    };
+    for (int row=5; row<9; ++row) click(160,16+134+45*row);
+    CHECK_NEAR(panel.values.turbidity, .5f, .000001f);
+    CHECK_NEAR(panel.values.surfaceRoughness, .5f, .000001f);
+    CHECK_NEAR(panel.values.rippleDamping, .5f, .000001f);
+    CHECK_NEAR(panel.values.windResistance, .5f, .000001f);
+    CHECK_EQ(panel.values.red, .25f);
+    CHECK_EQ(panel.values.strength, .8f);
+    click(200,572); // Clear FX preserves the existing colour and pollution.
+    CHECK_EQ(panel.values.turbidity, 0.f);
+    CHECK_EQ(panel.values.surfaceRoughness, 0.f);
+    CHECK_EQ(panel.values.rippleDamping, 0.f);
+    CHECK_EQ(panel.values.windResistance, 0.f);
+    click(80,572); // Toxic look restores the approved material, including colour and brightness.
+    CHECK_EQ(panel.values.turbidity, 1.f);
+    CHECK_EQ(panel.values.surfaceRoughness, .69f);
+    CHECK_EQ(panel.values.rippleDamping, .34f);
+    CHECK_EQ(panel.values.windResistance, .55f);
+    CHECK_EQ(panel.values.red, 45/255.f);
+    CHECK_EQ(panel.values.green, 58/255.f);
+    CHECK_EQ(panel.values.blue, 11/255.f);
+    CHECK_EQ(panel.values.brightness, .55f);
+    CHECK_EQ(panel.values.strength, .7f);
+    click(200,614);
+    CHECK(panel.saveRequested);
+    click(80,614);
+    CHECK_EQ(panel.values.turbidity, panel.defaults.turbidity);
+    CHECK_EQ(panel.values.red, panel.defaults.red);
 }
 
 TEST(water_preview_path_choice_is_optional_and_unavailable_for_image_banks)
