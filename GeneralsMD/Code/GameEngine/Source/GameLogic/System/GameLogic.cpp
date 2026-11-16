@@ -106,6 +106,7 @@
 #include "GameLogic/Module/CreateModule.h"
 #include "GameLogic/Module/DestroyModule.h"
 #include "GameLogic/Module/OpenContain.h"
+#include "GameLogic/Module/PhysicsUpdate.h"
 #include "GameLogic/Module/RadarCoverageBehavior.h"
 #include "GameLogic/PartitionManager.h"
 #include "Common/ControlServer.h"
@@ -272,7 +273,9 @@ enum
 	LOAD_PROGRESS_POST_PATHFINDER_NEW_MAP = LOAD_PROGRESS_POST_BRIDGE_LOAD + 1,
 
 	LOAD_PROGRESS_LOOP_ALL_THE_FREAKN_OBJECTS = LOAD_PROGRESS_POST_BRIDGE_LOAD + 1,
-	LOAD_PROGRESS_MAX_ALL_THE_FREAKN_OBJECTS = 80,// THE END OF THE BIG ASS PROGRESS PAUSE
+	// THE END OF THE BIG ASS PROGRESS PAUSE: 80, or lower when MAX_SLOTS steps for the network
+	// buildings and the four after them would otherwise run the bar past 100
+	LOAD_PROGRESS_MAX_ALL_THE_FREAKN_OBJECTS = ( 100 - MAX_SLOTS - 6 < 80 ) ? 100 - MAX_SLOTS - 6 : 80,
 
 	LOAD_PROGRESS_LOOP_INITIAL_NETWORK_BUILDINGS = LOAD_PROGRESS_MAX_ALL_THE_FREAKN_OBJECTS + 1,  // Increment the next one by at least MAX_SLOTS
 	LOAD_PROGRESS_POST_INITIAL_NETWORK_BUILDINGS = LOAD_PROGRESS_LOOP_INITIAL_NETWORK_BUILDINGS + MAX_SLOTS + 1,
@@ -282,6 +285,8 @@ enum
 	LOAD_PROGRESS_POST_STARTING_CAMERA_2 = LOAD_PROGRESS_POST_STARTING_CAMERA + 1,
 	LOAD_PROGRESS_END = 100,
 };
+static_assert( LOAD_PROGRESS_LOOP_ALL_THE_FREAKN_OBJECTS < LOAD_PROGRESS_MAX_ALL_THE_FREAKN_OBJECTS &&
+							 LOAD_PROGRESS_POST_STARTING_CAMERA_2 <= LOAD_PROGRESS_END, "load progress steps fit 0..100" );
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
@@ -334,6 +339,8 @@ GameLogic::GameLogic( void )
 	m_height = 0;
 	m_objList = NULL;
 	m_curUpdateModule = NULL;
+	m_sleepyCursor = 0;
+	m_sleepyCursorFrame = 0;
 	m_nextObjID = INVALID_ID;
 	m_nextObjIDFromSave = INVALID_ID;
 	m_startNewGame = FALSE;
@@ -343,6 +350,8 @@ GameLogic::GameLogic( void )
 	m_kickVoteTarget = -1;
 	m_kickVoteEndFrame = 0;
 	m_kickVoteYesMask = 0;
+	for( Int i = 0; i < MAX_PLAYER_COUNT; ++i )
+		m_blindOrders[ i ] = 0;
 	m_unitCap = 0;
 	m_proRules = FALSE;
 	m_incomeSharing = INCOME_SHARING_OFF;
@@ -374,15 +383,14 @@ void GameLogic::setDefaults( Bool loadingSaveGame )
 	m_width = DEFAULT_WORLD_WIDTH;
 	m_height = DEFAULT_WORLD_HEIGHT;
 	m_objList = NULL;
+	m_objIndexStale = TRUE;
 #ifdef ALLOW_NONSLEEPY_UPDATES
 	m_normalUpdates.clear();
 #endif
-	for (std::vector<SleepyEntry>::iterator it = m_sleepyUpdates.begin(); it != m_sleepyUpdates.end(); ++it)
-	{
-		it->module->friend_setIndexInLogic(-1);
-	}
-	m_sleepyUpdates.clear();
+	clearSleepyUpdates();
 	m_curUpdateModule = NULL;
+	m_sleepyCursor = 0;
+	m_sleepyCursorFrame = 0;
 
 	//
 	// only reset the next object ID allocater counter when we're not loading a save game.
@@ -902,10 +910,15 @@ static void populateRandomSideAndColor( GameInfo *game )
 		if (colorIdx < 0 || colorIdx >= TheMultiplayerSettings->getNumColors())
 		{
 			DEBUG_ASSERTCRASH(colorIdx == -1, ("Non-random bad color %d in slot %d\n", colorIdx, i));
+			// More seats than colours: once every colour is taken the draw would never end, so the
+			// rest share one.  While a colour is free this draws exactly what it always drew.
+			Bool anyColorFree = FALSE;
+			for (Int c = 0; c < TheMultiplayerSettings->getNumColors() && !anyColorFree; ++c)
+				anyColorFree = !game->isColorTaken(c);
 			while (colorIdx == -1)
 			{
 				colorIdx = GameLogicRandomValue(0, TheMultiplayerSettings->getNumColors()-1);
-				if (game->isColorTaken(colorIdx))
+				if (anyColorFree && game->isColorTaken(colorIdx))
 					colorIdx = -1;
 			}
 			DEBUG_LOG(("Setting color %d to %d\n", i, colorIdx));
@@ -934,7 +947,7 @@ static void populateRandomStartPosition( GameInfo *game )
 		throw ERROR_CORRUPT_FILE_FORMAT;
 	}
 	if (md)
-		numPlayers = md->m_numPlayers;
+		numPlayers = min(md->m_numPlayers, (Int)MAX_SLOTS);	// every array below is MAX_SLOTS long
 	else
 		DEBUG_LOG(("populateRandomStartPosition: no map %s, start spots are dealt without distances\n", game->getMap().str()));
 
@@ -1257,6 +1270,11 @@ void GameLogic::startNewGame( Bool loadingSaveGame )
 	m_kickVoteEndFrame = 0;
 	m_kickVoteYesMask = 0;
 
+	// so is the cheat witness, which the report of the match just ended has already read
+	for( Int i = 0; i < MAX_PLAYER_COUNT; ++i )
+		m_blindOrders[ i ] = 0;
+	m_crcOddPlayers.clear();
+
 	#ifdef DUMP_PERF_STATS
 	__int64 startTime64;
 	__int64 endTime64,freq64;
@@ -1404,11 +1422,11 @@ void GameLogic::startNewGame( Bool loadingSaveGame )
     if ( TheGameInfo )
     {
       m_superweaponRestriction = TheGameInfo->getSuperweaponRestriction();
-      m_peaceTimeEndFrame = TheGameInfo->getPeaceTime() * 60 * LOGICFRAMES_PER_SECOND;
+      m_peaceTimeEndFrame = TheGameInfo->getPeaceTime() * 60 * LOGICFRAMES_PER_GAME_SECOND;
       m_unitCap = TheGameInfo->getUnitLimit()
                   ? (UnsignedInt)UnitLimitPerPlayer( TheGameInfo->getNumNonObserverPlayers() ) : 0;
       m_incomeSharing = TheGameInfo->getIncomeSharing();
-      m_techRespawnDelay = TheGameInfo->getTechRespawn() * 60 * LOGICFRAMES_PER_SECOND;
+      m_techRespawnDelay = TheGameInfo->getTechRespawn() * 60 * LOGICFRAMES_PER_GAME_SECOND;
       m_supplyPileLimit = TheGameInfo->getSupplyPileLimit();
     }
     else
@@ -1441,7 +1459,7 @@ void GameLogic::startNewGame( Bool loadingSaveGame )
        way to watch what the truce does to a match or to prove a change to it still replays. No
        player can reach it - a network game reads the host's options string, not this. */
     if ( TheGlobalData->m_peaceTime > 0 )
-      m_peaceTimeEndFrame = TheGlobalData->m_peaceTime * 60 * LOGICFRAMES_PER_SECOND;
+      m_peaceTimeEndFrame = TheGlobalData->m_peaceTime * 60 * LOGICFRAMES_PER_GAME_SECOND;
   }
 
 	checkForDuplicateColors( game );
@@ -2865,21 +2883,21 @@ void GameLogic::processDestroyList( void )
 #else
 			UpdateModulePtr u = (*b)->getUpdate();
 #endif
-			if (u && u->friend_getIndexInLogic() >= 0)
+			if (u && u->friend_getSleepySlot() >= 0)
 			{
 				sleepyUpdatesForThisObject[numSUO++] = u;
 			}
 		}
 		std::sort(sleepyUpdatesForThisObject, sleepyUpdatesForThisObject + numSUO,
-			[](UpdateModulePtr a, UpdateModulePtr b) { return a->friend_getIndexInLogic() < b->friend_getIndexInLogic(); });
+			[this](UpdateModulePtr a, UpdateModulePtr b) { return sleepyIndexOf(a) < sleepyIndexOf(b); });
 
 		for (--numSUO; numSUO >= 0; --numSUO)
 		{
 			// have to re-get idx each time since each call to erase might change others.
-			Int idx = sleepyUpdatesForThisObject[numSUO]->friend_getIndexInLogic();
+			Int idx = sleepyIndexOf(sleepyUpdatesForThisObject[numSUO]);
 			DEBUG_ASSERTCRASH(m_sleepyUpdates[idx].module == sleepyUpdatesForThisObject[numSUO], ("Hmm, expected update mismatch here"));
 			eraseSleepyUpdate(idx);
-			DEBUG_ASSERTCRASH(sleepyUpdatesForThisObject[numSUO]->friend_getIndexInLogic() == -1, ("Hmm, expected index to be -1 here"));
+			DEBUG_ASSERTCRASH(sleepyUpdatesForThisObject[numSUO]->friend_getSleepySlot() == -1, ("Hmm, expected index to be -1 here"));
 		}
 
 
@@ -3019,10 +3037,25 @@ void GameLogic::processCommandList( CommandList *list )
 						break;
 
 					case CRC_AGREEMENT_MISMATCH:
+					{
 						DEBUG_CRASH(("CRC mismatch!"));
 						sawCRCMismatch = TRUE;
 						mismatchFrame = frameIt->first;
+						// the cheat witness: whoever the majority outvotes, for the match report; this is the first mismatch,
+						// since none is looked for after it
+						Bool odd[MAX_PLAYER_COUNT];
+						crcOddOnes( reported, crcs, connected, MAX_PLAYER_COUNT, odd );
+						m_crcOddPlayers.clear();
+						for (Int p = 0; p < MAX_PLAYER_COUNT; ++p)
+						{
+							if (odd[p])
+							{
+								m_crcOddPlayers.push_back( p );
+								DEBUG_LOG(("CHEATWITNESS: player %d is off the majority's CRC of frame %d\n", p, mismatchFrame));
+							}
+						}
 						break;
+					}
 
 					case CRC_AGREEMENT_AGREE:
 						break;
@@ -3358,6 +3391,50 @@ void GameLogic::deselectObject(Object *obj, PlayerMaskType playerMask, Bool affe
 }
 
 // ------------------------------------------------------------------------------------------------
+/*
+	The sleepy heap's sort key, one 64-bit compare: the wake frame (26 bits), the phase (2), the
+	object's id (28) and the module's place in its object's module list (8).  Frame and phase were
+	the whole key once, and the modules that tied on them, hundreds a frame, ran in whatever order
+	the heap's layout gave: a module that started sleeping, or one that woke, reordered the others
+	due that frame.  Every key is different now, so the modules due in a frame run in key order
+	whatever else is on the heap, and a load that rebuilds the heap runs them in the same order.
+	A frame past 2^26 is a sleep forever and is clamped; it never comes due.
+	ponytail: an id past 2^28 or a module past the 255th wraps into another's key, and those two
+	fall back to the heap's layout, still the same on every machine; widen the key if a match ever
+	makes 268 million objects.
+*/
+static const Int SLEEPY_KEY_TIE_BITS = 36;
+static const UnsignedInt64 SLEEPY_KEY_TIE_MASK = ( (UnsignedInt64)1 << SLEEPY_KEY_TIE_BITS ) - 1;
+
+static inline UnsignedInt64 sleepyKeyOfPriority( UnsignedInt priority )
+{
+	const UnsignedInt64 FRAME_MAX = ( (UnsignedInt64)1 << 26 ) - 1;
+	UnsignedInt64 frame = priority >> 2;
+	if( frame > FRAME_MAX )
+		frame = FRAME_MAX;
+	return ( frame << ( SLEEPY_KEY_TIE_BITS + 2 ) ) | ( (UnsignedInt64)( priority & 3 ) << SLEEPY_KEY_TIE_BITS );
+}
+
+/** The object's id and the module's place among its modules, the part of the key that never changes. */
+static UnsignedInt64 sleepyKeyTie( UpdateModulePtr u )
+{
+	const Object *obj = u->friend_getObject();
+	UnsignedInt place = 0;
+	for( BehaviorModule **b = obj->getBehaviorModules(); *b; ++b, ++place )
+	{
+		if( (UpdateModulePtr)( (*b)->getUpdate() ) == u )
+			break;
+	}
+	return ( (UnsignedInt64)( (UnsignedInt)obj->getID() & 0x0FFFFFFF ) << 8 ) | ( place & 0xFF );
+}
+
+/** u's frame and phase changed: the entry takes them, its tie stays. */
+static inline void rekeySleepyEntry( SleepyEntry &e, UpdateModulePtr u )
+{
+	e.key = ( e.key & SLEEPY_KEY_TIE_MASK ) | sleepyKeyOfPriority( u->friend_getPriority() );
+}
+
+// ------------------------------------------------------------------------------------------------
 inline void GameLogic::validateSleepyUpdate() const
 {
 // pretty slow, so do only for DEBUG for now. turn on if you suspect wonkiness.
@@ -3377,25 +3454,26 @@ inline void GameLogic::validateSleepyUpdate() const
 	//}
 	for (i = 0; i < sz; ++i)
 	{
-		DEBUG_ASSERTCRASH(m_sleepyUpdates[i].module->friend_getIndexInLogic() == i, ("index mismatch: expected %d, got %d\n",i,m_sleepyUpdates[i].module->friend_getIndexInLogic()));
-		DEBUG_ASSERTCRASH(m_sleepyUpdates[i].priority == m_sleepyUpdates[i].module->friend_getPriority(), ("sleepy priority copy is stale at %d\n",i));
-		UnsignedInt pri = m_sleepyUpdates[i].priority;
+		DEBUG_ASSERTCRASH(m_sleepyUpdates[i].module->friend_getSleepySlot() == m_sleepyUpdates[i].slot, ("slot mismatch at %d\n",i));
+		DEBUG_ASSERTCRASH(sleepyIndexOf(m_sleepyUpdates[i].module) == i, ("index mismatch: expected %d, got %d\n",i,sleepyIndexOf(m_sleepyUpdates[i].module)));
+		DEBUG_ASSERTCRASH((m_sleepyUpdates[i].key & ~SLEEPY_KEY_TIE_MASK) == sleepyKeyOfPriority(m_sleepyUpdates[i].module->friend_getPriority()), ("sleepy key is stale at %d\n",i));
+		UnsignedInt64 pri = m_sleepyUpdates[i].key;
 		if (i > 0)
 		{
 			Int i0 = (i+1)/2-1;
-			UnsignedInt pri0 = m_sleepyUpdates[i0].priority;
+			UnsignedInt64 pri0 = m_sleepyUpdates[i0].key;
 			DEBUG_ASSERTCRASH(pri >= pri0, ("sleepyUpdates are munged (0)"));
 		}
 		Int i1 = 2*(i+1)-1;
 		Int i2 = 2*(i+1);
 		if (i1 < sz)
 		{
-			UnsignedInt pri1 = m_sleepyUpdates[i1].priority;
+			UnsignedInt64 pri1 = m_sleepyUpdates[i1].key;
 			DEBUG_ASSERTCRASH(pri <= pri1, ("sleepyUpdates are munged (1)"));
 		}
 		if (i2 < sz)
 		{
-			UnsignedInt pri2 = m_sleepyUpdates[i2].priority;
+			UnsignedInt64 pri2 = m_sleepyUpdates[i2].key;
 			DEBUG_ASSERTCRASH(pri <= pri2, ("sleepyUpdates are munged (2)"));
 		}
 	}
@@ -3410,13 +3488,13 @@ void GameLogic::eraseSleepyUpdate(Int i)
 	DEBUG_ASSERTCRASH(i >= 0 && i < m_sleepyUpdates.size(), ("bad sleepy idx"));
 
 	// swap with the final item, toss the final item, then rebalance
-	m_sleepyUpdates[i].module->friend_setIndexInLogic(-1);
+	releaseSleepySlot(m_sleepyUpdates[i]);
 
 	Int final = m_sleepyUpdates.size() - 1;
 	if (i < final)
 	{
 		m_sleepyUpdates[i] = m_sleepyUpdates[final];
-		m_sleepyUpdates[i].module->friend_setIndexInLogic(i);
+		m_sleepySlotIndex[m_sleepyUpdates[i].slot] = i;
 		m_sleepyUpdates.pop_back();
 		rebalanceSleepyUpdate(i);
 	}
@@ -3432,7 +3510,7 @@ inline Bool isLowerPriority(const SleepyEntry& a, const SleepyEntry& b)
 	// return true iff a is lower pri than b.
 	// remember: lower ordinal value means higher priority.
 	// therefore, higher ordinal value means lower priority.
-	return a.priority > b.priority;
+	return a.key > b.key;
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -3451,8 +3529,8 @@ Int GameLogic::rebalanceParentSleepyUpdate(Int i)
 		m_sleepyUpdates[i] = a;
 		m_sleepyUpdates[parent] = b;
 
-		a.module->friend_setIndexInLogic(i);
-		b.module->friend_setIndexInLogic(parent);
+		m_sleepySlotIndex[a.slot] = i;
+		m_sleepySlotIndex[b.slot] = parent;
 
 		i = parent;
 		parent = ((parent+1)>>1)-1;
@@ -3474,8 +3552,10 @@ Int GameLogic::rebalanceChildSleepyUpdate(Int i)
 		 Swapping at every level wrote both entries and both modules' indices each time, and every module
 		 is a cache line of its own. The comparisons are the ones the swapping walk made, so every entry
 		 ends in the same slot, ties included, and the modules run in the same order. Which child sorts
-		 first is a coin toss a branch keeps guessing wrong, so the pick is a sum instead. */
+		 first is a coin toss a branch keeps guessing wrong, so the pick is a sum instead. The new index
+		 goes into m_sleepySlotIndex, not the module: that store was a miss on every level. */
 	SleepyEntry *entries = m_sleepyUpdates.data();
+	Int *slotIndex = m_sleepySlotIndex.data();
 	const Int sz = (Int)m_sleepyUpdates.size();
 	const SleepyEntry sinking = entries[i];
 	const Int start = i;
@@ -3502,7 +3582,7 @@ Int GameLogic::rebalanceChildSleepyUpdate(Int i)
 			break;
 
 		entries[i] = entries[child];
-		entries[i].module->friend_setIndexInLogic(i);
+		slotIndex[entries[i].slot] = i;
 		i = child;
 		child = ((i+1)<<1)-1;
 	}
@@ -3510,7 +3590,7 @@ Int GameLogic::rebalanceChildSleepyUpdate(Int i)
 	if (i != start)
 	{
 		entries[i] = sinking;
-		sinking.module->friend_setIndexInLogic(i);
+		slotIndex[sinking.slot] = i;
 	}
 	return i;
 }
@@ -3548,11 +3628,60 @@ void GameLogic::pushSleepyUpdate(UpdateModulePtr u)
 
 	DEBUG_ASSERTCRASH(u != NULL, ("You may not pass null for sleepy update info"));
 
-	SleepyEntry e = { u->friend_getPriority(), u };
-	m_sleepyUpdates.push_back(e);
-	u->friend_setIndexInLogic(m_sleepyUpdates.size() - 1);
+	appendSleepyUpdate(u);
 
 	rebalanceParentSleepyUpdate(m_sleepyUpdates.size()-1);
+}
+
+// ------------------------------------------------------------------------------------------------
+/** Put u at the end of the heap's array with a slot of its own; the caller sifts or remakes. */
+void GameLogic::appendSleepyUpdate(UpdateModulePtr u)
+{
+	Int slot;
+	if (!m_sleepyFreeSlots.empty())
+	{
+		slot = m_sleepyFreeSlots.back();
+		m_sleepyFreeSlots.pop_back();
+	}
+	else
+	{
+		slot = (Int)m_sleepySlotIndex.size();
+		m_sleepySlotIndex.push_back(-1);
+	}
+
+	SleepyEntry e = { sleepyKeyOfPriority( u->friend_getPriority() ) | sleepyKeyTie( u ), slot, u };
+	m_sleepyUpdates.push_back(e);
+	m_sleepySlotIndex[slot] = (Int)m_sleepyUpdates.size() - 1;
+	u->friend_setSleepySlot(slot);
+}
+
+// ------------------------------------------------------------------------------------------------
+/** e's module leaves the heap: its slot goes back for reuse. */
+void GameLogic::releaseSleepySlot(const SleepyEntry &e)
+{
+	m_sleepySlotIndex[e.slot] = -1;
+	m_sleepyFreeSlots.push_back(e.slot);
+	e.module->friend_setSleepySlot(-1);
+}
+
+// ------------------------------------------------------------------------------------------------
+void GameLogic::clearSleepyUpdates()
+{
+	for (std::vector<SleepyEntry>::iterator it = m_sleepyUpdates.begin(); it != m_sleepyUpdates.end(); ++it)
+	{
+		it->module->friend_setSleepySlot(-1);
+	}
+	m_sleepyUpdates.clear();
+	m_sleepySlotIndex.clear();
+	m_sleepyFreeSlots.clear();
+}
+
+// ------------------------------------------------------------------------------------------------
+/** Where u sits in the heap, -1 when it is not on it. */
+inline Int GameLogic::sleepyIndexOf(UpdateModulePtr u) const
+{
+	const Int slot = u->friend_getSleepySlot();
+	return slot < 0 ? -1 : m_sleepySlotIndex[slot];
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -3561,7 +3690,7 @@ UpdateModulePtr GameLogic::peekSleepyUpdate() const
 	USE_PERF_TIMER(SleepyMaintenance)
 
 	UpdateModulePtr u = m_sleepyUpdates.front().module;
-	DEBUG_ASSERTCRASH(u->friend_getIndexInLogic() == 0, ("index mismatch: expected %d, got %d\n",0,u->friend_getIndexInLogic()));
+	DEBUG_ASSERTCRASH(sleepyIndexOf(u) == 0, ("index mismatch: expected %d, got %d\n",0,sleepyIndexOf(u)));
 	return u;
 }
 
@@ -3577,11 +3706,11 @@ void GameLogic::popSleepyUpdate()
 		return;
 	}
 
-	m_sleepyUpdates[0].module->friend_setIndexInLogic(-1);
+	releaseSleepySlot(m_sleepyUpdates[0]);
 	if (sz > 1)
 	{
 		m_sleepyUpdates[0] = m_sleepyUpdates[sz-1];
-		m_sleepyUpdates[0].module->friend_setIndexInLogic(0);
+		m_sleepySlotIndex[m_sleepyUpdates[0].slot] = 0;
 		m_sleepyUpdates.pop_back();
 		rebalanceChildSleepyUpdate(0);
 	}
@@ -3589,6 +3718,23 @@ void GameLogic::popSleepyUpdate()
 	{
 		m_sleepyUpdates.pop_back();
 	}
+}
+
+// ------------------------------------------------------------------------------------------------
+/** A module that sleeps where it used to run every frame, doing nothing, is woken by whatever would
+	* have made that run do something.  Had it stayed awake it would run this frame at its key, so it
+	* wakes for this frame while the loop has not reached that key, and for the next once it has: then
+	* this frame's run already happened, before the event, and was the same nothing. */
+// ------------------------------------------------------------------------------------------------
+UnsignedInt GameLogic::friend_frameToWakeExactly(UpdateModulePtr u) const
+{
+	const UnsignedInt now = m_frame;
+	if (m_sleepyCursorFrame != now)
+		return now;			// this frame's loop has not begun
+	const Int idx = sleepyIndexOf(u);
+	const UnsignedInt64 tie = idx >= 0 ? (m_sleepyUpdates[idx].key & SLEEPY_KEY_TIE_MASK) : sleepyKeyTie(u);
+	const UnsignedInt64 keyNow = sleepyKeyOfPriority((now << 2) | (u->friend_getPriority() & 3)) | tie;
+	return keyNow > m_sleepyCursor ? now : now + 1;
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -3620,7 +3766,7 @@ void GameLogic::friend_awakenUpdateModule(Object* obj, UpdateModulePtr u, Unsign
 		return;
 	}
 
-	Int idx = u->friend_getIndexInLogic();
+	Int idx = sleepyIndexOf(u);
 	if (obj->isInList(&m_objList))
 	{
 		if (idx < 0 || idx >= m_sleepyUpdates.size())
@@ -3637,7 +3783,7 @@ void GameLogic::friend_awakenUpdateModule(Object* obj, UpdateModulePtr u, Unsign
 
 		// update the value.
 		u->friend_setNextCallFrame(whenToWakeUp);
-		m_sleepyUpdates[idx].priority = u->friend_getPriority();
+		rekeySleepyEntry(m_sleepyUpdates[idx], u);
 
 		// rebalance.
 		rebalanceSleepyUpdate(idx);
@@ -4200,15 +4346,14 @@ static Real logicElapsedMS( const Int64 &from, const Int64 &to )
 #ifdef DEBUG_LOGGING
 //
 // Which update module ate the frame.  The `objects` figure in the slow-frame line is the whole
-// sleepy-update sweep, thousands of modules deep, and that alone never says which one.  Two
-// QueryPerformanceCounter reads and a kind lookup per module cost about 0.2ms over a busy frame, so
-// they run on one logic frame in MODULE_PROFILE_EVERY and on every frame after a slow one: a fight
-// that runs slow is slow for many frames in a row, and from its second frame on every one is timed.
-// A lone spike on an untimed frame says so in its line.
+// sleepy-update sweep, thousands of modules deep, and that alone never says which one.  Two clock
+// reads, a kind lookup and a handful of counter reads around each of 9,300 module updates cost 0.7
+// to 1ms of a 32-player frame, and they used to run on every frame after a slow one, which at 32
+// players is every frame.  Now only -slowframe turns them on (GlobalData::m_logicProfile); without
+// it the sweep carries no clock and the slow-frame line keeps its phases.
 //
-enum { MODULE_PROFILE_EVERY = 8 };
+enum { MODULE_PROFILE_MAX = 96, MODULE_TABLE_FRAMES = 600 };
 static Bool								theModulesTimed = FALSE;
-static Bool								theLastLogicFrameSlow = FALSE;
 static Int64							theWorstModuleTicks = 0;
 static NameKeyType					theWorstModuleKey = NAMEKEY_INVALID;
 static const ThingTemplate *theWorstModuleThing = NULL;
@@ -4221,44 +4366,215 @@ static Int								theModuleUpdateCount = 0;
 // A linear scan over the kinds seen so far - there are a few dozen, not thousands - is cheaper
 // than a map and does not allocate inside the frame.
 //
-enum { MODULE_PROFILE_MAX = 96 };
-static NameKeyType	theModuleKindKey[ MODULE_PROFILE_MAX ];
-static Int64				theModuleKindTicks[ MODULE_PROFILE_MAX ];
-static Int					theModuleKindCount[ MODULE_PROFILE_MAX ];
-static Int					theModuleKindQueries[ MODULE_PROFILE_MAX ];
-static Int					theModuleKindsUsed = 0;
-
-static void resetModuleProfile( UnsignedInt now )
+// Each kind is totalled twice: for this frame, which the slow-frame line reads, and since the last
+// module table, which lists every kind every 600 frames rather than the frame's top three.  Beside
+// time and calls a kind counts its partition queries, the objects those queries looked at, its
+// target scans (AI::findClosestEnemy) and its wide updates: one update that looked at more objects
+// than half the world holds, which a whole-map gather does and a local search does not.
+//
+struct ModuleTally
 {
-	theModulesTimed = theLastLogicFrameSlow || ( now % MODULE_PROFILE_EVERY ) == 0;
+	Int64 ticks;
+	Int calls, queries, visits, scans, wide;
+	void add( Int64 t, Int q, Int v, Int s, Bool w ) { ticks += t; ++calls; queries += q; visits += v; scans += s; wide += w ? 1 : 0; }
+};
+static NameKeyType	theModuleKindKey[ MODULE_PROFILE_MAX ];	// every kind seen this run, in the order first seen
+static Int					theModuleKindsUsed = 0;
+static ModuleTally	theFrameTally[ MODULE_PROFILE_MAX ];
+static ModuleTally	theTableTally[ MODULE_PROFILE_MAX ];
+static Int					theWideVisits = 0;
+
+//
+// AIUpdateInterface was 13.5 of a 32-player frame's 36.7ms at minute 9, and 9.5 of that had no name.
+// The kind table cannot split it, so every AI update module is also totalled by the state its
+// machine was in when the update began: a hunt, a guard, a move and an idle are different code with
+// different scans.  Names as in AIStateMachine.h; a subclass's own state past the enum goes last.
+//
+static const char *const theAIStateNames[] =
+{
+	"IDLE", "MOVE_TO", "FOLLOW_WAYPOINT_PATH_AS_TEAM", "FOLLOW_WAYPOINT_PATH_AS_INDIVIDUALS",
+	"FOLLOW_WAYPOINT_PATH_AS_TEAM_EXACT", "FOLLOW_WAYPOINT_PATH_AS_INDIVIDUALS_EXACT", "FOLLOW_PATH",
+	"FOLLOW_EXITPRODUCTION_PATH", "WAIT", "ATTACK_POSITION", "ATTACK_OBJECT", "FORCE_ATTACK_OBJECT",
+	"ATTACK_AND_FOLLOW_OBJECT", "DEAD", "DOCK", "ENTER", "GUARD", "HUNT", "WANDER", "PANIC", "ATTACK_SQUAD",
+	"GUARD_TUNNEL_NETWORK", "GET_REPAIRED", "MOVE_OUT_OF_THE_WAY", "MOVE_AND_TIGHTEN", "MOVE_AND_EVACUATE",
+	"MOVE_AND_EVACUATE_AND_EXIT", "MOVE_AND_DELETE", "ATTACK_AREA", "HACK_INTERNET", "ATTACK_MOVE_TO",
+	"ATTACKFOLLOW_WAYPOINT_PATH_AS_INDIVIDUALS", "ATTACKFOLLOW_WAYPOINT_PATH_AS_TEAM", "FACE_OBJECT",
+	"FACE_POSITION", "RAPPEL_INTO", "COMBATDROP", "EXIT", "PICK_UP_CRATE", "MOVE_AWAY_FROM_REPULSORS",
+	"WANDER_IN_PLACE", "BUSY", "EXIT_INSTANTLY", "GUARD_RETALIATE", "(a subclass's own state)"
+};
+static_assert( ARRAY_SIZE( theAIStateNames ) == NUM_AI_STATES + 1, "one name per AIStateType, and one for the rest" );
+static ModuleTally	theStateTally[ NUM_AI_STATES + 1 ];
+static Int					theTableFrames = 0;
+static UnsignedInt	theTableFirstFrame = 0;
+static Int64				theTableSleepyTicks = 0;
+static Int64				theTableObjectsTicks = 0;
+
+static void resetModuleProfile( Bool timed, Int objectsInWorld )
+{
+	theModulesTimed = timed;
 	theWorstModuleTicks = 0;
 	theWorstModuleKey = NAMEKEY_INVALID;
 	theWorstModuleThing = NULL;
 	theModuleUpdateCount = 0;
-	theModuleKindsUsed = 0;
+	if( timed )
+		memset( theFrameTally, 0, sizeof( theFrameTally ) );
+	theWideVisits = objectsInWorld / 2;
 }
 
-static void addModuleProfile( NameKeyType key, Int64 ticks, Int queries )
+static void addModuleProfile( NameKeyType key, Int aiState, Int64 ticks, Int queries, Int visits, Int scans )
 {
-	for( Int at = 0; at < theModuleKindsUsed; at++ )
+	const Bool wide = visits > theWideVisits;
+	if( aiState >= 0 )
+		theStateTally[ aiState < NUM_AI_STATES ? aiState : NUM_AI_STATES ].add( ticks, queries, visits, scans, wide );
+
+	// The row by key, one array read: a walk of the kinds seen so far ran on every update of a profiled
+	// frame, some eight thousand of them, and was counted as the heap's time.
+	static std::vector<UnsignedByte> rowOfKey;	// row + 1, 0 for a kind not seen yet
+	if( key < 0 )
+		return;
+	if( (size_t)key >= rowOfKey.size() )
+		rowOfKey.resize( (size_t)key + 1, 0 );
+	Int at = (Int)rowOfKey[ key ] - 1;
+	if( at < 0 )
 	{
-		if( theModuleKindKey[ at ] == key )
+		if( theModuleKindsUsed >= MODULE_PROFILE_MAX )
+			return;								// more kinds than the table holds: the rest are in it already
+		at = theModuleKindsUsed;
+		theModuleKindKey[ theModuleKindsUsed++ ] = key;
+		rowOfKey[ key ] = (UnsignedByte)( at + 1 );
+	}
+	theFrameTally[ at ].add( ticks, queries, visits, scans, wide );
+	theTableTally[ at ].add( ticks, queries, visits, scans, wide );
+}
+
+/** The heaviest row of `tally` not yet `taken`, by time, or by queries; -1 when none is left. */
+static Int nextHeaviest( const ModuleTally *tally, Int used, Bool *taken, Bool byQueries )
+{
+	Int best = -1;
+	for( Int at = 0; at < used; at++ )
+	{
+		if( taken[ at ] || tally[ at ].calls == 0 )
+			continue;
+		if( byQueries ? ( tally[ at ].queries > 0 && ( best < 0 || tally[ at ].queries > tally[ best ].queries ) )
+									: ( best < 0 || tally[ at ].ticks > tally[ best ].ticks ) )
+			best = at;
+	}
+	if( best >= 0 )
+		taken[ best ] = TRUE;
+	return best;
+}
+
+static void logTallyRow( const char *name, const ModuleTally &t, Int frames, double msPerTick, Int namePad )
+{
+	const double f = (double)frames;
+	DEBUG_LOG(( "  %-*s %8.1f %8.3f %8.2f %8.1f %10.0f %7.2f %6.2f\n", namePad, name,
+		t.calls / f, t.ticks * msPerTick / f, t.calls ? t.ticks * msPerTick * 1000.0 / t.calls : 0.0,
+		t.queries / f, t.visits / f, t.scans / f, t.wide / f ));
+}
+
+//
+// The table counts calls; this counts what made them.  At the end of each table: the objects by
+// kind, the update modules on the sleepy heap that run next frame against those that sleep longer,
+// and the same split for physics alone, by the kind of object it moves.  Reads only.
+//
+enum { CENSUS_INFANTRY, CENSUS_VEHICLE, CENSUS_AIRCRAFT, CENSUS_STRUCTURE, CENSUS_PROJECTILE, CENSUS_OTHER, CENSUS_KINDS };
+
+static Int censusKind( const Object *obj )
+{
+	if( obj->isKindOf( KINDOF_PROJECTILE ) )	return CENSUS_PROJECTILE;
+	if( obj->isKindOf( KINDOF_STRUCTURE ) )		return CENSUS_STRUCTURE;
+	if( obj->isKindOf( KINDOF_AIRCRAFT ) )		return CENSUS_AIRCRAFT;
+	if( obj->isKindOf( KINDOF_INFANTRY ) )		return CENSUS_INFANTRY;
+	if( obj->isKindOf( KINDOF_VEHICLE ) )			return CENSUS_VEHICLE;
+	return CENSUS_OTHER;
+}
+
+static void logCensus( UnsignedInt now )
+{
+	Int objects[ CENSUS_KINDS ] = {};
+	Int physicsAwake[ CENSUS_KINDS ] = {};
+	Int total = 0, awake = 0, sleeping = 0, physicsAll = 0, physicsAwakeAll = 0;
+	for( Object *obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject() )
+	{
+		const Int kind = censusKind( obj );
+		++objects[ kind ];
+		++total;
+		const UpdateModuleInterface *physics = obj->getPhysics() ? obj->getPhysics()->getUpdate() : NULL;
+		for( BehaviorModule **b = obj->getBehaviorModules(); *b; ++b )
 		{
-			theModuleKindTicks[ at ] += ticks;
-			theModuleKindCount[ at ]++;
-			theModuleKindQueries[ at ] += queries;
-			return;
+			UpdateModulePtr u = (UpdateModulePtr)( (*b)->getUpdate() );
+			if( u == NULL || u->friend_getSleepySlot() < 0 )
+				continue;
+			const Bool due = u->friend_getNextCallFrame() <= now + 1;
+			if( due )
+				++awake;
+			else
+				++sleeping;
+			if( (*b)->getUpdate() == physics )
+			{
+				++physicsAll;
+				if( due )
+				{
+					++physicsAwake[ kind ];
+					++physicsAwakeAll;
+				}
+			}
 		}
 	}
+	DEBUG_LOG(( "LOGIC CENSUS frame %u: %d objects = infantry %d, vehicle %d, aircraft %d, structure %d, projectile %d, other %d | update modules awake %d, sleeping %d | physics awake %d of %d = infantry %d, vehicle %d, aircraft %d, structure %d, projectile %d, other %d\n",
+		now, total, objects[ CENSUS_INFANTRY ], objects[ CENSUS_VEHICLE ], objects[ CENSUS_AIRCRAFT ], objects[ CENSUS_STRUCTURE ],
+		objects[ CENSUS_PROJECTILE ], objects[ CENSUS_OTHER ], awake, sleeping, physicsAwakeAll, physicsAll,
+		physicsAwake[ CENSUS_INFANTRY ], physicsAwake[ CENSUS_VEHICLE ], physicsAwake[ CENSUS_AIRCRAFT ], physicsAwake[ CENSUS_STRUCTURE ],
+		physicsAwake[ CENSUS_PROJECTILE ], physicsAwake[ CENSUS_OTHER ] ));
+}
 
-	if( theModuleKindsUsed >= MODULE_PROFILE_MAX )
-		return;								// more kinds than the table holds: the top three are in it already
+/** Every MODULE_TABLE_FRAMES timed frames: every module kind and every AI state, per frame, most time first. */
+static void noteModuleTable( UnsignedInt now, Int64 sleepyTicks, Int64 objectsTicks )
+{
+	if( !theModulesTimed )
+		return;
+	if( theTableFrames == 0 )
+		theTableFirstFrame = now;
+	++theTableFrames;
+	theTableSleepyTicks += sleepyTicks;
+	theTableObjectsTicks += objectsTicks;
+	if( theTableFrames < MODULE_TABLE_FRAMES )
+		return;
 
-	theModuleKindKey[ theModuleKindsUsed ] = key;
-	theModuleKindTicks[ theModuleKindsUsed ] = ticks;
-	theModuleKindCount[ theModuleKindsUsed ] = 1;
-	theModuleKindQueries[ theModuleKindsUsed ] = queries;
-	theModuleKindsUsed++;
+	const Int64 freq = Clock_Ticks_Per_Second();
+	const double msPerTick = freq > 0 ? 1000.0 / (double)freq : 0.0;
+	const double f = (double)theTableFrames;
+	ModuleTally all = {};
+	for( Int at = 0; at < theModuleKindsUsed; at++ )
+	{
+		all.ticks += theTableTally[ at ].ticks;
+		all.calls += theTableTally[ at ].calls;
+		all.queries += theTableTally[ at ].queries;
+		all.visits += theTableTally[ at ].visits;
+		all.scans += theTableTally[ at ].scans;
+		all.wide += theTableTally[ at ].wide;
+	}
+	DEBUG_LOG(( "LOGIC MODULE TABLE frames %u-%u, per frame: objects phase %.2fms, of it the sleepy loop %.2f = modules %.2f + heap %.2f | %.0f updates, %.1f queries looking at %.0f objects, %.2f target scans, %.2f wide (over %d objects)\n",
+		theTableFirstFrame, now, theTableObjectsTicks * msPerTick / f, theTableSleepyTicks * msPerTick / f,
+		all.ticks * msPerTick / f, ( theTableSleepyTicks - all.ticks ) * msPerTick / f,
+		all.calls / f, all.queries / f, all.visits / f, all.scans / f, all.wide / f, theWideVisits ));
+	DEBUG_LOG(( "  %-30s %8s %8s %8s %8s %10s %7s %6s\n", "module kind", "calls", "ms", "us/call", "queries", "looked at", "scans", "wide" ));
+	Bool taken[ MODULE_PROFILE_MAX + NUM_AI_STATES + 1 ] = {};
+	for( Int at; ( at = nextHeaviest( theTableTally, theModuleKindsUsed, taken, FALSE ) ) >= 0; )
+		logTallyRow( TheNameKeyGenerator->keyToName( theModuleKindKey[ at ] ).str(), theTableTally[ at ], theTableFrames, msPerTick, 30 );
+
+	DEBUG_LOG(( "LOGIC AI STATES frames %u-%u, per frame, AI update modules by the state each update began in:\n", theTableFirstFrame, now ));
+	memset( taken, 0, sizeof( taken ) );
+	for( Int at; ( at = nextHeaviest( theStateTally, NUM_AI_STATES + 1, taken, FALSE ) ) >= 0; )
+		logTallyRow( theAIStateNames[ at ], theStateTally[ at ], theTableFrames, msPerTick, 41 );
+
+	logCensus( now );
+
+	memset( theTableTally, 0, sizeof( theTableTally ) );
+	memset( theStateTally, 0, sizeof( theStateTally ) );
+	theTableFrames = 0;
+	theTableSleepyTicks = 0;
+	theTableObjectsTicks = 0;
 }
 
 //
@@ -4273,8 +4589,8 @@ static const char *getModuleQueryReport( void )
 	static char report[ 256 ];
 	Bool taken[ MODULE_PROFILE_MAX ];
 
-	Int used = snprintf( report, ARRAY_SIZE(report), theModulesTimed ? "queries by module:" : "queries by module: not counted this frame" );
-	if( used < 0 || used >= (Int)ARRAY_SIZE(report) )
+	Int used = snprintf( report, ARRAY_SIZE(report), theModulesTimed ? "queries by module:" : "queries by module: not counted (-slowframe counts them)" );
+	if( used < 0 || used >= (Int)ARRAY_SIZE(report) || !theModulesTimed )
 		return report;
 
 	for( Int at = 0; at < theModuleKindsUsed; at++ )
@@ -4282,24 +4598,17 @@ static const char *getModuleQueryReport( void )
 
 	for( Int rank = 0; rank < 5; rank++ )
 	{
-		Int best = -1;
-		for( Int at = 0; at < theModuleKindsUsed; at++ )
-			if( !taken[ at ] && theModuleKindQueries[ at ] > 0
-					&& ( best < 0 || theModuleKindQueries[ at ] > theModuleKindQueries[ best ] ) )
-				best = at;
-
+		const Int best = nextHeaviest( theFrameTally, theModuleKindsUsed, taken, TRUE );
 		if( best < 0 )
 			break;
 
 		const Int room = (Int)ARRAY_SIZE(report) - used;
 		const Int wrote = snprintf( report + used, room, " %s %dq/%dx",
 										 TheNameKeyGenerator->keyToName( theModuleKindKey[ best ] ).str(),
-										 theModuleKindQueries[ best ], theModuleKindCount[ best ] );
+										 theFrameTally[ best ].queries, theFrameTally[ best ].calls );
 		if( wrote < 0 || wrote >= room )
 			break;
 		used += wrote;
-
-		taken[ best ] = TRUE;
 	}
 
 	return report;
@@ -4313,7 +4622,7 @@ static const char *getModuleProfileReport( void )
 
 	if( !theModulesTimed )
 	{
-		snprintf( report, ARRAY_SIZE(report), "%d updates, modules not timed this frame", theModuleUpdateCount );
+		snprintf( report, ARRAY_SIZE(report), "%d updates, modules not timed (-slowframe times them)", theModuleUpdateCount );
 		return report;
 	}
 
@@ -4333,27 +4642,23 @@ static const char *getModuleProfileReport( void )
 	if( used < 0 || used >= (Int)ARRAY_SIZE(report) )
 		return report;
 
-	// and the three kinds of module the sweep spent the most time in, whatever the worst one was
+	// and the three kinds of module the sweep spent the most time in, whatever the worst one was;
+	// the module table every 600 frames has all of them
+	Bool taken[ MODULE_PROFILE_MAX ] = {};
 	for( Int rank = 0; rank < 3; rank++ )
 	{
-		Int best = -1;
-		for( Int at = 0; at < theModuleKindsUsed; at++ )
-			if( theModuleKindTicks[ at ] >= 0 && ( best < 0 || theModuleKindTicks[ at ] > theModuleKindTicks[ best ] ) )
-				best = at;
-
+		const Int best = nextHeaviest( theFrameTally, theModuleKindsUsed, taken, FALSE );
 		if( best < 0 )
 			break;
 
-		const Real ms = freq ? (Real)( (double)theModuleKindTicks[ best ] * 1000.0 / (double)freq ) : 0.0f;
+		const Real ms = freq ? (Real)( (double)theFrameTally[ best ].ticks * 1000.0 / (double)freq ) : 0.0f;
 		const Int room = (Int)ARRAY_SIZE(report) - used;
 		const Int wrote = snprintf( report + used, room, " | %s %dx/%.1f",
 										 TheNameKeyGenerator->keyToName( theModuleKindKey[ best ] ).str(),
-										 theModuleKindCount[ best ], ms );
+										 theFrameTally[ best ].calls, ms );
 		if( wrote < 0 || wrote >= room )
 			break;
 		used += wrote;
-
-		theModuleKindTicks[ best ] = -1;			// taken; the next pass finds the next one down
 	}
 
 	return report;
@@ -4408,7 +4713,7 @@ Int GameLogic::countKickVotes( void ) const
 {
 	Int votes = 0;
 	for( Int i = 0; i < ThePlayerList->getPlayerCount(); ++i )
-		if( ( m_kickVoteYesMask & ( 1u << i ) ) && mayVoteToKick( ThePlayerList->getNthPlayer( i ), m_kickVoteTarget ) )
+		if( ( m_kickVoteYesMask & playerIndexToMask( i ) ) && mayVoteToKick( ThePlayerList->getNthPlayer( i ), m_kickVoteTarget ) )
 			++votes;
 	return votes;
 }
@@ -4450,8 +4755,8 @@ void GameLogic::processKickVote( Player *voter, Int targetIndex, Bool yes )
 				TheInGameUI->message( "GUI:KickVoteTooFew" );
 			return;
 		}
-		m_kickVoteEndFrame = m_frame + KICK_VOTE_SECONDS * LOGICFRAMES_PER_SECOND;
-		m_kickVoteYesMask = 1u << voter->getPlayerIndex();
+		m_kickVoteEndFrame = m_frame + KICK_VOTE_SECONDS * LOGICFRAMES_PER_SECOND;	// people voting: wall time
+		m_kickVoteYesMask = voter->getPlayerMask();
 		if( TheInGameUI )
 			TheInGameUI->message( "GUI:KickVoteStarted", voter->getPlayerDisplayName().str(), target->getPlayerDisplayName().str() );
 		return;
@@ -4467,7 +4772,7 @@ void GameLogic::processKickVote( Player *voter, Int targetIndex, Bool yes )
 		return;
 	}
 
-	m_kickVoteYesMask |= 1u << voter->getPlayerIndex();
+	m_kickVoteYesMask |= voter->getPlayerMask();
 	if( kickVoteAgreed( countKickVotes(), countKickVoters() ) )
 	{
 		ThePlayerList->getNthPlayer( m_kickVoteTarget )->killPlayer();
@@ -4514,15 +4819,15 @@ static void peaceTimeTick( void )
 	{
 		const UnsignedInt left = endFrame - now;
 		if( now == 1 )
-			TheInGameUI->message( "GUI:PeaceTimeStarted", (Int)(endFrame / (60 * LOGICFRAMES_PER_SECOND)) );
+			TheInGameUI->message( "GUI:PeaceTimeStarted", (Int)(endFrame / (60 * LOGICFRAMES_PER_GAME_SECOND)) );
 		else if( now == endFrame )
 			TheInGameUI->message( "GUI:PeaceTimeOver" );
-		else if( left == 60 * LOGICFRAMES_PER_SECOND || left == 30 * LOGICFRAMES_PER_SECOND
-						 || left == 10 * LOGICFRAMES_PER_SECOND )
-			TheInGameUI->message( "GUI:PeaceTimeRemaining", (Int)(left / LOGICFRAMES_PER_SECOND) );
+		else if( left == 60 * LOGICFRAMES_PER_GAME_SECOND || left == 30 * LOGICFRAMES_PER_GAME_SECOND
+						 || left == 10 * LOGICFRAMES_PER_GAME_SECOND )
+			TheInGameUI->message( "GUI:PeaceTimeRemaining", (Int)(left / LOGICFRAMES_PER_GAME_SECOND) );
 	}
 
-	if( now % LOGICFRAMES_PER_SECOND != 0 )
+	if( now % LOGICFRAMES_PER_GAME_SECOND != 0 )
 		return;
 
 	const Real radius = TheGlobalData->m_peaceTimeBaseRadius;
@@ -4574,7 +4879,7 @@ static void peaceTimeTick( void )
 	 takes those - and would hand every command center on the map a free repair crew. */
 static void neutralBuildingRepair( Object *obj )
 {
-	const UnsignedInt quietFrames = 10 * LOGICFRAMES_PER_SECOND;
+	const UnsignedInt quietFrames = 10 * LOGICFRAMES_PER_GAME_SECOND;
 	const Real repairFractionPerSecond = 0.0125f;
 
 	if( !obj->isKindOf( KINDOF_STRUCTURE ) || obj->isEffectivelyDead() )
@@ -4772,6 +5077,151 @@ static void oncePerSecondTurn( Object *obj )
 	salvageCrateCall( obj );
 }
 
+// ------------------------------------------------------------------------------------------------
+void GameLogic::watchDisabled( const Object *obj )
+{
+	if( !m_objIndexStale )
+		m_disabledWatch.push_back( obj->getID() );
+}
+
+// ------------------------------------------------------------------------------------------------
+/** The pass's index from the list itself: after a reset, and after a load has put the save's IDs on
+	every object. */
+// ------------------------------------------------------------------------------------------------
+void GameLogic::rebuildObjectIndex( void )
+{
+	for( Int turn = 0; turn < MAX_LOGICFRAMES_PER_GAME_SECOND; ++turn )	// every bucket: the last match may have had more
+		m_secondTurnIDs[ turn ].clear();
+	m_disabledWatch.clear();
+
+	UnsignedInt count = 0;
+	for( Object *obj = m_objList; obj; obj = obj->getNextObject() )
+		++count;
+
+	if( m_listStamp.size() < m_objVector.size() )
+		m_listStamp.resize( m_objVector.size(), 0 );
+
+	// the head is the newest; each bucket is filled newest first here and turned round below
+	m_nextListStamp = count;
+	UnsignedInt stamp = count;
+	for( Object *obj = m_objList; obj; obj = obj->getNextObject(), --stamp )
+	{
+		const ObjectID id = obj->getID();
+		m_listStamp[ id ] = stamp;
+		m_secondTurnIDs[ (UnsignedInt)id % LOGICFRAMES_PER_GAME_SECOND ].push_back( id );
+		if( obj->isDisabled() )
+			m_disabledWatch.push_back( id );
+	}
+	for( Int turn = 0; turn < LOGICFRAMES_PER_GAME_SECOND; ++turn )
+		std::reverse( m_secondTurnIDs[ turn ].begin(), m_secondTurnIDs[ turn ].end() );
+
+	m_objIndexStale = FALSE;
+}
+
+// ------------------------------------------------------------------------------------------------
+UnsignedInt GameLogic::countIndexedObjects( void ) const
+{
+	size_t count = 0;
+	for( Int turn = 0; turn < LOGICFRAMES_PER_GAME_SECOND; ++turn )
+		count += m_secondTurnIDs[ turn ].size();
+	return (UnsignedInt)count;
+}
+
+// ------------------------------------------------------------------------------------------------
+/** Handle disabled statii (and re-enable objects once frame matches), and give this frame's objects
+	their once-a-second turn.  The same calls on the same objects in the same order as the walk over the
+	whole list it replaces, which is what keeps the CRC: the objects with this frame's turn come out of
+	their bucket newest first, the disabled ones are sorted into the list's order by stamp, and the two
+	are merged.  An object neither in this second's bucket nor disabled when the pass starts had nothing
+	to do in the old walk either: a disable set during the pass runs past this frame
+	(Object::setDisabledUntil sets the bit only for a later frame), so checkDisabledStatus clears
+	nothing on it, and an object made during the pass joins the list at its head, behind the walk. */
+// ------------------------------------------------------------------------------------------------
+void GameLogic::disabledAndSecondTurns( void )
+{
+	if( m_objIndexStale )
+		rebuildObjectIndex();
+
+	// who is disabled now, oldest stamp last; a watch entry that is dead or clear again is dropped
+	m_watchScratch.swap( m_disabledWatch );
+	m_disabledWatch.clear();
+	m_disabledScratch.clear();
+	for( size_t i = 0; i < m_watchScratch.size(); ++i )
+	{
+		Object *obj = findObjectByID( m_watchScratch[ i ] );
+		if( obj != NULL && obj->isDisabled() )
+			m_disabledScratch.push_back( obj );
+	}
+	const std::vector<UnsignedInt> &stamps = m_listStamp;
+	std::sort( m_disabledScratch.begin(), m_disabledScratch.end(),
+		[&stamps]( const Object *a, const Object *b ) { return stamps[ a->getID() ] > stamps[ b->getID() ]; } );
+	m_disabledScratch.erase( std::unique( m_disabledScratch.begin(), m_disabledScratch.end() ), m_disabledScratch.end() );
+
+#if defined(_DEBUG) || defined(_INTERNAL)
+	// Every disabled bit is set through Object::setDisabledUntil, which calls watchDisabled.  A second
+	// writer would leave its object out of here and clear its disable up to 59 frames late, which a
+	// continuous game and a loaded one (rebuilt from the list) would not agree on.
+	if( m_frame % LOGICFRAMES_PER_SECOND == 0 )
+	{
+		size_t disabledInList = 0;
+		for( Object *obj = m_objList; obj; obj = obj->getNextObject() )
+			if( obj->isDisabled() )
+				++disabledInList;
+		DEBUG_ASSERTCRASH( disabledInList == m_disabledScratch.size(),
+			( "disabled pass watches %d objects, the list holds %d disabled", (Int)m_disabledScratch.size(), (Int)disabledInList ) );
+	}
+#endif
+
+	// this second's bucket, its dead taken out; the living keep their order
+	std::vector<ObjectID> &bucket = m_secondTurnIDs[ m_frame % LOGICFRAMES_PER_GAME_SECOND ];
+	bucket.erase( std::remove_if( bucket.begin(), bucket.end(),
+		[this]( ObjectID id ) { return findObjectByID( id ) == NULL; } ), bucket.end() );
+
+	// Merge, newest first.  Indices rather than iterators: an object made in here may land in this
+	// very bucket, past the end the walk started from, as it lands ahead of the old walk's position.
+	Int inBucket = (Int)bucket.size() - 1;
+	size_t inDisabled = 0;
+	while( inBucket >= 0 || inDisabled < m_disabledScratch.size() )
+	{
+		Object *turnObj = inBucket >= 0 ? findObjectByID( bucket[ inBucket ] ) : NULL;
+		if( inBucket >= 0 && turnObj == NULL )
+		{
+			--inBucket;		// nothing leaves the lookup inside the pass, but a hole is no reason to fault
+			continue;
+		}
+		Object *disabledObj = inDisabled < m_disabledScratch.size() ? m_disabledScratch[ inDisabled ] : NULL;
+		const UnsignedInt turnStamp = turnObj ? m_listStamp[ turnObj->getID() ] : 0;
+		const UnsignedInt disabledStamp = disabledObj ? m_listStamp[ disabledObj->getID() ] : 0;
+
+		Object *obj;
+		Bool itsTurn;
+		if( turnStamp >= disabledStamp )
+		{
+			obj = turnObj;
+			itsTurn = TRUE;
+			--inBucket;
+			if( turnStamp == disabledStamp )
+				++inDisabled;		// the same object, in both
+		}
+		else
+		{
+			obj = disabledObj;
+			itsTurn = FALSE;
+			++inDisabled;
+		}
+
+		if( obj->isDisabled() )
+			obj->checkDisabledStatus();
+		if( itsTurn )
+			oncePerSecondTurn( obj );
+	}
+
+	// still disabled after it all: watched next frame too, beside whatever was disabled in here
+	for( size_t i = 0; i < m_disabledScratch.size(); ++i )
+		if( m_disabledScratch[ i ]->isDisabled() )
+			m_disabledWatch.push_back( m_disabledScratch[ i ]->getID() );
+}
+
 /* Tech building respawn, asked for in GitHub #23.  In the retail game an oil derrick blown up in
 	 the first fight is gone for the rest of the match, and so is everything the map had put there
 	 to fight over.  With the lobby's option on, TechBuildingBehavior::onDie writes the building
@@ -4829,7 +5279,7 @@ static Bool techBuildingSpotIsTaken( const ThingTemplate *building, const Coord3
 
 void GameLogic::techRespawnTick( void )
 {
-	if( m_pendingTechBuildings.empty() || m_frame % LOGICFRAMES_PER_SECOND != 0 )
+	if( m_pendingTechBuildings.empty() || m_frame % LOGICFRAMES_PER_GAME_SECOND != 0 )
 		return;
 
 	for( size_t i = 0; i < m_pendingTechBuildings.size(); )
@@ -4971,12 +5421,14 @@ void GameLogic::update( void )
 		 worst frames (101 of 115 ms on one), and it is five unrelated pieces of end-of-frame cleanup.
 		 Split so the log names which one. */
 	Int64 tDestroy = 0, tCommandList = 0, tStores = 0, tVictory = 0;
+	Int64 tSleepyStart = 0;		// the sleepy loop alone, so the module table can say what the heap costs
 	tFrameStart = Clock_Ticks();
 	PartitionManager::resetQueryCounts();	// counted per logic frame, reported by the slow-frame log
 	AI::resetEnemyScanCount();
 	Pathfinder::resetProfile();
 #ifdef DEBUG_LOGGING
-	resetModuleProfile( now );
+	const Bool logicProfile = TheGlobalData && TheGlobalData->m_logicProfile;
+	resetModuleProfile( logicProfile, logicProfile ? (Int)countIndexedObjects() : 0 );
 #endif
 
 	// update (execute) scripts
@@ -5117,7 +5569,10 @@ void GameLogic::update( void )
 	}
 #endif
 
+	tSleepyStart = Clock_Ticks();
 	{
+		m_sleepyCursorFrame = now;
+		m_sleepyCursor = 0;
 		while (!m_sleepyUpdates.empty())
 		{
 			UpdateModulePtr u = peekSleepyUpdate();
@@ -5128,12 +5583,16 @@ void GameLogic::update( void )
 				continue;
 			}
 
-			// we're done, everyone else is sleeping. 
+			// we're done, everyone else is sleeping.
 			// break from the loop BEFORE we pop this item off.
 			if (u->friend_getNextCallFrame() > now)
 			{
 				break;
 			}
+			// the furthest the loop has come: a module pushed mid-frame below it runs late, and must not
+			// pull the cursor back over turns already taken
+			if (m_sleepyUpdates.front().key > m_sleepyCursor)
+				m_sleepyCursor = m_sleepyUpdates.front().key;
 
 			// unless this module sorts first again, one of the two below it is the next to run, and its
 			// first read is its own fields; the update in between is long enough to have the line in
@@ -5160,15 +5619,22 @@ void GameLogic::update( void )
 				NameKeyType profModuleKey = NAMEKEY_INVALID;
 				const ThingTemplate *profModuleThing = NULL;
 				ObjectID profModuleObjID = INVALID_ID;
-				Int profModuleQueriesBefore = 0;
+				Int profModuleAIState = -1;
+				Int profModuleQueriesBefore = 0, profModuleVisitsBefore = 0, profModuleScansBefore = 0;
 				Int64 profModuleStart = 0;
 				if( theModulesTimed )
 				{
 					// read the identity before the update - a module may kill its own object
+					const Object *profObj = u->friend_getObject();
 					profModuleKey = u->getModuleNameKey();
-					profModuleThing = u->friend_getObject() ? u->friend_getObject()->getTemplate() : NULL;
-					profModuleObjID = u->friend_getObject() ? u->friend_getObject()->getID() : INVALID_ID;
+					profModuleThing = profObj ? profObj->getTemplate() : NULL;
+					profModuleObjID = profObj ? profObj->getID() : INVALID_ID;
+					const AIUpdateInterface *profAI = profObj ? profObj->getAI() : NULL;
+					if( profAI && static_cast<const UpdateModule *>( profAI ) == u )
+						profModuleAIState = (Int)profAI->getCurrentStateID();
 					profModuleQueriesBefore = PartitionManager::getQueryCountThisFrame();
+					profModuleVisitsBefore = PartitionManager::getQueryObjectCountThisFrame();
+					profModuleScansBefore = AI::getEnemyScanCountThisFrame();
 					profModuleStart = Clock_Ticks();
 				}
 #endif
@@ -5181,8 +5647,10 @@ void GameLogic::update( void )
 					Int64 profModuleEnd;
 					profModuleEnd = Clock_Ticks();
 					const Int64 profModuleTicks = profModuleEnd - profModuleStart;
-					addModuleProfile( profModuleKey, profModuleTicks,
-														PartitionManager::getQueryCountThisFrame() - profModuleQueriesBefore );
+					addModuleProfile( profModuleKey, profModuleAIState, profModuleTicks,
+														PartitionManager::getQueryCountThisFrame() - profModuleQueriesBefore,
+														PartitionManager::getQueryObjectCountThisFrame() - profModuleVisitsBefore,
+														AI::getEnemyScanCountThisFrame() - profModuleScansBefore );
 					if( profModuleTicks > theWorstModuleTicks )
 					{
 						theWorstModuleTicks = profModuleTicks;
@@ -5215,10 +5683,13 @@ void GameLogic::update( void )
 			// else defer it till next frame and re-push it
 			u->friend_setNextCallFrame(now + sleepLen);
 			// u's own slot, which is not slot 0 when its update pushed or woke a module that sorts ahead
-			// of it; the rebalance stays at 0 as it always was.
-			m_sleepyUpdates[u->friend_getIndexInLogic()].priority = u->friend_getPriority();
-			rebalanceSleepyUpdate(0);
+			// of it.  The rebalance used to stay at 0 regardless, which left u, now later, above entries
+			// that sort before it: a heap that broke its own order there and ran them by layout.
+			const Int idx = sleepyIndexOf(u);
+			rekeySleepyEntry(m_sleepyUpdates[idx], u);
+			rebalanceSleepyUpdate(idx);
 		}
+		m_sleepyCursor = ~(UnsignedInt64)0;	// this frame's turns are over
 	}
 
 	validateSleepyUpdate();
@@ -5286,19 +5757,8 @@ void GameLogic::update( void )
 	}
 #endif
 
-	{
-		//Handle disabled statii (and re-enable objects once frame matches)
-		const UnsignedInt turn = m_frame % LOGICFRAMES_PER_SECOND;
-		for( Object *obj = m_objList; obj; obj = obj->getNextObject() )
-		{
-			if( obj->isDisabled() )
-			{
-				obj->checkDisabledStatus();
-			}
-			if( (UnsignedInt)obj->getID() % LOGICFRAMES_PER_SECOND == turn )
-				oncePerSecondTurn( obj );
-		}
-	}
+	//Handle disabled statii (and re-enable objects once frame matches), and the once-a-second turns
+	disabledAndSecondTurns();
 
 	// how long did that take?  only a frame that ran over budget is worth a line in the log
 	tFrameEnd = Clock_Ticks();
@@ -5306,11 +5766,31 @@ void GameLogic::update( void )
 		// the logic gets 1/30th of a second, 33ms, per frame; -slowframe lowers the bar for a hunt
 		const Real SLOW_FRAME_MS = TheGlobalData ? TheGlobalData->m_slowFrameMS : 20.0f;
 		const Real total = logicElapsedMS( tFrameStart, tFrameEnd );
-#ifdef DEBUG_LOGGING
-		theLastLogicFrameSlow = total > SLOW_FRAME_MS;
-#endif
-		if( total > SLOW_FRAME_MS && now > 60 && getGameMode() != GAME_SHELL && getGameMode() != GAME_NONE )
+
+		/* Without -slowframe the log takes one slow frame a second and counts the rest into it: at 32
+			 players nearly every frame passes 20ms, and a seven-line report on each came to 150MB of log
+			 in a 30-minute match.  Under -slowframe every frame over its bar is written, as asked. */
+		static UnsignedInt theNextSlowLine = 0;
+		static Int theSlowUnlogged = 0;
+		static Real theSlowUnloggedWorst = 0.0f;
+		const Bool slowFrame = total > SLOW_FRAME_MS && now > LOGICFRAMES_PER_SECOND &&getGameMode() != GAME_SHELL && getGameMode() != GAME_NONE;
+		const Bool everySlowFrame = TheGlobalData && TheGlobalData->m_logicProfile;
+		if( slowFrame && !everySlowFrame && now < theNextSlowLine && now + LOGICFRAMES_PER_SECOND >= theNextSlowLine )
 		{
+			++theSlowUnlogged;
+			if( total > theSlowUnloggedWorst )
+				theSlowUnloggedWorst = total;
+		}
+		else if( slowFrame )
+		{
+			char unlogged[ 96 ] = "";
+			if( theSlowUnlogged > 0 )
+				snprintf( unlogged, ARRAY_SIZE(unlogged), " | %d more over %.0fms in the second before, worst %.1fms",
+									theSlowUnlogged, SLOW_FRAME_MS, theSlowUnloggedWorst );
+			theNextSlowLine = now + LOGICFRAMES_PER_SECOND;
+			theSlowUnlogged = 0;
+			theSlowUnloggedWorst = 0.0f;
+
 			const Real scripts = logicElapsedMS( tFrameStart, tScripts );
 			const Real objects = logicElapsedMS( tScripts, tObjects );
 			const Real ai = logicElapsedMS( tObjects, tAI );
@@ -5321,12 +5801,12 @@ void GameLogic::update( void )
 			const Real stores = logicElapsedMS( tCommandList, tStores );
 			const Real victory = logicElapsedMS( tStores, tVictory );
 			const Real disabled = logicElapsedMS( tVictory, tFrameEnd );
-			DEBUG_LOG(("SLOW LOGIC FRAME %d: %.1fms | scripts %.1f | objects %.1f | ai %.1f (pathfind %.1f, players %.1f) | partition %.1f (%d queries, %d gathers, %d target scans, %d objects) | rest %.1f (destroy %.1f, cmdlist %.1f, stores %.1f, victory %.1f, disabled %.1f)\n  sc: %s\n  ob: %s\n  qy: %s\n  pf: %s\n  ai: %s\n",
+			DEBUG_LOG(("SLOW LOGIC FRAME %d: %.1fms | scripts %.1f | objects %.1f | ai %.1f (pathfind %.1f, players %.1f) | partition %.1f (%d queries, %d gathers, %d target scans, %d objects) | rest %.1f (destroy %.1f, cmdlist %.1f, stores %.1f, victory %.1f, disabled %.1f)%s\n  sc: %s\n  ob: %s\n  qy: %s\n  pf: %s\n  ai: %s\n",
 								 now, total, scripts, objects, ai, AI::getLastPathfindMS(), AI::getLastPlayerUpdateMS(), partition,
 								 PartitionManager::getQueryCountThisFrame(), PartitionManager::getGatherCountThisFrame(),
 								 AI::getEnemyScanCountThisFrame(),
 								 PartitionManager::getQueryObjectCountThisFrame(), rest,
-								 destroy, cmdlist, stores, victory, disabled,
+								 destroy, cmdlist, stores, victory, disabled, unlogged,
 								 TheScriptEngine->getProfileReport(),
 								 getModuleProfileReport(),
 								 getModuleQueryReport(),
@@ -5334,6 +5814,9 @@ void GameLogic::update( void )
 								 AIPlayer::getProfileReport()));
 		}
 	}
+#ifdef DEBUG_LOGGING
+	noteModuleTable( now, tObjects - tSleepyStart, tObjects - tScripts );
+#endif
 
 	// increment world time
 	if (!m_startNewGame)
@@ -5421,6 +5904,16 @@ void GameLogic::registerObject( Object *obj )
 
 	// add object to lookup table
 	addObjectToLookupTable( obj );
+
+	// and to the end-of-frame pass's index, which a load rebuilds once every ID is the save's
+	if( !m_objIndexStale )
+	{
+		const ObjectID id = obj->getID();
+		if( (size_t)id >= m_listStamp.size() )
+			m_listStamp.resize( m_objVector.size(), 0 );
+		m_listStamp[ id ] = ++m_nextListStamp;
+		m_secondTurnIDs[ (UnsignedInt)id % LOGICFRAMES_PER_GAME_SECOND ].push_back( id );
+	}
 
 	UnsignedInt now = TheGameLogic->getFrame();
 	if (now == 0)
@@ -6014,6 +6507,11 @@ void GameLogic::setControlBarOverride(const AsciiString& commandSetName, Int slo
 // ------------------------------------------------------------------------------------------------
 Bool GameLogic::findControlBarOverride(const AsciiString& commandSetName, Int slot, ConstCommandButtonPtr& commandButton) const
 {
+	// only a map's script sets one; without, every button asked for built and hashed a pooled string to find
+	// nothing, eighteen to a factory each time the AI asks whether it can make a unit there
+	if (m_controlBarOverrides.empty())
+		return false;
+
 	char buf[256];
 	buf[0] = '0' + slot;
 	strcpy(&buf[1], commandSetName.str());
@@ -6287,13 +6785,14 @@ void GameLogic::prepareLogicForObjectLoad( void )
 	* 16: xfer m_techRespawnDelay and m_pendingTechBuildings
 	* 17: xfer m_supplyPileLimit
 	* 18: xfer the logic random stream and the pathfinder's request queue and flow maps
+	* 19: xfer the AI groups and the AI's group and formation counters (AI::xferGroups)
 	*/
 // ------------------------------------------------------------------------------------------------
 void GameLogic::xfer( Xfer *xfer )
 {
 
 	// version
-	const XferVersion currentVersion = 18;
+	const XferVersion currentVersion = 19;
 	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
 
@@ -6315,7 +6814,10 @@ void GameLogic::xfer( Xfer *xfer )
 
 	// when loading, we need to clean up bridges and get them ready for a load
 	if( xfer->getXferMode() == XFER_LOAD )
+	{
 		prepareLogicForObjectLoad();
+		m_objIndexStale = TRUE;	// each object is registered under a fresh ID and given the save's after
+	}
 
 	// object count
 	UnsignedInt objectCount = getObjectCount();
@@ -6767,6 +7269,9 @@ void GameLogic::xfer( Xfer *xfer )
       m_loadedSleepyPending = TRUE;
     }
   }
+
+  if ( version >= 19 )
+    TheAI->xferGroups( xfer );
 }  // end xfer
 
 // ------------------------------------------------------------------------------------------------
@@ -6800,12 +7305,10 @@ void GameLogic::loadPostProcess( void )
 		if( obj->getID() >= m_nextObjID )
 			m_nextObjID = (ObjectID)((UnsignedInt)obj->getID() + 1);
 
+	TheAI->loadPostProcessGroups();
+
 	// blow away the sleepy update and normal update module lists
-	for (std::vector<SleepyEntry>::iterator it = m_sleepyUpdates.begin(); it != m_sleepyUpdates.end(); ++it)
-	{
-		it->module->friend_setIndexInLogic(-1);
-	}
-	m_sleepyUpdates.clear();
+	clearSleepyUpdates();
 #ifdef ALLOW_NONSLEEPY_UPDATES
 	m_normalUpdates.clear();
 #else
@@ -6823,10 +7326,19 @@ void GameLogic::loadPostProcess( void )
 			Object *owner = findObjectByID( it->first );
 			if( owner == NULL )
 				throw SC_INVALID_DATA;
-			UpdateModulePtr u = (UpdateModulePtr)( owner->getBehaviorModules()[ it->second ]->getUpdate() );
-			SleepyEntry e = { u->friend_getPriority(), u };
-			m_sleepyUpdates.push_back( e );
-			u->friend_setIndexInLogic( m_sleepyUpdates.size() - 1 );
+			// The index is the save's: one from another build, or a broken file, can name a module this
+			// object does not have, or one with no update. Refuse the save rather than read past the list.
+			BehaviorModule **modules = owner->getBehaviorModules();
+			Int moduleCount = 0;
+			while( modules[ moduleCount ] )
+				++moduleCount;
+			if( it->second < 0 || it->second >= moduleCount )
+				throw SC_INVALID_DATA;
+			UpdateModulePtr u = (UpdateModulePtr)( modules[ it->second ]->getUpdate() );
+			// and the same module twice would leave a second heap entry pointing at it after it dies
+			if( u == NULL || u->friend_getSleepySlot() != -1 )
+				throw SC_INVALID_DATA;
+			appendSleepyUpdate( u );
 		}
 		m_loadedSleepyOrder.clear();
 		m_loadedSleepyPending = FALSE;
@@ -6849,10 +7361,10 @@ void GameLogic::loadPostProcess( void )
 				continue;
 
 			// already on the heap the save gave
-			if (sleepyFromSave && u->friend_getIndexInLogic() != -1)
+			if (sleepyFromSave && u->friend_getSleepySlot() != -1)
 				continue;
 
-			DEBUG_ASSERTCRASH(u->friend_getIndexInLogic() == -1, ("Hmm, expected index to be -1 here"));
+			DEBUG_ASSERTCRASH(u->friend_getSleepySlot() == -1, ("Hmm, expected index to be -1 here"));
 
 			// check each update module
 			UnsignedInt when = u->friend_getNextCallFrame();
@@ -6874,17 +7386,17 @@ void GameLogic::loadPostProcess( void )
 					pushSleepyUpdate(u);
 					continue;
 				}
-				SleepyEntry e = { u->friend_getPriority(), u };
-				m_sleepyUpdates.push_back(e);
-				u->friend_setIndexInLogic(m_sleepyUpdates.size() - 1);
+				appendSleepyUpdate(u);
 			}
 
 		}  // end for, u
 
 	}  // end for, obj
 
-	// re-sort the priority queue all at once now that all modules are on it
-	if (!sleepyFromSave)
+	// re-sort the priority queue all at once now that all modules are on it.  A save's own order too:
+	// keys are unique, so any heap of them runs the same order, and one written before the keys had
+	// ties is not a heap of them.
+	if (!m_sleepyUpdates.empty())
 		remakeSleepyUpdate();
 
 }  // end loadPostProcess

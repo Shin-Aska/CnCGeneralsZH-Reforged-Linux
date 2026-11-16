@@ -129,6 +129,7 @@ public:
 																 UnsignedInt increaseFrameTime, UnsignedInt decayFrameTime//, Bool donut = FALSE
 																 ) = 0;
 	virtual void stepDynamicLights( void ) { }	///< a pass that skips the draw: fade the light pulses and park the spent ones, as the draw does
+	virtual void waitForFrameQueue( void ) { }	///< wait for room in the present queue, before the pass reads the input
 
 	/// draw a line on the display in pixel coordinates with the specified color
 	virtual void drawLine( Int startX, Int startY, Int endX, Int endY, 
@@ -324,6 +325,101 @@ inline UIRect UIRectForScreen( Int screenWidth, Int screenHeight )
 
 /// Where the 2D interface lives: the 4:3 box in the Classic interface, the whole screen in Reforged.
 UIRect TheUIRect( void );
+
+//-------------------------------------------------------------------------------------------------
+/** The in-game interface's area for the "HudWidth" choice (HUD_WIDTH_* in Common/OptionsCatalog.h):
+	* centred, the full height, as wide as the screen or the chosen shape at this height, whichever is
+	* narrower, so a screen at or under that shape gets the whole screen.  16:9 is 16:9, 21:9 is 43:18
+	* (3440x1440).  Both layouts put their panels inside it; the world is still drawn over the whole
+	* screen.  An unknown choice is HUD_WIDTH_FULL. */
+//-------------------------------------------------------------------------------------------------
+IRegion2D HudAreaForScreen( Int screenWidth, Int screenHeight, Int hudWidth );
+
+//-------------------------------------------------------------------------------------------------
+/** Counts of the sidebar layout's cells (docs/plans/HUD-SIDEBAR-LAYOUT.md). */
+//-------------------------------------------------------------------------------------------------
+enum
+{
+	HUD_SIDEBAR_TABS = 4,							///< Q W E R: Bina, Savunma, Piyade, Araç (SIDEBAR_TAB_*, ControlBarSidebar.h)
+	HUD_SIDEBAR_CAMEO_COLUMNS = 2,
+	HUD_SIDEBAR_CAMEO_ROWS = 6,
+	HUD_SIDEBAR_CAMEOS = HUD_SIDEBAR_CAMEO_COLUMNS * HUD_SIDEBAR_CAMEO_ROWS,
+	HUD_SIDEBAR_PICKER_CHIPS = 4,			///< factories 1..4 beside "Tümü", each chip its building's icon and number
+	HUD_STRIP_BUTTONS = 14,						///< ButtonCommand01..14, the selection's commands
+	HUD_TRAY_CELLS = 6,								///< the card's tray: a single unit's upgrades, a multi-selection's types, or a factory's queue (ButtonQueue01..06)
+};
+
+//-------------------------------------------------------------------------------------------------
+/** Every rectangle of the in-game interface for one screen, one layout and one HudWidth, in screen
+	* pixels, hi exclusive (a cell [lo, hi) as placeWindowAt takes it).  The design is 1920x1080 and
+	* scales by k = H/1080, smaller only where the area is too narrow for the strip's fourteen buttons
+	* and its clock beside the sidebar (under about 1324:1080, narrower than 5:4).  The sidebar stands
+	* on the area's right edge, top to bottom; the strip runs along the bottom from the area's left
+	* edge to the sidebar; the selection card sits on the strip at the area's left; the superweapon
+	* rows and the general's powers window lean on the sidebar's left edge.  `play` (the open world),
+	* `sidebar` and `strip` tile `area` exactly.  Cells inside one group never overlap.
+	*
+	* Under HUD_LAYOUT_CLASSIC only screen, world, area, play (= area), scale and layout are filled and
+	* every cell is zero: the Classic bar places its own panels, anchored to `area`.
+	*
+	* Row-major arrays: cameos[ row * HUD_SIDEBAR_CAMEO_COLUMNS + column ].  The card is welded to the
+	* strip (card.hi.y == strip.lo.y, card.lo.x == area.lo.x): a medallion at its left (the portrait, the
+	* rank under it) and beside it a lower label plate (the name, the health groove, the tray). */
+//-------------------------------------------------------------------------------------------------
+struct HudLayoutRects
+{
+	Int layout;												///< HUD_LAYOUT_CLASSIC or HUD_LAYOUT_SIDEBAR, as laid out
+	Real scale;												///< k: design pixels to screen pixels
+	IRegion2D screen;									///< 0,0 W x H
+	IRegion2D world;									///< what the 3D view draws: the whole screen in phase 1
+	IRegion2D area;										///< HudAreaForScreen: the centred part the interface keeps to
+	IRegion2D play;										///< the world the interface leaves open inside `area`: left of the sidebar, above the strip
+
+	// the sidebar, right edge on area's right edge: 1600,0 320x1080
+	IRegion2D sidebar;
+	IRegion2D menuButton;							///< 1608,8 72x32 (ButtonOptions)
+	IRegion2D money;									///< 1688,8 144x32 (MoneyDisplay)
+	IRegion2D diplomacyButton;				///< 1840,8 72x32 (PopupCommunicator)
+	IRegion2D radar;									///< 1608,56 304x304, the box the radar is fitted into
+	IRegion2D sellButton;							///< 1608,368 74x36 "Sat" (phase 2)
+	IRegion2D repairButton;						///< 1690,368 74x36 "Onar" (phase 2, or hidden)
+	IRegion2D generalButton;					///< 1772,368 140x36 (ButtonGeneral)
+	IRegion2D tabs[ HUD_SIDEBAR_TABS ];	///< y 420 h 36, x 1624 / 1697 / 1770 / 1843, w 70 / 70 / 70 / 69 (to 1912, 3 apart)
+	IRegion2D powerRail;							///< 1604,420 16x652, the vertical power bar (to H - 8)
+	IRegion2D pickerAll;							///< 1624,459 50x28 "Tümü", a chip's size, 3 under the tabs
+	IRegion2D pickerChips[ HUD_SIDEBAR_PICKER_CHIPS ];	///< y 459 h 28 w 50 from x 1677, pitch 53 (to 1886)
+	IRegion2D cameos[ HUD_SIDEBAR_CAMEOS ];	///< x 1624 / 1772 w 140 h 86, y 491 + 90.8 a row
+	IRegion2D arrowUp;								///< 1624,1044 140x28, bottom-anchored
+	IRegion2D arrowDown;							///< 1772,1044 140x28, bottom-anchored
+
+	// the command strip along the bottom: 0,1016 1600x64, from area's left edge to the sidebar
+	IRegion2D strip;
+	IRegion2D stripButtons[ HUD_STRIP_BUTTONS ];	///< 56x56 at x 8 + 64i, y 1020 (ButtonCommand01..14 in order)
+	IRegion2D stripClock;							///< 96x48, right edge 4 short of the strip's (1500,1024 at 1920)
+	IRegion2D stripSpare;							///< the strip between the last button and the clock, 8 clear of both (904..1492 at 1920): idle, SelectArmy, PlaceBeacon
+
+	// the selection card rising from the strip's top edge at area's left: 0,896 470x120 (its bounds)
+	IRegion2D card;
+	IRegion2D medallion;							///< 0,896 136x120: the portrait's frame, full height
+	IRegion2D portrait;								///< 8,904 116x90: the selection's picture
+	IRegion2D rankRect;								///< 10,998 112x14: the rank's chevrons, centred
+	IRegion2D labelPlate;							///< 136,932 334x84: the plate beside the medallion, lower than it
+	IRegion2D nameText;								///< 146,935 274x18: the name, bold, left-aligned
+	IRegion2D healthBar;							///< 146,956 316x6: the health groove, its fill a pixel inside
+	IRegion2D tray;										///< 140,966 326x50: the tiles' well
+	IRegion2D trayCells[ HUD_TRAY_CELLS ];	///< 50x42 at x 146 + 53i, y 970; a button 2 inside (46x38)
+
+	// leaning on the sidebar's left edge
+	IRegion2D powersWindow;						///< the general's powers window: 1400,64 192x240
+	IRegion2D superweaponRow;					///< the lowest timer row, 1312,968 288x40, right edge on the sidebar's; the next climbs by superweaponRowPitch
+	Int superweaponRowPitch;					///< 44 at 1920x1080: row n is superweaponRow moved up n * pitch
+};
+
+//-------------------------------------------------------------------------------------------------
+/** Fill `out` for a screen, a layout (HUD_LAYOUT_*) and a HudWidth (HUD_WIDTH_*).  Pure: it reads
+	* nothing but its arguments.  An unknown layout is Classic; a screen of no size leaves `out` zero. */
+//-------------------------------------------------------------------------------------------------
+void HudLayoutForScreen( Int screenWidth, Int screenHeight, Int layout, Int hudWidth, HudLayoutRects *out );
 
 //-------------------------------------------------------------------------------------------------
 inline Real TheUIScale( void )

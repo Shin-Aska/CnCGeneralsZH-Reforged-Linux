@@ -67,6 +67,10 @@ void Direct3D11_Atmosphere_Sky() {}
 void Direct3D11_Set_Headlights(const float *, unsigned, const float [3]) {}
 void Direct3D11_Set_Blast_Lights(const float *, unsigned) {}
 bool Direct3D11_Lights_Per_Pixel() { return false; }
+void Direct3D11_Set_Terrain_Relight(bool) {}
+void Direct3D11_Set_Terrain_Light(const float *) {}
+bool Direct3D11_Set_Terrain_Heights(const unsigned char *, unsigned, unsigned) { return false; }
+bool Direct3D11_Holds_Terrain_Heights() { return false; }
 void Direct3D11_Set_Soft_Particles(bool) {}
 void Direct3D11_Take_Scene_Depth() {}
 void Direct3D11_Allow_Soft_Particles(bool) {}
@@ -210,6 +214,7 @@ void Direct3D11_Take_Frame_Cost(double & pipeline_milliseconds, unsigned & pipel
 }
 const char * Direct3D11_Take_GPU_Report() { return NULL; }
 bool Direct3D11_Has_Frame_Wait() { return false; }
+void Direct3D11_Wait_For_Frame() {}
 const char * Direct3D11_Constant_Path() { return ""; }
 void Direct3D11_Refusals(unsigned long long & no_buffer, unsigned long long & no_stage,
 	unsigned long long & no_layout, unsigned long long & no_program,

@@ -55,6 +55,25 @@ Bool frameIsTooOldToResend( UnsignedInt currentFrame, UnsignedInt requestedFrame
 	return age > framesToKeep;
 }
 
+Bool arrivalMeasuresCushion( const UnsignedInt measured[CUSHION_RING_FRAMES], UnsignedInt frame,
+														 UnsignedInt currentFrame, Int maxAhead )
+{
+	// a ring slot must not be shared by two frames in flight
+	if( maxAhead > CUSHION_RING_FRAMES - 1 )
+		maxAhead = CUSHION_RING_FRAMES - 1;
+
+	Int ahead = (Int)(frame - currentFrame);		// signed difference, wraparound-safe
+	if( ahead < 0 || ahead > maxAhead )
+		return FALSE;
+
+	return measured[frame % CUSHION_RING_FRAMES] != frame;
+}
+
+void markCushionMeasured( UnsignedInt measured[CUSHION_RING_FRAMES], UnsignedInt frame )
+{
+	measured[frame % CUSHION_RING_FRAMES] = frame;
+}
+
 Bool shouldSelfSlug( Int minimumCushion, Int runAhead, UnsignedInt slackPercent )
 {
 	/* Negative is FrameMetrics' "nothing measured yet", set by init() and never produced by a real
@@ -83,47 +102,39 @@ Int selfSlugThreshold( Int runAhead, UnsignedInt slackPercent )
 	return threshold;
 }
 
-Real roomLatencySum( const Real latencies[], const Bool connected[], Int numSlots, Int routerSlot )
+Real roomWorstLatency( const Real latencies[], const Bool connected[], Int numSlots )
 {
 	Real worst = 0.0f;
-	Real secondWorst = 0.0f;
 	for( Int slot = 0; slot < numSlots; ++slot )
 	{
-		if( slot == routerSlot || !connected[slot] )
-			continue;
-
-		if( latencies[slot] > worst )
-		{
-			secondWorst = worst;
+		if( connected[slot] && latencies[slot] > worst )
 			worst = latencies[slot];
-		}
-		else if( latencies[slot] > secondWorst )
-		{
-			secondWorst = latencies[slot];
-		}
 	}
-	return worst + secondWorst;
+	return worst;
 }
 
-Int computeRunAhead( Real latencySumSeconds, Int fps, UnsignedInt slackPercent,
+Int computeRunAhead( Real roundTripSeconds, Real jitterSeconds, Int fps, UnsignedInt slackPercent,
 										 Int minRunAhead, Int maxRunAhead )
 {
-	if( latencySumSeconds < 0.0f )
-		latencySumSeconds = 0.0f;
+	if( !(roundTripSeconds >= 0.0f) )
+		roundTripSeconds = 0.0f;
+	if( !(jitterSeconds >= 0.0f) )
+		jitterSeconds = 0.0f;
 	if( fps < 1 )
 		fps = 1;			// the room rate is floored long before it gets here, but the division below is real
 
-	/* roomLatencySum() sums the two worst average round trips, so half of it is the one-way trip
-		 a command has to survive.  Rounded up, where EA truncated: a 150 ms round trip truncates to
-		 two frames - 66 ms - to cover 75 ms of wire, and a run-ahead shorter than the trip itself is
-		 not a tight window, it is a stall on every command that uses it.  Nobody ever saw that
-		 because the old floor of ten frames was larger than the formula's answer on every link
-		 anyone plays on; lowering the floor is what makes the arithmetic underneath it matter. */
-	Int frames = (Int)ceilf( (latencySumSeconds / 2.0f) * (Real)fps );
+	/* roomWorstLatency() is the worst round trip in the room, so half of it is the one-way trip a
+		 command has to survive, and a packet late by the link's spread takes that plus
+		 RUNAHEAD_JITTER_DEVIATIONS of jitter.  The window has to be longer than that by whole frames:
+		 floor + 1 is the least frame count past it.  EA truncated the trip alone, and a window shorter
+		 than the wire is a stall on every command.  The brake's threshold goes on top - see the header. */
+	Real late = ( (roundTripSeconds / 2.0f) + (Real)RUNAHEAD_JITTER_DEVIATIONS * jitterSeconds ) * (Real)fps;
+	Int frames = ( late >= (Real)maxRunAhead ) ? maxRunAhead : (Int)floorf( late ) + 1;	// no float-to-int overflow
 
-	// EA's proportional slack, and then the fixed allowance an average and a percentage cannot give
+	// EA's proportional slack, then the phase margin and the brake's room
 	frames += (Int)((frames * (Int)slackPercent) / 100);
-	frames += RUNAHEAD_JITTER_FRAMES;
+	frames += RUNAHEAD_PHASE_MARGIN_FRAMES;
+	frames += selfSlugThreshold( frames, slackPercent );
 
 	if( frames < minRunAhead )
 		frames = minRunAhead;
@@ -139,8 +150,8 @@ Real sanitizeLatencySample( Real seconds, Real ceilingSeconds )
 	if( ceilingSeconds < 0.0f )
 		ceilingSeconds = 0.0f;
 
-	if( seconds < 0.0f )
-		return 0.0f;						// the clock went backwards; no information, not a fast link
+	if( !(seconds >= 0.0f) )
+		return 0.0f;						// the clock went backwards, or a NaN off the wire; no information, not a fast link
 
 	if( seconds > ceilingSeconds )
 		return ceilingSeconds;

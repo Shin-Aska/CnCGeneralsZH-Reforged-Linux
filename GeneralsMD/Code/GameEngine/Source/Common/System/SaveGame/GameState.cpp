@@ -86,8 +86,12 @@ static const Int MAX_SAVE_FILE_NUMBER  =  99999999;
 // The GameState block's version.  4 adds nothing to the block: it marks the build where logic went
 // to 60 ticks a second, and a file written before that cannot load in this one (a mission save
 // aside: SaveGameInfo::isLoadable).  The original
-// game's files are 2, as were this fork's until 3 added the game speed.
-static const XferVersion GAME_STATE_VERSION = 4;
+// game's files are 2, as were this fork's until 3 added the game speed.  5 is the same kind of mark:
+// MAX_PLAYER_COUNT went from 16 to 48, and every per-player array in the file, a PartitionCell's
+// shroud and a mask now 64 bits wide among them, is written at the new length.  6 writes the logic
+// rate, so a save counted at one rate is refused by a build running at another; a 5 was written at 60.
+static const XferVersion GAME_STATE_VERSION = 6;
+static const Int GAME_STATE_VERSION_5_LOGIC_RATE = 60;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 #define GAME_STATE_BLOCK_STRING "CHUNK_GameState"  // block of save game data with game info data
@@ -110,6 +114,7 @@ SaveGameInfo::SaveGameInfo( void )
 	saveFileType			= SAVE_FILE_TYPE_NORMAL;
 	framesPerSecond		= 0;
 	version						= 0;
+	logicFramesPerSecond = LOGICFRAMES_PER_GAME_SECOND;
 
 }  // end SaveGameInfo
 
@@ -125,16 +130,35 @@ SaveGameInfo::~SaveGameInfo( void )
 Bool SaveGameInfo::isLoadable( void ) const
 {
 
-	// a newer one never gets this far: xferVersion refuses it while the header is read
-	if( version >= GAME_STATE_VERSION )
+	// A mission save holds only this block and the campaign's, neither of which counts frames, so
+	// the one an older build, another logic rate or the original game wrote at a mission's start
+	// still loads.  Version 2 is the first that records the file type.
+	if( version >= 2 && saveFileType == SAVE_FILE_TYPE_MISSION )
 		return TRUE;
 
-	// A mission save holds only this block and the campaign's, neither of which counts frames, so
-	// the one an older build or the original game wrote at a mission's start still loads.  Version
-	// 2 is the first that records the file type.
-	return version >= 2 && saveFileType == SAVE_FILE_TYPE_MISSION;
+	// a newer one never gets this far: xferVersion refuses it while the header is read.  5 is the
+	// oldest block whose per-player arrays this build reads; its frame counts are in ticks per game
+	// second, which names the logic rate and the game speed together, and has to be one of ours.
+	return version >= 5 && gameSpeedPercent() != 0;
 
 }  // end isLoadable
+
+// ------------------------------------------------------------------------------------------------
+/* The game speed a save was played at, from its ticks a game second: 30, 24, 20 and 15 are 100, 125,
+	 150 and 200 at a 30 Hz logic; 0 for one no speed of ours writes (a version 5 save's 60 among them). */
+// ------------------------------------------------------------------------------------------------
+Int SaveGameInfo::gameSpeedPercent( void ) const
+{
+	return GameState_speedForTicksPerGameSecond( logicFramesPerSecond );
+}
+
+Int GameState_speedForTicksPerGameSecond( Int ticksPerGameSecond )
+{
+	for( Int i = 0; i < PLAYER_GAME_SPEED_COUNT; ++i )
+		if( GameSpeed_compute( PLAYER_GAME_SPEED_PERCENTS[ i ] ).ticksPerGameSecond == ticksPerGameSecond )
+			return PLAYER_GAME_SPEED_PERCENTS[ i ];
+	return 0;
+}
 
 // ------------------------------------------------------------------------------------------------
 /** Is this date newer than the other one passed in? */
@@ -762,18 +786,32 @@ Bool GameState::saveCheckpoint( AsciiString filepath )
 	* failed part way: the half-loaded match is cleared, as a replay's end clears it, and the player
 	* is told, so an object whose module cannot load ends the replay rather than the game. */
 // ------------------------------------------------------------------------------------------------
-Bool GameState::loadCheckpoint( AsciiString filepath, const std::function< void( void ) > &afterReset )
+Bool GameState::loadCheckpoint( AsciiString filepath, const std::function< Bool( void ) > &afterReset )
 {
 #if defined(__linux__)
 	PosixGpuTimingLoadMarker("load-begin", TheGameLogic->getFrame());
 #endif
 	TheGameStateMap->clearScratchPadMaps();
 
+	// the speed the checkpoint was taken at, read before the reset as loadGame has a save's
+	SaveGameInfo checkpointInfo;	// a header that will not read keeps the speed in force, and the load below fails on its own
+	try
+	{
+		getSaveGameInfoFromFile( filepath, &checkpointInfo );
+	}
+	catch( ... )
+	{
+	}
+
 	XferLoad xferLoad;
 	xferLoad.open( filepath );
 
 	TheGameEngine->reset();
-	afterReset();
+	// the recorder's turn; a replay it cannot reopen ends the rewind as a failed load
+	const Bool resumed = afterReset();
+	// the checkpoint's frame counts are at its own speed, whatever the replay header said
+	if( resumed && checkpointInfo.gameSpeedPercent() != 0 )
+		GameSpeed_set( checkpointInfo.gameSpeedPercent() );
 
 	// The post-process is part of the load, as it is in loadGame: a Cold Fusion plant's Control Rods
 	// put its power back there, and outside the load that browned the player out or in again and
@@ -783,10 +821,11 @@ Bool GameState::loadCheckpoint( AsciiString filepath, const std::function< void(
 
 	TheGhostObjectManager->saveLockGhostObjects( TRUE );
 	TheGameLogic->setLoadingWithoutScreen( TRUE );
-	Bool error = FALSE;
+	Bool error = !resumed || checkpointInfo.gameSpeedPercent() == 0;
 	try
 	{
-		xferSaveData( &xferLoad, SNAPSHOT_SAVELOAD );
+		if( !error )
+			xferSaveData( &xferLoad, SNAPSHOT_SAVELOAD );
 	}
 	catch( ... )
 	{
@@ -829,6 +868,8 @@ Bool GameState::loadCheckpoint( AsciiString filepath, const std::function< void(
 // ------------------------------------------------------------------------------------------------
 SaveCode GameState::loadGame( AvailableGameInfo gameInfo )
 {
+	// the menu loads from inside the client block's CachePeek, -loadsave from outside it; both store
+	Thing::CacheStore loadStoresHeights;
 
 	// sanity check for file
 	if( doesSaveGameExist( gameInfo.filename ) == FALSE )
@@ -871,6 +912,11 @@ SaveCode GameState::loadGame( AvailableGameInfo gameInfo )
 
 	// clear out the game engine
 	TheGameEngine->reset();
+
+	// the speed the match was played at, before anything of it loads: every frame count in the file is
+	// in its ticks.  A mission save starts its map afresh, at the missions' speed, through MSG_NEW_GAME.
+	if( gameInfo.saveGameInfo.saveFileType != SAVE_FILE_TYPE_MISSION )
+		GameSpeed_set( gameInfo.saveGameInfo.gameSpeedPercent() );
 
 	// lock creation of new ghost objects
 	TheGhostObjectManager->saveLockGhostObjects( TRUE );
@@ -928,12 +974,11 @@ SaveCode GameState::loadGame( AvailableGameInfo gameInfo )
 
 	}  // end if
 
-	// A loaded match played at the default 30 whatever speed it was saved at: the reset during the
-	// load puts the default back, and nothing kept the speed. A mission save starts its map afresh. A
-	// save comes back at normal speed or in turbo mode, whichever is nearer what it was saved at, so
-	// one from the old half-speed settings plays at normal.
-	if( getSaveGameInfo()->saveFileType != SAVE_FILE_TYPE_MISSION && getSaveGameInfo()->framesPerSecond > 0 )
-		TheGameEngine->setFramesPerSecondLimit( ClampPlayerGameSpeed( getSaveGameInfo()->framesPerSecond ) );
+	// Every match ticks the same number of times a second, so a loaded one takes the match pace, not
+	// the ticks a second it was saved at (a slowed cinematic's, or an old build's for its game speed;
+	// the speed itself came from the frame counts' field above).
+	if( getSaveGameInfo()->saveFileType != SAVE_FILE_TYPE_MISSION )
+		TheGameEngine->setFramesPerSecondLimit( GameEngine_matchFramesPerSecond() );
 
 	//
 	// when loading a mission save, we want to do as much normal loading stuff as we
@@ -950,7 +995,7 @@ SaveCode GameState::loadGame( AvailableGameInfo gameInfo )
 		msg->appendIntegerArgument(GAME_SINGLE_PLAYER);
 		msg->appendIntegerArgument(TheCampaignManager->getGameDifficulty());
 		msg->appendIntegerArgument(TheCampaignManager->getRankPoints());
-		msg->appendIntegerArgument(GameEngine_matchFramesPerSecond(TheGlobalData->m_turboMode));
+		GameEngine_appendNewGameRates( msg, TheGlobalData->m_missionGameSpeedPercent );
 
 		// remove the mission save data, we've got all we need and have started the load
 		SaveGameInfo *gameInfo = getSaveGameInfo();
@@ -971,8 +1016,8 @@ Bool GameState::refuseUnloadableSave( const SaveGameInfo &saveGameInfo )
 	if( saveGameInfo.isLoadable() )
 		return FALSE;
 
-	DEBUG_LOG(( "GameState - refused a save with GameState version %d, this build loads %d\n",
-							saveGameInfo.version, GAME_STATE_VERSION ));
+	DEBUG_LOG(( "GameState - refused a save with GameState version %d at %d ticks a game second, this build loads %d at a game speed's 30, 24, 20 or 15 (%d Hz)\n",
+							saveGameInfo.version, saveGameInfo.logicFramesPerSecond, GAME_STATE_VERSION, (Int)LOGICFRAMES_PER_SECOND ));
 	MessageBoxOk( TheGameText->fetch( "GUI:Error" ), TheGameText->fetch( "GUI:SaveFromOlderGame" ), NULL );
 	return TRUE;
 
@@ -1755,7 +1800,9 @@ void GameState::gameStatePostProcessLoad( void )
 	* 1: Initial version 
 	* 2: Added save file type and mission map name (regular save vs automatic mission save)
 	* 3: Added the game speed
-	* 4: Nothing new in the block; see GAME_STATE_VERSION */
+	* 4: Nothing new in the block; see GAME_STATE_VERSION
+	* 5: Nothing new in the block either; 48 players, see GAME_STATE_VERSION
+	* 6: Added the logic rate */
 // ------------------------------------------------------------------------------------------------
 void GameState::xfer( Xfer *xfer )
 {
@@ -1777,6 +1824,20 @@ void GameState::xfer( Xfer *xfer )
 		saveGameInfo->framesPerSecond = 0;
 	if( version >= 3 )
 		xfer->xferInt( &saveGameInfo->framesPerSecond );
+
+	// version 6: the logic rate the frame counts in the file are in, checked by isLoadable.  Every
+	// block before 6 that this build can read (version 5) was written at 60; older ones are refused
+	// on their version anyway, and retail ran at its own rate.  The rate written is ticks per game
+	// second (LOGICFRAMES_PER_GAME_SECOND), which names the match's game speed as well (30, 24, 20,
+	// 15 at 30 Hz for 100, 125, 150, 200); loadGame sets that speed before the rest of the file loads.
+	if( xfer->getXferMode() != XFER_LOAD )
+		saveGameInfo->logicFramesPerSecond = LOGICFRAMES_PER_GAME_SECOND;
+	else if( version >= 4 )
+		saveGameInfo->logicFramesPerSecond = GAME_STATE_VERSION_5_LOGIC_RATE;
+	else
+		saveGameInfo->logicFramesPerSecond = RETAIL_LOGICFRAMES_PER_SECOND;
+	if( version >= 6 )
+		xfer->xferInt( &saveGameInfo->logicFramesPerSecond );
 
 	// version 2
 	if( version >= 2 )

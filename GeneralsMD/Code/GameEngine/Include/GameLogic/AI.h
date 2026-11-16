@@ -37,7 +37,7 @@
 #include "Common/SubsystemInterface.h"
 #include "Common/GameMemory.h"
 #include "Common/GameType.h"
-#include "Common/GameCommon.h"		// LOGICFRAMES_PER_SECOND
+#include "Common/GameCommon.h"		// LOGICFRAMES_PER_GAME_SECOND
 #include "GameLogic/Damage.h"
 #include "Common/STLTypedefs.h"
 
@@ -53,6 +53,7 @@ class Pathfinder;
 class Player;
 class PolygonTrigger;
 class SimpleObjectIterator;
+struct ShroudPeekRecord;
 class ThingTemplate;
 class UpgradeTemplate;
 class WeaponBonus;
@@ -402,7 +403,7 @@ struct AITargetRating
 	ObjectID m_id;		///< the last tie, so every machine picks the same one
 };
 
-const Int AI_QUICK_KILL_FRAMES = 10 * LOGICFRAMES_PER_SECOND;
+#define AI_QUICK_KILL_FRAMES ((Int)(10 * LOGICFRAMES_PER_GAME_SECOND))
 
 /** 2 for whoever just shot us, and while something is shooting us for an armed enemy already in
 	* reach that we kill within AI_QUICK_KILL_FRAMES; 1 for any other enemy that can shoot us; 0 for
@@ -548,7 +549,7 @@ static const Int AI_FACTORY_HISTORY_PASSES = 32;
 /** The rung's backlog in spend passes of passFrames each, rounded up, 1 to AI_FACTORY_HISTORY_PASSES. */
 inline Int aiBacklogSamples( Real seconds, Int passFrames )
 {
-	const Int frames = REAL_TO_INT( seconds * LOGICFRAMES_PER_SECOND );
+	const Int frames = REAL_TO_INT( seconds * LOGICFRAMES_PER_GAME_SECOND );
 	const Int passes = ( frames + passFrames - 1 ) / passFrames;
 	return passes < 1 ? 1 : passes > AI_FACTORY_HISTORY_PASSES ? AI_FACTORY_HISTORY_PASSES : passes;
 }
@@ -581,7 +582,7 @@ inline Bool aiQueueKindFull( Int finished, Int busy ) { return finished > 0 && b
 inline Bool aiAirfieldsFull( Int finished, Int parkingFull, Bool wanted ) { return finished > 0 && parkingFull >= finished && wanted; }
 
 /** How long a buy refused for parking keeps the computer wanting another airfield. */
-static const UnsignedInt AI_PARKING_WANT_FRAMES = 15 * LOGICFRAMES_PER_SECOND;
+#define AI_PARKING_WANT_FRAMES ((UnsignedInt)(15 * LOGICFRAMES_PER_GAME_SECOND))
 
 /** One unfinished building the computer placed, as its base builder last saw it. */
 struct AISiteWatch
@@ -806,7 +807,7 @@ enum AIPurchaseKind
 };
 
 /** The first minutes of a match, while economy and power outrank the army. */
-const UnsignedInt AI_PURCHASE_EARLY_FRAMES = 6 * 60 * LOGICFRAMES_PER_SECOND;
+#define AI_PURCHASE_EARLY_FRAMES ((UnsignedInt)(6 * 60 * LOGICFRAMES_PER_GAME_SECOND))
 
 /** How much a purchase of this kind matters next to the others; the higher wins the money.  Early in a
 	* match income and power come before the army, which is how a Hard AI kept attacking with two
@@ -865,7 +866,7 @@ static const Int AI_SHARE_MIN = 500;
 Int aiPersonaShareAmount( Int bank, Int target, Int cap );
 
 /** May a bot say something now: never twice inside AI_CHAT_GAP_FRAMES, the first line any time. */
-static const UnsignedInt AI_CHAT_GAP_FRAMES = 150 * LOGICFRAMES_PER_SECOND;
+#define AI_CHAT_GAP_FRAMES ((UnsignedInt)(150 * LOGICFRAMES_PER_GAME_SECOND))
 Bool aiPersonaChatAllowed( UnsignedInt now, UnsignedInt lastChat );
 
 /** What a player asks of his allies: his base is under attack, by aircraft, he is short of money, or
@@ -889,8 +890,8 @@ struct AITeamRequest
 };
 
 /** How long a call for help stands, and a personality keeps to an ally's attack after he posted it. */
-static const UnsignedInt AI_COOP_HELP_FRAMES = 15 * LOGICFRAMES_PER_SECOND;
-static const UnsignedInt AI_COOP_JOIN_FRAMES = 120 * LOGICFRAMES_PER_SECOND;
+#define AI_COOP_HELP_FRAMES ((UnsignedInt)(15 * LOGICFRAMES_PER_GAME_SECOND))
+#define AI_COOP_JOIN_FRAMES ((UnsignedInt)(120 * LOGICFRAMES_PER_GAME_SECOND))
 
 /** Post a request from this player to every computer ally of his (allied both ways). */
 void aiPostTeamRequest( Player *from, AITeamRequestKind kind, Int enemy, const Coord3D *pos );
@@ -949,15 +950,15 @@ struct AIPurchaseQueue
 	void bought( Int key ) { if( key == m_key ) m_key = NONE; }
 };
 
-const UnsignedInt AI_PURCHASE_STALE_FRAMES = 20 * LOGICFRAMES_PER_SECOND;
-const UnsignedInt AI_PURCHASE_HOLD_FRAMES = 40 * LOGICFRAMES_PER_SECOND;
+#define AI_PURCHASE_STALE_FRAMES ((UnsignedInt)(20 * LOGICFRAMES_PER_GAME_SECOND))
+#define AI_PURCHASE_HOLD_FRAMES ((UnsignedInt)(40 * LOGICFRAMES_PER_GAME_SECOND))
 
 /** How long a stretch of income is measured over before the rate is taken again. */
-const UnsignedInt AI_INCOME_WINDOW_FRAMES = 30 * LOGICFRAMES_PER_SECOND;
+#define AI_INCOME_WINDOW_FRAMES ((UnsignedInt)(30 * LOGICFRAMES_PER_GAME_SECOND))
 
 /** The falling-behind income bonus (AIPlayer::stepIncomeBonus): how often it is weighed again, how far
 	* it moves at one weighing, and its ceiling over the rung's IncomePercent, in percentage points. */
-const UnsignedInt AI_INCOME_BONUS_FRAMES = 30 * LOGICFRAMES_PER_SECOND;
+#define AI_INCOME_BONUS_FRAMES ((UnsignedInt)(30 * LOGICFRAMES_PER_GAME_SECOND))
 const Int AI_INCOME_BONUS_STEP = 25;
 const Int AI_INCOME_BONUS_MAX = 150;
 
@@ -1054,7 +1055,7 @@ public:
 	Real m_teamSeconds;					// Try to build a team every N seconds.
 	Int m_resourcesWealthy;		// How many resources to be wealthy.
 	Int m_resourcesPoor;			// How few resources to be poor.
-	UnsignedInt m_forceIdleFramesCount;	// How many frames does a unit need to be Idle before it can begin looking for enemies?
+	DurationFrames m_forceIdleFramesCount;	// How many frames does a unit need to be Idle before it can begin looking for enemies?
 	Real m_structuresWealthyMod; // Factor to multiply m_structurFrames by if we are wealthy.
 	Real m_teamWealthyMod;		// Factor to multiply m_teamFrames by if we are wealthy.
 	Real m_structuresPoorMod; // Factor to multiply m_structureFrames by if we are poor.
@@ -1064,9 +1065,9 @@ public:
 	Real m_guardOuterModifierAI;	// Multiply the AI unit's vision by this much == guard outer circle.
 	Real m_guardInnerModifierHuman;	// Multiply the human unit's vision by this much == guard inner circle
 	Real m_guardOuterModifierHuman;	// Multiply the human unit's vision by this much == guard outer circle
-	UnsignedInt m_guardChaseUnitFrames;		// Number of frames for which a unit should 
-	UnsignedInt m_guardEnemyScanRate;		// rate to scan for enemies while guarding
-	UnsignedInt m_guardEnemyReturnScanRate;		// rate to scan for enemies while guarding but returning
+	DurationFrames m_guardChaseUnitFrames;		// Number of frames for which a unit should 
+	DurationFrames m_guardEnemyScanRate;		// rate to scan for enemies while guarding
+	DurationFrames m_guardEnemyReturnScanRate;		// rate to scan for enemies while guarding but returning
 
 	Real m_wallHeight;				// Height of special wall units can walk on top of.
 
@@ -1170,6 +1171,7 @@ public:
 	static Int getEnemyScanCountThisFrame( void ) { return s_enemyScans; }
 	static void resetEnemyScanCount( void ) { s_enemyScans = 0; }
 	static void bumpEnemyScanCount( void ) { ++s_enemyScans; }
+	static void noteJobEnemyScans( Int scans ) { s_enemyScans += scans; }	///< what jobs counted, added after the join
 	enum
 	{
 		CAN_SEE														=	1 << 0,
@@ -1178,10 +1180,29 @@ public:
 		ATTACK_BUILDINGS									= 1 << 3,
 		WITHIN_ATTACK_RANGE								= 1 << 4,
 		UNFOGGED													= 1 << 5,
-		PREFER_BEST_TARGET								= 1 << 6		///< pick by pickBestTarget, not the nearest thing
+		PREFER_BEST_TARGET								= 1 << 6,		///< pick by pickBestTarget, not the nearest thing
+		ANY_WILL_DO												= 1 << 7		///< some enemy the search would accept, not the one it picks: only for asking whether the answer is NULL
 	};
+	/** A target search a job of the logic thread runs (LOGIC-PARALLEL.md, P2): the thread's own scratch
+		in, and whether the answer may stand out. The search gathers with PartitionManager::gatherFromJob,
+		peeks the fog instead of asking it (the logic thread replays the questions later), counts here
+		instead of in the shared counters, and gives up, aborted, wherever a step is not safe beside other
+		jobs: a search form it does not run, a cache not filled yet, a whole range query underneath. */
+	struct ScanJob
+	{
+		Object		**objects;				///< capacity each, this thread's
+		Real			*distSqr;
+		Int				capacity;
+		ShroudPeekRecord *peeks;		///< where the fog filter records
+		SimpleObjectIterator *iterator;	///< this thread's, filled again by each gather (recycle)
+		Bool			aborted;
+		Int				gathers;
+		Int				objectsLookedAt;
+		Int				scans;
+	};
+
 	Object *findClosestEnemy( const Object *me, Real range, UnsignedInt qualifiers,
-		const AttackPriorityInfo *info=NULL, PartitionFilter *optionalFilter=NULL);
+		const AttackPriorityInfo *info=NULL, PartitionFilter *optionalFilter=NULL, ScanJob *job=NULL);
 
 	/** The candidate me would rather shoot than any other, by aiTargetBeats, or NULL.  lateFilters
 		* (NULL-terminated) are asked only of a candidate that would take the lead. */
@@ -1228,6 +1249,12 @@ public:
 	static void parseScience( INI* ini, void *instance, void *store, const void *userData );					///< Parse the image part of the INI file
 
 	inline UnsignedInt getNextGroupID( void ) { return ++m_nextGroupID; }
+	/** The groups, in list order with their IDs and members, and the counters that hand out group and
+		formation IDs. EA saved none of it: a loaded game had no groups, and the next group made took
+		ID 1, so its units moved apart and the CRC, which walks the group list, parted from the game
+		that was saved on the first frame. GameLogic::xfer writes it after the objects. */
+	void xferGroups( Xfer *xfer );
+	void loadPostProcessGroups( void );	///< the loaded groups take their members back, once every object is in
 
 	/// One building placement per logic frame across every computer player: FALSE when one already went down on this frame.
 	Bool claimBuildingPlacement( UnsignedInt frame );
@@ -1247,6 +1274,7 @@ protected:
 	UnsignedInt m_sweptGroupID;						///< every group up to this ID has been through sweepEmptyGroups
 	FormationID m_nextFormationID;
 	UnsignedInt m_lastBuildingPlacementFrame;	///< cleared by reset: a static here outlived the match and deferred the next match's first placement on one machine only
+	std::vector< std::pair< AIGroup *, std::vector< ObjectID > > > m_loadedGroupMembers;	///< xferGroups' members, until loadPostProcessGroups
 };
 
 extern AI *TheAI;												///< the Artificial Intelligence singleton
@@ -1885,6 +1913,7 @@ public:
 #endif
 	void groupCheer( CommandSourceType cmdSource );
 	void groupSell( CommandSourceType cmdSource );
+	static Bool mayPlayerSell( const Object *obj );	///< the bar's checks before it shows Sell; the sidebar's Sat asks them too
 	void groupToggleOvercharge( CommandSourceType cmdSource );
 #ifdef ALLOW_SURRENDER
 	void groupPickUpPrisoner( Object *prisoner, CommandSourceType cmdSource );	///< pick up prisoner

@@ -28,6 +28,99 @@ not tracked by Git, so a fresh clone uses the staged executable directly. The ga
 above open a window for interactive play; the automated checks later in this guide use isolated
 user data and run without a visible window.
 
+## Simulation speed
+
+The current integration runs the simulation at 30 ticks per wall-clock second. Game speed controls
+how much game time each tick advances: **100%, 125%, 150% (default) or 200%**. The campaign and
+Generals' Challenge use **Options → Interface → Game Speed in Missions**; a change applies to the
+next mission. Skirmish has its own lobby control, and network games use 150%.
+The former campaign Turbo Mode checkbox has been replaced by these speed choices. Rendering and
+its frame-rate limit remain separate from the simulation clock.
+
+## Terrain and ground foliage
+
+Native SDL3/Vulkan now supplies the three newer upstream terrain features: height-derived sun
+lighting per pixel, subdivided terrain geometry and **Ground Foliage**. Full-detail terrain and its
+roads use the sampled heights for lighting; subdivision gives the ground a smoother surface.
+Classic graphics and the lower-detail terrain paths keep their existing geometry and vertex light.
+
+**Options → Display → Ground Foliage** adds grass, shrubs, twigs, pebbles and rocks on eligible ground.
+It starts off for new profiles and is selected only by Ultra among the presets; the existing High
+preset remains unchanged. Foliage requires full-detail, subdivided terrain and is suppressed by
+Classic graphics and headless runs. Its native shader includes wind sway, distance folding and
+alpha-tested shadows. Feature availability queries the native providers.
+
+The existing Linux enhancements remain: particles and lighting, model effects, HDR/AO/post effects,
+atmosphere and weather, heat and blast distortion, range overlays, battle marks, shared volumetric
+clouds, Classic-water foam and splashes, and Modern-water reflection modes. Underwater fire and tree
+sway handling, asset preloading, briefing audio and cinematic smoothing are carried through the merge.
+EA's four unit veterancy levels remain, and mod support stays removed; general talent ranks are separate.
+Classic water reuses and reprojects its mirror between 30 Hz refreshes when coverage permits. Modern
+water retains Clean FFT and Legacy/SSR/Hybrid/Path Traced reflections. The overlay now includes the
+incoming loose audio and W3D models alongside textures, with INI CRLF conversion preserved.
+
+## Current upstream integration validation (2026-11-16)
+
+The local integration branch is `sync/post-4.0.0-upstream`, combining upstream
+`761ee2ccce81f5249b8d1ab44cd789057dc7b265` with the Linux baseline
+`dbaa972641c8b9eb048ac3b599491513cd468bd5`. The validation artifacts below were built **before the
+merge commit**, from the resolved `dbaa972-dirty` working tree. Their source fingerprint is
+`761A2673` over 5,629 files; the later workflow/documentation changes do not alter that fingerprint.
+The raw executable SHA-256 is
+`e309e89449d1ee3f0e08c8d71ee0c065444b59083698ac8401373b90fc9ad822`; the stripped build-tree package executable is
+`ace2ec525a632cda364bb0a4a65ccb98769966b858ec35914bc886a6a2ee20f1`.
+
+The reskin startup validator now records successful authored module removals by tag and compares
+against immutable type/tag identities captured when the reskin actually inherited its modules.
+A later parent-only addition creates no inherited obligation; accidental loss of an inherited type
+still fails. Overrides preserve the provenance, and a new inheritance baseline resets it. This fixes
+the Debug-start diagnostic without changing gameplay INIs or module payloads.
+
+| Check | Result |
+|:--|:--|
+| Release build; full game-engine test and two fingerprint checks | Passed; 3/3 checks in 49.59 s |
+| Reskin regression tests; existing replacement regression | Passed: 3 tests / 41 checks and 1 test / 10 checks |
+| Actual startup module oracle | Passed in 87.05 s: 58 AI replacements / 0 lost locomotors; 324 reskins / 0 missing inherited behaviors |
+| Reconciled registered-test ledger | 201 cases: 191 passed, 2 failed, 8 skipped |
+| GPU/mixed subset | 24/25 passed; the known two-pixel fixed-function reference mismatch remains failed |
+| Seven native renderer scenes | Passed; terrain/grass/sun controls, Classic water and Modern SSR/Hybrid/PT all retained `8B87FBA8@360` |
+| Classic/Red Alert interface captures | Both passed with real P/Q input and implicit packaged-overlay discovery; `9880A8AE@360` |
+| Fresh match recording, replay, repeat, save and reload | Passed with clean exits and `88768E56@2400` |
+| Positive package resolution and integrity | Passed: 26,726 resolved paths, INI/EXE CRC agreement and 370 install files unchanged |
+| Staged overlay | 335 audio files, 305 W3D models and 314 textures match source; INIs retain CRLF |
+| Actual-data audio and texture fixtures | Passed after private-fixture corrections; all 7,342 textures loaded with zero errors |
+
+The other failed registered case is `packaging_resolution_check`: its armed negative control cannot
+run without the optional genuine `ReforgedTextures.big`, which is absent here. Its separate positive
+package checks passed; the failed negative-control check is not reported as green. The eight skipped
+registered cases are `replay_check`, `net_check`, `data_gone_check`, `linux_portable_check`,
+`ffprogram_values_check`, `arch_differential`, `d3dx_oracle` and `d3dx_assemble_oracle`; reasons are
+recorded in the handoff. Separate fresh replay/save runs do not turn those registered skips into passes.
+
+Runtime qualification used native Vulkan on the RTX 4060 with driver 595.112.07. These bounded scenes
+and same-machine, same-build determinism checks do not establish cross-platform or cross-version
+network agreement. Debug application runtime, real remote multiplayer, exhaustive GUI/campaign
+completion and long-duration stability remain unrun. Upstream's new formats reject older saves
+and replays; existing player files were not modified. The dated 60 Hz history and older benchmarks
+below retain their original build identities and are not new measurements of this candidate.
+
+The local CI preflight fixed the workflow's syntax gate to check all five intended shell helpers
+individually. All five pass; a malformed second-script control now fails with exit 2 instead of
+being ignored. The mocked no-art vendor test passed its three checks, and all 14 release-helper
+fixture tests passed. This is preflight coverage only: the full Sniper build, Ubuntu 22.04
+Lavapipe/Xvfb run, package/Flatpak builds and distro-install checks have **not run locally**;
+The remaining CI checks are planned for GitHub; local CI-tool installation was not approved and is not being pursued. Preflight evidence is under
+`build-linux/ci-local/evidence/`.
+
+Final local evidence is under `build-linux/upstream-parity-evidence/acceptance/`, including
+`verification-handoff.txt`, `verification-handoff.json`, `final-test-dispositions.json`,
+`package-asset-identities.json`, `final-cpu-focus.log`, `runtime-cases.log`, `sidebar-comparison.json`
+and `package-roundtrip.log`. Earlier diagnosis and focused oracle evidence remains under the sibling
+`final-validation/` directory. The reconciled ledger retains prior failed attempts and unaffected
+fixture evidence alongside the final affected-check reruns. The GPU group preceded the final
+diagnostic-only provenance fix; renderer/shader sources and the native GPU fixture hash were unchanged.
+The final native application scenes were repeated separately.
+
 ## Water reflections
 
 New profiles use upstream's Classic graphics and Classic water defaults. For Modern water, turn off
@@ -560,7 +653,7 @@ ZH_USER_DATA_DIR="$PWD/build-linux/render-check/user" \
 VK_DRIVER_FILES=/usr/share/vulkan/icd.d/nvidia_icd.json \
   ./build-linux/ZeroHourReforged/bin/generals \
     -offscreen -root "$play_root" -quickstart -noshellmap -multiInstance \
-    -noFPSLimit -turbo -randommap 0 2 -autoskirmish 2 -aidiff brutal -seed 0 \
+    -noFPSLimit -randommap 0 2 -autoskirmish 2 -gamespeed 150 -aidiff brutal -seed 0 \
     -observer -autocamera 10 -screenshot 900 -maxframes 1000 -logPrefix rendercheck
 ```
 

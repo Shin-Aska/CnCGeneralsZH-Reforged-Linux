@@ -38,6 +38,7 @@
 #include "Common/Player.h"
 #include "Common/PlayerList.h"
 #include "Common/NameKeyGenerator.h"
+#include "GameClient/AirliftPanel.h"
 #include "GameClient/Display.h"
 #include "GameClient/GadgetListBox.h"
 #include "GameClient/GameWindowManager.h"
@@ -288,6 +289,8 @@ static Bool theHandshakeDone = FALSE;
 static std::vector<char> theIncoming;
 static std::vector<AsciiString> thePendingCommands;
 static Bool theQuitRequested = FALSE;
+static UnsignedInt theSaveAtFrame = 0;		///< saveat: the first poll at or past this frame saves, 0 for none
+static AsciiString theSaveAtName;
 
 static void closeClient( void )
 {
@@ -726,6 +729,16 @@ static void replyStatus( void )
 	sendText( &reply[ 0 ] );
 }
 
+/** The save menu's Save into <name>.sav; TRUE when the file was written. */
+static Bool saveTo( const AsciiString &name )
+{
+	AsciiString filename;
+	filename.format( "%s.sav", name.str() );
+	UnicodeString description;
+	description.translate( name );
+	return TheGameState->saveGame( filename, description, SAVE_FILE_TYPE_NORMAL ) == SC_OK;
+}
+
 /** Everything that changes the world is queued; see the header for why. */
 static void handleCommand( const AsciiString &command )
 {
@@ -762,6 +775,49 @@ static void handleCommand( const AsciiString &command )
 		LogicThread::report();
 		theQuitRequested = TRUE;
 		replyOk( "\"quitting\":true" );
+		return;
+	}
+
+	/* select all: what the SELECT_ALL key does, whatever key the player's command map gives it (Q in
+		 retail's; Ctrl+A is the beacon there).  Posted twice because one press takes the screen and the
+		 second, with nothing new left on it, takes the whole map.  Not a shell list's row: no window is
+		 named "all". */
+	/* airliftopen <x> <y> opens the airlift panel of the local player's first airlift power (Ally Aid)
+		 aimed at that world point, as the power's click on the ground does; airliftpanel says what the
+		 panel shows and where the centre of each of its buttons is on screen, for click.  Both are the
+		 client's own, so a picture can be taken of the panel; only OK reaches the logic, as a message. */
+	if (strncmp( command.str(), "airliftopen ", 12 ) == 0)
+	{
+		Coord3D at;
+		at.zero();
+		if (sscanf( command.str() + 12, "%f %f", &at.x, &at.y ) != 2 || TheTerrainLogic == NULL)
+		{
+			replyError( "airliftopen <x> <y>" );
+			return;
+		}
+		at.z = TheTerrainLogic->getGroundHeight( at.x, at.y );
+		if (AirliftPanel_openForLocalPlayer( &at ))
+			replyOk( "\"airlift\":\"open\"" );
+		else
+			replyError( "the local player has no airlift power" );
+		return;
+	}
+
+	if (command == "airliftpanel")
+	{
+		char members[ 3072 ];
+		AirliftPanel_describe( members, sizeof( members ) );
+		char reply[ 3200 ];
+		snprintf( reply, sizeof( reply ), "{\"ok\":true,%s}", members );
+		sendText( reply );
+		return;
+	}
+
+	if (command == "select all")
+	{
+		for (Int press = 0; press < 2; ++press)
+			TheMessageStream->appendMessage( GameMessage::MSG_META_SELECT_ALL );
+		replyOk( "\"selected\":true" );
 		return;
 	}
 
@@ -819,14 +875,37 @@ static void handleCommand( const AsciiString &command )
 	}
 
 	/* save <name>: the save menu's Save, into <name>.sav in the save directory, so a script can make
-		 the file -loadsave opens.  Letters, digits, - and _ only, since it becomes a path. */
-	if (strncmp( command.str(), "save ", 5 ) == 0)
+		 the file -loadsave opens.  Letters, digits, - and _ only, since it becomes a path.
+		 saveat <frame> <name>: the same, between the logic frames, on the first poll once <frame> is
+		 reached, so two builds can each save the same match at the same frame. */
+	const Bool isSaveAt = strncmp( command.str(), "saveat ", 7 ) == 0;
+	if (isSaveAt || strncmp( command.str(), "save ", 5 ) == 0)
 	{
-		AsciiString name( command.str() + 5 );
+		AsciiString name( command.str() + ( isSaveAt ? 7 : 5 ) );
 		name.trim();
+		UnsignedInt atFrame = 0;
+		if (isSaveAt)
+		{
+			atFrame = (UnsignedInt)atoi( name.str() );
+			const char *space = strchr( name.str(), ' ' );
+			name.set( space ? space + 1 : "" );
+			name.trim();
+			if (atFrame == 0)
+			{
+				replyError( "saveat wants a frame and a name" );
+				return;
+			}
+		}
 		if (name.isEmpty() || strspn( name.str(), "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_" ) != (size_t)name.getLength())
 		{
 			replyError( "save wants a name of letters, digits, - and _" );
+			return;
+		}
+		if (isSaveAt)
+		{
+			theSaveAtFrame = atFrame;
+			theSaveAtName = name;
+			replyOk( "\"saveat\":true" );
 			return;
 		}
 		if (TheGameLogic == NULL || !TheGameLogic->isInGame() || TheGameLogic->isInShellGame())
@@ -834,11 +913,7 @@ static void handleCommand( const AsciiString &command )
 			replyError( "save needs a match in progress" );
 			return;
 		}
-		AsciiString filename;
-		filename.format( "%s.sav", name.str() );
-		UnicodeString description;
-		description.translate( name );
-		if (TheGameState->saveGame( filename, description, SAVE_FILE_TYPE_NORMAL ) != SC_OK)
+		if (!saveTo( name ))
 		{
 			replyError( "the game could not write the save" );
 			return;
@@ -942,17 +1017,26 @@ static void handleCommand( const AsciiString &command )
 			return;
 		}
 
+		/* A modifier is pressed before the key and let go after it, as a hand does.  A key carrying
+			 CTRL in its state with no Ctrl press of its own left MetaEventTranslator's m_lastModState on
+			 Ctrl: the force attack hold began and only ended on the next key without it, so a click sent
+			 in between fired instead of selecting. */
+		static const struct { const char *word; Int state; Int key; } MODIFIER_KEYS[] =
+		{
+			{ "ALT", KEY_STATE_LALT, KEY_LALT },
+			{ "CTRL", KEY_STATE_LCONTROL, KEY_LCTRL },
+			{ "SHIFT", KEY_STATE_LSHIFT, KEY_LSHIFT },
+		};
 		Int modifiers = KEY_STATE_NONE;
 		Bool down = TRUE;
 		Bool up = TRUE;
 		for( const char *word = strtok( NULL, " " ); word; word = strtok( NULL, " " ) )
 		{
-			if (strcmp( word, "ALT" ) == 0)
-				modifiers |= KEY_STATE_LALT;
-			else if (strcmp( word, "CTRL" ) == 0)
-				modifiers |= KEY_STATE_LCONTROL;
-			else if (strcmp( word, "SHIFT" ) == 0)
-				modifiers |= KEY_STATE_LSHIFT;
+			Int m = 0;
+			while (m < (Int)ARRAY_SIZE( MODIFIER_KEYS ) && strcmp( word, MODIFIER_KEYS[ m ].word ) != 0)
+				++m;
+			if (m < (Int)ARRAY_SIZE( MODIFIER_KEYS ))
+				modifiers |= MODIFIER_KEYS[ m ].state;
 			else if (strcmp( word, "HOLD" ) == 0)
 				up = FALSE;
 			else if (strcmp( word, "RELEASE" ) == 0)
@@ -964,8 +1048,18 @@ static void handleCommand( const AsciiString &command )
 			}
 		}
 
+		Int held = KEY_STATE_NONE;
 		if (down)
 		{
+			for( Int m = 0; m < (Int)ARRAY_SIZE( MODIFIER_KEYS ); ++m )
+			{
+				if (!(modifiers & MODIFIER_KEYS[ m ].state))
+					continue;
+				held |= MODIFIER_KEYS[ m ].state;
+				GameMessage *modifier = TheMessageStream->appendMessage( GameMessage::MSG_RAW_KEY_DOWN );
+				modifier->appendIntegerArgument( MODIFIER_KEYS[ m ].key );
+				modifier->appendIntegerArgument( KEY_STATE_DOWN | held );
+			}
 			GameMessage *press = TheMessageStream->appendMessage( GameMessage::MSG_RAW_KEY_DOWN );
 			press->appendIntegerArgument( key );
 			press->appendIntegerArgument( KEY_STATE_DOWN | modifiers );
@@ -975,24 +1069,39 @@ static void handleCommand( const AsciiString &command )
 			GameMessage *release = TheMessageStream->appendMessage( GameMessage::MSG_RAW_KEY_UP );
 			release->appendIntegerArgument( key );
 			release->appendIntegerArgument( KEY_STATE_UP | modifiers );
+			held = modifiers;
+			for( Int m = 0; m < (Int)ARRAY_SIZE( MODIFIER_KEYS ); ++m )
+			{
+				if (!(modifiers & MODIFIER_KEYS[ m ].state))
+					continue;
+				held &= ~MODIFIER_KEYS[ m ].state;
+				GameMessage *modifier = TheMessageStream->appendMessage( GameMessage::MSG_RAW_KEY_UP );
+				modifier->appendIntegerArgument( MODIFIER_KEYS[ m ].key );
+				modifier->appendIntegerArgument( KEY_STATE_UP | held );
+			}
 		}
 		replyOk( "\"pressed\":true" );
 		return;
 	}
 
-	/* click <x> <y>
-		 A left press and release at that screen pixel, carried the way Mouse.cpp carries a real one,
-		 for what lies over the world and reads the click's own position, the cheat panel among them.
-		 The cursor itself does not move. */
-	if (strncmp( command.str(), "click ", 6 ) == 0)
+	/* click <x> <y>, rclick <x> <y>
+		 A left (right) press and release at that screen pixel, carried the way Mouse.cpp carries a real
+		 one: the windows, the minimap among them, selection and orders all read the message's own
+		 position, so a click on a unit selects it and a right click on the radar orders there.  The
+		 cursor itself does not move.  Both halves carry time 0, which every click-or-drag test reads
+		 as a quick click. */
+	const Bool isRightClick = strncmp( command.str(), "rclick ", 7 ) == 0;
+	if (isRightClick || strncmp( command.str(), "click ", 6 ) == 0)
 	{
 		ICoord2D pixel;
-		if (sscanf( command.str() + 6, "%d %d", &pixel.x, &pixel.y ) != 2)
+		if (sscanf( command.str() + (isRightClick ? 7 : 6), "%d %d", &pixel.x, &pixel.y ) != 2)
 		{
-			replyError( "click wants two screen pixels, x then y" );
+			replyError( "click and rclick want two screen pixels, x then y" );
 			return;
 		}
-		const GameMessage::Type halves[] = { GameMessage::MSG_RAW_MOUSE_LEFT_BUTTON_DOWN, GameMessage::MSG_RAW_MOUSE_LEFT_BUTTON_UP };
+		const GameMessage::Type left[] = { GameMessage::MSG_RAW_MOUSE_LEFT_BUTTON_DOWN, GameMessage::MSG_RAW_MOUSE_LEFT_BUTTON_UP };
+		const GameMessage::Type right[] = { GameMessage::MSG_RAW_MOUSE_RIGHT_BUTTON_DOWN, GameMessage::MSG_RAW_MOUSE_RIGHT_BUTTON_UP };
+		const GameMessage::Type *halves = isRightClick ? right : left;
 		for (Int half = 0; half < 2; ++half)
 		{
 			GameMessage *msg = TheMessageStream->appendMessage( halves[ half ] );
@@ -1107,6 +1216,14 @@ void ControlServer_poll( void )
 {
 	if (TheGlobalData == NULL || TheGlobalData->m_controlPort <= 0)
 		return;
+
+	if (theSaveAtFrame != 0 && TheGameLogic != NULL && TheGameLogic->isInGame() && !TheGameLogic->isInShellGame()
+			&& TheGameLogic->getFrame() >= theSaveAtFrame)
+	{
+		const Bool saved = saveTo( theSaveAtName );
+		DEBUG_LOG(("CONTROL: saveat %s %s at frame %u\n", theSaveAtName.str(), saved ? "saved" : "FAILED", TheGameLogic->getFrame()));
+		theSaveAtFrame = 0;
+	}
 
 	if (theListenSocket == INVALID_SOCKET)
 	{

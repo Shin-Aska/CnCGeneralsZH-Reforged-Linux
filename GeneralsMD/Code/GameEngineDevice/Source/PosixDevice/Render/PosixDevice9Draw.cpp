@@ -1106,6 +1106,7 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	Build_Combiner_Description(combiner);
 	combiner.ShadowReceiving = Sun_Receiving(vertex_engine, pixel_engine, target);
 	const bool terrain_lighting = vertex_engine == ENGINE_SHADER_NONE && Terrain_Lighting_Receives(pixel_engine,target);
+	combiner.PixelPipeline.TerrainRelight = Terrain_Relight_Receives(vertex_engine,pixel_engine,target);
 	combiner.DrawEffect = SunActive ? SunCasterEffect :
         vertex_engine == ENGINE_SHADER_NONE && pixel_engine == ENGINE_SHADER_NONE ? Draw_Model_Effect() : DRAW_EFFECT_NONE;
     SDL_GPUTexture *model_colour = nullptr;
@@ -1447,6 +1448,14 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		for (unsigned int slot = 0; slot < pixel_program->SamplerSlots; ++slot) {
 			const int texture_stage = pixel_program->SlotTexture[slot];
 			const int sampler_stage = pixel_program->SlotSampler[slot];
+			if (combiner.PixelPipeline.TerrainRelight && texture_stage == 4) {
+				draw.Textures[slot] = Mirrors->Texture(TerrainHeights,refusal);
+				draw.Samplers[slot] = Samplers->Sampler(SamplerStates[0]); // Load ignores the sampler
+				if (!draw.Textures[slot] || !draw.Samplers[slot]) {
+					Refuse_Draw("terrain heights binding: "+refusal); return D3D_OK;
+				}
+				continue;
+			}
 			if (water_draw && texture_stage == 1 && PixelShaderConstants[95][3] > 1.5f
 				&& Gpu->Water_Path_Texture()) {
 				draw.Textures[slot] = Gpu->Water_Path_Texture();
@@ -1973,15 +1982,16 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		shore.Surface[0]=ShoreTrack.level;shore.Surface[1]=ShoreTrack.level+1.5f;shore.Surface[2]=1;
 		draw.PixelConstants=Gpu->Constants(1,&shore,sizeof(shore));draw.PixelConstantsSize=sizeof(shore);
 	}
-	else if (pixel_program->UniformBuffers != 0 && (pixel_engine != ENGINE_SHADER_NONE || combiner.ShadowReceiving || combiner.SoftParticle || combiner.DrawEffect)) {
+	else if (pixel_program->UniformBuffers != 0 && (pixel_engine != ENGINE_SHADER_NONE || combiner.ShadowReceiving || combiner.PixelPipeline.TerrainRelight || combiner.SoftParticle || combiner.DrawEffect)) {
 		SdlEnginePixelConstants engine_constants;
 		memset(&engine_constants, 0, sizeof(engine_constants));
 		engine_constants.Combiner = pixel_constants;
 		if (combiner.ShadowReceiving) Build_Sun_Constants(engine_constants);
+		if (combiner.PixelPipeline.TerrainRelight) Build_Terrain_Sun_Constants(engine_constants);
 		if (terrain_lighting) {
 			// The CPU already left these base vertices static. A late optional sun failure
 			// disables its shade, while the committed light packet remains exactly once.
-			if (!combiner.ShadowReceiving) Build_Terrain_Light_View(engine_constants);
+			if (!combiner.ShadowReceiving && !combiner.PixelPipeline.TerrainRelight) Build_Terrain_Light_View(engine_constants);
 			Build_Light_Constants(engine_constants);
 		} else if (combiner.ShadowReceiving) {
 			if (EngineShader_Paints_Ground(static_cast<EngineShaderProgram>(pixel_engine)))

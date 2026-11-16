@@ -99,7 +99,7 @@
 // its HLSL; a change here is a change there.
 static_assert( sizeof( ParticleGpuSpawn ) == 80 && sizeof( ParticleGpuSystemEntry ) == 240,
 	"DX11GpuParticles.cpp's SpawnStride and EntryStride" );
-static_assert( PARTICLE_CLOSED_FORM_FADE_MAX_FRAMES == 16 && PARTICLE_CLOSED_FORM_FADE_LIFETIME_DIVISOR == 4,
+static_assert( PARTICLE_CLOSED_FORM_FADE_MAX_FRAMES == 8 * LOGICFRAMES_PER_RETAIL_FRAME && PARTICLE_CLOSED_FORM_FADE_LIFETIME_DIVISOR == 4,
 	"DX11GpuParticles.cpp's closed_fade" );
 static_assert( GpuParticles::SYSTEM_SLOTS <= 0x10000, "a spawn record holds its slot in 16 bits" );
 static_assert( MAX_KEYFRAMES == 8, "DX11GpuParticles.cpp's SystemEntry holds eight segments of each" );
@@ -1428,8 +1428,8 @@ static void updateParticleCloudSource(ParticleSystem *sys, Int now)
 	// follows their longest actual tail instead of adding their opacity together.
 	state.particleEnd = firstThisFrame ? now + tail : WWMath::Max(state.particleEnd, now + tail);
 	state.radius = radius;
-	const Real half = .5f * midValue(sys->m_lifetime), rate = midValue(sys->m_sizeRate);
-	const Real damping = midValue(sys->m_sizeRateDamping);
+	const Real half = .5f * midValue(sys->m_lifetime.get()), rate = midValue(sys->m_sizeRate.get());
+	const Real damping = midValue(sys->m_sizeRateDamping.get());
 	state.size = WWMath::Max(1.f, midValue(sys->m_startSize)
 		+ (damping < 1.f ? rate * (1.f - powf(damping, half)) / (1.f - damping) : rate * half));
 	state.shader = sys->getShaderType();
@@ -1605,7 +1605,7 @@ void updateCloudBodies(unsigned now)
 		body.height = std::clamp(obj->getGeometryInfo().getMaxHeightAbovePosition(), 4.f, 30.f);
 		auto old = s_cloudWalkers.find(obj->getID());
 		if (old != s_cloudWalkers.end() && now > old->second.frame && now - old->second.frame <= LOGICFRAMES_PER_SECOND / 2) {
-			const float dt = float(now - old->second.frame) / LOGICFRAMES_PER_SECOND;
+			const float dt = float(now - old->second.frame) / LOGICFRAMES_PER_GAME_SECOND;	// the cloud runs game seconds
 			body.vx = (pos.x - old->second.position.x) / dt;
 			body.vy = (pos.y - old->second.position.y) / dt;
 			if (body.vx * body.vx + body.vy * body.vy > 100.f * 100.f) body.vx = body.vy = 0;
@@ -1668,10 +1668,10 @@ HazardCloud::Camera cloudCamera(CameraClass &camera)
 bool prepareModernCloud(const FieldKey &key, FieldState &state, int now,
 	HazardCloud::FieldState &field, bool &onGround)
 {
-	const float age = (std::max)(0.f, float(now - state.visualBorn) / LOGICFRAMES_PER_SECOND);
+	const float age = (std::max)(0.f, float(now - state.visualBorn) / LOGICFRAMES_PER_GAME_SECOND);
 	// the owner's life was read at the sync point (updateGroundFields), not beside the tick
 	const int remaining = state.cloudDieFrame >= 0 ? state.cloudDieFrame - now : state.particleEnd - now;
-	const float left = (std::max)(0.f, float(remaining) / LOGICFRAMES_PER_SECOND);
+	const float left = (std::max)(0.f, float(remaining) / LOGICFRAMES_PER_GAME_SECOND);
 	const float lifetime = age + left;
 	const auto buildup = HazardCloudPolicy::visualBuildup(key.palette, state.radius >= 100.f, age, lifetime);
 	field = {};
@@ -1755,12 +1755,12 @@ void drawSharedClouds(const AABoxClass &view, const HazardCloud::Camera &camera,
 		state.cloudTravel += (seconds - state.cloudUpdated) * source.field.release * 22.f;
 		state.cloudUpdated = seconds;
 		state.cloudPeak = (std::max)(state.cloudPeak, source.field.density);
-		source.sourceAge = (std::max)(0.f, seconds - float(state.visualBorn) / LOGICFRAMES_PER_SECOND);
+		source.sourceAge = (std::max)(0.f, seconds - float(state.visualBorn) / LOGICFRAMES_PER_GAME_SECOND);
 		source.sourceTravel = state.cloudTravel;
 		source.dissipation = state.cloudPeak > .0001f ? (std::max)(0.f, 1.f - source.field.density / state.cloudPeak) : 0;
 		source.terrain = onGround;
-		source.born = float(state.visualBorn) / LOGICFRAMES_PER_SECOND;
-		source.expiry = float(state.cloudDieFrame >= 0 ? state.cloudDieFrame : state.particleEnd) / LOGICFRAMES_PER_SECOND;
+		source.born = float(state.visualBorn) / LOGICFRAMES_PER_GAME_SECOND;
+		source.expiry = float(state.cloudDieFrame >= 0 ? state.cloudDieFrame : state.particleEnd) / LOGICFRAMES_PER_GAME_SECOND;
 		source.active = state.lifeFade * state.stealth > 0 && source.field.density > .00001f;
 		const float reach = source.field.radius + source.field.fringe + 18.f;
 		const bool visible = std::fabs(state.centre.x - view.Center.X) <= view.Extent.X + reach
@@ -2069,9 +2069,9 @@ static void updateGroundFields( const std::vector<ParticleSystem *> &systems )
 			state.radius = radius;
 
 			// a puddle the size a particle reaches halfway through its life
-			const Real half = 0.5f * midValue( sys->m_lifetime );
-			const Real rate = midValue( sys->m_sizeRate );
-			const Real damping = midValue( sys->m_sizeRateDamping );
+			const Real half = 0.5f * midValue( sys->m_lifetime.get() );
+			const Real rate = midValue( sys->m_sizeRate.get() );
+			const Real damping = midValue( sys->m_sizeRateDamping.get() );
 			const Real growth = damping < 1.0f ? rate * (1.0f - powf( damping, half )) / (1.0f - damping) : rate * half;
 			state.size = WWMath::Max( midValue( sys->m_startSize ) + growth, 1.0f );
 
@@ -2143,7 +2143,7 @@ static Int collectGroundFields( const AABoxClass &view, CameraClass &sceneCamera
 {
 	const Int now = s_fieldRenderFrame;
 	// between the last two logic ticks, as the models are, so a pulse does not step at the logic rate
-	const Real seconds = ((Real)now + (TheSmoothMotionActive ? TheSmoothMotionAlpha : 0.0f)) / LOGICFRAMES_PER_SECOND;
+	const Real seconds = ((Real)now + (TheSmoothMotionActive ? TheSmoothMotionAlpha : 0.0f)) / LOGICFRAMES_PER_GAME_SECOND;	// game seconds, as the cloud ages
 	s_fieldPuddles.clear();
 	s_fieldDraws.clear();
 	beginCloudPass(now);

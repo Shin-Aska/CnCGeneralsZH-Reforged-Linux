@@ -2,7 +2,7 @@
 """Pack a staged tree of rebuilt art into one of the fork's art archives.
 
     python artpack.py <staged Art folder> [<staged Data folder>] <Run\\Reforged<Name>.big> [--base <base game folder>]
-                      [--override-base <folder, list file or comma list>]
+                      [--override-base <folder, list file or comma list>] [--fork-masters <folder>]
     python artpack.py selfcheck
 
 The staged Art folder holds W3D\\ and Textures\\ the way Run\\Art does; every file goes into the
@@ -31,6 +31,15 @@ validateCachedBones). So a model goes in only when, against the retail model of 
     which covers an animation-only file too.
 A model retail does not have is refused: a player without the batch would have none. A model that
 fails is left out and named; the rest of the batch still ships.
+
+--fork-masters <folder> (Code\\Data\\Art\\W3D) names the fork's own models, which the build copies
+loose into Run\\Art\\W3D, where every player has them and the INI checksum hashes them. A batch may
+carry a copy of one (ReforgedTurkiye.big: the Turkiye models in levels of detail): the master plays
+retail's part in the checks above, and its hierarchy and animation chunks have to be the master's
+byte for byte, which the game compares before it draws the archive's copy over the loose master,
+along with the sub-object bindings fork_master_problems names. Its full level may be a high-resolution
+rebuild with meshes of its own.
+The loose copy in Run has to be the master's bytes (build first); any other loose clash is refused.
 
 Refused outright: a staged name another Reforged*.big beside the output already holds (the later
 archive would win silently) and one a loose file under Run\\Art shadows (the archive would never be
@@ -62,6 +71,9 @@ W3D_ANIMATIONS = (0x200, 0x280, 0x2C0)                     # plain, compressed, 
 # wheels the client turns. Neither is a name any INI or the logic asks for (the lookup check below
 # refuses one that is).
 ADDED_BONE = re.compile(r"ROOTTRANSFORM|WHEEL_[LR]\d+")
+# The Strategy Center's hidden prop meshes need a static bone retail's root, FAN01, FAN02 lack. As the
+# last pivot under the root with no channel it moves no other bone and no INI or code asks for it.
+PROP_PIVOT = "PWPROPS"
 
 
 def chunks(data, start, end):
@@ -210,7 +222,8 @@ def model_problems(new, old, stem, lookups=frozenset()):
     # HLOD puts over a bare retail mesh answers nothing, though the drop and particle bones of some
     # INIs are spelled RootTransform
     added = [(i, x) for i, x in enumerate(names) if i >= len(po) and x not in old_names]
-    odd = [x for i, x in added if not ADDED_BONE.fullmatch(x) or (i > 0 and lookup_name(x, lookups))]
+    odd = [x for i, x in added if not (ADDED_BONE.fullmatch(x) or x == PROP_PIVOT and i == len(pn) - 1 and pn[i][1] == 0)
+           or (i > 0 and lookup_name(x, lookups))]
     if odd:
         problems.append("adds bone %s" % ", ".join(odd))
 
@@ -229,6 +242,228 @@ def model_problems(new, old, stem, lookups=frozenset()):
                                                        for (k1, a1), (k2, a2) in zip(n["anims"], o["anims"])):
         problems.append("animation is not retail's")
     return problems
+
+
+W3D_HMODEL = 0x300
+
+
+def logic_chunks(data):
+    """The top-level chunks of a model the logic reads besides its hierarchy, whole and in file order:
+    every animation and an HModel."""
+    return [data[a - 8:b] for kind, a, b in chunks(data, 0, len(data)) if kind == W3D_HMODEL or kind in W3D_ANIMATIONS]
+
+
+W3D_PIVOT_FIXUPS, FIXUP_SIZE = 0x103, 48
+WHEEL_PIVOT = re.compile(r"WHEEL_[LR]\d\d")
+
+
+def appended_wheels(new, master):
+    """(the pivots a copy's hierarchy adds after the master's, why it may not, empty when it may).
+    A tracked or wheeled rebuild hangs road wheels the client turns off the master's skeleton: every
+    hierarchy sub-chunk the master's bytes, but the header's pivot count, the pivots and their fixups,
+    which may run on past the master's with WHEEL_[LR]<two digits> pivots parented to a master pivot.
+    An animation's channels address the master's pivots by index and the loader sizes its motion to
+    the tree, so an added pivot stands still and moves nothing before it."""
+    n = [(a, b) for kind, a, b in chunks(new, 0, len(new)) if kind == W3D_HIERARCHY]
+    m = [(a, b) for kind, a, b in chunks(master, 0, len(master)) if kind == W3D_HIERARCHY]
+    if len(n) != len(m):
+        return [], ["hierarchy is not the fork master's"]
+    added, problems = [], []
+    for (na, nb), (ma, mb) in zip(n, m):
+        ns = [(kind, new[a:b]) for kind, a, b in chunks(new, na, nb)]
+        ms = [(kind, master[a:b]) for kind, a, b in chunks(master, ma, mb)]
+        if [k for k, _ in ns] != [k for k, _ in ms]:
+            return [], ["hierarchy is not the fork master's"]
+        extra = 0
+        for (kind, nd), (_, md) in zip(ns, ms):
+            if kind == W3D_PIVOTS:
+                if not nd.startswith(md) or len(md) % PIVOT_SIZE or (len(nd) - len(md)) % PIVOT_SIZE:
+                    problems.append("hierarchy pivots are not the fork master's")
+                    continue
+                extra, count = (len(nd) - len(md)) // PIVOT_SIZE, len(md) // PIVOT_SIZE
+                old = [cstr(md[at:at + 16]) for at in range(0, len(md), PIVOT_SIZE)]
+                for at in range(len(md), len(nd), PIVOT_SIZE):
+                    name, parent = cstr(nd[at:at + 16]), struct.unpack_from("<i", nd, at + 16)[0]
+                    if not WHEEL_PIVOT.fullmatch(name) or not 0 <= parent < count or name in old + added:
+                        problems.append("adds pivot %s, not a WHEEL_[LR]<nn> under a master pivot" % name)
+                    added.append(name)
+            elif kind not in (W3D_HIERARCHY_HEADER, W3D_PIVOT_FIXUPS) and nd != md:
+                problems.append("hierarchy is not the fork master's")
+        for (kind, nd), (_, md) in zip(ns, ms):
+            if kind == W3D_HIERARCHY_HEADER and (len(nd) != len(md) or len(nd) < 24 or nd[:20] != md[:20] or nd[24:] != md[24:]
+                                                 or struct.unpack_from("<I", nd, 20)[0] != struct.unpack_from("<I", md, 20)[0] + extra):
+                problems.append("hierarchy header is not the fork master's but for its pivot count")
+            if kind == W3D_PIVOT_FIXUPS and (not nd.startswith(md) or len(nd) - len(md) != extra * FIXUP_SIZE):
+                problems.append("pivot fixups are not the fork master's")
+    return added, problems
+
+
+def wheel_problems(added, master_names, pivots, public=frozenset()):
+    """Why the added wheel pivots could answer a name the master answers otherwise, empty when they
+    could not: doSingleBoneName asks for NAME and NAME01 on as bones before any sub-object, so no
+    added name, nor its stem, may be one the master answers or a numbered run of one, nor a public bone."""
+    known = set(master_names) | set(pivots)
+    bad = sorted(q for q in added if q in known or q in public or q[:-2] in public or q[:-2] in known
+                 or any(len(k) == len(q) and k[:-2] == q[:-2] and k[-2:].isdigit() for k in known))
+    return ["adds pivot %s, a name or run the master answers or a public bone" % ", ".join(bad)] if bad else []
+
+
+def hlod_parts(data):
+    """Every HLOD in the file as (its header's name and skeleton, its aggregate and proxy arrays whole,
+    its sub-objects as (LOD array index, name, bone) in the order Get_Sub_Object_By_Name walks them:
+    the LOD arrays coarsest first as the file holds them, then the aggregates, whose index is None).
+    None for an HLOD the engine would not read: no single header or no LOD array."""
+    hlods = []
+    for kind, a, b in chunks(data, 0, len(data)):
+        if kind != W3D_HLOD:
+            continue
+        heads, extras, subs, aggregates, arrays = [], [], [], [], 0
+        for kind2, a2, b2 in chunks(data, a, b):
+            if kind2 == W3D_HLOD_HEADER:
+                heads.append((cstr(data[a2 + 8:a2 + 24]), cstr(data[a2 + 24:a2 + 40])))
+            elif kind2 in W3D_HLOD_LISTS:
+                if kind2 != 0x702:
+                    extras.append(data[a2 - 8:b2])
+                records = [(cstr(data[a3 + 4:a3 + 36]), struct.unpack_from("<I", data, a3)[0])
+                           for kind3, a3, b3 in chunks(data, a2, b2) if kind3 == W3D_HLOD_SUB_OBJECT and b3 - a3 >= 36]
+                if kind2 == 0x702:
+                    subs += [(arrays, name, bone) for name, bone in records]
+                    arrays += 1
+                elif kind2 == 0x705:
+                    aggregates += [(None, name, bone) for name, bone in records]
+        hlods.append((heads[0], extras, subs + aggregates) if len(heads) == 1 and arrays else None)
+    return hlods
+
+
+W3D_MESH, W3D_MESH_HEADER3, W3D_BOX, W3D_NULL_OBJECT = 0x000, 0x01F, 0x740, 0x750
+
+
+def prototypes(data):
+    """The render objects the file itself defines, upper case: every mesh as <container>.<mesh> (or the
+    mesh alone with no container), every box and null object by its name."""
+    names = set()
+    for kind, a, b in chunks(data, 0, len(data)):
+        if kind == W3D_MESH:
+            for kind2, a2, b2 in chunks(data, a, b):
+                if kind2 == W3D_MESH_HEADER3 and b2 - a2 >= 40:
+                    mesh, container = cstr(data[a2 + 8:a2 + 24]), cstr(data[a2 + 24:a2 + 40])
+                    names.add(container + "." + mesh if container else mesh)
+        elif kind == W3D_BOX and b - a >= 40:
+            names.add(cstr(data[a + 8:a + 40]))
+        elif kind == W3D_NULL_OBJECT and b - a >= 48:
+            names.add(cstr(data[a + 16:a + 48]))
+    return names
+
+
+def answers(subs):
+    """Every name Get_Sub_Object_By_Name finds in these sub-objects: a whole name, or the part after
+    its first '.'."""
+    return {part for _, full, _ in subs for part in (full, full.partition(".")[2] or full)}
+
+
+def own_name(name, master_answers):
+    """A name a copy may answer that the master does not: a coarse level's copy of a master mesh,
+    <name>_L<digit> (what lodtr writes, the form Is_Part_Or_LOD_Copy reads), or a rebuilt detail mesh
+    whose part after the container's '.' starts with the reserved HD_."""
+    if (name.partition(".")[2] if "." in name else name).startswith("HD_"):
+        return True
+    lod = re.fullmatch(r"(.+)_L\d", name)
+    return lod is not None and lod.group(1) in master_answers
+
+
+def sub_binding_problems(n_subs, m_subs, pivots, public=frozenset()):
+    """Why the copy's sub-objects would hand the logic another bone than the master's, empty when they
+    would not. The logic falls back to a sub-object for a name no pivot from the second on answers
+    (W3DModelDraw's findSingleSubObj), so: every name the master answers that way is found in the copy
+    on the master's bone, every level of the copy holds a master sub-object's name only on a bone the
+    master gives it, and a name only the copy answers is own_name's, no pivot's and, whole or less a
+    two-digit tail, no public bone's (StandardPublicBone and the names the code asks for)."""
+    shield = set(pivots[1:])
+    am, ac = answers(m_subs), answers(n_subs)
+    flat = lambda subs: [(full, bone) for _, full, bone in subs]  # noqa: E731
+    problems = []
+    rebound = sorted(q for q in am - shield if sub_object(flat(n_subs), q) != sub_object(flat(m_subs), q))
+    if rebound:
+        problems.append("finds the master's %s on another bone" % ", ".join(rebound))
+    bones = {}
+    for _, full, bone in m_subs:
+        bones.setdefault(full, set()).add(bone)
+    held = sorted({"%s on bone %d" % (full, bone) for level, full, bone in n_subs
+                   if level is not None and full in bones and full not in shield and bone not in bones[full]})
+    if held:
+        problems.append("a level holds the master's %s" % ", ".join(held))
+    def refused(q):
+        stem = q[:-2] if len(q) > 2 and q[-2:].isdigit() else None
+        return not own_name(q, am) or q in shield or q in public or stem in public
+    added = sorted(q for q in ac - am if refused(q))
+    if added:
+        problems.append("adds sub-object name %s, not a _L<digit> copy or HD_ mesh, or a bone's" % ", ".join(added))
+    return problems
+
+
+def fork_master_problems(new, master, stem, lookups=frozenset()):
+    """Why a batch's copy of one of the fork's own models may not stand in for it, empty when it may.
+    The master is loose under Code/Data/Art/W3D, every player has it and the INI CRC hashes it, so it
+    plays the part retail plays for the other models: model_problems against it, and on top what the
+    game compares before it draws a batch's copy over a loose master (FileSystem::takesArchivedModel;
+    any other copy and it draws the master): the animation and HModel chunks byte for byte, the
+    hierarchy too but for the road wheels appended_wheels and wheel_problems let a rebuild add;
+    per HLOD its name and skeleton and its aggregate and proxy arrays; every LOD array record naming a
+    render object its own file defines, in the master and the copy (HLodClass skips one it cannot make,
+    so the prediction would lie); and sub_binding_problems, the public bones being every name an INI or
+    the code asks for. Mesh geometry, sub-object counts, materials, textures and MaxScreenSize are the
+    copy's own, so its full level may be a high-resolution rebuild."""
+    problems = model_problems(new, master, stem, lookups)
+    if logic_chunks(new) != logic_chunks(master):
+        problems.append("animation or HModel bytes are not the fork master's")
+    added, hierarchy = appended_wheels(new, master)
+    problems += hierarchy
+    n_hlods, m_hlods = hlod_parts(new), hlod_parts(master)
+    if None in n_hlods or None in m_hlods or len(n_hlods) != len(m_hlods):
+        problems.append("HLOD count or layout is not the fork master's")
+        return problems
+    pivots = [p[0] for p in parse(master)["pivots"]]
+    problems += wheel_problems(added, {q for hlod in m_hlods for q in answers(hlod[2])}, pivots, lookups)
+    for data, hlods, whose in ((new, n_hlods, "copy"), (master, m_hlods, "master")):
+        defined = prototypes(data)
+        ghosts = sorted({full for hlod in hlods for level, full, _ in hlod[2] if level is not None and full not in defined})
+        if ghosts:
+            problems.append("the %s's levels name %s, which it does not define" % (whose, ", ".join(ghosts)))
+    for (n_names, n_extras, n_subs), (m_names, m_extras, m_subs) in zip(n_hlods, m_hlods):
+        if n_names != m_names:
+            problems.append("HLOD name or skeleton is not the fork master's")
+        if n_extras != m_extras:
+            problems.append("aggregates or proxies are not the fork master's")
+        problems += sub_binding_problems(n_subs, m_subs, pivots, lookups)
+    return problems
+
+
+def hierarchy_trees(data):
+    """(name, bytes) of every hierarchy chunk a model defines, the name upper case."""
+    trees = []
+    for kind, a, b in chunks(data, 0, len(data)):
+        if kind == W3D_HIERARCHY:
+            trees += [(cstr(data[a2 + 4:a2 + 20]), data[a - 8:b]) for kind2, a2, b2 in chunks(data, a, b)
+                      if kind2 == W3D_HIERARCHY_HEADER and b2 - a2 >= 20]
+    return trees
+
+
+def tree_clashes(models):
+    """Hierarchy names the given models (path -> bytes) define two ways, one line each. The game keeps
+    the first tree loaded under a name (HTreeManagerClass::Load_Tree), so a family sharing a tree has
+    to bring the same one in every file a player can end up with, wheels in all or in none."""
+    trees = {}
+    for path, data in models.items():
+        for name, raw in hierarchy_trees(data):
+            trees.setdefault(name, {}).setdefault(raw, set()).add(path)
+    return ["hierarchy %s differs between %s" % (name, " and ".join(", ".join(sorted(paths)) for paths in forms.values()))
+            for name, forms in sorted(trees.items()) if len(forms) > 1]
+
+
+def fork_masters(folder):
+    """art\\w3d\\<name>.w3d, lower case, -> the master's path, for every .w3d in folder."""
+    return {("art" + SEP + "w3d" + SEP + f).lower(): os.path.join(folder, f)
+            for f in os.listdir(folder) if f.lower().endswith(".w3d")}
 
 
 # An INI key that names a bone: ExitBone, WeaponFireFXBone, BladeBoneName, YardBonePrefix, the turret
@@ -321,7 +556,8 @@ def base_clashes(members, held, allowed):
     return [p for p in clash if p in allowed], [p for p in clash if p not in allowed]
 
 
-def pack(staged, output, base, allowed=frozenset()):
+def pack(staged, output, base, allowed=frozenset(), masters=None):
+    masters = masters or {}
     run = os.path.dirname(os.path.abspath(output))
     name = os.path.basename(output)
     if not name.lower().startswith("reforged") or name.lower() in BASE_ART:
@@ -363,7 +599,15 @@ def pack(staged, output, base, allowed=frozenset()):
             clashes += ["%s (in %s; name it in --override-base to replace it)" % (p, n) for p in refused_here]
         else:
             clashes += ["%s (in %s)" % (p, n) for p in sorted(set(index_of(os.path.join(run, n))) & set(members))]
-    clashes += ["%s (loose in Run)" % p for p in sorted(members) if os.path.exists(os.path.join(run, p.replace(SEP, os.sep)))]
+    for p in sorted(members):
+        loose = os.path.join(run, p.replace(SEP, os.sep))
+        if not os.path.exists(loose):
+            continue
+        if p not in masters:
+            clashes.append("%s (loose in Run)" % p)
+        elif open(loose, "rb").read() != open(masters[p], "rb").read():
+            # the batch's copy is checked against the master, and the game against the loose copy
+            clashes.append("%s (loose in Run is not its fork master: build first)" % p)
     clashes += ["%s (%s is read first: stage it at that path)" % (p, o) for p, o in shadowed(members, retail)]
     if clashes:
         sys.exit("refused, these names are already somewhere that wins or loses against this archive:\n  " + "\n  ".join(clashes))
@@ -375,26 +619,42 @@ def pack(staged, output, base, allowed=frozenset()):
                           [os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Data", "INI"),
                            os.path.join(run, "Data", "INI")])
     refused = {}
-    replaced = 0
     for path, full in members.items():
         if not path.endswith(".w3d"):
             continue
-        if path not in retail:
+        stem = path.split(SEP)[-1][:-4].upper()
+        with open(full, "rb") as f:
+            data = f.read()
+        if path in masters:
+            # a fork master is what every player has and what the CRC hashes, retail copy or none
+            with open(masters[path], "rb") as f:
+                problems = fork_master_problems(data, f.read(), stem, lookups)
+        elif path not in retail:
             # the batch is optional to the network: a model only it has would be missing for a player
             # without it while his INI names the same object
-            refused[path] = ["a model retail does not have"]
-            continue
-        replaced += 1
-        with open(full, "rb") as f:
-            problems = model_problems(f.read(), read_member(retail[path]), path.split(SEP)[-1][:-4].upper(), lookups)
+            problems = ["a model retail does not have"]
+        else:
+            problems = model_problems(data, read_member(retail[path]), stem, lookups)
         if problems:
             refused[path] = problems
+
+    # the fork's models as a player with this batch has them: the batch's copy where it ships, the loose
+    # master everywhere else
+    fork = {}
+    for path, master in masters.items():
+        source = members[path] if path in members and path not in refused else master
+        with open(source, "rb") as f:
+            fork[path] = f.read()
+    trees = tree_clashes(fork)
+    if trees:
+        sys.exit("refused, a tree name is defined two ways and the game keeps whichever loads first:\n  " + "\n  ".join(trees))
 
     kept = [(spelled[path], full) for path, full in members.items() if path not in refused]
     bigfile.write_archive(output, kept)
     w3d = sum(p.lower().endswith(".w3d") for p, _ in kept)
-    print("%d models (%d replace a retail one, %d new), %d other files" % (
-        w3d, w3d, 0, len(kept) - w3d))
+    forked = sum(p.lower() in masters for p, _ in kept)
+    print("%d models (%d replace a retail one, %d a fork master), %d other files" % (
+        w3d, w3d - forked, forked, len(kept) - w3d))
     for path in sorted(refused):
         print("left out %s: %s" % (path, "; ".join(refused[path])))
     for line in overridden:
@@ -405,7 +665,8 @@ def selfcheck():
     def chunk(kind, body, sub=False):
         return struct.pack("<II", kind, len(body) | (0x80000000 if sub else 0)) + body
 
-    def model(bones, hierarchy="AVTANK", skeleton="AVTANK", subs=(), anim=None, q=(0, 0, 0, 1), version=0x40001, count=None):
+    def model(bones, hierarchy="AVTANK", skeleton="AVTANK", subs=(), anim=None, q=(0, 0, 0, 1), version=0x40001, count=None,
+              coarse=(), lists=b"", hlod="AVTANK", tail=b"", undefined=()):
         names = [b[0] for b in bones]
         records = b"".join(name.encode().ljust(16, b"\0") + struct.pack("<i", names.index(parent) if parent else -1)
                            + struct.pack("<3f", *t) + struct.pack("<3f", 0, 0, 0) + struct.pack("<4f", *q)
@@ -416,17 +677,29 @@ def selfcheck():
                 + struct.pack("<I3f", len(bones) if count is None else count, 0, 0, 0)
             out += chunk(W3D_HIERARCHY, chunk(W3D_HIERARCHY_HEADER, header) + chunk(W3D_PIVOTS, records), True)
         if skeleton is not None:
-            entries = b"".join(chunk(W3D_HLOD_SUB_OBJECT, struct.pack("<I", names.index(bone))
-                                     + (s[1:] if s[0] == "=" else s if "." in s else "AVTANK." + s).encode().ljust(32, b"\0"))
-                               for s, bone in subs)
-            out += chunk(W3D_HLOD, chunk(W3D_HLOD_HEADER, struct.pack("<II", 0, 1) + b"AVTANK".ljust(16, b"\0")
-                                         + skeleton.encode().ljust(16, b"\0")) + chunk(0x702, entries, True), True)
+            def full(s):
+                return s[1:] if s[0] == "=" else s if "." in s else "AVTANK." + s
+
+            def array(level):
+                return chunk(0x702, b"".join(chunk(W3D_HLOD_SUB_OBJECT, struct.pack("<I", names.index(bone))
+                                                   + full(s).encode().ljust(32, b"\0"))
+                                             for s, bone in level), True)
+            # every level's mesh defined in the file, but for those named undefined
+            for s in sorted({full(s) for level in list(coarse) + [subs] for s, _ in level} - set(undefined)):
+                container, _, mesh = s.rpartition(".")
+                out += chunk(W3D_MESH, chunk(W3D_MESH_HEADER3, struct.pack("<II", 0, 0) + mesh.encode().ljust(16, b"\0")
+                                             + container.encode().ljust(16, b"\0")), True)
+            # coarse: the LOD arrays before the full one (subs), coarsest first as hlod.cpp reads them;
+            # lists: aggregate or proxy arrays after them
+            out += chunk(W3D_HLOD, chunk(W3D_HLOD_HEADER, struct.pack("<II", 0, 1 + len(coarse)) + hlod.encode().ljust(16, b"\0")
+                                         + skeleton.encode().ljust(16, b"\0"))
+                         + b"".join(array(level) for level in coarse) + array(subs) + lists, True)
         if anim is not None:
             # an odd-length header first, so the channel's floats sit off a four-byte boundary as in
             # ABSupplyCt_S, whose quieted NaNs a word-by-word compare missed
             channel = chunk(W3D_ANIMATION_CHANNEL, struct.pack("<5H2x", 0, len(anim) // 4 - 1, 1, 6, 1) + anim)
             out += chunk(0x200, chunk(0x201, b"abc") + channel, True)
-        return out
+        return out + tail
 
     bones = [("ROOT", None, (0, 0, 0)), ("TURRET", "ROOT", (1, 0, 2)), ("FIREPOINT01", "TURRET", (3, 0, 0))]
     nan, quiet = struct.pack("<I", 0x7F800001), struct.pack("<I", 0x7FC00001)
@@ -454,6 +727,12 @@ def selfcheck():
         ["adds bone FIREPOINT02"]
     assert check(model(bones + [("MUZZLE", "TURRET", (3, 1, 0))], subs=[("BARREL", "TURRET")], anim=curve + nan)) == \
         ["adds bone MUZZLE"]
+    # the prop pivot: last and under the root, nowhere else
+    assert check(model(bones + [("PWPROPS", "ROOT", (0, 0, 0))], subs=[("BARREL", "TURRET")], anim=curve + nan)) == []
+    assert check(model(bones + [("PWPROPS", "TURRET", (0, 0, 0))], subs=[("BARREL", "TURRET")], anim=curve + nan)) == \
+        ["adds bone PWPROPS"]
+    assert check(model(bones + [("PWPROPS", "ROOT", (0, 0, 0)), ("WHEEL_L01", "ROOT", (0, 1, 0))], subs=[("BARREL", "TURRET")],
+                       anim=curve + nan)) == ["adds bone PWPROPS"]
     # the header the engine reads: before 3.0 a root goes in front, and only the counted pivots load
     assert check(model(bones, subs=[("BARREL", "TURRET")], anim=curve + nan, version=0x20000)) == \
         ["hierarchy header version 0x20000 with 3 pivots for 3"]
@@ -486,6 +765,65 @@ def selfcheck():
         ["animation is not retail's"]
     assert model_problems(model([("ROOTTRANSFORM", None, (0, 0, 0))], "AVTANK", "AVTANK"), b"", "PROP") == \
         ["adds hierarchy AVTANK under another model's name"]
+    # a fork master's levelled copy: coarser levels in front of the master's own, nothing else of it changed
+    master = model(bones, subs=[("BARREL", "TURRET")], anim=curve + nan)
+    logic = "animation or HModel bytes are not the fork master's"
+    own = "not a _L<digit> copy or HD_ mesh, or a bone's"
+
+    def fork(new_bones=bones, **kw):
+        kw.setdefault("subs", [("BARREL", "TURRET")])
+        kw.setdefault("anim", curve + nan)
+        return fork_master_problems(model(new_bones, **kw), master, "AVTANK", lookups)
+    assert fork(coarse=[[("BARREL_L2", "TURRET")], [("BARREL_L1", "TURRET"), ("BARREL", "TURRET")]]) == []
+    assert fork(anim=curve + quiet) == [logic]
+    assert fork(bones[:2]) == ["drops FIREPOINT01", "hierarchy pivots are not the fork master's",
+                               "hierarchy header is not the fork master's but for its pivot count"]
+    # the rest of what the game compares before it draws the batch's copy over the master
+    assert fork(tail=chunk(W3D_HMODEL, b"hm")) == [logic]
+    assert fork(hlod="AVTANK2") == ["HLOD name or skeleton is not the fork master's"]
+    # road wheels hung off the master's skeleton, and nothing else added to it
+    assert fork(bones + [("WHEEL_L01", "ROOT", (0, 1, 0)), ("WHEEL_R01", "TURRET", (0, -1, 0))]) == []
+    assert fork(bones + [("TURRET2", "ROOT", (0, 1, 0))]) == \
+        ["adds bone TURRET2", "adds pivot TURRET2, not a WHEEL_[LR]<nn> under a master pivot"]
+    assert fork(bones + [("WHEEL_L01", "ROOT", (0, 1, 0)), ("WHEEL_L02", "WHEEL_L01", (0, 1, 0))]) == \
+        ["adds pivot WHEEL_L02, not a WHEEL_[LR]<nn> under a master pivot"]
+    assert fork(bones + [("WHEEL_L01", "ROOT", (0, 1, 0))], count=3) == \
+        ["hierarchy header version 0x40001 with 3 pivots for 4", "hierarchy header is not the fork master's but for its pivot count"]
+    wheeled = model(bones, subs=[("BARREL", "TURRET"), ("WHEEL_L01", "ROOT")], anim=curve + nan)
+    assert fork_master_problems(model(bones + [("WHEEL_L01", "ROOT", (0, 1, 0))], subs=[("BARREL", "TURRET"), ("WHEEL_L01", "ROOT")],
+                                      anim=curve + nan), wheeled, "AVTANK", lookups) == \
+        ["adds pivot WHEEL_L01, a name or run the master answers or a public bone"]
+    # the full level rebuilt at high resolution: more meshes of its own, the master's on its bone
+    assert fork(subs=[("BARREL", "TURRET"), ("HD_HULL", "ROOT"), ("HD_TRACKS", "ROOT")],
+                coarse=[[("BARREL", "TURRET"), ("HD_HULL_L1", "ROOT")], [("BARREL_L1", "TURRET")]]) == []
+    assert fork(subs=[("HD_HULL", "ROOT")]) == ["changes sub-object BARREL, a name the logic asks for",
+                                                "finds the master's AVTANK.BARREL, BARREL on another bone"]
+    assert fork(lists=chunk(0x705, b"", True)) == ["aggregates or proxies are not the fork master's"]
+    assert fork(coarse=[[("BARREL", "ROOT")]]) == ["changes sub-object BARREL, a name the logic asks for",
+                                                   "finds the master's AVTANK.BARREL, BARREL on another bone",
+                                                   "a level holds the master's AVTANK.BARREL on bone 0"]
+    assert fork(coarse=[[("OTHER.BARREL", "ROOT")]]) == ["changes sub-object BARREL, a name the logic asks for",
+                                                         "finds the master's BARREL on another bone",
+                                                         "adds sub-object name OTHER.BARREL, " + own]
+    # a record has to name a mesh the file defines, or HLodClass leaves it out and the prediction lies
+    assert fork(coarse=[[("BARREL_L1", "TURRET")]], undefined=["AVTANK.BARREL_L1"]) == \
+        ["the copy's levels name AVTANK.BARREL_L1, which it does not define"]
+    # a name only the copy answers is a master mesh's _L<digit> copy or an HD_ mesh, and no bone's
+    assert fork(coarse=[[("TURRET", "TURRET")]]) == ["adds sub-object name AVTANK.TURRET, TURRET, " + own]
+    assert fork(coarse=[[("DOCKSTART", "TURRET")]]) == ["adds sub-object name AVTANK.DOCKSTART, DOCKSTART, " + own]
+    assert fork(coarse=[[("HD_FIREPOINT01", "TURRET")]]) == []
+    assert fork(coarse=[[("HD_MUZZLE01", "TURRET")]], subs=[("BARREL", "TURRET")]) == []
+    assert fork(coarse=[[("BARREL01", "TURRET")]]) == ["changes sub-object BARREL01, a name the logic asks for",
+                                                       "adds sub-object name AVTANK.BARREL01, BARREL01, " + own]
+    assert fork(coarse=[[("FIREPOINT02", "TURRET")]]) == \
+        ["changes sub-object FIREPOINT02, a name the logic asks for", "adds sub-object name AVTANK.FIREPOINT02, FIREPOINT02, " + own]
+    assert fork(coarse=[[("=MUZZLE_L1", "TURRET")]], subs=[("BARREL", "TURRET")]) == ["adds sub-object name MUZZLE_L1, " + own]
+    # a family sharing a tree name brings one tree: wheels in every file or in none
+    wheels = model(bones + [("WHEEL_L01", "ROOT", (0, 1, 0))], subs=[("BARREL", "TURRET")], anim=curve + nan)
+    damaged = model(bones, subs=[("BARREL", "TURRET")], hlod="AVTANK_D")
+    assert tree_clashes({"avtank": master, "avtank_d": damaged}) == []
+    assert tree_clashes({"avtank": wheels, "avtank_d": damaged}) == ["hierarchy AVTANK differs between avtank and avtank_d"]
+    assert tree_clashes({"avtank": wheels, "avtank_d": model(bones + [("WHEEL_L01", "ROOT", (0, 1, 0))], hlod="AVTANK_D")}) == []
     assert lookup_name("FIREPOINT03", lookups) and not lookup_name("WHEEL_L01", lookups)
     assert nan_equal(nan, quiet) and not nan_equal(nan, struct.pack("<f", 1.0))
 
@@ -515,6 +853,11 @@ def selfcheck():
         os.makedirs(lang)
         open(os.path.join(lang, "CBBridge.dds"), "wb").close()
         assert override_paths(lang) == {"data\\english\\" + bridge}
+        masters = os.path.join(tmp, "W3D")
+        os.makedirs(masters)
+        open(os.path.join(masters, "TRAltay.W3D"), "wb").close()
+        open(os.path.join(masters, "notes.txt"), "wb").close()
+        assert fork_masters(masters) == {"art\\w3d\\traltay.w3d": os.path.join(masters, "TRAltay.W3D")}
     print("artpack selfcheck OK")
 
 
@@ -533,11 +876,16 @@ def main(argv):
         i = args.index("--override-base")
         allowed = frozenset(override_paths(args[i + 1]))
         del args[i:i + 2]
+    masters = {}
+    if "--fork-masters" in args:
+        i = args.index("--fork-masters")
+        masters = fork_masters(args[i + 1])
+        del args[i:i + 2]
     if len(args) not in (2, 3):
         print(__doc__.strip())
         return 2
     staged, output = args[:-1], args[-1]
-    pack(staged, output, base or os.path.join(os.path.dirname(os.path.abspath(output)), "ZH_Generals"), allowed)
+    pack(staged, output, base or os.path.join(os.path.dirname(os.path.abspath(output)), "ZH_Generals"), allowed, masters)
     return 0
 
 

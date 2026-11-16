@@ -39,6 +39,7 @@
 
 #include "GameClient/CommandXlat.h"
 #include "GameClient/ControlBar.h"
+#include "GameClient/ControlBarSidebar.h"
 #include "GameClient/Drawable.h"
 #include "GameClient/Eva.h"
 #include "GameClient/Mouse.h"
@@ -174,6 +175,10 @@ GameMessageDisposition PlaceEventTranslator::translateGameMessage(const GameMess
 		//
 		case GameMessage::MSG_RAW_MOUSE_WHEEL:
 		{
+			// over the airlift panel it picks a unit's count and never zooms; a window under the pointer,
+			// the menus and the chat among them, took the wheel before it got here
+			if( TheInGameUI->handleAirliftWheel( &msg->getArgument( 0 )->pixel, msg->getArgument( 1 )->real ) )
+				return DESTROY_MESSAGE;
 			// over the spectator's rack the wheel turns the stat dial and never zooms
 			if( TheInGameUI->handleSpectatorRackWheel( &msg->getArgument( 0 )->pixel, msg->getArgument( 1 )->real ) )
 				return DESTROY_MESSAGE;
@@ -519,6 +524,12 @@ GameMessageDisposition PlaceEventTranslator::translateGameMessage(const GameMess
 							placeMsg->appendLocationArgument( worldEnd );
 
 						}  // end if
+
+						// a structure put on the cursor from the sidebar with a builder chip picked goes to
+						// that builder, selected or not (the logic checks it is the player's and can)
+						const ObjectID namedBuilder = Sidebar_placementBuilder();
+						if( namedBuilder != INVALID_ID )
+							placeMsg->appendObjectIDArgument( namedBuilder );
 
 						//
 						// The order is on its way; the structure will not be on the ground for another

@@ -131,7 +131,7 @@
 
 
 // one logic frame; GameClient::init sets it
-Int TheW3DFrameLengthInMsec = 1000/LOGICFRAMES_PER_SECOND;
+Real TheW3DFrameLengthInMsec = MSEC_PER_LOGICFRAME_REAL;
 // The camera's steppers - the smoothing, the scripted moves counted in steps, the scroll - were tuned for
 // one step a retail logic frame and step on that cadence whatever the logic rate is.
 static const Int CAMERA_STEP_MSEC = 1000/RETAIL_LOGICFRAMES_PER_SECOND;
@@ -160,6 +160,14 @@ static Bool onPictureClock( View *view )
 static UnsignedInt cameraClockMilliseconds( View *view )
 {
 	return onPictureClock( view ) ? GameEngine_pictureMilliseconds() : Clock_Milliseconds();
+}
+
+// set by a picture that stepped the scripted camera without update() (resyncScriptedClock), taken by update()
+static Bool s_resyncScriptedClock = FALSE;
+
+void W3DView::resyncScriptedClock( void )
+{
+	s_resyncScriptedClock = TRUE;
 }
 
 
@@ -268,6 +276,8 @@ W3DView::W3DView()
 	m_freeCameraEye.Set( 0.0f, 0.0f, 0.0f );
 	m_freeCameraHeading = 0.0f;
 	m_freeCameraTilt = 0.0f;
+	m_freeCameraRoll = 0.0f;
+	m_freeCameraScripted = FALSE;
 	m_freeCameraKeys = 0;
 	m_freeCameraLastStep = 0;
 	m_freeCameraMouse.x = m_freeCameraMouse.y = 0;
@@ -1243,6 +1253,7 @@ void W3DView::setFreeCamera( Bool on )
 		m_freeCameraEye = transform.Get_Translation();
 		m_freeCameraHeading = atan2( forward.Y, forward.X );
 		m_freeCameraTilt = freeCameraTilt( asin( WWMath::Clamp( forward.Z, -1.0f, 1.0f ) ) );
+		m_freeCameraRoll = 0.0f;
 	}
 	else if (TheMouse)
 	{
@@ -1250,6 +1261,9 @@ void W3DView::setFreeCamera( Bool on )
 	}
 
 	m_freeCamera = on;
+	// landing ends whatever flew it; a shot list that wants it again says so after taking off
+	if (!on)
+		m_freeCameraScripted = FALSE;
 	m_freeCameraKeys = 0;
 	m_freeCameraMouseValid = FALSE;
 	m_freeCameraLastStep = Clock_Milliseconds();
@@ -1258,11 +1272,12 @@ void W3DView::setFreeCamera( Bool on )
 }
 
 //-------------------------------------------------------------------------------------------------
-void W3DView::setFreeCameraPose( const Coord3D *eye, Real heading, Real tilt )
+void W3DView::setFreeCameraPose( const Coord3D *eye, Real heading, Real tilt, Real roll )
 {
 	m_freeCameraEye.Set( eye->x, eye->y, eye->z );
 	m_freeCameraHeading = heading;
 	m_freeCameraTilt = freeCameraTilt( tilt );
+	m_freeCameraRoll = roll;
 	if (m_freeCamera)
 		setFreeCameraTransform();
 }
@@ -1341,7 +1356,7 @@ void W3DView::stepFreeCamera( void )
 void W3DView::setFreeCameraTransform( void )
 {
 	Matrix3D transform( 1 );
-	transform.Look_At( m_freeCameraEye, m_freeCameraEye + freeCameraForward( m_freeCameraHeading, m_freeCameraTilt ), 0.0f );
+	transform.Look_At( m_freeCameraEye, m_freeCameraEye + freeCameraForward( m_freeCameraHeading, m_freeCameraTilt ), m_freeCameraRoll );
 
 	Real farthest = 0.0f;
 	Real lowest;
@@ -1424,6 +1439,8 @@ void W3DView::reset( void )
 	if (m_freeCamera)
 	{
 		m_freeCamera = FALSE;
+		m_freeCameraScripted = FALSE;
+		m_freeCameraRoll = 0.0f;
 		m_freeCameraKeys = 0;
 		if (TheMouse)
 			TheMouse->setVisibility( TRUE );
@@ -2056,6 +2073,8 @@ void W3DView::update(void)
 	// paces itself to ~30fps already; gating on top of that ran the pan at half speed.
 	if (isTimeFrozen() && !isCameraMovementFinished())
 		stepTime = TRUE;
+	static Int pictureStepHundredths = 0;
+	Int pictureScriptedSteps = 0;	// scripted steps this picture owes: a retail frame is GAME_SPEED_PERCENT / 100 of them
 	if (pictureClock)
 	{
 		// a recorded logic frame steps once, on its last picture: not on a -recordfps picture before it,
@@ -2066,7 +2085,15 @@ void W3DView::update(void)
 		const UnsignedInt retailFrame = TheGameLogic->getFrame() / LOGICFRAMES_PER_RETAIL_FRAME;
 		stepTime = GameEngine_videoPicture() == GameEngine_videoPictures() - 1 && retailFrame != steppedFrame;
 		if (stepTime)
+		{
 			steppedFrame = retailFrame;
+			pictureStepHundredths += GAME_SPEED_PERCENT;
+			while (pictureStepHundredths >= 100)
+			{
+				pictureStepHundredths -= 100;
+				++pictureScriptedSteps;
+			}
+		}
 		cameraSteppedRetailFrame = steppedFrame;
 		prevCameraStepTime = nowCameraStepTime;
 	}
@@ -2084,6 +2111,10 @@ void W3DView::update(void)
 	// 33ms gate at all: advance it below by the real time this render frame took, which
 	// is what makes shell-map camera moves smooth at any framerate
 	static UnsignedInt prevWaypointTime = 0;
+	const Bool resyncScripted = s_resyncScriptedClock;
+	s_resyncScriptedClock = FALSE;
+	if (resyncScripted)
+		prevWaypointTime = nowCameraStepTime;	// the fast branch already stepped that time
 	Int waypointElapsedMs = (Int)(nowCameraStepTime - prevWaypointTime);
 	prevWaypointTime = nowCameraStepTime;
 	if (waypointElapsedMs < 0)
@@ -2093,30 +2124,51 @@ void W3DView::update(void)
 
 	/* EA stepped a scripted move once an engine frame, so a move kept time with the script's timers at
 		 whatever speed the map ran.  On the wall clock it arrives early in a cinematic that slowed the game
-		 and late in turbo mode, and the timer that starts the next shot cuts it off.  A pan that froze the
-		 logic has no other clock, and a recorded picture is a logic frame already. */
-	const Real scriptedRate = pictureClock || (isTimeFrozen() && !isCameraMovementFinished()) ? 1.0f : GameEngine_missionTimeRate();
+		 and late at a fast game speed or replay speed, and the timer that starts the next shot cuts it off
+		 (GameEngine_missionTimeRate follows the pacer both ways).  A pan that froze the
+		 logic has no other clock, and a recorded picture is a logic frame already.  The script's timers count
+		 game time, GAME_SPEED_PERCENT of the wall's, so the move does too. */
+	const Real gameSpeedRate = (Real)GAME_SPEED_PERCENT / 100.0f;
+	const Real scriptedRate = isTimeFrozen() && !isCameraMovementFinished() ? 1.0f
+		: pictureClock ? gameSpeedRate : GameEngine_missionTimeRate() * gameSpeedRate;
 	static Real scriptedWaypointMs = 0.0f;
+	if (resyncScripted)
+		scriptedWaypointMs = 0.0f;
 	scriptedWaypointMs += waypointElapsedMs * scriptedRate;
 	const Int scriptedElapsedMs = (Int)scriptedWaypointMs;
 	scriptedWaypointMs -= scriptedElapsedMs;
-	Bool scriptedStepTime = stepTime;
 	Real scriptedCameraPhase = (Real)(nowCameraStepTime - prevCameraStepTime) / (Real)CAMERA_STEP_MSEC;
 	if (pictureClock)
 	{
 		// The existing gate steps on a retail frame's last picture. Picture time reaches that
 		// same boundary there, then supplies its fractional remainder on the pictures between.
 		scriptedCameraPhase = CinematicCameraProgress::picturePhase(GameEngine_pictureFrame(),
-			cameraSteppedRetailFrame, LOGICFRAMES_PER_RETAIL_FRAME);
+			cameraSteppedRetailFrame, LOGICFRAMES_PER_RETAIL_FRAME) * gameSpeedRate
+			+ (Real)pictureStepHundredths / 100.0f;
 	}
-	if (scriptedRate != 1.0f)
+	// a recorded picture steps on its logic frame's last picture (above), so its steps are counted there
+	Int scriptedSteps = pictureClock ? pictureScriptedSteps : ( stepTime ? 1 : 0 );
+	if (scriptedRate != 1.0f && !pictureClock)
 	{
+		/* As many steps as the scaled time holds, so a fast game speed under a slow picture rate keeps up
+			 (200 percent at 40 pictures is 1.5 steps a picture), up to a few a picture; what is left past
+			 that is dropped down to one step, so a backlog never plays a later move too fast. */
+		const Int MAX_SCRIPTED_STEPS_A_PICTURE = 4;
+		// a retail frame exactly (33.3 ms), not the gate's whole 33, so a pan ends with the script's timers
+		const Real RETAIL_STEP_MS = 1000.0f / (Real)RETAIL_LOGICFRAMES_PER_SECOND;
 		static Real scriptedStepMs = 0.0f;
+		if (resyncScripted)
+			scriptedStepMs = 0.0f;
 		scriptedStepMs += waypointElapsedMs * scriptedRate;
-		scriptedStepTime = scriptedStepMs >= (Real)CAMERA_STEP_MSEC;
-		if (scriptedStepTime)
-			scriptedStepMs -= (Real)CAMERA_STEP_MSEC;
-		scriptedCameraPhase = scriptedStepMs / (Real)CAMERA_STEP_MSEC;
+		scriptedSteps = 0;
+		while (scriptedStepMs >= RETAIL_STEP_MS && scriptedSteps < MAX_SCRIPTED_STEPS_A_PICTURE)
+		{
+			scriptedStepMs -= RETAIL_STEP_MS;
+			++scriptedSteps;
+		}
+		if (scriptedStepMs > RETAIL_STEP_MS)
+			scriptedStepMs = RETAIL_STEP_MS;
+		scriptedCameraPhase = scriptedStepMs / RETAIL_STEP_MS;
 	}
 
 	IRegion2D dirtyTerrain;
@@ -2164,7 +2216,8 @@ void W3DView::update(void)
 	if (m_freeCamera)
 	{
 		invalidateCinematicCameraPose();
-		stepFreeCamera();
+		if (!m_freeCameraScripted)
+			stepFreeCamera();
 		setFreeCameraTransform();
 		m_recalcCamera = false;
 		if (TheScriptEngine->isTimeFast() || TheTerrainRenderObject == NULL)
@@ -2189,9 +2242,9 @@ void W3DView::update(void)
 		followFactor = -1;
 	}
 	// The lock follows on every render frame, each per-retail-frame factor scaled to this frame's
-	// length (1-(1-f)^steps), so it keeps retail's pull at any frame rate. Stepping it every 33 ms
-	// while the unit moves every logic frame, 16.7 ms, put the camera a frame behind on every second
-	// one, a 2:1 judder. With smooth motion on it aims at the drawable's blended position as well, except
+	// length (1-(1-f)^steps), so it keeps retail's pull at any frame rate. Stepping it once a retail
+	// frame while the unit moved every logic frame, twice as often at 60 ticks a second, put the camera
+	// a frame behind on every second one, a 2:1 judder. With smooth motion on it aims at the drawable's blended position as well, except
 	// on a picture a whole tick behind, which captured nothing and would find a stale one.
 	const Bool smoothLock = TheSmoothMotionActive && TheSmoothMotionAlpha < 1.0f;
 	const Real lockSteps = (Real)waypointElapsedMs / (Real)CAMERA_STEP_MSEC;
@@ -2382,11 +2435,13 @@ void W3DView::update(void)
 		recalcCamera = true;
 	}
 
-	if (scriptedStepTime && scriptMovesAllowed) {
+	if (scriptedSteps > 0 && scriptMovesAllowed) {
 		// If we aren't frozen for debug, allow the camera to follow scripted movements.
-		if (updateCameraMovements()) {
-			didScriptedMovement = true;
-			recalcCamera = true;
+		for (Int step = 0; step < scriptedSteps; ++step) {
+			if (updateCameraMovements()) {
+				didScriptedMovement = true;
+				recalcCamera = true;
+			}
 		}
 	} else {
 		if (isDoingScriptedCamera()) {

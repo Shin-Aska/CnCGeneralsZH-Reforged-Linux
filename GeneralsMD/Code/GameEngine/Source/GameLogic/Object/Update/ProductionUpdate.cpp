@@ -103,10 +103,10 @@ ProductionUpdateModuleData::ProductionUpdateModuleData( void )
 {
 	// someday, might need separate times for each door. but not yet.
 	m_numDoorAnimations = 0;
-	m_doorOpeningTime = 0;
-	m_doorWaitOpenTime = 0;
-	m_doorClosingTime = 0;
-	m_constructionCompleteDuration = 0;
+	m_doorOpeningTime.setRaw( 0 );
+	m_doorWaitOpenTime.setRaw( 0 );
+	m_doorClosingTime.setRaw( 0 );
+	m_constructionCompleteDuration.setRaw( 0 );
 	m_quantityModifiers.clear();
 	// nine, matching the queue strip; objects that must build one at a time still say MaxQueueEntries = 1 in INI
 	m_maxQueueEntries = 9;
@@ -137,10 +137,10 @@ ProductionUpdateModuleData::ProductionUpdateModuleData( void )
 	{
 		{ "MaxQueueEntries",	INI::parseInt, NULL, offsetof( ProductionUpdateModuleData, m_maxQueueEntries ) },
 		{ "NumDoorAnimations",	INI::parseInt, NULL, offsetof( ProductionUpdateModuleData, m_numDoorAnimations ) },
-		{ "DoorOpeningTime", INI::parseDurationUnsignedInt, NULL, offsetof( ProductionUpdateModuleData, m_doorOpeningTime ) },
-		{ "DoorWaitOpenTime", INI::parseDurationUnsignedInt, NULL, offsetof( ProductionUpdateModuleData, m_doorWaitOpenTime ) },
-		{ "DoorCloseTime", INI::parseDurationUnsignedInt, NULL, offsetof( ProductionUpdateModuleData, m_doorClosingTime ) },
-		{ "ConstructionCompleteDuration", INI::parseDurationUnsignedInt, NULL, offsetof( ProductionUpdateModuleData, m_constructionCompleteDuration ) },
+		{ "DoorOpeningTime", SPEED_FIELD( ProductionUpdateModuleData, m_doorOpeningTime ) },
+		{ "DoorWaitOpenTime", SPEED_FIELD( ProductionUpdateModuleData, m_doorWaitOpenTime ) },
+		{ "DoorCloseTime", SPEED_FIELD( ProductionUpdateModuleData, m_doorClosingTime ) },
+		{ "ConstructionCompleteDuration", SPEED_FIELD( ProductionUpdateModuleData, m_constructionCompleteDuration ) },
 		{ "QuantityModifier",	parseAppendQuantityModifier, NULL, offsetof( ProductionUpdateModuleData, m_quantityModifiers ) },
 		{ "DisabledTypesToProcess",	DisabledMaskType::parseFromINI, NULL, offsetof( ProductionUpdateModuleData, m_disabledTypesToProcess ) },
 		{ 0, 0, 0, 0 }
@@ -173,6 +173,7 @@ ProductionEntry::ProductionEntry( void )
 	m_productionQuantityTotal = 0;
 	//
 	m_costPaid = 0;
+	m_reinforcementSquad = -1;
 }  // end ProductionEntry
 
 //-------------------------------------------------------------------------------------------------
@@ -427,7 +428,7 @@ Int ProductionUpdate::getQuantityPerOrder( const ThingTemplate *unitType ) const
 /** Queue the prodcution of a unit.  Returns TRUE if unit was added to queue, FALSE if it
 	* was not */
 //-------------------------------------------------------------------------------------------------
-Bool ProductionUpdate::queueCreateUnit( const ThingTemplate *unitType, ProductionID productionID )
+Bool ProductionUpdate::queueCreateUnit( const ThingTemplate *unitType, ProductionID productionID, Int reinforcementSquad )
 {
 	// if we can't create the unit do nothing
 	if( TheBuildAssistant->canMakeUnit( getObject(), unitType ) != CANMAKE_OK )
@@ -488,6 +489,7 @@ Bool ProductionUpdate::queueCreateUnit( const ThingTemplate *unitType, Productio
 	production->m_objectToProduce = unitType;
 	production->m_productionID = productionID;
 	production->m_exitDoor = exitDoor;
+	production->m_reinforcementSquad = isValidHotkeySquadIndex( reinforcementSquad ) ? reinforcementSquad : -1;
 
 	// tie to the end of the production queue
 	addToProductionQueue( production );
@@ -684,6 +686,7 @@ void ProductionUpdate::updateDoors( Bool moreUnitsComing )
 //-------------------------------------------------------------------------------------------------
 void ProductionUpdate::beginOpeningDoor( ExitDoorType exitDoor )
 {
+	wakeIfResting();
 	DoorInfo *door = &m_doors[ exitDoor ];
 	UnsignedInt now = TheGameLogic->getFrame();
 
@@ -791,7 +794,7 @@ UpdateSleepTime ProductionUpdate::update( void )
 	if( production == NULL )
 	{
 		queueRepeatUnit();
-		return UPDATE_SLEEP_NONE;
+		return isResting() ? UPDATE_SLEEP_FOREVER : UPDATE_SLEEP_NONE;
 	}
 
 	//
@@ -1000,6 +1003,11 @@ UpdateSleepTime ProductionUpdate::update( void )
 								create->onBuildComplete();
 							}
 
+							// ordered from the group panel: joins its hotkey squad and walks to it,
+							// or keeps the rally point when that squad has nobody left
+							if( production->getReinforcementSquad() >= 0 )
+								creationBuilding->getControllingPlayer()->sendReinforcementToSquad( newObj, production->getReinforcementSquad() );
+
 							if( production->getProductionQuantity() == production->getProductionQuantityRemaining() )
 							{
 								//Call the voice created for the 1st object -- because it's possible to create multiple objects like redguards!
@@ -1147,10 +1155,33 @@ UpdateSleepTime ProductionUpdate::update( void )
 }  // end update
 
 //-------------------------------------------------------------------------------------------------
+/** The next update would change nothing, and goes on changing nothing until something is queued
+	* or put on repeat or a door is opened (wakeIfResting) */
+//-------------------------------------------------------------------------------------------------
+Bool ProductionUpdate::isResting( void ) const
+{
+	if( m_productionQueue != NULL || m_repeat.turn() != NULL || m_constructionCompleteFrame != 0 || m_flagsDirty )
+		return FALSE;
+	for( Int i = 0; i < DOOR_COUNT_MAX; ++i )
+		if( m_doors[ i ].m_doorOpenedFrame || m_doors[ i ].m_doorWaitOpenFrame || m_doors[ i ].m_doorClosedFrame )
+			return FALSE;
+	return TRUE;
+}
+
+//-------------------------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------------------------
+void ProductionUpdate::wakeIfResting( void )
+{
+	if( friend_getNextCallFrame() == UPDATE_SLEEP_FOREVER )
+		wakeExactly();
+}
+
+//-------------------------------------------------------------------------------------------------
 /** Add the production entry to the *END* of the production queue list */
 //-------------------------------------------------------------------------------------------------
 void ProductionUpdate::addToProductionQueue( ProductionEntry *production )
 {
+	wakeIfResting();
 
 	// check for empty list
 	if( m_productionQueue == NULL )
@@ -1303,7 +1334,12 @@ void ProductionUpdate::onDie( const DamageInfo *damageInfo )
 void ProductionUpdate::onCapture( Player *oldOwner, Player *newOwner )
 {
 	if( oldOwner != newOwner )
+	{
 		m_repeat.clear();
+		// the squad numbers were the old owner's; whatever is still queued comes out as a plain unit
+		for( ProductionEntry *p = m_productionQueue; p; p = p->m_next )
+			p->m_reinforcementSquad = -1;
+	}
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -1404,6 +1440,7 @@ void ProductionUpdate::setHoldDoorOpen(ExitDoorType exitDoor, Bool holdIt)
 {
 	if (exitDoor >= DOOR_1 && exitDoor < DOOR_COUNT_MAX)
 	{
+		wakeIfResting();
 		DoorInfo& door = m_doors[exitDoor];
 		door.m_holdOpen = holdIt;
 		if (holdIt && door.m_doorOpenedFrame == 0 && door.m_doorWaitOpenFrame == 0 && door.m_doorClosedFrame == 0)
@@ -1465,7 +1502,8 @@ void ProductionUpdate::xfer( Xfer *xfer )
 	// 2: each entry carries what was paid for it
 	// 3: each entry carries the build time its frame count was measured against
 	// 4: the units on repeat and whose turn it is
-	XferVersion currentVersion = 4;
+	// 5: each entry carries the hotkey squad its unit joins on exit
+	XferVersion currentVersion = 5;
 	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
 
@@ -1521,6 +1559,9 @@ void ProductionUpdate::xfer( Xfer *xfer )
 
 			// build time the frame count was measured against
 			xfer->xferInt( &production->m_totalProductionFrames );
+
+			// hotkey squad the unit joins on exit
+			xfer->xferInt( &production->m_reinforcementSquad );
 
 		}  // end for
 
@@ -1622,6 +1663,10 @@ void ProductionUpdate::xfer( Xfer *xfer )
 			// an older save leaves it 0, and the first update measures against whatever it finds
 			if( version >= 3 )
 				xfer->xferInt( &production->m_totalProductionFrames );
+
+			// an older save has no squad tags; the constructor left it -1
+			if( version >= 5 )
+				xfer->xferInt( &production->m_reinforcementSquad );
 
 		}  // end for, i
 

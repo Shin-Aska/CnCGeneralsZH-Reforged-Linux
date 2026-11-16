@@ -571,7 +571,8 @@ void MilesAudioManager::reset()
 /** -wav <from> <to> [name]: record the finished mix over a range of logic frames.
 	*
 	* A -wav run opens no audio device (openDevice): the mix is moved by the logic clock, here, by
-	* exactly 1/30 of a second of sound per logic frame, however long the frame took on the wall clock.
+	* exactly 1/LOGICFRAMES_PER_SECOND of a second of sound per logic frame, however long the frame took
+	* on the wall clock.
 	* So the file is as long as the frames it spans and lines up with the picture of the same frames,
 	* in a run that plays at the speed a person hears, in a -directorrecord run that crawls, and on a
 	* machine with no speakers.  A sound asked for during frame N starts N/LOGICFRAMES_PER_SECOND seconds in, because the
@@ -585,7 +586,9 @@ static void updateSoundCapture( void )
 		return;
 
 	const UnsignedInt frame = TheGameLogic->getFrame();
-	AIL_ex_mix_to_frame((S32)frame);
+	// AIL_ex_mix_to_frame counts in sixtieths of a second (MSS.h), so the frame goes in as that many
+	static_assert( 60 % LOGICFRAMES_PER_SECOND == 0, "AIL_ex_mix_to_frame takes sixtieths of a second" );
+	AIL_ex_mix_to_frame((S32)(frame * (60 / LOGICFRAMES_PER_SECOND)));
 
 	if (finished || !TheGameLogic->isInGame() || TheGameLogic->isInShellGame())
 		return;
@@ -3409,7 +3412,8 @@ void MilesAudioManager::trackVelocity( PlayingAudio *playing, const Coord3D *pos
 
 	if (playing->m_tracked)
 	{
-		const Real perSecond = MSEC_PER_SECOND / m_clockElapsedMs;
+		// per game second, not per wall second: the doppler and the Aurora's boom hear the same unit alike at every game speed
+		const Real perSecond = AudioMixPolicy::perGameSecond(m_clockElapsedMs, GAME_SPEED_PERCENT);
 		playing->m_velocity.x += 0.5f * ((pos->x - playing->m_lastPosition.x) * perSecond - playing->m_velocity.x);
 		playing->m_velocity.y += 0.5f * ((pos->y - playing->m_lastPosition.y) * perSecond - playing->m_velocity.y);
 		playing->m_velocity.z += 0.5f * ((pos->z - playing->m_lastPosition.z) * perSecond - playing->m_velocity.z);

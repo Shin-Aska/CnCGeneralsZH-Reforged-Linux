@@ -32,6 +32,7 @@
 #ifndef __GAMEINFO_H__
 #define __GAMEINFO_H__
 
+#include "Common/GameCommon.h"	// PLAYER_GAME_SPEED_PERCENT_DEFAULT, ClampPlayerGameSpeedPercent
 #include "Common/Snapshot.h"
 #include "Common/Money.h"
 #include "GameNetwork/NetworkDefs.h"
@@ -155,6 +156,9 @@ public:
 	void setHandicap( Int handicap ) { m_handicap = handicap; }	///< percent of max health this seat's units have, see IsValidHandicap
 	Int getHandicap( void ) const { return m_handicap; }
 
+	void setSkins( UnsignedInt64 skins ) { m_skins = skins; }	///< the SkinLoadout this seat's units are drawn in; drawing only, the logic never reads it
+	UnsignedInt64 getSkins( void ) const { return m_skins; }
+
 	inline void setName( UnicodeString name ) { m_name = name; }
 	inline UnicodeString getName( void ) const { return m_name; }
 
@@ -206,6 +210,7 @@ protected:
 	Int m_teamNumber;																	///< alliance, -1 for none
 	Int m_aiPersonality;															///< AIPersonality of an AI seat, AIPERSONA_NORMAL otherwise
 	Int m_handicap;																		///< percent of max health this seat's units have, HANDICAP_FULL for none
+	UnsignedInt64 m_skins;														///< SkinLoadout of an online human seat, 0 for none (TankSkin.h)
 	Int m_origColor;																			///< color, or -1 for random
 	Int m_origStartPos;																		///< start position, or -1 for random
 	Int m_origPlayerTemplate;															///< PlayerTemplate
@@ -334,15 +339,16 @@ public:
   inline Int getSupplyPileLimit( void ) const;
   void setSupplyPileLimit( Int players );
 
-  // Turbo mode: the match runs twice as many logic frames a second, each one the same as at normal
-  // speed.  The host's choice, so every machine and the replay agree on it.
-  Bool getTurbo( void ) const { return m_turbo; }
-  void setTurbo( Bool turbo ) { m_turbo = turbo; }
+  // Game speed in percent of retail's pace, one of PLAYER_GAME_SPEED_PERCENTS: the game time each tick
+  // advances.  Only the skirmish lobby sets another value than the default; it is not in the options
+  // string, and reaches the engine as MSG_NEW_GAME's game speed and the replay as its GS= field.
+  Int getGameSpeedPercent( void ) const { return m_gameSpeedPercent; }
+  void setGameSpeedPercent( Int percent ) { m_gameSpeedPercent = ClampPlayerGameSpeedPercent( percent ); }
 
   Bool hasAIPlayers( void ) const;									///< is any slot held by a computer player?
 
 protected:
-	Int m_preorderMask;
+	SlotMask m_preorderMask;
 	Int m_crcInterval;
 	Bool m_inGame;
 	Bool m_inProgress;
@@ -368,7 +374,7 @@ protected:
   Int m_incomeSharing; // an IncomeSharing, INCOME_SHARING_OFF = the retail game
   Int m_techRespawn; // minutes before a destroyed tech building comes back, 0 = never
   Int m_supplyPileLimit; // players who may gather from one supply pile at once, 0 = any number
-  Bool m_turbo; // the lobby's turbo mode is on
+  Int m_gameSpeedPercent; // the skirmish lobby's game speed, PLAYER_GAME_SPEED_PERCENT_DEFAULT elsewhere
 };
 
 extern GameInfo *TheGameInfo;
@@ -443,6 +449,15 @@ Int HandicapFromSlotField( const char *field );
 // come back to what the host kept.
 Bool ApplyHandicapRequest( GameInfo *game, GameSlot *slot, Int handicap );
 
+// A human seat's skin loadout (TankSkin.h) rides after the handicap as ",K1.2.3", the handicap then
+// written at full health too, and only when the seat has skins: an older build stops reading at the
+// handicap, and an older string reads as none.  Only an online room sets one, so a LAN or skirmish
+// string never carries it.  "Skins=K1.2.3" is an online guest's request, undone like the handicap's
+// when the options string would no longer fit.
+Bool ApplySkinRequest( GameInfo *game, GameSlot *slot, UnsignedInt64 skins );
+/// every seat without skins: a LAN string is parsed by the same parser, and skins are online only
+void GameInfoDropSkins( GameInfo *game );
+
 //
 // Three things every lobby - skirmish, LAN and online - has to agree on about a slot state, kept
 // here so that appending a rung to the enum above is one edit rather than a hunt through the menus.
@@ -453,6 +468,12 @@ Bool IsAISlotState( SlotState state );
 char SlotStateToOptionsChar( SlotState state );
 Bool OptionsCharToSlotState( char c, SlotState *state );
 UnicodeString SlotStateName( SlotState state );
+
+// A seat in the lobby's game list, from the name and the profile ID the host advertised for it.  An
+// AI seat advertises its SlotState as the profile ID and "CE", "CM", "CH" (or nothing) as the name;
+// a human's name decides first, because an online account ID is a small number and 2, 3, 4 and 6
+// read as AI states.
+SlotState ListedSeatState( const char *name, Int profileID );
 
 
 /**

@@ -40,12 +40,13 @@
 #include "GameNetwork/FrameMetrics.h"
 #include "GameNetwork/NetworkDefs.h"
 #include "GameNetwork/DisconnectManager.h"
+#include "GameNetwork/CushionMetrics.h"
 
 class GameInfo;
 class NetCommandWrapperList;
 
 typedef std::map<UnsignedShort, AsciiString> FileCommandMap;
-typedef std::map<UnsignedShort, UnsignedByte> FileMaskMap;
+typedef std::map<UnsignedShort, SlotMask> FileMaskMap;
 typedef std::map<UnsignedShort, Int> FileProgressMap;
 
 class ConnectionManager
@@ -55,7 +56,6 @@ public:
 	~ConnectionManager();
 
 	virtual void init();				///< Initialize this instance.
-	virtual void reset();				///< Take this instance back to the initial state.
 	virtual void update(Bool isInGame);			///< Service the Connections being managed by this instance.
 
 	// End SubsystemInterface functions
@@ -65,10 +65,10 @@ public:
 	void attachTransport(Transport *transport);
 
 	void parseUserList(const GameInfo *game);
-	void sendChat(UnicodeString text, Int playerMask, UnsignedInt executionFrame);
+	void sendChat(UnicodeString text, SlotMask playerMask, UnsignedInt executionFrame);
 	void sendDisconnectChat(UnicodeString text);
-	void sendLocalCommand(NetCommandMsg *msg, UnsignedByte relay = 0xff);		///< Send command to the players specified in the relay, goes through packet router.
-	void sendLocalCommandDirect(NetCommandMsg *msg, UnsignedByte relay);		///< Send command directly to the players specified, doesn't go through packet router.
+	void sendLocalCommand(NetCommandMsg *msg, SlotMask relay = SLOTMASK_ALL) { sendLocalCommandDirect(msg, relay); }	///< Every command goes straight to each player now; see sendLocalCommandDirect.
+	void sendLocalCommandDirect(NetCommandMsg *msg, SlotMask relay);		///< Send command straight to each player in the relay, and file it locally when our bit is set.
 	void sendLocalGameMessage(GameMessage *msg, UnsignedInt frame);
 	void sendCommand(NetCommandMsg *msg);
 	Bool allCommandsReady(UnsignedInt frame, Bool justTesting = FALSE);
@@ -85,8 +85,8 @@ public:
 	void processFrameTick(UnsignedInt frame);
 	void handleLocalPlayerLeaving(UnsignedInt frame);
 
-	void sendFile(AsciiString path, UnsignedByte playerMask, UnsignedShort commandID);
-	UnsignedShort sendFileAnnounce(AsciiString path, UnsignedByte playerMask);
+	void sendFile(AsciiString path, SlotMask playerMask, UnsignedShort commandID);
+	UnsignedShort sendFileAnnounce(AsciiString path, SlotMask playerMask);
 	Int getFileTransferProgress(Int playerID, AsciiString path);
 	Bool areAllQueuesEmpty(void);
 
@@ -101,8 +101,6 @@ public:
 	void quitGame();																									///< Disconnect from the game RIGHT NOW!!  Tell everyone else we are disconnecting.
 
 	void voteForPlayerDisconnect(Int slot);														///< Register a vote for a player to be disconnected.
-
-	void resendPendingCommands();																			///< Resend the pending commands to the packet router.
 
 	void setFrameGrouping(time_t frameGrouping);				///< Set the number of frames that are grouped together into packets.
 
@@ -170,7 +168,6 @@ private:
 
 	Bool processNetCommand(NetCommandRef *ref);
 	void processAckStage1(NetCommandMsg *msg);
-	void processAckStage2(NetCommandMsg *msg);
 	void processAck(NetCommandMsg *msg);
 	void processFrameInfo(NetFrameCommandMsg *msg);
 	void processRunAheadMetrics(NetRunAheadMetricsCommandMsg *msg);
@@ -187,7 +184,8 @@ private:
 
 	//	void doPerFrameMetrics(UnsignedInt frame);
 	void getMinimumFps(Int &minFps, Int &minFpsPlayer);			///< Returns the smallest FPS in the m_fpsAverages list.
-	Real getMaximumLatency(); ///< This actually sums the two biggest latencies in the m_latencyAverages list.
+	Real getMaximumLatency(); ///< The worst round trip any connected player reported, seconds (roomWorstLatency).
+	Real getMaximumJitter();  ///< The worst rttvar any connected player reported, seconds.
 
 	void requestFrameDataResend(Int playerID, UnsignedInt frame); ///< request of this player that he send the specified frame's data.
 
@@ -215,9 +213,6 @@ private:
 
 	FrameDataManager *m_frameData[MAX_SLOTS];
 
-	NetCommandList *m_pendingCommands;
-	NetCommandList *m_relayedCommands;
-
 	FrameMetrics m_frameMetrics;
 
 	NetCommandWrapperList *m_netCommandWrapperList;
@@ -225,6 +220,7 @@ private:
 	// These variables are used to keep track of the other players' average fps and latency.
 	// yup.
 	Real m_latencyAverages[MAX_SLOTS];
+	Real m_latencyJitters[MAX_SLOTS];		///< seconds, each player's worst rttvar; the run-ahead's jitter margin is sized on the largest
 	Int  m_fpsAverages[MAX_SLOTS];
 
 	/* Wall clock of the last thing we heard from each player, zero for "nothing yet". */
@@ -237,6 +233,7 @@ private:
 	Int  m_minFpsPlayer;
 	Int  m_minFps;
 	UnsignedInt m_smallestPacketArrivalCushion;
+	UnsignedInt m_cushionMeasured[CUSHION_RING_FRAMES];		///< Per frame in flight, the frame number whose arrival cushion was measured (arrivalMeasuresCushion).
 	Bool m_didSelfSlug;
 
 	// -----------------------------------------------------------------------------

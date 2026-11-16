@@ -45,8 +45,10 @@ param(
 	# fronts, which is the load a player actually complains about
 	[int] $Teams = 0,
 	# a match that has not been decided by here is a result in itself: the AI cannot finish.
-	# Logic frames, 60 a second: 60000 is 16.7 minutes of game time
-	[int] $MaxFrames = 60000,
+	# Seconds of game time; turned into logic frames at LOGICFRAMES_PER_SECOND from GameCommon.h
+	[int] $Seconds = 1000,
+	# the same cap in logic frames outright; 0 takes it from -Seconds
+	[int] $MaxFrames = 0,
 	# names this batch's logs, so two batches can be compared afterwards
 	[string] $Tag = "ai",
 	# map sizes to spread the batch over, in playable cells a side. Ignored when -Map is given.
@@ -88,8 +90,12 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-# LOGICFRAMES_PER_SECOND: every frame number the log writes counts these
-$LogicFps = 60
+# LOGICFRAMES_PER_SECOND: every frame number the log writes counts these. Read from the engine's
+# own header so this script never carries a copy of the rate.
+$LogicFps = [int][regex]::Match((Get-Content -Raw "$PSScriptRoot\GeneralsMD\Code\GameEngine\Include\Common\GameCommon.h"),
+	'(?m)^\s*LOGICFRAMES_PER_SECOND\s*=\s*(\d+)').Groups[1].Value
+if ($LogicFps -le 0) { throw "no LOGICFRAMES_PER_SECOND in GameCommon.h" }
+if ($MaxFrames -le 0) { $MaxFrames = $Seconds * $LogicFps }
 $env:ZH_UNATTENDED = "1"	# every game this starts is unattended: no box may wait on a person (EarlyCommandLine.h)
 
 # PowerShell variable names are case-insensitive, so this must not be called $exe: it would be the
@@ -211,7 +217,7 @@ foreach ($run in $started) {
 	$perf = @{}
 	$jobs = $null
 	# Stability, which is a different question from speed: the tail of the frame-time distribution
-	# and the count of frames that missed a 60Hz budget. Present in every build.
+	# and the count of frames that missed one and two logic ticks. Present in every build.
 	$ft = $null
 	$spikes = 0
 	# the AI's own account of its fights, per player index: what it lost and killed in money, its team
@@ -224,6 +230,8 @@ foreach ($run in $started) {
 	# production buildings each player put up, by kind (an arms dealer is GLA's war factory); a lost
 	# one put back counts again, so this is at least the most that ever stood at once
 	$factories = @{}
+	# the frame each player first stood at each rank, from the history's promotion events
+	$rankAt = @{}
 
 	foreach ($line in Get-Content $log) {
 		if ($line -match "^AI BUILT frame \d+ player (\d+) '.*?(WarFactory|ArmsDealer|Barracks|Airfield)'") {
@@ -249,6 +257,15 @@ foreach ($run in $started) {
 		if ($line -match "Re-attaching supply truck") { $econ.Reattach++; continue }
 		if ($line -match "^AI WAVE .* sends \d+ teams") { $econ.Waves++; continue }
 		if ($line -match "^AI COUNTER") { $econ.Counter++; continue }
+		# a promotion, with the rank it reached; several ranks in one frame come as one event at the highest
+		if ($line -match "HEADLESS HISTORY EVENT (\d+) (\d+) rank \S+ (\d+)") {
+			$p = [int]$Matches[1]
+			if (-not $rankAt.ContainsKey($p)) { $rankAt[$p] = @{} }
+			for ($r = 2; $r -le [int]$Matches[3]; $r++) {
+				if (-not $rankAt[$p].ContainsKey($r)) { $rankAt[$p][$r] = [int]$Matches[2] }
+			}
+			continue
+		}
 		if ($line -match "HEADLESS VALUE (\d+): units worth (\d+) lost, (\d+) killed") {
 			$value[[int]$Matches[1]] = [pscustomobject]@{ Lost = [int]$Matches[2]; Killed = [int]$Matches[3] }
 			continue
@@ -259,12 +276,13 @@ foreach ($run in $started) {
 				Worst = [double]$Matches[5]
 			}
 		}
-		elseif ($line -match "HEADLESS FRAMETIME: (\d+) frames \| mean ([\d.]+) p50 ([\d.]+) p95 ([\d.]+) p99 ([\d.]+) p99\.9 ([\d.]+) worst ([\d.]+) ms \(frame (\d+)\) \| over 16\.7ms (\d+) .* \| over 33\.3ms (\d+) ") {
+		elseif ($line -match "HEADLESS FRAMETIME: (\d+) frames \| mean ([\d.]+) p50 ([\d.]+) p95 ([\d.]+) p99 ([\d.]+) p99\.9 ([\d.]+) worst ([\d.]+) ms \(frame (\d+)\) \| over ([\d.]+)ms (\d+) .* \| over ([\d.]+)ms (\d+) ") {
+			# the two budgets are one and two logic ticks, whatever the build's rate makes them
 			$ft = [pscustomobject]@{
 				Frames = [int]$Matches[1]; Mean = [double]$Matches[2]; P50 = [double]$Matches[3]
 				P95 = [double]$Matches[4]; P99 = [double]$Matches[5]; P999 = [double]$Matches[6]
 				Worst = [double]$Matches[7]; WorstAt = [int]$Matches[8]
-				Over16 = [int]$Matches[9]; Over33 = [int]$Matches[10]
+				Budget1 = $Matches[9]; Over1 = [int]$Matches[10]; Budget2 = $Matches[11]; Over2 = [int]$Matches[12]
 			}
 		}
 		elseif ($line -match "HEADLESS SPIKE:") { $spikes++ }
@@ -309,11 +327,17 @@ foreach ($run in $started) {
 		elseif ($line -match "HEADLESS PLAYER (\d+) '(.*?)': (\w+) \| score (\d+) \| money (\d+) earned (\d+) spent \| units (\d+) built (\d+) lost (\d+) killed peak (\d+)(?:.*\| slot (-?\d+) team (-?\d+))?") {
 			# the lobby team is -1 for a free-for-all seat, and absent from a log an older build wrote
 			$team = if ($Matches[12]) { [int]$Matches[12] } else { -1 }
-			$slots[[int]$Matches[1]] = [pscustomobject]@{
+			$index = [int]$Matches[1]
+			$slots[$index] = [pscustomobject]@{
 				Name = $Matches[2]; Status = $Matches[3]; Score = [int]$Matches[4]
 				Earned = [int]$Matches[5]; Spent = [int]$Matches[6]
 				Built = [int]$Matches[7]; Lost = [int]$Matches[8]; Killed = [int]$Matches[9]
-				Peak = [int]$Matches[10]; Team = $team
+				Peak = [int]$Matches[10]; Team = $team; Rank = 0; Skill = 0
+			}
+			# the general's rank and skill points at the end, absent from a log an older build wrote
+			if ($line -match "\| rank (\d+) skill (\d+)") {
+				$slots[$index].Rank = [int]$Matches[1]
+				$slots[$index].Skill = [int]$Matches[2]
 			}
 		}
 	}
@@ -323,7 +347,7 @@ foreach ($run in $started) {
 	Write-Host ("{0}, {1}, frame {2}, {3:n0}s" -f $why, $winnerText, $frames, $wall)
 
 	$rows += [pscustomobject]@{ Seed = $seed; Cells = $cells; Why = $why; Frames = $frames; Wall = $wall; Slots = $slots; Pf = $pf; Perf = $perf; Jobs = $jobs; Ft = $ft; Spikes = $spikes
-		Value = $value; Loss = $loss; Engage = $engage; Econ = $econ; Factories = $factories; Winner = $winner }
+		Value = $value; Loss = $loss; Engage = $engage; Econ = $econ; Factories = $factories; Winner = $winner; RankAt = $rankAt }
 }
 
 # ---------------------------------------------------------------------------------------------
@@ -361,6 +385,27 @@ $summary = foreach ($p in $slotIds) {
 	}
 }
 if ($summary) { $summary | Format-Table -AutoSize | Out-String | Write-Host }
+
+# The general's ranks: how many players of the batch got to each, and the median game minute it landed
+# at (the history's promotion events; a rank reached with no event, from an older build, counts but has
+# no minute).
+$seats = @($rows | ForEach-Object { $_.Slots.Values })
+if (@($seats | Where-Object { $_.Rank -gt 0 }).Count -gt 0) {
+	$rankRows = foreach ($r in 2..10) {
+		$minutes = @($rows | ForEach-Object { $row = $_; $row.Slots.Keys | ForEach-Object {
+			if ($row.Slots[$_].Rank -ge $r -and $row.RankAt -and $row.RankAt.ContainsKey($_) -and $row.RankAt[$_].ContainsKey($r)) {
+				$row.RankAt[$_][$r] / $LogicFps / 60.0 } } } | Sort-Object)
+		$median = if ($minutes.Count -eq 0) { "" } elseif ($minutes.Count % 2) { $minutes[[int][math]::Floor($minutes.Count / 2)] }
+			else { ($minutes[$minutes.Count / 2 - 1] + $minutes[$minutes.Count / 2]) / 2 }
+		[pscustomobject]@{
+			Rank      = $r
+			Reached   = "{0}/{1}" -f @($seats | Where-Object { $_.Rank -ge $r }).Count, $seats.Count
+			MedianMin = if ($median -ne "") { [math]::Round($median, 1) } else { "" }
+		}
+	}
+	Write-Host "general's rank (players who reached it, median game minute):"
+	$rankRows | Format-Table -AutoSize | Out-String | Write-Host
+}
 
 # How many of each production building a player put up, the most in any one match of the batch:
 # a computer that stands one of each all match is short of factories (AIPlayer::addProductionForQueues).
@@ -486,13 +531,13 @@ if ($pfRows.Count -gt 0) {
 }
 
 # Stability. A mean frame time is the statistic that hides a stutter, so this reports the tail:
-# how bad the worst frames were and how many of them missed a 60Hz budget. Per 1000 frames, because
+# how bad the worst frames were and how many of them missed one and two logic ticks. Per 1000 frames, because
 # a longer batch would otherwise look worse than a short one.
 $ftRows = @($rows | Where-Object { $null -ne $_.Ft -and $_.Ft.Frames -gt 0 })
 if ($ftRows.Count -gt 0) {
 	$totFt = ($ftRows | ForEach-Object { $_.Ft.Frames } | Measure-Object -Sum).Sum
-	$totOver16 = ($ftRows | ForEach-Object { $_.Ft.Over16 } | Measure-Object -Sum).Sum
-	$totOver33 = ($ftRows | ForEach-Object { $_.Ft.Over33 } | Measure-Object -Sum).Sum
+	$totOver1 = ($ftRows | ForEach-Object { $_.Ft.Over1 } | Measure-Object -Sum).Sum
+	$totOver2 = ($ftRows | ForEach-Object { $_.Ft.Over2 } | Measure-Object -Sum).Sum
 	$worst = $ftRows | Sort-Object -Property { $_.Ft.Worst } -Descending | Select-Object -First 1
 	Write-Host ("frame time: mean {0:n2} p50 {1:n2} p99 {2:n2} p99.9 {3:n2} ms | worst {4:n1} ms (seed {5}, logic frame {6})" -f
 		(($ftRows | ForEach-Object { $_.Ft.Mean } | Measure-Object -Average).Average),
@@ -500,8 +545,9 @@ if ($ftRows.Count -gt 0) {
 		(($ftRows | ForEach-Object { $_.Ft.P99 } | Measure-Object -Average).Average),
 		(($ftRows | ForEach-Object { $_.Ft.P999 } | Measure-Object -Average).Average),
 		$worst.Ft.Worst, $worst.Seed, $worst.Ft.WorstAt)
-	Write-Host ("stutters per 1000 frames: {0:n2} over 16.7ms, {1:n2} over 33.3ms  ({2} and {3} in {4:n0} frames)" -f
-		(1000.0 * $totOver16 / $totFt), (1000.0 * $totOver33 / $totFt), $totOver16, $totOver33, $totFt)
+	Write-Host ("stutters per 1000 frames: {0:n2} over {5}ms, {1:n2} over {6}ms  ({2} and {3} in {4:n0} frames)" -f
+		(1000.0 * $totOver1 / $totFt), (1000.0 * $totOver2 / $totFt), $totOver1, $totOver2, $totFt,
+		$ftRows[0].Ft.Budget1, $ftRows[0].Ft.Budget2)
 }
 
 # THREADING-ROADMAP.md 3.1's safety net. Present in every build, so a run that quietly started

@@ -233,6 +233,9 @@ public:
 	void drawName(Int x, Int y, Color color, Color dropColor);
 	void drawTime(Int x, Int y, Color color, Color dropColor);
 	Real getHeight() const;
+	/// the strings setText fills, for a layout that places them itself (the Red Alert style rows)
+	DisplayString *getNameString() const { return m_nameDisplayString; }
+	DisplayString *getTimeString() const { return m_timeDisplayString; }
 
 // saved & public
 	AsciiString									m_powerName;
@@ -302,17 +305,11 @@ public:
 	UnicodeString		m_text;											///< the text we're displaying
 	DisplayString*	m_dString;									///< The display string
 	Coord3D					m_pos3D;													///< the 3d position in game coords
-	Int							m_frameTimeOut;												///< when we want this thing to disappear
-	Int							m_frameCount;													///< how many frames have we been displaying text?
+	UnsignedInt			m_bornMs;													///< wall clock it appeared at: the pop, rise and fade run on it
 };
 
 typedef std::list<FloatingTextData *> FloatingTextList;
 typedef FloatingTextList::iterator	FloatingTextListIt;
-
-enum 
-{
-	DEFAULT_FLOATING_TEXT_TIMEOUT = LOGICFRAMES_PER_SECOND/3,
-};
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -491,11 +488,18 @@ public:  // ********************************************************************
 		ORDER_MARK_FLAG							///< EA's rally flag
 	};
 	static OrderHintMark markForOrderHint( OrderHintKind kind, Bool onObject, Bool lastPoint );
+	/// The one colour an order kind wears on the click marker, its line, its end mark and the rings
+	/// under the units, 0x00RRGGBB: a move green, an attack red, an attack move orange, a guard gold,
+	/// everything else (enter, dock, repair, capture, an ability) cyan
+	static UnsignedInt orderKindColor( OrderHintKind kind );
+	/// the same against a given seat colour, 0x00RRGGBB: a kind within reach of the seat's hue takes
+	/// its alternate, so an order never wears the player's own ring colour
+	static UnsignedInt orderKindColor( OrderHintKind kind, UnsignedInt seat );
 
 	struct OrderHint
 	{
 		OrderHint( void ) : kind( ORDER_HINT_MOVE ), owner( INVALID_ID ), bornMs( 0 ), step( 0 ), icon( NULL ),
-			onObject( FALSE ), mark( ORDER_MARK_NONE ) {}
+			onObject( FALSE ), target( INVALID_ID ), fromTarget( INVALID_ID ), mark( ORDER_MARK_NONE ), clicked( FALSE ) {}
 
 		Coord3D from;						///< where the unit is now
 		Coord3D to;							///< where it is going
@@ -505,9 +509,100 @@ public:  // ********************************************************************
 		Int step;								///< its place in the order the unit will get to its points, from 1; 0 when it has only the one
 		const Image *icon;			///< the upgrade's own button art on an upgrade step, NULL otherwise
 		Bool onObject;					///< 'to' is a unit or building, read off it every frame
+		ObjectID target;				///< that unit or building, INVALID_ID on ground
+		ObjectID fromTarget;		///< the unit or building 'from' was the end of, on a shift list's later legs
 		OrderHintMark mark;			///< what stands on 'to'
+		Bool clicked;						///< 'to' is a point the player clicked (applyCommandedPoints), every member's the same
 	};
 	const std::vector<OrderHint>& getOrderHints( void ) const { return m_drawnOrderHints; }
+	/// A drawn line's end wears its ring only where it means "a place you clicked": a target, or an
+	/// end on a click.  A unit's own stopping place, alone or bunched with others', ends bare: a lone
+	/// unit whose click was forgotten put small rings off every click of a big group's queue
+	static Bool orderHintShowsMark( const OrderHint& hint ) { return hint.mark != ORDER_MARK_NONE && ( hint.onObject || hint.clicked ); }
+
+	// One ring a unit on the ground where the local player's last move-type order really sends it,
+	// read off the unit once logic has run the order (the flood's cell, the formation station, the
+	// end of the unit's own path), sized to the unit and faded out over ORDER_RING_MS.
+	enum { ORDER_RING_MS = 1500, ORDER_RING_WAIT_MS = 3000 };
+	struct OrderRing
+	{
+		ObjectID owner;
+		OrderHintKind kind;			///< ORDER_HINT_MOVE, _ATTACK_MOVE, _GUARD, or _WAYPOINT for a shift point
+		Coord3D at;							///< where logic sends it, at the height of its layer
+		Real radius;						///< the unit's footprint
+		Bool onGround;					///< FALSE on a bridge: drawn flat at 'at'
+		Bool settled;						///< 'at' is final (a path planned after the order, a waypoint, a tunnel exit)
+		UnsignedInt dueFrame;		///< logic has run the order once its frame is past this
+		UnsignedInt armedMs;		///< when the order was given
+		UnsignedInt bornMs;			///< when the ring was first placed, 0 until then
+		Bool replaced;					///< it took over a ring of the unit's last order: placed only from a path planned for this one
+	};
+	void armOrderRings( OrderHintKind kind );		///< HintSpy: the selection was just given a move-type order
+	const std::vector<OrderRing>& getOrderRings( void ) const { return m_orderRings; }
+
+	// An order this machine has sent and logic has not run yet.  In a network game that is a few
+	// frames of run-ahead, and the lines read off the units kept showing the old order until then.
+	// Until the order's execution frame is past, the unit's line is drawn from the order itself; after
+	// it the unit is read as usual, so an order logic refused goes back to what the unit really does.
+	struct PendingOrder
+	{
+		ObjectID owner;
+		OrderHintKind kind;
+		Coord3D to;							///< the ground clicked, when 'target' is INVALID_ID
+		ObjectID target;				///< the unit or building the order is aimed at
+		UnsignedInt dueFrame;		///< logic has run the order once its frame is past this
+	};
+	// The click a unit's last ground order went to, which its first line ends on while that line is
+	// still the order's (applyCommandedPoints)
+	struct CommandedPoint
+	{
+		ObjectID owner;
+		OrderHintKind kind;
+		Coord3D at;							///< the click
+		Coord3D goal;						///< the stopping place the unit's first path for this order gave it
+		Bool settled;						///< 'goal' is read
+		Int legs;								///< the unit's lines last frame, 0 before the first; fewer means a leg was finished
+		Bool seen;							///< the unit drew a line this frame
+		UnsignedInt dueFrame;		///< logic has run the order once its frame is past this; a path older than it is the last order's
+	};
+	// A shift-queued ground order's click, one per unit it went to, oldest first: a queued leg ends on
+	// it as the first line ends on its CommandedPoint
+	struct QueuedClick
+	{
+		ObjectID owner;
+		OrderHintKind kind;
+		Coord3D at;
+		UnsignedInt bornMs;			///< given then; kept a moment while logic has not drawn its leg yet
+		UnsignedInt dueFrame;		///< logic has run the order once its frame is past this; no leg to pair with before
+		Bool matched;						///< a leg paired with it this frame
+	};
+	void rememberQueuedClicks( OrderHintKind kind, const Coord3D& at );	///< HintSpy: a ground order went on the end of the selection's lists
+	void predictOrderHints( OrderHintKind kind, const Coord3D *to, ObjectID target );	///< HintSpy: the selection was just given this order
+	void predictFormationOrderHints( void );		///< HintSpy: the formation line just drawn was sent, each unit to its station
+	// A rally point the same way: the line and the flag go where the player clicked until logic has
+	// run the order, then back to the building's own.
+	void predictRallyPoint( ObjectID building, const Coord3D& at );		///< HintSpy: a rally point was just sent
+	const Coord3D *getPredictedRallyPoint( ObjectID building ) const;	///< NULL unless one is waiting on logic
+
+	// A building wears a line round its footprint on the ground: white while it is selected, red while
+	// a selected unit is attacking it, red winning.  The red one blinks a few times when the attack
+	// starts, and an order aimed at an outlined building ends on the line, nearest the unit.
+	enum StructureOutlineColor
+	{
+		OUTLINE_HIDDEN = 0,			///< a red one in the dark half of a blink, on a building nobody selected
+		OUTLINE_WHITE,
+		OUTLINE_RED
+	};
+	struct StructureOutline
+	{
+		ObjectID id;
+		Bool selected;
+		Bool attacked;								///< a selected unit's order is an attack on it
+		UnsignedInt attackedSinceMs;	///< when that was first seen, for the blink
+		StructureOutlineColor color;	///< this frame's
+	};
+	const std::vector<StructureOutline>& getStructureOutlines( void ) const { return m_structureOutlines; }
+	static void traceStructureOutline( const Object *obj, std::vector<Coord3D>& points );	///< the closed line round its footprint, on the ground
 
 	// A circle dragged out with the left button while the attack key is armed or Ctrl is held.  The
 	// enemies inside it are shared across the units that can shoot, in the order both sides stand
@@ -527,7 +622,8 @@ public:  // ********************************************************************
 	/// in front of it.  The logic keeps the list; see OrderQueue.h.
 	void markNextOrderQueued( OrderQueueMode mode );
 
-	void createMoveHint( const GameMessage *msg );							///< Classic: EA's animated ring where a move order lands
+	void createMoveHint( const Coord3D& at, OrderHintKind kind );	///< the marker where an order lands: EA's animated ring under Classic, the order's coloured ring otherwise
+	void createFormationMoveHints( void );											///< one marker on each station of the formation line just sent
 	virtual void createAttackHint( const GameMessage *msg );		///< An attack command has occurred, start graphical "hint"
 	virtual void createForceAttackHint( const GameMessage *msg );		///< A force attack command has occurred, start graphical "hint"
 
@@ -585,6 +681,21 @@ public:  // ********************************************************************
 		const Real step = PI / 4.0f;
 
 		return ((Real)REAL_TO_INT_FLOOR( angle / step + 0.5f )) * step;
+	}
+
+	/** The money readout's next figure on its way from shown to target, elapsedMs of wall clock on.
+		* It covers a tenth of what is left every 10 ms, never less than 300 a second, and never passes
+		* the target: a 100,000 jump lands in under a second, a 100 still ticks for a fifth of one.
+		* Inline so a test can reach it without linking the whole in-game UI. */
+	static Int stepMoneyShown( Int shown, Int target, UnsignedInt elapsedMs )
+	{
+		const Real CLOSE_MS = 100.0f;			// what is left shrinks by e every this long
+		const Real LEAST_PER_SEC = 300.0f;	// the slowest it ever counts
+		const Real left = (Real)( target > shown ? (Int64)target - shown : (Int64)shown - target );
+		const Real step = ceilf( max( left * elapsedMs / CLOSE_MS, LEAST_PER_SEC * elapsedMs / 1000.0f ) );
+		if( step >= left )
+			return target;
+		return target > shown ? shown + (Int)step : shown - (Int)step;
 	}
 	/** Experimental GridBuildPlacement: quantize a structure's position to the pathfinder's own
 		* build grid, so that structures put down by eye line up with each other and with the cells
@@ -1047,6 +1158,9 @@ public:  // ********************************************************************
 	Bool handleSpectatorRackClick( const ICoord2D *mouse, Bool act );
 	/// The wheel over the rack: TRUE when the rack is under it; over the standings' head it steps the stat
 	Bool handleSpectatorRackWheel( const ICoord2D *mouse, Real notches );
+	/// The wheel over the airlift panel, drawn on the last pass: TRUE when the panel is under it; over a
+	/// unit's cell it moves the count
+	Bool handleAirliftWheel( const ICoord2D *mouse, Real notches );
 	/// a command bar key while watching: TRUE when it picked a stat, Q W E R T Y A as shipped
 	Bool pickSpectatorStat( Int commandSlot );
 	/// a raw Q W E R T Y A press or release while watching: TRUE when the rack's stat keys took it
@@ -1064,6 +1178,9 @@ public:  // ********************************************************************
 
   // mouse over information	
 	virtual DrawableID getMousedOverDrawableID( void ) const;	///< Get drawble ID of drawable under cursor
+	/// the Red Alert style layout is on and `pixel` is on its steel (sidebar, strip or card), where the
+	/// world under it is not to be picked; always FALSE under Classic
+	Bool isOverSidebarHud( const ICoord2D &pixel ) const;
 	
 	/// Set the ingame flag as to if we have the Quit menu up or not
 	virtual void setQuitMenuVisible( Bool t ) { m_isQuitMenuVisible = t; }
@@ -1103,12 +1220,17 @@ public:  // ********************************************************************
 	// Floating Test Methods
 	/// the text it added, for a caller that wants to hold it longer; NULL while icons are not drawn
 	virtual FloatingTextData *addFloatingText(const UnicodeString& text,const Coord3D * pos, Color color);
+	/** Cash that landed on owner's purse (amount > 0) or left it (amount < 0), floating at pos.  Every
+		* money figure goes through here, which decides who sees it: the owner and his allies, and an
+		* observer or replay viewer, never an enemy.  Client only; logic may call it mid-tick. */
+	void addMoneyText( Int amount, const Coord3D *pos, const Player *owner );
 	/// a smoke signal's mark laid on the ground in the sender's colour, there until its smoke is gone
 	void addSignalMark( SignalKind kind, const Coord3D &pos, Color color, ParticleSystemID smoke );
 	/// a signal button pressed: the next left click on the ground or the radar drops that signal there
 	void armSignal( SignalKind kind ) { m_armedSignal = kind; }
 	void disarmSignal( void ) { m_armedSignal = SIGNAL_KIND_COUNT; }
 	Bool isSignalArmed( void ) const { return m_armedSignal != SIGNAL_KIND_COUNT; }
+	SignalKind getArmedSignal( void ) const { return m_armedSignal; }	///< SIGNAL_KIND_COUNT for none
 	/// sends the armed signal to `world` and disarms; FALSE, doing nothing, when none is armed
 	Bool placeArmedSignal( const Coord3D &world );
 
@@ -1316,6 +1438,9 @@ public:
 		* up stand on top of it instead of being painted over. */
 	virtual void drawAttackCircleFill( void ) { }
 
+	/** The order rings (getOrderRings), on the ground with the terrain so the units stand on them. */
+	virtual void drawOrderRings( void ) { }
+
 	/// the control socket's "spectator" verb: the camera, the followed player, the fog, and replay
 	/// pause, seek and speed
 	void runSpectatorAction( const std::string &action );
@@ -1341,13 +1466,22 @@ protected:
 	AsciiString									m_currentlyPlayingMovie;											///< Used to push updates to TheScriptEngine
 	DrawableList								m_selectedDrawables;													///< A list of all selected drawables.
 
-	// Classic's move rings, EA's own: where each move order landed and the client frame it did
-	enum { MAX_MOVE_HINTS = 256 };
+public:
+	// Where each order landed: EA's move ring under Classic graphics, the order's coloured marker
+	// otherwise (W3DInGameUI::drawMoveHints and drawOrderRings on the ground, W3DWaypointBuffer on water)
+	enum { MAX_MOVE_HINTS = 256, MOVE_MARKER_MS = 750 };
 	struct MoveHintStruct
 	{
 		Coord3D pos;						///< World coords of destination point
 		UnsignedInt frame;			///< frame the command was issued on
+		UnsignedInt bornMs;			///< and the picture's clock then, for the coloured marker
+		OrderHintKind kind;
 	};
+	const MoveHintStruct& getMoveHint( Int i ) const { return m_moveHint[ i ]; }
+	/// An order mark at (x, y) stands on water: the terrain pass paints it under the water, so the
+	/// waypoint buffer draws it on the sorted list after the water instead.  The water's surface in 'waterZ'
+	static Bool isOrderMarkOnWater( Real x, Real y, Real *waterZ );
+protected:
 	MoveHintStruct							m_moveHint[ MAX_MOVE_HINTS ];
 	Int													m_nextMoveHint;
 	DrawableList								m_selectedLocalDrawables;											///< A list of all selected drawables owned by the local player
@@ -1359,6 +1493,22 @@ protected:
 	Int													m_formationDragSpacing;												///< pixels a new point has to earn, doubled each time the curve fills up
 	std::vector<OrderHint>			m_orderHints;																	///< who is going where, one per unit and queued point
 	std::vector<OrderHint>			m_drawnOrderHints;														///< the same, units headed the same way bunched into one
+	std::vector<OrderRing>			m_orderRings;																	///< armed or fading, one per unit
+	std::vector<PendingOrder>		m_pendingOrders;															///< sent, not yet run by logic, one per unit
+	std::vector<CommandedPoint>	m_commandedPoints;														///< one per unit at most
+	std::vector<QueuedClick>		m_queuedClicks;																///< every unit's, each unit's in the order given
+	std::vector<size_t>					m_pairLegs;																		///< applyCommandedPoints' scratch: one unit's ground legs
+	std::vector<size_t>					m_pairClicks;																	///< and its queued clicks logic has run
+	void rememberCommandedPoint( ObjectID owner, OrderHintKind kind, const Coord3D *at );	///< NULL forgets the unit's
+	void applyCommandedPoints( void );													///< each unit's first line onto its click, and the next leg's start with it
+	struct PendingRally { ObjectID building; Coord3D at; UnsignedInt dueFrame; };
+	std::vector<PendingRally>		m_pendingRallies;															///< sent, not yet run by logic, one per building
+	void expirePendingOrders( void );														///< drop what logic has run by now
+	Bool addPendingOrderHint( const Object *obj, const std::vector<OrderHint>& previous );	///< the unit's line from an order logic has not run, FALSE for none
+	void updateOrderRings( void );															///< place armed rings once logic ran the order, drop faded ones
+	Bool placeOrderRing( OrderRing& ring );											///< read where logic sends the unit, FALSE to drop the ring
+	std::vector<StructureOutline>	m_structureOutlines;												///< buildings selected or under a selected unit's attack
+	std::vector<StructureOutline>	m_previousStructureOutlines;								///< last frame's, swapped with the above so neither reallocates
 
 	Bool												m_isAttackCircling;														///< TRUE while an attack circle is being dragged (fork)
 	ICoord2D										m_attackCircleAnchor;													///< where the circle was started, in pixels
@@ -1370,7 +1520,9 @@ protected:
 	void collectOrderHints( void );															///< one hint per selected unit and queued point
 	void bunchOrderHints( void );																///< merge the hints of units going the same way
 	void addOrderHint( OrderHint& hint, const std::vector<OrderHint>& previous );	///< keep a marker's age across the frame the list is rebuilt on
-	Bool getHeldAircraftOrder( const Object *obj, OrderHintKind& kind, Coord3D& to, Bool& onObject ) const;	///< the order an aircraft is sitting on until it is airborne
+	void updateStructureOutlines( void );												///< which buildings wear a line this frame, and in what colour
+	void snapOrderHintsToOutlines( void );											///< a drawn hint's end on an outlined building moves onto the outline
+	Bool getHeldAircraftOrder( const Object *obj, OrderHintKind& kind, Coord3D& to, Bool& onObject, ObjectID& target ) const;	///< the order an aircraft is sitting on until it is airborne
 	void addQueuedOrderTail( OrderHint& hint, const OrderChain& chain, const std::vector<OrderHint>& previous );	///< every order still owed, drawn on from where the hint leaves off
 	Bool getQueuedOrderHint( const QueuedOrder& order, OrderHint& hint ) const;	///< the marker a queued order draws, FALSE for none
 	void numberOrderHints( void );															///< a unit with more than one place to go numbers them
@@ -1426,6 +1578,7 @@ protected:
 	Int hudStripBottom( void ) const;			///< first screen row below that strip, 0 while it is not drawn
 	void drawKickVoteBanner( void );			///< the open vote kick, top middle, while there is one
 	void drawProductionList( void );			///< the production list, cameos on the left above the control bar
+	void drawRadarAlarmPointers( void );	///< a chevron at the view's edge toward each alarm off the screen
 	DisplayString *cellString( DisplayString *&string, const UnicodeString &text );	///< a cell's kept readout string
 	void drawCellSeconds( DisplayString *&string, Int seconds, const IRegion2D &cameo, const Image *plate );	///< "45s" in a cameo's corner
 
@@ -1472,7 +1625,9 @@ protected:
 	/// the score bar laid out for players, under the clock's tab, team letters taken from named
 	void layOutBroadcast( const std::vector< SpectatorStats > &players, const std::vector< SpectatorStats > &named,
 		const std::string &tag, Int clockBox, Int clockBoxHeight, BroadcastLayout &layout );
-	Int													m_lastMoneyDisplayed;		///< so the money gadget is only written when the amount changes
+	Int													m_lastMoneyDisplayed;		///< the figure the money gadget shows, counting toward the purse; -1 after a reset, -2 for Unlimited
+	const Player *							m_moneyShownPlayer;			///< whose purse that figure is: another one snaps instead of counting
+	UnsignedInt									m_moneyShownMs;					///< wall clock the figure last stepped at
 	UnsignedInt									m_hudDrawCount;					///< rendered frames counted by drawHudOverlay itself
 	UnsignedInt									m_hudLastSampleFrame;		///< m_hudDrawCount the fps sample was last refreshed on
 	UnsignedInt									m_hudLastSampleMs;			///< wall clock of that sample
@@ -1505,6 +1660,8 @@ protected:
 	IRegion2D										m_productionListPlace[ PRODUCTION_LIST_CELLS ];
 	Int													m_productionListCells;		///< cells drawn
 	IRegion2D										m_productionListTab;
+	ObjectID										m_hero;										///< the local player's living hero, the sweep's, INVALID_ID for none
+	IRegion2D										m_heroCell;								///< the hero's cell over the queue, empty when not drawn
 	IRegion2D										m_superweaponPlace[ SUPERWEAPON_LIST_CELLS ];
 	ObjectID										m_superweaponJump[ SUPERWEAPON_LIST_CELLS ];	///< the building a click looks at, INVALID_ID for none
 	Int													m_superweaponCells;				///< cells drawn
@@ -1524,12 +1681,25 @@ protected:
 		RACK_TEXT_KEY, RACK_TEXT_STAT = RACK_TEXT_KEY + 7, RACK_TEXT_HINT, RACK_TEXT_PLACE_HEAD, RACK_TEXT_PLAYER_HEAD,
 		RACK_TEXT_VALUE_HEAD, RACK_TEXT_PLACE, RACK_TEXT_NAME = RACK_TEXT_PLACE + RACK_ROWS,
 		RACK_TEXT_VALUE = RACK_TEXT_NAME + RACK_ROWS, RACK_TEXT_UNITS = RACK_TEXT_VALUE + RACK_ROWS,
-		RACK_TEXT_COUNT = RACK_TEXT_UNITS + RACK_ROWS * RACK_ARMY_UNITS
+		RACK_TEXT_STATE = RACK_TEXT_UNITS + RACK_ROWS * RACK_ARMY_UNITS, RACK_TEXT_STATE_NAME, RACK_TEXT_STATE_TAIL, RACK_TEXT_NEXT,
+		RACK_TEXT_PLATE_NAME, RACK_TEXT_PLATE_WORD,
+		RACK_TEXT_COUNT
 	};
 	void drawSpectatorRack( Int plateTop );	///< plateTop: the watch drawer's plate, 8 under the superweapon tray's foot
-	/// the kept string `slot` holding text in the bold face at px pixels at 1080, a pixel smaller at a time
-	/// down to 9 until it is no wider than room (0: any width)
-	DisplayString *rackText( Int slot, const UnicodeString &text, Int px, Int room );
+	/// the status well under the mode cells: what the camera does, and the next step or the hovered
+	/// control's use; well FALSE when the drawer's own piece already has the well painted in
+	void drawRackStatus( Int left, Int top, Int right, const UnicodeString &hover, Bool well );
+	/// a player's own screen on the camera, the fog left as the watcher set it; the mode before is kept
+	void takePlayerCamera( Int playerIndex );
+	/// the player let go of: nobody followed, the camera the watcher had before
+	void letGoOfPlayerCamera( void );
+	/// while a player's screen is on the camera, his name and "player camera" at the top of the picture
+	void drawPlayerCameraPlate( Int top );
+	/// the kept string `slot` holding text in the bold face at px pixels at 1080, or a pixel smaller
+	/// where that fits room (0: any width), else abbreviated at that size (UIStyle::fitText, shortText
+	/// first, keep's words left whole); a player's name is only ever cut with an ellipsis
+	DisplayString *rackText( Int slot, const UnicodeString &text, Int px, Int room,
+		const UnicodeString &shortText = UnicodeString::TheEmptyString, const UnicodeString &keep = UnicodeString::TheEmptyString );
 	Bool												m_rackShown;							///< the last postDraw drew it
 	Int													m_rackX, m_rackY;					///< its pieces' left and the watch drawer's top
 	Int													m_rackRows;
@@ -1539,9 +1709,10 @@ protected:
 	DisplayString *							m_rackText[ RACK_TEXT_COUNT ];
 	Int													m_rackTextPx[ RACK_TEXT_COUNT ];		///< the size and room each was laid out for
 	Int													m_rackTextRoom[ RACK_TEXT_COUNT ];
+	UnicodeString								m_rackTextSource[ RACK_TEXT_COUNT ];	///< the text before any shortening
 
 	Coord2D											m_superweaponPosition;
-	Real												m_superweaponFlashDuration;
+	DurationFramesReal												m_superweaponFlashDuration;
 	
 	// superweapon timer font info
 	AsciiString									m_superweaponNormalFont;
@@ -1557,7 +1728,7 @@ protected:
 
 	NamedTimerMap								m_namedTimers;
 	Coord2D											m_namedTimerPosition;
-	Real												m_namedTimerFlashDuration;
+	DurationFramesReal												m_namedTimerFlashDuration;
 	Int													m_namedTimerLastFlashFrame;
 	Color												m_namedTimerFlashColor;
 	Bool												m_namedTimerUsedFlashColor;
@@ -1611,7 +1782,7 @@ protected:
 	Bool												m_militaryCaptionBold;
 
 	Bool												m_militaryCaptionRandomizeTyping;
-	Int													m_militaryCaptionSpeed;
+	RetailFramesInt													m_militaryCaptionSpeed;
 
 	RadiusDecalTemplate					m_radiusCursors[RADIUSCURSOR_COUNT];
 	RadiusDecal									m_curRadiusCursor;
@@ -1620,9 +1791,11 @@ protected:
 
 	//Floating Text Data
 	FloatingTextList						m_floatingTextList;				///< Our list of floating text
-	UnsignedInt									m_floatingTextTimeOut;									///< Ini value of our floating text timeout
-	Real												m_floatingTextMoveUpSpeed;							///< INI value of our Move up speed
-	Real												m_floatingTextMoveVanishRate;					///< INI value of our move vanish rate
+	// read as InGameUI.ini wrote them (raw()) and run on the wall clock, never on the game speed:
+	// the hold in msec, the rise in pixels a second, the fade as retail's vanish rate (floatingTextAlpha)
+	DurationFrames									m_floatingTextTimeOut;									///< Ini value of our floating text timeout
+	VelocityPerFrame												m_floatingTextMoveUpSpeed;							///< INI value of our Move up speed
+	VelocityPerFrame												m_floatingTextMoveVanishRate;					///< INI value of our move vanish rate
 
 	PopupMessageData *					m_popupMessageData;
 	Color												m_popupMessageColor;
@@ -1699,5 +1872,9 @@ extern Bool HudReadout_fits( DisplayString *text, const IRegion2D &cell );
 	* given (a sheet piece), a solid one otherwise. */
 extern void HudReadout_draw( DisplayString *text, const IRegion2D &cell, HudReadoutCorner corner, Color textColor,
 														 const Image *plate = NULL );
+
+/** An amount of money written as the bar's money readout writes the purse: GUI:ControlBarMoneyDisplay,
+	* "$ 10,000", grouped where the scheme groups it. */
+extern UnicodeString HudMoney_format( Int amount );
 
 #endif // _IN_GAME_UI_H_

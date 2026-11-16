@@ -77,9 +77,9 @@ static Real turnEaseDistance(const MissileAIUpdateModuleData* d)
 MissileAIUpdateModuleData::MissileAIUpdateModuleData()
 {
 	m_tryToFollowTarget = true;
-	m_fuelLifetime = 0;
-	m_ignitionDelay = 0;
-	m_initialVel = 0;
+	m_fuelLifetime.setRaw( 0 );
+	m_ignitionDelay.setRaw( 0 );
+	m_initialVel.setRaw( 0 );
 	m_initialDist = 0.0f;
 	m_diveDistance = 0.0f;
 	m_ignitionFX = NULL;
@@ -90,7 +90,7 @@ MissileAIUpdateModuleData::MissileAIUpdateModuleData()
 	m_lockDistance = 75.0f;	
 	m_distanceScatterWhenJammed = 75.0f;
     m_detonateCallsKill = FALSE;
-    m_killSelfDelay   = ConvertRetailFrames(3); // just long enough for the contrail to catch up to me
+    m_killSelfDelay.setRaw( 100 );	// msec, ConvertRetailFrames(3) at the native speed: // just long enough for the contrail to catch up to me
 }
 
 //-----------------------------------------------------------------------------
@@ -101,9 +101,9 @@ void MissileAIUpdateModuleData::buildFieldParse(MultiIniFieldParse& p)
 	static const FieldParse dataFieldParse[] = 
 	{
 		{ "TryToFollowTarget",			INI::parseBool,		NULL, offsetof( MissileAIUpdateModuleData, m_tryToFollowTarget ) },
-		{ "FuelLifetime",						INI::parseDurationUnsignedInt,		NULL, offsetof( MissileAIUpdateModuleData, m_fuelLifetime ) },
-		{ "IgnitionDelay",					INI::parseDurationUnsignedInt,		NULL, offsetof( MissileAIUpdateModuleData, m_ignitionDelay ) },
-		{ "InitialVelocity",				INI::parseVelocityReal,		NULL, offsetof( MissileAIUpdateModuleData, m_initialVel) },
+		{ "FuelLifetime",						SPEED_FIELD( MissileAIUpdateModuleData, m_fuelLifetime ) },
+		{ "IgnitionDelay",					SPEED_FIELD( MissileAIUpdateModuleData, m_ignitionDelay ) },
+		{ "InitialVelocity",				SPEED_FIELD( MissileAIUpdateModuleData, m_initialVel ) },
 		{ "DistanceToTravelBeforeTurning",	INI::parseReal,		NULL, offsetof( MissileAIUpdateModuleData, m_initialDist ) },
 		{ "DistanceToTargetBeforeDiving",		INI::parseReal,		NULL, offsetof( MissileAIUpdateModuleData, m_diveDistance ) },
 		{ "DistanceToTargetForLock",INI::parseReal,		NULL, offsetof( MissileAIUpdateModuleData, m_lockDistance ) },
@@ -117,7 +117,7 @@ void MissileAIUpdateModuleData::buildFieldParse(MultiIniFieldParse& p)
 		{ "GarrisonHitKillCount", INI::parseUnsignedInt, NULL, offsetof( MissileAIUpdateModuleData, m_garrisonHitKillCount ) },
 		{ "GarrisonHitKillFX", INI::parseFXList, NULL, offsetof( MissileAIUpdateModuleData, m_garrisonHitKillFX ) },
     { "DetonateCallsKill", INI::parseBool,   NULL, offsetof( MissileAIUpdateModuleData, m_detonateCallsKill ) },
-    { "KillSelfDelay",     INI::parseDurationUnsignedInt, NULL, offsetof( MissileAIUpdateModuleData, m_killSelfDelay ) },
+    { "KillSelfDelay",     SPEED_FIELD( MissileAIUpdateModuleData, m_killSelfDelay ) },
     { 0, 0, 0, 0 }
 	};
 
@@ -148,11 +148,13 @@ MissileAIUpdate::MissileAIUpdate( Thing *thing, const ModuleData* moduleData ) :
 	m_exhaustSysTmpl = NULL;
 	m_isTrackingTarget = FALSE;
 	m_exhaustID = INVALID_PARTICLE_SYSTEM_ID;
+	m_exhaustLightened = FALSE;
 	m_extraBonusFlags = 0;
 	m_originalTargetPos.zero();
 	m_framesTillDecoyed = 0;
 	m_noDamage = FALSE;
 	m_isJammed = FALSE;
+	m_isSpent = FALSE;
 } 
 
 //-------------------------------------------------------------------------------------------------
@@ -182,6 +184,25 @@ void MissileAIUpdate::tossExhaust()
 		TheParticleSystemManager->destroyParticleSystemByID(m_exhaustID);
 		m_exhaustID = INVALID_PARTICLE_SYSTEM_ID;
 	}
+}
+
+//-------------------------------------------------------------------------------------------------
+// A missile with no target or no fuel left kept EA's answer, which pulled its exhaust off at once, so
+// it flew or fell its last seconds with no trail. It keeps the trail at half size: the fire line,
+// its flare (a slave, scaled by its master too, so a quarter) and the smoke ribbon chained behind
+// the flare. Only writes to the client's particles, never reads them, and after the tick like the
+// exhaust's destroy (LOGIC-THREAD.md M5). Sent once; the fuel-out branch calls it every frame.
+//-------------------------------------------------------------------------------------------------
+void MissileAIUpdate::lightenExhaust()
+{
+	if (m_exhaustLightened || m_exhaustID == INVALID_PARTICLE_SYSTEM_ID)
+		return;
+	m_exhaustLightened = TRUE;
+	TheParticleSystemManager->withSystem(m_exhaustID, []( ParticleSystem *exhaust ) {
+		const Real LIGHT_TRAIL_SIZE = 0.5f;
+		for (ParticleSystem *sys = exhaust; sys; sys = sys->getSlave())
+			sys->setSizeMultiplier(LIGHT_TRAIL_SIZE);
+	});
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -583,7 +604,29 @@ void MissileAIUpdate::doAttackState(Bool turnOK)
 			curLoco->setMaxAcceleration(0);
 			curLoco->setMaxTurnRate(0);
 		}
-		tossExhaust();
+		lightenExhaust();
+
+		// A spent missile coasts on and gravity bends it down. Air drag takes its speed off, so the arc
+		// steepens as it goes and it lands within speed / drag of where it lost the target, and its
+		// nose follows the path. EA's own fuel-outs keep their flight: some are coasting rockets whose
+		// range is that coast.
+		PhysicsBehavior* physics = getObject()->getPhysics();
+		if (m_isSpent && physics && physics->getVelocityMagnitude() > 0.0f)
+		{
+			const Real SPENT_DRAG = 0.25f / LOGICFRAMES_PER_GAME_SECOND;	// of the velocity, each frame
+			const Coord3D* vel = physics->getVelocity();
+			Real dragMass = -SPENT_DRAG * physics->getMass();
+			Coord3D drag;
+			drag.set(vel->x * dragMass, vel->y * dragMass, vel->z * dragMass);
+			physics->applyMotiveForce(&drag);
+
+			Vector3 dir(vel->x, vel->y, vel->z);
+			dir.Normalize();
+			const Coord3D* pos = getObject()->getPosition();
+			Matrix3D xform;
+			xform.buildTransformMatrix(Vector3(pos->x, pos->y, pos->z), dir);
+			getObject()->setTransformMatrix(&xform);
+		}
 	}
 	else
 	{
@@ -760,9 +803,9 @@ void MissileAIUpdate::doDeadState()
 void MissileAIUpdate::updateChaseOffset()
 {
 	const Real SWAY_ANGLE = 0.08f;					// radians of aim either side, between four and five degrees
-	const Real SWAY_PERIOD = 60.0f;					// logic frames for one swing and back
-	const Real SWAY_FADE_IN = 30.0f;				// logic frames from the start of the attack
-	const Real SWAY_FADE_FAR = 150.0f;
+	const Real SWAY_PERIOD = LOGICFRAMES_PER_GAME_SECOND_REAL;					// logic frames for one swing and back, a second
+	const Real SWAY_FADE_IN = LOGICFRAMES_PER_GAME_SECOND_REAL * 0.5f;		// logic frames from the start of the attack, half a second
+	const Real SWAY_FADE_FAR = 150.0f;			// distances to the goal, not frames
 	const Real SWAY_FADE_NEAR = 60.0f;
 
 	// a missile can come without a locomotor and fly on its launch force alone; nothing to steer
@@ -944,15 +987,15 @@ Also determines whether objects are blocked, and if so, if they are stuck.  jba.
 
 //-------------------------------------------------------------------------------------------------
 // EA ran the missile out of fuel here and its kill-self state destroyed it on the spot with no blast,
-// so a Stinger whose jet blew up first vanished in mid-air. It flies on along its nose instead, to a
-// point on the ground half a second of its flight ahead, or as far ahead as it is high if that is
-// further, and goes off there like any shot at the ground. Its fuel is cut to a few seconds, so one
-// with endless fuel that misses the point still runs dry and falls.
+// so a Stinger whose jet blew up first vanished in mid-air. Its fuel is cut instead and it falls like
+// a spent rocket (the fuel-out branch of doAttackState), and goes off where it lands like any shot at
+// the ground. Steered at a point on the ground ahead, it hooked straight down in a few frames. The
+// move goal stays that point, half a second of its flight ahead or as far as it is high, for the
+// checks that read one; with no thrust nothing steers it there.
 //-------------------------------------------------------------------------------------------------
 void MissileAIUpdate::airborneTargetGone()
 {
-	const Real AHEAD_FRAMES = LOGICFRAMES_PER_SECOND * 0.5f;
-	const UnsignedInt FUEL_LEFT = LOGICFRAMES_PER_SECOND * 3;
+	const Real AHEAD_FRAMES = LOGICFRAMES_PER_GAME_SECOND * 0.5f;
 
 	Object *obj = getObject();
 	const Coord3D *pos = obj->getPosition();
@@ -980,8 +1023,10 @@ void MissileAIUpdate::airborneTargetGone()
 	m_victimID = INVALID_ID;
 
 	UnsignedInt now = TheGameLogic->getFrame();
-	if (m_fuelExpirationDate > now + FUEL_LEFT)
-		m_fuelExpirationDate = now + FUEL_LEFT;
+	if (m_fuelExpirationDate > now)
+		m_fuelExpirationDate = now;
+	m_isSpent = TRUE;
+	lightenExhaust();
 	if (m_state == KILL)
 		switchToState(ATTACK);
 }
@@ -1049,7 +1094,8 @@ void MissileAIUpdate::xfer( Xfer *xfer )
 {
   // version
   // 7: m_aimOffset
-  const XferVersion currentVersion = 7;
+  // 8: m_isSpent
+  const XferVersion currentVersion = 8;
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
  
@@ -1116,6 +1162,9 @@ void MissileAIUpdate::xfer( Xfer *xfer )
 
 	if( version >= 7 )
 		xfer->xferCoord3D( &m_aimOffset );
+
+	if( version >= 8 )
+		xfer->xferBool( &m_isSpent );
 
 }  // end xfer
 

@@ -41,6 +41,7 @@
 #include "Common/ThingFactory.h"
 #include "Common/Team.h"
 #include "Common/TerrainTypes.h"
+#include "Common/Upgrade.h"
 #include "Common/MapObject.h"
 #include "GameClient/ControlBar.h"
 #include "GameClient/Drawable.h"
@@ -178,8 +179,8 @@ void BuildAssistant::reset( void )
 
 }  // end reset
 
-static const Real FRAMES_TO_ALLOW_SCAFFOLD = LOGICFRAMES_PER_SECOND * 1.5f;
-static const Real TOTAL_FRAMES_TO_SELL_OBJECT = LOGICFRAMES_PER_SECOND * 3.0f;
+#define FRAMES_TO_ALLOW_SCAFFOLD ((Real)(LOGICFRAMES_PER_GAME_SECOND * 1.5f))
+#define TOTAL_FRAMES_TO_SELL_OBJECT ((Real)(LOGICFRAMES_PER_GAME_SECOND * 3.0f))
 //-------------------------------------------------------------------------------------------------
 /** Update phase for the build assistant */
 //-------------------------------------------------------------------------------------------------
@@ -1598,6 +1599,39 @@ const ThingTemplate *BuildAssistant::findBuildButtonTemplate( Object *builder, c
 
 }
 
+
+//-------------------------------------------------------------------------------------------------
+Bool BuildAssistant::offersPlayerBuildButton( Object *builder, const ThingTemplate *whatToBuild ) const
+{
+	if( builder == NULL || whatToBuild == NULL )
+		return FALSE;
+	const CommandSet *commandSet = TheCommandStore->findCommandSet( builder->getCommandSetString() );
+	if( commandSet == NULL )
+		return FALSE;
+
+	// findBuildButtonTemplate's match, with the player's own tests on top
+	for( Int i = 0; i < MAX_COMMANDS_PER_SET; i++ )
+	{
+		const CommandButton *button = commandSet->getCommandButton( i );
+		if( button == NULL || button->getThingTemplate() == NULL
+				|| ( button->getCommandType() != GUI_COMMAND_UNIT_BUILD && button->getCommandType() != GUI_COMMAND_DOZER_CONSTRUCT )
+				|| !button->getThingTemplate()->isEquivalentTo( whatToBuild ) )
+			continue;
+		if( BitTest( button->getOptions(), SCRIPT_ONLY ) )
+			continue;
+		if( BitTest( button->getOptions(), NEED_UPGRADE ) && button->getUpgradeTemplate() != NULL )
+		{
+			const UpgradeTemplate *upgrade = button->getUpgradeTemplate();
+			const Bool have = upgrade->getUpgradeType() == UPGRADE_TYPE_PLAYER
+				? builder->getControllingPlayer()->hasUpgradeComplete( upgrade )
+				: builder->hasUpgrade( upgrade );
+			if( !have )
+				continue;
+		}
+		return TRUE;
+	}
+	return FALSE;
+}
 
 //-------------------------------------------------------------------------------------------------
 /** This method will check to make sure it is possible to build the requested unit. and

@@ -328,7 +328,7 @@ static void updateFunc( WindowLayout *layout, void *param )
 	}
 
 	// the metrics arrive twice a second; twice a second is as often as the numbers can change
-	if (theWindow && !theWindow->winIsHidden() && TheGameClient->getFrame() % 30 == 0)
+	if (theWindow && !theWindow->winIsHidden() && TheGameClient->getFrame() % (LOGICFRAMES_PER_SECOND / 2) == 0)
 		updateNetColumns();
 }
 
@@ -374,6 +374,8 @@ void UpdateDiplomacyBriefingText(AsciiString newText, Bool clear)
 /// one picture stretched over the button where the layout named EA's three
 static void dressTabButton( GameWindow *button, const char *piece )
 {
+	if (button == NULL)	// a seat row past the layout's eight
+		return;
 	const ControlBarSchemeManager *schemes = TheControlBar->getControlBarSchemeManager();
 	AsciiString name;
 	GadgetButtonSetEnabledImage(button, schemes->getTabImage(piece));

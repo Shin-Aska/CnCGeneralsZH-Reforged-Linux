@@ -43,6 +43,7 @@
 class DamageInfo;
 class SpecialPowerTemplate;
 class SpecialPowerModule;
+class WeaponTemplate;
 class FXList;
 enum SpecialPowerType : Int;
 
@@ -78,6 +79,10 @@ class SpecialAbilityUpdateModuleData : public UpdateModuleData
 public:
 	AsciiString						m_specialObjectName;
 	AsciiString						m_specialObjectAttachToBoneName;
+	AsciiString						m_unpackLaserName;				///< a laser object held from SpecialObjectAttachToBone onto the target while unpacking
+	const WeaponTemplate*	m_triggerWeapon;					///< fired at the target on the trigger, in place of the power type's own effect
+	const WeaponTemplate*	m_unpackFlybyWeapon;			///< fired when the unpacking starts, at a point UnpackFlybyRun past the unit on the line to the target: its projectile is the aircraft the TriggerWeapon is let go from
+	Real									m_unpackFlybyRun;
 	const SpecialPowerTemplate*	m_specialPowerTemplate;		///< pointer to the special power template
 	Real									m_startAbilityRange;
 	Real									m_abilityAbortRange;
@@ -86,13 +91,13 @@ public:
 	Int										m_effectValue;
 	Int										m_awardXPForTriggering;
 	Int										m_skillPointsForTriggering;
-	UnsignedInt						m_preparationFrames;
-	UnsignedInt						m_persistentPrepFrames;
-	UnsignedInt						m_effectDuration;
+	DurationFrames						m_preparationFrames;
+	DurationFrames						m_persistentPrepFrames;
+	DurationFrames						m_effectDuration;
 	UnsignedInt						m_maxSpecialObjects;
-	UnsignedInt						m_packTime;
-	UnsignedInt						m_unpackTime;
-	UnsignedInt						m_preTriggerUnstealthFrames;
+	DurationFrames						m_packTime;
+	DurationFrames						m_unpackTime;
+	DurationFrames						m_preTriggerUnstealthFrames;
 	Bool									m_skipPackingWithNoTarget;
 	Bool									m_specialObjectsPersistent;
 	Bool									m_uniqueSpecialObjectTargets;
@@ -115,14 +120,17 @@ public:
 	SpecialAbilityUpdateModuleData()
 	{
 		m_specialPowerTemplate = NULL;
+		m_triggerWeapon = NULL;
+		m_unpackFlybyWeapon = NULL;
+		m_unpackFlybyRun = 0.0f;
 		m_startAbilityRange = SPECIAL_ABILITY_HUGE_DISTANCE;
 		m_abilityAbortRange = SPECIAL_ABILITY_HUGE_DISTANCE;
-		m_preparationFrames = 0;
-		m_persistentPrepFrames = 0;
-		m_packTime = 0;
-		m_unpackTime = 0;
+		m_preparationFrames.setRaw( 0 );
+		m_persistentPrepFrames.setRaw( 0 );
+		m_packTime.setRaw( 0 );
+		m_unpackTime.setRaw( 0 );
 		m_packUnpackVariationFactor = 0.0f;
-		m_effectDuration = 0;
+		m_effectDuration.setRaw( 0 );
 		m_maxSpecialObjects = 1;
 		m_effectValue = 1;
 		m_specialObjectsPersistent = FALSE;
@@ -139,7 +147,7 @@ public:
 		m_awardXPForTriggering = 0;
 		m_skillPointsForTriggering = -1;
 		m_approachRequiresLOS = TRUE;
-		m_preTriggerUnstealthFrames = 0;
+		m_preTriggerUnstealthFrames.setRaw( 0 );
     m_needToFaceTarget = TRUE;
     m_persistenceRequiresRecharge = FALSE;
 	}
@@ -154,11 +162,11 @@ public:
 			{ "SpecialPowerTemplate",				INI::parseSpecialPowerTemplate,		NULL, offsetof( SpecialAbilityUpdateModuleData, m_specialPowerTemplate ) },
 			{ "StartAbilityRange",					INI::parseReal,										NULL, offsetof( SpecialAbilityUpdateModuleData, m_startAbilityRange ) },
 			{ "AbilityAbortRange",					INI::parseReal,										NULL, offsetof( SpecialAbilityUpdateModuleData, m_abilityAbortRange ) },
-			{ "PreparationTime",						INI::parseDurationUnsignedInt,		NULL, offsetof( SpecialAbilityUpdateModuleData, m_preparationFrames ) },
-			{ "PersistentPrepTime",					INI::parseDurationUnsignedInt,		NULL, offsetof( SpecialAbilityUpdateModuleData, m_persistentPrepFrames ) },
-			{ "PackTime",										INI::parseDurationUnsignedInt,		NULL, offsetof( SpecialAbilityUpdateModuleData, m_packTime ) },
-			{ "UnpackTime",									INI::parseDurationUnsignedInt,		NULL, offsetof( SpecialAbilityUpdateModuleData, m_unpackTime ) },
-			{ "PreTriggerUnstealthTime",	  INI::parseDurationUnsignedInt,		NULL, offsetof( SpecialAbilityUpdateModuleData, m_preTriggerUnstealthFrames ) },
+			{ "PreparationTime",						SPEED_FIELD( SpecialAbilityUpdateModuleData, m_preparationFrames ) },
+			{ "PersistentPrepTime",					SPEED_FIELD( SpecialAbilityUpdateModuleData, m_persistentPrepFrames ) },
+			{ "PackTime",										SPEED_FIELD( SpecialAbilityUpdateModuleData, m_packTime ) },
+			{ "UnpackTime",									SPEED_FIELD( SpecialAbilityUpdateModuleData, m_unpackTime ) },
+			{ "PreTriggerUnstealthTime",	  SPEED_FIELD( SpecialAbilityUpdateModuleData, m_preTriggerUnstealthFrames ) },
 			{ "SkipPackingWithNoTarget",		INI::parseBool,										NULL, offsetof( SpecialAbilityUpdateModuleData, m_skipPackingWithNoTarget ) },
 			{ "PackUnpackVariationFactor",	INI::parseReal,										NULL, offsetof( SpecialAbilityUpdateModuleData, m_packUnpackVariationFactor ) },
  
@@ -167,7 +175,7 @@ public:
 			{ "SpecialObjectAttachToBone",	INI::parseAsciiString,						NULL, offsetof( SpecialAbilityUpdateModuleData, m_specialObjectAttachToBoneName ) },
 			{ "MaxSpecialObjects",					INI::parseUnsignedInt,						NULL, offsetof( SpecialAbilityUpdateModuleData, m_maxSpecialObjects ) },
 			{ "SpecialObjectsPersistent",		INI::parseBool,										NULL, offsetof( SpecialAbilityUpdateModuleData, m_specialObjectsPersistent ) },
-			{ "EffectDuration",							INI::parseDurationUnsignedInt,		NULL, offsetof( SpecialAbilityUpdateModuleData, m_effectDuration ) },
+			{ "EffectDuration",							SPEED_FIELD( SpecialAbilityUpdateModuleData, m_effectDuration ) },
 			{ "EffectValue",								INI::parseInt,										NULL, offsetof( SpecialAbilityUpdateModuleData, m_effectValue ) },
 			{ "UniqueSpecialObjectTargets", INI::parseBool,										NULL, offsetof( SpecialAbilityUpdateModuleData, m_uniqueSpecialObjectTargets ) },
 			{ "SpecialObjectsPersistWhenOwnerDies", INI::parseBool,						NULL, offsetof( SpecialAbilityUpdateModuleData, m_specialObjectsPersistWhenOwnerDies ) },
@@ -188,6 +196,10 @@ public:
 			{ "ApproachRequiresLOS",				INI::parseBool,										NULL, offsetof( SpecialAbilityUpdateModuleData, m_approachRequiresLOS ) },
       { "NeedToFaceTarget",           INI::parseBool,										NULL, offsetof( SpecialAbilityUpdateModuleData, m_needToFaceTarget ) },
       { "PersistenceRequiresRecharge",INI::parseBool,										NULL, offsetof( SpecialAbilityUpdateModuleData, m_persistenceRequiresRecharge ) },
+			{ "UnpackLaser",								INI::parseAsciiString,						NULL, offsetof( SpecialAbilityUpdateModuleData, m_unpackLaserName ) },
+			{ "TriggerWeapon",							INI::parseWeaponTemplate,					NULL, offsetof( SpecialAbilityUpdateModuleData, m_triggerWeapon ) },
+			{ "UnpackFlybyWeapon",					INI::parseWeaponTemplate,					NULL, offsetof( SpecialAbilityUpdateModuleData, m_unpackFlybyWeapon ) },
+			{ "UnpackFlybyRun",							INI::parseReal,										NULL, offsetof( SpecialAbilityUpdateModuleData, m_unpackFlybyRun ) },
 			{ 0, 0, 0, 0 }
 		};
     p.add(dataFieldParse);
@@ -257,6 +269,9 @@ protected:
 
 	Object* createSpecialObject();
 	void killSpecialObjects();
+	void killUnpackLaser();
+	void aimUnpackLaser();
+	Bool startHoldingForTriggerShot();
 
 	Bool handlePackingProcessing();
 	void startPacking(Bool success);
@@ -304,6 +319,9 @@ private:
 	Coord3D												m_targetPos;
 	Int														m_locationCount;
 	std::list<ObjectID>						m_specialObjectIDList; //The list of special objects
+	ObjectID											m_unpackLaserID;	///< the UnpackLaser beam while it is up
+	ObjectID											m_triggerShotID;	///< the TriggerWeapon's projectile, held on with the beam until it lands
+	ObjectID											m_flybyID;				///< the UnpackFlybyWeapon's projectile, the aircraft the TriggerWeapon leaves from
 	UnsignedInt										m_specialObjectEntries;				 //The size of the list of member Objects
 	Real													m_captureFlashPhase;    ///< used to track the accellerating flash of the capture FX
 	PackingState									m_packingState;

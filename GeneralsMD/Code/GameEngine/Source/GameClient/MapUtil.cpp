@@ -391,6 +391,13 @@ void WaypointMap::update( void )
 }
 
 const char * MapCache::m_mapCacheName = "MapCache.ini";
+/* A build from before 32 slots read and wrote only Player_1..8_Start, so its user cache says 8 for a
+	 map with more starts, and addMap trusts an entry whose file size still matches.  populateRandom-
+	 StartPosition deals starts over that count, so one machine with an old cache and one with a fresh
+	 one began the same match on different starts.  A file of a new name is never one an old build
+	 wrote: every user map parses again once, and the old file is left for the old build.  The
+	 36-slot test build's MapCache36.ini names starts past 32, which this reader does not know. */
+const char * MapCache::m_userMapCacheName = "MapCache32.ini";
 
 AsciiString MapCache::getMapDir() const 
 { 
@@ -412,6 +419,7 @@ AsciiString MapCache::getMapExtension() const
 void MapCache::writeCacheINI( Bool userDir )
 {
 	AsciiString mapDir;
+	const char *cacheName = m_mapCacheName;
 	if (!userDir || TheGlobalData->m_buildMapCache)
 	{
 		mapDir = getMapDir();
@@ -419,6 +427,7 @@ void MapCache::writeCacheINI( Bool userDir )
 	else
 	{
 		mapDir = getUserMapDir();
+		cacheName = m_userMapCacheName;
 	}
 
 	AsciiString filepath = mapDir;
@@ -426,7 +435,7 @@ void MapCache::writeCacheINI( Bool userDir )
 
 	TheFileSystem->createDirectory(mapDir);
 
-	filepath.concat(m_mapCacheName);
+	filepath.concat(cacheName);
 	FILE *fp = zh_fopen(filepath.str(), "w");
 	DEBUG_ASSERTCRASH(fp != NULL, ("Failed to create %s", filepath.str()));
 	if (fp == NULL) {
@@ -520,6 +529,25 @@ void MapCache::updateCache( void )
 	{
 		loadStandardMaps();
 		m_doLoadStandardMapCacheINI = FALSE;
+
+		// An official map's CRC is the shipped cache's number, which knows nothing of a loose map.ini or
+		// solo.ini beside it in the install, and the loose file beats the archive. Two machines, one with
+		// such a file, agreed on the map and split at frame 0. Fold the rules in when one lies on disk;
+		// an install without loose rules keeps the shipped numbers exactly.
+		for (MapCache::iterator it = begin(); it != end(); ++it)
+		{
+			if (!it->second.m_isOfficial)
+				continue;
+			for (Int i = 0; i < MAP_RULES_FILE_COUNT; ++i)
+			{
+				if (TheLocalFileSystem->doesFileExist( mapRulesPath( it->first, i ).str() ))
+				{
+					it->second.m_CRC = calcCRC( getMapDir(), it->first );
+					DEBUG_LOG(("MapCache::updateCache - %s has loose map rules, CRC %X\n", it->first.str(), it->second.m_CRC));
+					break;
+				}
+			}
+		}
 	}
 #if defined(_DEBUG) || defined(_INTERNAL)
 	if (TheLocalFileSystem->doesFileExist(getMapDir().str()))
@@ -594,7 +622,7 @@ Bool MapCache::loadUserMaps()
 
 			INI ini;
 			AsciiString fname;
-			fname.format("%s\\%s", mapDir.str(), m_mapCacheName);
+			fname.format("%s\\%s", mapDir.str(), m_userMapCacheName);
 			File *fp = TheFileSystem->openFile(fname.str(), File::READ);
 			if (fp)
 			{

@@ -325,6 +325,8 @@ static Bool OrderQueue_namesItsOwnSource( const GameMessage *msg )
 	Int sourceArg;
 	switch( msg->getType() )
 	{
+		// the sidebar's repair cursor: the logic picks the builder, the selection is no part of it
+		case GameMessage::MSG_DO_REPAIR:										return msg->getArgumentCount() == 2;
 		case GameMessage::MSG_DO_SPECIAL_POWER:							sourceArg = 2; break;
 		case GameMessage::MSG_DO_SPECIAL_POWER_AT_OBJECT:		sourceArg = 3; break;
 		case GameMessage::MSG_DO_SPECIAL_POWER_AT_LOCATION:	sourceArg = 5; break;
@@ -346,6 +348,14 @@ static void OrderQueue_log( const char *what, const OrderChain& chain, const Pla
 }
 
 //-------------------------------------------------------------------------------------------------
+static Int s_dispatchDepth = 0;		// logic thread only, like everything in here
+
+Bool OrderQueue_isDispatching( void )
+{
+	return s_dispatchDepth > 0;
+}
+
+//-------------------------------------------------------------------------------------------------
 /** Hand an order to the units, as if the player had selected exactly them and given it. */
 //-------------------------------------------------------------------------------------------------
 static void OrderQueue_dispatch( GameMessage *msg, const std::vector<ObjectID>& members )
@@ -359,7 +369,9 @@ static void OrderQueue_dispatch( GameMessage *msg, const std::vector<ObjectID>& 
 	}
 
 	// the dispatcher destroys the group when it is done with it
+	++s_dispatchDepth;
 	TheGameLogic->logicMessageDispatcher( msg, group );
+	--s_dispatchDepth;
 }
 
 //-------------------------------------------------------------------------------------------------

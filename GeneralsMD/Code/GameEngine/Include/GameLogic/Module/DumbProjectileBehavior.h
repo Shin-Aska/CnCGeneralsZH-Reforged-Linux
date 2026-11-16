@@ -55,10 +55,12 @@ public:
 	*/
 	Real m_firstHeight;					///< The first airborne control point will be this high above the highest intervening terrain
 	Real m_secondHeight;				///< And the second, this.
+	Real m_heightScaleDistance;	///< Above zero, both heights are scaled by the shot's ground run over this, never past 1
+	Real m_heightScaleMinimum;	///< and never under this share
 	Real m_firstPercentIndent;	///< The first point will be this percent along the target line
 	Real m_secondPercentIndent;	///< And the second, this.
 	Bool m_straightWhenClear;		///< Fly the straight line instead when no terrain rises into it (direct-fire shells)
-	UnsignedInt m_maxLifespan;
+	DurationFrames m_maxLifespan;
 	Bool m_tumbleRandomly;
 	Bool m_orientToFlightPath;
 	Bool m_detonateCallsKill;
@@ -66,7 +68,17 @@ public:
 	KindOfMaskType	m_garrisonHitKillKindof;			///< the kind(s) of units that can be collided with
 	KindOfMaskType	m_garrisonHitKillKindofNot;		///< the kind(s) of units that CANNOT be collided with
 	const FXList*		m_garrisonHitKillFX;
-	Real m_flightPathAdjustDistPerFrame;
+	VelocityPerFrame m_flightPathAdjustDistPerFrame;
+	Real						m_startHeightAboveTarget;		///< above zero, the flight starts this high over the target instead of at the launcher
+	Real						m_startDistanceBack;				///< and this far back from it toward the launcher
+	Real						m_hoverHeight;							///< with a HoverTime, the shot first rises this high beside the launcher
+	DurationFrames	m_hoverTime;								///< over the first half of this, holds for the rest, then flies its path
+	DurationFrames	m_hoverStagger;							///< and holds this much longer for each shot of the clip already fired
+	Real						m_hoverSpacing;							///< the clip's shots start this far apart, side by side across the line of fire
+	DurationFrames	m_hoverPlaceInterval;				///< above zero, the shots are set down this far apart in time and rise with the last
+	std::vector<Coord3D> m_hoverSpots;					///< where each shot of the clip is set down, in the launcher's frame (X its facing, Y its left, Z over the ground)
+	std::vector<Coord3D> m_hoverAirSpots;				///< where each shot rises to, in the launcher's frame, Z over the ground it stood on; none, HoverHeight straight up
+	Real						m_hoverGrowFrom;						///< above zero, the shot is drawn this much of its size on the ground and grows to full size as it rises
 
 
 	DumbProjectileBehaviorModuleData();
@@ -119,6 +131,10 @@ private:
 	Real									m_launchSlope;						///< rise over run of the barrel at launch, negative for a lowered barrel
 	Int										m_flightPathSegments;			///< number of segments in the flightpath (in case we must regen it)
 	Int										m_currentFlightPathStep;	///< Our current index in the flight path vector.  Quicker than popping off.
+	Coord3D								m_hoverBase;							///< where a hovering shot stands on the ground before it rises
+	Coord3D								m_hoverTop;								///< and where it rises to and holds
+	UnsignedInt						m_hoverStartFrame;				///< the frame it began to rise
+	UnsignedInt						m_hoverEndFrame;					///< the frame it leaves the hover for its path; zero once it has, or for no hover
 	WeaponBonusConditionFlags		m_extraBonusFlags;
   
   Bool                  m_hasDetonated;           ///< 

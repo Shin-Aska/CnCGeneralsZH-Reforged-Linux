@@ -81,6 +81,8 @@ else
 	copy Russian Data/Russian
 	copy French Data/French
 	copy Install_Final.bmp Install_Final.bmp
+	copy Audio Data/Audio
+	copy Art/W3D Art/W3D
 	copy Art/Textures Art/Textures
 	copy Window Window
 	if [ -n "$run" ] && [ -d "$run" ]; then

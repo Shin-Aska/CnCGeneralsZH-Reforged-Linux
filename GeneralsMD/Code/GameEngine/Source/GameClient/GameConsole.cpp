@@ -35,6 +35,7 @@
 #include "Common/PlayerList.h"
 #include "Common/Recorder.h"
 #include "Common/UserPreferences.h"
+#include "Common/version.h"
 #include "GameLogic/GameLogic.h"
 #include "GameNetwork/GameSpy/ThreadUtils.h"
 
@@ -47,7 +48,7 @@
 #include "GameClient/DisplayStringManager.h"
 #include "GameClient/GameFont.h"
 #include "GameClient/Gadget.h"
-#include "GameClient/GadgetListBox.h"
+#include "GameClient/GadgetPushButton.h"
 #include "GameClient/GUICallbacks.h"
 #include "GameClient/HotKey.h"
 #include "GameClient/InGameUI.h"
@@ -87,33 +88,44 @@ static const Color CONSOLE_INPUT_COLOR = GameMakeColor( 255, 255, 255, 255 );
 static const Color CONSOLE_TEXT_COLOR = GameMakeColor( 190, 190, 190, 255 );
 static const Color CONSOLE_SHADOW_COLOR = GameMakeColor( 0, 0, 0, 0 );
 
-static const Int CHEAT_PANEL_AMOUNTS = 3;			///< the most ready amounts a row of the panel offers
-
 struct ConsoleCheat
 {
 	const char *name;
 	CheatKind kind;
 	Int defaultAmount;	///< what a bare command gives; zero marks a toggle
 	const char *help;
-	const char *label;	///< its row on the cheat panel
-	Int amounts[ CHEAT_PANEL_AMOUNTS ];	///< the panel's keys for it, zero for none; a toggle has one on/off key
 };
+
+/// "rankup max": more ranks than any general has, which Player::setRankLevel clamps to the top one
+static const Int CHEAT_RANK_MAX = 100;
 
 static const ConsoleCheat CONSOLE_CHEATS[] =
 {
-	{ "money",				CHEAT_MONEY,						10000,	"money [n]       add cash, 10000 by default",	"GUI:CheatMoney",	{ 1000, 10000, 100000 } },
-	{ "points",				CHEAT_GENERAL_POINTS,		1,			"points [n]      add general's points",	"GUI:CheatPoints",	{ 1, 5, 10 } },
-	{ "rankup",				CHEAT_RANK_UP,					1,			"rankup [n]      raise the general's rank",	"GUI:CheatRankUp",	{ 1 } },
-	{ "heroic",				CHEAT_HEROIC,						1,			"heroic          every unit you have goes heroic",	"GUI:CheatHeroic",	{ 1 } },
-	{ "reveal",				CHEAT_REVEAL_MAP,				1,			"reveal          lift the shroud for good",	"GUI:CheatReveal",	{ 1 } },
-	{ "power",				CHEAT_INFINITE_POWER,		0,			"power           never run short of power",	"GUI:CheatPower",	{ 0 } },
-	{ "nocooldown",		CHEAT_NO_COOLDOWN,			0,			"nocooldown      generals powers and superweapons always ready",	"GUI:CheatNoCooldown",	{ 0 } },
-	{ "god",					CHEAT_GOD_MODE,					0,			"god             your side takes no damage",	"GUI:CheatGod",	{ 0 } },
-	{ "instantbuild",	CHEAT_INSTANT_BUILD,		0,			"instantbuild    build, train and upgrade in one frame",	"GUI:CheatInstantBuild",	{ 0 } },
-	{ "onehitkill",		CHEAT_ONE_HIT_KILL,			0,			"onehitkill      every hit you land kills",	"GUI:CheatOneHitKill",	{ 0 } },
+	{ "money",					CHEAT_MONEY,						10000,	"money [n]       add cash, 10000 by default" },
+	{ "points",					CHEAT_GENERAL_POINTS,		1,			"points [n]      add general's points" },
+	{ "freepoints",			CHEAT_UNLIMITED_POINTS,	0,			"freepoints      sciences cost no general's points" },
+	{ "rankup",					CHEAT_RANK_UP,					1,			"rankup [n|max]  raise the general's rank, max to the top one" },
+	{ "heroic",					CHEAT_HEROIC,						1,			"heroic          every unit you have goes heroic" },
+	{ "reveal",					CHEAT_REVEAL_MAP,				1,			"reveal          lift the shroud for good" },
+	{ "power",					CHEAT_INFINITE_POWER,		0,			"power           never run short of power" },
+	{ "nocooldown",			CHEAT_NO_COOLDOWN,			0,			"nocooldown      generals powers and superweapons always ready" },
+	{ "god",						CHEAT_GOD_MODE,					0,			"god             your side takes no damage" },
+	{ "instantbuild",		CHEAT_INSTANT_BUILD,		0,			"instantbuild    build, train and upgrade in one frame" },
+	{ "onehitkill",			CHEAT_ONE_HIT_KILL,			0,			"onehitkill      every hit you land kills" },
+	{ "buildanywhere",	CHEAT_BUILD_ANYWHERE,		0,			"buildanywhere   structures stand up finished where you put them" },
 };
 
 static const Int CONSOLE_CHEAT_COUNT = sizeof( CONSOLE_CHEATS ) / sizeof( CONSOLE_CHEATS[ 0 ] );
+
+//-------------------------------------------------------------------------------------------------
+/** A match being played or watched, replays included.  The animated map behind the main menu is a
+	* game to the logic too, which offered the cheats and the speed command on the main menu, and the
+	* load before a match is not one yet. */
+//-------------------------------------------------------------------------------------------------
+static Bool isInMatch( void )
+{
+	return TheGameLogic->isInGame() && !TheGameLogic->isInShellGame() && !TheGameLogic->isLoadingMap();
+}
 
 //-------------------------------------------------------------------------------------------------
 /** Cheats exist only in a campaign or skirmish match being played; anywhere else the console does
@@ -121,8 +133,48 @@ static const Int CONSOLE_CHEAT_COUNT = sizeof( CONSOLE_CHEATS ) / sizeof( CONSOL
 //-------------------------------------------------------------------------------------------------
 static Bool areCheatsAvailable( void )
 {
-	return TheGameLogic->isInGame() && !TheGameLogic->isInMultiplayerGame()
+	return isInMatch() && !TheGameLogic->isInMultiplayerGame()
 		&& TheRecorder->getMode() != RECORDERMODETYPE_PLAYBACK;
+}
+
+/// what 'help' prints, a command's continuation lines carrying its flag
+struct ConsoleHelpLine
+{
+	Bool matchOnly;
+	const char *text;
+};
+
+static const ConsoleHelpLine CONSOLE_HELP[] =
+{
+	{ FALSE,	"help          this list" },
+	{ FALSE,	"clear         empty the scrollback" },
+	{ FALSE,	"echo <text>   print the text back" },
+	{ FALSE,	"version       the game's version and build date" },
+	{ FALSE,	"get [key]     a setting by its Options.ini key; no key lists them all" },
+	{ FALSE,	"set <key> <v> change a setting and save it, e.g. 'set ShowNetBox no' hides the" },
+	{ FALSE,	"              top right info strip" },
+	{ TRUE,		"speed [n]     game speed in percent of retail, 100 125 150 200, 'reset' the native one" },
+	{ TRUE,		"freecam       photo mode: fly the camera anywhere, the whole map drawn, no interface." },
+	{ TRUE,		"              W/S forward and back, A/D left and right, R up, F down, mouse turns," },
+	{ TRUE,		"              Shift faster; Esc or 'freecam' again lands.  'freecam x y z heading tilt'" },
+	{ TRUE,		"              flies to a pose, angles in degrees" },
+	{ TRUE,		"director      observer: the director camera on, again gives the camera back" },
+	{ TRUE,		"pause, resume open and close the Esc menu, single player only" },
+	{ TRUE,		"hidehud       the interface off, again brings it back; showmap=true keeps the radar" },
+};
+
+static const char *const MATCH_ONLY_COMMANDS[] =
+	{ "speed", "freecam", "director", "pause", "resume", "hidehud", "cheats", "trainer" };
+
+static Bool isMatchOnlyCommand( const AsciiString &command )
+{
+	for( Int i = 0; i < (Int)ARRAY_SIZE( MATCH_ONLY_COMMANDS ); ++i )
+		if( command == MATCH_ONLY_COMMANDS[ i ] )
+			return TRUE;
+	for( Int i = 0; i < CONSOLE_CHEAT_COUNT; ++i )
+		if( command == CONSOLE_CHEATS[ i ].name )
+			return TRUE;
+	return FALSE;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -132,7 +184,9 @@ static Bool areCheatsAvailable( void )
 static AsciiString runCheat( const ConsoleCheat &cheat, AsciiString arguments )
 {
 	const Bool isToggle = cheat.defaultAmount == 0;
-	const Int amount = arguments.isEmpty() ? cheat.defaultAmount : atoi( arguments.str() );
+	Int amount = arguments.isEmpty() ? cheat.defaultAmount : atoi( arguments.str() );
+	if( cheat.kind == CHEAT_RANK_UP && arguments.compareNoCase( "max" ) == 0 )
+		amount = CHEAT_RANK_MAX;
 
 	GameMessage *msg = TheMessageStream->appendMessage( GameMessage::MSG_CHEAT );
 	msg->appendIntegerArgument( cheat.kind );
@@ -147,14 +201,14 @@ static AsciiString runCheat( const ConsoleCheat &cheat, AsciiString arguments )
 }
 
 //-------------------------------------------------------------------------------------------------
-/** The game speed as a share of normal: 100 or turbo mode's 200 in a skirmish or mission, whichever is
-	* nearer, 17 to 666 in a replay.  It changes how
-	* often a logic frame runs and nothing inside one, so a network game, which runs at the pace the
-	* whole room agrees on, is the one place it is refused. */
+/** In a skirmish or mission, the match's game speed in percent of retail's pace (100, 125, 150, 200):
+	* the game time a tick advances, which the match keeps from its first frame, so it is only read here;
+	* the lobby and Options > Interface set the next one.  In a replay, the playback's pace in percent of
+	* the match's, 10 to 400 logic frames a second, which is wall pacing only; "reset" puts the recorded
+	* pace back.  A network game is refused. */
 //-------------------------------------------------------------------------------------------------
-static const Int SPEED_MIN_PERCENT = 17;		///< 10 logic frames a second
-static const Int SPEED_MAX_PERCENT = 666;		///< 400 logic frames a second
-static const Int SPEED_NORMAL_PERCENT = 100;
+static const Int SPEED_MIN_FPS = 10;
+static const Int SPEED_MAX_FPS = 400;
 
 static AsciiString runSpeed( AsciiString arguments )
 {
@@ -165,19 +219,26 @@ static AsciiString runSpeed( AsciiString arguments )
 		return result;
 	}
 
+	if( !TheGameLogic->isInReplayGame() )
+	{
+		if( arguments.isEmpty() )
+			result.format( "speed %d%%", (Int)GAME_SPEED_PERCENT );
+		else
+			result.format( "speed: a match keeps the speed it started at, %d%%; the lobby or Options set the next", (Int)GAME_SPEED_PERCENT );
+		return result;
+	}
+
+	const Int recorded = GameEngine_matchFramesPerSecond();
 	if( !arguments.isEmpty() )
 	{
-		Int percent = arguments.compareNoCase( "reset" ) == 0 ? SPEED_NORMAL_PERCENT : atoi( arguments.str() );
-		if( percent < SPEED_MIN_PERCENT ) percent = SPEED_MIN_PERCENT;
-		if( percent > SPEED_MAX_PERCENT ) percent = SPEED_MAX_PERCENT;
-		Int fps = percent * LOGICFRAMES_PER_SECOND / SPEED_NORMAL_PERCENT;
-		// a match someone plays runs at normal speed or in turbo mode; a replay keeps the whole range
-		if( TheGameLogic->isInSkirmishGame() || TheGameLogic->isInSinglePlayerGame() )
-			fps = ClampPlayerGameSpeed( fps );
+		const Int percent = arguments.compareNoCase( "reset" ) == 0 ? 100 : atoi( arguments.str() );
+		Int fps = percent * recorded / 100;
+		if( fps < SPEED_MIN_FPS ) fps = SPEED_MIN_FPS;
+		if( fps > SPEED_MAX_FPS ) fps = SPEED_MAX_FPS;
 		TheGameEngine->setFramesPerSecondLimit( fps );
 	}
 
-	result.format( "speed %d%%", TheGameEngine->getFramesPerSecondLimit() * SPEED_NORMAL_PERCENT / LOGICFRAMES_PER_SECOND );
+	result.format( "replay pace %d%% at game speed %d%%", TheGameEngine->getFramesPerSecondLimit() * 100 / recorded, (Int)GAME_SPEED_PERCENT );
 	return result;
 }
 
@@ -401,9 +462,7 @@ GameConsole::GameConsole()
 		m_lineStrings( NULL ),
 		m_lineStringCount( 0 ),
 		m_cheatPanelOpen( FALSE ),
-		m_cheatLayout( NULL ),
-		m_cheatList( NULL ),
-		m_cheatListState( -1 )
+		m_cheatLayout( NULL )
 {
 	m_font = TheFontLibrary->getFont( AsciiString( CONSOLE_FONT_NAME ),
 																		CONSOLE_FONT_POINT_SIZE,
@@ -504,6 +563,30 @@ void GameConsole::handleKey( UnsignedByte key, UnsignedShort keyState )
 }
 
 //-------------------------------------------------------------------------------------------------
+/** GameClient::update, which reads the keyboard, does not run while a map loads, and the load screen's
+	* frames skipped the console's draw too, so it could not be opened during a load at all.  Nothing
+	* else wants a key there, which is why this one reader can take them all. */
+//-------------------------------------------------------------------------------------------------
+void GameConsole::readLoadScreenKeys( void )
+{
+	if( TheKeyboard == NULL )
+		return;
+
+	TheKeyboard->UPDATE();
+	for( KeyboardIO *io = TheKeyboard->getFirstKey(); io->key != KEY_NONE; ++io )
+	{
+		if( io->key != KEY_TICK )
+		{
+			if( m_isOpen )
+				handleKey( io->key, io->state );
+		}
+		else if( BitTest( io->state, KEY_STATE_DOWN ) && !BitTest( io->state, KEY_STATE_AUTOREPEAT ) )
+			toggle();
+		io->status = KeyboardIO::STATUS_USED;
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
 void GameConsole::recallHistory( Int direction )
 {
 	if( m_history.empty() )
@@ -555,22 +638,20 @@ void GameConsole::runCommand( AsciiString commandLine )
 	command.toLower();
 	arguments.trim();
 
+	const Bool inMatch = isInMatch();
+	if( !inMatch && isMatchOnlyCommand( command ) )
+	{
+		AsciiString refusal;
+		refusal.format( "%s: works only in a match", command.str() );
+		printLine( refusal );
+		return;
+	}
+
 	if( command == "help" )
 	{
-		printLine( AsciiString( "help          this list" ) );
-		printLine( AsciiString( "clear         empty the scrollback" ) );
-		printLine( AsciiString( "echo <text>   print the text back" ) );
-		printLine( AsciiString( "speed [n]     game speed in percent, 100 is normal, 'reset' goes back" ) );
-		printLine( AsciiString( "get [key]     a setting by its Options.ini key; no key lists them all" ) );
-		printLine( AsciiString( "set <key> <v> change a setting and save it, e.g. 'set ShowNetBox no' hides the" ) );
-		printLine( AsciiString( "              top right info strip" ) );
-		printLine( AsciiString( "freecam       photo mode: fly the camera anywhere, the whole map drawn, no interface." ) );
-		printLine( AsciiString( "              W/S forward and back, A/D left and right, R up, F down, mouse turns," ) );
-		printLine( AsciiString( "              Shift faster; Esc or 'freecam' again lands.  'freecam x y z heading tilt'" ) );
-		printLine( AsciiString( "              flies to a pose, angles in degrees" ) );
-		printLine( AsciiString( "director      observer: the director camera on, again gives the camera back" ) );
-		printLine( AsciiString( "pause, resume open and close the Esc menu, single player only" ) );
-		printLine( AsciiString( "hidehud       the interface off, again brings it back; showmap=true keeps the radar" ) );
+		for( Int i = 0; i < (Int)ARRAY_SIZE( CONSOLE_HELP ); ++i )
+			if( inMatch || !CONSOLE_HELP[ i ].matchOnly )
+				printLine( AsciiString( CONSOLE_HELP[ i ].text ) );
 		if( areCheatsAvailable() )
 		{
 			printLine( AsciiString( "cheats        single-player cheats" ) );
@@ -615,6 +696,15 @@ void GameConsole::runCommand( AsciiString commandLine )
 	if( command == "echo" )
 	{
 		printLine( arguments );
+		return;
+	}
+
+	// what the options menu's corner says, with the build date that tells two builds of it apart
+	if( command == "version" )
+	{
+		AsciiString line;
+		line.format( "Reforged %s, built %s", TheVersion->getReleaseVersion().str(), TheVersion->getAsciiBuildTime().str() );
+		printLine( line );
 		return;
 	}
 
@@ -760,72 +850,373 @@ void GameConsole::runCheatPanelAction( const std::string &action )
 }
 
 //-------------------------------------------------------------------------------------------------
-/** The trainer's rows: a toggle is one row, an amount cheat one row for each ready amount. */
+// The trainer: Trainer.wnd's draggable window in the top left corner, framed in the side's tooltip
+// card (<TooltipImage>TipHead and Tip, nine pieces, so it takes any size; Classic wears the
+// console's Helpbox card), and on it, the talents' way (ControlBar.cpp), push buttons whose own draw
+// lays the side's Tab screen pieces down (TabSend, TabSquare; grey plates under a scheme without
+// them).  Every cheat on one page under Player, Units and Map headers, a toggle's row green while it
+// is on.  Every rect is in texels of the art, one a pixel at 1080.
 //-------------------------------------------------------------------------------------------------
-struct CheatWindowRow
+namespace
 {
-	Int cheat;
-	Int amount;		///< zero for a toggle
-};
+	enum { TRAINER_DESIGN_W = 660 };
+	enum { TRAINER_SECTION_PLAYER, TRAINER_SECTION_UNITS, TRAINER_SECTION_MAP, TRAINER_SECTION_COUNT };
+	enum { TRAINER_ROW_BUTTONS = 4 };
 
-static const Int CHEAT_WINDOW_MAX_ROWS = CONSOLE_CHEAT_COUNT * CHEAT_PANEL_AMOUNTS;
-
-static Int cheatWindowRows( CheatWindowRow *rows )
-{
-	Int count = 0;
-	for( Int i = 0; i < CONSOLE_CHEAT_COUNT; ++i )
+	struct TrainerRow
 	{
-		const ConsoleCheat &cheat = CONSOLE_CHEATS[ i ];
-		for( Int each = 0; each < CHEAT_PANEL_AMOUNTS && ( each == 0 || cheat.amounts[ each ] != 0 ); ++each )
+		Int section;
+		const char *label;
+		const char *cheat;									///< the console command its buttons run
+		Int amounts[ TRAINER_ROW_BUTTONS ];	///< a button each, zero past the last; a toggle's one button is a zero
+	};
+
+	const TrainerRow TRAINER_ROWS[] =
+	{
+		{ TRAINER_SECTION_PLAYER,	"GUI:CheatMoney",						"money",					{ 1000, 10000, 100000, 1000000 } },
+		{ TRAINER_SECTION_PLAYER,	"GUI:CheatPoints",					"points",					{ 1, 5, 10 } },
+		{ TRAINER_SECTION_PLAYER,	"GUI:CheatUnlimitedPoints",	"freepoints",			{ 0 } },
+		{ TRAINER_SECTION_PLAYER,	"GUI:CheatRankUp",					"rankup",					{ 1, CHEAT_RANK_MAX } },
+		{ TRAINER_SECTION_PLAYER,	"GUI:CheatPower",						"power",					{ 0 } },
+		{ TRAINER_SECTION_PLAYER,	"GUI:CheatInstantBuild",		"instantbuild",		{ 0 } },
+		{ TRAINER_SECTION_PLAYER,	"GUI:CheatNoCooldown",			"nocooldown",			{ 0 } },
+		{ TRAINER_SECTION_UNITS,	"GUI:CheatGod",							"god",						{ 0 } },
+		{ TRAINER_SECTION_UNITS,	"GUI:CheatOneHitKill",			"onehitkill",			{ 0 } },
+		{ TRAINER_SECTION_UNITS,	"GUI:CheatHeroic",					"heroic",					{ 1 } },
+		{ TRAINER_SECTION_MAP,		"GUI:CheatReveal",					"reveal",					{ 1 } },
+		{ TRAINER_SECTION_MAP,		"GUI:CheatBuildAnywhere",		"buildanywhere",	{ 0 } },
+	};
+	enum { TRAINER_ROW_COUNT = sizeof( TRAINER_ROWS ) / sizeof( TRAINER_ROWS[ 0 ] ) };
+	const char *const TRAINER_SECTION_LABELS[ TRAINER_SECTION_COUNT ] = { "GUI:CheatSectionPlayer", "GUI:CheatSectionUnits", "GUI:CheatSectionMap" };
+
+	/// the buttons: the close, then every row's in table order
+	enum { TRAINER_BUTTON_CLOSE, TRAINER_FIRST_CHEAT_BUTTON,
+				 TRAINER_MAX_BUTTONS = TRAINER_FIRST_CHEAT_BUTTON + TRAINER_ROW_COUNT * TRAINER_ROW_BUTTONS };
+
+	// the card's head band (TipHead, 38 tall) holds the title and the close; under it a section header
+	// opens each section and the rows follow, a row's buttons right-aligned beside its name
+	const Int TRAINER_HEAD_H = 38, TRAINER_TOP = 46, TRAINER_BOTTOM_PAD = 22;
+	const Int theTrainerTitle[ 4 ] = { 18, 4, 400, 34 };
+	const Int theTrainerClose[ 4 ] = { 576, 6, 604, 32 };
+	const Int TRAINER_SECTION_PITCH = 26, TRAINER_SECTION_H = 22;
+	const Int TRAINER_ROW_PITCH = 34, TRAINER_ROW_H = 30;
+	const Int theTrainerRowX[ 2 ] = { 14, 644 };
+	const Int TRAINER_LAMP_W = 4;
+	const Int theTrainerLabelX[ 2 ] = { 26, 244 };
+	const Int TRAINER_BUTTON_W = 92, TRAINER_BUTTON_GAP = 6, TRAINER_BUTTONS_RIGHT = 638, TRAINER_BUTTON_INSET = 2;
+
+	const Color TRAINER_WHITE = GameMakeColor( 240, 240, 240, 255 );
+	const Color TRAINER_DIM = GameMakeColor( 200, 198, 192, 255 );		// the talents' rejected text
+	const Color TRAINER_GOLD = GameMakeColor( 242, 194, 48, 255 );		// the talents' waiting gold
+	const Color TRAINER_GREEN = GameMakeColor( 72, 224, 64, 255 );
+	const Color TRAINER_TRAY = GameMakeColor( 255, 255, 255, 14 );
+	const Color TRAINER_TRAY_ON = GameMakeColor( 72, 224, 64, 30 );
+	const Color TRAINER_RULE = GameMakeColor( 255, 255, 255, 48 );
+
+	GameWindow *theTrainerButtons[ TRAINER_MAX_BUTTONS ];
+	FittedLabel theTrainerButtonLabels[ TRAINER_MAX_BUTTONS ];
+	FittedLabel theTrainerRowLabels[ TRAINER_ROW_COUNT ];
+	FittedLabel theTrainerSectionLabels[ TRAINER_SECTION_COUNT ];
+	FittedLabel theTrainerTitleLabel;
+
+	const ConsoleCheat *findConsoleCheat( const char *name )
+	{
+		for( Int i = 0; i < CONSOLE_CHEAT_COUNT; ++i )
+			if( strcmp( CONSOLE_CHEATS[ i ].name, name ) == 0 )
+				return &CONSOLE_CHEATS[ i ];
+		return NULL;
+	}
+
+	Bool isToggleRow( Int row )
+	{
+		const ConsoleCheat *cheat = findConsoleCheat( TRAINER_ROWS[ row ].cheat );
+		return cheat && cheat->defaultAmount == 0;
+	}
+
+	Bool isRowOn( Int row )
+	{
+		const ConsoleCheat *cheat = findConsoleCheat( TRAINER_ROWS[ row ].cheat );
+		const Player *local = ThePlayerList->getLocalPlayer();
+		return cheat && cheat->defaultAmount == 0 && local && local->hasCheat( cheat->kind );
+	}
+
+	Int rowButtonCount( Int row )
+	{
+		Int n = 1;
+		while( n < TRAINER_ROW_BUTTONS && TRAINER_ROWS[ row ].amounts[ n ] != 0 )
+			++n;
+		return n;
+	}
+
+	/// cheat button 'index' (from the first one): its row and its place in the row; FALSE past the last
+	Bool trainerCheatButton( Int index, Int *row, Int *slot )
+	{
+		for( Int r = 0; r < TRAINER_ROW_COUNT; ++r )
 		{
-			rows[ count ].cheat = i;
-			rows[ count ].amount = cheat.amounts[ each ];
-			++count;
-			if( cheat.defaultAmount == 0 )
-				break;
+			const Int n = rowButtonCount( r );
+			if( index < n )
+			{
+				*row = r;
+				*slot = index;
+				return TRUE;
+			}
+			index -= n;
+		}
+		return FALSE;
+	}
+
+	/// the first row of its section, which a header goes above
+	Bool opensSection( Int row )
+	{
+		return row == 0 || TRAINER_ROWS[ row ].section != TRAINER_ROWS[ row - 1 ].section;
+	}
+
+	/// a row's top, counting every row and header above it
+	Int rowTop( Int row )
+	{
+		Int y = TRAINER_TOP;
+		for( Int r = 0; r < row; ++r )
+			y += ( opensSection( r ) ? TRAINER_SECTION_PITCH : 0 ) + TRAINER_ROW_PITCH;
+		return y + ( opensSection( row ) ? TRAINER_SECTION_PITCH : 0 );
+	}
+
+	Int trainerDesignHeight( void )
+	{
+		return rowTop( TRAINER_ROW_COUNT - 1 ) + TRAINER_ROW_PITCH + TRAINER_BOTTOM_PAD;
+	}
+
+	IRegion2D designRect( Int x0, Int y0, Int x1, Int y1 )
+	{
+		IRegion2D r;
+		r.lo.x = x0;
+		r.lo.y = y0;
+		r.hi.x = x1;
+		r.hi.y = y1;
+		return r;
+	}
+
+	IRegion2D rowRect( Int row )
+	{
+		const Int top = rowTop( row );
+		return designRect( theTrainerRowX[ 0 ], top, theTrainerRowX[ 1 ], top + TRAINER_ROW_H );
+	}
+
+	/// button 'button' in design texels; FALSE for none
+	Bool trainerButtonRect( Int button, IRegion2D *r )
+	{
+		if( button == TRAINER_BUTTON_CLOSE )
+		{
+			*r = designRect( theTrainerClose[ 0 ], theTrainerClose[ 1 ], theTrainerClose[ 2 ], theTrainerClose[ 3 ] );
+			return TRUE;
+		}
+		Int row, slot;
+		if( !trainerCheatButton( button - TRAINER_FIRST_CHEAT_BUTTON, &row, &slot ) )
+			return FALSE;
+		const IRegion2D tray = rowRect( row );
+		const Int right = TRAINER_BUTTONS_RIGHT - ( rowButtonCount( row ) - 1 - slot ) * ( TRAINER_BUTTON_W + TRAINER_BUTTON_GAP );
+		*r = designRect( right - TRAINER_BUTTON_W, tray.lo.y + TRAINER_BUTTON_INSET, right, tray.hi.y - TRAINER_BUTTON_INSET );
+		return TRUE;
+	}
+
+	/// what the button sends: a console line for a cheat's, a name for the log otherwise
+	std::string trainerButtonAction( Int button )
+	{
+		if( button == TRAINER_BUTTON_CLOSE )
+			return "close";
+		Int row, slot;
+		if( !trainerCheatButton( button - TRAINER_FIRST_CHEAT_BUTTON, &row, &slot ) )
+			return std::string();
+		const TrainerRow &r = TRAINER_ROWS[ row ];
+		const Int amount = r.amounts[ slot ];
+		char text[ 64 ];
+		if( amount == 0 )
+			return r.cheat;
+		if( amount == CHEAT_RANK_MAX )
+			sprintf( text, "%s max", r.cheat );
+		else
+			sprintf( text, "%s %d", r.cheat, amount );
+		return text;
+	}
+
+	/// "+1,000,000"
+	UnicodeString plusAmount( Int amount )
+	{
+		char digits[ 16 ];
+		sprintf( digits, "%d", amount );
+		const Int length = (Int)strlen( digits );
+		UnicodeString text( u"+" );
+		for( Int i = 0; i < length; ++i )
+		{
+			if( i > 0 && ( length - i ) % 3 == 0 )
+				text.concat( u',' );
+			text.concat( (WideChar)digits[ i ] );
+		}
+		return text;
+	}
+
+	UnicodeString trainerButtonText( Int button )
+	{
+		if( button == TRAINER_BUTTON_CLOSE )
+			return UnicodeString( u"X" );
+		Int row, slot;
+		if( !trainerCheatButton( button - TRAINER_FIRST_CHEAT_BUTTON, &row, &slot ) )
+			return UnicodeString::TheEmptyString;
+		const Int amount = TRAINER_ROWS[ row ].amounts[ slot ];
+		if( isToggleRow( row ) )
+			return TheGameText->fetch( isRowOn( row ) ? "GUI:CheatOn" : "GUI:CheatOff" );
+		if( amount == CHEAT_RANK_MAX )
+			return TheGameText->fetch( "GUI:CheatRankMax" );
+		if( rowButtonCount( row ) == 1 )
+			return TheGameText->fetch( "GUI:CheatApply" );
+		return plusAmount( amount );
+	}
+
+	/// a ring 'thick' pixels wide inside the rect, as drawCommandTab rings the open command tab
+	void drawTrainerRing( const IRegion2D &r, Int thick, Color color )
+	{
+		const Int w = r.hi.x - r.lo.x, h = r.hi.y - r.lo.y;
+		if( w <= 2 * thick || h <= 2 * thick )
+			return;
+		TheDisplay->drawFillRect( r.lo.x, r.lo.y, w, thick, color );
+		TheDisplay->drawFillRect( r.lo.x, r.hi.y - thick, w, thick, color );
+		TheDisplay->drawFillRect( r.lo.x, r.lo.y + thick, thick, h - 2 * thick, color );
+		TheDisplay->drawFillRect( r.hi.x - thick, r.lo.y + thick, thick, h - 2 * thick, color );
+	}
+
+	/// the scheme's Tab screen piece, <piece><state>; NULL under a scheme without that screen
+	const Image *tabPiece( const char *piece, const char *state )
+	{
+		const ControlBarSchemeManager *schemes = TheControlBar ? TheControlBar->getControlBarSchemeManager() : NULL;
+		if( schemes == NULL )
+			return NULL;
+		AsciiString name;
+		name.format( "%s%s", piece, state );
+		return schemes->getTabImage( name.str() );
+	}
+
+	/// Trainer.wnd:Parent's draw: the tooltip card's steel round it (the head row without the figures'
+	/// well, where the card has one), or a plain plate; the title in the head band, then each section's
+	/// header and its rows, a row a tray with its name, lit green while its toggle is on
+	void drawTrainerWindow( GameWindow *window, WinInstanceData *instData )
+	{
+		ICoord2D origin, size;
+		window->winGetScreenPosition( &origin.x, &origin.y );
+		window->winGetSize( &size.x, &size.y );
+		const Real s = size.x / (Real)TRAINER_DESIGN_W;
+		struct
+		{
+			ICoord2D o;
+			Real s;
+			IRegion2D operator()( const IRegion2D &d ) const
+			{
+				return designRect( o.x + REAL_TO_INT_FLOOR( d.lo.x * s ), o.y + REAL_TO_INT_FLOOR( d.lo.y * s ),
+													 o.x + REAL_TO_INT_FLOOR( d.hi.x * s ), o.y + REAL_TO_INT_FLOOR( d.hi.y * s ) );
+			}
+		} map = { origin, s };
+
+		const IRegion2D box = designRect( origin.x, origin.y, origin.x + size.x, origin.y + size.y );
+		const ControlBarSchemeManager *schemes = TheControlBar ? TheControlBar->getControlBarSchemeManager() : NULL;
+		Bool framed = FALSE;
+		if( schemes )
+		{
+			const ControlBarTooltipImages &tip = schemes->getTooltipImages();
+			const Bool head = tip.head[ 0 ] && tip.head[ 1 ] && tip.head[ 2 ];
+			const Image *frame[ 9 ] = { head ? tip.head[ 0 ] : tip.card[ 0 ], head ? tip.head[ 1 ] : tip.card[ 1 ],
+				head ? tip.head[ 2 ] : tip.card[ 2 ], tip.card[ 3 ], tip.card[ 4 ], tip.card[ 5 ], tip.card[ 6 ], tip.card[ 7 ], tip.card[ 8 ] };
+			framed = ControlBarDrawNinePieceBox( frame, box, s );
+		}
+		if( !framed )
+		{
+			TheDisplay->drawFillRect( origin.x, origin.y, size.x, size.y, GameMakeColor( 24, 26, 30, 235 ) );
+			TheDisplay->drawFillRect( origin.x, origin.y, size.x, REAL_TO_INT( TRAINER_HEAD_H * s ), GameMakeColor( 44, 46, 50, 235 ) );
+			TheDisplay->drawOpenRect( origin.x, origin.y, size.x, size.y, 2.0f, GameMakeColor( 110, 114, 120, 255 ) );
+		}
+
+		drawFittedLabel( theTrainerTitleLabel, TheGameText->fetch( "GUI:CheatPanelTitle" ), REAL_TO_INT( 17 * s + 0.5f ),
+										 map( designRect( theTrainerTitle[ 0 ], theTrainerTitle[ 1 ], theTrainerTitle[ 2 ], theTrainerTitle[ 3 ] ) ),
+										 TRAINER_WHITE, FALSE, FITTED_ALIGN_LEFT );
+
+		for( Int row = 0; row < TRAINER_ROW_COUNT; ++row )
+		{
+			if( opensSection( row ) )
+			{
+				const Int section = TRAINER_ROWS[ row ].section;
+				const Int top = rowTop( row ) - TRAINER_SECTION_PITCH;
+				drawFittedLabel( theTrainerSectionLabels[ section ], TheGameText->fetch( TRAINER_SECTION_LABELS[ section ] ),
+												 REAL_TO_INT( 13 * s + 0.5f ), map( designRect( theTrainerLabelX[ 0 ] - 4, top, theTrainerLabelX[ 1 ], top + TRAINER_SECTION_H ) ),
+												 TRAINER_DIM, FALSE, FITTED_ALIGN_LEFT );
+				const IRegion2D rule = map( designRect( theTrainerRowX[ 0 ], top + TRAINER_SECTION_H - 1, theTrainerRowX[ 1 ], top + TRAINER_SECTION_H ) );
+				TheDisplay->drawFillRect( rule.lo.x, rule.lo.y, rule.hi.x - rule.lo.x, MAX( 1, rule.hi.y - rule.lo.y ), TRAINER_RULE );
+			}
+			const Bool on = isRowOn( row );
+			const IRegion2D tray = map( rowRect( row ) );
+			TheDisplay->drawFillRect( tray.lo.x, tray.lo.y, tray.hi.x - tray.lo.x, tray.hi.y - tray.lo.y, on ? TRAINER_TRAY_ON : TRAINER_TRAY );
+			if( on )
+				TheDisplay->drawFillRect( tray.lo.x, tray.lo.y, REAL_TO_INT( TRAINER_LAMP_W * s + 0.5f ), tray.hi.y - tray.lo.y, TRAINER_GREEN );
+			// the name runs up to the row's first button, so a toggle's long name keeps its size
+			const Int labelRight = TRAINER_BUTTONS_RIGHT - rowButtonCount( row ) * ( TRAINER_BUTTON_W + TRAINER_BUTTON_GAP ) - TRAINER_BUTTON_GAP;
+			const IRegion2D well = map( designRect( theTrainerLabelX[ 0 ], rowRect( row ).lo.y, labelRight, rowRect( row ).hi.y ) );
+			drawFittedLabel( theTrainerRowLabels[ row ], TheGameText->fetch( TRAINER_ROWS[ row ].label ), REAL_TO_INT( 16 * s + 0.5f ),
+											 well, on ? TRAINER_GREEN : TRAINER_WHITE, FALSE, FITTED_ALIGN_LEFT );
 		}
 	}
-	return count;
-}
 
-static std::string cheatWindowAction( const CheatWindowRow &row )
-{
-	const ConsoleCheat &cheat = CONSOLE_CHEATS[ row.cheat ];
-	if( row.amount == 0 )
-		return cheat.name;
-	char text[ 64 ];
-	sprintf( text, "%s %d", cheat.name, row.amount );
-	return text;
-}
-
-/// EA's diplomacy text colours: white, and the green its rows light in
-static const Color CHEAT_WINDOW_TEXT_COLOR = GameMakeColor( 254, 254, 254, 255 );
-static const Color CHEAT_WINDOW_ON_COLOR = GameMakeColor( 3, 196, 0, 255 );
-
-static WindowMsgHandledType cheatWindowSystem( GameWindow *window, UnsignedInt msg, WindowMsgData mData1, WindowMsgData mData2 )
-{
-	static const NameKeyType buttonHideID = NAMEKEY( "Trainer.wnd:ButtonHide" );
-	switch( msg )
+	/// a button's draw: its piece in the scheme's off, hover (H) or pushed (P) state, a toggle that is on
+	/// pushed and ringed green, the text gold under the pointer
+	void drawTrainerButton( GameWindow *window, WinInstanceData *instData )
 	{
-		case GBM_SELECTED:
-			if( ((GameWindow *)mData1)->winGetWindowId() == buttonHideID )
-				TheGameConsole->closeCheatPanel();
-			return MSG_HANDLED;
-		case GLM_SELECTED:
-			TheGameConsole->runCheatWindowRow( (Int)mData2 );
-			return MSG_HANDLED;
+		const Int button = (Int)(intptr_t)GadgetButtonGetData( window ) - 1;
+		if( button < 0 || button >= TRAINER_MAX_BUTTONS )
+			return;
+		ICoord2D pos, size;
+		window->winGetScreenPosition( &pos.x, &pos.y );
+		window->winGetSize( &size.x, &size.y );
+		const IRegion2D r = designRect( pos.x, pos.y, pos.x + size.x, pos.y + size.y );
+		const Real s = TheDisplay->getHeight() / 1080.0f;
+
+		const Bool hover = BitTest( instData->getState(), WIN_STATE_HILITED );
+		const Bool pressed = BitTest( instData->getState(), WIN_STATE_SELECTED );
+		Int row = -1, slot = 0;
+		if( button >= TRAINER_FIRST_CHEAT_BUTTON )
+			trainerCheatButton( button - TRAINER_FIRST_CHEAT_BUTTON, &row, &slot );
+		const Bool on = row >= 0 && isRowOn( row );
+
+		const Image *image = tabPiece( row >= 0 ? "Send" : "Square", pressed || on ? "P" : ( hover ? "H" : "" ) );
+		if( image )
+			TheDisplay->drawImage( image, r.lo.x, r.lo.y, r.hi.x, r.hi.y );
+		else
+		{
+			TheDisplay->drawFillRect( r.lo.x, r.lo.y, size.x, size.y, pressed || on ? GameMakeColor( 58, 60, 66, 255 ) : GameMakeColor( 44, 46, 50, 255 ) );
+			TheDisplay->drawOpenRect( r.lo.x, r.lo.y, size.x, size.y, 1.0f, hover ? TRAINER_GOLD : GameMakeColor( 110, 114, 120, 255 ) );
+		}
+
+		const Int ring = MAX( 1, REAL_TO_INT( 2 * s + 0.5f ) );
+		if( on )
+			drawTrainerRing( r, ring, TRAINER_GREEN );
+
+		const Color text = on ? TRAINER_GREEN : ( hover ? TRAINER_GOLD : TRAINER_DIM );
+		IRegion2D well = r;
+		well.lo.x += 2 * ring;
+		well.hi.x -= 2 * ring;
+		drawFittedLabel( theTrainerButtonLabels[ button ], trainerButtonText( button ), REAL_TO_INT( 14 * s + 0.5f ), well, text, FALSE );
 	}
-	return MSG_IGNORED;
+
+	WindowMsgHandledType cheatWindowSystem( GameWindow *window, UnsignedInt msg, WindowMsgData mData1, WindowMsgData mData2 )
+	{
+		if( msg != GBM_SELECTED )
+			return MSG_IGNORED;
+		TheGameConsole->runCheatWindowButton( (Int)(intptr_t)GadgetButtonGetData( (GameWindow *)mData1 ) - 1 );
+		return MSG_HANDLED;
+	}
 }
 
 //-------------------------------------------------------------------------------------------------
-void GameConsole::runCheatWindowRow( Int row )
+void GameConsole::runCheatWindowButton( Int button )
 {
-	CheatWindowRow rows[ CHEAT_WINDOW_MAX_ROWS ];
-	if( row < 0 || row >= cheatWindowRows( rows ) )
-		return;
-	runCheatPanelAction( cheatWindowAction( rows[ row ] ) );
-	GadgetListBoxSetSelected( m_cheatList, -1 );	// so a second click on the same row runs it again
+	if( button == TRAINER_BUTTON_CLOSE )
+		closeCheatPanel();
+	else if( button >= TRAINER_FIRST_CHEAT_BUTTON && button < TRAINER_MAX_BUTTONS )
+		runCheatPanelAction( trainerButtonAction( button ) );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -837,14 +1228,16 @@ void GameConsole::resetCheatWindow( void )
 		m_cheatLayout->deleteInstance();
 	}
 	m_cheatLayout = NULL;
-	m_cheatList = NULL;
-	m_cheatListState = -1;
+	for( Int button = 0; button < TRAINER_MAX_BUTTONS; ++button )
+		theTrainerButtons[ button ] = NULL;		// gone with their parent
 }
 
 //-------------------------------------------------------------------------------------------------
-/** The trainer: Window/Trainer.wnd, EA's diplomacy frame with one list row for
-	* each click, and a toggle's row green while it is on.  The windows are thrown away when it
-	* shuts, never from inside their own callback. */
+/** The trainer: Window/Trainer.wnd's draggable window, left where the layout puts it in the top left
+	* corner and sized to its rows at the screen's height over 1080, and a push button for the close
+	* and every cheat laid on it.  Everything after that is drawn live from the local player, so
+	* nothing is refreshed here.  The windows are thrown away when it shuts, never from inside their
+	* own callback. */
 //-------------------------------------------------------------------------------------------------
 void GameConsole::updateCheatWindow( void )
 {
@@ -853,67 +1246,54 @@ void GameConsole::updateCheatWindow( void )
 		resetCheatWindow();
 		return;
 	}
-
-	CheatWindowRow rows[ CHEAT_WINDOW_MAX_ROWS ];
-	const Int rowCount = cheatWindowRows( rows );
-	if( m_cheatLayout == NULL )
-	{
-		m_cheatLayout = TheWindowManager->winCreateLayout( AsciiString( "Trainer.wnd" ) );
-		GameWindow *parent = m_cheatLayout ? m_cheatLayout->getFirstWindow() : NULL;
-		m_cheatList = parent ? TheWindowManager->winGetWindowFromId( parent, NAMEKEY( "Trainer.wnd:ListboxCheats" ) ) : NULL;
-		if( m_cheatList == NULL )
-		{
-			printLine( AsciiString( "trainer: Window/Trainer.wnd is missing" ) );
-			resetCheatWindow();
-			m_cheatPanelOpen = FALSE;
-			return;
-		}
-		parent->winSetSystemFunc( cheatWindowSystem );
-		for( Int row = 0; row < rowCount; ++row )
-			GadgetListBoxAddEntryText( m_cheatList, TheGameText->fetch( CONSOLE_CHEATS[ rows[ row ].cheat ].label ),
-																 CHEAT_WINDOW_TEXT_COLOR, -1, 0 );
-		m_cheatLayout->hide( FALSE );
-	}
-
-	const Player *local = ThePlayerList->getLocalPlayer();
-	Int state = 0;
-	for( Int i = 0; i < CONSOLE_CHEAT_COUNT; ++i )
-		if( CONSOLE_CHEATS[ i ].defaultAmount == 0 && local->hasCheat( CONSOLE_CHEATS[ i ].kind ) )
-			state |= 1 << i;
-	if( state == m_cheatListState )
+	if( m_cheatLayout != NULL )
 		return;
-	const Bool firstFill = m_cheatListState < 0;
-	m_cheatListState = state;
 
-	for( Int row = 0; row < rowCount; ++row )
+	m_cheatLayout = TheWindowManager->winCreateLayout( AsciiString( "Trainer.wnd" ) );
+	GameWindow *parent = m_cheatLayout ? m_cheatLayout->getFirstWindow() : NULL;
+	if( parent == NULL )
 	{
-		const ConsoleCheat &cheat = CONSOLE_CHEATS[ rows[ row ].cheat ];
-		const Bool on = rows[ row ].amount == 0 && ( state & ( 1 << rows[ row ].cheat ) ) != 0;
-		UnicodeString text;
-		if( rows[ row ].amount == 0 )
-			text = TheGameText->fetch( on ? "GUI:CheatOn" : "GUI:CheatOff" );
-		else if( cheat.amounts[ 1 ] == 0 )
-			text = TheGameText->fetch( "GUI:CheatApply" );
-		else
-			text.format( u"+%d", rows[ row ].amount );
-		const Color color = on ? CHEAT_WINDOW_ON_COLOR : CHEAT_WINDOW_TEXT_COLOR;
-		GadgetListBoxAddEntryText( m_cheatList, TheGameText->fetch( cheat.label ), color, row, 0 );
-		GadgetListBoxAddEntryText( m_cheatList, text, color, row, 1 );
+		printLine( AsciiString( "trainer: Window/Trainer.wnd is missing" ) );
+		resetCheatWindow();
+		m_cheatPanelOpen = FALSE;
+		return;
 	}
 
-	// where each row landed, so a script driving the game over -control knows where to click
-	if( firstFill )
+	const Real s = TheDisplay->getHeight() / 1080.0f;
+	parent->winSetSize( REAL_TO_INT( TRAINER_DESIGN_W * s ), REAL_TO_INT( trainerDesignHeight() * s ) );
+	parent->winSetDrawFunc( drawTrainerWindow );
+	parent->winSetSystemFunc( cheatWindowSystem );
+
+	for( Int button = 0; button < TRAINER_MAX_BUTTONS; ++button )
 	{
-		const ListboxData *list = (const ListboxData *)m_cheatList->winGetUserData();
-		Int x, y, width, height;
-		m_cheatList->winGetScreenPosition( &x, &y );
-		m_cheatList->winGetSize( &width, &height );
-		for( Int row = 0; list && row < rowCount && row < list->endPos; ++row )
-		{
-			const Int top = row > 0 ? list->listData[ row - 1 ].listHeight : 0;
-			DEBUG_LOG(( "Cheat window: \"%s\" at %d %d\n", cheatWindowAction( rows[ row ] ).c_str(),
-									x + width / 2, y + ( top + list->listData[ row ].listHeight ) / 2 ));
-		}
+		theTrainerButtons[ button ] = NULL;
+		IRegion2D r;
+		if( !trainerButtonRect( button, &r ) )
+			continue;
+		WinInstanceData inst;
+		inst.init();
+		BitSet( inst.m_style, GWS_PUSH_BUTTON | GWS_MOUSE_TRACK );
+		const Int left = REAL_TO_INT_FLOOR( r.lo.x * s ), top = REAL_TO_INT_FLOOR( r.lo.y * s );
+		GameWindow *window = TheWindowManager->gogoGadgetPushButton( parent, WIN_STATUS_ENABLED, left, top,
+			REAL_TO_INT_FLOOR( r.hi.x * s ) - left, REAL_TO_INT_FLOOR( r.hi.y * s ) - top, &inst, NULL, TRUE );
+		if( window == NULL )
+			continue;
+		GadgetButtonSetData( window, (void *)(intptr_t)( button + 1 ) );
+		window->winSetDrawFunc( drawTrainerButton );
+		theTrainerButtons[ button ] = window;
+	}
+	m_cheatLayout->hide( FALSE );
+
+	// where each button landed, so a script driving the game over -control knows where to click; a
+	// cheat's is the line it sends
+	for( Int button = 0; button < TRAINER_MAX_BUTTONS; ++button )
+	{
+		if( theTrainerButtons[ button ] == NULL )
+			continue;
+		Int bx, by, bw, bh;
+		theTrainerButtons[ button ]->winGetScreenPosition( &bx, &by );
+		theTrainerButtons[ button ]->winGetSize( &bw, &bh );
+		DEBUG_LOG(( "Cheat window: \"%s\" at %d %d\n", trainerButtonAction( button ).c_str(), bx + bw / 2, by + bh / 2 ));
 	}
 }
 

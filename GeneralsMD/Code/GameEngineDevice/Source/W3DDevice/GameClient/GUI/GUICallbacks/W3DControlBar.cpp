@@ -28,6 +28,7 @@
 // Desc: Control bar callbacks
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 #include "Common/GlobalData.h"
+#include "Common/OptionsCatalog.h"
 #include "Common/Radar.h"
 #include "Common/Player.h"
 #include "Common/PlayerList.h"
@@ -40,6 +41,7 @@
 #include "GameClient/ControlBar.h"
 #include "GameClient/GameWindowManager.h"
 #include "GameClient/ControlBarScheme.h"
+#include "GameClient/ControlBarSidebar.h"
 #include "GameClient/Image.h"
 #include "GameClient/MapUtil.h"
 #include "GameClient/VideoPlayer.h"
@@ -111,6 +113,13 @@ static void readPowerForDraw( const Player *player, Int &production, Int &consum
 	}
 	production = player->getEnergy()->getProduction();
 	consumption = player->getEnergy()->getConsumption();
+}
+
+/// the Red Alert style layout is on screen (docs/plans/HUD-SIDEBAR-LAYOUT.md); observers, replays and a
+/// defeated player keep Classic, which isSidebarLayout says
+static Bool sidebarLayoutOn( void )
+{
+	return TheGlobalData && TheGlobalData->m_hudLayout == HUD_LAYOUT_SIDEBAR && TheControlBar && TheControlBar->isSidebarLayout();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -224,9 +233,10 @@ void W3DPowerDraw( GameWindow *window, WinInstanceData *instData )
 	window->winGetScreenPosition( &pos.x, &pos.y );
 	window->winGetSize( &size.x, &size.y );
 
-	static Real pixelsPerInterval = size.x / TheGlobalData->m_powerBarIntervals;
+	// per call: a static kept the first window's width, wrong after a resize or a layout change
+	const Real pixelsPerInterval = size.x / TheGlobalData->m_powerBarIntervals;
 	Int delta = TheGlobalData->m_powerBarYellowRange;
-	
+
 	if((consumption > production - delta) && (consumption <= production))
 	{
 		// 6 and 1 is Green, 6 and 2 is yellow, 6 and 6 is yellow
@@ -251,7 +261,7 @@ void W3DPowerDraw( GameWindow *window, WinInstanceData *instData )
 		return;
 
 	Int range;
-	range = logN(production, TheGlobalData->m_powerBarBase) * (size.x / TheGlobalData->m_powerBarIntervals);
+	range = logN(production, TheGlobalData->m_powerBarBase) * pixelsPerInterval;
 	if(range >= size.x)
 		range = size.x;
 //	if(range < endBar->getImageWidth() + beginBar->getImageWidth())
@@ -332,7 +342,7 @@ void W3DPowerDraw( GameWindow *window, WinInstanceData *instData )
 	Int posXstart;
 	Int posXend;
 	Real consumptionForNeedle = (consumption == 1) ? 1.5f : INT_TO_REAL(consumption);//Log(1) == 0, but we need to show something for 1 power used.
-	range = logN(consumptionForNeedle, TheGlobalData->m_powerBarBase) * (size.x / TheGlobalData->m_powerBarIntervals);
+	range = logN(consumptionForNeedle, TheGlobalData->m_powerBarBase) * pixelsPerInterval;
 	if(centerWidth <= 0 && range <= 0)
 		return;
 	if(range >= size.x)
@@ -387,7 +397,6 @@ void W3DPowerDrawA( GameWindow *window, WinInstanceData *instData )
 	window->winGetScreenPosition( &pos.x, &pos.y );
 	window->winGetSize( &size.x, &size.y );
 
-	static Real pixelsPerInterval = size.x / TheGlobalData->m_powerBarIntervals;
 	Int delta = TheGlobalData->m_powerBarYellowRange;
 	
 	if((consumption > production - delta) && (consumption <= production))
@@ -528,6 +537,77 @@ void W3DPowerDrawA( GameWindow *window, WinInstanceData *instData )
 		posXend	= pos.x + slider->getImageWidth();
 	}
 	TheWindowManager->winDrawImage(slider, posXstart, pos.y + size.y - slider->getImageHeight(), posXend, pos.y + size.y);
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The Red Alert style layout's power rail down the sidebar's left edge (HudLayoutRects::powerRail):
+	* W3DPowerDraw's log scale stood on end and worked out per call from the window's height, in
+	* Red Alert's blocks lit from the foot in the state's colour, and the consumption a bright tick
+	* across it.  It reads the copy taken at the sync point. */
+//-------------------------------------------------------------------------------------------------
+void W3DPowerDrawV( GameWindow *window, WinInstanceData *instData )
+{
+	Player *player = powerPlayer();
+	// a log base of 1 or less has no scale (log10 of it is 0 or undefined)
+	if( !player || !TheGlobalData || TheGlobalData->m_powerBarIntervals <= 0.0f || TheGlobalData->m_powerBarBase <= 1 )
+		return;
+	Int consumption, production;
+	readPowerForDraw( player, production, consumption );
+
+	ICoord2D pos, size;
+	window->winGetScreenPosition( &pos.x, &pos.y );
+	window->winGetSize( &size.x, &size.y );
+	if( size.x <= 2 || size.y <= 2 )
+		return;
+
+	const Real pixelsPerInterval = size.y / TheGlobalData->m_powerBarIntervals;
+	const Int base = TheGlobalData->m_powerBarBase;
+	auto heightFor = [ & ]( Real amount ) -> Int
+	{
+		// log(0) has no height; past the top the rail is full
+		if( amount <= 0.0f )
+			return 0;
+		return MAX( 0, MIN( size.y, REAL_TO_INT( logN( amount, base ) * pixelsPerInterval ) ) );
+	};
+
+	const Int delta = TheGlobalData->m_powerBarYellowRange;
+	Color fill = GameMakeColor( 40, 200, 70, 255 );
+	if( consumption > production )
+		fill = GameMakeColor( 210, 44, 30, 255 );
+	else if( consumption > production - delta )
+		fill = GameMakeColor( 232, 190, 40, 255 );
+
+	// the side's sidebar plate has the rail's channel sunk in it; without the plate the rail gets a
+	// dark well of its own
+	const Int bottom = pos.y + size.y;
+	const Bool channel = Sidebar_image( "Plate" ) != NULL;
+	if( !channel )
+		TheDisplay->drawFillRect( pos.x, pos.y, size.x, size.y, GameMakeColor( 6, 8, 10, 220 ) );
+	const Int inset = channel ? 0 : 1;
+
+	// in blocks as Red Alert's is, 4 high with a 1 gap at 1080, from the foot: the production's lit
+	// in the state's colour, the rest dark
+	const Real k = TheDisplay->getHeight() / 1080.0f;
+	const Int blockH = MAX( 2, REAL_TO_INT( 4.0f * k + 0.5f ) );
+	const Int gapH = MAX( 1, REAL_TO_INT( 1.0f * k + 0.5f ) );
+	const Int pitch = blockH + gapH;
+	const Int blocks = ( size.y + gapH ) / pitch;
+	const Int lit = ( heightFor( (Real)production ) + gapH ) / pitch;
+	const Color dark = GameMakeColor( 22, 26, 30, 255 );
+	TheDisplay->beginBatch2D();
+	for( Int each = 0; each < blocks; each++ )
+		TheDisplay->drawFillRect( pos.x + inset, bottom - each * pitch - blockH, size.x - 2 * inset, blockH,
+															each < lit ? fill : dark );
+	TheDisplay->endBatch2D();
+
+	// log(1) is 0, but one unit used still shows, as W3DPowerDraw's needle does
+	if( consumption > 0 )
+	{
+		const Int need = heightFor( consumption == 1 ? 1.5f : (Real)consumption );
+		const Int y = MAX( pos.y + 1, MIN( bottom - 2, bottom - need ) );
+		TheDisplay->drawFillRect( pos.x, y - 1, size.x, 3, GameMakeColor( 10, 12, 14, 255 ) );
+		TheDisplay->drawFillRect( pos.x, y, size.x, 1, GameMakeColor( 240, 244, 246, 255 ) );
+	}
 }
 
 void W3DCommandBarGridDraw( GameWindow *window, WinInstanceData *instData )
@@ -749,6 +829,161 @@ static const Image *plateImage( const ControlBarPlate *plate )
 }
 
 //-------------------------------------------------------------------------------------------------
+/** A steel panel of the Red Alert style layout: a flat face with a 1 px bevel, lit along the top and
+	* left and shaded along the bottom and right, or turned the other way for a well sunk into it. */
+//-------------------------------------------------------------------------------------------------
+static void drawSteelPanel( const IRegion2D &r, Color face, Bool sunk )
+{
+	const Int w = r.hi.x - r.lo.x, h = r.hi.y - r.lo.y;
+	if( w <= 2 || h <= 2 )
+		return;
+	const Color light = GameMakeColor( 132, 140, 148, 255 );
+	const Color shade = GameMakeColor( 14, 16, 18, 255 );
+	const Color top = sunk ? shade : light, foot = sunk ? light : shade;
+	TheDisplay->drawFillRect( r.lo.x, r.lo.y, w, h, face );
+	TheDisplay->drawFillRect( r.lo.x, r.lo.y, w, 1, top );
+	TheDisplay->drawFillRect( r.lo.x, r.lo.y, 1, h, top );
+	TheDisplay->drawFillRect( r.lo.x, r.hi.y - 1, w, 1, foot );
+	TheDisplay->drawFillRect( r.hi.x - 1, r.lo.y, 1, h, foot );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The Red Alert style layout's steel, from HudLayoutForScreen alone: the sidebar and the railed strip
+	* as panels, a well under each command slot, the selection card, the power rail and the radar box
+	* sunk in rims (the side's radar frame over that where its scheme names one), the cameo grid
+	* in the general's powers tray's cells and edges, its open side on the sidebar's right edge as the
+	* powers tray's is on the screen's.  That is the stand-in: a side whose sheet has the sidebar's
+	* Plate, Strip and Card wears those instead, each on its rect, and the plate brings the radar's
+	* glass, the rail's channel and the production floor with it.  The windows on it draw after. */
+//-------------------------------------------------------------------------------------------------
+static void drawSidebarBackground( void )
+{
+	HudLayoutRects r;
+	HudLayoutForScreen( TheDisplay->getWidth(), TheDisplay->getHeight(), HUD_LAYOUT_SIDEBAR, TheGlobalData->m_hudWidth, &r );
+	const Color steel = GameMakeColor( 52, 58, 64, 255 );
+	const Color rim = GameMakeColor( 76, 84, 92, 255 );
+	const Color well = GameMakeColor( 14, 17, 20, 255 );
+	const Color glass = GameMakeColor( 6, 8, 10, 255 );
+	const Real k = r.scale;
+	auto px = [ k ]( Int design ) { return MAX( 1, REAL_TO_INT_CEIL( design * k ) ); };
+	auto grow = []( const IRegion2D &a, Int by )
+	{
+		IRegion2D g = a;
+		g.lo.x -= by;
+		g.lo.y -= by;
+		g.hi.x += by;
+		g.hi.y += by;
+		return g;
+	};
+
+	// the side's own plates where its sheet has them (hud_command_bar.py --sidebar, lane C's
+	// Sidebar_image), each standing on its rect; the flat steel below is the stand-in for a missing one
+	const Image *plate = Sidebar_image( "Plate" );
+	const Image *strip = Sidebar_image( "Strip" );
+	const Image *card = Sidebar_image( "Card" );
+
+	TheDisplay->beginBatch2D();
+	if( plate != NULL )
+		TheDisplay->drawImage( plate, r.sidebar.lo.x, r.sidebar.lo.y, r.sidebar.hi.x, r.sidebar.hi.y );
+	else
+		drawSteelPanel( r.sidebar, steel, FALSE );
+
+	// the strip: steel under a rail along its top edge, and a sunk well for each of the fourteen
+	// command slots, so a selection's buttons sit in fixed places whichever of them it has.  The
+	// strip plate has the wells, the idle seats, the clock's glass and the plaque in it
+	if( strip != NULL )
+		TheDisplay->drawImage( strip, r.strip.lo.x, r.strip.lo.y, r.strip.hi.x, r.strip.hi.y );
+	else
+	{
+		drawSteelPanel( r.strip, steel, FALSE );
+		IRegion2D rail = r.strip;
+		rail.hi.y = rail.lo.y + px( 4 );
+		drawSteelPanel( rail, rim, FALSE );
+		TheDisplay->drawFillRect( rail.lo.x, rail.hi.y, rail.hi.x - rail.lo.x, 1, glass );
+		for( Int each = 0; each < HUD_STRIP_BUTTONS; each++ )
+			drawSteelPanel( grow( r.stripButtons[ each ], px( 2 ) ), well, TRUE );
+	}
+
+	// the selection card, standing on the strip at the area's left (the owner's V1): the side's Card
+	// plate, or raised steel with the medallion raised on it, the label's plate, the health groove sunk
+	// and the tray's floor with a well under each of its tiles
+	if( card != NULL )
+		TheDisplay->drawImage( card, r.card.lo.x, r.card.lo.y, r.card.hi.x, r.card.hi.y );
+	else
+	{
+		drawSteelPanel( r.card, steel, FALSE );
+		drawSteelPanel( r.medallion, rim, FALSE );
+		drawSteelPanel( r.labelPlate, rim, FALSE );
+		drawSteelPanel( r.healthBar, glass, TRUE );
+		drawSteelPanel( r.tray, well, TRUE );
+		for( Int each = 0; each < (Int)( sizeof( r.trayCells ) / sizeof( r.trayCells[ 0 ] ) ); each++ )
+			drawSteelPanel( r.trayCells[ each ], glass, TRUE );
+	}
+
+	// the power rail sunk into the sidebar, the radar in a raised rim round its box, the box a well,
+	// so the bands a map narrower than the box leaves are part of the frame: the plate has the rail's
+	// channel and the radar's glass and rim in it.  W3DPowerDrawV fills the rail
+	if( plate == NULL )
+	{
+		drawSteelPanel( grow( r.powerRail, px( 2 ) ), well, TRUE );
+		drawSteelPanel( grow( r.radar, px( 4 ) ), rim, FALSE );
+		drawSteelPanel( r.radar, well, TRUE );
+	}
+
+	// the map's own window sunk into it with dark glass under it, which is all that shows while the
+	// player has no radar
+	static NameKeyType radarID = TheNameKeyGenerator->nameToKey( "ControlBar.wnd:LeftHUD" );
+	GameWindow *radar = TheWindowManager->winGetWindowFromId( NULL, radarID );
+	if( radar != NULL && !radar->winIsHidden() )
+	{
+		IRegion2D map;
+		radar->winGetScreenPosition( &map.lo.x, &map.lo.y );
+		radar->winGetSize( &map.hi.x, &map.hi.y );
+		map.hi.x += map.lo.x;
+		map.hi.y += map.lo.y;
+		drawSteelPanel( grow( map, 1 ), glass, TRUE );
+	}
+
+	// the cameos: the plate's production floor holds them, and each cameo window wears its own well
+	if( plate != NULL )
+	{
+		TheDisplay->endBatch2D();
+		return;
+	}
+
+	// each cameo's cell takes half the gap to its neighbours, so the cells tile the grid
+	const Int gapX = r.cameos[ 1 ].lo.x - r.cameos[ 0 ].hi.x;
+	const Int gapY = r.cameos[ HUD_SIDEBAR_CAMEO_COLUMNS ].lo.y - r.cameos[ 0 ].hi.y;
+	IRegion2D cells[ HUD_SIDEBAR_CAMEOS ];
+	IRegion2D grid = r.cameos[ 0 ];
+	for( Int each = 0; each < HUD_SIDEBAR_CAMEOS; each++ )
+	{
+		IRegion2D &c = cells[ each ];
+		c = r.cameos[ each ];
+		c.lo.x -= gapX / 2;
+		c.hi.x += gapX - gapX / 2;
+		c.lo.y -= gapY / 2;
+		c.hi.y += gapY - gapY / 2;
+		if( each % HUD_SIDEBAR_CAMEO_COLUMNS == HUD_SIDEBAR_CAMEO_COLUMNS - 1 )
+			c.hi.x = r.sidebar.hi.x - 1;
+		grid.lo.x = MIN( grid.lo.x, c.lo.x );
+		grid.lo.y = MIN( grid.lo.y, c.lo.y );
+		grid.hi.x = MAX( grid.hi.x, c.hi.x );
+		grid.hi.y = MAX( grid.hi.y, c.hi.y );
+	}
+	if( !ControlBarDrawPowerTrayBox( cells, HUD_SIDEBAR_CAMEOS, grid ) )
+	{
+		drawSteelPanel( grid, well, TRUE );
+		for( Int each = 0; each < HUD_SIDEBAR_CAMEOS; each++ )
+			drawSteelPanel( r.cameos[ each ], well, TRUE );
+	}
+	TheDisplay->endBatch2D();
+
+	// round wherever ControlBar::fitRadarToMap stood the map inside its box
+	ControlBarDrawRadarFrame();
+}
+
+//-------------------------------------------------------------------------------------------------
 /** Each panel wears a plate of its own now - see ControlBarPlateForSide in ControlBar.cpp for what
 	* a plate is and why the scheme's one-piece painting is not drawn at all. */
 //-------------------------------------------------------------------------------------------------
@@ -757,6 +992,13 @@ void W3DCommandBarBackgroundDraw( GameWindow *window, WinInstanceData *instData 
 	ControlBarSchemeManager *man = TheControlBar ? TheControlBar->getControlBarSchemeManager() : NULL;
 	if( man == NULL || TheDisplay == NULL )
 		return;
+
+	// the Red Alert style layout wears no plate and no painting: they are cut for the Classic panels
+	if( sidebarLayoutOn() )
+	{
+		drawSidebarBackground();
+		return;
+	}
 
 	//
 	// The plates are drawn from the design rectangles rather than from a window, so on their own
@@ -800,6 +1042,9 @@ void W3DCommandBarBackgroundDraw( GameWindow *window, WinInstanceData *instData 
 		if( image )
 			TheDisplay->drawImage( image, rect.lo.x + offset.x, rect.lo.y + offset.y, rect.hi.x + offset.x, rect.hi.y + offset.y );
 	}
+
+	// a radar grown by Minimap Size gets its steel on the plates too, as drawPainting gives it
+	ControlBarSchemeManager::drawGrownRadarFrame();
 }
 
 
@@ -807,7 +1052,7 @@ void W3DCommandBarForegroundDraw( GameWindow *window, WinInstanceData *instData 
 {
 	// the scheme's foreground layers, moved with the bar the same way as W3DCommandBarBackgroundDraw's
 	ControlBarSchemeManager *man = TheControlBar ? TheControlBar->getControlBarSchemeManager() : NULL;
-	if( man == NULL || TheDisplay == NULL || !man->isCurrentSchemePainted() )
+	if( man == NULL || TheDisplay == NULL || !man->isCurrentSchemePainted() || sidebarLayoutOn() )
 		return;
 
 	ICoord2D offset;

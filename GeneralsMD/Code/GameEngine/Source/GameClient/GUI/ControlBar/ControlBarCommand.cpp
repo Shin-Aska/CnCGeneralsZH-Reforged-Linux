@@ -64,6 +64,12 @@
 #include "GameClient/GadgetPushButton.h"
 #include "GameClient/HotKey.h"
 #include "GameClient/Image.h"
+#include "GameClient/GroupPanel.h"
+#include "GameClient/ControlBarScheme.h"
+#include "GameClient/GameText.h"
+#include "GameClient/Display.h"
+
+extern void SidebarCard_setQueueProgress( Real progress );	// ControlBarSidebarLayout.cpp
 
 #ifdef _INTERNAL
 // for occasional debugging...
@@ -347,6 +353,119 @@ void ControlBar::doTransportInventoryUI( Object *transport, const CommandSet *co
 }  // end doTransportInventoryUI
 
 //-------------------------------------------------------------------------------------------------
+/** The buildings tab gathers the structures of every builder the player has.  With only the player's
+	* own side's builders it is the stand-in's bar as it always was.  A captured or foreign builder
+	* turns it into a list paged over the grid as the unit tabs are: the stand-in's structures in its
+	* set's order, then every other side's that is not already there (GroupPanel_isSameBuild, so the
+	* player's own copy of a shared one stays), each remembered with its builder.  Availability is read
+	* on that builder and it is the placement's source; MSG_DOZER_CONSTRUCT then gives the job only to
+	* a builder whose bar has the structure, so nothing in the logic changes. */
+//-------------------------------------------------------------------------------------------------
+struct ForeignBuildCell
+{
+	const GameWindow *win;					///< NULL: the cell is the stand-in's own
+	const CommandButton *button;
+	ObjectID builder;
+};
+static ForeignBuildCell s_foreignBuild[ MAX_COMMANDS_PER_SET ];
+
+/// the buildings tab list's length at its last fill, 0 when it was the stand-in's plain bar
+static size_t s_buildingsTabCount = 0;
+
+struct ForeignBuildSearch
+{
+	Object *standIn;
+	std::vector< GroupPanelBuildable > *list;
+	std::vector< ObjectID > *builders;
+};
+
+static void gatherForeignBuilds( Object *obj, void *userData )
+{
+	ForeignBuildSearch *s = (ForeignBuildSearch *)userData;
+	if( obj == s->standIn || obj->isEffectivelyDead() || obj->testStatus( OBJECT_STATUS_UNDER_CONSTRUCTION )
+			|| obj->testStatus( OBJECT_STATUS_SOLD ) || obj->testScriptStatusBit( OBJECT_STATUS_SCRIPT_DISABLED )
+			|| obj->testScriptStatusBit( OBJECT_STATUS_SCRIPT_UNPOWERED ) || obj->isDisabledByType( DISABLED_UNMANNED ) )
+		return;
+	AIUpdateInterface *ai = obj->getAI();
+	if( ai == NULL || ai->getDozerAIInterface() == NULL )
+		return;
+	// the player's own side's other builders carry the stand-in's buildings (a GLA worker on its
+	// fakes page is the stand-in's switch away, not another side)
+	if( GroupPanel_isOwnSide( obj->getTemplate(), obj->getControllingPlayer() ) )
+		return;
+	const CommandSet *set = TheControlBar->findCommandSet( obj->getCommandSetString() );
+	if( set == NULL )
+		return;
+
+	for( Int i = 0; i < MAX_COMMANDS_PER_SET; i++ )
+	{
+		const CommandButton *button = set->getCommandButton( i );
+		if( button == NULL || button->getCommandType() != GUI_COMMAND_DOZER_CONSTRUCT
+				|| button->getThingTemplate() == NULL || BitTest( button->getOptions(), SCRIPT_ONLY ) )
+			continue;
+		Bool shown = FALSE;
+		for( size_t j = 0; j < s->list->size() && !shown; j++ )
+			shown = (*s->list)[ j ].button->getCommandType() == GUI_COMMAND_DOZER_CONSTRUCT
+				&& GroupPanel_isSameBuild( (*s->list)[ j ].button, button );
+		if( shown )
+			continue;
+		const GroupPanelBuildable added = { button->getThingTemplate(), button, COMMAND_AVAILABLE };
+		s->list->push_back( added );
+		s->builders->push_back( obj->getID() );
+	}
+}
+
+/// the buildings tab's paged list, or none when no captured or foreign builder adds to the stand-in's
+static void gatherBuildingsTabList( std::vector< GroupPanelBuildable > &list, std::vector< ObjectID > &builders )
+{
+	Drawable *draw = TheControlBar->findStandInBuilder( FALSE );
+	Object *standIn = draw ? draw->getObject() : NULL;
+	const CommandSet *set = standIn ? TheControlBar->findCommandSet( standIn->getCommandSetString() ) : NULL;
+	if( set == NULL )
+		return;
+
+	// what the stand-in's bar on this tab carries (populateCommand): its structures and the GLA
+	// worker's switch to the fakes
+	for( Int i = 0; i < MAX_COMMANDS_PER_SET; i++ )
+	{
+		const CommandButton *button = set->getCommandButton( i );
+		if( button == NULL || BitTest( button->getOptions(), SCRIPT_ONLY ) || !TheControlBar->hasCommandWindow( i ) )
+			continue;
+		if( ( button->getCommandType() == GUI_COMMAND_DOZER_CONSTRUCT && button->getThingTemplate() != NULL )
+				|| ControlBar_namedCommandPlace( button->getName().str() ) == COMMAND_PLACE_FAKE_STRUCTURES )
+		{
+			const GroupPanelBuildable own = { button->getThingTemplate(), button, COMMAND_AVAILABLE };
+			list.push_back( own );
+			builders.push_back( INVALID_ID );
+		}
+	}
+
+	const size_t own = list.size();
+	ForeignBuildSearch search = { standIn, &list, &builders };
+	standIn->getControllingPlayer()->iterateObjects( gatherForeignBuilds, &search );
+	if( list.size() == own )
+	{
+		list.clear();
+		builders.clear();
+	}
+}
+
+Object *ControlBar_foreignBuilder( const GameWindow *win )
+{
+	if( win == NULL )
+		return NULL;
+	for( Int i = 0; i < MAX_COMMANDS_PER_SET; i++ )
+	{
+		const ForeignBuildCell &cell = s_foreignBuild[ i ];
+		if( cell.win != win || GadgetButtonGetData( const_cast< GameWindow * >( win ) ) != (void *)cell.button )
+			continue;
+		Object *builder = TheGameLogic->findObjectByID( cell.builder );
+		return builder != NULL && !builder->isEffectivelyDead() && builder->isLocallyControlled() ? builder : NULL;
+	}
+	return NULL;
+}
+
+//-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 void ControlBar::populateCommand( Object *obj )
 {
@@ -383,6 +502,10 @@ void ControlBar::populateCommand( Object *obj )
 	if( obj->getContain()  &&  obj->getContain()->isDisplayedOnControlBar() )
 		doTransportInventoryUI( obj, commandSet );
 
+	// no cell is another builder's until the buildings tab below says so
+	for( i = 0; i < MAX_COMMANDS_PER_SET; i++ )
+		s_foreignBuild[ i ].win = NULL;
+
 	// what goes in each slot: the command set, slot for slot, a script only button and a slot with
 	// no window left empty
 	const CommandButton *slot[ MAX_COMMANDS_PER_SET ];
@@ -390,6 +513,11 @@ void ControlBar::populateCommand( Object *obj )
 	{
 		const CommandButton *button = commandSet->getCommandButton( i );
 		slot[ i ] = ( m_commandWindows[ i ] && button && !BitTest( button->getOptions(), SCRIPT_ONLY ) ) ? button : NULL;
+		// the sidebar is the build list: a factory's units and a builder's structures stay off the strip
+		// (its builder chips pick the dozer); the builder's other orders, repair, disarm and the rest, stay
+		if( slot[ i ] != NULL && m_sidebarLayout
+				&& ( slot[ i ]->getCommandType() == GUI_COMMAND_UNIT_BUILD || slot[ i ]->getCommandType() == GUI_COMMAND_DOZER_CONSTRUCT ) )
+			slot[ i ] = NULL;
 	}
 
 	// a builder standing in for an empty selection offers its buildings, not its orders: nobody
@@ -397,9 +525,34 @@ void ControlBar::populateCommand( Object *obj )
 	if( m_standInBuilderID != INVALID_DRAWABLE_ID && obj->getDrawable()
 			&& obj->getDrawable()->getID() == m_standInBuilderID )
 	{
+		// the buildings tab can stand over a real selection, and an order button there (Stop and the
+		// like) goes to the selected units: it carries the builds, and the GLA worker's switch to the
+		// fakes, which is bought on the worker by its ID, and nothing else
+		const Bool buildsOnly = m_commandTab == COMMAND_TAB_BUILDINGS;
 		for( i = 0; i < MAX_COMMANDS_PER_SET; i++ )
-			if( slot[ i ] && ControlBar_namedCommandPlace( slot[ i ]->getName().str() ) == COMMAND_PLACE_CLEAR_MINES )
+		{
+			if( slot[ i ] == NULL )
+				continue;
+			const Int named = ControlBar_namedCommandPlace( slot[ i ]->getName().str() );
+			if( named == COMMAND_PLACE_CLEAR_MINES
+					|| ( buildsOnly && slot[ i ]->getCommandType() != GUI_COMMAND_DOZER_CONSTRUCT && named != COMMAND_PLACE_FAKE_STRUCTURES ) )
 				slot[ i ] = NULL;
+		}
+
+		// the tab is every builder's: with a captured or foreign one it pages the whole list
+		if( buildsOnly )
+		{
+			std::vector< GroupPanelBuildable > list;
+			std::vector< ObjectID > builders;
+			gatherBuildingsTabList( list, builders );
+			s_buildingsTabCount = list.size();
+			if( !list.empty() )
+			{
+				populateCommandTab( TRUE );
+				updateContextCommand();
+				return;
+			}
+		}
 	}
 
 	// the order of the bar's upgrades, which the command bar grid keys X C V B N
@@ -608,9 +761,10 @@ void ControlBar::populateCommand( Object *obj )
 
 		//
 		// if a rally point is set, show the rally point, if we don't have it set hide any rally
-		// point we might have visible 
+		// point we might have visible.  One just sent and not yet run by logic is shown at once
 		//
-		showRallyPoint( exit->getRallyPoint() );
+		const Coord3D *predicted = TheInGameUI->getPredictedRallyPoint( obj->getID() );
+		showRallyPoint( predicted ? predicted : exit->getRallyPoint() );
 
 	}  // end if
 
@@ -772,11 +926,30 @@ void ControlBar::populateBuildQueue( Object *producer )
 void ControlBar::updateBuildQueue( Object *obj, ProductionUpdateInterface *pu )
 {
 	GameWindow *queue = m_contextParent[ CP_BUILD_QUEUE ];
-	const Bool busy = pu && pu->firstProduction() != NULL;
+	Bool busy = pu && pu->firstProduction() != NULL;
+
+	// the sidebar's tray holds one thing: a production building's queue, while it has one, before its
+	// upgrades (hidden each pass, as the portrait shows them again); a unit's upgrades before its queue
+	if( busy && m_sidebarLayout )
+	{
+		const Bool building = obj != NULL && obj->isKindOf( KINDOF_STRUCTURE );
+		for( Int i = 0; i < MAX_RIGHT_HUD_UPGRADE_CAMEOS; i++ )
+		{
+			GameWindow *upgrade = m_rightHUDUpgradeCameos[ i ];
+			if( upgrade == NULL || upgrade->winIsHidden() )
+				continue;
+			if( building )
+				upgrade->winHide( TRUE );
+			else
+				busy = FALSE;
+		}
+	}
+
 	if( !busy )
 	{
 		if( queue->winIsHidden() == FALSE )
 		{
+			// the portrait back, and under the sidebar the building's upgrades back in the tray
 			queue->winHide( TRUE );
 			setPortraitByObject( obj );
 		}
@@ -784,8 +957,10 @@ void ControlBar::updateBuildQueue( Object *obj, ProductionUpdateInterface *pu )
 	}
 
 	// the portrait is put back by anything that re-evaluates the selection, so it is taken off
-	// every frame the queue stands in its place, as EA did
-	setPortraitByObject( NULL );
+	// every frame the queue stands in its place, as EA did.  The sidebar's queue stands in the card's
+	// row under the portrait, which stays
+	if( !m_sidebarLayout )
+		setPortraitByObject( NULL );
 	if( queue->winIsHidden() )
 	{
 		queue->winHide( FALSE );
@@ -794,7 +969,12 @@ void ControlBar::updateBuildQueue( Object *obj, ProductionUpdateInterface *pu )
 	else if( pu->getProductionCount() != m_displayedQueueCount )
 		populateBuildQueue( obj );
 
-	GadgetButtonDrawInverseClock( m_queueData[ 0 ].control, pu->firstProduction()->getPercentComplete(), m_buildUpClockColor );
+	// the sidebar's tray tile shows the head's progress as a bar at its foot (drawn by the card), the
+	// Classic queue its scheme's clock
+	if( m_sidebarLayout )
+		SidebarCard_setQueueProgress( pu->firstProduction()->getPercentComplete() / 100.0f );
+	else
+		GadgetButtonDrawInverseClock( m_queueData[ 0 ].control, pu->firstProduction()->getPercentComplete(), m_buildUpClockColor );
 
 }  // end updateBuildQueue
 
@@ -809,6 +989,18 @@ void ControlBar::updateContextCommand( void )
 	// get object
 	if( m_currentSelectedDrawable )
 		obj = m_currentSelectedDrawable->getObject();
+
+	// the buildings tab follows the player's builders: one of another side captured, made or lost
+	// pages its list in or out
+	if( m_commandTab == COMMAND_TAB_BUILDINGS && m_currentSelectedDrawable != NULL
+			&& m_currentSelectedDrawable->getID() == m_standInBuilderID )
+	{
+		std::vector< GroupPanelBuildable > list;
+		std::vector< ObjectID > builders;
+		gatherBuildingsTabList( list, builders );
+		if( list.size() != s_buildingsTabCount )
+			markUIDirty();
+	}
 
 	//
 	// the contents of objects are ususally showed on the UI, when those contents change
@@ -947,8 +1139,11 @@ void ControlBar::updateContextCommand( void )
 			win->winClearStatus( WIN_STATUS_ALWAYS_COLOR );
 		}
 
-		// is the command available - to any of the selected, not just to the representative
-		CommandAvailability availability = getGroupCommandAvailability( command, obj, win );
+		// is the command available - to any of the selected, not just to the representative; a
+		// buildings tab cell another side's builder fills, to that builder
+		Object *foreign = ControlBar_foreignBuilder( win );
+		CommandAvailability availability = foreign ? getCommandAvailability( command, foreign, win )
+			: getGroupCommandAvailability( command, obj, win );
 
 		// enable/disable the window control
 		switch( availability )
@@ -1777,4 +1972,1032 @@ CommandAvailability ControlBar::getCommandAvailability( const CommandButton *com
 	return COMMAND_AVAILABLE;
 
 }  // end getCommandAvailability
+
+//-------------------------------------------------------------------------------------------------
+// The command bar's tabs.  Three push buttons in a code-made parent, the way GroupPanel.cpp makes
+// its build tray, standing in a row on the command grid's top edge at its left end; ControlBar.wnd
+// and the command sets are left alone, since the INI is in the multiplayer checksum.  Their
+// pictures are borrowed from the idle worker, idle vehicle and idle aircraft buttons, which every
+// scheme already dresses, so they follow the side.  Everything here is client side: the logic only
+// hears of a unit tab's click as MSG_QUEUE_UNIT_FOR_GROUP with no squad, and picks the factory.
+//-------------------------------------------------------------------------------------------------
+static Int commandTabParentId( void )
+{
+	static const Int id = (Int)TheNameKeyGenerator->nameToKey( "ControlBar:CommandTabs" );
+	return id;
+}
+
+static void drawNoCommandTabParent( GameWindow *window, WinInstanceData *instData )
+{
+}
+
+/// the push button's own draw, kept when the tab buttons take drawCommandTab in its place
+static GameWinDrawFunc s_commandTabButtonDraw = NULL;
+
+/// Per tab, set every frame by updateCommandTabButtons: the code-drawn ring on the open tab, only
+/// while it wears the idle buttons' borrowed pictures, whose pushed state is a faint tint.  A
+/// scheme's own tab art never gets it: its P (or O) image is the open look, lit in the side's colour,
+/// and the ring's blue fought China's red, GLA's orange and Turkiye's turquoise.
+static Bool s_commandTabRing[ ControlBar::COMMAND_TAB_COUNT ] = { TRUE, TRUE, TRUE };
+
+/// A tab button draws as a push button, and the open one then gets an outline two pixels wide in the
+/// build buttons' border colour, inside the button's own rect so it keeps its clearance, when
+/// s_commandTabRing says so.  Fills, whose pixels are exact.
+static void drawCommandTab( GameWindow *window, WinInstanceData *instData )
+{
+	if( s_commandTabButtonDraw )
+		s_commandTabButtonDraw( window, instData );
+	const Int tab = (Int)(intptr_t)GadgetButtonGetData( window ) - 1;
+	if( tab < 0 || tab >= ControlBar::COMMAND_TAB_COUNT || tab != TheControlBar->getCommandTab() || !s_commandTabRing[ tab ] )
+		return;
+	enum { RING = 2 };
+	ICoord2D pos, size;
+	window->winGetScreenPosition( &pos.x, &pos.y );
+	window->winGetSize( &size.x, &size.y );
+	if( size.x <= 2 * RING || size.y <= 2 * RING )
+		return;
+	const Color ring = TheControlBar->getBuildBorderColor();
+	TheDisplay->drawFillRect( pos.x, pos.y, size.x, RING, ring );
+	TheDisplay->drawFillRect( pos.x, pos.y + size.y - RING, size.x, RING, ring );
+	TheDisplay->drawFillRect( pos.x, pos.y + RING, RING, size.y - 2 * RING, ring );
+	TheDisplay->drawFillRect( pos.x + size.x - RING, pos.y + RING, RING, size.y - 2 * RING, ring );
+}
+
+static WindowMsgHandledType commandTabSystem( GameWindow *window, UnsignedInt msg, WindowMsgData mData1, WindowMsgData mData2 )
+{
+	if( msg != GBM_SELECTED )
+		return GameWinDefaultSystem( window, msg, mData1, mData2 );
+
+	// the tab's number plus one rides in the button's data
+	const Int tab = (Int)(intptr_t)GadgetButtonGetData( (GameWindow *)mData1 ) - 1;
+	if( tab >= 0 && tab < ControlBar::COMMAND_TAB_COUNT )
+		TheControlBar->toggleCommandTab( tab );
+	return MSG_HANDLED;
+}
+
+//-------------------------------------------------------------------------------------------------
+Bool ControlBar::getCommandGridRect( IRegion2D *rect ) const
+{
+	Bool any = FALSE;
+	for( Int slot = 0; slot < MAX_COMMANDS_PER_SET; slot++ )
+	{
+		GameWindow *win = m_commandWindows[ slot ];
+		if( win == NULL )
+			continue;
+		ICoord2D pos, size;
+		win->winGetScreenPosition( &pos.x, &pos.y );
+		win->winGetSize( &size.x, &size.y );
+		if( !any )
+		{
+			rect->lo = pos;
+			rect->hi.x = pos.x + size.x;
+			rect->hi.y = pos.y + size.y;
+			any = TRUE;
+			continue;
+		}
+		rect->lo.x = min( rect->lo.x, pos.x );
+		rect->lo.y = min( rect->lo.y, pos.y );
+		rect->hi.x = max( rect->hi.x, pos.x + size.x );
+		rect->hi.y = max( rect->hi.y, pos.y + size.y );
+	}
+	return any;
+}
+
+//-------------------------------------------------------------------------------------------------
+void ControlBar::toggleCommandTab( Int tab )
+{
+	if( tab < 0 || tab >= COMMAND_TAB_COUNT )
+		return;
+
+	// a structure on the cursor belongs to the bar it was picked from
+	TheInGameUI->placeBuildAvailable( NULL, NULL );
+	TheInGameUI->setGUICommand( NULL );
+
+	m_commandTab = ( m_commandTab == tab ) ? COMMAND_TAB_NONE : tab;
+	m_commandTabColumn = 0;
+	markUIDirty();
+	DEBUG_LOG(( "COMMAND TAB %d pressed, now %d open\n", tab, m_commandTab ));
+}
+
+//-------------------------------------------------------------------------------------------------
+Bool ControlBar::commandTabCovers( const GameWindow *win ) const
+{
+	if( m_commandTab == COMMAND_TAB_NONE || win == NULL )
+		return FALSE;
+	for( Int slot = 0; slot < MAX_COMMANDS_PER_SET; slot++ )
+		if( m_commandWindows[ slot ] == win )
+			return TRUE;
+	return FALSE;
+}
+
+//-------------------------------------------------------------------------------------------------
+void ControlBar::closeCommandTab( void )
+{
+	if( m_commandTab == COMMAND_TAB_NONE )
+		return;
+	m_commandTab = COMMAND_TAB_NONE;
+	m_commandTabColumn = 0;
+	markUIDirty();
+}
+
+//-------------------------------------------------------------------------------------------------
+void ControlBar::updateCommandTabButtons( void )
+{
+	Player *player = ThePlayerList ? ThePlayerList->getLocalPlayer() : NULL;
+	const Bool playing = TheGameLogic->isInGame() && !TheGameLogic->isInShellGame() && !TheGameLogic->isInReplayGame()
+		&& player != NULL && player->isPlayerActive() && !m_isObserverCommandBar;
+	if( !playing )
+		closeCommandTab();
+
+	// the scheme's seats, when its painting has them: then the tabs stay in them wherever the bar is,
+	// slid or minimised, and hide only with the bar itself
+	IRegion2D seatTab[ COMMAND_TAB_COUNT ], seatPlate;
+	const Bool seated = m_controlBarSchemeManager != NULL && m_controlBarSchemeManager->getCommandTabSeats( seatTab, &seatPlate );
+	IRegion2D grid;
+	const Bool haveGrid = getCommandGridRect( &grid );
+	// the sidebar has its own tabs (ControlBarSidebar.h): these hide and close under it
+	const Bool shown = playing && !m_sidebarLayout && m_contextParent[ CP_MASTER ] != NULL && !m_contextParent[ CP_MASTER ]->winIsHidden()
+		&& !TheInGameUI->isQuitMenuVisible() && ( seated || ( haveGrid && grid.lo.y < (Int)TheDisplay->getHeight() ) );
+
+	GameWindow *parent = m_commandTabParent;
+	if( parent != NULL && TheWindowManager->winGetWindowFromId( NULL, commandTabParentId() ) != parent )
+		parent = m_commandTabParent = NULL;
+	if( !shown )
+	{
+		if( parent != NULL )
+			parent->winHide( TRUE );
+		// a tab nobody can see would keep the grid's keys dead (pressCommandButton) with nothing on
+		// screen to say why: the bar hidden or slid away, the quit menu up.  It closes, and the keys
+		// come back with the bar
+		closeCommandTab();
+		return;
+	}
+
+	static const char *const tooltips[ COMMAND_TAB_COUNT ] =
+	{
+		"GUI:CommandTabBuildings", "GUI:CommandTabGround", "GUI:CommandTabAircraft"
+	};
+	static const Int tabMetas[ COMMAND_TAB_COUNT ] =
+	{
+		GameMessage::MSG_META_TOGGLE_COMMAND_TAB_BUILDINGS, GameMessage::MSG_META_TOGGLE_COMMAND_TAB_GROUND,
+		GameMessage::MSG_META_TOGGLE_COMMAND_TAB_AIRCRAFT
+	};
+
+	// made on first use, and again whenever the window manager has thrown them away
+	if( parent == NULL )
+	{
+		// ABOVE: the row stands inside ControlBarParent's full-width rectangle, and the window manager
+		// gives the pointer to the first top-level window holding it, ABOVE ones first; without it a
+		// layout made after the tabs (the frame rebuilt, a popup's winBringToTop) would take their
+		// hover, tooltip and clicks
+		parent = TheWindowManager->winCreate( NULL, WIN_STATUS_ENABLED | WIN_STATUS_HIDDEN | WIN_STATUS_ABOVE, 0, 0, 1, 1, commandTabSystem );
+		if( parent == NULL )
+			return;
+		parent->winSetWindowId( commandTabParentId() );
+		parent->winSetDrawFunc( drawNoCommandTabParent );
+		parent->winSetInputFunc( GameWinBlockInput );
+		for( Int tab = 0; tab < COMMAND_TAB_COUNT; tab++ )
+		{
+			WinInstanceData inst;
+			inst.init();
+			BitSet( inst.m_style, GWS_PUSH_BUTTON | GWS_MOUSE_TRACK );
+			GameWindow *button = TheWindowManager->gogoGadgetPushButton( parent,
+				WIN_STATUS_ENABLED | WIN_STATUS_IMAGE, 0, 0, 1, 1, &inst, NULL, TRUE );
+			m_commandTabButtons[ tab ] = button;
+			if( button == NULL )
+				continue;
+			GadgetButtonSetData( button, (void *)(intptr_t)( tab + 1 ) );
+			GadgetButtonSetAltSound( button, "GUICommandBarClick" );
+			if( button->winGetDrawFunc() != drawCommandTab )
+			{
+				s_commandTabButtonDraw = button->winGetDrawFunc();
+				button->winSetDrawFunc( drawCommandTab );
+			}
+		}
+		m_commandTabParent = parent;
+	}
+
+	// each tab's name and the key the command map gives it now, so a key moved on Options > Hotkeys in
+	// a match (HotKeyManager::reloadKeys) shows from the next frame; rewritten only when it changed
+	for( Int tab = 0; tab < COMMAND_TAB_COUNT; tab++ )
+	{
+		GameWindow *button = m_commandTabButtons[ tab ];
+		if( button == NULL )
+			continue;
+		const UnicodeString tip = ControlBar_withMetaKey( TheGameText->fetch( tooltips[ tab ] ), tabMetas[ tab ] );
+		if( tip.compare( button->winGetInstanceData()->getTooltipText() ) != 0 )
+		{
+			button->winSetTooltip( tip );
+			AsciiString logged;
+			logged.translate( tip );
+			DEBUG_LOG(( "COMMAND TAB %d tooltip \"%s\"\n", tab, logged.str() ));
+		}
+	}
+
+	//
+	// Seated: the plate and each tab where the scheme's painting has them, through drawPainting's own
+	// arithmetic (the piece of the bar the rect's middle falls in, that piece's design-to-screen, and
+	// the frame's travel since layoutPanels), so the buttons land on the painted seats at every HUD
+	// size and ride with the bar when it slides or is minimised.  The parent covers the plate and
+	// swallows its clicks.  Otherwise the computed row.
+	//
+	IRegion2D row, place[ COMMAND_TAB_COUNT ];
+	if( seated )
+	{
+		ICoord2D frameNow;
+		m_contextParent[ CP_MASTER ]->winGetScreenPosition( &frameNow.x, &frameNow.y );
+		struct Seat
+		{
+			static void toScreen( const IRegion2D &design, Int dx, Int dy, IRegion2D *out )
+			{
+				const Int piece = ControlBarHudPieceForDesignX( 0.5f * ( design.lo.x + design.hi.x ) );
+				ControlBarPanelDesignToScreen( piece, &design, TheDisplay->getWidth(), TheDisplay->getHeight(), out );
+				out->lo.x += dx;
+				out->hi.x += dx;
+				out->lo.y += dy;
+				out->hi.y += dy;
+			}
+		};
+		const Int dx = frameNow.x - m_panelOrigin.x;
+		const Int dy = frameNow.y - m_panelOrigin.y;
+		Seat::toScreen( seatPlate, dx, dy, &row );
+		for( Int tab = 0; tab < COMMAND_TAB_COUNT; tab++ )
+		{
+			IRegion2D screen;
+			Seat::toScreen( seatTab[ tab ], dx, dy, &screen );
+			// a seat the plate does not cover still gets its clicks: the parent grows to hold it
+			row.lo.x = min( row.lo.x, screen.lo.x );
+			row.lo.y = min( row.lo.y, screen.lo.y );
+			row.hi.x = max( row.hi.x, screen.hi.x );
+			row.hi.y = max( row.hi.y, screen.hi.y );
+			place[ tab ] = screen;
+		}
+		for( Int tab = 0; tab < COMMAND_TAB_COUNT; tab++ )
+		{
+			place[ tab ].lo.x -= row.lo.x;
+			place[ tab ].hi.x -= row.lo.x;
+			place[ tab ].lo.y -= row.lo.y;
+			place[ tab ].hi.y -= row.lo.y;
+		}
+	}
+	else
+		layoutCommandTabRow( grid, &row, place );
+
+	// the row where it stands now: a bar minimised or sliding takes the seats with it off the screen's
+	// foot.  With no tab wholly on screen there is nothing to see or press, so the row hides and an
+	// open tab closes, as when the bar is hidden (its keys would stay dead with no tab in sight)
+	Bool anyOnScreen = FALSE;
+	for( Int tab = 0; tab < COMMAND_TAB_COUNT; tab++ )
+	{
+		const Int lx = row.lo.x + place[ tab ].lo.x, ly = row.lo.y + place[ tab ].lo.y;
+		const Int hx = row.lo.x + place[ tab ].hi.x, hy = row.lo.y + place[ tab ].hi.y;
+		if( lx >= 0 && ly >= 0 && hx <= (Int)TheDisplay->getWidth() && hy <= (Int)TheDisplay->getHeight() && hx > lx && hy > ly )
+			anyOnScreen = TRUE;
+	}
+	if( !anyOnScreen )
+	{
+		parent->winHide( TRUE );
+		closeCommandTab();
+		return;
+	}
+
+	parent->winSetPosition( row.lo.x, row.lo.y );
+	parent->winSetSize( row.hi.x - row.lo.x, row.hi.y - row.lo.y );
+
+	// the scheme's own tab art, <S>ProTab<Kind> with H, P, I and O; a scheme naming none (Classic)
+	// lends the idle buttons' pictures
+	static const NameKeyType sources[ COMMAND_TAB_COUNT ] =
+	{
+		NAMEKEY( "ControlBar.wnd:ButtonIdleWorker" ),
+		NAMEKEY( "ControlBar.wnd:ButtonIdleVehicle" ),
+		NAMEKEY( "ControlBar.wnd:ButtonIdleAircraft" ),
+	};
+	for( Int tab = 0; tab < COMMAND_TAB_COUNT; tab++ )
+	{
+		GameWindow *button = m_commandTabButtons[ tab ];
+		if( button == NULL )
+			continue;
+		button->winSetPosition( place[ tab ].lo.x, place[ tab ].lo.y );
+		button->winSetSize( place[ tab ].hi.x - place[ tab ].lo.x, place[ tab ].hi.y - place[ tab ].lo.y );
+
+		const Image *up, *hilite, *pushed, *disabled, *openImage = NULL;
+		const Image *const *own = m_controlBarSchemeManager ? m_controlBarSchemeManager->getCommandTabImages( tab ) : NULL;
+		if( own )
+		{
+			up = own[ 0 ];
+			hilite = own[ 1 ] ? own[ 1 ] : own[ 0 ];
+			pushed = own[ 2 ] ? own[ 2 ] : hilite;
+			disabled = own[ 3 ] ? own[ 3 ] : own[ 0 ];
+			openImage = own[ ControlBarScheme::COMMAND_TAB_OPEN ];
+		}
+		else
+		{
+			GameWindow *source = TheWindowManager->winGetWindowFromId( NULL, sources[ tab ] );
+			if( source == NULL )
+				continue;
+			up = source->winGetEnabledImage( 0 );
+			hilite = source->winGetHiliteImage( 0 );
+			pushed = source->winGetHiliteImage( 1 );
+			disabled = source->winGetDisabledImage( 0 );
+		}
+		if( pushed == NULL )
+			pushed = hilite;
+		s_commandTabRing[ tab ] = own == NULL;
+		// the open tab stays down: the scheme's open picture, else the pushed one, hovered or not
+		const Bool open = m_commandTab == tab;
+		const Image *down = openImage ? openImage : pushed;
+		GadgetButtonSetEnabledImage( button, open && down ? down : up );
+		GadgetButtonSetHiliteImage( button, open && down ? down : hilite );
+		GadgetButtonSetHiliteSelectedImage( button, open && down ? down : pushed );
+		GadgetButtonSetDisabledImage( button, disabled );
+	}
+	parent->winHide( FALSE );
+}
+
+//-------------------------------------------------------------------------------------------------
+void ControlBar::layoutCommandTabRow( const IRegion2D &grid, IRegion2D *row, IRegion2D *place )
+{
+	//
+	// The row stands outside the bar, on the painting's top edge at its left shoulder: left-aligned
+	// with the grid, its foot a few pixels over the centre steel, its top no higher than the money
+	// plate's and its right end clear of it.  The painting is scheme images with no mask, so its edges
+	// are read off the input blockers the scheme lays over its own steel (BlockProduction over the
+	// centre plate, BlockMoney over the money plate, ControlBarProReforged.ini), which are windows of
+	// the bar and travel with it: every side, HUD size and a minimised bar.  A scheme without them
+	// falls back on the power bar's top and the money readout.  28 pixels a tab at 1080, scaled as the
+	// HUD is.
+	//
+	enum { TAB_SIDE_AT_1080 = 28, TAB_LEAST = 8 };
+	const Real hud = ControlBarHudScale() / ControlBarHudScaleFor( 1920, 1080 );
+	Int side = max( (Int)TAB_LEAST, REAL_TO_INT_FLOOR( TAB_SIDE_AT_1080 * hud + 0.5f ) );
+	Int gap = max( 2, side / 7 );
+	const Int air = max( 2, REAL_TO_INT_FLOOR( 3.0f * hud + 0.5f ) );
+	const Int left = grid.lo.x;
+	const Int reach = grid.hi.y - grid.lo.y;		///< how far above the grid a blocker may start and still be the bar's top
+
+	// a shown window's screen rectangle, FALSE for none
+	struct Rect
+	{
+		static Bool of( NameKeyType id, IRegion2D *r )
+		{
+			GameWindow *win = TheWindowManager->winGetWindowFromId( NULL, id );
+			if( win == NULL || win->winIsHidden() )
+				return FALSE;
+			ICoord2D size;
+			win->winGetScreenPosition( &r->lo.x, &r->lo.y );
+			win->winGetSize( &size.x, &size.y );
+			r->hi.x = r->lo.x + size.x;
+			r->hi.y = r->lo.y + size.y;
+			return size.x > 0 && size.y > 0;
+		}
+	};
+
+	// the centre steel's top: the production blocker where it stands over the grid's first column
+	// just above the grid, else the power bar's top, else the grid's
+	static const NameKeyType productionBlockId = NAMEKEY( "ControlBar.wnd:ControlBarProBlockInputProduction" );
+	static const NameKeyType powerId = NAMEKEY( "ControlBar.wnd:PowerWindow" );
+	IRegion2D r;
+	Int barTop = grid.lo.y;
+	if( Rect::of( productionBlockId, &r ) && r.lo.x <= left && r.hi.x > left
+			&& r.lo.y <= grid.lo.y && r.lo.y >= grid.lo.y - reach )
+		barTop = r.lo.y;
+	else if( Rect::of( powerId, &r ) && r.lo.y < grid.lo.y && r.lo.y >= grid.lo.y - reach )
+		barTop = r.lo.y;
+
+	// the money plate: its blocker where it stands right of the row and rises over the bar's top,
+	// else the readout's own window
+	static const NameKeyType moneyBlockId = NAMEKEY( "ControlBar.wnd:ControlBarProBlockInputMoney" );
+	static const NameKeyType moneyId = NAMEKEY( "ControlBar.wnd:MoneyDisplay" );
+	Int rightLimit = grid.hi.x;
+	Int moneyTop = -1;
+	if( ( Rect::of( moneyBlockId, &r ) && r.lo.x > left && r.lo.y < barTop )
+			|| ( Rect::of( moneyId, &r ) && r.lo.x > left ) )
+	{
+		rightLimit = min( rightLimit, r.lo.x - air );
+		moneyTop = r.lo.y;
+	}
+
+	// shrink to the room there is, across and up
+	const Int wanted = COMMAND_TAB_COUNT * side + ( COMMAND_TAB_COUNT - 1 ) * gap;
+	if( left + wanted > rightLimit )
+	{
+		side = max( (Int)TAB_LEAST, ( rightLimit - left - ( COMMAND_TAB_COUNT - 1 ) * gap ) / COMMAND_TAB_COUNT );
+		gap = max( 2, side / 7 );
+	}
+	const Int foot = barTop - air;
+	if( moneyTop >= 0 && moneyTop < foot && foot - side < moneyTop )
+		side = max( (Int)TAB_LEAST, foot - moneyTop );
+	row->lo.x = left;
+	row->lo.y = foot - side;
+	row->hi.x = left + COMMAND_TAB_COUNT * side + ( COMMAND_TAB_COUNT - 1 ) * gap;
+	row->hi.y = foot;
+	for( Int tab = 0; tab < COMMAND_TAB_COUNT; tab++ )
+	{
+		place[ tab ].lo.x = tab * ( side + gap );
+		place[ tab ].lo.y = 0;
+		place[ tab ].hi.x = place[ tab ].lo.x + side;
+		place[ tab ].hi.y = side;
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A unit tab's page into the command windows.  Full after a context switch (the hotkeys were just
+	* reset and every button is set again); otherwise, once a logic tick, only the states, and a page
+	* whose buttons changed under it (a factory built, lost or upgraded) has the UI rebuilt instead. */
+//-------------------------------------------------------------------------------------------------
+void ControlBar_commandTabScroll( Int count, Int cells, Int rows, Bool arrows, Int *perView, Int *lastColumn )
+{
+	// a list that fits takes every cell; one that does not gives two to the arrows (a grid of fewer
+	// than three cells has no room for them and only the wheel scrolls it)
+	*perView = ( arrows && count > cells && cells >= 3 ) ? cells - 2 : cells;
+	// a column a step: the last column is the first whose view reaches the list's end
+	const Int past = count - *perView;
+	*lastColumn = ( past > 0 && rows > 0 ) ? ( past + rows - 1 ) / rows : 0;
+}
+
+Int ControlBar_commandTabStep( Int column, Int step, Int lastColumn, Bool *back, Bool *on )
+{
+	const Int to = max( 0, min( column + step, lastColumn ) );
+	*back = to > 0;
+	*on = to < lastColumn;
+	return to;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The open unit tab's list, in gathering order */
+//-------------------------------------------------------------------------------------------------
+static void gatherCommandTabList( Int tab, std::vector< GroupPanelBuildable > &list, std::vector< ObjectID > &builders )
+{
+	list.clear();
+	builders.clear();
+	// the buildings tab's list exists only while another side's builder adds to it
+	if( tab == ControlBar::COMMAND_TAB_BUILDINGS )
+	{
+		gatherBuildingsTabList( list, builders );
+		return;
+	}
+	const Bool aircraft = tab == ControlBar::COMMAND_TAB_AIRCRAFT;
+	std::vector< GroupPanelBuildable > all;
+	GroupPanel_gatherBuildable( ThePlayerList->getLocalPlayer(), all );
+	for( size_t i = 0; i < all.size(); i++ )
+		if( ( all[ i ].thing->isKindOf( KINDOF_AIRCRAFT ) ? TRUE : FALSE ) == aircraft )
+			list.push_back( all[ i ] );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The grid's two rightmost cells, the top row's last and the bottom row's last, by where the
+	* windows stand on screen: the arrows' seats.  FALSE when they are not two different cells. */
+//-------------------------------------------------------------------------------------------------
+Bool ControlBar::findCommandTabArrowSlots( Int *next, Int *prev ) const
+{
+	*next = *prev = -1;
+	Int rightX = 0, nextY = 0, prevY = 0;
+	for( Int slot = 0; slot < MAX_COMMANDS_PER_SET; slot++ )
+	{
+		GameWindow *win = m_commandWindows[ slot ];
+		if( win == NULL )
+			continue;
+		ICoord2D pos;
+		win->winGetScreenPosition( &pos.x, &pos.y );
+		if( *next < 0 || pos.x > rightX )
+		{
+			rightX = pos.x;
+			*next = *prev = slot;
+			nextY = prevY = pos.y;
+		}
+		else if( pos.x == rightX )
+		{
+			if( pos.y < nextY ) { *next = slot; nextY = pos.y; }
+			if( pos.y > prevY ) { *prev = slot; prevY = pos.y; }
+		}
+	}
+	return *next >= 0 && *prev >= 0 && *next != *prev;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The grid's cells by where they stand on screen, column by column from the left, each column top
+	* down, into 'slots'; 'rows' is the first column's height.  Returns how many. */
+//-------------------------------------------------------------------------------------------------
+Int ControlBar::commandTabCells( Int *slots, Int *rows ) const
+{
+	ICoord2D pos[ MAX_COMMANDS_PER_SET ];
+	Int cells = 0;
+	for( Int slot = 0; slot < MAX_COMMANDS_PER_SET; slot++ )
+	{
+		if( m_commandWindows[ slot ] == NULL )
+			continue;
+		ICoord2D at;
+		m_commandWindows[ slot ]->winGetScreenPosition( &at.x, &at.y );
+		// insertion by (x, y): fourteen cells at most
+		Int i = cells++;
+		for( ; i > 0 && ( pos[ i - 1 ].x > at.x || ( pos[ i - 1 ].x == at.x && pos[ i - 1 ].y > at.y ) ); i-- )
+		{
+			pos[ i ] = pos[ i - 1 ];
+			slots[ i ] = slots[ i - 1 ];
+		}
+		pos[ i ] = at;
+		slots[ i ] = slot;
+	}
+	*rows = 0;
+	while( *rows < cells && pos[ *rows ].x == pos[ 0 ].x )
+		( *rows )++;
+	return cells;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Give the cells that were arrows back to the command bar as it found them: the hilite, pushed,
+	* disabled and selected pictures the arrow took, no data, no text, no tooltip text.  Every
+	* evaluateContextUI starts here, so a tab closing or the list shrinking leaves no arrow behind. */
+//-------------------------------------------------------------------------------------------------
+void ControlBar::restoreCommandTabArrows( void )
+{
+	for( Int a = 0; a < 2; a++ )
+	{
+		const Int slot = m_commandTabArrowSlot[ a ];
+		m_commandTabArrowSlot[ a ] = -1;
+		if( slot < 0 || m_commandWindows[ slot ] == NULL )
+			continue;
+		GameWindow *win = m_commandWindows[ slot ];
+		for( Int s = 0; s < TAB_ARROW_DRAW_STATES; s++ )
+		{
+			win->winSetEnabledImage( s, m_commandTabArrowSaved[ a ][ 0 ][ s ] );
+			win->winSetHiliteImage( s, m_commandTabArrowSaved[ a ][ 1 ][ s ] );
+			win->winSetDisabledImage( s, m_commandTabArrowSaved[ a ][ 2 ][ s ] );
+		}
+		win->winSetSize( m_commandTabArrowSize[ a ].x, m_commandTabArrowSize[ a ].y );
+		win->winEnable( TRUE );	// an end's arrow was greyed out; the cell comes back as the bar left it
+		win->winClearStatus( WIN_STATUS_ALWAYS_COLOR );
+		GadgetButtonSetData( win, NULL );
+		GadgetButtonSetText( win, UnicodeString( u"" ) );
+		win->winSetTooltip( UnicodeString::TheEmptyString );
+		win->winHide( TRUE );
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Turn cell 'slot' into page arrow 'a' (0 next, 1 previous): the scheme's arrow pictures, or a
+	* plain glyph where it names none, a tooltip, the bar's click, and nothing a unit cell left on it. */
+//-------------------------------------------------------------------------------------------------
+void ControlBar::setCommandTabArrow( Int a, Int slot )
+{
+	GameWindow *win = m_commandWindows[ slot ];
+	if( m_commandTabArrowSlot[ a ] != slot )
+	{
+		for( Int s = 0; s < TAB_ARROW_DRAW_STATES; s++ )
+		{
+			m_commandTabArrowSaved[ a ][ 0 ][ s ] = win->winGetEnabledImage( s );
+			m_commandTabArrowSaved[ a ][ 1 ][ s ] = win->winGetHiliteImage( s );
+			m_commandTabArrowSaved[ a ][ 2 ][ s ] = win->winGetDisabledImage( s );
+		}
+		m_commandTabArrowSlot[ a ] = slot;
+		// a square as tall as the row, from the cell's own top left corner (the art is square too)
+		win->winGetSize( &m_commandTabArrowSize[ a ].x, &m_commandTabArrowSize[ a ].y );
+		win->winSetSize( m_commandTabArrowSize[ a ].y, m_commandTabArrowSize[ a ].y );
+	}
+
+	// what a unit cell left: data, clock, count, repeat, veterancy, border, letter, tints
+	GadgetButtonSetData( win, NULL );
+	GadgetButtonClearClock( win );
+	GadgetButtonSetCount( win, 0 );
+	GadgetButtonSetRepeat( win, FALSE );
+	GadgetButtonDrawOverlayImage( win, NULL );
+	GadgetButtonSetBorder( win, GAME_COLOR_UNDEFINED, FALSE );
+	GadgetButtonEnableCheckLike( win, FALSE, FALSE );
+	win->winClearStatus( WIN_STATUS_SHORTCUT_BUTTON | WIN_STATUS_NOT_READY
+		| WIN_STATUS_CANCEL_WHEN_DISABLED | WIN_STATUS_FLASHING );
+	// greyed out at an end as EA's always-colour cells are, the picture at 144/255: the grayscale
+	// draw a disabled command cell gets otherwise blackens the key's clear corners and leaves the
+	// white glyph white
+	win->winSetStatus( WIN_STATUS_ALWAYS_COLOR );
+	win->winSetTooltipFunc( NULL );
+
+	const Image *const *art = m_controlBarSchemeManager ? m_controlBarSchemeManager->getCommandTabPageImages( a ) : NULL;
+	if( art )
+	{
+		GadgetButtonSetEnabledImage( win, art[ 0 ] );
+		GadgetButtonSetHiliteImage( win, art[ 1 ] ? art[ 1 ] : art[ 0 ] );
+		GadgetButtonSetHiliteSelectedImage( win, art[ 2 ] ? art[ 2 ] : art[ 0 ] );
+		GadgetButtonSetEnabledSelectedImage( win, art[ 2 ] ? art[ 2 ] : art[ 0 ] );
+		GadgetButtonSetDisabledImage( win, art[ 3 ] ? art[ 3 ] : art[ 0 ] );
+		GadgetButtonSetText( win, UnicodeString( u"" ) );
+	}
+	else
+	{
+		// ponytail: no shipped picture of a sideways arrow fits a command cell; a glyph on the bare
+		// cell until a scheme names one (CommandTabPageNextImage / PrevImage)
+		GadgetButtonSetEnabledImage( win, NULL );
+		GadgetButtonSetText( win, UnicodeString( a == 0 ? u">" : u"<" ) );
+	}
+	win->winSetTooltip( TheGameText->fetch( a == 0 ? "GUI:CommandTabPageNext" : "GUI:CommandTabPagePrev" ) );
+	GadgetButtonSetAltSound( win, "GUICommandBarClick" );
+	win->winEnable( TRUE );
+	win->winHide( FALSE );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A unit tab of 'count' units on this bar: units in view, the last first column, the arrows' cells
+	* and whether they are up.  A bar whose two rightmost cells are not two different ones gets no
+	* arrows and scrolls by the wheel alone, every cell a unit. */
+//-------------------------------------------------------------------------------------------------
+void ControlBar::commandTabLayout( Int count, Int *perView, Int *lastColumn, Int *next, Int *prev, Bool *arrows ) const
+{
+	Int slots[ MAX_COMMANDS_PER_SET ], rows;
+	const Int cells = commandTabCells( slots, &rows );
+	ControlBar_commandTabScroll( count, cells, rows, findCommandTabArrowSlots( next, prev ), perView, lastColumn );
+	*arrows = *perView < cells;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A press on a page arrow: TRUE when 'win' is one (the page turns), FALSE for any other window */
+//-------------------------------------------------------------------------------------------------
+Bool ControlBar::pressCommandTabArrow( GameWindow *win )
+{
+	for( Int a = 0; a < 2; a++ )
+		if( win != NULL && m_commandTabArrowSlot[ a ] >= 0 && m_commandWindows[ m_commandTabArrowSlot[ a ] ] == win )
+		{
+			turnCommandTabColumn( a == 0 ? 1 : -1 );
+			return TRUE;
+		}
+	return FALSE;
+}
+
+Bool ControlBar::isCommandTabArrow( const GameWindow *win ) const
+{
+	for( Int a = 0; a < 2; a++ )
+		if( win != NULL && m_commandTabArrowSlot[ a ] >= 0 && m_commandWindows[ m_commandTabArrowSlot[ a ] ] == win )
+			return TRUE;
+	return FALSE;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** One column on (+1) or back (-1), stopping at the ends; FALSE when the list fits and never scrolls
+	* (a scroll at an end is still the list's, so the wheel there does not fall through to the camera) */
+//-------------------------------------------------------------------------------------------------
+Bool ControlBar::turnCommandTabColumn( Int step )
+{
+	if( m_commandTab == COMMAND_TAB_NONE )
+		return FALSE;
+	std::vector< GroupPanelBuildable > list;
+	std::vector< ObjectID > builders;
+	gatherCommandTabList( m_commandTab, list, builders );
+	Int perView, lastColumn, next, prev;
+	Bool arrows;
+	commandTabLayout( (Int)list.size(), &perView, &lastColumn, &next, &prev, &arrows );
+	if( lastColumn <= 0 )
+		return FALSE;
+	Bool back, on;
+	const Int column = ControlBar_commandTabStep( m_commandTabColumn, step, lastColumn, &back, &on );
+	if( column != m_commandTabColumn )
+	{
+		m_commandTabColumn = column;
+		markUIDirty();
+	}
+	return TRUE;
+}
+
+void ControlBar::populateCommandTab( Bool full )
+{
+	std::vector< GroupPanelBuildable > list;
+	std::vector< ObjectID > builders;
+	gatherCommandTabList( m_commandTab, list, builders );
+
+	// the cells column by column; when the list does not fit, the two rightmost are the arrows
+	Int slots[ MAX_COMMANDS_PER_SET ], rows;
+	const Int cells = commandTabCells( slots, &rows );
+	if( cells == 0 )
+		return;
+	Int perView, lastColumn, nextSlot, prevSlot;
+	Bool arrows;
+	commandTabLayout( (Int)list.size(), &perView, &lastColumn, &nextSlot, &prevSlot, &arrows );
+
+	// a list that shrank scrolls back to its last column; arrows that appear or go change the cells
+	if( m_commandTabColumn > lastColumn || ( !full && arrows != ( m_commandTabArrowSlot[ 0 ] >= 0 ) ) )
+	{
+		m_commandTabColumn = min( m_commandTabColumn, lastColumn );
+		if( !full )
+		{
+			markUIDirty();
+			return;
+		}
+	}
+
+	if( full && arrows )
+	{
+		setCommandTabArrow( 0, nextSlot );
+		setCommandTabArrow( 1, prevSlot );
+	}
+
+	// an arrow with nowhere to go is greyed out and takes no click; every pass, so a list that grows
+	// or shrinks under a still view (a factory built or lost) lights or greys them too
+	if( arrows && m_commandTabArrowSlot[ 0 ] >= 0 && m_commandTabArrowSlot[ 1 ] >= 0 )
+	{
+		Bool back, on;
+		ControlBar_commandTabStep( m_commandTabColumn, 0, lastColumn, &back, &on );
+		m_commandWindows[ m_commandTabArrowSlot[ 0 ] ]->winEnable( on );
+		m_commandWindows[ m_commandTabArrowSlot[ 1 ] ]->winEnable( back );
+	}
+
+	Int k = 0;
+	for( Int c = 0; c < cells; c++ )
+	{
+		const Int slot = slots[ c ];
+		if( arrows && ( slot == nextSlot || slot == prevSlot ) )
+			continue;
+		GameWindow *win = m_commandWindows[ slot ];
+		const Int at = m_commandTabColumn * rows + k++;
+		const GroupPanelBuildable *entry = at < (Int)list.size() ? &list[ at ] : NULL;
+
+		if( !full )
+		{
+			const Bool changed = entry ? ( win->winIsHidden() || GadgetButtonGetData( win ) != (void *)entry->button ) : !win->winIsHidden();
+			if( changed )
+			{
+				markUIDirty();
+				return;
+			}
+		}
+
+		if( entry == NULL )
+		{
+			win->winHide( TRUE );
+			continue;
+		}
+
+		if( full )
+		{
+			m_commandUpgradeRank[ slot ] = -1;
+			win->winHide( FALSE );
+			setControlCommand( win, entry->button );
+			ICoord2D pos, size;
+			win->winGetScreenPosition( &pos.x, &pos.y );
+			win->winGetSize( &size.x, &size.y );
+			DEBUG_LOG(( "COMMAND TAB %d cell %d,%d %s\n", m_commandTab, pos.x + size.x / 2, pos.y + size.y / 2,
+				entry->thing ? entry->thing->getName().str() : entry->button->getName().str() ));
+			// a structure another side's builder puts up is that builder's to place
+			if( at < (Int)builders.size() && builders[ at ] != INVALID_ID )
+			{
+				s_foreignBuild[ slot ].win = win;
+				s_foreignBuild[ slot ].button = entry->button;
+				s_foreignBuild[ slot ].builder = builders[ at ];
+			}
+		}
+		// the buildings tab's states are updateContextCommand's, read on each cell's builder
+		if( m_commandTab == COMMAND_TAB_BUILDINGS )
+			continue;
+		GadgetButtonClearClock( win );
+		win->winClearStatus( WIN_STATUS_CANCEL_WHEN_DISABLED );
+		GadgetButtonSetRepeat( win, FALSE );
+		GroupPanel_showAvailability( win, entry->best );
+		GadgetButtonDrawOverlayImage( win, calculateVeterancyOverlayForThing( entry->thing ) );
+	}
+
+	if( full )
+	{
+		DEBUG_LOG(( "COMMAND TAB %d list: %d entries, column %d\n", m_commandTab, (Int)list.size(), m_commandTabColumn ));
+		for( size_t i = 0; i < list.size(); i++ )
+		{
+			const Object *builder = i < builders.size() && builders[ i ] != INVALID_ID ? TheGameLogic->findObjectByID( builders[ i ] ) : NULL;
+			DEBUG_LOG(( "COMMAND TAB %d  %s%s%s\n", m_commandTab, list[ i ].thing ? list[ i ].thing->getName().str() : list[ i ].button->getName().str(),
+				builder ? " by " : "", builder ? builder->getTemplate()->getName().str() : "" ));
+		}
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+Bool ControlBar::scrollCommandTab( const ICoord2D *mouse, Bool up )
+{
+	if( m_commandTab == COMMAND_TAB_NONE )
+		return FALSE;
+
+	// only a bar that is on screen and taking input: a script or a cinematic hides the bar's frame in
+	// place, and the wheel over the empty ground where the grid was belongs to the camera.  The tabs'
+	// parent is shown under updateCommandTabButtons' own test (bar shown, no quit menu, a live seat)
+	if( !TheInGameUI->getInputEnabled() || TheInGameUI->isQuitMenuVisible()
+			|| m_contextParent[ CP_MASTER ] == NULL || m_contextParent[ CP_MASTER ]->winIsHidden()
+			|| m_commandTabParent == NULL || TheWindowManager->winGetWindowFromId( NULL, commandTabParentId() ) != m_commandTabParent
+			|| m_commandTabParent->winIsHidden() )
+		return FALSE;
+
+	IRegion2D grid;
+	if( mouse == NULL || m_contextParent[ CP_COMMAND ]->winIsHidden() || !getCommandGridRect( &grid )
+			|| mouse->x < grid.lo.x || mouse->x >= grid.hi.x || mouse->y < grid.lo.y || mouse->y >= grid.hi.y )
+		return FALSE;
+
+	// up is back a column, down the next, as the arrows step
+	return turnCommandTabColumn( up ? -1 : 1 );
+}
+
+//-------------------------------------------------------------------------------------------------
+// The smoke signal keys: three push buttons in a code-made plate window over the radar's top edge,
+// in the seats the scheme's painting has for them.  A press only arms the signal
+// (InGameUI::armSignal); the cross cursor, the click on the ground or the radar that drops it and the
+// right click that disarms are the signal keys' own path already.  Client only: the logic hears of a
+// signal as MSG_PLACE_SIGNAL, as from the keys.
+//-------------------------------------------------------------------------------------------------
+static Int signalParentId( void )
+{
+	static const Int id = (Int)TheNameKeyGenerator->nameToKey( "ControlBar:SignalKeys" );
+	return id;
+}
+
+static WindowMsgHandledType signalKeysSystem( GameWindow *window, UnsignedInt msg, WindowMsgData mData1, WindowMsgData mData2 )
+{
+	if( msg != GBM_SELECTED )
+		return GameWinDefaultSystem( window, msg, mData1, mData2 );
+	const Int kind = (Int)(intptr_t)GadgetButtonGetData( (GameWindow *)mData1 ) - 1;
+	if( kind >= 0 && kind < SIGNAL_KIND_COUNT )
+		TheControlBar->pressSignalKey( kind );
+	return MSG_HANDLED;
+}
+
+/// the plate's own picture, filling the keys' window (which is the plate's rect); a top-level ABOVE
+/// window draws after the bar, so it stands on a grown radar's frame (drawGrownRadarFrame)
+static void drawSignalPlate( GameWindow *window, WinInstanceData *instData )
+{
+	ControlBarSchemeManager *schemes = TheControlBar ? TheControlBar->getControlBarSchemeManager() : NULL;
+	const Image *plate = schemes ? schemes->getSignalPlateImage() : NULL;
+	if( plate == NULL )
+		return;
+	ICoord2D pos, size;
+	window->winGetScreenPosition( &pos.x, &pos.y );
+	window->winGetSize( &size.x, &size.y );
+	TheDisplay->drawImage( plate, pos.x, pos.y, pos.x + size.x, pos.y + size.y );
+}
+
+/// where the signal keys work: the keys' own gate (CommandXlat's MSG_META_SIGNAL_*)
+static Bool signalsUsable( void )
+{
+	Player *player = ThePlayerList ? ThePlayerList->getLocalPlayer() : NULL;
+	return ( TheGameLogic->isInMultiplayerGame() || TheGameLogic->isInSkirmishGame() ) && !TheGameLogic->isInReplayGame()
+		&& player != NULL && player->isPlayerActive();
+}
+
+//-------------------------------------------------------------------------------------------------
+void ControlBar::pressSignalKey( Int kind )
+{
+	if( kind < 0 || kind >= SIGNAL_KIND_COUNT || !signalsUsable() )
+		return;
+	if( TheInGameUI->getArmedSignal() == (SignalKind)kind )
+	{
+		TheInGameUI->disarmSignal();
+		return;
+	}
+	// the next left click is the signal's: a structure on the cursor and an armed command give it up.
+	// An open command tab stays open; its grid is not on the cursor
+	TheInGameUI->placeBuildAvailable( NULL, NULL );
+	TheInGameUI->setGUICommand( NULL );
+	TheInGameUI->armSignal( (SignalKind)kind );
+}
+
+//-------------------------------------------------------------------------------------------------
+void ControlBar::updateSignalKeys( void )
+{
+	IRegion2D seat[ SIGNAL_KEYS ], plate;
+	const Bool seated = m_controlBarSchemeManager != NULL && m_controlBarSchemeManager->getSignalSeats( seat, &plate );
+	// the seats are painted on the Classic bar's radar plate, which the sidebar does not have
+	const Bool shown = seated && !m_sidebarLayout && TheGameLogic->isInGame() && !TheGameLogic->isInShellGame()
+		&& m_contextParent[ CP_MASTER ] != NULL && !m_contextParent[ CP_MASTER ]->winIsHidden()
+		&& !TheInGameUI->isQuitMenuVisible();
+
+	GameWindow *parent = m_signalParent;
+	if( parent != NULL && TheWindowManager->winGetWindowFromId( NULL, signalParentId() ) != parent )
+		parent = m_signalParent = NULL;
+	m_signalPlateShown = FALSE;
+	if( !shown )
+	{
+		if( parent != NULL )
+			parent->winHide( TRUE );
+		return;
+	}
+
+	if( parent == NULL )
+	{
+		// ABOVE for the same reason as the command tabs' (updateCommandTabButtons); the plate swallows
+		// clicks and the wheel on its steel, so neither reaches the world under it
+		parent = TheWindowManager->winCreate( NULL, WIN_STATUS_ENABLED | WIN_STATUS_HIDDEN | WIN_STATUS_ABOVE, 0, 0, 1, 1, signalKeysSystem );
+		if( parent == NULL )
+			return;
+		parent->winSetWindowId( signalParentId() );
+		parent->winSetDrawFunc( drawSignalPlate );
+		parent->winSetInputFunc( GameWinBlockInput );
+		for( Int kind = 0; kind < SIGNAL_KEYS; kind++ )
+		{
+			WinInstanceData inst;
+			inst.init();
+			BitSet( inst.m_style, GWS_PUSH_BUTTON | GWS_MOUSE_TRACK );
+			GameWindow *button = TheWindowManager->gogoGadgetPushButton( parent,
+				WIN_STATUS_ENABLED | WIN_STATUS_IMAGE, 0, 0, 1, 1, &inst, NULL, TRUE );
+			m_signalKeys[ kind ] = button;
+			if( button == NULL )
+				continue;
+			GadgetButtonSetData( button, (void *)(intptr_t)( kind + 1 ) );
+			GadgetButtonSetAltSound( button, "GUICommandBarClick" );
+		}
+		m_signalParent = parent;
+	}
+
+	//
+	// A seat to the screen: the painting's own arithmetic for the piece it falls in (the left one for
+	// the radar's edge: its design-to-screen, the frame's travel since layoutPanels and drawPainting's
+	// radar column shift).  Then the artist's rule for a grown radar: Minimap Size over 100 grows the
+	// picture up out of its painted box with a flat steel frame round it (fitSquareRadar,
+	// drawGrownRadarFrame), and when that frame's top stands higher than the plate's foot, the plate and
+	// the keys go up together to stand on it.  Up only, never stretched or cut.
+	//
+	ICoord2D frameNow;
+	m_contextParent[ CP_MASTER ]->winGetScreenPosition( &frameNow.x, &frameNow.y );
+	struct Seat
+	{
+		static void toScreen( const IRegion2D &design, Int dx, Int dy, Int columnShift, IRegion2D *out )
+		{
+			const Int piece = ControlBarHudPieceForDesignX( 0.5f * ( design.lo.x + design.hi.x ) );
+			ControlBarPanelDesignToScreen( piece, &design, TheDisplay->getWidth(), TheDisplay->getHeight(), out );
+			const Int x = dx + ( piece == ControlBar::CB_PANEL_LEFT ? columnShift : 0 );
+			out->lo.x += x;
+			out->hi.x += x;
+			out->lo.y += dy;
+			out->hi.y += dy;
+		}
+	};
+	const Int dx = frameNow.x - m_panelOrigin.x;
+	const Int dy = frameNow.y - m_panelOrigin.y;
+	IRegion2D row, key[ SIGNAL_KEYS ];
+	Seat::toScreen( plate, dx, dy, m_radarColumnShift, &row );
+	for( Int kind = 0; kind < SIGNAL_KEYS; kind++ )
+	{
+		Seat::toScreen( seat[ kind ], dx, dy, m_radarColumnShift, &key[ kind ] );
+		row.lo.x = min( row.lo.x, key[ kind ].lo.x );
+		row.lo.y = min( row.lo.y, key[ kind ].lo.y );
+		row.hi.x = max( row.hi.x, key[ kind ].hi.x );
+		row.hi.y = max( row.hi.y, key[ kind ].hi.y );
+	}
+	m_signalPlateFoot = row.hi.y;
+
+	// the grown radar's lift.  The side's own frame (GrownRadarImage): the plate goes up as far as the
+	// glass well's top stands over the painted glass's (grown_glass; 0 or less).  The flat bands: as far
+	// as their top stands over the plate's foot
+	IRegion2D outer, inner;
+	Bool lit;
+	Int lift = 0;
+	if( getGrownRadarFrame( &outer, &inner, &lit ) )
+	{
+		if( m_controlBarSchemeManager->getGrownRadarPieces() != NULL )
+			lift = MIN( 0, inner.lo.y - ( m_radarFitBox[ RADAR_FIT_RADAR ].lo.y + frameNow.y ) );
+		else if( outer.lo.y < row.hi.y )
+			lift = outer.lo.y - row.hi.y;
+	}
+	if( lift != 0 )
+	{
+		row.lo.y += lift;
+		row.hi.y += lift;
+		for( Int kind = 0; kind < SIGNAL_KEYS; kind++ )
+		{
+			key[ kind ].lo.y += lift;
+			key[ kind ].hi.y += lift;
+		}
+	}
+	m_signalPlateRect = row;
+	m_signalPlateShown = TRUE;
+	parent->winSetPosition( row.lo.x, row.lo.y );
+	parent->winSetSize( row.hi.x - row.lo.x, row.hi.y - row.lo.y );
+
+	// usable where the keys are, shown disabled elsewhere (the seats are painted); the armed one down
+	static const char *const labels[ SIGNAL_KEYS ] = { "GUI:SignalKeyAttack", "GUI:SignalKeyDefend", "GUI:SignalKeyAttention" };
+	static const Int metas[ SIGNAL_KEYS ] =
+	{
+		GameMessage::MSG_META_SIGNAL_ATTACK, GameMessage::MSG_META_SIGNAL_DEFEND, GameMessage::MSG_META_SIGNAL_ATTENTION
+	};
+	const Bool usable = signalsUsable();
+	const Int armed = usable ? (Int)TheInGameUI->getArmedSignal() : -1;
+	for( Int kind = 0; kind < SIGNAL_KEYS; kind++ )
+	{
+		GameWindow *button = m_signalKeys[ kind ];
+		if( button == NULL )
+			continue;
+		button->winSetPosition( key[ kind ].lo.x - row.lo.x, key[ kind ].lo.y - row.lo.y );
+		button->winSetSize( key[ kind ].hi.x - key[ kind ].lo.x, key[ kind ].hi.y - key[ kind ].lo.y );
+
+		const Image *const *art = m_controlBarSchemeManager->getSignalImages( kind );
+		if( art != NULL )
+		{
+			const Image *hilite = art[ 1 ] ? art[ 1 ] : art[ 0 ];
+			const Image *pushed = art[ 2 ] ? art[ 2 ] : hilite;
+			const Bool down = armed == kind;
+			GadgetButtonSetEnabledImage( button, down ? pushed : art[ 0 ] );
+			GadgetButtonSetHiliteImage( button, down ? pushed : hilite );
+			GadgetButtonSetHiliteSelectedImage( button, pushed );
+			GadgetButtonSetDisabledImage( button, art[ 3 ] ? art[ 3 ] : art[ 0 ] );
+		}
+		const Bool enabledNow = BitTest( button->winGetStatus(), WIN_STATUS_ENABLED ) ? TRUE : FALSE;
+		if( enabledNow != usable )
+			button->winEnable( usable );
+
+		// the name and the key the command map gives it now, rewritten only when it changed
+		UnicodeString tip = TheGameText->fetch( labels[ kind ] );
+		tip.concat( ControlBar_metaKeySuffix( metas[ kind ] ) );
+		if( tip.compare( button->winGetInstanceData()->getTooltipText() ) != 0 )
+			button->winSetTooltip( tip );
+	}
+	parent->winHide( FALSE );
+}
 

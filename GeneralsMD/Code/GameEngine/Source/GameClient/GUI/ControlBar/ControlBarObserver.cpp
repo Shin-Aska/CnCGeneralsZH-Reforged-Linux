@@ -61,7 +61,6 @@
 #include "Common/KindOf.h"
 #include "Common/Recorder.h"
 #include "GameClient/ControlBar.h"
-#include "GameClient/ControlBarScheme.h"
 #include "GameClient/PlayerColorScheme.h"
 #include "GameClient/GameWindowManager.h"
 #include "GameClient/GadgetPushButton.h"
@@ -229,7 +228,8 @@ WindowMsgHandledType ControlBarObserverSystem( GameWindow *window, UnsignedInt m
 					// the cancel button or Esc gives the whole map back.  All of it is this screen's
 					// picture, nothing reaches the logic
 					Player *picked = (Player *) GadgetButtonGetData( buttonPlayer[i] );
-					if( TheObserverCamera.isFogOn() && TheObserverCamera.getFollowedPlayerIndex() == picked->getPlayerIndex() )
+					if( TheObserverCamera.isLooking() && TheObserverCamera.getMode() == OBSERVER_CAMERA_PLAYER
+							&& TheObserverCamera.getFollowedPlayerIndex() == picked->getPlayerIndex() )
 					{
 						TheObserverCamera.stopLooking();
 						TheControlBar->watchPlayer( NULL );
@@ -281,7 +281,8 @@ void ControlBar::populateObserverList( void )
 	if(TheRecorder->isMultiplayer())
 	{
 	
-		for (i = 0; i < MAX_SLOTS; ++i)
+		// ponytail: the bar has MAX_BUTTONS rows; players past them are not listed
+		for (i = 0; i < MAX_SLOTS && currentButton < MAX_BUTTONS; ++i)
 		{
 			AsciiString name;
 			name.format("player%d", i);
@@ -292,7 +293,7 @@ void ControlBar::populateObserverList( void )
 					continue;
 				DEBUG_ASSERTCRASH(currentButton < MAX_BUTTONS, ("ControlBar::populateObserverList trying to populate more buttons then we have"));
 				GadgetButtonSetData(buttonPlayer[currentButton], (void *)p);
-				GadgetButtonSetEnabledImage( buttonPlayer[currentButton], ControlBarSideEmblem( p->getPlayerTemplate() ) );
+				GadgetButtonSetEnabledImage( buttonPlayer[currentButton], p->getPlayerTemplate()->getEnabledImage() );
 				//GadgetButtonSetHiliteImage( buttonPlayer[currentButton], p->getPlayerTemplate()->getHiliteImage() );
 				//GadgetButtonSetHiliteSelectedImage( buttonPlayer[currentButton], p->getPlayerTemplate()->getPushedImage() );
 				//GadgetButtonSetDisabledImage( buttonPlayer[currentButton], p->getPlayerTemplate()->getDisabledImage() );
@@ -340,7 +341,7 @@ void ControlBar::populateObserverList( void )
 			{
 				DEBUG_ASSERTCRASH(currentButton < MAX_BUTTONS, ("ControlBar::populateObserverList trying to populate more buttons then we have"));
 				GadgetButtonSetData(buttonPlayer[currentButton], (void *)p);
-				GadgetButtonSetEnabledImage( buttonPlayer[currentButton], ControlBarSideEmblem( p->getPlayerTemplate() ) );
+				GadgetButtonSetEnabledImage( buttonPlayer[currentButton], p->getPlayerTemplate()->getEnabledImage() );
 				//GadgetButtonSetHiliteImage( buttonPlayer[currentButton], p->getPlayerTemplate()->getHiliteImage() );
 				//GadgetButtonSetHiliteSelectedImage( buttonPlayer[currentButton], p->getPlayerTemplate()->getPushedImage() );
 				//GadgetButtonSetDisabledImage( buttonPlayer[currentButton], p->getPlayerTemplate()->getDisabledImage() );

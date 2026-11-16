@@ -42,13 +42,46 @@
 #include "Common/BitFlags.h"
 #include "Common/Overridable.h"
 #include "Common/Override.h"
+#include "Common/Science.h"
 
 // FORWARD REFERENCES /////////////////////////////////////////////////////////////////////////////
 class ObjectCreationList;
 class Object;
-enum ScienceType : Int;
+class INI;
+class Player;
 struct FieldParse;
 enum AcademyClassificationType : Int;
+
+//-------------------------------------------------------------------------------------------------
+/** A science-keyed power field (UpgradeOCL, UpgradeTargetCount, UpgradeRadiusCursorRadius) reads
+	"<science> [<science> ...] <value>": every token but the last is a science and the player must own
+	all of them.  The entries are tried in file order and the first owned one wins, so a talent line
+	keyed on the talent and tier 3 sits above the one keyed on the talent and tier 2.  Fills sciences
+	and returns the value token; a science the loaded data lacks stays as SCIENCE_INVALID, which no
+	player owns, so that entry never matches, as a one-science line did. */
+AsciiString parseSciencesThenValue( INI *ini, ScienceVec *sciences );
+
+/// owns every science in the list; an empty list is owned by nobody
+template <class Owner>
+inline Bool ownsAllSciences( const Owner *owner, const ScienceVec &sciences )
+{
+	if( owner == NULL || sciences.empty() )
+		return FALSE;
+	for( ScienceVec::const_iterator it = sciences.begin(); it != sciences.end(); ++it )
+		if( !owner->hasScience( *it ) )
+			return FALSE;
+	return TRUE;
+}
+
+/// the first entry (with an m_sciences list) whose sciences the owner all has, or NULL
+template <class Owner, class Entry>
+inline const Entry *findFirstOwnedEntry( const Owner *owner, const std::vector<Entry> &entries )
+{
+	for( typename std::vector<Entry>::const_iterator it = entries.begin(); it != entries.end(); ++it )
+		if( ownsAllSciences( owner, it->m_sciences ) )
+			return &(*it);
+	return NULL;
+}
 
 // For SpecialPowerType and SpecialPowerMaskType::s_bitNameList. Part of detangling.
 #include "Common/SpecialPowerType.h"
@@ -124,7 +157,8 @@ public:
 	UnsignedInt getDetectionTime( void ) const { return getFO()->m_detectionTime; }
 	UnsignedInt getViewObjectDuration( void ) const { return getFO()->m_viewObjectDuration; }
 	Real getViewObjectRange( void ) const { return getFO()->m_viewObjectRange; }
-	Real getRadiusCursorRadius() const { return getFO()->m_radiusCursorRadius; }
+	/// the targeting circle, widened by the first UpgradeRadiusCursorRadius entry the player owns
+	Real getRadiusCursorRadius( const Player *player ) const;
 	Bool isShortcutPower() const { return getFO()->m_shortcutPower; }
 	Bool isFiredByAIWhenReady() const { return getFO()->m_aiFiresWhenReady; }
 	AcademyClassificationType getAcademyClassificationType() const { return m_academyClassificationType; }
@@ -136,16 +170,24 @@ private:
 	AsciiString				m_name;								///< name
 	UnsignedInt				m_id;									///< unique identifier
 	SpecialPowerType	m_type;								///< enum allowing for fast type checking for ability processing.
-	UnsignedInt				m_reloadTime;					///< (frames) after using special power, how long it takes to use again
+	DurationFrames				m_reloadTime;					///< (frames) after using special power, how long it takes to use again
 	ScienceType				m_requiredScience;		///< science required (if any) to actually execute this power
 	AudioEventRTS			m_initiateSound;			///< sound to play when initiated
 	AudioEventRTS			m_initiateAtLocationSound;		///< sound to play at target location (if any)
 	AcademyClassificationType m_academyClassificationType; ///< A value used by the academy to evaluate advice based on what players do.
-	UnsignedInt				m_detectionTime;			///< (frames) after using infiltration power (defection, etc.), 
+	DurationFrames				m_detectionTime;			///< (frames) after using infiltration power (defection, etc.), 
 																					///< how long it takes for ex comrades to realize it on their own
-	UnsignedInt				m_viewObjectDuration;	///< Lifetime of a looking object we slap down so you can watch the effect
+	DurationFrames				m_viewObjectDuration;	///< Lifetime of a looking object we slap down so you can watch the effect
 	Real							m_viewObjectRange;		///< And how far that object can see.
 	Real							m_radiusCursorRadius;	///< size of radius cursor, if any
+public:
+	struct UpgradeRadius
+	{
+		ScienceVec m_sciences;
+		Real m_radius;
+	};
+private:
+	std::vector<UpgradeRadius> m_upgradeRadiusCursorRadius;	///< UpgradeRadiusCursorRadius = <science> [<science> ...] <radius>
 	Bool							m_publicTimer;				///< display a countdown timer for this special power for all to see
 	Bool							m_sharedNSync;				///< If true, this is a special that is shared between all of a player's command centers
 	Bool							m_shortcutPower;		///< Is this shortcut power capable of being fired by the side panel?

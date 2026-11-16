@@ -340,8 +340,13 @@ Team *TeamFactory::createInactiveTeam(const AsciiString& name)
 {
 	TeamPrototype *tp = findTeamPrototype(name);
 	if (!tp)
-		throw ERROR_BAD_ARG;
-	
+	{
+		// A map script naming a team its map does not define. The throw ended the program mid-match; every
+		// script caller already answers NULL ("Team not found"), and the AI only names prototypes it holds.
+		DEBUG_LOG(("TeamFactory::createInactiveTeam - no team '%s' on this map, frame %d\n", name.str(), TheGameLogic ? TheGameLogic->getFrame() : 0));
+		return NULL;
+	}
+
 	Team *t = NULL;
 	if (tp->getIsSingleton())
 	{
@@ -373,7 +378,8 @@ Team *TeamFactory::createTeam(const AsciiString& name)
 {
 	Team *t = NULL;
 	t = createInactiveTeam(name);
-	t->setActive();
+	if (t)
+		t->setActive();
 	return t;
 }
 
@@ -1160,7 +1166,7 @@ Bool TeamPrototype::evaluateProductionCondition(void)
 		Int delaySeconds = m_productionConditionScript->getDelayEvalSeconds();
 
 		if (delaySeconds>0) {
-			m_productionConditionScript->setFrameToEvaluate(TheGameLogic->getFrame()+delaySeconds*LOGICFRAMES_PER_SECOND);
+			m_productionConditionScript->setFrameToEvaluate(TheGameLogic->getFrame()+delaySeconds*LOGICFRAMES_PER_GAME_SECOND);
 		}
 		return TheScriptEngine->evaluateConditions(m_productionConditionScript, NULL, getControllingPlayer());
 	}
@@ -2438,13 +2444,18 @@ static Bool isInBuildVariations(const ThingTemplate* ttWithVariations, const Thi
 
 // ------------------------------------------------------------------------
 /* Try to recruit a unit from other teams of this player. */
-Object *Team::tryToRecruit(const ThingTemplate *tTemplate, const Coord3D *teamHome, Real maxDist)
+Object *Team::tryToRecruit(const ThingTemplate *tTemplate, const Coord3D *teamHome, Real maxDist,
+														const std::vector<Object *> *ownObjects)
 {
 	Player *myPlayer = getControllingPlayer();
 	Object *obj=NULL;
 	Real distSqr = maxDist*maxDist;
 	Object *recruit = NULL;
-	for( obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject() )
+	// only the controlling player's objects pass the owner test below, so a caller asking several times in a
+	// row hands those over, in the list's order, rather than have every ask walk every object on the map
+	size_t own = 0;
+	for( obj = ownObjects ? ( ownObjects->empty() ? NULL : (*ownObjects)[ 0 ] ) : TheGameLogic->getFirstObject(); obj;
+			 obj = ownObjects ? ( ++own < ownObjects->size() ? (*ownObjects)[ own ] : NULL ) : obj->getNextObject() )
 	{
 		if (!obj->getTemplate()->isEquivalentTo(tTemplate)) 
 		{

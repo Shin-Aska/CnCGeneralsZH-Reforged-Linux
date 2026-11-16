@@ -29,6 +29,7 @@
 #include "Common/PlayerTemplate.h"
 #include "Common/UserPreferences.h"
 #include "Common/version.h"
+#include "GameClient/TankSkin.h"
 #include "GameNetwork/GameInfo.h"
 #include "GameNetwork/GameSpy/ThreadUtils.h"
 #include "GameNetwork/Online/OnlineSession.h"
@@ -138,11 +139,17 @@ void OnlineSession::forgetAccount()
 {
 	authed = FALSE;
 	peerLoggedIn = FALSE;
+	replayedMatch = matchId;		// the account's match is gone with it: no replay goes up under it after a new login
+	quickMatch.clear();
 	id = 0;
 	nick.clear();
 	token.clear();
 	memset( ticket, 0, sizeof(ticket) );
 	vip = 0;
+	TankSkin_setLocalLoadout( "" );		// the next account brings its own
+	skinsOwned = 0;
+	skinsState = ONLINE_SKINS_READY;
+	skinsError.clear();
 	pendingAuth.clear();
 	hasPendingAuth = FALSE;
 	authWaiting = FALSE;
@@ -172,6 +179,8 @@ void OnlineSession::beginTest( std::vector<OnlineMessage> *lines )
 	capture = lines;
 	matchId.clear();
 	reportedMatch.clear();
+	replayedMatch.clear();
+	quickMatch.clear();
 	resultLine.clear();
 	result.clear();
 	motd.clear();
@@ -507,8 +516,10 @@ void OnlineSession::matched( const OnlineMessage &m )
 	r.qmStatus.mapIdx = (Int)m.getInt( "mapIdx" );
 	const std::vector<std::string> nicks = m.getStrings( "nicks" );
 	const std::vector<long long> v = m.getInts( "vips" ), sides = m.getInts( "sides" ), colors = m.getInts( "colors" );
+	const std::vector<std::string> skins = m.getStrings( "skins" );		// each seat's "K1.3", as its account wears them
 	for (size_t i = 0; i < nicks.size() && i < (size_t)MAX_SLOTS; ++i)
 	{
+		r.qmStatus.skins[i] = i < skins.size() ? TankSkin_fromSlotField( skins[i].c_str() ) : 0;
 		r.stagingRoomPlayerNames[i] = nicks[i];
 		r.qmStatus.IP[i] = i < v.size() ? (UnsignedInt)v[i] : 0;		// host order, as GameSpy's matchbot sent it
 		r.qmStatus.side[i] = i < sides.size() ? seatSide( sides[i] ) : -1;
@@ -516,6 +527,20 @@ void OnlineSession::matched( const OnlineMessage &m )
 		r.qmStatus.nat[i] = ONLINE_NAT_SIMPLE;
 	}
 	peerResponse( r );
+}
+
+void OnlineSession::noteSkins( const OnlineMessage &m )
+{
+	std::string wear;
+	const std::vector<long long> worn = m.getInts( "skins" ), owned = m.getInts( "owned" );
+	for (size_t i = 0; i < worn.size(); ++i)
+		wear += std::to_string( worn[i] ) + " ";
+	skinsOwned = TankSkin_setLocalLoadout( wear.c_str() );		// a skin worn is owned, whatever owned[] says
+	for (size_t i = 0; i < owned.size(); ++i)
+		if (owned[i] >= 1 && owned[i] <= TANK_SKIN_MAX_ID)
+			skinsOwned |= (SkinLoadout)1 << owned[i];
+	skinsState = ONLINE_SKINS_READY;
+	skinsError.clear();
 }
 
 void OnlineSession::dispatch( const OnlineMessage &m )
@@ -564,6 +589,7 @@ void OnlineSession::dispatch( const OnlineMessage &m )
 		if (!hexTicket( m.getString( "ticket" ), ticket ))
 			DEBUG_LOG(("online: auth.ok carries no usable relay ticket\n"));
 		noteCard( m );
+		noteSkins( m );		// fresh from the site on every sign-in; none is no key
 
 		if (buddy)
 		{
@@ -650,6 +676,12 @@ void OnlineSession::dispatch( const OnlineMessage &m )
 		else if (what == "armies")
 		{
 			armiesState = ONLINE_LADDER_FAILED;
+		}
+		else if (what == "skins.get" || what == "skins.set")
+		{
+			// a server from before skins.set answers unknown
+			skinsState = ONLINE_SKINS_FAILED;
+			skinsError = "unavailable";
 		}
 	}
 	else if (t == "room")
@@ -812,6 +844,7 @@ void OnlineSession::dispatch( const OnlineMessage &m )
 	else if (t == "game.start")
 	{
 		matchId = m.getString( "match" );
+		quickMatch.clear();		// a custom game: its replay stays home
 		hostLeftGame = 0;
 		hostLeftPumps = 0;
 		present.clear();
@@ -830,6 +863,7 @@ void OnlineSession::dispatch( const OnlineMessage &m )
 			// the opponent dropped in the reveal (searching again), or we left: nothing starts
 			DEBUG_LOG(("ONLINE REVEAL cancelled status=%s\n", st.c_str()));
 			revealing = FALSE;
+			quickMatch.clear();
 		}
 		PeerResponse r = makePeer( PeerResponse::PEERRESPONSE_QUICKMATCHSTATUS );
 		r.qmStatus.poolSize = (Int)m.getInt( "pool" );
@@ -844,6 +878,7 @@ void OnlineSession::dispatch( const OnlineMessage &m )
 	else if (t == "qm.matched")
 	{
 		matchId = m.getString( "match" );
+		quickMatch = matchId;		// the one match whose replay may go up, claimed by the recording it starts
 		rememberVips( *this, m );
 		const std::vector<OnlineMessage> opponents = m.getObjects( "opponents" );
 		for (size_t i = 0; i < opponents.size(); ++i)
@@ -881,6 +916,15 @@ void OnlineSession::dispatch( const OnlineMessage &m )
 	{
 		ladder = m;
 		ladderState = ONLINE_LADDER_READY;
+	}
+	else if (t == "skins.ok" && authed)
+	{
+		noteSkins( m );
+	}
+	else if (t == "skins.err")
+	{
+		skinsState = ONLINE_SKINS_FAILED;
+		skinsError = m.getString( "code", "unknown" );
 	}
 	else if (t == "armies")
 	{
@@ -1037,6 +1081,7 @@ void OnlinePeerQueue::addRequest( const PeerRequest& req )
 		return;
 
 	case PeerRequest::PEERREQUEST_CREATESTAGINGROOM:
+		s.quickMatch.clear();		// a custom game next: a Quick Match that never started is gone
 		leaveGame( s );
 		leaveChatRoom( s );
 		s.hosting = TRUE;
@@ -1092,6 +1137,7 @@ void OnlinePeerQueue::addRequest( const PeerRequest& req )
 		return;
 
 	case PeerRequest::PEERREQUEST_JOINSTAGINGROOM:
+		s.quickMatch.clear();
 		leaveGame( s );
 		leaveChatRoom( s );
 		s.joiningGame = req.stagingRoom.id;
@@ -1127,6 +1173,7 @@ void OnlinePeerQueue::addRequest( const PeerRequest& req )
 
 	case PeerRequest::PEERREQUEST_STARTQUICKMATCH:
 		{
+			s.quickMatch.clear();
 			leaveGame( s );
 			leaveChatRoom( s );
 			std::vector<long long> maps;
@@ -1152,6 +1199,7 @@ void OnlinePeerQueue::addRequest( const PeerRequest& req )
 	case PeerRequest::PEERREQUEST_STOPQUICKMATCH:
 		// a reveal ends with our leaving, whatever the server's qm.status says on its way back
 		s.revealing = FALSE;
+		s.quickMatch.clear();
 		m.setString( "t", "qm.leave" );
 		s.send( m );
 		return;
@@ -1270,6 +1318,46 @@ Bool OnlineGetRelayEndpoint( AsciiString &host, UnsignedShort &port )
 UnsignedInt OnlineGetRelayVip( void )
 {
 	return OnlineSession::get().vip;
+}
+
+static void askSkins( const OnlineMessage &m )
+{
+	OnlineSession &s = OnlineSession::get();
+	if (!s.authed)
+	{
+		s.skinsState = ONLINE_SKINS_FAILED;
+		s.skinsError = "signedout";
+		return;
+	}
+	s.skinsState = ONLINE_SKINS_WAITING;
+	s.skinsError.clear();
+	s.send( m );
+}
+
+void OnlineRequestSkins( void )
+{
+	OnlineMessage m;
+	m.setString( "t", "skins.get" );
+	askSkins( m );
+}
+
+void OnlineSaveSkins( UnsignedInt64 wear )
+{
+	std::vector<long long> ids;
+	for (Int id = 1; id <= TANK_SKIN_MAX_ID; ++id)
+		if (wear & ((SkinLoadout)1 << id))
+			ids.push_back( id );
+	OnlineMessage m;
+	m.setString( "t", "skins.set" ).setInts( "skins", ids );
+	askSkins( m );
+}
+
+OnlineSkinsState OnlineGetSkins( UnsignedInt64 &owned, AsciiString &error )
+{
+	const OnlineSession &s = OnlineSession::get();
+	owned = s.authed ? s.skinsOwned : 0;
+	error = s.authed ? s.skinsError.c_str() : "signedout";
+	return s.authed ? (OnlineSkinsState)s.skinsState : ONLINE_SKINS_FAILED;
 }
 
 AsciiString OnlineGetSessionToken( void )

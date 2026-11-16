@@ -250,10 +250,19 @@ NEW_CONTROLS = [
     (CHECK,  "CheckBuildWithoutWorker", "GUI:BuildWithoutWorker"),
     (LABEL,  "LabelHealthBarColors",   "GUI:HealthBarColors"),
     (COMBO,  "ComboBoxHealthBarColors", None),
+    (LABEL,  "LabelHudLayout",         "GUI:HudLayout"),
+    (COMBO,  "ComboBoxHudLayout",      None),
+    (LABEL,  "LabelHudWidth",          "GUI:HudWidth"),
+    (COMBO,  "ComboBoxHudWidth",       None),
+    (LABEL,  "LabelHotkeyScheme",      "GUI:HotkeyScheme"),
+    (COMBO,  "ComboBoxHotkeyScheme",   None),
     (LABEL,  "LabelMenuTransitionSpeed", "GUI:MenuTransitionSpeed"),
     (SLIDER, "SliderMenuTransitionSpeed", None),
     (CHECK,  "CheckAssetPreloading", "GUI:AssetPreloading"),
-    (CHECK,  "CheckTurboModeMissions", "GUI:TurboModeMissions"),
+    (LABEL,  "LabelMinimapSize",       "GUI:MinimapSize"),
+    (SLIDER, "SliderMinimapSize",      None),
+    (LABEL,  "LabelGameSpeedMissions", "GUI:GameSpeedMissions"),
+    (COMBO,  "ComboGameSpeedMissions", None),
     (CHECK,  "CheckMapLight",          "GUI:MapLight"),
     (CHECK,  "CheckTeamGlow",          "GUI:TeamGlow"),
     (CHECK,  "CheckWaterFoam",         "GUI:WaterFoam"),
@@ -268,6 +277,7 @@ NEW_CONTROLS = [
     (CHECK,  "CheckStructureCollapse", "GUI:StructureCollapse"),
     (CHECK,  "CheckSmoothMotion",      "GUI:SmoothMotion"),
     (CHECK,  "CheckHeatHaze",          "GUI:HeatHaze"),
+    (CHECK,  "CheckGroundFoliage",     "GUI:GroundFoliage"),
     (LABEL,  "LabelGraphicsQuality",   "GUI:GraphicsQuality"),
     (SLIDER, "SliderGraphicsQuality",  None),
 ]
@@ -289,7 +299,7 @@ READOUTS = [
     "ValueGamma", "ValueTextureResolution", "ValueParticleCap", "ValueAnisotropy",
     "ValueMusicVolume", "ValueSFXVolume", "ValueVoiceVolume", "ValueScrollSpeed",
     "ValueDragTolerance", "ValueAmbientVolume", "ValueZoomSpeed", "ValueMenuTransitionSpeed",
-    "ValueMasterVolume", "ValueGraphicsQuality",
+    "ValueMasterVolume", "ValueGraphicsQuality", "ValueMinimapSize",
 ]
 
 # Lines of small grey text under a control that say what its current choice does, written by
@@ -315,7 +325,7 @@ NOTE_COLOR = ("ENABLED:  164 170 190 255, ENABLEDBORDER:  0 0 0 255, "
 SLIDER_RANGES = [("SliderAnisotropy", 0, 16), ("SliderDragTolerance", 2, 50),
                  ("SliderAmbientVolume", 0, 100), ("SliderZoomSpeed", 25, 300),
                  ("SliderMenuTransitionSpeed", 25, 400), ("SliderMasterVolume", 0, 100),
-                 ("SliderGraphicsQuality", 0, 10)]
+                 ("SliderGraphicsQuality", 0, 10), ("SliderMinimapSize", 100, 200)]
 
 # EA's captions that do not fit the page: two popup headings written in capitals, and a check box
 # caption that ran 20 pixels past the panel's right edge once it stood in a 268 pixel column.
@@ -377,11 +387,16 @@ GROUP_LAYOUT = [
             ("check", "CheckStructureCollapse"),
             ("check", "CheckSmoothMotion"),
             ("check", "CheckHeatHaze"),
+            ("check", "CheckGroundFoliage"),
             # beside Classic Graphics on the Graphics page if there were room
             ("check", "CheckDetailedModels"),
             ("check", "CheckHDTextures"),
             # the Screen column is full with the monitor and the resolution note
-            setting("LabelFrameRateLimit", "ComboBoxFrameRateLimit")])]),
+            setting("LabelFrameRateLimit", "ComboBoxFrameRateLimit")]),
+        # from Interface, whose first column ran past the page once HUD took Layout and HUD Width
+        ("GUI:OptionsGroupMenus", [
+            setting("LabelMenuTransitionSpeed", "SliderMenuTransitionSpeed", "ValueMenuTransitionSpeed"),
+            ("check", "CheckAssetPreloading")])]),
 
     ("PageGraphics", [
         # the particle limit went to Effects' Particles group to make room for the quality slider
@@ -489,12 +504,11 @@ GROUP_LAYOUT = [
 
     ("PageInterface", [
         ("GUI:OptionsGroupHud", [
-            ("check", "CheckNetBox")]),
-        ("GUI:OptionsGroupMenus", [
-            setting("LabelMenuTransitionSpeed", "SliderMenuTransitionSpeed", "ValueMenuTransitionSpeed"),
-            ("check", "CheckAssetPreloading")]),
-        ("GUI:OptionsGroupSpeed", [
-            ("check", "CheckTurboModeMissions")]),
+            setting("LabelHudLayout", "ComboBoxHudLayout"),
+            setting("LabelHudWidth", "ComboBoxHudWidth"),
+            setting("LabelHotkeyScheme", "ComboBoxHotkeyScheme"),
+            ("check", "CheckNetBox"),
+            setting("LabelMinimapSize", "SliderMinimapSize", "ValueMinimapSize")]),
         ("GUI:OptionsGroupBattlefield", [
             setting("LabelHealthBars", "ComboBoxHealthBars"),
             setting("LabelHealthBarColors", "ComboBoxHealthBarColors"),
@@ -502,6 +516,10 @@ GROUP_LAYOUT = [
             ("check", "CheckOrderLines"),
             ("check", "CheckAircraftAltitudeLine"),
             ("check", "CheckEmptyBuildingPips")]),
+        # after the battlefield: a combo row is taller than the box it replaced, and the first column
+        # ran past the page with it there
+        ("GUI:OptionsGroupSpeed", [
+            setting("LabelGameSpeedMissions", "ComboGameSpeedMissions")]),
         ("GUI:OptionsGroupLanguage", [
             setting("LabelLanguage", "ComboBoxLanguage")]),
         ("GUI:OptionsGroupReplays", [
@@ -649,7 +667,7 @@ def make_note(label_template, name):
 def setting_of(name):
     """The setting a control belongs to, which is its name without the kind in front.  A label and
     the combo box under it are two controls for one setting and share one tooltip string."""
-    for prefix in ("ComboBox", "Slider", "Check", "Label"):
+    for prefix in ("ComboBox", "Combo", "Slider", "Check", "Label"):
         if name.startswith(prefix):
             return name[len(prefix):]
     return name
@@ -789,8 +807,61 @@ def update_water_page(layout):
     return layout
 
 
+def reflow_existing_pages(layout, page_names):
+    """Apply group changes to tracked tabbed masters as well as original EA layouts."""
+    templates = dict((name, layout.find(name)) for name in (CHECK, LABEL, "ButtonDefaults"))
+    controls = {}
+    for page_name in page_names:
+        page = layout.find(page_name)
+        for child in page.children:
+            if not short(child).startswith("GroupHeading"):
+                controls[short(child)] = child
+        page.children = []
+    for page_name, groups in GROUP_LAYOUT:
+        if page_name not in page_names:
+            continue
+        page = layout.find(page_name)
+        index = 0
+        for column, stack in enumerate(flow(groups)):
+            left, heading_top = COLUMNS[column], HEADING_TOP
+            for heading_key, items in stack:
+                heading = make_heading(templates, "GroupHeading%s%d" % (page_name[4:], index), heading_key)
+                index += 1
+                heading.place(left - TEXT_NUDGE, heading_top, COLUMN_WIDTH, ROW_HEIGHT)
+                page.children.append(heading)
+                top = heading_top + HEADING_PITCH
+                for item in items:
+                    positions = []
+                    if item[0] == "setting":
+                        _, label, control, readout = item
+                        positions = [(label, left - TEXT_NUDGE, top, COLUMN_WIDTH, ROW_HEIGHT),
+                                     (control, left, top + ROW_HEIGHT,
+                                      READOUT_LEFT - 8 if readout else COLUMN_WIDTH, ROW_HEIGHT)]
+                        if readout:
+                            positions.append((readout, left + READOUT_LEFT - TEXT_NUDGE, top + ROW_HEIGHT, READOUT_WIDTH, ROW_HEIGHT))
+                    elif item[0] == "check":
+                        positions = [(item[1], left, top, COLUMN_WIDTH, ROW_HEIGHT)]
+                    elif item[0] == "note":
+                        positions = [(item[1], left - TEXT_NUDGE, top, COLUMN_WIDTH, note_height(item[1]))]
+                    for name, x, y, width, height in positions:
+                        control = controls.pop(name)
+                        control.place(x, y, width, height)
+                        page.children.append(control)
+                    top += item_height(item)
+                if top > PAGE[1] + PAGE[3]:
+                    raise ValueError("%s exceeds its page" % page_name)
+                heading_top = top + GROUP_GAP
+    # Parked controls retain their existing placement.
+    for page_name, name, _column, _top in HIDDEN_PARKED:
+        if page_name in page_names and name in controls:
+            layout.find(page_name).children.append(controls.pop(name))
+    if controls:
+        raise ValueError("Unplaced controls: %s" % ", ".join(sorted(controls)))
+
+
 def build(layout):
     if layout.find("PageDisplay"):
+        reflow_existing_pages(layout, ("PageDisplay", "PageInterface"))
         return update_water_page(layout)
     old = layout.find("OptionsMenuParentOld")
     templates = dict((name, layout.find(name))
@@ -974,16 +1045,22 @@ def read_strings():
 
 
 def enum_count(name):
-    """The value of an enum constant like WINDOW_MODE_COUNT, out of whichever header declares it."""
+    """The value of an enum constant like WINDOW_MODE_COUNT, out of whichever header declares it:
+    WINDOW_MODE_COUNT = 3, or the last of a list with no values, enum { HUD_LAYOUT_CLASSIC, ..., HUD_LAYOUT_COUNT }."""
     pattern = re.compile(r"\b%s\s*=\s*(\d+)" % re.escape(name))
+    listed = re.compile(r"\benum\s*\{([^{}=]*?)\b%s\s*[,}]" % re.escape(name))
     for root, _dirs, files in os.walk(INCLUDE):
         for filename in files:
             if not filename.endswith(".h"):
                 continue
             with open(os.path.join(root, filename), "rb") as fp:
-                match = pattern.search(fp.read().decode("latin-1"))
+                text = fp.read().decode("latin-1")
+            match = pattern.search(text)
             if match:
                 return int(match.group(1))
+            match = listed.search(text)
+            if match:
+                return len([entry for entry in match.group(1).split(",") if entry.strip()])
     return None
 
 

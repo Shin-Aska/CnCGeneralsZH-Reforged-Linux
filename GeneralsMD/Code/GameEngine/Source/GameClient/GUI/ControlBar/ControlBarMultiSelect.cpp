@@ -38,7 +38,10 @@
 #include "Common/Upgrade.h"
 #include "GameClient/GameText.h"
 #include "GameClient/ControlBar.h"
+#include "GameClient/Display.h"
 #include "GameClient/Drawable.h"
+
+extern IRegion2D SidebarWellInset( const IRegion2D &cell, Real k, Int side, Int foot );	// ControlBarSidebarLayout.cpp
 #include "GameClient/GameClient.h"
 #include "GameClient/GadgetPushButton.h"
 #include "GameClient/GameWindow.h"
@@ -203,6 +206,19 @@ void ControlBar::updateMultiSelectStrip( void )
 	//
 	setPortraitByObject( NULL );
 
+	//
+	// The sidebar's card keeps its portrait in the medallion: the focused type's, with how many of it
+	// are selected, and still no upgrades.  Its tray holds six types; a selection of more shows the
+	// first six and the focus keys still reach the rest
+	//
+	const Bool sidebar = isSidebarLayout();
+	if( sidebar )
+	{
+		const ThingTemplate *focused = m_multiSelectGroupTemplate[ m_multiSelectFocus ];
+		setPortraitByImage( focused->getSelectedPortraitImage() ? focused->getSelectedPortraitImage() : focused->getButtonImage() );
+		GadgetButtonSetCount( m_rightHUDCameoWindow, m_multiSelectGroupSize[ m_multiSelectFocus ] );
+	}
+
 	// one cell per selected type with its count; the focused type is the lit one, the rest
 	// wear the darkened overlay state.  A cell is drawn from the portrait art, as large as the
 	// well itself for a one-type selection; the button cameo stretched to that size is a blur
@@ -212,7 +228,7 @@ void ControlBar::updateMultiSelectStrip( void )
 		if( win == NULL )
 			continue;
 
-		if( (Int)i < m_multiSelectGroupCount )
+		if( (Int)i < m_multiSelectGroupCount && ( !sidebar || (Int)i < HUD_TRAY_CELLS ) )
 		{
 			const ThingTemplate *type = m_multiSelectGroupTemplate[ i ];
 			win->winHide( FALSE );
@@ -243,13 +259,27 @@ static void portraitBarTooltip( GameWindow *window, WinInstanceData *instData, U
 	* release, so nothing can go stale.  Everything else goes on to the wall the .wnd gave the HUD,
 	* which lets go of that world press. */
 //-------------------------------------------------------------------------------------------------
-static WindowMsgHandledType portraitBarInput( GameWindow *window, UnsignedInt msg, WindowMsgData mData1, WindowMsgData mData2 )
+WindowMsgHandledType ControlBar_portraitBarInput( GameWindow *window, UnsignedInt msg, WindowMsgData mData1, WindowMsgData mData2 )
 {
-	if( msg == GWM_LEFT_UP && !TheSelectionTranslator->isLeftMouseButtonDown() )
+	// the sidebar's card is its bounds: the world shows above the label plate, beside the medallion's
+	// top, and a click there is the world's
+	if( TheControlBar->isSidebarLayout() && msg >= GWM_LEFT_DOWN && msg <= GWM_RIGHT_DRAG )
 	{
-		const ICoord2D &mouse = TheMouse->getMouseStatus()->pos;
-		TheControlBar->clickMultiSelectTile( mouse.x, mouse.y );
+		HudLayoutRects hud;
+		TheControlBar->getHudLayoutRects( &hud );
+		const Int x = LOLONGTOSHORT( mData1 ), y = HILONGTOSHORT( mData1 );
+		const Bool onMedallion = x >= hud.medallion.lo.x && x < hud.medallion.hi.x && y >= hud.medallion.lo.y && y < hud.medallion.hi.y;
+		const Bool onPlate = x >= hud.labelPlate.lo.x && x < hud.labelPlate.hi.x && y >= hud.labelPlate.lo.y && y < hud.labelPlate.hi.y;
+		if( !onMedallion && !onPlate )
+			return MSG_IGNORED;
 	}
+
+	// the click's own position, which the window manager packed into mData1: the cursor's
+	// (TheMouse's status) is not the click's when one is posted without moving it (the control
+	// socket's click, a replayed input), and a tile under the cursor rather than the click was
+	// never the one meant
+	if( msg == GWM_LEFT_UP && !TheSelectionTranslator->isLeftMouseButtonDown() )
+		TheControlBar->clickMultiSelectTile( LOLONGTOSHORT( mData1 ), HILONGTOSHORT( mData1 ) );
 	return GameWinBlockInput( window, msg, mData1, mData2 );
 }
 
@@ -351,8 +381,21 @@ void ControlBar::layoutMultiSelectTiles( Int count )
 	Int cellW = hudSize.x / n;
 	Int cellH = hudSize.y / n;
 
+	// The sidebar's card has a tray on its label plate (HudLayoutRects::trayCells): tile i is cell i,
+	// left to right, the types past its six are not shown (updateMultiSelectStrip)
+	HudLayoutRects hud;
+	ICoord2D hudAt = { 0, 0 };
+	const Bool sidebar = isSidebarLayout();
+	if( sidebar )
+	{
+		getHudLayoutRects( &hud );
+		m_rightHUDWindow->winGetScreenPosition( &hudAt.x, &hudAt.y );
+		cellW = hud.trayCells[ 0 ].width();
+		cellH = hud.trayCells[ 0 ].height();
+	}
+
 	// the tiles' clicks reach the HUD itself, see portraitBarInput
-	m_rightHUDWindow->winSetInputFunc( portraitBarInput );
+	m_rightHUDWindow->winSetInputFunc( ControlBar_portraitBarInput );
 
 	for( Int i = 0; i < count; i++ )
 	{
@@ -372,6 +415,14 @@ void ControlBar::layoutMultiSelectTiles( Int count )
 		GameWindow *tile = m_multiSelectTiles[ i ];
 		if( tile == NULL )
 			continue;
+		if( sidebar )
+		{
+			// in the art's well, 2 in from every edge
+			const IRegion2D cell = SidebarWellInset( hud.trayCells[ MIN( i, (Int)HUD_TRAY_CELLS - 1 ) ], hud.scale, 2, 2 );
+			tile->winSetPosition( cell.lo.x - hudAt.x, cell.lo.y - hudAt.y );
+			tile->winSetSize( cell.width(), cell.height() );
+			continue;
+		}
 		Int col = i % n;
 		Int row = i / n;
 		tile->winSetPosition( col * cellW + 1, row * cellH + 1 );

@@ -332,11 +332,27 @@ static Bool generalsCampaignInstalled( const char *campaign )
 	return first && TheFileSystem->doesFileExist( first->m_mapName.str() );
 }
 
-// A side button's next panel: the pick panel when the side has both campaigns, else the mission
-// panel for Zero Hour's as before.
-static void showCampaignOrMissionMenu( const char *pickGroup, const char *missionGroup )
+// A mod's own MainMenu.wnd is retail's layout: no mission panel, no pick panel.
+static Bool missionPanelPresent( void )
 {
-	if( campaignPickShown )
+	if( !buttonMissionBack || !missionFrame[0] || !missionFrame[1] )
+		return FALSE;
+	for( Int i = 0; i < MISSION_BUTTONS; ++i )
+		if( !buttonMission[i] )
+			return FALSE;
+	return TRUE;
+}
+
+// A side button's next panel: the pick panel when the side has both campaigns, else the mission
+// panel for Zero Hour's as before; on a layout without them, retail's difficulty panel.
+static void showCampaignOrMissionMenu( const char *pickGroup, const char *missionGroup, const char *difficultyGroup )
+{
+	if( !missionPanelPresent() )
+	{
+		campaignPickShown = FALSE;
+		TheTransitionHandler->setGroup( difficultyGroup );
+	}
+	else if( campaignPickShown && dropDownWindows[DROPDOWN_CAMPAIGN] )
 		TheTransitionHandler->setGroup( pickGroup );
 	else
 		showMissionMenu( missionGroup );
@@ -479,7 +495,7 @@ static void doGameStart( void )
 	msg->appendIntegerArgument(GAME_SINGLE_PLAYER);
 	msg->appendIntegerArgument(TheCampaignManager->getGameDifficulty());
 	msg->appendIntegerArgument(TheCampaignManager->getRankPoints());
-	msg->appendIntegerArgument(GameEngine_matchFramesPerSecond(TheGlobalData->m_turboMode));
+	GameEngine_appendNewGameRates( msg, TheGlobalData->m_missionGameSpeedPercent );
 	InitRandom(0);
 
 	isShuttingDown = TRUE;
@@ -673,6 +689,14 @@ void MainMenuInit( WindowLayout *layout, void *userData )
 	buttonMultiPlayer = TheWindowManager->winGetWindowFromId( parentMainMenu, buttonMultiPlayerID );
 	buttonSkirmish = TheWindowManager->winGetWindowFromId( parentMainMenu, skirmishID );
 	buttonOnline = TheWindowManager->winGetWindowFromId( parentMainMenu, onlineID );
+	// Started without the launcher's Online path there is no service to dial, and the button would only
+	// open a "could not connect" box: grey it and say why.
+	if( buttonOnline )
+	{
+		const Bool canGoOnline = CanGoOnline();
+		buttonOnline->winEnable( canGoOnline );
+		buttonOnline->winSetTooltip( canGoOnline ? UnicodeString::TheEmptyString : TheGameText->fetch( "TOOLTIP:OnlineNeedsLauncher" ) );
+	}
 	buttonNetwork = TheWindowManager->winGetWindowFromId( parentMainMenu, networkID );
 	buttonOptions = TheWindowManager->winGetWindowFromId( parentMainMenu, optionsID );
 	buttonExit = TheWindowManager->winGetWindowFromId( parentMainMenu, exitID );
@@ -718,8 +742,10 @@ void MainMenuInit( WindowLayout *layout, void *userData )
 	dropDownWindows[DROPDOWN_CAMPAIGN] = TheWindowManager->winGetWindowFromId( parentMainMenu, TheNameKeyGenerator->nameToKey( AsciiString("MainMenu.wnd:MapBorder6") ) );
 	// i is used after the loop; VC6 for-scope let it escape.
 	Int i;
+	// a mod's MainMenu.wnd has retail's MapBorder..MapBorder4 and none of ours
 	for(i = 1; i < DROPDOWN_COUNT; ++i)
-		dropDownWindows[i]->winHide(TRUE);
+		if( dropDownWindows[i] )
+			dropDownWindows[i]->winHide(TRUE);
 
 	initialHide();
 
@@ -1194,6 +1220,23 @@ static Bool startWorldBuilder( const char *exe )
 }
 
 //-------------------------------------------------------------------------------------------------
+// The main menu's destroy tears GameSpy, ghttp and the DNS check down, which is right when the
+// shell goes for good. The options menu rebuilds the shell after a resolution change, and in an
+// online match that destroy came a frame later and took the session out from under the match
+// (TheGameInfo NULL in GameLogic::update). The rebuild names the live main menu here first, and
+// its destroy keeps everything up. ponytail: ghttp's reference from this menu is never returned
+// after that, so ghttp stays started until the process ends.
+//-------------------------------------------------------------------------------------------------
+static GameWindow *mainMenuKeptOnline = NULL;
+
+void MainMenuKeepOnlineThroughRebuild( void )
+{
+	mainMenuKeptOnline = ( mainMenuID != NAMEKEY_INVALID )
+		? TheWindowManager->winGetWindowFromId( NULL, mainMenuID )
+		: NULL;
+}
+
+//-------------------------------------------------------------------------------------------------
 /** Main menu window system callback */
 //-------------------------------------------------------------------------------------------------
 WindowMsgHandledType MainMenuSystem( GameWindow *window, UnsignedInt msg, 
@@ -1215,6 +1258,14 @@ WindowMsgHandledType MainMenuSystem( GameWindow *window, UnsignedInt msg,
 		//---------------------------------------------------------------------------------------------
 		case GWM_DESTROY:
 		{
+			// Thrown away by a resolution change in a match, not left: the online session, its relay
+			// and the game info the running match reads every frame stay up.
+			if( window != NULL && window == mainMenuKeptOnline )
+			{
+				mainMenuKeptOnline = NULL;
+				DEBUG_LOG(("MainMenuSystem(GWM_DESTROY) - shell rebuilt in a match, GameSpy kept\n"));
+				break;
+			}
 			ghttpCleanup();
 			DEBUG_LOG(("Tearing down GameSpy from MainMenuSystem(GWM_DESTROY)\n"));
 			TearDownGameSpy();
@@ -1755,7 +1806,7 @@ WindowMsgHandledType MainMenuSystem( GameWindow *window, UnsignedInt msg,
 				if(win)
 					win->winHide(TRUE);
 				TheTransitionHandler->reverse("MainMenuSinglePlayerMenuBackUS");
-				showCampaignOrMissionMenu("MainMenuCampaignMenuUS", "MainMenuMissionMenuUS");
+				showCampaignOrMissionMenu("MainMenuCampaignMenuUS", "MainMenuMissionMenuUS", "MainMenuDifficultyMenuUS");
 				campaignSelected = TRUE;
 				logoIsShown = FALSE;
 				showLogo = FALSE;
@@ -1784,7 +1835,7 @@ WindowMsgHandledType MainMenuSystem( GameWindow *window, UnsignedInt msg,
 				if(win)
 					win->winHide(TRUE);				
 				TheTransitionHandler->reverse("MainMenuSinglePlayerMenuBackGLA");
-				showCampaignOrMissionMenu("MainMenuCampaignMenuGLA", "MainMenuMissionMenuGLA");
+				showCampaignOrMissionMenu("MainMenuCampaignMenuGLA", "MainMenuMissionMenuGLA", "MainMenuDifficultyMenuGLA");
 				campaignSelected = TRUE;
 				logoIsShown = FALSE;
 				showLogo = FALSE;
@@ -1813,7 +1864,7 @@ WindowMsgHandledType MainMenuSystem( GameWindow *window, UnsignedInt msg,
 				if(win)
 					win->winHide(TRUE);				
 				TheTransitionHandler->reverse("MainMenuSinglePlayerMenuBackChina");
-				showCampaignOrMissionMenu("MainMenuCampaignMenuChina", "MainMenuMissionMenuChina");
+				showCampaignOrMissionMenu("MainMenuCampaignMenuChina", "MainMenuMissionMenuChina", "MainMenuDifficultyMenuChina");
 				campaignSelected = TRUE;
 				logoIsShown = FALSE;
 				showLogo = FALSE;
@@ -1848,7 +1899,7 @@ WindowMsgHandledType MainMenuSystem( GameWindow *window, UnsignedInt msg,
 
 				checkCDBeforeCampaign(DIFFICULTY_HARD);
 			}
-			else if(controlID == buttonDiffBackID && (showSide == SHOW_USA || showSide == SHOW_GLA || showSide == SHOW_CHINA))
+			else if(controlID == buttonDiffBackID && (showSide == SHOW_USA || showSide == SHOW_GLA || showSide == SHOW_CHINA) && missionPanelPresent())
 			{
 				// a campaign's difficulty panel came from its mission panel, so Back goes there
 				if(dontAllowTransitions)

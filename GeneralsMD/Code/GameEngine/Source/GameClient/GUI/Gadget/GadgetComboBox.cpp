@@ -81,10 +81,77 @@
 // The open list's height for this many lines.  A list row is a line of text and one pixel
 // (GadgetListBox's computeTotalHeight); EA allowed two, so a list that scrolls showed the top of one
 // more row under its last, cut in half.  A list that fits keeps EA's slack.
-static Int dropDownHeight( WinInstanceData *listInstData, Int lines, Bool scrolls )
+static Int rowsHeight( WinInstanceData *listInstData, Int lines, Bool scrolls )
 {
 	const Int fontHeight = TheWindowManager->winFontHeight( listInstData->getFont() );
 	return (fontHeight + (scrolls ? 1 : 2)) * lines + (scrolls ? 6 : 4);
+}
+
+// Whether the open list shows every entry, with no scroll bar.  A box given a pitch does so whenever
+// they all fit its room, maxDisplay or not: a scrolling list grown to a row's foot would show the
+// next entry cut in half in the strip it gained.
+static Bool showsAll( const ComboBoxData *comboData, WinInstanceData *listInstData )
+{
+	if( comboData->entryCount <= comboData->maxDisplay )
+		return TRUE;
+	return comboData->dropDownPitch > 0
+		&& rowsHeight( listInstData, comboData->entryCount, FALSE ) <= comboData->dropDownRoom;
+}
+
+// A box given a pitch (a lobby's rules rows) grows a list that shows every entry to a whole number of
+// pitches, so it ends on the foot of a row below instead of halfway down one, as long as that stays
+// within its room; a list that already fills the room stops at the room's foot.  One that does not
+// fit below opens upwards when it fits above, its top on the top of a row there, and *up says so.
+// A list that scrolls keeps its own height, whole rows only, and opens down.
+static Int dropDownHeight( const ComboBoxData *comboData, WinInstanceData *listInstData, Int lines, Bool scrolls,
+													 Bool *up = NULL )
+{
+	if( up )
+		*up = FALSE;
+	Int height = rowsHeight( listInstData, lines, scrolls );
+	const Int pitch = comboData->dropDownPitch;
+	if( pitch > 0 && !scrolls )
+	{
+		const Int snapped = (height + pitch - 1) / pitch * pitch;
+		if( snapped <= comboData->dropDownRoom )
+			height = snapped;
+		else if( height <= comboData->dropDownRoom )
+			height = comboData->dropDownRoom;
+		else if( snapped <= comboData->dropDownRoomAbove )
+		{
+			height = snapped;
+			if( up )
+				*up = TRUE;
+		}
+	}
+	return height;
+}
+
+// Lay the combo box out round its open list: below the box as EA did, or above it, the box's
+// window moved up by the list's height so the list sits inside it, and moved back by HideListBox.
+static void placeOpenList( GameWindow *window, ComboBoxData *comboData, GameWindow *listBox,
+													 const ICoord2D &winSize, Int listX, Int listHeight, Bool up )
+{
+	window->winSetSize( winSize.x, winSize.y + listHeight );
+	listBox->winSetSize( listX, listHeight );
+	if( !up )
+	{
+		listBox->winSetPosition( 0, winSize.y );
+		return;
+	}
+	Int x, y;
+	window->winGetPosition( &x, &y );
+	window->winSetPosition( x, y - listHeight );
+	comboData->dropUpShift = listHeight;
+	listBox->winSetPosition( 0, 0 );
+	if( comboData->editBox )
+		comboData->editBox->winSetPosition( 0, listHeight );
+	if( comboData->dropDownButton )
+	{
+		ICoord2D button;
+		comboData->dropDownButton->winGetSize( &button.x, &button.y );
+		comboData->dropDownButton->winSetPosition( winSize.x - button.x, listHeight );
+	}
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -131,7 +198,12 @@ WindowMsgHandledType GadgetComboBoxInput( GameWindow *window, UnsignedInt msg,
 				case KEY_TAB:
 
 					if( BitTest( mData2, KEY_STATE_DOWN ) )
-						TheWindowManager->winNextTab(window);
+					{
+						if( mData1 == KEY_TAB && BitTest( mData2, KEY_STATE_SHIFT ) )	// Shift+Tab goes back
+							TheWindowManager->winPrevTab(window);
+						else
+							TheWindowManager->winNextTab(window);
+					}
 					break;
 
 				// --------------------------------------------------------------------
@@ -199,10 +271,13 @@ WindowMsgHandledType GadgetComboBoxInput( GameWindow *window, UnsignedInt msg,
 						// If we have less entries then our max display is set to, only show
 						// those entries and not additional blank lines.  Also, just so it looks
 						// pretty, hide the list box's sliders if we don't need to scroll.
-						if(comboData->entryCount <= comboData->maxDisplay)
+						if(showsAll( comboData, listInstData ))
 						{
 							multiplier = comboData->entryCount;
 							listX = winSize.x;// + 16;
+							// a pitched list past its maxDisplay may have been scrolled; it shows all now
+							if( comboData->dropDownPitch > 0 )
+								GadgetListBoxSetTopVisibleEntry( listBox, 0 );
 							
 							if(listData->upButton)
 								listData->upButton->winHide(TRUE);
@@ -224,11 +299,9 @@ WindowMsgHandledType GadgetComboBoxInput( GameWindow *window, UnsignedInt msg,
 							
 						}
 						
-						newSize.y = dropDownHeight( listInstData, multiplier, comboData->entryCount > comboData->maxDisplay );
-						window->winSetSize(winSize.x , winSize.y + newSize.y );
-						listBox->winSetPosition(0, winSize.y);
-
-						listBox->winSetSize(listX , newSize.y);
+						Bool up;
+						newSize.y = dropDownHeight( comboData, listInstData, multiplier, !showsAll( comboData, listInstData ), &up );
+						placeOpenList( window, comboData, listBox, winSize, listX, newSize.y, up );
 					}
 					// if the Listbox was showing, hide it.
 					else
@@ -329,7 +402,16 @@ void HideListBox(GameWindow * window)
 		GameWindow *editBox = GadgetComboBoxGetEditBox(window);
 		editBox->winGetSize(&winSize.x, &winSize.y);
 		window->winGetSize(&newSize.x, &newSize.y);
-		window->winSetSize(newSize.x, winSize.y );
+		window->winSetSize(newSize.x, winSize.y );	// GGM_RESIZED puts the edit box and button back at the top
+		// a list that opened upwards moved the box up over it (placeOpenList)
+		ComboBoxData *comboData = (ComboBoxData *)window->winGetUserData();
+		if( comboData && comboData->dropUpShift )
+		{
+			Int x, y;
+			window->winGetPosition( &x, &y );
+			window->winSetPosition( x, y + comboData->dropUpShift );
+			comboData->dropUpShift = 0;
+		}
 	}
 }
 
@@ -390,10 +472,11 @@ WindowMsgHandledType GadgetComboBoxSystem( GameWindow *window, UnsignedInt msg,
 			if ((GameWindow *)mData1 == comboData->editBox)
 			{
 				HideListBox(window);
-				TheWindowManager->winSendSystemMsg( window->winGetOwner(), 
+				// mData2 1: Enter in the edit box, where a pick from the list sends 0
+				TheWindowManager->winSendSystemMsg( window->winGetOwner(),
 																		GCM_SELECTED,
-																		(WindowMsgData)window, 
-																		0 );
+																		(WindowMsgData)window,
+																		1 );
 			}
 			break;
 		}
@@ -546,7 +629,7 @@ WindowMsgHandledType GadgetComboBoxSystem( GameWindow *window, UnsignedInt msg,
 				window->winGetSize(&winSize.x, &winSize.y);
 				editBox->winGetSize(&editBoxSize.x, &editBoxSize.y);
 				// If the listbox has less entries then the MaxDisplay, size it smaller
-				if(comboData->entryCount <= comboData->maxDisplay)
+				if(showsAll( comboData, listInstData ))
 				{							
 					multiplier = comboData->entryCount;
 					listX = winSize.x + 16;
@@ -569,8 +652,9 @@ WindowMsgHandledType GadgetComboBoxSystem( GameWindow *window, UnsignedInt msg,
 					if(listData->slider)
 						listData->slider->winHide(FALSE);
 				}
-				newSize.y = dropDownHeight( listInstData, multiplier, comboData->entryCount > comboData->maxDisplay );
-				listBox->winSetPosition(0, editBoxSize.y);
+				newSize.y = dropDownHeight( comboData, listInstData, multiplier, !showsAll( comboData, listInstData ) );
+				if( comboData->dropUpShift == 0 )	// a list open upwards keeps its place over the box
+					listBox->winSetPosition(0, editBoxSize.y);
 				listBox->winSetSize(listX , newSize.y);
 			}
 
@@ -684,10 +768,13 @@ WindowMsgHandledType GadgetComboBoxSystem( GameWindow *window, UnsignedInt msg,
 						// If we have less entries then our max display is set to, only show
 						// those entries and not additional blank lines.  Also, just so it looks
 						// pretty, hide the list box's sliders if we don't need to scroll.
-						if(comboData->entryCount <= comboData->maxDisplay)
+						if(showsAll( comboData, listInstData ))
 						{
 							multiplier = comboData->entryCount;
 							listX = winSize.x;// + 16;
+							// a pitched list past its maxDisplay may have been scrolled; it shows all now
+							if( comboData->dropDownPitch > 0 )
+								GadgetListBoxSetTopVisibleEntry( listBox, 0 );
 							
 							if(listData->upButton)
 								listData->upButton->winHide(TRUE);
@@ -709,11 +796,9 @@ WindowMsgHandledType GadgetComboBoxSystem( GameWindow *window, UnsignedInt msg,
 							
 						}
 						
-						newSize.y = dropDownHeight( listInstData, multiplier, comboData->entryCount > comboData->maxDisplay );
-						window->winSetSize(winSize.x , winSize.y + newSize.y );
-						listBox->winSetPosition(0, winSize.y);
-
-						listBox->winSetSize(listX , newSize.y);
+						Bool up;
+						newSize.y = dropDownHeight( comboData, listInstData, multiplier, !showsAll( comboData, listInstData ), &up );
+						placeOpenList( window, comboData, listBox, winSize, listX, newSize.y, up );
 					}
 					// if the Listbox was showing, hide it.
 					else
@@ -917,6 +1002,21 @@ void GadgetComboBoxSetMaxDisplay( GameWindow *comboBox, Int maxDisplay )
 
 }//void GadgetComboBoxSetMaxDisplay( GameWindow *comboBox, Int maxDisplay );
 
+// GadgetComboBoxSetDropDownPitch =============================================
+/** The open list grows to a whole number of pitches (dropDownHeight), so it ends on the edge of a
+	* row below rather than halfway down one; the rows stay their size and the rest is the list's own
+	* fill.  Room is how far below the box the list may go for that, room above how far up it may
+	* open instead when it does not fit below.  Read when the list opens, so it holds whatever
+	* entries are added later. */
+//=============================================================================
+void GadgetComboBoxSetDropDownPitch( GameWindow *comboBox, Int pitch, Int room, Int roomAbove )
+{
+	ComboBoxData *comboData = (ComboBoxData *)comboBox->winGetUserData();
+	comboData->dropDownPitch = pitch;
+	comboData->dropDownRoom = room;
+	comboData->dropDownRoomAbove = roomAbove;
+}
+
 // GadgetComboBoxGetText =======================================================
 /** Get the text the Combo Box */
 //=============================================================================
@@ -1028,10 +1128,10 @@ void GadgetComboBoxSetEnabledTextColors(GameWindow *comboBox, Color color, Color
 //=============================================================================
 void GadgetComboBoxSetDisabledTextColors(GameWindow *comboBox, Color color, Color borderColor )
 {
-	ComboBoxData *comboBoxData = (ComboBoxData *)comboBox->winGetUserData();
 	// sanity
 	if( comboBox == NULL )
 		return;
+	ComboBoxData *comboBoxData = (ComboBoxData *)comboBox->winGetUserData();
 
 	if(comboBoxData->listBox)
 		comboBoxData->listBox->winSetDisabledTextColors( color,borderColor);
@@ -1076,9 +1176,13 @@ void GadgetComboBoxSetIMECompositeTextColors(GameWindow *comboBox, Color color, 
 //=============================================================================
 void GadgetComboBoxGetSelectedPos( GameWindow *comboBox, Int *selectedIndex )
 {
-	// sanity
+	// sanity: a seat row the layout does not have reads as nothing selected
 	if( comboBox == NULL )
+	{
+		if( selectedIndex )
+			*selectedIndex = -1;
 		return;
+	}
 
 	// get selected indeces via system message
 	TheWindowManager->winSendSystemMsg( comboBox, GCM_GET_SELECTION, 0, (WindowMsgData)selectedIndex );
@@ -1126,7 +1230,7 @@ void *GadgetComboBoxGetItemData( GameWindow *comboBox, Int index )
 //=============================================================================
 Int GadgetComboBoxGetLength( GameWindow *combobox )
 {
-	ComboBoxData *comboboxData = (ComboBoxData *)combobox->winGetUserData();
+	ComboBoxData *comboboxData = combobox ? (ComboBoxData *)combobox->winGetUserData() : NULL;
 	if (comboboxData)
 		return comboboxData->entryCount;
 

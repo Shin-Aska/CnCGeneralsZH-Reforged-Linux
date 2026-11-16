@@ -79,6 +79,7 @@
 #include "Common/Upgrade.h"
 #include "GameClient/AnimateWindowManager.h"
 #include "GameClient/DisconnectMenu.h"
+#include "GameClient/Display.h"
 #include "GameClient/GameWindow.h"
 #include "GameClient/Gadget.h"
 #include "GameClient/GadgetTextEntry.h"
@@ -153,6 +154,22 @@ static UnicodeString metaKeySuffix( GameMessage::Type meta )
 		break;
 	}
 	return suffix;
+}
+
+/// metaKeySuffix for the bar's own code-made keys (the signal keys' tooltips)
+UnicodeString ControlBar_metaKeySuffix( Int meta )
+{
+	return metaKeySuffix( (GameMessage::Type)meta );
+}
+
+/// A label whose %s takes metaKeySuffix: "Ground units%s: ..." reads "Ground units (Ctrl+W): ...",
+/// and "Ground units: ..." while the command has no key
+UnicodeString ControlBar_withMetaKey( const UnicodeString& label, Int meta )
+{
+	const UnicodeString suffix = metaKeySuffix( (GameMessage::Type)meta );
+	UnicodeString text;
+	text.format( label, suffix.str() );
+	return text;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -789,6 +806,13 @@ void ControlBar::repopulateBuildTooltipLayout( void )
 	if(!BitTest(prevWindow->winGetStyle(), GWS_PUSH_BUTTON))
 		return;
 	const CommandButton *commandButton = (const CommandButton *)GadgetButtonGetData(prevWindow);
+	// the cell under the pointer lost its command (a unit tab's cell turned into a page arrow, or the
+	// bar emptied it): an empty card would hang there until the pointer left, so it goes now
+	if( commandButton == NULL )
+	{
+		hideBuildTooltipLayout();
+		return;
+	}
 	populateBuildTooltipLayout(commandButton);
 }
 
@@ -963,6 +987,21 @@ void ControlBar::populateBuildTooltipLayout( const CommandButton *commandButton,
 		}
 
 		name = TheGameText->fetch(commandButton->getTextLabel().str());
+
+		// an open command tab's cells take no keys, so the card marks no hotkey letter either: the '&'
+		// the name's HOTKEY_TEXT line would light goes.  A command cell's card is asked for with no
+		// window (showBuildTooltipLayout, repopulateBuildTooltipLayout): the window under the pointer
+		// is prevWindow then
+		if( commandTabCovers( tooltipWin ? tooltipWin : prevWindow ) )
+		{
+			WideCharString plain = name.str();
+			const size_t marker = plain.find( u'&' );
+			if( marker != WideCharString::npos )
+			{
+				plain.erase( marker, 1 );
+				name = plain.c_str();
+			}
+		}
 
 		if( thingTemplate && commandButton->getCommandType() != GUI_COMMAND_PURCHASE_SCIENCE )
 		{
@@ -1270,6 +1309,10 @@ void ControlBar::populateBuildTooltipLayout( const CommandButton *commandButton,
 			name.concat( metaKeySuffix( GameMessage::MSG_META_SELECT_NEXT_IDLE_VEHICLE ) );
 		else if( commandButton && commandButton->getName() == "NonCommand_IdleAircraft" )
 			name.concat( metaKeySuffix( GameMessage::MSG_META_SELECT_NEXT_IDLE_AIRCRAFT ) );
+		else if( commandButton && commandButton->getName() == "NonCommand_SelectArmy" )
+			name.concat( metaKeySuffix( GameMessage::MSG_META_SELECT_ALL ) );
+		else if( commandButton && commandButton->getName() == "NonCommand_Beacon" )
+			name.concat( metaKeySuffix( GameMessage::MSG_META_VIEW_LAST_RADAR_EVENT ) );
 		GadgetStaticTextSetText(win, name);
 	}
 
@@ -1328,7 +1371,43 @@ void ControlBar::populateBuildTooltipLayout( const CommandButton *commandButton,
 			ControlBarSchemeManager::radarFrameRect( frame, radarRect, &radarOuter );
 		else
 			radarOuter.lo.y = getControlBarSchemeManager()->radarArtTop( radarRect.lo.y );
-		parent->winSetPosition( pos.x, radarOuter.lo.y - REAL_TO_INT( 6 * k ) - cardHeight );
+		ICoord2D cardAt;
+		cardAt.y = radarOuter.lo.y - REAL_TO_INT( 6 * k ) - cardHeight;
+
+		// ControlBarPopupDescription.wnd stands the card at the screen's left edge, which is the HudWidth
+		// area's left edge, where the Classic radar went
+		HudLayoutRects hud;
+		getHudLayoutRects( &hud );
+		cardAt.x = hud.area.lo.x;
+
+		//
+		// The sidebar's radar is at the top right, so the card leans on the world side instead: left of
+		// the sidebar at the hovered cell's height for a sidebar cell, above the strip at the button's x for
+		// the strip's and the card's.  Kept on the screen either way.
+		//
+		GameWindow *anchor = tooltipWin ? tooltipWin : prevWindow;
+		if( isSidebarLayout() && anchor != NULL )
+		{
+			ICoord2D at;
+			anchor->winGetScreenPosition( &at.x, &at.y );
+			const Int gap = REAL_TO_INT( 6 * k );
+			if( at.x >= hud.sidebar.lo.x )
+			{
+				cardAt.x = hud.sidebar.lo.x - gap - size.x;
+				cardAt.y = at.y;
+			}
+			else
+			{
+				cardAt.x = min( max( at.x, hud.area.lo.x ), hud.sidebar.lo.x - gap - size.x );
+				// over the selection card when the pointer is on it or on the strip under it
+				cardAt.y = ( at.x < hud.card.hi.x ? hud.card.lo.y : hud.strip.lo.y ) - gap - cardHeight;
+			}
+			cardAt.x = max( cardAt.x, hud.area.lo.x );
+		}
+		else if( isSidebarLayout() )
+			cardAt.y = hud.strip.lo.y - REAL_TO_INT( 6 * k ) - cardHeight;	// no cell to lean on: over the strip
+		cardAt.y = max( 0, min( cardAt.y, hud.screen.hi.y - cardHeight ) );
+		parent->winSetPosition( cardAt.x, cardAt.y );
 
 		ICoord2D descPos;
 		win->winGetPosition(&descPos.x, &descPos.y);

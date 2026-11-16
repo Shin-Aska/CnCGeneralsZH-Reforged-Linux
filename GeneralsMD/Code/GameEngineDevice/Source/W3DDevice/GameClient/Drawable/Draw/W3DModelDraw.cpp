@@ -56,6 +56,8 @@
 #include "GameClient/ObserverCamera.h"
 #include "GameClient/PlayerColorScheme.h"
 #include "GameClient/Shadow.h"
+#include "GameClient/TankSkin.h"
+#include "GameNetwork/GameInfo.h"
 #include "GameLogic/GameLogic.h"		// for real-time frame
 #include "GameLogic/GhostObject.h"
 #include "GameLogic/PartitionManager.h"
@@ -261,6 +263,7 @@ enum ACBits
 	MAINTAIN_FRAME_ACROSS_STATES2,
 	MAINTAIN_FRAME_ACROSS_STATES3,
 	MAINTAIN_FRAME_ACROSS_STATES4,
+	PREATTACK_RESTARTS,
 };
 
 static const char *ACBitsNames[] =
@@ -275,7 +278,8 @@ static const char *ACBitsNames[] =
 	"MAINTAIN_FRAME_ACROSS_STATES2",
 	"MAINTAIN_FRAME_ACROSS_STATES3",
 	"MAINTAIN_FRAME_ACROSS_STATES4",
-	
+	"PREATTACK_RESTARTS",
+
 	NULL
 };
 
@@ -1075,6 +1079,12 @@ W3DModelDrawModuleData::W3DModelDrawModuleData() :
 	m_stabilizedTurretPitch(false),
 	m_barrelArtPitch(0.0f),
 	m_landingGearUpHeight(0.0f),
+	m_quadMaxTilt(0.0f),
+	m_quadTiltGravity(400.0f),
+	m_quadTiltDrag(1.0f),
+	m_quadTiltTime(DurationFramesReal::fromRaw(120.0f)),
+	m_quadYawTime(DurationFramesReal::fromRaw(300.0f)),
+	m_quadMaxDiveTilt(0.0f),
 #ifdef CACHE_ATTACH_BONE
 	m_attachToDrawableBoneOffsetValid(false),
 #endif
@@ -1084,13 +1094,13 @@ W3DModelDrawModuleData::W3DModelDrawModuleData() :
 	const Real MAX_SHIFT = 3.0f;			
 	const Real INITIAL_RECOIL_RATE = 2.0f;	
 	const Real RECOIL_DAMPING = 0.4f;	
-	const Real SETTLE_RATE = 0.065f;		
+	const Real SETTLE_RATE_PER_SEC = 1.9499999f;		// ConvertRetailPerFrameRate( 0.065f ) a frame at the native speed
 
 	m_projectileBoneFeedbackEnabledSlots = 0;
-	m_initialRecoil = ConvertRetailPerFrameRate(INITIAL_RECOIL_RATE);
+	m_initialRecoil.setRaw( INITIAL_RECOIL_RATE * (Real)RETAIL_LOGICFRAMES_PER_SECOND );	// per second: 60, ConvertRetailPerFrameRate's 3.0f at the native speed
 	m_maxRecoil = MAX_SHIFT;
-	m_recoilDamping = ConvertRetailPerFrameFactor(RECOIL_DAMPING);
-	m_recoilSettle = ConvertRetailPerFrameRate(SETTLE_RATE);
+	m_recoilDamping.setRaw( RECOIL_DAMPING );
+	m_recoilSettle.setRaw( SETTLE_RATE_PER_SEC );
 
 
   m_receivesDynamicLights = TRUE;
@@ -1264,16 +1274,22 @@ void W3DModelDrawModuleData::buildFieldParse(MultiIniFieldParse& p)
 
 	static const FieldParse dataFieldParse[] = 
 	{
-		{ "InitialRecoilSpeed",	INI::parseVelocityReal, NULL, offsetof(W3DModelDrawModuleData, m_initialRecoil) },
+		{ "InitialRecoilSpeed",	SPEED_FIELD( W3DModelDrawModuleData, m_initialRecoil ) },
 		{ "MaxRecoilDistance",	INI::parseReal, NULL, offsetof(W3DModelDrawModuleData, m_maxRecoil) },
-		{ "RecoilDamping",	INI::parseRetailPerFrameFactorReal, NULL, offsetof(W3DModelDrawModuleData, m_recoilDamping) },
-		{ "RecoilSettleSpeed",	INI::parseVelocityReal, NULL, offsetof(W3DModelDrawModuleData, m_recoilSettle) },
+		{ "RecoilDamping",	SPEED_FIELD( W3DModelDrawModuleData, m_recoilDamping ) },
+		{ "RecoilSettleSpeed",	SPEED_FIELD( W3DModelDrawModuleData, m_recoilSettle ) },
 		{ "OkToChangeModelColor",	INI::parseBool, NULL, offsetof(W3DModelDrawModuleData, m_okToChangeModelColor) },
 		{ "AnimationsRequirePower",	INI::parseBool, NULL, offsetof(W3DModelDrawModuleData, m_animationsRequirePower) },
 		{ "StabilizedTurretPitch",	INI::parseBool, NULL, offsetof(W3DModelDrawModuleData, m_stabilizedTurretPitch) },
 		{ "BarrelArtPitch",	INI::parseAngleReal, NULL, offsetof(W3DModelDrawModuleData, m_barrelArtPitch) },
 		{ "LandingGearSubObject",	INI::parseAsciiString, NULL, offsetof(W3DModelDrawModuleData, m_landingGearSubObject) },
 		{ "LandingGearUpHeight",	INI::parseReal, NULL, offsetof(W3DModelDrawModuleData, m_landingGearUpHeight) },
+		{ "QuadMaxTilt",	INI::parseAngleReal, NULL, offsetof(W3DModelDrawModuleData, m_quadMaxTilt) },
+		{ "QuadTiltGravity",	INI::parseReal, NULL, offsetof(W3DModelDrawModuleData, m_quadTiltGravity) },
+		{ "QuadTiltDrag",	INI::parseReal, NULL, offsetof(W3DModelDrawModuleData, m_quadTiltDrag) },
+		{ "QuadTiltTime",	SPEED_FIELD( W3DModelDrawModuleData, m_quadTiltTime ) },
+		{ "QuadYawTime",	SPEED_FIELD( W3DModelDrawModuleData, m_quadYawTime ) },
+		{ "QuadMaxDiveTilt",	INI::parseAngleReal, NULL, offsetof(W3DModelDrawModuleData, m_quadMaxDiveTilt) },
 		{ "ParticlesAttachedToAnimatedBones",	INI::parseBool, NULL, offsetof(W3DModelDrawModuleData, m_particlesAttachedToAnimatedBones) },
 		{ "MinLODRequired",		INI::parseStaticGameLODLevel,	NULL,	offsetof(W3DModelDrawModuleData, m_minLODRequired) },
 		{ "ProjectileBoneFeedbackEnabledSlots", INI::parseBitString32, TheWeaponSlotTypeNames, offsetof(W3DModelDrawModuleData, m_projectileBoneFeedbackEnabledSlots) },
@@ -1790,6 +1806,20 @@ const ModelConditionInfo* W3DModelDrawModuleData::findBestInfo(const ModelCondit
 //-------------------------------------------------------------------------------------------------
 
 //-------------------------------------------------------------------------------------------------
+/** The skin id this model wears for this machine, 0 for none: the owner's lobby seat's, or a disguised
+	unit's apparent owner's (TankSkin_seenPlayerIndex).  Inside the render's overlap window the object
+	may be changing or going away beside it, so the player comes from the copy taken at the sync point. */
+//-------------------------------------------------------------------------------------------------
+static Int ownerSkin( const Drawable *draw, const AsciiString &modelName )
+{
+	if (TheGameInfo == NULL)
+		return 0;		// a mission: nobody wears a skin, so no owner to look up
+	const Int playerIndex = LogicThread::isInsideWindow() ? draw->getObjectForDraw().skinPlayerIndex
+		: TankSkin_seenPlayerIndex(draw->getObject());
+	return TankSkin_forModel(TankSkin_ofPlayer(playerIndex), modelName.str());
+}
+
+//-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 W3DModelDraw::W3DModelDraw(Thing *thing, const ModuleData* moduleData) : DrawModule(thing, moduleData)
 {
@@ -1803,6 +1833,7 @@ W3DModelDraw::W3DModelDraw(Thing *thing, const ModuleData* moduleData) : DrawMod
 	m_curState = NULL;
 	forgetProjectileShown();
 	m_hexColor = 0;
+	m_skin = 0;
 	m_renderObject = NULL;
 	m_shadow = NULL;
 	m_contactShadow = NULL;
@@ -1824,6 +1855,7 @@ W3DModelDraw::W3DModelDraw(Thing *thing, const ModuleData* moduleData) : DrawMod
 	m_groundMotionPos.zero();
 	m_groundMotionAngle = 0.0f;
 	m_groundMotionFrame = 0;
+	memset(&m_quad, 0, sizeof(m_quad));
 
 	ModelConditionFlags emptyFlags;
 	const ModelConditionInfo* info = findBestInfo(emptyFlags);
@@ -2352,7 +2384,7 @@ void W3DModelDraw::adjustAnimSpeedToMovementSpeed()
 				{
 					// if distance-covered is specified for this anim, adjust the frame rate
 					// so it appears to sync with our unit speed
-					Real desiredDurationInMsec = dist / speed * MSEC_PER_LOGICFRAME_REAL;
+					Real desiredDurationInMsec = dist / speed * GAME_MSEC_PER_LOGICFRAME_REAL;	// the W3D clock runs game time
 					setCurAnimDurationInMsec(desiredDurationInMsec);
 				}
 			}
@@ -2424,6 +2456,14 @@ void W3DModelDraw::doDrawModule(const Matrix3D* transformMtx)
 {
 	// update whether or not we should be animating.
 	setPauseAnimation( !getDrawable()->getShouldAnimate(getW3DModelDrawModuleData()->m_animationsRequirePower) );
+
+	Matrix3D quadTransform;
+	if (getW3DModelDrawModuleData()->m_quadMaxTilt > 0.0f)
+	{
+		quadTransform = *transformMtx;
+		applyQuadAttitude(quadTransform);
+		transformMtx = &quadTransform;
+	}
 
 	Matrix3D scaledTransform;
 	if (getDrawable()->getInstanceScale() != 1.0f)
@@ -2801,6 +2841,136 @@ UnsignedInt W3DModelDraw::stepGroundMotion(Real& forward, Real& turn)
 	m_groundMotionAngle = angle;
 	m_groundMotionFrame = now;
 	return frames;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Draws the model flying as a quadcopter, whatever moves it (QuadMaxTilt in the Draw block). The
+	* Alpagu's drone is a shell on a Bezier path with no locomotor to lean it, so the attitude comes
+	* from where the drawable went from one logic frame to the next, and the logic never sees it.
+	*
+	* A quad holds itself up by tilting its rotors' push: the body leans toward the horizontal push it
+	* needs, which is the acceleration plus what holds the speed against the air (QuadTiltDrag times
+	* the speed), set against the pull that keeps it up (QuadTiltGravity), and clamped at QuadMaxTilt.
+	* So it dips its nose as it sets off, keeps it down at speed, lifts it braking and banks into a
+	* sideways pull; diving, the nose follows the path down (QuadMaxDiveTilt). The nose turns to the heading while the drone moves sideways at all,
+	* and holds the last heading on a climb or a drop straight down. Speed, tilt and heading each ease
+	* in over their time, which is what keeps the shell's path, a straight line between 30 Hz samples,
+	* from reading as a snap. The tilt is worked out in the world and read in the body's frame, so a
+	* nose still coming round turns part of the forward lean into a bank, as a real quad's does. */
+//-------------------------------------------------------------------------------------------------
+void W3DModelDraw::applyQuadAttitude(Matrix3D& mtx)
+{
+	const W3DModelDrawModuleData* d = getW3DModelDrawModuleData();
+	const Coord3D* pos = getDrawable()->getPosition();
+	const UnsignedInt now = TheGameLogic->getFrame();
+	const UnsignedInt MAX_GAP = 4;							// logic frames; past a longer gap (a hitch) the speed is taken fresh
+	const Real MIN_HEADING_SPEED = 10.0f;			// per second; slower than this sideways, the nose holds its heading
+
+	if (now != m_quad.frame)
+	{
+		const UnsignedInt frames = now - m_quad.frame;
+		if (m_quad.frame == 0)
+		{
+			// first sight: no motion known yet, so level and facing the way the logic left it
+			m_quad.velX = m_quad.velY = m_quad.velZ = 0.0f;
+			m_quad.leanX = m_quad.leanY = 0.0f;
+			m_quad.yaw = mtx.Get_Z_Rotation();
+			m_quad.velKnown = false;
+		}
+		else
+		{
+			const Real perSecond = (Real)LOGICFRAMES_PER_GAME_SECOND / (Real)frames;
+			const Real ease = d->m_quadTiltTime > (Real)frames ? (Real)frames / d->m_quadTiltTime : 1.0f;
+			const Real rawX = (pos->x - m_quad.pos.x) * perSecond;
+			const Real rawY = (pos->y - m_quad.pos.y) * perSecond;
+			const Real rawZ = (pos->z - m_quad.pos.z) * perSecond;
+			Real velX, velY, pushX, pushY;
+			if (!m_quad.velKnown || frames > MAX_GAP)
+			{
+				// the speed straight off the step, and no acceleration read into it: the whole speed
+				// counted as one frame's change would dip the nose to the limit for nothing
+				velX = rawX;
+				velY = rawY;
+				m_quad.velZ = rawZ;
+				pushX = d->m_quadTiltDrag * velX;
+				pushY = d->m_quadTiltDrag * velY;
+				m_quad.velKnown = true;
+			}
+			else
+			{
+				velX = m_quad.velX + (rawX - m_quad.velX) * ease;
+				velY = m_quad.velY + (rawY - m_quad.velY) * ease;
+				m_quad.velZ += (rawZ - m_quad.velZ) * ease;
+				pushX = (velX - m_quad.velX) * perSecond + d->m_quadTiltDrag * velX;
+				pushY = (velY - m_quad.velY) * perSecond + d->m_quadTiltDrag * velY;
+			}
+			m_quad.velX = velX;
+			m_quad.velY = velY;
+
+			Real tiltX = 0.0f;
+			Real tiltY = 0.0f;
+			const Real push = sqrtf(pushX * pushX + pushY * pushY);
+			if (push > 0.001f && d->m_quadTiltGravity > 0.0f)
+			{
+				Real tilt = atan2f(push, d->m_quadTiltGravity);
+				if (tilt > d->m_quadMaxTilt)
+					tilt = d->m_quadMaxTilt;
+				tiltX = pushX * tilt / push;
+				tiltY = pushY * tilt / push;
+			}
+
+			// Coming down, the nose points down the path, a kamikaze's dive and not a hover's: the lean
+			// along the nose is raised to the path's angle under level, up to QuadMaxDiveTilt. It only
+			// ever raises it, so braking in a dive never lifts the nose. It fades in with the speed
+			// over the first MIN_HEADING_SPEED, so a drone all but standing still does not tip over,
+			// and has no gate on the sideways speed, which would drop the nose's lean in one step
+			// as a steep dive slowed through it.
+			const Real speed = sqrtf(velX * velX + velY * velY);
+			if (d->m_quadMaxDiveTilt > 0.0f && m_quad.velZ < 0.0f)
+			{
+				Real dive = atan2f(-m_quad.velZ, speed);
+				if (dive > d->m_quadMaxDiveTilt)
+					dive = d->m_quadMaxDiveTilt;
+				const Real fade = sqrtf(speed * speed + m_quad.velZ * m_quad.velZ) / MIN_HEADING_SPEED;
+				if (fade < 1.0f)
+					dive *= fade;
+				const Real noseX = cosf(m_quad.yaw);
+				const Real noseY = sinf(m_quad.yaw);
+				const Real along = tiltX * noseX + tiltY * noseY;
+				if (along < dive)
+				{
+					tiltX += (dive - along) * noseX;
+					tiltY += (dive - along) * noseY;
+				}
+			}
+			m_quad.leanX += (tiltX - m_quad.leanX) * ease;
+			m_quad.leanY += (tiltY - m_quad.leanY) * ease;
+
+			if (speed > MIN_HEADING_SPEED)
+			{
+				const Real yawEase = d->m_quadYawTime > (Real)frames ? (Real)frames / d->m_quadYawTime : 1.0f;
+				m_quad.yaw = normalizeAngle(m_quad.yaw + stdAngleDiff(atan2f(velY, velX), m_quad.yaw) * yawEase);
+			}
+		}
+		m_quad.pos = *pos;
+		m_quad.frame = now;
+	}
+
+	const Real c = cosf(m_quad.yaw);
+	const Real s = sinf(m_quad.yaw);
+	const Real pitch = m_quad.leanX * c + m_quad.leanY * s;		// toward the nose: nose down
+	const Real roll = m_quad.leanY * c - m_quad.leanX * s;		// toward the left side: left side down
+	const Vector3 at = mtx.Get_Translation();
+	// a uniform scale the drawable carries in (its instance matrix: the Beret's Kargu, drawn at the
+	// size of the one in his hands while it stands on the ground) survives the new attitude
+	const Real scale = mtx.Get_X_Vector().Length();
+	mtx.Make_Identity();
+	mtx.Set_Translation(at);
+	mtx.Rotate_Z(m_quad.yaw);
+	mtx.Rotate_Y(pitch);
+	mtx.Rotate_X(-roll);
+	if (fabs(scale - 1.0f) > 0.001f)
+		mtx.Scale(scale);
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3719,10 +3889,15 @@ void W3DModelDraw::setModelState(const ModelConditionInfo* newState)
 			// he's already got one, you see
 			return;
 		} 
-		// check for allow-to-finish implicit transitions
+		// check for allow-to-finish implicit transitions; a PREATTACK_RESTARTS animation also plays out
+		// before a transition from it (the Beret's last placing finishes before he stands up through
+		// KGU), and a state with no transition from it (walking, dying) still cuts it off
 		else if (newState != m_curState &&
-							newState->m_allowToFinishKey != NAMEKEY_INVALID &&
-							newState->m_allowToFinishKey == m_curState->m_transitionKey &&
+							((newState->m_allowToFinishKey != NAMEKEY_INVALID &&
+								newState->m_allowToFinishKey == m_curState->m_transitionKey) ||
+							 (testFlagBit(m_curState->m_flags, PREATTACK_RESTARTS) &&
+								m_curState->m_transitionKey != NAMEKEY_INVALID && newState->m_transitionKey != NAMEKEY_INVALID &&
+								findTransitionForSig(buildTransitionSig(m_curState->m_transitionKey, newState->m_transitionKey)) != NULL)) &&
 							m_renderObject &&
 							!isAnimationComplete(m_renderObject))
 		{
@@ -3799,9 +3974,11 @@ void W3DModelDraw::setModelState(const ModelConditionInfo* newState)
 		{
 			const W3DModelDrawModuleData* data = getW3DModelDrawModuleData();
 			Bool swapsTexture = !data->m_replaceTextureOld.isEmpty();
+			// the owner's cosmetic skin; an owner change comes back through replaceIndicatorColor
+			m_skin = ownerSkin(draw, newState->m_modelName);
 			LOGIC_CENSUS( CENSUS_ASSET_LOAD );
 			m_renderObject = W3DDisplay::m_assetManager->Create_Render_Obj(newState->m_modelName.str(), draw->getScale(), m_hexColor,
-				swapsTexture ? data->m_replaceTextureOld.str() : NULL, swapsTexture ? data->m_replaceTextureNew.str() : NULL);
+				swapsTexture ? data->m_replaceTextureOld.str() : NULL, swapsTexture ? data->m_replaceTextureNew.str() : NULL, m_skin);
 			DEBUG_ASSERTCRASH(m_renderObject, ("*** ASSET ERROR: Model %s not found!\n",newState->m_modelName.str()));
 		}
 
@@ -3996,9 +4173,11 @@ void W3DModelDraw::replaceIndicatorColor(Color color)
 		return;
 
 	if (getRenderObject())
-	{	
+	{
 		Int newColor = (color == 0) ? 0 : (color | 0xFF000000);
-		if (newColor != m_hexColor)
+		// a new owner of the same colour (a relationship colour scheme) can still bring another skin
+		const Int skin = m_curState ? ownerSkin(getDrawable(), m_curState->m_modelName) : m_skin;
+		if (newColor != m_hexColor || skin != m_skin)
 		{
 			m_hexColor = newColor;
 
@@ -4455,11 +4634,14 @@ void W3DModelDraw::reactToTransformChange( const Matrix3D* oldMtx,
 	if( m_renderObject )
 	{
 		Matrix3D mtx = *getDrawable()->getTransformMatrix();
+		// a quad keeps flying off the view region too, or it shows level for a moment as it comes in
+		if (getW3DModelDrawModuleData()->m_quadMaxTilt > 0.0f)
+			applyQuadAttitude(mtx);
 		adjustTransformMtx(mtx);
 		m_renderObject->Set_Transform(mtx);
 	}
 
-	if (m_trackRenderObject) 
+	if (m_trackRenderObject)
 	{
 		Object *obj = getDrawable()->getObject();
 		const Coord3D* pos = getDrawable()->getPosition();
@@ -4472,10 +4654,13 @@ void W3DModelDraw::reactToTransformChange( const Matrix3D* oldMtx,
 		}
 		else
 		{
+			// asked only on seats that see the tank, and from the tick's flush as often as from the draw:
+			// the height is measured, never stored in the logic object (Thing::CachePeek)
+			Thing::CachePeek trackReadLeavesNoCache;
 			if (obj && obj->isSignificantlyAboveTerrain())
 			{
 				m_trackRenderObject->setAirborne();
-			} 
+			}
 			m_trackRenderObject->addEdgeToTrack(pos->x, pos->y);
 		}
 	}
@@ -4645,50 +4830,58 @@ Bool W3DModelDraw::handleWeaponFireFX(WeaponSlotType wslot, Int specificBarrelTo
 //-------------------------------------------------------------------------------------------------
 void W3DModelDraw::setAnimationLoopDuration(UnsignedInt numFrames)
 {
-// this is never defined -- srj
-#ifdef NO_DURATIONS_ON_TRANSITIONS
-	if (m_curState != NULL && m_curState->m_transition != NO_TRANSITION && 
-			m_nextState != NULL && m_nextState->m_transition == NO_TRANSITION)
+	// A duration that lands on a transition (a PREATTACK state reached through one) is split between
+	// it and the state it leads to.  EA stretched the transition alone over all of it, and the real
+	// state then started at its natural rate just as the time ran out: the Alpagu's ten frame turn
+	// from the controller to kneeling took the whole 2.1 s and his drone placing showed 5 of its 45
+	// frames before the shot.  The split
+	// guesses from the first animation of each, as setAnimationCompletionTime always did.
+	UnsignedInt curFrames = numFrames;
+	m_nextStateAnimLoopDuration = NO_NEXT_DURATION;
+
+	// PREATTACK_RESTARTS: an animation that runs on past the preattack, through the shots, is started
+	// over at its own speed when the preattack begins instead of squeezed into it, so it keeps time
+	// with the shots (the Maroon Beret's Kargu placing: 3.7 s of three placings, one a shot, played
+	// whole inside the 1.4 s to the first one, and then held on its last frame)
+	if (m_curState != NULL && testFlagBit(m_curState->m_flags, PREATTACK_RESTARTS) && m_nextState == NULL)
 	{
-		DEBUG_LOG(("deferring pending duration of %d frames\n",numFrames));
-		m_nextStateAnimLoopDuration = numFrames;
+		adjustAnimation(m_curState, -1.0);
 		return;
 	}
-
-	m_nextStateAnimLoopDuration = NO_NEXT_DURATION;
-	DEBUG_ASSERTCRASH(m_curState != NULL && m_curState->m_transition == NO_TRANSITION, ("Hmm, setAnimationLoopDuration on a transition state is probably not right... see srj"));
-#else
-	m_nextStateAnimLoopDuration = NO_NEXT_DURATION;
-#endif
-	Real desiredDurationInMsec = ceilf(numFrames * MSEC_PER_LOGICFRAME_REAL);
-	setCurAnimDurationInMsec(desiredDurationInMsec);
+	if (m_curState != NULL && m_curState->m_transitionSig != NO_TRANSITION && m_curState->m_animations.size() > 0 &&
+			m_nextState != NULL && m_nextState->m_transitionSig == NO_TRANSITION && m_nextState->m_animations.size() > 0)
+	{
+		// a natural duration is -1 until something loaded that animation, and the pending state's
+		// usually is not yet: a negative one would hand the real state nothing, or wrap to 4e9 frames
+		struct Natural { static Real msec(const W3DAnimationInfo& info)
+		{
+			if (info.getNaturalDurationInMsec() < 0.0f)
+			{
+				HAnimClass* handle = info.getAnimHandle();
+				REF_PTR_RELEASE(handle);
+			}
+			return info.getNaturalDurationInMsec();
+		} };
+		const Real t1 = Natural::msec(m_curState->m_animations.front());
+		const Real t2 = Natural::msec(m_nextState->m_animations.front());
+		if (t1 > 0.0f && t2 > 0.0f)
+		{
+			curFrames = REAL_TO_INT_FLOOR((numFrames * t1) / (t1 + t2));
+			m_nextStateAnimLoopDuration = numFrames - curFrames;
+		}
+	}
+	setCurAnimDurationInMsec(ceilf(curFrames * GAME_MSEC_PER_LOGICFRAME_REAL));	// the W3D clock runs game time
 }
 
 //-------------------------------------------------------------------------------------------------
 /**
 	similar to the above, but assumes that the current state is a "ONCE",
-	and is smart about transition states... if there is a transition state 
-	"inbetween", it is included in the completion time.
+	and is smart about transition states... if there is a transition state
+	"inbetween", it is included in the completion time.  The above does that split itself now.
 */
 void W3DModelDraw::setAnimationCompletionTime(UnsignedInt numFrames)
 {
-	if (m_curState != NULL && m_curState->m_transitionSig != NO_TRANSITION && m_curState->m_animations.size() > 0 &&
-			m_nextState != NULL && m_nextState->m_transitionSig == NO_TRANSITION && m_nextState->m_animations.size() > 0)
-	{
-		// we have a transition; split up the time suitably.
-		// note that this is just a guess, and assumes that the states
-		// have only one anim each (or, if multiple, that they are
-		// all pretty close in natural duration)
-		const Real t1 = m_curState->m_animations.front().getNaturalDurationInMsec();
-		const Real t2 = m_nextState->m_animations.front().getNaturalDurationInMsec();
-		UnsignedInt transTime = REAL_TO_INT_FLOOR((numFrames * t1) / (t1 + t2));
-		setAnimationLoopDuration(transTime);
-		m_nextStateAnimLoopDuration = numFrames - transTime;
-	}
-	else
-	{
-		setAnimationLoopDuration(numFrames);
-	}
+	setAnimationLoopDuration(numFrames);
 }
 
 //-------------------------------------------------------------------------------------------------

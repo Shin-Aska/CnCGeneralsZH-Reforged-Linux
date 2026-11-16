@@ -177,11 +177,11 @@ static Int thePFDithers = 0;					///< units caught driving a long way and gainin
 static Int thePFQueueOver3 = 0;
 static Int thePFQueueOver5 = 0;
 
-/* How long a request stood in the path queue before it was answered. The frame it went in is kept
-	 beside its slot for this count alone and nothing reads it back into a decision, so it is not
-	 saved and not in the CRC. */
-static UnsignedInt theQueuedFrame[ PATHFIND_QUEUE_LEN ];
+/* How long a request stood in the path queue before it was answered, from the frame kept beside its
+	 slot (PathRequestRing::queuedFrame). */
 static Int thePFQServed = 0;					///< requests taken off the queue
+static Int thePFQHumanServed = 0;			///< of those, human players' units'
+static Int thePFQHumanWaitMax = 0;		///< and the longest one of theirs waited
 static Int64 thePFQWaitSum = 0;				///< frames they waited, summed
 static Int thePFQWaitMax = 0;					///< the longest one waited
 static Int thePFQLate = 0;						///< answered more than a second after asking
@@ -246,7 +246,7 @@ private:
 static Int frameToShowObstacles;
 
 
-static UnsignedInt ZONE_UPDATE_FREQUENCY = 10 * LOGICFRAMES_PER_SECOND;
+#define ZONE_UPDATE_FREQUENCY ((UnsignedInt)(10 * LOGICFRAMES_PER_GAME_SECOND))
 
 //-----------------------------------------------------------------------------------
 PathNode::PathNode() :
@@ -1605,8 +1605,9 @@ Real Path::computeFlightRouteLeft( const Coord3D *pos, Real *bendDist, Real *ben
 	 does not. 2500 cells with three requests a frame gives mean 1.24ms to 1.30 and blocked 7,191 to
 	 9,837. Cells are the wrong knob on this queue; requests are the right one.
 
-	 Those numbers are at 30 logic frames a second. At 60 the budget is halved, so the queue searches
-	 the same 150,000 cells a second it was fitted at and a frame half as long spends half the time. */
+	 Those numbers are at 30 logic frames a second. Logic running faster than retail divides the
+	 budget by the ratio, so the queue searches the same 150,000 cells a second it was fitted at and
+	 a shorter frame spends proportionally less time. */
 enum { PATHFIND_CELLS_PER_FRAME = 5000 / LOGICFRAMES_PER_RETAIL_FRAME }; // Number of cells we will search pathfinding per frame.
 // A* open+closed sets draw from this pool; running dry aborts the search (no path) after
 // burning the time.  Retail 30000 was sized for 2003 memory - a long detour around a
@@ -1692,6 +1693,10 @@ void PathfindCellInfo::releaseACellInfo(PathfindCellInfo *theInfo)
 
 //-----------------------------------------------------------------------------------
 
+Int PathfindCell::s_zoneSlot = 0;
+// the second zone slot has to stay in what was padding: the map is 692k of these on a 32-player map
+static_assert( sizeof( void * ) != 8 || sizeof( PathfindCell ) <= 24, "PathfindCell grew" );
+
 /**
  * Constructor
  */
@@ -1714,14 +1719,34 @@ PathfindCell::~PathfindCell( void )
 	}
 }
 
+static UnsignedInt theWalkGeneration = 0;
+
+/** Ground the AI's ground floods may enter: AIPlayer.cpp's isBuildSearchWalkable reads the same three. */
+static inline Bool walkableType( UnsignedInt type )
+{
+	return type == PathfindCell::CELL_CLEAR || type == PathfindCell::CELL_RUBBLE || type == PathfindCell::CELL_OBSTACLE;
+}
+
+static inline void noteWalkChange( UnsignedInt from, UnsignedInt to )
+{
+	if( walkableType( from ) != walkableType( to ) )
+		++theWalkGeneration;
+}
+
+/*static*/ UnsignedInt PathfindCell::getWalkGeneration( void )
+{
+	return theWalkGeneration;
+}
+
 /**
  * Reset the cell to default values
  */
-void PathfindCell::reset( ) 
-{ 
-	m_type = PathfindCell::CELL_CLEAR; 
+void PathfindCell::reset( )
+{
+	++theWalkGeneration;		// a map coming in: whatever stood here before is gone
+	m_type = PathfindCell::CELL_CLEAR;
 	m_flags = PathfindCell::NO_UNITS;
-	m_zone = 0;
+	clearZone();
 	m_aircraftGoal = false;
 	m_pinched = false;
 	m_obstacleID = INVALID_ID;
@@ -1750,7 +1775,7 @@ Bool PathfindCell::startPathfind( PathfindCell *goalCell  )
 	m_info->m_totalCost = 0;
 	m_info->m_travelSoFar = 0;	// and no ground covered, which is a different number
 	if (goalCell) {
-		m_info->m_totalCost = costToGoal( goalCell );
+		m_info->m_totalCost = clampCost( costToGoal( goalCell ) );
 	}
 	// the caller assigns this cell to m_openList by hand rather than linking it in, so it
 	// is not really on a list; saying it is only makes releaseInfo() refuse to free it
@@ -1975,6 +2000,7 @@ Bool PathfindCell::setTypeAsObstacle( Object *obstacle, Bool isFence, const ICoo
 		isRubble = true;
 	}
 
+	noteWalkChange( m_type, PathfindCell::CELL_OBSTACLE );		// rubble walks the same
 	if (isRubble) {
 		m_type = PathfindCell::CELL_RUBBLE;
 		m_obstacleID = INVALID_ID;
@@ -2003,9 +2029,11 @@ void PathfindCell::setType( CellType type )
 {
 	if (m_obstacleID != INVALID_ID) {
 		DEBUG_ASSERTCRASH(type==PathfindCell::CELL_OBSTACLE, ("Wrong type."));
+		noteWalkChange( m_type, PathfindCell::CELL_OBSTACLE );
 		m_type = PathfindCell::CELL_OBSTACLE;
 		return;
 	}
+	noteWalkChange( m_type, type );
 	m_type = type;
 }
 
@@ -2664,15 +2692,16 @@ static void flattenZones(zoneStorageType *zoneArray, zoneStorageType *zoneHierar
 #endif
 }
 
-inline void applyZone(PathfindCell &targetCell, const PathfindCell &sourceCell, zoneStorageType *zoneEquivalency, Int sizeOfZE)
+// on the cells' zones in slot, the one the zone pass is writing
+inline void applyZone(PathfindCell &targetCell, const PathfindCell &sourceCell, zoneStorageType *zoneEquivalency, Int sizeOfZE, Int slot)
 {
-	DEBUG_ASSERTCRASH(sourceCell.getZone()!=0, ("Unset source zone."));
-	Int srcZone = pathfindZoneFind(zoneEquivalency, sourceCell.getZone());
+	DEBUG_ASSERTCRASH(sourceCell.getZoneIn(slot)!=0, ("Unset source zone."));
+	Int srcZone = pathfindZoneFind(zoneEquivalency, sourceCell.getZoneIn(slot));
 	//DEBUG_ASSERTCRASH(srcZone!=0, ("Bad zone equivalency zone."));
-	Int targetZone = pathfindZoneFind(zoneEquivalency, targetCell.getZone());
+	Int targetZone = pathfindZoneFind(zoneEquivalency, targetCell.getZoneIn(slot));
 
 	if (targetZone == 0) {
-		targetCell.setZone(srcZone);
+		targetCell.setZoneIn(slot, srcZone);
 		return;
 	}
 	if (targetZone == srcZone) {
@@ -2683,12 +2712,12 @@ inline void applyZone(PathfindCell &targetCell, const PathfindCell &sourceCell, 
 }
 
 inline void applyBlockZone(PathfindCell &targetCell, const PathfindCell &sourceCell,
-													 zoneStorageType *zoneEquivalency, Int firstZone, Int sizeOfZE)
-{	
-	DEBUG_ASSERTCRASH(sourceCell.getZone()>=firstZone && sourceCell.getZone()<firstZone+sizeOfZE, ("Memory overrun - FATAL ERROR."));
-	Int srcZone = zoneEquivalency[sourceCell.getZone()-firstZone];
-	DEBUG_ASSERTCRASH(targetCell.getZone()>=firstZone && sourceCell.getZone()<firstZone+sizeOfZE, ("Memory overrun - FATAL ERROR."));
-	Int targetZone = zoneEquivalency[targetCell.getZone()-firstZone];
+													 zoneStorageType *zoneEquivalency, Int firstZone, Int sizeOfZE, Int slot)
+{
+	DEBUG_ASSERTCRASH(sourceCell.getZoneIn(slot)>=firstZone && sourceCell.getZoneIn(slot)<firstZone+sizeOfZE, ("Memory overrun - FATAL ERROR."));
+	Int srcZone = zoneEquivalency[sourceCell.getZoneIn(slot)-firstZone];
+	DEBUG_ASSERTCRASH(targetCell.getZoneIn(slot)>=firstZone && sourceCell.getZoneIn(slot)<firstZone+sizeOfZE, ("Memory overrun - FATAL ERROR."));
+	Int targetZone = zoneEquivalency[targetCell.getZoneIn(slot)-firstZone];
 	if (targetZone == srcZone) {
 		return; // already match.
 	}
@@ -2741,23 +2770,29 @@ void ZoneBlock::freeZones(void)
 }
 
 /* Allocate zone equivalency arrays large enough to hold required entries.  If the arrays are already
-large enough, reuse.  Then calculate terrain equivalencies. */
-void ZoneBlock::blockCalculateZones(PathfindCell **map, PathfindLayer layers[], const IRegion2D &bounds) 
+large enough, reuse.  Then calculate terrain equivalencies.  On the cells' zones in slot, where a
+zone 0 is a cell a structure changed after the zone pass read it: it is left out here, and the pass
+fills it when it swaps. */
+void ZoneBlock::blockCalculateZones(PathfindCell **map, PathfindLayer layers[], const IRegion2D &bounds, Int slot)
 {
 	Int i, j;
 	m_cellOrigin = bounds.lo;
-	UnsignedInt minZone = map[bounds.lo.x][bounds.lo.y].getZone();
-	UnsignedInt maxZone = minZone;
+	UnsignedInt minZone = 0xffff;
+	UnsignedInt maxZone = 0;
 
 	// both walks go down the columns, as the cells lie in memory; a merge keeps the smaller id
 	// whichever pair comes first, so the tables are the same as a walk along the rows gave
 	for( i=bounds.lo.x; i<=bounds.hi.x; i++ )	{
 		for( j=bounds.lo.y; j<=bounds.hi.y; j++ )	{
 			PathfindCell *cell = &map[i][j];
-			zoneStorageType zone = cell->getZone();
+			zoneStorageType zone = cell->getZoneIn(slot);
+			if (zone == PathfindZoneManager::UNINITIALIZED_ZONE) continue;
 			if (minZone>zone) minZone=zone;
 			if (maxZone<zone) maxZone=zone;
 		}
+	}
+	if (maxZone == 0) {
+		minZone = 0;	// every cell changed under the pass
 	}
 	m_firstZone = minZone;
 	m_numZones = 1 + maxZone - minZone;
@@ -2776,36 +2811,39 @@ void ZoneBlock::blockCalculateZones(PathfindCell **map, PathfindLayer layers[], 
 
 	for( i=bounds.lo.x; i<=bounds.hi.x; i++ )	{
 		for( j=bounds.lo.y; j<=bounds.hi.y; j++ )	{
-			if (i>bounds.lo.x && map[i][j].getZone()!=map[i-1][j].getZone()) {
+			const zoneStorageType zone = map[i][j].getZoneIn(slot);
+			if (zone == PathfindZoneManager::UNINITIALIZED_ZONE) continue;
+			const zoneStorageType left = i>bounds.lo.x ? map[i-1][j].getZoneIn(slot) : zone;
+			if (left != PathfindZoneManager::UNINITIALIZED_ZONE && zone != left) {
 
 				if (waterGround(map[i][j], map[i-1][j])) {
-					applyBlockZone(map[i][j], map[i-1][j], m_groundWaterZones, m_firstZone, m_numZones);
+					applyBlockZone(map[i][j], map[i-1][j], m_groundWaterZones, m_firstZone, m_numZones, slot);
 				}
 				if (groundRubble(map[i][j], map[i-1][j])) {
-					applyBlockZone(map[i][j], map[i-1][j], m_groundRubbleZones, m_firstZone, m_numZones);
+					applyBlockZone(map[i][j], map[i-1][j], m_groundRubbleZones, m_firstZone, m_numZones, slot);
 				}
 				if (groundCliff(map[i][j], map[i-1][j])) {
-					applyBlockZone(map[i][j], map[i-1][j], m_groundCliffZones, m_firstZone, m_numZones);
+					applyBlockZone(map[i][j], map[i-1][j], m_groundCliffZones, m_firstZone, m_numZones, slot);
 				}
 				if (crusherGround(map[i][j], map[i-1][j])) {
-					applyBlockZone(map[i][j], map[i-1][j], m_crusherZones, m_firstZone, m_numZones);
+					applyBlockZone(map[i][j], map[i-1][j], m_crusherZones, m_firstZone, m_numZones, slot);
 				}
 			}
-			if (j>bounds.lo.y && map[i][j].getZone()!=map[i][j-1].getZone()) {
+			const zoneStorageType top = j>bounds.lo.y ? map[i][j-1].getZoneIn(slot) : zone;
+			if (top != PathfindZoneManager::UNINITIALIZED_ZONE && zone != top) {
 				if (waterGround(map[i][j],map[i][j-1])) {
-					applyBlockZone(map[i][j], map[i][j-1], m_groundWaterZones, m_firstZone, m_numZones);
+					applyBlockZone(map[i][j], map[i][j-1], m_groundWaterZones, m_firstZone, m_numZones, slot);
 				}
 				if (groundRubble(map[i][j], map[i][j-1])) {
-					applyBlockZone(map[i][j], map[i][j-1], m_groundRubbleZones, m_firstZone, m_numZones);
+					applyBlockZone(map[i][j], map[i][j-1], m_groundRubbleZones, m_firstZone, m_numZones, slot);
 				}
 				if (groundCliff(map[i][j],map[i][j-1])) {
-					applyBlockZone(map[i][j], map[i][j-1], m_groundCliffZones, m_firstZone, m_numZones);
+					applyBlockZone(map[i][j], map[i][j-1], m_groundCliffZones, m_firstZone, m_numZones, slot);
 				}
 				if (crusherGround(map[i][j], map[i][j-1])) {
-					applyBlockZone(map[i][j], map[i][j-1], m_crusherZones, m_firstZone, m_numZones);
+					applyBlockZone(map[i][j], map[i][j-1], m_crusherZones, m_firstZone, m_numZones, slot);
 				}
 			}
-			DEBUG_ASSERTCRASH(map[i][j].getZone() != 0, ("Cleared the zone."));
 		}
 	}
 	
@@ -2915,14 +2953,29 @@ m_hierarchicalZones(NULL),
 m_blockOfZoneBlocks(NULL),
 m_zoneBlocks(NULL),
 m_zonesAllocated(0)
-{		
+{
 	m_zoneBlockExtent.x = 0;
 	m_zoneBlockExtent.y = 0;
+	m_build.phase = BUILD_IDLE;
+	m_build.slot = 1;
+	m_build.map = NULL;
+	m_build.layers = NULL;
+	m_build.zonesAllocated = 0;
+	m_build.groundCliffZones = NULL;
+	m_build.groundWaterZones = NULL;
+	m_build.groundRubbleZones = NULL;
+	m_build.terrainZones = NULL;
+	m_build.crusherZones = NULL;
+	m_build.hierarchicalZones = NULL;
+	m_build.blockOfZoneBlocks = NULL;
+	m_build.zoneBlocks = NULL;
+	m_build.numChanged = 0;
 }
 
-PathfindZoneManager::~PathfindZoneManager()  
+PathfindZoneManager::~PathfindZoneManager()
 {
 	freeZones();
+	freeBuildZones();
 	freeBlocks();
 }
 
@@ -2955,8 +3008,23 @@ void PathfindZoneManager::freeZones()
 	m_zonesAllocated = 0;
 }
 
-void PathfindZoneManager::freeBlocks() 
+void PathfindZoneManager::freeBuildZones()
 {
+	Rebuild &b = m_build;
+	delete [] b.groundCliffZones;
+	delete [] b.groundWaterZones;
+	delete [] b.groundRubbleZones;
+	delete [] b.terrainZones;
+	delete [] b.crusherZones;
+	delete [] b.hierarchicalZones;
+	b.groundCliffZones = b.groundWaterZones = b.groundRubbleZones = NULL;
+	b.terrainZones = b.crusherZones = b.hierarchicalZones = NULL;
+	b.zonesAllocated = 0;
+}
+
+void PathfindZoneManager::freeBlocks()
+{
+	m_build.phase = BUILD_IDLE;		// the pass in progress writes into the blocks going away
 	if (m_blockOfZoneBlocks) {
 		delete [] m_blockOfZoneBlocks;
 		m_blockOfZoneBlocks = NULL;
@@ -2965,37 +3033,41 @@ void PathfindZoneManager::freeBlocks()
 		delete [] m_zoneBlocks;
 		m_zoneBlocks = NULL;
 	}
+	delete [] m_build.blockOfZoneBlocks;
+	m_build.blockOfZoneBlocks = NULL;
+	delete [] m_build.zoneBlocks;
+	m_build.zoneBlocks = NULL;
 	m_zoneBlockExtent.x = 0;
 	m_zoneBlockExtent.y = 0;
 }
 
-/* Allocate zone equivalency arrays large enough to hold m_maxZone entries.  If the arrays are already
-large enough, just return. */
-void PathfindZoneManager::allocateZones(void) 
+/* Allocate the pass's zone equivalency arrays large enough to hold its maxZone entries.  If the
+arrays are already large enough, just return. */
+void PathfindZoneManager::allocateBuildZones(void)
 {
-	if (m_zonesAllocated>m_maxZone && m_groundCliffZones!=NULL) {
+	Rebuild &b = m_build;
+	if (b.zonesAllocated>b.maxZone && b.groundCliffZones!=NULL) {
 		return;
 	}
-	freeZones();
-	
-	if (m_zonesAllocated == 0) {
-		m_zonesAllocated = INITIAL_ZONES;
+	freeBuildZones();
+
+	b.zonesAllocated = INITIAL_ZONES;
+	while (b.zonesAllocated <= b.maxZone) {
+		b.zonesAllocated *= 2;
 	}
-	while (m_zonesAllocated <= m_maxZone) {
-		m_zonesAllocated *= 2;
-	}
-	DEBUG_LOG(("Allocating zone tables of size %d\n", m_zonesAllocated));
+	DEBUG_LOG(("Allocating zone tables of size %d\n", b.zonesAllocated));
 	// pool[]ify
-	m_groundCliffZones = MSGNEW("PathfindZoneInfo") zoneStorageType[m_zonesAllocated];
-	m_groundWaterZones = MSGNEW("PathfindZoneInfo") zoneStorageType[m_zonesAllocated];
-	m_groundRubbleZones = MSGNEW("PathfindZoneInfo") zoneStorageType[m_zonesAllocated];
-	m_terrainZones = MSGNEW("PathfindZoneInfo") zoneStorageType[m_zonesAllocated];
-	m_crusherZones = MSGNEW("PathfindZoneInfo") zoneStorageType[m_zonesAllocated];
-	m_hierarchicalZones = MSGNEW("PathfindZoneInfo") zoneStorageType[m_zonesAllocated];
+	b.groundCliffZones = MSGNEW("PathfindZoneInfo") zoneStorageType[b.zonesAllocated];
+	b.groundWaterZones = MSGNEW("PathfindZoneInfo") zoneStorageType[b.zonesAllocated];
+	b.groundRubbleZones = MSGNEW("PathfindZoneInfo") zoneStorageType[b.zonesAllocated];
+	b.terrainZones = MSGNEW("PathfindZoneInfo") zoneStorageType[b.zonesAllocated];
+	b.crusherZones = MSGNEW("PathfindZoneInfo") zoneStorageType[b.zonesAllocated];
+	b.hierarchicalZones = MSGNEW("PathfindZoneInfo") zoneStorageType[b.zonesAllocated];
 }
 
-/* Allocate zone blocks for hierarchical pathfinding.   */
-void PathfindZoneManager::allocateBlocks(const IRegion2D &globalBounds) 
+/* Allocate zone blocks for hierarchical pathfinding, twice: the set in use and the set a zone pass
+	 builds into. */
+void PathfindZoneManager::allocateBlocks(const IRegion2D &globalBounds)
 {
 	freeBlocks();
 
@@ -3004,17 +3076,21 @@ void PathfindZoneManager::allocateBlocks(const IRegion2D &globalBounds)
 
 	m_blockOfZoneBlocks = MSGNEW("PathfindZoneBlocks") ZoneBlock[(m_zoneBlockExtent.x)*(m_zoneBlockExtent.y)];
 	m_zoneBlocks = MSGNEW("PathfindZoneBlocks") ZoneBlockP[m_zoneBlockExtent.x];
+	m_build.blockOfZoneBlocks = MSGNEW("PathfindZoneBlocks") ZoneBlock[(m_zoneBlockExtent.x)*(m_zoneBlockExtent.y)];
+	m_build.zoneBlocks = MSGNEW("PathfindZoneBlocks") ZoneBlockP[m_zoneBlockExtent.x];
 	Int i;
 	for (i=0; i<m_zoneBlockExtent.x; i++) {
 		m_zoneBlocks[i] = &m_blockOfZoneBlocks[i*(m_zoneBlockExtent.y)];
+		m_build.zoneBlocks[i] = &m_build.blockOfZoneBlocks[i*(m_zoneBlockExtent.y)];
 	}
 }
 
 void PathfindZoneManager::reset(void)  ///< Called when the map is reset.
 {
 	freeZones();
+	freeBuildZones();
 	freeBlocks();
-} 
+}
 
 
 void PathfindZoneManager::markZonesDirty( Bool insert )  ///< Called when the zones need to be recalculated.
@@ -3036,541 +3112,314 @@ void PathfindZoneManager::markZonesDirty( Bool insert )  ///< Called when the zo
  * you can successfully pathfind.
  * If you are a multiple terrain vehicle, like amphibious transport, the lookup is a little more
  * complicated.
+ *
+ * The whole pass at once, the way a map is set up and reclassified.
  */
-
-
-
-#define dont_forceRefreshCalling
-#ifdef forceRefreshCalling
-static  Bool  s_stopForceCalling = FALSE;
-#endif
-
-
 void PathfindZoneManager::calculateZones( PathfindCell **map, PathfindLayer layers[], const IRegion2D &globalBounds )
 {
-	PathProfileInner pfProfile( PF_ZONES );
-	Int64 zoneTicksPerSecond = 0, zoneStart = 0, zoneCellsDone = 0, zoneBlocksDone = 0, zoneEnd = 0;
-	zoneTicksPerSecond = Clock_Ticks_Per_Second();
-	zoneStart = Clock_Ticks();
+	beginRebuild( map, layers, globalBounds );
+	stepRebuild( 0x7fffffff );
+}
 
-#ifdef DEBUG_QPF
-#if defined(DEBUG_LOGGING) 
-	Int64 startTime64;
-	static double timeToUpdate = 0.0f;
-  static double averageTimeToUpdate = 0.0f;
-  static Int updateSamples = 0;
-	Int64 endTime64,freq64;
-	freq64 = Clock_Ticks_Per_Second();
-	startTime64 = Clock_Ticks();
-#endif
-#endif
-
-
-	m_maxZone = 1;	// we start using zone 0 as a flag.
-	const Int maxZones=24000;
-	zoneStorageType zoneEquivalency[maxZones];
-	Int i, j;
-	for (i=0; i<maxZones; i++) {
-		zoneEquivalency[i] = i;
+/* The full pass used to run in one frame, and on an 832x832 map that frame took 11-13 ms every time
+	 the structures had changed, at most every ten seconds (ZONE_UPDATE_FREQUENCY).  It is the same
+	 pass now, in the same order, cut into pieces of whole columns, about cellBudget cells of work a
+	 call.  It writes the cells' other zone slot and its own tables and zone blocks, so every query
+	 until the last piece reads the zones from before it began, and the last piece swaps the two
+	 sets in one go.  The budget counts cells, so every machine swaps on the same frame. */
+void PathfindZoneManager::beginRebuild( PathfindCell **map, PathfindLayer layers[], const IRegion2D &globalBounds )
+{
+	Rebuild &b = m_build;
+	b.phase = BUILD_RAW;
+	b.slot = 1 - PathfindCell::s_zoneSlot;
+	b.map = map;
+	b.layers = layers;
+	b.bounds = globalBounds;
+	b.xCount = (globalBounds.hi.x-globalBounds.lo.x+1+ZONE_BLOCK_SIZE-1)/ZONE_BLOCK_SIZE;
+	b.yCount = (globalBounds.hi.y-globalBounds.lo.y+1+ZONE_BLOCK_SIZE-1)/ZONE_BLOCK_SIZE;
+	b.cursor = 0;
+	b.maxZone = 1;	// we start using zone 0 as a flag.
+	b.numChanged = 0;
+	b.frames = 0;
+	b.ticks = 0;
+	b.worstTicks = 0;
+	/* One entry per id a zone can have: EA's 24000 sat on the stack with the overflow check commented
+		 out, so a map past it wrote over the frame.  A raw zone is a run of one terrain type inside a
+		 ZONE_BLOCK_SIZE block, so the count grows with the blocks; the layers take up to LAYER_LAST+1
+		 more after the collapse. */
+	static_assert( MAX_RAW_ZONES == 1 << ( 8 * sizeof( zoneStorageType ) ), "one entry per zone id" );
+	b.equivalency.resize( MAX_RAW_ZONES );
+	b.collapsed.resize( MAX_RAW_ZONES );
+	for (Int i=0; i<MAX_RAW_ZONES; i++) {
+		b.equivalency[i] = (zoneStorageType)i;
 	}
-	for (i=0; i<=LAYER_LAST; i++) {
-		layers[i].setZone(0);
+	// a structure that changes from here on asks for another pass after this one
+	m_nextFrameToCalculateZones = 0xffffffff;
+}
+
+static IRegion2D zoneBlockBounds( const IRegion2D &globalBounds, Int xBlock, Int yBlock )
+{
+	IRegion2D bounds;
+	bounds.lo.x = globalBounds.lo.x + xBlock*PathfindZoneManager::ZONE_BLOCK_SIZE;
+	bounds.lo.y = globalBounds.lo.y + yBlock*PathfindZoneManager::ZONE_BLOCK_SIZE;
+	bounds.hi.x = bounds.lo.x + PathfindZoneManager::ZONE_BLOCK_SIZE - 1; // bounds are inclusive.
+	bounds.hi.y = bounds.lo.y + PathfindZoneManager::ZONE_BLOCK_SIZE - 1; // bounds are inclusive.
+	if (bounds.hi.x > globalBounds.hi.x) {
+		bounds.hi.x = globalBounds.hi.x;
 	}
+	if (bounds.hi.y > globalBounds.hi.y) {
+		bounds.hi.y = globalBounds.hi.y;
+	}
+	return bounds;
+}
 
-	Int xCount = (globalBounds.hi.x-globalBounds.lo.x+1+ZONE_BLOCK_SIZE-1)/ZONE_BLOCK_SIZE;
-	Int yCount = (globalBounds.hi.y-globalBounds.lo.y+1+ZONE_BLOCK_SIZE-1)/ZONE_BLOCK_SIZE;
+/* Raw zones for one column of zone blocks: runs of one terrain type inside each block.  A map that
+	 runs out of zone ids stops here, the same way on every machine, rather than pathing on wrapped
+	 zone numbers. */
+Int PathfindZoneManager::rawZonesForBlockColumn( Int xBlock )
+{
+	Rebuild &b = m_build;
+	const Int s = b.slot;
+	PathfindCell **map = b.map;
+	zoneStorageType *zoneEquivalency = &b.equivalency[0];
+	const UnsignedInt lastRawZone = MAX_RAW_ZONES - 1 - (LAYER_LAST + 1);
+	Int cells = 0;
+	for (Int yBlock=0; yBlock<b.yCount; yBlock++) {
+		const IRegion2D bounds = zoneBlockBounds( b.bounds, xBlock, yBlock );
+		ZoneBlock &block = b.zoneBlocks[xBlock][yBlock];
+		block.setInteractsWithBridge(false);
+		for( Int j=bounds.lo.y; j<=bounds.hi.y; j++ )	{
+			for( Int i=bounds.lo.x; i<=bounds.hi.x; i++ )	{
+				PathfindCell *cell = &map[i][j];
+				cell->setZoneIn(s, 0);
 
-	Int xBlock, yBlock;
-	for (xBlock = 0; xBlock<xCount; xBlock++) {
-		for (yBlock=0; yBlock<yCount; yBlock++) {
-			IRegion2D bounds;
-			bounds.lo.x = globalBounds.lo.x + xBlock*ZONE_BLOCK_SIZE;
-			bounds.lo.y = globalBounds.lo.y + yBlock*ZONE_BLOCK_SIZE;
-			bounds.hi.x = bounds.lo.x + ZONE_BLOCK_SIZE - 1; // bounds are inclusive.
-			bounds.hi.y = bounds.lo.y + ZONE_BLOCK_SIZE - 1; // bounds are inclusive.
-			if (bounds.hi.x > globalBounds.hi.x) {
-				bounds.hi.x = globalBounds.hi.x;
-			}
-			if (bounds.hi.y > globalBounds.hi.y) {
-				bounds.hi.y = globalBounds.hi.y;
-			}
-//			if (bounds.lo.x>bounds.hi.x || bounds.lo.y>bounds.hi.y) {
-//				DEBUG_CRASH(("Incorrect bounds calculation. Logic error, fix me. jba."));
-//				continue;
-//			}
-			m_zoneBlocks[xBlock][yBlock].setInteractsWithBridge(false);
-			for( j=bounds.lo.y; j<=bounds.hi.y; j++ )	{
-				for( i=bounds.lo.x; i<=bounds.hi.x; i++ )	{
-					PathfindCell *cell = &map[i][j];
-					cell->setZone(0);
-
-					if (i>bounds.lo.x) {
-						if (map[i][j].getType() == map[i-1][j].getType()) {
-							applyZone(map[i][j], map[i-1][j], zoneEquivalency, m_maxZone);
-						}
+				if (i>bounds.lo.x) {
+					if (map[i][j].getType() == map[i-1][j].getType()) {
+						applyZone(map[i][j], map[i-1][j], zoneEquivalency, b.maxZone, s);
 					}
-					if (j>bounds.lo.y) {
-						if (map[i][j].getType() == map[i][j-1].getType()) {
-							applyZone(map[i][j], map[i][j-1], zoneEquivalency, m_maxZone);
-						}
+				}
+				if (j>bounds.lo.y) {
+					if (map[i][j].getType() == map[i][j-1].getType()) {
+						applyZone(map[i][j], map[i][j-1], zoneEquivalency, b.maxZone, s);
 					}
-					if (cell->getZone()==0) {
-						cell->setZone(m_maxZone);
-						m_maxZone++;
-//						if (m_maxZone>= maxZones) {
-//							DEBUG_CRASH(("Ran out of pathfind zones.  SERIOUS ERROR! jba."));
-//							break;
-//						}
+				}
+				if (cell->getZoneIn(s)==0) {
+					if (b.maxZone > lastRawZone) {
+						DEBUG_LOG(("calculateZones: out of pathfind zones at cell %d,%d of %d,%d\n", i, j, b.bounds.hi.x, b.bounds.hi.y));
+						RELEASE_CRASH("Ran out of pathfind zones: the map has more separate patches of terrain than the pathfinder can number.");
 					}
-					if (cell->getConnectLayer() > LAYER_GROUND) {
- 						m_zoneBlocks[xBlock][yBlock].setInteractsWithBridge(true);
-					}
-					
+					cell->setZoneIn(s, (zoneStorageType)b.maxZone);
+					b.maxZone++;
+				}
+				if (cell->getConnectLayer() > LAYER_GROUND) {
+ 					block.setInteractsWithBridge(true);
 				}
 			}
-			//DEBUG_LOG(("Collapsed zones %d\n", m_maxZone));
- 		}
+		}
+		cells += (bounds.hi.x-bounds.lo.x+1) * (bounds.hi.y-bounds.lo.y+1);
 	}
+	return cells;
+}
 
-	zoneCellsDone = Clock_Ticks();
-	Int totalZones = m_maxZone;
-	// The merges above left a union-find forest; the collapse below indexes the array directly.
+/* Collapse the raw zones into a 1,2,3... sequence, give each layer a zone of its own after them,
+	 and lay out the tables the rest of the pass fills. */
+void PathfindZoneManager::collapseRawZones( void )
+{
+	Rebuild &b = m_build;
+	const Int totalZones = b.maxZone;
+	zoneStorageType *zoneEquivalency = &b.equivalency[0];
+	Int *collapsedZones = &b.collapsed[0];
+	// The merges left a union-find forest; the collapse indexes the array directly.
 	pathfindZoneFlatten(zoneEquivalency, totalZones);
-//	if (totalZones>maxZones/2) {
-//		DEBUG_LOG(("Max zones %d\n", m_maxZone));
-//	}
 
-	// Collapse the zones into a 1,2,3... sequence, removing collapsed zones.
-	m_maxZone = 1;
-	Int collapsedZones[maxZones];
+	b.maxZone = 1;
 	collapsedZones[0] = 0;
-
-  i = 1;
-  while ( i < totalZones ) 
-  {
+	for (Int i = 1; i < totalZones; ++i) {
 		Int zone = zoneEquivalency[ i ];
-		if (zone == i) 
-    {
-			collapsedZones[ i ] = m_maxZone;
-			++m_maxZone;
-		}	
-    else 
+		if (zone == i) {
+			collapsedZones[ i ] = b.maxZone;
+			++b.maxZone;
+		} else {
 			collapsedZones[ i ] = collapsedZones[zone];
-
-    ++i;
-  }
-
-//	for (i=1; i<totalZones; i++) {
-//		Int zone = zoneEquivalency[i];
-//		if (zone == i) {
-//			collapsedZones[i] = m_maxZone;
-//			++m_maxZone;
-//		}	else {
-//			collapsedZones[i] = collapsedZones[zone];
-//		}
-//	}
-  
-
-
-
-
-
-//#ifdef DEBUG_QPF
-//#if defined(DEBUG_LOGGING)
-//	QueryPerformanceCounter((LARGE_INTEGER *)&endTime64);
-//	timeToUpdate = ((double)(endTime64-startTime64) / (double)(freq64));
-//	DEBUG_LOG(("Time to calculate first %f\n", timeToUpdate));
-//#endif
-//#endif
-
-
-
-
-
-
-	// Now map the zones in the map back into the collapsed zones. Each cell is mapped on its own, so
-	// the walk goes down a column, the way the cells lie in memory: across a row every cell was a
-	// cache line of its own, and a building put down late in a match stalled a frame for 7-10ms on it.
-	i=globalBounds.lo.x;
-	while( i<=globalBounds.hi.x )
-	{
-		PathfindCell *column = map[i];
-		for( j=globalBounds.lo.y; j<=globalBounds.hi.y; ++j )
-			column[j].setZone(collapsedZones[column[j].getZone()]);
-		++i;
-	}
-
-//	for( j=globalBounds.lo.y; j<=globalBounds.hi.y; j++ )	{
-//		for( i=globalBounds.lo.x; i<=globalBounds.hi.x; i++ )	{
-//			map[i][j].setZone(collapsedZones[map[i][j].getZone()]);
-////			if (map[i][j].getZone()==0) {
-////				DEBUG_CRASH(("Zone not set cell %d, %d", i, j));
-////			}
-//		}
-//	}
-
-
-
-
-
-
-  i = 0;
-	while ( i <= LAYER_LAST ) 
-  {
-    PathfindLayer &r_thisLayer = layers[i];
-
-		Int zone = collapsedZones[r_thisLayer.getZone()];
-		if (zone == 0) 
-    {
-			zone = m_maxZone;
-			m_maxZone++;
-		}
-
-    r_thisLayer.setZone( zone );
-    r_thisLayer.applyZone();
-		
-    if (!r_thisLayer.isUnused() && !r_thisLayer.isDestroyed()) 
-    {
-			ICoord2D ndx;
-			r_thisLayer.getStartCellIndex(&ndx);
-			setBridge(ndx.x, ndx.y, true);	
-			r_thisLayer.getEndCellIndex(&ndx);
-			setBridge(ndx.x, ndx.y, true);	
-		}
-
-    ++i;
-	}
-
-//	for (i=0; i<=LAYER_LAST; i++) {
-//		Int zone = collapsedZones[layers[i].getZone()];
-//		if (zone == 0) {
-//			zone = m_maxZone;
-//			m_maxZone++;
-//		}
-//		layers[i].setZone( zone );
-////		if (!layers[i].isUnused() && !layers[i].isDestroyed() && layers[i].getZone()==0) {
-////			DEBUG_CRASH(("Zone not set Layer %d", i));
-////		}
-//		layers[i].applyZone();
-//		if (!layers[i].isUnused() && !layers[i].isDestroyed()) {
-//			ICoord2D ndx;
-//			layers[i].getStartCellIndex(&ndx);
-//			setBridge(ndx.x, ndx.y, true);	
-//			layers[i].getEndCellIndex(&ndx);
-//			setBridge(ndx.x, ndx.y, true);	
-//		}
-//	}
-
-
-
-
-
-
-	allocateZones();
-
-
-
-//	DEBUG_ASSERTCRASH(xBlock==m_zoneBlockExtent.x && yBlock==m_zoneBlockExtent.y, ("Inconsistent allocation - SERIOUS ERROR. jba"));
-	for (xBlock=0; xBlock<xCount; xBlock++) 
-  {
-		for (yBlock=0; yBlock<yCount; yBlock++) 
-    {
-			IRegion2D bounds;
-			bounds.lo.x = globalBounds.lo.x + xBlock*ZONE_BLOCK_SIZE;
-			bounds.lo.y = globalBounds.lo.y + yBlock*ZONE_BLOCK_SIZE;
-			bounds.hi.x = bounds.lo.x + ZONE_BLOCK_SIZE - 1; // bounds are inclusive.
-			bounds.hi.y = bounds.lo.y + ZONE_BLOCK_SIZE - 1; // bounds are inclusive.
-			
-      if (bounds.hi.x > globalBounds.hi.x) 
-				bounds.hi.x = globalBounds.hi.x;
-			
-      if (bounds.hi.y > globalBounds.hi.y) 
-				bounds.hi.y = globalBounds.hi.y;
-
-// Although a good safeguard, the logic is already proven, thus skip the check
-//			if (bounds.lo.x>bounds.hi.x || bounds.lo.y>bounds.hi.y) {
-//				DEBUG_CRASH(("Incorrect bounds calculation. Logic error, fix me. jba."));
-//				continue;
-//			}
-			m_zoneBlocks[xBlock][yBlock].blockCalculateZones(map, layers, bounds);
 		}
 	}
-	zoneBlocksDone = Clock_Ticks();
 
-
-
-
-//#ifdef DEBUG_QPF
-//#if defined(DEBUG_LOGGING) 
-//	QueryPerformanceCounter((LARGE_INTEGER *)&endTime64);
-//	timeToUpdate = ((double)(endTime64-startTime64) / (double)(freq64));
-//	DEBUG_LOG(("Time to calculate second %f\n", timeToUpdate));
-//#endif
-//#endif
-
-
-
-
-
-	// Determine water/ground equivalent zones, and ground/cliff equivalent zones.
-//	for (i=0; i<m_zonesAllocated; i++) {
-//		m_groundCliffZones[i] = i;
-//		m_groundWaterZones[i] = i;
-//		m_groundRubbleZones[i] = i;
-//		m_terrainZones[i] = i;
-//		m_crusherZones[i] = i;
-//		m_hierarchicalZones[i] = i;
-//	}
-	i = 0;
-  while ( i < m_zonesAllocated ) 
-	{
-    m_groundCliffZones[i] = m_groundWaterZones[i] = m_groundRubbleZones[i] = m_terrainZones[i] = m_crusherZones[i] = m_hierarchicalZones[i] = i;
-    i++;
-  }
-
-
-
-
-
-
-//	for( j=globalBounds.lo.y; j<=globalBounds.hi.y; j++ )	{
-//		for( i=globalBounds.lo.x; i<=globalBounds.hi.x; i++ )	{
-//			if ( (map[i][j].getConnectLayer() > LAYER_GROUND) && 
-//				(map[i][j].getType() == PathfindCell::CELL_CLEAR) ) {
-//				PathfindLayer *layer = layers + map[i][j].getConnectLayer();
-//				resolveZones(map[i][j].getZone(), layer->getZone(), m_hierarchicalZones, m_maxZone);
-//			}
-//			if (i>globalBounds.lo.x && map[i][j].getZone()!=map[i-1][j].getZone()) {
-//				if (map[i][j].getType() == map[i-1][j].getType()) {
-//					applyZone(map[i][j], map[i-1][j], m_hierarchicalZones, m_maxZone);
-//				}
-//				if (waterGround(map[i][j], map[i-1][j])) {
-//					applyZone(map[i][j], map[i-1][j], m_groundWaterZones, m_maxZone);
-//				}
-//				if (groundRubble(map[i][j], map[i-1][j])) {
-////					Int zone1 = map[i][j].getZone();
-////					Int zone2 = map[i-1][j].getZone();
-////					if (m_terrainZones[zone1] != m_terrainZones[zone2]) {
-////						//DEBUG_LOG(("Matching terrain zone %d to %d.\n", zone1, zone2));
-////					}
-//					applyZone(map[i][j], map[i-1][j], m_groundRubbleZones, m_maxZone);
-//				}
-//				if (groundCliff(map[i][j], map[i-1][j])) {
-//					applyZone(map[i][j], map[i-1][j], m_groundCliffZones, m_maxZone);
-//				}
-//				if (terrain(map[i][j], map[i-1][j])) {
-//					applyZone(map[i][j], map[i-1][j], m_terrainZones, m_maxZone);
-//				}
-//				if (crusherGround(map[i][j], map[i-1][j])) {
-//					applyZone(map[i][j], map[i-1][j], m_crusherZones, m_maxZone);
-//				}
-//			}
-//			if (j>globalBounds.lo.y && map[i][j].getZone()!=map[i][j-1].getZone()) {
-//				if (map[i][j].getType() == map[i][j-1].getType()) {
-//					applyZone(map[i][j], map[i][j-1], m_hierarchicalZones, m_maxZone);
-//				}
-//				if (waterGround(map[i][j],map[i][j-1])) {
-//					applyZone(map[i][j], map[i][j-1], m_groundWaterZones, m_maxZone);
-//				}
-//				if (groundRubble(map[i][j], map[i][j-1])) {
-////					Int zone1 = map[i][j].getZone();
-////					Int zone2 = map[i][j-1].getZone();
-////					if (m_terrainZones[zone1] != m_terrainZones[zone2]) {
-////						//DEBUG_LOG(("Matching terrain zone %d to %d.\n", zone1, zone2));
-////					}
-//					applyZone(map[i][j], map[i][j-1], m_groundRubbleZones, m_maxZone);
-//				}
-//				if (groundCliff(map[i][j],map[i][j-1])) {
-//					applyZone(map[i][j], map[i][j-1], m_groundCliffZones, m_maxZone);
-//				}
-//				if (terrain(map[i][j], map[i][j-1])) {
-//					applyZone(map[i][j], map[i][j-1], m_terrainZones, m_maxZone);
-//				}
-//				if (crusherGround(map[i][j], map[i][j-1])) {
-//					applyZone(map[i][j], map[i][j-1], m_crusherZones, m_maxZone);
-//				}
-//			}
-//		//	DEBUG_ASSERTCRASH(map[i][j].getZone() != 0, ("Cleared the zone."));
-//		}
-//	}
-  UnsignedInt maxZone = m_maxZone;
-	/* Down each column, as the cells lie in memory, rather than across the rows. Every pair this looks
-		 at is the same either way, and a merge keeps the smaller id of the two sets whichever comes
-		 first, so the flattened tables come out the same. */
-	i=globalBounds.lo.x;
-  while( i <= globalBounds.hi.x )
-  {
-    j=globalBounds.lo.y;
-		while( j <= globalBounds.hi.y )
-    {
-      PathfindCell &r_thisCell = map[i][j];
-
-			if ( (r_thisCell.getConnectLayer() > LAYER_GROUND) && 
-				(r_thisCell.getType() == PathfindCell::CELL_CLEAR) ) 
-      {
-				PathfindLayer *layer = layers + r_thisCell.getConnectLayer();
-				resolveZones(r_thisCell.getZone(), layer->getZone(), m_hierarchicalZones, maxZone);
+	for (Int i = 0; i <= LAYER_LAST; ++i) {
+		b.layerZone[i] = b.maxZone;
+		b.maxZone++;
+		PathfindLayer &layer = b.layers[i];
+		if (!layer.isUnused() && !layer.isDestroyed()) {
+			ICoord2D ends[2];
+			layer.getStartCellIndex(&ends[0]);
+			layer.getEndCellIndex(&ends[1]);
+			for (Int e = 0; e < 2; ++e) {
+				// Bridges can be off the playable grid, so don't crash. jba.
+				const Int blockX = ends[e].x/ZONE_BLOCK_SIZE;
+				const Int blockY = ends[e].y/ZONE_BLOCK_SIZE;
+				if (blockX>=0 && blockX<m_zoneBlockExtent.x && blockY>=0 && blockY<m_zoneBlockExtent.y) {
+					b.zoneBlocks[blockX][blockY].setInteractsWithBridge(true);
+				}
 			}
-
-			if ( i > globalBounds.lo.x && r_thisCell.getZone() != map[i-1][j].getZone() ) 
-      {
-        const PathfindCell &r_leftCell = map[i-1][j];
-
-				if (r_thisCell.getType() == r_leftCell.getType()) 
-					applyZone(r_thisCell, r_leftCell, m_hierarchicalZones, maxZone);//if this is true, skip all the ones below
-        else
-        {
-          Bool notTerrainOrCrusher = TRUE; // if this is false, skip the if-else-ladder below 
-
-          if (terrain(r_thisCell, r_leftCell)) 
-          {
-					  applyZone(r_thisCell, r_leftCell, m_terrainZones, maxZone);
-            notTerrainOrCrusher = FALSE;
-          }
-
-          if (crusherGround(r_thisCell, r_leftCell)) 
-          {
-					  applyZone(r_thisCell, r_leftCell, m_crusherZones, maxZone); 
-            notTerrainOrCrusher = FALSE;
-          }
-
-          if ( notTerrainOrCrusher )
-          {
-            if (waterGround(r_thisCell, r_leftCell)) 
-					    applyZone(r_thisCell, r_leftCell, m_groundWaterZones, maxZone);
-            else if (groundRubble(r_thisCell, r_leftCell)) 
-					    applyZone(r_thisCell, r_leftCell, m_groundRubbleZones, maxZone);
-            else if (groundCliff(r_thisCell, r_leftCell)) 
-					    applyZone(r_thisCell, r_leftCell, m_groundCliffZones, maxZone);
-          }
-
-        }
-
-      }
-
-			if (j>globalBounds.lo.y && r_thisCell.getZone()!=map[i][j-1].getZone()) 
-      {
-        const PathfindCell &r_topCell = map[i][j-1];
-
-        if (r_thisCell.getType() == r_topCell.getType()) 
-					applyZone(r_thisCell, r_topCell, m_hierarchicalZones, maxZone);
-        else
-        {
-          Bool notTerrainOrCrusher = TRUE; // if this is false, skip the if-else-ladder below 
-
-          if (terrain(r_thisCell, r_topCell)) 
-          {
-            applyZone(r_thisCell, r_topCell, m_terrainZones, maxZone);
-            notTerrainOrCrusher = FALSE;
-          }
-
-          if (crusherGround(r_thisCell, r_topCell)) 
-          {
-					  applyZone(r_thisCell, r_topCell, m_crusherZones, maxZone);
-            notTerrainOrCrusher = FALSE;
-          }
-
-          if (waterGround(r_thisCell,r_topCell)) 
-					  applyZone(r_thisCell, r_topCell, m_groundWaterZones, maxZone);
-          else if (groundRubble(r_thisCell, r_topCell)) 
-					  applyZone(r_thisCell, r_topCell, m_groundRubbleZones, maxZone);
-          else if (groundCliff(r_thisCell,r_topCell)) 
-					  applyZone(r_thisCell, r_topCell, m_groundCliffZones, maxZone);
-
-        }
-
-      }
-
-//			DEBUG_ASSERTCRASH(r_thisCell.getZone() != 0, ("Cleared the zone."));
-
-      ++j;
 		}
-
-    ++i;
 	}
 
+	allocateBuildZones();
+	for (UnsignedInt i = 0; i < b.zonesAllocated; ++i) {
+		b.groundCliffZones[i] = b.groundWaterZones[i] = b.groundRubbleZones[i] = b.terrainZones[i] =
+			b.crusherZones[i] = b.hierarchicalZones[i] = (zoneStorageType)i;
+	}
+	b.phase = BUILD_COLLAPSE;
+	b.cursor = b.bounds.lo.x;
+}
 
+/* Join the zones across the block edges, column by column: same terrain into the hierarchical
+	 table, and each pair a locomotor can cross into its own.  A cell holding zone 0 changed after the
+	 pass read it and is left out of every pair. */
+void PathfindZoneManager::hierarchyForColumn( Int i )
+{
+	Rebuild &b = m_build;
+	const Int s = b.slot;
+	PathfindCell **map = b.map;
+	const IRegion2D &gb = b.bounds;
+	const UnsignedInt maxZone = b.maxZone;
+	for (Int j=gb.lo.y; j<=gb.hi.y; ++j)
+	{
+		PathfindCell &r_thisCell = map[i][j];
+		const zoneStorageType zone = r_thisCell.getZoneIn(s);
+		if (zone == UNINITIALIZED_ZONE)
+			continue;
 
+		if ( (r_thisCell.getConnectLayer() > LAYER_GROUND) &&
+			(r_thisCell.getType() == PathfindCell::CELL_CLEAR) )
+		{
+			resolveZones(zone, b.layerZone[r_thisCell.getConnectLayer()], b.hierarchicalZones, maxZone);
+		}
 
+		const zoneStorageType leftZone = i > gb.lo.x ? map[i-1][j].getZoneIn(s) : zone;
+		if ( leftZone != UNINITIALIZED_ZONE && zone != leftZone )
+		{
+			const PathfindCell &r_leftCell = map[i-1][j];
 
+			if (r_thisCell.getType() == r_leftCell.getType())
+				applyZone(r_thisCell, r_leftCell, b.hierarchicalZones, maxZone, s);//if this is true, skip all the ones below
+			else
+			{
+				Bool notTerrainOrCrusher = TRUE; // if this is false, skip the if-else-ladder below
 
+				if (terrain(r_thisCell, r_leftCell))
+				{
+					applyZone(r_thisCell, r_leftCell, b.terrainZones, maxZone, s);
+					notTerrainOrCrusher = FALSE;
+				}
 
+				if (crusherGround(r_thisCell, r_leftCell))
+				{
+					applyZone(r_thisCell, r_leftCell, b.crusherZones, maxZone, s);
+					notTerrainOrCrusher = FALSE;
+				}
 
+				if ( notTerrainOrCrusher )
+				{
+					if (waterGround(r_thisCell, r_leftCell))
+						applyZone(r_thisCell, r_leftCell, b.groundWaterZones, maxZone, s);
+					else if (groundRubble(r_thisCell, r_leftCell))
+						applyZone(r_thisCell, r_leftCell, b.groundRubbleZones, maxZone, s);
+					else if (groundCliff(r_thisCell, r_leftCell))
+						applyZone(r_thisCell, r_leftCell, b.groundCliffZones, maxZone, s);
+				}
+			}
+		}
 
-//	if (m_maxZone >= m_zonesAllocated) {
-//		RELEASE_CRASH("Pathfind allocation error - fatal. see jba.");
-//	}
+		const zoneStorageType topZone = j > gb.lo.y ? map[i][j-1].getZoneIn(s) : zone;
+		if ( topZone != UNINITIALIZED_ZONE && zone != topZone )
+		{
+			const PathfindCell &r_topCell = map[i][j-1];
 
-//	for (i=1; i<m_maxZone; i++) {
-//		// Flatten hierarchical zones.
-//		Int zone = m_hierarchicalZones[i];
-//		m_hierarchicalZones[i] = m_hierarchicalZones[zone];
-//	}
-  //FLATTEN HIERARCHICAL ZONES
-  {
-	  i = 1;
-    Int zone;  
-    while ( i < maxZone ) 
-    {		// Flatten hierarchical zones.
-		  zone = m_hierarchicalZones[i];
-		  m_hierarchicalZones[i] = m_hierarchicalZones[ zone ];
-      ++i;
-	  }
-  }
+			if (r_thisCell.getType() == r_topCell.getType())
+				applyZone(r_thisCell, r_topCell, b.hierarchicalZones, maxZone, s);
+			else
+			{
+				// EA's ladder for this side does not skip the three below after terrain or crusher
+				if (terrain(r_thisCell, r_topCell))
+					applyZone(r_thisCell, r_topCell, b.terrainZones, maxZone, s);
 
-  
-  
-	// Same again for the arrays sweep 2 merged into: flattenZones wants them flat on entry.
-	pathfindZoneFlatten(m_groundCliffZones, m_maxZone);
-	pathfindZoneFlatten(m_groundWaterZones, m_maxZone);
-	pathfindZoneFlatten(m_groundRubbleZones, m_maxZone);
-	pathfindZoneFlatten(m_terrainZones, m_maxZone);
-	pathfindZoneFlatten(m_crusherZones, m_maxZone);
+				if (crusherGround(r_thisCell, r_topCell))
+					applyZone(r_thisCell, r_topCell, b.crusherZones, maxZone, s);
 
-  //THIS BLOCK IS 20% 
-	flattenZones(m_groundCliffZones, m_hierarchicalZones, m_maxZone);
-	flattenZones(m_groundWaterZones, m_hierarchicalZones, m_maxZone);
-	flattenZones(m_groundRubbleZones, m_hierarchicalZones, m_maxZone);
-	flattenZones(m_terrainZones, m_hierarchicalZones, m_maxZone);
-	flattenZones(m_crusherZones, m_hierarchicalZones, m_maxZone);
+				if (waterGround(r_thisCell,r_topCell))
+					applyZone(r_thisCell, r_topCell, b.groundWaterZones, maxZone, s);
+				else if (groundRubble(r_thisCell, r_topCell))
+					applyZone(r_thisCell, r_topCell, b.groundRubbleZones, maxZone, s);
+				else if (groundCliff(r_thisCell,r_topCell))
+					applyZone(r_thisCell, r_topCell, b.groundCliffZones, maxZone, s);
+			}
+		}
+	}
+}
 
+/* Flatten the tables, then put the new zones in place of the old all at once. */
+void PathfindZoneManager::finishRebuild( void )
+{
+	Rebuild &b = m_build;
+	Int i;
+	//FLATTEN HIERARCHICAL ZONES
+	for (i = 1; i < (Int)b.maxZone; ++i) {
+		Int zone = b.hierarchicalZones[i];
+		b.hierarchicalZones[i] = b.hierarchicalZones[ zone ];
+	}
+	// Same again for the arrays the hierarchy pass merged into: flattenZones wants them flat on entry.
+	pathfindZoneFlatten(b.groundCliffZones, b.maxZone);
+	pathfindZoneFlatten(b.groundWaterZones, b.maxZone);
+	pathfindZoneFlatten(b.groundRubbleZones, b.maxZone);
+	pathfindZoneFlatten(b.terrainZones, b.maxZone);
+	pathfindZoneFlatten(b.crusherZones, b.maxZone);
+	flattenZones(b.groundCliffZones, b.hierarchicalZones, b.maxZone);
+	flattenZones(b.groundWaterZones, b.hierarchicalZones, b.maxZone);
+	flattenZones(b.groundRubbleZones, b.hierarchicalZones, b.maxZone);
+	flattenZones(b.terrainZones, b.hierarchicalZones, b.maxZone);
+	flattenZones(b.crusherZones, b.hierarchicalZones, b.maxZone);
 
-#ifdef DEBUG_QPF
-#if defined(DEBUG_LOGGING) 
-	endTime64 = Clock_Ticks();
-	timeToUpdate = ((double)(endTime64-startTime64) / (double)(freq64));
+	// The passable marks belong to the last search, not to the zones, and carry over as they always did.
+	Int x, y;
+	for (x = 0; x < m_zoneBlockExtent.x; x++) {
+		for (y = 0; y < m_zoneBlockExtent.y; y++) {
+			b.zoneBlocks[x][y].setPassable(m_zoneBlocks[x][y].isPassable());
+		}
+	}
+	std::swap(m_blockOfZoneBlocks, b.blockOfZoneBlocks);
+	std::swap(m_zoneBlocks, b.zoneBlocks);
+	std::swap(m_maxZone, b.maxZone);
+	std::swap(m_zonesAllocated, b.zonesAllocated);
+	std::swap(m_groundCliffZones, b.groundCliffZones);
+	std::swap(m_groundWaterZones, b.groundWaterZones);
+	std::swap(m_groundRubbleZones, b.groundRubbleZones);
+	std::swap(m_terrainZones, b.terrainZones);
+	std::swap(m_crusherZones, b.crusherZones);
+	std::swap(m_hierarchicalZones, b.hierarchicalZones);
+	PathfindCell::s_zoneSlot = b.slot;
+	for (i = 0; i <= LAYER_LAST; ++i) {
+		b.layers[i].setZone(b.layerZone[i]);
+		b.layers[i].applyZone();
+	}
+	b.phase = BUILD_IDLE;
 
-//	DEBUG_LOG(("Time to calculate zones %f, cells %d\n", timeToUpdate, (globalBounds.hi.x-globalBounds.lo.x)*(globalBounds.hi.y-globalBounds.lo.y)));
-  if ( updateSamples < 400 )
-  {
-    averageTimeToUpdate = ((averageTimeToUpdate * updateSamples) + timeToUpdate) / (updateSamples + 1.0f);
-    updateSamples++;
-  	DEBUG_LOG(("computing...: %f, \n", averageTimeToUpdate));
-  }
-  else if ( updateSamples == 400 )
-  {
-  	DEBUG_LOG((" =============DONE============= Average time to calculate zones: %f, \n", averageTimeToUpdate));
-  	DEBUG_LOG(("                                           Percent of baseline : %f, \n", averageTimeToUpdate/0.003335f));
-    updateSamples = 777;
-#ifdef forceRefreshCalling
-    s_stopForceCalling = TRUE;
-#endif
-  }
+	// the structures that changed while the pass ran get what a change gets between passes
+	for (i = 0; i < b.numChanged; ++i) {
+		updateZonesForModify(b.map, b.layers, b.changed[i], b.bounds);
+	}
 
-#endif
-#endif
 #if defined _DEBUG || defined _INTERNAL
-	if (TheGlobalData->m_debugAI == AI_DEBUG_ZONES) 
+	if (TheGlobalData->m_debugAI == AI_DEBUG_ZONES)
 	{
 		extern void addIcon(const Coord3D *pos, Real width, Int numFramesDuration, RGBColor color);
 		RGBColor color;
 		memset(&color, 0, sizeof(Color));
 		addIcon(NULL, 0, 0, color);
-		for( j=0; j<globalBounds.hi.y; j++ )	{
-			for( i=0; i<globalBounds.hi.x; i++ )	{
+		PathfindCell **map = b.map;
+		Int j;
+		for( j=0; j<b.bounds.hi.y; j++ )	{
+			for( i=0; i<b.bounds.hi.x; i++ )	{
 				Int zone = map[i][j].getZone();
-				//zone = m_terrainZones[zone];
-				//zone = m_groundCliffZones[zone];
 				zone = m_hierarchicalZones[zone];
 
 				color.blue = (zone%3) * 0.5f;
@@ -3587,19 +3436,93 @@ void PathfindZoneManager::calculateZones( PathfindCell **map, PathfindLayer laye
 		}
 	}
 #endif
-	zoneEnd = Clock_Ticks();
-	const Real SLOW_ZONES_MS = 10.0f;
-	const Real zoneTotalMS = 1000.0f * (Real)(zoneEnd - zoneStart) / (Real)zoneTicksPerSecond;
-	if (zoneTotalMS > SLOW_ZONES_MS) {
-		DEBUG_LOG(("SLOW ZONES frame %d: %.1fms | cells %.1f | blocks %.1f (%dx%d) | hierarchy %.1f | %d zones, %d allocated\n",
-							 TheGameLogic->getFrame(), zoneTotalMS,
-							 1000.0f * (Real)(zoneCellsDone - zoneStart) / (Real)zoneTicksPerSecond,
-							 1000.0f * (Real)(zoneBlocksDone - zoneCellsDone) / (Real)zoneTicksPerSecond,
-							 xCount, yCount,
-							 1000.0f * (Real)(zoneEnd - zoneBlocksDone) / (Real)zoneTicksPerSecond,
-							 (Int)m_maxZone, (Int)m_zonesAllocated));
+}
+
+Bool PathfindZoneManager::stepRebuild( Int cellBudget )
+{
+	Rebuild &b = m_build;
+	if (b.phase == BUILD_IDLE) {
+		return TRUE;
 	}
-	m_nextFrameToCalculateZones = 0xffffffff;
+	PathProfileInner pfProfile( PF_ZONES );
+	const Int64 start = Clock_Ticks();
+	const IRegion2D &gb = b.bounds;
+	const Int height = gb.hi.y - gb.lo.y + 1;
+	Int spent = 0;
+	Bool swapped = FALSE;
+	while (!swapped && spent < cellBudget)
+	{
+		switch (b.phase)
+		{
+			case BUILD_RAW:
+				spent += rawZonesForBlockColumn( b.cursor );
+				if (++b.cursor == b.xCount) {
+					collapseRawZones();
+				}
+				break;
+
+			case BUILD_COLLAPSE:
+			{
+				// Map the cells' raw zones to the collapsed ones, each cell on its own and down a column,
+				// the way the cells lie in memory: across a row every cell was a cache line of its own.
+				PathfindCell *column = b.map[b.cursor];
+				for (Int j=gb.lo.y; j<=gb.hi.y; ++j) {
+					column[j].setZoneIn(b.slot, (zoneStorageType)b.collapsed[column[j].getZoneIn(b.slot)]);
+				}
+				spent += height;
+				if (++b.cursor > gb.hi.x) {
+					b.phase = BUILD_BLOCKS;
+					b.cursor = 0;
+				}
+				break;
+			}
+
+			case BUILD_BLOCKS:
+			{
+				for (Int yBlock=0; yBlock<b.yCount; yBlock++) {
+					b.zoneBlocks[b.cursor][yBlock].blockCalculateZones(b.map, b.layers, zoneBlockBounds(gb, b.cursor, yBlock), b.slot);
+				}
+				const IRegion2D columnBounds = zoneBlockBounds(gb, b.cursor, 0);
+				spent += (columnBounds.hi.x - columnBounds.lo.x + 1) * height;
+				if (++b.cursor == b.xCount) {
+					b.phase = BUILD_HIERARCHY;
+					b.cursor = gb.lo.x;
+				}
+				break;
+			}
+
+			case BUILD_HIERARCHY:
+				hierarchyForColumn( b.cursor );
+				spent += height;
+				if (++b.cursor > gb.hi.x) {
+					finishRebuild();
+					swapped = TRUE;
+				}
+				break;
+
+			default:
+				b.phase = BUILD_IDLE;
+				return TRUE;
+		}
+	}
+
+	const Int64 took = Clock_Ticks() - start;
+	b.frames++;
+	b.ticks += took;
+	if (took > b.worstTicks) {
+		b.worstTicks = took;
+	}
+	if (swapped) {
+		const Real SLOW_ZONES_MS = 10.0f;
+		const Real ticksPerMS = (Real)Clock_Ticks_Per_Second() / 1000.0f;
+		const Real totalMS = (Real)b.ticks / ticksPerMS;
+		if (totalMS > SLOW_ZONES_MS) {
+			DEBUG_LOG(("SLOW ZONES frame %d: %.1fms over %d frames, the longest %.1fms | %d zones, %d allocated\n",
+								 TheGameLogic ? (Int)TheGameLogic->getFrame() : 0, totalMS, b.frames,
+								 (Real)b.worstTicks / ticksPerMS, (Int)m_maxZone, (Int)m_zonesAllocated));
+		}
+	}
+	return swapped;
 }
 
 
@@ -3611,6 +3534,20 @@ void PathfindZoneManager::calculateZones( PathfindCell **map, PathfindLayer laye
 void PathfindZoneManager::updateZonesForModify(PathfindCell **map, PathfindLayer layers[], const IRegion2D &structureBounds, const IRegion2D &globalBounds )
 {
 	PathProfileInner pfProfile( PF_ZONEMOD );
+
+	// a pass in progress may already have read these cells: it does this again over them at its swap
+	if (m_build.phase != BUILD_IDLE) {
+		Rebuild &b = m_build;
+		if (b.numChanged < Rebuild::MAX_CHANGED) {
+			b.changed[b.numChanged++] = structureBounds;
+		} else {
+			IRegion2D &all = b.changed[Rebuild::MAX_CHANGED-1];
+			all.lo.x = MIN(all.lo.x, structureBounds.lo.x);
+			all.lo.y = MIN(all.lo.y, structureBounds.lo.y);
+			all.hi.x = MAX(all.hi.x, structureBounds.hi.x);
+			all.hi.y = MAX(all.hi.y, structureBounds.hi.y);
+		}
+	}
 
 #ifdef DEBUG_QPF
 #if defined(DEBUG_LOGGING) 
@@ -3855,26 +3792,6 @@ Bool PathfindZoneManager::clipIsPassable(Int cellX, Int cellY) const
 	}
 	return m_zoneBlocks[blockX][blockY].isPassable();
 }
-
-//
-// Set the bridge flag for the block at this location.
-//
-void PathfindZoneManager::setBridge(Int cellX, Int cellY, Bool bridge) 
-{
-	Int blockX = cellX/ZONE_BLOCK_SIZE;
-	Int blockY = cellY/ZONE_BLOCK_SIZE;
-
-	if (blockX<0 || blockX>=m_zoneBlockExtent.x) {
-		// DEBUG_CRASH(("Invalid block."));  Bridges can be off the playable grid, so don't crash. jba.
-		return;
-	}
-	if (blockY<0 || blockY>=m_zoneBlockExtent.y) {
-		// DEBUG_CRASH(("Invalid block."));  Bridges can be off the playable grid, so don't crash. jba.
-		return;
-	}
-	m_zoneBlocks[blockX][blockY].setInteractsWithBridge(bridge);
-}
-
 
 //
 // Set the bridge flag for the block at this location.
@@ -5382,6 +5299,9 @@ const char *Pathfinder::getMatchProfileReport( void )
 						 " | queued %d wait %.1f longest %d late %d peak %d full %d capped %d cellcapped %d",
 						 thePFQServed, thePFQServed ? (double)thePFQWaitSum / thePFQServed : 0.0, thePFQWaitMax,
 						 thePFQLate, thePFQPeak, thePFQFull, thePFQCapFrames, thePFQCellFrames );
+	len = strlen( thePFMatchReport );
+	if( thePFQHumanServed > 0 && len < (Int)sizeof( thePFMatchReport ) - 48 )
+		sprintf( thePFMatchReport + len, " human %d humanlongest %d", thePFQHumanServed, thePFQHumanWaitMax );
 	return thePFMatchReport;
 }
 
@@ -5447,10 +5367,14 @@ void Pathfinder::reset( void )
 	m_isTunneling = false;
 
 	m_moveAlliesDepth = 0;
+	for (i=0; i<MOVE_ALLIES_MAX_DEPTH; i++) {
+		m_moveAlliesObjects[i] = INVALID_ID;
+	}
 
 	// pathfind grid cells have not been classified yet
 	m_isMapReady = false;
 	m_cumulativeCellsAllocated = 0;
+	m_queueCellBudget = PATHFIND_CELLS_PER_FRAME;
 	m_lastSearchRestricted = false;
 
 	debugPathPos.x = 0.0f;
@@ -5463,11 +5387,8 @@ void Pathfinder::reset( void )
 	debugPath = NULL;
 	m_frameToShowObstacles = 0;
 
-	for (m_queuePRHead=0; m_queuePRHead<PATHFIND_QUEUE_LEN; m_queuePRHead++) {
-		m_queuedPathfindRequests[m_queuePRHead] = INVALID_ID;
-	}
-	m_queuePRHead = 0;
-	m_queuePRTail = 0;
+	m_humanQueue.clear();
+	m_computerQueue.clear();
 	m_isQueuedForPath.clear();
 
 	m_numWallPieces = 0;
@@ -5636,13 +5557,13 @@ void Pathfinder::classifyFence( Object *obj, Bool insert )
  					pos.y = cy;
 					if (m_map[cx][cy].setTypeAsObstacle( obj, true, pos )) {
 						didAnything = true;
- 						m_map[cx][cy].setZone(PathfindZoneManager::UNINITIALIZED_ZONE);
+ 						m_map[cx][cy].clearZone();
 					}
  				}
 				else {
 					if (m_map[cx][cy].removeObstacle(obj)) {
 						didAnything = true;
- 						m_map[cx][cy].setZone(PathfindZoneManager::UNINITIALIZED_ZONE);
+ 						m_map[cx][cy].clearZone();
 					}
 				}
 				if (cellBounds.lo.x>cx) cellBounds.lo.x = cx;
@@ -5836,12 +5757,12 @@ void Pathfinder::internal_classifyObjectFootprint( Object *obj, Bool insert )
 							pos.x = cx;
 							pos.y = cy;
 							if (m_map[cx][cy].setTypeAsObstacle( obj, false, pos )) {
- 								m_map[cx][cy].setZone(PathfindZoneManager::UNINITIALIZED_ZONE);
+ 								m_map[cx][cy].clearZone();
 							}
 						}
 						else {
 							if (m_map[cx][cy].removeObstacle(obj)) {
- 								m_map[cx][cy].setZone(PathfindZoneManager::UNINITIALIZED_ZONE);
+ 								m_map[cx][cy].clearZone();
 							}
 						}
  						if (cellBounds.lo.x>cx) cellBounds.lo.x = cx;
@@ -5893,12 +5814,12 @@ void Pathfinder::internal_classifyObjectFootprint( Object *obj, Bool insert )
 								pos.x = i;
 								pos.y = j;
 								if (m_map[i][j].setTypeAsObstacle( obj, false, pos )) {
- 									m_map[i][j].setZone(PathfindZoneManager::UNINITIALIZED_ZONE);
+ 									m_map[i][j].clearZone();
 								}
 							}
 							else {
 								if (m_map[i][j].removeObstacle(obj)) {
- 									m_map[i][j].setZone(PathfindZoneManager::UNINITIALIZED_ZONE);
+ 									m_map[i][j].clearZone();
 								}
 							}
  							if (cellBounds.lo.x>i) cellBounds.lo.x = i;
@@ -6830,7 +6751,7 @@ void Pathfinder::snapPosition(Object *obj, Coord3D *pos)
 {
 	Int iRadius;
 	Bool center;
-	getRadiusAndCenter(obj, iRadius, center);
+	getRadiusAndCenter(obj, iRadius, center, TRUE);
 	ICoord2D cell;
 	Coord3D adjustDest = *pos;
 	if (!center) {
@@ -6849,7 +6770,7 @@ void Pathfinder::snapClosestGoalPosition(Object *obj, Coord3D *pos)
 {
 	Int iRadius;
 	Bool center;
-	getRadiusAndCenter(obj, iRadius, center);
+	getRadiusAndCenter(obj, iRadius, center, TRUE);
 	ICoord2D cell;
 	Coord3D adjustDest = *pos;
 	if (!center) {
@@ -6912,7 +6833,7 @@ Bool Pathfinder::goalPosition(Object *obj, Coord3D *pos)
 	Bool center;
 	AIUpdateInterface *ai = obj->getAIUpdateInterface();
 	if (!ai) return false; // only consider ai objects.
-	getRadiusAndCenter(obj, iRadius, center);
+	getRadiusAndCenter(obj, iRadius, center, TRUE);
 	ICoord2D cell = *ai->getPathfindGoalCell();
 	pos->zero();
 	if (cell.x<0 || cell.y<0) return false;
@@ -7097,7 +7018,7 @@ Bool Pathfinder::adjustDestination(Object *obj, const LocomotorSet& locomotorSet
 	}
 	Int iRadius;
 	Bool center;
-	getRadiusAndCenter(obj, iRadius, center);
+	getRadiusAndCenter(obj, iRadius, center, TRUE);
 	ICoord2D cell;
 	Coord3D cellDest = *dest;
 	if (!center) {
@@ -7225,8 +7146,12 @@ static Bool floodMemberArrivesFirst( const FloodMember& a, const FloodMember& b 
  * Every goal is reserved as it is handed out, so the move state's own adjustDestination finds the cell
  * already its own and keeps it. A member still without a goal when the flood runs dry keeps the click
  * and gets the spiral there, as before.
+ *
+ * This is one flood, out of origin's cell on layer; floodGroupGoals below says where origin is.
+ * isPlaced[k] says whether members[k] was handed a cell, and the count of those is returned.
  */
-void Pathfinder::floodGroupGoals(const Coord3D *dest, const std::vector<Object *>& members, std::vector<Coord3D>& goals)
+Int Pathfinder::floodGroupGoalsFrom(const Coord3D *origin, PathfindLayerEnum layer, const std::vector<Object *>& members,
+	std::vector<Coord3D>& goals, std::vector<bool>& isPlaced)
 {
 	PathProfile pfProfile( PF_ADJUST );
 	enum { MIN_FLOOD_CELLS = 400, FLOOD_CELLS_PER_MEMBER = 32 };
@@ -7237,15 +7162,15 @@ void Pathfinder::floodGroupGoals(const Coord3D *dest, const std::vector<Object *
 	const Real MIN_MEMBER_SPEED = 1.0f;			// a member with no speed yet still queues, behind everybody
 
 	const Int memberCount = (Int)members.size();
-	goals.assign( memberCount, *dest );
+	goals.assign( memberCount, *origin );
+	isPlaced.assign( memberCount, false );
 	if (memberCount == 0)
-		return;		// a selection with nothing on the ground, all aircraft
+		return 0;		// a selection with nothing on the ground, all aircraft
 
-	const PathfindLayerEnum layer = TheTerrainLogic->getLayerForDestination( dest );
 	ICoord2D start;
-	worldToCell( dest, &start );
+	worldToCell( origin, &start );
 	if (getCell( layer, start.x, start.y ) == NULL)
-		return;
+		return 0;
 
 	const Player *owner = members[0]->getControllingPlayer();
 	const Bool isHuman = !(owner && owner->getPlayerType() == PLAYER_COMPUTER);
@@ -7257,8 +7182,8 @@ void Pathfinder::floodGroupGoals(const Coord3D *dest, const std::vector<Object *
 		arrival.obj = members[k];
 		arrival.index = k;
 		arrival.speed = MAX( members[k]->getAIUpdateInterface()->getCurLocomotorSpeed(), MIN_MEMBER_SPEED );
-		arrival.approachX = members[k]->getPosition()->x - dest->x;
-		arrival.approachY = members[k]->getPosition()->y - dest->y;
+		arrival.approachX = members[k]->getPosition()->x - origin->x;
+		arrival.approachY = members[k]->getPosition()->y - origin->y;
 		arrival.approachLength = sqrt( arrival.approachX*arrival.approachX + arrival.approachY*arrival.approachY );
 		arrival.arrival = arrival.approachLength / arrival.speed;
 		if (arrival.approachLength > PAST_CLICK_ALLOWANCE)
@@ -7272,14 +7197,14 @@ void Pathfinder::floodGroupGoals(const Coord3D *dest, const std::vector<Object *
 	const Int extentWidth = m_extent.hi.x - m_extent.lo.x + 1;
 	const Int extentHeight = m_extent.hi.y - m_extent.lo.y + 1;
 	std::vector<bool> isOpened( extentWidth * extentHeight, false );
-	std::vector<bool> isPlaced( memberCount, false );
 	std::vector<FloodMember> candidates;
 	std::vector<ICoord2D> wave;
 	wave.push_back( start );
 	isOpened[ (start.x - m_extent.lo.x) + (start.y - m_extent.lo.y) * extentWidth ] = true;
 
 	Int unplacedCount = memberCount;
-	const Int cellLimit = MIN_FLOOD_CELLS + FLOOD_CELLS_PER_MEMBER * memberCount;
+	// a mixed group's soldiers flood out through the vehicles' block before they find a cell of their own
+	const Int cellLimit = MIN_FLOOD_CELLS + FLOOD_CELLS_PER_MEMBER * memberCount + (m_floodBlockArrival.empty() ? 0 : m_floodBlockCells);
 
 	for (Int head = 0; head < (Int)wave.size() && head < cellLimit && unplacedCount > 0; head++)
 	{
@@ -7291,8 +7216,8 @@ void Pathfinder::floodGroupGoals(const Coord3D *dest, const std::vector<Object *
 		{
 			const Real cellX = ((Real)cell.x + 0.5f) * PATHFIND_CELL_SIZE_F;
 			const Real cellY = ((Real)cell.y + 0.5f) * PATHFIND_CELL_SIZE_F;
-			const Real offsetX = cellX - dest->x;
-			const Real offsetY = cellY - dest->y;
+			const Real offsetX = cellX - origin->x;
+			const Real offsetY = cellY - origin->y;
 
 			candidates.clear();
 			for (Int a = 0; a < memberCount && (Int)candidates.size() < MAX_MEMBERS_TRIED_PER_CELL; a++)
@@ -7300,7 +7225,8 @@ void Pathfinder::floodGroupGoals(const Coord3D *dest, const std::vector<Object *
 				if (isPlaced[arrivals[a].index])
 					continue;
 				FloodMember candidate = arrivals[a];
-				if (candidate.approachLength > PAST_CLICK_ALLOWANCE)
+				// a mixed group's soldiers may stand past the click: floodSoldierBlocked keeps them off parked vehicles
+				if (candidate.approachLength > PAST_CLICK_ALLOWANCE && m_floodBlockArrival.empty())
 				{
 					const Real depthPastClick = -(offsetX*candidate.approachX + offsetY*candidate.approachY);
 					if (depthPastClick > PAST_CLICK_ALLOWANCE)
@@ -7309,6 +7235,8 @@ void Pathfinder::floodGroupGoals(const Coord3D *dest, const std::vector<Object *
 				const Real dx = candidate.obj->getPosition()->x - cellX;
 				const Real dy = candidate.obj->getPosition()->y - cellY;
 				candidate.arrival = sqrt( dx*dx + dy*dy ) / candidate.speed;
+				if (floodSoldierBlocked( candidate.obj, cell.x, cell.y ))
+					continue;		// a mixed group's soldier, on the vehicles' block or in their way
 				candidates.push_back( candidate );
 			}
 			std::sort( candidates.begin(), candidates.end(), floodMemberArrivesFirst );
@@ -7318,14 +7246,14 @@ void Pathfinder::floodGroupGoals(const Coord3D *dest, const std::vector<Object *
 				Object *member = candidates[c].obj;
 				Int iRadius;
 				Bool center;
-				getRadiusAndCenter( member, iRadius, center );
-				Coord3D goal = *dest;
+				getRadiusAndCenter( member, iRadius, center, TRUE );
+				Coord3D goal = *origin;
 				if (!checkForAdjust( member, member->getAIUpdateInterface()->getLocomotorSet(), isHuman,
 						cell.x, cell.y, layer, iRadius, center, &goal, NULL ))
 					continue;
 
 				if (memberCount == 1 && head == 0)
-					goal = *dest;		// a lone unit stands where it was clicked, as adjustDestination lets it
+					goal = *origin;		// a lone unit stands where it was clicked, as adjustDestination lets it
 				updateGoal( member, &goal, layer );
 				goals[candidates[c].index] = goal;
 				isPlaced[candidates[c].index] = true;
@@ -7356,6 +7284,277 @@ void Pathfinder::floodGroupGoals(const Coord3D *dest, const std::vector<Object *
 			}
 		}
 	}
+	return memberCount - unplacedCount;
+}
+
+/** iterateCellsAlongLine: nonzero, and the walk stops, on the first cell nobody could stand on. */
+static Int floodLineStandableCallback(Pathfinder* pathfinder, PathfindCell* from, PathfindCell* to, Int to_x, Int to_y, void* userData)
+{
+	const PathfindCell::CellType type = to->getType();
+	return (type == PathfindCell::CELL_CLEAR || type == PathfindCell::CELL_RUBBLE) ? 0 : 1;
+}
+
+/**
+ * Hand a whole group its goals, centred on the click.
+ *
+ * One flood out of the clicked cell lets nobody stop past the click, so a group arriving from one side
+ * piles up short of it: 27 to 33 units short in PathLab, and from the camera the group is going
+ * somewhere other than where it was sent. So a group of two or more is flooded a second time, from the
+ * click pushed on by half of how far the first pile's middle fell short of it. Nobody stops past that
+ * point either, so nobody drives through the ones who got there first, and the pile sits on the click.
+ *
+ * The push falls back to a quarter, then to none, when the straight cell line from the click to the
+ * new start crosses a cell nobody can stand on, so the pile never jumps a cliff or a wall, and when the
+ * new start is off the map or off the clicked deck. A second flood that hands out fewer cells than the
+ * first is thrown away and the first pile kept. The whole shortfall centred a little better and
+ * blocked 15% more.
+ */
+void Pathfinder::floodGroupGoals(const Coord3D *dest, const std::vector<Object *>& members, std::vector<Coord3D>& goals)
+{
+	const PathfindLayerEnum layer = TheTerrainLogic->getLayerForDestination( dest );
+
+	/* Soldiers stop a cell apart (getRadiusAndCenter).  In a group with vehicles the vehicles' block
+		 is laid first exactly as it always was, every soldier holding his 2x2 in it, and only then are
+		 the soldiers moved onto one cell each round that block (floodMixedSoldiers). */
+	Bool hasVehicle = false;
+	Bool hasSoldier = false;
+	for (size_t k = 0; k < members.size(); k++) {
+		if (members[k]->isKindOf(KINDOF_INFANTRY))
+			hasSoldier = true;
+		else
+			hasVehicle = true;
+	}
+	for (size_t k = 0; k < members.size(); k++) {
+		AIUpdateInterface *ai = members[k]->getAIUpdateInterface();
+		const Bool compact = !hasVehicle;
+		if (ai && members[k]->isKindOf(KINDOF_INFANTRY) && (ai->isCompactGoal() ? TRUE : FALSE) != compact) {
+			removeGoal( members[k] );		// cleared on the footprint it was reserved with
+			ai->setCompactGoal( compact );
+		}
+	}
+
+	std::vector<bool> isPlaced;
+	Coord3D pileOrigin = *dest;
+	floodGroupPile( dest, layer, members, goals, isPlaced, &pileOrigin );
+	if (hasVehicle && hasSoldier)
+		floodMixedSoldiers( &pileOrigin, layer, members, goals, isPlaced );
+}
+
+/**
+ * floodGroupGoals' flood out of the click and, for a group of two or more, the second one pushed on to
+ * centre the pile on it.  isPlaced and pileOrigin come back for the flood that stood.
+ */
+void Pathfinder::floodGroupPile(const Coord3D *dest, PathfindLayerEnum layer, const std::vector<Object *>& members,
+	std::vector<Coord3D>& goals, std::vector<bool>& isPlaced, Coord3D *pileOrigin)
+{
+	const Real CENTRE_SHARES[] = { 0.5f, 0.25f };	// of the first pile's shortfall, tried in order
+
+	*pileOrigin = *dest;
+	const Int placedCount = floodGroupGoalsFrom( dest, layer, members, goals, isPlaced );
+
+	const Int memberCount = (Int)members.size();
+	if (memberCount < 2)
+		return;
+
+	Real meanX = 0.0f, meanY = 0.0f;
+	for (Int k = 0; k < memberCount; k++)
+	{
+		meanX += goals[k].x;
+		meanY += goals[k].y;
+	}
+	meanX /= (Real)memberCount;
+	meanY /= (Real)memberCount;
+
+	ICoord2D start;
+	worldToCell( dest, &start );
+	for (Int s = 0; s < (Int)(sizeof(CENTRE_SHARES) / sizeof(CENTRE_SHARES[0])); s++)
+	{
+		Coord3D origin = *dest;
+		origin.x += (dest->x - meanX) * CENTRE_SHARES[s];
+		origin.y += (dest->y - meanY) * CENTRE_SHARES[s];
+		ICoord2D end;
+		if (worldToCell( &origin, &end ))
+			continue;		// off the map
+		if (end.x == start.x && end.y == start.y)
+			return;		// the first pile is already round the click
+
+		/* On a deck the start has to be on the deck too: getCell answers the ground for a cell past
+			 the deck's edge, and a flood on the bridge's layer from there is a flood of the riverbank. */
+		if (layer != LAYER_GROUND && m_layers[layer].getCell( end.x, end.y ) == NULL)
+			continue;
+		if (iterateCellsAlongLine( start, end, layer, floodLineStandableCallback, NULL ) != 0)
+			continue;
+
+		origin.z = TheTerrainLogic->getLayerHeight( origin.x, origin.y, layer );
+		for (Int k = 0; k < memberCount; k++)
+			removeGoal( members[k] );
+		std::vector<Coord3D> centred;
+		std::vector<bool> isCentredPlaced;
+		if (floodGroupGoalsFrom( &origin, layer, members, centred, isCentredPlaced ) >= placedCount)
+		{
+			goals.swap( centred );
+			isPlaced.swap( isCentredPlaced );
+			*pileOrigin = origin;
+			return;
+		}
+
+		/* The new start is in a pocket, or the flood ran out of cells before everybody had one: a
+			 member it left out would drive to the start itself. The first pile stands, reserved again. */
+		for (Int k = 0; k < memberCount; k++)
+			removeGoal( members[k] );
+		for (Int k = 0; k < memberCount; k++)
+		{
+			if (isPlaced[k])
+				updateGoal( members[k], &goals[k], layer );
+		}
+		return;
+	}
+}
+
+/* Logic frames for a member to cover a distance at its locomotor's top speed: a unit standing still
+	 when the order comes has no current speed yet, and floodGroupGoalsFrom's ordering speed is that. */
+static Real floodTravelFrames( const Object *obj, Real distance )
+{
+	const AIUpdateInterface *ai = obj->getAIUpdateInterface();
+	const Locomotor *loco = ai ? ai->getCurLocomotor() : NULL;
+	Real speed = loco ? loco->getMaxSpeedForCondition( obj->getBodyModule()->getDamageState() ) : 0.0f;
+	if (speed < 0.01f)
+		speed = 0.01f;
+	return distance / speed;
+}
+
+/**
+ * A mixed group's soldiers onto one cell each.  The vehicles keep the goals the pile gave them.  The
+ * soldiers give up their 2x2 and flood again from the pile's origin, never on a vehicle's goal or the
+ * cell round it, and never on a cell their own walk reaches through a vehicle already parked there
+ * (floodSoldierBlocked); past the click is allowed, since that walk test is what keeps them from
+ * driving through anybody.  One-cell goals in the old flood let a soldier into the gaps between parked
+ * tanks, and a squad arriving after the tanks shouldered them aside to get there: squad30's Crusaders
+ * came in 24% later.  Keeping soldiers off the last stretch of each vehicle's way in as well cost
+ * massmove's Rangers 16% and won nothing.  If the flood leaves any soldier out, every soldier goes back
+ * to the 2x2 the pile gave him.  Arrivals are distance over top speed (floodTravelFrames), the same on every machine.
+ */
+void Pathfinder::floodMixedSoldiers(const Coord3D *origin, PathfindLayerEnum layer, const std::vector<Object *>& members,
+	std::vector<Coord3D>& goals, const std::vector<bool>& isPlaced)
+{
+	const Int w = m_extent.hi.x - m_extent.lo.x + 1;
+	const Int h = m_extent.hi.y - m_extent.lo.y + 1;
+	m_floodBlockArrival.assign( w*h, FLT_MAX );
+
+	std::vector<Object *> soldiers;
+	std::vector<Int> soldierIndex;
+	for (size_t k = 0; k < members.size(); k++)
+	{
+		Object *member = members[k];
+		AIUpdateInterface *ai = member->getAIUpdateInterface();
+		if (ai == NULL)
+			continue;
+		if (member->isKindOf(KINDOF_INFANTRY))
+		{
+			soldiers.push_back( member );
+			soldierIndex.push_back( (Int)k );
+			continue;
+		}
+		if (!isPlaced[k])
+			continue;
+		const ICoord2D goalCell = *ai->getPathfindGoalCell();
+		if (goalCell.x < 0 || goalCell.y < 0)
+			continue;
+		const Real dx = member->getPosition()->x - goals[k].x;
+		const Real dy = member->getPosition()->y - goals[k].y;
+		const Real length = sqrt( dx*dx + dy*dy );
+		const Real arrival = floodTravelFrames( member, length );
+		Int radius;
+		Bool center;
+		getRadiusAndCenter( member, radius, center, TRUE );
+		const Int above = center ? radius+1 : radius;
+		for (Int i = goalCell.x-radius-1; i <= goalCell.x+above; i++)
+			for (Int j = goalCell.y-radius-1; j <= goalCell.y+above; j++)
+				if (i >= m_extent.lo.x && j >= m_extent.lo.y && i <= m_extent.hi.x && j <= m_extent.hi.y) {
+					Real &cellArrival = m_floodBlockArrival[ (i - m_extent.lo.x) + (j - m_extent.lo.y)*w ];
+					if (arrival < cellArrival)
+						cellArrival = arrival;
+				}
+	}
+
+	m_floodBlockCells = 0;
+	for (Int c = 0; c < w*h; c++)
+	{
+		if (m_floodBlockArrival[c] < FLT_MAX)
+			m_floodBlockCells++;
+	}
+	for (size_t s = 0; s < soldiers.size(); s++)
+	{
+		removeGoal( soldiers[s] );
+		soldiers[s]->getAIUpdateInterface()->setCompactGoal( TRUE );
+	}
+	std::vector<Coord3D> soldierGoals;
+	std::vector<bool> soldierPlaced;
+	floodGroupGoalsFrom( origin, layer, soldiers, soldierGoals, soldierPlaced );
+	m_floodBlockArrival.clear();
+
+	Bool allPlaced = true;
+	for (size_t s = 0; s < soldiers.size(); s++)
+	{
+		if (!soldierPlaced[s])
+			allPlaced = false;
+	}
+	if (allPlaced)
+	{
+		for (size_t s = 0; s < soldiers.size(); s++)
+			goals[soldierIndex[s]] = soldierGoals[s];
+		return;
+	}
+	/* Somebody was left out.  His old 2x2 was free during this flood and may now hold a placed
+		 soldier's cell, so giving it back to him would leave two goals on one cell, which a loaded game
+		 re-reserves in another order.  Undo the whole soldier flood: every soldier back on the 2x2 the
+		 pile gave him, which overlapped nothing. */
+	for (size_t s = 0; s < soldiers.size(); s++)
+		removeGoal( soldiers[s] );
+	for (size_t s = 0; s < soldiers.size(); s++)
+	{
+		const Int k = soldierIndex[s];
+		soldiers[s]->getAIUpdateInterface()->setCompactGoal( FALSE );
+		if (isPlaced[k])
+			updateGoal( soldiers[s], &goals[k], layer );
+	}
+}
+
+/**
+ * floodMixedSoldiers' test for a soldier's candidate cell: on a vehicle's goal or the cell round it,
+ * or reached by a straight walk whose last stretch crosses a vehicle that has parked by then (the
+ * stretch beside the soldier himself excepted, since he may be standing in it).
+ */
+Bool Pathfinder::floodSoldierBlocked(const Object *soldier, Int cellX, Int cellY) const
+{
+	if (m_floodBlockArrival.empty() || !soldier->isKindOf(KINDOF_INFANTRY))
+		return false;
+	const Real WALK_CHECKED = 15.0f * PATHFIND_CELL_SIZE_F;
+	const Real STEP = PATHFIND_CELL_SIZE_F * 0.5f;
+	const Real NEAR_SELF = 2.0f * PATHFIND_CELL_SIZE_F;
+	const Int w = m_extent.hi.x - m_extent.lo.x + 1;
+	const Int h = m_extent.hi.y - m_extent.lo.y + 1;
+	Int i = cellX - m_extent.lo.x;
+	Int j = cellY - m_extent.lo.y;
+	if (i < 0 || j < 0 || i >= w || j >= h)
+		return false;
+	if (m_floodBlockArrival[ i + j*w ] < FLT_MAX)
+		return true;
+	const Real x0 = ((Real)cellX + 0.5f) * PATHFIND_CELL_SIZE_F;
+	const Real y0 = ((Real)cellY + 0.5f) * PATHFIND_CELL_SIZE_F;
+	const Real dx = soldier->getPosition()->x - x0;
+	const Real dy = soldier->getPosition()->y - y0;
+	const Real length = sqrt( dx*dx + dy*dy );
+	const Real soldierArrival = floodTravelFrames( soldier, length );
+	const Real reach = MIN( WALK_CHECKED, length - NEAR_SELF );
+	for (Real d = STEP; d <= reach; d += STEP)
+	{
+		i = REAL_TO_INT_FLOOR( (x0 + dx*d/length) / PATHFIND_CELL_SIZE_F ) - m_extent.lo.x;
+		j = REAL_TO_INT_FLOOR( (y0 + dy*d/length) / PATHFIND_CELL_SIZE_F ) - m_extent.lo.y;
+		if (i >= 0 && j >= 0 && i < w && j < h && m_floodBlockArrival[ i + j*w ] < soldierArrival)
+			return true;
+	}
+	return false;
 }
 
 Bool Pathfinder::checkForTarget(const Object *obj, 	Int cellX, Int cellY, const Weapon *weapon,
@@ -7383,7 +7582,7 @@ Bool Pathfinder::adjustTargetDestination(const Object *obj, const Object *target
 	PathProfile pfProfile( PF_ADJUST );
 	Int iRadius;
 	Bool center;
-	getRadiusAndCenter(obj, iRadius, center);
+	getRadiusAndCenter(obj, iRadius, center, TRUE);
 	ICoord2D cell;
 	Coord3D adjustDest = *dest;
 	if (!center) {
@@ -7466,7 +7665,7 @@ Bool Pathfinder::adjustToPossibleDestination(Object *obj, const LocomotorSet& lo
 	PathProfile pfProfile( PF_ADJUST );
 	Int radius;
 	Bool center;
-	getRadiusAndCenter(obj, radius, center);
+	getRadiusAndCenter(obj, radius, center, TRUE);
 	ICoord2D goalCellNdx;
 	Coord3D adjustDest = *dest;
 	if (!center) {
@@ -7571,6 +7770,14 @@ Bool Pathfinder::adjustToPossibleDestination(Object *obj, const LocomotorSet& lo
 }
 
 
+/// which line a request waits in: a human player's unit is answered before any computer player's.
+/// The player type is game setup, the same on every machine and in the replay.
+static Bool pathRequestIsHuman( const Object *obj )
+{
+	const Player *player = obj ? obj->getControllingPlayer() : NULL;
+	return player != NULL && player->getPlayerType() == PLAYER_HUMAN;
+}
+
 /**
  * Queues an object to do a pathfind.
  * It will call the object's ai update->doPathfind() during processPathfindQueue().
@@ -7595,20 +7802,13 @@ Bool Pathfinder::queueForPath(ObjectID id)
 		return true;
 	}
 
-	// Tail is the first available slot.
-	Int nextSlot = m_queuePRTail+1;
-	if (nextSlot >= PATHFIND_QUEUE_LEN) {
-		nextSlot = 0;
-	}
-	if (nextSlot==m_queuePRHead) {
+	PathRequestRing &ring = pathRequestIsHuman( TheGameLogic->findObjectByID( id ) ) ? m_humanQueue : m_computerQueue;
+	if (!ring.push( id, TheGameLogic->getFrame() )) {
 		DEBUG_LOG(("PATHFIND QUEUE FULL: object %d asks again shortly\n", id));
 		thePFQFull++;
 		return false;
 	}
-	m_queuedPathfindRequests[m_queuePRTail] = id;
-	theQueuedFrame[m_queuePRTail] = TheGameLogic->getFrame();
-	m_queuePRTail = nextSlot;
-	const Int depth = (m_queuePRTail - m_queuePRHead + PATHFIND_QUEUE_LEN) % PATHFIND_QUEUE_LEN;
+	const Int depth = m_humanQueue.depth() + m_computerQueue.depth();
 	if (depth > thePFQPeak)
 		thePFQPeak = depth;
 	if ((size_t)id >= m_isQueuedForPath.size()) {
@@ -7807,7 +8007,61 @@ Path *Pathfinder::getAircraftPath( const Object *obj, const Coord3D *to )
 
 
 
-/** 
+struct Pathfinder::QueueServer
+{
+	Pathfinder *pathfinder;
+	UnsignedInt now;
+	Bool hasBudget( void ) const { return pathfinder->m_cumulativeCellsAllocated < pathfinder->m_queueCellBudget; }
+	Bool serve( PathRequestRing &ring ) { return pathfinder->serveQueuedRequest( ring, now ); }
+};
+
+/** One unit's turn in the queue: the unit at the head of ring asks for its path.  FALSE when the
+	* frame's cells ran out inside its search, which leaves it at the head to carry on next frame. */
+Bool Pathfinder::serveQueuedRequest( PathRequestRing &ring, UnsignedInt now )
+{
+	const ObjectID id = ring.front();
+	const Int waited = (Int)(now - ring.queuedFrame[ring.head]);
+	Object *obj = TheGameLogic->findObjectByID(id);
+	m_isQueuedForPath[id] = false;
+	ring.ids[ring.head] = INVALID_ID;
+	m_search.claimed = FALSE;
+	if (obj) {
+		AIUpdateInterface *ai = obj->getAIUpdateInterface();
+		if (ai) {
+			m_queueOwnerID = id;
+			ai->doPathfind(this);
+			m_queueOwnerID = INVALID_ID;
+		}
+	}
+	/* A stopped search its unit did not come back for: gone, or asking something else now.  Only this
+		 unit's: with two lines, an answer settleSuspendedSearch kept for a computer player's unit can
+		 still be held while a human player's unit has its turn. */
+	if (m_search.owner == id && !m_search.claimed) {
+		dropSuspendedSearch();
+	}
+	if (m_search.owner == id) {
+		// the frame's cells ran out inside this unit's search: it keeps the head of its line and
+		// carries on from the same cell next frame, so nobody behind it is answered first
+		ring.ids[ring.head] = id;
+		m_isQueuedForPath[id] = true;
+		return FALSE;
+	}
+	// counted as it leaves the queue: a search carried over frames is one request, waiting until it ends
+	thePFQServed++;
+	thePFQWaitSum += waited;
+	if (waited > thePFQWaitMax)
+		thePFQWaitMax = waited;
+	if (waited > LOGICFRAMES_PER_SECOND)
+		thePFQLate++;
+	if (&ring == &m_humanQueue) {
+		thePFQHumanServed++;
+		if (waited > thePFQHumanWaitMax)
+			thePFQHumanWaitMax = waited;
+	}
+	return TRUE;
+}
+
+/**
  * Process some path requests in the pathfind queue.
  */
 //DECLARE_PERF_TIMER(processPathfindQueue)
@@ -7831,16 +8085,22 @@ void Pathfinder::processPathfindQueue(void)
 
 
 
-	if (  
-#ifdef forceRefreshCalling
-#pragma message("AHHHH!, forced calls to pathzonerefresh still in code...  notify M Lorenzen")
-    s_stopForceCalling==FALSE || 
-#endif
-    m_zoneManager.needToCalculateZones())
-  {
-		dropSuspendedSearch();		// its corridor is in the old zone numbers; the unit starts over
-		m_zoneManager.calculateZones(m_map, m_layers, m_extent);
-		return;
+	/* The full zone pass, a slice a frame (PathfindZoneManager::stepRebuild).  The searches below
+		 read the zones from before it until the frame it swaps.  A map of up to 65536 cells does the
+		 whole pass in the frame it starts, and that frame searches nothing, as every zone frame used
+		 to: on those maps the game plays as it did. */
+	if (m_zoneManager.isRebuilding() || m_zoneManager.needToCalculateZones())
+	{
+		const Bool starting = !m_zoneManager.isRebuilding();
+		if (starting) {
+			m_zoneManager.beginRebuild(m_map, m_layers, m_extent);
+		}
+		if (m_zoneManager.stepRebuild(PathfindZoneManager::REBUILD_CELLS_PER_FRAME)) {
+			dropSuspendedSearch();		// its corridor is in the old zone numbers; the unit starts over
+			if (starting) {
+				return;
+			}
+		}
 	}
 
 	// Get the current logical extent.
@@ -7856,9 +8116,6 @@ void Pathfinder::processPathfindQueue(void)
 	m_logicalExtent = bounds;
 
 	m_cumulativeCellsAllocated = 0;	// Number of pathfind cells examined.
-#ifdef DEBUG_QPF
-	Int pathsFound = 0;
-#endif
 	/* The cell budget bounds how much *searching* a frame does and says nothing about how many
 		 requests it starts, which is where the bursts come from: a match averages under two path
 		 requests a logic frame, and the frames that run long are the ones where a group order or a
@@ -7874,7 +8131,7 @@ void Pathfinder::processPathfindQueue(void)
 		 waiting answered the backlog sooner and made the army leave later, the last unit 23.2 s after
 		 the order against 19.1 s, with one of them never arriving. The back of a packed army waits for
 		 the front to clear, not for its path, and more paths at once is more units shoving. */
-	/* Kept at three per frame at 60 logic frames a second rather than halved: one and a half is not a
+	/* Kept at three per frame when logic runs at twice the retail rate rather than halved: one and a half is not a
 		 count, two was measured worse, and the cap is there to clip a burst within a frame, which a
 		 frame half as long needs no less. */
 	/* "Many times the demand" stops being true twenty minutes into a 4v4 between Hard computers: a
@@ -7887,63 +8144,35 @@ void Pathfinder::processPathfindQueue(void)
 		 the box (a one-frame control moved it to 34.6). Medium likewise, Easy never gets that deep.
 		 Up to twelve a frame cut the wait further and drove worse (blocked 3,814 to 5,402). The
 		 841-unit order is held by the cell budget, not by this, and leaves as it did. */
-	enum { PATHFIND_REQUESTS_PER_FRAME = 3, PATHFIND_DEEP_QUEUE = 180, PATHFIND_DEEP_STEP = 60,
-		PATHFIND_REQUESTS_PER_FRAME_DEEP = 6 };
+	enum { PATHFIND_REQUESTS_PER_FRAME = 3, PATHFIND_REQUESTS_PER_FRAME_DEEP = 6 };
 	Int requestCap = PATHFIND_REQUESTS_PER_FRAME;
-	const Int depth = (m_queuePRTail - m_queuePRHead + PATHFIND_QUEUE_LEN) % PATHFIND_QUEUE_LEN;
+	/* Both lines count towards the depth and share the cap.  With no human player's unit waiting it
+		 is the one queue it always was, in the same order. */
+	const Int depth = m_humanQueue.depth() + m_computerQueue.depth();
 	if (depth > PATHFIND_DEEP_QUEUE)
 		requestCap += (depth - PATHFIND_DEEP_QUEUE) / PATHFIND_DEEP_STEP;
 	if (requestCap > PATHFIND_REQUESTS_PER_FRAME_DEEP)
 		requestCap = PATHFIND_REQUESTS_PER_FRAME_DEEP;
-	Int requestsThisFrame = 0;
-	const UnsignedInt now = TheGameLogic->getFrame();
 
-	while (m_cumulativeCellsAllocated < PATHFIND_CELLS_PER_FRAME &&
-		requestsThisFrame < requestCap &&
-		m_queuePRTail!=m_queuePRHead) {
-		++requestsThisFrame;
-		const ObjectID id = m_queuedPathfindRequests[m_queuePRHead];
-		const Int waited = (Int)(now - theQueuedFrame[m_queuePRHead]);
-		Object *obj = TheGameLogic->findObjectByID(id);
-		m_isQueuedForPath[id] = false;
-		m_queuedPathfindRequests[m_queuePRHead] = INVALID_ID;
-		m_search.claimed = FALSE;
-		if (obj) {
-			AIUpdateInterface *ai = obj->getAIUpdateInterface();
-			if (ai) {
-				m_queueOwnerID = id;
-				ai->doPathfind(this);
-				m_queueOwnerID = INVALID_ID;
-#ifdef DEBUG_QPF
-				pathsFound++;
-#endif
-			}
-		}
-		// a stopped search its unit did not come back for: gone, or asking something else now
-		if (m_search.owner != INVALID_ID && !m_search.claimed) {
-			dropSuspendedSearch();
-		}
-		if (m_search.owner != INVALID_ID) {
-			// the frame's cells ran out inside this unit's search: it keeps the head of the queue and
-			// carries on from the same cell next frame, so nobody behind it is answered first
-			m_queuedPathfindRequests[m_queuePRHead] = id;
-			m_isQueuedForPath[id] = true;
-			break;
-		}
-		// counted as it leaves the queue: a search carried over frames is one request, waiting until it ends
-		thePFQServed++;
-		thePFQWaitSum += waited;
-		if (waited > thePFQWaitMax)
-			thePFQWaitMax = waited;
-		if (waited > LOGICFRAMES_PER_SECOND)
-			thePFQLate++;
-		m_queuePRHead = m_queuePRHead+1;
-		if (m_queuePRHead >= PATHFIND_QUEUE_LEN) {
-			m_queuePRHead = 0;
-		}
-	}
-	if (m_queuePRTail != m_queuePRHead) {
-		if (m_cumulativeCellsAllocated >= PATHFIND_CELLS_PER_FRAME)
+	const ObjectID stoppedOwner = (m_search.owner != INVALID_ID && !m_search.done) ? m_search.owner : INVALID_ID;
+	/* Since searches stop on the frame's cells and carry on next frame, the cells are what drains a
+		 backlog, and they stayed at 2500 a frame however deep it got while the request cap above
+		 grew: 60 Rangers ordered behind 240 Red Guards sent across Twilight Flame moved in a mean of
+		 270 frames, 261 with no stopping at all, 81 with nobody ahead of them.  The cells now grow
+		 with the depth the way the cap does, to four times (Pathfinder_queueCellBudget): 240 frames,
+		 and 487.9 to 340.9 with 480 Red Guards across Death Valley.  The cost is about 1.3 ms for
+		 10000 cells: there the order's frame went 6.3-6.8 ms to 7.7-8.5 and p99.9 4.25-4.50 to
+		 4.25-5.50 over three runs each, and no frame's queue took over 3 ms in either build. */
+	const Bool humanWaitsOnComputer = stoppedOwner != INVALID_ID && !m_humanQueue.isEmpty() &&
+		!m_computerQueue.isEmpty() && m_computerQueue.front() == stoppedOwner;
+	m_queueCellBudget = Pathfinder_queueCellBudget( PATHFIND_CELLS_PER_FRAME, depth, humanWaitsOnComputer );
+
+	QueueServer server;
+	server.pathfinder = this;
+	server.now = TheGameLogic->getFrame();
+	const Int pathsFound = Pathfinder_servePathQueues( m_humanQueue, m_computerQueue, stoppedOwner, requestCap, server );
+	if (!m_humanQueue.isEmpty() || !m_computerQueue.isEmpty()) {
+		if (m_cumulativeCellsAllocated >= m_queueCellBudget)
 			thePFQCellFrames++;
 		else
 			thePFQCapFrames++;
@@ -8466,7 +8695,8 @@ Path *Pathfinder::findPath( Object *obj, const LocomotorSet& locomotorSet, const
 		return continueFindPath(obj, locomotorSet, TRUE);
 	}
 	// the main search's state is about to be laid out again; only the queue asks for it, so whatever
-	// is held is the head unit's and it has just asked for something else
+	// is held is the head unit's and it has just asked for something else (or an answer another
+	// search finished for a computer player's unit, which then asks again at its turn)
 	dropSuspendedSearch();
 	if (!clientSafeQuickDoesPathExist(locomotorSet, from, rawTo)) {
 		return NULL;
@@ -8546,6 +8776,10 @@ Path *Pathfinder::internalFindPath( Object *obj, const LocomotorSet& locomotorSe
 	if (obj) {
 		getRadiusAndCenter(obj, radius, centerInCell);
 	}
+	// the goal is found and checked with the footprint the unit reserves there, the search with its body
+	Bool goalCenter;
+	Int goalRadius;
+	getRadiusAndCenter(obj, goalRadius, goalCenter, TRUE);
 	beginFlowSearch(obj);
 
 	Bool isHuman = true;
@@ -8567,7 +8801,7 @@ Path *Pathfinder::internalFindPath( Object *obj, const LocomotorSet& locomotorSe
 	Coord3D clipFrom = *from;
 	clip(&clipFrom, &adjustTo);
 
-	if (!centerInCell) {
+	if (!goalCenter) {
 		adjustTo.x += PATHFIND_CELL_SIZE_F/2;
 		adjustTo.y += PATHFIND_CELL_SIZE_F/2;
 	}
@@ -8580,11 +8814,11 @@ Path *Pathfinder::internalFindPath( Object *obj, const LocomotorSet& locomotorSe
 	if (goalCell == NULL) {
 		return NULL;
 	}
-	
+
 	ICoord2D cell;
 	worldToCell( to, &cell );
 
-	if (!checkDestination(obj, cell.x, cell.y, destinationLayer, radius, centerInCell)) {
+	if (!checkDestination(obj, cell.x, cell.y, destinationLayer, goalRadius, goalCenter)) {
 		return NULL;
 	}
 	// determine start cell
@@ -8792,7 +9026,8 @@ Path *Pathfinder::continueFindPath( Object *obj, const LocomotorSet& locomotorSe
 		 (this, twice, and the queue's cell budget) all bought it with movement instead. */
 	/* Since the search stops at the queue's cell budget and carries on next frame, this no longer
 		 bounds a frame, so it is no longer the 20000 it was for that.  What is left for it to bound is
-		 how long one request holds the head of the queue - 40000 cells is 16 frames at 2500 a frame -
+		 how long one request holds the head of the queue - 40000 cells is 16 frames at 2500 a frame,
+		 four when the queue is deep (Pathfinder_queueCellBudget) -
 		 and the cell-info pool, so a goal that cannot be reached still ends. */
 	enum { MAX_INTERNAL_CELL_COUNT = 40000 };
 	Bool hitCellCap = false;
@@ -8881,7 +9116,7 @@ Path *Pathfinder::continueFindPath( Object *obj, const LocomotorSet& locomotorSe
 		cellCount += examineNeighboringCells(parentCell, goalCell, locomotorSet, isHuman, centerInCell, radius, startCellNdx, obj, NO_ATTACK);
 
 		if (mayStop && m_openList != NULL &&
-				m_cumulativeCellsAllocated + (cellCount - cellsBefore) >= PATHFIND_CELLS_PER_FRAME) {
+				m_cumulativeCellsAllocated + (cellCount - cellsBefore) >= m_queueCellBudget) {
 			// the frame's cells are spent: keep the lists and carry on from here next frame, charging
 			// this frame for the part it did
 			m_cumulativeCellsAllocated += cellCount - cellsBefore;
@@ -10600,10 +10835,10 @@ Bool Pathfinder::pathDestination( 	Object *obj, const LocomotorSet& locomotorSet
 	}
 	Bool center;
 	Int radius;
-	getRadiusAndCenter(obj, radius, center);
+	getRadiusAndCenter(obj, radius, center, TRUE);
 
 	// determine start cell
-	ICoord2D startCellNdx; 
+	ICoord2D startCellNdx;
 	worldToCell(dest, &startCellNdx);
 	PathfindCell *parentCell = getCell( layer, startCellNdx.x, startCellNdx.y );
 	if (parentCell == NULL)
@@ -10835,7 +11070,7 @@ void Pathfinder::tightenPath(Object *obj, const LocomotorSet& locomotorSet, Coor
 {
 	TightenPathStruct info;
 
-	getRadiusAndCenter(obj, info.radius, info.center);
+	getRadiusAndCenter(obj, info.radius, info.center, TRUE);
 	info.layer = TheTerrainLogic->getLayerForDestination(from);
 	info.obj = obj;
 	info.locomotorSet = &locomotorSet;
@@ -11093,10 +11328,14 @@ Path *Pathfinder::findClosestPath( Object *obj, const LocomotorSet& locomotorSet
 	Bool centerInCell;
 	Int radius;
 	getRadiusAndCenter(obj, radius, centerInCell);
+	// where it may stop is checked with the footprint it reserves there, the search with its body
+	Bool goalCenter;
+	Int goalRadius;
+	getRadiusAndCenter(obj, goalRadius, goalCenter, TRUE);
 
 	Coord3D adjustTo = *rawTo;
 	Coord3D *to = &adjustTo;
-	if (!centerInCell) {
+	if (!goalCenter) {
 		adjustTo.x += PATHFIND_CELL_SIZE_F/2;
 		adjustTo.y += PATHFIND_CELL_SIZE_F/2;
 	}
@@ -11229,7 +11468,7 @@ Path *Pathfinder::findClosestPath( Object *obj, const LocomotorSet& locomotorSet
 			// success - found a path to the goal
 			if (!goalOnObstacle) {
 				// See if the goal is a valid destination.  If not, accept closest cell.
-				if (closesetCell!=NULL && !canPathThroughUnits && !checkDestination(obj, parentCell->getXIndex(), parentCell->getYIndex(), parentCell->getLayer(), radius, centerInCell)) {
+				if (closesetCell!=NULL && !canPathThroughUnits && !checkDestination(obj, parentCell->getXIndex(), parentCell->getYIndex(), parentCell->getLayer(), goalRadius, goalCenter)) {
 					foundGoal = true;
 					// Continue processing the open list to find a possibly closer cell. jba. [8/25/2003]
 					continue;
@@ -11267,7 +11506,7 @@ Path *Pathfinder::findClosestPath( Object *obj, const LocomotorSet& locomotorSet
 		}	
 		// put parent cell onto closed list - its evaluation is finished
 		m_closedList = parentCell->putOnClosedList( m_closedList );
-		if (!m_isTunneling && checkDestination(obj, parentCell->getXIndex(), parentCell->getYIndex(), parentCell->getLayer(), radius, centerInCell)) {
+		if (!m_isTunneling && checkDestination(obj, parentCell->getXIndex(), parentCell->getYIndex(), parentCell->getLayer(), goalRadius, goalCenter)) {
 			if (!startedStuck || validMovementPosition( isCrusher, locomotorSet.getValidSurfaces(), parentCell )) {
 				dx = IABS(goalCell->getXIndex()-parentCell->getXIndex());
 				dy = IABS(goalCell->getYIndex()-parentCell->getYIndex());
@@ -11395,17 +11634,40 @@ Path *Pathfinder::buildActualPath( const Object *obj, LocomotorSurfaceTypeMask a
 
 	Path *path = newInstance(Path);
 
+	// a compact soldier's goal is one cell (getRadiusAndCenter), so the cell before a pinched goal is
+	// often a squad mate's: step back only onto one he may stop on, or he takes it and the mate's path fails
+	Int goalRadius;
+	Bool goalCenter;
+	getRadiusAndCenter(obj, goalRadius, goalCenter, TRUE);
+	const Bool soldierGoal = goalCenter && !center;
 	if (goalCell->getPinched() && goalCell->getParentCell() && !goalCell->getParentCell()->getPinched()) {
-		goalCell = goalCell->getParentCell();
+		PathfindCell *parent = goalCell->getParentCell();
+		if (!soldierGoal ||
+				checkDestination(obj, parent->getXIndex(), parent->getYIndex(), parent->getLayer(), goalRadius, goalCenter)) {
+			goalCell = parent;
+		}
 	}
 
-	prependCells(path, fromPos, goalCell, center);
+	if (!prependCells(path, fromPos, goalCell, center)) {
+		// no path rather than a broken one: the unit's move fails and asks again
+		DEBUG_LOG(("Pathfinder::buildActualPath - frame %d unit '%s' (%d): the search's cells lost their chain, no path\n",
+			TheGameLogic->getFrame(), obj ? obj->getTemplate()->getName().str() : "?", obj ? (Int)obj->getID() : 0));
+		path->deleteInstance();
+		return NULL;
+	}
+	// the route ends where the unit reserves its goal: for a compact soldier the middle of his cell,
+	// not the corner his 2x2 body walks the cells by
+	if (soldierGoal && path->getLastNode()) {
+		Coord3D goalPos;
+		adjustCoordToCell(goalCell->getXIndex(), goalCell->getYIndex(), TRUE, goalPos, goalCell->getLayer());
+		path->getLastNode()->setPosition(&goalPos);
+	}
 
 	// cleanup the path by checking line of sight
 	path->optimize(obj, acceptableSurfaces, blocked);
 
 #if defined _DEBUG || defined _INTERNAL
-	if (TheGlobalData->m_debugAI==AI_DEBUG_PATHS) 
+	if (TheGlobalData->m_debugAI==AI_DEBUG_PATHS)
 	{
 		extern void addIcon(const Coord3D *pos, Real width, Int numFramesDuration, RGBColor color);
  		RGBColor color;
@@ -11440,7 +11702,7 @@ Path *Pathfinder::buildActualPath( const Object *obj, LocomotorSurfaceTypeMask a
 /**
  * Work backwards from goal cell to construct final path.
  */
-void Pathfinder::prependCells( Path *path, const Coord3D *fromPos, 
+Bool Pathfinder::prependCells( Path *path, const Coord3D *fromPos,
 																	PathfindCell *goalCell, Bool center )
 {
 	// traverse path cells in REVERSE order, creating path in desired order
@@ -11486,18 +11748,27 @@ void Pathfinder::prependCells( Path *path, const Coord3D *fromPos,
 		}
 		prevCell = cell;
 	}
-	m_zoneManager.setPassable(cell->getXIndex(), cell->getYIndex(), true);
-	if (goalCellNull) {
-		// Very short path.
-		adjustCoordToCell(cell->getXIndex(), cell->getYIndex(), center, pos, cell->getLayer());
-		path->prependNode( &pos, cell->getLayer() );
+	// The walk stops on a cell with no parent, and getParentCell answers NULL for a cell whose info
+	// is gone as well: v4.0.0 reports then faulted in getXIndex just below. Every cell the search
+	// touched should still hold its info here, so which search released one is still open (TODO).
+	const Bool complete = cell->hasInfo();
+	if (complete) {
+		m_zoneManager.setPassable(cell->getXIndex(), cell->getYIndex(), true);
+		if (goalCellNull) {
+			// Very short path.
+			adjustCoordToCell(cell->getXIndex(), cell->getYIndex(), center, pos, cell->getLayer());
+			path->prependNode( &pos, cell->getLayer() );
+		}
+	}
+	if (path->getFirstNode() == NULL) {
+		return FALSE;
 	}
 	// put actual start position as first node on the path, so it begins right at the unit's feet
 	if (fromPos->x != path->getFirstNode()->getPosition()->x || fromPos->y != path->getFirstNode()->getPosition()->y) {
 		path->prependNode( fromPos, cell->getLayer() );
 	}
-
-}			 
+	return complete;
+}
 
 void Pathfinder::setDebugPath(Path *newDebugpath) 
 {
@@ -11621,16 +11892,8 @@ Int Pathfinder::iterateCellsAlongLine( const ICoord2D &start, const ICoord2D &en
 
 static ObjectID getSlaverID(const Object* o)
 {
-	for (BehaviorModule** update = o->getBehaviorModules(); *update; ++update)
-	{
-		SlavedUpdateInterface* sdu = (*update)->getSlavedUpdateInterface();
-		if (sdu != NULL)
-		{
-			return sdu->getSlaverID();
-		}
-	}
-	
-	return INVALID_ID;
+	const SlavedUpdateInterface* sdu = o->getSlavedUpdateInterface();
+	return sdu != NULL ? sdu->getSlaverID() : INVALID_ID;
 }
 
 static ObjectID getContainerID(const Object* o)
@@ -11719,6 +11982,9 @@ struct ViewAttackBlockedStruct
 	const PathfindCell *victimCell;
 	Int		skipCount;
 	ObjectID standingIn;	///< with no obj: a building whose cells the shooter would stand in, not in its way
+	Bool slaversKnown;		///< the two below are looked up on the first cell that needs them
+	ObjectID victimSlaver;
+	ObjectID objSlaver;
 };
 
 /*static*/ Int Pathfinder::attackBlockedByObstacleCallback(Pathfinder* pathfinder, PathfindCell* from, PathfindCell* to, Int to_x, Int to_y, void* userData)
@@ -11731,6 +11997,10 @@ struct ViewAttackBlockedStruct
 	}
 	if (to != NULL && (to->getType() == PathfindCell::CELL_OBSTACLE))
 	{
+		// Every test below excuses the cell, so their order is free. The slaver lookups, a walk of both
+		// objects' modules, go last and happen once a line: they used to run on every obstacle cell that
+		// was not the shooter's or the target's own, 6% of a 32-player match's unit AI.
+
 		// we never block our own view!  No obj is a shooter not standing yet (isGroundViewBlockedByObstacle),
 		// which has no cells, container or slaver of its own.
 		if (d->obj && to->isObstaclePresent(d->obj->getID()))
@@ -11738,14 +12008,9 @@ struct ViewAttackBlockedStruct
 		if (!d->obj && d->standingIn != INVALID_ID && to->isObstaclePresent(d->standingIn))
 			return 0;
 
-		if (d->victim) {
-			// nor does the object we're trying to attack!
-			if (to->isObstaclePresent(d->victim->getID()))
-				return 0;
-			// if the obstacle is the item to which objOther is slaved, ignore it as an obstacle.				
-			if (to->isObstaclePresent(getSlaverID(d->victim)))
-				return 0;
-		}
+		// nor does the object we're trying to attack!
+		if (d->victim && to->isObstaclePresent(d->victim->getID()))
+			return 0;
 
 		// if the obstacle is our container, ignore it as an obstacle.
 		if (to->isObstaclePresent(getContainerID(d->obj)))
@@ -11753,25 +12018,70 @@ struct ViewAttackBlockedStruct
 
 		// @todo: if the obstacle is objOther's container, AND it's a "visible" container, ignore it.
 
-		// if the obstacle is the item to which we are slaved, ignore it as an obstacle.
-		if (d->obj && to->isObstaclePresent(getSlaverID(d->obj)))
-			return 0;
-
 		if (to->isObstacleTransparent())
 			return 0;
-		//Kris: Added the check for victimCell because in China01 -- after the intro, NW of your 
-		//base is a cream colored building that lies in a negative coord. When you order units to 
+		//Kris: Added the check for victimCell because in China01 -- after the intro, NW of your
+		//base is a cream colored building that lies in a negative coord. When you order units to
 		//force attack it, it crashes.
-		if( d->victimCell && to->isObstaclePresent( d->victimCell->getObstacleID() ) ) 
+		if( d->victimCell && to->isObstaclePresent( d->victimCell->getObstacleID() ) )
 		{
-			// Victim is inside the bounds of another object.  We don't let this block us, 
+			// Victim is inside the bounds of another object.  We don't let this block us,
 			// as usually it is on the edge and it looks like we should be able to shoot it. jba.
 			return 0;
 		}
+
+		if (!d->slaversKnown)
+		{
+			d->victimSlaver = d->victim ? getSlaverID(d->victim) : INVALID_ID;
+			d->objSlaver = d->obj ? getSlaverID(d->obj) : INVALID_ID;
+			d->slaversKnown = TRUE;
+		}
+		// if the obstacle is the item to which objOther is slaved, ignore it as an obstacle.
+		if (to->isObstaclePresent(d->victimSlaver))
+			return 0;
+		// if the obstacle is the item to which we are slaved, ignore it as an obstacle.
+		if (to->isObstaclePresent(d->objSlaver))
+			return 0;
+
 		return 1;	// bail early
 	}
 
 	return 0;	// keep going
+}
+
+// srj sez: this is a good start at taking terrain into account for attacks, but findAttackPath needs to be smartened also
+#define LOS_TERRAIN
+
+//-----------------------------------------------------------------------------
+/** The weapon isAttackViewBlockedByObstacle looks across the terrain with, NULL for none. */
+static const Weapon* terrainSightWeapon(const Object* attacker)
+{
+#ifdef LOS_TERRAIN
+	// Don't take terrain blockage into account for an immobile shooter, since we can't move around it. jba.
+	return attacker->isKindOf(KINDOF_IMMOBILE) ? NULL : attacker->getCurrentWeapon();
+#else
+	return NULL;
+#endif
+}
+
+//-----------------------------------------------------------------------------
+/** Whether isViewBlockedByObstacle(obj, objOther) walks the terrain from obj's eyes to objOther's centre.
+	* PartitionFilterLineOfSight walks from the same eyes to objOther's top first, through the same cells.
+	* Where the centre is no higher than the top, every step of the walk to the centre is no higher than
+	* the same step to the top, so wherever the lower line is clear the upper one is too, and the filter
+	* leaves its own walk to this one. */
+Bool Pathfinder::isViewTerrainWalked(const Object* obj, const Object* objOther) const
+{
+	if (!TheAI->getAiData()->m_attackUsesLineOfSight || !obj->isKindOf(KINDOF_ATTACK_NEEDS_LINE_OF_SIGHT) ||
+			objOther->isSignificantlyAboveTerrain())
+		return false;
+
+	const Weapon* w = terrainSightWeapon(obj);
+	if (w == NULL || w->isContactWeapon())
+		return false;
+
+	const GeometryInfo& geom = objOther->getGeometryInfo();
+	return geom.getZDeltaToCenterPosition() <= geom.getMaxHeightAbovePosition();
 }
 
 //-----------------------------------------------------------------------------
@@ -11826,14 +12136,8 @@ Bool Pathfinder::isAttackViewBlockedByObstacle(const Object* attacker, const Coo
 	if (victim && victim->isSignificantlyAboveTerrain())
 		return false;
 
-// srj sez: this is a good start at taking terrain into account for attacks, but findAttackPath needs to be smartened also
-#define LOS_TERRAIN
 #ifdef LOS_TERRAIN
-	const Weapon* w = attacker->getCurrentWeapon();
-	if (attacker->isKindOf(KINDOF_IMMOBILE)) {
-		// Don't take terrain blockage into account, since we can't move around it. jba.
-		w = NULL;
-	}
+	const Weapon* w = terrainSightWeapon(attacker);
 	if (w)
 	{
 		// A contact weapon needs no line of sight: a suicide bomber pressed against a building's
@@ -11874,6 +12178,7 @@ Bool Pathfinder::isAttackViewBlockedByObstacle(const Object* attacker, const Coo
 	}
 	info.victimCell = getCell(layer, &victimPos);
 	info.standingIn = INVALID_ID;
+	info.slaversKnown = FALSE;
 
 	info.skipCount = 0;
 	if (attacker->getLayer() != LAYER_GROUND)
@@ -11906,6 +12211,7 @@ Bool Pathfinder::isGroundViewBlockedByObstacle(const Coord3D& attackerPos, const
 	info.victimCell = getCell(LAYER_GROUND, &victimPos);
 	info.skipCount = 0;
 	info.standingIn = standingIn;
+	info.slaversKnown = FALSE;
 	return iterateCellsAlongLine(attackerPos, victimPos, LAYER_GROUND, attackBlockedByObstacleCallback, &info) != 0;
 }
 
@@ -12150,10 +12456,18 @@ void Pathfinder::changeBridgeState( PathfindLayerEnum layer, Bool repaired)
 	}
 }
 
-void Pathfinder::getRadiusAndCenter(const Object *obj, Int &iRadius, Bool &center)
+void Pathfinder::getRadiusAndCenter(const Object *obj, Int &iRadius, Bool &center, Bool forGoal)
 {
 	enum {MAX_RADIUS = 2};
-	if (!obj) 
+	/* A soldier's 7-unit body goes up to two cells below, so a squad stopped on a 2x2 goal each, 20
+		 apart, twice what their bodies need.  A soldier last ordered in a group with no vehicle
+		 (floodGroupGoals) reserves only the cell he stands in the middle of, and the squad settles a
+		 cell apart.  What he moves with is unchanged: the search, its unit window, his position cells
+		 and moveAllies still see the 2x2 body.  In a mixed group soldiers keep the 2x2: one-cell goals
+		 there let tanks and soldiers stop half a cell into each other, and squad30's Crusaders came
+		 in 20-30% later. */
+	if (!obj || (forGoal && obj->isKindOf(KINDOF_INFANTRY) && obj->getAIUpdateInterface() &&
+			obj->getAIUpdateInterface()->isCompactGoal()))
 	{
 		center = true;
 		iRadius = 0;
@@ -12226,7 +12540,7 @@ void Pathfinder::updateGoal( Object *obj, const Coord3D *newGoalPos, PathfindLay
 	Bool centerInCell;
 	Int radius;
 	ICoord2D newCell;
-	getRadiusAndCenter(obj, radius, centerInCell);
+	getRadiusAndCenter(obj, radius, centerInCell, TRUE);
 	Int numCellsAbove = radius;
 	if (centerInCell) numCellsAbove++;
 	if (centerInCell) {
@@ -12357,7 +12671,9 @@ void Pathfinder::removeGoal( Object *obj)
 	Bool centerInCell;
 	Int radius;
 	ICoord2D newCell;
-	getRadiusAndCenter(obj, radius, centerInCell);
+	/* the 2x2 a soldier's goal had before his last order, or the one cell after: one cell more each
+		 way covers both, and only his own reservation is cleared */
+	getRadiusAndCenter(obj, radius, centerInCell, TRUE);
 	if (radius==0) {
 		radius++;
 	}
@@ -12587,7 +12903,8 @@ if (g_UT_startTiming) return false;
 		if (!path->getBlockedByAlly()) return FALSE; // Only move units if it is required.
 	}
 	LatchRestore<Int> recursiveDepth(m_moveAlliesDepth, m_moveAlliesDepth+1);	
-	if (m_moveAlliesDepth > 2) return false;
+	if (m_moveAlliesDepth > MOVE_ALLIES_MAX_DEPTH) return false;
+	m_moveAlliesObjects[m_moveAlliesDepth - 1] = obj->getID();
 
 	Bool centerInCell;
 	Int radius;
@@ -12654,6 +12971,19 @@ if (g_UT_startTiming) return false;
 			if( otherObj->testStatus( OBJECT_STATUS_IS_USING_ABILITY ) || otherObj->getAI()->isBusy() )
 			{
 				continue; // Packing or unpacking objects for example
+			}
+
+			/* Upstream #3332: a unit whose own moveAllies call is still running further out is walking
+				 the path this order would destroy, and its caller in AIUpdate goes on using that path. */
+			Bool isOuterCaller = false;
+			for (Int k = 0; k < m_moveAlliesDepth - 1; ++k) {
+				if (m_moveAlliesObjects[k] == *it) {
+					isOuterCaller = true;
+					break;
+				}
+			}
+			if (isOuterCaller) {
+				continue;
 			}
 
 			//DEBUG_LOG(("Moving ally\n"));
@@ -13576,12 +13906,18 @@ void Pathfinder::crc( Xfer *xfer )
 	xfer->xferUser(&m_ignoreObstacleID, sizeof(ObjectID));
 	CRCDEBUG_LOG(("m_ignoreObstacleID: %8.8X\n", ((XferCRC *)xfer)->getCRC()));
 
-	xfer->xferUser(m_queuedPathfindRequests, sizeof(ObjectID)*PATHFIND_QUEUE_LEN);
-	CRCDEBUG_LOG(("m_queuedPathfindRequests: %8.8X\n", ((XferCRC *)xfer)->getCRC()));
-	xfer->xferInt(&m_queuePRHead);
-	CRCDEBUG_LOG(("m_queuePRHead: %8.8X\n", ((XferCRC *)xfer)->getCRC()));
-	xfer->xferInt(&m_queuePRTail);
-	CRCDEBUG_LOG(("m_queuePRTail: %8.8X\n", ((XferCRC *)xfer)->getCRC()));
+	/* Who waits, in order, and not where in the ring they sit: a load lays the saved queue out from
+		 slot 0 (xferFlowState), so the slots of the game that was saved and the loaded one differ while
+		 every answer they give is the same. */
+	PathRequestRing *rings[ 2 ] = { &m_computerQueue, &m_humanQueue };
+	for( Int r = 0; r < 2; ++r )
+	{
+		Int depth = rings[ r ]->depth();
+		xfer->xferInt( &depth );
+		for( Int slot = rings[ r ]->head; slot != rings[ r ]->tail; slot = ( slot + 1 ) % PATHFIND_QUEUE_LEN )
+			xfer->xferUser( &rings[ r ]->ids[ slot ], sizeof( ObjectID ) );
+	}
+	CRCDEBUG_LOG(("path queues: %8.8X\n", ((XferCRC *)xfer)->getCRC()));
 
 	xfer->xferInt(&m_numWallPieces);
 	CRCDEBUG_LOG(("m_numWallPieces: %8.8X\n", ((XferCRC *)xfer)->getCRC()));
@@ -13623,20 +13959,43 @@ void Pathfinder::loadPostProcess( void )
 	* writes this after the objects, since loading them touches the same maps. */
 void Pathfinder::xferFlowState( Xfer *xfer )
 {
-	xfer->xferUser( m_queuedPathfindRequests, sizeof( ObjectID ) * PATHFIND_QUEUE_LEN );
-	xfer->xferInt( &m_queuePRHead );
-	xfer->xferInt( &m_queuePRTail );
+	/* One line on disk, the layout saves have always had: human players' requests first, then the
+		 computer players'.  A load splits it by player type again, which reads a save from before there
+		 were two lines the same way.  Past one line's length the rest are left out; a unit still waiting
+		 for its path asks again when it loads (AIUpdateInterface::loadPostProcess). */
+	static ObjectID line[ PATHFIND_QUEUE_LEN ];
+	Int head = 0, tail = 0;
+	if( xfer->getXferMode() == XFER_SAVE )
+	{
+		const PathRequestRing *rings[ 2 ] = { &m_humanQueue, &m_computerQueue };
+		for( Int r = 0; r < 2; ++r )
+			for( Int slot = rings[ r ]->head; slot != rings[ r ]->tail && tail < PATHFIND_QUEUE_LEN - 1; slot = ( slot + 1 ) % PATHFIND_QUEUE_LEN )
+				line[ tail++ ] = rings[ r ]->ids[ slot ];
+		for( Int i = tail; i < PATHFIND_QUEUE_LEN; ++i )
+			line[ i ] = INVALID_ID;
+	}
+	xfer->xferUser( line, sizeof( ObjectID ) * PATHFIND_QUEUE_LEN );
+	xfer->xferInt( &head );
+	xfer->xferInt( &tail );
 	xfer->xferInt( &m_cumulativeCellsAllocated );
 	if( xfer->getXferMode() == XFER_LOAD )
 	{
+		if( head < 0 || head >= PATHFIND_QUEUE_LEN || tail < 0 || tail >= PATHFIND_QUEUE_LEN )
+			throw SC_INVALID_DATA;
+		m_humanQueue.clear();
+		m_computerQueue.clear();
 		// queueForPath turns away a unit already waiting by this, so it has to say who is
 		m_isQueuedForPath.assign( m_isQueuedForPath.size(), false );
-		for( Int slot = m_queuePRHead; slot != m_queuePRTail; slot = ( slot + 1 ) % PATHFIND_QUEUE_LEN )
+		const UnsignedInt now = TheGameLogic->getFrame();
+		for( Int slot = head; slot != tail; slot = ( slot + 1 ) % PATHFIND_QUEUE_LEN )
 		{
-			const size_t id = (size_t)m_queuedPathfindRequests[ slot ];
-			if( id >= m_isQueuedForPath.size() )
-				m_isQueuedForPath.resize( id + 1024, false );
-			m_isQueuedForPath[ id ] = true;
+			const ObjectID id = line[ slot ];
+			PathRequestRing &ring = pathRequestIsHuman( TheGameLogic->findObjectByID( id ) ) ? m_humanQueue : m_computerQueue;
+			ring.push( id, now );
+			const size_t index = (size_t)id;
+			if( index >= m_isQueuedForPath.size() )
+				m_isQueuedForPath.resize( index + 1024, false );
+			m_isQueuedForPath[ index ] = true;
 		}
 	}
 

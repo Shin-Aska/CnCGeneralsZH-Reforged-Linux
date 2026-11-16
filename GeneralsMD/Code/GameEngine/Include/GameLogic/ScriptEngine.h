@@ -88,7 +88,21 @@ struct TCounter
 	Int value;
 	AsciiString name;
 	Bool isCountdownTimer;
+	// A countdown timer steps one or two retail frames a tick at a game speed above the wall's, so an
+	// EQUAL condition can step over its number.  The values before and after this tick's countdown and
+	// the frame it ran on let evaluateCounter see the numbers passed in between.  Derived each tick and
+	// not saved: after a load the first tick fills them again.
+	Int valueBeforeTick;
+	Int valueAfterTick;
+	UnsignedInt countdownFrame;
 };
+
+/** True when a countdown timer that went from valueBefore to valueAfter this tick passed target on the
+	way without showing it (valueAfter < target < valueBefore). */
+inline Bool ScriptEngine_countdownPassed( Int valueBefore, Int valueAfter, Int target )
+{
+	return target > valueAfter && target < valueBefore;
+}
 
 struct TFlag
 {
@@ -142,6 +156,7 @@ public:
 
 	void setPriority(const ThingTemplate *tThing, Int priority);
 	Int getPriority(const ThingTemplate *tThing) const;
+	Int getMaxPriority(void) const;	///< no getPriority answers more
 	AsciiString getName(void) const {return m_name;}
 #ifdef _DEBUG
 	void dumpPriorityInfo(void);
@@ -225,7 +240,10 @@ class ScriptEngine : public SubsystemInterface,
 {
 
 public:
-	enum {MAX_COUNTERS=256, MAX_FLAGS=256, MAX_ATTACK_PRIORITIES=256};
+	// A skirmish AI qualifies its flags and counters with its player's number, so each seat takes
+	// its own 16-18 of each: 256 ran out at about 15 AIs.  1024 holds MAX_PLAYER_COUNT of them and
+	// the map's own scripts.
+	enum {MAX_COUNTERS=1024, MAX_FLAGS=1024, MAX_ATTACK_PRIORITIES=256};
 	enum TFade {FADE_NONE, FADE_SUBTRACT, FADE_ADD, FADE_SATURATE, FADE_MULTIPLY};
 	ScriptEngine();
 	virtual ~ScriptEngine();
@@ -465,9 +483,16 @@ protected:
 	ConditionTemplate	m_conditionTemplates[Condition::NUM_ITEMS];
 	TCounter					m_counters[MAX_COUNTERS];
 	Int								m_numCounters;
-	UnsignedByte m_countdownTimerFrame;	///< next script pass within a retail timer frame, independent of world time
+	UnsignedByte m_countdownTimerFrame;	///< game-time hundredths within a retail timer frame, independent of world time
 	TFlag							m_flags[MAX_FLAGS];
 	Int								m_numFlags;
+	// Name to slot, for the tables above.  clearTeamFlags looks up eight names for every player on
+	// each skirmish team that starts or disbands, which walked the whole flag table each time.  A name
+	// the full table could not take maps to 0: it is logged once, reads 0 and drops every write, where
+	// it used to share slot 0 with every other such name.  Only ever looked up, never iterated.
+	typedef std::hash_map< AsciiString, Int, rts::hash<AsciiString>, rts::equal_to<AsciiString> > ScriptVariableIndex;
+	ScriptVariableIndex	m_counterIndex;
+	ScriptVariableIndex	m_flagIndex;
 	// Looking a script up by name used to walk every side's script list, and its groups' lists, on
 	// every call - and a script that calls subroutines does that several times per evaluation.  The
 	// lists are fixed for the life of a map, so they are indexed once and the index is thrown away

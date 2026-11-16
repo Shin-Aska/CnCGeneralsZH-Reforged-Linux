@@ -94,6 +94,12 @@ namespace UIStyle
 	GameFont *font( Int points, Bool bold = FALSE );
 	/// the "Generals" face the layouts' titles and buttons are set in
 	GameFont *titleFont( Int points );
+	/// the floor under every word on a code screen: capitals this many pixels tall, at 1280x720 too
+	const Int READABLE_CAPITALS = 12;
+	/// font( points, bold ), or the next size up whose capitals reach READABLE_CAPITALS on this screen
+	GameFont *readableFont( Int points, Bool bold = FALSE );
+	/// a number with its thousands grouped: 12,345
+	UnicodeString grouped( Int value );
 
 	/// a filled box with a FRAME edge
 	void panel( Int x, Int y, Int width, Int height, Color fill );
@@ -117,10 +123,37 @@ namespace UIStyle
 	Int stripeWidth( void );
 	/// "Zero Hour Reforged" with its right edge at right; words are "Zero Hour" and " Reforged"
 	void wordmark( DisplayString *words[ 2 ], Int right, Int y );
+	/// a code screen's header line, the load board's and the score screen's alike: the title (the
+	/// "Generals" face, capitals) from x, the subtitle in subtitleFont and MUTED headerGap after it,
+	/// both centred on middle, the subtitle's parts joined by HEADER_JOINER
+	void header( DisplayString *title, DisplayString *subtitle, Int x, Int middle );
+	GameFont *subtitleFont( void );
+	Int headerGap( void );
+	extern const WideChar HEADER_JOINER[];	///< " · "
 	/// a screen's title in capitals, as the layouts letter theirs
 	UnicodeString capitals( const UnicodeString &words );
 	/// a name in capitals whatever the language, so a map's English name keeps its plain I in Turkish
 	UnicodeString nameCapitals( const UnicodeString &name );
+
+	/// how wide text is, for abbreviate: a font's width on screen, or a test's own rule
+	typedef Int (*TextMeasure)( const UnicodeString &text, void *context );
+	/** The longest form of a label that fits widest, so no text ever overlaps another: the text
+		* whole; else shortForm (a hand-written short form, may be empty); else the language's own
+		* abbreviation (a word cut after a consonant and before a vowel with a period, the first
+		* syllable kept, never after a soft sign, a short i or a soft g; English drops inner vowels
+		* first; of several words the longest goes first and the last word last); else the text cut
+		* with an ellipsis, never past its first letter.  words FALSE skips the shortening (a player's
+		* name is only ever cut with the ellipsis); a word that is also a word of keep (a name inside a
+		* sentence) is never shortened.  language is a TextLanguage. */
+	UnicodeString abbreviate( const UnicodeString &text, const UnicodeString &shortForm, Int widest, Int language,
+		TextMeasure measure, void *context, Bool words = TRUE, const UnicodeString &keep = UnicodeString::TheEmptyString );
+	/// abbreviate in font for the text language the game shows
+	UnicodeString fitText( const UnicodeString &text, GameFont *font, Int widest,
+		const UnicodeString &shortForm = UnicodeString::TheEmptyString, const UnicodeString &keep = UnicodeString::TheEmptyString );
+	/// the string of key fitted in font, its "<key>_Short" form tried before the automatic one
+	UnicodeString fitKey( const char *key, GameFont *font, Int widest );
+	/// a player's name fitted in font: whole, or cut with an ellipsis, never abbreviated
+	UnicodeString fitName( const UnicodeString &name, GameFont *font, Int widest );
 
 	/// a house colour lifted toward white where it is too dark to read as words on a panel
 	Color readable( Color player );

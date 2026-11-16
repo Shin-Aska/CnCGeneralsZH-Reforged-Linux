@@ -46,6 +46,9 @@
 #include "GameNetwork/GameMessageParser.h"
 #include "GameNetwork/GameSpy/PeerDefs.h"
 #include "GameNetwork/NetworkUtil.h"
+#include "GameNetwork/Online/OnlineQueues.h"
+
+#include <string>
 #include "GameLogic/GameLogic.h"
 #include "Common/RandomValue.h"
 #include "Common/CRCDebug.h"
@@ -79,6 +82,11 @@ static const UnsignedInt disconOffset = quitEarlyOffset + sizeof(Bool);
 	 A process killed outright loses the last second of commands. */
 static FileWriteQueue theReplayQueue;
 
+/* The Quick Match the recording under way belongs to, which gets the file when stopRecording closes it.
+	 Set only by startRecording for an internet game, and empty for a custom one; init (and so every reset
+	 and playback) clears it, so a skirmish, a LAN game or a replay watched later never goes out under it. */
+static std::string theOnlineMatch;
+
 template <typename T> static void replayWrite(const T &value)
 {
 	theReplayQueue.write(&value, sizeof(value));
@@ -97,6 +105,56 @@ static void replayWriteWideString(const WideChar *s)
 	for (; *s != 0; ++s)
 		replayWriteWideChar(*s);
 	replayWriteWideChar(0);
+}
+
+/* A replay holds commands stamped with logic frames, so one recorded at another logic rate plays a
+	 different game: every timer and speed in it runs at the wrong pace.  The rate rides at the end of
+	 the slot list as "HZ=<frames a second>;", so the header's layout stays as it was.  The options parser
+	 refuses a key it does not know, so readReplayHeader cuts the field off (takeReplayLogicRate) before
+	 anything parses the string.  A replay without the field was recorded before it existed, when the
+	 logic ran 60 frames a second.  The match's game speed rides the same way as "GS=<percent>;" after
+	 it, always written since the speed is chosen per match; playback sets it before the map loads.  A
+	 replay without the field is from the builds that wrote none at 100 and played one fixed speed, and
+	 is refused: nothing in it says what a tick was worth. */
+static const Int REPLAY_LOGIC_RATE_WITHOUT_FIELD = 60;
+static const Int REPLAY_GAME_SPEED_WITHOUT_FIELD = 0;
+
+AsciiString RecorderClass::replayLogicRateField( Int gameSpeedPercent )
+{
+	AsciiString field;
+	field.format("HZ=%d;GS=%d;", (Int)LOGICFRAMES_PER_SECOND, gameSpeedPercent);
+	return field;
+}
+
+// cuts the last "<key><number>;" field off the options and returns the number, or absent
+static Int takeReplayHeaderField(AsciiString& options, const char *key, Int absent)
+{
+	// the last one: the field is appended after the slot list, which ends in ';'
+	const size_t keyLength = strlen(key);
+	const char *start = options.str();
+	const char *field = NULL;
+	for (const char *at = strstr(start, key); at != NULL; at = strstr(at + 1, key))
+		if (at == start || at[-1] == ';')
+			field = at;
+	if (field == NULL)
+		return absent;
+
+	const Int value = atoi(field + keyLength);
+	const char *end = strchr(field, ';');
+	std::string cut(start, field - start);
+	cut += end ? end + 1 : "";
+	options = cut.c_str();
+	return value;
+}
+
+Int RecorderClass::takeReplayLogicRate(AsciiString& options)
+{
+	return takeReplayHeaderField(options, "HZ=", REPLAY_LOGIC_RATE_WITHOUT_FIELD);
+}
+
+Int RecorderClass::takeReplayGameSpeed(AsciiString& options)
+{
+	return takeReplayHeaderField(options, "GS=", REPLAY_GAME_SPEED_WITHOUT_FIELD);
 }
 
 void RecorderClass::logGameStart(AsciiString options)
@@ -402,6 +460,7 @@ void RecorderClass::init() {
 	m_gameInfo.setSeed(GetGameLogicRandomSeed());
 	m_wasDesync = FALSE;
 	m_doingAnalysis = FALSE;
+	theOnlineMatch.clear();
 }
 
 /**
@@ -443,6 +502,13 @@ void RecorderClass::updatePlayback() {
 
 	if (m_nextFrame == -1) {
 		// This is reached if there are no more commands to be executed.
+		return;
+	}
+	if (m_file == NULL) {
+		// whatever left playback without a file (a refused header, a stopped playback), it has nothing
+		// to read: fread on no file is the CRT's fast-fail, not an error code
+		DEBUG_LOG(("RecorderClass::updatePlayback - in playback with no replay file open, nothing more is read\n"));
+		m_nextFrame = -1;
 		return;
 	}
 	UnsignedInt curFrame = TheGameLogic->getFrame();
@@ -500,8 +566,12 @@ void RecorderClass::updateRecord()
 			Int maxFPS = 0;
 			if (msg->getArgumentCount() >= 4)
 				maxFPS = msg->getArgument(3)->integer;
+			// as GameLogicDispatch reads it, which may not have run yet
+			Int gameSpeedPercent = NATIVE_GAME_SPEED_PERCENT;
+			if (msg->getArgumentCount() >= 5 && GameSpeed_isAllowed(msg->getArgument(4)->integer))
+				gameSpeedPercent = msg->getArgument(4)->integer;
 
-			startRecording(diff, m_originalGameMode, rankPoints, maxFPS);
+			startRecording(diff, m_originalGameMode, rankPoints, maxFPS, gameSpeedPercent);
 		} else if (msg->getType() == GameMessage::MSG_CLEAR_GAME_DATA) {
 			if (m_file != NULL) {
 				lastFrame = -1;
@@ -526,7 +596,7 @@ void RecorderClass::updateRecord()
  * Start a new file for recording. This will always overwrite the "LastReplay.rep" file with the new one.
  * So don't call this unless you really mean it.
  */
-void RecorderClass::startRecording(GameDifficulty diff, Int originalGameMode, Int rankPoints, Int maxFPS) {
+void RecorderClass::startRecording(GameDifficulty diff, Int originalGameMode, Int rankPoints, Int maxFPS, Int gameSpeedPercent) {
 	DEBUG_ASSERTCRASH(m_file == NULL, ("Starting to record game while game is in progress."));
 
 	reset();
@@ -548,6 +618,8 @@ void RecorderClass::startRecording(GameDifficulty diff, Int originalGameMode, In
 	}
 	theReplayQueue.start(m_file);
 	theReplayQueue.write("GENREP", 6);
+	if (originalGameMode == GAME_INTERNET)
+		theOnlineMatch = OnlineClaimQuickMatch().str();
 
 	//
 	// save space for stats to be filled in.
@@ -645,6 +717,9 @@ void RecorderClass::startRecording(GameDifficulty diff, Int originalGameMode, In
 		  theSlotList = GameInfoToReplayString(&m_gameInfo);
     }
 	}
+	// the logic rate and game speed the game is recorded at, last in the slot list; readReplayHeader
+	// refuses another rate and plays the speed back
+	theSlotList.concat(replayLogicRateField(gameSpeedPercent));
 	logGameStart(theSlotList);
 	DEBUG_LOG(("RecorderClass::startRecording - theSlotList = %s\n", theSlotList.str()));
 
@@ -706,6 +781,11 @@ void RecorderClass::startRecording(GameDifficulty diff, Int originalGameMode, In
 void RecorderClass::stopRecording() {
 	logGameEnd();
 	theReplayQueue.stop();		// all of it on disk: cleanUpReplayFile and archiveReplay copy the file
+	AsciiString onlinePath;		// stays empty for a desynced recording: the match is used up, nothing sent
+	const std::string onlineMatch = m_mode == RECORDERMODETYPE_RECORD ? theOnlineMatch : std::string();
+	if (!onlineMatch.empty() && m_file != NULL && !m_wasDesync)
+		onlinePath.format("%s%s", getReplayDir().str(), m_fileName.str());
+	theOnlineMatch.clear();
 	if (TheNetwork)
 	{
 		//if (TheLAN)
@@ -722,6 +802,8 @@ void RecorderClass::stopRecording() {
 		if (TheGlobalData->m_archiveReplays)
 			archiveReplay(m_fileName);
 	}
+	if (!onlineMatch.empty())
+		OnlineSendReplay(onlineMatch.c_str(), onlinePath);	// after the fclose: the whole file, read back from disk
 	m_fileName.clear();
 }
 
@@ -887,6 +969,17 @@ Bool RecorderClass::readReplayHeader(ReplayHeader& header)
 
 	// Read in the GameInfo
 	header.gameOptions = readAsciiString();
+	const Int recordedSpeed = takeReplayGameSpeed(header.gameOptions);
+	const Int recordedRate = takeReplayLogicRate(header.gameOptions);
+	header.gameSpeedPercent = recordedSpeed;
+	if (recordedRate != LOGICFRAMES_PER_SECOND || !GameSpeed_isAllowed(recordedSpeed))
+	{
+		DEBUG_LOG(("RecorderClass::readReplayHeader - replay was recorded at %d logic frames a second and game speed %d (0: none written), this build runs %d and plays 100, 125, 150 or 200.\n",
+			recordedRate, recordedSpeed, (Int)LOGICFRAMES_PER_SECOND));
+		fclose(m_file);
+		m_file = NULL;
+		return FALSE;
+	}
 	m_gameInfo.reset();
 	m_gameInfo.enterGame();
 	DEBUG_LOG(("RecorderClass::readReplayHeader - GameInfo = %s\n", header.gameOptions.str()));
@@ -1111,7 +1204,8 @@ Bool RecorderClass::playbackFile(AsciiString filename)
 	Int difficulty = 0;
 	Int rankPoints = 0;
 	Int maxFPS = 0;
-	if (!openPlayback(filename, difficulty, rankPoints, maxFPS))
+	Int gameSpeedPercent = NATIVE_GAME_SPEED_PERCENT;
+	if (!openPlayback(filename, difficulty, rankPoints, maxFPS, gameSpeedPercent))
 		return FALSE;
 
 	if (replayMayLackFirstCRC( m_originalGameMode ))
@@ -1129,8 +1223,8 @@ Bool RecorderClass::playbackFile(AsciiString filename)
 		msg->appendIntegerArgument(GAME_REPLAY);
 		msg->appendIntegerArgument(difficulty);
 		msg->appendIntegerArgument(rankPoints);
-		if( maxFPS != 0 )
-			msg->appendIntegerArgument(maxFPS);
+		msg->appendIntegerArgument(maxFPS);					// 0, none recorded, leaves the pace alone
+		msg->appendIntegerArgument(gameSpeedPercent);	// the match's own game speed
 		InitRandom( m_gameInfo.getSeed() );
 	}
 
@@ -1140,7 +1234,9 @@ Bool RecorderClass::playbackFile(AsciiString filename)
 RecorderClass::PlaybackCursor RecorderClass::getPlaybackCursor( void )
 {
 	PlaybackCursor cursor;
-	cursor.filePosition = ftell(m_file);
+	// a replay played to its end has closed its file, and ftell on none is the CRT's fast-fail; the
+	// cursor then says nothing is left (nextFrame -1) and resumePlayback reads nothing past it
+	cursor.filePosition = m_file != NULL ? ftell(m_file) : 0;
 	cursor.nextFrame = m_nextFrame;
 	cursor.crcInfo = *m_crcInfo;
 	return cursor;
@@ -1150,12 +1246,17 @@ RecorderClass::PlaybackCursor RecorderClass::getPlaybackCursor( void )
  * Pick a replay up again where getPlaybackCursor left it, once an engine reset has closed it.  The
  * header is read the same way playbackFile reads it, for the players the new game is built from.
  */
-void RecorderClass::resumePlayback(AsciiString filename, const PlaybackCursor &cursor)
+Bool RecorderClass::resumePlayback(AsciiString filename, const PlaybackCursor &cursor)
 {
 	Int difficulty = 0;
 	Int rankPoints = 0;
 	Int maxFPS = 0;
-	openPlayback(filename, difficulty, rankPoints, maxFPS);
+	Int gameSpeedPercent = NATIVE_GAME_SPEED_PERCENT;
+	if (!openPlayback(filename, difficulty, rankPoints, maxFPS, gameSpeedPercent))
+		return FALSE;
+	// no new game message comes: the speed is set here, between matches (the checkpoint's own header
+	// sets it again as its load starts)
+	GameSpeed_set(gameSpeedPercent);
 	// the checkpoint names its own map, and no new game will come along to use this one up
 	TheWritableGlobalData->m_pendingFile.clear();
 	// the load starts a game, and a replay's random sides and start positions are drawn off this
@@ -1164,14 +1265,16 @@ void RecorderClass::resumePlayback(AsciiString filename, const PlaybackCursor &c
 	fseek(m_file, cursor.filePosition, SEEK_SET);
 	m_nextFrame = cursor.nextFrame;
 	*m_crcInfo = cursor.crcInfo;
+	return TRUE;
 }
 
 /**
  * Open a replay and read everything in front of its first command: the header, the difficulty, the
  * original game mode, the rank points and the frame rate the game was played at.
  */
-Bool RecorderClass::openPlayback(AsciiString filename, Int &difficulty, Int &rankPoints, Int &maxFPS)
+Bool RecorderClass::openPlayback(AsciiString filename, Int &difficulty, Int &rankPoints, Int &maxFPS, Int &gameSpeedPercent)
 {
+	const RecorderModeType modeBefore = m_mode;
 	m_mode = RECORDERMODETYPE_PLAYBACK;
 
 	ReplayHeader header;
@@ -1180,9 +1283,13 @@ Bool RecorderClass::openPlayback(AsciiString filename, Int &difficulty, Int &ran
 	Bool success = readReplayHeader( header );
 	if (!success)
 	{
+		// a refused header has closed the file: left in playback, the next frame read from no file at
+		// all, and the CRT ended the process for it (an old replay with no HZ= or GS= did that)
+		m_mode = modeBefore;
 		return FALSE;
 	}
 	m_playbackFrameDuration = header.frameDuration;
+	gameSpeedPercent = header.gameSpeedPercent;
 #ifdef DEBUG_LOGGING
 
 	Bool versionStringDiff = header.versionString != TheVersion->getUnicodeVersion();
@@ -1294,30 +1401,13 @@ UnicodeString RecorderClass::readUnicodeString() {
  * Read an ascii string from the current file position. The string is assumed to be 0-terminated.
  */
 AsciiString RecorderClass::readAsciiString() {
-	char str[1024] = "";
-	Int index = 0;
-
-	Int c = fgetc(m_file);
-	if (c == EOF) {
-		str[index] = 0;
-	}
-	str[index] = c;
-
-	// Was index < 1024: the body pre-increments and then writes str[index], so the
-	// last iteration stored one element past the end of the buffer.
-	while (index < 1023 && str[index] != 0) {
-		++index;
-		Int c = fgetc(m_file);
-		if (c == EOF) {
-			str[index] = 0;
-			break;
-		}
-		str[index] = c;
-	}
-	str[1023] = '\0';
-
-	AsciiString retval(str);
-	return retval;
+	/* Read to the terminator.  EA's buffer stopped at 1023 bytes and left the rest of a longer string
+		 to be read as the next field, and a 32-seat room's slot list runs well past that. */
+	std::string str;
+	Int c;
+	while ((c = fgetc(m_file)) != EOF && c != 0)
+		str.push_back((char)c);
+	return AsciiString(str.c_str());
 }
 
 /**

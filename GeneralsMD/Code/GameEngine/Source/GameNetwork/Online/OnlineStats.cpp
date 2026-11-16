@@ -26,9 +26,11 @@
 
 #include "GameClient/GameText.h"
 #include "GameNetwork/Online/OnlineSession.h"
+#include "zhio.h"
 
 #include <ctype.h>
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 OnlinePSQueue::OnlinePSQueue() : m_running( FALSE )
@@ -125,10 +127,14 @@ GameSpyPSMessageQueueInterface *OnlineCreatePSQueue( void )
 
 OnlineReport::OnlineReport() :
 	seed( 0 ), endFrame( 0 ), winningTeam( -1 ), sawDesync( FALSE ), sawGameEnd( FALSE ), disconEnd( FALSE ),
-	surrendered( FALSE ), duration( 0 ), numPlayers( 0 )
+	surrendered( FALSE ), duration( 0 ), numPlayers( 0 ), numCrcOdd( 0 )
 {
 	for (Int i = 0; i < MAX_SLOTS; ++i)
+	{
 		discon[i] = FALSE;
+		blind[i] = 0;
+		crcOdd[i] = 0;
+	}
 }
 
 void OnlineSendReport( const OnlineReport &report )
@@ -144,15 +150,91 @@ void OnlineSendReport( const OnlineReport &report )
 	m.setBool( "sawDesync", report.sawDesync != 0 ).setBool( "sawGameEnd", report.sawGameEnd != 0 );
 	m.setBool( "disconEnd", report.disconEnd != 0 ).setBool( "surrendered", report.surrendered != 0 );
 	m.setInt( "duration", report.duration );
+	m.setInt( "hz", LOGICFRAMES_PER_SECOND );	// logic frames a second, so the server can turn endFrame into time
 	std::vector<long long> discon;
 	std::vector<std::string> side;
+	std::vector<long long> blind;
 	for (Int i = 0; i < report.numPlayers && i < MAX_SLOTS; ++i)
 	{
 		discon.push_back( report.discon[i] ? 1 : 0 );
 		side.push_back( report.side[i].str() );
+		blind.push_back( report.blind[i] );
 	}
+	std::vector<long long> crcOdd;
+	for (Int i = 0; i < report.numCrcOdd && i < MAX_SLOTS; ++i)
+		crcOdd.push_back( report.crcOdd[i] );
 	m.setInts( "discon", discon ).setStrings( "side", side );
+	m.setInts( "blind", blind ).setInts( "crcOdd", crcOdd );
 	s.send( m );
+}
+
+//-------------------------------------------------------------------------------------------------
+// the replay
+//-------------------------------------------------------------------------------------------------
+
+static std::string base64( const unsigned char *data, size_t length )
+{
+	static const char digits[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+	std::string out;
+	out.reserve( (length + 2) / 3 * 4 );
+	for (size_t i = 0; i < length; i += 3)
+	{
+		const UnsignedInt b = (UnsignedInt)data[i] << 16
+			| (i + 1 < length ? (UnsignedInt)data[i + 1] << 8 : 0)
+			| (i + 2 < length ? (UnsignedInt)data[i + 2] : 0);
+		out += digits[(b >> 18) & 63];
+		out += digits[(b >> 12) & 63];
+		out += i + 1 < length ? digits[(b >> 6) & 63] : '=';
+		out += i + 2 < length ? digits[b & 63] : '=';
+	}
+	return out;
+}
+
+AsciiString OnlineClaimQuickMatch( void )
+{
+	OnlineSession &s = OnlineSession::get();
+	AsciiString id = s.quickMatch.c_str();
+	s.quickMatch.clear();
+	return id;
+}
+
+void OnlineSendReplay( const char *match, const AsciiString &path )
+{
+	OnlineSession &s = OnlineSession::get();
+	if (!match || !*match || s.replayedMatch == match)
+		return;		// a custom game, or this match's replay went up (or was given up) already
+	if (s.matchId != match)
+		return;		// a later match or a logout replaced it
+	s.replayedMatch = match;
+	if (path.isEmpty() || !s.authed || s.status != ONLINE_WELCOMED)
+		return;
+
+	// one read on the main thread: a replay is tens to a few hundred KB, and the lines only queue
+	FILE *f = zh_fopen( path.str(), "rb" );
+	if (!f)
+		return;
+	const size_t chunk = ONLINE_REPLAY_CHUNK, most = ONLINE_REPLAY_MAX;
+	std::string bytes;
+	char buf[ONLINE_REPLAY_CHUNK];
+	size_t n;
+	while ((n = fread( buf, 1, sizeof(buf), f )) > 0 && bytes.size() <= most)
+		bytes.append( buf, n );
+	const Bool readAll = !ferror( f );
+	fclose( f );
+	if (!readAll || bytes.empty() || bytes.size() > most)
+		return;		// over the cap: not sent at all
+
+	Int seq = 0;
+	for (size_t at = 0; at < bytes.size(); at += chunk, ++seq)
+	{
+		const size_t len = bytes.size() - at < chunk ? bytes.size() - at : chunk;
+		OnlineMessage m;
+		m.setString( "t", "replay" ).setString( "match", s.matchId ).setInt( "seq", seq );
+		m.setBool( "last", at + len == bytes.size() );
+		m.setString( "data", base64( (const unsigned char *)bytes.data() + at, len ) );
+		s.send( m );
+	}
+	DEBUG_LOG(("ONLINE REPLAY match=%s bytes=%d lines=%d\n", s.matchId.c_str(), (Int)bytes.size(), seq));
 }
 
 //-------------------------------------------------------------------------------------------------

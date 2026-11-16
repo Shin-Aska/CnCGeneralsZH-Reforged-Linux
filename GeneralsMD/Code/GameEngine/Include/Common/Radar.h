@@ -76,11 +76,63 @@ enum RadarEventType
 	RADAR_EVENT_BATTLE_PLAN,
 	RADAR_EVENT_STEALTH_DISCOVERED,		// we discovered a stealth unit
 	RADAR_EVENT_STEALTH_NEUTRALIZED,	// our stealth unit has been revealed
-	RADAR_EVENT_FAKE,					//Internally creates a radar event, but doesn't notify the player (unit lost 
+	RADAR_EVENT_FAKE,					//Internally creates a radar event, but doesn't notify the player (unit lost
 														//for example, so we can use the spacebar to jump to the event).
- 
+	// new types go here and nowhere else: a map script stores the type as its number
+	RADAR_EVENT_STRUCTURE_LOST,				// one of our base's buildings was destroyed
+
  	RADAR_EVENT_NUM_EVENTS  // keep this last
- 	
+
+};
+
+//-------------------------------------------------------------------------------------------------
+/** How an alarm is drawn beyond its type: how big, by what it is about, and the ally signal's own
+	* mark, since a signal borrows the construction, battle plan and information types.  Saved with
+	* the event; RADAR_MARK_BY_TYPE asks createEvent to pick one from the type. */
+//-------------------------------------------------------------------------------------------------
+enum RadarEventMark
+{
+	RADAR_MARK_BY_TYPE = -1,
+	RADAR_MARK_UNIT = 0,
+	RADAR_MARK_HARVESTER,
+	RADAR_MARK_STRUCTURE,
+	RADAR_MARK_SIGNAL,
+
+	RADAR_MARK_COUNT
+};
+
+//-------------------------------------------------------------------------------------------------
+/** The minimap's zoom: how close it is and which part of the map it shows.  Client only, never
+	* saved, never in the CRC, never read by logic.  World coordinates, +y up the picture. */
+//-------------------------------------------------------------------------------------------------
+enum { RADAR_ZOOM_STEPS = 5 };				///< 1, 1.4, 2, 2.8 and 4 times, a wheel notch each
+struct RadarZoomView
+{
+	Real zoom;		///< 1 shows the whole map
+	Real x, y;		///< the world spot at the picture's lower left corner
+
+	void reset( void ) { zoom = 1.0f; x = 0.0f; y = 0.0f; }
+	void clampTo( Real mapWidth, Real mapHeight );		///< the shown part back onto the map
+	void zoomAround( Real newZoom, Real anchorX, Real anchorY, Real mapWidth, Real mapHeight );	///< the anchor keeps its pixel
+	void follow( Real pointX, Real pointY, Real mapWidth, Real mapHeight );	///< the least pan that keeps the point a fifth in from the edges
+};
+
+//-------------------------------------------------------------------------------------------------
+/** The world to the radar picture's pixels and back under a zoom.  (ul, lr) is the picture as
+	* Radar::findDrawPositions gives it, lr exclusive.  Draw and input both go through this. */
+//-------------------------------------------------------------------------------------------------
+struct RadarPictureTransform
+{
+	Real originX, originY;		///< the pixel of the world's origin
+	Real scaleX, scaleY;			///< pixels a world unit
+
+	void set( const RadarZoomView &view, Real mapWidth, Real mapHeight, const ICoord2D &ul, const ICoord2D &lr );
+	void toPixel( Real worldX, Real worldY, Real *pixelX, Real *pixelY ) const
+	{
+		*pixelX = originX + worldX * scaleX;
+		*pixelY = originY - worldY * scaleY;
+	}
+	void toWorld( const ICoord2D &pixel, Real *worldX, Real *worldY ) const;	///< the pixel's centre
 };
 
 // PROTOTYPES /////////////////////////////////////////////////////////////////////////////////////
@@ -183,6 +235,7 @@ public:
 	Bool radarToWorld2D( const ICoord2D *radar, Coord3D *world );		///< radar point to world point (x,y only!)
 	Bool worldToRadar( const Coord3D *world, ICoord2D *radar );		///< translate world point to radar (x,y)
 	Bool localPixelToRadar( const ICoord2D *pixel, ICoord2D *radar );	///< translate pixel (with UL of radar being (0,0)) to logical radar coords
+	Bool localPixelToWorld( const ICoord2D *pixel, Coord3D *world );	///< the same pixel to the world on the terrain, through the zoom
 	Bool screenPixelToWorld( const ICoord2D *pixel, Coord3D *world ); ///< translate pixel (with UL of the screen being (0,0)) to world position in the world
 	Object *objectUnderRadarPixel( const ICoord2D *pixel );				///< return the object (if any) represented by the pixel coords passed in
 	void findDrawPositions( Int startX, Int startY, Int width, Int height, 
@@ -192,13 +245,21 @@ public:
 	Bool isPriorityVisible( RadarPriorityType priority ) const;		///< is the priority passed in a "visible" one on the radar
 
 	// radar events
-	void createEvent( const Coord3D *world, RadarEventType type, Real secondsToLive = 4.0f );	///< create radar event at location in world
+	void createEvent( const Coord3D *world, RadarEventType type, Real secondsToLive = 4.0f,
+										RadarEventMark mark = RADAR_MARK_BY_TYPE );	///< create radar event at location in world
 	void createPlayerEvent( Player *player, const Coord3D *world, RadarEventType type, Real secondsToLive = 4.0f );  ///< create radar event using player colors
 
 	Bool getLastEventLoc( Coord3D *eventPos );							///< get last event loc (if any)
+	Bool cycleEventLoc( Coord3D *eventPos );								///< the spacebar: the last event, and an older one on each press soon after
 	void tryUnderAttackEvent( const Object *obj );					///< try to make an "under attack" event if it's the proper time
 	void tryInfiltrationEvent( const Object *obj );					///< try to make an "infiltration" event if it's the proper time
- 	Bool tryEvent( RadarEventType event, const Coord3D *pos );	///< try to make a "stealth" event
+ 	Bool tryEvent( RadarEventType event, const Coord3D *pos,
+								 RadarEventMark mark = RADAR_MARK_BY_TYPE );	///< make an event unless one like it is fresh nearby, which lives on instead
+
+	/// the events' slots, for the view's pointers to an alarm off the screen: FALSE for a slot with
+	/// nothing showing, and the beacons and the unit-lost events never show
+	Int getEventSlotCount( void ) const { return MAX_RADAR_EVENTS; }
+	Bool getShownEvent( Int slot, RadarEventType *type, Coord3D *world, RGBAColorInt *color, Real *alpha ) const;
 
 	// adding and removing objects from the radar
 	void addObject( Object *obj );													///< add object to radar
@@ -215,6 +276,15 @@ public:
 	// forcing the radar on/off regardless of player situation
 	void forceOn( Bool force ) { m_radarForceOn = force; }				///< force the radar to be on
 	Bool isRadarForced( void ) { return m_radarForceOn; }		///< is radar forced on?
+
+	// the minimap's plain colours, own green, allies blue, enemies red: a key flips it, client only,
+	// never saved, never in the CRC
+	void toggleSimpleColors( void ) { m_simpleColors = !m_simpleColors; }
+	Bool isSimpleColors( void ) const { return m_simpleColors; }
+
+	// the minimap's zoom, client only like the colours
+	void zoomAtPixel( const ICoord2D *pixel, Bool closer );	///< a wheel notch over a pixel of the radar window
+	Real getZoom( void ) const { return m_zoomView.zoom; }
 
 	/// refresh the water values for the radar
 	virtual void refreshTerrain( TerrainLogic *terrain );
@@ -244,7 +314,8 @@ protected:
 
 	/// internal method for creating a radar event with specific colors
 	void internalCreateEvent( const Coord3D *world, RadarEventType type, Real secondsToLive,
-														const RGBAColorInt *color1, const RGBAColorInt *color2 );
+														const RGBAColorInt *color1, const RGBAColorInt *color2,
+														RadarEventMark mark = RADAR_MARK_BY_TYPE );
 
 	void deleteListResources( void );			///< delete list radar resources used
 	Bool deleteFromList( Object *obj, RadarObject **list );	///< try to remove object from specific list
@@ -260,8 +331,15 @@ protected:
 	// search the object list for an object that maps to the given logical radar coords
 	Object *searchListForRadarLocationMatch( RadarObject *listHead, ICoord2D *radarMatch );
 
+	Bool findPicture( ICoord2D *ul, ICoord2D *lr );	///< where W3DLeftHUDDraw draws the map in the radar window
+
+	RadarZoomView m_zoomView;							///< what the minimap shows; client only, never saved
+	Int m_zoomStep;												///< index into the zoom steps, 0 the whole map
+	Coord2D m_zoomFollow;									///< the camera's look point when the view last followed it
+
 	Bool m_radarHidden;										///< true when radar is not visible
 	Bool m_radarForceOn;									///< true when radar is forced to be on
+	Bool m_simpleColors;									///< own, allied and enemy colours instead of the players' own
 	RadarObject *m_objectList;						///< list of objects in the radar
 	RadarObject *m_localObjectList;				/** list of objects for the local player, sorted
 																					* in exactly the same priority as the regular
@@ -293,10 +371,24 @@ protected:
 		Coord3D worldLoc;										///< location of event in the world
 		ICoord2D radarLoc;									///< 2D radar location of the event
 		Bool soundPlayed;										///< TRUE when we have played the radar sound for this
+		UnsignedByte mark;									///< RadarEventMark: its size, or the signal's mark; xfer version 2
 	};
 	RadarEvent m_event[ MAX_RADAR_EVENTS ];///< our radar events
 	Int m_nextFreeRadarEvent;							///< index into m_event for where to store the next event
 	Int m_lastRadarEvent;									///< index of the most recent radar event
+
+	// the alarms' rules, on the event array alone so a test can hold them without a game
+	enum { RADAR_CYCLE_DEPTH = 5 };				///< the spacebar goes back this many places before it starts again
+	static RadarEventMark markForType( RadarEventType type );
+	static Int findThrottlingEvent( const RadarEvent *events, RadarEventType type, const Coord3D *pos, UnsignedInt frame );
+	static void refreshEventLife( RadarEvent *event, UnsignedInt frame, Real secondsToLive, RadarEventMark mark );
+	static Int olderEventIndex( const RadarEvent *events, Int newest, Int from, const Int *visited, Int visitedCount );
+
+	// the spacebar's place in the history: client only, never saved
+	Int m_cycleVisited[ RADAR_CYCLE_DEPTH ];	///< the slots this run of presses has looked at, newest first
+	Int m_cycleCount;												///< how many of them; 0 starts again at the last event
+	Int m_cycleAnchor;											///< m_lastRadarEvent when the run began; a new event starts again
+	UnsignedInt m_cycleFrame;								///< logic frame of the run's last press
 
 	GameWindow *m_radarWindow;						///< window we display the radar in
 

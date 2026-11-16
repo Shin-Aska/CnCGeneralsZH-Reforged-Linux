@@ -30,18 +30,17 @@
 #include "GameNetwork/NetworkUtil.h"
 #include "TARGA.H"
 
-/* Frame counts, sized for the time they cover: 128 and 4 frames were EA's at 30 Hz, the same
-	 4.3 s and 133 ms at LOGICFRAMES_PER_SECOND are twice the frames. */
-Int MAX_FRAMES_AHEAD = ConvertRetailFrames(128);
+/* Frame counts, sized for the time they cover: 128 frames was EA's 4.3 s at 30 Hz, and
+	 ConvertRetailFrames keeps the 4.3 s at LOGICFRAMES_PER_SECOND. */
+Int MAX_FRAMES_AHEAD = ConvertRetailFramesWall(128);
 
-/* The shortest run-ahead the room is ever commanded to use: 133 ms of input delay.  EA
-	 shipped ten frames - a third of a second on every link, LAN included - and because the formula
-	 in computeRunAhead does not clear ten until the two worst average round trips add up to about
-	 600 ms, ten frames is what every game anyone actually played ran at.  The window can come down
-	 this far because computeRunAhead now rounds the trip up rather than down and carries a fixed
-	 jitter allowance on top (RUNAHEAD_JITTER_FRAMES), so a link that genuinely needs a wide window
-	 is given a wider one than the old floor ever gave it, and a link that does not stops paying. */
-Int MIN_RUNAHEAD = ConvertRetailFrames(4);
+/* The shortest run-ahead the room is ever commanded to use: three frames of input delay (50 ms at
+	 60 Hz, 100 ms at 30), which is computeRunAhead's own answer for a link with no trip at all - a
+	 frame for the trip, the phase margin and the brake's frame.  EA shipped ten frames - a third of a second on every link, LAN
+	 included - and because the formula in computeRunAhead does not clear ten until the two worst
+	 average round trips add up to about 600 ms, ten frames is what every game anyone actually
+	 played ran at.  It was eight frames, 133 ms, until the send grouping went, then four. */
+Int MIN_RUNAHEAD = 3;
 Int FRAME_DATA_LENGTH = (MAX_FRAMES_AHEAD+1)*2;
 Int FRAMES_TO_KEEP = (MAX_FRAMES_AHEAD/2) + 1;
 
@@ -210,27 +209,6 @@ Bool IsCommandSynchronized(NetCommandType type) {
 			(type == NETCOMMANDTYPE_DESTROYPLAYER) ||
 			(type == NETCOMMANDTYPE_RUNAHEAD))
 	{
-		return TRUE;
-	}
-	return FALSE;
-}
-
-/**
- * Returns true if this type of network command requires the ack to be sent directly to the player
- * rather than going through the packet router.  This should really only be used by commands
- * used on the disconnect screen.
- */
-Bool CommandRequiresDirectSend(NetCommandMsg *msg) {
-	if ((msg->getNetCommandType() == NETCOMMANDTYPE_DISCONNECTVOTE) ||
-			(msg->getNetCommandType() == NETCOMMANDTYPE_DISCONNECTPLAYER) ||
-			(msg->getNetCommandType() == NETCOMMANDTYPE_LOADCOMPLETE) ||
-			(msg->getNetCommandType() == NETCOMMANDTYPE_TIMEOUTSTART) ||
-			(msg->getNetCommandType() == NETCOMMANDTYPE_FILE) ||
-			(msg->getNetCommandType() == NETCOMMANDTYPE_FILEANNOUNCE) ||
-			(msg->getNetCommandType() == NETCOMMANDTYPE_FILEPROGRESS) ||
-			(msg->getNetCommandType() == NETCOMMANDTYPE_DISCONNECTFRAME) ||
-			(msg->getNetCommandType() == NETCOMMANDTYPE_DISCONNECTSCREENOFF) ||
-			(msg->getNetCommandType() == NETCOMMANDTYPE_FRAMERESENDREQUEST)) {
 		return TRUE;
 	}
 	return FALSE;

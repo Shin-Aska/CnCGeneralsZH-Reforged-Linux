@@ -193,9 +193,42 @@ const FieldParse ControlBarSchemeManager::m_controlBarSchemeFieldParseTable[] =
 	{ "IdleAircraftButtonImage",	INI::parseAsciiString,	NULL, offsetof( ControlBarScheme, m_idleButtonImage[ ControlBarScheme::IDLE_AIRCRAFT ] ) },
 	{ "IdleAircraftUL",				INI::parseICoord2D,	NULL, offsetof( ControlBarScheme, m_idleUL[ ControlBarScheme::IDLE_AIRCRAFT ] ) },
 	{ "IdleAircraftLR",				INI::parseICoord2D,	NULL, offsetof( ControlBarScheme, m_idleLR[ ControlBarScheme::IDLE_AIRCRAFT ] ) },
+	{ "SelectArmyButtonImage",		INI::parseAsciiString,	NULL, offsetof( ControlBarScheme, m_idleButtonImage[ ControlBarScheme::IDLE_ARMY ] ) },
+	{ "SelectArmyUL",				INI::parseICoord2D,	NULL, offsetof( ControlBarScheme, m_idleUL[ ControlBarScheme::IDLE_ARMY ] ) },
+	{ "SelectArmyLR",				INI::parseICoord2D,	NULL, offsetof( ControlBarScheme, m_idleLR[ ControlBarScheme::IDLE_ARMY ] ) },
 	{ "RadarFrameImage",			INI::parseAsciiString,	NULL, offsetof( ControlBarScheme, m_radarFrameName ) },
 	{ "PowerTrayImage",				INI::parseAsciiString,	NULL, offsetof( ControlBarScheme, m_powerTrayName ) },
+	{ "CommandTabBuildingsButtonImage",	INI::parseAsciiString,	NULL, offsetof( ControlBarScheme, m_commandTabImage[ 0 ] ) },
+	{ "CommandTabGroundButtonImage",		INI::parseAsciiString,	NULL, offsetof( ControlBarScheme, m_commandTabImage[ 1 ] ) },
+	{ "CommandTabAircraftButtonImage",	INI::parseAsciiString,	NULL, offsetof( ControlBarScheme, m_commandTabImage[ 2 ] ) },
+	{ "CommandTabBuildingsUL",	INI::parseICoord2D,	NULL, offsetof( ControlBarScheme, m_commandTabUL[ 0 ] ) },
+	{ "CommandTabBuildingsLR",	INI::parseICoord2D,	NULL, offsetof( ControlBarScheme, m_commandTabLR[ 0 ] ) },
+	{ "CommandTabGroundUL",			INI::parseICoord2D,	NULL, offsetof( ControlBarScheme, m_commandTabUL[ 1 ] ) },
+	{ "CommandTabGroundLR",			INI::parseICoord2D,	NULL, offsetof( ControlBarScheme, m_commandTabLR[ 1 ] ) },
+	{ "CommandTabAircraftUL",		INI::parseICoord2D,	NULL, offsetof( ControlBarScheme, m_commandTabUL[ 2 ] ) },
+	{ "CommandTabAircraftLR",		INI::parseICoord2D,	NULL, offsetof( ControlBarScheme, m_commandTabLR[ 2 ] ) },
+	{ "CommandTabPlateUL",			INI::parseICoord2D,	NULL, offsetof( ControlBarScheme, m_commandTabPlateUL ) },
+	{ "CommandTabPlateLR",			INI::parseICoord2D,	NULL, offsetof( ControlBarScheme, m_commandTabPlateLR ) },
+	{ "CommandTabPageNextImage",	INI::parseAsciiString,	NULL, offsetof( ControlBarScheme, m_commandTabPageImage[ 0 ] ) },
+	{ "CommandTabPagePrevImage",	INI::parseAsciiString,	NULL, offsetof( ControlBarScheme, m_commandTabPageImage[ 1 ] ) },
+	{ "SignalAttackButtonImage",		INI::parseAsciiString,	NULL, offsetof( ControlBarScheme, m_signalImage[ 0 ] ) },
+	{ "SignalDefendButtonImage",		INI::parseAsciiString,	NULL, offsetof( ControlBarScheme, m_signalImage[ 1 ] ) },
+	{ "SignalAttentionButtonImage",	INI::parseAsciiString,	NULL, offsetof( ControlBarScheme, m_signalImage[ 2 ] ) },
+	{ "SignalAttackUL",							INI::parseICoord2D,	NULL, offsetof( ControlBarScheme, m_signalUL[ 0 ] ) },
+	{ "SignalAttackLR",							INI::parseICoord2D,	NULL, offsetof( ControlBarScheme, m_signalLR[ 0 ] ) },
+	{ "SignalDefendUL",							INI::parseICoord2D,	NULL, offsetof( ControlBarScheme, m_signalUL[ 1 ] ) },
+	{ "SignalDefendLR",							INI::parseICoord2D,	NULL, offsetof( ControlBarScheme, m_signalLR[ 1 ] ) },
+	{ "SignalAttentionUL",					INI::parseICoord2D,	NULL, offsetof( ControlBarScheme, m_signalUL[ 2 ] ) },
+	{ "SignalAttentionLR",					INI::parseICoord2D,	NULL, offsetof( ControlBarScheme, m_signalLR[ 2 ] ) },
+	{ "SignalPlateUL",							INI::parseICoord2D,	NULL, offsetof( ControlBarScheme, m_signalPlateUL ) },
+	{ "SignalPlateLR",							INI::parseICoord2D,	NULL, offsetof( ControlBarScheme, m_signalPlateLR ) },
+	{ "SignalPlateImage",						INI::parseAsciiString,	NULL, offsetof( ControlBarScheme, m_signalPlateImageName ) },
+	{ "GrownRadarImage",						INI::parseAsciiString,	NULL, offsetof( ControlBarScheme, m_grownRadarName ) },
+	{ "GrownRadarRight",						INI::parseInt,					NULL, offsetof( ControlBarScheme, m_grownRadarRight ) },
+	{ "GrownRadarPeriod",						INI::parseInt,					NULL, offsetof( ControlBarScheme, m_grownRadarPeriod ) },
+	{ "GrownRadarLedge",						INI::parseInt,					NULL, offsetof( ControlBarScheme, m_grownRadarLedge ) },
 	{ "TooltipImage",					INI::parseAsciiString,	NULL, offsetof( ControlBarScheme, m_tooltipName ) },
+	{ "TalentImage",					INI::parseAsciiString,	NULL, offsetof( ControlBarScheme, m_talentName ) },
 
 	{ "CommandMarkerImage",		INI::parseMappedImage,				NULL, offsetof( ControlBarScheme, m_commandMarkerImage) },
 	{ "ExpBarForegroundImage",		INI::parseMappedImage,				NULL, offsetof( ControlBarScheme, m_expBarForeground) },
@@ -240,7 +273,7 @@ ControlBarSchemeAnimation::ControlBarSchemeAnimation( void )
 	// Added by Sadullah Nader
 	// Initializations missing and needed
 	
-	m_animDuration = 0;
+	m_animDuration.setRaw( 0 );
 	m_finalPos.x = m_finalPos.y = 0;
 
 	// End Add
@@ -492,7 +525,36 @@ ControlBarScheme::ControlBarScheme(void)
 		m_radarFrame[ i ] = NULL;
 	for( Int i = 0; i < TRAY_PIECE_COUNT; i++ )
 		m_powerTray[ i ] = NULL;
+	for( Int tab = 0; tab < COMMAND_TAB_IMAGE_COUNT; tab++ )
+	{
+		for( Int state = 0; state < COMMAND_TAB_STATE_COUNT; state++ )
+			m_commandTab[ tab ][ state ] = NULL;
+		m_commandTabUL[ tab ].x = m_commandTabUL[ tab ].y = 0;
+		m_commandTabLR[ tab ].x = m_commandTabLR[ tab ].y = 0;
+	}
+	m_commandTabPlateUL.x = m_commandTabPlateUL.y = 0;
+	m_commandTabPlateLR.x = m_commandTabPlateLR.y = 0;
+	for( Int arrow = 0; arrow < 2; arrow++ )
+		for( Int state = 0; state < 4; state++ )
+			m_commandTabPage[ arrow ][ state ] = NULL;
+	for( Int key = 0; key < SIGNAL_KEY_COUNT; key++ )
+	{
+		for( Int state = 0; state < 4; state++ )
+			m_signal[ key ][ state ] = NULL;
+		m_signalUL[ key ].x = m_signalUL[ key ].y = 0;
+		m_signalLR[ key ].x = m_signalLR[ key ].y = 0;
+	}
+	m_signalPlateUL.x = m_signalPlateUL.y = 0;
+	m_signalPlateLR.x = m_signalPlateLR.y = 0;
+	m_signalPlateImage = NULL;
+	for( Int piece = 0; piece < GROWN_PIECE_COUNT; piece++ )
+		m_grownRadar[ piece ] = NULL;
+	m_grownRadarRight = 0;
+	m_grownRadarPeriod = 0;
+	m_grownRadarLedge = 0;
 	m_tooltip = ControlBarTooltipImages();
+	for( Int i = 0; i < TALENT_PIECE_COUNT; i++ )
+		m_talent[ i ] = NULL;
 }
 
 
@@ -561,7 +623,22 @@ void ControlBarScheme::init(void)
 		{ "Cell", "EdgeTop", "EdgeLeft", "EdgeBottom", "CornerTopLeft", "CornerBottomLeft", "Step" };
 	findPieces( m_radarFrameName, "", theFrameSuffixes, FRAME_PIECE_COUNT, m_radarFrame );
 	findPieces( m_powerTrayName, "", traySuffixes, TRAY_PIECE_COUNT, m_powerTray );
+	static const char *const tabStates[ COMMAND_TAB_STATE_COUNT ] = { "", "H", "P", "I", "O" };
+	for( Int tab = 0; tab < COMMAND_TAB_IMAGE_COUNT; tab++ )
+		findPieces( m_commandTabImage[ tab ], "", tabStates, COMMAND_TAB_STATE_COUNT, m_commandTab[ tab ] );
+	for( Int arrow = 0; arrow < 2; arrow++ )
+		findPieces( m_commandTabPageImage[ arrow ], "", tabStates, 4, m_commandTabPage[ arrow ] );
+	for( Int key = 0; key < SIGNAL_KEY_COUNT; key++ )
+		findPieces( m_signalImage[ key ], "", tabStates, 4, m_signal[ key ] );
+	findPieces( m_signalPlateImageName, "", tabStates, 1, &m_signalPlateImage );
+	static const char *const grownSuffixes[ GROWN_PIECE_COUNT ] = { "TL", "T", "TR", "L", "R", "BL", "B", "BR", "C" };
+	findPieces( m_grownRadarName, "", grownSuffixes, GROWN_PIECE_COUNT, m_grownRadar );
 	m_tooltip.find( m_tooltipName );
+	static const char *const talentSuffixes[ TALENT_PIECE_COUNT ] =
+		{ "GeneralsPowerWindowWide", "TalentPlateLocked", "TalentPlateWaiting", "TalentPlatePicked", "TalentPlateRejected",
+			"TalentNodeLocked", "TalentNodeWaiting", "TalentNodePicked", "TalentNodeRejected", "TalentSpineLit",
+			"TalentArmLeft", "TalentArmRight" };
+	findPieces( m_talentName, "", talentSuffixes, TALENT_PIECE_COUNT, m_talent );
 
 	if(TheControlBar)
 	{
@@ -605,14 +682,16 @@ void ControlBarScheme::init(void)
 	}
 
 	//
-	// The idle infantry, vehicle and aircraft buttons stand in a column at the grid's right end.  A
-	// scheme that does not place one shrinks it to nothing rather than leave it at the .wnd's 0,0.
+	// The idle infantry, vehicle and aircraft buttons stand in a column at the grid's right end, the
+	// select army button in the left one.  A scheme that does not place one shrinks it to nothing
+	// rather than leave it at the .wnd's 0,0.
 	//
 	static const char *const idleNames[ IDLE_COUNT ] =
 	{
 		"ControlBar.wnd:ButtonIdleInfantry",
 		"ControlBar.wnd:ButtonIdleVehicle",
 		"ControlBar.wnd:ButtonIdleAircraft",
+		"ControlBar.wnd:ButtonSelectArmy",
 	};
 	for( Int i = 0; i < IDLE_COUNT; i++ )
 	{
@@ -997,7 +1076,7 @@ void ControlBarSchemeManager::parseAnimatingPart(INI *ini, void *instance, void*
 		{
 			{ "Name",						INI::parseAsciiString,		NULL, offsetof( ControlBarSchemeAnimation, m_name ) },
       { "Animation",			INI::parseLookupList,			AnimTypeNames, offsetof( ControlBarSchemeAnimation, m_animType ) },
-			{ "Duration",				INI::parseDurationUnsignedInt,			NULL, offsetof( ControlBarSchemeAnimation, m_animDuration ) },
+			{ "Duration",				SPEED_FIELD( ControlBarSchemeAnimation, m_animDuration ) },
 			{ "FinalPos",				INI::parseICoord2D,			NULL, offsetof( ControlBarSchemeAnimation, m_finalPos ) },
 			{ "ImagePart",			ControlBarSchemeManager::parseAnimatingPartImage,	NULL, NULL },
 			{ NULL,							NULL,											NULL, 0 }  // keep this last
@@ -1255,48 +1334,6 @@ ControlBarScheme *ControlBarSchemeManager::findSchemeForSide( const AsciiString&
 }
 
 //-----------------------------------------------------------------------------
-/** The emblem is looked up by name, so a sheet that adds one for a general needs no INI edit and the
-	* player templates (in the INI checksum) stay as they are.  A general without one, or a faction built
-	* on another country's base side, gets that country's. */
-//-----------------------------------------------------------------------------
-const Image *ControlBarSideEmblem( const PlayerTemplate *pt )
-{
-	static const char *const PREFIX = "SSObserver";
-	static const std::string LEADING = "Faction";
-	static const std::string TRAILING = "General";
-	// FactionAmericaLaserGeneral wears SSObserverAmericaLaser, FactionTurkiye SSObserverTurkiye
-	std::string general = pt->getName().str();
-	if( general.compare( 0, LEADING.size(), LEADING ) == 0 )
-		general.erase( 0, LEADING.size() );
-	if( general.size() >= TRAILING.size() && general.compare( general.size() - TRAILING.size(), TRAILING.size(), TRAILING ) == 0 )
-		general.erase( general.size() - TRAILING.size() );
-	AsciiString name;
-	name.format( "%s%s", PREFIX, general.c_str() );
-	const Image *emblem = TheMappedImageCollection->findImageByName( name );
-	if( emblem != NULL )
-		return emblem;
-
-	const AsciiString side = pt->getBaseSide().isEmpty() ? pt->getSide() : pt->getBaseSide();
-	const char *country = NULL;
-	if( side.startsWithNoCase( "America" ) || side.startsWithNoCase( "USA" ) )
-		country = "USA";
-	else if( side.startsWithNoCase( "China" ) )
-		country = "China";
-	else if( side.startsWithNoCase( "GLA" ) )
-		country = "GLA";
-	else if( side.startsWithNoCase( "Turkiye" ) )
-		country = "Turkiye";
-	if( country != NULL )
-	{
-		name.format( "%s%s", PREFIX, country );
-		emblem = TheMappedImageCollection->findImageByName( name );
-		if( emblem != NULL )
-			return emblem;
-	}
-	return pt->getEnabledImage();
-}
-
-//-----------------------------------------------------------------------------
 /** The bar follows the country, and is always ControlBar Pro's.  A side with a ControlBar Pro scheme of
 	* its own (Boss and Observer among them) wears it; any other wears its country's by name, the way
 	* ControlBarPlateForSide reads a side, so a ChinaTankGeneral without one gets China's.  A side of no
@@ -1360,7 +1397,113 @@ Int ControlBarSchemeManager::radarArtTop( Int fallback ) const
 		return fallback;
 	Int x, y;
 	block->winGetScreenPosition( &x, &y );
+	// the signal keys' plate stands on the radar's top and rides a grown radar up: what stands on the
+	// radar's top stands on the plate's, wherever it is placed now
+	IRegion2D plate;
+	if( TheControlBar && TheControlBar->getSignalPlateRect( &plate ) )
+		y = min( y, plate.lo.y );
 	return y;
+}
+
+const Image *const *ControlBarSchemeManager::getCommandTabImages( Int tab ) const
+{
+	if( m_currentScheme == NULL || tab < 0 || tab >= ControlBarScheme::COMMAND_TAB_IMAGE_COUNT
+			|| m_currentScheme->m_commandTab[ tab ][ 0 ] == NULL )
+		return NULL;
+	return m_currentScheme->m_commandTab[ tab ];
+}
+
+const Image *const *ControlBarSchemeManager::getCommandTabPageImages( Int arrow ) const
+{
+	if( m_currentScheme == NULL || arrow < 0 || arrow > 1 || m_currentScheme->m_commandTabPage[ arrow ][ 0 ] == NULL )
+		return NULL;
+	return m_currentScheme->m_commandTabPage[ arrow ];
+}
+
+/** Seats named in a scheme's creation resolution, to 800x600 design units by drawPainting's own
+	* conversion; the plate is the seats' extent where the scheme names none.  FALSE when any seat is
+	* empty or the scheme has no creation resolution. */
+static Bool seatsToDesign( const ControlBarScheme *scheme, const ICoord2D *ul, const ICoord2D *lr, Int count,
+													 const ICoord2D &plateUL, const ICoord2D &plateLR, IRegion2D *seats, IRegion2D *plate )
+{
+	if( scheme == NULL || scheme->m_ScreenCreationRes.x <= 0 || scheme->m_ScreenCreationRes.y <= 0 )
+		return FALSE;
+	const Real toDesignX = 800.0f / scheme->m_ScreenCreationRes.x;
+	const Real toDesignY = 600.0f / scheme->m_ScreenCreationRes.y;
+	struct Convert
+	{
+		static Bool rect( const ICoord2D &ul, const ICoord2D &lr, Real dx, Real dy, IRegion2D *out )
+		{
+			if( lr.x <= ul.x || lr.y <= ul.y )
+				return FALSE;
+			out->lo.x = REAL_TO_INT_FLOOR( ul.x * dx );
+			out->lo.y = REAL_TO_INT_FLOOR( ul.y * dy );
+			out->hi.x = REAL_TO_INT_CEIL( lr.x * dx );
+			out->hi.y = REAL_TO_INT_CEIL( lr.y * dy );
+			return TRUE;
+		}
+	};
+	for( Int i = 0; i < count; i++ )
+		if( !Convert::rect( ul[ i ], lr[ i ], toDesignX, toDesignY, &seats[ i ] ) )
+			return FALSE;
+	if( !Convert::rect( plateUL, plateLR, toDesignX, toDesignY, plate ) )
+	{
+		*plate = seats[ 0 ];
+		for( Int i = 1; i < count; i++ )
+		{
+			plate->lo.x = min( plate->lo.x, seats[ i ].lo.x );
+			plate->lo.y = min( plate->lo.y, seats[ i ].lo.y );
+			plate->hi.x = max( plate->hi.x, seats[ i ].hi.x );
+			plate->hi.y = max( plate->hi.y, seats[ i ].hi.y );
+		}
+	}
+	return TRUE;
+}
+
+Bool ControlBarSchemeManager::getCommandTabSeats( IRegion2D *tabs, IRegion2D *plate ) const
+{
+	return m_currentScheme != NULL && seatsToDesign( m_currentScheme, m_currentScheme->m_commandTabUL, m_currentScheme->m_commandTabLR,
+		ControlBarScheme::COMMAND_TAB_IMAGE_COUNT, m_currentScheme->m_commandTabPlateUL, m_currentScheme->m_commandTabPlateLR, tabs, plate );
+}
+
+Bool ControlBarSchemeManager::getSignalSeats( IRegion2D *keys, IRegion2D *plate ) const
+{
+	return m_currentScheme != NULL && seatsToDesign( m_currentScheme, m_currentScheme->m_signalUL, m_currentScheme->m_signalLR,
+		ControlBarScheme::SIGNAL_KEY_COUNT, m_currentScheme->m_signalPlateUL, m_currentScheme->m_signalPlateLR, keys, plate );
+}
+
+const Image *const *ControlBarSchemeManager::getGrownRadarPieces( void ) const
+{
+	if( m_currentScheme == NULL )
+		return NULL;
+	for( Int piece = 0; piece < ControlBarScheme::GROWN_PIECE_COUNT; piece++ )
+		if( m_currentScheme->m_grownRadar[ piece ] == NULL )
+			return NULL;
+	return m_currentScheme->m_grownRadar;
+}
+
+Real ControlBarSchemeManager::getArtScale( void ) const
+{
+	if( m_currentScheme == NULL || m_currentScheme->m_ScreenCreationRes.y <= 0 || TheDisplay == NULL )
+		return 1.0f;
+	return (Real)TheDisplay->getHeight() / (Real)m_currentScheme->m_ScreenCreationRes.y;
+}
+
+Int ControlBarSchemeManager::getGrownRadarRight( void ) const
+{
+	return m_currentScheme ? REAL_TO_INT_FLOOR( m_currentScheme->m_grownRadarRight * getArtScale() + 0.5f ) : 0;
+}
+
+Int ControlBarSchemeManager::getGrownRadarLedge( void ) const
+{
+	return m_currentScheme ? REAL_TO_INT_FLOOR( m_currentScheme->m_grownRadarLedge * getArtScale() + 0.5f ) : 0;
+}
+
+const Image *const *ControlBarSchemeManager::getSignalImages( Int kind ) const
+{
+	if( m_currentScheme == NULL || kind < 0 || kind >= ControlBarScheme::SIGNAL_KEY_COUNT || m_currentScheme->m_signal[ kind ][ 0 ] == NULL )
+		return NULL;
+	return m_currentScheme->m_signal[ kind ];
 }
 
 const Image *const *ControlBarSchemeManager::getPowerTray( void ) const
@@ -1368,6 +1511,13 @@ const Image *const *ControlBarSchemeManager::getPowerTray( void ) const
 	if( m_currentScheme == NULL || m_currentScheme->m_powerTray[ ControlBarScheme::TRAY_CELL ] == NULL )
 		return NULL;
 	return m_currentScheme->m_powerTray;
+}
+
+const Image *const *ControlBarSchemeManager::getTalentImages( void ) const
+{
+	if( m_currentScheme == NULL || m_currentScheme->m_talent[ ControlBarScheme::TALENT_WINDOW ] == NULL )
+		return NULL;
+	return m_currentScheme->m_talent;
 }
 
 const ControlBarTooltipImages& ControlBarSchemeManager::getTooltipImages( void ) const
@@ -1441,6 +1591,181 @@ static void drawRadarFrame( const Image *const *frame )
 	drawNinePiece( frame, outer, inner );
 }
 
+Bool ControlBarDrawRadarFrame( void )
+{
+	const ControlBarSchemeManager *schemes = TheControlBar ? TheControlBar->getControlBarSchemeManager() : NULL;
+	const Image *const *frame = schemes ? schemes->getRadarFrame() : NULL;
+	if( frame == NULL )
+		return FALSE;
+	drawRadarFrame( frame );
+	return TRUE;
+}
+
+Bool ControlBarDrawPowerTrayBox( const IRegion2D *cells, Int count, const IRegion2D &box )
+{
+	const ControlBarSchemeManager *schemes = TheControlBar ? TheControlBar->getControlBarSchemeManager() : NULL;
+	const Image *const *tray = schemes ? schemes->getPowerTray() : NULL;
+	if( tray == NULL )
+		return FALSE;
+
+	// the edges as thick as the powers tray wears them (ControlBar::powerTrayMetrics); a piece the art
+	// leaves out leaves what is under it showing
+	const Real k = TheDisplay->getHeight() / 1080.0f;
+	const Image *edgeLeft = tray[ ControlBarScheme::TRAY_EDGE_LEFT ];
+	const Image *edgeTop = tray[ ControlBarScheme::TRAY_EDGE_TOP ];
+	const Image *edgeFoot = tray[ ControlBarScheme::TRAY_EDGE_BOTTOM ];
+	const Int l = edgeLeft ? REAL_TO_INT_CEIL( edgeLeft->getImageWidth() * k ) : 0;
+	const Int t = edgeTop ? REAL_TO_INT_CEIL( edgeTop->getImageHeight() * k ) : 0;
+	const Int b = edgeFoot ? REAL_TO_INT_CEIL( edgeFoot->getImageHeight() * k ) : 0;
+
+	for( Int each = 0; each < count; each++ )
+		TheDisplay->drawImage( tray[ ControlBarScheme::TRAY_CELL ], cells[ each ].lo.x, cells[ each ].lo.y,
+													 cells[ each ].hi.x, cells[ each ].hi.y );
+	TheDisplay->drawImage( edgeTop, box.lo.x, box.lo.y - t, box.hi.x, box.lo.y );
+	TheDisplay->drawImage( edgeFoot, box.lo.x, box.hi.y, box.hi.x, box.hi.y + b );
+	TheDisplay->drawImage( edgeLeft, box.lo.x - l, box.lo.y, box.lo.x, box.hi.y );
+	TheDisplay->drawImage( tray[ ControlBarScheme::TRAY_CORNER_TL ], box.lo.x - l, box.lo.y - t, box.lo.x, box.lo.y );
+	TheDisplay->drawImage( tray[ ControlBarScheme::TRAY_CORNER_BL ], box.lo.x - l, box.hi.y, box.lo.x, box.hi.y + b );
+	return TRUE;
+}
+
+//-----------------------------------------------------------------------------
+/** A filled band, skipped when empty */
+//-----------------------------------------------------------------------------
+static void fillBand( Int x0, Int y0, Int x1, Int y1, Color color )
+{
+	if( x1 > x0 && y1 > y0 )
+		TheDisplay->drawFillRect( x0, y0, x1 - x0, y1 - y0, color );
+}
+
+/// a piece's size on screen: its texels times the art's scale, rounded to whole pixels
+static Int grownSize( Int texels, Real scale )
+{
+	return MAX( 1, REAL_TO_INT_FLOOR( texels * scale + 0.5f ) );
+}
+
+/// the run x0..x1, y0..y1 tiled from its top left by the piece at its scaled size, never stretched; the
+/// last tile in a row or a column is cut, keeping its top left (grown_compose's tile)
+static void grownTile( const Image *piece, Real scale, Int x0, Int y0, Int x1, Int y1, Color tint )
+{
+	if( x1 <= x0 || y1 <= y0 )
+		return;
+	const Int w = grownSize( piece->getImageWidth(), scale ), h = grownSize( piece->getImageHeight(), scale );
+	IRegion2D run;
+	run.lo.x = x0;
+	run.lo.y = y0;
+	run.hi.x = x1;
+	run.hi.y = y1;
+	TheDisplay->setClipRegion( &run );
+	TheDisplay->enableClipping( TRUE );
+	for( Int y = y0; y < y1; y += h )
+		for( Int x = x0; x < x1; x += w )
+			TheDisplay->drawImage( piece, x, y, x + w, y + h, tint );
+	TheDisplay->enableClipping( FALSE );
+}
+
+static void grownCorner( const Image *piece, Real scale, Int x, Int y, Color tint )
+{
+	TheDisplay->drawImage( piece, x, y, x + grownSize( piece->getImageWidth(), scale ),
+		y + grownSize( piece->getImageHeight(), scale ), tint );
+}
+
+//-----------------------------------------------------------------------------
+/** The side's own frame round the glass well 'well' (the grown picture joined with the painted
+	* glass), as hud_command_bar.py's grown_compose lays it: every number below is read off a piece's
+	* size, scaled with the art and rounded to whole pixels.
+	*
+	*   head = T's height, R = R's width, cut = TR's width less R, l0 = TL's height less head,
+	*   r0 = TR's height less head, foot = BR's height less B's height
+	*
+	* The four edges tiled, then the four corners over them, then the glass C over the well; the
+	* picture is the radar window's, drawn after.  While the under-attack lamp is lit the frame's pieces
+	* take its red, the glass and the picture none. */
+//-----------------------------------------------------------------------------
+void ControlBarSchemeManager::drawGrownRadarPieces( const Image *const *P, Real s, const IRegion2D &well, Bool lit )
+{
+	const Int x5 = well.lo.x, yT = well.lo.y, xR = well.hi.x, yB = well.hi.y;
+	const Int head = grownSize( P[ ControlBarScheme::GROWN_T ]->getImageHeight(), s );
+	const Int R = grownSize( P[ ControlBarScheme::GROWN_R ]->getImageWidth(), s );
+	const Int cut = grownSize( P[ ControlBarScheme::GROWN_TR ]->getImageWidth(), s ) - R;
+	const Int l0 = grownSize( P[ ControlBarScheme::GROWN_TL ]->getImageHeight(), s ) - head;
+	const Int r0 = grownSize( P[ ControlBarScheme::GROWN_TR ]->getImageHeight(), s ) - head;
+	const Int bH = grownSize( P[ ControlBarScheme::GROWN_B ]->getImageHeight(), s );
+	const Int foot = grownSize( P[ ControlBarScheme::GROWN_BR ]->getImageHeight(), s ) - bH;
+	const Int top = yT - head;
+	const Color tint = lit ? GameMakeColor( 255, 110, 100, 255 ) : 0xFFFFFFFF;
+
+	grownTile( P[ ControlBarScheme::GROWN_T ], s, grownSize( P[ ControlBarScheme::GROWN_TL ]->getImageWidth(), s ), top, xR - cut, yT, tint );
+	grownTile( P[ ControlBarScheme::GROWN_L ], s, 0, yT + l0, x5, yB - foot, tint );
+	grownTile( P[ ControlBarScheme::GROWN_R ], s, xR, yT + r0, xR + R, yB - foot, tint );
+	grownTile( P[ ControlBarScheme::GROWN_B ], s, x5, yB, xR - cut, yB + bH, tint );
+	grownCorner( P[ ControlBarScheme::GROWN_TL ], s, 0, top, tint );
+	grownCorner( P[ ControlBarScheme::GROWN_TR ], s, xR - cut, top, tint );
+	grownCorner( P[ ControlBarScheme::GROWN_BL ], s, 0, yB - foot, tint );
+	grownCorner( P[ ControlBarScheme::GROWN_BR ], s, xR - cut, yB - foot, tint );
+	grownTile( P[ ControlBarScheme::GROWN_C ], s, x5, yT, xR, yB, 0xFFFFFFFF );
+}
+
+//-----------------------------------------------------------------------------
+/** The steel round a side's radar that Minimap Size has grown out of the painting's box, drawn in
+	* code rather than art so every side gets it: a dark outer edge, a steel face lit from the top
+	* left and shaded to the bottom right, and a dark lip against the picture.  It flashes red with
+	* EA's under-attack lamp, whose own window is small beside a frame this size.  Drawn after the
+	* painting and before the windows, as the observer's nine-piece frame is. */
+//-----------------------------------------------------------------------------
+void ControlBarSchemeManager::drawGrownRadarFrame( void )
+{
+	IRegion2D o, i;
+	Bool lit = FALSE;
+	if( TheControlBar == NULL || !TheControlBar->getGrownRadarFrame( &o, &i, &lit ) )
+		return;
+
+	// the side's own frame where its scheme names one
+	const ControlBarSchemeManager *schemes = TheControlBar->getControlBarSchemeManager();
+	const Image *const *pieces = schemes ? schemes->getGrownRadarPieces() : NULL;
+	if( pieces != NULL )
+	{
+		drawGrownRadarPieces( pieces, schemes->getArtScale(), i, lit );
+		return;
+	}
+
+	const Color dark = GameMakeColor( 10, 12, 14, 255 );
+	const Color face = lit ? GameMakeColor( 150, 34, 26, 255 ) : GameMakeColor( 62, 68, 74, 255 );
+	const Color light = lit ? GameMakeColor( 230, 80, 60, 255 ) : GameMakeColor( 132, 140, 148, 255 );
+	const Color shade = lit ? GameMakeColor( 90, 18, 14, 255 ) : GameMakeColor( 34, 38, 42, 255 );
+
+	// dark glass under the picture, which is all that shows while the player has no radar
+	fillBand( i.lo.x, i.lo.y, i.hi.x, i.hi.y, GameMakeColor( 6, 8, 10, 255 ) );
+
+	// the face, four bands round the picture
+	fillBand( o.lo.x, o.lo.y, o.hi.x, i.lo.y, face );
+	fillBand( o.lo.x, i.hi.y, o.hi.x, o.hi.y, face );
+	fillBand( o.lo.x, i.lo.y, i.lo.x, i.hi.y, face );
+	fillBand( i.hi.x, i.lo.y, o.hi.x, i.hi.y, face );
+
+	// lit along the top and left of the outside, shaded along the bottom and right
+	fillBand( o.lo.x + 1, o.lo.y + 1, o.hi.x - 1, o.lo.y + 2, light );
+	fillBand( o.lo.x + 1, o.lo.y + 1, o.lo.x + 2, o.hi.y - 1, light );
+	fillBand( o.lo.x + 1, o.hi.y - 2, o.hi.x - 1, o.hi.y - 1, shade );
+	fillBand( o.hi.x - 2, o.lo.y + 1, o.hi.x - 1, o.hi.y - 1, shade );
+
+	// the inside of the bevel is turned the other way, shaded top and left where it meets the glass
+	fillBand( i.lo.x - 1, i.lo.y - 1, i.hi.x + 1, i.lo.y, shade );
+	fillBand( i.lo.x - 1, i.lo.y - 1, i.lo.x, i.hi.y + 1, shade );
+	fillBand( i.lo.x - 1, i.hi.y, i.hi.x + 1, i.hi.y + 1, light );
+	fillBand( i.hi.x, i.lo.y - 1, i.hi.x + 1, i.hi.y + 1, light );
+
+	// a dark line outside, and a dark lip in the window's own edge, the pixel W3DLeftHUDDraw leaves
+	fillBand( o.lo.x, o.lo.y, o.hi.x, o.lo.y + 1, dark );
+	fillBand( o.lo.x, o.hi.y - 1, o.hi.x, o.hi.y, dark );
+	fillBand( o.lo.x, o.lo.y, o.lo.x + 1, o.hi.y, dark );
+	fillBand( o.hi.x - 1, o.lo.y, o.hi.x, o.hi.y, dark );
+	fillBand( i.lo.x, i.lo.y, i.hi.x, i.lo.y + 1, dark );
+	fillBand( i.lo.x, i.hi.y - 1, i.hi.x, i.hi.y, dark );
+	fillBand( i.lo.x, i.lo.y, i.lo.x + 1, i.hi.y, dark );
+	fillBand( i.hi.x - 1, i.lo.y, i.hi.x, i.hi.y, dark );
+}
+
 //-----------------------------------------------------------------------------
 /** ControlBar Pro's painting, cut at the seams below and each piece drawn where its panel stands
 	* (ControlBarPanelDesignToScreen).  The seams fall in the gaps of every side's art. */
@@ -1501,6 +1826,8 @@ void ControlBarSchemeManager::drawPainting( ICoord2D offset, Bool foreground )
 	const Image *const *frame = getRadarFrame();
 	if( !foreground && frame )
 		drawRadarFrame( frame );
+	else if( !foreground )
+		drawGrownRadarFrame();
 }
 
 //-----------------------------------------------------------------------------
@@ -1529,7 +1856,8 @@ void ControlBarSchemeManager::setControlBarSchemeByPlayerTemplate( const PlayerT
 	}
 	else
 		m_currentScheme = findControlBarScheme("Default");
-	m_currentScheme->init();
+	if (m_currentScheme)
+		m_currentScheme->init();
 }
 //-----------------------------------------------------------------------------
 void ControlBarSchemeManager::setControlBarSchemeByPlayer(Player *p)
@@ -1554,6 +1882,15 @@ void ControlBarSchemeManager::setControlBarSchemeByPlayer(Player *p)
 	// scheme for it (findSchemeForSide), and the multiplier below is the screen's
 	// the neutral and civilian players are of no country, and wear America's
 	m_currentScheme = findSchemeForFaction( side );
+	// none for the side, its country or America (the Boss challenge map's side found none): EA's Default,
+	// and with not even that the bar keeps no scheme rather than the game reading a NULL one
+	if( m_currentScheme == NULL )
+		m_currentScheme = findControlBarScheme( "Default" );
+	if( m_currentScheme == NULL )
+	{
+		DEBUG_LOG(("setControlBarSchemeByPlayer found no scheme for side %s, not even Default\n", side.str()));
+		return;
+	}
 	DEBUG_LOG(("setControlBarSchemeByPlayer gave side %s the scheme of %s\n", side.str(), m_currentScheme->m_side.str()));
 	m_multiplyer.x = TheDisplay->getWidth() / (Real)m_currentScheme->m_ScreenCreationRes.x;
 	m_multiplyer.y = TheDisplay->getHeight() / (Real)m_currentScheme->m_ScreenCreationRes.y;

@@ -57,7 +57,7 @@ public:
 	// to fight over: whoever mined it out first had the game, and the second half of every match
 	// was played on the income two players could no longer earn.  Now it is ground worth holding.
 	//
-	UnsignedInt m_regenDelay;			///< frames a box takes with nothing built near it, 0 = never refills
+	DurationFrames m_regenDelay;			///< frames a box takes with nothing built near it, 0 = never refills
 	Real m_regenRadius;						///< how close a cash building has to be to count
 	Int m_regenMaxBoxes;					///< ceiling, -1 for whatever it started with
 };
@@ -67,7 +67,7 @@ class Player;
 /** The lobby's supply pile limit: is a pile that gatheringPlayers are working, one bit a player
 	* index, closed to this player?  Never to one of the players already on it, and never with no
 	* limit set. */
-Bool SupplyPileLimitCloses( Int limit, UnsignedInt gatheringPlayers, Int playerIndex );
+Bool SupplyPileLimitCloses( Int limit, PlayerMaskType gatheringPlayers, Int playerIndex );
 
 //-------------------------------------------------------------------------------------------------
 class SupplyWarehouseDockUpdate : public DockUpdate
@@ -108,7 +108,7 @@ public:
 
 protected:
 
-	UnsignedInt gatheringPlayers( void ) const;	///< who holds this pile under the limit, one bit a player index
+	PlayerMaskType gatheringPlayers( void ) const;	///< who holds this pile under the limit, one bit a player index
 
 	Int m_boxesStored;
 	UnsignedInt m_nextRegenFrame;		///< when the next box arrives, 0 until the first one is scheduled

@@ -73,6 +73,8 @@
 #include "Common/PerfTimer.h"
 #include "Common/GlobalData.h"
 #include "Common/GameCommon.h"
+#include "Common/FileSystem.h"
+#include "GameClient/TankSkin.h"
 
 #ifdef _INTERNAL
 // for occasional debugging...
@@ -383,6 +385,71 @@ int W3DAssetManager::replacePrototypeTexture(RenderObjClass *robj, const char * 
 	REF_PTR_RELEASE(newTex);
 
 	return retCode;
+}
+
+//---------------------------------------------------------------------
+/** A skin sheet is on disk as a .dds or a .tga in the textures folder, loose or in any archive. */
+static Bool skinSheetExists(const char *sheet)
+{
+	char base[MAX_PATH];
+	strlcpy(base, sheet, ARRAY_SIZE(base));
+	char *dot = strrchr(base, '.');
+	if (dot)
+		*dot = 0;
+	static const char *const extensions[] = { ".dds", ".tga" };
+	for (Int e = 0; e < (Int)ARRAY_SIZE(extensions); ++e)
+	{
+		char path[MAX_PATH];
+		snprintf(path, ARRAY_SIZE(path), "%s%s%s", TGA_DIR_PATH, base, extensions[e]);
+		if (TheFileSystem->doesFileExist(path))
+			return TRUE;
+	}
+	return FALSE;
+}
+
+//---------------------------------------------------------------------
+/** Every sheet robj draws that skin `skin` pairs with a replacement (SkinsReforged.ini) is swapped
+	for it, on robj's own meshes, when the replacement is on disk.  The table pairs both the rebuilt
+	models' sheets and retail's, each with a sheet painted on its own layout, and the house colour
+	sheets (ZHC*) never take one, so the team colour still shows.  A missing replacement, or its
+	archive shut under Classic Graphics, costs the look, never the model. */
+void W3DAssetManager::applySkin(RenderObjClass *robj, Int skin)
+{
+	if (robj->Class_ID() == RenderObjClass::CLASSID_HLOD)
+	{
+		for (Int i = 0; i < robj->Get_Num_Sub_Objects(); i++)
+		{
+			RenderObjClass *sub_obj = robj->Get_Sub_Object(i);
+			applySkin(sub_obj, skin);
+			REF_PTR_RELEASE(sub_obj);
+		}
+		return;
+	}
+	if (robj->Class_ID() != RenderObjClass::CLASSID_MESH)
+		return;
+
+	MeshClass *mesh = (MeshClass *)robj;
+	for (Int i = 0; ; i++)
+	{
+		MaterialInfoClass *material = mesh->Get_Material_Info();
+		if (material == NULL || i >= material->Texture_Count())
+		{
+			REF_PTR_RELEASE(material);
+			return;
+		}
+		TextureClass *oldTex = material->Peek_Texture(i);
+		REF_PTR_RELEASE(material);	// the mesh keeps its own reference to oldTex
+		const char *sheet = oldTex ? static_cast<const char *>(oldTex->Get_Texture_Name()) : NULL;
+		if (sheet == NULL || strncasecmp(sheet, "ZHC", 3) == 0)
+			continue;
+		const char *skinSheet = TankSkin_replacementSheet(skin, sheet);
+		if (skinSheet == NULL || !skinSheetExists(skinSheet))
+			continue;
+		TextureClass *newTex = Get_Texture(skinSheet);
+		newTex->Get_Filter() = oldTex->Get_Filter();	// the sheet's clamp and mip settings from the model, not the defaults
+		replaceMeshTexture(robj, oldTex, newTex);
+		REF_PTR_RELEASE(newTex);
+	}
 }
 
 //---------------------------------------------------------------------
@@ -761,8 +828,9 @@ RenderObjClass * W3DAssetManager::Create_Render_Obj(
 	const char * name,
 	float scale, 
 	const int color,
-	const char *oldTexture, 
-	const char *newTexture
+	const char *oldTexture,
+	const char *newTexture,
+	Int skin
 )
 {
 	#ifdef DUMP_PERF_STATS
@@ -779,9 +847,10 @@ RenderObjClass * W3DAssetManager::Create_Render_Obj(
 	Bool reallyscale = (WWMath::Fabs(scale - ident_scale) > scale_epsilon);
 	Bool reallycolor = (color & 0xFFFFFF) != 0;	//black is not a valid color and assumes no custom coloring.
 	Bool reallytexture = (oldTexture != NULL && newTexture != NULL);
+	Bool reallyskin = (skin != 0);
 
 	// base case, no scale or color
-	if (!reallyscale && !reallycolor && !reallytexture) 
+	if (!reallyscale && !reallycolor && !reallytexture && !reallyskin)
 	{
 		RenderObjClass *robj=WW3DAssetManager::Create_Render_Obj(name);
 	#ifdef DUMP_PERF_STATS
@@ -793,6 +862,13 @@ RenderObjClass * W3DAssetManager::Create_Render_Obj(
 
 	char newname[MUNGED_NAME_SIZE];
 	Munge_Render_Obj_Name(newname, name, scale, color, oldTexture, newTexture);
+	if (reallyskin)
+	{
+		// the skin's own prototype, beside the plain one of the same colour; nothing else is in the name
+		char plain[MUNGED_NAME_SIZE];
+		strlcpy(plain, newname, ARRAY_SIZE(plain));
+		snprintf(newname, MUNGED_NAME_SIZE, "#K%d%s", skin, plain);	// '#' first, as WW3D skips a munged name
+	}
 
 	// see if we got a cached version
 	RenderObjClass *rendobj = NULL;
@@ -910,6 +986,9 @@ RenderObjClass * W3DAssetManager::Create_Render_Obj(
 			REF_PTR_RELEASE(newTex);
 			REF_PTR_RELEASE(oldTex);
 		}
+
+		if (reallyskin)
+			applySkin(rendobj, skin);
 
 		if (reallycolor)
 			Recolor_Asset(rendobj,color);

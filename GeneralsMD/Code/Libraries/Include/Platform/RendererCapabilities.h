@@ -24,6 +24,9 @@ enum class RendererFeature
     BuildingCollapse,
     DistanceFieldReachOverlay,
     WaterFoam, // Classic-style foam provider; independent of Modern water
+    TerrainSun, // height-derived per-pixel global terrain light
+    TerrainSubdivision, // render-only Catmull-Rom ground geometry
+    GroundFoliage, // native grass shader, alpha silhouettes and distance fold
     Count
 };
 

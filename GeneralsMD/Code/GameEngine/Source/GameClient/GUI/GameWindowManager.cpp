@@ -56,6 +56,7 @@
 #include "GameClient/GameWindowTransitions.h"
 #include "GameClient/Shell.h"
 #include "Common/NameKeyGenerator.h"
+#include "GameClient/ControlBar.h"
 
 // PUBLIC DATA ////////////////////////////////////////////////////////////////////////////////////
 GameWindowManager *TheWindowManager = NULL;
@@ -79,6 +80,17 @@ UnsignedInt WindowLayoutCurrentVersion = 2;
 // the radar cursor
 //
 static Bool sendMousePosMessages = TRUE;
+
+//-------------------------------------------------------------------------------------------------
+/** A top-level window holds a screen point inside its rectangle, and the command bar also where a
+	* Minimap Size over 100 raised the radar above the bar's top (ControlBar::holdsRaisedRadarPoint). */
+//-------------------------------------------------------------------------------------------------
+static Bool topWindowHolds( const GameWindow *window, const IRegion2D &region, Int x, Int y )
+{
+	if( x >= region.lo.x && x <= region.hi.x && y >= region.lo.y && y <= region.hi.y )
+		return TRUE;
+	return TheControlBar != NULL && TheControlBar->holdsRaisedRadarPoint( window, x, y );
+}
 
 //-------------------------------------------------------------------------------------------------
 /** Process windows waiting to be destroyed */
@@ -1061,10 +1073,7 @@ WinInputReturnCode GameWindowManager::winProcessMouseEvent( GameWindowMessage ms
 
 					if( BitTest( window->m_status, WIN_STATUS_ABOVE ) &&
 							!BitTest( window->m_status, WIN_STATUS_HIDDEN ) &&
-							mousePos->x >= window->m_region.lo.x &&
-							mousePos->x <= window->m_region.hi.x &&
-							mousePos->y >= window->m_region.lo.y &&
-							mousePos->y <= window->m_region.hi.y)
+							topWindowHolds( window, window->m_region, mousePos->x, mousePos->y ))
 					{
 
 						childWindow = window->winPointInAnyChild( mousePos->x, mousePos->y, TRUE, TRUE );
@@ -1097,10 +1106,7 @@ WinInputReturnCode GameWindowManager::winProcessMouseEvent( GameWindowMessage ms
 						if( !BitTest( window->m_status, WIN_STATUS_ABOVE | 
 																						WIN_STATUS_BELOW | 
 																						WIN_STATUS_HIDDEN ) &&
-								mousePos->x >= window->m_region.lo.x &&
-								mousePos->x <= window->m_region.hi.x &&
-								mousePos->y >= window->m_region.lo.y &&
-								mousePos->y <= window->m_region.hi.y)
+								topWindowHolds( window, window->m_region, mousePos->x, mousePos->y ))
 						{
 
 							childWindow = window->winPointInAnyChild( mousePos->x, mousePos->y, TRUE, TRUE );
@@ -1131,10 +1137,7 @@ WinInputReturnCode GameWindowManager::winProcessMouseEvent( GameWindowMessage ms
 
 						if( BitTest( window->m_status, WIN_STATUS_BELOW ) &&
 								!BitTest( window->m_status, WIN_STATUS_HIDDEN ) &&
-								mousePos->x >= window->m_region.lo.x &&
-								mousePos->x <= window->m_region.hi.x &&
-								mousePos->y >= window->m_region.lo.y &&
-								mousePos->y <= window->m_region.hi.y)
+								topWindowHolds( window, window->m_region, mousePos->x, mousePos->y ))
 						{
 
 							childWindow = window->winPointInAnyChild( mousePos->x, mousePos->y, TRUE, TRUE );
@@ -2575,6 +2578,10 @@ GameWindow *GameWindowManager::gogoGadgetComboBox( GameWindow *parent,
 	// allocate the listbox data, copy template data over and set it into box
 	comboBoxData = NEW ComboBoxData;
 	memcpy( comboBoxData, comboBoxDataTemplate, sizeof( ComboBoxData ) );
+	comboBoxData->dropDownPitch = 0;	// not every template is zeroed (GUIEdit's)
+	comboBoxData->dropDownRoom = 0;
+	comboBoxData->dropDownRoomAbove = 0;
+	comboBoxData->dropUpShift = 0;
 
   // Add the list box data struct to the window's class data
   comboBox->winSetUserData( comboBoxData );
@@ -3816,10 +3823,7 @@ GameWindow *GameWindowManager::getWindowUnderCursor( Int x, Int y, Bool ignoreEn
 
 			if( BitTest( window->m_status, WIN_STATUS_ABOVE ) &&
 					!BitTest( window->m_status, WIN_STATUS_HIDDEN ) &&
-					x >= window->m_region.lo.x &&
-					x <= window->m_region.hi.x &&
-					y >= window->m_region.lo.y &&
-					y <= window->m_region.hi.y)
+					topWindowHolds( window, window->m_region, x, y ))
 			{
 				if( BitTest( window->m_status, WIN_STATUS_ENABLED ) || ignoreEnabled )
 				{
@@ -3838,10 +3842,7 @@ GameWindow *GameWindowManager::getWindowUnderCursor( Int x, Int y, Bool ignoreEn
 				if( !BitTest( window->m_status, WIN_STATUS_ABOVE | 
 																				WIN_STATUS_BELOW | 
 																				WIN_STATUS_HIDDEN ) &&
-						x >= window->m_region.lo.x &&
-						x <= window->m_region.hi.x &&
-						y >= window->m_region.lo.y &&
-						y <= window->m_region.hi.y)
+						topWindowHolds( window, window->m_region, x, y ))
 				{
 					if( BitTest( window->m_status, WIN_STATUS_ENABLED )|| ignoreEnabled)
 					{								
@@ -3860,10 +3861,7 @@ GameWindow *GameWindowManager::getWindowUnderCursor( Int x, Int y, Bool ignoreEn
 			{
 				if( BitTest( window->m_status, WIN_STATUS_BELOW ) &&
 						!BitTest( window->m_status, WIN_STATUS_HIDDEN ) &&
-						x >= window->m_region.lo.x &&
-						x <= window->m_region.hi.x &&
-						y >= window->m_region.lo.y &&
-						y <= window->m_region.hi.y)
+						topWindowHolds( window, window->m_region, x, y ))
 				{
 					if( BitTest( window->m_status, WIN_STATUS_ENABLED )|| ignoreEnabled)
 					{
@@ -4228,27 +4226,25 @@ Bool GameWindowManager::initTestGUI( void )
 }  // end initTestGUI
 
 
+/// a window Tab may give focus to: there, enabled, and neither it nor a parent hidden
+static Bool isTabStop( GameWindow *window )
+{
+	if( window == NULL || !BitTest( window->winGetStatus(), WIN_STATUS_ENABLED ) )
+		return FALSE;
+	for( GameWindow *w = window; w; w = w->winGetParent() )
+		if( w->winIsHidden() )
+			return FALSE;
+	return TRUE;
+}
+
 void GameWindowManager::winNextTab( GameWindow *window )
 {
 	if(m_tabList.size() == 0|| m_modalHead)
 		return;
 
-	GameWindowList::iterator it = m_tabList.begin();
-	while( it != m_tabList.end())
-	{
-		if(*it == window)
-		{
-			it++;
-			break;
-		}
-		it++;
-	}
+	GameWindowList::iterator it = findTabStop( m_tabList.begin(), m_tabList.end(), window, isTabStop );
 	if(it != m_tabList.end())
 		winSetFocus(*it);
-	else
-	{
-		winSetFocus(*m_tabList.begin());
-	}
 	winSetLoneWindow(NULL);
 }
 
@@ -4257,22 +4253,9 @@ void GameWindowManager::winPrevTab( GameWindow *window )
 	if(m_tabList.size() == 0 || m_modalHead)
 		return;
 
-	GameWindowList::reverse_iterator it = m_tabList.rbegin();
-	while( it != m_tabList.rend())
-	{
-		if(*it == window)
-		{
-			it++;
-			break;
-		}
-		it++;
-	}
+	GameWindowList::reverse_iterator it = findTabStop( m_tabList.rbegin(), m_tabList.rend(), window, isTabStop );
 	if(it != m_tabList.rend())
 		winSetFocus(*it);
-	else
-	{
-		winSetFocus(*m_tabList.rbegin());
-	}	
 	winSetLoneWindow(NULL);
 }
 

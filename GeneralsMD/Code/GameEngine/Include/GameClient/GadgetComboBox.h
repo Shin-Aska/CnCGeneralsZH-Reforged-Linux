@@ -80,6 +80,7 @@ extern void GadgetComboBoxSetAsciiOnly(GameWindow *comboBox, Bool isAsciiOnly  )
 extern void GadgetComboBoxSetLettersAndNumbersOnly(GameWindow *comboBox, Bool isLettersAndNumbersOnly  );
 extern void GadgetComboBoxSetMaxChars( GameWindow *comboBox, Int maxChars );
 extern void GadgetComboBoxSetMaxDisplay( GameWindow *comboBox, Int maxDisplay );
+extern void GadgetComboBoxSetDropDownPitch( GameWindow *comboBox, Int pitch, Int room, Int roomAbove );
 extern void GadgetComboBoxSetIsEditable(GameWindow *comboBox, Bool isEditable  );
 
 //setup all the Font Colors
@@ -166,7 +167,7 @@ inline Color	GadgetComboBoxGetHiliteSelectedItemBorderColor( GameWindow *g )			{
 
 inline GameWindow *GadgetComboBoxGetDropDownButton( GameWindow *g )
 {
-	ComboBoxData *comboBoxData = (ComboBoxData *)g->winGetUserData();
+	ComboBoxData *comboBoxData = g ? (ComboBoxData *)g->winGetUserData() : NULL;
 
 	if( comboBoxData && comboBoxData->dropDownButton )
 		return comboBoxData->dropDownButton;
@@ -174,7 +175,7 @@ inline GameWindow *GadgetComboBoxGetDropDownButton( GameWindow *g )
 }
 inline GameWindow *GadgetComboBoxGetListBox( GameWindow *g )
 {
-	ComboBoxData *comboBoxData = (ComboBoxData *)g->winGetUserData();
+	ComboBoxData *comboBoxData = g ? (ComboBoxData *)g->winGetUserData() : NULL;
 
 	if( comboBoxData && comboBoxData->listBox)
 		return comboBoxData->listBox;
@@ -184,7 +185,7 @@ inline GameWindow *GadgetComboBoxGetListBox( GameWindow *g )
 
 inline GameWindow *GadgetComboBoxGetEditBox( GameWindow *g )
 {
-	ComboBoxData *comboBoxData = (ComboBoxData *)g->winGetUserData();
+	ComboBoxData *comboBoxData = g ? (ComboBoxData *)g->winGetUserData() : NULL;
 
 	if( comboBoxData && comboBoxData->editBox)
 		return comboBoxData->editBox;

@@ -89,6 +89,7 @@ class ProductionUpdateInterface;
 class ProjectileUpdateInterface;
 class RadarObject;
 class SightingInfo;
+class SlavedUpdateInterface;
 class SpawnBehaviorInterface;
 class SpecialAbilityUpdate;
 class SpecialPowerCompletionDie;
@@ -245,6 +246,14 @@ public:
 	ObjectID getBuilderID() const { return m_builderID; }
 	void setBuilder( const Object *obj );
 
+	/// group panel reinforcement: the hotkey squad 0-9 this unit is walking to, or -1
+	Int getReinforcementSquad() const { return m_reinforcementSquad; }
+	/// where it was sent; NULL when it is not walking to a squad
+	const Coord3D* getReinforcementDestination() const { return m_reinforcementSquad >= 0 ? &m_reinforcementDestination : NULL; }
+	Bool isReinforcementRetargeted() const { return m_reinforcementRetargeted; }
+	/// squad -1 (or any invalid one) clears it; retargeted marks the one re-issue on arrival as spent
+	void setReinforcement( Int squad, const Coord3D *destination, Bool retargeted );
+
 	void enterGroup( AIGroup *group );							///< become a member of the AIGroup
 	void leaveGroup( void );												///< leave our current AIGroup
 	AIGroup *getGroup(void);
@@ -378,7 +387,10 @@ public:
 	// Find us our dock update interface if we have one.  Again, this method exists simple
 	// because we want to do this in a lot of places throughout the code
 	//
-	DockUpdateInterface *getDockUpdateInterface( void );
+	DockUpdateInterface *getDockUpdateInterface( void ) { return m_dock; }
+
+	/// the first module that slaves us to a spawner (SlavedUpdate, MobMemberSlavedUpdate), if any
+	SlavedUpdateInterface *getSlavedUpdateInterface( void ) const { return m_slaved; }
 
 	// Ditto for special powers -- Kris
 	SpecialPowerModuleInterface* findSpecialPowerModuleInterface( SpecialPowerType type ) const;
@@ -557,7 +569,8 @@ public:
 	Weapon* getCurrentWeapon(WeaponSlotType* wslot = NULL);
 	const Weapon* getCurrentWeapon(WeaponSlotType* wslot = NULL) const;
 	void setFiringConditionForCurrentWeapon() const;
-	void adjustModelConditionForWeaponStatus();	///< Check to see if I should change my model condition. 
+	Bool adjustModelConditionForWeaponStatus();	///< Check to see if I should change my model condition; TRUE when the next check would change nothing until an attack, a shot or a new drawable
+	void wakeWeaponStatusHelper() const;	///< one of my weapons fired: the weapon status helper shows it
 	void fireCurrentWeapon(Object *target);
 	void fireCurrentWeapon(const Coord3D* pos);
 	void preFireCurrentWeapon( const Object *victim );
@@ -713,6 +726,7 @@ protected:
 	void setOrRestoreTeam( Team* team, Bool restoring );
 
 	void onDisabledEdge(Bool becomingDisabled);
+	void notifyObjectUpgradesChanged();	///< UpgradeModuleInterface::onObjectUpgradesChanged on each upgrade module
 	// All of our cheating for radars and power go here.
 
 
@@ -771,6 +785,9 @@ private:
 	ObjectID			m_id;												///< this object's unique ID
 	ObjectID			m_producerID;								///< object that produced us, if any
 	ObjectID			m_builderID;								///< object that is building or has built us (dozers or workers are builders)
+	Int						m_reinforcementSquad;				///< hotkey squad this unit walks to after the group panel ordered it, -1 for none
+	Coord3D				m_reinforcementDestination;	///< the squad's centre when it was sent there
+	Bool					m_reinforcementRetargeted;	///< the one re-issue on arrival has been used
 	Drawable*			m_drawable;									///< drawable (if any) for this object
 	AsciiString		m_name;										///< internal name
 
@@ -821,6 +838,8 @@ private:
 	ContainModuleInterface*				m_contain;
 	BodyModuleInterface*					m_body;
   StealthUpdate*                m_stealth;
+	DockUpdateInterface*					m_dock;		///< the first module answering getDockUpdateInterface; a module's answer never changes
+	SlavedUpdateInterface*				m_slaved;	///< the first module answering getSlavedUpdateInterface, likewise
 
 	AIUpdateInterface*						m_ai;	///< ai interface (if any), cached for handy access. (duplicate of entry in the module array!)
 	PhysicsBehavior*							m_physics;	///< physics interface (if any), cached for handy access. (duplicate of entry in the module array!)

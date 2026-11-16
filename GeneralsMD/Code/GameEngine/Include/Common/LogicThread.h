@@ -39,17 +39,14 @@ class Drawable;
 class Player;
 
 /**
-	* `-logicthread 1`, the default on Windows, hands every tick to a dedicated thread; outside a network
-	* game the render draws beside it (phases 3 and 4), reading only the copies taken at the sync point,
-	* and in one the main thread waits for it (phase 5).  No option or saved setting reaches this.
-	* `-logicthread 0`, the default off Windows and otherwise for a desync hunt, runs the tick on the main
-	* thread.
-	* `-logicthread 2` adds jitter to the tick to shake out races.
+	* Every tick runs on a dedicated thread, on every platform; no switch, option or saved setting keeps
+	* it on the main thread, and only the ticks that load or tear down a map stay there (runTick).  The
+	* render draws beside it where the pacer lets it (phases 3 to 5), reading only the copies taken at
+	* the sync point.
 	*
 	* The census counts calls into the client made from the logic thread, one count per channel
 	* of LOGIC-THREAD.md section 1's table.  Each count is an entry point phase 2 has to turn into
-	* a record replayed at the sync point; the phase 2 exit is every count at zero.  At
-	* `-logicthread 0` nothing runs on the logic thread and every count stays zero.
+	* a record replayed at the sync point; the phase 2 exit is every count at zero.
 	*/
 namespace LogicThread
 {
@@ -73,7 +70,6 @@ namespace LogicThread
 		CENSUS_GHOST,						///< GhostObjectManager add/remove
 		CENSUS_MESSAGESTREAM,		///< MessageStream::appendMessage
 		CENSUS_DISPLAY,					///< TheDisplay shroud levels
-		CENSUS_JOBS,						///< JobSystem::parallel_for
 		CENSUS_ON_DEMAND_FLUSH,	///< Drawable::getDrawModulesFlushed applying deferred work inside the tick
 		CENSUS_OBSERVER_LOOKAT,	///< ControlBar::getObserverLookAtPlayer, a logic read of client state (M7)
 		CENSUS_DRAWABLE_PUSH,		///< Drawable::doClientWork run inside the tick: hidden, colour, decal, shadows, sub-objects, ambient sound, caption
@@ -89,6 +85,11 @@ namespace LogicThread
 	/** TRUE on the logic thread, FALSE everywhere else.  Constant-initialised, so a read is one
 		* thread-local load. */
 	extern thread_local Bool t_isLogicThread;
+
+	/** TRUE on a worker of the logic thread's job pool (JobSystem.cpp, which owns it): a job the tick
+		* hands out reads what the tick reads, never the render's copies.  It is not t_isLogicThread, so a
+		* worker takes no census, no live-model lock and nothing else that is the tick's alone. */
+	extern thread_local Bool t_isLogicWorker;
 
 	void noteCensus( Channel channel );
 
@@ -127,10 +128,11 @@ namespace LogicThread
 	extern std::atomic<Int> g_windowOpen;
 	void noteWindow( WindowRead read );
 
-	/** TRUE on the main thread inside the window, where a read has to come from a copy. */
+	/** TRUE on the main thread inside the window, and on the main pool's workers it forks there, where a
+		* read has to come from a copy.  The logic thread and its own pool's workers read the live state. */
 	inline Bool isInsideWindow( void )
 	{
-		return g_windowOpen.load( std::memory_order_relaxed ) && !t_isLogicThread;
+		return g_windowOpen.load( std::memory_order_relaxed ) && !t_isLogicThread && !t_isLogicWorker;
 	}
 
 	inline void windowRead( WindowRead read )
@@ -140,7 +142,7 @@ namespace LogicThread
 	}
 
 	/** The window's span on the main thread, closed when it goes out of scope (a continue included).
-		* Step 3b: at 1 and 2, a window opened with mayOverlap on a pass prepareOverlap found a tick due
+		* Step 3b: a window opened with mayOverlap on a pass prepareOverlap found a tick due
 		* for hands that tick to the logic thread before it marks itself open, and close waits for it. */
 	class OverlapWindow
 	{
@@ -153,8 +155,9 @@ namespace LogicThread
 			* another picture as long as pictureMS, the one just drawn, still ends before the pacer owes the next
 			* one (a paced single-player pass).  The window stays open and the draw presents the same state
 			* again with only the camera moved.  Under vsync a picture's length includes its wait for the
-			* refresh, so a 60 Hz screen beside 60 ticks a second draws none and a faster one draws them on its
-			* refreshes.  FALSE closes it as close() does, waiting for the tick. */
+			* refresh, so a screen no faster than the logic draws none and a faster one draws them on its
+			* refreshes, unless smooth motion is blending there: W3DDisplay's drawAgainBesideTick then closes
+			* the window instead of asking.  FALSE closes it as close() does, waiting for the tick. */
 		Bool closeOrDrawAgain( Real pictureMS );
 	private:
 		Bool m_open;
@@ -184,7 +187,7 @@ namespace LogicThread
 	};
 
 	/** LOGIC-THREAD.md phase 3, step 3b, the overlap.  GameClient::update calls this in front of the
-		* draw: at 1 and 2 it asks GameEngine::planOverlappedTick, which runs the message stream and the
+		* draw: it asks GameEngine::planOverlappedTick, which runs the message stream and the
 		* pacer there in a single-player match, whether the pass's first tick is due. */
 	void prepareOverlap( void );
 
@@ -205,14 +208,14 @@ namespace LogicThread
 	/** The last overlapped tick's own length on the logic thread, and how long the main thread waited for it. */
 	void takeOverlapTimes( Real &tickMS, Real &waitMS );
 
-	/** Read -logicthread and start the thread if it asks for one.  Called once, from GameEngine::init. */
+	/** Start the thread.  Called once, from GameEngine::init. */
 	void init( void );
 
 	/** Join the thread.  Safe without an init(). */
 	void shutdown( void );
 
-	/** Run one TheGameLogic->UPDATE(): on the logic thread with this one waiting, or inline at
-		* -logicthread 0 and on the ticks that load or tear down a map, which build windows, the load
+	/** Run one TheGameLogic->UPDATE(): on the logic thread with this one waiting, or inline on the
+		* ticks that load or tear down a map, which build windows, the load
 		* screen and every render object on the device and stay on the main thread.  An exception
 		* the tick throws is thrown again here, on the main thread, where GameEngine::execute catches
 		* it as it always did. */
@@ -224,8 +227,8 @@ namespace LogicThread
 	/** LOGIC-THREAD.md phase 2, M5.  The effects a tick asks of the client (sounds, FX lists, particle
 		* systems) wait in one queue, in the order the tick asked for them, and runTick runs them on the
 		* main thread after the drawables' deferred work, so every drawable they attach to has its render
-		* objects.  Keyed on isInGameLogicUpdate past the map load, like the drawables, so -logicthread 0
-		* and 1 run one path.  A tick clearing the game runs its calls at once, as a map load does. */
+		* objects.  Keyed on isInGameLogicUpdate past the map load, like the drawables, so a tick on the
+		* main thread runs the same path.  A tick clearing the game runs its calls at once, as a map load does. */
 	Bool defersEffects( void );
 
 	/** Inside a tick, queue `call` for after it; anywhere else, run it now. */

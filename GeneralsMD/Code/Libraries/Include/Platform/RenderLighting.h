@@ -12,6 +12,13 @@ bool LightsPerPixel();
 // A late optional-shadow failure cannot change the choice for already prepared ground.
 bool PrepareTerrainLighting();
 void UseTerrainCpuLighting();
+// Global terrain sun is independent of optional shadow and dynamic-light providers.
+// The 40 floats are four rays, four diffuse colours, sampling parameters and water fade.
+enum { TerrainLightFloats = 40 };
+bool SetTerrainHeights(const unsigned char *, unsigned width, unsigned height);
+bool HoldsTerrainHeights();
+void SetTerrainLight(const float *);
+void SetTerrainRelight(bool);
 void SetHemiAmbient(bool enabled);
 void SetEmissive(bool emissive);
 void SetTeamGlow(bool glow);
@@ -25,6 +32,10 @@ void SetBlastLights(IDirect3DDevice9 *, const float *, unsigned);
 bool LightsPerPixel(IDirect3DDevice9 *);
 bool PrepareTerrainLighting(IDirect3DDevice9 *);
 void UseTerrainCpuLighting(IDirect3DDevice9 *);
+bool SetTerrainHeights(IDirect3DDevice9 *, const unsigned char *, unsigned, unsigned);
+bool HoldsTerrainHeights(IDirect3DDevice9 *);
+void SetTerrainLight(IDirect3DDevice9 *, const float *);
+void SetTerrainRelight(IDirect3DDevice9 *, bool);
 void SetHemiAmbient(IDirect3DDevice9 *, bool);
 void SetEmissive(IDirect3DDevice9 *, bool);
 void SetTeamGlow(IDirect3DDevice9 *, bool);

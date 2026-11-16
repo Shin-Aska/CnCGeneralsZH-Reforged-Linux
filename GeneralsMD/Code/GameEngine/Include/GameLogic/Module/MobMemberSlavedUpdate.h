@@ -33,7 +33,7 @@
 #ifndef _MOBMEMBER_SLAVED_UPDATE_H_
 #define _MOBMEMBER_SLAVED_UPDATE_H_
 
-#define MM_SLAVED_UPDATE_RATE (LOGICFRAMES_PER_SECOND / 8) ///< This is a low priority module that only needs to be called every this many frames
+#define MM_SLAVED_UPDATE_RATE (LOGICFRAMES_PER_GAME_SECOND / 8) ///< This is a low priority module that only needs to be called every this many frames
 #define MIN_SQUIRRELLINESS (0.01f)
 #define MAX_SQUIRRELLINESS (1.0f)
 #define CATCH_UP_RADIUS_MAX (50)
@@ -56,6 +56,7 @@ public:
 	Int m_noNeedToCatchUpRadius;	//Allowable wander distance from master while guarding master.
 	Real m_squirrellinessRatio; 
 	UnsignedInt m_catchUpCrisisBailTime; //after this many consecutive frames outside the catchup radius, I will teleport to the nexus
+	Real m_formationSpacing;	///< distance between neighbouring formation slots, in my own body radii
 
 	MobMemberSlavedUpdateModuleData()
 	{
@@ -63,6 +64,7 @@ public:
 		m_noNeedToCatchUpRadius = DEFAULT_NO_NEED_TO_CATCH_UP_RADIUS;
 		m_squirrellinessRatio = 0;
 		m_catchUpCrisisBailTime = 999999;//default to very large number
+		m_formationSpacing = 1.1f;	// a crowd, shoulder to shoulder: the spiral puts neighbours about two radii apart
 	}
 
 	static void buildFieldParse(MultiIniFieldParse& p) 
@@ -74,6 +76,7 @@ public:
 			{ "CatchUpCrisisBailTime",			INI::parseUnsignedInt,	NULL, offsetof( MobMemberSlavedUpdateModuleData, m_catchUpCrisisBailTime ) },
 			{ "NoNeedToCatchUpRadius",		INI::parseInt,	NULL, offsetof( MobMemberSlavedUpdateModuleData, m_noNeedToCatchUpRadius ) },
 			{ "Squirrelliness",     INI::parseReal, NULL, offsetof( MobMemberSlavedUpdateModuleData, m_squirrellinessRatio ) },
+			{ "FormationSpacing",   INI::parseReal, NULL, offsetof( MobMemberSlavedUpdateModuleData, m_formationSpacing ) },
 			{ 0, 0, 0, 0 }
 		};
     p.add(dataFieldParse);
@@ -110,6 +113,7 @@ public:
 	virtual void onSlaverDamage( const DamageInfo *info );
 	virtual void onObjectCreated();
 	virtual Bool isSelfTasking() const { return m_isSelfTasking; };
+	virtual void onSlaverOrdered();
 
 	void setMobState( MobStates state ) { m_mobState = state; };
 	MobStates getMobState( void ) { return m_mobState; };
@@ -118,7 +122,7 @@ public:
 	virtual UpdateSleepTime update();	///< Deciding whether or not to make new guys
 
 private:
-	void computeSlotPosition( Object *master, Coord3D *position );	///< My own standing place inside the mob
+	void computeSlotPosition( Object *master, Coord3D *position, Real *alongTravel, Coord2D *marchDir );	///< My own place inside the mob, how far ahead of its centre that is, and which way the nexus is walking (zero when it is not)
 	void startSlavedEffects( const Object *slaver );	///< We have been marked as Slaved, so we can't be selected or move too far or other stuff
 	void stopSlavedEffects();		///< We are no longer slaved.
 
@@ -130,6 +134,7 @@ private:
 	Real m_squirrellinessRatio;
 	Bool m_isSelfTasking;
 	UnsignedInt m_catchUpCrisisTimer;// how many consecutive frames have I remained outside the catchup radius
+	Bool m_followOrder;			///< my nexus was just given a move I was left out of: take my place the moment it walks
 	//This is a failsafe to make sure that an individual mobmember does not get isolated from his buddies
 	// thus causing the mob to become invincible, since they will continue to bud around the nexus
 	

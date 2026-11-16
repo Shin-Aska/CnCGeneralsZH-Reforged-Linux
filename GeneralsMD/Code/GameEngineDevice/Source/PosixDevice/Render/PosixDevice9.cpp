@@ -178,6 +178,7 @@ PosixDevice9::~PosixDevice9()
 	Release_Post();
 	// The retained source must die while its resource mirror/lifetime callback is alive.
 	Clear_Staged_Vertex();
+	Posix_Bind(TerrainHeights, (IDirect3DTexture9 *)nullptr);
 	Clear_Sun_Shadow();
 	Sun.reset();
 	Shore_End();
@@ -564,6 +565,8 @@ RenderResult PosixDevice9::Reset(D3DPRESENT_PARAMETERS *parameters)
 			? D3DERR_DEVICELOST : D3DERR_OUTOFVIDEOMEMORY;
 	}
 	Invalidate_Post_Route();
+	TerrainRelight = false;
+	TerrainLighting = {};
 	Clear_Staged_Vertex();
 	Shore_End();
 	Clear_Sun_Shadow();
@@ -1067,6 +1070,9 @@ bool PosixRenderer_Supports_Feature(IDirect3DDevice9 *device, RendererFeature fe
 	if (!PosixRenderer_Has_Gpu(device)) return false;
 	// Only completed providers belong here. GPU availability is not feature parity.
 	switch (feature) {
+	case RendererFeature::TerrainSubdivision:
+	case RendererFeature::TerrainSun:
+	case RendererFeature::GroundFoliage:
 	case RendererFeature::BattleMarks:
 	case RendererFeature::PerPixelLights:
 	case RendererFeature::HemisphericAmbient:

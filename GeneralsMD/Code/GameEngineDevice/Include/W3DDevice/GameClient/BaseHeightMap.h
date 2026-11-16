@@ -51,6 +51,7 @@
 #define MAX_ENABLED_DYNAMIC_LIGHTS 32
 typedef UnsignedByte HeightSampleType;	//type of data to store in heightmap
 class W3DTreeBuffer;
+class W3DGrassBuffer;
 class W3DBibBuffer;
 class W3DRoadBuffer;
 class W3DBridgeBuffer;
@@ -192,8 +193,10 @@ public:
 	void applyScorchTextureLOD(void);	///<re-apply that level to the scorch texture (it is rebuilt on a device reset)
 	void updateMacroTexture(AsciiString textureName);
 	void doTextures(Bool flag) {m_disableTextures = !flag;};
-	/// Update the diffuse value from static light info for one vertex.
-	void doTheLight(VERTEX_FORMAT *vb, Vector3*light, Vector3*normal, RefRenderObjListIterator *pLightsIterator, UnsignedByte alpha);
+	/// Update the diffuse value from static light info for one vertex.  With sunPerPixel the global
+	/// lights and the fade under water are left out: the ground's program adds them per pixel
+	/// (HeightMapRenderObjClass::prepareSunPerPixel).
+	void doTheLight(VERTEX_FORMAT *vb, Vector3*light, Vector3*normal, RefRenderObjListIterator *pLightsIterator, UnsignedByte alpha, Bool sunPerPixel = FALSE);
 	void addScorch(Vector3 location, Real radius, Scorches type);
 	/// The Battle Marks option: a burn that fades, on the ring's fixed cap.  Nothing without the option.
 	void addGroundMark(const Vector3 &location, Real radius, Int type);
@@ -252,7 +255,10 @@ public:
 	void setTimeOfDay( TimeOfDay tod );
 	void loadRoadsAndBridges(W3DTerrainLogic *pTerrainLogic, Bool saveGame); ///< Load the roads from the map objects.
 	void worldBuilderUpdateBridgeTowers( W3DAssetManager *assetManager, SimpleSceneClass *scene );							///< for the editor updating of bridge tower visuals
-	Int  getStaticDiffuse(Int x, Int y); ///< Gets the diffuse terrain lighting value for a point on the mesh.
+	Int  getStaticDiffuse(Int x, Int y, Bool sunPerPixel = FALSE); ///< Gets the diffuse terrain lighting value for a point on the mesh; sunPerPixel as doTheLight.
+	/// Whether the ground's tiles hold the light without the sun (HeightMapRenderObjClass): what sits
+	/// on the ground and is drawn under Direct3D11_Set_Terrain_Relight asks getStaticDiffuse the same.
+	virtual Bool sunPerPixelBaked(void) const { return FALSE; }
 
 	virtual Int	getNumExtraBlendTiles(Bool visible) { return 0;}
 	Int getNumShoreLineTiles(Bool visible)	{ return visible?m_numVisibleShoreLineTiles:m_numShoreLineTiles;}
@@ -297,19 +303,23 @@ protected:
 	Int	m_y;	///< dimensions of heightmap
 
 #ifdef DO_SCORCH
-	// ponytail: one 16-bit buffer pair, so the indices cap the drawn marks at about 680 of radius
-	// fifteen whatever MAX_SCORCH_MARKS says (DX8IndexBufferClass counts in an unsigned short); the
-	// newest are drawn and the oldest wait in the list.  A second buffer pair when that shows.
+	// ponytail: 16-bit buffer pairs (DX8IndexBufferClass counts in an unsigned short), one on EA's two
+	// triangles a cell and SCORCH_BUFFERS on the subdivided ground, whose half cell grid is four times
+	// the indices a mark: either way the indices cap the drawn marks at about 680 of radius fifteen
+	// whatever MAX_SCORCH_MARKS says, the newest drawn and the oldest waiting in the list.
 	enum { MAX_SCORCH_VERTEX=65535,
 					MAX_SCORCH_INDEX=65535,
 					MAX_SCORCH_MARKS=1000,
+					SCORCH_BUFFERS=4,
 					SCORCH_MARKS_IN_TEXTURE=9,
 					SCORCH_PER_ROW = 3};
-	DX8VertexBufferClass	*m_vertexScorch;	///<Scorch vertex buffer.
-	DX8IndexBufferClass			*m_indexScorch;	///<indices defining a triangles for the scorch drawing.
+	DX8VertexBufferClass	*m_vertexScorch[SCORCH_BUFFERS];	///<Scorch vertex buffers, the later ones made when first filled.
+	DX8IndexBufferClass			*m_indexScorch[SCORCH_BUFFERS];	///<indices defining a triangles for the scorch drawing.
+	Int			m_scorchVertices[SCORCH_BUFFERS];	///< vertices each pair holds
+	Int			m_scorchIndices[SCORCH_BUFFERS];	///< and indices
 	TextureClass *m_scorchTexture;	///<Scorch mark texture
-	Int			m_curNumScorchVertices;	 ///<number of vertices used in m_vertexScorch.
-	Int			m_curNumScorchIndices;	 ///<number of indices used in m_indexScorch.
+	Int			m_curNumScorchVertices;	 ///<number of vertices used in all the scorch buffers.
+	Int			m_curNumScorchIndices;	 ///<number of indices used in all of them; nought draws nothing.
 	TScorch	m_scorches[MAX_SCORCH_MARKS];
 	Int			m_numScorches;
 	/** How many of the scorches at the front of that list came with the map.
@@ -374,8 +384,10 @@ protected:
 	struct StaticDiffuseCell
 	{
 		Int diffuse;
+		Int sunlessDiffuse;				///< the same without the global lights (doTheLight's sunPerPixel)
 		UnsignedShort generation;	///< 0 is never valid
-		UnsignedByte heights[5];	///< centre, left, right, below, above
+		UnsignedShort sunlessGeneration;	///< sunlessDiffuse's, the same way
+		UnsignedByte heights[5];	///< centre, left, right, below, above; the key of both answers
 	};
 	std::vector<StaticDiffuseCell> m_staticDiffuseCells;
 	std::vector<UnsignedInt> m_staticDiffuseInputs;
@@ -388,6 +400,51 @@ protected:
 	/// list.  A cache of terrain vertices that saw the same value has nothing to rebuild.
 	Int m_terrainContentVersion;
 
+	/** Whether the ground's tiles draw each cell as two by two smaller ones (TerrainSubdivide.h,
+		HeightMapRenderObjClass::subdivideWanted).  Set at each whole rebuild; only the full terrain
+		detail ever sets it.  What lays its own triangles on the ground (the 3-way tiles, the shoreline,
+		the scorches, the decals) and the pick ask this and drawnHalfZ, so they lie on the
+		surface the tiles draw. */
+	Bool m_subdivided;
+public:
+	Bool terrainSubdivided(void) const { return m_subdivided; }
+	/// The drawn ground at half cell (x2, y2) of the whole map, border included, in world units: the
+	/// map's own height where both are even, TerrainSubdivide::height between.
+	Real drawnHalfZ(Int x2, Int y2);
+	/// The drawn ground at a world point: the subdivided tiles' triangles, or getDrawHeight's plane.
+	Real getDrawnHeight(Real x, Real y);
+	/// The step in half cells the things on the ground lay their vertices at: 1 subdivided, 2 not.
+	Int drawnStep(void) const { return m_subdivided ? 1 : 2; }
+protected:
+	/** drawnHalfZ's answers for the whole map, (2 * width - 1) by (2 * height - 1), kept while the
+		tiles are subdivided.  The shoreline and the decals ask for them every frame, and the patch
+		is twenty-odd samples a point: worked out per frame it cost a Golden Oasis match half its frame
+		rate.  Filled where the tiles are rebuilt (HeightMapRenderObjClass::updateBlock), so it moves
+		with the heights the tiles were built from. */
+	std::vector<Real> m_drawnHalf;
+	Int m_drawnHalfWidth;
+	Int m_drawnHalfHeight;
+	WorldHeightMap *m_drawnHalfMap;	///< map it was filled from; compared, never dereferenced
+	/** Each cell's diagonal as the tiles cut it (getAlphaUVData's flip, from the heights as they are),
+		one byte a cell, kept beside the table.  The map's own flip bits are written once, when its
+		texture is made, and only ever OR-ed, so a foundation that moves a stretched cliff cell's
+		heights flips the tile and not the bits; read from them the table, the pick and the scorches
+		took the other diagonal.  Those bits are logic's too (WorldHeightMapData) and are not written. */
+	std::vector<UnsignedByte> m_drawnFlip;
+	Int m_drawnFlipWidth;	///< cells a row of m_drawnFlip, 0 while nothing is kept
+	std::vector<UnsignedByte> m_drawnHeights;	///< the samples the table was last filled from
+	Real computeDrawnHalfZ(Int x2, Int y2);	///< drawnHalfZ without the table
+	void refreshDrawnHalf(Int x0, Int y0, Int x1, Int y1);	///< cells x0..x1 by y0..y1 of the whole map, inclusive
+	/** The flips and the samples of cells x0..x1 by y0..y1 taken again; TRUE when either moved (or
+		nothing was kept), which is when the table wants refreshDrawnHalf.  A rebuild for the light
+		or the time of day moves neither and leaves the table alone. */
+	Bool takeDrawnInputs(Int x0, Int y0, Int x1, Int y1);
+	void freeDrawnHalf(void);
+public:
+	/// A cell's diagonal as the drawn ground cuts it: the tiles' own while subdivided, the map's bit otherwise.
+	Bool drawnFlip(Int x, Int y);
+protected:
+
 
 	ShaderClass m_shaderClass; ///<shader or rendering state for heightmap
 	VertexMaterialClass	  	  *m_vertexMaterialClass;	///< vertex shader (lighting) for terrain
@@ -399,6 +456,7 @@ protected:
 	TextureClass *m_destAlphaTexture;	///< Texture holding destination alpha LUT for water depth.
 
 	W3DTreeBuffer *m_treeBuffer; ///< Class for drawing trees and other alpha objects.
+	W3DGrassBuffer *m_grassBuffer; ///< The GroundFoliage option's grass, drawn after the trees.
 	W3DPropBuffer *m_propBuffer; ///< Class for drawing trees and other alpha objects.
 	W3DBibBuffer *m_bibBuffer; ///< Class for drawing trees and other alpha objects.
 	W3DWaypointBuffer *m_waypointBuffer; ///< Draws waypoints.
@@ -437,6 +495,8 @@ protected:
 	void initDestAlphaLUT(void);	///<initialize water depth LUT stored in m_destAlphaTexture
 	void renderShoreLines(CameraClass *pCamera);	///<re-render parts of terrain that need custom blending into water edge
 	void renderShoreLinesSorted(CameraClass *pCamera);	///<optimized version for game usage.
+	/// One tile into a shoreline batch, four vertices or nine subdivided; moves the pointers and counts.
+	void addShoreLineTile(const shoreLineTileInfo *shoreInfo, Bool flip, VertexFormatXYZNDUV2 *&vb, UnsignedShort *&ib, Int &vertexCount, Int &indexCount);
 };
 
 extern BaseHeightMapRenderObjClass *TheTerrainRenderObject;

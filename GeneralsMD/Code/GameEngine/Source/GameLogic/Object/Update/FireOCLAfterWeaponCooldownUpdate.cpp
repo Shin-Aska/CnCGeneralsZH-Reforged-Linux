@@ -64,7 +64,7 @@ FireOCLAfterWeaponCooldownUpdateModuleData::FireOCLAfterWeaponCooldownUpdateModu
 	m_weaponSlot						= PRIMARY_WEAPON; 
 	m_minShotsRequired			= 1;
 	m_oclLifetimePerSecond	= 1000;
-	m_oclMaxFrames					= 1000;
+	m_oclMaxFrames.setRaw( 50000 );	// msec: 1000 frames at the native speed
 	m_ocl										= NULL;
 }
 
@@ -78,7 +78,7 @@ void FireOCLAfterWeaponCooldownUpdateModuleData::buildFieldParse(MultiIniFieldPa
 		{ "OCL",									INI::parseObjectCreationList,		NULL, offsetof( FireOCLAfterWeaponCooldownUpdateModuleData, m_ocl ) },
 		{ "MinShotsToCreateOCL",  INI::parseUnsignedInt,					NULL, offsetof( FireOCLAfterWeaponCooldownUpdateModuleData, m_minShotsRequired ) },
 		{ "OCLLifetimePerSecond",	INI::parseUnsignedInt,					NULL, offsetof( FireOCLAfterWeaponCooldownUpdateModuleData, m_oclLifetimePerSecond ) },
-		{ "OCLLifetimeMaxCap",		INI::parseDurationUnsignedInt,	NULL, offsetof( FireOCLAfterWeaponCooldownUpdateModuleData, m_oclMaxFrames ) },
+		{ "OCLLifetimeMaxCap",		SPEED_FIELD( FireOCLAfterWeaponCooldownUpdateModuleData, m_oclMaxFrames ) },
 		{ 0, 0, 0, 0 }
 	};
   p.add(dataFieldParse);
@@ -198,9 +198,9 @@ void FireOCLAfterWeaponCooldownUpdate::fireOCL()
 
 	//Calculate the lifetime of the OCL.
 	UnsignedInt now = TheGameLogic->getFrame();
-	Real seconds = (now - m_startFrame) * SECONDS_PER_LOGICFRAME_REAL;
+	Real seconds = (now - m_startFrame) * GAME_SECONDS_PER_LOGICFRAME_REAL;
 	seconds *= data->m_oclLifetimePerSecond * 0.001f;
-	UnsignedInt oclFrames = (UnsignedInt)(seconds * LOGICFRAMES_PER_SECOND);
+	UnsignedInt oclFrames = (UnsignedInt)(seconds * LOGICFRAMES_PER_GAME_SECOND);
 	oclFrames = MIN( oclFrames, data->m_oclMaxFrames );
 
 	ObjectCreationList::create( data->m_ocl, obj, obj, oclFrames );

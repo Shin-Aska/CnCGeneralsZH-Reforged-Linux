@@ -105,6 +105,7 @@
 #include "GameClient/InGameUI.h"
 #include "GameClient/ChallengeGenerals.h"
 #include "GameClient/UIStyle.h"
+#include "GameClient/ScoreScreenLayout.h"
 
 #ifdef _INTERNAL
 // for occasional debugging...
@@ -154,9 +155,11 @@ extern void PopupReplayUpdate(WindowLayout *layout, void *userData);
 // the summary and graphs panel that replaces the layout's score table, ScoreScreenGraphs.cpp
 extern void ScoreScreenGraphsInit( GameWindow *backdrop );
 extern void ScoreScreenGraphsAddPlayer( Player *player, const UnicodeString &name, Color color );
-extern void ScoreScreenGraphsAddSide( const UnicodeString &name, Color color, Int unitsBuilt, Int unitsLost, Int unitsDestroyed,
-	Int buildingsBuilt, Int buildingsLost, Int buildingsDestroyed, Int earned );
-extern void ScoreScreenGraphsShow( GameWindow *floor );
+extern void ScoreScreenGraphsAddSide( const UnicodeString &name, Color color, Int score, Int unitsBuilt, Int unitsLost, Int unitsDestroyed,
+	Int buildingsBuilt, Int buildingsLost, Int buildingsDestroyed, Int earned, Int spent );
+extern void ScoreScreenGraphsShow( GameWindow *floor, Bool chat );
+extern Real ScoreScreenGraphsChatTop( Real listBottom );
+extern void ScoreScreenGraphsSinglePlayer( void );
 extern void ScoreScreenGraphsShutdown( void );
 
 void initSinglePlayer( void );
@@ -258,7 +261,7 @@ void startNextCampaignGame(void)
 	msg->appendIntegerArgument(GAME_SINGLE_PLAYER);
 	msg->appendIntegerArgument(TheCampaignManager->getGameDifficulty());
 	msg->appendIntegerArgument(TheCampaignManager->getRankPoints());
-	msg->appendIntegerArgument(GameEngine_matchFramesPerSecond(TheGlobalData->m_turboMode));
+	GameEngine_appendNewGameRates( msg, TheGlobalData->m_missionGameSpeedPercent );
 	
 	InitRandom(0);
 }
@@ -385,13 +388,14 @@ void ScoreScreenInit( WindowLayout *layout, void *userData )
 		{
 			overidePlayerDisplayName = TRUE;
 			initSinglePlayer();
-			buttonSaveReplay->winHide(TRUE);
+			if (buttonSaveReplay)
+				buttonSaveReplay->winHide(TRUE);
 		}
 	}
 
 	// challenge maps have no replay (design and technical issues)
 	Bool isChallengeCampaign = TheCampaignManager->getCurrentCampaign() ? TheCampaignManager->getCurrentCampaign()->isChallengeCampaign() : FALSE;
-	if (isChallengeCampaign)
+	if (isChallengeCampaign && buttonSaveReplay)
 	{
 		buttonSaveReplay->winEnable(FALSE);
 		buttonSaveReplay->winHide(TRUE);
@@ -407,10 +411,12 @@ void ScoreScreenInit( WindowLayout *layout, void *userData )
 	if (screenType == SCORESCREEN_SINGLEPLAYER)
 	{
 		if (!isChallengeCampaign)
-			ScoreScreenGraphsShow(staticTextGameSaved);
+			ScoreScreenGraphsShow(staticTextGameSaved, FALSE);
 	}
+	else if (listboxChatWindowScoreScreen->winIsHidden())
+		ScoreScreenGraphsShow(NULL, FALSE);
 	else
-		ScoreScreenGraphsShow(listboxChatWindowScoreScreen->winIsHidden() ? NULL : listboxChatWindowScoreScreen);
+		ScoreScreenGraphsShow(listboxChatWindowScoreScreen, TRUE);
 
 	// Make Sure the layout is visible
 	layout->hide( FALSE );
@@ -1948,7 +1954,9 @@ void grabSinglePlayerInfo( void )
 	Int playerCount = 0;
 	Player *player, *localPlayer;
 	localPlayer = ThePlayerList->getLocalPlayer();
-	
+	// the summary lays these rows out as a mission's, a replayed one included
+	ScoreScreenGraphsSinglePlayer();
+
 	if(localPlayer)
 	{
 		if(!localPlayer->isPlayerObserver())
@@ -1961,7 +1969,7 @@ void grabSinglePlayerInfo( void )
 			for(Int k = 0; k < MAX_PLAYER_COUNT; ++k)
 			{
 				localPlayer = ThePlayerList->getNthPlayer(k);
-				if(localPlayer->getPlayerType() == PLAYER_HUMAN)
+				if(localPlayer && localPlayer->getPlayerType() == PLAYER_HUMAN)
 				{
 					populatePlayerInfo(localPlayer, playerCount);
 					++playerCount;
@@ -2017,6 +2025,7 @@ void grabSinglePlayerInfo( void )
 		sg.m_totalUnitsBuilt = 0;
 		sg.m_totalUnitsDestroyed = 0;
 		sg.m_totalUnitsLost = 0;
+		Int score = 0;
 		Bool populate = FALSE;
 		Color color;
 		for(Int i = 0; i < MAX_PLAYER_COUNT; ++i)
@@ -2039,6 +2048,7 @@ void grabSinglePlayerInfo( void )
 						sg.m_totalUnitsBuilt += sk->getTotalUnitsBuilt();
 						sg.m_totalUnitsDestroyed += sk->getTotalUnitsDestroyed();
 						sg.m_totalUnitsLost += sk->getTotalUnitsLost();
+						score += sk->calculateScore();
 							color = clientPlayerColor( player );
 						populate = TRUE;	
 					}
@@ -2054,8 +2064,8 @@ void grabSinglePlayerInfo( void )
 				label.concat("Allies");
 			else
 				label.concat("Enemies");
-			ScoreScreenGraphsAddSide(TheGameText->fetch(label), color, sg.m_totalUnitsBuilt, sg.m_totalUnitsLost, sg.m_totalUnitsDestroyed,
-				sg.m_totalBuildingsBuilt, sg.m_totalBuildingsLost, sg.m_totalBuildingsDestroyed, sg.m_totalMoneyEarned);
+			ScoreScreenGraphsAddSide(TheGameText->fetch(label), color, score, sg.m_totalUnitsBuilt, sg.m_totalUnitsLost, sg.m_totalUnitsDestroyed,
+				sg.m_totalBuildingsBuilt, sg.m_totalBuildingsLost, sg.m_totalBuildingsDestroyed, sg.m_totalMoneyEarned, sg.m_totalMoneySpent);
 			++playerCount;
 		}
 	}
@@ -2076,13 +2086,25 @@ static void hideScoreTable( void )
 		"ScoreScreen.wnd:CameoSuppliesCollected", "ScoreScreen.wnd:Line",
 		"ScoreScreen.wnd:ListboxWarschoolAdvice", "ScoreScreen.wnd:StaticTextWarSchool"
 	};
+	// Every lookup may come back NULL: a ScoreScreen.wnd from another install (a mod, an old copy in
+	// Window) lacks windows ours has, and the table is only hidden here, so a missing one costs nothing.
 	for( Int each = 0; each < ARRAY_SIZE( tableWindows ); ++each )
-		TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey( tableWindows[ each ] ) )->winHide( TRUE );
+	{
+		GameWindow *win = TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey( tableWindows[ each ] ) );
+		if( win )
+			win->winHide( TRUE );
+	}
 	// the rows' frame and the table's header box, which EA left unnamed; and the backdrop's own
 	// darkening, which the panel replaces
-	gadgetParent->winHide( TRUE );
-	TheWindowManager->winGetWindowFromId( backdrop, TheNameKeyGenerator->nameToKey( "ScoreScreen.wnd:" ) )->winHide( TRUE );
-	backdrop->winSetEnabledColor( 0, GameMakeColor( 0, 0, 0, 0 ) );
+	if( gadgetParent )
+		gadgetParent->winHide( TRUE );
+	if( backdrop )
+	{
+		GameWindow *darkening = TheWindowManager->winGetWindowFromId( backdrop, TheNameKeyGenerator->nameToKey( "ScoreScreen.wnd:" ) );
+		if( darkening )
+			darkening->winHide( TRUE );
+		backdrop->winSetEnabledColor( 0, GameMakeColor( 0, 0, 0, 0 ) );
+	}
 
 	// and its rows, one a slot
 	static const char *const rowWindows[] =
@@ -2098,7 +2120,9 @@ static void hideScoreTable( void )
 		for( Int each = 0; each < ARRAY_SIZE( rowWindows ); ++each )
 		{
 			winName.format( rowWindows[ each ], i );
-			TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey( winName ) )->winHide( TRUE );
+			GameWindow *row = TheWindowManager->winGetWindowFromId( parent, TheNameKeyGenerator->nameToKey( winName ) );
+			if( row )	// the layout has eight rows, MAX_SLOTS may be more
+				row->winHide( TRUE );
 		}
 	}
 }
@@ -2107,6 +2131,18 @@ static void hideScoreTable( void )
 	* the left where a room has Back and Record, Continue (or the way out alone) wide at the right where
 	* it has Start. The chat line and the "game saved" line sat where the row stands now and move up
 	* over it, the chat above them along. Laid out again once Continue is shown, so it runs twice. */
+/** A window on the 1920x1080 board from x0,y0 to x1,y1, wherever its parent stands. */
+static void placeOnBoard( GameWindow *win, Real x0, Real y0, Real x1, Real y1 )
+{
+	if( win == NULL )
+		return;
+	Int parentX = 0, parentY = 0;
+	if( win->winGetParent() )
+		win->winGetParent()->winGetScreenPosition( &parentX, &parentY );
+	win->winSetPosition( UIStyle::boardX( x0 ) - parentX, UIStyle::boardY( y0 ) - parentY );
+	win->winSetSize( UIStyle::px( x1 - x0 ), UIStyle::px( y1 - y0 ) );
+}
+
 static void placeButtonRow( void )
 {
 	const Int top = UIStyle::boardY( UIStyle::ROOM_BUTTON_TOP );
@@ -2144,14 +2180,32 @@ static void placeButtonRow( void )
 	textEntryChat->winGetScreenPosition( &entryX, &entryY );
 	textEntryChat->winGetSize( &entryWidth, &entryHeight );
 	const Int lift = entryY + entryHeight - ( top - gap );
-	if( lift <= 0 )
-		return;
-	GameWindow *foot[] = { textEntryChat, buttonEmote, staticTextGameSaved, listboxChatWindowScoreScreen };
-	for( Int each = 0; each < ARRAY_SIZE( foot ); ++each )
+	if( lift > 0 )
 	{
-		Int footX, footY;
-		foot[ each ]->winGetPosition( &footX, &footY );
-		foot[ each ]->winSetPosition( footX, footY - lift );
+		GameWindow *foot[] = { textEntryChat, buttonEmote, staticTextGameSaved, listboxChatWindowScoreScreen };
+		for( Int each = 0; each < ARRAY_SIZE( foot ); ++each )
+		{
+			Int footX, footY;
+			foot[ each ]->winGetPosition( &footX, &footY );
+			foot[ each ]->winSetPosition( footX, footY - lift );
+		}
+	}
+
+	// after a network match the chat stands where the network rooms keep theirs: under the seats, in
+	// the seats' column, the chat line and the emote button on the column's foot; the list starts
+	// lower where eight players in teams need the room.  The border first, since the others may be its
+	// children and are placed by their screen position.
+	if( listboxChatWindowScoreScreen && !listboxChatWindowScoreScreen->winIsHidden() )
+	{
+		const Real emoteLeft = SCORE_LEFT_RIGHT - 64.0f;
+		// online hides the chat line, and the list then runs to the frame's foot
+		const Bool chatLine = textEntryChat && !textEntryChat->winIsHidden();
+		const Real listBottom = chatLine ? SCORE_CHAT_LIST_BOTTOM : SCORE_CONTENT_BOTTOM;
+		const Real chatTop = ScoreScreenGraphsChatTop( listBottom );
+		placeOnBoard( chatBoxBorder, SCORE_LEFT, chatTop, SCORE_LEFT_RIGHT, SCORE_CONTENT_BOTTOM );
+		placeOnBoard( listboxChatWindowScoreScreen, SCORE_LEFT, chatTop, SCORE_LEFT_RIGHT, listBottom );
+		placeOnBoard( textEntryChat, SCORE_LEFT, SCORE_CHAT_ENTRY_TOP, emoteLeft - 8.0f, SCORE_CONTENT_BOTTOM );
+		placeOnBoard( buttonEmote, emoteLeft, SCORE_CHAT_ENTRY_TOP, SCORE_LEFT_RIGHT, SCORE_CONTENT_BOTTOM );
 	}
 }
 

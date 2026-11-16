@@ -65,8 +65,9 @@
 
 /* How many logic frames apart a network game checks the world CRC; the host's value travels in the
 	 lobby string, so the room runs on the host's.  Release has DEBUG_CRC on, where EA's 1 meant a full
-	 getCRC every frame, about 1.6 ms of a late-game tick.  At 10 a split is still caught within a sixth
-	 of a second, and the 32-slot CRCSnapshotRing then reaches 320 frames back, past any
+	 getCRC every frame, about 1.6 ms of a late-game tick.  At 10 a split is still caught within ten
+	 logic frames, and the CRCSnapshotRing (CRC_SNAPSHOT_RING_SIZE slots, 16 at the retail rate and more
+	 as the logic rate rises with the run-ahead) then reaches ten times its size in frames back, past any
 	 run-ahead.  -NetCRCInterval 1 for a desync hunt. */
 Int NET_CRC_INTERVAL = 10;
 
@@ -120,6 +121,7 @@ public:
 	void reset( void );																				///< Reinitialize the network
 	void update( void );																			///< Process command list
 	void liteupdate( void );																	///< Do a lightweight update to send packets and pass messages.
+	void serviceSockets( void );															///< Between passes: announce finished frames, read and write the socket.
 	Bool deinit( void );																			///< Shutdown connections, release memory
 
 	void setLocalAddress(UnsignedInt ip, UnsignedInt port);
@@ -132,11 +134,11 @@ public:
 	void parseUserList( const GameInfo *game );
 	void startGame(void);																			///< Sets the network game frame counter to -1
 
-	void sendChat(UnicodeString text, Int playerMask);
+	void sendChat(UnicodeString text, SlotMask playerMask);
 	void sendDisconnectChat(UnicodeString text);
 
-	void sendFile(AsciiString path, UnsignedByte playerMask, UnsignedShort commandID);
-	UnsignedShort sendFileAnnounce(AsciiString path, UnsignedByte playerMask);
+	void sendFile(AsciiString path, SlotMask playerMask, UnsignedShort commandID);
+	UnsignedShort sendFileAnnounce(AsciiString path, SlotMask playerMask);
 	Int getFileTransferProgress(Int playerID, AsciiString path);
 	Bool areAllQueuesEmpty(void);
 
@@ -218,6 +220,11 @@ protected:
 	Int m_lastFrameCompleted;
 	Bool m_didSelfSlug;
 	time_t m_stallStart;																			///< When the frame we are waiting on stopped being ready; 0 when not waiting.
+	Int m_framesRun;																					///< Logic frames released since the last pacing line in the log.
+	Int m_framesSlugged;																			///< How many of those the self-slug held back.
+	Int m_longStalls;																					///< Waits on somebody else's commands of 300 ms or more, same window.
+	Int m_cushionSum;																					///< The self-slug's cushion reading, summed over the frames of the same window.
+	Int m_cushionSamples;
 	Int64 m_perfCountFreq;														///< The frequency of the performance counter.
 
 	Int64 m_nextFrameTime;														///< When did we execute the last frame?  For slugging the GameLogic...
@@ -285,6 +292,11 @@ Network::Network()
 	m_checkCRCsThisFrame = FALSE;
 	m_didSelfSlug = FALSE;
 	m_stallStart = 0;
+	m_framesRun = 0;
+	m_framesSlugged = 0;
+	m_longStalls = 0;
+	m_cushionSum = 0;
+	m_cushionSamples = 0;
 	m_frameDataReady = FALSE;
 	m_sawCRCMismatch = FALSE;
 	//
@@ -353,6 +365,11 @@ void Network::init()
 	m_frameDataReady = FALSE;
 	m_didSelfSlug = FALSE;
 	m_stallStart = 0;
+	m_framesRun = 0;
+	m_framesSlugged = 0;
+	m_longStalls = 0;
+	m_cushionSum = 0;
+	m_cushionSamples = 0;
 
 	m_localStatus = NETLOCALSTATUS_PREGAME;
 
@@ -431,7 +448,7 @@ void Network::parseUserList( const GameInfo *game )
 	}
 
 	m_conMgr->parseUserList(game);
-	// run at the game's speed, turbo mode included, until the router's first run-ahead command
+	// run at the game's speed, the native tick, until the router's first run-ahead command
 	m_frameRate = m_conMgr->getMatchFps();
 
 	// Now that we have the players in this game, we need to reset the FrameData stuff.
@@ -679,26 +696,14 @@ void Network::processFrameSynchronizedNetCommand(NetCommandRef *msg) {
 void Network::processRunAheadCommand(NetRunAheadCommandMsg *msg) {
 	m_runAhead = msg->getRunAhead();
 	m_frameRate = msg->getFrameRate();
-	time_t frameGrouping = (1000 * m_runAhead) / m_frameRate; // number of miliseconds between packet sends
-	frameGrouping = frameGrouping / 2; // since we only want the latency for one way to be a factor.
-	/* No longer than one logic frame.  Every send waits out the grouping, acks included, so every
-		 round trip the game measures carries up to two of them - and the measured round trip is what
-		 sizes the run-ahead, which sizes the grouping.  On a 50 ms link losing 2% of its packets
-		 three seats measured 0.95 s, the retry timeout grew to 832 ms and the room fell from 30 frames
-		 a second to 12.  EA's half a run-ahead was for a 2003 modem; a frame's orders fit one
-		 datagram now, and one per frame per peer is nothing. */
-	const time_t oneLogicFrameMS = 1000 / m_frameRate;
-	if (frameGrouping > oneLogicFrameMS) {
-		frameGrouping = oneLogicFrameMS;
-	}
-//	DEBUG_LOG(("Network::processRunAheadCommand - trying to set frame grouping to %d.  run ahead = %d, m_frameRate = %d\n", frameGrouping, m_runAhead, m_frameRate));
-	if (frameGrouping < 1) {
-		frameGrouping = 1; // Having a value less than 1 doesn't make sense.
-	}
-	if (frameGrouping > 500) {
-		frameGrouping = 500; // Max of a half a second.
-	}
-	m_conMgr->setFrameGrouping(frameGrouping);
+	/* No send grouping: whatever is queued goes out on the pass that queued it.  EA held every send
+		 for half a run-ahead, later capped at one logic frame, and acks waited it out too, so each
+		 round trip the game measured carried up to two frames of its own waiting on top of the wire.
+		 The measured round trip sizes the run-ahead, so that waiting was input delay: loopback measured
+		 14 to 18 ms of srtt with nothing on the wire and 5 to 7 ms without it, a 50 ms ping 79 ms and
+		 65 ms.  It costs packets: three seats through the relay went from 56 to 131 a second a seat,
+		 66 to each peer, 18 KB a second into the relay for the whole room. */
+	m_conMgr->setFrameGrouping(1);
 }
 
 void Network::processDestroyPlayerCommand(NetDestroyPlayerCommandMsg *msg)
@@ -766,7 +771,11 @@ void Network::update( void )
 		if (!ready && m_stallStart == 0) {
 			m_stallStart = Clock_Milliseconds();
 		} else if (ready && m_stallStart != 0) {
-			m_conMgr->addNetworkStall(Clock_Milliseconds() - m_stallStart);
+			time_t stalledMS = Clock_Milliseconds() - m_stallStart;
+			m_conMgr->addNetworkStall(stalledMS);
+			if (stalledMS >= 300) {
+				++m_longStalls;
+			}
 			m_stallStart = 0;
 		}
 	}
@@ -777,6 +786,29 @@ void Network::update( void )
 		if (timeForNewFrame()) { // This needs to come after any other pre-frame execution checks as this changes the timing variables.
 			RelayCommandsToCommandList(TheGameLogic->getFrame());	// Put the commands for the next frame on TheCommandList.
 			m_frameDataReady = TRUE; // Tell the GameEngine to run the commands for the new frame.
+
+			/* How the room is actually paced, one line every ten seconds of logic: the frames the
+				 self-slug held back are the run-ahead's margin running out without a stall, the long
+				 waits are it running out with one.  Both say whether the window fits the link. */
+			++m_framesRun;
+			if (m_didSelfSlug) {
+				++m_framesSlugged;
+			}
+			Int cushion = m_conMgr->getMinimumCushion();
+			if (cushion >= 0) {
+				m_cushionSum += cushion;
+				++m_cushionSamples;
+			}
+			if (m_framesRun >= 10 * LOGICFRAMES_PER_SECOND) {
+				DEBUG_LOG(("Network::update - frame %d: %d of the last %d frames self-slugged, %d stalls of 300 ms or more, run ahead %d, mean cushion %.2f\n",
+					TheGameLogic->getFrame(), m_framesSlugged, m_framesRun, m_longStalls, m_runAhead,
+					m_cushionSamples ? (Real)m_cushionSum / (Real)m_cushionSamples : -1.0f));
+				m_framesRun = 0;
+				m_framesSlugged = 0;
+				m_longStalls = 0;
+				m_cushionSum = 0;
+				m_cushionSamples = 0;
+			}
 		}
 	}
 }
@@ -796,6 +828,27 @@ void Network::liteupdate() {
 			m_conMgr->update(TRUE);
 		}
 	}
+}
+
+/**
+ * GameEngine::execute calls this while the picture cap waits, between two passes.  The frames the
+ * last tick finished are announced and the socket is read and written, acks included, so nothing
+ * sits there for the rest of a capped picture.  Nothing goes on or comes off TheCommandList and no
+ * frame of the network clock is spent: when a frame runs and with which commands is still update()'s
+ * alone.  The tick is not running here, since the pass flushed it before it returned, and the logic
+ * frame cannot move until the next pass, so what update() stamps next is what it would have stamped.
+ */
+void Network::serviceSockets() {
+#if defined(_DEBUG) || defined(_INTERNAL)
+	if (m_networkOn == FALSE) {
+		return;
+	}
+#endif
+	if (m_conMgr == NULL || m_localStatus != NETLOCALSTATUS_INGAME) {
+		return;
+	}
+	noteLogicFrameAdvance();
+	liteupdate();
 }
 
 void Network::endOfGameCheck() {
@@ -847,7 +900,7 @@ Bool Network::timeForNewFrame() {
 			 down to its rate.  The count comes from the game speed and not from the room's rate: tied
 			 to the room, a room that slowed down could pay back less and slowed down further, and a
 			 250ms picture took two machines from 30 frames a second to 4.  The game speed is the
-			 match's, turbo mode included, read from the game options in parseUserList. */
+			 match's, the native tick, set in parseUserList. */
 		if ((m_nextFrameTime + (GameEngine_logicCatchupMaxFrames(m_conMgr->getMatchFps()) * frameDelay)) < curTime) {
 			// If we get too far behind on our framerate we need to reset the nextFrameTime thing.
 			m_nextFrameTime = curTime;
@@ -962,7 +1015,7 @@ UnsignedInt Network::getPacketArrivalCushion( void )
 /**
  * Sends a line of chat to the other players
  */
-void Network::sendChat(UnicodeString text, Int playerMask) {
+void Network::sendChat(UnicodeString text, SlotMask playerMask) {
 	Int executionFrame = getExecutionFrame();
 	m_conMgr->sendChat(text, playerMask, executionFrame);
 }
@@ -975,13 +1028,13 @@ void Network::sendDisconnectChat(UnicodeString text) {
 }
 
 // send a file.  woohoo.
-void Network::sendFile(AsciiString path, UnsignedByte playerMask, UnsignedShort commandID)
+void Network::sendFile(AsciiString path, SlotMask playerMask, UnsignedShort commandID)
 {
 	m_conMgr->sendFile(path, playerMask, commandID);
 }
 
 // send a file.  woohoo.
-UnsignedShort Network::sendFileAnnounce(AsciiString path, UnsignedByte playerMask)
+UnsignedShort Network::sendFileAnnounce(AsciiString path, SlotMask playerMask)
 {
 	return m_conMgr->sendFileAnnounce(path, playerMask);
 }

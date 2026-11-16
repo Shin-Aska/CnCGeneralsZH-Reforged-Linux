@@ -55,6 +55,7 @@
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/Object.h"
 #include "GameLogic/PartitionManager.h"
+#include "GameLogic/TerrainLogic.h"
 #include "GameLogic/Weapon.h"
 #include "GameLogic/ExperienceTracker.h"
 
@@ -88,6 +89,9 @@ SpecialAbilityUpdate::SpecialAbilityUpdate( Thing *thing, const ModuleData* modu
   m_targetPos.zero();
   m_locationCount = 0;
   m_specialObjectEntries = 0;
+  m_unpackLaserID = INVALID_ID;
+  m_triggerShotID = INVALID_ID;
+  m_flybyID = INVALID_ID;
   m_noTargetCommand = false;
   m_packingState = STATE_NONE;
   m_facingInitiated = false;
@@ -345,6 +349,27 @@ UpdateSleepTime SpecialAbilityUpdate::update( void )
     return calcSleepTime();
   }
 
+  // The TriggerWeapon's shot is in the air and the UnpackLaser stays on its target, the aim and the
+  // lost camouflage with it, until the shot lands (startHoldingForTriggerShot). An order or death
+  // ended it above. A shot with no beam up (a persistent ability's) is not held for.
+  if( m_triggerShotID != INVALID_ID && m_unpackLaserID == INVALID_ID )
+    m_triggerShotID = INVALID_ID;
+  if( m_triggerShotID != INVALID_ID )
+  {
+    Object *shot = TheGameLogic->findObjectByID( m_triggerShotID );
+    if( shot == NULL || shot->isEffectivelyDead() )
+    {
+      m_triggerShotID = INVALID_ID;
+      finishAbility();
+      return calcSleepTime();
+    }
+    getObject()->setModelConditionState( MODELCONDITION_UNPACKING );
+    aimUnpackLaser();
+    StealthUpdate* stealth = getObject()->getStealth();
+    if( stealth )
+      stealth->markAsDetected();
+    return calcSleepTime();
+  }
 
 
   //DETERMINE OUR PHASE! BRAIN LOGIC
@@ -380,10 +405,14 @@ UpdateSleepTime SpecialAbilityUpdate::update( void )
       else
       {
         endPreparation();
-        if( needToPack() )
+        if( startHoldingForTriggerShot() )
         {
-          //STEP 5 -- PACK 
-          //Note: If we actually do pack, then cleanup will be handled in 
+          //VARIATION -- the beam stays on the target until the shot lands (top of this function)
+        }
+        else if( needToPack() )
+        {
+          //STEP 5 -- PACK
+          //Note: If we actually do pack, then cleanup will be handled in
           //handlePackingProcess(), near the top of this function.
           startPacking(true);
         }
@@ -460,7 +489,11 @@ UpdateSleepTime SpecialAbilityUpdate::update( void )
         else
           endPreparation();
 
-        if( needToPack() )
+        if( startHoldingForTriggerShot() )
+        {
+          //VARIATION -- the beam stays on the target until the shot lands (top of this function)
+        }
+        else if( needToPack() )
         {
           //STEP 5 -- PACK 
           //Note: If we actually do pack, then cleanup will be handled in 
@@ -510,6 +543,8 @@ Bool SpecialAbilityUpdate::initiateIntentToDoSpecialPower( const SpecialPowerTem
   m_facingComplete = false;
   m_withinStartAbilityRange = false;
   m_captureFlashPhase = 0.0f;   // a restarted capture starts its flash over, not part way up the ramp
+  killUnpackLaser();
+  m_triggerShotID = INVALID_ID;
 
 //  getObject()->getControllingPlayer()->getAcademyStats()->recordSpecialPowerUsed( specialPowerTemplate );
 
@@ -654,6 +689,8 @@ void SpecialAbilityUpdate::onExit( Bool cleanup )
 
   TheAudio->removeAudioEvent( m_prepSoundLoop.getPlayingHandle() );
   endPreparation();
+  killUnpackLaser();
+  m_triggerShotID = INVALID_ID;
 
   if( !data->m_specialObjectsPersistent || cleanup && !data->m_specialObjectsPersistWhenOwnerDies )
   {
@@ -688,6 +725,9 @@ Bool SpecialAbilityUpdate::handlePackingProcessing()
   const SpecialAbilityUpdateModuleData* data = getSpecialAbilityUpdateModuleData();
   if( m_animFrames > 0 )
   {
+    if( m_packingState == STATE_UNPACKING )
+      aimUnpackLaser();
+
     m_animFrames--;
     if( m_animFrames == 0 )
     {
@@ -701,6 +741,9 @@ Bool SpecialAbilityUpdate::handlePackingProcessing()
           getObject()->setOrientation( getObject()->getOrientation() + PI );
         }
         m_packingState = STATE_UNPACKED;
+        // a TriggerWeapon's beam stays on into the shot's flight (startHoldingForTriggerShot)
+        if( !data->m_triggerWeapon )
+          killUnpackLaser();
       }
       else if( m_packingState == STATE_PACKING )
       {
@@ -859,6 +902,102 @@ void SpecialAbilityUpdate::startUnpacking()
   AIUpdateInterface *ai = getObject()->getAIUpdateInterface();
   if (ai)
     ai->aiBusy(CMD_FROM_AI);
+
+  // UnpackLaser: a beam from the attach bone onto the target for as long as the unpacking lasts (the
+  // Maroon Beret lasing a target). Logic makes the object and takes it away again; aimUnpackLaser
+  // points it every frame of the unpacking.
+  Object *target = TheGameLogic->findObjectByID( m_targetID );
+  const ThingTemplate *laserTemplate = data->m_unpackLaserName.isEmpty() ? NULL : TheThingFactory->findTemplate( data->m_unpackLaserName );
+  if( target && laserTemplate )
+  {
+    killUnpackLaser();
+    Object *laser = TheThingFactory->newObject( laserTemplate, getObject()->getTeam() );
+    laser->setPosition( getObject()->getPosition() );
+    m_unpackLaserID = laser->getID();
+    aimUnpackLaser();
+  }
+
+  // UnpackFlybyWeapon: an aircraft that crosses the unit on the line to the target while it unpacks,
+  // the projectile of a shot at a point UnpackFlybyRun past the unit on that line (its own start is
+  // its DumbProjectileBehavior's StartDistanceBack behind that point). The TriggerWeapon leaves
+  // from it (the Maroon Beret's TB2 dropping its Kemankes).
+  m_flybyID = INVALID_ID;
+  if( target && data->m_unpackFlybyWeapon )
+  {
+    const Coord3D *from = getObject()->getPosition();
+    Real dx = target->getPosition()->x - from->x;
+    Real dy = target->getPosition()->y - from->y;
+    Real length = sqrtf( sqr( dx ) + sqr( dy ) );
+    if( length > 0.0f )
+    {
+      Region3D extent;
+      TheTerrainLogic->getExtent( &extent );
+      Coord3D end;
+      end.x = clamp( extent.lo.x + 1.0f, from->x + dx * data->m_unpackFlybyRun / length, extent.hi.x - 1.0f );
+      end.y = clamp( extent.lo.y + 1.0f, from->y + dy * data->m_unpackFlybyRun / length, extent.hi.y - 1.0f );
+      end.z = from->z;	// its height is taken over the unit's ground, not over a far hill or valley
+      TheWeaponStore->createAndFireTempWeapon( data->m_unpackFlybyWeapon, getObject(), &end, &m_flybyID );
+    }
+  }
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The beam's far end on the middle of the target, the way the Missile Defender's laser is aimed
+	* every frame of its preparation (continuePreparation). Left to follow the target by itself, the
+	* beam's LaserUpdate ends it at the target's feet, and a beam from a rifle a few feet up to a tank's
+	* ground point runs along the ground, in and out of every rise between. The near end follows the
+	* attach bone on the client. Only the beam's client update is touched. */
+//-------------------------------------------------------------------------------------------------
+void SpecialAbilityUpdate::aimUnpackLaser()
+{
+  Object *laser = TheGameLogic->findObjectByID( m_unpackLaserID );
+  Object *target = TheGameLogic->findObjectByID( m_targetID );
+  Drawable *laserDraw = laser ? laser->getDrawable() : NULL;
+  if( !laserDraw || !target )
+    return;
+
+  static NameKeyType key_LaserUpdate = NAMEKEY( "LaserUpdate" );
+  LaserUpdate *update = (LaserUpdate*)laserDraw->findClientUpdateModule( key_LaserUpdate );
+  if( !update )
+    return;
+
+  // at the middle's height, on the face of the target he sees and a unit out from it: at the middle
+  // itself the end and its dot were inside the hull, which hid them
+  Coord3D center, endPos;
+  target->getGeometryInfo().getCenterPosition( *target->getPosition(), center );
+  target->getGeometryInfo().getFootprintEdgeToward( center, *target->getUnitDirectionVector2D(), *getObject()->getPosition(), 1.0f, endPos );
+  update->initLaser( getObject(), NULL, getObject()->getPosition(), &endPos, getSpecialAbilityUpdateModuleData()->m_specialObjectAttachToBoneName );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Right after the trigger: with the UnpackLaser still up and the TriggerWeapon's shot in the air,
+	* the ability stays on, standing still with the beam on the target, until the shot lands (the top
+	* of update). Without either, the ability finishes as it always did. */
+//-------------------------------------------------------------------------------------------------
+Bool SpecialAbilityUpdate::startHoldingForTriggerShot()
+{
+  if( m_triggerShotID == INVALID_ID )
+    return FALSE;
+  if( m_unpackLaserID == INVALID_ID || TheGameLogic->findObjectByID( m_triggerShotID ) == NULL )
+  {
+    m_triggerShotID = INVALID_ID;
+    return FALSE;
+  }
+  AIUpdateInterface *ai = getObject()->getAIUpdateInterface();
+  if( ai )
+    ai->aiBusy( CMD_FROM_AI );
+  return TRUE;
+}
+
+//-------------------------------------------------------------------------------------------------
+void SpecialAbilityUpdate::killUnpackLaser()
+{
+  if( m_unpackLaserID == INVALID_ID )
+    return;
+  Object *laser = TheGameLogic->findObjectByID( m_unpackLaserID );
+  if( laser )
+    TheGameLogic->destroyObject( laser );
+  m_unpackLaserID = INVALID_ID;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1346,7 +1485,32 @@ void SpecialAbilityUpdate::triggerAbilityEffect()
 
   Bool okToLoseStealth = TRUE;
 
-  switch( spTemplate->getSpecialPowerType() )
+  // TriggerWeapon: the effect is one shot of it at the target, whatever the power type would have
+  // done (the Maroon Beret's Designate Target is a timed charge that plants nothing)
+  if( data->m_triggerWeapon )
+  {
+    Object *target = TheGameLogic->findObjectByID( m_targetID );
+    // from the UnpackFlybyWeapon's aircraft while it is still in the air, else from the unit
+    Object *flyby = TheGameLogic->findObjectByID( m_flybyID );
+    const Object *source = ( flyby && !flyby->isEffectivelyDead() ) ? flyby : object;
+    m_triggerShotID = INVALID_ID;
+    if( target )
+      TheWeaponStore->createAndFireTempWeapon( data->m_triggerWeapon, source, target, &m_triggerShotID );
+    else if( m_targetPos.x || m_targetPos.y || m_targetPos.z )
+      TheWeaponStore->createAndFireTempWeapon( data->m_triggerWeapon, source, &m_targetPos );
+    // the aircraft flies its path by position, and the fall its physics piled up meanwhile (the
+    // launch hands the launcher's velocity on) threw the munition at the ground under it
+    // and the kill is the unit's even if the aircraft is gone by the time it lands
+    Object *shot = TheGameLogic->findObjectByID( m_triggerShotID );
+    if( shot && source != object )
+    {
+      if( shot->getPhysics() )
+        shot->getPhysics()->scrubVelocityZ( 0.0f );
+      shot->setProducer( object );
+    }
+    m_flybyID = INVALID_ID;
+  }
+  else switch( spTemplate->getSpecialPowerType() )
   {
     case SPECIAL_MISSILE_DEFENDER_LASER_GUIDED_MISSILES:
     {
@@ -1560,18 +1724,15 @@ void SpecialAbilityUpdate::triggerAbilityEffect()
           }
 
           //Display cash income floating over the blacklotus
-          UnicodeString moneyString;
-          moneyString.format( TheGameText->fetch( "GUI:AddCash" ), earned );
           Coord3D pos;
           pos.set( object->getPosition() );
           pos.z += 20.0f; //add a little z to make it show up above the unit.
-          TheInGameUI->addFloatingText( moneyString, &pos, GameMakeColor( 0, 255, 0, 255 ) );
-        
+          TheInGameUI->addMoneyText( (Int)earned, &pos, object->getControllingPlayer() );
+
           //Display cash lost floating over the target
-          moneyString.format( TheGameText->fetch( "GUI:LoseCash" ), cash );
           pos.set( target->getPosition() );
           pos.z += 30.0f; //add a little z to make it show up above the unit.
-          TheInGameUI->addFloatingText( moneyString, &pos, GameMakeColor( 255, 0, 0, 255 ) );
+          TheInGameUI->addMoneyText( -(Int)cash, &pos, target->getControllingPlayer() );
         }
       }
       break;
@@ -2062,7 +2223,10 @@ void SpecialAbilityUpdate::xfer( Xfer *xfer )
 {
 
 	// version
-	XferVersion currentVersion = 1;
+	// 2: the UnpackLaser beam's ID
+	// 3: the TriggerWeapon shot the beam is held on for
+	// 4: the UnpackFlybyWeapon's aircraft
+	XferVersion currentVersion = 4;
 	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
 
@@ -2113,6 +2277,13 @@ void SpecialAbilityUpdate::xfer( Xfer *xfer )
 
   // capture flash phase
   xfer->xferReal( &m_captureFlashPhase );
+
+	if( version >= 2 )
+		xfer->xferObjectID( &m_unpackLaserID );
+	if( version >= 3 )
+		xfer->xferObjectID( &m_triggerShotID );
+	if( version >= 4 )
+		xfer->xferObjectID( &m_flybyID );
 
 }  // end xfer
 

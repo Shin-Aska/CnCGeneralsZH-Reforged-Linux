@@ -9,6 +9,74 @@ v3.8.0 (`e3e1a898`); their branches remain on this fork. A separate campaign-fix
 upstream `main` snapshot [`2788b259`](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/commit/2788b25956f81fc49031a9025fd3c738a8440299).
 It does not re-verify the older pull-request statuses below. No pull request was opened in that audit.
 
+## Local upstream integration (2026-11-16)
+
+Local branch `sync/post-4.0.0-upstream` integrates upstream `main` snapshot
+`761ee2ccce81f5249b8d1ab44cd789057dc7b265` with this fork's baseline
+`dbaa972641c8b9eb048ac3b599491513cd468bd5`. Validation below used the resolved working tree
+**before the merge commit**, recorded as `dbaa972-dirty`. This local
+integration does not change the historical upstream acceptance classifications below.
+
+The native SDL3/Vulkan additions are height-derived terrain sun lighting, subdivided terrain and
+Ground Foliage, with provider capability checks. Ground Foliage stays off by default and is Ultra-only
+among the presets; full-detail subdivided terrain is required, and Classic graphics excludes it.
+The merge retains the Linux fork's particles, lighting, model effects, HDR/AO/post effects,
+atmosphere/weather, heat/blast distortion, range overlays, battle marks, shared clouds, Classic-water
+foam/splashes, underwater fire/tree handling and the existing High preset. EA's four unit veterancy
+levels and this fork's removal of mod support remain unchanged; general talent ranks are separate.
+
+The simulation now ticks at 30 Hz with 100%, 125%, 150% (default) and 200% game-speed choices.
+Countdowns retain frozen-world progress and equality crossing at those speeds; fractional cinematic
+poses, repeated-frame animation, campaign briefings and encoded-audio/preloading work remain.
+Classic water gains upstream's bounded mirror cache while Modern water retains Clean FFT,
+Legacy/SSR/Hybrid/Path Traced modes and their resource lifecycles. Packaging now includes the incoming
+loose audio and W3D models alongside textures, with the overlay's INI CRLF conversion retained.
+
+The reskin startup validator records successful explicit RemoveModule tags and an immutable copy-time
+baseline of the behavior type/tag identities actually inherited. It excludes later parent-only additions
+while continuing to detect unintended losses, including the unremoved tag of two same-type modules.
+Overrides copy the provenance; a new reskin baseline resets it. No gameplay INI or module payload changed.
+
+The pre-commit Release validation source fingerprint is `761A2673` over 5,629 files. The raw executable SHA-256 is
+`e309e89449d1ee3f0e08c8d71ee0c065444b59083698ac8401373b90fc9ad822` and the stripped package executable is
+`ace2ec525a632cda364bb0a4a65ccb98769966b858ec35914bc886a6a2ee20f1`. Release build and the final full game-engine/fingerprint
+selection passed (3/3 in 49.59 s). New reskin tests passed 3 tests / 41 checks and the replacement regression
+1 test / 10 checks; the actual startup oracle passed with 58 AI replacements / 0 lost locomotors and 324 reskins /
+0 missing inherited behaviors in 87.05 s.
+
+The reconciled 201-case ledger is **191 passed, 2 failed, 8 skipped**. The GPU/mixed subset is 24/25:
+the known unchanged two-pixel fixed-function reference mismatch remains failed. The other failed case,
+`packaging_resolution_check`, cannot arm its negative control without the absent optional genuine
+`ReforgedTextures.big`; it is not counted as a pass. Positive package checks passed 26,726 resolved
+paths, INI/EXE CRC agreement, 370 unchanged install files and implicit overlay discovery. The final
+overlay matches all 335 audio files, 305 W3D models and 314 textures and retains INI CRLF. Corrected
+private audio/texture fixtures passed, with all 7,342 textures loaded without errors.
+
+Nine final native cases passed on the RTX 4060 / Vulkan, driver 595.112.07: seven renderer cases
+(terrain/grass/sun controls, Classic water and Modern SSR/Hybrid/PT) shared `8B87FBA8@360`; two
+Classic/Red Alert UI captures with real P/Q input and packaged-overlay discovery shared
+`9880A8AE@360`. Fresh recording/replay/repeat and save/reload runs exited cleanly with
+`88768E56@2400`. These establish bounded same-machine, same-build results, not cross-platform or
+cross-version network proof. Debug application runtime, real remote multiplayer, exhaustive
+GUI/campaign completion and long-duration stability remain unrun. Upstream's new formats reject
+older saves/replays; existing player files were not modified.
+
+Local CI preflight also passed all five shell syntax checks, three mocked no-art vendor checks and
+14 release-helper fixture tests. The workflow now checks each shell script individually; an armed
+malformed-second-script control fails with exit 2. The full Sniper/Ubuntu 22.04 software-rendering,
+packaging/Flatpak and distro-install pipeline has **not run locally**. The remaining checks are
+planned for GitHub; local CI-tool installation was not approved and is not being pursued. These
+preflight results are not a full CI pass; evidence is under
+`build-linux/ci-local/evidence/`.
+
+The final handoff (`verification-handoff.txt` and `.json`), ledger and runtime artifacts are in
+`build-linux/upstream-parity-evidence/acceptance/`;
+focused diagnoses and the startup oracle remain in the sibling `final-validation/` directory.
+[The Linux validation addendum](linux.md#current-upstream-integration-validation-2026-11-16) records
+the checks, skipped-case limits and evidence names. The reconciled ledger retains earlier failed
+attempts and unchanged-fixture evidence alongside final affected reruns. Older 60 Hz history,
+benchmarks and upstream acceptance classifications below retain their original identities and scope.
+
 ## Accepted
 
 | Feature | Pull request | Status |

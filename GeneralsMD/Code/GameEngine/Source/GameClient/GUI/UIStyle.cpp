@@ -27,7 +27,9 @@
 #include "Common/GlobalData.h"
 #include "GameClient/Display.h"
 #include "GameClient/DisplayString.h"
+#include "GameClient/DisplayStringManager.h"
 #include "GameClient/GameFont.h"
+#include "GameClient/GameText.h"
 #include "GameClient/GlobalLanguage.h"
 #include "GameClient/Image.h"
 #include "Lib/WideCharFns.h"
@@ -88,6 +90,33 @@ void shell( void )
 GameFont *font( Int points, Bool bold )
 {
 	return TheFontLibrary->getFont( AsciiString( "Arial" ), TheGlobalLanguageData->adjustFontSize( points ), bold );
+}
+
+GameFont *readableFont( Int points, Bool bold )
+{
+	// Arial's capitals stand about five eighths of its cell, so twelve pixels of capital want a cell
+	// of about nineteen and a half
+	GameFont *found = font( points, bold );
+	for( Int grown = points + 1; found && found->height * 5 < READABLE_CAPITALS * 8 && grown <= points + 12; grown++ )
+		found = font( grown, bold );
+	return found;
+}
+
+UnicodeString grouped( Int value )
+{
+	UnicodeString digits;
+	digits.format( u"%d", value < 0 ? -value : value );
+	UnicodeString text;
+	if( value < 0 )
+		text.concat( u'-' );
+	const Int length = digits.getLength();
+	for( Int each = 0; each < length; each++ )
+	{
+		if( each > 0 && ( length - each ) % 3 == 0 )
+			text.concat( u',' );
+		text.concat( digits.getCharAt( each ) );
+	}
+	return text;
 }
 
 GameFont *titleFont( Int points )
@@ -205,6 +234,27 @@ void wordmark( DisplayString *words[ 2 ], Int right, Int y )
 	words[ 1 ]->draw( right - second, y, WORDMARK_BLUE, SHADOW );
 }
 
+const WideChar HEADER_JOINER[] = { u' ', 0x00B7, u' ', 0 };
+
+GameFont *subtitleFont( void )
+{
+	return readableFont( TEXT_BODY );
+}
+
+Int headerGap( void )
+{
+	return px( 16.0f );
+}
+
+void header( DisplayString *title, DisplayString *subtitle, Int x, Int middle )
+{
+	Int titleWidth, titleHeight;
+	title->getSize( &titleWidth, &titleHeight );
+	title->draw( x, middle - titleHeight / 2, INK, SHADOW );
+	if( subtitle && subtitle->getTextLength() > 0 )
+		subtitle->draw( x + titleWidth + headerGap(), middle - subtitle->getFont()->height / 2, MUTED, SHADOW );
+}
+
 /** towupper in the C locale leaves every letter past ASCII as it is ("ORDU SEç"), so Latin-1's,
 	* Latin Extended-A's and Cyrillic's case pairs are mapped here, and Turkish's two i's by the language. */
 static WideChar capital( WideChar letter, Bool turkish )
@@ -266,6 +316,275 @@ Color withAlpha( Color color, Int alpha )
 	UnsignedByte r, g, b, a;
 	GameGetColorComponents( color, &r, &g, &b, &a );
 	return GameMakeColor( r, g, b, alpha );
+}
+
+//-------------------------------------------------------------------------------------------------
+// Abbreviation.  Letters are named by number: a u"" literal is read in the machine's code page by MSVC.
+//-------------------------------------------------------------------------------------------------
+static const WideChar ABBREVIATION_ELLIPSIS = 0x2026;
+
+static Bool isCyrillic( WideChar c )
+{
+	return c >= 0x0400 && c <= 0x04FF;
+}
+
+static Bool isLetter( WideChar c )
+{
+	return ( c >= u'a' && c <= u'z' ) || ( c >= u'A' && c <= u'Z' ) || ( c >= 0x00C0 && c <= 0x024F && c != 0x00D7 && c != 0x00F7 )
+		|| isCyrillic( c );
+}
+
+/// a Cyrillic capital as its small letter, so one table serves both
+static WideChar cyrillicSmall( WideChar c )
+{
+	if( c >= 0x0410 && c <= 0x042F )
+		return (WideChar)( c + 0x20 );
+	if( c >= 0x0400 && c <= 0x040F )
+		return (WideChar)( c + 0x50 );
+	return c;
+}
+
+/** A vowel in any of the game's languages.  yVowel: y is a vowel in French and German; in English
+	* (Dstryd) and Turkish (OYUNCU, OY.) it is a consonant. */
+static Bool isVowel( WideChar c, Bool yVowel )
+{
+	switch( c )
+	{
+		case u'a': case u'e': case u'i': case u'o': case u'u':
+		case u'A': case u'E': case u'I': case u'O': case u'U':
+			return TRUE;
+		case u'y': case u'Y':
+			return yVowel;
+		case 0x00FF: case 0x0130: case 0x0131: case 0x0152: case 0x0153:	// y diaeresis, Turkish dotted I and dotless i, oe
+			return TRUE;
+	}
+	// Latin-1's a grave to ae, e grave to i diaeresis, o grave to o diaeresis, o stroke to y acute, both cases
+	// (not named "small": the Windows headers define that as char)
+	const WideChar lower = ( c >= 0x00C0 && c <= 0x00DE ) ? (WideChar)( c + 0x20 ) : c;
+	if( ( lower >= 0x00E0 && lower <= 0x00E6 ) || ( lower >= 0x00E8 && lower <= 0x00EF ) || ( lower >= 0x00F2 && lower <= 0x00F6 )
+			|| ( lower >= 0x00F8 && lower <= 0x00FD ) )
+		return TRUE;
+	switch( cyrillicSmall( c ) )
+	{
+		case 0x0430: case 0x0435: case 0x0438: case 0x043E: case 0x0443: case 0x044B: case 0x044D: case 0x044E:
+		case 0x044F: case 0x0451: case 0x0454: case 0x0456: case 0x0457:	// a e i o u y e yu ya yo, Ukrainian ie i yi
+			return TRUE;
+	}
+	return FALSE;
+}
+
+/// a letter a word is never cut after: the short i, the soft and hard signs, Turkish soft g
+static Bool holdsOn( WideChar c )
+{
+	const WideChar lower = cyrillicSmall( c );
+	return lower == 0x0439 || lower == 0x044C || lower == 0x044A || c == 0x011E || c == 0x011F;
+}
+
+static UnicodeString partOf( const UnicodeString &text, Int from, Int count )
+{
+	UnicodeString part;
+	for( Int at = from; at < from + count && at < text.getLength(); at++ )
+		part.concat( text.getCharAt( at ) );
+	return part;
+}
+
+/** A word's forms, longest first: itself, then (in English, a word of six letters or more) its inner
+	* vowels dropped, then every cut after a consonant and before a vowel that keeps the first syllable,
+	* with a period.  A word under four letters keeps itself. */
+static std::vector< UnicodeString > wordForms( const UnicodeString &word, Bool english, Bool yVowel )
+{
+	std::vector< UnicodeString > forms;
+	forms.push_back( word );
+	const Int length = word.getLength();
+	if( length < 4 )
+		return forms;
+	if( english && length >= 6 )
+	{
+		UnicodeString dropped;
+		dropped.concat( word.getCharAt( 0 ) );
+		for( Int at = 1; at + 1 < length; at++ )
+		{
+			if( !isVowel( word.getCharAt( at ), FALSE ) )
+				dropped.concat( word.getCharAt( at ) );
+		}
+		dropped.concat( word.getCharAt( length - 1 ) );
+		if( dropped.getLength() < length )
+			forms.push_back( dropped );
+	}
+	for( Int at = length - 2; at >= 1; at-- )
+	{
+		const WideChar before = word.getCharAt( at - 1 );
+		if( !isLetter( before ) || isVowel( before, yVowel ) || holdsOn( before ) || !isVowel( word.getCharAt( at ), yVowel ) )
+			continue;
+		Bool syllable = FALSE;
+		for( Int each = 0; each < at && !syllable; each++ )
+			syllable = isVowel( word.getCharAt( each ), yVowel );
+		if( !syllable )
+			continue;
+		UnicodeString cut = partOf( word, 0, at );
+		cut.concat( u'.' );
+		forms.push_back( cut );
+	}
+	// longest first; a vowel drop goes before a cut of the same length
+	std::stable_sort( forms.begin() + 1, forms.end(),
+		[]( const UnicodeString &a, const UnicodeString &b ) { return a.getLength() > b.getLength(); } );
+	return forms;
+}
+
+static Bool fits( const UnicodeString &text, Int widest, TextMeasure measure, void *context )
+{
+	return measure( text, context ) <= widest;
+}
+
+UnicodeString abbreviate( const UnicodeString &text, const UnicodeString &shortForm, Int widest, Int language,
+	TextMeasure measure, void *context, Bool words, const UnicodeString &keep )
+{
+	if( text.isEmpty() || fits( text, widest, measure, context ) )
+		return text;
+	if( words && !shortForm.isEmpty() && fits( shortForm, widest, measure, context ) )
+		return shortForm;
+
+	if( words )
+	{
+		// the words, each with its forms, and which of keep's words they are
+		const Bool english = language == TEXT_LANGUAGE_ENGLISH;
+		const Bool yVowel = language == TEXT_LANGUAGE_GERMAN || language == TEXT_LANGUAGE_FRENCH;
+		std::vector< UnicodeString > kept;
+		UnicodeString piece;
+		for( Int at = 0; at <= keep.getLength(); at++ )
+		{
+			if( at == keep.getLength() || keep.getCharAt( at ) == u' ' )
+			{
+				if( !piece.isEmpty() )
+					kept.push_back( piece );
+				piece.clear();
+			}
+			else
+				piece.concat( keep.getCharAt( at ) );
+		}
+		std::vector< std::vector< UnicodeString > > forms;
+		for( Int at = 0; at <= text.getLength(); at++ )
+		{
+			if( at == text.getLength() || text.getCharAt( at ) == u' ' )
+			{
+				if( !piece.isEmpty() )
+				{
+					Bool isKept = FALSE;
+					for( size_t each = 0; each < kept.size() && !isKept; each++ )
+						isKept = kept[ each ].compare( piece ) == 0;
+					forms.push_back( isKept ? std::vector< UnicodeString >( 1, piece ) : wordForms( piece, english, yVowel ) );
+				}
+				piece.clear();
+			}
+			else
+				piece.concat( text.getCharAt( at ) );
+		}
+		std::vector< size_t > step( forms.size(), 0 );
+		for( ;; )
+		{
+			UnicodeString joined;
+			for( size_t each = 0; each < forms.size(); each++ )
+			{
+				if( each > 0 )
+					joined.concat( u' ' );
+				joined.concat( forms[ each ][ step[ each ] ] );
+			}
+			if( fits( joined, widest, measure, context ) )
+				return joined;
+			// the longest word that can still give, the last word only once the others cannot
+			Int pick = -1;
+			for( size_t each = 0; each + 1 < forms.size(); each++ )
+			{
+				if( step[ each ] + 1 < forms[ each ].size()
+						&& ( pick < 0 || forms[ each ][ step[ each ] ].getLength() > forms[ pick ][ step[ pick ] ].getLength() ) )
+					pick = (Int)each;
+			}
+			if( pick < 0 && !forms.empty() && step.back() + 1 < forms.back().size() )
+				pick = (Int)forms.size() - 1;
+			if( pick < 0 )
+				break;
+			step[ pick ]++;
+		}
+		// several words all at their shortest and still too wide: a word of four letters or more
+		// gives way to its first letter and a period, the longest first and the last word last, so a
+		// label stays a label ("ABD S. S. Gen.") before the ellipsis takes it
+		if( forms.size() > 1 )
+		{
+			std::vector< UnicodeString > current( forms.size() );
+			for( size_t each = 0; each < forms.size(); each++ )
+				current[ each ] = forms[ each ][ step[ each ] ];
+			for( ;; )
+			{
+				// a kept word, or one under four letters, has one form and never gives
+				Int pick = -1;
+				for( size_t each = 0; each + 1 < forms.size(); each++ )
+				{
+					if( forms[ each ].size() > 1 && current[ each ].getLength() > 2
+							&& ( pick < 0 || current[ each ].getLength() > current[ pick ].getLength() ) )
+						pick = (Int)each;
+				}
+				if( pick < 0 && forms.back().size() > 1 && current.back().getLength() > 2 )
+					pick = (Int)forms.size() - 1;
+				if( pick < 0 )
+					break;
+				UnicodeString initial;
+				initial.concat( forms[ pick ][ 0 ].getCharAt( 0 ) );
+				initial.concat( u'.' );
+				current[ pick ] = initial;
+				UnicodeString joined;
+				for( size_t each = 0; each < current.size(); each++ )
+				{
+					if( each > 0 )
+						joined.concat( u' ' );
+					joined.concat( current[ each ] );
+				}
+				if( fits( joined, widest, measure, context ) )
+					return joined;
+			}
+		}
+	}
+
+	// the ellipsis: as many first letters as fit, at least one
+	for( Int count = text.getLength() - 1; count >= 1; count-- )
+	{
+		UnicodeString cut = partOf( text, 0, count );
+		while( cut.getLength() > 1 && cut.getCharAt( cut.getLength() - 1 ) == u' ' )
+			cut.removeLastChar();
+		cut.concat( ABBREVIATION_ELLIPSIS );
+		if( count == 1 || fits( cut, widest, measure, context ) )
+			return cut;
+	}
+	return text;
+}
+
+static Int measureInFont( const UnicodeString &text, void *context )
+{
+	DisplayString *string = TheDisplayStringManager->newDisplayString();
+	string->setFont( (GameFont *)context );
+	string->setText( text );
+	Int width = 0, height = 0;
+	string->getSize( &width, &height );
+	TheDisplayStringManager->freeDisplayString( string );
+	return width;
+}
+
+UnicodeString fitText( const UnicodeString &text, GameFont *font, Int widest, const UnicodeString &shortForm, const UnicodeString &keep )
+{
+	return abbreviate( text, shortForm, widest, TheGlobalData->m_textLanguage, measureInFont, font, TRUE, keep );
+}
+
+UnicodeString fitKey( const char *key, GameFont *font, Int widest )
+{
+	AsciiString shortKey = key;
+	shortKey.concat( "_Short" );
+	Bool known = FALSE;
+	const UnicodeString shortForm = TheGameText->fetch( shortKey, &known );
+	return fitText( TheGameText->fetch( key ), font, widest, known ? shortForm : UnicodeString::TheEmptyString );
+}
+
+UnicodeString fitName( const UnicodeString &name, GameFont *font, Int widest )
+{
+	return abbreviate( name, UnicodeString::TheEmptyString, widest, TheGlobalData->m_textLanguage, measureInFont, font, FALSE );
 }
 
 }

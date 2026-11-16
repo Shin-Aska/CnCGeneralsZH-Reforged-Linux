@@ -48,6 +48,7 @@
 #include "GameClient/GameWindowManager.h"
 #include "GameClient/InGameUI.h"
 #include "GameClient/PlayerColorScheme.h"
+#include "GameClient/View.h"
 
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/Object.h"
@@ -220,6 +221,7 @@ Radar::Radar( void )
 	m_localObjectList = NULL;
 	m_radarHidden = false;
 	m_radarForceOn = false;
+	m_simpleColors = false;
 	m_terrainAverageZ = 0.0f;
 	m_waterAverageZ = 0.0f;
 	m_xSample = 0.0f;
@@ -231,6 +233,9 @@ Radar::Radar( void )
 	m_mapExtent.hi.y = 0.0f;
 	m_mapExtent.hi.z = 0.0f;
 	m_queueTerrainRefreshFrame = 0;
+	m_zoomView.reset();
+	m_zoomStep = 0;
+	m_zoomFollow.x = m_zoomFollow.y = -1.0e9f;
 
 	// clear the radar events
 	clearAllEvents();
@@ -278,8 +283,14 @@ void Radar::clearAllEvents( void )
 		m_event[ i ].radarLoc.x = 0;
 		m_event[ i ].radarLoc.y = 0;
 		m_event[ i ].soundPlayed = FALSE;
+		m_event[ i ].mark = RADAR_MARK_UNIT;
 
 	}  // end for i
+
+	// the spacebar starts again from the last event
+	m_cycleCount = 0;
+	m_cycleAnchor = -1;
+	m_cycleFrame = 0;
 
 }  // end clearAllEvents
 
@@ -297,6 +308,11 @@ void Radar::reset( void )
 
 	// stop forcing the radar on
 	m_radarForceOn = false;
+
+	// a new match opens on the whole map
+	m_zoomView.reset();
+	m_zoomStep = 0;
+	m_zoomFollow.x = m_zoomFollow.y = -1.0e9f;
 
 }  // end reset
 
@@ -331,6 +347,21 @@ void Radar::update( void )
 		refreshTerrain( TheTerrainLogic );
 
 	}  // end if
+
+	// A zoomed minimap follows the camera, but only once the camera moves: a wheel notch away from
+	// it keeps what it zoomed to until then.  The look point is the client's camera; logic never
+	// reads any of this.
+	if( TheTacticalView && m_mapExtent.width() > 0.0f && m_mapExtent.height() > 0.0f )
+	{
+		Coord3D look;
+		TheTacticalView->getPosition( &look );
+		if( look.x != m_zoomFollow.x || look.y != m_zoomFollow.y )
+		{
+			m_zoomFollow.x = look.x;
+			m_zoomFollow.y = look.y;
+			m_zoomView.follow( look.x, look.y, m_mapExtent.width(), m_mapExtent.height() );
+		}
+	}
 
 }  // end update
 
@@ -859,6 +890,128 @@ Bool Radar::localPixelToRadar( const ICoord2D *pixel, ICoord2D *radar )
 }  // end localPixelToRadar
 
 // ------------------------------------------------------------------------------------------------
+/** The map's picture in the radar window's own pixels, where W3DLeftHUDDraw draws it: a pixel
+	* inside the window each side.  FALSE with no window or no map. */
+// ------------------------------------------------------------------------------------------------
+Bool Radar::findPicture( ICoord2D *ul, ICoord2D *lr )
+{
+	if( m_radarWindow == NULL || m_mapExtent.width() <= 0.0f || m_mapExtent.height() <= 0.0f )
+		return FALSE;
+
+	ICoord2D size;
+	m_radarWindow->winGetSize( &size.x, &size.y );
+	findDrawPositions( 1, 1, size.x - 2, size.y - 2, ul, lr );
+	return lr->x > ul->x && lr->y > ul->y;
+}
+
+// ------------------------------------------------------------------------------------------------
+/** A pixel of the radar window (upper left (0,0)) to the spot on the terrain the minimap draws
+	* there, zoom and all.  FALSE off the map's picture, by the same bounds localPixelToRadar has
+	* always used; the spot itself comes from the picture draw lays out, so a click lands on what is
+	* under it at any zoom, to the pixel. */
+// ------------------------------------------------------------------------------------------------
+Bool Radar::localPixelToWorld( const ICoord2D *pixel, Coord3D *world )
+{
+	ICoord2D radar, ul, lr;
+	if( pixel == NULL || world == NULL || localPixelToRadar( pixel, &radar ) == FALSE || findPicture( &ul, &lr ) == FALSE )
+		return FALSE;
+
+	RadarPictureTransform transform;
+	transform.set( m_zoomView, m_mapExtent.width(), m_mapExtent.height(), ul, lr );
+	transform.toWorld( *pixel, &world->x, &world->y );
+	world->x = max( 0.0f, min( world->x, m_mapExtent.width() ) );
+	world->y = max( 0.0f, min( world->y, m_mapExtent.height() ) );
+	world->z = TheTerrainLogic->getGroundHeight( world->x, world->y );
+	return TRUE;
+}
+
+// ------------------------------------------------------------------------------------------------
+/** A wheel notch over a pixel of the radar window: one step closer or further, the spot under the
+	* pixel staying under it.  A pixel on the black bands zooms about the nearest edge of the map. */
+// ------------------------------------------------------------------------------------------------
+void Radar::zoomAtPixel( const ICoord2D *pixel, Bool closer )
+{
+	static const Real STEPS[ RADAR_ZOOM_STEPS ] = { 1.0f, 1.41421356f, 2.0f, 2.82842712f, 4.0f };
+
+	ICoord2D ul, lr;
+	if( pixel == NULL || findPicture( &ul, &lr ) == FALSE )
+		return;
+
+	const Int step = max( 0, min( (Int)RADAR_ZOOM_STEPS - 1, m_zoomStep + (closer ? 1 : -1) ) );
+	if( step == m_zoomStep )
+		return;
+
+	ICoord2D at;
+	at.x = max( ul.x, min( pixel->x, lr.x - 1 ) );
+	at.y = max( ul.y, min( pixel->y, lr.y - 1 ) );
+	RadarPictureTransform transform;
+	transform.set( m_zoomView, m_mapExtent.width(), m_mapExtent.height(), ul, lr );
+	Real x, y;
+	transform.toWorld( at, &x, &y );
+
+	m_zoomStep = step;
+	m_zoomView.zoomAround( STEPS[ step ], x, y, m_mapExtent.width(), m_mapExtent.height() );
+}
+
+// ------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------------------------
+void RadarZoomView::clampTo( Real mapWidth, Real mapHeight )
+{
+	zoom = max( 1.0f, min( zoom, 4.0f ) );
+	x = max( 0.0f, min( x, mapWidth - mapWidth / zoom ) );
+	y = max( 0.0f, min( y, mapHeight - mapHeight / zoom ) );
+}
+
+// ------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------------------------
+void RadarZoomView::zoomAround( Real newZoom, Real anchorX, Real anchorY, Real mapWidth, Real mapHeight )
+{
+	newZoom = max( 1.0f, min( newZoom, 4.0f ) );
+	// the anchor's share of the way across the shown part stays what it was
+	x = anchorX - (anchorX - x) * zoom / newZoom;
+	y = anchorY - (anchorY - y) * zoom / newZoom;
+	zoom = newZoom;
+	clampTo( mapWidth, mapHeight );
+}
+
+// ------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------------------------
+void RadarZoomView::follow( Real pointX, Real pointY, Real mapWidth, Real mapHeight )
+{
+	const Real spanX = mapWidth / zoom;
+	const Real spanY = mapHeight / zoom;
+	const Real marginX = spanX * 0.2f;
+	const Real marginY = spanY * 0.2f;
+	if( pointX < x + marginX )
+		x = pointX - marginX;
+	else if( pointX > x + spanX - marginX )
+		x = pointX - spanX + marginX;
+	if( pointY < y + marginY )
+		y = pointY - marginY;
+	else if( pointY > y + spanY - marginY )
+		y = pointY - spanY + marginY;
+	clampTo( mapWidth, mapHeight );
+}
+
+// ------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------------------------
+void RadarPictureTransform::set( const RadarZoomView &view, Real mapWidth, Real mapHeight, const ICoord2D &ul, const ICoord2D &lr )
+{
+	scaleX = mapWidth > 0.0f ? (lr.x - ul.x) * view.zoom / mapWidth : 0.0f;
+	scaleY = mapHeight > 0.0f ? (lr.y - ul.y) * view.zoom / mapHeight : 0.0f;
+	originX = ul.x - view.x * scaleX;
+	originY = lr.y + view.y * scaleY;
+}
+
+// ------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------------------------
+void RadarPictureTransform::toWorld( const ICoord2D &pixel, Real *worldX, Real *worldY ) const
+{
+	*worldX = scaleX > 0.0f ? (pixel.x + 0.5f - originX) / scaleX : 0.0f;
+	*worldY = scaleY > 0.0f ? (originY - pixel.y - 0.5f) / scaleY : 0.0f;
+}
+
+// ------------------------------------------------------------------------------------------------
 /** Translate a screen mouse position to world coords if the screen position is within
 	* the radar window and that spot in the radar corresponds to a point in the world */
 // ------------------------------------------------------------------------------------------------
@@ -880,13 +1033,7 @@ Bool Radar::screenPixelToWorld( const ICoord2D *pixel, Coord3D *world )
 	localPixel.x = pixel->x - screenPos.x;
 	localPixel.y = pixel->y - screenPos.y;
 
-	// translate local pixel to radar
-	ICoord2D radar;
-	if( localPixelToRadar( &localPixel, &radar ) == FALSE )
-		return FALSE;
-
-	// translate radar to world
-	return radarToWorld( &radar, world );
+	return localPixelToWorld( &localPixel, world );
 
 }  // end screenPixelToWorld
 
@@ -901,9 +1048,10 @@ Object *Radar::objectUnderRadarPixel( const ICoord2D *pixel )
 	if( pixel == NULL )
 		return NULL;
 
-	// convert pixel location to radar logical radar location
+	// convert pixel location to radar logical radar location, through the zoom
 	ICoord2D radar;
-	if( localPixelToRadar( pixel, &radar ) == FALSE )
+	Coord3D world;
+	if( localPixelToWorld( pixel, &world ) == FALSE || worldToRadar( &world, &radar ) == FALSE )
 		return NULL;
 
 	// object we will return
@@ -1080,7 +1228,8 @@ static RadarColorLookup radarColorLookupTable[] =
 {
 	/*      Radar Event													Color 1									 Color 2       */
 	{ RADAR_EVENT_CONSTRUCTION,					{ 128, 128, 255, 255 },  {  128, 255, 255, 255 } },
-	{ RADAR_EVENT_UPGRADE,							{ 128,   0,  64, 255 },  {  255, 185, 220, 255 } },
+	// the light pink first: the tick is drawn in color 1 on a dark keyline, where EA's dark purple vanished
+	{ RADAR_EVENT_UPGRADE,							{ 255, 185, 220, 255 },  {  128,   0,  64, 255 } },
 	{ RADAR_EVENT_UNDER_ATTACK,					{ 255,   0,   0, 255 },  {  255, 128, 128, 255 } },
 	{ RADAR_EVENT_INFORMATION,					{ 255, 255,   0, 255 },  {  255, 255, 128, 255 } },
 	{ RADAR_EVENT_BEACON_PULSE,					{ 255, 255,   0, 255 },  {  255, 255, 128, 255 } },
@@ -1089,13 +1238,14 @@ static RadarColorLookup radarColorLookupTable[] =
 	{ RADAR_EVENT_STEALTH_DISCOVERED,		{   0, 255,   0, 255 },	 {    0, 128,   0, 255 } },
 	{ RADAR_EVENT_STEALTH_NEUTRALIZED,	{   0, 255,   0, 255 },	 {    0, 128,   0, 255 } },
 	{ RADAR_EVENT_FAKE,									{   0,	 0,   0,	 0 },	 {    0,	 0,   0,   0 } },
+	{ RADAR_EVENT_STRUCTURE_LOST,				{ 255, 112,  32, 255 },	 {  120,   0,   0, 255 } },
 	{ RADAR_EVENT_INVALID,							{   0,   0,   0,   0 },  {    0,   0,   0,   0 } }
 };
 
 //-------------------------------------------------------------------------------------------------
 /** Create a new radar event */
 //-------------------------------------------------------------------------------------------------
-void Radar::createEvent( const Coord3D *world, RadarEventType type, Real secondsToLive )
+void Radar::createEvent( const Coord3D *world, RadarEventType type, Real secondsToLive, RadarEventMark mark )
 {
 	// sanity
 	if( world == NULL )
@@ -1104,7 +1254,7 @@ void Radar::createEvent( const Coord3D *world, RadarEventType type, Real seconds
 	if( LogicThread::defersEffects() )
 	{
 		const Coord3D at = *world;
-		LogicThread::callAfterTick( [=]() { createEvent( &at, type, secondsToLive ); } );
+		LogicThread::callAfterTick( [=]() { createEvent( &at, type, secondsToLive, mark ); } );
 		return;
 	}
 	LOGIC_CENSUS( CENSUS_RADAR );
@@ -1141,7 +1291,7 @@ void Radar::createEvent( const Coord3D *world, RadarEventType type, Real seconds
 	}  // end if
 
 	// call the internal method to create the event with these colors
-	internalCreateEvent( world, type, secondsToLive, &color[ 0 ], &color[ 1 ] );
+	internalCreateEvent( world, type, secondsToLive, &color[ 0 ], &color[ 1 ], mark );
 
 }  // end createEvent
 
@@ -1199,7 +1349,8 @@ void Radar::createPlayerEvent( Player *player, const Coord3D *world,
 /** Create a new radar event */
 //-------------------------------------------------------------------------------------------------
 void Radar::internalCreateEvent( const Coord3D *world, RadarEventType type, Real secondsToLive,
-																 const RGBAColorInt *color1, const RGBAColorInt *color2 )
+																 const RGBAColorInt *color1, const RGBAColorInt *color2,
+																 RadarEventMark mark )
 {
 	static Real secondsBeforeDieToFade = 0.5f;  ///< this many seconds before we hit the die frame we start to fade away
 		
@@ -1222,6 +1373,7 @@ void Radar::internalCreateEvent( const Coord3D *world, RadarEventType type, Real
 	m_event[ m_nextFreeRadarEvent ].worldLoc = *world;
 	m_event[ m_nextFreeRadarEvent ].radarLoc = radar;
 	m_event[ m_nextFreeRadarEvent ].soundPlayed = FALSE;
+	m_event[ m_nextFreeRadarEvent ].mark = (UnsignedByte)( mark == RADAR_MARK_BY_TYPE ? markForType( type ) : mark );
 
 	// record the index of this, our "last" radar event.
 	if ( type != RADAR_EVENT_BEACON_PULSE )
@@ -1259,6 +1411,173 @@ Bool Radar::getLastEventLoc( Coord3D *eventPos )
 
 }  // end getLastEventLoc
 
+// two alarms of a type nearer than this are one place: the throttle refreshes the older, and the
+// spacebar does not stop at it twice
+static const Real RADAR_EVENT_SAME_PLACE = 250.0f;
+
+// presses further apart than this start the spacebar again at the last event
+static const UnsignedInt RADAR_CYCLE_FRAMES = LOGICFRAMES_PER_SECOND * 3;
+
+//-------------------------------------------------------------------------------------------------
+/** How big an event of this type draws when its maker does not say: a building's news at a
+	* building's size, a unit's at a unit's */
+//-------------------------------------------------------------------------------------------------
+RadarEventMark Radar::markForType( RadarEventType type )
+{
+	switch( type )
+	{
+		case RADAR_EVENT_CONSTRUCTION:
+		case RADAR_EVENT_UPGRADE:
+		case RADAR_EVENT_INFORMATION:
+		case RADAR_EVENT_BATTLE_PLAN:
+		case RADAR_EVENT_STRUCTURE_LOST:
+			return RADAR_MARK_STRUCTURE;
+		default:
+			return RADAR_MARK_UNIT;
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The event a new one of this type at pos is held back by: the same type, the same place and made
+	* under ten seconds ago.  -1 when there is none. */
+//-------------------------------------------------------------------------------------------------
+Int Radar::findThrottlingEvent( const RadarEvent *events, RadarEventType type, const Coord3D *pos, UnsignedInt frame )
+{
+	const UnsignedInt framesBetweenEvents = LOGICFRAMES_PER_SECOND * 10;
+	for( Int i = 0; i < MAX_RADAR_EVENTS; ++i )
+	{
+		if( events[ i ].type != type )
+			continue;
+
+		//
+		// Distance from the new event to this one, in 2D.  There were no brackets here at all,
+		// so what it worked out was x - (px*x) - px + y - (py*y) - py: not a distance, not even
+		// a positive number most of the time.  The test below it therefore answered at random,
+		// which is why two attacks on opposite ends of the map could suppress each other's
+		// warning while two on the same building both got one.
+		//
+		const Real dx = events[ i ].worldLoc.x - pos->x;
+		const Real dy = events[ i ].worldLoc.y - pos->y;
+		if( dx * dx + dy * dy <= RADAR_EVENT_SAME_PLACE * RADAR_EVENT_SAME_PLACE &&
+				frame - events[ i ].createFrame < framesBetweenEvents )
+			return i;
+	}
+	return -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A hit the throttle held back keeps the alarm it fell under alive, drawn again if it had gone
+	* out: it dies secondsToLive after the latest hit, not the first.  It grows to the bigger mark
+	* of the two, so a unit's ring next to a building that is then hit becomes the building's. */
+//-------------------------------------------------------------------------------------------------
+void Radar::refreshEventLife( RadarEvent *event, UnsignedInt frame, Real secondsToLive, RadarEventMark mark )
+{
+	static const Real secondsBeforeDieToFade = 0.5f;		// as internalCreateEvent
+	const UnsignedInt dieFrame = frame + (UnsignedInt)( LOGICFRAMES_PER_SECOND * secondsToLive );
+	if( event->active == FALSE || dieFrame > event->dieFrame )
+	{
+		event->dieFrame = dieFrame;
+		event->fadeFrame = dieFrame - (UnsignedInt)( LOGICFRAMES_PER_SECOND * secondsBeforeDieToFade );
+	}
+	event->active = TRUE;
+	if( mark != RADAR_MARK_BY_TYPE && mark != RADAR_MARK_SIGNAL && event->mark != RADAR_MARK_SIGNAL && (UnsignedByte)mark > event->mark )
+		event->mark = (UnsignedByte)mark;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The next event back from `from` in the ring, counting from `newest`, that the spacebar may go
+	* to: not an empty slot, not a beacon's pulse, and not the same place as one this run of presses
+	* has already shown.  -1 when there is none left. */
+//-------------------------------------------------------------------------------------------------
+Int Radar::olderEventIndex( const RadarEvent *events, Int newest, Int from, const Int *visited, Int visitedCount )
+{
+	if( newest < 0 || newest >= MAX_RADAR_EVENTS || from < 0 || from >= MAX_RADAR_EVENTS )
+		return -1;
+
+	// how far back from the newest `from` is; the oldest the ring holds is MAX_RADAR_EVENTS - 1 back
+	const Int fromAge = ( newest - from + MAX_RADAR_EVENTS ) % MAX_RADAR_EVENTS;
+	for( Int age = fromAge + 1; age < MAX_RADAR_EVENTS; ++age )
+	{
+		const Int i = ( newest - age + MAX_RADAR_EVENTS ) % MAX_RADAR_EVENTS;
+		if( events[ i ].type == RADAR_EVENT_INVALID || events[ i ].type == RADAR_EVENT_BEACON_PULSE )
+			continue;
+
+		Bool seen = FALSE;
+		for( Int v = 0; v < visitedCount && !seen; ++v )
+		{
+			const Coord3D &there = events[ visited[ v ] ].worldLoc;
+			const Real dx = events[ i ].worldLoc.x - there.x;
+			const Real dy = events[ i ].worldLoc.y - there.y;
+			seen = dx * dx + dy * dy <= RADAR_EVENT_SAME_PLACE * RADAR_EVENT_SAME_PLACE;
+		}
+		if( !seen )
+			return i;
+	}
+	return -1;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The spacebar.  The first press goes to the last event as it always did; each press within three
+	* seconds of the one before goes one alarm further back, up to RADAR_CYCLE_DEPTH places, then
+	* starts again at the last.  A new event starts it again too. */
+//-------------------------------------------------------------------------------------------------
+Bool Radar::cycleEventLoc( Coord3D *eventPos )
+{
+	if( m_lastRadarEvent == -1 )
+		return FALSE;
+
+	const UnsignedInt frame = TheGameLogic->getFrame();
+	Int next = -1;
+	if( m_cycleCount > 0 && m_cycleCount < RADAR_CYCLE_DEPTH && m_cycleAnchor == m_lastRadarEvent &&
+			frame >= m_cycleFrame && frame - m_cycleFrame <= RADAR_CYCLE_FRAMES )
+		next = olderEventIndex( m_event, m_lastRadarEvent, m_cycleVisited[ m_cycleCount - 1 ], m_cycleVisited, m_cycleCount );
+
+	if( next == -1 )
+	{
+		// from the top
+		m_cycleCount = 0;
+		m_cycleAnchor = m_lastRadarEvent;
+		next = m_lastRadarEvent;
+	}
+
+	m_cycleVisited[ m_cycleCount++ ] = next;
+	m_cycleFrame = frame;
+	if( eventPos )
+		*eventPos = m_event[ next ].worldLoc;
+	return TRUE;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** What the slot draws, for the pointers at the view's edge: its type, where, its colour and how
+	* far it has faded, 1 solid.  FALSE when the slot shows nothing. */
+//-------------------------------------------------------------------------------------------------
+Bool Radar::getShownEvent( Int slot, RadarEventType *type, Coord3D *world, RGBAColorInt *color, Real *alpha ) const
+{
+	if( slot < 0 || slot >= MAX_RADAR_EVENTS )
+		return FALSE;
+	const RadarEvent &event = m_event[ slot ];
+	if( event.active == FALSE || event.type == RADAR_EVENT_FAKE || event.type == RADAR_EVENT_BEACON_PULSE ||
+			event.type == RADAR_EVENT_INVALID )
+		return FALSE;
+
+	const UnsignedInt frame = TheGameLogic->getFrame();
+	Real fade = 1.0f;
+	if( frame > event.fadeFrame && event.dieFrame > event.fadeFrame )
+		fade = 1.0f - (Real)( frame - event.fadeFrame ) / (Real)( event.dieFrame - event.fadeFrame );
+	if( fade <= 0.0f )
+		return FALSE;
+
+	if( type )
+		*type = event.type;
+	if( world )
+		*world = event.worldLoc;
+	if( color )
+		*color = event.color1;
+	if( alpha )
+		*alpha = fade;
+	return TRUE;
+}
+
 // ------------------------------------------------------------------------------------------------
 /** Try to create a radar event for "we're under attack".  This will be called every time
 	* actual damage is dealt to an object that the player owns that shows up on the radar.
@@ -1294,8 +1613,11 @@ void Radar::tryUnderAttackEvent( const Object *obj )
 
 	LogicThread::callAfterTick( [this, kind, ours, allied, at]()
 	{
-		// try to create the event
-		if( !tryEvent( RADAR_EVENT_UNDER_ATTACK, &at ) )
+		// try to create the event; one held back keeps the alarm already there alive.  The ring is as
+		// big as what was hit: the base's buildings, then a harvester, then any other unit
+		const RadarEventMark mark = kind == WARN_BASE ? RADAR_MARK_STRUCTURE
+																: kind == WARN_UNIT ? RADAR_MARK_UNIT : RADAR_MARK_HARVESTER;
+		if( !tryEvent( RADAR_EVENT_UNDER_ATTACK, &at, mark ) )
 			return;
 
 		// the lamp beside the radar
@@ -1321,7 +1643,8 @@ void Radar::tryUnderAttackEvent( const Object *obj )
 			else
 			{
 				TheInGameUI->message( "RADAR:UnitUnderAttack" );
-				unitAttackSound = TheAudio->getMiscAudio()->m_radarStructureUnderAttackSound;
+				// EA played the structure's here; the unit's own is the same warning, quieter
+				unitAttackSound = TheAudio->getMiscAudio()->m_radarUnitUnderAttackSound;
 			}
 			unitAttackSound.setPlayerIndex(player->getPlayerIndex());
 			TheAudio->addAudioEvent( &unitAttackSound );
@@ -1344,7 +1667,7 @@ void Radar::tryUnderAttackEvent( const Object *obj )
 		{
 			TheInGameUI->message( "RADAR:UnderAttack" );
 
-			static AudioEventRTS underAttackSound = TheAudio->getMiscAudio()->m_radarStructureUnderAttackSound;
+			static AudioEventRTS underAttackSound = TheAudio->getMiscAudio()->m_radarUnderAttackSound;
 			underAttackSound.setPlayerIndex(player->getPlayerIndex());
 			TheAudio->addAudioEvent( &underAttackSound );
 		}
@@ -1371,8 +1694,9 @@ void Radar::tryInfiltrationEvent( const Object *obj )
 	if( obj->getControllingPlayer() != ThePlayerList->getLocalPlayer() )
 		return;
 
-	// create the radar event
-	createEvent( obj->getPosition(), RADAR_EVENT_INFILTRATION );
+	// create the radar event, a building's at a building's size
+	createEvent( obj->getPosition(), RADAR_EVENT_INFILTRATION, 4.0f,
+							 obj->isKindOf( KINDOF_STRUCTURE ) ? RADAR_MARK_STRUCTURE : RADAR_MARK_UNIT );
 
 	//
 	///@todo Should make an INI data driven table for radar event strings, and audio events
@@ -1394,14 +1718,14 @@ void Radar::tryInfiltrationEvent( const Object *obj )
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
-Bool Radar::tryEvent( RadarEventType event, const Coord3D *pos )
+Bool Radar::tryEvent( RadarEventType event, const Coord3D *pos, RadarEventMark mark )
 {
 	// inside a tick the try waits for its end and the answer is FALSE: a caller that acts on the answer
 	// asks from callAfterTick (StealthDetectorUpdate, tryUnderAttackEvent)
 	if( LogicThread::defersEffects() && pos != NULL )
 	{
 		const Coord3D at = *pos;
-		LogicThread::callAfterTick( [=]() { tryEvent( event, &at ); } );
+		LogicThread::callAfterTick( [=]() { tryEvent( event, &at, mark ); } );
 		return FALSE;
 	}
 	LOGIC_CENSUS( CENSUS_RADAR );
@@ -1410,48 +1734,32 @@ Bool Radar::tryEvent( RadarEventType event, const Coord3D *pos )
 	if( event <= RADAR_EVENT_INVALID || event >= RADAR_EVENT_NUM_EVENTS || pos == NULL )
 		return FALSE;
 
-	// see if there was an event of this type within the given range within the given time
-	UnsignedInt currentFrame = TheGameLogic->getFrame();
-	const Real closeEnoughDistanceSq = 250.0f * 250.0f;
-	const UnsignedInt framesBetweenEvents = LOGICFRAMES_PER_SECOND * 10;
 	//
+	// An event of this type at the same place under ten seconds ago holds a new one back: no second
+	// alarm, no second message or sound.  The hit is not lost, though: it keeps that alarm alive, so a
+	// fight's ring stays up while the fight goes on and goes out a few seconds after it stops.
+	//
+	const UnsignedInt currentFrame = TheGameLogic->getFrame();
+	const Int held = findThrottlingEvent( m_event, event, pos, currentFrame );
+	if( held != -1 )
+	{
+		refreshEventLife( &m_event[ held ], currentFrame, 4.0f, mark );
+		return FALSE;
+	}
 
-	// see if there was any matching radar event within range of this one
-	// that wasn't too long ago, if there was we won't create another and get outta here
-	//
+	// a long fight warns again every ten seconds; its new alarm takes over from the old one there
 	for( Int i = 0; i < MAX_RADAR_EVENTS; ++i )
 	{
-	
-		// only pay attention to under attack events
-		if( m_event[ i ].type == event )
-		{
-
-			//
-			// Distance from the new event to this one, in 2D.  There were no brackets here at all,
-			// so what it worked out was x - (px*x) - px + y - (py*y) - py: not a distance, not even
-			// a positive number most of the time.  The test below it therefore answered at random,
-			// which is why two attacks on opposite ends of the map could suppress each other's
-			// warning while two on the same building both got one.
-			//
-			const Real dx = m_event[ i ].worldLoc.x - pos->x;
-			const Real dy = m_event[ i ].worldLoc.y - pos->y;
-			Real distSquared = dx * dx + dy * dy;
-
-			if( distSquared <= closeEnoughDistanceSq )
-			{
-
-				// finally only reject making a new event of this existing one is "recent enough"
-				if( currentFrame - m_event[ i ].createFrame < framesBetweenEvents )
-					return FALSE;  // reject it
-
-			}  // end if
-
-		}  // end if
-
-	}  // end for i
+		if( m_event[ i ].type != event || m_event[ i ].active == FALSE )
+			continue;
+		const Real dx = m_event[ i ].worldLoc.x - pos->x;
+		const Real dy = m_event[ i ].worldLoc.y - pos->y;
+		if( dx * dx + dy * dy <= RADAR_EVENT_SAME_PLACE * RADAR_EVENT_SAME_PLACE )
+			m_event[ i ].active = FALSE;
+	}
 
 	// if we got here then we want to create a new event
-	createEvent( pos, event );
+	createEvent( pos, event, 4.0f, mark );
 
 	// return TRUE for successfully created event
 	return TRUE;
@@ -1595,13 +1903,14 @@ static void xferRadarObjectList( Xfer *xfer, RadarObject **head )
 // ------------------------------------------------------------------------------------------------
 /** Xfer Method
 	* Version Info:
-	* 1: Initial version */
+	* 1: Initial version
+	* 2: each event's mark, its size on the radar */
 // ------------------------------------------------------------------------------------------------
 void Radar::xfer( Xfer *xfer )
 {
 
 	// version
-	XferVersion currentVersion = 1;
+	XferVersion currentVersion = 2;
 	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
 
@@ -1643,7 +1952,11 @@ void Radar::xfer( Xfer *xfer )
 		xfer->xferCoord3D( &m_event[ i ].worldLoc );
 		xfer->xferICoord2D( &m_event[ i ].radarLoc );
 		xfer->xferBool( &m_event[ i ].soundPlayed );
-		
+		if( version >= 2 )
+			xfer->xferUnsignedByte( &m_event[ i ].mark );
+		else
+			m_event[ i ].mark = (UnsignedByte)markForType( m_event[ i ].type );
+
 	}  // end for i
 
 	// next event index

@@ -250,7 +250,7 @@ UpdateSleepTime TensileFormationUpdate::update( void )
 
 		}
 		else
-			return UPDATE_SLEEP(LOGICFRAMES_PER_SECOND);
+			return UPDATE_SLEEP(LOGICFRAMES_PER_GAME_SECOND);
 	}
 
 
@@ -274,7 +274,7 @@ UpdateSleepTime TensileFormationUpdate::update( void )
 	}
 
 
-	if ( m_life%LOGICFRAMES_PER_SECOND == LOGICFRAMES_PER_SECOND - 1 )
+	if ( m_life%LOGICFRAMES_PER_GAME_SECOND == LOGICFRAMES_PER_GAME_SECOND - 1 )
 		propagateDislodgement( TRUE );
 
 
@@ -290,7 +290,7 @@ UpdateSleepTime TensileFormationUpdate::update( void )
 
 	m_inertia.add( &slope );
 
-	static const Real friction = ConvertRetailPerFrameFactor( 0.95f );
+	const Real friction = ConvertRetailPerFrameFactor( 0.95f );	// not static: the speed is the match's
 	m_inertia.scale( friction );
 
 
@@ -310,7 +310,7 @@ UpdateSleepTime TensileFormationUpdate::update( void )
 
 	//APPLY TENSORS===========================
 	Coord3D tensorSum = { 0, 0, 0 };
-	static const Real tensorKeep = ConvertRetailPerFrameFactor( 0.93f );
+	const Real tensorKeep = ConvertRetailPerFrameFactor( 0.93f );
 	for ( int t = 0; t < 4; ++t )
 	{
 		Object *other = TheGameLogic->findObjectByID( m_links[ t ].id );

@@ -173,6 +173,8 @@ struct OnlineSession
 	std::map<long long, UnsignedInt> vips;		///< account id -> relay address, as the server tells them
 	std::string matchId;		///< the last game.start or qm.matched
 	std::string reportedMatch;
+	std::string replayedMatch;	///< the match whose replay last went up, or was given up (OnlineSendReplay)
+	std::string quickMatch;	///< qm.matched's id until a recording claims it (OnlineClaimQuickMatch) or it is dropped
 	std::string resultLine;	///< the last ONLINE RATED / ONLINE UNRATED line logged
 	OnlineMessage result;		///< the last rated or unrated line itself
 
@@ -189,6 +191,11 @@ struct OnlineSession
 	// the armies' last answer
 	Int armiesState;				///< OnlineLadderState
 	OnlineMessage armies;
+
+	// the account's skins: what it owns (bit n for id n); what it wears is TankSkin_localLoadout
+	UnsignedInt64 skinsOwned;
+	Int skinsState;				///< OnlineSkinsState of the last skins.get or skins.set
+	std::string skinsError;	///< the last skins.err's code
 
 	// a Quick Match between qm.matched and its game.start
 	OnlineMessage reveal;
@@ -208,6 +215,7 @@ struct OnlineSession
 	void resolveHostLeft();
 	void noteCard( const OnlineMessage &m );			///< a line's rating, tier, games and ping under its nick
 	void matched( const OnlineMessage &m );			///< qm.matched as QM_MATCHED
+	void noteSkins( const OnlineMessage &m );		///< auth.ok's or skins.ok's owned[] and skins[]
 
 private:
 	OnlineSession();

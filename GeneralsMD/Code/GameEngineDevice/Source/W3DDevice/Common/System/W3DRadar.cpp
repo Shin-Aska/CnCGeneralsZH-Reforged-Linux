@@ -41,8 +41,16 @@
 #include "GameLogic/TerrainLogic.h"
 #include "GameLogic/GameLogic.h"
 #include "GameLogic/Object.h"
+#include "GameLogic/Module/UpdateModule.h"
+#include "GameLogic/Module/ContainModule.h"
+#include "GameLogic/Module/StealthUpdate.h"
+#include "GameLogic/PartitionManager.h"
+
+#include <algorithm>
 
 #include "GameClient/Color.h"
+#include "GameClient/Drawable.h"
+#include "GameClient/InGameUI.h"
 #include "GameClient/Display.h"
 #include "GameClient/GameClient.h"
 #include "GameClient/ObserverCamera.h"
@@ -68,19 +76,60 @@
 
 
 // PRIVATE DATA ///////////////////////////////////////////////////////////////////////////////////
-enum { OVERLAY_REFRESH_RATE = 6 * LOGICFRAMES_PER_RETAIL_FRAME };  ///< over updates once this many frames
+// The terrain picture's size.  The window shows it at about 220 to 440 pixels, so 256 is near one
+// texel a pixel; it is sampled 3x3 a texel as the 128 one was, four times the old samples a map.
+enum { RADAR_TERRAIN_TEXTURE_SIZE = 256 };
 
-//-------------------------------------------------------------------------------------------------
-/** Is the point legal, that is, inside the resolution of the radar cells */
-//-------------------------------------------------------------------------------------------------
-inline Bool legalRadarPoint( Int px, Int py )
+// The shroud texture holds two texels a shroud cell each way, never more than this on a side, and
+// uploadShroud fills them from the cells softened over their neighbours: the fog's edge is a ramp
+// the CPU computes, the same on every device, not whatever the sampler makes of one texel a cell.
+// 512 keeps a changed frame's upload to a megabyte; Direct3D 11 refreshes the whole texture.  The
+// dark rises from a floor at a clear cell's edge to full this many cells into the fog; the floor,
+// in eighths of the cell's own alpha, keeps a narrow strip of fog or shroud visibly dark.
+enum { RADAR_SHROUD_MAX_SCALE = 2, RADAR_SHROUD_MAX_TEXTURE = 512, RADAR_SHROUD_RAMP_CELLS = 3,
+			 RADAR_SHROUD_FLOOR_EIGHTHS = 3 };
+
+// The lobby map preview has marked the money with a dollar coin and the tech buildings with a star
+// since 2003 (SkirmishGameOptionsMenu.cpp, "Cash" and "TecBuilding"), so the minimap uses the same
+// two images.  Sized against the radar and clamped; landmarks of one kind closer than this many
+// radar cells are one place, a dock's eight piles one dollar.
+enum { LANDMARK_ICON_RADAR_DIVISOR = 20, LANDMARK_ICON_MIN_SIZE = 9, LANDMARK_MERGE_CELLS = 6 };
+
+// Whose the local player is shown an object is, by the rules Radar::addObject picks the radar
+// colour with: a disguise passes for its disguise to anyone not allied with its owner, and a
+// container answers for a stealth garrison.  Asked at the sync point, so it follows a disguise or
+// a garrison that changed after the add, and a save load.
+static const Player *apparentPlayerOf( const Object *obj )
 {
+	const Player *player = obj->getControllingPlayer();
+	Player *local = ThePlayerList->getLocalPlayer();
+	if( obj->isKindOf( KINDOF_DISGUISER ) && obj->getStealth() && obj->getStealth()->isDisguised() && player && local )
+	{
+		const Player *disguised = ThePlayerList->getNthPlayer( obj->getStealth()->getDisguisedPlayerIndex() );
+		if( disguised && player->getRelationship( local->getDefaultTeam() ) != ALLIES && local->isPlayerActive() )
+			player = disguised;
+	}
+	if( obj->getContain() )
+	{
+		const Player *shown = obj->getContain()->getApparentControllingPlayer( local );
+		if( shown )
+			player = shown;
+	}
+	return player;
+}
 
-	if( px < 0 || py < 0 || px >= RADAR_CELL_WIDTH || py >= RADAR_CELL_HEIGHT )
-		return FALSE;
+// a unit's dot: 3 pixels on the 220 pixel radar of a 1080p HUD, the old 2 texels' worth
+static Int blipDotSize( Int width, Int height )
+{
+	return max( 3, REAL_TO_INT_FLOOR( max( width, height ) / 72.0f + 0.5f ) );
+}
 
-	return TRUE;
-
+static Int nextPowerOfTwo( Int n )
+{
+	Int p = 1;
+	while( p < n )
+		p <<= 1;
+	return p;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -117,13 +166,7 @@ void W3DRadar::initializeTextureFormats( void )
 		WW3D_FORMAT_X1R5G5B5,
 		WW3D_FORMAT_UNKNOWN				// keep this one last
 	};
-	const WW3DFormat overlayFormats[] = 
-	{
-		WW3D_FORMAT_A8R8G8B8,
-		WW3D_FORMAT_A4R4G4B4,
-		WW3D_FORMAT_UNKNOWN				// keep this one last
-	};
-	const WW3DFormat shroudFormats[] = 
+	const WW3DFormat shroudFormats[] =
 	{
 		WW3D_FORMAT_A8R8G8B8,
 		WW3D_FORMAT_A4R4G4B4,
@@ -132,9 +175,6 @@ void W3DRadar::initializeTextureFormats( void )
 
 	// find a format for the terrain texture
 	m_terrainTextureFormat = findFormat(terrainFormats);
-
-	// find a format for the overlay texture
-	m_overlayTextureFormat = findFormat(overlayFormats);
 
 	// find a format for the shroud texture
 	m_shroudTextureFormat = findFormat(shroudFormats);
@@ -158,16 +198,6 @@ void W3DRadar::deleteResources( void )
 	m_terrainImage = NULL;
 
 	//
-	// delete overlay resources used
-	//
-	if( m_overlayTexture )
-		m_overlayTexture->Release_Ref();
-	m_overlayTexture = NULL;
-	if( m_overlayImage )
-		m_overlayImage->deleteInstance();
-	m_overlayImage = NULL;
-
-	//
 	// delete shroud resources used
 	//
 	if( m_shroudTexture )
@@ -185,7 +215,6 @@ void W3DRadar::deleteResources( void )
 void W3DRadar::reconstructViewBox( void )
 {
 	Coord3D world[ 4 ];
-	ICoord2D radar[ 4 ];
 	Int i;
 
 	// get the 4 points of the view corners in the 3D world at the average Z height in the map
@@ -195,13 +224,9 @@ void W3DRadar::reconstructViewBox( void )
 																									&world[ 3 ],
 																									getTerrainAverageZ() );
 
-	// convert each of the 4 points in the world to radar cell positions
+	// world offsets, not radar cells: a cell is several pixels wide once the minimap zooms in
 	for( i = 0; i < 4; i++ )
 	{
-
-		// first convert to radar cells
- 		radar[ i ].x = world[ i ].x / (m_mapExtent.width() / RADAR_CELL_WIDTH);
- 		radar[ i ].y = world[ i ].y / (m_mapExtent.height() / RADAR_CELL_HEIGHT);
 
 		//
 		// store these points in the view box array which contains a first position
@@ -217,8 +242,8 @@ void W3DRadar::reconstructViewBox( void )
 		else
 		{
 
-			m_viewBox[ i ].x = radar[ i ].x - radar[ i - 1 ].x;
-			m_viewBox[ i ].y = radar[ i ].y - radar[ i - 1 ].y;
+			m_viewBox[ i ].x = world[ i ].x - world[ i - 1 ].x;
+			m_viewBox[ i ].y = world[ i ].y - world[ i - 1 ].y;
 
 		}  // end else
 
@@ -229,22 +254,22 @@ void W3DRadar::reconstructViewBox( void )
 }  // end reconstructViewBox
 
 //-------------------------------------------------------------------------------------------------
-/** Convert radar position to actual pixel coord */
+/** A world spot in screen pixels, under the zoom draw set up.  Off the picture when the minimap is
+	* zoomed in and the spot lies outside what it shows; every caller clips or skips. */
 //-------------------------------------------------------------------------------------------------
-void W3DRadar::radarToPixel( const ICoord2D *radar, ICoord2D *pixel,	
-														 Int radarUpperLeftX, Int radarUpperLeftY,
-														 Int radarWidth, Int radarHeight )
+void W3DRadar::worldToPixel( const Coord3D *world, ICoord2D *pixel ) const
 {
+	Real x, y;
+	m_drawTransform.toPixel( world->x, world->y, &x, &y );
+	pixel->x = REAL_TO_INT_FLOOR( x );
+	pixel->y = REAL_TO_INT_FLOOR( y );
+}
 
-	// sanity
-	if( radar == NULL || pixel == NULL )
-		return;
-
-	pixel->x = (radar->x * radarWidth / RADAR_CELL_WIDTH) + radarUpperLeftX;
-	// note the "inverted" y here to orient the way our world looks with +x=right and -y=down
-	pixel->y = ((RADAR_CELL_HEIGHT - 1 - radar->y) * radarHeight / RADAR_CELL_HEIGHT) + radarUpperLeftY;
-
-}  // end radarToPixel
+/// a pixel inside the radar's picture
+static Bool insidePicture( const ICoord2D &pixel, Int pixelX, Int pixelY, Int width, Int height )
+{
+	return pixel.x >= pixelX && pixel.x < pixelX + width && pixel.y >= pixelY && pixel.y < pixelY + height;
+}
 
 
 //-------------------------------------------------------------------------------------------------
@@ -256,15 +281,12 @@ void W3DRadar::drawHeroIcon( Int pixelX, Int pixelY, Int width, Int height, cons
 	static const Image *image = (Image *)TheMappedImageCollection->findImageByName("HeroReticle");
 	if (image != NULL)
 	{
-		// convert world to radar coords
-		ICoord2D ulRadar; 
-		ulRadar.x = pos->x / (m_mapExtent.width() / RADAR_CELL_WIDTH);
-		ulRadar.y = pos->y / (m_mapExtent.height() / RADAR_CELL_HEIGHT);
-
-		// convert radar to screen coords
+		// convert world to screen coords; a hero outside what a zoomed minimap shows has no icon
 		ICoord2D offsetScreen;
-		radarToPixel( &ulRadar, &offsetScreen, pixelX, pixelY, width, height );
-		
+		worldToPixel( pos, &offsetScreen );
+		if( !insidePicture( offsetScreen, pixelX, pixelY, width, height ) )
+			return;
+
 		// shift from an upper left to a center focus for the icon
 		int iconWidth = image->getImageWidth();
 		int iconHeight = image->getImageHeight();
@@ -273,6 +295,182 @@ void W3DRadar::drawHeroIcon( Int pixelX, Int pixelY, Int width, Int height, cons
 
 		// draw the icon
 		TheDisplay->drawImage( image, offsetScreen.x , offsetScreen.y, offsetScreen.x + iconWidth, offsetScreen.y + iconHeight );
+	}
+}
+
+static void fillClipped( const IRegion2D &clip, Int x, Int y, Int size, UnsignedInt colour );
+
+//-------------------------------------------------------------------------------------------------
+/** A dashed white line from each of the local player's units walking to its hotkey squad to where
+	* it walks, and a white dot where it walks to, from the copy update took at the sync point: draw
+	* runs beside the tick.  Each dash and the dot sit on a dark keyline a pixel wider all round, so
+	* they read on snow and on dark ground alike.  The dashes are laid from the unit's end, so as the
+	* line shortens they stay put under the unit and the last one at the destination is the one that
+	* changes. */
+//-------------------------------------------------------------------------------------------------
+void W3DRadar::drawReinforcementLines( Int pixelX, Int pixelY, Int width, Int height )
+{
+	const Real dashOn = 6.0f;
+	const Real dashOff = 4.0f;
+	const Real lineWidth = 3.0f;
+	const Real keylineWidth = lineWidth + 2.0f;
+	const Int dot = 5;
+	const Color lineColor = GameMakeColor( 255, 255, 255, 255 );
+	const Color keylineColor = GameMakeColor( 12, 12, 12, 255 );
+
+	IRegion2D clip;
+	clip.lo.x = pixelX;
+	clip.lo.y = pixelY;
+	clip.hi.x = pixelX + width;
+	clip.hi.y = pixelY + height;
+
+	for( size_t i = 0; i < m_cachedReinforcementLines.size(); ++i )
+	{
+		const ReinforcementLine &line = m_cachedReinforcementLines[ i ];
+		ICoord2D from, to;
+		worldToPixel( &line.from, &from );
+		worldToPixel( &line.to, &to );
+
+		const Real dx = INT_TO_REAL( to.x - from.x );
+		const Real dy = INT_TO_REAL( to.y - from.y );
+		const Real length = sqrtf( dx * dx + dy * dy );
+		if( length >= 1.0f )
+		{
+			const Real ux = dx / length;
+			const Real uy = dy / length;
+
+			for( Real along = 0.0f; along < length; along += dashOn + dashOff )
+			{
+				const Real end = min( along + dashOn, length );
+				ICoord2D dashFrom, dashTo, clippedFrom, clippedTo;
+
+				// the keyline runs a pixel past each end of the dash, as well as to either side of it
+				dashFrom.x = from.x + REAL_TO_INT( ux * (along - 1.0f) );
+				dashFrom.y = from.y + REAL_TO_INT( uy * (along - 1.0f) );
+				dashTo.x = from.x + REAL_TO_INT( ux * (end + 1.0f) );
+				dashTo.y = from.y + REAL_TO_INT( uy * (end + 1.0f) );
+				if( ClipLine2D( &dashFrom, &dashTo, &clippedFrom, &clippedTo, &clip ) )
+					TheDisplay->drawLine( clippedFrom.x, clippedFrom.y, clippedTo.x, clippedTo.y, keylineWidth, keylineColor );
+
+				dashFrom.x = from.x + REAL_TO_INT( ux * along );
+				dashFrom.y = from.y + REAL_TO_INT( uy * along );
+				dashTo.x = from.x + REAL_TO_INT( ux * end );
+				dashTo.y = from.y + REAL_TO_INT( uy * end );
+				if( ClipLine2D( &dashFrom, &dashTo, &clippedFrom, &clippedTo, &clip ) )
+					TheDisplay->drawLine( clippedFrom.x, clippedFrom.y, clippedTo.x, clippedTo.y, lineWidth, lineColor );
+			}
+		}
+
+		// the destination, on top of the last dash
+		fillClipped( clip, to.x - (dot + 2) / 2, to.y - (dot + 2) / 2, dot + 2, keylineColor );
+		fillClipped( clip, to.x - dot / 2, to.y - dot / 2, dot, lineColor );
+	}
+
+	// The square sits where the squad gathers, so the units that already arrived were under it.
+	// Their dots go over it again; only a dot that touches a destination square is drawn twice.
+	if( m_cachedReinforcementLines.empty() || width <= 0 || height <= 0 )
+		return;
+	const Int blipDot = blipDotSize( width, height );
+	const Int reach = (dot + 2) / 2 + blipDot / 2 + 1;
+	m_destinationPixels.resize( m_cachedReinforcementLines.size() );
+	for( size_t i = 0; i < m_cachedReinforcementLines.size(); ++i )
+		worldToPixel( &m_cachedReinforcementLines[ i ].to, &m_destinationPixels[ i ] );
+	for( size_t b = 0; b < m_blips.size(); ++b )
+	{
+		const Blip &blip = m_blips[ b ];
+		if( blip.halfLength > 0.0f || blip.x < 0.0f || blip.y < 0.0f || blip.x >= m_mapExtent.width() || blip.y >= m_mapExtent.height() )
+			continue;
+		Real px, py;
+		m_drawTransform.toPixel( blip.x, blip.y, &px, &py );
+		const Int bx = REAL_TO_INT_FLOOR( px );
+		const Int by = REAL_TO_INT_FLOOR( py );
+		for( size_t i = 0; i < m_destinationPixels.size(); ++i )
+		{
+			const ICoord2D &to = m_destinationPixels[ i ];
+			if( abs( bx - to.x ) <= reach && abs( by - to.y ) <= reach )
+			{
+				fillClipped( clip, bx - blipDot / 2, by - blipDot / 2, blipDot, blip.color );
+				break;
+			}
+		}
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The selection's plans as thin lines: a production building's rally point, and every leg of a
+	* unit's queued orders, from the copy update took.  White like the selection's dots, on a dark
+	* keyline, with a small square where each leg ends. */
+//-------------------------------------------------------------------------------------------------
+void W3DRadar::drawOrderLines( Int pixelX, Int pixelY, Int width, Int height )
+{
+	if( m_cachedOrderLines.empty() )
+		return;
+
+	const Color lineColor = GameMakeColor( 255, 255, 255, 220 );
+	const Color keylineColor = GameMakeColor( 12, 12, 12, 160 );
+	const Int dot = 3;
+
+	IRegion2D clip;
+	clip.lo.x = pixelX;
+	clip.lo.y = pixelY;
+	clip.hi.x = pixelX + width;
+	clip.hi.y = pixelY + height;
+
+	// keylines first, so a leg's dark edge never cuts the white of the one before it
+	for( Int pass = 0; pass < 2; ++pass )
+	{
+		for( size_t i = 0; i < m_cachedOrderLines.size(); ++i )
+		{
+			const ReinforcementLine &line = m_cachedOrderLines[ i ];
+			ICoord2D from, to, clippedFrom, clippedTo;
+			worldToPixel( &line.from, &from );
+			worldToPixel( &line.to, &to );
+
+			if( pass == 0 )
+			{
+				if( ClipLine2D( &from, &to, &clippedFrom, &clippedTo, &clip ) )
+					TheDisplay->drawLine( clippedFrom.x, clippedFrom.y, clippedTo.x, clippedTo.y, 3.0f, keylineColor );
+				fillClipped( clip, to.x - (dot + 2) / 2, to.y - (dot + 2) / 2, dot + 2, keylineColor );
+			}
+			else
+			{
+				if( ClipLine2D( &from, &to, &clippedFrom, &clippedTo, &clip ) )
+					TheDisplay->drawLine( clippedFrom.x, clippedFrom.y, clippedTo.x, clippedTo.y, 1.0f, lineColor );
+				fillClipped( clip, to.x - dot / 2, to.y - dot / 2, dot, lineColor );
+			}
+		}
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The money and the buildings a rifleman takes, with the lobby preview's dollar and star, as the
+	* drawn player last saw them.  update sorts the dollars before the stars, so the batch changes
+	* image once. */
+//-------------------------------------------------------------------------------------------------
+void W3DRadar::drawLandmarks( Int pixelX, Int pixelY, Int width, Int height )
+{
+	if( m_cachedLandmarks.empty() )
+		return;
+
+	static const Image *supplyImage = TheMappedImageCollection->findImageByName( "Cash" );
+	static const Image *captureImage = TheMappedImageCollection->findImageByName( "TecBuilding" );
+
+	const Int iconSize = min( (Int)SUPPLY_TECH_SIZE, max( (Int)LANDMARK_ICON_MIN_SIZE, width / LANDMARK_ICON_RADAR_DIVISOR ) );
+	for( size_t i = 0; i < m_cachedLandmarks.size(); ++i )
+	{
+		const Image *image = m_cachedLandmarks[ i ].supply ? supplyImage : captureImage;
+		if( image == NULL )
+			continue;
+
+		ICoord2D pixel;
+		worldToPixel( &m_cachedLandmarks[ i ].pos, &pixel );
+		if( !insidePicture( pixel, pixelX, pixelY, width, height ) )
+			continue;		// outside what a zoomed minimap shows
+
+		// the whole icon inside the picture, so one at the map's edge stays off the frame
+		const Int left = max( pixelX, min( pixelX + width - iconSize, pixel.x - iconSize / 2 ) );
+		const Int top = max( pixelY, min( pixelY + height - iconSize, pixel.y - iconSize / 2 ) );
+		TheDisplay->drawImage( image, left, top, left + iconSize, top + iconSize );
 	}
 }
 
@@ -288,6 +486,48 @@ static void fillClipped( const IRegion2D &clip, Int x, Int y, Int size, Unsigned
 	Int y1 = min( y + size, clip.hi.y );
 	if( x1 > x0 && y1 > y0 )
 		TheDisplay->drawFillRect( x0, y0, x1 - x0, y1 - y0, colour );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A convex quad cut to the radar's picture, filled a pixel row at a time: a row covers the
+	* pixels whose centres lie inside the quad at that row's centre, so the edges come out crisp and
+	* nothing reaches past the clip.  Each row is a drawFillRect; draw() opens a 2D batch so they
+	* share one draw call. */
+//-------------------------------------------------------------------------------------------------
+static void fillQuadClipped( const IRegion2D &clip, const Real *cx, const Real *cy, UnsignedInt colour )
+{
+	Real top = cy[ 0 ], bottom = cy[ 0 ];
+	for( Int i = 1; i < 4; ++i )
+	{
+		top = min( top, cy[ i ] );
+		bottom = max( bottom, cy[ i ] );
+	}
+
+	const Int rowFrom = max( (Int)clip.lo.y, REAL_TO_INT_CEIL( top - 0.5f ) );
+	const Int rowTo = min( (Int)clip.hi.y - 1, REAL_TO_INT_FLOOR( bottom - 0.5f ) );
+	for( Int row = rowFrom; row <= rowTo; ++row )
+	{
+		const Real yc = row + 0.5f;
+		Real left = 1e30f, right = -1e30f;
+		for( Int i = 0; i < 4; ++i )
+		{
+			const Int j = (i + 1) & 3;
+			const Real ya = cy[ i ], yb = cy[ j ];
+			if( (yc >= ya && yc < yb) || (yc >= yb && yc < ya) )
+			{
+				const Real x = cx[ i ] + (yc - ya) * (cx[ j ] - cx[ i ]) / (yb - ya);
+				left = min( left, x );
+				right = max( right, x );
+			}
+		}
+		if( left > right )
+			continue;
+
+		const Int x0 = max( (Int)clip.lo.x, REAL_TO_INT_CEIL( left - 0.5f ) );
+		const Int x1 = min( (Int)clip.hi.x - 1, REAL_TO_INT_FLOOR( right - 0.5f ) );
+		if( x1 >= x0 )
+			TheDisplay->drawFillRect( x0, row, x1 - x0 + 1, 1, colour );
+	}
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -314,12 +554,10 @@ void W3DRadar::drawRadarContacts( Int pixelX, Int pixelY, Int width, Int height 
 	const Color areaColour = (Color)( (RadarContactLook::AreaGreen & 0x00FFFFFF) | 0xE6000000 );
 	for( size_t i = 0; i < areas.size(); ++i )
 	{
-		ICoord2D radar, centre;
-		radar.x = areas[ i ].pos.x / (m_mapExtent.width() / RADAR_CELL_WIDTH);
-		radar.y = areas[ i ].pos.y / (m_mapExtent.height() / RADAR_CELL_HEIGHT);
-		radarToPixel( &radar, &centre, pixelX, pixelY, width, height );
-		const Real rx = areas[ i ].radius * width / m_mapExtent.width();
-		const Real ry = areas[ i ].radius * height / m_mapExtent.height();
+		ICoord2D centre;
+		worldToPixel( &areas[ i ].pos, &centre );
+		const Real rx = areas[ i ].radius * m_drawTransform.scaleX;
+		const Real ry = areas[ i ].radius * m_drawTransform.scaleY;
 		for( Int s = 0; s < dashes; s += 2 )
 		{
 			Real a0 = TWO_PI * s / dashes;
@@ -347,10 +585,8 @@ void W3DRadar::drawRadarContacts( Int pixelX, Int pixelY, Int width, Int height 
 
 	for( size_t i = 0; i < fresh.size(); ++i )
 	{
-		ICoord2D radar, pixel;
-		radar.x = fresh[ i ].pos.x / (m_mapExtent.width() / RADAR_CELL_WIDTH);
-		radar.y = fresh[ i ].pos.y / (m_mapExtent.height() / RADAR_CELL_HEIGHT);
-		radarToPixel( &radar, &pixel, pixelX, pixelY, width, height );
+		ICoord2D pixel;
+		worldToPixel( &fresh[ i ].pos, &pixel );
 
 		if( fresh[ i ].recon )
 		{
@@ -381,10 +617,8 @@ void W3DRadar::drawRadarContacts( Int pixelX, Int pixelY, Int width, Int height 
 	{
 		if( echoes[ i ].recon )
 			continue;		// the area sees it again next sweep, as on the ground
-		ICoord2D radar, pixel;
-		radar.x = echoes[ i ].pos.x / (m_mapExtent.width() / RADAR_CELL_WIDTH);
-		radar.y = echoes[ i ].pos.y / (m_mapExtent.height() / RADAR_CELL_HEIGHT);
-		radarToPixel( &radar, &pixel, pixelX, pixelY, width, height );
+		ICoord2D pixel;
+		worldToPixel( &echoes[ i ].pos, &pixel );
 		fillClipped( clip, pixel.x - echo / 2, pixel.y - echo / 2, echo, red | (echoAlpha << 24) );
 	}
 }
@@ -396,51 +630,42 @@ void W3DRadar::drawRadarContacts( Int pixelX, Int pixelY, Int width, Int height 
 void W3DRadar::drawViewBox( Int pixelX, Int pixelY, Int width, Int height )
 {
 	ICoord2D ulScreen;
-	ICoord2D ulRadar;
 	Coord3D ulWorld;
-	ICoord2D ulStart = { 0, 0 };
 
 	// convert top left of screen into world position
 	TheTacticalView->getOrigin( &ulScreen.x, &ulScreen.y );
 	TheTacticalView->screenToWorldAtZ( &ulScreen, &ulWorld, getTerrainAverageZ() );
 
-	// convert world to radar coords
- 	ulRadar.x = ulWorld.x / (m_mapExtent.width() / RADAR_CELL_WIDTH);
- 	ulRadar.y = ulWorld.y / (m_mapExtent.height() / RADAR_CELL_HEIGHT);
-
 	//
-	// convert radar point to actual pixel coords on the screen, shifted
-	// into position on the radar for where the radar is drawn and the size of the
-	// area that the radar is drawn in
+	// using our view box offset array, walk from that corner to each of the others in world
+	// units and turn each into screen pixels: upper left, upper right, lower right, lower left
 	//
-	radarToPixel( &ulRadar, &ulStart, pixelX, pixelY, width, height );
-
-	//
-	// using our view box offset array, convert each of those radar cell offset points
-	// into screen pixels and draw the box.  The view box array is setup with the
-	// first index containing (0,0) (the point we just converted in theory), with cell
-	// offsets to each of the other corners in the following order
-	// (upper left, upper right, lower right, lower left)
-	//
-	ICoord2D radar;
 	ICoord2D corners[ 4 ];
-	corners[ 0 ] = ulStart;
-	radar = ulRadar;
+	Coord3D world = ulWorld;
+	worldToPixel( &world, &corners[ 0 ] );
 	for( Int corner = 1; corner < 4; corner++ )
 	{
-		radar.x += m_viewBox[ corner ].x;
-		radar.y += m_viewBox[ corner ].y;
-		radarToPixel( &radar, &corners[ corner ], pixelX, pixelY, width, height );
+		world.x += m_viewBox[ corner ].x;
+		world.y += m_viewBox[ corner ].y;
+		worldToPixel( &world, &corners[ corner ] );
 	}
-	drawBoxLines( corners );
+
+	// zoomed in, the box stops at the picture's edge: past it is map the picture does not show
+	IRegion2D picture;
+	picture.lo.x = pixelX;
+	picture.lo.y = pixelY;
+	picture.hi.x = pixelX + width;
+	picture.hi.y = pixelY + height;
+	drawBoxLines( corners, m_zoomView.zoom > 1.0f ? &picture : NULL );
 
 }  // end drawViewBox
 
 //-------------------------------------------------------------------------------------------------
 /** The view box's four lines through corners in pixels, upper left, upper right, lower right and
-	* lower left, clipped to the whole window available for the radar and not just its image */
+	* lower left, clipped to the whole window available for the radar and not just its image, or to
+	* the picture when one is given */
 //-------------------------------------------------------------------------------------------------
-void W3DRadar::drawBoxLines( const ICoord2D *corners )
+void W3DRadar::drawBoxLines( const ICoord2D *corners, const IRegion2D *picture )
 {
 	const Real lineWidth = 1.0f;
 	const Color topColor = GameMakeColor( 225, 225, 0, 255 );
@@ -457,6 +682,8 @@ void W3DRadar::drawBoxLines( const ICoord2D *corners )
 	clipRegion.lo.y = radarWindowScreenPos.y;
 	clipRegion.hi.x = radarWindowScreenPos.x + radarWindowSize.x;
 	clipRegion.hi.y = radarWindowScreenPos.y + radarWindowSize.y;
+	if( picture )
+		clipRegion = *picture;
 
 	for( Int line = 0; line < 4; line++ )
 	{
@@ -507,23 +734,18 @@ void W3DRadar::drawSingleBeaconEvent( Int pixelX, Int pixelY, Int width, Int hei
 	// compute how much "angle" we will add to each point to make it rotate as it's getting small
 	addAngle = -totalAnglesToSpin * (frameDiff / TIME_FROM_FULL_SIZE_TO_SMALL_SIZE);
 
-	// create a triangle around the event
-	angle = 0.0f - addAngle;
-	tri[ 0 ].x = REAL_TO_INT( (DOUBLE_TO_REAL( Cos( angle ) ) * eventSize) + event->radarLoc.x );
-	tri[ 0 ].y = REAL_TO_INT( (DOUBLE_TO_REAL( Sin( angle ) ) * eventSize) + event->radarLoc.y );
-
-	angle = 2.0f * PI / 3.0f - addAngle;
-	tri[ 1 ].x = REAL_TO_INT( (DOUBLE_TO_REAL( Cos( angle ) ) * eventSize) + event->radarLoc.x );
-	tri[ 1 ].y = REAL_TO_INT( (DOUBLE_TO_REAL( Sin( angle ) ) * eventSize) + event->radarLoc.y );
-
-	angle = -2.0f * PI / 3.0f - addAngle;
-	tri[ 2 ].x = REAL_TO_INT( (DOUBLE_TO_REAL( Cos( angle ) ) * eventSize) + event->radarLoc.x );
-	tri[ 2 ].y = REAL_TO_INT( (DOUBLE_TO_REAL( Sin( angle ) ) * eventSize) + event->radarLoc.y );
-
-	// translate radar coords to screen coords
-	radarToPixel( &tri[ 0 ], &tri[ 0 ], pixelX, pixelY, width, height );
-	radarToPixel( &tri[ 1 ], &tri[ 1 ], pixelX, pixelY, width, height );
-	radarToPixel( &tri[ 2 ], &tri[ 2 ], pixelX, pixelY, width, height );
+	// create a triangle around the event, its size in radar cells of the unzoomed picture and its
+	// centre where the zoomed one shows the spot
+	ICoord2D centre;
+	worldToPixel( &event->worldLoc, &centre );
+	const Real cellX = width / (Real)RADAR_CELL_WIDTH;
+	const Real cellY = height / (Real)RADAR_CELL_HEIGHT;
+	for( Int k = 0; k < 3; ++k )
+	{
+		angle = 2.0f * PI / 3.0f * k - addAngle;
+		tri[ k ].x = centre.x + REAL_TO_INT( DOUBLE_TO_REAL( Cos( angle ) ) * eventSize * cellX );
+		tri[ k ].y = centre.y - REAL_TO_INT( DOUBLE_TO_REAL( Sin( angle ) ) * eventSize * cellY );
+	}
 
 	//
 	// make the colors we're going to use, when we're at our smallest size we will start to
@@ -569,101 +791,177 @@ void W3DRadar::drawSingleBeaconEvent( Int pixelX, Int pixelY, Int width, Int hei
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------------------------
+/** An alarm's mark, in window pixels around its place: told apart by shape before colour, and as
+	* big as what it is about, never the half-radar triangle EA spun down over a second and a half.
+	*   under attack     a red ring with a second ring pulsing out of it once a second, for as long
+	*                    as the hits keep coming (Radar::tryEvent keeps it alive)
+	*   structure lost   a cross where the building stood
+	*   built, upgraded  a tick
+	*   stealth          a diamond; one of yours revealed has a dot in it
+	*   ally signal      a square with a dot, whatever type it borrowed
+	*   anything else    EA's triangle, small and still
+	* Every stroke lies on a dark keyline a pixel wider all round, as the reinforcement lines do, so
+	* it reads on snow and on dark ground alike.  A new mark pops in at twice its size over a fifth
+	* of a second; it fades over the event's last half second as EA's did. */
+//-------------------------------------------------------------------------------------------------
 void W3DRadar::drawSingleGenericEvent( Int pixelX, Int pixelY, Int width, Int height, Int index )
 {
-	RadarEvent *event = &(m_event[index]);
-	ICoord2D tri[ 3 ];
-	ICoord2D start, end;
-	Real angle, addAngle;
-	Color startColor, endColor;
-	Real lineWidth = 1.0f;
-	UnsignedInt currentFrame = TheGameLogic->getFrame();
-	UnsignedInt frameDiff;							// frames the event has been alive for
-	Real maxEventSize = width / 2.0f;   // max size of the event marker
-	Int minEventSize = 6;     // min size of the event marker
-	Int eventSize;									 // current size of a marker to draw
-	const Real TIME_FROM_FULL_SIZE_TO_SMALL_SIZE = LOGICFRAMES_PER_SECOND * 1.5;
-	Real totalAnglesToSpin = 2.0f * PI;  ///< spin around this many angles going from big to small
-	UnsignedByte r, g, b, a;
+	const RadarEvent *event = &m_event[ index ];
 
-	// setup screen clipping region
-	IRegion2D clipRegion;
-	clipRegion.lo.x = pixelX;
-	clipRegion.lo.y = pixelY;
-	clipRegion.hi.x = pixelX + width;
-	clipRegion.hi.y = pixelY + height;
+	// half sizes at the 220 pixel radar of a 1080p HUD, by RadarEventMark: unit, harvester, structure, signal
+	static const Real HALF_SIZE[ RADAR_MARK_COUNT ] = { 4.0f, 5.0f, 7.0f, 6.0f };
+	const Real POP_FRAMES = LOGICFRAMES_PER_SECOND * 0.2f;
+	const Real PULSE_FRAMES = LOGICFRAMES_PER_SECOND * 1.0f;
+	const Real strokeWidth = 2.0f;
 
-	// get the difference in frame from the current frame to the frame we were created on
-	frameDiff = currentFrame - event->createFrame;
+	IRegion2D clip;
+	clip.lo.x = pixelX;
+	clip.lo.y = pixelY;
+	clip.hi.x = pixelX + width;
+	clip.hi.y = pixelY + height;
 
-	// compute the size of the event marker, it is largest when it starts and smallest at the end
-	eventSize = REAL_TO_INT( maxEventSize * ( 1.0f - frameDiff / TIME_FROM_FULL_SIZE_TO_SMALL_SIZE) );;
+	const UnsignedInt currentFrame = TheGameLogic->getFrame();
+	const Real age = currentFrame > event->createFrame ? (Real)( currentFrame - event->createFrame ) : 0.0f;
 
-	// we never let the event size get too small
-	if( eventSize < minEventSize )
-		eventSize = minEventSize;
+	Real fade = 1.0f;
+	if( currentFrame > event->fadeFrame && event->dieFrame > event->fadeFrame )
+		fade = 1.0f - (Real)( currentFrame - event->fadeFrame ) / (Real)( event->dieFrame - event->fadeFrame );
+	if( fade <= 0.0f )
+		return;
 
-	// compute how much "angle" we will add to each point to make it rotate as it's getting small
-	addAngle = totalAnglesToSpin * (frameDiff / TIME_FROM_FULL_SIZE_TO_SMALL_SIZE);
+	const Real scale = max( 1.0f, max( width, height ) / 220.0f );
+	const Int mark = event->mark < RADAR_MARK_COUNT ? event->mark : RADAR_MARK_UNIT;
+	Real s = HALF_SIZE[ mark ] * scale;
+	if( age < POP_FRAMES )
+		s *= 2.0f - age / POP_FRAMES;
 
-	// create a triangle around the event
-	angle = 0.0f - addAngle;
-	tri[ 0 ].x = REAL_TO_INT( (DOUBLE_TO_REAL( Cos( angle ) ) * eventSize) + event->radarLoc.x );
-	tri[ 0 ].y = REAL_TO_INT( (DOUBLE_TO_REAL( Sin( angle ) ) * eventSize) + event->radarLoc.y );
+	ICoord2D centre;
+	worldToPixel( &event->worldLoc, &centre );
+	const Real cx = (Real)centre.x;
+	const Real cy = (Real)centre.y;
 
-	angle = 2.0f * PI / 3.0f - addAngle;
-	tri[ 1 ].x = REAL_TO_INT( (DOUBLE_TO_REAL( Cos( angle ) ) * eventSize) + event->radarLoc.x );
-	tri[ 1 ].y = REAL_TO_INT( (DOUBLE_TO_REAL( Sin( angle ) ) * eventSize) + event->radarLoc.y );
+	const Color stroke = GameMakeColor( (UnsignedByte)event->color1.red, (UnsignedByte)event->color1.green,
+																			(UnsignedByte)event->color1.blue, REAL_TO_UNSIGNEDBYTE( event->color1.alpha * fade ) );
+	const Color keyline = GameMakeColor( 8, 10, 8, REAL_TO_UNSIGNEDBYTE( 200.0f * fade ) );
 
-	angle = -2.0f * PI / 3.0f - addAngle;
-	tri[ 2 ].x = REAL_TO_INT( (DOUBLE_TO_REAL( Cos( angle ) ) * eventSize) + event->radarLoc.x );
-	tri[ 2 ].y = REAL_TO_INT( (DOUBLE_TO_REAL( Sin( angle ) ) * eventSize) + event->radarLoc.y );
-
-	// translate radar coords to screen coords
-	radarToPixel( &tri[ 0 ], &tri[ 0 ], pixelX, pixelY, width, height );
-	radarToPixel( &tri[ 1 ], &tri[ 1 ], pixelX, pixelY, width, height );
-	radarToPixel( &tri[ 2 ], &tri[ 2 ], pixelX, pixelY, width, height );
-
-	//
-	// make the colors we're going to use, when we're at our smallest size we will start to
-	// fade the alpha away to transparent so that at our lifetime frame we are completely gone
-	//
-
-	// color 1 ------------------
-	r = event->color1.red;
-	g = event->color1.green;
-	b = event->color1.blue;
-	a = event->color1.alpha;
-	if( currentFrame > event->fadeFrame )
+	// A polyline through points given as offsets from the centre, keyline first, then the stroke.
+	// ClipLine2D clips the centre line only, so each pass clips to the picture shrunk by half its
+	// width and no stroke spills onto the frame.  The keyline runs a pixel past each end, as the
+	// reinforcement lines' dashes do, so an open stroke's ends are edged too.
+	auto polyline = [&]( const Real *xy, Int points, Bool closed, Color colour, Real lineWidth, Bool keylined )
 	{
-		
-		a = REAL_TO_UNSIGNEDBYTE( (Real)a * (1.0f - (Real)(currentFrame - event->fadeFrame) / 
-																								(Real)(event->dieFrame - event->fadeFrame) ) );
-
-	}  // end if
-	startColor = GameMakeColor( r, g, b, a );
-
-	// color 2 ------------------
-	r = event->color2.red;
-	g = event->color2.green;
-	b = event->color2.blue;
-	a = event->color2.alpha;
-	if( currentFrame > event->fadeFrame )
+		const Int segments = closed ? points : points - 1;
+		for( Int pass = keylined ? 0 : 1; pass < 2; ++pass )
+		{
+			const Real passWidth = pass == 0 ? lineWidth + 2.0f : lineWidth;
+			const Int inset = REAL_TO_INT_CEIL( passWidth * 0.5f );
+			IRegion2D passClip = clip;
+			passClip.lo.x += inset;
+			passClip.lo.y += inset;
+			passClip.hi.x -= inset;
+			passClip.hi.y -= inset;
+			const Real reach = pass == 0 ? 1.0f : 0.0f;
+			for( Int k = 0; k < segments; ++k )
+			{
+				const Int j = ( k + 1 ) % points;
+				Real x0 = cx + xy[ 2 * k ], y0 = cy + xy[ 2 * k + 1 ];
+				Real x1 = cx + xy[ 2 * j ], y1 = cy + xy[ 2 * j + 1 ];
+				const Real dx = x1 - x0, dy = y1 - y0;
+				const Real length = sqrtf( dx * dx + dy * dy );
+				if( length > 0.001f )
+				{
+					x0 -= dx / length * reach;
+					y0 -= dy / length * reach;
+					x1 += dx / length * reach;
+					y1 += dy / length * reach;
+				}
+				ICoord2D from, to, clippedFrom, clippedTo;
+				from.x = REAL_TO_INT_FLOOR( x0 + 0.5f );
+				from.y = REAL_TO_INT_FLOOR( y0 + 0.5f );
+				to.x = REAL_TO_INT_FLOOR( x1 + 0.5f );
+				to.y = REAL_TO_INT_FLOOR( y1 + 0.5f );
+				if( ClipLine2D( &from, &to, &clippedFrom, &clippedTo, &passClip ) )
+					TheDisplay->drawLine( clippedFrom.x, clippedFrom.y, clippedTo.x, clippedTo.y,
+																passWidth, pass == 0 ? keyline : colour );
+			}
+		}
+	};
+	auto ring = [&]( Real radius, Color colour, Real lineWidth, Bool keylined )
 	{
-		
-		a = REAL_TO_UNSIGNEDBYTE( (Real)a * (1.0f - (Real)(currentFrame - event->fadeFrame) / 
-																								(Real)(event->dieFrame - event->fadeFrame) ) );
+		enum { SEGMENTS = 16 };
+		Real xy[ 2 * SEGMENTS ];
+		for( Int k = 0; k < SEGMENTS; ++k )
+		{
+			xy[ 2 * k ] = Cos( TWO_PI * k / SEGMENTS ) * radius;
+			xy[ 2 * k + 1 ] = Sin( TWO_PI * k / SEGMENTS ) * radius;
+		}
+		polyline( xy, SEGMENTS, TRUE, colour, lineWidth, keylined );
+	};
+	auto dot = [&]( Int size, Color colour )
+	{
+		fillClipped( clip, centre.x - ( size + 2 ) / 2, centre.y - ( size + 2 ) / 2, size + 2, keyline );
+		fillClipped( clip, centre.x - size / 2, centre.y - size / 2, size, colour );
+	};
 
-	}  // end if
-	endColor = GameMakeColor( r, g, b, a );
+	if( mark == RADAR_MARK_SIGNAL )
+	{
+		const Real square[] = { -s, -s, s, -s, s, s, -s, s };
+		polyline( square, 4, TRUE, stroke, strokeWidth, TRUE );
+		dot( max( 2, REAL_TO_INT( 2.0f * scale ) ), stroke );
+		return;
+	}
 
-	// draw the lines
-	if( ClipLine2D( &tri[ 0 ], &tri[ 1 ], &start, &end, &clipRegion ) )
-		TheDisplay->drawLine( start.x, start.y, end.x, end.y, lineWidth, startColor, endColor );
-	if( ClipLine2D( &tri[ 1 ], &tri[ 2 ], &start, &end, &clipRegion ) )
-		TheDisplay->drawLine( start.x, start.y, end.x, end.y, lineWidth, startColor, endColor );
-	if( ClipLine2D( &tri[ 2 ], &tri[ 0 ], &start, &end, &clipRegion ) )
-		TheDisplay->drawLine( start.x, start.y, end.x, end.y, lineWidth, startColor, endColor );
+	switch( event->type )
+	{
+		case RADAR_EVENT_UNDER_ATTACK:
+		{
+			ring( s, stroke, strokeWidth, TRUE );
+			// the pulse: out to two and a half times the ring and gone, once a second
+			const Real phase = fmodf( age, PULSE_FRAMES ) / PULSE_FRAMES;
+			const Color pulse = GameMakeColor( (UnsignedByte)event->color1.red, (UnsignedByte)event->color1.green,
+																				 (UnsignedByte)event->color1.blue,
+																				 REAL_TO_UNSIGNEDBYTE( event->color1.alpha * fade * ( 1.0f - phase ) ) );
+			ring( s * ( 1.0f + 1.5f * phase ), pulse, 1.0f, FALSE );
+			break;
+		}
+
+		case RADAR_EVENT_STRUCTURE_LOST:
+		{
+			const Real a[] = { -s, -s, s, s };
+			const Real b[] = { -s, s, s, -s };
+			polyline( a, 2, FALSE, stroke, strokeWidth, TRUE );
+			polyline( b, 2, FALSE, stroke, strokeWidth, TRUE );
+			break;
+		}
+
+		case RADAR_EVENT_CONSTRUCTION:
+		case RADAR_EVENT_UPGRADE:
+		{
+			// screen y runs down: from the left, down to the foot and up to the top right
+			const Real tick[] = { -s, 0.0f, -0.3f * s, 0.7f * s, s, -0.8f * s };
+			polyline( tick, 3, FALSE, stroke, strokeWidth, TRUE );
+			break;
+		}
+
+		case RADAR_EVENT_STEALTH_DISCOVERED:
+		case RADAR_EVENT_STEALTH_NEUTRALIZED:
+		{
+			const Real diamond[] = { 0.0f, -s, s, 0.0f, 0.0f, s, -s, 0.0f };
+			polyline( diamond, 4, TRUE, stroke, strokeWidth, TRUE );
+			if( event->type == RADAR_EVENT_STEALTH_NEUTRALIZED )
+				dot( max( 2, REAL_TO_INT( 2.0f * scale ) ), stroke );
+			break;
+		}
+
+		default:
+		{
+			// infiltration, information, battle plan and whatever a script asks for: EA's triangle
+			const Real triangle[] = { 0.0f, -s, 0.87f * s, 0.5f * s, -0.87f * s, 0.5f * s };
+			polyline( triangle, 3, TRUE, stroke, strokeWidth, TRUE );
+			break;
+		}
+	}
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -711,34 +1009,20 @@ void W3DRadar::drawIcons( Int pixelX, Int pixelY, Int width, Int height )
 }
 
 //-------------------------------------------------------------------------------------------------
-/** Render an object list into the texture passed in */
+/** Copy what an object list shows on the radar into m_blips, in list order, which is priority order:
+	* a later blip draws over an earlier one as a later pixel used to overwrite an earlier one.  Every
+	* rule of what shows and in what colour is EA's, unchanged; only the output moved from four texels
+	* in a 128x128 texture to a record draw turns into pixels. */
 //-------------------------------------------------------------------------------------------------
-void W3DRadar::renderObjectList( const RadarObject *listHead, TextureClass *texture, Bool calcHero )
+void W3DRadar::collectBlips( const RadarObject *listHead, Bool calcHero )
 {
 
 	// sanity
-	if( listHead == NULL || texture == NULL )
+	if( listHead == NULL )
 		return;
 
-	// get surface for texture to render into
-	SurfaceClass *surface = texture->Get_Surface_Level();
-
-	// this runs every radar refresh and draws four pixels per object.  DrawPixel locks and
-	// unlocks the texture for each one of them, so lock once for the whole list instead.
-	Int surfacePitch;
-	void *surfaceBits = surface->Lock( &surfacePitch );
-	const UnsignedInt bytesPerPixel = surface->Get_Bytes_Per_Pixel();
-
-	// loop through all objects and draw
-	ICoord2D radarPoint;
-
 	const Int playerIndex = TheObserverCamera.getShroudPlayerIndex();
-
-	if( calcHero )
-	{
-		// clear all entries from the cached hero object list
-		m_cachedHeroPosList.clear();
-	}
+	Player *viewer = ThePlayerList->getNthPlayer( playerIndex );
 
 	for( const RadarObject *rObj = listHead; rObj; rObj = rObj->friend_getNext() )
 	{
@@ -753,6 +1037,20 @@ void W3DRadar::renderObjectList( const RadarObject *listHead, TextureClass *text
 		if( calcHero && obj->isHero() )
 		{
 			m_cachedHeroPosList.push_back(*obj->getPosition());
+		}
+
+		// the local list is the local player's own units, so no shroud to ask: a unit walking to its
+		// hotkey squad gets its line
+		if( calcHero && obj->getReinforcementSquad() >= 0 )
+		{
+			const Coord3D *dest = obj->getReinforcementDestination();
+			if( dest )
+			{
+				ReinforcementLine line;
+				line.from = *obj->getPosition();
+				line.to = *dest;
+				m_cachedReinforcementLines.push_back( line );
+			}
 		}
     Bool skip = FALSE;
 
@@ -772,19 +1070,35 @@ void W3DRadar::renderObjectList( const RadarObject *listHead, TextureClass *text
 				ThePlayerList->getLocalPlayer()->isPlayerActive() )
  			skip = TRUE;
 
-		// get object position
-		const Coord3D *pos = obj->getPosition();
-
-		// compute object position as a radar blip
-		radarPoint.x = pos->x / (m_mapExtent.width() / RADAR_CELL_WIDTH);
-		radarPoint.y = pos->y / (m_mapExtent.height() / RADAR_CELL_HEIGHT);
-
-
     if ( skip )
       continue;
 
     // get the color we're going to draw in
 		Color c = clientColor( rObj->getColor() );
+
+		// What the local player has selected is white.  Otherwise the plain colours, when the key
+		// asked for them: whoever the screen is drawn for green, his allies blue, his enemies red,
+		// everyone else in their own colour.  The stealth blink below keeps working on either.
+		const Drawable *drawable = obj->getDrawable();
+		if( drawable && drawable->isSelected() )
+		{
+			c = GameMakeColor( 255, 255, 255, 255 );
+		}
+		else if( isSimpleColors() && viewer )
+		{
+			// the side the local player is shown, asked now as Radar::addObject asks it for the
+			// colour: a disguised Bomb Truck or a stealth-garrisoned building keeps the side it
+			// pretends to be on, and a disguise or garrison that changed since the add is caught
+			const Player *apparent = apparentPlayerOf( obj );
+			const Team *team = apparent == obj->getControllingPlayer() ? obj->getTeam() : (apparent ? apparent->getDefaultTeam() : NULL);
+			const Relationship relation = team ? viewer->getRelationship( team ) : NEUTRAL;
+			if( apparent == viewer )
+				c = GameMakeColor( 40, 210, 40, 255 );
+			else if( relation == ALLIES )
+				c = GameMakeColor( 50, 120, 255, 255 );
+			else if( relation == ENEMIES )
+				c = GameMakeColor( 230, 30, 30, 255 );
+		}
 
 		
 		
@@ -817,30 +1131,217 @@ void W3DRadar::renderObjectList( const RadarObject *listHead, TextureClass *text
 
 		}  // end if
 
+		Blip blip;
+		const Coord3D *pos = obj->getPosition();
+		blip.x = pos->x;
+		blip.y = pos->y;
+		blip.halfLength = 0.0f;
+		blip.halfWidth = 0.0f;
+		blip.angle = 0.0f;
+		blip.color = c;
 
+		// a structure shows its footprint: a box's own sides, anything round its radius both ways
+		if( obj->isKindOf( KINDOF_STRUCTURE ) )
+		{
+			const GeometryInfo &geom = obj->getGeometryInfo();
+			blip.halfLength = geom.getMajorRadius();
+			blip.halfWidth = geom.getGeomType() == GEOMETRY_BOX ? geom.getMinorRadius() : geom.getMajorRadius();
+			blip.angle = obj->getOrientation();
+		}
 
-		
-		// draw the blip, but make sure the points are legal
-		if( legalRadarPoint( radarPoint.x, radarPoint.y ) )
-			surface->Draw_Pixel( radarPoint.x, radarPoint.y, c, bytesPerPixel, surfaceBits, surfacePitch );
-
-		radarPoint.y++;
-		if( legalRadarPoint( radarPoint.x, radarPoint.y ) )
-			surface->Draw_Pixel( radarPoint.x, radarPoint.y, c, bytesPerPixel, surfaceBits, surfacePitch );
-
-		radarPoint.x++;
-		if( legalRadarPoint( radarPoint.x, radarPoint.y ) )
-			surface->Draw_Pixel( radarPoint.x, radarPoint.y, c, bytesPerPixel, surfaceBits, surfacePitch );
-
-		radarPoint.y--;
-		if( legalRadarPoint( radarPoint.x, radarPoint.y ) )
-			surface->Draw_Pixel( radarPoint.x, radarPoint.y, c, bytesPerPixel, surfaceBits, surfacePitch );
+		m_blips.push_back( blip );
 
 	}  // end for
-	surface->Unlock();
-	REF_PTR_RELEASE(surface);
 
-}  // end renderObjectList
+}  // end collectBlips
+
+//-------------------------------------------------------------------------------------------------
+/** The selection's plans, read where the 3D view's own lines read them (W3DWaypointBuffer): each
+	* leg of the selected units' orders off InGameUI's order hints, and each selected production
+	* building of the local player's from where it stands to its rally point, the one just sent and
+	* not yet run by logic first. */
+//-------------------------------------------------------------------------------------------------
+void W3DRadar::collectOrderLines( void )
+{
+	m_cachedOrderLines.clear();
+	if( TheInGameUI == NULL )
+		return;
+
+	const std::vector<InGameUI::OrderHint> &hints = TheInGameUI->getOrderHints();
+	for( size_t i = 0; i < hints.size(); ++i )
+	{
+		if( hints[ i ].mark == InGameUI::ORDER_MARK_NONE )
+			continue;
+		ReinforcementLine line;
+		line.from = hints[ i ].from;
+		line.to = hints[ i ].to;
+		m_cachedOrderLines.push_back( line );
+	}
+
+	const DrawableList *selected = TheInGameUI->getAllSelectedDrawables();
+	for( DrawableListCIt it = selected->begin(); it != selected->end(); ++it )
+	{
+		const Object *obj = (*it)->getObject();
+		if( obj == NULL || !obj->isLocallyControlled() )
+			continue;
+		ExitInterface *exit = obj->getObjectExitInterface();
+		if( exit == NULL )
+			continue;
+		const Coord3D *rally = TheInGameUI->getPredictedRallyPoint( obj->getID() );
+		if( rally == NULL )
+			rally = exit->getRallyPoint();
+		if( rally == NULL )
+			continue;
+		ReinforcementLine line;
+		line.from = *obj->getPosition();
+		line.to = *rally;
+		m_cachedOrderLines.push_back( line );
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Every supply source and tech building as the drawn player last saw it, one mark a place.
+	* Neither kind need be on the radar's own lists (an oil derrick names no radar priority), so this
+	* walks the objects, and only once a second: they stand still.  One in plain sight is taken as it
+	* is; one under the fog keeps the picture the player had, so a pile emptied or a derrick destroyed
+	* there stays marked until its ground is clear again and the player can see it is gone. */
+//-------------------------------------------------------------------------------------------------
+void W3DRadar::collectLandmarks( void )
+{
+	const Int playerIndex = TheObserverCamera.getShroudPlayerIndex();
+	if( playerIndex != m_landmarkPlayer )
+	{
+		m_seenLandmarks.clear();
+		m_landmarkPlayer = playerIndex;
+	}
+
+	// what the player sees now, and what he meets for the first time under fog
+	for( Object *obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject() )
+	{
+		// KINDOF_CAPTURABLE is on every faction structure too, for Black Lotus; the tech building
+		// kind is what names the ones a rifleman walks into
+		const Bool supply = obj->isKindOf( KINDOF_SUPPLY_SOURCE );
+		if( !supply && !obj->isKindOf( KINDOF_TECH_BUILDING ) )
+			continue;
+		const ObjectShroudStatus status = obj->getShroudedStatus( playerIndex );
+		if( status >= OBJECTSHROUD_SHROUDED )
+			continue;
+		std::map<ObjectID, Landmark>::iterator seen = m_seenLandmarks.find( obj->getID() );
+		if( status <= OBJECTSHROUD_PARTIAL_CLEAR )
+		{
+			if( obj->isEffectivelyDead() )
+			{
+				if( seen != m_seenLandmarks.end() )
+					m_seenLandmarks.erase( seen );
+				continue;
+			}
+			Landmark &landmark = m_seenLandmarks[ obj->getID() ];
+			landmark.pos = *obj->getPosition();
+			landmark.supply = supply;
+		}
+		else if( seen == m_seenLandmarks.end() && !obj->isEffectivelyDead() )
+		{
+			Landmark &landmark = m_seenLandmarks[ obj->getID() ];
+			landmark.pos = *obj->getPosition();
+			landmark.supply = supply;
+		}
+	}
+
+	// one that is gone goes off the map once the player can see its ground
+	for( std::map<ObjectID, Landmark>::iterator it = m_seenLandmarks.begin(); it != m_seenLandmarks.end(); )
+	{
+		const Object *obj = TheGameLogic->findObjectByID( it->first );
+		if( (obj == NULL || obj->isEffectivelyDead()) &&
+				ThePartitionManager->getShroudStatusForPlayer( playerIndex, &it->second.pos ) == CELLSHROUD_CLEAR )
+			m_seenLandmarks.erase( it++ );
+		else
+			++it;
+	}
+
+	// a dock's eight piles are one dollar
+	m_cachedLandmarks.clear();
+	const Real mergeX = m_mapExtent.width() / RADAR_CELL_WIDTH * LANDMARK_MERGE_CELLS;
+	const Real mergeY = m_mapExtent.height() / RADAR_CELL_HEIGHT * LANDMARK_MERGE_CELLS;
+	for( std::map<ObjectID, Landmark>::const_iterator it = m_seenLandmarks.begin(); it != m_seenLandmarks.end(); ++it )
+	{
+		const Landmark &landmark = it->second;
+		Bool marked = FALSE;
+		for( size_t i = 0; i < m_cachedLandmarks.size() && !marked; ++i )
+			marked = m_cachedLandmarks[ i ].supply == landmark.supply &&
+				fabs( m_cachedLandmarks[ i ].pos.x - landmark.pos.x ) < mergeX && fabs( m_cachedLandmarks[ i ].pos.y - landmark.pos.y ) < mergeY;
+		if( !marked )
+			m_cachedLandmarks.push_back( landmark );
+	}
+
+	// all the dollars, then all the stars: draw changes image once
+	std::stable_partition( m_cachedLandmarks.begin(), m_cachedLandmarks.end(), []( const Landmark &l ) { return l.supply; } );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The blips update collected, drawn at the radar picture's own pixels every frame: a unit a square
+	* dot sized to the picture, so it reads at 1080p and grows with HUD Size; a structure its
+	* footprint, turned as it stands, never smaller than a dot.  Only inside draw()'s 2D batch do
+	* they come to one draw call; outside one, every dot and row is a draw call of its own. */
+//-------------------------------------------------------------------------------------------------
+void W3DRadar::drawBlips( Int pixelX, Int pixelY, Int width, Int height )
+{
+	if( m_blips.empty() || width <= 0 || height <= 0 )
+		return;
+
+	// a footprint grows with the zoom, a unit's dot keeps the picture's size
+	const Real toPixel = (m_drawTransform.scaleX + m_drawTransform.scaleY) * 0.5f;
+
+	const Int dot = blipDotSize( width, height );
+	const Real minHalf = dot * 0.5f;
+
+	IRegion2D clip;
+	clip.lo.x = pixelX;
+	clip.lo.y = pixelY;
+	clip.hi.x = pixelX + width;
+	clip.hi.y = pixelY + height;
+
+	// Every structure first, then every unit, each group in list order.  The local list comes after
+	// the main one and holds the local player's structures as well, and drawn in plain list order
+	// their footprints covered everyone else's dots.  In the old 2x2 texels a structure was a dot
+	// like any other and covered nothing.
+	for( Int pass = 0; pass < 2; ++pass )
+	{
+		const Bool structures = (pass == 0);
+		for( size_t i = 0; i < m_blips.size(); ++i )
+		{
+			const Blip &blip = m_blips[ i ];
+			if( (blip.halfLength > 0.0f) != structures )
+				continue;
+
+			// a centre off the map shows nothing, as legalRadarPoint used to drop it
+			if( blip.x < 0.0f || blip.y < 0.0f || blip.x >= m_mapExtent.width() || blip.y >= m_mapExtent.height() )
+				continue;
+
+			// +y in the world is up on the radar
+			Real px, py;
+			m_drawTransform.toPixel( blip.x, blip.y, &px, &py );
+
+			if( structures )
+			{
+				const Real halfLength = max( blip.halfLength * toPixel, minHalf );
+				const Real halfWidth = max( blip.halfWidth * toPixel, minHalf );
+				const Real c = Cos( blip.angle );
+				const Real s = -Sin( blip.angle );
+				Real cx[ 4 ], cy[ 4 ];
+				cx[ 0 ] = px + c * halfLength - s * halfWidth;	cy[ 0 ] = py + s * halfLength + c * halfWidth;
+				cx[ 1 ] = px + c * halfLength + s * halfWidth;	cy[ 1 ] = py + s * halfLength - c * halfWidth;
+				cx[ 2 ] = px - c * halfLength + s * halfWidth;	cy[ 2 ] = py - s * halfLength - c * halfWidth;
+				cx[ 3 ] = px - c * halfLength - s * halfWidth;	cy[ 3 ] = py - s * halfLength + c * halfWidth;
+				fillQuadClipped( clip, cx, cy, blip.color );
+			}
+			else
+			{
+				fillClipped( clip, REAL_TO_INT_FLOOR( px ) - dot / 2, REAL_TO_INT_FLOOR( py ) - dot / 2, dot, blip.color );
+			}
+		}
+	}
+
+}  // end drawBlips
 
 //-------------------------------------------------------------------------------------------------
 /** Shade the color passed in using the height parameter to lighten and darken it.  Colors
@@ -928,18 +1429,24 @@ W3DRadar::W3DRadar( void )
 	m_terrainImage = NULL;
 	m_terrainTexture = NULL;
 
-	m_overlayTextureFormat = WW3D_FORMAT_UNKNOWN;
-	m_overlayImage = NULL;
-	m_overlayTexture = NULL;
 	m_overlayDrawn = FALSE;
 	m_eventsDrawn = FALSE;
 
 	m_shroudTextureFormat = WW3D_FORMAT_UNKNOWN;
 	m_shroudImage = NULL;
 	m_shroudTexture = NULL;
+	m_shroudWidth = RADAR_CELL_WIDTH;
+	m_shroudHeight = RADAR_CELL_HEIGHT;
+	m_shroudTextureWidth = 0;
+	m_shroudTextureHeight = 0;
+	m_shroudScale = 1;
+	m_shroudCellWidth = 0.0f;
+	m_shroudCellHeight = 0.0f;
+	m_landmarkFrame = 0;
+	m_landmarkPlayer = -1;
 
-	m_textureWidth = RADAR_CELL_WIDTH;
-	m_textureHeight = RADAR_CELL_HEIGHT;
+	m_textureWidth = RADAR_TERRAIN_TEXTURE_SIZE;
+	m_textureHeight = RADAR_TERRAIN_TEXTURE_SIZE;
 
 	m_reconstructViewBox = TRUE;
 	for( Int i = 0; i < 4; i++ )
@@ -982,24 +1489,13 @@ void W3DRadar::init( void )
 																			 m_terrainTextureFormat, MIP_LEVELS_1 );
 	DEBUG_ASSERTCRASH( m_terrainTexture, ("W3DRadar: Unable to allocate terrain texture\n") );
 
-	// allocate our overlay texture
-	m_overlayTexture = MSGNEW("TextureClass") TextureClass( m_textureWidth, m_textureHeight,
-																			 m_overlayTextureFormat, MIP_LEVELS_1 );
-	DEBUG_ASSERTCRASH( m_overlayTexture, ("W3DRadar: Unable to allocate overlay texture\n") );
+	// the edge texels are not to bleed into the opposite edge
+	m_terrainTexture->Get_Filter().Set_U_Addr_Mode( TextureFilterClass::TEXTURE_ADDRESS_CLAMP );
+	m_terrainTexture->Get_Filter().Set_V_Addr_Mode( TextureFilterClass::TEXTURE_ADDRESS_CLAMP );
 
-	// set filter type for the overlay texture, try it and see if you like it, I don't ;)
-//	m_overlayTexture->Set_Min_Filter( TextureClass::FILTER_TYPE_NONE );
-//	m_overlayTexture->Set_Mag_Filter( TextureClass::FILTER_TYPE_NONE );
-
-	// allocate our shroud texture
-	m_shroudTexture = MSGNEW("TextureClass") TextureClass( m_textureWidth, m_textureHeight,
-																			 m_shroudTextureFormat, MIP_LEVELS_1 );
-	DEBUG_ASSERTCRASH( m_shroudTexture, ("W3DRadar: Unable to allocate shroud texture\n") );
-	m_shroudTexture->Get_Filter().Set_Min_Filter( TextureFilterClass::FILTER_TYPE_DEFAULT );
-	m_shroudTexture->Get_Filter().Set_Mag_Filter( TextureFilterClass::FILTER_TYPE_DEFAULT );
-
-	// the shroud is written in main memory and handed to that texture once a frame
-	m_shroudCache.setSize( m_textureWidth, m_textureHeight );
+	// the shroud is written in main memory and handed to its texture once a frame; draw makes the
+	// texture, and makes it again whenever a map's shroud grid needs a different size
+	m_shroudCache.setSize( m_shroudWidth, m_shroudHeight );
 
 	//
 	// create images used for rendering and set them up with the textures
@@ -1024,35 +1520,9 @@ void W3DRadar::init( void )
 	size.y = m_textureHeight;
 	m_terrainImage->setImageSize( &size );
 
-	// the overlay image
-	m_overlayImage = newInstance(Image);
-	uv.lo.x = 0.0f;
-	uv.lo.y = 1.0f;
-	uv.hi.x = 1.0f;
-	uv.hi.y = 0.0f;
-	m_overlayImage->setStatus( IMAGE_STATUS_RAW_TEXTURE );
-	m_overlayImage->setRawTextureData( m_overlayTexture );
-	m_overlayImage->setUV( &uv );
-	m_overlayImage->setTextureWidth( m_textureWidth );
-	m_overlayImage->setTextureHeight( m_textureHeight );
-	size.x = m_textureWidth;
-	size.y = m_textureHeight;
-	m_overlayImage->setImageSize( &size );
-
-	// the shroud image
+	// the shroud image; draw gives it its texture and its UVs
 	m_shroudImage = newInstance(Image);
-	uv.lo.x = 0.0f;
-	uv.lo.y = 1.0f;
-	uv.hi.x = 1.0f;
-	uv.hi.y = 0.0f;
 	m_shroudImage->setStatus( IMAGE_STATUS_RAW_TEXTURE );
-	m_shroudImage->setRawTextureData( m_shroudTexture );
-	m_shroudImage->setUV( &uv );
-	m_shroudImage->setTextureWidth( m_textureWidth );
-	m_shroudImage->setTextureHeight( m_textureHeight );
-	size.x = m_textureWidth;
-	size.y = m_textureHeight;
-	m_shroudImage->setImageSize( &size );
 
 }  // end init
 
@@ -1075,15 +1545,15 @@ void W3DRadar::reset( void )
 		REF_PTR_RELEASE(surface);
 	}
 
-	surface = m_overlayTexture->Get_Surface_Level();
-	if( surface )
-	{
-		surface->Clear();
-		REF_PTR_RELEASE(surface);
-	}
-
 	// the objects those positions belonged to are gone with the match that had them
+	m_blips.clear();
 	m_cachedHeroPosList.clear();
+	m_cachedReinforcementLines.clear();
+	m_cachedOrderLines.clear();
+	m_cachedLandmarks.clear();
+	m_seenLandmarks.clear();
+	m_landmarkFrame = 0;
+	m_landmarkPlayer = -1;
 
 	// don't call Clear(); that wips to transparent. do this instead.
 	//gs Dude, it's called CLEARshroud.  It needs to clear the shroud.
@@ -1110,35 +1580,37 @@ void W3DRadar::update( void )
 				continue;
 			if( m_event[ i ].soundPlayed == FALSE && m_event[ i ].type != RADAR_EVENT_BEACON_PULSE )
 			{
+				// a lost building pings the radar under EVA's line; the rest keep EA's RadarEvent, which
+				// the retail data leaves without a sound.  An attack has its own, played as it is made
 				static AudioEventRTS eventSound("RadarEvent");
-				TheAudio->addAudioEvent( &eventSound );
+				static AudioEventRTS lostSound("RadarPing");
+				TheAudio->addAudioEvent( m_event[ i ].type == RADAR_EVENT_STRUCTURE_LOST ? &lostSound : &eventSound );
 			}
 			m_event[ i ].soundPlayed = TRUE;
 		}
 	}
 
-	// Refresh the overlay texture once every so many frames, while the radar is shown.  Here, not in
-	// draw: the blips ask each object where it is, whether the drawn player sees it and whether it is
-	// stealthed, and draw runs inside the render, beside the tick once it runs there (LOGIC-THREAD.md
-	// phase 3).
-	if( m_overlayDrawn && TheGameClient->getFrame() % OVERLAY_REFRESH_RATE == 0 )
+	// Collect the blips every update while the radar is shown; they used to go into a texture every
+	// twelve frames and stepped across the map.  Here, not in draw: the blips ask each object where it
+	// is, whether the drawn player sees it and whether it is stealthed, and draw runs inside the
+	// render, beside the tick once it runs there (LOGIC-THREAD.md phase 3).
+	if( m_overlayDrawn )
 	{
-		// The simulation runs on while the device is lost (the log's "Direct3D device LOST", a driver
-		// reset), and then the texture has no surface to give.  Nothing can be drawn into it until the
-		// device is back; the next refresh redraws the overlay whole.
-		SurfaceClass *surface = m_overlayTexture->Get_Surface_Level();
-		if( surface == NULL )
-			return;
-
 		m_overlayDrawn = FALSE;
 
-		// reset the overlay texture
-		surface->Clear();
-		REF_PTR_RELEASE(surface);
+		m_blips.clear();
+		m_cachedHeroPosList.clear();
+		m_cachedReinforcementLines.clear();
+		collectBlips( getObjectList() );
+		collectBlips( getLocalObjectList(), TRUE );
+		collectOrderLines();
 
-		// rebuild the object overlay
-		renderObjectList( getObjectList(), m_overlayTexture );
-		renderObjectList( getLocalObjectList(), m_overlayTexture, TRUE );
+		const UnsignedInt frame = TheGameLogic->getFrame();
+		if( frame < m_landmarkFrame || frame - m_landmarkFrame >= LOGICFRAMES_PER_SECOND || m_landmarkFrame == 0 )
+		{
+			m_landmarkFrame = frame == 0 ? 1 : frame;
+			collectLandmarks();
+		}
 
 	}  // end if
 
@@ -1194,9 +1666,20 @@ void W3DRadar::buildTerrainTexture( TerrainLogic *terrain )
 	RGBColor color;
 	Int i, j, samples;
 	Int x, y;
-	ICoord2D radarPoint;
 	Coord3D worldPoint;
 	Bridge *bridge;
+
+	// a texel's corner in the world, as radarToWorld2D does for a radar cell, at the texture's own
+	// resolution rather than the 128 radar cells
+	const Real texelWidth = m_mapExtent.width() / m_textureWidth;
+	const Real texelHeight = m_mapExtent.height() / m_textureHeight;
+	auto texelToWorld2D = [&]( Int tx, Int ty, Coord3D *world )
+	{
+		world->x = tx * texelWidth;
+		world->y = ty * texelHeight;
+		world->z = 0.0f;
+	};
+
 	for( y = 0; y < m_textureHeight; y++ )
 	{
 
@@ -1204,9 +1687,7 @@ void W3DRadar::buildTerrainTexture( TerrainLogic *terrain )
 		{
 
 			// what point are we inspecting
-			radarPoint.x = x;
-			radarPoint.y = y;
-			radarToWorld2D( &radarPoint, &worldPoint );
+			texelToWorld2D( x, y, &worldPoint );
 
 			// check to see if this point is part of a working bridge
 			Bool workingBridge = FALSE;
@@ -1249,9 +1730,7 @@ void W3DRadar::buildTerrainTexture( TerrainLogic *terrain )
 							{
 
 								// the the world point we are concerned with
-								radarPoint.x = i;
-								radarPoint.y = j;
-								radarToWorld2D( &radarPoint, &worldPoint );
+								texelToWorld2D( i, j, &worldPoint );
 								
 								// get color for this Z and add to our sample color
                 Real underwaterZ;
@@ -1311,10 +1790,9 @@ void W3DRadar::buildTerrainTexture( TerrainLogic *terrain )
 							if( i >= 0 && i < m_textureWidth )
 							{
 
-								// the the world point we are concerned with
-								radarPoint.x = i;
-								radarPoint.y = j;
-								radarToWorld( &radarPoint, &worldPoint );
+								// the the world point we are concerned with, on the ground
+								texelToWorld2D( i, j, &worldPoint );
+								worldPoint.z = TheTerrainLogic->getGroundHeight( worldPoint.x, worldPoint.y );
 
 								// get the color we're going to use here																
 								if( workingBridge )
@@ -1440,34 +1918,26 @@ void W3DRadar::setShroudLevel(Int shroudX, Int shroudY, CellShroudStatus setting
 	if (!shroud)
 		return;
 
-	Int mapMinX = shroudX * shroud->getCellWidth();
-	Int mapMinY = shroudY * shroud->getCellHeight();
-	Int mapMaxX = (shroudX+1) * shroud->getCellWidth();
-	Int mapMaxY = (shroudY+1) * shroud->getCellHeight();
-
-	ICoord2D radarPoint;
-	Coord3D worldPoint;
-
-	worldPoint.x = mapMinX;
-	worldPoint.y = mapMinY;
-	worldToRadar( &worldPoint, &radarPoint );
-	Int radarMinX = radarPoint.x;
-	Int radarMinY = radarPoint.y;
-
-	worldPoint.x = mapMaxX;
-	worldPoint.y = mapMaxY;
-	worldToRadar( &worldPoint, &radarPoint );
-	Int radarMaxX = radarPoint.x;
-	Int radarMaxY = radarPoint.y;
-
-/*
-	Int radarMinX = REAL_TO_INT_FLOOR(mapMinX / getXSample());
-	Int radarMinY = REAL_TO_INT_FLOOR(mapMinY / getYSample());
-	Int radarMaxX = REAL_TO_INT_CEIL(mapMaxX / getXSample());
-	Int radarMaxY = REAL_TO_INT_CEIL(mapMaxY / getYSample());
-*/
-
-	/// @todo srj -- this really needs to smooth the display!
+	// One byte a shroud cell, which uploadShroud smooths into the texture.  The cells come from the
+	// partition grid over the map's active extent, which can be smaller than the shroud's own grid
+	// over the height map, so the count is the extent's.  The first cell of a map sizes the cache,
+	// one texel over each way for the edge copy below.
+	if( shroud->getCellWidth() <= 0.0f || shroud->getCellHeight() <= 0.0f )
+		return;
+	const Int cellsX = REAL_TO_INT_CEIL( m_mapExtent.width() / shroud->getCellWidth() );
+	const Int cellsY = REAL_TO_INT_CEIL( m_mapExtent.height() / shroud->getCellHeight() );
+	if( cellsX <= 0 || cellsY <= 0 )
+		return;
+	const Int wantWidth = nextPowerOfTwo( cellsX + 1 );
+	const Int wantHeight = nextPowerOfTwo( cellsY + 1 );
+	if( wantWidth != m_shroudWidth || wantHeight != m_shroudHeight )
+	{
+		m_shroudWidth = wantWidth;
+		m_shroudHeight = wantHeight;
+		m_shroudCache.setSize( m_shroudWidth, m_shroudHeight );
+	}
+	m_shroudCellWidth = shroud->getCellWidth();
+	m_shroudCellHeight = shroud->getCellHeight();
 
 	//Logic is saying shroud.  We can add alpha levels here in client if needed.  
 	// W3DShroud is a 0-255 alpha byte.  Logic shroud is a double reference count.
@@ -1481,10 +1951,135 @@ void W3DRadar::setShroudLevel(Int shroudX, Int shroudY, CellShroudStatus setting
 
 	// this used to lock the shroud texture once per pixel, through DrawPixel, and it is called
 	// every time any unit's line of sight crosses a shroud cell boundary.  The cache takes the
-	// writes and draw() hands the changed rectangle to the texture in one lock.
-	for( Int y = radarMinY; y <= radarMaxY; y++ )
-		for( Int x = radarMinX; x <= radarMaxX; x++ )
+	// writes and draw() hands the changed rectangle to the texture in one lock.  A cell on the far
+	// edge is copied one texel out, so the filter does not fade the map's last cells toward clear.
+	const Int lastX = shroudX == cellsX - 1 ? shroudX + 1 : shroudX;
+	const Int lastY = shroudY == cellsY - 1 ? shroudY + 1 : shroudY;
+	for( Int y = shroudY; y <= lastY; y++ )
+		for( Int x = shroudX; x <= lastX; x++ )
 			m_shroudCache.setAlpha( x, y, (UnsignedByte)alpha );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The cache's changed cells into the shroud texture, one lock of the changed rectangle a frame.
+	* Each cell is first softened with a tent RADAR_SHROUD_RAMP_CELLS wide each way, then every texel
+	* is the bilinear blend of the softened cells round its centre, in integers, remapped so the dark
+	* rises from nothing at a clear cell's edge to full that many cells in, and never darker than its
+	* own cell: the ramp lies on the dark side of the edge.  The picture is made here, so the
+	* Direct3D 9 and 11 devices show the same one.  A changed cell moves texels up to the tent's
+	* radius plus one cell away, and that whole rectangle is rewritten. */
+//-------------------------------------------------------------------------------------------------
+void W3DRadar::uploadShroud( void )
+{
+	if( m_shroudTexture == NULL || !m_shroudCache.isDirty() || m_shroudCellWidth <= 0.0f || m_shroudCellHeight <= 0.0f )
+		return;
+
+	// the map's cells; the cache's last column and row past them are copies, and beyond is unused
+	const Int cellsX = min( m_shroudWidth, max( 1, REAL_TO_INT_CEIL( m_mapExtent.width() / m_shroudCellWidth ) ) );
+	const Int cellsY = min( m_shroudHeight, max( 1, REAL_TO_INT_CEIL( m_mapExtent.height() / m_shroudCellHeight ) ) );
+
+	// a changed cell reaches texels as far as the kernel's radius plus the blend's one cell
+	const Int reach = RADAR_SHROUD_RAMP_CELLS + 1;
+	const Int x0 = max( 0, m_shroudCache.getDirtyMinX() - reach );
+	const Int y0 = max( 0, m_shroudCache.getDirtyMinY() - reach );
+	const Int x1 = min( m_shroudWidth - 1, m_shroudCache.getDirtyMaxX() + reach );
+	const Int y1 = min( m_shroudHeight - 1, m_shroudCache.getDirtyMaxY() + reach );
+	if( x1 < x0 || y1 < y0 )
+	{
+		m_shroudCache.markClean();
+		return;
+	}
+
+	// The softened cells, 256 times their alpha, over the rectangle and one more all round, which
+	// the blend reaches into: a tent of radius RADAR_SHROUD_RAMP_CELLS each way (1 2 3 4 3 2 1),
+	// across the rows first and then down the columns.
+	const Int R = RADAR_SHROUD_RAMP_CELLS;
+	const Int bx0 = x0 - 1, by0 = y0 - 1;
+	const Int bw = x1 - x0 + 3, bh = y1 - y0 + 3;
+	const Int rows = bh + 2 * R;
+	m_shroudRows.resize( bw * rows );
+	for( Int j = 0; j < rows; ++j )
+	{
+		const Int sy = max( 0, min( cellsY - 1, by0 - R + j ) );
+		for( Int i = 0; i < bw; ++i )
+		{
+			Int sum = 0;
+			for( Int d = -R; d <= R; ++d )
+				sum += m_shroudCache.getAlpha( max( 0, min( cellsX - 1, bx0 + i + d ) ), sy ) * (R + 1 - abs( d ));
+			m_shroudRows[ j * bw + i ] = sum;
+		}
+	}
+	m_shroudBlur.resize( bw * bh );
+	for( Int j = 0; j < bh; ++j )
+	{
+		for( Int i = 0; i < bw; ++i )
+		{
+			Int sum = 0;
+			for( Int d = -R; d <= R; ++d )
+				sum += m_shroudRows[ (j + R + d) * bw + i ] * (R + 1 - abs( d ));
+			m_shroudBlur[ j * bw + i ] = sum;
+		}
+	}
+	const Int blurWeight = (R + 1) * (R + 1) * (R + 1) * (R + 1);	// the tent's sum, squared
+
+	// no surface while the device is lost: the cache stays dirty and the next frame writes it
+	SurfaceClass *surface = m_shroudTexture->Get_Surface_Level();
+	if( surface == NULL )
+		return;
+	SurfaceClass::SurfaceDescription sd;
+	surface->Get_Description( sd );
+	const Int bytesPerPixel = Get_Bytes_Per_Pixel( sd.Format );
+	const Int s = m_shroudScale;
+	const Int left = x0 * s, top = y0 * s, right = (x1 + 1) * s, bottom = (y1 + 1) * s;
+	Int pitch;
+	UnsignedByte *bits = (UnsignedByte *)surface->Lock_Rect( &pitch, left, top, right, bottom );
+	if( bits )
+	{
+		// A texel lies a quarter cell off its cell's centre at scale 2, so its blend is three parts
+		// its own cell and one part the neighbour on that side, each way; at scale 1 it is the cell.
+		const Int own = s == 1 ? 4 : 3;
+		const Int next = 4 - own;
+		for( Int ty = top; ty < bottom; ++ty )
+		{
+			const Int j = ty / s;
+			const Int nj = (s == 1 || (ty % s) == 0) ? j - 1 : j + 1;
+			const Int r0 = j - by0;
+			const Int r1 = max( 0, min( bh - 1, nj - by0 ) );
+			UnsignedByte *row = bits + (ty - top) * pitch;
+			for( Int tx = left; tx < right; ++tx, row += bytesPerPixel )
+			{
+				const Int i = tx / s;
+				const Int ni = (s == 1 || (tx % s) == 0) ? i - 1 : i + 1;
+				const Int c0 = i - bx0;
+				const Int c1 = max( 0, min( bw - 1, ni - bx0 ) );
+				const Int blend = own * (own * m_shroudBlur[ r0 * bw + c0 ] + next * m_shroudBlur[ r0 * bw + c1 ])
+					+ next * (own * m_shroudBlur[ r1 * bw + c0 ] + next * m_shroudBlur[ r1 * bw + c1 ]);
+				// The softened value is half way at an edge and whole RADAR_SHROUD_RAMP_CELLS in, so
+				// twice it less the cell's own alpha runs from nothing at the edge to the cell's alpha
+				// that far into the dark.  Clamped to the cell: a cell the player sees stays clear to
+				// its edge, and a lone clear cell in the shroud is not dimmed.  A shrouded cell beside
+				// fog comes out at the fog's alpha at the edge, so the two ramps join.  The ramp never
+				// drops a dark cell below RADAR_SHROUD_FLOOR_EIGHTHS of its own alpha: a strip of fog
+				// two cells wide between two sight circles, or a lone dark cell, reads as nothing but
+				// ramp edge and would otherwise draw as clear ground over objects it hides.
+				const Int cellAlpha = m_shroudCache.getAlpha( max( 0, min( cellsX - 1, i ) ), max( 0, min( cellsY - 1, j ) ) );
+				const Int scale = blurWeight * 16;
+				const Int twice = (Int)(((Int64)blend * 2 + scale / 2) / scale);
+				const Int least = cellAlpha * RADAR_SHROUD_FLOOR_EIGHTHS / 8;
+				const UnsignedInt alpha = (UnsignedInt)min( cellAlpha, max( least, twice - cellAlpha ) );
+				// black with the alpha, as RadarShroudCache::flushTo writes it
+				switch( bytesPerPixel )
+				{
+					case 1: *row = (UnsignedByte)alpha; break;
+					case 2: *(UnsignedShort *)row = (UnsignedShort)((alpha >> 4) << 12); break;
+					case 4: *(UnsignedInt *)row = alpha << 24; break;
+				}
+			}
+		}
+		surface->Unlock();
+		m_shroudCache.markClean();
+	}
+	REF_PTR_RELEASE( surface );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1508,6 +2103,12 @@ void W3DRadar::draw( Int pixelX, Int pixelY, Int width, Int height )
 	//
 	ICoord2D ul, lr;
 	findDrawPositions( pixelX, pixelY, width, height, &ul, &lr );
+
+	// Everything below is fills, lines and images, no text, so one 2D batch holds the whole radar:
+	// a run of untextured calls shares one draw and a change of image flushes first, order kept.
+	// Without it every blip dot and footprint row was its own draw call.  The batch does not nest
+	// (endBatch2D turns batching off), and W3DLeftHUDDraw, the one caller, draws outside one.
+	TheDisplay->beginBatch2D();
 
 	Int scaledWidth = lr.x - ul.x;
 	Int scaledHeight = lr.y - ul.y;
@@ -1541,35 +2142,97 @@ void W3DRadar::draw( Int pixelX, Int pixelY, Int width, Int height )
 
 	}  // end else
 
+	// Everything below goes through the one transform input uses as well (Radar::localPixelToWorld),
+	// so a zoomed minimap draws and is clicked the same.  The images show the zoomed part of the map
+	// as shares of it: u from the left, v from the bottom, +y up as the terrain image is laid out.
+	m_drawTransform.set( m_zoomView, m_mapExtent.width(), m_mapExtent.height(), ul, lr );
+	const Real shownLeft = m_zoomView.x / m_mapExtent.width();
+	const Real shownRight = shownLeft + 1.0f / m_zoomView.zoom;
+	const Real shownBottom = m_zoomView.y / m_mapExtent.height();
+	const Real shownTop = shownBottom + 1.0f / m_zoomView.zoom;
+
 	// draw the terrain texture
+	Region2D terrainUV;
+	terrainUV.lo.x = shownLeft;
+	terrainUV.lo.y = shownTop;
+	terrainUV.hi.x = shownRight;
+	terrainUV.hi.y = shownBottom;
+	m_terrainImage->setUV( &terrainUV );
 	TheDisplay->drawImage( m_terrainImage, ul.x, ul.y, lr.x, lr.y );
 
-	// draw the overlay image, which update refreshes
+	// the money and the tech buildings are part of the ground: under every dot and footprint, and
+	// under the fog like the ground they stand on
+	drawLandmarks( ul.x, ul.y, scaledWidth, scaledHeight );
+
+	// the objects, as update last collected them
 	m_overlayDrawn = TRUE;
- 	TheDisplay->drawImage( m_overlayImage, ul.x, ul.y, lr.x, lr.y );
+	drawBlips( ul.x, ul.y, scaledWidth, scaledHeight );
 
 	// draw the shroud image
 #if defined(_DEBUG) || defined(_INTERNAL)
-	if( TheGlobalData->m_shroudOn )
+	if( TheGlobalData->m_shroudOn && m_shroudCellWidth > 0.0f )
 #else
-	if (true)
+	if( m_shroudCellWidth > 0.0f )
 #endif
 	{
-		// hand the frame's shroud changes to the texture, one lock for all of them
-		if( m_shroudCache.isDirty() )
+		// Several texels a shroud cell, which uploadShroud fills from the cells softened over their
+		// neighbours, then sampled bilinearly: the fog's edge is a smooth ramp about two cells wide
+		// rather than the cell steps one bilinear texel a cell left on every diagonal.  The cache
+		// picks its size when a map's first cell arrives; a new texture starts out owing the cache's
+		// whole surface, which setSize marked dirty.
+		if( m_shroudTexture == NULL || m_shroudTextureWidth != m_shroudWidth || m_shroudTextureHeight != m_shroudHeight )
 		{
-			SurfaceClass *surface = m_shroudTexture->Get_Surface_Level();
-			SurfaceClass::SurfaceDescription sd;
-			surface->Get_Description( sd );
-			Int pitch;
-			void *bits = surface->Lock( &pitch );
-			m_shroudCache.flushTo( bits, pitch, Get_Bytes_Per_Pixel( sd.Format ) );
-			surface->Unlock();
-			REF_PTR_RELEASE(surface);
+			REF_PTR_RELEASE( m_shroudTexture );
+			m_shroudTextureWidth = 0;
+			m_shroudTextureHeight = 0;
+			m_shroudScale = RADAR_SHROUD_MAX_SCALE;
+			while( m_shroudScale > 1 && max( m_shroudWidth, m_shroudHeight ) * m_shroudScale > RADAR_SHROUD_MAX_TEXTURE )
+				m_shroudScale >>= 1;
+			m_shroudTexture = MSGNEW("TextureClass") TextureClass( m_shroudWidth * m_shroudScale, m_shroudHeight * m_shroudScale,
+																					 m_shroudTextureFormat, MIP_LEVELS_1 );
+		}
+		if( m_shroudTexture && (m_shroudTextureWidth != m_shroudWidth || m_shroudTextureHeight != m_shroudHeight) )
+		{
+			// plain bilinear on both devices, whatever the player's texture filter option says
+			m_shroudTexture->Get_Filter().Set_Min_Filter( TextureFilterClass::FILTER_TYPE_FAST );
+			m_shroudTexture->Get_Filter().Set_Mag_Filter( TextureFilterClass::FILTER_TYPE_FAST );
+			m_shroudTexture->Get_Filter().Set_Mip_Mapping( TextureFilterClass::FILTER_TYPE_NONE );
+			m_shroudTexture->Get_Filter().Set_U_Addr_Mode( TextureFilterClass::TEXTURE_ADDRESS_CLAMP );
+			m_shroudTexture->Get_Filter().Set_V_Addr_Mode( TextureFilterClass::TEXTURE_ADDRESS_CLAMP );
+			m_shroudTextureWidth = m_shroudWidth;
+			m_shroudTextureHeight = m_shroudHeight;
+
+			ICoord2D size;
+			size.x = m_shroudWidth * m_shroudScale;
+			size.y = m_shroudHeight * m_shroudScale;
+			m_shroudImage->setRawTextureData( m_shroudTexture );
+			m_shroudImage->setTextureWidth( size.x );
+			m_shroudImage->setTextureHeight( size.y );
+			m_shroudImage->setImageSize( &size );
 		}
 
-		TheDisplay->drawImage( m_shroudImage, ul.x, ul.y, lr.x, lr.y );
+		// the map's part of the grid, and of that the part the zoom shows, +y up as on the terrain image
+		const Real gridU = m_mapExtent.width() / (m_shroudCellWidth * m_shroudWidth);
+		const Real gridV = m_mapExtent.height() / (m_shroudCellHeight * m_shroudHeight);
+		Region2D uv;
+		uv.lo.x = shownLeft * gridU;
+		uv.lo.y = shownTop * gridV;
+		uv.hi.x = shownRight * gridU;
+		uv.hi.y = shownBottom * gridV;
+		m_shroudImage->setUV( &uv );
+
+		// hand the frame's shroud changes to the texture, one lock for all of them
+		uploadShroud();
+
+		if( m_shroudTexture )
+			TheDisplay->drawImage( m_shroudImage, ul.x, ul.y, lr.x, lr.y );
 	}
+
+	// over the shroud: the destination is the player's own order, and it may lie in the dark
+	drawReinforcementLines( ul.x, ul.y, scaledWidth, scaledHeight );
+
+	// the selection's rally points and queued orders, over the shroud for the same reason
+	drawOrderLines( ul.x, ul.y, scaledWidth, scaledHeight );
 
 	// the radar's contacts go over the shroud, which would dim them in the fog and black them out in
 	// the shroud, and so over the unit dots of the overlay as well.  A contact is only ever a unit the
@@ -1592,6 +2255,8 @@ void W3DRadar::draw( Int pixelX, Int pixelY, Int width, Int height )
 	// draw the view region on top of the radar reconstructing if necessary.  -directorrecord draws no
 	// radar while its panes are up, so there is one view to box
 	drawViewBox( ul.x, ul.y, scaledWidth, scaledHeight );
+
+	TheDisplay->endBatch2D();
 
 }  // end draw
 

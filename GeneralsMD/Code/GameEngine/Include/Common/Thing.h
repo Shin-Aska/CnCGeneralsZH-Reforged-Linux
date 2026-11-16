@@ -133,6 +133,27 @@ public:
 	Real getHeightAboveTerrain() const;
 	Real getHeightAboveTerrainOrWater() const;
 
+	/** While one of these lives on a thread, a height above the ground that is not cached yet is worked
+		out there and not stored, so a search run ahead on a logic job leaves the caches as it found them
+		(LOGIC-PARALLEL.md, P2). Stored, it would change how a later setPositionZ moves the cached height. */
+	class CachePeek
+	{
+	public:
+		CachePeek() { ++s_cachePeekDepth; }
+		~CachePeek() { --s_cachePeekDepth; }
+	};
+
+	/** The other way round: logic that a client scope happens to run (a save loaded from the menu runs
+		the whole load inside the client block) stores its heights as it would anywhere else. */
+	class CacheStore
+	{
+	public:
+		CacheStore() : m_depth(s_cachePeekDepth) { s_cachePeekDepth = 0; }
+		~CacheStore() { s_cachePeekDepth = m_depth; }
+	private:
+		Int m_depth;
+	};
+
 	Bool isAboveTerrain() const { return getHeightAboveTerrain() > 0.0f; }
 	Bool isAboveTerrainOrWater() const { return getHeightAboveTerrainOrWater() > 0.0f; }
 
@@ -161,6 +182,8 @@ protected:
 	virtual void reactToTransformChange(const Matrix3D* oldMtx, const Coord3D* oldPos, Real oldAngle) = 0;
 
 private:
+
+	static thread_local Int s_cachePeekDepth;	///< CachePeek guards alive on this thread
 
 	// note that it is declared 'const' -- the assumption being that
 	// since ThingTemplates are shared between many, many Things, the Thing

@@ -147,6 +147,7 @@
 #include "GameNetwork/GeneralsOnline/OnlineBridge.h"
 
 #include "Common/version.h"
+#include "BuildFingerprint.h"		// ZH_BUILD_FINGERPRINT: ModelChecksums.txt is kept per build
 
 #ifdef _INTERNAL
 // for occasional debugging...
@@ -245,6 +246,38 @@ typedef std::map<std::string, ModelChecksum> ModelChecksumMap;	///< keyed "sourc
 static const char *MODEL_CHECKSUM_CACHE = "ModelChecksums.txt";
 static const Int MODEL_CHECKSUM_LINE_LENGTH = 1024;
 
+/* The first line names the format and the build that wrote the file; a file without it, or from any
+	 other build, is read as no file at all.  v4.0.0 trusted every line on size and write time alone, so
+	 the folder in Documents, which outlives every reinstall, carried a model's CRC from one install or
+	 one build into the next, and a clean install was refused every online join as "another version"
+	 until the player deleted the folder.  Format 2 also keys a line on the archive's full path, so two
+	 installs sharing one Documents folder no longer share lines either. */
+static const Int MODEL_CHECKSUM_FORMAT = 2;
+
+static AsciiString modelChecksumCacheHeader( void )
+{
+	AsciiString header;
+	header.format( "ModelChecksums %d %08X", MODEL_CHECKSUM_FORMAT, (UnsignedInt)ZH_BUILD_FINGERPRINT );
+	return header;
+}
+
+/** The source as the line keys it: the archive or loose model's full path, not the one relative to the
+	* install the file system mounted it under. */
+static AsciiString modelChecksumSourceKey( const AsciiString &source )
+{
+	const char *s = source.str();
+	if (s[0] == '\\' || s[0] == '/' || (s[0] != 0 && s[1] == ':'))
+		return source;
+	AsciiString full = TheLocalFileSystem->getCurrentDirectory();
+#if defined(_WIN32)
+	full.concat( '\\' );
+#else
+	full.concat( '/' );
+#endif
+	full.concat( source );
+	return full;
+}
+
 static AsciiString modelChecksumCachePath( void )
 {
 	AsciiString path = TheGlobalData->getPath_UserData();
@@ -260,6 +293,18 @@ static ModelChecksumMap readModelChecksumCache( void )
 		return cache;		// the first start on this machine, or the file was deleted
 
 	char line[MODEL_CHECKSUM_LINE_LENGTH];
+	AsciiString header;
+	if (fgets( line, sizeof( line ), cacheFile ))
+	{
+		header = line;
+		header.trim();
+	}
+	if (header != modelChecksumCacheHeader())
+	{
+		DEBUG_LOG(( "ModelChecksums.txt is from another build or format ('%s'); every model is read again\n", header.str() ));
+		fclose( cacheFile );
+		return cache;
+	}
 	while (fgets( line, sizeof( line ), cacheFile ))
 	{
 		ModelChecksum entry;
@@ -292,6 +337,7 @@ static void writeModelChecksumCache( const ModelChecksumMap &cache )
 	if (cacheFile == NULL)
 		return;		// a read-only user folder costs the next start a full read, nothing else
 
+	fprintf( cacheFile, "%s\n", modelChecksumCacheHeader().str() );
 	for( ModelChecksumMap::const_iterator it = cache.begin(); it != cache.end(); ++it )
 	{
 		const ModelChecksum &entry = it->second;
@@ -345,7 +391,7 @@ static void checksumModels( XferCRC &xferCRC )
 		ModelChecksum entry;
 		const Bool sourceKnown = TheLocalFileSystem->getFileInfo( source, &entry.source );
 
-		std::string key( source.str() );
+		std::string key( modelChecksumSourceKey( source ).str() );
 		key.append( "|" );
 		key.append( model.str() );
 
@@ -356,7 +402,8 @@ static void checksumModels( XferCRC &xferCRC )
 		}
 		else
 		{
-			File *file = loose ? TheFileSystem->openFile( model.str(), File::READ ) : TheArchiveFileSystem->openRetailFile( model );
+			// the loose master, never the Reforged batch copy TheFileSystem may hand the renderer instead
+			File *file = loose ? TheLocalFileSystem->openFile( model.str(), File::READ ) : TheArchiveFileSystem->openRetailFile( model );
 			Int fileSize = file->size();
 			char *contents = file->readEntireAndClose();
 			CRC modelCRC;
@@ -771,7 +818,7 @@ static void startAutoSkirmish( Int numPlayersWanted )
 	TheSkirmishGameInfo->setTechRespawn( TheGlobalData->m_techRespawn );
 	TheSkirmishGameInfo->setSupplyPileLimit( TheGlobalData->m_supplyPileLimit );
 	TheSkirmishGameInfo->setSuperweaponRestriction( (UnsignedShort)TheGlobalData->m_superweapons );
-	TheSkirmishGameInfo->setTurbo( TheGlobalData->m_turboMatch );
+	TheSkirmishGameInfo->setGameSpeedPercent( TheGlobalData->m_autoSkirmishGameSpeedPercent );
 	if (TheGlobalData->m_startingCash > 0)
 	{
 		Money cash;
@@ -789,19 +836,21 @@ static void startAutoSkirmish( Int numPlayersWanted )
 	TheWritableGlobalData->m_shellMapOn = FALSE;
 	TheWritableGlobalData->m_playIntro = FALSE;
 
-	/* The speed reallyDoStart() passes for the lobby's turbo box, -fps included.  -noFPSLimit
-		 deliberately does not appear here - it uncaps the renderer, not the simulation. */
-	const Int maxFPS = GameEngine_matchFramesPerSecond( TheSkirmishGameInfo->getTurbo() );
+	/* The rates reallyDoStart() passes: -fps for the ticks a second, the lobby's game speed (-gamespeed)
+		 for the game time of a tick.  -noFPSLimit deliberately does not appear here - it uncaps the
+		 renderer, not the simulation. */
+	const Int maxFPS = GameEngine_matchFramesPerSecond();
 
 	InitRandom( seed );
 	GameMessage *msg = TheMessageStream->appendMessage( GameMessage::MSG_NEW_GAME );
 	msg->appendIntegerArgument( GAME_SKIRMISH );
 	msg->appendIntegerArgument( DIFFICULTY_NORMAL );
 	msg->appendIntegerArgument( 0 );
-	msg->appendIntegerArgument( maxFPS );
+	GameEngine_appendNewGameRates( msg, TheSkirmishGameInfo->getGameSpeedPercent() );
 
-	DEBUG_LOG(("-autoskirmish: %d slots on '%s', seed %d, starting cash %u, up to %d fps, %s%s%s\n",
+	DEBUG_LOG(("-autoskirmish: %d slots on '%s', seed %d, starting cash %u, %d fps at game speed %d, %s%s%s\n",
 		numPlayers, mapName.str(), seed, TheSkirmishGameInfo->getStartingCash().countMoney(), maxFPS,
+		TheSkirmishGameInfo->getGameSpeedPercent(),
 		observing ? "every slot AI, watching from the free camera" : "slot 0 is the local player",
 		takeover ? ", seats driverless" : "",
 		fixedStartPositions ? ", start positions fixed to slot order" : ""));
@@ -935,7 +984,7 @@ void GameEngine::init( int argc, char *argv[] )
 			 Costs one thread per spare core sitting on a semaphore until something uses it. */
 		JobSystem::init();
 
-		// LOGIC-THREAD.md phase 1: -logicthread 1 starts the thread the ticks run on.
+		// LOGIC-THREAD.md phase 1: the thread the ticks run on, always.
 		LogicThread::init();
 
 		TheSubsystemList = MSGNEW("GameEngineSubsystem") SubsystemInterfaceList;
@@ -1171,6 +1220,8 @@ void GameEngine::init( int argc, char *argv[] )
 		initSubsystem(TheSidesList,"TheSidesList", MSGNEW("GameEngineSubsystem") SidesList(), NULL);
 		initSubsystem(TheCaveSystem,"TheCaveSystem", MSGNEW("GameEngineSubsystem") CaveSystem(), NULL);
 		initSubsystem(TheRankInfoStore,"TheRankInfoStore", MSGNEW("GameEngineSubsystem") RankInfoStore(), &xferCRC, NULL, "Data\\INI\\Rank.ini");
+		// Ranks 6 to 10, the talent ranks, appended after EA's five; an existing rank is edited in place
+		ini.load( AsciiString( "Data\\INI\\RankReforged.ini" ), INI_LOAD_MULTIFILE, &xferCRC );
 		initSubsystem(ThePlayerTemplateStore,"ThePlayerTemplateStore", MSGNEW("GameEngineSubsystem") PlayerTemplateStore(), &xferCRC, "Data\\INI\\Default\\PlayerTemplate.ini", "Data\\INI\\PlayerTemplate.ini");
 		// The fork's own factions: a new name is added after EA's, an existing one is edited in place
 		ini.load( AsciiString( "Data\\INI\\PlayerTemplateReforged.ini" ), INI_LOAD_MULTIFILE, &xferCRC );
@@ -1237,6 +1288,8 @@ void GameEngine::init( int argc, char *argv[] )
 		ini.load( AsciiString( "Data\\INI\\FixesReforged.ini" ), INI_LOAD_MULTIFILE, &xferCRC );
 		// Turkiye's objects, reskins of the American ones, so they come after the balance and fixes they copy
 		ini.load( AsciiString( "Data\\INI\\TurkiyeReforged.ini" ), INI_LOAD_MULTIFILE, &xferCRC );
+		// The general's talents, ranks 6 to 10: each card a science and whatever it grants
+		ini.load( AsciiString( "Data\\INI\\TalentsReforged.ini" ), INI_LOAD_MULTIFILE, &xferCRC );
 
 	#ifdef DUMP_PERF_STATS///////////////////////////////////////////////////////////////////////////
 	GetPrecisionTimer(&endTime64);//////////////////////////////////////////////////////////////////
@@ -1253,6 +1306,8 @@ void GameEngine::init( int argc, char *argv[] )
 			 before the client and the logic (LOGIC-THREAD.md phase 2, M2).  A button names objects,
 			 upgrades and special powers, so after them; the INI CRC takes the files at the end. */
 		initSubsystem(TheCommandStore,"TheCommandStore", MSGNEW("GameEngineSubsystem") CommandStore, NULL);
+		// Online players' unit skins (TankSkin.h): drawing only, so outside the INI checksum
+		ini.load( AsciiString( "Data\\INI\\SkinsReforged.ini" ), INI_LOAD_OVERWRITE, NULL );
 		initSubsystem(TheGameClient,"TheGameClient", createGameClient(), NULL);
 
 
@@ -1531,7 +1586,11 @@ void GameEngine::init( int argc, char *argv[] )
 		if (!TheRecorder->playbackFile( thePendingReplayFile ))
 		{
 			DEBUG_LOG(("-replay: '%s' could not be played back\n", thePendingReplayFile.str()));
-			TheWritableGlobalData->m_shellMapOn = TRUE;
+			// nobody is at the keyboard of a headless run: the main menu would be a process that never ends
+			if (TheGlobalData->m_headless)
+				TheGameEngine->setQuitting( TRUE );
+			else
+				TheWritableGlobalData->m_shellMapOn = TRUE;
 		}
 		thePendingReplayFile.clear();
 	}
@@ -1629,31 +1688,87 @@ Int GameEngine_logicCatchupMaxFrames( Int logicFps )
 	return frames < 1 ? 1 : frames;
 }
 
+// ticks a wall second times percent over the native percent, rounded in integers, never under 1
+static Int scaleFramesPerSecondBySpeed( Int fps, Int percent )
+{
+	const Int scaled = ( fps * percent + GAME_SPEED_PERCENT / 2 ) / GAME_SPEED_PERCENT;
+	return scaled > 0 ? scaled : 1;
+}
+
+Int GameEngine_framesPerSecondForSpeed( Int percent )
+{
+	return scaleFramesPerSecondBySpeed( LOGICFRAMES_PER_SECOND, percent );
+}
+
 /* MSG_NEW_GAME refuses anything outside 1..1000 and falls back to m_framesPerSecondLimit
 	 unclamped, so the answer stays inside that.  A FramesPerSecondLimit below retail's 15, or none at
-	 all, is normal speed. */
-Int GameEngine_matchFramesPerSecond( Bool turbo )
+	 all, is the native tick.  The game speed does not enter it: every speed ticks this often and the
+	 speed scales the game time of a tick instead. */
+Int GameEngine_matchFramesPerSecond( void )
 {
 	Int fps = TheGlobalData->m_framesPerSecondLimit;
-	if (fps < ConvertRetailFrames( 15 ))
+	if (fps < ConvertRetailFramesWall( 15 ))
 		fps = LOGICFRAMES_PER_SECOND;
-	if (turbo)
-		fps *= 2;
 	return fps > 1000 ? 1000 : fps;
+}
+
+void GameEngine_appendNewGameRates( GameMessage *msg, Int gameSpeedPercent )
+{
+	DEBUG_ASSERTCRASH( msg->getArgumentCount() == 3, ("MSG_NEW_GAME's rates go after its mode, difficulty and rank points") );
+	msg->appendIntegerArgument( GameEngine_matchFramesPerSecond() );
+	msg->appendIntegerArgument( ClampPlayerGameSpeedPercent( gameSpeedPercent ) );
 }
 
 Int GameEngine_missionFramesPerSecond( Int askedRetailFps, Int matchFps )
 {
 	if (askedRetailFps <= 0 || askedRetailFps >= RETAIL_LOGICFRAMES_PER_SECOND)
 		return matchFps;
+	// game time: the cinematic keeps retail's pace against its wall-clock voices (23 asked is 15 ticks
+	// at GAME_SPEED_PERCENT 150, a pace of 15 * 1.5 / 30 = 0.75 against retail's 23 / 30 = 0.77, the
+	// nearest whole tick), the identity at 100
 	return ConvertRetailFrames( askedRetailFps );
 }
 
+/* SET_FPS_LIMIT 30, or none, under a voiced cinematic would run its script waits and camera cuts at the
+	 game speed while the speech keeps wall length (MD_CHI02's intro tail: 27.5 s for 34).  The signal is
+	 the script's input hold rather than the letterbox: every stock intro disables input with it, the hold
+	 is ScriptEngine state set on the tick (the letterbox is the display's, set after it, fades, and
+	 -cinema raises it too), and Player.cpp and Drawable.cpp already read it as "a mission cinematic". */
+Int GameEngine_cinematicFramesPerSecond( Int maxFps, Bool cinematic )
+{
+	// retail's pace from any game speed the mission was started at: 20 ticks at 150, 30 at 100
+	const Int retailPace = GameEngine_framesPerSecondForSpeed( 100 );
+	if (!cinematic || maxFps <= retailPace)
+		return maxFps;
+	return retailPace;
+}
+
+Bool GameEngine_isPacingCinematic( void )
+{
+	return TheGameLogic != NULL && TheGameLogic->isInSinglePlayerGame() && !TheGameLogic->isInReplayGame()
+		&& TheNetwork == NULL && TheScriptEngine != NULL && TheScriptEngine->isInputHeldByScript();
+}
+
+// the rate the pacer runs at this pass
+static Int pacedFramesPerSecond( Int maxFps )
+{
+	return GameEngine_cinematicFramesPerSecond( maxFps, GameEngine_isPacingCinematic() );
+}
+
+static Bool lastPassWasFast( void );	// below, beside s_passWasFast
+
+/* A skirmish takes its game speed from the lobby and a replay plays at the ticks a second its match
+	 recorded (or the speed keys' share of that), so their animations follow the pacer as a mission's do,
+	 both ways.  A pass that ran a tick a pass (replay fast-forward, a seek, -turbo, -headless) has no
+	 pacer and keeps the wall clock, 1, so a -turbo proof shot keeps its animation phase.  A network game
+	 keeps the native tick. */
 Real GameEngine_missionTimeRate( void )
 {
-	if (TheGameLogic == NULL || !TheGameLogic->isInSinglePlayerGame() || TheGameLogic->isInReplayGame())
+	if (TheGameLogic == NULL || TheNetwork != NULL || lastPassWasFast()
+			|| !( TheGameLogic->isInSinglePlayerGame() || TheGameLogic->isInSkirmishGame() || TheGameLogic->isInReplayGame() ))
 		return 1.0f;
-	return (Real)TheGameEngine->getFramesPerSecondLimit() / (Real)LOGICFRAMES_PER_SECOND;
+	const Int fps = pacedFramesPerSecond( TheGameEngine->getFramesPerSecondLimit() );
+	return fps > 0 ? (Real)fps / (Real)LOGICFRAMES_PER_SECOND : 1.0f;
 }
 
 Bool GameEngine_mayStartAnotherCatchupTick( Int ticksSoFar, Int maxTicks, Real elapsedMsInLoop )
@@ -2123,17 +2238,21 @@ static void reportFrameTimeStats( void )
 	if( theFrameTimes.count() <= 0 )
 		return;
 
-	const Real over16 = 100.0f * theFrameTimes.countOver( 16.7f ) / theFrameTimes.count();
-	const Real over33 = 100.0f * theFrameTimes.countOver( 33.3f ) / theFrameTimes.count();
-	// over 25 ms is a picture that missed a refresh on a vsynced 60 Hz screen, where every frame is a
-	// multiple of 16.7 and the 16.7 count catches the on-time ones that ran a fraction long
-	DEBUG_LOG(("HEADLESS FRAMETIME: %d frames | mean %.2f p50 %.2f p95 %.2f p99 %.2f p99.9 %.2f worst %.2f ms (frame %d) | over 16.7ms %d (%.2f%%) | over 33.3ms %d (%.2f%%) | over 25.0ms %d\n",
+	// The first two budgets are one logic tick and two, rounded to the tenth the line prints so the count
+	// and the label agree (16.7 and 33.3 at 60 ticks a second, 33.3 and 66.7 at 30).  Over 25 ms is a
+	// picture that missed a refresh on a vsynced 60 Hz screen, where every frame is a multiple of 16.7;
+	// that one is the screen's and stays whatever the logic's rate.
+	const Real tickBudgetMS = (Real)(Int)( MSEC_PER_LOGICFRAME_REAL * 10.0f + 0.5f ) / 10.0f;
+	const Real twoTickBudgetMS = (Real)(Int)( 2.0f * MSEC_PER_LOGICFRAME_REAL * 10.0f + 0.5f ) / 10.0f;
+	const Real overTick = 100.0f * theFrameTimes.countOver( tickBudgetMS ) / theFrameTimes.count();
+	const Real overTwoTicks = 100.0f * theFrameTimes.countOver( twoTickBudgetMS ) / theFrameTimes.count();
+	DEBUG_LOG(("HEADLESS FRAMETIME: %d frames | mean %.2f p50 %.2f p95 %.2f p99 %.2f p99.9 %.2f worst %.2f ms (frame %d) | over %.1fms %d (%.2f%%) | over %.1fms %d (%.2f%%) | over 25.0ms %d\n",
 						 theFrameTimes.count(), theFrameTimes.meanMS(),
 						 theFrameTimes.percentileMS( 0.50f ), theFrameTimes.percentileMS( 0.95f ),
 						 theFrameTimes.percentileMS( 0.99f ), theFrameTimes.percentileMS( 0.999f ),
 						 theFrameTimes.worstMS(), theFrameTimes.worstAtFrame(),
-						 theFrameTimes.countOver( 16.7f ), over16,
-						 theFrameTimes.countOver( 33.3f ), over33,
+						 tickBudgetMS, theFrameTimes.countOver( tickBudgetMS ), overTick,
+						 twoTickBudgetMS, theFrameTimes.countOver( twoTickBudgetMS ), overTwoTicks,
 						 theFrameTimes.countOver( 25.0f )));
 	// the same passes split for the logic thread plan: mean/p50/p99/p99.9 of each part
 	#define PASS_SPLIT(h) (h).meanMS(), (h).percentileMS( 0.50f ), (h).percentileMS( 0.99f ), (h).percentileMS( 0.999f )
@@ -2194,12 +2313,14 @@ static void reportFrameTimeStats( void )
 
 	if( theLogicTimes.count() > 0 )
 	{
-		DEBUG_LOG(("HEADLESS LOGICTIME: %d ticks | mean %.2f p50 %.2f p95 %.2f p99 %.2f p99.9 %.2f worst %.2f ms (frame %d) | over 33.3ms %d\n",
+		// a tick that took two ticks' time, which no catch-up hides (33.3 at 60 ticks a second, 66.7 at 30)
+		const Real twoTickBudgetMS = (Real)(Int)( 2.0f * MSEC_PER_LOGICFRAME_REAL * 10.0f + 0.5f ) / 10.0f;
+		DEBUG_LOG(("HEADLESS LOGICTIME: %d ticks | mean %.2f p50 %.2f p95 %.2f p99 %.2f p99.9 %.2f worst %.2f ms (frame %d) | over %.1fms %d\n",
 							 theLogicTimes.count(), theLogicTimes.meanMS(),
 							 theLogicTimes.percentileMS( 0.50f ), theLogicTimes.percentileMS( 0.95f ),
 							 theLogicTimes.percentileMS( 0.99f ), theLogicTimes.percentileMS( 0.999f ),
 							 theLogicTimes.worstMS(), theLogicTimes.worstAtFrame(),
-							 theLogicTimes.countOver( 33.3f )));
+							 twoTickBudgetMS, theLogicTimes.countOver( twoTickBudgetMS )));
 	}
 
 	if( theObjectTicks > 0 )
@@ -2225,11 +2346,11 @@ static void reportFrameTimeStats( void )
  */
 enum { AUTOCAM_GRID = 16 };
 static Int s_autoCamUnits[ AUTOCAM_GRID * AUTOCAM_GRID ];
-static UnsignedInt s_autoCamSides[ AUTOCAM_GRID * AUTOCAM_GRID ];
+static PlayerMaskType s_autoCamSides[ AUTOCAM_GRID * AUTOCAM_GRID ];
 
 struct AutoCamTally
 {
-	UnsignedInt sideBit;
+	PlayerMaskType sideBit;
 	Real originX, originY, spanX, spanY;
 };
 
@@ -2256,7 +2377,7 @@ static void autoCameraTallyObject( Object *obj, void *userData )
 	s_autoCamSides[ cell ] |= t->sideBit;
 }
 
-static Int autoCameraCountBits( UnsignedInt v )
+static Int autoCameraCountBits( PlayerMaskType v )
 {
 	Int n = 0;
 	while( v ) { n += (v & 1); v >>= 1; }
@@ -2498,7 +2619,7 @@ static void updateAutoCamera( void )
 		Player *player = ThePlayerList->getNthPlayer( p );
 		if( !player->isPlayableSide() || player->isPlayerObserver() )
 			continue;
-		tally.sideBit = (UnsignedInt)1 << p;
+		tally.sideBit = player->getPlayerMask();
 		player->iterateObjects( autoCameraTallyObject, &tally );
 	}
 
@@ -2772,7 +2893,7 @@ static void updateHeadlessRun( void )
 		 frames after it is decided and drops to the shell, which would leave without these lines.  The
 		 decision's own CRC is logged on its frame, the one the scouting pass closed on. */
 	static UnsignedInt filmDecidedOn = 0;
-	const UnsignedInt FILM_PAST_DECISION_FRAMES = ConvertRetailFrames( 105u );
+	const UnsignedInt FILM_PAST_DECISION_FRAMES = ConvertRetailFrames( 105u );	// game time, like the end timer it has to beat
 	if (TheGlobalData->m_directorRecord && strcmp( why, "decided" ) == 0)
 	{
 		if (filmDecidedOn == 0)
@@ -2813,6 +2934,18 @@ static void updateHeadlessRun( void )
 		 refreshed on frames a network game asks for it, and a skirmish never asks. */
 	DEBUG_LOG(("HEADLESS CRC: 0x%08X at frame %d\n", TheGameLogic->getCRC( CRC_RECALC ), frame));
 
+	// the cheat witness's counts by player index, which an honest match leaves at 0 for everyone
+	{
+		AsciiString witness;
+		for( Int p = 0; p < ThePlayerList->getPlayerCount(); ++p )
+		{
+			AsciiString one;
+			one.format( " p%d=%d", p, TheGameLogic->getBlindOrderCount( p ) );
+			witness.concat( one );
+		}
+		DEBUG_LOG(("HEADLESS CHEATWITNESS: blind%s, crcOdd %d\n", witness.str(), (Int)TheGameLogic->getCrcOddPlayers().size()));
+	}
+
 	// What the pathfinder did over the whole match, not just the one frame that ran over budget.
 	// A pathing change is argued with these: search count and time say what it cost, `nopath` and
 	// `outofcells` say whether it broke anything, `blocked`/`stuck` say whether it actually
@@ -2835,8 +2968,18 @@ static void updateHeadlessRun( void )
 	/* THREADING-ROADMAP.md 3.1's safety net: "no allocation inside a job" is a rule, and a rule
 		 nothing checks is a comment.  allocs must read 0 - anything else means a job took the one
 		 global pool lock and serialized the fork it was supposed to spread. */
-	DEBUG_LOG(("HEADLESS JOBS: %d worker threads, %d allocations from a job\n",
-						 JobSystem::workerCount(), JobSystem::workerAllocationCount()));
+	// LOGIC-PARALLEL.md: and how often the logic's first parallel pass forked, so a CRC that agrees at
+	// every worker count is known not to agree because nothing ran in parallel
+	extern void PartitionManager_splitGatherCounts( Int &split, Int &tailsHandedBack, Real &forkMS, Real &mergeMS );
+	Int gathersSplit = 0, gatherTails = 0;
+	Real gatherForkMS = 0.0f, gatherMergeMS = 0.0f;
+	PartitionManager_splitGatherCounts( gathersSplit, gatherTails, gatherForkMS, gatherMergeMS );
+	extern void AIUpdate_moodSearchCounts( Int &run, Int &taken, Int &attackMoveRun, Int &attackMoveTaken );
+	Int moodSearchesRun = 0, moodSearchesTaken = 0, attackMoveSearchesRun = 0, attackMoveSearchesTaken = 0;
+	AIUpdate_moodSearchCounts( moodSearchesRun, moodSearchesTaken, attackMoveSearchesRun, attackMoveSearchesTaken );
+	DEBUG_LOG(("HEADLESS JOBS: %d worker threads, %d allocations from a job, %d range gathers split (%d chunk tails walked serially, %.0f ms forked, %.0f ms merging), %d mood searches run ahead (%d attack move), %d taken (%d attack move)\n",
+						 JobSystem::workerCount(), JobSystem::workerAllocationCount(), gathersSplit, gatherTails, gatherForkMS, gatherMergeMS,
+						 moodSearchesRun, attackMoveSearchesRun, moodSearchesTaken, attackMoveSearchesTaken));
 
 	// LOGIC-THREAD.md phase 1: the handoff cost, and the client calls phase 2 has to take off the tick.
 	LogicThread::report();
@@ -2860,7 +3003,7 @@ static void updateHeadlessRun( void )
 		const Int team = (slot >= 0 && TheGameInfo) ? TheGameInfo->getConstSlot( slot )->getTeamNumber() : -1;
 
 		ScoreKeeper *score = p->getScoreKeeper();
-		DEBUG_LOG(("HEADLESS PLAYER %d '%s': %s | score %d | money %d earned %d spent | units %d built %d lost %d killed peak %d | buildings %d built %d lost | slot %d team %d\n",
+		DEBUG_LOG(("HEADLESS PLAYER %d '%s': %s | score %d | money %d earned %d spent | units %d built %d lost %d killed peak %d | buildings %d built %d lost | slot %d team %d | rank %d skill %d\n",
 							 i, WideCharAsUtf8( p->getPlayerDisplayName().str() ).str(),
 							 TheVictoryConditions->hasAchievedVictory(p) ? "WON" :
 								 (TheVictoryConditions->hasSinglePlayerBeenDefeated(p) ? "eliminated" : "alive"),
@@ -2869,7 +3012,7 @@ static void updateHeadlessRun( void )
 							 score->getTotalUnitsBuilt(), score->getTotalUnitsLost(), score->getTotalUnitsDestroyed(),
 							 peakUnits[ i ],
 							 score->getTotalBuildingsBuilt(), score->getTotalBuildingsLost(),
-							 slot, team));
+							 slot, team, p->getRankLevel(), p->getSkillPoints()));
 		// the exchange in money, on a line of its own so the PLAYER line's readers keep matching it
 		DEBUG_LOG(("HEADLESS VALUE %d: units worth %d lost, %d killed\n", i,
 							 score->getUnitValueLost(), score->getUnitValueDestroyed()));
@@ -2884,7 +3027,7 @@ static void updateHeadlessRun( void )
 	/* The score screen's graphs as numbers, for whatever reads a match afterwards (the Bot Cup's
 		 overlays): every sample, every player's build order and every event, one line each, the
 		 player being the list index the PLAYER lines use.  The display name runs to the line's end. */
-	static const char *const MATCH_EVENT_WORDS[ MATCH_EVENT_TYPE_COUNT ] = { "built", "fired", "power", "rank" };
+	static const char *const MATCH_EVENT_WORDS[ MATCH_EVENT_TYPE_COUNT ] = { "built", "fired", "power", "rank", "defeated" };
 	for( Int i = 0; i < MAX_PLAYER_COUNT; ++i )
 	{
 		if (!TheMatchHistory.wasSampled( i ))
@@ -2894,6 +3037,11 @@ static void updateHeadlessRun( void )
 								 TheMatchHistory.getValue( sample, i, MATCH_SERIES_EARNED ), TheMatchHistory.getValue( sample, i, MATCH_SERIES_BANK ),
 								 TheMatchHistory.getValue( sample, i, MATCH_SERIES_ARMY ), TheMatchHistory.getValue( sample, i, MATCH_SERIES_BUILDINGS ),
 								 TheMatchHistory.getValue( sample, i, MATCH_SERIES_POWER ), TheMatchHistory.getValue( sample, i, MATCH_SERIES_LOST )));
+		// the money series on a line of their own, so the SAMPLE line's readers keep their columns
+		for( Int sample = 0; sample < TheMatchHistory.getSampleCount(); ++sample )
+			DEBUG_LOG(("HEADLESS HISTORY WORTH %d %u %d %d %d\n", i, TheMatchHistory.getSampleFrame( sample ),
+								 TheMatchHistory.getValue( sample, i, MATCH_SERIES_ARMY_VALUE ), TheMatchHistory.getValue( sample, i, MATCH_SERIES_VALUE_DESTROYED ),
+								 TheMatchHistory.getValue( sample, i, MATCH_SERIES_VALUE_LOST )));
 		const std::vector< MatchBuild > &builds = TheMatchHistory.getBuilds( i );
 		for( size_t build = 0; build < builds.size(); ++build )
 		{
@@ -2932,6 +3080,7 @@ static Real s_logicAccumMs = 0.0f;
 static Bool s_passPlanned = FALSE;
 static GameEngine::LogicPassPlan s_passPlan;
 static Bool s_passWasFast = FALSE;		///< the last pass ran a logic frame a pass (headless, -turbo, fast-forward, -video): no picture cap
+static Bool lastPassWasFast( void ) { return s_passWasFast; }
 static UnsignedInt s_frameBeforeOverlap = 0;
 static UnsignedInt s_planTimeMs = 0;		///< when the pacer last spent the time since the one before
 static Int64 s_planTimeTicks = 0;				///< the same moment on the fine clock, for smooth motion
@@ -3039,7 +3188,7 @@ void GameEngine::planLogicPass( LogicPassPlan &plan )
 	}
 	else
 	{
-		logicFrameDue = GameEngine_isLogicFrameDue(s_logicAccumMs, elapsedMs, m_maxFPS);
+		logicFrameDue = GameEngine_isLogicFrameDue(s_logicAccumMs, elapsedMs, pacedFramesPerSecond( m_maxFPS ));
 		// Fast mode means exactly one logic frame per call, by its own definition.
 		mayCatchUp = (m_maxFPS > 0);
 	}
@@ -3097,7 +3246,7 @@ Real GameEngine::msUntilNextTickDue( void )
 {
 	if (!s_passPlanned || s_passPlan.fastMode || s_passPlan.networkPaced || m_maxFPS <= 0)
 		return 0.0f;
-	return 1000.0f / m_maxFPS - s_logicAccumMs - (Real)( Clock_Milliseconds() - s_planTimeMs );
+	return 1000.0f / pacedFramesPerSecond( m_maxFPS ) - s_logicAccumMs - (Real)( Clock_Milliseconds() - s_planTimeMs );
 }
 
 Bool GameEngine::isPassPacedByClock( void )
@@ -3153,6 +3302,13 @@ void GameEngine::update( void )
 
 			// VERIFY CRC needs to be in this code block.  Please to not pull TheGameLogic->update() inside this block.
 			VERIFY_CRC
+
+			/* The drawing, the camera and the radar ask logic objects how high they are (a jet's pitch, a
+				 track mark, the follow camera), and the first question after a move used to store the answer
+				 in the object, on this machine only. A stored height is moved by a later setPositionZ instead
+				 of measured again, so a seat that drew a jet could carry a different height into logic than
+				 one that did not. Asked from here the height is measured and not stored (Thing::CachePeek). */
+			Thing::CachePeek clientReadsLeaveNoCache;
 
 			TheRadar->UPDATE();
 #ifdef DEBUG_LOGGING
@@ -3236,14 +3392,14 @@ void GameEngine::update( void )
 			// count and the pacer's own accumulator cap stop at LOGIC_CATCHUP_MAX_FRAMES, so a logic
 			// frame that is itself over budget cannot pull the loop into a spiral.
 			Int logicTicksThisPass = 0;
-			const Int maxTicksThisPass = GameEngine_logicCatchupMaxFrames( m_maxFPS );
+			const Int maxTicksThisPass = GameEngine_logicCatchupMaxFrames( pacedFramesPerSecond( m_maxFPS ) );
 			/* Bounded by the clock as well as by the count - see LOGIC_CATCHUP_BUDGET_MS.  Three
 				 25ms ticks back to back with no picture in between is the 113ms freeze; one of them
 				 plus the render is a dropped frame nobody files a bug about. */
 			Int64 tCatchupStart, tCatchupNow;
 			tCatchupStart = Clock_Ticks();
 			/* The tick beside the render spends the budget like one run here.  Left out, a match behind
-				 its clock ran one more tick a pass at 1 than at 0, all of them in series after the picture:
+				 its clock ran one more tick a pass than with the tick on the main thread, all of them in series after the picture:
 				 3.3 against 2.3 ticks, a frame 3 ms longer on average and 5 ms at p99.9. */
 			Real tickBesideRenderMS = 0.0f, waitForTickMS = 0.0f;
 			if (overlapped)
@@ -3252,7 +3408,7 @@ void GameEngine::update( void )
 			Real lastTickMS = tickBesideRenderMS;
 			for( ;; )
 			{
-				// TheGameLogic->UPDATE(), on the logic thread at -logicthread 1; the first of an overlapped
+				// TheGameLogic->UPDATE(), on the logic thread; the first of an overlapped
 				// pass has run already, beside the render
 				if (logicTicksThisPass > 0 || !overlapped)
 				{
@@ -3311,10 +3467,10 @@ void GameEngine::update( void )
 						break;
 				}
 				// Asked last, because it is the one with a side effect: it spends the debt it reports.
-				else if (!GameEngine_isLogicFrameDue(s_logicAccumMs, 0.0f, m_maxFPS))
+				else if (!GameEngine_isLogicFrameDue(s_logicAccumMs, 0.0f, pacedFramesPerSecond( m_maxFPS )))
 					break;
 			}
-			noteLogicTickDue( m_maxFPS, fastMode, networkPaced );
+			noteLogicTickDue( pacedFramesPerSecond( m_maxFPS ), fastMode, networkPaced );
 			// a frame held by a scripted freeze keeps showing its last picture, rather than going back
 			// half a frame every other pass; smooth motion shows it whole too, since the update may have
 			// moved a model (a script's teleport) that the blend and its restore would put back
@@ -3511,10 +3667,9 @@ Int GameEngine_renderCapFramesPerSecond( void )
 #define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
 #endif
 
-static void waitForTicks( Int64 deadline )
+static void sleepForTicks( Int64 sleepTicks )
 {
 	const Int64 perSecond = Clock_Ticks_Per_Second();
-	const Int64 sleepTicks = deadline - Clock_Ticks() - perSecond / 1000;
 	if (sleepTicks > 0)
 	{
 #if defined(_WIN32)
@@ -3531,6 +3686,11 @@ static void waitForTicks( Int64 deadline )
 		std::this_thread::sleep_for( std::chrono::nanoseconds( sleepTicks * 1000000000 / perSecond ) );
 #endif
 	}
+}
+
+static void waitForTicks( Int64 deadline )
+{
+	sleepForTicks( deadline - Clock_Ticks() - Clock_Ticks_Per_Second() / 1000 );
 	while (Clock_Ticks() < deadline)
 		std::this_thread::yield();
 }
@@ -3558,7 +3718,23 @@ static void waitForRenderCap( Int logicFps )
 	if (s_nextPicture == 0 || now - s_nextPicture > period)
 		s_nextPicture = now;
 	else if (now < s_nextPicture)
+	{
+		/* A network game read and wrote its socket once a pass, so the cap's wait held every packet,
+			 acks too, for what was left of the picture: up to 17 ms a hop at 60, in the srtt and so in
+			 the run-ahead, and never seen by a -noFPSLimit measurement.  The wait goes in millisecond
+			 slices with the socket serviced between them (Network::serviceSockets), the first one as
+			 the wait begins, which announces the frame the pass just ran. */
+		if (TheNetwork != NULL)
+		{
+			const Int64 ms = Clock_Ticks_Per_Second() / 1000;
+			for (Int64 t = now; s_nextPicture - t > 2 * ms; t = Clock_Ticks())
+			{
+				TheNetwork->serviceSockets();
+				sleepForTicks( ms );
+			}
+		}
 		waitForTicks( s_nextPicture );
+	}
 	s_nextPicture += period;
 }
 
@@ -3688,6 +3864,14 @@ void GameEngine::execute( void )
 				// picture cap's, outside the pass: the logic thread is idle by now, the overlapped
 				// tick having been flushed at the end of the draw.
 				waitForRenderCap( m_maxFPS );
+				/* The window's messages are the mouse (Win32Mouse buffers what the window procedure
+					 hands it), and they were pumped before the cap's wait: a click in the wait sat in the
+					 queue through the whole next pass and was drawn a picture late, up to 17 ms at 60.
+					 Pumped after it now, and after the wait for room in the present queue, so the pass
+					 reads input no older than the picture it goes into. */
+				if (TheDisplay != NULL)
+					TheDisplay->waitForFrameQueue();
+				serviceWindowsOS();
 				prevLoopTime = Clock_Milliseconds();
 
 		#if defined(_DEBUG) || defined(_INTERNAL)

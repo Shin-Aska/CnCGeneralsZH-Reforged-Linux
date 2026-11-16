@@ -21,7 +21,7 @@
 
 .EXAMPLE
   .\replay-check.ps1
-  .\replay-check.ps1 -Seeds 0,1,2,3 -MaxFrames 12000
+  .\replay-check.ps1 -Seeds 0,1,2,3 -Seconds 200
     Four seeds instead of two, shorter matches. Each seed costs two runs.
 #>
 param(
@@ -31,16 +31,22 @@ param(
 	[int] $Players = 2,
 	# easy | medium | brutal
 	[string] $Difficulty = "brutal",
-	# how long each match runs, in logic frames at 60 a second (24000 is 6 min 40 s of game time).
-	# Long enough to build and fight; a divergence in movement code needs units on the move, and the
-	# first two thousand frames are two workers walking to a supply dock
-	[int] $MaxFrames = 24000,
+	# how long each match runs, in seconds of game time (400 is 6 min 40 s), turned into logic frames
+	# at LOGICFRAMES_PER_SECOND from GameCommon.h. Long enough to build and fight; a divergence in
+	# movement code needs units on the move, and the first half minute is two workers walking to a
+	# supply dock
+	[int] $Seconds = 400,
+	# the same length in logic frames outright; 0 takes it from -Seconds
+	[int] $MaxFrames = 0,
 	# playable cells a side of the generated map; 0 lets the generator size it for the player count.
 	# 128 used to be the default, below even the generator's small size for two players: seed 1 put
 	# the two starts 124 units apart, neither AI could build, and the match stayed idle
 	[int] $MapCells = 0,
 	# a generator style (twilight), the last word of -randommap; empty is the plain generator
 	[string] $Style = "",
+	# the match's game speed in percent of retail's pace (100, 125, 150, 200), -gamespeed on the recording;
+	# the playback takes it from the replay's GS= field. 0 leaves the native speed
+	[int] $GameSpeed = 0,
 	# where the game is
 	[string] $RunDir = "$PSScriptRoot\GeneralsMD\Run",
 	[string] $Exe = "generals.exe",
@@ -59,6 +65,11 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+# the logic rate, from the engine's own header so this script never carries a copy of it
+$LogicFps = [int][regex]::Match((Get-Content -Raw "$PSScriptRoot\GeneralsMD\Code\GameEngine\Include\Common\GameCommon.h"),
+	'(?m)^\s*LOGICFRAMES_PER_SECOND\s*=\s*(\d+)').Groups[1].Value
+if ($LogicFps -le 0) { throw "no LOGICFRAMES_PER_SECOND in GameCommon.h" }
+if ($MaxFrames -le 0) { $MaxFrames = $Seconds * $LogicFps }
 $env:ZH_UNATTENDED = "1"	# every game this starts is unattended: no box may wait on a person (EarlyCommandLine.h)
 
 $exePath = Join-Path $RunDir $Exe
@@ -125,6 +136,7 @@ foreach ($seed in $Seeds)
 	$mapArgs = @("-randommap", $seed, $Players)
 	if ($MapCells -gt 0) { $mapArgs += $MapCells }
 	if ($Style) { $mapArgs += $Style }
+	if ($GameSpeed -gt 0) { $mapArgs += @("-gamespeed", $GameSpeed) }
 	$live = Invoke-Run ($mapArgs + @("-autoskirmish", $Players, "-aidiff", $Difficulty,
 											 "-seed", $seed, "-observer")) "det$($seed)_live"
 	if ($null -eq $live) { Write-Host "no result from the live run"; $failures++; continue }

@@ -128,16 +128,13 @@ void AutoDepositUpdate::awardInitialCaptureBonus( Player *player )
 
 	const UnsignedInt earned = player->earnMoney( getAutoDepositUpdateModuleData()->m_initialCaptureBonus );
 
-	//Display cash income floating over the blacklotus
+	//Display cash income floating over the captured building
 	if(getAutoDepositUpdateModuleData()->m_initialCaptureBonus > 0)
 	{
-		UnicodeString moneyString;
-		moneyString.format( TheGameText->fetch( "GUI:AddCash" ), earned );
 		Coord3D pos;
 		pos.set( getObject()->getPosition() );
 		pos.z += 10.0f; //add a little z to make it show up above the unit.
-		Color color = player->getPlayerColor() | GameMakeColor( 0, 0, 0, 230 );
-		TheInGameUI->addFloatingText( moneyString, &pos, color );
+		TheInGameUI->addMoneyText( (Int)earned, &pos, player );
 	}
 
 	m_awardInitialCaptureBonus = FALSE;
@@ -148,7 +145,8 @@ void AutoDepositUpdate::awardInitialCaptureBonus( Player *player )
 UpdateSleepTime AutoDepositUpdate::update( void )
 {
 	const AutoDepositUpdateModuleData *modData = getAutoDepositUpdateModuleData();
-/// @todo srj use SLEEPY_UPDATE here
+	// a run before m_depositOnFrame changes nothing, so every return sleeps until then; a capture only
+	// ever moves that frame later (awardInitialCaptureBonus), and the run that wakes early sleeps again
 	if( TheGameLogic->getFrame() >= m_depositOnFrame)
 	{
 		if (!m_initialized) {
@@ -160,11 +158,11 @@ UpdateSleepTime AutoDepositUpdate::update( void )
 		m_depositOnFrame = TheGameLogic->getFrame() + modData->m_depositFrame;
 		
 		if(getObject()->isNeutralControlled() || modData->m_depositAmount <= 0 )
-			return UPDATE_SLEEP_NONE;
+			return frameToSleepTime( m_depositOnFrame );
 
 		// makes sure that buildings under construction do not get a bonus CCB
 		if( getObject()->getConstructionPercent() != CONSTRUCTION_COMPLETE )
-			return UPDATE_SLEEP_NONE;
+			return frameToSleepTime( m_depositOnFrame );
 		
 		int moneyAmount = modData->m_depositAmount + getUpgradedSupplyBoost();
 
@@ -175,21 +173,14 @@ UpdateSleepTime AutoDepositUpdate::update( void )
 			moneyAmount = getObject()->getControllingPlayer()->earnIncome( moneyAmount, getObject()->isKindOf( KINDOF_TECH_BUILDING ) );
 		}
 		
-		// OY LOOK!  I AM USING LOCAL PLAYER.  Do not put anything other than TheInGameUI->addFloatingText in the block this controls!!!
-		// The figure shows if this watcher can see the building - which covers an ally sharing the
-		// sight and an observer, both of whom the old spelled-out rule left out.
-		Bool displayMoney = ( moneyAmount > 0 && getObject()->isLogicallyVisible() );
-		
-		if( displayMoney )
+		// Display cash income floating over the building; addMoneyText decides who sees it
+		if( moneyAmount > 0 )
 		{
 
       const Object *owner = getObject();
       if ( owner )
       {
 
-			  // OY LOOK!  I AM USING LOCAL PLAYER.  Do not put anything other than TheInGameUI->addFloatingText in the block this controls!!!
-			  UnicodeString moneyString;
-			  moneyString.format( TheGameText->fetch( "GUI:AddCash" ), moneyAmount );
 			  Coord3D pos;
 			  pos.set( getObject()->getPosition() );
 			  pos.z += 10.0f; //add a little z to make it show up above the unit.
@@ -203,13 +194,12 @@ UpdateSleepTime AutoDepositUpdate::update( void )
         }
       
       
-        Color color = getObject()->getControllingPlayer()->getPlayerColor() | GameMakeColor( 0, 0, 0, 230 );
-			  TheInGameUI->addFloatingText( moneyString, &pos, color );
+			  TheInGameUI->addMoneyText( moneyAmount, &pos, owner->getControllingPlayer() );
       }
-		}		
+		}
 	}
 
-	return UPDATE_SLEEP_NONE;
+	return frameToSleepTime( m_depositOnFrame );
 }
 
 //------------------------------------------------------------------------------------------------
@@ -236,6 +226,19 @@ Int AutoDepositUpdate::getUpgradedSupplyBoost() const
 	}
 
 	return 0;
+}
+
+//------------------------------------------------------------------------------------------------
+Real AutoDepositUpdate::getUpgradeBoostPerGameSecond( const UpgradeTemplate *upgrade ) const
+{
+	const AutoDepositUpdateModuleData *data = getAutoDepositUpdateModuleData();
+	const UnsignedInt frames = data->m_depositFrame;
+	if( !data->m_isActualMoney || frames == 0 )
+		return 0.0f;
+	for( std::list<upgradePair>::const_iterator it = data->m_upgradeBoost.begin(); it != data->m_upgradeBoost.end(); ++it )
+		if( upgrade->getUpgradeName() == it->type.c_str() )
+			return INT_TO_REAL( it->amount ) * LOGICFRAMES_PER_GAME_SECOND / INT_TO_REAL( frames );
+	return 0.0f;
 }
 
 // ------------------------------------------------------------------------------------------------
