@@ -166,6 +166,8 @@ LoadScreen::LoadScreen( void )
 
 LoadScreen::~LoadScreen( void )
 {
+	if (TheAudio)
+		m_loadingSpeech.cancel(*TheAudio);
 	//if(m_loadScreen)
 	//	delete (m_loadScreen);
 	if(m_loadScreen)
@@ -180,6 +182,11 @@ void LoadScreen::update( Int percent )
 	TheGameEngine->serviceWindowsOS();
 	if (TheGameEngine->getQuitting())
 		return;	//don't bother with any of this if the player is exiting game.
+	if (m_loadingSpeech.hasPending())
+	{
+		TheAudio->update();
+		m_loadingSpeech.update(*TheAudio);
+	}
 
 	if( TheGameConsole )
 		TheGameConsole->readLoadScreenKeys();
@@ -189,6 +196,26 @@ void LoadScreen::update( Int percent )
 	TheDisplay->draw();
 
 	setFPMode();
+}
+
+void LoadScreen::finishLoading()
+{
+	// Asset loading has already finished. Only the dialogue still pending can
+	// defer completion, on the existing screen and before its fade starts.
+	m_loadingSpeech.seal();
+	m_loadingSpeech.markAssetsReady();
+	while (!m_loadingSpeech.isFinished())
+	{
+		if (TheGameEngine->getQuitting())
+		{
+			m_loadingSpeech.cancel(*TheAudio);
+			return;
+		}
+		update(100);
+		if (!m_loadingSpeech.isFinished())
+			sleepMilliseconds(10);
+	}
+	update(100);
 }
 
 // LoadScreenBoard ////////////////////////////////////////////////////////////
@@ -1441,7 +1468,7 @@ void LoadScreenBoard::drawMatch( void )
 
 // SinglePlayerLoadScreen Class ///////////////////////////////////////////////
 //-----------------------------------------------------------------------------
-CampaignBriefingPlayback::CampaignBriefingPlayback(Clock clock) : m_clock(clock ? clock : Clock_Milliseconds)
+CampaignBriefingPlayback::CampaignBriefingPlayback(Clock clock) : m_queue(NULL), m_clock(clock ? clock : Clock_Milliseconds)
 {
 	reset();
 }
@@ -1464,8 +1491,8 @@ void CampaignBriefingPlayback::update(AudioManager &audio, const AudioEventRTS &
 	if (!audio.isOn(AudioAffect_Speech) || audio.getVolume(AudioAffect_Speech) <= 0.0f)
 		return;
 
-	// Bound the budget to half the wrapping millisecond clock. No device-completion polling, and
-	// no configured integer overflow, can turn this loading-screen wait into an indefinite one.
+	// Retain the timing budget for callers without a queue. Loading screens join
+	// actual queue completion with asset readiness instead of waiting this budget.
 	const UnsignedInt maximumMS = 0x7fffffffU;
 	const Int64 configuredMS = configuredSeconds > 0 ? (Int64)configuredSeconds * 1000 : 0;
 	m_budgetMS = configuredMS > maximumMS ? maximumMS : (UnsignedInt)configuredMS;
@@ -1477,7 +1504,13 @@ void CampaignBriefingPlayback::update(AudioManager &audio, const AudioEventRTS &
 		const UnsignedInt wholeMS = (UnsignedInt)ceil(measuredMS);
 		if (wholeMS > m_budgetMS) m_budgetMS = wholeMS;
 	}
-	audio.friend_forcePlayAudioEventRTS(&voice);
+	if (m_queue)
+	{
+		m_queue->enqueue(voice, measuredMS);
+		m_queue->update(audio);
+	}
+	else
+		audio.friend_forcePlayAudioEventRTS(&voice);
 	// Opening/decoding can take time. Count from after that synchronous request, not before it.
 	m_startedAt = m_clock();
 }
@@ -1492,6 +1525,8 @@ UnsignedInt CampaignBriefingPlayback::remainingMS() const
 
 SinglePlayerLoadScreen::SinglePlayerLoadScreen( void )
 {
+	m_briefingPlayback.setQueue(m_loadingSpeech);
+	m_ambientLoopHandle = AHSV_Error;
 	//Added By Sadullah Nader
 	//Initialization(s) inserted
 	m_currentObjectiveLine = 0;
@@ -1712,26 +1747,9 @@ void SinglePlayerLoadScreen::startBriefingAudio(const Mission &mission, Int movi
 		m_briefingPlayback.update(*TheAudio, mission.m_briefingVoice, mission.m_voiceLength, movieFrame, skipMovie);
 }
 
-void SinglePlayerLoadScreen::waitForBriefingAudio()
-{
-	// Some original voices extend beyond the 800-frame movie. Let them finish over the loading
-	// image before map loading resets audio, while still processing focus loss and exit requests.
-	while (m_briefingPlayback.remainingMS() > 0)
-	{
-		TheGameEngine->serviceWindowsOS();
-		if (TheGameEngine->getQuitting() || !TheGameEngine->isActive())
-		{
-			m_briefingPlayback.cancel();
-			break;
-		}
-		TheWindowManager->update();
-		TheDisplay->draw();
-		sleepMilliseconds(10);
-	}
-}
-
 void SinglePlayerLoadScreen::init( GameInfo *game )
 {
+	m_loadingSpeech.reset(*TheAudio);
 	m_briefingPlayback.reset();
 	//No music in SinglePlayerLoadScreen
 
@@ -1854,7 +1872,6 @@ void SinglePlayerLoadScreen::init( GameInfo *game )
 		m_percent->winHide(TRUE);
 		startBriefingAudio(*mission, 0, TRUE);
 		setFPMode();
-		waitForBriefingAudio();
 		return;
 	}
 
@@ -1874,7 +1891,6 @@ void SinglePlayerLoadScreen::init( GameInfo *game )
 
 		startBriefingAudio(*mission, 0, TRUE);
 		setFPMode();
-		waitForBriefingAudio();
 		return;
 	}
 
@@ -1923,6 +1939,8 @@ void SinglePlayerLoadScreen::init( GameInfo *game )
 
 			// redraw all views, update the GUI
 			TheDisplay->draw();
+			TheAudio->update();
+			m_loadingSpeech.update(*TheAudio);
 		}
 
 		// let the background image show through
@@ -1935,37 +1953,12 @@ void SinglePlayerLoadScreen::init( GameInfo *game )
 	{
 		// if we're min spec'ed don't play a movie
 		startBriefingAudio(*mission, 0, TRUE);
-		const Int64 configuredMS = mission->m_voiceLength > 0 ? (Int64)mission->m_voiceLength * 1000 : 0;
-		UnsignedInt delay = configuredMS > 0x7fffffffU ? 0x7fffffffU : (UnsignedInt)configuredMS;
-		if (!mission->m_briefingVoice.getEventName().isEmpty())
-			delay = m_briefingPlayback.remainingMS();
-		UnsignedInt begin = Clock_Milliseconds();
-		UnsignedInt currTime = begin;
-		Int fudgeFactor = 0;
-		while(currTime - begin < delay)
-		{		
-			TheGameEngine->serviceWindowsOS();
-			if (TheGameEngine->getQuitting() || !TheGameEngine->isActive())
-			{
-				m_briefingPlayback.cancel();
-				break;
-			}
-			fudgeFactor = 30 * ((currTime - begin)/ INT_TO_REAL(delay ));
-			GadgetProgressBarSetProgress(m_progressBar, fudgeFactor);
-
-			TheWindowManager->update();
-			TheDisplay->draw();
-			sleepMilliseconds( 100 );
-			currTime = Clock_Milliseconds();
-		}
-		
-
 		TheWindowManager->update();
 		TheDisplay->draw();
 
 	}
 	setFPMode();
-	waitForBriefingAudio();
+	m_loadingSpeech.seal();
 	m_percent->winHide(TRUE);
 	m_ambientLoopHandle = TheAudio->addAudioEvent(&m_ambientLoop);
 	
@@ -2005,7 +1998,7 @@ void SinglePlayerLoadScreen::update( Int percent )
 	}
 	percent = (percent + FRAME_FUDGE_ADD)/1.3;
 	TheMouse->setCursorTooltip(UnicodeString::TheEmptyString);
-	m_board->setLocalProgress( percent );
+	m_board->setLocalProgress( m_loadingSpeech.displayProgress(percent) );
 
 	// Do this last!
 	LoadScreen::update( percent );
@@ -2018,8 +2011,110 @@ void SinglePlayerLoadScreen::setProgressRange( Int min, Int max )
 
 // ChallengeLoadScreen Class ///////////////////////////////////////////////
 //-----------------------------------------------------------------------------
+LoadingSpeechQueue::LoadingSpeechQueue(CampaignBriefingPlayback::Clock clock)
+	: m_clock(clock ? clock : Clock_Milliseconds), m_handle(AHSV_Error),
+	  m_startedAt(0), m_budgetMS(0), m_waiting(FALSE), m_stopRequested(FALSE),
+	  m_sealed(FALSE), m_assetsReady(FALSE), m_finished(FALSE)
+{
+}
+
+void LoadingSpeechQueue::enqueue(const AudioEventRTS &voice, Real measuredLengthMS)
+{
+	if (m_sealed || m_finished || voice.getEventName().isEmpty())
+		return;
+	m_pending.push_back(Speech(voice, measuredLengthMS));
+}
+
+void LoadingSpeechQueue::update(AudioManager &audio)
+{
+	const Bool audible = audio.isOn(AudioAffect_Speech) && audio.getVolume(AudioAffect_Speech) > 0.0f;
+	if (!audible)
+		m_pending.clear();
+	if (m_handle >= AHSV_FirstHandle)
+	{
+		if (audio.isCurrentlyPlaying(m_handle))
+		{
+			// Loader work may delay submission of a queued request. Only start
+			// the stalled-request budget once the assets have finished loading.
+			if (m_assetsReady && !m_waiting)
+			{
+				m_waiting = TRUE;
+				m_startedAt = m_clock();
+			}
+			if (!m_stopRequested && (!audible || (m_waiting && m_clock() - m_startedAt >= m_budgetMS)))
+			{
+				audio.removeAudioEvent(m_handle);
+				m_stopRequested = TRUE;
+			}
+			// A stop may itself be queued. Never start another line or report
+			// completion until the backend confirms this handle is no longer live.
+			if (audio.isCurrentlyPlaying(m_handle))
+				return;
+		}
+		m_handle = AHSV_Error;
+		m_waiting = FALSE;
+		m_stopRequested = FALSE;
+	}
+	while (audible && !m_pending.empty())
+	{
+		const Speech speech = m_pending.front();
+		m_pending.pop_front();
+		const Real lengthMS = speech.lengthMS < 0.0f ? audio.getAudioLengthMS(&speech.event) : speech.lengthMS;
+		if (!(lengthMS > 0.0f)) // missing files and NaN lengths add no hold
+			continue;
+		const UnsignedInt maximumMS = 0x7fffffffU - 1000u;
+		m_budgetMS = (lengthMS < (Real)maximumMS ? (UnsignedInt)ceil(lengthMS) : maximumMS) + 1000u;
+		const AudioHandle handle = audio.addAudioEvent(&speech.event);
+		if (handle < AHSV_FirstHandle)
+			continue;
+		m_handle = handle;
+		m_waiting = m_assetsReady;
+		m_startedAt = m_clock();
+		return;
+	}
+	updateCompletion();
+}
+
+void LoadingSpeechQueue::updateCompletion()
+{
+	if (m_assetsReady && m_sealed && !hasPending())
+		m_finished = TRUE;
+}
+
+void LoadingSpeechQueue::seal()
+{
+	m_sealed = TRUE;
+	updateCompletion();
+}
+
+void LoadingSpeechQueue::markAssetsReady()
+{
+	m_assetsReady = TRUE;
+	updateCompletion();
+}
+
+void LoadingSpeechQueue::cancel(AudioManager &audio)
+{
+	if (m_handle >= AHSV_FirstHandle)
+		audio.removeAudioEvent(m_handle);
+	m_pending.clear();
+	m_handle = AHSV_Error;
+	m_budgetMS = 0;
+	m_waiting = FALSE;
+	m_stopRequested = FALSE;
+}
+
+void LoadingSpeechQueue::reset(AudioManager &audio)
+{
+	cancel(audio);
+	m_sealed = FALSE;
+	m_assetsReady = FALSE;
+	m_finished = FALSE;
+}
+
 ChallengeLoadScreen::ChallengeLoadScreen( void )
 {
+	m_ambientLoopHandle = AHSV_Error;
 	m_progressBar = NULL;
 	m_videoStream = NULL;
 	m_videoBuffer = NULL;
@@ -2203,7 +2298,7 @@ void ChallengeLoadScreen::activatePieces( Int frame, const GeneralPersona *gener
 				m_portraitMovieRight->winHide(FALSE);
 			}
 
-			TheAudio->addAudioEvent( &eventLeftGeneral );
+			m_loadingSpeech.enqueue(eventLeftGeneral);
 			
 			break;
 		case FRAME_OUTER_CIRCLE_LINE_SHOW:
@@ -2235,11 +2330,11 @@ void ChallengeLoadScreen::activatePieces( Int frame, const GeneralPersona *gener
 			m_wndVideoManager->playMovie( m_overlayVs, AsciiString("VSSmall"), WINDOW_PLAY_MOVIE_SHOW_LAST_FRAME);
 
 			// "Verses"
-			TheAudio->addAudioEvent( &eventVS );
+			m_loadingSpeech.enqueue(eventVS);
 
 			break;
 		case FRAME_RIGHT_VOICE:
-			TheAudio->addAudioEvent( &eventRightGeneral );
+			m_loadingSpeech.enqueue(eventRightGeneral);
 
 			break;
 	}
@@ -2312,6 +2407,7 @@ void ChallengeLoadScreen::activatePiecesMinSpec(const GeneralPersona *generalPla
 
 void ChallengeLoadScreen::init( GameInfo *game )
 {
+	m_loadingSpeech.reset(*TheAudio);
 	const Campaign *campaign = TheCampaignManager->getCurrentCampaign();
 	const Mission *mission = TheCampaignManager->getCurrentMission();
 
@@ -2487,6 +2583,7 @@ void ChallengeLoadScreen::init( GameInfo *game )
 			TheDisplay->draw();
 
 			TheAudio->update();
+			m_loadingSpeech.update(*TheAudio);
 		}
 	}
 	else
@@ -2502,21 +2599,6 @@ void ChallengeLoadScreen::init( GameInfo *game )
 
 		activatePiecesMinSpec(generalPlayer, generalOpponent);
 
-		Int delay = mission->m_voiceLength * 1000;
-		Int begin = Clock_Milliseconds();
-		Int currTime = begin;
-		Int fudgeFactor = 0;
-		while(begin + delay > currTime )
-		{		
-			fudgeFactor = 30 * ((currTime - begin)/ INT_TO_REAL(delay ));
-			GadgetProgressBarSetProgress(m_progressBar, fudgeFactor);
-
-			TheWindowManager->update();
-			TheDisplay->draw();
-			sleepMilliseconds( 100 );
-			currTime = Clock_Milliseconds();
-		}
-		
 		m_wndVideoManager->update();
 		TheWindowManager->update();
 		TheDisplay->draw();
@@ -2525,10 +2607,13 @@ void ChallengeLoadScreen::init( GameInfo *game )
 
 	
 	AudioEventRTS event( generalOpponent ? generalOpponent->getRandomTauntSound() : AsciiString::TheEmptyString );
-	TheAudio->addAudioEvent( &event );
+	m_loadingSpeech.enqueue(event);
+	m_loadingSpeech.seal();
+	m_loadingSpeech.update(*TheAudio);
 
 	m_ambientLoopHandle = TheAudio->addAudioEvent(&m_ambientLoop);
 	TheAudio->update();
+
 }
 
 void ChallengeLoadScreen::reset( void )
@@ -2540,6 +2625,7 @@ void ChallengeLoadScreen::reset( void )
 void ChallengeLoadScreen::update( Int percent )
 {
 	percent = (percent + FRAME_FUDGE_ADD)/1.3;
+	percent = m_loadingSpeech.displayProgress(percent);
 	UnicodeString per;
 	per.format(u"%d%%",percent);
 	TheMouse->setCursorTooltip(UnicodeString::TheEmptyString);

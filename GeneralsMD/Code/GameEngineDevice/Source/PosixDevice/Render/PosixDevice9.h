@@ -299,6 +299,7 @@ public:
 	SdlResourceMirrors * Get_Mirrors() const { return Mirrors; }
 	/// Draws recorded on the GPU, and the draws refused, by reason.
 	unsigned int Draws_Recorded() const { return DrawsRecorded; }
+	unsigned int Main_Water_Draws_Recorded() const { return MainWaterDrawsRecorded; }
 	struct VertexStagingStatistics {
 		uint64_t copies = 0, hits = 0, copiedBytes = 0, reusedBytes = 0;
 	};
@@ -625,6 +626,7 @@ protected:
 		StagedVertex = StagedVertexRange();
 	}
 	unsigned int DrawsRecorded;
+	unsigned int MainWaterDrawsRecorded=0;
 	unsigned int PresentCount;
 	std::map<std::string, unsigned int> DrawRefusals;
 	std::map<std::string, unsigned int> EngineProgramDraws;	///< draws recorded with a transcribed half, by its name (A3e)

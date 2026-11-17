@@ -696,6 +696,7 @@ void PosixDevice9::Build_Water_Constants(const SdlPixelConstants &pixel_constant
 	memcpy(water.MaterialColor, PixelShaderConstants[ModernWaterMaterial::RegisterColor], sizeof(water.MaterialColor));
 	memcpy(water.MaterialParameters, PixelShaderConstants[ModernWaterMaterial::RegisterParameters], sizeof(water.MaterialParameters));
 	memcpy(water.MaterialOptics, PixelShaderConstants[ModernWaterMaterial::RegisterOptics], sizeof(water.MaterialOptics));
+	memcpy(water.MaterialSurface, PixelShaderConstants[ModernWaterMaterial::RegisterSurface], sizeof(water.MaterialSurface));
 	if (Water_Foam_History_Available()) {
 		memcpy(water.FoamHistoryArea, PixelShaderConstants[88], sizeof(water.FoamHistoryArea));
 		memcpy(water.FoamHistoryParameters, PixelShaderConstants[89], sizeof(water.FoamHistoryParameters));
@@ -2097,6 +2098,7 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		}
 	}
 	++DrawsRecorded;
+	if(clean_main) ++MainWaterDrawsRecorded;
 	if (vertex_engine != ENGINE_SHADER_NONE || pixel_engine != ENGINE_SHADER_NONE) {
 		++EngineProgramDraws[EngineShader_Name((EngineShaderProgram)(vertex_engine != ENGINE_SHADER_NONE
 			? vertex_engine : pixel_engine))];

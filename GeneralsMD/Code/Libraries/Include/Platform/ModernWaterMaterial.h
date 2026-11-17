@@ -4,10 +4,12 @@
 #include <string>
 
 // Keep the native float4 declarations identical in C++ and generated HLSL.
-#define MODERN_WATER_MATERIAL_UNIFORMS(X) X(MaterialColor) X(MaterialParameters) X(MaterialOptics)
+#define MODERN_WATER_MATERIAL_UNIFORMS(X) X(MaterialColor) X(MaterialParameters) X(MaterialOptics) X(MaterialSurface)
 
 namespace ModernWaterMaterial {
-enum : unsigned { RegisterColor=94, RegisterParameters=95, RegisterOptics=190, UniformRegisters=3 };
+enum : unsigned { RegisterColor=94, RegisterParameters=95, RegisterOptics=190, RegisterSurface=189, UniformRegisters=4 };
+// c189: turbidity, added surface roughness, visual ripple damping, wind resistance (all 0..1).
+// c191 belongs to WaterWaveHeading; material edits must never select a movement mode.
 // c190.x: reduction of authored offshore extinction; zero retains the original profile.
 // c190.y: path-reflection strength minus one; zero keeps older draws/banks unchanged.
 // c94: display-space RGB, brightness. c95: tint amount, pollution amount, bubbles, and whether
@@ -38,11 +40,34 @@ float3 modernWaterMaterialTransmission(float3 original,float3 colour,float pollu
     float density=saturate(pollution)*lerp(0.78,1.0,saturate(patch));
     return original*exp(-extinction*clamp(path,0.0,80.0)*density);
 }
+float3 modernWaterTurbidTransmission(float3 original,float amount,float path) {
+    if(!(amount>0.0)) return original;
+    return original*exp(-0.30*saturate(amount)*clamp(path,0.0,80.0));
+}
+float3 modernWaterDampedNormal(float3 original,float amount) {
+    if(!(amount>0.0)) return original;
+    // Visual damping only: retain the geometry, shared FFT clock and bubble normals.
+    return normalize(float3(original.xy*lerp(1.0,0.12,saturate(amount)),original.z));
+}
+float modernWaterSurfaceRoughness(float original,float amount) {
+    return lerp(original,max(original,0.85),saturate(amount));
+}
 float3 modernWaterBubbleFilm(float3 colour) {
     return 0.05+0.25*modernWaterMaterialHue(colour);
 }
 float modernWaterBubbleWeight(float pollution,float enabled,float depth) {
     return saturate(pollution)*saturate(enabled)*smoothstep(0.1,1.0,depth);
+}
+)HLSL";
+}
+
+// Shared by physical displacement and filtered lighting. Zero is an exact identity;
+// full resistance removes wind response without changing direction, clock or bubbles.
+inline const char *WindSource() {
+    return R"HLSL(
+float modernWaterWindGain(float resistance) {
+    float response=1.0-saturate(resistance);
+    return response*response;
 }
 )HLSL";
 }

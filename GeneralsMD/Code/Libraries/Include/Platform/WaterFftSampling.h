@@ -122,7 +122,7 @@ inline std::string CommonSource()
     std::snprintf(limits,sizeof(limits),
         "static const float fftVerticalBound=%.9g;\nstatic const float fftHorizontalBound=%.9g;\nstatic const float fftWorldScale=%.9g;\n",
         double(WaterFftGeometry::MaxVerticalDisplacement),double(WaterFftGeometry::MaxHorizontalDisplacement)/1.4142135623730951,double(WorldScale));
-    return std::string(limits)+R"HLSL(
+    return std::string(ModernWaterMaterial::WindSource())+limits+R"HLSL(
 // Smooth limits make culling/floor bounds independent of the random spectrum's extrema.
 // Each XY component is bounded by the radial limit / sqrt(2), preserving the hull-clearance
 // proof even for diagonal crests. Keep the derivative in the same model as displacement.
@@ -1153,6 +1153,13 @@ float3 fftVertexDisplacement(float2 p) {return fftVertexDisplacement(p,WaterPara
         const std::string before=bowLift?"float3 fftVertexDisplacement(float2 p,float level,float horizontalScale) {":"// Compatibility callers without mesh metadata retain their unregistered model.";
         source.insert(source.find(before),wrapper);
     }
+    // Scale incident wind before limiting or adding independently generated vessel waves.
+    CleanReplace(source,"float3 displacement=fftRawDisplacement(p);",
+        "float3 displacement=fftRawDisplacement(p)*modernWaterWindGain(MaterialSurface.w);");
+    CleanReplace(source,"float3 displacement=fftRawDisplacement(p,context);",
+        "float3 displacement=fftRawDisplacement(p,context)*modernWaterWindGain(MaterialSurface.w);");
+    CleanReplace(source,"fftRawDisplacement(reflected.samplePosition)",
+        "fftRawDisplacement(reflected.samplePosition)*modernWaterWindGain(MaterialSurface.w)");
     if(textureArray) for(unsigned cascade=0;cascade<3;++cascade) {
         const std::string i=std::to_string(cascade);
         const std::string declaration="Texture2D FftDisplacement"+i;
@@ -1546,6 +1553,28 @@ void fftRawAndShadingSurface(float2 p,float3 lod,out FftSurface physical,out Fft
         CleanReplace(source,"FftCleanRotation : register(t13)","FftCleanRotation : register(t6)");
         CleanReplace(source,"FftCleanRotationSampler : register(s13)","FftCleanRotationSampler : register(s6)");
     }
+    const std::string windSurface=R"HLSL(
+void fftResistWind(inout FftSurface surface,float gain) {
+    if(gain>=1.0)return;
+    surface.displacement*=gain;
+    surface.derivativeX*=gain;
+    surface.derivativeY*=gain;
+    surface.contactIncident*=gain;
+    surface.incidentCompression=(1.0+surface.derivativeX.x)*(1.0+surface.derivativeY.y)
+        -surface.derivativeX.y*surface.derivativeY.x;
+}
+)HLSL";
+    source.insert(source.find("FftSurface fftSurface(float2 p,float level,float footprint,"),windSurface);
+    CleanReplace(source,"    float reflectionVariance=1.0;",
+        "    float windGain=modernWaterWindGain(MaterialSurface.w);\n"
+        "    fftResistWind(value,windGain);fftResistWind(shading,windGain);\n"
+        "    float reflectionVariance=1.0;");
+    CleanReplace(source,"fftRawAndShadingSurface(reflected.samplePosition,shadingLod,incident,shadingIncident);",
+        "fftRawAndShadingSurface(reflected.samplePosition,shadingLod,incident,shadingIncident);\n"
+        "                fftResistWind(incident,windGain);fftResistWind(shadingIncident,windGain);");
+    // Missing slope power is variance, so it follows the square of the amplitude gain.
+    CleanReplace(source,"reflectionVariance*shadingLimit.z*shadingLimit.z;",
+        "reflectionVariance*shadingLimit.z*shadingLimit.z*windGain*windGain;");
     if(textureArray) {
         // Preserve the independent-map source contract used by the coastal decoder and
         // numerical fixtures; only the material's native binding changes.

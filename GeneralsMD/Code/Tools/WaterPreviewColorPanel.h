@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -54,7 +55,7 @@ public:
             }
             if (!inside(mouseX, mouseY)) return false;
             if (event.button.button == SDL_BUTTON_LEFT) {
-                for (int row = 0; row < 5; ++row) {
+                for (int row = 0; row < SliderCount; ++row) {
                     if (mouseY >= trackY(row) - 12 && mouseY <= trackY(row) + 12 &&
                         mouseX >= Left + 12 && mouseX <= Left + Width - 12) {
                         activeSlider = row;
@@ -62,13 +63,21 @@ public:
                         return true;
                     }
                 }
-                if (hit(mouseX, mouseY, Left + 16, Top + 351, 122, 34)) {
+                if (hit(mouseX, mouseY, Left + 16, Top + 540, 122, 34)) {
+                    toxicLook(values);
+                    edited = true;
+                    status = "TOXIC LOOK - UNSAVED";
+                } else if (hit(mouseX, mouseY, Left + 150, Top + 540, 122, 34)) {
+                    clearSurfaceEffects(values);
+                    edited = true;
+                    status = "SURFACE EFFECTS CLEARED";
+                } else if (hit(mouseX, mouseY, Left + 16, Top + 582, 122, 34)) {
                     values = defaults;
                     edited = true;
                     status = "UNSAVED CHANGES";
-                } else if (hit(mouseX, mouseY, Left + 150, Top + 351, 122, 34)) {
+                } else if (hit(mouseX, mouseY, Left + 150, Top + 582, 122, 34)) {
                     saveRequested = true;
-                    status = "SAVING COLOR...";
+                    status = "SAVING LOOK...";
                 }
             }
             return true;
@@ -93,7 +102,7 @@ public:
         rect(Left, Top, Width, 3, 0xff93bd75);
         rect(Left, Top + Height - 1, Width, 1, 0xff3a4650);
         text(Left + 16, Top + 16, "WATER PREVIEW", 2.f, 0xffeaf0e6);
-        text(Left + 16, Top + 39, "LIVE COLOR MODIFIER", 1.5f, 0xff9caeb9);
+        text(Left + 16, Top + 39, "LIVE MATERIAL CONTROLS", 1.5f, 0xff9caeb9);
 
         const unsigned r = byte(values.red), g = byte(values.green), b = byte(values.blue);
         const uint32_t tint = 0xff000000u | (r << 16) | (g << 8) | b;
@@ -105,9 +114,14 @@ public:
         std::snprintf(hex, sizeof(hex), "#%02X%02X%02X", r, g, b);
         text(Left + 178, Top + 70, hex, 2.f, swatchText);
 
-        const char *labels[] = {"RED", "GREEN", "BLUE", "BRIGHTNESS", "POLLUTION"};
-        const uint32_t accents[] = {0xffe58484, 0xff91c788, 0xff83acdc, 0xffd0c78f, 0xffa2bf7c};
-        for (int row = 0; row < 5; ++row) {
+        const char *labels[] = {"RED", "GREEN", "BLUE", "BRIGHTNESS", "POLLUTION",
+            "TURBIDITY", "SURFACE ROUGHNESS", "RIPPLE DAMPING", "WIND RESISTANCE"};
+        const char *hints[] = {"MATERIAL COLOUR", "MATERIAL COLOUR", "MATERIAL COLOUR",
+            "HIGHER VALUES LIGHTEN MATERIAL", "COLOURED UNDERWATER ABSORPTION", "CLOUDIER - HIDES SUBMERGED DETAIL",
+            "DULLER HIGHLIGHTS AND REFLECTIONS", "CALMER SHADING - SAME WAVE SHAPE", "LESS WAVE HEIGHT, CHOP AND GLINT"};
+        const uint32_t accents[] = {0xffe58484, 0xff91c788, 0xff83acdc, 0xffd0c78f, 0xffa2bf7c,
+            0xffb8b785, 0xffaeb9c5, 0xff86bab8, 0xffb2bb71};
+        for (int row = 0; row < SliderCount; ++row) {
             const float labelY = Top + 111 + 45 * row;
             const float value = component(row);
             const float low = row == 3 ? .1f : 0.f;
@@ -122,12 +136,16 @@ public:
             if (activeSlider == row) rect(knobX - 7, trackY(row) - 10, 14, 20, 0x508cdcab);
             rect(knobX - 4, trackY(row) - 8, 8, 16, 0xffedf3eb);
             rect(knobX - 2, trackY(row) - 5, 4, 10, accents[row]);
+            text(Left + 16, labelY + 34, hints[row], 1.f, 0xff879ba8);
         }
 
-        button(Left + 16, Top + 351, "RESET COLOR", false);
-        button(Left + 150, Top + 351, "SAVE COLOR", true);
-        text(Left + 16, Top + 397, status.substr(0, 28).c_str(), 1.5f, 0xffa9b9a2);
-        text(Left + 16, Top + 420, "H PANEL  L LOAD  E EXPORT INI", 1.f, 0xff879ba8);
+        button(Left + 16, Top + 540, "TOXIC LOOK", true);
+        button(Left + 150, Top + 540, "CLEAR FX", false);
+        button(Left + 16, Top + 582, "RESET LOOK", false);
+        button(Left + 150, Top + 582, "SAVE LOOK", true);
+        text(Left + 16, Top + 628, status.substr(0, 28).c_str(), 1.5f, 0xffa9b9a2);
+        text(Left + 16, Top + 650, "H PANEL  L LOAD  E EXPORT INI", 1.f, 0xff879ba8);
+        text(Left + 16, Top + 663, "B BUBBLES  T TOXIC  C CLEAR FX", 1.f, 0xff879ba8);
 
         device->SetPixelShader(nullptr);
         device->SetVertexShader(nullptr);
@@ -157,7 +175,8 @@ public:
 
 private:
     struct Vertex { float x, y, z, rhw; uint32_t color; };
-    static constexpr float Left = 16, Top = 16, Width = 288, Height = 442;
+    static constexpr int SliderCount = 9;
+    static constexpr float Left = 16, Top = 16, Width = 288, Height = 682;
     float scale = 1.f, mouseX = -1.f, mouseY = -1.f;
     int activeSlider = -1;
     std::vector<Vertex> vertices;
@@ -175,7 +194,11 @@ private:
             case 1: return values.green;
             case 2: return values.blue;
             case 3: return values.brightness;
-            default: return values.strength;
+            case 4: return values.strength;
+            case 5: return values.turbidity;
+            case 6: return values.surfaceRoughness;
+            case 7: return values.rippleDamping;
+            default: return values.windResistance;
         }
     }
     void updateSlider(int row, float x)
@@ -203,7 +226,7 @@ private:
         const bool hover = hit(mouseX, mouseY, x, y, 122, 34);
         rect(x, y, 122, 34, primary ? 0xff95ba79 : 0xff56636d);
         rect(x + 1, y + 1, 120, 32, primary ? (hover ? 0xff466043 : 0xff354b34) : (hover ? 0xff3e4a55 : 0xff2d3741));
-        const float offset = primary ? 16.f : 11.5f;
+        const float offset = (122.f - std::strlen(label) * 9.f) * .5f;
         text(x + offset, y + 12, label, 1.5f, 0xffe4eedf);
     }
 

@@ -25,12 +25,14 @@ import contextlib
 import hashlib
 import importlib.util
 import io
+import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import tarfile
 import tempfile
+import textwrap
 import unittest
 from unittest import mock
 import xml.etree.ElementTree as ET
@@ -309,6 +311,210 @@ class LinuxReleaseTests(unittest.TestCase):
         version.write_text(version.read_text().replace("x86_64", "aarch64"))
         with self.assertRaisesRegex(ValueError, "x86_64"):
             release.verify_tag(version, "v3.2.0")
+
+    def metadata_sources(self):
+        source = self.work / "repository"
+        notes = source / "docs/releases/v3.2.0.md"
+        image = source / ".github/media/releases/v3.2.0-launch.png"
+        notes.parent.mkdir(parents=True, exist_ok=True)
+        image.parent.mkdir(parents=True, exist_ok=True)
+        notes.write_text("# Release 3.2.0\n\n![Launch](https://example.test/v3.2.0-launch.png)\n")
+        image.write_bytes(b"\x89PNG\r\n\x1a\nsynthetic image fixture")
+        return source, notes, image
+
+    def stage_metadata(self, source, output=None, repository="owner/repository", tag="v3.2.0"):
+        output = output or self.work / "release-metadata"
+        with contextlib.redirect_stdout(io.StringIO()):
+            release.release_metadata(source, repository, tag, output)
+        return output
+
+    def publish_fixture(self, custom=True):
+        native, flatpak = self.package_jobs()
+        packages = self.work / "release"
+        with contextlib.redirect_stdout(io.StringIO()):
+            release.assemble(native, flatpak, packages)
+        source, notes, image = self.metadata_sources()
+        if not custom:
+            notes.unlink()
+            image.unlink()
+        metadata = self.stage_metadata(source)
+        fake_bin = self.work / "bin"
+        fake_bin.mkdir()
+        gh = fake_bin / "gh"
+        gh.write_text(textwrap.dedent("""\
+            #!/usr/bin/env python3
+            import json
+            import os
+            from pathlib import Path
+            import shutil
+            import sys
+            args = sys.argv[1:]
+            root = Path(os.environ['RUNNER_TEMP'])
+            with (root / 'gh-calls.jsonl').open('a') as log:
+                log.write(json.dumps(args) + '\\n')
+            if args[:2] == ['release', 'view']:
+                state = os.environ.get('FAKE_RELEASE_STATE', 'missing')
+                if state == 'missing':
+                    sys.exit(1)
+                print('true' if state == 'draft' else 'false')
+            elif args[:2] == ['release', 'download']:
+                name = args[args.index('--pattern') + 1]
+                shutil.copyfile(root / 'remote' / name, Path(args[args.index('--dir') + 1]) / name)
+            elif '--notes-file' in args:
+                notes = Path(args[args.index('--notes-file') + 1]).read_bytes()
+                (root / 'sent-notes.md').write_bytes(notes)
+            """))
+        gh.chmod(0o755)
+        return packages, metadata
+
+    def publish_script(self):
+        workflow = (TOOLS.parents[2] / ".github/workflows/linux-release.yml").read_text()
+        release_job = workflow.split("\n  release:\n", 1)[1]
+        self.assertNotIn("actions/checkout@", release_job)
+        self.assertNotIn("GeneralsMD/Code/Tools/", release_job)
+        self.assertIn("needs: assemble", release_job)
+        return textwrap.dedent(release_job.split("        run: |\n", 1)[1])
+
+    def publish(self, state="missing", tag="v3.2.0", repository="owner/repository"):
+        env = dict(os.environ, RUNNER_TEMP=str(self.work), RELEASE_TAG=tag,
+                   GH_REPO=repository, FAKE_RELEASE_STATE=state,
+                   PATH=str(self.work / "bin") + os.pathsep + os.environ["PATH"])
+        return subprocess.run(["bash", "-e", "-o", "pipefail", "-c", self.publish_script()],
+                              env=env, capture_output=True, text=True)
+
+    def gh_calls(self):
+        log = self.work / "gh-calls.jsonl"
+        return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+
+    def test_release_metadata_preserves_exact_notes_and_image_separately_from_packages(self):
+        packages, metadata = self.publish_fixture()
+        source = self.work / "repository"
+        self.assertEqual((metadata / "release-notes.md").read_bytes(), (source / "docs/releases/v3.2.0.md").read_bytes())
+        self.assertEqual((metadata / "v3.2.0-launch.png").read_bytes(), (source / ".github/media/releases/v3.2.0-launch.png").read_bytes())
+        self.assertEqual(len(release.verify_checksums(metadata)), 3)
+        self.assertEqual(len(release.verify_checksums(packages)), 6)
+        result = self.publish()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        upload = next(call for call in self.gh_calls() if call[:2] == ["release", "upload"])
+        self.assertIn("v3.2.0-launch.png", upload)
+        self.assertEqual((self.work / "sent-notes.md").read_bytes(), (metadata / "release-notes.md").read_bytes())
+        self.assertEqual(len((packages / "SHA256SUMS").read_text().splitlines()), 6)
+
+    def test_release_metadata_absent_pair_uses_generic_notes_for_resumed_draft(self):
+        packages, metadata = self.publish_fixture(custom=False)
+        self.assertEqual(set(release.verify_checksums(metadata)), {"release-context.txt", "release-notes.md"})
+        self.assertEqual((metadata / "release-notes.md").read_text(), release.GENERIC_RELEASE_NOTES)
+        result = self.publish(state="draft")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        calls = self.gh_calls()
+        self.assertFalse(any(call[:2] == ["release", "create"] for call in calls))
+        edit = next(call for call in calls if call[:2] == ["release", "edit"])
+        self.assertIn("--notes-file", edit)
+        self.assertIn("--draft=false", edit)
+        self.assertEqual(len(list(packages.iterdir())), 7)
+
+    def test_release_metadata_rejects_unsafe_identity_and_incomplete_sources(self):
+        source, notes, image = self.metadata_sources()
+        for repository, tag in (("../repo", "v3.2.0"), ("owner/repo/extra", "v3.2.0"),
+                                ("-owner/repo", "v3.2.0"), ("owner/repo", "../v3.2.0"),
+                                ("owner/repo", "v3.2.0-linux.01"), ("owner/repo", "main")):
+            with self.subTest(repository=repository, tag=tag), self.assertRaises(ValueError):
+                self.stage_metadata(source, repository=repository, tag=tag)
+        image.unlink()
+        with self.assertRaisesRegex(ValueError, "both exist"):
+            self.stage_metadata(source)
+        notes.unlink()
+        image.write_bytes(b"\x89PNG\r\n\x1a\nfixture")
+        with self.assertRaisesRegex(ValueError, "both exist"):
+            self.stage_metadata(source)
+
+    def test_release_metadata_rejects_links_invalid_content_and_existing_output(self):
+        source, notes, image = self.metadata_sources()
+        valid_image = image.read_bytes()
+        image.write_bytes(b"not a PNG")
+        with self.assertRaisesRegex(ValueError, "must be PNG"):
+            self.stage_metadata(source)
+        image.write_bytes(valid_image)
+        original_notes = notes.read_bytes()
+        notes.write_text("\0")
+        with self.assertRaisesRegex(ValueError, "invalid release notes"):
+            self.stage_metadata(source)
+        notes.write_bytes(original_notes)
+        external = self.work / "external.md"
+        notes.rename(external)
+        notes.symlink_to(external)
+        with self.assertRaisesRegex(ValueError, "links forbidden"):
+            self.stage_metadata(source)
+        notes.unlink()
+        notes.write_bytes(original_notes)
+        output = self.stage_metadata(source)
+        with self.assertRaisesRegex(ValueError, "must be empty"):
+            self.stage_metadata(source, output)
+
+    def test_publish_refuses_bad_metadata_and_identity_before_any_github_call(self):
+        packages, metadata = self.publish_fixture()
+        original = {path.name: path.read_bytes() for path in metadata.iterdir()}
+        for mutation in ("corrupt", "incomplete", "missing-image", "context", "unlisted", "link"):
+            with self.subTest(mutation=mutation):
+                for path in metadata.iterdir():
+                    path.unlink()
+                for name, data in original.items():
+                    (metadata / name).write_bytes(data)
+                if mutation == "corrupt":
+                    (metadata / "v3.2.0-launch.png").write_bytes(b"\x89PNG\r\n\x1a\nchanged")
+                elif mutation == "incomplete":
+                    (metadata / "release-notes.md").unlink()
+                elif mutation == "missing-image":
+                    (metadata / "v3.2.0-launch.png").unlink()
+                    self.manifest(metadata)
+                elif mutation == "context":
+                    (metadata / "release-context.txt").write_text("other/repository\nv3.2.0\n")
+                    self.manifest(metadata)
+                elif mutation == "unlisted":
+                    (metadata / "run-me.sh").write_text("exit 0")
+                else:
+                    (metadata / "v3.2.0-launch.png").unlink()
+                    (metadata / "v3.2.0-launch.png").symlink_to(self.work / "repository/.github/media/releases/v3.2.0-launch.png")
+                result = self.publish()
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(self.gh_calls(), [])
+        for tag, repository in (("../v3.2.0", "owner/repository"), ("v3.2.0", "--repo=other/repo")):
+            result = self.publish(tag=tag, repository=repository)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(self.gh_calls(), [])
+
+    def test_publish_rejects_unsafe_or_incomplete_package_handoff_before_github(self):
+        packages, metadata = self.publish_fixture()
+        original = (packages / "SHA256SUMS").read_text()
+        for invalid in (original.replace(release.TARBALL, "../" + release.TARBALL),
+                        "\n".join(original.splitlines()[:-1]) + "\n", original + original.splitlines()[0] + "\n"):
+            (packages / "SHA256SUMS").write_text(invalid)
+            result = self.publish()
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(self.gh_calls(), [])
+
+    def test_published_release_stays_immutable_including_launch_artwork(self):
+        packages, metadata = self.publish_fixture()
+        remote = self.work / "remote"
+        shutil.copytree(packages, remote)
+        shutil.copyfile(metadata / "v3.2.0-launch.png", remote / "v3.2.0-launch.png")
+        result = self.publish(state="published")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("leaving the release unchanged", result.stdout)
+        self.assertFalse(any(call[1] in {"create", "upload", "edit"} for call in self.gh_calls()))
+        # Restore the pre-publication package inventory before exercising another run.
+        (packages / "v3.2.0-launch.png").unlink()
+        (remote / "v3.2.0-launch.png").write_bytes(b"different published image")
+        result = self.publish(state="published")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("different artwork", result.stdout)
+        self.assertFalse(any(call[1] in {"create", "upload", "edit"} for call in self.gh_calls()))
+        (packages / "v3.2.0-launch.png").unlink()
+        (remote / "SHA256SUMS").write_text("different published package manifest\n")
+        result = self.publish(state="published")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("different packages", result.stdout)
+        self.assertFalse(any(call[1] in {"create", "upload", "edit"} for call in self.gh_calls()))
 
     def test_junit_reports_asset_skips_without_hiding_gpu_requirements(self):
         report = self.report()

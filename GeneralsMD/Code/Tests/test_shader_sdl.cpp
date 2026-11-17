@@ -406,6 +406,7 @@ const WaterUniformMember WaterUniformMembers[] = {
     WATER_UNIFORM_MEMBER(MaterialColor),
     WATER_UNIFORM_MEMBER(MaterialParameters),
     WATER_UNIFORM_MEMBER(MaterialOptics),
+    WATER_UNIFORM_MEMBER(MaterialSurface),
     WATER_UNIFORM_MEMBER(ClipFromWorld)
 };
 #undef WATER_COMBINER_MEMBER
@@ -1952,12 +1953,13 @@ TEST(water_protected_sampling_source_hashes)
         add(WaterFftSampling::VertexSource(lift,shoulder,array,heading));
         for(unsigned resolution:{128u,256u})add(WaterFftSampling::PixelSource(lift,shoulder,array,WaterFftSpectrum::ForResolution(resolution),heading));
     }
-    const uint64_t expected=WaterFftSampling::SharedEnabled()?0x692f0c5c6af7c3d1ull:
-        WaterFftSampling::WindRequested()?0x68746f3e518fd87bull:0x6ffc0ab0ecd4ecb7ull;
+    // Shared material wind attenuation is present in every sampling variant.
+    const uint64_t expected=WaterFftSampling::SharedEnabled()?0x302f1da6d3b4a4e1ull:
+        WaterFftSampling::WindRequested()?0x23e1d0c178301de7ull:0xf48d81dab3f5728bull;
     CHECK(hash==expected);
 }
 
-// High-quality clean sampling snapshot (48 sources), including the shore-turn collapse fix.
+// High-quality clean sampling snapshot (48 sources), including material wind resistance.
 TEST(water_clean_high_sampling_source_hash)
 {
     if(!WaterCleanSpectrum::Enabled() || WaterCleanProfile::Key(WaterCleanProfile::Environment()) ||
@@ -1972,7 +1974,7 @@ TEST(water_clean_high_sampling_source_hash)
         for(unsigned resolution:{128u,256u})
             add(WaterFftSampling::PixelSource(lift,shoulder,array,WaterFftSpectrum::ForResolution(resolution),true,false,main));
     }
-    CHECK(hash==0xd56913be650ec059ull);
+    CHECK(hash==0x21c5de2ec650d531ull);
 }
 
 static void checkCleanSpecialized(const char *view);
@@ -2056,7 +2058,7 @@ TEST(water_performance_tiers_compile_both_materials_and_preserve_shared_defaults
 
 TEST(fft_heading_opt_out_preserves_original_shared_shader_text)
 {
-    // Captured before heading support: all explicit bow/shoulder/array combinations and tiers.
+    // Unheaded sampling with shared material wind resistance: all bow/shoulder/array combinations and tiers.
     // This also protects the coastal incident decoder's source-text surgery contract.
     uint64_t hash = 14695981039346656037ull;
     auto append = [&](const std::string & source) {
@@ -2082,7 +2084,7 @@ TEST(fft_heading_opt_out_preserves_original_shared_shader_text)
                     CHECK(headed.find(pixel.substr(begin, end - begin)) != std::string::npos);
                 }
             }
-    CHECK(hash == 0x7321555478b0e607ull);
+    CHECK(hash == 0xca25bb9327594139ull);
 }
 
 TEST(fft_heading_keeps_coastal_incident_decoder_unrotated_and_compilable)
@@ -2418,17 +2420,18 @@ TEST(fft_local_water_preserves_original_swell_medium_and_compiles_numerical_fixt
 #include "Platform/HazardCloudCore.h"
 #include "../GameEngineDevice/Source/PosixDevice/Render/SdlHazardCloudSharedShader.h"
 
-TEST(direct3d11_modern_water_source_matches_the_fork_baseline)
+TEST(direct3d11_modern_water_source_matches_the_material_controls_baseline)
 {
-	// FNV-1a captured independently by compiling the pre-merge 25605248 generator.
-	// The fork already carries shared optical/underwater changes beyond upstream v3.8.0.
-	const uint64_t expected[] = {11028246267753338026ull, 16298955577917943940ull};
+	// FNV-1a recorded after wind resistance replaced scum. Both platforms must
+	// carry the same additions; zero surface constants retain the original material.
+	const uint64_t expected[] = {1855056755446624291ull, 9325501918153769159ull};
 	unsigned index = 0;
 	for (auto program : {ENGINE_SHADER_WATER_TRAPEZOID, ENGINE_SHADER_WATER_RIVER}) {
 		PixelPipelineDescription pipeline = {}; std::string source;
 		CHECK(EngineShader_Pixel_Program(program, pipeline, source, COMBINER_SHADER_TARGET_D3D11));
 		uint64_t hash = 14695981039346656037ull;
 		for (unsigned char value : source) { hash ^= value; hash *= 1099511628211ull; }
+		if (hash != expected[index]) printf("Modern D3D11 water source %u hash: %llu\n", index, (unsigned long long)hash);
 		CHECK(hash == expected[index++]);
 	}
 }

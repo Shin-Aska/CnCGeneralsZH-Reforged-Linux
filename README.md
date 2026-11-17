@@ -1,31 +1,124 @@
 # Zero Hour Reforged Linux
 
-Command & Conquer: Generals Zero Hour for **64-bit Linux**, using **SDL3 and Vulkan**.
-No Wine or Proton required.
+A **Linux-only experimental fork** of [Zero Hour Reforged at zerohour.gg](https://zerohour.gg),
+based on its [upstream source](https://github.com/olcayseygan/CnCGeneralsZH-Reforged) and EA's released code.
+Generals and Zero Hour run natively on **64-bit Linux with SDL3 and Vulkan**. No Wine or Proton required.
 
-Based on [Zero Hour Reforged](https://github.com/olcayseygan/CnCGeneralsZH-Reforged) and EA's released
-source. **Linux v4.0.0** includes the upstream 4.0.0 gameplay, online and interface updates,
-and fixes missing unit-production hotkeys on Linux. Flow-aware Modern water, shared volumetric
-clouds, water quality controls and the existing reflection modes remain available.
-New profiles start with Classic graphics, water and clouds; the enhancements are selectable.
-EA's four veterancy levels return, and upstream mod support is removed.
+This fork develops and tests new graphical effects on Linux, often before they are offered upstream.
+It also brings effects from upstream's Windows Direct3D 11 renderer to Linux and carries campaign fixes.
+Some changes are accepted upstream; others remain experimental or specific to this fork.
 
-[4.0.0 release notes](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/blob/v4.0.0/docs/releases/v4.0.0.md)
+**Experimental graphics can reduce performance.** Some effects are still being tuned for Zero Hour's
+renderer and large battles. Frame rate and memory use depend on the map, GPU, settings and number of
+active effects; the newest visuals may cost more than their upstream counterparts. Classic graphics
+and individual effect controls let you adjust the balance.
 
 [![last commit](https://img.shields.io/github/last-commit/Shin-Aska/CnCGeneralsZH-Reforged-Linux/main?style=for-the-badge)](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/commits/main)
 [![license](https://img.shields.io/badge/license-GPL--3.0%20%2B%20EA%20terms-0d1117?style=for-the-badge)](LICENSE.md)
 
-[Downloads](#downloads) · [Graphics highlights](#graphics-highlights) · [Build](#build) · [Play](#play) · [Tests](#tests) ·
-[Linux guide](docs/linux.md) ·
-[Changes](CHANGELOG.md) · [Contributing](CONTRIBUTING.md)
+[Downloads](#downloads) · [Experimental features](#experimental-features) · [Already upstream](#already-upstream) ·
+[Upstream status](docs/upstream-status.md) · [Build](#build) · [Play](#play) · [Linux guide](docs/linux.md)
 
-**You need your own installed copies of Generals and Zero Hour.**
-Game data and optional upscaled art are not included.
+![A carrier and escort ships on Modern water, with foam around their hulls and sunlight across the waves](.github/media/readme/fleet-water.png)
+
+*Modern water and ship foam in an actual Linux match. All screenshots below are cropped game captures;
+wave-direction arrows follow the maintainer's marked reference.*
+
+**You need your own installed copies of Generals and Zero Hour.** Game data and optional upscaled art
+are not included. The features below describe the development branch; packaged releases may contain
+an earlier selection. See the [release notes](docs/releases/v4.0.1.md) and [upstream tracker](docs/upstream-status.md).
+
+## Experimental features
+
+These additions are available in this fork and have not been accepted upstream as of **2026-11-16**.
+The [upstream-status tracker](docs/upstream-status.md) distinguishes work not yet submitted from
+pull requests that were closed without merging, and records the supporting checks.
+
+### Graphics
+
+| Feature | What this fork adds |
+|:--|:--|
+| **Linux ports of Direct3D 11 effects** | Native SDL3/Vulkan support for effects previously restricted to upstream's Windows renderer: weather and atmosphere, enhanced lighting, particles, post-processing and more. Details below. |
+| **Underwater clarity** | Submerged ruins and seabed remain visible on raised shallow shelves, restoring the readable transparency available with Classic water while retaining Modern waves and reflections. Deep water keeps its opacity. |
+| **Reworked FFT water** | Reworks the original Modern-water wave pipeline with a shared FFT ocean, a revised wave spectrum, depth-aware wave attenuation, filtered sun glints and wave-driven foam. This newer implementation has not been accepted upstream. |
+| **Map-aware water movement** | Wind-driven wave patterns follow channels, bend toward shores and respond to open-sea exposure and shelter. Independent coastal water bodies can have different headings. |
+| **Toxic-water materials** | Map water colours and texture names select material rules. Toxic water can be murkier, duller and less responsive to wind, with bubbles retained as its visual indicator. |
+| **Path-traced water reflections** | An experimental water-only reflection mode alongside Legacy, SSR and Hybrid. It has a higher rendering cost and approximate scene coverage. |
+| **Extended volumetric toxin effects** | Toxin Tractor Contaminate, toxin impacts and attached toxin puddles use volumetric clouds, in addition to the toxin and radiation fields already supported upstream. |
+| **Asset Preloading** | Audio files are cached and common renderer pipelines are warmed during loading to prepare for first use. This moves work into loading and can increase load time and memory use. |
+
+The Linux effects port includes:
+
+- **Weather and atmosphere:** rain spells, drifting snow, blowing sand, gusts, matching ambience and haze/sky lighting.
+- **Lighting and post-processing:** per-pixel lighting, Firelight, sky/ground lighting, ambient occlusion and internal HDR tone mapping.
+- **Particles and distortion:** soft particles, procedural fire, GPU particles, heat haze and blast distortion.
+- **Battlefield detail:** model status effects and team glow, defence-range overlays, Battle Marks, Classic-water foam and impact splashes, and building-collapse camera effects.
+
+[Linux effects and validation](docs/linux.md#native-enhancement-validation-2026-11-15) ·
+[Weather](docs/linux.md#weather) · [Asset preloading](docs/linux.md#asset-preloading)
+
+### Water that responds to the map
+
+The water shown here uses this fork's reworked FFT implementation of the original Modern-water renderer.
+Open water, islands, channels and sheltered basins shape the visible wave pattern. Wind settings drive
+the wave spectrum, while the map's water layout guides its travel. Material rules control the liquid's
+appearance and response to wind. This is a cosmetic wave model; it does not change unit movement.
+
+![Wave travel around islands and submerged ruins: red arrows mark dominant movement and purple arrows mark subtler movement where patterns meet](.github/media/readme/water-movement.png)
+
+*Red: dominant wave travel. Purple: subtler local movement where wave patterns meet. The arrows follow
+the maintainer's observations in this match.*
+
+| Clear shallows | Toxic industrial water |
+|:--|:--|
+| ![Submerged stone ruins and rocky seabed visible beneath blue Modern water](.github/media/readme/underwater-clarity.png) | ![Murky green water around industrial buildings and a bridge, with small bubble rings](.github/media/readme/toxic-water.png) |
+| Raised shallows reveal terrain and ruins beneath the surface. | Toxic materials retain bubbles while reducing clarity, glints and wind-wave motion. |
+
+[FFT rework](docs/modern-water-clean-fft-report.md) · [Map-aware movement](docs/linux.md#boundary-aware-water) · [Water settings](docs/linux.md#modern-water-options) ·
+[Reflections and live material preview](docs/water-preview.md)
+
+### Clouds across the battlefield
+
+The shared cloud renderer already exists upstream. This fork extends it to Contaminate while spraying
+and afterward, brief toxin impacts, and puddles attached to moving or damaged sources. The clouds follow
+their sources and actual effect lifetimes; damage and weapon timing stay the same.
+
+| Toxin across a base | Nuclear haze and embers |
+|:--|:--|
+| ![Purple toxin clouds and explosions spreading through a base under missile bombardment](.github/media/readme/volumetric-battle.png) | ![Amber nuclear clouds, low haze and glowing embers spreading over a battlefield](.github/media/readme/nuclear-aftermath.png) |
+| Volumetric toxin fields shown during ordinary gameplay. | The nuclear-cloud baseline is shared with upstream. |
+
+[Cloud effects and their limits](docs/hazard-clouds.md) · [Cloud preview](docs/cloud-preview.md)
+
+### Campaign
+
+- **Original USA campaign startup:** fixes a crash in this fork's Linux Modern-water path when starting the first original Generals USA mission and other inland maps.
+- **Briefing narration:** restores the configured spoken briefings for the original Generals campaigns, including loading paths where the voice never started.
+- **Speech timing:** fixes premature briefing waits and frozen-world countdowns that could cut lines short or make them overlap. Preloaded dialogue can also start without waiting behind unrelated audio loads.
+- **Smoother mission openings:** smooths scripted camera turns, zooms and tilts, and reduces animation jitter in normal single-player cinematics, including the carrier introduction and Raptor flyover.
+
+[Campaign fixes and upstream handoff](docs/campaign-fixes-upstream-handoff.md) ·
+[Campaign opening audit](docs/campaign-opening-audit.md) · [Cinematic smoothing](docs/campaign-cinematic-smoothing.md)
+
+## Already upstream
+
+The following work has been accepted into the upstream project:
+
+- **Linux Modern water:** waves, shore foam, ship wakes and material rules ([#120](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/120)).
+- **Legacy, SSR and Hybrid water reflections**, the Water tab and quality controls ([#172](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/172)). Underwater clarity was left out of that port.
+- **Volumetric radiation and toxin clouds** ([#121](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/121)), followed by the shared SDL volume for crowded fields ([#170](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/170)).
+- **Linux shadow parity with Windows Direct3D 11:** mapped sun shadows, tree silhouettes and smoke shadows ([#119](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/119)).
+- **Modern-water render caches and load-time preparation** ([#173](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/173)), separate from the fork's optional audio/pipeline preloading.
+
+See [upstream-status.md](docs/upstream-status.md) for dates, accepted portions, closed proposals and
+remaining fork-only changes. Earlier accepted Linux effects are separate from the broader effects port
+listed above.
 
 ## Downloads
 
-Download **v4.0.0** from [GitHub Releases](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/releases/tag/v4.0.0).
+Download **v4.0.1** from [GitHub Releases](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/releases/tag/v4.0.1).
 The release includes the six formats below and `SHA256SUMS`.
+[Release notes](docs/releases/v4.0.1.md) · [Publication record](docs/releases/v4.0.1-preparation.md).
 For a main-branch, pull request or manual build, open the
 [Linux workflow](https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/actions/workflows/linux-release.yml),
 select the completed run, and download the `linux-x86_64-packages` artifact. A manual build is available
@@ -60,54 +153,6 @@ Packages contain the engine and this repository's overlay, **no original game da
 Point the launcher at your own legally obtained Generals and Zero Hour installation. See
 [CI and release details](PORTING.md#github-actions-builds-and-releases) for triggers, permissions,
 the compatibility checks and testing limits.
-
-## Graphics highlights
-
-New profiles follow upstream's **Classic graphics**, **Classic water** and **Classic clouds** defaults.
-Explicit saved settings are kept. Profiles without a **Classic graphics** setting now start in Classic
-even if they saved Modern water. To enable the Linux enhancements, turn off **Classic graphics**
-under **Options → Graphics** and restart, then choose **Cloud style** and **Water style**.
-
-### Volumetric Clouds
-
-Toxin and nuclear clouds follow the terrain and the hazard's size and lifetime. Nuclear effects
-include heat distortion and embers. Linux uses one shared volume without the old eight-field
-admission limit; additional sources still cost GPU work. Tractor contamination is volumetric while
-spraying as well as afterward, and normal toxin impacts and attached puddles use their actual
-lifetimes. Damage and gameplay timing stay the same.
-
-![Toxin clouds over a base and nuclear haze with embers](.github/media/linux-volumetric-clouds.png)
-
-[Settings and checks](docs/linux.md#hazard-clouds) · [Cloud preview](docs/cloud-preview.md)
-
-### Modern Water
-
-Modern water adds waves, reflections and foam around boats and shorelines. Waves bend through
-channels and around islands, with calmer sheltered water and independent coastal seas.
-It also receives sun and smoke shadows. Water settings can restore 3.5.1 movement on the next map load.
-
-![Ocean waves and foam around boats, beside a river and bridge](.github/media/linux-modern-water.png)
-
-[Shoreline waves](docs/linux.md#boundary-aware-water) · [Water preview](docs/water-preview.md)
-
-### Water Reflections
-
-Choose **Legacy**, **SSR**, **Hybrid** or **Path traced (experimental)** under **Options → Effects → Reflections**.
-These modes apply to Modern water. Hybrid is the initial reflection mode when Modern water is selected and combines planar reflections with
-screen-space reflections. SSR alone can miss objects hidden from the camera or outside the screen.
-Click **Accept** to apply and save the choice.
-
-![Stone ruins reflected in shallow water near the shore](.github/media/linux-water-reflections.png)
-
-[Reflection modes and demo controls](docs/water-preview.md#reflections)
-
-### Sun Shadows
-
-Buildings, units and trees cast shadows across terrain, structures and Modern water.
-
-![Building shadows in a Linux match, with a closer view of power plants](.github/media/linux-shadow-parity.png)
-
-[Supported effects and checks](docs/sdl-sun-shadows.md#default-rendering-rollout-linux-2026-10-16)
 
 ## Build
 
@@ -191,6 +236,14 @@ The game remembers these locations.
 Choose **Solo Play → Skirmish**, pick a map and general, add an AI opponent, then click **Start**.
 Campaigns are also under **Solo Play**. Display, sound and controls are in **Options**.
 
+### Enable the enhanced graphics
+
+New profiles start with **Classic graphics**, **Classic water** and **Classic clouds**. To use the
+enhancements shown above, turn off **Options → Graphics → Classic graphics** and restart, then choose
+**Modern** for **Water style** and **Volumetric** for **Cloud style**. The Effects and Water pages
+provide the remaining controls. Hybrid is the initial Modern-water reflection mode; Path traced is
+an optional experiment. Existing saved preferences are preserved.
+
 ### Launch a prepared development install
 
 If you have prepared a game-data folder at `build-linux/play-root`, select it with:
@@ -218,8 +271,8 @@ Select a profile in **Run and Debug** and press **F5**:
 The GDB profiles require GDB and the Microsoft C/C++ extension.
 
 To update `~/Games/ZeroHourReforged`, run **Terminal → Run Task → Linux: Publish thin executable**.
-It builds and copies a stripped executable with the matching runtime files, and reports a backup
-folder for replaced files. It preserves existing upscaled art, unrelated files and saves.
+It builds and publishes a stripped executable with the matching runtime files, restoring the previous
+files if publication fails. It preserves existing upscaled art, unrelated files and saves.
 **Zero Hour: Publish and Play (thin executable)** in **Run and Debug** also launches that copy
 using the normal player save folder.
 

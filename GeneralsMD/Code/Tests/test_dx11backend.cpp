@@ -2107,6 +2107,8 @@ TEST(dx11backend_the_modern_water_constants_are_built_from_the_registers)
 	registers[WaterHullVisualLayout::MetadataRegister][3] = 1.0f;
 	registers[ModernWaterMaterial::RegisterOptics][0] = 0.90f;
 	registers[ModernWaterMaterial::RegisterOptics][1] = 1.0f;
+	const float surface[4] = { .7f, .65f, .75f, .6f };
+	memcpy(registers[ModernWaterMaterial::RegisterSurface], surface, sizeof(surface));
 
 	const float x = 10.0f, y = 20.0f, z = 30.0f;
 	const float view[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -x, -y, -z, 1 };
@@ -2122,6 +2124,7 @@ TEST(dx11backend_the_modern_water_constants_are_built_from_the_registers)
 	CHECK(fabsf(block.CameraPosition[2] - z) < 0.001f);
 	CHECK(block.WaterParameters[0] == time);
 	CHECK(block.MaterialOptics[0] == 0.90f && block.MaterialOptics[1] == 1.0f);
+	CHECK(memcmp(block.MaterialSurface, surface, sizeof(surface)) == 0);
 	float identity[16];
 	WaterConstants::Multiply(block.WorldFromClip, block.ClipFromWorld, identity);
 	for (unsigned row = 0; row < 4; ++row)

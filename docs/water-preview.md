@@ -2,7 +2,8 @@
 
 `water_preview` is the dedicated native editor for Modern water materials. It shares the
 production SDL renderer, GPU FFT, Modern water shader and `ModernWater.ini` parser with
-the game. The default synthetic scene requires no game assets, save or running match.
+the game. The default synthetic scene prepares the game's current main-water depth,
+direction and rotation fields; it requires no game assets, save or running match.
 `--scene` also replays a locally banked game view for reflection comparisons.
 
 The game enables Modern water on Linux's SDL GPU renderer and on Windows when Direct3D 11
@@ -24,7 +25,7 @@ The initial map inputs are color **#324B32** (RGB 50,75,50), texture name `TSWat
 water depth **2.0**, and minimum opacity **0.8**. These are the common authored water
 settings in `GC_ChemGeneral` and `MD_USA05`. The texture name is used for rule matching;
 the tool does not load the authored texture's pixels. The default matched material uses
-**#2D3A0B** (RGB 45,58,11), **67% brightness**, **80% pollution**, and bubbles.
+**#2D3A0B** (RGB 45,58,11), **55% brightness**, **70% pollution**, and bubbles.
 
 ```ini
 ModernWaterRule PollutedWater
@@ -35,8 +36,12 @@ ModernWaterRule PollutedWater
     Texture = TSWater03.tga
   End
   ReplacementColor = R:45 G:58 B:11
-  Brightness = 0.67
-  Pollution = 0.80
+  Brightness = 0.55
+  Pollution = 0.70
+  Turbidity = 1.00
+  SurfaceRoughness = 0.69
+  RippleDamping = 0.34
+  WindResistance = 0.55
   Bubbles = Yes
 End
 ```
@@ -47,6 +52,39 @@ matching ignores case and directory prefixes. An unmatched color is used by Mode
 water without pollution; white preserves its normal blue appearance. Pollution does not
 control tint strength. The Modern material's bubbles are procedural surface shading
 with popping rings, not a volumetric gas simulation.
+
+The material panel also exposes four independent **0 to 1** controls. Omitted fields
+default to **0**; the shipped toxic-water rule uses the values above:
+
+| Control / INI field | Effect at higher values |
+| --- | --- |
+| `Turbidity` | Clouds the liquid by reducing transmission in every colour channel; submerged details disappear. |
+| `SurfaceRoughness` | Broadens sun highlights and softens scene reflection contrast in all Modern reflection modes. |
+| `RippleDamping` | Flattens optical surface normals, calming fine shading and distortion while retaining wave geometry and the FFT clock. |
+| `WindResistance` | Reduces actual wind-wave height, horizontal chop, moving glints and wind whitecaps. **0** keeps normal wind response; **1** removes it. |
+
+These controls leave the bubble switch and pollution amount independent. Wind resistance
+uses an amplitude response of `(1 - resistance)^2`: **50%** retains **25%** wave amplitude,
+and **80%** retains **4%**. Physical vertices and the reconstructed/filtered surface use
+the same gain, including squared gain for unresolved glint variance. It preserves the
+wind heading and wave clock; this is resistance to wind response rather than a slower
+clock or a reversed direction. Independently generated vessel waves and bubbles remain.
+**Toxic look** (or **T**) restores the toxic-water defaults: tint **#2D3A0B**,
+brightness **55%**, pollution **70%**, turbidity **100%**, roughness **69%**, damping
+**34%** and wind resistance **55%**. It leaves the bubble switch as selected.
+**Clear FX** (or **C**) zeros only the four surface controls; colour, brightness,
+pollution and bubbles stay as selected. **3** compares the complete material against
+the clean Modern baseline.
+
+```sh
+./build-linux/water_preview --toxic-look
+```
+
+The same values can be supplied using `--turbidity`, `--surface-roughness`,
+`--ripple-damping` and `--wind-resistance` (each **0..1**). Explicit slider options override
+the Toxic look preset. **E** exports all four fields into the selected material rule.
+The game and banked-scene replay use the same controls and shader. The shipped
+`PollutedWater` rule and the built-in fallback share these defaults.
 
 The shipped `ClearWater` rule matches white (RGB 255,255,255) with `TWWater01.tga`.
 It keeps the neutral color and sets `UnderwaterClarity = 0.90` so submerged ruins and
@@ -151,7 +189,8 @@ installed, and the preview does not edit the game's configuration or maps automa
   window selects the same choices. See [Reflections](#reflections).
 - **P:** show or hide the synthetic props: towers on the far bank, a bridge on two
   piers, sandstone ruins near the centre and a separate striped pole near the camera.
-- **H:** show or hide the RGB, brightness and pollution panel.
+- **H:** show or hide the material panel with RGB, brightness, pollution and the four surface controls.
+- **T / C:** apply Toxic look / clear the four surface effects.
 - **L:** load the saved editor colors. This opens the panel and reports success,
   a missing preset, or an invalid preset without closing the viewer.
 - **B:** toggle bubbles; the title reports their state. **[ / ]:** adjust pollution.
@@ -193,13 +232,17 @@ half-height broken column, and a fallen slab tilted through the surface. The col
 10 units wide and 56–58 tall, with their bases below the water. They use the same flat sun
 shading as the other props; the mirror clips every face at the water plane.
 
-**Reset color** restores the material resolved at startup. **Save color** stores the five
+**Reset look** restores the material resolved at startup. **Save look** stores all nine
 panel values in SDL's per-user `CnCGeneralsZH-Reforged/WaterPreview/colors.ini` preference
 file. Press **L** to restore those colors in the current session, or use **`--load-preset`**
 to restore them at startup. Ordinary starts always resolve the INI, and old Dr Thrax
 preview preferences cannot override it silently.
-The bubble toggle is a material option exported to INI, not part of the five-value editor
-preset. Unsaved slider changes affect only the current session.
+The bubble toggle is a material option exported to INI, not part of the editor
+preset. V3 presets include wind resistance. V2 presets retain their colour, turbidity,
+roughness and ripple damping, discarding the removed scum value; resistance starts at
+zero. Older V1 colour presets load with the four surface controls at zero. Legacy
+`SurfaceScum` INI fields are accepted and ignored. Unsaved slider changes affect only
+the current session.
 
 ## Reflections
 
@@ -564,7 +607,7 @@ versions, truncation, invalid sizes/indices and trailing data before replacing t
 
 ./build-linux/water_preview --target -60 -20 --yaw 0.2 --pitch 0.6 --distance 370
 
-./build-linux/water_preview --color 2D3A0B --brightness 0.67 --strength 0.8 \
+./build-linux/water_preview --toxic-look \
   --export-config /tmp/proposed-modern-water.ini
 ```
 
@@ -611,9 +654,17 @@ an identity device world matrix. Vertices remain on the same world lattice and b
 shader stages sample matching world positions; moving the patch does not move the waves.
 The distance safeguard measures
 view rays from the target and leaves room for the snapping offset and wave displacement.
-The bed spans ±2600 and stays fixed with the props. Height and optical contexts retain a
-fixed world mapping over that bed; their uniform one-texel fields describe the flat bed
-and enclosed-water exposure, while the opaque scene depth supplies submerged prop surfaces.
+The bed spans ±2600 and stays fixed with the props. The synthetic map uses the production
+optical-context, water-body, heading, effective-depth, shore and rotation builders with a
+128-by-128 flat wet field. Both FFT stages receive the same depth and rotation caches,
+and the draw selects the main-water shader path used by the game. Vertex metadata uses
+full source-medium FFT coverage and damping; the map fields supply the wave gains.
+The uniform height/optical textures describe the flat open-water bed, while the opaque
+scene depth supplies submerged prop surfaces. The preview explicitly selects current
+water even if its launch shell retains `ZH_WATER_CLEAN=0` from an earlier experiment.
+It fails if field upload or main-path drawing fails. The final `Main water` log records
+accepted main-path draws and the two cache upload counts, so merely initializing an FFT
+cannot pass as proof that the main water rendered.
 Material inputs use the dedicated constants in
 `Platform/ModernWaterMaterial.h`; light colors, texture factors and vertex metadata retain
 their production meanings. The two initial experimental shader files in `Tools/` are

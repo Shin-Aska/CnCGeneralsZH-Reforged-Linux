@@ -43,6 +43,15 @@ GPU_TESTS = {
     "ffref_gpu_selfcheck", "ffref_capture_selfcheck",
     "test_water_path_gpu", "test_sun_shadow_sorting",
 }
+GENERIC_RELEASE_NOTES = """Engine-only Linux x86_64 packages for Zero Hour Reforged.
+
+Built in Valve's Steam Runtime Sniper SDK with a glibc 2.31 ABI ceiling and static C++ runtime.
+Supply your own legally owned Command & Conquer Generals and Zero Hour installation. Original game data and Reforged art are not included.
+
+Download a package for your distribution, or the AppImage/portable tarball. Check downloads with `sha256sum -c SHA256SUMS` (download every listed package for a complete check).
+
+Public CI covers asset-independent CTest checks with Mesa Lavapipe/Xvfb and minimum-dependency package installation/startup on Debian, Ubuntu, Fedora, openSUSE and Arch. Full replay CRCs, gameplay/render parity, Flatpak portal/gameplay and Steam Deck hardware checks require separate local validation.
+"""
 
 
 def require(condition, message):
@@ -130,15 +139,58 @@ def version_from_text(text):
     return match.group(1)
 
 
-def verify_tag(version_file, tag):
+def tag_version(tag):
     number = r"(?:0|[1-9][0-9]*)"
     match = re.fullmatch(rf"v({number}\.{number}\.{number})(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?", tag)
     require(match, "release tag must be vX.Y.Z or vX.Y.Z-suffix (for example v3.2.0-linux.1)")
+    require(len(tag) <= 128, "release tag exceeds 128 characters")
     for component in (match.group(2) or "").split("."):
         require(not (component.isdigit() and len(component) > 1 and component.startswith("0")),
                 "numeric release tag suffix components cannot have leading zeroes")
-    require(match.group(1) == version_from_text(Path(version_file).read_text()),
+    return match.group(1)
+
+
+def verify_tag(version_file, tag):
+    require(tag_version(tag) == version_from_text(Path(version_file).read_text()),
             "release tag's numeric version does not match the engine VERSION")
+
+
+def release_metadata(source, repository, tag, output):
+    """Stage release prose/art separately from the strictly six-package inventory."""
+    require(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*", repository),
+            "unsafe repository name")
+    tag_version(tag)
+    source, output = Path(source), Path(output)
+    require(source.is_dir() and not source.is_symlink(), "invalid release metadata source directory")
+    source = source.resolve()
+    notes = source / "docs" / "releases" / f"{tag}.md"
+    image = source / ".github" / "media" / "releases" / f"{tag}-launch.png"
+    for path in (notes, image):
+        for part in (path, *path.parents):
+            if part == source:
+                break
+            require(not part.is_symlink(), f"release metadata links forbidden: {part}")
+    require(notes.exists() == image.exists(), "release notes and launch image must both exist or both be absent")
+    payloads = {"release-context.txt": f"{repository}\n{tag}\n{image.name if notes.exists() else '-'}\n".encode(),
+                "release-notes.md": GENERIC_RELEASE_NOTES.encode()}
+    if notes.exists():
+        require(notes.is_file() and 0 < notes.stat().st_size <= 1024**2, "invalid release notes file")
+        text = notes.read_text(encoding="utf-8")
+        require(text.strip() and "\0" not in text, "empty/invalid release notes")
+        require(image.is_file() and 0 < image.stat().st_size <= 32 * 1024**2, "invalid launch image file")
+        data = image.read_bytes()
+        require(data.startswith(b"\x89PNG\r\n\x1a\n"), "launch image must be PNG")
+        payloads["release-notes.md"] = notes.read_bytes()
+        payloads[image.name] = data
+    require(not output.is_symlink(), "release metadata output cannot be a link")
+    output.mkdir(parents=True, exist_ok=True)
+    require(not any(output.iterdir()), f"output must be empty: {output}")
+    for name, data in payloads.items():
+        (output / name).write_bytes(data)
+    (output / "SHA256SUMS").write_text("".join(
+        f"{digest(output / name)}  {name}\n" for name in sorted(payloads)))
+    verify_checksums(output)
+    print(f"Staged release metadata for {repository} {tag}; launch image: {image.name if notes.exists() else 'absent (generic notes)'}")
 
 
 def digest(path):
@@ -237,6 +289,7 @@ def main():
         ("audit-portable", ("folder",)), ("extract-portable", ("archive", "destination")),
         ("verify-tag", ("version_file", "tag")), ("verify-checksums", ("folder",)),
         ("assemble", ("native", "flatpak", "output")), ("ctest-summary", ("report",)),
+        ("release-metadata", ("source", "repository", "tag", "output")),
     ):
         command_parser = sub.add_parser(command)
         for argument in arguments:

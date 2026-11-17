@@ -112,8 +112,9 @@ struct SdlWaterPixelConstants
 static_assert(sizeof(SdlWaterPixelConstants) == WaterHullVisualLayout::VertexCommonRegisters * 16, "water uniform packing");
 static_assert(offsetof(SdlWaterPixelConstants,MaterialColor)==194*16
 	&& offsetof(SdlWaterPixelConstants,MaterialParameters)==195*16
-	&& offsetof(SdlWaterPixelConstants,MaterialOptics)==196*16,"water material tail packing");
-static_assert(offsetof(SdlWaterPixelConstants,ClipFromWorld)==197*16,"water projection tail packing");
+	&& offsetof(SdlWaterPixelConstants,MaterialOptics)==196*16
+	&& offsetof(SdlWaterPixelConstants,MaterialSurface)==197*16,"water material tail packing");
+static_assert(offsetof(SdlWaterPixelConstants,ClipFromWorld)==198*16,"water projection tail packing");
 
 // Fragment-only extension after the shared water vertex/pixel prefix.
 struct SdlWaterVisualPixelConstants

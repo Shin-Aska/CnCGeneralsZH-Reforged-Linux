@@ -1815,8 +1815,8 @@ void WaterRenderObjClass::setupModernWaterShader(Bool river, Bool heightCorrecti
 	const D3DXVECTOR4 optics(TheWaterTransparency->m_transparentWaterDepth,
 		TheWaterTransparency->m_minWaterOpacity, optical ? 1.0f : 0.0f, heightCorrection && !river ? 1.0f : 0.0f);
 	setModernWaterConstants(6, optics, 1);
-	D3DXVECTOR4 materialColor, materialParameters, materialOptics;
-	getModernWaterMaterial(&materialColor.x, &materialParameters.x, &materialOptics.x);
+	D3DXVECTOR4 materialColor, materialParameters, materialOptics, materialSurface;
+	getModernWaterMaterial(&materialColor.x, &materialParameters.x, &materialOptics.x, &materialSurface.x);
 #if defined(__linux__)
 	materialParameters.w = pathReady ? 2.0f
 		: (WaterScreenReflection::Traces(mode) || mode==WaterScreenReflection::PathTraced ? 1.0f : 0.0f);
@@ -1824,6 +1824,7 @@ void WaterRenderObjClass::setupModernWaterShader(Bool river, Bool heightCorrecti
 	setModernWaterConstants(ModernWaterMaterial::RegisterColor, materialColor, 1);
 	setModernWaterConstants(ModernWaterMaterial::RegisterParameters, materialParameters, 1);
 	setModernWaterConstants(ModernWaterMaterial::RegisterOptics, materialOptics, 1);
+	setModernWaterConstants(ModernWaterMaterial::RegisterSurface, materialSurface, 1);
 	const RGBColor &ambient = TheGlobalData->m_terrainAmbient[0];
 	const D3DXVECTOR4 hullParameters(river ? 0.0f : float(m_modernHulls.size()), ambient.red, ambient.green, ambient.blue);
 	setModernWaterConstants(7, hullParameters, 1);

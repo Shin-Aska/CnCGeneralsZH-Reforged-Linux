@@ -1,0 +1,92 @@
+{
+  "version": "4.0.1",
+  "status": "Published with the v4.0.1 Linux release",
+  "output": "v4.0.1-launch.png",
+  "size": [
+    1920,
+    1280
+  ],
+  "style_reference": "v3.5.1-launch-annotated-layout-v2.png",
+  "layout": "Right-hand typography; full-bleed water fading into a continuous charcoal/teal backdrop; feathered secondary photographs.",
+  "palette": [
+    "charcoal teal",
+    "cool silver",
+    "turquoise",
+    "burnished copper"
+  ],
+  "template": "v4.0.1-launch-template.png",
+  "template_size": [
+    1536,
+    1024
+  ],
+  "method": "Image-generated typography/backdrop, composited with original game captures using crop/resize and soft alpha fades only. No generated gameplay or gameplay recolouring.",
+  "photos": [
+    {
+      "label": "Reworked FFT water and underwater clarity",
+      "source": "Screenshot_20261116_200743.png",
+      "source_sha256": "052fafe80a43e473e86132a33180cdfa2115524da45533957f016847ec280e0d",
+      "crop_left_top_right_bottom": [
+        275,
+        45,
+        1595,
+        940
+      ],
+      "destination_left_top_right_bottom": [
+        0,
+        0,
+        1320,
+        895
+      ],
+      "native_scene_pixels": true,
+      "fade": "Horizontal x=760..1160; vertical y=710..895, smoothstep."
+    },
+    {
+      "label": "Native Linux effects",
+      "source": ".github/media/readme/volumetric-battle.png",
+      "source_sha256": "f11ca918ffa56f9e2dba758054a8971824d635d52f5e84a75e5737272d59d443",
+      "destination_left_top_right_bottom": [
+        0,
+        810,
+        650,
+        1260
+      ],
+      "fit_centering": [
+        0.5,
+        0.5
+      ],
+      "edge_feather": [
+        0,
+        55,
+        70,
+        45
+      ],
+      "gameplay_upscaled": false
+    },
+    {
+      "label": "Toxic water",
+      "source": ".github/media/readme/toxic-water.png",
+      "source_sha256": "9a991565f60be790fa30d1863fdde6db5248e8c71f9714c0a97181b574e4034b",
+      "destination_left_top_right_bottom": [
+        590,
+        830,
+        1260,
+        1260
+      ],
+      "fit_centering": [
+        0.66,
+        0.5
+      ],
+      "edge_feather": [
+        55,
+        85,
+        75,
+        45
+      ],
+      "gameplay_upscaled": false
+    }
+  ],
+  "template_sha256": "b3dd29904c3c5916b19427565e6d805011c83d82d925e087562ec859930fabea",
+  "output_sha256": "2fcea772adb2f88e1c93827dfeaa026cbf33148ac4e16a46ee44c4f28290ae4f",
+  "release_url": "https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/releases/tag/v4.0.1",
+  "published_at": "2026-11-16T17:14:04Z"
+}

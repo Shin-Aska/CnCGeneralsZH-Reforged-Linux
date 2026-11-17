@@ -419,6 +419,22 @@ jobs:
           compression-level: 0
           retention-days: 14
 
+      - name: Stage tag-specific release notes and launch image
+        if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+        env:
+          RELEASE_REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python3 GeneralsMD/Code/Tools/linux-release.py release-metadata \
+            "$GITHUB_WORKSPACE" "$RELEASE_REPOSITORY" "$RELEASE_TAG" "$RUNNER_TEMP/release-metadata"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+        with:
+          name: linux-release-metadata
+          path: ${{ runner.temp }}/release-metadata/*
+          if-no-files-found: error
+          retention-days: 14
+
   release:
     name: Publish version-tag packages
     if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
@@ -428,22 +444,87 @@ jobs:
     permissions:
       contents: write
     steps:
-      # This job runs no repository scripts, only the verified package handoff.
+      # This job runs no repository scripts, only the verified data handoffs.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: linux-x86_64-packages
           path: ${{ runner.temp }}/release
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: linux-release-metadata
+          path: ${{ runner.temp }}/release-metadata
       - name: Create a draft, upload checked files and publish
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
+          # Validate data before any gh call; never execute a downloaded script.
+          python3 - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+          import re
+
+          def require(ok, message):
+              if not ok:
+                  raise SystemExit(message)
+
+          repository, tag = os.environ['GH_REPO'], os.environ['RELEASE_TAG']
+          require(re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*', repository), 'Unsafe repository')
+          number = r'(?:0|[1-9][0-9]*)'
+          match = re.fullmatch(rf'v({number}\.{number}\.{number})(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?', tag)
+          require(match and len(tag) <= 128, 'Unsafe release tag')
+          require(all(not (part.isdigit() and len(part) > 1 and part.startswith('0'))
+                      for part in (match.group(2) or '').split('.')), 'Unsafe release tag suffix')
+          metadata = Path(os.environ['RUNNER_TEMP']) / 'release-metadata'
+          image = f'{tag}-launch.png'
+          expected = {'release-context.txt', 'release-notes.md'}
+          actual = {entry.name for entry in metadata.iterdir()}
+          require(actual in (expected | {'SHA256SUMS'}, expected | {'SHA256SUMS', image}), 'Incomplete/unexpected release metadata')
+          require(not metadata.is_symlink() and all(entry.is_file() and not entry.is_symlink()
+                      for entry in metadata.iterdir()), 'Nonregular release metadata')
+          expected_image = image if image in actual else '-'
+          require((metadata / 'release-context.txt').read_text() == f'{repository}\n{tag}\n{expected_image}\n', 'Release metadata context mismatch')
+          notes = (metadata / 'release-notes.md').read_text(encoding='utf-8')
+          require(notes.strip() and '\0' not in notes and (metadata / 'release-notes.md').stat().st_size <= 1024**2, 'Invalid release notes')
+          if image in actual:
+              require((metadata / image).stat().st_size <= 32 * 1024**2 and
+                      (metadata / image).read_bytes().startswith(b'\x89PNG\r\n\x1a\n'), 'Invalid launch PNG')
+          seen = set()
+          for line in (metadata / 'SHA256SUMS').read_text().splitlines():
+              entry = re.fullmatch(r'([0-9a-f]{64})  ([A-Za-z0-9_.+-]+)', line)
+              require(entry and entry[2] in actual - {'SHA256SUMS'} and entry[2] not in seen, 'Invalid metadata checksum entry')
+              checksum, name = entry.groups()
+              require(hashlib.sha256((metadata / name).read_bytes()).hexdigest() == checksum, 'Release metadata checksum mismatch')
+              seen.add(name)
+          require(seen == actual - {'SHA256SUMS'}, 'Incomplete metadata checksums')
+          # Package hashes still describe exactly six formats; artwork stays separate.
+          packages = Path(os.environ['RUNNER_TEMP']) / 'release'
+          version = match[1]
+          expected_packages = {
+              'ZeroHourReforged-linux-x86_64.tar.zst', 'io.github.olcayseygan.ZeroHourReforged.flatpak',
+              f'zero-hour-reforged-{version}-x86_64.AppImage', f'zero-hour-reforged_{version}_amd64.deb',
+              f'zero-hour-reforged-{version}-1.x86_64.rpm', f'zero-hour-reforged-{version}-1-x86_64.pkg.tar.zst',
+          }
+          require(not packages.is_symlink() and {entry.name for entry in packages.iterdir()} == expected_packages | {'SHA256SUMS'}, 'Unexpected package inventory')
+          require(all(entry.is_file() and not entry.is_symlink() for entry in packages.iterdir()), 'Nonregular package handoff')
+          seen = set()
+          for line in (packages / 'SHA256SUMS').read_text().splitlines():
+              entry = re.fullmatch(r'[0-9a-f]{64}  ([A-Za-z0-9_.+-]+)', line)
+              require(entry and entry[1] in expected_packages and entry[1] not in seen, 'Invalid package checksum entry')
+              seen.add(entry[1])
+          require(seen == expected_packages, 'Incomplete package checksums')
+          PY
           cd "$RUNNER_TEMP/release"
           sha256sum --check --strict SHA256SUMS
           [[ $(wc -l < SHA256SUMS) -eq 6 ]]
           mapfile -t assets < <(awk '{print $2}' SHA256SUMS)
           assets+=(SHA256SUMS)
+          if [[ -f "$RUNNER_TEMP/release-metadata/$RELEASE_TAG-launch.png" ]]; then
+            cp "$RUNNER_TEMP/release-metadata/$RELEASE_TAG-launch.png" .
+            assets+=("$RELEASE_TAG-launch.png")
+          fi
           if gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' > "$RUNNER_TEMP/is-draft"; then
             if [[ $(cat "$RUNNER_TEMP/is-draft") != true ]]; then
               mkdir -p "$RUNNER_TEMP/published"
@@ -455,24 +536,20 @@ jobs:
                 exit 1
               }
               (cd "$RUNNER_TEMP/published" && sha256sum --check --strict SHA256SUMS)
+              if [[ -f "$RELEASE_TAG-launch.png" ]]; then
+                cmp "$RELEASE_TAG-launch.png" "$RUNNER_TEMP/published/$RELEASE_TAG-launch.png" || {
+                  echo '::error::A published release already has different artwork; use a new version tag.'
+                  exit 1
+                }
+              fi
               echo 'Published checksums already match; leaving the release unchanged.'
               exit 0
             fi
           else
-            cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
-          Engine-only Linux x86_64 packages for Zero Hour Reforged.
-
-          Built in Valve's Steam Runtime Sniper SDK with a glibc 2.31 ABI ceiling and static C++ runtime.
-          Supply your own legally owned Command & Conquer Generals and Zero Hour installation. Original game data and Reforged art are not included.
-
-          Download a package for your distribution, or the AppImage/portable tarball. Check downloads with `sha256sum -c SHA256SUMS` (download every listed package for a complete check).
-
-          Public CI covers asset-independent CTest checks with Mesa Lavapipe/Xvfb and minimum-dependency package installation/startup on Debian, Ubuntu, Fedora, openSUSE and Arch. Full replay CRCs, gameplay/render parity, Flatpak portal/gameplay and Steam Deck hardware checks require separate local validation.
-          NOTES
             gh release create "$RELEASE_TAG" --verify-tag --draft \
               --title "Zero Hour Reforged $RELEASE_TAG — Linux x86_64" \
-              --notes-file "$RUNNER_TEMP/release-notes.md"
+              --notes-file "$RUNNER_TEMP/release-metadata/release-notes.md"
           fi
           # Re-running an interrupted draft can replace only this pipeline's files.
           gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
-          gh release edit "$RELEASE_TAG" --draft=false
+          gh release edit "$RELEASE_TAG" --notes-file "$RUNNER_TEMP/release-metadata/release-notes.md" --draft=false

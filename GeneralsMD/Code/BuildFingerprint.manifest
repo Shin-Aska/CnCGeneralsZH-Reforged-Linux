@@ -5134,6 +5134,7 @@ Tools/WaterPreviewColorPanel.h
 Tools/WaterPreviewPreset.h
 Tools/WaterPreviewReflectionBar.h
 Tools/WaterPreviewScene.h
+Tools/WaterPreviewSurface.h
 Tools/WorldBuilder/WorldBuilder.dsp
 Tools/WorldBuilder/include/AutoEdgeOutTool.h
 Tools/WorldBuilder/include/BaseBuildProps.h

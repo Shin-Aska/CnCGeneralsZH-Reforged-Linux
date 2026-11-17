@@ -2326,7 +2326,7 @@ static void configureSmoothMotionLiveRate()
 	const Bool collecting = SmoothMotionLiveRate::mayMeasure(TheGlobalData->m_smoothMotion,
 		TheGlobalData->m_smoothMotionAnyDisplay, sceneEligible);
 	// POSIX's reported 60 Hz is a backend default, so only measured cadence can establish a rate.
-	s_smoothLiveRate.configure(TheGameEngine->getFramesPerSecondLimit(),
+	s_smoothLiveRate.configure(TheGameEngine->getEffectiveFramesPerSecondLimit(),
 		GameEngine_renderCapFramesPerSecond(), 0, false, true, collecting, smoothMotionWallSeconds());
 }
 

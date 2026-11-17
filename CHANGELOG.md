@@ -1,14 +1,58 @@
-# Command and Conquer: Generals: Zero Hour: Reforged
+# Zero Hour Reforged Linux changelog
 
-EA opened the source of Generals and Zero Hour, the game that is still on sale and still runs on
-Steam. This build is that source with the bugs the game shipped with fixed and everything below added.
-
-**130 changes. ~580 engine source files ported. 14 automated test suites. Around 60 original bugs
-found and fixed, EA's own, not port damage.**
+Linux release entries describe this fork's changes. The earlier gameplay, interface and
+platform history below is retained from [upstream Zero Hour Reforged](https://github.com/olcayseygan/CnCGeneralsZH-Reforged).
+See [upstream status](docs/upstream-status.md) for which Linux features have been accepted there.
 
 ---
 
-## Unreleased
+## Linux 4.0.1 release (2026-11-17)
+
+Reworked FFT water, expanded native Linux effects, and campaign fixes.
+See the [release notes](docs/releases/v4.0.1.md).
+
+### Graphics
+
+- Reworked the original Modern-water FFT wave pipeline around a shared ocean, JONSWAP
+  spectrum, per-band depth attenuation, filtered sun glints and wave-driven compression
+  foam, retaining the fork's map-aware wave headings.
+- Added native SDL3/Vulkan providers for effects previously limited to upstream's Windows
+  Direct3D 11 renderer: soft/procedural fire and GPU particles, enhanced lighting and
+  Firelight, ambient occlusion, internal HDR, model status effects and team glow,
+  heat/blast distortion, range overlays, Battle Marks, atmosphere and building-collapse effects.
+  Classic-water foam and impact splashes are supported separately from Modern water.
+- Expanded Linux weather with gusts, intermittent enhanced rain, layered snow, dry-ground
+  blowing sand, land/water contacts, ambience and haze/sky lighting. Rain can begin clear or
+  rainy according to the map and match seed; authored precipitation retains precedence.
+- Warm Light haze now blends over the visible Modern-water surface, including moving
+  flood water, instead of applying the submerged terrain's full haze to it.
+- Enhanced flames fade and clip at the waterline; submerged combustion smoke stops emitting.
+  Observed dry-to-wet fire crossings can produce a brief steam puff. Firelight, smoke
+  illumination, heat haze and reflections follow the source fade.
+- Submerged tree vertices stop swaying, with wind restoring gradually above the waterline.
+  Exposed branches retain their motion, including the sun-shadow and projected-silhouette paths.
+
+- Modern water always uses map-aware movement. The obsolete Water Movement Behavior switch
+  has been removed, and old saved Off values no longer select legacy movement.
+
+- Modern water now has separate Shore wave turning and Wave filtering switches, replacing
+  the combined Water quality setting. Existing choices keep the same appearance. Wave detail
+  offers Low (64), Medium (128) and High (256); saved Low and High choices retain 128 and 256.
+
+- Modern water no longer forms stretched streaks around the carrier's stern in USA Mission 2 or beside shores with strong wave turns.
+- EMP Pulse and EMP Patriot domes now expand to their intended size.
+- EMP Pulse flashes no longer break into screen-wide horizontal bands in Classic or Reforged graphics.
+
+### Campaign and cinematics
+
+- Turbo Mode now keeps single-player cinematics at their authored speed and resumes double-speed
+  gameplay when control returns. General Thrax's opening no longer cuts its first line short or
+  skips later dialogue when Turbo Mode is enabled.
+
+- Challenge loading dialogue plays one line at a time while the map's assets continue loading.
+  Loading finishes only after both the assets and the speech queue are done, then transitions once.
+  General Thrax's loading taunt no longer talks over his "Greetings, General" introduction, and
+  long campaign narration can finish alongside map loading.
 
 - Single-player cinematics now smooth scripted turns, zooms and tilts between their
   original steps, including the roughly 22-step-per-second carrier shot in Zero Hour USA Mission 2.
@@ -36,16 +80,26 @@ found and fixed, EA's own, not port damage.**
   to finish. Freezing the battlefield had made its briefing timers run twice as fast, cutting out
   some lines and making others overlap; a scene frozen on the next frame could stop its timers entirely.
 
-- Modern water always uses map-aware movement. The obsolete Water Movement Behavior switch
-  has been removed, and old saved Off values no longer select legacy movement.
+### Water materials and preview
 
-- Modern water now has separate Shore wave turning and Wave filtering switches, replacing
-  the combined Water quality setting. Existing choices keep the same appearance. Wave detail
-  offers Low (64), Medium (128) and High (256); saved Low and High choices retain 128 and 256.
+- Added independent Turbidity, SurfaceRoughness, RippleDamping and WindResistance material
+  controls to the game, INI rules, live preview and export. Wind resistance reduces actual
+  wind-wave displacement, chop and glints while leaving bubbles and vessel waves independent.
+- Updated the PollutedWater defaults and Toxic Look preset to use tint `#2D3A0B`,
+  brightness 0.55, pollution 0.70, turbidity 1.00, roughness 0.69, ripple damping 0.34 and
+  wind resistance 0.55. Bubbles remain enabled. Removed surface scum; older scum fields are ignored.
+- The native preview now prepares the current production FFT water's depth, direction and
+  rotation fields and checks accepted main-water draws. Its material settings, built-in
+  fallback and shipped INI agree.
 
-- Modern water no longer forms stretched streaks around the carrier's stern in USA Mission 2 or beside shores with strong wave turns.
-- EMP Pulse and EMP Patriot domes now expand to their intended size.
-- EMP Pulse flashes no longer break into screen-wide horizontal bands in Classic or Reforged graphics.
+### Build and documentation
+
+- Corrected the source fingerprint manifest to include `Tools/WaterPreviewSurface.h` and
+  updated five map integration expectations to the current toxic-water defaults, repairing
+  the two causes of the recorded Linux CI build/test failure.
+- Added shared CLion Linux build and launch configurations matching the VS Code workflows.
+- Reworked the README around this Linux experimental fork, refreshed the upstream feature
+  tracker, and prepared 4.0.1 launch artwork and release documentation.
 
 ## Linux 4.0.0 release (2026-11-09)
 

@@ -1190,6 +1190,7 @@ float4 main(Input input) : SV_Target
     float3 view = normalize(CameraPosition.xyz - world + float3(0, 0, 0.00001));
     float2 contextUV = (world.xy + TerrainParameters.xx + 5.0) / max(TerrainParameters.y, 1.0);
     float4 opticalContext=Texture4.SampleLevel(Sampler4,contextUV,0);
+    float materialWindGain=modernWaterWindGain(MaterialSurface.w);
     float offshore = opticalContext.r * OpticalParameters.z * (1.0 - WaterParameters.y);
 #if WATER_ONE_MEDIUM
     // One wave model for all ocean-connected water; strength comes from the one depth field below.
@@ -1220,6 +1221,10 @@ float4 main(Input input) : SV_Target
     float4 oceanSwell;
     float4 oceanSurface = waterOceanSurface(wavePosition,time,oceanSwell,analyticRemainder);
     float3 oceanWave = oceanSurface.xyz;
+    legacyWave*=materialWindGain;
+    oceanWave*=materialWindGain;
+    oceanSwell.xyz*=materialWindGain;
+    shoreRippleSlope*=materialWindGain;
     float3 wave = lerp(legacyWave, oceanWave, offshore);
 #if WATER_ONE_MEDIUM
     wave = lerp(legacyWave, oceanWave, waveModel);
@@ -1411,6 +1416,10 @@ float4 main(Input input) : SV_Target
     // The non-FFT fallback's fine waves belong to its nearshore spectrum only.
     float2 shoreRipple=shoreRippleSlope*opticalContext.b*(1.0-offshore)*shoreRippleWeight
         *max(0.0,shoreRippleLimit-max(localTerrain,attenuation))*(1.0-fftWeight);
+    // Material damping changes optical slopes, retaining geometry and the bubble animation.
+    normal=modernWaterDampedNormal(normal,MaterialSurface.z);
+    resolvedNormal=modernWaterDampedNormal(resolvedNormal,MaterialSurface.z);
+    shoreRipple*=lerp(1.0,0.12,saturate(MaterialSurface.z));
     float3 waveLightingNormal = resolvedNormal;
     if(any(shoreRipple!=0.0))
         resolvedNormal = normalize(resolvedNormal + float3(-shoreRipple*resolvedNormal.z,0.0));
@@ -1438,6 +1447,7 @@ float4 main(Input input) : SV_Target
     // Isotropic missing slope variance broadens alpha-squared (roughness^4 in this GGX
     // convention). Removing unresolved normals must not turn the surface into a mirror.
     if(unresolvedSlopeVariance>0.0) roughness=pow(min(1.0,pow(roughness,4.0)+0.5*unresolvedSlopeVariance),0.25);
+    roughness=modernWaterSurfaceRoughness(roughness,MaterialSurface.y);
     float a2 = pow(roughness, 4.0);
     float denominator = nDotH * nDotH * (a2 - 1.0) + 1.0;
     float distribution = a2 / max(3.14159265 * denominator * denominator, 0.0000001);
@@ -1455,7 +1465,7 @@ float4 main(Input input) : SV_Target
     float rippleResolution=0.88/(1.0+footprint*0.18);
     float3 environmentWave=lerp(oceanSwell.xyz,oceanWave,rippleResolution);
     float2 swellSlope=baseSlope+environmentWave.yz*attenuation+environmentWave.x*attenuationSlope+correctionSlope;
-    float3 environmentNormal=normalize(lerp(normal,normalize(float3(-swellSlope,1)),offshore));
+    float3 environmentNormal=normalize(lerp(normal,modernWaterDampedNormal(normalize(float3(-swellSlope,1)),MaterialSurface.z),offshore));
     environmentNormal=normalize(lerp(environmentNormal,waveLightingNormal,fftWeight));
     if(any(shoreRipple!=0.0))
         environmentNormal=normalize(environmentNormal+float3(-shoreRipple*environmentNormal.z,0.0));
@@ -1528,6 +1538,8 @@ float4 main(Input input) : SV_Target
     mirrorTrust*=1.0-smoothstep(0.5,2.0,abs(baseLevel-WaterParameters.w));
     float ssrWeight=ssr.confidence*lerp(1.0,0.35,saturate(mirrorTrust));
     reflection = lerp(reflection, waterLinear(ssr.colour), ssrWeight);
+    // A rough chemical surface loses sharp scene contrast in every reflection mode.
+    reflection=lerp(reflection,skyRadiance,saturate(MaterialSurface.y)*0.65);
     // Refraction uses the actual optical depth and shared colour/depth viewport bounds.
     float2 refractionPixels = 0.0;
     WaterRefractionSample refractedScene = (WaterRefractionSample)0;
@@ -1580,6 +1592,7 @@ float4 main(Input input) : SV_Target
     float focused = abs(bx.x*by.y-bx.y*by.x) / max(abs(cx.x*cy.y-cx.y*cy.x),0.0001);
     float caustic = lerp(1.0, clamp(focused, 0.82, 1.55), exp(-bedDepth*0.055)
         * sunVisible * daylight / (1.0 + causticFootprint*0.45));
+    caustic=lerp(1.0,caustic,materialWindGain);
     // Absorption follows the underwater view-ray distance, including submerged object geometry.
     // Material clarity relaxes authored opacity only on shallow terrain shelves. Keep
     // the terrain classification separate from the actual scene ray's absorption.
@@ -1604,6 +1617,7 @@ float4 main(Input input) : SV_Target
         transmission=modernWaterMaterialTransmission(transmission,MaterialColor.rgb,MaterialParameters.y,
             length(bottom-opticalWorld),materialPatch);
     }
+    transmission=modernWaterTurbidTransmission(transmission,MaterialSurface.x,length(bottom-opticalWorld));
     float3 body=WaterOpticalBody(scene,transmission,scatter,caustic,SceneParameters.x);
     float foamNoise = smoothstep(0.1, 0.8, lerp(wave.x,spectral.contactIncident.x,fftWeight)*0.5+0.5);
     float edgeDistance = depth / max(length(float2(ddx(depth), ddy(depth))), 0.01);
@@ -2328,7 +2342,7 @@ current.rgb=auditReasons;
             "mediumBandGains=float3(smoothstep(0.0,24.0,mediumDepth),smoothstep(0.0,12.0,mediumDepth),smoothstep(0.0,4.0,mediumDepth));",
             "mediumBandGains=float3(smoothstep(0.0,WaterTuningDepth.x,mediumDepth),smoothstep(0.0,WaterTuningDepth.y,mediumDepth),smoothstep(0.0,WaterTuningDepth.z,mediumDepth));");
         // D is already in both stages' displacement/derivatives; localTerrain cannot add another fade.
-        replace("    float a2 = pow(roughness, 4.0);",R"HLSL(
+        replace("    roughness=modernWaterSurfaceRoughness(roughness,MaterialSurface.y);",R"HLSL(
     // A/B experiment only: GGX alpha^2 receives isotropic unresolved slope variance.
     // Retain the old result on other levels; clean glint=0 disables this transfer only.
     if(mediumDepthField.w>0.5) {
@@ -2336,7 +2350,7 @@ current.rgb=auditReasons;
         cleanBase=lerp(cleanBase,max(cleanBase,0.27),max(hullEffects.y,historyFoam.z)*0.5);
         roughness=pow(min(1.0,pow(cleanBase,4.0)+0.5*fftCleanLook.z*unresolvedSlopeVariance),0.25);
     }
-    float a2 = pow(roughness, 4.0);)HLSL");
+    roughness=modernWaterSurfaceRoughness(roughness,MaterialSurface.y);)HLSL");
         if(!WaterCleanProfile::Get().nosss)replace("    float3 body=WaterOpticalBody(scene,transmission,scatter,caustic,SceneParameters.x);",R"HLSL(
     // A/B experiment only: filtered crest height / local seeded RMS; no time noise or threshold step.
     if(mediumDepthField.w>0.5) {
