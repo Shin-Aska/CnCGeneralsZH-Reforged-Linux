@@ -4881,8 +4881,8 @@ GUI:OnlineSkinsRefused
 "zerohour.gg refused that pick, so your skins stay as they were. Open this screen again to see what your account holds."
 END
 
-SKIN:Gold1K
-"1K GOLD"
+SKIN:Splinter
+"SPLINTER CAMO"
 END
 
 GUI:OnlineLadderRank
@@ -4967,6 +4967,14 @@ END
 
 GUI:OnlineUnrated_cancelled
 "Not rated: the match was called off."
+END
+
+GUI:OnlineSendingResultsTitle
+"Sending Results"
+END
+
+GUI:OnlineSendingResults
+"The match result and replay are being sent. Please wait, and do not close the game."
 END
 
 // The general's ranks past EA's five, named the way the first five are (EA's 6 to 8 were joke names

@@ -886,7 +886,7 @@ static void fillBillboards( Int index, void *context )
 		VertexFormatXYZNDUV2 clipped[8];
 		VertexFormatXYZNDUV2 *quad = fill.waterClips ? clipped : fill.range.Vertices + quads * 4;
 		PointGroupClass::Write_Billboard( quad, job->view, Vector3( pos->x, pos->y, pos->z ), psize,
-			orientation, packed, glow, flipbookLog2, flipbookLog2 ? p->getFlipbookFrame() : 0 );
+			orientation, packed, glow, flipbookLog2, flipbookLog2 ? p->getFlipbookFrame() : 0, p->isFlipbookMirrored() );
 		for (Int k = 0; k < 4; ++k) { quad[k].u2 = psize; quad[k].v2 = 0.0f; }
 		if (fill.fire)
 		{

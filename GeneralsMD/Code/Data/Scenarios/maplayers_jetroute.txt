@@ -1,0 +1,45 @@
+# A computer jet sent at a target with an anti-air gun on the straight flight: does it fly round the gun?
+#
+# Seat 0 is a Hard USA; seat 1 is emptied by -takeover 1. A Raptor at cruise is ordered at an Overlord 1850
+# east of it, with a Gattling Cannon (anti-air reach 398) on the straight line 1250 out. A Humvee 300 south
+# of the gun, outside its ground reach, keeps it in the American AI's sight and so on its map. The Gattling
+# needs power, and an unpowered one is no gun on the map, so three power plant spots are tried; the one at
+# (1400,3000) is the Humvee's to kill late in the run.
+#
+# steerAircraft looks at the strike every half second on Hard. Without the map layers the straight flight
+# crosses the gun and the strike is called off: "AI AIR ... calls off its strike". With them the air layer is
+# summed along both legs round the gun (aiDetourWaypoint) and the jet is sent the long way: "AI AIR ... flies
+# round to 'ChinaTankOverlord'", then "turns in on its strike" at the turn point. The tallies say whether the
+# Raptor lived and the Overlord took the hit. The pair is the same line with -aiknobsoff all maplayers.
+#
+# Measured 2026-11-17, seed 7. With the layers: "flies round to 'ChinaTankOverlord' (2250,3300) by
+# (1428,4396): air threat 2343 straight, 0 round", "turns in on its strike" at logic frame 368, then empty at
+# 528 "flies home to (400,3300) round by (1851,3945)". The Overlord is at 700 of 1100 by file frame 1350 and
+# the Raptor alive at 131 of 160. Without them: "calls off its strike", the Raptor alive, the Overlord
+# untouched.
+#
+# Before that day's fix the Raptor flew straight along y 3308 through the gun's reach, fired, and was shot
+# down at logic frame 632 flying straight home. The turn point went out as aiMoveToPosition, and a computer
+# move to a unit busy attacking is only a 20 second temporary state over the attack (AIUpdate's
+# privateMoveToPosition), so the jet kept its attack. It goes out as a one-point path now, which clears the
+# attack. Once it turned in, steerAircraft judged the strike again from 127 short of the turn point, found
+# the line grazing the gun and called it off; the route is kept until the jet is empty now.
+#
+#   generals.exe -headless -quickstart -noshellmap -observer -multiInstance -noFPSLimit
+#     -map "Maps\Twilight Flame\Twilight Flame.map" -autoskirmish 2 -aidiff hard -takeover 1
+#     -side 0 FactionAmerica -side 1 FactionChina -seed 7 -maxframes 1400
+#     -scenario maplayers_jetroute -logPrefix maplayers_jetroute_ [-aiknobsoff all maplayers]
+
+30    spawn      1  ChinaTankOverlord            1   2250 3300
+30    spawn      1  ChinaPowerPlant              1   1650 3550
+30    spawn      1  ChinaPowerPlant              1   1400 3000
+30    spawn      1  ChinaPowerPlant              1   2000 3000
+30    spawn      1  ChinaGattlingCannon          1   1650 3300
+30    spawn      0  AmericaVehicleHumvee         1   1650 3000
+30    spawn      0  AmericaJetRaptor             1   400 3300
+300   attack     0  AmericaJetRaptor             1   ChinaTankOverlord
+300   tally      0  AmericaJetRaptor
+300   tally      1  ChinaTankOverlord
+1350  tally      0  AmericaJetRaptor
+1350  tally      1  ChinaTankOverlord
+1350  tally      1  ChinaGattlingCannon

@@ -1987,12 +1987,28 @@ Real AI::getAdjustedVisionRangeForObject(const Object *object, Int factorsToCons
 	* strongest enemy (AIPlayer::stepIncomeBonus).  Player::earnMoney and earnIncome bank it; the score
 	* screen and its charts count the money before the bonus.
 	*
-	*                      scoutS maxSc decis  cntr  mass   ttk  indiv team infl focus save harv expand guard hoard econ micro  gate  answer massU  bankS  floor payoff upgr    nonc  share backlog push   minPow  siege  beam  strikeE strikeT swDef                     stall  lost retry  stage  spot arty    inflS fireLook word   odds   fireMem  watch watchOdds dodge  2ndS  2nd  reach    inc% */
+	* abil, 2026-11-16.  The owner: Hard uses every unit button the rules know, Medium part of them, Easy none
+	* (AIPlayer::doAbilities).  1 is the Missile Defender's and the Sungur's laser lock, a manual shot such as
+	* Jarmen Kell's, an area weapon such as the Comanche's rocket pods fired only where the unit's own target
+	* stands, and the weapon toggles; 2 adds the area weapons anywhere in reach, the walk-up specials (charges,
+	* TNT, hacks, the Maroon Beret's Designate) and the suicides.  A seat at 0 also leaves out of its matchups
+	* every weapon only a button fires, so the build choice moves with it.
+	*
+	* frgn, 2026-11-17.  The owner: Hard takes over an enemy side's tech tree when it can (AIPlayer::
+	* doForeignTech).  1 (Medium) uses what falls into its hands: a dozer of another side, stolen, or an
+	* emptied one crewed, puts that side's Command Center up at home when the bank has its price, and a
+	* captured Command Center trains that dozer and is sold.  The foreign Command Center grows a supply
+	* centre, a barracks and a war factory, and those train into the army out of what is over the bank.
+	* 2 (Hard) goes after them: the hijacker and Jarmen Kell's snipe take a foreign dozer first, Black
+	* Lotus and the capturing infantry weigh an enemy Command Center double, and the capturer takes an enemy
+	* building no gun guards when it scores over the next derrick, worth against the walk.  Easy none.
+	*
+	*                      scoutS maxSc decis  cntr  mass   ttk  indiv team infl focus save harv expand guard hoard econ micro  gate  answer massU  bankS  floor payoff upgr    nonc  share backlog push   minPow  siege  beam  strikeE strikeT swDef                     stall  lost retry  stage  spot arty    inflS fireLook word   odds   fireMem  watch watchOdds dodge  2ndS  2nd  reach    inc% abil frgn */
 static const AIDifficultyProfile s_defaultSkillLadder[ AISKILL_COUNT ] =
 {
-	/* Easy      */ { 75.0f, 1,  7.0f,  0.00f, FALSE, 0.00f, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE,  FALSE, FALSE,     0, FALSE, FALSE, FALSE, FALSE, FALSE, 120.0f, 6000, 4.0f, 720.0f, 0.05f, 0.05f,  90.0f, 360.0f, 1500.0f,  80.0f, 0.00f, 0.0f, 2.0f, 3,                        300.0f, 3, 300.0f, FALSE, 1, 1.00f, 4.0f, 3.00f,   0.0f, 0.60f, 10.0f, 16.0f, 1.0f, 3.25f, 1200.0f, 1, 2000.0f, 150 },
-	/* Medium    */ { 45.0f, 1,  3.0f,  0.50f, FALSE, 0.35f, TRUE,  FALSE, FALSE, TRUE,  TRUE,  TRUE,  TRUE,  FALSE,  6000, FALSE, FALSE, FALSE, FALSE, FALSE,  60.0f, 5000, 2.5f, 420.0f, 0.05f, 0.25f,  75.0f, 300.0f, 2000.0f, 120.0f, 1.00f, 2.0f, 1.0f, 6,                        240.0f, 2, 240.0f, TRUE,  1, 0.50f, 2.0f, 1.00f, 150.0f, 0.80f, 20.0f,  6.0f, 1.5f, 1.50f,  720.0f, 2, 2500.0f, 150 },
-	/* Hard      */ { 25.0f, 2,  1.5f,  1.00f, TRUE,  0.50f, TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,   4000, TRUE,  TRUE,  TRUE,  TRUE,  FALSE,  30.0f, 4000, 1.5f, 180.0f, 0.05f, 1.00f,  45.0f, 240.0f, 4500.0f, 160.0f, 0.25f, 3.0f, 0.0f, DEFENSES_PER_SUPERWEAPON, 180.0f, 2, 180.0f, TRUE,  2, 0.25f, 1.0f, 0.33f, 300.0f, 1.00f, 40.0f,  2.0f, 2.0f, 0.33f,  420.0f, MAX_PLAYER_COUNT, 4000.0f, 150 }
+	/* Easy      */ { 75.0f, 1,  7.0f,  0.00f, FALSE, 0.00f, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE,  FALSE, FALSE,     0, FALSE, FALSE, FALSE, FALSE, FALSE, 120.0f, 6000, 4.0f, 720.0f, 0.05f, 0.05f,  90.0f, 360.0f, 1500.0f,  80.0f, 0.00f, 0.0f, 2.0f, 3,                        300.0f, 3, 300.0f, FALSE, 1, 1.00f, 4.0f, 3.00f,   0.0f, 0.60f, 10.0f, 16.0f, 1.0f, 3.25f, 1200.0f, 1, 2000.0f, 150, 0, 0 },
+	/* Medium    */ { 45.0f, 1,  3.0f,  0.50f, FALSE, 0.35f, TRUE,  FALSE, FALSE, TRUE,  TRUE,  TRUE,  TRUE,  FALSE,  6000, FALSE, FALSE, FALSE, FALSE, FALSE,  60.0f, 5000, 2.5f, 420.0f, 0.05f, 0.25f,  75.0f, 300.0f, 2000.0f, 120.0f, 1.00f, 2.0f, 1.0f, 6,                        240.0f, 2, 240.0f, TRUE,  1, 0.50f, 2.0f, 1.00f, 150.0f, 0.80f, 20.0f,  6.0f, 1.5f, 1.50f,  720.0f, 2, 2500.0f, 150, 1, 1 },
+	/* Hard      */ { 25.0f, 2,  1.5f,  1.00f, TRUE,  0.50f, TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,   4000, TRUE,  TRUE,  TRUE,  TRUE,  FALSE,  30.0f, 4000, 1.5f, 180.0f, 0.05f, 1.00f,  45.0f, 240.0f, 4500.0f, 160.0f, 0.25f, 3.0f, 0.0f, DEFENSES_PER_SUPERWEAPON, 180.0f, 2, 180.0f, TRUE,  2, 0.25f, 1.0f, 0.33f, 300.0f, 1.00f, 40.0f,  2.0f, 2.0f, 0.33f,  420.0f, MAX_PLAYER_COUNT, 4000.0f, 150, 2, 2 }
 };
 
 //-------------------------------------------------------------------------------------------------
@@ -2021,7 +2037,7 @@ Real aiRetreatRatio( Real myHealth, Real myPower, Real enemyHealth, Real enemyPo
 	return (ratio > NOT_A_FIGHT) ? NOT_A_FIGHT : ratio;
 }
 
-static Bool gunsReach( Real x, Real y, const Real *guns, Int gunCount, const AIInfluenceMap *map )
+static Bool gunsReach( Real x, Real y, const Real *guns, Int gunCount, const AIInfluenceMap *map, const AIThreatMix &mix )
 {
 	for( Int g = 0; g < gunCount; ++g )
 	{
@@ -2030,7 +2046,39 @@ static Bool gunsReach( Real x, Real y, const Real *guns, Int gunCount, const AII
 		if( gx * gx + gy * gy <= guns[ 3 * g + 2 ] * guns[ 3 * g + 2 ] )
 			return TRUE;
 	}
-	return map != NULL && map->enemyAt( x, y ) > 0.0f;
+	return map != NULL && map->enemyAt( x, y, mix ) > 0.0f;
+}
+
+/** How much can shoot at (x, y): the map read with mix, and one for each gun in guns[] that reaches it.
+	* ponytail: a gun of the list counts one whatever it is, next to the map's threat values in the hundreds;
+	* the list's guns are the fight's and on the map too, and only a list without a map leans on the count */
+static Real threatAt( Real x, Real y, const Real *guns, Int gunCount, const AIInfluenceMap *map, const AIThreatMix &mix )
+{
+	// routeAt: still guns twice and hazards by the share that walks, where the map has those layers
+	Real sum = map != NULL ? map->routeAt( x, y, mix ) : 0.0f;
+	for( Int g = 0; g < gunCount; ++g )
+	{
+		const Real gx = x - guns[ 3 * g ];
+		const Real gy = y - guns[ 3 * g + 1 ];
+		if( gx * gx + gy * gy <= guns[ 3 * g + 2 ] * guns[ 3 * g + 2 ] )
+			sum += 1.0f;
+	}
+	return sum;
+}
+
+/** threatAt summed at about every step along the straight walk from (fromX, fromY) to (toX, toY), evenly spaced,
+	* the end included and the start, where the walker already stands, not. */
+static Real threatAlong( Real fromX, Real fromY, Real toX, Real toY, Real step,
+												 const Real *guns, Int gunCount, const AIInfluenceMap *map, const AIThreatMix &mix )
+{
+	const Real dx = toX - fromX;
+	const Real dy = toY - fromY;
+	const Real length = (Real)sqrt( dx * dx + dy * dy );
+	const Int samples = (Int)(length / step + 0.5f);
+	Real sum = 0.0f;
+	for( Int i = 1; i <= samples; ++i )
+		sum += threatAt( fromX + dx * i / samples, fromY + dy * i / samples, guns, gunCount, map, mix );
+	return sum;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2038,7 +2086,7 @@ static Bool gunsReach( Real x, Real y, const Real *guns, Int gunCount, const AII
 	* spot no gun reaches with one more step of clear ground past it, that next step included; -1 when it
 	* is not out by maxWalk, or walks off the map (bounds: low x, low y, high x, high y) first. */
 static Real walkOutOfReach( Real fromX, Real fromY, Real dirX, Real dirY, Real maxWalk, Real step,
-														const Real *guns, Int gunCount, const Real *bounds, const AIInfluenceMap *map )
+														const Real *guns, Int gunCount, const Real *bounds, const AIInfluenceMap *map, const AIThreatMix &mix )
 {
 	for( Real along = step; along + step < maxWalk; along += step )
 	{
@@ -2046,8 +2094,8 @@ static Real walkOutOfReach( Real fromX, Real fromY, Real dirX, Real dirY, Real m
 		const Real nextY = fromY + dirY * (along + step);
 		if( nextX < bounds[ 0 ] || nextY < bounds[ 1 ] || nextX > bounds[ 2 ] || nextY > bounds[ 3 ] )
 			return -1.0f;
-		if( !gunsReach( fromX + dirX * along, fromY + dirY * along, guns, gunCount, map ) &&
-				!gunsReach( fromX + dirX * (along + step), fromY + dirY * (along + step), guns, gunCount, map ) )
+		if( !gunsReach( fromX + dirX * along, fromY + dirY * along, guns, gunCount, map, mix ) &&
+				!gunsReach( fromX + dirX * (along + step), fromY + dirY * (along + step), guns, gunCount, map, mix ) )
 			return along + step;
 	}
 	return -1.0f;
@@ -2064,14 +2112,27 @@ static Real walkOutOfReach( Real fromX, Real fromY, Real dirX, Real dirY, Real m
 	* pulled out of a fight there died to a building within fifteen seconds of the order.  A way that walks
 	* off the map (bounds) is no way out; ground the pathfinder cannot stand on is its to move to the
 	* nearest that it can, as with any move.  With a map, every enemy gun on it counts as well as the ones in
-	* guns[]: those are the guns of the fight, and a spot clear of them stood under the next gun over. */
+	* guns[]: those are the guns of the fight, and a spot clear of them stood under the next gun over.
+	*
+	* Of the ways out, the one with the least threat summed along it (threatAlong), and of two within a tenth of
+	* each other the one out more than a step sooner.  Picked by its length alone, the way that got out first
+	* was the way under the enemy's army whenever the army stood nearer than the edge of a lone gun's reach,
+	* and a unit pulled out of a fight drove through the tanks between it and home.  outThreat and roadThreat,
+	* when given, take the chosen way's sum and the road home's (-1 when the road never gets out). */
 //-------------------------------------------------------------------------------------------------
+static const Real ROUTE_THREAT_MARGIN = 0.9f;
+
 Bool aiRetreatFallbackPoint( Real fromX, Real fromY, Real homeX, Real homeY, Real step,
 														 const Real *guns, Int gunCount, const Real *bounds, Real *outX, Real *outY,
-														 const AIInfluenceMap *map )
+														 const AIInfluenceMap *map, const AIThreatMix *mix, Real *outThreat, Real *roadThreat )
 {
+	const AIThreatMix &reads = mix ? *mix : AITHREAT_GROUND_MIX;
 	*outX = homeX;
 	*outY = homeY;
+	if( outThreat )
+		*outThreat = -1.0f;
+	if( roadThreat )
+		*roadThreat = -1.0f;
 	const Real dx = homeX - fromX;
 	const Real dy = homeY - fromY;
 	const Real homeDist = (Real)sqrt( dx * dx + dy * dy );
@@ -2090,20 +2151,95 @@ Bool aiRetreatFallbackPoint( Real fromX, Real fromY, Real homeX, Real homeY, Rea
 	};
 	Int best = -1;
 	Real bestWalk = 0.0f;
+	Real bestThreat = 0.0f;
 	for( Int w = 0; w < 5; ++w )
 	{
-		const Real walk = walkOutOfReach( fromX, fromY, ways[ w ][ 0 ], ways[ w ][ 1 ], homeDist, step, guns, gunCount, bounds, map );
-		if( walk >= 0.0f && (best < 0 || walk + step < bestWalk) )
+		const Real walk = walkOutOfReach( fromX, fromY, ways[ w ][ 0 ], ways[ w ][ 1 ], homeDist, step, guns, gunCount, bounds, map, reads );
+		if( walk < 0.0f )
+			continue;
+		const Real threat = threatAlong( fromX, fromY, fromX + ways[ w ][ 0 ] * walk, fromY + ways[ w ][ 1 ] * walk, step, guns, gunCount, map, reads );
+		if( w == 0 && roadThreat )
+			*roadThreat = threat;
+		const Bool quieter = threat < bestThreat * ROUTE_THREAT_MARGIN;
+		const Bool asQuietAndSooner = threat * ROUTE_THREAT_MARGIN <= bestThreat && walk + step < bestWalk;
+		if( best < 0 || quieter || asQuietAndSooner )
 		{
 			best = w;
 			bestWalk = walk;
+			bestThreat = threat;
 		}
 	}
 	if( best < 0 )
 		return FALSE;
 	*outX = fromX + ways[ best ][ 0 ] * bestWalk;
 	*outY = fromY + ways[ best ][ 1 ] * bestWalk;
+	if( outThreat )
+		*outThreat = bestThreat;
 	return TRUE;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A waypoint that takes the straight walk from (fromX, fromY) to (toX, toY) round the enemy reach the map
+	* shows on it.  The spots tried stand off the line's hottest point, square to it, DETOUR_REACH_STEPS steps
+	* either side; the one whose two legs sum the least threat (threatAlong, map read with mix) is the waypoint
+	* when that is under DETOUR_WORTH of the straight walk's.  The pathfinder knows nothing of the map, so this
+	* is the whole of the walk going round: a move to the waypoint and on to the end.  FALSE when the line is
+	* clear or nothing round it is that much quieter.  straightThreat and detourThreat take both sums, the
+	* detour's -1 when none was tried. */
+//-------------------------------------------------------------------------------------------------
+static const Real DETOUR_REACH_STEPS[] = { 3.0f, 6.0f, 9.0f, 12.0f };
+static const Real DETOUR_WORTH = 0.5f;
+
+Bool aiDetourWaypoint( Real fromX, Real fromY, Real toX, Real toY, Real step, const Real *bounds,
+											 const AIInfluenceMap *map, const AIThreatMix &mix, Real *wayX, Real *wayY,
+											 Real *straightThreat, Real *detourThreat )
+{
+	*detourThreat = -1.0f;
+	*straightThreat = threatAlong( fromX, fromY, toX, toY, step, NULL, 0, map, mix );
+	const Real dx = toX - fromX;
+	const Real dy = toY - fromY;
+	const Real length = (Real)sqrt( dx * dx + dy * dy );
+	const Int samples = (Int)(length / step + 0.5f);
+	if( *straightThreat <= 0.0f || samples < 2 )
+		return FALSE;
+
+	// the hottest point on the line, the first of equals
+	Int hottest = 1;
+	Real hottestThreat = -1.0f;
+	for( Int i = 1; i <= samples; ++i )
+	{
+		const Real threat = map->routeAt( fromX + dx * i / samples, fromY + dy * i / samples, mix );
+		if( threat > hottestThreat )
+		{
+			hottest = i;
+			hottestThreat = threat;
+		}
+	}
+	const Real hotX = fromX + dx * hottest / samples;
+	const Real hotY = fromY + dy * hottest / samples;
+	const Real sideX = -dy / length;
+	const Real sideY = dx / length;
+
+	Bool found = FALSE;
+	for( Int k = 0; k < (Int)(sizeof( DETOUR_REACH_STEPS ) / sizeof( DETOUR_REACH_STEPS[ 0 ] )); ++k )
+	{
+		for( Int turn = 1; turn >= -1; turn -= 2 )
+		{
+			const Real x = hotX + sideX * turn * DETOUR_REACH_STEPS[ k ] * step;
+			const Real y = hotY + sideY * turn * DETOUR_REACH_STEPS[ k ] * step;
+			if( x < bounds[ 0 ] || y < bounds[ 1 ] || x > bounds[ 2 ] || y > bounds[ 3 ] )
+				continue;
+			const Real threat = threatAlong( fromX, fromY, x, y, step, NULL, 0, map, mix ) + threatAlong( x, y, toX, toY, step, NULL, 0, map, mix );
+			if( !found || threat < *detourThreat )
+			{
+				found = TRUE;
+				*detourThreat = threat;
+				*wayX = x;
+				*wayY = y;
+			}
+		}
+	}
+	return found && *detourThreat < *straightThreat * DETOUR_WORTH;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -3117,6 +3253,8 @@ void AI::parseSkillLevel(INI *ini, void *instance, void* /*store*/, const void* 
 		{ "SecondBases",							INI::parseInt,  NULL, offsetof( AIDifficultyProfile, m_secondBases ) },
 		{ "ExpansionReach",						INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_expansionReach ) },
 		{ "IncomePercent",						INI::parseInt,  NULL, offsetof( AIDifficultyProfile, m_incomePercent ) },
+		{ "UnitAbilities",						INI::parseInt,  NULL, offsetof( AIDifficultyProfile, m_unitAbilities ) },
+		{ "ForeignTech",							INI::parseInt,  NULL, offsetof( AIDifficultyProfile, m_foreignTech ) },
 		{ NULL, NULL, NULL, 0 }
 	};
 

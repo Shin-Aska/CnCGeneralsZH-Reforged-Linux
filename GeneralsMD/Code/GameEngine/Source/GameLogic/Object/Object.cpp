@@ -61,6 +61,7 @@
 #include "GameClient/InGameUI.h"
 
 #include "GameLogic/AI.h"
+#include "GameLogic/AIPlayer.h"
 #include "GameLogic/AIPathfind.h"
 #include "GameLogic/ExperienceTracker.h"
 #include "GameLogic/FiringTracker.h"
@@ -5303,8 +5304,10 @@ void Object::onCapture( Player *oldOwner, Player *newOwner )
 	TheControlBar->markUIDirty();
 
 	if (oldOwner!=newOwner && newOwner->isSkirmishAIPlayer()) {
-		// The skirmish ai doesn't know what to do with captured faction buildings except sell them.
-		if (isFactionStructure()) {
+		// The skirmish ai doesn't know what to do with captured faction buildings except sell them,
+		// short of the foreign tree ForeignTech builds on.
+		const AIPlayer *ai = newOwner->getAIPlayer();
+		if (isFactionStructure() && !(ai && ai->keepsCaptured(this))) {
 			TheBuildAssistant->sellObject( this );
 		}
 	}
@@ -6380,8 +6383,9 @@ void Object::doCommandButton( const CommandButton *commandButton, CommandSourceT
 					if( !BitTest( commandButton->getOptions(), COMMAND_OPTION_NEED_OBJECT_TARGET ) && !BitTest( commandButton->getOptions(), NEED_TARGET_POS ) )
 					{
 						setWeaponLock( commandButton->getWeaponSlot(), LOCKED_TEMPORARILY );
-						//LOCATION BASED FIRE WEAPON
-						ai->aiAttackPosition( NULL, commandButton->getMaxShotsToFire(), cmdSource );
+						//LOCATION BASED FIRE WEAPON: at its own feet, as AIGroup::groupAttackPosition reads a NULL spot
+						// (aiAttackPosition copies the spot, so EA's NULL here read address zero)
+						ai->aiAttackPosition( getPosition(), commandButton->getMaxShotsToFire(), cmdSource );
 					}
 					else
 					{

@@ -1530,6 +1530,35 @@ TEST(water_splashes_take_blasts_by_name_and_every_list_that_scorches)
 	CHECK_NEAR( TheFXListStore->findFXList( "SplashTest_Nuke" )->getSplashRadius(), 120.0f, 0.01f );
 }
 
+/* A flipbook's frame: at one variant the whole atlas as before (once over the life from the start,
+	 or looping at the rate), and with FlipbookVariants the same inside the particle's own run. */
+TEST(flipbook_frame_plays_inside_the_particles_variant)
+{
+	const Real SPF = 0.05f;
+	// one variant, EA's atlas whole: once over the life, from a random start, looping at a rate
+	CHECK_EQ( Particle::flipbookFrameAt( 64, 1, 0, 0, 50, 100, 0.0f, SPF ), 32u );
+	CHECK_EQ( Particle::flipbookFrameAt( 64, 1, 0, 0, 100, 100, 0.0f, SPF ), 63u );
+	CHECK_EQ( Particle::flipbookFrameAt( 64, 1, 0, 10, 50, 100, 0.0f, SPF ), 37u );
+	CHECK_EQ( Particle::flipbookFrameAt( 64, 1, 0, 0, 30, 100, 20.0f, SPF ), 30u );
+	CHECK_EQ( Particle::flipbookFrameAt( 64, 1, 0, 0, 70, 100, 20.0f, SPF ), 6u );
+	CHECK_EQ( Particle::flipbookFrameAt( 1, 1, 0, 0, 70, 100, 20.0f, SPF ), 0u );
+
+	// four runs of 16 in an 8 by 8: each plays and loops inside its own run
+	CHECK_EQ( Particle::flipbookFrameAt( 64, 4, 2, 0, 50, 100, 0.0f, SPF ), 40u );
+	CHECK_EQ( Particle::flipbookFrameAt( 64, 4, 2, 0, 100, 100, 0.0f, SPF ), 47u );
+	CHECK_EQ( Particle::flipbookFrameAt( 64, 4, 3, 0, 70, 100, 20.0f, SPF ), 54u );
+	CHECK_EQ( Particle::flipbookFrameAt( 64, 4, 1, 5, 30, 100, 20.0f, SPF ), 19u );
+	CHECK_EQ( Particle::flipbookFrameAt( 64, 4, 2, 5, 70, 0, 20.0f, SPF ), 37u );
+
+	// three runs of 21 leave frame 63 unshown; nonsense counts and picks fall back, never overrun
+	CHECK_EQ( Particle::flipbookFrameAt( 64, 3, 2, 0, 100, 100, 0.0f, SPF ), 62u );
+	CHECK_EQ( Particle::flipbookRunLength( 64, 0 ), 64u );
+	CHECK_EQ( Particle::flipbookRunLength( 64, 100 ), 64u );
+	CHECK_EQ( Particle::flipbookRunLength( 256, 16 ), 16u );
+	CHECK_EQ( Particle::flipbookFrameAt( 64, 4, 5, 0, 0, 100, 0.0f, SPF ), 0u );
+	CHECK_EQ( Particle::flipbookFrameAt( 64, 4, 0, 40, 0, 100, 0.0f, SPF ), 15u );
+}
+
 /* Data\INI\FXListReforged.ini is the fork's own explosion light: 89 of EA's FXLists, each repeated
 	 whole with one LightPulse added.  Whole, because FXListStore::parseFXListDefinition clears an
 	 entry before re-reading it - a half-copied block does not add a light, it deletes an explosion.
@@ -1546,9 +1575,13 @@ TEST(water_splashes_take_blasts_by_name_and_every_list_that_scorches)
 	 which already had a muzzle light, and the faster tracers six more, each with EA's own light.
 	 The smoke-trail fragments added two of EA's blasts, the jet missile with its own light and the
 	 Particle Cannon's ground hit with one of the fork's.  The three wreck impacts, dust and a
-	 shake by how hard an aircraft hits the ground, are dust and carry no light either. */
+	 shake by how hard an aircraft hits the ground, are dust and carry no light either.  ZH Enhanced's
+	 techniques added three lit ones, the civilian collapse's first stage, the Nuke Cannon's shot and
+	 the Particle Cannon's death, which also lit the pink one; the dust an artillery shell throws on
+	 dry ground is dust and stays unlit. */
 static const char *const s_unlitReforgedFXList = "FXList SupW_FX_ParticleUplinkDeathInitial";
 static const char *const s_unlitReforgedImpacts = "FXList FX_Reforged_Impact";
+static const char *const s_unlitReforgedShellDust = "FXList FX_ReforgedShellGroundDust";
 
 TEST(fxlist_reforged_ini_parses_and_keeps_its_light)
 {
@@ -1580,7 +1613,8 @@ TEST(fxlist_reforged_ini_parses_and_keeps_its_light)
 	while( fgets( line, sizeof( line ), fp ) != NULL )
 	{
 		if( strncmp( line, s_unlitReforgedFXList, strlen( s_unlitReforgedFXList ) ) == 0 ||
-				strncmp( line, s_unlitReforgedImpacts, strlen( s_unlitReforgedImpacts ) ) == 0 )
+				strncmp( line, s_unlitReforgedImpacts, strlen( s_unlitReforgedImpacts ) ) == 0 ||
+				strncmp( line, s_unlitReforgedShellDust, strlen( s_unlitReforgedShellDust ) ) == 0 )
 		{
 			open = 0;
 		}
@@ -1603,7 +1637,7 @@ TEST(fxlist_reforged_ini_parses_and_keeps_its_light)
 	}
 	fclose( fp );
 
-	CHECK_EQ( blocks, 135 );
+	CHECK_EQ( blocks, 138 );
 	CHECK_EQ( lit, blocks );
 }
 
@@ -12422,6 +12456,32 @@ TEST(a_seed_generates_the_same_map_bytes_every_single_time)
 }
 
 //-------------------------------------------------------------------------------------------------
+/** A ranked Quick Match has no lobby to send a map name: every peer derives the map from the match
+	seed and the seat count alone, so the derivation is pinned here.  A change to it splits two builds
+	that otherwise agree into different maps, which the map CRC then refuses. */
+//-------------------------------------------------------------------------------------------------
+TEST(a_quick_match_seed_derives_the_same_generated_map_settings)
+{
+	const RandomMapSettings duel = RandomMapGenerator::quickMatchSettings( 123456789, 2 );
+	CHECK_EQ( duel.m_seed, 123456789 );
+	CHECK_EQ( duel.m_numPlayers, 2 );
+	CHECK_EQ( duel.m_playableCells, RandomMapGenerator::cellsFor( RANDOM_MAP_SIZE_NORMAL, 2 ) );
+	CHECK_EQ( duel.m_playableCells, 248 );
+	CHECK_EQ( duel.m_style, 0 );
+	CHECK( duel.m_template.isEmpty() );
+
+	const RandomMapSettings again = RandomMapGenerator::quickMatchSettings( 123456789, 2 );
+	CHECK_EQ( again.m_seed, duel.m_seed );
+	CHECK_EQ( again.m_playableCells, duel.m_playableCells );
+
+	// a 2v2 gets each seat its share of ground, and a negative server seed still names a map
+	const RandomMapSettings fours = RandomMapGenerator::quickMatchSettings( -5, 4 );
+	CHECK_EQ( fours.m_seed, (Int)( -5 & 0x7fffffff ) );
+	CHECK_EQ( fours.m_numPlayers, 4 );
+	CHECK_EQ( fours.m_playableCells, 304 );
+}
+
+//-------------------------------------------------------------------------------------------------
 /** Generating bytes is easy; generating bytes the game will read is the job.  Run the engine's own
 	chunk reader over the result and check the fields the terrain and map code go looking for. */
 //-------------------------------------------------------------------------------------------------
@@ -17446,6 +17506,7 @@ TEST(the_difficulty_ladder_climbs_in_every_direction_it_should)
 		CHECK( upper.m_adaptiveHarvesters >= lower.m_adaptiveHarvesters );
 		CHECK( upper.m_selfTriggeredExpansion >= lower.m_selfTriggeredExpansion );
 		CHECK( upper.m_defendExpansions >= lower.m_defendExpansions );
+		CHECK( upper.m_unitAbilities >= lower.m_unitAbilities );
 
 		// more of the map: another base sooner, more of them, docks further out
 		CHECK( upper.m_secondBaseSeconds < lower.m_secondBaseSeconds );
@@ -17469,35 +17530,329 @@ TEST(the_difficulty_ladder_climbs_in_every_direction_it_should)
 /** The influence map is what every fighting decision of Hard's reads, so what it says about a patch of
 	 ground has to be what the guns there can actually do: reach it flat, reach further from above, and
 	 add up when two of them cover the same cell. */
+/** A cost map's stamp: one figure into the vehicle slot, the ground reach alone. */
+static void stampCost( AIInfluenceMap &map, Real x, Real y, Real z, Real range, Real power )
+{
+	const Real cost[ AITHREAT_COUNT ] = { power, 0.0f, 0.0f };
+	map.stampEnemy( x, y, z, range, 0.0f, cost );
+}
+
 TEST(influence_map_covers_what_a_gun_reaches_and_the_high_ground_reaches_further)
 {
 	AIInfluenceMap map;
 	map.reset( 0.0f, 0.0f, 1000.0f, 1000.0f, 50.0f );
 	CHECK_EQ( 20, map.getCols() );
 
-	map.stampEnemy( 500.0f, 500.0f, 0.0f, 100.0f, 1000.0f );
-	CHECK_EQ( 1000.0f, map.enemyAt( 500.0f, 500.0f ) );
-	CHECK_EQ( 1000.0f, map.enemyAt( 575.0f, 525.0f ) );		// cell centre 575,525: 79 away
-	CHECK_EQ( 0.0f, map.enemyAt( 675.0f, 525.0f ) );			// 175 away, out of a 100 gun's reach
+	stampCost( map, 500.0f, 500.0f, 0.0f, 100.0f, 1000.0f );
+	CHECK_EQ( 1000.0f, map.enemyAt( 500.0f, 500.0f, AITHREAT_COST_MIX ) );
+	CHECK_EQ( 1000.0f, map.enemyAt( 575.0f, 525.0f, AITHREAT_COST_MIX ) );		// cell centre 575,525: 79 away
+	CHECK_EQ( 0.0f, map.enemyAt( 675.0f, 525.0f, AITHREAT_COST_MIX ) );			// 175 away, out of a 100 gun's reach
 	CHECK_EQ( 0.0f, map.friendAt( 500.0f, 500.0f ) );
 
 	// the same gun thirty units up reaches 90 further (three a unit), which covers the 175 cell
 	map.clear();
-	map.stampEnemy( 500.0f, 500.0f, 30.0f, 100.0f, 1000.0f );
-	CHECK_EQ( 1000.0f, map.enemyAt( 675.0f, 525.0f ) );
-	CHECK_EQ( 0.0f, map.enemyAt( 775.0f, 525.0f ) );
+	stampCost( map, 500.0f, 500.0f, 30.0f, 100.0f, 1000.0f );
+	CHECK_EQ( 1000.0f, map.enemyAt( 675.0f, 525.0f, AITHREAT_COST_MIX ) );
+	CHECK_EQ( 0.0f, map.enemyAt( 775.0f, 525.0f, AITHREAT_COST_MIX ) );
 
 	// ... and a cell on a hill as high as the gun gets no bonus against it
 	map.clear();
 	for( Int row = 0; row < map.getRows(); ++row )
 		for( Int col = 0; col < map.getCols(); ++col )
 			map.setCellHeight( col, row, 30.0f );
-	map.stampEnemy( 500.0f, 500.0f, 30.0f, 100.0f, 1000.0f );
-	CHECK_EQ( 0.0f, map.enemyAt( 675.0f, 525.0f ) );
+	stampCost( map, 500.0f, 500.0f, 30.0f, 100.0f, 1000.0f );
+	CHECK_EQ( 0.0f, map.enemyAt( 675.0f, 525.0f, AITHREAT_COST_MIX ) );
 
-	map.stampEnemy( 500.0f, 500.0f, 30.0f, 100.0f, 500.0f );
-	CHECK_EQ( 1500.0f, map.enemyAt( 500.0f, 500.0f ) );
-	CHECK_EQ( 0.0f, map.enemyAt( -10.0f, 500.0f ) );			// off the map reads as nothing
+	stampCost( map, 500.0f, 500.0f, 30.0f, 100.0f, 500.0f );
+	CHECK_EQ( 1500.0f, map.enemyAt( 500.0f, 500.0f, AITHREAT_COST_MIX ) );
+	CHECK_EQ( 0.0f, map.enemyAt( -10.0f, 500.0f, AITHREAT_COST_MIX ) );			// off the map reads as nothing
+}
+
+/** Threat by target class: a tank gun and an AA gun on one cell are read by what is asking.  A tank fears the
+	 tank gun, a helicopter the AA gun, a wave of both a share of each; the cost mix reads the vehicle slot alone,
+	 to the bit, whatever the other two hold. */
+TEST(influence_map_reads_threat_by_what_the_reader_moves)
+{
+	AIInfluenceMap map;
+	map.reset( 0.0f, 0.0f, 1000.0f, 1000.0f, 50.0f );
+	const Real tankGun[ AITHREAT_COUNT ] = { 600.0f, 200.0f, 0.0f };
+	const Real flakGun[ AITHREAT_COUNT ] = { 0.0f, 0.0f, 900.25f };
+	map.stampEnemy( 500.0f, 500.0f, 0.0f, 100.0f, 0.0f, tankGun );
+	map.stampEnemy( 500.0f, 500.0f, 0.0f, 0.0f, 300.0f, flakGun );
+
+	CHECK_EQ( 600.0f, map.enemyAt( 500.0f, 500.0f, AITHREAT_COST_MIX ) );
+	CHECK_EQ( 200.0f, map.enemyAt( 500.0f, 500.0f, AITHREAT_INFANTRY_MIX ) );
+	CHECK_EQ( 900.25f, map.enemyAt( 500.0f, 500.0f, AITHREAT_AIR_MIX ) );
+	CHECK_EQ( 400.0f, map.enemyAt( 500.0f, 500.0f, AITHREAT_GROUND_MIX ) );
+	const AIThreatMix half = { { 0.5f, 0.0f, 0.5f } };
+	CHECK_EQ( 750.125f, map.enemyAt( 500.0f, 500.0f, half ) );
+
+	// the air reach is the flak gun's 300: a helicopter 250 off is under it, a tank there is not under anything
+	CHECK_EQ( 900.25f, map.enemyAt( 725.0f, 625.0f, AITHREAT_AIR_MIX ) );
+	CHECK_EQ( 0.0f, map.enemyAt( 725.0f, 625.0f, AITHREAT_COST_MIX ) );
+	CHECK_EQ( 0.0f, map.enemyAt( 875.0f, 875.0f, AITHREAT_AIR_MIX ) );		// 530 off, out of it
+}
+
+/** Quarter powers add exactly, so the seats and rounds stamping in another order hold the same map, cell for
+	 cell, and the shared turn's two halves (cellsReached, then the adds) are the one stamp. */
+TEST(influence_map_stamps_add_the_same_in_any_order)
+{
+	AIInfluenceMap ab, ba, halves;
+	ab.reset( 0.0f, 0.0f, 1000.0f, 1000.0f, 50.0f );
+	ba.reset( 0.0f, 0.0f, 1000.0f, 1000.0f, 50.0f );
+	halves.reset( 0.0f, 0.0f, 1000.0f, 1000.0f, 50.0f );
+	const Real a[ AITHREAT_COUNT ] = { 1234.25f, 0.25f, 77.5f };
+	const Real b[ AITHREAT_COUNT ] = { 0.75f, 98765.5f, 3.25f };
+	const Real c[ AITHREAT_COUNT ] = { 4096.75f, 12.0f, 0.0f };
+	ab.stampEnemy( 480.0f, 510.0f, 0.0f, 150.0f, 220.0f, a );
+	ab.stampEnemy( 530.0f, 470.0f, 0.0f, 120.0f, 120.0f, b );
+	ab.stampEnemy( 500.0f, 500.0f, 0.0f, 300.0f, 0.0f, c );
+	ba.stampEnemy( 500.0f, 500.0f, 0.0f, 300.0f, 0.0f, c );
+	ba.stampEnemy( 530.0f, 470.0f, 0.0f, 120.0f, 120.0f, b );
+	ba.stampEnemy( 480.0f, 510.0f, 0.0f, 150.0f, 220.0f, a );
+	std::vector<Int> ground, air;
+	halves.cellsReached( 480.0f, 510.0f, 0.0f, 150.0f, ground );
+	halves.cellsReached( 480.0f, 510.0f, 0.0f, 220.0f, air );
+	halves.addEnemy( &ground[ 0 ], (Int)ground.size(), a[ AITHREAT_VEHICLE ], a[ AITHREAT_INFANTRY ] );
+	halves.addEnemyAir( &air[ 0 ], (Int)air.size(), a[ AITHREAT_AIR ] );
+	halves.stampEnemy( 530.0f, 470.0f, 0.0f, 120.0f, 120.0f, b );
+	halves.stampEnemy( 500.0f, 500.0f, 0.0f, 300.0f, 0.0f, c );
+	const AIThreatMix mixes[] = { AITHREAT_COST_MIX, AITHREAT_INFANTRY_MIX, AITHREAT_AIR_MIX };
+	Int same = 0, cells = 0;
+	for( Int row = 0; row < ab.getRows(); ++row )
+		for( Int col = 0; col < ab.getCols(); ++col )
+		{
+			Real x, y;
+			ab.cellCenter( col, row, &x, &y );
+			for( Int m = 0; m < 3; ++m, ++cells )
+				if( ab.enemyAt( x, y, mixes[ m ] ) == ba.enemyAt( x, y, mixes[ m ] ) &&
+						ab.enemyAt( x, y, mixes[ m ] ) == halves.enemyAt( x, y, mixes[ m ] ) )
+					++same;
+		}
+	CHECK_EQ( cells, same );
+	CHECK_EQ( 1234.25f + 0.75f + 4096.75f, ab.enemyAt( 500.0f, 500.0f, AITHREAT_COST_MIX ) );
+}
+
+/** A minimal in-memory Xfer for a save's bytes, written then read back. */
+class MemoryXfer : public Xfer
+{
+public:
+	MemoryXfer() : m_at( 0 ) { m_xferMode = XFER_SAVE; }
+	void rewind() { m_xferMode = XFER_LOAD; m_at = 0; }
+	virtual void open( AsciiString ) {}
+	virtual void close( void ) {}
+	virtual Int beginBlock( void ) { return 0; }
+	virtual void endBlock( void ) {}
+	virtual void skip( Int dataSize ) { m_at += dataSize; }
+	virtual void xferSnapshot( Snapshot * ) {}
+protected:
+	virtual void xferImplementation( void *data, Int dataSize )
+	{
+		if( m_xferMode == XFER_SAVE )
+			m_bytes.insert( m_bytes.end(), (const UnsignedByte *)data, (const UnsignedByte *)data + dataSize );
+		else
+		{
+			memcpy( data, &m_bytes[ m_at ], dataSize );
+			m_at += dataSize;
+		}
+	}
+private:
+	std::vector<UnsignedByte> m_bytes;
+	size_t m_at;
+};
+
+/** A save from before the classes (AIPlayer version 36) held one enemy figure a cell: it loads into all three
+	 slots, so every reader sees what it saw until the next round; a version 37 map comes back slot for slot. */
+TEST(influence_map_from_an_old_save_loads_into_every_class)
+{
+	MemoryXfer old;
+	Real originX = 0.0f, originY = 0.0f, cellSize = 50.0f;
+	Int cols = 2, rows = 1;
+	Bool built = TRUE;
+	UnsignedInt builtFrame = 300;
+	old.xferReal( &originX );
+	old.xferReal( &originY );
+	old.xferReal( &cellSize );
+	old.xferInt( &cols );
+	old.xferInt( &rows );
+	old.xferBool( &built );
+	old.xferUnsignedInt( &builtFrame );
+	Real cell[ 2 ][ 3 ] = { { 750.0f, 120.0f, 4.0f }, { 0.0f, 0.0f, 9.0f } };		// enemy, friend, height
+	for( Int i = 0; i < 2; ++i )
+		for( Int k = 0; k < 3; ++k )
+			old.xferReal( &cell[ i ][ k ] );
+	old.rewind();
+	AIInfluenceMap map;
+	map.xfer( &old, 36 );
+	CHECK_EQ( 2, map.getCols() );
+	CHECK( map.isBuilt() );
+	CHECK_EQ( 300u, map.getBuiltFrame() );
+	CHECK_EQ( 750.0f, map.enemyAt( 25.0f, 25.0f, AITHREAT_COST_MIX ) );
+	CHECK_EQ( 750.0f, map.enemyAt( 25.0f, 25.0f, AITHREAT_INFANTRY_MIX ) );
+	CHECK_EQ( 750.0f, map.enemyAt( 25.0f, 25.0f, AITHREAT_AIR_MIX ) );
+	CHECK_EQ( 120.0f, map.friendAt( 25.0f, 25.0f ) );
+	CHECK_EQ( 0.0f, map.enemyAt( 75.0f, 25.0f, AITHREAT_GROUND_MIX ) );
+
+	const Real threat[ AITHREAT_COUNT ] = { 1.0f, 2.0f, 3.0f };
+	map.stampEnemy( 75.0f, 25.0f, 9.0f, 10.0f, 10.0f, threat );
+	MemoryXfer now;
+	map.xfer( &now, 37 );
+	now.rewind();
+	AIInfluenceMap back;
+	back.xfer( &now, 37 );
+	CHECK_EQ( 750.0f, back.enemyAt( 25.0f, 25.0f, AITHREAT_COST_MIX ) );		// a reach of 10 covers its own cell alone
+	CHECK_EQ( 750.0f, back.enemyAt( 25.0f, 25.0f, AITHREAT_INFANTRY_MIX ) );
+	CHECK_EQ( 1.0f, back.enemyAt( 75.0f, 25.0f, AITHREAT_COST_MIX ) );
+	CHECK_EQ( 2.0f, back.enemyAt( 75.0f, 25.0f, AITHREAT_INFANTRY_MIX ) );
+	CHECK_EQ( 3.0f, back.enemyAt( 75.0f, 25.0f, AITHREAT_AIR_MIX ) );
+}
+
+/** A gun's shape (map layers): nothing inside its minimum range, the full figure out to three quarters of its
+	 reach, half over the rest; with no minimum and no edge the banded cells are cellsReached's, cell for cell. */
+TEST(influence_map_gun_shape_leaves_its_minimum_range_and_halves_its_edge)
+{
+	AIInfluenceMap map;
+	map.reset( 0.0f, 0.0f, 1000.0f, 1000.0f, 50.0f );
+	std::vector<Int> cells, scratch;
+	Int edge = -1;
+	map.cellsBanded( 500.0f, 500.0f, 0.0f, 200.0f, 100.0f, 0.75f, cells, scratch, &edge );
+	CHECK( edge > 0 );
+	const Int full = (Int)cells.size() - edge;
+	map.addEnemy( &cells[ 0 ], full, 8.0f, 4.0f );
+	map.addEnemy( &cells[ full ], edge, 4.0f, 2.0f );
+	CHECK_EQ( 0.0f, map.enemyAt( 525.0f, 525.0f, AITHREAT_COST_MIX ) );		// 35 off: inside the 100 minimum
+	CHECK_EQ( 8.0f, map.enemyAt( 625.0f, 525.0f, AITHREAT_COST_MIX ) );		// 127 off: full, inside 150
+	CHECK_EQ( 4.0f, map.enemyAt( 675.0f, 525.0f, AITHREAT_COST_MIX ) );		// 177 off: the edge
+	CHECK_EQ( 0.0f, map.enemyAt( 725.0f, 525.0f, AITHREAT_COST_MIX ) );		// 226 off: out of reach
+
+	std::vector<Int> plain, banded;
+	map.cellsReached( 480.0f, 510.0f, 30.0f, 150.0f, plain );
+	map.cellsBanded( 480.0f, 510.0f, 30.0f, 150.0f, 0.0f, 1.0f, banded, scratch, &edge );
+	CHECK_EQ( 0, edge );
+	CHECK( plain == banded );
+}
+
+/** A route fears a still gun twice and a hazard by the share of the reader that walks; with those layers empty it
+	 reads the enemy layer to the bit. */
+TEST(influence_map_route_counts_still_guns_twice_and_hazards_for_walkers)
+{
+	AIInfluenceMap map;
+	map.reset( 0.0f, 0.0f, 1000.0f, 1000.0f, 50.0f );
+	std::vector<Int> cell;
+	map.cellsInDisc( 525.0f, 525.0f, 10.0f, cell );		// smaller than a cell: its own cell alone
+	CHECK_EQ( 1, (Int)cell.size() );
+	map.addEnemy( &cell[ 0 ], 1, 100.0f, 60.0f );
+	map.addStatic( &cell[ 0 ], 1, 100.0f, 60.0f );
+	map.addHazard( &cell[ 0 ], 1, 400.0f );
+	CHECK_EQ( 80.0f, map.enemyAt( 525.0f, 525.0f, AITHREAT_GROUND_MIX ) );
+	CHECK_EQ( 100.0f, map.staticAt( 525.0f, 525.0f, AITHREAT_COST_MIX ) );
+	CHECK_EQ( 400.0f, map.hazardAt( 525.0f, 525.0f ) );
+	CHECK_EQ( 560.0f, map.routeAt( 525.0f, 525.0f, AITHREAT_GROUND_MIX ) );
+	CHECK_EQ( 0.0f, map.routeAt( 525.0f, 525.0f, AITHREAT_AIR_MIX ) );		// a field burns nothing in the air
+
+	std::vector<Int> other;
+	map.cellsInDisc( 125.0f, 125.0f, 10.0f, other );
+	map.addEnemy( &other[ 0 ], 1, 1234.25f, 0.75f );
+	const AIThreatMix mixes[] = { AITHREAT_COST_MIX, AITHREAT_INFANTRY_MIX, AITHREAT_GROUND_MIX };
+	for( Int m = 0; m < 3; ++m )
+		CHECK_EQ( map.enemyAt( 125.0f, 125.0f, mixes[ m ] ), map.routeAt( 125.0f, 125.0f, mixes[ m ] ) );
+
+	std::vector<Int> disc;
+	map.cellsInDisc( 500.0f, 500.0f, 60.0f, disc );		// the four cells round the corner, and no more
+	CHECK_EQ( 4, (Int)disc.size() );
+}
+
+/** The friendly layer by class: tank guns do not hold ground against aircraft, and a cell is held when nothing the
+	 enemy has there outweighs ours. */
+TEST(influence_map_friendly_layer_reads_by_class_and_holds_ground)
+{
+	AIInfluenceMap map;
+	map.reset( 0.0f, 0.0f, 1000.0f, 1000.0f, 50.0f );
+	std::vector<Int> cell;
+	map.cellsInDisc( 525.0f, 525.0f, 10.0f, cell );
+	map.addFriend( &cell[ 0 ], 1, 6.0f, 2.0f );
+	map.addFriendAir( &cell[ 0 ], 1, 10.0f );
+	CHECK_EQ( 4.0f, map.friendAt( 525.0f, 525.0f, AITHREAT_GROUND_MIX ) );
+	CHECK_EQ( 4.0f, map.friendAt( 525.0f, 525.0f ) );
+	CHECK_EQ( 6.0f, map.friendAt( 525.0f, 525.0f, AITHREAT_COST_MIX ) );
+	CHECK_EQ( 10.0f, map.friendAt( 525.0f, 525.0f, AITHREAT_AIR_MIX ) );
+	CHECK( map.heldAt( 525.0f, 525.0f, AITHREAT_GROUND_MIX, AITHREAT_GROUND_MIX ) );
+	map.addEnemy( &cell[ 0 ], 1, 5.0f, 5.0f );
+	CHECK( !map.heldAt( 525.0f, 525.0f, AITHREAT_GROUND_MIX, AITHREAT_GROUND_MIX ) );	// 5 against 4
+	CHECK( map.heldAt( 525.0f, 525.0f, AITHREAT_AIR_MIX, AITHREAT_GROUND_MIX ) );			// our 10 against their aircraft
+	CHECK( map.heldAt( 75.0f, 75.0f, AITHREAT_GROUND_MIX, AITHREAT_GROUND_MIX ) );		// nobody's ground
+}
+
+/** A moving gun stamps a little ahead, never more than the cap; a remembered one fades evenly to nothing. */
+TEST(influence_lead_and_memory_fade)
+{
+	Real x = 0.0f, y = 0.0f;
+	AIInfluence_projectedCentre( 100.0f, 100.0f, 3.0f, 4.0f, 10.0f, 1000.0f, &x, &y );
+	CHECK_EQ( 130.0f, x );
+	CHECK_EQ( 140.0f, y );
+	AIInfluence_projectedCentre( 100.0f, 100.0f, 3.0f, 4.0f, 10.0f, 25.0f, &x, &y );		// 50 of lead, cut to 25
+	CHECK_EQ( 115.0f, x );
+	CHECK_EQ( 120.0f, y );
+	AIInfluence_projectedCentre( 100.0f, 100.0f, 0.0f, 0.0f, 10.0f, 25.0f, &x, &y );
+	CHECK_EQ( 100.0f, x );
+	CHECK_EQ( 1.0f, AIInfluence_memoryShare( 0, 300 ) );
+	CHECK_EQ( 0.5f, AIInfluence_memoryShare( 150, 300 ) );
+	CHECK_EQ( 0.0f, AIInfluence_memoryShare( 300, 300 ) );
+	CHECK_EQ( 0.0f, AIInfluence_memoryShare( 400, 300 ) );
+	CHECK_EQ( 0.0f, AIInfluence_memoryShare( 0, 0 ) );
+}
+
+/** The map layers go into a save (AIPlayer version 40) and come back; a version 39 map's one friendly figure
+	 loads into the vehicle and infantry slots, so the ground mix and the cost mix both read it as it was. */
+TEST(influence_map_layers_survive_a_save)
+{
+	AIInfluenceMap map;
+	map.reset( 0.0f, 0.0f, 100.0f, 50.0f, 50.0f );
+	std::vector<Int> cell;
+	map.cellsInDisc( 75.0f, 25.0f, 10.0f, cell );
+	map.addEnemy( &cell[ 0 ], 1, 7.0f, 3.0f );
+	map.addStatic( &cell[ 0 ], 1, 7.0f, 3.0f );
+	map.addStaticAir( &cell[ 0 ], 1, 2.0f );
+	map.addFriend( &cell[ 0 ], 1, 5.0f, 1.0f );
+	map.addFriendAir( &cell[ 0 ], 1, 9.0f );
+	map.addValue( &cell[ 0 ], 1, 1500.0f );
+	map.addHazard( &cell[ 0 ], 1, 400.0f );
+	MemoryXfer save;
+	map.xfer( &save, 40 );
+	save.rewind();
+	AIInfluenceMap back;
+	back.xfer( &save, 40 );
+	CHECK_EQ( 7.0f, back.staticAt( 75.0f, 25.0f, AITHREAT_COST_MIX ) );
+	CHECK_EQ( 2.0f, back.staticAt( 75.0f, 25.0f, AITHREAT_AIR_MIX ) );
+	CHECK_EQ( 3.0f, back.friendAt( 75.0f, 25.0f ) );
+	CHECK_EQ( 9.0f, back.friendAt( 75.0f, 25.0f, AITHREAT_AIR_MIX ) );
+	CHECK_EQ( 1500.0f, back.valueAt( 75.0f, 25.0f ) );
+	CHECK_EQ( 400.0f, back.hazardAt( 75.0f, 25.0f ) );
+	CHECK_EQ( 0.0f, back.valueAt( 25.0f, 25.0f ) );
+
+	MemoryXfer old;
+	Real originX = 0.0f, originY = 0.0f, cellSize = 50.0f;
+	Int cols = 1, rows = 1;
+	Bool built = TRUE;
+	UnsignedInt builtFrame = 30;
+	old.xferReal( &originX );
+	old.xferReal( &originY );
+	old.xferReal( &cellSize );
+	old.xferInt( &cols );
+	old.xferInt( &rows );
+	old.xferBool( &built );
+	old.xferUnsignedInt( &builtFrame );
+	Real figures[ 5 ] = { 11.0f, 12.0f, 13.0f, 120.0f, 4.0f };		// enemy by class, friend, height
+	for( Int k = 0; k < 5; ++k )
+		old.xferReal( &figures[ k ] );
+	old.rewind();
+	AIInfluenceMap loaded;
+	loaded.xfer( &old, 39 );
+	CHECK_EQ( 12.0f, loaded.enemyAt( 25.0f, 25.0f, AITHREAT_INFANTRY_MIX ) );
+	CHECK_EQ( 120.0f, loaded.friendAt( 25.0f, 25.0f, AITHREAT_GROUND_MIX ) );
+	CHECK_EQ( 120.0f, loaded.friendAt( 25.0f, 25.0f, AITHREAT_COST_MIX ) );
+	CHECK_EQ( 0.0f, loaded.staticAt( 25.0f, 25.0f, AITHREAT_GROUND_MIX ) );
+	CHECK_EQ( 0.0f, loaded.hazardAt( 25.0f, 25.0f ) );
 }
 
 /** Kiting: a unit steps back into the band between the enemy's reach and its own, and only when the
@@ -17764,6 +18119,22 @@ TEST(the_retreat_never_orders_an_aircraft_home)
 }
 
 
+/** AIPlayer.cpp: one pulled out hurt turns back once mended to 65%, and never on less than 25 points over
+	 what it left at; one that left nearly whole goes back whole. */
+extern Bool AIRetreat_mendedEnough( Real healthFraction, Real hurtAt );
+
+TEST(a_unit_pulled_out_hurt_turns_back_once_mended)
+{
+	CHECK( !AIRetreat_mendedEnough( 0.40f, 0.30f ) );
+	CHECK( !AIRetreat_mendedEnough( 0.64f, 0.30f ) );
+	CHECK( AIRetreat_mendedEnough( 0.65f, 0.30f ) );
+	CHECK( !AIRetreat_mendedEnough( 0.70f, 0.50f ) );		// a heroic out at 50% waits for 75%
+	CHECK( AIRetreat_mendedEnough( 0.75f, 0.50f ) );
+	CHECK( !AIRetreat_mendedEnough( 0.99f, 0.85f ) );		// a ranked one out of a losing fight at 85% goes back whole
+	CHECK( AIRetreat_mendedEnough( 1.00f, 0.85f ) );
+}
+
+
 /** AIPlayer.cpp: a ranked unit leaves a fight on its own health and before its team does, the higher
 	 the rank the sooner, and counts for more in every weighing of forces. */
 extern Bool AIRetreat_rankPullsOut( Int rank, Real healthFraction, Bool inFight, Real ratio, Real retreatRatio );
@@ -17796,6 +18167,93 @@ TEST(the_ai_pulls_ranked_units_out_sooner_the_higher_the_rank)
 	CHECK( AIRank_valueScale( 3 ) > AIRank_valueScale( 2 ) );
 	CHECK( AIRank_valueScale( 2 ) > AIRank_valueScale( 1 ) );
 	CHECK( AIRank_valueScale( 1 ) > 1.0f );
+}
+
+
+/** AIPlayer.cpp: the units' own buttons.  A manual shot pays when it kills sooner than the unit's guns on
+	 something worth the reload; a volley goes where it takes the most. */
+extern Bool AIAbility_pays( Real manualFrames, Real defaultFrames, Real value, Real floor );
+extern Int AIAbility_bestAreaAim( const Real *xs, const Real *ys, const Real *values, const Real *centreValues, Int n, Real radius,
+																	Int onlyIndex, Real *score );
+
+TEST(the_ai_presses_a_button_only_where_it_pays)
+{
+	// Kell's snipe empties a Crusader in one shot his rifle never kills: worth it above the floor
+	CHECK( AIAbility_pays( 30.0f, AI_CANNOT_KILL, 900.0f, 450.0f ) );
+	// ... not on something worth less than the reload
+	CHECK( !AIAbility_pays( 30.0f, AI_CANNOT_KILL, 300.0f, 450.0f ) );
+	// ... nor where the guns are quicker, nor with a weapon that cannot kill it
+	CHECK( !AIAbility_pays( 120.0f, 60.0f, 900.0f, 0.0f ) );
+	CHECK( AIAbility_pays( 59.0f, 60.0f, 900.0f, 0.0f ) );
+	CHECK( !AIAbility_pays( AI_CANNOT_KILL, 60.0f, 900.0f, 0.0f ) );
+
+	// twelve soldiers in a clump at 1000,1000 and one alone at 1400,1000: the volley goes into the clump
+	Real xs[ 13 ], ys[ 13 ], values[ 13 ], centres[ 13 ];
+	for( Int i = 0; i < 12; ++i )
+	{
+		xs[ i ] = 1000.0f + 10.0f * (Real)(i % 4);
+		ys[ i ] = 1000.0f + 10.0f * (Real)(i / 4);
+		values[ i ] = 100.0f;
+		centres[ i ] = 100.0f;
+	}
+	xs[ 12 ] = 1400.0f;
+	ys[ 12 ] = 1000.0f;
+	values[ 12 ] = 300.0f;
+	centres[ 12 ] = 300.0f;
+	Real score = 0.0f;
+	const Int aim = AIAbility_bestAreaAim( xs, ys, values, centres, 13, 50.0f, -1, &score );
+	CHECK( aim >= 0 && aim < 12 );
+	CHECK_NEAR( 1200.0f, score, 0.01f );
+	// one out of reach (a negative centre value) is never the aim, though it still counts round another
+	for( Int i = 0; i < 12; ++i )
+		centres[ i ] = -1.0f;
+	CHECK_EQ( 12, AIAbility_bestAreaAim( xs, ys, values, centres, 13, 50.0f, -1, &score ) );
+	CHECK_NEAR( 300.0f, score, 0.01f );
+	// Medium weighs only its own target's spot
+	centres[ 3 ] = 100.0f;
+	CHECK_EQ( 3, AIAbility_bestAreaAim( xs, ys, values, centres, 13, 50.0f, 3, &score ) );
+	CHECK_NEAR( 1200.0f, score, 0.01f );
+	CHECK_EQ( -1, AIAbility_bestAreaAim( xs, ys, values, centres, 13, 50.0f, 5, &score ) );
+}
+
+/** AIPlayer.cpp: another side's tech tree.  A capture's worth halves every 500 of the walk. */
+extern Real AIForeign_captureScore( Real worth, Real distance, Real halfAt );
+
+TEST(a_foreign_capture_goes_to_the_nearer_prize)
+{
+	// a Command Center doubled (8000) 1500 away against a War Factory (4000) 200 away: the factory first
+	CHECK_NEAR( 2000.0f, AIForeign_captureScore( 8000.0f, 1500.0f, 500.0f ), 0.01f );
+	CHECK_NEAR( 2857.14f, AIForeign_captureScore( 4000.0f, 200.0f, 500.0f ), 0.01f );
+	// ... and right beside it, its whole worth; no halving scale is no halving
+	CHECK_NEAR( 8000.0f, AIForeign_captureScore( 8000.0f, 0.0f, 500.0f ), 0.01f );
+	CHECK_NEAR( 8000.0f, AIForeign_captureScore( 8000.0f, 1500.0f, 0.0f ), 0.01f );
+}
+
+extern Real AIAbility_walkUpKillFrames( Real health, Real damage, Real detonateFrames, Real teamRate, Real ownRate );
+
+TEST(a_charge_is_planted_only_where_it_beats_the_guns)
+{
+	// Burton's charge (2000) on a 2000 building, 500 frames off, against his own rifle at 4 a frame: the
+	// charge needs 500, the rifle 500 too, so it does not pay to walk
+	CHECK_NEAR( 500.0f, AIAbility_walkUpKillFrames( 2000.0f, 2000.0f, 500.0f, 0.0f, 4.0f ), 0.01f );
+	// ... on a tank his rifle hardly scratches (0.5 a frame, 2000 frames), the charge's 500 wins
+	CHECK_NEAR( 500.0f, AIAbility_walkUpKillFrames( 1100.0f, 2000.0f, 500.0f, 0.0f, 0.55f ), 0.01f );
+	// TNT (500) on a 480 Crusader 220 frames off, while two Battlemasters take 4 a frame: they finish it at
+	// 120, before the TNT goes off, so the walk buys nothing
+	CHECK_NEAR( 120.0f, AIAbility_walkUpKillFrames( 480.0f, 500.0f, 220.0f, 4.0f, 1.0f ), 0.01f );
+	// TNT's full 500 on a 1500 target with one Tank Hunter's rockets at 1 a frame: 220 to the blast, then 1000
+	// left at 1 a frame, 1220 against the rockets' 1500 alone
+	CHECK_NEAR( 1220.0f, AIAbility_walkUpKillFrames( 1500.0f, 500.0f, 220.0f, 0.0f, 1.0f ), 0.01f );
+	// ... and a blast short of the health with no gun to finish it never kills
+	CHECK_NEAR( AI_CANNOT_KILL, AIAbility_walkUpKillFrames( 1500.0f, 500.0f, 220.0f, 0.0f, 0.0f ), 0.01f );
+}
+
+TEST(the_ladder_presses_more_buttons_as_it_climbs)
+{
+	TAiData data;
+	CHECK_EQ( 0, data.m_skill[ AISKILL_EASY ].m_unitAbilities );
+	CHECK_EQ( 1, data.m_skill[ AISKILL_MEDIUM ].m_unitAbilities );
+	CHECK_EQ( 2, data.m_skill[ AISKILL_BRUTAL ].m_unitAbilities );
 }
 
 
@@ -17973,17 +18431,72 @@ TEST(a_losing_team_keeps_off_every_gun_on_the_map)
 
 	// a gun at 300 east reaching 200 covers the road from about 100 to 500; 45 degrees off it is clear at
 	// 120, and the list of the fight's guns is empty.  The same call without the map walks straight in
-	influence.stampEnemy( 300.0f, 0.0f, 0.0f, 200.0f, 900.0f );
+	// it is a gun against men alone, so a column of tanks reading the map by its own class walks the road
+	const Real antiInfantry[ AITHREAT_COUNT ] = { 0.0f, 900.0f, 0.0f };
+	influence.stampEnemy( 300.0f, 0.0f, 0.0f, 200.0f, 0.0f, antiInfantry );
 	CHECK( aiRetreatFallbackPoint( 0.0f, 0.0f, 2000.0f, 0.0f, 60.0f, NULL, 0, bounds, &x, &y, &influence ) );
 	CHECK_NEAR( 84.853f, x, 0.01f );
 	CHECK_NEAR( 84.853f, y, 0.01f );
 	CHECK( aiRetreatFallbackPoint( 0.0f, 0.0f, 2000.0f, 0.0f, 60.0f, NULL, 0, bounds, &x, &y ) );
 	CHECK_NEAR( 120.0f, x, 0.01f );
+	CHECK( aiRetreatFallbackPoint( 0.0f, 0.0f, 2000.0f, 0.0f, 60.0f, NULL, 0, bounds, &x, &y, &influence, &AITHREAT_COST_MIX ) );
+	CHECK_NEAR( 120.0f, x, 0.01f );
+	CHECK( aiRetreatFallbackPoint( 0.0f, 0.0f, 2000.0f, 0.0f, 60.0f, NULL, 0, bounds, &x, &y, &influence, &AITHREAT_INFANTRY_MIX ) );
+	CHECK_NEAR( 84.853f, x, 0.01f );
 
 	// the map all covered: home, and FALSE says so
-	influence.stampEnemy( 0.0f, 0.0f, 0.0f, 5000.0f, 900.0f );
+	const Real everything[ AITHREAT_COUNT ] = { 900.0f, 900.0f, 900.0f };
+	influence.stampEnemy( 0.0f, 0.0f, 0.0f, 5000.0f, 5000.0f, everything );
 	CHECK( !aiRetreatFallbackPoint( 0.0f, 0.0f, 2000.0f, 0.0f, 60.0f, NULL, 0, bounds, &x, &y, &influence ) );
 	CHECK_NEAR( 2000.0f, x, 0.01f );
+}
+
+
+/** AI.cpp: the way out is the one with the least threat on it, not the one out soonest.  A weak gun covers the
+	 road home and the start; two strong guns stand either side.  Straight out to the side is out soonest and runs
+	 under the strong guns; 45 degrees off the road takes longer under the weak one and nothing else. */
+TEST(a_retreat_takes_the_way_with_the_least_threat_on_it)
+{
+	Real x = 0.0f, y = 0.0f, threat = 0.0f, road = 0.0f;
+	const Real bounds[] = { -1000.0f, -1000.0f, 3000.0f, 1000.0f };
+	AIInfluenceMap influence;
+	influence.reset( -1000.0f, -1000.0f, 4000.0f, 2000.0f, 60.0f );
+	const Real weak[ AITHREAT_COUNT ] = { 10.0f, 10.0f, 0.0f };
+	const Real strong[ AITHREAT_COUNT ] = { 900.0f, 900.0f, 0.0f };
+	influence.stampEnemy( 300.0f, 0.0f, 0.0f, 320.0f, 0.0f, weak );
+	influence.stampEnemy( 0.0f, 150.0f, 0.0f, 100.0f, 0.0f, strong );
+	influence.stampEnemy( 0.0f, -150.0f, 0.0f, 100.0f, 0.0f, strong );
+	CHECK( aiRetreatFallbackPoint( 0.0f, 0.0f, 2000.0f, 0.0f, 60.0f, NULL, 0, bounds, &x, &y, &influence, NULL, &threat, &road ) );
+	CHECK( x > 200.0f );
+	CHECK_NEAR( x, y, 0.01f );
+	CHECK( threat > 0.0f );
+	CHECK( threat < road );
+	CHECK( threat < 900.0f );		// never under a strong gun
+}
+
+
+/** AI.cpp: a walk whose straight line crosses the enemy's reach goes round it by a waypoint; a clear one does not. */
+TEST(a_walk_home_goes_round_the_enemy_between)
+{
+	Real x = 0.0f, y = 0.0f, straight = 0.0f, round = 0.0f;
+	const Real bounds[] = { -1000.0f, -1000.0f, 3000.0f, 1000.0f };
+	AIInfluenceMap influence;
+	influence.reset( -1000.0f, -1000.0f, 4000.0f, 2000.0f, 60.0f );
+	CHECK( !aiDetourWaypoint( 0.0f, 0.0f, 2000.0f, 0.0f, 60.0f, bounds, &influence, AITHREAT_GROUND_MIX, &x, &y, &straight, &round ) );
+	CHECK_NEAR( 0.0f, straight, 0.001f );
+
+	const Real army[ AITHREAT_COUNT ] = { 900.0f, 900.0f, 0.0f };
+	influence.stampEnemy( 1000.0f, 0.0f, 0.0f, 200.0f, 0.0f, army );
+	CHECK( aiDetourWaypoint( 0.0f, 0.0f, 2000.0f, 0.0f, 60.0f, bounds, &influence, AITHREAT_GROUND_MIX, &x, &y, &straight, &round ) );
+	CHECK( straight > 0.0f );
+	CHECK_NEAR( 0.0f, round, 0.001f );
+	CHECK( y > 300.0f );
+	CHECK( x > 700.0f && x < 1300.0f );
+
+	// with the map edge 100 to the north, round by the south
+	const Real northEdge[] = { -1000.0f, -1000.0f, 3000.0f, 100.0f };
+	CHECK( aiDetourWaypoint( 0.0f, 0.0f, 2000.0f, 0.0f, 60.0f, northEdge, &influence, AITHREAT_GROUND_MIX, &x, &y, &straight, &round ) );
+	CHECK( y < -300.0f );
 }
 
 
@@ -26030,6 +26543,19 @@ TEST(handicap_rides_the_slot_entry_and_full_health_leaves_the_string_unchanged)
 	CHECK_EQ( guest.getSlot( 0 )->getHandicap(), (Int)HANDICAP_FULL );
 	CHECK_EQ( guest.getSlot( 1 )->getHandicap(), (Int)HANDICAP_FULL );
 
+	/* A ranked Quick Match's black start rides as SH=1, written only when set, so every other game's
+		 string and replay stays byte for byte what it was. */
+	CHECK( strstr( picked.str(), "SH=" ) == NULL );
+	host.setStartShrouded( TRUE );
+	const AsciiString shrouded = GameInfoOptionsString( &host, mapPath, 0 );
+	host.setStartShrouded( FALSE );
+	CHECK( strstr( shrouded.str(), "SH=1;" ) != NULL );
+	CHECK( ParseAsciiStringToGameInfo( &guest, shrouded ) );
+	CHECK( guest.getStartShrouded() );
+	CHECK( ParseAsciiStringToGameInfo( &guest, picked ) );
+	CHECK( !guest.getStartShrouded() );
+	CHECK_STR( GameInfoOptionsString( &host, mapPath, 0 ).str(), picked.str() );
+
 	/* A replay's slot list as startRecording writes it, the logic rate last: readReplayHeader takes the
 		 rate off and hands the parser the string as it was, so the replay is not refused as bad options. */
 	AsciiString recorded = picked;
@@ -26229,10 +26755,11 @@ TEST(skin_loadout_rides_the_slot_entry_and_an_old_string_reads_as_none)
 	TheWritableGlobalData = savedData;
 }
 
-/* SkinsReforged.ini as it ships: ids 1, 2 and 3 are the 1K gold Crusader, Battlemaster and Scorpion
+/* SkinsReforged.ini as it ships: ids 1, 2 and 3 are the splinter Crusader, Battlemaster and Scorpion
 	 (the ids zerohour.gg uses), each on its generals' models (the Laser General's Crusader left out),
-	 the damaged states and the wrecks that are its alone, case ignored, and on nothing else.  Each pairs the rebuilt sheets and retail's with their gold copies, never a house
-	 colour sheet.  A loadout keeps one skin a unit and drops ids past 63. */
+	 the damaged states and the wrecks that are its alone, case ignored, and on nothing else.  Each pairs the rebuilt sheets and retail's with their skin copies, never a house
+	 colour sheet.  The replacement filenames retain the old gold paint's Skin1K prefix.
+	 A loadout keeps one skin a unit and drops ids past 63. */
 TEST(skins_table_dresses_each_unit_once_with_rebuilt_and_retail_sheets)
 {
 	CHECK( bootOnce() );
@@ -26277,7 +26804,7 @@ TEST(skins_table_dresses_each_unit_once_with_rebuilt_and_retail_sheets)
 	CHECK( TankSkin_describe( 2, unit, unitLabel, label ) );
 	CHECK_STR( unit.str(), "Battlemaster" );
 	CHECK_STR( unitLabel.str(), "OBJECT:BattleMaster" );
-	CHECK_STR( label.str(), "SKIN:Gold1K" );
+	CHECK_STR( label.str(), "SKIN:Splinter" );
 	CHECK( TankSkin_describe( 3, unit, unitLabel, label ) && unitLabel == "OBJECT:Scorpion" );
 	CHECK( TankSkin_describe( 1, unit, unitLabel, label ) && unitLabel == "OBJECT:Crusader" );
 	CHECK( !TankSkin_describe( 9, unit, unitLabel, label ) );

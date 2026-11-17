@@ -562,6 +562,7 @@ public:
 
 	Weapon* getWeaponInWeaponSlot(WeaponSlotType wslot) const { return m_weaponSet.getWeaponInWeaponSlot(wslot); }
 	UnsignedInt getWeaponInWeaponSlotCommandSourceMask( WeaponSlotType wSlot ) const { return m_weaponSet.getNthCommandSourceMask( wSlot ); }
+	const WeaponTemplateSet* getCurWeaponTemplateSet() const { return m_weaponSet.getCurWeaponTemplateSet(); }
 
 	// see if this current weapon set's weapons has shared reload times
 	const Bool isReloadTimeShared() const { return m_weaponSet.isSharedReloadTime(); }
@@ -629,6 +630,8 @@ public:
 	Bool setWeaponLock( WeaponSlotType weaponSlot, WeaponLockType lockType ){ return m_weaponSet.setWeaponLock( weaponSlot, lockType ); }
 	void releaseWeaponLock(WeaponLockType lockType){ m_weaponSet.releaseWeaponLock(lockType); }
 	Bool isCurWeaponLocked() const { return m_weaponSet.isCurWeaponLocked(); }
+	WeaponLockType getCurWeaponLockStatus() const { return m_weaponSet.getCurWeaponLockStatus(); }
+	WeaponSlotType getCurWeaponSlot() const { return m_weaponSet.getCurWeaponSlot(); }
 
 	void setArmorSetFlag(ArmorSetType ast);
 	void clearArmorSetFlag(ArmorSetType ast);

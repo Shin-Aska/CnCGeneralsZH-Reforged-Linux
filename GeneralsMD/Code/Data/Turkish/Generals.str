@@ -19120,8 +19120,8 @@ GUI:OnlineSkinsRefused
 "zerohour.gg bu seçimi kabul etmedi, skinlerin olduğu gibi kaldı. Hesabında ne olduğunu görmek için bu ekranı yeniden aç."
 END
 
-SKIN:Gold1K
-"1K ALTIN"
+SKIN:Splinter
+"PARÇALI KAMUFLAJ"
 END
 
 GUI:OnlineLadderRank
@@ -19206,6 +19206,14 @@ END
 
 GUI:OnlineUnrated_cancelled
 "Puana sayılmadı: maç iptal oldu."
+END
+
+GUI:OnlineSendingResultsTitle
+"Sonuçlar Gönderiliyor"
+END
+
+GUI:OnlineSendingResults
+"Maç sonucu ve tekrarı gönderiliyor. Lütfen bekleyin, oyunu kapatmayın."
 END
 
 GUI:Talents

@@ -21,8 +21,9 @@
 #   2. The armed control: the same with the kept replay's game seed edited before the playback.  The
 #      harness must report that seed FAILED, on the playback and not on the second run, and exit 1 -
 #      so a pass in 1 is a comparison that can fail.
-#   3. The idle guard's control: seed 1 on a 128-cell map, where the generator puts the two starts
-#      124 units apart and neither AI can build.  The harness must call it IDLE and exit 1.
+#   3. The idle guard's control: a match stopped after one frame, before either AI can build.
+#      The harness must call it IDLE and exit 1. The old seed-1 narrow-map fixture now builds
+#      after upstream's AI improvements, so an idle control cannot rely on that map's tactics.
 #   4. Port defect 20: seed 1 at full length (12000 frames), a real fight.  The playback takes a checkpoint
 #      (a full save) every 900 frames and the recording takes none, so the two agree only if a save
 #      leaves the world as it found it.  Before the fix the playback parted at frame 8260.
@@ -67,10 +68,10 @@ check 'printf "%s" "$out" | grep -q "FAILED, live .* playback 0x"' "and it is th
 check '! printf "%s" "$out" | grep -q "second run 0x"' "while the unedited second run still agreed"
 check '! printf "%s" "$out" | grep -q "IDLE"' "and the match was not idle, so the playback is the only failure"
 
-out="$(bash "$HARNESS" --generals "$GENERALS" --seeds "1" --cells 128 --maxframes 1200 2>&1)"
+out="$(bash "$HARNESS" --generals "$GENERALS" --seeds "0" --maxframes 1 2>&1)"
 status=$?
 printf '%s\n' "$out"
-check '[ $status -eq 1 ] && printf "%s" "$out" | grep -q "IDLE: the AI built nothing"' "an idle match (seed 1, 128 cells) is reported IDLE (exit $status)"
+check '[ $status -eq 1 ] && printf "%s" "$out" | grep -q "IDLE: the AI built nothing"' "a one-frame match is reported IDLE (exit $status)"
 
 out="$(bash "$HARNESS" --generals "$GENERALS" --seeds "1" --maxframes 12000 2>&1)"
 status=$?

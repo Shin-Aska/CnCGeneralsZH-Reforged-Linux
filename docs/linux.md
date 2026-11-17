@@ -404,6 +404,13 @@ wash coverage, contact proximity, and the incoming crest gate. Rivers, enclosed 
 and authored patch seams retain their existing wave treatment. Missing cage resources
 fall back to ordinary terrain damping.
 
+## Upstream synchronization: post-4.0.0 (2026-11-17)
+
+The `sync/post-4.0.0-upstream` branch combines Linux `main` through `458075944`
+(Linux 4.0.1) with upstream through `419d88bee`, preserving the existing integration
+history. See [the post-4.0.0 integration record](upstream-sync-post-4.0.0.md) for
+reconciliation decisions and validation limits.
+
 ## Upstream synchronization: v3.3.0 (2026-10-24)
 
 Merged upstream tag `v3.3.0` (`f036c761`) into the Linux fork, preserving its four

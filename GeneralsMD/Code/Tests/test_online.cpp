@@ -587,6 +587,7 @@ TEST(online_tls_loopback_against_the_test_ca)
 		CHECK( got[ 3 ].type() == "bye" );
 	}
 	CHECK_EQ( c.droppedLines(), 2u );		// the nested one and the oversize one
+	CHECK_EQ( c.unsentLines(), 0u );			// the hello is written: the answers came after it, on the same thread
 	CHECK_EQ( c.state(), OnlineConnection::OPEN );
 	if (!c.error().empty())
 		printf( "  error: %s\n", c.error().c_str() );
@@ -718,8 +719,9 @@ struct AdapterRig
 	}
 	std::string sentType( size_t i ) const { return i < sent.size() ? sent[i].type() : std::string(); }
 
-	/* Logged in as Tank, id 7, at 10.0.0.3, with the login's answers read and the sent lines cleared. */
-	void login()
+	/* Logged in as Tank, id 7, at 10.0.0.3, with the login's answers read and the sent lines cleared.
+		 `acks` is a server that answers a report and a replay. */
+	void login( bool acks = false )
 	{
 		BuddyRequest req;
 		memset( &req, 0, sizeof(req) );
@@ -727,7 +729,9 @@ struct AdapterRig
 		strcpy( req.arg.login.email, "tank@example.com" );
 		strcpy( req.arg.login.password, "secret" );
 		buddy->addRequest( req );
-		feed( "{\"t\":\"auth.ok\",\"id\":7,\"nick\":\"Tank\",\"token\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"ticket\":\"00112233445566778899aabbccddeeff\"}" );
+		feed( acks
+			? "{\"t\":\"auth.ok\",\"id\":7,\"nick\":\"Tank\",\"token\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"ticket\":\"00112233445566778899aabbccddeeff\",\"acks\":true}"
+			: "{\"t\":\"auth.ok\",\"id\":7,\"nick\":\"Tank\",\"token\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"ticket\":\"00112233445566778899aabbccddeeff\"}" );
 		feed( "{\"t\":\"relay.ok\",\"vip\":167772163}" );
 		peerResponses();
 		BuddyResponse b;
@@ -1518,12 +1522,14 @@ TEST(online_adapter_report_goes_once_a_match)
 	report.side[1] = "China";
 	report.discon[1] = TRUE;
 
-	OnlineSendReport( report );
+	CHECK( !OnlineSendReport( report ) );
 	CHECK( rig.sent.empty() );		// no match yet
 
 	rig.feed( "{\"t\":\"qm.matched\",\"match\":\"q1\",\"seed\":77,\"mapIdx\":0,\"nicks\":[\"Tank\",\"Kim\"],\"ids\":[7,9],\"vips\":[1,2],\"sides\":[0,0],\"colors\":[0,1]}" );
-	OnlineSendReport( report );
-	OnlineSendReport( report );		// the score screen's second call
+	CHECK( OnlineSendReport( report ) );
+	report.winningTeam = -1;		// the score screen reads it off a world already torn down
+	CHECK( !OnlineSendReport( report ) );		// the score screen's second call: dropped, says so
+	report.winningTeam = 1;
 	CHECK_EQ( rig.sent.size(), (size_t)1 );
 	if (rig.sent.size() == 1)
 	{
@@ -1541,7 +1547,7 @@ TEST(online_adapter_report_goes_once_a_match)
 
 	// the next match reports again
 	rig.feed( "{\"t\":\"game.start\",\"match\":\"m2\",\"ids\":[7,9],\"nicks\":[\"Tank\",\"Kim\"],\"vips\":[1,2]}" );
-	OnlineSendReport( report );
+	CHECK( OnlineSendReport( report ) );
 	CHECK_EQ( rig.sent.size(), (size_t)2 );
 }
 
@@ -1752,6 +1758,147 @@ TEST(online_replay_chunks_and_goes_once)
 	OnlineSendReplay( "m11", AsciiString::TheEmptyString );		// a desynced recording uses m11 up
 	OnlineSendReplay( "m11", path );
 	CHECK_EQ( rig.sent.size(), (size_t)0 );
+	remove( path );
+}
+
+/* The score screen's "sending results" box: up from the report until the claimed replay is queued, and
+	 never for a match that sent no report.  Captured lines count as written, so only the replay waits. */
+TEST(online_results_are_sending_until_the_replay_is_queued)
+{
+	AdapterRig rig;
+	const char *path = "test_online_sending.tmp";
+	FILE *f = fopen( path, "wb" );
+	CHECK( f != NULL );
+	if (!f)
+		return;
+	fputs( "GENREP", f );
+	fclose( f );
+	rig.login();
+	OnlineReport report;
+	report.numPlayers = 2;
+
+	CHECK( !OnlineIsSendingResults() );		// no match
+
+	// a custom game: the report goes out, no replay follows
+	rig.feed( "{\"t\":\"game.start\",\"match\":\"c3\"}" );
+	rig.peerResponses();
+	CHECK_STR( OnlineClaimQuickMatch().str(), "" );
+	CHECK( !OnlineIsSendingResults() );		// no report yet
+	OnlineSendReport( report );
+	CHECK( !OnlineIsSendingResults() );
+
+	// a Quick Match: from the report until its recording closes
+	rig.feed( "{\"t\":\"qm.matched\",\"match\":\"q3\"}" );
+	rig.peerResponses();
+	const AsciiString claimed = OnlineClaimQuickMatch();
+	CHECK_STR( claimed.str(), "q3" );
+	CHECK( !OnlineIsSendingResults() );
+	OnlineSendReport( report );
+	CHECK( OnlineIsSendingResults() );
+	OnlineSendReplay( claimed.str(), path );
+	CHECK( !OnlineIsSendingResults() );
+
+	// a desynced recording gives its replay up, and nothing is left to wait for
+	rig.feed( "{\"t\":\"qm.matched\",\"match\":\"q4\"}" );
+	rig.peerResponses();
+	CHECK_STR( OnlineClaimQuickMatch().str(), "q4" );
+	OnlineSendReport( report );
+	CHECK( OnlineIsSendingResults() );
+	OnlineSendReplay( "q4", AsciiString::TheEmptyString );
+	CHECK( !OnlineIsSendingResults() );
+
+	// a logout drops the match: nothing waits under it
+	rig.feed( "{\"t\":\"qm.matched\",\"match\":\"q5\"}" );
+	rig.peerResponses();
+	CHECK_STR( OnlineClaimQuickMatch().str(), "q5" );
+	OnlineSendReport( report );
+	CHECK( OnlineIsSendingResults() );
+	OnlineSession::get().forgetAccount();
+	CHECK( !OnlineIsSendingResults() );
+
+	// an older server never answers: once the replay is queued nothing waits for a report.ok
+	rig.login();
+	rig.feed( "{\"t\":\"qm.matched\",\"match\":\"q6\"}" );
+	rig.peerResponses();
+	CHECK_STR( OnlineClaimQuickMatch().str(), "q6" );
+	OnlineSendReport( report );
+	OnlineSendReplay( "q6", path );
+	CHECK( !OnlineIsSendingResults() );
+	remove( path );
+}
+
+/* A server whose auth.ok says acks: the box waits for report.ok/err and, when this client sent the
+	 replay, replay.ok/err, for this match; an answer for another match is not one. */
+TEST(online_results_are_sending_until_the_server_answers)
+{
+	AdapterRig rig;
+	const char *path = "test_online_acks.tmp";
+	FILE *f = fopen( path, "wb" );
+	CHECK( f != NULL );
+	if (!f)
+		return;
+	fputs( "GENREP", f );
+	fclose( f );
+	rig.login( true );
+	OnlineReport report;
+	report.numPlayers = 2;
+
+	// a custom game: the report alone, answered ok
+	rig.feed( "{\"t\":\"game.start\",\"match\":\"c1\"}" );
+	rig.peerResponses();
+	CHECK_STR( OnlineClaimQuickMatch().str(), "" );
+	OnlineSendReport( report );
+	CHECK( OnlineIsSendingResults() );
+	rig.feed( "{\"t\":\"report.ok\",\"match\":\"c0\"}" );		// another match
+	rig.feed( "{\"t\":\"replay.ok\",\"match\":\"c1\"}" );		// not the report's answer
+	CHECK( OnlineIsSendingResults() );
+	rig.feed( "{\"t\":\"report.ok\",\"match\":\"c1\"}" );
+	CHECK( !OnlineIsSendingResults() );
+
+	// a Quick Match: the report and the replay, each answered
+	rig.feed( "{\"t\":\"qm.matched\",\"match\":\"q1\"}" );
+	rig.peerResponses();
+	CHECK_STR( OnlineClaimQuickMatch().str(), "q1" );
+	OnlineSendReport( report );
+	OnlineSendReplay( "q1", path );
+	CHECK( OnlineIsSendingResults() );
+	rig.feed( "{\"t\":\"report.ok\",\"match\":\"q1\"}" );
+	CHECK( OnlineIsSendingResults() );		// the replay is not confirmed
+	rig.feed( "{\"t\":\"replay.ok\",\"match\":\"c1\"}" );
+	CHECK( OnlineIsSendingResults() );
+	rig.feed( "{\"t\":\"replay.ok\",\"match\":\"q1\"}" );
+	CHECK( !OnlineIsSendingResults() );
+
+	// refusals end the wait just as well
+	rig.feed( "{\"t\":\"qm.matched\",\"match\":\"q2\"}" );
+	rig.peerResponses();
+	CHECK_STR( OnlineClaimQuickMatch().str(), "q2" );
+	OnlineSendReport( report );
+	OnlineSendReplay( "q2", path );
+	rig.feed( "{\"t\":\"replay.err\",\"match\":\"q2\",\"code\":\"toolarge\"}" );
+	CHECK( OnlineIsSendingResults() );
+	rig.feed( "{\"t\":\"report.err\",\"match\":\"q2\",\"code\":\"unknown_match\"}" );
+	CHECK( !OnlineIsSendingResults() );
+
+	// a desynced recording gives its replay up: only the report is waited for
+	rig.feed( "{\"t\":\"qm.matched\",\"match\":\"q3\"}" );
+	rig.peerResponses();
+	CHECK_STR( OnlineClaimQuickMatch().str(), "q3" );
+	OnlineSendReport( report );
+	OnlineSendReplay( "q3", AsciiString::TheEmptyString );
+	CHECK( OnlineIsSendingResults() );
+	rig.feed( "{\"t\":\"report.ok\",\"match\":\"q3\"}" );
+	CHECK( !OnlineIsSendingResults() );
+
+	// a logout: no answer comes for the account's match any more
+	rig.feed( "{\"t\":\"qm.matched\",\"match\":\"q4\"}" );
+	rig.peerResponses();
+	CHECK_STR( OnlineClaimQuickMatch().str(), "q4" );
+	OnlineSendReport( report );
+	OnlineSendReplay( "q4", path );
+	CHECK( OnlineIsSendingResults() );
+	OnlineSession::get().forgetAccount();
+	CHECK( !OnlineIsSendingResults() );
 	remove( path );
 }
 

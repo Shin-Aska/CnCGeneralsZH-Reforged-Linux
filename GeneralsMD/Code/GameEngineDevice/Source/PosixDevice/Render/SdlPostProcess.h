@@ -12,6 +12,8 @@ struct SdlPostSettings
     unsigned Count = 0; // zero is off; invalid/unsupported chains refuse before rerouting
     float BloomThreshold = PostProcess::BLOOM_THRESHOLD;
     float BloomIntensity = PostProcess::BLOOM_INTENSITY;
+    float BloomSaturation = 1.0f;
+    float Clarity = 0.0f;
     float AdditiveGain = 1.0f;
     unsigned BlurPasses = PostProcess::BLOOM_BLUR_PASSES;
     float Grade = 0.0f;

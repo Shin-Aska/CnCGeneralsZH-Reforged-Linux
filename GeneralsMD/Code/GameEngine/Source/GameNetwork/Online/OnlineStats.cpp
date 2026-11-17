@@ -137,11 +137,11 @@ OnlineReport::OnlineReport() :
 	}
 }
 
-void OnlineSendReport( const OnlineReport &report )
+Bool OnlineSendReport( const OnlineReport &report )
 {
 	OnlineSession &s = OnlineSession::get();
 	if (s.matchId.empty() || s.matchId == s.reportedMatch)
-		return;		// no match, or the score screen's second call
+		return FALSE;		// no match, or the score screen's second call
 	s.reportedMatch = s.matchId;
 
 	OnlineMessage m;
@@ -166,6 +166,7 @@ void OnlineSendReport( const OnlineReport &report )
 	m.setInts( "discon", discon ).setStrings( "side", side );
 	m.setInts( "blind", blind ).setInts( "crcOdd", crcOdd );
 	s.send( m );
+	return TRUE;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -194,8 +195,21 @@ AsciiString OnlineClaimQuickMatch( void )
 {
 	OnlineSession &s = OnlineSession::get();
 	AsciiString id = s.quickMatch.c_str();
+	s.recordingMatch = s.quickMatch;
 	s.quickMatch.clear();
 	return id;
+}
+
+Bool OnlineIsSendingResults( void )
+{
+	const OnlineSession &s = OnlineSession::get();
+	if (s.matchId.empty() || s.reportedMatch != s.matchId)
+		return FALSE;		// no report went out for this match
+	if (s.recordingMatch == s.matchId && s.replayedMatch != s.matchId)
+		return TRUE;		// the recording has not closed: its replay is still to be queued
+	if (s.serverAcks)
+		return s.reportAnswered != s.matchId || (s.replaySentMatch == s.matchId && s.replayAnswered != s.matchId);
+	return s.connection && s.connection->unsentLines() > 0;		// an older server: written is all we can know
 }
 
 void OnlineSendReplay( const char *match, const AsciiString &path )
@@ -234,6 +248,7 @@ void OnlineSendReplay( const char *match, const AsciiString &path )
 		m.setString( "data", base64( (const unsigned char *)bytes.data() + at, len ) );
 		s.send( m );
 	}
+	s.replaySentMatch = s.matchId;
 	DEBUG_LOG(("ONLINE REPLAY match=%s bytes=%d lines=%d\n", s.matchId.c_str(), (Int)bytes.size(), seq));
 }
 

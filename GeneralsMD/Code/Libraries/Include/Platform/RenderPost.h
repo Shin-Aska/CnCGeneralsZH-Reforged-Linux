@@ -8,6 +8,7 @@ struct Settings {
     const char *Chain = "off"; // consumed/copied synchronously
     bool Classic = false, WorldAO = false, IndependentScene = false, InternalHDR = false;
     float BloomThreshold = 1, BloomIntensity = 0.75f, AdditiveGain = 1, Grade = 0;
+    float BloomSaturation = 1, Clarity = 0;
     unsigned BlurPasses = 2;
 };
 struct GroundHazeSettings {

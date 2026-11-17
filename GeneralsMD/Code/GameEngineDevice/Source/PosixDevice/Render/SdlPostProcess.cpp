@@ -10,6 +10,7 @@
 
 namespace {
 constexpr unsigned FLOAT_FORMAT = SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT;
+constexpr unsigned CLARITY_BLUR_PASSES = 2;
 bool same_target(const SdlTarget &a, const SdlTarget &b)
 {
     return a.Colour == b.Colour && a.Depth == b.Depth && a.Width == b.Width && a.Height == b.Height
@@ -176,7 +177,7 @@ struct SdlPostProcess::Impl
     }
     bool pass(PostShaderProgram id, SDL_GPUTexture *source, unsigned width, unsigned height,
         const SdlTarget &destination, SDL_GPUTexture *extra = nullptr, float blurX = 0, float blurY = 0,
-        bool ungraded = false)
+        bool ungraded = false, bool blurClarity = false)
     {
         if (!source || source == destination.Colour || (extra && extra == destination.Colour))
             return fail("post pass refused a source/destination alias");
@@ -196,6 +197,10 @@ struct SdlPostProcess::Impl
         constants.TexelSize[0] = 1.0f / width; constants.TexelSize[1] = 1.0f / height;
         constants.TexelSize[2] = float(width); constants.TexelSize[3] = float(height);
         constants.BlurDirection[0] = blurX; constants.BlurDirection[1] = blurY;
+        if (id == POST_SHADER_BLOOM_EXTRACT) constants.BlurDirection[2] = Settings.BloomSaturation;
+        if (id == POST_SHADER_BLOOM_BLUR) constants.BlurDirection[3] = blurClarity ? 1.0f : 0.0f;
+        if (id == POST_SHADER_BLOOM_COMPOSITE || id == POST_SHADER_BLOOM_COMPOSITE_WIDE)
+            constants.BlurDirection[3] = Settings.Clarity;
         constants.Tuning[0] = Settings.BloomThreshold; constants.Tuning[1] = Settings.BloomIntensity;
         constants.Tuning[2] = PostProcess::TONE_CURVE_KNEE; constants.Tuning[3] = PostProcess::BLOOM_KNEE;
         constants.Grade[0] = ungraded ? 0.0f : Settings.Grade; constants.Grade[1] = PostProcess::GRADE_CONTRAST;
@@ -242,7 +247,8 @@ bool SdlPostProcess::Prepare(SdlGpuFrame &frame, const SdlTarget &presentation,
     if (requested.ActualSamples != 1) return s.fail("native post requires actual single-sample attachments");
     if (s.fault(TestFailure::Prepare)) return s.fail("injected preparation failure");
     if (!std::isfinite(requested.BloomThreshold) || !std::isfinite(requested.BloomIntensity)
-        || !std::isfinite(requested.AdditiveGain) || !std::isfinite(requested.Grade))
+        || !std::isfinite(requested.AdditiveGain) || !std::isfinite(requested.Grade)
+        || !std::isfinite(requested.BloomSaturation) || !std::isfinite(requested.Clarity))
         return s.fail("non-finite post settings");
     for (unsigned i = 0; i < requested.Count; ++i) {
         if (requested.Chain[i] < DX11_POST_COPY || requested.Chain[i] > DX11_POST_BLOOM
@@ -252,12 +258,14 @@ bool SdlPostProcess::Prepare(SdlGpuFrame &frame, const SdlTarget &presentation,
     s.Settings = requested;
     s.Settings.BloomThreshold = std::max(requested.BloomThreshold, 0.0f);
     s.Settings.BloomIntensity = std::max(requested.BloomIntensity, 0.0f);
+    s.Settings.BloomSaturation = std::max(0.0f, std::min(requested.BloomSaturation, 3.0f));
+    s.Settings.Clarity = std::max(0.0f, std::min(requested.Clarity, 2.0f));
     s.Settings.AdditiveGain = std::max(requested.AdditiveGain, 1.0f);
     s.Settings.BlurPasses = std::max(1u, std::min(requested.BlurPasses, PostProcess::BLOOM_BLUR_PASS_LIMIT));
     s.Settings.Grade = std::max(0.0f, std::min(requested.Grade, 1.0f));
     s.Owner = &frame; s.Device = frame.Device();
     const bool hdr = requested.Chain[0] == DX11_POST_BLOOM;
-    const bool bloom = hdr && s.Settings.BloomIntensity > 0;
+    const bool bloom = hdr && (s.Settings.BloomIntensity > 0 || s.Settings.Clarity > 0);
     std::vector<PostShaderProgram> needed = {hdr ? POST_SHADER_TONE_MAP : POST_SHADER_COPY};
     bool chainAO = false;
     for (unsigned i = 0; i < requested.Count; ++i) {
@@ -306,7 +314,7 @@ bool SdlPostProcess::Finish(SdlGpuFrame &frame, const SdlTarget &scene, const Sd
         next = 1 - next;
         if (s.Settings.Chain[i] == DX11_POST_BLOOM) {
             const bool wide = s.Settings.InternalHDR;
-            if (s.Settings.BloomIntensity <= 0) {
+            if (s.Settings.BloomIntensity <= 0 && s.Settings.Clarity <= 0) {
                 if (!s.pass(wide ? POST_SHADER_TONE_MAP_WIDE : POST_SHADER_TONE_MAP,
                     source, scene.Width, scene.Height, destination)) return false;
             } else {
@@ -314,12 +322,16 @@ bool SdlPostProcess::Finish(SdlGpuFrame &frame, const SdlTarget &scene, const Sd
                 const unsigned h = std::max(scene.Height / PostProcess::BLOOM_DIVISOR, 1u);
                 if (!s.pass(POST_SHADER_BLOOM_EXTRACT, source, scene.Width, scene.Height,
                     s.target(s.Targets.Bloom[0], w, h, FLOAT_FORMAT))) return false;
-                for (unsigned blur = 0; blur < s.Settings.BlurPasses; ++blur) {
+                const bool clarity = s.Settings.Clarity > 0;
+                const unsigned pairs = std::max(s.Settings.BloomIntensity > 0 ? s.Settings.BlurPasses : 0u,
+                    clarity ? CLARITY_BLUR_PASSES : 0u);
+                for (unsigned blur = 0; blur < pairs; ++blur) {
                     const float spread = float(blur + 1);
+                    const bool blurClarity = clarity && blur < CLARITY_BLUR_PASSES;
                     if (!s.pass(POST_SHADER_BLOOM_BLUR, s.Targets.Bloom[0], w, h,
-                        s.target(s.Targets.Bloom[1], w, h, FLOAT_FORMAT), nullptr, spread / w, 0)
+                        s.target(s.Targets.Bloom[1], w, h, FLOAT_FORMAT), nullptr, spread / w, 0, false, blurClarity)
                         || !s.pass(POST_SHADER_BLOOM_BLUR, s.Targets.Bloom[1], w, h,
-                            s.target(s.Targets.Bloom[0], w, h, FLOAT_FORMAT), nullptr, 0, spread / h)) return false;
+                            s.target(s.Targets.Bloom[0], w, h, FLOAT_FORMAT), nullptr, 0, spread / h, false, blurClarity)) return false;
                 }
                 if (!s.pass(wide ? POST_SHADER_BLOOM_COMPOSITE_WIDE : POST_SHADER_BLOOM_COMPOSITE,
                     source, scene.Width, scene.Height, destination, s.Targets.Bloom[0])) return false;
