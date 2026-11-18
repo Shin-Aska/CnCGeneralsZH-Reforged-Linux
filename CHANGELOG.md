@@ -8,6 +8,10 @@ found and fixed, EA's own, not port damage.**
 
 ---
 
+## Campaign countdowns
+
+- Campaign countdowns now keep the selected game speed while the world is frozen, instead of running too quickly or too slowly depending on the frozen frame. Saving and loading preserves their timing.
+
 ## Crashes from the 4.0 reports
 
 - The commonest crash of 4.0 was fixed in 4.1; this round closes what the reports left behind.
