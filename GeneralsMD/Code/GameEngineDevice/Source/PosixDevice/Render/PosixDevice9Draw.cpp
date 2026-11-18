@@ -268,7 +268,7 @@ static RenderUInt32 material_source(RenderUInt32 source, RenderUInt32 fvf, bool 
 	return source;
 }
 
-bool PosixDevice9::Build_Vertex_Description(VertexPipelineDescription &description, std::string *refusal) const
+bool PosixDevice9::Build_Vertex_Description(VertexPipelineDescription &description, std::string *refusal, bool staticLights) const
 {
 	memset(&description, 0, sizeof(description));
 	description.FVF = FVF;
@@ -286,15 +286,17 @@ bool PosixDevice9::Build_Vertex_Description(VertexPipelineDescription &descripti
 	// The enabled lights, packed down in order: the program declares them contiguously, and
 	// Build_Constants packs their fields the same way.  Unlit, the program has none.
 	description.LightCount = 0;
+	const bool *enabled = staticLights && Static_Lighting_Matches() ? StaticLightsEnabled : LightsEnabled;
+	const D3DLIGHT9 *lights = staticLights && Static_Lighting_Matches() ? StaticLights : Lights;
 	for (unsigned index = 0; index < LIGHT_COUNT && description.LightingEnabled; ++index) {
-		if (!LightsEnabled[index]) {
+		if (!enabled[index]) {
 			continue;
 		}
 		if (description.LightCount == MAXIMUM_VERTEX_LIGHTS) {
 			if (refusal != NULL) *refusal = "more lights enabled than the generator carries";
 			return false;
 		}
-		description.Lights[description.LightCount].Type = Lights[index].Type;
+		description.Lights[description.LightCount].Type = lights[index].Type;
 		++description.LightCount;
 	}
 
@@ -438,7 +440,7 @@ static void colour_value(const D3DCOLORVALUE &colour, float out[4])
 	out[3] = colour.a;
 }
 
-void PosixDevice9::Build_Constants(SdlVertexConstants &vertex, SdlPixelConstants &pixel) const
+void PosixDevice9::Build_Constants(SdlVertexConstants &vertex, SdlPixelConstants &pixel, bool staticLights) const
 {
 	memset(&vertex, 0, sizeof(vertex));
 	memset(&pixel, 0, sizeof(pixel));
@@ -460,7 +462,7 @@ void PosixDevice9::Build_Constants(SdlVertexConstants &vertex, SdlPixelConstants
 	colour_value(Material.Specular, vertex.MaterialSpecular);
 	colour_value(Material.Emissive, vertex.MaterialEmissive);
 	vertex.MaterialPower[0] = Material.Power;
-	colour_of(RenderStates[D3DRS_AMBIENT], vertex.GlobalAmbient);
+	colour_of(staticLights && Static_Lighting_Matches() ? StaticAmbient : RenderStates[D3DRS_AMBIENT], vertex.GlobalAmbient);
 
 	// Fog start, end and density are floats carried in DWORD states.
 	memcpy(&vertex.FogParameters[0], &RenderStates[D3DRS_FOGSTART], sizeof(float));
@@ -472,12 +474,14 @@ void PosixDevice9::Build_Constants(SdlVertexConstants &vertex, SdlPixelConstants
 	// The enabled lights in the order Build_Vertex_Description packed them.  The attenuation and the
 	// spot cone as DX8Wrapper hands them to the Direct3D 11 backend: {a0, a1, a2, range} and
 	// {cos(theta / 2), cos(phi / 2), falloff, 0}.
+	const bool *enabled = staticLights && Static_Lighting_Matches() ? StaticLightsEnabled : LightsEnabled;
+	const D3DLIGHT9 *lights = staticLights && Static_Lighting_Matches() ? StaticLights : Lights;
 	unsigned slot = 0;
 	for (unsigned index = 0; index < LIGHT_COUNT && slot < MAXIMUM_VERTEX_LIGHTS; ++index) {
-		if (!LightsEnabled[index]) {
+		if (!enabled[index]) {
 			continue;
 		}
-		const D3DLIGHT9 &light = Lights[index];
+		const D3DLIGHT9 &light = lights[index];
 		const float position[3] = { light.Position.x, light.Position.y, light.Position.z };
 		const float direction[3] = { light.Direction.x, light.Direction.y, light.Direction.z };
 		float (*fields)[4] = vertex.LightFields[slot];
@@ -978,6 +982,9 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	VertexPipelineDescription vertex;
 	Build_Combiner_Description(combiner);
 	combiner.ShadowReceiving = Sun_Receiving(vertex_engine, pixel_engine, target);
+	const bool terrain_lighting = vertex_engine == ENGINE_SHADER_NONE && Terrain_Lighting_Receives(pixel_engine,target);
+	bool static_lighting = combiner.ShadowReceiving && Static_Lighting_Matches() && BlastLightCount
+		&& !Sun_Camera_Space() && vertex_engine == ENGINE_SHADER_NONE && pixel_engine == ENGINE_SHADER_NONE;
 	combiner.DrawEffect = SunActive ? SunCasterEffect : DRAW_EFFECT_NONE;
     SDL_GPUTexture *sprite_depth=nullptr;
     SDL_GPUSampler *sprite_sampler=nullptr;
@@ -1001,7 +1008,7 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
     if(combiner.SoftParticle||combiner.FireLook) SpriteRefusalForTest=0;
 	combiner.SmokeGlow = SmokeGlow && vertex_engine == ENGINE_SHADER_NONE && pixel_engine == ENGINE_SHADER_NONE
 		&& !RenderStates[D3DRS_LIGHTING] && (FVF & D3DFVF_NORMAL) && !(FVF & D3DFVF_XYZRHW);
-	if (vertex_engine == ENGINE_SHADER_NONE && !Build_Vertex_Description(vertex, &refusal)) {
+	if (vertex_engine == ENGINE_SHADER_NONE && !Build_Vertex_Description(vertex, &refusal, static_lighting)) {
 		Refuse_Draw(refusal);
 		return D3D_OK;
 	}
@@ -1042,10 +1049,16 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	const auto retry_without_sun = [&](const char *reason) {
 		// Generated receivers add an optional program variant. Ground programs share the
 		// established engine path; their existing source keeps its own failure handling.
-		if (!combiner.ShadowReceiving || pixel_engine != ENGINE_SHADER_NONE || !vertex_program->Shader)
+		if (!combiner.ShadowReceiving || pixel_engine != ENGINE_SHADER_NONE || (!vertex_program->Shader && !static_lighting))
 			return false;
 		Fail_Sun_Receiver(reason);
 		combiner.ShadowReceiving = false;
+		if (static_lighting) {
+			static_lighting = false;
+			if (!Build_Vertex_Description(vertex, &refusal)) return false;
+			vertex_program = &Programs->Vertex_Program(vertex);
+			if (!vertex_program->Shader) return false;
+		}
 		pixel_program = &Programs->Pixel_Program(combiner);
 		return pixel_program->Shader != NULL;
 	};
@@ -1058,6 +1071,7 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
     };
     if (!pixel_program->Shader || (foam_fault & 2)) retry_without_foam();
 	if (!pixel_program->Shader) retry_without_sun("pixel program refused");
+	if (!vertex_program->Shader && static_lighting) retry_without_sun("static vertex program refused");
 	const SdlProgram *legacy_pixel_program=pixel_program;
 	const ShoreRegion *shore_region=NULL;
 	SDL_GPUTexture *shore_depth=NULL;
@@ -1522,7 +1536,7 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	// The constants, pushed only when they change.
 	SdlVertexConstants vertex_constants;
 	SdlPixelConstants pixel_constants;
-	Build_Constants(vertex_constants, pixel_constants);
+	Build_Constants(vertex_constants, pixel_constants, static_lighting);
 	if (vertex_program->UniformBuffers != 0 && vertex_engine != ENGINE_SHADER_NONE) {
 		// A transcribed vertex program reads the engine's own register bank, c0 to c95, as its b0.
 		const uint32_t size = ENGINE_SHADER_CONSTANTS * sizeof(VertexShaderConstants[0]);
@@ -1590,6 +1604,16 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
             engine_constants.SoftParticleDepth[3]=1.0f/12.0f;
         }
         if (classic_foam) Build_Main_View_Constants(engine_constants, combiner.ShadowReceiving);
+		if (terrain_lighting) {
+			// Tiles already omitted baked point lights; a later optional shadow failure must not lose their packet.
+			if (!combiner.ShadowReceiving) Build_Terrain_Light_View(engine_constants);
+			Build_Light_Constants(engine_constants);
+		} else if (combiner.ShadowReceiving) {
+			if (EngineShader_Paints_Ground(static_cast<EngineShaderProgram>(pixel_engine)))
+				Build_Light_Constants(engine_constants,false);
+			else if (vertex_engine == ENGINE_SHADER_NONE && pixel_engine == ENGINE_SHADER_NONE && Static_Lighting_Matches())
+				Build_Light_Constants(engine_constants);
+		}
 		if (combiner.DrawEffect) engine_constants.DrawEffectParameters[3] = SunCasterOpacity;
 		draw.PixelConstants = Gpu->Constants(1, &engine_constants, sizeof(engine_constants));
 		draw.PixelConstantsSize = sizeof(engine_constants);

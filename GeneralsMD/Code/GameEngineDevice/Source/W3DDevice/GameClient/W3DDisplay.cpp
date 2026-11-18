@@ -5466,3 +5466,8 @@ Bool W3DDisplay::supportsBuildingCollapse(void) const
 {
 	return DX8Wrapper::Supports_Building_Collapse();
 }
+
+Bool W3DDisplay::supportsPerPixelLighting(void) const
+{
+	return DX8Wrapper::Supports_Per_Pixel_Lighting();
+}
