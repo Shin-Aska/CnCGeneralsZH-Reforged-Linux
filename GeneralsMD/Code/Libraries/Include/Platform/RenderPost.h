@@ -31,6 +31,12 @@ struct Environment {
 void SetEnvironment(const Environment &);
 bool EnvironmentAvailable(); // stable hardware capability, independent of current scene
 void Sky();
+struct Warp {
+    float CentreX, CentreY, Radius, Pull, RingRadius, RingWidth, RingStrength, RingSquash;
+};
+bool DistortionAvailable();
+void SetWarps(const Warp *, unsigned);
+void SetHeatSplats(const float *, unsigned);
 void BeginMain(const Settings &);
 unsigned BeginView(bool eligible, float nearPlane, float farPlane, bool reflection = false);
 void EndView(unsigned token);
@@ -50,6 +56,9 @@ public:
     ViewScope &operator=(const ViewScope &) = delete;
 };
 #if !defined(_WIN32)
+bool DistortionAvailable(IDirect3DDevice9 *);
+void SetWarps(IDirect3DDevice9 *, const Warp *, unsigned);
+void SetHeatSplats(IDirect3DDevice9 *, const float *, unsigned);
 void BeginMain(IDirect3DDevice9 *, const Settings &);
 void SetEnvironment(IDirect3DDevice9 *, const Environment &);
 bool EnvironmentAvailable(IDirect3DDevice9 *);

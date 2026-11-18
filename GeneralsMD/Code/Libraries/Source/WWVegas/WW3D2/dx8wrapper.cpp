@@ -6010,6 +6010,28 @@ void SetEnvironment(const Environment &environment) {
 	(void)environment;
 #endif
 }
+
+bool DistortionAvailable() {
+#if defined(_WIN32)
+    return Direct3D11_Present_Is_Enabled();
+#else
+    return DistortionAvailable(DX8Wrapper::_Get_D3D_Device());
+#endif
+}
+void SetWarps(const Warp *warps,unsigned count) {
+#if !defined(_WIN32)
+    SetWarps(DX8Wrapper::_Get_D3D_Device(),warps,count);
+#else
+    (void)warps;(void)count; // Original Windows producer retains its DX11 entry point.
+#endif
+}
+void SetHeatSplats(const float *records,unsigned count) {
+#if defined(_WIN32)
+    Direct3D11_Set_Heat_Splats(records,count);
+#else
+    SetHeatSplats(DX8Wrapper::_Get_D3D_Device(),records,count);
+#endif
+}
 void BeginMain(const Settings &settings) {
 #if !defined(_WIN32)
 	BeginMain(DX8Wrapper::_Get_D3D_Device(), settings);
