@@ -592,6 +592,8 @@ public:
 	Bool m_mapLight;								///< "MapLight": warm low sun and a still ground haze (Direct3D 11, client only)
 	Bool m_teamGlow;								///< "TeamGlow": bright house colour glows (Direct3D 11, client only)
 	Bool m_underwaterClarity; // optional native Modern-water shallow scenery, default off
+
+	Bool m_cleanFftWater; // optional native clean ocean; default off
 	Bool m_mapAwareWaveHeading; // persisted opt-in; native Modern water only
 	Bool m_waterFoam;								///< "WaterFoam": foam, shore band and the sun's shadow on water (Direct3D 11, client only)
 	Bool m_groundFoliage;						///< "GroundFoliage": grass tufts on grass ground, swaying in the wind (client only; off under Classic graphics)

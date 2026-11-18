@@ -836,6 +836,8 @@ GlobalData::GlobalData()
 	m_mapLight = FALSE;
 	m_teamGlow = FALSE;
 	m_underwaterClarity = FALSE;
+
+	m_cleanFftWater = FALSE;
 	m_mapAwareWaveHeading = FALSE;
 	m_waterFoam = FALSE;
 	m_groundFoliage = FALSE;

@@ -104,6 +104,10 @@ found and fixed, EA's own, not port damage.**
 
 - Set `UnderwaterClarity = yes` in `Options.ini` to reveal shallow submerged scenery with the native SDL Modern-water renderer. It is off by default; flat offshore basins and deep water retain their authored opacity, and Classic Graphics keeps its original water.
 
+## Optional Clean FFT water
+
+- Set `CleanFftWater = yes` in `Options.ini` for a shared native SDL ocean with revised wave spectra, depth-aware wave strength, filtered glints, crest colour and wave-driven foam. It is off by default and keeps the original water on unsupported render paths. `MapAwareWaveHeading` also turns these waves toward shores.
+
 ## Map-aware Modern-water wave travel
 
 - Set `MapAwareWaveHeading = yes` in `Options.ini` to make native SDL Modern-water swells bend toward shores, travel along channels and lose height behind islands. Separate seas use their own exposure and incoming direction. This is off by default; leaving it off keeps the original waves and skips the heading field and its shader work.
