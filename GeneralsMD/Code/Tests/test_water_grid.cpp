@@ -5050,8 +5050,8 @@ TEST(water_polygon_draw_snapshot_survives_live_height_geometry_and_lifetime_chan
     const Int savedStyle=TheGlobalData->m_waterStyle;
     TheWritableGlobalData->m_waterStyle=0;
     WaterTransparencySetting *saved=(WaterTransparencySetting*)TheWaterTransparency.getNonOverloadedPointer();
-    WaterTransparencySetting *settings=newInstance(WaterTransparencySetting);
-    TheWaterTransparency=settings;
+    // The water probe's destructor releases these temporary settings.
+    TheWaterTransparency=newInstance(WaterTransparencySetting);
     PolygonTrigger *area=newInstance(PolygonTrigger)(4);
     const ICoord3D original[]={{0,0,4},{80,0,4},{80,60,4},{0,60,4}};
     for(const ICoord3D &point:original) area->addPoint(point);
@@ -5090,21 +5090,30 @@ TEST(water_polygon_draw_snapshot_survives_live_height_geometry_and_lifetime_chan
         checkDraw(false,0,0);
     }
     TheWaterTransparency=saved;
-    settings->deleteInstance();
     TheWritableGlobalData->m_waterStyle=savedStyle;
 }
 
 TEST(water_style_changes_at_render_boundary_without_advancing_paused_time_or_reloading_the_map)
 {
+    boot();
     GlobalData *saved=TheWritableGlobalData;
     GlobalData *scratch=NEW GlobalData;TheWritableGlobalData=scratch;
+    scratch->m_classicGraphics=FALSE;
     WaterTransparencySetting *savedTransparency=(WaterTransparencySetting*)TheWaterTransparency.getNonOverloadedPointer();
     TheWaterTransparency=newInstance(WaterTransparencySetting);
-    IDirect3D9 *d3d=Direct3DCreate9(D3D_SDK_VERSION);
-    D3DPRESENT_PARAMETERS parameters={};parameters.BackBufferWidth=16;parameters.BackBufferHeight=16;
-    parameters.BackBufferFormat=D3DFMT_X8R8G8B8;parameters.Windowed=TRUE;
-    IDirect3DDevice9 *device=NULL;
-    CHECK(d3d && d3d->CreateDevice(0,D3DDEVTYPE_HAL,NULL,0,&parameters,&device)==D3D_OK);
+    const bool video=SDL_InitSubSystem(SDL_INIT_VIDEO);
+    const char *oldFrames=SDL_GetHint("ZH_OFFSCREEN_FRAMES");
+    const bool hadFrames=oldFrames!=NULL;
+    const std::string savedFrames=oldFrames?oldFrames:"";
+    SDL_SetHint("ZH_OFFSCREEN_FRAMES","1");
+    WWMath::Init();
+    Init_D3D_To_WW3_Conversion();
+    // The style gate inspects DX8Wrapper's active GPU, not a freestanding device.
+    const bool initialized=video && DX8Wrapper::Init(NULL);
+    const bool ready=initialized &&
+        WW3D::Set_Render_Device(0,64,64,32,1,false,false,false)==WW3D_ERROR_OK;
+    IDirect3DDevice9 *device=ready?DX8Wrapper::_Get_D3D_Device():NULL;
+    CHECK(device && ModernWater::Supported());
     if (device) {
         {
             TheWritableGlobalData=NULL;
@@ -5127,12 +5136,14 @@ TEST(water_style_changes_at_render_boundary_without_advancing_paused_time_or_rel
             scratch->m_waterStyle=1;scratch->m_classicGraphics=TRUE;
             water.seedPresentation();water.updateRenderTargetTextures(NULL);water.checkUnchanged();
         }
-        device->Release();
     } else {
         ((WaterTransparencySetting*)TheWaterTransparency.getNonOverloadedPointer())->deleteInstance();
         TheWaterTransparency=NULL;
     }
-    if (d3d) d3d->Release();
+    if (initialized) DX8Wrapper::Shutdown();
+    WWMath::Shutdown();
+    if (hadFrames) SDL_SetHint("ZH_OFFSCREEN_FRAMES",savedFrames.c_str()); else SDL_ResetHint("ZH_OFFSCREEN_FRAMES");
+    if (video) SDL_QuitSubSystem(SDL_INIT_VIDEO);
     TheWaterTransparency=savedTransparency;
     delete scratch;TheWritableGlobalData=saved;
 }
