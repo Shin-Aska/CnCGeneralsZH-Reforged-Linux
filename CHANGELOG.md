@@ -8,6 +8,11 @@ found and fixed, EA's own, not port damage.**
 
 ---
 
+## Native Linux glow and post processing
+
+- Glow now uses the native scene's floating point color buffer, with the same bloom and Internal HDR tone mapping as Direct3D 11. Reforged lighting also applies its local contrast and color grade before unit health bars and the interface are drawn.
+- Classic graphics keeps its original picture. Unsupported post targets fall back to the existing renderer, and window resizing recreates the scene resources safely.
+
 ## Crashes from the 4.0 reports
 
 - The commonest crash of 4.0 was fixed in 4.1; this round closes what the reports left behind.
