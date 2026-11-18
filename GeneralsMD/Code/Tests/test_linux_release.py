@@ -328,7 +328,7 @@ class LinuxReleaseTests(unittest.TestCase):
             release.release_metadata(source, repository, tag, output)
         return output
 
-    def publish_fixture(self, custom=True):
+    def publish_fixture(self, custom=True, with_artwork=True):
         native, flatpak = self.package_jobs()
         packages = self.work / "release"
         with contextlib.redirect_stdout(io.StringIO()):
@@ -336,6 +336,9 @@ class LinuxReleaseTests(unittest.TestCase):
         source, notes, image = self.metadata_sources()
         if not custom:
             notes.unlink()
+            image.unlink()
+        elif not with_artwork:
+            notes.write_text("# Release 3.2.0\n\nText-only release notes.\n")
             image.unlink()
         metadata = self.stage_metadata(source)
         fake_bin = self.work / "bin"
@@ -413,19 +416,27 @@ class LinuxReleaseTests(unittest.TestCase):
         self.assertIn("--draft=false", edit)
         self.assertEqual(len(list(packages.iterdir())), 7)
 
+    def test_release_publishes_custom_notes_with_only_package_assets(self):
+        packages, metadata = self.publish_fixture(with_artwork=False)
+        source_notes = self.work / "repository/docs/releases/v3.2.0.md"
+        self.assertEqual((metadata / "release-notes.md").read_bytes(), source_notes.read_bytes())
+        self.assertEqual((metadata / "release-context.txt").read_text(), "owner/repository\nv3.2.0\n-\n")
+        self.assertEqual(set(release.verify_checksums(metadata)), {"release-context.txt", "release-notes.md"})
+        result = self.publish()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        upload = next(call for call in self.gh_calls() if call[:2] == ["release", "upload"])
+        self.assertEqual(set(upload[3:-1]), set(release.verify_checksums(packages)) | {"SHA256SUMS"})
+        self.assertEqual((self.work / "sent-notes.md").read_bytes(), source_notes.read_bytes())
+
     def test_release_metadata_rejects_unsafe_identity_and_incomplete_sources(self):
-        source, notes, image = self.metadata_sources()
+        source, notes, _image = self.metadata_sources()
         for repository, tag in (("../repo", "v3.2.0"), ("owner/repo/extra", "v3.2.0"),
                                 ("-owner/repo", "v3.2.0"), ("owner/repo", "../v3.2.0"),
                                 ("owner/repo", "v3.2.0-linux.01"), ("owner/repo", "main")):
             with self.subTest(repository=repository, tag=tag), self.assertRaises(ValueError):
                 self.stage_metadata(source, repository=repository, tag=tag)
-        image.unlink()
-        with self.assertRaisesRegex(ValueError, "both exist"):
-            self.stage_metadata(source)
         notes.unlink()
-        image.write_bytes(b"\x89PNG\r\n\x1a\nfixture")
-        with self.assertRaisesRegex(ValueError, "both exist"):
+        with self.assertRaisesRegex(ValueError, "notes are required for a launch image"):
             self.stage_metadata(source)
 
     def test_release_metadata_rejects_links_invalid_content_and_existing_output(self):

@@ -170,17 +170,19 @@ def release_metadata(source, repository, tag, output):
             if part == source:
                 break
             require(not part.is_symlink(), f"release metadata links forbidden: {part}")
-    require(notes.exists() == image.exists(), "release notes and launch image must both exist or both be absent")
-    payloads = {"release-context.txt": f"{repository}\n{tag}\n{image.name if notes.exists() else '-'}\n".encode(),
+    has_image = image.exists()
+    require(notes.exists() or not has_image, "release notes are required for a launch image")
+    payloads = {"release-context.txt": f"{repository}\n{tag}\n{image.name if has_image else '-'}\n".encode(),
                 "release-notes.md": GENERIC_RELEASE_NOTES.encode()}
     if notes.exists():
         require(notes.is_file() and 0 < notes.stat().st_size <= 1024**2, "invalid release notes file")
         text = notes.read_text(encoding="utf-8")
         require(text.strip() and "\0" not in text, "empty/invalid release notes")
+        payloads["release-notes.md"] = notes.read_bytes()
+    if has_image:
         require(image.is_file() and 0 < image.stat().st_size <= 32 * 1024**2, "invalid launch image file")
         data = image.read_bytes()
         require(data.startswith(b"\x89PNG\r\n\x1a\n"), "launch image must be PNG")
-        payloads["release-notes.md"] = notes.read_bytes()
         payloads[image.name] = data
     require(not output.is_symlink(), "release metadata output cannot be a link")
     output.mkdir(parents=True, exist_ok=True)
@@ -190,7 +192,7 @@ def release_metadata(source, repository, tag, output):
     (output / "SHA256SUMS").write_text("".join(
         f"{digest(output / name)}  {name}\n" for name in sorted(payloads)))
     verify_checksums(output)
-    print(f"Staged release metadata for {repository} {tag}; launch image: {image.name if notes.exists() else 'absent (generic notes)'}")
+    print(f"Staged release metadata for {repository} {tag}; launch image: {image.name if has_image else 'absent'}")
 
 
 def digest(path):

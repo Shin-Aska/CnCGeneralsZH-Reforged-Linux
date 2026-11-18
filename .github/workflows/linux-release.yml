@@ -419,7 +419,7 @@ jobs:
           compression-level: 0
           retention-days: 14
 
-      - name: Stage tag-specific release notes and launch image
+      - name: Stage tag-specific release notes and optional launch image
         if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
         env:
           RELEASE_REPOSITORY: ${{ github.repository }}

@@ -6,7 +6,10 @@ See [upstream status](docs/upstream-status.md) for which Linux features have bee
 
 ---
 
-## Post-4.0.1 upstream updates (2026-11-18)
+## Linux 4.1.0 release
+
+Synchronizes with upstream 4.1.0 and carries forward the Linux graphics improvements from 4.0.1.
+See the [release notes](docs/releases/v4.1.0.md).
 
 ### Play vs AI online
 
