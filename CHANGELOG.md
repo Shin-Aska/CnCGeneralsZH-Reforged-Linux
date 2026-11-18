@@ -8,6 +8,10 @@ found and fixed, EA's own, not port damage.**
 
 ---
 
+## Native SDL GPU classic-water splashes
+
+- Water Splashes now adds spray, foam and rings to impacts on Classic-style water with the native SDL GPU renderer. Its own option and Classic Graphics setting still control the effect.
+
 ## Crashes from the 4.0 reports
 
 - The commonest crash of 4.0 was fixed in 4.1; this round closes what the reports left behind.
