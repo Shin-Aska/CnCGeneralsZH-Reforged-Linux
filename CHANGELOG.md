@@ -39,6 +39,10 @@ found and fixed, EA's own, not port damage.**
 
 - Water Splashes now adds spray, foam and rings to impacts on Classic-style water with the native SDL GPU renderer. Its own option and Classic Graphics setting still control the effect.
 
+## Native SDL GPU building collapse
+
+- The Collapse option now lets destroyed buildings sink into the ground on the native SDL GPU renderer, with the existing camera jolt for large buildings. Hidden buildings and Classic Graphics keep their previous behavior.
+
 ## Play vs AI online
 
 - The online hub has a PLAY VS AI button under Options. One press starts a 1v1 against a computer player as strong as your AI rating, on a map and seed the server picks. The AI rating is a second rating zerohour.gg keeps beside the ladder's, starting at 0, and the hub shows it left of the button.

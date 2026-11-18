@@ -554,3 +554,4 @@ bool PosixWaterGpuAvailable(IDirect3DDevice9 *device);
 // Requires the live SDL GPU draw provider; null/headless devices keep the fallback.
 bool PosixBattleMarksAvailable(IDirect3DDevice9 *device);
 bool PosixClassicWaterSplashesAvailable(IDirect3DDevice9 *device);
+bool PosixBuildingCollapseAvailable(IDirect3DDevice9 *device);

@@ -5461,3 +5461,8 @@ Bool W3DDisplay::supportsClassicWaterSplashes(void) const
 {
 	return DX8Wrapper::Supports_Classic_Water_Splashes();
 }
+
+Bool W3DDisplay::supportsBuildingCollapse(void) const
+{
+	return DX8Wrapper::Supports_Building_Collapse();
+}

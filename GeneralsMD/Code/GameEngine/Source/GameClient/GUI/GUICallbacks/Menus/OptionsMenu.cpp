@@ -3151,7 +3151,7 @@ void OptionsMenuInit( WindowLayout *layout, void *userData )
 	// three looks only the Direct3D 11 picture draws; under -d3d9 their boxes keep the saved value, greyed
 	if( !TheGlobalData->m_direct3D11 )
 	{
-		static const char *const direct3D11Only[] = { "MapLight", "TeamGlow", "WaterFoam", "Firelight", "HemiAmbient", "AmbientOcclusion", "InternalHdr", "Weather", "Atmosphere", "StructureCollapse", "HeatHaze", "GroundFoliage" };
+		static const char *const direct3D11Only[] = { "MapLight", "TeamGlow", "WaterFoam", "Firelight", "HemiAmbient", "AmbientOcclusion", "InternalHdr", "Weather", "Atmosphere", "HeatHaze", "GroundFoliage" };
 		for( Int i = 0; i < (Int)( sizeof( direct3D11Only ) / sizeof( direct3D11Only[ 0 ] ) ); ++i )
 			findOptionWidget( *findOptionDef( direct3D11Only[ i ] ) )->winEnable( FALSE );
 	}
@@ -3160,6 +3160,7 @@ void OptionsMenuInit( WindowLayout *layout, void *userData )
 	findOptionWidget(*findOptionDef("GroundMarks"))->winEnable(TheDisplay && TheDisplay->supportsBattleMarks());
     findOptionWidget(*findOptionDef("WaterFoam"))->winEnable(RenderWaterFoam::Available());
 	findOptionWidget(*findOptionDef("WaterSplashes"))->winEnable(TheDisplay && TheDisplay->supportsClassicWaterSplashes());
+	findOptionWidget(*findOptionDef("StructureCollapse"))->winEnable(TheDisplay && TheDisplay->supportsBuildingCollapse());
 
 	// A preset is its own step on the quality slider, whatever step Options.ini kept from a Custom mix,
 	// as long as the boxes show that step.  An Options.ini from before the slider can hold a preset

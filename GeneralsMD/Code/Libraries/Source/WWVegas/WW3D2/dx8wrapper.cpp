@@ -6088,3 +6088,16 @@ bool DX8Wrapper::Supports_Classic_Water_Splashes(void)
 	return PosixClassicWaterSplashesAvailable(_Get_D3D_Device());
 #endif
 }
+
+// The building collapse use ordinary fixed-function draws already implemented by SDL GPU.
+#if !defined(_WIN32)
+extern bool PosixBuildingCollapseAvailable(IDirect3DDevice9 *device);
+#endif
+bool DX8Wrapper::Supports_Building_Collapse(void)
+{
+#if defined(_WIN32)
+	return Direct3D11_Present_Is_Enabled();
+#else
+	return PosixBuildingCollapseAvailable(_Get_D3D_Device());
+#endif
+}

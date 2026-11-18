@@ -1036,3 +1036,8 @@ bool PosixClassicWaterSplashesAvailable(IDirect3DDevice9 *device)
 {
 	return device && static_cast<PosixDevice9 *>(device)->Get_Gpu();
 }
+
+bool PosixBuildingCollapseAvailable(IDirect3DDevice9 *device)
+{
+	return device && static_cast<PosixDevice9 *>(device)->Get_Gpu();
+}

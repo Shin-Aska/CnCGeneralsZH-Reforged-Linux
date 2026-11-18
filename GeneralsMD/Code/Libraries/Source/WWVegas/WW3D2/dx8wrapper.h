@@ -461,6 +461,7 @@ public:
 
 	static bool Supports_Battle_Marks(void); // live renderer capability, independent of options
 	static bool Supports_Classic_Water_Splashes(void); // live renderer capability, independent of options
+	static bool Supports_Building_Collapse(void); // live renderer capability, independent of options
 	static bool Has_Stencil (void);
 	static void Get_Format_Name(unsigned int format, StringClass *tex_format);
 
