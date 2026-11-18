@@ -84,6 +84,10 @@ found and fixed, EA's own, not port damage.**
 
 - Campaign countdowns now keep the selected game speed while the world is frozen, instead of running too quickly or too slowly depending on the frozen frame. Saving and loading preserves their timing.
 
+## Original Generals briefings
+
+- Restored the separately configured narration for original Generals campaign briefings, at its movie cue or when the movie cannot play. Each loading screen requests the voice once and respects muted speech.
+
 ## Play vs AI online
 
 - The online hub has a PLAY VS AI button under Options. One press starts a 1v1 against a computer player as strong as your AI rating, on a map and seed the server picks. The AI rating is a second rating zerohour.gg keeps beside the ladder's, starting at 0, and the hub shows it left of the button.
