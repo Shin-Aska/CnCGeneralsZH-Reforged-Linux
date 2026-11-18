@@ -1,3 +1,4 @@
+#include "Platform/RenderTeamGlow.h"
 #include "Platform/RenderParticles.h"
 #include "PosixDevice9.h"
 #include "SdlGpuFrame.h"
@@ -53,6 +54,7 @@ void PosixDevice9::Begin_Post(const RenderPost::Settings &settings)
     if (Post->Routed) Finish_Post(true);
     auto &s = *Post;
     s.InView = s.Entered = false; s.ViewDepth = 0;
+    TeamGlowDraw=false; TeamGlowAllowed=!settings.Classic;
     s.ModelCurrent = {}; s.ModelReadyKey = s.ModelRefusedKey = 0;
     ModelEffectsAllowed = !settings.Classic;
     ModelEffect = 0; std::memset(ModelEffectParameters, 0, sizeof(ModelEffectParameters));
@@ -484,5 +486,14 @@ void SetDrawEffect(IDirect3DDevice9 *d, unsigned e, const float p[4]) { if(d) st
 unsigned RequestedDrawEffect(IDirect3DDevice9 *d, float p[4]) {
     if(d) return static_cast<PosixDevice9 *>(d)->Requested_Model_Effect(p);
     std::memset(p,0,4*sizeof(float)); return DRAW_EFFECT_NONE;
+}
+}
+
+namespace RenderTeamGlow {
+void SetDraw(IDirect3DDevice9 *d, bool marked) { if(d) static_cast<PosixDevice9 *>(d)->Set_Team_Glow(marked); }
+bool Available(IDirect3DDevice9 *d) {
+    auto *frame = d ? static_cast<PosixDevice9 *>(d)->Get_Gpu() : nullptr;
+    return frame && SDL_GPUTextureSupportsFormat(frame->Device(), SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT,
+        SDL_GPU_TEXTURETYPE_2D, SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER);
 }
 }

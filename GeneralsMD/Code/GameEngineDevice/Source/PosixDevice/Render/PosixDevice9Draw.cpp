@@ -1018,6 +1018,12 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
     }
     const unsigned model_fault = combiner.DrawEffect && !SunActive ? ModelRefusalForTest & 12u : 0;
     if (model_fault) ModelRefusalForTest &= ~12u;
+    combiner.TeamGlow = TeamGlowDraw && TeamGlowAllowed && !SunActive
+        && vertex_engine == ENGINE_SHADER_NONE && pixel_engine == ENGINE_SHADER_NONE && !(FVF & D3DFVF_XYZRHW)
+        && !RenderStates[D3DRS_ALPHABLENDENABLE] && combiner.DrawEffect == DRAW_EFFECT_NONE
+        && SunCasterEffect == DRAW_EFFECT_NONE && Post_Additive_Gain(target) != 1.0f;
+    const unsigned team_fault = combiner.TeamGlow ? TeamGlowRefusalForTest & 12u : 0;
+    if (team_fault) TeamGlowRefusalForTest &= ~12u;
 	combiner.SmokeGlow = SmokeGlow && vertex_engine == ENGINE_SHADER_NONE && pixel_engine == ENGINE_SHADER_NONE
 		&& !RenderStates[D3DRS_LIGHTING] && (FVF & D3DFVF_NORMAL) && !(FVF & D3DFVF_XYZRHW);
 	if (vertex_engine == ENGINE_SHADER_NONE && !Build_Vertex_Description(vertex, &refusal, static_lighting)) {
@@ -1065,6 +1071,12 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
         return pixel_program->Shader != nullptr;
     };
     if (!pixel_program->Shader || (model_fault & 4)) retry_without_model();
+    const auto retry_without_team_glow = [&]() {
+        if (!combiner.TeamGlow) return false;
+        combiner.TeamGlow = false; pixel_program = &Programs->Pixel_Program(combiner);
+        return pixel_program->Shader != nullptr;
+    };
+    if (!pixel_program->Shader || (team_fault & 4)) retry_without_team_glow();
 	const auto retry_without_sun = [&](const char *reason) {
 		// Generated receivers add an optional program variant. Ground programs share the
 		// established engine path; their existing source keeps its own failure handling.
@@ -1202,7 +1214,7 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	phases.Mark("target+programs");
 	SdlRecordedDraw draw;
 	memset(&draw, 0, sizeof(draw));
-	draw.Pipeline = (((sprite_fault&4) && (combiner.SoftParticle||combiner.FireLook)) || ((foam_fault&4) && classic_foam) || ((model_fault&8) && combiner.DrawEffect && !SunActive)) ? nullptr :
+	draw.Pipeline = (((sprite_fault&4) && (combiner.SoftParticle||combiner.FireLook)) || ((foam_fault&4) && classic_foam) || ((model_fault&8) && combiner.DrawEffect && !SunActive) || ((team_fault&8) && combiner.TeamGlow)) ? nullptr :
         Pipelines->Pipeline(key,combiner.ShadowReceiving && pixel_engine==ENGINE_SHADER_NONE);
     if(!draw.Pipeline && retry_without_sprites()) {
         if(Sdl_Pipeline_Key(states,call.Type,vertex_program->Shader,pixel_program->Shader,FVF,
@@ -1217,6 +1229,13 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
             draw.Pipeline=Pipelines->Pipeline(key);
     }
     if (!draw.Pipeline && retry_without_model()) {
+        legacy_pixel_program = pixel_program;
+        if (Sdl_Pipeline_Key(states, call.Type, vertex_program->Shader, pixel_program->Shader, FVF,
+            SdlGpuFrame::Target_Colour_Format(target), Gpu->Target_Depth_Format(target), key, refusal))
+            draw.Pipeline = Pipelines->Pipeline(key);
+    }
+
+    if (!draw.Pipeline && retry_without_team_glow()) {
         legacy_pixel_program = pixel_program;
         if (Sdl_Pipeline_Key(states, call.Type, vertex_program->Shader, pixel_program->Shader, FVF,
             SdlGpuFrame::Target_Colour_Format(target), Gpu->Target_Depth_Format(target), key, refusal))

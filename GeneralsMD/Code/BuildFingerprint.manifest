@@ -3224,6 +3224,7 @@ Libraries/Include/Platform/RenderEffects.h
 Libraries/Include/Platform/RenderLighting.h
 Libraries/Include/Platform/RenderParticles.h
 Libraries/Include/Platform/RenderPost.h
+Libraries/Include/Platform/RenderTeamGlow.h
 Libraries/Include/Platform/RenderTypes.h
 Libraries/Include/Platform/RenderWaterFoam.h
 Libraries/Include/Platform/RendererName.h
@@ -4454,6 +4455,7 @@ Tests/test_smooth_motion.cpp
 Tests/test_sun_shadow_sorting.cpp
 Tests/test_supply_center_save.inc
 Tests/test_support.cpp
+Tests/test_team_glow.cpp
 Tests/test_terrain_golden.cpp
 Tests/test_terrain_subdivide.cpp
 Tests/test_user_data_guard.cpp

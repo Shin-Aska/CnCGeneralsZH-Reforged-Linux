@@ -34,6 +34,10 @@ found and fixed, EA's own, not port damage.**
 
 - Native SDL GPU rendering now shows the existing EMP arcs, power-outage treatment, cloaked-unit refraction and detected-stealth heat look. Classic Graphics keeps its previous appearance, and unsupported views or failed optional resources retain ordinary rendering.
 
+## Team Glow on native rendering
+
+- The existing Team Glow option now works with native SDL GPU HDR rendering. It stays off by default and takes effect as the next map's team-colored models are loaded; Classic Graphics, ordinary rendering and unsupported backends retain their previous look.
+
 ## Native Linux glow and post processing
 
 - Glow now uses the native scene's floating point color buffer, with the same bloom and Internal HDR tone mapping as Direct3D 11. Reforged lighting also applies its local contrast and color grade before unit health bars and the interface are drawn.

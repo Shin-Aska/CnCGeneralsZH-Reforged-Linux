@@ -21,7 +21,8 @@
     X(StaticLights) X(StaticLightsEnabled) X(StaticAmbient) \
     X(Material) X(Lights) X(LightsEnabled) X(ClipPlanes) X(StreamOffsets) X(StreamStrides) \
     X(DeclarationIsCurrent) X(FVF) X(VertexShaderConstants) X(PixelShaderConstants) X(SmokeGlow) \
-    X(ModelEffectsAllowed) X(ModelEffect) X(ModelEffectParameters)
+    X(ModelEffectsAllowed) X(ModelEffect) X(ModelEffectParameters) \
+    X(TeamGlowDraw) X(TeamGlowAllowed)
 #define SUN_REFS(X) X(DepthStencil) X(Indices) X(Declaration) X(VertexShader) X(PixelShader)
 #define SUN_REF_ARRAYS(X) X(RenderTargets) X(Textures) X(Streams)
 
