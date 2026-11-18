@@ -12,6 +12,11 @@ found and fixed, EA's own, not port damage.**
 
 - Battle Marks now leave craters, stains and treads on the native SDL GPU renderer. Marks fade as before, stay off underwater, and remain disabled with Classic Graphics.
 
+## Native Linux soft particles and fire
+
+- Smoke and particle billboards now fade into the ground and nearby objects on the native renderer. Ground flares retain their hard edge, and Classic graphics keeps the original particle picture.
+- FireLook now uses the original fire and explosion age and seed shading on native sorted billboards. Unsupported shader or pipeline variants keep the ordinary particle rendering and alpha blending.
+
 ## Native Linux ambient occlusion
 
 - Ambient Occlusion now adds contact shade beneath buildings and terrain corners on the native renderer before water and particles are drawn. Its option works with the post chain turned off, and Classic graphics keeps its original picture.
