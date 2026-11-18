@@ -8,6 +8,10 @@ found and fixed, EA's own, not port damage.**
 
 ---
 
+## Native SDL GPU building collapse
+
+- The Collapse option now lets destroyed buildings sink into the ground on the native SDL GPU renderer, with the existing camera jolt for large buildings. Hidden buildings and Classic Graphics keep their previous behavior.
+
 ## Crashes from the 4.0 reports
 
 - The commonest crash of 4.0 was fixed in 4.1; this round closes what the reports left behind.
