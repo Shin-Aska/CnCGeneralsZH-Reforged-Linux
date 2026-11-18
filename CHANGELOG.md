@@ -96,6 +96,10 @@ found and fixed, EA's own, not port damage.**
 
 - Scripted camera turns, zooms and pitch changes now move smoothly between their existing steps in normal single-player play. Pausing holds the picture, and cuts and player camera controls still take effect immediately. Recording and replay keep their existing clocks.
 
+## Startup checks
+
+- Startup no longer reports missing behavior on a reskinned unit when its data deliberately removed that behavior or added it only to the parent afterward. The check still catches behaviors unintentionally lost from the copied unit.
+
 ## Play vs AI online
 
 - The online hub has a PLAY VS AI button under Options. One press starts a 1v1 against a computer player as strong as your AI rating, on a map and seed the server picks. The AI rating is a second rating zerohour.gg keeps beside the ladder's, starting at 0, and the hub shows it left of the button.
