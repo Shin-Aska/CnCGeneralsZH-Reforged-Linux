@@ -8,6 +8,10 @@ found and fixed, EA's own, not port damage.**
 
 ---
 
+## Campaign dialogue
+
+- A campaign script that checked for the end of a speech before requesting it could skip ahead as the speech began. Requesting that same speech now starts a fresh wait; unrelated dialogue waits keep their timing.
+
 ## Crashes from the 4.0 reports
 
 - The commonest crash of 4.0 was fixed in 4.1; this round closes what the reports left behind.
