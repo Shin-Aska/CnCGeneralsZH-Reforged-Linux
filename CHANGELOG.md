@@ -8,6 +8,10 @@ found and fixed, EA's own, not port damage.**
 
 ---
 
+## Native SDL GPU dynamic lighting
+
+- Vehicle headlights, explosions and Firelight now illuminate surfaces per pixel on the native SDL GPU renderer. Unsupported views keep their previous lighting, and models and terrain receive each dynamic light once.
+
 ## Crashes from the 4.0 reports
 
 - The commonest crash of 4.0 was fixed in 4.1; this round closes what the reports left behind.
