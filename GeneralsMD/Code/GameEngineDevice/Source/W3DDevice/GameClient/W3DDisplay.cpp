@@ -5448,3 +5448,8 @@ static void drawFramerateBar(void)
 	TheDisplay->drawFillRect(1, 1, width, 15, colorToUse);
 	prevTime = now;
 }
+
+Bool W3DDisplay::supportsBattleMarks(void) const
+{
+	return DX8Wrapper::Supports_Battle_Marks();
+}

@@ -8,6 +8,10 @@ found and fixed, EA's own, not port damage.**
 
 ---
 
+## Native SDL GPU battle marks
+
+- Battle Marks now leave craters, stains and treads on the native SDL GPU renderer. Marks fade as before, stay off underwater, and remain disabled with Classic Graphics.
+
 ## Crashes from the 4.0 reports
 
 - The commonest crash of 4.0 was fixed in 4.1; this round closes what the reports left behind.
