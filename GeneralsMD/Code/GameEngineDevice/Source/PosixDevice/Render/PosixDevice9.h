@@ -242,6 +242,7 @@ public:
 	void Set_Headlights(const float *lights, unsigned count, const float gain[3]);
 	void Set_Blast_Lights(const float *lights, unsigned count);
 	bool Lights_Per_Pixel();
+	void Set_Hemi_Ambient(bool enabled) { HemiAmbient = enabled; }
 	void Set_Light_Environments(const RenderLighting::VertexEnvironment &full, const RenderLighting::VertexEnvironment *staticOnly);
 	bool Static_Lighting_Matches() const;
 	void Build_Light_Constants(struct SdlEnginePixelConstants &constants, bool pointLights = true) const;
@@ -546,6 +547,7 @@ protected:
 		D3DVIEWPORT9 Viewport = {};
 		float WorldFromClip[16] = {}, ShadowViewport[4] = {};
 	} TerrainLighting;
+	bool HemiAmbient = false;
 	float Headlights[16][8] = {}, HeadlightGain[3] = {};
 	unsigned HeadlightCount = 0;
 	float BlastLights[32][12] = {};
@@ -587,3 +589,5 @@ bool PosixBattleMarksAvailable(IDirect3DDevice9 *device);
 bool PosixClassicWaterSplashesAvailable(IDirect3DDevice9 *device);
 bool PosixBuildingCollapseAvailable(IDirect3DDevice9 *device);
 bool PosixPerPixelLightingAvailable(IDirect3DDevice9 *device);
+
+bool PosixHemisphericAmbientAvailable(IDirect3DDevice9 *device);

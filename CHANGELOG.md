@@ -43,6 +43,10 @@ found and fixed, EA's own, not port damage.**
 
 - The Collapse option now lets destroyed buildings sink into the ground on the native SDL GPU renderer, with the existing camera jolt for large buildings. Hidden buildings and Classic Graphics keep their previous behavior.
 
+## Native SDL GPU hemispheric ambient
+
+- Hemi Ambient now gives upward-facing surfaces more sky fill and downward-facing surfaces more ground fill on the native SDL GPU renderer. Turning it off or enabling Classic Graphics restores the previous ambient lighting.
+
 ## Native SDL GPU dynamic lighting
 
 - Vehicle headlights, explosions and Firelight now illuminate surfaces per pixel on the native SDL GPU renderer. Unsupported views keep their previous lighting, and models and terrain receive each dynamic light once.

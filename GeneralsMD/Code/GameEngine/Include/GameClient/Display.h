@@ -226,6 +226,7 @@ public:
 	virtual Bool supportsClassicWaterSplashes(void) const { return FALSE; }
 	virtual Bool supportsBuildingCollapse(void) const { return FALSE; }
 	virtual Bool supportsPerPixelLighting(void) const { return FALSE; }
+	virtual Bool supportsHemisphericAmbient(void) const { return FALSE; }
 
 	virtual void setCinematicText( AsciiString string ) { m_cinematicText = string; }
 	virtual void setCinematicFont( GameFont *font ) { m_cinematicFont = font; }
