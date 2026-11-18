@@ -8,6 +8,10 @@ found and fixed, EA's own, not port damage.**
 
 ---
 
+## Original Generals briefings
+
+- Restored the separately configured narration for original Generals campaign briefings, at its movie cue or when the movie cannot play. Each loading screen requests the voice once and respects muted speech.
+
 ## Crashes from the 4.0 reports
 
 - The commonest crash of 4.0 was fixed in 4.1; this round closes what the reports left behind.
