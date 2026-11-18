@@ -25,6 +25,10 @@ found and fixed, EA's own, not port damage.**
 
 - Water Foam now draws shore foam and soft bank edges on ponds and rivers with native SDL GPU rendering. Classic Graphics keeps the original water, and unavailable resources fall back to the original water drawing.
 
+## Weather on native rendering
+
+- The Weather option now brings the existing rain, blowing sand, snow, tree sway, and smoke drift to native SDL GPU rendering. Maps with their own precipitation keep it, weather haze takes precedence over Warm Light, and Classic Graphics keeps its original picture.
+
 ## Atmosphere on native rendering
 
 - Atmosphere now draws its sky and distant horizon fade on native SDL GPU rendering. Warm Light adds the existing low ground haze. Both respect shroud and Classic Graphics, including when the post-processing chain is off.

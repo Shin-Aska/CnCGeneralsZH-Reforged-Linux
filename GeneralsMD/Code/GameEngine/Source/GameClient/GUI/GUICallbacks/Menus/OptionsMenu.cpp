@@ -3171,6 +3171,7 @@ void OptionsMenuInit( WindowLayout *layout, void *userData )
     findOptionWidget(*findOptionDef("TeamGlow"))->winEnable(RenderTeamGlow::Available());
 #if defined(__linux__)
     findOptionWidget(*findOptionDef("Atmosphere"))->winEnable(RenderPost::EnvironmentAvailable());
+    findOptionWidget(*findOptionDef("Weather"))->winEnable(RenderPost::EnvironmentAvailable());
     findOptionWidget(*findOptionDef("MapLight"))->winEnable(RenderPost::EnvironmentAvailable());
 #endif
 
