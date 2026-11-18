@@ -8,6 +8,10 @@ found and fixed, EA's own, not port damage.**
 
 ---
 
+## Campaign animation
+
+- Aircraft and other animated models now keep moving between normal single-player pictures when the camera renders faster than the mission ticks. Pause, scripted freezes, replay and video recording retain their existing animation clocks.
+
 ## Campaign camera motion
 
 - Scripted camera turns, zooms and pitch changes now move smoothly between their existing steps in normal single-player play. Pausing holds the picture, and cuts and player camera controls still take effect immediately. Recording and replay keep their existing clocks.
