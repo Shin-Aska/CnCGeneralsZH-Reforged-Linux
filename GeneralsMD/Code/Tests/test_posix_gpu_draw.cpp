@@ -1389,6 +1389,8 @@ int main()
 
 	CHECK(!PosixBattleMarksAvailable(NULL));
 	CHECK(!PosixBattleMarksAvailable(device));
+	CHECK(!PosixClassicWaterSplashesAvailable(NULL));
+	CHECK(!PosixClassicWaterSplashesAvailable(device));
 
 	// Headless first: a draw succeeds and records nothing.
 	ScreenVertex v[6];
@@ -1407,6 +1409,7 @@ int main()
 		return failures != 0 ? 1 : 77;
 	}
 	CHECK(PosixBattleMarksAvailable(device));
+	CHECK(PosixClassicWaterSplashesAvailable(device));
 	check_half_pixel_and_winding(device);
 	check_transformed(device);
 	check_textures(device);

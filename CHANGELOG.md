@@ -35,6 +35,10 @@ found and fixed, EA's own, not port damage.**
 - Glow now uses the native scene's floating point color buffer, with the same bloom and Internal HDR tone mapping as Direct3D 11. Reforged lighting also applies its local contrast and color grade before unit health bars and the interface are drawn.
 - Classic graphics keeps its original picture. Unsupported post targets fall back to the existing renderer, and window resizing recreates the scene resources safely.
 
+## Native SDL GPU classic-water splashes
+
+- Water Splashes now adds spray, foam and rings to impacts on Classic-style water with the native SDL GPU renderer. Its own option and Classic Graphics setting still control the effect.
+
 ## Play vs AI online
 
 - The online hub has a PLAY VS AI button under Options. One press starts a 1v1 against a computer player as strong as your AI rating, on a map and seed the server picks. The AI rating is a second rating zerohour.gg keeps beside the ladder's, starting at 0, and the hub shows it left of the button.

@@ -1031,3 +1031,8 @@ bool PosixBattleMarksAvailable(IDirect3DDevice9 *device)
 {
 	return device && static_cast<PosixDevice9 *>(device)->Get_Gpu();
 }
+
+bool PosixClassicWaterSplashesAvailable(IDirect3DDevice9 *device)
+{
+	return device && static_cast<PosixDevice9 *>(device)->Get_Gpu();
+}

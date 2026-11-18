@@ -5456,3 +5456,8 @@ Bool W3DDisplay::supportsBattleMarks(void) const
 {
 	return DX8Wrapper::Supports_Battle_Marks();
 }
+
+Bool W3DDisplay::supportsClassicWaterSplashes(void) const
+{
+	return DX8Wrapper::Supports_Classic_Water_Splashes();
+}
