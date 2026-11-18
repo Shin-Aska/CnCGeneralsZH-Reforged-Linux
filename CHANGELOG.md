@@ -8,6 +8,10 @@ found and fixed, EA's own, not port damage.**
 
 ---
 
+## Optional toxic-water material controls
+
+- Matching `ModernWater.ini` rules can set turbidity, surface roughness, visual ripple damping and physical wind resistance for native SDL Modern water. All four default to zero, preserving existing map appearances. Wind resistance calms the actual waves while bubbles keep their independent control.
+
 ## Optional Clean FFT water
 
 - Set `CleanFftWater = yes` in `Options.ini` for a shared native SDL ocean with revised wave spectra, depth-aware wave strength, filtered glints, crest colour and wave-driven foam. It is off by default and keeps the original water on unsupported render paths. `MapAwareWaveHeading` also turns these waves toward shores.
