@@ -8,6 +8,10 @@ found and fixed, EA's own, not port damage.**
 
 ---
 
+## Atmosphere on native rendering
+
+- Atmosphere now draws its sky and distant horizon fade on native SDL GPU rendering. Warm Light adds the existing low ground haze. Both respect shroud and Classic Graphics, including when the post-processing chain is off.
+
 ## Native Linux ambient occlusion
 
 - Ambient Occlusion now adds contact shade beneath buildings and terrain corners on the native renderer before water and particles are drawn. Its option works with the post chain turned off, and Classic graphics keeps its original picture.
