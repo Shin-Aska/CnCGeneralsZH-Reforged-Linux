@@ -5931,6 +5931,7 @@ bool DX8Wrapper::Supports_Battle_Marks(void)
 }
 
 #include "Platform/RenderPost.h"
+#include "Platform/RenderWaterFoam.h"
 namespace RenderPost {
 void BeginMain(const Settings &settings) {
 #if !defined(_WIN32)
@@ -6051,6 +6052,26 @@ void TakeSceneDepth() {
     Direct3D11_Take_Scene_Depth();
 #else
     TakeSceneDepth(DX8Wrapper::_Get_D3D_Device());
+#endif
+}
+}
+
+namespace RenderWaterFoam {
+bool Ready() {
+#if !defined(_WIN32)
+    return Ready(DX8Wrapper::_Get_D3D_Device());
+#else
+    return Direct3D11_Present_Is_Enabled();
+#endif
+}
+}
+
+namespace RenderWaterFoam {
+bool Available() {
+#if defined(_WIN32)
+    return Direct3D11_Present_Is_Enabled();
+#else
+    return Available(DX8Wrapper::_Get_D3D_Device());
 #endif
 }
 }

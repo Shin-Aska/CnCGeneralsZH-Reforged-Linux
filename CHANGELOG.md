@@ -21,6 +21,10 @@ found and fixed, EA's own, not port damage.**
 
 - Native SDL GPU rendering now draws the existing defense-range distance fields directly on the terrain, with smooth edges and the same owner-colored fill as Direct3D 11. Selection behavior is unchanged, and unavailable resources retain the tiled overlay.
 
+## Classic water foam on native rendering
+
+- Water Foam now draws shore foam and soft bank edges on ponds and rivers with native SDL GPU rendering. Classic Graphics keeps the original water, and unavailable resources fall back to the original water drawing.
+
 ## Native Linux ambient occlusion
 
 - Ambient Occlusion now adds contact shade beneath buildings and terrain corners on the native renderer before water and particles are drawn. Its option works with the post chain turned off, and Classic graphics keeps its original picture.

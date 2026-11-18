@@ -5,6 +5,8 @@
 #include "SdlSceneCapture.h"
 #include "SdlSceneContext.h"
 #include "SdlRenderMatrix.h"
+#include "SdlConstants.h"
+#include "Platform/RenderWaterFoam.h"
 #include <cstring>
 #include <SDL3/SDL.h>
 #include <cmath>
@@ -15,7 +17,9 @@ struct PosixDevice9::PostSession {
     SdlSceneCaptureCache Captures;
     SdlMainViewSnapshot CurrentView, LastView, ViewStack[8], SoftView;
     bool SoftRequested = false;
-    bool WorldAO = false;
+    bool WorldAO = false, Classic = false;
+    SdlMainViewSnapshot FoamView;
+    uint64_t FoamRefusedKey = 0;
     SdlPostProcess Processor;
     SdlPostSettings Settings;
     SdlTarget Scene = {}, Presentation = {};
@@ -37,6 +41,7 @@ void PosixDevice9::Begin_Post(const RenderPost::Settings &settings)
     s.CurrentView = {}; s.LastView = {}; s.SoftView = {}; s.SoftRequested = false;
     ParticlesAllowed = !settings.Classic;
     s.WorldAO = settings.WorldAO && !settings.Classic;
+    s.Classic = settings.Classic; s.FoamView = {}; s.FoamRefusedKey = 0;
     s.StandInTexture = nullptr; s.StandInSurface = nullptr;
     s.Settings = {};
     if (!settings.Classic && !DX11Post_Parse_Chain(settings.Chain, s.Settings.Chain, s.Settings.Count))
@@ -288,4 +293,6 @@ void AllowEnhancements(IDirect3DDevice9 *d,bool e) { if(d) static_cast<PosixDevi
 void SetSoftParticles(IDirect3DDevice9 *d,bool e) { if(d) static_cast<PosixDevice9 *>(d)->Set_Soft_Particles(e); }
 void SetFireLook(IDirect3DDevice9 *d,bool e) { if(d) static_cast<PosixDevice9 *>(d)->Set_Fire_Look(e); }
 void TakeSceneDepth(IDirect3DDevice9 *d) { if(d) static_cast<PosixDevice9 *>(d)->Take_Particle_Depth(); }
+    SdlMainViewSnapshot FoamView;
+    uint64_t FoamRefusedKey = 0;
 }
