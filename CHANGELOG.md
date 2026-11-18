@@ -8,6 +8,10 @@ found and fixed, EA's own, not port damage.**
 
 ---
 
+## Campaign camera motion
+
+- Scripted camera turns, zooms and pitch changes now move smoothly between their existing steps in normal single-player play. Pausing holds the picture, and cuts and player camera controls still take effect immediately. Recording and replay keep their existing clocks.
+
 ## Crashes from the 4.0 reports
 
 - The commonest crash of 4.0 was fixed in 4.1; this round closes what the reports left behind.
