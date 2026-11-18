@@ -16548,7 +16548,7 @@ TEST(a_template_maps_rules_are_served_beside_it_and_in_its_name)
 	exemplar.m_numPlayers = 2;
 	std::vector<char> mapBytes;
 	RandomMapGenerator::generate( exemplar, mapBytes );
-	FILE *fp = fopen( "maps\\rmgtest rules\\rmgtest rules.map", "wb" );
+	FILE *fp = fopen( "maps/rmgtest rules/rmgtest rules.map", "wb" );
 	CHECK( fp != NULL );
 	if( fp )
 	{
@@ -16556,7 +16556,7 @@ TEST(a_template_maps_rules_are_served_beside_it_and_in_its_name)
 		fclose( fp );
 	}
 	const char *const rules = "Weather\r\n  SnowEnabled = Yes\r\nEnd\r\n";
-	writeFile( "maps\\rmgtest rules\\map.ini", rules );
+	writeFile( "maps/rmgtest rules/map.ini", rules );
 
 	RandomMapSettings settings;
 	settings.m_seed = 77;
