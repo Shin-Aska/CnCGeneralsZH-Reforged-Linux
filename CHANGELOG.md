@@ -12,6 +12,11 @@ found and fixed, EA's own, not port damage.**
 
 - Battle Marks now leave craters, stains and treads on the native SDL GPU renderer. Marks fade as before, stay off underwater, and remain disabled with Classic Graphics.
 
+## Native Linux GPU particles
+
+- The GPU particle setting now runs eligible billboard particles on the native renderer, using the same closed-form motion, texture slices and alpha/additive passes as Direct3D 11. Particle limits keep their existing meaning, and systems the GPU cannot accept continue on the CPU under the existing admission rules.
+- Classic graphics keeps its existing particle rendering. Native GPU resources are released safely on device teardown, while invalid depth snapshots keep the original hard edge.
+
 ## Native Linux soft particles and fire
 
 - Smoke and particle billboards now fade into the ground and nearby objects on the native renderer. Ground flares retain their hard edge, and Classic graphics keeps the original particle picture.

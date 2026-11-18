@@ -90,7 +90,7 @@ struct SdlNativeUniformBlock
 /// One draw as the flush replays it, everything by value.  The device's resolve fills it.
 struct SdlRecordedDraw
 {
-	enum { MAXIMUM_SAMPLERS = 16, MAXIMUM_UNIFORM_SLOTS = 4, WATER_PIXEL_BLOCKS = 3 };
+	enum { MAXIMUM_SAMPLERS = 16, MAXIMUM_UNIFORM_SLOTS = 4, WATER_PIXEL_BLOCKS = 3, MAXIMUM_VERTEX_STORAGE_BUFFERS = 8 };
 	SDL_GPUGraphicsPipeline * Pipeline;
 	SDL_GPUBuffer * VertexBuffer;		///< a GPU copy, or null for the batch's staging stream
 	uint32_t VertexOffset;				///< bytes into it
@@ -112,6 +112,8 @@ struct SdlRecordedDraw
 	uint32_t SamplerCount;
 	SDL_GPUTexture * Textures[MAXIMUM_SAMPLERS];
 	SDL_GPUSampler * Samplers[MAXIMUM_SAMPLERS];
+	uint32_t VertexStorageCount;
+	SDL_GPUBuffer *VertexStorageBuffers[MAXIMUM_VERTEX_STORAGE_BUFFERS];
 	uint32_t VertexSamplerCount;
 	SDL_GPUTexture * VertexTextures[MAXIMUM_SAMPLERS];
 	SDL_GPUSampler * VertexSamplers[MAXIMUM_SAMPLERS];

@@ -25,6 +25,11 @@
 #include "Platform/WaterPerformanceSettings.h"
 
 #include <SDL3/SDL.h>
+#include <array>
+#include <map>
+#include <exception>
+
+
 
 #include <stdio.h>
 #include <array>

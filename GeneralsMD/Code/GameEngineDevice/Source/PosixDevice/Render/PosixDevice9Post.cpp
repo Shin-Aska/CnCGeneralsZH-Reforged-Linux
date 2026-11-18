@@ -1,4 +1,6 @@
 #include "Platform/RenderTeamGlow.h"
+#include "SdlGpuParticlesContext.h"
+#include "SdlResourceMirror.h"
 #include "Platform/RenderParticles.h"
 #include "PosixDevice9.h"
 #include "SdlGpuFrame.h"
@@ -150,6 +152,7 @@ unsigned PosixDevice9::Begin_Post_View(bool eligible, float nearPlane, float far
     const unsigned token = s.ViewDepth;
     const bool nested = s.ViewDepth > 1;
     s.CurrentView = {}; s.InView = false;
+    s.CurrentView.Pass = SunActive ? SdlSceneView::Sun : reflection ? SdlSceneView::Reflection : SdlSceneView::Other;
     SdlTarget target = {}; std::string error;
     if (nested || !eligible || reflection || SunActive || !Resolve_Target(target, error) || !target.Colour || !target.Depth ||
         !Viewport.Width || !Viewport.Height || Viewport.X > target.Width || Viewport.Y > target.Height ||
@@ -628,4 +631,33 @@ namespace RenderPost {
 bool EnvironmentAvailable(IDirect3DDevice9 *d) { return d && static_cast<PosixDevice9 *>(d)->Post_Environment_Available(); }
 void SetEnvironment(IDirect3DDevice9 *d,const Environment &e) { if(d) static_cast<PosixDevice9 *>(d)->Set_Post_Environment(e); }
 void Sky(IDirect3DDevice9 *d) { if(d) static_cast<PosixDevice9 *>(d)->Post_Sky(); }
+}
+
+bool PosixDevice9::Read_Particle_Context(SdlGpuParticlesContext &context)
+{
+    context={};
+    if(!Gpu || !Mirrors) return false;
+    context.Frame=Gpu; context.DeviceGeneration=Gpu->Device_Generation();
+    context.FrameSerial=Gpu->Scene_Frame(); context.MirrorTexture=SdlResourceMirrors::Native_Texture_View;
+    std::string error;
+    if(!Resolve_Target(context.Target,error)) return true;
+    const float viewport[]={float(Viewport.X),float(Viewport.Y),float(Viewport.Width),float(Viewport.Height),Viewport.MinZ,Viewport.MaxZ};
+    std::memcpy(context.Viewport,viewport,sizeof(viewport));
+    context.Scissor[0]=Viewport.X;context.Scissor[1]=Viewport.Y;context.Scissor[2]=Viewport.Width;context.Scissor[3]=Viewport.Height;
+    if(SunActive) {context.Pass=SdlGpuParticlesPass::Sun;return true;}
+    if(!ParticlesAllowed) return true; // Classic retains the original CPU picture.
+    if(Post && Post->CurrentView.Pass==SdlSceneView::Reflection) {context.Pass=SdlGpuParticlesPass::Reflection;return true;}
+    SdlMainViewSnapshot view;
+    if(!Read_Main_View(view,false,SdlSceneCapturePhase::BeforeTransparent)) return true;
+    context.Pass=SdlGpuParticlesPass::MainScene;context.MainViewKey=view.ViewKey;
+    context.AdditiveGain=Post_Additive_Gain(context.Target);
+    // GPU draw admission itself proves retained particles exist; it need not wait
+    // for the CPU sorted-quads callback to authorize this exact phase snapshot.
+    if(Post && Post->SoftView.SampledDepth && Post->SoftView.Capture.Same_Identity(view.Capture)) {
+        context.SoftAllowed=true;context.SoftDepth=Post->SoftView.SampledDepth;context.SoftCapture=Post->SoftView.Capture;
+    }
+    return true;
+}
+bool PosixGpuParticles_Context(IDirect3DDevice9 *device,SdlGpuParticlesContext &context) {
+    context={};return device && static_cast<PosixDevice9 *>(device)->Read_Particle_Context(context);
 }

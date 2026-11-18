@@ -6336,3 +6336,10 @@ bool Available() {
 #endif
 }
 }
+#if !defined(_WIN32)
+struct SdlGpuParticlesContext;
+bool PosixGpuParticles_Context(IDirect3DDevice9 *,SdlGpuParticlesContext &);
+bool PosixGpuParticles_Context(SdlGpuParticlesContext &context) {
+    return PosixGpuParticles_Context(DX8Wrapper::_Get_D3D_Device(),context);
+}
+#endif
