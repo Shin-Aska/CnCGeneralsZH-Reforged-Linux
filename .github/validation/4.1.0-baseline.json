@@ -1,0 +1,261 @@
+{
+  "reference": {
+    "source_sha": "0ef4f7d0a5958074e4226c4b708f688daeabde67",
+    "workflow_sha": "4c023a49df93c29a45ba236f3c5ed691ff830308",
+    "run_id": "44362979222",
+    "run_attempt": "1",
+    "run_url": "https://github.com/Shin-Aska/CnCGeneralsZH-Reforged-Linux/actions/runs/44362979222",
+    "runner": "ubuntu-24.04",
+    "compiler": "gcc-14/g++-14",
+    "raw_counts": {
+      "total": 115,
+      "passed": 87,
+      "failed": 7,
+      "skipped": 21
+    },
+    "artifact_sha256": {
+      "reports/ctest.xml": "a194cafd237af71c1fa7f8189abcbff269c1d14334ba6169823b4b2368657156",
+      "reports/ctest.log": "75fdb1382042f6f9af7db49fc80fe275a767210ea2edf7cf0a51aa772b223d88",
+      "reports/provenance.json": "ea921589499bd25e63b78fe5320d3ae65b6df7ed9ec34a21c3da42ac74f0b269",
+      "reports/test-inventory.json": "3f361ff5945489f596da9cf93a83b3543f3f12b7c2c13a3ddfbfb85524948fa9",
+      "build/Testing/Temporary/LastTest.log": "f667c65be56834742fcc4858fcac46e451c78dc0a93f06cf2b68f0898fb33edc"
+    }
+  },
+  "required_tests": [
+    "build_fingerprint_check",
+    "build_fingerprint_manifest",
+    "fingerprint_manifest_selfcheck",
+    "widechar_crc_gate",
+    "widechar_format_selfcheck",
+    "gametext_csf",
+    "test_premain_strings",
+    "test_premain_unicode",
+    "test_global_new_alignment",
+    "widechar_file_selfcheck",
+    "widechar_crc_gate_msvc_model",
+    "d3dx9posix_selfcheck",
+    "d3dx_assemble_stub_selfcheck",
+    "sdl_gpu_depth_format_selfcheck",
+    "sdl_gpu_frame_selfcheck",
+    "posix_draw_resolve_selfcheck",
+    "sdl_program_cache_selfcheck",
+    "sdl_pipeline_state_selfcheck",
+    "posix_gpu_draw_selfcheck",
+    "posix_reset_selfcheck",
+    "ffref_gpu_selfcheck",
+    "ffref_capture_selfcheck",
+    "test_posix_resources",
+    "test_water_tracks",
+    "test_road_buffer",
+    "test_install_textures",
+    "test_render_hooks",
+    "test_sun_shadow_sorting",
+    "test_sdl_platform",
+    "test_milesaudiomanager",
+    "test_sdl_input",
+    "generals_smoke",
+    "replay_check",
+    "locomotor_check",
+    "data_gone_check",
+    "net_check",
+    "first_launch_chooser_check",
+    "linux_portable_check",
+    "overlay_crc_check",
+    "ini_crlf_check",
+    "packaging_resolution_check",
+    "install_guard_check",
+    "workfolder_guard_check",
+    "lod_first_run_check",
+    "root_readonly_check",
+    "test_msvc_float_casts",
+    "test_audio_mix_policy",
+    "test_ground_marks",
+    "test_terrain_subdivide",
+    "test_foliage_placement",
+    "test_fire_lights",
+    "test_hazard_cloud_policy",
+    "test_hazard_cloud_bake",
+    "test_hazard_cloud_shared",
+    "test_wwmath",
+    "test_smooth_motion",
+    "test_wwlib",
+    "test_wwsaveload",
+    "test_wwutil",
+    "test_clock",
+    "test_water_preview_preset",
+    "test_modern_water_config",
+    "test_compression",
+    "test_online",
+    "test_w3dlayout",
+    "test_ffvertex",
+    "test_gameengine",
+    "test_gameengine_money_sweep_2_players",
+    "test_gameengine_money_sweep_4_players",
+    "test_gameengine_money_sweep_8_players",
+    "test_lan_broadcast",
+    "test_terrain_golden",
+    "test_water_grid",
+    "detround_selfcheck",
+    "fpucontrol_selfcheck",
+    "d3dxportable_selfcheck",
+    "wwmath_selfcheck",
+    "compression_selfcheck",
+    "miles_smoke",
+    "test_miles_miniaudio",
+    "test_miles_effects",
+    "test_posixpath",
+    "test_install_root",
+    "test_posixlocalfilesystem",
+    "test_registryfile",
+    "test_wwdownload_registry",
+    "test_userfolders",
+    "test_early_command_line",
+    "test_crash_reporting",
+    "test_bigfilesystem",
+    "test_shader_sdl",
+    "test_glyph_rasteriser",
+    "test_fontchars",
+    "test_ffreference",
+    "test_ffprogram",
+    "ffprogram_values_check",
+    "test_binkvideo",
+    "widechar_check",
+    "include_case_check",
+    "unix_define_check",
+    "bigfile_selfcheck",
+    "artpack_selfcheck",
+    "vfx_tune_selfcheck",
+    "optionsmenu_selfcheck",
+    "peacetime_selfcheck",
+    "diplomacy_selfcheck",
+    "mainmenu_selfcheck",
+    "lobbysettings_selfcheck",
+    "lobbyroom_selfcheck",
+    "online_layout_selfcheck",
+    "mapselect_selfcheck",
+    "gametext_selfcheck",
+    "arch_differential",
+    "d3dx_oracle",
+    "d3dx_assemble_oracle"
+  ],
+  "baseline_skipped": [
+    "gametext_csf",
+    "test_install_textures",
+    "test_milesaudiomanager",
+    "replay_check",
+    "locomotor_check",
+    "data_gone_check",
+    "net_check",
+    "first_launch_chooser_check",
+    "linux_portable_check",
+    "overlay_crc_check",
+    "ini_crlf_check",
+    "packaging_resolution_check",
+    "lod_first_run_check",
+    "root_readonly_check",
+    "test_terrain_golden",
+    "test_bigfilesystem",
+    "ffprogram_values_check",
+    "test_binkvideo",
+    "arch_differential",
+    "d3dx_oracle",
+    "d3dx_assemble_oracle"
+  ],
+  "known_failures": {
+    "sdl_gpu_frame_selfcheck": {
+      "failure_message": "Failed",
+      "signature": {
+        "kind": "sdl_assertions",
+        "assertions": {
+          "FAIL Tests/test_sdl_gpu_frame.cpp:<line>: exactTop==bands*count*4&&maximum<scalarTolerance&&topDifference==0": 1,
+          "FAIL Tests/test_sdl_gpu_frame.cpp:<line>: std::abs(actual[23*columns*4+4]-.5625f)<3e-6f": 2,
+          "FAIL Tests/test_sdl_gpu_frame.cpp:<line>: std::abs(actual[23*columns*4+6]-.375f)<3e-6f": 2,
+          "FAIL Tests/test_sdl_gpu_frame.cpp:<line>: std::abs(edgeColour[0]-15.0f/width)<2e-6 && std::abs(edgeColour[1]-7.0f/height)<2e-6 && edgeColour[2]==0": 2,
+          "FAIL Tests/test_sdl_gpu_frame.cpp:<line>: std::abs(got[4+c]-filteredColour(row,px,py,c))<3e-6f": 9,
+          "FAIL Tests/test_sdl_gpu_frame.cpp:<line>: std::isfinite(values[row+column*4+c])&&error<scalarTolerance": 2472
+        },
+        "failed_assertions": 2488,
+        "gamma_wrong": 0,
+        "control_differed": 3072
+      }
+    },
+    "widechar_check": {
+      "failure_message": "Failed",
+      "signature": {
+        "kind": "widechar_diagnostics",
+        "wchar_count": 11,
+        "raw_literal_count": 7,
+        "diagnostics": {
+          "GameEngine/Source/GameClient/GUI/GUICallbacks/InGameChat.cpp:<line>: '\"sald\u00c4\u00b1r\"'": 1,
+          "GameEngine/Source/GameClient/GUI/GUICallbacks/InGameChat.cpp:<line>: '\"yard\u00c4\u00b1m\"'": 1,
+          "GameEngine/Source/GameClient/MessageStream/HotKey.cpp: view line <line>: wide character literal: c = L' ';": 1,
+          "GameEngine/Source/GameClient/MessageStream/HotKey.cpp: view line <line>: wide character literal: c = c + ( L' ' - L' ' );": 2,
+          "GameEngine/Source/GameClient/MessageStream/HotKey.cpp: view line <line>: wide character literal: else if( c >= L' ' && c <= L' ' )": 2,
+          "GameEngine/Source/GameClient/MessageStream/HotKey.cpp: view line <line>: wide character literal: if( c == 0x0130 || c == 0x0131 || c == L' ' )": 1,
+          "Tests/test_gameengine.cpp: view line <line>: wide character literal: CHECK( HotKeyManager::nameOf( 0x0130 ) == HotKeyManager::nameOf( L' ' ) );": 1,
+          "Tests/test_gameengine.cpp: view line <line>: wide character literal: CHECK( HotKeyManager::nameOf( 0x0131 ) == HotKeyManager::nameOf( L' ' ) );": 1,
+          "Tests/test_gameengine.cpp: view line <line>: wide character literal: CHECK( HotKeyManager::nameOf( 0x015E ) != HotKeyManager::nameOf( L' ' ) );": 1,
+          "Tests/test_gameengine.cpp: view line <line>: wide character literal: CHECK_STR( HotKeyManager::nameOf( L' ' ).str(), \" \" );": 2,
+          "Tests/test_gameengine.cpp:<line>: '\"ORDU SE\u00c3\\x87, \u00c5\\x9eI\u00c4\\x9e \u00c3\\x96\u00c3\\x9c I \u00d0\\x97\u00d0\\x86\u00d2\\x90\"'": 1,
+          "Tests/test_gameengine.cpp:<line>: '\"ORDU SE\u00c3\\x87, \u00c5\\x9e\u00c4\u00b0\u00c4\\x9e \u00c3\\x96\u00c3\\x9c I \u00d0\\x97\u00d0\\x86\u00d2\\x90\"'": 1,
+          "Tests/test_gameengine.cpp:<line>: '\"ordu se\u00c3\u00a7, \u00c5\\x9fi\u00c4\\x9f \u00c3\u00b6\u00c3\u00bc \u00c4\u00b1 \u00d0\u00b7\u00d1\\x96\u00d2\\x91\"'": 1,
+          "Tests/test_gameengine.cpp:<line>: '\"\u00c3\\x9f \u00c3\u00b7\"'": 2
+        }
+      }
+    },
+    "lobbyroom_selfcheck": {
+      "failure_message": "Failed",
+      "signature": {
+        "kind": "exact_diagnostics",
+        "diagnostics": {
+          "lobbyroom: GameSpyGameOptionsMenu.wnd is not what lobbyroom_layout.py writes; regenerate it": 1,
+          "lobbyroom: LanGameOptionsMenu.wnd is not what lobbyroom_layout.py writes; regenerate it": 1,
+          "lobbyroom: SkirmishGameOptionsMenu.wnd is not what lobbyroom_layout.py writes; regenerate it": 1
+        }
+      }
+    },
+    "online_layout_selfcheck": {
+      "failure_message": "Failed",
+      "signature": {
+        "kind": "exact_diagnostics",
+        "diagnostics": {
+          "online: GameSpyLoginProfile.wnd does not round trip through wndlayout.py": 1,
+          "online: GameSpyLoginProfile.wnd is not what online_layout.py writes; regenerate it": 1,
+          "online: PopupHostGame.wnd does not round trip through wndlayout.py": 1,
+          "online: PopupHostGame.wnd is not what online_layout.py writes; regenerate it": 1,
+          "online: PopupPlayerInfo.wnd does not round trip through wndlayout.py": 1,
+          "online: PopupPlayerInfo.wnd is not what online_layout.py writes; regenerate it": 1,
+          "online: WOLCustomLobby.wnd does not round trip through wndlayout.py": 1,
+          "online: WOLCustomLobby.wnd is not what online_layout.py writes; regenerate it": 1,
+          "online: WOLLadderScreen.wnd does not round trip through wndlayout.py": 1,
+          "online: WOLLadderScreen.wnd is not what online_layout.py writes; regenerate it": 1,
+          "online: WOLQuickMatchMenu.wnd does not round trip through wndlayout.py": 1,
+          "online: WOLQuickMatchMenu.wnd is not what online_layout.py writes; regenerate it": 1,
+          "online: WOLWelcomeMenu.wnd does not round trip through wndlayout.py": 1,
+          "online: WOLWelcomeMenu.wnd is not what online_layout.py writes; regenerate it": 1
+        }
+      }
+    },
+    "mapselect_selfcheck": {
+      "failure_message": "Failed",
+      "signature": {
+        "kind": "exact_diagnostics",
+        "diagnostics": {
+          "mapselect: LanMapSelectMenu.wnd is not what mapselect_layout.py writes from LanGameOptionsMenu.wnd; regenerate it": 1,
+          "mapselect: SkirmishMapSelectMenu.wnd is not what mapselect_layout.py writes from SkirmishGameOptionsMenu.wnd; regenerate it": 1,
+          "mapselect: WOLMapSelectMenu.wnd is not what mapselect_layout.py writes from GameSpyGameOptionsMenu.wnd; regenerate it": 1
+        }
+      }
+    }
+  },
+  "must_pass": [
+    "test_gameengine",
+    "test_water_grid"
+  ],
+  "uncharacterized_failures": {
+    "test_water_grid": "Baseline exits Failed with only normal renderer teardown output, no failure assertion/exception/completed test summary; cannot safely whitelist."
+  },
+  "fixed_failure": {
+    "test_gameengine": "Two raw stdio fixture paths fixed by 940cb991acc7279b16aea1797b6778367ff400b7; must pass."
+  }
+}

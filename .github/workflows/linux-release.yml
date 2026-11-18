@@ -30,6 +30,7 @@ env:
   ZH_DATA_DIR: ''
   ZH_FFREF_CAPTURE_DIR: ''
   ZH_PORTABLE_CMAKE: ''
+  ZH_TEST_PROGRESS: '1'
 
 jobs:
   validate:
@@ -44,6 +45,8 @@ jobs:
         with:
           path: harness
           persist-credentials: false
+      - name: Check regression gate unit fixtures
+        run: python3 -m unittest discover -s harness/.github/scripts -p test_exact_sha_regression.py
       - name: Check out exact candidate separately
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -104,6 +107,7 @@ jobs:
             -DPython3_EXECUTABLE=/usr/bin/python3 -DZH_GAME_DATA= -DZH_SPIRV_VAL=/usr/bin/spirv-val \
             2>&1 | tee "$RUNNER_TEMP/reports/configure.log"
       - name: Build engine and all default test targets
+        id: build
         run: |
           jobs=$(nproc)
           (( jobs <= 4 )) || jobs=4
@@ -123,13 +127,20 @@ jobs:
           mkdir -m 700 -p "$XDG_RUNTIME_DIR"
           "$(dirname "$ZH_CMAKE")/ctest" --test-dir "$RUNNER_TEMP/build" --show-only=json-v1 \
             > "$RUNNER_TEMP/reports/test-inventory.json"
+          set +e
           timeout --signal=TERM --kill-after=30s 48m \
             xvfb-run -a --server-args='-screen 0 1280x720x24 -nolisten tcp' \
             "$(dirname "$ZH_CMAKE")/ctest" --test-dir "$RUNNER_TEMP/build" \
             --no-tests=error --parallel 2 --timeout 600 --output-on-failure \
-            --output-junit "$RUNNER_TEMP/reports/ctest.xml" \
+            --test-output-size-failed 10485760 --output-junit "$RUNNER_TEMP/reports/ctest.xml" \
             2>&1 | tee "$RUNNER_TEMP/reports/ctest.log"
-      - name: Report test counts and omissions
+          statuses=("${PIPESTATUS[@]}")
+          set -e
+          printf '{"ctest":%d,"tee":%d}\n' "${statuses[0]}" "${statuses[1]}" > "$RUNNER_TEMP/reports/ctest-exit.json"
+          # The next step owns success/failure. Raw CTest failures are preserved above.
+
+      - name: Compare complete CTest evidence with the immutable baseline
+        id: gate
         if: ${{ always() && steps.ctest.outcome != 'skipped' }}
         run: python3 harness/.github/scripts/exact-sha-validation.py summary
       - name: Verify tracked candidate files stayed pristine
@@ -148,6 +159,19 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
+      - name: Stage explicitly unverified diagnostic binaries after a rejected gate
+        id: diagnostic
+        if: ${{ always() && steps.build.outcome == 'success' && steps.gate.outcome == 'failure' }}
+        run: python3 harness/.github/scripts/exact-sha-validation.py diagnostic-stage
+      - name: Upload unverified engine and test binaries for diagnosis
+        if: ${{ always() && steps.diagnostic.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-UNVERIFIED-diagnostic-${{ inputs.candidate_sha }}
+          path: ${{ runner.temp }}/unverified-handoff/*.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
       - name: Preserve diagnostics on success or failure
         if: ${{ always() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
