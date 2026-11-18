@@ -7,9 +7,14 @@ release snapshot. Each row gets one branch named `feat/4-1-0/<slug>` and one wor
 and scope appropriate to the change.
 
 Start with DX11 effects already in 4.1.0, then take campaign fixes and the reskin startup check. Follow
-with underwater clarity, map-aware wave heading and Clean FFT water. There are 25 planned slots,
-including the reskin check, and one optional slot for the severe-explosion camera kick. The numbers
-are plan identifiers. Reproduce the reskin false report on upstream before submitting a fix.
+with underwater clarity, map-aware wave heading, Clean FFT water and toxic-water materials. There
+are 26 planned slots, including the reskin check, and one optional slot for the severe-explosion
+camera kick. The numbers are plan identifiers. Reproduce the reskin false report on upstream before
+submitting a fix.
+
+Underwater clarity is independent of the wave-heading work. Slot 23 changes shallow-water
+transmission. Slot 24 supplies the field that Clean FFT reads in slot 25. Slot 26 follows slot 25
+so the material controls can be verified against Clean FFT's wave displacement and shading.
 
 ## Worktrees and proposed commits
 
@@ -41,6 +46,7 @@ are plan identifiers. Reproduce the reskin false report on upstream before submi
 | 23 | `underwater-clarity` | `feat(w3ddevice): add optional underwater clarity to modern water` | Default off. Capture matching views of submerged ruins, a flat offshore floor and a coast. Measure the incremental visual cost on SDL. |
 | 24 | `map-aware-wave-heading` | `feat(w3ddevice): steer modern water waves using map depth` | Port the heading field used by Clean FFT. Show that disabling the option removes its GPU cost and measure open-sea and coastal scenes. |
 | 25 | `clean-fft-water` | `feat(w3ddevice): add optional clean fft waves to modern water` | After 24, port the shared spectrum, depth-aware waves, glints and foam. Include the USA01 shoreline startup guard and measure the whole candidate on upstream SDL. |
+| 26 | `toxic-water-materials` | `feat(w3ddevice): add toxic-water material controls` | After 25, extend the color- and texture-matched material rules with turbidity, surface roughness, ripple damping and wind resistance. Check neutral defaults, the physical wind-wave response and independent bubbles in matched toxic and clear water scenes. |
 
 ## Validation and submission
 
@@ -57,4 +63,5 @@ are plan identifiers. Reproduce the reskin false report on upstream before submi
 
 [Upstream contribution rules](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/blob/fa98637f3dd9fd33b57615a787993ea03fe17f79/CONTRIBUTING.md) ·
 [Campaign handoff](campaign-fixes-upstream-handoff.md) ·
-[Maintainer's clarity review](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/172#issuecomment-6674027127)
+[Maintainer's clarity review](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/pull/172#issuecomment-6674027127) ·
+[Water material guide](water-preview.md)
