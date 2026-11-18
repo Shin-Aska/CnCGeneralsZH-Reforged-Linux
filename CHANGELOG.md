@@ -8,6 +8,10 @@ found and fixed, EA's own, not port damage.**
 
 ---
 
+## Startup checks
+
+- Startup no longer reports missing behavior on a reskinned unit when its data deliberately removed that behavior or added it only to the parent afterward. The check still catches behaviors unintentionally lost from the copied unit.
+
 ## Crashes from the 4.0 reports
 
 - The commonest crash of 4.0 was fixed in 4.1; this round closes what the reports left behind.
