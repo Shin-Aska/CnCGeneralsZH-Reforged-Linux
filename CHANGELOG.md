@@ -88,6 +88,10 @@ found and fixed, EA's own, not port damage.**
 
 - Restored the separately configured narration for original Generals campaign briefings, at its movie cue or when the movie cannot play. Each loading screen requests the voice once and respects muted speech.
 
+## Campaign camera motion
+
+- Scripted camera turns, zooms and pitch changes now move smoothly between their existing steps in normal single-player play. Pausing holds the picture, and cuts and player camera controls still take effect immediately. Recording and replay keep their existing clocks.
+
 ## Play vs AI online
 
 - The online hub has a PLAY VS AI button under Options. One press starts a 1v1 against a computer player as strong as your AI rating, on a map and seed the server picks. The AI rating is a second rating zerohour.gg keeps beside the ladder's, starting at 0, and the hub shows it left of the button.
