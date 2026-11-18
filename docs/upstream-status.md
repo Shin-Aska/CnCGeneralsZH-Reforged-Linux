@@ -5,6 +5,9 @@ develops graphics work before offering selected changes to the
 [upstream repository](https://github.com/olcayseygan/CnCGeneralsZH-Reforged). Acceptance is tracked
 per feature: an accepted foundation does not mean every later extension was also taken.
 
+The [4.1.0 upstream submission plan](upstream-submission-plan-4.1.0.md) lists the proposed PR order,
+worktree branch names and acceptance checks.
+
 **Status reviewed 2026-11-16.** GitHub reports #119, #120, #121, #170, #172 and #173 merged;
 #169 and #171 are closed without merging. Source spot checks use upstream `main` pinned at
 [`e4341a1f`](https://github.com/olcayseygan/CnCGeneralsZH-Reforged/commit/e4341a1f6bff1c4296340388a0ebbb9dd5c9105f).
