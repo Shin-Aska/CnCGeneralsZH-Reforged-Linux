@@ -158,13 +158,33 @@ unsigned PosixDevice9::Begin_Post_View(bool eligible, float nearPlane, float far
         !Viewport.Width || !Viewport.Height || Viewport.X > target.Width || Viewport.Y > target.Height ||
         Viewport.Width > target.Width - Viewport.X || Viewport.Height > target.Height - Viewport.Y ||
         !std::isfinite(nearPlane) || !std::isfinite(farPlane) || nearPlane <= 0 || farPlane <= nearPlane) return token;
+    const float viewport[] = {float(Viewport.X),float(Viewport.Y),float(Viewport.Width),float(Viewport.Height),Viewport.MinZ,Viewport.MaxZ};
+    const auto modelView = [&](const float worldFromClip[16]) {
+        if (!ModelEffectsAllowed) return;
+        ModelView model;
+        model.Target=target; model.Target.ColourFormat=Gpu->Target_Colour_Format(target);
+        model.Target.DepthFormat=Gpu->Target_Depth_Format(target); model.Viewport=Viewport;
+        model.View=Transforms[D3DTS_VIEW]; model.Projection=Transforms[D3DTS_PROJECTION];
+        std::memcpy(model.WorldFromClip,worldFromClip,sizeof(model.WorldFromClip));
+        model.Frame=Gpu->Scene_Frame(); model.Generation=Gpu->Scene_Generation();
+        if (++s.ModelSerial==0) ++s.ModelSerial;
+        model.Key=s.ModelSerial; model.Valid=true; s.ModelCurrent=model;
+    };
     // Nested custom/mirror targets never replace an explicitly prepared main source.
     const SdlTarget expected = s.Routed ? s.Scene : Gpu->Back_Buffer_Target();
-    if (target.Colour != expected.Colour || target.Depth != expected.Depth) return token;
+    if (target.Colour != expected.Colour || target.Depth != expected.Depth) {
+        // An explicitly registered default-filter stand-in is a model-colour owner,
+        // including post-off scenes. It is never an AO/particle/post-depth owner.
+        if (s.StandInSurface && RenderTargets[0]==s.StandInSurface) {
+            float worldFromClip[16],scale[2];
+            if (render_full_texture_to_world(&Transforms[D3DTS_VIEW]._11,&Transforms[D3DTS_PROJECTION]._11,
+                target.Width,target.Height,viewport,worldFromClip,scale)) modelView(worldFromClip);
+        }
+        return token;
+    }
     SdlMainViewSnapshot view;
     view.Frame = Gpu; view.Target = target; view.Pass = SdlSceneView::Main;
     view.DeviceGeneration = Gpu->Device_Generation(); view.FrameSerial = Gpu->Scene_Frame();
-    const float viewport[] = {float(Viewport.X),float(Viewport.Y),float(Viewport.Width),float(Viewport.Height),Viewport.MinZ,Viewport.MaxZ};
     std::memcpy(view.Viewport,viewport,sizeof(viewport));
     view.Scissor[0]=Viewport.X; view.Scissor[1]=Viewport.Y; view.Scissor[2]=Viewport.Width; view.Scissor[3]=Viewport.Height;
     multiply(&Transforms[D3DTS_VIEW]._11,&Transforms[D3DTS_PROJECTION]._11,view.ViewProjection);
@@ -183,15 +203,7 @@ unsigned PosixDevice9::Begin_Post_View(bool eligible, float nearPlane, float far
     view.Capture.Source.DepthFormat=Gpu->Target_Depth_Format(target);
     view.Capture.Frame=view.FrameSerial; view.Capture.Generation=Gpu->Scene_Generation();
     view.Capture.ViewKey=view.ViewKey; view.Near=nearPlane; view.Far=farPlane;
-    if (ModelEffectsAllowed) {
-        ModelView model;
-        model.Target=view.Capture.Source; model.Viewport=Viewport;
-        model.View=Transforms[D3DTS_VIEW]; model.Projection=Transforms[D3DTS_PROJECTION];
-        std::memcpy(model.WorldFromClip,view.FullTextureWorldFromClip,sizeof(model.WorldFromClip));
-        model.Frame=view.FrameSerial; model.Generation=view.Capture.Generation;
-        if (++s.ModelSerial==0) ++s.ModelSerial;
-        model.Key=s.ModelSerial; model.Valid=true; s.ModelCurrent=model;
-    }
+    modelView(view.FullTextureWorldFromClip);
     s.CurrentView=s.LastView=view; s.InView=s.Entered=true;
     return token;
 }

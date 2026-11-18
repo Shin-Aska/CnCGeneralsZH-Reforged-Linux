@@ -1,6 +1,7 @@
 // Exact shared model arithmetic, native scene-copy admission and immutable draw policy.
 #include "PosixDevice9.h"
 #include "SdlGpuFrame.h"
+#include "SdlSceneContext.h"
 #include "Platform/RenderEffects.h"
 #include "Platform/SunShadow.h"
 #include "ffshader.h"
@@ -144,7 +145,12 @@ static int gpu()
             RenderPost::Settings direct;f.Device->Begin_Post(direct);f.Device->Post_Stand_In(standIn,surface);
             CHECK(f.Device->SetRenderTarget(0,surface)==D3D_OK);std::string error;
             CHECK(f.Device->Current_Gpu_Target(f.Target,error));f.Scope=f.Device->Begin_Post_View(true,1,100,false);
-            CHECK(f.Device->Takes_Model_Effect(DRAW_EFFECT_CLOAK));f.clear(0xFF2060A0);
+            CHECK(f.Device->Takes_Model_Effect(DRAW_EFFECT_CLOAK));
+            // Combined depth consumers must not inherit this independent colour-only owner.
+            SdlMainViewSnapshot depthOwner;
+            CHECK(!f.Device->Read_Main_View(depthOwner,false,SdlSceneCapturePhase::OpaqueScene));
+            CHECK(!f.Device->Read_Main_View(depthOwner,true,SdlSceneCapturePhase::BeforePost));
+            f.clear(0xFF2060A0);
             f.mesh(DRAW_EFFECT_CLOAK,numbers,true);CHECK(f.read()==blue);
             const auto mirror=f.Device->Begin_Post_View(true,1,100,true);
             CHECK(!f.Device->Takes_Model_Effect(DRAW_EFFECT_CLOAK));f.Device->End_Post_View(mirror);

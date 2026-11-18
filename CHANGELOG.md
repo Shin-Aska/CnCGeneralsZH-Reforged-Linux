@@ -49,6 +49,7 @@ found and fixed, EA's own, not port damage.**
 
 ## Model effects on native rendering
 
+- Model effects also keep their appearance with the original scene filter when final post processing is off.
 - Native SDL GPU rendering now shows the existing EMP arcs, power-outage treatment, cloaked-unit refraction and detected-stealth heat look. Classic Graphics keeps its previous appearance, and unsupported views or failed optional resources retain ordinary rendering.
 
 ## Team Glow on native rendering
