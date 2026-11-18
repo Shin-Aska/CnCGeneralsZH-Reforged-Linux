@@ -1522,6 +1522,13 @@ if(ZH_PLATFORM_POSIX)
   add_test(NAME test_renderer_particles COMMAND test_renderer_particles)
   add_test(NAME test_renderer_particles_gpu COMMAND test_renderer_particles --gpu)
   set_tests_properties(test_renderer_particles_gpu PROPERTIES SKIP_RETURN_CODE 77 RUN_SERIAL TRUE)
+  add_executable(test_renderer_effects ${CMAKE_CURRENT_SOURCE_DIR}/Tests/test_renderer_effects.cpp)
+  set_target_properties(test_renderer_effects PROPERTIES CXX_STANDARD 17)
+  target_include_directories(test_renderer_effects PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/GameEngineDevice/Source/PosixDevice/Render)
+  target_link_libraries(test_renderer_effects PRIVATE posixd3d9 ffshader sdl3shadercompile SDL3::SDL3-static)
+  add_test(NAME test_renderer_effects COMMAND test_renderer_effects)
+  add_test(NAME test_renderer_effects_gpu COMMAND test_renderer_effects --gpu)
+  set_tests_properties(test_renderer_effects_gpu PROPERTIES SKIP_RETURN_CODE 77 RUN_SERIAL TRUE)
 
   # Depth-format fallback follows the complete scene-depth capability, without requiring a GPU.
   add_executable(sdl_gpu_depth_format_selfcheck ${CMAKE_CURRENT_SOURCE_DIR}/Tests/test_sdl_gpu_depth_format.cpp)

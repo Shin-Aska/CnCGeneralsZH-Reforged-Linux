@@ -988,7 +988,6 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	const bool terrain_lighting = vertex_engine == ENGINE_SHADER_NONE && Terrain_Lighting_Receives(pixel_engine,target);
 	bool static_lighting = combiner.ShadowReceiving && Static_Lighting_Matches() && BlastLightCount
 		&& !Sun_Camera_Space() && vertex_engine == ENGINE_SHADER_NONE && pixel_engine == ENGINE_SHADER_NONE;
-	combiner.DrawEffect = SunActive ? SunCasterEffect : DRAW_EFFECT_NONE;
     SDL_GPUTexture *sprite_depth=nullptr;
     SDL_GPUSampler *sprite_sampler=nullptr;
     const bool sprite_format=ParticlesAllowed && !SunActive && vertex_engine==ENGINE_SHADER_NONE &&
@@ -1009,6 +1008,16 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
     }
     const unsigned sprite_fault=(combiner.SoftParticle||combiner.FireLook)?SpriteRefusalForTest:0;
     if(combiner.SoftParticle||combiner.FireLook) SpriteRefusalForTest=0;
+	combiner.DrawEffect = SunActive ? SunCasterEffect :
+        vertex_engine == ENGINE_SHADER_NONE && pixel_engine == ENGINE_SHADER_NONE ? Draw_Model_Effect() : DRAW_EFFECT_NONE;
+    SDL_GPUTexture *model_colour = nullptr; SDL_GPUSampler *model_sampler = nullptr;
+    if (combiner.DrawEffect && !SunActive) {
+        model_colour = combiner.DrawEffect == DRAW_EFFECT_CLOAK ? Model_Colour() : Mirrors->White();
+        model_sampler = Samplers->Sampler(SamplerStates[0]);
+        if (!model_colour || !model_sampler) combiner.DrawEffect = DRAW_EFFECT_NONE;
+    }
+    const unsigned model_fault = combiner.DrawEffect && !SunActive ? ModelRefusalForTest & 12u : 0;
+    if (model_fault) ModelRefusalForTest &= ~12u;
 	combiner.SmokeGlow = SmokeGlow && vertex_engine == ENGINE_SHADER_NONE && pixel_engine == ENGINE_SHADER_NONE
 		&& !RenderStates[D3DRS_LIGHTING] && (FVF & D3DFVF_NORMAL) && !(FVF & D3DFVF_XYZRHW);
 	if (vertex_engine == ENGINE_SHADER_NONE && !Build_Vertex_Description(vertex, &refusal, static_lighting)) {
@@ -1049,6 +1058,13 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
     };
     if((!vertex_program->Shader || !pixel_program->Shader || (sprite_fault&11)) &&
         (combiner.SoftParticle||combiner.FireLook)) retry_without_sprites();
+	const auto retry_without_model = [&]() {
+        if (!combiner.DrawEffect || SunActive) return false;
+        combiner.DrawEffect = DRAW_EFFECT_NONE; model_colour = nullptr; model_sampler = nullptr;
+        pixel_program = &Programs->Pixel_Program(combiner);
+        return pixel_program->Shader != nullptr;
+    };
+    if (!pixel_program->Shader || (model_fault & 4)) retry_without_model();
 	const auto retry_without_sun = [&](const char *reason) {
 		// Generated receivers add an optional program variant. Ground programs share the
 		// established engine path; their existing source keeps its own failure handling.
@@ -1186,7 +1202,7 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	phases.Mark("target+programs");
 	SdlRecordedDraw draw;
 	memset(&draw, 0, sizeof(draw));
-	draw.Pipeline = (((sprite_fault&4) && (combiner.SoftParticle||combiner.FireLook)) || ((foam_fault&4) && classic_foam)) ? nullptr :
+	draw.Pipeline = (((sprite_fault&4) && (combiner.SoftParticle||combiner.FireLook)) || ((foam_fault&4) && classic_foam) || ((model_fault&8) && combiner.DrawEffect && !SunActive)) ? nullptr :
         Pipelines->Pipeline(key,combiner.ShadowReceiving && pixel_engine==ENGINE_SHADER_NONE);
     if(!draw.Pipeline && retry_without_sprites()) {
         if(Sdl_Pipeline_Key(states,call.Type,vertex_program->Shader,pixel_program->Shader,FVF,
@@ -1198,6 +1214,12 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
         legacy_pixel_program = pixel_program;
         if (Sdl_Pipeline_Key(states,call.Type,vertex_program->Shader,pixel_program->Shader,FVF,
             SdlGpuFrame::Target_Colour_Format(target),Gpu->Target_Depth_Format(target),key,refusal))
+            draw.Pipeline=Pipelines->Pipeline(key);
+    }
+    if (!draw.Pipeline && retry_without_model()) {
+        legacy_pixel_program = pixel_program;
+        if (Sdl_Pipeline_Key(states, call.Type, vertex_program->Shader, pixel_program->Shader, FVF,
+            SdlGpuFrame::Target_Colour_Format(target), Gpu->Target_Depth_Format(target), key, refusal))
             draw.Pipeline = Pipelines->Pipeline(key);
     }
 	if (!draw.Pipeline && retry_without_sun("pipeline refused")) {
@@ -1262,6 +1284,13 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
             }
             if (classic_foam && texture_stage == 4) {
                 draw.Textures[slot] = foam_white; draw.Samplers[slot] = foam_sampler; continue;
+            }
+            if (texture_stage == 8 && combiner.DrawEffect && !SunActive) {
+                draw.Textures[slot] = model_colour; draw.Samplers[slot] = model_sampler;
+                if (!draw.Textures[slot] || !draw.Samplers[slot]) {
+                    Refuse_Draw("model effect scene binding"); return D3D_OK;
+                }
+                continue;
             }
 			// Ground programs declare these slots even when their receiving strength is zero.
 			// Bind neutral textures then, never material textures or the active attachment.
@@ -1617,7 +1646,10 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 			else if (vertex_engine == ENGINE_SHADER_NONE && pixel_engine == ENGINE_SHADER_NONE && Static_Lighting_Matches())
 				Build_Light_Constants(engine_constants);
 		}
-		if (combiner.DrawEffect) engine_constants.DrawEffectParameters[3] = SunCasterOpacity;
+        if (combiner.DrawEffect) {
+            if (SunActive) engine_constants.DrawEffectParameters[3] = SunCasterOpacity;
+            else Build_Model_Constants(engine_constants, combiner.ShadowReceiving);
+        }
 		draw.PixelConstants = Gpu->Constants(1, &engine_constants, sizeof(engine_constants));
 		draw.PixelConstantsSize = sizeof(engine_constants);
 	}

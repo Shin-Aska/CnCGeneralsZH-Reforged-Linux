@@ -6,12 +6,23 @@
 #include "SdlSceneContext.h"
 #include "SdlRenderMatrix.h"
 #include "SdlConstants.h"
+#include "Platform/RenderEffects.h"
+#include "ffshader.h"
 #include "Platform/RenderWaterFoam.h"
 #include <cstring>
 #include <SDL3/SDL.h>
 #include <cmath>
 #include <cstdio>
 
+// Color-only owner: no borrowed camera pointer, water snapshot or depth-provider lifetime.
+struct PosixDevice9::ModelView {
+    SdlTarget Target = {};
+    D3DVIEWPORT9 Viewport = {};
+    D3DMATRIX View = {}, Projection = {};
+    float WorldFromClip[16] = {};
+    uint64_t Frame = 0, Generation = 0, Key = 0;
+    bool Valid = false;
+};
 struct PosixDevice9::PostSession {
     explicit PostSession(SdlGpuFrame &frame) : Captures(frame) {}
     SdlSceneCaptureCache Captures;
@@ -24,6 +35,10 @@ struct PosixDevice9::PostSession {
     SdlPostSettings Settings;
     SdlTarget Scene = {}, Presentation = {};
     bool Routed = false, InView = false, Entered = false;
+    ModelView ModelCurrent, ModelStack[8];
+    uint64_t ModelSerial = 0, ModelReadyKey = 0, ModelRefusedKey = 0;
+    SDL_GPUTexture *ModelColour = nullptr;
+    unsigned ModelWidth = 0, ModelHeight = 0, ModelFormat = 0;
     unsigned ViewDepth = 0;
     uint64_t Serial = 0;
     IDirect3DBaseTexture9 *StandInTexture = nullptr;
@@ -38,6 +53,9 @@ void PosixDevice9::Begin_Post(const RenderPost::Settings &settings)
     if (Post->Routed) Finish_Post(true);
     auto &s = *Post;
     s.InView = s.Entered = false; s.ViewDepth = 0;
+    s.ModelCurrent = {}; s.ModelReadyKey = s.ModelRefusedKey = 0;
+    ModelEffectsAllowed = !settings.Classic;
+    ModelEffect = 0; std::memset(ModelEffectParameters, 0, sizeof(ModelEffectParameters));
     s.CurrentView = {}; s.LastView = {}; s.SoftView = {}; s.SoftRequested = false;
     ParticlesAllowed = !settings.Classic;
     s.WorldAO = settings.WorldAO && !settings.Classic;
@@ -71,7 +89,8 @@ unsigned PosixDevice9::Begin_Post_View(bool eligible, float nearPlane, float far
 {
     if (!Post || !Gpu) return 0;
     auto &s = *Post;
-    if (s.ViewDepth == 8) { s.CurrentView = {}; s.InView = false; return 0; }
+    if (s.ViewDepth == 8) { s.CurrentView = {}; s.ModelCurrent = {}; s.InView = false; return 0; }
+    s.ModelStack[s.ViewDepth] = s.ModelCurrent; s.ModelCurrent = {};
     s.ViewStack[s.ViewDepth++] = s.CurrentView;
     const unsigned token = s.ViewDepth;
     const bool nested = s.ViewDepth > 1;
@@ -105,6 +124,15 @@ unsigned PosixDevice9::Begin_Post_View(bool eligible, float nearPlane, float far
     view.Capture.Source.DepthFormat=Gpu->Target_Depth_Format(target);
     view.Capture.Frame=view.FrameSerial; view.Capture.Generation=Gpu->Scene_Generation();
     view.Capture.ViewKey=view.ViewKey; view.Near=nearPlane; view.Far=farPlane;
+    if (ModelEffectsAllowed) {
+        ModelView model;
+        model.Target=view.Capture.Source; model.Viewport=Viewport;
+        model.View=Transforms[D3DTS_VIEW]; model.Projection=Transforms[D3DTS_PROJECTION];
+        std::memcpy(model.WorldFromClip,view.FullTextureWorldFromClip,sizeof(model.WorldFromClip));
+        model.Frame=view.FrameSerial; model.Generation=view.Capture.Generation;
+        if (++s.ModelSerial==0) ++s.ModelSerial;
+        model.Key=s.ModelSerial; model.Valid=true; s.ModelCurrent=model;
+    }
     s.CurrentView=s.LastView=view; s.InView=s.Entered=true;
     return token;
 }
@@ -112,6 +140,7 @@ void PosixDevice9::End_Post_View(unsigned token)
 {
     if (!Post || !token || token!=Post->ViewDepth) return;
     Post->CurrentView=Post->ViewStack[--Post->ViewDepth];
+    Post->ModelCurrent=Post->ModelStack[Post->ViewDepth];
     Post->InView=Post->CurrentView.Pass==SdlSceneView::Main;
 }
 bool PosixDevice9::Read_Main_View(SdlMainViewSnapshot &snapshot, bool capture, SdlSceneCapturePhase phase)
@@ -243,6 +272,7 @@ void PosixDevice9::Release_Post(bool teardown)
         if (!Post->Processor.Release(*Gpu)) return;
     }
     if (Post->StandInCopy) Gpu->Release_After_Batch(Post->StandInCopy, nullptr);
+    if (Post->ModelColour) Gpu->Release_After_Batch(Post->ModelColour, nullptr);
     Post.reset();
 }
 namespace RenderPost {
@@ -293,6 +323,166 @@ void AllowEnhancements(IDirect3DDevice9 *d,bool e) { if(d) static_cast<PosixDevi
 void SetSoftParticles(IDirect3DDevice9 *d,bool e) { if(d) static_cast<PosixDevice9 *>(d)->Set_Soft_Particles(e); }
 void SetFireLook(IDirect3DDevice9 *d,bool e) { if(d) static_cast<PosixDevice9 *>(d)->Set_Fire_Look(e); }
 void TakeSceneDepth(IDirect3DDevice9 *d) { if(d) static_cast<PosixDevice9 *>(d)->Take_Particle_Depth(); }
-    SdlMainViewSnapshot FoamView;
-    uint64_t FoamRefusedKey = 0;
+}
+
+bool PosixDevice9::Build_Main_View_Constants(SdlEnginePixelConstants &constants, bool receiving)
+{
+    SdlMainViewSnapshot main;
+    if (!Read_Main_View(main, false, SdlSceneCapturePhase::OpaqueScene)) return false;
+    std::memcpy(constants.WorldFromClip, main.FullTextureWorldFromClip, sizeof(constants.WorldFromClip));
+    if (receiving) {
+        // Preserve the existing shadow's bounded-viewport/half-pixel convention
+        // while cosmetic reconstruction uses full-texture pixel coordinates.
+        float toShadowClip[16] = {}; toShadowClip[0] = float(main.Target.Width) / main.Viewport[2];
+        toShadowClip[5] = float(main.Target.Height) / main.Viewport[3]; toShadowClip[10] = toShadowClip[15] = 1;
+        toShadowClip[12] = (main.Target.Width - 2 * main.Viewport[0] - main.Viewport[2] - 1) / main.Viewport[2];
+        toShadowClip[13] = (2 * main.Viewport[1] + main.Viewport[3] - main.Target.Height + 1) / main.Viewport[3];
+        float folded[16]; multiply(toShadowClip, constants.ShadowFromClip, folded);
+        std::memcpy(constants.ShadowFromClip, folded, sizeof(folded));
+    }
+    constants.ShadowViewport[0] = 1.0f/main.Target.Width; constants.ShadowViewport[1] = 1.0f/main.Target.Height;
+    constants.ShadowViewport[2] = constants.ShadowViewport[3] = 0;
+    return true;
+}
+
+bool PosixDevice9::Prepare_Classic_Water_Foam()
+{
+    SdlMainViewSnapshot main;
+    if (!Post || Post->Classic || !Read_Main_View(main, false, SdlSceneCapturePhase::OpaqueScene)) return false;
+    if (Post->FoamRefusedKey == main.ViewKey) return false;
+    if (FoamRefusalForTest & 1) { FoamRefusalForTest &= ~1u; Post->FoamRefusedKey = main.ViewKey; return false; }
+    if (!Read_Main_View(Post->FoamView, true, SdlSceneCapturePhase::OpaqueScene)) {
+        Post->FoamRefusedKey = main.ViewKey; return false;
+    }
+    return true;
+}
+SDL_GPUTexture *PosixDevice9::Classic_Water_Depth()
+{
+    SdlMainViewSnapshot main;
+    if (!Post || Post->Classic || !Post->FoamView.SampledDepth ||
+        !Read_Main_View(main, false, SdlSceneCapturePhase::OpaqueScene)) return nullptr;
+    return main.Capture.Same_Identity(Post->FoamView.Capture) ? Post->FoamView.SampledDepth : nullptr;
+}
+bool PosixDevice9::Classic_Water_Foam_Available() const { return Gpu && Gpu->Supports_Scene_Depth(); }
+namespace RenderWaterFoam {
+bool Available(IDirect3DDevice9 *device) { return device && static_cast<PosixDevice9 *>(device)->Classic_Water_Foam_Available(); }
+bool Ready(IDirect3DDevice9 *device) { return device && static_cast<PosixDevice9 *>(device)->Prepare_Classic_Water_Foam(); }
+}
+
+bool PosixDevice9::Read_Model_View(ModelView &view)
+{
+    view = {};
+    if (!Gpu || !Post || SunActive || !ModelEffectsAllowed || !Post->ModelCurrent.Valid) return false;
+    const ModelView &owner = Post->ModelCurrent;
+    SdlTarget actual = {}; std::string error;
+    if (!Resolve_Target(actual, error) || actual.Colour != owner.Target.Colour || actual.Depth != owner.Target.Depth
+        || actual.Width != owner.Target.Width || actual.Height != owner.Target.Height
+        || Gpu->Target_Colour_Format(actual) != owner.Target.ColourFormat
+        || Gpu->Target_Depth_Format(actual) != owner.Target.DepthFormat
+        || Gpu->Scene_Frame() != owner.Frame || Gpu->Scene_Generation() != owner.Generation
+        || std::memcmp(&Viewport, &owner.Viewport, sizeof(Viewport))
+        || std::memcmp(&Transforms[D3DTS_VIEW], &owner.View, sizeof(D3DMATRIX))
+        || std::memcmp(&Transforms[D3DTS_PROJECTION], &owner.Projection, sizeof(D3DMATRIX))) return false;
+    const auto direct = Gpu->Back_Buffer_Target();
+    if (!((actual.Colour == direct.Colour && actual.Depth == direct.Depth)
+        || (Post->Routed && actual.Colour == Post->Scene.Colour && actual.Depth == Post->Scene.Depth)
+        || (Post->StandInSurface && RenderTargets[0] == Post->StandInSurface))) return false;
+    view = owner; return true;
+}
+// Admission allocates before the scene suppresses the old stealth treatment. The copy itself
+// happens only for a real cloaked mesh, after all preceding opaque draws have been submitted.
+bool PosixDevice9::Takes_Model_Effect(unsigned effect)
+{
+    ModelView main;
+    if (!Model_Effects_Available() || effect == DRAW_EFFECT_NONE || effect >= DRAW_EFFECT_CLOAK_SHADOW
+        || !Read_Model_View(main)) return false;
+    if (effect != DRAW_EFFECT_CLOAK) return true;
+    auto &s = *Post;
+    if (s.ModelRefusedKey == main.Key) return false;
+    if (ModelRefusalForTest & 1) {
+        ModelRefusalForTest &= ~1u; s.ModelRefusedKey = main.Key; return false;
+    }
+    const unsigned format = main.Target.ColourFormat;
+    if (!s.ModelColour || s.ModelWidth != main.Target.Width || s.ModelHeight != main.Target.Height
+        || s.ModelFormat != format) {
+        SDL_GPUTextureCreateInfo info = {}; info.type = SDL_GPU_TEXTURETYPE_2D;
+        info.format = SDL_GPUTextureFormat(format); info.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER;
+        info.width = main.Target.Width; info.height = main.Target.Height; info.layer_count_or_depth = info.num_levels = 1;
+        SDL_GPUTexture *replacement = SDL_CreateGPUTexture(Gpu->Device(), &info);
+        if (!replacement) { s.ModelRefusedKey = main.Key; return false; }
+        if (s.ModelColour) Gpu->Release_After_Batch(s.ModelColour, nullptr);
+        s.ModelColour = replacement; s.ModelWidth = info.width; s.ModelHeight = info.height; s.ModelFormat = format;
+        s.ModelReadyKey = 0;
+    }
+    return true;
+}
+void PosixDevice9::Set_Model_Effect(unsigned effect, const float parameters[4])
+{
+    if (SunActive) return; // caster coverage already has its own independently saved metadata
+    if (effect >= DRAW_EFFECT_CLOAK_SHADOW || (effect && !parameters)) effect = DRAW_EFFECT_NONE;
+    for (unsigned i = 0; effect && i < 4; ++i) if (!std::isfinite(parameters[i])) effect = DRAW_EFFECT_NONE;
+    ModelEffect = effect;
+    if (effect) std::memcpy(ModelEffectParameters, parameters, sizeof(ModelEffectParameters));
+    else std::memset(ModelEffectParameters, 0, sizeof(ModelEffectParameters));
+    if (effect != DRAW_EFFECT_CLOAK || !Takes_Model_Effect(effect)) return;
+    ModelView main;
+    if (!Read_Model_View(main) || Post->ModelReadyKey == main.Key) return;
+    const bool injected = (ModelRefusalForTest & 2) != 0; ModelRefusalForTest &= ~2u;
+    if (injected || !Gpu->Capture_Scene_Colour(main.Target, Post->ModelColour)) {
+        Post->ModelReadyKey = 0; Post->ModelRefusedKey = main.Key;
+    } else Post->ModelReadyKey = main.Key;
+}
+unsigned PosixDevice9::Requested_Model_Effect(float parameters[4]) const
+{
+    const unsigned effect = ModelEffectsAllowed && !SunActive ? ModelEffect : unsigned(DRAW_EFFECT_NONE);
+    if (effect) std::memcpy(parameters, ModelEffectParameters, sizeof(ModelEffectParameters));
+    else std::memset(parameters, 0, sizeof(ModelEffectParameters));
+    return effect;
+}
+SDL_GPUTexture *PosixDevice9::Model_Colour()
+{
+    ModelView main;
+    return Read_Model_View(main) && Post->ModelReadyKey == main.Key ? Post->ModelColour : nullptr;
+}
+unsigned PosixDevice9::Draw_Model_Effect()
+{
+    ModelView main;
+    if (!ModelEffect || (FVF & D3DFVF_XYZRHW) || !Read_Model_View(main)) return DRAW_EFFECT_NONE;
+    if (RenderStates[D3DRS_ALPHABLENDENABLE]) {
+        const auto source = RenderStates[D3DRS_SRCBLEND], destination = RenderStates[D3DRS_DESTBLEND];
+        if (source == D3DBLEND_ZERO || source == D3DBLEND_DESTCOLOR || destination == D3DBLEND_SRCCOLOR) return DRAW_EFFECT_NONE;
+        if (source == D3DBLEND_ONE || destination == D3DBLEND_ONE)
+            return ModelEffect == DRAW_EFFECT_OUTAGE ? DRAW_EFFECT_OUTAGE : DRAW_EFFECT_NONE;
+    }
+    return ModelEffect == DRAW_EFFECT_CLOAK && !Model_Colour() ? DRAW_EFFECT_NONE : ModelEffect;
+}
+bool PosixDevice9::Build_Model_Constants(SdlEnginePixelConstants &constants, bool receiving)
+{
+    ModelView main;
+    if (!Read_Model_View(main)) return false;
+    std::memcpy(constants.WorldFromClip, main.WorldFromClip, sizeof(constants.WorldFromClip));
+    if (receiving) {
+        // Fold the sun receiver's bounded-viewport/half-pixel convention before switching
+        // cosmetic reconstruction to full-texture NDC. Both then see the same world point.
+        float toShadowClip[16] = {}; toShadowClip[0] = float(main.Target.Width) / main.Viewport.Width;
+        toShadowClip[5] = float(main.Target.Height) / main.Viewport.Height; toShadowClip[10] = toShadowClip[15] = 1;
+        toShadowClip[12] = (float(main.Target.Width) - 2 * main.Viewport.X - main.Viewport.Width - 1) / main.Viewport.Width;
+        toShadowClip[13] = (2.0f * main.Viewport.Y + main.Viewport.Height + 1 - main.Target.Height) / main.Viewport.Height;
+        float folded[16]; multiply(toShadowClip, constants.ShadowFromClip, folded);
+        std::memcpy(constants.ShadowFromClip, folded, sizeof(folded));
+    }
+    constants.ShadowViewport[0] = 1.0f / main.Target.Width; constants.ShadowViewport[1] = 1.0f / main.Target.Height;
+    constants.ShadowViewport[2] = constants.ShadowViewport[3] = 0;
+    std::memcpy(constants.DrawEffectParameters, ModelEffectParameters, sizeof(ModelEffectParameters));
+    return true;
+}
+namespace RenderEffects {
+void AllowDrawEffects(IDirect3DDevice9 *d, bool a) { if(d) static_cast<PosixDevice9 *>(d)->Allow_Model_Effects(a); }
+bool DrawEffectsAvailable(IDirect3DDevice9 *d) { return d && static_cast<PosixDevice9 *>(d)->Model_Effects_Available(); }
+bool TakesDrawEffect(IDirect3DDevice9 *d, unsigned e) { return d && static_cast<PosixDevice9 *>(d)->Takes_Model_Effect(e); }
+void SetDrawEffect(IDirect3DDevice9 *d, unsigned e, const float p[4]) { if(d) static_cast<PosixDevice9 *>(d)->Set_Model_Effect(e,p); }
+unsigned RequestedDrawEffect(IDirect3DDevice9 *d, float p[4]) {
+    if(d) return static_cast<PosixDevice9 *>(d)->Requested_Model_Effect(p);
+    std::memset(p,0,4*sizeof(float)); return DRAW_EFFECT_NONE;
+}
 }

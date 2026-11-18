@@ -3220,6 +3220,7 @@ Libraries/Include/Platform/MsvcFloatCasts.h
 Libraries/Include/Platform/PosixD3D9/d3d9.h
 Libraries/Include/Platform/PosixD3D9/d3d9caps.h
 Libraries/Include/Platform/PosixD3D9/d3d9types.h
+Libraries/Include/Platform/RenderEffects.h
 Libraries/Include/Platform/RenderLighting.h
 Libraries/Include/Platform/RenderParticles.h
 Libraries/Include/Platform/RenderPost.h
@@ -4431,6 +4432,7 @@ Tests/test_premain_strings.cpp
 Tests/test_production_input.inc
 Tests/test_registryfile.cpp
 Tests/test_render_hooks.cpp
+Tests/test_renderer_effects.cpp
 Tests/test_renderer_lighting.cpp
 Tests/test_renderer_particles.cpp
 Tests/test_renderer_water_foam.cpp

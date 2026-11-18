@@ -46,6 +46,8 @@ static bool render_inverse(const float source[16], float result[16])
 
 // AO/haze sample a full attachment, while the camera viewport can exclude the command bar.
 // Reach consumers already subtract their explicit viewport and must use the original camera inverse.
+// Cosmetic model reconstruction samples the full attachment; its viewport can exclude the HUD.
+// Only this render-only conversion changes: the authoritative camera matrices remain untouched.
 static bool render_full_texture_to_world(const float view[16], const float projection[16],
 	unsigned width, unsigned height, const float viewport[6], float result[16], float projectionScale[2])
 {

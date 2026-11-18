@@ -5993,6 +5993,7 @@ bool DX8Wrapper::Supports_Battle_Marks(void)
 
 #include "Platform/RenderPost.h"
 #include "Platform/RenderWaterFoam.h"
+#include "Platform/RenderEffects.h"
 namespace RenderPost {
 void BeginMain(const Settings &settings) {
 #if !defined(_WIN32)
@@ -6236,4 +6237,41 @@ bool DX8Wrapper::Supports_Hemispheric_Ambient(void)
 #else
 	return PosixHemisphericAmbientAvailable(_Get_D3D_Device());
 #endif
+}
+namespace RenderEffects {
+void AllowDrawEffects(bool allowed) {
+#if defined(_WIN32)
+    Direct3D11_Allow_Draw_Effects(allowed);
+#else
+    AllowDrawEffects(DX8Wrapper::_Get_D3D_Device(), allowed);
+#endif
+}
+bool DrawEffectsAvailable() {
+#if defined(_WIN32)
+    return Direct3D11_Draw_Effects();
+#else
+    return DrawEffectsAvailable(DX8Wrapper::_Get_D3D_Device());
+#endif
+}
+bool TakesDrawEffect(unsigned effect) {
+#if defined(_WIN32)
+    return Direct3D11_Takes_Draw_Effect(effect);
+#else
+    return TakesDrawEffect(DX8Wrapper::_Get_D3D_Device(), effect);
+#endif
+}
+void SetDrawEffect(unsigned effect,const float parameters[4]) {
+#if defined(_WIN32)
+    Direct3D11_Set_Draw_Effect(effect,parameters);
+#else
+    SetDrawEffect(DX8Wrapper::_Get_D3D_Device(),effect,parameters);
+#endif
+}
+unsigned RequestedDrawEffect(float parameters[4]) {
+#if defined(_WIN32)
+    return Direct3D11_Requested_Draw_Effect(parameters);
+#else
+    return RequestedDrawEffect(DX8Wrapper::_Get_D3D_Device(),parameters);
+#endif
+}
 }

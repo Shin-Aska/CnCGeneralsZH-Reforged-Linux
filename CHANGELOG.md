@@ -30,6 +30,10 @@ found and fixed, EA's own, not port damage.**
 - Ambient Occlusion now adds contact shade beneath buildings and terrain corners on the native renderer before water and particles are drawn. Its option works with the post chain turned off, and Classic graphics keeps its original picture.
 - Post-chain AO now uses the native scene depth. Missing or unsupported depth safely leaves the scene visible, and old snapshots are discarded when the view, frame, render target or window size changes.
 
+## Model effects on native rendering
+
+- Native SDL GPU rendering now shows the existing EMP arcs, power-outage treatment, cloaked-unit refraction and detected-stealth heat look. Classic Graphics keeps its previous appearance, and unsupported views or failed optional resources retain ordinary rendering.
+
 ## Native Linux glow and post processing
 
 - Glow now uses the native scene's floating point color buffer, with the same bloom and Internal HDR tone mapping as Direct3D 11. Reforged lighting also applies its local contrast and color grade before unit health bars and the interface are drawn.

@@ -220,7 +220,6 @@ public:
     unsigned Begin_Post_View(bool, float, float, bool);
     void End_Post_View(unsigned);
     bool Read_Main_View(struct SdlMainViewSnapshot &, bool, SdlSceneCapturePhase);
-    bool Current_Gpu_Target(struct SdlTarget &target, std::string &error) { return Resolve_Target(target,error); }
     bool Classic_Water_Foam_Available() const;
     bool Prepare_Classic_Water_Foam();
     struct SDL_GPUTexture *Classic_Water_Depth();
@@ -238,6 +237,16 @@ public:
     bool Post_Texture(IDirect3DBaseTexture9 *, struct SDL_GPUTexture *&);
     float Post_Additive_Gain(const struct SdlTarget &) const;
     void Set_Glow_Draw(bool e) { GlowDraw = e; }
+    bool Current_Gpu_Target(struct SdlTarget &target, std::string &error) { return Gpu && Resolve_Target(target, error); }
+    void Allow_Model_Effects(bool allowed) { ModelEffectsAllowed = allowed; }
+    bool Model_Effects_Available() const { return Gpu && ModelEffectsAllowed; }
+    bool Takes_Model_Effect(unsigned effect);
+    void Set_Model_Effect(unsigned effect, const float parameters[4]);
+    unsigned Requested_Model_Effect(float parameters[4]) const;
+    unsigned Draw_Model_Effect();
+    SDL_GPUTexture *Model_Colour();
+    bool Build_Model_Constants(struct SdlEnginePixelConstants &, bool receiving);
+    void Refuse_Next_Model_For_Test(unsigned mask) { ModelRefusalForTest |= mask; }
 	SdlGpuFrame * Get_Gpu() const { return Gpu; }
 	void Set_Headlights(const float *lights, unsigned count, const float gain[3]);
 	void Set_Blast_Lights(const float *lights, unsigned count);
@@ -412,6 +421,11 @@ protected:
 	bool GlowDraw = false;
     bool ParticlesAllowed = true, SoftParticlesDraw = false, FireLookDraw = false;
     unsigned SpriteRefusalForTest = 0;
+    bool ModelEffectsAllowed = true;
+    unsigned ModelEffect = 0, ModelRefusalForTest = 0;
+    float ModelEffectParameters[4] = {};
+    struct ModelView;
+    bool Read_Model_View(ModelView &);
 	struct PostSession;
 	std::shared_ptr<PostSession> Post;
 	unsigned SunCasterEffect = 0;
