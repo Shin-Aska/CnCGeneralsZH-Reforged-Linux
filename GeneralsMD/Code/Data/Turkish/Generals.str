@@ -16662,7 +16662,7 @@ GUI:GroundFoliage
 END
 
 TOOLTIP:GroundFoliage
-"Yerde otlar, çalılar, eğrelti otları ve taşlar biter, ağaçlarla birlikte rüzgârda sallanır. Yalnızca görüntüdür, birlikler içinden geçer. Yalnızca Direct3D 11 ile, Klasik Grafikler açıkken kapalıdır. Kabul Et'e basınca uygulanır."
+"Yerde otlar, çalılar, eğrelti otları ve taşlar biter, ağaçlarla birlikte rüzgârda sallanır. Birlikler bitki örtüsünün içinden geçebilir. Windows'ta Direct3D 11 ile, Linux ve macOS'ta SDL GPU ile çalışır. Tam arazi ayrıntısı gerekir ve Klasik Grafikler kapalı olmalıdır. Kabul Et'e basınca uygulanır."
 END
 
 GUI:StructureCollapse

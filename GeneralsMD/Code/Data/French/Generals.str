@@ -16890,7 +16890,7 @@ GUI:ShadowQuality2
 END
 
 TOOLTIP:ShadowQuality
-"La netteté des ombres des unités et des bâtiments. Élevée prend environ 64 Mo de mémoire vidéo, Faible libère de la mémoire sur une carte modeste. Direct3D 11 seulement, et pas avec les Graphismes classiques. S'applique quand vous cliquez sur Accepter."
+"La netteté des ombres des unités et des bâtiments. Élevée prend environ 64 Mo de mémoire vidéo, Faible libère de la mémoire sur une carte modeste. Option désactivée avec les Graphismes classiques. S'applique quand vous cliquez sur Accepter."
 END
 
 GUI:VolumetricSmoke
@@ -16898,7 +16898,7 @@ GUI:VolumetricSmoke
 END
 
 TOOLTIP:VolumetricSmoke
-"La fumée et la poussière assombrissent le sol, les unités et la fumée derrière elles selon leur épaisseur. Direct3D 11 seulement, avec un léger coût dans les grandes batailles. S'applique quand vous cliquez sur Accepter."
+"La fumée et la poussière assombrissent le sol, les unités et la fumée derrière elles selon leur épaisseur. L'effet a un léger coût dans les grandes batailles. S'applique quand vous cliquez sur Accepter."
 END
 
 GUI:LightingStyle
@@ -16938,7 +16938,7 @@ GUI:MapLight
 END
 
 TOOLTIP:MapLight
-"Un soleil bas d'après-midi qui éclaire la carte plus chaudement et allonge les ombres, et une légère brume immobile posée sur les terrains bas. Direct3D 11 seulement. S'applique à partir de la carte suivante."
+"Un soleil bas d'après-midi qui éclaire la carte plus chaudement et allonge les ombres, et une légère brume immobile posée sur les terrains bas. Option désactivée avec les Graphismes classiques. S'applique à partir de la carte suivante."
 END
 
 GUI:TeamGlow
@@ -16946,7 +16946,7 @@ GUI:TeamGlow
 END
 
 TOOLTIP:TeamGlow
-"Les zones vives à la couleur de chaque camp sur les unités et les bâtiments brillent de cette couleur. Direct3D 11 seulement. S'applique à partir de la carte suivante."
+"Les zones vives à la couleur de chaque camp sur les unités et les bâtiments brillent de cette couleur. Option désactivée avec les Graphismes classiques. S'applique à partir de la carte suivante."
 END
 
 GUI:WaterFoam
@@ -16954,7 +16954,7 @@ GUI:WaterFoam
 END
 
 TOOLTIP:WaterFoam
-"Les rivières et les lacs charrient des flocons d'écume et une bande d'écume le long de la rive, et les ombres du soleil tombent sur l'eau. Les vagues de la mer ne changent pas. Direct3D 11 et eau classique seulement, et désactivé avec les Graphismes classiques. S'applique quand vous cliquez sur Accepter."
+"Les rivières et les lacs charrient des flocons d'écume et une bande d'écume le long de la rive, et les ombres du soleil tombent sur l'eau. Les vagues de la mer ne changent pas. Requiert l'eau classique et la désactivation des Graphismes classiques. S'applique quand vous cliquez sur Accepter."
 END
 
 GUI:FormationDrag

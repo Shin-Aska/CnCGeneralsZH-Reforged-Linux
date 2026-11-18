@@ -2178,7 +2178,7 @@ GUI:GroundFoliage
 END
 
 TOOLTIP:GroundFoliage
-"Grass, bushes, ferns and stones grow on the ground and sway in the breeze with the trees. Looks only: units walk through it. Direct3D 11 only, and off under Classic Graphics. Applies when you press Accept."
+"Grass, bushes, ferns and stones grow on the ground and sway in the breeze with the trees. Units can walk through the foliage. Works with Direct3D 11 on Windows and SDL GPU on Linux and macOS. Requires full terrain detail with Classic Graphics off. Applies when you press Accept."
 END
 
 GUI:StructureCollapse

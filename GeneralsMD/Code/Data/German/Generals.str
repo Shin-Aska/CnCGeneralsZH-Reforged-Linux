@@ -15058,7 +15058,7 @@ GUI:ShadowQuality2
 END
 
 TOOLTIP:ShadowQuality
-"Wie scharf die Schatten von Einheiten und Gebäuden sind. Hoch belegt etwa 64 MB Grafikspeicher, Niedrig spart Speicher auf einer schwachen Karte. Nur mit Direct3D 11 und nicht mit Klassischer Grafik. Gilt, sobald du Annehmen drückst."
+"Wie scharf die Schatten von Einheiten und Gebäuden sind. Hoch belegt etwa 64 MB Grafikspeicher, Niedrig spart Speicher auf einer schwachen Karte. Bei Klassischer Grafik ausgeschaltet. Gilt, sobald du Annehmen drückst."
 END
 
 GUI:VolumetricSmoke
@@ -15066,7 +15066,7 @@ GUI:VolumetricSmoke
 END
 
 TOOLTIP:VolumetricSmoke
-"Rauch und Staub verdunkeln je nach Dichte den Boden, die Einheiten und den Rauch dahinter. Nur mit Direct3D 11, kostet in großen Gefechten etwas Leistung. Gilt, sobald du Annehmen drückst."
+"Rauch und Staub verdunkeln je nach Dichte den Boden, die Einheiten und den Rauch dahinter. Kostet in großen Gefechten etwas Leistung. Gilt, sobald du Annehmen drückst."
 END
 
 GUI:LightingStyle
@@ -15138,7 +15138,7 @@ GUI:MapLight
 END
 
 TOOLTIP:MapLight
-"Eine tief stehende Nachmittagssonne taucht die Karte in wärmeres Licht und wirft längere Schatten, und über tiefem Gelände liegt reglos ein leichter Dunst. Nur mit Direct3D 11. Gilt ab der nächsten Karte."
+"Eine tief stehende Nachmittagssonne taucht die Karte in wärmeres Licht und wirft längere Schatten, und über tiefem Gelände liegt reglos ein leichter Dunst. Bei Klassischer Grafik ausgeschaltet. Gilt ab der nächsten Karte."
 END
 
 GUI:TeamGlow
@@ -15146,7 +15146,7 @@ GUI:TeamGlow
 END
 
 TOOLTIP:TeamGlow
-"Die hellen Flächen in der Farbe jeder Seite auf Einheiten und Gebäuden leuchten in dieser Farbe. Nur mit Direct3D 11. Gilt ab der nächsten Karte."
+"Die hellen Flächen in der Farbe jeder Seite auf Einheiten und Gebäuden leuchten in dieser Farbe. Bei Klassischer Grafik ausgeschaltet. Gilt ab der nächsten Karte."
 END
 
 GUI:WaterFoam
@@ -15154,7 +15154,7 @@ GUI:WaterFoam
 END
 
 TOOLTIP:WaterFoam
-"Flüsse und Seen tragen Schaumflocken und einen Schaumstreifen am Ufer, und die Schatten der Sonne fallen aufs Wasser. Die Wellen des Meeres bleiben unverändert. Nur mit Direct3D 11 und klassischem Wasser, und aus bei Klassischer Grafik. Gilt, sobald du Annehmen drückst."
+"Flüsse und Seen tragen Schaumflocken und einen Schaumstreifen am Ufer, und die Schatten der Sonne fallen aufs Wasser. Die Wellen des Meeres bleiben unverändert. Erfordert klassisches Wasser bei ausgeschalteter Klassischer Grafik. Gilt, sobald du Annehmen drückst."
 END
 
 GUI:FormationDrag
