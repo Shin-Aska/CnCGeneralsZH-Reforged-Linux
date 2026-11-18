@@ -55,6 +55,7 @@
 #include "GameLogic/PartitionManager.h"
 #include "GameLogic/ScenarioDrill.h"
 #include "GameLogic/TerrainLogic.h"
+#include "GameLogic/VictoryConditions.h"
 #include "GameNetwork/GameInfo.h"		// MAX_SLOTS, for the skirmish command's player count
 #include "GameNetwork/Online/OnlineQueues.h"
 
@@ -646,10 +647,16 @@ static Int revealedPercent( const Player *player )
 /* A network match a lobby started, LAN or online.  This machine plays one seat of it, so a world command
 	 would split the match, and the census, tally and spectator views would read through the fog: any
 	 player can pass -control.  A -netgame match is the harnesses' own, and so is a match on an online
-	 server started for a test (OnlineIsTestServer), where online_check.py forces its desync. */
+	 server started for a test (OnlineIsTestServer), where online_check.py forces its desync.  A Play vs AI
+	 match is guarded on every server, a test one included: the server rates it on this machine's word, and
+	 nothing needs to bend it. */
 static Bool isGuardedMatch( void )
 {
-	return TheGameLogic && TheGameLogic->isInMultiplayerGame() && !TheGlobalData->m_netGameStarted && !OnlineIsTestServer();
+	if (!TheGameLogic)
+		return FALSE;
+	if (TheGameLogic->isInSkirmishGame() && OnlineIsAIMatchLive())
+		return TRUE;
+	return TheGameLogic->isInMultiplayerGame() && !TheGlobalData->m_netGameStarted && !OnlineIsTestServer();
 }
 
 static void replyStatus( void )
@@ -974,7 +981,7 @@ static void handleCommand( const AsciiString &command )
 	/* The quit menu's Exit, which in a network game is the other half of "quit": the process goes
 		 on, the player surrenders and the match is left through the network, so everybody else sees
 		 a player leave on an agreed frame rather than a connection drop. exitQuitMenu in QuitMenu.cpp
-		 posts the same two messages. */
+		 posts the same two messages, and like it spares a side that has already won. */
 	if (command == "leave")
 	{
 		if (TheGameLogic == NULL || !TheGameLogic->isInGame() || TheGameLogic->isInShellGame())
@@ -982,7 +989,8 @@ static void handleCommand( const AsciiString &command )
 			replyError( "leave needs a match in progress" );
 			return;
 		}
-		if (TheGameLogic->isInMultiplayerGame() && !TheGameLogic->isInSkirmishGame())
+		if (TheGameLogic->isInMultiplayerGame() && !TheGameLogic->isInSkirmishGame()
+				&& !TheVictoryConditions->isLocalAlliedVictory())
 		{
 			GameMessage *surrender = TheMessageStream->appendMessage( GameMessage::MSG_SELF_DESTRUCT );
 			surrender->appendBooleanArgument( TRUE );
@@ -1194,7 +1202,7 @@ static void handleCommand( const AsciiString &command )
 		 unrated, which is what online_check.py proves. */
 	if (isGuardedMatch() || TheGameLogic->isInReplayGame())
 	{
-		replyError( "world commands only run in a skirmish, a -netgame match or on an online test server" );
+		replyError( "world commands only run in an offline skirmish, a -netgame match or a lobby match on an online test server" );
 		return;
 	}
 

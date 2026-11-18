@@ -1980,12 +1980,24 @@ Real AI::getAdjustedVisionRangeForObject(const Object *object, Int factorsToCons
 	* centre of its own (AIPlayer::doSecondBase); 2nd is how many empty starts it claims, nearest first.
 	* reach is how far a dock may be from home, or from one of those bases, for a supply centre of its own
 	* choosing, and a dock beside one of those bases is not held to the side-of-map test.  Easy founds one
-	* late, at twenty minutes, so it is rare; Medium two from twelve; Hard every empty start from seven.
+	* late, at twenty minutes, so it is rare; Medium two from twelve; Hard three from seven.
+	* Since 2026-11-17 the base out there is a Command Center founded the moment home is full, so 2ndS only
+	* times the war factory -aiknobsoff secondbase keeps; 2nd still caps the count on every rung.  Hard's 2nd
+	* was MAX_PLAYER_COUNT, "every empty start", until the rating read it as a number on a line (the owner,
+	* 2026-11-17): 3 now, so a rating of 15 claims 2 and 100 about 8, and no rating claims 48 by arithmetic.
 	*
 	* inc%, 2026-11-02.  The owner: 1.5x on everything a skirmish AI earns by playing, the same on every
 	* rung, in place of the flat double it had, and up to 150 points more while it falls behind its
 	* strongest enemy (AIPlayer::stepIncomeBonus).  Player::earnMoney and earnIncome bank it; the score
 	* screen and its charts count the money before the bonus.
+	*
+	* inc% and bonus, 2026-11-17.  The owner: Easy earns 1.0x and at most 1.25x, Hard 1.5x and at most 2.5x,
+	* and both keep rising with the rating.  inc% is 100 to 150 and bonus, the falling-behind ceiling over it,
+	* 25 to 100, each a rising line (15 is 125 and 62.5, 100 about 267 and 275).  This overrides the rule
+	* above the profile that only income may exceed the baseline: an Easy seat now earns less than before.
+	*
+	* pace, 2026-11-17.  EA's StructureSeconds and TeamSeconds were the same on every rung; this factor on the
+	* finished delay is 1 on Hard, so Hard is EA's to the frame, 1.5 on Easy, falling to 1.2 at 15 and 0.56 at 100.
 	*
 	* abil, 2026-11-16.  The owner: Hard uses every unit button the rules know, Medium part of them, Easy none
 	* (AIPlayer::doAbilities).  1 is the Missile Defender's and the Sungur's laser lock, a manual shot such as
@@ -2003,12 +2015,12 @@ Real AI::getAdjustedVisionRangeForObject(const Object *object, Int factorsToCons
 	* Lotus and the capturing infantry weigh an enemy Command Center double, and the capturer takes an enemy
 	* building no gun guards when it scores over the next derrick, worth against the walk.  Easy none.
 	*
-	*                      scoutS maxSc decis  cntr  mass   ttk  indiv team infl focus save harv expand guard hoard econ micro  gate  answer massU  bankS  floor payoff upgr    nonc  share backlog push   minPow  siege  beam  strikeE strikeT swDef                     stall  lost retry  stage  spot arty    inflS fireLook word   odds   fireMem  watch watchOdds dodge  2ndS  2nd  reach    inc% abil frgn */
+	*                      scoutS maxSc decis  cntr  mass   ttk  indiv team infl focus save harv expand guard hoard econ micro  gate  answer massU  bankS  floor payoff upgr    nonc  share backlog push   minPow  siege  beam  strikeE strikeT swDef                     stall  lost retry  stage  spot arty    inflS fireLook word   odds   fireMem  watch watchOdds dodge  2ndS  2nd  reach    inc% bonus pace abil frgn */
 static const AIDifficultyProfile s_defaultSkillLadder[ AISKILL_COUNT ] =
 {
-	/* Easy      */ { 75.0f, 1,  7.0f,  0.00f, FALSE, 0.00f, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE,  FALSE, FALSE,     0, FALSE, FALSE, FALSE, FALSE, FALSE, 120.0f, 6000, 4.0f, 720.0f, 0.05f, 0.05f,  90.0f, 360.0f, 1500.0f,  80.0f, 0.00f, 0.0f, 2.0f, 3,                        300.0f, 3, 300.0f, FALSE, 1, 1.00f, 4.0f, 3.00f,   0.0f, 0.60f, 10.0f, 16.0f, 1.0f, 3.25f, 1200.0f, 1, 2000.0f, 150, 0, 0 },
-	/* Medium    */ { 45.0f, 1,  3.0f,  0.50f, FALSE, 0.35f, TRUE,  FALSE, FALSE, TRUE,  TRUE,  TRUE,  TRUE,  FALSE,  6000, FALSE, FALSE, FALSE, FALSE, FALSE,  60.0f, 5000, 2.5f, 420.0f, 0.05f, 0.25f,  75.0f, 300.0f, 2000.0f, 120.0f, 1.00f, 2.0f, 1.0f, 6,                        240.0f, 2, 240.0f, TRUE,  1, 0.50f, 2.0f, 1.00f, 150.0f, 0.80f, 20.0f,  6.0f, 1.5f, 1.50f,  720.0f, 2, 2500.0f, 150, 1, 1 },
-	/* Hard      */ { 25.0f, 2,  1.5f,  1.00f, TRUE,  0.50f, TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,   4000, TRUE,  TRUE,  TRUE,  TRUE,  FALSE,  30.0f, 4000, 1.5f, 180.0f, 0.05f, 1.00f,  45.0f, 240.0f, 4500.0f, 160.0f, 0.25f, 3.0f, 0.0f, DEFENSES_PER_SUPERWEAPON, 180.0f, 2, 180.0f, TRUE,  2, 0.25f, 1.0f, 0.33f, 300.0f, 1.00f, 40.0f,  2.0f, 2.0f, 0.33f,  420.0f, MAX_PLAYER_COUNT, 4000.0f, 150, 2, 2 }
+	/* Easy      */ { 75.0f, 1,  7.0f,  0.00f, FALSE, 0.00f, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE,  FALSE, FALSE,     0, FALSE, FALSE, FALSE, FALSE, FALSE, 120.0f, 6000, 4.0f, 720.0f, 0.05f, 0.05f,  90.0f, 360.0f, 1500.0f,  80.0f, 0.00f, 0.0f, 2.0f, 3,                        300.0f, 3, 300.0f, FALSE, 1, 1.00f, 4.0f, 3.00f,   0.0f, 0.60f, 10.0f, 16.0f, 1.0f, 3.25f, 1200.0f, 1, 2000.0f, 100,  25, 1.5f, 0, 0 },
+	/* Medium    */ { 45.0f, 1,  3.0f,  0.50f, FALSE, 0.35f, TRUE,  FALSE, FALSE, TRUE,  TRUE,  TRUE,  TRUE,  FALSE,  6000, FALSE, FALSE, FALSE, FALSE, FALSE,  60.0f, 5000, 2.5f, 420.0f, 0.05f, 0.25f,  75.0f, 300.0f, 2000.0f, 120.0f, 1.00f, 2.0f, 1.0f, 6,                        240.0f, 2, 240.0f, TRUE,  1, 0.50f, 2.0f, 1.00f, 150.0f, 0.80f, 20.0f,  6.0f, 1.5f, 1.50f,  720.0f, 2, 2500.0f, 125,  63, 1.2f, 1, 1 },
+	/* Hard      */ { 25.0f, 2,  1.5f,  1.00f, TRUE,  0.50f, TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,   4000, TRUE,  TRUE,  TRUE,  TRUE,  FALSE,  30.0f, 4000, 1.5f, 180.0f, 0.05f, 1.00f,  45.0f, 240.0f, 4500.0f, 160.0f, 0.25f, 3.0f, 0.0f, DEFENSES_PER_SUPERWEAPON, 180.0f, 2, 180.0f, TRUE,  2, 0.25f, 1.0f, 0.33f, 300.0f, 1.00f, 40.0f,  2.0f, 2.0f, 0.33f,  420.0f, 3, 4000.0f, 150, 100, 1.0f, 2, 2 }
 };
 
 //-------------------------------------------------------------------------------------------------
@@ -2850,6 +2862,14 @@ Int aiHoardAdjustedDelay( Int frames, Int money, Int hoardAt )
 	return (out < 1) ? 1 : out;
 }
 
+Int aiScaledBuildDelay( Int frames, Real scale )
+{
+	if( frames <= 0 || scale == 1.0f )
+		return frames;
+	const Int out = REAL_TO_INT_CEIL( INT_TO_REAL( frames ) * scale );
+	return (out < 1) ? 1 : out;
+}
+
 //-------------------------------------------------------------------------------------------------
 Int aiHoardAllowedTeamInstances( Int maxInstances, Int money, Int hoardAt )
 {
@@ -3184,29 +3204,135 @@ Real aiArmyAdvantage( const Real *myValue, Int myKinds, const Real *theirValue, 
 }
 
 //-------------------------------------------------------------------------------------------------
-const AIDifficultyProfile *AI::getDifficultyProfile( AISkillLevel level ) const
+Real aiRatingClamp( Real rating )
 {
-	if( m_aiData == NULL )
-		return &s_defaultSkillLadder[ AISKILL_BRUTAL ];
-	if( level < 0 || level >= AISKILL_COUNT )
-		level = AISKILL_BRUTAL;				// the baseline; a bad index must not read as a handicap
-	return &m_aiData->m_skill[ level ];
+	if( rating != rating )
+		return AI_RATING_EASY;		// NaN: (Int)floor of it differs between x64 and ARM64
+	return rating < -AI_RATING_LIMIT ? -AI_RATING_LIMIT : ( rating > AI_RATING_LIMIT ? AI_RATING_LIMIT : rating );
+}
+
+Int aiRatingToHundredths( Real rating )
+{
+	return (Int)floor( aiRatingClamp( rating ) * 100.0f + 0.5f );
+}
+
+Real aiRatingFromHundredths( Int hundredths )
+{
+	return aiRatingClamp( INT_TO_REAL( hundredths ) / 100.0f );
+}
+
+Real aiRatingOfSkill( AISkillLevel level )
+{
+	switch( level )
+	{
+		case AISKILL_EASY:		return AI_RATING_EASY;
+		case AISKILL_MEDIUM:	return AI_RATING_MEDIUM;
+		default:							return AI_RATING_HARD;	// the baseline; a bad index must not read as a handicap
+	}
+}
+
+AISkillLevel aiSkillOfRating( Real rating )
+{
+	if( rating < 0.5f * ( AI_RATING_EASY + AI_RATING_MEDIUM ) )
+		return AISKILL_EASY;
+	return rating < 0.5f * ( AI_RATING_MEDIUM + AI_RATING_HARD ) ? AISKILL_MEDIUM : AISKILL_BRUTAL;
+}
+
+/** A knob that falls from e at t 0 towards 0: e / (1 + c t), c = e/h - 1, so h at t 1, and e (1 - c t)
+	* below 0, the same slope.  h of 0 is the straight line to it, and 0 past it. */
+static Real fallingCurve( Real e, Real h, Real t )
+{
+	if( h <= 0.0f )
+		return t < 1.0f ? e * ( 1.0f - t ) : 0.0f;
+	const Real c = e / h - 1.0f;
+	return t >= 0.0f ? e / ( 1.0f + c * t ) : e * ( 1.0f - c * t );
+}
+
+/** how fast fallingCurve leaves e at t 0, as a positive number */
+static Real fallingSlope( Real e, Real h )
+{
+	return h <= 0.0f ? e : e * ( e / h - 1.0f );
+}
+
+/** Below t 0, a value of e there rising at slope: e / (1 - slope t / e), towards 0 and never to it. */
+static Real decayBelowZero( Real e, Real slope, Real t )
+{
+	return e > 0.0f ? e / ( 1.0f - slope * t / e ) : 0.0f;
+}
+
+/** e at t 0 and h at t 1 on the curve its direction and share take (AI.h has the forms) */
+static Real knobCurve( Real e, Real h, Real t, Bool share )
+{
+	if( e == h )
+		return e;
+	if( h < e )
+	{
+		if( t >= 0.0f || !share )
+			return fallingCurve( e, h, t );
+		return 1.0f - decayBelowZero( 1.0f - e, fallingSlope( e, h ), t );
+	}
+	if( share )
+		return t >= 0.0f ? 1.0f - fallingCurve( 1.0f - e, 1.0f - h, t ) : decayBelowZero( e, fallingSlope( 1.0f - e, 1.0f - h ), t );
+	return t >= 0.0f ? e * ( 1.0f - t ) + h * t : decayBelowZero( e, h - e, t );
+}
+
+Real aiKnobAt( Real rating, Real easy, Real medium, Real hard, AIKnobForm form )
+{
+	const Real r = aiRatingClamp( rating );
+	// the curve passes through both; a division can land an ulp off, so the ladder's own values
+	if( r == AI_RATING_EASY )
+		return easy;
+	if( r == AI_RATING_HARD )
+		return hard;
+	if( form == AIKNOB_GATED )
+	{
+		if( r < 0.5f * ( AI_RATING_EASY + AI_RATING_MEDIUM ) )
+			return easy;
+		return knobCurve( medium, hard, ( r - AI_RATING_MEDIUM ) / ( AI_RATING_HARD - AI_RATING_MEDIUM ), FALSE );
+	}
+	return knobCurve( easy, hard, ( r - AI_RATING_EASY ) / ( AI_RATING_HARD - AI_RATING_EASY ), form == AIKNOB_SHARE );
+}
+
+static Int roundKnob( Real value )
+{
+	return (Int)floor( value + 0.5f );
+}
+
+Real aiRatingLerp( Real rating, const AIRungReal &knob )
+{
+	return aiKnobAt( rating, knob.m_byRung[ AISKILL_EASY ], knob.m_byRung[ AISKILL_MEDIUM ], knob.m_byRung[ AISKILL_BRUTAL ], knob.m_form );
+}
+
+Int aiRatingLerp( Real rating, const AIRungInt &knob )
+{
+	return roundKnob( aiKnobAt( rating, INT_TO_REAL( knob.m_byRung[ AISKILL_EASY ] ), INT_TO_REAL( knob.m_byRung[ AISKILL_MEDIUM ] ),
+		INT_TO_REAL( knob.m_byRung[ AISKILL_BRUTAL ] ), knob.m_form ) );
 }
 
 //-------------------------------------------------------------------------------------------------
-/** SkillLevel = Brutal ... End, in AI.ini: tuning the ladder without a recompile, which is what
-	* the headless batch runner wants.  Anything the block does not mention keeps its default. */
+/** The curve each knob of the profile is read on (aiKnobAt; AI.h has the forms, rise or fall is E's and
+	* H's).  A share is a fraction that means nothing past 1: CounterCompositionWeight (past 1 aiCounterFit
+	* goes negative), RetreatTtkRatio (past 1 it pulls back from a fight it is winning), the upgrade weight,
+	* SurplusShare and ArtilleryShare.  Gated, Easy's 0 being "off": CashHoardThreshold (0 never hurries)
+	* and BeamSteerSeconds (0 is the retail S curve).  Everything else is open. */
 //-------------------------------------------------------------------------------------------------
-void AI::parseSkillLevel(INI *ini, void *instance, void* /*store*/, const void* /*userData*/)
-{
-	static const FieldParse myFieldParse[] =
+static const AIKnobForm KNOB_OPEN		= AIKNOB_OPEN;
+static const AIKnobForm KNOB_SHARE	= AIKNOB_SHARE;
+static const AIKnobForm KNOB_GATED	= AIKNOB_GATED;
+
+//-------------------------------------------------------------------------------------------------
+/** SkillLevel = Brutal ... End, in AI.ini, field by field; aiRatingProfile walks the same list, so a
+	* field added to the profile and to this table is both tunable and read at a rating, and its userData
+	* is its curve (the parsers ignore it). */
+//-------------------------------------------------------------------------------------------------
+static const FieldParse s_skillLevelFields[] =
 	{
-		{ "ScoutIntervalSeconds",			INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_scoutIntervalSeconds ) },
-		{ "MaxScouts",								INI::parseInt,  NULL, offsetof( AIDifficultyProfile, m_maxScouts ) },
-		{ "DecisionIntervalSeconds",	INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_decisionIntervalSeconds ) },
-		{ "CounterCompositionWeight",	INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_counterCompositionWeight ) },
+		{ "ScoutIntervalSeconds",			INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_scoutIntervalSeconds ) },
+		{ "MaxScouts",								INI::parseInt,  &KNOB_OPEN, offsetof( AIDifficultyProfile, m_maxScouts ) },
+		{ "DecisionIntervalSeconds",	INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_decisionIntervalSeconds ) },
+		{ "CounterCompositionWeight",	INI::parseReal, &KNOB_SHARE, offsetof( AIDifficultyProfile, m_counterCompositionWeight ) },
 		{ "MassBeforeAttacking",			INI::parseBool, NULL, offsetof( AIDifficultyProfile, m_massBeforeAttacking ) },
-		{ "RetreatTtkRatio",					INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_retreatTtkRatio ) },
+		{ "RetreatTtkRatio",					INI::parseReal, &KNOB_SHARE, offsetof( AIDifficultyProfile, m_retreatTtkRatio ) },
 		{ "RetreatIndividualUnits",		INI::parseBool, NULL, offsetof( AIDifficultyProfile, m_retreatIndividualUnits ) },
 		{ "RetreatTeams",							INI::parseBool, NULL, offsetof( AIDifficultyProfile, m_retreatTeams ) },
 		{ "UseInfluenceMapForAttackLane", INI::parseBool, NULL, offsetof( AIDifficultyProfile, m_useInfluenceMapForAttackLane ) },
@@ -3215,49 +3341,103 @@ void AI::parseSkillLevel(INI *ini, void *instance, void* /*store*/, const void* 
 		{ "AdaptiveHarvesters",				INI::parseBool, NULL, offsetof( AIDifficultyProfile, m_adaptiveHarvesters ) },
 		{ "SelfTriggeredExpansion",		INI::parseBool, NULL, offsetof( AIDifficultyProfile, m_selfTriggeredExpansion ) },
 		{ "DefendExpansions",					INI::parseBool, NULL, offsetof( AIDifficultyProfile, m_defendExpansions ) },
-		{ "CashHoardThreshold",				INI::parseInt,  NULL, offsetof( AIDifficultyProfile, m_cashHoardThreshold ) },
+		{ "CashHoardThreshold",				INI::parseInt,  &KNOB_GATED, offsetof( AIDifficultyProfile, m_cashHoardThreshold ) },
 		{ "EconomyBuildings",					INI::parseBool, NULL, offsetof( AIDifficultyProfile, m_economyBuildings ) },
 		{ "TacticalMicro",						INI::parseBool, NULL, offsetof( AIDifficultyProfile, m_tacticalMicro ) },
 		{ "EngageGate",								INI::parseBool, NULL, offsetof( AIDifficultyProfile, m_engageGate ) },
 		{ "AnswerArmy",								INI::parseBool, NULL, offsetof( AIDifficultyProfile, m_answerArmy ) },
 		{ "MassUnit",									INI::parseBool, NULL, offsetof( AIDifficultyProfile, m_massUnit ) },
-		{ "BankTargetSeconds",				INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_bankTargetSeconds ) },
-		{ "BankTargetFloor",					INI::parseInt,  NULL, offsetof( AIDifficultyProfile, m_bankTargetFloor ) },
-		{ "UpgradePayoff",						INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_upgradePayoff ) },
-		{ "UpgradeStartSeconds",			INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_upgradeStartSeconds ) },
-		{ "UpgradeNonCombatWeight",		INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_upgradeNonCombatWeight ) },
-		{ "SurplusShare",							INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_surplusShare ) },
-		{ "FactoryBacklogSeconds",		INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_factoryBacklogSeconds ) },
-		{ "FirstPushSeconds",					INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_firstPushSeconds ) },
-		{ "MinAttackPower",						INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_minAttackPower ) },
-		{ "SiegeTrail",								INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_siegeTrail ) },
-		{ "BeamSteerSeconds",					INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_beamSteerSeconds ) },
-		{ "StrikeEconomyWeight",			INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_strikeEconomyWeight ) },
-		{ "StrikeThreatWeight",				INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_strikeThreatWeight ) },
-		{ "SuperweaponDefenses",			INI::parseInt,  NULL, offsetof( AIDifficultyProfile, m_superweaponDefenses ) },
-		{ "SiteStallSeconds",					INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_siteStallSeconds ) },
-		{ "SiteBuildersLost",					INI::parseInt,  NULL, offsetof( AIDifficultyProfile, m_siteBuildersLost ) },
-		{ "SiteRetrySeconds",					INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_siteRetrySeconds ) },
+		{ "BankTargetSeconds",				INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_bankTargetSeconds ) },
+		{ "BankTargetFloor",					INI::parseInt,  &KNOB_OPEN, offsetof( AIDifficultyProfile, m_bankTargetFloor ) },
+		{ "UpgradePayoff",						INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_upgradePayoff ) },
+		{ "UpgradeStartSeconds",			INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_upgradeStartSeconds ) },
+		{ "UpgradeNonCombatWeight",		INI::parseReal, &KNOB_SHARE, offsetof( AIDifficultyProfile, m_upgradeNonCombatWeight ) },
+		{ "SurplusShare",							INI::parseReal, &KNOB_SHARE, offsetof( AIDifficultyProfile, m_surplusShare ) },
+		{ "FactoryBacklogSeconds",		INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_factoryBacklogSeconds ) },
+		{ "FirstPushSeconds",					INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_firstPushSeconds ) },
+		{ "MinAttackPower",						INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_minAttackPower ) },
+		{ "SiegeTrail",								INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_siegeTrail ) },
+		{ "BeamSteerSeconds",					INI::parseReal, &KNOB_GATED, offsetof( AIDifficultyProfile, m_beamSteerSeconds ) },
+		{ "StrikeEconomyWeight",			INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_strikeEconomyWeight ) },
+		{ "StrikeThreatWeight",				INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_strikeThreatWeight ) },
+		{ "SuperweaponDefenses",			INI::parseInt,  &KNOB_OPEN, offsetof( AIDifficultyProfile, m_superweaponDefenses ) },
+		{ "SiteStallSeconds",					INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_siteStallSeconds ) },
+		{ "SiteBuildersLost",					INI::parseInt,  &KNOB_OPEN, offsetof( AIDifficultyProfile, m_siteBuildersLost ) },
+		{ "SiteRetrySeconds",					INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_siteRetrySeconds ) },
 		{ "StageDozers",							INI::parseBool, NULL, offsetof( AIDifficultyProfile, m_stageDozers ) },
-		{ "ArtillerySpotters",				INI::parseInt,  NULL, offsetof( AIDifficultyProfile, m_artillerySpotters ) },
-		{ "ArtilleryShare",						INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_artilleryShare ) },
-		{ "InfluenceSeconds",					INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_influenceSeconds ) },
-		{ "FireLookSeconds",					INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_fireLookSeconds ) },
-		{ "FireWordRadius",						INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_fireWordRadius ) },
-		{ "FireChargeOdds",						INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_fireChargeOdds ) },
-		{ "FireMemorySeconds",				INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_fireMemorySeconds ) },
-		{ "BaseWatchSeconds",					INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_baseWatchSeconds ) },
-		{ "BaseWatchOdds",						INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_baseWatchOdds ) },
-		{ "StrikeDodgeSeconds",				INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_strikeDodgeSeconds ) },
-		{ "SecondBaseSeconds",				INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_secondBaseSeconds ) },
-		{ "SecondBases",							INI::parseInt,  NULL, offsetof( AIDifficultyProfile, m_secondBases ) },
-		{ "ExpansionReach",						INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_expansionReach ) },
-		{ "IncomePercent",						INI::parseInt,  NULL, offsetof( AIDifficultyProfile, m_incomePercent ) },
-		{ "UnitAbilities",						INI::parseInt,  NULL, offsetof( AIDifficultyProfile, m_unitAbilities ) },
-		{ "ForeignTech",							INI::parseInt,  NULL, offsetof( AIDifficultyProfile, m_foreignTech ) },
+		{ "ArtillerySpotters",				INI::parseInt,  &KNOB_OPEN, offsetof( AIDifficultyProfile, m_artillerySpotters ) },
+		{ "ArtilleryShare",						INI::parseReal, &KNOB_SHARE, offsetof( AIDifficultyProfile, m_artilleryShare ) },
+		{ "InfluenceSeconds",					INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_influenceSeconds ) },
+		{ "FireLookSeconds",					INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_fireLookSeconds ) },
+		{ "FireWordRadius",						INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_fireWordRadius ) },
+		{ "FireChargeOdds",						INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_fireChargeOdds ) },
+		{ "FireMemorySeconds",				INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_fireMemorySeconds ) },
+		{ "BaseWatchSeconds",					INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_baseWatchSeconds ) },
+		{ "BaseWatchOdds",						INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_baseWatchOdds ) },
+		{ "StrikeDodgeSeconds",				INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_strikeDodgeSeconds ) },
+		{ "SecondBaseSeconds",				INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_secondBaseSeconds ) },
+		{ "SecondBases",							INI::parseInt,  &KNOB_OPEN, offsetof( AIDifficultyProfile, m_secondBases ) },
+		{ "ExpansionReach",						INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_expansionReach ) },
+		{ "IncomePercent",						INI::parseInt,  &KNOB_OPEN, offsetof( AIDifficultyProfile, m_incomePercent ) },
+		{ "IncomeBonusMaxPercent",		INI::parseInt,  &KNOB_OPEN, offsetof( AIDifficultyProfile, m_incomeBonusMaxPercent ) },
+		{ "BuildDelayScale",					INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_buildDelayScale ) },
+		{ "UnitAbilities",						INI::parseInt,  &KNOB_OPEN, offsetof( AIDifficultyProfile, m_unitAbilities ) },
+		{ "ForeignTech",							INI::parseInt,  &KNOB_OPEN, offsetof( AIDifficultyProfile, m_foreignTech ) },
 		{ NULL, NULL, NULL, 0 }
 	};
 
+const FieldParse *aiSkillLevelFields( void )
+{
+	return s_skillLevelFields;
+}
+
+void aiRatingProfile( Real rating, const AIDifficultyProfile ladder[ AISKILL_COUNT ], AIDifficultyProfile *out )
+{
+	// the Bools, and anything the table does not name, are the nearest rung's
+	*out = ladder[ aiSkillOfRating( rating ) ];
+	const char *easy = (const char *)&ladder[ AISKILL_EASY ];
+	const char *medium = (const char *)&ladder[ AISKILL_MEDIUM ];
+	const char *hard = (const char *)&ladder[ AISKILL_BRUTAL ];
+	char *o = (char *)out;
+	for( const FieldParse *field = s_skillLevelFields; field->token != NULL; ++field )
+	{
+		if( field->parse == INI::parseBool )
+			continue;
+		const Int at = field->offset;
+		DEBUG_ASSERTCRASH( field->userData != NULL, ( "aiRatingProfile: SkillLevel field %s has no curve", field->token ) );
+		const AIKnobForm form = field->userData != NULL ? *(const AIKnobForm *)field->userData : AIKNOB_OPEN;
+		if( field->parse == INI::parseReal )
+			*(Real *)( o + at ) = aiKnobAt( rating, *(const Real *)( easy + at ), *(const Real *)( medium + at ), *(const Real *)( hard + at ), form );
+		else if( field->parse == INI::parseInt )
+			*(Int *)( o + at ) = roundKnob( aiKnobAt( rating, INT_TO_REAL( *(const Int *)( easy + at ) ), INT_TO_REAL( *(const Int *)( medium + at ) ),
+				INT_TO_REAL( *(const Int *)( hard + at ) ), form ) );
+		else
+			DEBUG_CRASH(( "aiRatingProfile: SkillLevel field %s has a parser it cannot read at a rating", field->token ));
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+const AIDifficultyProfile *AI::getRatedProfile( Real rating, AIDifficultyProfile *scratch ) const
+{
+	const AIDifficultyProfile *ladder = m_aiData != NULL ? m_aiData->m_skill : s_defaultSkillLadder;
+	const Real r = aiRatingClamp( rating );
+	// Easy and Hard are their rows; Medium's numbers are only where the curves pass at 15
+	if( r == AI_RATING_EASY )
+		return &ladder[ AISKILL_EASY ];
+	if( r == AI_RATING_HARD )
+		return &ladder[ AISKILL_BRUTAL ];
+	aiRatingProfile( r, ladder, scratch );
+	return scratch;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** SkillLevel = Brutal ... End, in AI.ini: tuning the ladder without a recompile, which is what
+	* the headless batch runner wants.  Anything the block does not mention keeps its default.  Easy
+	* and Brutal are the ends every curve runs through; Medium's numbers are read only by a gated knob
+	* (and its Bools by a rating nearest Medium). */
+//-------------------------------------------------------------------------------------------------
+void AI::parseSkillLevel(INI *ini, void *instance, void* /*store*/, const void* /*userData*/)
+{
 	static const char *names[ AISKILL_COUNT ] =
 		{ "Easy", "Medium", "Brutal" };
 
@@ -3273,7 +3453,7 @@ void AI::parseSkillLevel(INI *ini, void *instance, void* /*store*/, const void* 
 		which = AISKILL_BRUTAL;			// parse it somewhere rather than throw the block on the floor
 	}
 
-	ini->initFromINI( &((TAiData*)instance)->m_skill[ which ], myFieldParse );
+	ini->initFromINI( &((TAiData*)instance)->m_skill[ which ], s_skillLevelFields );
 }
 
 TAiData::TAiData() : 

@@ -137,7 +137,7 @@ void AISkirmishPlayer::processBaseBuilding( void )
 		// and a Tech AI from Medium up, whose whole plan is the tree and the superweapon at its top, and a
 		// GLA Air one, whose SCUD Storm stands in for the air force it cannot build
 		const Bool rushBigGuns = runsOwnAI() && (getSkillProfile()->m_economyBuildings ||
-			(m_persona != AIPERSONA_NORMAL && m_skillLevel >= AISKILL_MEDIUM && superweaponIsPlan()));
+			(m_persona != AIPERSONA_NORMAL && aiRatingReaches( m_rating, AISKILL_MEDIUM ) && superweaponIsPlan()));
 		Bool rushTaken = false;
 		// With the purchase queue the priority entries are taken by its score, the first of the best in
 		// list order, so an early drop zone does not wait behind the scripts' bunkers.
@@ -1342,6 +1342,11 @@ static Int64 bankForSurrender( Player *player )
 	return money->isUnlimited() ? 0 : money->countMoney();
 }
 
+// doSurrender's Easy, Medium and Hard, read at the seat's rating; extern for aiRatingTables
+extern const AIRungInt SURRENDER_EARLIEST_MINUTE = { { 6, 8, 10 }, AIKNOB_OPEN };	// never before this
+extern const AIRungInt SURRENDER_WORTH_PERCENT   = { { 20, 12, 8 }, AIKNOB_OPEN };	// of the strongest enemy's
+extern const AIRungInt SURRENDER_HOLD_SECONDS    = { { 30, 45, 60 }, AIKNOB_OPEN };	// lost this long before GG
+
 //----------------------------------------------------------------------------------------------------------
 /**
  * Give up the way a person does when the match is gone: say GG, and a moment later surrender, handing
@@ -1378,13 +1383,7 @@ void AISkirmishPlayer::doSurrender( void )
 	if( !TheRecorder->isMultiplayer() || !m_player->isPlayableSide() || !runsOwnAI() )
 		return;
 
-	// Easy, Medium, Hard.
-	static const Int EARLIEST_MINUTE[ DIFFICULTY_COUNT ] = { 6, 8, 10 };	// never before this
-	static const Int WORTH_PERCENT[ DIFFICULTY_COUNT ]   = { 20, 12, 8 };	// of the strongest enemy's
-	static const Int HOLD_SECONDS[ DIFFICULTY_COUNT ]    = { 30, 45, 60 };	// lost this long before GG
-	const Int difficulty = getAIDifficulty();
-
-	if( now < (UnsignedInt)( EARLIEST_MINUTE[ difficulty ] * 60 * LOGICFRAMES_PER_GAME_SECOND ) )
+	if( now < (UnsignedInt)( aiRatingLerp( m_rating, SURRENDER_EARLIEST_MINUTE ) * 60 * LOGICFRAMES_PER_GAME_SECOND ) )
 		return;
 
 	SurrenderTally mine = { 0, 0 };
@@ -1409,7 +1408,7 @@ void AISkirmishPlayer::doSurrender( void )
 	}
 
 	const Bool cannotRebuild = !m_player->hasAnyBuildFacility() && mine.builders == 0 && mine.value < strongestEnemy;
-	const Bool outweighed = mine.value * 100 < strongestEnemy * WORTH_PERCENT[ difficulty ];
+	const Bool outweighed = mine.value * 100 < strongestEnemy * aiRatingLerp( m_rating, SURRENDER_WORTH_PERCENT );
 	if( !cannotRebuild && !outweighed )
 	{
 		m_hopelessSinceFrame = 0;
@@ -1420,7 +1419,7 @@ void AISkirmishPlayer::doSurrender( void )
 		m_hopelessSinceFrame = now;
 		return;
 	}
-	if( now - m_hopelessSinceFrame < (UnsignedInt)( HOLD_SECONDS[ difficulty ] * LOGICFRAMES_PER_GAME_SECOND ) )
+	if( now - m_hopelessSinceFrame < (UnsignedInt)( aiRatingLerp( m_rating, SURRENDER_HOLD_SECONDS ) * LOGICFRAMES_PER_GAME_SECOND ) )
 		return;
 
 	DEBUG_LOG(( "AI GG player %d frame %u worth %lld enemy %lld rebuild %d\n", (Int)m_player->getPlayerIndex(),

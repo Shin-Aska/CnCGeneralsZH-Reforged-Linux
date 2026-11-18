@@ -392,7 +392,7 @@ public:
 	Int m_healthBarColors;				///< 0 the green-to-red health ramp, 1 the owner's player colour (client only)
 	Int m_hudLayout;							///< "HudLayout": HUD_LAYOUT_CLASSIC or HUD_LAYOUT_SIDEBAR (OptionsCatalog.h, client only)
 	Int m_hudWidth;								///< "HudWidth": HUD_WIDTH_FULL, _21_9 or _16_9, the interface's centred area (client only)
-	Int m_hotkeyScheme;						///< "HotkeyScheme": HOTKEY_SCHEME_CLASSIC or _RED_ALERT (OptionsCatalog.h, client only)
+	Int m_hotkeyScheme;						///< HOTKEY_SCHEME_CLASSIC or _RED_ALERT, set from m_hudLayout (hotkeySchemeForHudLayout, client only)
 	Int m_mouseStyle;							///< MOUSE_STYLE_CLASSIC or MOUSE_STYLE_REFORGED, set by -mouse only (client only, never GameLogic)
 	Bool isClassicMouse() const { return m_mouseStyle == MOUSE_STYLE_CLASSIC; }
 	/// which button gives a click on the ground its order.  Reforged mouse: the right.  Classic: the left,
@@ -510,6 +510,8 @@ public:
 	Bool m_headless;							///< -headless: never draw a frame, never pace the logic tick, quit when the match ends
 	Bool m_turbo;									///< -turbo: draw, but run one logic frame a pass instead of pacing it to the wall clock
 	Int m_autoSkirmishAIStateOdd;		///< -aidiff2 <name>: rung for the odd-numbered slots (0 = same as -aidiff)
+	Int m_autoSkirmishRating;				///< -airating <r>: every AI slot's rating in hundredths, the rung its nearest; over -aidiff (AI_RATING_NONE = off; negative is a rating)
+	Int m_autoSkirmishRatingOdd;		///< -airating2 <r>: the odd-numbered slots' rating in hundredths, over -aidiff2 (AI_RATING_NONE = same as -airating)
 	Int m_noTacticsSlotParity;			///< -notactics even|odd: those slots of a skirmish fight without Hard's unit tactics; -1 none
 	Int m_aiKnobsOffParity;				///< -aiknobsoff even|odd|all <names>: those slots of a skirmish play with these profile knobs off; -1 none, 2 all
 	Int m_aiKnobsOffMask;					///< ... which knobs: AIKNOB_* bits

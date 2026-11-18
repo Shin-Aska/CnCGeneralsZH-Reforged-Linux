@@ -302,11 +302,14 @@ void ControlBarScheme::reset(void)
 			if( im )
 				delete im;
 			im = NULL;
-			it ++;	
+			it ++;
 		}
 		m_layer[i].clear();
-	
+
 	}
+	if( m_grownRadarGlass )
+		m_grownRadarGlass->deleteInstance();
+	m_grownRadarGlass = NULL;
 
 
 	ControlBarSchemeAnimationList::iterator it = m_animations.begin();
@@ -552,6 +555,7 @@ ControlBarScheme::ControlBarScheme(void)
 	m_grownRadarRight = 0;
 	m_grownRadarPeriod = 0;
 	m_grownRadarLedge = 0;
+	m_grownRadarGlass = NULL;
 	m_tooltip = ControlBarTooltipImages();
 	for( Int i = 0; i < TALENT_PIECE_COUNT; i++ )
 		m_talent[ i ] = NULL;
@@ -633,6 +637,28 @@ void ControlBarScheme::init(void)
 	findPieces( m_signalPlateImageName, "", tabStates, 1, &m_signalPlateImage );
 	static const char *const grownSuffixes[ GROWN_PIECE_COUNT ] = { "TL", "T", "TR", "L", "R", "BL", "B", "BR", "C" };
 	findPieces( m_grownRadarName, "", grownSuffixes, GROWN_PIECE_COUNT, m_grownRadar );
+
+	// C taken at the point in its middle, which bilinear filtering answers with the average of the
+	// four texels round it wherever the quad is drawn: one flat colour however far it stretches
+	if( m_grownRadarGlass )
+		m_grownRadarGlass->deleteInstance();
+	m_grownRadarGlass = NULL;
+	if( const Image *c = m_grownRadar[ GROWN_C ] )
+	{
+		m_grownRadarGlass = newInstance( Image );
+		m_grownRadarGlass->setName( c->getName() );
+		m_grownRadarGlass->setFilename( c->getFilename() );
+		m_grownRadarGlass->setTextureWidth( c->getTextureSize()->x );
+		m_grownRadarGlass->setTextureHeight( c->getTextureSize()->y );
+		ICoord2D size = *c->getImageSize();
+		m_grownRadarGlass->setImageSize( &size );
+		m_grownRadarGlass->setStatus( c->getStatus() );
+		const Region2D *uv = c->getUV();
+		Region2D middle;
+		middle.lo.x = middle.hi.x = ( uv->lo.x + uv->hi.x ) * 0.5f;
+		middle.lo.y = middle.hi.y = ( uv->lo.y + uv->hi.y ) * 0.5f;
+		m_grownRadarGlass->setUV( &middle );
+	}
 	m_tooltip.find( m_tooltipName );
 	static const char *const talentSuffixes[ TALENT_PIECE_COUNT ] =
 		{ "GeneralsPowerWindowWide", "TalentPlateLocked", "TalentPlateWaiting", "TalentPlatePicked", "TalentPlateRejected",
@@ -1499,6 +1525,11 @@ Int ControlBarSchemeManager::getGrownRadarLedge( void ) const
 	return m_currentScheme ? REAL_TO_INT_FLOOR( m_currentScheme->m_grownRadarLedge * getArtScale() + 0.5f ) : 0;
 }
 
+const Image *ControlBarSchemeManager::getGrownRadarGlass( void ) const
+{
+	return m_currentScheme ? m_currentScheme->m_grownRadarGlass : NULL;
+}
+
 const Image *const *ControlBarSchemeManager::getSignalImages( Int kind ) const
 {
 	if( m_currentScheme == NULL || kind < 0 || kind >= ControlBarScheme::SIGNAL_KEY_COUNT || m_currentScheme->m_signal[ kind ][ 0 ] == NULL )
@@ -1644,23 +1675,41 @@ static Int grownSize( Int texels, Real scale )
 	return MAX( 1, REAL_TO_INT_FLOOR( texels * scale + 0.5f ) );
 }
 
-/// the run x0..x1, y0..y1 tiled from its top left by the piece at its scaled size, never stretched; the
-/// last tile in a row or a column is cut, keeping its top left (grown_compose's tile)
+/// where the tile after the one at 'at' starts: a step on, never past 'last', the whole tile that ends
+/// on the run's 'end'
+static Int grownNextTile( Int at, Int step, Int last, Int end )
+{
+	return at == last ? end : MIN( at + step, last );
+}
+
+/// the run x0..x1, y0..y1 tiled by the piece at its scaled size, never stretched.  Tiles step from the
+/// run's start, and a run longer than one tile ends on a whole tile against its far end, so the corner
+/// at either end meets the same texels at every Minimap Size; the one cut tile, keeping its top left,
+/// falls just before that last one.  Cut from the far end instead, the corner there met whatever
+/// texel row the run's length left, a bolt halved or the ragged edge a step off.
 static void grownTile( const Image *piece, Real scale, Int x0, Int y0, Int x1, Int y1, Color tint )
 {
 	if( x1 <= x0 || y1 <= y0 )
 		return;
 	const Int w = grownSize( piece->getImageWidth(), scale ), h = grownSize( piece->getImageHeight(), scale );
-	IRegion2D run;
-	run.lo.x = x0;
-	run.lo.y = y0;
-	run.hi.x = x1;
-	run.hi.y = y1;
-	TheDisplay->setClipRegion( &run );
+	const Int lastX = x1 - x0 > w ? x1 - w : x0;
+	const Int lastY = y1 - y0 > h ? y1 - h : y0;
 	TheDisplay->enableClipping( TRUE );
-	for( Int y = y0; y < y1; y += h )
-		for( Int x = x0; x < x1; x += w )
+	for( Int y = y0, nextY; y < y1; y = nextY )
+	{
+		nextY = grownNextTile( y, h, lastY, y1 );
+		for( Int x = x0, nextX; x < x1; x = nextX )
+		{
+			nextX = grownNextTile( x, w, lastX, x1 );
+			IRegion2D cell;
+			cell.lo.x = x;
+			cell.lo.y = y;
+			cell.hi.x = nextX;
+			cell.hi.y = nextY;
+			TheDisplay->setClipRegion( &cell );
 			TheDisplay->drawImage( piece, x, y, x + w, y + h, tint );
+		}
+	}
 	TheDisplay->enableClipping( FALSE );
 }
 
@@ -1682,9 +1731,9 @@ static void grownCorner( const Image *piece, Real scale, Int x, Int y, Color tin
 	* picture is the radar window's, drawn after.  While the under-attack lamp is lit the frame's pieces
 	* take its red, the glass and the picture none. */
 //-----------------------------------------------------------------------------
-void ControlBarSchemeManager::drawGrownRadarPieces( const Image *const *P, Real s, const IRegion2D &well, Bool lit )
+void ControlBarSchemeManager::drawGrownRadarPieces( const Image *const *P, Real s, const IRegion2D &outer, const IRegion2D &well, Bool lit, const Image *glass )
 {
-	const Int x5 = well.lo.x, yT = well.lo.y, xR = well.hi.x, yB = well.hi.y;
+	const Int x0 = outer.lo.x, x5 = well.lo.x, yT = well.lo.y, xR = well.hi.x, yB = well.hi.y;
 	const Int head = grownSize( P[ ControlBarScheme::GROWN_T ]->getImageHeight(), s );
 	const Int R = grownSize( P[ ControlBarScheme::GROWN_R ]->getImageWidth(), s );
 	const Int cut = grownSize( P[ ControlBarScheme::GROWN_TR ]->getImageWidth(), s ) - R;
@@ -1695,15 +1744,21 @@ void ControlBarSchemeManager::drawGrownRadarPieces( const Image *const *P, Real 
 	const Int top = yT - head;
 	const Color tint = lit ? GameMakeColor( 255, 110, 100, 255 ) : 0xFFFFFFFF;
 
-	grownTile( P[ ControlBarScheme::GROWN_T ], s, grownSize( P[ ControlBarScheme::GROWN_TL ]->getImageWidth(), s ), top, xR - cut, yT, tint );
-	grownTile( P[ ControlBarScheme::GROWN_L ], s, 0, yT + l0, x5, yB - foot, tint );
+	grownTile( P[ ControlBarScheme::GROWN_T ], s, x0 + grownSize( P[ ControlBarScheme::GROWN_TL ]->getImageWidth(), s ), top, xR - cut, yT, tint );
+	grownTile( P[ ControlBarScheme::GROWN_L ], s, x0, yT + l0, x5, yB - foot, tint );
 	grownTile( P[ ControlBarScheme::GROWN_R ], s, xR, yT + r0, xR + R, yB - foot, tint );
 	grownTile( P[ ControlBarScheme::GROWN_B ], s, x5, yB, xR - cut, yB + bH, tint );
-	grownCorner( P[ ControlBarScheme::GROWN_TL ], s, 0, top, tint );
+	grownCorner( P[ ControlBarScheme::GROWN_TL ], s, x0, top, tint );
 	grownCorner( P[ ControlBarScheme::GROWN_TR ], s, xR - cut, top, tint );
-	grownCorner( P[ ControlBarScheme::GROWN_BL ], s, 0, yB - foot, tint );
+	grownCorner( P[ ControlBarScheme::GROWN_BL ], s, x0, yB - foot, tint );
 	grownCorner( P[ ControlBarScheme::GROWN_BR ], s, xR - cut, yB - foot, tint );
-	grownTile( P[ ControlBarScheme::GROWN_C ], s, x5, yT, xR, yB, 0xFFFFFFFF );
+
+	// The glass is one quad, not tiled: C is a 4x2 patch, and tiled over a well Minimap Size had grown
+	// to 200% it was some 24000 drawImage calls a frame, each its own draw outside a 2D batch.  It is
+	// C sampled at its middle alone (ControlBarScheme's m_grownRadarGlass), one flat colour, since C's
+	// texels straddle a DXT block seam and stretched whole they made a gradient in the letterbox bands,
+	// the only glass the picture leaves showing.
+	TheDisplay->drawImage( glass ? glass : P[ ControlBarScheme::GROWN_C ], x5, yT, xR, yB );
 }
 
 //-----------------------------------------------------------------------------
@@ -1725,7 +1780,7 @@ void ControlBarSchemeManager::drawGrownRadarFrame( void )
 	const Image *const *pieces = schemes ? schemes->getGrownRadarPieces() : NULL;
 	if( pieces != NULL )
 	{
-		drawGrownRadarPieces( pieces, schemes->getArtScale(), i, lit );
+		drawGrownRadarPieces( pieces, schemes->getArtScale(), o, i, lit, schemes->getGrownRadarGlass() );
 		return;
 	}
 

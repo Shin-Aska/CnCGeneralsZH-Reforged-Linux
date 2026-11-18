@@ -59,6 +59,7 @@
 #include "GameClient/ChallengeGenerals.h"
 #include "GameClient/FactionPicker.h"
 #include "GameClient/UIStyle.h"
+#include "GameNetwork/Online/OnlineQueues.h"
 #include "GameNetwork/FrameResendPolicy.h"
 #include "GameLogic/FPUControl.h"
 #include "GameNetwork/StallJudgement.h"
@@ -2829,7 +2830,7 @@ TEST(income_sharing_splits_evenly_and_keeps_the_remainder)
 	CHECK_EQ( IncomeAllyShare( 200, 1 ), 0u );
 }
 
-/* Player.cpp: a skirmish computer banks its rung's income percent (150 on every rung), rounded down. */
+/* Player.cpp: a skirmish computer banks its rated income percent (100 Easy, 150 Hard), rounded down. */
 TEST(skirmish_ai_earnings_by_rung_percent)
 {
 	/* anyone who is not a computer */
@@ -2837,26 +2838,43 @@ TEST(skirmish_ai_earnings_by_rung_percent)
 	/* a computer: the derrick's 1000 is 1500, a truckload of 75 banks 112, the odd half dropped */
 	CHECK_EQ( EarnedAmount( 1000, 150 ), 1500u );
 	CHECK_EQ( EarnedAmount( 75, 150 ), 112u );
+	/* a rating of 1000 earns about 4300 percent; a million times that would wrap 32 bits */
+	CHECK_EQ( EarnedAmount( 1000000, 4300 ), 43000000u );
 }
 
 /* Player.cpp: the falling-behind bonus, points over the rung's percent, and its step at one weighing. */
 TEST(skirmish_ai_earnings_bonus_when_behind)
 {
 	/* level or ahead, or no enemy left: none */
-	CHECK_EQ( IncomeBonusTarget( 1000, 1000 ), 0 );
-	CHECK_EQ( IncomeBonusTarget( 3000, 1000 ), 0 );
-	CHECK_EQ( IncomeBonusTarget( 1000, 0 ), 0 );
-	/* three quarters of the enemy: 200 percent on a 150 rung; half of it: 250 */
-	CHECK_EQ( IncomeBonusTarget( 750, 1000 ), 50 );
-	CHECK_EQ( IncomeBonusTarget( 500, 1000 ), 100 );
-	/* a quarter of it and below: the ceiling, 300 percent */
-	CHECK_EQ( IncomeBonusTarget( 250, 1000 ), 150 );
-	CHECK_EQ( IncomeBonusTarget( 0, 1000 ), 150 );
-	/* 25 points a weighing, either way, and straight onto a target that close */
-	CHECK_EQ( IncomeBonusStep( 0, 150 ), 25 );
-	CHECK_EQ( IncomeBonusStep( 140, 150 ), 150 );
-	CHECK_EQ( IncomeBonusStep( 150, 0 ), 125 );
-	CHECK_EQ( IncomeBonusStep( 5, 0 ), 0 );
+	CHECK_EQ( IncomeBonusTarget( 1000, 1000, 150 ), 0 );
+	CHECK_EQ( IncomeBonusTarget( 3000, 1000, 150 ), 0 );
+	CHECK_EQ( IncomeBonusTarget( 1000, 0, 150 ), 0 );
+	/* three quarters of the enemy under a 150 ceiling: 50 points; half of it: 100 */
+	CHECK_EQ( IncomeBonusTarget( 750, 1000, 150 ), 50 );
+	CHECK_EQ( IncomeBonusTarget( 500, 1000, 150 ), 100 );
+	/* a quarter of it and below: the ceiling */
+	CHECK_EQ( IncomeBonusTarget( 250, 1000, 150 ), 150 );
+	CHECK_EQ( IncomeBonusTarget( 0, 1000, 150 ), 150 );
+	/* another ceiling is reached at the same quarter: Easy's 25, Hard's 100, none at 0 */
+	CHECK_EQ( IncomeBonusTarget( 500, 1000, 100 ), 66 );
+	CHECK_EQ( IncomeBonusTarget( 250, 1000, 100 ), 100 );
+	CHECK_EQ( IncomeBonusTarget( 250, 1000, 25 ), 25 );
+	CHECK_EQ( IncomeBonusTarget( 0, 1000, 0 ), 0 );
+	/* a sixth of the ceiling a weighing, either way, and straight onto a target that close */
+	CHECK_EQ( IncomeBonusStep( 0, 150, 150 ), 25 );
+	CHECK_EQ( IncomeBonusStep( 140, 150, 150 ), 150 );
+	CHECK_EQ( IncomeBonusStep( 150, 0, 150 ), 125 );
+	CHECK_EQ( IncomeBonusStep( 5, 0, 150 ), 0 );
+	CHECK_EQ( IncomeBonusStep( 0, 100, 100 ), 17 );
+	CHECK_EQ( IncomeBonusStep( 0, 25, 25 ), 5 );
+	/* six weighings from nothing to any ceiling, as at 150 */
+	for( Int ceiling = 25; ceiling <= 300; ceiling += 25 )
+	{
+		Int bonus = 0;
+		for( Int weighing = 0; weighing < AI_INCOME_BONUS_STEPS; ++weighing )
+			bonus = IncomeBonusStep( bonus, ceiling, ceiling );
+		CHECK_EQ( bonus, ceiling );
+	}
 }
 
 /* Player.cpp: the bonus weighs sides, a player at a time, not one seat against another. */
@@ -2870,7 +2888,7 @@ TEST(skirmish_ai_earnings_bonus_weighs_sides)
 	CHECK_EQ( own, 500 );
 	CHECK_EQ( enemy, 2000 );
 	/* a quarter of the strongest side's average: the ceiling */
-	CHECK_EQ( IncomeBonusTarget( own, enemy ), 150 );
+	CHECK_EQ( IncomeBonusTarget( own, enemy, 150 ), 150 );
 	/* free for all: every enemy is a side of one, the richest counts */
 	const Int ffa[ 3 ] = { 300, 100, 200 };
 	const PlayerMaskType none[ 3 ] = { 0, 0, 0 };
@@ -8928,6 +8946,75 @@ TEST(capitals_reach_turkish_and_cyrillic_letters)
 	TheWritableGlobalData = saved;
 }
 
+/* The online pages write a rating to two decimals the language's way (the owner's "12.40 -> 14.10",
+	 Turkish 22,70) and a percentage Turkish puts the sign before; a tier is the site's (Player.php
+	 TIERS), unranked under five games, and shows EA's rank portrait of its name. */
+TEST(online_ratings_tiers_and_rank_portraits)
+{
+	CHECK( UIStyle::ratingTextIn( 22.7f, FALSE, TEXT_LANGUAGE_ENGLISH ) == UnicodeString( u"22.70" ) );
+	CHECK( UIStyle::ratingTextIn( 22.7f, FALSE, TEXT_LANGUAGE_TURKISH ) == UnicodeString( u"22,70" ) );
+	CHECK( UIStyle::ratingTextIn( 1.7f, TRUE, TEXT_LANGUAGE_ENGLISH ) == UnicodeString( u"+1.70" ) );
+	CHECK( UIStyle::ratingTextIn( -0.62f, TRUE, TEXT_LANGUAGE_TURKISH ) == UnicodeString( u"-0,62" ) );
+	CHECK( UIStyle::ratingTextIn( -0.004f, TRUE, TEXT_LANGUAGE_ENGLISH ) == UnicodeString( u"0.00" ) );
+	CHECK( UIStyle::ratingTextIn( 0.0f, FALSE, TEXT_LANGUAGE_GERMAN ) == UnicodeString( u"0,00" ) );
+	CHECK( UIStyle::ratingTextIn( 14.1f, FALSE, TEXT_LANGUAGE_ENGLISH ) == UnicodeString( u"14.10" ) );
+
+	CHECK_EQ( UIStyle::percent( 2, 3 ), 67 );
+	CHECK_EQ( UIStyle::percent( 1, 2 ), 50 );
+	CHECK_EQ( UIStyle::percent( 0, 0 ), 0 );
+	CHECK( UIStyle::percentTextIn( 55, TEXT_LANGUAGE_ENGLISH ) == UnicodeString( u"55%" ) );
+	CHECK( UIStyle::percentTextIn( 55, TEXT_LANGUAGE_TURKISH ) == UnicodeString( u"%55" ) );
+	CHECK( UIStyle::percentTextIn( 55, TEXT_LANGUAGE_FRENCH ) == UnicodeString( u"55 %" ) );
+
+	CHECK_EQ( UIStyle::ratingTier( 22.7f, 41 ), UIStyle::TIER_MAJOR );
+	CHECK_EQ( UIStyle::ratingTier( 22.7f, 4 ), UIStyle::TIER_UNRANKED );
+	CHECK_EQ( UIStyle::ratingTier( 22.7f, -1 ), UIStyle::TIER_UNRANKED );
+	CHECK_EQ( UIStyle::ratingTier( 30.0f, 5 ), UIStyle::TIER_GENERAL );
+	CHECK_EQ( UIStyle::ratingTier( 29.99f, 5 ), UIStyle::TIER_COLONEL );
+	CHECK_EQ( UIStyle::ratingTier( 14.1f, 27 ), UIStyle::TIER_LIEUTENANT );
+	CHECK_EQ( UIStyle::ratingTier( 5.0f, 5 ), UIStyle::TIER_SERGEANT );
+	CHECK_EQ( UIStyle::ratingTier( -3.0f, 10 ), UIStyle::TIER_PRIVATE );
+	CHECK_NEAR( UIStyle::tierStart( UIStyle::TIER_CAPTAIN ), 15.0f, 0.0001f );
+	CHECK_STR( UIStyle::tierKey( UIStyle::TIER_LIEUTENANT ), "lieutenant" );
+	CHECK_STR( UIStyle::tierKey( UIStyle::TIER_UNRANKED ), "unranked" );
+
+	// the site's tier wins: it rates the exact value (19.996 shows 20.00 and is still a captain), knows
+	// who is banned and its own minimum of games; the client's rule only when it sent none
+	OnlinePlayerInfo site;
+	site.hasRating = TRUE;
+	site.exactRating = 19.996f;
+	site.games = 41;
+	site.tier = "captain";
+	CHECK_EQ( UIStyle::playerTier( site ), UIStyle::TIER_CAPTAIN );
+	site.tier = "unranked";
+	CHECK_EQ( UIStyle::playerTier( site ), UIStyle::TIER_UNRANKED );
+	site.tier = "Major";
+	CHECK_EQ( UIStyle::playerTier( site ), UIStyle::TIER_MAJOR );
+	site.tier.clear();
+	site.exactRating = 22.7f;
+	CHECK_EQ( UIStyle::playerTier( site ), UIStyle::TIER_MAJOR );
+	site.tier = "marshal";
+	site.games = 3;
+	CHECK_EQ( UIStyle::playerTier( site ), UIStyle::TIER_UNRANKED );
+	site.hasRating = FALSE;
+	site.games = 41;
+	site.tier.clear();
+	CHECK_EQ( UIStyle::playerTier( site ), UIStyle::TIER_UNRANKED );
+
+	CHECK_EQ( UIStyle::tierRank( UIStyle::TIER_UNRANKED ), -1 );
+	CHECK_STR( UIStyle::rankImageName( AsciiString( "USA" ), UIStyle::tierRank( UIStyle::TIER_MAJOR ) ).str(), "Rank_Major_USA" );
+	CHECK_STR( UIStyle::rankImageName( AsciiString( "GLA" ), UIStyle::tierRank( UIStyle::TIER_GENERAL ) ).str(), "Rank_General_GLA" );
+	CHECK_STR( UIStyle::rankImageName( AsciiString( "America" ), UIStyle::tierRank( UIStyle::TIER_SERGEANT ) ).str(), "Rank_Sergeant_USA" );
+	CHECK_STR( UIStyle::rankImageName( AsciiString( "Random" ), UIStyle::tierRank( UIStyle::TIER_CAPTAIN ) ).str(), "Rank_CaptainElite" );
+	CHECK_STR( UIStyle::rankImageName( AsciiString( "Random" ), UIStyle::tierRank( UIStyle::TIER_PRIVATE ) ).str(), "Rank" );
+	CHECK_STR( UIStyle::rankImageName( AsciiString( "" ), 3 ).str(), "NewPlayer" );
+	CHECK( UIStyle::rankImageName( AsciiString( "China" ), 10 ).isEmpty() );
+
+	CHECK_EQ( UIStyle::changeColor( 1.4f ), UIStyle::GOLD );
+	CHECK_EQ( UIStyle::changeColor( -0.62f ), UIStyle::MUTED );
+	CHECK_EQ( UIStyle::changeColor( 0.0f ), UIStyle::INK );
+}
+
 /* The army screen's side box is ticked while the whole side is in the pool, and a click puts the
 	 side in or takes it out; untick one army and the box clears, tick it back and the box is ticked. */
 TEST(army_screen_side_box_follows_the_side_armies)
@@ -11377,6 +11464,17 @@ TEST(load_pip_chips_scale_in_whole_pixels)
 	CHECK_EQ( Drawable_pipPixel( 0.5f ), 1 );
 }
 
+/** Pulled back past the default camera the chips shrink as the health bar's width does; at it and
+	 closer they keep the whole step, so a close look never grows them. */
+TEST(load_pip_chips_shrink_with_the_bar_when_zoomed_out)
+{
+	CHECK_NEAR( Drawable_pipScale( 1.8f, 0.5f ), 1.0f, 1e-6f );		// close: never larger
+	CHECK_NEAR( Drawable_pipScale( 1.8f, 1.0f ), 1.0f, 1e-6f );
+	CHECK_NEAR( Drawable_pipScale( 1.8f, 2.0f ), 0.5f, 1e-6f );
+	CHECK_NEAR( Drawable_pipScale( 3.6f, 0.5f ), 2.0f, 1e-6f );		// 4K keeps its step up close
+	CHECK_NEAR( Drawable_pipScale( 3.6f, 2.9f ), 2.0f / 2.9f, 1e-6f );
+}
+
 /** Who still shows free seats with nobody inside: a transport always, a garrison or a Barracks
 	 never whatever the option says, a Tunnel Network as Empty Building Slots says. */
 TEST(empty_seats_hide_on_a_barracks_whatever_the_option)
@@ -11499,9 +11597,13 @@ TEST(frame_rate_limit_round_trips_through_options_ini)
 }
 
 /** The interface's layout and width: Classic and the whole screen with no line, so a key-less file
-	 is the Classic game, and both rebuild the shell on Accept since the bar reads them as it is laid out. */
+	 is the Classic game, and both rebuild the shell on Accept since the bar reads them as it is laid out.
+	 The layout brings its keys: the sidebar Red Alert's, Classic the Classic ones, and a HotkeyScheme
+	 line of its own is a key nothing reads any more. */
 TEST(hud_layout_and_width_round_trip_through_options_ini)
 {
+	CHECK( findOptionDef( "HotkeyScheme" ) == NULL );
+
 	const OptionDef *layout = findOptionDef( "HudLayout" );
 	const OptionDef *width = findOptionDef( "HudWidth" );
 	CHECK( layout != NULL );
@@ -11520,19 +11622,29 @@ TEST(hud_layout_and_width_round_trip_through_options_ini)
 	CHECK_EQ( TheGlobalData->m_hudWidth, (Int)HUD_WIDTH_FULL );
 	CHECK_EQ( optionDefaultValue( *layout ), (Int)HUD_LAYOUT_CLASSIC );
 	CHECK_EQ( optionDefaultValue( *width ), (Int)HUD_WIDTH_FULL );
+	CHECK_EQ( TheGlobalData->m_hotkeyScheme, (Int)HOTKEY_SCHEME_CLASSIC );
 
 	UserPreferences pref;
 	pref[ AsciiString( "HudLayout" ) ] = AsciiString( "1" );
 	pref[ AsciiString( "HudWidth" ) ] = AsciiString( "2" );
+	pref[ AsciiString( "HotkeyScheme" ) ] = AsciiString( "0" );
 	loadOptionsFromPreferences( pref );
 	CHECK_EQ( TheGlobalData->m_hudLayout, (Int)HUD_LAYOUT_SIDEBAR );
 	CHECK_EQ( TheGlobalData->m_hudWidth, (Int)HUD_WIDTH_16_9 );
+	CHECK_EQ( TheGlobalData->m_hotkeyScheme, (Int)HOTKEY_SCHEME_RED_ALERT );
 
 	pref[ AsciiString( "HudLayout" ) ] = AsciiString( "7" );
 	pref[ AsciiString( "HudWidth" ) ] = AsciiString( "9" );
 	loadOptionsFromPreferences( pref );
 	CHECK_EQ( TheGlobalData->m_hudLayout, HUD_LAYOUT_COUNT - 1 );
 	CHECK_EQ( TheGlobalData->m_hudWidth, HUD_WIDTH_COUNT - 1 );
+	CHECK_EQ( TheGlobalData->m_hotkeyScheme, (Int)HOTKEY_SCHEME_RED_ALERT );
+
+	// the menu's Accept goes through the same setter
+	layout->set( HUD_LAYOUT_CLASSIC );
+	CHECK_EQ( TheGlobalData->m_hotkeyScheme, (Int)HOTKEY_SCHEME_CLASSIC );
+	layout->set( HUD_LAYOUT_SIDEBAR );
+	CHECK_EQ( TheGlobalData->m_hotkeyScheme, (Int)HOTKEY_SCHEME_RED_ALERT );
 
 	delete TheWritableGlobalData;
 	TheWritableGlobalData = saved;
@@ -14847,15 +14959,15 @@ TEST(the_generator_still_turns_a_seed_into_the_bytes_it_used_to)
 {
 	CHECK( bootOnce() );
 
-	CHECK_EQ( RANDOM_MAP_GENERATOR_VERSION, 18 );
+	CHECK_EQ( RANDOM_MAP_GENERATOR_VERSION, 19 );
 
 	struct RMGFingerprint { Int m_seed, m_players, m_cells, m_style; UnsignedInt m_crc; };
 	static const RMGFingerprint theFingerprints[] =
 	{
-		{ 0, 2, 64, 0, 0x1BF70484 },
-		{ 12345, 4, 96, 0, 0x114BBAEA },
-		{ 7, 8, 128, 0, 0xFB27A0BB },
-		{ 7, 4, 200, 1, 0x1F261D65 },
+		{ 0, 2, 64, 0, 0x37DE617A },
+		{ 12345, 4, 96, 0, 0xFDB4EB7C },
+		{ 7, 8, 128, 0, 0x14D69CEE },
+		{ 7, 4, 200, 1, 0xBFE61224 },
 	};
 	const Int numFingerprints = sizeof(theFingerprints) / sizeof(theFingerprints[0]);
 
@@ -14897,6 +15009,44 @@ TEST(the_generator_still_turns_a_seed_into_the_bytes_it_used_to)
 
 	// and the caller's mode is handed back rather than left at the simulation's
 	CHECK_EQ( _controlfp( 0, 0 ), entry );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A map that cuts somebody off, seats two players on one pad or a base in a lake still gets built,
+	so nothing would say so but this. The fingerprinted maps, and a styled bowl asked for at a size it
+	cannot shrink to, which is held to 0.6 of its full size (214 of 356 cells) rather than built as one
+	plateau with the starts five cells apart. */
+//-------------------------------------------------------------------------------------------------
+TEST(every_generated_seat_is_dry_and_walks_to_the_others_and_the_money)
+{
+	CHECK( bootOnce() );
+
+	RandomMapSettings bowl;
+	bowl.m_seed = 1;
+	bowl.m_numPlayers = 8;
+	bowl.m_playableCells = 64;
+	bowl.m_style = 1;
+	RandomMapGenerator::clampSettings( bowl );
+	CHECK_EQ( bowl.m_playableCells, 214 );
+
+	struct RMGCase { Int m_seed, m_players, m_cells, m_style; };
+	static const RMGCase theCases[] =
+	{
+		{ 0, 2, 64, 0 }, { 12345, 4, 96, 0 }, { 7, 8, 128, 0 }, { 7, 4, 200, 1 }, { 1, 8, 64, 1 },
+	};
+	for( Int i = 0; i < (Int)( sizeof(theCases) / sizeof(theCases[0]) ); i++ )
+	{
+		RandomMapSettings settings;
+		settings.m_seed = theCases[i].m_seed;
+		settings.m_numPlayers = theCases[i].m_players;
+		settings.m_playableCells = theCases[i].m_cells;
+		settings.m_style = theCases[i].m_style;
+		const Bool playable = RandomMapGenerator::isPlayable( settings );
+		if( !playable )
+			printf( "  seed %d players %d cells %d style %d is not playable\n", settings.m_seed, settings.m_numPlayers,
+				settings.m_playableCells, settings.m_style );
+		CHECK( playable );
+	}
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -15100,7 +15250,7 @@ TEST(a_template_map_comes_out_the_same_twice_and_every_start_walks_to_every_othe
 	RandomMapGenerator::generate( exemplarSettings, exemplar );
 
 	// the bytes themselves, pinned like the generator's: a change here is a change to every template map's name
-	static const UnsignedInt theTemplateFingerprints[2] = { 0x26A63ABEu, 0x6D469E48u };
+	static const UnsignedInt theTemplateFingerprints[2] = { 0x1357CB4Cu, 0xE273FE41u };
 	for( Int players = 2; players <= 8; players += 6 )
 	{
 		RandomMapSettings settings;
@@ -16549,11 +16699,12 @@ TEST(a_template_joins_two_plateau_bases_across_a_corridor_not_a_valley)
 }
 
 //-------------------------------------------------------------------------------------------------
-/** A LAN game names a template map by four letters of its folder's name, and a machine binds the
-	first folder under maps\ whose letters match, so two shipped maps sharing four letters would put
-	the later one out of LAN games without a word. Every map folder Zero Hour and Generals ship, read
-	out of MapsZH.big and Maps.big, has letters of its own; the day one does not, the wire takes a
-	fifth letter. */
+/** A LAN game names a template map by four letters of its folder's name and two of its CRC, and a
+	machine binds the first folder under maps\ whose name letters match and then whose CRC letters do,
+	so two shipped maps sharing four name letters could put the later one out of LAN games without a
+	word. The name letters depend on no file, so this needs no game data: every map folder Zero Hour and
+	Generals ship, read out of MapsZH.big and Maps.big, has name letters of its own; the day one does
+	not, the wire takes a fifth. */
 //-------------------------------------------------------------------------------------------------
 TEST(every_shipped_map_has_wire_letters_of_its_own)
 {
@@ -16592,19 +16743,102 @@ TEST(every_shipped_map_has_wire_letters_of_its_own)
 	for( Int i = 0; i < numShippedMaps; i++ )
 	{
 		AsciiString folder, wire;
-		folder.format( "rmg_v17_1_2p_200c_t00000001_%s", theShippedMaps[i] );
+		folder.format( "rmg_v19_1_2p_200c_t00000001_%s", theShippedMaps[i] );
 		CHECK( generatedMapWireName( folder, wire ) );
-		const char *letters = strrchr( wire.str(), '~' );
-		CHECK( letters != NULL && letters != wire.str() );
-		if( letters == NULL )
+		const char *tail = strrchr( wire.str(), '~' );
+		CHECK( tail != NULL && tail != wire.str() && strlen( tail ) == 7 );
+		if( tail == NULL || strlen( tail ) != 7 )
 			continue;
+		// "~", four name letters, two CRC letters: the name letters are what binds a folder
+		const std::string letters( tail + 1, 4 );
 		std::map<std::string, const char *>::const_iterator twin = seen.find( letters );
 		if( twin != seen.end() )
-			printf( "  '%s' and '%s' both go as %s\n", twin->second, theShippedMaps[i], letters );
+			printf( "  '%s' and '%s' both go as %s\n", twin->second, theShippedMaps[i], letters.c_str() );
 		CHECK( twin == seen.end() );
 		seen[letters] = theShippedMaps[i];
 	}
 	CHECK_EQ( (Int)seen.size(), numShippedMaps );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Two letters of a template's CRC on a LAN name leave one machine in 1296 with other rules reading
+	the host's name back. What still tells them apart is the map CRC the room compares (MapUtil's
+	calcCRC), which reads "<map folder>\map.ini" beside the map: for a generated map built from a
+	template the store serves the template's own map.ini there, so the rules are in that CRC. This
+	pins the serving, with a made-up template on disk (a generated map's bytes standing in for the
+	.map), and that the name carries a CRC with the rules in it. */
+//-------------------------------------------------------------------------------------------------
+TEST(a_template_maps_rules_are_served_beside_it_and_in_its_name)
+{
+	CHECK( bootOnce() );
+
+	GlobalData *saved = TheWritableGlobalData;
+	TheWritableGlobalData = NEW GlobalData;
+
+	const std::filesystem::path home = std::filesystem::current_path();
+	const std::filesystem::path dir = std::filesystem::temp_directory_path() / "zh_rmg_template_rules";
+	std::filesystem::remove_all( dir );
+	std::filesystem::create_directories( dir / "maps" / "rmgtest rules" );
+	std::filesystem::current_path( dir );
+
+	RandomMapSettings exemplar;
+	exemplar.m_seed = 5;
+	exemplar.m_numPlayers = 2;
+	std::vector<char> mapBytes;
+	RandomMapGenerator::generate( exemplar, mapBytes );
+	FILE *fp = fopen( "maps/rmgtest rules/rmgtest rules.map", "wb" );
+	CHECK( fp != NULL );
+	if( fp )
+	{
+		fwrite( &mapBytes[0], 1, mapBytes.size(), fp );
+		fclose( fp );
+	}
+	const char *const rules = "Weather\r\n  SnowEnabled = Yes\r\nEnd\r\n";
+	writeFile( "maps/rmgtest rules/map.ini", rules );
+
+	RandomMapSettings settings;
+	settings.m_seed = 77;
+	settings.m_numPlayers = 2;
+	settings.m_playableCells = 200;
+	settings.m_template = "maps\\rmgtest rules\\rmgtest rules.map";
+	RandomMapGenerator::clampSettings( settings );
+	CHECK( !settings.m_template.isEmpty() );
+
+	// the name's CRC is the .map's with the rules folded in
+	UnsignedInt bare = 0;
+	CHECK( rmgTemplateCRC( settings.m_template, &bare ) );
+	CHECK( settings.m_templateCRC != 0 && settings.m_templateCRC != bare );
+
+	// the generated folder's map.ini is the template's, byte for byte, which is what the map CRC reads
+	AsciiString path;
+	CHECK( stageRandomMap( settings, path ) );
+	AsciiString rulesPath = path;
+	while( !rulesPath.isEmpty() && !rulesPath.endsWith( "\\" ) )
+		rulesPath.removeLastChar();
+	rulesPath.concat( "map.ini" );
+	File *file = TheFileSystem->openFile( rulesPath.str(), File::READ | File::BINARY );
+	CHECK( file != NULL );
+	if( file )
+	{
+		const Int size = file->size();
+		char *served = file->readEntireAndClose();
+		CHECK_EQ( size, (Int)strlen( rules ) );
+		CHECK( size == (Int)strlen( rules ) && memcmp( served, rules, size ) == 0 );
+		delete [] served;
+	}
+
+	// a name carrying the CRC of the .map alone, a machine without these rules, is no map of ours
+	AsciiString token, other;
+	CHECK( rmgTemplateToken( settings.m_template, token ) );
+	other.format( "Maps\\RMG_v%d_77_2p_%dc_t%08x_%s\\map.ini", RANDOM_MAP_GENERATOR_VERSION, settings.m_playableCells,
+		bare, token.str() );
+	CHECK( !isGeneratedMapPath( other ) );
+
+	std::filesystem::current_path( home );
+	std::error_code ec;
+	std::filesystem::remove_all( dir, ec );
+	delete TheWritableGlobalData;
+	TheWritableGlobalData = saved;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -16708,7 +16942,8 @@ TEST(a_style_map_is_named_for_its_style_and_rebuilt_from_the_name)
 
 	AsciiString path;
 	CHECK( stageRandomMap( settings, path ) );
-	CHECK( path.endsWithNoCase( "_77_4p_200c_twilight.map" ) );
+	// 200 is under the least the bowl shrinks to, 0.6 of its 356, so the name says what was built
+	CHECK( path.endsWithNoCase( "_77_4p_214c_twilight.map" ) );
 
 	std::vector<char> styled, plain;
 	RandomMapGenerator::generate( settings, styled );
@@ -16783,6 +17018,46 @@ TEST(a_generated_map_comes_with_a_preview_the_map_list_can_show)
 	RandomMapGenerator::generatePreview( settings, again );
 	CHECK_EQ( (Int)again.size(), (Int)tga.size() );
 	CHECK_MEM( &again[0], &tga[0], (Int)tga.size() );
+}
+
+//-------------------------------------------------------------------------------------------------
+/** The lobby, load and score screens put a start's number at the top of the picture for a high y,
+	and a shipped preview is bottom-up with the map's lowest y in its first row (WorldBuilder's
+	MapPreview). The white dot baked into a generated preview has to sit under that number, which it
+	did not: it came out mirrored top to bottom. */
+//-------------------------------------------------------------------------------------------------
+TEST(a_generated_preview_marks_each_start_where_the_lobby_numbers_it)
+{
+	CHECK( bootOnce() );
+
+	RandomMapSettings settings;
+	settings.m_seed = 248;
+	settings.m_playableCells = 128;
+	settings.m_numPlayers = 2;
+	RandomMapGenerator::clampSettings( settings );
+
+	std::vector<char> map, tga;
+	RandomMapGenerator::generate( settings, map );
+	RandomMapGenerator::generatePreview( settings, tga );
+	parseGeneratedMap( map );
+
+	const Int headerBytes = 18;
+	const Int pixels = RandomMapGenerator::PREVIEW_PIXELS;
+	const Real cellsPerPixel = (Real)settings.m_playableCells / (Real)pixels;
+	CHECK_EQ( (Int)theRMGParse.m_waypointNames.size(), 2 );
+
+	for( Int s = 0; s < (Int)theRMGParse.m_waypointPositions.size(); s++ )
+	{
+		const Coord3D& start = theRMGParse.m_waypointPositions[s];
+		const Int column = (Int)(start.x / MAP_XY_FACTOR / cellsPerPixel);
+		const Int row = (Int)(start.y / MAP_XY_FACTOR / cellsPerPixel);		// file row, bottom-up
+		CHECK( column >= 0 && column < pixels && row >= 0 && row < pixels );
+
+		const Int at = headerBytes + (row * pixels + column) * 3;
+		CHECK_EQ( (Int)(UnsignedByte)tga[at], 240 );
+		CHECK_EQ( (Int)(UnsignedByte)tga[at + 1], 240 );
+		CHECK_EQ( (Int)(UnsignedByte)tga[at + 2], 240 );
+	}
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -17527,6 +17802,339 @@ TEST(the_difficulty_ladder_climbs_in_every_direction_it_should)
 	}
 }
 
+/** A finite number, and not under 0: every knob on the ladder is a period, a count, a weight or a share. */
+static Bool aiKnobSane( Real value )
+{
+	return value == value && value >= 0.0f && value < 1.0e30f;
+}
+
+/** A Real or Int field of the SkillLevel table read out of a profile as a Real. */
+static Real aiProfileField( const AIDifficultyProfile &profile, const FieldParse *field )
+{
+	const char *at = (const char *)&profile + field->offset;
+	return field->parse == INI::parseReal ? *(const Real *)at : INT_TO_REAL( *(const Int *)at );
+}
+
+/** A seat's rating reads every rung-keyed knob off one curve through Easy's value at 0 and Hard's at 30
+	 (aiKnobAt).  At 0 and 30 it has to be the rung to the bit, or every replay of the rung stops playing
+	 back; Medium is wherever the curve passes at 15.  Past either end there is no edge: 100 and -10 are
+	 ratings, and every knob stays a finite number that means something. */
+TEST(an_ai_rating_is_easy_and_hard_at_their_anchors_and_one_curve_through_and_past_them)
+{
+	TAiData data;
+	AIDifficultyProfile out;
+
+	aiRatingProfile( AI_RATING_EASY, data.m_skill, &out );
+	CHECK( memcmp( &out, &data.m_skill[ AISKILL_EASY ], sizeof( out ) ) == 0 );
+	aiRatingProfile( AI_RATING_HARD, data.m_skill, &out );
+	CHECK( memcmp( &out, &data.m_skill[ AISKILL_BRUTAL ], sizeof( out ) ) == 0 );
+	for( Int i = 0; i < AISKILL_COUNT; ++i )
+		CHECK_EQ( (Int)i, (Int)aiSkillOfRating( aiRatingOfSkill( (AISkillLevel)i ) ) );
+
+	// no edge on the scale: only an Int's guard far past any ladder
+	CHECK_EQ( 100.0f, aiRatingClamp( 100.0f ) );
+	CHECK_EQ( -10.0f, aiRatingClamp( -10.0f ) );
+	CHECK_EQ( AI_RATING_LIMIT, aiRatingClamp( 5000.0f ) );
+	// NaN is Easy, and its hundredths 0 on every machine
+	const Real notANumber = std::numeric_limits<Real>::quiet_NaN();
+	CHECK_EQ( AI_RATING_EASY, aiRatingClamp( notANumber ) );
+	CHECK_EQ( 0, aiRatingToHundredths( notANumber ) );
+
+	// the ladder shows two decimals; a seat carries whole hundredths either side of 0
+	CHECK_EQ( 1234, aiRatingToHundredths( 12.34f ) );
+	CHECK_EQ( 1234, aiRatingToHundredths( aiRatingFromHundredths( 1234 ) ) );
+	CHECK_EQ( -1050, aiRatingToHundredths( -10.5f ) );
+	CHECK_EQ( -1050, aiRatingToHundredths( aiRatingFromHundredths( -1050 ) ) );
+	CHECK_EQ( 10000, aiRatingToHundredths( 100.0f ) );
+	CHECK_EQ( AI_RATING_HARD, aiRatingFromHundredths( 3000 ) );
+	CHECK_EQ( 100000, aiRatingToHundredths( 5000.0f ) );
+
+	// every Real and Int knob: finite and not negative far either way, the same value either side of 0,
+	// and the old Medium against the new one for the record
+	printf( "  knob                          Easy    Medium(old)  at 15      Hard     at 60      at 100     at -10\n" );
+	const AIDifficultyProfile &easy = data.m_skill[ AISKILL_EASY ];
+	const AIDifficultyProfile &medium = data.m_skill[ AISKILL_MEDIUM ];
+	const AIDifficultyProfile &hard = data.m_skill[ AISKILL_BRUTAL ];
+	static const Real FAR_RATINGS[] = { -1000.0f, -100.0f, -10.0f, 0.5f, 7.5f, 15.0f, 22.5f, 45.0f, 60.0f, 100.0f, 1000.0f };
+	AIDifficultyProfile at15, at60, at100, atMinus10, justOver, justUnder;
+	aiRatingProfile( 15.0f, data.m_skill, &at15 );
+	aiRatingProfile( 60.0f, data.m_skill, &at60 );
+	aiRatingProfile( 100.0f, data.m_skill, &at100 );
+	aiRatingProfile( -10.0f, data.m_skill, &atMinus10 );
+	aiRatingProfile( 0.001f, data.m_skill, &justOver );
+	aiRatingProfile( -0.001f, data.m_skill, &justUnder );
+	for( const FieldParse *field = aiSkillLevelFields(); field->token != NULL; ++field )
+	{
+		if( field->parse == INI::parseBool )
+			continue;
+		CHECK( field->userData != NULL );
+		for( Int r = 0; r < (Int)( sizeof( FAR_RATINGS ) / sizeof( FAR_RATINGS[ 0 ] ) ); ++r )
+		{
+			aiRatingProfile( FAR_RATINGS[ r ], data.m_skill, &out );
+			CHECK( aiKnobSane( aiProfileField( out, field ) ) );
+		}
+		const Real e = aiProfileField( easy, field );
+		if( field->parse == INI::parseReal )
+			CHECK_NEAR( aiProfileField( justOver, field ), aiProfileField( justUnder, field ), 0.01f + 0.001f * ( e + aiProfileField( hard, field ) ) );
+		printf( "  %-28s %9.3f %9.3f %9.3f %9.3f %9.3f %9.3f %9.3f\n", field->token, e, aiProfileField( medium, field ),
+			aiProfileField( at15, field ), aiProfileField( hard, field ), aiProfileField( at60, field ),
+			aiProfileField( at100, field ), aiProfileField( atMinus10, field ) );
+	}
+
+	// past Hard a falling knob keeps falling and a rising one keeps rising; a share nears 1 and stays under
+	AIDifficultyProfile at45;
+	aiRatingProfile( 45.0f, data.m_skill, &at45 );
+	CHECK( hard.m_decisionIntervalSeconds > at45.m_decisionIntervalSeconds && at45.m_decisionIntervalSeconds > at100.m_decisionIntervalSeconds );
+	CHECK( at100.m_decisionIntervalSeconds > 0.0f );
+	CHECK( hard.m_minAttackPower < at45.m_minAttackPower && at45.m_minAttackPower < at100.m_minAttackPower );
+	CHECK( hard.m_retreatTtkRatio < at45.m_retreatTtkRatio && at45.m_retreatTtkRatio < at100.m_retreatTtkRatio );
+	CHECK( at100.m_retreatTtkRatio < 1.0f );
+	CHECK( hard.m_scoutIntervalSeconds > at100.m_scoutIntervalSeconds && at100.m_scoutIntervalSeconds > 0.0f );
+	CHECK( easy.m_scoutIntervalSeconds < atMinus10.m_scoutIntervalSeconds );
+	CHECK( easy.m_minAttackPower > atMinus10.m_minAttackPower && atMinus10.m_minAttackPower > 0.0f );
+	// income, the owner's 2026-11-17 call: Easy 1.0x up to 1.25x, Hard 1.5x up to 2.5x, rising on past Hard
+	CHECK_EQ( 100, easy.m_incomePercent );
+	CHECK_EQ( 25, easy.m_incomeBonusMaxPercent );
+	CHECK_EQ( 150, hard.m_incomePercent );
+	CHECK_EQ( 100, hard.m_incomeBonusMaxPercent );
+	CHECK_EQ( 125, at15.m_incomePercent );
+	CHECK( at15.m_incomeBonusMaxPercent == 62 || at15.m_incomeBonusMaxPercent == 63 );
+	CHECK_EQ( 267, at100.m_incomePercent );
+	CHECK_EQ( 275, at100.m_incomeBonusMaxPercent );
+	CHECK( atMinus10.m_incomePercent < easy.m_incomePercent && atMinus10.m_incomePercent > 0 );
+	CHECK( atMinus10.m_incomeBonusMaxPercent < easy.m_incomeBonusMaxPercent && atMinus10.m_incomeBonusMaxPercent >= 0 );
+	CHECK_EQ( 3, hard.m_secondBases );		// a count, no longer MAX_PLAYER_COUNT for "every empty start"
+	CHECK_EQ( 2, at15.m_secondBases );
+	// pace on EA's build delays: Hard is EA's, Easy half as slow again, a falling curve past both
+	CHECK_EQ( 1.0f, hard.m_buildDelayScale );
+	CHECK_EQ( 1.5f, easy.m_buildDelayScale );
+	CHECK_NEAR( 1.2f, at15.m_buildDelayScale, 1.0e-5f );
+	CHECK( at100.m_buildDelayScale > 0.5f && at100.m_buildDelayScale < 0.6f );
+	CHECK( atMinus10.m_buildDelayScale > easy.m_buildDelayScale );
+
+	// the curves themselves: a falling one hits Hard exactly and never 0, a rising share nears 1, Hard's 0
+	// is a straight line to it, a gated one is off below 7.5 and passes Medium at 15
+	CHECK_EQ( 1.5f, aiKnobAt( 30.0f, 7.0f, 3.0f, 1.5f, AIKNOB_OPEN ) );
+	CHECK_NEAR( 7.0f / ( 1.0f + ( 7.0f / 1.5f - 1.0f ) * 0.5f ), aiKnobAt( 15.0f, 7.0f, 3.0f, 1.5f, AIKNOB_OPEN ), 1.0e-5f );
+	CHECK( aiKnobAt( 1000.0f, 7.0f, 3.0f, 1.5f, AIKNOB_OPEN ) > 0.0f );
+	CHECK( aiKnobAt( -10.0f, 7.0f, 3.0f, 1.5f, AIKNOB_OPEN ) > 7.0f );
+	CHECK( aiKnobAt( 100.0f, 0.0f, 0.35f, 0.5f, AIKNOB_SHARE ) < 1.0f );
+	CHECK( aiKnobAt( 100.0f, 0.0f, 0.35f, 0.5f, AIKNOB_SHARE ) > 0.5f );
+	CHECK_EQ( 0.0f, aiKnobAt( -10.0f, 0.0f, 0.35f, 0.5f, AIKNOB_SHARE ) );
+	CHECK( aiKnobAt( -10.0f, 0.5f, 0.75f, 1.0f, AIKNOB_SHARE ) < 0.5f );
+	CHECK( aiKnobAt( -10.0f, 0.5f, 0.75f, 1.0f, AIKNOB_SHARE ) > 0.0f );
+	CHECK( aiKnobAt( -10.0f, 1.0f, 0.5f, 0.25f, AIKNOB_SHARE ) <= 1.0f );
+	CHECK_EQ( 1.0f, aiKnobAt( 60.0f, 0.5f, 0.75f, 1.0f, AIKNOB_SHARE ) );
+	CHECK_EQ( 1.0f, aiKnobAt( 15.0f, 2.0f, 1.0f, 0.0f, AIKNOB_OPEN ) );
+	CHECK_EQ( 0.0f, aiKnobAt( 100.0f, 2.0f, 1.0f, 0.0f, AIKNOB_OPEN ) );
+	CHECK_EQ( 0.0f, aiKnobAt( 7.49f, 0.0f, 6000.0f, 4000.0f, AIKNOB_GATED ) );
+	CHECK_EQ( 6000.0f, aiKnobAt( 15.0f, 0.0f, 6000.0f, 4000.0f, AIKNOB_GATED ) );
+	CHECK( aiKnobAt( 100.0f, 0.0f, 6000.0f, 4000.0f, AIKNOB_GATED ) < 4000.0f );
+	CHECK( aiKnobAt( 100.0f, 0.0f, 6000.0f, 4000.0f, AIKNOB_GATED ) > 0.0f );
+	static const AIRungInt CENTERS = { { 3, 4, 6 }, AIKNOB_OPEN };
+	CHECK_EQ( 3, aiRatingLerp( 0.0f, CENTERS ) );
+	CHECK_EQ( 5, aiRatingLerp( 15.0f, CENTERS ) );		// 4.5 rounds up
+	CHECK_EQ( 6, aiRatingLerp( 30.0f, CENTERS ) );
+	CHECK_EQ( 13, aiRatingLerp( 100.0f, CENTERS ) );		// 3 + 3 * 100 / 30
+	CHECK_EQ( 2, aiRatingLerp( -10.0f, CENTERS ) );		// 3 / (1 + 10 / 30)
+
+	// a Bool reads its nearest rung, so it flips at 7.5 or 22.5 and holds past the ends
+	CHECK( !easy.m_retreatIndividualUnits && medium.m_retreatIndividualUnits );
+	aiRatingProfile( 7.49f, data.m_skill, &out );
+	CHECK( !out.m_retreatIndividualUnits );
+	aiRatingProfile( 7.5f, data.m_skill, &out );
+	CHECK( out.m_retreatIndividualUnits );
+	CHECK( !medium.m_massBeforeAttacking && hard.m_massBeforeAttacking );
+	aiRatingProfile( 22.49f, data.m_skill, &out );
+	CHECK( !out.m_massBeforeAttacking );
+	aiRatingProfile( 22.5f, data.m_skill, &out );
+	CHECK( out.m_massBeforeAttacking );
+	CHECK( at100.m_massBeforeAttacking && !atMinus10.m_retreatIndividualUnits );
+	CHECK_EQ( (Int)AISKILL_EASY, (Int)aiSkillOfRating( 7.49f ) );
+	CHECK_EQ( (Int)AISKILL_MEDIUM, (Int)aiSkillOfRating( 7.5f ) );
+	CHECK_EQ( (Int)AISKILL_MEDIUM, (Int)aiSkillOfRating( 22.49f ) );
+	CHECK_EQ( (Int)AISKILL_BRUTAL, (Int)aiSkillOfRating( 22.5f ) );
+	CHECK_EQ( (Int)AISKILL_BRUTAL, (Int)aiSkillOfRating( 100.0f ) );
+	CHECK_EQ( (Int)AISKILL_EASY, (Int)aiSkillOfRating( -10.0f ) );
+	CHECK( !aiRatingReaches( 7.49f, AISKILL_MEDIUM ) );
+	CHECK( aiRatingReaches( 7.5f, AISKILL_MEDIUM ) );
+	CHECK( !aiRatingReaches( 15.0f, AISKILL_BRUTAL ) );
+
+	// the slot field carries hundredths, negative ones too; only past the guard is it none
+	CHECK_EQ( AI_RATING_NONE, AIRatingFromSlotField( NULL ) );
+	CHECK_EQ( AI_RATING_NONE, AIRatingFromSlotField( "" ) );
+	CHECK_EQ( -5, AIRatingFromSlotField( "-5" ) );
+	CHECK_EQ( -1000, AIRatingFromSlotField( "-1000" ) );
+	CHECK_EQ( 0, AIRatingFromSlotField( "0" ) );
+	CHECK_EQ( 1234, AIRatingFromSlotField( "1234" ) );
+	CHECK_EQ( 10000, AIRatingFromSlotField( "10000" ) );
+	CHECK_EQ( AI_RATING_NONE, AIRatingFromSlotField( "100001" ) );
+	// past an Int: atoi saturated on Windows and truncated elsewhere, 4294967396 truncating to 100
+	CHECK_EQ( AI_RATING_NONE, AIRatingFromSlotField( "4294967396" ) );
+	CHECK_EQ( AI_RATING_NONE, AIRatingFromSlotField( "-4294967396" ) );
+	CHECK_EQ( AI_RATING_NONE, AIRatingFromSlotField( "99999999999999999999999" ) );
+}
+
+/** What curve E, Medium and H make under form, in words, and its k in rating units (-1 for none): the
+	 rating over which a falling knob loses half of what lies between it and its end, the same for what a
+	 rising share has left to 1, and a gated knob's counted from Medium. */
+static const char *aiKnobFormName( Real e, Real m, Real h, AIKnobForm form, Real *k )
+{
+	const Real span = AI_RATING_HARD - AI_RATING_EASY;
+	*k = -1.0f;
+	if( form == AIKNOB_GATED )
+	{
+		if( h < m && h > 0.0f )
+		{
+			*k = ( AI_RATING_HARD - AI_RATING_MEDIUM ) / ( m / h - 1.0f );
+			return "GATED off below 7.5, falls Medium to Hard";
+		}
+		return "GATED off below 7.5, then Medium to Hard";
+	}
+	if( e == h )
+		return "flat";
+	if( form == AIKNOB_SHARE )
+	{
+		if( h > e )
+		{
+			if( h >= 1.0f )
+				return "SHARE line to 1";
+			*k = span / ( ( 1.0f - e ) / ( 1.0f - h ) - 1.0f );
+			return "SHARE rises towards 1";
+		}
+		if( h <= 0.0f )
+			return "SHARE line to 0";
+		*k = span / ( e / h - 1.0f );
+		return "SHARE falls towards 0";
+	}
+	if( h > e )
+		return "OPEN rises, a line";
+	if( h <= 0.0f )
+		return "OPEN line to 0";
+	*k = span / ( e / h - 1.0f );
+	return "OPEN falls towards 0";
+}
+
+static const Int CURVE_SAMPLES = 221;		// -10 to 100 by a half
+static Real aiCurveRating( Int i ) { return -10.0f + 0.5f * INT_TO_REAL( i ); }
+
+static void writeCurve( FILE *fp, Bool *first, const char *name, const char *source, const char *type, const char *form,
+	Real e, Real m, Real h, Real k, const Real *samples )
+{
+	fprintf( fp, "%s  {\"name\":\"%s\",\"source\":\"%s\",\"type\":\"%s\",\"form\":\"%s\",\"e\":%.6g,\"oldM\":%.6g,\"h\":%.6g,\"k\":",
+		*first ? "" : ",\n", name, source, type, form, e, m, h );
+	if( k > 0.0f )
+		fprintf( fp, "%.6g", k );
+	else
+		fprintf( fp, "null" );
+	fprintf( fp, ",\"samples\":[" );
+	for( Int i = 0; i < CURVE_SAMPLES; ++i )
+		fprintf( fp, "%s%.6g", i == 0 ? "" : ",", samples[ i ] );
+	fprintf( fp, "]}" );
+	*first = FALSE;
+}
+
+/** Every table of three outside the profile (aiRatingTables): Easy's and Hard's own values at 0 and 30, a
+	 finite number not under 0 anywhere.  With ZH_AI_CURVES_JSON naming a file, every knob of the profile and
+	 every table is written there as JSON, sampled from -10 to 100 by a half through the game's own code, for
+	 the chart of the curves. */
+TEST(every_rated_table_is_its_rows_at_the_ends_and_the_curves_can_be_written_out)
+{
+	Int count = 0;
+	const AIRatingTable *tables = aiRatingTables( &count );
+	CHECK( count > 50 );
+	static const Real FAR_RATINGS[] = { -1000.0f, -10.0f, 15.0f, 100.0f, 1000.0f };
+	for( Int t = 0; t < count; ++t )
+	{
+		const AIRatingTable &table = tables[ t ];
+		CHECK( ( table.m_real != NULL ) != ( table.m_int != NULL ) );
+		if( table.m_real != NULL )
+		{
+			CHECK_EQ( table.m_real->m_byRung[ AISKILL_EASY ], aiRatingLerp( AI_RATING_EASY, *table.m_real ) );
+			CHECK_EQ( table.m_real->m_byRung[ AISKILL_BRUTAL ], aiRatingLerp( AI_RATING_HARD, *table.m_real ) );
+			for( Int r = 0; r < (Int)( sizeof( FAR_RATINGS ) / sizeof( FAR_RATINGS[ 0 ] ) ); ++r )
+				CHECK( aiKnobSane( aiRatingLerp( FAR_RATINGS[ r ], *table.m_real ) ) );
+		}
+		else
+		{
+			CHECK_EQ( table.m_int->m_byRung[ AISKILL_EASY ], aiRatingLerp( AI_RATING_EASY, *table.m_int ) );
+			CHECK_EQ( table.m_int->m_byRung[ AISKILL_BRUTAL ], aiRatingLerp( AI_RATING_HARD, *table.m_int ) );
+			for( Int r = 0; r < (Int)( sizeof( FAR_RATINGS ) / sizeof( FAR_RATINGS[ 0 ] ) ); ++r )
+				CHECK( aiKnobSane( INT_TO_REAL( aiRatingLerp( FAR_RATINGS[ r ], *table.m_int ) ) ) );
+		}
+	}
+
+	const char *path = getenv( "ZH_AI_CURVES_JSON" );
+	if( path == NULL || *path == 0 )
+		return;
+	FILE *fp = fopen( path, "w" );
+	CHECK( fp != NULL );
+	if( fp == NULL )
+		return;
+
+	TAiData data;
+	static AIDifficultyProfile profiles[ CURVE_SAMPLES ];
+	for( Int i = 0; i < CURVE_SAMPLES; ++i )
+		aiRatingProfile( aiCurveRating( i ), data.m_skill, &profiles[ i ] );
+	const AIDifficultyProfile &easy = data.m_skill[ AISKILL_EASY ];
+	const AIDifficultyProfile &medium = data.m_skill[ AISKILL_MEDIUM ];
+	const AIDifficultyProfile &hard = data.m_skill[ AISKILL_BRUTAL ];
+	Real samples[ CURVE_SAMPLES ];
+	Bool first = TRUE;
+	fprintf( fp, "[\n" );
+	for( const FieldParse *field = aiSkillLevelFields(); field->token != NULL; ++field )
+	{
+		if( field->parse == INI::parseBool )
+		{
+			const Int at = field->offset;
+			for( Int i = 0; i < CURVE_SAMPLES; ++i )
+				samples[ i ] = *(const Bool *)( (const char *)&profiles[ i ] + at ) ? 1.0f : 0.0f;
+			writeCurve( fp, &first, field->token, "profile", "Bool", "bool, the nearest rung's",
+				*(const Bool *)( (const char *)&easy + at ) ? 1.0f : 0.0f, *(const Bool *)( (const char *)&medium + at ) ? 1.0f : 0.0f,
+				*(const Bool *)( (const char *)&hard + at ) ? 1.0f : 0.0f, -1.0f, samples );
+			continue;
+		}
+		for( Int i = 0; i < CURVE_SAMPLES; ++i )
+			samples[ i ] = aiProfileField( profiles[ i ], field );
+		const Real e = aiProfileField( easy, field );
+		const Real m = aiProfileField( medium, field );
+		const Real h = aiProfileField( hard, field );
+		Real k;
+		const char *form = aiKnobFormName( e, m, h, *(const AIKnobForm *)field->userData, &k );
+		writeCurve( fp, &first, field->token, "profile", field->parse == INI::parseReal ? "Real" : "Int", form, e, m, h, k, samples );
+	}
+	for( Int t = 0; t < count; ++t )
+	{
+		const AIRatingTable &table = tables[ t ];
+		Real e, m, h;
+		AIKnobForm shape;
+		if( table.m_real != NULL )
+		{
+			e = table.m_real->m_byRung[ AISKILL_EASY ];
+			m = table.m_real->m_byRung[ AISKILL_MEDIUM ];
+			h = table.m_real->m_byRung[ AISKILL_BRUTAL ];
+			shape = table.m_real->m_form;
+			for( Int i = 0; i < CURVE_SAMPLES; ++i )
+				samples[ i ] = aiRatingLerp( aiCurveRating( i ), *table.m_real );
+		}
+		else
+		{
+			e = INT_TO_REAL( table.m_int->m_byRung[ AISKILL_EASY ] );
+			m = INT_TO_REAL( table.m_int->m_byRung[ AISKILL_MEDIUM ] );
+			h = INT_TO_REAL( table.m_int->m_byRung[ AISKILL_BRUTAL ] );
+			shape = table.m_int->m_form;
+			for( Int i = 0; i < CURVE_SAMPLES; ++i )
+				samples[ i ] = INT_TO_REAL( aiRatingLerp( aiCurveRating( i ), *table.m_int ) );
+		}
+		Real k;
+		const char *form = aiKnobFormName( e, m, h, shape, &k );
+		writeCurve( fp, &first, table.m_name, "table", table.m_real != NULL ? "Real" : "Int", form, e, m, h, k, samples );
+	}
+	fprintf( fp, "\n]\n" );
+	fclose( fp );
+	printf( "  curves written to %s\n", path );
+}
+
 /** The influence map is what every fighting decision of Hard's reads, so what it says about a patch of
 	 ground has to be what the guns there can actually do: reach it flat, reach further from above, and
 	 add up when two of them cover the same cell. */
@@ -18259,27 +18867,27 @@ TEST(the_ladder_presses_more_buttons_as_it_climbs)
 
 /** AIPlayer.cpp: the computer buys its first Ambulance once it has an army and a second once the army
 	 is big, and calls in the badly hurt from near it only. */
-extern Int AIAmbulance_wanted( Int army, Int skill );
+extern Int AIAmbulance_wanted( Int army, Real rating );
 extern Bool AIAmbulance_callsPatient( Real healthFraction, Real distance, UnsignedInt sinceHit );
-extern Bool AIAmbulance_mayBuyMore( Int bought, Int skill );
+extern Bool AIAmbulance_mayBuyMore( Int bought, Real rating );
 
 TEST(the_ai_buys_ambulances_by_army_and_calls_in_the_hurt_nearby)
 {
-	CHECK_EQ( 0, AIAmbulance_wanted( 0, AISKILL_BRUTAL ) );
-	CHECK_EQ( 0, AIAmbulance_wanted( 7, AISKILL_BRUTAL ) );
-	CHECK_EQ( 1, AIAmbulance_wanted( 8, AISKILL_BRUTAL ) );
-	CHECK_EQ( 1, AIAmbulance_wanted( 19, AISKILL_BRUTAL ) );
-	CHECK_EQ( 2, AIAmbulance_wanted( 20, AISKILL_BRUTAL ) );
-	CHECK_EQ( 2, AIAmbulance_wanted( 200, AISKILL_BRUTAL ) );
+	CHECK_EQ( 0, AIAmbulance_wanted( 0, AI_RATING_HARD ) );
+	CHECK_EQ( 0, AIAmbulance_wanted( 7, AI_RATING_HARD ) );
+	CHECK_EQ( 1, AIAmbulance_wanted( 8, AI_RATING_HARD ) );
+	CHECK_EQ( 1, AIAmbulance_wanted( 19, AI_RATING_HARD ) );
+	CHECK_EQ( 2, AIAmbulance_wanted( 20, AI_RATING_HARD ) );
+	CHECK_EQ( 2, AIAmbulance_wanted( 200, AI_RATING_HARD ) );
 	// Medium keeps one, Easy none
-	CHECK_EQ( 1, AIAmbulance_wanted( 200, AISKILL_MEDIUM ) );
-	CHECK_EQ( 0, AIAmbulance_wanted( 200, AISKILL_EASY ) );
+	CHECK_EQ( 1, AIAmbulance_wanted( 200, AI_RATING_MEDIUM ) );
+	CHECK_EQ( 0, AIAmbulance_wanted( 200, AI_RATING_EASY ) );
 	// and a match buys only so many
-	CHECK( AIAmbulance_mayBuyMore( 5, AISKILL_BRUTAL ) );
-	CHECK( !AIAmbulance_mayBuyMore( 6, AISKILL_BRUTAL ) );
-	CHECK( AIAmbulance_mayBuyMore( 2, AISKILL_MEDIUM ) );
-	CHECK( !AIAmbulance_mayBuyMore( 3, AISKILL_MEDIUM ) );
-	CHECK( !AIAmbulance_mayBuyMore( 0, AISKILL_EASY ) );
+	CHECK( AIAmbulance_mayBuyMore( 5, AI_RATING_HARD ) );
+	CHECK( !AIAmbulance_mayBuyMore( 6, AI_RATING_HARD ) );
+	CHECK( AIAmbulance_mayBuyMore( 2, AI_RATING_MEDIUM ) );
+	CHECK( !AIAmbulance_mayBuyMore( 3, AI_RATING_MEDIUM ) );
+	CHECK( !AIAmbulance_mayBuyMore( 0, AI_RATING_EASY ) );
 
 	// two seconds since the last hit is quiet enough
 	const UnsignedInt quiet = 2 * LOGICFRAMES_PER_GAME_SECOND;
@@ -18295,32 +18903,32 @@ TEST(the_ai_buys_ambulances_by_army_and_calls_in_the_hurt_nearby)
 
 /** AIPlayer.cpp: an Ambulance keeps clear of known guns by a margin scaled to the map, pulls back when
 	 shot at or within it, only ever to clearer ground, and a lost one is replaced only after a wait. */
-extern Real AIAmbulance_gunMargin( Real baseDistance, Int skill );
-extern Bool AIAmbulance_pullsBack( UnsignedInt now, UnsignedInt lastHit, Real clear, Real margin, Int skill );
+extern Real AIAmbulance_gunMargin( Real baseDistance, Real rating );
+extern Bool AIAmbulance_pullsBack( UnsignedInt now, UnsignedInt lastHit, Real clear, Real margin, Real rating );
 extern Bool AIAmbulance_movesBack( Real hereClear, Real spotClear, Bool hitSinceLook );
 extern Bool AIAmbulance_waitsAt( Real hereClear, Real spotClear, Real margin );
-extern Bool AIAmbulance_rebuyWaits( UnsignedInt now, UnsignedInt lost, Int skill );
+extern Bool AIAmbulance_rebuyWaits( UnsignedInt now, UnsignedInt lost, Real rating );
 
 TEST(the_ai_ambulance_pulls_back_when_hit_and_is_not_rebought_at_once)
 {
 	const UnsignedInt second = LOGICFRAMES_PER_GAME_SECOND;
 	// the margin: Hard 8% of the base distance between 80 and 200, Medium 6% between 60 and 160
-	CHECK_NEAR( 80.0f, AIAmbulance_gunMargin( 700.0f, AISKILL_BRUTAL ), 0.01f );
-	CHECK_NEAR( 120.0f, AIAmbulance_gunMargin( 1500.0f, AISKILL_BRUTAL ), 0.01f );
-	CHECK_NEAR( 200.0f, AIAmbulance_gunMargin( 4000.0f, AISKILL_BRUTAL ), 0.01f );
-	CHECK_NEAR( 60.0f, AIAmbulance_gunMargin( 700.0f, AISKILL_MEDIUM ), 0.01f );
-	CHECK_NEAR( 160.0f, AIAmbulance_gunMargin( 4000.0f, AISKILL_MEDIUM ), 0.01f );
-	CHECK( AIAmbulance_gunMargin( 4000.0f, AISKILL_MEDIUM ) < AIAmbulance_gunMargin( 4000.0f, AISKILL_BRUTAL ) );
+	CHECK_NEAR( 80.0f, AIAmbulance_gunMargin( 700.0f, AI_RATING_HARD ), 0.01f );
+	CHECK_NEAR( 120.0f, AIAmbulance_gunMargin( 1500.0f, AI_RATING_HARD ), 0.01f );
+	CHECK_NEAR( 200.0f, AIAmbulance_gunMargin( 4000.0f, AI_RATING_HARD ), 0.01f );
+	CHECK_NEAR( 60.0f, AIAmbulance_gunMargin( 700.0f, AI_RATING_MEDIUM ), 0.01f );
+	CHECK_NEAR( 160.0f, AIAmbulance_gunMargin( 4000.0f, AI_RATING_MEDIUM ), 0.01f );
+	CHECK( AIAmbulance_gunMargin( 4000.0f, AI_RATING_MEDIUM ) < AIAmbulance_gunMargin( 4000.0f, AI_RATING_HARD ) );
 
 	// within the margin, or inside the reach
-	CHECK( AIAmbulance_pullsBack( 1000, 0, 50.0f, 80.0f, AISKILL_BRUTAL ) );
-	CHECK( AIAmbulance_pullsBack( 1000, 0, -10.0f, 80.0f, AISKILL_BRUTAL ) );
-	CHECK( !AIAmbulance_pullsBack( 1000, 0, 90.0f, 80.0f, AISKILL_BRUTAL ) );
+	CHECK( AIAmbulance_pullsBack( 1000, 0, 50.0f, 80.0f, AI_RATING_HARD ) );
+	CHECK( AIAmbulance_pullsBack( 1000, 0, -10.0f, 80.0f, AI_RATING_HARD ) );
+	CHECK( !AIAmbulance_pullsBack( 1000, 0, 90.0f, 80.0f, AI_RATING_HARD ) );
 	// hit lately: Hard stays back 8 s, Medium 6
-	CHECK( AIAmbulance_pullsBack( 1000 + 7 * second, 1000, 1.0e9f, 80.0f, AISKILL_BRUTAL ) );
-	CHECK( !AIAmbulance_pullsBack( 1000 + 8 * second, 1000, 1.0e9f, 80.0f, AISKILL_BRUTAL ) );
-	CHECK( !AIAmbulance_pullsBack( 1000 + 6 * second, 1000, 1.0e9f, 80.0f, AISKILL_MEDIUM ) );
-	CHECK( !AIAmbulance_pullsBack( 1000, 0, 1.0e9f, 80.0f, AISKILL_BRUTAL ) );
+	CHECK( AIAmbulance_pullsBack( 1000 + 7 * second, 1000, 1.0e9f, 80.0f, AI_RATING_HARD ) );
+	CHECK( !AIAmbulance_pullsBack( 1000 + 8 * second, 1000, 1.0e9f, 80.0f, AI_RATING_HARD ) );
+	CHECK( !AIAmbulance_pullsBack( 1000 + 6 * second, 1000, 1.0e9f, 80.0f, AI_RATING_MEDIUM ) );
+	CHECK( !AIAmbulance_pullsBack( 1000, 0, 1.0e9f, 80.0f, AI_RATING_HARD ) );
 
 	// only to ground a reorder step clearer: none such, it holds, which is what stops the cycle
 	CHECK( AIAmbulance_movesBack( 20.0f, 200.0f, FALSE ) );
@@ -18334,12 +18942,13 @@ TEST(the_ai_ambulance_pulls_back_when_hit_and_is_not_rebought_at_once)
 	CHECK( !AIAmbulance_waitsAt( 50.0f, 110.0f, 80.0f ) );
 	CHECK( AIAmbulance_waitsAt( -20.0f, 90.0f, 80.0f ) );
 
-	// Hard waits a minute and a half, Medium twice as long
-	CHECK( !AIAmbulance_rebuyWaits( 1000, 0, AISKILL_BRUTAL ) );
-	CHECK( AIAmbulance_rebuyWaits( 1000, 900, AISKILL_BRUTAL ) );
-	CHECK( !AIAmbulance_rebuyWaits( 900 + 90 * second, 900, AISKILL_BRUTAL ) );
-	CHECK( AIAmbulance_rebuyWaits( 900 + 170 * second, 900, AISKILL_MEDIUM ) );
-	CHECK( !AIAmbulance_rebuyWaits( 900 + 180 * second, 900, AISKILL_MEDIUM ) );
+	// Hard waits a minute and a half, Easy twice as long, and a rating of 15 two minutes on the curve
+	// between them (180 / (1 + 0.5))
+	CHECK( !AIAmbulance_rebuyWaits( 1000, 0, AI_RATING_HARD ) );
+	CHECK( AIAmbulance_rebuyWaits( 1000, 900, AI_RATING_HARD ) );
+	CHECK( !AIAmbulance_rebuyWaits( 900 + 90 * second, 900, AI_RATING_HARD ) );
+	CHECK( AIAmbulance_rebuyWaits( 900 + 110 * second, 900, AI_RATING_MEDIUM ) );
+	CHECK( !AIAmbulance_rebuyWaits( 900 + 120 * second, 900, AI_RATING_MEDIUM ) );
 }
 
 /** CleanupHazardUpdate.cpp: an area cleaner out of reach of its hazard counts a scan against it only when
@@ -19405,6 +20014,26 @@ TEST(a_cash_hoard_shortens_the_wait_but_only_so_far)
 	// the ladder switches it on at Medium and tightens it as you climb
 	TAiData data;
 	CHECK_EQ( 0, data.m_skill[ AISKILL_EASY ].m_cashHoardThreshold );
+
+	// the rated pace comes last, on the finished delay: Hard's 1 leaves every frame count as it was
+	for( Int frames = 0; frames <= 3000; frames += 7 )
+		CHECK_EQ( frames, aiScaledBuildDelay( frames, data.m_skill[ AISKILL_BRUTAL ].m_buildDelayScale ) );
+	CHECK_EQ( 450, aiScaledBuildDelay( 300, data.m_skill[ AISKILL_EASY ].m_buildDelayScale ) );
+	AIDifficultyProfile at100;
+	aiRatingProfile( 100.0f, data.m_skill, &at100 );
+	CHECK( aiScaledBuildDelay( 300, at100.m_buildDelayScale ) < 180 );
+	CHECK_EQ( 1, aiScaledBuildDelay( 1, 0.1f ) );		// never under a frame
+	CHECK_EQ( 0, aiScaledBuildDelay( 0, 1.5f ) );			// no delay stays none
+
+	// a side's gatherer counts are a curve through its Easy and Hard numbers
+	const AIRungInt rising = { { 1, 2, 3 }, AIKNOB_OPEN };
+	CHECK_EQ( 1, aiRatingLerp( AI_RATING_EASY, rising ) );
+	CHECK_EQ( 3, aiRatingLerp( AI_RATING_HARD, rising ) );
+	CHECK_EQ( 2, aiRatingLerp( AI_RATING_MEDIUM, rising ) );
+	CHECK_EQ( 8, aiRatingLerp( 100.0f, rising ) );
+	const AIRungInt flat = { { 2, 2, 2 }, AIKNOB_OPEN };
+	CHECK_EQ( 2, aiRatingLerp( 100.0f, flat ) );
+	CHECK_EQ( 2, aiRatingLerp( -10.0f, flat ) );
 	CHECK( data.m_skill[ AISKILL_MEDIUM ].m_cashHoardThreshold > 0 );
 	CHECK( data.m_skill[ AISKILL_BRUTAL ].m_cashHoardThreshold <
 				 data.m_skill[ AISKILL_MEDIUM ].m_cashHoardThreshold );
@@ -20756,24 +21385,50 @@ TEST(hud_layout_rects_tile_the_screen)
 	CHECK_EQ( r.radar.lo.x, 1608 );
 	CHECK_EQ( r.radar.lo.y, 56 );
 	CHECK_EQ( r.radar.width(), 304 );
-	CHECK_EQ( r.tabs[ 0 ].lo.x, 1624 );
-	CHECK_EQ( r.tabs[ 0 ].width(), 70 );
-	CHECK_EQ( r.tabs[ 1 ].lo.x - r.tabs[ 0 ].hi.x, 3 );
-	CHECK_EQ( r.tabs[ 3 ].lo.x, 1843 );
-	CHECK_EQ( r.tabs[ 3 ].hi.x, 1912 );
-	CHECK_EQ( r.tabs[ 3 ].lo.y, 420 );
-	CHECK_EQ( r.cameos[ 1 ].lo.x, 1772 );
+	// down to the tabs one grid of four 70 wide columns 8 apart over the radar's width: the menu, the
+	// Sell key and the first tab share column 0, the money and the General button two columns each
+	for( Int i = 0; i < HUD_SIDEBAR_TABS; ++i )
+	{
+		CHECK_EQ( r.tabs[ i ].lo.x, 1608 + 78 * i );
+		CHECK_EQ( r.tabs[ i ].width(), 70 );
+		CHECK_EQ( r.tabs[ i ].lo.y, 420 );
+	}
+	CHECK_EQ( r.tabs[ 3 ].hi.x, r.radar.hi.x );
+	CHECK_EQ( r.menuButton.lo.x, r.tabs[ 0 ].lo.x );
+	CHECK_EQ( r.menuButton.hi.x, r.tabs[ 0 ].hi.x );
+	CHECK_EQ( r.sellButton.lo.x, r.tabs[ 0 ].lo.x );
+	CHECK_EQ( r.sellButton.hi.x, r.tabs[ 0 ].hi.x );
+	CHECK_EQ( r.repairButton.lo.x, r.tabs[ 1 ].lo.x );
+	CHECK_EQ( r.repairButton.hi.x, r.tabs[ 1 ].hi.x );
+	CHECK_EQ( r.money.lo.x, r.tabs[ 1 ].lo.x );
+	CHECK_EQ( r.money.hi.x, r.tabs[ 2 ].hi.x );
+	CHECK_EQ( r.generalButton.lo.x, r.tabs[ 2 ].lo.x );
+	CHECK_EQ( r.generalButton.hi.x, r.tabs[ 3 ].hi.x );
+	CHECK_EQ( r.diplomacyButton.lo.x, r.tabs[ 3 ].lo.x );
+	CHECK_EQ( r.diplomacyButton.hi.x, r.tabs[ 3 ].hi.x );
+	CHECK_EQ( r.powerRail.lo.y, r.pickerAll.lo.y );
+	CHECK( r.powerRail.hi.x < r.pickerAll.lo.x );
+	// three wells of 92x75 across the tabs' 1624..1912, seven rows down to 1040, 4 over the arrows
+	CHECK_EQ( HUD_SIDEBAR_CAMEO_COLUMNS, 3 );
+	CHECK_EQ( HUD_SIDEBAR_CAMEO_ROWS, 7 );
+	CHECK_EQ( r.cameos[ 0 ].lo.x, 1624 );
+	CHECK_EQ( r.cameos[ 0 ].width(), 92 );
+	CHECK_EQ( r.cameos[ 0 ].height(), 75 );
+	CHECK_EQ( r.cameos[ 1 ].lo.x, 1722 );
 	CHECK_EQ( r.cameos[ 1 ].lo.y, 491 );
-	CHECK_EQ( r.cameos[ 11 ].lo.y, 945 );		// 491 + 5 * 90.8
+	CHECK_EQ( r.cameos[ 2 ].hi.x, 1912 );
+	CHECK_EQ( r.cameos[ HUD_SIDEBAR_CAMEO_COLUMNS ].lo.y, 570 );
+	CHECK_EQ( r.cameos[ HUD_SIDEBAR_CAMEOS - 1 ].lo.y, 965 );		// 491 + 6 * 79
+	CHECK_EQ( r.cameos[ HUD_SIDEBAR_CAMEOS - 1 ].hi.y, 1040 );
 	CHECK_EQ( r.arrowDown.lo.y, 1044 );
 	CHECK_EQ( r.pickerAll.lo.x, 1624 );
 	CHECK_EQ( r.pickerAll.width(), 50 );
 	CHECK_EQ( r.pickerAll.height(), 28 );
-	CHECK_EQ( r.pickerChips[ 0 ].lo.x, 1677 );
-	CHECK_EQ( r.pickerChips[ 0 ].lo.x - r.pickerAll.hi.x, 3 );
-	CHECK_EQ( r.pickerChips[ HUD_SIDEBAR_PICKER_CHIPS - 1 ].lo.x, 1836 );
+	CHECK_EQ( r.pickerChips[ 0 ].lo.x, 1680 );
+	CHECK_EQ( r.pickerChips[ 0 ].lo.x - r.pickerAll.hi.x, r.cameos[ 1 ].lo.x - r.cameos[ 0 ].hi.x );
+	CHECK_EQ( r.pickerChips[ HUD_SIDEBAR_PICKER_CHIPS - 1 ].lo.x, 1848 );
 	CHECK_EQ( r.pickerChips[ HUD_SIDEBAR_PICKER_CHIPS - 1 ].width(), 50 );
-	CHECK_EQ( r.pickerChips[ HUD_SIDEBAR_PICKER_CHIPS - 1 ].hi.x, 1886 );
+	CHECK_EQ( r.pickerChips[ HUD_SIDEBAR_PICKER_CHIPS - 1 ].hi.x, 1898 );
 	for( Int i = 0; i < HUD_SIDEBAR_PICKER_CHIPS; ++i )
 		CHECK_EQ( r.pickerChips[ i ].width(), r.pickerAll.width() );
 	CHECK_EQ( r.pickerChips[ 0 ].lo.y, 459 );
@@ -20781,10 +21436,16 @@ TEST(hud_layout_rects_tile_the_screen)
 	CHECK_EQ( r.cameos[ 0 ].lo.y - r.pickerAll.hi.y, 4 );
 	CHECK_EQ( r.pickerChips[ 0 ].height(), 28 );
 	CHECK_EQ( r.powerRail.hi.y, 1072 );
+	// the commands at the art's own 60x48, 8 in from the strip's top and foot like the clock
 	CHECK_EQ( r.stripButtons[ 13 ].lo.x, 840 );
-	CHECK_EQ( r.stripButtons[ 0 ].lo.y, 1020 );
+	CHECK_EQ( r.stripButtons[ 13 ].hi.x, 900 );
+	CHECK_EQ( r.stripButtons[ 0 ].lo.y, 1024 );
+	CHECK_EQ( r.stripButtons[ 0 ].width(), HUD_CAMEO_ART_W );
+	CHECK_EQ( r.stripButtons[ 0 ].height(), HUD_CAMEO_ART_H );
 	CHECK_EQ( r.stripClock.lo.x, 1500 );
-	CHECK_EQ( r.stripSpare.lo.x, 904 );
+	CHECK_EQ( r.stripSpare.lo.x, 908 );
+	CHECK_EQ( r.stripSpare.lo.y, 1024 );
+	CHECK_EQ( r.stripSpare.hi.y, 1072 );
 	CHECK_EQ( r.card.lo.x, 0 );
 	CHECK_EQ( r.card.lo.y, 896 );
 	CHECK_EQ( r.card.hi.x, 470 );
@@ -20819,6 +21480,25 @@ TEST(hud_layout_rects_tile_the_screen)
 	CHECK_EQ( r.superweaponRow.height(), 40 );
 	CHECK_EQ( r.superweaponRow.hi.y, 1008 );
 	CHECK_EQ( r.superweaponRowPitch, 44 );
+
+	// the pictures keep the art's 5:4 in wells of another shape: the portrait in its 116x90, a tray
+	// tile in what 2 in from its 50x42 leaves
+	IRegion2D fit = HudFitAspect( r.portrait, HUD_CAMEO_ART_W, HUD_CAMEO_ART_H );
+	CHECK_EQ( fit.width(), 113 );
+	CHECK_EQ( fit.height(), 90 );
+	CHECK_EQ( fit.lo.x, 9 );
+	CHECK_EQ( fit.lo.y, r.portrait.lo.y );
+	IRegion2D well = r.trayCells[ 0 ];
+	well.lo.x += 2;
+	well.lo.y += 2;
+	well.hi.x -= 2;
+	well.hi.y -= 2;
+	fit = HudFitAspect( well, HUD_CAMEO_ART_W, HUD_CAMEO_ART_H );
+	CHECK_EQ( fit.width(), 46 );
+	CHECK_EQ( fit.height(), 37 );
+	CHECK( hudRegionInside( fit, well ) );
+	IRegion2D none = { { 5, 5 }, { 5, 9 } };
+	CHECK_EQ( HudFitAspect( none, HUD_CAMEO_ART_W, HUD_CAMEO_ART_H ).hi.y, 9 );		// no width: as it went in
 
 	// Classic fills the area only
 	HudLayoutForScreen( 1920, 1080, HUD_LAYOUT_CLASSIC, HUD_WIDTH_FULL, &r );
@@ -20876,7 +21556,7 @@ TEST(hud_layout_rects_tile_the_screen)
 			if( c == HUD_WIDTH_FULL )
 				CHECK_EQ( hudRegionArea( r.area ), w * h );
 
-			const IRegion2D *side[ 32 ];
+			const IRegion2D *side[ 11 + HUD_SIDEBAR_TABS + HUD_SIDEBAR_PICKER_CHIPS + HUD_SIDEBAR_CAMEOS ];
 			Int n = 0;
 			side[ n++ ] = &r.menuButton;
 			side[ n++ ] = &r.money;
@@ -20896,6 +21576,15 @@ TEST(hud_layout_rects_tile_the_screen)
 			for( Int i = 0; i < HUD_SIDEBAR_CAMEOS; ++i )
 				side[ n++ ] = &r.cameos[ i ];
 			checkHudCells( side, n, r.sidebar );
+
+			// one k across and down: every command button and cameo well keeps its design shape to a
+			// pixel each way, so nothing drawn over one is stretched, and the grid stays over the arrows
+			for( Int i = 0; i < HUD_STRIP_BUTTONS; ++i )
+				CHECK( abs( r.stripButtons[ i ].width() * HUD_CAMEO_ART_H - r.stripButtons[ i ].height() * HUD_CAMEO_ART_W )
+					<= HUD_CAMEO_ART_W + HUD_CAMEO_ART_H );
+			for( Int i = 0; i < HUD_SIDEBAR_CAMEOS; ++i )
+				CHECK( abs( r.cameos[ i ].width() * 75 - r.cameos[ i ].height() * 92 ) <= 92 + 75 );
+			CHECK( r.cameos[ HUD_SIDEBAR_CAMEOS - 1 ].hi.y <= r.arrowUp.lo.y );
 
 			const IRegion2D *strip[ HUD_STRIP_BUTTONS + 2 ];
 			n = 0;
@@ -20943,22 +21632,71 @@ TEST(hud_layout_rects_tile_the_screen)
 
 TEST(sidebar_scroll_keeps_the_window_full)
 {
-	/* The sidebar's cameos scroll two to a row in a window of six rows: the first row shown never goes
-		 above the top, and never so far down that the window shows empty rows a shorter scroll would
-		 have filled. */
+	/* The sidebar's cameos scroll three to a row in a window of seven rows: the first row shown never
+		 goes above the top, and never so far down that the window shows empty rows a shorter scroll
+		 would have filled. */
 	const Int cols = HUD_SIDEBAR_CAMEO_COLUMNS, rows = HUD_SIDEBAR_CAMEO_ROWS;
+	CHECK_EQ( cols * rows, 21 );
 	CHECK_EQ( Sidebar_scroll( 0, cols, rows, 3 ), 0 );
 	CHECK_EQ( Sidebar_scroll( 5, cols, rows, 2 ), 0 );			// fits: no scrolling
-	CHECK_EQ( Sidebar_scroll( 12, cols, rows, 1 ), 0 );			// exactly the window
-	CHECK_EQ( Sidebar_scroll( 13, cols, rows, 5 ), 1 );			// seven rows, the odd cell alone on the last
-	CHECK_EQ( Sidebar_scroll( 13, cols, rows, 1 ), 1 );
-	CHECK_EQ( Sidebar_scroll( 13, cols, rows, -2 ), 0 );
-	CHECK_EQ( Sidebar_scroll( 23, cols, rows, 6 ), 6 );			// twelve rows
-	CHECK_EQ( Sidebar_scroll( 24, cols, rows, 7 ), 6 );
-	CHECK_EQ( Sidebar_scroll( 24, cols, rows, 0x7fff ), 6 );
-	CHECK_EQ( Sidebar_scroll( 24, cols, rows, 3 ), 3 );
-	CHECK_EQ( Sidebar_scroll( 24, 0, rows, 3 ), 0 );				// no grid
-	CHECK_EQ( Sidebar_scroll( 24, cols, 0, 3 ), 0 );
+	CHECK_EQ( Sidebar_scroll( 21, cols, rows, 1 ), 0 );			// exactly the window
+	CHECK_EQ( Sidebar_scroll( 22, cols, rows, 5 ), 1 );			// eight rows, the odd cell alone on the last
+	CHECK_EQ( Sidebar_scroll( 22, cols, rows, 1 ), 1 );
+	CHECK_EQ( Sidebar_scroll( 22, cols, rows, -2 ), 0 );
+	CHECK_EQ( Sidebar_scroll( 35, cols, rows, 6 ), 5 );			// twelve rows
+	CHECK_EQ( Sidebar_scroll( 36, cols, rows, 6 ), 5 );
+	CHECK_EQ( Sidebar_scroll( 36, cols, rows, 0x7fff ), 5 );
+	CHECK_EQ( Sidebar_scroll( 36, cols, rows, 3 ), 3 );
+	CHECK_EQ( Sidebar_scroll( 36, 0, rows, 3 ), 0 );				// no grid
+	CHECK_EQ( Sidebar_scroll( 36, cols, 0, 3 ), 0 );
+}
+
+TEST(power_rail_scale_and_state)
+{
+	/* The sidebar's power rail (W3DPowerDrawV): one linear scale whose top is a quarter over the larger
+		 of production and consumption, so the larger stands at four fifths of the rail; Red Alert's three
+		 colours on the Classic bar's yellow range. */
+	CHECK_EQ( PowerRail_blocks( 10, 10, 4, 100 ), 80 );
+	CHECK_EQ( PowerRail_blocks( 4, 10, 4, 100 ), 32 );
+	CHECK_EQ( PowerRail_blocks( 9, 10, 9, 100 ), 72 );
+	CHECK_EQ( PowerRail_blocks( 19, 10, 19, 100 ), 80 );			// over the limit the consumption sets the scale
+	CHECK_EQ( PowerRail_blocks( 10, 10, 19, 100 ), 42 );			// 10 / 23.75 of 100
+	CHECK_EQ( PowerRail_blocks( 1, 1000, 0, 100 ), 1 );			// anything at all lights a block
+	CHECK_EQ( PowerRail_blocks( 0, 10, 0, 100 ), 0 );
+	CHECK_EQ( PowerRail_blocks( 0, 0, 0, 100 ), 0 );				// the GLA: no power, nothing lit
+	CHECK_EQ( PowerRail_blocks( 10, 10, 4, 0 ), 0 );
+	CHECK( PowerRail_blocks( 9, 10, 9, 122 ) < PowerRail_blocks( 10, 10, 9, 122 ) );	// one unit from the limit still shows
+	CHECK_EQ( PowerRail_state( 10, 0, 5 ), (Int)POWER_RAIL_GREEN );
+	CHECK_EQ( PowerRail_state( 10, 4, 5 ), (Int)POWER_RAIL_GREEN );
+	CHECK_EQ( PowerRail_state( 10, 5, 5 ), (Int)POWER_RAIL_GREEN );
+	CHECK_EQ( PowerRail_state( 10, 6, 5 ), (Int)POWER_RAIL_YELLOW );
+	CHECK_EQ( PowerRail_state( 10, 10, 5 ), (Int)POWER_RAIL_YELLOW );
+	CHECK_EQ( PowerRail_state( 10, 11, 5 ), (Int)POWER_RAIL_RED );
+	CHECK_EQ( PowerRail_state( 0, 0, 5 ), (Int)POWER_RAIL_GREEN );
+}
+
+TEST(sidebar_show_order_groups_by_country_then_first_seen)
+{
+	/* The owner's order for a tab: the player's own country first, each foreign one in the order he
+		 gained it, and inside a country the order each item first showed, so a newly unlocked item ends
+		 its own country's group rather than the list. */
+	std::vector< Int > order;
+	const Int countries[] = { 0, 1, 0, 0, 1, 2 };
+	const Int seen[] = { 0, 1, 2, 5, 3, 4 };
+	Sidebar_showOrder( std::vector< Int >( countries, countries + 6 ), std::vector< Int >( seen, seen + 6 ), order );
+	const Int wanted[] = { 0, 2, 3, 1, 4, 5 };
+	CHECK_EQ( (Int)order.size(), 6 );
+	for( Int i = 0; i < 6 && i < (Int)order.size(); i++ )
+		CHECK_EQ( order[ i ], wanted[ i ] );
+
+	// a start-of-match list, all one country and seen in gather order, keeps that order
+	const Int own[] = { 0, 0, 0 };
+	const Int gathered[] = { 2, 0, 1 };
+	Sidebar_showOrder( std::vector< Int >( own, own + 3 ), std::vector< Int >( gathered, gathered + 3 ), order );
+	CHECK_EQ( (Int)order.size(), 3 );
+	CHECK( order.size() == 3 && order[ 0 ] == 1 && order[ 1 ] == 2 && order[ 2 ] == 0 );
+	Sidebar_showOrder( std::vector< Int >(), std::vector< Int >(), order );
+	CHECK_EQ( (Int)order.size(), 0 );
 }
 
 TEST(sidebar_sell_press_sells_the_selection_or_toggles_the_cursor)
@@ -20969,6 +21707,74 @@ TEST(sidebar_sell_press_sells_the_selection_or_toggles_the_cursor)
 	CHECK_EQ( Sidebar_sellPress( FALSE, FALSE ), (Int)SIDEBAR_SELL_PRESS_MODE_ON );
 	CHECK_EQ( Sidebar_sellPress( TRUE, FALSE ), (Int)SIDEBAR_SELL_PRESS_MODE_OFF );
 	CHECK_EQ( Sidebar_sellPress( TRUE, TRUE ), (Int)SIDEBAR_SELL_PRESS_MODE_OFF );
+}
+
+TEST(sidebar_chip_press_lights_a_set)
+{
+	/* Several factories selected light several chips; on the picker a plain press lights one chip
+		 alone, Shift puts a chip into the lit set or takes it out, and Tümü empties it.  The set stays
+		 sorted by ObjectID, which is the order the batch is spread in. */
+	std::vector< ObjectID > picks;
+	Sidebar_pressChip( picks, (ObjectID)7, FALSE );
+	CHECK_EQ( (Int)picks.size(), 1 );
+	CHECK_EQ( (Int)picks[ 0 ], 7 );
+
+	Sidebar_pressChip( picks, (ObjectID)3, TRUE );
+	Sidebar_pressChip( picks, (ObjectID)9, TRUE );
+	CHECK_EQ( (Int)picks.size(), 3 );
+	CHECK_EQ( (Int)picks[ 0 ], 3 );
+	CHECK_EQ( (Int)picks[ 1 ], 7 );
+	CHECK_EQ( (Int)picks[ 2 ], 9 );
+
+	Sidebar_pressChip( picks, (ObjectID)7, TRUE );		// lit: out again
+	CHECK_EQ( (Int)picks.size(), 2 );
+	CHECK_EQ( (Int)picks[ 0 ], 3 );
+	CHECK_EQ( (Int)picks[ 1 ], 9 );
+
+	Sidebar_pressChip( picks, (ObjectID)9, FALSE );		// a plain press: that one alone
+	CHECK_EQ( (Int)picks.size(), 1 );
+	CHECK_EQ( (Int)picks[ 0 ], 9 );
+
+	Sidebar_pressChip( picks, (ObjectID)9, TRUE );		// the last one out is Tümü
+	CHECK( picks.empty() );
+
+	Sidebar_pressChip( picks, (ObjectID)3, TRUE );
+	Sidebar_pressChip( picks, (ObjectID)9, TRUE );
+	Sidebar_pressChip( picks, INVALID_ID, FALSE );		// Tümü
+	CHECK( picks.empty() );
+	Sidebar_pressChip( picks, (ObjectID)5, FALSE );
+	Sidebar_pressChip( picks, INVALID_ID, TRUE );			// Tümü with Shift is still Tümü
+	CHECK( picks.empty() );
+}
+
+TEST(sidebar_batch_spreads_over_lit_factories)
+{
+	/* A cameo click with several factories lit hands each unit of the batch to the lit factory with
+		 the fewest in its queue, this batch's units counted, the first (lowest ObjectID) on a tie, and
+		 never to a full queue; -1 once every queue is full. */
+	std::vector< UnsignedInt > queued, caps;
+	queued.push_back( 2 ); caps.push_back( 9 );
+	queued.push_back( 0 ); caps.push_back( 9 );
+	queued.push_back( 0 ); caps.push_back( 1 );
+
+	const Int expected[] = { 1, 2, 1, 0, 1, 0, 1 };
+	for( Int each = 0; each < (Int)ARRAY_SIZE( expected ); each++ )
+	{
+		const Int at = Sidebar_nextFactory( queued, caps );
+		CHECK_EQ( at, expected[ each ] );
+	}
+	CHECK_EQ( (Int)queued[ 0 ], 4 );
+	CHECK_EQ( (Int)queued[ 1 ], 4 );
+	CHECK_EQ( (Int)queued[ 2 ], 1 );
+
+	std::vector< UnsignedInt > full( 2, 5 ), fullCaps( 2, 5 );
+	const Int none = Sidebar_nextFactory( full, fullCaps );
+	CHECK_EQ( none, -1 );
+	CHECK_EQ( (Int)full[ 0 ], 5 );
+
+	std::vector< UnsignedInt > one( 1, 0 ), noCaps;
+	const Int unmatched = Sidebar_nextFactory( one, noCaps );	// no cap for it: not taken
+	CHECK_EQ( unmatched, -1 );
 }
 
 TEST(a_plate_covers_the_windows_its_panel_is_responsible_for)
@@ -24669,11 +25475,16 @@ TEST(lan_options_fit_eight_humans_on_a_generated_template_map)
 	// the replay's field, which the launcher reads, names a template map in full
 	CHECK_STR( GameInfoMapField( AsciiString( paths[4] ) ).str(),
 		"userdata/maps/rmg_v17_2147483647_8p_672c_tffffffff_bombardment beach" );
-	// a template map's CRC and folder go as four letters; reading them back needs the shipped maps,
-	// which replay-check on a template map covers
+	// a template map's folder goes as four letters and its CRC as two, the field no longer than the
+	// shipped map's; reading them back needs the shipped maps, which replay-check on a template map covers
 	const AsciiString wire = GameInfoLobbyMapField( AsciiString( paths[4] ) );
 	CHECK( wire.startsWith( "~17_zik0zj_8_io~" ) );
-	CHECK_EQ( wire.getLength(), 20 );
+	CHECK_EQ( wire.getLength(), 22 );
+	CHECK_STR( wire.str(), "~17_zik0zj_8_io~143ez3" );
+	// a negative seed goes out as its 32 bits and reads back as the host's name, sign and all
+	const char *const negative = "userdata\\maps\\rmg_v19_-5_2p_140c\\rmg_v19_-5_2p_140c.map";
+	CHECK_STR( GameInfoLobbyMapField( AsciiString( negative ) ).str(), "~19_1z141yz_2_3w" );
+	CHECK_STR( GameInfoMapPathFromField( GameInfoLobbyMapField( AsciiString( negative ) ) ).str(), negative );
 
 	GlobalData *saved = TheWritableGlobalData;
 	TheWritableGlobalData = NEW GlobalData;
