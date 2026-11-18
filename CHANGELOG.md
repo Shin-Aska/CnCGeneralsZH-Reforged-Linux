@@ -8,6 +8,10 @@ found and fixed, EA's own, not port damage.**
 
 ---
 
+## Optional underwater clarity
+
+- Set `UnderwaterClarity = yes` in `Options.ini` to reveal shallow submerged scenery with the native SDL Modern-water renderer. It is off by default; flat offshore basins and deep water retain their authored opacity, and Classic Graphics keeps its original water.
+
 ## Crashes from the 4.0 reports
 
 - The commonest crash of 4.0 was fixed in 4.1; this round closes what the reports left behind.
