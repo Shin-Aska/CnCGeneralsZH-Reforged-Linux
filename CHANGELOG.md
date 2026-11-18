@@ -12,6 +12,11 @@ found and fixed, EA's own, not port damage.**
 
 - Battle Marks now leave craters, stains and treads on the native SDL GPU renderer. Marks fade as before, stay off underwater, and remain disabled with Classic Graphics.
 
+## Native Linux glow and post processing
+
+- Glow now uses the native scene's floating point color buffer, with the same bloom and Internal HDR tone mapping as Direct3D 11. Reforged lighting also applies its local contrast and color grade before unit health bars and the interface are drawn.
+- Classic graphics keeps its original picture. Unsupported post targets fall back to the existing renderer, and window resizing recreates the scene resources safely.
+
 ## Play vs AI online
 
 - The online hub has a PLAY VS AI button under Options. One press starts a 1v1 against a computer player as strong as your AI rating, on a map and seed the server picks. The AI rating is a second rating zerohour.gg keeps beside the ladder's, starting at 0, and the hub shows it left of the button.
