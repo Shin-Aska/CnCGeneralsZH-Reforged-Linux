@@ -100,6 +100,10 @@ found and fixed, EA's own, not port damage.**
 
 - Startup no longer reports missing behavior on a reskinned unit when its data deliberately removed that behavior or added it only to the parent afterward. The check still catches behaviors unintentionally lost from the copied unit.
 
+## Optional underwater clarity
+
+- Set `UnderwaterClarity = yes` in `Options.ini` to reveal shallow submerged scenery with the native SDL Modern-water renderer. It is off by default; flat offshore basins and deep water retain their authored opacity, and Classic Graphics keeps its original water.
+
 ## Play vs AI online
 
 - The online hub has a PLAY VS AI button under Options. One press starts a 1v1 against a computer player as strong as your AI rating, on a map and seed the server picks. The AI rating is a second rating zerohour.gg keeps beside the ladder's, starting at 0, and the hub shows it left of the button.
