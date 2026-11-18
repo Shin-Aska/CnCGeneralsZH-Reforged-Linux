@@ -76,6 +76,10 @@ found and fixed, EA's own, not port damage.**
 
 - Vehicle headlights, explosions and Firelight now illuminate surfaces per pixel on the native SDL GPU renderer. Unsupported views keep their previous lighting, and models and terrain receive each dynamic light once.
 
+## Campaign dialogue
+
+- A campaign script that checked for the end of a speech before requesting it could skip ahead as the speech began. Requesting that same speech now starts a fresh wait; unrelated dialogue waits keep their timing.
+
 ## Play vs AI online
 
 - The online hub has a PLAY VS AI button under Options. One press starts a 1v1 against a computer player as strong as your AI rating, on a map and seed the server picks. The AI rating is a second rating zerohour.gg keeps beside the ladder's, starting at 0, and the hub shows it left of the button.
