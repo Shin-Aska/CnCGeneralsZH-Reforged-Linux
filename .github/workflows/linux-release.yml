@@ -59,6 +59,24 @@ jobs:
           python3 harness/.github/scripts/exact-sha-validation.py metadata
           git -C candidate status --porcelain --untracked-files=no > "$RUNNER_TEMP/reports/tracked-before.txt"
           test ! -s "$RUNNER_TEMP/reports/tracked-before.txt"
+      # Reuse the fork default branch's completed pinned dependency downloads.
+      # Restore only: validation candidates never publish dependency cache contents.
+      - name: Restore known code dependency downloads from the fork default branch
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/vendor-tmp/zhr-vendor
+          key: linux-vendor-v1-285ac9b7331ac3e98b4f60d4bb6d3d5ee2145ec556dcfc68fec031fb3f548156
+      - name: Verify restored zlib archive before candidate dependency staging
+        run: |
+          archive="$RUNNER_TEMP/vendor-tmp/zhr-vendor/zlib-1.1.4.tar.gz"
+          [[ -f "$archive" ]] || { echo '::error::Known dependency cache did not provide zlib-1.1.4; refusing the currently invalid upstream download'; exit 1; }
+          gzip -t "$archive"
+          sha256sum "$archive" > "$RUNNER_TEMP/reports/cached-zlib.sha256"
+      - name: Restore verified CMake download
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/ci-tools/cmake
+          key: linux-cmake-x86_64-v1-e2e5b4b515a3169c4b128c30dd3893b09641805888cc299d5bdd0b5544c06395
       - name: Prepare only the disposable GitHub runner
         run: |
           sudo apt-get update
