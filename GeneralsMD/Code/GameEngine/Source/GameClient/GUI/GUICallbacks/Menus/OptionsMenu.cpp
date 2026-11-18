@@ -32,6 +32,7 @@
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"	// This must go first in EVERY cpp file int the GameEngine
 #include "Platform/RenderWaterFoam.h"
+#include "Platform/RenderPost.h"
 
 #include "gamespy/ghttp/ghttp.h"
 
@@ -3168,6 +3169,10 @@ void OptionsMenuInit( WindowLayout *layout, void *userData )
     // This existing next-map option has an actual native HDR provider as well.
     // Enabling its widget never changes the saved value or retags already loaded meshes.
     findOptionWidget(*findOptionDef("TeamGlow"))->winEnable(RenderTeamGlow::Available());
+#if defined(__linux__)
+    findOptionWidget(*findOptionDef("Atmosphere"))->winEnable(RenderPost::EnvironmentAvailable());
+    findOptionWidget(*findOptionDef("MapLight"))->winEnable(RenderPost::EnvironmentAvailable());
+#endif
 
 	// A preset is its own step on the quality slider, whatever step Options.ini kept from a Custom mix,
 	// as long as the boxes show that step.  An Options.ini from before the slider can hold a preset

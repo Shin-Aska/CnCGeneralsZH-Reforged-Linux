@@ -217,6 +217,9 @@ public:
     bool Read_Soft_Depth(struct SdlMainViewSnapshot &);
     void Refuse_Next_Sprite_For_Test(unsigned flags) { SpriteRefusalForTest = flags; }
     void Begin_Post(const RenderPost::Settings &);
+    void Set_Post_Environment(const RenderPost::Environment &);
+    bool Post_Environment_Available() const;
+    void Post_Sky(bool drawSky = true);
     unsigned Begin_Post_View(bool, float, float, bool);
     void End_Post_View(unsigned);
     bool Read_Main_View(struct SdlMainViewSnapshot &, bool, SdlSceneCapturePhase);
