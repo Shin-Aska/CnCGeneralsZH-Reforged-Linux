@@ -8,6 +8,10 @@ found and fixed, EA's own, not port damage.**
 
 ---
 
+## Map-aware Modern-water wave travel
+
+- Set `MapAwareWaveHeading = yes` in `Options.ini` to make native SDL Modern-water swells bend toward shores, travel along channels and lose height behind islands. Separate seas use their own exposure and incoming direction. This is off by default; leaving it off keeps the original waves and skips the heading field and its shader work.
+
 ## Crashes from the 4.0 reports
 
 - The commonest crash of 4.0 was fixed in 4.1; this round closes what the reports left behind.
