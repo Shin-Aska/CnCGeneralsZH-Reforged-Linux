@@ -11596,33 +11596,37 @@ TEST(frame_rate_limit_round_trips_through_options_ini)
 	TheWritableGlobalData = saved;
 }
 
-/** The interface's layout and width: Classic and the whole screen with no line, so a key-less file
-	 is the Classic game, and both rebuild the shell on Accept since the bar reads them as it is laid out.
-	 The layout brings its keys: the sidebar Red Alert's, Classic the Classic ones, and a HotkeyScheme
-	 line of its own is a key nothing reads any more. */
+/** The layout and width rebuild the shell on Accept. The keyboard scheme is a separate live setting
+	 and can be loaded or changed independently of the layout. */
 TEST(hud_layout_and_width_round_trip_through_options_ini)
 {
-	CHECK( findOptionDef( "HotkeyScheme" ) == NULL );
-
 	const OptionDef *layout = findOptionDef( "HudLayout" );
 	const OptionDef *width = findOptionDef( "HudWidth" );
+	const OptionDef *scheme = findOptionDef( "HotkeyScheme" );
 	CHECK( layout != NULL );
 	CHECK( width != NULL );
+	CHECK( scheme != NULL );
+	if( !layout || !width || !scheme )
+		return;
 	CHECK_EQ( (Int)layout->kind, (Int)OPTION_ENUM );
 	CHECK_EQ( (Int)layout->apply, (Int)APPLY_SHELL_REBUILD );
 	CHECK_EQ( layout->hi, HUD_LAYOUT_COUNT - 1 );
 	CHECK_EQ( (Int)width->kind, (Int)OPTION_ENUM );
 	CHECK_EQ( (Int)width->apply, (Int)APPLY_SHELL_REBUILD );
 	CHECK_EQ( width->hi, HUD_WIDTH_COUNT - 1 );
+	CHECK_EQ( (Int)scheme->kind, (Int)OPTION_ENUM );
+	CHECK_EQ( (Int)scheme->apply, (Int)APPLY_LIVE );
+	CHECK_EQ( scheme->hi, HOTKEY_SCHEME_COUNT - 1 );
 
 	GlobalData *saved = TheWritableGlobalData;
 	TheWritableGlobalData = NEW GlobalData;
 
 	CHECK_EQ( TheGlobalData->m_hudLayout, (Int)HUD_LAYOUT_CLASSIC );
 	CHECK_EQ( TheGlobalData->m_hudWidth, (Int)HUD_WIDTH_FULL );
+	CHECK_EQ( TheGlobalData->m_hotkeyScheme, (Int)HOTKEY_SCHEME_CLASSIC );
 	CHECK_EQ( optionDefaultValue( *layout ), (Int)HUD_LAYOUT_CLASSIC );
 	CHECK_EQ( optionDefaultValue( *width ), (Int)HUD_WIDTH_FULL );
-	CHECK_EQ( TheGlobalData->m_hotkeyScheme, (Int)HOTKEY_SCHEME_CLASSIC );
+	CHECK_EQ( optionDefaultValue( *scheme ), (Int)HOTKEY_SCHEME_CLASSIC );
 
 	UserPreferences pref;
 	pref[ AsciiString( "HudLayout" ) ] = AsciiString( "1" );
@@ -11631,20 +11635,25 @@ TEST(hud_layout_and_width_round_trip_through_options_ini)
 	loadOptionsFromPreferences( pref );
 	CHECK_EQ( TheGlobalData->m_hudLayout, (Int)HUD_LAYOUT_SIDEBAR );
 	CHECK_EQ( TheGlobalData->m_hudWidth, (Int)HUD_WIDTH_16_9 );
+	CHECK_EQ( TheGlobalData->m_hotkeyScheme, (Int)HOTKEY_SCHEME_CLASSIC );
+
+	pref[ AsciiString( "HudLayout" ) ] = AsciiString( "0" );
+	pref[ AsciiString( "HotkeyScheme" ) ] = AsciiString( "1" );
+	loadOptionsFromPreferences( pref );
+	CHECK_EQ( TheGlobalData->m_hudLayout, (Int)HUD_LAYOUT_CLASSIC );
 	CHECK_EQ( TheGlobalData->m_hotkeyScheme, (Int)HOTKEY_SCHEME_RED_ALERT );
+
+	layout->set( HUD_LAYOUT_SIDEBAR );
+	CHECK_EQ( TheGlobalData->m_hotkeyScheme, (Int)HOTKEY_SCHEME_RED_ALERT );
+	scheme->set( HOTKEY_SCHEME_CLASSIC );
+	CHECK_EQ( TheGlobalData->m_hotkeyScheme, (Int)HOTKEY_SCHEME_CLASSIC );
+	CHECK_EQ( TheGlobalData->m_hudLayout, (Int)HUD_LAYOUT_SIDEBAR );
 
 	pref[ AsciiString( "HudLayout" ) ] = AsciiString( "7" );
 	pref[ AsciiString( "HudWidth" ) ] = AsciiString( "9" );
 	loadOptionsFromPreferences( pref );
 	CHECK_EQ( TheGlobalData->m_hudLayout, HUD_LAYOUT_COUNT - 1 );
 	CHECK_EQ( TheGlobalData->m_hudWidth, HUD_WIDTH_COUNT - 1 );
-	CHECK_EQ( TheGlobalData->m_hotkeyScheme, (Int)HOTKEY_SCHEME_RED_ALERT );
-
-	// the menu's Accept goes through the same setter
-	layout->set( HUD_LAYOUT_CLASSIC );
-	CHECK_EQ( TheGlobalData->m_hotkeyScheme, (Int)HOTKEY_SCHEME_CLASSIC );
-	layout->set( HUD_LAYOUT_SIDEBAR );
-	CHECK_EQ( TheGlobalData->m_hotkeyScheme, (Int)HOTKEY_SCHEME_RED_ALERT );
 
 	delete TheWritableGlobalData;
 	TheWritableGlobalData = saved;
