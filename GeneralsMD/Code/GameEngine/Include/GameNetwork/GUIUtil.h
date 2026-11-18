@@ -83,6 +83,9 @@ enum
 void PopulateSuperweaponComboBox(GameWindow *comboBox, GameInfo *myGame, Bool hostMayEdit);
 void UpdateSuperweaponComboBox(GameWindow *comboBox, GameInfo *myGame, Bool hostMayEdit);
 Int SuperweaponRestrictionFromComboBox(GameWindow *comboBox);
+// The dropdown's string label for a mode, the first entry's for a mode it does not have.  The load
+// board's facts box words the rule with it.
+const char *SuperweaponCaption(Int restriction);
 
 // The unit limit check box, which the host ticks and which travels in the options string as UL.
 // UpdateUnitLimitCheckBox puts the box on what the game says and greys it out for anyone who may not
@@ -95,6 +98,8 @@ void UpdateProRulesCheckBox(GameWindow *checkBox, GameInfo *myGame, Bool hostMay
 void PopulateIncomeSharingComboBox(GameWindow *comboBox, GameInfo *myGame, Bool hostMayEdit);
 void UpdateIncomeSharingComboBox(GameWindow *comboBox, GameInfo *myGame, Bool hostMayEdit);
 Int IncomeSharingFromComboBox(GameWindow *comboBox);
+// The dropdown's string label for an IncomeSharing, Off's for one out of range.
+const char *IncomeSharingCaption(Int incomeSharing);
 
 // The tech building respawn dropdown, minutes in each entry's item data, travelling as TR.
 void PopulateTechRespawnComboBox(GameWindow *comboBox, GameInfo *myGame, Bool hostMayEdit);
@@ -145,6 +150,9 @@ Int HandleHandicapSelection(GameInfo *myGame, GameWindow *comboHandicap[], NameK
 // update and none of it takes input.  A layout without the windows (a stale Run/Window) leaves them
 // NULL and the room looks as it did.
 void InitLobbySeatVisuals(GameWindow *parent, const char *layoutFilename);
+// Every combo box on the room's rules page opens a list that ends on the foot of a rules row below
+// it, the rows' pitch read from the boxes themselves; none shows a box cut in half under it.
+void SnapLobbyRulesLists(GameWindow *parent, const char *layoutFilename);
 void UpdateLobbySeatVisuals(GameInfo *myGame);
 void ShutdownLobbySeatVisuals(void);
 // Team 0 to 3 (shown as 1 to 4) each have a colour none of the players can pick; no team is the
@@ -157,6 +165,9 @@ Color LobbyTextColorOn(Color fill);
 // A taken start spot over EA's PlayerStart drawn in this rectangle: its middle in the colour and its
 // ring as EA drew it.  The room's spot buttons and the load screen's map both draw it.
 void LobbyStartSpotFill(Int x, Int y, Int width, Int height, Color fill);
+// A seat's colour or team swatch as the room draws it: the rules page's empty check box with the
+// colour inside its hole.  The score screen's team bands draw it too.
+void LobbySwatchFill(Int x, Int y, Int width, Int height, Color fill);
 // The map pickers' Official / Unofficial radio buttons drawn as UIStyle tabs: the open one's label
 // ACTIVE, a disabled one's MUTED.  The pickers' init sets it as both buttons' draw function.
 void DrawMapListTab(GameWindow *window, class WinInstanceData *instData);

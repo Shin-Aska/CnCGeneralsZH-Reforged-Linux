@@ -35,6 +35,7 @@
 #define _VIEW_H_
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
+#include "Common/GameCommon.h"
 #include "Common/GameType.h"
 #include "Common/Snapshot.h"
 #include "Lib/BaseType.h"
@@ -76,8 +77,8 @@ enum PickType
 struct ScreenDistortionInfo
 {
 	Real m_radius;
-	UnsignedInt m_pullFrames;
-	UnsignedInt m_waveFrames;
+	DurationFrames m_pullFrames;
+	DurationFrames m_waveFrames;
 	Real m_pullStrength;
 	Real m_waveStrength;
 	Real m_waveWidth;
@@ -284,8 +285,11 @@ public:
 	};
 	virtual void setFreeCamera( Bool on ) { }
 	virtual Bool isFreeCamera( void ) const { return FALSE; }
-	/// eye in world units, heading and tilt in radians (heading 0 looks along +x, tilt 0 is level)
-	virtual void setFreeCameraPose( const Coord3D *eye, Real heading, Real tilt ) { }
+	/// eye in world units, heading, tilt and roll in radians (heading 0 looks along +x, tilt 0 is
+	/// level, positive roll drops the right side of the picture)
+	virtual void setFreeCameraPose( const Coord3D *eye, Real heading, Real tilt, Real roll = 0.0f ) { }
+	/// a shot list sets the pose every frame: the keys and the mouse fly nothing and the pointer is left alone
+	virtual void setFreeCameraScripted( Bool scripted ) { }
 	virtual void getFreeCameraPose( Coord3D *eye, Real *heading, Real *tilt ) const { }
 	/// which of the FreeCameraKeys are held
 	virtual void setFreeCameraKeys( UnsignedInt keys ) { }

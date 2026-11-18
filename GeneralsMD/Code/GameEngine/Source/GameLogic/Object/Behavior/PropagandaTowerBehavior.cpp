@@ -31,6 +31,8 @@
 
 // INCLUDES ///////////////////////////////////////////////////////////////////////////////////////
 #include "PreRTS.h"
+#define DEFINE_WEAPONBONUSCONDITION_NAMES	// TheWeaponBonusNames, for BonusCondition
+#include "GameLogic/Weapon.h"
 #include "Common/GameState.h"
 #include "Common/Player.h"
 #include "Common/PlayerList.h"
@@ -85,13 +87,14 @@ PropagandaTowerBehaviorModuleData::PropagandaTowerBehaviorModuleData( void )
 {
 
 	m_scanRadius = 1.0f;
-	m_scanDelayInFrames = ConvertRetailFrames(100u);
+	m_scanDelayInFrames.setRaw( 3333 );	// msec: ConvertRetailFrames(100u) at the native speed
 	m_autoHealPercentPerSecond = 0.01f;
 	m_upgradedAutoHealPercentPerSecond = 0.02f;
 	m_pulseFX = NULL;
 	m_upgradeRequired = NULL;
 	m_upgradedPulseFX = NULL;
 	m_affectsSelf = FALSE;
+	m_bonusCondition = WEAPONBONUSCONDITION_ENTHUSIASTIC;
 
 }  // end PropagandaTowerBehaviorModuleData
 
@@ -104,13 +107,14 @@ PropagandaTowerBehaviorModuleData::PropagandaTowerBehaviorModuleData( void )
 	static const FieldParse dataFieldParse[] = 
 	{
 		{ "Radius",									INI::parseReal,									NULL,	offsetof( PropagandaTowerBehaviorModuleData, m_scanRadius ) },
-		{ "DelayBetweenUpdates",		INI::parseDurationUnsignedInt,	NULL,	offsetof( PropagandaTowerBehaviorModuleData, m_scanDelayInFrames ) },
+		{ "DelayBetweenUpdates",		SPEED_FIELD( PropagandaTowerBehaviorModuleData, m_scanDelayInFrames ) },
 		{ "HealPercentEachSecond",	INI::parsePercentToReal,				NULL,	offsetof( PropagandaTowerBehaviorModuleData, m_autoHealPercentPerSecond ) },
 		{ "UpgradedHealPercentEachSecond",	INI::parsePercentToReal,NULL,	offsetof( PropagandaTowerBehaviorModuleData, m_upgradedAutoHealPercentPerSecond ) },
 		{ "PulseFX",								INI::parseFXList,								NULL,	offsetof( PropagandaTowerBehaviorModuleData, m_pulseFX ) },
 		{ "UpgradeRequired",				INI::parseAsciiString,					NULL, offsetof( PropagandaTowerBehaviorModuleData, m_upgradeRequired ) },
 		{ "UpgradedPulseFX",				INI::parseFXList,								NULL, offsetof( PropagandaTowerBehaviorModuleData, m_upgradedPulseFX ) },
 		{ "AffectsSelf",						INI::parseBool,									NULL, offsetof( PropagandaTowerBehaviorModuleData, m_affectsSelf ) },
+		{ "BonusCondition",					INI::parseIndexList,						TheWeaponBonusNames, offsetof( PropagandaTowerBehaviorModuleData, m_bonusCondition ) },
 		{ 0, 0, 0, 0 }
 	};
 
@@ -309,8 +313,8 @@ void PropagandaTowerBehavior::effectLogic( Object *obj, Bool giving,
 	{
 		if ( obj->hasAnyDamageWeapon() == TRUE )
 		{
-			if( obj->testWeaponBonusCondition( WEAPONBONUSCONDITION_ENTHUSIASTIC ) == FALSE )
-				obj->setWeaponBonusCondition( WEAPONBONUSCONDITION_ENTHUSIASTIC );
+			if( obj->testWeaponBonusCondition( modData->m_bonusCondition ) == FALSE )
+				obj->setWeaponBonusCondition( modData->m_bonusCondition );
 
 
 			if (effectUpgraded)
@@ -332,7 +336,7 @@ void PropagandaTowerBehavior::effectLogic( Object *obj, Bool giving,
 			else
 				healthPercent = modData->m_autoHealPercentPerSecond;
 
-			Real amount = healthPercent / LOGICFRAMES_PER_SECOND * body->getMaxHealth();
+			Real amount = healthPercent / LOGICFRAMES_PER_GAME_SECOND * body->getMaxHealth();
 
 	// Dustin wants the healing effect not to stack from multiple propaganda towers...
 	// To accomplish this, I'll give every object a single healing-sender (ID)
@@ -340,7 +344,9 @@ void PropagandaTowerBehavior::effectLogic( Object *obj, Bool giving,
 	// and cannot change healing senders until the previous one expires (its scandelay)
 
 //		obj->attemptHealing(amount, getObject()); // the regular way to give healing... 
-			obj->attemptHealingFromSoleBenefactor( amount, getObject(), modData->m_scanDelayInFrames );//the non-stacking way
+			// a tower that heals nothing (the Siper) must not claim the sole-benefactor slot from one that does
+			if( amount > 0.0f )
+				obj->attemptHealingFromSoleBenefactor( amount, getObject(), modData->m_scanDelayInFrames );//the non-stacking way
 
 		}  // end if
 
@@ -349,7 +355,7 @@ void PropagandaTowerBehavior::effectLogic( Object *obj, Bool giving,
 	{
 
 		// taking effect away
-		obj->clearWeaponBonusCondition( WEAPONBONUSCONDITION_ENTHUSIASTIC );
+		obj->clearWeaponBonusCondition( modData->m_bonusCondition );
 		obj->clearWeaponBonusCondition( WEAPONBONUSCONDITION_SUBLIMINAL );
 
 	}	  // end else

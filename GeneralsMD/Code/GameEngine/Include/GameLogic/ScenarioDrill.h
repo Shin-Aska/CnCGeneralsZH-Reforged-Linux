@@ -74,7 +74,7 @@ enum ScenarioActionType
 	SCENARIO_ACTION_POWER,					///< power <slot> <building> <position> [powerName]; fire its special powers (or the one named) there now, charged or not
 	SCENARIO_ACTION_PLAYERATTACKMOVE,	///< playerattackmove <slot> <selector> <position>; the player's attack move, not a script's
 	SCENARIO_ACTION_PRODUCE,			///< produce <slot> <building> <template> <count>; queue that many in its first matching building
-	SCENARIO_ACTION_TALLY,				///< tally <slot> <selector>; log how many are alive, their health and what they cost
+	SCENARIO_ACTION_TALLY,				///< tally <slot> <selector> [count] [widest]; log how many are alive, their health and what they cost, and expect that many standing within that distance of their middle
 	SCENARIO_ACTION_RESUME,				///< resume <slot> <selector> <targetSlot> <targetSelector>; a player's right click of builders on a half-built structure
 	SCENARIO_ACTION_PURCHASE,			///< purchase <slot> <science>; the rank needed and the points, then MSG_PURCHASE_SCIENCE as the science button sends it
 	SCENARIO_ACTION_SHIFTMOVE,				///< shiftmove <slot> <selector> <position>; a shift right click, onto the units' order queue
@@ -101,7 +101,10 @@ enum ScenarioActionType
 	SCENARIO_ACTION_AUTOGARRISON,			///< autogarrison <slot> <selector>; the auto garrison key, as MSG_DO_AUTO_GARRISON
 	SCENARIO_ACTION_AUTOREPAIR,				///< autorepair <slot> <selector>; the auto repair key, as MSG_DO_AUTO_REPAIR
 	SCENARIO_ACTION_REACHPROOF,				///< reachproof <slot> <selector> <targetSlot> <probe> [samples]; every matching defence's reach overlay against the logic, the probe stood on each sample point (ReachOverlay_prove)
-	SCENARIO_ACTION_TOPUP							///< topup <slot> <template> <objects>; from now on, while the world holds fewer objects than that, this line's turn makes one on the road from the seat's start to the map's centre and attack-moves it there
+	SCENARIO_ACTION_HANDOVER,					///< handover <slot> <selector> <position> <targetSlot>; the match nearest the position goes to that seat through setTeam, as a capture does, and each upgrade module's state before and after is logged
+	SCENARIO_ACTION_TOPUP,						///< topup <slot> <template> <objects>; from now on, while the world holds fewer objects than that, this line's turn makes one on the road from the seat's start to the map's centre and attack-moves it there
+	SCENARIO_ACTION_AIRLIFT,					///< airlift <slot> <building> <position> <template>:<count>[,<template>:<count>...]; the airlift panel's OK, as MSG_DO_AIRLIFT_ORDER handed to the dispatcher for that seat
+	SCENARIO_ACTION_HEALTH						///< health <slot> <selector> <percent> [rank]; every match set to that share of its health, and first to that veterancy rank (0-3, in targetSlot) when one is given; outside the command stream, as handover is
 };
 
 /// ScenarioAction::atStart when the position is plain numbers
@@ -137,7 +140,7 @@ struct ScenarioAction
 	Int atStart;									///< the start position at is measured from, SCENARIO_NO_START for none
 	Int count;										///< how many to spawn; for tally, how many should be standing, -1 for no opinion
 	Real spacing;									///< how far apart to spawn them, in world units
-	Real radius;									///< how close to the target counts as arrived
+	Real radius;									///< how close to the target counts as arrived; for tally, how far from their middle they may stand
 	Int targetSlot;								///< whose units to attack
 	AsciiString targetSelector;		///< which of them
 	AsciiString name;							///< shiftpower's special power, shiftupgrade's upgrade, weaponat's weapon slot

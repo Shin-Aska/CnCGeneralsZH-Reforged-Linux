@@ -143,8 +143,8 @@ private:
 
 	// this is an absolute frame, not a frame count.
 	// actually, it's not a real frame at all, it has phase info in the lower bits...
-	UnsignedInt m_nextCallFrameAndPhase;	
-	Int m_indexInLogic;
+	UnsignedInt m_nextCallFrameAndPhase;
+	Int m_sleepySlot;		///< GameLogic's slot for us while we are on its sleepy heap, -1 when not
 
 protected:
 
@@ -152,6 +152,10 @@ protected:
 	void setWakeFrame(Object* obj, UpdateSleepTime wakeDelay);
 
 	UpdateSleepTime getWakeFrame() const;
+
+	// for a module asleep because its run changed nothing: wake in time for the turn it would have
+	// taken this frame had it stayed awake, or next frame when that turn has gone by
+	void wakeExactly();
 
 	/*
 		You should pretty much never redefine this; it's really used for
@@ -213,14 +217,14 @@ public:
 		m_nextCallFrameAndPhase = (frame << 2) | getUpdatePhase(); 
 	}
 
-	UPDATEMODULE_FRIEND_DECLARATOR Int friend_getIndexInLogic() const 
-	{ 
-		return m_indexInLogic; 
+	UPDATEMODULE_FRIEND_DECLARATOR Int friend_getSleepySlot() const
+	{
+		return m_sleepySlot;
 	}
 
-	UPDATEMODULE_FRIEND_DECLARATOR void friend_setIndexInLogic(Int i)
-	{ 
-		m_indexInLogic = i; 
+	UPDATEMODULE_FRIEND_DECLARATOR void friend_setSleepySlot(Int slot)
+	{
+		m_sleepySlot = slot;
 	}
 
 	UPDATEMODULE_FRIEND_DECLARATOR const Object* friend_getObject() const 
@@ -231,14 +235,14 @@ public:
 };
 inline UpdateModule::UpdateModule( Thing *thing, const ModuleData* moduleData ) : 
 	BehaviorModule( thing, moduleData ),
-	m_indexInLogic(-1),
-	m_nextCallFrameAndPhase(0) 
-{ 
+	m_sleepySlot(-1),
+	m_nextCallFrameAndPhase(0)
+{
 	// nothing
 }
-inline UpdateModule::~UpdateModule() 
-{ 
-	DEBUG_ASSERTCRASH(m_indexInLogic == -1, ("destroying an updatemodule still in the logic list"));
+inline UpdateModule::~UpdateModule()
+{
+	DEBUG_ASSERTCRASH(m_sleepySlot == -1, ("destroying an updatemodule still in the logic list"));
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -257,6 +261,8 @@ public:
 	virtual void onSlaverDie( const DamageInfo *info ) = 0;
 	virtual void onSlaverDamage( const DamageInfo *info ) = 0;
 	virtual	Bool isSelfTasking() const = 0;
+	/// a group order moved my slaver and left me out of it, so I follow it now rather than on my next look
+	virtual void onSlaverOrdered() {}
 
 };
 

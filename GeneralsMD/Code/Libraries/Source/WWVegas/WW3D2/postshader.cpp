@@ -703,11 +703,16 @@ static const char * const BLOOM_EXTRACT_SHADER_BODY =
 	"    float over = max(bright - Tuning.x, 0.0);\n"
 	"    float knee = max(Tuning.w, 0.0001);\n"
 	"    float kept = (over < knee) ? over * over / (2.0 * knee) : over - knee * 0.5;\n"
-	"    return float4(colour * (kept / max(bright, 0.0001)), 1.0);\n"
+	"    float3 glow = colour * (kept / max(bright, 0.0001));\n"
+	"    float glowGrey = dot(glow, float3(0.299, 0.587, 0.114));\n"
+	"    glow = max(lerp(glowGrey.xxx, glow, BlurDirection.z), 0.0);\n"
+	"    return float4(glow, dot(tone_curve(colour), float3(0.299, 0.587, 0.114)));\n"
 	"}\n";
 
 // One half of a separable gaussian.  The direction comes in as a constant, so the same program is
-// the horizontal pass and the vertical one.
+// the horizontal pass and the vertical one.  The alpha, the clarity's luminance, is blurred only by
+// the pairs that say so (BlurDirection.w) and passed through by the rest, so the clarity measures
+// against the same width at every Glow level.
 static const char * const BLOOM_BLUR_SHADER_BODY =
 	"static const float WEIGHTS[5] =\n"
 	"    { 0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216 };\n"
@@ -715,34 +720,58 @@ static const char * const BLOOM_BLUR_SHADER_BODY =
 	"float4 main(VertexOutput input) : SV_TARGET\n"
 	"{\n"
 	"    float2 step = BlurDirection.xy;\n"
-	"    float3 sum = Source.Sample(Sampler, input.Texture).rgb * WEIGHTS[0];\n"
+	"    float4 centre = Source.Sample(Sampler, input.Texture);\n"
+	"    float4 sum = centre * WEIGHTS[0];\n"
 	"    for (int index = 1; index < 5; ++index) {\n"
 	"        float2 offset = step * index;\n"
-	"        sum += Source.Sample(Sampler, input.Texture + offset).rgb * WEIGHTS[index];\n"
-	"        sum += Source.Sample(Sampler, input.Texture - offset).rgb * WEIGHTS[index];\n"
+	"        sum += Source.Sample(Sampler, input.Texture + offset) * WEIGHTS[index];\n"
+	"        sum += Source.Sample(Sampler, input.Texture - offset) * WEIGHTS[index];\n"
 	"    }\n"
-	"    return float4(sum, 1.0);\n"
+	"    return float4(sum.rgb, (BlurDirection.w > 0.0) ? sum.a : centre.a);\n"
 	"}\n";
+
+// Clarity, ZH Enhanced's other ReShade pass taken over: local contrast on the luminance, the way
+// Clarity.fx's overlay blend does it.  Detail is how much brighter the pixel's own tone-mapped grey
+// is than the blur of it round about; the grey moves by that times the strength times its distance
+// from the nearer end (the overlay's weight), so black and white stay put and a mid tone moves the
+// most.  The pixel keeps its hue: the colour is scaled, not added to.  Under about a tenth of white
+// it fades out, as Clarity.fx's blend-if-dark of 25 does, or the shade beside a lit wall goes to
+// black.  The glow is not in the detail (plain is the scene without it), so a fire's halo is not
+// read as an edge and does not ring.
+#define CLARITY_TEXT \
+	"float3 clarity(float3 colour, float3 plain, float blurred)\n" \
+	"{\n" \
+	"    float3 weights = float3(0.299, 0.587, 0.114);\n" \
+	"    float detail = dot(plain, weights) - blurred;\n" \
+	"    float grey = dot(saturate(colour), weights);\n" \
+	"    float moved = grey + BlurDirection.w * min(grey, 1.0 - grey) * detail * smoothstep(0.04, 0.12, grey);\n" \
+	"    return saturate(colour * (saturate(moved) / max(grey, 0.0001)));\n" \
+	"}\n" \
+	"\n"
 
 // The scene and the glow added, then the tone curve, then eight bits.  One pass rather than two
 // because the addition is what makes a value overbright and the curve is what brings it back, and
-// splitting them would mean writing the sum into a float target nobody else reads.
-static const char * const BLOOM_COMPOSITE_SHADER_BODY =
-	"float4 main(VertexOutput input) : SV_TARGET\n"
-	"{\n"
-	"    float3 scene = Source.Sample(Sampler, input.Texture).rgb;\n"
-	"    float3 glow = Extra.Sample(Sampler, input.Texture).rgb;\n"
-	"    return float4(grade(tone_curve(scene + glow * Tuning.y)), 1.0);\n"
-	"}\n";
+// splitting them would mean writing the sum into a float target nobody else reads.  The clarity
+// goes on between the curve and the grade, where Clarity.fx stood in ZH Enhanced's chain: on the
+// picture as it would reach the screen.  Off, it is one untaken branch.
+#define BLOOM_COMPOSITE_TEXT(curve) \
+	CLARITY_TEXT \
+	"float4 main(VertexOutput input) : SV_TARGET\n" \
+	"{\n" \
+	"    float3 scene = Source.Sample(Sampler, input.Texture).rgb;\n" \
+	"    float4 glow = Extra.Sample(Sampler, input.Texture);\n" \
+	"    float3 colour = " curve "(scene + glow.rgb * Tuning.y);\n" \
+	"    if (BlurDirection.w > 0.0) colour = clarity(colour, tone_curve(scene), glow.a);\n" \
+	"    return float4(grade(colour), 1.0);\n" \
+	"}\n"
+
+static const char * const BLOOM_COMPOSITE_SHADER_BODY = BLOOM_COMPOSITE_TEXT("tone_curve");
 
 static const char * const BLOOM_COMPOSITE_WIDE_SHADER_BODY =
 	WIDE_CURVE_TEXT
-	"float4 main(VertexOutput input) : SV_TARGET\n"
-	"{\n"
-	"    float3 scene = Source.Sample(Sampler, input.Texture).rgb;\n"
-	"    float3 glow = Extra.Sample(Sampler, input.Texture).rgb;\n"
-	"    return float4(grade(wide_curve(scene + glow * Tuning.y)), 1.0);\n"
-	"}\n";
+	BLOOM_COMPOSITE_TEXT("wide_curve");
+#undef BLOOM_COMPOSITE_TEXT
+#undef CLARITY_TEXT
 
 // A blast bending the picture, one read per pixel whatever the number of warps: every warp adds
 // to where the pixel reads from, and the frame is sampled once at the sum.

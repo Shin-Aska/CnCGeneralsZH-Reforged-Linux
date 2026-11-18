@@ -51,6 +51,9 @@ enum MatchSeries
 	MATCH_SERIES_BUILDINGS,		///< structures standing
 	MATCH_SERIES_POWER,				///< power produced
 	MATCH_SERIES_LOST,				///< units lost so far
+	MATCH_SERIES_ARMY_VALUE,	///< what everything standing that is no structure cost to build
+	MATCH_SERIES_VALUE_DESTROYED,	///< what the enemy units it killed so far cost their owners
+	MATCH_SERIES_VALUE_LOST,	///< what the units it lost so far cost it
 	MATCH_SERIES_COUNT
 };
 
@@ -60,6 +63,7 @@ enum MatchEventType
 	MATCH_EVENT_SUPERWEAPON_FIRED,
 	MATCH_EVENT_POWER,				///< a general's power, one a promotion bought
 	MATCH_EVENT_RANK,					///< a promotion; the rank is in MatchEvent::rank
+	MATCH_EVENT_DEFEATED,			///< the player was eliminated, on this frame
 	MATCH_EVENT_TYPE_COUNT
 };
 
@@ -86,9 +90,9 @@ public:
 	{
 		MAX_SAMPLES = 360,				///< 30 minutes at the first rate; then every other sample goes and the rate halves
 		MAX_EVENTS = 512,
-		MAX_BUILDS = 200,					///< per player: every structure, and the first of each unit type
-		FIRST_INTERVAL = 5 * LOGICFRAMES_PER_SECOND
+		MAX_BUILDS = 200					///< per player: every structure, and the first of each unit type
 	};
+	#define MATCH_HISTORY_FIRST_INTERVAL ((Int)(5 * LOGICFRAMES_PER_GAME_SECOND))
 
 	MatchHistory( void );
 
@@ -98,6 +102,10 @@ public:
 	void update( UnsignedInt frame );
 	void noteBuilt( const Player *player, const Object *thing );
 	void notePower( const Player *player, const SpecialPowerTemplate *power, const ThingTemplate *source, Bool superweapon );
+	/// the victory check eliminated player this frame
+	void noteDefeated( const Player *player );
+	/// the frame player was eliminated on, 0 when he never was
+	UnsignedInt getDefeatFrame( Int player ) const;
 
 	Int getSampleCount( void ) const { return m_sampleCount; }
 	UnsignedInt getSampleFrame( Int sample ) const { return m_sampleFrame[ sample ]; }
@@ -113,7 +121,8 @@ private:
 	Int m_values[ MAX_SAMPLES ][ MAX_PLAYER_COUNT ][ MATCH_SERIES_COUNT ];
 	UnsignedInt m_sampleFrame[ MAX_SAMPLES ];
 	Int m_sampleCount;
-	UnsignedInt m_interval;
+	UnsignedInt m_intervalDoublings;	///< samples are MATCH_HISTORY_FIRST_INTERVAL frames apart, doubled this many times
+	UnsignedInt interval( void ) const { return (UnsignedInt)MATCH_HISTORY_FIRST_INTERVAL << m_intervalDoublings; }
 	Bool m_sampled[ MAX_PLAYER_COUNT ];
 	Int m_rank[ MAX_PLAYER_COUNT ];
 	std::vector< MatchEvent > m_events;

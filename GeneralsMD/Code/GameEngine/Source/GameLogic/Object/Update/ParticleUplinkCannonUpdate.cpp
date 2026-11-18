@@ -83,19 +83,19 @@ static const Real ORBITAL_BEAM_AUDIO_Z_OFFSET = 500.0f;
 ParticleUplinkCannonUpdateModuleData::ParticleUplinkCannonUpdateModuleData()
 {
 	m_specialPowerTemplate					= NULL;
-	m_beginChargeFrames							= 0;
-	m_raiseAntennaFrames						= 0;
-	m_readyDelayFrames							= 0;
+	m_beginChargeFrames.setRaw( 0 );
+	m_raiseAntennaFrames.setRaw( 0 );
+	m_readyDelayFrames.setRaw( 0 );
 	m_outerEffectNumBones						= 0;
-	m_beamTravelFrames							= 0;
-	m_widthGrowFrames								= 0;
-	m_totalFiringFrames							= 0;
+	m_beamTravelFrames.setRaw( 0 );
+	m_widthGrowFrames.setRaw( 0 );
+	m_totalFiringFrames.setRaw( 0 );
 	m_totalScorchMarks							= 0;
 	m_scorchMarkScalar							= 1.0f;
 	m_damageRadiusScalar						= 1.0f;
 	m_groundHitFX										= NULL;
 	m_beamLaunchFX									= NULL;
-	m_framesBetweenLaunchFXRefresh  = LOGICFRAMES_PER_SECOND;
+	m_framesBetweenLaunchFXRefresh.setRaw( 1000 );
 	m_totalDamagePulses							= 0;
 	m_damagePerSecond								= 0.0f;
 	m_damageType										= DAMAGE_LASER;
@@ -103,7 +103,7 @@ ParticleUplinkCannonUpdateModuleData::ParticleUplinkCannonUpdateModuleData()
 	m_revealRange										= 0.0f;
   m_manualDrivingSpeed						= 0.0f;
   m_manualFastDrivingSpeed				= 0.0f;
-  m_doubleClickToFastDriveDelay		= ConvertRetailFrames( 500 );
+  m_doubleClickToFastDriveDelay.setRaw( 16640 );	// msec: ConvertRetailFrames( 500 ) at the native speed
 	//Added by Sadullah Nader
 	//Initializations inserted
 	m_swathOfDeathAmplitude					= 0.0f;
@@ -119,12 +119,12 @@ ParticleUplinkCannonUpdateModuleData::ParticleUplinkCannonUpdateModuleData()
 	static const FieldParse dataFieldParse[] = 
 	{
 		{ "SpecialPowerTemplate",									INI::parseSpecialPowerTemplate,	NULL, offsetof( ParticleUplinkCannonUpdateModuleData, m_specialPowerTemplate ) },
-    { "BeginChargeTime",											INI::parseDurationUnsignedInt,	NULL, offsetof( ParticleUplinkCannonUpdateModuleData, m_beginChargeFrames ) },
-    { "RaiseAntennaTime",											INI::parseDurationUnsignedInt,	NULL, offsetof( ParticleUplinkCannonUpdateModuleData, m_raiseAntennaFrames ) },
-		{ "ReadyDelayTime",												INI::parseDurationUnsignedInt,  NULL, offsetof( ParticleUplinkCannonUpdateModuleData, m_readyDelayFrames ) },
-		{ "WidthGrowTime",												INI::parseDurationUnsignedInt,	NULL, offsetof( ParticleUplinkCannonUpdateModuleData, m_widthGrowFrames ) },
-		{ "BeamTravelTime",												INI::parseDurationUnsignedInt,	NULL, offsetof( ParticleUplinkCannonUpdateModuleData, m_beamTravelFrames ) },
-		{ "TotalFiringTime",											INI::parseDurationUnsignedInt,  NULL, offsetof( ParticleUplinkCannonUpdateModuleData, m_totalFiringFrames ) },
+    { "BeginChargeTime",											SPEED_FIELD( ParticleUplinkCannonUpdateModuleData, m_beginChargeFrames ) },
+    { "RaiseAntennaTime",											SPEED_FIELD( ParticleUplinkCannonUpdateModuleData, m_raiseAntennaFrames ) },
+		{ "ReadyDelayTime",												SPEED_FIELD( ParticleUplinkCannonUpdateModuleData, m_readyDelayFrames ) },
+		{ "WidthGrowTime",												SPEED_FIELD( ParticleUplinkCannonUpdateModuleData, m_widthGrowFrames ) },
+		{ "BeamTravelTime",												SPEED_FIELD( ParticleUplinkCannonUpdateModuleData, m_beamTravelFrames ) },
+		{ "TotalFiringTime",											SPEED_FIELD( ParticleUplinkCannonUpdateModuleData, m_totalFiringFrames ) },
 		{ "RevealRange",													INI::parseReal,									NULL, offsetof( ParticleUplinkCannonUpdateModuleData, m_revealRange ) },
 		
 		{ "OuterEffectBoneName",									INI::parseAsciiString,					NULL, offsetof( ParticleUplinkCannonUpdateModuleData, m_outerEffectBaseBoneName ) },
@@ -151,7 +151,7 @@ ParticleUplinkCannonUpdateModuleData::ParticleUplinkCannonUpdateModuleData()
 		{ "TotalScorchMarks",											INI::parseUnsignedInt,					NULL, offsetof( ParticleUplinkCannonUpdateModuleData, m_totalScorchMarks ) },
 		{ "ScorchMarkScalar",											INI::parseReal,									NULL, offsetof( ParticleUplinkCannonUpdateModuleData, m_scorchMarkScalar ) },
 		{ "BeamLaunchFX",													INI::parseFXList,								NULL, offsetof( ParticleUplinkCannonUpdateModuleData, m_beamLaunchFX ) },
-		{ "DelayBetweenLaunchFX",									INI::parseDurationUnsignedInt,  NULL, offsetof( ParticleUplinkCannonUpdateModuleData, m_framesBetweenLaunchFXRefresh ) },
+		{ "DelayBetweenLaunchFX",									SPEED_FIELD( ParticleUplinkCannonUpdateModuleData, m_framesBetweenLaunchFXRefresh ) },
 		{ "GroundHitFX",													INI::parseFXList,								NULL, offsetof( ParticleUplinkCannonUpdateModuleData, m_groundHitFX ) },
 
 		{ "DamagePerSecond",											INI::parseReal,									NULL, offsetof( ParticleUplinkCannonUpdateModuleData, m_damagePerSecond ) },
@@ -168,7 +168,7 @@ ParticleUplinkCannonUpdateModuleData::ParticleUplinkCannonUpdateModuleData()
 
     { "ManualDrivingSpeed",										INI::parseReal,									NULL, offsetof( ParticleUplinkCannonUpdateModuleData, m_manualDrivingSpeed ) },
     { "ManualFastDrivingSpeed",								INI::parseReal,									NULL, offsetof( ParticleUplinkCannonUpdateModuleData, m_manualFastDrivingSpeed ) },
-    { "DoubleClickToFastDriveDelay",					INI::parseDurationUnsignedInt,	NULL, offsetof( ParticleUplinkCannonUpdateModuleData, m_doubleClickToFastDriveDelay ) },
+    { "DoubleClickToFastDriveDelay",					SPEED_FIELD( ParticleUplinkCannonUpdateModuleData, m_doubleClickToFastDriveDelay ) },
 
 		{ 0, 0, 0, 0 }
 	};
@@ -610,7 +610,7 @@ UpdateSleepTime ParticleUplinkCannonUpdate::update()
 				}
 
 				//Convert speed to speed per frame.
-				speed /= LOGICFRAMES_PER_SECOND;
+				speed /= LOGICFRAMES_PER_GAME_SECOND;
 
 				//Calculate the distance from our current position to our target dest.
 				Coord3D vector = m_overrideTargetDestination;
@@ -711,7 +711,7 @@ UpdateSleepTime ParticleUplinkCannonUpdate::update()
 
 				DamageInfo damageInfo;
 
-				Real totalFiringSeconds = data->m_totalFiringFrames / LOGICFRAMES_PER_SECOND;
+				Real totalFiringSeconds = data->m_totalFiringFrames / LOGICFRAMES_PER_GAME_SECOND;
 				Real damagePerPulse = (Real)(totalFiringSeconds * data->m_damagePerSecond) / (Real)data->m_totalDamagePulses;
 
 				damageInfo.in.m_amount = damagePerPulse * me->getOwnerHandicap();

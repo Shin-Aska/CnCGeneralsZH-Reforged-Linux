@@ -156,7 +156,7 @@ static const char EVALUATE_PROGRAM[] =
 	"    if (lifetime == 0u)\n"
 	"        return;\n"
 	"    uint frames = lifetime / 4u;\n"
-	"    frames = (frames > 16u) ? 16u : ((frames == 0u) ? 1u : frames);\n"
+	"    frames = (frames > FADE_MAXu) ? FADE_MAXu : ((frames == 0u) ? 1u : frames);\n"
 	"    float left = spawn.Lifetime - k;\n"
 	"    if (left > float(frames))\n"
 	"        return;\n"

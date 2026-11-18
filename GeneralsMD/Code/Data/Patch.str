@@ -45,7 +45,7 @@ CONTROLBAR:IdleInfantry
 END
 
 CONTROLBAR:IdleInfantryDescription
-"Click to select the next idle infantry. Shift-click selects all of them."
+"Click to select the next idle infantry. Shift-click selects all of them. Right-click selects all your infantry, idle or not: those on screen first, the whole map on a second right-click."
 END
 
 CONTROLBAR:IdleVehicle
@@ -53,7 +53,7 @@ CONTROLBAR:IdleVehicle
 END
 
 CONTROLBAR:IdleVehicleDescription
-"Click to select the next idle ground vehicle. Shift-click selects all of them."
+"Click to select the next idle ground vehicle. Shift-click selects all of them. Right-click selects all your ground vehicles, idle or not: those on screen first, the whole map on a second right-click."
 END
 
 CONTROLBAR:IdleAircraft
@@ -61,7 +61,23 @@ CONTROLBAR:IdleAircraft
 END
 
 CONTROLBAR:IdleAircraftDescription
-"Click to select the next idle aircraft. Shift-click selects all of them."
+"Click to select the next idle aircraft. Shift-click selects all of them. Right-click selects all your aircraft, idle or not: those on screen first, the whole map on a second right-click."
+END
+
+CONTROLBAR:SelectArmy
+"Select Army"
+END
+
+CONTROLBAR:SelectArmyDescription
+"Click to select every fighting unit on screen; click again for your whole army across the map. Workers, supply trucks and buildings are left out."
+END
+
+CONTROLBAR:LastAlert
+"Last Alert"
+END
+
+CONTROLBAR:LastAlertDescription
+"Click to move the camera to the last radar alert, such as your base under attack. Click again soon after to go one alert further back."
 END
 
 CONTROLBAR:IdleWorkerDescription
@@ -883,6 +899,14 @@ TOOLTIP:NetBox
 "The box in the top right corner with the match clock, the frame rates and the connection. Off, the superweapon timers move up into the corner."
 END
 
+GUI:MinimapSize
+"Minimap Size"
+END
+
+TOOLTIP:MinimapSize
+"How big the minimap is drawn. Above 100 it grows up from the bottom left corner over the battlefield; the rest of the command bar stays as it is."
+END
+
 GUI:OptionsGroupHud
 "HUD"
 END
@@ -892,7 +916,7 @@ GUI:EmptyBuildingPips
 END
 
 TOOLTIP:EmptyBuildingPips
-"The row of empty slots over a building with nobody inside, like the ten over a Barracks. Off, a building shows its slots only while someone is in it."
+"The row of empty slots over a building with nobody inside, like the ten over a Tunnel Network. Off, a building shows its slots only while someone is in it."
 END
 
 GUI:ArchiveReplays
@@ -1438,20 +1462,37 @@ TOOLTIP:ProRules
 "The tournament list. No Particle Cannon or SCUD Storm, except the Superweapon General's one cannon. The Nuclear Missile silo goes up but never fires. No Aurora, no Tactical Nuke MiGs, no demo bike, no suicide bombs, Neutron Shells or Stealth Comanche, and no Carpet Bomb before rank 3. A Microwave Tank cannot freeze a building still going up, nobody builds within 300 of an enemy building, and nobody puts more than two Patriots, Gatling Cannons or Stinger Sites round one group of oil derricks."
 END
 
-GUI:TurboMode
-"Turbo Mode"
+GUI:GameSpeed
+"Game Speed"
 END
 
-TOOLTIP:TurboMode
-"The match runs twice as fast: two seconds of play go by in every second, and nothing else about it changes. In a network game the host picks it for everyone."
+TOOLTIP:GameSpeed
+"How fast the skirmish runs. 1.0x is the original game and 1.5x the speed every multiplayer match plays at. Only the pace changes."
 END
 
-GUI:TurboModeMissions
-"Turbo Mode in Missions"
+GUI:GameSpeedMissions
+"Game Speed in Missions"
 END
 
-TOOLTIP:TurboModeMissions
-"Campaign and Generals' Challenge missions run twice as fast, and a mission already under way speeds up at once. Skirmish and multiplayer games have their own box in the lobby."
+TOOLTIP:GameSpeedMissions
+"How fast campaign and Generals' Challenge missions run. 1.0x is the original game. The speed is set as a mission starts, so a change takes effect from the next one. A skirmish picks its own speed in the lobby."
+END
+
+// the Options combo's rows (OptionsCatalog, OPTION_ENUM); the skirmish combo builds the same text in code
+GUI:GameSpeedMissions0
+"1.0x"
+END
+
+GUI:GameSpeedMissions1
+"1.25x"
+END
+
+GUI:GameSpeedMissions2
+"1.5x"
+END
+
+GUI:GameSpeedMissions3
+"2.0x"
 END
 
 // Pro Rules, rule 9: no foundation within reach of an enemy building
@@ -1511,7 +1552,79 @@ END
 
 // the rack's top drawer: the camera lever, the fog and the armies drawer
 GUI:HudWatch
-"Watch"
+"Camera"
+END
+
+// The camera drawer's status well: its first line says what the camera does, its second the next
+// step, or what the control under the pointer does.  %ls is a player's name
+GUI:HudCamStateFree
+"Free camera"
+END
+
+GUI:HudCamStateDirector
+"Director"
+END
+
+GUI:HudCamStatePlayer
+"Screen of %ls"
+END
+
+GUI:HudCamNextFree
+"Click a player's name to see their screen"
+END
+
+GUI:HudCamNextFreeFollowed
+"Click to return: %ls"
+END
+
+// also the Director stop's explanation under the pointer
+GUI:HudCamNextDirector
+"The camera goes to the biggest fight by itself"
+END
+
+GUI:HudCamNextDirectorFollowed
+"Following the fights of %ls"
+END
+
+GUI:HudCamNextPlayer
+"Esc or click the name again to let go"
+END
+
+GUI:HudCamNextWaiting
+"Waiting for this player's camera"
+END
+
+GUI:HudCamNextComputer
+"Computers have no screen. Director follows"
+END
+
+GUI:HudCamHintFree
+"You move the camera yourself"
+END
+
+GUI:HudCamHintPlayer
+"You see the screen of the player you pick"
+END
+
+GUI:HudCamHintFog
+"Shows only what the watched player sees"
+END
+
+GUI:HudCamHintArmies
+"Opens each player's units beside the list"
+END
+
+GUI:HudCamHintRow
+"Click to see this player's screen"
+END
+
+GUI:HudCamHintRowLive
+"Click to let go"
+END
+
+// the plate at the top of the picture while a player's own screen is on the camera, beside his name
+GUI:HudPlayerCamera
+"PLAYER CAMERA"
 END
 
 // the camera's own again
@@ -1630,6 +1743,31 @@ END
 
 GUI:CheatApply
 "GO"
+END
+
+GUI:CheatRankMax
+"MAX"
+END
+
+GUI:CheatUnlimitedPoints
+"Unlimited general's points"
+END
+
+GUI:CheatBuildAnywhere
+"Build anywhere"
+END
+
+// the trainer's section headers
+GUI:CheatSectionPlayer
+"PLAYER"
+END
+
+GUI:CheatSectionUnits
+"UNITS"
+END
+
+GUI:CheatSectionMap
+"MAP"
 END
 
 // a line of the event feed when a player's last dozer or worker is gone; %s is his name
@@ -2024,7 +2162,7 @@ GUI:SmoothMotion
 END
 
 TOOLTIP:SmoothMotion
-"On a screen faster than 60 Hz, units are drawn between their last two positions instead of holding each one until the next. A 60 Hz screen shows no change. Only your picture changes: nothing in the game reads it, and other players see their own setting. Applies when you press Accept."
+"Units are drawn between their last two positions instead of holding each one until the game's next step, so movement is as smooth as your screen allows, 60 Hz included. Only your picture changes: nothing in the game reads it, and other players see their own setting. Applies when you press Accept."
 END
 
 GUI:HeatHaze
@@ -2033,6 +2171,14 @@ END
 
 TOOLTIP:HeatHaze
 "The air shimmers over fires, along laser beams and behind missile exhaust. Off under Classic Graphics. Applies when you press Accept."
+END
+
+GUI:GroundFoliage
+"Ground Foliage"
+END
+
+TOOLTIP:GroundFoliage
+"Grass, bushes, ferns and stones grow on the ground and sway in the breeze with the trees. Looks only: units walk through it. Direct3D 11 only, and off under Classic Graphics. Applies when you press Accept."
 END
 
 GUI:StructureCollapse
@@ -2055,6 +2201,39 @@ GUI:BuildWithoutWorker
 "Build Without A Worker"
 END
 
+// %s in the three tab tooltips is the tab's key as " (Ctrl+W)", nothing when it has none
+GUI:CommandTabBuildings
+"Buildings%s: everything your builders can put up, nothing selected first"
+END
+
+GUI:CommandTabGround
+"Ground units%s: everything your factories can train now. Mouse wheel scrolls the list"
+END
+
+GUI:CommandTabAircraft
+"Aircraft%s: everything your airfields can build now. Mouse wheel scrolls the list"
+END
+
+GUI:CommandTabPageNext
+"Scroll right"
+END
+
+GUI:CommandTabPagePrev
+"Scroll left"
+END
+
+GUI:SignalKeyAttack
+"Attack signal: smoke for your allies where you click next. Right click cancels"
+END
+
+GUI:SignalKeyDefend
+"Defend signal: smoke for your allies where you click next. Right click cancels"
+END
+
+GUI:SignalKeyAttention
+"Look here: smoke for your allies where you click next. Right click cancels"
+END
+
 TOOLTIP:BuildWithoutWorker
 "With nothing selected the command bar shows your workers' buildings, and the idle worker nearest the spot goes to build. Off, the bar stays empty until you select a worker, as in 2003."
 END
@@ -2073,6 +2252,74 @@ END
 
 TOOLTIP:HealthBarColors
 "Green at full health through yellow to red, or every bar in its owner's color so you see whose it is. Disabled units stay blue."
+END
+
+GUI:HudLayout
+"Layout"
+END
+
+GUI:HudLayout0
+"Classic"
+END
+
+GUI:HudLayout1
+"Red Alert Style"
+END
+
+TOOLTIP:HudLayout
+"Classic keeps the command bar along the bottom. Red Alert Style moves building and training into a sidebar down the right and puts the selected units' commands in a strip along the bottom."
+END
+
+GUI:HudWidth
+"HUD Width"
+END
+
+GUI:HudWidth0
+"Full Screen"
+END
+
+GUI:HudWidth1
+"21:9"
+END
+
+GUI:HudWidth2
+"16:9"
+END
+
+TOOLTIP:HudWidth
+"On a screen wider than the choice, the interface is pulled into a centered area of that shape, so the bar stays in front of you. The battlefield still fills the whole screen."
+END
+
+GUI:SidebarTab0
+"Buildings"
+END
+
+GUI:SidebarTab1
+"Upgrades and powers"
+END
+
+GUI:SidebarTab2
+"Infantry"
+END
+
+GUI:SidebarTab3
+"Vehicles"
+END
+
+GUI:SidebarAll
+"All"
+END
+
+GUI:SidebarSell
+"Sell"
+END
+
+GUI:SidebarRepair
+"Repair"
+END
+
+GUI:SidebarSuperweaponReady
+"Ready"
 END
 
 GUI:MenuTransitionSpeed
@@ -2405,6 +2652,22 @@ GUI:HotkeysCommandTOGGLE_PURCHASE_SCIENCE
 "General's promotions"
 END
 
+GUI:HotkeysCommandTOGGLE_COMMAND_TAB_BUILDINGS
+"Buildings tab"
+END
+
+GUI:HotkeysCommandTOGGLE_COMMAND_TAB_GROUND
+"Ground units tab"
+END
+
+GUI:HotkeysCommandTOGGLE_COMMAND_TAB_AIRCRAFT
+"Aircraft tab"
+END
+
+GUI:HotkeysCommandTOGGLE_COMMAND_TAB_DEFENSE
+"Sidebar Fourth Tab"
+END
+
 GUI:HotkeysCommandSIGNAL_ATTACK
 "Signal: attack here"
 END
@@ -2455,6 +2718,42 @@ END
 
 GUI:HotkeysCommandHOLD_POSITION
 "Hold position"
+END
+
+GUI:HotkeyScheme
+"Hotkey Scheme"
+END
+
+GUI:HotkeyScheme0
+"Classic"
+END
+
+GUI:HotkeyScheme1
+"Red Alert"
+END
+
+TOOLTIP:HotkeyScheme
+"Classic keeps the game's own keys. Red Alert takes Red Alert 2's keys where they fit this game: Q W E R for the build tabs, D to deploy, L to sell, K to repair, Z held for waypoints. Each scheme keeps its own changes on the Hotkeys page."
+END
+
+GUI:HotkeysEditingScheme
+"Editing the %s keys."
+END
+
+GUI:HotkeysCommandDEPLOY
+"Deploy"
+END
+
+GUI:HotkeysCommandSELL_MODE
+"Sell mode"
+END
+
+GUI:HotkeysCommandREPAIR_MODE
+"Repair mode"
+END
+
+GUI:HotkeysCommandBEGIN_WAYPOINTS_KEY
+"Waypoint mode (hold)"
 END
 
 // The match load screen (LoadScreenBoard in LoadScreen.cpp)
@@ -2566,6 +2865,22 @@ END
 GUI:AIPersonaRusher
 "Rusher"
 END
+GUI:LoadProgress
+"Loading %d%%"
+END
+
+GUI:LoadPlayerPercent
+"%d%%"
+END
+
+GUI:LoadRuleOn
+"On"
+END
+
+GUI:LoadRuleOff
+"Off"
+END
+
 
 GUI:AIPersonaRaider
 "Raider"
@@ -3045,6 +3360,135 @@ GUI:GraphNoData
 "Nothing was recorded in this match."
 END
 
+// the standings' columns and verdict chips
+GUI:SummaryScore
+"Score"
+END
+
+GUI:SummarySpent
+"Spent"
+END
+
+// a chip, followed by the match time it happened at: "Defeated 12:40"
+GUI:SummaryDefeated
+"Defeated"
+END
+
+GUI:SummaryDisconnected
+"Disconnected"
+END
+
+// the verdict over the map for someone watching; the screen puts it in capitals
+GUI:ScoreTeamWins
+"Team %d wins"
+END
+
+GUI:ScorePlayerWins
+"%ls wins"
+END
+
+GUI:ScoreNoWinner
+"No winner"
+END
+
+// the match's facts under the map
+GUI:ScoreLength
+"Length"
+END
+
+// the Graphs tab, its series chips, its two ways of drawing them and a legend card's peak
+GUI:GraphGraphs
+"Graphs"
+END
+
+GUI:GraphValueDestroyed
+"Value destroyed"
+END
+
+GUI:GraphUnitsLost
+"Units lost"
+END
+
+GUI:GraphLines
+"Lines"
+END
+
+GUI:GraphShare
+"Share"
+END
+
+GUI:GraphPeak
+"peak %ls"
+END
+
+// Short forms (UIStyle::fitKey, "<label>_Short"): what a label reads where its whole text does not
+// fit, before the game abbreviates it by rule
+GUI:SummaryUnits_Short
+"Units"
+END
+
+GUI:GraphBuildings_Short
+"Bldgs."
+END
+
+GUI:SummaryUnitsBuilt_Short
+"Built"
+END
+
+GUI:SummaryDestroyed_Short
+"Destr."
+END
+
+GUI:SummaryEarned_Short
+"Earned"
+END
+
+GUI:SummarySpent_Short
+"Spent"
+END
+
+GUI:HudCamNextFree_Short
+"Click a name to see their screen"
+END
+
+GUI:HudCamNextPlayer_Short
+"Esc or the name again lets go"
+END
+
+// the rack lever's three stops where the whole word does not fit
+GUI:HudCameraFree_Short
+"Free"
+END
+
+GUI:HudCameraDirector_Short
+"Dir."
+END
+
+GUI:HudCameraPlayer_Short
+"Plyr"
+END
+
+// the score screen's map column: what stood out of the match, a line each, "label: player"
+GUI:ScoreHighlights
+"Highlights"
+END
+
+GUI:ScoreHighlightDestroyed
+"Most destroyed"
+END
+
+GUI:ScoreHighlightEarned
+"Top earner"
+END
+
+GUI:ScoreHighlightArmy
+"Biggest army"
+END
+
+GUI:ScoreHighlightSuperweapon
+"First superweapon"
+END
+
 // The Turkiye faction (PlayerTemplateReforged.ini, TurkiyeReforged.ini). Units, buildings, buttons, upgrades.
 
 INI:FactionTurkiye
@@ -3072,7 +3516,7 @@ CONTROLBAR:ConstructTurkiyeInfantryMehmetcik
 END
 
 CONTROLBAR:ToolTipTurkiyeInfantryMehmetcik
-"Line infantry. Clears and holds buildings."
+"Line infantry and the opening move: with a Spotter Team and a Cobra or two they win the first minutes. Clears and holds buildings."
 END
 
 OBJECT:TurkiyeInfantryEngineer
@@ -3099,6 +3543,18 @@ CONTROLBAR:ToolTipTurkiyeInfantrySungur
 "Missile infantry against tanks and aircraft."
 END
 
+OBJECT:TurkiyeInfantryAlpagu
+"Alpagu Operator"
+END
+
+CONTROLBAR:ConstructTurkiyeInfantryAlpagu
+"&Alpagu Operator"
+END
+
+CONTROLBAR:ToolTipTurkiyeInfantryAlpagu
+"Kneels, sets a kamikaze drone down and flies it out to 350, where it drops onto infantry and light vehicles. He sees only 200: past that, a spotter or a radar tower has to find the target. Weak against tanks and buildings. When an enemy your eyes see dies within his reach, he launches half again as fast for 6 seconds. Next to a Siper he reaches a tenth further."
+END
+
 OBJECT:TurkiyeInfantrySpotter
 "Spotter Team"
 END
@@ -3108,7 +3564,7 @@ CONTROLBAR:ConstructTurkiyeInfantrySpotter
 END
 
 CONTROLBAR:ToolTipTurkiyeInfantrySpotter
-"Sees 500 and barely fights. It cannot hide, so keep it out of reach. Put it on a hill and the artillery behind it can shoot."
+"Sees 500 and barely fights. Cheap: losing one costs little, so bring two. Put it on a hill and the artillery behind it can shoot."
 END
 
 OBJECT:TurkiyeInfantryMaroonBeret
@@ -3120,7 +3576,23 @@ CONTROLBAR:ConstructTurkiyeInfantryMaroonBeret
 END
 
 CONTROLBAR:ToolTipTurkiyeInfantryMaroonBeret
-"Special forces. Camouflaged, sees 350 for the artillery and plants timed and remote charges."
+"Special forces. Camouflaged, sees 350 for the artillery, lases targets for a strike drone and sends Kargu drones from his pack."
+END
+
+CONTROLBAR:TurkiyeBeretDesignate
+"&Designate Target"
+END
+
+CONTROLBAR:ToolTipTurkiyeBeretDesignate
+"Holds a thin targeting laser on a vehicle or building. A TB2 flies over him and after 4 seconds drops a Kemankeş munition that glides in and dives on it, and he keeps the laser on until it hits. He cannot hide while he lases, and moving him in the first 4 seconds calls it off. \n Recharge: 1:00"
+END
+
+CONTROLBAR:TurkiyeBeretKarguSwarm
+"Kargu S&warm"
+END
+
+CONTROLBAR:ToolTipTurkiyeBeretKarguSwarm
+"Kneels, takes three Kargu kamikaze drones off his back one by one and sets them down on his left, in front and on his right. They lift off together and dive one after another on a spot 75 to 350 away. \n Recharge: 0:45"
 END
 
 OBJECT:TurkiyeVehicleSupplyTruck
@@ -3192,7 +3664,7 @@ CONTROLBAR:ConstructTurkiyeVehicleFirtina
 END
 
 CONTROLBAR:ToolTipTurkiyeVehicleFirtina
-"Fires a heavy shell with a wide blast out to 600 and sees 100: it needs a spotter, a UAV or a radar tower to aim."
+"The mid-game gun. Fires a heavy shell with a wide blast out to 600 and sees 100: it needs a Spotter Team or a Bayraktar to aim, and a Siper or a radar near the target to hit. When an enemy your eyes see dies within its reach, it fires half again as fast, dead on target, for 6 seconds. Next to a Siper it reaches a tenth further."
 END
 
 OBJECT:TurkiyeVehicleSakarya
@@ -3204,7 +3676,7 @@ CONTROLBAR:ConstructTurkiyeVehicleSakarya
 END
 
 CONTROLBAR:ToolTipTurkiyeVehicleSakarya
-"Fires a six-rocket salvo over a wide area out to 500, then reloads for 12 seconds. Needs a spotter."
+"Fires a six-rocket salvo over a wide area out to 500, then reloads for 14 seconds. Needs a spotter. When an enemy your eyes see dies within its reach, it reloads half again as fast and lands dead on target for 6 seconds. Next to a Siper it reaches a tenth further."
 END
 
 OBJECT:TurkiyeTankKoral
@@ -3216,7 +3688,7 @@ CONTROLBAR:ConstructTurkiyeTankKoral
 END
 
 CONTROLBAR:ToolTipTurkiyeTankKoral
-"Electronic warfare vehicle; its beam shuts enemy buildings down from 400."
+"Electronic warfare vehicle: enemy drones and spotters within 400 go blind, guided missiles lose their lock, and its beam shuts enemy buildings down from 400."
 END
 
 OBJECT:TurkiyeVehicleBayraktar
@@ -3228,7 +3700,7 @@ CONTROLBAR:ConstructTurkiyeVehicleBayraktar
 END
 
 CONTROLBAR:ToolTipTurkiyeVehicleBayraktar
-"Hovers where it is sent and sees 550, the artillery's best eye. Light munitions."
+"Hovers where it is sent, sees 550 and carries its own radar circle of 450: on its own it is all the artillery needs to aim and hit. Light munitions."
 END
 
 OBJECT:TurkiyeVehicleGokbey
@@ -3276,7 +3748,7 @@ CONTROLBAR:ConstructTurkiyeRadarTower
 END
 
 CONTROLBAR:ToolTipTurkiyeRadarTower
-"Fixed eye: sees 500 for the artillery. Draws power. A target."
+"The base's long radar: sees 500 and keeps radar lock 1000 around it. Researches Target Classification and opens the Alpagu Operator. Draws power."
 END
 
 OBJECT:TurkiyeSiper
@@ -3288,7 +3760,7 @@ CONTROLBAR:ConstructTurkiyeSiper
 END
 
 CONTROLBAR:ToolTipTurkiyeSiper
-"Trench bunker for five infantry, dug wherever the engineers stand. Mehmetcik in it hold off infantry, Sungur gunners hold off tanks."
+"Trench bunker for five infantry, dug wherever the engineers stand, and the forward radar post: radar lock 400 around it. Dig one in front of the Firtina line. Mehmetcik in it hold off infantry, Sungur gunners hold off tanks. Firtina, Sakarya and Alpagu within 400 of it reach a tenth further."
 END
 
 OBJECT:TurkiyeLandMine
@@ -3424,7 +3896,7 @@ SCIENCE:TurkiyeEarlyWarning
 END
 
 CONTROLBAR:ToolTipTurkiyeScienceEarlyWarning
-"Every Turkiye radar reaches a quarter further: Headquarters, Radar Tower, Koral, Akinci and Mobile Radar."
+"Every Turkiye radar reaches a quarter further: Headquarters, Radar Tower, Siper, Bayraktar and Akinci."
 END
 
 UPGRADE:TurkiyeEarlyWarning
@@ -3452,11 +3924,11 @@ GUI:HudReconSiha
 END
 
 SCIENCE:TurkiyeMobileRadar
-"Mobile Radar"
+"Forward Radar"
 END
 
 CONTROLBAR:ToolTipTurkiyeScienceMobileRadar
-"The Factory builds the Mobile Radar, a radar truck that covers 900 around it while it stands still."
+"Every Siper's radar circle reaches half as far again, 400 to 600."
 END
 
 OBJECT:TurkiyeVehicleMobileRadar
@@ -3603,6 +4075,106 @@ CONTROLBAR:ToolTipUpgradeTurkiyeSiperReinforced
 "Concrete and overhead cover: every Siper takes half as much again before it falls."
 END
 
+UPGRADE:TurkiyeMpt76
+"MPT-76 Rifles"
+END
+
+CONTROLBAR:UpgradeTurkiyeMpt76
+"MPT-76 &Rifles"
+END
+
+CONTROLBAR:ToolTipUpgradeTurkiyeMpt76
+"Mehmetcik Riflemen carry the 7.62 MPT-76: 11 damage a round instead of 8, and 150 range instead of 120."
+END
+
+UPGRADE:TurkiyeCbrn
+"CBRN Kit"
+END
+
+CONTROLBAR:UpgradeTurkiyeCbrn
+"CBR&N Kit"
+END
+
+CONTROLBAR:ToolTipUpgradeTurkiyeCbrn
+"Protective suits and masks for Mehmetcik, Sungur, Alpagu, Spotter Teams and the Maroon Beret: they shrug off toxins, radiation and anthrax."
+END
+
+UPGRADE:TurkiyeSelfProtection
+"Self-Protection Suite"
+END
+
+CONTROLBAR:UpgradeTurkiyeSelfProtection
+"Self-&Protection Suite"
+END
+
+CONTROLBAR:ToolTipUpgradeTurkiyeSelfProtection
+"Bayraktar, Akinci and Kizilelma carry flares and extra armour. Flares pull away three missiles in ten."
+END
+
+UPGRADE:TurkiyeFortification
+"Fortification"
+END
+
+CONTROLBAR:UpgradeTurkiyeFortification
+"&Fortification"
+END
+
+CONTROLBAR:ToolTipUpgradeTurkiyeFortification
+"Every base building and Hisar Battery takes a quarter more damage before it falls."
+END
+
+UPGRADE:TurkiyeExportContracts
+"Export Contracts"
+END
+
+CONTROLBAR:UpgradeTurkiyeExportContracts
+"&Export Contracts"
+END
+
+CONTROLBAR:ToolTipUpgradeTurkiyeExportContracts
+"Foreign buyers for the factories' output. Every Supply Center pays 30 every 2 seconds instead of 20, every Grand Bazaar 35."
+END
+
+UPGRADE:TurkiyeWarheads
+"Domestic Warheads"
+END
+
+CONTROLBAR:UpgradeTurkiyeWarheads
+"Domestic &Warheads"
+END
+
+CONTROLBAR:ToolTipUpgradeTurkiyeWarheads
+"Turkish-made warheads: a quarter more damage from the Firtina, Sakarya, Altay gun, Alpagu and Sungur missiles, the Bayraktar's munitions, the Akinci's bomb and the Kizilelma's missiles."
+END
+
+UPGRADE:TurkiyeAltaySarp
+"SARP Weapon Station"
+END
+
+CONTROLBAR:UpgradeTurkiyeAltaySarp
+"SA&RP Weapon Station"
+END
+
+CONTROLBAR:ToolTipUpgradeTurkiyeAltaySarp
+"This Altay gets a remote 12.7 mm machine gun on its turret for infantry. The main gun keeps the vehicles."
+END
+
+UPGRADE:TurkiyeKirpiRepairKit
+"Field Repair Kit"
+END
+
+CONTROLBAR:UpgradeTurkiyeKirpiRepairKit
+"Field &Repair Kit"
+END
+
+CONTROLBAR:ToolTipUpgradeTurkiyeKirpiRepairKit
+"This Kirpi carries a repair crew: vehicles within 150 of it regain 10 health a second."
+END
+
+UPGRADE:TurkiyeForwardRadar
+"Forward Radar"
+END
+
 UPGRADE:TurkiyeThermal
 "Thermal Sights"
 END
@@ -3663,6 +4235,66 @@ CONTROLBAR:TooltipTurkiyeRapidDeployment
 "Gokbey Landing \n Recharge: 3:00"
 END
 
+SCIENCE:TurkiyeAllyAid
+"Ally Aid"
+END
+
+CONTROLBAR:ToolTipTurkiyeScienceAllyAid
+"Pick soldiers and vehicles you could build right now, pay for them and cargo planes fly them in. Point at an ally and they land as his. A plane carries eight soldiers or two vehicles for 500 more, four planes at most, and a plane shot down loses its load. \n \n Deploy from: Headquarters"
+END
+
+CONTROLBAR:TurkiyeAllyAid
+"&Ally Aid"
+END
+
+CONTROLBAR:TooltipTurkiyeAllyAid
+"Ally Aid \n Recharge: 4:00"
+END
+
+GUI:AirliftTitle
+"Airlift"
+END
+
+GUI:AirliftFor
+"for %ls"
+END
+
+GUI:AirliftPlanes
+"Planes: %d of %d"
+END
+
+GUI:AirliftFee
+"Fee: %ls"
+END
+
+GUI:AirliftTotal
+"Total: %ls"
+END
+
+GUI:AirliftOK
+"OK"
+END
+
+GUI:AirliftCancel
+"Cancel"
+END
+
+GUI:AirliftHint
+"Click or roll the wheel up to add one, right click or roll down to take one off. Shift: five."
+END
+
+GUI:AirliftPlanesFull
+"No room left on the planes"
+END
+
+GUI:AirliftAtLimit
+"You already have as many as you can"
+END
+
+GUI:AirliftNoFactory
+"Needs a factory that builds it"
+END
+
 SCIENCE:TurkiyeCommandoRaid
 "Commando Raid"
 END
@@ -3708,7 +4340,7 @@ CONTROLBAR:ConstructTurkiyeKapalicarsi
 END
 
 CONTROLBAR:ToolTipTurkiyeKapalicarsi
-"Turkiye's black market. Pays 20 every 2 seconds and sells Countermeasures for the Bayraktar, the Akinci and the Kizilelma, and Worker Shoes for the engineers. \n \n Requires: Factory"
+"Turkiye's market and its economy building. Pays 20 every 2 seconds and sells Export Contracts, which raise every Supply Center's and Grand Bazaar's income. \n \n Requires: Factory"
 END
 
 CONTROLBAR:ToolTipTurkiyeKarguBase
@@ -3836,6 +4468,119 @@ Color:Olive
 "Olive"
 END
 
+Color:Maroon
+"Maroon"
+END
+
+Color:Mint
+"Mint"
+END
+
+Color:White
+"White"
+END
+
+Color:Charcoal
+"Charcoal"
+END
+
+Color:Silver
+"Silver"
+END
+
+Color:Steel
+"Steel"
+END
+
+Color:Indigo
+"Indigo"
+END
+
+Color:Peach
+"Peach"
+END
+
+Color:Forest
+"Forest"
+END
+
+Color:Rose
+"Rose"
+END
+
+Color:Plum
+"Plum"
+END
+
+Color:Rust
+"Rust"
+END
+
+Color:SeaGreen
+"Sea Green"
+END
+
+Color:Lemon
+"Lemon"
+END
+
+Color:Orchid
+"Orchid"
+END
+
+Color:Chocolate
+"Chocolate"
+END
+
+// lobby team numbers past EA's four: the team box offers one team per two slots (PopulateTeamComboBox)
+Team:5
+"5"
+END
+
+Team:6
+"6"
+END
+
+Team:7
+"7"
+END
+
+Team:8
+"8"
+END
+
+Team:9
+"9"
+END
+
+Team:10
+"10"
+END
+
+Team:11
+"11"
+END
+
+Team:12
+"12"
+END
+
+Team:13
+"13"
+END
+
+Team:14
+"14"
+END
+
+Team:15
+"15"
+END
+
+Team:16
+"16"
+END
+
 // the LAN lobby's error box when the system bound the socket on another adapter; the first %ls is the
 // LAN IP chosen in Options, the second the address the system bound instead
 GUI:SocketRedirected
@@ -3859,6 +4604,28 @@ END
 // a seat's colour left to chance; EA's label for it was "???"
 GUI:???
 "Random"
+END
+
+// a refused join names which half of the room's pair differs: the build, or the game data files
+GUI:JoinFailedDifferentBuild
+"Could not join - the host runs a different build of the game. Update to the same version."
+END
+
+GUI:JoinFailedDifferentData
+"Could not join - same game version, different game data files. Repair or reinstall the game, and remove loose files you added to its Data folder."
+END
+
+// the host's room chat when a joiner leaves on a check of its own; the first %hs is the joiner
+GUI:JoinerLeftNoHost
+"%hs left: their game could not find you as host of this room (it read the host's seat as \"%hs\")."
+END
+
+GUI:JoinerLeftNoSlotList
+"%hs left: your seat list never reached them."
+END
+
+GUI:JoinerLeftDropped
+"%hs left: your seat list stopped listing them."
 END
 
 // the online login screen's one account field: the service takes the email or the nick
@@ -3885,6 +4652,10 @@ END
 
 TOOLTIP:OnlineKeepSignedIn
 "Stays signed in on this computer. Your password is never stored"
+END
+
+TOOLTIP:OnlineNeedsLauncher
+"Online play starts from the launcher: open Online there and press Play online"
 END
 
 GUI:OnlineLoginHelp
@@ -4066,6 +4837,111 @@ GUI:OnlineLadderButton
 "LADDER"
 END
 
+GUI:OnlineSkinsButton
+"SKINS"
+END
+
+GUI:OnlineSkinsDefault
+"DEFAULT"
+END
+
+GUI:OnlineSkinsSave
+"SAVE"
+END
+
+GUI:OnlineSkinsWaiting
+"Asking zerohour.gg..."
+END
+
+GUI:OnlineSkinsHint
+"Pick one look per unit and press Save. Greyed-out skins unlock with a code redeemed at zerohour.gg."
+END
+
+GUI:OnlineSkinsNone
+"Your account owns no skins yet. Redeem a code at zerohour.gg, then open this screen again."
+END
+
+GUI:OnlineSkinsSaved
+"Saved. Your next game, custom or Quick Match, shows these skins."
+END
+
+GUI:OnlineSkinsSignedOut
+"You are not signed in. Sign in online to pick your skins."
+END
+
+GUI:OnlineSkinsThrottled
+"Too many saves in a minute. Wait a little and press Save again."
+END
+
+GUI:OnlineSkinsUnavailable
+"zerohour.gg did not answer. Your skins stay as they were; try again in a moment."
+END
+
+GUI:OnlineSkinsRefused
+"zerohour.gg refused that pick, so your skins stay as they were. Open this screen again to see what your account holds."
+END
+
+// Play vs AI on the online hub: the button, the speed and AI rating beside it, and why a match did not start
+GUI:OnlineVsAIButton
+"PLAY VS AI"
+END
+
+GUI:OnlineAISpeed
+"1.5x speed"
+END
+
+GUI:OnlineAIRating
+"1.5x speed, AI rating %.2f"
+END
+
+GUI:OnlineAIRated
+"1.5x speed, AI rating %.2f -> %.2f"
+END
+
+GUI:OnlineAIUnrated
+"1.5x speed, not rated: %ls"
+END
+
+GUI:OnlineAIGames
+"%d games · %d%% won"
+END
+
+GUI:OnlineAIGame
+"1 game · %d%% won"
+END
+
+GUI:OnlineAIMapMissing
+"The server picked a map this game does not have (%ls), so the match did not start."
+END
+
+GUI:OnlineAIRefused
+"The server did not start the match (%ls)."
+END
+
+GUI:OnlineAIRefused_build
+"Your game files differ from the release. Update the game from the launcher, then try again."
+END
+
+GUI:OnlineAIRefused_pending
+"Your last match against the AI is still being rated. Try again in a moment."
+END
+
+GUI:OnlineAIRefused_banned
+"This account may not play rated matches against the AI."
+END
+
+GUI:OnlineAIRefused_unavailable
+"zerohour.gg did not answer. Try again in a moment."
+END
+
+GUI:OnlineAIRefused_signedout
+"You are not signed in."
+END
+
+SKIN:Splinter
+"SPLINTER CAMO"
+END
+
 GUI:OnlineLadderRank
 "#"
 END
@@ -4148,4 +5024,1565 @@ END
 
 GUI:OnlineUnrated_cancelled
 "Not rated: the match was called off."
+END
+
+GUI:OnlineSendingResultsTitle
+"Sending Results"
+END
+
+GUI:OnlineSendingResults
+"The match result and replay are being sent. Please wait, and do not close the game."
+END
+
+// The general's ranks past EA's five, named the way the first five are (EA's 6 to 8 were joke names
+// no rank ever reached)
+
+INI:RankLevel6
+"6 Star General"
+END
+
+INI:RankLevel7
+"7 Star General"
+END
+
+INI:RankLevel8
+"8 Star General"
+END
+
+INI:RankLevel9
+"9 Star General"
+END
+
+INI:RankLevel10
+"10 Star General"
+END
+
+// the same names as the General's Powers window's title
+SCIENCE:Rank6
+"6 Star General"
+END
+
+SCIENCE:Rank7
+"7 Star General"
+END
+
+SCIENCE:Rank8
+"8 Star General"
+END
+
+SCIENCE:Rank9
+"9 Star General"
+END
+
+SCIENCE:Rank10
+"10 Star General"
+END
+
+// The general's talents, ranks 6 to 10: the talents panel of the General's Powers window. GUI:Rank
+// is EA's own ("Rank"). A card name fits a plate about 200 pixels wide at 1080.
+
+GUI:Talents
+"TALENTS"
+END
+
+GUI:PicksWaiting
+"PICKS WAITING: %d"
+END
+
+GUI:TalentsHint
+"From rank 6, pick one of two talents at each rank."
+END
+
+// Turkiye's ten cards
+
+SCIENCE:TurkiyeTalent6A
+"Cheaper Buildings"
+END
+
+CONTROLBAR:ToolTipTurkiyeTalent6A
+"Every building costs 15 percent less, for as long as you have a Headquarters, a Barracks, a Factory or a Combat Engineer left."
+END
+
+SCIENCE:TurkiyeTalent6B
+"Cheaper Infantry"
+END
+
+CONTROLBAR:ToolTipTurkiyeTalent6B
+"Every soldier costs 15 percent less, Combat Engineers and the Maroon Beret included, for as long as you have a Headquarters, a Barracks, a Factory or a Combat Engineer left."
+END
+
+SCIENCE:TurkiyeTalent7A
+"Altay Armour"
+END
+
+CONTROLBAR:ToolTipTurkiyeTalent7A
+"Altay Tanks take a fifth more damage before they die, 620 to 744. Stacks with Reinforced Hull."
+END
+
+SCIENCE:TurkiyeTalent7B
+"UAV Optics"
+END
+
+CONTROLBAR:ToolTipTurkiyeTalent7B
+"Bayraktar and Akinci UAVs see a quarter further: the Bayraktar 550 to 688, the Akinci 400 to 500."
+END
+
+SCIENCE:TurkiyeTalent8A
+"Siper Ramparts"
+END
+
+CONTROLBAR:ToolTipTurkiyeTalent8A
+"Siper Bunkers stand 30 percent longer, 1500 to 1950. Stacks with Reinforced Siper."
+END
+
+SCIENCE:TurkiyeTalent8B
+"Sungur Vests"
+END
+
+CONTROLBAR:ToolTipTurkiyeTalent8B
+"Sungur Gunners take a quarter more damage before they die, 160 to 200."
+END
+
+SCIENCE:TurkiyeTalent9A
+"UAV Swarm +2"
+END
+
+CONTROLBAR:ToolTipTurkiyeTalent9A
+"UAV Swarm sends 2 more drones."
+END
+
+SCIENCE:TurkiyeTalent9B
+"Gokbey Landing +4"
+END
+
+CONTROLBAR:ToolTipTurkiyeTalent9B
+"Gokbey Landing drops 4 more soldiers."
+END
+
+SCIENCE:TurkiyeTalent10A
+"Wide Tayfun"
+END
+
+CONTROLBAR:ToolTipTurkiyeTalent10A
+"The Tayfun Missile hits a quarter wider area."
+END
+
+SCIENCE:TurkiyeTalent10B
+"Veteran Berets"
+END
+
+CONTROLBAR:ToolTipTurkiyeTalent10B
+"Maroon Berets leave the Barracks as veterans."
+END
+
+// China's cards: rows 6 and 9 for all four China generals, rows 7, 8 and 10 each general's own
+
+SCIENCE:ChinaTalent6A
+"Cheap Hackers"
+END
+
+CONTROLBAR:ToolTipChinaTalent6A
+"Hackers cost 40 percent less, for as long as you have a Command Center, a Barracks, a War Factory or a Dozer left."
+END
+
+SCIENCE:ChinaTalent6B
+"Cheaper Infantry"
+END
+
+CONTROLBAR:ToolTipChinaTalent6B
+"Every soldier costs 20 percent less, Hackers included, for as long as you have a Command Center, a Barracks, a War Factory or a Dozer left."
+END
+
+SCIENCE:ChinaTalent7A
+"Battlemaster Armour"
+END
+
+CONTROLBAR:ToolTipChinaTalent7A
+"Battlemaster Tanks take a fifth more damage before they die, 400 to 480."
+END
+
+SCIENCE:ChinaTalent7B
+"Gattling Armour"
+END
+
+CONTROLBAR:ToolTipChinaTalent7B
+"Gattling Tanks take a quarter more damage before they die, 300 to 375."
+END
+
+SCIENCE:ChinaTalent8A
+"Hardened Defences"
+END
+
+CONTROLBAR:ToolTipChinaTalent8A
+"Bunkers and Gattling Cannons stand a quarter longer: a Bunker 1500 to 1875, a Gattling Cannon 1000 to 1250."
+END
+
+SCIENCE:ChinaTalent8B
+"Inferno Drive"
+END
+
+CONTROLBAR:ToolTipChinaTalent8B
+"Inferno Cannons take a quarter more damage, 120 to 150, and drive 15 percent faster."
+END
+
+SCIENCE:ChinaTalent9A
+"Artillery Barrage +12"
+END
+
+CONTROLBAR:ToolTipChinaTalent9A
+"Artillery Barrage fires one more wave of 12 shells: 24, 36 and 48 at its three levels."
+END
+
+SCIENCE:ChinaTalent9B
+"Wide Cluster Mines"
+END
+
+CONTROLBAR:ToolTipChinaTalent9B
+"Cluster Mines cover 30 percent more ground."
+END
+
+SCIENCE:ChinaTalent10A
+"Veteran Overlords"
+END
+
+CONTROLBAR:ToolTipChinaTalent10A
+"Overlord Tanks leave the War Factory as veterans."
+END
+
+SCIENCE:ChinaTalent10B
+"Long EMP"
+END
+
+CONTROLBAR:ToolTipChinaTalent10B
+"Vehicles and buildings hit by EMP Pulse stay dead for 45 seconds, not 30."
+END
+
+SCIENCE:TankTalent7A
+"Emperor Armour"
+END
+
+CONTROLBAR:ToolTipTankTalent7A
+"Emperor Overlords take a fifth more damage before they die, 1100 to 1320 before veterancy."
+END
+
+SCIENCE:TankTalent7B
+"Dragon and Gattling Armour"
+END
+
+CONTROLBAR:ToolTipTankTalent7B
+"Dragon Tanks and Gattling Tanks take a quarter more damage before they die: a Dragon 400 to 500, a Gattling 300 to 375, before veterancy."
+END
+
+SCIENCE:TankTalent8A
+"Field Repairs"
+END
+
+CONTROLBAR:ToolTipTankTalent8A
+"A tank that takes no damage for 10 seconds repairs 1 percent of its health every second. Battlemaster, Emperor, Gattling, Dragon and ECM Tanks."
+END
+
+SCIENCE:TankTalent8B
+"Battlemaster Armour"
+END
+
+CONTROLBAR:ToolTipTankTalent8B
+"Battlemaster Tanks take a fifth more damage before they die, 400 to 480 before veterancy."
+END
+
+SCIENCE:TankTalent10A
+"Elite Emperors"
+END
+
+CONTROLBAR:ToolTipTankTalent10A
+"Emperor Overlords leave the War Factory elite instead of veteran."
+END
+
+SCIENCE:TankTalent10B
+"Tank Paradrop +2"
+END
+
+CONTROLBAR:ToolTipTankTalent10B
+"Tank Paradrop drops two more Battlemasters: 3, 4 and 6 at its three levels."
+END
+
+SCIENCE:InfantryTalent7A
+"Fast Minigunners"
+END
+
+CONTROLBAR:ToolTipInfantryTalent7A
+"Minigunners run a fifth faster, 25 to 30."
+END
+
+SCIENCE:InfantryTalent7B
+"Tank Hunter Vests"
+END
+
+CONTROLBAR:ToolTipInfantryTalent7B
+"Tank Hunters take a quarter more damage before they die, 100 to 125 before veterancy."
+END
+
+SCIENCE:InfantryTalent8A
+"Fortified Walls"
+END
+
+CONTROLBAR:ToolTipInfantryTalent8A
+"Fortified Bunkers stand 30 percent longer, 1500 to 1950."
+END
+
+SCIENCE:InfantryTalent8B
+"Crawler Plating"
+END
+
+CONTROLBAR:ToolTipInfantryTalent8B
+"Assault Troop Crawlers take a quarter more damage, 240 to 300, and drive 15 percent faster."
+END
+
+SCIENCE:InfantryTalent10A
+"Field Dressing"
+END
+
+CONTROLBAR:ToolTipInfantryTalent10A
+"A soldier who takes no damage for 10 seconds heals 2 health every second. Minigunners, Tank Hunters, Hackers and Black Lotus."
+END
+
+SCIENCE:InfantryTalent10B
+"Infantry Paradrop +5"
+END
+
+CONTROLBAR:ToolTipInfantryTalent10B
+"Infantry Paradrop drops five more Minigunners: 10, 15 and 20 at its three levels."
+END
+
+SCIENCE:NukeTalent7A
+"Overlord Armour"
+END
+
+CONTROLBAR:ToolTipNukeTalent7A
+"Overlord Tanks take a fifth more damage before they die, 1100 to 1320."
+END
+
+SCIENCE:NukeTalent7B
+"Nuke Cannon Armour"
+END
+
+CONTROLBAR:ToolTipNukeTalent7B
+"Nuke Cannons take 30 percent more damage before they die, 240 to 312."
+END
+
+SCIENCE:NukeTalent8A
+"Reactor Shielding"
+END
+
+CONTROLBAR:ToolTipNukeTalent8A
+"Nuclear Reactors and Bunkers stand 30 percent longer, 1500 to 1950."
+END
+
+SCIENCE:NukeTalent8B
+"MiG Armour"
+END
+
+CONTROLBAR:ToolTipNukeTalent8B
+"MiGs take a quarter more damage before they die, 160 to 200. Stacks with Aircraft Armor."
+END
+
+SCIENCE:NukeTalent10A
+"Elite Nuke Cannons"
+END
+
+CONTROLBAR:ToolTipNukeTalent10A
+"Nuke Cannons leave the War Factory elite."
+END
+
+SCIENCE:NukeTalent10B
+"Overlord Repairs"
+END
+
+CONTROLBAR:ToolTipNukeTalent10B
+"An Overlord that takes no damage for 10 seconds repairs 11 health, 1 percent, every second."
+END
+
+// America's cards: rows 6 and 9 for all four America generals, rows 7, 8 and 10 each general's own
+
+SCIENCE:AmericaTalent6A
+"Cheaper Hardware"
+END
+
+CONTROLBAR:ToolTipAmericaTalent6A
+"Vehicles and aircraft cost 15 percent less, for as long as you have a Command Center, a Barracks, a War Factory or a Dozer left."
+END
+
+SCIENCE:AmericaTalent6B
+"Battle Drills"
+END
+
+CONTROLBAR:ToolTipAmericaTalent6B
+"Infantry, vehicles and aircraft gain experience 50 percent faster. With Advanced Training on top they gain it two and a half times as fast instead of twice."
+END
+
+SCIENCE:AmericaTalent9A
+"Extra Thunderbolt"
+END
+
+CONTROLBAR:ToolTipAmericaTalent9A
+"The A-10 Strike sends one more plane, 2, 3 or 4 by its tier instead of 1, 2 or 3."
+END
+
+SCIENCE:AmericaTalent9B
+"Extra Rangers"
+END
+
+CONTROLBAR:ToolTipAmericaTalent9B
+"Paradrop brings four more Rangers, 9, 14 or 24 by its tier instead of 5, 10 or 20."
+END
+
+SCIENCE:USATalent7A
+"Heavy Armour"
+END
+
+CONTROLBAR:ToolTipUSATalent7A
+"Crusaders take a fifth more damage before they die, 480 to 576, and Paladins 500 to 600."
+END
+
+SCIENCE:USATalent7B
+"Body Armour"
+END
+
+CONTROLBAR:ToolTipUSATalent7B
+"Rangers take a quarter more damage before they die, 180 to 225, and Missile Defenders 100 to 125."
+END
+
+SCIENCE:USATalent8A
+"Hardened Defences"
+END
+
+CONTROLBAR:ToolTipUSATalent8A
+"Patriots and Fire Bases stand a quarter longer, 1250 instead of 1000."
+END
+
+SCIENCE:USATalent8B
+"Reinforced Airframes"
+END
+
+CONTROLBAR:ToolTipUSATalent8B
+"Comanches take a fifth more damage before they go down, 220 to 264, and Raptors 160 to 192."
+END
+
+SCIENCE:USATalent10A
+"Wider Blast"
+END
+
+CONTROLBAR:ToolTipUSATalent10A
+"The Fuel Air Bomb and the MOAB kill a quarter further out, and the targeting circle grows to match."
+END
+
+SCIENCE:USATalent10B
+"Field Repair"
+END
+
+CONTROLBAR:ToolTipUSATalent10B
+"A vehicle that takes no damage for 5 seconds repairs about 1 percent of its health every second."
+END
+
+SCIENCE:SuperweaponTalent7A
+"Alpha Airframe"
+END
+
+CONTROLBAR:ToolTipSuperweaponTalent7A
+"Aurora Alpha Bombers take a quarter more damage before they go down, 80 to 100."
+END
+
+SCIENCE:SuperweaponTalent7B
+"Armoured Escorts"
+END
+
+CONTROLBAR:ToolTipSuperweaponTalent7B
+"Humvees take a quarter more damage before they die, 240 to 300, and Avengers 300 to 375."
+END
+
+SCIENCE:SuperweaponTalent8A
+"EMP Patriot Plating"
+END
+
+CONTROLBAR:ToolTipSuperweaponTalent8A
+"EMP Patriot Systems stand 1300 instead of 1000."
+END
+
+SCIENCE:SuperweaponTalent8B
+"Tomahawk Overhaul"
+END
+
+CONTROLBAR:ToolTipSuperweaponTalent8B
+"Tomahawks drive 15 percent faster and take a quarter more damage, 180 to 225."
+END
+
+SCIENCE:SuperweaponTalent10A
+"Cheaper Superweapons"
+END
+
+CONTROLBAR:ToolTipSuperweaponTalent10A
+"Superweapons cost 25 percent less, a Particle Cannon 1875 instead of 2500, for as long as you have a Command Center, a Barracks, a War Factory or a Dozer left."
+END
+
+SCIENCE:SuperweaponTalent10B
+"Repair Crews"
+END
+
+CONTROLBAR:ToolTipSuperweaponTalent10B
+"Defence buildings repair 6 more health a second on top of their own repair once nothing has hit them for 3 seconds, close to twice as fast."
+END
+
+SCIENCE:LaserTalent7A
+"Laser Tank Armour"
+END
+
+CONTROLBAR:ToolTipLaserTalent7A
+"Laser Tanks take a fifth more damage before they die, 480 to 576."
+END
+
+SCIENCE:LaserTalent7B
+"Avenger Armour"
+END
+
+CONTROLBAR:ToolTipLaserTalent7B
+"Avengers take a quarter more damage before they die, 300 to 375."
+END
+
+SCIENCE:LaserTalent8A
+"Turret Plating"
+END
+
+CONTROLBAR:ToolTipLaserTalent8A
+"Laser Defense Turrets stand 1300 instead of 1000."
+END
+
+SCIENCE:LaserTalent8B
+"Laser Tank Engines"
+END
+
+CONTROLBAR:ToolTipLaserTalent8B
+"Laser Tanks drive 15 percent faster."
+END
+
+SCIENCE:LaserTalent10A
+"Veteran Crews"
+END
+
+CONTROLBAR:ToolTipLaserTalent10A
+"Laser Tanks leave the War Factory as veterans."
+END
+
+SCIENCE:LaserTalent10B
+"Cheaper Defences"
+END
+
+CONTROLBAR:ToolTipLaserTalent10B
+"Laser Defense Turrets and Fire Bases cost 30 percent less, 700 instead of 1000, for as long as you have a Command Center, a Barracks, a War Factory or a Dozer left."
+END
+
+SCIENCE:AirForceTalent7A
+"Comanche Armour"
+END
+
+CONTROLBAR:ToolTipAirForceTalent7A
+"Comanches take a quarter more damage before they go down, 220 to 275."
+END
+
+SCIENCE:AirForceTalent7B
+"King Raptor Armour"
+END
+
+CONTROLBAR:ToolTipAirForceTalent7B
+"King Raptors take a fifth more damage before they go down, 240 to 288."
+END
+
+SCIENCE:AirForceTalent8A
+"Hardened Airbase"
+END
+
+CONTROLBAR:ToolTipAirForceTalent8A
+"Airfields stand 3250 instead of 2500, and Patriots 1300 instead of 1000."
+END
+
+SCIENCE:AirForceTalent8B
+"Chinook Overhaul"
+END
+
+CONTROLBAR:ToolTipAirForceTalent8B
+"Combat Chinooks fly 15 percent faster and take a quarter more damage, 350 to 437."
+END
+
+SCIENCE:AirForceTalent10A
+"Veteran Pilots"
+END
+
+CONTROLBAR:ToolTipAirForceTalent10A
+"King Raptors leave the Airfield as veterans."
+END
+
+SCIENCE:AirForceTalent10B
+"Airframe Repair"
+END
+
+CONTROLBAR:ToolTipAirForceTalent10B
+"Every aircraft and helicopter repairs about 1 percent of its health a second, under fire too."
+END
+
+// GLA's cards: rows 6 and 9 for all four GLA generals, rows 7, 8 and 10 each general's own
+
+SCIENCE:GLATalent6A
+"Scrap Construction"
+END
+
+CONTROLBAR:ToolTipGLATalent6A
+"Buildings cost 20 percent less, a Barracks 400 instead of 500, for as long as you have a Command Center, a Barracks, an Arms Dealer or a Worker left."
+END
+
+SCIENCE:GLATalent6B
+"Light Feet"
+END
+
+CONTROLBAR:ToolTipGLATalent6B
+"Infantry run 15 percent faster, the Angry Mob too. Not Workers, who have their own shoes."
+END
+
+SCIENCE:GLATalent9A
+"Bigger Ambush"
+END
+
+CONTROLBAR:ToolTipGLATalent9A
+"Rebel Ambush brings four more Rebels, 8, 12 or 20 by its tier instead of 4, 8 or 16. The Demolitions General's brings 8, 10 or 14 instead of 4, 6 or 10."
+END
+
+SCIENCE:GLATalent9B
+"Wider Plague"
+END
+
+CONTROLBAR:ToolTipGLATalent9B
+"The Anthrax Bomb's blast and its poison cloud reach a quarter further, and the targeting circle grows to match."
+END
+
+SCIENCE:GLATalent7A
+"Tuned Engines"
+END
+
+CONTROLBAR:ToolTipGLATalent7A
+"Technicals and Rocket Buggies drive 15 percent faster."
+END
+
+SCIENCE:GLATalent7B
+"RPG Vests"
+END
+
+CONTROLBAR:ToolTipGLATalent7B
+"RPG Troopers take a quarter more damage before they die, 100 to 125."
+END
+
+SCIENCE:GLATalent8A
+"Dug-in Stingers"
+END
+
+CONTROLBAR:ToolTipGLATalent8A
+"Stinger Sites stand 1300 instead of 1000."
+END
+
+SCIENCE:GLATalent8B
+"Scrap Plating"
+END
+
+CONTROLBAR:ToolTipGLATalent8B
+"Scorpions take a fifth more damage before they die, 370 to 444, and Marauders 500 to 600."
+END
+
+SCIENCE:GLATalent10A
+"Scud Barrage"
+END
+
+CONTROLBAR:ToolTipGLATalent10A
+"The Scud Storm's missiles land a quarter wider apart and each blast and poison pool reaches a quarter further. The targeting circle grows to match."
+END
+
+SCIENCE:GLATalent10B
+"Veteran Crews"
+END
+
+CONTROLBAR:ToolTipGLATalent10B
+"Marauders leave the Arms Dealer as veterans."
+END
+
+SCIENCE:ToxinTalent7A
+"Tractor Overhaul"
+END
+
+CONTROLBAR:ToolTipToxinTalent7A
+"Toxin Tractors drive 15 percent faster and take a quarter more damage, 240 to 300."
+END
+
+SCIENCE:ToxinTalent7B
+"Marauder Plating"
+END
+
+CONTROLBAR:ToolTipToxinTalent7B
+"Marauders take a quarter more damage before they die, 500 to 625."
+END
+
+SCIENCE:ToxinTalent8A
+"Deep Tunnels"
+END
+
+CONTROLBAR:ToolTipToxinTalent8A
+"Tunnel Networks stand 1950 instead of 1500."
+END
+
+SCIENCE:ToxinTalent8B
+"Launcher Overhaul"
+END
+
+CONTROLBAR:ToolTipToxinTalent8B
+"Scud Launchers drive 15 percent faster and take a quarter more damage, 180 to 225."
+END
+
+SCIENCE:ToxinTalent10A
+"Lingering Toxins"
+END
+
+CONTROLBAR:ToolTipToxinTalent10A
+"The poison pools the Scud Storm leaves last half as long again, 67 seconds instead of 45."
+END
+
+SCIENCE:ToxinTalent10B
+"Veteran Drivers"
+END
+
+CONTROLBAR:ToolTipToxinTalent10B
+"Toxin Tractors leave the Arms Dealer as veterans."
+END
+
+SCIENCE:DemolitionTalent7A
+"Armoured Cycles"
+END
+
+CONTROLBAR:ToolTipDemolitionTalent7A
+"Combat Cycles take a quarter more damage before they go down, 100 to 125."
+END
+
+SCIENCE:DemolitionTalent7B
+"Bomb Truck Overhaul"
+END
+
+CONTROLBAR:ToolTipDemolitionTalent7B
+"Bomb Trucks drive 15 percent faster and take a quarter more damage, 220 to 275."
+END
+
+SCIENCE:DemolitionTalent8A
+"Cheap Traps"
+END
+
+CONTROLBAR:ToolTipDemolitionTalent8A
+"Demo Traps cost half, 100 instead of 200, or 80 with Scrap Construction, for as long as you have a Command Center, a Barracks, an Arms Dealer or a Worker left."
+END
+
+SCIENCE:DemolitionTalent8B
+"Buggy Plating"
+END
+
+CONTROLBAR:ToolTipDemolitionTalent8B
+"Rocket Buggies take 30 percent more damage before they die, 120 to 156."
+END
+
+SCIENCE:DemolitionTalent10A
+"Heavier Warheads"
+END
+
+CONTROLBAR:ToolTipDemolitionTalent10A
+"Each Scud Storm missile hits 20 percent harder, 720 at the centre instead of 600."
+END
+
+SCIENCE:DemolitionTalent10B
+"Veteran Launchers"
+END
+
+CONTROLBAR:ToolTipDemolitionTalent10B
+"Scud Launchers leave the Arms Dealer as veterans."
+END
+
+SCIENCE:StealthTalent7A
+"Kell's Vest"
+END
+
+CONTROLBAR:ToolTipStealthTalent7A
+"Jarmen Kell takes 30 percent more damage before he dies, 200 to 260."
+END
+
+SCIENCE:StealthTalent7B
+"Raider Plating"
+END
+
+CONTROLBAR:ToolTipStealthTalent7B
+"Technicals take a fifth more damage before they die, 180 to 216, and Rocket Buggies 120 to 144."
+END
+
+SCIENCE:StealthTalent8A
+"Hidden Bunkers"
+END
+
+CONTROLBAR:ToolTipStealthTalent8A
+"Tunnel Networks stand 1875 instead of 1500, and Stinger Sites 1250 instead of 1000."
+END
+
+SCIENCE:StealthTalent8B
+"Bomb Truck Overhaul"
+END
+
+CONTROLBAR:ToolTipStealthTalent8B
+"Bomb Trucks drive 15 percent faster and take a quarter more damage, 220 to 275."
+END
+
+SCIENCE:StealthTalent10A
+"Camouflaged Raiders"
+END
+
+CONTROLBAR:ToolTipStealthTalent10A
+"Technicals and Rocket Buggies hide when they hold their fire, the way camouflaged Rebels do, and stay hidden on the move."
+END
+
+SCIENCE:StealthTalent10B
+"Wider Scrambler"
+END
+
+CONTROLBAR:ToolTipStealthTalent10B
+"The GPS Scrambler hides units half as far again, out to 150 instead of 100, and the targeting circle grows to match."
+END
+
+GUI:PlayerMapDiffers
+"%ls's game built %ls differently from yours. The match cannot start until you both run the same version."
+END
+
+GUI:LocalPlayerMapDiffers
+"Your game built %ls differently from the host's. The match cannot start until you both run the same version."
+END
+
+GUI:QMMapDiffers
+"%ls's game built this match's map differently from yours, so the match was called off. Check that you both run the same version."
+END
+
+GUI:QMMapNoAnswer
+"%ls's game never confirmed this match's map, so the match was called off. Their game may be an older version."
+END
+
+// The redesigned online screens (docs/plans/ONLINE-UI-REDESIGN.md): words shared by several screens.
+// A rating is a pre-formatted UnicodeString argument (%ls), since Turkish writes 22,70.
+GUI:OnlineLabel
+"ONLINE"
+END
+
+GUI:OnlineTabHome
+"HOME"
+END
+
+GUI:OnlineTabQuickMatch
+"QUICK MATCH"
+END
+
+GUI:OnlineTabCustom
+"CUSTOM GAMES"
+END
+
+GUI:OnlineAIShort
+"AI"
+END
+
+GUI:OnlineLadderRatingLabel
+"Ladder rating"
+END
+
+GUI:OnlineAIRatingLabel
+"AI rating"
+END
+
+GUI:OnlineGamesLabel
+"Games"
+END
+
+GUI:OnlineWinRateLabel
+"Win rate"
+END
+
+GUI:OnlineSpeedLabel
+"Speed"
+END
+
+GUI:OnlinePlaceLabel
+"Place"
+END
+
+GUI:OnlinePlaceValue
+"#%d"
+END
+
+GUI:OnlineWinLabel
+"Win"
+END
+
+GUI:OnlineLossLabel
+"Loss"
+END
+
+GUI:OnlineMapLabel
+"Map"
+END
+
+GUI:OnlineOpponentLabel
+"Opponent"
+END
+
+GUI:OnlineOpenGamesLabel
+"Open games"
+END
+
+GUI:OnlineComputerLabel
+"Computer"
+END
+
+GUI:OnlineQuickMatchLabel
+"Quick Match"
+END
+
+GUI:OnlineNextTier
+"%ls at %ls · %ls to go"
+END
+
+// the general's short names on the army cards and the score screen
+GUI:OnlineGeneralSuper
+"Superweapon"
+END
+
+GUI:OnlineGeneralLaser
+"Laser"
+END
+
+GUI:OnlineGeneralAir
+"Air Force"
+END
+
+GUI:OnlineGeneralTank
+"Tank"
+END
+
+GUI:OnlineGeneralInf
+"Infantry"
+END
+
+GUI:OnlineGeneralNuke
+"Nuke"
+END
+
+GUI:OnlineGeneralToxin
+"Toxin"
+END
+
+GUI:OnlineGeneralDemo
+"Demolition"
+END
+
+GUI:OnlineGeneralStealth
+"Stealth"
+END
+
+// login
+GUI:OnlineLoginOnlineNow
+"Online now"
+END
+
+GUI:OnlineLoginInQuickMatch
+"In Quick Match"
+END
+
+GUI:OnlineLoginLauncher
+"The launcher picks the server, the nearest by ping unless you choose another there."
+END
+
+GUI:OnlineLoginHeading
+"Sign in"
+END
+
+GUI:OnlineLoginKeepHint
+"Your password is never stored"
+END
+
+GUI:OnlineLoginFailed
+"Sign in failed"
+END
+
+GUI:OnlineLoginBadBody
+"Wrong email, nickname or password. Check them and try again."
+END
+
+GUI:OnlineLoginBrowser
+"Both open zerohour.gg in your browser."
+END
+
+// hub
+GUI:OnlineHubVsAITitle
+"Play vs AI"
+END
+
+GUI:OnlineHubVsAILead
+"Unranked · against the computer"
+END
+
+GUI:OnlineHubRecord
+"W–L"
+END
+
+GUI:OnlineHubVsAIExplain
+"Random official 1v1 map. The computer plays at your AI rating; a win raises it, a loss lowers it."
+END
+
+GUI:OnlineHubPlay
+"PLAY"
+END
+
+GUI:OnlineHubQuickMatchLead
+"Ranked · 1v1"
+END
+
+GUI:OnlineHubInQueue
+"In queue"
+END
+
+GUI:OnlineHubQuickMatchExplain
+"One opponent near your ladder rating, on a map generated for the match. The result moves you on the ladder."
+END
+
+GUI:OnlineHubFindMatch
+"FIND MATCH"
+END
+
+GUI:OnlineHubCustomTitle
+"Custom games"
+END
+
+GUI:OnlineHubCustomLead
+"Unranked · 2 to 8 players"
+END
+
+GUI:OnlineHubCustomExplain
+"Host a room with your own rules or join one. Chat with whoever is on %ls."
+END
+
+GUI:OnlineHubBrowse
+"BROWSE GAMES"
+END
+
+GUI:OnlineHubRecent
+"Recent matches"
+END
+
+GUI:OnlineHubMatchAI
+"vs AI"
+END
+
+GUI:OnlineHubAgoHours
+"%d h ago"
+END
+
+GUI:OnlineHubYday
+"Yesterday"
+END
+
+GUI:OnlineHubAgoDays
+"%d days ago"
+END
+
+GUI:OnlineHubFrom
+"From %ls"
+END
+
+GUI:OnlineHubMotd3
+"The ladder and every match are on zerohour.gg."
+END
+
+GUI:OnlineHubMyCard
+"MY CARD"
+END
+
+GUI:OnlineHubSignOut
+"SIGN OUT"
+END
+
+// player card
+GUI:OnlineCardInRoom
+"In the %ls room · %ls"
+END
+
+GUI:OnlineCardTabAI
+"VS AI"
+END
+
+GUI:OnlineCardByOwn
+"By own army"
+END
+
+GUI:OnlineCardByAI
+"By AI army"
+END
+
+GUI:OnlineCardByOpp
+"By opponent's army"
+END
+
+GUI:OnlineCardLastAI
+"Last AI matches"
+END
+
+GUI:OnlineCardLastQM
+"Last Quick Matches"
+END
+
+GUI:OnlineCardColAI
+"AI played at"
+END
+
+GUI:OnlineCardProfile
+"PROFILE ON ZEROHOUR.GG"
+END
+
+GUI:OnlineCardArmyChinaTank
+"China Tank"
+END
+
+GUI:OnlineCardArmyUsaLaser
+"USA Laser"
+END
+
+GUI:OnlineCardArmyGlaToxin
+"GLA Toxin"
+END
+
+GUI:OnlineCardArmyGlaStealth
+"GLA Stealth"
+END
+
+GUI:OnlineCardArmyChinaNuke
+"China Nuke"
+END
+
+GUI:OnlineCardArmyUsaAir
+"USA Air Force"
+END
+
+// ladder
+GUI:OnlineLadderSub
+"Every server, one ladder"
+END
+
+GUI:OnlineLadderPage
+"Ranks %d–%d"
+END
+
+// literal percent sign: the screen runs this through format
+GUI:OnlineLadderWinPct
+"Win %%"
+END
+
+GUI:OnlineLadderYourPlace
+"Your place"
+END
+
+GUI:OnlineLadderRecord
+"%d wins · %d losses"
+END
+
+GUI:OnlineLadderJump
+"JUMP TO MY PAGE"
+END
+
+GUI:OnlineLadderTiers
+"Ranks"
+END
+
+GUI:OnlineLadderTierUp
+"%ls and up"
+END
+
+GUI:OnlineLadderTierRange
+"%ls to %ls"
+END
+
+GUI:OnlineLadderTierUnder
+"under %ls"
+END
+
+GUI:OnlineLadderTierUnranked
+"under 5 games"
+END
+
+// lobby
+GUI:OnlineLobbyCount
+"%d open · %d playing"
+END
+
+GUI:OnlineLobbyColGame
+"Game"
+END
+
+GUI:OnlineLobbyColPlayers
+"Players"
+END
+
+GUI:OnlineLobbyFull
+"Full"
+END
+
+GUI:OnlineLobbyInRoom
+"In %ls"
+END
+
+GUI:OnlineLobbyRoomGeneral
+"General"
+END
+
+GUI:OnlineLobbyRoomCount
+"%ls %d"
+END
+
+GUI:OnlineLobbySay
+"Say something to %ls"
+END
+
+GUI:OnlineLobbyJoin
+"JOIN"
+END
+
+GUI:OnlineLobbyHost
+"HOST GAME"
+END
+
+// Quick Match page
+GUI:QMRandomArmy
+"Random army"
+END
+
+GUI:QMRandomHint
+"One of the twelve, drawn when the match starts"
+END
+
+GUI:QMNoGeneral
+"No general"
+END
+
+GUI:QMAll
+"ALL"
+END
+
+GUI:QMNone
+"NONE"
+END
+
+GUI:QMSearch
+"SEARCH"
+END
+
+GUI:QMSearching
+"Searching for an opponent"
+END
+
+GUI:QMWindow
+"Window"
+END
+
+GUI:QMWindowValue
+"Opponents you would beat %d to %d times in 100"
+END
+
+GUI:QMWidens
+"Widens to %d to %d in %d:%02d"
+END
+
+GUI:QMWidenCap
+"Stops widening at %d to %d"
+END
+
+GUI:QMYourPicks
+"Your picks"
+END
+
+GUI:QMPicksHint
+"Stop the search to change them."
+END
+
+GUI:QMStop
+"STOP"
+END
+
+GUI:QMFound
+"Opponent found"
+END
+
+GUI:QMYou
+"You"
+END
+
+GUI:QMVs
+"VS"
+END
+
+GUI:QMChance
+"Win chance"
+END
+
+GUI:QMStartsBanner
+"MATCH STARTS IN %d"
+END
+
+// room
+// the room's rule labels where the whole text does not fit (UIStyle::fitKey, "<label>_Short")
+GUI:GameSpeed_Short
+"Speed"
+END
+
+GUI:StartingMoney_Short
+"Cash"
+END
+
+GUI:Superweapons_Short
+"Supers"
+END
+
+GUI:IncomeSharing_Short
+"Sharing"
+END
+
+GUI:SupplyPileLimit_Short
+"Piles"
+END
+
+GUI:TechRespawn_Short
+"Respawn"
+END
+
+GUI:UnitLimit_Short
+"Units"
+END
+
+// online score screen
+GUI:OnlineScoreSubRanked
+"Ranked %ls · %ls"
+END
+
+GUI:OnlineScoreSubAI
+"Play vs AI · %ls · %ls · not on the ladder"
+END
+
+GUI:OnlineScoreSending
+"Sending the result and replay"
+END
+
+GUI:OnlineScoreConfirmed
+"Result confirmed by both players. Replay stored on zerohour.gg."
+END
+
+GUI:OnlineScoreAISaved
+"Saved to your account. The next computer plays at %ls."
+END
+
+GUI:OnlineScoreAIHeld
+"The win was not rated. An admin will look at it."
+END
+
+GUI:OnlineScoreAgain
+"QUICK MATCH AGAIN"
+END
+
+GUI:OnlineScorePlayAgain
+"PLAY AGAIN"
+END
+
+GUI:OnlineScoreHow
+"How the AI rating moves"
+END
+
+GUI:OnlineScoreHow1
+"A win against the computer raises your AI rating and a loss lowers it. The next computer plays at the new number. Your ladder rating moves only in Quick Match."
+END
+
+// skins
+GUI:OnlineSkinsSub
+"One look per unit"
+END
+
+GUI:OnlineSkinsUsaTank
+"USA tank"
+END
+
+GUI:OnlineSkinsChinaTank
+"China tank"
+END
+
+GUI:OnlineSkinsGlaTank
+"GLA tank"
+END
+
+GUI:OnlineSkinsWorn
+"Worn"
+END
+
+GUI:OnlineSkinsOwned
+"Owned"
+END
+
+GUI:OnlineSkinsLocked
+"Not owned"
+END
+
+GUI:OnlineSkinsUnsaved
+"Picked, not saved"
+END
+
+GUI:OnlineSkinsLockedHint
+"Redeem a code at zerohour.gg"
+END
+
+GUI:OnlineSkinsGet
+"Getting skins"
+END
+
+GUI:OnlineSkinsGet1
+"A skin belongs to your zerohour.gg account. Redeem a code on the account page, then open this page again."
+END
+
+GUI:OnlineSkinsOpenSite
+"OPEN ZEROHOUR.GG"
+END
+
+GUI:OnlineSkinsWho
+"Who sees them"
+END
+
+GUI:OnlineSkinsWho1
+"Everyone in your Quick Match and custom games. LAN and skirmish games never show a skin."
+END
+
+GUI:OnlineSkinsPending
+"%d changes not saved yet"
+END
+
+GUI:OnlineSkinsPending1
+"1 change not saved yet"
+END
+
+// the load screen's next tip (it counts GUI:LoadTip<n> until one is missing)
+GUI:LoadTip11
+"Play vs AI online keeps its own AI rating and never touches your ladder rating."
+END
+
+// online screens, second pass: the Quick Match page on generated maps, the lobby and hub states
+GUI:OnlineLadderShort
+"Ladder"
+END
+
+GUI:QMQueueHere
+"%d others are searching on %ls"
+END
+
+GUI:QMGeneratedLine
+"Every match is played on a map made for it alone, so neither of you has seen it before."
+END
+
+GUI:QMNewMap
+"New map"
+END
+
+GUI:QMMapGenerated
+"Made for this match alone. Neither of you has played it."
+END
+
+GUI:QMCheckingMap
+"Checking the map with your opponent"
+END
+
+GUI:QMRefused
+"The server would not put you in the queue. Try again in a moment."
+END
+
+GUI:OnlineLobbyEmpty
+"No open games on %ls. Host one."
+END
+
+GUI:OnlineLobbyJoining
+"Joining"
+END
+
+GUI:OnlineLobbyCountOpen
+"%d open"
+END
+
+GUI:OnlineLadderGamesOf
+"%d of %d games"
+END
+
+GUI:OnlineHubRankedGames
+"%d of %d games"
+END
+
+GUI:OnlineHubAgoMinutes
+"%d min ago"
+END
+
+GUI:OnlineHubRecentNone
+"No Quick Match or AI games yet."
+END
+
+GUI:OnlineHubRecentNoAnswer
+"The server sent no match history."
+END
+
+GUI:OnlineCardArmyUsaSuper
+"USA Superweapon"
+END
+
+GUI:OnlineCardArmyChinaInf
+"China Infantry"
+END
+
+GUI:OnlineCardArmyGlaDemo
+"GLA Demolition"
+END
+
+GUI:OnlineCardUnavailable
+"Match history is not available right now."
+END
+
+// online screens, third pass
+GUI:OnlineLobbyPlaying
+"Playing"
+END
+
+GUI:OnlineHubQuickMatchLocked
+"Quick Match is locked for %d:%02d"
+END
+
+GUI:QMLocked
+"Quick Match is locked for %d:%02d"
+END
+
+GUI:OnlineScoreSendingResult
+"Sending the result"
+END
+
+GUI:OnlineScoreNoAnswer
+"The server has not answered yet. The result will show on zerohour.gg."
+END
+
+// the hub card paragraphs where the whole text does not fit (UIStyle::fitKey, "<label>_Short")
+GUI:OnlineHubVsAIExplain_Short
+"Official 1v1 map. A win raises your AI rating, a loss lowers it."
+END
+
+GUI:OnlineHubQuickMatchExplain_Short
+"One opponent near your rating on a generated map. Counts for the ladder."
+END
+
+GUI:OnlineHubCustomExplain_Short
+"Host or join a room. Chat with whoever is on %ls."
 END

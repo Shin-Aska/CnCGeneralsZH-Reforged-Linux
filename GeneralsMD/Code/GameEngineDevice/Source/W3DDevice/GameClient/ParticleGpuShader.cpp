@@ -1,5 +1,6 @@
 #include "W3DDevice/GameClient/ParticleGpuShader.h"
 #include "ffshader.h"
+#include "Common/GameCommon.h"
 #include <cstring>
 namespace {
 #include "W3DDevice/GameClient/ParticleGpuShaderSources.h"
@@ -20,6 +21,8 @@ const char *Original(Program program) {
 }
 std::string Sdl(Program program) {
     std::string text=Original(program);
+    const std::string fadeMax=std::to_string(8 * LOGICFRAMES_PER_RETAIL_FRAME);
+    replace(text,"FADE_MAX",fadeMax.c_str());
     // The CPU birth record's alpha words start at68. Scalar HLSL declarations
     // express that ABI explicitly without relying on relaxed uint2 alignment.
     // DX11 packs float+float3 padding in one register. Scalar padding preserves

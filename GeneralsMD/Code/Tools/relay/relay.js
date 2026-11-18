@@ -5,6 +5,8 @@
 
 const dgram = require('dgram');
 const crypto = require('crypto');
+const { fork } = require('child_process');
+const { Worker, isMainThread, parentPort, workerData } = require('worker_threads');
 
 const MAGIC0 = 0x5a; // 'Z'
 const MAGIC1 = 0x52; // 'R'
@@ -14,6 +16,8 @@ const T_DATA = 3;
 const T_HELLO_AUTH = 4;
 const BROADCAST = 0xffffffff;
 const NO_SESSION = '0000000000000000';
+const HI = 0x100000000;
+const ID_HI_MASK = 0x1fffff;        // ids the relay hands out stay under 2^53, so a session is keyed by a plain number
 
 const DEFAULT_PORT = 8094;
 const MAX_PACKET = 1400;            // bytes, whole datagram, either direction
@@ -36,29 +40,44 @@ const STATS_MS = 60000;
 
 const vipString = (v) => `${v >>> 24}.${(v >>> 16) & 255}.${(v >>> 8) & 255}.${v & 255}`;
 const hex = (n) => n.toString(16).padStart(8, '0');
+const endpoint = (rinfo) => `${rinfo.address}:${rinfo.port}`;
+// The 8 session bytes at `at` as a number. Exact below 2^53, which is every id the relay hands out; a
+// larger one comes out at 2^53 or above and matches nothing.
+const sessionKey = (buf, at) => buf.readUInt32BE(at) * HI + buf.readUInt32BE(at + 4);
+const defaultLog = (line) => console.log(`${new Date().toISOString()} ${line}`);
+
+/* Why a datagram went nowhere. bad: wrong magic, type or length. hello: a HELLO refused. rate: over the
+	 sender's bucket. nosession: an id the relay does not hold (a stale one after a NAT move or a replace).
+	 endpoint: a held id from an endpoint that is not its own. notarget: no session on that address.
+	 room: the target is in another room. unverified: the target has not answered its WELCOME yet.
+	 alone: a broadcast nobody in the room could take; not counted in `dropped`, a lone lobby does it. */
+const discards = () => ({ bad: 0, hello: 0, rate: 0, nosession: 0, endpoint: 0, notarget: 0, room: 0, unverified: 0, alone: 0 });
+const CAUSES = Object.keys(discards());
 
 function createRelay(opts = {}) {
+	if (opts.thread || opts.process) return createRelayThread(opts);
 	const now = opts.now || Date.now;
-	const log = opts.log || ((line) => console.log(`${new Date().toISOString()} ${line}`));
+	const log = opts.log || defaultLog;
 	const rate = opts.rateBytesPerSec ?? RATE_BYTES_PER_SEC;
 	const burst = opts.burstBytes ?? BURST_BYTES;
 	const maxPerIp = opts.maxPerIp ?? MAX_SESSIONS_PER_IP;
 	const maxRoom = opts.maxRoom ?? MAX_ROOM;
 	const maxBuckets = opts.maxBuckets ?? MAX_BUCKETS;
 	const bucketFullMs = (burst / rate) * 1000;  // an untouched bucket is full again after this, as good as new
-	const authorize = opts.authorize;             // ticket hex -> account id, or null; without it HELLO_AUTH is refused
+	const authorize = opts.authorize;             // ticket hex -> account id, null, or a promise of either; without it HELLO_AUTH is refused
 	const onAuthorized = opts.onAuthorized || (() => {});
 	const onLeave = opts.onLeave || (() => {});
 
 	const sock = dgram.createSocket('udp4');
-	const sessions = new Map();   // session id (16 hex digits) -> session
+	const sessions = new Map();   // session id (sessionKey of its 8 bytes) -> session
 	const byVip = new Map();      // vip -> session
 	const byEndpoint = new Map(); // "ip:port" -> session
 	const rooms = new Map();      // "exe:ini", "acct:<id>" or whatever setRoom names -> Set of sessions
 	const accounts = new Map();   // account id -> its one session
 	const perIp = new Map();      // ip that opened them -> session count
 	const buckets = new Map();    // source ip -> { tokens, at }
-	const stats = { pktIn: 0, bytesIn: 0, pktOut: 0, bytesOut: 0, dropped: 0 };
+	const authing = new Set();    // endpoints whose HELLO_AUTH waits on an authorize promise
+	const stats = { pktIn: 0, bytesIn: 0, pktOut: 0, bytesOut: 0, drop: discards() };
 	let nextVip = 1;
 	let timers = [];
 
@@ -81,8 +100,9 @@ function createRelay(opts = {}) {
 
 	function newSessionId() {
 		for (;;) {
-			const id = crypto.randomBytes(8).toString('hex');
-			if (id !== NO_SESSION && !sessions.has(id)) return id;
+			const b = crypto.randomBytes(8);
+			const id = (b.readUInt32BE(0) & ID_HI_MASK) * HI + b.readUInt32BE(4);
+			if (id !== 0 && !sessions.has(id)) return id;
 		}
 	}
 
@@ -106,20 +126,44 @@ function createRelay(opts = {}) {
 		sock.send(buf, s.port, s.address);
 	}
 
+	// s sent it, t was its target; either may be unknown
+	function drop(cause, s, t) {
+		stats.drop[cause]++;
+		if (s) s.drop[cause]++;
+		if (t) t.dropTo[cause]++;
+	}
+
+	// a session's counters since it entered its room, for the leave and room lines
+	function tally(s, t) {
+		let line = ` in=${s.inP}p/${s.inB}B out=${s.outP}p lastData=${s.lastData ? `${t - s.lastData}ms` : 'never'} seen=${t - s.seen}ms`;
+		for (const c of CAUSES) if (s.drop[c]) line += ` drop.${c}=${s.drop[c]}`;
+		for (const c of CAUSES) if (s.dropTo[c]) line += ` to.${c}=${s.dropTo[c]}`;
+		return line;
+	}
+
+	function snapshot(s, t) {
+		return {
+			vip: vipString(s.vip), room: s.room, at: t, inP: s.inP, inB: s.inB, outP: s.outP,
+			lastDataMs: s.lastData ? t - s.lastData : null, seenMs: t - s.seen, drop: { ...s.drop }, dropTo: { ...s.dropTo },
+		};
+	}
+
 	function leaveRoom(s) {
 		const members = rooms.get(s.room);
 		members.delete(s);
-		if (!members.size) rooms.delete(s.room);
+		if (members.size) return;
+		rooms.delete(s.room);
+		if (s.room !== s.home) log(`empty room=${s.room}`);
 	}
 
 	function remove(s, reason) {
+		log(`leave room=${s.room} vip=${vipString(s.vip)}${tally(s, now())} reason=${reason}`);
 		sessions.delete(s.id);
 		byVip.delete(s.vip);
 		if (byEndpoint.get(s.key) === s) byEndpoint.delete(s.key);
 		leaveRoom(s);
 		const n = perIp.get(s.ip) - 1;
 		if (n) perIp.set(s.ip, n); else perIp.delete(s.ip);
-		log(`leave room=${s.room} vip=${vipString(s.vip)} reason=${reason}`);
 		if (s.account !== null) {
 			if (accounts.get(s.account) === s) accounts.delete(s.account);
 			onLeave(s.account, s.seen);
@@ -139,7 +183,10 @@ function createRelay(opts = {}) {
 		if (sessions.size >= MAX_SESSIONS || (perIp.get(rinfo.address) || 0) >= maxPerIp || members.size >= maxRoom) return null;
 		const vip = allocVip(want);
 		if (!vip) return null;
-		const s = { id: newSessionId(), vip, exe, ini, room, name, ip: rinfo.address, key: null, seen: 0, verified: false, account: null };
+		const s = {
+			id: newSessionId(), vip, exe, ini, room, home: room, name, ip: rinfo.address, key: null, seen: 0, verified: false, account: null,
+			lastData: 0, inP: 0, inB: 0, outP: 0, drop: discards(), dropTo: discards(), last: null,
+		};
 		sessions.set(s.id, s);
 		byVip.set(vip, s);
 		rooms.set(room, members.add(s));
@@ -151,23 +198,50 @@ function createRelay(opts = {}) {
 
 	// A new session for whoever the ticket belongs to, in a room of its own. An account holds one session:
 	// logging in again replaces the old one. authorize is asked once per new session, never on a retry
-	// or keepalive, so the server may make a ticket single-use.
+	// or keepalive, so the server may make a ticket single-use. When it answers with a promise (the relay
+	// in a thread asking the server's), a retry from that endpoint is ignored until it settles.
 	function login(exe, ini, want, name, rinfo, key, ticket) {
+		if (authing.has(key)) return true;
 		let account = null;
 		try {
 			account = authorize(ticket) ?? null;
 		} catch (e) {
 			log(`authorize threw ${e.message}`);
 		}
-		if (account === null) return null;
+		if (account !== null && typeof account.then === 'function') {
+			authing.add(key);
+			account.then((a) => a ?? null, (e) => { log(`authorize threw ${e.message}`); return null; }).then((a) => {
+				authing.delete(key);
+				if (byEndpoint.has(key) || !admit(a, exe, ini, want, name, rinfo, key)) drop('hello');
+			});
+			return true;
+		}
+		return admit(account, exe, ini, want, name, rinfo, key);
+	}
+
+	function admit(account, exe, ini, want, name, rinfo, key) {
+		if (account === null) return false;
 		const old = accounts.get(account);
 		if (old) remove(old, 'replaced');
 		const s = create(exe, ini, want, name, rinfo, key, `acct:${account}`);
-		if (!s) return null;
+		if (!s) return false;
 		s.account = account;
 		accounts.set(account, s);
 		onAuthorized(account, s.vip);
-		return s;
+		welcome(s);
+		return true;
+	}
+
+	function welcome(s) {
+		s.seen = now();
+		const w = Buffer.alloc(WELCOME_SIZE);
+		w[0] = MAGIC0;
+		w[1] = MAGIC1;
+		w[2] = T_WELCOME;
+		w.writeUInt32BE(Math.floor(s.id / HI), 3);
+		w.writeUInt32BE(s.id >>> 0, 7);
+		w.writeUInt32BE(s.vip, 11);
+		send(w, s);
 	}
 
 	/* A session is forwarded to only once a packet carrying its id came back from its endpoint, and the
@@ -176,11 +250,11 @@ function createRelay(opts = {}) {
 	function hello(msg, rinfo, key, auth) {
 		const exe = msg.readUInt32BE(3);
 		const ini = msg.readUInt32BE(7);
-		const id = msg.toString('hex', 11, 19);
+		const id = sessionKey(msg, 11);
 		const want = msg.readUInt32BE(19);
 		const nameAt = auth ? HELLO_AUTH_HEADER : HELLO_HEADER;
 		const name = msg.subarray(nameAt, nameAt + MAX_NAME).toString('utf8');
-		let s = id !== NO_SESSION ? sessions.get(id) : undefined;
+		let s = id !== 0 ? sessions.get(id) : undefined;
 		if (s && (s.exe !== exe || s.ini !== ini)) {
 			remove(s, 'version changed');
 			s = undefined;
@@ -203,59 +277,79 @@ function createRelay(opts = {}) {
 			// is already authorised.
 			s = byEndpoint.get(key);
 			if (s && (s.exe !== exe || s.ini !== ini || (auth && s.account === null))) return false;
-			if (!s) s = auth ? login(exe, ini, want, name, rinfo, key, msg.toString('hex', HELLO_HEADER, HELLO_AUTH_HEADER)) : create(exe, ini, want, name, rinfo, key);
+			if (!s && auth) return login(exe, ini, want, name, rinfo, key, msg.toString('hex', HELLO_HEADER, HELLO_AUTH_HEADER));
+			if (!s) s = create(exe, ini, want, name, rinfo, key);
 			if (!s) return false;
 		}
-		s.seen = now();
-		const w = Buffer.alloc(WELCOME_SIZE);
-		w[0] = MAGIC0;
-		w[1] = MAGIC1;
-		w[2] = T_WELCOME;
-		w.write(s.id, 3, 'hex');
-		w.writeUInt32BE(s.vip, 11);
-		send(w, s);
+		welcome(s);
 		return true;
 	}
 
-	function data(msg, ip, key) {
-		const s = sessions.get(msg.toString('hex', 3, 11));
-		if (!s || s.key !== key) return false;  // only a HELLO moves a session to another endpoint
+	// The forwarding path, run for every game packet: no string, array or buffer is made here. The datagram
+	// Node handed over is ours, so the out header is written over the end of the in header and the
+	// payload goes back out from where it arrived.
+	function data(msg, rinfo) {
+		const s = sessions.get(sessionKey(msg, 3));
+		if (!s) return drop('nosession', byEndpoint.get(endpoint(rinfo)));
+		s.inP++;
+		s.inB += msg.length;
+		if (s.port !== rinfo.port || s.address !== rinfo.address) return drop('endpoint', s);  // only a HELLO moves a session to another endpoint
 		s.verified = true;
-		s.seen = now();
+		s.lastData = s.seen = now();
 		const dst = msg.readUInt32BE(11);
-		const targets = [];
+		let t = null;
+		let n = 0;
 		if (dst === BROADCAST) {
-			for (const t of rooms.get(s.room)) if (t !== s && t.verified) targets.push(t);
+			for (const m of rooms.get(s.room)) {
+				if (m === s) continue;
+				if (m.verified) n++;
+				else m.dropTo.unverified++;  // its copy only; the others still get theirs
+			}
 		} else {
-			const t = byVip.get(dst);
-			if (!t || t === s || t.room !== s.room || !t.verified) return false;
-			targets.push(t);
+			t = byVip.get(dst);
+			if (!t || t === s) return drop('notarget', s);
+			if (t.room !== s.room) return drop('room', s, t);
+			if (!t.verified) return drop('unverified', s, t);
+			n = 1;
 		}
 		// the sender pays for every copy, so a broadcast is no cheaper than sending each one itself
-		if (!allow(ip, Math.max(msg.length, PACKET_COST_MIN) * Math.max(targets.length, 1))) return false;
-		const out = Buffer.allocUnsafe(msg.length - DATA_IN_HEADER + DATA_OUT_HEADER);
+		if (!allow(rinfo.address, Math.max(msg.length, PACKET_COST_MIN) * Math.max(n, 1))) {
+			if (t) t.dropTo.rate++;
+			else for (const m of rooms.get(s.room)) if (m !== s && m.verified) m.dropTo.rate++;
+			return drop('rate', s);
+		}
+		if (!n) return drop('alone', s);
+		const srcPort = msg.readUInt16BE(17);
+		const dstPort = msg.readUInt16BE(15);
+		const out = msg.subarray(DATA_IN_HEADER - DATA_OUT_HEADER);
 		out[0] = MAGIC0;
 		out[1] = MAGIC1;
 		out[2] = T_DATA;
 		out.writeUInt32BE(s.vip, 3);
-		out.writeUInt16BE(msg.readUInt16BE(17), 7);  // srcPort
-		out.writeUInt16BE(msg.readUInt16BE(15), 9);  // dstPort
-		msg.copy(out, DATA_OUT_HEADER, DATA_IN_HEADER);
-		for (const t of targets) send(out, t);
-		return true;
+		out.writeUInt16BE(srcPort, 7);
+		out.writeUInt16BE(dstPort, 9);
+		if (t) {
+			t.outP++;
+			return send(out, t);
+		}
+		for (const m of rooms.get(s.room)) {
+			if (m === s || !m.verified) continue;
+			m.outP++;
+			send(out, m);
+		}
 	}
 
 	function onMessage(msg, rinfo) {
 		stats.pktIn++;
 		stats.bytesIn += msg.length;
-		const key = `${rinfo.address}:${rinfo.port}`;
-		let ok = false;
-		if (msg.length >= 3 && msg.length <= MAX_PACKET && msg[0] === MAGIC0 && msg[1] === MAGIC1) {
-			if (msg[2] === T_HELLO && msg.length >= HELLO_HEADER) ok = allow(rinfo.address, Math.max(msg.length, PACKET_COST_MIN)) && hello(msg, rinfo, key, false);
-			else if (msg[2] === T_HELLO_AUTH && msg.length >= HELLO_AUTH_HEADER && authorize) ok = allow(rinfo.address, Math.max(msg.length, PACKET_COST_MIN)) && hello(msg, rinfo, key, true);
-			else if (msg[2] === T_DATA && msg.length >= DATA_IN_HEADER) ok = data(msg, rinfo.address, key);
-		}
-		if (!ok) stats.dropped++;
+		if (msg.length < 3 || msg.length > MAX_PACKET || msg[0] !== MAGIC0 || msg[1] !== MAGIC1) return drop('bad', byEndpoint.get(endpoint(rinfo)));
+		const type = msg[2];
+		if (type === T_DATA && msg.length >= DATA_IN_HEADER) return data(msg, rinfo);
+		const key = endpoint(rinfo);
+		const auth = type === T_HELLO_AUTH && msg.length >= HELLO_AUTH_HEADER && !!authorize;
+		if (!auth && !(type === T_HELLO && msg.length >= HELLO_HEADER)) return drop('bad', byEndpoint.get(key));
+		if (!allow(rinfo.address, Math.max(msg.length, PACKET_COST_MIN))) return drop('rate');
+		if (!hello(msg, rinfo, key, auth)) drop('hello');
 	}
 
 	function sweep() {
@@ -267,8 +361,15 @@ function createRelay(opts = {}) {
 	}
 
 	function report() {
-		log(`stats sessions=${sessions.size} in=${stats.pktIn}p/${stats.bytesIn}B out=${stats.pktOut}p/${stats.bytesOut}B dropped=${stats.dropped}p`);
-		for (const k of Object.keys(stats)) stats[k] = 0;
+		let dropped = 0;
+		let causes = '';
+		for (const c of CAUSES) {
+			if (c !== 'alone') dropped += stats.drop[c];
+			causes += ` ${c}=${stats.drop[c]}`;
+		}
+		log(`stats sessions=${sessions.size} in=${stats.pktIn}p/${stats.bytesIn}B out=${stats.pktOut}p/${stats.bytesOut}B dropped=${dropped}p${causes}`);
+		stats.pktIn = stats.bytesIn = stats.pktOut = stats.bytesOut = 0;
+		stats.drop = discards();
 	}
 
 	sock.on('message', onMessage);
@@ -280,17 +381,30 @@ function createRelay(opts = {}) {
 		sweep,
 		report,
 		// Moves an authorised session to another room; unicast and broadcast stay inside it. The caller is
-		// trusted, so the room cap does not apply. False when the account holds no session.
+		// trusted, so the room cap does not apply. False when the account holds no session. The session's
+		// counters are logged for the room it leaves and start again from zero in the new one.
 		setRoom(account, room) {
 			const s = accounts.get(account);
 			if (!s) return false;
-			log(`room vip=${vipString(s.vip)} from=${s.room} to=${room}`);
+			if (s.room === room) return true;
+			const t = now();
+			log(`room vip=${vipString(s.vip)} from=${s.room} to=${room}${tally(s, t)}`);
+			s.last = snapshot(s, t);
+			s.inP = s.inB = s.outP = 0;
+			s.drop = discards();
+			s.dropTo = discards();
 			leaveRoom(s);
 			s.room = room;
 			rooms.set(room, (rooms.get(room) || new Set()).add(s));
 			return true;
 		},
 		vipOf: (account) => accounts.get(account)?.vip ?? null,
+		// Counters of the session an account (or a vip number) holds, since it entered its room, and `last`
+		// for the room before; null when there is no such session.
+		sessionStats(key) {
+			const s = accounts.get(key) ?? byVip.get(key);
+			return s ? { ...snapshot(s, now()), last: s.last } : null;
+		},
 		start(port = DEFAULT_PORT, host) {
 			return new Promise((resolve, reject) => {
 				sock.once('error', reject);
@@ -308,9 +422,133 @@ function createRelay(opts = {}) {
 	};
 }
 
+/* createRelay({ thread: true, ... }): the same relay in a worker thread, so a packet is never queued behind
+	 the host process's own work (a lobby tick, a TLS handshake, a collection of the host's heap); the
+	 socket, the sessions and the forwarding live in the thread. The callbacks still run in the host: the
+	 thread asks authorize by message and waits for the answer, and onAuthorized and onLeave arrive in the
+	 order the thread called them. vipOf answers from a copy kept from those two; setRoom is sent over and
+	 answers whether that copy holds the account. report() resolves once its stats line is logged. The
+	 thread keeps the wall clock: `now` is not passed in, and sessions, buckets, sweep and sessionStats
+	 are not offered.
+	 createRelay({ process: true, ... }) is the same with a child process in place of the thread, `pid`
+	 its process id. A thread shares the host's scheduling priority wherever the host cannot set one per
+	 thread (Windows); a process has its own, so a host that lowers its own priority below the relay's
+	 has the scheduler cut its work short whenever a packet arrives, which is what one core needs. */
+function createRelayThread(opts) {
+	const log = opts.log || defaultLog;
+	const authorize = opts.authorize;
+	const onAuthorized = opts.onAuthorized || (() => {});
+	const onLeave = opts.onLeave || (() => {});
+	const plain = {};
+	for (const [k, v] of Object.entries(opts)) if (typeof v !== 'function' && k !== 'thread' && k !== 'process') plain[k] = v;
+	plain.authorize = !!authorize;
+	const vips = new Map();  // account -> vip, from the thread's authorized and leave
+	const waits = new Map(); // request id -> { resolve, reject }
+	let nextWait = 0;
+	let worker = null;       // the Worker or the ChildProcess
+	let stopping = false;
+	const post = (m) => (opts.process ? worker?.connected && worker.send(m) : worker?.postMessage(m));
+
+	const ask = (m) => new Promise((resolve, reject) => {
+		waits.set(++nextWait, { resolve, reject });
+		post({ ...m, id: nextWait });
+	});
+	const settle = (id, fn) => {
+		const w = waits.get(id);
+		waits.delete(id);
+		if (w) fn(w);
+	};
+
+	function onMessage(m) {
+		if (m.t === 'log') log(m.line);
+		else if (m.t === 'authorize') {
+			Promise.resolve()
+				.then(() => authorize(m.ticket))
+				.then((a) => a ?? null, (e) => { log(`authorize threw ${e.message}`); return null; })
+				.then((account) => post({ t: 'account', id: m.id, account }));
+		} else if (m.t === 'authorized') {
+			vips.set(m.account, m.vip);
+			onAuthorized(m.account, m.vip);
+		} else if (m.t === 'leave') {
+			vips.delete(m.account);
+			onLeave(m.account, m.at);
+		} else if (m.t === 'done') settle(m.id, (w) => w.resolve(m.value));
+		else if (m.t === 'failed') settle(m.id, (w) => w.reject(new Error(m.message)));
+	}
+
+	return {
+		setRoom(account, room) {
+			post({ t: 'setRoom', account, room });
+			return vips.has(account);
+		},
+		vipOf: (account) => vips.get(account) ?? null,
+		report: () => (worker ? ask({ t: 'report' }) : Promise.resolve()),
+		get pid() { return worker?.pid; },
+		start(port = DEFAULT_PORT, host) {
+			worker = opts.process
+				? fork(__filename, [], { execArgv: [], env: { ...process.env, ZR_RELAY: JSON.stringify(plain) } })
+				: new Worker(__filename, { workerData: { zrRelay: plain } });
+			worker.on('message', onMessage);
+			// a relay that died takes the host with it, so a supervisor restarts both
+			worker.on('error', (e) => {
+				if (!waits.size) throw e;
+				for (const id of [...waits.keys()]) settle(id, (w) => w.reject(e));
+			});
+			worker.on('exit', (code) => {
+				if (!stopping) throw new Error(`relay ${opts.process ? 'process' : 'thread'} exited with code ${code}`);
+			});
+			return ask({ t: 'start', port, host });
+		},
+		stop() {
+			stopping = true;
+			if (!worker) return Promise.resolve();
+			const exited = new Promise((r) => worker.once('exit', r));
+			post({ t: 'stop' });
+			return exited;
+		},
+	};
+}
+
+// The thread's or the child process's side of createRelayThread. A child whose host is gone (killed,
+// crashed) loses the IPC channel and exits with it.
+function runThread(o, child) {
+	const post = child ? (m) => process.send(m) : (m) => parentPort.postMessage(m);
+	const port = child ? process : parentPort;
+	if (child) process.on('disconnect', () => process.exit(0));
+	const asked = new Map();  // request id -> resolve of an authorize promise
+	let nextAsk = 0;
+	const relay = createRelay({
+		...o,
+		log: (line) => post({ t: 'log', line }),
+		authorize: o.authorize ? (ticket) => new Promise((resolve) => {
+			asked.set(++nextAsk, resolve);
+			post({ t: 'authorize', id: nextAsk, ticket });
+		}) : undefined,
+		onAuthorized: (account, vip) => post({ t: 'authorized', account, vip }),
+		onLeave: (account, at) => post({ t: 'leave', account, at }),
+	});
+	port.on('message', (m) => {
+		if (m.t === 'account') {
+			asked.get(m.id)?.(m.account);
+			asked.delete(m.id);
+		} else if (m.t === 'setRoom') relay.setRoom(m.account, m.room);
+		else if (m.t === 'report') {
+			relay.report();
+			post({ t: 'done', id: m.id });
+		} else if (m.t === 'start') {
+			relay.start(m.port, m.host).then((value) => post({ t: 'done', id: m.id, value }), (e) => post({ t: 'failed', id: m.id, message: e.message }));
+		} else if (m.t === 'stop') {
+			relay.stop();
+			if (child) process.disconnect(); else parentPort.close();
+		}
+	});
+}
+
 module.exports = { createRelay, MAX_PACKET, IDLE_MS, NO_SESSION, HELLO_HEADER, HELLO_AUTH_HEADER, DATA_IN_HEADER, DATA_OUT_HEADER, vipString };
 
-if (require.main === module) {
+if (!isMainThread && workerData && workerData.zrRelay) runThread(workerData.zrRelay, false);
+else if (require.main === module && process.send && process.env.ZR_RELAY) runThread(JSON.parse(process.env.ZR_RELAY), true);
+else if (require.main === module) {
 	const port = Number(process.env.RELAY_PORT) || DEFAULT_PORT;
 	createRelay()
 		.start(port)

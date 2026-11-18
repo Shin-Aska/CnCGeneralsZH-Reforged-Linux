@@ -55,14 +55,36 @@ static float BloomThreshold = PostProcess::BLOOM_THRESHOLD;
 static float BloomIntensity = PostProcess::BLOOM_INTENSITY;
 static float BloomAdditiveGain = 1.0f;
 static unsigned BloomBlurPasses = PostProcess::BLOOM_BLUR_PASSES;
+static float BloomSaturation = 1.0f;
 
-void DX11Post_Set_Bloom(float threshold, float intensity, float additive_gain, unsigned blur_passes)
+// The bright pass's colour is pushed this far from its own grey at most.  ZH Enhanced's ReShade bloom
+// runs at 1.53; past about 3 a fire's halo turns a red no flame has.
+static const float BLOOM_SATURATION_LIMIT = 3.0f;
+
+void DX11Post_Set_Bloom(float threshold, float intensity, float additive_gain, unsigned blur_passes,
+	float saturation)
 {
 	BloomThreshold = (threshold > 0.0f) ? threshold : 0.0f;
 	BloomIntensity = (intensity > 0.0f) ? intensity : 0.0f;
 	BloomAdditiveGain = (additive_gain > 1.0f) ? additive_gain : 1.0f;
 	BloomBlurPasses = (blur_passes < 1) ? 1
 		: (blur_passes > PostProcess::BLOOM_BLUR_PASS_LIMIT) ? PostProcess::BLOOM_BLUR_PASS_LIMIT : blur_passes;
+	BloomSaturation = (saturation < 0.0f) ? 0.0f
+		: (saturation > BLOOM_SATURATION_LIMIT) ? BLOOM_SATURATION_LIMIT : saturation;
+}
+
+// Clarity: local contrast on the luminance, measured against a blur of it about fifteen pixels wide
+// at 1080p (two of the bloom's blur pairs at a quarter of the window), so what it lifts is the shape
+// of a tank, a crater or a cliff rather than the grain of a texture, which the sharpen pass owns.
+// Zero, the default and what the tests start from, is no pass at all and leaves the bloom's programs
+// drawing what they drew.  The game sets it every frame from the LightingStyle option.
+static const unsigned CLARITY_BLUR_PASSES = 2;
+static const float CLARITY_LIMIT = 2.0f;
+static float ClarityStrength = 0.0f;
+
+void DX11Post_Set_Clarity(float strength)
+{
+	ClarityStrength = (strength < 0.0f) ? 0.0f : (strength > CLARITY_LIMIT) ? CLARITY_LIMIT : strength;
 }
 
 float DX11Post_Additive_Gain()
@@ -1140,8 +1162,8 @@ void DX11PostProcessClass::Draw_Pass(const PassSetup & pass)
 	block.TexelSize[3] = static_cast<float>(pass.SourceHeight);
 	block.BlurDirection[0] = pass.BlurX;
 	block.BlurDirection[1] = pass.BlurY;
-	block.BlurDirection[2] = 0.0f;
-	block.BlurDirection[3] = 0.0f;
+	block.BlurDirection[2] = pass.Saturation;
+	block.BlurDirection[3] = pass.Clarity;
 	block.Tuning[0] = BloomThreshold;
 	block.Tuning[1] = BloomIntensity;
 	block.Tuning[2] = PostProcess::TONE_CURVE_KNEE;
@@ -1269,13 +1291,24 @@ ID3D11ShaderResourceView * DX11PostProcessClass::Run_Bloom(ID3D11RenderTargetVie
 	pass.DestinationHeight = BloomHeight;
 	pass.SourceWidth = Width;
 	pass.SourceHeight = Height;
+	pass.Saturation = BloomSaturation;
 	Draw_Pass(pass);
+	pass.Saturation = 0.0f;
+
+	// The clarity's blur is the first two pairs, whatever the glow asks for; with the glow off
+	// those two pairs are all that run.
+	const bool clarity = (ClarityStrength > 0.0f);
+	unsigned pairs = (BloomIntensity > 0.0f) ? BloomBlurPasses : 0;
+	if (clarity && pairs < CLARITY_BLUR_PASSES) {
+		pairs = CLARITY_BLUR_PASSES;
+	}
 
 	pass.Shader = BloomBlurShader;
 	pass.SourceWidth = BloomWidth;
 	pass.SourceHeight = BloomHeight;
 	unsigned source = 0;
-	for (unsigned iteration = 0; iteration < BloomBlurPasses; ++iteration) {
+	for (unsigned iteration = 0; iteration < pairs; ++iteration) {
+		pass.Clarity = (clarity && iteration < CLARITY_BLUR_PASSES) ? 1.0f : 0.0f;
 		// Each pair steps a texel wider than the last.  What the earlier pairs left is smooth
 		// enough by then that the taps landing between texels miss nothing, and the widths add
 		// up in squares, which is how four pairs reach twice as far as two.
@@ -1301,6 +1334,7 @@ ID3D11ShaderResourceView * DX11PostProcessClass::Run_Bloom(ID3D11RenderTargetVie
 	pass.SourceHeight = Height;
 	pass.BlurX = 0.0f;
 	pass.BlurY = 0.0f;
+	pass.Clarity = ClarityStrength;
 	Draw_Pass(pass);
 
 	return ChainTargets[0].Resource;
@@ -1329,7 +1363,9 @@ bool DX11PostProcessClass::Finish(const DX11PostEffect * effects, unsigned count
 		// the time it hands over. If it is also the last thing in the chain it writes the screen.
 		const bool alone = (count == 1) && !warp;
 		ID3D11RenderTargetView * bloom_destination = alone ? back_buffer : ChainTargets[0].View;
-		if (BloomIntensity > 0.0f) {
+		if (BloomIntensity > 0.0f || ClarityStrength > 0.0f) {
+			// The clarity's blur rides the bloom's targets, so with the glow off and the clarity
+			// on this still runs, with nothing in the glow.
 			source = Run_Bloom(bloom_destination, scene);
 		} else {
 			// Bloom switched off in the options: no glow, but the scene is still half floats and

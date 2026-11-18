@@ -44,8 +44,11 @@
 #include "GameLogic/Module/AIUpdate.h"
 #include "GameLogic/Module/BehaviorModule.h"
 #include "GameLogic/Module/CreateModule.h"
+#include "GameLogic/Module/OCLSpecialPower.h"
+#include "GameLogic/Module/PhysicsUpdate.h"
 #include "GameLogic/Module/ProductionUpdate.h"
 #include "GameLogic/Module/SpecialPowerModule.h"
+#include "GameLogic/Module/UpgradeModule.h"
 #include "GameLogic/Object.h"
 #include "GameLogic/ScenarioDrill.h"
 #include "GameLogic/TerrainLogic.h"
@@ -53,6 +56,7 @@
 #include "GameClient/ParticleSys.h"
 #include "GameClient/TerrainVisual.h"	// removeAllBibs, after the build check lights them
 #include "GameLogic/PartitionManager.h"
+#include "GameLogic/RankInfo.h"
 #include "GameLogic/Module/BodyModule.h"
 #include "GameLogic/Weapon.h"
 #include "GameClient/ReachOverlay.h"
@@ -269,6 +273,12 @@ static Bool parseActionType( const AsciiString &token, ScenarioActionType *actio
 		*action = SCENARIO_ACTION_REACHPROOF;
 	else if (token == "topup")
 		*action = SCENARIO_ACTION_TOPUP;
+	else if (token == "handover")
+		*action = SCENARIO_ACTION_HANDOVER;
+	else if (token == "airlift")
+		*action = SCENARIO_ACTION_AIRLIFT;
+	else if (token == "health")
+		*action = SCENARIO_ACTION_HEALTH;
 	else
 		return FALSE;
 
@@ -380,6 +390,9 @@ static Int tokensNeededFor( ScenarioActionType action )
 		case SCENARIO_ACTION_PURCHASE:		return SCENARIO_TOKENS_STOP;
 		case SCENARIO_ACTION_ARRIVE:			return SCENARIO_TOKENS_ARRIVE;
 		case SCENARIO_ACTION_TOPUP:				return SCENARIO_TOKENS_MOVE;
+		case SCENARIO_ACTION_HANDOVER:		return SCENARIO_TOKENS_ATTACK;
+		case SCENARIO_ACTION_AIRLIFT:			return SCENARIO_TOKENS_ATTACK;
+		case SCENARIO_ACTION_HEALTH:			return SCENARIO_TOKENS_STANCE;
 	}
 	return SCENARIO_TOKENS_STOP;
 }
@@ -512,6 +525,31 @@ ScenarioParseResult ScenarioDrill_parseLine( const char *line, ScenarioAction *a
 			break;
 		}
 
+		case SCENARIO_ACTION_HANDOVER:
+		{
+			Int next = SCENARIO_ORDER_POSITION_TOKEN;
+			const ScenarioParseResult position = parseScenarioPosition( tokens, count, &next, action );
+			if (position != SCENARIO_PARSE_OK)
+				return position;
+			if (next >= count)
+				return SCENARIO_PARSE_MISSING_ARGS;
+			if (!parseWholeNumber( tokens[ next ], &action->targetSlot ))
+				return SCENARIO_PARSE_BAD_SLOT;
+			break;
+		}
+
+		case SCENARIO_ACTION_AIRLIFT:
+		{
+			Int next = SCENARIO_ORDER_POSITION_TOKEN;
+			const ScenarioParseResult position = parseScenarioPosition( tokens, count, &next, action );
+			if (position != SCENARIO_PARSE_OK)
+				return position;
+			if (next >= count)
+				return SCENARIO_PARSE_MISSING_ARGS;
+			action->name = tokens[ next ];	// the load, read when it runs
+			break;
+		}
+
 		case SCENARIO_ACTION_REACHPROOF:
 		{
 			if (!parseWholeNumber( tokens[ 4 ], &action->targetSlot ))
@@ -554,6 +592,14 @@ ScenarioParseResult ScenarioDrill_parseLine( const char *line, ScenarioAction *a
 				return SCENARIO_PARSE_BAD_ACTION;
 			break;
 
+		case SCENARIO_ACTION_HEALTH:
+			if (!parseWholeNumber( tokens[ 4 ], &action->count ) || action->count < 1 || action->count > 100)
+				return SCENARIO_PARSE_BAD_COUNT;
+			action->targetSlot = -1;		// no rank given: the units keep theirs
+			if (count > 5 && (!parseWholeNumber( tokens[ 5 ], &action->targetSlot ) || action->targetSlot > LEVEL_HEROIC))
+				return SCENARIO_PARSE_BAD_COUNT;
+			break;
+
 		case SCENARIO_ACTION_GIVEMONEY:
 			if (!parseWholeNumber( tokens[ 3 ], &action->targetSlot ))
 				return SCENARIO_PARSE_BAD_SLOT;
@@ -565,6 +611,8 @@ ScenarioParseResult ScenarioDrill_parseLine( const char *line, ScenarioAction *a
 			action->count = -1;		// nothing wanted, unless the file names a count
 			if (count > SCENARIO_TOKENS_STOP && !parseWholeNumber( tokens[ SCENARIO_TOKENS_STOP ], &action->count ))
 				return SCENARIO_PARSE_BAD_COUNT;
+			// and how far from their middle the furthest of them may stand, 0 for no opinion
+			action->radius = (count > SCENARIO_TOKENS_STOP + 1) ? (Real)atof( tokens[ SCENARIO_TOKENS_STOP + 1 ].str() ) : 0.0f;
 			break;
 
 		case SCENARIO_ACTION_STOP:
@@ -651,9 +699,9 @@ struct ScenarioArrival
 };
 
 /// how long a unit on its way has to stand still before it counts as having stopped
-static const Int SCENARIO_STALL_FRAMES = LOGICFRAMES_PER_SECOND;
+#define SCENARIO_STALL_FRAMES ((Int)(LOGICFRAMES_PER_GAME_SECOND))
 /// less than this from one frame to the next is standing still
-static const Real SCENARIO_STILL_DISTANCE = ConvertRetailPerFrameRate( 0.05f );
+#define SCENARIO_STILL_DISTANCE ((Real)(ConvertRetailPerFrameRate( 0.05f )))
 
 /// how far a unit has to have gone from where it stood before it counts as having obeyed the order
 static const Real SCENARIO_DEPARTED_DISTANCE = 20.0f;
@@ -1305,7 +1353,7 @@ struct StatueTrack
 	Bool counted;
 	Bool seen;
 };
-static const Int STATUE_FRAMES = 3 * LOGICFRAMES_PER_SECOND;
+#define STATUE_FRAMES ((Int)(3 * LOGICFRAMES_PER_GAME_SECOND))
 static const Int STATUE_DETAIL_LINES = 40;
 static std::map<ObjectID, StatueTrack> theStatueTracks;
 static Int theStatueStops = 0;
@@ -1347,7 +1395,7 @@ static void updateStatues( UnsignedInt now )
 			continue;
 		}
 		++track.stillFor;
-		if (track.stillFor < STATUE_FRAMES || (track.stillFor % LOGICFRAMES_PER_SECOND) != 0)
+		if (track.stillFor < STATUE_FRAMES || (track.stillFor % LOGICFRAMES_PER_GAME_SECOND) != 0)
 			continue;
 
 		PartitionFilterRelationship enemies( obj, PartitionFilterRelationship::ALLOW_ENEMIES );
@@ -1399,7 +1447,7 @@ static void updateStatues( UnsignedInt now )
 static void logStatues( void )
 {
 	DEBUG_LOG(("HEADLESS STATUE: %d stops of %.0f s or more with an enemy in reach and no shot (%d infantry), %d unit-seconds - %d waiting for a path, %d blocked, %d no target, %d target in range, %d target out of range\n",
-						 theStatueStops, (Real)STATUE_FRAMES / (Real)LOGICFRAMES_PER_SECOND, theStatueInfantryStops, theStatueSeconds,
+						 theStatueStops, (Real)STATUE_FRAMES / (Real)LOGICFRAMES_PER_GAME_SECOND, theStatueInfantryStops, theStatueSeconds,
 						 theStatueWaiting, theStatueBlocked, theStatueNoVictim, theStatueVictimInRange, theStatueVictimOutOfRange));
 	for( Int s = 0; s < NUM_AI_STATES; ++s )
 		if (theStatueByState[ s ] > 0)
@@ -1458,14 +1506,14 @@ void ScenarioDrill_logArrivals( void )
 		DEBUG_LOG(("HEADLESS DEPART: slot %d '%s' from frame %d: %d of %d moved %.0f, the last after %d frames (%.1f s)\n",
 							 it->slot, it->selector.str(), it->fromFrame, departed, total, SCENARIO_DEPARTED_DISTANCE,
 							 departed ? (Int)(lastDeparture - it->fromFrame) : 0,
-							 departed ? (Real)(lastDeparture - it->fromFrame) / (Real)LOGICFRAMES_PER_SECOND : 0.0f));
+							 departed ? (Real)(lastDeparture - it->fromFrame) / (Real)LOGICFRAMES_PER_GAME_SECOND : 0.0f));
 
 		DEBUG_LOG(("HEADLESS STALL: slot %d '%s': %d stops of %.0f s or more on the way - %d idle, %d held back, %d waiting for a path, %d blocked, %d with a path and no reason; longest %d frames (%.1f s), unit %d\n",
 							 it->slot, it->selector.str(),
 							 it->stallsIdle + it->stallsHeldBack + it->stallsWaitingForPath + it->stallsBlocked + it->stallsOther,
-							 (Real)SCENARIO_STALL_FRAMES / (Real)LOGICFRAMES_PER_SECOND,
+							 (Real)SCENARIO_STALL_FRAMES / (Real)LOGICFRAMES_PER_GAME_SECOND,
 							 it->stallsIdle, it->stallsHeldBack, it->stallsWaitingForPath, it->stallsBlocked, it->stallsOther,
-							 it->longestStall, (Real)it->longestStall / (Real)LOGICFRAMES_PER_SECOND,
+							 it->longestStall, (Real)it->longestStall / (Real)LOGICFRAMES_PER_GAME_SECOND,
 							 (Int)it->longestStallID));
 
 		if (arrived == 0)
@@ -1479,7 +1527,7 @@ void ScenarioDrill_logArrivals( void )
 		DEBUG_LOG(("HEADLESS ARRIVE: slot %d '%s' from frame %d: %d of %d within %.0f of (%.0f,%.0f), first after %d frames, mean %.0f, last after %d frames (%.1f s), %d lost, %d still out\n",
 							 it->slot, it->selector.str(), it->fromFrame, arrived, total, it->radius, it->goal.x, it->goal.y,
 							 first - it->fromFrame, arrivalSum / (Real)arrived, last - it->fromFrame,
-							 (Real)(last - it->fromFrame) / (Real)LOGICFRAMES_PER_SECOND, lost, stillOut));
+							 (Real)(last - it->fromFrame) / (Real)LOGICFRAMES_PER_GAME_SECOND, lost, stillOut));
 	}
 }
 
@@ -1562,11 +1610,23 @@ static Bool executeTally( const ScenarioAction &action, Player *player )
 	Real health = 0.0f;
 	Real maxHealth = 0.0f;
 	Int worth = 0;
+	// where a small group stands, for HEADLESS SPREAD: how far apart a mob's members walk and stand
+	const Int SPREAD_MAX = 32;
+	Coord3D spot[ SPREAD_MAX ];
+	// and how fast the slowest and the fastest of them are moving: an Angry Mob's men keep one pace
+	Real slowest = 1.0e9f;
+	Real fastest = 0.0f;
 	for( Object *obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject() )
 	{
 		if (obj->getControllingPlayer() != player || obj->isEffectivelyDead() || !selectorMatches( action.selector, obj ))
 			continue;
 
+		if (alive < SPREAD_MAX)
+			spot[ alive ] = *obj->getPosition();
+		const PhysicsBehavior *physics = obj->getPhysics();
+		const Real speed = physics ? physics->getVelocityMagnitude() * LOGICFRAMES_PER_GAME_SECOND : 0.0f;
+		slowest = MIN( slowest, speed );
+		fastest = MAX( fastest, speed );
 		++alive;
 		if (obj->getContainedBy() != NULL)
 			++inside;
@@ -1578,6 +1638,46 @@ static Bool executeTally( const ScenarioAction &action, Player *player )
 	DEBUG_LOG(("HEADLESS TALLY: frame %d slot %d '%s': %d alive, health %.0f of %.0f, worth %d, %d inside, money %d\n",
 						 action.frame, action.slot, action.selector.str(), alive, health, maxHealth, worth, inside,
 						 player->getMoney()->countMoney()));
+	if (alive >= 2 && alive <= SPREAD_MAX)
+	{
+		// each unit's distance to its nearest neighbour on the ground: the closest pair and the mean
+		Real closest = 1.0e9f;
+		Real sum = 0.0f;
+		Real cx = 0.0f, cy = 0.0f;
+		for (Int i = 0; i < alive; ++i)
+		{
+			Real nearest = 1.0e9f;
+			for (Int j = 0; j < alive; ++j)
+			{
+				if (i == j)
+					continue;
+				const Real dx = spot[ i ].x - spot[ j ].x;
+				const Real dy = spot[ i ].y - spot[ j ].y;
+				nearest = MIN( nearest, sqrtf( dx * dx + dy * dy ) );
+			}
+			closest = MIN( closest, nearest );
+			sum += nearest;
+			cx += spot[ i ].x;
+			cy += spot[ i ].y;
+		}
+		// and how far the furthest one has strayed from the middle: a group strung out along a road has
+		// close neighbours all the way down the line, so only this number sees it come apart
+		cx /= alive;
+		cy /= alive;
+		Real widest = 0.0f;
+		for (Int i = 0; i < alive; ++i)
+		{
+			const Real dx = spot[ i ].x - cx;
+			const Real dy = spot[ i ].y - cy;
+			widest = MAX( widest, sqrtf( dx * dx + dy * dy ) );
+		}
+		DEBUG_LOG(("HEADLESS SPREAD: frame %d slot %d '%s': %d units around (%.0f,%.0f), nearest neighbour closest %.1f mean %.1f, widest %.1f, speed %.1f to %.1f a second\n",
+							 action.frame, action.slot, action.selector.str(), alive, cx, cy, closest, sum / alive, widest, slowest, fastest));
+		if (action.radius > 0.0f)
+			DEBUG_LOG(("HEADLESS EXPECT: %s: frame %d slot %d '%s': widest %.1f, wanted at most %.0f\n",
+								 widest <= action.radius ? "PASS" : "FAIL",
+								 action.frame, action.slot, action.selector.str(), widest, action.radius));
+	}
 	if (action.count >= 0)
 		DEBUG_LOG(("HEADLESS EXPECT: %s: frame %d slot %d '%s': %d alive, wanted %d\n",
 							 alive == action.count ? "PASS" : "FAIL",
@@ -1856,10 +1956,9 @@ static Bool executeSwitchWeapon( const ScenarioAction &action, Player *player, A
 /** The rank tree's button: the player is raised to the rank the science asks for and given the points
 	  it costs, and then MSG_PURCHASE_SCIENCE goes to the dispatcher as the control bar sends it, so the
 	  purchase itself is the one a click makes. */
-static const Int SCENARIO_HIGHEST_RANK = 5;
-
 static Bool executePurchase( const ScenarioAction &action, Player *player )
 {
+	const Int SCENARIO_HIGHEST_RANK = TheRankInfoStore->getRankLevelCount();
 	const ScienceType science = TheScienceStore->getScienceFromInternalName( action.selector );
 	if (science == SCIENCE_INVALID)
 	{
@@ -2054,6 +2153,25 @@ static Bool executeOrder( const ScenarioAction &action, Player *player, const Co
 			break;
 		}
 
+		case SCENARIO_ACTION_HEALTH:
+		{
+			// the rank first: a rank's health bonus moves the maximum the share is taken of
+			const VecObjectID &ids = group->getAllIDs();
+			for (VecObjectID::const_iterator it = ids.begin(); it != ids.end(); ++it)
+			{
+				Object *obj = TheGameLogic->findObjectByID( *it );
+				BodyModuleInterface *body = obj ? obj->getBodyModule() : NULL;
+				if (body == NULL)
+					continue;
+				if (action.targetSlot >= 0 && obj->getExperienceTracker())
+					obj->getExperienceTracker()->setVeterancyLevel( (VeterancyLevel)action.targetSlot, FALSE );
+				body->internalChangeHealth( body->getMaxHealth() * action.count / 100.0f - body->getHealth() );
+				DEBUG_LOG(("SCENARIO: frame %d health slot %d '%s' %d rank %d: %.0f of %.0f\n", action.frame, action.slot,
+									 obj->getTemplate()->getName().str(), obj->getID(), (Int)obj->getVeterancyLevel(), body->getHealth(), body->getMaxHealth()));
+			}
+			break;
+		}
+
 		case SCENARIO_ACTION_SPAWN:
 		case SCENARIO_ACTION_ARRIVE:
 		case SCENARIO_ACTION_PARTICLES:
@@ -2065,6 +2183,8 @@ static Bool executeOrder( const ScenarioAction &action, Player *player, const Co
 		case SCENARIO_ACTION_RESPOND:
 		case SCENARIO_ACTION_REACHPROOF:
 		case SCENARIO_ACTION_TOPUP:
+		case SCENARIO_ACTION_HANDOVER:
+		case SCENARIO_ACTION_AIRLIFT:
 			ordered = FALSE;		// handled before the group is built
 			break;
 	}
@@ -2232,6 +2352,113 @@ static Bool executeGiveMoney( const ScenarioAction &action, Player *player )
 	return TRUE;
 }
 
+/** The airlift panel's OK: one MSG_DO_AIRLIFT_ORDER for the airlift power the seat's first matching
+	  building carries, handed to the dispatcher as that seat's, so the order's own checks (science,
+	  countdown, factories, money) decide.  The load is <template>:<count> pairs split by commas. */
+static Bool executeAirlift( const ScenarioAction &action, Player *player, const Coord3D &point )
+{
+	Object *building = findFirstMatching( player, action.selector );
+	const SpecialPowerTemplate *power = NULL;
+	for( BehaviorModule **m = building ? building->getBehaviorModules() : NULL; m && *m && power == NULL; ++m )
+	{
+		SpecialPowerModuleInterface *sp = (*m)->getSpecialPower();
+		if (sp && OCLSpecialPower::findAirlift( building, sp->getSpecialPowerTemplate() ))
+			power = sp->getSpecialPowerTemplate();
+	}
+	if (power == NULL)
+	{
+		DEBUG_LOG(("SCENARIO: frame %d airlift: slot %d has no '%s' with an airlift power\n",
+							 action.frame, action.slot, action.selector.str()));
+		return FALSE;
+	}
+
+	GameMessage *msg = newInstance( GameMessage )( GameMessage::MSG_DO_AIRLIFT_ORDER );
+	msg->friend_setPlayerIndex( player->getPlayerIndex() );
+	msg->appendIntegerArgument( power->getID() );
+	msg->appendLocationArgument( point );
+	msg->appendObjectIDArgument( building->getID() );
+	Bool shaped = TRUE;
+	const char *at = action.name.str();
+	while (*at && shaped)
+	{
+		char name[ 128 ];
+		Int count = 0;
+		Int used = 0;
+		shaped = sscanf( at, "%127[^:]:%d%n", name, &count, &used ) == 2;
+		const ThingTemplate *thing = shaped ? TheThingFactory->findTemplate( AsciiString( name ) ) : NULL;
+		shaped = thing != NULL;
+		if (!shaped)
+			break;
+		msg->appendIntegerArgument( thing->getTemplateID() );
+		msg->appendIntegerArgument( count );
+		at += used;
+		if (*at == ',')
+			++at;
+	}
+	if (shaped)
+		TheGameLogic->logicMessageDispatcher( msg, NULL );
+	msg->deleteInstance();
+
+	DEBUG_LOG(("SCENARIO: frame %d airlift slot %d '%s' at (%.0f,%.0f) load '%s'%s\n", action.frame, action.slot,
+						 action.selector.str(), point.x, point.y, action.name.str(), shaped ? "" : ": unreadable"));
+	return shaped;
+}
+
+/** A building changing hands with nothing in between: setTeam, the call a capture, a hijack, a
+	  defeated player's tech buildings and a script's change of owner all end in, so the owner change
+	  runs Object::onCapture and every module's onCapture as a capture would.  Each upgrade module's
+	  state is logged before and after, which is what shows a FollowsOwner part going away or coming. */
+static Bool executeHandover( const ScenarioAction &action, Player *player, const Coord3D &point )
+{
+	Player *target = findPlayerForSlot( action.targetSlot );
+	Object *building = NULL;
+	Real best = 0.0f;
+	for( Object *obj = TheGameLogic->getFirstObject(); obj; obj = obj->getNextObject() )
+	{
+		if (obj->getControllingPlayer() != player || obj->isEffectivelyDead() || !selectorMatches( action.selector, obj ))
+			continue;
+		const Real dx = obj->getPosition()->x - point.x;
+		const Real dy = obj->getPosition()->y - point.y;
+		if (building == NULL || dx * dx + dy * dy < best)
+		{
+			building = obj;
+			best = dx * dx + dy * dy;
+		}
+	}
+	if (building == NULL || target == NULL || target == player)
+	{
+		DEBUG_LOG(("SCENARIO: frame %d handover: slot %d owns no '%s', or slot %d is nobody else\n",
+							 action.frame, action.slot, action.selector.str(), action.targetSlot));
+		return FALSE;
+	}
+
+	std::vector<Bool> before;
+	for (BehaviorModule **module = building->getBehaviorModules(); *module; ++module)
+		if ((*module)->getUpgrade())
+			before.push_back( (*module)->getUpgrade()->isAlreadyUpgraded() );
+
+	building->setTeam( target->getDefaultTeam() );
+
+	const Bool arrived = building->getControllingPlayer() == target;
+	DEBUG_LOG(("SCENARIO: frame %d handover slot %d '%s' %d to slot %d: %s\n", action.frame, action.slot,
+						 action.selector.str(), building->getID(), action.targetSlot, arrived ? "owned" : "refused"));
+
+	Int index = 0;
+	for (BehaviorModule **module = building->getBehaviorModules(); *module; ++module)
+	{
+		UpgradeModuleInterface *upgrade = (*module)->getUpgrade();
+		if (upgrade == NULL)
+			continue;
+		const Bool after = upgrade->isAlreadyUpgraded();
+		DEBUG_LOG(("SCENARIO: frame %d handover %d module %s: %s -> %s%s\n", action.frame, building->getID(),
+							 TheNameKeyGenerator->keyToName( (*module)->getModuleTagNameKey() ).str(),
+							 before[ index ] ? "executed" : "not", after ? "executed" : "not",
+							 before[ index ] != after ? "  CHANGED" : ""));
+		++index;
+	}
+	return arrived;
+}
+
 Bool ScenarioDrill_execute( const ScenarioAction &action )
 {
 	if (action.capturePlayerName.isNotEmpty())
@@ -2300,6 +2527,12 @@ Bool ScenarioDrill_execute( const ScenarioAction &action )
 
 	if (action.action == SCENARIO_ACTION_PURCHASE)
 		return executePurchase( action, player );
+
+	if (action.action == SCENARIO_ACTION_HANDOVER)
+		return executeHandover( action, player, position );
+
+	if (action.action == SCENARIO_ACTION_AIRLIFT)
+		return executeAirlift( action, player, position );
 
 	if (action.action == SCENARIO_ACTION_CONSTRUCT || action.action == SCENARIO_ACTION_SHIFTCONSTRUCT)
 		return executeConstruct( action, player, position );

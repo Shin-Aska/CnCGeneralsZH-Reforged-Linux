@@ -107,7 +107,8 @@ static const EngineShaderEntry ENGINE_SHADERS[] = {
 	{ ENGINE_SHADER_MONOCHROME, "monochrome.pso", "engine:monochrome", NULL, NULL },
 	{ ENGINE_SHADER_WATER_TRAPEZOID_FOAM, "trapezoid water foam ps.1.1", "engine:trapezoidwaterfoam",
 		NULL, NULL },
-	{ ENGINE_SHADER_WATER_RIVER_FOAM, "river water foam ps.1.1", "engine:riverwaterfoam", NULL, NULL }
+	{ ENGINE_SHADER_WATER_RIVER_FOAM, "river water foam ps.1.1", "engine:riverwaterfoam", NULL, NULL },
+	{ ENGINE_SHADER_GRASS, "grass.vso", "engine:grass", NULL, NULL }
 };
 
 static const unsigned ENGINE_SHADER_COUNT = sizeof(ENGINE_SHADERS) / sizeof(ENGINE_SHADERS[0]);
@@ -187,8 +188,11 @@ static void write_unused_coordinates(std::string & hlsl, unsigned first)
 **
 ** oFog is never written, so the fog factor is one and the trees are drawn unfogged, which is what
 ** the Direct3D 9 device does with this shader bound.
+**
+** The grass is the same program with one step added after the sway (`grass`).  The tree text is
+** written without it, byte for byte as before, so the shipped shader cache still holds it.
 */
-static void write_trees(std::string & hlsl)
+static void write_trees(std::string & hlsl, bool grass = false)
 {
 	write_preamble(hlsl);
 	hlsl +=
@@ -209,7 +213,17 @@ static void write_trees(std::string & hlsl)
 		"    float height = input.Position.z - input.Sway.z;\n"
 		"    float suppression = saturate(frac(input.Sway.x) * 4.0);\n"
 		"    float3 sway = lerp(c[8 + sway_type].xyz, c[8].xyz, suppression);\n"
-		"    float4 swayed = float4(height * sway + input.Position, 1.0);\n"
+		"    float4 swayed = float4(height * sway + input.Position, 1.0);\n";
+	if (grass) {
+		// c19 is the camera's ground focus in xy and the radius in w, c20.x one over the width of the
+		// band the tufts shrink across.  A tuft past the radius folds down to its root, so the edge of
+		// the drawn ring grows out of the ground instead of popping.  Root vertices sit on the root
+		// already and do not move.
+		hlsl +=
+			"    float grown = saturate((c[19].w - distance(input.Position.xy, c[19].xy)) * c[20].x);\n"
+			"    swayed.xyz = lerp(float3(input.Position.xy, input.Sway.z), swayed.xyz, grown);\n";
+	}
+	hlsl +=
 		"    output.Position = float4(dot(swayed, c[4]), dot(swayed, c[5]),\n"
 		"        dot(swayed, c[6]), dot(swayed, c[7]));\n"
 		"    output.Diffuse = input.Diffuse * float4(input.Sway.yyy, 1.0);\n"
@@ -573,9 +587,14 @@ static void write_monochrome(std::string & hlsl)
 // matters is the one at the top, and it applies at every step, not only the last: a chain that
 // overflows in the middle and comes back down is a different colour with the clamps than without them.
 static void write_multiply_chain(std::string & hlsl, const EngineShaderEntry & entry,
-	bool volumetric)
+	bool volumetric, bool relight)
 {
-	write_pixel_preamble(hlsl, volumetric);
+	// The sun per pixel needs WorldFromClip, which only the Direct3D 11 text declares.
+	relight = relight && volumetric;
+	write_pixel_preamble(hlsl, volumetric, relight ? TERRAIN_RELIGHT_SAMPLING : NULL);
+	if (relight) {
+		hlsl += TERRAIN_RELIGHT_APPLY;
+	}
 
 	hlsl += "    float4 current = saturate(";
 	hlsl += entry.Opening;
@@ -651,6 +670,9 @@ bool EngineShader_Vertex_Program(EngineShaderProgram program, std::string & hlsl
 	switch (program) {
 	case ENGINE_SHADER_TREES:
 		write_trees(hlsl);
+		return true;
+	case ENGINE_SHADER_GRASS:
+		write_trees(hlsl, true);
 		return true;
 	default:
 		return false;
@@ -2623,7 +2645,7 @@ static bool write_engine_pixel_program(EngineShaderProgram program,
 
 	const EngineShaderEntry * entry = entry_for(program);
 	if (entry != NULL && entry->Opening != NULL) {
-		write_multiply_chain(hlsl, *entry, volumetric);
+		write_multiply_chain(hlsl, *entry, volumetric, pipeline.TerrainRelight);
 	}
 	else if (program == ENGINE_SHADER_WATER_TRAPEZOID || program == ENGINE_SHADER_WATER_CLASSIC_TRAPEZOID) {
 		write_trapezoid_water(hlsl);

@@ -183,6 +183,7 @@ void PosixDevice9::Begin_Post(const RenderPost::Settings &settings)
     s.Settings.ActualSamples = 1;
     if (s.RequestedChain) {
         s.Settings.BloomThreshold = settings.BloomThreshold; s.Settings.BloomIntensity = settings.BloomIntensity;
+        s.Settings.BloomSaturation = settings.BloomSaturation; s.Settings.Clarity = settings.Clarity;
         s.Settings.AdditiveGain = settings.AdditiveGain; s.Settings.BlurPasses = settings.BlurPasses;
         s.Settings.Grade = settings.Grade; s.Settings.InternalHDR = settings.InternalHDR;
     }

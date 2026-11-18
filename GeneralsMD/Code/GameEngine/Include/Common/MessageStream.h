@@ -321,6 +321,11 @@ public:
 		MSG_META_CYCLE_WATER_REFLECTION,						///< cycle Modern water reflections, render only (fork)
 #endif
 		MSG_META_TOGGLE_PURCHASE_SCIENCE,						///< open/close the general's promotion screen (fork)
+		MSG_META_TOGGLE_RADAR_COLORS,								///< minimap in own/ally/enemy colours, client only (fork)
+		MSG_META_TOGGLE_COMMAND_TAB_BUILDINGS,			///< open/close the control bar's Buildings tab, client only (fork)
+		MSG_META_TOGGLE_COMMAND_TAB_GROUND,					///< open/close the Ground tab (fork)
+		MSG_META_TOGGLE_COMMAND_TAB_AIRCRAFT,				///< open/close the Aircraft tab (fork)
+		MSG_META_TOGGLE_COMMAND_TAB_DEFENSE,				///< the sidebar's fourth tab (Ctrl+R, vehicles: tabs go by place); nothing in the Classic bar (fork)
 		
 		MSG_META_BEGIN_CAMERA_ROTATE_LEFT,
 		MSG_META_END_CAMERA_ROTATE_LEFT,
@@ -496,6 +501,10 @@ public:
 		MSG_META_SIGNAL_DEFEND,											///< smoke for the allies: defend here (fork)
 		MSG_META_SIGNAL_ATTENTION,									///< smoke for the allies: look here (fork)
 		MSG_META_REQUEST_MONEY,											///< ask the allies for money: the computer's team board and a chat line (fork)
+		MSG_META_SELL_MODE,													///< enter the sidebar's sell cursor (Red Alert scheme, fork)
+		MSG_META_REPAIR_MODE,												///< enter the sidebar's repair cursor (Red Alert scheme, fork)
+		MSG_META_BEGIN_WAYPOINTS_KEY,								///< second waypoint-mode key held, Z under Red Alert (fork)
+		MSG_META_END_WAYPOINTS_KEY,									///< that key let go (fork)
 
 		MSG_END_META_MESSAGES,											///< Marker to delineate "meta" messages
 
@@ -616,7 +625,7 @@ public:
 																										 start the actual build process */
 		MSG_DOZER_CONSTRUCT_LINE,										///< Like MSG_CONSTRUCT, but for build procesess that occur in a line (like walls)
 		MSG_DOZER_CANCEL_CONSTRUCT,									///< cancel construction of a building 
-		MSG_SELL,																		///< sell a structure
+		MSG_SELL,																		///< sell the selected structures; (objectID) the sidebar's sell cursor: that one
 		MSG_EXIT,																		///< WE want to exit from whatever WE are inside of
 		MSG_EVACUATE,																///< Dump out all of OUR contained objects
 		MSG_EXECUTE_RAILED_TRANSPORT,								///< Execute railed transport sequence
@@ -628,7 +637,7 @@ public:
 		MSG_DO_FORCE_ATTACK_GROUND,									///< (locationID) bombard the given location if picked
 		MSG_GET_REPAIRED,														///< selected unit will go get repaired at clicked object
 		MSG_GET_HEALED,															///< selected unit will go get healed at clicked object
-		MSG_DO_REPAIR,															///< dozer will go repair the clicked target
+		MSG_DO_REPAIR,															///< (objectID) dozer will go repair the clicked target; (objectID, TRUE) the logic picks the builder
 		MSG_RESUME_CONSTRUCTION,										///< resume construction on a structure
 		MSG_ENTER,																	///< Enter object
 		MSG_DOCK,																		///< Dock with this object
@@ -678,6 +687,8 @@ public:
 		MSG_TEAM_REQUEST,														///< (Int AITeamRequestKind, Location) the sender asks his computer allies for help, money or to join his attack (fork)
 		MSG_DO_AUTO_GARRISON,												///< Every selected soldier looks for a free seat around where he stands (fork)
 		MSG_DO_AUTO_REPAIR,													///< Every selected unit goes to its own nearest building that mends it (fork)
+		MSG_QUEUE_UNIT_FOR_GROUP,										///< (Int template ID, Int squad 0-9 or -1[, ObjectID factory]) the logic picks a factory, and the unit joins that hotkey squad when it comes out; -1 is no squad, the command bar's unit tabs; a factory (squad -1 only) is the sidebar picker's own pick, dropped if it cannot take the unit (fork)
+		MSG_DO_AIRLIFT_ORDER,												///< (Int special power ID, location, objectID source, then Int template ID, Int count pairs) an airlift power's load, picked in its panel (fork)
 
 		MSG_BEGIN_DEBUG_NETWORK_MESSAGES = 1900,		///< network messages that exist only in debug/internal builds. all grouped separately.
 

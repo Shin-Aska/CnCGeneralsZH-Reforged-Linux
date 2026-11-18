@@ -88,6 +88,7 @@
 #include "GameLogic/AISkirmishPlayer.h"
 #include "GameLogic/ExperienceTracker.h"
 #include "GameLogic/Object.h"
+#include "GameLogic/ObjectTypes.h"
 #include "GameLogic/Scripts.h"
 #include "GameLogic/PartitionManager.h"
 #include "GameLogic/SidesList.h"
@@ -798,7 +799,7 @@ void Player::update()
 	if( TheGlobalData->m_moneyPerMinute > 0 && isPlayableSide() && isPlayerActive() )
 	{
 		const UnsignedInt now = TheGameLogic->getFrame();
-		const UnsignedInt minute = LOGICFRAMES_PER_SECOND * 60;
+		const UnsignedInt minute = LOGICFRAMES_PER_GAME_SECOND * 60;
 
 		if( now > 0 && (now % minute) == 0 )
 			m_money.deposit( (UnsignedInt)TheGlobalData->m_moneyPerMinute, FALSE );
@@ -1000,6 +1001,11 @@ void Player::initFromDict(const Dict* d)
 				m_ai->setAISkillLevel((AISkillLevel)skillInt);
 			else
 				m_ai->setAISkillLevel(AIPlayer::skillLevelForDifficulty(difficulty));
+			// the rating, which only a seat off its rung's anchor writes (-airating); without it the rung's anchor
+			Bool ratingExists = false;
+			const Int ratingHundredths = d->getInt(TheKey_skirmishAIRating, &ratingExists);
+			if (ratingExists)
+				m_ai->setAIRating(aiRatingFromHundredths(ratingHundredths));
 			// the personality, which only a non-Normal seat writes; after the rung, since a Rusher's rush reads it
 			Bool personaExists = false;
 			const Int personaInt = d->getInt(TheKey_skirmishAIPersonality, &personaExists);
@@ -1697,9 +1703,9 @@ Bool Player::checkBridges(Object *unit, Waypoint *way)
 }
 
 //-------------------------------------------------------------------------------------------------
-AsciiString Player::chooseApproachLabel(const Coord3D *from, const AsciiString &requested, Int pathSuffix)
+AsciiString Player::chooseApproachLabel(const Coord3D *from, const AsciiString &requested, Int pathSuffix, Team *team)
 {
-	return m_ai ? m_ai->chooseApproachLabel(from, requested, pathSuffix) : requested;
+	return m_ai ? m_ai->chooseApproachLabel(from, requested, pathSuffix, NULL, team) : requested;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2033,6 +2039,45 @@ Bool Player::hasTemplateMember(const ThingTemplate *tmpl) const
 }
 
 //=============================================================================
+// countObjectsByThingTemplate counts an object once, against the first of the templates its own is
+// equivalent to, so the counts summed are every counting object whose template is equivalent to any.
+Int Player::countObjectsOfTypes(const ObjectTypes &types, Bool ignoreDead) const
+{
+	Int total = 0;
+	for (std::vector<TemplateCountMembers>::const_iterator it = m_templateCountMembers.begin(); it != m_templateCountMembers.end(); ++it)
+	{
+		if (it->m_objects.empty() || !types.hasEquivalent(it->m_template))
+			continue;
+		for (std::vector<Object *>::const_iterator obj = it->m_objects.begin(); obj != it->m_objects.end(); ++obj)
+		{
+			if (Team::countsTowardTemplate(*obj, ignoreDead, TRUE))
+				++total;
+		}
+	}
+	return total;
+}
+
+//=============================================================================
+// SKIRMISH_VALUE_IN_AREA used to walk every member of every team; the lists hold the same members,
+// and a list whose template is inert or costs nothing adds nothing to the sum.
+Int Player::countBuildCostInside(const PolygonTrigger *trig) const
+{
+	Int total = 0;
+	for (std::vector<TemplateCountMembers>::const_iterator it = m_templateCountMembers.begin(); it != m_templateCountMembers.end(); ++it)
+	{
+		const Int cost = it->m_template->friend_getBuildCost();
+		if (cost == 0 || it->m_template->isKindOf(KINDOF_INERT))
+			continue;
+		for (std::vector<Object *>::const_iterator obj = it->m_objects.begin(); obj != it->m_objects.end(); ++obj)
+		{
+			if ((*obj)->isInside(trig) && !(*obj)->isEffectivelyDead())
+				total += cost;
+		}
+	}
+	return total;
+}
+
+//=============================================================================
 void Player::countObjectsByThingTemplate(Int numTmplates, const ThingTemplate* const * things, Bool ignoreDead, Int *counts, Bool ignoreUnderConstruction ) const
 {
 	for (Int i = 0; i < numTmplates; ++i)
@@ -2220,9 +2265,9 @@ UnsignedInt Player::getSupplyBoxValue()
 }
 
 //=============================================================================
-Real Player::getProductionCostChangePercent( AsciiString buildTemplateName ) const 
-{ 
-  ProductionChangeMap::const_iterator it = m_productionCostChanges.find(NAMEKEY(buildTemplateName));
+Real Player::getProductionCostChangePercent( NameKeyType buildTemplateNameKey ) const
+{
+  ProductionChangeMap::const_iterator it = m_productionCostChanges.find(buildTemplateNameKey);
   if (it != m_productionCostChanges.end()) 
 	{
 		return (*it).second;
@@ -2232,9 +2277,9 @@ Real Player::getProductionCostChangePercent( AsciiString buildTemplateName ) con
 }	
 
 //=============================================================================
-Real Player::getProductionTimeChangePercent( AsciiString buildTemplateName ) const 
-{ 
-  ProductionChangeMap::const_iterator it = m_productionTimeChanges.find(NAMEKEY(buildTemplateName));
+Real Player::getProductionTimeChangePercent( NameKeyType buildTemplateNameKey ) const
+{
+  ProductionChangeMap::const_iterator it = m_productionTimeChanges.find(buildTemplateNameKey);
   if (it != m_productionTimeChanges.end()) 
 	{
 		return (*it).second;
@@ -2244,10 +2289,9 @@ Real Player::getProductionTimeChangePercent( AsciiString buildTemplateName ) con
 }	
 
 //=============================================================================
-VeterancyLevel Player::getProductionVeterancyLevel( AsciiString buildTemplateName ) const 
-{ 
-	NameKeyType templateNameKey = NAMEKEY(buildTemplateName);
-  ProductionVeterancyMap::const_iterator it = m_productionVeterancyLevels.find(templateNameKey);
+VeterancyLevel Player::getProductionVeterancyLevel( NameKeyType buildTemplateNameKey ) const
+{
+  ProductionVeterancyMap::const_iterator it = m_productionVeterancyLevels.find(buildTemplateNameKey);
   if (it != m_productionVeterancyLevels.end()) 
 	{
 		return (*it).second;
@@ -2775,21 +2819,12 @@ void Player::doBountyForKill(const Object* killer, const Object* victim)
 
 		bounty = earnMoney( bounty );
 
-		// Display cash income floating over the recipient - but not to an enemy of a killer it cannot see,
-		// or the number gives the stealthed unit away. Client display only, the deposit above is logic.
-		const Object *seenKiller = killer->getContainedBy() ? killer->getContainedBy() : killer;
-		const Bool hiddenKiller = seenKiller->testStatus( OBJECT_STATUS_STEALTHED ) && !seenKiller->testStatus( OBJECT_STATUS_DETECTED );
-		const Player *localPlayer = ThePlayerList->getLocalPlayer();
-		if( !hiddenKiller || localPlayer->getRelationship( killer->getTeam() ) != ENEMIES )
-		{
-			UnicodeString moneyString;
-			moneyString.format( TheGameText->fetch( "GUI:AddCash" ), bounty );
-			Coord3D pos;
-			pos.zero();
-			pos.add( killer->getPosition() );
-			pos.z += 10.0f; //add a little z to make it show up above the unit.
-			TheInGameUI->addFloatingText( moneyString, &pos, GameMakeColor( 255, 255, 0, 255 ) );
-		}
+		// Display cash income floating over the killer. An enemy never sees it, so a stealthed killer
+		// is not given away. Client display only, the deposit above is logic.
+		Coord3D pos;
+		pos.set( killer->getPosition() );
+		pos.z += 10.0f; //add a little z to make it show up above the unit.
+		TheInGameUI->addMoneyText( bounty, &pos, this );
 	}
 }
 
@@ -2951,11 +2986,19 @@ Bool Player::attemptToPurchaseScience(ScienceType science)
 		return false;
 	}
 
-	Int cost = TheScienceStore->getSciencePurchaseCost(science);
-	addSciencePurchasePoints(-cost);
-	addScience(science);
+	if (isTalent(science))
+	{
+		addScience(science);
+	}
+	else
+	{
+		Int cost = TheScienceStore->getSciencePurchaseCost(science);
+		if (!hasCheat(CHEAT_UNLIMITED_POINTS))
+			addSciencePurchasePoints(-cost);
+		addScience(science);
 
-	getAcademyStats()->recordGeneralsPointsSpent( cost );
+		getAcademyStats()->recordGeneralsPointsSpent( cost );
+	}
 
 	if( ThePlayerList->getLocalPlayer() == this )
 	{
@@ -3021,14 +3064,48 @@ Bool Player::isCapableOfPurchasingScience(ScienceType science) const
 		return false;
 	}
 
+	// a talent costs no points; its rank prerequisite and the pair rule decide
+	if (isTalent(science))
+	{
+		return isTalentOpen(getPlayerTemplate()->getTalentSciences(), m_sciences, science);
+	}
+
 	Int cost = TheScienceStore->getSciencePurchaseCost(science);
-	// purchase cost of zero means "not purchasable!"
-	if (cost == 0 || cost > getSciencePurchasePoints())
+	// purchase cost of zero means "not purchasable!"; the trainer's unlimited points pay for the rest
+	if (cost == 0 || (cost > getSciencePurchasePoints() && !hasCheat(CHEAT_UNLIMITED_POINTS)))
 	{
 		return false;
 	}
 
 	return true;
+}
+
+//=============================================================================
+Bool Player::isTalent(ScienceType science) const
+{
+	return getPlayerTemplate() && findTalentIndex(getPlayerTemplate()->getTalentSciences(), science) >= 0;
+}
+
+//=============================================================================
+Int Player::getTalentCount() const
+{
+	Int count = 0;
+	for (ScienceVec::const_iterator it = m_sciences.begin(); it != m_sciences.end(); ++it)
+		if (isTalent(*it))
+			++count;
+	return count;
+}
+
+//=============================================================================
+Bool Player::hasTalentWaiting() const
+{
+	if (!getPlayerTemplate())
+		return false;
+	const ScienceVec& talents = getPlayerTemplate()->getTalentSciences();
+	for (ScienceVec::const_iterator it = talents.begin(); it != talents.end(); ++it)
+		if (isCapableOfPurchasingScience(*it))
+			return true;
+	return false;
 }
 
 //=============================================================================
@@ -3587,39 +3664,39 @@ UnsignedInt IncomeAllyShare( UnsignedInt amount, Int sharers )
 
 UnsignedInt EarnedAmount( UnsignedInt amount, Int percent )
 {
-  return amount * (UnsignedInt)percent / 100;
+  return (UnsignedInt)( (UnsignedInt64)amount * (UnsignedInt)percent / 100 );
 }
 
-Int IncomeBonusTarget( Int ownStrength, Int strongestEnemyStrength )
+Int IncomeBonusTarget( Int ownStrength, Int strongestEnemyStrength, Int maxBonus )
 {
-  if( strongestEnemyStrength <= 0 || ownStrength >= strongestEnemyStrength )
+  if( maxBonus <= 0 || strongestEnemyStrength <= 0 || ownStrength >= strongestEnemyStrength )
     return 0;
-  const Int bonus = (Int)( (Int64)4 * AI_INCOME_BONUS_MAX * ( strongestEnemyStrength - ownStrength ) / ( (Int64)3 * strongestEnemyStrength ) );
-  return bonus < AI_INCOME_BONUS_MAX ? bonus : AI_INCOME_BONUS_MAX;
+  const Int bonus = (Int)( (Int64)4 * maxBonus * ( strongestEnemyStrength - ownStrength ) / ( (Int64)3 * strongestEnemyStrength ) );
+  return bonus < maxBonus ? bonus : maxBonus;
 }
 
-void IncomeSideWorths( const Int *worth, const UnsignedInt *allies, Int count, Int self, Int *ownAverage, Int *strongestEnemyAverage )
+void IncomeSideWorths( const Int *worth, const PlayerMaskType *allies, Int count, Int self, Int *ownAverage, Int *strongestEnemyAverage )
 {
-  UnsignedInt grouped = 0;
+  PlayerMaskType grouped = 0;
   *ownAverage = 0;
   *strongestEnemyAverage = 0;
   for( Int lead = 0; lead < count; ++lead )
   {
-    if( grouped & ( 1u << lead ) )
+    if( grouped & playerIndexToMask( lead ) )
       continue;
     // the leader's own side when it is this player or one of its allies, else the next enemy side
-    const Bool ours = lead == self || ( allies[ self ] & ( 1u << lead ) ) != 0;
+    const Bool ours = lead == self || ( allies[ self ] & playerIndexToMask( lead ) ) != 0;
     Int64 sum = 0;
     Int size = 0;
     for( Int i = lead; i < count; ++i )
     {
-      if( grouped & ( 1u << i ) )
+      if( grouped & playerIndexToMask( i ) )
         continue;
-      const Bool member = ours ? ( i == self || ( allies[ self ] & ( 1u << i ) ) != 0 )
-                               : ( i == lead || ( allies[ lead ] & ( 1u << i ) ) != 0 );
+      const Bool member = ours ? ( i == self || ( allies[ self ] & playerIndexToMask( i ) ) != 0 )
+                               : ( i == lead || ( allies[ lead ] & playerIndexToMask( i ) ) != 0 );
       if( !member )
         continue;
-      grouped |= 1u << i;
+      grouped |= playerIndexToMask( i );
       sum += worth[ i ];
       ++size;
     }
@@ -3631,18 +3708,19 @@ void IncomeSideWorths( const Int *worth, const UnsignedInt *allies, Int count, I
   }
 }
 
-Int IncomeBonusStep( Int bonus, Int target )
+Int IncomeBonusStep( Int bonus, Int target, Int maxBonus )
 {
-  if( target > bonus + AI_INCOME_BONUS_STEP )
-    return bonus + AI_INCOME_BONUS_STEP;
-  if( target < bonus - AI_INCOME_BONUS_STEP )
-    return bonus - AI_INCOME_BONUS_STEP;
+  const Int step = ( maxBonus + AI_INCOME_BONUS_STEPS - 1 ) / AI_INCOME_BONUS_STEPS;
+  if( target > bonus + step )
+    return bonus + step;
+  if( target < bonus - step )
+    return bonus - step;
   return target;
 }
 
 Int Player::incomePercent( void )
 {
-  return isSkirmishAIPlayer() ? TheAI->getDifficultyProfile( getAISkillLevel() )->m_incomePercent + m_ai->getIncomeBonus() : 100;
+  return isSkirmishAIPlayer() ? m_ai->ratedProfile()->m_incomePercent + m_ai->getIncomeBonus() : 100;
 }
 
 UnsignedInt Player::earnMoney( UnsignedInt amount )
@@ -3711,6 +3789,10 @@ Int Player::countUnitsTowardCap( void ) const
   return count;
 }
 
+/** The most base defences a Tech computer's first superweapon waits for, Easy, Medium and Hard, read at the
+	* seat's rating; extern for aiRatingTables. */
+extern const AIRungInt TECH_FIRST_DEFENSES = { { 8, 6, 4 }, AIKNOB_OPEN };
+
 //=============================================================================
 Bool Player::canBuildMoreOfType( const ThingTemplate *whatToBuild, Int unitsPerOrder ) const
 {
@@ -3759,10 +3841,9 @@ Bool Player::canBuildMoreOfType( const ThingTemplate *whatToBuild, Int unitsPerO
     SuperweaponDefenseCount count = { 0, 0 };
     iterateObjects( countSuperweaponDefenses, &count );
     // a Tech computer's first superweapon is its plan, and a GLA Air one's SCUD Storm, and waits for
-    // at most this many guns, whatever the rung's own ration asks
-    static const Int TECH_FIRST_DEFENSES[ AISKILL_COUNT ] = { 8, 6, 4 };
+    // at most this many guns, whatever the rung's own ration asks (TECH_FIRST_DEFENSES)
     const Bool techFirst = count.superweapons == 0 && m_ai->superweaponIsPlan() &&
-      count.defenses >= TECH_FIRST_DEFENSES[ getAISkillLevel() ];
+      count.defenses >= aiRatingLerp( m_ai->getAIRating(), TECH_FIRST_DEFENSES );
     if ( !techFirst && SuperweaponDefenseCapRefuses( count.defenses, count.superweapons,
                                                      m_ai->getSkillProfile()->m_superweaponDefenses ) )
       return false;
@@ -4733,6 +4814,225 @@ void Player::removeObjectFromHotkeySquad(Object *objToRemove)
 }
 
 //-------------------------------------------------------------------------------------------------
+// Group panel (fork).  MSG_QUEUE_UNIT_FOR_GROUP queues a unit tagged with a hotkey squad, and what
+// follows carries it from the factory to the squad.  All of it reads logic only - squad lists,
+// positions, production queues - and every walk is in list order with ObjectID breaking ties.
+//-------------------------------------------------------------------------------------------------
+
+/// how far the squad's centre may move before an arrived reinforcement is sent on once more
+static const Real REINFORCEMENT_RETARGET_DISTANCE = 5.0f * PATHFIND_CELL_SIZE_F;
+
+//-------------------------------------------------------------------------------------------------
+Bool Player::getHotkeySquadCentroid( Int squad, Coord3D *centroid )
+{
+	if( !isValidHotkeySquadIndex( squad ) || m_squads[ squad ] == NULL || centroid == NULL )
+		return FALSE;
+
+	// reinforcements still on the road are left out, or the centre drifts back toward the factory
+	const VecObjectPtr &members = m_squads[ squad ]->getLiveObjects();
+	Coord3D sum;
+	sum.zero();
+	Int count = 0;
+	for( VecObjectPtr::const_iterator it = members.begin(); it != members.end(); ++it )
+	{
+		if( (*it)->getReinforcementSquad() >= 0 )
+			continue;
+		const Coord3D *pos = (*it)->getPosition();
+		sum.x += pos->x;
+		sum.y += pos->y;
+		sum.z += pos->z;
+		++count;
+	}
+	if( count == 0 )
+		return FALSE;
+
+	centroid->x = sum.x / (Real)count;
+	centroid->y = sum.y / (Real)count;
+	centroid->z = sum.z / (Real)count;
+	return TRUE;
+}
+
+//-------------------------------------------------------------------------------------------------
+struct GroupFactorySearch
+{
+	const ThingTemplate *unit;
+	const Coord3D *centre;
+	const Player *owner;
+	Object *best;
+	UnsignedInt bestQueue;
+	Real bestDistSqr;
+};
+
+Bool Player::factoryTakesGroupUnit( Object *obj, const ThingTemplate *unit ) const
+{
+	if( obj == NULL || unit == NULL || obj->getControllingPlayer() != this || obj->isEffectivelyDead() )
+		return FALSE;
+
+	// canMakeUnit is the build button's own test: prerequisites, the unit cap, money, a finished and
+	// powered factory, a free queue slot and parking
+	if( obj->getProductionUpdateInterface() == NULL || TheBuildAssistant->canMakeUnit( obj, unit ) != CANMAKE_OK )
+		return FALSE;
+	// and the factory's bar offers the player the button: a mission's script-only build, or one an
+	// upgrade still locks, is refused here as the bar hides or greys it
+	return TheBuildAssistant->offersPlayerBuildButton( obj, unit );
+}
+
+static void findGroupFactory( Object *obj, void *userData )
+{
+	GroupFactorySearch *s = (GroupFactorySearch *)userData;
+	if( !s->owner->factoryTakesGroupUnit( obj, s->unit ) )
+		return;
+
+	// with no squad there is no centre, and the shortest queue with the lowest ObjectID wins
+	ProductionUpdateInterface *pu = obj->getProductionUpdateInterface();
+	const UnsignedInt queue = pu->getProductionCount();
+	const Real dx = s->centre ? obj->getPosition()->x - s->centre->x : 0.0f;
+	const Real dy = s->centre ? obj->getPosition()->y - s->centre->y : 0.0f;
+	const Real distSqr = dx * dx + dy * dy;
+	if( s->best != NULL )
+	{
+		if( queue != s->bestQueue )
+		{
+			if( queue > s->bestQueue )
+				return;
+		}
+		else if( distSqr != s->bestDistSqr )
+		{
+			if( distSqr > s->bestDistSqr )
+				return;
+		}
+		else if( obj->getID() > s->best->getID() )
+			return;
+	}
+	s->best = obj;
+	s->bestQueue = queue;
+	s->bestDistSqr = distSqr;
+}
+
+Object *Player::findFactoryForGroupUnit( const ThingTemplate *unit, const Coord3D *squadCentre ) const
+{
+	if( unit == NULL )
+		return NULL;
+
+	GroupFactorySearch search;
+	search.unit = unit;
+	search.centre = squadCentre;
+	search.owner = this;
+	search.best = NULL;
+	search.bestQueue = 0;
+	search.bestDistSqr = 0.0f;
+	iterateObjects( findGroupFactory, &search );
+	return search.best;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** Send a reinforcement to dest.  One still on its exit path out of the factory takes it as its
+	* rally point, so it finishes the step out of the door first and gets the rally point's attack move
+	* (a plain move for one with nothing to fight with, a tunnel when that is shorter); anything else
+	* attack moves now. */
+//-------------------------------------------------------------------------------------------------
+static void orderReinforcement( Object *unit, Int squad, Coord3D dest, Bool retargeted )
+{
+	AIUpdateInterface *ai = unit->getAIUpdateInterface();
+	if( ai == NULL )
+	{
+		unit->setReinforcement( -1, NULL, FALSE );
+		return;
+	}
+
+	if( ai->isDoingGroundMovement() )
+		TheAI->pathfinder()->adjustDestination( unit, ai->getLocomotorSet(), &dest );
+
+	// set before the order: an order from the computer does not clear it, anyone else's does
+	unit->setReinforcement( squad, &dest, retargeted );
+	if( ai->isExitingProducer() )
+		ai->friend_setExitProductionRallyPoint( &dest );
+	else
+		ai->aiAttackMoveToPosition( &dest, NO_MAX_SHOTS_LIMIT, CMD_FROM_AI );
+}
+
+//-------------------------------------------------------------------------------------------------
+void Player::sendReinforcementToSquad( Object *unit, Int squad )
+{
+	if( unit == NULL || unit->isEffectivelyDead() )
+		return;
+
+	// the squad died or was broken up while this was being built: a normal unit, rally point and all
+	Coord3D centre;
+	if( !getHotkeySquadCentroid( squad, &centre ) )
+		return;
+
+	removeObjectFromHotkeySquad( unit );
+	m_squads[ squad ]->addObject( unit );
+	orderReinforcement( unit, squad, centre, FALSE );
+}
+
+//-------------------------------------------------------------------------------------------------
+void Player::onReinforcementIdle( Object *unit )
+{
+	const Int squad = unit->getReinforcementSquad();
+	if( !isValidHotkeySquadIndex( squad ) )
+		return;
+
+	// once only: the second idle is the end of the walk, however far the squad has gone since
+	Coord3D centre;
+	const Coord3D sentTo = *unit->getReinforcementDestination();
+	if( unit->isReinforcementRetargeted() || m_squads[ squad ] == NULL || !m_squads[ squad ]->isOnSquad( unit )
+			|| !getHotkeySquadCentroid( squad, &centre ) )
+	{
+		unit->setReinforcement( -1, NULL, FALSE );
+		return;
+	}
+
+	const Real dx = centre.x - sentTo.x;
+	const Real dy = centre.y - sentTo.y;
+	if( dx * dx + dy * dy > REINFORCEMENT_RETARGET_DISTANCE * REINFORCEMENT_RETARGET_DISTANCE )
+		orderReinforcement( unit, squad, centre, TRUE );
+	else
+		unit->setReinforcement( -1, NULL, FALSE );
+}
+
+//-------------------------------------------------------------------------------------------------
+struct GroupReinforcementCount
+{
+	Int squad;
+	Int count;
+};
+
+static void countQueuedForSquad( Object *obj, void *userData )
+{
+	GroupReinforcementCount *c = (GroupReinforcementCount *)userData;
+	ProductionUpdateInterface *pu = obj->getProductionUpdateInterface();
+	if( pu == NULL )
+		return;
+	for( const ProductionEntry *p = pu->firstProduction(); p; p = pu->nextProduction( p ) )
+		if( p->getProductionType() == PRODUCTION_UNIT && p->getReinforcementSquad() == c->squad )
+			c->count += p->getProductionQuantityRemaining();
+}
+
+Int Player::countGroupReinforcements( Int squad ) const
+{
+	if( !isValidHotkeySquadIndex( squad ) || m_squads[ squad ] == NULL )
+		return 0;
+
+	// walking: they joined the squad on the way out, so its own list holds them
+	GroupReinforcementCount c;
+	c.squad = squad;
+	c.count = 0;
+	const VecObjectID &ids = m_squads[ squad ]->getObjectIDs();
+	for( VecObjectID::const_iterator it = ids.begin(); it != ids.end(); ++it )
+	{
+		const Object *obj = TheGameLogic->findObjectByID( *it );
+		if( obj && !obj->isEffectivelyDead() && obj->getReinforcementSquad() == squad )
+			++c.count;
+	}
+
+	// queued: ponytail: walks every object of this player; a per-player tally if the panel shows up in a profile
+	iterateObjects( countQueuedForSquad, &c );
+	return c.count;
+}
+
+//-------------------------------------------------------------------------------------------------
 /** Select a hotkey team based on this GameMessage */
 //-------------------------------------------------------------------------------------------------
 void Player::addAIGroupToCurrentSelection(AIGroup *group) {
@@ -4963,6 +5263,11 @@ void Player::crc( Xfer *xfer )
 	Real healthHandicap = getLobbyHandicap();
 	if( healthHandicap != 1.0f )
 		xfer->xferReal( &healthHandicap );
+
+	// The talents picked, only once there is one, so a match without a pick keeps the CRC it has.
+	Int talents = getTalentCount();
+	if( talents > 0 )
+		xfer->xferInt( &talents );
 
 }  // end crc
 
@@ -5291,6 +5596,12 @@ void Player::xfer( Xfer *xfer )
 
 	// level up
 	xfer->xferInt( &m_levelUp );
+	// from the ranks loaded now, since a save made at the old cap of 5 stored INT_MAX and would never reach 6
+	if( xfer->getXferMode() == XFER_LOAD )
+	{
+		const RankInfo* nextRank = TheRankInfoStore->getRankInfo( m_rankLevel + 1 );
+		m_levelUp = nextRank ? nextRank->m_skillPointsNeeded : INT_MAX;
+	}
 
 	// level down
 	xfer->xferInt( &m_levelDown );

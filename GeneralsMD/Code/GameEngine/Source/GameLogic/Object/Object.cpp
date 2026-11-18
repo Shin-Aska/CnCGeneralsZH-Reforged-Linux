@@ -61,6 +61,7 @@
 #include "GameClient/InGameUI.h"
 
 #include "GameLogic/AI.h"
+#include "GameLogic/AIPlayer.h"
 #include "GameLogic/AIPathfind.h"
 #include "GameLogic/ExperienceTracker.h"
 #include "GameLogic/FiringTracker.h"
@@ -95,10 +96,12 @@
 #include "GameLogic/Module/SpecialPowerModule.h"
 #include "GameLogic/Module/SpecialAbilityUpdate.h"
 #include "GameLogic/Module/StatusDamageHelper.h"
+#include "GameLogic/Module/StealthUpdate.h"
 #include "GameLogic/Module/StickyBombUpdate.h"
 #include "GameLogic/Module/SubdualDamageHelper.h"
 #include "GameLogic/Module/SupplyWarehouseDockUpdate.h"
 #include "GameLogic/Module/TempWeaponBonusHelper.h"
+#include "GameLogic/Module/MarkAndRainBehavior.h"
 #include "GameLogic/Module/ToppleUpdate.h"
 #include "GameLogic/Module/UpdateModule.h"
 #include "GameLogic/Module/UpgradeModule.h"
@@ -219,6 +222,8 @@ Object::Object( const ThingTemplate *tt, const ObjectStatusMaskType &objectStatu
 	m_body(NULL),
 	m_contain(NULL),
   m_stealth(NULL),
+	m_dock(NULL),
+	m_slaved(NULL),
 	m_partitionData(NULL),
 	m_radarData(NULL),
 	m_drawable(NULL),
@@ -309,6 +314,9 @@ Object::Object( const ThingTemplate *tt, const ObjectStatusMaskType &objectStatu
 	m_id = INVALID_ID;
 	m_producerID = INVALID_ID;
 	m_builderID = INVALID_ID;
+	m_reinforcementSquad = -1;
+	m_reinforcementDestination.zero();
+	m_reinforcementRetargeted = FALSE;
 
 	m_status = objectStatusMask;
 	m_layer = LAYER_GROUND;
@@ -478,6 +486,8 @@ Object::Object( const ThingTemplate *tt, const ObjectStatusMaskType &objectStatu
 				DEBUG_ASSERTCRASH( m_ai == NULL, ("%s has more than one AI module. This is illegal!\n", getTemplate()->getName().str()) );
 			}
 			m_ai = ai;
+			// the reveal grid holds only objects with an AI, and the team was set above
+			RevealWakeGrid::noteObject( this );
 		}
 
 		static NameKeyType key_PhysicsUpdate = NAMEKEY("PhysicsBehavior");
@@ -507,6 +517,17 @@ Object::Object( const ThingTemplate *tt, const ObjectStatusMaskType &objectStatu
 	}
 	*curC = NULL;
 
+	// The same for the dock and the slaver: a docking truck asked for its dock's interface a few times
+	// a frame through a walk of every module the building has, a quarter of the time the dock state
+	// took, and every line of fire that crossed a building walked both ends' modules for their slaver.
+	for (BehaviorModule** m = m_behaviors; *m; ++m)
+	{
+		if (m_dock == NULL)
+			m_dock = (*m)->getDockUpdateInterface();
+		if (m_slaved == NULL)
+			m_slaved = (*m)->getSlavedUpdateInterface();
+	}
+
 	AIUpdateInterface *ai = getAIUpdateInterface();
 	if (ai) {
 		ai->setAttitude(getTeam()->getPrototype()->getTemplateInfo()->m_initialTeamAttitude);
@@ -524,7 +545,7 @@ Object::Object( const ThingTemplate *tt, const ObjectStatusMaskType &objectStatu
 
 	// If a valid team has been assigned me, then I have a Player I can ask about my starting level
 	const Player* controller = getControllingPlayer();
-	m_experienceTracker->setVeterancyLevel( controller->getProductionVeterancyLevel( getTemplate()->getName() ) );
+	m_experienceTracker->setVeterancyLevel( controller->getProductionVeterancyLevel( getTemplate()->getNameKey() ) );
 
 	// Before the create modules and initObject can run an upgrade, whose addition already comes out at
 	// this factor. A save's loaded object gets its saved health over this afterwards.
@@ -706,6 +727,8 @@ Object::~Object()
 	// note, do NOT free these, there are just a shadow copy!
 	m_ai = NULL;
 	m_physics = NULL;
+	m_dock = NULL;
+	m_slaved = NULL;
 
 	// delete any modules present
 	for (BehaviorModule** b = m_behaviors; *b; ++b)
@@ -905,6 +928,9 @@ void Object::setGeometryInfoZ( Real newZ )
 { 
 	// A Z change only does not need to un/register with the PartitionManager
 	m_geometryInfo.setMaxHeightAbovePosition( newZ );
+	// but a sphere's height is its radius, which the center grid sorts by
+	if( m_partitionData )
+		ThePartitionManager->noteObjectMovedOrResized( m_partitionData );
 
 	if (m_drawable)
 		m_drawable->reactToGeometryChange();
@@ -989,6 +1015,8 @@ void Object::setOrRestoreTeam( Team* team, Bool restoring )
 	// the partition counts every cell's objects per player; move ours before anything searches
 	if (m_partitionData)
 		m_partitionData->refreshCountedPlayer();
+	// a reveal looks for its enemies on the teams, so the reveal grid has to hear of us
+	RevealWakeGrid::noteObject( this );
 
 	// After Switch //////////////////////////
 	if (m_team)
@@ -1113,11 +1141,16 @@ void Object::setStatus( ObjectStatusMaskType objectStatus, Bool set )
 
 	if (m_status != oldStatus)
 	{
+		if (m_physics)
+			m_physics->wakeIfDormant();	// braking and the carrier deck are read by a physics run
+		if (m_wsHelper && m_status.test( OBJECT_STATUS_IS_ATTACKING ) && !oldStatus.test( OBJECT_STATUS_IS_ATTACKING ))
+			m_wsHelper->wakeIfResting();	// an attack is what the weapon status helper shows
+
 		if( set && objectStatus.test( OBJECT_STATUS_REPULSOR ) && m_repulsorHelper != NULL )
 		{
 			// Damaged repulsable civilians scare (repulse) other civs, but only
 			// for a short amount of time... use the repulsor helper to turn off repulsion shortly.
-			m_repulsorHelper->sleepUntil(TheGameLogic->getFrame() + 2*LOGICFRAMES_PER_SECOND);
+			m_repulsorHelper->sleepUntil(TheGameLogic->getFrame() + 2*LOGICFRAMES_PER_GAME_SECOND);
 		}
 
 		if( objectStatus.test( OBJECT_STATUS_STEALTHED ) || objectStatus.test( OBJECT_STATUS_DETECTED ) || objectStatus.test( OBJECT_STATUS_DISGUISED ) )
@@ -1801,6 +1834,21 @@ void Object::setBuilder( const Object *obj )
 }
 
 //=============================================================================
+void Object::setReinforcement( Int squad, const Coord3D *destination, Bool retargeted )
+{
+	if( !isValidHotkeySquadIndex( squad ) || destination == NULL )
+	{
+		m_reinforcementSquad = -1;
+		m_reinforcementDestination.zero();
+		m_reinforcementRetargeted = FALSE;
+		return;
+	}
+	m_reinforcementSquad = squad;
+	m_reinforcementDestination = *destination;
+	m_reinforcementRetargeted = retargeted;
+}
+
+//=============================================================================
 void Object::setCustomIndicatorColor(Color c) 
 { 
 	if (m_indicatorColor != c)
@@ -1943,6 +1991,14 @@ void Object::reactToTurretChange( WhichTurretType turret, Real oldRotation, Real
 void Object::reactToTransformChange(const Matrix3D* oldMtx, const Coord3D* oldPos, Real oldAngle)
 {
 	//USE_PERF_TIMER(Object_reactToTransformChange)
+	RevealWakeGrid::noteMove( this, oldPos );
+	// every move, the ones too small to dirty the cells below included (PartitionManager::visitNearestFirst)
+	if (m_partitionData)
+		ThePartitionManager->noteObjectMoved( m_partitionData, oldPos, getPosition() );
+	// moved by something else: a dormant body's next run is no longer nothing.  Even a set to where it
+	// already is: that drops the altitude cache the awake run would have filled again at its turn.
+	if (m_physics)
+		m_physics->wakeIfDormant();
 	if(_isnan(getPosition()->x) || _isnan(getPosition()->y) || _isnan(getPosition()->z)) {
 		DEBUG_CRASH(("Object pos is nan."));
 		TheGameLogic->destroyObject(this);
@@ -2072,7 +2128,7 @@ Bool Object::isUnknownTo( Int playerIndex ) const
 //-------------------------------------------------------------------------------------------------
 // A shot out of the fog gives its shooter away: the victim's side sees a small circle round the
 // attacker for a moment, enough to see what hit it and not the ground around it.
-static const UnsignedInt FOG_ATTACKER_REVEAL_FRAMES = LOGICFRAMES_PER_SECOND * 5 / 2;
+#define FOG_ATTACKER_REVEAL_FRAMES ((UnsignedInt)(LOGICFRAMES_PER_GAME_SECOND * 5 / 2))
 static const Real FOG_ATTACKER_REVEAL_MARGIN = 15.0f;	///< past the attacker's own footprint, about a shroud cell and a half
 
 static void Object_revealAttackerInFog( const Object *victim, ObjectID attackerID )
@@ -2268,6 +2324,8 @@ void Object::healCompletely()
 //-------------------------------------------------------------------------------------------------
 void Object::setEffectivelyDead(Bool dead)
 {
+	if (m_physics)
+		m_physics->wakeIfDormant();	// KillWhenRestingOnGround asks whether a drone is dead
 	if (dead)
 		BitSet(m_privateStatus, EFFECTIVELY_DEAD);
 	else
@@ -2409,8 +2467,13 @@ void Object::setDisabledUntil( DisabledType type, UnsignedInt frame )
 		if ( type != DISABLED_HELD && !isDisabledByType( type ) )
 			pauseAllSpecialPowers( TRUE );
 		
+		if (m_physics)
+			m_physics->wakeIfDormant();
 		m_disabledTillFrame[ type ] = frame;
 		m_disabledMask.set( type, frame > TheGameLogic->getFrame() );
+		// the end-of-frame check walks only the objects it was told about (GameLogic::disabledAndSecondTurns)
+		if( m_disabledMask.test( type ) )
+			TheGameLogic->watchDisabled( this );
 
 		// A building's AI does not run while it is EMPed, hacked, subdued or out of power, so the attack it
 		// was in never exited and kept its look: a Gattling Cannon spun its barrels through the whole EMP.
@@ -2553,6 +2616,9 @@ Bool Object::clearDisabled( DisabledType type )
 		return FALSE;
 	}
 
+	if (m_physics)
+		m_physics->wakeIfDormant();	// a dormant body reads the disabled bits (PhysicsBehavior::mayGoDormant)
+
 	if( type == DISABLED_UNDERPOWERED || type == DISABLED_EMP || type == DISABLED_SUBDUED || type == DISABLED_HACKED )
 	{
 		//We've regained power-- make sure we aren't still disabled by another type.
@@ -2641,6 +2707,8 @@ Bool Object::clearDisabled( DisabledType type )
 
 //-------------------------------------------------------------------------------------------------
 //Checks any timers and clears disabled statii that have expired.
+// Only expired ones: GameLogic::disabledAndSecondTurns skips an object disabled during its own pass
+// because a bit set this frame has not expired, so this would do nothing to it.
 //-------------------------------------------------------------------------------------------------
 void Object::checkDisabledStatus()
 {
@@ -2938,8 +3006,11 @@ void Object::setTriggerAreaFlagsForChangeInPosition()
 
 	m_iPos = iPos;
 
-	for (const PolygonTrigger *pTrig = PolygonTrigger::getFirstPolygonTrigger(); pTrig; pTrig = pTrig->getNext()) 
+	// only the triggers whose bounds hold the point, in list order: the rest would refuse it anyway
+	const std::vector<const PolygonTrigger*> &nearby = PolygonTrigger::triggersNear(m_iPos);
+	for (size_t n = 0; n < nearby.size(); ++n)
 	{
+		const PolygonTrigger *pTrig = nearby[n];
 		Bool skip = false;
 		for (i = 0; i < m_numTriggerAreasActive; i++) 
 		{
@@ -3035,6 +3106,8 @@ void Object::setLayer(PathfindLayerEnum layer)
 		}
 #endif
 		TheAI->pathfinder()->removePos(this);
+		if (m_physics)
+			m_physics->wakeIfDormant();
 		m_layer = layer;
 		TheAI->pathfinder()->updatePos(this, getPosition());
 	}
@@ -3403,6 +3476,10 @@ void Object::friend_bindToDrawable( Drawable *draw )
 	m_drawable = draw;
 	if (m_drawable)
 	{
+		// a drawable with clip feedback is told the clip on every run of the weapon status helper
+		if (m_wsHelper)
+			m_wsHelper->wakeIfResting();
+
 		ModelConditionFlags set;
 		ModelConditionFlags clr;
 		for (int i = 0; i < WEAPONSET_COUNT; ++i)
@@ -4074,6 +4151,7 @@ void Object::updateObjValuesFromMapProperties(Dict* properties)
 		if (valInt < 0)
 			valInt = 0;
 		m_visionRange = INT_TO_REAL(valInt);
+		RevealWakeGrid::noteObject( this );
 	}
 
 	// adjust the shroud clearing distance of this object, overriding its default distance
@@ -4576,15 +4654,20 @@ static void xferModule( Xfer *xfer, BehaviorModule *module, const Object *obj )
 	* 15: the six aura kinds mend, pace, drill, steady, capture and spoils
 	* 16: the auras gathered since its last turn of the once-a-second pass
 	* 17: the rank auras gone; versions 14 to 16 are read and thrown away
+	* 18: the hotkey squad a group panel reinforcement is walking to
 	*/
 //-------------------------------------------------------------------------------------------------
 void Object::xfer( Xfer *xfer )
 {
 
 	// version
-	const XferVersion currentVersion = 17;
+	const XferVersion currentVersion = 18;
 	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
+
+	// a load writes fields behind the reveal grid's back, the sight range among them
+	if( xfer->getXferMode() == XFER_LOAD )
+		RevealWakeGrid::forget();
 
 	// object ID
 	ObjectID id = getID();
@@ -5060,6 +5143,14 @@ void Object::xfer( Xfer *xfer )
 			xfer->xferReal( &discardAura );
 	}
 
+	// an older save has nobody walking to a squad; the constructor left it -1
+	if( version >= 18 )
+	{
+		xfer->xferInt( &m_reinforcementSquad );
+		xfer->xferCoord3D( &m_reinforcementDestination );
+		xfer->xferBool( &m_reinforcementRetargeted );
+	}
+
 }  // end xfer
 
 //-------------------------------------------------------------------------------------------------
@@ -5129,6 +5220,7 @@ void Object::giveUpgrade( const UpgradeTemplate *upgradeT )
 	if (upgradeT)
 	{
 		m_objectUpgradesCompleted.set( upgradeT->getUpgradeMask() );
+		notifyObjectUpgradesChanged();
 
 		//
 		// iterate through all the upgrade modules of this object and call the method to
@@ -5144,6 +5236,7 @@ void Object::giveUpgrade( const UpgradeTemplate *upgradeT )
 void Object::removeUpgrade( const UpgradeTemplate *upgradeT )
 {
 	m_objectUpgradesCompleted.clear( upgradeT->getUpgradeMask() );
+	notifyObjectUpgradesChanged();
 	for (BehaviorModule** module = m_behaviors; *module; ++module)
 	{
 		UpgradeModuleInterface* upgrade = (*module)->getUpgrade();
@@ -5153,6 +5246,17 @@ void Object::removeUpgrade( const UpgradeTemplate *upgradeT )
 		// Whoa, please note that while the function is called Object::RemoveUpgrade, it is not removing anything
 		// in the sense of undoing the effects.  It is just resetting the upgrade so it may be run again.
 		upgrade->resetUpgrade( upgradeT->getUpgradeMask() );
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+void Object::notifyObjectUpgradesChanged()
+{
+	for (BehaviorModule** module = m_behaviors; *module; ++module)
+	{
+		UpgradeModuleInterface* upgrade = (*module)->getUpgrade();
+		if (upgrade)
+			upgrade->onObjectUpgradesChanged();
 	}
 }
 
@@ -5200,8 +5304,10 @@ void Object::onCapture( Player *oldOwner, Player *newOwner )
 	TheControlBar->markUIDirty();
 
 	if (oldOwner!=newOwner && newOwner->isSkirmishAIPlayer()) {
-		// The skirmish ai doesn't know what to do with captured faction buildings except sell them.
-		if (isFactionStructure()) {
+		// The skirmish ai doesn't know what to do with captured faction buildings except sell them,
+		// short of the foreign tree ForeignTech builds on.
+		const AIPlayer *ai = newOwner->getAIPlayer();
+		if (isFactionStructure() && !(ai && ai->keepsCaptured(this))) {
 			TheBuildAssistant->sellObject( this );
 		}
 	}
@@ -5241,6 +5347,9 @@ void Object::onDie( DamageInfo *damageInfo )
 			if (die)
 				die->onDie(damageInfo);
 		}
+
+		// Turkiye's guns: a kill an eye saw starts a burst on the guns that reach it
+		MarkAndRainBehavior::onDeath( this );
 	}
 
 	// When objects die we remove from the radar as they're really not interesting anymore
@@ -5275,7 +5384,10 @@ void Object::onDie( DamageInfo *damageInfo )
 		if (isKindOf(KINDOF_STRUCTURE) && isKindOf(KINDOF_MP_COUNT_FOR_VICTORY)) 
 		{
 			TheEva->setShouldPlay(EVA_BuldingLost);
-		} 
+			// a cross on the radar where it stood, which the spacebar goes to; the radar waits for the
+			// end of the tick and logic never reads it back
+			TheRadar->tryEvent( RADAR_EVENT_STRUCTURE_LOST, getPosition() );
+		}
 		// a plane a general's power or a Supply Drop Zone sends over is IGNORED_IN_GUI: not yours to
 		// command, not counted as lost in the score (scoreTheKill), so not announced as lost either
 		else if ((isKindOf(KINDOF_INFANTRY) || isKindOf(KINDOF_VEHICLE)) && !isKindOf(KINDOF_IGNORED_IN_GUI))
@@ -5360,9 +5472,14 @@ void Object::clearWeaponBonusCondition(WeaponBonusConditionType wst)
 	that I am concerned with.
 */
 //-------------------------------------------------------------------------------------------------
-void Object::adjustModelConditionForWeaponStatus()
+Bool Object::adjustModelConditionForWeaponStatus()
 {
 	UnsignedInt now = TheGameLogic->getFrame();
+
+	// off an attack, every weapon's condition is none unless it fired this frame, the clip is shown only
+	// to a drawable with clip feedback, and nothing else here reads the frame: with every condition
+	// already none, the next run changes nothing until an attack, a shot or a new drawable
+	Bool atRest = !testStatus( OBJECT_STATUS_IS_ATTACKING ) && (m_drawable == NULL || !m_drawable->hasClipFeedback());
 
 	for (int i = 0; i < WEAPONSLOT_COUNT; ++i)
 	{
@@ -5437,7 +5554,16 @@ void Object::adjustModelConditionForWeaponStatus()
 				}
 			}
 		}
+		atRest = atRest && m_lastWeaponCondition[i] == WSF_NONE;
 	}
+	return atRest;
+}
+
+//-------------------------------------------------------------------------------------------------
+void Object::wakeWeaponStatusHelper() const
+{
+	if (m_wsHelper)
+		m_wsHelper->wakeIfResting();
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -5857,6 +5983,7 @@ Real Object::getVisionRange() const
 void Object::setVisionRange( Real newVisionRange )
 {
 	m_visionRange = newVisionRange;
+	RevealWakeGrid::noteObject( this );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -6062,9 +6189,9 @@ void Object::setVisionSpied(Bool setting, Int byWhom)
 		for (Int i = 0; i < MAX_PLAYER_COUNT; ++i) 
 		{
 			if( m_visionSpiedBy[i] > 0 )
-				BitSet( workingMask, ( 1 << i ) );
+				BitSet( workingMask, playerIndexToMask( i ) );
 			else
-				BitClear( workingMask, ( 1 << i ) );
+				BitClear( workingMask, playerIndexToMask( i ) );
 		}
 
 		m_visionSpiedMask = workingMask;
@@ -6256,8 +6383,9 @@ void Object::doCommandButton( const CommandButton *commandButton, CommandSourceT
 					if( !BitTest( commandButton->getOptions(), COMMAND_OPTION_NEED_OBJECT_TARGET ) && !BitTest( commandButton->getOptions(), NEED_TARGET_POS ) )
 					{
 						setWeaponLock( commandButton->getWeaponSlot(), LOCKED_TEMPORARILY );
-						//LOCATION BASED FIRE WEAPON
-						ai->aiAttackPosition( NULL, commandButton->getMaxShotsToFire(), cmdSource );
+						//LOCATION BASED FIRE WEAPON: at its own feet, as AIGroup::groupAttackPosition reads a NULL spot
+						// (aiAttackPosition copies the spot, so EA's NULL here read address zero)
+						ai->aiAttackPosition( getPosition(), commandButton->getMaxShotsToFire(), cmdSource );
 					}
 					else
 					{
@@ -6653,22 +6781,6 @@ ProductionUpdateInterface* Object::getProductionUpdateInterface( void )
 	return NULL;
 
 }  // end getProductionUpdateInterface
-
-// ------------------------------------------------------------------------------------------------
-// ------------------------------------------------------------------------------------------------
-DockUpdateInterface *Object::getDockUpdateInterface( void )
-{
-	DockUpdateInterface *dock = NULL;
-
-	for( BehaviorModule **u = m_behaviors; *u; ++u )
-	{
-		if( (dock = (*u)->getDockUpdateInterface()) != NULL )
-			return dock;
-	}
-
-	return NULL;
-
-}  // end getDockUpdateInterface
 
 // ------------------------------------------------------------------------------------------------
 // Search our special power modules for a specific one.

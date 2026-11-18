@@ -89,6 +89,13 @@ void UpdateModule::setWakeFrame(Object* obj, UpdateSleepTime wakeDelay)
 }
 
 // ------------------------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------------------------
+void UpdateModule::wakeExactly()
+{
+	TheGameLogic->friend_awakenUpdateModule(getObject(), this, TheGameLogic->friend_frameToWakeExactly(this));
+}
+
+// ------------------------------------------------------------------------------------------------
 /** CRC */
 // ------------------------------------------------------------------------------------------------
 void UpdateModule::crc( Xfer *xfer )
@@ -177,7 +184,7 @@ void UpdateModule::xfer( Xfer *xfer )
 	}
 #endif
 
-	// m_indexInLogic is not saved, and a load leaves it alone: the module was put on the sleepy heap
+	// m_sleepySlot is not saved, and a load leaves it alone: the module was put on the sleepy heap
 	// when newObject made its object, and that is the slot it holds until GameLogic::loadPostProcess
 	// rebuilds the heap.  Setting it to -1 here left the heap holding modules that said they were not
 	// on it, and a load that threw part way then destroyed every object through that lie:

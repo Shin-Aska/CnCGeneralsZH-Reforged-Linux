@@ -54,9 +54,9 @@
 
 const Real DEFAULT_MASS = 1.0f;
 
-const Real DEFAULT_SHOCK_YAW = ConvertRetailPerFrameRate(0.05f);
-const Real DEFAULT_SHOCK_PITCH = ConvertRetailPerFrameRate(0.025f);
-const Real DEFAULT_SHOCK_ROLL = ConvertRetailPerFrameRate(0.025f);
+#define DEFAULT_SHOCK_YAW_RETAIL 0.05f		// a retail frame's
+#define DEFAULT_SHOCK_PITCH_RETAIL 0.025f
+#define DEFAULT_SHOCK_ROLL_RETAIL 0.025f
 
 // Every friction below, the clamps and m_extraFriction are the share of speed lost per retail (30 Hz)
 // frame; retailFrictionToFrame turns one into the share per frame now, so a second loses the same.
@@ -76,11 +76,11 @@ static Real retailFrictionToFrame(Real f)
 	return 1.0f - ConvertRetailPerFrameFactor(1.0f - f);
 }
 
-const Real STUN_RELIEF_EPSILON = ConvertRetailPerFrameRate(0.5f);
+#define STUN_RELIEF_EPSILON ((Real)(ConvertRetailPerFrameRate(0.5f)))
 
 #include "Common/CRCDebug.h"
 
-const Int MOTIVE_FRAMES = LOGICFRAMES_PER_SECOND / 3;
+#define MOTIVE_FRAMES ((Int)(LOGICFRAMES_PER_GAME_SECOND / 3))
 
 #define SLEEPY_PHYSICS
 
@@ -127,9 +127,9 @@ PhysicsBehaviorModuleData::PhysicsBehaviorModuleData()
 {
 	m_mass = DEFAULT_MASS;
 	m_shockResistance = 0.0f;
-	m_shockMaxYaw = DEFAULT_SHOCK_YAW;
-	m_shockMaxPitch = DEFAULT_SHOCK_PITCH;
-	m_shockMaxRoll = DEFAULT_SHOCK_ROLL;
+	m_shockMaxYaw.setRaw( DEFAULT_SHOCK_YAW_RETAIL );
+	m_shockMaxPitch.setRaw( DEFAULT_SHOCK_PITCH_RETAIL );
+	m_shockMaxRoll.setRaw( DEFAULT_SHOCK_ROLL_RETAIL );
 	
 	m_forwardFriction = DEFAULT_FORWARD_FRICTION;
 	m_lateralFriction = DEFAULT_LATERAL_FRICTION;
@@ -139,7 +139,7 @@ PhysicsBehaviorModuleData::PhysicsBehaviorModuleData()
 	m_allowBouncing = false;
 	m_allowCollideForce = true;
 	m_killWhenRestingOnGround = false;
-	m_minFallSpeedForDamage = heightToSpeed(40.0f);
+	m_minFallHeightForDamage = 40.0f;
 	m_fallHeightDamageFactor = 1.0f;	// was 10. now is 1.
 	/*
 		thru some bizarre editing mishap, we have been double-apply pitch/roll/yaw rates
@@ -157,12 +157,11 @@ PhysicsBehaviorModuleData::PhysicsBehaviorModuleData()
 }
 
 //-------------------------------------------------------------------------------------------------
-static void parseHeightToSpeed( INI* ini, void * /*instance*/, void *store, const void* /*userData*/ )
+Real PhysicsBehaviorModuleData::getMinFallSpeedForDamage( void ) const
 {
-	// don't bother trying to remember how far we've fallen; instead,
-	// back-calc it from our speed & gravity... v = sqrt(2*g*h)
-	Real height = INI::scanReal(ini->getNextToken());
-	*(Real *)store = heightToSpeed(height);
+	// the speed a fall from MinFallHeightForDamage reaches, at the gravity a tick has in this match;
+	// worked out here and not at load, where it kept the gravity of the speed the INI loaded at
+	return heightToSpeed( m_minFallHeightForDamage );
 } 
 
 //-------------------------------------------------------------------------------------------------
@@ -183,9 +182,9 @@ static void parseFrictionPerSec( INI* ini, void * /*instance*/, void *store, con
 		{ "Mass",								INI::parsePositiveNonZeroReal,		NULL, offsetof( PhysicsBehaviorModuleData, m_mass ) },
 
 		{ "ShockResistance",		INI::parsePositiveNonZeroReal,		NULL, offsetof( PhysicsBehaviorModuleData, m_shockResistance ) },
-		{ "ShockMaxYaw",				INI::parseRetailPerFrameReal,		NULL, offsetof( PhysicsBehaviorModuleData, m_shockMaxYaw ) },
-		{ "ShockMaxPitch",			INI::parseRetailPerFrameReal,		NULL, offsetof( PhysicsBehaviorModuleData, m_shockMaxPitch ) },
-		{ "ShockMaxRoll",				INI::parseRetailPerFrameReal,		NULL, offsetof( PhysicsBehaviorModuleData, m_shockMaxRoll ) },
+		{ "ShockMaxYaw",				SPEED_FIELD( PhysicsBehaviorModuleData, m_shockMaxYaw ) },
+		{ "ShockMaxPitch",			SPEED_FIELD( PhysicsBehaviorModuleData, m_shockMaxPitch ) },
+		{ "ShockMaxRoll",				SPEED_FIELD( PhysicsBehaviorModuleData, m_shockMaxRoll ) },
 
 		{ "ForwardFriction",			parseFrictionPerSec,		NULL, offsetof( PhysicsBehaviorModuleData, m_forwardFriction ) },
 		{ "LateralFriction",			parseFrictionPerSec,		NULL, offsetof( PhysicsBehaviorModuleData, m_lateralFriction ) },
@@ -197,7 +196,7 @@ static void parseFrictionPerSec( INI* ini, void * /*instance*/, void *store, con
 		{ "AllowCollideForce",	INI::parseBool,		NULL, offsetof( PhysicsBehaviorModuleData, m_allowCollideForce ) },
 		{ "KillWhenRestingOnGround", INI::parseBool, NULL, offsetof( PhysicsBehaviorModuleData, m_killWhenRestingOnGround) },
 
-		{ "MinFallHeightForDamage",			parseHeightToSpeed,		NULL, offsetof( PhysicsBehaviorModuleData, m_minFallSpeedForDamage) },
+		{ "MinFallHeightForDamage",			INI::parseReal,		NULL, offsetof( PhysicsBehaviorModuleData, m_minFallHeightForDamage) },
 		{ "FallHeightDamageFactor",			INI::parseReal,		NULL, offsetof( PhysicsBehaviorModuleData, m_fallHeightDamageFactor) },
 		{ "PitchRollYawFactor",			INI::parseReal,		NULL, offsetof( PhysicsBehaviorModuleData, m_pitchRollYawFactor) },
 
@@ -285,7 +284,8 @@ PhysicsBehavior::~PhysicsBehavior()
 //-------------------------------------------------------------------------------------------------
 void PhysicsBehavior::setIgnoreCollisionsWith(const Object* obj)
 {
-	m_ignoreCollisionsWith = obj ? obj->getID() : INVALID_ID; 
+	wakeIfDormant();
+	m_ignoreCollisionsWith = obj ? obj->getID() : INVALID_ID;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -369,6 +369,7 @@ void PhysicsBehavior::applyForce( const Coord3D *force )
 	else
 	{
 		// when a force is applied by an external module, we must wake up, even if the force is zero.
+		wakeIfDormant();
 		setWakeFrame(getObject(), UPDATE_SLEEP_NONE);
 	}
 #endif
@@ -419,6 +420,7 @@ void PhysicsBehavior::applyRandomRotation()
 	else
 	{
 		// when a force is applied by an external module, we must wake up, even if the force is zero.
+		wakeIfDormant();
 		setWakeFrame(getObject(), UPDATE_SLEEP_NONE);
 	}
 #endif
@@ -441,6 +443,7 @@ void PhysicsBehavior::applyMotiveForce( const Coord3D *force )
 //-------------------------------------------------------------------------------------------------
 void PhysicsBehavior::resetDynamicPhysics()
 {
+	wakeIfDormant();	// first, so the setWakeFrame below finds the schedule an awake body would have
 	m_accel.zero();
 	m_prevAccel.zero();
 	m_vel.zero();
@@ -653,6 +656,17 @@ UpdateSleepTime PhysicsBehavior::update()
 	Coord3D														bounceForce;
 	Bool															gotBounceForce = false;
 
+	// what this run starts from, to tell at the end whether it changed anything (see mayGoDormant)
+	const Coord3D			startAccel = m_accel;
+	const Coord3D			startPrevAccel = m_prevAccel;
+	const Coord3D			startVel = m_vel;
+	const Real				startRates[ 3 ] = { m_yawRate, m_rollRate, m_pitchRate };
+	const Int					startFlags = m_flags;
+	const ObjectID		startOverlap = m_currentOverlap;
+	const ObjectID		startPrevOverlap = m_previousOverlap;
+	const Matrix3D		startMtx = *obj->getTransformMatrix();
+	Bool							touchedOthers = FALSE;	///< anything beyond this body and its object's transform
+
 	DEBUG_ASSERTCRASH(!getFlag(IS_IN_UPDATE), ("impossible"));
 	setFlag(IS_IN_UPDATE, true);
 
@@ -708,6 +722,7 @@ UpdateSleepTime PhysicsBehavior::update()
 			_isnan(mtx.Get_Z_Translation())) {
 			DEBUG_CRASH(("Object position is NAN, deleting."));
 			TheGameLogic->destroyObject(obj);
+			touchedOthers = TRUE;
 		}
 
 		// Check when to clear the stunned status: at rest, and on the ground unless the locomotor holds
@@ -884,12 +899,12 @@ UpdateSleepTime PhysicsBehavior::update()
 		//
 		// don't bother trying to remember how far we've fallen; instead,
 		// we back-calc it from our speed & gravity... v = sqrt(2*g*h).
-		// (note that m_minFallSpeedForDamage is always POSITIVE.)
+		// (note that the min fall speed for damage is always POSITIVE.)
 		//
 		// also note: since projectiles are immune to falling damage, don't
 		// even bother doing this check here.
 		//
-		Real netSpeed = -activeVelZ - d->m_minFallSpeedForDamage;
+		Real netSpeed = -activeVelZ - d->getMinFallSpeedForDamage();
 		
 		if (netSpeed > 0.0f && m_pui == NULL)
 		{
@@ -900,8 +915,8 @@ UpdateSleepTime PhysicsBehavior::update()
 			if ((fabs(m_vel.x) <= TINY_DELTA || fabs(activeVelZ / m_vel.x) >= MIN_ANGLE_TAN) &&
 				(fabs(m_vel.y) <= TINY_DELTA || fabs(activeVelZ / m_vel.y) >= MIN_ANGLE_TAN))
 			{
-				// the damage factors were tuned against the speed per retail frame
-				Real damageAmt = netSpeed * LOGICFRAMES_PER_RETAIL_FRAME * getMass() * d->m_fallHeightDamageFactor;
+				// the damage factors were tuned against the speed per retail frame (of game time)
+				Real damageAmt = netSpeed * ((Real)LOGICFRAMES_PER_GAME_SECOND / (Real)RETAIL_LOGICFRAMES_PER_SECOND) * getMass() * d->m_fallHeightDamageFactor;
 
 				DamageInfo damageInfo;
 				damageInfo.in.m_damageType = DAMAGE_FALLING;
@@ -926,7 +941,10 @@ UpdateSleepTime PhysicsBehavior::update()
 		// just in case.
 		setFlag(IS_IN_FREEFALL, false);
 		if (obj->isDisabledByType(DISABLED_FREEFALL))
+		{
 			obj->clearDisabled(DISABLED_FREEFALL);
+			touchedOthers = TRUE;
+		}
 		obj->clearModelConditionState(MODELCONDITION_FREEFALL);
 	}
 
@@ -941,6 +959,7 @@ UpdateSleepTime PhysicsBehavior::update()
 			//2) Dead drone
 			//3) Unmanned drone
 			obj->kill();
+			touchedOthers = TRUE;
 		}
 	}
 
@@ -948,7 +967,60 @@ UpdateSleepTime PhysicsBehavior::update()
 	setFlag(WAS_AIRBORNE_LAST_FRAME, airborneAtEnd);
 
 	setFlag(IS_IN_UPDATE, false);
-	return calcSleepTime();
+
+	/*
+		Dormancy.  A body calcSleepTime keeps awake can still come out of a run exactly as it went in:
+		a rider held inside a transport with the speed it boarded at, a wreck whose velocity a rounding
+		in the ground clamp leaves a hair off zero, a dead hulk tilted in mid-roll.  Such a run reads
+		nothing but this body, its object (transform, layer, status, disabled bits, death) and the
+		ground under it, so with all of those unchanged the next run is the same nothing, and so is
+		every one after.  The body sleeps instead, and anything that could change one of those inputs
+		wakes it (wakeIfDormant: this module's setters and forces, Object's transform, layer, status,
+		disabled and death changes, the ground a foundation or a crater moves), for the frame it would
+		have run in had it stayed awake.  The heap's unique keys are what make that exact: who sleeps
+		cannot change the order of the modules that run.
+	*/
+	const UpdateSleepTime sleep = calcSleepTime();
+	if (sleep == UPDATE_SLEEP_NONE && !touchedOthers && !gotBounceForce && mayGoDormant()
+			&& m_flags == startFlags
+			&& m_currentOverlap == startOverlap && m_previousOverlap == startPrevOverlap
+			&& memcmp(&m_accel, &startAccel, sizeof(Coord3D)) == 0
+			&& memcmp(&m_prevAccel, &startPrevAccel, sizeof(Coord3D)) == 0
+			&& memcmp(&m_vel, &startVel, sizeof(Coord3D)) == 0
+			&& memcmp(&m_yawRate, &startRates[ 0 ], sizeof(Real)) == 0
+			&& memcmp(&m_rollRate, &startRates[ 1 ], sizeof(Real)) == 0
+			&& memcmp(&m_pitchRate, &startRates[ 2 ], sizeof(Real)) == 0
+			&& memcmp(obj->getTransformMatrix(), &startMtx, sizeof(Matrix3D)) == 0)
+	{
+		m_flags |= IS_DORMANT;
+		return UPDATE_SLEEP_FOREVER;
+	}
+	return sleep;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** What a run that changed nothing must also be, to promise that the next one changes nothing: no
+	* input that moves with the frame number (a motive force running out), no reads of another object
+	* (a carrier's deck, a stunned unit's locomotor, a projectile's own update), and ground that only
+	* TerrainLogic's foundations and craters change (a bridge's layer can go with the bridge). */
+Bool PhysicsBehavior::mayGoDormant() const
+{
+	const Object *obj = getObject();
+	return getFlag(UPDATE_EVER_RUN)
+		&& !getFlag(IS_STUNNED)
+		&& !getFlag(IS_IN_FREEFALL)
+		&& !isMotive()
+		&& m_pui == NULL
+		&& !obj->isKindOf(KINDOF_PROJECTILE)
+		&& obj->getLayer() == LAYER_GROUND
+		&& !obj->testStatus(OBJECT_STATUS_DECK_HEIGHT_OFFSET);
+}
+
+//-------------------------------------------------------------------------------------------------
+void PhysicsBehavior::wakeFromDormancy()
+{
+	m_flags &= ~IS_DORMANT;
+	TheGameLogic->friend_awakenUpdateModule(getObject(), this, TheGameLogic->friend_frameToWakeExactly(this));
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1046,8 +1118,9 @@ Bool PhysicsBehavior::wasPreviouslyOverlapped(Object *obj) const
 }
 
 //-------------------------------------------------------------------------------------------------
-void PhysicsBehavior::scrubVelocityZ( Real desiredVelocity ) 
-{ 	 
+void PhysicsBehavior::scrubVelocityZ( Real desiredVelocity )
+{
+	wakeIfDormant();
 	if (fabs(desiredVelocity) < ConvertRetailPerFrameRate(0.001f))
 	{
 		m_vel.z = 0; 
@@ -1063,8 +1136,9 @@ void PhysicsBehavior::scrubVelocityZ( Real desiredVelocity )
 }
 
 //-------------------------------------------------------------------------------------------------
-void PhysicsBehavior::scrubVelocity2D( Real desiredVelocity ) 
-{ 	 
+void PhysicsBehavior::scrubVelocity2D( Real desiredVelocity )
+{
+	wakeIfDormant();
 	if (desiredVelocity < ConvertRetailPerFrameRate(0.001f))
 	{
 		m_vel.x = 0; 
@@ -1085,8 +1159,9 @@ void PhysicsBehavior::scrubVelocity2D( Real desiredVelocity )
 }
 
 //-------------------------------------------------------------------------------------------------
-void PhysicsBehavior::addOverlap(Object *obj) 
-{ 
+void PhysicsBehavior::addOverlap(Object *obj)
+{
+	wakeIfDormant();
 	if (obj && !isCurrentlyOverlapped(obj))
 	{
 		m_currentOverlap = obj->getID();
@@ -1097,7 +1172,10 @@ void PhysicsBehavior::addOverlap(Object *obj)
 void PhysicsBehavior::transferVelocityTo(PhysicsBehavior* that) const
 {
 	if (that != NULL)
+	{
+		that->wakeIfDormant();	// a dormant body moves again; an asleep one does not, as it never did
 		that->m_vel.add(&m_vel);
+	}
 	that->m_velMag = INVALID_VEL_MAG;
 }
 
@@ -1110,13 +1188,17 @@ void PhysicsBehavior::addVelocityTo( const Coord3D *vel)
 	m_velMag = INVALID_VEL_MAG;
 #ifdef SLEEPY_PHYSICS
 	if (!getFlag(IS_IN_UPDATE))
+	{
+		wakeIfDormant();
 		setWakeFrame(getObject(), UPDATE_SLEEP_NONE);
+	}
 #endif
 }
 
 //-------------------------------------------------------------------------------------------------
 void PhysicsBehavior::setAngles( Real yaw, Real pitch, Real roll )
 {
+	wakeIfDormant();
 	const Coord3D* pos = getObject()->getPosition();
 
 	Matrix3D xfrm;
@@ -1201,6 +1283,7 @@ void PhysicsBehavior::doBounceSound(const Coord3D& prevPos)
 //DECLARE_PERF_TIMER(PhysicsBehavioronCollide)
 void PhysicsBehavior::onCollide( Object *other, const Coord3D *loc, const Coord3D *normal )
 {
+	wakeIfDormant();
 	//USE_PERF_TIMER(PhysicsBehavioronCollide)
 	if (m_pui != NULL)
 	{
@@ -1410,7 +1493,7 @@ void PhysicsBehavior::onCollide( Object *other, const Coord3D *loc, const Coord3
 			// huh huh, he said "stiff"
 			
 			Real mag = getVelocityMagnitude();
-			const Real MINBOUNCESPEED = 1.0f/(LOGICFRAMES_PER_SECOND*5.0f);
+			const Real MINBOUNCESPEED = 1.0f/(LOGICFRAMES_PER_GAME_SECOND*5.0f);
 			if (mag < MINBOUNCESPEED) 
 				mag = MINBOUNCESPEED;
 			factor = -mag * getMass() * stiffness;
@@ -1470,7 +1553,7 @@ void PhysicsBehavior::onCollide( Object *other, const Coord3D *loc, const Coord3
 							damageInfo.in.m_deathType = weaponTemplate->getDeathType();
 							damageInfo.in.m_sourceID = obj->getID();
 							damageInfo.in.m_sourcePlayerMask = obj->getControllingPlayer() ? obj->getControllingPlayer()->getPlayerMask() : 0;
-							damageInfo.in.m_amount = weaponTemplate->getPrimaryDamage(nullBonus) / LOGICFRAMES_PER_RETAIL_FRAME;
+							damageInfo.in.m_amount = ConvertRetailPerFrameRate(weaponTemplate->getPrimaryDamage(nullBonus));
 
 							other->attemptDamage(&damageInfo);
 							if (TheGameLogic->getFrame() % LOGICFRAMES_PER_RETAIL_FRAME == 0)

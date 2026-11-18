@@ -56,6 +56,7 @@
 #include "GameLogic/Module/BodyModule.h"
 #include "GameLogic/Module/BridgeBehavior.h"
 #include "GameLogic/Module/BridgeTowerBehavior.h"
+#include "GameLogic/Module/PhysicsUpdate.h"
 #include "GameLogic/GhostObject.h"
 
 #include "WWMath/plane.h"
@@ -1062,7 +1063,7 @@ void TerrainLogic::update( void )
 				 targetHeight,
 				 currentHeight;
 		Bool finalTransition,
-				 doDamageThisFrame = (TheGameLogic->getFrame() % LOGICFRAMES_PER_SECOND) == 0;
+				 doDamageThisFrame = (TheGameLogic->getFrame() % LOGICFRAMES_PER_GAME_SECOND) == 0;
 
 		for( Int i = m_numWaterToUpdate - 1; i >= 0; --i )
 		{
@@ -2539,7 +2540,7 @@ void TerrainLogic::changeWaterHeightOverTime( const WaterHandle *water,
 	// add the entry into the array of water to update
 	m_waterToUpdate[ m_numWaterToUpdate ].waterTable = water;
 	m_waterToUpdate[ m_numWaterToUpdate ].changePerFrame = (finalHeight - currentHeight) / 
-																												 (LOGICFRAMES_PER_SECOND * transitionTimeInSeconds);
+																												 (LOGICFRAMES_PER_GAME_SECOND * transitionTimeInSeconds);
 	m_waterToUpdate[ m_numWaterToUpdate ].targetHeight = finalHeight;
 	m_waterToUpdate[ m_numWaterToUpdate ].damageAmount = damageAmount;
 	m_waterToUpdate[ m_numWaterToUpdate ].currentHeight = currentHeight;
@@ -2735,11 +2736,24 @@ void TerrainLogic::setActiveBoundary(Int newActiveBoundary)
 // and starting there would sample and stamp map cells that do not exist.  Row zero was doing that
 // job by accident.
 //
+/** The ground is about to move (a foundation, a crater): a body dormant on it reads the ground it
+	* lies on, so every dormant body wakes (PhysicsBehavior::update). */
+static void wakeDormantBodies()
+{
+	for (Object *other = TheGameLogic->getFirstObject(); other; other = other->getNextObject())
+	{
+		if (other->getPhysics())
+			other->getPhysics()->wakeIfDormant();
+	}
+}
+
 void TerrainLogic::flattenTerrain(Object *obj)
 {
 	if (obj->getGeometryInfo().getIsSmall()) {
 		return;
 	}
+
+	wakeDormantBodies();
 
 	const Coord3D *pos = obj->getPosition();
 	switch(obj->getGeometryInfo().getGeomType())
@@ -2953,10 +2967,12 @@ void TerrainLogic::flattenTerrain(Object *obj)
 // ------------------------------------------------------------------------------------------------
 /** Dig a deep circular gorge into the terrain beneath an object. */
 // ------------------------------------------------------------------------------------------------
-void TerrainLogic::createCraterInTerrain(Object *obj) 
+void TerrainLogic::createCraterInTerrain(Object *obj)
 {
-	if (obj->getGeometryInfo().getIsSmall()) 
+	if (obj->getGeometryInfo().getIsSmall())
 		return;
+
+	wakeDormantBodies();
 
 	const Coord3D *pos = obj->getPosition();
   Real radius = obj->getGeometryInfo().getMajorRadius();	

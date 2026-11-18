@@ -641,6 +641,14 @@ const char * game_data()
 	return data;
 }
 
+void tear_down()
+{
+	// Match W3DDisplay's lifetime: stop texture loading and release renderer assets
+	// before the maths tables and their process-wide list-node pool are destroyed.
+	if (s_initResult == WW3D_ERROR_OK) WW3D::Shutdown();
+	WWMath::Shutdown();
+}
+
 void set_up()
 {
 	if (s_ready) return;
@@ -707,6 +715,7 @@ void set_up()
 	Direct3D11_Enable(false);
 	Direct3D11_Present_Enable(false);
 	s_deviceResult = WW3D::Set_Render_Device(0, 800, 600, 32, 1, true);
+	atexit(tear_down);
 }
 
 } // namespace

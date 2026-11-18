@@ -238,6 +238,41 @@ static int check_gpu()
         CHECK(channel(noGlow, w, w / 2 + 14, h / 2, 0) == 0);
         CHECK(channel(glow, w, 1, 1, 0) == 0);
 
+        // Upstream's orange bloom reaches the native path through the shared shader.
+        SdlPostSettings saturated = bloom; saturated.BloomSaturation = 1.5f;
+        std::vector<uint8_t> orange;
+        CHECK(run(*frame, post, saturated, pixels, orange));
+        CHECK(channel(orange, w, w / 2 + 14, h / 2, 0) >= channel(glow, w, w / 2 + 14, h / 2, 0));
+        CHECK(channel(orange, w, w / 2 + 14, h / 2, 2) < channel(glow, w, w / 2 + 14, h / 2, 2));
+
+        // Clarity still runs with Glow off. It separates an edge, leaves a flat
+        // field alone, and turning it back off restores the original bytes.
+        pixels.assign(size_t(w) * h, {0.25f, 0.25f, 0.25f});
+        const unsigned left = w / 2 - 8, top = h / 2 - 8;
+        for (unsigned y = top; y < top + 16; ++y) for (unsigned x = left; x < left + 16; ++x)
+            pixels[size_t(y) * w + x] = {0.625f, 0.625f, 0.625f};
+        SdlPostSettings clarity = setting("bloom"); clarity.BloomIntensity = 0;
+        std::vector<uint8_t> plain, detailed, restored, widerGlow;
+        CHECK(run(*frame, post, clarity, pixels, plain));
+        clarity.Clarity = 0.75f;
+        CHECK(run(*frame, post, clarity, pixels, detailed));
+        CHECK(post.Additive_Gain() == 1);
+        CHECK(channel(detailed, w, left + 1, top + 8, 0) > channel(plain, w, left + 1, top + 8, 0) + 4);
+        CHECK(channel(detailed, w, left - 2, top + 8, 0) + 2 < channel(plain, w, left - 2, top + 8, 0));
+        CHECK(std::abs(int(channel(detailed, w, 1, 1, 0)) - int(channel(plain, w, 1, 1, 0))) <= 1);
+        // Later glow blur pairs carry the same luminance rather than widening
+        // clarity. Sub-threshold art must have the same contrast at every level.
+        clarity.BloomIntensity = 1.5f; clarity.BlurPasses = 4;
+        CHECK(run(*frame, post, clarity, pixels, widerGlow));
+        CHECK(differences(detailed, widerGlow) == 0);
+        clarity.BloomIntensity = 0; clarity.Clarity = 0;
+        CHECK(run(*frame, post, clarity, pixels, restored));
+        CHECK(differences(plain, restored) == 0);
+        pixels.assign(size_t(w) * h, {0.25f, 0.25f, 0.25f});
+        clarity.Clarity = 0.75f;
+        CHECK(run(*frame, post, clarity, pixels, detailed));
+        CHECK(std::abs(int(channel(detailed, w, w / 2, h / 2, 0)) - int(byte(0.25f))) <= 1);
+
         pixels.assign(size_t(w) * h, {0.15f, 0.15f, 0.15f});
         for (unsigned y = 0; y < h; ++y) for (unsigned x = w / 2; x < w; ++x)
             pixels[size_t(y) * w + x] = {0.75f, 0.75f, 0.75f};
@@ -271,6 +306,8 @@ static int check_gpu()
             tone, setting("bloom,fxaa,sharpen,copy")};
         choices.push_back(bloom); choices.back().InternalHDR = true;
         choices.push_back(tone); choices.back().InternalHDR = true;
+        choices.push_back(clarity);
+        choices.push_back(saturated); choices.back().Clarity = 0.75f; choices.back().InternalHDR = true;
         for (const auto &choice : choices) CHECK(run(*frame, post, choice, pixels, filtered));
         const SdlPostResources warm = post.Resources();
         CHECK(warm.Textures == 6 && warm.Samplers == 1);

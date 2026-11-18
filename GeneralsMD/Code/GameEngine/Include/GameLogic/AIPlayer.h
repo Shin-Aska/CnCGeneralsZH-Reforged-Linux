@@ -45,6 +45,8 @@ class BuildListInfo;
 // this header used to compile only behind whoever happened to include Team.h first
 class TeamPrototype;
 class TeamTemplateInfo;
+struct AIAbilityButton;
+struct StampShape;
 class ProductionUpdateInterface;
 
 /// the skirmish scripts send this team at the enemy at some point, rather than keeping it home on guard
@@ -168,6 +170,46 @@ struct AIDoctrineUnit
 	Real m_trust;				///< 1 fresh; falls when one dies having done nothing, comes back with time
 };
 
+/** AIGroundFlood run to the end over the whole grid, quicker and in pieces.  Every cell's walkability is set
+	* before the first step, and step() hands cells out to a budget; the field it ends with is AIGroundFlood's
+	* on the same walkability whatever the budgets, since each cell's ground distance has one value whichever
+	* order its ties come out in.  The callback-per-cell flood took 60 to 100 ms of one frame on a 32-player
+	* map's 692,000 cells.  A grid padded by one unwalkable cell all round, so no neighbour needs a bounds test. */
+class AIGroundField
+{
+public:
+	AIGroundField();
+	void start( Int width, Int height );			///< forget everything; every cell unwalkable and unreached
+	void setWalkable( Int x, Int y ) { m_walk[ ( y + 1 ) * m_pitch + x + 1 ] = 1; }
+	void addSource( Int x, Int y );						///< as AIGroundFlood::addSource, every one before the first step
+	Bool step( Int *budget );									///< hands out cells while *budget lasts, less what it spent; TRUE once the field is final
+	void takeField( std::vector<UnsignedShort> &field );	///< y * width + x, and lets go of the grid
+	void release( void );											///< lets go of the grid unfinished
+	const std::vector<UnsignedByte> &walkGrid( void ) const { return m_walk; }	///< padded, as setWalkable fills it
+	void copyWalkGrid( const std::vector<UnsignedByte> &walk ) { m_walk = walk; }	///< another flood's, of the same size
+	Int getWidth( void ) const { return m_width; }
+	Int getHeight( void ) const { return m_height; }
+
+private:
+	Int m_width;
+	Int m_height;
+	Int m_pitch;
+	std::vector<UnsignedShort> m_dist;
+	std::vector<UnsignedByte> m_walk;
+	std::vector<Int> m_bucket[ 4 ];
+	Int m_at;
+	Int m_cursor;
+	Int m_pending;
+};
+
+/** An enemy building this player knows of that shoots the ground, its garrison's guns included. */
+struct KnownDefence
+{
+	Object *m_object;
+	Real m_reach;
+	Real m_power;
+};
+
 
 /**
  * The computer-controlled opponent.
@@ -194,6 +236,13 @@ public:
 		* fill them for every unit the sides in it can build, so the first team choice does not pay for
 		* them mid-match.  Called by GameLogic::startNewGame once the map's INI and the players are in. */
 	static void prepareMatchupTables( void );
+
+	/** Every seat on the fork's AI looks at the world before any of them acts this frame: its map of guns, its
+		* ledger of the enemy in sight, its army's turn, the known guns it holds at the edge of and, every half
+		* minute, the standing its income bonus is weighed by.  Each look reads
+		* the world as the players' update finds it and writes only its own seat, so they run side by side on the
+		* logic's job pool; what the seats decide on them is still ordered seat by seat.  PlayerList::update. */
+	static void lookAllSeats( void );
 
 	/** Base building is the expensive job once the expansion convoy is out of the way, and it is a
 		* loop over the build list that calls several searches per entry. These name which one.
@@ -251,7 +300,7 @@ public: // AIPlayer interface, may be overridden by AISkirmishPlayer.  jba.
 	virtual Bool checkBridges(Object *unit, Waypoint *way) {return false;}
 	/** Center, Flank or Backdoor: the approach with the least enemy firepower this AI knows about.
 		* The script's own label when the rung does not read the map, or the label is not one of the three. */
-	AsciiString chooseApproachLabel(const Coord3D *from, const AsciiString &requested, Int pathSuffix);
+	AsciiString chooseApproachLabel(const Coord3D *from, const AsciiString &requested, Int pathSuffix, const AIThreatMix *mix = NULL, Team *team = NULL);	///< mix: what the wave moves, as readMix gives it; NULL takes team's (teamMix), and with no team AITHREAT_GROUND_MIX
 	/** C2: park an attack team that is not a wave on its own until the rest of the wave is in hand.
 		* TRUE when it is parked, and the caller's own order must not go out.  logRefusal writes the AI
 		* ENGAGE line for a team that goes on its own instead; a caller that logs its own passes FALSE. */
@@ -273,7 +322,12 @@ public:
 	/** Which rung of the six-step ladder this AI plays at, and what it is trying to do.  Two
 		* independent axes: the rung says how well, the role says what.  See AI-ROADMAP.md D6/D8. */
 	AISkillLevel getAISkillLevel(void) const {return m_skillLevel;}
-	void setAISkillLevel(AISkillLevel level) {m_skillLevel = level;}
+	void setAISkillLevel(AISkillLevel level) {m_skillLevel = level; m_rating = aiRatingOfSkill(level); refreshRatedProfile();}	///< the rung at its anchor rating
+	/** The seat's rating on the online ladder's scale, Easy 0 and Hard 30 and no edge between or past
+		* them, which every rung-keyed knob is read at; the rung follows it as the nearest one.  Setting it
+		* holds it to AI_RATING_LIMIT, an Int's guard and no gameplay edge. */
+	Real getAIRating(void) const {return m_rating;}
+	void setAIRating(Real rating) {m_rating = aiRatingClamp(rating); m_skillLevel = aiSkillOfRating(m_rating); refreshRatedProfile();}
 	Int getIncomeBonus(void) const {return m_incomeBonus;}	///< points over the rung's IncomePercent while it falls behind (stepIncomeBonus)
 	AIRole getAIRole(void) const {return m_role;}
 
@@ -290,10 +344,19 @@ public:
 
 	/// This rung's knobs, for any behaviour that has a difficulty-dependent decision to make.
 	const AIDifficultyProfile *getSkillProfile(void) const;
+	const AIDifficultyProfile *ratedProfile(void) const {return &m_ratedProfile;}	///< the ladder at this seat's rating alone: no -aiknobsoff, no personality
+	void refreshRatedProfile(void);	///< reads m_ratedProfile off the ladder at m_rating; the only writer of it
+	Bool knobsOffHere(void) const;		///< -aiknobsoff reaches this slot; its mask says which knobs
+	Int unitAbilitiesRung(void) const;	///< the profile's UnitAbilities with -aiknobsoff's abilities applied, safe to ask of another seat
+	Int foreignTechRung(void) const;	///< the profile's ForeignTech with -aiknobsoff's foreigntech applied
+	Bool isForeignTemplate(const ThingTemplate *tmpl) const;	///< a thing of a side whose base side is not this player's: another faction's dozer, Command Center or building
+	Bool keepsCaptured(const Object *building) const;	///< a building just captured that ForeignTech works (a foreign Command Center, barracks or war factory) rather than the skirmish AI's sale on capture
+	Bool costMapHere(void) const;		///< -aiknobsoff ... costmap reaches this slot: the influence map of build cost, one layer
+	Bool layersHere(void) const;		///< the map's still, worth, hazard and memory layers, gun shapes and front line: off under -aiknobsoff ... maplayers or costmap
 
 	/// What a seat that predates the ladder (an old save, a replay, a script) plays at.
 	static AISkillLevel skillLevelForDifficulty(GameDifficulty difficulty);
-	void buildBySupplies(Int minimumCash, const AsciiString &thingName, Bool holdableOnly = FALSE ); ///< Builds a building by supplies. holdableOnly is the AI's own expansion: see findSupplyCenter, and no room beside the dock means no building
+	void buildBySupplies(Int minimumCash, const AsciiString &thingName, Bool holdableOnly = FALSE, Object *dock = NULL ); ///< Builds a building by supplies. holdableOnly is the AI's own expansion: see findSupplyCenter, and no room beside the dock means no building.  dock: what findSupplyCenter with the same two said this frame
 	void buildSpecificBuildingNearestTeam( const AsciiString &thingName, const Team *team );
 	void buildUpgrade(const AsciiString &upgrade ); ///< Builds an upgrade.
 	/// A team is about to be destroyed.
@@ -336,7 +399,8 @@ protected:
 	/** B3 proposal 3: a base away from home - a factory on an empty start position, then power, guns and
 		* a supply centre beside it - so one stroke at home does not finish the AI. */
 	void doSecondBase(void);
-	Bool foundSecondBase(Object *dozer, const Coord3D *outposts, Int count);	///< a factory on the nearest empty start position; TRUE when it spent the look's placement
+	Bool foundSecondBase(Object *dozer, const Coord3D *outposts, Int count);	///< a Command Center (a factory under -aiknobsoff secondbase) on the nearest empty start position; TRUE when it spent the look's placement
+	Bool secondBaseCenters(void) const;	///< a base away from home is a Command Center founded once home is full, not a factory on a timer
 	Int findOutposts(Coord3D *at, Int max);	///< this player's factories far from home, one per site, in object order
 	Bool onEmptyStart(const Coord3D *pos) const;	///< within reach of a start position no player started on: a second base's ground
 	const ThingTemplate *missingPrerequisite(Object *dozer, KindOfType kind);	///< the building a dozer button of this kind waits on, that this player has none of
@@ -370,7 +434,17 @@ protected:
 		* Lotus shuts one down for nothing.  Neither had ever been used by a computer player. */
 	virtual void doHijack(void);
 	Object *findHijacker(void);					///< a unit of ours that takes a vehicle by walking into it
-	Object *nearestStealableVehicle(const Coord3D *from, Real reach);	///< the closest enemy vehicle in sight; reach <= 0 is the map
+	Object *nearestStealableVehicle(const Coord3D *from, Real reach, Bool foreignDozersOnly = FALSE);	///< the closest enemy vehicle in sight; reach <= 0 is the map
+
+	/** Another side's tech tree: a dozer of another faction that falls into its hands puts that faction's
+		* Command Center up at home, a captured Command Center trains one and is sold, and the foreign base grows
+		* a supply centre, a barracks and a war factory that train into the army (ForeignTech). */
+	void doForeignTech(void);
+	Bool wantsForeignDozer(void) const;	///< ForeignTech 2 and no foreign dozer or Command Center of ours yet: worth hunting one
+	void crewEmptyDozers(void);			///< send a soldier into a foreign dozer whose crew was shot out
+	Bool growForeignBase(Object *dozer, Object *center);	///< the next of the foreign base's buildings off this dozer, round its Command Center; TRUE when it spent the look
+	Bool placeForeign(Object *dozer, const ThingTemplate *tmpl, const Coord3D *center, Real innerRadius, const char *what);	///< a spot near center and the dozer told to build there, paid from the bank
+	Object *enemyBuildingToCapture(const Coord3D *from, Object *walker, Real *score);	///< ForeignTech 2: the enemy building most worth a capture over the walk, unguarded and along ground we hold, and its score
 
 	/** Past the hoard, buy what the build list never had.  A tank factory or a barracks when that
 		* queue is backing up, an airfield with no count cap, income buildings the same way, and money
@@ -401,6 +475,7 @@ protected:
 	void doSpending(void);
 	Int bankTarget(void);																	///< what the bank keeps, from the income measured last
 	void buyUpgradesForArmy(Bool overTarget);								///< the player upgrade the standing army gets the most out of
+	void buyUnitUpgrades(Bool overTarget);									///< a side on another side's scripts: the upgrade a unit buys on its own bar
 	void addProductionForQueues(void);											///< another factory of each kind whose every factory has stayed busy
 	void trainSurplus(Int budget);												///< a unit from each idle factory, within budget
 	void trainFavoured(void);															///< a personality's favoured units, below the bank target as well
@@ -420,7 +495,7 @@ protected:
 	void buyPersonaTransports(void);											///< an Infantry AI's ground transports, a few by rung
 	void sendPersonaTransports(AIGroup *wave);	///< ... driven loaded to a wave's front, riders put down there
 	void stepIncomeBonus(void);														///< weigh its strength against its strongest enemy and move m_incomeBonus a step toward what that is owed
-	Int					m_incomeBonus;					///< points over the rung's IncomePercent, 0 to AI_INCOME_BONUS_MAX
+	Int					m_incomeBonus;					///< points over the rated IncomePercent, 0 to the rated IncomeBonusMaxPercent
 	Int					m_incomeMark;						///< money earned in all, when the income was last measured ...
 	UnsignedInt	m_incomeMarkFrame;			///< ... and the frame, 0 for never
 	Int					m_bankMark;							///< ... and the bank then
@@ -456,7 +531,7 @@ protected:
 	void buyMoneyUnits(void);
 	Int moneyUnitRoom(void) const;	///< how many more money units this player's army and internet centers carry
 	Bool hasEnoughMoneyUnitsFor(TeamPrototype *proto) const;	///< this team is all hackers and there is no room for more
-	Bool placeNear(const ThingTemplate *tmpl, const Coord3D *center, Real innerRadius, Bool walkOutward);	///< the nearest legal, safe spot by the ground from center, queued for a dozer. walkOutward keeps searching further out as the near ground fills
+	Bool placeNear(const ThingTemplate *tmpl, const Coord3D *center, Real innerRadius, Bool walkOutward, Coord3D *spotOnly = NULL, Bool homeOnly = FALSE);	///< the nearest legal, safe spot by the ground from center, queued for a dozer, or only written to spotOnly. walkOutward keeps searching further out as the near ground fills; homeOnly holds any building to the base's edge as staysHome holds its own
 	Bool queueExtraFactory(Object *dozer, KindOfType kind, Bool doctrine = FALSE);	///< one more of this factory, beside a held expansion or around the base, once the ones standing fall behind their queues; the doctrine's without waiting for that
 	Bool holdsExtraFactory(const ThingTemplate *tmpl);	///< a factory of a kind already standing or going up, while the ones standing keep up with their queues
 	const ThingTemplate *nextBaseDefense(Object *dozer);	///< the base defence off this dozer's buttons that the base has fewest of, NULL for none
@@ -472,9 +547,16 @@ protected:
 	void fortifyChokes(Object *dozer);	///< a Turtle's mines on the guns at its chokes and demo traps in front of them
 	const std::vector<UnsignedShort> &groundFromBase(void);	///< AIGroundFlood distance of every pathfind cell from the base center, cached until the center moves
 	const std::vector<UnsignedShort> &groundFromThreats(const Coord3D *threats, Int count);	///< the same from the nearest of these, cached until they change
+	Bool groundBaseFresh(UnsignedInt bridges, UnsignedInt walk) const;	///< groundFromBase may answer from what it holds
+	Bool groundThreatsFresh(const Coord3D *threats, Int count, UnsignedInt bridges, UnsignedInt walk) const;
+	void stepGroundFields(void);			///< floods the field the next ask will want over frames, ahead of it
+	void floodBaseAhead(void);				///< the base's field whole, now, as stepGroundFields would deliver it
+	void beginGroundFlood(Int kind, const Coord3D *from, Int count, UnsignedInt bridges);
+	Int workGroundFlood(Int budget);	///< works the flood under way, delivering it when done; what is left of budget
+	void dropGroundFlood(Int kind);		///< a flood under way of that kind is for a point no longer wanted
 	Bool reachableFromBase(const Coord3D *pos);	///< a vehicle at the base center could drive there; TRUE before the base is placed
-	Real knownFirepowerAlongPath(Waypoint *way);	///< what this AI has seen that can shoot, along an approach
-	AsciiString secondApproachLabel(const Coord3D *from, const AsciiString &taken, Int pathSuffix);	///< the quietest other road, or empty
+	Real knownFirepowerAlongPath(Waypoint *way, const AIThreatMix *mix = NULL);	///< what this AI has seen that can shoot, along an approach
+	AsciiString secondApproachLabel(const Coord3D *from, const AsciiString &taken, Int pathSuffix, const AIThreatMix *mix = NULL);	///< the quietest other road, or empty
 	Bool loadGunships(void);	///< infantry boards the transports it can shoot out of: the wave's anything at home, a team's its own; TRUE while a firing gunship is still filling
 	Int buyGunshipRiders(Int freeSeats);	///< Medium and up train the men for the firing seats nobody fills; how many are in training
 	void garrisonBuildings(void);	///< infantry into our own buildings it shoots out of, and into empty ones with an enemy near, at home and at the front
@@ -487,6 +569,23 @@ protected:
 	Int loadShuttle(Object *ship);	///< call the attack teams' ground units at home into one Chinook; how many were called
 	Bool flightIsQuiet(const Coord3D *from, Real x, Real y) const;	///< a straight flight crosses nothing the AI has seen shoot
 	void doHelixes(void);	///< China's Helixes: the upgrade the enemy army calls for, healers behind the wave, bomb raids
+	void doAbilities(void);	///< the units press their own buttons: laser lock, manual shots, area weapons, walk-up specials, toggles, suicides
+	Bool abilityUnitBusy(const Object *obj) const;	///< mid-ability, or a job that owns its orders
+	Bool useAbility(Object *obj, const struct AIAbilityButton &entry, Int rung, Object *victim);	///< one button's rule for one unit; TRUE when it ordered
+	Bool abilityLaser(Object *obj, const struct AIAbilityButton &entry, Object *victim);
+	Bool abilityShot(Object *obj, const struct AIAbilityButton &entry, Object *victim, Int rung);
+	Bool abilityArea(Object *obj, const struct AIAbilityButton &entry, Object *victim, Int rung);
+	Bool abilityWalkUp(Object *obj, const struct AIAbilityButton &entry);
+	Object *pickWalkUp(Object *obj, const struct AIAbilityButton &entry, Bool threatened, Real *score, char *why) const;	///< the walk-up's target and its score, NULL for none; orders nothing
+	Bool heroWalkUp(Object *obj, const std::vector<struct AIAbilityButton> &buttons, Bool threatened);	///< a hero's walk-ups weighed against each other, the best ordered
+	Bool heroThreatened(const Object *obj, Bool *loses, Coord3D *away) const;	///< the hero is in a fight with enemies in reach; loses when its guns lose it, away is their middle
+	Bool heroChargeSpent(const Object *target) const;	///< a hero charged this building lately and it still stands above half
+	Bool abilityToggle(Object *obj, const struct AIAbilityButton &entry, Object *victim);
+	Bool abilitySuicide(Object *obj, const struct AIAbilityButton &entry);
+	Bool abilityDetonate(Object *obj, const struct AIAbilityButton &entry);
+	Bool abilityHack(Object *obj, const struct AIAbilityButton &entry, Object *victim);
+	Int walkUpsInFlight(std::vector<ObjectID> *taken) const;	///< our units walking to, or busy with, a walk-up special right now; taken gets their targets
+	Bool walkIsCovered(const Object *obj, const Coord3D *to) const;	///< no step of the straight walk to 'to' where its map has the enemy over us
 	void steerAircraft(void);	///< aircraft off strikes whose flight crosses known anti-air, onto clear ones or home
 	void buyDutyHelix(void);	///< Medium and up buy the healers and raiders their Helixes' buttons allow
 	Int helixRoleWanted(const ThingTemplate *tmpl) const;	///< the job a Helix of this kind would take now, -1 for none
@@ -495,6 +594,9 @@ protected:
 	void steerAmbulance(Int slot, const std::vector<AIKnownGun> &guns);	///< one Ambulance's job this pass
 	void upgradeHelix(Object *helix, Int role, AIEnemyComposition *enemy, Bool *enemyRead);	///< the upgrade this Helix's job or the enemy army calls for
 	void collectKnownGuns(std::vector<AIKnownGun> *guns) const;	///< every enemy gun this AI knows of, in object list order
+	void readKnownGuns(std::vector<AIKnownGun> *guns) const;	///< ... read off the objects; collectKnownGuns keeps it for the frame
+	mutable std::vector<AIKnownGun> m_knownGuns;	///< collectKnownGuns' answer, for the rest of the frame it was read on
+	mutable UnsignedInt m_knownGunsFrame;					///< the frame of it, plus one; 0 for none
 	void steerHealer(Int slot, const std::vector<AIKnownGun> &guns);	///< a healer over our hurt behind the line, clear of every known gun
 	void flyRaid(Int slot, const std::vector<AIKnownGun> &guns);	///< a raider's bomb run on an enemy building, in and out the quiet side
 	Bool pickRaidTarget(const Object *raider, const std::vector<AIKnownGun> &guns, Object **target, Coord3D *entry, Int *gunsOnRun) const;
@@ -502,7 +604,7 @@ protected:
 	Bool isGunshipRider(const Object *obj) const;	///< infantry loadGunships may put in a transport
 	void sendIdleAttackTeams(void);	///< attack teams standing at home join the next wave instead of waiting for the script's signal
 	Real addHomeStrays(AIGroup *wave) const;	///< the default team's fighters idle at home go with the wave
-	Real knownFirepowerNear(const Coord3D *pos);	///< what this AI has seen that can shoot, near a point
+	Real knownFirepowerNear(const Coord3D *pos, const AIThreatMix *mix = NULL);	///< what this AI has seen that can shoot, near a point; mix as chooseApproachLabel's
 	Bool forwardHoldPoint(const AsciiString &approach, Int pathSuffix, const Coord3D *enemyPos, Coord3D *hold);	///< where a wave gathers on its road
 	void sendWave(AIGroup *wave, const AsciiString &approach, Int pathSuffix, Int teams, Real power, UnsignedInt heldFrames, const char *cause);
 	void logEngage(const char *cause, const std::vector<Object *> &units);	///< AI ENGAGE: what goes out, and how it weighs against the army it remembers
@@ -545,6 +647,7 @@ protected:
 	Int computeStructureDelay( void );	///< frames to wait before trying the next structure
 	Int computeTeamDelay( void );				///< frames to wait before trying the next team
 	Int hoardThreshold( void );					///< bank that speeds the two delays up; skirmish AI only
+	Real buildDelayScale( void );				///< the rated BuildDelayScale on both delays, last; skirmish AI only
 
 public:
 	/// the arithmetic behind the two above, free of the Player so a test can reach it
@@ -559,6 +662,7 @@ public:
 		how often, and it is a function of the player index alone - the simulation stays deterministic.
 	*/
 	static Int computeUpdatePhase( Int playerIndex, Int cycleFrames );
+	static void forgetStampTurns( void );	///< a new match or a load: the shared influence turns name the last one's objects
 
 	Bool isGunshipChinook( const Object *obj ) const;	///< a Chinook this AI bought to carry riders, not to gather
 	Bool isGunshipAircraft( const Object *obj ) const;	///< a helicopter, or one of those Chinooks
@@ -583,8 +687,13 @@ protected:
 	void clearTeamsInQueue( void );			///< Delete all teams in the build queue.
 	void computeCenterAndRadiusOfBase(Coord3D *center, Real *radius);
 	Object *findFactory(const ThingTemplate *thing, Bool busyOK); ///< Find a factory to build a unit.  If force is true, may return a busy factory.
+	Object *findFactoryOnList(const ThingTemplate *thing, Bool busyOK);
+	/** findFactory's answers with busyOK, kept while selectTeamToBuild weighs which teams may be built: nothing
+		* in that pass trains or sells anything, and a hundred teams asked a few units each. NULL outside it. */
+	std::vector< std::pair<const ThingTemplate *, Object *> > *m_factoryAnswers;
 	void sendForSpotters( TeamInQueue *team, const Object *gun );	///< a gun that fires past its own sight came out for this team: train its spotters
 	Bool replaceSpotter( void );				///< a team in the field has a gun that fires past its own sight and no spotter left: train it one
+	void askForTrainer( const ThingTemplate *unit );	///< no building of ours trains this unit: put up the plan's one that does
 	void queueUnits( void );						///< Check the team build list, & queue up units at any idle factories.
 	void checkForSupplyCenter( BuildListInfo *info, Object *bldg);
  	void queueSupplyTruck(void);
@@ -603,7 +712,9 @@ protected:
 
 	Player *m_player;									///< the Player we represent
 
-	AISkillLevel m_skillLevel;				///< rung of the ladder: how well this AI plays
+	AISkillLevel m_skillLevel;				///< rung of the ladder nearest m_rating, for what stays discrete
+	Real m_rating;										///< how well this AI plays: every rung-keyed knob is read here (aiRatingLerp)
+	AIDifficultyProfile m_ratedProfile;	///< the ladder at m_rating, written only when the rating is set or loaded (refreshRatedProfile)
 	mutable AIDifficultyProfile m_measuredProfile;	///< the rung's profile less the knobs -aiknobsoff turns off for this slot
 	AIRole		m_role;									///< what it is trying to do; rolled once, kept for the match
 
@@ -644,7 +755,7 @@ protected:
 	ObjectID			m_raider[ MAX_PERSONA_RAIDERS ];	///< the Raider's own raiders, which no wave or defence takes
 	UnsignedInt		m_shareFrame;					///< the last Economist share
 	UnsignedInt		m_chatFrame;					///< the last line of chat, 0 for none yet
-	Int						m_beatenMask;					///< enemies seen eliminated, by player index, for the chat
+	PlayerMaskType	m_beatenMask;				///< enemies seen eliminated, by player index, for the chat
 	// counters for logPersonaSummary, written and never read by a decision
 	Int						m_personaWaves;
 	UnsignedInt		m_firstWaveFrame;
@@ -660,6 +771,10 @@ protected:
 	Bool			m_startOccupied[ MAX_PLAYER_COUNT ];	///< ... and which of those turned out to hold an enemy
 	Int				m_playerStartNdx[ MAX_PLAYER_COUNT ];	///< the start position each player is known to be at; -1 == not found yet
 	UnsignedInt m_startIntelFrame;			///< frame the above was last brought up to date
+	/* The map's start waypoints, read once (startAt): a pure function of the map, not xferred. */
+	mutable Coord3D			m_startAtPos[ MAX_PLAYER_COUNT ];
+	mutable UnsignedByte	m_startAtState[ MAX_PLAYER_COUNT ];	///< 0 not read yet, 1 there, 2 the map has none
+	Bool startAt( Int startNdx, Coord3D *pos ) const;	///< startPositionLoc, kept
 	ObjectID	m_capturerID;						///< the unit currently out taking tech buildings for us
 	ObjectID	m_ferryID;							///< the helicopter flying the capturer to its target, INVALID_ID for none
 	std::vector<ObjectID>	m_droppedRiders;	///< infantry a helicopter is putting down at a fight, sent on once out
@@ -741,6 +856,7 @@ protected:
 	Int				m_logDocksTotal;
 	UnsignedInt m_logMoneyFrame;				///< for the log only, not saved: when the next earnings line is due
 	ObjectID	m_logCaptureTarget;				///< for the log only, not saved: the building last ordered taken, until it is ours
+	UnsignedInt	m_logForeignWaitFrame;		///< for the log only, not saved: the next frame a foreign build waiting on the bank may say so
 
 	Bool		m_readyToBuildTeam;				///< True if the team select timer has expired.
 	Bool		m_readyToBuildStructure;	///< True if the buildDelay timer has expired.
@@ -775,6 +891,22 @@ protected:
 	std::vector<UnsignedShort> m_groundFromThreats;
 	std::vector<Coord3D> m_groundThreatsAt;
 	UnsignedInt m_groundThreatsBridges;
+	/* Each field's walk generation (PathfindCell::getWalkGeneration) when it was read, and whether anything has
+		 asked for it yet.  One flooded ahead answers only while the ground is the ground it read; once asked it
+		 holds as a field flooded on the ask always did, until the point or the bridges change. */
+	UnsignedInt m_groundFromBaseWalk;
+	Bool m_groundFromBaseAsked;
+	UnsignedInt m_groundThreatsWalk;
+	Bool m_groundThreatsAsked;
+	/* One of those two flooding over frames before anything asks for it (stepGroundFields), finished on the
+		 spot if something does.  Not xferred either: a load floods again when asked. */
+	AIGroundField m_groundFlood;
+	UnsignedInt m_groundFloodWalk;	///< the walk generation it began on; it is thrown away if that moves before it ends
+	Int m_groundFloodKind;						///< GROUND_FLOOD_NONE, _BASE or _THREATS
+	Int m_groundFloodColumn;					///< walkability read up to this column; -1 before the grid is allocated
+	std::vector<Coord3D> m_groundFloodFrom;
+	UnsignedInt m_groundFloodBridges;
+	UnsignedInt m_groundFloodBegun;
 
 	/* The Turtle's chokes (turtleChokes), not xferred for the same reason: a pure function of the
 		 map, the bridges, the base center and the enemy addresses, recomputed when one of them moves. */
@@ -837,7 +969,8 @@ protected:
 	Bool waveGoes(Real power, UnsignedInt heldFrames);	///< what is parked, worth this, leaves now
 	void buyEarlyIncome(void);										///< the first drop zone and black market, ahead of the army
 	void keepSiegeBehind(void);										///< artillery out with a wave trails its front unit
-	void holdAtDefences(void);										///< ground units stop at the edge of a known defence's reach until ours there outweigh it; guns that outreach one shell it
+	void holdAtDefences(void);
+	Bool edgeTurnNow(void);												///< holdAtDefences looks this frame										///< ground units stop at the edge of a known defence's reach until ours there outweigh it; guns that outreach one shell it
 	Real edgeRatio(const Object *gun, Real reach, const Coord3D *from);	///< the fight where a unit at from would walk into a gun's reach
 	Bool leavesToFinish(const Object *obj) const;	///< a fighter the last push takes off guard, as against a worker or a scout
 	/** Every enemy unit this AI has seen and not since lost track of: what it was, whose, and where and
@@ -877,14 +1010,54 @@ protected:
 
 	/** What this player knows can shoot at each patch of the map, and what it has there itself. */
 	AIInfluenceMap	m_influence;
-	AIInfluenceMap	m_influenceNext;		///< Hard's: what this round's objects have stamped so far; it becomes m_influence when the round ends
-	void updateInfluence(void);										///< Hard's map, one share of the objects a frame
+	AIInfluenceMap	m_influenceNext;		///< what this round's objects have stamped so far; it becomes m_influence when the round ends
+	void updateInfluence(void);										///< the map, one share of the objects a frame
+	void prepareInfluence(void);									///< updateInfluence's part that is shared between seats or sizes the maps, run one seat at a time
+	void stampInfluenceTurn(void);								///< ... and its stamping into this seat's map alone, which seats run side by side
+	void prepareLook(void);												///< lookAllSeats, one seat at a time before the fork
+	void look(void);															///< ... and side by side
+	static void lookJob(Int index, void *context);
+	UnsignedInt m_lookFrame;											///< the frame look ran, plus one: the ledger and the map's stamps are this frame's
+	UnsignedInt m_lookTurnFrame;									///< ... m_lookTurn was collected by it
+	UnsignedInt m_tacticsTurnFrame;								///< frame + 1 on which doTactics walked m_lookTurn, so doAbilities may take it
+	UnsignedInt m_lookDefencesFrame;							///< ... m_lookDefences was collected by it
+	std::vector<KnownDefence> m_lookDefences;		///< holdAtDefences' known guns, when its turn falls on this frame
 	void rebuildInfluence(void);									///< the whole map on one frame
 	void stampInfluence(AIInfluenceMap &map, const Object *obj);
 	void stampFireReports(AIInfluenceMap &map);
-	void ensureInfluence(void);										///< the map, no older than this rung reads it; below Hard this is what draws it
+	void applyShape(AIInfluenceMap &map, const Object *obj, const StampShape &shape, const Int *cells);	///< one object's stamp into this seat's map, by what the object is to it
+	void stampMemory(AIInfluenceMap &map);				///< the ledger's enemies out of sight, fading (map layers)
+	std::vector<Int> m_stampCells;								///< stampInfluence's scratch, the seat's own so seats stamping side by side share nothing
+	std::vector<Int> m_stampEdge;
+	AIThreatMix foeMix(void) const;								///< what the remembered enemy army is, by class: how the friendly layer is read with the map layers
+	AIThreatMix friendReadMix(void) const;				///< ... or the ground mix without them
+	mutable AIThreatMix m_foeMix;
+	mutable UnsignedInt m_foeMixFrame;						///< the frame of it, plus one; 0 for none
+	/** A jet or Comanche sent the long way round the anti-air guns on the straight flight (steerAircraft): it flies
+		* to via and only then strikes, and once it strikes it is home round the guns when it is empty. */
+	struct StrikeRoute
+	{
+		ObjectID		aircraft;
+		ObjectID		target;		///< INVALID_ID for a strike on the ground at
+		Coord3D			at;
+		Coord3D			via;
+		UnsignedInt	frame;		///< when it was sent, or when it struck
+		Bool				struck;		///< sent in from via: kept only to send it home when empty
+	};
+	std::vector<StrikeRoute> m_strikeRoutes;
+	Bool turnPointRound(const Coord3D *from, const Coord3D *to, ObjectID ignored, const std::vector<AIKnownGun> &guns,
+		Coord3D *via, Real *straight, Real *round);		///< a turn point whose two legs cross no known anti-air gun but ignored
+	Bool routeStrike(Object *aircraft, Object *target, const Coord3D *at, const std::vector<AIKnownGun> &guns);	///< TRUE when it was sent round
+	void routeHome(Object *aircraft, const std::vector<AIKnownGun> &guns);	///< an empty jet home round the known guns
+	void flyStrikeRoutes(void);										///< the ones at their turn strike, the empty go home; the rest fly on
+	void ensureInfluence(void);										///< the map, no older than this rung reads it, for a player that does not stamp it
 	Bool hasTacticalMap(void) const;							///< Hard's map, for the reads the rungs below it do not make
-	Bool quietGround(const Coord3D *from, const Real *gun, Coord3D *spot);	///< where to go from here to be off the map's guns and clear of this one (x, y, reach, or NULL); FALSE when no way gets out
+	AIThreatMix readMix(const AIThreatMix &wanted) const;	///< the weights this seat reads its map with for a reader that moves wanted
+	AIThreatMix unitMix(const Object *obj) const;				///< ... for one unit, by its own class
+	AIThreatMix shareMix(const AIThreatMix &sum) const;	///< ... for power summed by class
+	AIThreatMix groupMix(const AIGroup *group) const;		///< ... for a group, by its power's share in each class
+	AIThreatMix teamMix(Team *team) const;							///< ... for a team's members
+	Bool quietGround(const Coord3D *from, const Real *gun, Coord3D *spot, const AIThreatMix &mix);	///< where to go from here to be off the map's guns, read with mix, and clear of this one (x, y, reach, or NULL); FALSE when no way gets out
 
 	/** A gun that has hit this player from past where its fights look or from the fog.  It goes on the map as
 		* if seen, where it stood at the last hit, and counts in the fights around that hit, for the rung's
@@ -913,7 +1086,21 @@ protected:
 		UnsignedInt	frame;
 	};
 	std::vector<GunReading>	m_gunReadings;
-	void answerFire(void);
+	/** The player's objects whose ID comes up this frame, in the order Player::iterateObjects gives them, for
+		* doTactics and, when its look is the same length, answerFire; held so a frame allocates nothing. */
+	std::vector<Object *>	m_lookTurn;
+	std::vector<Object *>	m_fireTurn;
+	std::vector<Object *>	m_abilityTurn;		///< doAbilities' own turn on a rung without the tactics' look; scratch, never saved
+	/** A building a hero sent a charge at, and when: one that still stands above half its health afterwards
+		* (a Command Center's armour, a repair) is left for the next building until the entry runs out.  Sorted by
+		* target, saved. */
+	struct HeroCharge
+	{
+		ObjectID		target;
+		UnsignedInt	frame;
+	};
+	std::vector<HeroCharge>	m_heroCharges;
+	void answerFire(const std::vector<Object *> *turn);	///< turn: this frame's look already collected, or NULL
 	AIFireAnswer answerHit(Object *obj, Object *shooter, Object *gun);	///< decided and ordered
 	const GunReading &readGun(const Object *obj, const Object *gun);
 	void fightersNear(const Coord3D *at, Real radius, std::vector<Object *> *fighters);	///< our own who take orders here, in ObjectID order
@@ -943,9 +1130,15 @@ protected:
 		Coord3D			fallbackFrom;			///< the fight it was pulled out of
 		UnsignedInt	fallbackFrame;		///< when it was pulled out
 		UnsignedInt	answerFrame;			///< when it was sent at a gun that hit it, 0 while it is not; target and origin are what it goes back to
+		Real				hurtAt;						///< its health share when it was pulled out for being hurt, 0 when it was not; turnBackMended watches these
+		UnsignedInt	hurtTeam;					///< TeamID of the team a ranked one was taken out of, to go back to, 0 for none
 	};
 	std::vector<TacticalStep>	m_tactics;
+	/** Where each unit's row is in m_tactics, kept as rows come and go; built again whenever its size and the
+		* rows' disagree, which a load leaves it.  Only ever looked up, so the hash order reaches nothing. */
+	mutable std::unordered_map<Int, Int> m_tacticsRowOf;
 	TacticalStep *findTacticalStep(ObjectID unit);
+	const TacticalStep *findTacticalStep(ObjectID unit) const;
 	TacticalStep *tacticalStepFor(ObjectID unit);		///< ... making the row if there is none
 	void leaveTacticsAlone(ObjectID unit);
 	Bool isFallingBack(ObjectID unit) const;		///< holding at a safe spot after a lost fight, for doRetreats to send back
@@ -956,7 +1149,9 @@ protected:
 	Bool doFallback(Team *team);		///< TRUE when it sent the team's holders back or home on this pass
 	void pullOutRanked(Team *team, Bool inFight, Real ratio);	///< veterans and up leave earlier than the team, to a repair or heal pad
 	void releaseMended(void);		///< pulled-out veterans and let-out patients standing idle again become recruitable
-	void stepCalmly(Object *obj, TacticalStep *step, const Coord3D *spot);	///< a move the unit's mood cannot turn into an attack move
+	void stepCalmly(Object *obj, TacticalStep *step, const Coord3D *spot, const Coord3D *via = NULL);	///< a move the unit's mood cannot turn into an attack move, through via first when given
+	void walkCalmlyRound(Object *obj, TacticalStep *step, const Coord3D *spot);	///< stepCalmly, round the enemy reach the straight walk would cross
+	Bool turnBackMended(Object *obj, TacticalStep *step);	///< one pulled out hurt and mended on the way goes back to its team
 	void restoreMood(Object *obj, TacticalStep *step);
 	Bool pickTacticalSpot(const Object *obj, const Coord3D *from, const Coord3D *awayFrom, Real distance,
 		const Coord3D *mustReach, Real reach, Coord3D *spot);

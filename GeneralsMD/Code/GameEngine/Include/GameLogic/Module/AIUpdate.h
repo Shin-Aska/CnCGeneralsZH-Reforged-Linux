@@ -208,12 +208,12 @@ class AIUpdateModuleData : public UpdateModuleData
 public:
 	LocomotorTemplateMap	m_locomotorTemplates;					///< locomotors for object
 	const TurretAIData*		m_turretData[MAX_TURRETS];
-	UnsignedInt						m_moodAttackCheckRate;				///< how frequently we should recheck for enemies due to moods, when idle
+	DurationFrames						m_moodAttackCheckRate;				///< how frequently we should recheck for enemies due to moods, when idle
   Bool        m_forbidPlayerCommands;     ///< Should isAllowedToRespondToAiCommands() filter out commands from the player, thus making it ai-controllable only?
   Bool        m_turretsLinked;						///< Turrets are linked together and attack together.
 	UnsignedInt						m_autoAcquireEnemiesWhenIdle;
 #ifdef ALLOW_SURRENDER
- 	UnsignedInt						m_surrenderDuration;					///< when we surrender, how long we stay surrendered.
+ 	DurationFrames						m_surrenderDuration;					///< when we surrender, how long we stay surrendered.
 #endif
 
 	
@@ -546,20 +546,8 @@ public:
 			unit sent off on its own would still be riding the lane it was given as part of a group
 			that has since dispersed. */
 	void clearCrowdLane( void )
-		{ m_crowdLaneIdx = 0; m_crowdLaneOf = 0; m_crowdLaneSpace = 0.0f; m_hasPendingCrowdLat = FALSE; m_crowdPlanned.clear(); }
+		{ m_crowdLaneIdx = 0; m_crowdLaneOf = 0; m_crowdLaneSpace = 0.0f; m_hasPendingCrowdLat = FALSE; }
 
-	/** The route this member's next path is to be, planned by its group rather than searched for.
-
-			Each member's own search finds the shortest way from where it stands, and the shortest way
-			round the end of a wall is past the end of the wall, so every member of a group comes round
-			a corner over the same point and the group turns it in single file. The group plans one
-			route instead and hands each member that route moved sideways by its lane, corners and all,
-			so the outside lane takes the outside of the turn. It is the member's path, not a hint
-			beside one: the path that is followed, the path progress is measured against and the path
-			the band is built on are the same thing. It is used once, for the path the order asks for;
-			any later repath is the pathfinder's. A member whose planned lane could not be laid clear of
-			the ground has none, and searches for its own. */
-	void setPlannedCrowdRoute( const CrowdRoute& route ) { m_crowdPlanned = route; }
 	Real getCrowdLat( void ) const { return m_crowdLat; }
 	const CrowdCorridor *getCrowdCorridor( void ) const { return m_corridor; }
 	/** Which sample of its own band the unit was beside last frame.  Priority between two units is
@@ -586,6 +574,9 @@ public:
 
 	virtual Bool processCollision(PhysicsBehavior *physics, Object *other); ///< Returns true if the physics collide should apply the force.  Normally not.  jba.
 	ObjectID getIgnoredObstacleID( void ) const;
+	/// a soldier last ordered in a group with no vehicle stops on one cell (Pathfinder::getRadiusAndCenter)
+	Bool isCompactGoal( void ) const { return m_compactGoal; }
+	void setCompactGoal( Bool compact ) { m_compactGoal = compact; }
 
 	// "Waypoint Mode" -----------------------------------------------------------------------------------
 	const Waypoint *getCompletedWaypoint(void) const {return m_completedWaypoint;}
@@ -651,6 +642,35 @@ public:
 
 	Object *getNextMoodTarget( Bool calledByAI, Bool calledDuringIdle, Bool allowOutOfWeaponRangeTargets = FALSE, Bool requireWithinWeaponRange = FALSE );
 	UnsignedInt getNextMoodCheckTime() const { return m_nextMoodCheckTime; }
+
+	/** The search a mood check asks of findClosestEnemy (LOGIC-PARALLEL.md, P2): worked out once, so
+		the frame's idle checks and attack move scans can be searched ahead together and each unit can
+		tell its own. */
+	struct MoodScan
+	{
+		Real												range;
+		UnsignedInt									flags;
+		const AttackPriorityInfo		*info;
+		Int													arc;				///< 0 none, 1 PartitionFilterForwardArc, 2 PartitionFilterElevatedReach
+		Real												arcRange;		///< the arc filter's own range: side range, or reach on flat ground
+		Bool operator==( const MoodScan &o ) const
+		{ return range == o.range && flags == o.flags && info == o.info && arc == o.arc && arcRange == o.arcRange; }
+	};
+	/** getNextMoodTarget's search after its clock, worked out with no side effect. FALSE when there is
+		no search: *answer is then what getNextMoodTarget returns instead (NULL, or a passive unit's last
+		attacker). */
+	Bool describeMoodScan( Bool calledByAI, Bool allowOutOfWeaponRangeTargets, Bool requireWithinWeaponRange,
+												 MoodScan &scan, Object **answer );
+	/** Whether getNextMoodTarget( TRUE, calledDuringIdle ) would get as far as its search, asking
+		nothing that writes: TRUE for an idle check by the clock, FALSE for an attack move's scan. */
+	Bool wouldSearchForMoodTarget( Bool calledDuringIdle );
+	/** Whether this unit's attack move looks for a target in its update this frame. */
+	Bool attackMoveScansThisFrame( UnsignedInt now );
+	/** findClosestEnemy for scan, with its arc filter; job is NULL on the logic thread. */
+	Object *runMoodScan( const MoodScan &scan, AI::ScanJob *job );
+	/** This frame's place in the mood searches run ahead, or a frame that is not now. */
+	UnsignedInt		m_moodBatchFrame;
+	Int						m_moodBatchIndex;
 
 	// This function will return a combination of MoodMatrixParameter flags.
 	UnsignedInt getMoodMatrixValue( void ) const;
@@ -821,7 +841,6 @@ private:
 
 	/// throw the measured band away; the next frame that needs one measures the new route
 	void crowdReleaseCorridor( void );
-	Path *crowdPlannedPath( const CrowdRoute& planned, const Coord3D& destination );	///< the planned route as a path from here, or NULL if it no longer fits
 
 	/** Is this unit getting anywhere?  One test, once a frame, for every unit that is trying to
 			drive somewhere, and the only place m_noProgress is written. */
@@ -892,6 +911,7 @@ private:
 	ObjectID		m_ignoreObstacleID;					///< ignore this obstacle when pathfinding
 	Real				m_pathExtraDistance;				///< If we are following a waypoint path, there will be extra distance beyond the current path.
 	ICoord2D		m_pathfindGoalCell;					///< Cell we are moving towards.
+	Bool				m_compactGoal = FALSE;				///< set by Pathfinder::floodGroupGoals; saved since AIUpdateInterface xfer 23
 	ICoord2D		m_pathfindCurCell;					///< Cell we are currently occupying.
 	Int					m_blockedFrames;						///< Number of frames we've been blocked.
 	Real				m_curMaxBlockedSpeed;				///< Max speed we can have and not run into blocking things.
@@ -913,7 +933,6 @@ private:
 	Int					m_crowdSample;							///< whichsample of the band we were beside last frame (search hint; -1 = no band).
 	Int					m_crowdQueued;							///< consecutiveframes spent braking or stuck behind somebody.
 	Int					m_crowdSide;								///< whichside we prefer to pass on, +1 left, -1 right.
-	CrowdRoute	m_crowdPlanned;							///< the path the group planned for us, waiting for the move to ask for one; empty = search.
 	/* The rest of the crowd state is transient and deliberately not saved, for the same reason the
 		 band itself is not: a filter, a stuck count and a half-finished backing-out manoeuvre are all
 		 rebuilt within a second of the load, and a saved one restarts a jam that is over. */
@@ -922,6 +941,31 @@ private:
 	Bool				m_crowdCapValid;						///< FALSE until there is a held cap to ramp up from.
 	Real				m_crowdAim;									///< low-passeddirection the steering point is taken in, radians.
 	Bool				m_crowdAimValid;						///< FALSEuntil the filter has something to start from.
+	/* What crowdSteer's neighbour scan saw, kept for the frames between scans.  The scan runs every
+		 CROWD_SCAN_FRAMES frames, staggered by object id, and on the first crowd frame of every route
+		 and after every order; the rules read this copy in between. */
+	enum { CROWD_SCAN_NEAR_MAX = 16 };
+	struct CrowdScan
+	{
+		Bool			valid;
+		Real			sep;
+		ObjectID	blocker;
+		ObjectID	joiner;
+		Real			joinerSide;
+		Real			joinerR;
+		Bool			giveWay;
+		Real			giveWayLat;
+		Int				rank;
+		Bool			touching;
+		Bool			crossing;
+		Int				nearCount;
+		Real			nearLat[CROWD_SCAN_NEAR_MAX];
+		Real			nearR[CROWD_SCAN_NEAR_MAX];
+		Bool			packAny;
+		Real			packLo;
+		Real			packHi;
+	};
+	CrowdScan		m_crowdScan;
 	/* Being stuck, and getting out of it.  None of this is part of the crowd model: a unit that has
 			stopped without a collision to show for it is not a crowd problem, it is the problem, and
 			until this was pulled out of the crowd model it was only ever asked about units that happened
@@ -933,6 +977,7 @@ private:
 	Bool				m_sideStepSeen;							///< and whether he touched any.
 	Coord3D			m_lastProgressPos;					///< where we were last frame, which is how the above is counted.
 	Real				m_lastProgressAngle;				///< and which way we were pointing, because coming about is progress too.
+	Real				m_lastProgressTurn;					///< last frame's signed turn: a swing that reverses it is not coming about.
 	/* Dithering: driving a long way and getting nowhere, which the frame by frame test above cannot
 			see because the unit is moving on every one of those frames. */
 	Coord3D			m_ditherFrom;								///< where the current window opened.
@@ -1049,6 +1094,13 @@ extern Int AIUpdate_stuckRung( Int noProgressFrames, Int stageDone );
 		several body lengths and a net of almost nothing.  The body-size floor is what keeps a unit
 		that is simply slow, or stopped, out of it: those are the other test's business. */
 extern Bool AIUpdate_isDithering( Real net, Real travelled, Real bodySize );
+
+/** Does crowdSteer ask who is round it this frame, or read what it saw last time?
+
+		`haveScan` is FALSE on the first crowd frame of a route and after any order, and then the answer
+		is always yes: the stagger never delays the first look after a command.  Otherwise once every
+		few frames, offset by object id so a group spreads its scans over the frames. */
+extern Bool AIUpdate_crowdScanDue( Bool haveScan, UnsignedInt frame, UnsignedInt id );
 
 //------------------------------------------------------------------------------------------------------------
 // Inlines

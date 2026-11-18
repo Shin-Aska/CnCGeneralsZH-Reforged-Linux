@@ -49,7 +49,7 @@
 // ------------------------------------------------------------------------------------------------
 SupplyCenterDockUpdateModuleData::SupplyCenterDockUpdateModuleData( void )
 {
-	m_grantTemporaryStealthFrames = 0;
+	m_grantTemporaryStealthFrames.setRaw( 0 );
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -61,7 +61,7 @@ SupplyCenterDockUpdateModuleData::SupplyCenterDockUpdateModuleData( void )
 
 	static const FieldParse dataFieldParse[] = 
 	{
-		{ "GrantTemporaryStealth",		INI::parseDurationUnsignedInt,  NULL, offsetof( SupplyCenterDockUpdateModuleData, m_grantTemporaryStealthFrames ) },
+		{ "GrantTemporaryStealth",		SPEED_FIELD( SupplyCenterDockUpdateModuleData, m_grantTemporaryStealthFrames ) },
 		{ 0, 0, 0, 0 }
 	};
 
@@ -143,26 +143,15 @@ Bool SupplyCenterDockUpdate::action( Object* docker, Object *drone )
 		}
 	}
 	
-	// OY LOOK!  I AM USING LOCAL PLAYER.  Do not put anything other than TheInGameUI->addFloatingText in the block this controls!!!
-	// The figure shows if this watcher can see the centre - an ally sharing the sight and an
-	// observer both got nothing from the old spelled-out rule.
-	Bool displayMoney = ( value > 0 && getObject()->isLogicallyVisible() );
-		
-	if( displayMoney )
+	// Display cash income floating at the truck's feet; addMoneyText decides who sees it
+	if( value > 0 )
 	{
-		// OY LOOK!  I AM USING LOCAL PLAYER.  Do not put anything other than TheInGameUI->addFloatingText in the block this controls!!!
-		// Setup info for adding a floating text
 		Coord3D pos;
-		const Coord3D *dockerPos;
-		UnicodeString moneys;
-		moneys.format( TheGameText->fetch( "GUI:AddCash" ), value );
-		dockerPos = docker->getPosition();
+		const Coord3D *dockerPos = docker->getPosition();
 		pos.x = dockerPos->x;
 		pos.y = dockerPos->y;
 		pos.z = TheTerrainLogic->getGroundHeight(pos.x, pos.y);//dockerPos->z + docker->getGeometryInfo().getHeight();
-		Color color = ownerPlayer->getPlayerColor() | GameMakeColor( 0, 0, 0, 230 );
-		
-		TheInGameUI->addFloatingText(moneys, &pos, color);
+		TheInGameUI->addMoneyText( (Int)value, &pos, ownerPlayer );
 	}
 
 		

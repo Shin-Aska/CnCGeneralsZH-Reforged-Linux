@@ -41,6 +41,8 @@
 #include "SdlResourceMirror.h"
 #include "Platform/SunShadow.h"
 #include "Platform/SunSmoke.h"
+#include "Platform/RenderLighting.h"
+#include "Platform/RendererCapabilities.h"
 #include "../Libraries/Source/WWVegas/WW3D2/ffshader.h"
 #include "../Libraries/Source/WWVegas/WW3D2/ffvertex.h"
 #include "Platform/EngineShaderName.h"
@@ -51,6 +53,7 @@
 
 #include <stdio.h>
 #include <cmath>
+#include <cstring>
 #include <string.h>
 #include <vector>
 
@@ -968,7 +971,111 @@ static void check_sun_smoke(PosixDevice9 *device)
 
 // The tree vertex program stores sway metadata in the normal slot. Verify its
 // actual displaced alpha silhouette, then receive sunlight through that same program.
-static void check_sun_trees(PosixDevice9 *device)
+// The actual native provider, without a shadow map: exact slope light, replacement uploads,
+// camera/viewport reconstruction and scoped state through generated and shipped ground programs.
+static void check_terrain_sun(PosixDevice9 *device)
+{
+    device->Clear_Sun_Shadow();
+    CHECK(PosixRenderer_Supports_Feature(device,RendererFeature::TerrainSun));
+    CHECK(PosixRenderer_Supports_Feature(device,RendererFeature::TerrainSubdivision));
+    CHECK(PosixRenderer_Supports_Feature(device,RendererFeature::GroundFoliage));
+    D3DMATRIX identity={}; identity._11=identity._22=identity._33=identity._44=1;
+    for (auto transform:{D3DTS_WORLD,D3DTS_VIEW,D3DTS_PROJECTION}) device->SetTransform(transform,&identity);
+    D3DVIEWPORT9 whole={0,0,SIZE,SIZE,0,1};device->SetViewport(&whole);
+    begin(device,BLUE);
+    device->SetVertexShader(nullptr);device->SetPixelShader(nullptr);
+    device->Set_Emissive(false);device->Set_Headlights(nullptr,0,nullptr);device->Set_Blast_Lights(nullptr,0);
+    device->SetRenderState(D3DRS_ZENABLE,1);device->SetRenderState(D3DRS_ZWRITEENABLE,1);
+    device->SetRenderState(D3DRS_ZFUNC,D3DCMP_LESSEQUAL);device->SetRenderState(D3DRS_CULLMODE,D3DCULL_NONE);
+    device->SetRenderState(D3DRS_ALPHABLENDENABLE,0);device->SetRenderState(D3DRS_ALPHATESTENABLE,0);
+    device->SetRenderState(D3DRS_COLORWRITEENABLE,15);device->SetRenderState(D3DRS_FOGENABLE,0);
+    device->SetTextureStageState(1,D3DTSS_COLOROP,D3DTOP_DISABLE);
+    struct V {float x,y,z;uint32_t colour;float u,v,s,t;};
+    const V ground[]={{-1,1,.4f,0xff202020,0,0,0,0},{1,1,.4f,0xff202020,1,0,1,0},
+        {-1,-1,.4f,0xff202020,0,1,0,1},{1,1,.4f,0xff202020,1,0,1,0},
+        {1,-1,.4f,0xff202020,1,1,1,1},{-1,-1,.4f,0xff202020,0,1,0,1}};
+    device->SetFVF(D3DFVF_XYZ|D3DFVF_DIFFUSE|D3DFVF_TEX2);
+    float light[RenderLighting::TerrainLightFloats]={};light[2]=1;
+    light[16]=.6f;light[17]=.4f;light[18]=.2f;
+    light[32]=1;light[33]=1;light[34]=4;light[35]=1;
+    RenderLighting::SetTerrainLight(device,light);
+    unsigned char heights[64];
+    for(unsigned y=0;y<8;++y)for(unsigned x=0;x<8;++x)heights[y*8+x]=80+3*x+2*y;
+    CHECK(RenderLighting::SetTerrainHeights(device,heights,8,8));CHECK(RenderLighting::HoldsTerrainHeights(device));
+    CHECK(!RenderLighting::SetTerrainHeights(device,heights,0,8));CHECK(RenderLighting::HoldsTerrainHeights(device));
+    const auto draw=[&] {
+        D3DVIEWPORT9 current;device->GetViewport(&current);device->SetViewport(&whole);
+        CHECK(device->Clear(0,nullptr,D3DCLEAR_TARGET|D3DCLEAR_ZBUFFER,BLUE,1,0)==D3D_OK);
+        device->SetViewport(&current);
+        const auto recorded=device->Draws_Recorded();
+        CHECK(device->DrawPrimitiveUP(D3DPT_TRIANGLELIST,2,ground,sizeof(V))==D3D_OK);
+        CHECK(device->Draws_Recorded()==recorded+1);read_back(device);
+    };
+    const auto expected=[](float normalZ) {
+        const unsigned r=unsigned(std::lround(32+255*.6f*normalZ));
+        const unsigned g=unsigned(std::lround(32+255*.4f*normalZ));
+        const unsigned b=unsigned(std::lround(32+255*.2f*normalZ));
+        return 0xff000000u|(r<<16)|(g<<8)|b;
+    };
+    RenderLighting::SetTerrainRelight(device,true);draw();
+    CHECK_PIXEL(8,16,expected(1/std::sqrt(14.0f)));CHECK_PIXEL(24,16,expected(1/std::sqrt(14.0f)));
+    const auto slope=pixels;
+    RenderLighting::SetTerrainRelight(device,false);draw();CHECK_PIXEL(16,16,0xff202020);
+    CHECK(pixels!=slope);
+    // All shipped ground and road programs read the same independent t4 resource.
+    IDirect3DTexture9 *white=make_texture(device,1,1,D3DFMT_A8R8G8B8,&WHITE,sizeof(WHITE));
+    for(unsigned s=0;s<5;++s)device->SetTexture(s,white);
+    const RenderUInt32 tokens[]={0xffff0101u,0x0000ffffu};IDirect3DPixelShader9 *shader=nullptr;
+    CHECK(device->CreatePixelShader(tokens,&shader)==D3D_OK);device->SetPixelShader(shader);
+    RenderLighting::SetTerrainRelight(device,true);
+    for (const char *name:{"terrain.pso","terrainnoise.pso","terrainnoise2.pso","fterrain.pso",
+            "fterrain0.pso","fterrainnoise.pso","fterrainnoise2.pso","roadnoise2.pso"}) {
+        PosixDevice_Name_Shader(shader,name);draw();CHECK_PIXEL(16,16,expected(1/std::sqrt(14.0f)));
+    }
+    // Deform the same map dimensions. The next upload must replace the old texture immediately.
+    std::memset(heights,90,sizeof(heights));CHECK(RenderLighting::SetTerrainHeights(device,heights,8,8));
+    draw();CHECK_PIXEL(16,16,expected(1));CHECK(pixels!=slope);
+    light[12]=1;light[36]=.6f;light[37]=.8f;light[38]=1;light[39]=2;
+    RenderLighting::SetTerrainLight(device,light);draw();
+    // z=.4 gives a half-depth fade, applied to the ambient+sun sum exactly once.
+    const uint32_t wet=0xff000000u|(unsigned(std::lround((32+255*.6f)*.8f))<<16)
+        |(unsigned(std::lround((32+255*.4f)*.9f))<<8)|unsigned(std::lround(32+255*.2f));
+    CHECK_PIXEL(16,16,wet);light[12]=0;RenderLighting::SetTerrainLight(device,light);
+    // A quadratic height field has exact Catmull-Rom derivative 2*x in its interior.
+    // This distinguishes the actual reconstructed world point, including shifted viewport/depth.
+    for(unsigned y=0;y<8;++y)for(unsigned x=0;x<8;++x)heights[y*8+x]=80+x*x;
+    CHECK(RenderLighting::SetTerrainHeights(device,heights,8,8));
+    D3DMATRIX view=identity,projection=identity;view._41=.25f;projection._11=.8f;
+    device->SetTransform(D3DTS_VIEW,&view);device->SetTransform(D3DTS_PROJECTION,&projection);
+    D3DVIEWPORT9 partial={3,5,24,20,.2f,.8f};device->SetViewport(&partial);draw();
+    for(unsigned x:{8u,16u,24u}) {
+        const float worldX=(2.0f*(x-partial.X)/partial.Width-1)/projection._11-view._41;
+        const float derivative=2*(worldX+4);
+        CHECK_PIXEL(x,15,expected(1/std::sqrt(1+derivative*derivative)));
+    }
+    CHECK_PIXEL(1,15,BLUE);
+    // The scope turns off before model draws; no terrain light or material slot leaks out.
+    RenderLighting::SetTerrainRelight(device,false);device->SetPixelShader(nullptr);
+    for(unsigned s=0;s<5;++s)device->SetTexture(s,nullptr);
+    device->SetTransform(D3DTS_VIEW,&identity);device->SetTransform(D3DTS_PROJECTION,&identity);
+    device->SetViewport(&whole);draw();CHECK_PIXEL(16,16,0xff202020);
+    CHECK(device->Begin_Sun_Shadow(32));RenderLighting::SetTerrainRelight(device,true);
+    CHECK(device->End_Sun_Shadow());draw();CHECK_PIXEL(16,16,0xff202020); // capture restored off
+    // Attachment reset retains managed map data but clears the active draw scope.
+    RenderLighting::SetTerrainRelight(device,true);
+    D3DPRESENT_PARAMETERS parameters={};parameters.BackBufferWidth=parameters.BackBufferHeight=SIZE;
+    parameters.BackBufferFormat=D3DFMT_X8R8G8B8;parameters.Windowed=1;
+    parameters.EnableAutoDepthStencil=1;parameters.AutoDepthStencilFormat=D3DFMT_D24S8;
+    CHECK(device->Reset(&parameters)==D3D_OK);CHECK(RenderLighting::HoldsTerrainHeights(device));
+    draw();CHECK_PIXEL(16,16,0xff202020);
+    RenderLighting::SetTerrainRelight(device,true);draw();CHECK(at(16,16)!=0xff202020);
+    CHECK(RenderLighting::SetTerrainHeights(device,nullptr,0,0));CHECK(!RenderLighting::HoldsTerrainHeights(device));
+    draw();CHECK_PIXEL(16,16,0xff202020);
+    shader->Release();white->Release();device->SetRenderState(D3DRS_CULLMODE,D3DCULL_CCW);
+    printf("terrain sun: analytic slope/flat/deformation, all ground programs, no-shadow viewport, model scope, capture and reset checked\n");
+}
+
+static void check_sun_trees(PosixDevice9 *device, bool grass = false)
 {
     const char *mode=getenv("ZH_SUN_SHADOW_MODE");
     const bool hadMode=mode!=nullptr;const std::string savedMode=mode?mode:"";
@@ -999,9 +1106,11 @@ static void check_sun_trees(PosixDevice9 *device)
     const RenderUInt32 tokens[]={0xfffe0101u,0x0000ffffu};
     IDirect3DVertexShader9 *shader=nullptr;
     CHECK(device->CreateVertexShader(tokens,&shader)==D3D_OK);
-    PosixDevice_Name_Shader(shader,"trees.vso");device->SetVertexShader(shader);
+    PosixDevice_Name_Shader(shader,grass ? "grass.vso" : "trees.vso");device->SetVertexShader(shader);
     device->SetFVF(D3DFVF_XYZ|D3DFVF_NORMAL|D3DFVF_DIFFUSE|D3DFVF_TEX1);
     device->SetVertexShaderConstantF(4,&identity._11,4);
+    const float grassFocus[]={0,0,0,100},grassFade[]={1,0,0,0};
+    device->SetVertexShaderConstantF(19,grassFocus,1);device->SetVertexShaderConstantF(20,grassFade,1);
     const float sway[]={1,0,0,0};device->SetVertexShaderConstantF(9,sway,1);
     const float noSway[]={0,0,0,0};device->SetVertexShaderConstantF(8,noSway,1);
     struct TreeVertex {float x,y,z,type,shade,base;uint32_t color;float u,v;};
@@ -1085,12 +1194,21 @@ static void check_sun_trees(PosixDevice9 *device)
     device->Clear(0,nullptr,D3DCLEAR_TARGET|D3DCLEAR_ZBUFFER,BLUE,1,0);
     device->DrawPrimitiveUP(D3DPT_TRIANGLELIST,2,leafQuad,sizeof(TreeVertex));read_back(device);
     CHECK_PIXEL(12,16,0xff808080);CHECK_PIXEL(20,16,WHITE);
+    if (grass) {
+        // Beyond the ring the native distance fold drops each blade to its root in the
+        // visible and mapped programs; full-grown coverage was compared above at every wind.
+        const float outside[]={0,0,0,-1};device->SetVertexShaderConstantF(19,outside,1);
+        CHECK(SunShadow::Begin(device,32));
+        device->DrawPrimitiveUP(D3DPT_TRIANGLELIST,2,leafQuad,sizeof(TreeVertex));
+        CHECK(SunShadow::End(device));CHECK(device->Read_Sun_Shadow(depth));
+        if (depth.size()==32*32) CHECK(std::abs(depth[16*32+16])<.00001f);
+    }
     device->SetVertexShader(nullptr);shader->Release();texture->Release();
     device->SetRenderState(D3DRS_ALPHATESTENABLE,0);
     device->SetRenderState(D3DRS_CULLMODE,D3DCULL_CCW);
     }
     if(hadMode) setenv("ZH_SUN_SHADOW_MODE",savedMode.c_str(),1);else unsetenv("ZH_SUN_SHADOW_MODE");
-    printf("sun trees: dry/partial/submerged wind, matching colour/depth and projected silhouettes, alpha gaps and receiving checked\n");
+    printf("sun %s: dry/partial/submerged wind, matching colour/depth and projected silhouettes, alpha gaps and receiving checked\n",grass?"grass":"trees");
 }
 
 // Exercise the production water program through the device, including its array-typed
@@ -1859,8 +1977,10 @@ int main()
 	check_sun_receivers(device);
 	check_sun_smoke(device);
 	check_sun_trees(device);
+	check_sun_trees(device,true);
 	check_sun_water(device);
 	check_sun_reset(device);
+	check_terrain_sun(device);
 #endif
 	check_refusal(device);
 	check_quad_derivatives(device);

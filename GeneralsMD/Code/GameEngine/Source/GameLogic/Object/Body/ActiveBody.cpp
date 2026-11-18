@@ -138,7 +138,7 @@ ActiveBodyModuleData::ActiveBodyModuleData()
 	m_maxHealth = 0;
 	m_initialHealth = 0;
 	m_subdualDamageCap = 0;
-	m_subdualDamageHealRate = 0;
+	m_subdualDamageHealRate.setRaw( 0 );
 	m_subdualDamageHealAmount = 0;
 }
 
@@ -154,7 +154,7 @@ void ActiveBodyModuleData::buildFieldParse(MultiIniFieldParse& p)
 		{ "InitialHealth",				INI::parseReal,						NULL,		offsetof( ActiveBodyModuleData, m_initialHealth ) },
 
 		{ "SubdualDamageCap",					INI::parseReal,									NULL,		offsetof( ActiveBodyModuleData, m_subdualDamageCap ) },
-		{ "SubdualDamageHealRate",		INI::parseDurationUnsignedInt,	NULL,		offsetof( ActiveBodyModuleData, m_subdualDamageHealRate ) },
+		{ "SubdualDamageHealRate",		SPEED_FIELD( ActiveBodyModuleData, m_subdualDamageHealRate ) },
 		{ "SubdualDamageHealAmount",	INI::parseReal,									NULL,		offsetof( ActiveBodyModuleData, m_subdualDamageHealAmount ) },
 		{ 0, 0, 0, 0 }
 	};
@@ -631,9 +631,11 @@ void ActiveBody::attemptDamage( DamageInfo *damageInfo )
 		// m_lastDamageTimestamp is initialized to FFFFFFFFFF, so doing a < compare is problematic.
 		// jba.
 		// the "one/next frame" window below is retail's: two retail frames less one logic frame; the
-		// timestamp starts in the future
+		// timestamp starts in the future.  Never under one tick: at a game speed where two retail frames
+		// round to one tick the window would shut to the same tick, and "this or next frame" is EA's rule
 		UnsignedInt now = TheGameLogic->getFrame();
-		if (m_lastDamageTimestamp > now || now - m_lastDamageTimestamp > ConvertRetailFrames(2u) - 1) {
+		const UnsignedInt mergeWindow = ConvertRetailFrames(2u) > 2u ? ConvertRetailFrames(2u) - 1 : 1u;
+		if (m_lastDamageTimestamp > now || now - m_lastDamageTimestamp > mergeWindow) {
 			m_lastDamageInfo = *damageInfo;
 			m_lastDamageCleared = false;
 			m_lastDamageTimestamp = TheGameLogic->getFrame();

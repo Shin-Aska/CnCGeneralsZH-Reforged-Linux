@@ -66,6 +66,7 @@ public:
 	virtual void reset( void ) = 0;																		///< Re-initialize the network
 	virtual void update( void ) = 0;																	///< Updates the network
 	virtual void liteupdate( void ) = 0;															///< does a lightweight update for passing messages around.
+	virtual void serviceSockets( void ) = 0;													///< Between passes: announce finished frames, read and write the socket; spends no frame.
 
 	virtual void setLocalAddress(UnsignedInt ip, UnsignedInt port) = 0;	///< Tell the network what local ip and port to bind to.
 	virtual Bool isFrameDataReady( void ) = 0;												///< Are the commands for the next frame available?
@@ -78,11 +79,11 @@ public:
 	virtual UnsignedInt getFramesReady(void) = 0;											///< Frames from the current one whose commands are all in, up to the run-ahead.  For the HUD.
 
 	// Chat functions
-	virtual void sendChat(UnicodeString text, Int playerMask) = 0;		///< Send a chat line using the normal system.
+	virtual void sendChat(UnicodeString text, SlotMask playerMask) = 0;		///< Send a chat line using the normal system; playerMask is slots (slotBit)
 	virtual void sendDisconnectChat(UnicodeString text) = 0;					///< Send a chat line using the disconnect manager.
 
-	virtual void sendFile(AsciiString path, UnsignedByte playerMask, UnsignedShort commandID) = 0;
-	virtual UnsignedShort sendFileAnnounce(AsciiString path, UnsignedByte playerMask) = 0;
+	virtual void sendFile(AsciiString path, SlotMask playerMask, UnsignedShort commandID) = 0;
+	virtual UnsignedShort sendFileAnnounce(AsciiString path, SlotMask playerMask) = 0;
 	virtual Int getFileTransferProgress(Int playerID, AsciiString path) = 0;
 	virtual Bool areAllQueuesEmpty(void) = 0;
 
@@ -110,7 +111,7 @@ public:
 
 	virtual Int getAverageFPS() = 0;
 	virtual Int getSlotAverageFPS(Int slot) = 0;
-	virtual Real getSlotAverageLatency(Int slot) = 0;		///< seconds, round trip to the packet router
+	virtual Real getSlotAverageLatency(Int slot) = 0;		///< seconds, that player's worst round trip to any other player
 	virtual Int getSlowestSlot( void ) = 0;							///< the slot holding the room under the match's speed, or -1
 
 	virtual void attachTransport(Transport *transport) = 0;

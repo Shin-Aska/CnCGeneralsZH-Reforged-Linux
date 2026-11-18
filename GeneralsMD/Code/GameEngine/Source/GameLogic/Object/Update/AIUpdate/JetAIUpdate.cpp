@@ -62,7 +62,12 @@ const Real BIGNUM = 99999.0f;
 	circuit first, at its corner speed: out along the side of the runway two turn radii off the centre
 	line, round onto a JET_FINAL_DIST final, and in, slowing to MinSpeed over the threshold. Its
 	height follows the same glide measured along the circuit, so it comes down through the turns, and
-	a jet above the glide comes down to it no steeper than JET_STEEPEST_DESCENT.
+	a jet above the glide comes down to it no steeper than JET_STEEPEST_DESCENT; one that would reach
+	the turn in more than JET_HIGH_AT_TURN_IN above it flies the circuit further out, up to
+	JET_MAX_EXTRA_CIRCUIT. Once it starts the turn in it stays on the final, turning towards the
+	runway, and only gives it up past the threshold too high to land. An airfield's runway is
+	reserved as the jet turns onto the final, not before the circuit; while another jet has it, the
+	landing jet holds round the turn in, or goes round from a short final.
 */
 static const Real JET_LIFTOFF_SHARE = 0.55f;
 static const Real JET_ROTATE_SHARE = 0.25f;
@@ -77,9 +82,11 @@ static const Real JET_LINE_UP_ROOM = 3.0f;			// otherwise it needs this many tim
 static const Real JET_HIGH_ON_FINAL = 20.0f;		// more than this above the glide, it flies the circuit instead of diving
 static const Real JET_STEEPEST_DESCENT = 0.27f;	// tan 15 degrees: a jet above its glide comes down to it no steeper
 static const Real JET_FINAL_DIST = 150.0f;			// the straight final after the circuit's turn in
+static const Real JET_HIGH_AT_TURN_IN = 10.0f;		// more than this above the glide at the turn in, the circuit runs further out
+static const Real JET_MAX_EXTRA_CIRCUIT = 300.0f;	// a high jet flies the circuit at most this much further out
 // the jet's height servo settles this many frames of travel short of a height target moving away
 // under it, so a target this far ahead holds the jet on a slope (measured: 10 u/s down at 60 u/s)
-static const Real JET_HEIGHT_LAG_FRAMES = LOGICFRAMES_PER_SECOND * 0.1f;
+#define JET_HEIGHT_LAG_FRAMES ((Real)(LOGICFRAMES_PER_GAME_SECOND * 0.1f))
 
 /**
 	Height above the runway, dist before the point where it meets it, of a straight slope that rounds
@@ -375,7 +382,13 @@ public:
 			DEBUG_ASSERTCRASH(m_landing, ("hmm, this should never happen for taking-off things"));
 			return STATE_FAILURE;
 		}
-		
+
+		// An airfield's runway is the landing jet's only once it turns onto the final (flyLanding):
+		// held from here, the whole circuit kept the jets behind it on the ground. A carrier keeps
+		// EA's order, the deck reserved before the approach.
+		if (m_landing && !jet->testStatus( OBJECT_STATUS_DECK_HEIGHT_OFFSET ))
+			return STATE_SUCCESS;
+
 		if (pp->reserveRunway(jet->getID(), m_landing))
 		{
 			return STATE_SUCCESS;
@@ -450,11 +463,8 @@ protected:
 private:
 	Int m_checkAirfield;
 
-	enum
-	{
-		// only recheck for new airfields every second or so
-		HOW_OFTEN_TO_CHECK = LOGICFRAMES_PER_SECOND
-	};
+	// only recheck for new airfields every second or so
+	#define HOW_OFTEN_TO_CHECK ((Int)LOGICFRAMES_PER_GAME_SECOND)
 
 public:
 	JetOrHeliCirclingDeadAirfieldState( StateMachine *machine ) : 
@@ -515,7 +525,7 @@ public:
 		if (damageRate > 0)
 		{
 			// convert to damage/sec to damage/frame
-			damageRate *= SECONDS_PER_LOGICFRAME_REAL;
+			damageRate *= GAME_SECONDS_PER_LOGICFRAME_REAL;
 			// since it's a percentage, multiply times the max health
 			damageRate *= jet->getBodyModule()->getMaxHealth();
 
@@ -875,6 +885,7 @@ public:
 
 		jetAI->friend_setTakeoffInProgress(!m_landing);
 		jetAI->friend_setLandingInProgress(m_landing);
+		jetAI->friend_setOnFinal(false);
 		jetAI->friend_setAllowAirLoco(true);
 		jetAI->chooseLocomotorSet(LOCOMOTORSET_NORMAL);
 		Locomotor* loco = jetAI->getCurLocomotor();
@@ -907,8 +918,9 @@ public:
 			return STATE_FAILURE;
 		}
 		
-		// only check this for landing; we might have already given up the reservation to the guy behind us for takeoff
-		if (m_landing)
+		// only check this for landing; we might have already given up the reservation to the guy behind us for takeoff.
+		// An airfield's runway is reserved later, on the final (flyLanding); a carrier's deck here, as EA had it
+		if (m_landing && jet->testStatus( OBJECT_STATUS_DECK_HEIGHT_OFFSET ))
 		{
 			if (!pp->reserveRunway(jet->getID(), m_landing))
 			{
@@ -1122,14 +1134,63 @@ private:
 			(fabs(across) <= JET_LINE_UP_SLACK || -along >= JET_LINE_UP_ROOM * fabs(across));
 		Bool rollingOut = along >= 0.0f && height <= JET_GO_AROUND_HEIGHT;
 
+		// The circuit runs out along the side of the runway the jet is heading for, two radii off the
+		// centre line, to where the turn in starts.
+		Real sideways = across + 2.0f * radius * Sin(offLine);
+		Real side = (sideways >= 0.0f) ? 2.0f * radius : -2.0f * radius;
+
+		// A jet that will still be more than JET_HIGH_AT_TURN_IN above the glide when it gets to the turn
+		// in, coming down a glide's worth on the way, flies the circuit further out by a glide's worth
+		// of distance for that height, so the final it turns onto is one it can make. Raptors turning in
+		// 81, 75 and 69 high crossed the threshold 23, 11 and 11 high and went round again. A jet already
+		// out past the turn in comes down nothing on the way to it, since it turns in from where it is:
+		// an Aurora 140 past it, 99 high, was credited 25 of that, turned in and crossed the threshold
+		// 13 high on every landing.
+		Real turnInHeight = JetRunway_slopeHeight(PI * radius + turnIn, BIGNUM, JET_GLIDE_SLOPE, JET_FLARE_DIST) + JET_HIGH_AT_TURN_IN;
+		Real toTurnIn = sqrt(sqr(touch.x - ux * turnIn - uy * side - pos->x) + sqr(touch.y - uy * turnIn + ux * side - pos->y));
+		Real heightAtTurnIn = (along > -turnIn) ? height - JET_GLIDE_SLOPE * toTurnIn : height;
+		Real turnOut = turnIn;
+		if (heightAtTurnIn > turnInHeight)
+		{
+			Real extra = (heightAtTurnIn - turnInHeight) / JET_GLIDE_SLOPE;
+			turnOut += (extra < JET_MAX_EXTRA_CIRCUIT) ? extra : JET_MAX_EXTRA_CIRCUIT;
+		}
+
+		// Once the turn in has started it is flown to the end: coming round from out there carried the
+		// jet back inside turnIn before it was lined up, and it went off round the circuit a second time.
+		// Only past the threshold too high to roll out does it give the final up and go round. An
+		// airfield's runway is the jet's from the moment it turns onto the final until it has rolled out;
+		// with another jet on it, this one flies the circuit, holding round the turn in, and asks again.
+		Bool onFinal = jetAI->friend_isOnFinal();
+		if (along >= 0.0f && !rollingOut)
+		{
+			if (onFinal && !deck)
+				pp->releaseRunway(jet->getID());
+			onFinal = FALSE;
+		}
+		else if (!onFinal && (linedUp || rollingOut || along <= -turnOut))
+		{
+			onFinal = deck || pp->reserveRunway(jet->getID(), TRUE);
+		}
+		jetAI->friend_setOnFinal(onFinal);
+
 		Coord3D goal;
 		Real wantSpeed = circuitSpeed;
-		if (linedUp || rollingOut || along <= -turnIn)
+		if (onFinal)
 		{
 			// on the final, or far enough out to come round onto it: steer for a point ahead on the centre line
 			Real ahead = along + calcLookAhead(jet, loco);
 			goal.x = touch.x + ux * ahead;
 			goal.y = touch.y + uy * ahead;
+			if (fabs(offLine) >= PI / 2.0f)
+			{
+				// Heading away, that point is nearly straight behind, and which way the jet came round
+				// was a coin toss: the wrong way took it back inside the turn in and round the circuit
+				// again. Two radii past the centre line, the turn goes towards the runway.
+				Real farSide = (across >= 0.0f) ? -2.0f * radius : 2.0f * radius;
+				goal.x -= uy * farSide;
+				goal.y += ux * farSide;
+			}
 
 			if (along >= 0.0f)
 			{
@@ -1147,12 +1208,11 @@ private:
 		}
 		else
 		{
-			// the circuit: out along the side of the runway the jet is heading for, two radii off the
-			// centre line, to where the turn in starts
-			Real sideways = across + 2.0f * radius * Sin(offLine);
-			Real side = (sideways >= 0.0f) ? 2.0f * radius : -2.0f * radius;
-			goal.x = touch.x - ux * turnIn - uy * side;
-			goal.y = touch.y - uy * turnIn + ux * side;
+			// The circuit. Its glide is measured as if the final started at turnIn: a circuit run further
+			// out is room to come down, and a glide over the longer way held a high jet level all the way
+			// out, so it turned in as high as it came.
+			goal.x = touch.x - ux * turnOut - uy * side;
+			goal.y = touch.y - uy * turnOut + ux * side;
 			Real toTurn = sqrt(sqr(goal.x - pos->x) + sqr(goal.y - pos->y));
 			glide = JetRunway_slopeHeight(toTurn + PI * radius + turnIn - lead, BIGNUM, JET_GLIDE_SLOPE, JET_FLARE_DIST);
 		}
@@ -1194,6 +1254,7 @@ public:
 
 		jetAI->friend_setTakeoffInProgress(false);
 		jetAI->friend_setLandingInProgress(false);
+		jetAI->friend_setOnFinal(false);
 		jetAI->friend_enableAfterburners(false);
 
 		// Paranoia checks - sometimes onExit is called when we are 
@@ -1373,8 +1434,8 @@ public:
 		{
 			Real dist = sqrtf(dSqr);
 			if (dist<1) dist = 1;
-			pos.x += PATHFIND_CELL_SIZE_F*dx/(dist*LOGICFRAMES_PER_SECOND);
-			pos.y += PATHFIND_CELL_SIZE_F*dy/(dist*LOGICFRAMES_PER_SECOND);
+			pos.x += PATHFIND_CELL_SIZE_F*dx/(dist*LOGICFRAMES_PER_GAME_SECOND);
+			pos.y += PATHFIND_CELL_SIZE_F*dy/(dist*LOGICFRAMES_PER_GAME_SECOND);
 			jet->setPosition(&pos);
 		}
 #else
@@ -1984,17 +2045,17 @@ JetAIUpdateModuleData::JetAIUpdateModuleData()
 	m_minHeight = 0.0f;
 	m_parkingOffset = 0.0f;
 	m_sneakyOffsetWhenAttacking = 0.0f;
-	m_takeoffPause = 0;
+	m_takeoffPause.setRaw( 0 );
 	m_attackingLoco = LOCOMOTORSET_NORMAL;
 	m_returningLoco = LOCOMOTORSET_NORMAL;
-	m_attackLocoPersistTime = 0;
-	m_attackersMissPersistTime = 0;
-	m_lockonTime = 0;
+	m_attackLocoPersistTime.setRaw( 0 );
+	m_attackersMissPersistTime.setRaw( 0 );
+	m_lockonTime.setRaw( 0 );
 	m_lockonCursor.clear();
 	m_lockonInitialDist = 100;
-	m_lockonFreq = ConvertRetailPerFrameRate(0.5f);
+	m_lockonFreq.setRaw( 0.5f );
 	m_lockonAngleSpin = 720;
-	m_returnToBaseIdleTime = 0;
+	m_returnToBaseIdleTime.setRaw( 0 );
 	m_kamikazeRange = 0.0f;
 }
 
@@ -2009,22 +2070,22 @@ JetAIUpdateModuleData::JetAIUpdateModuleData()
 		{ "NeedsRunway",									INI::parseBool, NULL, offsetof( JetAIUpdateModuleData, m_needsRunway ) },
 		{ "KeepsParkingSpaceWhenAirborne",INI::parseBool, NULL, offsetof( JetAIUpdateModuleData, m_keepsParkingSpaceWhenAirborne ) },
 		{ "TakeoffDistForMaxLift",				INI::parsePercentToReal, NULL, offsetof( JetAIUpdateModuleData, m_takeoffDistForMaxLift ) },
-		{ "TakeoffPause",									INI::parseDurationUnsignedInt, NULL, offsetof( JetAIUpdateModuleData, m_takeoffPause ) },
+		{ "TakeoffPause",									SPEED_FIELD( JetAIUpdateModuleData, m_takeoffPause ) },
 		{ "MinHeight",										INI::parseReal, NULL, offsetof( JetAIUpdateModuleData, m_minHeight ) },
 		{ "ParkingOffset",								INI::parseReal, NULL, offsetof( JetAIUpdateModuleData, m_parkingOffset ) },
 		{ "SneakyOffsetWhenAttacking",		INI::parseReal, NULL, offsetof( JetAIUpdateModuleData, m_sneakyOffsetWhenAttacking ) },
 		{ "AttackLocomotorType",					INI::parseIndexList, TheLocomotorSetNames, offsetof( JetAIUpdateModuleData, m_attackingLoco ) },
-		{ "AttackLocomotorPersistTime",		INI::parseDurationUnsignedInt, NULL, offsetof( JetAIUpdateModuleData, m_attackLocoPersistTime ) },
-		{ "AttackersMissPersistTime",			INI::parseDurationUnsignedInt, NULL, offsetof( JetAIUpdateModuleData, m_attackersMissPersistTime ) },
+		{ "AttackLocomotorPersistTime",		SPEED_FIELD( JetAIUpdateModuleData, m_attackLocoPersistTime ) },
+		{ "AttackersMissPersistTime",			SPEED_FIELD( JetAIUpdateModuleData, m_attackersMissPersistTime ) },
 		{ "ReturnForAmmoLocomotorType",		INI::parseIndexList, TheLocomotorSetNames, offsetof( JetAIUpdateModuleData, m_returningLoco ) },
-		{ "LockonTime",										INI::parseDurationUnsignedInt, NULL, offsetof( JetAIUpdateModuleData, m_lockonTime ) },
+		{ "LockonTime",										SPEED_FIELD( JetAIUpdateModuleData, m_lockonTime ) },
 		{ "LockonCursor",									INI::parseAsciiString, NULL, offsetof( JetAIUpdateModuleData, m_lockonCursor ) },
 		{ "LockonInitialDist",						INI::parseReal, NULL, offsetof( JetAIUpdateModuleData, m_lockonInitialDist ) },
 		// ticks scale with frames squared over LockonTime, so per frame it halves
-		{ "LockonFreq",										INI::parseRetailPerFrameReal, NULL, offsetof( JetAIUpdateModuleData, m_lockonFreq ) },
+		{ "LockonFreq",										SPEED_FIELD( JetAIUpdateModuleData, m_lockonFreq ) },
 		{ "LockonAngleSpin",							INI::parseAngleReal, NULL, offsetof( JetAIUpdateModuleData, m_lockonAngleSpin ) },
 		{ "LockonBlinky",									INI::parseBool, NULL, offsetof( JetAIUpdateModuleData, m_lockonBlinky ) },
-		{ "ReturnToBaseIdleTime",					INI::parseDurationUnsignedInt, NULL, offsetof( JetAIUpdateModuleData, m_returnToBaseIdleTime ) },
+		{ "ReturnToBaseIdleTime",					SPEED_FIELD( JetAIUpdateModuleData, m_returnToBaseIdleTime ) },
 		{ "KamikazeRange",								INI::parseReal, NULL, offsetof( JetAIUpdateModuleData, m_kamikazeRange ) },
 		{ 0, 0, 0, 0 }
 	};

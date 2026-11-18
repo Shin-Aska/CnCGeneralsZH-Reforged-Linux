@@ -1131,7 +1131,10 @@ void W3DDisplay::init( void )
 		SortingRendererClass::SetMinVertexBufferSize(1);
 	}
 	if (WW3D::Init( ApplicationHWnd ) != WW3D_ERROR_OK)
+	{
+		DEBUG_LOG(("W3DDisplay::init - Direct3D did not start: %s\n", DX8Wrapper::Get_Device_Failures()));
 		throw ERROR_INVALID_D3D;	//failed to initialize.  User probably doesn't have DX 8.1
+	}
 
 	// The sorting pool's depth pass and batch copy split across the job pool.  WW3D2 cannot see it,
 	// so it is handed over here; parallel_for runs inline when the pool has no workers.
@@ -1240,6 +1243,11 @@ void W3DDisplay::init( void )
 																 getWindowed(), 
 																 true ) != WW3D_ERROR_OK ) 
 		{
+			// WW3D2 logs nothing in a shipping build, so this line is all a crash report has to go on.
+			DEBUG_LOG(("W3DDisplay::init - no render device at %dx%d: %u adapters, %d usable; %s\n",
+								 getWidth(), getHeight(),
+								 DX8Wrapper::_Get_D3D() ? DX8Wrapper::_Get_D3D()->GetAdapterCount() : 0u,
+								 WW3D::Get_Render_Device_Count(), DX8Wrapper::Get_Device_Failures()));
 
 			WW3D::Shutdown();
 			WWMath::Shutdown();
@@ -2244,8 +2252,10 @@ extern UnsignedInt TheSceneDrawCalls;
 //   smoothMotionRestore  after the render loop: the logic transforms go back before picking and the logic
 // A tick reads live bones (ParticleUplinkCannonUpdate), so it never runs beside a blend: a picture that holds
 // one keeps its tick serial.  A picture with a tick beside it shows the state before that tick, which was due
-// when it was handed over, so it is a whole tick behind and blends nothing anyway; the pictures drawn again
-// beside it (phase 4) show the logic transforms as they stand.
+// when it was handed over, so it is a whole tick behind and blends nothing anyway.  A picture drawn again
+// beside it (phase 4) could only show that same state, since the next one is still being made, so while the
+// blend is on and the present waits for the refresh the window closes instead (drawAgainBesideTick): the
+// next pass's picture then blends toward the new tick on the refresh the held copy would have taken.
 //=============================================================================
 bool TheSmoothMotionActive = false;
 float TheSmoothMotionAlpha = 1.0f;
@@ -2342,8 +2352,9 @@ static Bool displayOutpacesLogic()
 
 /* With ZH_SMOOTH_MOTION_STATS, how evenly the picture's game time follows the wall clock: per window of 120
 	 pictures, the spread of shown game time about the straight line through it against the wall clock, with
-	 each tick's state held until the next (frame ticks) and blended (frame - 1 + fraction ticks).  A 60 Hz
-	 state held on a faster screen spreads a tick over the square root of 12, 4.8 ms.  The line, and not
+	 each tick's state held until the next (frame ticks) and blended (frame - 1 + fraction ticks).  A held
+	 state on a faster screen spreads a tick over the square root of 12 (4.8 ms at 60 ticks a second, 9.6 at
+	 30).  The line, and not
 	 the wall clock itself, so a game the catch-up cap holds below full speed still measures; a gap over
 	 100 ms (the load, a pause, a hitch) starts the window again. */
 static void notePacing(UnsignedInt frame)
@@ -2395,7 +2406,7 @@ static void notePacing(UnsignedInt frame)
 
 static void smoothMotionBegin()
 {
-	// on a display faster than the logic, unless -nosmoothmotion says no, at every -logicthread setting;
+	// on a display faster than the logic, unless -nosmoothmotion says no, beside a tick or not;
 	// -recordfps's pictures between two logic frames always blend, from the frame before the first so that
 	// one is captured
 	const Bool video = GameEngine_videoBlends();
@@ -2498,6 +2509,26 @@ static void smoothMotionDrawAgain()
 		++s_smoothPasses;
 }
 
+/* Phase 4 asks whether to draw again while the tick runs on.  A picture drawn again holds the last tick's
+	 state, and with a present that waits for the refresh it holds it for a whole refresh.  While the blend is
+	 on, the pass that follows the tick shows a state between the last two ticks instead, so the window
+	 closes and waits for the tick.  On a display no faster than the logic the blend is off and nothing
+	 changes; nor does it without vsync, where the held copy costs no refresh of its own. */
+static Bool drawAgainBesideTick( LogicThread::OverlapWindow &window, Real pictureMS )
+{
+#if defined(_WIN32)
+	const Bool presentWaitsForRefresh = TheGlobalData->m_vsync;
+#else
+	const Bool presentWaitsForRefresh = TRUE;	// the SDL GPU swapchain's VSYNC, whatever was asked for
+#endif
+	if (TheSmoothMotionActive && presentWaitsForRefresh && !GameEngine_videoBlends())
+	{
+		window.close();
+		return FALSE;
+	}
+	return window.closeOrDrawAgain( pictureMS );
+}
+
 static void smoothMotionRestore()
 {
 	if (!s_smoothApplied)
@@ -2559,6 +2590,7 @@ static void takeReadsForRender( Bool renders )
 	// clock, each drawable's look (after the views' update eased its fades) and the players the control
 	// bar's painters ask
 	TheGameClient->takeFrameForDraw();
+	Drawable_flashOrderTargets();		// before the looks are taken, so a flash shows in this picture
 	for( Drawable *draw = TheGameClient->firstDrawable(); draw; draw = draw->getNextDrawable() )
 	{
 		// flushes the conditions the client set; inside the window the scene's dirty walk is a no-op
@@ -2568,6 +2600,8 @@ static void takeReadsForRender( Bool renders )
 	W3DControlBar_takeReadsForRender();
 	if( !renders || TheGlobalData->m_breakTheMovie || TheGlobalData->m_disableRender )
 		return;
+	// the mobs' members for their health bars and selection rings, at the positions they are shown
+	Drawable_takeMobsForRender( TheSmoothMotionActive && TheSmoothMotionAlpha < 1.0f, TheSmoothMotionAlpha );
 	for( View *view = TheDisplay->getFirstView(); view; view = TheDisplay->getNextView( view ) )
 		static_cast<W3DView *>( view )->recordPostDraw();
 	TheInGameUI->recordDraw();
@@ -2619,6 +2653,10 @@ void W3DDisplay::draw( void )
 #endif
 	USE_PERF_TIMER(W3DDisplay_draw)
 	static UnsignedInt syncTime = 0;
+
+	// the load screen and the end-of-load fade draw from inside the map-load tick, outside the engine's
+	// client scope: a height asked of a logic object here is measured, never stored (Thing::CachePeek)
+	Thing::CachePeek drawReadsLeaveNoCache;
 
 	extern RenderWindow ApplicationHWnd;	// WinMain's HWND on Windows
 #if defined(_WIN32)	// off Windows a minimised window is C2's to report
@@ -2787,9 +2825,24 @@ AGAIN:
 		if (cameraRetailFrame != lastCameraRetailFrame)
 		{
 			lastCameraRetailFrame = cameraRetailFrame;
-			primaryW3DView->updateCameraMovements();  // Update camera motion effects.
+			// a retail frame of game time is GAME_SPEED_PERCENT / 100 steps, the script's timers' clock
+			static Int cameraStepHundredths = 0;
+			cameraStepHundredths += GAME_SPEED_PERCENT;
+			while (cameraStepHundredths >= 100)
+			{
+				cameraStepHundredths -= 100;
+				primaryW3DView->updateCameraMovements();  // Update camera motion effects.
+			}
 		}
-		syncTime += TheW3DFrameLengthInMsec;
+		// a tick's length is no whole number of milliseconds at every rate (33.3 at 30), so the remainder
+		// is carried rather than dropped
+		static Real fastRemainderMs = 0.0f;
+		fastRemainderMs += TheW3DFrameLengthInMsec * ( (Real)GAME_SPEED_PERCENT / 100.0f );	// a tick of game time, as below
+		const UnsignedInt fastStepMs = (UnsignedInt)fastRemainderMs;
+		fastRemainderMs -= (Real)fastStepMs;
+		syncTime += fastStepMs;
+		// the camera was stepped here, outside W3DView::update: its scripted clock must not pay this time again
+		W3DView::resyncScriptedClock();
 		return;
 	}
 
@@ -2842,30 +2895,45 @@ AGAIN:
 		UnsignedInt deltaMs = nowSyncMs - prevSyncMs;
 		prevSyncMs = nowSyncMs;
 		// a level load must not fast-forward everything; four retail frames, as it was at 30
-		const UnsignedInt MAX_SYNC_STEP_MS = TheW3DFrameLengthInMsec * 4 * LOGICFRAMES_PER_RETAIL_FRAME;
+		const UnsignedInt MAX_SYNC_STEP_MS = 4 * MSEC_PER_SECOND / RETAIL_LOGICFRAMES_PER_SECOND;
 		if (deltaMs > MAX_SYNC_STEP_MS)
 			deltaMs = MAX_SYNC_STEP_MS;
-		// a cinematic that slowed the game slows the animations with it, or soldiers march on the spot
+		// the pacer's rate over the native tick moves the animations with it both ways: a cinematic that
+		// slowed the game slows them, or soldiers march on the spot, and a game or replay played faster
+		// than native (200 percent, a replay's speed keys) speeds them up, or they skate.  The step is
+		// capped again after the scaling, so one hitch at a high rate cannot jump the clock
 		const Real missionRate = GameEngine_missionTimeRate();
-		if (missionRate < 1.0f)
+		if (missionRate != 1.0f)
 		{
 			static Real slowedMs = 0.0f;
 			slowedMs += deltaMs * missionRate;
 			deltaMs = (UnsignedInt)slowedMs;
 			slowedMs -= deltaMs;
+			if (deltaMs > MAX_SYNC_STEP_MS)
+				deltaMs = MAX_SYNC_STEP_MS;
 		}
 		// a recorded picture is its share of a logic frame however long it took to draw and save, so the
 		// clock moves that much too, or the footage plays every animation fast.  Read off the pictures'
-		// own clock rather than added up: a 60 Hz frame is not a whole number of milliseconds, and
-		// TheW3DFrameLengthInMsec's 16 played the footage 4% slow
+		// own clock rather than added up: a logic frame is not always a whole number of milliseconds, and
+		// a tick length cut to whole milliseconds (16 at 60) played the footage 4% slow
 		if (videoRecordingFrame())
 		{
 			static UnsignedInt prevPictureMs = 0;
 			const UnsignedInt pictureMs = GameEngine_pictureMilliseconds();
 			deltaMs = pictureMs - prevPictureMs;
 			if (pictureMs < prevPictureMs || deltaMs > MAX_SYNC_STEP_MS)
-				deltaMs = TheW3DFrameLengthInMsec / GameEngine_videoPictures();	// the first recorded picture
+				deltaMs = (UnsignedInt)( TheW3DFrameLengthInMsec / (Real)GameEngine_videoPictures() );	// the first recorded picture
 			prevPictureMs = pictureMs;
+		}
+		// the game speed: a unit covers GAME_SPEED_PERCENT of a wall second's game time each wall second,
+		// so its walk cycle, every flipbook and every W3D effect runs that much faster too, or soldiers skate.
+		// The animation durations set from logic frames are game milliseconds for the same reason
+		if (GAME_SPEED_PERCENT != 100)
+		{
+			static Real spedMs = 0.0f;
+			spedMs += deltaMs * ( (Real)GAME_SPEED_PERCENT / 100.0f );
+			deltaMs = (UnsignedInt)spedMs;
+			spedMs -= deltaMs;
 		}
 
 		syncTime += deltaMs;
@@ -3057,6 +3125,9 @@ AGAIN:
 					TheInGameUI->draw();
 					if( TheMouse )
 						TheMouse->draw();	//keep applying the current cursor style so it remains hidden if needed.
+					// the load screen's frames end here, and the console has to draw over them too
+					if( TheGameConsole )
+						TheGameConsole->render();
 					WW3D::End_Render();
 					overlapWindow.close();
 					drawAgain = FALSE;
@@ -3280,7 +3351,7 @@ AGAIN:
 		if (tOverlapStart)
 			TheOverlapWindowMS += w3dElapsedMS( tOverlapStart, Clock_Ticks() );
 #endif
-		drawAgain = overlapWindow.closeOrDrawAgain(
+		drawAgain = drawAgainBesideTick( overlapWindow,
 			(Real)( (double)( Clock_Ticks() - pictureStart ) * 1000.0 / (double)Clock_Ticks_Per_Second() ) );
 		if (drawAgain)
 		{
@@ -3410,6 +3481,11 @@ void W3DDisplay::createLightPulse( const Coord3D *pos, const RGBColor *color,
 	//theDynamicLight->setDonut(donut);
 	// (gth) CNC3 enable far attenuation.  C&C3 defaults to disabled.  Must enable to match Generals. MW 8-06-03
 	theDynamicLight->Set_Flag(LightClass::FAR_ATTENUATION,true);
+}
+
+void W3DDisplay::waitForFrameQueue( void )
+{
+	Direct3D11_Wait_For_Frame();
 }
 
 void W3DDisplay::stepDynamicLights( void )
@@ -4648,8 +4724,8 @@ static void saveScreenShot(void)
 // -video <from> <to> [name]: one picture per logic frame across the range, piped raw into ffmpeg for
 // Videos\<name>.mp4 (numbered .bmp files under Videos\<name>\ where there is no ffmpeg).  GameEngine runs
 // one logic frame a pass over the range, so a picture is a logic frame and a second of video is
-// LOGICFRAMES_PER_SECOND of them.  -recordfps 60 draws each frame twice before the next one runs, and
-// a second is twice as many pictures; a picture is numbered by its logic frame times the pictures a
+// LOGICFRAMES_PER_SECOND of them.  -recordfps at twice the logic's rate draws each frame twice before the
+// next one runs, and a second is twice as many pictures; a picture is numbered by its logic frame times the pictures a
 // frame plus which of them it is.
 //=============================================================================
 static const char VIDEO_FRAME_PATTERN[] = "frame%06d.bmp";

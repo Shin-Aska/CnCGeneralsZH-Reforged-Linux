@@ -167,6 +167,8 @@ public:
 	StateReturnType setTemporaryState( StateID newStateID, Int frameLimitCoount );			///< change the temporary state of the machine, and number of frames limit.
 	StateID getTemporaryState(void) const {return m_temporaryState?m_temporaryState->getID():INVALID_STATE_ID;}
 
+	Bool attackMoveScansThisFrame( UnsignedInt now );		///< will AIAttackMoveToState look for a target in this frame's update?
+
 public:	// overrides.
 	virtual StateReturnType updateStateMachine();				///< run one step of the machine
 #ifdef STATE_MACHINE_DEBUG
@@ -403,22 +405,25 @@ class AIMoveAndTightenState : public AIInternalMoveToState
 {
 	MEMORY_POOL_GLUE_WITH_USERLOOKUP_CREATE(AIMoveAndTightenState, "AIMoveAndTightenState")		
 public:
-	AIMoveAndTightenState( StateMachine *machine ) : AIInternalMoveToState( machine, "AIMoveAndTightenState" ) 
+	AIMoveAndTightenState( StateMachine *machine ) : AIInternalMoveToState( machine, "AIMoveAndTightenState" )
 	{
 		m_checkForPath = false;
 		m_okToRepathTimes = 0;
+		m_stuckDist = 0.0f;
 	}
-	AIMoveAndTightenState( StateMachine *machine, const char *name ) : AIInternalMoveToState( machine, name ) 
+	AIMoveAndTightenState( StateMachine *machine, const char *name ) : AIInternalMoveToState( machine, name )
 	{
 		m_checkForPath = false;
 		m_okToRepathTimes = 0;
+		m_stuckDist = 0.0f;
 	}
 	virtual StateReturnType onEnter();
 	virtual StateReturnType update();
 protected:
 	virtual Bool computePath();												///< compute the path
-	Int m_okToRepathTimes; 
+	Int m_okToRepathTimes;
 	Bool m_checkForPath;
+	Real m_stuckDist;			///< distance to the goal the last time a player's tighten was held up (0 = not yet)
 protected:
 	// snapshot interface
 	virtual void crc( Xfer *xfer );
@@ -583,6 +588,7 @@ public:
 	//virtual ~AIAttackMoveToState();
 
 	virtual Bool isAttack() const { return m_attackMoveMachine ? m_attackMoveMachine->isInAttackState() : FALSE; }
+	Bool scansThisFrame( UnsignedInt now ) const { return m_attackMoveMachine->isInIdleState() && now >= m_frameToScanOn; }
 	virtual StateReturnType onEnter();
 	virtual void onExit( StateExitType status );
 	virtual StateReturnType update();
@@ -595,15 +601,19 @@ protected:
 
 	enum {ATTACK_RETRY_COUNT=5};
 	enum {ATTACK_CLOSE_ENOUGH_CELLS=8};
-	enum {ATTACK_MOVE_SCAN_RATE=LOGICFRAMES_PER_SECOND/3};						///< frames between target scans (the idle mood clock is seconds apart)
+	#define ATTACK_MOVE_SCAN_RATE ((Int)(LOGICFRAMES_PER_GAME_SECOND/3))						///< frames between target scans (the idle mood clock is seconds apart)
 	enum {ATTACK_MOVE_LEASH_CELLS=12};					///< how far a victim may pull us off the attack move
-	enum {ATTACK_MOVE_DUD_ENGAGE_FRAMES=LOGICFRAMES_PER_SECOND/2};		///< a fight shorter than this, with the victim still alive, never started
-	enum {ATTACK_MOVE_REACQUIRE_DELAY=LOGICFRAMES_PER_SECOND};			///< frames of pure movement after a dud fight or a broken leash
-	enum {ATTACK_MOVE_RETALIATE_FRAMES=LOGICFRAMES_PER_SECOND};			///< how recently we must have been hit to turn on whoever hit us
+	#define ATTACK_MOVE_DUD_ENGAGE_FRAMES ((Int)(LOGICFRAMES_PER_GAME_SECOND/2))		///< a fight shorter than this, with the victim still alive, never started
+	#define ATTACK_MOVE_REACQUIRE_DELAY ((Int)(LOGICFRAMES_PER_GAME_SECOND))			///< frames of pure movement after a dud fight or a broken leash
+	#define ATTACK_MOVE_RETALIATE_FRAMES ((Int)(LOGICFRAMES_PER_GAME_SECOND))			///< how recently we must have been hit to turn on whoever hit us
 
 	void startEngaging( Object *victim, Bool allowChase );	///< stop here and hand the victim to the attack sub-machine
 	void stopEngaging( void );									///< the fight is over; put back what startEngaging changed
 	Bool hasLeftTheLeash( void );								///< has the victim dragged us too far off the attack move?
+	Bool ridersLeftNothingToFight( void );			///< put riders who fire out of us on the victim; TRUE when nobody can hurt it
+	Bool isUntouchable( const Object *obj ) const;	///< one of m_untouchableIDs?
+	void markUntouchable( ObjectID id );				///< remember id, dropping the oldest when full
+	void clearUntouchables( void );
 	Object *findRetaliationTarget( void );			///< whoever is shooting us right now, if we can shoot back
 	Bool canHitFromHere( const Object *victim );	///< can we shoot it without moving an inch?
 	Bool mayEngageYet( void );									///< has the required progress toward the goal been made?
@@ -613,8 +623,11 @@ protected:
 	StateMachine *m_attackMoveMachine;
 	UnsignedInt		m_frameToSleepUntil;
 	Int						m_retryCount;
+	Real					m_retryDist;					///< how far off the goal a player's order last stopped short (0 = not yet)
 	Coord3D				m_engageOrigin;				///< where we stood when we picked the current victim
 	ObjectID			m_victimID;						///< who we picked
+	enum { ATTACK_MOVE_UNTOUCHABLE_SLOTS = 4 };
+	ObjectID			m_untouchableIDs[ATTACK_MOVE_UNTOUCHABLE_SLOTS];	///< victims nobody aboard could hurt from where we stood, newest first; not taken again this order
 	UnsignedInt		m_engageStartFrame;		///< when we picked it
 	UnsignedInt		m_frameToScanOn;			///< next frame we may look for a target
 	UnsignedInt		m_frameToApproachOn;	///< until this frame we only take targets we can already shoot
@@ -1043,8 +1056,10 @@ protected:
 private:
 
 	Bool chooseWeapon();
+	Bool carryOnThroughMob();				///< the victim died: take the nearest of its mob still standing, if it had a mob
 
 	AttackStateMachine*							m_attackMachine;						///< state sub-machine for attack behavior
+	ObjectID												m_victimNexusID;						///< the mob nexus the victim belongs to, INVALID_ID for a victim on its own
 	AttackExitConditionsInterface*	m_attackParameters;					///< these are not owned by this, and will not be deleted on destruction
 	Team*														m_victimTeam;								///< recorded onEnter because if it changes during attack , it may no longer be a valid target.
 	Coord3D													m_originalVictimPos;				///< position of first obj/pos attacked... used for ContinueAttackRange.
@@ -1304,7 +1319,7 @@ protected:
 private:
 	StateMachine* m_huntMachine;					///< state sub-machine for hunt behavior
 	UnsignedInt m_nextEnemyScanTime;			///< time of last enemy scan
-	enum { ENEMY_SCAN_RATE = LOGICFRAMES_PER_SECOND };
+	#define ENEMY_SCAN_RATE ((Int)(LOGICFRAMES_PER_GAME_SECOND))
 };
 
 //-----------------------------------------------------------------------------------------------------------
@@ -1335,7 +1350,7 @@ protected:
 private:
 	StateMachine *m_attackMachine;					///< state sub-machine for attack behavior
 	UnsignedInt m_nextEnemyScanTime;			///< time of last enemy scan
-	enum { ENEMY_SCAN_RATE = LOGICFRAMES_PER_SECOND };
+	#define ENEMY_SCAN_RATE ((Int)(LOGICFRAMES_PER_GAME_SECOND))
 };
 
 //-----------------------------------------------------------------------------------------------------------

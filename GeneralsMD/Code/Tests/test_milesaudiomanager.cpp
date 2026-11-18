@@ -116,6 +116,26 @@ void linkArchives( const std::string &from, const std::string &to )
 		symlink( (from + "/" + names[i]).c_str(), (to + "/" + names[i]).c_str() );
 }
 
+// Loose Reforged sounds accompany VoiceReforged.ini. Only links to files are placed in
+// real private directories, so fixture setup and cleanup never traverse the source tree.
+void linkAudioFiles( const std::string &from, const std::string &to )
+{
+	mkdir( to.c_str(), 0777 );
+	if (DIR *dir = opendir( from.c_str() ))
+	{
+		while (struct dirent *entry = readdir( dir ))
+		{
+			if (entry->d_name[0] == '.') continue;
+			const std::string source = from + "/" + entry->d_name;
+			struct stat info;
+			if (stat( source.c_str(), &info ) == 0 && S_ISREG( info.st_mode ))
+				symlink( source.c_str(), (to + "/" + entry->d_name).c_str() );
+		}
+		closedir( dir );
+	}
+	chmod( to.c_str(), 0555 );
+}
+
 /* The install's archives, read only, as the working directory: the root's, Data\INI's stray INIZH.big,
 	 and the base game's as ZH_Generals - test_bigfilesystem's farm. */
 void mountTheInstall( void )
@@ -139,9 +159,15 @@ void mountTheInstall( void )
 	linkArchives( std::string( data ) + "/zerohour", farm );
 	mkdir( (farm + "/Data").c_str(), 0777 );
 	linkArchives( std::string( data ) + "/zerohour/Data/INI", farm + "/Data/INI" );
-	// AudioManager also loads the fork's campaign speech definitions, absent from retail archives.
+	// AudioManager also requires the campaign speech and unit voice definitions, absent from retail archives.
 	symlink( (std::string(ZH_CODE_DIR) + "/Data/INI/SpeechReforged.ini").c_str(),
 		(farm + "/Data/INI/SpeechReforged.ini").c_str() );
+	symlink( (std::string(ZH_CODE_DIR) + "/Data/INI/VoiceReforged.ini").c_str(),
+		(farm + "/Data/INI/VoiceReforged.ini").c_str() );
+	mkdir( (farm + "/Data/Audio").c_str(), 0777 );
+	linkAudioFiles( std::string(ZH_CODE_DIR) + "/Data/Audio/Sounds", farm + "/Data/Audio/Sounds" );
+	linkAudioFiles( std::string(ZH_CODE_DIR) + "/Data/Audio/Speech", farm + "/Data/Audio/Speech" );
+	chmod( (farm + "/Data/Audio").c_str(), 0555 );
 	linkArchives( std::string( data ) + "/generals", farm + "/ZH_Generals" );
 	chmod( (farm + "/ZH_Generals").c_str(), 0555 );
 	chmod( (farm + "/Data/INI").c_str(), 0555 );

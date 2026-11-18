@@ -519,7 +519,7 @@ StateReturnType DozerActionDoActionState::update( void )
 		return STATE_FAILURE;
 	}
 	// DozerAIUpdate *dozerAI = static_cast<DozerAIUpdate *>(dozer->getAIUpdateInterface());
-//	const UnsignedInt ACTION_TIME = LOGICFRAMES_PER_SECOND * 4 ; // frames to spend here in this state doing the action
+//	const UnsignedInt ACTION_TIME = LOGICFRAMES_PER_GAME_SECOND * 4 ; // frames to spend here in this state doing the action
 
 	// check for object gone
 	if( goalObject == NULL )
@@ -780,7 +780,7 @@ StateReturnType DozerActionDoActionState::update( void )
 
 					// figure out how much health we will restore this frame
 					Real health = body->getMaxHealth() * dozerAI->getRepairHealthPerSecond() /
-												LOGICFRAMES_PER_SECOND;
+												LOGICFRAMES_PER_GAME_SECOND;
 
 					// try to give it a little bit-o-health
 					if ( ! goalObject->attemptHealingFromSoleBenefactor(health, dozer, 2) )//this frame and the next
@@ -845,8 +845,9 @@ StateReturnType DozerActionDoActionState::update( void )
 
 	}  // end if
 
-	// just continue sitting here for a while
-	getMachineOwner()->clearWeaponSetFlag(WEAPONSET_MINE_CLEARING_DETAIL);// no mine clearing fun while I'm on the job
+	// just continue sitting here for a while (cleared once: see WorkerAIUpdate::update)
+	if( getMachineOwner()->testWeaponSetFlag(WEAPONSET_MINE_CLEARING_DETAIL) )
+		getMachineOwner()->clearWeaponSetFlag(WEAPONSET_MINE_CLEARING_DETAIL);// no mine clearing fun while I'm on the job
 
 	return STATE_CONTINUE;
 
@@ -1266,10 +1267,10 @@ StateReturnType DozerPrimaryIdleState::update( void )
 	// grace lets a follow-up order from the player win; the scan itself runs once a second.
 	//
 	if( ai->isIdle() && dozerAI->isAnyTaskPending() == FALSE &&
-			TheGameLogic->getFrame() - m_idleTooLongTimestamp > LOGICFRAMES_PER_SECOND &&
+			TheGameLogic->getFrame() - m_idleTooLongTimestamp > LOGICFRAMES_PER_GAME_SECOND &&
 			TheGameLogic->getFrame() >= m_nextUnfinishedScanFrame )
 	{
-		m_nextUnfinishedScanFrame = TheGameLogic->getFrame() + LOGICFRAMES_PER_SECOND;
+		m_nextUnfinishedScanFrame = TheGameLogic->getFrame() + LOGICFRAMES_PER_GAME_SECOND;
 		Object *unfinished = findUnfinishedStructureToContinue( dozer );
 		if( unfinished )
 		{
@@ -1592,7 +1593,7 @@ DozerAIUpdateModuleData::DozerAIUpdateModuleData( void )
 {
 
 	m_repairHealthPercentPerSecond = 0.0f;
-	m_boredTime = 0.0f;
+	m_boredTime.setRaw( 0.0f );
 	m_boredRange = 0.0f;
 
 }  // end DozerAIUpdateModuleData
@@ -1605,7 +1606,7 @@ void DozerAIUpdateModuleData::buildFieldParse( MultiIniFieldParse& p)
 	static const FieldParse dataFieldParse[] = 
 	{
 		{ "RepairHealthPercentPerSecond",	INI::parsePercentToReal,	NULL, offsetof( DozerAIUpdateModuleData, m_repairHealthPercentPerSecond ) },
-		{ "BoredTime",										INI::parseDurationReal,		NULL, offsetof( DozerAIUpdateModuleData, m_boredTime ) },
+		{ "BoredTime",										SPEED_FIELD( DozerAIUpdateModuleData, m_boredTime ) },
 		{ "BoredRange",										INI::parseReal,						NULL, offsetof( DozerAIUpdateModuleData, m_boredRange ) },
 		{ 0, 0, 0, 0 }
 	};
@@ -1803,7 +1804,7 @@ UpdateSleepTime DozerAIUpdate::update( void )
 			cancelTask( currentTask );
 
 	}  // end if
-	else
+	else if( !getObject()->testWeaponSetFlag(WEAPONSET_MINE_CLEARING_DETAIL) )	// set once: see WorkerAIUpdate::update
 		getObject()->setWeaponSetFlag(WEAPONSET_MINE_CLEARING_DETAIL);//maybe go clear some mines, if I feel like it
 
 	// run our own state machine, once we are out of the structure that built us: a job taken up on the

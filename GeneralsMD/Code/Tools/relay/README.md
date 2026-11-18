@@ -29,21 +29,50 @@ counter line:
 
 ```
 2026-11-06T08:50:00.000Z join room=1a2b3c4d:5e6f7a8b vip=10.0.0.3 name="Tank Girl"
-2026-11-06T08:51:00.000Z stats sessions=4 in=5120p/880213B out=9877p/1702260B dropped=3p
-2026-11-06T08:52:10.000Z leave room=1a2b3c4d:5e6f7a8b vip=10.0.0.3 reason=idle
+2026-11-06T08:51:00.000Z stats sessions=4 in=5120p/880213B out=9877p/1702260B dropped=3p bad=0 hello=1 rate=0 nosession=2 endpoint=0 notarget=0 room=0 unverified=0 alone=14
+2026-11-06T08:52:10.000Z leave room=1a2b3c4d:5e6f7a8b vip=10.0.0.3 in=812p/90214B out=790p lastData=118020ms seen=120004ms drop.unverified=3 reason=idle
+2026-11-06T08:53:00.000Z room vip=10.0.0.5 from=match:4f1c to=acct:17 in=6911p/1201554B out=6890p lastData=40ms seen=40ms
+2026-11-06T08:53:00.000Z empty room=match:4f1c
 ```
 
 A leave says why: `idle` (120 seconds without a packet) or `version changed` (a HELLO carrying a
 known session with different CRCs) or `replaced` (the account logged in again). `setRoom` prints a
-`room vip=... from=... to=...` line. A two-player match moves about 290 KB a minute each way per
-player through it.
+`room vip=... from=... to=...` line. Both carry what the session did in the room it is leaving:
+`in` is every DATA that carried its id, packets and bytes, and `out` the DATA copies sent to it.
+`lastData` is the time since its last DATA was accepted, `never` if none was, and `seen` the time
+since anything came from it, so a client that only keeps its HELLO alive shows a small `seen`
+beside a large `lastData`. The counters start again from zero when `setRoom` moves the session.
+`empty` is printed when the last session leaves a room it was moved into; the rooms sessions open in
+(the CRC rooms, `acct:<id>`) empty without a line. A two-player match moves about 290 KB a minute
+each way per player through it.
+
+Every datagram that goes nowhere is counted under one cause, in the stats line and on the sessions
+involved. `drop.<cause>=n` on a leave or room line is the session as sender, `to.<cause>=n` as
+target, and only causes above zero are printed. The causes:
+
+| Cause | Sender | Target | What happened |
+|---|---|---|---|
+| `bad` | by endpoint | | wrong magic, an unknown type, too short or over 1400 bytes; a HELLO_AUTH with no `authorize` hook |
+| `hello` | | | a HELLO or HELLO_AUTH refused: other CRCs from a held endpoint, a move onto an endpoint another session holds, a bad ticket, a cap |
+| `rate` | yes | yes | over the source IP's bucket; every listener of a refused broadcast gets a `to.rate` |
+| `nosession` | by endpoint | | a session id the relay does not hold, such as the old id after a NAT move or a replace |
+| `endpoint` | yes | | a held id arriving from an endpoint that is not its own |
+| `notarget` | yes | | a unicast to an address nobody holds, or to the sender itself |
+| `room` | yes | yes | a unicast to a session in another room |
+| `unverified` | yes | yes | the target has not answered its WELCOME with its id yet; a broadcast that skips such a member counts `to.unverified` on it alone |
+| `alone` | yes | | a broadcast nobody in the room could take |
+
+"By endpoint" means the session holding the source address, when there is one. `dropped` sums every
+cause but `alone`: a player alone in a lobby broadcasts the whole time and that is not a fault.
+Inside a match room, though, `alone` and `to.unverified` are the two to read first.
 
 ## Wire format
 
 UDP, one message per datagram. Integers are big-endian. Every packet starts with the two bytes
 `Z` `R` (0x5A 0x52) and a type byte. No datagram may exceed 1400 bytes; larger ones are dropped,
 which leaves 1381 bytes of payload in a client's DATA. A session is 8 opaque bytes the relay picks
-at random; all zeros means none.
+at random; all zeros means none. The relay only hands out ids under 2^53 (53 random bits), so it
+keys its sessions by a plain number; to the client they are still 8 opaque bytes.
 
 HELLO, type 1, client to relay:
 
@@ -166,7 +195,9 @@ accounts.
 
 | Option | |
 |---|---|
-| `authorize(ticketHex)` | returns the account id for a ticket (32 hex digits), or `null`. Synchronous. A throw counts as `null` |
+| `authorize(ticketHex)` | returns the account id for a ticket (32 hex digits), `null`, or a promise of either. A throw or a rejection counts as `null`; HELLO_AUTH retries from that endpoint are ignored while a promise is out, so a ticket is still asked once |
+| `thread` | `true` runs the relay in a worker thread, below |
+| `process` | `true` runs it in a child process instead, below |
 | `onAuthorized(accountId, vip)` | a session opened for that account, with its virtual address |
 | `onLeave(accountId, atMs)` | an authorised session was removed: idle, replaced or a HELLO with other CRCs. `atMs` is when it was last heard from. One sweep reports in that order, so the first call is the player who went silent first |
 | `now()` | clock in ms, `Date.now` by default |
@@ -175,9 +206,42 @@ accounts.
 
 The returned object has `start(port, host)` (resolves to the bound port), `stop()` (no `onLeave`
 for what is still open), `setRoom(accountId, room)` (false when the account holds no session; the
-room cap does not apply, the caller is trusted), `vipOf(accountId)` (`null` when none), and for tests
-`sessions`, `buckets`, `sweep()` and `report()`. Account ids are used as map keys and in room names,
+room cap does not apply, the caller is trusted), `vipOf(accountId)` (`null` when none),
+`sessionStats(accountIdOrVip)` and for tests `sessions`, `buckets`, `sweep()` and `report()`.
+
+`sessionStats` looks the key up as an account first, then as a virtual address (the number, not the
+dotted string), and returns `null` when no session matches. Otherwise it returns the counters since
+the session entered its room: `{ vip, room, at, inP, inB, outP, lastDataMs, seenMs, drop, dropTo,
+last }`. `vip` is dotted, `at` is the clock at the call, `lastDataMs` is `null` before the first
+DATA, and `drop` and `dropTo` hold every cause in the table above. `last` is the same object, minus
+`last`, taken when `setRoom` last moved it, so after a match the counters for the match room are
+still there. It is `null` before the first move. A removed session has no stats, so a server
+stamping a match report reads them before the session goes idle or is replaced. Account ids are used as map keys and in room names,
 so pass strings or numbers, not objects.
+
+With `thread: true` the socket, the sessions and the forwarding run in a `worker_threads` worker, so
+a packet never waits behind the host's own work: a lobby tick, a TLS handshake, a collection of the
+host's heap. Nothing on the forwarding path crosses the thread boundary. The callbacks still run in
+the host: the worker asks `authorize` by message and holds that HELLO_AUTH until the answer comes, and
+`onAuthorized` and `onLeave` arrive in the order the worker called them. `vipOf` answers from a copy
+the host keeps from those two, `setRoom` is posted to the worker and answers from the same copy, and
+`report()` returns a promise that resolves once its stats line is logged. The worker uses the wall
+clock (`now` is not passed in), and `sessions`, `buckets`, `sweep()` and `sessionStats` are not
+offered. `stop()` resolves when the worker has exited; a worker that dies otherwise throws in the host,
+so a supervisor restarts both.
+
+`process: true` is the same contract with a child process (`child_process.fork` of this file) in
+place of the worker, and the returned object's `pid` is that child's. Messages cross as JSON, so
+account ids stay strings or numbers. The child exits when the host goes, killed or not, since it
+loses the IPC channel. A `setRoom` and the next DATA take different paths (the channel and the
+socket), so a caller that sends match traffic the instant it moves players awaits `report()` first;
+a server moving players at game start is long done before the first packet.
+
+A process is there for one core. A worker shares the host's scheduling priority on every system
+where a host cannot set one per thread, and on one core it then waits out the host's work as long as
+the inline relay does. A child has a priority of its own: a host that lowers itself below it (on Linux
+`os.setPriority` on each of its threads, since nice is per thread there; raising a nice value needs no
+privilege) has its work cut short by the scheduler whenever a datagram wakes the relay.
 
 ## Limits
 

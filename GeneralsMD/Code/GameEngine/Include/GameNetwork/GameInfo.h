@@ -32,6 +32,7 @@
 #ifndef __GAMEINFO_H__
 #define __GAMEINFO_H__
 
+#include "Common/GameCommon.h"	// PLAYER_GAME_SPEED_PERCENT_DEFAULT, ClampPlayerGameSpeedPercent
 #include "Common/Snapshot.h"
 #include "Common/Money.h"
 #include "GameNetwork/NetworkDefs.h"
@@ -155,6 +156,12 @@ public:
 	void setHandicap( Int handicap ) { m_handicap = handicap; }	///< percent of max health this seat's units have, see IsValidHandicap
 	Int getHandicap( void ) const { return m_handicap; }
 
+	void setAIRating( Int rating ) { m_aiRating = rating; }	///< an AI seat's rating off its rung's anchor (-airating), in hundredths; AI_RATING_NONE for the anchor
+	Int getAIRating( void ) const { return m_aiRating; }
+
+	void setSkins( UnsignedInt64 skins ) { m_skins = skins; }	///< the SkinLoadout this seat's units are drawn in; drawing only, the logic never reads it
+	UnsignedInt64 getSkins( void ) const { return m_skins; }
+
 	inline void setName( UnicodeString name ) { m_name = name; }
 	inline UnicodeString getName( void ) const { return m_name; }
 
@@ -206,6 +213,8 @@ protected:
 	Int m_teamNumber;																	///< alliance, -1 for none
 	Int m_aiPersonality;															///< AIPersonality of an AI seat, AIPERSONA_NORMAL otherwise
 	Int m_handicap;																		///< percent of max health this seat's units have, HANDICAP_FULL for none
+	Int m_aiRating;																		///< AI rating off the rung's anchor in hundredths, AI_RATING_NONE for the anchor
+	UnsignedInt64 m_skins;														///< SkinLoadout of an online human seat, 0 for none (TankSkin.h)
 	Int m_origColor;																			///< color, or -1 for random
 	Int m_origStartPos;																		///< start position, or -1 for random
 	Int m_origPlayerTemplate;															///< PlayerTemplate
@@ -334,15 +343,23 @@ public:
   inline Int getSupplyPileLimit( void ) const;
   void setSupplyPileLimit( Int players );
 
-  // Turbo mode: the match runs twice as many logic frames a second, each one the same as at normal
-  // speed.  The host's choice, so every machine and the replay agree on it.
-  Bool getTurbo( void ) const { return m_turbo; }
-  void setTurbo( Bool turbo ) { m_turbo = turbo; }
+  // A ranked Quick Match starts under the black shroud, where every other network game starts on a
+  // revealed, fogged map (MultiplayerSettings' UseShroud = No), and its load screen shows neither the
+  // map nor a start spot.  SH=1 in the options string, so a replay starts the same way; off writes
+  // nothing and every other string stays as it was.
+  Bool getStartShrouded( void ) const { return m_startShrouded; }
+  void setStartShrouded( Bool shrouded ) { m_startShrouded = shrouded; }
+
+  // Game speed in percent of retail's pace, one of PLAYER_GAME_SPEED_PERCENTS: the game time each tick
+  // advances.  Only the skirmish lobby sets another value than the default; it is not in the options
+  // string, and reaches the engine as MSG_NEW_GAME's game speed and the replay as its GS= field.
+  Int getGameSpeedPercent( void ) const { return m_gameSpeedPercent; }
+  void setGameSpeedPercent( Int percent ) { m_gameSpeedPercent = ClampPlayerGameSpeedPercent( percent ); }
 
   Bool hasAIPlayers( void ) const;									///< is any slot held by a computer player?
 
 protected:
-	Int m_preorderMask;
+	SlotMask m_preorderMask;
 	Int m_crcInterval;
 	Bool m_inGame;
 	Bool m_inProgress;
@@ -368,7 +385,8 @@ protected:
   Int m_incomeSharing; // an IncomeSharing, INCOME_SHARING_OFF = the retail game
   Int m_techRespawn; // minutes before a destroyed tech building comes back, 0 = never
   Int m_supplyPileLimit; // players who may gather from one supply pile at once, 0 = any number
-  Bool m_turbo; // the lobby's turbo mode is on
+  Bool m_startShrouded; // the map starts black for every player, a ranked Quick Match
+  Int m_gameSpeedPercent; // the skirmish lobby's game speed, PLAYER_GAME_SPEED_PERCENT_DEFAULT elsewhere
 };
 
 extern GameInfo *TheGameInfo;
@@ -438,10 +456,26 @@ Bool IsValidHandicap( Int handicap );
 AsciiString HandicapSlotField( Int handicap );
 Int HandicapFromSlotField( const char *field );
 
+// An AI seat's rating off its rung's anchor (-airating) goes after the handicap, persona and handicap
+// then written out in full: C<rung>,color,tmpl,start,team,persona,handicap,rating.  Only such a seat
+// writes it, so every other string stays the one it was, and an older parser stops at the handicap.
+// It is whole hundredths (1250 is 12.50, -1000 is -10.00).  Absent, or past AI_RATING_LIMIT either way,
+// is AI_RATING_NONE: the rung's anchor.
+Int AIRatingFromSlotField( const char *field );
+
 // A guest's "Handicap=<n>" request reaching the host.  TRUE when the slot list has to go round again,
 // which it does for a pick that does not fit in the options string as well: the guest's box has to
 // come back to what the host kept.
 Bool ApplyHandicapRequest( GameInfo *game, GameSlot *slot, Int handicap );
+
+// A human seat's skin loadout (TankSkin.h) rides after the handicap as ",K1.2.3", the handicap then
+// written at full health too, and only when the seat has skins: an older build stops reading at the
+// handicap, and an older string reads as none.  Only an online room sets one, so a LAN or skirmish
+// string never carries it.  "Skins=K1.2.3" is an online guest's request, undone like the handicap's
+// when the options string would no longer fit.
+Bool ApplySkinRequest( GameInfo *game, GameSlot *slot, UnsignedInt64 skins );
+/// every seat without skins: a LAN string is parsed by the same parser, and skins are online only
+void GameInfoDropSkins( GameInfo *game );
 
 //
 // Three things every lobby - skirmish, LAN and online - has to agree on about a slot state, kept
@@ -453,6 +487,12 @@ Bool IsAISlotState( SlotState state );
 char SlotStateToOptionsChar( SlotState state );
 Bool OptionsCharToSlotState( char c, SlotState *state );
 UnicodeString SlotStateName( SlotState state );
+
+// A seat in the lobby's game list, from the name and the profile ID the host advertised for it.  An
+// AI seat advertises its SlotState as the profile ID and "CE", "CM", "CH" (or nothing) as the name;
+// a human's name decides first, because an online account ID is a small number and 2, 3, 4 and 6
+// read as AI states.
+SlotState ListedSeatState( const char *name, Int profileID );
 
 
 /**

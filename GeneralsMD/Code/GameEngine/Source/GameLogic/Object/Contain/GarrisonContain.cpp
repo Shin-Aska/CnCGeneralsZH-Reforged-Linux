@@ -61,7 +61,7 @@
 #endif
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
-enum { MUZZLE_FLASH_LIFETIME = LOGICFRAMES_PER_SECOND / 7 };
+#define MUZZLE_FLASH_LIFETIME ((Int)(LOGICFRAMES_PER_GAME_SECOND / 7))
 
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
@@ -76,7 +76,7 @@ GarrisonContainModuleData::GarrisonContainModuleData( void )
 
 	m_mobileGarrison = FALSE;
 	m_doIHealObjects = false;			///< if T, then I heal objects that are inside of me
-	m_framesForFullHeal = 1.0f;		///< the number of frames something inside of me takes to heal
+	m_framesForFullHeal.setRaw( 50.0f );		///< msec, 1.0f frames at the native speed: the number of frames something inside of me takes to heal
 	m_immuneToClearBuildingAttacks = false;
   m_isEnclosingContainer = TRUE; ///< a sensible default for a garrison container... few exceptions, firebase is one
 
@@ -934,7 +934,7 @@ UpdateSleepTime GarrisonContain::update( void )
 			removeFromContain( contained );
 
 			// set the safe occlusion frame to way way way in the future so we never see it during death
-			#define HUGE_FRAME_IN_FUTURE (LOGICFRAMES_PER_SECOND * 1000)
+			#define HUGE_FRAME_IN_FUTURE (LOGICFRAMES_PER_GAME_SECOND * 1000)
 			contained->setSafeOcclusionFrame( TheGameLogic->getFrame() + HUGE_FRAME_IN_FUTURE );
 
 		}  // end if

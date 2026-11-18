@@ -123,7 +123,7 @@ static NameKeyType buttonStartID = NAMEKEY_INVALID;
 static NameKeyType buttonSelectMapID = NAMEKEY_INVALID;
 static NameKeyType buttonResetID = NAMEKEY_INVALID;
 static NameKeyType windowMapID = NAMEKEY_INVALID;
-static NameKeyType checkBoxTurboID = NAMEKEY_INVALID;
+static NameKeyType comboBoxGameSpeedID = NAMEKEY_INVALID;
 static NameKeyType comboBoxSuperweaponsID = NAMEKEY_INVALID;
 static NameKeyType comboBoxStartingCashID = NAMEKEY_INVALID;
 static NameKeyType checkBoxUnitLimitID = NAMEKEY_INVALID;
@@ -225,13 +225,49 @@ static Bool stillNeedsToSetOptions = FALSE;
 void skirmishUpdateSlotList( void );
 void skirmishPositionStartSpots( void );
 static void populateSkirmishBattleHonors( void );
-// The turbo mode box, the only speed a skirmish has besides normal.  It is the fork's control, so a
-// stock SkirmishGameOptionsMenu.wnd that wins over Run/Window has none and plays at normal
-// speed.  The old game speed dropdown's "FPS" preference is left in the file and never read.
-static Bool turboBoxChecked( void )
+// The game speed combo, in percent of retail: 1.0x, 1.25x, 1.5x, 2.0x.  It is the fork's control, so
+// a stock SkirmishGameOptionsMenu.wnd that wins over Run/Window has none and plays at the default.
+// The old game speed dropdown's "FPS" preference and a TurboMode line are left in the file and
+// never read.
+
+static GameWindow *gameSpeedComboBox( void )
 {
-	GameWindow *checkBoxTurbo = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, checkBoxTurboID );
-	return checkBoxTurbo != NULL && GadgetCheckBoxIsChecked( checkBoxTurbo );
+	return TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, comboBoxGameSpeedID );
+}
+
+static Int chosenGameSpeedPercent( void )
+{
+	GameWindow *combo = gameSpeedComboBox();
+	Int selected = -1;
+	if ( combo )
+		GadgetComboBoxGetSelectedPos( combo, &selected );
+	if ( selected < 0 )
+		return PLAYER_GAME_SPEED_PERCENT_DEFAULT;
+	return ClampPlayerGameSpeedPercent( (Int)(intptr_t)GadgetComboBoxGetItemData( combo, selected ) );
+}
+
+static void populateGameSpeedComboBox( Int percent )
+{
+	GameWindow *combo = gameSpeedComboBox();
+	if ( combo == NULL )
+		return;
+	percent = ClampPlayerGameSpeedPercent( percent );
+	GadgetComboBoxReset( combo );
+	const Color color = GameMakeColor( 255, 255, 255, 255 );
+	for ( Int i = 0; i < PLAYER_GAME_SPEED_COUNT; ++i )
+	{
+		const Int speed = PLAYER_GAME_SPEED_PERCENTS[ i ];
+		UnicodeString text;
+		// 1.0x, 1.25x, 1.5x, 2.0x: one decimal unless the second one counts
+		if ( speed % 10 == 0 )
+			text.format( u"%d.%dx", speed / 100, ( speed % 100 ) / 10 );
+		else
+			text.format( u"%d.%02dx", speed / 100, speed % 100 );
+		const Int row = GadgetComboBoxAddEntry( combo, text, color );
+		GadgetComboBoxSetItemData( combo, row, (void *)(intptr_t)speed );
+		if ( speed == percent )
+			GadgetComboBoxSetSelectedPos( combo, row );
+	}
 }
 Bool doUpdateSlotList = TRUE;
 
@@ -396,10 +432,7 @@ Money SkirmishPreferences::getStartingCash(void) const
     return TheMultiplayerSettings->getDefaultStartingMoney();
   }
   
-  Money money;
-  money.deposit( strtoulAsWindows( it->second.str() ), FALSE  );
-  
-  return money;
+  return TheMultiplayerSettings->getListedStartingMoney( strtoulAsWindows( it->second.str() ) );
 }
 
 void SkirmishPreferences::setStartingCash( const Money & startingCash )
@@ -440,7 +473,7 @@ Bool SkirmishPreferences::write(void)
 
 	setSlotList();
 
-	setInt("TurboMode", turboBoxChecked() ? 1 : 0);
+	setInt("GameSpeed", chosenGameSpeedPercent());
 
 	return UserPreferences::write();
 }
@@ -475,9 +508,9 @@ void reallyDoStart( void )
 		TheGameLogic->clearGameData(FALSE);
 
 	// on the game, so the replay's header carries it as a network lobby's does
-	TheSkirmishGameInfo->setTurbo( turboBoxChecked() );
-	const Int maxFPS = GameEngine_matchFramesPerSecond( TheSkirmishGameInfo->getTurbo() );
-	DEBUG_LOG(("Turbo mode %s: %d logic frames a second\n", TheSkirmishGameInfo->getTurbo() ? "on" : "off", maxFPS));
+	TheSkirmishGameInfo->setGameSpeedPercent( chosenGameSpeedPercent() );
+	const Int gameSpeedPercent = TheSkirmishGameInfo->getGameSpeedPercent();
+	DEBUG_LOG(("Game speed %d%%: %d logic frames a second\n", gameSpeedPercent, GameEngine_matchFramesPerSecond()));
 
   TheWritableGlobalData->m_mapName = TheSkirmishGameInfo->getMap();
   TheSkirmishGameInfo->startGame(0);
@@ -497,7 +530,7 @@ void reallyDoStart( void )
 		msg->appendIntegerArgument(GAME_SKIRMISH);
 		msg->appendIntegerArgument(DIFFICULTY_NORMAL);	// not really used; just specified so we can add the game speed last
 		msg->appendIntegerArgument(0);									// not really used; just specified so we can add the game speed last
-		msg->appendIntegerArgument(maxFPS);							// FPS limit
+		GameEngine_appendNewGameRates( msg, gameSpeedPercent );
 	}
 	else
 	{
@@ -516,7 +549,7 @@ void reallyDoStart( void )
 		msg->appendIntegerArgument(GAME_SINGLE_PLAYER);
 		msg->appendIntegerArgument(DIFFICULTY_NORMAL);	// not really used; just specified so we can add the game speed last
 		msg->appendIntegerArgument(0);									// not really used; just specified so we can add the game speed last
-		msg->appendIntegerArgument(maxFPS);							// FPS limit
+		GameEngine_appendNewGameRates( msg, gameSpeedPercent );
 	}
 }
 
@@ -582,6 +615,7 @@ static void startPressed(void)
 	{
 		buttonPushed = FALSE;
 		MessageBoxOk(TheGameText->fetch("GUI:ErrorStartingGame"), TheGameText->fetch("GUI:CantFindMap"), NULL);
+		return;	// EA fell through to it->second on end() here
 	}
 	MapMetaData mmd = it->second;
 	if(playerCount > mmd.m_numPlayers)
@@ -1007,14 +1041,14 @@ void updateMapStartSpots( GameInfo *myGame, GameWindow *buttonMapStartPositions[
 	}
 	for( Int i = 0; i < MAX_SLOTS; ++i)
 	{
-    if ( buttonMapStartPositions[i] == NULL )
-      continue;
-
 		GameSlot *gs =myGame->getSlot(i);
 		// a taken spot is filled with its team's colour, or the player's without a team; the number
 		// stays for whoever cannot tell the colours apart
 		const Int spot = onLoadScreen ? gs->getApparentStartPos() : gs->getStartPos();
-		if (spot >= 0 && spot < mmd.m_numPlayers && gs->getPlayerTemplate() != PLAYERTEMPLATE_OBSERVER)
+		// every seat may hold a spot; it is the spot's button the layout may not have
+		if (spot < 0 || spot >= MAX_SLOTS || buttonMapStartPositions[spot] == NULL)
+			continue;
+		if (spot < mmd.m_numPlayers && gs->getPlayerTemplate() != PLAYERTEMPLATE_OBSERVER)
 			startSpotFill(buttonMapStartPositions[spot])->fill =
 				gs->getTeamNumber() >= 0 ? LobbyTeamColor(gs->getTeamNumber()) : LobbySeatColor(gs);
 		if(onLoadScreen)
@@ -1342,21 +1376,25 @@ void InitSkirmishGameGadgets( void )
 		tmpString.format("SkirmishGameOptionsMenu.wnd:ComboBoxColor%d", i);
 		comboBoxColorID[i] = TheNameKeyGenerator->nameToKey( tmpString );
 		comboBoxColor[i] = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, comboBoxColorID[i] );
-		DEBUG_ASSERTCRASH(comboBoxColor[i], ("Could not find the comboBoxColor[%d]",i ));
-		
+		// seats past the layout's rows have no controls: ids are still made, windows stay NULL
+		DEBUG_ASSERTCRASH(comboBoxColor[i] || (i > 0 && !comboBoxPlayer[i]), ("Could not find the comboBoxColor[%d]",i ));
+
 		tmpString.format("SkirmishGameOptionsMenu.wnd:ComboBoxPlayerTemplate%d", i);
 		comboBoxPlayerTemplateID[i] = TheNameKeyGenerator->nameToKey( tmpString );
 		comboBoxPlayerTemplate[i] = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, comboBoxPlayerTemplateID[i] );
-		DEBUG_ASSERTCRASH(comboBoxPlayerTemplate[i], ("Could not find the comboBoxPlayerTemplate[%d]",i ));
+		DEBUG_ASSERTCRASH(comboBoxPlayerTemplate[i] || !comboBoxColor[i], ("Could not find the comboBoxPlayerTemplate[%d]",i ));
 
 		// add tooltips to the player template combobox and listbox
-		comboBoxPlayerTemplate[i]->winSetTooltipFunc(playerTemplateComboBoxTooltip);
-		GadgetComboBoxGetListBox(comboBoxPlayerTemplate[i])->winSetTooltipFunc(playerTemplateListBoxTooltip);
+		if (comboBoxPlayerTemplate[i])
+		{
+			comboBoxPlayerTemplate[i]->winSetTooltipFunc(playerTemplateComboBoxTooltip);
+			GadgetComboBoxGetListBox(comboBoxPlayerTemplate[i])->winSetTooltipFunc(playerTemplateListBoxTooltip);
+		}
 
 		tmpString.format("SkirmishGameOptionsMenu.wnd:ComboBoxTeam%d", i);
 		comboBoxTeamID[i] = TheNameKeyGenerator->nameToKey( tmpString );
 		comboBoxTeam[i] = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, comboBoxTeamID[i] );
-		DEBUG_ASSERTCRASH(comboBoxTeam[i], ("Could not find the comboBoxTeam[%d]",i ));
+		DEBUG_ASSERTCRASH(comboBoxTeam[i] || !comboBoxColor[i], ("Could not find the comboBoxTeam[%d]",i ));
 		
 
 //		tmpString.format("SkirmishGameOptionsMenu.wnd:ButtonStartPosition%d", i);
@@ -1367,7 +1405,7 @@ void InitSkirmishGameGadgets( void )
 		tmpString.format("SkirmishGameOptionsMenu.wnd:ButtonMapStartPosition%d", i);
 		buttonMapStartPositionID[i] = TheNameKeyGenerator->nameToKey( tmpString );
 		buttonMapStartPosition[i] = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, buttonMapStartPositionID[i] );
-		DEBUG_ASSERTCRASH(buttonMapStartPosition[i], ("Could not find the ButtonMapStartPosition[%d]",i ));
+		DEBUG_ASSERTCRASH(buttonMapStartPosition[i] || !comboBoxColor[i], ("Could not find the ButtonMapStartPosition[%d]",i ));
 	}
    
 	for (Int i = 0; i < MAX_SLOTS; ++i)
@@ -1384,6 +1422,7 @@ void InitSkirmishGameGadgets( void )
 	InitAIPersonaComboBoxes( parentSkirmishGameOptions, "SkirmishGameOptionsMenu.wnd", comboBoxAIPersona, comboBoxAIPersonaID );
 	InitHandicapComboBoxes( parentSkirmishGameOptions, "SkirmishGameOptionsMenu.wnd", comboBoxHandicap, comboBoxHandicapID );
 	InitLobbySeatVisuals( parentSkirmishGameOptions, "SkirmishGameOptionsMenu.wnd" );
+	SnapLobbyRulesLists( parentSkirmishGameOptions, "SkirmishGameOptionsMenu.wnd" );
 
 	populateSkirmishBattleHonors();
 
@@ -1524,7 +1563,7 @@ void SkirmishGameOptionsMenuInit( WindowLayout *layout, void *userData )
 
 	stillNeedsToSetOptions = FALSE;
 
-	checkBoxTurboID = TheNameKeyGenerator->nameToKey( AsciiString( "SkirmishGameOptionsMenu.wnd:CheckBoxTurbo" ) );
+	comboBoxGameSpeedID = TheNameKeyGenerator->nameToKey( AsciiString( "SkirmishGameOptionsMenu.wnd:ComboBoxGameSpeed" ) );
 	
 	sandboxOk = FALSE;
   doUpdateSlotList = FALSE;
@@ -1617,10 +1656,8 @@ void SkirmishGameOptionsMenuInit( WindowLayout *layout, void *userData )
 	//updateSkirmishGameOptions();
 	//initSkirmishGameOptions();
 
-	// the turbo box, which a stock layout does not have (turboBoxChecked)
-	GameWindow *checkBoxTurbo = TheWindowManager->winGetWindowFromId( parentSkirmishGameOptions, checkBoxTurboID );
-	if ( checkBoxTurbo )
-		GadgetCheckBoxSetChecked( checkBoxTurbo, prefs.getInt( "TurboMode", 0 ) != 0 );
+	// the game speed combo, which a stock layout does not have (chosenGameSpeedPercent)
+	populateGameSpeedComboBox( prefs.getInt( "GameSpeed", PLAYER_GAME_SPEED_PERCENT_DEFAULT ) );
 	buttonStart->winSetText(TheGameText->fetch("GUI:Start"));
 	/* hey, for now we're also going to disable the map select button until it doesn't crash */
 	//buttonSelectMap->winEnable( FALSE );
@@ -1629,6 +1666,8 @@ void SkirmishGameOptionsMenuInit( WindowLayout *layout, void *userData )
 
 	for (Int i = 0; i < MAX_SLOTS; ++i)
 	{
+		if (!comboBoxColor[i])
+			continue;
 		comboBoxColor[i]->winEnable(TRUE);
 		comboBoxPlayerTemplate[i]->winEnable(TRUE);
 		comboBoxTeam[i]->winEnable(TRUE);

@@ -248,7 +248,7 @@ const FieldParse ThingTemplate::s_objectFieldParseTable[] =
 	{ "ShadowOffsetX",				INI::parseReal,						NULL,	offsetof( ThingTemplate, m_shadowOffsetX ) },
 	{ "ShadowOffsetY",				INI::parseReal,						NULL,	offsetof( ThingTemplate, m_shadowOffsetY ) },
 	{ "ShadowTexture",				INI::parseAsciiString,		NULL,	offsetof( ThingTemplate, m_shadowTextureName ) },
-	{ "OcclusionDelay",					INI::parseDurationUnsignedInt,		NULL, offsetof( ThingTemplate, m_occlusionDelay ) },
+	{ "OcclusionDelay",					SPEED_FIELD( ThingTemplate, m_occlusionDelay ) },
 	{ "AddModule",						ThingTemplate::parseAddModule,			NULL, 0 },
 	{ "RemoveModule",					ThingTemplate::parseRemoveModule,		NULL, 0 },
 	{ "ReplaceModule",				ThingTemplate::parseReplaceModule,	NULL, 0 },
@@ -383,12 +383,16 @@ void ModuleInfo::addModuleInfo(ThingTemplate *thingTemplate,
 
 #endif
 
+	// Reintroducing the tag starts a new obligation: a later accidental loss must not inherit
+	// the exemption from an earlier authored removal.
+	for (std::vector<AsciiString>::iterator it = m_explicitlyRemovedTags.begin(); it != m_explicitlyRemovedTags.end(); )
+		if (*it == moduleTag) it = m_explicitlyRemovedTags.erase(it); else ++it;
 	m_info.push_back(Nugget(name, moduleTag, data, interfaceMask, inheritable, overrideableByLikeKind));
 
 }
 
 //-------------------------------------------------------------------------------------------------
-Bool ModuleInfo::clearModuleDataWithTag(const AsciiString& tagToClear, AsciiString& clearedModuleNameOut) 
+Bool ModuleInfo::clearModuleDataWithTag(const AsciiString& tagToClear, AsciiString& clearedModuleNameOut, Bool authoredRemoval)
 { 
 	Bool cleared = false;
 
@@ -410,7 +414,42 @@ Bool ModuleInfo::clearModuleDataWithTag(const AsciiString& tagToClear, AsciiStri
 			++it;
 		}
 	}
+	if (cleared && authoredRemoval)
+		m_explicitlyRemovedTags.push_back(tagToClear);
 	return cleared;
+}
+
+
+// Source tags identify what was deliberately removed, while type names preserve the existing
+// replacement compatibility. In particular, removing one of two same-type source modules does
+// not excuse an unintended loss of the other when no compatible module remains.
+std::vector<ModuleInfo::InheritedModule> ModuleInfo::getInheritedModules() const
+{
+	std::vector<InheritedModule> result;
+	for (const Nugget& module : m_info)
+		result.push_back({module.first, module.m_moduleTag});
+	return result;
+}
+
+AsciiString ModuleInfo::missingInheritedTypes(const std::vector<InheritedModule>& source) const
+{
+	AsciiString missing;
+	for (const InheritedModule& wanted : source)
+	{
+		Bool found = FALSE;
+		for (const Nugget& have : m_info)
+			if (have.first == wanted.name) { found = TRUE; break; }
+		if (found) continue;
+		Bool removed = FALSE;
+		for (const AsciiString& tag : m_explicitlyRemovedTags)
+			if (tag == wanted.tag) { removed = TRUE; break; }
+		if (!removed)
+		{
+			missing.concat(" ");
+			missing.concat(wanted.name);
+		}
+	}
+	return missing;
 }
 
 
@@ -827,7 +866,7 @@ void ThingTemplate::parseRemoveModule(INI *ini, void *instance, void *store, con
 	// A tag that is not there is already removed. Installs outside Steam carry other copies of EA's
 	// data, and a missing tag in one of them stopped the game at start (FixesReforged.ini,
 	// SupW_AuroraFuelAirBomb ModuleTag_03).
-	if (!self->removeModuleInfo(modToRemove, removedModuleName))
+	if (!self->removeModuleInfo(modToRemove, removedModuleName, TRUE))
 		DEBUG_LOG(("[LINE: %d - FILE: '%s'] RemoveModule %s was not found for %s; skipped.\n",
 			ini->getLineNum(), ini->getFilename().str(), modToRemove, self->getName().str()));
 
@@ -949,7 +988,7 @@ void ThingTemplate::OverrideableByLikeKind(INI *ini, void *instance, void *store
 //-------------------------------------------------------------------------------------------------
 /** Remove the module whose tag matches moduleToRemove. */
 //-------------------------------------------------------------------------------------------------
-Bool ThingTemplate::removeModuleInfo(const AsciiString& moduleToRemove, AsciiString& clearedModuleNameOut)
+Bool ThingTemplate::removeModuleInfo(const AsciiString& moduleToRemove, AsciiString& clearedModuleNameOut, Bool authoredRemoval)
 {
 	Bool removed = false;
 
@@ -957,17 +996,17 @@ Bool ThingTemplate::removeModuleInfo(const AsciiString& moduleToRemove, AsciiStr
 	// if we return false, we should leave this unmodified.
 	//clearedModuleNameOut.clear();
 
-	if (m_behaviorModuleInfo.clearModuleDataWithTag(moduleToRemove, clearedModuleNameOut))
+	if (m_behaviorModuleInfo.clearModuleDataWithTag(moduleToRemove, clearedModuleNameOut, authoredRemoval))
 	{
 		DEBUG_ASSERTCRASH(!removed, ("Hmm, multiple removed in ThingTemplate::removeModuleInfo, should this be possible?"));
 		removed = true;
 	}
-	if (m_drawModuleInfo.clearModuleDataWithTag(moduleToRemove, clearedModuleNameOut))
+	if (m_drawModuleInfo.clearModuleDataWithTag(moduleToRemove, clearedModuleNameOut, authoredRemoval))
 	{
 		DEBUG_ASSERTCRASH(!removed, ("Hmm, multiple removed in ThingTemplate::removeModuleInfo, should this be possible?"));
 		removed = true;
 	}
-	if (m_clientUpdateModuleInfo.clearModuleDataWithTag(moduleToRemove, clearedModuleNameOut))
+	if (m_clientUpdateModuleInfo.clearModuleDataWithTag(moduleToRemove, clearedModuleNameOut, authoredRemoval))
 	{
 		DEBUG_ASSERTCRASH(!removed, ("Hmm, multiple removed in ThingTemplate::removeModuleInfo, should this be possible?"));
 		removed = true;
@@ -1209,6 +1248,7 @@ ThingTemplate::ThingTemplate() :
 	m_threatValue = 0;
 	m_maxSimultaneousOfType = 0;	// unlimited
   m_maxSimultaneousLinkKey = NAMEKEY_INVALID; // Not linked
+	m_nameKey = NAMEKEY_INVALID;
   m_maxSimultaneousDeterminedBySuperweaponRestriction = false;
 	m_crusherLevel = 0;			//Unspecified, this object is unable to crush anything!
 	m_crushableLevel = 255; //Unspecified, this object is unable to be crushed by anything!
@@ -1393,9 +1433,18 @@ void ThingTemplate::copyFrom(const ThingTemplate* that)
 
 	*this = *that;
 
+	// copyFrom establishes a new ObjectReskin baseline (normal override assignment does not).
+	// Its immediate source no longer requires modules that source had already removed.
+	m_reskinnedFrom = NULL;
+	m_reskinBehaviorBaseline.clear();
+	m_behaviorModuleInfo.clearExplicitRemovals();
+	m_drawModuleInfo.clearExplicitRemovals();
+	m_clientUpdateModuleInfo.clearExplicitRemovals();
+
 	this->m_nextThingTemplate = next;
 	this->m_templateID = id;
 	this->m_nameString = name;
+	this->m_nameKey = NAMEKEY_INVALID;	// that's key came along with the copy, and that may be named otherwise
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1727,7 +1776,7 @@ Int ThingTemplate::calcCostToBuild( const Player* player) const
 		return 0;
 
 	// changePercent format is "-.2 equals 20% cheaper"
-	Real factionModifier = 1 + player->getProductionCostChangePercent( getName() );
+	Real factionModifier = 1 + player->getProductionCostChangePercent( getNameKey() );
 	factionModifier *= player->getProductionCostChangeBasedOnKindOf( m_kindof );
 	return getBuildCost() * factionModifier * player->getHandicap()->getHandicap(Handicap::BUILDCOST, this);
 }
@@ -1760,10 +1809,10 @@ Real ThingTemplate::calcMaxHealth( void ) const
 //-------------------------------------------------------------------------------------------------
 Int ThingTemplate::calcTimeToBuild( const Player* player) const
 {
-	Int buildTime = getBuildTime() * LOGICFRAMES_PER_SECOND;
+	Int buildTime = getBuildTime() * LOGICFRAMES_PER_GAME_SECOND;
 	buildTime *= player->getHandicap()->getHandicap(Handicap::BUILDTIME, this);
 
-	Real factionModifier = 1 + player->getProductionTimeChangePercent( getName() );
+	Real factionModifier = 1 + player->getProductionTimeChangePercent( getNameKey() );
 	buildTime *= factionModifier;
 
 	if( player->buildsInstantly() )

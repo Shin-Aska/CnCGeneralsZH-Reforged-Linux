@@ -54,7 +54,7 @@ MobNexusContainModuleData::MobNexusContainModuleData()
 	m_scatterNearbyOnExit = true;
 	m_orientLikeContainerOnExit = false;
 	m_keepContainerVelocityOnExit = false;
-	m_exitPitchRate = 0.0f;
+	m_exitPitchRate.setRaw( 0.0f );
 	m_initialPayload.count = 0;
 	m_healthRegen = 0.0f;
 
@@ -92,7 +92,7 @@ void MobNexusContainModuleData::buildFieldParse(MultiIniFieldParse& p)
 		{ "OrientLikeContainerOnExit",	INI::parseBool,		NULL, offsetof( MobNexusContainModuleData, m_orientLikeContainerOnExit ) },
 		{ "KeepContainerVelocityOnExit",	INI::parseBool,		NULL, offsetof( MobNexusContainModuleData, m_keepContainerVelocityOnExit ) },
 		{ "ExitBone",	INI::parseAsciiString,		NULL, offsetof( MobNexusContainModuleData, m_exitBone ) },
-		{ "ExitPitchRate",	INI::parseAngularVelocityReal,		NULL, offsetof( MobNexusContainModuleData, m_exitPitchRate ) },
+		{ "ExitPitchRate",	SPEED_FIELD( MobNexusContainModuleData, m_exitPitchRate ) },
 		{ "InitialPayload", parseInitialPayload, NULL, 0 },
 		{ "HealthRegen%PerSec", INI::parseReal, NULL, offsetof( MobNexusContainModuleData, m_healthRegen ) },
 		{ 0, 0, 0, 0 }
@@ -361,7 +361,7 @@ UpdateSleepTime MobNexusContain::update()
 					if( body->getHealth() < body->getMaxHealth() )
 					{
 						//Calculate the health to be regenerated on each unit.
-						Real regen = body->getMaxHealth() * moduleData->m_healthRegen / 100.0f * SECONDS_PER_LOGICFRAME_REAL;
+						Real regen = body->getMaxHealth() * moduleData->m_healthRegen / 100.0f * GAME_SECONDS_PER_LOGICFRAME_REAL;
 
 						//Perform the actual healing for this frame.
 //						DamageInfo damageInfo;

@@ -33,6 +33,7 @@
 
 
 #include "Common/PlayerTemplate.h"
+#include "Common/RandomMapGenerator.h"
 #include "Common/GameEngine.h"
 #include "Common/UserPreferences.h"
 #include "Common/QuotedPrintable.h"
@@ -125,7 +126,6 @@ static NameKeyType comboBoxStartingCashID = NAMEKEY_INVALID;
 static NameKeyType comboBoxPeaceTimeID = NAMEKEY_INVALID;
 static NameKeyType checkBoxUnitLimitID = NAMEKEY_INVALID;
 static NameKeyType checkBoxProRulesID = NAMEKEY_INVALID;
-static NameKeyType checkBoxTurboID = NAMEKEY_INVALID;
 static NameKeyType comboBoxIncomeSharingID = NAMEKEY_INVALID;
 static NameKeyType comboBoxTechRespawnID = NAMEKEY_INVALID;
 static NameKeyType comboBoxSupplyPileLimitID = NAMEKEY_INVALID;
@@ -143,7 +143,6 @@ static GameWindow *comboBoxStartingCash = NULL;
 static GameWindow *comboBoxPeaceTime = NULL;
 static GameWindow *checkBoxUnitLimit = NULL;
 static GameWindow *checkBoxProRules = NULL;
-static GameWindow *checkBoxTurbo = NULL;
 static GameWindow *comboBoxIncomeSharing = NULL;
 static GameWindow *comboBoxTechRespawn = NULL;
 static GameWindow *comboBoxSupplyPileLimit = NULL;
@@ -377,6 +376,7 @@ void StartPressed(void)
 	// see if everyone's accepted and count the number of players in the game
 	UnicodeString mapDisplayName;
 	const MapMetaData *mapData = TheMapCache->findMap( myGame->getMap() );
+	const Bool isGenerated = isGeneratedMapPath( myGame->getMap() );
 	Bool willTransfer = TRUE;
 	if (mapData)
 	{
@@ -394,7 +394,7 @@ void StartPressed(void)
 		if( slot->isHuman() && !slot->isAccepted())
 		{
 			isReady = false;
-			if (!willTransfer)
+			if (!willTransfer && !isGenerated)
 			{
 				if (!slot->hasMap())
 				{
@@ -404,6 +404,17 @@ void StartPressed(void)
 					allHaveMap = false;
 				}
 			}
+		}
+		// A generated map is never sent: every seat builds it from its name, and a copy that came out
+		// different plays itself and splits the match at the first CRC check. A seat that accepted
+		// counts too, since accepting does not wait for the map.
+		if( isGenerated && slot->isHuman() && !slot->hasMap() )
+		{
+			UnicodeString msg;
+			msg.format(TheGameText->fetch("GUI:PlayerMapDiffers"), slot->getName().str(), mapDisplayName.str());
+			GadgetListBoxAddEntryText(listboxChatWindowLanGame, msg , chatSystemColor, -1, 0);
+			isReady = false;
+			allHaveMap = false;
 		}
 		if( slot->isHuman() && slot->getPlayerTemplate() != PLAYERTEMPLATE_OBSERVER )
 			playerCount++;
@@ -455,7 +466,7 @@ void LANDisableButtons()
 	comboBoxStartingCash->winEnable(false);
 
 	GameWindow *optionalGadgets[] = { comboBoxSuperweapons, comboBoxPeaceTime, checkBoxUnitLimit,
-		checkBoxProRules, comboBoxIncomeSharing, comboBoxTechRespawn, comboBoxSupplyPileLimit, checkBoxTurbo };
+		checkBoxProRules, comboBoxIncomeSharing, comboBoxTechRespawn, comboBoxSupplyPileLimit };
 	for (Int i = 0; i < (Int)ARRAY_SIZE(optionalGadgets); ++i)
 	{
 		if (optionalGadgets[i])
@@ -464,6 +475,8 @@ void LANDisableButtons()
 
 	for (Int i = 0; i < MAX_SLOTS; ++i)
 	{
+		if (!comboBoxPlayer[i])
+			continue;
 		comboBoxPlayer[i]->winEnable(false);
 		comboBoxColor[i]->winEnable(false);
 		comboBoxPlayerTemplate[i]->winEnable(false);
@@ -828,32 +841,6 @@ static void handleProRulesSelection()
   }
 }
 
-static void handleTurboSelection()
-{
-  LANGameInfo *myGame = TheLAN->GetMyGame();
-
-  // the same guard as the Pro Rules box above
-  if (myGame == NULL || checkBoxTurbo == NULL || myGame->getTurbo() == GadgetCheckBoxIsChecked( checkBoxTurbo ))
-    return;
-
-  myGame->setTurbo( GadgetCheckBoxIsChecked( checkBoxTurbo ) );
-  myGame->resetAccepted();
-
-  if (myGame->amIHost() && !s_isIniting)
-  {
-    TheLAN->RequestGameOptions(GenerateGameOptionsString(), true);
-    lanUpdateSlotList(); // Update the accepted button UI
-  }
-}
-
-// the host's to change, everyone's to see
-static void updateTurboCheckBox( GameInfo *game, Bool hostMayEdit )
-{
-  checkBoxTurbo->winEnable( hostMayEdit );
-  if ( GadgetCheckBoxIsChecked( checkBoxTurbo ) != game->getTurbo() )
-    GadgetCheckBoxSetChecked( checkBoxTurbo, game->getTurbo() );
-}
-
 static void handleUnitLimitSelection()
 {
   LANGameInfo *myGame = TheLAN->GetMyGame();
@@ -925,7 +912,6 @@ void InitLanGameGadgets( void )
   comboBoxPeaceTimeID = TheNameKeyGenerator->nameToKey( AsciiString( "LanGameOptionsMenu.wnd:ComboBoxPeaceTime" ) );
   checkBoxUnitLimitID = TheNameKeyGenerator->nameToKey( AsciiString( "LanGameOptionsMenu.wnd:CheckBoxUnitLimit" ) );
   checkBoxProRulesID = TheNameKeyGenerator->nameToKey( AsciiString( "LanGameOptionsMenu.wnd:CheckBoxProRules" ) );
-  checkBoxTurboID = TheNameKeyGenerator->nameToKey( AsciiString( "LanGameOptionsMenu.wnd:CheckBoxTurbo" ) );
   comboBoxIncomeSharingID = TheNameKeyGenerator->nameToKey( AsciiString( "LanGameOptionsMenu.wnd:ComboBoxIncomeSharing" ) );
   comboBoxTechRespawnID = TheNameKeyGenerator->nameToKey( AsciiString( "LanGameOptionsMenu.wnd:ComboBoxTechRespawn" ) );
   comboBoxSupplyPileLimitID = TheNameKeyGenerator->nameToKey( AsciiString( "LanGameOptionsMenu.wnd:ComboBoxSupplyPileLimit" ) );
@@ -971,10 +957,6 @@ void InitLanGameGadgets( void )
   DEBUG_ASSERTCRASH(checkBoxProRules, ("Could not find the checkBoxProRules"));
 	if (checkBoxProRules)
 		UpdateProRulesCheckBox(checkBoxProRules, TheLAN->GetMyGame(), TheLAN->AmIHost());
-  // the fork's box, which a stock or modded layout does not have
-  checkBoxTurbo = TheWindowManager->winGetWindowFromId( parentLanGameOptions, checkBoxTurboID );
-	if (checkBoxTurbo)
-		updateTurboCheckBox(TheLAN->GetMyGame(), TheLAN->AmIHost());
   comboBoxIncomeSharing = TheWindowManager->winGetWindowFromId( parentLanGameOptions, comboBoxIncomeSharingID );
   DEBUG_ASSERTCRASH(comboBoxIncomeSharing, ("Could not find the comboBoxIncomeSharing"));
 	if (comboBoxIncomeSharing)
@@ -1007,7 +989,9 @@ void InitLanGameGadgets( void )
 		comboBoxPlayerID[i] = TheNameKeyGenerator->nameToKey( tmpString );
 		comboBoxPlayer[i] = TheWindowManager->winGetWindowFromId( parentLanGameOptions, comboBoxPlayerID[i] );
 		GadgetComboBoxReset(comboBoxPlayer[i]);
-		GadgetComboBoxGetEditBox(comboBoxPlayer[i])->winSetTooltipFunc(playerTooltip);
+		// seats past the layout's rows have no controls: ids are still made, windows stay NULL
+		if (comboBoxPlayer[i])
+			GadgetComboBoxGetEditBox(comboBoxPlayer[i])->winSetTooltipFunc(playerTooltip);
 
 		if(localSlotNum == i)
 		{
@@ -1027,33 +1011,37 @@ void InitLanGameGadgets( void )
 		tmpString.format("LanGameOptionsMenu.wnd:ComboBoxColor%d", i);
 		comboBoxColorID[i] = TheNameKeyGenerator->nameToKey( tmpString );
 		comboBoxColor[i] = TheWindowManager->winGetWindowFromId( parentLanGameOptions, comboBoxColorID[i] );
-		DEBUG_ASSERTCRASH(comboBoxColor[i], ("Could not find the comboBoxColor[%d]",i ));
+		DEBUG_ASSERTCRASH(comboBoxColor[i] || !comboBoxPlayer[i], ("Could not find the comboBoxColor[%d]",i ));
 		PopulateColorComboBox(i, comboBoxColor, TheLAN->GetMyGame());
 		GadgetComboBoxSetSelectedPos(comboBoxColor[i], 0);
 		
 		tmpString.format("LanGameOptionsMenu.wnd:ComboBoxPlayerTemplate%d", i);
 		comboBoxPlayerTemplateID[i] = TheNameKeyGenerator->nameToKey( tmpString );
 		comboBoxPlayerTemplate[i] = TheWindowManager->winGetWindowFromId( parentLanGameOptions, comboBoxPlayerTemplateID[i] );
-		DEBUG_ASSERTCRASH(comboBoxPlayerTemplate[i], ("Could not find the comboBoxPlayerTemplate[%d]",i ));
+		DEBUG_ASSERTCRASH(comboBoxPlayerTemplate[i] || !comboBoxPlayer[i], ("Could not find the comboBoxPlayerTemplate[%d]",i ));
 		PopulatePlayerTemplateComboBox(i, comboBoxPlayerTemplate, TheLAN->GetMyGame(), TRUE);
 
 		// add tooltips to the player template combobox and listbox
-		comboBoxPlayerTemplate[i]->winSetTooltipFunc(playerTemplateComboBoxTooltip);
-		GadgetComboBoxGetListBox(comboBoxPlayerTemplate[i])->winSetTooltipFunc(playerTemplateListBoxTooltip);
+		if (comboBoxPlayerTemplate[i])
+		{
+			comboBoxPlayerTemplate[i]->winSetTooltipFunc(playerTemplateComboBoxTooltip);
+			GadgetComboBoxGetListBox(comboBoxPlayerTemplate[i])->winSetTooltipFunc(playerTemplateListBoxTooltip);
+		}
 
 		tmpString.format("LanGameOptionsMenu.wnd:ComboBoxTeam%d", i);
 		comboBoxTeamID[i] = TheNameKeyGenerator->nameToKey( tmpString );
 		comboBoxTeam[i] = TheWindowManager->winGetWindowFromId( parentLanGameOptions, comboBoxTeamID[i] );
-		DEBUG_ASSERTCRASH(comboBoxTeam[i], ("Could not find the comboBoxTeam[%d]",i ));
+		DEBUG_ASSERTCRASH(comboBoxTeam[i] || !comboBoxPlayer[i], ("Could not find the comboBoxTeam[%d]",i ));
 		PopulateTeamComboBox(i, comboBoxTeam, TheLAN->GetMyGame());
 
 		tmpString.clear();
 		tmpString.format("LanGameOptionsMenu.wnd:ButtonAccept%d", i); 
 		buttonAcceptID[i] = TheNameKeyGenerator->nameToKey( tmpString );
 		buttonAccept[i] = TheWindowManager->winGetWindowFromId( parentLanGameOptions, buttonAcceptID[i] );
-		DEBUG_ASSERTCRASH(buttonAccept[i], ("Could not find the buttonAccept[%d]",i ));
+		DEBUG_ASSERTCRASH(buttonAccept[i] || !comboBoxPlayer[i], ("Could not find the buttonAccept[%d]",i ));
 		//Added by Saad for the tooltips on the MultiPlayer icons
-		buttonAccept[i]->winSetTooltipFunc(gameAcceptTooltip);
+		if (buttonAccept[i])
+			buttonAccept[i]->winSetTooltipFunc(gameAcceptTooltip);
 //		
 //		tmpString.format("LanGameOptionsMenu.wnd:ButtonStartPosition%d", i);
 //		buttonStartPositionID[i] = TheNameKeyGenerator->nameToKey( tmpString );
@@ -1063,7 +1051,7 @@ void InitLanGameGadgets( void )
 		tmpString.format("LanGameOptionsMenu.wnd:ButtonMapStartPosition%d", i);
 		buttonMapStartPositionID[i] = TheNameKeyGenerator->nameToKey( tmpString );
 		buttonMapStartPosition[i] = TheWindowManager->winGetWindowFromId( parentLanGameOptions, buttonMapStartPositionID[i] );
-		DEBUG_ASSERTCRASH(buttonMapStartPosition[i], ("Could not find the ButtonMapStartPosition[%d]",i ));
+		DEBUG_ASSERTCRASH(buttonMapStartPosition[i] || !comboBoxPlayer[i], ("Could not find the ButtonMapStartPosition[%d]",i ));
 
 		if(i !=0 && buttonAccept[i])
 			buttonAccept[i]->winHide(TRUE);
@@ -1074,6 +1062,7 @@ void InitLanGameGadgets( void )
 	InitAIPersonaComboBoxes( parentLanGameOptions, "LanGameOptionsMenu.wnd", comboBoxAIPersona, comboBoxAIPersonaID );
 	InitHandicapComboBoxes( parentLanGameOptions, "LanGameOptionsMenu.wnd", comboBoxHandicap, comboBoxHandicapID );
 	InitLobbySeatVisuals( parentLanGameOptions, "LanGameOptionsMenu.wnd" );
+	SnapLobbyRulesLists( parentLanGameOptions, "LanGameOptionsMenu.wnd" );
 
 	// the settings page and the chat log share one rectangle; this opens on the chat log
 	InitLobbyTabs( parentLanGameOptions, "LanGameOptionsMenu.wnd", "TabChat", "ListboxChatWindowLanGame" );
@@ -1096,7 +1085,6 @@ void DeinitLanGameGadgets( void )
   comboBoxPeaceTime = NULL;
   checkBoxUnitLimit = NULL;
   checkBoxProRules = NULL;
-  checkBoxTurbo = NULL;
   comboBoxIncomeSharing = NULL;
   comboBoxTechRespawn = NULL;
   comboBoxSupplyPileLimit = NULL;
@@ -1161,7 +1149,6 @@ void LanGameOptionsMenuInit( WindowLayout *layout, void *userData )
     game->setIncomeSharing( pref.getInt( "IncomeSharing", INCOME_SHARING_OFF ) );
     game->setTechRespawn( pref.getInt( "TechRespawn", 0 ) );
     game->setSupplyPileLimit( pref.getInt( "SupplyPileLimit", 0 ) );
-    game->setTurbo( pref.getInt( "TurboMode", 0 ) != 0 );
 		AsciiString lowerMap = pref.getPreferredMap();
 		lowerMap.toLower();
 		std::map<AsciiString, MapMetaData>::iterator it = TheMapCache->find(lowerMap);
@@ -1197,6 +1184,8 @@ void LanGameOptionsMenuInit( WindowLayout *layout, void *userData )
 	}
 	for (Int i = start; i < MAX_SLOTS; ++i)
 	{
+		if (!comboBoxPlayer[i])
+			continue;
 		//I'm a client, disable the controls I can't touch.
 		if (!TheLAN->AmIHost())
 			comboBoxPlayer[i]->winEnable(FALSE);
@@ -1289,8 +1278,6 @@ void updateGameOptions( void )
 			UpdateUnitLimitCheckBox( checkBoxUnitLimit, theGame, TheLAN->AmIHost() );
 		if (checkBoxProRules)
 			UpdateProRulesCheckBox( checkBoxProRules, theGame, TheLAN->AmIHost() );
-		if (checkBoxTurbo)
-			updateTurboCheckBox( theGame, TheLAN->AmIHost() );
 		if (comboBoxIncomeSharing)
 			UpdateIncomeSharingComboBox( comboBoxIncomeSharing, theGame, TheLAN->AmIHost() );
 		if (comboBoxTechRespawn)
@@ -1568,12 +1555,6 @@ WindowMsgHandledType LanGameOptionsMenuSystem( GameWindow *window, UnsignedInt m
 					break;
 				}
 
-				if ( controlID == checkBoxTurboID )
-				{
-					handleTurboSelection();
-					break;
-				}
-
 				if ( LobbyTabClicked( (NameKeyType)controlID ) )
 					break;
 
@@ -1636,6 +1617,8 @@ WindowMsgHandledType LanGameOptionsMenuSystem( GameWindow *window, UnsignedInt m
 						if (controlID == buttonMapStartPositionID[i])
 						{
 							LANGameInfo *game = TheLAN->GetMyGame();
+							if (!game)
+								break;	// the room is already gone: a click that landed as it closed
 							Int playerIdxInPos = -1;
 							for (Int j=0; j<MAX_SLOTS; ++j)
 							{
@@ -1687,6 +1670,8 @@ WindowMsgHandledType LanGameOptionsMenuSystem( GameWindow *window, UnsignedInt m
 				if (controlID == buttonMapStartPositionID[i])
 				{
 					LANGameInfo *game = TheLAN->GetMyGame();
+					if (!game)
+						break;	// the room is already gone
 					Int playerIdxInPos = -1;
 					for (Int j=0; j<MAX_SLOTS; ++j)
 					{

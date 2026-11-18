@@ -179,6 +179,16 @@ extern void WOLLadderScreenUpdate( WindowLayout *layout, void *userData );
 extern void WOLLadderScreenShutdown( WindowLayout *layout, void *userData );
 extern WindowMsgHandledType WOLLadderScreenSystem( GameWindow *window, UnsignedInt msg, WindowMsgData mData1, WindowMsgData mData2 );
 extern WindowMsgHandledType WOLLadderScreenInput( GameWindow *window, UnsignedInt msg, WindowMsgData mData1, WindowMsgData mData2 );
+/// -online: the same layout as the account's skins page, from the hub's SKINS button
+extern void WOLSkinsScreenOpen( void );
+/// a push button in model's look (a layout button's art, colours and font) on parent, labelled from the string table
+extern GameWindow *WOLMakeButtonLike( GameWindow *parent, GameWindow *model, Int x, Int y, Int w, Int h, const char *label );
+/// -online, Play vs AI (WOLWelcomeMenu.cpp): the button asks the server; the update, once a pass while the
+/// screen is up, starts the match or shows the refusal, and is TRUE while the answer is awaited
+extern void WOLPlayVsAI( void );
+extern Bool WOLPlayVsAIUpdate( void );
+/// the score screen's Play again: the hub's next init starts a Play vs AI match as if Play were pressed
+extern void WOLWelcomeMenuStartPlayVsAIOnEntry( void );
 
 //  WOL Login Menu ---------------------------------------------------------------------------------
 extern void WOLLoginMenuInit( WindowLayout *layout, void *userData );

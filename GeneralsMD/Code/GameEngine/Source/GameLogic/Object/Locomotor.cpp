@@ -59,22 +59,22 @@ static const Real DONUT_DISTANCE=4.0*PATHFIND_CELL_SIZE_F;
 
 // The vehicle drive, which only a taxiing jet uses now (Locomotor::isGroundVehicle). Speeds are per frame, as everywhere in this file;
 // the frame counts were tuned at the retail rate.
-static const Real VEHICLE_ACCEL_EASE_FRAMES = ConvertRetailFrames(6.0f);		// frames for the pull along the nose to build up to full Acceleration
-static const Real VEHICLE_BRAKE_EASE_FRAMES = ConvertRetailFrames(3.0f);		// and to full braking, which a driver stamps on harder
-static const Real VEHICLE_VELOCITY_FRAMES = ConvertRetailFrames(4.0f);			// a speed error is asked back over about this many frames
-static const Real VEHICLE_STOP_EASE_FRAMES = ConvertRetailFrames(4.0f);		// a planned stop fades out over about this many frames
+#define VEHICLE_ACCEL_EASE_FRAMES ((Real)(ConvertRetailFrames(6.0f)))		// frames for the pull along the nose to build up to full Acceleration
+#define VEHICLE_BRAKE_EASE_FRAMES ((Real)(ConvertRetailFrames(3.0f)))		// and to full braking, which a driver stamps on harder
+#define VEHICLE_VELOCITY_FRAMES ((Real)(ConvertRetailFrames(4.0f)))			// a speed error is asked back over about this many frames
+#define VEHICLE_STOP_EASE_FRAMES ((Real)(ConvertRetailFrames(4.0f)))		// a planned stop fades out over about this many frames
 // a planned stop or bend is counted short by this many frames of travel, for the braking to build up in
-static const Real VEHICLE_STOP_LEAD_FRAMES = VEHICLE_BRAKE_EASE_FRAMES + VEHICLE_VELOCITY_FRAMES;
+#define VEHICLE_STOP_LEAD_FRAMES ((Real)(VEHICLE_BRAKE_EASE_FRAMES + VEHICLE_VELOCITY_FRAMES))
 static const Real VEHICLE_PLAN_DECEL_SHARE = 0.85f;		// a planned stop or bend brakes this much less hard than the vehicle can
 static const Real VEHICLE_TRAFFIC_BRAKE = 2.0f;				// times its braking a vehicle may stamp on for traffic: slowed below its speed by the crowd, a bump or the group
 static const Real VEHICLE_STOP_SECONDS = 0.8f;				// no vehicle takes longer than this to stop from top speed, whatever its Braking
-static const Real VEHICLE_YAW_EASE_FRAMES = ConvertRetailFrames(6.0f);			// frames for a turn to wind up to TurnRate, or back down from it
+#define VEHICLE_YAW_EASE_FRAMES ((Real)(ConvertRetailFrames(6.0f)))			// frames for a turn to wind up to TurnRate, or back down from it
 static const Real VEHICLE_STILL_SHARE = 0.1f;					// below this share of top speed a vehicle may choose to go forward or back
 static const Real VEHICLE_REVERSE_SHARE = 0.45f;			// share of top speed a vehicle backs up at
 static const Real VEHICLE_REVERSE_BODY_LENGTHS = 3.0f;	// a car backs straight up to a goal behind and closer than this along the route; a tank times it
 static const Real VEHICLE_REVERSE_COS = -0.34f;				// cos 110 degrees: behind, for that
 static const Real VEHICLE_BEND_COS = 0.985f;					// cos 10 degrees: a gentler bend is driven at full speed
-static const Real VEHICLE_MIN_SLIDE = ConvertRetailPerFrameRate(0.08f);					// the slide onto the goal in the last cell moves at least this far a frame
+#define VEHICLE_MIN_SLIDE ((Real)(ConvertRetailPerFrameRate(0.08f)))					// the slide onto the goal in the last cell moves at least this far a frame
 static const Real TREAD_TURN_SPEED_FLOOR = 0.25f;			// share of top speed a tank keeps through a right-angle turn
 static const Real TREAD_PIVOT_SHARE = 0.5f;						// share of TurnRate a tank pivots on the spot at
 static const Real TREAD_PIVOT_COS = -0.17f;						// cos 100 degrees: further round than this a tank stops and pivots
@@ -84,8 +84,8 @@ static const Real JET_TAXI_MIN_RADIUS_BODY_LENGTHS = 0.75f;	// a taxiing jet ste
 static const Real WHEEL_TIGHT_RADIUS_BODY_LENGTHS = 0.3f;	// and then crawls round this, at its turn speed
 
 // Infantry on two legs (moveTowardsPositionLegs, maintainCurrentPositionLegs).
-static const Real INFANTRY_YAW_EASE_FRAMES = ConvertRetailFrames(2.0f);		// frames for a turn on the move to wind up to TurnRate, or back down from it
-static const Real INFANTRY_STOP_FRAMES = ConvertRetailFrames(3.0f);			// a soldier stops from top speed in this many frames, whatever its Braking
+#define INFANTRY_YAW_EASE_FRAMES ((Real)(ConvertRetailFrames(2.0f)))		// frames for a turn on the move to wind up to TurnRate, or back down from it
+#define INFANTRY_STOP_FRAMES ((Real)(ConvertRetailFrames(3.0f)))			// a soldier stops from top speed in this many frames, whatever its Braking
 
 
 #define MAX_BRAKING_FACTOR 5.0f
@@ -95,7 +95,7 @@ static const Real INFANTRY_STOP_FRAMES = ConvertRetailFrames(3.0f);			// a soldi
 LocomotorStore *TheLocomotorStore = NULL;					///< the Locomotor store definition
 
 const Real BIGNUM = 99999.0f;
-const Real ARC_LOOKAHEAD_FRAMES = ConvertRetailFrames(4.0f);
+#define ARC_LOOKAHEAD_FRAMES ((Real)(ConvertRetailFrames(4.0f)))
 const Real ARC_ARRIVE_RUN = 0.5f;					// cos 60: a cruise missile's curve arrives in a sixty degree dive
 const Real ARC_ARRIVE_DROP = 0.8660254f;		// sin 60
 // handles as a share of the distance left: the long leaving one spreads the turn over the top of the
@@ -371,7 +371,7 @@ static void calcDirectionToApplyThrust(
 		direction comes out, so nothing has to go back.  Left per logic frame, gravity and the thrust
 		counted half as much against the speed as they did in 2003.
 	*/
-	const Real RETAIL_VEL = (Real)LOGICFRAMES_PER_RETAIL_FRAME;
+	const Real RETAIL_VEL = (Real)LOGICFRAMES_PER_GAME_SECOND / (Real)RETAIL_LOGICFRAMES_PER_SECOND;	// logic frames per retail frame of game time
 	const Real RETAIL_ACCEL = RETAIL_VEL * RETAIL_VEL;
 	Vector3 curVel(physics->getVelocity()->x, physics->getVelocity()->y, physics->getVelocity()->z);
 	curVel *= RETAIL_VEL;
@@ -427,19 +427,19 @@ static void calcDirectionToApplyThrust(
 LocomotorTemplate::LocomotorTemplate()
 {
 	// these values mean "make the same as undamaged if not explicitly specified"
-	m_maxSpeedDamaged = -1.0f;
-	m_maxTurnRateDamaged = -1.0f;
-	m_accelerationDamaged = -1.0f;
-	m_liftDamaged = -1.0f;
+	m_maxSpeedDamaged.setRaw( -1.0f );
+	m_maxTurnRateDamaged.setRaw( -1.0f );
+	m_accelerationDamaged.setRaw( -1.0f );
+	m_liftDamaged.setRaw( -1.0f );
 
 	m_surfaces = 0;
-	m_maxSpeed = 0.0f;
-	m_maxTurnRate = 0.0f;
-	m_acceleration = 0.0f;
-	m_lift = 0.0f;
-	m_braking = BIGNUM;
-	m_minSpeed = 0.0f;
-	m_minTurnSpeed = BIGNUM;
+	m_maxSpeed.setRaw( 0.0f );
+	m_maxTurnRate.setRaw( 0.0f );
+	m_acceleration.setRaw( 0.0f );
+	m_lift.setRaw( 0.0f );
+	m_braking.setRaw( 39999596.0f );	// dist/sec^2: BIGNUM a frame^2 at the native speed
+	m_minSpeed.setRaw( 0.0f );
+	m_minTurnSpeed.setRaw( 1999980.0f );	// dist/sec: BIGNUM a frame at the native speed
 	m_behaviorZ = Z_NO_Z_MOTIVE_FORCE;
 	m_appearance = LOCO_OTHER;
 	m_movePriority = LOCO_MOVES_MIDDLE;
@@ -448,12 +448,12 @@ LocomotorTemplate::LocomotorTemplate()
 	m_circlingRadius = 0;
 
 	m_maxThrustAngle = 0;
-	m_speedLimitZ = 999999.0f;
+	m_speedLimitZ.setRaw( 19999980.0f );	// dist/sec: 999999.0f a frame at the native speed
 	m_extra2DFriction = 0.0f;
 
 	m_accelPitchLimit = 0;
 	m_decelPitchLimit = 0;
-	m_bounceKick = 0;
+	m_bounceKick.setRaw( 0 );
 
 //	m_pitchStiffness = 0;
 //	m_rollStiffness = 0;
@@ -490,7 +490,7 @@ LocomotorTemplate::LocomotorTemplate()
 	m_maximumWheelCompression = 0;
 	m_closeEnoughDist = 1.0f;
 	m_isCloseEnoughDist3D = FALSE;
-	m_ultraAccurateSlideIntoPlaceFactor = 0.0f;
+	m_ultraAccurateSlideIntoPlaceFactor.setRaw( 0.0f );
 
 	m_wanderWidthFactor = 0.0f;
 	m_wanderLengthFactor = 1.0f;
@@ -536,12 +536,12 @@ void LocomotorTemplate::validate()
 		if (m_minSpeed <= 0.0f)
 		{
 			DEBUG_CRASH(("WINGS should always have positive minSpeeds (otherwise, they hover)"));
-			m_minSpeed = 0.01f;
+			m_minSpeed.setRaw( 0.19999999f );	// dist/sec: 0.01f a frame at the native speed
 		}
 		if (m_minTurnSpeed <= 0.0f)
 		{
 			DEBUG_CRASH(("WINGS should always have positive minTurnSpeed"));
-			m_minTurnSpeed = 0.01f;
+			m_minTurnSpeed.setRaw( 0.19999999f );
 		}
 	}
 
@@ -558,19 +558,19 @@ void LocomotorTemplate::validate()
 		{
 			// if one of these was omitted, it defaults to zero... just quietly heal it here, rather than crashing
 			DEBUG_LOG(("THRUST locos may not have zero m_maxSpeed; healing...\n"));
-			m_maxSpeed = 0.01f;
+			m_maxSpeed.setRaw( 0.19999999f );
 		}
 		if (m_maxSpeedDamaged <= 0.0f)
 		{
 			// if one of these was omitted, it defaults to zero... just quietly heal it here, rather than crashing
 			DEBUG_LOG(("THRUST locos may not have zero m_maxSpeedDamaged; healing...\n"));
-			m_maxSpeedDamaged = 0.01f;
+			m_maxSpeedDamaged.setRaw( 0.19999999f );
 		}
 		if (m_minSpeed <= 0.0f)
 		{
 			// if one of these was omitted, it defaults to zero... just quietly heal it here, rather than crashing
 			DEBUG_LOG(("THRUST locos may not have zero m_minSpeed; healing...\n"));
-			m_minSpeed = 0.01f;
+			m_minSpeed.setRaw( 0.19999999f );
 		}
 	}
 }
@@ -590,22 +590,22 @@ const FieldParse* LocomotorTemplate::getFieldParse() const
 	static const FieldParse TheFieldParse[] =
 	{
 		{ "Surfaces", INI::parseBitString32, TheLocomotorSurfaceTypeNames, offsetof(LocomotorTemplate, m_surfaces) },		
-		{ "Speed", INI::parseVelocityReal, NULL, offsetof(LocomotorTemplate, m_maxSpeed) },		
-		{ "SpeedDamaged", INI::parseVelocityReal, NULL, offsetof( LocomotorTemplate, m_maxSpeedDamaged ) },
-		{ "TurnRate", INI::parseAngularVelocityReal, NULL, offsetof(LocomotorTemplate, m_maxTurnRate) },		
-		{ "TurnRateDamaged", INI::parseAngularVelocityReal, NULL, offsetof( LocomotorTemplate, m_maxTurnRateDamaged ) },
-		{ "Acceleration", INI::parseAccelerationReal, NULL, offsetof(LocomotorTemplate, m_acceleration) },		
-		{ "AccelerationDamaged", INI::parseAccelerationReal, NULL, offsetof( LocomotorTemplate, m_accelerationDamaged ) },
-		{ "Lift", INI::parseAccelerationReal, NULL, offsetof(LocomotorTemplate, m_lift) },		
-		{ "LiftDamaged", INI::parseAccelerationReal, NULL, offsetof( LocomotorTemplate, m_liftDamaged ) },
-		{ "Braking", INI::parseAccelerationReal, NULL, offsetof(LocomotorTemplate, m_braking) },		
-		{ "MinSpeed", INI::parseVelocityReal, NULL, offsetof(LocomotorTemplate, m_minSpeed) },		
-		{ "MinTurnSpeed", INI::parseVelocityReal, NULL, offsetof(LocomotorTemplate, m_minTurnSpeed) },		
+		{ "Speed", SPEED_FIELD( LocomotorTemplate, m_maxSpeed ) },		
+		{ "SpeedDamaged", SPEED_FIELD( LocomotorTemplate, m_maxSpeedDamaged ) },
+		{ "TurnRate", SPEED_FIELD( LocomotorTemplate, m_maxTurnRate ) },		
+		{ "TurnRateDamaged", SPEED_FIELD( LocomotorTemplate, m_maxTurnRateDamaged ) },
+		{ "Acceleration", SPEED_FIELD( LocomotorTemplate, m_acceleration ) },		
+		{ "AccelerationDamaged", SPEED_FIELD( LocomotorTemplate, m_accelerationDamaged ) },
+		{ "Lift", SPEED_FIELD( LocomotorTemplate, m_lift ) },		
+		{ "LiftDamaged", SPEED_FIELD( LocomotorTemplate, m_liftDamaged ) },
+		{ "Braking", SPEED_FIELD( LocomotorTemplate, m_braking ) },		
+		{ "MinSpeed", SPEED_FIELD( LocomotorTemplate, m_minSpeed ) },		
+		{ "MinTurnSpeed", SPEED_FIELD( LocomotorTemplate, m_minTurnSpeed ) },		
 		{ "PreferredHeight", INI::parseReal, NULL, offsetof(LocomotorTemplate, m_preferredHeight) },
 		{ "PreferredHeightDamping", INI::parseReal, NULL, offsetof(LocomotorTemplate, m_preferredHeightDamping) },
 		{ "CirclingRadius", INI::parseReal, NULL, offsetof(LocomotorTemplate, m_circlingRadius) },
 		{ "Extra2DFriction", parseFrictionPerSec, NULL, offsetof(LocomotorTemplate, m_extra2DFriction) },
-		{ "SpeedLimitZ", INI::parseVelocityReal, NULL, offsetof(LocomotorTemplate, m_speedLimitZ) },
+		{ "SpeedLimitZ", SPEED_FIELD( LocomotorTemplate, m_speedLimitZ ) },
 		{ "MaxThrustAngle", INI::parseAngleReal, NULL, offsetof(LocomotorTemplate, m_maxThrustAngle) },		// yes, angle, not angular-vel
 		{ "ZAxisBehavior", INI::parseIndexList, TheLocomotorBehaviorZNames, offsetof(LocomotorTemplate, m_behaviorZ) },		
 		{ "Appearance", INI::parseIndexList, TheLocomotorAppearanceNames, offsetof(LocomotorTemplate, m_appearance) },		\
@@ -613,7 +613,7 @@ const FieldParse* LocomotorTemplate::getFieldParse() const
 
 		{ "AccelerationPitchLimit", INI::parseAngleReal, NULL, offsetof(LocomotorTemplate, m_accelPitchLimit) },
 		{ "DecelerationPitchLimit", INI::parseAngleReal, NULL, offsetof(LocomotorTemplate, m_decelPitchLimit) },
-		{ "BounceAmount", INI::parseAngularVelocityReal, NULL, offsetof(LocomotorTemplate, m_bounceKick) },		
+		{ "BounceAmount", SPEED_FIELD( LocomotorTemplate, m_bounceKick ) },		
 		{ "PitchStiffness", INI::parseReal, NULL, offsetof(LocomotorTemplate, m_pitchStiffness) },		
 		{ "RollStiffness", INI::parseReal, NULL, offsetof(LocomotorTemplate, m_rollStiffness) },		
 		{ "PitchDamping", INI::parseReal, NULL, offsetof(LocomotorTemplate, m_pitchDamping) },		
@@ -642,7 +642,7 @@ const FieldParse* LocomotorTemplate::getFieldParse() const
 		{ "MaximumWheelCompression", INI::parseReal, NULL, offsetof(LocomotorTemplate, m_maximumWheelCompression) },		
 		{ "CloseEnoughDist",				 INI::parseReal, NULL, offsetof(LocomotorTemplate, m_closeEnoughDist) },
 		{ "CloseEnoughDist3D",			 INI::parseBool, NULL, offsetof(LocomotorTemplate, m_isCloseEnoughDist3D) },
-		{ "SlideIntoPlaceTime",		INI::parseDurationReal, NULL, offsetof(LocomotorTemplate, m_ultraAccurateSlideIntoPlaceFactor) },
+		{ "SlideIntoPlaceTime",		SPEED_FIELD( LocomotorTemplate, m_ultraAccurateSlideIntoPlaceFactor ) },
 
 		{ "WanderWidthFactor", INI::parseReal, NULL, offsetof(LocomotorTemplate, m_wanderWidthFactor) },		
 		{ "WanderLengthFactor",				 INI::parseReal, NULL, offsetof(LocomotorTemplate, m_wanderLengthFactor) },
@@ -827,7 +827,7 @@ Locomotor::Locomotor(const LocomotorTemplate* tmpl)
 	m_angleOffset = GameLogicRandomValueReal(-PI/6, PI/6);
 	m_offsetIncrement = (PI/40) * (GameLogicRandomValueReal(0.8f, 1.2f)/m_template->m_wanderLengthFactor);
 	setFlag(OFFSET_INCREASING, GameLogicRandomValue(0,1));
-	m_donutTimer = TheGameLogic->getFrame()+DONUT_TIME_DELAY_SECONDS*LOGICFRAMES_PER_SECOND;
+	m_donutTimer = TheGameLogic->getFrame()+DONUT_TIME_DELAY_SECONDS*LOGICFRAMES_PER_GAME_SECOND;
 	m_yawRate = 0.0f;
 	m_driveAccelX = 0.0f;
 	m_driveAccelY = 0.0f;
@@ -993,7 +993,7 @@ void Locomotor::loadPostProcess( void )
 void Locomotor::startMove(void) 
 {
 	// Reset the donut timer.
-	m_donutTimer = TheGameLogic->getFrame()+DONUT_TIME_DELAY_SECONDS*LOGICFRAMES_PER_SECOND;
+	m_donutTimer = TheGameLogic->getFrame()+DONUT_TIME_DELAY_SECONDS*LOGICFRAMES_PER_GAME_SECOND;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1432,7 +1432,7 @@ void Locomotor::locoUpdate_moveTowardsPosition(Object* obj, const Coord3D& chase
 
 	if (wasBraking)
 	{
-	#define MIN_VEL (PATHFIND_CELL_SIZE_F/(LOGICFRAMES_PER_SECOND))
+	#define MIN_VEL (PATHFIND_CELL_SIZE_F/(LOGICFRAMES_PER_GAME_SECOND))
 
 		Coord3D pos = *obj->getPosition();
 		if (obj->isKindOf(KINDOF_PROJECTILE)) 
@@ -1706,8 +1706,8 @@ void Locomotor::moveTowardsPositionWheels(Object* obj, PhysicsBehavior *physics,
 
 
 	// plus one retail frame of reaction, and of travel
-	Real slowDownTime = actualSpeed / getBraking() + ConvertRetailFrames(1.0f);
-	Real slowDownDist = (actualSpeed/1.5f) * slowDownTime + actualSpeed * ConvertRetailFrames(1.0f);
+	Real slowDownTime = actualSpeed / getBraking() + ConvertRetailFrameRatio(1.0f);	// added time, no one-tick floor
+	Real slowDownDist = (actualSpeed/1.5f) * slowDownTime + actualSpeed * ConvertRetailFrameRatio(1.0f);
 	Real effectiveSlowDownDist = slowDownDist;
 	if (effectiveSlowDownDist < 1*PATHFIND_CELL_SIZE) {
 		effectiveSlowDownDist = 1*PATHFIND_CELL_SIZE;
@@ -1715,7 +1715,7 @@ void Locomotor::moveTowardsPositionWheels(Object* obj, PhysicsBehavior *physics,
 
 
 	const Real FIFTEEN_DEGREES = PI / 12.0f;
-	const Real PROJECT_FRAMES = LOGICFRAMES_PER_SECOND/2; // Project out 1/2 second.
+	const Real PROJECT_FRAMES = LOGICFRAMES_PER_GAME_SECOND/2; // Project out 1/2 second.
 	if (fabs( relAngle ) > FIFTEEN_DEGREES) 
 	{
 		// If we're turning more than 10 degrees, check & see if we're moving into "impassable territory"
@@ -1780,7 +1780,7 @@ void Locomotor::moveTowardsPositionWheels(Object* obj, PhysicsBehavior *physics,
 	}
 
  	if (onPathDistToGoal > DONUT_DISTANCE) {
-		m_donutTimer = TheGameLogic->getFrame()+DONUT_TIME_DELAY_SECONDS*LOGICFRAMES_PER_SECOND;
+		m_donutTimer = TheGameLogic->getFrame()+DONUT_TIME_DELAY_SECONDS*LOGICFRAMES_PER_GAME_SECOND;
 	} else {
 		if (m_donutTimer < TheGameLogic->getFrame()) {
 			setFlag(IS_BRAKING, true);
@@ -1876,7 +1876,7 @@ void Locomotor::moveTowardsPositionWheels(Object* obj, PhysicsBehavior *physics,
 /// the hardest a vehicle brakes: its Braking, or whatever stops it from top speed in VEHICLE_STOP_SECONDS
 Real Locomotor::getVehicleStopDecel(BodyDamageType condition) const
 {
-	Real decel = getMaxSpeedForCondition(condition) / (VEHICLE_STOP_SECONDS * LOGICFRAMES_PER_SECOND);
+	Real decel = getMaxSpeedForCondition(condition) / (VEHICLE_STOP_SECONDS * LOGICFRAMES_PER_GAME_SECOND);
 	if (decel < getBraking())
 		decel = getBraking();
 	return decel;
@@ -2076,7 +2076,7 @@ void Locomotor::moveTowardsPositionVehicle(Object* obj, PhysicsBehavior *physics
 		tight = sqr(goalPos.x - cx) + sqr(goalPos.y - cy) < sqr(minRadius)
 			|| (goalCos < 0.0f && onPathDistToGoal < 2.0f * minRadius);
 		const Real FIFTEEN_DEGREES_COS = 0.966f;
-		const Real PROJECT_FRAMES = LOGICFRAMES_PER_SECOND / 2;
+		const Real PROJECT_FRAMES = LOGICFRAMES_PER_GAME_SECOND / 2;
 		if (!tight && leadCos < FIFTEEN_DEGREES_COS && absSpeed > 0.0f)
 		{
 			// EA's check, on the wider arc: half a second of it must not run onto ground it cannot drive
@@ -2184,7 +2184,7 @@ void Locomotor::moveTowardsPositionVehicle(Object* obj, PhysicsBehavior *physics
 	if (!treads)
 	{
 		if (onPathDistToGoal > DONUT_DISTANCE)
-			m_donutTimer = TheGameLogic->getFrame() + DONUT_TIME_DELAY_SECONDS * LOGICFRAMES_PER_SECOND;
+			m_donutTimer = TheGameLogic->getFrame() + DONUT_TIME_DELAY_SECONDS * LOGICFRAMES_PER_GAME_SECOND;
 		else if (m_donutTimer < TheGameLogic->getFrame())
 			slide = TRUE;
 	}
@@ -2264,7 +2264,7 @@ Bool Locomotor::fixInvalidPosition(Object* obj, PhysicsBehavior *physics)
 
 		if (dot<0) {
 			// EA's push is the root of the retail speed into the bad ground, applied every frame
-			dot = ConvertRetailPerFrameSquared(sqrt(-dot * LOGICFRAMES_PER_RETAIL_FRAME));
+			dot = ConvertRetailPerFrameSquared(sqrt(-dot * ((Real)LOGICFRAMES_PER_GAME_SECOND / (Real)RETAIL_LOGICFRAMES_PER_SECOND)));
 			correctionNormalized.x *= dot*physics->getMass();
 			correctionNormalized.y *= dot*physics->getMass();
 			physics->applyMotiveForce(&correctionNormalized);
@@ -2318,7 +2318,7 @@ Real Locomotor::calcMinTurnRadius(BodyDamageType condition, Real* timeToTravelTh
 	after: see that file.
 */
 static const Real JET_CORNER_SHARE = 0.5f;
-static const Real JET_BANK_EASE_FRAMES = LOGICFRAMES_PER_SECOND * 0.5f;	// from wings level to the full bank
+#define JET_BANK_EASE_FRAMES ((Real)(LOGICFRAMES_PER_GAME_SECOND * 0.5f))	// from wings level to the full bank
 static const Real JET_TURN_SPEED_LOSS = 0.2f;
 static const Real JET_AIRBRAKE_SHARE = 0.25f;	// a jet slows at this share of its Acceleration, or at Braking if that is more
 static const Real JET_ORBIT_CORRECTION = PI / 3.0f;	// circling, a radius off the circle heads this far in from the tangent
@@ -2408,7 +2408,7 @@ Real Locomotor_jetBreakOffSide( Real relX, Real relY, Real speed, Real yawRate, 
 	if (maxRate <= 0.0f || yawAccel <= 0.0f)
 		return away;
 
-	const Int MAX_FRAMES = 10 * LOGICFRAMES_PER_SECOND;
+	const Int MAX_FRAMES = 10 * LOGICFRAMES_PER_GAME_SECOND;
 	Real frames = 2.0f * maxRate / yawAccel + PI / maxRate;
 	const Int count = (frames < MAX_FRAMES) ? (Int)frames + 1 : MAX_FRAMES;
 
@@ -2777,8 +2777,10 @@ void Locomotor::moveTowardsPositionJet(Object* obj, PhysicsBehavior *physics, co
 			error = 0.0f;
 	}
 
+	// An attack run's goal is the target, not a place to arrive at: easing down to MinSpeed for it
+	// braked an Aurora from 390 to 250 on the straight in to its bomb, over whatever AA was there.
 	Real goalSpeed = desiredSpeed;
-	if (!getFlag(NO_SLOW_DOWN_AS_APPROACHING_DEST))
+	if (!getFlag(NO_SLOW_DOWN_AS_APPROACHING_DEST) && !obj->testStatus(OBJECT_STATUS_IS_ATTACKING))
 	{
 		Real slowDownDist = calcSlowDownDist(speed, m_template->m_minSpeed, getJetBraking(bdt));
 		if (onPathDistToGoal < slowDownDist && goalSpeed > m_template->m_minSpeed)
@@ -2813,8 +2815,15 @@ void Locomotor::flyJet(Object* obj, PhysicsBehavior *physics, Real headingError,
 		physics->setTurning(TURN_NONE);
 	}
 
+	// Above this locomotor's top speed the jet is coasting down from a faster one, an Aurora after its
+	// supersonic run: it sheds that at its own Braking, turning or not, as EA's jets did (the Aurora's
+	// return locomotor says "not much braking, so we go supersonic->sluggish slowly"). The airbrake
+	// and the pull of a turn took 480 down to 160 in a second and left it crawling over the target.
+	Bool healthy = IS_CONDITION_BETTER( bdt, TheGlobalData->m_movementPenaltyDamageState );
+	const Bool coasting = speed > (healthy ? m_template->m_maxSpeed : m_template->m_maxSpeedDamaged);
+
 	Real minSpeed = m_template->m_minSpeed;
-	Real decel = getJetBraking(bdt);
+	Real decel = coasting ? getBraking() : getJetBraking(bdt);
 	if (rate != 0.0f && maxRate > 0.0f)
 	{
 		Real share = fabs(rate) / maxRate;
@@ -2826,7 +2835,7 @@ void Locomotor::flyJet(Object* obj, PhysicsBehavior *physics, Real headingError,
 		if (turnSpeed < goalSpeed)
 			goalSpeed = turnSpeed;
 		Real pull = speed * fabs(rate);
-		if (decel < pull)
+		if (decel < pull && !coasting)
 			decel = pull;
 	}
 
@@ -2899,12 +2908,12 @@ void Locomotor::moveTowardsPositionHover(Object* obj, PhysicsBehavior *physics, 
 	FIGHTING_TURN_MIN_DIST away, so a short pull-back or slide keeps its nose and its missiles on
 	the target.
 */
-static const Real HELICOPTER_STOP_EASE_FRAMES = ConvertRetailFrames(6.0f);	// the planned braking fades out over about this many frames
-static const Real HELICOPTER_YAW_EASE_FRAMES = ConvertRetailFrames(10.0f);	// frames for the nose to wind up to TurnRate, or back down from it
-static const Real HELICOPTER_ACCEL_EASE_FRAMES = ConvertRetailFrames(5.0f);	// frames for the pull to build from nothing to full Acceleration
-static const Real HELICOPTER_VELOCITY_FRAMES = ConvertRetailFrames(4.0f);	// a velocity error is asked back over about this many frames
+#define HELICOPTER_STOP_EASE_FRAMES ((Real)(ConvertRetailFrames(6.0f)))	// the planned braking fades out over about this many frames
+#define HELICOPTER_YAW_EASE_FRAMES ((Real)(ConvertRetailFrames(10.0f)))	// frames for the nose to wind up to TurnRate, or back down from it
+#define HELICOPTER_ACCEL_EASE_FRAMES ((Real)(ConvertRetailFrames(5.0f)))	// frames for the pull to build from nothing to full Acceleration
+#define HELICOPTER_VELOCITY_FRAMES ((Real)(ConvertRetailFrames(4.0f)))	// a velocity error is asked back over about this many frames
 // the stop is planned this many frames of travel early, for the braking to build up in
-static const Real HELICOPTER_STOP_LEAD_FRAMES = HELICOPTER_ACCEL_EASE_FRAMES * 0.5f + HELICOPTER_VELOCITY_FRAMES;
+#define HELICOPTER_STOP_LEAD_FRAMES ((Real)(HELICOPTER_ACCEL_EASE_FRAMES * 0.5f + HELICOPTER_VELOCITY_FRAMES))
 
 Real Locomotor::getHelicopterStopDecel(BodyDamageType condition) const
 {
@@ -2937,7 +2946,7 @@ void Locomotor::moveTowardsPositionHelicopter(Object* obj, PhysicsBehavior *phys
 		if (fabs(faceTarget->x - pos->x) > TOO_CLOSE_TO_AIM || fabs(faceTarget->y - pos->y) > TOO_CLOSE_TO_AIM)
 			noseToward = faceTarget;
 	}
-	else if (fighting ? onPathDistToGoal > maxSpeed * LOGICFRAMES_PER_SECOND * FIGHTING_TURN_SECONDS && onPathDistToGoal > FIGHTING_TURN_MIN_DIST
+	else if (fighting ? onPathDistToGoal > maxSpeed * LOGICFRAMES_PER_GAME_SECOND * FIGHTING_TURN_SECONDS && onPathDistToGoal > FIGHTING_TURN_MIN_DIST
 					 : onPathDistToGoal > TURN_INTO_FLIGHT_MIN_DIST
 						 || (m_yawRate != 0.0f && (fabs(goalPos.x - pos->x) > TOO_CLOSE_TO_AIM || fabs(goalPos.y - pos->y) > TOO_CLOSE_TO_AIM)))
 	{
@@ -3120,7 +3129,7 @@ void Locomotor::moveTowardsPositionThrust(Object* obj, PhysicsBehavior *physics,
 		goalPos.y += lead.y;
 	}
 
-	desiredSpeed = clamp(m_template->m_minSpeed, desiredSpeed, maxForwardSpeed);
+	desiredSpeed = clamp((Real)m_template->m_minSpeed, desiredSpeed, maxForwardSpeed);
 	Real actualForwardSpeed = physics->getForwardSpeed3D();
 
 	if (getBraking() > 0)
@@ -3727,7 +3736,7 @@ Bool Locomotor::locoUpdate_maintainCurrentPosition(Object* obj)
 		setFlag(MAINTAIN_POS_IS_VALID, true);
 	}
 
-	m_donutTimer = TheGameLogic->getFrame()+DONUT_TIME_DELAY_SECONDS*LOGICFRAMES_PER_SECOND;
+	m_donutTimer = TheGameLogic->getFrame()+DONUT_TIME_DELAY_SECONDS*LOGICFRAMES_PER_GAME_SECOND;
 	setFlag(IS_BRAKING, false);
 	/* The status goes with the flag. Left set, physics stopped moving a parked unit by its own speed,
 		 and its next order began with a slide towards the new goal on top of the drive. A missile sets
@@ -3893,7 +3902,7 @@ void Locomotor::maintainCurrentPositionHover(Object* obj, PhysicsBehavior *physi
 		//
 		// Stop
 		//
-		Real minSpeed = max( 1.0E-10f, m_template->m_minSpeed ); 
+		Real minSpeed = max( 1.0E-10f, (Real)m_template->m_minSpeed ); 
 		Real speedDelta = minSpeed - actualSpeed;
 		if (fabs(speedDelta) > minSpeed)
 		{

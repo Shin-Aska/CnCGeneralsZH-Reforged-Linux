@@ -36,6 +36,7 @@ struct CountdownTestContext
 	ScriptActionsInterface *savedActions = TheScriptActions;
 	ScriptConditionsInterface *savedConditions = TheScriptConditions;
 	GameEngine *savedEngine = TheGameEngine;
+	Int savedSpeed = GAME_SPEED_PERCENT;
 	SidesList sides;
 	CountdownTestWorld *world;
 	CountdownTestContext()
@@ -48,6 +49,7 @@ struct CountdownTestContext
 		TheScriptActions = NULL;
 		TheScriptConditions = NULL;
 		TheGameEngine = NULL;
+		GameSpeed_set(100);
 	}
 	~CountdownTestContext()
 	{
@@ -56,6 +58,7 @@ struct CountdownTestContext
 		TheScriptActions = savedActions;
 		TheScriptConditions = savedConditions;
 		TheGameEngine = savedEngine;
+		GameSpeed_set(savedSpeed);
 	}
 };
 
@@ -86,6 +89,24 @@ public:
 		m_counters[3].value = -5;
 		m_counters[3].isCountdownTimer = TRUE;
 	}
+    Bool equal(Int value)
+    {
+        ConditionTemplate &type = m_conditionTemplates[Condition::COUNTER];
+        type.m_numParameters = 3;
+        type.m_parameters[0] = Parameter::COUNTER;
+        type.m_parameters[1] = Parameter::COMPARISON;
+        type.m_parameters[2] = Parameter::INT;
+        ScriptEngine *saved = TheScriptEngine;
+        TheScriptEngine = this;
+        Condition *condition = newInstance(Condition)(Condition::COUNTER);
+        condition->getParameter(0)->friend_setInt(1);
+        condition->getParameter(1)->friend_setInt(Parameter::EQUAL);
+        condition->getParameter(2)->friend_setInt(value);
+        const Bool result = evaluateCounter(condition);
+        condition->deleteInstance();
+        TheScriptEngine = saved;
+        return result;
+    }
 	Int remaining() const { return m_counters[1].value; }
 	void checkOtherCounters() const
 	{
@@ -128,7 +149,7 @@ TEST(turbo_cinematic_pacing_preserves_dialogue_and_restores_match_speed)
 	CHECK_EQ(pacer->getEffectiveFramesPerSecondLimit(), LOGICFRAMES_PER_SECOND * 2);
 
 	// Thrax holds input, but never asks for a cinematic frame rate. His second
-	// cue at frame 720 must arrive after the 11.48-second first line has finished.
+	// cue at twelve game seconds must follow the 11.48-second first line.
 	script.setInputHeldByScript(TRUE);
 	CHECK_EQ(pacer->getFramesPerSecondLimit(), LOGICFRAMES_PER_SECOND * 2);
 	CHECK_EQ(pacer->getEffectiveFramesPerSecondLimit(), LOGICFRAMES_PER_SECOND);
@@ -163,6 +184,24 @@ TEST(turbo_cinematic_pacing_preserves_dialogue_and_restores_match_speed)
 		CHECK_EQ(pacer->getEffectiveFramesPerSecondLimit(), LOGICFRAMES_PER_SECOND * 2);
 	}
 	context.world->setGameMode(GAME_SINGLE_PLAYER);
+	// The sync branch scales the game time of a tick at each selected speed.
+	// Both the effective rate and animation clock must use that same retail pace.
+	for (Int speed : PLAYER_GAME_SPEED_PERCENTS)
+	{
+		GameSpeed_set(speed);
+		const Int retailPace = GameEngine_framesPerSecondForSpeed(100);
+		pacer->setFramesPerSecondLimit(LOGICFRAMES_PER_SECOND * 2);
+		CHECK_EQ(pacer->getEffectiveFramesPerSecondLimit(), retailPace);
+		CHECK_EQ(pacer->getFramesPerSecondLimit(), LOGICFRAMES_PER_SECOND * 2);
+		CHECK_NEAR(GameEngine_missionTimeRate(), (Real)retailPace / LOGICFRAMES_PER_SECOND, 0.001f);
+		pacer->setFramesPerSecondLimit(ConvertRetailFrames(23));
+		CHECK_EQ(pacer->getEffectiveFramesPerSecondLimit(), ConvertRetailFrames(23));
+		script.setInputHeldByScript(FALSE);
+		pacer->setFramesPerSecondLimit(LOGICFRAMES_PER_SECOND * 2);
+		CHECK_EQ(pacer->getEffectiveFramesPerSecondLimit(), LOGICFRAMES_PER_SECOND * 2);
+		script.setInputHeldByScript(TRUE);
+	}
+	GameSpeed_set(100);
 	pacer->setFramesPerSecondLimit(LOGICFRAMES_PER_SECOND);
 	CHECK_EQ(pacer->getEffectiveFramesPerSecondLimit(), LOGICFRAMES_PER_SECOND);
 	TheScriptEngine = NULL;
@@ -174,57 +213,72 @@ TEST(turbo_cinematic_pacing_preserves_dialogue_and_restores_match_speed)
 	TheWritableGlobalData = savedData;
 }
 
-TEST(script_countdown_timers_keep_half_cadence_while_world_time_is_frozen)
+TEST(script_countdown_timers_preserve_game_speed_and_frozen_world_phase)
 {
-	CHECK(bootOnce());
-	CountdownTestContext context;
-	// USA01 freezes world time for its briefing. Even frames used to count twice as fast;
-	// odd frames never counted at all. Both must keep the same cadence as a moving world.
-	for (UnsignedInt frozenFrame = 0; frozenFrame < 3; ++frozenFrame)
-	{
-		context.world->setFrame(frozenFrame);
-		CountdownTestEngine engine;
-		engine.seed(100);
-		for (Int pass = 0; pass < LOGICFRAMES_PER_SECOND; ++pass)
-		{
-			if (frozenFrame == 2) context.world->setFrame(pass);
-			engine.tick();
-		}
-		CHECK_EQ(engine.remaining(), 100 - RETAIL_LOGICFRAMES_PER_SECOND);
-		engine.checkOtherCounters();
-	}
-	CountdownTestEngine engine;
-	engine.seed(100);
-	for (UnsignedInt pass = 0; pass < 64; ++pass)
-	{
-		// Advance, freeze on even, freeze on odd, then advance again. The timer phase must
-		// continue through every transition instead of resynchronizing to the world frame.
-		const UnsignedInt frame = pass < 8 ? pass : pass < 32 ? 8 : pass < 56 ? 9 : pass - 46;
-		context.world->setFrame(frame);
-		engine.tick();
-		CHECK_EQ(engine.remaining(), 100 - (Int)((pass + 2) / 2));
-	}
-	engine.reset();
-	engine.seed(0);
-	engine.tick();
-	CHECK_EQ(engine.remaining(), -1);
-	for (Int pass = 0; pass < 8; ++pass) engine.tick();
-	CHECK_EQ(engine.remaining(), -1);
-	engine.checkOtherCounters();
-	// Reset and newMap both discard a half-used timer frame.
-	for (Int map = 0; map < 2; ++map)
-	{
-		if (map) engine.newMap(); else engine.reset();
-		engine.seed(10);
-		engine.tick();
-		CHECK_EQ(engine.remaining(), 9);
-	}
-	engine.reset();
-	engine.seed(10);
-	engine.endingPass();
-	CHECK_EQ(engine.remaining(), 10);
-	engine.tick();
-	CHECK_EQ(engine.remaining(), 9);
+    CHECK(bootOnce());
+    CountdownTestContext context;
+    for (Int speed : PLAYER_GAME_SPEED_PERCENTS) {
+        GameSpeed_set(speed);
+        for (UnsignedInt frozenFrame = 0; frozenFrame < 3; ++frozenFrame) {
+            context.world->setFrame(frozenFrame);
+            CountdownTestEngine engine;
+            engine.seed(1000);
+            for (Int pass = 0; pass < LOGICFRAMES_PER_SECOND; ++pass) {
+                if (frozenFrame == 2) context.world->setFrame(pass);
+                engine.tick();
+            }
+            CHECK_EQ(engine.remaining(), 1000 - (RETAIL_LOGICFRAMES_PER_SECOND * speed + 99) / 100);
+            engine.checkOtherCounters();
+        }
+        CountdownTestEngine engine;
+        engine.seed(1000);
+        for (UnsignedInt pass = 0; pass < 64; ++pass) {
+            const UnsignedInt frame = pass < 8 ? pass : pass < 32 ? 8 : pass < 56 ? 9 : pass - 46;
+            context.world->setFrame(frame);
+            engine.tick();
+            CHECK_EQ(engine.remaining(), 1000 - (Int)(((pass + 1) * speed + 99) / 100));
+        }
+        engine.reset(); engine.seed(0); engine.tick();
+        CHECK_EQ(engine.remaining(), -1);
+        for (Int pass = 0; pass < 8; ++pass) engine.tick();
+        CHECK_EQ(engine.remaining(), -1);
+        engine.checkOtherCounters();
+        for (Int map = 0; map < 2; ++map) {
+            if (map) engine.newMap(); else engine.reset();
+            engine.seed(10); engine.tick();
+            CHECK_EQ(engine.remaining(), 10 - (speed + 99) / 100);
+        }
+        engine.reset(); engine.seed(10); engine.endingPass();
+        CHECK_EQ(engine.remaining(), 10);
+        engine.tick();
+        CHECK_EQ(engine.remaining(), 10 - (speed + 99) / 100);
+    }
+}
+
+TEST(script_countdown_timer_equality_covers_every_crossing_at_every_speed)
+{
+    CHECK(bootOnce());
+    CountdownTestContext context;
+    for (Int speed : PLAYER_GAME_SPEED_PERCENTS) {
+        GameSpeed_set(speed);
+        CountdownTestEngine engine;
+        engine.seed(100);
+        Bool seen[100] = {};
+        for (UnsignedInt pass = 0; engine.remaining() >= 0; ++pass) {
+            context.world->setFrame(pass < 4 ? pass : 4); // equality also holds while world time is frozen
+            engine.tick();
+            for (Int target = 0; target < 100; ++target)
+                seen[target] = seen[target] || engine.equal(target);
+        }
+        for (Int target = 0; target < 100; ++target) CHECK(seen[target]);
+        engine.seed(10); engine.tick();
+        const Int crossed = engine.remaining() + 1;
+        if (speed > 100) {
+            // A newly assigned value must invalidate a previous tick's skipped-value comparison.
+            engine.seed(20);
+            CHECK(!engine.equal(crossed));
+        }
+    }
 }
 
 TEST(script_countdown_timer_snapshot_preserves_phase_and_loads_older_saves)
@@ -233,11 +287,13 @@ TEST(script_countdown_timer_snapshot_preserves_phase_and_loads_older_saves)
 	CountdownTestContext context;
 	context.world->setFrame(0);
 	const char *path = "test_script_timer_save_tmp.bin";
-	for (Int phase = 0; phase < LOGICFRAMES_PER_RETAIL_FRAME; ++phase)
+	for (Int speed : PLAYER_GAME_SPEED_PERCENTS)
+	for (Int phase = 0; phase < 4; ++phase)
 	{
+		GameSpeed_set(speed);
 		CountdownTestEngine original;
 		original.seed(100);
-		if (phase) original.tick();
+		for (Int pass = 0; pass < phase; ++pass) original.tick();
 		XferSave save;
 		save.open(AsciiString(path));
 		original.transfer(&save);
@@ -255,6 +311,7 @@ TEST(script_countdown_timer_snapshot_preserves_phase_and_loads_older_saves)
 			CHECK_EQ(restored.remaining(), original.remaining());
 		}
 	}
+	GameSpeed_set(125);
 	// v6 appends only the subframe byte to the v5 snapshot. A v5 save deterministically starts
 	// with phase zero; an invalid v6 phase is rejected rather than stopping every timer forever.
 	FILE *file = fopen(path, "rb");
@@ -270,7 +327,7 @@ TEST(script_countdown_timer_snapshot_preserves_phase_and_loads_older_saves)
 	for (Int legacy = 0; legacy < 2; ++legacy)
 	{
 		bytes.front() = legacy ? 5 : 6;
-		bytes.back() = LOGICFRAMES_PER_RETAIL_FRAME;
+		bytes.back() = 100 * LOGICFRAMES_PER_RETAIL_FRAME;
 		file = fopen(path, "wb");
 		CHECK(file != NULL);
 		if (!file) return;
@@ -291,7 +348,7 @@ TEST(script_countdown_timer_snapshot_preserves_phase_and_loads_older_saves)
 		{
 			const Int before = restored.remaining();
 			restored.tick();
-			CHECK_EQ(restored.remaining(), before - 1);
+			CHECK_EQ(restored.remaining(), before - 2);
 		}
 	}
 	remove(path);
@@ -317,48 +374,48 @@ TEST(script_speech_completion_restarts_a_preexisting_wait_on_a_logical_request)
 	const AsciiString line("BriefingLine"), other("BriefingLineAlternative"), neverPlayed("UnmatchedName"), shared("SharedLine");
 	context.world->setFrame(0);
 	CHECK(!engine.isSpeechComplete(line, FALSE));
-	context.world->setFrame(20);
+	context.world->setFrame(10);
 	CHECK(!engine.isSpeechComplete(other, FALSE));
-	context.world->setFrame(30);
+	context.world->setFrame(15);
 	const Int measured = audio.measurements;
 	const UnsignedInt seed = GetGameLogicRandomSeedCRC();
 	engine.notifySpeechRequested(line);
 	engine.notifySpeechRequested(AsciiString("NoExistingWait"));
 	CHECK_EQ(audio.measurements, measured);
 	CHECK_EQ(GetGameLogicRandomSeedCRC(), seed);
-	context.world->setFrame(31);
-	CHECK(!engine.isSpeechComplete(line, FALSE)); // the new deadline is 91, not the old 60
-	context.world->setFrame(60);
+	context.world->setFrame(16);
+	CHECK(!engine.isSpeechComplete(line, FALSE)); // the new deadline is 46, not the old 30
+	context.world->setFrame(30);
 	CHECK(!engine.isSpeechComplete(line, FALSE));
-	context.world->setFrame(80);
+	context.world->setFrame(40);
 	CHECK(engine.isSpeechComplete(other, FALSE)); // exact-name invalidation leaves this deadline alone
-	context.world->setFrame(90);
+	context.world->setFrame(45);
 	CHECK(!engine.isSpeechComplete(line, FALSE));
-	context.world->setFrame(91);
+	context.world->setFrame(46);
 	CHECK(engine.isSpeechComplete(line, FALSE));
 	engine.notifySpeechRequested(line); // a repeated request also replaces an already completed test
-	context.world->setFrame(100);
+	context.world->setFrame(50);
 	CHECK(!engine.isSpeechComplete(line, FALSE));
-	context.world->setFrame(159);
+	context.world->setFrame(79);
 	CHECK(!engine.isSpeechComplete(line, FALSE));
-	context.world->setFrame(160);
+	context.world->setFrame(80);
 	CHECK(engine.isSpeechComplete(line, FALSE));
 	// Retail scripts sometimes wait on a name they never play. Preserve that lazy duration fallback.
-	context.world->setFrame(200);
+	context.world->setFrame(100);
 	CHECK(!engine.isSpeechComplete(neverPlayed, TRUE));
-	context.world->setFrame(259);
+	context.world->setFrame(129);
 	CHECK(!engine.isSpeechComplete(neverPlayed, TRUE));
-	context.world->setFrame(260);
+	context.world->setFrame(130);
 	CHECK(engine.isSpeechComplete(neverPlayed, TRUE));
 	// Preserve the existing consuming-query contract when two scripts observe the same name.
-	context.world->setFrame(400);
+	context.world->setFrame(200);
 	CHECK(!engine.isSpeechComplete(shared, TRUE));
-	context.world->setFrame(460);
+	context.world->setFrame(230);
 	CHECK(engine.isSpeechComplete(shared, TRUE));
 	CHECK(!engine.isSpeechComplete(shared, TRUE));
-	context.world->setFrame(519);
+	context.world->setFrame(259);
 	CHECK(!engine.isSpeechComplete(shared, TRUE));
-	context.world->setFrame(520);
+	context.world->setFrame(260);
 	CHECK(engine.isSpeechComplete(shared, TRUE));
 	TheAudio = savedAudio;
 }

@@ -48,7 +48,7 @@
 // GLOBAL /////////////////////////////////////////////////////////////////////////////////////////
 SpecialPowerStore *TheSpecialPowerStore = NULL;
 
-#define DEFAULT_DEFECTION_DETECTION_PROTECTION_TIME_LIMIT (LOGICFRAMES_PER_SECOND * 10) 
+#define DEFAULT_DEFECTION_DETECTION_PROTECTION_TIME_LIMIT_MSEC (10 * MSEC_PER_SECOND)
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -195,20 +195,53 @@ void SpecialPowerStore::parseSpecialPowerDefinition( INI *ini )
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
-/* static */ const FieldParse SpecialPowerTemplate::m_specialPowerFieldParse[] = 
+AsciiString parseSciencesThenValue( INI *ini, ScienceVec *sciences )
+{
+	std::vector<AsciiString> tokens;
+	for( const char *token = ini->getNextTokenOrNull(); token != NULL; token = ini->getNextTokenOrNull() )
+		tokens.push_back( token );
+	if( tokens.size() < 2 )
+	{
+		DEBUG_CRASH(( "[LINE: %d in '%s'] wants one or more sciences and then a value\n", ini->getLineNum(), ini->getFilename().str() ));
+		throw INI_INVALID_DATA;
+	}
+	for( size_t i = 0; i + 1 < tokens.size(); ++i )
+		sciences->push_back( INI::scanScience( ini, tokens[ i ].str() ) );
+	return tokens.back();
+}
+
+//-------------------------------------------------------------------------------------------------
+static void parseUpgradeRadiusCursorRadius( INI *ini, void * /*instance*/, void *store, const void * /*userData*/ )
+{
+	SpecialPowerTemplate::UpgradeRadius up;
+	up.m_radius = INI::scanReal( parseSciencesThenValue( ini, &up.m_sciences ).str() );
+	((std::vector<SpecialPowerTemplate::UpgradeRadius> *)store)->push_back( up );
+}
+
+//-------------------------------------------------------------------------------------------------
+Real SpecialPowerTemplate::getRadiusCursorRadius( const Player *player ) const
+{
+	const UpgradeRadius *up = findFirstOwnedEntry( player, getFO()->m_upgradeRadiusCursorRadius );
+	return up ? up->m_radius : getFO()->m_radiusCursorRadius;
+}
+
+//-------------------------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------------------------
+/* static */ const FieldParse SpecialPowerTemplate::m_specialPowerFieldParse[] =
 {
 	
-	{ "ReloadTime",								INI::parseDurationUnsignedInt,		NULL,	offsetof( SpecialPowerTemplate, m_reloadTime ) },
+	{ "ReloadTime",								SPEED_FIELD( SpecialPowerTemplate, m_reloadTime ) },
 	{ "RequiredScience",					INI::parseScience,								NULL, offsetof( SpecialPowerTemplate, m_requiredScience ) },
 	{ "InitiateSound",						INI::parseAudioEventRTS,					NULL,	offsetof( SpecialPowerTemplate, m_initiateSound ) },
 	{ "InitiateAtLocationSound",	INI::parseAudioEventRTS,					NULL,	offsetof( SpecialPowerTemplate, m_initiateAtLocationSound ) },
 	{ "PublicTimer",							INI::parseBool,										NULL, offsetof( SpecialPowerTemplate, m_publicTimer ) },
 	{ "Enum",											INI::parseIndexList,							SpecialPowerMaskType::getBitNames(), offsetof( SpecialPowerTemplate, m_type ) },
-	{ "DetectionTime",						INI::parseDurationUnsignedInt,		NULL,	offsetof( SpecialPowerTemplate, m_detectionTime ) },
+	{ "DetectionTime",						SPEED_FIELD( SpecialPowerTemplate, m_detectionTime ) },
 	{ "SharedSyncedTimer",				INI::parseBool,										NULL, offsetof( SpecialPowerTemplate, m_sharedNSync ) },
-	{ "ViewObjectDuration",				INI::parseDurationUnsignedInt,		NULL,	offsetof( SpecialPowerTemplate, m_viewObjectDuration ) },
+	{ "ViewObjectDuration",				SPEED_FIELD( SpecialPowerTemplate, m_viewObjectDuration ) },
 	{ "ViewObjectRange",					INI::parseReal,										NULL,	offsetof( SpecialPowerTemplate, m_viewObjectRange ) },
 	{ "RadiusCursorRadius",				INI::parseReal,										NULL,	offsetof( SpecialPowerTemplate, m_radiusCursorRadius ) },
+	{ "UpgradeRadiusCursorRadius",	parseUpgradeRadiusCursorRadius,		NULL,	offsetof( SpecialPowerTemplate, m_upgradeRadiusCursorRadius ) },
 	{ "ShortcutPower",						INI::parseBool,										NULL, offsetof( SpecialPowerTemplate, m_shortcutPower ) },
 	{ "AIFiresWhenReady",					INI::parseBool,										NULL, offsetof( SpecialPowerTemplate, m_aiFiresWhenReady ) },
 	{ "AcademyClassify",					INI::parseIndexList,			TheAcademyClassificationTypeNames, offsetof( SpecialPowerTemplate, m_academyClassificationType ) },
@@ -222,12 +255,12 @@ SpecialPowerTemplate::SpecialPowerTemplate()
 {
 	m_id = 0;
 	m_type = SPECIAL_INVALID;
-	m_reloadTime = 0;
+	m_reloadTime.setRaw( 0 );
 	m_requiredScience = SCIENCE_INVALID;
 	m_publicTimer = FALSE;
-	m_detectionTime = DEFAULT_DEFECTION_DETECTION_PROTECTION_TIME_LIMIT;
+	m_detectionTime.setRaw( DEFAULT_DEFECTION_DETECTION_PROTECTION_TIME_LIMIT_MSEC );
 	m_sharedNSync = FALSE;
-	m_viewObjectDuration = 0;
+	m_viewObjectDuration.setRaw( 0 );
 	m_viewObjectRange = 0;
 	m_radiusCursorRadius = 0;
 	m_shortcutPower = FALSE;

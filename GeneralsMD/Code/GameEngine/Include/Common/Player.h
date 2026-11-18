@@ -85,6 +85,9 @@ enum CheatKind
 	CHEAT_INSTANT_BUILD,
 	CHEAT_ONE_HIT_KILL,
 	CHEAT_TAKE_CONTROL,			///< Shift-Ctrl-T: the amount is the index of the player to take over
+	// toggles again; after the rest because a replay carries the number
+	CHEAT_UNLIMITED_POINTS,	///< sciences cost no general's points
+	CHEAT_BUILD_ANYWHERE,		///< a placed structure stands up finished at once, no builder walks, the ground barely asked
 
 	CHEAT_KIND_COUNT
 };
@@ -92,6 +95,7 @@ enum CheatKind
 // ----------------------------------------------------------------------------------------------
 
 class BuildListInfo;
+class ObjectTypes;
 class PolygonTrigger;
 class ThingTemplate;
 class AIPlayer;
@@ -199,15 +203,16 @@ UnsignedInt EarnedAmount( UnsignedInt amount, Int percent );
 
 // The falling-behind bonus a skirmish computer is owed over its rung's percent, in points, with its own
 // strength against its strongest living enemy's: 0 while it holds level, rising in a line to
-// AI_INCOME_BONUS_MAX at a quarter of it and below.  Integers only.
-Int IncomeBonusTarget( Int ownStrength, Int strongestEnemyStrength );
+// maxBonus (the profile's IncomeBonusMaxPercent) at a quarter of it and below.  Integers only.
+Int IncomeBonusTarget( Int ownStrength, Int strongestEnemyStrength, Int maxBonus );
 // The strengths that target is fed: of count living players in list order, worth[i] each and allies[i]
 // a bit for every player mutually allied with i, self's side (itself and its allies) a player at a
 // time, and the highest per-player average of the other sides, each a leader in list order and the
 // players still ungrouped who are its mutual allies.  Free-for-all, every enemy is a side of one.
-void IncomeSideWorths( const Int *worth, const UnsignedInt *allies, Int count, Int self, Int *ownAverage, Int *strongestEnemyAverage );
-// One weighing's move from the bonus it has toward that target, at most AI_INCOME_BONUS_STEP.
-Int IncomeBonusStep( Int bonus, Int target );
+void IncomeSideWorths( const Int *worth, const PlayerMaskType *allies, Int count, Int self, Int *ownAverage, Int *strongestEnemyAverage );
+// One weighing's move from the bonus it has toward that target, at most maxBonus over
+// AI_INCOME_BONUS_STEPS rounded up, so every ceiling is reached in the same number of weighings.
+Int IncomeBonusStep( Int bonus, Int target, Int maxBonus );
 
 // Pro Rules, PRO-RULES.md: what every skirmish and network match refuses whoever plays it.
 // GameLogic::isProRules() says whether a match is under them; these say what they cover, by name
@@ -456,7 +461,7 @@ public:
 	inline PlayerIndex getPlayerIndex() const { return m_playerIndex; }
 
 	/// return a bitmask that is unique to this player.
-	inline PlayerMaskType getPlayerMask() const { return 1 << m_playerIndex; }
+	inline PlayerMaskType getPlayerMask() const { return playerIndexToMask( m_playerIndex ); }
 	
 	/// a convenience function to test the ThingTemplate against the players canBuild flags
 	/// called by canBuild
@@ -589,17 +594,17 @@ public:
 	/// Returns production cost change based on typeof (Used for upgrades)
 	Real getProductionCostChangeBasedOnKindOf( KindOfMaskType kindOf ) const;
 
-	/** Return bonus or penalty for construction of this thing.
+	/** Return bonus or penalty for construction of this thing (ThingTemplate::getNameKey).
 	*/
-	Real getProductionCostChangePercent( AsciiString buildTemplateName ) const;
-	
-	/** Return bonus or penalty for construction of this thing.
-	*/
-	Real getProductionTimeChangePercent( AsciiString buildTemplateName ) const;
+	Real getProductionCostChangePercent( NameKeyType buildTemplateNameKey ) const;
 
-	/** Return starting veterancy level of a newly built thing of this type
+	/** Return bonus or penalty for construction of this thing (ThingTemplate::getNameKey).
 	*/
-	VeterancyLevel getProductionVeterancyLevel( AsciiString buildTemplateName ) const;
+	Real getProductionTimeChangePercent( NameKeyType buildTemplateNameKey ) const;
+
+	/** Return starting veterancy level of a newly built thing of this type (ThingTemplate::getNameKey)
+	*/
+	VeterancyLevel getProductionVeterancyLevel( NameKeyType buildTemplateNameKey ) const;
 
 	// Friend function for the script engine's usage.
 	void friend_setSkillset(Int skillSet);
@@ -653,13 +658,14 @@ public:
 	/// Is this player a skirmish ai player?
 	Bool isSkirmishAIPlayer( void );
 	Bool aiRunsOwnAI( void ) const;		///< a computer player on the fork's AI (AIPlayer::runsOwnAI); FALSE for a human and for EA's AI
+	AIPlayer *getAIPlayer( void ) const { return m_ai; }	///< NULL for a human
 	Bool isForkMapComputer( void ) const;	///< any computer player, the civilians included, in a match on a map the fork's AI plays (SidesList::forkAIMap)
 
 	/// Have the ai check for bridges.
 	virtual Bool checkBridges(Object *unit, Waypoint *way);
 
 	/// The skirmish approach this player's team should take: the script's choice, unless the AI reads the map.
-	AsciiString chooseApproachLabel(const Coord3D *from, const AsciiString &requested, Int pathSuffix);
+	AsciiString chooseApproachLabel(const Coord3D *from, const AsciiString &requested, Int pathSuffix, Team *team = NULL);	///< team: what goes, for the guns it fears
 
 	/// TRUE when the AI parks this team to go out with the rest of its wave instead of on its own.
 	Bool holdTeamForWave(Team *team, const AsciiString &approach, Int pathSuffix);
@@ -706,6 +712,12 @@ public:
 
 	/// whether any member of our teams, dead or alive, has a template equivalent to tmpl
 	Bool hasTemplateMember(const ThingTemplate *tmpl) const;
+
+	/// countObjectsByThingTemplate over every template of the list, summed
+	Int countObjectsOfTypes(const ObjectTypes &types, Bool ignoreDead) const;
+
+	/// the build cost of our members inside the area that are neither inert nor effectively dead
+	Int countBuildCostInside(const PolygonTrigger *trig) const;
 
 	/**
 		simply returns the number of buildings owned by this player
@@ -895,7 +907,24 @@ public:
 	
 	// remove an object from any hotkey squads that its in.
 	void removeObjectFromHotkeySquad(Object *objToRemove);
-	
+
+	// group panel (fork).  The centre of a hotkey squad's live members, reinforcements still walking
+	// to it left out; FALSE when nobody else is left in it.
+	Bool getHotkeySquadCentroid( Int squad, Coord3D *centroid );
+	// this player's finished factory that can queue the unit now: shortest queue, then nearest to
+	// squadCentre (left out when it is NULL), then lowest ObjectID.  NULL when none can.
+	Object *findFactoryForGroupUnit( const ThingTemplate *unit, const Coord3D *squadCentre ) const;
+	// obj is this player's live factory and can queue the unit now: the build button's canMakeUnit
+	// test, and its bar offers the button.  findFactoryForGroupUnit's filter, and the sidebar's pick.
+	Bool factoryTakesGroupUnit( Object *obj, const ThingTemplate *unit ) const;
+	// a unit the group panel ordered just came out: it joins the squad and attack moves to its
+	// centre.  An empty squad leaves it on the factory's rally point.
+	void sendReinforcementToSquad( Object *unit, Int squad );
+	// a reinforcement went idle: re-sent once if the squad moved off, otherwise it has arrived
+	void onReinforcementIdle( Object *unit );
+	// units queued for the squad in this player's factories plus those walking to it
+	Int countGroupReinforcements( Int squad ) const;
+
 	void setAttackedBy( Int playerNdx );
 	Bool getAttackedBy( Int playerNdx ) const;
 	UnsignedInt getAttackedFrame(void) {return m_attackedFrame;}  // Return last frame attacked.
@@ -980,6 +1009,13 @@ public:
 
 	/** return true attemptToPurchaseScience() would succeed for this science. */
 	Bool isCapableOfPurchasingScience(ScienceType science) const;
+
+	/// a card of this player's general's TalentSciences; bought for no points, and it loses its partner
+	Bool isTalent(ScienceType science) const;
+	/// how many talent cards the player owns
+	Int getTalentCount() const;
+	/// a rank's pick is open: a row with neither card owned and one of them purchasable
+	Bool hasTalentWaiting() const;
 
 	/** What kind of AI is behind this player, for the handful of places outside GameLogic/AI/ that
 		* have to ask.  Both answer their neutral value for a human seat. */

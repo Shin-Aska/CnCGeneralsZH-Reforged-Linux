@@ -252,7 +252,10 @@ public:
 	virtual void setFadeParameters(Int fadeFrames, Int direction);
 	virtual void set3DWireFrameMode(Bool enable);	///<enables custom wireframe rendering of 3D viewport
 
-	Bool updateCameraMovements(void); 
+	Bool updateCameraMovements(void);
+	/// a picture that stepped the scripted camera itself (W3DDisplay's script fast branch) skipped update():
+	/// the next update starts the scripted clock afresh instead of paying that time again
+	static void resyncScriptedClock(void);
 	virtual void forceCameraConstraintRecalc(void) { calcCameraConstraints(); }
 	virtual void applyCameraConstraint( void );
 
@@ -260,7 +263,8 @@ public:
 
 	virtual void setFreeCamera( Bool on );
 	virtual Bool isFreeCamera( void ) const { return m_freeCamera; }
-	virtual void setFreeCameraPose( const Coord3D *eye, Real heading, Real tilt );
+	virtual void setFreeCameraPose( const Coord3D *eye, Real heading, Real tilt, Real roll = 0.0f );
+	virtual void setFreeCameraScripted( Bool scripted ) { m_freeCameraScripted = scripted; }
 	virtual void getFreeCameraPose( Coord3D *eye, Real *heading, Real *tilt ) const;
 	virtual void setFreeCameraKeys( UnsignedInt keys ) { m_freeCameraKeys = keys; }
 
@@ -293,6 +297,8 @@ private:
 	Vector3 m_freeCameraEye;
 	Real m_freeCameraHeading;												///< radians, 0 looks along +x
 	Real m_freeCameraTilt;													///< radians, 0 is level, up positive
+	Real m_freeCameraRoll;													///< radians, positive drops the right side of the picture
+	Bool m_freeCameraScripted;											///< a shot list flies it; keys and mouse do nothing
 	UnsignedInt m_freeCameraKeys;										///< View::FreeCameraKeys held
 	UnsignedInt m_freeCameraLastStep;								///< Clock_Milliseconds of the last flight step
 	ICoord2D m_freeCameraMouse;											///< where the pointer was left after the last step
@@ -397,6 +403,6 @@ private:
 };  // end class W3DView
 
 // EXTERNALS //////////////////////////////////////////////////////////////////////////////////////
-extern Int TheW3DFrameLengthInMsec;	// default is 33msec/frame == 30fps. but we may change it depending on sys config.
+extern Real TheW3DFrameLengthInMsec;	// one logic tick in milliseconds, MSEC_PER_LOGICFRAME_REAL; a Real, since 1000/30 is no whole number
 
 #endif  // end __W3DVIEW_H_

@@ -1,316 +1,739 @@
 """
-PathLab - a sandbox for the group-movement work in GameEngine/Source/GameLogic/AI.
+PathLab - the game's ground pathfinding and group movement, in Python, at the game's own numbers.
 
-The engine's pathfinder is a 10-unit grid, 8-way A*, cost 10 orthogonal / 14 diagonal, with a
-congestion map of other units' remaining paths.  Group orders either take one shared corridor split
-into lanes (AIGroup::friend_computeGroundPath + friend_moveVehicleToPos) or fall back to one A* per
-unit.  All of that is reproduced here at the same numbers, so a change can be looked at - with the
-line-of-sight rays every check actually makes drawn on screen - before it is written in C++.
+Everything here is a port of what main runs today, read from GameEngine/Source/GameLogic: the A*
+of AIPathfind.cpp with its flow charge (wall hug, traffic, crossing claims), its turn charge and its
+9/4 estimate; Path::optimize; the group order of AIGroup::groupMoveToPosition (floodGroupGoals,
+the vehicle trunk and its lanes); and the following and blocking of AIUpdate.cpp (blockedBy, the
+blocked speed cap, crowdSteer, the stuck ladder).  The units are the game's own, read from the
+install at run time by unitdata.py, and drive Locomotor.cpp's treads, wheels and legs under
+PhysicsUpdate.cpp's friction.  Each piece names the C++ function it came from.  Where the sandbox has
+to stand in for something it does not have (terrain heights, a resumable search) the comment says
+so.  The only switches the game lacks are the proposed stuck ladder (--proposed) and steering by
+time to collision (--ttc), both off by default.
 
-The congestion map has no clock in it, so it cannot tell a shared road from a crossing.  On top of
-it there is a reservation map - *when* each unit expects to be in each cell - and a second cost paid
-only when two units want the same cell at the same moment.  That is the expensive case: a road two
-columns use one after the other is fine, a junction they reach together is not.
-
-    python pathlab.py                 # corridor mode, the engine's default
-    python pathlab.py --mode single   # -nogrouppath: one path per unit, congestion the whole way
-    python pathlab.py --mode band     # the ribbon: one line, a lateral position each, density
-    python pathlab.py --mode flat     # ... and the same band with the pressure term off
-    python pathlab.py --map open      # no chokepoint, to see lanes on open ground
-    python pathlab.py --headless 6 --scenario cross --map open --units 16 --sweep 20/4/0,20/4/60
-    python pathlab.py --headless 16 --map edges --corridor all --pairs 8 --units 0 --hweight 1.5
-
-Two units are only counted as crossing when they want a cell at the same moment *and* are not
-going the same way - traffic following the same road is a queue, and a queue is what a road is
-for.  Nor is it charged in a cell with no room to dodge: pricing a two-cell doorway does not
-spread anyone out, it sends them to queue at the next doorway instead.
+    python pathlab.py                              # window: click to order, right drag to select
+    python pathlab.py --headless 4 --map choke --units 12
+    python pathlab.py --headless 4 --map open --group crusader:8,humvee:4,overlord:2
+    python pathlab.py --headless 4 --scenario cross --map open --units 16
+    python pathlab.py --headless 4 --sweep PF_TRAFFIC_NUM=0,4,8
+    python pathlab.py --headless 8 --map edges --pairs 8 --units 0
+    python pathlab.py --headless 4 --map choke --units 12 --proposed --ttc
+    python pathlab.py --headless 1 --gamemap "Tournament Desert" --group crusader:8,ranger:8 --scenario cross
 
 Controls
-    left click          order the selection to a point
-    right drag          select units (right click empty ground selects all)
-    1 / 2 / 3           corridor mode / individual mode / band mode (the ribbon)
-    c                   congestion cost on/off
-    t                   crossing cost on/off (the time dimension)
-    r                   draw the line-of-sight rays planning used
-    p                   draw the congestion map
+    left click          order the selection to a point (a player's move: floodGroupGoals)
+    right drag          select units (right click on empty ground selects all)
+    r                   draw the line checks Path::optimize made
+    p                   draw the traffic map
+    t                   draw the crossing claims for the moment now
     space               pause
-    n                   new map, same mode
-    tab                 re-issue the last order (replan with what is on the map now)
+    n                   new map
+    tab                 re-issue the last order
     esc                 quit
-
-Red squares are cells two units still plan to be in within PATH_CROSSING_WINDOW frames of each
-other - the clashes the crossing cost is there to buy out.
 """
 
 import argparse
+import functools
 import heapq
 import itertools
 import math
+import os
 import random
 import sys
-from collections import Counter
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from fractions import Fraction
-from functools import partial
-from enum import IntEnum
-from typing import NamedTuple
-import pygame
 
 Cell = tuple[int, int]
 Point = tuple[float, float]
-Heading = tuple[float, float]
-Ray = tuple[float, float, float, float, bool]
-Colour = tuple[int, int, int]
-Rect = tuple[float, float, float, float]
 
-# Engine constants: keep these equal to the C++ or the sandbox is measuring something else.
+# ---------------------------------------------------------------------------------------------
+# Time.  GameCommon.h: the logic ticks 30 times a wall second and each tick advances
+# GAME_SPEED_PERCENT/100 of a retail tick, so a game second is 20 ticks at 150.
+# ---------------------------------------------------------------------------------------------
+LOGICFRAMES_PER_SECOND: int = 30
+LOGICFRAMES_PER_RETAIL_FRAME: int = 1
+GAME_SPEED_PERCENT: int = 150
+LOGICFRAMES_PER_GAME_SECOND: int = LOGICFRAMES_PER_SECOND * 100 // GAME_SPEED_PERCENT
+PER_FRAME_RATE: float = GAME_SPEED_PERCENT / (100.0 * LOGICFRAMES_PER_RETAIL_FRAME)
+RETAIL_FRAME_RATIO: float = 100.0 * LOGICFRAMES_PER_RETAIL_FRAME / GAME_SPEED_PERCENT
+
+
+def retail_frames_real(frames: float) -> float:
+    """ConvertRetailFrames(Real): scaled by the ratio, never under one tick for a count of one or more."""
+    wall = frames * LOGICFRAMES_PER_RETAIL_FRAME
+    return max(frames * RETAIL_FRAME_RATIO, min(wall, 1.0))
+
+
+def retail_frames(frames: int) -> int:
+    """ConvertRetailFrames(Int): the wall count, then divided by the speed, rounded half away from
+       zero in integers, and never 0 for a nonzero count."""
+    wall = frames * LOGICFRAMES_PER_RETAIL_FRAME
+    scaled = (wall * 100 + GAME_SPEED_PERCENT // 2) // GAME_SPEED_PERCENT
+    return scaled if scaled else (1 if wall > 0 else 0)
+
+
+def per_frame_rate(per_frame: float) -> float:
+    """ConvertRetailPerFrameRate: an amount added every frame scales with speed over rate."""
+    return per_frame * PER_FRAME_RATE
+
+
+def per_frame_factor(factor: float) -> float:
+    """ConvertRetailPerFrameFactor: a factor multiplied in every frame is raised to speed over rate."""
+    return factor ** PER_FRAME_RATE
+
+
+# ---------------------------------------------------------------------------------------------
+# The grid and the search (AIPathfind.cpp / AIPathfind.h)
+# ---------------------------------------------------------------------------------------------
 CELL: float = 10.0                          # PATHFIND_CELL_SIZE_F
 COST_ORTHOGONAL: int = 10
 COST_DIAGONAL: int = 14
-
-# AIPathfind.cpp charges 5 per path with a group corridor and 20 without one; the sandbox has no
-# corridor congestion at all, so 20 is the value it runs at.  --cost overrides, --sweep compares.
-PATH_CONGESTION_COST: int = 20
-PATH_CONGESTION_RANGE_NO_GROUP: int = 10000
-PATH_CONGESTION_MAX_PATHS: int = 4          # cap, so a mob cannot make a cell infinitely expensive
-GROUP_PATH_DIAMETERS: tuple[int, ...] = (6, 4, 3)   # what friend_computeGroundPath tries in order
-STRAIGHTEN_MAX_RUN: int = 16                # raycast simplify: points dropped in a row
-MAP_KINDS: tuple[str, ...] = ("choke", "open", "twogaps", "maze", "edges")
-MODES: tuple[str, ...] = ("corridor", "flat", "band", "single")
-SCENARIOS: tuple[str, ...] = ("column", "cross")
-UNIT_RADIUS: float = 11.0                   # a Crusader's bounding circle, near enough
-UNIT_SPEED: float = 2.4                     # world units per logic frame
-
-# The congestion map above has no clock in it: a cell another unit will drive over in ten seconds
-# costs the same as one it is sitting in now.  The reservation map does have a clock - it stores
-# *when* each unit expects to be in a cell, and charges only for an overlap in time.  That is what
-# makes a crossing expensive without making a shared road expensive.
-PATH_CROSSING_COST: int = 60                # per conflicting reservation - six cells of detour
-PATH_CROSSING_WINDOW: int = 12              # frames either side of an arrival that still clash
-PATH_CROSSING_MAX: int = 3                  # cap, same reason the congestion cost has one
-SAME_WAY: float = 0.6                       # headings this aligned are a queue, not a crossing
-
-# Both maps above describe a plan.  The congestion map says somebody's route runs through a cell and
-# the reservation map says when, and neither remembers anything that has already happened: a doorway
-# four tanks have been wedged in for two seconds is priced exactly like empty ground, because the
-# units in it have stopped and stopped units have no route left to claim.  A unit repathing out of
-# the back of that queue therefore picks the same doorway, every time, at the instant its search
-# runs.
-#
-# The jam map is the memory.  A blocked unit stamps the cell it is standing in, once a frame; the
-# whole map loses one everywhere every JAM_DECAY_FRAMES, so a cell carries roughly the blocked
-# unit-frames spent in it over the last JAM_MAX*JAM_DECAY_FRAMES frames.  AIPathfind.cpp's m_jamMap,
-# at its constants and with its two gates: only a repath reads it, and only within JAM_RANGE cells
-# of where that repath starts.  A search that is not leaving a jam keeps the plain shortest route.
-PATH_JAM_COST: int = 3 * COST_ORTHOGONAL    # three cells of detour per stamp over the floor
-PATH_JAM_FLOOR: int = 3                     # one unit pausing stamps 1 or 2: that is traffic
-PATH_JAM_MAX: int = 10                      # the stamp saturates here
-PATH_JAM_DECAY_FRAMES: int = 8              # every cell loses one this often
-PATH_JAM_MAX_CHARGED: int = 4               # cap over the floor, same reason the others have one
-PATH_JAM_RANGE: int = 10                    # cells from the start the penalty is read within
-
-# The block corridor.  Before the cell search the engine runs a coarse one over ZONE_BLOCK_SIZE
-# blocks (internal_findHierarchicalPath), and the blocks on that route plus their eight neighbours
-# (buildHierachicalPath) are the corridor the cell search is held to.  How hard it is held differs
-# by caller: findGroundPath, the group corridor, refuses a cell outside unless a block 3 cells away
-# diagonally is inside (`hard`); internalFindPath, every single unit, charges 100 cells of detour
-# per cell outside (`flat`).  `soft` is the graded alternative: free near the coarse route, a price
-# that grows with distance beyond a threshold, and a small rebate for following the route forward.
-CORRIDOR_MODES: tuple[str, ...] = ("none", "hard", "flat", "soft")
-CORRIDOR: str = "none"                      # --corridor; read inside astar like the costs above
+PATHFIND_CLOSE_ENOUGH: float = 1.0
 ZONE_BLOCK_SIZE: int = 10                   # PathfindZoneManager::ZONE_BLOCK_SIZE
-CORRIDOR_WIDEN: int = 1                     # blocks either side of each route block also open
-CORRIDOR_SLACK: int = 3                     # findGroundPath's diagonal look for an open block
-CORRIDOR_OUTSIDE_COST: int = 100 * COST_ORTHOGONAL      # internalFindPath, per cell outside
-CORRIDOR_PINCHED_COST: int = 2 * COST_ORTHOGONAL        # coarse step through a pinched edge cell
-SOFT_COST: int = 100                        # per cell of distance beyond the threshold, per cell
-SOFT_THRESHOLD: int = 10                    # cells from the coarse route that cost nothing
-SOFT_NEAR: int = 3                          # this close and moving along it forward ...
-SOFT_BONUS: int = 5                         # ... takes this off the step
-ENGINE_CELL_CAP: int = 20000                # internalFindPath's MAX_INTERNAL_CELL_COUNT
-GROUND_CELL_CAP: int = 3000                 # findGroundPath's MAX_GROUND_PATH_CELLS
-# A* estimate scale.  The sandbox has always searched at plain octile (1/1); retail scales its own
-# estimate by 3/2, which finds a route a few percent longer for far fewer cells.
-HEURISTIC_NUM: int = 1
-HEURISTIC_DEN: int = 1
+MAX_INTERNAL_CELL_COUNT: int = 40000        # continueFindPath
+MAX_GROUND_PATH_CELLS: int = 3000           # findGroundPath
+PATCH_CELL_LIMIT: int = 2000                # patchPath's CELL_LIMIT
+MAX_OPTIMIZE_LOOKAHEAD: int = 32            # Path::optimize
+STEER_CHECK_CELLS: float = 20.0             # computePointOnPath's line-check clip
+MAX_RADIUS: int = 2                         # getRadiusAndCenter
+PF_HEURISTIC_FLOW_NUM, PF_HEURISTIC_FLOW_DEN = 9, 4     # beginFlowSearch with an object
+PF_HEURISTIC_RETAIL_NUM, PF_HEURISTIC_RETAIL_DEN = 3, 2  # ... and without one
+PF_TURN_CAP_STEP: int = 28
+PF_TURN_CAP_START: int = 60
+PF_CLEARANCE_ORTHO: int = 5
+PF_CLEARANCE_DIAG: int = 7
+PF_CLEARANCE_MAX: int = 60
+PF_CLEARANCE_SOFT: int = 13
+PF_WALLHUG_NUM, PF_WALLHUG_DEN = 8, 5
+PF_TRAFFIC_MAX: int = 255
+PF_TRAFFIC_DEPOSIT: int = 24 // LOGICFRAMES_PER_RETAIL_FRAME
+PF_TRAFFIC_DECAY_NUM, PF_TRAFFIC_DECAY_DEN = 54, 64
+PF_TRAFFIC_DECAY_FRAMES: int = 3 * LOGICFRAMES_PER_RETAIL_FRAME     # wall frames, not game
+PF_TRAFFIC_FULL: int = 192
+PF_TRAFFIC_NUM, PF_TRAFFIC_DEN = 4, 1
+PF_TRAFFIC_CELLS: int = 4096
+PF_CLAIM_BUCKETS: int = 24
+PF_CLAIM_UNITS_MAX: int = 4
+PF_CLAIM_SAMPLES_MAX: int = 32
+PF_CROSSING_NUM, PF_CROSSING_DEN = 1, 2
+PF_CLAIM_BUCKET_FRAMES: int = LOGICFRAMES_PER_GAME_SECOND // 2
+PF_CLAIM_REFRESH_FRAMES: int = LOGICFRAMES_PER_GAME_SECOND
+PF_LANE_PROBE_CELLS: int = 16
+FLOW_PLAN_SHARE: float = 0.8                # flowSpeedOf: plans at four fifths of top speed
+# the path queue: processPathfindQueue and Pathfinder_queueCellBudget
+PATHFIND_CELLS_PER_FRAME: int = 5000 // LOGICFRAMES_PER_RETAIL_FRAME
+PATHFIND_REQUESTS_PER_FRAME: int = 3
+PATHFIND_REQUESTS_PER_FRAME_DEEP: int = 6
+PATHFIND_DEEP_QUEUE: int = 3 * LOGICFRAMES_PER_GAME_SECOND
+PATHFIND_DEEP_STEP: int = LOGICFRAMES_PER_GAME_SECOND
+PATHFIND_DEEP_CELLS: int = 4
+MIN_REPATH_TIME: int = 10 * LOGICFRAMES_PER_RETAIL_FRAME     # AIStateMachine.h
 
-# Two points closer than this are the same point: a zero-length segment has no direction to take.
-EPSILON: float = 1e-3
-# Larger than any route this grid can produce, so it reads as "not reached yet" in the A* tables.
-UNREACHABLE_COST: int = 1 << 30
-DEFAULT_CELL_BUDGET: int = 60000            # the engine's "out of pathfind cells" ceiling
-SEED_RANGE: int = 1 << 30
+# Group order (AIGroup.cpp, CrowdModel.h)
+# The group's trunk from the middle member and each vehicle's lane laid along it (crowdPlanLane).
+# Off, every member searches its own route and keeps its place across the road as its crowdSteer
+# band, which is what a bridge order already did (AIGroup.cpp:2457).  A lane is a copy of the middle
+# member's route, so a member on the flank first drove sideways to it, then round the rock the
+# middle member had to pass: 46% of the sideways travel off each member's line to the click.
+CROWD_GROUP_TRUNK: bool = False
+CROWD_TRUNK_DIAMETER: int = 6
+CROWD_PLAN_STEPS: int = 4
+CROWD_MAX_LANES: int = 5
+CROWD_LANE_MIN_COS: float = 0.5
+LANE_SPACING_AIR: float = 1.15              # groupMoveToPosition: spacing *= 1.15
+MIN_FLOOD_CELLS: int = 400                  # floodGroupGoals
+FLOOD_CELLS_PER_MEMBER: int = 32
+MAX_MEMBERS_TRIED_PER_CELL: int = 8
+MIN_MEMBER_SPEED: float = 1.0
+PAST_CLICK_ALLOWANCE: float = CELL          # floodGroupGoals: how far past the click a member may still stop
+FLOOD_CENTRE_ON_CLICK: bool = True          # floodGroupGoals floods again from past the click, see there
+FLOOD_CENTRE_SHARES: tuple[float, ...] = (0.5, 0.25)    # of the first pile's shortfall, tried in order;
+                                            # the whole of it centred better and blocked 15% more
 
-# Terrain
+# Following and blocking (AIUpdate.cpp:1666-1867)
+FAST_AS_POSSIBLE: float = 999999.0
+HEAD_ON_DOT: float = -0.5
+HEAD_ON_PASS_FRAMES: int = retail_frames(8)
+BUMP_RECOVERY: float = per_frame_factor(1.05)
+MARCHING_SOLDIER_COS: float = 0.5           # blockedBy: a soldier this close to our heading is no block
+MARCHING_SOLDIER_CRAWL: float = 0.33        # processCollision: a vehicle behind him keeps this share
+CROWD_AIR: float = 4.0
+CROWD_SEP_STEP: float = 1.5
+CROWD_PASS_CLEAR: float = 6.0
+CROWD_PASS_TIGHT: float = 1.5
+CROWD_PASS_RETRY: int = retail_frames(10)
+CROWD_TAPER_DIST: float = CELL * 8.0
+CROWD_PLAN_END_SLACK: float = CELL * 3.0
+CROWD_BRAKE_FRAMES: int = retail_frames(8)
+CROWD_FAN_FRAMES: int = retail_frames(12)
+CROWD_FAN_RATE: float = per_frame_rate(0.8)
+CROWD_LANE_RATE_MIN: float = per_frame_rate(0.4)
+CROWD_SEP_FILTER: float = 1.0 - per_frame_factor(1.0 - 0.13)
+CROWD_RELEASE_FILTER: float = 1.0 - per_frame_factor(1.0 - 0.15)
+CROWD_AIM_CRUISE: float = 1.0 - per_frame_factor(1.0 - 0.23)
+CROWD_AIM_URGENT: float = 1.0 - per_frame_factor(1.0 - 0.67)
+CROWD_AIM_DEAD: float = 0.035
+CROWD_MERGE_FRAMES: int = retail_frames(45)
+CROWD_TTC_FRAMES: int = retail_frames(21)
+CROWD_REPATH_QUEUE: int = retail_frames(24)
+CROWD_SCAN_FRAMES: int = retail_frames(2)
+CROWD_HOLD_FRAMES: int = 3 * LOGICFRAMES_PER_GAME_SECOND // 2
+CROWD_SCAN_NEAR_MAX: int = 16
+CROWD_PROBE_CELLS: int = 16
+CROWD_MAX_SAMPLES: int = 160
+CROWD_LOOKAHEAD_CELLS: int = 2
+STUCK_TURN_EPSILON: float = per_frame_rate(0.004)
+STUCK_PRESS_FRAMES: int = retail_frames(10)
+STUCK_REPATH_FRAMES: int = retail_frames(45)
+STUCK_BACKOUT_FRAMES: int = retail_frames(66)
+STUCK_COOL_FRAMES: int = retail_frames(90)
+STUCK_CYCLE_FRAMES: int = retail_frames(150)
+REPATH_DEBOUNCE_FRAMES: int = retail_frames(3)      # requestPath's "very quickly"
+# The stuck ladder as designed, not yet in C++.  The values here are main's; PROPOSED_LADDER holds
+# the ones measured to work, and each switches alone.
+LADDER_REPATH_FLAG: bool = False        # AIStates.cpp:1908 also reads a pending flag crowdRepath raises
+LADDER_STAGE_HOLD: int = 0              # AIUpdate.cpp:2824-2829, 2869-2873: the rung survives the path
+                                        # wait and drops after this many frames of progress; 0 drops at once
+LADDER_ALLY_FILTER: bool = False        # AIUpdate.cpp stuckRescue rung 2 leaves moving allies alone
+PROPOSED_LADDER: dict[str, object] = {
+    "LADDER_REPATH_FLAG": True,
+    "LADDER_STAGE_HOLD": retail_frames(22),
+    "LADDER_ALLY_FILTER": True,
+}
+# Anticipatory steering by time to collision (Karamouzas, Skinner and Guy 2014), not in C++.  Each
+# neighbour the desired velocity would hit inside the horizon pushes away from the predicted contact,
+# harder the sooner; the sum bends the aim and trims the speed after crowdSteer.  PROPOSED_TTC turns
+# it on and drops the contact speed cap it replaces; the cap alone dropped is the control.
+CROWD_TTC_STEER: bool = False           # doLocomotor would call ttcSteer right after crowdSteer
+CONTACT_SPEED_CAP: bool = True          # processCollision writes m_curMaxBlockedSpeed
+TTC_HORIZON_FRAMES: float = 3.0 * LOGICFRAMES_PER_GAME_SECOND
+TTC_NEAR_FRAMES: float = 0.5 * LOGICFRAMES_PER_GAME_SECOND     # the push falls off as a square past this
+TTC_STRENGTH: float = 0.25              # the push at contact, in shares of the unit's top speed; the stand-in
+                                        # tank's 0.75 bent real treads and wheels into a crawl
+TTC_AIR: float = 2.0                    # added to the radius sum between two moving units
+TTC_PARKED_SLACK: float = 4.0           # overlap allowed against a parked unit before it pushes
+TTC_SLOT_REACH: float = CELL            # a parked unit this far past contact from my goal never pushes
+TTC_KEEP_RIGHT: float = 0.6             # share of a push against the heading turned to the right
+TTC_MAX_BEND: float = math.radians(60.0)
+TTC_CREEP: float = 0.2                  # the speed is never trimmed below this share, the bump floor
+TTC_GOAL_FADE: float = CELL * 2.0       # the push fades out over this last stretch of the route
+TTC_WALL_LOOK: float = CELL * 1.5       # rock probed this far past the hull before a bend is taken
+TTC_WALL_PROBES: tuple[float, ...] = (1.0, 0.5)         # shares of that reach probed
+TTC_BEND_TRIES: tuple[float, ...] = (1.0, 0.5, 0.0)     # shares of the bend tried against rock
+TTC_MIN_AIM: float = 0.01               # an aim point closer than this is not steered
+TTC_EPSILON: float = 1e-6
+TTC_EPSILON_FINE: float = 1e-9
+# crowdSteer lets a unit go within a cell of its corridor's end (AIUpdate.cpp:3266) and takes it back
+# when the nearest sample flips.  Under the braking slide that is a two-tick cycle a few units short of
+# the slot with a turn every tick, so updateProgress counts it as coming about and the ladder never
+# fires.  The contact cap's spacing hides it; without the cap it strands units.  On, the release holds
+# until destroyPath (AIUpdate.cpp:2600) clears the corridor.
+CROWD_END_LATCH: bool = False
+PROPOSED_TTC: dict[str, object] = {
+    "CROWD_TTC_STEER": True,
+    "CONTACT_SPEED_CAP": False,
+    "CROWD_END_LATCH": True,
+}
+# A soldier pinned between two parked hulls stands still while the side steps swing his nose, and a
+# hull caught in a two-tick cycle swings back and forth.  updateProgress (AIUpdate.cpp:2848-2862)
+# counts either as coming about, so no_progress never climbs and no rung fires.  On, a soldier who
+# turned without moving, or any unit whose turn reverses last tick's, is not coming about.
+LADDER_DITHER_FIX: bool = False
+PROPOSED_DITHER: dict[str, object] = {"LADDER_DITHER_FIX": True}
+# crowdPlanLane (AIGroup.cpp:1910-1932) lays a lane's first leg from the member's spot to the first
+# corner, and when the member cannot see that corner it closes to trunk[0] first: the spot of the
+# member nearest the group's middle.  Half a group behind a building drives sideways, or back, to
+# that one tank before it sets off.  On, a corner the member cannot see from its spot is skipped
+# and the lane starts at the first one it can; a member that sees none searches its own path.
+CROWD_LANE_FROM_SPOT: bool = False
+PROPOSED_FROM_SPOT: dict[str, object] = {"CROWD_LANE_FROM_SPOT": True}
+
+# Locomotion: Locomotor.cpp's EA drives for treads, wheels and legs, and PhysicsUpdate.cpp under them
+TREADS, FOUR_WHEELS, MOTORCYCLE, TWO_LEGS = "TREADS", "FOUR_WHEELS", "MOTORCYCLE", "TWO_LEGS"
+GROUND_DRIVE: frozenset[str] = frozenset((TREADS, FOUR_WHEELS, MOTORCYCLE))     # isGroundDrive
+GROUND_TURN_RATE_FACTOR: float = 1.5        # getMaxTurnRate, Locomotor.cpp:1017
+GROUND_MIN_TURN_RATE: float = math.radians(100.0) / LOGICFRAMES_PER_GAME_SECOND
+TURN_NONE, TURN_POSITIVE, TURN_NEGATIVE = 0, 1, -1
+ON_TARGET: float = 0.1                      # rotateObjAroundLocoPivot and the legs: rounding noise
+TREAD_SLOW_ANGLE: float = math.pi / 4.0     # moveTowardsPositionTreads' QUAETERPI
+TREAD_PIVOT_ANGLE: float = math.pi * 0.75
+SLOW_DOWN_SPEED_DIVISOR: float = 1.5        # slowDownDist = (actualSpeed/1.5) * slowDownTime
+TREAD_NEAR_GOAL: float = 2.0 * CELL
+TREAD_NEAR_ANGLE_COEFF: float = 0.05
+TREAD_NEAR_SPEED_FACTOR: float = per_frame_factor(0.6)
+BRAKING_FACTOR_LATCHED: float = 1.1
+MAX_BRAKING_FACTOR: float = 5.0
+BRAKING_HALF_SHARE: float = 0.75            # slowDownDist past this share of the way: half braking
+WHEEL_TURN_SPEED_SHARE: float = 0.25        # MinTurnSpeed raised to a quarter of top speed
+WHEEL_SMALL_TURN: float = math.pi / 20.0
+WHEEL_PROBE_TURN: float = math.pi / 12.0
+WHEEL_PROBE_FRAMES: int = LOGICFRAMES_PER_GAME_SECOND // 2
+WHEEL_PROBE_SWING_SHARE: float = 0.25
+WHEEL_REACTION_FRAMES: float = RETAIL_FRAME_RATIO       # ConvertRetailFrameRatio(1.0f)
+WHEEL_THREE_POINT_RADII: float = 5.0
+DONUT_DISTANCE: float = 4.0 * CELL
+DONUT_FRAMES: int = int(2.5 * LOGICFRAMES_PER_GAME_SECOND)
+INFANTRY_YAW_EASE_FRAMES: float = retail_frames_real(2.0)
+INFANTRY_STOP_FRAMES: float = retail_frames_real(3.0)
+BRAKING_SLIDE_MIN: float = CELL / LOGICFRAMES_PER_GAME_SECOND  # locoUpdate_moveTowardsPosition's MIN_VEL
+MOTIVE_FRAMES: int = LOGICFRAMES_PER_GAME_SECOND // 3          # PhysicsUpdate.cpp:83
+VELOCITY_ZERO: float = per_frame_rate(0.001)
+MIN_FRICTION: float = 0.01
+MAX_FRICTION: float = 0.99
+
+# The stand-in tank the tests drive and the run falls back to with no install: the old cut-down
+# model's numbers (30 world units and 90 degrees a game second, a stop in 0.8 s), none of them EA's.
+TANK_RADIUS: float = 11.0
+TANK_SPEED: float = 30.0 / LOGICFRAMES_PER_GAME_SECOND          # per tick
+TANK_TURN: float = math.radians(90.0) / LOGICFRAMES_PER_GAME_SECOND
+TANK_ACCELERATION: float = TANK_SPEED / (0.8 * LOGICFRAMES_PER_GAME_SECOND)
+DEFAULT_GROUP_KIND: str = "crusader"
+
+
+@dataclass(frozen=True)
+class UnitKind:
+    """One unit's locomotor, footprint and friction in ticks: speeds per tick, turns in radians a
+       tick, accelerations per tick squared, frictions as the INI's share per retail frame."""
+    name: str
+    appearance: str
+    infantry: bool
+    major_radius: float
+    radius: float                           # the bounding circle
+    speed: float
+    speed_damaged: float
+    turn_rate: float                        # the template's, before getMaxTurnRate's ground scale
+    turn_rate_damaged: float
+    acceleration: float
+    acceleration_damaged: float
+    braking: float
+    min_speed: float = 0.0
+    min_turn_speed: float = FAST_AS_POSSIBLE
+    turn_pivot_offset: float = 0.0
+    can_move_backwards: bool = False
+    forward_friction: float = 0.15
+    lateral_friction: float = 0.15
+    extra_friction: float = 0.0
+    close_enough: float = PATHFIND_CLOSE_ENOUGH
+    geometry: str = "CYLINDER"
+    minor_radius: float = 0.0
+
+    @property
+    def half_extents(self) -> Point:
+        """The rectangle the partition's collision test uses: a box's own, a circle's bounding square
+           (xy_collideTest_Rect_Circle sets its minor radius to its major)."""
+        if self.geometry == "BOX":
+            return self.major_radius, self.minor_radius
+        return self.major_radius, self.major_radius
+
+    def max_speed(self, damaged: bool) -> float:
+        """getMaxSpeedForCondition."""
+        return self.speed_damaged if damaged else self.speed
+
+    def max_turn_rate(self, damaged: bool) -> float:
+        """getMaxTurnRate with the object: a ground drive turns half as fast again, a healthy one no
+           slower than 100 degrees a second, one scale for both rates."""
+        turn = self.turn_rate_damaged if damaged else self.turn_rate
+        if self.appearance in GROUND_DRIVE:
+            scale = GROUND_TURN_RATE_FACTOR
+            if 0.0 < self.turn_rate and self.turn_rate * scale < GROUND_MIN_TURN_RATE:
+                scale = GROUND_MIN_TURN_RATE / self.turn_rate
+            turn *= scale
+        return turn
+
+    def max_acceleration(self, damaged: bool) -> float:
+        return self.acceleration_damaged if damaged else self.acceleration
+
+    @property
+    def forward_friction_per_tick(self) -> float:
+        """PhysicsBehavior::getForwardFriction: clamped, then retailFrictionToFrame."""
+        return friction_per_tick(self.forward_friction + self.extra_friction)
+
+    @property
+    def lateral_friction_per_tick(self) -> float:
+        return friction_per_tick(self.lateral_friction + self.extra_friction)
+
+
+def friction_per_tick(share_per_retail_frame: float) -> float:
+    clamped = min(max(share_per_retail_frame, MIN_FRICTION), MAX_FRICTION)
+    return 1.0 - per_frame_factor(1.0 - clamped)
+
+
+STANDIN_TANK: UnitKind = UnitKind(
+    name="standin", appearance=TREADS, infantry=False, major_radius=TANK_RADIUS, radius=TANK_RADIUS,
+    speed=TANK_SPEED, speed_damaged=TANK_SPEED, turn_rate=TANK_TURN, turn_rate_damaged=TANK_TURN,
+    acceleration=TANK_ACCELERATION, acceleration_damaged=TANK_ACCELERATION, braking=TANK_ACCELERATION)
+
+# Map and measurement
 MAP_WIDTH_CELLS: int = 96
 MAP_HEIGHT_CELLS: int = 72
-ROCK_RADIUS_CELLS: int = 2                  # rocks are five cells across
+MAP_KINDS: tuple[str, ...] = ("choke", "open", "twogaps", "maze", "edges")
+SCENARIOS: tuple[str, ...] = ("column", "cross")
+ROCK_RADIUS_CELLS: int = 2
 OPEN_MAP_ROCKS: int = 18
 OPEN_MAP_MARGIN: int = 8
 CHOKE_MAP_ROCKS: int = 10
 CHOKE_MAP_MARGIN: int = 6
-CHOKE_GAP_CELLS: int = 4                    # narrower than three lanes of tanks
-SCATTER_KEEP_CLEAR_CELLS: int = 6           # a rock this near the wall column would seal its gap
+CHOKE_GAP_CELLS: int = 4
+SCATTER_KEEP_CLEAR_CELLS: int = 6
 NARROW_GAP_HALF_CELLS: int = 2
 WIDE_GAP_ROWS: tuple[int, int] = (6, 13)
-# The two layouts made for the block corridor, both larger than the rest so a search can be long
-# enough for the abstraction to matter.  A maze is passages on a lattice that does not line up with
-# the blocks, with some walls knocked out so there is more than one way; `edges` is a row of thin
-# walls standing on block boundaries, each with a narrow gap and a wide one, every gap straddling a
-# block boundary, so the coarse route (which ignores footprint) picks gaps a group cannot use.
 MAZE_SIZE: tuple[int, int] = (160, 120)
-MAZE_PITCH: int = 6                         # lattice step: a 4-cell passage and a 2-cell wall
-MAZE_PASSAGE: int = 4                       # one tank fits, two abreast do not
-MAZE_LOOPS: float = 0.15                    # share of the remaining walls knocked through
-MAZE_ROOM: tuple[int, int] = (24, 26)       # cleared in each corner, for the spawns and the goals
+MAZE_PITCH: int = 6
+MAZE_PASSAGE: int = 4
+MAZE_LOOPS: float = 0.15
+MAZE_ROOM: tuple[int, int] = (24, 26)
 EDGES_SIZE: tuple[int, int] = (128, 96)
-EDGES_WALL_EVERY: int = 2                   # a wall on every second block boundary ...
-EDGES_FIRST_WALL: int = 2                   # ... starting at this one
-EDGES_NARROW: int = 2                       # cells: a single unit passes, no group corridor does
-EDGES_WIDE: int = 8                         # cells: the 6-wide group corridor fits
-RAYCAST_STEP: float = CELL * 0.5            # isLinePassable samples twice per cell
-ROOM_CLEARANCE: int = 1                     # a clear ring one cell deep is "somewhere to dodge to"
-
-# Units and collision
-COLLISION_SLACK: float = 0.95               # units may touch this close before they count as one
-GOAL_SPACING_SLACK: float = 0.95
-GOAL_SEARCH_RINGS: int = 24
-YIELD_REACH: float = 1.3                    # radii within which a parked unit is in the way
-FINAL_ARRIVE_RADII: float = 0.9             # the last waypoint is reached this loosely ...
-WAYPOINT_ARRIVE_RADII: float = 0.25         # ... and the ones on the way, this tightly
-PROGRESS_EPSILON_SPEEDS: float = 0.25       # closing by less than this is inching, not progress
-REPATH_AFTER_STUCK_FRAMES: int = 60
-PARK_RADII: float = 3.0                     # jammed this near the goal counts as arrived ...
-PARK_RADII_AFTER_RETRIES: float = 6.0       # ... and the tolerance grows the longer it fails
-PARK_RETRY_LIMIT: int = 3
-# (turn in radians, fraction of full speed) tried in order: straight, crawl, then wider swerves
-SWERVE_ATTEMPTS: tuple[tuple[float, float], ...] = (
-    (0.0, 1.0), (0.0, 0.4), (0.6, 0.8), (-0.6, 0.8), (1.2, 0.6), (-1.2, 0.6))
-
-# Lane changing.  The engine's only answer to being blocked is to go slower, and a swerve that
-# lasts one frame is not an overtake - the unit re-aims at its waypoint next frame and files back
-# in behind the same tank.  A lane is a sideways shift of the goal that is held long enough to get
-# past somebody, and it is only taken when there is a lane to take: the probe below is the
-# sandbox's isLinePassable, drawn like every other check this file makes.
-LANE_CHANGE: bool = False                   # --lanes
-LANE_CHANGE_AFTER_FRAMES: int = 15          # blocked this long before looking for a way round
-LANE_CHANGE_OFFSETS: tuple[float, ...] = (1.0, -1.0, 2.0, -2.0)     # footprints, nearest side first
-LANE_CHANGE_LOOKAHEAD: float = 6.0          # footprints of clear line a lane has to have
-LANE_CHANGE_REACH: float = 2.5              # radii within which somebody counts as "in front"
-LANE_CHANGE_AHEAD: float = 0.5              # how far off our nose he may be and still be in the way
-LANE_CHANGE_SAME_WAY: float = 0.5           # headings this aligned are traffic, not a head-on
-LANE_HOLD_FRAMES: int = 45                  # hold a lane this long, or it flickers every frame
-LANE_CHANGE_STALLED_ONLY: bool = True       # overtake a queue that is stopped, not one that flows
-LANE_RAYS_KEPT: int = 24                    # how many lane probes stay drawable per unit
-
-# The ribbon.  The corridor stops being a line and becomes a band: every unit keeps a continuous
-# lateral position inside it, clamped to the band's half width, and each frame slides that position
-# away from whichever side of the band in front of it is busier.  A queue is a density hump and the
-# units behind it drain sideways on their own; where the band is too narrow to hold two of them the
-# clamp gathers them back into single file, which is the doorway case Grid.has_room exists for,
-# expressed as geometry rather than as a special case.
-#
-# It shares the corridor search with column mode and adds no search of its own: the per-frame work
-# is counting units in a slice in front, in buckets a footprint wide, and one clearance probe.
-BAND_STEP: float = 0.15                     # footprints of lateral drift per frame
-BAND_LOOKAHEAD: float = 4.0                 # footprints of band read in front of the unit
-BAND_BUCKET: float = 1.0                    # footprints per bucket: a cell is 10 and a tank 22, so
-                                            # a narrower one measures noise and the drift chatters
-BAND_DEADBAND: int = 1                      # a side must be this much busier before anybody moves
-
-# Ordering
-LANES_MAX: int = 3
-LANES_MIN: int = 2
-LANES_MIN_UNITS: int = 5                    # below this, three lanes are wider than the group
-LANE_GAP: float = 0.5 * CELL                # slack between neighbouring lanes
-LANE_SHRINKS: tuple[float, ...] = (1.0, 0.5, 0.0)   # full offset, half, then the corridor line
-INDIVIDUAL_OFFSET_RADII: float = 6.0        # computeIndividualDestination's cap on the spread
+EDGES_WALL_EVERY: int = 2
+EDGES_FIRST_WALL: int = 2
+EDGES_NARROW: int = 2
+EDGES_WIDE: int = 8
 SPAWN_ROW_WIDTH: int = 5
 SPAWN_STRIDE_CELLS: int = 3
-SPAWN_CELL: Cell = (6, 12)                  # the column scenario's single block
-CROSS_SPAWN_TOP: Cell = (6, 10)             # the cross scenario's high block ...
-CROSS_SPAWN_BOTTOM_INSET: int = 16          # ... and the low one, this far up from the bottom
-GOAL_INSET_X: int = 8                       # goals sit this far in from the right edge ...
-GOAL_INSET_Y: int = 12                      # ... and this far from the top or bottom
+SPAWN_CELL: Cell = (6, 12)
+CROSS_SPAWN_TOP: Cell = (6, 10)
+CROSS_SPAWN_BOTTOM_INSET: int = 16
+GOAL_INSET_X: int = 8
+GOAL_INSET_Y: int = 12
+MEASURE_MAX_FRAMES: int = 3000
+SEED_RANGE: int = 1 << 30
+UNREACHABLE: int = 1 << 30
 
-# Measurement and window
-MEASURE_MAX_FRAMES: int = 4000
-RENDER_FPS: int = 60
-HUD_HEIGHT: int = 96
-HUD_TOP_PAD: int = 4
-HUD_TEXT_X: int = 8
-HUD_LINE_HEIGHT: int = 18
-HUD_FONT_SIZE: int = 14
-HUD_NOTES_SHOWN: int = 2
-WAYPOINT_DOT: int = 2
-BLOCKED_RING_WIDTH: int = 1
-CROSSING_OUTLINE_WIDTH: int = 1
-TERRAIN_OVERDRAW: int = 1                   # one pixel, so neighbouring wall cells do not seam
-MOUSE_LEFT: int = 1
-MOUSE_RIGHT: int = 3
+# Cell types (PathfindCell::CellType, the ones a flat map has) and occupancy flags (AIPathfind.h:368)
+CLEAR, OBSTACLE, IMPASSABLE = 0, 1, 2
+NO_UNITS, UNIT_GOAL, UNIT_PRESENT_MOVING, UNIT_PRESENT_FIXED, UNIT_GOAL_OTHER_MOVING = range(5)
 
-
-def frames_for_cost(cost: float) -> float:
-    """A* cost back to logic frames: 10 of cost is one cell, one cell is CELL/UNIT_SPEED frames."""
-    return (cost / float(COST_ORTHOGONAL)) * (CELL / UNIT_SPEED)
+# examineNeighboringCells' neighbour order; a diagonal needs one of adjacent[i-4], adjacent[i-3]
+DELTAS: tuple[Cell, ...] = ((1, 0), (0, 1), (-1, 0), (0, -1), (1, 1), (-1, 1), (-1, -1), (1, -1))
+ADJACENT: tuple[int, ...] = (0, 1, 2, 3, 0)
 
 
 def cell_of(x: float, y: float) -> Cell:
-    return int(x // CELL), int(y // CELL)
+    """worldToCell: floor."""
+    return int(math.floor(x / CELL)), int(math.floor(y / CELL))
 
 
-def world_of(cx: int, cy: int) -> Point:
-    return (cx + 0.5) * CELL, (cy + 0.5) * CELL
+def cell_pos(cx: int, cy: int, center: bool) -> Point:
+    """adjustCoordToCell: the cell's centre for a centred body, a point just inside its low corner
+       for the rest.  0.5 rather than the game's 0.05 of a cell keeps the nodes on exact integers, so
+       Path::optimize's integer step test reads them the way the C++ does."""
+    if center:
+        return (cx + 0.5) * CELL, (cy + 0.5) * CELL
+    return cx * CELL + 0.5, cy * CELL + 0.5
 
+
+def radius_and_center(radius: float) -> tuple[int, bool]:
+    """Pathfinder::getRadiusAndCenter: the footprint in cells from the bounding circle."""
+    diameter = 2.0 * radius
+    if CELL < diameter < 2.0 * CELL:
+        diameter = 2.0 * CELL
+    iradius = int(math.floor(diameter / CELL + 0.3))
+    center = False
+    if iradius == 0:
+        iradius += 1
+    if iradius & 1:
+        center = True
+    iradius //= 2
+    if iradius > MAX_RADIUS:
+        iradius, center = MAX_RADIUS, True
+    return iradius, center
+
+
+def unit_cell(x: float, y: float, center: bool) -> Cell:
+    """updatePos/updateGoal: a centred body sits in the cell it is over, the rest on the nearest
+       cell corner."""
+    if center:
+        return int(math.floor(x / CELL)), int(math.floor(y / CELL))
+    return int(math.floor(0.5 + x / CELL)), int(math.floor(0.5 + y / CELL))
+
+
+def line_cells(sx: int, sy: int, ex: int, ey: int) -> Iterator[tuple[Cell | None, Cell]]:
+    """Pathfinder::iterateCellsAlongLine: EA's Bresenham, which visits the side cell at every step
+       of the minor axis, so the walk is 4-connected.  Yields (from, to); `from` is None for the first
+       cell.  A zero-length line also visits the cell one step up the y axis, as the C++ does."""
+    delta_x, delta_y = abs(ex - sx), abs(ey - sy)
+    x, y = sx, sy
+    xinc1 = xinc2 = 1 if ex >= sx else -1
+    yinc1 = yinc2 = 1 if ey >= sy else -1
+    if delta_x >= delta_y:
+        xinc1, yinc2 = 0, 0
+        den, num, numadd, pixels = delta_x, delta_x // 2, delta_y, delta_x
+    else:
+        xinc2, yinc1 = 0, 0
+        den, num, numadd, pixels = delta_y, delta_y // 2, delta_x, delta_y
+    previous: Cell | None = None
+    for _ in range(pixels + 1):
+        current = (x, y)
+        yield previous, current
+        num += numadd
+        if num >= den:
+            num -= den
+            x += xinc1
+            y += yinc1
+            side = (x, y)
+            yield current, side
+            current = side
+        x += xinc2
+        y += yinc2
+        previous = current
+
+
+def normalize_angle(angle: float) -> float:
+    while angle > math.pi:
+        angle -= 2.0 * math.pi
+    while angle <= -math.pi:
+        angle += 2.0 * math.pi
+    return angle
+
+
+# ---------------------------------------------------------------------------------------------
+# Cost rules, each a pure function so a test can hold it against the C++
+# ---------------------------------------------------------------------------------------------
+
+def cost_to_goal(dx: int, dy: int, num: int, den: int) -> int:
+    """PathfindCell::costToGoal: 10 per cell of the long axis, 5 per cell of the short, scaled."""
+    dx, dy = abs(dx), abs(dy)
+    if dx > dy:
+        cost = COST_ORTHOGONAL * dx + (COST_ORTHOGONAL * dy) // 2
+    else:
+        cost = COST_ORTHOGONAL * dy + (COST_ORTHOGONAL * dx) // 2
+    return (cost * num) // den
+
+
+def turn_cost(radians: float, chassis: int, cap: int) -> int:
+    """Pathfinder_turnCost: one radian costs the hull's speed over its turn rate, capped."""
+    if chassis <= 0 or radians <= 0.0:
+        return 0
+    return min(int(math.floor(radians * chassis)), cap)
+
+
+def wall_hug_cost(base: int, clearance: int, need: int) -> int:
+    """Pathfinder_wallHugCost: the body's slack inside 13, squared, up to 8/5 of a step."""
+    slack = clearance - need
+    if slack >= PF_CLEARANCE_SOFT:
+        return 0
+    slack = max(slack, 0)
+    nearness = ((PF_CLEARANCE_SOFT - slack) * 256) // PF_CLEARANCE_SOFT
+    squared = (nearness * nearness) >> 8
+    return (base * PF_WALLHUG_NUM * squared) // (PF_WALLHUG_DEN * 256)
+
+
+def traffic_cost(base: int, traffic: int) -> int:
+    """Pathfinder_trafficCost: up to four steps, full at 192."""
+    if traffic <= 0:
+        return 0
+    traffic = min(traffic, PF_TRAFFIC_FULL)
+    return (base * PF_TRAFFIC_NUM * traffic) // (PF_TRAFFIC_DEN * PF_TRAFFIC_FULL)
+
+
+def crossing_cost(base: int, claim_halves: int) -> int:
+    """Pathfinder_crossingCost: half a step per whole unit wanting the cell at that moment, 4 at most."""
+    units = claim_halves // 2
+    if units <= 0:
+        return 0
+    units = min(units, PF_CLAIM_UNITS_MAX)
+    return (base * PF_CROSSING_NUM * units) // PF_CROSSING_DEN
+
+
+def lane_count(span: float, spacing: float, members: int) -> int:
+    """Crowd_laneCount."""
+    if spacing < 0.001:
+        return 1
+    lanes = min(int(span / spacing) + 1, CROWD_MAX_LANES)
+    if 0 < members < lanes:
+        lanes = members
+    return max(lanes, 1)
+
+
+def lane_corner(a: Point, c: Point, b: Point, offset: float) -> Point | None:
+    """Crowd_laneCorner: where a lane `offset` left of a route turns at corner c."""
+    ix, iy = c[0] - a[0], c[1] - a[1]
+    ox, oy = b[0] - c[0], b[1] - c[1]
+    il, ol = math.hypot(ix, iy), math.hypot(ox, oy)
+    if il < 0.01 or ol < 0.01:
+        return None
+    ix, iy, ox, oy = ix / il, iy / il, ox / ol, oy / ol
+    mx, my = -iy - oy, ix + ox
+    stretch = 1.0
+    ml = math.hypot(mx, my)
+    if ml < 0.01:
+        mx, my = -iy, ix
+    else:
+        mx, my = mx / ml, my / ml
+        cos_half = mx * -iy + my * ix
+        stretch = 1.0 / max(cos_half, CROWD_LANE_MIN_COS)
+    return mx * offset * stretch, my * offset * stretch
+
+
+def brake_speed(speed: float, blocker_speed: float, gap: float, frames: int) -> float:
+    """Crowd_brakeSpeed."""
+    if frames <= 0:
+        return speed
+    want = max(blocker_speed + gap / frames, 0.0)
+    return min(want, speed)
+
+
+def release_cap(held: float, want: float, filt: float) -> float:
+    """Crowd_releaseCap: a brake at once, a release as a ramp."""
+    return want if want <= held else held + (want - held) * filt
+
+
+def stuck_rung(no_progress: int, stage_done: int) -> int:
+    """AIUpdate_stuckRung: 0 nothing, 1..3 the rung to fire, -1 start the ladder again."""
+    if stage_done >= 3:
+        return -1 if no_progress > STUCK_CYCLE_FRAMES else 0
+    if no_progress < STUCK_REPATH_FRAMES:
+        return 0
+    return stage_done + 1
+
+
+# ---------------------------------------------------------------------------------------------
+# The map
+# ---------------------------------------------------------------------------------------------
 
 class Grid:
+    """The classified map: cell types, the pinched flag, the clearance field and the zones."""
+
     def __init__(self, width: int, height: int) -> None:
         self.width = width
         self.height = height
-        self.blocked = bytearray(width * height)
-        self._room: bytearray | None = None
-        self._zones: dict[int, list[int]] = {}
-        self._clear: dict[int, bytearray] = {}
+        self.kind = bytearray(width * height)
+        self._pinched: bytearray | None = None
+        self._clearance: bytearray | None = None
+        self._zones: list[int] | None = None
+        self._block_zones: dict[int, list[int]] = {}
 
     def in_bounds(self, cx: int, cy: int) -> bool:
         return 0 <= cx < self.width and 0 <= cy < self.height
 
-    def _changed(self) -> None:
-        self._room = None
-        self._zones = {}
-        self._clear = {}
+    def set_kind(self, cx: int, cy: int, kind: int) -> None:
+        self.kind[cy * self.width + cx] = kind
+        self._pinched = self._clearance = self._zones = None
+        self._block_zones = {}
 
     def block(self, cx: int, cy: int) -> None:
-        self.blocked[cy * self.width + cx] = 1
-        self._changed()
+        self.set_kind(cx, cy, IMPASSABLE)
 
     def unblock(self, cx: int, cy: int) -> None:
-        self.blocked[cy * self.width + cx] = 0
-        self._changed()
-
-    def clear_cells(self, clearance: int) -> bytearray:
-        """clear_for over the whole map, once per clearance: a search asks it eight times a cell."""
-        if clearance not in self._clear:
-            self._clear[clearance] = bytearray(
-                1 if self.clear_for(x, y, clearance) else 0
-                for y in range(self.height) for x in range(self.width))
-        return self._clear[clearance]
+        self.set_kind(cx, cy, CLEAR)
 
     def open_span(self, cx: int, first_row: int, last_row: int) -> None:
-        """Cut a two-cell-wide gap through a wall at column cx, rows first_row..last_row."""
         for y in range(first_row, last_row + 1):
             self.unblock(cx, y)
             self.unblock(cx + 1, y)
 
+    def passable(self, cx: int, cy: int) -> bool:
+        """validMovementPosition for a ground locomotor: only CLEAR (and rubble, which this map has
+           none of) carries it."""
+        return 0 <= cx < self.width and 0 <= cy < self.height and self.kind[cy * self.width + cx] == CLEAR
+
+    def passable_world(self, x: float, y: float) -> bool:
+        return self.passable(*cell_of(x, y))
+
+    @property
+    def pinched(self) -> bytearray:
+        """Pathfinder::classifyMap: a clear cell with fewer than 2 clear orthogonal neighbours or 4
+           clear neighbours in all, and (MARK_BORDER_PINCHED) any clear cell orthogonally beside an
+           obstacle.  Off-map neighbours are skipped, not counted."""
+        if self._pinched is None:
+            w, h = self.width, self.height
+            pinched = bytearray(w * h)
+            for j in range(h):
+                for i in range(w):
+                    if self.kind[j * w + i] != CLEAR:
+                        continue
+                    total = ortho = 0
+                    beside_obstacle = False
+                    for k in range(i - 1, i + 2):
+                        if not 0 <= k < w:
+                            continue
+                        for m in range(j - 1, j + 2):
+                            if not 0 <= m < h or (k == i and m == j):
+                                continue
+                            kind = self.kind[m * w + k]
+                            if kind == CLEAR:
+                                total += 1
+                                if k == i or m == j:
+                                    ortho += 1
+                            if kind == OBSTACLE and (k == i or m == j):
+                                beside_obstacle = True
+                    if ortho < 2 or total < 4 or beside_obstacle:
+                        pinched[j * w + i] = 1
+            self._pinched = pinched
+        return self._pinched
+
+    @property
+    def clearance(self) -> bytearray:
+        """Pathfinder::buildClearance: a 5/7 chamfer distance to the nearest cell no ground unit can
+           stand in, the map edge counted as a wall, capped at 60."""
+        if self._clearance is None:
+            w, h = self.width, self.height
+            c = bytearray(PF_CLEARANCE_MAX if k == CLEAR else 0 for k in self.kind)
+            for x in range(w):
+                c[x] = c[(h - 1) * w + x] = 0
+            for y in range(h):
+                c[y * w] = c[y * w + w - 1] = 0
+
+            def relax(dst: int, src: int, add: int) -> None:
+                if c[src] + add < c[dst]:
+                    c[dst] = c[src] + add
+
+            # the C++ walks x-major columns; the passes are the same pairs of neighbours
+            for x in range(1, w - 1):
+                for y in range(1, h - 1):
+                    i = y * w + x
+                    if c[i] == 0:
+                        continue
+                    relax(i, i - w, PF_CLEARANCE_ORTHO)
+                    relax(i, i - 1, PF_CLEARANCE_ORTHO)
+                    relax(i, i - w - 1, PF_CLEARANCE_DIAG)
+                    relax(i, i + w - 1, PF_CLEARANCE_DIAG)
+            for x in range(w - 2, 0, -1):
+                for y in range(h - 2, 0, -1):
+                    i = y * w + x
+                    if c[i] == 0:
+                        continue
+                    relax(i, i + w, PF_CLEARANCE_ORTHO)
+                    relax(i, i + 1, PF_CLEARANCE_ORTHO)
+                    relax(i, i + w + 1, PF_CLEARANCE_DIAG)
+                    relax(i, i - w + 1, PF_CLEARANCE_DIAG)
+            self._clearance = c
+        return self._clearance
+
+    @property
+    def zones(self) -> list[int]:
+        """Connected ground, 4-connected.  Stands in for the zone manager's effective zones, which is
+           all clientSafeQuickDoesPathExist and internalFindPath's zone screen read."""
+        if self._zones is None:
+            w = self.width
+            zones = [0] * (w * self.height)
+            label = 0
+            for start in range(w * self.height):
+                if zones[start] or self.kind[start] != CLEAR:
+                    continue
+                label += 1
+                zones[start] = label
+                todo = [start]
+                while todo:
+                    i = todo.pop()
+                    x, y = i % w, i // w
+                    for nx, ny in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+                        if self.passable(nx, ny) and not zones[ny * w + nx]:
+                            zones[ny * w + nx] = label
+                            todo.append(ny * w + nx)
+            self._zones = zones
+        return self._zones
+
+    def zone_at(self, x: float, y: float) -> int:
+        cx, cy = cell_of(x, y)
+        return self.zones[cy * self.width + cx] if self.in_bounds(cx, cy) else 0
+
     def block_zones(self, size: int) -> list[int]:
         """PathfindZoneManager's raw zones: each clear cell labelled with its 4-connected component
-           inside its own size x size block, numbered across the whole map; 0 is a wall.  A block
-           whose clear ground is split by a wall is two zones, so the coarse search never sees a
-           block as connected when its interior is not."""
-        if size in self._zones:
-            return self._zones[size]
+           inside its own size x size block."""
+        if size in self._block_zones:
+            return self._block_zones[size]
         zones = [0] * (self.width * self.height)
         next_zone = 1
         for cy in range(self.height):
@@ -328,57 +751,14 @@ class Grid:
                             zones[ny * self.width + nx] = next_zone
                             todo.append((nx, ny))
                 next_zone += 1
-        self._zones[size] = zones
+        self._block_zones[size] = zones
         return zones
-
-    def has_room(self, cx: int, cy: int) -> bool:
-        """True when the whole ring around this cell is clear - somewhere to dodge to.  In a
-           two-cell doorway there is nowhere to go, so charging a crossing there does not spread
-           anyone out, it just sends them to the next doorway to queue at that one instead."""
-        if not self.in_bounds(cx, cy):
-            return False
-        if self._room is None:
-            self._room = bytearray(
-                1 if self.clear_for(x, y, ROOM_CLEARANCE) else 0
-                for y in range(self.height) for x in range(self.width))
-        return bool(self._room[cy * self.width + cx])
-
-    def passable(self, cx: int, cy: int) -> bool:
-        return self.in_bounds(cx, cy) and not self.blocked[cy * self.width + cx]
-
-    def passable_world(self, x: float, y: float) -> bool:
-        return self.passable(*cell_of(x, y))
-
-    def clear_for(self, cx: int, cy: int, clearance: int) -> bool:
-        """Every cell within `clearance` of this one is passable - the engine's path diameter."""
-        return all(self.passable(x, y)
-                   for x in range(cx - clearance, cx + clearance + 1)
-                   for y in range(cy - clearance, cy + clearance + 1))
-
-    def line_passable(self, ax: float, ay: float, bx: float, by: float, *,
-                      radius: float = 0.0) -> bool:
-        """Pathfinder::isLinePassable - walk the line, every cell on it has to be drivable."""
-        dx, dy = bx - ax, by - ay
-        distance = math.hypot(dx, dy)
-        if distance < EPSILON:
-            return self.passable_world(ax, ay)
-        steps = int(distance / RAYCAST_STEP) + 1
-        nx, ny = -dy / distance, dx / distance
-        for step in range(steps + 1):
-            fraction = step / steps
-            x, y = ax + dx * fraction, ay + dy * fraction
-            if not self.passable_world(x, y):
-                return False
-            if radius > 0.0 and not (self.passable_world(x + nx * radius, y + ny * radius)
-                                     and self.passable_world(x - nx * radius, y - ny * radius)):
-                return False
-        return True
 
 
 def scatter_blocks(grid: Grid, rng: random.Random, count: int, margin: int,
                    keep_clear_of: int | None = None) -> None:
-    """`count` five-by-five rocks at random, never within `margin` of the edge and never straddling
-       the column a map wants left open."""
+    """`count` five-by-five rocks.  They are OBSTACLE cells, the class a structure has, so the ring of
+       ground round each is pinched the way the ground round a building is."""
     for _ in range(count):
         cx = rng.randrange(margin, grid.width - margin)
         cy = rng.randrange(margin, grid.height - margin)
@@ -386,13 +766,10 @@ def scatter_blocks(grid: Grid, rng: random.Random, count: int, margin: int,
             continue
         for x in range(cx - ROCK_RADIUS_CELLS, cx + ROCK_RADIUS_CELLS + 1):
             for y in range(cy - ROCK_RADIUS_CELLS, cy + ROCK_RADIUS_CELLS + 1):
-                grid.block(x, y)
+                grid.set_kind(x, y, OBSTACLE)
 
 
 def carve_maze(grid: Grid, rng: random.Random) -> None:
-    """Fill the map and carve a lattice maze into it: depth-first, so one way through, then a share
-       of the walls left standing knocked out, so there are several and the shortest is not the
-       obvious one."""
     for cy in range(1, grid.height - 1):
         for cx in range(1, grid.width - 1):
             grid.block(cx, cy)
@@ -455,37 +832,28 @@ def make_map(kind: str, width: int = MAP_WIDTH_CELLS, height: int = MAP_HEIGHT_C
         grid.block(width - 1, y)
     if kind == "open":
         scatter_blocks(grid, rng, OPEN_MAP_ROCKS, OPEN_MAP_MARGIN)
-        return grid
-    if kind == "choke":
-        # one wall across the middle with a gap the group cannot cross abreast
-        wall = width // 2
-        gap_y = height // 2
+    elif kind == "choke":
+        wall, gap_y = width // 2, height // 2
         for y in range(1, height - 1):
             if abs(y - gap_y) * 2 > CHOKE_GAP_CELLS:
                 grid.block(wall, y)
                 grid.block(wall + 1, y)
         scatter_blocks(grid, rng, CHOKE_MAP_ROCKS, CHOKE_MAP_MARGIN, keep_clear_of=wall)
-        return grid
-    if kind == "twogaps":
-        # the case the whole exercise is about: a cheap narrow way and a wider way round.
-        # Nothing here reads the seed, on purpose - it is a hand-made map, so a headless run over
-        # sixteen seeds is one match played sixteen times and its columns are one data point
+    elif kind == "twogaps":
+        # hand-made: the seed changes nothing, so a run over N seeds is one match N times
         wall = width // 2
         for y in range(1, height - 1):
             grid.block(wall, y)
             grid.block(wall + 1, y)
-        grid.open_span(wall, height // 2 - NARROW_GAP_HALF_CELLS,
-                       height // 2 + NARROW_GAP_HALF_CELLS)
+        grid.open_span(wall, height // 2 - NARROW_GAP_HALF_CELLS, height // 2 + NARROW_GAP_HALF_CELLS)
         grid.open_span(wall, *WIDE_GAP_ROWS)
-        return grid
-    if kind == "maze":
+    elif kind == "maze":
         carve_maze(grid, rng)
-        return grid
-    if kind == "edges":
+    elif kind == "edges":
         size = ZONE_BLOCK_SIZE
         boundaries = range(1, (height - 1) // size)
         for boundary in range(EDGES_FIRST_WALL, (width - 1) // size - 1, EDGES_WALL_EVERY):
-            wall = boundary * size - 1          # the last column of one block, the first of the next
+            wall = boundary * size - 1
             for y in range(1, height - 1):
                 grid.block(wall, y)
                 grid.block(wall + 1, y)
@@ -493,311 +861,27 @@ def make_map(kind: str, width: int = MAP_WIDTH_CELLS, height: int = MAP_HEIGHT_C
             for row, gap in ((narrow, EDGES_NARROW), (wide, EDGES_WIDE)):
                 first = row * size - gap // 2
                 grid.open_span(wall, max(1, first), min(height - 2, first + gap - 1))
-        return grid
-    raise ValueError(f"unknown map kind {kind!r}, expected one of {', '.join(MAP_KINDS)}")
+    else:
+        raise ValueError(f"unknown map kind {kind!r}, expected one of {', '.join(MAP_KINDS)}")
+    return grid
 
 
-class UsageMap:
-    """Cells covered by units' *remaining* paths.  A unit releases what it has driven past.
-       Pathfinder::registerPathUsage / releasePathUsageBefore."""
+# ---------------------------------------------------------------------------------------------
+# The hierarchical corridor (internal_findHierarchicalPath, buildHierachicalPath)
+# ---------------------------------------------------------------------------------------------
 
-    def __init__(self) -> None:
-        self.count: dict[Cell, int] = {}
-        self.owner: dict[int, list[Cell]] = {}
-
-    def register(self, owner: int, cells: Sequence[Cell]) -> None:
-        self.unregister(owner)
-        self.owner[owner] = list(cells)
-        for cell in cells:
-            self.count[cell] = self.count.get(cell, 0) + 1
-
-    def _drop_cells(self, cells: Iterable[Cell]) -> None:
-        """Every cell here was counted by register, so the count is there to be decremented."""
-        for cell in cells:
-            remaining = self.count[cell] - 1
-            if remaining <= 0:
-                del self.count[cell]
-            else:
-                self.count[cell] = remaining
-
-    def unregister(self, owner: int) -> None:
-        self._drop_cells(self.owner.get(owner, ()))
-        # the key stays, empty: a unit whose repath failed still gets released as it drives on
-        self.owner[owner] = []
-
-    def release_before(self, owner: int, index: int) -> None:
-        cells = self.owner[owner]
-        self._drop_cells(cells[:index])
-        self.owner[owner] = cells[index:]
-
-    def count_paths_on(self, cell: Cell, exclude_owner: int | None = None) -> int:
-        paths = self.count.get(cell, 0)
-        if paths and exclude_owner is not None and cell in self.owner.get(exclude_owner, ()):
-            paths -= 1
-        return paths
-
-
-def price_congestion(paths: int) -> int:
-    """One orthogonal step costs 10, so a cost of 5 buys at most half a cell of detour per cell -
-       which is why the default barely bends a path.  This is the knob to turn."""
-    if paths <= 0:
-        return 0
-    return min(paths, PATH_CONGESTION_MAX_PATHS) * PATH_CONGESTION_COST
-
-
-def count_path_overlap(units: Sequence["Unit"]) -> int:
-    """Cells claimed by more than one unit at plan time - 'ayni yerde ayni anda', counted."""
-    claims = Counter(cell for unit in units for cell in unit.cells)
-    return sum(claimants - 1 for claimants in claims.values() if claimants > 1)
-
-
-class JamMap:
-    """Where units actually got stuck, as opposed to where they said they would drive.
-       Pathfinder::noteJam / decayJamMap, on a dict because the sandbox has no map array.
-
-       The decay runs off the frame number rather than a call count, which is what makes it
-       identical on two machines in the engine and reproducible between two sweep rows here."""
-
-    def __init__(self) -> None:
-        self.jam: dict[Cell, int] = {}
-        self.decayed_at: int = 0
-        self.peak: int = 0              # most cells jammed at once, which no engine counter reports
-
-    def note(self, cell: Cell) -> None:
-        stamp = self.jam.get(cell, 0)
-        if stamp < PATH_JAM_MAX:
-            self.jam[cell] = stamp + 1
-        self.peak = max(self.peak, len(self.jam))
-
-    def at(self, cell: Cell) -> int:
-        return self.jam.get(cell, 0)
-
-    def decay(self, frame: int) -> None:
-        """A match with nothing jammed anywhere - which is most of a match - touches nothing."""
-        if not self.jam or frame - self.decayed_at < PATH_JAM_DECAY_FRAMES:
-            return
-        self.decayed_at = frame
-        self.jam = {cell: stamp - 1 for cell, stamp in self.jam.items() if stamp > 1}
-
-    @property
-    def blocking_cells(self) -> int:
-        """Cells jammed hard enough to cost a repath anything, which is the number that matters -
-           a map full of stamps of 1 is a map with no jam on it."""
-        return sum(1 for stamp in self.jam.values() if stamp > PATH_JAM_FLOOR)
-
-
-def price_jam(jam: int) -> int:
-    """The floor is the whole design: below it a cell is traffic and costs nothing, above it the
-       cost is capped, because the A* heuristic cannot see this penalty and an uncapped one turns
-       the search into a flood."""
-    over = jam - PATH_JAM_FLOOR
-    if over <= 0:
-        return 0
-    return min(over, PATH_JAM_MAX_CHARGED) * PATH_JAM_COST
-
-
-class Reservation(NamedTuple):
-    """One unit's claim on one cell: when it expects to be there, and which way it is going."""
-    arrival: float
-    owner: int
-    hx: float
-    hy: float
-
-
-class ReservationTrack(NamedTuple):
-    """The cells one drive line passes through, in order, with an arrival and a heading each."""
-    cells: list[Cell]
-    times: list[float]
-    headings: list[Heading]
-
-
-class ReservationMap:
-    """When each unit expects to be where, and going which way.
-
-       The congestion map answers 'is this ground spoken for'; this one answers 'will we be on it
-       at the same moment'.  Two units driving the same road nose to tail never clash here, because
-       their arrival times at each cell are far apart - which is right, that road is fine.  Two
-       units whose routes cross do clash, in exactly the one or two cells where they cross, and
-       that is where the cost has to land.
-
-       The heading is why it stores more than a time.  Units nose to tail on the same road at the
-       same moment are a queue, and a queue is what a road is for; the expensive case is two of
-       them arriving from different directions.  Only the second is charged for."""
-
-    def __init__(self) -> None:
-        self.at: dict[Cell, list[Reservation]] = {}
-        self.owner: dict[int, list[tuple[Cell, Reservation]]] = {}
-
-    def reserve(self, owner: int, cells: Sequence[Cell], times: Sequence[float],
-                headings: Sequence[Heading]) -> None:
-        self.release(owner)
-        entries = [(cell, Reservation(arrival, owner, hx, hy))
-                   for cell, arrival, (hx, hy) in zip(cells, times, headings)]
-        self.owner[owner] = entries
-        for cell, reservation in entries:
-            self.at.setdefault(cell, []).append(reservation)
-
-    def _drop(self, cell: Cell, reservation: Reservation) -> None:
-        """`reserve` put this entry in this cell's slot and nothing else removes it, so both are
-           there to be found - a miss is a book-keeping bug, not a case to absorb."""
-        slot = self.at[cell]
-        slot.remove(reservation)
-        if not slot:
-            del self.at[cell]
-
-    def release(self, owner: int) -> None:
-        for cell, reservation in self.owner.get(owner, ()):
-            self._drop(cell, reservation)
-        # the key stays, empty: a unit whose repath failed still gets released as it drives on
-        self.owner[owner] = []
-
-    def release_before(self, owner: int, now: float) -> None:
-        """Drop what is already in the past - a unit cannot collide with where it has been."""
-        keep: list[tuple[Cell, Reservation]] = []
-        for cell, reservation in self.owner[owner]:
-            if reservation.arrival >= now:
-                keep.append((cell, reservation))
-            else:
-                self._drop(cell, reservation)
-        self.owner[owner] = keep
-
-    def count_conflicts(self, cell: Cell, when: float, exclude_owner: int | None = None,
-                        heading: Heading | None = None) -> int:
-        conflicts = 0
-        for other in self.at.get(cell, ()):
-            if other.owner == exclude_owner:
-                continue
-            if abs(other.arrival - when) >= PATH_CROSSING_WINDOW:
-                continue
-            if heading is not None and heading[0] * other.hx + heading[1] * other.hy > SAME_WAY:
-                continue                       # following, not crossing - that is just a queue
-            conflicts += 1
-        return conflicts
-
-
-def price_crossing(conflicts: int) -> int:
-    if conflicts <= 0:
-        return 0
-    return min(conflicts, PATH_CROSSING_MAX) * PATH_CROSSING_COST
-
-
-def find_crossing_cells(reservations: ReservationMap) -> dict[Cell, int]:
-    """cell -> how many pairs of units still plan to be in it inside the clash window.  Drawn on
-       screen and counted in the headless table; both want the same answer."""
-    crossings: dict[Cell, int] = {}
-    for cell, slot in reservations.at.items():
-        # same way at the same time is a queue, not a clash
-        pairs = sum(1 for first, second in itertools.combinations(slot, 2)
-                    if abs(first.arrival - second.arrival) < PATH_CROSSING_WINDOW
-                    and first.hx * second.hx + first.hy * second.hy <= SAME_WAY)
-        if pairs:
-            crossings[cell] = pairs
-    return crossings
-
-
-def count_planned_crossings(reservations: ReservationMap) -> int:
-    return sum(find_crossing_cells(reservations).values())
-
-
-@dataclass
-class PathPricing:
-    """What a search pays for beyond distance.  A default-constructed one prices nothing, which is
-       the plain shortest path - so a search that is not meant to pay passes no pricing at all
-       rather than five separate arguments saying so."""
-    # an empty usage map, not None: `congestion_range` is the switch, and a range of 0 never reads it
-    usage: UsageMap = field(default_factory=UsageMap)
-    congestion_range: int = 0
-    owner: int | None = None
-    reservations: ReservationMap | None = None
-    start_frame: float = 0.0
-    # not None only for a search leaving a jam: an ordinary order keeps the plain shortest route
-    jam: JamMap | None = None
-
-
-NO_PRICING = PathPricing()
-
-
-@dataclass
-class TrafficModel:
-    """The two shared maps a group order plans against, and which of their costs it is charged.
-
-       The switches live next to the maps because they are always chosen together - turning one
-       cost off is the A/B this sandbox exists to run, and carrying them as two loose booleans put
-       a bare `True, False` at every call site instead."""
-    usage: UsageMap
-    reservations: ReservationMap
-    jam: JamMap = field(default_factory=JamMap)
-    is_congestion_charged: bool = True
-    is_crossing_charged: bool = True
-    is_jam_charged: bool = True
-
-    @property
-    def congestion_range(self) -> int:
-        return PATH_CONGESTION_RANGE_NO_GROUP if self.is_congestion_charged else 0
-
-    @property
-    def priced_reservations(self) -> ReservationMap | None:
-        return self.reservations if self.is_crossing_charged else None
-
-    def release(self, owner: int) -> None:
-        """Take one unit's old plan off both maps, so its own claims cannot price its next one."""
-        self.usage.unregister(owner)
-        self.reservations.release(owner)
-
-    def pricing_for(self, owner: int, now: float) -> PathPricing:
-        """What one unit's own search pays: everyone else's ground, and everyone else's moment."""
-        return PathPricing(usage=self.usage, congestion_range=self.congestion_range, owner=owner,
-                           reservations=self.priced_reservations, start_frame=now)
-
-    def repath_pricing(self, owner: int, now: float) -> PathPricing:
-        """The same, plus the jam map - and this is the only search that reads it.  A unit only
-           repaths here because it stopped making progress, which is the sandbox's whole notion of
-           leaving a queue; the engine gates the same cost on isQueuedBehindUnits."""
-        pricing = self.pricing_for(owner, now)
-        pricing.jam = self.jam if self.is_jam_charged else None
-        return pricing
-
-    def corridor_pricing(self, now: float) -> PathPricing:
-        """The group corridor is one search for the whole group, so it pays no congestion - its own
-           units are the congestion.  It still dodges other groups' moments."""
-        return PathPricing(reservations=self.priced_reservations, start_frame=now)
-
-
-# Pathfinder::findPath, near enough for the question being asked.
-NEIGHBOURS: tuple[tuple[int, int, int], ...] = (
-    (1, 0, COST_ORTHOGONAL), (-1, 0, COST_ORTHOGONAL),
-    (0, 1, COST_ORTHOGONAL), (0, -1, COST_ORTHOGONAL),
-    (1, 1, COST_DIAGONAL), (1, -1, COST_DIAGONAL),
-    (-1, 1, COST_DIAGONAL), (-1, -1, COST_DIAGONAL))
-
-# a step's length in cells, keyed by its cost, to turn (dx, dy) into a unit heading
-STEP_LEN: dict[int, float] = {COST_ORTHOGONAL: 1.0, COST_DIAGONAL: math.sqrt(2.0)}
-
-
-def heuristic(start: Cell, goal: Cell) -> int:
-    dx, dy = abs(start[0] - goal[0]), abs(start[1] - goal[1])
-    shorter, longer = (dx, dy) if dx < dy else (dy, dx)
-    octile = COST_DIAGONAL * shorter + COST_ORTHOGONAL * (longer - shorter)
-    return octile * HEURISTIC_NUM // HEURISTIC_DEN
-
-
-def find_block_route(grid: Grid, start: Cell, goal: Cell,
-                     size: int) -> tuple[list[Cell], int] | None:
-    """Pathfinder::internal_findHierarchicalPath on the ground layer.  Returns (nodes, pushes):
-       the start, the cell each block is entered by, and the goal, plus how many entry cells the
-       search queued.  None when it finds no route, which is the engine's setAllPassable.
-
-       A node is a cell.  From the block a node is in, each of the four sides is scanned from its
-       middle outwards; a scan cell in the node's zone whose neighbour across the edge is clear
-       queues that neighbour, at most once per neighbouring zone per side unless the crossing is
-       pinched.  The step costs the straight distance between the two entry cells, so the walk
-       inside a block is never priced - that is where this route can be wrong about cost.  The
-       scan offsets are the engine's own: i>>1 alternating sides for i = 1..size, which reaches
-       one cell past the block on one end and never the first cell on the other."""
+def find_block_route(grid: Grid, start: Cell, goal: Cell, size: int = ZONE_BLOCK_SIZE
+                     ) -> tuple[list[Cell], int] | None:
+    """Pathfinder::internal_findHierarchicalPath on the ground layer: the start, the cell each block
+       is entered by, and the goal, plus how many entry cells it queued; None when there is no route,
+       which is the engine's setAllPassable.  Each side of a block is scanned middle out, one exit per
+       neighbouring zone per side unless the crossing is pinched, and a step costs the straight
+       distance between entry cells."""
     zones = grid.block_zones(size)
+    pinched = grid.pinched
     width = grid.width
-    start_zone = zones[start[1] * width + start[0]]
-    goal_zone = zones[goal[1] * width + goal[0]]
+    start_zone = zones[start[1] * width + start[0]] if grid.in_bounds(*start) else 0
+    goal_zone = zones[goal[1] * width + goal[0]] if grid.in_bounds(*goal) else 0
     if not start_zone or not goal_zone:
         return None
     goal_block = (goal[0] // size, goal[1] // size)
@@ -805,7 +889,7 @@ def find_block_route(grid: Grid, start: Cell, goal: Cell,
     blocks_y = (grid.height + size - 1) // size
     cost: dict[Cell, int] = {start: 0}
     parent: dict[Cell, Cell | None] = {start: None}
-    visited = {start}                   # on the open or the closed list, in the engine's terms
+    visited = {start}
     tie = itertools.count()
     open_heap: list[tuple[int, int, Cell]] = [(0, next(tie), start)]
     pushes = 0
@@ -824,7 +908,7 @@ def find_block_route(grid: Grid, start: Cell, goal: Cell,
                 nodes.append(goal)
             return nodes, pushes
         middle = size // 2
-        sides: list[tuple[Cell, Cell, Cell]] = []       # (scan anchor, scan axis, step across)
+        sides: list[tuple[Cell, Cell, Cell]] = []
         if bx > 0:
             sides.append(((bx * size, by * size + middle), (0, 1), (-1, 0)))
         if bx < blocks_x - 1:
@@ -843,7 +927,7 @@ def find_block_route(grid: Grid, start: Cell, goal: Cell,
                 scan_zone = zones[scan[1] * width + scan[0]]
                 if scan in visited:
                     if scan_zone == zone:
-                        break                   # this side has already been left through
+                        break
                     continue
                 if scan_zone != zone:
                     continue
@@ -857,8 +941,8 @@ def find_block_route(grid: Grid, start: Cell, goal: Cell,
                 visited.add(across)
                 reached = cost[cell] + int(COST_ORTHOGONAL * math.hypot(across[0] - cell[0],
                                                                         across[1] - cell[1]) + 0.5)
-                if not (grid.has_room(*across) and grid.has_room(*scan)):
-                    reached += CORRIDOR_PINCHED_COST
+                if pinched[across[1] * width + across[0]] or pinched[scan[1] * width + scan[0]]:
+                    reached += 2 * COST_ORTHOGONAL
                 else:
                     examined.append(across_zone)
                 remaining = int(COST_ORTHOGONAL * math.hypot(across[0] - goal[0],
@@ -871,1053 +955,3236 @@ def find_block_route(grid: Grid, start: Cell, goal: Cell,
 
 
 class BlockCorridor:
-    """The blocks a cell search is held to, and for `soft` how far each cell is from the coarse
-       route.  The distance is taken from the route drawn as straight lines between its nodes, in
-       cells (8-way steps), walls ignored: it measures how far a cell strays, not how far it is to
-       walk back."""
+    """The blocks the zone manager marks passable: every block the coarse route enters by, and its
+       eight neighbours (setPassableWithNeighbors)."""
 
-    def __init__(self, grid: Grid, nodes: Sequence[Cell], size: int) -> None:
+    def __init__(self, nodes: Sequence[Cell], size: int = ZONE_BLOCK_SIZE) -> None:
         self.size = size
-        self.nodes = list(nodes)
         self.open: set[Cell] = set()
         for x, y in nodes:
             bx, by = x // size, y // size
-            for ox in range(-CORRIDOR_WIDEN, CORRIDOR_WIDEN + 1):
-                for oy in range(-CORRIDOR_WIDEN, CORRIDOR_WIDEN + 1):
+            for ox in (-1, 0, 1):
+                for oy in (-1, 0, 1):
                     self.open.add((bx + ox, by + oy))
-        self.width = grid.width
-        self.distance: list[int] = []
-        self.order: list[int] = []
-        if CORRIDOR == "soft":
-            self._measure(grid)
 
-    def _measure(self, grid: Grid) -> None:
-        unreached = UNREACHABLE_COST
-        self.distance = [unreached] * (grid.width * grid.height)
-        self.order = [0] * (grid.width * grid.height)
-        frontier: list[Cell] = []
-        along = 0
-        for (ax, ay), (bx, by) in zip(self.nodes, self.nodes[1:]):
-            steps = max(abs(bx - ax), abs(by - ay), 1)
-            for step in range(steps + 1):
-                cx = ax + round((bx - ax) * step / steps)
-                cy = ay + round((by - ay) * step / steps)
-                index = cy * grid.width + cx
-                if grid.in_bounds(cx, cy) and self.distance[index] == unreached:
-                    self.distance[index] = 0
-                    self.order[index] = along
-                    frontier.append((cx, cy))
-                along += 1
-        distance = 0
-        while frontier:
-            distance += 1
-            reached: list[Cell] = []
-            for x, y in frontier:
-                source = self.order[y * grid.width + x]
-                for dx, dy, _ in NEIGHBOURS:
-                    nx, ny = x + dx, y + dy
-                    if grid.in_bounds(nx, ny) and self.distance[ny * grid.width + nx] == unreached:
-                        self.distance[ny * grid.width + nx] = distance
-                        self.order[ny * grid.width + nx] = source
-                        reached.append((nx, ny))
-            frontier = reached
+    def is_open(self, cx: int, cy: int) -> bool:
+        return (cx // self.size, cy // self.size) in self.open
 
-    def is_open(self, cell: Cell) -> bool:
-        return (cell[0] // self.size, cell[1] // self.size) in self.open
-
-    def admits(self, cell: Cell) -> bool:
-        """findGroundPath: inside an open block, or 3 cells diagonally from one."""
-        if self.is_open(cell):
+    def admits_ground(self, cx: int, cy: int) -> bool:
+        """findGroundPath: inside, or a block three cells away diagonally is (clipIsPassable)."""
+        if self.is_open(cx, cy):
             return True
-        x, y = cell
-        slack = CORRIDOR_SLACK
-        return any(self.is_open((x + sx, y + sy))
-                   for sx, sy in ((slack, slack), (-slack, slack), (slack, -slack), (-slack, -slack)))
-
-    def soft_cost(self, current: Cell, cell: Cell) -> int:
-        index = cell[1] * self.width + cell[0]
-        distance = self.distance[index]
-        if distance > SOFT_THRESHOLD:
-            return SOFT_COST * (distance - SOFT_THRESHOLD)
-        if (distance <= SOFT_NEAR
-                and self.order[index] > self.order[current[1] * self.width + current[0]]):
-            return -SOFT_BONUS
-        return 0
+        return any(self.is_open(cx + sx, cy + sy) for sx, sy in ((3, 3), (-3, 3), (3, -3), (-3, -3)))
 
 
 def block_corridor(grid: Grid, start: Cell, goal: Cell) -> BlockCorridor | None:
-    """The corridor findPath lays before its cell search, or None for none: the mode is off, or the
-       coarse search found no route and the engine opens every block."""
-    if CORRIDOR == "none":
-        return None
-    route = find_block_route(grid, start, goal, ZONE_BLOCK_SIZE)
-    if route is None:
-        return None
-    return BlockCorridor(grid, route[0], ZONE_BLOCK_SIZE)
+    route = find_block_route(grid, start, goal)
+    return BlockCorridor(route[0]) if route else None
 
 
-def astar(grid: Grid, start: Cell, goal: Cell, *, clearance: int = 0,
-          pricing: PathPricing = NO_PRICING,
-          cell_budget: int = DEFAULT_CELL_BUDGET, partial: bool = False) -> tuple[list[Cell], int]:
-    """Returns (cells, expansions).  cells is [] when there is no path, or the budget ran out -
-       which is the engine's 'out of pathfind cells', the failure congestion cost can cause.  With
-       `partial` a search stopped by the budget hands back the route to the cell it got nearest
-       the goal instead, as internalFindPath does; the caller tells by the last cell.
+# ---------------------------------------------------------------------------------------------
+# Occupancy (PathfindCell's pos and goal unit, setPosUnit / setGoalUnit)
+# ---------------------------------------------------------------------------------------------
 
-       `travelled` is the cost without any penalty in it - the penalties are money, not distance,
-       and a detour taken to dodge someone must not also make us think we arrive later than we
-       do."""
-    if not grid.passable(*goal) or not grid.passable(*start):
-        return [], 0
-    corridor = block_corridor(grid, start, goal)
-    clear = grid.clear_cells(clearance) if clearance else None
-    open_heap: list[tuple[int, int, int, Cell]] = [(heuristic(start, goal), 0, 0, start)]
-    came_from: dict[Cell, Cell | None] = {start: None}
-    best_cost: dict[Cell, int] = {start: 0}
-    expansions = 0
-    closest, closest_distance = start, UNREACHABLE_COST
+class Occupancy:
+    def __init__(self) -> None:
+        self.pos: dict[int, int] = {}
+        self.goal: dict[int, int] = {}
 
-    def route_to(cell: Cell) -> list[Cell]:
-        path: list[Cell] = []
-        step: Cell | None = cell
-        while step is not None:
-            path.append(step)
-            step = came_from[step]
-        path.reverse()
-        return path
+    def flags(self, index: int) -> int:
+        p, g = self.pos.get(index), self.goal.get(index)
+        if p is None and g is None:
+            return NO_UNITS
+        if p is None:
+            return UNIT_GOAL
+        if g is None:
+            return UNIT_PRESENT_MOVING
+        return UNIT_PRESENT_FIXED if p == g else UNIT_GOAL_OTHER_MOVING
 
-    while open_heap:
-        _, cost, travelled, current = heapq.heappop(open_heap)
-        if cost > best_cost.get(current, UNREACHABLE_COST):
-            continue
-        if current == goal:
-            return route_to(current), expansions
-        expansions += 1
-        if expansions > cell_budget:
-            if partial and closest != start:
-                return route_to(closest), expansions
-            return [], expansions
-        if partial:
-            distance = (goal[0] - current[0]) ** 2 + (goal[1] - current[1]) ** 2
-            if distance < closest_distance:
-                closest, closest_distance = current, distance
-        for dx, dy, step_cost in NEIGHBOURS:
-            neighbour = (current[0] + dx, current[1] + dy)
-            if clear is not None:
-                if (not grid.in_bounds(*neighbour)
-                        or not clear[neighbour[1] * grid.width + neighbour[0]]):
-                    continue
-            elif not grid.passable(*neighbour):
-                continue
-            new_cost = cost + step_cost
-            if corridor is not None:
-                if CORRIDOR == "hard":
-                    if not corridor.admits(neighbour):
-                        continue
-                elif CORRIDOR == "flat":
-                    if not corridor.is_open(neighbour):
-                        new_cost += CORRIDOR_OUTSIDE_COST
-                else:
-                    new_cost += corridor.soft_cost(current, neighbour)
-            new_travel = travelled + step_cost
-            if pricing.congestion_range:
-                if (abs(neighbour[0] - start[0]) < pricing.congestion_range
-                        and abs(neighbour[1] - start[1]) < pricing.congestion_range):
-                    new_cost += price_congestion(
-                        pricing.usage.count_paths_on(neighbour, pricing.owner))
-            if pricing.jam is not None:
-                if (abs(neighbour[0] - start[0]) < PATH_JAM_RANGE
-                        and abs(neighbour[1] - start[1]) < PATH_JAM_RANGE):
-                    new_cost += price_jam(pricing.jam.at(neighbour))
-            if pricing.reservations is not None and grid.has_room(*neighbour):
-                when = pricing.start_frame + frames_for_cost(new_travel)
-                heading = (dx / STEP_LEN[step_cost], dy / STEP_LEN[step_cost])
-                new_cost += price_crossing(pricing.reservations.count_conflicts(
-                    neighbour, when, pricing.owner, heading))
-            if new_cost < best_cost.get(neighbour, UNREACHABLE_COST):
-                best_cost[neighbour] = new_cost
-                came_from[neighbour] = current
-                heapq.heappush(open_heap,
-                               (new_cost + heuristic(neighbour, goal), new_cost, new_travel,
-                                neighbour))
-    return [], expansions
+    def set_pos(self, index: int, uid: int) -> None:
+        g = self.goal.get(index)
+        if g is not None and g == self.pos.get(index):
+            return                  # a unit is already occupying this cell
+        self.pos[index] = uid
+
+    def clear_pos(self, index: int, uid: int) -> None:
+        if self.pos.get(index) == uid:
+            del self.pos[index]
+
+    def clear_goal(self, index: int, uid: int) -> None:
+        if self.goal.get(index) == uid:
+            del self.goal[index]
 
 
-def track_reservations(start: Point, points: Sequence[Point],
-                       start_frame: float = 0.0) -> ReservationTrack:
-    """The cells a unit driving these waypoints passes through, the frame it reaches each, and the
-       direction it is going when it does.
+# ---------------------------------------------------------------------------------------------
+# Paths and the crowd corridor
+# ---------------------------------------------------------------------------------------------
 
-       It walks the actual drive line rather than the A* cell list: after straightening, the
-       waypoints are far apart and the cells between them are exactly the ground nobody would
-       otherwise know is claimed.  Corridor lanes have no cell list at all."""
-    cells: list[Cell] = []
-    times: list[float] = []
-    headings: list[Heading] = []
-    arrival = start_frame
-    px, py = start
-    last: Cell | None = None
-    for qx, qy in points:
-        length = math.hypot(qx - px, qy - py)
-        heading = ((qx - px) / length, (qy - py) / length) if length > EPSILON else (0.0, 0.0)
-        steps = max(1, int(length / RAYCAST_STEP))
-        for step in range(1, steps + 1):
-            fraction = step / float(steps)
-            cell = cell_of(px + (qx - px) * fraction, py + (qy - py) * fraction)
-            if cell != last:
-                cells.append(cell)
-                times.append(arrival + length * fraction / UNIT_SPEED)
-                headings.append(heading)
-                last = cell
-        arrival += length / UNIT_SPEED
-        px, py = qx, qy
-    return ReservationTrack(cells, times, headings)
+@dataclass
+class Path:
+    """Every node the search laid, and the optimized chain through them (getNextOptimized)."""
+    nodes: list[Point]
+    route: list[int]
+    blocked_by_ally: bool = False
+
+    @property
+    def points(self) -> list[Point]:
+        return [self.nodes[i] for i in self.route]
+
+    @property
+    def last(self) -> Point:
+        return self.nodes[-1]
+
+    def length(self) -> float:
+        pts = self.points
+        return sum(math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(pts, pts[1:]))
 
 
 @dataclass
+class Sample:
+    x: float
+    y: float
+    tx: float
+    ty: float
+    left: float
+    right: float
+    along: float
+
+
+class CrowdCorridor:
+    """CrowdCorridor: the route sampled a cell apart, with the drivable ground either side."""
+
+    def __init__(self) -> None:
+        self.samples: list[Sample] = []
+
+    def build(self, grid: Grid, radius: float, points: Sequence[Point]) -> bool:
+        """CrowdCorridor::build: crowdExtent probes half a cell at a time to 16 cells, less the body's
+           own radius, then two passes of a 1-2-1 smoothing."""
+        self.samples = []
+        if len(points) < 2:
+            return False
+        total = sum(math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(points, points[1:]))
+        if total < CELL:
+            return False
+        step = CELL
+        if total / step > CROWD_MAX_SAMPLES - 1:
+            step = total / (CROWD_MAX_SAMPLES - 1)
+        walked = base = 0.0
+        for a, b in zip(points, points[1:]):
+            seg = math.hypot(b[0] - a[0], b[1] - a[1])
+            if seg < 0.001:
+                continue
+            dx, dy = (b[0] - a[0]) / seg, (b[1] - a[1]) / seg
+            while walked <= base + seg and len(self.samples) < CROWD_MAX_SAMPLES:
+                t = walked - base
+                x, y = a[0] + dx * t, a[1] + dy * t
+                self.samples.append(Sample(x, y, dx, dy, crowd_extent(grid, radius, x, y, -dy, dx),
+                                           crowd_extent(grid, radius, x, y, dy, -dx), walked))
+                walked += step
+            base += seg
+        if len(self.samples) < 2:
+            self.samples = []
+            return False
+        n = len(self.samples)
+        for _ in range(2):
+            lefts = [(self.samples[max(i - 1, 0)].left + 2 * self.samples[i].left
+                      + self.samples[min(i + 1, n - 1)].left) * 0.25 for i in range(n)]
+            rights = [(self.samples[max(i - 1, 0)].right + 2 * self.samples[i].right
+                       + self.samples[min(i + 1, n - 1)].right) * 0.25 for i in range(n)]
+            for s, lv, rv in zip(self.samples, lefts, rights):
+                s.left, s.right = lv, rv
+        return True
+
+    def length(self) -> float:
+        return self.samples[-1].along if self.samples else 0.0
+
+    def nearest(self, x: float, y: float, hint: int) -> int:
+        n = len(self.samples)
+        lo, hi = max(hint - 4, 0), min(hint + 12, n - 1)
+        best, best_sqr = lo, 1e30
+        for i in range(lo, hi + 1):
+            s = self.samples[i]
+            d = (x - s.x) ** 2 + (y - s.y) ** 2
+            if d < best_sqr:
+                best, best_sqr = i, d
+        if best_sqr > (CELL * 6) ** 2 and (lo > 0 or hi < n - 1):
+            for i, s in enumerate(self.samples):
+                d = (x - s.x) ** 2 + (y - s.y) ** 2
+                if d < best_sqr:
+                    best, best_sqr = i, d
+        return best
+
+    def curvature(self, i: int) -> float:
+        n = len(self.samples)
+        i = min(max(i, 0), n - 1)
+        j = min(i + 4, n - 1)
+        a, b = self.samples[i], self.samples[j]
+        return a.tx * b.ty - a.ty * b.tx
+
+    def clamp_lat(self, i: int, lat: float) -> float:
+        s = self.samples[i]
+        return max(min(lat, s.left), -s.right)
+
+    def lat_of(self, i: int, x: float, y: float) -> float:
+        s = self.samples[i]
+        return (x - s.x) * -s.ty + (y - s.y) * s.tx
+
+    def along_of(self, i: int, x: float, y: float) -> float:
+        s = self.samples[i]
+        return min(max(s.along + (x - s.x) * s.tx + (y - s.y) * s.ty, 0.0), self.length())
+
+    def bracket(self, along: float) -> tuple[int, float]:
+        n = len(self.samples)
+        lo, hi = 0, n - 1
+        while lo + 1 < hi:
+            mid = (lo + hi) // 2
+            if self.samples[mid].along <= along:
+                lo = mid
+            else:
+                hi = mid
+        span = self.samples[lo + 1].along - self.samples[lo].along
+        f = (along - self.samples[lo].along) / span if span > 0.001 else 0.0
+        return lo, min(max(f, 0.0), 1.0)
+
+    def point_at(self, along: float, lat: float) -> Point:
+        i, f = self.bracket(along)
+        a, b = self.samples[i], self.samples[min(i + 1, len(self.samples) - 1)]
+        tx, ty = a.tx + (b.tx - a.tx) * f, a.ty + (b.ty - a.ty) * f
+        tl = math.hypot(tx, ty)
+        if tl > 0.001:
+            tx, ty = tx / tl, ty / tl
+        else:
+            tx, ty = a.tx, a.ty
+        return a.x + (b.x - a.x) * f - ty * lat, a.y + (b.y - a.y) * f + tx * lat
+
+    def clamp_lat_at(self, along: float, lat: float) -> float:
+        i, f = self.bracket(along)
+        a, b = self.samples[i], self.samples[min(i + 1, len(self.samples) - 1)]
+        left = a.left + (b.left - a.left) * f
+        right = a.right + (b.right - a.right) * f
+        return max(min(lat, left), -right)
+
+    def clamp_lat_narrowest(self, frm: float, to: float, lat: float) -> float:
+        if to < frm:
+            frm, to = to, frm
+        lat = self.clamp_lat_at(to, self.clamp_lat_at(frm, lat))
+        for s in self.samples:
+            if s.along <= frm:
+                continue
+            if s.along >= to:
+                break
+            lat = max(min(lat, s.left), -s.right)
+        return lat
+
+
+def crowd_extent(grid: Grid, radius: float, x: float, y: float, dx: float, dy: float) -> float:
+    """crowdExtent / Pathfinder::laneExtent: drivable ground one way, half a cell at a time."""
+    step = CELL * 0.5
+    room = 0.0
+    s = step
+    while s <= CELL * CROWD_PROBE_CELLS:
+        if not grid.passable_world(x + dx * s, y + dy * s):
+            break
+        room = s
+        s += step
+    return max(room - radius, 0.0)
+
+
+# ---------------------------------------------------------------------------------------------
+# Units
+# ---------------------------------------------------------------------------------------------
+
+@dataclass
 class Unit:
-    # the id comes from whoever spawned the group: the usage and reservation maps are keyed by it,
-    # so two groups spawned separately must not both start counting from zero
     x: float
     y: float
     id: int
-    radius: float = UNIT_RADIUS
-    path: list[Point] = field(default_factory=list)         # world-space waypoints
-    index: int = 0
+    kind: UnitKind = STANDIN_TANK
+    damaged: bool = False                   # body at MovementPenaltyDamageState (REALLYDAMAGED) or worse
+    facing: float = 0.0
+    vx: float = 0.0
+    vy: float = 0.0
     is_selected: bool = False
-    blocked_frames: int = 0                 # had to slow, swerve or stop for another unit
-    blocked_run: int = 0                    # consecutive such frames, which is what a lane needs
-    lane_dx: float = 0.0                    # sideways shift of the goal while overtaking ...
-    lane_dy: float = 0.0
-    lane_frames: int = 0                    # ... and how much longer it is held
-    lane_changes: int = 0
-    band_half: float = 0.0                  # w(s)/2 of the band this unit drives, 0 = not on one
-    band_t: float = 0.0                     # ... and where it sits across it, clamped to +-half
-    band_step: float = 0.0                  # ... and how far the pressure term may slide it in a
-                                            # frame.  Zero is the control arm: the same band, the
-                                            # same shared line, nobody drifting
-    band_line: list[Point] = field(default_factory=list)    # the band's centre, shared, from the
-                                            # corridor start: segment i is band_line[i:i+2]
-    band_drifts: int = 0                    # frames the pressure term actually moved this unit
-    stuck_run: int = 0                      # consecutive frames going nowhere -> repath
-    jam_priced: int = 0                     # repaths that had jammed ground in front of them at all
-    jam_detours: int = 0                    # ... and of those, the ones that came out avoiding it
-    last_dist: float | None = None          # distance to the current waypoint, to notice inching
+    radius: float = field(init=False)
+    max_speed: float = field(init=False)
+    turn_rate: float = field(init=False)
+    # the locomotor's flags and the physics module's state
+    ax: float = 0.0                         # PhysicsBehavior::m_accel, forces over the mass
+    ay: float = 0.0
+    motive_until: int = 0                   # m_motiveForceExpires
+    is_braking: bool = False                # Locomotor IS_BRAKING
+    braking_factor: float = 1.0
+    braking_status: bool = False            # OBJECT_STATUS_BRAKING: physics leaves x and y alone
+    moving_backwards: bool = False
+    three_point_turn: bool = False
+    donut_until: int = 0
+    yaw_rate: float = 0.0
+    side_step_x: float = 0.0                # processCollision's m_sideStep, a soldier against a hull
+    side_step_y: float = 0.0
+    side_step_seen: bool = False
+    # orders and paths
+    moving: bool = False                    # in a move state (locomotor goal on path)
+    goal: Point | None = None               # the state machine's goal position
+    path: Path | None = None
+    waiting_for_path: bool = False
+    queued: bool = False
+    queue_at: int = 0
+    path_timestamp: int = -1000
+    planned: list[Point] = field(default_factory=list)      # m_crowdPlanned
+    move_away_from: int | None = None       # AI_MOVE_OUT_OF_THE_WAY, from whom
+    resume_goal: Point | None = None        # the order a move out of the way interrupted
+    dist_to_goal: float = 0.0               # computePointOnPath's distAlongPath, cached
+    loco_goal: Point = (0.0, 0.0)           # m_locomotorGoalData
+    # blocking (processCollision, doLocomotor)
+    is_blocked: bool = False
+    blocked_frames: int = 0
+    is_blocked_and_stuck: bool = False
+    cur_max_blocked_speed: float = FAST_AS_POSSIBLE
+    bump_speed_limit: float = FAST_AS_POSSIBLE
+    head_on_seen: bool = False
+    head_on_frames: int = 0
+    repath_asked: bool = False
+    ignore_collisions_until: int = 0
+    # the stuck ladder (updateProgress, stuckRescue)
+    last_progress: Point = (0.0, 0.0)
+    last_progress_angle: float = 0.0
+    last_turn: float = 0.0                  # LADDER_DITHER_FIX: last tick's signed turn
+    no_progress: int = 0
+    rescue_stage: int = 0
+    rescue_until: int = 0
+    rescue_cool: int = 0
+    rescue_to: Point = (0.0, 0.0)
+    repath_pending: bool = False            # LADDER_REPATH_FLAG
+    progress_frames: int = 0                # LADDER_STAGE_HOLD
+    # the crowd model (crowdSteer)
+    pending_crowd_lat: float = 0.0
+    has_pending_crowd_lat: bool = False
+    crowd_lat_valid: bool = False
+    crowd_lat: float = 0.0
+    crowd_side: int = 1
+    crowd_sample: int = 0
+    corridor: CrowdCorridor | None = None
+    crowd_released: bool = False            # CROWD_END_LATCH: let go within a cell of the corridor's end
+    crowd_lane_idx: int = 0
+    crowd_lane_of: int = 0
+    crowd_lane_space: float = 0.0
+    crowd_fit: int = 0
+    crowd_queued: int = 0
+    crowd_hold_frame: int = 0
+    crowd_sep_smooth: float = 0.0
+    crowd_cap: float = 0.0
+    crowd_cap_valid: bool = False
+    crowd_aim: float = 0.0
+    crowd_aim_valid: bool = False
+    crowd_scan: dict | None = None
+    # measurement
+    blocked_total: int = 0
+    gave_up: bool = False
     repaths: int = 0
-    goal: Point | None = None               # where this unit was actually sent, after the spread
-    rays: list[Ray] = field(default_factory=list)           # what planning actually checked
-    cells: list[Cell] = field(default_factory=list)         # cells its path claims, for congestion
+    escapes: int = 0
+    rungs_fired: list[int] = field(default_factory=lambda: [0, 0, 0])
+    arrived: bool = False                   # reached its own order's goal at least once
+    churn: int = 0                          # ticks moving again after that
+    first_length: float = 0.0
+    first_waypoints: int = 0
+    rays: list[tuple[float, float, float, float, bool]] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        self.radius = self.kind.radius
+        self.max_speed = self.kind.max_speed(self.damaged)
+        self.turn_rate = self.kind.max_turn_rate(self.damaged)
+        self.cell_radius, self.center = radius_and_center(self.radius)
+        self.last_progress = (self.x, self.y)
+        self.pos_cell: Cell | None = None
+        self.goal_cell: Cell | None = None
 
     @property
     def pos(self) -> Point:
         return self.x, self.y
 
     @property
-    def has_arrived(self) -> bool:
-        return self.index >= len(self.path)
+    def dir(self) -> Point:
+        return math.cos(self.facing), math.sin(self.facing)
+
+    @property
+    def chassis(self) -> int:
+        """beginFlowSearch: world units driven in the time the hull turns one radian."""
+        if self.max_speed > 0.01 and self.turn_rate > 0.0001:
+            return int(math.floor(self.max_speed / self.turn_rate))
+        return 0
+
+    @property
+    def is_moving(self) -> bool:
+        return self.moving
+
+    @property
+    def is_infantry(self) -> bool:
+        return self.kind.infantry
+
+    @property
+    def acceleration(self) -> float:
+        return self.kind.max_acceleration(self.damaged)
+
+    @property
+    def on_path(self) -> bool:
+        """m_locomotorGoalType == POSITION_ON_PATH."""
+        return self.moving and self.path is not None
 
 
-def is_occupied(units: Sequence[Unit], mover: Unit, nx: float, ny: float, *,
-                slack: float = COLLISION_SLACK) -> bool:
-    """Two units cannot share a spot.  PhysicsUpdate's collision, minus the mass."""
-    return any(other is not mover
-               and math.hypot(other.x - nx, other.y - ny) < (mover.radius + other.radius) * slack
-               for other in units)
+# ---------------------------------------------------------------------------------------------
+# The pathfinder
+# ---------------------------------------------------------------------------------------------
+
+@dataclass
+class MoveCheck:
+    ally_fixed: int = 0
+    ally_moving: bool = False
+    ally_goal: bool = False
+    enemy_fixed: bool = False
 
 
-def resolve_overlaps(units: Sequence[Unit], grid: Grid) -> None:
-    """The engine shoves overlapping units apart rather than stopping them dead; without this the
-       sandbox deadlocks at every chokepoint and measures the sandbox, not the pathing."""
-    for index, first in enumerate(units):
-        for second in units[index + 1:]:
-            dx, dy = second.x - first.x, second.y - first.y
-            distance = math.hypot(dx, dy)
-            overlap = (first.radius + second.radius) - distance
-            if overlap <= 0.0:
-                continue
-            if distance < EPSILON:
-                dx, dy, distance = 1.0, 0.0, 1.0
-            push = overlap * 0.5
-            ux, uy = dx / distance * push, dy / distance * push
-            if grid.passable_world(first.x - ux, first.y - uy):
-                first.x -= ux
-                first.y -= uy
-            if grid.passable_world(second.x + ux, second.y + uy):
-                second.x += ux
-                second.y += uy
+class SearchCell:
+    __slots__ = ("cost", "total", "travel", "parent", "state", "seq", "blocked_by_ally")
+
+    def __init__(self) -> None:
+        self.cost = 0
+        self.total = 0
+        self.travel = 0
+        self.parent: int | None = None
+        self.state = 0                      # 0 none, 1 open, 2 closed
+        self.seq = 0
+        self.blocked_by_ally = False
 
 
-def blocker_ahead(units: Sequence[Unit], mover: Unit, hx: float, hy: float) -> Unit | None:
-    """Whoever we are stuck behind: the nearest unit within a couple of radii, in front of the
-       nose rather than beside it.  This is the sandbox's blockedBy."""
-    found: Unit | None = None
-    reach = LANE_CHANGE_REACH * (mover.radius * 2.0)
-    for other in units:
-        if other is mover:
-            continue
-        ox, oy = other.x - mover.x, other.y - mover.y
-        distance = math.hypot(ox, oy)
-        if distance < EPSILON or distance > reach:
-            continue
-        if (ox * hx + oy * hy) / distance < LANE_CHANGE_AHEAD:
-            continue
-        found, reach = other, distance
-    return found
+class Pathfinder:
+    def __init__(self, grid: Grid) -> None:
+        self.grid = grid
+        self.occ = Occupancy()
+        self.infantry: set[int] = set()
+        self.frame = 0
+        self.traffic = bytearray(grid.width * grid.height)
+        self.traffic_cells: list[int] = []
+        self.traffic_decay_frame = 0
+        self.claims: dict[tuple[int, int], int] = {}
+        self.claim_touch = [0] * (grid.width * grid.height)
+        self.queue: list[Unit] = []
+        self.cells_total = 0
+        self.searches = 0
+        # beginFlowSearch's state for the search now running
+        self.flow_on = False
+        self.flow_now = 0
+        self.flow_now_bucket = 0
+        self.flow_speed = 0
+        self.h_num, self.h_den = PF_HEURISTIC_RETAIL_NUM, PF_HEURISTIC_RETAIL_DEN
+        self.chassis = 0
+        self.start_dir: Point | None = None
 
+    # ---- occupancy --------------------------------------------------------------------------
+    def footprint(self, cx: int, cy: int, r: int, center: bool) -> Iterator[Cell]:
+        above = r + 1 if center else r
+        for i in range(cx - r, cx + above):
+            for j in range(cy - r, cy + above):
+                yield i, j
 
-def unit_heading(unit: Unit) -> Heading | None:
-    """Where a unit is going this frame, which for a lane change is more useful than where it is."""
-    if unit.has_arrived:
-        return None
-    tx, ty = unit.path[unit.index]
-    dx, dy = tx - unit.x, ty - unit.y
-    distance = math.hypot(dx, dy)
-    if distance < EPSILON:
-        return None
-    return dx / distance, dy / distance
+    def update_pos(self, unit: Unit) -> None:
+        """Pathfinder::updatePos."""
+        new = unit_cell(unit.x, unit.y, unit.center)
+        if new == unit.pos_cell:
+            return
+        if unit.is_infantry:
+            self.infantry.add(unit.id)
+        w = self.grid.width
+        if unit.pos_cell is not None:
+            for i, j in self.footprint(*unit.pos_cell, unit.cell_radius, unit.center):
+                if self.grid.in_bounds(i, j):
+                    self.occ.clear_pos(j * w + i, unit.id)
+        unit.pos_cell = new
+        for i, j in self.footprint(*new, unit.cell_radius, unit.center):
+            if self.grid.in_bounds(i, j):
+                self.occ.set_pos(j * w + i, unit.id)
 
+    def remove_goal(self, unit: Unit) -> None:
+        if unit.goal_cell is None:
+            return
+        w = self.grid.width
+        for i, j in self.footprint(*unit.goal_cell, unit.cell_radius, unit.center):
+            if self.grid.in_bounds(i, j):
+                self.occ.clear_goal(j * w + i, unit.id)
+        unit.goal_cell = None
 
-def pick_lane(grid: Grid, units: Sequence[Unit], mover: Unit,
-              hx: float, hy: float) -> Point | None:
-    """Sideways, not slower.  Try one footprint out on each side, then two, and take the first that
-       has a clear line three footprints ahead and nobody already sitting in it.  Returns the shift
-       to add to the goal, or None when there is no lane - a doorway, a cliff, a full road - and the
-       unit has to fall back on following the man in front."""
-    footprint = mover.radius * 2.0
-    ahead = LANE_CHANGE_LOOKAHEAD * footprint
-    for offset in LANE_CHANGE_OFFSETS:
-        side = offset * footprint
-        px, py = -hy * side, hx * side
-        tip = (mover.x + px + hx * ahead, mover.y + py + hy * ahead)
-        entry = (mover.x + px + hx * footprint, mover.y + py + hy * footprint)
-        is_clear = (grid.line_passable(mover.x, mover.y, tip[0], tip[1], radius=mover.radius)
-                    and not is_occupied(units, mover, entry[0], entry[1]))
-        # drawn like the planner's own checks, but a run makes thousands of these and only the
-        # last few are worth looking at
-        mover.rays.append((mover.x, mover.y, tip[0], tip[1], is_clear))
-        if len(mover.rays) > LANE_RAYS_KEPT:
-            del mover.rays[:-LANE_RAYS_KEPT]
-        if is_clear:
-            return px, py
-    return None
+    def update_goal(self, unit: Unit, goal: Point) -> None:
+        """Pathfinder::updateGoal."""
+        new = unit_cell(goal[0], goal[1], unit.center)
+        if new == unit.goal_cell:
+            return
+        self.remove_goal(unit)
+        unit.goal_cell = new
+        w = self.grid.width
+        for i, j in self.footprint(*new, unit.cell_radius, unit.center):
+            if self.grid.in_bounds(i, j):
+                self.occ.goal[j * w + i] = unit.id
 
-
-def update_lane(grid: Grid, units: Sequence[Unit], mover: Unit, hx: float, hy: float) -> None:
-    """One unit's lane, one frame.  A lane is dropped the moment the road ahead clears, which is
-       the sandbox's version of patching back onto the path when blockedBy goes false."""
-    ahead = blocker_ahead(units, mover, hx, hy)
-    if mover.lane_frames > 0:
-        mover.lane_frames -= 1
-        if ahead is None:
-            mover.lane_frames = 0
-        if mover.lane_frames == 0:
-            mover.lane_dx = mover.lane_dy = 0.0
-        return
-    if mover.blocked_run < LANE_CHANGE_AFTER_FRAMES or ahead is None:
-        return
-    # somebody coming the other way is a collision, and going round him is how two columns swap
-    # sides and jam worse; this reflex is for traffic that is going where we are going, slower
-    other_heading = unit_heading(ahead)
-    if other_heading is None or other_heading[0] * hx + other_heading[1] * hy < LANE_CHANGE_SAME_WAY:
-        return
-    # a queue that is moving is a queue doing its job; leaving it costs distance and gains nothing.
-    # Only a stalled one is worth going round, which is also the case the player complains about
-    if LANE_CHANGE_STALLED_ONLY and ahead.blocked_run <= 0:
-        return
-    lane = pick_lane(grid, units, mover, hx, hy)
-    if lane is None:
-        return
-    mover.lane_dx, mover.lane_dy = lane
-    mover.lane_frames = LANE_HOLD_FRAMES
-    mover.lane_changes += 1
-    mover.blocked_run = 0
-
-
-def band_frame(unit: Unit) -> tuple[Heading, Heading] | None:
-    """The tangent and normal of the band segment this unit is driving, or None when it is not on
-       a band.  Taken from the band's own centre line rather than from where the unit happens to
-       be: a unit that has drifted sideways must not tilt its own idea of sideways."""
-    if unit.band_half <= 0.0 or unit.has_arrived or len(unit.band_line) < 2:
-        return None
-    first = min(unit.index, len(unit.band_line) - 2)
-    (ax, ay), (bx, by) = unit.band_line[first], unit.band_line[first + 1]
-    dx, dy = bx - ax, by - ay
-    length = math.hypot(dx, dy)
-    if length < EPSILON:
-        return None
-    return (dx / length, dy / length), (-dy / length, dx / length)
-
-
-def band_target(unit: Unit, target: Point) -> Point:
-    """Where a unit on the band actually drives: its waypoint, pushed out by its lateral place in
-       the band.  The last waypoint is exempt - the goals were spread and reserved when the order
-       was given, and shoving them sideways again lands two units on one spot."""
-    axes = band_frame(unit)
-    if axes is None or unit.index >= len(unit.path) - 1:
-        return target
-    (_, _), (nx, ny) = axes
-    return target[0] + nx * unit.band_t, target[1] + ny * unit.band_t
-
-
-def band_pressure(units: Sequence[Unit], mover: Unit, tangent: Heading,
-                  normal: Heading) -> float:
-    """Which way the band is emptier in front of this unit: -1, 0 or +1.
-
-       The slice ahead is split into buckets a footprint wide - narrower and it counts noise - and
-       only the two beside the mover's own line are compared.  Nothing in front means nothing to
-       drain around, and the unit holds its line."""
-    footprint = mover.radius * 2.0
-    ahead = BAND_LOOKAHEAD * footprint
-    bucket = BAND_BUCKET * footprint
-    reach = mover.band_half + bucket
-    counts = {-1: 0, 0: 0, 1: 0}
-    for other in units:
-        if other is mover:
-            continue
-        ox, oy = other.x - mover.x, other.y - mover.y
-        along = ox * tangent[0] + oy * tangent[1]
-        if along <= 0.0 or along > ahead:
-            continue
-        lateral = ox * normal[0] + oy * normal[1]
-        if abs(lateral) > reach:
-            continue
-        side = int(math.floor(lateral / bucket + 0.5))
-        if -1 <= side <= 1:
-            counts[side] += 1
-    if not counts[0]:
-        return 0.0
-    if counts[-1] - counts[1] >= BAND_DEADBAND:
-        return 1.0
-    if counts[1] - counts[-1] >= BAND_DEADBAND:
-        return -1.0
-    # both sides equally busy: keep drifting the way this unit was already going rather than
-    # picking a side at random, which would put two units into the same gap on alternate frames
-    return math.copysign(1.0, mover.band_t) if mover.band_t else 0.0
-
-
-def update_band(grid: Grid, units: Sequence[Unit], mover: Unit) -> None:
-    """One unit's lateral place in the band, one frame.  Continuous, small and uncommitted: there
-       is no lane to latch onto and nothing to hold, so the moment the ground in front clears the
-       unit stops drifting and stays where it is."""
-    axes = band_frame(mover)
-    if axes is None or mover.band_step <= 0.0:
-        return
-    tangent, normal = axes
-    direction = band_pressure(units, mover, tangent, normal)
-    if direction == 0.0:
-        return
-    wanted = min(mover.band_half,
-                 max(-mover.band_half,
-                     mover.band_t + direction * mover.band_step * mover.radius * 2.0))
-    if wanted == mover.band_t:
-        return
-    # the band's width came from the corridor's clearance, which was measured on the centre line;
-    # a lateral offset is still a blind sideways step, so probe it the way the lane ladder does
-    tx, ty = mover.path[mover.index]
-    px, py = tx + normal[0] * wanted, ty + normal[1] * wanted
-    if not (grid.passable_world(px, py)
-            and grid.passable_world(px + normal[0] * mover.radius, py + normal[1] * mover.radius)
-            and grid.passable_world(px - normal[0] * mover.radius, py - normal[1] * mover.radius)):
-        return
-    mover.band_t = wanted
-    mover.band_drifts += 1
-
-
-def yield_for(units: Sequence[Unit], grid: Grid, mover: Unit, hx: float, hy: float) -> None:
-    """A unit that has arrived is parked, not welded down: when someone still driving cannot get
-       past it, it steps aside.  The engine does this too, and without it a tank that has finished
-       its order can wedge one that has not for the rest of the run."""
-    for other in units:
-        if other is mover or not other.has_arrived:
-            continue
-        ox, oy = other.x - mover.x, other.y - mover.y
-        if math.hypot(ox, oy) > (mover.radius + other.radius) * YIELD_REACH:
-            continue
-        if ox * hx + oy * hy <= 0:                      # behind us, not in the way
-            continue
-        for sx, sy in ((-hy, hx), (hy, -hx), (hx, hy)):
-            nx, ny = other.x + sx * UNIT_SPEED, other.y + sy * UNIT_SPEED
-            if grid.passable_world(nx, ny) and not is_occupied(units, other, nx, ny):
-                other.x, other.y = nx, ny
-                return
-
-
-def step_units(units: Sequence[Unit], grid: Grid, *, traffic: TrafficModel, now: float) -> None:
-    traffic.jam.decay(int(now))
-    for unit in units:
-        if unit.has_arrived:
-            continue
-        if unit.band_half > 0.0:
-            update_band(grid, units, unit)
-        tx, ty = band_target(unit, unit.path[unit.index])
-        dx, dy = tx - unit.x, ty - unit.y
-        distance = math.hypot(dx, dy)
-        is_final = unit.index == len(unit.path) - 1
-        # a unit shoved sideways every frame still "moves", and counting only frames where it did
-        # not move at all misses it entirely - it inches around the goal for the rest of the run
-        is_closing = (unit.last_dist is None
-                      or distance < unit.last_dist - UNIT_SPEED * PROGRESS_EPSILON_SPEEDS)
-        unit.last_dist = distance
-        arrive_radii = FINAL_ARRIVE_RADII if is_final else WAYPOINT_ARRIVE_RADII
-        if distance < UNIT_SPEED + unit.radius * arrive_radii:
-            unit.index += 1
-            unit.last_dist = None
-            # everything behind us stops costing other units anything
-            if unit.cells:
-                done = min(len(unit.cells) - 1,
-                           int(unit.index * len(unit.cells) / len(unit.path)))
-                traffic.usage.release_before(unit.id, done)
-            traffic.reservations.release_before(unit.id, now)
-            continue
-        # sideways first: a unit that has been stuck behind slower traffic for a few frames looks
-        # for a lane beside it, and only files in behind him when there is no lane to take
-        ax, ay = dx, dy
-        if LANE_CHANGE:
-            update_lane(grid, units, unit, dx / distance, dy / distance)
-            if unit.lane_frames > 0:
-                ax, ay = dx + unit.lane_dx, dy + unit.lane_dy
-        # slow down behind whoever is in front, and only sidestep if that is not enough
-        has_moved = False
-        for angle, speed in SWERVE_ATTEMPTS:
-            cos_angle, sin_angle = math.cos(angle), math.sin(angle)
-            rx, ry = ax * cos_angle - ay * sin_angle, ax * sin_angle + ay * cos_angle
-            turned_length = math.hypot(rx, ry)
-            nx = unit.x + rx / turned_length * UNIT_SPEED * speed
-            ny = unit.y + ry / turned_length * UNIT_SPEED * speed
-            if grid.passable_world(nx, ny) and not is_occupied(units, unit, nx, ny):
-                unit.x, unit.y = nx, ny
-                has_moved = True
-                unit.stuck_run = 0 if is_closing else unit.stuck_run + 1
-                if angle or speed < 1.0:
-                    unit.blocked_frames += 1
-                    unit.blocked_run += 1
-                    traffic.jam.note(cell_of(unit.x, unit.y))
-                else:
-                    unit.blocked_run = 0
-                break
-        if not has_moved:
-            unit.blocked_frames += 1
-            unit.blocked_run += 1
-            unit.stuck_run += 1
-            traffic.jam.note(cell_of(unit.x, unit.y))
-            yield_for(units, grid, unit, dx / distance, dy / distance)
-    resolve_overlaps(units, grid)
-
-
-def apply_path(unit: Unit, points: list[Point], cells: list[Cell], traffic: TrafficModel,
-               now: float) -> None:
-    """Give a unit a freshly planned path and tell both shared maps about it.  Every planner ends
-       this way, and they must end it the same way or a unit drives ground it never claimed."""
-    unit.path = points
-    unit.index = 0
-    unit.cells = cells
-    # a fresh path is a line until somebody says otherwise; order_band says so straight after, and
-    # a unit that repathed out of a jam is off the band and back on its own route
-    unit.band_half = 0.0
-    unit.band_t = 0.0
-    unit.band_line = []
-    traffic.usage.register(unit.id, cells)
-    traffic.reservations.reserve(unit.id, *track_reservations(unit.pos, points, now))
-
-
-def repath_stuck(grid: Grid, units: Sequence[Unit], *, traffic: TrafficModel, now: float) -> None:
-    """AIInternalMoveToState gives up and asks the pathfinder again when a unit stops making
-       progress.  Without it one wedged tank owns the whole measurement."""
-    for unit in units:
-        if unit.has_arrived or unit.stuck_run < REPATH_AFTER_STUCK_FRAMES or unit.goal is None:
-            continue
-        traffic.release(unit.id)
-        # jammed in the destination cluster: the engine parks rather than shuffling for ever, and
-        # the tolerance grows the longer it fails.  Without this one such unit is the whole run.
-        park_radii = PARK_RADII if unit.repaths < PARK_RETRY_LIMIT else PARK_RADII_AFTER_RETRIES
-        if math.hypot(unit.x - unit.goal[0], unit.y - unit.goal[1]) < park_radii * unit.radius:
-            unit.index = len(unit.path)
-            unit.stuck_run = 0
-            continue
-        start_cell = cell_of(unit.x, unit.y)
-        # what the jam map is charging this search, recorded before the search so the route can be
-        # checked against it: the ground within reach that somebody is stuck on right now
-        hot = {cell for cell, stamp in traffic.jam.jam.items()
-               if stamp > PATH_JAM_FLOOR
-               and abs(cell[0] - start_cell[0]) < PATH_JAM_RANGE
-               and abs(cell[1] - start_cell[1]) < PATH_JAM_RANGE}
-        cells, _ = astar(grid, start_cell, cell_of(*unit.goal),
-                         pricing=traffic.repath_pricing(unit.id, now))
-        unit.stuck_run = 0
-        unit.repaths += 1
-        if not cells:
-            continue
-        # the exit condition, counted, as a funnel: repaths that had jammed ground in front of them
-        # at all, and then the ones whose new route does not drive over any of it.  The two numbers
-        # answer different questions - the first says whether the cost ever fires, the second
-        # whether it changes anything when it does.
-        if hot:
-            unit.jam_priced += 1
-            if not hot.intersection(cells):
-                unit.jam_detours += 1
-        points = [world_of(*cell) for cell in cells[1:]] or [unit.goal]
-        points[-1] = unit.goal
-        points, unit.rays = simplify_raycast(grid, unit.pos, points, radius=unit.radius,
-                                             lane_spacing=2.0 * unit.radius)
-        apply_path(unit, points, cells, traffic, now)
-
-
-def compute_centroid(units: Sequence[Unit]) -> Point:
-    return (sum(unit.x for unit in units) / len(units),
-            sum(unit.y for unit in units) / len(units))
-
-
-def reserve_goal(grid: Grid, taken: set[Point], gx: float, gy: float, *, radius: float) -> Point:
-    """Pathfinder::adjustDestination - spiral out from the clicked point to a goal spot no one else
-       has claimed.  Reserving a *cell* is not enough: a cell is 10 units and a tank is 22 across,
-       so neighbouring cells still overlap and the group shoves itself for ever on arrival."""
-    start = cell_of(gx, gy)
-    spacing = 2.0 * radius * GOAL_SPACING_SLACK
-    for ring in range(GOAL_SEARCH_RINGS):
-        for cx in range(start[0] - ring, start[0] + ring + 1):
-            for cy in range(start[1] - ring, start[1] + ring + 1):
-                if ring and abs(cx - start[0]) != ring and abs(cy - start[1]) != ring:
+    def check_for_movement(self, unit: Unit | None, cx: int, cy: int, transient: bool
+                           ) -> MoveCheck | None:
+        """Pathfinder::checkForMovement over the footprint; None is "off the map".  Every unit in
+           the sandbox is an ally with an AI and none can crush another."""
+        info = MoveCheck()
+        if unit is None:
+            return info
+        grid, occ, w = self.grid, self.occ, self.grid.width
+        r = unit.cell_radius
+        above = r + 1 if unit.center else r
+        allies: set[int] = set()
+        for i in range(cx - r, cx + above):
+            for j in range(cy - r, cy + above):
+                if not (0 <= i < w and 0 <= j < grid.height):
+                    return None
+                index = j * w + i
+                flags = occ.flags(index)
+                if flags == UNIT_GOAL or flags == UNIT_GOAL_OTHER_MOVING:
+                    info.ally_goal = True
+                if flags == NO_UNITS:
                     continue
-                if not grid.passable(cx, cy):
-                    continue
-                wx, wy = world_of(cx, cy)
-                if any(math.hypot(wx - tx, wy - ty) < spacing for tx, ty in taken):
-                    continue
-                if not grid.line_passable(wx, wy, wx, wy, radius=radius):
-                    continue
-                taken.add((wx, wy))
-                return wx, wy
-    return gx, gy
+                pos_unit = occ.pos.get(index)
+                if pos_unit is None or pos_unit == unit.id:
+                    continue        # nobody standing here, or us (INVALID_ID is the ignore id)
+                check = False
+                if flags == UNIT_PRESENT_MOVING or flags == UNIT_GOAL_OTHER_MOVING:
+                    info.ally_moving = True
+                    check = transient
+                if flags == UNIT_PRESENT_FIXED:
+                    check = True
+                if check and unit.is_infantry and pos_unit in self.infantry:
+                    continue        # AIPathfind.cpp:6695, INFANTRY_MOVES_THROUGH_INFANTRY
+                if check and pos_unit not in allies:
+                    allies.add(pos_unit)
+                    info.ally_fixed += 1
+        return info
 
+    def check_destination(self, unit: Unit, cx: int, cy: int) -> bool:
+        """Pathfinder::checkDestination: no terrain and no ally's goal under the footprint."""
+        grid, w = self.grid, self.grid.width
+        for i, j in self.footprint(cx, cy, unit.cell_radius, unit.center):
+            if not grid.in_bounds(i, j):
+                return False
+            if grid.kind[j * w + i] != CLEAR:
+                return False
+            g = self.occ.goal.get(j * w + i)
+            if g is not None and g != unit.id:
+                return False        # don't usurp your allies' goals
+        return True
 
-def simplify_raycast(grid: Grid, start: Point, points: list[Point], *, radius: float,
-                     lane_spacing: float) -> tuple[list[Point], list[Ray]]:
-    """AIGroup's straightening: drop a point when the line past it is one this unit can drive.
+    def path_exists(self, a: Point, b: Point) -> bool:
+        """clientSafeQuickDoesPathExist, read as "same zone"."""
+        za = self.grid.zone_at(*a)
+        return za != 0 and za == self.grid.zone_at(*b)
 
-       Returns (points, rays).  Every check made is recorded as a ray, which is the whole reason
-       this file exists - handed back rather than appended to the unit, so a caller that wants the
-       straightened line without redrawing the screen can have it."""
-    if len(points) < 2:
-        return points, []
-    simplified: list[Point] = []
-    rays: list[Ray] = []
-    anchor = start
-    pending = points[0]
-    run = 0
-    for point in points[1:]:
-        deviation = point_line_distance(anchor, point, pending)
-        can_drop = False
-        if deviation < lane_spacing and run < STRAIGHTEN_MAX_RUN:
-            # even a deviation under half a cell is worth the ray: the unit is 22 wide, so a
-            # shortcut that looks straight can still put its flank through a rock.
-            is_clear = grid.line_passable(anchor[0], anchor[1], point[0], point[1], radius=radius)
-            rays.append((anchor[0], anchor[1], point[0], point[1], is_clear))
-            can_drop = is_clear
-        if can_drop and run < STRAIGHTEN_MAX_RUN:
-            pending = point
-            run += 1
+    # ---- the flow maps ----------------------------------------------------------------------
+    def note_traffic(self, x: float, y: float, radius: int) -> None:
+        """Pathfinder::noteTraffic: +24 a frame over the body's square, two cells at most."""
+        cx, cy = cell_of(x, y)
+        cx = min(max(cx, 0), self.grid.width - 1)
+        cy = min(max(cy, 0), self.grid.height - 1)
+        r = min(max(radius, 0), 2)
+        w = self.grid.width
+        for dx in range(-r, r + 1):
+            for dy in range(-r, r + 1):
+                x2, y2 = cx + dx, cy + dy
+                if not self.grid.in_bounds(x2, y2):
+                    continue
+                i = y2 * w + x2
+                if self.traffic[i] == 0:
+                    if len(self.traffic_cells) >= PF_TRAFFIC_CELLS:
+                        continue
+                    self.traffic_cells.append(i)
+                self.traffic[i] = min(self.traffic[i] + PF_TRAFFIC_DEPOSIT, PF_TRAFFIC_MAX)
+
+    def decay_traffic(self) -> None:
+        """Pathfinder::decayTraffic: x54/64 every three wall frames."""
+        if not self.traffic_cells or self.frame - self.traffic_decay_frame < PF_TRAFFIC_DECAY_FRAMES:
+            return
+        self.traffic_decay_frame = self.frame
+        keep = []
+        for i in self.traffic_cells:
+            v = (self.traffic[i] * PF_TRAFFIC_DECAY_NUM) // PF_TRAFFIC_DECAY_DEN
+            self.traffic[i] = v
+            if v > 0:
+                keep.append(i)
+        self.traffic_cells = keep
+
+    def add_claim(self, cell: int, bucket: int, weight: int, now_bucket: int) -> None:
+        """claimInto: a live claim adds, a dead one is overwritten.  A dict, so nothing is ever
+           dropped for a full probe window, which the 32768-slot table can do."""
+        key = (cell, bucket)
+        live = self.claims.get(key)
+        if live is not None and bucket >= now_bucket:
+            self.claims[key] = min(live + weight, 0xFFFF)
         else:
-            simplified.append(pending)
-            anchor = pending
-            pending = point
-            run = 0
-    simplified.append(pending)
-    return simplified, rays
+            self.claims[key] = weight
+
+    def stamp_claim_at(self, x: float, y: float, frame: int, dilation: int) -> None:
+        """Pathfinder::stampClaimAt: whole weight in its bucket, half either side."""
+        cx, cy = cell_of(x, y)
+        bucket = frame // PF_CLAIM_BUCKET_FRAMES
+        now_bucket = self.frame // PF_CLAIM_BUCKET_FRAMES
+        w = self.grid.width
+        for dx in range(-dilation, dilation + 1):
+            for dy in range(-dilation, dilation + 1):
+                x2, y2 = cx + dx, cy + dy
+                if not self.grid.in_bounds(x2, y2):
+                    continue
+                cell = y2 * w + x2
+                self.add_claim(cell, bucket, 2, now_bucket)
+                if bucket > 0:
+                    self.add_claim(cell, bucket - 1, 1, now_bucket)
+                self.add_claim(cell, bucket + 1, 1, now_bucket)
+                self.claim_touch[cell] = max(self.claim_touch[cell], bucket + 1)
+
+    def get_claims(self, cx: int, cy: int, frame: int) -> int:
+        if not self.grid.in_bounds(cx, cy):
+            return 0
+        cell = cy * self.grid.width + cx
+        bucket = frame // PF_CLAIM_BUCKET_FRAMES
+        if self.claim_touch[cell] < bucket:
+            return 0
+        return self.claims.get((cell, bucket), 0)
+
+    def claim_path_timing(self, unit: Unit) -> None:
+        """Pathfinder::claimPathTiming: from where the unit is, along its route, at its top speed."""
+        if unit.path is None or unit.max_speed < 0.01:
+            return
+        speed = unit.max_speed
+        dilation = min(max(unit.cell_radius, 0), 1)
+        stride = dilation if dilation > 0 else 1
+        pts = unit.path.points
+        start = min(range(len(pts)), key=lambda k: (pts[k][0] - unit.x) ** 2 + (pts[k][1] - unit.y) ** 2)
+        horizon = speed * PF_CLAIM_BUCKETS * PF_CLAIM_BUCKET_FRAMES
+        cx, cy = unit.x, unit.y
+        travelled = 0.0
+        sample = stamped = 0
+        for tx, ty in pts[start:]:
+            dx, dy = tx - cx, ty - cy
+            seg = math.hypot(dx, dy)
+            if seg < 0.01:
+                cx, cy = tx, ty
+                continue
+            steps = int(seg / CELL) + 1
+            for s in range(1, steps + 1):
+                t = s / steps
+                travelled += seg / steps
+                if travelled > horizon:
+                    return
+                sample += 1
+                if (sample - 1) % stride != 0:
+                    continue
+                stamped += 1
+                if stamped > PF_CLAIM_SAMPLES_MAX:
+                    return
+                self.stamp_claim_at(cx + dx * t, cy + dy * t, self.frame + int(travelled / speed),
+                                    dilation)
+            cx, cy = tx, ty
+
+    def prune_claims(self) -> None:
+        """Dead claims are reused in place in the C++ table; the dict drops them instead."""
+        now_bucket = self.frame // PF_CLAIM_BUCKET_FRAMES
+        self.claims = {k: v for k, v in self.claims.items() if k[1] >= now_bucket - 1}
+
+    def flow_step_cost(self, base: int, cx: int, cy: int, radius: int, travel: int) -> int:
+        """Pathfinder::flowStepCost: wall hug, then traffic, then the crossing claim at the moment
+           the search expects to be here.  The searcher's own claims count too, as in the C++."""
+        grid = self.grid
+        if not grid.in_bounds(cx, cy):
+            return 0
+        cell = cy * grid.width + cx
+        extra = 0
+        need = PF_CLEARANCE_ORTHO * radius + PF_CLEARANCE_ORTHO // 2
+        clearance = grid.clearance[cell]
+        if clearance - need < PF_CLEARANCE_SOFT:
+            extra += wall_hug_cost(base, clearance, need)
+        if self.traffic_cells:
+            jam = self.traffic[cell]
+            if jam > 0:
+                extra += traffic_cost(base, jam)
+        if self.flow_speed > 0 and self.claim_touch[cell] >= self.flow_now_bucket:
+            eta = self.flow_now + (travel * 256) // self.flow_speed
+            bucket = eta // PF_CLAIM_BUCKET_FRAMES
+            if self.claim_touch[cell] >= bucket:
+                weight = self.claims.get((cell, bucket))
+                if weight is not None:
+                    extra += crossing_cost(base, weight)
+        return extra
+
+    def begin_flow_search(self, unit: Unit | None) -> None:
+        """Pathfinder::beginFlowSearch."""
+        self.flow_now = self.frame
+        self.flow_now_bucket = self.frame // PF_CLAIM_BUCKET_FRAMES
+        self.flow_on = unit is not None
+        self.flow_speed = int(unit.max_speed * FLOW_PLAN_SHARE * COST_ORTHOGONAL / CELL * 256) if unit else 0
+        if self.flow_on:
+            self.h_num, self.h_den = PF_HEURISTIC_FLOW_NUM, PF_HEURISTIC_FLOW_DEN
+        else:
+            self.h_num, self.h_den = PF_HEURISTIC_RETAIL_NUM, PF_HEURISTIC_RETAIL_DEN
+        self.chassis = unit.chassis if unit else 0
+        self.start_dir = unit.dir if unit is not None and self.chassis > 0 else None
+
+    # ---- the cell search --------------------------------------------------------------------
+    def _cost_so_far(self, st: dict[int, SearchCell], index: int, parent: int | None) -> int:
+        """PathfindCell::costSoFar: the step, +14 for a pinched cell, and the turn."""
+        if parent is None:
+            return 0
+        w = self.grid.width
+        cx, cy = index % w, index // w
+        px, py = parent % w, parent // w
+        pdx, pdy = px - cx, py - cy
+        p = st[parent]
+        cost = p.cost + (COST_ORTHOGONAL if pdx == 0 or pdy == 0 else COST_DIAGONAL)
+        if self.grid.pinched[index]:
+            cost += COST_DIAGONAL
+        turns = 0
+        if p.parent is not None:
+            gx, gy = p.parent % w, p.parent // w
+            dx, dy = gx - px, gy - py
+            if dx != pdx or dy != pdy:
+                dot = dx * pdx + dy * pdy
+                if dot > 0:
+                    turns, radians = 4, math.pi / 4
+                elif dot == 0:
+                    turns, radians = 8, math.pi / 2
+                else:
+                    turns, radians = 16, 3 * math.pi / 4
+                turns = max(turns, turn_cost(radians, self.chassis, PF_TURN_CAP_STEP))
+        elif self.start_dir is not None:
+            length = math.hypot(pdx, pdy)
+            if length > 0.0:
+                dot = -(pdx * self.start_dir[0] + pdy * self.start_dir[1]) / length
+                turns = turn_cost(math.acos(min(max(dot, -1.0), 1.0)), self.chassis, PF_TURN_CAP_START)
+        return cost + turns
+
+    def search(self, unit: Unit | None, start: Cell, goal: Cell | None, *,
+               corridor: BlockCorridor | None, cap: int, partial: bool,
+               found=None, examine_cap: int | None = None) -> tuple[int | None, dict[int, SearchCell], int]:
+        """internalFindPath's loop (continueFindPath + examineNeighboringCells + the straight-line
+           probe).  Returns (reached cell or None, the cells, cells allocated).  With `goal` None it is
+           patchPath's and getMoveAwayFromPath's goal-less search, stopped by `found`.
+
+           The open list is EA's bucket list: lowest total first, ties first in, first out.  A cell
+           already on a list is never re-priced by an expansion (retail), only by the probe.  The
+           search runs to the end in one call; the game's stops at the frame's cell budget and carries
+           on next frame (ResumableSearch), which changes when the answer lands, not what it is."""
+        grid, w = self.grid, self.grid.width
+        pinched, passable = grid.pinched, grid.passable
+        st: dict[int, SearchCell] = {}
+        heap: list[tuple[int, int, int]] = []
+        seq = itertools.count()
+        r = unit.cell_radius if unit else 0
+        sx, sy = start
+        goal_index = goal[1] * w + goal[0] if goal else None
+
+        def push(index: int, cell: SearchCell) -> None:
+            cell.state = 1
+            cell.seq = next(seq)
+            heapq.heappush(heap, (cell.total, cell.seq, index))
+
+        start_index = sy * w + sx
+        first = SearchCell()
+        first.total = cost_to_goal(sx - goal[0], sy - goal[1], self.h_num, self.h_den) if goal else 0
+        st[start_index] = first
+        push(start_index, first)
+        cell_count = 0
+        probe_best = UNREACHABLE
+        closest, closest_dist = None, UNREACHABLE
+        last_popped = start_index
+        # m_isTunneling: a search that starts inside rock or a structure may cross invalid cells,
+        # at 100 a cell, until it reaches a valid cell that is not pinched
+        tunneling = not passable(sx, sy)
+
+        def probe(parent: int) -> None:
+            """examineCellsCallback along the straight line from `parent` to the goal."""
+            if tunneling:
+                return
+            for frm, to in line_cells(parent % w, parent // w, goal[0], goal[1]):
+                if not grid.in_bounds(*to):
+                    return
+                if frm is None:
+                    continue
+                tx, ty = to
+                if not passable(tx, ty):
+                    return
+                if corridor is not None and not corridor.is_open(tx, ty):
+                    return
+                ti = ty * w + tx
+                cell = st.get(ti)
+                on_list = cell is not None and cell.state != 0
+                if pinched[ti]:
+                    return
+                info = self.check_for_movement(unit, tx, ty, False)
+                if info is None or info.enemy_fixed or info.ally_fixed:
+                    return
+                fcell = st[frm[1] * w + frm[0]]
+                new_cost = fcell.cost + COST_ORTHOGONAL // 2
+                if cell is None:
+                    cell = SearchCell()
+                    st[ti] = cell
+                cell.blocked_by_ally = False
+                travel = fcell.travel + COST_ORTHOGONAL
+                cell.travel = travel           # written before the on-list test, as the C++ does
+                if self.flow_on:
+                    new_cost += self.flow_step_cost(COST_ORTHOGONAL, tx, ty, r, travel)
+                remaining = cost_to_goal(tx - goal[0], ty - goal[1], self.h_num, self.h_den)
+                if on_list and cell.cost <= new_cost:
+                    continue
+                cell.cost = new_cost
+                cell.parent = frm[1] * w + frm[0]
+                cell.total = new_cost + remaining
+                push(ti, cell)
+
+        while heap:
+            if cell_count > cap:
+                break
+            total, cseq, index = heapq.heappop(heap)
+            parent_cell = st[index]
+            if parent_cell.state != 1 or parent_cell.seq != cseq:
+                continue
+            last_popped = index
+            if goal_index is not None and index == goal_index:
+                self.cells_total += cell_count
+                return index, st, cell_count
+            if found is not None and found(index):
+                self.cells_total += cell_count
+                return index, st, cell_count
+            parent_cell.state = 2
+            px, py = index % w, index // w
+            if goal is not None:
+                d = (goal[0] - px) ** 2 + (goal[1] - py) ** 2
+                if d < closest_dist:
+                    closest, closest_dist = index, d
+            if examine_cap is not None and cell_count >= examine_cap:
+                continue
+            if goal is not None:
+                d = (goal[0] - px) ** 2 + (goal[1] - py) ** 2
+                if d < probe_best:
+                    probe_best = d
+                    probe(index)
+            flags = [False] * 8
+            for i, (dx, dy) in enumerate(DELTAS):
+                if i >= 4 and not flags[ADJACENT[i - 4]] and not flags[ADJACENT[i - 3]]:
+                    continue
+                nx, ny = px + dx, py + dy
+                if not (0 <= nx < w and 0 <= ny < grid.height):
+                    continue
+                ni = ny * w + nx
+                cell = st.get(ni)
+                if cell is not None and cell.state != 0:
+                    continue
+                valid = passable(nx, ny)
+                if not valid and not tunneling:
+                    continue
+                flags[i] = True
+                info = self.check_for_movement(unit, nx, ny, False)
+                if info is None or info.enemy_fixed:
+                    if not tunneling:
+                        continue
+                    valid = False
+                    info = info or MoveCheck()
+                if valid and not pinched[ni]:
+                    tunneling = False
+                if cell is None:
+                    cell = SearchCell()
+                    st[ni] = cell
+                    cell_count += 1
+                new_cost = self._cost_so_far(st, ni, index)
+                step = COST_DIAGONAL if i >= 4 else COST_ORTHOGONAL
+                travel = parent_cell.travel + step
+                cell.travel = travel
+                if self.flow_on:
+                    new_cost += self.flow_step_cost(step, nx, ny, r, travel)
+                if info.ally_moving and abs(nx - sx) < 10 and abs(ny - sy) < 10:
+                    new_cost += 3 * COST_DIAGONAL
+                if pinched[ni]:
+                    new_cost += COST_ORTHOGONAL
+                cell.blocked_by_ally = False
+                if info.ally_fixed > 0:
+                    new_cost += 3 * COST_DIAGONAL
+                    cell.blocked_by_ally = True
+                remaining = (cost_to_goal(nx - goal[0], ny - goal[1], self.h_num, self.h_den)
+                             if goal else 0)
+                if corridor is not None and not corridor.is_open(nx, ny):
+                    new_cost += 100 * COST_ORTHOGONAL
+                if grid.kind[ni] == OBSTACLE:
+                    new_cost += 100 * COST_ORTHOGONAL
+                if tunneling:
+                    if not passable(nx, ny):
+                        new_cost += 10 * COST_ORTHOGONAL
+                    remaining = 0
+                cell.cost = new_cost
+                cell.parent = index
+                cell.total = new_cost + remaining
+                push(ni, cell)
+        self.cells_total += cell_count
+        if partial and cell_count > cap and closest is not None and closest != last_popped:
+            return closest, st, cell_count
+        return None, st, cell_count
+
+    def build_path(self, unit: Unit | None, from_pos: Point, st: dict[int, SearchCell], goal: int,
+                   center: bool, blocked: bool) -> Path:
+        """Pathfinder::buildActualPath + prependCells + Path::optimize."""
+        w = self.grid.width
+        pinched = self.grid.pinched
+        g = st[goal]
+        if pinched[goal] and g.parent is not None and not pinched[g.parent]:
+            goal = g.parent
+        chain: list[int] = []
+        index = goal
+        while st[index].parent is not None:
+            chain.append(index)
+            index = st[index].parent
+        if not chain:
+            chain.append(index)
+        nodes = [cell_pos(i % w, i // w, center) for i in reversed(chain)]
+        blocked_by_ally = any(st[i].blocked_by_ally for i in chain)
+        if from_pos != nodes[0]:
+            nodes.insert(0, from_pos)
+        rays: list = []
+        route = self.optimize(unit, nodes, blocked, rays)
+        if unit is not None:
+            unit.rays = rays
+        return Path(nodes, route, blocked_by_ally)
+
+    def is_line_passable(self, unit: Unit | None, a: Point, b: Point, *, blocked: bool,
+                         allow_pinched: bool) -> bool:
+        """Pathfinder::isLinePassable: the Bresenham cells between, each one free of parked units
+           over the footprint (moving ones too when `blocked`), not pinched unless allowed, and
+           ground.  Only the centre line is tested for terrain."""
+        grid = self.grid
+        sx, sy = cell_of(*a)
+        ex, ey = cell_of(*b)
+        pinched = grid.pinched
+        for _, (tx, ty) in line_cells(sx, sy, ex, ey):
+            if not grid.in_bounds(tx, ty):
+                return True
+            info = self.check_for_movement(unit, tx, ty, blocked)
+            if info is None or info.ally_fixed or info.enemy_fixed:
+                return False
+            if not allow_pinched and pinched[ty * grid.width + tx]:
+                return False
+            if not grid.passable(tx, ty):
+                return False
+        return True
+
+    def optimize(self, unit: Unit | None, nodes: list[Point], blocked: bool,
+                 rays: list | None = None) -> list[int]:
+        """Path::optimize: from each anchor, the farthest of the next 32 nodes it has a clear line
+           to, else the next node.  A run that is straight along an axis or a diagonal counts as
+           passable whatever the line says, with EA's variable reuse kept."""
+        route = [0]
+        anchor, last = 0, len(nodes) - 1
+        while anchor != last:
+            count = 0
+            node = anchor + 1
+            while node < last:
+                count += 1
+                if count >= MAX_OPTIMIZE_LOOKAHEAD:
+                    break
+                node += 1
+            placed = False
+            while node != anchor:
+                a, n = nodes[anchor], nodes[node]
+                ok = self.is_line_passable(unit, a, n, blocked=blocked, allow_pinched=False)
+                if rays is not None:
+                    rays.append((a[0], a[1], n[0], n[1], ok))
+                if not ok:
+                    dx, dy = int(n[0] - a[0]), int(n[1] - a[1])
+                    might = False
+                    if abs(dx) == int(CELL) and abs(dy) == int(CELL):
+                        ok = True
+                    if dx == 0:
+                        might = True
+                        for t in range(node - 1, anchor, -1):
+                            dx = int(nodes[t + 1][0] - nodes[t][0])
+                            if dx != 0:
+                                might = False
+                    if dy == 0:
+                        might = True
+                        for t in range(node - 1, anchor, -1):
+                            dy = int(nodes[t + 1][1] - nodes[t][1])
+                            if dy != 0:
+                                might = False
+                    if dx == dy:
+                        might = True
+                        for t in range(node - 1, anchor, -1):
+                            dx = int(nodes[t + 1][0] - nodes[t][0])
+                            dy = int(nodes[t + 1][1] - nodes[t][1])
+                            if dy != dx:
+                                might = False
+                    if dx == -dy:
+                        might = True
+                        for t in range(node - 1, anchor, -1):
+                            dx = int(nodes[t + 1][0] - nodes[t][0])
+                            dy = int(nodes[t + 1][1] - nodes[t][1])
+                            if dy != -dx:
+                                might = False
+                    if might:
+                        ok = True
+                if ok:
+                    route.append(node)
+                    anchor = node
+                    placed = True
+                    break
+                node -= 1
+            if not placed:
+                anchor += 1
+                route.append(anchor)
+        return route
+
+    def find_path(self, unit: Unit, frm: Point, to: Point) -> Path | None:
+        """Pathfinder::findPath -> internalFindPath."""
+        grid, w = self.grid, self.grid.width
+        self.begin_flow_search(unit)
+        adjust = to if unit.center else (to[0] + CELL / 2, to[1] + CELL / 2)
+        goal = cell_of(*adjust)
+        if not grid.in_bounds(*goal) or not self.check_destination(unit, *goal):
+            return None
+        start = cell_of(*frm)
+        if not grid.in_bounds(*start):
+            return None
+        sz, gz = grid.zones[start[1] * w + start[0]], grid.zones[goal[1] * w + goal[0]]
+        # a start inside rock has no ground zone here; the C++ reads the terrain zone, which the
+        # sandbox does not keep, so the screen is skipped and the tunneling search answers it
+        if (sz and sz != gz) or not grid.passable(*goal):
+            return None
+        corridor = block_corridor(grid, start, goal)
+        self.searches += 1
+        reached, st, _ = self.search(unit, start, goal, corridor=corridor,
+                                     cap=MAX_INTERNAL_CELL_COUNT, partial=True)
+        if reached is None:
+            return None
+        return self.build_path(unit, frm, st, reached, unit.center, False)
+
+    def patch_path(self, unit: Unit) -> Path | None:
+        """Pathfinder::patchPath: a goal-less search from where the unit is to the first node of its
+           old path past which nothing parked is in the way, at most 2000 cells examined."""
+        old = unit.path
+        if old is None:
+            return None
+        self.begin_flow_search(unit)
+        grid, w = self.grid, self.grid.width
+        start_pos = unit.pos if unit.center else (unit.x + CELL * 0.5, unit.y)    # EA adds to x twice
+        start = cell_of(*start_pos)
+        k = len(old.nodes) - 1
+        while k > 0:
+            cx, cy = cell_of(*old.nodes[k])
+            info = self.check_for_movement(unit, cx, cy, False)
+            if info is None or info.ally_fixed or info.enemy_fixed:
+                break
+            k -= 1
+        start_node = k
+        if start_node == len(old.nodes) - 1:
+            return None
+        targets = {cell_pos_key(old.nodes[m]): m for m in range(len(old.nodes) - 1, start_node, -1)}
+
+        def found(index: int) -> bool:
+            return cell_pos_key(cell_pos(index % w, index // w, unit.center)) in targets
+
+        self.searches += 1
+        reached, st, _ = self.search(unit, start, None, corridor=None, cap=UNREACHABLE,
+                                     partial=False, found=found, examine_cap=PATCH_CELL_LIMIT)
+        if reached is None:
+            return None
+        match = targets[cell_pos_key(cell_pos(reached % w, reached // w, unit.center))]
+        chain: list[int] = []
+        index = reached
+        while st[index].parent is not None:
+            chain.append(index)
+            index = st[index].parent
+        if not chain:
+            chain.append(index)
+        nodes = [cell_pos(i % w, i // w, unit.center) for i in reversed(chain)]
+        nodes.extend(old.nodes[match + 1:])
+        if unit.pos != nodes[0]:
+            nodes.insert(0, unit.pos)
+        return Path(nodes, self.optimize(unit, nodes, True))
+
+    def move_away_path(self, unit: Unit, other: Unit) -> Path | None:
+        """Pathfinder::getMoveAwayFromPath: the nearest cell whose box clears the other's route, is
+           not where we stand, and checkDestination accepts.  Capped at 2000 cells examined, which
+           the C++ does not do (ponytail: the search drains the map when it fails; lift it if a
+           wedge shows up that a longer search would have answered)."""
+        avoid = other.path.points if other.path else [other.pos]
+        self.begin_flow_search(None)
+        w = self.grid.width
+        start = cell_of(*unit.pos)
+        half = unit.cell_radius * CELL - CELL / 4.0 + (CELL / 2 if unit.center else 0.0)
+        half += other.cell_radius * CELL + (CELL / 2 if other.center else 0.0)
+
+        def found(index: int) -> bool:
+            cx, cy = index % w, index // w
+            if (cx, cy) == start:
+                return False
+            px, py = cell_pos(cx, cy, unit.center)
+            box = (px - half, py - half, px + half, py + half)
+            if len(avoid) == 1:
+                if box[0] < avoid[0][0] < box[2] and box[1] < avoid[0][1] < box[3]:
+                    return False
+            for a, b in zip(avoid, avoid[1:]):
+                if segment_hits_box(a, b, box):
+                    return False
+            return self.check_destination(unit, cx, cy)
+
+        reached, st, _ = self.search(unit, start, None, corridor=None, cap=UNREACHABLE,
+                                     partial=False, found=found, examine_cap=PATCH_CELL_LIMIT)
+        if reached is None:
+            return None
+        return self.build_path(unit, unit.pos, st, reached, unit.center, False)
+
+    # ---- the group trunk (findGroundPath) -----------------------------------------------------
+    def clear_for_diameter(self, cx: int, cy: int, diameter: int) -> int:
+        """Pathfinder::clearCellForDiameter: the widest even diameter that fits, outside corners cut
+           from radius 2 up; a parked unit closes the cell for any diameter of 2 or more."""
+        grid, w = self.grid, self.grid.width
+        radius = diameter // 2
+        above = radius + 1 if radius == 0 else radius
+        cut = radius > 1
+        clear = True
+        for i in range(cx - radius, cx + above):
+            xedge = i == cx - radius or i == cx + above - 1
+            for j in range(cy - radius, cy + above):
+                yedge = j == cy - radius or j == cy + above - 1
+                if xedge and yedge and cut:
+                    continue
+                if not grid.in_bounds(i, j):
+                    return 0
+                if grid.kind[j * w + i] != CLEAR:
+                    clear = False
+                if diameter >= 2 and self.occ.flags(j * w + i) == UNIT_PRESENT_FIXED:
+                    clear = False
+                if not clear:
+                    break
+            if not clear:
+                break
+        if clear:
+            return 1 if radius == 0 else 2 * radius
+        if diameter < 2:
+            return 0
+        return self.clear_for_diameter(cx, cy, diameter - 2)
+
+    def find_ground_path(self, frm: Point, to: Point, diameter: int) -> Path | None:
+        """Pathfinder::findGroundPath: the group corridor.  No flow charge and no object, so the
+           retail 3/2 estimate and turn prices; a cell narrower than the diameter costs 6 a missing
+           cell rather than being refused; the straight-line probe runs from every expansion."""
+        grid, w = self.grid, self.grid.width
+        self.begin_flow_search(None)
+        start = cell_of(*frm)
+        cell = cell_of(*to)
+        corridor = block_corridor(grid, start, cell)
+        if self.clear_for_diameter(*cell, diameter) != diameter:
+            offset = 1
+            while offset < 8:
+                base = cell
+                hit = False
+                for ddx, ddy in ((offset, 0), (0, offset), (-offset, 0), (-offset, 0), (0, -offset),
+                                 (0, -offset), (offset, 0), (offset, 0)):
+                    cell = (cell[0] + ddx, cell[1] + ddy)
+                    if self.clear_for_diameter(*cell, diameter) == diameter:
+                        hit = True
+                        break
+                if hit:
+                    break
+                offset += 1
+                cell = base
+            if offset >= 8:
+                return None
+        goal = cell
+        if not grid.in_bounds(*goal) or not grid.in_bounds(*start):
+            return None
+        if grid.zones[start[1] * w + start[0]] != grid.zones[goal[1] * w + goal[0]]:
+            return None
+        self.searches += 1
+        st: dict[int, SearchCell] = {}
+        heap: list[tuple[int, int, int]] = []
+        seq = itertools.count()
+        goal_index = goal[1] * w + goal[0]
+
+        def push(index: int, c: SearchCell) -> None:
+            c.state = 1
+            c.seq = next(seq)
+            heapq.heappush(heap, (c.total, c.seq, index))
+
+        s = SearchCell()
+        s.total = cost_to_goal(start[0] - goal[0], start[1] - goal[1], self.h_num, self.h_den)
+        st[start[1] * w + start[0]] = s
+        push(start[1] * w + start[0], s)
+        st.setdefault(goal_index, SearchCell())
+        cell_count = 0
+        new_cost = 0        # uninitialised in the C++ and read stale for the goal; carried here
+        while heap:
+            if cell_count > MAX_GROUND_PATH_CELLS:
+                break
+            _, cseq, index = heapq.heappop(heap)
+            pc = st[index]
+            if pc.state != 1 or pc.seq != cseq:
+                continue
+            if index == goal_index:
+                self.cells_total += cell_count
+                return self.build_ground_path(frm, st, index, diameter)
+            pc.state = 2
+            px, py = index % w, index // w
+            for frm_cell, to_cell in line_cells(px, py, goal[0], goal[1]):     # groundCellsCallback
+                if not grid.in_bounds(*to_cell):
+                    break
+                if frm_cell is None:
+                    continue
+                ti = to_cell[1] * w + to_cell[0]
+                c = st.get(ti)
+                if c is not None and c.state != 0:
+                    break
+                if self.clear_for_diameter(*to_cell, diameter) != diameter:
+                    break
+                if c is None:
+                    c = SearchCell()
+                    st[ti] = c
+                c.cost = st[frm_cell[1] * w + frm_cell[0]].cost + COST_ORTHOGONAL // 2
+                c.parent = frm_cell[1] * w + frm_cell[0]
+                c.total = c.cost + cost_to_goal(to_cell[0] - goal[0], to_cell[1] - goal[1],
+                                                self.h_num, self.h_den)
+                push(ti, c)
+            flags = [False] * 8
+            for i, (dx, dy) in enumerate(DELTAS):
+                nx, ny = px + dx, py + dy
+                if not grid.in_bounds(nx, ny):
+                    continue
+                if corridor is not None and not corridor.admits_ground(nx, ny):
+                    continue
+                ni = ny * w + nx
+                c = st.get(ni)
+                on_list = c is not None and c.state != 0
+                if ni != goal_index:
+                    if i >= 4 and not flags[ADJACENT[i - 4]] and not flags[ADJACENT[i - 3]]:
+                        continue
+                    clear = self.clear_for_diameter(nx, ny, diameter)
+                    if grid.kind[ni] != CLEAR or grid.pinched[ni]:
+                        continue
+                    flags[i] = True
+                    if c is None:
+                        c = SearchCell()
+                        st[ni] = c
+                        cell_count += 1
+                    new_cost = self._cost_so_far(st, ni, index)
+                    if clear < diameter:
+                        new_cost = int(new_cost + 0.6 * ((diameter - clear) * COST_ORTHOGONAL))
+                if on_list and c.cost <= new_cost:
+                    continue
+                c.cost = new_cost
+                c.parent = index
+                c.total = new_cost + cost_to_goal(nx - goal[0], ny - goal[1], self.h_num, self.h_den)
+                push(ni, c)
+        self.cells_total += cell_count
+        return None
+
+    def build_ground_path(self, frm: Point, st: dict[int, SearchCell], goal: int, diameter: int) -> Path:
+        """buildGroundPath: prependCells off-centre, then Path::optimizeGroundPath."""
+        w = self.grid.width
+        chain: list[int] = []
+        index = goal
+        while st[index].parent is not None:
+            chain.append(index)
+            index = st[index].parent
+        if not chain:
+            chain.append(index)
+        nodes = [cell_pos(i % w, i // w, False) for i in reversed(chain)]
+        if frm != nodes[0]:
+            nodes.insert(0, frm)
+        return Path(nodes, self.optimize_ground(nodes, diameter))
+
+    def ground_line_passable(self, a: Point, b: Point, diameter: int) -> bool:
+        """Pathfinder::isGroundPathPassable."""
+        for _, (tx, ty) in line_cells(*cell_of(*a), *cell_of(*b)):
+            if not self.grid.in_bounds(tx, ty):
+                return True
+            if self.clear_for_diameter(tx, ty, diameter) != diameter:
+                return False
+        return True
+
+    def optimize_ground(self, nodes: list[Point], diameter: int) -> list[int]:
+        """Path::optimizeGroundPath: Path::optimize with the width test, then any leg under two
+           cells that is not the last is dropped (the jig/jog pass)."""
+        route = [0]
+        anchor, last = 0, len(nodes) - 1
+        while anchor != last:
+            count = 0
+            node = anchor + 1
+            while node < last:
+                count += 1
+                if count >= MAX_OPTIMIZE_LOOKAHEAD:
+                    break
+                node += 1
+            placed = False
+            while node != anchor:
+                a, n = nodes[anchor], nodes[node]
+                ok = self.ground_line_passable(a, n, diameter)
+                if not ok:
+                    dx, dy = int(n[0] - a[0]), int(n[1] - a[1])
+                    might = False
+                    if dx == 0:
+                        might = True
+                        for t in range(node - 1, anchor, -1):
+                            dx = int(nodes[t + 1][0] - nodes[t][0])
+                            if dx != 0:
+                                might = False
+                    if dy == 0:
+                        might = True
+                        for t in range(node - 1, anchor, -1):
+                            dy = int(nodes[t + 1][1] - nodes[t][1])
+                            if dy != 0:
+                                might = False
+                    if dx == dy:
+                        might = True
+                        for t in range(node - 1, anchor, -1):
+                            dx = int(nodes[t + 1][0] - nodes[t][0])
+                            dy = int(nodes[t + 1][1] - nodes[t][1])
+                            if dy != dx:
+                                might = False
+                    if dx == -dy:
+                        might = True
+                        for t in range(node - 1, anchor, -1):
+                            dx = int(nodes[t + 1][0] - nodes[t][0])
+                            dy = int(nodes[t + 1][1] - nodes[t][1])
+                            if dy != -dx:
+                                might = False
+                    ok = might
+                if ok:
+                    route.append(node)
+                    anchor = node
+                    placed = True
+                    break
+                node -= 1
+            if not placed:
+                anchor += 1
+                route.append(anchor)
+        k = 0
+        while k < len(route):
+            if k + 2 < len(route):
+                a, n = nodes[route[k]], nodes[route[k + 1]]
+                if (n[0] - a[0]) ** 2 + (n[1] - a[1]) ** 2 < CELL * CELL * 3.9:
+                    del route[k + 1]
+            k += 1
+        return route
+
+    # ---- the queue (processPathfindQueue) ---------------------------------------------------
+    def process_queue(self, sim: "Simulation") -> None:
+        depth = len(self.queue)
+        cap = PATHFIND_REQUESTS_PER_FRAME
+        budget = PATHFIND_CELLS_PER_FRAME
+        if depth > PATHFIND_DEEP_QUEUE:
+            cap += (depth - PATHFIND_DEEP_QUEUE) // PATHFIND_DEEP_STEP
+            budget += PATHFIND_CELLS_PER_FRAME * ((depth - PATHFIND_DEEP_QUEUE) // PATHFIND_DEEP_STEP)
+        cap = min(cap, PATHFIND_REQUESTS_PER_FRAME_DEEP)
+        budget = min(budget, PATHFIND_CELLS_PER_FRAME * PATHFIND_DEEP_CELLS)
+        spent = started = 0
+        waiting = []
+        for unit in self.queue:
+            if not unit.waiting_for_path:
+                unit.queued = False             # answered some other way meanwhile
+                continue
+            if unit.queue_at > self.frame or started >= cap or spent >= budget:
+                waiting.append(unit)
+                continue
+            before = self.cells_total
+            started += 1
+            unit.queued = False
+            sim.compute_path(unit)
+            spent += self.cells_total - before
+        self.queue = waiting
 
 
-def point_line_distance(start: Point, end: Point, point: Point) -> float:
-    dx, dy = end[0] - start[0], end[1] - start[1]
-    if dx * dx + dy * dy < 1.0:
-        return math.hypot(point[0] - start[0], point[1] - start[1])
-    cross = (point[0] - start[0]) * dy - (point[1] - start[1]) * dx
-    return abs(cross) / math.hypot(dx, dy)
+def cell_pos_key(p: Point) -> tuple[int, int]:
+    return int(round(p[0] * 2)), int(round(p[1] * 2))
 
+
+def segment_hits_box(a: Point, b: Point, box: tuple[float, float, float, float]) -> bool:
+    """LineInRegion: does the segment touch the axis-aligned box (Liang-Barsky)."""
+    x0, y0, x1, y1 = box
+    t0, t1 = 0.0, 1.0
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    for p, q in ((-dx, a[0] - x0), (dx, x1 - a[0]), (-dy, a[1] - y0), (dy, y1 - a[1])):
+        if p == 0:
+            if q < 0:
+                return False
+            continue
+        t = q / p
+        if p < 0:
+            t0 = max(t0, t)
+        else:
+            t1 = min(t1, t)
+        if t0 > t1:
+            return False
+    return True
+
+
+# ---------------------------------------------------------------------------------------------
+# The simulation: orders, the move state, doLocomotor, collisions
+# ---------------------------------------------------------------------------------------------
 
 @dataclass
 class OrderStats:
-    """What one order reports about itself.  Both the window and the headless runner start here, so
-       a column added for one of them shows up in the other."""
-    expansions: int = 0
-    searches: int = 0
-    avg_waypoints: float = 0.0
-    corridor: list[Point] = field(default_factory=list)
-    diameter: int = 0
-    crossings: int = 0
+    trunk: list[Point] = field(default_factory=list)
+    trunk_diameter: int = 0
+    lanes: int = 0
     notes: list[str] = field(default_factory=list)
 
 
-def summarise_order(stats: OrderStats, units: Sequence[Unit], traffic: TrafficModel) -> None:
-    """Both planners finish the same way, and a column counted for one has to be counted for the
-       other or the two halves of the comparison are not measuring the same thing."""
-    stats.avg_waypoints = sum(len(unit.path) for unit in units) / len(units)
-    stats.crossings = count_planned_crossings(traffic.reservations)
+class Simulation:
+    def __init__(self, grid: Grid, units: list[Unit]) -> None:
+        self.grid = grid
+        self.pf = Pathfinder(grid)
+        self.units = units
+        self.by_id = {unit.id: unit for unit in units}
+        self.stats = OrderStats()
+        self.overlap_ticks = 0
+        self.overlap_depth = 0.0
+        self.widest_radius = max((unit.radius for unit in units), default=TANK_RADIUS)
+        self.fastest_speed = max((unit.max_speed for unit in units), default=TANK_SPEED)
+        for unit in units:
+            self.pf.update_pos(unit)
+            self.pf.update_goal(unit, unit.pos)       # parked where it stands
 
+    @property
+    def frame(self) -> int:
+        return self.pf.frame
 
-def plan_corridor(grid: Grid, units: Sequence[Unit], goal: Point, *, traffic: TrafficModel,
-                  stats: OrderStats, now: float) -> tuple[list[Cell], int]:
-    """The one search both group planners start from: a corridor for the whole selection,
-       narrowing 6 -> 4 -> 3 before anybody falls back to solving for themselves.  It is the
-       group's lane corridor, not the block corridor: that one, when --corridor asks for it, is
-       laid by astar underneath every search including this one.
-       Returns (cells, diameter), or ([], 0) when the ground carries none of the three widths."""
-    cx, cy = compute_centroid(units)
-    # this group is about to be re-planned, so its own old reservations must not price the corridor
-    for unit in units:
-        traffic.reservations.release(unit.id)
-    for candidate in GROUP_PATH_DIAMETERS:
-        corridor, expansions = astar(grid, cell_of(cx, cy), cell_of(*goal),
-                                     clearance=candidate // 2,
-                                     pricing=traffic.corridor_pricing(now))
-        stats.expansions += expansions
-        stats.searches += 1
-        if corridor:
-            stats.corridor = [world_of(*cell) for cell in corridor]
-            stats.diameter = candidate
-            return corridor, candidate
-    return [], 0
+    # ---- orders -----------------------------------------------------------------------------
+    def flood_group_goals(self, dest: Point, members: Sequence[Unit]) -> list[Point]:
+        """Pathfinder::floodGroupGoals.  With FLOOD_CENTRE_ON_CLICK a group of two or more is flooded
+           twice: the first pass piles up on the approach side, since nobody stops past the click, and
+           the second floods from the click pushed on by FLOOD_CENTRE_SHARES of how far the first
+           pile's middle fell short of it, so the pile moves onto the click (half way by default) and
+           still nobody stops past the point the flood starts from, so nobody drives through the
+           ones who got there first.  The push falls back to the next share, then to none, when the
+           straight cell line from the click to it crosses ground nobody stands on, or when the point
+           is off the map, so the pile never jumps a cliff or a wall.  A second flood that places
+           fewer members than the first is thrown away and the first pile reserved again."""
+        goals, placed = self.flood_from(dest, members)
+        if not FLOOD_CENTRE_ON_CLICK or len(members) < 2:
+            return goals
+        mx = sum(g[0] for g in goals) / len(goals)
+        my = sum(g[1] for g in goals) / len(goals)
+        start = cell_of(*dest)
+        for share in FLOOD_CENTRE_SHARES:
+            origin = (dest[0] + (dest[0] - mx) * share, dest[1] + (dest[1] - my) * share)
+            end = cell_of(*origin)
+            if not self.grid.in_bounds(*end):
+                continue
+            if end == start:
+                return goals
+            if not all(self.grid.passable(*cell) for _, cell in line_cells(*start, *end)):
+                continue
+            for m in members:
+                self.pf.remove_goal(m)
+            centred, centred_placed = self.flood_from(origin, members)
+            if sum(centred_placed) >= sum(placed):
+                return centred
+            for m in members:
+                self.pf.remove_goal(m)
+            for m, goal, was_placed in zip(members, goals, placed):
+                if was_placed:
+                    self.pf.update_goal(m, goal)
+            return goals
+        return goals
 
-
-def order_corridor(grid: Grid, units: Sequence[Unit], goal: Point, *, traffic: TrafficModel,
-                   stats: OrderStats, now: float) -> None:
-    """AIGroup::friend_computeGroundPath + friend_moveVehicleToPos."""
-    cx, cy = compute_centroid(units)
-    start_cell = cell_of(cx, cy)
-    goal_cell = cell_of(*goal)
-    corridor, _ = plan_corridor(grid, units, goal, traffic=traffic, stats=stats, now=now)
-    if not corridor:
-        stats.notes.append("no corridor at any width - falling back to individual paths")
-        order_individual(grid, units, goal, traffic=traffic, stats=stats, now=now)
-        return
-    if start_cell == goal_cell:
-        # ordered onto the group's own centre: there is no corridor to lay lanes along
-        stats.notes.append("goal is the group's own cell - nothing to move to")
-        return
-    # heading of the corridor, and the normal the lanes are laid out along
-    sx, sy = world_of(*corridor[0])
-    ex, ey = world_of(*corridor[-1])
-    hx, hy = ex - sx, ey - sy
-    hlen = math.hypot(hx, hy)
-    hx, hy = hx / hlen, hy / hlen
-    nx, ny = -hy, hx
-    lane_spacing = 2.0 * max(unit.radius for unit in units) + LANE_GAP
-    ordered = sorted(units, key=lambda unit: (unit.x - cx) * nx + (unit.y - cy) * ny)
-    lanes = LANES_MAX if len(ordered) >= LANES_MIN_UNITS else LANES_MIN
-    per_lane = (len(ordered) + lanes - 1) // lanes
-    corridor_world = [world_of(*cell) for cell in corridor]
-    taken: set[Point] = set()
-    for index, unit in enumerate(ordered):
-        lane_index = min(lanes - 1, index // per_lane)
-        delta = lane_index - (lanes - 1) / 2.0
-        if lanes == LANES_MIN:
-            delta *= 2.0                     # -1, +1 rather than -0.5, +0.5
-        unit.rays = []
-        points: list[Point] = []
-        for wx, wy in corridor_world[1:]:
-            lateral = lane_spacing * delta
-            placed = (wx, wy)
-            for shrink in LANE_SHRINKS:
-                px, py = wx + lateral * shrink * nx, wy + lateral * shrink * ny
-                if shrink == 0.0:
-                    placed = (px, py)
+    def flood_from(self, dest: Point, members: Sequence[Unit]) -> tuple[list[Point], list[bool]]:
+        """One flood of floodGroupGoals: a flood out of the clicked cell; members queue by straight
+           time to the click and each cell goes to whichever of the first eight would reach it
+           soonest, never to one it would reach only past the click.  Returns the goals and which
+           members were handed a cell."""
+        pf, grid = self.pf, self.grid
+        goals = [dest] * len(members)
+        placed = [False] * len(members)
+        if not members:
+            return goals, placed
+        start = cell_of(*dest)
+        if not grid.in_bounds(*start):
+            return goals, placed
+        arrivals = []
+        for k, m in enumerate(members):
+            ax, ay = m.x - dest[0], m.y - dest[1]
+            length = math.hypot(ax, ay)
+            speed = max(m.max_speed, MIN_MEMBER_SPEED)
+            if length > PAST_CLICK_ALLOWANCE:
+                ax, ay = ax / length, ay / length
+            arrivals.append([length / speed, k, m, speed, ax, ay, length])
+        arrivals.sort(key=lambda a: (a[0], a[1]))
+        opened = {start}
+        wave = [start]
+        unplaced = len(members)
+        limit = MIN_FLOOD_CELLS + FLOOD_CELLS_PER_MEMBER * len(members)
+        head = 0
+        while head < len(wave) and head < limit and unplaced > 0:
+            cx, cy = wave[head]
+            standable = grid.passable(cx, cy)
+            if standable:
+                wx, wy = (cx + 0.5) * CELL, (cy + 0.5) * CELL
+                ox, oy = wx - dest[0], wy - dest[1]
+                candidates = []
+                for arrival, k, m, speed, ax, ay, length in arrivals:
+                    if len(candidates) >= MAX_MEMBERS_TRIED_PER_CELL:
+                        break
+                    if placed[k]:
+                        continue
+                    if length > PAST_CLICK_ALLOWANCE and -(ox * ax + oy * ay) > PAST_CLICK_ALLOWANCE:
+                        continue
+                    candidates.append((math.hypot(m.x - wx, m.y - wy) / speed, k, m))
+                candidates.sort(key=lambda c: (c[0], c[1]))
+                for _, k, m in candidates:
+                    goal = self.check_for_adjust(m, cx, cy, dest)
+                    if goal is None:
+                        continue
+                    if len(members) == 1 and head == 0:
+                        goal = dest
+                    pf.update_goal(m, goal)
+                    goals[k] = goal
+                    placed[k] = True
+                    unplaced -= 1
                     break
-                is_clear = (grid.passable_world(px, py)
-                            and grid.passable_world(px + nx * unit.radius, py + ny * unit.radius)
-                            and grid.passable_world(px - nx * unit.radius, py - ny * unit.radius))
-                unit.rays.append((px + nx * unit.radius, py + ny * unit.radius,
-                                  px - nx * unit.radius, py - ny * unit.radius, is_clear))
-                if is_clear:
-                    placed = (px, py)
+            if not standable and unplaced < len(members):
+                head += 1
+                continue
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    nxt = (cx + dx, cy + dy)
+                    if grid.in_bounds(*nxt) and nxt not in opened:
+                        opened.add(nxt)
+                        wave.append(nxt)
+            head += 1
+        return goals, placed
+
+    def check_for_adjust(self, unit: Unit, cx: int, cy: int, dest: Point) -> Point | None:
+        """Pathfinder::checkForAdjust without a group destination."""
+        pf = self.pf
+        if not pf.check_destination(unit, cx, cy):
+            return None
+        adjust = cell_pos(cx, cy, unit.center)
+        if not pf.path_exists(unit.pos, dest) and pf.path_exists(dest, adjust):
+            return adjust
+        return adjust if pf.path_exists(unit.pos, adjust) else None
+
+    def adjust_destination(self, unit: Unit, dest: Point) -> Point:
+        """Pathfinder::adjustDestination, as AIInternalMoveToState::onEnter calls it: the goal cell
+           if checkForAdjust takes it, else a square spiral out of it, 400 cells at most."""
+        cx, cy = cell_of(*(dest if unit.center else (dest[0] + CELL / 2, dest[1] + CELL / 2)))
+        found = self.check_for_adjust(unit, cx, cy, dest)
+        if found is not None:
+            return found
+        limit, delta = 400, 1
+        while limit > 0:
+            for ddx, ddy, steps in ((1, 0, delta), (0, 1, delta), (-1, 0, delta + 1), (0, -1, delta + 1)):
+                for _ in range(steps):
+                    cx, cy = cx + ddx, cy + ddy
+                    limit -= 1
+                    found = self.check_for_adjust(unit, cx, cy, dest)
+                    if found is not None:
+                        return found
+            delta += 2
+        return dest
+
+    def plan_lane(self, unit: Unit, trunk: list[Point], offset: float, goal: Point) -> list[Point] | None:
+        """crowdPlanLane: every corner of the trunk moved `offset` left along its bisector, closing
+           in quarters where the ground or a parked unit refuses it, each corner no wider than its
+           neighbours; then cut back to the corner nearest the member's own spot, and home."""
+        pf, grid = self.pf, self.grid
+        n = len(trunk)
+        shifts: list[Point] = [(0.0, 0.0)] * n
+        fits = [CROWD_PLAN_STEPS] * n
+        for k in range(1, n - 1):
+            fits[k] = 0
+            shift = lane_corner(trunk[k - 1], trunk[k], trunk[k + 1], offset)
+            if shift is None:
+                continue
+            shifts[k] = shift
+            c = trunk[k]
+            for q in range(CROWD_PLAN_STEPS, 0, -1):
+                p = (c[0] + shift[0] * q / CROWD_PLAN_STEPS, c[1] + shift[1] * q / CROWD_PLAN_STEPS)
+                if grid.passable_world(*p) and pf.is_line_passable(unit, c, p, blocked=False,
+                                                                   allow_pinched=True):
+                    fits[k] = q
                     break
-            points.append(placed)
-        gx, gy = reserve_goal(grid, taken, goal[0] + lane_spacing * delta * nx,
-                              goal[1] + lane_spacing * delta * ny, radius=unit.radius)
-        points.append((gx, gy))
-        unit.goal = (gx, gy)
-        # lanes are parallel, so they clash with each other almost nowhere - which is the
-        # corridor's whole point, and worth being able to see next to individual mode
-        points, straighten_rays = simplify_raycast(grid, unit.pos, points, radius=unit.radius,
-                                                   lane_spacing=lane_spacing)
-        unit.rays.extend(straighten_rays)
-        apply_path(unit, points, [cell_of(*point) for point in points], traffic, now)
-    summarise_order(stats, units, traffic)
+        shares = list(fits)
+        for k in range(1, n - 1):
+            shares[k] = min(shares[k], fits[k - 1], fits[k + 1])
+        out: list[Point] = []
+        prev = unit.pos
+        prev_corner = -1
+        for k in range(1, n - 1):
+            a, c = trunk[k - 1], trunk[k]
+            ix, iy = c[0] - a[0], c[1] - a[1]
+            if (c[0] - prev[0]) * ix + (c[1] - prev[1]) * iy <= 0.0:
+                continue
+            placed = False
+            for q in range(shares[k], -1, -1):
+                p = (c[0] + shifts[k][0] * q / CROWD_PLAN_STEPS, c[1] + shifts[k][1] * q / CROWD_PLAN_STEPS)
+                group_leg = q == 0 and prev == a
+                if not group_leg and not pf.is_line_passable(unit, prev, p, blocked=False,
+                                                             allow_pinched=True):
+                    continue
+                out.append(p)
+                prev, prev_corner, placed = p, k, True
+                break
+            if not placed and prev_corner < 0 and CROWD_LANE_FROM_SPOT:
+                continue                # not seen from my spot: try the next corner, never trunk[0]
+            if not placed and (prev_corner == k - 1 or pf.is_line_passable(unit, prev, a, blocked=False,
+                                                                            allow_pinched=True)):
+                out.extend((a, c))
+                prev, prev_corner, placed = c, k, True
+            if not placed:
+                return None
+        while len(out) >= 2:
+            last, before = out[-1], out[-2]
+            if (before[0] - goal[0]) ** 2 + (before[1] - goal[1]) ** 2 >= (last[0] - goal[0]) ** 2 + (last[1] - goal[1]) ** 2:
+                break
+            out.pop()
+        while out and not pf.is_line_passable(unit, out[-1], goal, blocked=False, allow_pinched=True):
+            out.pop()
+        if not out:
+            return None
+        out.append(goal)
+        return out
+
+    def group_move(self, members: Sequence[Unit], click: Point) -> OrderStats:
+        """AIGroup::groupMoveToPosition for a player's move (gatherOnPoint): lanes across the travel
+           direction, goals from the flood, the trunk at 6, 4, 2 cells from the member nearest the
+           middle, each vehicle's lane of it, then a move order each, nearest the click first."""
+        pf = self.pf
+        stats = OrderStats()
+        if not members:
+            return stats
+        cx = sum(m.x for m in members) / len(members)
+        cy = sum(m.y for m in members) / len(members)
+        ordered = sorted(members, key=lambda m: ((m.x - click[0]) ** 2 + (m.y - click[1]) ** 2, m.id))
+        for m in ordered:
+            pf.remove_goal(m)
+        gx, gy = click[0] - cx, click[1] - cy
+        gl = math.hypot(gx, gy)
+        lane_offsets: dict[int, float] = {}
+        spacing = 0.0
+        for m in members:
+            clear_crowd_lane(m)
+        if gl > 1.0 and len(ordered) > 1:
+            dx, dy = gx / gl, gy / gl
+            across = sorted(((m.x - cx) * -dy + (m.y - cy) * dx, m.id, m) for m in ordered)
+            widest = max(ordered, key=lambda m: m.radius)
+            spacing = 2.0 * widest.radius * LANE_SPACING_AIR
+            left = crowd_extent(self.grid, widest.radius, cx, cy, -dy, dx)
+            right = crowd_extent(self.grid, widest.radius, cx, cy, dy, -dx)
+            bias = (left - right) * 0.5
+            lanes = min(lane_count(left + right, spacing, 0), len(across))
+            stats.lanes = lanes
+            for i, (_, _, m) in enumerate(across):
+                lane = (i * lanes) // len(across)
+                offset = bias + (lane - (lanes - 1) * 0.5) * spacing
+                m.pending_crowd_lat, m.has_pending_crowd_lat = offset, True
+                m.crowd_lane_idx, m.crowd_lane_of, m.crowd_lane_space = i, len(across), spacing
+                lane_offsets[m.id] = (lane - (lanes - 1) * 0.5) * spacing
+        goals = self.flood_group_goals(click, ordered)
+        trunk: list[Point] = []
+        if lane_offsets and CROWD_GROUP_TRUNK:
+            vehicles = [m for m in ordered if not m.is_infantry]
+            trunk_start = (min(vehicles, key=lambda m: (m.x - cx) ** 2 + (m.y - cy) ** 2).pos
+                           if vehicles else (cx, cy))
+            for aim in (click, goals[0]):
+                for diameter in range(CROWD_TRUNK_DIAMETER, 1, -2):
+                    path = pf.find_ground_path(trunk_start, aim, diameter)
+                    if path is not None:
+                        trunk = path.points
+                        stats.trunk_diameter = diameter
+                        break
+                if trunk:
+                    break
+        stats.trunk = trunk
+        for m, dest in zip(ordered, goals):
+            if trunk and m.id in lane_offsets and not m.is_infantry:     # a foot soldier walks through the crowd
+                lane = self.plan_lane(m, trunk, lane_offsets[m.id], dest)
+                if lane is not None:
+                    m.planned = lane
+                    m.pending_crowd_lat, m.has_pending_crowd_lat = 0.0, True
+                    m.crowd_lane_idx, m.crowd_lane_of = 0, 1
+            self.move_to(m, dest)
+        self.stats = stats
+        return stats
+
+    def move_to(self, unit: Unit, dest: Point) -> None:
+        """aiMoveToPosition: the move state, which asks for a path."""
+        dest = self.adjust_destination(unit, dest)
+        self.pf.update_goal(unit, dest)
+        unit.goal = dest
+        unit.moving = True
+        unit.gave_up = False
+        unit.move_away_from = None
+        unit.resume_goal = None
+        unit.donut_until = self.frame + DONUT_FRAMES            # Locomotor::startMove
+        self.request_path(unit)
+
+    def request_path(self, unit: Unit) -> None:
+        """AIUpdateInterface::requestPath: into the queue, held a tenth of a second when the last path
+           was that recent."""
+        unit.waiting_for_path = True
+        delay = 0
+        if unit.path_timestamp > self.frame - REPATH_DEBOUNCE_FRAMES:
+            delay = REPATH_DEBOUNCE_FRAMES
+            if unit.path is not None and unit.is_blocked_and_stuck:
+                unit.ignore_collisions_until = self.frame + 2 * LOGICFRAMES_PER_GAME_SECOND
+                unit.blocked_frames = 0
+                unit.is_blocked = False
+                unit.is_blocked_and_stuck = False
+        unit.queue_at = self.frame + delay
+        if not unit.queued:
+            unit.queued = True
+            self.pf.queue.append(unit)
+
+    def compute_path(self, unit: Unit) -> None:
+        """AIUpdateInterface::computePath: the planned lane when the order still matches it, a patch
+           when blocked and stuck, else findPath.  findClosestPath, the C++'s fallback for no path at
+           all, is not modelled: the unit gives the order up."""
+        if not unit.waiting_for_path or unit.goal is None:
+            return
+        pf = self.pf
+        planned, unit.planned = unit.planned, []
+        stuck = unit.is_blocked_and_stuck
+        if not stuck:
+            destroy_path(unit)
+        new: Path | None = None
+        dest = unit.goal
+        if planned and not stuck:
+            end = planned[-1]
+            if ((end[0] - dest[0]) ** 2 + (end[1] - dest[1]) ** 2 <= CROWD_PLAN_END_SLACK ** 2
+                    and pf.is_line_passable(unit, unit.pos, planned[0], blocked=False, allow_pinched=True)):
+                nodes = [unit.pos, *planned[:-1], dest]
+                new = Path(nodes, list(range(len(nodes))))
+        if new is None:
+            if stuck:
+                new = pf.patch_path(unit)
+            else:
+                new = pf.find_path(unit, unit.pos, dest)
+        unit.waiting_for_path = False
+        unit.repath_pending = False
+        if new is not None:
+            destroy_path(unit)
+            unit.path = new
+            unit.dist_to_goal = new.length()
+            if unit.first_length == 0.0:
+                unit.first_length = new.length()
+                unit.first_waypoints = len(new.route)
+            self.pf.update_goal(unit, new.last)
+            if new.blocked_by_ally:
+                self.move_allies(unit, new)
+        elif unit.path is None:
+            unit.moving = False                 # the order fails; the unit parks where it stands
+            unit.gave_up = True
+            self.pf.update_goal(unit, unit.pos)
+        else:
+            destroy_path(unit)
+            unit.is_blocked = False
+            self.request_path(unit)
+            unit.queue_at = self.frame + LOGICFRAMES_PER_GAME_SECOND
+        unit.path_timestamp = self.frame
+        unit.blocked_frames = 0
+        unit.is_blocked_and_stuck = False
+
+    def move_allies(self, unit: Unit, path: Path) -> None:
+        """Pathfinder::moveAllies: parked allies under the route's footprint are asked to move."""
+        pf, w = self.pf, self.grid.width
+        asked: list[int] = []
+        for node in path.nodes[1:]:
+            cx, cy = cell_of(*node)
+            for i, j in pf.footprint(cx, cy, unit.cell_radius, unit.center):
+                p = pf.occ.pos.get(j * w + i) if self.grid.in_bounds(i, j) else None
+                if p is not None and p != unit.id and p not in asked:
+                    asked.append(p)
+        for uid in asked:
+            other = self.by_id[uid]
+            if unit.is_infantry and other.is_infantry:
+                continue        # AIPathfind.cpp:12614: infantry walks through infantry
+            if not other.is_moving:
+                self.move_away(other, unit)
+
+    def move_away(self, unit: Unit, other: Unit) -> None:
+        """aiMoveAwayFromUnit: a temporary state; the order it interrupts resumes when it ends."""
+        path = self.pf.move_away_path(unit, other)
+        if path is None:
+            return
+        if unit.moving and unit.move_away_from is None and unit.goal is not None:
+            unit.resume_goal = unit.goal
+        destroy_path(unit)
+        unit.path = path
+        unit.dist_to_goal = path.length()
+        unit.goal = path.last
+        unit.moving = True
+        unit.waiting_for_path = False
+        unit.move_away_from = other.id
+        unit.path_timestamp = self.frame
+        unit.donut_until = self.frame + DONUT_FRAMES
+        self.pf.update_goal(unit, path.last)
+
+    # ---- one frame --------------------------------------------------------------------------
+    def step(self) -> None:
+        pf = self.pf
+        pf.process_queue(self)
+        pf.decay_traffic()
+        if self.frame % PF_CLAIM_REFRESH_FRAMES == 0:
+            pf.prune_claims()
+        for unit in self.units:
+            self.move_state(unit)
+            self.do_locomotor(unit)
+        for unit in self.units:
+            self.physics_update(unit)
+            pf.update_pos(unit)
+            if unit.arrived and unit.moving:
+                unit.churn += 1
+        self.collide()
+        pf.frame += 1
+
+    def move_state(self, unit: Unit) -> None:
+        """AIInternalMoveToState::update: arrival on the locomotor's distance, and a repath when
+           blocked and stuck or blocked for over two game seconds, or (LADDER_REPATH_FLAG) when
+           crowdRepath asked for one."""
+        if not unit.moving or unit.path is None:
+            return
+        if unit.dist_to_goal < unit.kind.close_enough:
+            last = unit.path.last
+            if math.hypot(unit.x - last[0], unit.y - last[1]) <= 4 * CELL:
+                self.arrive(unit)
+                return
+        if unit.waiting_for_path:
+            return
+        if (unit.is_blocked_and_stuck or unit.blocked_frames > 2 * LOGICFRAMES_PER_GAME_SECOND
+                or unit.repath_pending):
+            unit.repath_pending = False
+            unit.repaths += 1
+            self.request_path(unit)
+
+    def arrive(self, unit: Unit) -> None:
+        resume = unit.resume_goal
+        if resume is None and unit.move_away_from is None:
+            unit.arrived = True
+        unit.repath_pending = False
+        destroy_path(unit)
+        unit.moving = False
+        unit.move_away_from = None
+        unit.resume_goal = None
+        if resume is not None:
+            self.move_to(unit, resume)
+
+    def do_locomotor(self, unit: Unit) -> None:
+        """AIUpdateInterface::doLocomotor for POSITION_ON_PATH."""
+        pf = self.pf
+        unit.head_on_frames = unit.head_on_frames + 1 if unit.head_on_seen else 0
+        unit.head_on_seen = False
+        if unit.is_blocked:
+            unit.blocked_frames += 1
+            unit.blocked_total += 1
+            pf.note_traffic(unit.x, unit.y, unit.cell_radius)
+        else:
+            unit.blocked_frames = 0
+        if unit.path is not None and (self.frame + unit.id) % PF_CLAIM_REFRESH_FRAMES == 0:
+            pf.claim_path_timing(unit)
+        self.update_progress(unit)
+        self.stuck_rescue(unit)
+        unit.is_blocked = False
+        side_step = unit.side_step_seen
+        side_away = (unit.side_step_x, unit.side_step_y)
+        unit.side_step_seen = False
+        unit.side_step_x = unit.side_step_y = 0.0
+        blocked = unit.blocked_frames > 0
+        if unit.moving and unit.path is None:
+            return              # waiting for its path: the locomotor is not called and physics coasts
+        if not unit.on_path:
+            self.maintain_position(unit)
+            unit.repath_asked = False
+            unit.cur_max_blocked_speed = FAST_AS_POSSIBLE
+            return
+        goal_pos, dist, _, _ = self.point_on_path(unit)
+        unit.dist_to_goal = dist
+        unit.loco_goal = goal_pos
+        speed = unit.max_speed
+        if blocked and speed > unit.cur_max_blocked_speed:
+            speed = unit.cur_max_blocked_speed
+            if unit.bump_speed_limit > speed:
+                unit.bump_speed_limit = speed
+            else:
+                unit.bump_speed_limit = max(unit.bump_speed_limit, speed * 0.2) * BUMP_RECOVERY
+                unit.bump_speed_limit = min(unit.bump_speed_limit, speed)
+            speed = unit.bump_speed_limit * 0.95
+        else:
+            blocked = False
+            if unit.bump_speed_limit < FAST_AS_POSSIBLE:
+                unit.bump_speed_limit = max(unit.bump_speed_limit, speed * 0.2) * BUMP_RECOVERY
+            speed = min(speed, unit.bump_speed_limit)
+        rescued = self.rescue_steer(unit)
+        if rescued is not None:
+            goal_pos = rescued
+        else:
+            goal_pos, speed = self.crowd_steer(unit, goal_pos, speed)
+            if CROWD_TTC_STEER:
+                goal_pos, speed = self.ttc_steer(unit, goal_pos, speed, dist)
+        if side_step:
+            goal_pos = side_step_goal(unit, goal_pos, side_away)
+        blocked = self.locomote(unit, goal_pos, speed, dist, blocked)
+        if not blocked and unit.blocked_frames > 1 and not unit.repath_asked:
+            unit.blocked_frames = 1
+        unit.repath_asked = False
+        unit.cur_max_blocked_speed = FAST_AS_POSSIBLE
+
+    def point_on_path(self, unit: Unit) -> tuple[Point, float, float, float]:
+        """Path::computePointOnPath without its cache: the closest point, then the next node if the
+           line to it is clear, half way on to the one after when well along the leg, else a blend
+           by how far off the route the unit is.  The lane offset it adds for a seeded lane is left
+           out: every member that has one is steered by crowdSteer, which replaces the point."""
+        pf = self.pf
+        pts = unit.path.points
+        x, y = unit.x, unit.y
+        pos_on = pts[-1]
+        close = -1
+        best = 1e30
+        total = along_to_pos = 0.0
+        for k in range(len(pts) - 1):
+            a, b = pts[k], pts[k + 1]
+            seg = math.hypot(b[0] - a[0], b[1] - a[1])
+            if seg < 1e-6:
+                continue
+            dx, dy = (b[0] - a[0]) / seg, (b[1] - a[1]) / seg
+            along = dx * (x - a[0]) + dy * (y - a[1])
+            if along < 0.0:
+                along, p = 0.0, a
+            elif along > seg:
+                if k + 2 < len(pts):
+                    total += seg
+                    continue
+                along, p = seg, b
+            else:
+                p = (a[0] + along * dx, a[1] + along * dy)
+            d = (x - p[0]) ** 2 + (y - p[1]) ** 2
+            if d < best:
+                best, close, pos_on, along_to_pos = d, k, p, total + along
+            total += seg
+        bend_dist, bend_cos = 0.0, 1.0
+        if close >= 0:
+            a, b = pts[close], pts[close + 1]
+            seg = math.hypot(b[0] - a[0], b[1] - a[1])
+            dx, dy = (b[0] - a[0]) / seg, (b[1] - a[1]) / seg
+            along = max(dx * (x - a[0]) + dy * (y - a[1]), 0.0)
+            if close + 2 < len(pts):
+                c = pts[close + 2]
+                ox, oy = c[0] - b[0], c[1] - b[1]
+                ol = math.hypot(ox, oy)
+                if ol > 0.001:
+                    bend_cos = (dx * ox + dy * oy) / ol
+                    bend_dist = max(seg - along, 0.0)
+            off = math.sqrt(max((x - a[0]) ** 2 + (y - a[1]) ** 2 - along * along, 0.0))
+            k = min(off / (3.0 * CELL), 1.0)
+            got = False
+            if pf.is_line_passable(unit, unit.pos, steer_check(unit.pos, b), blocked=False, allow_pinched=True):
+                pos_on, got = b, True
+                try_ahead = along > seg * 0.5
+                very_close = seg - along < 1.0
+                if very_close:
+                    try_ahead = True
+                if try_ahead and close + 2 < len(pts):
+                    c = pts[close + 2]
+                    t = ((b[0] + c[0]) * 0.5, (b[1] + c[1]) * 0.5)
+                    if very_close or pf.is_line_passable(unit, unit.pos, steer_check(unit.pos, t),
+                                                         blocked=False, allow_pinched=True):
+                        pos_on = t
+            elif k > 0.5:
+                t_along = along + 0.5 * (seg - along)
+                p = (a[0] + t_along * dx, a[1] + t_along * dy)
+                pos_on = p
+                if pf.is_line_passable(unit, unit.pos, steer_check(unit.pos, p), blocked=False, allow_pinched=True):
+                    k, got = 0.5, True
+            along += (1.0 - k) * (seg - along)
+            if not got:
+                if along > seg:
+                    pos_on = b
+                else:
+                    pos_on = (a[0] + along * dx, a[1] + along * dy)
+                    if abs(x - pos_on[0]) < 1 and abs(y - pos_on[1]) < 1 and close + 2 < len(pts):
+                        pos_on = pts[close + 2]
+        dist = total - along_to_pos
+        off_by = math.hypot(pos_on[0] - x, pos_on[1] - y)
+        if off_by > dist and dist > PATHFIND_CLOSE_ENOUGH:
+            dist = off_by
+        return pos_on, dist, bend_dist, bend_cos
+
+    # ---- the locomotor and the physics under it ---------------------------------------------
+    def apply_motive(self, unit: Unit, accel_x: float, accel_y: float) -> None:
+        """PhysicsBehavior::applyMotiveForce, over the mass, which every caller multiplied in: taken
+           whole, and the body counts as driven for MOTIVE_FRAMES (no forward friction)."""
+        unit.ax += accel_x
+        unit.ay += accel_y
+        unit.motive_until = self.frame + MOTIVE_FRAMES
+
+    def drive_along_heading(self, unit: Unit, speed_delta: float, acceleration: float) -> None:
+        """The drives' "maintain goal speed": the force asked, never more than the speed it closes."""
+        if speed_delta == 0.0:
+            return
+        if abs(acceleration) > abs(speed_delta):
+            acceleration = speed_delta
+        dx, dy = unit.dir
+        self.apply_motive(unit, acceleration * dx, acceleration * dy)
+
+    def locomote(self, unit: Unit, goal: Point, speed: float, dist: float, blocked: bool) -> bool:
+        """Locomotor::locoUpdate_moveTowardsPosition (Locomotor.cpp:1249) for a ground unit: the
+           braking latch off at a distance, the blocked scrub and turn, the drive its Appearance
+           names, then the braking slide onto the goal (1443-1486).  Returns the blocked flag back."""
+        kind = unit.kind
+        desired = min(speed, unit.max_speed)
+        if dist > CELL and dist > (unit.max_speed / kind.braking) * unit.max_speed / 2.0:
+            unit.is_braking = False
+            unit.braking_factor = 1.0
+        dx, dy = goal[0] - unit.x, goal[1] - unit.y
+        straight = math.hypot(dx, dy)
+        if straight > dist:
+            if straight > 2.0 * dist:
+                unit.is_braking = True
+            dist = straight
+        self.apply_motive(unit, 0.0, 0.0)
+        if blocked and desired > math.hypot(unit.vx, unit.vy):
+            blocked = False
+        if blocked:
+            scrub_velocity(unit, desired)
+            return rotate_around_pivot(unit, goal, unit.turn_rate)[0] != TURN_NONE
+        was_braking = unit.braking_status
+        if kind.appearance == TWO_LEGS:
+            self.move_legs(unit, goal, dist, desired)
+        elif kind.appearance in (FOUR_WHEELS, MOTORCYCLE):
+            self.move_wheels(unit, goal, dist, desired)
+        else:
+            self.move_treads(unit, goal, dist, desired)
+        unit.braking_status = unit.is_braking
+        if kind.appearance in GROUND_DRIVE:
+            was_braking = unit.is_braking
+        if was_braking and straight > 0.001:
+            slide = abs(retail_forward_speed(unit) if kind.appearance in GROUND_DRIVE else forward_speed(unit))
+            slide = min(max(slide, BRAKING_SLIDE_MIN), straight)
+            unit.x += dx / straight * slide
+            unit.y += dy / straight * slide
+        return False
+
+    def move_treads(self, unit: Unit, goal: Point, dist: float, desired: float) -> None:
+        """Locomotor::moveTowardsPositionTreads (Locomotor.cpp:1497)."""
+        braking = unit.kind.braking
+        _, rel = rotate_around_pivot(unit, goal, unit.turn_rate)
+        angle_coeff = min(abs(rel) / TREAD_SLOW_ANGLE, 1.0)
+        roll_coeff = min(abs(rel) / TREAD_PIVOT_ANGLE, 1.0)
+        goal_speed = (1.0 - roll_coeff) * desired
+        actual = retail_forward_speed(unit)
+        slow_down_dist = (actual / SLOW_DOWN_SPEED_DIVISOR) * (actual / braking)
+        if ((unit.x - goal[0]) ** 2 + (unit.y - goal[1]) ** 2 < TREAD_NEAR_GOAL ** 2
+                and angle_coeff > TREAD_NEAR_ANGLE_COEFF):
+            goal_speed = actual * TREAD_NEAR_SPEED_FACTOR
+        if dist < slow_down_dist and not unit.is_braking:
+            unit.is_braking = True
+            unit.braking_factor = BRAKING_FACTOR_LATCHED
+        if dist > CELL and dist > 2.0 * slow_down_dist:
+            unit.is_braking = False
+        if unit.is_braking:
+            factor = (slow_down_dist / dist) ** 2 if dist > 0.0 else MAX_BRAKING_FACTOR
+            unit.braking_factor = min(factor, MAX_BRAKING_FACTOR)
+            goal_speed = braked_speed(actual, braking, slow_down_dist, dist)
+        delta = goal_speed - actual
+        self.drive_along_heading(unit, delta, unit.acceleration if delta > 0.0 else -unit.braking_factor * braking)
+
+    def move_wheels(self, unit: Unit, goal: Point, dist: float, desired: float) -> None:
+        """Locomotor::moveTowardsPositionWheels (Locomotor.cpp:1633): turns only while moving, at
+           MinTurnSpeed through a bend, backs up to a goal behind from rest, and stops to turn on the
+           spot where the arc it would drive runs onto rock."""
+        kind = unit.kind
+        braking = kind.braking
+        max_turn = unit.turn_rate
+        turn_speed = max(kind.min_turn_speed, unit.max_speed * WHEEL_TURN_SPEED_SHARE)
+        desired_angle = math.atan2(goal[1] - unit.y, goal[0] - unit.x)
+        rel = normalize_angle(desired_angle - unit.facing)
+        backwards = three_point = False
+        actual = retail_forward_speed(unit)
+        if actual == 0.0:
+            unit.moving_backwards = False
+            if kind.can_move_backwards and abs(rel) > math.pi / 2:
+                unit.moving_backwards = True
+                unit.three_point_turn = dist > WHEEL_THREE_POINT_RADII * kind.major_radius
+        if unit.moving_backwards:
+            if abs(rel) < math.pi / 2:
+                unit.moving_backwards = False
+            else:
+                backwards = True
+                unit.three_point_turn = dist > WHEEL_THREE_POINT_RADII * kind.major_radius
+                three_point = unit.three_point_turn
+                if not three_point:
+                    desired_angle = normalize_angle(desired_angle - math.pi)
+                    rel = normalize_angle(desired_angle - unit.facing)
+        if abs(rel) > WHEEL_SMALL_TURN and desired > turn_speed:
+            desired = turn_speed
+        goal_speed = desired
+        if backwards:
+            actual = -actual
+        slow_down_dist = ((actual / SLOW_DOWN_SPEED_DIVISOR) * (actual / braking + WHEEL_REACTION_FRAMES)
+                          + actual * WHEEL_REACTION_FRAMES)
+        effective_slow_down_dist = max(slow_down_dist, CELL)
+        if abs(rel) > WHEEL_PROBE_TURN:
+            mean_speed = (goal_speed + actual) / 2.0
+            distance = WHEEL_PROBE_FRAMES * mean_speed
+            swing = WHEEL_PROBE_FRAMES * min(mean_speed / turn_speed, 1.0) * max_turn * WHEEL_PROBE_SWING_SHARE
+            heading = unit.facing - swing if rel < 0.0 else unit.facing + swing
+            off_x, off_y = math.cos(heading) * distance, math.sin(heading) * distance
+            if (not self.grid.passable_world(unit.x + off_x / 2.0, unit.y + off_y / 2.0)
+                    or not self.grid.passable_world(unit.x + off_x, unit.y + off_y)):
+                rotate_around_pivot(unit, goal, max_turn)
+                self.apply_motive(unit, 0.0, 0.0)
+                return
+        if dist < effective_slow_down_dist and not unit.is_braking:
+            unit.is_braking = True
+            unit.braking_factor = BRAKING_FACTOR_LATCHED
+        if dist > CELL and dist > 2.0 * slow_down_dist:
+            unit.is_braking = False
+        if dist > DONUT_DISTANCE:
+            unit.donut_until = self.frame + DONUT_FRAMES
+        elif unit.donut_until < self.frame:
+            unit.is_braking = True
+        if unit.is_braking:
+            unit.braking_factor = 1.0
+            goal_speed = braked_speed(actual, braking, slow_down_dist, dist)
+        turn_amount = min(abs(actual / turn_speed), 1.0) * max_turn
+        if backwards and not three_point:
+            rotate_around_pivot(unit, (2.0 * unit.x - goal[0], 2.0 * unit.y - goal[1]), turn_amount)
+        else:
+            rotate_around_pivot(unit, goal, turn_amount)
+        if backwards:
+            delta = actual - goal_speed
+            acceleration = -unit.acceleration if delta < 0.0 else unit.braking_factor * braking
+        else:
+            delta = goal_speed - actual
+            acceleration = unit.acceleration if delta > 0.0 else -unit.braking_factor * braking
+        self.drive_along_heading(unit, delta, acceleration)
+
+    def move_legs(self, unit: Unit, goal: Point, dist: float, desired: float) -> None:
+        """Locomotor::moveTowardsPositionLegs (Locomotor.cpp:2465): the turn eased over
+           INFANTRY_YAW_EASE_FRAMES with the walk carried round the nose, the speed the cosine of what
+           is left to turn, and never faster than a stop at the route's end allows.  No braking latch:
+           only locoUpdate's own sets it.  WanderWidthFactor is not ported; none of the units has one."""
+        kind = unit.kind
+        actual = forward_speed(unit)
+        rel = normalize_angle(math.atan2(goal[1] - unit.y, goal[0] - unit.x) - unit.facing)
+        if abs(goal[0] - unit.x) < ON_TARGET and abs(goal[1] - unit.y) < ON_TARGET:
+            rel = 0.0
+        turn_rate = unit.turn_rate
+        self.turn_vehicle(unit, ease_yaw(unit, rel, turn_rate, turn_rate / INFANTRY_YAW_EASE_FRAMES))
+        goal_speed = max(desired * math.cos(rel), 0.0)
+        stop_decel = legs_stop_decel(unit)
+        goal_speed = min(goal_speed, math.sqrt(2.0 * stop_decel * max(dist, 0.0)))
+        goal_speed = max(goal_speed, kind.min_speed)
+        delta = goal_speed - actual
+        self.drive_along_heading(unit, delta, unit.acceleration if delta > 0.0 else -stop_decel)
+
+    def turn_vehicle(self, unit: Unit, yaw: float) -> None:
+        """Locomotor::turnVehicle (Locomotor.cpp:1943): the speed along the nose turns with it."""
+        if yaw == 0.0:
+            return
+        forward = forward_speed(unit)
+        before_x, before_y = unit.dir
+        turn_around_pivot(unit, yaw)
+        after_x, after_y = unit.dir
+        self.apply_motive(unit, forward * (after_x - before_x), forward * (after_y - before_y))
+
+    def maintain_position(self, unit: Unit) -> None:
+        """locoUpdate_maintainCurrentPosition (Locomotor.cpp:3731): the latch and the slide off; a
+           vehicle still driven stops dead (maintainCurrentPositionOther), a soldier brakes (brakeLegs)."""
+        unit.is_braking = False
+        unit.braking_status = False
+        unit.donut_until = self.frame + DONUT_FRAMES
+        driven = unit.motive_until > self.frame
+        if unit.kind.appearance == TWO_LEGS:
+            unit.yaw_rate = 0.0
+            if driven:
+                scrub_velocity(unit, max(math.hypot(unit.vx, unit.vy) - legs_stop_decel(unit), 0.0))
+        elif driven:
+            scrub_velocity(unit, 0.0)
+
+    def physics_update(self, unit: Unit) -> None:
+        """PhysicsBehavior::update (PhysicsUpdate.cpp:648) on flat ground: friction takes the sideways
+           part of the velocity off, and the forward part too once nothing drives the body; the forces
+           go into the velocity, a crumb of it is zero, and the position moves unless the locomotor
+           slid it itself.  Velocity is not turned with the hull: a tread or a tyre skids."""
+        if unit.vx or unit.vy:
+            dx, dy = unit.dir
+            lateral = unit.vx * -dy + unit.vy * dx
+            lateral_share = unit.kind.lateral_friction_per_tick
+            unit.ax -= lateral_share * lateral * -dy
+            unit.ay -= lateral_share * lateral * dx
+            if unit.motive_until <= self.frame:
+                forward = unit.vx * dx + unit.vy * dy
+                forward_share = unit.kind.forward_friction_per_tick
+                unit.ax -= forward_share * forward * dx
+                unit.ay -= forward_share * forward * dy
+        unit.vx += unit.ax
+        unit.vy += unit.ay
+        if abs(unit.vx) < VELOCITY_ZERO:
+            unit.vx = 0.0
+        if abs(unit.vy) < VELOCITY_ZERO:
+            unit.vy = 0.0
+        if not unit.braking_status:
+            unit.x += unit.vx
+            unit.y += unit.vy
+        unit.ax = unit.ay = 0.0
+
+    # ---- the stuck ladder -------------------------------------------------------------------
+    def update_progress(self, unit: Unit) -> None:
+        """AIUpdateInterface::updateProgress: under a fifth of the asked speed and not coming about
+           is a frame of no progress.  The dither counter is a count only in the C++ and is left out."""
+        moved = math.hypot(unit.x - unit.last_progress[0], unit.y - unit.last_progress[1])
+        turn = normalize_angle(unit.facing - unit.last_progress_angle)
+        turned = abs(turn)
+        reversed_turn = turn * unit.last_turn < 0.0
+        unit.last_turn = turn
+        unit.last_progress = unit.pos
+        unit.last_progress_angle = unit.facing
+        if unit.path is None or unit.waiting_for_path or not unit.on_path:
+            unit.no_progress = unit.progress_frames = 0
+            if not (LADDER_STAGE_HOLD and unit.moving):
+                unit.rescue_stage = 0
+            return
+        asked = unit.max_speed
+        bar = max(STUCK_TURN_EPSILON, unit.turn_rate * 0.5)
+        coming_about = False
+        if turned >= bar:
+            gx, gy = unit.loco_goal[0] - unit.x, unit.loco_goal[1] - unit.y
+            gl = math.hypot(gx, gy)
+            dx, dy = unit.dir
+            coming_about = ((dx * gx + dy * gy) / gl) < 0.87 if gl > 0.01 else True
+        if LADDER_DITHER_FIX and (reversed_turn or (unit.is_infantry and moved < TTC_EPSILON)):
+            coming_about = False
+        if moved < asked * 0.2 and not coming_about:
+            unit.no_progress += 1
+            unit.progress_frames = 0
+        else:
+            unit.no_progress = 0
+            unit.progress_frames += 1
+            if unit.progress_frames >= LADDER_STAGE_HOLD:
+                unit.rescue_stage = 0
+
+    def stuck_rescue(self, unit: Unit) -> None:
+        """AIUpdateInterface::stuckRescue: a new route, then the neighbours asked to move with
+           collisions off for a second, then backing out sideways or back."""
+        if unit.rescue_until > 0:
+            return
+        rung = stuck_rung(unit.no_progress, unit.rescue_stage)
+        if rung == -1:
+            unit.no_progress = unit.rescue_stage = 0
+            return
+        if rung == 0 or self.frame < unit.rescue_cool:
+            return
+        unit.rungs_fired[rung - 1] += 1
+        if rung == 1:
+            unit.rescue_stage = 1
+            self.crowd_repath(unit)
+            return
+        if rung == 2:
+            unit.rescue_stage = 2
+            reach = unit.radius * 3.0 + CELL
+            for other in self.units:
+                if other is unit or (LADDER_ALLY_FILTER and other.moving):
+                    continue
+                if math.hypot(other.x - unit.x, other.y - unit.y) <= reach:
+                    self.move_away(other, unit)
+            unit.ignore_collisions_until = self.frame + LOGICFRAMES_PER_GAME_SECOND
+            unit.rescue_cool = self.frame + LOGICFRAMES_PER_GAME_SECOND
+            return
+        unit.rescue_stage = 3
+        tx, ty = unit.loco_goal[0] - unit.x, unit.loco_goal[1] - unit.y
+        tl = math.hypot(tx, ty)
+        if tl < 0.01:
+            tx, ty = unit.dir
+        else:
+            tx, ty = tx / tl, ty / tl
+        escape = self.find_escape(unit, tx, ty, 1 if unit.id & 1 else -1)
+        if escape is not None:
+            self.ask_behind_to_back_off(unit, tx, ty)
+            unit.escapes += 1
+            unit.rescue_to = escape
+            unit.ignore_collisions_until = self.frame + LOGICFRAMES_PER_GAME_SECOND
+            unit.rescue_until = self.frame + STUCK_BACKOUT_FRAMES
+            unit.no_progress = 0
+        else:
+            self.crowd_repath(unit)
+
+    def find_escape(self, unit: Unit, tx: float, ty: float, first_side: int) -> Point | None:
+        """crowdFindEscape, sideways first."""
+        across = unit.radius * 2.0 + CELL
+        behind = unit.radius + CELL * 0.5
+        sx, sy = -ty, tx
+        for t in range(4):
+            side = -first_side if t == 1 else first_side
+            lat = across if t < 3 else 0.0
+            back = behind if t < 2 else (0.0 if t == 2 else across)
+            p = (unit.x + sx * lat * side - tx * back, unit.y + sy * lat * side - ty * back)
+            if self.grid.passable_world(*p):
+                return p
+        return None
+
+    def ask_behind_to_back_off(self, unit: Unit, tx: float, ty: float) -> None:
+        """crowdAskBehindToBackOff: whoever is right behind, in our lane, two bodies back at most."""
+        reach = unit.radius * 4.0 + CELL
+        for other in self.units:
+            if other is unit:
+                continue
+            dx, dy = other.x - unit.x, other.y - unit.y
+            if math.hypot(dx, dy) > reach:
+                continue
+            if dx * tx + dy * ty > -unit.radius:
+                continue
+            if abs(-dx * ty + dy * tx) > unit.radius + other.radius:
+                continue
+            self.move_away(other, unit)
+
+    def rescue_steer(self, unit: Unit) -> Point | None:
+        """AIUpdateInterface::rescueSteer."""
+        if unit.rescue_until == 0:
+            return None
+        arrived = math.hypot(unit.rescue_to[0] - unit.x, unit.rescue_to[1] - unit.y) < unit.radius + 2.0
+        if arrived or self.frame >= unit.rescue_until:
+            unit.rescue_until = 0
+            unit.rescue_cool = self.frame + STUCK_COOL_FRAMES
+            unit.no_progress = unit.rescue_stage = 0
+            self.crowd_repath(unit)
+            return None
+        return unit.rescue_to
+
+    def crowd_repath(self, unit: Unit) -> None:
+        """AIUpdateInterface::crowdRepath: told through the blocked count, so the move state repaths
+           from where the unit is with findPath."""
+        unit.blocked_frames = 2 * LOGICFRAMES_PER_GAME_SECOND + 1
+        unit.repath_asked = True
+        unit.repath_pending = LADDER_REPATH_FLAG
+        unit.is_blocked_and_stuck = False
+        unit.crowd_queued = 0
+        unit.no_progress = 0
+        unit.rescue_cool = self.frame + STUCK_COOL_FRAMES
+
+    # ---- the crowd model --------------------------------------------------------------------
+    def remaining(self, unit: Unit) -> float:
+        """Crowd_remaining: along the route when there is one."""
+        if unit.path is not None:
+            return unit.dist_to_goal
+        if unit.goal is None:
+            return 0.0
+        return math.hypot(unit.goal[0] - unit.x, unit.goal[1] - unit.y)
+
+    def bend_bonus(self, unit: Unit) -> float:
+        """Crowd_bendBonus."""
+        corr = unit.corridor
+        if corr is None or not corr.samples:
+            return 0.0
+        curv = corr.curvature(unit.crowd_sample)
+        if abs(curv) < 0.08:
+            return 0.0
+        inside = unit.crowd_lat if curv > 0.0 else -unit.crowd_lat
+        if inside <= 0.0:
+            return 0.0
+        return inside * min(abs(curv) * 2.0, 1.0)
+
+    def outranks_me(self, unit: Unit, other: Unit) -> bool:
+        """crowdOutranksMe: the bigger body (2 world units of margin), then the less route left, then
+           the lower id."""
+        if other.radius > unit.radius + 2.0:
+            return True
+        if unit.radius > other.radius + 2.0:
+            return False
+        mine = self.remaining(unit) - self.bend_bonus(unit)
+        his = self.remaining(other) - self.bend_bonus(other)
+        if abs(mine - his) > 1.0:
+            return his < mine
+        return other.id < unit.id
+
+    def crowd_steer(self, unit: Unit, goal_pos: Point, speed: float) -> tuple[Point, float]:
+        """AIUpdateInterface::crowdSteer (AIUpdate.cpp:3205).  A foot soldier reads nobody and rides
+           the centre of his band, so every traffic rule stands down for him; a vehicle's scan skips
+           infantry, which it drives through."""
+        foot = unit.is_infantry
+        if unit.path is None:
+            return goal_pos, speed
+        if not unit.has_pending_crowd_lat and not unit.crowd_lat_valid:
+            return goal_pos, speed
+        if unit.corridor is None:
+            if unit.crowd_sample < 0:
+                return goal_pos, speed
+            corr = CrowdCorridor()
+            if not corr.build(self.grid, unit.radius, unit.path.points):
+                unit.crowd_sample = -1
+                return goal_pos, speed
+            unit.corridor = corr
+            unit.crowd_sample = 0
+        corr = unit.corridor
+        i = corr.nearest(unit.x, unit.y, unit.crowd_sample)
+        unit.crowd_sample = i
+        here = corr.samples[i]
+        my_r = unit.radius
+        if CROWD_END_LATCH and unit.crowd_released:
+            return goal_pos, speed
+        if corr.length() - here.along < CELL:
+            unit.crowd_released = True      # read only under CROWD_END_LATCH
+            return goal_pos, speed
+        if not unit.crowd_lat_valid:
+            unit.crowd_lat = unit.pending_crowd_lat if unit.has_pending_crowd_lat else corr.lat_of(i, unit.x, unit.y)
+            if not unit.has_pending_crowd_lat:
+                unit.crowd_lane_of = 0
+            unit.has_pending_crowd_lat = False
+            unit.crowd_lat_valid = True
+            unit.crowd_side = 1 if here.left >= here.right else -1
+        now = self.frame
+        pressing = unit.no_progress > STUCK_PRESS_FRAMES
+        scan_range = CELL * 4.0 + my_r
+        look_ahead = CELL * CROWD_LOOKAHEAD_CELLS + my_r
+        scan_now = foot or pressing or unit.crowd_scan is None or (now + unit.id) % CROWD_SCAN_FRAMES == 0
+        tx, ty = here.tx, here.ty
+        blocker: Unit | None = None
+        blocker_fwd = blocker_gap = blocker_speed = 0.0
+        blocker_moving = False
+        if scan_now:
+            sep = 0.0
+            give_way, give_way_lat = False, 0.0
+            rank = 0
+            touching = crossing = False
+            joiner: Unit | None = None
+            joiner_side = joiner_r = 0.0
+            joiner_when = 1.0e9
+            near: list[tuple[float, float]] = []
+            pack_lo = pack_hi = 0.0
+            pack_any = False
+            for o in () if foot else self.units:
+                if o is unit or o.is_infantry:
+                    continue
+                dx, dy = o.x - unit.x, o.y - unit.y
+                dist = math.hypot(dx, dy)
+                if dist > scan_range:
+                    continue
+                fwd = dx * tx + dy * ty
+                side = -dx * ty + dy * tx
+                his_r = o.radius
+                gap = dist - my_r - his_r
+                comfort = my_r + his_r + CROWD_AIR
+                his_moving = o.is_moving and math.hypot(o.vx, o.vy) > per_frame_rate(0.05)
+                if gap < 0.0:
+                    touching = True
+                if his_moving and abs(side) > (my_r + his_r) * 0.5:
+                    hs = math.hypot(o.vx, o.vy)
+                    if hs > per_frame_rate(0.01):
+                        align = (o.vx * tx + o.vy * ty) / hs
+                        if 0.35 < align < 0.8:
+                            rvx, rvy = o.vx - unit.vx, o.vy - unit.vy
+                            rvv = rvx * rvx + rvy * rvy
+                            if rvv > 1.0e-6 * PER_FRAME_RATE * PER_FRAME_RATE:
+                                when = -(dx * rvx + dy * rvy) / rvv
+                                if 0.0 <= when < CROWD_MERGE_FRAMES and when < joiner_when:
+                                    mx, my = dx + rvx * when, dy + rvy * when
+                                    if math.hypot(mx, my) < my_r + his_r + 0.8 and self.outranks_me(unit, o):
+                                        joiner, joiner_side, joiner_r, joiner_when = o, side, his_r, when
+                if gap < comfort and comfort > 0.01:
+                    if dist > 0.01 and abs(side) > 0.01:
+                        d = -side / dist
+                    elif abs(fwd) < my_r + his_r:
+                        d = -1.0 if o.id < unit.id else 1.0
+                    else:
+                        d = 0.0
+                    wgt = (comfort - max(gap, 0.0)) / comfort
+                    sep += d * wgt * wgt * comfort
+                if not give_way and his_moving and fwd < 0.0 and o.radius > my_r + 2.0 and abs(side) < my_r + his_r + CROWD_AIR:
+                    away = my_r + his_r + CROWD_AIR
+                    d = (-1.0 if side > 0.0 else 1.0) if abs(side) > 0.01 else float(unit.crowd_side)
+                    give_way_lat = corr.lat_of(i, o.x, o.y) + d * away
+                    give_way = True
+                if -my_r < fwd < look_ahead + his_r:
+                    his_lat = corr.lat_of(i, o.x, o.y)
+                    if len(near) < CROWD_SCAN_NEAR_MAX:
+                        near.append((his_lat, his_r))
+                    lo, hi = his_lat - his_r, his_lat + his_r
+                    if not pack_any or lo < pack_lo:
+                        pack_lo = lo
+                    if not pack_any or hi > pack_hi:
+                        pack_hi = hi
+                    pack_any = True
+                if fwd > 0.0 and abs(side) >= my_r + his_r + 1.0 and dist > 0.01:
+                    closing = ((unit.vx - o.vx) * dx + (unit.vy - o.vy) * dy) / dist
+                    if closing > per_frame_rate(0.05) and gap < closing * CROWD_TTC_FRAMES:
+                        crossing = True
+                if 0.0 < fwd < look_ahead + his_r and abs(side) < my_r + his_r + 1.0:
+                    if blocker is None or fwd < blocker_fwd:
+                        blocker, blocker_fwd = o, fwd
+                if gap < comfort * 2.0 and self.outranks_me(unit, o):
+                    rank += 1
+            unit.crowd_scan = dict(sep=sep, blocker=blocker.id if blocker else None,
+                                   joiner=joiner.id if joiner else None, joiner_side=joiner_side,
+                                   joiner_r=joiner_r, give_way=give_way, give_way_lat=give_way_lat,
+                                   rank=rank, touching=touching, crossing=crossing, near=near,
+                                   pack_any=pack_any, pack_lo=pack_lo, pack_hi=pack_hi)
+        else:
+            sc = unit.crowd_scan
+            sep, joiner_side, joiner_r = sc["sep"], sc["joiner_side"], sc["joiner_r"]
+            give_way, give_way_lat, rank = sc["give_way"], sc["give_way_lat"], sc["rank"]
+            touching, crossing, near = sc["touching"], sc["crossing"], sc["near"]
+            pack_any, pack_lo, pack_hi = sc["pack_any"], sc["pack_lo"], sc["pack_hi"]
+            blocker = self.by_id.get(sc["blocker"]) if sc["blocker"] is not None else None
+            joiner = self.by_id.get(sc["joiner"]) if sc["joiner"] is not None else None
+        if blocker is not None:
+            dx, dy = blocker.x - unit.x, blocker.y - unit.y
+            blocker_fwd = dx * tx + dy * ty
+            side = -dx * ty + dy * tx
+            blocker_gap = math.hypot(dx, dy) - my_r - blocker.radius
+            if not (0.0 < blocker_fwd < look_ahead + blocker.radius and abs(side) < my_r + blocker.radius + 1.0):
+                blocker = None
+        if blocker is not None:
+            blocker_moving = blocker.is_moving and math.hypot(blocker.vx, blocker.vy) > per_frame_rate(0.05)
+            blocker_speed = max(blocker.vx * tx + blocker.vy * ty, 0.0)
+        lat = 0.0 if foot else unit.crowd_lat
+        if not foot and now >= unit.crowd_hold_frame and unit.crowd_lane_of > 1 and unit.crowd_lane_space > 0.001:
+            span = here.left + here.right
+            want = lane_count(span, unit.crowd_lane_space, unit.crowd_lane_of)
+            if unit.crowd_fit <= 0 or want < unit.crowd_fit:
+                unit.crowd_fit = want
+            elif want > unit.crowd_fit and span >= ((want - 1) + 0.5) * unit.crowd_lane_space:
+                unit.crowd_fit = want
+            fit = unit.crowd_fit
+            mine = (unit.crowd_lane_idx * fit) // unit.crowd_lane_of
+            bias = (here.left - here.right) * 0.5
+            lat = bias + (mine - (fit - 1) * 0.5) * unit.crowd_lane_space
+        cap = speed
+        queued = merged = False
+        if give_way and not pressing:
+            lat = give_way_lat
+            unit.crowd_hold_frame = now + CROWD_HOLD_FRAMES
+        if joiner is not None and not pressing:
+            shift = my_r + joiner_r + 0.5
+            want = lat - (shift if joiner_side > 0.0 else -shift)
+            if abs(corr.clamp_lat(i, want) - want) < 0.5:
+                lat = want
+                unit.crowd_hold_frame = now + CROWD_HOLD_FRAMES
+                merged = True
+        if blocker is not None:
+            if not self.outranks_me(unit, blocker):
+                if blocker_moving and blocker_gap < my_r and blocker_speed < cap and not pressing:
+                    cap = blocker_speed
+            else:
+                his_r = blocker.radius
+                his_lat = corr.lat_of(i, blocker.x, blocker.y)
+                curv = corr.curvature(i)
+                first = (-1 if curv > 0.0 else 1) if abs(curv) > 0.08 else unit.crowd_side
+                took = False
+                if now >= unit.crowd_hold_frame or unit.crowd_queued > CROWD_PASS_RETRY:
+                    clear_shift = my_r + his_r + CROWD_PASS_CLEAR
+                    tight_shift = my_r + his_r + CROWD_PASS_TIGHT
+                    outside = my_r + CROWD_PASS_TIGHT
+                    cands = [his_lat + first * clear_shift, his_lat - first * clear_shift]
+                    if pack_any:
+                        cands.append(pack_hi + outside if first > 0 else pack_lo - outside)
+                        cands.append(pack_lo - outside if first > 0 else pack_hi + outside)
+                    cands += [his_lat + first * tight_shift, his_lat - first * tight_shift]
+                    for pass_ in range(2):
+                        for want in cands:
+                            if abs(corr.clamp_lat(i, want) - want) >= 0.5:
+                                continue
+                            if pass_ == 0 and any(abs(nl - want) < my_r + nr for nl, nr in near):
+                                continue
+                            lat = want
+                            unit.crowd_side = 1 if want >= his_lat else -1
+                            unit.crowd_hold_frame = now + CROWD_HOLD_FRAMES
+                            took = True
+                            break
+                        if took:
+                            break
+                if not took:
+                    queued = True
+                    if blocker_moving and not pressing:
+                        cap = min(cap, brake_speed(speed, blocker_speed, blocker_gap, CROWD_BRAKE_FRAMES))
+        if queued:
+            unit.crowd_queued += 1
+        elif unit.crowd_queued > 0:
+            unit.crowd_queued -= 1
+        if (unit.crowd_queued > CROWD_REPATH_QUEUE and blocker is not None and not blocker_moving
+                and now >= unit.rescue_cool and self.remaining(unit) > CELL * 3.0):
+            self.crowd_repath(unit)
+        if unit.crowd_queued > CROWD_FAN_FRAMES and not pressing:
+            step = min(rank + 1, 2)
+            target = unit.crowd_side * (2.0 * my_r + CROWD_PASS_CLEAR) * step
+            if target > lat + 0.1:
+                lat += CROWD_FAN_RATE
+            elif target < lat - 0.1:
+                lat -= CROWD_FAN_RATE
+        unit.crowd_sep_smooth += (sep - unit.crowd_sep_smooth) * CROWD_SEP_FILTER
+        sep = max(-CROWD_SEP_STEP, min(CROWD_SEP_STEP, unit.crowd_sep_smooth))
+        lat += per_frame_rate(sep)
+        lane_rate = max(speed * 0.25, CROWD_LANE_RATE_MIN)
+        move = max(-lane_rate, min(lane_rate, corr.clamp_lat(i, lat) - unit.crowd_lat))
+        unit.crowd_lat = corr.clamp_lat(i, unit.crowd_lat + move)
+        if crossing:
+            cap = min(cap, speed * 0.6)
+        my_along = corr.along_of(i, unit.x, unit.y)
+        route_len = corr.length()
+        want_along = min(my_along + look_ahead, route_len)
+        while True:
+            out_lat = unit.crowd_lat
+            left_to_run = route_len - want_along
+            if left_to_run < CROWD_TAPER_DIST:
+                out_lat *= left_to_run / CROWD_TAPER_DIST
+            goal_pos = corr.point_at(want_along, corr.clamp_lat_narrowest(my_along, want_along, out_lat))
+            ahead = (goal_pos[0] - unit.x) * tx + (goal_pos[1] - unit.y) * ty
+            if ahead >= my_r or want_along >= route_len:
+                break
+            want_along = min(want_along + CELL, route_len)
+        ax, ay = goal_pos[0] - unit.x, goal_pos[1] - unit.y
+        aim_dist = math.hypot(ax, ay)
+        if aim_dist > 0.01:
+            want_aim = math.atan2(ay, ax)
+            if not unit.crowd_aim_valid:
+                unit.crowd_aim, unit.crowd_aim_valid = want_aim, True
+            err = normalize_angle(want_aim - unit.crowd_aim)
+            urgent = (pressing or touching or queued or give_way or merged
+                      or (blocker is not None and blocker_gap < my_r) or abs(err) > 1.0)
+            unit.crowd_aim = normalize_angle(unit.crowd_aim + err * (CROWD_AIM_URGENT if urgent else CROWD_AIM_CRUISE))
+            if not urgent and abs(normalize_angle(unit.crowd_aim - unit.facing)) < CROWD_AIM_DEAD:
+                unit.crowd_aim = unit.facing
+            goal_pos = (unit.x + math.cos(unit.crowd_aim) * aim_dist, unit.y + math.sin(unit.crowd_aim) * aim_dist)
+        if not unit.crowd_cap_valid:
+            unit.crowd_cap, unit.crowd_cap_valid = cap, True
+        else:
+            unit.crowd_cap = release_cap(unit.crowd_cap, cap, CROWD_RELEASE_FILTER)
+        return goal_pos, min(speed, unit.crowd_cap)
+
+    def ttc_steer(self, unit: Unit, goal_pos: Point, speed: float, dist: float) -> tuple[Point, float]:
+        """Not in C++; it would be an AIUpdateInterface::ttcSteer called in doLocomotor right after
+           crowdSteer.  Neighbours in list order, which is id order, so the float sum is fixed."""
+        aim_x, aim_y = goal_pos[0] - unit.x, goal_pos[1] - unit.y
+        aim_dist = math.hypot(aim_x, aim_y)
+        if aim_dist < TTC_MIN_AIM or speed <= TTC_EPSILON:
+            return goal_pos, speed
+        dir_x, dir_y = aim_x / aim_dist, aim_y / aim_dist
+        want_vx, want_vy = dir_x * speed, dir_y * speed
+        my_r = unit.radius
+        reach = my_r + self.widest_radius + TTC_AIR + TTC_HORIZON_FRAMES * (speed + self.fastest_speed)
+        push_x = push_y = 0.0
+        for other in self.units:
+            if other is unit or (unit.is_infantry and other.is_infantry):
+                continue
+            to_x, to_y = other.x - unit.x, other.y - unit.y
+            if abs(to_x) > reach or abs(to_y) > reach:
+                continue
+            contact = my_r + other.radius + TTC_AIR
+            if not other.moving:
+                contact = my_r + other.radius - TTC_PARKED_SLACK
+                if (unit.goal is not None and (other.x - unit.goal[0]) ** 2 + (other.y - unit.goal[1]) ** 2
+                        < (contact + TTC_SLOT_REACH) ** 2):
+                    continue
+            slack = to_x * to_x + to_y * to_y - contact * contact
+            closing_x, closing_y = want_vx - other.vx, want_vy - other.vy
+            if slack < 0.0:
+                gap = math.sqrt(to_x * to_x + to_y * to_y)
+                if gap < TTC_EPSILON or to_x * dir_x + to_y * dir_y <= 0.0:
+                    continue        # the one behind does the yielding
+                time_to_contact = 0.0
+                away_x, away_y = -to_x / gap, -to_y / gap
+            else:
+                closing_sq = closing_x * closing_x + closing_y * closing_y
+                approach = to_x * closing_x + to_y * closing_y
+                if approach <= 0.0 or closing_sq < TTC_EPSILON_FINE:
+                    continue
+                disc = approach * approach - closing_sq * slack
+                if disc <= 0.0:
+                    continue
+                time_to_contact = (approach - math.sqrt(disc)) / closing_sq
+                if time_to_contact > TTC_HORIZON_FRAMES:
+                    continue
+                away_x = -(to_x - closing_x * time_to_contact)
+                away_y = -(to_y - closing_y * time_to_contact)
+                away_len = math.hypot(away_x, away_y)
+                if away_len < TTC_EPSILON:
+                    continue
+                away_x, away_y = away_x / away_len, away_y / away_len
+            strength = (TTC_STRENGTH * unit.max_speed * math.exp(-time_to_contact / TTC_HORIZON_FRAMES)
+                        * (TTC_NEAR_FRAMES / (time_to_contact + TTC_NEAR_FRAMES)) ** 2)
+            against = away_x * dir_x + away_y * dir_y
+            if against < 0.0:
+                away_x += -against * TTC_KEEP_RIGHT * dir_y
+                away_y += -against * TTC_KEEP_RIGHT * -dir_x
+            push_x += away_x * strength
+            push_y += away_y * strength
+        if push_x == 0.0 and push_y == 0.0:
+            return goal_pos, speed
+        if dist < TTC_GOAL_FADE:
+            fade = max(dist, 0.0) / TTC_GOAL_FADE
+            push_x, push_y = push_x * fade, push_y * fade
+        new_vx, new_vy = want_vx + push_x, want_vy + push_y
+        new_speed = max(speed * TTC_CREEP, min(speed, new_vx * dir_x + new_vy * dir_y))
+        heading = math.atan2(dir_y, dir_x)
+        bend = 0.0
+        if math.hypot(new_vx, new_vy) > TTC_EPSILON_FINE:
+            bend = normalize_angle(math.atan2(new_vy, new_vx) - heading)
+        bend = max(-TTC_MAX_BEND, min(TTC_MAX_BEND, bend))
+        look = my_r + TTC_WALL_LOOK
+        for share in TTC_BEND_TRIES:
+            angle = heading + bend * share
+            out_x, out_y = math.cos(angle), math.sin(angle)
+            if share == 0.0 or all(self.grid.passable_world(unit.x + out_x * look * probe,
+                                                            unit.y + out_y * look * probe)
+                                   for probe in TTC_WALL_PROBES):
+                break
+        return (unit.x + out_x * aim_dist, unit.y + out_y * aim_dist), new_speed
+
+    # ---- collisions -------------------------------------------------------------------------
+    def collide(self) -> None:
+        """PhysicsBehavior::onCollide -> processCollision for every touching pair, both ways, touching
+           by the partition's own test (PartitionManager.cpp: two circles, else xy_collideTest_Rect_Rect).
+           processCollision returns FALSE for every unit-on-unit case here, so no force is applied:
+           bodies may overlap, and the only answer to a collision is the speed cap.  The overlap
+           counted for the bench is the bounding circles' depth over touching pairs."""
+        units = self.units
+        for a, b in itertools.combinations(units, 2):
+            distance = math.hypot(b.x - a.x, b.y - a.y)
+            if distance > a.radius + b.radius or not bodies_touch(a, b):
+                continue
+            if distance < a.radius + b.radius:
+                self.overlap_ticks += 1
+                self.overlap_depth += a.radius + b.radius - distance
+            self.process_collision(a, b)
+            self.process_collision(b, a)
+
+    def process_collision(self, unit: Unit, other: Unit) -> None:
+        """AIUpdateInterface::processCollision for a moving unit (AIUpdate.cpp:1880).  A soldier against
+           a vehicle only notes which way is out; a vehicle held up by a soldier on the march creeps at
+           a third of its speed, and tells one standing or crossing to step aside."""
+        if unit.ignore_collisions_until > self.frame or not unit.is_moving:
+            return
+        if unit.is_infantry and not other.is_infantry:
+            ax, ay = unit.x - other.x, unit.y - other.y
+            length = math.hypot(ax, ay)
+            if length > SIDE_STEP_MIN:
+                unit.side_step_x += ax / length
+                unit.side_step_y += ay / length
+                unit.side_step_seen = True
+                return
+        if not self.blocked_by(unit, other):
+            return
+        unit.is_blocked = True
+        if other.is_moving and other.waiting_for_path:
+            return
+        marching_soldier = (not unit.is_infantry and other.is_infantry and other.is_moving
+                            and other.no_progress < STUCK_PRESS_FRAMES)
+        if CONTACT_SPEED_CAP:
+            allowed = self.max_blocked_speed(unit, other)
+            if marching_soldier:
+                allowed = max(allowed, unit.max_speed * MARCHING_SOLDIER_CRAWL)
+            unit.cur_max_blocked_speed = min(unit.cur_max_blocked_speed, allowed)
+        if other.move_away_from != unit.id and other.is_infantry and not unit.is_infantry:
+            if not marching_soldier:
+                self.move_away(other, unit)
+            return
+        if unit.blocked_frames == 0:
+            unit.blocked_frames = 1
+        if self.need_to_rotate(unit):
+            unit.blocked_frames = 1
+            return
+        if not other.is_moving:
+            if (unit.crowd_queued > CROWD_FAN_FRAMES * 2 and self.remaining(unit) > CELL * 3.0
+                    and not self.outranks_me(unit, other) and other.move_away_from != unit.id):
+                self.move_away(other, unit)
+                unit.crowd_queued = 0
+                return
+            unit.is_blocked_and_stuck = True
+            return
+        if self.blocked_by(other, unit) and not self.need_to_rotate(other):
+            if self.outranks_me(unit, other):
+                self.move_away(unit, other)
+
+    def blocked_by(self, unit: Unit, other: Unit) -> bool:
+        """AIUpdateInterface::blockedBy (AIUpdate.cpp:1670): infantry never blocks infantry, and a
+           soldier marching our way does not block a vehicle."""
+        if unit.goal is not None and unit.goal_cell is not None and unit.goal_cell[0] > 0 and unit.goal_cell[1] > 0:
+            if abs(unit.goal[0] - unit.x) < CELL and abs(unit.goal[1] - unit.y) < CELL:
+                return False
+        if unit.moving_backwards:
+            return False
+        other_moving = other.on_path
+        dx, dy = unit.x - other.x, unit.y - other.y
+        dsq = dx * dx + dy * dy
+        (ux, uy), (ox, oy) = unit.dir, other.dir
+        dot = ux * ox + uy * oy
+        if not unit.is_infantry and other.is_infantry and other_moving and dot > MARCHING_SOLDIER_COS:
+            return False
+        if unit.is_infantry and other.is_infantry:
+            return False
+        if dsq < CELL * CELL * 0.0001:
+            return self.higher_priority(unit, other)
+        if unit.blocked_frames > LOGICFRAMES_PER_GAME_SECOND and dot <= 0.0:
+            return False
+        if other_moving and dot <= HEAD_ON_DOT:
+            unit.head_on_seen = True
+            if unit.head_on_frames > HEAD_ON_PASS_FRAMES:
+                return False
+        collision = normalize_angle(math.atan2(other.y - unit.y, other.x - unit.x) - unit.facing)
+        other_angle = normalize_angle(math.atan2(unit.y - other.y, unit.x - other.x) - other.facing)
+        limit = math.pi / 4
+        if abs(collision) > math.pi / 2:
+            return False
+        if not other_moving:
+            limit *= 0.75
+        if abs(collision) > limit:
+            if dot <= 0.0:
+                return False
+            if other_moving and abs(other_angle) > limit:
+                dx += ux - ox
+                dy += uy - oy
+                if dsq > dx * dx + dy * dy:
+                    if self.higher_priority(unit, other):
+                        return False
+                else:
+                    return False
+            else:
+                return False
+        return True
+
+    def higher_priority(self, unit: Unit, other: Unit) -> bool:
+        """AIUpdateInterface::hasHigherPathPriority: a vehicle over a soldier, then the one in front."""
+        if unit.is_infantry != other.is_infantry:
+            return other.is_infantry
+        (ux, uy), (ox, oy) = unit.dir, other.dir
+        if ux * ox + uy * oy <= 0:
+            return unit.id < other.id
+        dot = (ux + ox) * (other.x - unit.x) + (uy + oy) * (other.y - unit.y)
+        if dot > 0:
+            return False
+        if dot < 0:
+            return True
+        return unit.id < other.id
+
+    def max_blocked_speed(self, unit: Unit, other: Unit) -> float:
+        """AIUpdateInterface::calculateMaxBlockedSpeed: the other's speed along the line to him, over
+           how much of our heading points at him."""
+        vx, vy = other.x - unit.x, other.y - unit.y
+        vl = math.hypot(vx, vy)
+        if vl > 0:
+            vx, vy = vx / vl, vy / vl
+        ox, oy = other.dir
+        dot = vx * ox + vy * oy
+        if dot < 0:
+            return 0.0
+        away = math.hypot(other.vx, other.vy) * dot
+        ux, uy = unit.dir
+        dot = vx * ux + vy * uy
+        if dot <= 0:
+            return unit.cur_max_blocked_speed
+        return min(away / dot, unit.cur_max_blocked_speed)
+
+    def need_to_rotate(self, unit: Unit) -> bool:
+        """AIUpdateInterface::needToRotate: more than 6 degrees off the point on the path."""
+        if unit.waiting_for_path:
+            return True
+        if unit.path is None:
+            return False
+        p = unit.loco_goal
+        return abs(normalize_angle(math.atan2(p[1] - unit.y, p[0] - unit.x) - unit.facing)) > math.pi / 30
+
+    @property
+    def is_settled(self) -> bool:
+        return not any(unit.moving or unit.waiting_for_path for unit in self.units)
 
 
-def order_band(grid: Grid, units: Sequence[Unit], goal: Point, *, traffic: TrafficModel,
-               stats: OrderStats, now: float, step: float | None = None) -> None:
-    """The ribbon: the same corridor as column mode, driven as a band rather than as three lanes.
+def steer_check(frm: Point, to: Point) -> Point:
+    """steerCheckTarget: a line check looks no further than 20 cells."""
+    max_dist = STEER_CHECK_CELLS * CELL
+    dx, dy = to[0] - frm[0], to[1] - frm[1]
+    d = math.hypot(dx, dy)
+    if d <= max_dist:
+        return to
+    return frm[0] + dx * max_dist / d, frm[1] + dy * max_dist / d
 
-       Every unit gets the one straightened centre line and a lateral position on it, taken from
-       where it is standing when the order is given, so the group keeps the shape it had.  From
-       there the pressure term in update_band owns that position: nothing is latched, nothing is
-       held for a fixed number of frames, and the clamp to the band's half width is what stops it
-       trying to spread a column out inside a doorway."""
-    # None means "whatever --band-step left in the global", so a sweep row still reaches this;
-    # the flat control arm passes 0.0 and means it
-    step = BAND_STEP if step is None else step
-    cx, cy = compute_centroid(units)
-    start_cell = cell_of(cx, cy)
-    corridor, diameter = plan_corridor(grid, units, goal, traffic=traffic, stats=stats, now=now)
-    if not corridor:
-        stats.notes.append("no corridor at any width - falling back to individual paths")
-        order_individual(grid, units, goal, traffic=traffic, stats=stats, now=now)
+
+def corners_inside(a: Unit, b: Unit) -> bool:
+    """testRotatedPointsAgainstRect over rectToFourPoints: is a corner of a's rectangle inside b's."""
+    a_major, a_minor = a.kind.half_extents
+    b_major, b_minor = b.kind.half_extents
+    ax, ay = a.dir
+    bx, by = b.dir
+    for along, across in ((-a_major, a_minor), (a_major, a_minor), (-a_major, -a_minor), (a_major, -a_minor)):
+        px = a.x + along * ax - across * ay - b.x
+        py = a.y + along * ay + across * ax - b.y
+        if abs(px * bx + py * by) <= b_major and abs(-px * by + py * bx) <= b_minor:
+            return True
+    return False
+
+
+def bodies_touch(a: Unit, b: Unit) -> bool:
+    """The partition's xy collision test: circle on circle when neither is a box, else a corner of
+       either rectangle inside the other (a circle as its bounding square)."""
+    if a.kind.geometry != "BOX" and b.kind.geometry != "BOX":
+        return math.hypot(b.x - a.x, b.y - a.y) <= a.kind.major_radius + b.kind.major_radius
+    return corners_inside(a, b) or corners_inside(b, a)
+
+
+def forward_speed(unit: Unit) -> float:
+    """PhysicsBehavior::getForwardSpeed2D: the velocity along the nose."""
+    dx, dy = unit.dir
+    return unit.vx * dx + unit.vy * dy
+
+
+def retail_forward_speed(unit: Unit) -> float:
+    """calcRetailForwardSpeed (PhysicsUpdate.h:172), EA's measure the tread and wheel drives keep:
+       0.707 of the true speed at 45 degrees, so they settle up to 1.41 times Speed off the axes."""
+    dx, dy = unit.dir
+    along_x, along_y = unit.vx * dx, unit.vy * dy
+    speed = math.sqrt(along_x * along_x + along_y * along_y)
+    return speed if along_x + along_y >= 0.0 else -speed
+
+
+def scrub_velocity(unit: Unit, desired: float) -> None:
+    """PhysicsBehavior::scrubVelocity2D: no faster than `desired`, a crumb of it stops."""
+    if desired < VELOCITY_ZERO:
+        unit.vx = unit.vy = 0.0
         return
-    if start_cell == cell_of(*goal):
-        stats.notes.append("goal is the group's own cell - nothing to move to")
+    current = math.hypot(unit.vx, unit.vy)
+    if desired > current:
         return
-    radius = max(unit.radius for unit in units)
-    centre = [world_of(*cell) for cell in corridor]
-    # straightened once for the whole group rather than once per unit: on a band every unit drives
-    # the same line, and the offset that tells them apart is not in the line
-    straight, rays = simplify_raycast(grid, centre[0], centre[1:], radius=radius,
-                                      lane_spacing=2.0 * radius)
-    band_line = [centre[0], *straight]
-    # w(s)/2, fixed for now.  The corridor was searched with a clearance of diameter//2, so every
-    # cell that near the centre line is drivable: that is (clearance + half a cell) of room either
-    # side, less the unit's own radius, which is how far off the line it can sit and still be in
-    half = max(0.0, (diameter // 2 + 0.5) * CELL - radius)
-    hx, hy = straight[0][0] - centre[0][0], straight[0][1] - centre[0][1]
-    hlen = math.hypot(hx, hy) or 1.0
-    nx, ny = -hy / hlen, hx / hlen
-    taken: set[Point] = set()
-    # nearest the goal first, so the units in front claim the spots in front
-    for unit in sorted(units, key=lambda unit: math.hypot(unit.x - goal[0], unit.y - goal[1])):
-        lateral = min(half, max(-half, (unit.x - cx) * nx + (unit.y - cy) * ny))
-        gx, gy = reserve_goal(grid, taken, goal[0] + lateral * nx, goal[1] + lateral * ny,
-                              radius=unit.radius)
-        unit.goal = (gx, gy)
-        unit.rays = list(rays)
-        points = [*straight[:-1], (gx, gy)]
-        apply_path(unit, points, [cell_of(*point) for point in points], traffic, now)
-        unit.band_half = half
-        unit.band_t = lateral
-        unit.band_step = step
-        unit.band_line = band_line
-    summarise_order(stats, units, traffic)
+    unit.vx *= desired / current
+    unit.vy *= desired / current
 
 
-def order_individual(grid: Grid, units: Sequence[Unit], goal: Point, *, traffic: TrafficModel,
-                     stats: OrderStats, now: float) -> None:
-    """-nogrouppath: one A* per unit, and the congestion cost is what holds them apart.
-
-       With the crossing cost on, the search pays twice: the congestion cost for ground someone
-       else's remaining path covers, and the crossing cost for ground someone else will be standing
-       on at the same moment.  The first spreads the column out, the second is what makes it go
-       round a junction instead of through it - and, unlike the first, it charges nothing for
-       following the same road a few seconds behind."""
-    taken: set[Point] = set()
-    cx, cy = compute_centroid(units)
-    # nearest the goal first, so the ones in front claim their line first
-    ordered = sorted(units, key=lambda unit: math.hypot(unit.x - goal[0], unit.y - goal[1]))
-    for unit in ordered:
-        unit.rays = []
-        # computeIndividualDestination: keep the offset from the group centre, capped
-        ox, oy = unit.x - cx, unit.y - cy
-        offset_length = math.hypot(ox, oy)
-        cap = INDIVIDUAL_OFFSET_RADII * unit.radius
-        if offset_length > cap:
-            ox, oy = ox / offset_length * cap, oy / offset_length * cap
-        gx, gy = reserve_goal(grid, taken, goal[0] + ox, goal[1] + oy, radius=unit.radius)
-        unit.goal = (gx, gy)
-        traffic.release(unit.id)
-        cells, expansions = astar(grid, cell_of(unit.x, unit.y), cell_of(gx, gy),
-                                  pricing=traffic.pricing_for(unit.id, now))
-        stats.expansions += expansions
-        stats.searches += 1
-        if not cells:
-            stats.notes.append(f"unit {unit.id}: no path (search budget)")
-            unit.path = []
-            unit.cells = []
-            continue
-        points = [world_of(*cell) for cell in cells[1:]]
-        points[-1] = (gx, gy)
-        points, unit.rays = simplify_raycast(grid, unit.pos, points, radius=unit.radius,
-                                             lane_spacing=2.0 * unit.radius)
-        # reserve the straightened line, not the A* cells: the shortcut is where it drives
-        apply_path(unit, points, cells, traffic, now)
-    summarise_order(stats, units, traffic)
+def turn_around_pivot(unit: Unit, amount: float) -> None:
+    """Locomotor::turnObjAroundLocoPivot (Locomotor.cpp:3484): about the point TurnPivotOffset
+       bounding radii along the nose, which moves the body; about its centre while braking."""
+    offset = 0.0 if unit.is_braking else unit.kind.turn_pivot_offset
+    if offset != 0.0:
+        reach = offset * unit.radius
+        dx, dy = unit.dir
+        pivot_x, pivot_y = unit.x + dx * reach, unit.y + dy * reach
+        unit.facing = normalize_angle(unit.facing + amount)
+        dx, dy = unit.dir
+        unit.x, unit.y = pivot_x - dx * reach, pivot_y - dy * reach
+        return
+    unit.facing = normalize_angle(unit.facing + amount)
 
 
-# what --mode and the headless table's first column name.  MODES is the order they are compared in.
-# `flat` is the band without the pressure term - the same shared line and the same clamp, nobody
-# drifting - because a band that measures differently from a column has to say which half did it
-PLANNERS = {"corridor": order_corridor, "flat": partial(order_band, step=0.0),
-            "band": order_band, "single": order_individual}
+def rotate_around_pivot(unit: Unit, goal: Point, max_turn: float) -> tuple[int, float]:
+    """Locomotor::rotateObjAroundLocoPivot (Locomotor.cpp:3404): onto the goal, at most max_turn,
+       instantly.  Returns which way it was still turning and the angle it was off."""
+    offset = 0.0 if unit.is_braking else unit.kind.turn_pivot_offset
+    from_x, from_y = unit.x, unit.y
+    if offset != 0.0:
+        dx, dy = unit.dir
+        from_x, from_y = unit.x + dx * offset * unit.radius, unit.y + dy * offset * unit.radius
+        if abs(goal[0] - from_x) < ON_TARGET and abs(goal[1] - from_y) < ON_TARGET:
+            return TURN_NONE, 0.0
+    rel = normalize_angle(math.atan2(goal[1] - from_y, goal[0] - from_x) - unit.facing)
+    amount, turn = rel, TURN_NONE
+    if rel > max_turn:
+        amount, turn = max_turn, TURN_POSITIVE
+    elif rel < -max_turn:
+        amount, turn = -max_turn, TURN_NEGATIVE
+    turn_around_pivot(unit, amount)
+    return turn, rel
 
 
-def spawn_block(grid: Grid, count: int, cx: int, cy: int, first_id: int = 0) -> list[Unit]:
-    """`first_id` keeps a second block's ids clear of the first: both blocks share one usage map and
-       one reservation map, and those are keyed by id."""
+def ease_yaw(unit: Unit, error: float, max_rate: float, yaw_accel: float) -> float:
+    """Locomotor::easeYaw (Locomotor.cpp:3091): as fast as max_rate allows and still wind down onto
+       the heading, the rate changing by yaw_accel a tick at most."""
+    rate = min(math.sqrt(2.0 * yaw_accel * abs(error)), max_rate, abs(error))
+    want = -rate if error < 0.0 else rate
+    unit.yaw_rate += max(-yaw_accel, min(yaw_accel, want - unit.yaw_rate))
+    return unit.yaw_rate
+
+
+def legs_stop_decel(unit: Unit) -> float:
+    """Locomotor::getLegsStopDecel: Braking, or whatever stops him from top speed in INFANTRY_STOP_FRAMES."""
+    return max(unit.max_speed / INFANTRY_STOP_FRAMES, unit.kind.braking)
+
+
+def braked_speed(actual: float, braking: float, slow_down_dist: float, dist: float) -> float:
+    """The tread and wheel drives under IS_BRAKING: a full step of Braking off when the stop runs
+       past the goal, half a step inside the last quarter, else hold the speed."""
+    if slow_down_dist > dist:
+        return max(actual - braking, 0.0)
+    if slow_down_dist > dist * BRAKING_HALF_SHARE:
+        return max(actual - braking / 2.0, 0.0)
+    return actual
+
+
+SIDE_STEP_MIN: float = 0.01
+SIDE_STEP_DEAD_SHARE: float = 0.1
+SIDE_STEP_OUT_SHARE: float = 0.5
+
+
+def side_step_goal(unit: Unit, goal: Point, away: Point) -> Point:
+    """doLocomotor's side step (AIUpdate.cpp:4380-4414): a soldier touching a vehicle walks along
+       its side, never into it, and half a step out from it."""
+    length = math.hypot(*away)
+    gx, gy = goal[0] - unit.x, goal[1] - unit.y
+    dist = math.hypot(gx, gy)
+    if length <= SIDE_STEP_MIN or dist <= SIDE_STEP_MIN:
+        return goal
+    nx, ny = away[0] / length, away[1] / length
+    into = gx * nx + gy * ny
+    if into < 0.0:
+        gx, gy = gx - into * nx, gy - into * ny
+        along = math.hypot(gx, gy)
+        if along < SIDE_STEP_DEAD_SHARE * dist:
+            side = 1.0 if unit.id & 1 else -1.0
+            gx, gy, along = -ny * side, nx * side, 1.0
+        goal = (unit.x + gx * dist / along, unit.y + gy * dist / along)
+    return goal[0] + nx * dist * SIDE_STEP_OUT_SHARE, goal[1] + ny * dist * SIDE_STEP_OUT_SHARE
+
+
+def clear_crowd_lane(unit: Unit) -> None:
+    """crowdClearLanes."""
+    unit.has_pending_crowd_lat = False
+    unit.crowd_lane_idx = unit.crowd_lane_of = 0
+    unit.crowd_lane_space = 0.0
+    unit.planned = []
+
+
+def destroy_path(unit: Unit) -> None:
+    """AIUpdateInterface::destroyPath + crowdReleaseCorridor."""
+    unit.path = None
+    unit.waiting_for_path = False
+    unit.corridor = None
+    unit.crowd_released = False
+    unit.crowd_lat_valid = False
+    unit.crowd_sample = 0
+    unit.crowd_fit = 0
+    unit.crowd_queued = 0
+    unit.crowd_hold_frame = 0
+    unit.crowd_sep_smooth = 0.0
+    unit.crowd_cap = 0.0
+    unit.crowd_cap_valid = False
+    unit.crowd_aim_valid = False
+    unit.crowd_scan = None
+    unit.dist_to_goal = 0.0
+    if unit.crowd_lane_of >= 1:
+        unit.pending_crowd_lat = 0.0
+        unit.has_pending_crowd_lat = True
+
+
+# ---------------------------------------------------------------------------------------------
+# Scenarios and measurement
+# ---------------------------------------------------------------------------------------------
+
+def spawn_stride(kinds: Sequence[UnitKind]) -> int:
+    """Cells between spawn slots, so the widest body in the group clears its neighbours."""
+    widest = max((kind.radius for kind in kinds), default=TANK_RADIUS)
+    return max(SPAWN_STRIDE_CELLS, math.ceil(2.0 * widest / CELL))
+
+
+def spawn_block(grid: Grid, kinds: Sequence[UnitKind], cx: int, cy: int, first_id: int = 0) -> list[Unit]:
+    """Rows of five from (cx, cy), spawn_stride apart."""
+    stride = spawn_stride(kinds)
     units: list[Unit] = []
     row = cy
-    while len(units) < count:
-        for column in range(min(count - len(units), SPAWN_ROW_WIDTH)):
-            cell_x = cx + column * SPAWN_STRIDE_CELLS
-            if grid.passable(cell_x, row):
-                units.append(Unit(*world_of(cell_x, row), id=first_id + len(units)))
-        row += SPAWN_STRIDE_CELLS
+    while len(units) < len(kinds) and row < grid.height:
+        for column in range(min(len(kinds) - len(units), SPAWN_ROW_WIDTH)):
+            cell_x = cx + column * stride
+            if grid.passable(cell_x, row) and not grid.pinched[row * grid.width + cell_x]:
+                units.append(Unit(*cell_pos(cell_x, row, False), id=first_id + len(units) + 1,
+                                  kind=kinds[len(units)]))
+        row += stride
     return units
 
 
-def build_scenario(grid: Grid, unit_count: int,
-                   scenario: str) -> tuple[list[Unit], list[tuple[list[Unit], Point]]]:
-    """(units, [(group, goal), ...]) - what gets ordered where.
-
-       `column` is one group crossing the map, which is what the congestion cost was tuned on.
-       `cross` is two groups going to each other's corner: their routes have to meet in the middle,
-       and that is the case the time dimension exists for.  A cost that only looks good on `column`
-       has not been tested."""
+def build_scenario(grid: Grid, kinds: Sequence[UnitKind], scenario: str
+                   ) -> tuple[list[Unit], list[tuple[list[Unit], Point]]]:
+    """`column` is one group across the map; `cross` two groups to each other's corner, which is
+       the case the crossing claims are for.  The group is a list of unit kinds."""
     far_x = grid.width - GOAL_INSET_X
     if scenario == "cross":
-        top = spawn_block(grid, unit_count // 2, *CROSS_SPAWN_TOP)
-        bottom = spawn_block(grid, unit_count - len(top), CROSS_SPAWN_TOP[0],
+        half = len(kinds) // 2
+        top = spawn_block(grid, kinds[:half], *CROSS_SPAWN_TOP)
+        bottom = spawn_block(grid, kinds[len(top):], CROSS_SPAWN_TOP[0],
                              grid.height - CROSS_SPAWN_BOTTOM_INSET, first_id=len(top))
-        return top + bottom, [(top, world_of(far_x, grid.height - GOAL_INSET_Y)),
-                              (bottom, world_of(far_x, GOAL_INSET_Y))]
-    units = spawn_block(grid, unit_count, *SPAWN_CELL)
-    return units, [(units, world_of(far_x, grid.height - GOAL_INSET_Y))]
+        return top + bottom, [(top, ((far_x + 0.5) * CELL, (grid.height - GOAL_INSET_Y + 0.5) * CELL)),
+                              (bottom, ((far_x + 0.5) * CELL, (GOAL_INSET_Y + 0.5) * CELL))]
+    units = spawn_block(grid, kinds, *SPAWN_CELL)
+    return units, [(units, ((far_x + 0.5) * CELL, (grid.height - GOAL_INSET_Y + 0.5) * CELL))]
+
+
+@functools.cache
+def loaded_game_map(name: str) -> "maploader.LoadedMap":
+    """A retail map read from the install once (maploader.load_map)."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import maploader
+    return maploader.load_map(name)
+
+
+def game_map_grid(name: str) -> Grid:
+    """The retail map's grid, with the engine's own pinched flags rather than pathlab's guess."""
+    loaded = loaded_game_map(name)
+    grid = Grid(loaded.width, loaded.height)
+    grid.kind[:] = loaded.kind
+    grid._pinched = bytearray(loaded.pinched)
+    return grid
+
+
+def spawn_around(grid: Grid, kinds: Sequence[UnitKind], centre: Point, first_id: int = 0) -> list[Unit]:
+    """spawn_block centred on a world point, a player's start."""
+    stride = spawn_stride(kinds)
+    rows = -(-len(kinds) // SPAWN_ROW_WIDTH)
+    cx, cy = cell_of(*centre)
+    return spawn_block(grid, kinds, cx - (SPAWN_ROW_WIDTH - 1) * stride // 2, cy - (rows - 1) * stride // 2,
+                       first_id)
+
+
+def parse_route(text: str) -> tuple[Point, Point] | None:
+    """--route AX,AY,BX,BY in cells: the two ends a --gamemap scenario uses instead of the starts."""
+    if not text:
+        return None
+    ax, ay, bx, by = (int(v) for v in text.split(","))
+    return cell_pos(ax, ay, True), cell_pos(bx, by, True)
+
+
+def build_game_scenario(grid: Grid, name: str, kinds: Sequence[UnitKind], scenario: str,
+                        route: tuple[Point, Point] | None = None
+                        ) -> tuple[list[Unit], list[tuple[list[Unit], Point]]]:
+    """On a retail map: `column` takes the group from player 1's start to player 2's (or from one end
+       of `route` to the other); `cross` sends half of it each way between the two."""
+    first, second = route or loaded_game_map(name).starts[:2]
+    if scenario == "cross":
+        one = spawn_around(grid, kinds[:len(kinds) // 2], first)
+        two = spawn_around(grid, kinds[len(one):], second, first_id=len(one))
+        return one + two, [(one, second), (two, first)]
+    units = spawn_around(grid, kinds, first)
+    return units, [(units, second)]
+
+
+def scenario_setup(map_kind: str, game_map: str, seed: int, kinds: Sequence[UnitKind], scenario: str,
+                   route: tuple[Point, Point] | None = None
+                   ) -> tuple[Grid, list[Unit], list[tuple[list[Unit], Point]]]:
+    """The grid, the units and their orders: a retail map when `game_map` names one (the seed then
+       changes nothing), else a generated `map_kind`."""
+    if game_map:
+        grid = game_map_grid(game_map)
+        return grid, *build_game_scenario(grid, game_map, kinds, scenario, route)
+    grid = make_map(map_kind, seed=seed)
+    return grid, *build_scenario(grid, kinds, scenario)
+
+
+def unit_kind(data: "unitdata.UnitData") -> UnitKind:
+    """The INI's values per game second, in ticks: SPEED_FIELD's velocity, acceleration and angular
+       velocity conversions (GameCommon.h), SpeedScale on both speeds (getMaxSpeedForCondition)."""
+    loco = data.locomotor
+    per_tick = 1.0 / LOGICFRAMES_PER_GAME_SECOND
+    per_tick_squared = per_tick * per_tick
+    radians_per_tick = math.pi / 180.0 * per_tick
+    return UnitKind(
+        name=data.key, appearance=loco.appearance, infantry=data.infantry,
+        major_radius=data.major_radius, radius=data.bounding_radius,
+        speed=loco.speed * per_tick * data.speed_scale,
+        speed_damaged=loco.speed_damaged * per_tick * data.speed_scale,
+        turn_rate=loco.turn_rate * radians_per_tick, turn_rate_damaged=loco.turn_rate_damaged * radians_per_tick,
+        acceleration=loco.acceleration * per_tick_squared,
+        acceleration_damaged=loco.acceleration_damaged * per_tick_squared,
+        braking=loco.braking * per_tick_squared, min_speed=loco.min_speed * per_tick,
+        min_turn_speed=loco.min_turn_speed * per_tick, turn_pivot_offset=loco.turn_pivot_offset,
+        can_move_backwards=loco.can_move_backwards, forward_friction=data.forward_friction,
+        lateral_friction=data.lateral_friction, extra_friction=loco.extra_2d_friction,
+        close_enough=loco.close_enough_dist, geometry=data.geometry, minor_radius=data.minor_radius)
+
+
+@functools.cache
+def game_kinds() -> dict[str, UnitKind]:
+    """Every unit unitdata knows, read once from the install; empty when there is none."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import unitdata
+    try:
+        return {key: unit_kind(data) for key, data in unitdata.load_units().items()}
+    except unitdata.InstallMissing as missing:
+        print(f"pathlab: {missing}; the stand-in tank drives instead", file=sys.stderr)
+        return {}
+
+
+def default_kind() -> UnitKind:
+    """--units' tank: the Crusader, the stand-in's speed with its real body; the stand-in itself
+       with no install."""
+    return game_kinds().get(DEFAULT_GROUP_KIND, STANDIN_TANK)
+
+
+def parse_group(spec: str, kinds: dict[str, UnitKind]) -> list[UnitKind]:
+    """NAME:COUNT,... into one list, the kinds spread through it in proportion so every row of the
+       spawn and both halves of `cross` get a share of each."""
+    entries: list[tuple[float, int, UnitKind]] = []
+    for order, part in enumerate(p for p in spec.split(",") if p):
+        name, _, count = part.partition(":")
+        name = name.strip().lower()
+        if name not in kinds:
+            known = ", ".join(kinds) or "none: no install found"
+            raise SystemExit(f"--group: {name!r} is not a unit PathLab can read ({known})")
+        number = int(count) if count else 1
+        entries += [((k + 0.5) / number, order, kinds[name]) for k in range(number)]
+    return [kind for _, _, kind in sorted(entries, key=lambda e: (e[0], e[1]))]
+
+
+def describe_group(kinds: Sequence[UnitKind]) -> str:
+    counts: dict[str, int] = {}
+    for kind in kinds:
+        counts[kind.name] = counts.get(kind.name, 0) + 1
+    return ",".join(f"{name}:{count}" for name, count in counts.items())
 
 
 @dataclass
 class Measurement:
-    """One row of the headless table: what every seed of one setting added up to, then averaged."""
-    waypoints: float = 0.0
-    length: float = 0.0
     frames: float = 0.0
     blocked: float = 0.0
-    overlap: float = 0.0
-    crossings: float = 0.0
     stuck: int = 0
-    expansions: float = 0.0
+    cells: float = 0.0
+    searches: float = 0.0
     repaths: float = 0.0
+    escapes: float = 0.0
+    waypoints: float = 0.0
+    length: float = 0.0
     lanes: float = 0.0
-    drift: float = 0.0          # band mode: frames the pressure term actually moved somebody.
-                                # A flat result with this at zero says nothing about the idea
-    jam_peak: float = 0.0       # most cells jammed at once, whether or not the cost is charged
-    jam_priced: float = 0.0     # repaths with jammed ground in front of them ...
-    jam_detours: float = 0.0    # ... and the ones that came back avoiding it
-
-    def average_over(self, seeds: int, unit_count: int) -> None:
-        """`stuck` is a count of units and stays whole; everything else is per seed, and the path
-           length is per unit on top of that."""
-        divisor = float(seeds)
-        self.waypoints /= divisor
-        self.length /= divisor * unit_count
-        self.frames /= divisor
-        self.blocked /= divisor
-        self.overlap /= divisor
-        self.crossings /= divisor
-        self.expansions /= divisor
-        self.repaths /= divisor
-        self.lanes /= divisor
-        self.drift /= divisor
-        self.jam_peak /= divisor
-        self.jam_priced /= divisor
-        self.jam_detours /= divisor
+    trunk: float = 0.0
 
 
-def measure(map_kind: str, unit_count: int, seeds: int, mode: str, *,
-            is_congestion_charged: bool, is_crossing_charged: bool,
-            scenario: str, is_jam_charged: bool = True, first_seed: int = 0) -> Measurement:
-    """The scenario's orders, played out, averaged over `seeds` maps.
-
-       `first_seed` is for pairing rather than averaging: an average of sixteen seeds hides the one
-       seed that carries the whole difference, and this file's own history has an idea that looked
-       decisive on the mean and went ten better against six worse when the maps were counted one at
-       a time.  A caller that wants that count asks for one seed at a time."""
+def measure(map_kind: str, kinds: Sequence[UnitKind], seeds: int, scenario: str, first_seed: int = 0,
+            game_map: str = "", route: tuple[Point, Point] | None = None) -> Measurement:
+    """The scenario's orders played out, averaged over `seeds` maps.  `stuck` stays a count of units
+       still short of their goal when the clock ran out."""
     total = Measurement()
     for seed in range(first_seed, first_seed + seeds):
-        grid = make_map(map_kind, seed=seed)
-        traffic = TrafficModel(UsageMap(), ReservationMap(),
-                               is_congestion_charged=is_congestion_charged,
-                               is_crossing_charged=is_crossing_charged,
-                               is_jam_charged=is_jam_charged)
-        units, orders = build_scenario(grid, unit_count, scenario)
-        stats = OrderStats()
-        planner = PLANNERS[mode]
+        grid, units, orders = scenario_setup(map_kind, game_map, seed, kinds, scenario, route)
+        sim = Simulation(grid, units)
         for group, goal in orders:
-            planner(grid, group, goal, traffic=traffic, stats=stats, now=0.0)
-        total.overlap += count_path_overlap(units)
-        total.crossings += count_planned_crossings(traffic.reservations)
-        for unit in units:
-            previous = unit.pos
-            for point in unit.path:
-                total.length += math.hypot(point[0] - previous[0], point[1] - previous[1])
-                previous = point
+            stats = sim.group_move(group, goal)
+            total.lanes += stats.lanes / len(orders)
+            total.trunk += stats.trunk_diameter / len(orders)
         frames = 0
-        while frames < MEASURE_MAX_FRAMES and any(
-                not unit.has_arrived and unit.path for unit in units):
-            step_units(units, grid, traffic=traffic, now=float(frames))
-            repath_stuck(grid, units, traffic=traffic, now=float(frames))
+        while frames < MEASURE_MAX_FRAMES and not sim.is_settled:
+            sim.step()
             frames += 1
-        total.waypoints += stats.avg_waypoints
         total.frames += frames
-        total.blocked += sum(unit.blocked_frames for unit in units)
-        total.stuck += sum(1 for unit in units if not unit.has_arrived)
-        total.expansions += stats.expansions
-        total.repaths += sum(unit.repaths for unit in units)
-        total.lanes += sum(unit.lane_changes for unit in units)
-        total.drift += sum(unit.band_drifts for unit in units)
-        total.jam_peak += traffic.jam.peak
-        total.jam_priced += sum(unit.jam_priced for unit in units)
-        total.jam_detours += sum(unit.jam_detours for unit in units)
-    total.average_over(seeds, unit_count)
+        total.blocked += sum(u.blocked_total for u in units)
+        total.stuck += sum(1 for u in units if u.moving or u.gave_up)
+        total.cells += sim.pf.cells_total
+        total.searches += sim.pf.searches
+        total.repaths += sum(u.repaths for u in units)
+        total.escapes += sum(u.escapes for u in units)
+        total.waypoints += sum(u.first_waypoints for u in units) / max(len(units), 1)
+        total.length += sum(u.first_length for u in units) / max(len(units), 1)
+    for name in ("frames", "blocked", "cells", "searches", "repaths", "escapes", "waypoints", "length",
+                 "lanes", "trunk"):
+        setattr(total, name, getattr(total, name) / seeds)
     return total
 
 
-def print_table_head() -> None:
-    print(f"{'corridor':<14} {'mode':<9} {'lane':<5} {'jam':<4} {'cost/cap/x':<11} {'waypts':>8} "
-          f"{'length':>8} "
-          f"{'frames':>8} {'blocked':>9} {'overlap':>8} {'cross':>6} {'stuck':>7} {'cells':>8} "
-          f"{'lanes':>6} {'drift':>7} {'jamcell':>8} {'priced':>7} {'round':>6}")
+def print_head() -> None:
+    print(f"{'setting':<24} {'frames':>7} {'blocked':>8} {'stuck':>6} {'cells':>8} {'search':>7} "
+          f"{'repath':>7} {'escape':>7} {'waypts':>7} {'length':>7} {'lanes':>6} {'trunk':>6}")
 
 
-def print_row(corridor: str, mode: str, lane: str, jam: str, label: str,
-              result: Measurement) -> None:
-    print(f"{corridor:<14} {mode:<9} {lane:<5} {jam:<4} {label:<11} {result.waypoints:>8.1f} "
-          f"{result.length:>8.0f} "
-          f"{result.frames:>8.0f} {result.blocked:>9.0f} {result.overlap:>8.0f} "
-          f"{result.crossings:>6.0f} {result.stuck:>7d} {result.expansions:>8.0f} "
-          f"{result.lanes:>6.0f} {result.drift:>7.0f} {result.jam_peak:>8.0f} "
-          f"{result.jam_priced:>7.1f} "
-          f"{result.jam_detours:>6.1f}")
-
-
-@contextmanager
-def tuning(*, congestion_cost: int, congestion_cap: int, crossing_cost: int,
-           crossing_window: int):
-    """The penalty constants are read deep inside the search, so a sweep row sets them for the
-       duration of its own measurement and hands them back - a row that raised the cost must not
-       leave it raised for the next one."""
-    global PATH_CONGESTION_COST, PATH_CONGESTION_MAX_PATHS, PATH_CROSSING_COST, PATH_CROSSING_WINDOW
-    before = (PATH_CONGESTION_COST, PATH_CONGESTION_MAX_PATHS, PATH_CROSSING_COST,
-              PATH_CROSSING_WINDOW)
-    PATH_CONGESTION_COST, PATH_CONGESTION_MAX_PATHS = congestion_cost, congestion_cap
-    PATH_CROSSING_COST, PATH_CROSSING_WINDOW = crossing_cost, crossing_window
-    try:
-        yield
-    finally:
-        (PATH_CONGESTION_COST, PATH_CONGESTION_MAX_PATHS, PATH_CROSSING_COST,
-         PATH_CROSSING_WINDOW) = before
-
-
-@contextmanager
-def lane_changing(is_on: bool):
-    """Same idea as tuning(): the reflex is read inside the step loop, so a row turns it on for the
-       length of its own measurement and hands it back."""
-    global LANE_CHANGE
-    before = LANE_CHANGE
-    LANE_CHANGE = is_on
-    try:
-        yield
-    finally:
-        LANE_CHANGE = before
+def print_row(label: str, m: Measurement) -> None:
+    print(f"{label:<24} {m.frames:>7.0f} {m.blocked:>8.0f} {m.stuck:>6d} {m.cells:>8.0f} "
+          f"{m.searches:>7.1f} {m.repaths:>7.1f} {m.escapes:>7.1f} {m.waypoints:>7.1f} "
+          f"{m.length:>7.0f} {m.lanes:>6.1f} {m.trunk:>6.1f}")
 
 
 @contextmanager
 def overriding(**values: object):
-    """Set module constants for one measurement and hand them back, for the knobs that only ever
-       change together with a row of a table - the block corridor's mode, size and soft price,
-       and the A* estimate scale."""
+    """Set module constants for one row and hand them back."""
     module = sys.modules[__name__]
     before = {name: getattr(module, name) for name in values}
     for name, value in values.items():
@@ -1929,592 +4196,376 @@ def overriding(**values: object):
             setattr(module, name, value)
 
 
-class SoftPoint(NamedTuple):
-    """One soft corridor price: per cell of distance past the threshold, the threshold, and the
-       rebate for following the route forward within `near` cells of it."""
-    cost: int
-    threshold: int
-    near: int
-    bonus: int
-
-    @property
-    def label(self) -> str:
-        return f"soft {self.cost}/{self.threshold}/{self.near}/{self.bonus}"
-
-    def settings(self) -> dict[str, object]:
-        return {"CORRIDOR": "soft", "SOFT_COST": self.cost, "SOFT_THRESHOLD": self.threshold,
-                "SOFT_NEAR": self.near, "SOFT_BONUS": self.bonus}
+SWEEPABLE: tuple[str, ...] = (
+    "PF_WALLHUG_NUM", "PF_TRAFFIC_NUM", "PF_TRAFFIC_DEPOSIT", "PF_CROSSING_NUM", "PF_CLAIM_UNITS_MAX",
+    "PF_HEURISTIC_FLOW_NUM", "PF_TURN_CAP_STEP", "PF_TURN_CAP_START", "PF_CLEARANCE_SOFT",
+    "CROWD_PASS_CLEAR", "CROWD_AIR", "CROWD_MAX_LANES", "STUCK_REPATH_FRAMES", "CROWD_REPATH_QUEUE",
+    "TTC_HORIZON_FRAMES", "TTC_STRENGTH", "TTC_AIR", "TTC_PARKED_SLACK", "TTC_CREEP", "TTC_MAX_BEND",
+    "TTC_GOAL_FADE")
 
 
-def parse_soft(text: str) -> list[SoftPoint]:
-    """cost[/threshold[/near[/bonus]]], comma separated; what is left out keeps its default."""
-    points: list[SoftPoint] = []
-    defaults = (SOFT_COST, SOFT_THRESHOLD, SOFT_NEAR, SOFT_BONUS)
-    for spec in text.split(","):
-        parts = [int(part) for part in spec.split("/") if part]
-        points.append(SoftPoint(*parts, *defaults[len(parts):]))
-    return points
-
-
-def corridor_rows(mode: str, soft: Sequence[SoftPoint]) -> list[tuple[str, dict[str, object]]]:
-    """(label, constants) for each corridor a table compares; `all` is every mode and every soft
-       price asked for."""
-    modes = CORRIDOR_MODES if mode == "all" else (mode,)
-    rows: list[tuple[str, dict[str, object]]] = []
-    for name in modes:
-        if name == "soft":
-            rows.extend((point.label, point.settings()) for point in soft)
-        else:
-            rows.append((name, {"CORRIDOR": name}))
-    return rows
+def parse_sweep(text: str) -> tuple[str, list[float]]:
+    """NAME=v1,v2,...: one of the game's own constants and the values to try."""
+    name, _, values = text.partition("=")
+    if name not in SWEEPABLE:
+        raise SystemExit(f"--sweep: {name!r} is not one of {', '.join(SWEEPABLE)}")
+    kind = type(getattr(sys.modules[__name__], name))
+    return name, [kind(v) for v in values.split(",") if v]
 
 
 def travel_cost(cells: Sequence[Cell]) -> int:
-    return sum(COST_DIAGONAL if first[0] != second[0] and first[1] != second[1]
-               else COST_ORTHOGONAL for first, second in zip(cells, cells[1:]))
+    return sum(COST_DIAGONAL if a[0] != b[0] and a[1] != b[1] else COST_ORTHOGONAL
+               for a, b in zip(cells, cells[1:]))
 
 
-SEARCH_MIN_SPAN: float = 0.5                # a pair is at least this share of the diagonal apart
-SEARCH_DIAMETERS: tuple[int, ...] = (6, 3)  # the group corridor's widest and narrowest tries
+def optimum(grid: Grid, start: Cell, goal: Cell) -> int | None:
+    """Plain octile A*, no extras and no cap: the yardstick the game's search is measured against."""
+    best = {start: 0}
+    heap = [(0, 0, start)]
+    while heap:
+        _, cost, cell = heapq.heappop(heap)
+        if cell == goal:
+            return cost
+        if cost > best[cell]:
+            continue
+        flags = [False] * 8
+        for i, (dx, dy) in enumerate(DELTAS):
+            if i >= 4 and not flags[ADJACENT[i - 4]] and not flags[ADJACENT[i - 3]]:
+                continue
+            n = (cell[0] + dx, cell[1] + dy)
+            if not grid.passable(*n):
+                continue
+            flags[i] = True
+            c = cost + (COST_DIAGONAL if i >= 4 else COST_ORTHOGONAL)
+            if c < best.get(n, UNREACHABLE):
+                best[n] = c
+                dx, dy = abs(goal[0] - n[0]), abs(goal[1] - n[1])
+                octile = COST_DIAGONAL * min(dx, dy) + COST_ORTHOGONAL * abs(dx - dy)
+                heapq.heappush(heap, (c + octile, c, n))
+    return None
 
 
-@dataclass
-class SearchMeasurement:
-    """One corridor's row of the search table.  `excess` is per cent over the shortest route on
-       the open map, summed over the searches that reached the goal; a partial route is not
-       compared, it is counted."""
-    found: int = 0
-    partial: int = 0
-    failed: int = 0
-    excess: float = 0.0
-    worst: float = 0.0
-    cells: int = 0
-    wide_found: list[int] = field(default_factory=lambda: [0] * len(SEARCH_DIAMETERS))
-    wide_cells: list[int] = field(default_factory=lambda: [0] * len(SEARCH_DIAMETERS))
-
-
-def pick_pairs(grid: Grid, rng: random.Random, count: int) -> list[tuple[Cell, Cell]]:
-    """`count` start/goal pairs far enough apart to cross the map's structure, both on clear ground
-       a unit can stand on.  Reachability is the caller's question."""
-    clear = [(x, y) for y in range(grid.height) for x in range(grid.width) if grid.has_room(x, y)]
-    span = SEARCH_MIN_SPAN * math.hypot(grid.width, grid.height)
-    pairs: list[tuple[Cell, Cell]] = []
-    while len(pairs) < count:
-        start, goal = rng.choice(clear), rng.choice(clear)
-        if math.hypot(goal[0] - start[0], goal[1] - start[1]) >= span:
-            pairs.append((start, goal))
-    return pairs
-
-
-def measure_searches(map_kind: str, seeds: int, pair_count: int,
-                     rows: Sequence[tuple[str, dict[str, object]]]) -> list[SearchMeasurement]:
-    """Single searches, no units: each pair once per corridor at the engine's caps.  A unit's search
-       is internalFindPath (ENGINE_CELL_CAP, partial route on the cap); a group's is findGroundPath
-       at each of SEARCH_DIAMETERS (GROUND_CELL_CAP, nothing on the cap).  The yardstick is the
-       uncapped, unrestricted, unweighted search, so `excess` is what the corridor and the
-       estimate scale cost together."""
-    results = [SearchMeasurement() for _ in rows]
-    eligible = [0] * len(SEARCH_DIAMETERS)
+def measure_searches(map_kind: str, seeds: int, pairs: int) -> None:
+    """Single searches on an empty map: the game's findPath for a tank facing the goal (the goal put
+       through adjustDestination first, as an order is), and the group trunk at 6 and 2 cells.
+       `excess` is the straightened route's length over the octile optimum, so it can be negative."""
+    found = partial = failed = 0
+    excess = worst = 0.0
+    cells = 0
+    ground = {6: [0, 0], 2: [0, 0]}
     searched = 0
-    hier = 0
     for seed in range(seeds):
         grid = make_map(map_kind, seed=seed)
         rng = random.Random(seed)
-        for start, goal in pick_pairs(grid, rng, pair_count):
-            with overriding(CORRIDOR="none", HEURISTIC_NUM=1, HEURISTIC_DEN=1):
-                best, _ = astar(grid, start, goal, cell_budget=UNREACHABLE_COST)
-                if not best:
-                    continue
-                wide = [bool(astar(grid, start, goal, clearance=diameter // 2,
-                                   cell_budget=UNREACHABLE_COST)[0])
-                        for diameter in SEARCH_DIAMETERS]
+        clear = [(x, y) for y in range(grid.height) for x in range(grid.width)
+                 if grid.passable(x, y) and not grid.pinched[y * grid.width + x]]
+        span = 0.5 * math.hypot(grid.width, grid.height)
+        done = 0
+        while done < pairs:
+            s, g = rng.choice(clear), rng.choice(clear)
+            if math.hypot(g[0] - s[0], g[1] - s[1]) < span:
+                continue
+            done += 1
+            best = optimum(grid, s, g)
+            if best is None:
+                continue
             searched += 1
-            route = find_block_route(grid, start, goal, ZONE_BLOCK_SIZE)
-            hier += route[1] if route else 0
-            optimum = travel_cost(best)
-            for index, is_wide in enumerate(wide):
-                eligible[index] += is_wide
-            for result, (_, settings) in zip(results, rows):
-                with overriding(**settings):
-                    cells, expansions = astar(grid, start, goal, cell_budget=ENGINE_CELL_CAP,
-                                              partial=True)
-                    result.cells += expansions
-                    if not cells:
-                        result.failed += 1
-                    elif cells[-1] != goal:
-                        result.partial += 1
-                    else:
-                        result.found += 1
-                        excess = 100.0 * (travel_cost(cells) - optimum) / max(optimum, 1)
-                        result.excess += excess
-                        result.worst = max(result.worst, excess)
-                    for index, diameter in enumerate(SEARCH_DIAMETERS):
-                        if not wide[index]:
-                            continue
-                        cells, expansions = astar(grid, start, goal, clearance=diameter // 2,
-                                                  cell_budget=GROUND_CELL_CAP)
-                        result.wide_found[index] += bool(cells)
-                        result.wide_cells[index] += expansions
-    print(f"searches on {map_kind}: {searched} pairs over {seeds} seeds, "
-          f"blocks {ZONE_BLOCK_SIZE}, estimate {HEURISTIC_NUM}/{HEURISTIC_DEN}, "
-          f"coarse search {hier / max(searched, 1):.0f} entry cells a pair")
-    wide_head = "".join(f" {f'd{d} found/of':>13} {f'd{d} cells':>9}" for d in SEARCH_DIAMETERS)
-    print(f"{'corridor':<18} {'found':>6} {'partial':>8} {'fail':>5} {'excess%':>8} "
-          f"{'worst%':>7} {'cells':>7}{wide_head}")
-    for result, (label, _) in zip(results, rows):
-        wide_cols = "".join(
-            f" {f'{result.wide_found[i]}/{eligible[i]}':>13} "
-            f"{result.wide_cells[i] / max(eligible[i], 1):>9.0f}"
-            for i in range(len(SEARCH_DIAMETERS)))
-        print(f"{label:<18} {result.found:>6} {result.partial:>8} {result.failed:>5} "
-              f"{result.excess / max(result.found, 1):>8.2f} {result.worst:>7.1f} "
-              f"{result.cells / max(searched, 1):>7.0f}{wide_cols}")
-    return results
+            sim = Simulation(grid, [])
+            probe = Unit(*cell_pos(*s, False), id=1)
+            probe.facing = math.atan2(g[1] - s[1], g[0] - s[0])
+            before = sim.pf.cells_total
+            target = sim.adjust_destination(probe, cell_pos(*g, False))
+            path = sim.pf.find_path(probe, probe.pos, target)
+            cells += sim.pf.cells_total - before
+            if path is None:
+                failed += 1
+            elif cell_of(*path.last) != cell_of(*target):
+                partial += 1
+            else:
+                found += 1
+                length = path.length() / CELL * COST_ORTHOGONAL
+                e = 100.0 * (length - best) / max(best, 1)
+                excess += e
+                worst = max(worst, e)
+            for diameter in ground:
+                ground[diameter][1] += 1
+                ground[diameter][0] += sim.pf.find_ground_path(probe.pos, cell_pos(*g, False), diameter) is not None
+    print(f"searches on {map_kind}: {searched} pairs over {seeds} seeds")
+    print(f"{'found':>6} {'partial':>8} {'fail':>5} {'excess%':>8} {'worst%':>7} {'cells':>7} "
+          f"{'trunk6':>9} {'trunk2':>9}")
+    print(f"{found:>6} {partial:>8} {failed:>5} {excess / max(found, 1):>8.2f} {worst:>7.1f} "
+          f"{cells / max(searched, 1):>7.0f} {ground[6][0]:>4}/{ground[6][1]:<4} {ground[2][0]:>4}/{ground[2][1]:<4}")
 
 
-class SweepPoint(NamedTuple):
-    """One row of --sweep.  A crossing cost of 0 is the time dimension off."""
-    cost: int
-    cap: int
-    crossing: int
+def setting_rows(proposed: bool, ttc: bool, dither: bool = False,
+                 spot: bool = False) -> list[tuple[str, dict[str, object]]]:
+    """The game, then the proposed ladder, TTC steering and both, as the flags ask; with `dither`
+       each of them again with the dither fix, then with `spot` every row so far again with lanes
+       starting from the member's spot."""
+    rows: list[tuple[str, dict[str, object]]] = [("game", {})]
+    if proposed:
+        rows.append(("proposed", PROPOSED_LADDER))
+    if ttc:
+        rows.append(("ttc", PROPOSED_TTC))
+    if proposed and ttc:
+        rows.append(("proposed+ttc", {**PROPOSED_LADDER, **PROPOSED_TTC}))
+    if dither:
+        rows += [(f"{label}+dither", {**settings, **PROPOSED_DITHER}) for label, settings in rows]
+    if spot:
+        rows += [(f"{label}+spot", {**settings, **PROPOSED_FROM_SPOT}) for label, settings in rows]
+    return rows
 
 
-def parse_sweep(text: str) -> list[SweepPoint]:
-    """cost[/cap[/crossing]] - a crossing cost of 0 (the default) is the time dimension off."""
-    points: list[SweepPoint] = []
-    for spec in text.split(","):
-        parts = spec.split("/")
-        cap = int(parts[1]) if len(parts) > 1 and parts[1] else PATH_CONGESTION_MAX_PATHS
-        crossing = int(parts[2]) if len(parts) > 2 and parts[2] else 0
-        points.append(SweepPoint(int(parts[0]), cap, crossing))
-    return points
-
-
-def run_headless(args: argparse.Namespace, sweep: Sequence[SweepPoint]) -> None:
-    """No window: play the same order under each setting and print the numbers to compare.
-       This is ai-batch.ps1 for the sandbox - a claim about a change is argued with this.
-
-       `overlap` counts cells two plans share at all, `cross` only the ones they share at the same
-       moment.  A change that trades the first for the second is doing what it was asked to."""
-    rows = corridor_rows(args.corridor, parse_soft(args.soft))
+def run_headless(args: argparse.Namespace) -> None:
     if args.pairs:
-        measure_searches(args.map, args.headless, args.pairs, rows)
-        if not args.units:
+        measure_searches(args.map, args.headless, args.pairs)
+        if not args.units and not args.group:
             return
-    print(f"map {args.map}  scenario {args.scenario}  units {args.units}  "
-          f"seeds {args.headless}  window {args.window} frames")
-    print_table_head()
-    lane_settings = (False, True) if args.lanes == "both" else (args.lanes == "on",)
-    jam_settings = (False, True) if args.jam == "both" else (args.jam == "on",)
-    modes = args.modes.split(",") if args.modes else MODES
-    for corridor, settings in rows:
-        with overriding(**settings):
-            for mode in modes:
-                for is_lane_changing in lane_settings:
-                    lane = "on" if is_lane_changing else "off"
-                    for is_jam_charged in jam_settings:
-                        jam = "on" if is_jam_charged else "off"
-                        run_sweep_rows(args, sweep, corridor, mode, lane, jam, is_lane_changing,
-                                       is_jam_charged)
+    kinds = group_kinds(args)
+    print(f"map {args.gamemap or args.map}  scenario {args.scenario}  units {describe_group(kinds)}  seeds {args.headless}  "
+          f"{LOGICFRAMES_PER_SECOND} Hz at {GAME_SPEED_PERCENT}%")
+    print_head()
+    for label, ladder in setting_rows(args.proposed, args.ttc, args.dither, args.spot):
+        if not args.sweep:
+            with overriding(**ladder):
+                print_row(label, measure(args.map, kinds, args.headless, args.scenario, game_map=args.gamemap,
+                                         route=parse_route(args.route)))
+            continue
+        name, values = parse_sweep(args.sweep)
+        prefix = f"{label} " if ladder else ""
+        for value in values:
+            with overriding(**ladder, **{name: value}):
+                print_row(f"{prefix}{name}={value:g}",
+                          measure(args.map, kinds, args.headless, args.scenario, game_map=args.gamemap,
+                                  route=parse_route(args.route)))
 
 
-def run_sweep_rows(args: argparse.Namespace, sweep: Sequence[SweepPoint], corridor: str, mode: str,
-                   lane: str, jam: str, is_lane_changing: bool, is_jam_charged: bool) -> None:
-    """One mode's rows under one corridor: the costs off, then each sweep point."""
-    with lane_changing(is_lane_changing):
-        if not args.no_off:
-            with tuning(congestion_cost=args.cost, congestion_cap=args.cap,
-                        crossing_cost=args.cross, crossing_window=args.window):
-                print_row(corridor, mode, lane, jam, "off",
-                          measure(args.map, args.units, args.headless, mode,
-                                  is_congestion_charged=False, is_crossing_charged=False,
-                                  is_jam_charged=is_jam_charged, scenario=args.scenario))
-        for point in sweep:
-            with tuning(congestion_cost=point.cost, congestion_cap=point.cap,
-                        crossing_cost=point.crossing or args.cross,
-                        crossing_window=args.window):
-                print_row(corridor, mode, lane, jam,
-                          f"{point.cost}/{point.cap}/{point.crossing}",
-                          measure(args.map, args.units, args.headless, mode,
-                                  is_congestion_charged=True,
-                                  is_crossing_charged=point.crossing > 0,
-                                  is_jam_charged=is_jam_charged,
-                                  scenario=args.scenario))
+def group_kinds(args: argparse.Namespace) -> list[UnitKind]:
+    """--group's mix, else --units of the default tank."""
+    if args.group:
+        return parse_group(args.group, game_kinds())
+    return [default_kind()] * args.units
 
 
-class Simulation:
-    """The map, the units on it and the two shared traffic maps - everything a headless run needs.
-       Held apart from the window so ordering and stepping are the same code in both."""
-
-    def __init__(self, map_kind: str, seed: int, unit_count: int, mode: str) -> None:
-        self.map_kind = map_kind
-        self.unit_count = unit_count
-        self.mode = mode
-        self.frames = 0
-        self.last_goal: Point | None = None
-        self.stats = OrderStats()
-        self.seed = seed
-        self.grid = make_map(map_kind, seed=seed)
-        self.traffic = TrafficModel(UsageMap(), ReservationMap())
-        self.units = self._spawn()
-
-    def _spawn(self) -> list[Unit]:
-        units = spawn_block(self.grid, self.unit_count, *SPAWN_CELL)
-        for unit in units:
-            unit.is_selected = True
-        return units
-
-    def regenerate(self, seed: int) -> None:
-        """A new map under the same settings.  The traffic maps go with the old map: they are keyed
-           by cell, and every cell they name has just moved."""
-        self.seed = seed
-        self.grid = make_map(self.map_kind, seed=seed)
-        self.traffic = TrafficModel(UsageMap(), ReservationMap())
-        self.units = self._spawn()
-
-    @property
-    def selected_units(self) -> list[Unit]:
-        selected = [unit for unit in self.units if unit.is_selected]
-        return selected or self.units
-
-    def order(self, goal: Point) -> None:
-        self.last_goal = goal
-        self.stats = OrderStats()
-        selected = self.selected_units
-        for unit in selected:
-            unit.blocked_frames = 0
-        planner = PLANNERS[self.mode]
-        planner(self.grid, selected, goal, traffic=self.traffic, stats=self.stats,
-                now=float(self.frames))
-        print(f"[order] mode={self.mode} units={len(selected)} searches={self.stats.searches} "
-              f"expansions={self.stats.expansions} "
-              f"avg waypoints={self.stats.avg_waypoints:.1f} "
-              f"crossings={self.stats.crossings} {' '.join(self.stats.notes)}")
-
-    def step(self) -> None:
-        now = float(self.frames)
-        step_units(self.units, self.grid, traffic=self.traffic, now=now)
-        repath_stuck(self.grid, self.units, traffic=self.traffic, now=now)
-        self.frames += 1
-
-
-BG: Colour = (24, 26, 30)
-WALL: Colour = (58, 62, 70)
-UNIT_COL: Colour = (120, 190, 255)
-UNIT_SEL: Colour = (255, 214, 110)
-PATH_COL: Colour = (90, 220, 160)
-CORRIDOR_COL: Colour = (70, 90, 140)
-RAY_OK: Colour = (60, 200, 120)
-RAY_BAD: Colour = (220, 90, 90)
-HEAT: Colour = (200, 120, 60)
-HEAT_FLOOR: Colour = (50, 28, 24)                   # an unused cell is still darker than the walls
-HEAT_GAIN: tuple[float, float, float] = (0.8, 0.7, 0.5)     # warm, so a busy cell reads as orange
-JAM_COL: Colour = (150, 60, 150)    # where units are stuck, not where they plan to drive: not orange
-HUD_TEXT: Colour = (200, 205, 215)
-
-
-class RayDetail(IntEnum):
-    """Whose line-of-sight checks the window draws."""
-    OFF = 0
-    SELECTED = 1
-    ALL = 2
-
-
-class Renderer:
-    """The window.  It reads a Simulation and owns nothing the simulation needs back."""
-
-    def __init__(self, grid: Grid, scale: float) -> None:
-        pygame.init()
-        self.scale = scale
-        self.screen = pygame.display.set_mode(
-            (int(grid.width * CELL * scale), int(grid.height * CELL * scale) + HUD_HEIGHT))
-        pygame.display.set_caption("PathLab")
-        self.font = pygame.font.SysFont("consolas", HUD_FONT_SIZE)
-        self.ray_detail = RayDetail.SELECTED
-        self.show_heat = False
-        self.show_jam = True        # on by default: it is empty until something actually jams
-
-    def close(self) -> None:
-        pygame.quit()
-
-    def to_screen(self, x: float, y: float) -> tuple[int, int]:
-        return int(x * self.scale), int(y * self.scale)
-
-    def _cell_rect(self, cx: int, cy: int, pad: int = 0) -> Rect:
-        size = CELL * self.scale
-        return cx * size, cy * size, size + pad, size + pad
-
-    def draw(self, sim: Simulation) -> None:
-        self.screen.fill(BG)
-        self._draw_terrain(sim.grid)
-        if self.show_heat:
-            self._draw_heat(sim)
-        if self.show_jam:
-            self._draw_jam(sim)
-        self._draw_crossings(sim)
-        self._draw_corridor(sim.stats)
-        if self.ray_detail is not RayDetail.OFF:
-            self._draw_rays(sim.units)
-        self._draw_paths(sim.units)
-        self._draw_units(sim.units)
-        self._draw_hud(sim)
-        pygame.display.flip()
-
-    def _draw_terrain(self, grid: Grid) -> None:
-        for cy in range(grid.height):
-            for cx in range(grid.width):
-                if not grid.passable(cx, cy):
-                    pygame.draw.rect(self.screen, WALL,
-                                     self._cell_rect(cx, cy, pad=TERRAIN_OVERDRAW))
-
-    def _draw_heat(self, sim: Simulation) -> None:
-        for (cx, cy), paths in sim.traffic.usage.count.items():
-            if not sim.grid.in_bounds(cx, cy):
-                continue
-            level = min(paths, PATH_CONGESTION_MAX_PATHS) / PATH_CONGESTION_MAX_PATHS
-            colour = (int(HEAT_FLOOR[0] + HEAT[0] * level * HEAT_GAIN[0]),
-                      int(HEAT_FLOOR[1] + HEAT[1] * level * HEAT_GAIN[1]),
-                      int(HEAT_FLOOR[2] + HEAT[2] * level * HEAT_GAIN[2]))
-            pygame.draw.rect(self.screen, colour, self._cell_rect(cx, cy))
-
-    def _draw_jam(self, sim: Simulation) -> None:
-        """Ground units are stuck on, drawn only once a cell is over the floor - a map speckled
-           with stamps of 1 is a map with no jam on it and outlining every one of them says
-           nothing.  This is the cost a repath is paying, made visible."""
-        for (cx, cy), stamp in sim.traffic.jam.jam.items():
-            if stamp <= PATH_JAM_FLOOR or not sim.grid.in_bounds(cx, cy):
-                continue
-            level = min(stamp - PATH_JAM_FLOOR, PATH_JAM_MAX_CHARGED) / PATH_JAM_MAX_CHARGED
-            pygame.draw.rect(self.screen, (int(JAM_COL[0] * level), int(JAM_COL[1] * level),
-                                           int(JAM_COL[2] * level)),
-                             self._cell_rect(cx, cy))
-
-    def _draw_crossings(self, sim: Simulation) -> None:
-        # where two units still plan to be at the same moment - what the crossing cost buys out
-        for cx, cy in find_crossing_cells(sim.traffic.reservations):
-            if sim.grid.in_bounds(cx, cy):
-                pygame.draw.rect(self.screen, RAY_BAD, self._cell_rect(cx, cy),
-                                 CROSSING_OUTLINE_WIDTH)
-
-    def _draw_corridor(self, stats: OrderStats) -> None:
-        points = [self.to_screen(x, y) for x, y in stats.corridor]
-        if len(points) > 1:
-            pygame.draw.lines(self.screen, CORRIDOR_COL, False, points,
-                              max(1, int(stats.diameter * CELL * self.scale / 2)))
-
-    def _draw_rays(self, units: Sequence[Unit]) -> None:
-        # failures last, so the one check that rejected a lane is not buried under the rest
-        for want_clear in (True, False):
-            for unit in units:
-                if self.ray_detail is RayDetail.SELECTED and not unit.is_selected:
-                    continue
-                for ax, ay, bx, by, is_clear in unit.rays:
-                    if is_clear != want_clear:
-                        continue
-                    pygame.draw.line(self.screen, RAY_OK if is_clear else RAY_BAD,
-                                     self.to_screen(ax, ay), self.to_screen(bx, by), 1)
-
-    def _draw_paths(self, units: Sequence[Unit]) -> None:
-        for unit in units:
-            if not unit.path or unit.has_arrived:
-                continue
-            remaining = unit.path[unit.index:]
-            points = [self.to_screen(unit.x, unit.y)]
-            points.extend(self.to_screen(x, y) for x, y in remaining)
-            if len(points) > 1:
-                pygame.draw.lines(self.screen, PATH_COL, False, points, 1)
-            for x, y in remaining:
-                pygame.draw.circle(self.screen, PATH_COL, self.to_screen(x, y), WAYPOINT_DOT)
-
-    def _draw_units(self, units: Sequence[Unit]) -> None:
-        for unit in units:
-            colour = UNIT_SEL if unit.is_selected else UNIT_COL
-            centre = self.to_screen(unit.x, unit.y)
-            pygame.draw.circle(self.screen, colour, centre, int(unit.radius * self.scale))
-            if unit.blocked_frames:
-                pygame.draw.circle(self.screen, RAY_BAD, centre, int(unit.radius * self.scale),
-                                   BLOCKED_RING_WIDTH)
-
-    def _draw_hud(self, sim: Simulation) -> None:
-        top = int(sim.grid.height * CELL * self.scale) + HUD_TOP_PAD
-        blocked = sum(unit.blocked_frames for unit in sim.units)
-        moving = sum(1 for unit in sim.units if not unit.has_arrived)
-        congestion = str(PATH_CONGESTION_COST) if sim.traffic.is_congestion_charged else "off"
-        crossing = str(PATH_CROSSING_COST) if sim.traffic.is_crossing_charged else "off"
-        jam = str(PATH_JAM_COST) if sim.traffic.is_jam_charged else "off"
-        heat = "on" if self.show_heat else "off"
-        lines = [
-            f"mode {sim.mode:<9} congestion {congestion:<3} crossing {crossing:<3} "
-            f"jam {jam:<3} rays {self.ray_detail.name.lower():<8} heat {heat:<3}   "
-            f"[1][2][3] [c][t][j][k][r][p] [n]map [tab]replan",
-            f"corridor width {sim.stats.diameter} cells   searches {sim.stats.searches}   "
-            f"cell expansions {sim.stats.expansions}   "
-            f"avg waypoints/unit {sim.stats.avg_waypoints:.1f}",
-            f"units {len(sim.units)}  still moving {moving}  blocked unit-frames {blocked}  "
-            f"repaths {sum(unit.repaths for unit in sim.units)}  "
-            f"jammed cells {sim.traffic.jam.blocking_cells} "
-            f"(routed round {sum(unit.jam_detours for unit in sim.units)})  "
-            f"crossings {count_planned_crossings(sim.traffic.reservations)} now {sim.frames}  "
-            f"{'; '.join(sim.stats.notes[:HUD_NOTES_SHOWN])}",
-        ]
-        for line_index, text in enumerate(lines):
-            self.screen.blit(self.font.render(text, True, HUD_TEXT),
-                             (HUD_TEXT_X, top + line_index * HUD_LINE_HEIGHT))
-
-
-class Lab:
-    """Keys and mouse in, one simulation step and one drawn frame out."""
-
-    def __init__(self, args: argparse.Namespace) -> None:
-        self.sim = Simulation(map_kind=args.map, seed=args.seed, unit_count=args.units,
-                              mode=args.mode)
-        self.view = Renderer(self.sim.grid, args.scale)
-        self.is_paused = False
-        self.drag_start: Point | None = None
-
-    def __enter__(self) -> "Lab":
-        return self
-
-    def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
-        self.view.close()
-
-    def run(self) -> None:
-        clock = pygame.time.Clock()
-        while True:
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    return
-                if event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_ESCAPE:
-                        return
-                    self._on_key(event.key)
-                if event.type == pygame.MOUSEBUTTONDOWN:
-                    self._on_press(event)
-                if (event.type == pygame.MOUSEBUTTONUP and event.button == MOUSE_RIGHT
-                        and self.drag_start):
-                    self._on_drag_end(self.drag_start, event)
-            if not self.is_paused:
-                self.sim.step()
-            self.view.draw(self.sim)
-            clock.tick(RENDER_FPS)
-
-    def _on_key(self, key: int) -> None:
-        if key == pygame.K_1:
-            self.sim.mode = "corridor"
-        elif key == pygame.K_2:
-            self.sim.mode = "single"
-        elif key == pygame.K_3:
-            self.sim.mode = "band"
-        elif key == pygame.K_c:
-            self.sim.traffic.is_congestion_charged = not self.sim.traffic.is_congestion_charged
-        elif key == pygame.K_t:
-            self.sim.traffic.is_crossing_charged = not self.sim.traffic.is_crossing_charged
-        elif key == pygame.K_r:
-            self.view.ray_detail = RayDetail((self.view.ray_detail + 1) % len(RayDetail))
-        elif key == pygame.K_p:
-            self.view.show_heat = not self.view.show_heat
-        elif key == pygame.K_j:
-            self.sim.traffic.is_jam_charged = not self.sim.traffic.is_jam_charged
-        elif key == pygame.K_k:
-            self.view.show_jam = not self.view.show_jam
-        elif key == pygame.K_SPACE:
-            self.is_paused = not self.is_paused
-        elif key == pygame.K_n:
-            self.sim.regenerate(random.randrange(SEED_RANGE))
-        elif key == pygame.K_TAB and self.sim.last_goal:
-            self.sim.order(self.sim.last_goal)
-
-    def _world_pos(self, screen_pos: tuple[int, int]) -> Point:
-        return screen_pos[0] / self.view.scale, screen_pos[1] / self.view.scale
-
-    def _on_press(self, event: pygame.event.Event) -> None:
-        wx, wy = self._world_pos(event.pos)
-        if event.button == MOUSE_LEFT and wy < self.sim.grid.height * CELL:
-            self.sim.order((wx, wy))
-        if event.button == MOUSE_RIGHT:
-            self.drag_start = (wx, wy)
-
-    def _on_drag_end(self, drag_start: Point, event: pygame.event.Event) -> None:
-        x0, y0 = drag_start
-        x1, y1 = self._world_pos(event.pos)
-        left, right = min(x0, x1), max(x0, x1)
-        top, bottom = min(y0, y1), max(y0, y1)
-        # a right click rather than a drag: that selects everything, not nothing
-        is_box = (right - left) > CELL and (bottom - top) > CELL
-        for unit in self.sim.units:
-            unit.is_selected = (left <= unit.x <= right and top <= unit.y <= bottom
-                                if is_box else True)
-        self.drag_start = None
-
-
-def main() -> None:
-    global BAND_STEP
-    parser = argparse.ArgumentParser(description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--mode", choices=MODES, default="corridor")
-    parser.add_argument("--map", choices=MAP_KINDS, default="choke")
-    parser.add_argument("--units", type=int, default=8)
-    parser.add_argument("--scenario", choices=SCENARIOS, default="column",
-                        help="headless only: one group crossing the map, or two crossing each other")
-    parser.add_argument("--scale", type=float, default=1.0)
-    parser.add_argument("--seed", type=int, default=7)
-    parser.add_argument("--headless", type=int, metavar="SEEDS",
-                        help="no window: run SEEDS orders per mode and print the comparison")
-    parser.add_argument("--cost", type=int, default=PATH_CONGESTION_COST,
-                        help="cost per path already claiming a cell (engine default 5, step is 10)")
-    parser.add_argument("--cap", type=int, default=PATH_CONGESTION_MAX_PATHS,
-                        help="how many paths on one cell still add cost (engine default 4)")
-    parser.add_argument("--cross", type=int, default=PATH_CROSSING_COST,
-                        help="cost per unit that will be in a cell at the same moment we are")
-    parser.add_argument("--window", type=int, default=PATH_CROSSING_WINDOW,
-                        help="frames either side of an arrival that still count as the same moment")
-    parser.add_argument("--sweep", default="5/4/0,20/4/0,20/4/60,20/4/120",
-                        help="headless only: cost/cap/crossing triples to compare (crossing 0 = off)")
-    parser.add_argument("--lanes", choices=("off", "on", "both"), default="off",
-                        help="overtake instead of queueing; 'both' measures it against itself")
-    parser.add_argument("--band-step", type=float, default=BAND_STEP, dest="band_step",
-                        help="band mode: footprints of lateral drift per frame (0 = the flat band)")
-    parser.add_argument("--jam", choices=("off", "on", "both"), default="on",
-                        help="charge a repath for ground somebody is stuck on; 'both' compares")
-    parser.add_argument("--corridor", choices=(*CORRIDOR_MODES, "all"), default="none",
-                        help="block corridor every search lays first; 'all' compares the four")
-    parser.add_argument("--soft", default=f"{SOFT_COST}/{SOFT_THRESHOLD}/{SOFT_NEAR}/{SOFT_BONUS}",
-                        help="soft corridor prices to compare: cost/threshold/near/bonus, ...")
-    parser.add_argument("--blocks", type=int, default=ZONE_BLOCK_SIZE,
-                        help="cells per block side for the corridor's coarse search (engine 10)")
-    parser.add_argument("--widen", type=int, default=CORRIDOR_WIDEN,
-                        help="blocks opened either side of each route block (engine 1)")
-    parser.add_argument("--hweight", type=float, default=HEURISTIC_NUM / HEURISTIC_DEN,
-                        help="A* estimate scale (sandbox 1.0, retail 1.5)")
-    parser.add_argument("--pairs", type=int, default=0,
-                        help="headless only: also time this many single searches per seed")
-    parser.add_argument("--modes", default="",
-                        help="headless only: comma list of modes for the group table (all)")
-    parser.add_argument("--no-off", action="store_true", dest="no_off",
-                        help="headless only: leave out the costs-off row")
-    args = parser.parse_args()
-    BAND_STEP = args.band_step
-    weight = Fraction(args.hweight).limit_denominator(16)
-    soft = parse_soft(args.soft)[0]
-    sweep = parse_sweep(args.sweep)
-    with overriding(ZONE_BLOCK_SIZE=args.blocks, CORRIDOR_WIDEN=args.widen,
-                    HEURISTIC_NUM=weight.numerator, HEURISTIC_DEN=weight.denominator):
-        if args.headless:
-            run_headless(args, sweep)
-            return
-        # the window runs one corridor; 'all' is a table's word and draws as none
-        corridor = args.corridor if args.corridor != "all" else "none"
-        with overriding(**(soft.settings() if corridor == "soft" else {"CORRIDOR": corridor})):
-            run_window(args)
+# ---------------------------------------------------------------------------------------------
+# The window
+# ---------------------------------------------------------------------------------------------
+BG = (24, 26, 30)
+WALL = (58, 62, 70)
+OBSTACLE_COL = (88, 76, 64)
+PINCHED_COL = (34, 36, 42)
+UNIT_COL = (120, 190, 255)
+UNIT_SEL = (255, 214, 110)
+INFANTRY_COL = (150, 220, 140)
+KIND_COLOURS: dict[str, tuple[int, int, int]] = {
+    "crusader": (120, 190, 255), "humvee": (90, 230, 230), "overlord": (240, 110, 100),
+    "battlemaster": (240, 160, 110), "technical": (235, 200, 90), "scorpion": (200, 150, 80),
+    "ranger": (150, 220, 140)}
+PATH_COL = (90, 220, 160)
+TRUNK_COL = (70, 90, 140)
+RAY_OK = (60, 200, 120)
+RAY_BAD = (220, 90, 90)
+HEAT = (200, 120, 60)
+CLAIM_COL = (150, 60, 150)
+HUD_TEXT = (200, 205, 215)
+HUD_HEIGHT = 60
+RENDER_FPS = LOGICFRAMES_PER_SECOND
 
 
 def run_window(args: argparse.Namespace) -> None:
-    with lane_changing(args.lanes != "off"), \
-            tuning(congestion_cost=args.cost, congestion_cap=args.cap, crossing_cost=args.cross,
-                   crossing_window=args.window), Lab(args) as lab:
-        lab.run()
+    import pygame
+
+    seed = args.seed
+    kinds = group_kinds(args)
+
+    def new_sim(seed: int) -> tuple[Grid, Simulation]:
+        """A generated map waits for a click with everyone selected; a retail map (--gamemap) plays
+           the scenario's orders at once and selects no one."""
+        if not args.gamemap:
+            grid = make_map(args.map, seed=seed)
+            sim = Simulation(grid, spawn_block(grid, kinds, *SPAWN_CELL))
+            for unit in sim.units:
+                unit.is_selected = True
+            return grid, sim
+        grid, units, orders = scenario_setup(args.map, args.gamemap, seed, kinds, args.scenario,
+                                             parse_route(args.route))
+        sim = Simulation(grid, units)
+        for group, goal in orders:
+            sim.group_move(group, goal)
+        return grid, sim
+
+    grid, sim = new_sim(seed)
+    scale = args.scale
+    pygame.init()
+    screen = pygame.display.set_mode((int(grid.width * CELL * scale), int(grid.height * CELL * scale) + HUD_HEIGHT))
+    pygame.display.set_caption("PathLab")
+    font = pygame.font.SysFont("consolas", 14)
+    clock = pygame.time.Clock()
+    show_rays, show_heat, show_claims, paused = True, False, False, False
+    last_goal: Point | None = None
+    drag: Point | None = None
+
+    def to_screen(x: float, y: float) -> tuple[int, int]:
+        return int(x * scale), int(y * scale)
+
+    def order(goal: Point) -> None:
+        nonlocal last_goal
+        last_goal = goal
+        selected = [u for u in sim.units if u.is_selected] or sim.units
+        st = sim.group_move(selected, goal)
+        print(f"[order] units={len(selected)} lanes={st.lanes} trunk={st.trunk_diameter} "
+              f"searches={sim.pf.searches} cells={sim.pf.cells_total}")
+
+    try:
+        while True:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
+                    return
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_r:
+                        show_rays = not show_rays
+                    elif event.key == pygame.K_p:
+                        show_heat = not show_heat
+                    elif event.key == pygame.K_t:
+                        show_claims = not show_claims
+                    elif event.key == pygame.K_SPACE:
+                        paused = not paused
+                    elif event.key == pygame.K_n:
+                        seed = random.randrange(SEED_RANGE)
+                        grid, sim = new_sim(seed)
+                    elif event.key == pygame.K_TAB and last_goal:
+                        order(last_goal)
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    wx, wy = event.pos[0] / scale, event.pos[1] / scale
+                    if event.button == 1 and wy < grid.height * CELL:
+                        order((wx, wy))
+                    elif event.button == 3:
+                        drag = (wx, wy)
+                if event.type == pygame.MOUSEBUTTONUP and event.button == 3 and drag:
+                    x1, y1 = event.pos[0] / scale, event.pos[1] / scale
+                    left, right = sorted((drag[0], x1))
+                    top, bottom = sorted((drag[1], y1))
+                    box = right - left > CELL and bottom - top > CELL
+                    for unit in sim.units:
+                        unit.is_selected = (left <= unit.x <= right and top <= unit.y <= bottom) if box else True
+                    drag = None
+            if not paused:
+                sim.step()
+            screen.fill(BG)
+            size = CELL * scale
+            w = grid.width
+            for cy in range(grid.height):
+                for cx in range(w):
+                    i = cy * w + cx
+                    kind = grid.kind[i]
+                    rect = (cx * size, cy * size, size + 1, size + 1)
+                    if kind == IMPASSABLE:
+                        pygame.draw.rect(screen, WALL, rect)
+                    elif kind == OBSTACLE:
+                        pygame.draw.rect(screen, OBSTACLE_COL, rect)
+                    elif grid.pinched[i]:
+                        pygame.draw.rect(screen, PINCHED_COL, rect)
+            if show_heat:
+                for i in sim.pf.traffic_cells:
+                    level = min(sim.pf.traffic[i], PF_TRAFFIC_FULL) / PF_TRAFFIC_FULL
+                    pygame.draw.rect(screen, tuple(int(c * level) for c in HEAT),
+                                     ((i % w) * size, (i // w) * size, size, size))
+            if show_claims:
+                bucket = sim.frame // PF_CLAIM_BUCKET_FRAMES
+                for (cell, b), weight in sim.pf.claims.items():
+                    if b == bucket and weight >= 2:
+                        level = min(weight // 2, PF_CLAIM_UNITS_MAX) / PF_CLAIM_UNITS_MAX
+                        pygame.draw.rect(screen, tuple(int(c * level) for c in CLAIM_COL),
+                                         ((cell % w) * size, (cell // w) * size, size, size), 1)
+            if len(sim.stats.trunk) > 1:
+                pygame.draw.lines(screen, TRUNK_COL, False, [to_screen(*p) for p in sim.stats.trunk],
+                                  max(1, int(sim.stats.trunk_diameter * size / 2)))
+            if show_rays:
+                for want in (True, False):
+                    for unit in sim.units:
+                        if unit.is_selected:
+                            for ax, ay, bx, by, ok in unit.rays:
+                                if ok == want:
+                                    pygame.draw.line(screen, RAY_OK if ok else RAY_BAD, to_screen(ax, ay),
+                                                     to_screen(bx, by), 1)
+            for unit in sim.units:
+                if unit.path is not None:
+                    pts = [to_screen(unit.x, unit.y)] + [to_screen(*p) for p in unit.path.points[1:]]
+                    if len(pts) > 1:
+                        pygame.draw.lines(screen, PATH_COL, False, pts, 1)
+            for unit in sim.units:
+                centre = to_screen(unit.x, unit.y)
+                colour = UNIT_SEL if unit.is_selected else KIND_COLOURS.get(
+                    unit.kind.name, INFANTRY_COL if unit.is_infantry else UNIT_COL)
+                if unit.kind.geometry == "BOX":         # the footprint the collision test uses
+                    major, minor = unit.kind.half_extents
+                    dx, dy = unit.dir
+                    pygame.draw.polygon(screen, colour, [
+                        to_screen(unit.x + a * dx - b * dy, unit.y + a * dy + b * dx)
+                        for a, b in ((major, minor), (major, -minor), (-major, -minor), (-major, minor))])
+                else:
+                    pygame.draw.circle(screen, colour, centre, max(2, int(unit.kind.major_radius * scale)))
+                tip = to_screen(unit.x + unit.dir[0] * unit.radius, unit.y + unit.dir[1] * unit.radius)
+                pygame.draw.line(screen, BG, centre, tip, 2)
+                if unit.blocked_frames:
+                    pygame.draw.circle(screen, RAY_BAD, centre, int(unit.radius * scale), 1)
+            top = int(grid.height * size) + 4
+            moving = sum(1 for u in sim.units if u.moving)
+            lines = [f"frame {sim.frame}  moving {moving}  blocked {sum(u.blocked_total for u in sim.units)}  "
+                     f"repaths {sum(u.repaths for u in sim.units)}  escapes {sum(u.escapes for u in sim.units)}  "
+                     f"searches {sim.pf.searches}  cells {sim.pf.cells_total}",
+                     f"lanes {sim.stats.lanes}  trunk {sim.stats.trunk_diameter}  rays[r] {show_rays}  "
+                     f"traffic[p] {show_heat}  claims[t] {show_claims}  [space] [n] [tab] [esc]"]
+            for k, text in enumerate(lines):
+                screen.blit(font.render(text, True, HUD_TEXT), (8, top + k * 18))
+            pygame.display.flip()
+            clock.tick(RENDER_FPS)
+    finally:
+        pygame.quit()
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--map", choices=MAP_KINDS, default="choke")
+    parser.add_argument("--units", type=int, default=8,
+                        help=f"a group of this many {DEFAULT_GROUP_KIND}s, read from the install")
+    parser.add_argument("--group", default="",
+                        help="a mix instead of --units, NAME:COUNT,... e.g. crusader:8,humvee:4,overlord:2; "
+                             "the names are unitdata.UNIT_OBJECTS'")
+    parser.add_argument("--gamemap", default="", metavar="NAME",
+                        help="a retail map from the install instead of --map, e.g. \"Tournament Desert\": "
+                             "the group starts at player 1's start and is ordered to player 2's "
+                             "(cross: half of it each way)")
+    parser.add_argument("--route", default="", metavar="AX,AY,BX,BY",
+                        help="with --gamemap: the two ends in cells instead of the first two starts")
+    parser.add_argument("--scenario", choices=SCENARIOS, default="column")
+    parser.add_argument("--scale", type=float, default=1.0)
+    parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--headless", type=int, metavar="SEEDS",
+                        help="no window: play the scenario on SEEDS maps and print the averages")
+    parser.add_argument("--sweep", default="",
+                        help="headless: NAME=v1,v2,... one of the game's constants, one row per value")
+    parser.add_argument("--pairs", type=int, default=0,
+                        help="headless: also time this many single searches per seed")
+    parser.add_argument("--proposed", action="store_true",
+                        help="the stuck ladder's PROPOSED_LADDER values: a second row headless, "
+                             "the only behaviour in the window")
+    parser.add_argument("--ttc", action="store_true",
+                        help="PROPOSED_TTC, steering by time to collision without the contact speed cap: "
+                             "another row headless (and one with --proposed), the only behaviour in the window")
+    parser.add_argument("--dither", action="store_true",
+                        help="PROPOSED_DITHER, the ladder seeing a turn on the spot: every row again with it")
+    parser.add_argument("--spot", action="store_true",
+                        help="PROPOSED_FROM_SPOT, a lane starting from the member's own spot instead of "
+                             "closing to the middle member first: every row again with it")
+    args = parser.parse_args()
+    if args.headless:
+        run_headless(args)
+        return
+    _, settings = setting_rows(args.proposed, args.ttc, args.dither, args.spot)[-1]
+    with overriding(**settings):
+        run_window(args)
 
 
 if __name__ == "__main__":
     main()
-    sys.exit(0)

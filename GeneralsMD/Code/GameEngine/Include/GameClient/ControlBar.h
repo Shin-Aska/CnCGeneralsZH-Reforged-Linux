@@ -70,6 +70,20 @@ class UpgradeTemplate;
 class ProductionUpdateInterface;
 class GameWindowTransitionsHandler;
 class DisplayString;
+struct HudLayoutRects;
+
+/// one line of a code-drawn window's text (the talents, the trainer), laid out again only when its
+/// text, size or well changes
+struct FittedLabel
+{
+	DisplayString *string;
+	UnicodeString text;
+	Int points, wellW, wellH;
+};
+enum { FITTED_ALIGN_LEFT = -1, FITTED_ALIGN_CENTRE = 0, FITTED_ALIGN_RIGHT = 1 };
+/// draw text in a well, centred unless told, wrapped to its width when asked, shrunk a point at a time until it fits
+void drawFittedLabel( FittedLabel &label, const UnicodeString &text, Int points, const IRegion2D &well, Color color,
+											Bool wrap, Int align = FITTED_ALIGN_CENTRE );
 
 enum ProductionID : Int;
 
@@ -505,6 +519,28 @@ Int ControlBar_commandGroup( const class CommandButton *command );
 	* what does not fit goes on in the next row down with room, then in the rows above. */
 Bool ControlBar_commandPlaces( const Int *types, const Int *groups, const Int *pinned, Int count, Int *places );
 
+/** A command tab's scroll: 'count' units on a grid of 'cells' in columns of 'rows'.  A list that fits
+	* takes every cell and never scrolls; one that does not gives two cells to the arrows when 'arrows'
+	* has room for them (a grid of fewer than three keeps every cell), so 'perView' units show at once.
+	* The list then scrolls a column at a time, from column 0 to 'lastColumn'.  ControlBarCommand.cpp. */
+void ControlBar_commandTabScroll( Int count, Int cells, Int rows, Bool arrows, Int *perView, Int *lastColumn );
+
+/** 'step' columns on from 'column', held to 0..'lastColumn'; 'back' and 'on' say whether the left and
+	* right arrows still have somewhere to go from there (each is greyed out where it has not). */
+Int ControlBar_commandTabStep( Int column, Int step, Int lastColumn, Bool *back, Bool *on );
+
+/** The builder behind a buildings tab cell that another side's builder fills (a captured dozer's
+	* structure the stand-in's own set lacks, the tab then paged as the unit tabs are): its
+	* availability is read on it and it places the structure.  NULL for every other cell.
+	* ControlBarCommand.cpp. */
+class Object *ControlBar_foreignBuilder( const GameWindow *win );
+
+/** " (Alt+Z)" for the key the player's command map gives a meta event in a match, empty for none
+	* (ControlBarPopupDescription.cpp). */
+UnicodeString ControlBar_metaKeySuffix( Int meta );
+/// `label` formatted with that suffix for its %s: the command tabs' tooltips
+UnicodeString ControlBar_withMetaKey( const UnicodeString& label, Int meta );
+
 /** The page's keys past attack, hold position and move, which no command set has a button for either. */
 enum OrderKeyExtra
 {
@@ -798,8 +834,8 @@ public:
 	void markUIDirty( void );
 
 	/** LOGIC-THREAD.md phase 2, M2: a call the tick makes on the bar.  Inside GameLogic::update it is
-		kept and run by flushLogicCalls on the main thread right after the tick, at both -logicthread
-		settings; outside a tick it runs at once.  The map start calls in startNewGame stay direct. */
+		kept and run by flushLogicCalls on the main thread right after the tick, wherever the tick
+		ran; outside a tick it runs at once.  The map start calls in startNewGame stay direct. */
 	static void callFromLogic( const std::function<void()>& call );
 	static void flushLogicCalls( void );		///< LogicThread::runTick, after every tick
 	Bool selectionRepeatsUnit( const ThingTemplate *thing );	///< a selected factory of ours builds it on repeat
@@ -927,6 +963,26 @@ public:
 	void hidePurchaseScience( void );
 	void togglePurchaseScience( void );
 	Bool isPurchaseScienceVisible( void );
+	/// a press on one of the promotion window's talent plates: buys that card when logic says it can be
+	/// bought; FALSE when the window is no talent plate
+	Bool purchaseTalent( GameWindow *control );
+
+	/** What the promotion window's talent half draws, read off the watched player outside the render
+		* window (ControlBar::update's logic latch and populateTalents), so the draw, which runs while the
+		* logic tick may be adding sciences, never touches a Player. */
+	enum { TALENT_VIEW_ROWS = TALENT_SCIENCE_COUNT / 2 };
+	struct TalentView
+	{
+		Bool taken;															///< FALSE until a player has been read
+		Bool hasTree;														///< the general has TalentSciences; without them nothing lights and no hint shows
+		Int rank;
+		Int state[ TALENT_SCIENCE_COUNT ];				///< 0 locked, 1 waiting, 2 picked, 3 rejected
+		Int rowState[ TALENT_VIEW_ROWS ];					///< the node: locked, waiting or picked
+		UnicodeString name[ TALENT_SCIENCE_COUNT ];
+		UnicodeString numeral[ TALENT_VIEW_ROWS ];
+		UnicodeString caption, waitingLine, hint, rankLabel, rankText;
+	};
+	const TalentView &getTalentView( void ) const { return m_talentView; }
 
 	void showSpecialPowerShortcut( void );
 	void hideSpecialPowerShortcut( void );
@@ -1033,6 +1089,17 @@ public:
 		* set - because it remembers both the authored rectangle and the one it last handed out. */
 	void layoutPanels( void );
 
+	/** TRUE while the bar stands as the Red Alert style sidebar (HudLayout 1, docs/plans/HUD-SIDEBAR-LAYOUT.md):
+		* what layoutPanels last laid out, so everything asking agrees with what is on screen.  An observer,
+		* a replay and a defeated player get the Classic bar whatever the option says. */
+	Bool isSidebarLayout( void ) const { return m_sidebarLayout; }
+
+	/** Every rectangle of the interface on this screen for the layout the bar stands in now and the
+		* HudWidth option: HudLayoutForScreen (GameClient/Display.h).  Under Classic only the area is set. */
+	void getHudLayoutRects( HudLayoutRects *out ) const;
+
+	static void startStructurePlacement( const CommandButton *button, Object *builder, Drawable *source = NULL );	///< a structure on the cursor for builder (source: its drawable when NULL), refused with the bar's message on no money, full queue or cap
+
 	/// Whether command set slot `slot` has a window on this bar, for what lays a set out without an object.
 	Bool hasCommandWindow( Int slot ) const { return m_commandWindows[ slot ] != NULL; }
 
@@ -1049,6 +1116,16 @@ public:
 		* rectangles and the plates are not, so without this a click on the sky above a sloped edge
 		* went nowhere.  GameWindow::winPointInChild asks, so clicking and unit picking agree. */
 	Bool letsClickThrough( GameWindow *window, Int x, Int y );
+
+	/** TRUE when this top-level window is the bar's frame and the point is on the radar's frame where
+		* a Minimap Size over 100 has raised it above the bar's top.  The window manager finds a window
+		* under the mouse by its top-level window's rectangle first, which ends at the bar's top. */
+	Bool holdsRaisedRadarPoint( const GameWindow *window, Int x, Int y );
+
+	/** A side's radar grown by Minimap Size has no frame in the painting; this is the rectangle the
+		* scheme draws steel round (outer) and the radar's window (inner), and whether EA's under-attack
+		* lamp is lit.  FALSE while the radar stands in its painted box. */
+	Bool getGrownRadarFrame( IRegion2D *outer, IRegion2D *inner, Bool *lit );
 
 	/// the radar's under-attack lamp, EA's
 	void triggerRadarAttackGlow( void );
@@ -1109,6 +1186,8 @@ protected:
 	void populatePurchaseScience(Player* player);
 	/// one rank's section of the promotion screen: slot i of the command set goes on windows[i]
 	void populatePurchaseScienceRank( Player *player, const CommandSet *commandSet, GameWindow **windows, Int windowCount );
+	void initTalentWindows( GameWindow *root );		///< widen the promotion window and put the talent plates on it
+	void populateTalents( Player *player );					///< the plates' presses and tooltips for that player's general
 	void populateCommand( Object *obj );
 	void populateMultiSelect( void );
 	void populateMultiSelectUnitList( void );
@@ -1144,6 +1223,21 @@ public:
 		}
 	}
 
+	/// getCommandAvailability for a button on no bar window: the group panel's build tray (GroupPanel.cpp)
+	CommandAvailability getButtonAvailability( const CommandButton *command, Object *obj ) const { return getCommandAvailability( command, obj, NULL ); }
+
+	/// The general's power shortcut window `i` while the powers tray shows it, else NULL: what the
+	/// player owns and may fire, his bought powers and his superweapons, captured ones too
+	/// (populateSpecialPowerShortcut).  The sidebar's powers tab lists the same buttons.
+	GameWindow *getShownPowerShortcut( Int i ) const;
+
+	/// The sidebar's power cell `cell`, carrying one of those buttons: its availability, with the
+	/// recharge clock drawn on it as the tray's own button gets it
+	CommandAvailability getPowerCellAvailability( const CommandButton *command, Object *holder, GameWindow *cell ) const { return getCommandAvailability( command, holder, cell ); }
+
+	/// A press on that cell: the tray button's own processing, which finds the holder itself
+	void firePowerCell( GameWindow *cell );
+
 protected:
 	/** The same question asked of a whole multi-selection: a command one of the selected buildings
 		* can carry out is offered, not greyed out because the group's representative happens to have
@@ -1176,9 +1270,17 @@ protected:
 	enum { POWER_TRAY_FOOT_Y = 790 };							///< at 1080, where the tray stands: the top of the general's tab
 	void powerTrayMetrics( const Image *const *tray, ICoord2D *origin, ICoord2D *cell,
 												 Int *left, Int *top, Int *foot, Int *bottom );	///< see arrangeSpecialPowerShortcutGrid
+	void arrangePowersWing( void );								///< the sidebar's: the powers flush on its left edge, level with the radar
 
 	void fitRadarToMap( Bool fromLayout );				///< the radar window, its frame and its blocker take the map's shape; see layoutPanels
 	Real m_radarFitWidth, m_radarFitHeight;				///< the map extent fitRadarToMap last fitted to
+	Int m_radarFitSize;														///< the Minimap Size percent fitRadarToMap last fitted to
+	Bool m_radarRaised;														///< the radar's frame stands above the bar's top; see holdsRaisedRadarPoint
+	IRegion2D m_radarRaisedRect;									///< the radar's frame against the bar's frame (setRaisedRadarRect)
+	Int m_radarGrownFrame;												///< pixels of steel getGrownRadarFrame draws round a grown radar
+	void setRaisedRadarRect( const IRegion2D &frame );	///< see m_radarRaisedRect; frame in screen pixels
+	void fitSquareRadar( GameWindow *const *windows, const IRegion2D *box );	///< Minimap Size for a scheme with no radar frame
+	Bool m_radarSquareGrown;											///< fitSquareRadar moved the radar out of its box since the layout
 	/// the observer's player column (its list, the watched player's panel, Options and Chat) stands
 	/// against the frame's right edge, so it is fitted with the radar
 	enum { RADAR_FIT_RADAR, RADAR_FIT_BLOCK, RADAR_FIT_LAMP, RADAR_FIT_LIST, RADAR_FIT_INFO, RADAR_FIT_OPTIONS,
@@ -1216,7 +1318,73 @@ public:
 	// get method for list of commandbuttons
 	const CommandButton *getCommandButtons( void ) { return TheCommandStore->getCommandButtons(); }
 
-	Drawable *findStandInBuilder( Bool freeOnly );				///< with BuildWithoutWorker on, the local player's free builder (or, unless freeOnly, any builder) to stand in for an empty selection
+	Drawable *findStandInBuilder( Bool freeOnly );				///< with BuildWithoutWorker on or the buildings tab open, the local player's free builder (or, unless freeOnly, any builder) to stand in
+
+	//
+	// The command bar's tabs (ControlBarCommand.cpp): three buttons made in code over the command
+	// grid's top left corner.  Buildings shows what a builder offers with nothing selected (the
+	// stand-in builder's bar), ground units and aircraft show every unit the player's working
+	// factories can build now, queued at a factory the logic picks (MSG_QUEUE_UNIT_FOR_GROUP with no
+	// squad).  A tab stays open until its button is pressed again or the selection changes.
+	//
+	enum CommandTab
+	{
+		COMMAND_TAB_NONE = -1,
+		COMMAND_TAB_BUILDINGS = 0,
+		COMMAND_TAB_GROUND,
+		COMMAND_TAB_AIRCRAFT,
+		COMMAND_TAB_COUNT
+	};
+	Int getCommandTab( void ) const { return m_commandTab; }
+	/// a tab is open and 'win' is one of the command grid's cells it fills: no hotkey shows or works there
+	Bool commandTabCovers( const GameWindow *win ) const;
+	void toggleCommandTab( Int tab );							///< a tab button's press: open it, or close it when it is the one open
+	void closeCommandTab( void );									///< no tab: the bar shows the selection again
+	/// the wheel over the command grid while a unit tab's list runs past the grid: TRUE when it was the list's (a column a notch)
+	Bool scrollCommandTab( const ICoord2D *mouse, Bool up );
+
+protected:
+	void updateCommandTabButtons( void );					///< every client frame: where the tab buttons stand, their look, whether they show
+	/// a scheme with no seats: the tabs' row worked out from the bar's windows; the parent's screen
+	/// rect in 'row', each tab relative to it in 'place'
+	void layoutCommandTabRow( const IRegion2D &grid, IRegion2D *row, IRegion2D *place );
+	/// the page arrows of a unit tab whose list does not fit (ControlBarCommand.cpp)
+	Bool findCommandTabArrowSlots( Int *next, Int *prev ) const;
+	Int commandTabCells( Int *slots, Int *rows ) const;	///< the grid's cells column by column, left to right, each top down
+	void commandTabLayout( Int count, Int *perView, Int *lastColumn, Int *next, Int *prev, Bool *arrows ) const;
+	void setCommandTabArrow( Int arrow, Int slot );
+	void restoreCommandTabArrows( void );
+	Bool turnCommandTabColumn( Int step );
+public:
+	Bool pressCommandTabArrow( GameWindow *win );	///< a click on a page arrow scrolls a column: TRUE, else FALSE
+	Bool isCommandTabArrow( const GameWindow *win ) const;	///< 'win' is a page arrow now
+protected:
+	/// the smoke signal keys on the radar's top edge (ControlBarCommand.cpp), in the scheme's seats;
+	/// a scheme naming none has none.  Every client frame: where they stand, enabled or not, armed
+	void updateSignalKeys( void );
+	GameWindow *m_signalParent;										///< the keys' plate window, checked against the window manager before use
+	Bool m_signalPlateShown;											///< the plate stands on screen now, at m_signalPlateRect
+	IRegion2D m_signalPlateRect;									///< the plate as placed, screen pixels, a grown radar's lift included
+	Int m_signalPlateFoot;												///< the plate's foot as the painting maps it, before any lift: the ledge
+	enum { SIGNAL_KEYS = 3 };											///< InGameUI.h's SIGNAL_KIND_COUNT, in SignalKind order
+	GameWindow *m_signalKeys[ SIGNAL_KEYS ];
+public:
+	/// a signal key's press: arm that smoke signal, or disarm it when it is the one armed
+	void pressSignalKey( Int kind );
+	/// the signal keys' plate where it stands now, FALSE while it is not on screen
+	Bool getSignalPlateRect( IRegion2D *rect ) const { if( !m_signalPlateShown ) return FALSE; *rect = m_signalPlateRect; return TRUE; }
+protected:
+	Int m_commandTabArrowSlot[ 2 ];								///< the cells that are the next and previous arrows now, -1 for none
+	enum { TAB_ARROW_DRAW_STATES = 7 };
+	const Image *m_commandTabArrowSaved[ 2 ][ 3 ][ TAB_ARROW_DRAW_STATES ];	///< what each arrow's cell wore before: enabled, hilite and disabled draw data
+	ICoord2D m_commandTabArrowSize[ 2 ];						///< each arrow's cell's size before it was squared to its height
+	void populateCommandTab( Bool full );					///< a unit tab's page into the grid; full after a context switch, else the states only
+	Bool getCommandGridRect( IRegion2D *rect ) const;	///< the command windows' screen extent
+
+	Int m_commandTab;															///< CommandTab open, COMMAND_TAB_NONE for none
+	Int m_commandTabColumn;												///< a unit tab's first column shown
+	GameWindow *m_commandTabParent;								///< the tabs' code-made parent, checked against the window manager before use
+	GameWindow *m_commandTabButtons[ COMMAND_TAB_COUNT ];
 
 protected:
 
@@ -1226,6 +1394,18 @@ protected:
 	IRegion2D m_panelRect[ CB_PANEL_COUNT ];				///< screen rect of each panel, filled by layoutPanels()
 	ICoord2D m_panelOrigin;													///< where the frame was put, so the plates can follow it
 	Bool m_UIDirty;																///< the context UI must be re-evaluated
+
+	// the sidebar layout (ControlBarSidebarLayout.cpp)
+	Bool wantsSidebarLayout( void ) const;				///< the option asks for it and this seat may have it
+	void layoutSidebar( void );										///< layoutPanels' second half under the sidebar, after the Classic pass
+	void hideForSidebar( GameWindow *window );		///< hide a window the sidebar has no place for, remembered for Classic
+	void restoreClassicWindows( void );						///< what hideForSidebar and layoutSidebar changed, put back
+	void updateSelectionCardReadout( void );			///< the card's name, rank and health, copied for its draw (ControlBar::update)
+	void arrangeStripByRole( void );							///< the strip's buttons by role: own left, Attack Stop Guard right, the container's before them
+	Bool m_sidebarLayout;													///< see isSidebarLayout
+	std::vector< GameWindow * > m_sidebarHidden;	///< windows layoutSidebar hid that were showing
+	Bool m_sidebarBlockSaved;											///< the strip blocker's enabled state below was saved
+	Bool m_sidebarBlockEnabled;										///< ...and what it was under Classic
 
 	ControlBarSchemeManager *m_controlBarSchemeManager;		///< The Scheme singleton
 
@@ -1254,6 +1434,10 @@ protected:
 	GameWindow *m_sciencePurchaseWindowsRank1[ MAX_PURCHASE_SCIENCE_RANK_1 ];			///< command window controls for easy access
 	GameWindow *m_sciencePurchaseWindowsRank3[ MAX_PURCHASE_SCIENCE_RANK_3 ];			///< command window controls for easy access
 	GameWindow *m_sciencePurchaseWindowsRank8[ MAX_PURCHASE_SCIENCE_RANK_8 ];			///< command window controls for easy access
+	GameWindow *m_talentWindows[ TALENT_SCIENCE_COUNT ];		///< the promotion window's talent plates, 6A 6B .. 10A 10B
+	TalentView m_talentView;																///< see getTalentView
+	Int m_talentPendingRow;																	///< a row whose purchase is on its way to logic, -1 none
+	UnsignedInt m_talentPendingFrame;												///< the logic frame it was sent on
 	GameWindow *m_specialPowerShortcutButtons[ MAX_SPECIAL_POWER_SHORTCUTS ];
 	GameWindow *m_specialPowerShortcutButtonParents[ MAX_SPECIAL_POWER_SHORTCUTS ];
 	DisplayString *m_shortcutDisplayStrings[ MAX_SPECIAL_POWER_SHORTCUTS ];
@@ -1288,6 +1472,8 @@ public:
 		IRegion2D cell;
 		Int edgeLeft, edgeTop, edgeBottom;
 		Int stepRight, stepBelow;
+		Int edgeRight;		///< the outer edge, only where the tray stops short of the screen's edge (the sidebar, a HudWidth area)
+		Bool wing;				///< the sidebar's powers wing: edgeRight is the joint against the sidebar, edgeTop the column's cap, edgeBottom its foot, the Sidebar_image pieces drawn
 	};
 protected:
 	TraySlot m_traySlot[ MAX_SPECIAL_POWER_SHORTCUTS ];

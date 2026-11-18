@@ -145,7 +145,15 @@ void destroyQuitMenu()
 	//
 	saveLoadMenuLayout = NULL;
 
+	//
+	// The in-game UI's copy of the flag goes with the menu.  EA left it set, so a player who surrendered
+	// and stayed on as an observer had a match that still thought its quit menu was up: no chat, no
+	// diplomacy, no left click through the selection translator until Escape opened and closed the menu
+	// again, and -control's quitmenu found no menu to press Exit in.
+	//
 	isVisible = FALSE;
+	if( TheInGameUI )
+		TheInGameUI->setQuitMenuVisible( FALSE );
 }
 
 //
@@ -218,8 +226,15 @@ static void exitQuitMenu()
   // destroy the quit menu
 	destroyQuitMenu();
 	
-	// clear out all the game data
-	if ( TheGameLogic->isInMultiplayerGame() && !TheGameLogic->isInSkirmishGame() && !TheGameInfo->isSandbox() )
+	//
+	// Leaving a network game blows up or hands over what is left, so the others see the player go on
+	// an agreed frame.  Not once his side has already won: victory is read off who still has
+	// something standing, so the winner of a 1v1 who left through Exit after the other surrendered
+	// killed his own army on the frame before the score screen read it and was shown DEFEAT, and
+	// every copy still in the match lost its winner from the standings.  Surrender refuses the same.
+	//
+	if ( TheGameLogic->isInMultiplayerGame() && !TheGameLogic->isInSkirmishGame() && !TheGameInfo->isSandbox()
+			 && !TheVictoryConditions->isLocalAlliedVictory() )
 	{
 		GameMessage *msg = TheMessageStream->appendMessage(GameMessage::MSG_SELF_DESTRUCT);
 		msg->appendBooleanArgument(TRUE);
@@ -304,6 +319,7 @@ static void restartMissionMenu()
 	Int rankPointsStartedWith = TheGameLogic->getRankPointsToAddAtGameStart();// must write down before reset
 	GameDifficulty diff = TheScriptEngine->getGlobalDifficulty();
 	Int fps = TheGameEngine->getFramesPerSecondLimit();
+	const Int gameSpeedPercent = GAME_SPEED_PERCENT;	// the restart plays the speed this match had
 
 	TheGameLogic->clearGameData(FALSE);
 	TheGameEngine->setQuitting(FALSE);
@@ -321,6 +337,7 @@ static void restartMissionMenu()
 		msg->appendIntegerArgument(diff);
 		msg->appendIntegerArgument(rankPointsStartedWith);
 		msg->appendIntegerArgument(fps);
+		msg->appendIntegerArgument(gameSpeedPercent);
 		DEBUG_LOG(("Restarting game mode %d, Diff=%d, RankPoints=%d\n", gameMode, 
 																																		TheScriptEngine->getGlobalDifficulty(), 
 																																		rankPointsStartedWith)

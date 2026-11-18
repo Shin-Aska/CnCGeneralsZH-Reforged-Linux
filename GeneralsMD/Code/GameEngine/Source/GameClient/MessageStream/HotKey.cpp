@@ -65,8 +65,10 @@
 #include "Common/AudioEventRTS.h"
 #include "Common/GlobalData.h"
 #include "Common/INI.h"
+#include "Common/OptionsCatalog.h"
 #include "Common/ThingTemplate.h"
 #include "GameClient/CommandXlat.h"
+#include "GameClient/HotkeyScheme.h"
 #include "GameClient/ControlBar.h"
 #include "GameClient/Drawable.h"
 #include "GameClient/GadgetPushButton.h"
@@ -453,8 +455,8 @@ static std::map< std::string, WideChar > s_playerButtonKeys;
 	* orders to another letter, or none, like every other button.  No button keeps one of these
 	* letters from its label; the player may give one to any button, and on a bar where the fixed order
 	* stands too, the order gets the key (addHotKey).  The launcher holds the same table (hotkeys.js,
-	* FIXED_KEYS). */
-static const WideChar FIXED_KEYS[] = { 'A', 'S', 'G', 'Y', 'V', 'N', 'C', 'H' };
+	* FIXED_KEYS).  The letters are HotkeyScheme_fixedLetters, in this order; Red Alert's sell is L. */
+enum { FIXED_ATTACK_MOVE, FIXED_STOP, FIXED_GUARD, FIXED_RALLY, FIXED_EVACUATE, FIXED_SELL, FIXED_COMBAT_DROP, FIXED_SWITCH };
 /** FixedOrderKeys in Hotkeys.ini: with Enabled = No none of the above holds, and every button, the
 	* orders included, wears its label's letter or the player's, as in the game as shipped.  Read with
 	* the button keys, back to HOTKEYS_FIXED_ORDER_KEYS_DEFAULT (off on Linux) before each read. */
@@ -473,26 +475,48 @@ static const char *const FIXED_H_BUTTONS[] =
 };
 static const char FIXED_H_PREFIX[] = "command_becomerealgla";	///< a fake building's switch to the real one
 
-static WideChar fixedButtonKey( const AsciiString& lowerName, Int commandType )
+/// -1 is the scheme in force, the options menu's (GlobalData m_hotkeyScheme)
+static Int schemeOf( Int scheme )
+{
+	if( scheme >= 0 )
+		return scheme;
+	return TheGlobalData ? TheGlobalData->m_hotkeyScheme : HOTKEY_SCHEME_CLASSIC;
+}
+
+static WideChar fixedButtonKey( const AsciiString& lowerName, Int commandType, Int scheme )
 {
 	if( !s_fixedOrderKeys )
 		return 0;
+	const char *letters = HotkeyScheme_fixedLetters( scheme );
 	if( strncmp( lowerName.str(), FIXED_H_PREFIX, sizeof( FIXED_H_PREFIX ) - 1 ) == 0 )
-		return 'H';
+		return letters[ FIXED_SWITCH ];
 	for( Int each = 0; each < (Int)( sizeof( FIXED_H_BUTTONS ) / sizeof( FIXED_H_BUTTONS[ 0 ] ) ); each++ )
 		if( lowerName.compare( FIXED_H_BUTTONS[ each ] ) == 0 )
-			return 'H';
+			return letters[ FIXED_SWITCH ];
 	switch( commandType )
 	{
-		case GUI_COMMAND_ATTACK_MOVE:			return 'A';
-		case GUI_COMMAND_STOP:						return 'S';
-		case GUI_COMMAND_GUARD:						return 'G';
-		case GUI_COMMAND_SET_RALLY_POINT:	return 'Y';
-		case GUI_COMMAND_EVACUATE:				return 'V';
-		case GUI_COMMAND_SELL:						return 'N';
-		case GUI_COMMAND_COMBATDROP:			return 'C';
+		case GUI_COMMAND_ATTACK_MOVE:			return letters[ FIXED_ATTACK_MOVE ];
+		case GUI_COMMAND_STOP:						return letters[ FIXED_STOP ];
+		case GUI_COMMAND_GUARD:						return letters[ FIXED_GUARD ];
+		case GUI_COMMAND_SET_RALLY_POINT:	return letters[ FIXED_RALLY ];
+		case GUI_COMMAND_EVACUATE:				return letters[ FIXED_EVACUATE ];
+		case GUI_COMMAND_SELL:						return letters[ FIXED_SELL ];
+		case GUI_COMMAND_COMBATDROP:			return letters[ FIXED_COMBAT_DROP ];
 	}
 	return 0;
+}
+
+/** A letter (upper case) the scheme's table puts a command on bare, KEY_<letter> with no modifier:
+	* Red Alert's Q W E R tabs, D deploy, T, P, N, M, K, L, B, Z.  Classic has no table. */
+static Bool schemeHoldsLetter( Int scheme, WideChar letter )
+{
+	Int count = 0;
+	const HotkeySchemeKey *keys = HotkeyScheme_keys( scheme, &count );
+	for( Int each = 0; each < count; each++ )
+		if( strcmp( keys[ each ].modifiers, "NONE" ) == 0 && strncmp( keys[ each ].key, "KEY_", 4 ) == 0
+				&& keys[ each ].key[ 4 ] == letter && keys[ each ].key[ 5 ] == 0 )
+			return TRUE;
+	return FALSE;
 }
 
 /** The player's key for a button, into *letter; FALSE leaves it alone. */
@@ -533,16 +557,8 @@ static Int keyClaim( GameWindow *win, const AsciiString& key, Int barSlot )
 		return letter != 0 && HotKeyManager::nameOf( letter ) == key ? 1 : 0;
 	if( s_commandBarGrid && barSlot >= 0 )
 		return 0;
-	const WideChar fixed = fixedButtonKey( lower, command->getCommandType() );
+	const WideChar fixed = fixedButtonKey( lower, command->getCommandType(), schemeOf( -1 ) );
 	return fixed != 0 && HotKeyManager::nameOf( fixed ) == key ? 2 : 0;
-}
-
-static Bool isOneOf( WideChar letter, const WideChar *letters, Int count )
-{
-	for( Int each = 0; each < count; each++ )
-		if( letters[ each ] == letter )
-			return TRUE;
-	return FALSE;
 }
 
 //-----------------------------------------------------------------------------
@@ -585,17 +601,18 @@ void HotKeyManager::setCommandBarGrid( Bool grid )
 }
 
 //-----------------------------------------------------------------------------
-WideChar HotKeyManager::fixedKey( const AsciiString& button, Int commandType )
+WideChar HotKeyManager::fixedKey( const AsciiString& button, Int commandType, Int scheme )
 {
 	AsciiString lower = button;
 	lower.toLower();
-	return fixedButtonKey( lower, commandType );
+	return fixedButtonKey( lower, commandType, schemeOf( scheme ) );
 }
 
 //-----------------------------------------------------------------------------
 WideChar HotKeyManager::buttonKeyIn( const AsciiString& button, WideChar labelKey, Int commandType,
-	const std::map< std::string, WideChar >& keys, Int barSlot, Int upgradeRank )
+	const std::map< std::string, WideChar >& keys, Int barSlot, Int upgradeRank, Int scheme )
 {
+	scheme = schemeOf( scheme );
 	// Force Attack is Ctrl.  The English label's F is not the key and may not bind the button.
 	if( commandType == GUI_COMMAND_FORCE_ATTACK )
 		return 0;
@@ -612,15 +629,17 @@ WideChar HotKeyManager::buttonKeyIn( const AsciiString& button, WideChar labelKe
 	}
 	if( !chosen )
 	{
-		const WideChar fixed = fixedButtonKey( lower, commandType );
+		const WideChar fixed = fixedButtonKey( lower, commandType, scheme );
 		if( fixed != 0 )
 			return fixed;
 	}
 	if( letter >= 'a' && letter <= 'z' )
 		letter -= 'a' - 'A';
-	// a label's own fixed letter gives way; one the player chose stays, and the bar's fixed order
-	// still takes it first (addHotKey)
-	if( !chosen && s_fixedOrderKeys && isOneOf( letter, FIXED_KEYS, (Int)( sizeof( FIXED_KEYS ) / sizeof( FIXED_KEYS[ 0 ] ) ) ) )
+	// a label's own fixed letter gives way, and under Red Alert one its table binds bare (Q the tab, D
+	// deploy); one the player chose stays, and the bar's fixed order still takes it first (addHotKey)
+	if( !chosen && letter != 0 && letter < 0x80 &&
+			( ( s_fixedOrderKeys && strchr( HotkeyScheme_fixedLetters( scheme ), (char)letter ) != NULL )
+				|| schemeHoldsLetter( scheme, letter ) ) )
 		return 0;
 	return letter;
 }
@@ -637,7 +656,7 @@ void HotKeyManager::setFixedOrderKeys( Bool fixed )
 }
 
 //-----------------------------------------------------------------------------
-/** FixedOrderKeys, Enabled = Yes or No, End: whether the orders hold their fixed letters (FIXED_KEYS). */
+/** FixedOrderKeys, Enabled = Yes or No, End: whether the orders hold their fixed letters (HotkeyScheme_fixedLetters). */
 /*static*/ void INI::parseFixedOrderKeysDefinition( INI *ini )
 {
 	static const FieldParse fields[] =
@@ -700,11 +719,23 @@ void HotKeyManager::loadPlayerKeys( void )
 	s_playerButtonKeys.clear();
 	s_fixedOrderKeys = HOTKEYS_FIXED_ORDER_KEYS_DEFAULT;
 	s_commandBarGrid = FALSE;
+	// the scheme's defaults go on before its file, so a key the player chose stands over them
+	const Int scheme = schemeOf( -1 );
+	if( TheMetaMap )
+		TheMetaMap->applyScheme( scheme );
 	AsciiString hotkeys = TheGlobalData->getPath_UserData();
-	hotkeys.concat( "Hotkeys.ini" );
+	hotkeys.concat( HotkeyScheme_fileName( scheme ) );
 	if( !TheFileSystem->doesFileExist( hotkeys.str() ) )
 		return;
+	// The file is the player's own and outside the INI CRC, so it may hold the four blocks
+	// Hotkeys_format writes and nothing else: through the whole table it could redefine an Object or
+	// GameData on one machine and split the match.
+	static const char *const HOTKEY_BLOCKS[] =
+	{
+		"CommandMap", "CommandButtonHotKey", "FixedOrderKeys", "CommandBarGrid", NULL
+	};
 	INI ini;
+	ini.restrictBlocks( HOTKEY_BLOCKS );
 	try
 	{
 		ini.load( hotkeys, INI_LOAD_MULTIFILE, NULL );
@@ -714,6 +745,27 @@ void HotKeyManager::loadPlayerKeys( void )
 	{
 		DEBUG_LOG(( "HOTKEYS: %s stopped at a block it could not read; the keys before it stand\n", hotkeys.str() ));
 	}
+
+	// Red Alert's tabs sit on the bare letters, so Ctrl+R is nobody's to win back
+	if( scheme == HOTKEY_SCHEME_RED_ALERT )
+		return;
+	// the sidebar's fourth tab took Ctrl+R by default (MetaMap::keepArrowsForCamera) before the
+	// player's file was read; a key of his own on Ctrl+R wins it back
+	// the map's records are its own and only handed out const; this one is changed in place
+	MetaMapRec *tab = NULL;
+	for( const MetaMapRec *rec = TheMetaMap->getFirstMetaMapRec(); rec && tab == NULL; rec = rec->m_next )
+		if( rec->m_meta == GameMessage::MSG_META_TOGGLE_COMMAND_TAB_DEFENSE )
+			tab = const_cast< MetaMapRec * >( rec );
+	if( tab == NULL || tab->m_key != MK_R || tab->m_modState != CTRL || tab->m_usableIn == COMMANDUSABLE_NONE )
+		return;
+	for( const MetaMapRec *rec = TheMetaMap->getFirstMetaMapRec(); rec; rec = rec->m_next )
+		if( rec != tab && rec->m_key == MK_R && rec->m_modState == CTRL && rec->m_usableIn != COMMANDUSABLE_NONE )
+		{
+			DEBUG_LOG(( "HOTKEYS: Ctrl+R is the player's own; the sidebar's fourth tab goes without a key\n" ));
+			tab->m_key = MK_NONE;
+			tab->m_usableIn = COMMANDUSABLE_NONE;
+			return;
+		}
 }
 
 //-----------------------------------------------------------------------------
@@ -928,6 +980,10 @@ std::vector< HotkeyCommandRow > Hotkeys_commandRows( const std::string& commandM
 	unbound.push_back( commandRow( "CYCLE_WATER_REFLECTION", "INTERFACE" ) );
 #endif
 	unbound.push_back( commandRow( "TOGGLE_PURCHASE_SCIENCE", "INTERFACE" ) );
+	unbound.push_back( commandRow( "TOGGLE_COMMAND_TAB_BUILDINGS", "INTERFACE" ) );
+	unbound.push_back( commandRow( "TOGGLE_COMMAND_TAB_GROUND", "INTERFACE" ) );
+	unbound.push_back( commandRow( "TOGGLE_COMMAND_TAB_AIRCRAFT", "INTERFACE" ) );
+	unbound.push_back( commandRow( "TOGGLE_COMMAND_TAB_DEFENSE", "INTERFACE" ) );
 	unbound.push_back( commandRow( "SIGNAL_ATTACK", "INFORMATION" ) );
 	unbound.push_back( commandRow( "SIGNAL_DEFEND", "INFORMATION" ) );
 	unbound.push_back( commandRow( "SIGNAL_ATTENTION", "INFORMATION" ) );
@@ -953,9 +1009,13 @@ std::vector< HotkeyCommandRow > Hotkeys_commandRows( const std::string& commandM
 	}
 	// LAUNCHER_DEFAULTS: I, free in the shipped map, for the next idle worker, and Alt with Z, X and C,
 	// which nothing in the shipped map holds, for the signals to the allies. Request money has no key:
-	// Alt+V is evacuate in place.
+	// Alt+V is evacuate in place. Ctrl with Q, W and E, free too, for the bar's command tabs, and Ctrl+R
+	// for the sidebar's fourth tab; the game puts all of these on (MetaMap::keepArrowsForCamera), so a
+	// file naming them names no change.
 	static const char *const DEFAULTS[][ 3 ] = { { "SELECT_NEXT_IDLE_WORKER", "KEY_I", "NONE" },
-		{ "SIGNAL_ATTACK", "KEY_Z", "ALT" }, { "SIGNAL_DEFEND", "KEY_X", "ALT" }, { "SIGNAL_ATTENTION", "KEY_C", "ALT" } };
+		{ "SIGNAL_ATTACK", "KEY_Z", "ALT" }, { "SIGNAL_DEFEND", "KEY_X", "ALT" }, { "SIGNAL_ATTENTION", "KEY_C", "ALT" },
+		{ "TOGGLE_COMMAND_TAB_BUILDINGS", "KEY_Q", "CTRL" }, { "TOGGLE_COMMAND_TAB_GROUND", "KEY_W", "CTRL" },
+		{ "TOGGLE_COMMAND_TAB_AIRCRAFT", "KEY_E", "CTRL" }, { "TOGGLE_COMMAND_TAB_DEFENSE", "KEY_R", "CTRL" } };
 	for( size_t each = 0; each < unbound.size(); each++ )
 		for( size_t row = 0; row < sizeof( DEFAULTS ) / sizeof( DEFAULTS[ 0 ] ); row++ )
 			if( unbound[ each ].id == DEFAULTS[ row ][ 0 ] )

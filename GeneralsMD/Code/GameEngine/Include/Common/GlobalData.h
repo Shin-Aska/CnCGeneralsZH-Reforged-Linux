@@ -116,6 +116,12 @@ enum
 	AIKNOB_MASS_UNIT		= 4,
 	AIKNOB_BASE_WATCH		= 8,
 	AIKNOB_STRIKE_DODGE	= 16,
+	AIKNOB_DEFENSE_QUEUE	= 32,	///< the scripts' base defences go down on the frame they are asked for, as before they queued
+	AIKNOB_COST_MAP			= 64,	///< the influence map stamps build cost against everything, as before it stamped threat by target class
+	AIKNOB_ABILITIES		= 128,	///< its units never press their own buttons, and its matchups credit no weapon only a button fires
+	AIKNOB_MAP_LAYERS		= 256,	///< the influence map without its still, worth, hazard and memory layers, its gun shapes and its front line, as before them
+	AIKNOB_FOREIGN_TECH	= 512,	///< no other side's tech tree: a foreign dozer or Command Center is left as before, and nothing goes after one (ForeignTech 0)
+	AIKNOB_SECOND_BASE	= 1024,	///< a base away from home is a war factory on the rung's timer, as before it was a Command Center founded once home is full
 };
 
 //-------------------------------------------------------------------------------------------------
@@ -213,7 +219,7 @@ public:
 	Bool m_useShadowDecals;
 	Bool m_shadowsForProjectiles;	// "ShadowsForProjectiles": missiles and bombs that have no shadow of their own get a decal one
 	Bool m_startAtMaxZoom;					// "OpenAtMaxZoom" in Options.ini: a game opens as far out as the wheel goes, not 300 over the ground
-	Bool m_turboMode;								// "TurboMode" in Options.ini: a campaign or challenge mission runs at twice normal speed; a lobby has its own box
+	Int m_missionGameSpeedPercent;	// "MissionGameSpeed" in Options.ini: the game speed a campaign or challenge mission starts at, a PLAYER_GAME_SPEED_PERCENTS value; wall pacing only
 	Bool m_shadowsForProps;				// "ShadowsForProps": fences, rubbish, shrubs - scenery the art gave no shadow at all
 	Bool m_shadowsForParticles;		// "ShadowsForParticles": big alpha-blended particle clouds drop a soft blob on the ground
 	Bool m_volumetricSmokeShadows;	// "VolumetricSmokeShadows": smoke and dust shade the world and themselves through the sun's map (Direct3D 11)
@@ -238,6 +244,8 @@ public:
 	Int m_lightingStyle;					// "LightingStyle": LightingStyleType; the map's lights are rebalanced as each map loads
 	Bool m_shadowMap;							// "-shadowmap": draw the casters into the sun's depth buffer as well
 	Bool m_shadowMapReport;				// "-shadowmapreport": log what ended up in that buffer, once a second
+	Bool m_vertexTerrainSun;			// "-vertexTerrainSun": the ground keeps EA's per-vertex sun on Direct3D 11 too, the before half of a picture
+	Bool m_noTerrainSubdivide;		// "-noTerrainSubdivide": the ground keeps EA's two triangles a cell on Direct3D 11 too, the before half of a picture
 	Bool m_shadowMapOldCasters;		// "-shadowmapoldcasters": every caster through the mesh renderer, none instanced
 	Bool m_shadowMapOnly;					// "-shadowmaponly": the map's shadows with the stencil volumes' own darkening off
 	Real m_shadowMapPenumbra;			// "-shadowtune": penumbra per world unit of gap under the caster, 0 for the built-in
@@ -296,9 +304,9 @@ public:
 	Real m_unitReallyDamagedThresh;
 	Real m_groundStiffness;
 	Real m_structureStiffness;
-	Real m_gravity;	// acceleration due to gravity, in dist/frame^2
+	AccelerationPerFrame m_gravity;	// acceleration due to gravity, in dist/frame^2
 	Real m_stealthFriendlyOpacity;
-	UnsignedInt m_defaultOcclusionDelay;	///<time to delay building occlusion after object is created.
+	DurationFrames m_defaultOcclusionDelay;	///<time to delay building occlusion after object is created.
 
 	Bool m_preloadEverything;			///< Preload everything, everywhere (for debugging only)
 	Bool m_preloadReport;					///< dump a log of all W3D assets that are being preloaded.
@@ -306,8 +314,8 @@ public:
 
 	Real m_partitionCellSize;
 
-	// read from retail GameData.ini and used by nothing: the ammo and seat trays hang off the health
-	// bar (Drawable::drawTrays). Kept so that INI still parses.
+	// read from retail GameData.ini and used by nothing: the rounds and seats are drawn under the
+	// health bar (Drawable::loadPips). Kept so that INI still parses.
 	Coord3D m_ammoPipWorldOffset;
 	Coord3D m_containerPipWorldOffset;
 	Coord2D m_ammoPipScreenOffset;
@@ -315,7 +323,7 @@ public:
 	Real m_ammoPipScaleFactor;
 	Real m_containerPipScaleFactor;
 
-	UnsignedInt m_historicDamageLimit;
+	DurationFrames m_historicDamageLimit;
 
 	//Settings for terrain tracks left by vehicles with treads or wheels
 	Int m_maxTerrainTracks; ///<maximum number of objects allowed to generate tracks.
@@ -382,6 +390,9 @@ public:
 	Bool m_showObjectHealth;			///< debug display object health
 	Int m_healthBarMode;					///< HealthBarModeType: which units wear a bar at all
 	Int m_healthBarColors;				///< 0 the green-to-red health ramp, 1 the owner's player colour (client only)
+	Int m_hudLayout;							///< "HudLayout": HUD_LAYOUT_CLASSIC or HUD_LAYOUT_SIDEBAR (OptionsCatalog.h, client only)
+	Int m_hudWidth;								///< "HudWidth": HUD_WIDTH_FULL, _21_9 or _16_9, the interface's centred area (client only)
+	Int m_hotkeyScheme;						///< "HotkeyScheme": HOTKEY_SCHEME_CLASSIC or _RED_ALERT (OptionsCatalog.h, client only)
 	Int m_mouseStyle;							///< MOUSE_STYLE_CLASSIC or MOUSE_STYLE_REFORGED, set by -mouse only (client only, never GameLogic)
 	Bool isClassicMouse() const { return m_mouseStyle == MOUSE_STYLE_CLASSIC; }
 	/// which button gives a click on the ground its order.  Reforged mouse: the right.  Classic: the left,
@@ -485,6 +496,7 @@ public:
 	Int m_textureFilterMode;			///< 0 bilinear, 1 trilinear, 2 anisotropic
 	Int m_anisotropyLevel;				///< samples anisotropic filtering may take; 0 = whatever the card offers
 	Bool m_showNetBox;					///< the player's own switch for the top right info strip (InGameUI::drawHudOverlay)
+	Int m_minimapSize;					///< percent of its own size the radar is drawn at, growing up from the bar's corner (ControlBar::fitRadarToMap); 100 = as the bar has it
 	Bool m_showEmptyBuildingPips;		///< the row of empty slots over a building nobody is in
 	Bool m_workersReturnToSupply;		///< a worker that finishes a build job goes back to the dock it left
 	Bool m_archiveReplays;					///< keep a timestamped copy of every replay, instead of only the last one
@@ -498,6 +510,8 @@ public:
 	Bool m_headless;							///< -headless: never draw a frame, never pace the logic tick, quit when the match ends
 	Bool m_turbo;									///< -turbo: draw, but run one logic frame a pass instead of pacing it to the wall clock
 	Int m_autoSkirmishAIStateOdd;		///< -aidiff2 <name>: rung for the odd-numbered slots (0 = same as -aidiff)
+	Int m_autoSkirmishRating;				///< -airating <r>: every AI slot's rating in hundredths, the rung its nearest; over -aidiff (AI_RATING_NONE = off; negative is a rating)
+	Int m_autoSkirmishRatingOdd;		///< -airating2 <r>: the odd-numbered slots' rating in hundredths, over -aidiff2 (AI_RATING_NONE = same as -airating)
 	Int m_noTacticsSlotParity;			///< -notactics even|odd: those slots of a skirmish fight without Hard's unit tactics; -1 none
 	Int m_aiKnobsOffParity;				///< -aiknobsoff even|odd|all <names>: those slots of a skirmish play with these profile knobs off; -1 none, 2 all
 	Int m_aiKnobsOffMask;					///< ... which knobs: AIKNOB_* bits
@@ -507,7 +521,7 @@ public:
 	Int m_incomeSharing;						///< -incomesharing <n>: the lobby's income sharing, an IncomeSharing, for an -autoskirmish run
 	Int m_techRespawn;							///< -techrespawn <n>: the lobby's tech building respawn, in minutes, for an -autoskirmish run
 	Int m_supplyPileLimit;					///< -supplypilelimit <n>: the lobby's supply pile limit, in players a pile, for an -autoskirmish run
-	Bool m_turboMatch;							///< -turbomode: the lobby's turbo mode, for an -autoskirmish or -netgame run
+	Int m_autoSkirmishGameSpeedPercent;	///< -gamespeed <percent>: the skirmish lobby's game speed for an -autoskirmish run, PLAYER_GAME_SPEED_PERCENT_DEFAULT unless asked
 	Int m_superweapons;							///< -superweapons <n>: the lobby's superweapon rule, a SUPERWEAPONS_ mode, for an -autoskirmish run
 	Int m_startingCash;							///< -startingcash <n>: the lobby's starting cash for an -autoskirmish run (0 = DefaultStartingCash)
 	Int m_maxGameFrames;						///< -maxframes <n>: quit after n logic frames however the match is going (0 = no limit)
@@ -527,6 +541,7 @@ public:
 	Coord2D m_cameraLook;						///< where -camera pointed it
 	Int m_traceMoveID;							///< -tracemove [id]: log one movement line a frame for this object (0 = off, -1 = the first unit that gets blocked)
 	Real m_slowFrameMS;							///< -slowframe <ms>: a logic frame over this long logs its own breakdown (default 20)
+	Bool m_logicProfile;						///< -slowframe given: time every update module and script, log the module table every 600 frames
 	Int m_drawDelayMS;							///< -drawdelay <ms>: sleep this long in every client pass, a slow graphics card on demand (0 = off)
 	Int m_drawDelayJitterMS;				///< -drawdelay <ms> <jitter>: up to this much more, different every pass
 	Bool m_showLanes;							///< -showlanes: draw every moving unit's route, the lane it was handed and the offset it kept
@@ -580,6 +595,7 @@ public:
 	Bool m_mapLight;								///< "MapLight": warm low sun and a still ground haze (Direct3D 11, client only)
 	Bool m_teamGlow;								///< "TeamGlow": bright house colour glows (Direct3D 11, client only)
 	Bool m_waterFoam;								///< "WaterFoam": foam, shore band and the sun's shadow on water (Direct3D 11, client only)
+	Bool m_groundFoliage;						///< "GroundFoliage": grass tufts on grass ground, swaying in the wind (client only; off under Classic graphics)
 	Bool m_groundMarks;							///< "GroundMarks": craters, stains and longer treads that fade over minutes (Linux SDL GPU / Windows DX11, client only)
 	Bool m_firelight;								///< "Firelight": flames light the ground, walls and units around them (Direct3D 11, client only)
 	Bool m_heatHaze;								///< "HeatHaze", "-heathaze": the air over fire, beams and exhausts shimmers (Direct3D 11, client only)
@@ -663,7 +679,7 @@ public:
 
 	Real m_sellPercentage;						///< when objects are sold, you get this much of the cost it would take to build it back
 	Real m_baseRegenHealthPercentPerSecond;	///< auto healing for bases
-	UnsignedInt m_baseRegenDelay;			///< delay in frames we must be damage free before we can auto heal
+	DurationFrames m_baseRegenDelay;			///< delay in frames we must be damage free before we can auto heal
 
 #ifdef ALLOW_SURRENDER
 	Real m_prisonBountyMultiplier;		///< the cost of the unit is multiplied by this and given to the player when prisoners are returned to the a prison with KINDOF_COLLECTS_PRISON_BOUNTY
@@ -701,7 +717,7 @@ public:
 	Int m_powerBarYellowRange;						///< Red if consumption exceeds production, yellow if consumption this close but under, green if further under
 	Real m_displayGamma;									///<display gamma that's adjusted with "brightness" control on options screen.
 
-	UnsignedInt m_unlookPersistDuration;	///< How long after unlook until the sighting info executes the undo
+	DurationFrames m_unlookPersistDuration;	///< How long after unlook until the sighting info executes the undo
 
 	Bool m_shouldUpdateTGAToDDS;					///< Should we attempt to update old TGAs to DDS stuff on loadup?
   

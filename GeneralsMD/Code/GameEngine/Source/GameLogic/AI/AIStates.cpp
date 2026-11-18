@@ -70,7 +70,9 @@
 #include "GameLogic/Module/ContainModule.h"
 #include "GameLogic/Module/JetAIUpdate.h"
 #include "GameLogic/Module/PhysicsUpdate.h"
+#include "GameLogic/Module/SpawnBehavior.h"
 #include "GameLogic/Module/StealthUpdate.h"
+#include "GameLogic/Module/TransportContain.h"
 
 #ifdef _INTERNAL
 // for occasional debugging...
@@ -554,7 +556,7 @@ StateReturnType AIRappelState::onEnter()
 		obj->setLayer(layerAtDest);
 
 	AIUpdateInterface *ai = obj->getAI();
-	Real MAX_RAPPEL_RATE = fabs(TheGlobalData->m_gravity) * LOGICFRAMES_PER_SECOND * 2.5f;
+	Real MAX_RAPPEL_RATE = fabs(TheGlobalData->m_gravity) * LOGICFRAMES_PER_GAME_SECOND * 2.5f;
 	m_rappelRate = -min(ai->getDesiredSpeed(), MAX_RAPPEL_RATE);
 
 	return STATE_CONTINUE;
@@ -987,7 +989,7 @@ StateReturnType AIStateMachine::setTemporaryState( StateID newStateID, Int frame
 			m_temporaryState = NULL;
 			return ret;
 		}
-		enum {FRAME_COUNT_MAX = 60*LOGICFRAMES_PER_SECOND};
+		const Int FRAME_COUNT_MAX = 60*LOGICFRAMES_PER_GAME_SECOND;
 		// If you need to up this check, ok, but 1 minute seems overly long for a temporary state override.  jba.
 		DEBUG_ASSERTCRASH(frameLimitCoount<=FRAME_COUNT_MAX, ("Unusually long time to set temporary state."));
 		if (frameLimitCoount>FRAME_COUNT_MAX) {
@@ -1341,7 +1343,7 @@ static Bool cannotPossiblyAttackObject( State *thisState, void* userData )
 //----------------------------------------------------------------------------------------------
 //----------------------------------------------------------------------------------------------
 
-const UnsignedInt IDLE_COUNTDOWN_DELAY = (LOGICFRAMES_PER_SECOND * 2);
+#define IDLE_COUNTDOWN_DELAY ((UnsignedInt)((LOGICFRAMES_PER_GAME_SECOND * 2)))
 
 //----------------------------------------------------------------------------------------------
 AIIdleState::AIIdleState( StateMachine *machine, AIIdleState::AIIdleTargetingType shouldLookForTargets ) : 
@@ -1904,7 +1906,7 @@ StateReturnType AIInternalMoveToState::update()
 		forceRecompute = true;
 	}
 	Bool blocked=false;
-	if (ai->isBlockedAndStuck() || ai->getNumFramesBlocked()>2*LOGICFRAMES_PER_SECOND) {
+	if (ai->isBlockedAndStuck() || ai->getNumFramesBlocked()>2*LOGICFRAMES_PER_GAME_SECOND) {
 		forceRecompute = true;
 		blocked = true;
 		m_blockedRepathTimestamp = TheGameLogic->getFrame();
@@ -1931,7 +1933,7 @@ StateReturnType AIInternalMoveToState::update()
 			obj->clearModelConditionState( MODELCONDITION_RAPPELLING );
 		}
 	}
-	if (ai->getNumFramesBlocked()>LOGICFRAMES_PER_SECOND/4) 
+	if (ai->getNumFramesBlocked()>LOGICFRAMES_PER_GAME_SECOND/4) 
 	{
 		obj->clearModelConditionState( MODELCONDITION_MOVING );
 	}	
@@ -2319,14 +2321,16 @@ void AIMoveAndTightenState::crc( Xfer *xfer )
 void AIMoveAndTightenState::xfer( Xfer *xfer )
 {
   // version
-  XferVersion currentVersion = 1;
+  XferVersion currentVersion = 2;
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
- 
+
  // extend base class
 	AIInternalMoveToState::xfer(xfer);
 	xfer->xferInt(&m_okToRepathTimes);
 	xfer->xferBool(&m_checkForPath);
+	if (version >= 2)
+		xfer->xferReal(&m_stuckDist);
 }  // end xfer
 
 // ------------------------------------------------------------------------------------------------
@@ -2344,6 +2348,7 @@ StateReturnType AIMoveAndTightenState::onEnter()
 	Object *obj = getMachineOwner();
 	AIUpdateInterface *ai = obj->getAI();
 	m_okToRepathTimes = 1;
+	m_stuckDist = 0.0f;
 	m_checkForPath = true;
 	TheAI->pathfinder()->removeGoal(obj);
 	m_goalPosition = *getMachineGoalPosition();
@@ -2372,6 +2377,19 @@ Bool AIMoveAndTightenState::computePath()
 	Object *obj = getMachineOwner();
 	AIUpdateInterface *ai = obj->getAI();
 	if (ai->isBlockedAndStuck()) {
+		/* A player's gather used to end on the second hold-up wherever it happened, so a unit behind
+			 a parked stranger stood half the map short.  Each hold-up nearer the point than the last by
+			 a cell earns another route; one no nearer means it is as tight as it gets.  The distance
+			 only falls, so this ends.  The computer's gathers keep the single repath. */
+		if (ai->getLastCommandSource() == CMD_FROM_PLAYER)
+		{
+			const Real dx = obj->getPosition()->x - m_goalPosition.x;
+			const Real dy = obj->getPosition()->y - m_goalPosition.y;
+			const Real dist = (Real)sqrt( dx * dx + dy * dy );
+			if (m_stuckDist > 0.0f && dist < m_stuckDist - PATHFIND_CELL_SIZE_F && m_okToRepathTimes < 1)
+				m_okToRepathTimes = 1;
+			m_stuckDist = dist;
+		}
 		if (m_okToRepathTimes>0) {
 			m_okToRepathTimes--;
 			m_waitingForPath = true;
@@ -3660,8 +3678,11 @@ AIAttackMoveToState::AIAttackMoveToState( StateMachine *machine ) : AIMoveToStat
 	m_isMoveTo = false;
 	m_frameToSleepUntil = 0;
 	m_retryCount = ATTACK_RETRY_COUNT;
+	m_retryDist = 0.0f;
+	m_commandSrc = CMD_FROM_AI;
 	m_engageOrigin.zero();
 	m_victimID = INVALID_ID;
+	clearUntouchables();
 	m_engageStartFrame = 0;
 	m_ammoAtEngage = 0;
 	m_frameToScanOn = 0;
@@ -3679,6 +3700,16 @@ AIAttackMoveToState::~AIAttackMoveToState()
 	m_attackMoveMachine->deleteInstance();
 }
 
+//----------------------------------------------------------------------------------------------------------
+/** For the mood searches run ahead (LOGIC-PARALLEL.md, P2): a temporary state runs instead of the
+	* attack move, and an attack move busy with a fight does not scan. */
+Bool AIStateMachine::attackMoveScansThisFrame( UnsignedInt now )
+{
+	if (m_temporaryState != NULL || getCurrentStateID() != AI_ATTACK_MOVE_TO)
+		return FALSE;
+	return static_cast<const AIAttackMoveToState *>(internalGetState( AI_ATTACK_MOVE_TO ))->scansThisFrame( now );
+}
+
 // ------------------------------------------------------------------------------------------------
 /** CRC */
 // ------------------------------------------------------------------------------------------------
@@ -3692,7 +3723,7 @@ void AIAttackMoveToState::crc( Xfer *xfer )
 void AIAttackMoveToState::xfer( Xfer *xfer )
 {
   // version
-  XferVersion currentVersion = 6;
+  XferVersion currentVersion = 8;
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
 
@@ -3726,6 +3757,15 @@ void AIAttackMoveToState::xfer( Xfer *xfer )
 	if (version>=6) {
 		xfer->xferUnsignedInt(&m_frameToApproachOn);
 	}
+	if (version>=7) {
+		xfer->xferReal(&m_retryDist);
+		// update branches on it (a player's order retries to the end), so a load must not invent it
+		xfer->xferUser(&m_commandSrc, sizeof(m_commandSrc));
+	}
+	if (version>=8) {
+		for (Int i = 0; i < ATTACK_MOVE_UNTOUCHABLE_SLOTS; ++i)
+			xfer->xferObjectID(&m_untouchableIDs[i]);
+	}
 	xfer->xferSnapshot(m_attackMoveMachine);
 }  // end xfer
 
@@ -3757,11 +3797,13 @@ StateReturnType AIAttackMoveToState::onEnter()
 	m_attackMoveMachine->setState( AI_IDLE );	
 	m_commandSrc = ai->getLastCommandSource();
 	m_retryCount = ATTACK_RETRY_COUNT;
+	m_retryDist = 0.0f;
 	m_frameToSleepUntil = 0;
 
 	m_isEngaging = FALSE;
 	m_chaseWasAllowed = ai->isAllowedToChase();
 	m_victimID = INVALID_ID;
+	clearUntouchables();
 	m_engageStartFrame = 0;
 	m_engageOrigin = *owner->getPosition();
 	m_reengageGoalDistSqr = 0.0f;
@@ -3806,6 +3848,123 @@ static Int countRemainingAmmo( const Object *obj )
 	return total;
 }
 
+//----------------------------------------------------------------------------------------------------------
+/**
+ * Riders who fire out of a transport are its guns on attack move too.  A player's attack order hands
+ * the victim to them (AIGroup.cpp, groupAttackObject), but attack move engaged the transport alone, and
+ * a rider's own scan takes no buildings: an Infantry General's Troop Crawler, whose own weapon is a
+ * stand-in that does next to nothing, drove up to a building and sat there for good while its eight
+ * soldiers looked on.
+ *
+ * Gives victim to every rider that may fire out and can hit it - all of them when the transport has
+ * just picked it, only the idle ones after that, so a rider busy with an enemy of its own finishes it.
+ * TRUE when any rider aboard can hit victim from where the transport stands.
+ */
+static Bool AIAttackMove_putRidersOn( Object *owner, Object *victim, Bool everyone )
+{
+	ContainModuleInterface *contain = owner->getContain();
+	if (contain == NULL || !contain->isPassengerAllowedToFire())
+		return FALSE;
+
+	const ContainedItemsList *riders = contain->getContainedItemsList();
+	if (riders == NULL)
+		return FALSE;
+
+	Bool anyCan = FALSE;
+	for (ContainedItemsList::const_iterator it = riders->begin(); it != riders->end(); ++it)
+	{
+		Object *rider = *it;
+		if (!contain->isPassengerAllowedToFire(rider->getID()) || !rider->isAbleToAttack())
+			continue;
+
+		CanAttackResult result = rider->getAbleToAttackSpecificObject(ATTACK_NEW_TARGET, victim, CMD_FROM_AI);
+		if (result != ATTACKRESULT_POSSIBLE && result != ATTACKRESULT_POSSIBLE_AFTER_MOVING)
+			continue;
+
+		anyCan = TRUE;
+		AIUpdateInterface *riderAI = rider->getAI();
+		if (riderAI != NULL && (everyone || riderAI->isIdle()))
+			riderAI->aiAttackObject(victim, NO_MAX_SHOTS_LIMIT, CMD_FROM_AI);
+	}
+	return anyCan;
+}
+
+/** Whether a template's own weapon set is only its riders' (ArmedRidersUpgradeMyWeaponSet): the
+	* Troop Crawler's dummy gun, which says the riders can shoot and does no work of its own. */
+static Bool AIAttackMove_gunIsTheRiders( const ThingTemplate *tmpl )
+{
+	const ModuleInfo &modules = tmpl->getBehaviorModuleInfo();
+	for (Int m = 0; m < modules.getCount(); ++m)
+		if (modules.getNthName(m).compare("TransportContain") == 0)
+			return ((const TransportContainModuleData *)modules.getNthData(m))->m_armedRidersUpgradeWeaponSet;
+	return FALSE;
+}
+
+//----------------------------------------------------------------------------------------------------------
+/**
+ * For a transport whose riders fire out: keeps the riders on the victim, and says when the fight is
+ * one nobody can win from here - no rider can hit the victim, our own gun reaches it but is only the
+ * riders' stand-in (or does it no harm).  Still approaching is not that: a rider out of reach reads as
+ * unable, so the answer waits until our own weapon is in range.
+ */
+Bool AIAttackMoveToState::ridersLeftNothingToFight( void )
+{
+	Object *owner = getMachineOwner();
+	Object *victim = TheGameLogic->findObjectByID(m_victimID);
+	if (victim == NULL || victim->isEffectivelyDead())
+		return FALSE;
+
+	ContainModuleInterface *contain = owner->getContain();
+	if (contain == NULL || !contain->isPassengerAllowedToFire())
+		return FALSE;		// no firing seats: the fight is the owner's own, as before
+
+	if (AIAttackMove_putRidersOn(owner, victim, FALSE))
+		return FALSE;
+
+	// Only a weapon that may aim at the victim says where the fight is: the Battle Bus's 320-range
+	// anti-air dummy counted a building far beyond its riders as in reach, and the bus gave up on it
+	// before it had driven a yard closer.
+	const Bool gunIsTheRiders = AIAttackMove_gunIsTheRiders(owner->getTemplate());
+	const Int antiMask = WeaponSet::getVictimAntiMask(victim);
+	Bool inReach = FALSE;
+	for (Int slot = 0; slot < WEAPONSLOT_COUNT; ++slot)
+	{
+		Weapon *weapon = owner->getWeaponInWeaponSlot((WeaponSlotType)slot);
+		if (weapon == NULL || (weapon->getAntiMask() & antiMask) == 0 || !weapon->isWithinAttackRange(owner, victim))
+			continue;
+		inReach = TRUE;
+		if (!gunIsTheRiders && weapon->estimateWeaponDamage(owner, victim) > 0.0f)
+			return FALSE;
+	}
+	return inReach;
+}
+
+//----------------------------------------------------------------------------------------------------------
+Bool AIAttackMoveToState::isUntouchable( const Object *obj ) const
+{
+	for (Int i = 0; i < ATTACK_MOVE_UNTOUCHABLE_SLOTS; ++i)
+		if (m_untouchableIDs[i] != INVALID_ID && m_untouchableIDs[i] == obj->getID())
+			return TRUE;
+	return FALSE;
+}
+
+/** Newest first; a full list drops its oldest, which at worst lets that one be tried once more. */
+void AIAttackMoveToState::markUntouchable( ObjectID id )
+{
+	for (Int i = 0; i < ATTACK_MOVE_UNTOUCHABLE_SLOTS; ++i)
+		if (m_untouchableIDs[i] == id)
+			return;
+	for (Int i = ATTACK_MOVE_UNTOUCHABLE_SLOTS - 1; i > 0; --i)
+		m_untouchableIDs[i] = m_untouchableIDs[i - 1];
+	m_untouchableIDs[0] = id;
+}
+
+void AIAttackMoveToState::clearUntouchables( void )
+{
+	for (Int i = 0; i < ATTACK_MOVE_UNTOUCHABLE_SLOTS; ++i)
+		m_untouchableIDs[i] = INVALID_ID;
+}
+
 void AIAttackMoveToState::startEngaging( Object *victim, Bool allowChase )
 {
 	Object *owner = getMachineOwner();
@@ -3848,6 +4007,9 @@ void AIAttackMoveToState::startEngaging( Object *victim, Bool allowChase )
 	// as on every frame after it.
 	ai->friend_setLastCommandSource(CMD_FROM_AI);
 	m_attackMoveMachine->setState( AI_ATTACK_OBJECT );
+
+	// and riders who fire out of us take the same victim (see AIAttackMove_putRidersOn)
+	AIAttackMove_putRidersOn(owner, victim, TRUE);
 }
 
 //----------------------------------------------------------------------------------------------------------
@@ -4016,6 +4178,10 @@ Object *AIAttackMoveToState::findRetaliationTarget( void )
 	if (attacker == NULL || attacker->isEffectivelyDead())
 		return NULL;
 
+	// nobody aboard could hurt it last time either, so turning on it would only park us again
+	if (isUntouchable( attacker ))
+		return NULL;
+
 	Bool canShootBack = owner->isAbleToAttack() && owner->getRelationship( attacker ) == ENEMIES;
 	if (canShootBack)
 	{
@@ -4152,6 +4318,17 @@ StateReturnType AIAttackMoveToState::update()
 			requireProgressTowardGoal();
 			shouldRepathThisFrame = true;
 		}
+		else if (((TheGameLogic->getFrame() + owner->getID()) % (UnsignedInt)ATTACK_MOVE_SCAN_RATE) == 0
+						 && ridersLeftNothingToFight())
+		{
+			// Nobody aboard can hurt it, and our own gun is only the riders' or no use against it either:
+			// drive on, and leave it alone for the rest of this order rather than come back and park at it.
+			markUntouchable(m_victimID);
+			m_attackMoveMachine->setState( AI_IDLE );
+			stopEngaging();
+			ai->friend_setLastCommandSource(m_commandSrc);
+			shouldRepathThisFrame = true;
+		}
 		else
 		{
 			//
@@ -4238,6 +4415,8 @@ StateReturnType AIAttackMoveToState::update()
 				Object *scanned = ai->getNextMoodTarget( true, false, true, !mayApproach || nextObjectToAttack != NULL );
 				if (scanned != NULL && !mayApproach && scanned->getID() == m_victimID)
 					scanned = NULL;		// the one we just failed on
+				if (scanned != NULL && isUntouchable(scanned))
+					scanned = NULL;		// the one nobody aboard could hurt (see ridersLeftNothingToFight)
 				if (scanned != NULL && (nextObjectToAttack == NULL || TheAI->prefersTarget(owner, scanned, nextObjectToAttack)))
 					nextObjectToAttack = scanned;
 			}
@@ -4264,6 +4443,31 @@ StateReturnType AIAttackMoveToState::update()
 	}
 
 	StateReturnType ret = AIMoveToState::update();
+	if (ret != STATE_CONTINUE && m_commandSrc == CMD_FROM_PLAYER) {
+		/* A player's attack move ends where the player pointed, not up to eight cells off it after five
+			 tries three seconds apart.  It ends at once when the unit drove a full route to its own spot
+			 by the goal (success on a route that was not the closest-path fallback).  A fallback route that ran out short is
+			 tried again a second later, and keeps being tried while each try stops a cell nearer; five
+			 tries in a row that gain nothing mean the goal cannot be reached from here.  A failure, the
+			 pathfinder coming back with nothing, gets the same five tries: a unit shoved inside a
+			 building's footprint or boxed in by a crowd for a moment is not a goal that cannot be had. */
+		if (ret == STATE_SUCCESS && !ai->getRetryPath())
+			return ret;
+		const Real dx = owner->getPosition()->x - m_pathGoalPosition.x;
+		const Real dy = owner->getPosition()->y - m_pathGoalPosition.y;
+		const Real dist = (Real)sqrt( dx * dx + dy * dy );
+		if (dist < PATHFIND_CELL_SIZE_F * 2.0f)
+			return ret;
+		if (m_retryDist > 0.0f && dist < m_retryDist - PATHFIND_CELL_SIZE_F)
+			m_retryCount = ATTACK_RETRY_COUNT;		// still closing in: the order is being carried out
+		m_retryDist = dist;
+		if (m_retryCount < 1)
+			return ret;
+		m_retryCount--;
+		// we can still shoot while we wait, just not move
+		m_frameToSleepUntil = TheGameLogic->getFrame() + LOGICFRAMES_PER_GAME_SECOND;
+		return STATE_CONTINUE;
+	}
 	if (ret != STATE_CONTINUE) {
 		if (m_retryCount<1) return ret;
 		/* check for close enough. */
@@ -4276,7 +4480,7 @@ StateReturnType AIAttackMoveToState::update()
 		ret = STATE_CONTINUE;
 		m_retryCount--;
 		// Sleep 3 seconds.  We can attack during these frames, just not move.
-		m_frameToSleepUntil = TheGameLogic->getFrame() + 3*LOGICFRAMES_PER_SECOND;
+		m_frameToSleepUntil = TheGameLogic->getFrame() + 3*LOGICFRAMES_PER_GAME_SECOND;
 	}
 	return ret;
 }
@@ -4550,7 +4754,8 @@ void AIFollowWaypointPathState::computeGoal(Bool useGroupOffsets)
 
 	if (!extent.isInRegionNoZ(&m_goalPosition)) {
 		setAdjustsDestination(false); // moving off the map.
-		ai->getCurLocomotor()->setAllowInvalidPosition(true); // allow it to move off the map.
+		if (ai->getCurLocomotor())	// a unit with no locomotor a map script sends along a path
+			ai->getCurLocomotor()->setAllowInvalidPosition(true); // allow it to move off the map.
 		m_appendGoalPosition = true; // Moving off the map.
 	}
 }
@@ -4933,7 +5138,10 @@ StateReturnType AIFollowWaypointPathExactState::onEnter()
 	StateReturnType ret = AIInternalMoveToState::onEnter();
 	ai->setPathFromWaypoint(currentWaypoint, &groupOffset);	
 	m_lastWaypoint = currentWaypoint;
-	ai->getCurLocomotor()->setAllowInvalidPosition(true); // allow it to move off the map.
+	// A map script can run TEAM_FOLLOW_WAYPOINTS_EXACT on a unit with no locomotor (a repack's shell map
+	// did, eight v4.0.0 reports); the move below goes nowhere for it, as every other state's does.
+	if (ai->getCurLocomotor())
+		ai->getCurLocomotor()->setAllowInvalidPosition(true); // allow it to move off the map.
 
 	//Kris: October 4, 2002 -- Commented out by guidance of John A.
 	//			Artist couldn't load his map, and turned out that it was because
@@ -4957,7 +5165,8 @@ void AIFollowWaypointPathExactState::onExit( StateExitType status )
 	if (ai) {
 		ai->setCompletedWaypoint(m_lastWaypoint);			
 		ai->setCanPathThroughUnits(false);
-		ai->getCurLocomotor()->setAllowInvalidPosition(false); // turn off allow it to move off the map.
+		if (ai->getCurLocomotor())
+			ai->getCurLocomotor()->setAllowInvalidPosition(false); // turn off allow it to move off the map.
 	}
 }
 
@@ -6285,7 +6494,8 @@ StateReturnType AIWaitState::update()
 AIAttackState::AIAttackState( StateMachine *machine, Bool follow, Bool attackingObject, Bool forceAttacking, AttackExitConditionsInterface* attackParameters) : 
 	State( machine , "AIAttackState"), 
 	m_attackMachine(NULL),
-	m_attackParameters(attackParameters), 
+	m_victimNexusID(INVALID_ID),
+	m_attackParameters(attackParameters),
 	m_lockedWeaponOnEnter(NULL), 
 	m_follow(follow),
 	m_isAttackingObject(attackingObject),
@@ -6329,14 +6539,17 @@ void AIAttackState::crc( Xfer *xfer )
 void AIAttackState::xfer( Xfer *xfer )
 {
   // version
-  XferVersion currentVersion = 1;
+	// 2: m_victimNexusID
+  XferVersion currentVersion = 2;
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
 
 	Bool hasMachine = m_attackMachine!=NULL;
-	
+
 	xfer->xferBool(&hasMachine);
 	xfer->xferCoord3D(&m_originalVictimPos);
+	if (version >= 2)
+		xfer->xferObjectID(&m_victimNexusID);
 
 	if (hasMachine && m_attackMachine==NULL)	{
 		// create new state machine for attack behavior
@@ -6412,6 +6625,50 @@ void AIAttackState::notifyNewVictimChosen(Object* victim)
 }
 
 //----------------------------------------------------------------------------------------------------------
+/** The mob nexus a victim is a member of: an Angry Mob, whose members are slaves of an
+	  invisible nexus.  A Stinger Site's soldiers and a hive's drones are slaves too, but of a building,
+	  and each of those is a target on its own. */
+static ObjectID mobNexusOf( const Object *victim )
+{
+	const SlavedUpdateInterface *slaved = victim ? victim->getSlavedUpdateInterface() : NULL;
+	if (slaved == NULL)
+		return INVALID_ID;
+	const Object *nexus = TheGameLogic->findObjectByID( slaved->getSlaverID() );
+	return (nexus != NULL && nexus->isKindOf( KINDOF_MOB_NEXUS )) ? nexus->getID() : INVALID_ID;
+}
+
+//----------------------------------------------------------------------------------------------------------
+/** An order to attack one member of an Angry Mob is an order to attack the mob.  The mob is selected
+	  and ordered as one, and the attacker that killed the one it was pointed at stood idle beside the
+	  other nine.  So the attack carries on to whichever of the victim's mob is nearest, until the nexus has nobody left, by the same means ContinueAttackRange swaps the victim
+	  inside this state.  An attack that ends for any other reason still ends. */
+Bool AIAttackState::carryOnThroughMob()
+{
+	if (!m_isAttackingObject || m_victimNexusID == INVALID_ID || m_attackMachine == NULL)
+		return FALSE;
+
+	Object *nexus = TheGameLogic->findObjectByID( m_victimNexusID );
+	SpawnBehaviorInterface *spawn = (nexus != NULL && !nexus->isEffectivelyDead()) ? nexus->getSpawnBehaviorInterface() : NULL;
+	Object *source = getMachineOwner();
+	Object *mate = spawn ? spawn->getClosestSlave( source->getPosition() ) : NULL;
+	if (mate == NULL || mate->isEffectivelyDead() || mate == source)
+		return FALSE;
+
+	AIUpdateInterface *ai = source->getAI();
+	const CommandSourceType cmdSource = ai ? ai->getLastCommandSource() : CMD_FROM_AI;
+	if (source->getAbleToAttackSpecificObject( m_isForceAttacking ? ATTACK_NEW_TARGET_FORCED : ATTACK_NEW_TARGET, mate, cmdSource ) == ATTACKRESULT_NOT_POSSIBLE)
+		return FALSE;
+
+	m_victimTeam = mate->getTeam();
+	notifyNewVictimChosen( mate );
+	if (ai)
+		ai->setCurrentVictim( mate );
+	// the sub-machine may have finished with the dead one; start it over on the new one
+	m_attackMachine->initDefaultState();
+	return TRUE;
+}
+
+//----------------------------------------------------------------------------------------------------------
 /**
  * Begin an attack on the machine's goal object.
  * To do this complex behavior, instantiate another state machine as a "sub-machine" of 
@@ -6464,6 +6721,7 @@ StateReturnType AIAttackState::onEnter()
 			return STATE_FAILURE;	// we have nothing to attack!
 		}
 		m_victimTeam = victim->getTeam();
+		m_victimNexusID = mobNexusOf( victim );
 		m_attackMachine->setGoalObject( victim );
 		m_originalVictimPos = *victim->getPosition();
 	}
@@ -6532,15 +6790,22 @@ StateReturnType AIAttackState::update()
 	{
 		Object* victim = getMachineGoalObject();
 
-		if (victim == NULL || victim->isEffectivelyDead()) 	
+		if (victim == NULL || victim->isEffectivelyDead())
 		{
-			source->getAI()->notifyVictimIsDead();
-			return STATE_SUCCESS;	// my, that was easy
+			if (!carryOnThroughMob())
+			{
+				source->getAI()->notifyVictimIsDead();
+				return STATE_SUCCESS;	// my, that was easy
+			}
+			victim = getMachineGoalObject();
 		}
 
-		if (victim) 
+		if (victim)
 		{
 			source->getAI()->setCurrentVictim(victim);
+			// remembered every frame, since the victim can be swapped from inside too; once it is
+			// dead, and perhaps gone, this is the only way back to its mob
+			m_victimNexusID = mobNexusOf( victim );
 		}
 
 		if( victim->getTeam() != m_victimTeam )
@@ -6620,7 +6885,17 @@ StateReturnType AIAttackState::update()
 	 * Note the use of CONVERT_SLEEP_TO_CONTINUE; even if the sub-machine
 	 * sleeps, we still need to be called every frame.
 	 */
-	return CONVERT_SLEEP_TO_CONTINUE(m_attackMachine->updateStateMachine());
+	StateReturnType subResult = CONVERT_SLEEP_TO_CONTINUE(m_attackMachine->updateStateMachine());
+
+	// the shot that just killed the victim ends the sub-machine on this frame, before the dead-victim
+	// check above can see it; a mob member's attacker carries on to the next of the mob from here as well
+	if (subResult != STATE_CONTINUE && m_isAttackingObject)
+	{
+		Object* victim = getMachineGoalObject();
+		if ((victim == NULL || victim->isEffectivelyDead()) && carryOnThroughMob())
+			return STATE_CONTINUE;
+	}
+	return subResult;
 }
 
 //----------------------------------------------------------------------------------------------------------

@@ -4714,7 +4714,7 @@ CONTROLBAR:IdleInfantry
 END
 
 CONTROLBAR:IdleInfantryDescription
-"Натисніть, щоб вибрати наступного вільного піхотинця. Shift-клік вибирає всіх."
+"Натисніть, щоб вибрати наступного вільного піхотинця. Shift-клік вибирає всіх. Правий клік вибирає всю вашу піхоту, вільну чи ні: спершу на екрані, а повторний правий клік вибирає її по всій карті."
 END
 
 CONTROLBAR:IdleVehicle
@@ -4722,7 +4722,7 @@ CONTROLBAR:IdleVehicle
 END
 
 CONTROLBAR:IdleVehicleDescription
-"Натисніть, щоб вибрати наступну вільну наземну техніку. Shift-клік вибирає всю."
+"Натисніть, щоб вибрати наступну вільну наземну техніку. Shift-клік вибирає всю. Правий клік вибирає всю вашу наземну техніку, вільну чи ні: спершу на екрані, а повторний правий клік вибирає її по всій карті."
 END
 
 CONTROLBAR:IdleAircraft
@@ -4730,7 +4730,23 @@ CONTROLBAR:IdleAircraft
 END
 
 CONTROLBAR:IdleAircraftDescription
-"Натисніть, щоб вибрати наступний вільний літак. Shift-клік вибирає всі."
+"Натисніть, щоб вибрати наступний вільний літак. Shift-клік вибирає всі. Правий клік вибирає всю вашу авіацію, вільну чи ні: спершу на екрані, а повторний правий клік вибирає її по всій карті."
+END
+
+CONTROLBAR:SelectArmy
+"Уся армія"
+END
+
+CONTROLBAR:SelectArmyDescription
+"Натисніть, щоб вибрати всі бойові одиниці на екрані; натисніть ще раз, щоб вибрати всю армію на карті. Робітники, вантажівки постачання та будівлі не вибираються."
+END
+
+CONTROLBAR:LastAlert
+"Остання тривога"
+END
+
+CONTROLBAR:LastAlertDescription
+"Натисніть, щоб перевести камеру до останньої події на радарі, наприклад атаки на вашу базу. Натисніть ще раз одразу після цього, щоб перейти до попередньої події."
 END
 
 CONTROLBAR:Beacon
@@ -16354,7 +16370,7 @@ GUI:EmptyBuildingPips
 END
 
 TOOLTIP:EmptyBuildingPips
-"Ряд порожніх слотів над будівлею, у якій нікого немає, як десять над Казармами. Вимк. — будівля показує слоти, лише коли хтось усередині."
+"Ряд порожніх слотів над будівлею, у якій нікого немає, як десять над Мережею тунелів. Вимк. — будівля показує слоти, лише коли хтось усередині."
 END
 
 GUI:ArchiveReplays
@@ -16657,20 +16673,16 @@ TOOLTIP:ProRules
 "Турнірний список. Без Particle Cannon чи SCUD Storm, окрім однієї гармати Генерала суперзброї. Ракетна шахта Nuclear Missile будується, але не стріляє. Без Aurora, Tactical Nuke MiG, демо-байка, смертників, Neutron Shells чи Stealth Comanche, і без Carpet Bomb до рангу 3. Microwave Tank не може заморозити будівлю, що ще будується, ніхто не будує ближче 300 до ворожої будівлі, і ніхто не ставить більше двох Patriot, Gatling Cannon чи Stinger Site навколо однієї групи нафтових вишок."
 END
 
-GUI:TurboMode
-"Турбо-режим"
+TOOLTIP:GameSpeed
+"Швидкість сутички. 1.0x — оригінальна гра, 1.5x — швидкість будь-якого мережевого матчу. Змінюється лише темп."
 END
 
-TOOLTIP:TurboMode
-"Матч іде вдвічі швидше: за кожну секунду минають дві секунди гри, і більше нічого не змінюється. У мережевій грі його вибирає хост для всіх."
+GUI:GameSpeedMissions
+"Швидкість гри в місіях"
 END
 
-GUI:TurboModeMissions
-"Турбо-режим у місіях"
-END
-
-TOOLTIP:TurboModeMissions
-"Місії кампанії та Generals' Challenge йдуть вдвічі швидше, а місія, що вже триває, прискорюється одразу. Сутичка й мультиплеєр мають власний пункт у лобі."
+TOOLTIP:GameSpeedMissions
+"Швидкість місій кампанії та Generals' Challenge. 1.0x — оригінальна гра. Швидкість задається на початку місії, зміна діє з наступної. Швидкість сутички обирається в лобі."
 END
 
 GUI:CantBuildTooCloseToEnemy
@@ -16995,6 +17007,74 @@ END
 
 TOOLTIP:HealthBarColors
 "Зелена при повному здоров'ї, через жовту до червоної, або кожна смуга кольором власника, щоб бачити, чия вона. Виведені з ладу підрозділи лишаються синіми."
+END
+
+GUI:HudLayout
+"Розташування"
+END
+
+GUI:HudLayout0
+"Класичне"
+END
+
+GUI:HudLayout1
+"У стилі Red Alert"
+END
+
+TOOLTIP:HudLayout
+"Класичне розташування залишає командну панель унизу. Стиль Red Alert переносить будівництво й навчання в бічну панель праворуч, а команди вибраних підрозділів ставить у смугу внизу."
+END
+
+GUI:HudWidth
+"Ширина інтерфейсу"
+END
+
+GUI:HudWidth0
+"Весь екран"
+END
+
+GUI:HudWidth1
+"21:9"
+END
+
+GUI:HudWidth2
+"16:9"
+END
+
+TOOLTIP:HudWidth
+"На екрані, ширшому за вибране, інтерфейс збирається в область цього формату по центру, щоб панель лишалася перед очима. Поле бою, як і раніше, займає весь екран."
+END
+
+GUI:SidebarTab0
+"Будівлі"
+END
+
+GUI:SidebarTab1
+"Покращення та здібності"
+END
+
+GUI:SidebarTab2
+"Піхота"
+END
+
+GUI:SidebarTab3
+"Техніка"
+END
+
+GUI:SidebarAll
+"Усі"
+END
+
+GUI:SidebarSell
+"Продати"
+END
+
+GUI:SidebarRepair
+"Ремонт"
+END
+
+GUI:SidebarSuperweaponReady
+"Готово"
 END
 
 GUI:MenuTransitionSpeed
@@ -17343,6 +17423,46 @@ END
 
 GUI:HotkeysCommandHOLD_POSITION
 "Утримувати позицію"
+END
+
+GUI:HotkeyScheme
+"Розкладка клавіш"
+END
+
+GUI:HotkeyScheme0
+"Класична"
+END
+
+GUI:HotkeyScheme1
+"Red Alert"
+END
+
+TOOLTIP:HotkeyScheme
+"Класична залишає клавіші гри. Red Alert бере клавіші Red Alert 2 там, де вони пасують цій грі: Q W E R для вкладок будівництва, D розгорнути, L продати, K ремонт, затиснута Z для точок маршруту. Кожна розкладка зберігає свої зміни на сторінці «Гарячі клавіші»."
+END
+
+GUI:HotkeysEditingScheme
+"Змінюються клавіші: %s."
+END
+
+GUI:HotkeysCommandDEPLOY
+"Розгорнути"
+END
+
+GUI:HotkeysCommandSELL_MODE
+"Режим продажу"
+END
+
+GUI:HotkeysCommandREPAIR_MODE
+"Режим ремонту"
+END
+
+GUI:HotkeysCommandBEGIN_WAYPOINTS_KEY
+"Точки маршруту (утримувати)"
+END
+
+GUI:HotkeysCommandTOGGLE_COMMAND_TAB_DEFENSE
+"Четверта вкладка бічної панелі"
 END
 
 GUI:LoadModeSkirmish
@@ -17982,7 +18102,7 @@ CONTROLBAR:ConstructTurkiyeInfantryMaroonBeret
 END
 
 CONTROLBAR:ToolTipTurkiyeInfantryMaroonBeret
-"Спецпризначенці. Замасковані, бачать на 350 для артилерії та ставлять заряди з таймером і дистанційні."
+"Спецпризначенець. Замаскований, бачить на 350 для артилерії, підсвічує ціль лазером для удару дрона і випускає дрони Kargu з рюкзака."
 END
 
 OBJECT:TurkiyeVehicleSupplyTruck

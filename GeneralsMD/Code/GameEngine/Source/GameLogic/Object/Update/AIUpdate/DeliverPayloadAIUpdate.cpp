@@ -31,6 +31,7 @@
 #define DEFINE_WEAPONSLOTTYPE_NAMES
 
 #include "Common/Player.h"
+#include "Common/PlayerList.h"
 #include "Common/RandomValue.h"
 #include "Common/ThingFactory.h"
 #include "Common/ThingTemplate.h"
@@ -68,11 +69,11 @@ const FieldParse* DeliverPayloadData::getFieldParse()
 		{ "MaxAttempts",										INI::parseInt,								NULL, offsetof( DeliverPayloadData, m_maxAttempts) },
 
 		//Drop information
-		{ "DropDelay",											INI::parseDurationUnsignedInt,NULL, offsetof( DeliverPayloadData, m_dropDelay ) },
+		{ "DropDelay",											SPEED_FIELD( DeliverPayloadData, m_dropDelay ) },
 		{ "DropOffset",											INI::parseCoord3D,						NULL, offsetof( DeliverPayloadData, m_dropOffset ) },
 		{ "DropVariance",										INI::parseCoord3D,						NULL, offsetof( DeliverPayloadData, m_dropVariance ) },
 		{ "InheritTransportVelocity",				INI::parseBool,								NULL, offsetof( DeliverPayloadData, m_inheritTransportVelocity ) },
-		{ "ExitPitchRate",									INI::parseAngularVelocityReal,NULL, offsetof( DeliverPayloadData, m_exitPitchRate ) },
+		{ "ExitPitchRate",									SPEED_FIELD( DeliverPayloadData, m_exitPitchRate ) },
 		{ "ParachuteDirectly",							INI::parseBool,								NULL, offsetof( DeliverPayloadData, m_isParachuteDirectly) },
 
 		//Visible payload information (payload assumed to be show visibly and it's created only when dropped)
@@ -125,6 +126,7 @@ DeliverPayloadAIUpdate::DeliverPayloadAIUpdate( Thing *thing, const ModuleData* 
 
 	m_freeToExit = FALSE;
 	m_acceptingCommands = TRUE;
+	m_payloadRecipient = -1;
 
 	// Added By Sadullah Nader
 	// Initialization missing and needed
@@ -422,12 +424,15 @@ void DeliverPayloadAIUpdate::crc( Xfer *xfer )
 	* Version Info:
 	* 1: Initial version 
 	* 5: Whoops version.  preOpenDistance just wasn't saved.
+	* 6: the drop delay in msec and the exit pitch rate in degrees a second, as the INI wrote them; 5 had
+	*    them in frames at the one game speed there was, turned back at the speed the save loads at
+	* 7: the airlift's payload recipient
 */
 // ------------------------------------------------------------------------------------------------
 void DeliverPayloadAIUpdate::xfer( Xfer *xfer )
 {
   // version
-  const XferVersion currentVersion = 5;
+  const XferVersion currentVersion = 7;
   XferVersion version = currentVersion;
   xfer->xferVersion( &version, currentVersion );
  
@@ -450,7 +455,9 @@ void DeliverPayloadAIUpdate::xfer( Xfer *xfer )
 	xfer->xferInt(&data.m_maxAttempts);
 	xfer->xferCoord3D(&data.m_dropOffset);
 	xfer->xferCoord3D(&data.m_dropVariance);
-	xfer->xferUnsignedInt(&data.m_dropDelay);
+	xfer->xferUnsignedInt(data.m_dropDelay.rawData());	// msec as the INI wrote it
+	if( xfer->getXferMode() == XFER_LOAD && version < 6 )
+		data.m_dropDelay.setConverted( data.m_dropDelay.raw() );
 	xfer->xferBool(&data.m_fireWeapon);
 	xfer->xferBool(&data.m_selfDestructObject);
 	xfer->xferInt(&data.m_visibleNumBones);						
@@ -460,7 +467,9 @@ void DeliverPayloadAIUpdate::xfer( Xfer *xfer )
 	xfer->xferInt(&data.m_visibleItemsDroppedPerInterval);
 	xfer->xferBool(&data.m_inheritTransportVelocity);
 	xfer->xferBool(&data.m_isParachuteDirectly);		
-	xfer->xferReal(&data.m_exitPitchRate);
+	xfer->xferReal(data.m_exitPitchRate.rawData());
+	if( xfer->getXferMode() == XFER_LOAD && version < 6 )
+		data.m_exitPitchRate.setConverted( data.m_exitPitchRate.raw() );
 	// const FXList					*m_strafeFX;
 	xfer->xferReal(&data.m_strafeLength);
 	AsciiString weaponTemplateName;
@@ -501,6 +510,10 @@ void DeliverPayloadAIUpdate::xfer( Xfer *xfer )
 	if (version >= 4)
 	{
 		xfer->xferReal(&m_previousDistanceSqr);
+	}
+	if (version >= 7)
+	{
+		xfer->xferInt(&m_payloadRecipient);
 	}
 
 
@@ -711,9 +724,9 @@ StateReturnType DeliveringState::update() // Kick a dude out every so often
 	m_didOpen = true;
 	m_dropDelayLeft = ai->getDropDelay();
 
-	if (!ai->isCloseEnoughToTarget())
-		return STATE_FAILURE;
-
+	// empty first: EA asked for the distance before it, so a plane that dropped its last item just short
+	// of the spot and flew past it in the drop delay failed here with nothing aboard, went round for a
+	// second pass and only then left, its delivery decal on the ground the whole loop
 	const ContainedItemsList* items = owner->getContain() ? owner->getContain()->getContainedItemsList() : NULL;
 	if( (!items || !items->size()) && ai->getVisibleItemsDelivered() == ai->getData()->m_visibleNumBones )
 	{
@@ -721,6 +734,9 @@ StateReturnType DeliveringState::update() // Kick a dude out every so often
 		//have one or the other or even both.
 		return STATE_SUCCESS;
 	}
+
+	if (!ai->isCloseEnoughToTarget())
+		return STATE_FAILURE;
 
 	//Handle contained payload delivery.
 	if( items && !items->empty() )
@@ -738,6 +754,22 @@ StateReturnType DeliveringState::update() // Kick a dude out every so often
 		}
 		else
 		{
+			// an airlift's load goes to the ally it was flown for as it leaves (OCLSpecialPower::doAirliftOrder):
+			// the chute and the unit in it, so it lands in his colour and under his orders.  An ally gone
+			// out of the match by now leaves it the plane owner's, rather than the neutral player's
+			Player *recipient = ai->getPayloadRecipient() >= 0 ? ThePlayerList->getNthPlayer( ai->getPayloadRecipient() ) : NULL;
+			if( recipient && recipient->isPlayerActive() && recipient != item->getControllingPlayer() )
+			{
+				const ContainedItemsList *riders = item->getContain() ? item->getContain()->getContainedItemsList() : NULL;
+				Object *rider = riders && !riders->empty() ? riders->front() : NULL;
+				item->setTeam( recipient->getDefaultTeam() );
+				if( rider )
+					rider->setTeam( recipient->getDefaultTeam() );
+				DEBUG_LOG(( "AIRLIFT: frame %u plane %u drops '%s' %u for player %d\n", TheGameLogic->getFrame(), owner->getID(),
+										( rider ? rider : item )->getTemplate()->getName().str(), ( rider ? rider : item )->getID(),
+										recipient->getPlayerIndex() ));
+			}
+
 			AIUpdateInterface* itemAI = item->getAIUpdateInterface();
 			if (itemAI)
 			{

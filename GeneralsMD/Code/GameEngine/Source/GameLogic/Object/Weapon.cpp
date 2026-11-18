@@ -232,7 +232,7 @@ const FieldParse WeaponTemplate::TheWeaponTemplateFieldParseTable[] =
 	{ "PrimaryDamageRadius",			INI::parseReal,													NULL,							offsetof(WeaponTemplate, m_primaryDamageRadius) },		
 	{ "SecondaryDamage",					INI::parseReal,													NULL,							offsetof(WeaponTemplate, m_secondaryDamage) },		
 	{ "SecondaryDamageRadius",		INI::parseReal,													NULL,							offsetof(WeaponTemplate, m_secondaryDamageRadius) },		
-	{ "ShockWaveAmount",					INI::parseRetailPerFrameReal,									NULL,							offsetof(WeaponTemplate, m_shockWaveAmount) },		
+	{ "ShockWaveAmount",					SPEED_FIELD( WeaponTemplate, m_shockWaveAmount ) },		
 	{ "ShockWaveRadius",					INI::parseReal,													NULL,							offsetof(WeaponTemplate, m_shockWaveRadius) },		
 	{ "ShockWaveTaperOff",				INI::parseReal,													NULL,							offsetof(WeaponTemplate, m_shockWaveTaperOff) },		
 	{ "AttackRange",							INI::parseReal,													NULL,							offsetof(WeaponTemplate, m_attackRange) },		
@@ -249,10 +249,10 @@ const FieldParse WeaponTemplate::TheWeaponTemplateFieldParseTable[] =
 	{ "DamageType",								DamageTypeFlags::parseSingleBitFromINI,	NULL,							offsetof(WeaponTemplate, m_damageType) },		
 	{ "DamageStatusType",					ObjectStatusMaskType::parseSingleBitFromINI,	NULL,				offsetof(WeaponTemplate, m_damageStatusType) },		
 	{ "DeathType",								INI::parseIndexList,										TheDeathNames,		offsetof(WeaponTemplate, m_deathType) },		
-	{ "WeaponSpeed",							INI::parseVelocityReal,									NULL,							offsetof(WeaponTemplate, m_weaponSpeed) },		
-	{ "MinWeaponSpeed",						INI::parseVelocityReal,									NULL,							offsetof(WeaponTemplate, m_minWeaponSpeed) },		
+	{ "WeaponSpeed",							SPEED_FIELD( WeaponTemplate, m_weaponSpeed ) },		
+	{ "MinWeaponSpeed",						SPEED_FIELD( WeaponTemplate, m_minWeaponSpeed ) },		
 	{ "ScaleWeaponSpeed",					INI::parseBool,													NULL,							offsetof(WeaponTemplate, m_isScaleWeaponSpeed) },
-	{ "BallisticFlightTime",			INI::parseDurationUnsignedInt,					NULL,							offsetof(WeaponTemplate, m_ballisticFlightFrames) },
+	{ "BallisticFlightTime",			SPEED_FIELD( WeaponTemplate, m_ballisticFlightFrames ) },
 	{ "BallisticPeakHeight",			INI::parseReal,													NULL,							offsetof(WeaponTemplate, m_ballisticPeakHeight) },
 	{ "WeaponRecoil",							INI::parseAngleReal,										NULL,							offsetof(WeaponTemplate, m_weaponRecoil) },		
 	{ "MinTargetPitch",						INI::parseAngleReal,										NULL,							offsetof(WeaponTemplate, m_minTargetPitch) },		
@@ -260,7 +260,7 @@ const FieldParse WeaponTemplate::TheWeaponTemplateFieldParseTable[] =
 	{ "RadiusDamageAngle",				INI::parseAngleReal,										NULL,							offsetof(WeaponTemplate, m_radiusDamageAngle) },		
 	{ "ProjectileObject",					INI::parseAsciiString,									NULL,							offsetof(WeaponTemplate, m_projectileName) },		
 	{ "FireSound",								INI::parseAudioEventRTS,								NULL,							offsetof(WeaponTemplate, m_fireSound) },		
-	{ "FireSoundLoopTime",				INI::parseDurationUnsignedInt,					NULL,							offsetof(WeaponTemplate, m_fireSoundLoopTime) },		
+	{ "FireSoundLoopTime",				SPEED_FIELD( WeaponTemplate, m_fireSoundLoopTime ) },		
 	{ "FireFX",											parseAllVetLevelsFXList,							NULL,							offsetof(WeaponTemplate, m_fireFXs) },		
 	{ "ProjectileDetonationFX",			parseAllVetLevelsFXList,							NULL,							offsetof(WeaponTemplate, m_projectileDetonateFXs) },		
 	{ "FireOCL",										parseAllVetLevelsAsciiString,					NULL,							offsetof(WeaponTemplate, m_fireOCLNames) },		
@@ -274,8 +274,8 @@ const FieldParse WeaponTemplate::TheWeaponTemplateFieldParseTable[] =
 	{ "ClipSize",									INI::parseInt,													NULL,							offsetof(WeaponTemplate, m_clipSize) },		
 	{ "ContinuousFireOne",				INI::parseInt,													NULL,							offsetof(WeaponTemplate, m_continuousFireOneShotsNeeded) },		
 	{ "ContinuousFireTwo",				INI::parseInt,													NULL,							offsetof(WeaponTemplate, m_continuousFireTwoShotsNeeded) },		
-	{ "ContinuousFireCoast",			INI::parseDurationUnsignedInt,					NULL,							offsetof(WeaponTemplate, m_continuousFireCoastFrames) },		
- 	{ "AutoReloadWhenIdle",				INI::parseDurationUnsignedInt,					NULL,							offsetof(WeaponTemplate, m_autoReloadWhenIdleFrames) },		
+	{ "ContinuousFireCoast",			SPEED_FIELD( WeaponTemplate, m_continuousFireCoastFrames ) },		
+ 	{ "AutoReloadWhenIdle",				SPEED_FIELD( WeaponTemplate, m_autoReloadWhenIdleFrames ) },		
 	{ "ClipReloadTime",						WeaponTemplate::parseRetailDuration,		NULL,							offsetof(WeaponTemplate, m_clipReloadTime) },
 	{ "DelayBetweenShots",				WeaponTemplate::parseShotDelay,					NULL,							0 },
 	{ "ShotsPerBarrel",						INI::parseInt,													NULL,							offsetof(WeaponTemplate, m_shotsPerBarrel) },
@@ -295,7 +295,7 @@ const FieldParse WeaponTemplate::TheWeaponTemplateFieldParseTable[] =
 	{ "LaserName",								parseLaserName,													NULL,						offsetof(WeaponTemplate, m_laserName) },
 	{ "LaserBoneName",						INI::parseAsciiString,									NULL,							offsetof(WeaponTemplate, m_laserBoneName) },
 	{ "WeaponBonus",							WeaponTemplate::parseWeaponBonusSet,		NULL,							0 },		
-	{ "HistoricBonusTime",				INI::parseDurationUnsignedInt,					NULL,							offsetof(WeaponTemplate, m_historicBonusTime) },		
+	{ "HistoricBonusTime",				SPEED_FIELD( WeaponTemplate, m_historicBonusTime ) },		
 	{ "HistoricBonusRadius",			INI::parseReal,													NULL,							offsetof(WeaponTemplate, m_historicBonusRadius) },		
 	{ "HistoricBonusCount",				INI::parseInt,													NULL,							offsetof(WeaponTemplate, m_historicBonusCount) },		
 	{ "HistoricBonusWeapon",			INI::parseWeaponTemplate,								NULL,							offsetof(WeaponTemplate, m_historicBonusWeapon) },		
@@ -305,10 +305,10 @@ const FieldParse WeaponTemplate::TheWeaponTemplateFieldParseTable[] =
 	{ "ShowsAmmoPips",						INI::parseBool,													NULL,							offsetof(WeaponTemplate, m_isShowsAmmoPips) },
 	{ "AllowAttackGarrisonedBldgs", INI::parseBool,												NULL,							offsetof(WeaponTemplate, m_allowAttackGarrisonedBldgs) },
 	{ "PlayFXWhenStealthed",			INI::parseBool,													NULL,							offsetof(WeaponTemplate, m_playFXWhenStealthed) },
-	{ "PreAttackDelay",						INI::parseDurationUnsignedInt,					NULL,							offsetof( WeaponTemplate, m_preAttackDelay ) },
+	{ "PreAttackDelay",						SPEED_FIELD( WeaponTemplate, m_preAttackDelay ) },
 	{ "PreAttackType",						INI::parseIndexList,										TheWeaponPrefireNames, offsetof(WeaponTemplate, m_prefireType) },		
 	{ "ContinueAttackRange",			INI::parseReal,													NULL,							offsetof(WeaponTemplate, m_continueAttackRange) },
-	{ "SuspendFXDelay",						INI::parseDurationUnsignedInt,					NULL,							offsetof(WeaponTemplate, m_suspendFXDelay) },		
+	{ "SuspendFXDelay",						SPEED_FIELD( WeaponTemplate, m_suspendFXDelay ) },		
 	{ "MissileCallsOnDie",			INI::parseBool,													NULL,							offsetof(WeaponTemplate, m_dieOnDetonate) },
 	{ NULL,												NULL,																		NULL,							0 }  // keep this last
 
@@ -337,15 +337,15 @@ WeaponTemplate::WeaponTemplate() : m_nextTemplate(NULL)
 	m_radarBlindHitUpgradeChance		= 1.0f;
 	m_seeksMostValuable							= FALSE;
 	m_scatterTargetScalar						= 0.0f;
-	m_shockWaveAmount								= 0.0f;
+	m_shockWaveAmount.setRaw( 0.0f );
 	m_shockWaveRadius								= 0.0f;
 	m_shockWaveTaperOff							= 0.0f;
 	m_damageType										= DAMAGE_EXPLOSION;
 	m_deathType											= DEATH_NORMAL;
-	m_weaponSpeed										= 999999.0f;	// effectively instant
-	m_minWeaponSpeed								= 999999.0f;	// effectively instant
+	m_weaponSpeed.setRaw( 19999980.0f );	// effectively instant
+	m_minWeaponSpeed.setRaw( 19999980.0f );	// effectively instant: dist/sec, 999999.0f a frame at the native speed
 	m_isScaleWeaponSpeed						= FALSE;
-	m_ballisticFlightFrames					= 0;
+	m_ballisticFlightFrames.setRaw( 0 );
 	m_ballisticPeakHeight						= 0.0f;
 	m_weaponRecoil									= 0.0f;		// no recoil
 	m_minTargetPitch								= -PI;
@@ -372,19 +372,19 @@ WeaponTemplate::WeaponTemplate() : m_nextTemplate(NULL)
 	m_clipSize											= 0;
 	m_continuousFireOneShotsNeeded	= INT_MAX;
 	m_continuousFireTwoShotsNeeded	= INT_MAX;
-	m_continuousFireCoastFrames			= 0;
- 	m_autoReloadWhenIdleFrames			= 0;
+	m_continuousFireCoastFrames.setRaw( 0 );
+ 	m_autoReloadWhenIdleFrames.setRaw( 0 );
 	m_clipReloadTime								= 0;
 	m_minDelayBetweenShots					= 0;
 	m_maxDelayBetweenShots					= 0;
-	m_fireSoundLoopTime							= 0;
+	m_fireSoundLoopTime.setRaw( 0 );
 	m_extraBonus										= NULL;
 	m_shotsPerBarrel								= 1;
 	m_antiMask											= WEAPON_ANTI_GROUND;	// but not air or projectile.
 	m_projectileStreamName.clear();
 	m_laserName.clear();
 	m_laserBoneName.clear();
-	m_historicBonusTime							= 0;
+	m_historicBonusTime.setRaw( 0 );
 	m_historicBonusCount						= 0;
 	m_historicBonusRadius						= 0;
 	m_historicBonusWeapon						= NULL;
@@ -393,11 +393,11 @@ WeaponTemplate::WeaponTemplate() : m_nextTemplate(NULL)
 	m_isShowsAmmoPips								= FALSE;
 	m_allowAttackGarrisonedBldgs		= FALSE;
 	m_playFXWhenStealthed						= FALSE;
-	m_preAttackDelay								= 0;
+	m_preAttackDelay.setRaw( 0 );
 	m_continueAttackRange						= 0.0f;
 	m_infantryInaccuracyDist				= 0.0f;
 	m_damageStatusType							= OBJECT_STATUS_NONE;
-	m_suspendFXDelay								= 0;
+	m_suspendFXDelay.setRaw( 0 );
 	m_dieOnDetonate						= FALSE;
 	m_historicDamageTriggerId	= 0;
 }
@@ -483,13 +483,15 @@ void WeaponTemplate::reset( void )
 }
 
 //-------------------------------------------------------------------------------------------------
-/* A shot delay or a reload in msec, rounded up to whole retail (30 Hz) frames as EA's were and then
-	 doubled, so it is always an even count of logic frames.  Rounded at 60 Hz instead, 25 msec was 2
-	 logic frames where retail had 1 of its own, and a rate-of-fire bonus floored a different count. */
+/* A shot delay or a reload in msec, rounded up to whole retail (30 Hz) frames as EA's were, and kept
+	 in retail frames: the getters floor the rate-of-fire bonus in that count and convert to logic frames
+	 once, after it.  Rounded at 60 Hz instead, 25 msec was 2 logic frames where retail had 1 of its own,
+	 and a rate-of-fire bonus floored a different count.  Converted here and divided back there, a game
+	 speed that is not a whole ratio would have converted twice. */
 /*static*/ Int WeaponTemplate::retailFramesFromMsec( Int msec )
 {
 	const Real RETAIL_FRAMES_PER_MSEC = (Real)RETAIL_LOGICFRAMES_PER_SECOND / (Real)MSEC_PER_SECOND;
-	return ConvertRetailFrames( (Int)ceilf( (Real)msec * RETAIL_FRAMES_PER_MSEC ) );
+	return (Int)ceilf( (Real)msec * RETAIL_FRAMES_PER_MSEC );
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -594,10 +596,10 @@ Real WeaponTemplate::getBallisticLaunchPitch(const Coord3D& from, const Coord3D&
 Int WeaponTemplate::getDelayBetweenShots(const WeaponBonus& bonus) const 
 {
 	// yes, divide, not multiply; the larger the rate-of-fire bonus, the shorter
-	// we want the delay time to be.  Drawn and floored in retail frames, as EA's were, then doubled
+	// we want the delay time to be.  Drawn and floored in retail frames, as EA's were, then converted
 	// (retailFramesFromMsec).
-	const Int minDelay = m_minDelayBetweenShots / LOGICFRAMES_PER_RETAIL_FRAME;
-	const Int maxDelay = m_maxDelayBetweenShots / LOGICFRAMES_PER_RETAIL_FRAME;
+	const Int minDelay = m_minDelayBetweenShots;
+	const Int maxDelay = m_maxDelayBetweenShots;
 	Int delayToUse;
 	if( minDelay == maxDelay )
 		delayToUse = minDelay; // Random number thing doesn't like this case
@@ -616,7 +618,7 @@ Int WeaponTemplate::getClipReloadTime(const WeaponBonus& bonus) const
 {
 	// yes, divide, not multiply; the larger the rate-of-fire bonus, the shorter
 	// we want the reload time to be.  In retail frames, like getDelayBetweenShots.
-	const Int reload = m_clipReloadTime / LOGICFRAMES_PER_RETAIL_FRAME;
+	const Int reload = m_clipReloadTime;
 	return ConvertRetailFrames( REAL_TO_INT_FLOOR(reload / bonus.getField(WeaponBonus::RATE_OF_FIRE)) );
 }
 
@@ -1103,8 +1105,12 @@ UnsignedInt WeaponTemplate::fireWeaponTemplate
 		 RadarBlindHitUpgradeChance once the player has RadarBlindHitUpgrade.  The rest come down on the
 		 ground beside the target, past its edge and the blast, so they miss.  The radars, the upgrade and
 		 the roll are all logic state and the logic stream. */
+	// A gun in its mark-and-rain burst (MarkAndRainBehavior) is guided by the eye that saw the kill:
+	// no radar-blind miss and no scatter against infantry.  A logic flag, as the radars are.
+	const Bool guided = sourceObj && sourceObj->testWeaponBonusCondition( WEAPONBONUSCONDITION_MARK_AND_RAIN );
+	const Real infantryInaccuracyDist = guided ? 0.0f : m_infantryInaccuracyDist;
 	Bool radarMiss = FALSE;
-	if( m_radarBlindHitChance < 1.0f && !isProjectileDetonation && sourceObj &&
+	if( m_radarBlindHitChance < 1.0f && !isProjectileDetonation && sourceObj && !guided &&
 			!RadarCoverageBehavior::isCovered( sourceObj->getControllingPlayer(), victimPos ) )
 	{
 		Real hitChance = m_radarBlindHitChance;
@@ -1113,7 +1119,7 @@ UnsignedInt WeaponTemplate::fireWeaponTemplate
 			hitChance = m_radarBlindHitUpgradeChance;
 		radarMiss = GameLogicRandomValueReal( 0.0f, 1.0f ) >= hitChance;
 	}
-	if( radarMiss || m_scatterRadius > 0.0f || m_infantryInaccuracyDist > 0.0f && victimObj && victimObj->isKindOf( KINDOF_INFANTRY ) )
+	if( radarMiss || m_scatterRadius > 0.0f || infantryInaccuracyDist > 0.0f && victimObj && victimObj->isKindOf( KINDOF_INFANTRY ) )
 	{
 		// This weapon scatters, so clear the victimObj, as we are no longer shooting it directly,
 		// and find a random point within the radius to shoot at as victimPos
@@ -1136,11 +1142,11 @@ UnsignedInt WeaponTemplate::fireWeaponTemplate
 			{
 				victimObj->getGeometryInfo().getCenterPosition(*victimObj->getPosition(), projectileDestination);
 			}
-			if( m_infantryInaccuracyDist > 0.0f && victimObj->isKindOf( KINDOF_INFANTRY ) )
+			if( infantryInaccuracyDist > 0.0f && victimObj->isKindOf( KINDOF_INFANTRY ) )
 			{
 				//If we are firing a weapon that is considered inaccurate against infantry, then add it to
 				//the scatter radius!
-				scatterRadius += m_infantryInaccuracyDist;
+				scatterRadius += infantryInaccuracyDist;
 			}
 			targetLayer = victimObj->getLayer();
 		}
@@ -1712,25 +1718,25 @@ void WeaponStore::handleProjectileDetonation(const WeaponTemplate* wt, const Obj
 }
 
 //-------------------------------------------------------------------------------------------------
-void WeaponStore::createAndFireTempWeapon(const WeaponTemplate* wt, const Object *source, const Coord3D* pos)
+void WeaponStore::createAndFireTempWeapon(const WeaponTemplate* wt, const Object *source, const Coord3D* pos, ObjectID* projectileID)
 {
 	if (wt == NULL)
 		return;
 	Weapon* w = TheWeaponStore->allocateNewWeapon(wt, PRIMARY_WEAPON);
 	w->loadAmmoNow(source);
-	w->fireWeapon(source, pos);
+	w->fireWeapon(source, pos, projectileID);
 	w->deleteInstance();
 }
 
 //-------------------------------------------------------------------------------------------------
-void WeaponStore::createAndFireTempWeapon(const WeaponTemplate* wt, const Object *source, Object *target)
+void WeaponStore::createAndFireTempWeapon(const WeaponTemplate* wt, const Object *source, Object *target, ObjectID* projectileID)
 {
 	//CRCDEBUG_LOG(("WeaponStore::createAndFireTempWeapon() for %s\n", DescribeObject(source)));
 	if (wt == NULL)
 		return;
 	Weapon* w = TheWeaponStore->allocateNewWeapon(wt, PRIMARY_WEAPON);
 	w->loadAmmoNow(source);
-	w->fireWeapon(source, target);
+	w->fireWeapon(source, target, projectileID);
 	w->deleteInstance();
 }
 
@@ -3049,6 +3055,7 @@ Bool Weapon::privateFireWeapon(
 		}
 		
 		m_lastFireFrame = now;
+		sourceObj->wakeWeaponStatusHelper();
 		--m_ammoInClip;
 		--m_maxShotCount;
 		--m_numShotsForCurBarrel;
@@ -3222,7 +3229,19 @@ Object* Weapon::forceFireWeapon( const Object *source, const Coord3D *pos)
 	return TheGameLogic->findObjectByID( projectileID );
 }
 
+thread_local Int Weapon::s_statusPeekDepth = 0;
+
 //-------------------------------------------------------------------------------------------------
+/* Past the wait the answer comes from the clip, and EA writes it back into m_status, which a wait that
+	 starts without a status write of its own then reads: holdToRetailFireCycle holding a zero-wait shot
+	 for the retail cycle reads the READY_TO_FIRE an onWeaponBonusChange, or the fire state's search for
+	 the next victim of a continuous attack, wrote between the shot and the hold.  So whether m_status
+	 was refreshed depends on who asked, and a caller that asks in an order of its own choosing
+	 (findClosestEnemy, which runs its filters cheapest first) asks under a StatusPeek: the same
+	 answer, nothing written.  findClosestEnemy never runs between a shot and its hold, so the hold reads what it always
+	 read.  The one reader of an older refresh left is the
+	 shared-reload hold after a clip that does not reload by itself ran dry; of the shipped weapon sets
+	 only a Demo Stinger Soldier's suicide charge does that. */
 WeaponStatus Weapon::getStatus() const
 {
 	UnsignedInt now = TheGameLogic->getFrame();
@@ -3232,11 +3251,11 @@ WeaponStatus Weapon::getStatus() const
 	}
 	if( now >= m_whenWeCanFireAgain )
 	{
-		if (m_ammoInClip > 0)
-			m_status = READY_TO_FIRE;
-		else
-			m_status = OUT_OF_AMMO;
+		const WeaponStatus status = m_ammoInClip > 0 ? READY_TO_FIRE : OUT_OF_AMMO;
+		if( s_statusPeekDepth == 0 )
+			m_status = status;
 		//CRCDEBUG_LOG(("Weapon::getStatus() just set m_status to %d (ammo in clip is %d)\n", m_status, m_ammoInClip));
+		return status;
 	}
 	return m_status;
 }

@@ -37,12 +37,13 @@
 #include "Common/SubsystemInterface.h"
 #include "Common/GameMemory.h"
 #include "Common/GameType.h"
-#include "Common/GameCommon.h"		// LOGICFRAMES_PER_SECOND
+#include "Common/GameCommon.h"		// LOGICFRAMES_PER_GAME_SECOND
 #include "GameLogic/Damage.h"
 #include "Common/STLTypedefs.h"
 
 class AIGroup;
 class AIInfluenceMap;
+struct AIThreatMix;
 class AttackPriorityInfo;
 class BuildListInfo;	
 class CommandButton;
@@ -53,6 +54,7 @@ class Pathfinder;
 class Player;
 class PolygonTrigger;
 class SimpleObjectIterator;
+struct ShroudPeekRecord;
 class ThingTemplate;
 class UpgradeTemplate;
 class WeaponBonus;
@@ -148,8 +150,8 @@ public:
 	* every shipped map and .scb, into the campaign's stat bonus tables and into network messages.
 	* This one answers "how well does it play".  No rung has a build-rate, vision or stat handicap, in
 	* either direction.  Income is the one bonus: a skirmish AI banks its rung's IncomePercent of what it
-	* earns by playing (Player::earnMoney), 150 on every rung and up to 300 while it falls behind its
-	* strongest enemy (AIPlayer::stepIncomeBonus).  Keeping it a separate enum is what lets a rung be
+	* earns by playing (Player::earnMoney), 100 on Easy and 150 on Hard, and up to IncomeBonusMaxPercent
+	* more (25 and 100) while it falls behind its strongest enemy (AIPlayer::stepIncomeBonus).  Keeping it a separate enum is what lets a rung be
 	* tuned in AI.ini without touching what a map's scripts do.
 	* See AI-ROADMAP.md sections D6, D7 and D10.
 	*/
@@ -162,6 +164,86 @@ enum AISkillLevel
 
 	AISKILL_COUNT
 };
+
+//-------------------------------------------------------------------------------------------------
+/** A skirmish AI's strength as one number per seat, its rating, on the scale of a player's online
+	* rating as zerohour.gg's ladder shows it (the OpenSkill ordinal mu - 3 sigma: a new player 0,
+	* sergeant 5, captain 15, general 30 and up), so a ranked match can pick the AI's rating from the
+	* player's.  The three rungs are the anchors, Easy 0, Medium 15 and Hard 30, set here and nowhere
+	* else, and every knob that differs by rung (the ladder's profile, each table of three in
+	* AIPlayer.cpp) is read at the rating.  A seat at Easy or Hard plays exactly that rung.  The rung
+	* stays, derived as the nearest (aiSkillOfRating, Easy under 7.5, Hard from 22.5), for what is
+	* discrete by nature: the map scripts' easy, normal and hard flags, the gatherer counts, the menus
+	* and the logs.
+	*
+	* The rating is one multiplier with no edge of its own: every knob is one smooth curve of it through
+	* Easy's value E at 0 and Hard's value H at 30 (aiKnobAt), and Medium's row is where the curve passes
+	* at 15, no longer a point it has to hit.  With t = r / 30:
+	*   a knob that falls (H < E, a period, a delay, a threshold): E / (1 + c t) for t >= 0 and
+	*     E (1 - c t) below, c = E/H - 1, the same value and slope at 0; H = 0 is E (1 - t), and 0 past it;
+	*   a knob that rises (H > E, a power, a count, a reach): E (1 - t) + H t for t >= 0, and
+	*     E / (1 - s t / E) below, s = H - E, which falls towards 0 and never reaches it; E = 0 is 0 below;
+	*   a share (AIKNOB_SHARE, a fraction that means nothing past 1) that rises: 1 minus the falling curve
+	*     of what is left to 1, so it nears 1 and never passes it, and the same decay as above below 0; one
+	*     that falls: the falling curve for t >= 0, and below 0 what is left to 1 decays towards 0;
+	*   AIKNOB_GATED, a knob whose Easy 0 means "off" (CashHoardThreshold, BeamSteerSeconds): off below
+	*     7.5 like a Bool, from there the curve through Medium at 15 and Hard at 30;
+	*   E = H: flat.
+	* A Bool reads its nearest rung (on from 7.5 or 22.5, as before), an Int rounds its curve.  Only + - * /.
+	* The rating itself is held to AI_RATING_LIMIT either way, far past any ladder, so its hundredths stay
+	* an Int; nothing else is clamped. */
+//-------------------------------------------------------------------------------------------------
+#define AI_RATING_EASY		0.0f
+#define AI_RATING_MEDIUM	15.0f
+#define AI_RATING_HARD		30.0f
+/** Not a cap on the scale: the furthest a rating is carried either way, so its hundredths and every
+	* knob extrapolated from it stay well inside an Int. */
+#define AI_RATING_LIMIT		1000.0f
+/** The game setup carries a rating as whole hundredths, the ladder's two decimals, so a slot string,
+	* a replay header and a dict hold an Int and every machine reads the same Real back from it. */
+#define AI_RATING_NONE		(-0x7FFFFFFF - 1)		///< no rating in the setup: the seat plays its rung's anchor
+Int aiRatingToHundredths( Real rating );		///< rounded to the nearest hundredth, held to AI_RATING_LIMIT first
+Real aiRatingFromHundredths( Int hundredths );
+
+Real aiRatingClamp( Real rating );								///< held to [-AI_RATING_LIMIT, AI_RATING_LIMIT]
+Real aiRatingOfSkill( AISkillLevel level );				///< the rung's anchor; Hard for anything out of range
+AISkillLevel aiSkillOfRating( Real rating );			///< the nearest rung, the upper one at a midpoint
+/** The rating has reached the midpoint below rung's anchor: what "this rung or above" means for a
+	* rating, the same answer as before at every anchor. */
+inline Bool aiRatingReaches( Real rating, AISkillLevel rung ) { return aiSkillOfRating( rating ) >= rung; }
+
+/** Which curve a knob's E and H are read on (aiKnobAt); whether it rises or falls is theirs. */
+enum AIKnobForm
+{
+	AIKNOB_OPEN = 0,		///< a magnitude with no ceiling
+	AIKNOB_SHARE,				///< a fraction, never past 1
+	AIKNOB_GATED,				///< Easy's 0 is "off": off below the Easy-Medium midpoint, then the curve from Medium to Hard
+};
+/** A table of three, Easy, Medium and Hard, and its curve. */
+struct AIRungReal
+{
+	Real m_byRung[ AISKILL_COUNT ];
+	AIKnobForm m_form;
+};
+struct AIRungInt
+{
+	Int m_byRung[ AISKILL_COUNT ];
+	AIKnobForm m_form;
+};
+/** A knob at a rating: Easy's and Hard's values to the bit at their anchors, the curve between and past. */
+Real aiKnobAt( Real rating, Real easy, Real medium, Real hard, AIKnobForm form );
+Real aiRatingLerp( Real rating, const AIRungReal &knob );
+Int aiRatingLerp( Real rating, const AIRungInt &knob );		///< the curve rounded to the nearest
+/** One table of three outside the profile, by its constant's name: one of the two pointers, the other NULL. */
+struct AIRatingTable
+{
+	const char *m_name;
+	const AIRungReal *m_real;
+	const AIRungInt *m_int;
+};
+/** Every AIRungReal and AIRungInt the game reads (AIPlayer.cpp, Player.cpp, AISkirmishPlayer.cpp), so
+	* the curves can be drawn and checked from the tables themselves; *count takes how many. */
+const AIRatingTable *aiRatingTables( Int *count );
 
 //-------------------------------------------------------------------------------------------------
 /** What the AI is trying to do, as opposed to how well it does it.  A preference, never a bonus:
@@ -220,8 +302,8 @@ AIPersonality aiPersonalityFromName( const char *name );
 	* switch(difficulty) somewhere, so the whole ladder can be read, tuned and measured in one place.
 	*
 	* Nothing in here may exceed the AI's baseline - the top rung IS the baseline and the lower rungs
-	* are handicaps on its *decisions*.  m_incomePercent is the one exception, the owner's call of
-	* 2026-11-02.  If another field ever appears that multiplies income, build rate, vision or unit
+	* are handicaps on its *decisions*.  Income is the one exception, the owner's call of 2026-11-02,
+	* and since 2026-11-17 it rises with the rating too, so Easy earns less than Hard.  If another field ever appears that multiplies income, build rate, vision or unit
 	* stats per rung, the design has drifted. */
 //-------------------------------------------------------------------------------------------------
 struct AIDifficultyProfile
@@ -303,12 +385,28 @@ struct AIDifficultyProfile
 
 	// Taking more of the map (AIPlayer::doSecondBase, AIPlayer::findSupplyCenter)
 	Real	m_secondBaseSeconds;						///< no base away from home before this far into the match; 0 = never
-	Int		m_secondBases;									///< how many empty start positions it founds a base on, nearest first
+	Int		m_secondBases;									///< how many empty start positions it founds a base on, nearest first; Hard 3, a count the rating's line can read
 	Real	m_expansionReach;								///< how far from home, or from one of those bases, a supply center of its own choosing may go
 
 	// Income: the one bonus on the ladder (Player::incomePercent)
 	Int		m_incomePercent;								///< what a skirmish AI banks of what it earns by playing, in percent, before the falling-behind bonus; the score screen counts the 100
+	Int		m_incomeBonusMaxPercent;				///< the falling-behind bonus's ceiling in percentage points over m_incomePercent (Easy 25, Hard 100)
+
+	// Pace: the factor on EA's finished build delays (AIPlayer::buildDelayScale), 1 on Hard so Hard is EA's
+	Real	m_buildDelayScale;							///< Easy 1.5, Hard 1.0; a falling curve, 1.2 at 15
+
+	// Its units' own buttons (AIPlayer::doAbilities)
+	Int		m_unitAbilities;								///< 0 none; 1 the laser lock, manual shots, area weapons at the unit's own target and weapon toggles; 2 those anywhere in reach, walk-up specials and suicides too
+
+	// Another side's tech tree (AIPlayer::doForeignTech)
+	Int		m_foreignTech;									///< 0 none; 1 a foreign dozer or Command Center that falls into its hands builds that side's base and army; 2 it also goes after them: dozers stolen or emptied and crewed, Command Centers and other buildings captured
 };
+
+/** The profile at a rating: every Real and Int field of the AI.ini SkillLevel parse table on its curve
+	* (aiKnobAt, the form in the row's userData), every Bool from the nearest rung's row. */
+void aiRatingProfile( Real rating, const AIDifficultyProfile ladder[ AISKILL_COUNT ], AIDifficultyProfile *out );
+/** The SkillLevel parse table: a Real or Int row's userData is its AIKnobForm, a Bool row's NULL. */
+const struct FieldParse *aiSkillLevelFields( void );
 
 //-------------------------------------------------------------------------------------------------
 /** What an enemy is fielding, as shares of the threat value the observer can actually see.  The
@@ -402,7 +500,7 @@ struct AITargetRating
 	ObjectID m_id;		///< the last tie, so every machine picks the same one
 };
 
-const Int AI_QUICK_KILL_FRAMES = 10 * LOGICFRAMES_PER_SECOND;
+#define AI_QUICK_KILL_FRAMES ((Int)(10 * LOGICFRAMES_PER_GAME_SECOND))
 
 /** 2 for whoever just shot us, and while something is shooting us for an armed enemy already in
 	* reach that we kill within AI_QUICK_KILL_FRAMES; 1 for any other enemy that can shoot us; 0 for
@@ -448,10 +546,19 @@ Real aiRetreatRatio( Real myHealth, Real myPower, Real enemyHealth, Real enemyPo
 /** Where a force losing a fight stops: the first spot on its line home, or 45 or 90 degrees off it, that
 	* none of the fight's guns reach (x, y, reach triples) and that map, when given, has no enemy gun on,
 	* plus one step, on the ground (bounds: low x, low y, high x, high y).  FALSE and home when there is none
-	* short of it. */
+	* short of it.  mix is how the force reads the map, by what it moves; NULL is AITHREAT_GROUND_MIX.  Of
+	* the ways out, the one with the least threat summed along it; outThreat and roadThreat take its sum and
+	* the road home's. */
 Bool aiRetreatFallbackPoint( Real fromX, Real fromY, Real homeX, Real homeY, Real step,
 														 const Real *guns, Int gunCount, const Real *bounds, Real *outX, Real *outY,
-														 const AIInfluenceMap *map = NULL );
+														 const AIInfluenceMap *map = NULL, const AIThreatMix *mix = NULL,
+														 Real *outThreat = NULL, Real *roadThreat = NULL );
+
+/** A waypoint off the straight walk from one point to another that goes round the enemy reach map shows on
+	* it, when the walk round sums under half the straight walk's threat (bounds: low x, low y, high x, high y). */
+Bool aiDetourWaypoint( Real fromX, Real fromY, Real toX, Real toY, Real step, const Real *bounds,
+											 const AIInfluenceMap *map, const AIThreatMix &mix, Real *wayX, Real *wayY,
+											 Real *straightThreat, Real *detourThreat );
 
 /** What a unit that has just been hit does about the gun that hit it. */
 enum AIFireAnswer
@@ -548,7 +655,7 @@ static const Int AI_FACTORY_HISTORY_PASSES = 32;
 /** The rung's backlog in spend passes of passFrames each, rounded up, 1 to AI_FACTORY_HISTORY_PASSES. */
 inline Int aiBacklogSamples( Real seconds, Int passFrames )
 {
-	const Int frames = REAL_TO_INT( seconds * LOGICFRAMES_PER_SECOND );
+	const Int frames = REAL_TO_INT( seconds * LOGICFRAMES_PER_GAME_SECOND );
 	const Int passes = ( frames + passFrames - 1 ) / passFrames;
 	return passes < 1 ? 1 : passes > AI_FACTORY_HISTORY_PASSES ? AI_FACTORY_HISTORY_PASSES : passes;
 }
@@ -581,7 +688,7 @@ inline Bool aiQueueKindFull( Int finished, Int busy ) { return finished > 0 && b
 inline Bool aiAirfieldsFull( Int finished, Int parkingFull, Bool wanted ) { return finished > 0 && parkingFull >= finished && wanted; }
 
 /** How long a buy refused for parking keeps the computer wanting another airfield. */
-static const UnsignedInt AI_PARKING_WANT_FRAMES = 15 * LOGICFRAMES_PER_SECOND;
+#define AI_PARKING_WANT_FRAMES ((UnsignedInt)(15 * LOGICFRAMES_PER_GAME_SECOND))
 
 /** One unfinished building the computer placed, as its base builder last saw it. */
 struct AISiteWatch
@@ -783,6 +890,10 @@ Real aiEnemyCost( Real distSqr, Bool crippled, Bool alreadyTargetedByAnotherAI,
 	* decision to spend faster, not a production multiplier, and D10 draws that line. */
 Int aiHoardAdjustedDelay( Int frames, Int money, Int hoardAt );
 
+/** A finished build delay times the rated BuildDelayScale, rounded up and never under a frame.  A
+	* scale of 1 (Hard) returns the frames untouched, so Hard keeps EA's pace to the frame. */
+Int aiScaledBuildDelay( Int frames, Real scale );
+
 /** How many copies of one team a skirmish AI may field.  The skirmish scripts cap the army by
 	* their roster: late in a match every attack team left to build allows one copy, so the AI
 	* replaces its losses and banks the rest.  Every two thresholds of cash allows one more copy of
@@ -806,7 +917,7 @@ enum AIPurchaseKind
 };
 
 /** The first minutes of a match, while economy and power outrank the army. */
-const UnsignedInt AI_PURCHASE_EARLY_FRAMES = 6 * 60 * LOGICFRAMES_PER_SECOND;
+#define AI_PURCHASE_EARLY_FRAMES ((UnsignedInt)(6 * 60 * LOGICFRAMES_PER_GAME_SECOND))
 
 /** How much a purchase of this kind matters next to the others; the higher wins the money.  Early in a
 	* match income and power come before the army, which is how a Hard AI kept attacking with two
@@ -865,7 +976,7 @@ static const Int AI_SHARE_MIN = 500;
 Int aiPersonaShareAmount( Int bank, Int target, Int cap );
 
 /** May a bot say something now: never twice inside AI_CHAT_GAP_FRAMES, the first line any time. */
-static const UnsignedInt AI_CHAT_GAP_FRAMES = 150 * LOGICFRAMES_PER_SECOND;
+#define AI_CHAT_GAP_FRAMES ((UnsignedInt)(150 * LOGICFRAMES_PER_GAME_SECOND))
 Bool aiPersonaChatAllowed( UnsignedInt now, UnsignedInt lastChat );
 
 /** What a player asks of his allies: his base is under attack, by aircraft, he is short of money, or
@@ -889,8 +1000,8 @@ struct AITeamRequest
 };
 
 /** How long a call for help stands, and a personality keeps to an ally's attack after he posted it. */
-static const UnsignedInt AI_COOP_HELP_FRAMES = 15 * LOGICFRAMES_PER_SECOND;
-static const UnsignedInt AI_COOP_JOIN_FRAMES = 120 * LOGICFRAMES_PER_SECOND;
+#define AI_COOP_HELP_FRAMES ((UnsignedInt)(15 * LOGICFRAMES_PER_GAME_SECOND))
+#define AI_COOP_JOIN_FRAMES ((UnsignedInt)(120 * LOGICFRAMES_PER_GAME_SECOND))
 
 /** Post a request from this player to every computer ally of his (allied both ways). */
 void aiPostTeamRequest( Player *from, AITeamRequestKind kind, Int enemy, const Coord3D *pos );
@@ -949,17 +1060,16 @@ struct AIPurchaseQueue
 	void bought( Int key ) { if( key == m_key ) m_key = NONE; }
 };
 
-const UnsignedInt AI_PURCHASE_STALE_FRAMES = 20 * LOGICFRAMES_PER_SECOND;
-const UnsignedInt AI_PURCHASE_HOLD_FRAMES = 40 * LOGICFRAMES_PER_SECOND;
+#define AI_PURCHASE_STALE_FRAMES ((UnsignedInt)(20 * LOGICFRAMES_PER_GAME_SECOND))
+#define AI_PURCHASE_HOLD_FRAMES ((UnsignedInt)(40 * LOGICFRAMES_PER_GAME_SECOND))
 
 /** How long a stretch of income is measured over before the rate is taken again. */
-const UnsignedInt AI_INCOME_WINDOW_FRAMES = 30 * LOGICFRAMES_PER_SECOND;
+#define AI_INCOME_WINDOW_FRAMES ((UnsignedInt)(30 * LOGICFRAMES_PER_GAME_SECOND))
 
-/** The falling-behind income bonus (AIPlayer::stepIncomeBonus): how often it is weighed again, how far
-	* it moves at one weighing, and its ceiling over the rung's IncomePercent, in percentage points. */
-const UnsignedInt AI_INCOME_BONUS_FRAMES = 30 * LOGICFRAMES_PER_SECOND;
-const Int AI_INCOME_BONUS_STEP = 25;
-const Int AI_INCOME_BONUS_MAX = 150;
+/** The falling-behind income bonus (AIPlayer::stepIncomeBonus): how often it is weighed again, and in
+	* how many weighings it climbs from nothing to the profile's IncomeBonusMaxPercent (a step of 25 at 150). */
+#define AI_INCOME_BONUS_FRAMES ((UnsignedInt)(30 * LOGICFRAMES_PER_GAME_SECOND))
+const Int AI_INCOME_BONUS_STEPS = 6;
 
 /** The bank a computer player keeps: seconds of its income, and never under the floor. */
 Int aiBankTarget( Real incomePerSecond, Real seconds, Int floor );
@@ -1054,7 +1164,7 @@ public:
 	Real m_teamSeconds;					// Try to build a team every N seconds.
 	Int m_resourcesWealthy;		// How many resources to be wealthy.
 	Int m_resourcesPoor;			// How few resources to be poor.
-	UnsignedInt m_forceIdleFramesCount;	// How many frames does a unit need to be Idle before it can begin looking for enemies?
+	DurationFrames m_forceIdleFramesCount;	// How many frames does a unit need to be Idle before it can begin looking for enemies?
 	Real m_structuresWealthyMod; // Factor to multiply m_structurFrames by if we are wealthy.
 	Real m_teamWealthyMod;		// Factor to multiply m_teamFrames by if we are wealthy.
 	Real m_structuresPoorMod; // Factor to multiply m_structureFrames by if we are poor.
@@ -1064,9 +1174,9 @@ public:
 	Real m_guardOuterModifierAI;	// Multiply the AI unit's vision by this much == guard outer circle.
 	Real m_guardInnerModifierHuman;	// Multiply the human unit's vision by this much == guard inner circle
 	Real m_guardOuterModifierHuman;	// Multiply the human unit's vision by this much == guard outer circle
-	UnsignedInt m_guardChaseUnitFrames;		// Number of frames for which a unit should 
-	UnsignedInt m_guardEnemyScanRate;		// rate to scan for enemies while guarding
-	UnsignedInt m_guardEnemyReturnScanRate;		// rate to scan for enemies while guarding but returning
+	DurationFrames m_guardChaseUnitFrames;		// Number of frames for which a unit should 
+	DurationFrames m_guardEnemyScanRate;		// rate to scan for enemies while guarding
+	DurationFrames m_guardEnemyReturnScanRate;		// rate to scan for enemies while guarding but returning
 
 	Real m_wallHeight;				// Height of special wall units can walk on top of.
 
@@ -1170,6 +1280,7 @@ public:
 	static Int getEnemyScanCountThisFrame( void ) { return s_enemyScans; }
 	static void resetEnemyScanCount( void ) { s_enemyScans = 0; }
 	static void bumpEnemyScanCount( void ) { ++s_enemyScans; }
+	static void noteJobEnemyScans( Int scans ) { s_enemyScans += scans; }	///< what jobs counted, added after the join
 	enum
 	{
 		CAN_SEE														=	1 << 0,
@@ -1178,10 +1289,29 @@ public:
 		ATTACK_BUILDINGS									= 1 << 3,
 		WITHIN_ATTACK_RANGE								= 1 << 4,
 		UNFOGGED													= 1 << 5,
-		PREFER_BEST_TARGET								= 1 << 6		///< pick by pickBestTarget, not the nearest thing
+		PREFER_BEST_TARGET								= 1 << 6,		///< pick by pickBestTarget, not the nearest thing
+		ANY_WILL_DO												= 1 << 7		///< some enemy the search would accept, not the one it picks: only for asking whether the answer is NULL
 	};
+	/** A target search a job of the logic thread runs (LOGIC-PARALLEL.md, P2): the thread's own scratch
+		in, and whether the answer may stand out. The search gathers with PartitionManager::gatherFromJob,
+		peeks the fog instead of asking it (the logic thread replays the questions later), counts here
+		instead of in the shared counters, and gives up, aborted, wherever a step is not safe beside other
+		jobs: a search form it does not run, a cache not filled yet, a whole range query underneath. */
+	struct ScanJob
+	{
+		Object		**objects;				///< capacity each, this thread's
+		Real			*distSqr;
+		Int				capacity;
+		ShroudPeekRecord *peeks;		///< where the fog filter records
+		SimpleObjectIterator *iterator;	///< this thread's, filled again by each gather (recycle)
+		Bool			aborted;
+		Int				gathers;
+		Int				objectsLookedAt;
+		Int				scans;
+	};
+
 	Object *findClosestEnemy( const Object *me, Real range, UnsignedInt qualifiers,
-		const AttackPriorityInfo *info=NULL, PartitionFilter *optionalFilter=NULL);
+		const AttackPriorityInfo *info=NULL, PartitionFilter *optionalFilter=NULL, ScanJob *job=NULL);
 
 	/** The candidate me would rather shoot than any other, by aiTargetBeats, or NULL.  lateFilters
 		* (NULL-terminated) are asked only of a candidate that would take the lead. */
@@ -1213,8 +1343,9 @@ public:
 	static Real s_lastPlayerUpdateMS;				///< see getLastPlayerUpdateMS
 	const TAiData *getAiData() {return m_aiData;}
 
-	/// The rung's knobs. Bounds-checked, so a bad index reads as the baseline rather than as memory.
-	const AIDifficultyProfile *getDifficultyProfile( AISkillLevel level ) const;
+	/** The knobs at a rating: the ladder's own row at an anchor, else the two rows around it
+		* interpolated into scratch (aiRatingProfile), which is then what comes back. */
+	const AIDifficultyProfile *getRatedProfile( Real rating, AIDifficultyProfile *scratch ) const;
 
 	static void parseSkillLevel(INI *ini, void *instance, void *store, const void *userData);
 
@@ -1228,6 +1359,12 @@ public:
 	static void parseScience( INI* ini, void *instance, void *store, const void *userData );					///< Parse the image part of the INI file
 
 	inline UnsignedInt getNextGroupID( void ) { return ++m_nextGroupID; }
+	/** The groups, in list order with their IDs and members, and the counters that hand out group and
+		formation IDs. EA saved none of it: a loaded game had no groups, and the next group made took
+		ID 1, so its units moved apart and the CRC, which walks the group list, parted from the game
+		that was saved on the first frame. GameLogic::xfer writes it after the objects. */
+	void xferGroups( Xfer *xfer );
+	void loadPostProcessGroups( void );	///< the loaded groups take their members back, once every object is in
 
 	/// One building placement per logic frame across every computer player: FALSE when one already went down on this frame.
 	Bool claimBuildingPlacement( UnsignedInt frame );
@@ -1247,6 +1384,7 @@ protected:
 	UnsignedInt m_sweptGroupID;						///< every group up to this ID has been through sweepEmptyGroups
 	FormationID m_nextFormationID;
 	UnsignedInt m_lastBuildingPlacementFrame;	///< cleared by reset: a static here outlived the match and deferred the next match's first placement on one machine only
+	std::vector< std::pair< AIGroup *, std::vector< ObjectID > > > m_loadedGroupMembers;	///< xferGroups' members, until loadPostProcessGroups
 };
 
 extern AI *TheAI;												///< the Artificial Intelligence singleton
@@ -1885,6 +2023,7 @@ public:
 #endif
 	void groupCheer( CommandSourceType cmdSource );
 	void groupSell( CommandSourceType cmdSource );
+	static Bool mayPlayerSell( const Object *obj );	///< the bar's checks before it shows Sell; the sidebar's Sat asks them too
 	void groupToggleOvercharge( CommandSourceType cmdSource );
 #ifdef ALLOW_SURRENDER
 	void groupPickUpPrisoner( Object *prisoner, CommandSourceType cmdSource );	///< pick up prisoner

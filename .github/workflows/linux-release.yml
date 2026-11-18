@@ -70,7 +70,9 @@ jobs:
 
       - name: Validate CI helpers
         run: |
-          bash -n .github/scripts/linux-ci-tools.sh GeneralsMD/Code/Tools/linux-{portable,packages,packages-check,check}.sh
+          for script in .github/scripts/linux-ci-tools.sh GeneralsMD/Code/Tools/linux-{portable,packages,packages-check,check}.sh; do
+            bash -n "$script"
+          done
           bash GeneralsMD/Code/Tests/test_vendor_no_art.sh
           python3 GeneralsMD/Code/Tests/test_linux_release.py
 

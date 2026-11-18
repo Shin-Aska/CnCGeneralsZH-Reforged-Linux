@@ -44,7 +44,11 @@
 #include "GameClient/GadgetPushButton.h"
 #include "GameClient/GameText.h"
 #include "GameClient/Display.h"
+#include "GameClient/DisplayString.h"
+#include "GameClient/DisplayStringManager.h"
+#include "GameClient/Gadget.h"
 #include "GameClient/Image.h"
+#include "GameNetwork/Online/OnlineQueues.h"
 #include "GameClient/Mouse.h"
 #include "GameClient/UIStyle.h"
 #include "GameLogic/GameLogic.h" // SUPERWEAPON_RESTRICT_COUNT
@@ -559,6 +563,17 @@ Int SuperweaponRestrictionFromComboBox(GameWindow *comboBox)
   return (Int)(intptr_t)GadgetComboBoxGetItemData(comboBox, selIndex);
 }
 
+const char *SuperweaponCaption(Int restriction)
+{
+  for ( Int i = 0; i < (Int)(sizeof(theSuperweaponChoices)/sizeof(theSuperweaponChoices[0])); i++ )
+  {
+    if ( theSuperweaponChoices[i] == restriction )
+      return theSuperweaponCaptions[i];
+  }
+  // as the dropdown shows a mode it has no entry for
+  return theSuperweaponCaptions[0];
+}
+
 void UpdateUnitLimitCheckBox(GameWindow *checkBox, GameInfo *myGame, Bool hostMayEdit)
 {
   checkBox->winEnable( hostMayEdit );
@@ -584,6 +599,13 @@ static const char * theIncomeSharingCaptions[ INCOME_SHARING_COUNT ] =
 {
   "GUI:IncomeSharingOff", "GUI:IncomeSharingTech", "GUI:IncomeSharingAll"
 };
+
+const char *IncomeSharingCaption(Int incomeSharing)
+{
+  if ( incomeSharing < 0 || incomeSharing >= INCOME_SHARING_COUNT )
+    return theIncomeSharingCaptions[ INCOME_SHARING_OFF ];
+  return theIncomeSharingCaptions[ incomeSharing ];
+}
 
 void PopulateIncomeSharingComboBox(GameWindow *comboBox, GameInfo *myGame, Bool hostMayEdit)
 {
@@ -1141,6 +1163,11 @@ static void drawSwatch(GameWindow *window, WinInstanceData *instData)
 	Int x, y, width, height;
 	window->winGetScreenPosition(&x, &y);
 	window->winGetSize(&width, &height);
+	LobbySwatchFill(x, y, width, height, window->winGetEnabledColor(0));
+}
+
+void LobbySwatchFill(Int x, Int y, Int width, Int height, Color fill)
+{
 	TheDisplay->drawImage(TheMappedImageCollection->findImageByName("Active-Unchecked"), x, y, x + width, y + height);
 	// the art is a 22 pixel cell whose black hole runs from 3 to 17 on both axes, up and left of the
 	// middle because the drop shadow takes the last two; each edge is rounded on its own so the hole
@@ -1152,7 +1179,7 @@ static void drawSwatch(GameWindow *window, WinInstanceData *instData)
 	const Int holeBottom = y + (HOLE_END * height + CELL / 2) / CELL;
 	const Int gap = max(1, min(holeRight - holeLeft, holeBottom - holeTop) / 8);
 	TheDisplay->drawFillRect(holeLeft + gap, holeTop + gap, holeRight - holeLeft - 2 * gap,
-		holeBottom - holeTop - 2 * gap, window->winGetEnabledColor(0));
+		holeBottom - holeTop - 2 * gap, fill);
 }
 
 void DrawMapListTab(GameWindow *window, WinInstanceData *instData)
@@ -1442,8 +1469,85 @@ Bool FitRandomMapToRoom(GameInfo *game)
 	return TRUE;
 }
 
+/* The online room's seats name each human with his ladder rating after the nick, MUTED, read from the
+	 card the server sent the lobby for that nick (ONLINE-UI-REDESIGN.md, "Game setup room").  The player
+	 box keeps EA's art and its text; the rating is drawn after it, so the room's combo code is untouched. */
+static GameWindow *theSeatPlayer[MAX_SLOTS];			///< each seat's player box's text entry
+static AsciiString theSeatNick[MAX_SLOTS];				///< the human in it, empty for anyone else
+static DisplayString *theSeatRating[MAX_SLOTS];
+static GameWinDrawFunc theSeatPlayerDraw = NULL;
+
+static void drawSeatPlayer(GameWindow *window, WinInstanceData *instData)
+{
+	if (theSeatPlayerDraw)
+		theSeatPlayerDraw(window, instData);
+	Int seat = -1;
+	for (Int i = 0; i < MAX_SLOTS && seat < 0; ++i)
+		if (theSeatPlayer[i] == window)
+			seat = i;
+	OnlinePlayerInfo card;
+	if (seat < 0 || theSeatNick[seat].isEmpty() || !OnlineGetPlayerInfo(theSeatNick[seat], card) || !card.hasRating)
+		return;
+	const EntryData *entry = (const EntryData *)window->winGetUserData();
+	if (!entry || !entry->text)
+		return;
+	if (!theSeatRating[seat])
+		theSeatRating[seat] = TheDisplayStringManager->newDisplayString();
+	DisplayString *rating = theSeatRating[seat];
+	if (rating->getFont() != window->winGetFont())
+		rating->setFont(window->winGetFont());
+	rating->setText(UIStyle::ratingText(card.exactRating));
+
+	// where W3DTextEntry ends the nick: its text starts seven pixels in (ten from the start), centred on
+	// the box by the font's height
+	Int x, y, width, height, w, h;
+	window->winGetScreenPosition(&x, &y);
+	window->winGetSize(&width, &height);
+	rating->getSize(&w, &h);
+	const Int at = x + (entry->drawTextFromStart ? 10 : 7) + entry->text->getWidth() + UIStyle::px(10.0f);
+	if (at + w > x + width - 5)
+		return;		// a nick that fills the box keeps it to itself
+	const Int top = y + max(1, (height - TheWindowManager->winFontHeight(instData->getFont())) / 2);
+	rating->draw(at, top, UIStyle::MUTED, UIStyle::SHADOW);
+}
+
+static void attachSeatRatings(GameWindow *parent, const char *layoutFilename)
+{
+	for (Int i = 0; i < MAX_SLOTS; ++i)
+	{
+		theSeatPlayer[i] = NULL;
+		theSeatNick[i].clear();
+		if (!OnlineIsEnabled() || strcmp(layoutFilename, "GameSpyGameOptionsMenu.wnd") != 0)
+			continue;
+		AsciiString name;
+		name.format("%s:ComboBoxPlayer%d", layoutFilename, i);
+		GameWindow *combo = TheWindowManager->winGetWindowFromId(parent, NAMEKEY(name));
+		GameWindow *box = combo ? GadgetComboBoxGetEditBox(combo) : NULL;
+		if (!box)
+			continue;
+		theSeatPlayer[i] = box;
+		if (box->winGetDrawFunc() == drawSeatPlayer)
+			continue;		// a second init on the same layout: the box is hooked already, and capturing again would recurse
+		theSeatPlayerDraw = box->winGetDrawFunc();
+		box->winSetDrawFunc(drawSeatPlayer);
+	}
+}
+
+static void detachSeatRatings(void)
+{
+	for (Int i = 0; i < MAX_SLOTS; ++i)
+	{
+		if (theSeatRating[i])
+			TheDisplayStringManager->freeDisplayString(theSeatRating[i]);
+		theSeatRating[i] = NULL;
+		theSeatPlayer[i] = NULL;
+		theSeatNick[i].clear();
+	}
+}
+
 void InitLobbySeatVisuals(GameWindow *parent, const char *layoutFilename)
 {
+	attachSeatRatings(parent, layoutFilename);
 	GameWindow **const windows[] = { theSeatCard, theSeatBar, theSeatSwatch, theSeatTeam };
 	const char *const names[] = { "SeatCard", "SeatBar", "SeatSwatch", "SeatTeam" };
 	for (Int kind = 0; kind < (Int)ARRAY_SIZE(names); ++kind)
@@ -1464,8 +1568,56 @@ void InitLobbySeatVisuals(GameWindow *parent, const char *layoutFilename)
 	FactionPickerAttach(parent, layoutFilename);
 }
 
+// A rules row is 38 pixels at 1080 and a list row 23, so four entries used to end halfway down the
+// third box under the open one.  Each box's list now grows to whole rows, down to the page's foot;
+// a list with no room left below (the page's last boxes) opens upwards over the rows above, so none
+// spills onto the Play button.  The pitch is the smallest gap
+// between two boxes' tops, so a layout that moves the rows takes it along.
+void SnapLobbyRulesLists(GameWindow *parent, const char *layoutFilename)
+{
+	AsciiString name;
+	name.format("%s:PageLobbySettings", layoutFilename);
+	GameWindow *page = TheWindowManager->winGetWindowFromId(parent, NAMEKEY(name));
+	if (!page)
+		return;	// a layout from before the rules page
+
+	Int x, pageTop, width, pageHeight;
+	page->winGetScreenPosition(&x, &pageTop);
+	page->winGetSize(&width, &pageHeight);
+
+	Int pitch = 0;
+	for (GameWindow *box = page->winGetChild(); box; box = box->winGetNext())
+	{
+		if (!BitTest(box->winGetStyle(), GWS_COMBO_BOX))
+			continue;
+		Int top, otherTop;
+		box->winGetScreenPosition(&x, &top);
+		for (GameWindow *other = page->winGetChild(); other; other = other->winGetNext())
+		{
+			if (!BitTest(other->winGetStyle(), GWS_COMBO_BOX))
+				continue;
+			other->winGetScreenPosition(&x, &otherTop);
+			if (otherTop > top && (pitch == 0 || otherTop - top < pitch))
+				pitch = otherTop - top;
+		}
+	}
+	if (pitch == 0)
+		return;	// one box, no rows to end on
+
+	for (GameWindow *box = page->winGetChild(); box; box = box->winGetNext())
+	{
+		if (!BitTest(box->winGetStyle(), GWS_COMBO_BOX))
+			continue;
+		Int top, height;
+		box->winGetScreenPosition(&x, &top);
+		box->winGetSize(&width, &height);
+		GadgetComboBoxSetDropDownPitch(box, pitch, pageTop + pageHeight - (top + height), top - pageTop);
+	}
+}
+
 void ShutdownLobbySeatVisuals(void)
 {
+	detachSeatRatings();
 	FactionPickerDetach();
 	for (Int i = 0; i < MAX_SLOTS; ++i)
 		theSeatCard[i] = theSeatBar[i] = theSeatSwatch[i] = theSeatTeam[i] = NULL;
@@ -1484,6 +1636,13 @@ void UpdateLobbySeatVisuals(GameInfo *myGame)
 		const GameSlot *slot = myGame->getConstSlot(i);
 		const Bool occupied = slot->isOccupied();
 		const Color color = LobbySeatColor(slot);
+		if (theSeatPlayer[i])
+		{
+			if (slot->isHuman())
+				theSeatNick[i].translate(slot->getName());
+			else
+				theSeatNick[i].clear();
+		}
 		showColor(theSeatBar[i], color);
 		showColor(theSeatSwatch[i], color);
 		showColor(theSeatTeam[i], occupied ? LobbyTeamColor(slot->getTeamNumber()) : theSeatEmptyColor);

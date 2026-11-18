@@ -77,6 +77,18 @@ AsciiString OnlineGetRegisterUrl( void );
 /* welcome.resetUrl, the site's forgotten-password page; empty when the server sent none, and the login
 	 screen then hides Forgot Password. */
 AsciiString OnlineGetResetUrl( void );
+/* welcome.accountUrl, the site's account page (the Skins tab sends the player there); empty when the
+	 server sent none. */
+AsciiString OnlineGetAccountUrl( void );
+/* Players signed in, open custom games and players in the Quick Match queue, from welcome.counts and the
+	 counts line the server sends a signed-in client every 30 s.  FALSE (all three 0) until a server that
+	 sends them did, and again once the connection is dropped. */
+Bool OnlineGetCounts( Int &players, Int &games, Int &queue );
+/* welcome.server{name, city}, UTF-8 (convert before showing), and the round trip to the server in ms,
+	 smoothed over our own ping{n} every 10 s from the welcome on; -1 until the first pong, and for good
+	 from a server that does not know ping.  FALSE when the welcome carried no server object (an older
+	 server, or one that has no name set); the names are empty then, the round trip still counts. */
+Bool OnlineGetServerInfo( AsciiString &name, AsciiString &city, Int &pingMs );
 /* The code of the last login the server refused (auth.fail: badlogin, throttled, expired...), and its
 	 retry in seconds, 0 when it gave none.  Empty when the last login never reached a refusal (the
 	 connection failed), and cleared by the next login. */
@@ -123,10 +135,41 @@ struct OnlineReport
 	Int numPlayers;						///< how many of discon[] and side[] are filled
 	Bool discon[MAX_SLOTS];
 	AsciiString side[MAX_SLOTS];
+	Int blind[MAX_SLOTS];					///< orders player n gave at enemy objects it never saw, by this machine's game
+	Int crcOdd[MAX_SLOTS];				///< players (indexed as side[]) off the strict majority's CRC at the first mismatch
+	Int numCrcOdd;								///< how many of crcOdd[] are filled; 0 with no mismatch or no majority
+	AsciiString map;							///< the map's path as the game holds it (a generated one's is under the user folder);
+																///< only maps\<folder>\<file> goes up, for the match history, and nothing when that is
+																///< over 255 bytes or not UTF-8
 
 	OnlineReport();
 };
-void OnlineSendReport( const OnlineReport &report );
+Bool OnlineSendReport( const OnlineReport &report );	///< TRUE when it went out, FALSE for no match or one already reported
+/* The Quick Match the last game.start named was called off before it loaded (WOLQuickMatchMenu's map
+	 check): qm.abort, which the server takes as leaving inside its grace, a no contest. Nothing for no
+	 match or one already reported; an older server answers an error that is only logged. */
+void OnlineCallOffQuickMatch( const char *reason );
+
+/* Only a Quick Match's replay goes up: the server keeps no other.  An internet game's recording calls
+	 OnlineClaimQuickMatch as it starts and gets the qm.matched id waiting for a recording, or empty for a
+	 custom game.  The claim takes the id, so it attaches to one recording at most; a custom game's
+	 game.start, a staging room, a new search, a reveal that ended and a logout drop an unclaimed one.
+	 OnlineSendReplay sends the closed file under the claimed id: "replay" lines of at most
+	 ONLINE_REPLAY_CHUNK raw bytes each, base64, seq from 0, the last one last:true, and no answer comes
+	 back.  Nothing is sent for an empty id or path (a desynced recording), when not logged in, a second
+	 time for one id, for an id an earlier login held, or for a file over ONLINE_REPLAY_MAX bytes or one
+	 that cannot be read. */
+enum { ONLINE_REPLAY_CHUNK = 4096, ONLINE_REPLAY_MAX = 2 * 1024 * 1024 };
+AsciiString OnlineClaimQuickMatch( void );
+void OnlineSendReplay( const char *match, const AsciiString &path );
+
+/* TRUE while the last match's report went out and the server may not have it yet: the replay its
+	 recording claimed is not queued yet, or, from a server whose auth.ok said acks, report.ok/err (and
+	 replay.ok/err when this client sent the replay) has not come back for the match.  An older server
+	 confirms nothing, and there it is the connection still holding lines it has not written.  FALSE with
+	 no report for the match, and once the connection is gone (nothing left to wait for).  The score
+	 screen holds a "sending results" box on it. */
+Bool OnlineIsSendingResults( void );
 
 /* What the server has said about a player, by nick: the round trip to the server from `player` events
 	 (ping), the site's rating, tier and games from `player`, auth.ok and stats.  A number nobody sent is
@@ -136,7 +179,8 @@ struct OnlinePlayerInfo
 {
 	Int ping;
 	Bool hasRating;
-	Int rating;
+	Int rating;								///< exactRating rounded, for the screens that still print %d
+	Real exactRating;					///< the site's rating, two decimals (an older server sends it whole)
 	AsciiString tier;					///< the site's tier key ("major"); OnlineTierName says it in words
 	Int games;
 	Int wins;
@@ -144,6 +188,10 @@ struct OnlinePlayerInfo
 	Int rank;									///< ladder position, 0 for none
 	Bool notOnline;						///< the last stats asked for this nick came back noplayer
 	Bool hasStats;						///< a stats answer for this nick arrived (wins and losses are then known)
+	Bool hasAIRating;					///< aiRating and aiGames arrived (auth.ok, stats, ai.rated)
+	Real aiRating;						///< the rating against the AI, a scale of its own (0 for a new player)
+	Int aiGames;
+	Int aiWins;
 	UnsignedInt serial;				///< moves on whenever this player's numbers change: redraw on it, not on everyone's
 
 	OnlinePlayerInfo();
@@ -160,10 +208,13 @@ struct OnlineLadderRow
 	Int rank;									///< 0 when the server sent none
 	AsciiString nick;
 	Bool hasRating;
-	Int rating;
+	Int rating;								///< exactRating rounded, for the screens that still print %d
+	Real exactRating;					///< two decimals
 	AsciiString tier;
 	Int wins;
 	Int losses;
+	Int side;									///< qm.matched's opponents only: a PlayerTemplate index, a Random pool below -1, or -1 random
+	Int color;								///< qm.matched's opponents only: a MultiplayerColor index, or -1 random
 
 	OnlineLadderRow();
 };
@@ -195,12 +246,160 @@ struct OnlineMatchReveal
 	std::vector<OnlineLadderRow> opponents;		///< nick, rating and tier as qm.matched gave them
 	AsciiString server;
 	Int revealMs;
+	Bool hasChance;						///< qm.matched carried chance (an older server does not)
+	Real chance;							///< the local player's win chance, 0 to 1
 	UnsignedInt serial;
 };
 Bool OnlineGetMatchReveal( OnlineMatchReveal &out );
 
-/* The server's verdict on the match the last game.start or qm.matched named: rated (delta, rating) or
-	 unrated (reason).  FALSE until it arrives. */
+/* The band of win chances the search accepts now, from the last qm.status's window: chanceLo and
+	 chanceHi in percentage points, 0 to 100 (45 to 55 at join, 30 to 70 at the widest), not ratings and
+	 not the reveal's 0-to-1 chance.  nextMs is the milliseconds left to the next widening, counted down
+	 from the line's arrival (never below 0), and -1 at the widest.  FALSE when the last qm.status carried
+	 no window (an older server, or no search since the last match). */
+Bool OnlineGetQuickMatchChanceWindow( Real &chanceLo, Real &chanceHi, Int &nextMs );
+
+/* The abandon lock's whole seconds left, counted down here, 0 when free: from auth.ok's and the player's
+	 own card's lockSeconds and qm.status{locked}'s seconds.  It is also how the Quick Match page tells a
+	 lock from its other refusals: qm.status locked arrives as QM_COULDNOTFINDBOT like busy and a server
+	 error, and only a lock leaves this above 0 (at least 1 when the status says locked).  An older server
+	 sends no seconds, and a lock from it reads as any other refusal. */
+Int OnlineGetQuickMatchLockSeconds( void );
+
+/* A player's recent matches: OnlineRequestHistory asks (id 0 is the signed-in player, limit 1 to 20;
+	 nothing is sent while an ask for the same id and mode is still out), OnlineGetHistory reads the answer
+	 kept for that id and mode, in the ladder's three states: WAITING while an ask is out (out still holds
+	 the answer before it, if any), READY, FAILED for an error, no answer in ONLINE_HISTORY_TIMEOUT_MS
+	 (20 s), or nothing asked.  arrived says whether out holds an answer at all.  OnlineGetHistorySerial is
+	 the cheap per-frame check: it moves whenever that key's state or answer changes (a second answer
+	 too), 0 for a key never asked; copy the rows only when it moved.  An army is a player template name,
+	 random already resolved, as OnlineSendAIResult sends it. */
+enum OnlineHistoryMode
+{
+	ONLINE_HISTORY_ALL,
+	ONLINE_HISTORY_QM,
+	ONLINE_HISTORY_AI,
+};
+struct OnlineHistoryRow
+{
+	Bool ai;									///< against the computer; else a Quick Match
+	Bool won;
+	AsciiString map;
+	AsciiString opponent;			///< empty against the computer
+	Real opponentRating;			///< against the computer, the rating it played at
+	AsciiString playerArmy;
+	AsciiString opponentArmy;
+	Int seconds;							///< the match's length
+	Real change;							///< the player's rating change
+	Int age;									///< seconds ago, when the server answered
+
+	OnlineHistoryRow() : ai( FALSE ), won( FALSE ), opponentRating( 0.0f ), seconds( 0 ), change( 0.0f ), age( 0 ) {}
+};
+struct OnlineHistoryArmy
+{
+	AsciiString army;
+	Int games;
+	Int wins;
+};
+struct OnlineHistory
+{
+	Bool arrived;
+	Int id;										///< the account the answer is for
+	Int games;								///< in this mode, all of them, not only the rows
+	Int wins;
+	std::vector<OnlineHistoryRow> rows;		///< in the server's order, newest first
+	std::vector<OnlineHistoryArmy> byArmy;				///< the player's own army
+	std::vector<OnlineHistoryArmy> byOpponentArmy;
+
+	OnlineHistory() : arrived( FALSE ), id( 0 ), games( 0 ), wins( 0 ) {}
+};
+void OnlineRequestHistory( Int id, OnlineHistoryMode mode, Int limit = 5 );
+OnlineLadderState OnlineGetHistory( Int id, OnlineHistoryMode mode, OnlineHistory &out );
+UnsignedInt OnlineGetHistorySerial( Int id, OnlineHistoryMode mode );
+
+/* The account's skins.  OnlineGetSkins gives what it owns as a SkinLoadout (bit n for skin id n; what it
+	 wears is TankSkin_localLoadout), from auth.ok and every skins.ok, and the state of the last ask:
+	 OnlineRequestSkins (skins.get, for a code redeemed on the site while signed in) or OnlineSaveSkins
+	 (skins.set, the whole loadout, 0 for Default everywhere).  Their skins.ok sets the local loadout too, so
+	 the next room or Quick Match seats it; a skins.err changes neither, and error is its code (not_owned,
+	 two_for_unit, throttled, unknown, unavailable).  Not signed in: FAILED with "signedout", nothing sent. */
+enum OnlineSkinsState
+{
+	ONLINE_SKINS_READY,
+	ONLINE_SKINS_WAITING,
+	ONLINE_SKINS_FAILED,
+};
+void OnlineRequestSkins( void );
+void OnlineSaveSkins( UnsignedInt64 wear );
+OnlineSkinsState OnlineGetSkins( UnsignedInt64 &owned, AsciiString &error );
+
+/* The server's verdict on the match the last game.start or qm.matched named: rated (delta, rating, or
+	 before and after, which give the same two) or unrated (reason).  FALSE until it arrives. */
 Bool OnlineGetMatchResult( Bool &rated, Real &delta, Real &rating, AsciiString &reason );
+
+/* Play vs AI, a 1v1 skirmish the server rates on a scale of its own (the card's aiRating).
+	 OnlineRequestAIMatch sends ai.start{army, exe, ini}; OnlineGetAIMatch reads the answer and hands it out
+	 once: READY with ai.ready's match, the AI seat's rating and the map and seed the server picked, then
+	 the match is live; or REFUSED with ai.refused's reason ("build": this exe or its data is not the
+	 release's), "unavailable" from a server without it and "signedout" when the login went.
+	 While live, OnlineSendAITick sends ai.tick{match, frame} every ONLINE_AI_TICK_SECONDS of wall time and
+	 OnlineSendAIResult sends ai.result{match, result, seconds since ai.ready, endFrame, blind, playerArmy,
+	 aiArmy, stats{...}} once, which ends it.  OnlineDropAIMatch ends it with nothing sent (it could not start).  A win's recording goes up
+	 as a Quick Match's does: OnlineClaimAIMatch as it starts, OnlineSendReplay as it closes, and a loss's
+	 is never sent.  A logout ends it too; the server settles a match it never heard the end of.
+	 OnlineGetAIVerdict reads the last ai.rated{before, after, games}, or ai.unrated{reason} or a result's
+	 ai.refused{matchId, reason}, both unrated; ai.rated also moves the card's aiRating, aiGames and aiWins
+	 (its wins when it carries them, else one more after a win this client reported). */
+enum OnlineAIMatchState
+{
+	ONLINE_AI_IDLE,
+	ONLINE_AI_WAITING,		///< ai.start is out
+	ONLINE_AI_READY,
+	ONLINE_AI_REFUSED,
+};
+enum { ONLINE_AI_TICK_SECONDS = 30 };
+struct OnlineAIMatch
+{
+	AsciiString match;
+	Real aiRating;
+	AsciiString map;
+	Int seed;
+	AsciiString reason;		///< REFUSED only
+};
+void OnlineRequestAIMatch( const AsciiString &army );
+OnlineAIMatchState OnlineGetAIMatch( OnlineAIMatch &out );
+Bool OnlineIsAIMatchLive( void );
+void OnlineDropAIMatch( void );
+void OnlineSendAITick( Int frame );
+struct OnlineAIResult
+{
+	Bool won;
+	Int endFrame;
+	Int blind;									///< the player's orders at objects he could not see, as a Quick Match report counts them
+	AsciiString playerArmy;			///< player template names, random already resolved
+	AsciiString aiArmy;
+	Int unitsBuilt, unitsLost, unitsKilled;		///< the player's numbers on the score screen
+	Int structuresBuilt, structuresLost, structuresKilled;
+	Int moneyEarned;
+
+	OnlineAIResult() : won( FALSE ), endFrame( 0 ), blind( 0 ), unitsBuilt( 0 ), unitsLost( 0 ), unitsKilled( 0 ),
+		structuresBuilt( 0 ), structuresLost( 0 ), structuresKilled( 0 ), moneyEarned( 0 ) {}
+};
+void OnlineSendAIResult( const OnlineAIResult &result );
+AsciiString OnlineClaimAIMatch( void );
+struct OnlineAIVerdict
+{
+	AsciiString match;
+	Bool rated;
+	Real before, after;
+	Int games;
+	AsciiString reason;		///< unrated only
+	UnsignedInt serial;		///< moves on with every verdict
+};
+Bool OnlineGetAIVerdict( OnlineAIVerdict &out );		///< FALSE before the first this sign-in
+/* The match of the last ai.result this client sent (the server's 16 hex digits, so text, not a number),
+	 kept after the match ends; empty before one this sign-in.  The score screen shows a verdict only when
+	 its match equals this. */
+AsciiString OnlineGetLastAIMatchId( void );
 
 #endif // _ONLINE_QUEUES_H_

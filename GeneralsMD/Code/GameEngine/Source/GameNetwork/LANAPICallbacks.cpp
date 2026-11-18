@@ -39,6 +39,7 @@
 #include "Common/MultiplayerSettings.h"
 #include "Common/PlayerTemplate.h"
 #include "Common/QuotedPrintable.h"
+#include "Common/RandomMapGenerator.h"
 #include "Common/RandomValue.h"
 #include "Common/UserPreferences.h"
 #include "GameClient/GameText.h"
@@ -173,7 +174,10 @@ void LANAPI::OnHasMap( UnsignedInt playerIP, Bool status )
 			if (!status)
 			{
 				UnicodeString text;
-				if (willTransfer)
+				// a generated map is built on every seat from its name and never sent
+				if (isGeneratedMapPath(m_currentGame->getMap()))
+					text.format(TheGameText->fetch("GUI:PlayerMapDiffers"), m_currentGame->getLANSlot(i)->getName().str(), mapDisplayName.str());
+				else if (willTransfer)
 					text.format(TheGameText->fetch("GUI:PlayerNoMapWillTransfer"), m_currentGame->getLANSlot(i)->getName().str(), mapDisplayName.str());
 				else
 					text.format(TheGameText->fetch("GUI:PlayerNoMap"), m_currentGame->getLANSlot(i)->getName().str(), mapDisplayName.str());
@@ -285,7 +289,6 @@ Bool LANAPI::StartAutomatedGame( AsciiString mapName, Int seed, const UnsignedIn
 	game->setIncomeSharing( TheGlobalData->m_incomeSharing );
 	game->setTechRespawn( TheGlobalData->m_techRespawn );
 	game->setSupplyPileLimit( TheGlobalData->m_supplyPileLimit );
-	game->setTurbo( TheGlobalData->m_turboMatch );
 	game->setIsDirectConnect( FALSE );
 	game->setLastHeard( Clock_Milliseconds() );
 	game->setLocalIP( m_localIP );
@@ -328,7 +331,7 @@ Bool LANAPI::StartAutomatedGame( AsciiString mapName, Int seed, const UnsignedIn
 	msg->appendIntegerArgument( GAME_LAN );
 	msg->appendIntegerArgument( DIFFICULTY_NORMAL );	// not used; there so the speed can go last
 	msg->appendIntegerArgument( 0 );
-	msg->appendIntegerArgument( GameEngine_matchFramesPerSecond( m_currentGame->getTurbo() ) );
+	GameEngine_appendNewGameRates( msg, NATIVE_GAME_SPEED_PERCENT );	// every network game plays the native speed
 
 	InitRandom( seed );
 
@@ -368,7 +371,6 @@ void LANAPI::OnGameStart( void )
       pref.setInt( "IncomeSharing", m_currentGame->getIncomeSharing() );
       pref.setInt( "TechRespawn", m_currentGame->getTechRespawn() );
       pref.setInt( "SupplyPileLimit", m_currentGame->getSupplyPileLimit() );
-      pref.setInt( "TurboMode", m_currentGame->getTurbo() ? 1 : 0 );
       pref.setStartingCash( m_currentGame->getStartingCash() );
     }
 		pref.write();
@@ -400,9 +402,19 @@ void LANAPI::OnGameStart( void )
 
 		// see if we really have the map.  if not, back out.
 		TheMapCache->updateCache();
-		if (!filesOk || TheMapCache->findMap(m_currentGame->getMap()) == NULL)
+		const MapMetaData *startMap = TheMapCache->findMap(m_currentGame->getMap());
+		// A generated map is built here from its name and never sent, so the host's MC= is all there is
+		// to check it against: a copy that came out different would play itself and split the match at
+		// the first CRC check. The lobby refuses to start on one; this catches a start that raced it.
+		const Bool mapDiffers = startMap != NULL && !AmIHost() && isGeneratedMapPath(m_currentGame->getMap())
+			&& startMap->m_CRC != m_currentGame->getMapCRC();
+		if (!filesOk || startMap == NULL || mapDiffers)
 		{
-			DEBUG_LOG(("After transfer, we didn't really have the map.  Bailing...\n"));
+			DEBUG_LOG(("After transfer, we didn't really have the map (generated map CRC %X, host's %X).  Bailing...\n",
+				startMap ? startMap->m_CRC : 0, m_currentGame->getMapCRC()));
+			UnicodeString text = TheGameText->fetch("GUI:CouldNotTransferMap");
+			if (mapDiffers)
+				text.format(TheGameText->fetch("GUI:LocalPlayerMapDiffers"), startMap->m_displayName.str());
 			OnPlayerLeave(m_name);
 			removeGame(m_currentGame);
 			m_currentGame = NULL;
@@ -411,7 +423,7 @@ void LANAPI::OnGameStart( void )
 				delete TheNetwork;
 				TheNetwork = NULL;
 			}
-			OnChat(UnicodeString::TheEmptyString, 0, TheGameText->fetch("GUI:CouldNotTransferMap"), LANCHAT_SYSTEM);
+			OnChat(UnicodeString::TheEmptyString, 0, text, LANCHAT_SYSTEM);
 			return;
 		}
 
@@ -427,7 +439,7 @@ void LANAPI::OnGameStart( void )
 		msg->appendIntegerArgument(GAME_LAN);
 		msg->appendIntegerArgument(DIFFICULTY_NORMAL);	// not used; there so the speed can go last
 		msg->appendIntegerArgument(0);
-		msg->appendIntegerArgument(GameEngine_matchFramesPerSecond(m_currentGame->getTurbo()));
+		GameEngine_appendNewGameRates( msg, NATIVE_GAME_SPEED_PERCENT );	// every network game plays the native speed
 
 		TheWritableGlobalData->m_useFpsLimit = false;
 

@@ -1765,7 +1765,7 @@ void ScriptActions::doTeamFollowSkirmishApproachPath(const AsciiString& teamName
 	AsciiString pathLabel;
 	// the script names the approach; an AI that reads the map may take a quieter one
 	const AsciiString lane = theTeam->getControllingPlayer() ?
-		theTeam->getControllingPlayer()->chooseApproachLabel( &pos, waypointPathLabel, mpNdx ) : waypointPathLabel;
+		theTeam->getControllingPlayer()->chooseApproachLabel( &pos, waypointPathLabel, mpNdx, theTeam ) : waypointPathLabel;
 	pathLabel.format("%s%d", lane.str(), mpNdx);
 	Waypoint *way = TheTerrainLogic->getClosestWaypointOnPath( &pos, pathLabel );
 	if (!way) {
@@ -1832,7 +1832,7 @@ void ScriptActions::doTeamMoveToSkirmishApproachPath(const AsciiString& teamName
 	AsciiString pathLabel;
 	// the script names the approach; an AI that reads the map may take a quieter one
 	const AsciiString lane = theTeam->getControllingPlayer() ?
-		theTeam->getControllingPlayer()->chooseApproachLabel( &pos, waypointPathLabel, mpNdx ) : waypointPathLabel;
+		theTeam->getControllingPlayer()->chooseApproachLabel( &pos, waypointPathLabel, mpNdx, theTeam ) : waypointPathLabel;
 	pathLabel.format("%s%d", lane.str(), mpNdx);
 	/* This action is the slowest single thing left in a four-player skirmish frame - 40ms of a 45ms
 		 logic frame, once or twice a match, on the frame a team is told to take its approach path.
@@ -2704,7 +2704,7 @@ void ScriptActions::doDisplayCinematicText(const AsciiString& displayText, const
 	TheDisplay->setCinematicFont( font );
 
 	// set time
-	Int frames = LOGICFRAMES_PER_SECOND * timeInSeconds;
+	Int frames = LOGICFRAMES_PER_SECOND * timeInSeconds;	// wall time: counted down per render pass
 	TheDisplay->setCinematicTextFrames( frames );
 }
 //-------------------------------------------------------------------------------------------------
@@ -2721,7 +2721,7 @@ void ScriptActions::doCameoFlash(const AsciiString& name, Int timeInSeconds)
 		DEBUG_CRASH(( "ScriptActions::doCameoFlash can't find AsciiString cameoflash" ));
 	}
 
-	Int frames = LOGICFRAMES_PER_SECOND * timeInSeconds;
+	Int frames = LOGICFRAMES_PER_SECOND * timeInSeconds;	// wall time: the control bar flashes on a wall tick cadence
 	// every time the framecount % 20 == 0,  controlbar:: update will do Cameo Flash
 	Int count = frames / DRAWABLE_FRAMES_PER_FLASH;
 	// make sure count is even, so the cameo will return to its original state
@@ -2774,7 +2774,7 @@ void ScriptActions::doNamedFlash(const AsciiString& unitName, Int timeInSeconds,
 
 		/* The designer specifies how long he wants the unit to flash for.  We will
 		convert this number into a count of how many times to call the doNamedFlash method */
-		Int frames = LOGICFRAMES_PER_SECOND * timeInSeconds;
+		Int frames = LOGICFRAMES_PER_SECOND * timeInSeconds;	// wall time: the drawable flashes on client frames
 		// every time the framecount % 20 == 0, drawable::update will call doNamedFlash
 		Int count = frames / DRAWABLE_FRAMES_PER_FLASH;
 		Color flashy = (color == NULL) ? obj->getIndicatorColor() : color->getAsInt();
@@ -2806,7 +2806,7 @@ void ScriptActions::doTeamFlash(const AsciiString& teamName, Int timeInSeconds, 
 		Drawable *draw = obj->getDrawable();
 		if( !draw )
 			break;
-		Int frames = LOGICFRAMES_PER_SECOND * timeInSeconds;
+		Int frames = LOGICFRAMES_PER_SECOND * timeInSeconds;	// wall time, as doNamedFlash
 
 		Int count = frames / DRAWABLE_FRAMES_PER_FLASH;
 		Color flashy = (color == NULL) ? obj->getIndicatorColor() : color->getAsInt();
@@ -4230,7 +4230,7 @@ void ScriptActions::doNamedSetSpecialPowerCountdown( const AsciiString& unit, co
 		SpecialPowerModuleInterface *mod = theObj->getSpecialPowerModule(power);
 		if (mod)
 		{
-			Int frames = LOGICFRAMES_PER_SECOND * seconds;
+			Int frames = LOGICFRAMES_PER_GAME_SECOND * seconds;
 			mod->setReadyFrame(TheGameLogic->getFrame() + frames);
 		}
 	}
@@ -4248,7 +4248,7 @@ void ScriptActions::doNamedAddSpecialPowerCountdown( const AsciiString& unit, co
 		SpecialPowerModuleInterface *mod = theObj->getSpecialPowerModule(power);
 		if (mod)
 		{
-			Int frames = LOGICFRAMES_PER_SECOND * seconds;
+			Int frames = LOGICFRAMES_PER_GAME_SECOND * seconds;
 			mod->setReadyFrame(mod->getReadyFrame() + frames);
 		}
 	}
@@ -4286,18 +4286,18 @@ void ScriptActions::doSkirmishFireSpecialPowerAtMostCost( const AsciiString &pla
 	enemyNdx = enemyPlayer->getPlayerIndex();
 
 	const SpecialPowerTemplate *power = TheSpecialPowerStore->findSpecialPowerTemplate(specialPower);
-	if (power==NULL) 
+	if (power==NULL)
+		return;
+
+	Player::PlayerTeamList::const_iterator it;
+
+	Player *pPlayer = TheScriptEngine->getPlayerFromAsciiString(player);
+	if (pPlayer==NULL)
 		return;
 	Real radius = 50.0f;
-	if (power->getRadiusCursorRadius()>radius) {
-		radius = power->getRadiusCursorRadius();
+	if (power->getRadiusCursorRadius(pPlayer)>radius) {
+		radius = power->getRadiusCursorRadius(pPlayer);
 	}
-	
-	Player::PlayerTeamList::const_iterator it;
-	
-	Player *pPlayer = TheScriptEngine->getPlayerFromAsciiString(player);
-	if (pPlayer==NULL) 
-		return;
 
 
 	for (it = pPlayer->getPlayerTeams()->begin(); it != pPlayer->getPlayerTeams()->end(); ++it) 
@@ -6139,7 +6139,7 @@ void ScriptActions::doTeamEmoticon(const AsciiString& teamName, const AsciiStrin
 	}
 	theTeam->getTeamAsAIGroup( theGroup );
 	
-	Int frames = (Int)( duration * LOGICFRAMES_PER_SECOND );
+	Int frames = (Int)( duration * LOGICFRAMES_PER_GAME_SECOND );
 	theGroup->groupSetEmoticon( emoticonName, frames );
 }
 
@@ -6152,7 +6152,7 @@ void ScriptActions::doNamedEmoticon(const AsciiString& unitName, const AsciiStri
 		Drawable *draw = obj->getDrawable();
 		if( draw )
 		{
-			Int frames = (Int)( duration * LOGICFRAMES_PER_SECOND );
+			Int frames = (Int)( duration * LOGICFRAMES_PER_GAME_SECOND );
 			draw->setEmoticon( emoticonName, frames );
 		}
 	}
@@ -6216,7 +6216,7 @@ void ScriptActions::doOverrideHulkLifetime( Real seconds )
 	else
 	{
 		// Convert real seconds into frames.
-		Int frames = (Int)(seconds * LOGICFRAMES_PER_SECOND);
+		Int frames = (Int)(seconds * LOGICFRAMES_PER_GAME_SECOND);
 		TheGameLogic->setHulkMaxLifetimeOverride(frames);
 	}
 }
@@ -7186,11 +7186,12 @@ void ScriptActions::executeAction( ScriptAction *pAction )
 			LogicThread::callAfterTick( [asked]{
 				// A mission's cinematic slows the game down, and its voices and music are timed to that speed:
 				// a line the script starts 70 frames after the last one needs the 3 seconds 23 frames a second
-				// gives it.  Skirmish, a network room or a replay keeps the speed it started at: normal, or
-				// turbo mode's twice that.  The shell map's scripts pace themselves as they always did.
+				// gives it.  Skirmish, a network room or a replay keeps the speed it started at; a mission
+				// handed back goes to its game speed setting.  The shell map's scripts pace themselves as they
+				// always did.  Wall pacing only, on the main thread after the tick.
 				if (TheGameLogic->isInSinglePlayerGame() && !TheGameLogic->isInReplayGame())
 				{
-					TheGameEngine->setFramesPerSecondLimit( GameEngine_missionFramesPerSecond( asked, GameEngine_matchFramesPerSecond( TheGlobalData->m_turboMode ) ) );
+					TheGameEngine->setFramesPerSecondLimit( GameEngine_missionFramesPerSecond( asked, GameEngine_matchFramesPerSecond() ) );
 					return;
 				}
 				if (!TheGameLogic->isInShellGame())

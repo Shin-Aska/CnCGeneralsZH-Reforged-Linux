@@ -60,7 +60,7 @@
 //-----------------------------------------------------------------------------
 
 //-----------------------------------------------------------------------------
-const Int DEFAULT_MAX_LIFESPAN = 10 * LOGICFRAMES_PER_SECOND;
+#define DEFAULT_MAX_LIFESPAN_MSEC 10000
 
 // A StraightWhenClear shell whose barrel is raised steeper than this slope is being lobbed, and takes
 // the barrel's arc on open ground too. It is the barrel against level ground, or against the line to
@@ -73,19 +73,57 @@ const Real STRAIGHT_SHOT_MAX_BARREL_SLOPE = 0.1405f;
 
 //-----------------------------------------------------------------------------
 DumbProjectileBehaviorModuleData::DumbProjectileBehaviorModuleData() : 
-	m_maxLifespan(DEFAULT_MAX_LIFESPAN),
+	m_maxLifespan(DurationFrames::fromRaw(DEFAULT_MAX_LIFESPAN_MSEC)),
 	m_detonateCallsKill(FALSE),
 	m_orientToFlightPath(TRUE),
 	m_tumbleRandomly(FALSE),
 	m_firstHeight(0.0f),
 	m_secondHeight(0.0f),
+	m_heightScaleDistance(0.0f),
+	m_heightScaleMinimum(0.0f),
 	m_firstPercentIndent(0.0f),
 	m_secondPercentIndent(0.0f),
 	m_straightWhenClear(FALSE),
 	m_garrisonHitKillCount(0),
 	m_garrisonHitKillFX(NULL),
-	m_flightPathAdjustDistPerFrame(0.0f)
+	m_flightPathAdjustDistPerFrame(VelocityPerFrame::fromRaw(0.0f)),
+	m_startHeightAboveTarget(0.0f),
+	m_startDistanceBack(0.0f),
+	m_hoverHeight(0.0f),
+	m_hoverTime(DurationFrames::fromRaw(0)),
+	m_hoverStagger(DurationFrames::fromRaw(0)),
+	m_hoverSpacing(0.0f),
+	m_hoverPlaceInterval(DurationFrames::fromRaw(0)),
+	m_hoverGrowFrom(0.0f)
 {
+}
+
+//-----------------------------------------------------------------------------
+// HoverSpot = X:<facing> Y:<left> Z:<over the ground>, one line a shot of the clip
+static void parseHoverSpot( INI *ini, void * /*instance*/, void *store, const void * /*userData*/ )
+{
+	Coord3D spot;
+	INI::parseCoord3D( ini, NULL, &spot, NULL );
+	((std::vector<Coord3D> *)store)->push_back( spot );
+}
+
+//-----------------------------------------------------------------------------
+// HoverGrowFrom's size, written to the picture only, as the drawable's instance matrix. Not its
+// instance scale: a render object made while that is off one is a scaled copy of the model, which
+// the draw then scaled again, and the Kargu came out a fifth of its size and pale.
+static void setHoverDrawScale( Object *obj, Real scale )
+{
+	Drawable *draw = obj->getDrawable();
+	if( draw == NULL )
+		return;
+	if( scale == 1.0f )
+	{
+		draw->setInstanceMatrix( NULL );
+		return;
+	}
+	Matrix3D instance( true );
+	instance.Scale( scale );
+	draw->setInstanceMatrix( &instance );
 }
 
 //-----------------------------------------------------------------------------
@@ -95,13 +133,15 @@ void DumbProjectileBehaviorModuleData::buildFieldParse(MultiIniFieldParse& p)
 
 	static const FieldParse dataFieldParse[] = 
 	{
-		{ "MaxLifespan", INI::parseDurationUnsignedInt, NULL, offsetof( DumbProjectileBehaviorModuleData, m_maxLifespan ) },
+		{ "MaxLifespan", SPEED_FIELD( DumbProjectileBehaviorModuleData, m_maxLifespan ) },
 		{ "TumbleRandomly", INI::parseBool, NULL, offsetof( DumbProjectileBehaviorModuleData, m_tumbleRandomly ) },
 		{ "DetonateCallsKill", INI::parseBool, NULL, offsetof( DumbProjectileBehaviorModuleData, m_detonateCallsKill ) },
 		{ "OrientToFlightPath", INI::parseBool, NULL, offsetof( DumbProjectileBehaviorModuleData, m_orientToFlightPath ) },
 
 		{ "FirstHeight",					INI::parseReal,						NULL, offsetof( DumbProjectileBehaviorModuleData, m_firstHeight ) },
 		{ "SecondHeight",					INI::parseReal,						NULL, offsetof( DumbProjectileBehaviorModuleData, m_secondHeight ) },
+		{ "HeightScaleDistance",	INI::parseReal,						NULL, offsetof( DumbProjectileBehaviorModuleData, m_heightScaleDistance ) },
+		{ "HeightScaleMinimum",		INI::parsePercentToReal,	NULL, offsetof( DumbProjectileBehaviorModuleData, m_heightScaleMinimum ) },
 		{ "FirstPercentIndent",		INI::parsePercentToReal,	NULL, offsetof( DumbProjectileBehaviorModuleData, m_firstPercentIndent ) },
 		{ "SecondPercentIndent",	INI::parsePercentToReal,	NULL, offsetof( DumbProjectileBehaviorModuleData, m_secondPercentIndent ) },
 		{ "StraightWhenClear",		INI::parseBool,						NULL, offsetof( DumbProjectileBehaviorModuleData, m_straightWhenClear ) },
@@ -111,7 +151,18 @@ void DumbProjectileBehaviorModuleData::buildFieldParse(MultiIniFieldParse& p)
 		{ "GarrisonHitKillCount", INI::parseUnsignedInt, NULL, offsetof( DumbProjectileBehaviorModuleData, m_garrisonHitKillCount ) },
 		{ "GarrisonHitKillFX", INI::parseFXList, NULL, offsetof( DumbProjectileBehaviorModuleData, m_garrisonHitKillFX ) },
 
-		{ "FlightPathAdjustDistPerSecond", INI::parseVelocityReal, NULL, offsetof( DumbProjectileBehaviorModuleData, m_flightPathAdjustDistPerFrame ) },
+		{ "FlightPathAdjustDistPerSecond", SPEED_FIELD( DumbProjectileBehaviorModuleData, m_flightPathAdjustDistPerFrame ) },
+
+		{ "StartHeightAboveTarget",	INI::parseReal,						NULL, offsetof( DumbProjectileBehaviorModuleData, m_startHeightAboveTarget ) },
+		{ "StartDistanceBack",			INI::parseReal,						NULL, offsetof( DumbProjectileBehaviorModuleData, m_startDistanceBack ) },
+		{ "HoverHeight",						INI::parseReal,						NULL, offsetof( DumbProjectileBehaviorModuleData, m_hoverHeight ) },
+		{ "HoverTime",							SPEED_FIELD( DumbProjectileBehaviorModuleData, m_hoverTime ) },
+		{ "HoverStagger",						SPEED_FIELD( DumbProjectileBehaviorModuleData, m_hoverStagger ) },
+		{ "HoverSpacing",						INI::parseReal,						NULL, offsetof( DumbProjectileBehaviorModuleData, m_hoverSpacing ) },
+		{ "HoverPlaceInterval",			SPEED_FIELD( DumbProjectileBehaviorModuleData, m_hoverPlaceInterval ) },
+		{ "HoverSpot",							parseHoverSpot,						NULL, offsetof( DumbProjectileBehaviorModuleData, m_hoverSpots ) },
+		{ "HoverAirSpot",						parseHoverSpot,						NULL, offsetof( DumbProjectileBehaviorModuleData, m_hoverAirSpots ) },
+		{ "HoverGrowFrom",					INI::parseReal,						NULL, offsetof( DumbProjectileBehaviorModuleData, m_hoverGrowFrom ) },
 
 
 		{ 0, 0, 0, 0 }
@@ -140,9 +191,13 @@ DumbProjectileBehavior::DumbProjectileBehavior( Thing *thing, const ModuleData* 
 	m_aimOffset.zero();
 	m_currentFlightPathStep = 0;
 	m_extraBonusFlags = 0;
+	m_hoverBase.zero();
+	m_hoverTop.zero();
+	m_hoverStartFrame = 0;
+	m_hoverEndFrame = 0;
 
   m_hasDetonated = FALSE;
-} 
+}
 
 //-------------------------------------------------------------------------------------------------
 DumbProjectileBehavior::~DumbProjectileBehavior()
@@ -365,6 +420,78 @@ void DumbProjectileBehavior::projectileLaunchAtObjectOrPosition(
 
 	Weapon::positionProjectileForLaunch(projectile, launcher, wslot, specificBarrelToUse);
 
+	// HoverTime: the clip's shots stand on the ground beside the launcher, rise together and hold, and
+	// each leaves for its target HoverStagger after the one before (the Maroon Beret's Kargu). Which
+	// shot of the clip this is comes from the ammo still in it, counted down after the shot leaves
+	// (Weapon::privateFireWeapon). With a HoverSpot for the shot it is set down there, in the
+	// launcher's frame and facing as it faces, where the hands of his animation leave it (the Maroon
+	// Beret's place cycle, one shot a touch-down); HoverPlaceInterval, the weapon's DelayBetweenShots,
+	// keeps each on the ground until the last is down and all of them rise. Without spots they stand
+	// side by side, HoverSpacing apart, on the launcher's left.
+	m_hoverEndFrame = 0;
+	if( d->m_hoverTime > 0 && launcher && victimPos )
+	{
+		const Weapon *weapon = launcher->getWeaponInWeaponSlot( wslot );
+		Int clip = detWeap ? detWeap->getClipSize() : 0;
+		Int shot = ( weapon && clip > 0 ) ? clip - (Int)weapon->getRemainingAmmo() : 0;
+		if( shot < 0 || shot >= clip )
+			shot = 0;
+
+		Coord3D offset;
+		Real overGround = 0.0f;
+		Vector3 facing = launcher->getTransformMatrix()->Get_X_Vector();
+		Real facingLength = sqrtf( sqr( facing.X ) + sqr( facing.Y ) );
+		Coord3D forward;
+		forward.set( 1.0f, 0.0f, 0.0f );
+		if( facingLength > 0.0f )
+			forward.set( facing.X / facingLength, facing.Y / facingLength, 0.0f );
+		if( shot < (Int)d->m_hoverSpots.size() )
+		{
+			const Coord3D &spot = d->m_hoverSpots[ shot ];
+			offset.set( spot.x * forward.x - spot.y * forward.y, spot.x * forward.y + spot.y * forward.x, 0.0f );
+			overGround = spot.z;
+		}
+		else
+		{
+			// the launcher's own spot left clear, on the left of the line to the target
+			Coord3D across;
+			across.set( -( victimPos->y - launcher->getPosition()->y ), victimPos->x - launcher->getPosition()->x, 0.0f );
+			Real acrossLength = sqrtf( sqr( across.x ) + sqr( across.y ) );
+			if( acrossLength > 0.0f )
+				across.scale( 1.0f / acrossLength );
+			offset.set( across.x, across.y, 0.0f );
+			offset.scale( ( shot + 1 ) * d->m_hoverSpacing );
+		}
+		UnsignedInt groundFrames = ( max( clip, 1 ) - 1 - shot ) * (UnsignedInt)d->m_hoverPlaceInterval;
+
+		m_hoverBase = *launcher->getPosition();
+		m_hoverBase.x += offset.x;
+		m_hoverBase.y += offset.y;
+		m_hoverBase.z = TheTerrainLogic->getGroundHeight( m_hoverBase.x, m_hoverBase.y ) + overGround;
+		// where it rises to: HoverHeight straight up, or its HoverAirSpot, in the launcher's frame and
+		// over the ground it stood on, so a clip set down close round him spreads out on the way up
+		// (the Maroon Beret's Kargu grow to full size as they rise and clipped into each other)
+		m_hoverTop = m_hoverBase;
+		m_hoverTop.z += d->m_hoverHeight;
+		if( shot < (Int)d->m_hoverAirSpots.size() )
+		{
+			const Coord3D &air = d->m_hoverAirSpots[ shot ];
+			m_hoverTop.x = launcher->getPosition()->x + air.x * forward.x - air.y * forward.y;
+			m_hoverTop.y = launcher->getPosition()->y + air.x * forward.y + air.y * forward.x;
+			m_hoverTop.z = m_hoverBase.z - overGround + air.z;
+		}
+		projectile->setPosition( &m_hoverBase );
+		projectile->setOrientation( launcher->getOrientation() );
+		if( d->m_hoverGrowFrom > 0.0f )
+			setHoverDrawScale( projectile, d->m_hoverGrowFrom );
+
+		UnsignedInt now = TheGameLogic->getFrame();
+		UnsignedInt hoverFrames = groundFrames + d->m_hoverTime + shot * (UnsignedInt)d->m_hoverStagger;
+		m_hoverStartFrame = now + groundFrames;
+		m_hoverEndFrame = now + max( hoverFrames, 1u );
+		m_lifespanFrame += hoverFrames;
+	}
+
 	projectileFireAtObjectOrPosition( victim, victimPos, detWeap, exhaustSysOverride );
 }
 
@@ -416,6 +543,27 @@ void DumbProjectileBehavior::projectileFireAtObjectOrPosition( const Object *vic
 		physics->setPitchRate( GameLogicRandomValueReal( -maxTumbleRate, maxTumbleRate ) );
 		physics->setYawRate( GameLogicRandomValueReal( -maxTumbleRate, maxTumbleRate ) );
 		physics->setRollRate( GameLogicRandomValueReal( -maxTumbleRate, maxTumbleRate ) );
+	}
+
+	// StartHeightAboveTarget: the shot comes in from high over its target, StartDistanceBack toward
+	// the launcher, and not from the launcher at all (the Maroon Beret's designated strike)
+	if( d->m_startHeightAboveTarget > 0.0f )
+	{
+		Coord3D start = victimPosToUse;
+		const Object *launcher = TheGameLogic->findObjectByID( m_launcherID );
+		if( launcher )
+		{
+			Real backX = launcher->getPosition()->x - victimPosToUse.x;
+			Real backY = launcher->getPosition()->y - victimPosToUse.y;
+			Real backLength = sqrtf( sqr( backX ) + sqr( backY ) );
+			if( backLength > 0.0f )
+			{
+				start.x += backX * d->m_startDistanceBack / backLength;
+				start.y += backY * d->m_startDistanceBack / backLength;
+			}
+		}
+		start.z = victimPosToUse.z + d->m_startHeightAboveTarget;
+		projectile->setPosition( &start );
 	}
 
 	m_flightPathStart = *getObject()->getPosition();
@@ -508,8 +656,20 @@ Bool DumbProjectileBehavior::calcFlightPath(Bool recalcNumSegments)
 	// Z's are determined using the highest intervening height so they won't hit hills, low end bounded by current Zs
 	highestInterveningTerrain = max( highestInterveningTerrain, controlPoints[0].z );
 	highestInterveningTerrain = max( highestInterveningTerrain, controlPoints[3].z );
-	controlPoints[1].z = highestInterveningTerrain + d->m_firstHeight;
-	controlPoints[2].z = highestInterveningTerrain + d->m_secondHeight;
+	// A path whose heights are fixed is a tall lob close in and a flat one far out. HeightScaleDistance
+	// scales both with the shot's run along the ground, so a near shot climbs less and comes down at
+	// about the angle a far one does (the Alpagu's drone); HeightScaleMinimum keeps some climb point
+	// blank. Off at zero, and then the heights are used exactly as written.
+	Real firstHeight = d->m_firstHeight;
+	Real secondHeight = d->m_secondHeight;
+	if( d->m_heightScaleDistance > 0.0f )
+	{
+		Real heightScale = clamp( d->m_heightScaleMinimum, targetRun / d->m_heightScaleDistance, 1.0f );
+		firstHeight *= heightScale;
+		secondHeight *= heightScale;
+	}
+	controlPoints[1].z = highestInterveningTerrain + firstHeight;
+	controlPoints[2].z = highestInterveningTerrain + secondHeight;
 
 	if( d->m_straightWhenClear && m_launchSlope < max( targetSlope, 0.0f ) + STRAIGHT_SHOT_MAX_BARREL_SLOPE
 		&& ThePartitionManager->isClearLineOfSightTerrain( NULL, controlPoints[0], NULL, controlPoints[3] ) )
@@ -727,6 +887,45 @@ UpdateSleepTime DumbProjectileBehavior::update()
 		return UPDATE_SLEEP_NONE;
 	}
 
+	if( m_hoverEndFrame != 0 )
+	{
+		UnsignedInt now = TheGameLogic->getFrame();
+		if( now < m_hoverEndFrame )
+		{
+			// rising over the first half of HoverTime, then holding
+			UnsignedInt riseFrames = max( (UnsignedInt)d->m_hoverTime / 2, 1u );
+			Real risen = now < m_hoverStartFrame ? 0.0f : min( 1.0f, (Real)( now - m_hoverStartFrame ) / (Real)riseFrames );
+			Coord3D pos = m_hoverBase;
+			pos.x += risen * ( m_hoverTop.x - m_hoverBase.x );
+			pos.y += risen * ( m_hoverTop.y - m_hoverBase.y );
+			pos.z += risen * ( m_hoverTop.z - m_hoverBase.z );
+			getObject()->setPosition( &pos );
+			// held, not falling: gravity left to pile up pulls one standing a little over the ground
+			// (a HoverSpot's Z) through it within a few frames, and the landing set it off
+			if( getObject()->getPhysics() )
+				getObject()->getPhysics()->scrubVelocityZ( 0.0f );
+			// picture only: drawn at the size the hands held it on the ground, full size once up
+			if( d->m_hoverGrowFrom > 0.0f )
+				setHoverDrawScale( getObject(), d->m_hoverGrowFrom + risen * ( 1.0f - d->m_hoverGrowFrom ) );
+			return UPDATE_SLEEP_NONE;
+		}
+
+		// off the hover onto the path, from where it holds to where its target stands now
+		m_hoverEndFrame = 0;
+		if( d->m_hoverGrowFrom > 0.0f )
+			setHoverDrawScale( getObject(), 1.0f );
+		m_flightPathStart = *getObject()->getPosition();
+		Object* victim = TheGameLogic->findObjectByID( m_victimID );
+		if( victim )
+			Weapon::pointFromBodyOffset( victim, m_aimOffset, m_flightPathEnd );
+		if( !calcFlightPath( true ) )
+		{
+			detonate();
+			return UPDATE_SLEEP_NONE;
+		}
+		m_currentFlightPathStep = 0;
+	}
+
 	if( m_currentFlightPathStep >= m_flightPath.size() )
 	{
 		// No more steps to use. Would go out of bounds on vector, so have to do something.
@@ -880,7 +1079,9 @@ void DumbProjectileBehavior::xfer( Xfer *xfer )
 	// go off a second time
 	// version 4 adds the barrel's slope at launch, which a lobbed shell's path starts along
 	// version 5 adds the shot's point on its victim, which a shell following the victim keeps to
-	XferVersion currentVersion = 5;
+	// version 6 adds the hover (HoverTime): where it stands, when it rose and when it leaves
+	// version 7 adds where it rises to (HoverAirSpot); before it, HoverHeight straight up
+	XferVersion currentVersion = 7;
 	XferVersion version = currentVersion;
 	xfer->xferVersion( &version, currentVersion );
 
@@ -945,6 +1146,21 @@ void DumbProjectileBehavior::xfer( Xfer *xfer )
 
 	if( version >= 5 )
 		xfer->xferCoord3D( &m_aimOffset );
+
+	if( version >= 6 )
+	{
+		xfer->xferCoord3D( &m_hoverBase );
+		xfer->xferUnsignedInt( &m_hoverStartFrame );
+		xfer->xferUnsignedInt( &m_hoverEndFrame );
+	}
+
+	if( version >= 7 )
+		xfer->xferCoord3D( &m_hoverTop );
+	else if( xfer->getXferMode() == XFER_LOAD )
+	{
+		m_hoverTop = m_hoverBase;
+		m_hoverTop.z += getDumbProjectileBehaviorModuleData()->m_hoverHeight;
+	}
 
 	// the path itself is a vector of points that is not saved; rebuild it from the start, end and
 	// segment count that are, so the step we just read means something

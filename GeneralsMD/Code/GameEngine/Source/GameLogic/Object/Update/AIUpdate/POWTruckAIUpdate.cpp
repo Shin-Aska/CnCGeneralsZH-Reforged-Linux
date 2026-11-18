@@ -68,7 +68,7 @@ void POWTruckAIUpdateModuleData::buildFieldParse( MultiIniFieldParse &p )
 
 	static const FieldParse dataFieldParse[] = 
 	{
-		{ "BoredTime",					INI::parseDurationUnsignedInt,	NULL, offsetof( POWTruckAIUpdateModuleData, m_boredTimeInFrames ) },
+		{ "BoredTime",					SPEED_FIELD( POWTruckAIUpdateModuleData, m_boredTimeInFrames ) },
 		{ "AtPrisonDistance",		INI::parseReal,		NULL,		offsetof( POWTruckAIUpdateModuleData, m_hangAroundPrisonDistance ) },
 		{ 0, 0, 0, 0 }
 	};
@@ -379,7 +379,7 @@ void POWTruckAIUpdate::updateWaiting( void )
 
 }  // updateWaiting
 
-static const UnsignedInt FIND_DELAY = LOGICFRAMES_PER_SECOND * 1;
+#define FIND_DELAY ((UnsignedInt)(LOGICFRAMES_PER_GAME_SECOND * 1))
 // ------------------------------------------------------------------------------------------------
 // ------------------------------------------------------------------------------------------------
 void POWTruckAIUpdate::updateFindTarget( void )
@@ -808,13 +808,10 @@ void POWTruckAIUpdate::unloadPrisonersToPrison( Object *prison )
 				player->getScoreKeeper()->addMoneyEarned( prisonUnloadData.bounty );
 
 				// display text above the building
-				Color moneyColor = TheGlobalData->m_prisonBountyTextColor;
-				UnicodeString moneyString;
 				Coord3D pos = *prison->getPosition();
 
 				pos.z += prison->getGeometryInfo().getMaxHeightAbovePosition();
-				moneyString.format( TheGameText->fetch( "GUI:AddCash" ), prisonUnloadData.bounty );
-				TheInGameUI->addFloatingText( moneyString, &pos, moneyColor );
+				TheInGameUI->addMoneyText( (Int)prisonUnloadData.bounty, &pos, player );
 
 			}  // end if
 

@@ -207,8 +207,10 @@ enum WeaponBonusConditionType : Int
 	WEAPONBONUSCONDITION_FRENZY_ONE,
 	WEAPONBONUSCONDITION_FRENZY_TWO,
 	WEAPONBONUSCONDITION_FRENZY_THREE,
+	WEAPONBONUSCONDITION_MARK_AND_RAIN,		///< Turkiye's guns, a few seconds after a kill an eye saw (MarkAndRainBehavior)
+	WEAPONBONUSCONDITION_FORWARD_POST,		///< Turkiye's guns, standing by a Siper (PropagandaTowerBehavior BonusCondition)
 
-	WEAPONBONUSCONDITION_COUNT
+	WEAPONBONUSCONDITION_COUNT	// at most 32: WeaponBonusConditionFlags is an UnsignedInt
 };
 #ifdef DEFINE_WEAPONBONUSCONDITION_NAMES
 static const char *TheWeaponBonusNames[] = 
@@ -245,6 +247,8 @@ static const char *TheWeaponBonusNames[] =
 	"FRENZY_ONE",
 	"FRENZY_TWO",
 	"FRENZY_THREE",
+	"MARK_AND_RAIN",
+	"FORWARD_POST",
 
 	NULL
 };
@@ -443,8 +447,8 @@ public:
 	inline WeaponPrefireType getPrefireType() const { return m_prefireType; }
 	inline Bool getAutoReloadsClip() const { return m_reloadType == AUTO_RELOAD; }
 	inline Int getClipSize() const { return m_clipSize; }
-	inline Int getMinDelayBetweenShots() const { return m_minDelayBetweenShots; }	///< frames; unlike getDelayBetweenShots, draws no random number
-	inline Int getMaxDelayBetweenShots() const { return m_maxDelayBetweenShots; }
+	inline Int getMinDelayBetweenShots() const { return ConvertRetailFrames( m_minDelayBetweenShots ); }	///< frames; unlike getDelayBetweenShots, draws no random number
+	inline Int getMaxDelayBetweenShots() const { return ConvertRetailFrames( m_maxDelayBetweenShots ); }
 	inline Int getContinuousFireOneShotsNeeded() const { return m_continuousFireOneShotsNeeded; }
 	inline Int getContinuousFireTwoShotsNeeded() const { return m_continuousFireTwoShotsNeeded; }
 	inline UnsignedInt getContinuousFireCoastFrames() const { return m_continuousFireCoastFrames; }
@@ -508,7 +512,7 @@ private:
 	Real m_primaryDamageRadius;							///< primary damage radius range
 	Real m_secondaryDamage;									///< secondary damage amount
 	Real m_secondaryDamageRadius;						///< secondary damage radius range	
-	Real m_shockWaveAmount;									///( How much shockwave generated 
+	RetailPerFrame m_shockWaveAmount;									///( How much shockwave generated 
 	Real m_shockWaveRadius;									///( How far shockwave effect affects objects
 	Real m_shockWaveTaperOff;								///( How much shockwave is left at the tip of the shockwave radius
 	Real m_attackRange;											///< max distance the weapon can deal damage
@@ -524,10 +528,10 @@ private:
 	std::vector<Coord2D> m_scatterTargets;	///< instead of pure randomness, this is the list of places I will randomly choose from to attack
 	DamageType m_damageType;								///< damage type enum
 	DeathType m_deathType;									///< death type enum
-	Real m_weaponSpeed;											///< speed of damage travel, in dist/frame
-	Real m_minWeaponSpeed;									///< speed of damage travel, in dist/frame
+	VelocityPerFrame m_weaponSpeed;											///< speed of damage travel, in dist/frame
+	VelocityPerFrame m_minWeaponSpeed;									///< speed of damage travel, in dist/frame
 	Bool m_isScaleWeaponSpeed;							///< Scale from min to normal based on range (for lobbers)
-	UnsignedInt m_ballisticFlightFrames;		///< nonzero: the shell flies a parabola and lands this many frames after launch, at any range
+	DurationFrames m_ballisticFlightFrames;		///< nonzero: the shell flies a parabola and lands this many frames after launch, at any range
 	Real m_ballisticPeakHeight;							///< how far that parabola rises over the line from muzzle to target, at mid flight
 	Real m_weaponRecoil;										///< amt of recoil caused to firer, in rads
 	Real m_minTargetPitch;									///< min pitch from source->victim allowable in order to target
@@ -543,16 +547,16 @@ private:
 	const FXList* m_fireFXs[LEVEL_COUNT];															///< weapon is fired fx
 	const FXList* m_projectileDetonateFXs[LEVEL_COUNT];								///< if we have a projectile, fx for projectile blowing up
 	AudioEventRTS m_fireSound;							///< weapon is fired sound
-	UnsignedInt m_fireSoundLoopTime;				///< if nonzero, num frames for looping of fire sound
+	DurationFrames m_fireSoundLoopTime;				///< if nonzero, num frames for looping of fire sound
 	WeaponBonusSet* m_extraBonus;						///< optional extra per-weapon bonus
 	Int m_clipSize;													///< number of 'shots' in a clip
-	Int m_clipReloadTime;										///< when 'clip' is empty, how long it takes to reload (frames)
-	Int m_minDelayBetweenShots;							///< min time allowed between firing single shots (frames)
-	Int m_maxDelayBetweenShots;							///< max time allowed between firing single shots (frames)
+	Int m_clipReloadTime;										///< when 'clip' is empty, how long it takes to reload (retail frames; the getter converts)
+	Int m_minDelayBetweenShots;							///< min time allowed between firing single shots (retail frames; the getters convert)
+	Int m_maxDelayBetweenShots;							///< max time allowed between firing single shots (retail frames; the getters convert)
 	Int m_continuousFireOneShotsNeeded;			///< How many consecutive shots will give my owner the ContinuousFire Property
 	Int m_continuousFireTwoShotsNeeded;			///< How many consecutive shots will give my owner the ContinuousFireTwo Property
-	UnsignedInt m_continuousFireCoastFrames;///< How long after we should have shot should we start to wind down from Continuous fire mode
- 	UnsignedInt m_autoReloadWhenIdleFrames;	///< How long we have to wait after our last shot to force a reload
+	DurationFrames m_continuousFireCoastFrames;///< How long after we should have shot should we start to wind down from Continuous fire mode
+ 	DurationFrames m_autoReloadWhenIdleFrames;	///< How long we have to wait after our last shot to force a reload
 	Int m_shotsPerBarrel;										///< If non zero, don't cycle through your launch points every shot, mod the shot by this to get even chucks of firing
 	Int m_antiMask;													///< what we can target
 	Int m_affectsMask;											///< what we can affect
@@ -560,7 +564,7 @@ private:
 	Bool m_damageDealtAtSelfPosition;				///< if T, weapon damage is done at source's position, not victim's pos. (useful for suicide weapons.)
 	WeaponReloadType m_reloadType;					///< does the weapon auto-reload a clip when empty?
 	WeaponPrefireType m_prefireType;				///< The way this weapon handles its prefire delay
-	UnsignedInt m_historicBonusTime;				///< if 'count' instances of this weapon do damage within 'time' and 'radius' from each other, fire the historic bonus weapon
+	DurationFrames m_historicBonusTime;				///< if 'count' instances of this weapon do damage within 'time' and 'radius' from each other, fire the historic bonus weapon
 	Real m_historicBonusRadius;							///< see above
 	Int m_historicBonusCount;								///< see above
 	const WeaponTemplate* m_historicBonusWeapon;	///< see above
@@ -569,11 +573,11 @@ private:
 	Bool m_isShowsAmmoPips;									///< shows ammo pips
 	Bool m_allowAttackGarrisonedBldgs;			///< allow attacks on garrisoned bldgs, even if estimated damage would be zero
 	Bool m_playFXWhenStealthed;					///< Ignores rule about not playing FX when stealthed
-	Int m_preAttackDelay;										///< doesn't attack until preAttack delay is finish (triggering detonation, aiming a snipe shot, etc.)
+	DurationFramesInt m_preAttackDelay;										///< doesn't attack until preAttack delay is finish (triggering detonation, aiming a snipe shot, etc.)
 	Real m_continueAttackRange;							///< if nonzero: when you destroy something, look for a similar obj controlled by same player to attack (used mainly for mine-clearing)
 	Real m_infantryInaccuracyDist;					///< When this weapon is used against infantry, it can randomly miss by as much as this distance.
 	ObjectStatusTypes m_damageStatusType;		///< If our damage is Status damage, the status we apply
-	UnsignedInt m_suspendFXDelay;						///< The fx can be suspended for any delay, in frames, then they will execute as normal
+	DurationFrames m_suspendFXDelay;						///< The fx can be suspended for any delay, in frames, then they will execute as normal
 	Bool m_dieOnDetonate;
 
 	mutable HistoricWeaponDamageList m_historicDamage;
@@ -674,6 +678,16 @@ public:
 	void reloadAmmo(const Object *source);
 
 	WeaponStatus getStatus() const;
+
+	/** While one of these lives on a thread, getStatus there answers without writing the answer back into
+		m_status (see getStatus).  findClosestEnemy holds one while it runs its late filters in whatever
+		order is cheapest. */
+	class StatusPeek
+	{
+	public:
+		StatusPeek() { ++s_statusPeekDepth; }
+		~StatusPeek() { --s_statusPeekDepth; }
+	};
 
 	/// Some AI needs to know when the soonest I can possibly next shoot.  Bonuses have been figured into this number already.
 	UnsignedInt getPossibleNextShotFrame() const { return m_whenWeCanFireAgain; }
@@ -816,9 +830,10 @@ protected:
 
 
 private:
+	static thread_local Int		s_statusPeekDepth;					///< StatusPeek guards alive on this thread
 	const WeaponTemplate*			m_template;									///< the kind of weapon this is
 	WeaponSlotType						m_wslot;										///< are we primary, secondary, etc. weapon? (used for projectile placement on reload)
-	mutable WeaponStatus			m_status;										///< weapon status 
+	mutable WeaponStatus			m_status;										///< weapon status
 	UnsignedInt								m_ammoInClip;								///< how many shots left in current clip
 	UnsignedInt								m_whenWeCanFireAgain;				///< the first frame the weapon can fire again
 	UnsignedInt								m_whenPreAttackFinished;		///< the frame the pre attack will complete.
@@ -873,8 +888,8 @@ public:
 	// frees a Weapon at the end of this logic frame, for one that may still be firing on the stack
 	void deleteWeaponLater( Weapon *weapon ) { m_weaponsToDelete.push_back( weapon ); }
 
-	void createAndFireTempWeapon(const WeaponTemplate* w, const Object *source, const Coord3D* pos);
-	void createAndFireTempWeapon(const WeaponTemplate* w, const Object *source, Object *target);
+	void createAndFireTempWeapon(const WeaponTemplate* w, const Object *source, const Coord3D* pos, ObjectID* projectileID = NULL);
+	void createAndFireTempWeapon(const WeaponTemplate* w, const Object *source, Object *target, ObjectID* projectileID = NULL);
 	
 	void handleProjectileDetonation( const WeaponTemplate* w, const Object *source, const Coord3D* pos, WeaponBonusConditionFlags extraBonusFlags, Bool inflictDamage = TRUE );
 	

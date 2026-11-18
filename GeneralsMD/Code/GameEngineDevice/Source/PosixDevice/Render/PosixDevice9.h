@@ -285,6 +285,12 @@ public:
 	void Use_Terrain_Cpu_Lighting() { TerrainLighting.Pixel = false; }
 	bool Terrain_Lighting_Receives(int pixelProgram, const struct SdlTarget &target) const;
 	void Build_Terrain_Light_View(struct SdlEnginePixelConstants &constants) const;
+	bool Set_Terrain_Heights(const unsigned char *, unsigned, unsigned);
+	bool Holds_Terrain_Heights() const { return TerrainHeights != nullptr; }
+	void Set_Terrain_Sun(const float *);
+	void Set_Terrain_Relight(bool enabled) { TerrainRelight = enabled && Holds_Terrain_Heights(); }
+	bool Terrain_Relight_Receives(int vertexProgram, int pixelProgram, const struct SdlTarget &) const;
+	bool Build_Terrain_Sun_Constants(struct SdlEnginePixelConstants &) const;
 	RenderWarmupStats Warm_Up_Render_Pipelines(bool modernWater, unsigned pipelineLimit = 192, unsigned budgetMS = 3000);
 #if defined(__linux__)
 	// Standalone preview only; injects exact sampled inputs for the currently bound target.
@@ -651,6 +657,9 @@ protected:
 		D3DVIEWPORT9 Viewport = {};
 		float WorldFromClip[16] = {}, ShadowViewport[4] = {};
 	} TerrainLighting;
+	IDirect3DTexture9 *TerrainHeights = nullptr; // private managed source, never a material stage
+	float TerrainSun[40] = {};
+	bool TerrainRelight = false;
 	float Headlights[16][8] = {}, HeadlightGain[3] = {};
 	unsigned HeadlightCount = 0;
 	float BlastLights[32][12] = {};

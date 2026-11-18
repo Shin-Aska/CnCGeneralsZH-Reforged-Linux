@@ -181,7 +181,7 @@ static const FieldParse TheAIFieldParseTable[] =
 	{ "TeamSeconds",						INI::parseReal,NULL,		offsetof( TAiData, m_teamSeconds ) },
 	{ "Wealthy",								INI::parseInt,NULL,			offsetof( TAiData, m_resourcesWealthy ) },
 	{ "Poor",										INI::parseInt,NULL,		  offsetof( TAiData, m_resourcesPoor ) },
-	{ "ForceIdleMSEC",					INI::parseDurationUnsignedInt,NULL,offsetof( TAiData, m_forceIdleFramesCount )	},
+	{ "ForceIdleMSEC",					SPEED_FIELD( TAiData, m_forceIdleFramesCount )	},
 	{ "StructuresWealthyRate",	INI::parseReal,NULL,		offsetof( TAiData, m_structuresWealthyMod ) },
 	{ "TeamsWealthyRate",				INI::parseReal,NULL,		offsetof( TAiData, m_teamWealthyMod ) },
 	{ "StructuresPoorRate",			INI::parseReal,NULL,		offsetof( TAiData, m_structuresPoorMod ) },
@@ -191,9 +191,9 @@ static const FieldParse TheAIFieldParseTable[] =
 	{ "GuardOuterModifierAI",		INI::parseReal,NULL,		offsetof( TAiData, m_guardOuterModifierAI ) },
 	{ "GuardInnerModifierHuman",INI::parseReal,NULL,		offsetof( TAiData, m_guardInnerModifierHuman ) },
 	{ "GuardOuterModifierHuman",INI::parseReal,NULL,		offsetof( TAiData, m_guardOuterModifierHuman ) },
-	{ "GuardChaseUnitsDuration",				INI::parseDurationUnsignedInt,NULL,		offsetof( TAiData, m_guardChaseUnitFrames ) },
-	{ "GuardEnemyScanRate",				INI::parseDurationUnsignedInt,NULL,		offsetof( TAiData, m_guardEnemyScanRate ) },
-	{ "GuardEnemyReturnScanRate",				INI::parseDurationUnsignedInt,NULL,		offsetof( TAiData, m_guardEnemyReturnScanRate ) },
+	{ "GuardChaseUnitsDuration",				SPEED_FIELD( TAiData, m_guardChaseUnitFrames ) },
+	{ "GuardEnemyScanRate",				SPEED_FIELD( TAiData, m_guardEnemyScanRate ) },
+	{ "GuardEnemyReturnScanRate",				SPEED_FIELD( TAiData, m_guardEnemyReturnScanRate ) },
 	{ "SkirmishGroupFudgeDistance",	INI::parseReal,NULL,		offsetof( TAiData, m_skirmishGroupFudgeValue ) },
 
 	{ "RepulsedDistance",				INI::parseReal,NULL,		offsetof( TAiData, m_repulsedDistance ) },
@@ -419,8 +419,14 @@ void AI::reset( void )
 	}
 	m_nextGroupID = 0;
 	m_sweptGroupID = 0;
+	m_loadedGroupMembers.clear();	// a load that threw after xferGroups left groups the loop above freed
 	theVariationParents.clear();
 	theArmourOfTemplate.clear();
+
+	// the mood searches run ahead belong to one match's frames (AIUpdate.cpp)
+	extern void AIUpdate_resetMoodSearches( void );
+	AIUpdate_resetMoodSearches();
+
 	m_nextFormationID = NO_FORMATION_ID;
 	getNextFormationID(); // increment once past NO_FORMATION_ID.  jba.
 	m_lastBuildingPlacementFrame = 0;
@@ -485,6 +491,10 @@ void AI::update( void )
  */
 AI::~AI()
 {
+	// the mood searches' iterators, when no reset followed the last match
+	extern void AIUpdate_resetMoodSearches( void );
+	AIUpdate_resetMoodSearches();
+
 	if (m_pathfinder) {
 		delete m_pathfinder;
 	}
@@ -666,6 +676,10 @@ FormationID AI::getNextFormationID(void )
 }
 
 //-----------------------------------------------------------------------------
+// SpectreGunshipUpdate.cpp has a class of this name with another allow(); each stays in its own file,
+// or the linker keeps one vtable for both and which one is up to it
+namespace
+{
 class PartitionFilterLiveMapEnemies : public PartitionFilter
 {
 private:
@@ -690,8 +704,30 @@ public:
 		return true;
 	}
 
+	virtual Bool isReadOnly() const { return TRUE; }
+
 #if defined(_DEBUG) || defined(_INTERNAL)
 	virtual const char* debugGetName() { return "PartitionFilterLiveMapEnemies"; }
+#endif
+};
+}
+
+//-----------------------------------------------------------------------------
+/** What an attack priority set does not rule out: findClosestEnemy never attacks priority 0. */
+class PartitionFilterAttackPriority : public PartitionFilter
+{
+private:
+	const AttackPriorityInfo *m_info;
+public:
+	PartitionFilterAttackPriority(const AttackPriorityInfo *info) : m_info(info) { }
+
+	virtual Bool allow(Object *objOther)
+	{
+		return m_info->getPriority(objOther->getTemplate()) != 0;
+	}
+
+#if defined(_DEBUG) || defined(_INTERNAL)
+	virtual const char* debugGetName() { return "PartitionFilterAttackPriority"; }
 #endif
 };
 
@@ -723,6 +759,19 @@ public:
 			}
 		}
 		return false;
+	}
+
+	// distances, ranges and a garrison's free fire points only, but for a contact weapon against a
+	// structure, which asks the partition what it touches (Weapon::isWithinAttackRange)
+	virtual Bool isReadOnly() const
+	{
+		for (Int i = 0; i < WEAPONSLOT_COUNT; i++)
+		{
+			const Weapon* w = m_obj->getWeaponInWeaponSlot((WeaponSlotType)i);
+			if (w && w->isContactWeapon())
+				return false;
+		}
+		return true;
 	}
 
 #if defined(_DEBUG) || defined(_INTERNAL)
@@ -827,7 +876,20 @@ Bool aiTargetBeats( const AITargetRating &a, const AITargetRating &b )
 // AIStates.cpp; the attack move's retaliation window, which is protected on its state
 extern Bool AIAttackMove_shouldRetaliate( UnsignedInt lastDamageFrame, UnsignedInt now, Int windowFrames,
 																					Bool alreadyFightingTheAttacker, Bool canAttackTheAttacker );
-static const Int AI_SHOT_ME_FRAMES = LOGICFRAMES_PER_SECOND;
+#define AI_SHOT_ME_FRAMES ((Int)(LOGICFRAMES_PER_GAME_SECOND))
+
+/** The search this thread runs as a logic job, or NULL on the logic thread (AI::ScanJob). The two lazy
+	* tables below and a template's first name-key ask are filled only on the logic thread: a job that
+	* would fill one gives up instead, and its unit searches on the logic thread, which fills it. */
+static thread_local AI::ScanJob *t_scanJob = NULL;
+
+static Bool AI_jobMayNotFill( void )
+{
+	if( t_scanJob == NULL )
+		return FALSE;
+	t_scanJob->aborted = TRUE;
+	return TRUE;
+}
 
 /** What a target is worth: ThreatValue where the data sets it, else what its player pays for it. */
 static Int AI_targetValue( const Object *victim )
@@ -835,10 +897,14 @@ static Int AI_targetValue( const Object *victim )
 	const ThingTemplate *tmpl = victim->getTemplate();
 	if( tmpl->getThreatValue() > 0 )
 		return tmpl->getThreatValue();
+	if( !tmpl->hasNameKey() && AI_jobMayNotFill() )
+		return 1;
 	Int cost = tmpl->calcCostToBuild( victim->getControllingPlayer() );
 	if( cost <= 0 )
 	{
 		std::map<const ThingTemplate*, const ThingTemplate*>::iterator known = theVariationParents.find( tmpl );
+		if( known == theVariationParents.end() && AI_jobMayNotFill() )
+			return 1;
 		if( known == theVariationParents.end() )
 		{
 			const ThingTemplate *parent = NULL;
@@ -851,7 +917,11 @@ static Int AI_targetValue( const Object *victim )
 			known = theVariationParents.insert( std::make_pair( tmpl, parent ) ).first;
 		}
 		if( known->second != NULL )
+		{
+			if( !known->second->hasNameKey() && AI_jobMayNotFill() )
+				return 1;
 			cost = known->second->calcCostToBuild( victim->getControllingPlayer() );
+		}
 	}
 	return cost < 1 ? 1 : cost;		// a free civilian car is still worth more than nothing at all
 }
@@ -869,6 +939,11 @@ struct AITargetFacts
 static const AIArmourRow &AI_armourOf( const ThingTemplate *tmpl )
 {
 	std::map<const ThingTemplate*, AIArmourRow>::iterator known = theArmourOfTemplate.find( tmpl );
+	if( known == theArmourOfTemplate.end() && AI_jobMayNotFill() )
+	{
+		static const AIArmourRow s_noRow = AIArmourRow();	// the job's answer is thrown away
+		return s_noRow;
+	}
 	if( known == theArmourOfTemplate.end() )
 	{
 		const ArmorTemplateSet *set = tmpl->findArmorTemplateSet( ArmorSetFlags() );
@@ -881,6 +956,15 @@ static const AIArmourRow &AI_armourOf( const ThingTemplate *tmpl )
 		known = theArmourOfTemplate.insert( std::make_pair( tmpl, row ) ).first;
 	}
 	return known->second;
+}
+
+/** On the logic thread before the idle checks searched ahead fork (AIUpdate.cpp): fill the two tables
+	* and the name keys a job may only read, for o, so whether a job gives up never depends on what this
+	* process asked before, a client tooltip or an earlier match among it. */
+void AI_prewarmTargetTables( const Object *o )
+{
+	AI_armourOf( o->getTemplate() );
+	AI_targetValue( o );
 }
 
 /** What the unit choosing brings to every candidate: its weapons as they fire now, once per search
@@ -1053,6 +1137,24 @@ Bool AI_attackPriorityTakesLead( Int modPriority, Int curPriority, Real distSqr,
 
 //-----------------------------------------------------------------------------
 /**
+ * Whether nothing at least minDist away can take the lead from, or tie, a leader of that search, Object-free
+ * so test_gameengine can link to it. Such a candidate starts from no more than maxPriority, loses one for
+ * every modifierDist of minDist, never going under 1, and then needs a higher priority after distance or, at
+ * the leader's, the most priority there is and a distance under the leader's.
+ */
+Bool AI_attackPriorityIsSettled( Int bestModPriority, Int bestCurPriority, Real bestDistSqr,
+																 Int maxPriority, Real minDist, Real modifierDist )
+{
+	Int farPriority = maxPriority - floatToIntAsMsvc(minDist / modifierDist);
+	if (farPriority < 1)
+		farPriority = 1;
+	if (bestModPriority != farPriority)
+		return bestModPriority > farPriority;
+	return bestCurPriority >= maxPriority && bestDistSqr < minDist * minDist;
+}
+
+//-----------------------------------------------------------------------------
+/**
  * Return the closest enemy, according to the qualifiers.
  */
 static Bool AI_filtersAllow( PartitionFilter **filters, Object *candidate )
@@ -1064,6 +1166,100 @@ static Bool AI_filtersAllow( PartitionFilter **filters, Object *candidate )
 	}
 	return true;
 }
+
+//-----------------------------------------------------------------------------
+/** theEnemy's priority in the set, raised to that of the best thing inside it. FALSE for its own 0: never attacked. */
+static Bool AI_attackPriorityOf( const AttackPriorityInfo *info, Object *theEnemy, Int &curPriority )
+{
+	curPriority = info->getPriority(theEnemy->getTemplate());
+	if (curPriority == 0)
+		return FALSE; // don't attack 0 priority targets.
+
+	/* check for garrisoned buildings/vehicles & see if a higher priority unit is inside. */
+	ContainModuleInterface* contain = theEnemy->getContain();
+	if (contain) {
+		TPriorityInfo priorityInfo;
+		priorityInfo.priority = curPriority;
+		priorityInfo.info = info;
+		contain->iterateContained( priorityFunc, &priorityInfo, false ) ;
+		if (priorityInfo.priority > curPriority) {
+			curPriority = priorityInfo.priority;
+		}
+	}
+	return TRUE;
+}
+
+/** That priority after distance: one less for every AttackPriorityDistanceModifier, never under 1. */
+static Int AI_attackPriorityAtDistance( Int curPriority, Real distSqr )
+{
+	Real dist = sqrt(distSqr);
+	Int modifier = floatToIntAsMsvc(dist/TheAI->getAiData()->m_attackPriorityDistanceModifier);
+	Int modPriority = curPriority-modifier;
+	if (modPriority < 1)
+		modPriority = 1;
+	return modPriority;
+}
+
+//-----------------------------------------------------------------------------
+/**
+ * The scripted-priority search's pick, taken from PartitionManager::visitNearestFirst. The rule is the one
+ * pass over the gathered list below (AI_attackPriorityTakesLead, the late filters only for a candidate that
+ * would lead), over the objects the gather holds, and its full tie, which the list leaves to whichever it
+ * holds first, goes to the one PartitionGatherOrder says it lists first, so the order the cells come in
+ * does not reach the pick.
+ */
+class AttackPriorityPick : public PartitionNearestFirstVisitor
+{
+public:
+	AttackPriorityPick( const AttackPriorityInfo *info, PartitionFilter **lateFilters ) :
+		m_info( info ),
+		m_lateFilters( lateFilters ),
+		m_maxPriority( info->getMaxPriority() ),
+		m_best( NULL ),
+		m_bestModPriority( 0 ),
+		m_bestCurPriority( 0 ),
+		m_bestDistSqr( 0.0f )
+	{
+	}
+
+	virtual void visit( Object *theEnemy, Real distSqr, const PartitionGatherOrder &order )
+	{
+		Int curPriority;
+		if (!AI_attackPriorityOf( m_info, theEnemy, curPriority ))
+			return;
+		const Int modPriority = AI_attackPriorityAtDistance( curPriority, distSqr );
+		const Bool leads = AI_attackPriorityTakesLead( modPriority, curPriority, distSqr, m_bestModPriority, m_bestCurPriority, m_bestDistSqr );
+		if (!leads && !( m_best != NULL && modPriority == m_bestModPriority && curPriority == m_bestCurPriority && distSqr == m_bestDistSqr ))
+			return;
+		if (!order.holds( theEnemy ))
+			return;
+		if (!leads && !order.listsBefore( theEnemy, m_best ))
+			return;
+		if (!AI_filtersAllow( m_lateFilters, theEnemy ))
+			return;
+		m_best = theEnemy;
+		m_bestModPriority = modPriority;
+		m_bestCurPriority = curPriority;
+		m_bestDistSqr = distSqr;
+	}
+
+	virtual Bool isSettled( Real minDist ) const
+	{
+		return m_best != NULL && AI_attackPriorityIsSettled( m_bestModPriority, m_bestCurPriority, m_bestDistSqr,
+			m_maxPriority, minDist, TheAI->getAiData()->m_attackPriorityDistanceModifier );
+	}
+
+	Object *getBest() const { return m_best; }
+
+private:
+	const AttackPriorityInfo *m_info;
+	PartitionFilter **m_lateFilters;
+	Int m_maxPriority;
+	Object *m_best;
+	Int m_bestModPriority;
+	Int m_bestCurPriority;
+	Real m_bestDistSqr;
+};
 
 //-----------------------------------------------------------------------------
 /**
@@ -1138,8 +1334,48 @@ Bool AI::prefersTarget( const Object *me, Object *a, Object *b )
 												AI_rateFully( shooter, b, ThePartitionManager->getDistanceSquared( me, b, FROM_BOUNDINGSPHERE_2D ) ) );
 }
 
+/** t_scanJob for the length of one job search. */
+class AIScanJobScope
+{
+public:
+	AIScanJobScope( AI::ScanJob *job ) : m_was( t_scanJob ) { t_scanJob = job; }
+	~AIScanJobScope( void ) { t_scanJob = m_was; }
+private:
+	AI::ScanJob *m_was;
+};
+
+/** iterateObjectsInRange for findClosestEnemy's gathers. A logic job gathers with
+	* PartitionManager::gatherFromJob instead and fills its thread's own iterator (ScanJob::iterator) in
+	* the same order, sorted the same way, so it takes nothing from the pool once its blocks are there;
+	* the caller does not delete that one. NULL when the job has to give up. */
+static SimpleObjectIterator *AI_gatherEnemies( const Object *me, Real range, PartitionFilter **filters,
+																							 IterOrderType order, PlayerMaskType onlyPlayers, AI::ScanJob *job )
+{
+	if (job == NULL)
+		return ThePartitionManager->iterateObjectsInRange(me, range, FROM_BOUNDINGSPHERE_2D, filters, order, onlyPlayers);
+
+	PartitionManager::JobGather g;
+	g.objects = job->objects;
+	g.distSqr = job->distSqr;
+	g.capacity = job->capacity;
+	if (!ThePartitionManager->gatherFromJob(me, range, FROM_BOUNDINGSPHERE_2D, filters, onlyPlayers, g) || g.overflowed)
+	{
+		job->aborted = TRUE;
+		return NULL;
+	}
+	++job->gathers;
+	job->objectsLookedAt += g.objectsLookedAt;
+
+	SimpleObjectIterator *iter = job->iterator;
+	iter->recycle();
+	for (Int i = 0; i < g.count; ++i)
+		iter->insert(g.objects[i], g.distSqr[i]);
+	iter->sort(order);
+	return iter;
+}
+
 Object *AI::findClosestEnemy( const Object *me, Real range, UnsignedInt qualifiers,
-														 const AttackPriorityInfo *info, PartitionFilter *optionalFilter)
+														 const AttackPriorityInfo *info, PartitionFilter *optionalFilter, ScanJob *job)
 {
 
 	if ((qualifiers & CAN_ATTACK) && !me->isAbleToAttack())
@@ -1151,8 +1387,14 @@ Object *AI::findClosestEnemy( const Object *me, Real range, UnsignedInt qualifie
 		return NULL;
 	}
 
+	// a logic job's search (ScanJob): the lazy tables below refuse to fill on its thread
+	AIScanJobScope jobScope( job );
+
 	// counted, so the slow-frame log can say how many of the frame's range queries are this
-	bumpEnemyScanCount();
+	if (job)
+		++job->scans;
+	else
+		bumpEnemyScanCount();
 
 	// only consider live, on-map enemies.
 	// since this gets called a ton, I made a special custom filter to
@@ -1184,6 +1426,8 @@ Object *AI::findClosestEnemy( const Object *me, Real range, UnsignedInt qualifie
 	// (optional) only stuff clear of fog, or for a beyond-vision shooter, tracked by its player's radar
 	PartitionFilterFreeOfFog filterFogged(me->getControllingPlayer()->getPlayerIndex(),
 		me->getTemplate()->acquiresBeyondVision() ? me->getControllingPlayer() : NULL);
+	if (job)
+		filterFogged.peekInto(job->peeks);		// the logic thread asks again later, in this order
 
 	PartitionFilter *filters[16];
 	Int numFilters = 0;
@@ -1220,39 +1464,102 @@ Object *AI::findClosestEnemy( const Object *me, Real range, UnsignedInt qualifie
 		gatherFilters[f] = filters[f];
 	gatherFilters[numGatherFilters] = NULL;
 
-	if (qualifiers & CAN_SEE)
-		filters[numFilters++] = &filterLOS;
+	/* The late filters answer one yes or no together, so they can run cheapest first, with the line of
+		 sight, two line walks across terrain and pathfind cells, last. A ground unit's search runs out to
+		 twice its reach for the high ground (getNextMoodTarget), and the elevated reach filter throws most
+		 of that ring away for the price of a distance; it used to do so after the walks.
+		 Two of them can leave state behind. The fog filter's shroud query records what each player has
+		 seen (PartitionData::getShroudedStatus), so with UNFOGGED it is asked of exactly the objects it
+		 always was, those the can-attack filter and the line of sight both let through, and only those
+		 two may change places ahead of it. That is the computer players' own case on a random map. The
+		 can-attack filter asks weapons their status, and Weapon::getStatus writes its answer back; the
+		 search asks under a Weapon::StatusPeek, which writes nothing, so which weapons got asked leaves
+		 no trace. */
+	const Bool fogFiltered = (qualifiers & UNFOGGED) != 0;
+
+	if (!fogFiltered)
+	{
+		if (optionalFilter)
+			filters[numFilters++] = optionalFilter;
+
+		if (qualifiers & IGNORE_INSIGNIFICANT_BUILDINGS)
+			filters[numFilters++] = &filterInsignificant;
+
+		filters[numFilters++] = &filterStealth;
+	}
 
 	if (qualifiers & CAN_ATTACK)
 		filters[numFilters++] = &filterAttack;
 
-	if (qualifiers & UNFOGGED)
+	if (qualifiers & CAN_SEE)
+		filters[numFilters++] = &filterLOS;
+
+	if (fogFiltered)
+	{
 		filters[numFilters++] = &filterFogged;
 
-	if (qualifiers & IGNORE_INSIGNIFICANT_BUILDINGS)
-		filters[numFilters++] = &filterInsignificant;
+		if (qualifiers & IGNORE_INSIGNIFICANT_BUILDINGS)
+			filters[numFilters++] = &filterInsignificant;
 
-	filters[numFilters++] = &filterStealth;
+		filters[numFilters++] = &filterStealth;
 
-	if (optionalFilter) 
-	{
-		filters[numFilters++] = optionalFilter;
+		if (optionalFilter)
+			filters[numFilters++] = optionalFilter;
 	}
 
 	filters[numFilters] = NULL;
+
+	Weapon::StatusPeek peek;
 
 	// filterObvious goes first in both lists and lets only ENEMIES through, so a cell holding no
 	// enemy player's Object cannot hold an answer and the searches below pass over it: the same
 	// objects reach the filters in the same order, and no filter after the first ever sees the rest
 	const PlayerMaskType enemyPlayers = me->getTeam()->getEnemyPlayerMask();
 
-	if (info == NULL || info == TheScriptEngine->getDefaultAttackInfo())
+	const Bool scripted = info != NULL && info != TheScriptEngine->getDefaultAttackInfo();
+
+	/* ANY_WILL_DO: the first object the search meets that every filter passes, over the objects the
+		 full search would look at, in the walk it would take. It is NULL exactly when the full search's
+		 answer is: with no leader yet, any candidate that passes every filter takes the lead, and with a
+		 priority set any candidate the set does not give priority 0 does. The idle-hunt check ran a
+		 whole-map gather per idle unit for that one bit, 25 of them in a 67ms frame. With the fog filter
+		 in the list the full search runs, so the shroud query sees the objects it always saw. */
+	// a logic job runs the two gathering forms below and gives up on the others
+	if (job && ((qualifiers & ANY_WILL_DO) || (!scripted && !(qualifiers & PREFER_BEST_TARGET))))
+	{
+		job->aborted = TRUE;
+		return NULL;
+	}
+
+	if ((qualifiers & ANY_WILL_DO) && !fogFiltered)
+	{
+		PartitionFilterAttackPriority filterPriority(info);
+		PartitionFilter *anyFilters[18];
+		Int numAnyFilters = 0;
+		for (Int f = 0; f < numGatherFilters; ++f)
+			anyFilters[numAnyFilters++] = filters[f];
+		if (scripted)
+			anyFilters[numAnyFilters++] = &filterPriority;
+		for (Int f = numGatherFilters; f < numFilters; ++f)
+			anyFilters[numAnyFilters++] = filters[f];
+		anyFilters[numAnyFilters] = NULL;
+		// a priority set's search and pickBestTarget's gather, which over the whole map walks the module
+		// list; the plain nearest search walks rings out from the unit (PartitionManager::getAnyObject)
+		const Bool gathers = scripted || (qualifiers & PREFER_BEST_TARGET) != 0;
+		return ThePartitionManager->getAnyObject(me, range, FROM_BOUNDINGSPHERE_2D, anyFilters, enemyPlayers, gathers);
+	}
+
+	if (!scripted)
 	{
 		if (qualifiers & PREFER_BEST_TARGET)
 		{
 			// gathered with the cheap filters; pickBestTarget asks the rest only of a leader
-			SimpleObjectIterator *iter = ThePartitionManager->iterateObjectsInRange(me, range, FROM_BOUNDINGSPHERE_2D, gatherFilters, ITER_SORTED_NEAR_TO_FAR, enemyPlayers);
+			SimpleObjectIterator *iter = AI_gatherEnemies(me, range, gatherFilters, ITER_SORTED_NEAR_TO_FAR, enemyPlayers, job);
+			if (iter == NULL)
+				return NULL;
 			MemoryPoolObjectHolder holder(iter);
+			if (job)
+				holder.release();
 			return pickBestTarget(me, iter, filters + numGatherFilters);
 		}
 
@@ -1271,6 +1578,27 @@ Object *AI::findClosestEnemy( const Object *me, Real range, UnsignedInt qualifie
 	// The leader is rated only once a tie needs it, and a tied candidate by the same prune as
 	// pickBestTarget.
 	const Bool rated = (qualifiers & PREFER_BEST_TARGET) != 0;
+
+	/* A hunter asks this of the whole map once a second, and the gather below visited every Object on it,
+		 80% of all the objects range queries looked at in a 32-player match, to pick an enemy mostly close
+		 by. The pick is the best by priority after distance, then priority, then the smaller distance, and
+		 nothing far enough off can beat a leader once distance has taken enough priority away, so the search
+		 walks out from the unit and stops there (AttackPriorityPick). The rated tie-break reads the leader's
+		 weapons in the gather's order and keeps this loop, and so does the fog filter, whose shroud query
+		 records what it was asked. */
+	if (!rated && !fogFiltered && m_aiData->m_attackPriorityDistanceModifier > 0.0f)
+	{
+		// the walk shares the partition's state; a logic job gives up rather than run it
+		if (job)
+		{
+			job->aborted = TRUE;
+			return NULL;
+		}
+		AttackPriorityPick pick(info, filters + numGatherFilters);
+		if (ThePartitionManager->visitNearestFirst(me, range, gatherFilters, enemyPlayers, &pick))
+			return pick.getBest();
+	}
+
 	AIShooter shooter;
 	if (rated)
 		AI_readShooter(me, shooter);
@@ -1278,32 +1606,19 @@ Object *AI::findClosestEnemy( const Object *me, Real range, UnsignedInt qualifie
 	Bool bestRated = FALSE;
 	// unsorted, see AI_attackPriorityTakesLead; each entry carries the distance the gather measured,
 	// which is what getDistanceSquared would measure again
-	SimpleObjectIterator *iter = ThePartitionManager->iterateObjectsInRange(me, range, FROM_BOUNDINGSPHERE_2D, gatherFilters, ITER_FASTEST, enemyPlayers);
+	SimpleObjectIterator *iter = AI_gatherEnemies(me, range, gatherFilters, ITER_FASTEST, enemyPlayers, job);
+	if (iter == NULL)
+		return NULL;
 	MemoryPoolObjectHolder holder(iter);
+	if (job)
+		holder.release();
 	Real distSqr;
 	for (Object *theEnemy = iter->firstWithNumeric(&distSqr); theEnemy; theEnemy = iter->nextWithNumeric(&distSqr))
 	{
-		Int curPriority = info->getPriority(theEnemy->getTemplate());
-		if (curPriority == 0) 
-			continue; // don't attack 0 priority targets.
-
-		/* check for garrisoned buildings/vehicles & see if a higher priority unit is inside. */
-		ContainModuleInterface* contain = theEnemy->getContain();
-		if (contain) {
-			TPriorityInfo priorityInfo;
-			priorityInfo.priority = curPriority;
-			priorityInfo.info = info;
-			contain->iterateContained( priorityFunc, &priorityInfo, false ) ;
-			if (priorityInfo.priority > curPriority) {
-				curPriority = priorityInfo.priority;
-			}
-		}
-
-		Real dist = sqrt(distSqr);
-		Int modifier = floatToIntAsMsvc(dist/TheAI->getAiData()->m_attackPriorityDistanceModifier);
-		Int modPriority = curPriority-modifier;
-		if (modPriority < 1)
-			modPriority = 1;
+		Int curPriority;
+		if (!AI_attackPriorityOf(info, theEnemy, curPriority))
+			continue;
+		const Int modPriority = AI_attackPriorityAtDistance(curPriority, distSqr);
 		if (rated && bestEnemy != NULL && modPriority == effectivePriority && curPriority == actualPriority)
 		{
 			if (!bestRated)
@@ -1346,7 +1661,7 @@ Object *AI::findClosestEnemy( const Object *me, Real range, UnsignedInt qualifie
 		}
 	}
 	if (bestEnemy) {
-		//DEBUG_LOG(("Find closest found %s, hunter %s, info %s\n", bestEnemy->getTemplate()->getName().str(), 
+		//DEBUG_LOG(("Find closest found %s, hunter %s, info %s\n", bestEnemy->getTemplate()->getName().str(),
 		//	me->getTemplate()->getName().str(), info->getName().str()));
 	}
 	return bestEnemy;
@@ -1665,19 +1980,47 @@ Real AI::getAdjustedVisionRangeForObject(const Object *object, Int factorsToCons
 	* centre of its own (AIPlayer::doSecondBase); 2nd is how many empty starts it claims, nearest first.
 	* reach is how far a dock may be from home, or from one of those bases, for a supply centre of its own
 	* choosing, and a dock beside one of those bases is not held to the side-of-map test.  Easy founds one
-	* late, at twenty minutes, so it is rare; Medium two from twelve; Hard every empty start from seven.
+	* late, at twenty minutes, so it is rare; Medium two from twelve; Hard three from seven.
+	* Since 2026-11-17 the base out there is a Command Center founded the moment home is full, so 2ndS only
+	* times the war factory -aiknobsoff secondbase keeps; 2nd still caps the count on every rung.  Hard's 2nd
+	* was MAX_PLAYER_COUNT, "every empty start", until the rating read it as a number on a line (the owner,
+	* 2026-11-17): 3 now, so a rating of 15 claims 2 and 100 about 8, and no rating claims 48 by arithmetic.
 	*
 	* inc%, 2026-11-02.  The owner: 1.5x on everything a skirmish AI earns by playing, the same on every
 	* rung, in place of the flat double it had, and up to 150 points more while it falls behind its
 	* strongest enemy (AIPlayer::stepIncomeBonus).  Player::earnMoney and earnIncome bank it; the score
 	* screen and its charts count the money before the bonus.
 	*
-	*                      scoutS maxSc decis  cntr  mass   ttk  indiv team infl focus save harv expand guard hoard econ micro  gate  answer massU  bankS  floor payoff upgr    nonc  share backlog push   minPow  siege  beam  strikeE strikeT swDef                     stall  lost retry  stage  spot arty    inflS fireLook word   odds   fireMem  watch watchOdds dodge  2ndS  2nd  reach    inc% */
+	* inc% and bonus, 2026-11-17.  The owner: Easy earns 1.0x and at most 1.25x, Hard 1.5x and at most 2.5x,
+	* and both keep rising with the rating.  inc% is 100 to 150 and bonus, the falling-behind ceiling over it,
+	* 25 to 100, each a rising line (15 is 125 and 62.5, 100 about 267 and 275).  This overrides the rule
+	* above the profile that only income may exceed the baseline: an Easy seat now earns less than before.
+	*
+	* pace, 2026-11-17.  EA's StructureSeconds and TeamSeconds were the same on every rung; this factor on the
+	* finished delay is 1 on Hard, so Hard is EA's to the frame, 1.5 on Easy, falling to 1.2 at 15 and 0.56 at 100.
+	*
+	* abil, 2026-11-16.  The owner: Hard uses every unit button the rules know, Medium part of them, Easy none
+	* (AIPlayer::doAbilities).  1 is the Missile Defender's and the Sungur's laser lock, a manual shot such as
+	* Jarmen Kell's, an area weapon such as the Comanche's rocket pods fired only where the unit's own target
+	* stands, and the weapon toggles; 2 adds the area weapons anywhere in reach, the walk-up specials (charges,
+	* TNT, hacks, the Maroon Beret's Designate) and the suicides.  A seat at 0 also leaves out of its matchups
+	* every weapon only a button fires, so the build choice moves with it.
+	*
+	* frgn, 2026-11-17.  The owner: Hard takes over an enemy side's tech tree when it can (AIPlayer::
+	* doForeignTech).  1 (Medium) uses what falls into its hands: a dozer of another side, stolen, or an
+	* emptied one crewed, puts that side's Command Center up at home when the bank has its price, and a
+	* captured Command Center trains that dozer and is sold.  The foreign Command Center grows a supply
+	* centre, a barracks and a war factory, and those train into the army out of what is over the bank.
+	* 2 (Hard) goes after them: the hijacker and Jarmen Kell's snipe take a foreign dozer first, Black
+	* Lotus and the capturing infantry weigh an enemy Command Center double, and the capturer takes an enemy
+	* building no gun guards when it scores over the next derrick, worth against the walk.  Easy none.
+	*
+	*                      scoutS maxSc decis  cntr  mass   ttk  indiv team infl focus save harv expand guard hoard econ micro  gate  answer massU  bankS  floor payoff upgr    nonc  share backlog push   minPow  siege  beam  strikeE strikeT swDef                     stall  lost retry  stage  spot arty    inflS fireLook word   odds   fireMem  watch watchOdds dodge  2ndS  2nd  reach    inc% bonus pace abil frgn */
 static const AIDifficultyProfile s_defaultSkillLadder[ AISKILL_COUNT ] =
 {
-	/* Easy      */ { 75.0f, 1,  7.0f,  0.00f, FALSE, 0.00f, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE,  FALSE, FALSE,     0, FALSE, FALSE, FALSE, FALSE, FALSE, 120.0f, 6000, 4.0f, 720.0f, 0.05f, 0.05f,  90.0f, 360.0f, 1500.0f,  80.0f, 0.00f, 0.0f, 2.0f, 3,                        300.0f, 3, 300.0f, FALSE, 1, 1.00f, 4.0f, 3.00f,   0.0f, 0.60f, 10.0f, 16.0f, 1.0f, 3.25f, 1200.0f, 1, 2000.0f, 150 },
-	/* Medium    */ { 45.0f, 1,  3.0f,  0.50f, FALSE, 0.35f, TRUE,  FALSE, FALSE, TRUE,  TRUE,  TRUE,  TRUE,  FALSE,  6000, FALSE, FALSE, FALSE, FALSE, FALSE,  60.0f, 5000, 2.5f, 420.0f, 0.05f, 0.25f,  75.0f, 300.0f, 2000.0f, 120.0f, 1.00f, 2.0f, 1.0f, 6,                        240.0f, 2, 240.0f, TRUE,  1, 0.50f, 2.0f, 1.00f, 150.0f, 0.80f, 20.0f,  6.0f, 1.5f, 1.50f,  720.0f, 2, 2500.0f, 150 },
-	/* Hard      */ { 25.0f, 2,  1.5f,  1.00f, TRUE,  0.50f, TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,   4000, TRUE,  TRUE,  TRUE,  TRUE,  FALSE,  30.0f, 4000, 1.5f, 180.0f, 0.05f, 1.00f,  45.0f, 240.0f, 4500.0f, 160.0f, 0.25f, 3.0f, 0.0f, DEFENSES_PER_SUPERWEAPON, 180.0f, 2, 180.0f, TRUE,  2, 0.25f, 1.0f, 0.33f, 300.0f, 1.00f, 40.0f,  2.0f, 2.0f, 0.33f,  420.0f, MAX_PLAYER_COUNT, 4000.0f, 150 }
+	/* Easy      */ { 75.0f, 1,  7.0f,  0.00f, FALSE, 0.00f, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE,  FALSE, FALSE,     0, FALSE, FALSE, FALSE, FALSE, FALSE, 120.0f, 6000, 4.0f, 720.0f, 0.05f, 0.05f,  90.0f, 360.0f, 1500.0f,  80.0f, 0.00f, 0.0f, 2.0f, 3,                        300.0f, 3, 300.0f, FALSE, 1, 1.00f, 4.0f, 3.00f,   0.0f, 0.60f, 10.0f, 16.0f, 1.0f, 3.25f, 1200.0f, 1, 2000.0f, 100,  25, 1.5f, 0, 0 },
+	/* Medium    */ { 45.0f, 1,  3.0f,  0.50f, FALSE, 0.35f, TRUE,  FALSE, FALSE, TRUE,  TRUE,  TRUE,  TRUE,  FALSE,  6000, FALSE, FALSE, FALSE, FALSE, FALSE,  60.0f, 5000, 2.5f, 420.0f, 0.05f, 0.25f,  75.0f, 300.0f, 2000.0f, 120.0f, 1.00f, 2.0f, 1.0f, 6,                        240.0f, 2, 240.0f, TRUE,  1, 0.50f, 2.0f, 1.00f, 150.0f, 0.80f, 20.0f,  6.0f, 1.5f, 1.50f,  720.0f, 2, 2500.0f, 125,  63, 1.2f, 1, 1 },
+	/* Hard      */ { 25.0f, 2,  1.5f,  1.00f, TRUE,  0.50f, TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,  TRUE,   4000, TRUE,  TRUE,  TRUE,  TRUE,  FALSE,  30.0f, 4000, 1.5f, 180.0f, 0.05f, 1.00f,  45.0f, 240.0f, 4500.0f, 160.0f, 0.25f, 3.0f, 0.0f, DEFENSES_PER_SUPERWEAPON, 180.0f, 2, 180.0f, TRUE,  2, 0.25f, 1.0f, 0.33f, 300.0f, 1.00f, 40.0f,  2.0f, 2.0f, 0.33f,  420.0f, 3, 4000.0f, 150, 100, 1.0f, 2, 2 }
 };
 
 //-------------------------------------------------------------------------------------------------
@@ -1706,7 +2049,7 @@ Real aiRetreatRatio( Real myHealth, Real myPower, Real enemyHealth, Real enemyPo
 	return (ratio > NOT_A_FIGHT) ? NOT_A_FIGHT : ratio;
 }
 
-static Bool gunsReach( Real x, Real y, const Real *guns, Int gunCount, const AIInfluenceMap *map )
+static Bool gunsReach( Real x, Real y, const Real *guns, Int gunCount, const AIInfluenceMap *map, const AIThreatMix &mix )
 {
 	for( Int g = 0; g < gunCount; ++g )
 	{
@@ -1715,7 +2058,39 @@ static Bool gunsReach( Real x, Real y, const Real *guns, Int gunCount, const AII
 		if( gx * gx + gy * gy <= guns[ 3 * g + 2 ] * guns[ 3 * g + 2 ] )
 			return TRUE;
 	}
-	return map != NULL && map->enemyAt( x, y ) > 0.0f;
+	return map != NULL && map->enemyAt( x, y, mix ) > 0.0f;
+}
+
+/** How much can shoot at (x, y): the map read with mix, and one for each gun in guns[] that reaches it.
+	* ponytail: a gun of the list counts one whatever it is, next to the map's threat values in the hundreds;
+	* the list's guns are the fight's and on the map too, and only a list without a map leans on the count */
+static Real threatAt( Real x, Real y, const Real *guns, Int gunCount, const AIInfluenceMap *map, const AIThreatMix &mix )
+{
+	// routeAt: still guns twice and hazards by the share that walks, where the map has those layers
+	Real sum = map != NULL ? map->routeAt( x, y, mix ) : 0.0f;
+	for( Int g = 0; g < gunCount; ++g )
+	{
+		const Real gx = x - guns[ 3 * g ];
+		const Real gy = y - guns[ 3 * g + 1 ];
+		if( gx * gx + gy * gy <= guns[ 3 * g + 2 ] * guns[ 3 * g + 2 ] )
+			sum += 1.0f;
+	}
+	return sum;
+}
+
+/** threatAt summed at about every step along the straight walk from (fromX, fromY) to (toX, toY), evenly spaced,
+	* the end included and the start, where the walker already stands, not. */
+static Real threatAlong( Real fromX, Real fromY, Real toX, Real toY, Real step,
+												 const Real *guns, Int gunCount, const AIInfluenceMap *map, const AIThreatMix &mix )
+{
+	const Real dx = toX - fromX;
+	const Real dy = toY - fromY;
+	const Real length = (Real)sqrt( dx * dx + dy * dy );
+	const Int samples = (Int)(length / step + 0.5f);
+	Real sum = 0.0f;
+	for( Int i = 1; i <= samples; ++i )
+		sum += threatAt( fromX + dx * i / samples, fromY + dy * i / samples, guns, gunCount, map, mix );
+	return sum;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -1723,7 +2098,7 @@ static Bool gunsReach( Real x, Real y, const Real *guns, Int gunCount, const AII
 	* spot no gun reaches with one more step of clear ground past it, that next step included; -1 when it
 	* is not out by maxWalk, or walks off the map (bounds: low x, low y, high x, high y) first. */
 static Real walkOutOfReach( Real fromX, Real fromY, Real dirX, Real dirY, Real maxWalk, Real step,
-														const Real *guns, Int gunCount, const Real *bounds, const AIInfluenceMap *map )
+														const Real *guns, Int gunCount, const Real *bounds, const AIInfluenceMap *map, const AIThreatMix &mix )
 {
 	for( Real along = step; along + step < maxWalk; along += step )
 	{
@@ -1731,8 +2106,8 @@ static Real walkOutOfReach( Real fromX, Real fromY, Real dirX, Real dirY, Real m
 		const Real nextY = fromY + dirY * (along + step);
 		if( nextX < bounds[ 0 ] || nextY < bounds[ 1 ] || nextX > bounds[ 2 ] || nextY > bounds[ 3 ] )
 			return -1.0f;
-		if( !gunsReach( fromX + dirX * along, fromY + dirY * along, guns, gunCount, map ) &&
-				!gunsReach( fromX + dirX * (along + step), fromY + dirY * (along + step), guns, gunCount, map ) )
+		if( !gunsReach( fromX + dirX * along, fromY + dirY * along, guns, gunCount, map, mix ) &&
+				!gunsReach( fromX + dirX * (along + step), fromY + dirY * (along + step), guns, gunCount, map, mix ) )
 			return along + step;
 	}
 	return -1.0f;
@@ -1749,14 +2124,27 @@ static Real walkOutOfReach( Real fromX, Real fromY, Real dirX, Real dirY, Real m
 	* pulled out of a fight there died to a building within fifteen seconds of the order.  A way that walks
 	* off the map (bounds) is no way out; ground the pathfinder cannot stand on is its to move to the
 	* nearest that it can, as with any move.  With a map, every enemy gun on it counts as well as the ones in
-	* guns[]: those are the guns of the fight, and a spot clear of them stood under the next gun over. */
+	* guns[]: those are the guns of the fight, and a spot clear of them stood under the next gun over.
+	*
+	* Of the ways out, the one with the least threat summed along it (threatAlong), and of two within a tenth of
+	* each other the one out more than a step sooner.  Picked by its length alone, the way that got out first
+	* was the way under the enemy's army whenever the army stood nearer than the edge of a lone gun's reach,
+	* and a unit pulled out of a fight drove through the tanks between it and home.  outThreat and roadThreat,
+	* when given, take the chosen way's sum and the road home's (-1 when the road never gets out). */
 //-------------------------------------------------------------------------------------------------
+static const Real ROUTE_THREAT_MARGIN = 0.9f;
+
 Bool aiRetreatFallbackPoint( Real fromX, Real fromY, Real homeX, Real homeY, Real step,
 														 const Real *guns, Int gunCount, const Real *bounds, Real *outX, Real *outY,
-														 const AIInfluenceMap *map )
+														 const AIInfluenceMap *map, const AIThreatMix *mix, Real *outThreat, Real *roadThreat )
 {
+	const AIThreatMix &reads = mix ? *mix : AITHREAT_GROUND_MIX;
 	*outX = homeX;
 	*outY = homeY;
+	if( outThreat )
+		*outThreat = -1.0f;
+	if( roadThreat )
+		*roadThreat = -1.0f;
 	const Real dx = homeX - fromX;
 	const Real dy = homeY - fromY;
 	const Real homeDist = (Real)sqrt( dx * dx + dy * dy );
@@ -1775,20 +2163,95 @@ Bool aiRetreatFallbackPoint( Real fromX, Real fromY, Real homeX, Real homeY, Rea
 	};
 	Int best = -1;
 	Real bestWalk = 0.0f;
+	Real bestThreat = 0.0f;
 	for( Int w = 0; w < 5; ++w )
 	{
-		const Real walk = walkOutOfReach( fromX, fromY, ways[ w ][ 0 ], ways[ w ][ 1 ], homeDist, step, guns, gunCount, bounds, map );
-		if( walk >= 0.0f && (best < 0 || walk + step < bestWalk) )
+		const Real walk = walkOutOfReach( fromX, fromY, ways[ w ][ 0 ], ways[ w ][ 1 ], homeDist, step, guns, gunCount, bounds, map, reads );
+		if( walk < 0.0f )
+			continue;
+		const Real threat = threatAlong( fromX, fromY, fromX + ways[ w ][ 0 ] * walk, fromY + ways[ w ][ 1 ] * walk, step, guns, gunCount, map, reads );
+		if( w == 0 && roadThreat )
+			*roadThreat = threat;
+		const Bool quieter = threat < bestThreat * ROUTE_THREAT_MARGIN;
+		const Bool asQuietAndSooner = threat * ROUTE_THREAT_MARGIN <= bestThreat && walk + step < bestWalk;
+		if( best < 0 || quieter || asQuietAndSooner )
 		{
 			best = w;
 			bestWalk = walk;
+			bestThreat = threat;
 		}
 	}
 	if( best < 0 )
 		return FALSE;
 	*outX = fromX + ways[ best ][ 0 ] * bestWalk;
 	*outY = fromY + ways[ best ][ 1 ] * bestWalk;
+	if( outThreat )
+		*outThreat = bestThreat;
 	return TRUE;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** A waypoint that takes the straight walk from (fromX, fromY) to (toX, toY) round the enemy reach the map
+	* shows on it.  The spots tried stand off the line's hottest point, square to it, DETOUR_REACH_STEPS steps
+	* either side; the one whose two legs sum the least threat (threatAlong, map read with mix) is the waypoint
+	* when that is under DETOUR_WORTH of the straight walk's.  The pathfinder knows nothing of the map, so this
+	* is the whole of the walk going round: a move to the waypoint and on to the end.  FALSE when the line is
+	* clear or nothing round it is that much quieter.  straightThreat and detourThreat take both sums, the
+	* detour's -1 when none was tried. */
+//-------------------------------------------------------------------------------------------------
+static const Real DETOUR_REACH_STEPS[] = { 3.0f, 6.0f, 9.0f, 12.0f };
+static const Real DETOUR_WORTH = 0.5f;
+
+Bool aiDetourWaypoint( Real fromX, Real fromY, Real toX, Real toY, Real step, const Real *bounds,
+											 const AIInfluenceMap *map, const AIThreatMix &mix, Real *wayX, Real *wayY,
+											 Real *straightThreat, Real *detourThreat )
+{
+	*detourThreat = -1.0f;
+	*straightThreat = threatAlong( fromX, fromY, toX, toY, step, NULL, 0, map, mix );
+	const Real dx = toX - fromX;
+	const Real dy = toY - fromY;
+	const Real length = (Real)sqrt( dx * dx + dy * dy );
+	const Int samples = (Int)(length / step + 0.5f);
+	if( *straightThreat <= 0.0f || samples < 2 )
+		return FALSE;
+
+	// the hottest point on the line, the first of equals
+	Int hottest = 1;
+	Real hottestThreat = -1.0f;
+	for( Int i = 1; i <= samples; ++i )
+	{
+		const Real threat = map->routeAt( fromX + dx * i / samples, fromY + dy * i / samples, mix );
+		if( threat > hottestThreat )
+		{
+			hottest = i;
+			hottestThreat = threat;
+		}
+	}
+	const Real hotX = fromX + dx * hottest / samples;
+	const Real hotY = fromY + dy * hottest / samples;
+	const Real sideX = -dy / length;
+	const Real sideY = dx / length;
+
+	Bool found = FALSE;
+	for( Int k = 0; k < (Int)(sizeof( DETOUR_REACH_STEPS ) / sizeof( DETOUR_REACH_STEPS[ 0 ] )); ++k )
+	{
+		for( Int turn = 1; turn >= -1; turn -= 2 )
+		{
+			const Real x = hotX + sideX * turn * DETOUR_REACH_STEPS[ k ] * step;
+			const Real y = hotY + sideY * turn * DETOUR_REACH_STEPS[ k ] * step;
+			if( x < bounds[ 0 ] || y < bounds[ 1 ] || x > bounds[ 2 ] || y > bounds[ 3 ] )
+				continue;
+			const Real threat = threatAlong( fromX, fromY, x, y, step, NULL, 0, map, mix ) + threatAlong( x, y, toX, toY, step, NULL, 0, map, mix );
+			if( !found || threat < *detourThreat )
+			{
+				found = TRUE;
+				*detourThreat = threat;
+				*wayX = x;
+				*wayY = y;
+			}
+		}
+	}
+	return found && *detourThreat < *straightThreat * DETOUR_WORTH;
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -2010,7 +2473,7 @@ Bool aiWantsAnotherTechBuilding( Int standing, Int onTheWay )
 Int aiDefenseAllowance( Int army, UnsignedInt frame )
 {
 	const Int byArmy = army / AI_ARMY_PER_DEFENSE;
-	Int byClock = (Int)( frame / ( AI_DEFENSE_PACE_SECONDS * LOGICFRAMES_PER_SECOND ) );
+	Int byClock = (Int)( frame / ( AI_DEFENSE_PACE_SECONDS * LOGICFRAMES_PER_GAME_SECOND ) );
 	if( byClock > 2 * DEFENSES_PER_SUPERWEAPON )
 		byClock = 2 * DEFENSES_PER_SUPERWEAPON;
 	return byArmy > byClock ? byArmy : byClock;
@@ -2399,6 +2862,14 @@ Int aiHoardAdjustedDelay( Int frames, Int money, Int hoardAt )
 	return (out < 1) ? 1 : out;
 }
 
+Int aiScaledBuildDelay( Int frames, Real scale )
+{
+	if( frames <= 0 || scale == 1.0f )
+		return frames;
+	const Int out = REAL_TO_INT_CEIL( INT_TO_REAL( frames ) * scale );
+	return (out < 1) ? 1 : out;
+}
+
 //-------------------------------------------------------------------------------------------------
 Int aiHoardAllowedTeamInstances( Int maxInstances, Int money, Int hoardAt )
 {
@@ -2733,29 +3204,135 @@ Real aiArmyAdvantage( const Real *myValue, Int myKinds, const Real *theirValue, 
 }
 
 //-------------------------------------------------------------------------------------------------
-const AIDifficultyProfile *AI::getDifficultyProfile( AISkillLevel level ) const
+Real aiRatingClamp( Real rating )
 {
-	if( m_aiData == NULL )
-		return &s_defaultSkillLadder[ AISKILL_BRUTAL ];
-	if( level < 0 || level >= AISKILL_COUNT )
-		level = AISKILL_BRUTAL;				// the baseline; a bad index must not read as a handicap
-	return &m_aiData->m_skill[ level ];
+	if( rating != rating )
+		return AI_RATING_EASY;		// NaN: (Int)floor of it differs between x64 and ARM64
+	return rating < -AI_RATING_LIMIT ? -AI_RATING_LIMIT : ( rating > AI_RATING_LIMIT ? AI_RATING_LIMIT : rating );
+}
+
+Int aiRatingToHundredths( Real rating )
+{
+	return (Int)floor( aiRatingClamp( rating ) * 100.0f + 0.5f );
+}
+
+Real aiRatingFromHundredths( Int hundredths )
+{
+	return aiRatingClamp( INT_TO_REAL( hundredths ) / 100.0f );
+}
+
+Real aiRatingOfSkill( AISkillLevel level )
+{
+	switch( level )
+	{
+		case AISKILL_EASY:		return AI_RATING_EASY;
+		case AISKILL_MEDIUM:	return AI_RATING_MEDIUM;
+		default:							return AI_RATING_HARD;	// the baseline; a bad index must not read as a handicap
+	}
+}
+
+AISkillLevel aiSkillOfRating( Real rating )
+{
+	if( rating < 0.5f * ( AI_RATING_EASY + AI_RATING_MEDIUM ) )
+		return AISKILL_EASY;
+	return rating < 0.5f * ( AI_RATING_MEDIUM + AI_RATING_HARD ) ? AISKILL_MEDIUM : AISKILL_BRUTAL;
+}
+
+/** A knob that falls from e at t 0 towards 0: e / (1 + c t), c = e/h - 1, so h at t 1, and e (1 - c t)
+	* below 0, the same slope.  h of 0 is the straight line to it, and 0 past it. */
+static Real fallingCurve( Real e, Real h, Real t )
+{
+	if( h <= 0.0f )
+		return t < 1.0f ? e * ( 1.0f - t ) : 0.0f;
+	const Real c = e / h - 1.0f;
+	return t >= 0.0f ? e / ( 1.0f + c * t ) : e * ( 1.0f - c * t );
+}
+
+/** how fast fallingCurve leaves e at t 0, as a positive number */
+static Real fallingSlope( Real e, Real h )
+{
+	return h <= 0.0f ? e : e * ( e / h - 1.0f );
+}
+
+/** Below t 0, a value of e there rising at slope: e / (1 - slope t / e), towards 0 and never to it. */
+static Real decayBelowZero( Real e, Real slope, Real t )
+{
+	return e > 0.0f ? e / ( 1.0f - slope * t / e ) : 0.0f;
+}
+
+/** e at t 0 and h at t 1 on the curve its direction and share take (AI.h has the forms) */
+static Real knobCurve( Real e, Real h, Real t, Bool share )
+{
+	if( e == h )
+		return e;
+	if( h < e )
+	{
+		if( t >= 0.0f || !share )
+			return fallingCurve( e, h, t );
+		return 1.0f - decayBelowZero( 1.0f - e, fallingSlope( e, h ), t );
+	}
+	if( share )
+		return t >= 0.0f ? 1.0f - fallingCurve( 1.0f - e, 1.0f - h, t ) : decayBelowZero( e, fallingSlope( 1.0f - e, 1.0f - h ), t );
+	return t >= 0.0f ? e * ( 1.0f - t ) + h * t : decayBelowZero( e, h - e, t );
+}
+
+Real aiKnobAt( Real rating, Real easy, Real medium, Real hard, AIKnobForm form )
+{
+	const Real r = aiRatingClamp( rating );
+	// the curve passes through both; a division can land an ulp off, so the ladder's own values
+	if( r == AI_RATING_EASY )
+		return easy;
+	if( r == AI_RATING_HARD )
+		return hard;
+	if( form == AIKNOB_GATED )
+	{
+		if( r < 0.5f * ( AI_RATING_EASY + AI_RATING_MEDIUM ) )
+			return easy;
+		return knobCurve( medium, hard, ( r - AI_RATING_MEDIUM ) / ( AI_RATING_HARD - AI_RATING_MEDIUM ), FALSE );
+	}
+	return knobCurve( easy, hard, ( r - AI_RATING_EASY ) / ( AI_RATING_HARD - AI_RATING_EASY ), form == AIKNOB_SHARE );
+}
+
+static Int roundKnob( Real value )
+{
+	return (Int)floor( value + 0.5f );
+}
+
+Real aiRatingLerp( Real rating, const AIRungReal &knob )
+{
+	return aiKnobAt( rating, knob.m_byRung[ AISKILL_EASY ], knob.m_byRung[ AISKILL_MEDIUM ], knob.m_byRung[ AISKILL_BRUTAL ], knob.m_form );
+}
+
+Int aiRatingLerp( Real rating, const AIRungInt &knob )
+{
+	return roundKnob( aiKnobAt( rating, INT_TO_REAL( knob.m_byRung[ AISKILL_EASY ] ), INT_TO_REAL( knob.m_byRung[ AISKILL_MEDIUM ] ),
+		INT_TO_REAL( knob.m_byRung[ AISKILL_BRUTAL ] ), knob.m_form ) );
 }
 
 //-------------------------------------------------------------------------------------------------
-/** SkillLevel = Brutal ... End, in AI.ini: tuning the ladder without a recompile, which is what
-	* the headless batch runner wants.  Anything the block does not mention keeps its default. */
+/** The curve each knob of the profile is read on (aiKnobAt; AI.h has the forms, rise or fall is E's and
+	* H's).  A share is a fraction that means nothing past 1: CounterCompositionWeight (past 1 aiCounterFit
+	* goes negative), RetreatTtkRatio (past 1 it pulls back from a fight it is winning), the upgrade weight,
+	* SurplusShare and ArtilleryShare.  Gated, Easy's 0 being "off": CashHoardThreshold (0 never hurries)
+	* and BeamSteerSeconds (0 is the retail S curve).  Everything else is open. */
 //-------------------------------------------------------------------------------------------------
-void AI::parseSkillLevel(INI *ini, void *instance, void* /*store*/, const void* /*userData*/)
-{
-	static const FieldParse myFieldParse[] =
+static const AIKnobForm KNOB_OPEN		= AIKNOB_OPEN;
+static const AIKnobForm KNOB_SHARE	= AIKNOB_SHARE;
+static const AIKnobForm KNOB_GATED	= AIKNOB_GATED;
+
+//-------------------------------------------------------------------------------------------------
+/** SkillLevel = Brutal ... End, in AI.ini, field by field; aiRatingProfile walks the same list, so a
+	* field added to the profile and to this table is both tunable and read at a rating, and its userData
+	* is its curve (the parsers ignore it). */
+//-------------------------------------------------------------------------------------------------
+static const FieldParse s_skillLevelFields[] =
 	{
-		{ "ScoutIntervalSeconds",			INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_scoutIntervalSeconds ) },
-		{ "MaxScouts",								INI::parseInt,  NULL, offsetof( AIDifficultyProfile, m_maxScouts ) },
-		{ "DecisionIntervalSeconds",	INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_decisionIntervalSeconds ) },
-		{ "CounterCompositionWeight",	INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_counterCompositionWeight ) },
+		{ "ScoutIntervalSeconds",			INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_scoutIntervalSeconds ) },
+		{ "MaxScouts",								INI::parseInt,  &KNOB_OPEN, offsetof( AIDifficultyProfile, m_maxScouts ) },
+		{ "DecisionIntervalSeconds",	INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_decisionIntervalSeconds ) },
+		{ "CounterCompositionWeight",	INI::parseReal, &KNOB_SHARE, offsetof( AIDifficultyProfile, m_counterCompositionWeight ) },
 		{ "MassBeforeAttacking",			INI::parseBool, NULL, offsetof( AIDifficultyProfile, m_massBeforeAttacking ) },
-		{ "RetreatTtkRatio",					INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_retreatTtkRatio ) },
+		{ "RetreatTtkRatio",					INI::parseReal, &KNOB_SHARE, offsetof( AIDifficultyProfile, m_retreatTtkRatio ) },
 		{ "RetreatIndividualUnits",		INI::parseBool, NULL, offsetof( AIDifficultyProfile, m_retreatIndividualUnits ) },
 		{ "RetreatTeams",							INI::parseBool, NULL, offsetof( AIDifficultyProfile, m_retreatTeams ) },
 		{ "UseInfluenceMapForAttackLane", INI::parseBool, NULL, offsetof( AIDifficultyProfile, m_useInfluenceMapForAttackLane ) },
@@ -2764,47 +3341,103 @@ void AI::parseSkillLevel(INI *ini, void *instance, void* /*store*/, const void* 
 		{ "AdaptiveHarvesters",				INI::parseBool, NULL, offsetof( AIDifficultyProfile, m_adaptiveHarvesters ) },
 		{ "SelfTriggeredExpansion",		INI::parseBool, NULL, offsetof( AIDifficultyProfile, m_selfTriggeredExpansion ) },
 		{ "DefendExpansions",					INI::parseBool, NULL, offsetof( AIDifficultyProfile, m_defendExpansions ) },
-		{ "CashHoardThreshold",				INI::parseInt,  NULL, offsetof( AIDifficultyProfile, m_cashHoardThreshold ) },
+		{ "CashHoardThreshold",				INI::parseInt,  &KNOB_GATED, offsetof( AIDifficultyProfile, m_cashHoardThreshold ) },
 		{ "EconomyBuildings",					INI::parseBool, NULL, offsetof( AIDifficultyProfile, m_economyBuildings ) },
 		{ "TacticalMicro",						INI::parseBool, NULL, offsetof( AIDifficultyProfile, m_tacticalMicro ) },
 		{ "EngageGate",								INI::parseBool, NULL, offsetof( AIDifficultyProfile, m_engageGate ) },
 		{ "AnswerArmy",								INI::parseBool, NULL, offsetof( AIDifficultyProfile, m_answerArmy ) },
 		{ "MassUnit",									INI::parseBool, NULL, offsetof( AIDifficultyProfile, m_massUnit ) },
-		{ "BankTargetSeconds",				INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_bankTargetSeconds ) },
-		{ "BankTargetFloor",					INI::parseInt,  NULL, offsetof( AIDifficultyProfile, m_bankTargetFloor ) },
-		{ "UpgradePayoff",						INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_upgradePayoff ) },
-		{ "UpgradeStartSeconds",			INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_upgradeStartSeconds ) },
-		{ "UpgradeNonCombatWeight",		INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_upgradeNonCombatWeight ) },
-		{ "SurplusShare",							INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_surplusShare ) },
-		{ "FactoryBacklogSeconds",		INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_factoryBacklogSeconds ) },
-		{ "FirstPushSeconds",					INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_firstPushSeconds ) },
-		{ "MinAttackPower",						INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_minAttackPower ) },
-		{ "SiegeTrail",								INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_siegeTrail ) },
-		{ "BeamSteerSeconds",					INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_beamSteerSeconds ) },
-		{ "StrikeEconomyWeight",			INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_strikeEconomyWeight ) },
-		{ "StrikeThreatWeight",				INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_strikeThreatWeight ) },
-		{ "SuperweaponDefenses",			INI::parseInt,  NULL, offsetof( AIDifficultyProfile, m_superweaponDefenses ) },
-		{ "SiteStallSeconds",					INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_siteStallSeconds ) },
-		{ "SiteBuildersLost",					INI::parseInt,  NULL, offsetof( AIDifficultyProfile, m_siteBuildersLost ) },
-		{ "SiteRetrySeconds",					INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_siteRetrySeconds ) },
+		{ "BankTargetSeconds",				INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_bankTargetSeconds ) },
+		{ "BankTargetFloor",					INI::parseInt,  &KNOB_OPEN, offsetof( AIDifficultyProfile, m_bankTargetFloor ) },
+		{ "UpgradePayoff",						INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_upgradePayoff ) },
+		{ "UpgradeStartSeconds",			INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_upgradeStartSeconds ) },
+		{ "UpgradeNonCombatWeight",		INI::parseReal, &KNOB_SHARE, offsetof( AIDifficultyProfile, m_upgradeNonCombatWeight ) },
+		{ "SurplusShare",							INI::parseReal, &KNOB_SHARE, offsetof( AIDifficultyProfile, m_surplusShare ) },
+		{ "FactoryBacklogSeconds",		INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_factoryBacklogSeconds ) },
+		{ "FirstPushSeconds",					INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_firstPushSeconds ) },
+		{ "MinAttackPower",						INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_minAttackPower ) },
+		{ "SiegeTrail",								INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_siegeTrail ) },
+		{ "BeamSteerSeconds",					INI::parseReal, &KNOB_GATED, offsetof( AIDifficultyProfile, m_beamSteerSeconds ) },
+		{ "StrikeEconomyWeight",			INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_strikeEconomyWeight ) },
+		{ "StrikeThreatWeight",				INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_strikeThreatWeight ) },
+		{ "SuperweaponDefenses",			INI::parseInt,  &KNOB_OPEN, offsetof( AIDifficultyProfile, m_superweaponDefenses ) },
+		{ "SiteStallSeconds",					INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_siteStallSeconds ) },
+		{ "SiteBuildersLost",					INI::parseInt,  &KNOB_OPEN, offsetof( AIDifficultyProfile, m_siteBuildersLost ) },
+		{ "SiteRetrySeconds",					INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_siteRetrySeconds ) },
 		{ "StageDozers",							INI::parseBool, NULL, offsetof( AIDifficultyProfile, m_stageDozers ) },
-		{ "ArtillerySpotters",				INI::parseInt,  NULL, offsetof( AIDifficultyProfile, m_artillerySpotters ) },
-		{ "ArtilleryShare",						INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_artilleryShare ) },
-		{ "InfluenceSeconds",					INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_influenceSeconds ) },
-		{ "FireLookSeconds",					INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_fireLookSeconds ) },
-		{ "FireWordRadius",						INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_fireWordRadius ) },
-		{ "FireChargeOdds",						INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_fireChargeOdds ) },
-		{ "FireMemorySeconds",				INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_fireMemorySeconds ) },
-		{ "BaseWatchSeconds",					INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_baseWatchSeconds ) },
-		{ "BaseWatchOdds",						INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_baseWatchOdds ) },
-		{ "StrikeDodgeSeconds",				INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_strikeDodgeSeconds ) },
-		{ "SecondBaseSeconds",				INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_secondBaseSeconds ) },
-		{ "SecondBases",							INI::parseInt,  NULL, offsetof( AIDifficultyProfile, m_secondBases ) },
-		{ "ExpansionReach",						INI::parseReal, NULL, offsetof( AIDifficultyProfile, m_expansionReach ) },
-		{ "IncomePercent",						INI::parseInt,  NULL, offsetof( AIDifficultyProfile, m_incomePercent ) },
+		{ "ArtillerySpotters",				INI::parseInt,  &KNOB_OPEN, offsetof( AIDifficultyProfile, m_artillerySpotters ) },
+		{ "ArtilleryShare",						INI::parseReal, &KNOB_SHARE, offsetof( AIDifficultyProfile, m_artilleryShare ) },
+		{ "InfluenceSeconds",					INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_influenceSeconds ) },
+		{ "FireLookSeconds",					INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_fireLookSeconds ) },
+		{ "FireWordRadius",						INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_fireWordRadius ) },
+		{ "FireChargeOdds",						INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_fireChargeOdds ) },
+		{ "FireMemorySeconds",				INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_fireMemorySeconds ) },
+		{ "BaseWatchSeconds",					INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_baseWatchSeconds ) },
+		{ "BaseWatchOdds",						INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_baseWatchOdds ) },
+		{ "StrikeDodgeSeconds",				INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_strikeDodgeSeconds ) },
+		{ "SecondBaseSeconds",				INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_secondBaseSeconds ) },
+		{ "SecondBases",							INI::parseInt,  &KNOB_OPEN, offsetof( AIDifficultyProfile, m_secondBases ) },
+		{ "ExpansionReach",						INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_expansionReach ) },
+		{ "IncomePercent",						INI::parseInt,  &KNOB_OPEN, offsetof( AIDifficultyProfile, m_incomePercent ) },
+		{ "IncomeBonusMaxPercent",		INI::parseInt,  &KNOB_OPEN, offsetof( AIDifficultyProfile, m_incomeBonusMaxPercent ) },
+		{ "BuildDelayScale",					INI::parseReal, &KNOB_OPEN, offsetof( AIDifficultyProfile, m_buildDelayScale ) },
+		{ "UnitAbilities",						INI::parseInt,  &KNOB_OPEN, offsetof( AIDifficultyProfile, m_unitAbilities ) },
+		{ "ForeignTech",							INI::parseInt,  &KNOB_OPEN, offsetof( AIDifficultyProfile, m_foreignTech ) },
 		{ NULL, NULL, NULL, 0 }
 	};
 
+const FieldParse *aiSkillLevelFields( void )
+{
+	return s_skillLevelFields;
+}
+
+void aiRatingProfile( Real rating, const AIDifficultyProfile ladder[ AISKILL_COUNT ], AIDifficultyProfile *out )
+{
+	// the Bools, and anything the table does not name, are the nearest rung's
+	*out = ladder[ aiSkillOfRating( rating ) ];
+	const char *easy = (const char *)&ladder[ AISKILL_EASY ];
+	const char *medium = (const char *)&ladder[ AISKILL_MEDIUM ];
+	const char *hard = (const char *)&ladder[ AISKILL_BRUTAL ];
+	char *o = (char *)out;
+	for( const FieldParse *field = s_skillLevelFields; field->token != NULL; ++field )
+	{
+		if( field->parse == INI::parseBool )
+			continue;
+		const Int at = field->offset;
+		DEBUG_ASSERTCRASH( field->userData != NULL, ( "aiRatingProfile: SkillLevel field %s has no curve", field->token ) );
+		const AIKnobForm form = field->userData != NULL ? *(const AIKnobForm *)field->userData : AIKNOB_OPEN;
+		if( field->parse == INI::parseReal )
+			*(Real *)( o + at ) = aiKnobAt( rating, *(const Real *)( easy + at ), *(const Real *)( medium + at ), *(const Real *)( hard + at ), form );
+		else if( field->parse == INI::parseInt )
+			*(Int *)( o + at ) = roundKnob( aiKnobAt( rating, INT_TO_REAL( *(const Int *)( easy + at ) ), INT_TO_REAL( *(const Int *)( medium + at ) ),
+				INT_TO_REAL( *(const Int *)( hard + at ) ), form ) );
+		else
+			DEBUG_CRASH(( "aiRatingProfile: SkillLevel field %s has a parser it cannot read at a rating", field->token ));
+	}
+}
+
+//-------------------------------------------------------------------------------------------------
+const AIDifficultyProfile *AI::getRatedProfile( Real rating, AIDifficultyProfile *scratch ) const
+{
+	const AIDifficultyProfile *ladder = m_aiData != NULL ? m_aiData->m_skill : s_defaultSkillLadder;
+	const Real r = aiRatingClamp( rating );
+	// Easy and Hard are their rows; Medium's numbers are only where the curves pass at 15
+	if( r == AI_RATING_EASY )
+		return &ladder[ AISKILL_EASY ];
+	if( r == AI_RATING_HARD )
+		return &ladder[ AISKILL_BRUTAL ];
+	aiRatingProfile( r, ladder, scratch );
+	return scratch;
+}
+
+//-------------------------------------------------------------------------------------------------
+/** SkillLevel = Brutal ... End, in AI.ini: tuning the ladder without a recompile, which is what
+	* the headless batch runner wants.  Anything the block does not mention keeps its default.  Easy
+	* and Brutal are the ends every curve runs through; Medium's numbers are read only by a gated knob
+	* (and its Bools by a rating nearest Medium). */
+//-------------------------------------------------------------------------------------------------
+void AI::parseSkillLevel(INI *ini, void *instance, void* /*store*/, const void* /*userData*/)
+{
 	static const char *names[ AISKILL_COUNT ] =
 		{ "Easy", "Medium", "Brutal" };
 
@@ -2820,7 +3453,7 @@ void AI::parseSkillLevel(INI *ini, void *instance, void* /*store*/, const void* 
 		which = AISKILL_BRUTAL;			// parse it somewhere rather than throw the block on the floor
 	}
 
-	ini->initFromINI( &((TAiData*)instance)->m_skill[ which ], myFieldParse );
+	ini->initFromINI( &((TAiData*)instance)->m_skill[ which ], s_skillLevelFields );
 }
 
 TAiData::TAiData() : 
@@ -2832,7 +3465,7 @@ m_structureSeconds(0),
 m_teamSeconds(0), 
 m_resourcesWealthy(0), 
 m_resourcesPoor(0), 
-m_forceIdleFramesCount(1),
+m_forceIdleFramesCount(DurationFrames::fromRaw(1)),	// 1 msec: a frame at any speed
 m_structuresWealthyMod(1.0f),	// divisor: never default to 0
 m_teamPoorMod(1.0f),			// divisor: never default to 0
 m_teamResourcesToBuild(0),
@@ -2840,9 +3473,9 @@ m_guardInnerModifierAI(0),
 m_guardOuterModifierAI(0),
 m_guardInnerModifierHuman(0),
 m_guardOuterModifierHuman(0),
-m_guardChaseUnitFrames(0),
-m_guardEnemyScanRate(LOGICFRAMES_PER_SECOND/2),
-m_guardEnemyReturnScanRate(LOGICFRAMES_PER_SECOND),
+m_guardChaseUnitFrames(DurationFrames::fromRaw(0)),
+m_guardEnemyScanRate(DurationFrames::fromRaw(500)),
+m_guardEnemyReturnScanRate(DurationFrames::fromRaw(1000)),
 m_wallHeight(0),
 m_alertRangeModifier(0),
 m_aggressiveRangeModifier(0),
@@ -2886,7 +3519,9 @@ void TAiData::crc( Xfer *xfer )
 	xfer->xferReal( &m_teamSeconds );
 	xfer->xferInt( &m_resourcesWealthy );
 	xfer->xferInt( &m_resourcesPoor );
-	xfer->xferUnsignedInt( &m_forceIdleFramesCount );
+	// the frame counts the match runs on, as this CRC always took them, not the INI's msec
+	UnsignedInt frames = m_forceIdleFramesCount;
+	xfer->xferUnsignedInt( &frames );
 	xfer->xferReal( &m_structuresWealthyMod );
 	xfer->xferReal( &m_teamWealthyMod );
 	xfer->xferReal( &m_structuresPoorMod );
@@ -2896,9 +3531,12 @@ void TAiData::crc( Xfer *xfer )
 	xfer->xferReal( &m_guardOuterModifierAI );
 	xfer->xferReal( &m_guardInnerModifierHuman );
 	xfer->xferReal( &m_guardOuterModifierHuman );
-	xfer->xferUnsignedInt( &m_guardChaseUnitFrames );
-	xfer->xferUnsignedInt( &m_guardEnemyScanRate );
-	xfer->xferUnsignedInt( &m_guardEnemyReturnScanRate );
+	frames = m_guardChaseUnitFrames;
+	xfer->xferUnsignedInt( &frames );
+	frames = m_guardEnemyScanRate;
+	xfer->xferUnsignedInt( &frames );
+	frames = m_guardEnemyReturnScanRate;
+	xfer->xferUnsignedInt( &frames );
 	xfer->xferReal( &m_alertRangeModifier );
 	xfer->xferReal( &m_aggressiveRangeModifier );
 	xfer->xferReal( &m_attackPriorityDistanceModifier );
@@ -2966,6 +3604,89 @@ void AI::xfer( Xfer *xfer )
 	xfer->xferVersion( &version, currentVersion );
 
 }  // end xfer
+
+//-----------------------------------------------------------------------------
+void AI::xferGroups( Xfer *xfer )
+{
+	xfer->xferUnsignedInt( &m_nextGroupID );
+	xfer->xferUnsignedInt( &m_sweptGroupID );
+	xfer->xferUser( &m_nextFormationID, sizeof( m_nextFormationID ) );
+	xfer->xferUnsignedInt( &m_lastBuildingPlacementFrame );
+
+	UnsignedInt count = 0;
+	for( std::list<AIGroup *>::iterator it = m_groupList.begin(); it != m_groupList.end(); ++it )
+		if( *it )
+			++count;
+	xfer->xferUnsignedInt( &count );
+	if( xfer->getXferMode() == XFER_LOAD )
+	{
+		// a load starts from a reset engine; nothing made a group before the objects came in
+		DEBUG_ASSERTCRASH( m_groupList.empty(), ( "xferGroups: %d groups before the load", (Int)m_groupList.size() ) );
+		m_loadedGroupMembers.clear();
+	}
+
+	std::list<AIGroup *>::iterator it = m_groupList.begin();
+	for( UnsignedInt i = 0; i < count; ++i )
+	{
+		AIGroup *group = NULL;
+		std::vector< ObjectID > members;
+		if( xfer->getXferMode() != XFER_LOAD )
+		{
+			while( *it == NULL )
+				++it;
+			group = *it++;
+			for( ListObjectPtrIt m = group->m_memberList.begin(); m != group->m_memberList.end(); ++m )
+				members.push_back( *m ? (*m)->getID() : INVALID_ID );
+		}
+		else
+		{
+			const UnsignedInt nextID = m_nextGroupID;
+			group = createGroup();		// its constructor takes an ID; the saved one replaces it below
+			m_nextGroupID = nextID;
+		}
+		xfer->xferUnsignedInt( &group->m_id );
+		xfer->xferReal( &group->m_speed );
+		xfer->xferBool( &group->m_dirty );
+		UnsignedInt memberCount = (UnsignedInt)members.size();
+		xfer->xferUnsignedInt( &memberCount );
+		members.resize( memberCount );
+		for( UnsignedInt m = 0; m < memberCount; ++m )
+			xfer->xferObjectID( &members[ m ] );
+		Bool hasGroundPath = group->m_groundPath != NULL;
+		xfer->xferBool( &hasGroundPath );
+		if( hasGroundPath )
+		{
+			if( group->m_groundPath == NULL )
+				group->m_groundPath = newInstance( Path );
+			xfer->xferSnapshot( group->m_groundPath );
+		}
+		if( xfer->getXferMode() == XFER_LOAD )
+			m_loadedGroupMembers.push_back( std::make_pair( group, members ) );
+	}
+}
+
+//-----------------------------------------------------------------------------
+void AI::loadPostProcessGroups( void )
+{
+	for( size_t i = 0; i < m_loadedGroupMembers.size(); ++i )
+	{
+		AIGroup *group = m_loadedGroupMembers[ i ].first;
+		const std::vector< ObjectID > &members = m_loadedGroupMembers[ i ].second;
+		for( size_t m = 0; m < members.size(); ++m )
+		{
+			Object *obj = TheGameLogic->findObjectByID( members[ m ] );
+			if( obj == NULL )
+				continue;
+			group->m_memberList.push_back( obj );
+			++group->m_memberListSize;
+			obj->enterGroup( group );
+		}
+		// every member gone (an object the load skipped): the game that was saved destroyed it on remove()
+		if( !members.empty() && group->isEmpty() )
+			destroyGroup( group );
+	}
+	m_loadedGroupMembers.clear();
+}
 
 //-----------------------------------------------------------------------------
 void AI::loadPostProcess( void )

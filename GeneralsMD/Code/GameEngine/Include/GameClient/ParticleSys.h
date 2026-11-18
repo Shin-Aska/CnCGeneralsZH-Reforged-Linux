@@ -89,8 +89,14 @@ struct Keyframe
 struct RGBColorKeyframe
 {
 	RGBColor color;
-	UnsignedInt frame;
+	RetailFrames frame;		///< a count of retail frames, as the INI wrote it
 };
+
+// a particle system's random ranges, kept as the INI wrote them (GameCommon.h)
+typedef SpeedScaledRandom< SPEED_RETAIL_FRAMES, GameClientRandomVariable > ParticleRandomFrames;
+typedef SpeedScaledRandom< SPEED_RETAIL_BURST_DELAY, GameClientRandomVariable > ParticleRandomBurstDelay;
+typedef SpeedScaledRandom< SPEED_RETAIL_PER_FRAME, GameClientRandomVariable > ParticleRandomPerFrame;
+typedef SpeedScaledRandom< SPEED_RETAIL_PER_FRAME_FACTOR, GameClientRandomVariable > ParticleRandomFactor;
 
 enum ParticlePriorityType : Int
 {
@@ -210,6 +216,17 @@ public:
 	/// The cell of its template's flipbook this particle shows now (ParticleSystemTemplate's Flipbook
 	/// fields), counted row by row from the top left; 0 for a card that is not a flipbook.
 	UnsignedInt getFlipbookFrame( void ) const;
+	/// Whether this particle's flipbook frame is drawn flipped left to right (FlipbookMirror).
+	Bool isFlipbookMirrored( void ) const { return m_flipbookMirrored; }
+
+	/** The flipbook cell for a particle: an atlas of frames cut into variants equal runs, the run it
+		* picked, the frame it starts on inside that run, its age and lifetime in logic frames, and the
+		* rate in frames a second with the game seconds a logic frame lasts (a rate of 0 plays the run
+		* once over the life).  Pure, so the tests can hold it. */
+	static UnsignedInt flipbookFrameAt( UnsignedInt frames, UnsignedInt variants, UnsignedInt variant, UnsignedInt start,
+		UnsignedInt age, UnsignedInt lifetime, Real rate, Real secondsPerLogicFrame );
+	/// How many frames one run of the atlas holds: frames over variants, the whole atlas for 0 or 1 or too many.
+	static UnsignedInt flipbookRunLength( UnsignedInt frames, UnsignedInt variants );
 
 protected:
 
@@ -248,7 +265,9 @@ protected:
 
 
 	Bool							m_diesThisUpdate;											///< set on the job pool, read when the dead are removed; never saved
-	UnsignedByte			m_flipbookStart;											///< the flipbook cell it starts on; drawing only, never saved
+	UnsignedByte			m_flipbookStart;											///< the flipbook cell it starts on inside its run; drawing only, never saved
+	UnsignedByte			m_flipbookVariant;										///< the run of frames it plays (FlipbookVariants); drawing only, never saved
+	Bool							m_flipbookMirrored;										///< drawn flipped left to right (FlipbookMirror); drawing only, never saved
 public:
 	Bool							m_inSystemList;
 	Bool							m_inOverallList;
@@ -413,18 +432,18 @@ public:
 	AsciiString m_particleTypeName;							///< if PARTICLE, texture filename, if DRAWABLE, Drawable name
 
 	GameClientRandomVariable m_angleZ;										///< initial angle around Z axis
-	GameClientRandomVariable m_angularRateZ;							///< initial angle around Z axis
-	GameClientRandomVariable m_angularDamping;						///< angular velocity damping coefficient
+	ParticleRandomPerFrame m_angularRateZ;							///< initial angle around Z axis
+	ParticleRandomFactor m_angularDamping;						///< angular velocity damping coefficient
 
-	GameClientRandomVariable m_velDamping;								///< velocity damping factor
+	ParticleRandomFactor m_velDamping;								///< velocity damping factor
 
-	GameClientRandomVariable m_lifetime;									///< lifetime of emitted particles
-	UnsignedInt m_systemLifetime;								///< lifetime of the particle system
+	ParticleRandomFrames m_lifetime;									///< lifetime of emitted particles
+	RetailFrames m_systemLifetime;								///< lifetime of the particle system
 
 	GameClientRandomVariable m_startSize;									///< initial size of emitted particles
 	GameClientRandomVariable m_startSizeRate;							///< change in start size of emitted particles
-	GameClientRandomVariable m_sizeRate;									///< rate of change of size
-	GameClientRandomVariable m_sizeRateDamping;						///< damping of size change
+	ParticleRandomPerFrame m_sizeRate;									///< rate of change of size
+	ParticleRandomFactor m_sizeRateDamping;						///< damping of size change
 
 
 	UnsignedInt m_volumeParticleDepth;								///< how many layers deep to draw the particle, if >1
@@ -432,7 +451,7 @@ public:
 	struct RandomKeyframe
 	{
 		GameClientRandomVariable var;												///< the range of values at this keyframe
-		UnsignedInt frame;												///< the frame number
+		RetailFrames frame;												///< the frame number
 	};
 
 
@@ -443,22 +462,22 @@ public:
 
 	void tintAllColors( Color tintColor );
 	
-	GameClientRandomVariable m_colorScale;								///< color coefficient
+	ParticleRandomPerFrame m_colorScale;								///< color coefficient
 
-	GameClientRandomVariable m_burstDelay;								///< time between particle emissions
+	ParticleRandomBurstDelay m_burstDelay;								///< time between particle emissions
 	GameClientRandomVariable m_burstCount;								///< number of particles emitted per burst
 
-	GameClientRandomVariable m_initialDelay;							///< delay before particles begin emitting
+	ParticleRandomFrames m_initialDelay;							///< delay before particles begin emitting
 
-	Coord3D m_driftVelocity;										///< additional velocity added to all particles
-	Real m_gravity;															///< gravity acceleration (global Z) for particles in this system
+	SpeedScaled< SPEED_RETAIL_PER_FRAME, Coord3D > m_driftVelocity;										///< additional velocity added to all particles
+	RetailPerFrameSquared m_gravity;															///< gravity acceleration (global Z) for particles in this system
 
 	// Terrain collision.  Retail particles fall straight through the ground; sparks, debris and
 	// smoke all vanish into the hillside instead of hitting it.  Off by default, so every
 	// existing particle system keeps its shipped behaviour until its INI opts in.
 	Bool m_groundCollision;												///< if true, particles bounce off the terrain instead of passing through
 	Real m_groundBounce;													///< fraction of the velocity into the ground that comes back out (0 = dead stop, 1 = elastic)
-	Real m_groundFriction;												///< fraction of the velocity along the ground kept per contact (1 = frictionless slide)
+	RetailPerFrameFactor m_groundFriction;												///< fraction of the velocity along the ground kept per contact (1 = frictionless slide)
 
 	AsciiString m_slaveSystemName;							///< if non-empty, create a system whose particles track this system's
 	Coord3D m_slavePosOffset;										///< positional offset of slave particles relative to master's
@@ -479,29 +498,29 @@ public:
 	{
 		struct
 		{
-			GameClientRandomVariable x;												///< initial speed of particle along X axis
-			GameClientRandomVariable y;												///< initial speed of particle along Y axis
-			GameClientRandomVariable z;												///< initial speed of particle along Z axis
+			ParticleRandomPerFrame x;												///< initial speed of particle along X axis
+			ParticleRandomPerFrame y;												///< initial speed of particle along Y axis
+			ParticleRandomPerFrame z;												///< initial speed of particle along Z axis
 		}
 		ortho;
 
 		struct
 		{
-			GameClientRandomVariable speed;										///< initial speed of particle along random radial direction
+			ParticleRandomPerFrame speed;										///< initial speed of particle along random radial direction
 		}
 		spherical, hemispherical;
 
 		struct
 		{
-			GameClientRandomVariable radial;									///< initial speed of particle in the disk
-			GameClientRandomVariable normal;									///< initial speed of particle perpendicular to disk
+			ParticleRandomPerFrame radial;									///< initial speed of particle in the disk
+			ParticleRandomPerFrame normal;									///< initial speed of particle perpendicular to disk
 		}
 		cylindrical;
 
 		struct
 		{
-			GameClientRandomVariable speed;										///< speed outward from emission volume
-			GameClientRandomVariable otherSpeed;							///< speed along "other" axis, such as cylinder length
+			ParticleRandomPerFrame speed;										///< speed outward from emission volume
+			ParticleRandomPerFrame otherSpeed;							///< speed along "other" axis, such as cylinder length
 		}
 		outward;
 	}
@@ -566,8 +585,8 @@ public:
 	WindMotion m_windMotion;				///< motion of the wind angle updating
 	Real m_windAngle;								///< angle of the "wind" associated with this system
 	Real m_windAngleChange;					///< current how fast the angle changes (higher=faster change)
-	Real m_windAngleChangeMin;			///< min for angle change
-	Real m_windAngleChangeMax;			///< max for angle change
+	RetailPerFrame m_windAngleChangeMin;			///< min for angle change
+	RetailPerFrame m_windAngleChangeMax;			///< max for angle change
 	Real m_windMotionStartAngle;						///< (for ping pong) angle 1 of the ping pong
 	Real m_windMotionStartAngleMin;					///< (for ping pong) min angle for angle 1
 	Real m_windMotionStartAngleMax;					///< (for ping pong) max angle for angle 1
@@ -607,8 +626,8 @@ public:
 
 	/** Force terrain collision on for a system whose INI never asked for it ("-particlebounce").
 		* ParticleSystemInfo is a protected base, so the manager needs a way in. */
-	void forceGroundCollision( Real bounce, Real friction )
-	{ m_groundCollision = TRUE; m_groundBounce = bounce; m_groundFriction = friction; }
+	void forceGroundCollision( Real bounce, Real retailFriction )
+	{ m_groundCollision = TRUE; m_groundBounce = bounce; m_groundFriction.setRaw( retailFriction ); }
 
 	/** Make this system's smoke last longer and read thicker ("-smoke").  Same reason as above:
 		* ParticleSystemInfo is a protected base, so the manager needs a way in. */
@@ -618,7 +637,7 @@ public:
 	void emitNothing( void )
 	{
 		m_burstCount.setRange( 0.0f, 0.0f );
-		m_systemLifetime = 1;
+		m_systemLifetime.setRaw( 1 );
 		m_slaveSystemName.clear();
 		m_attachedSystemName.clear();
 	}
@@ -644,7 +663,13 @@ public:
 		* second, looping; 0 (the default) plays the frames once over the particle's life.
 		* "FlipbookRandomStart = Yes" starts each particle on a frame from the client's random stream,
 		* and a particle playing once then runs from there to the last.  Drawing only, and only for
-		* billboards and the point group: a streak or a ground field still draws the whole atlas. */
+		* billboards and the point group: a streak or a ground field still draws the whole atlas.
+		* "FlipbookVariants = 4" cuts the frames into that many equal runs back to back (4 runs of 16 in
+		* an 8 by 8); each particle picks one at birth and the rate, the play once and the random start
+		* all work inside it.  Frames left over past the last whole run are never shown.
+		* "FlipbookMirror = Yes" draws about half the particles flipped left to right, picked at birth,
+		* and only with a FlipbookGrid: a plain card ignores it.  It mirrors the sorted billboards, which is nearly every smoke, fire and dust system; an
+		* alpha-tested, ground-aligned or volume flipbook, drawn by the point group, is not mirrored. */
 	/** "Emissive = Yes": an alpha blended system that gives light rather than takes it, a fireball's
 		* body: no glow from nearby fires and lights, and nothing cast into the sun's smoke map, so it
 		* neither shades itself nor darkens the ground under it.  Drawing only. */
@@ -658,6 +683,8 @@ public:
 	Bool isGpuEligible( void ) const;
 	const AsciiString &getParticleTypeName( void ) const { return m_particleTypeName; }
 	Bool isFlipbookRandomStart( void ) const { return m_flipbookRandomStart; }
+	UnsignedInt getFlipbookVariants( void ) const { return m_flipbookVariants; }
+	Bool isFlipbookMirror( void ) const { return m_flipbookMirror; }
 
 	// This function was made const because of update modules' module data being all const.
 	ParticleSystem *createSlaveSystem( Bool createSlaves = TRUE ) const ;					///< if returns non-NULL, it is a slave system for use
@@ -688,6 +715,8 @@ protected:
 	UnsignedByte							m_flipbookGridLog2;								///< log2 of the flipbook's frames a side, 0 for a plain card (client only)
 	Real											m_flipbookRate;										///< flipbook frames a second, looping; 0 plays once over the life (client only)
 	Bool											m_flipbookRandomStart;						///< each particle starts on a random flipbook frame (client only)
+	UnsignedByte							m_flipbookVariants;								///< equal runs of frames, each particle playing one, 1 for the whole atlas (client only)
+	Bool											m_flipbookMirror;									///< about half the particles drawn flipped left to right (client only)
 
 	// This has to be mutable because of the delayed initialization thing in createSlaveSystem
 	mutable const ParticleSystemTemplate *m_slaveTemplate;		///< if non-NULL, use this to create a slave system
@@ -726,7 +755,7 @@ public:
 	void rotateLocalTransformZ( Real z );				///< rotate local transform matrix
   void setSkipParentXfrm(Bool enable) { m_skipParentXfrm = enable; } ///<disable transforming particle system with parent matrix.
 		
-	const Coord3D *getDriftVelocity( void ) { return &m_driftVelocity; }	///< get the drift velocity of the system
+	Coord3D getDriftVelocity( void ) const { return m_driftVelocity; }	///< get the drift velocity of the system
 	Coord3D getDriftWithWeather( void ) const;	///< that, plus the Weather option's wind on what it leans
 	Bool isGroundCollision( void ) const { return m_groundCollision; }		///< do this system's particles hit the terrain?
 	Real getGroundBounce( void ) const { return m_groundBounce; }				///< restitution against the terrain

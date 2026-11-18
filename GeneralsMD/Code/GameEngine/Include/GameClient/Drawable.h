@@ -107,12 +107,47 @@ extern Real Drawable_reloadBarFraction( UnsignedInt now, UnsignedInt started, Un
 extern Bool Drawable_healthBarModeShows( Int healthBarMode, Bool isSelected, Bool isMousedOver,
 																				 Bool isDamaged );
 
-///< where lamp `index` of `capacity` starts across a tray `innerWidth` pixels wide, one pixel between
-///< lamps; -1 when a lamp would come out under two pixels wide and the tray is one continuous fill
-extern Int Drawable_lampCellLeft( Int innerWidth, Int capacity, Int index );
+///< how many screen pixels one pixel of the seat and round chips covers at this UI scale: whole
+///< steps from 1920x1080's, 1 up to 1440p and 2 at 4K
+extern Int Drawable_pipPixel( Real uiScale );
+
+///< screen pixels per chip pixel at this UI scale and camera zoom: Drawable_pipPixel's whole step at
+///< the default camera and closer, shrinking past it as the health bar does (1/zoom)
+extern Real Drawable_pipScale( Real uiScale, Real zoom );
+
+///< whether a container with nobody inside still shows its row of free seats: a vehicle always, a
+///< garrisonable or heal-only building (a Barracks) never, any other building as the option says
+extern Bool Drawable_emptySeatsShow( Bool isStructure, Bool isGarrisonable, Bool isHealContain,
+																		 Bool showEmptyBuildingPips );
 
 ///< whether these disabled flags mean the health bar is drawn blue instead of the owner's colour
 extern Bool Drawable_disabledShowsBlueHealthBar( DisabledMaskType disabledFlags );
+
+///< one member of an Angry Mob, as the render's sync point saw it: where it is shown, how big it is
+struct MobMemberForDraw
+{
+	ObjectID nexus;
+	DrawableID drawable;
+	Coord3D pos;							///< the smooth-motion position the model is drawn at
+	Real radius;							///< bounding circle
+	Real height;							///< over pos, to the top of its geometry
+	PathfindLayerEnum layer;
+};
+
+///< take every visible mob member's copy, at the sync point; smooth and alpha are the display's blend
+extern void Drawable_takeMobsForRender( Bool smooth, Real alpha );
+///< the members of this nexus in that copy, and how many; no logic read, safe beside the tick
+extern Int Drawable_mobMembersForDraw( ObjectID nexus, const MobMemberForDraw **members );
+
+///< the local player just ordered the selection to attack: stamp every selected drawable, for the
+///< selection ring's pulse (HintSpy calls it as the order leaves the client)
+extern void Drawable_noteAttackOrder( void );
+///< seconds since this drawable was last ordered to attack, or a negative number when not lately
+extern Real Drawable_attackOrderSeconds( DrawableID id );
+///< the local player just aimed an order at this object (attack, force attack, enter): its model flashes red
+extern void Drawable_noteOrderTarget( ObjectID target );
+///< fire the order targets' red flashes that are due, at the sync point
+extern void Drawable_flashOrderTargets( void );
 
 //-----------------------------------------------------------------------------
 //@TODO -- The drawable icon system needs to be implemented in a proper manner -- KM
@@ -394,6 +429,7 @@ public:
 
 	inline Object *getObject( void ) { LOGIC_WINDOW_READ( WINDOW_DRAWABLE_OBJECT ); return m_object; }								///< return object ID bound to this drawble
 	inline const Object *getObject( void ) const { LOGIC_WINDOW_READ( WINDOW_DRAWABLE_OBJECT ); return m_object; }		///< return object ID bound to this drawble
+	void healthBarColors( Real healthRatio, Color *color, Color *outlineColor );	///< fill and outline of the health bar at this ratio
 
 	inline DrawableInfo *getDrawableInfo(void) {return &m_drawableInfo;}
 
@@ -402,6 +438,7 @@ public:
 	// note that this is not necessarily the 'get' reflection of setDrawableHidden, since drawables
 	// can spontaneously hide via stealth. (srj)
 	//
+	Bool hasClipFeedback() const { return m_clipFeedbackSlots != 0; }	///< updateDrawableClipStatus does something; fixed at creation
 	inline Bool isDrawableEffectivelyHidden() const { if( LogicThread::isInsideWindow() ) return m_lookForDraw.hidden; return m_hidden || m_hiddenByStealth; }
 
 	void setSelectable( Bool selectable );												///< Changes the drawables selectability	
@@ -505,6 +542,7 @@ public:
 		Bool					empDisabled;				///< DISABLED_EMP
 		Bool					outage;							///< a structure underpowered, script underpowered or hacked
 		Int						playerIndex;				///< the controlling player's
+		Int						skinPlayerIndex;		///< whose skins this machine sees on it, TankSkin_seenPlayerIndex
 		Color					playerColor;				///< clientPlayerColor of the controlling player
 		UnsignedInt		safeOcclusionFrame;
 		PathfindLayerEnum	layer;
@@ -564,6 +602,7 @@ public:
 	void colorTint( const RGBColor *color );	 ///< tint this drawable the color specified
 	void setTintEnvelope( const RGBColor *color, Real attack, Real decay );	 ///< how to transition color
 	void flashAsSelected( const RGBColor *color = NULL ); ///< drawable takes care of the details if you spec no color
+	void setOrderFlash( Bool on ) { m_orderFlash = on; }	///< lit full red as an order's target, this picture (Drawable_flashOrderTargets)
 	
 	/// Return true if drawable has been marked as "selected"
 	Bool isSelected( void ) const {	LOGIC_CENSUS( CENSUS_CLIENT_READ ); return m_selected; }	///< logic asks LogicThread::isSelectedForTick
@@ -823,6 +862,7 @@ private:
 
 	// note, these are lazily allocated!
 	TintEnvelope*		m_selectionFlashEnvelope;	///< used for selection flash, works WITH m_colorTintEnvelope
+	Bool						m_orderFlash;							///< lit red as an order's target, set at the sync point (Drawable_flashOrderTargets)
 	TintEnvelope*		m_colorTintEnvelope;			///< house color flashing, etc... works WITH m_selectionFlashEnvelope
 																//   this used to use m_ambientLight... but this replaces it
 																//   int most places. It works harder to change the drawable's
@@ -962,14 +1002,16 @@ private:
 	void drawConstructPercent( const IRegion2D *healthBarRegion );  ///< display % construction complete
 	void drawSupplyCash( const IRegion2D *healthBarRegion );				///< display the cash left in a supply pile
 	void drawCaption( const IRegion2D *healthBarRegion );						///< draw caption
-	void drawTrays( const IRegion2D *healthBarRegion );							///< rounds left and seats taken, lamp trays under the bar
-	Int trayStackBottom( const IRegion2D *healthBarRegion ) const;	///< first free row under the bar and its trays
-	Bool ammoTrayCounts( Int &numTotal, Int &numFull ) const;				///< whether the rounds tray shows, and its counts
-	Bool seatTrayCounts( Int &numTotal, Int &numInfantry, Int &numFull ) const;	///< whether the seat tray shows, and its counts
+	void drawLoadPips( const IRegion2D *healthBarRegion );					///< rounds left and seats taken, chips under the bar
+	Int loadPipsBottom( const IRegion2D *healthBarRegion ) const;		///< first free row under the bar and its pips
+	Int loadPips( const IRegion2D *healthBarRegion, Bool draw ) const;	///< lays the pips out, draws them when asked, returns the row under them
+	Bool ammoPipCounts( Int &numTotal, Int &numFull ) const;				///< whether the rounds pips show, and their counts
+	Bool seatPipCounts( Int &numTotal, Int &numInfantry, Int &numFull ) const;	///< whether the seat pips show, and their counts
 	void drawVeterancy( const IRegion2D *healthBarRegion );					///< draw veterency information
 
 	void drawEmoticon( const IRegion2D* healthBarRegion );
 	void drawHealthBar( const IRegion2D* healthBarRegion );					///< draw heath bar
+	Bool wearsHealthBar( void ) const;															///< whether drawHealthBar puts a bar up this frame
 	void drawCaptureProgress( void );																///< the clock under the health bar of the building this one is taking
 	void drawAltitudeLine( void );																	///< the line from an aircraft in the air down to the ground under it
 	void drawHealing( const IRegion2D* healthBarRegion );						///< draw icons

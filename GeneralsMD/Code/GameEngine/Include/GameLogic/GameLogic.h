@@ -113,10 +113,13 @@ typedef void (*GameLogicFuncPtr)( Object *obj, void *userData );
 
 typedef std::vector<Object*> ObjectPtrVector;
 
-/// One slot of GameLogic's sleepy-update heap: the module and its friend_getPriority() beside it.
+/// One place in GameLogic's sleepy-update heap: the module, the key it sorts by (see makeSleepyKey in
+/// GameLogic.cpp: its wake frame and phase, then its object's id and its place among the object's
+/// modules), and its slot in m_sleepySlotIndex, which says where in the heap the entry is.
 struct SleepyEntry
 {
-	UnsignedInt priority;
+	UnsignedInt64 key;
+	Int slot;
 	UpdateModulePtr module;
 };
 
@@ -186,6 +189,9 @@ public:
 	void destroyObject( Object *obj );							///< Mark object as destroyed for later deletion
 	Object *findObjectByID( ObjectID id );								///< Given an ObjectID, return a pointer to the object.
  	Object *getFirstObject( void );									///< Returns the "first" object in the world. When used with the object method "getNextObject()", all objects in the world can be iterated.
+	/// the objects whose ID % LOGICFRAMES_PER_GAME_SECOND is this turn, oldest first (the object list turned round), with up to a second
+	/// of the dead the lookup no longer finds; NULL while the index waits on its rebuild after a reset or a load
+	const std::vector<ObjectID> *getSecondTurnIDs( Int turn ) const { return m_objIndexStale ? NULL : &m_secondTurnIDs[ turn ]; }
 	ObjectID allocateObjectID( void );							///< Returns a new unique object id
 	void growObjectLookupForTick( void );						///< LogicThread's sync point: room for the next tick's objects, so it never reallocates the lookup beside the render
 
@@ -290,6 +296,14 @@ public:
 	Int countKickVoters( void ) const;										///< the players whose yes the open vote needs
 	Int countKickVotes( void ) const;											///< how many of them have given it
 
+	/** The cheat witness, read by the online match report and never by logic.  A blind order is one a
+			player gave at an enemy object that player could not have seen when clicking it, which only a
+			map hack draws (witnessBlindOrder); the odd players are those whose CRC differed from a strict
+			majority at the first mismatch.  Counted on the logic frame on every machine alike, kept out of xfer and the
+			CRC, cleared by startNewGame. */
+	Int getBlindOrderCount( Int playerIndex ) const;
+	const std::vector<Int>& getCrcOddPlayers( void ) const { return m_crcOddPlayers; }	///< player indices
+
 	/** Each player's share of the lobby's unit limit, the same number for everybody.  0 when the
 			limit is off, which is every campaign mission and every game it was not ticked for. */
 	UnsignedInt getUnitCap( void ) const { return m_unitCap; }
@@ -336,6 +350,13 @@ public:
 	// this should be called only by UpdateModule, thanks.
 	void friend_awakenUpdateModule(Object* obj, UpdateModulePtr update, UnsignedInt whenToWakeUp);
 
+	/** The frame a module put to sleep while it would have run every frame must wake for, so that it runs
+		* exactly when it would have: this frame while the sleepy loop has not yet passed its key, else the next. */
+	UnsignedInt friend_frameToWakeExactly(UpdateModulePtr update) const;
+
+	/// Object::setDisabledUntil has just set a disabled bit: the end-of-frame check looks at this one from now on
+	void watchDisabled( const Object *obj );
+
 protected:
 
 	// snapshot methods
@@ -354,6 +375,10 @@ private:
 	Int rebalanceChildSleepyUpdate(Int i);
 	void remakeSleepyUpdate();
 	void validateSleepyUpdate() const;
+	void appendSleepyUpdate(UpdateModulePtr u);
+	void releaseSleepySlot(const SleepyEntry &e);
+	void clearSleepyUpdates();
+	Int sleepyIndexOf(UpdateModulePtr u) const;
 
 private:
 
@@ -410,14 +435,40 @@ private:
 //	ObjectPtrHash m_objHash;																///< Used for ObjectID lookups
 	ObjectPtrVector m_objVector;
 
+	/* The end-of-frame pass (disabledAndSecondTurns) calls checkDisabledStatus on every disabled
+		 object and oncePerSecondTurn on every object whose ID % LOGICFRAMES_PER_GAME_SECOND is this frame's, in object list order.
+		 It walked the whole list for it, 0.3ms a frame at 4,000 objects.  These name the few it touches.
+		 The list is newest first and only ever grows at its head, so the order a stamp counts objects
+		 in is the list's turned round.  Kept by registerObject and watchDisabled, rebuilt from the list
+		 after a reset or a load (m_objIndexStale), when IDs are taken from the save. */
+	std::vector<ObjectID> m_secondTurnIDs[ MAX_LOGICFRAMES_PER_GAME_SECOND ];	///< by ID % LOGICFRAMES_PER_GAME_SECOND, oldest first; the dead go on that ID's next turn; sized for the slowest speed
+	std::vector<ObjectID> m_disabledWatch;		///< every object seen disabled or given a disable since; repeats allowed
+	std::vector<UnsignedInt> m_listStamp;			///< by ID: when it joined the list; the list runs in falling stamp order
+	UnsignedInt m_nextListStamp = 0;
+	Bool m_objIndexStale = TRUE;
+	std::vector<ObjectID> m_watchScratch;			///< the pass's working copies, kept to spare the allocation
+	std::vector<Object*> m_disabledScratch;
+	void rebuildObjectIndex( void );
+	void disabledAndSecondTurns( void );
+	UnsignedInt countIndexedObjects( void ) const;	///< the live objects plus at most a second of the dead; the profile's yardstick
+
 	// this is a vector, but is maintained as a priority queue.
 	// never modify it directly; please use the proper access methods.
 	// (for an excellent discussion of priority queues, please see:
 	// http://dogma.net/markn/articles/pq_stl/priority.htm)
-	// Each entry carries a copy of its module's friend_getPriority() so the heap compares without
-	// touching the pooled module. The copy must equal the module's value whenever a heap operation
-	// runs: every friend_setNextCallFrame on a queued module writes the entry at its index too.
+	// Each entry carries its module's friend_getPriority() inside its key so the heap compares without
+	// touching the pooled module. The key must match the module's value whenever a heap operation
+	// runs: every friend_setNextCallFrame on a queued module rekeys the entry at its index too.
+	// Keys are unique, so the modules due in a frame run in key order whatever the heap's layout:
+	// which modules sleep cannot reorder the ones that run.
 	std::vector<SleepyEntry> m_sleepyUpdates;
+
+	// Where each queued module sits in the heap, by the slot the module and its entry carry.  Every
+	// step of a sift moves an entry and has to record its new place; written into the module, that was
+	// a cache miss a step, half of the sift's time, where this table is a few kilobytes that stay in
+	// cache.  The heap itself moves exactly as before.  Freed slots are reused.
+	std::vector<Int> m_sleepySlotIndex;
+	std::vector<Int> m_sleepyFreeSlots;
 	
 #ifdef ALLOW_NONSLEEPY_UPDATES
 	// this is a plain old list, not a pq.
@@ -425,6 +476,8 @@ private:
 #endif
 
 	UpdateModulePtr					 m_curUpdateModule;
+	UnsignedInt64						 m_sleepyCursor;			///< key of the module the sleepy loop is running, 0 before it, all ones after it
+	UnsignedInt							 m_sleepyCursorFrame;	///< the frame m_sleepyCursor belongs to
 
 	ObjectPointerList m_objectsToDestroy;										///< List of things that need to be destroyed at end of frame
 
@@ -446,9 +499,12 @@ private:
 	UnsignedInt m_peaceTimeEndFrame;	///< logic frame the lobby's peace time runs out on, 0 = no peace time
 	Int m_kickVoteTarget;							///< player index an open vote kick is about, -1 = none
 	UnsignedInt m_kickVoteEndFrame;		///< frame that vote runs out on
-	UnsignedInt m_kickVoteYesMask;		///< player indices that have voted yes in it
+	PlayerMaskType m_kickVoteYesMask;	///< player indices that have voted yes in it
 	void expireKickVote( void );			///< closes the vote once its 30 seconds are up
 	void endKickVote( const char *label );
+	Int m_blindOrders[MAX_PLAYER_COUNT];	///< blind orders by issuing player index, see getBlindOrderCount
+	std::vector<Int> m_crcOddPlayers;			///< the first mismatch's odd players, see getCrcOddPlayers
+	void witnessBlindOrder( const GameMessage *msg, const Player *issuer );
 	UnsignedInt m_unitCap;						///< units each player may have standing and queued, 0 = no limit
 	Bool m_proRules;									///< this match refuses what PRO-RULES.md bans
 	Int m_incomeSharing;							///< which earnings allies split, an IncomeSharing

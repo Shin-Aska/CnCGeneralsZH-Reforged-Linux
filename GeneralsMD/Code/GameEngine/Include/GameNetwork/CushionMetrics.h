@@ -26,6 +26,7 @@
 #define _CUSHION_METRICS_H_
 
 #include "Lib/BaseType.h"
+#include "Common/GameCommon.h"
 
 /* The "cushion" is how many frames ahead of the simulation a command arrived: the margin between
 	 the network and the frame that needs it.  When it runs low the machine deliberately slows its
@@ -47,6 +48,22 @@ Int frameCushion( UnsignedInt executionFrame, UnsignedInt currentFrame );
 	  range, which at 30 Hz is over four hundred days of play. */
 Bool frameIsTooOldToResend( UnsignedInt currentFrame, UnsignedInt requestedFrame, Int framesToKeep );
 
+/* Each frame's arrival cushion is measured once, by the arrival that completes it.  EA measured every
+	 arrival for a frame that was already complete, and every synchronized command goes out twice more,
+	 30 ms apart, until it is acked (CONNECTION_REDUNDANT_COPIES), so on a 200 ms link the last copy set
+	 the minimum four frames under the real margin and the room ran self-slugged on 80 % of its frames.
+	 A high-water mark is not enough either: a frame whose first FRAMEINFO was lost completes after the
+	 one behind it, and it is exactly the late one.  So each frame in flight keeps its own mark, a ring
+	 slot holding the frame number it last measured. */
+enum { CUSHION_RING_FRAMES = 512 };
+
+/** Whether an arrival for frame may measure its cushion: not yet measured, not in the past, and no
+	  further ahead than maxAhead (a peer's far-future frame would alias another frame's slot).  The
+	  caller still asks whether the frame is complete, then marks it with markCushionMeasured. */
+Bool arrivalMeasuresCushion( const UnsignedInt measured[CUSHION_RING_FRAMES], UnsignedInt frame,
+														 UnsignedInt currentFrame, Int maxAhead );
+void markCushionMeasured( UnsignedInt measured[CUSHION_RING_FRAMES], UnsignedInt frame );
+
 /** Whether to slow our own logic rate.  A negative minimumCushion means no sample has been taken
 	  yet, which is not the same as no margin - see the sentinel note in CushionMetrics.cpp. */
 Bool shouldSelfSlug( Int minimumCushion, Int runAhead, UnsignedInt slackPercent );
@@ -56,31 +73,26 @@ Int selfSlugThreshold( Int runAhead, UnsignedInt slackPercent );
 
 enum
 {
-	/* The brake needs room to work.  NetworkRunAheadSlack is 10 %, and the run-ahead it is a
-		 percentage of is small: MIN_RUNAHEAD is four frames, and computeRunAhead only clears that on
-		 links slower than about 240 ms round trip.  Ten percent of four is nothing, and a brake that
-		 engages with less than a frame of margin left is not a brake, it is the stall it was meant
-		 to prevent.  Two frames was 66 ms at 30 Hz; logic runs at 60 now, so the same 66 ms is four.
-		 Every frame count in this enum is doubled from its 30 Hz value for that reason. */
-	SELFSLUG_MIN_THRESHOLD_FRAMES = 4,
+	/* The brake's floor.  NetworkRunAheadSlack is 10 %, and the run-ahead it is a percentage of is a
+		 handful of frames, so ten percent of it rounds to nothing, and a threshold of nothing never
+		 fires.  One frame: the cushion is the frame a packet completed minus the frame about to run, so
+		 it counts the whole frames of real time left, and 0 is still up to a frame early, the last
+		 reading before the stall.  It was two, and four at 30 Hz before that.  A threshold is not a
+		 margin: the brake only pulls the machine that runs ahead back until its cushion reaches the
+		 threshold, so in a room that started out of step the leader sits right on it, and every frame
+		 above the threshold that is not phase margin goes to the follower as cushion nobody needs. */
+	SELFSLUG_MIN_THRESHOLD_FRAMES = 1,
 
-	/* The fixed part of the run-ahead's safety margin.  The transit term computeRunAhead sizes the
-		 window from is built out of *average* round trips, and an average is exceeded half the time;
-		 the proportional slack on top of it is worth 0.4 frames on a LAN and one frame on a 300 ms
-		 link, which is not a margin, it is a rounding error.  Two frames - 66 ms at 30 Hz - is the
-		 allowance for the jitter the average hides, and it is what makes a low MIN_RUNAHEAD safe:
-		 the links that need the window get more of it than the old flat floor of ten ever gave them,
-		 and the links that do not stop paying for it.
-
-		 Three since the router stopped being counted as a leg of the trip (roomLatencySum).  The
-		 window that came out of that was the honest one, and at 200 to 300 ms of ping with 30 to 60 ms
-		 of jitter two frames of allowance let the tail through: two players at 200 ms fell from 29
-		 logic frames a second to 26 on a 5-frame window.  A LAN still sits on MIN_RUNAHEAD.  Three
-		 30 Hz frames, 100 ms, is six at 60. */
-	RUNAHEAD_JITTER_FRAMES = 6,
+	/* A frame of headroom above the brake that no round trip measures.  Two machines' logic clocks
+		 are not in step, a frame runs and is announced on a render pass, and a starved or hitching
+		 machine is late on every link at once, so a packet on time by the wire can still land a frame
+		 late against the other machine's tick.  Two copies on loopback without it, at a run-ahead of 2,
+		 ran clean on an idle CPU and slowed themselves on 17 to 18 % of frames, at 58 fps, on a
+		 saturated one. */
+	RUNAHEAD_PHASE_MARGIN_FRAMES = 1,
 
 	/* The room never runs slower than this, whatever the metrics say: a sixth of normal speed. */
-	ROOM_FRAME_RATE_FLOOR = 10,
+	ROOM_FRAME_RATE_FLOOR = 5 * LOGICFRAMES_PER_RETAIL_FRAME,	// EA's 5 at the retail rate
 
 	/* How far above the slowest reported rate the room is actually told to run.  This is EA's own
 		 step - they applied it to the slowest player alone, "just in case they are able to" - given
@@ -89,27 +101,51 @@ enum
 	ROOM_FRAME_RATE_PROBE_PERCENT = 10,
 };
 
+/* The jitter part of the run-ahead's margin, in round-trip deviations.  The transit term is an
+	 average, and an average is exceeded half the time; by how much is the link's spread, which every
+	 connection already measures as its Jacobson/Karels rttvar, the mean deviation of the round trip.
+	 The margin used to be a flat six frames, 100 ms, on every link.
+
+	 Why one.  The brake looks at the smallest cushion of the last ten frames, and each of those is the
+	 later of the other players' packets, so covering every arrival would take the largest one-way
+	 excess of about twenty: about 1.4 rttvar for uniform noise split evenly between the directions,
+	 1.7 for normal noise, 2.3 for noise all on one direction.  It is not worth covering.  Past the
+	 margin a late packet only engages the brake, whose frames are still in the window, and the
+	 brake costs a few tenths of a frame a second while a frame of window costs every click 17 ms.
+	 Measured on three copies at 200 ms of ping with 30 ms of jitter (rttvar 22 to 29 ms), counting the
+	 FRAMEINFO lag: a 5-frame margin engaged the brake on 6 to 9 % of frames at 58.4 to 58.9 fps, 6
+	 frames on 4 to 6 % at 59.0, 7 to 8 frames on 0 to 3 % at 59.1 to 59.2.  One deviation is the 6. */
+const Real RUNAHEAD_JITTER_DEVIATIONS = 1.0f;
+
 /* How far into the future the room schedules its commands.  Every machine runs the same logic
 	 frame at the same time, so a command has to be on every machine before that frame arrives; the
 	 run-ahead is how much head start it is given.  Too small and the room stalls waiting for a
 	 packet that is still in flight, too large and every click is answered late.  The packet router
 	 computes this for the whole room and broadcasts it, so it is one number everybody obeys. */
 
-/* Every command travels through the packet router, so the longest trip in the room is from the
-	 worst-connected player to the router and on to the second worst: half of each of their round
-	 trips.  The router's own figure is not a leg of any trip.  EA's getMaximumLatency said as much
-	 ("the latency for the packet router is always 0") and then summed it anyway, and the router
-	 measures a real round trip like everybody else.  Three players never showed it, because the two
-	 worst are usually the other two.  Two players always did: the router's round trip plus the
-	 guest's, which is the same trip twice, so the run-ahead covered a whole round trip where half
-	 of one was the wire - 9 frames against 6 at a 200 ms ping.
+/* Every command goes straight from its author to each other player, so the longest trip in the
+	 room is one hop over the worst link in it: half of the worst round trip.  Each player reports
+	 its worst round trip to anyone, and the room's figure is the largest report, the router's own
+	 included.  When every command went through the packet router the trip was two hops, worst
+	 player to router and on to the second worst, and EA summed two round trips for it.
 
-	 latencies and connected are indexed by slot; routerSlot is left out. */
-Real roomLatencySum( const Real latencies[], const Bool connected[], Int numSlots, Int routerSlot );
+	 latencies and connected are indexed by slot. */
+Real roomWorstLatency( const Real latencies[], const Bool connected[], Int numSlots );
 
-/** The run-ahead, in frames.  latencySumSeconds is roomLatencySum's, fps the rate the room has
-	  settled on. */
-Int computeRunAhead( Real latencySumSeconds, Int fps, UnsignedInt slackPercent,
+/** The run-ahead, in frames.  roundTripSeconds is roomWorstLatency's, jitterSeconds the worst rttvar
+	  any player reported (roomWorstLatency over those), fps the rate the room has settled on.
+
+	  Frame f + run-ahead's FRAMEINFO leaves the moment frame f has run, so a packet trip frames on the
+	  wire lands with run-ahead - trip frames of real time left, and the cushion the brake reads is the
+	  whole frames of that.  So the window is the one-way trip plus RUNAHEAD_JITTER_DEVIATIONS of
+	  jitter, rounded past to the next whole frame, then EA's proportional slack, the phase margin and
+	  the brake's threshold.  It used to round the trip up and add a frame for the FRAMEINFO on top, and
+	  the jitter rounded up beside it, which counted the same frame two or three times whenever the
+	  trip was not a whole number of frames: loopback ran at 5 where 3 holds.  The brake's frame is in
+	  the window because the brake fires whenever the cushion drops below it.  The slack stays for the
+	  reason it was there, the frame rate probe - the window is counted at the settled rate and played
+	  at up to 10 % above it - and it is nothing below about a 300 ms round trip anyway. */
+Int computeRunAhead( Real roundTripSeconds, Real jitterSeconds, Int fps, UnsignedInt slackPercent,
 										 Int minRunAhead, Int maxRunAhead );
 
 /* A latency sample is the wall time between sending a frame's commands and the ack coming back, so
@@ -127,7 +163,7 @@ Int computeRunAhead( Real latencySumSeconds, Int fps, UnsignedInt slackPercent,
 	 Half a second of round trip is past where this game is playable, and it is what the clamp
 	 has to be worth: two players pinned at the ceiling still only buy 18 frames of
 	 run-ahead - 0.6 s - against the 64 frames the raw samples bought.  A link genuinely slower
-	 than this loses at most 33 ms of one-way window, which RUNAHEAD_JITTER_FRAMES already covers.
+	 than this loses at most 33 ms of one-way window, which the jitter margin already covers.
 	 ponytail: one ceiling for every link.  The self-calibrating version is the connection's own
 	 srtt + 4*rttvar (Connection.h has both), if a real link is ever found that this undersizes.
 
@@ -138,6 +174,12 @@ Int computeRunAhead( Real latencySumSeconds, Int fps, UnsignedInt slackPercent,
 	 already cutting into links people play on and would have undersized the window on every one of
 	 them a little slower. */
 const Real MAX_PLAUSIBLE_LATENCY_SECONDS = 0.8f;
+
+/* The same guard for the jitter figure.  A stall filed as a round trip moves rttvar by a quarter of
+	 the sample, so the 1.79 s above would read as 450 ms of jitter for the half second it takes to
+	 decay, and buy the room 27 frames of margin.  A mean deviation of 100 ms is round trips swinging a
+	 quarter of a second either side, past where a match is playable, and still only 6 frames. */
+const Real MAX_PLAUSIBLE_JITTER_SECONDS = 0.1f;
 
 /** Fold a raw round-trip measurement into the range a round trip can actually occupy. */
 Real sanitizeLatencySample( Real seconds, Real ceilingSeconds );

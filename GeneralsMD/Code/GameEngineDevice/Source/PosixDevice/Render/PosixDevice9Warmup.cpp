@@ -147,6 +147,19 @@ RenderWarmupStats PosixDevice9::Warm_Up_Render_Pipelines(bool modernWater, unsig
             D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_DIFFUSE | D3DFVF_TEX2,
             D3DFVF_XYZ | D3DFVF_NORMAL | D3DFVF_DIFFUSE | D3DFVF_TEX1,
             D3DFVF_XYZ | D3DFVF_NORMAL};
+        // Ground and foliage have their own programs and are common opening-frame draws.
+        const auto terrainVertex = vertexDescription(D3DFVF_XYZ | D3DFVF_DIFFUSE | D3DFVF_TEX2, 2, false);
+        for (bool relight : {false,true}) {
+            auto ground = pixelDescription(0,false,false);
+            ground.PixelPipeline.TerrainRelight = relight;
+            warm(terrainVertex,ground,0,D3DCULL_CCW,ENGINE_SHADER_TERRAIN);
+            warm(terrainVertex,ground,0,D3DCULL_CCW,ENGINE_SHADER_TERRAIN_NOISE_2);
+        }
+        for (bool receives : {false,true}) {
+            auto foliage = pixelDescription(0,true,receives);
+            warm(vertexDescription(formats[2],1,false),foliage,0,D3DCULL_NONE,
+                ENGINE_SHADER_NONE,false,false,ENGINE_SHADER_GRASS);
+        }
         for (unsigned fvf : formats) {
             for (unsigned lights : {1u, 2u, 3u, 4u, 0u}) {
                 if (!shadersOnly && lights == 0) continue;
@@ -185,6 +198,7 @@ RenderWarmupStats PosixDevice9::Warm_Up_Render_Pipelines(bool modernWater, unsig
                 const auto p = pixelDescription(0, alpha, false);
                 warm(v, p, 0, D3DCULL_CCW, ENGINE_SHADER_NONE, false, true);
                 if (fvf == formats[2]) warm(v, p, 0, D3DCULL_CCW, ENGINE_SHADER_NONE, false, true, ENGINE_SHADER_TREES);
+                if (fvf == formats[2]) warm(v, p, 0, D3DCULL_CCW, ENGINE_SHADER_NONE, false, true, ENGINE_SHADER_GRASS);
             }
 
         // Unlit transparent world geometry, smoke sprites and the interface. Their data remains live;

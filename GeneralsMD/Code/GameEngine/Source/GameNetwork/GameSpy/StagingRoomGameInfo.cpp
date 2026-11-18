@@ -35,6 +35,7 @@
 #include "Common/Player.h"
 #include "Common/PlayerList.h"
 #include "Common/PlayerTemplate.h"
+#include "Common/RandomMapGenerator.h"
 #include "Common/RandomValue.h"
 #include "Common/ScoreKeeper.h"
 #include "GameClient/GameText.h"
@@ -619,7 +620,7 @@ void GameSpyStagingRoom::startGame(Int gameID)
 			}
 		}
 		// what every seat starts under, for online_check.py to set the host's line beside the guest's
-		DEBUG_LOG(("ONLINE OPTIONS prorules=%d turbo=%d unitlimit=%d stats=%d map=%s\n", (Int)getProRules(), (Int)getTurbo(),
+		DEBUG_LOG(("ONLINE OPTIONS prorules=%d unitlimit=%d stats=%d map=%s\n", (Int)getProRules(),
 			(Int)getUnitLimit(), (Int)getUseStats(), getMap().str()));
 		launchGame();
 		if (TheGameSpyInfo)
@@ -851,22 +852,27 @@ void GameSpyStagingRoom::sendOnlineReport( const char *from )
 	report.sawGameEnd = report.endFrame > 0;
 	report.sawDesync = TheNetwork->sawCRCMismatch();
 	report.surrendered = FALSE;		// a surrender is a defeat here, and the winner already says so
+	report.map = getMap();				// a Quick Match's generated map: the server never learns its name otherwise
 	report.winningTeam = -1;
 	report.numPlayers = 0;
 	Int teamsLeft = 0;
 	Int lastTeam = -1;
+	Int reportIndexOfSlot[MAX_SLOTS];
 	for (Int i = 0; i < MAX_SLOTS; ++i)
 	{
+		reportIndexOfSlot[i] = -1;
 		AsciiString playerName;
 		playerName.format("player%d", i);
 		Player *p = ThePlayerList->findPlayerWithNameKey(NAMEKEY(playerName));
 		if (!p || !m_GameSpySlot[i].isHuman())
 			continue;
 		const Int n = report.numPlayers++;
+		reportIndexOfSlot[i] = n;
 		if (report.winningTeam < 0 && TheVictoryConditions->hasAchievedVictory(p))
 			report.winningTeam = n;
 		report.discon[n] = m_GameSpySlot[i].disconnected();
 		report.side[n] = p->getPlayerTemplate()->getSide();
+		report.blind[n] = TheGameLogic->getBlindOrderCount(p->getPlayerIndex());
 		if (!report.discon[n] && (teamsLeft == 0 || m_GameSpySlot[i].getTeamNumber() != lastTeam))
 		{
 			lastTeam = m_GameSpySlot[i].getTeamNumber();
@@ -874,9 +880,23 @@ void GameSpyStagingRoom::sendOnlineReport( const char *from )
 		}
 	}
 	report.disconEnd = teamsLeft < 2;
-	OnlineSendReport( report );
-	DEBUG_LOG(("ONLINE REPORT sent from=%s seed=%d endFrame=%d winner=%d desync=%d\n", from, report.seed,
-		report.endFrame, report.winningTeam, (Int)report.sawDesync));
+	// the odd players come as player indices; the report names players by their place among the humans
+	const std::vector<Int> &odd = TheGameLogic->getCrcOddPlayers();
+	for (size_t k = 0; k < odd.size() && report.numCrcOdd < MAX_SLOTS; ++k)
+	{
+		const Int slot = ThePlayerList->getSlotIndex(odd[k]);
+		if (slot >= 0 && slot < MAX_SLOTS && reportIndexOfSlot[slot] >= 0)
+			report.crcOdd[report.numCrcOdd++] = reportIndexOfSlot[slot];
+	}
+	/* The score screen's call runs while clearGameData takes the objects down, so hasAchievedVictory finds
+		 nobody standing and its winner reads -1.  It is only ever sent when the match ended undecided (a
+		 desync, or a defeated player leaving early), where -1 is the truth; after an endframe report
+		 OnlineSendReport drops it, and the log says so rather than printing a report that never left. */
+	if (OnlineSendReport( report ))
+		DEBUG_LOG(("ONLINE REPORT sent from=%s seed=%d endFrame=%d winner=%d desync=%d crcOdd=%d\n", from, report.seed,
+			report.endFrame, report.winningTeam, (Int)report.sawDesync, report.numCrcOdd));
+	else
+		DEBUG_LOG(("ONLINE REPORT not sent from=%s: no match, or its report already went\n", from));
 }
 
 void GameSpyStagingRoom::launchGame( void )
@@ -924,14 +944,25 @@ void GameSpyStagingRoom::launchGame( void )
 
 	// see if we really have the map.  if not, back out.
 	TheMapCache->updateCache();
-	if (!filesOk || TheMapCache->findMap(getMap()) == NULL)
+	const MapMetaData *startMap = TheMapCache->findMap(getMap());
+	// A generated map is built here from its name and the file system serves that build over any copy
+	// that arrived, so the host's MC= is all there is to check it against: a copy that came out
+	// different would split the match at the first CRC check. The room refuses to start on one; this
+	// catches a start that raced it.
+	const Bool mapDiffers = startMap != NULL && !amIHost() && isGeneratedMapPath(getMap())
+		&& startMap->m_CRC != getMapCRC();
+	if (!filesOk || startMap == NULL || mapDiffers)
 	{
-		DEBUG_LOG(("After transfer, we didn't really have the map.  Bailing...\n"));
+		DEBUG_LOG(("After transfer, we didn't really have the map (generated map CRC %X, host's %X).  Bailing...\n",
+			startMap ? startMap->m_CRC : 0, getMapCRC()));
 		if (TheNetwork != NULL) {
 			delete TheNetwork;
 			TheNetwork = NULL;
 		}
-		GSMessageBoxOk(TheGameText->fetch("GUI:Error"), TheGameText->fetch("GUI:CouldNotTransferMap"));
+		UnicodeString text = TheGameText->fetch("GUI:CouldNotTransferMap");
+		if (mapDiffers)
+			text.format(TheGameText->fetch("GUI:LocalPlayerMapDiffers"), startMap->m_displayName.str());
+		GSMessageBoxOk(TheGameText->fetch("GUI:Error"), text);
 
 		void PopBackToLobby( void );
 		PopBackToLobby();
@@ -949,7 +980,7 @@ void GameSpyStagingRoom::launchGame( void )
 	msg->appendIntegerArgument(GAME_INTERNET);
 	msg->appendIntegerArgument(DIFFICULTY_NORMAL);	// not used; there so the speed can go last
 	msg->appendIntegerArgument(0);
-	msg->appendIntegerArgument(GameEngine_matchFramesPerSecond(getTurbo()));
+	GameEngine_appendNewGameRates( msg, NATIVE_GAME_SPEED_PERCENT );	// every network game plays the native speed
 
 	TheWritableGlobalData->m_useFpsLimit = false;
 
