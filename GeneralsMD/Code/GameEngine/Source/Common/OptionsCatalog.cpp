@@ -172,6 +172,7 @@ OPTION_BOOL_ACCESSORS( m_mapLight )
 OPTION_BOOL_ACCESSORS( m_teamGlow )
 OPTION_BOOL_ACCESSORS( m_waterFoam )
 OPTION_BOOL_ACCESSORS( m_underwaterClarity )
+OPTION_BOOL_ACCESSORS( m_mapAwareWaveHeading )
 OPTION_BOOL_ACCESSORS( m_groundFoliage )
 OPTION_BOOL_ACCESSORS( m_groundMarks )
 OPTION_BOOL_ACCESSORS( m_firelight )
@@ -743,6 +744,9 @@ const OptionDef TheOptionCatalog[] =
 	// Optional render-only control; no menu widget and no preset override.
 	{ "UnderwaterClarity", "", "", OPTION_BOOL, APPLY_LIVE, 0, 1,
 		get_m_underwaterClarity, set_m_underwaterClarity },
+	// Native water steering is an explicit opt-in, independent of menu presets.
+	{ "MapAwareWaveHeading", "", "", OPTION_BOOL, APPLY_LIVE, 0, 1,
+		get_m_mapAwareWaveHeading, set_m_mapAwareWaveHeading },
 
 	{ "WaterFoam",								OPT_WND( "CheckWaterFoam" ), "GUI:WaterFoam",
 		OPTION_BOOL, APPLY_LIVE, 0, 1,

@@ -104,6 +104,10 @@ found and fixed, EA's own, not port damage.**
 
 - Set `UnderwaterClarity = yes` in `Options.ini` to reveal shallow submerged scenery with the native SDL Modern-water renderer. It is off by default; flat offshore basins and deep water retain their authored opacity, and Classic Graphics keeps its original water.
 
+## Map-aware Modern-water wave travel
+
+- Set `MapAwareWaveHeading = yes` in `Options.ini` to make native SDL Modern-water swells bend toward shores, travel along channels and lose height behind islands. Separate seas use their own exposure and incoming direction. This is off by default; leaving it off keeps the original waves and skips the heading field and its shader work.
+
 ## Play vs AI online
 
 - The online hub has a PLAY VS AI button under Options. One press starts a 1v1 against a computer player as strong as your AI rating, on a map and seed the server picks. The AI rating is a second rating zerohour.gg keeps beside the ladder's, starting at 0, and the hub shows it left of the button.

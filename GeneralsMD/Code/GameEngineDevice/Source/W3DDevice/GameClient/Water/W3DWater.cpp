@@ -40,6 +40,7 @@
 #include "Platform/WaterPerformanceSettings.h"
 #include "Platform/ModernWaterMaterial.h"
 #include "Platform/WaterUnderwaterClarity.h"
+#include "Platform/WaterWaveHeading.h"
 #include "Platform/WaterShoreOverlay.h"
 #include "Platform/WaterFoamWindow.h"
 #include "Platform/WaterFoamParticlePolicy.h"
@@ -1333,6 +1334,15 @@ void WaterRenderObjClass::setupModernWaterShader(Bool river, Bool heightCorrecti
 			&packets[0][0], WaterHullVisualLayout::PacketRegisters);
 	}
 	DX8Wrapper::Set_DX8_Texture(4, optical ? optical->Peek_D3D_Texture() : NULL);
+#if defined(__linux__)
+	TextureClass *heading=NULL;D3DXVECTOR4 prevailing(0,0,0,0);
+	if(!river && optical && m_modernHeadingEnabled)
+		for(const ModernOpticalTexture &cached:m_modernOpticalTextures)
+			if(cached.level==m_modernOpticalLevel){heading=cached.heading;prevailing.x=cached.prevailingRotation;prevailing.y=cached.swellStep;break;}
+	prevailing.z=heading?1.0f:0.0f;
+	DX8Wrapper::Set_DX8_Texture(WaterWaveHeading::PixelTextureSlot,heading?heading->Peek_D3D_Texture():NULL);
+	setModernWaterConstants(WaterWaveHeading::PrevailingRegister,prevailing,1);
+#endif
 	bindModernWaterFoam(m_modernOpticalLevel, river);
 	TextureClass *heightTexture = m_modernHeightTexture;
 	if (waveCage && !river && heightCorrection)
@@ -1494,6 +1504,7 @@ void WaterRenderObjClass::clearModernWaterOpticalTextures(void)
 	m_modernObstacleIndex.Clear();
 	for (size_t i=0;i<m_modernOpticalTextures.size();++i) {
 		REF_PTR_RELEASE(m_modernOpticalTextures[i].texture);
+		REF_PTR_RELEASE(m_modernOpticalTextures[i].heading);
 		REF_PTR_RELEASE(m_modernOpticalTextures[i].waveCage);
 	}
 	m_modernOpticalTextures.clear();
@@ -1531,6 +1542,12 @@ void WaterRenderObjClass::refreshModernWaterOpticalPolygons(void)
 TextureClass *WaterRenderObjClass::modernWaterOpticalTexture(Real level)
 {
 #if ZH_MODERN_WATER
+	const Bool headingWanted=TheGlobalData && TheGlobalData->m_mapAwareWaveHeading
+		&& !TheGlobalData->m_classicGraphics && TheGlobalData->m_waterStyle!=0 && WaterWaveHeading::Supported();
+	if(headingWanted!=m_modernHeadingEnabled) {
+		invalidateModernWaterShore();clearModernWaterOpticalTextures();
+		m_modernHeadingEnabled=headingWanted;
+	}
 	if (!m_modernOpticalPolygonsValid) return NULL;
 	for (size_t i=0;i<m_modernOpticalTextures.size();++i)
 		if (m_modernOpticalTextures[i].level==level) return m_modernOpticalTextures[i].texture;
@@ -1541,7 +1558,7 @@ TextureClass *WaterRenderObjClass::modernWaterOpticalTexture(Real level)
 	WaterOpticalContext::Field field;
 	if (!WaterOpticalContext::Build(m_modernHeights.empty()?NULL:m_modernHeights.data(),
 		m_modernHeightWidth,m_modernHeightHeight,m_modernHeightBorder,MAP_XY_FACTOR,MAP_HEIGHT_SCALE,
-		level,m_modernOpticalPolygons,field)) return NULL;
+		level,m_modernOpticalPolygons,field,m_modernHeadingEnabled)) return NULL;
 	m_modernOpticalTextures.back().shoreContext=field;
 	TextureClass *texture=NEW_REF(TextureClass,(m_modernHeightSide,m_modernHeightSide,WW3D_FORMAT_A8R8G8B8,MIP_LEVELS_1));
 	SurfaceClass *surface=texture->Get_Surface_Level();
@@ -1557,6 +1574,29 @@ TextureClass *WaterRenderObjClass::modernWaterOpticalTexture(Real level)
 	if (!bits) { REF_PTR_RELEASE(texture); return NULL; }
 	ModernOpticalTexture &cached=m_modernOpticalTextures.back();
 	cached.texture=texture;
+#if defined(__linux__)
+	if(m_modernHeadingEnabled) {
+		WaterWaveHeading::Field heading;
+		if(WaterWaveHeading::Build(field.wet.data(),field.exposure.data(),
+			m_modernHeightWidth,m_modernHeightHeight,m_modernHeightBorder,MAP_XY_FACTOR,heading,field.links.data())) {
+			TextureClass *headingTexture=NEW_REF(TextureClass,(2*m_modernHeightSide,m_modernHeightSide,WW3D_FORMAT_A8R8G8B8,MIP_LEVELS_1));
+			SurfaceClass *headingSurface=headingTexture?headingTexture->Get_Surface_Level():NULL;
+			Int headingPitch=0;void *headingBits=headingSurface?headingSurface->Lock(&headingPitch):NULL;
+			const Bool uploaded=headingBits && headingPitch>=m_modernHeightSide*8;
+			if(uploaded)
+				for(Int y=0;y<m_modernHeightSide;++y) for(Int x=0;x<m_modernHeightSide;++x) {
+					const size_t n=size_t(min(y,m_modernHeightHeight-1))*m_modernHeightWidth+min(x,m_modernHeightWidth-1);
+					((UnsignedInt*)((char*)headingBits+y*headingPitch))[2*x]=heading.texels[2*n];
+					((UnsignedInt*)((char*)headingBits+y*headingPitch))[2*x+1]=heading.texels[2*n+1];
+				}
+			if(headingBits)headingSurface->Unlock();
+			REF_PTR_RELEASE(headingSurface);
+			if(uploaded){cached.heading=headingTexture;cached.prevailingRotation=WaterWaveHeading::Rotation(heading.prevailing);cached.swellStep=heading.uStep;}
+			else REF_PTR_RELEASE(headingTexture);
+		}
+	}
+#endif
+
 	{
 		WaterWaveCage::Field cage;
 		if(WaterWaveCage::Build(m_modernHeights.data(),m_modernHeightWidth,m_modernHeightHeight,
@@ -3215,7 +3255,7 @@ void WaterRenderObjClass::Render(RenderInfoClass & rinfo)
 	unsigned oldModernCoordIndex=0,oldModernTransformFlags=0;
 	unsigned oldModernBaseCoordIndex=0,oldModernBaseTransformFlags=0;
 	Bool oldModernStagesKnown=FALSE;
-	IDirect3DBaseTexture9 *oldModernBed=NULL,*oldModernOptical=NULL,*oldModernFoam=NULL;
+	IDirect3DBaseTexture9 *oldModernBed=NULL,*oldModernOptical=NULL,*oldModernFoam=NULL,*oldModernHeading=NULL;
 	if (m_useModernWater) {
 		// The wrapper's own record: under Direct3D 11 the Direct3D 9 device is behind it (Defer_D3D9_State).
 		// Stage 14 is past the wrapper's stages and is set on the device at once.
@@ -3228,6 +3268,9 @@ void WaterRenderObjClass::Render(RenderInfoClass & rinfo)
 		oldModernOptical=DX8Wrapper::Get_DX8_Texture(4);
 		if (oldModernOptical) oldModernOptical->AddRef();
 		DX8Wrapper::_Get_D3D_Device()->GetTexture(14,&oldModernFoam);
+#if defined(__linux__)
+		DX8Wrapper::_Get_D3D_Device()->GetTexture(WaterWaveHeading::PixelTextureSlot,&oldModernHeading);
+#endif
 		updateModernWaterTextures();
 		refreshModernWaterOpticalPolygons();
 		m_modernRenderCamera=&rinfo.Camera;
@@ -3472,6 +3515,10 @@ void WaterRenderObjClass::Render(RenderInfoClass & rinfo)
 		if (oldModernOptical) oldModernOptical->Release();
 		DX8Wrapper::Set_DX8_Texture(14,oldModernFoam);
 		if(oldModernFoam) oldModernFoam->Release();
+#if defined(__linux__)
+		DX8Wrapper::Set_DX8_Texture(WaterWaveHeading::PixelTextureSlot,oldModernHeading);
+		if(oldModernHeading) oldModernHeading->Release();
+#endif
 		m_modernBowAdmissions.End();
 
 		m_modernRenderCamera=NULL;
@@ -5867,6 +5914,17 @@ bool Supported()
 	return false;
 #else
 	return PosixWaterGpuAvailable(DX8Wrapper::_Get_D3D_Device());
+#endif
+}
+}
+
+namespace WaterWaveHeading {
+bool Supported()
+{
+#if defined(__linux__)
+	return PosixWaterGpuAvailable(DX8Wrapper::_Get_D3D_Device());
+#else
+	return false;
 #endif
 }
 }

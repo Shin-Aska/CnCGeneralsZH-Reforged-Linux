@@ -38,6 +38,7 @@
 #include "ffshader.h"
 #include "ffvertex.h"
 #include "Platform/WaterFftSampling.h"
+#include "Platform/WaterWaveHeading.h"
 #include "Platform/WaterPerformanceSettings.h"
 #include "Platform/WaterFoamHistory.h"
 
@@ -1046,7 +1047,13 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	bool fft_water = fft_requested && Gpu->Prepare_Ocean(PixelShaderConstants[1][0]*WaterFftSampling::TimeScale,
 		WaterPerformanceSettings::Applied().requestedFftResolution);
 	if (fft_water) WaterPerformanceSettings::Applied().activeFftResolution = Gpu->Ocean_Configuration().resolution;
-	const SdlProgram *fft_vertex = fft_water ? &Programs->Water_Vertex_Program(vertex) : NULL;
+	std::string heading_refusal;
+	bool wave_heading = fft_water && PixelShaderConstants[WaterWaveHeading::PrevailingRegister][2]>.5f && Textures[WaterWaveHeading::PixelTextureSlot]
+		&& Mirrors->Texture(Textures[WaterWaveHeading::PixelTextureSlot],heading_refusal);
+	const SdlProgram *fft_vertex = fft_water ? &Programs->Water_Vertex_Program(vertex, wave_heading) : NULL;
+	if (fft_vertex && !fft_vertex->Shader && wave_heading) {
+		wave_heading=false;fft_vertex=&Programs->Water_Vertex_Program(vertex,false);
+	}
 	if (fft_vertex && fft_vertex->Shader == NULL) fft_water = false;
 	const SdlProgram *vertex_program = vertex_engine != ENGINE_SHADER_NONE
 		? &Programs->Engine_Vertex_Program(vertex_engine)
@@ -1054,7 +1061,7 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 	const SdlProgram *pixel_program = SunActive
 		? &Programs->Sun_Pixel_Program(combiner, pixel_engine)
 		: pixel_engine != ENGINE_SHADER_NONE
-			? &Programs->Engine_Pixel_Program(pixel_engine, combiner.PixelPipeline)
+			? &Programs->Engine_Pixel_Program(pixel_engine, combiner.PixelPipeline, wave_heading)
 			: &Programs->Pixel_Program(combiner);
     const auto retry_without_sprites=[&]() {
         if(!combiner.SoftParticle && !combiner.FireLook) return false;
@@ -1079,6 +1086,14 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
         return pixel_program->Shader != nullptr;
     };
     if (!pixel_program->Shader || (team_fault & 4)) retry_without_team_glow();
+	const auto retry_without_heading = [&]() {
+		if(!wave_heading)return false;
+		wave_heading=false;
+		vertex_program=&Programs->Water_Vertex_Program(vertex,false);
+		pixel_program=&Programs->Engine_Pixel_Program(pixel_engine,combiner.PixelPipeline,false);
+		return vertex_program->Shader && pixel_program->Shader;
+	};
+	if (!vertex_program->Shader || !pixel_program->Shader) retry_without_heading();
 	const auto retry_without_sun = [&](const char *reason) {
 		// Generated receivers add an optional program variant. Ground programs share the
 		// established engine path; their existing source keeps its own failure handling.
@@ -1142,7 +1157,7 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		retry_without_sun("receiver sampler count");
 	if (pixel_program->SamplerSlots > SdlRecordedDraw::MAXIMUM_SAMPLERS) retry_without_foam();
 	if (pixel_program->SamplerSlots > SdlRecordedDraw::MAXIMUM_SAMPLERS
-		|| vertex_program->SamplerSlots > (fft_water ? 4u : 0u)) {
+		|| vertex_program->SamplerSlots > (fft_water ? 5u : 0u)) {
 		Refuse_Draw("more sampler slots than a draw binds");
 		return D3D_OK;
 	}
@@ -1243,6 +1258,11 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
             SdlGpuFrame::Target_Colour_Format(target), Gpu->Target_Depth_Format(target), key, refusal))
             draw.Pipeline = Pipelines->Pipeline(key);
     }
+	if (!draw.Pipeline && retry_without_heading()) {
+		if (Sdl_Pipeline_Key(states, call.Type, vertex_program->Shader, pixel_program->Shader, FVF,
+			SdlGpuFrame::Target_Colour_Format(target), Gpu->Target_Depth_Format(target), key, refusal))
+			draw.Pipeline = Pipelines->Pipeline(key);
+	}
 	if (!draw.Pipeline && retry_without_sun("pipeline refused")) {
 		if (Sdl_Pipeline_Key(states, call.Type, vertex_program->Shader, pixel_program->Shader, FVF,
 			SdlGpuFrame::Target_Colour_Format(target), Gpu->Target_Depth_Format(target), key, refusal))
@@ -1291,11 +1311,13 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		draw.VertexSamplers[slot] = Gpu->Ocean_Sampler();
 	}
 
+	bool water_heading=false;
 	// The GPU copies.  Bringing one up to date can flush the batch, which leaves the ones already asked
 	// for marked as used by the batch before: so ask again until a round flushes nothing.
 	for (int round = 0; round < 3; ++round) {
 		const uint64_t batch = Gpu->Batch();
 		++phases.Rounds;
+		water_heading=false;
 		draw.SamplerCount = pixel_program->SamplerSlots;
 		for (unsigned int slot = 0; slot < pixel_program->SamplerSlots; ++slot) {
 			const int texture_stage = pixel_program->SlotTexture[slot];
@@ -1336,6 +1358,21 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 				if (!draw.Textures[slot] || !draw.Samplers[slot]) {
 					Refuse_Draw("smoke receiver binding");
 					return D3D_OK;
+				}
+				continue;
+			}
+			if (water_draw && wave_heading && texture_stage == WaterWaveHeading::PixelTextureSlot) {
+				SDL_GPUTexture *heading=Mirrors->Texture(Textures[WaterWaveHeading::PixelTextureSlot],refusal);
+				if(heading==target.Colour || heading==target.Depth) heading=NULL;
+				RenderUInt32 states[SAMPLER_STATE_COUNT];memcpy(states,SamplerStates[0],sizeof(states));
+				states[D3DSAMP_ADDRESSU]=states[D3DSAMP_ADDRESSV]=D3DTADDRESS_CLAMP;
+				states[D3DSAMP_MINFILTER]=states[D3DSAMP_MAGFILTER]=D3DTEXF_POINT;states[D3DSAMP_MIPFILTER]=D3DTEXF_NONE;
+				draw.Samplers[slot]=Samplers->Sampler(states);draw.Textures[slot]=heading?heading:Mirrors->White();
+				water_heading=heading && draw.Samplers[slot];
+				if(!draw.Textures[slot] || !draw.Samplers[slot])return D3D_OK;
+				if(draw.VertexSamplerCount>WaterWaveHeading::VertexTextureSlot) {
+					draw.VertexTextures[WaterWaveHeading::VertexTextureSlot]=draw.Textures[slot];
+					draw.VertexSamplers[WaterWaveHeading::VertexTextureSlot]=draw.Samplers[slot];
 				}
 				continue;
 			}
@@ -1610,6 +1647,9 @@ RenderResult PosixDevice9::Gpu_Draw(const DrawCall &call)
 		water.SceneParameters[2] = 1.0f / (float)target.Height;
 		water.SceneParameters[3] = water_depth ? 1.0f : 0.0f;
 		water.FftParameters[0] = fft_water ? 1.0f : 0.0f;
+		water.FftParameters[2] = water_heading ? 1.0f : 0.0f;
+		water.FftParameters[3] = water_heading ? PixelShaderConstants[WaterWaveHeading::PrevailingRegister][0] : 0.0f;
+		water.FoamFillLights[3][3] = water_heading ? PixelShaderConstants[WaterWaveHeading::PrevailingRegister][1] : 0.0f;
 		if (!water_history) water.FoamHistoryParameters[0] = 0.0f;
 		if(pixel_program->UniformBuffers==4) {
 			SdlWaterVisualPixelConstants visual;
