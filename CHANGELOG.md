@@ -80,6 +80,10 @@ found and fixed, EA's own, not port damage.**
 
 - A campaign script that checked for the end of a speech before requesting it could skip ahead as the speech began. Requesting that same speech now starts a fresh wait; unrelated dialogue waits keep their timing.
 
+## Campaign countdowns
+
+- Campaign countdowns now keep the selected game speed while the world is frozen, instead of running too quickly or too slowly depending on the frozen frame. Saving and loading preserves their timing.
+
 ## Play vs AI online
 
 - The online hub has a PLAY VS AI button under Options. One press starts a 1v1 against a computer player as strong as your AI rating, on a map and seed the server picks. The AI rating is a second rating zerohour.gg keeps beside the ladder's, starting at 0, and the hub shows it left of the button.
