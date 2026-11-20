@@ -185,6 +185,12 @@ inline bool findEarlyCommandLineValue( const wchar_t *option, char *out, size_t 
 }
 #endif
 
+/** An explicit overlay argument replaces the usual packaged and user art overlays. */
+inline bool explicitOverlayByCommandLine( void )
+{
+	return findEarlyCommandLineOption( L"-overlay" ) != NULL;
+}
+
 /** ZH_UNATTENDED in the environment, set to anything but "" or "0": the CI scripts and the test harnesses set
 	 it for every run they start, drawing or not.  Players never do. */
 inline bool unattendedByEnvironment( void )

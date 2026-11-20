@@ -248,7 +248,7 @@ bool HDAssetsMenuAvailable()
 #ifdef __linux__
     // An explicit overlay replaces implicit ReforgedArt discovery. Downloading here
     // would produce packs that this launch mode deliberately never mounts.
-    if (findEarlyCommandLineOption(L"-overlay") != NULL) return false;
+    if (explicitOverlayByCommandLine()) return false;
     return TheGameLogic && (!TheGameLogic->isInGame() || TheGameLogic->isInShellGame()) &&
         TheGlobalData && !TheGlobalData->m_headless && !HDAssets::manager().snapshot().artDirectory.empty();
 #else
