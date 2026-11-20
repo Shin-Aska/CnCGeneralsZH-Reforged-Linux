@@ -1137,6 +1137,10 @@ file(GLOB_RECURSE ZH_ONLINE_SOURCES ${GE}/Source/GameNetwork/GeneralsOnline/*.cp
 list(REMOVE_ITEM GAMEENGINE_SOURCES ${ZH_ONLINE_SOURCES})
 
 add_library(gameengine STATIC ${ZH_NOT_YET_PORTABLE} ${GAMEENGINE_SOURCES})
+# Linux's native HD archive downloader uses the already vendored TLS/SHA-256 implementation.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  target_link_libraries(gameengine PRIVATE mbedtls Threads::Threads)
+endif()
 # GameMemory.cpp asks MSVC for the engine library by the build's name (#pragma comment(lib, "GameEngineDebug")
 # under _DEBUG), so a Debug build names it that way.  Release keeps gameengine.lib, which "GameEngine" finds.
 if(MSVC)
@@ -3018,6 +3022,18 @@ if(ZH_PLATFORM_POSIX)
   set_target_properties(test_wwdownload_registry PROPERTIES CXX_STANDARD 17)
   target_link_libraries(test_wwdownload_registry PRIVATE test_harness wwlib wwdebug)
   add_test(NAME test_wwdownload_registry COMMAND test_wwdownload_registry)
+endif()
+
+# Native HD Assets storage/ownership and strict HTTP range fixtures, isolated under /tmp.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  add_executable(test_hd_assets ${TESTS}/test_hd_assets.cpp
+    ${GE}/Source/Common/HDAssetsManager.cpp ${GE}/Source/Common/HDAssetsTransport.cpp)
+  target_include_directories(test_hd_assets PRIVATE ${GE}/Include)
+  target_compile_definitions(test_hd_assets PRIVATE HD_ASSETS_TESTING)
+  set_target_properties(test_hd_assets PROPERTIES CXX_STANDARD 17)
+  target_link_libraries(test_hd_assets PRIVATE mbedtls Threads::Threads)
+  add_test(NAME test_hd_assets COMMAND test_hd_assets)
+  set_tests_properties(test_hd_assets PROPERTIES TIMEOUT 30)
 endif()
 
 # The user's folders off Windows (C1 (e)): the user data directory and the Desktop, EarlyOptions.h's

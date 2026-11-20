@@ -55,6 +55,9 @@
 #include "Common/Debug.h"
 #include "Common/EarlyCommandLine.h"
 #include "Common/EarlyOptions.h"
+#ifdef __linux__
+#include "Common/HDAssetsManager.h"
+#endif
 #include "Common/Errors.h"
 #include "Common/ExecutableDirectory.h"
 #include "Common/GameEngine.h"
@@ -348,11 +351,15 @@ static Bool chooseInstallRoot( int argc, char *argv[], const std::vector<std::st
 	return TRUE;
 }
 
-/** A package's art overlay, the macOS app's or a Linux package's: "<user data>/ReforgedArt", when it is a
-	* folder.  Neither ships the Reforged*.big (they are over a gigabyte), and the game does not download them:
-	* whatever puts them in that folder (a launcher) is how a package gets the upscaled art. */
+/** A package's optional artwork, verified by Linux's native manager or supplied manually. */
 static void appendUserArtOverlay( std::vector<std::string> &overlays )
 {
+#ifdef __linux__
+	// Empty when the manager could not acquire a safe lifetime live-instance lock.
+	std::string candidate = HDAssets::manager().snapshot().artDirectory;
+	if (candidate.empty())
+		return;
+#else
 	char folder[ 4096 ];
 	if (!findUserDataDirectory( folder, sizeof( folder ) ))
 		return;
@@ -360,6 +367,7 @@ static void appendUserArtOverlay( std::vector<std::string> &overlays )
 	while (!candidate.empty() && (candidate[candidate.size() - 1] == '\\' || candidate[candidate.size() - 1] == '/'))
 		candidate.erase( candidate.size() - 1 );
 	candidate += "/ReforgedArt";
+#endif
 	char real[ PATH_MAX ];
 	struct stat status;
 	if (realpath( candidate.c_str(), real ) != NULL && stat( real, &status ) == 0 && S_ISDIR( status.st_mode ))
@@ -371,8 +379,9 @@ static void appendUserArtOverlay( std::vector<std::string> &overlays )
 	* beside the executable: "<exe>/../Resources/Overlay" in a macOS app bundle, or
 	* "<exe>/../share/zero-hour-reforged/overlay" in a Linux package, and after it the package's upscaled
 	* art, which lives in the user data folder, never in the package, and is read from
-	* "<user data>/ReforgedArt" when it is there (appendUserArtOverlay).  An unpacked build has neither and
-	* runs on the install alone, as before.  Resolved to real paths here, before the chdir to the root,
+	* "<user data>/ReforgedArt" when it is there (appendUserArtOverlay).  Linux also mounts user artwork
+	* for an unpackaged build, after the manager holds its live-instance lock. Resolved to real paths
+	* here, before the chdir to the root,
 	* so a relative -overlay means what it meant where the command was typed.  FALSE for an -overlay
 	* that is not a directory. */
 static Bool chooseOverlays( int argc, char *argv[], std::vector<std::string> &overlays )
@@ -405,7 +414,6 @@ static Bool chooseOverlays( int argc, char *argv[], std::vector<std::string> &ov
 		if (realpath( candidate.c_str(), real ) != NULL && stat( real, &status ) == 0 && S_ISDIR( status.st_mode ))
 		{
 			overlays.push_back( real );
-			appendUserArtOverlay( overlays );
 			break;
 		}
 	}
@@ -477,6 +485,23 @@ int main( int argc, char *argv[] )
 		root[0] = 0;
 		if (!chooseInstallRoot( argc, argv, overlays, root, sizeof( root ) ))
 			return 1;		// it has said why
+		// Apply scheduled, manager-owned removals before any art archive can be mounted.
+#ifdef __linux__
+		char hdUserDirectory[4096];
+		if (findUserDataDirectory(hdUserDirectory, sizeof(hdUserDirectory)))
+			HDAssets::manager().initialize(hdUserDirectory);
+#endif
+		Bool explicitOverlay = FALSE;
+		for (int i = 1; i + 1 < argc; ++i)
+			if (strcasecmp(argv[i], "-overlay") == 0)
+				explicitOverlay = TRUE;
+#ifdef __linux__
+		// The native manager also serves unpackaged builds with no packaged overlay.
+		if (!explicitOverlay)
+#else
+		if (!explicitOverlay && !overlays.empty())
+#endif
+			appendUserArtOverlay(overlays);
 		if (chdir( root ) != 0)
 		{
 			fprintf( stderr, "generals: cannot use '%s' as the install root: %s\n", root, strerror( errno ) );
@@ -591,6 +616,9 @@ int main( int argc, char *argv[] )
 
 		// run the game main loop
 		GameMain(argc, argv);
+#ifdef __linux__
+		HDAssets::manager().shutdown();
+#endif
 		SdlGameEngine_releaseWindow();		// after the engine, as WinMain's DestroyWindow
 
 		delete TheVersion;

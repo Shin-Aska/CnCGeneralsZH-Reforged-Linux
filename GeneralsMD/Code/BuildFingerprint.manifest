@@ -1627,6 +1627,8 @@ GameEngine/Include/Common/GameStateMap.h
 GameEngine/Include/Common/GameType.h
 GameEngine/Include/Common/Geometry.h
 GameEngine/Include/Common/GlobalData.h
+GameEngine/Include/Common/HDAssetsManager.h
+GameEngine/Include/Common/HDAssetsTransport.h
 GameEngine/Include/Common/Handicap.h
 GameEngine/Include/Common/INI.h
 GameEngine/Include/Common/INIException.h
@@ -2237,6 +2239,8 @@ GameEngine/Source/Common/GameEngine.cpp
 GameEngine/Source/Common/GameLOD.cpp
 GameEngine/Source/Common/GameMain.cpp
 GameEngine/Source/Common/GlobalData.cpp
+GameEngine/Source/Common/HDAssetsManager.cpp
+GameEngine/Source/Common/HDAssetsTransport.cpp
 GameEngine/Source/Common/INI/INI.cpp
 GameEngine/Source/Common/INI/INIAiData.cpp
 GameEngine/Source/Common/INI/INIAnimation.cpp
@@ -4517,6 +4521,7 @@ Tests/test_harness.h
 Tests/test_hazard_cloud_bake.cpp
 Tests/test_hazard_cloud_policy.cpp
 Tests/test_hazard_cloud_shared.cpp
+Tests/test_hd_assets.cpp
 Tests/test_hostile_map.inc
 Tests/test_hotkey_scheme.inc
 Tests/test_hotkey_scheme_map.inc
