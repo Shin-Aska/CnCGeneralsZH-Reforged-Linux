@@ -1681,6 +1681,7 @@ GameEngine/Include/Common/Recorder.h
 GameEngine/Include/Common/Registry.h
 GameEngine/Include/Common/RegistryFile.h
 GameEngine/Include/Common/ResourceGatheringManager.h
+GameEngine/Include/Common/RetailLanguages.h
 GameEngine/Include/Common/STLTypedefs.h
 GameEngine/Include/Common/SafeDisc/.gitignore
 GameEngine/Include/Common/SafeDisc/CdaPfn.h

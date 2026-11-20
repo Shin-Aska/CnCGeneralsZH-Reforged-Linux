@@ -54,6 +54,7 @@
 #include "Common/AsciiString.h"
 #include "Common/file.h"
 #include "Common/GameMemory.h"
+#include "Common/FileSystem.h"
 #include "Common/LocalFileSystem.h"
 #include "PosixDevice/Common/PosixLocalFileSystem.h"
 #include "Win32Device/Common/Win32BIGFileSystem.h"
@@ -362,6 +363,28 @@ void run_suite(const std::string & root, const char * where)
 }
 
 } // namespace
+
+// ArchiveFileSystem's retail texture recognition must use the same language rules
+// as the full file system, even though this fixture does not link gameengine.
+TEST(retail_archive_languages_match_installed_language_rules)
+{
+	static const char *const languages[] = {
+		"english", "german", "french", "spanish", "italian",
+		"korean", "chinese", "brazilian", "polish", "russian"
+	};
+	for (size_t i = 0; i < sizeof(languages) / sizeof(languages[0]); ++i) {
+		CHECK(FileSystem::isRetailLanguage(languages[i]));
+		std::string mixed = languages[i];
+		for (size_t j = 0; j < mixed.size(); j += 2)
+			mixed[j] = (char)(mixed[j] - 'a' + 'A');
+		CHECK(FileSystem::isRetailLanguage(mixed.c_str()));
+	}
+	CHECK(!FileSystem::isRetailLanguage(""));
+	CHECK(!FileSystem::isRetailLanguage("turkish"));
+	CHECK(!FileSystem::isRetailLanguage("W3DEnglish"));
+	CHECK(!FileSystem::isRetailLanguage("englishZH"));
+	CHECK(!FileSystem::isRetailLanguage("english.big"));
+}
 
 TEST(big_archives_mount_as_windows_mounts_them_on_this_volume)
 {

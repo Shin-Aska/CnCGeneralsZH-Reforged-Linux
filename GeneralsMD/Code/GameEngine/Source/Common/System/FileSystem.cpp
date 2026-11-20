@@ -856,18 +856,6 @@ Bool FileSystem::createDirectory(AsciiString directory)
 	 then threw on Data\german\Language.ini before the first frame (player report #39). A German-only
 	 install has no english to fall back to either (issue #63), so every retail language is tried.
 	 Empty when no Language.ini is found at all. */
-static const char *const RetailLanguages[] = { "english", "german", "french", "spanish", "italian",
-	"korean", "chinese", "brazilian", "polish", "russian" };
-
-Bool FileSystem::isRetailLanguage(const char *language)
-{
-	for (Int i = 0; i < (Int)ARRAY_SIZE(RetailLanguages); ++i) {
-		if (strcasecmp(language, RetailLanguages[i]) == 0)
-			return TRUE;
-	}
-	return FALSE;
-}
-
 AsciiString FileSystem::installedLanguage(const AsciiString &language) const
 {
 	AsciiString probe;
@@ -876,10 +864,10 @@ AsciiString FileSystem::installedLanguage(const AsciiString &language) const
 		if (doesFileExist(probe.str()))
 			return language;
 	}
-	for (Int i = 0; i < (Int)ARRAY_SIZE(RetailLanguages); ++i) {
-		probe.format("Data\\%s\\Language.ini", RetailLanguages[i]);
+	for (Int i = 0; i < (Int)ARRAY_SIZE(RetailLanguages::names); ++i) {
+		probe.format("Data\\%s\\Language.ini", RetailLanguages::names[i]);
 		if (doesFileExist(probe.str()))
-			return AsciiString(RetailLanguages[i]);
+			return AsciiString(RetailLanguages::names[i]);
 	}
 	return AsciiString::TheEmptyString;
 }
@@ -893,10 +881,10 @@ AsciiString FileSystem::installedLanguage(const AsciiString &language) const
 AsciiString FileSystem::zeroHourLanguage() const
 {
 	AsciiString probe;
-	for (Int i = 0; i < (Int)ARRAY_SIZE(RetailLanguages); ++i) {
-		probe.format("%sZH.big", RetailLanguages[i]);
+	for (Int i = 0; i < (Int)ARRAY_SIZE(RetailLanguages::names); ++i) {
+		probe.format("%sZH.big", RetailLanguages::names[i]);
 		if (TheLocalFileSystem->doesFileExist(probe.str()))
-			return AsciiString(RetailLanguages[i]);
+			return AsciiString(RetailLanguages::names[i]);
 	}
 	return AsciiString::TheEmptyString;
 }
