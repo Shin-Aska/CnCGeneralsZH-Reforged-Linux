@@ -34,7 +34,7 @@
 	rather than desyncing partway through it. The fingerprint test in
 	test_gameengine.cpp fails until the version and the recorded CRCs agree, so
 	the bump cannot be forgotten. */
-#define RANDOM_MAP_GENERATOR_VERSION 19
+#define RANDOM_MAP_GENERATOR_VERSION 20
 
 /** How much ground the map gives everybody, before the per-player share. Players see them as
 	Tiny, Small, Medium, Large and Extra Large. */
@@ -95,6 +95,12 @@ public:
 		reachable, on the finished ground. A map that is not is still built, and logged; this is how a
 		test or a tool tells. A template map's own report (RMGTemplateReport) says the same for it. */
 	static Bool isPlayable( const RandomMapSettings& settings );
+
+	/** Every way the plain or styled generator carved or paved for these settings, as the map cells
+		(y * width + x, border included) along each one in order: the passes and repairs cut between
+		bases and to the money, the massif ramps and the town streets. For the measuring tools; the map
+		itself does not carry the carved ones. */
+	static void roadCells( const RandomMapSettings& settings, std::vector< std::vector<Int> >& roads, Int *mapWidth );
 
 	/** How big a map of this size is for this many players. Every player brings
 		ground with them, so an eight-way game is not eight bases crammed onto a

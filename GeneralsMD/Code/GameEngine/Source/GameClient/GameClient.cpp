@@ -670,6 +670,8 @@ static void updateOnline( void )
 	if (!OnlineIsEnabled())
 		return;
 	Transport::keepOnlineRelay();
+	// the server's lines on any screen, a match included: a notice or maintenance shows on the banner at once
+	OnlinePumpIfConnected();
 
 	/* Play vs AI: an ai.tick every half minute while the match plays, and its result once, on the pass the
 		 victory conditions decide it, or as a loss on the first pass after it was left undecided (a quit).
@@ -1085,7 +1087,8 @@ void GameClient::update( void )
 			 not the client - which is what makes an unattended run fast: rendering is the larger half
 			 of the loop's wall clock in a normal match.  -jumpToFrame skips it the same way until its
 			 frame, past the first, which draws the load away. */
-		const Bool jumping = TheGlobalData->m_noDraw > TheGameLogic->getFrame() && TheGameLogic->getFrame() > 0;
+		const Bool jumping = ( TheGlobalData->m_noDraw > TheGameLogic->getFrame() && TheGameLogic->getFrame() > 0 )
+			|| TheObserverCamera.replaySkipsDraw( TheGameLogic->getFrame() );	// -directorreplays draws its replays alone
 		if (!TheGlobalData->m_headless && !jumping)
 		{
 #ifdef DEBUG_LOGGING
@@ -1095,14 +1098,15 @@ void GameClient::update( void )
 			// LOGIC-THREAD.md phase 3, step 3b: the message stream and the pacer run here, so a
 			// due tick can go to the logic thread when the draw's sync point is done
 			LogicThread::prepareOverlap();
-			/* -directorrecord's panes: every pane past the first is drawn first, for the recording only
-				 and never presented, then the frame everybody sees.  W3D's clock stands still for every
-				 draw after the first on one client frame, so nothing animates twice. */
-			for( Int pane = 1; pane < TheObserverCamera.getDrawnPaneCount(); pane++ )
+			/* -directorrecord's corner window at the lower right, a second action off the picture, is
+				 drawn first, for the recording only and never presented, then the frame everybody sees.
+				 W3D's clock stands still for every draw after the first on one client frame, so nothing
+				 animates twice. */
+			if( TheObserverCamera.isWindowDrawn() )
 			{
-				TheObserverCamera.beginPanePass( pane );
+				TheObserverCamera.beginWindowPass();
 				TheDisplay->DRAW();
-				TheObserverCamera.endPanePass();
+				TheObserverCamera.endWindowPass();
 			}
 			TheDisplay->DRAW();
 #ifdef DEBUG_LOGGING

@@ -161,6 +161,7 @@ static int GetSystemMetrics( int which )
 #include "GameNetwork/NetPacket.h"
 #include "GameNetwork/GameInfo.h"
 #include "GameNetwork/GUIUtil.h"
+#include "GameNetwork/GameSpy/StagingRoomGameInfo.h"
 #include <float.h>
 #include "GameClient/Water.h"
 #include "GameClient/Shadow.h"
@@ -6768,6 +6769,44 @@ TEST(match_pace_is_frames_per_second_limit_at_every_game_speed)
 	TheWritableGlobalData = saved;
 }
 
+TEST(ranked_matches_play_retail_pace_and_custom_rooms_stay_native)
+{
+	/* A LAN game, a Quick Match and a Play vs AI match play RETAIL_GAME_SPEED_PERCENT, retail's own
+	   pace: a game second is the full LOGICFRAMES_PER_SECOND ticks.  The Quick Match sets it on the room
+	   after enterGame, and the next room's enterGame (host or joiner) puts it back to native, so a custom
+	   online room after a ranked one still plays NATIVE_GAME_SPEED_PERCENT. */
+	CHECK_EQ( (Int)RETAIL_GAME_SPEED_PERCENT, 100 );
+	CHECK( GameSpeed_isAllowed( RETAIL_GAME_SPEED_PERCENT ) );
+	GameSpeed_set( RETAIL_GAME_SPEED_PERCENT );
+	CHECK_EQ( LOGICFRAMES_PER_GAME_SECOND, (Int)LOGICFRAMES_PER_SECOND );
+	GameSpeed_set( NATIVE_GAME_SPEED_PERCENT );
+
+	GlobalData *saved = TheWritableGlobalData;
+	TheWritableGlobalData = NEW GlobalData;
+	SkirmishGameInfo room;
+	room.init();
+	room.enterGame();
+	CHECK_EQ( room.getGameSpeedPercent(), (Int)NATIVE_GAME_SPEED_PERCENT );
+	room.setGameSpeedPercent( RETAIL_GAME_SPEED_PERCENT );
+	CHECK_EQ( room.getGameSpeedPercent(), (Int)RETAIL_GAME_SPEED_PERCENT );
+	room.reset();		// markAsStagingRoomHost / Joiner: reset, then enterGame
+	room.enterGame();
+	CHECK_EQ( room.getGameSpeedPercent(), (Int)NATIVE_GAME_SPEED_PERCENT );
+
+	/* The online room is one object for the whole sign-in.  The Quick Match marks it ranked after its
+	   enterGame, and the next room's reset has to take that back, or a custom game scores as ranked. */
+	GameSpyStagingRoom online;
+	CHECK( !online.isQMGame() );
+	online.enterGame();
+	online.markGameAsQM();
+	CHECK( online.isQMGame() );
+	online.reset();
+	online.enterGame();
+	CHECK( !online.isQMGame() );
+	delete TheWritableGlobalData;
+	TheWritableGlobalData = saved;
+}
+
 TEST(controlbar_seconds_are_real_seconds_at_the_current_game_speed)
 {
 	/* The number on a build button is a promise about how long you will be waiting, and the logic
@@ -9128,6 +9167,10 @@ TEST(random_pool_round_trips_and_plain_random_leaves_out_turkiye)
 	CHECK( !IsValidPlayerTemplatePick( 5 ) );
 	CHECK( IsValidPlayerTemplatePick( PLAYERTEMPLATE_OBSERVER ) );
 	CHECK( IsValidPlayerTemplatePick( 4 ) );
+	// a template with no command center is no seat's army: a saved Civilian computer seat (retail's
+	// number 0) crashed the match start in 4.0.0
+	CHECK( !IsValidPlayerTemplatePick( 0 ) );
+	CHECK( !IsValidPlayerTemplatePick( PlayerTemplateFromSlotField( AsciiString( "0" ) ) ) );
 
 	// the slot string carries a pool as its mask in hex, nine bytes at the widest where the number was eleven
 	CHECK_STR( PlayerTemplateSlotField( pick ).str(), "P9" );
@@ -12216,6 +12259,8 @@ struct RMGParse
 	std::vector<Int> m_classTiles, m_classWidths;	///< each class's tile count and sheet width
 	std::vector<Short> m_cliffIndexes;			///< per cell, into m_cliffInfos; 0 is the planar tiling
 	std::vector<RMGCliffInfo> m_cliffInfos;		///< the table, entry 0 the default the file never holds
+	std::vector<char> m_cliffBits;				///< the pathfinder's cliff bit a cell, rows of m_cliffRowBytes, bit x & 7
+	Int m_cliffRowBytes;
 	std::vector<AsciiString> m_waypointNames;
 	std::vector<Coord3D> m_waypointPositions;
 	std::vector<AsciiString> m_pathWaypointNames;		///< the approach paths' waypoints, "Center2_from1_0"
@@ -12238,7 +12283,7 @@ struct RMGParse
 		m_numTextureClasses(0), m_firstTile(0), m_numTiles(0), m_tileWidth(0),
 		m_numSides(0), m_numTeams(0), m_numObjects(0), m_numWaterAreas(0),
 		m_weather(-1), m_compression(-1), m_timeOfDay(-1), m_lightingBytesLeftOver(-1),
-		m_blendBytesLeftOver(-1)
+		m_blendBytesLeftOver(-1), m_cliffRowBytes(0)
 	{
 		memset( m_terrainAmbient, 0, sizeof(m_terrainAmbient) );
 		memset( m_terrainDiffuse, 0, sizeof(m_terrainDiffuse) );
@@ -12287,8 +12332,14 @@ static Bool RMGParseBlendTile( DataChunkInput &file, DataChunkInfo *info, void *
 	if( info->version >= 7 )
 	{
 		Int rowBytes = info->version == 7 ? ( theRMGParse.m_width + 1 ) / 8 : ( theRMGParse.m_width + 7 ) / 8;
-		std::vector<char> cliffBits( rowBytes * theRMGParse.m_height + 1 );
-		file.readArrayOfBytes( &cliffBits[0], rowBytes * theRMGParse.m_height );
+		theRMGParse.m_cliffBits.assign( rowBytes * theRMGParse.m_height + 1, 0 );
+		file.readArrayOfBytes( &theRMGParse.m_cliffBits[0], rowBytes * theRMGParse.m_height );
+		theRMGParse.m_cliffRowBytes = rowBytes;
+	}
+	else
+	{
+		theRMGParse.m_cliffBits.clear();
+		theRMGParse.m_cliffRowBytes = 0;
 	}
 
 	theRMGParse.m_numBitmapTiles = file.readInt();
@@ -14012,10 +14063,17 @@ TEST(a_ford_takes_the_short_stretch_beside_it_rather_than_leave_a_pond)
 		parseGeneratedMap( bytes );
 		CHECK( !theRMGParse.m_waterPolygons.empty() );
 
-		// the stubs came out at 270 to 380 square cells; the shortest real stretch here is over 1500
+		/* the stubs came out at 270 to 380 square cells; the shortest real stretch here is over 1500.
+			A stretch that runs on off the map is the river's end, not a pond, however short. */
+		const Real edge = (Real)settings.m_playableCells * MAP_XY_FACTOR;
 		for( Int area = 0; area < (Int)theRMGParse.m_waterPolygons.size(); area++ )
 		{
 			const std::vector<Coord3D>& polygon = theRMGParse.m_waterPolygons[area];
+			Bool offTheMap = FALSE;
+			for( Int p = 0; p < (Int)polygon.size(); p++ )
+				offTheMap = offTheMap || polygon[p].x < 0.0f || polygon[p].y < 0.0f || polygon[p].x > edge || polygon[p].y > edge;
+			if( offTheMap )
+				continue;
 			Real twice = 0.0f;
 			for( Int p = 0, last = (Int)polygon.size() - 1; p < (Int)polygon.size(); last = p++ )
 				twice += polygon[last].x * polygon[p].y - polygon[p].x * polygon[last].y;
@@ -14968,15 +15026,15 @@ TEST(the_generator_still_turns_a_seed_into_the_bytes_it_used_to)
 {
 	CHECK( bootOnce() );
 
-	CHECK_EQ( RANDOM_MAP_GENERATOR_VERSION, 19 );
+	CHECK_EQ( RANDOM_MAP_GENERATOR_VERSION, 20 );
 
 	struct RMGFingerprint { Int m_seed, m_players, m_cells, m_style; UnsignedInt m_crc; };
 	static const RMGFingerprint theFingerprints[] =
 	{
-		{ 0, 2, 64, 0, 0x37DE617A },
-		{ 12345, 4, 96, 0, 0xFDB4EB7C },
-		{ 7, 8, 128, 0, 0x14D69CEE },
-		{ 7, 4, 200, 1, 0xBFE61224 },
+		{ 0, 2, 64, 0, 0xE9E74BA7 },
+		{ 12345, 4, 96, 0, 0xCEE6ECA4 },
+		{ 7, 8, 128, 0, 0x9345A3BC },
+		{ 7, 4, 200, 1, 0xBFE61244 },
 	};
 	const Int numFingerprints = sizeof(theFingerprints) / sizeof(theFingerprints[0]);
 
@@ -15212,6 +15270,27 @@ TEST(write_the_maps_RMG_DUMP_names)
 		CHECK( out != NULL );
 		fwrite( &preview[0], 1, preview.size(), out );
 		fclose( out );
+
+		// the carved ways too, which the map does not keep: width, count, then each one's length and cells
+		if( settings.m_template.isEmpty() )
+		{
+			std::vector< std::vector<Int> > roads;
+			Int width = 0;
+			RandomMapGenerator::roadCells( settings, roads, &width );
+			file.format( "%s.roads", name );
+			out = fopen( file.str(), "wb" );
+			CHECK( out != NULL );
+			Int count = (Int)roads.size();
+			fwrite( &width, sizeof(Int), 1, out );
+			fwrite( &count, sizeof(Int), 1, out );
+			for( Int r = 0; r < count; r++ )
+			{
+				Int length = (Int)roads[r].size();
+				fwrite( &length, sizeof(Int), 1, out );
+				fwrite( &roads[r][0], sizeof(Int), length, out );
+			}
+			fclose( out );
+		}
 		printf( "  wrote %s.map (%d bytes)\n", name, (Int)map.size() );
 	}
 }
@@ -15259,7 +15338,7 @@ TEST(a_template_map_comes_out_the_same_twice_and_every_start_walks_to_every_othe
 	RandomMapGenerator::generate( exemplarSettings, exemplar );
 
 	// the bytes themselves, pinned like the generator's: a change here is a change to every template map's name
-	static const UnsignedInt theTemplateFingerprints[2] = { 0x1357CB4Cu, 0xE273FE41u };
+	static const UnsignedInt theTemplateFingerprints[2] = { 0xCB55DF22u, 0x64B83240u };
 	for( Int players = 2; players <= 8; players += 6 )
 	{
 		RandomMapSettings settings;
@@ -15485,7 +15564,8 @@ TEST(a_river_town_crossing_keeps_its_bridge_ends_dry_and_says_what_it_left)
 	CHECK( bootOnce() );
 
 	RandomMapSettings exemplarSettings;
-	exemplarSettings.m_seed = 2;
+	// seed 2 until generator version 20; its new river has the town's crossing on no calm reach
+	exemplarSettings.m_seed = 9;
 	exemplarSettings.m_numPlayers = 4;
 	exemplarSettings.m_playableCells = 304;
 	RandomMapGenerator::clampSettings( exemplarSettings );
@@ -16651,10 +16731,13 @@ TEST(a_template_map_gives_every_seat_the_same_base_and_keeps_its_money_on_the_ma
 				piles[gap]++;
 			}
 		}
+		// the steepest cell the pathfinder walks; a copy's rim over the basin is a cliff and carries the bit
 		Real steepest = 0.0f;
+		CHECK( theRMGParse.m_cliffRowBytes > 0 );
 		for( Int y = b; y + 1 < theRMGParse.m_height - b; y++ )
 			for( Int x = b; x + 1 < W - b; x++ )
-				steepest = std::max( steepest, RMGCellSpan( x, y ) );
+				if( theRMGParse.m_cliffRowBytes > 0 && ( theRMGParse.m_cliffBits[y * theRMGParse.m_cliffRowBytes + ( x >> 3 )] & ( 1 << ( x & 7 ) ) ) == 0 )
+					steepest = std::max( steepest, RMGCellSpan( x, y ) );
 		Bool even = TRUE;
 		for( size_t s = 1; s < tops.size(); s++ ) even = even && tops[s] == tops[0];
 		for( size_t s = 0; s < piles.size() && theCases[c].uneven; s++ ) even = even && piles[s] == 4;
@@ -16682,8 +16765,10 @@ TEST(a_template_map_gives_every_seat_the_same_base_and_keeps_its_money_on_the_ma
 			for( size_t s = 0; s < piles.size(); s++ )
 				CHECK_EQ( piles[s], 4 );
 		// the way joining two plateaus falls back to the ground over cells, not in one: 85 world units a
-		// cell at 2p and 43 at 8p with a hard edge, 33 and 28 faded
-		CHECK( steepest <= 40.0f );
+		// cell at 2p and 43 at 8p with a hard edge, 33 and 28 faded. A copy's hill now ends in a cliff of
+		// three cells where it stands over 30 bytes off the basin, 88 at 2p on a diagonal, so the slope
+		// counted is the one walked: every cell spanning 10 bytes is a wall to the pathfinder
+		CHECK( steepest < 10.0f * MAP_HEIGHT_SCALE );
 		// no tree on a wall the copy's ramps or levelled discs made (11 at 2p, the exemplar's own cliffs excepted)
 		CHECK_EQ( treesOnCliffs, 0 );
 	}
@@ -17140,10 +17225,10 @@ TEST(the_ground_is_textured_by_what_the_ground_is_doing)
 
 	Two of the kinds are told apart by what stands on them and how high the middle is. A black
 	forest has trees in nearly every patch of ground away from the bases, and none on the ride from
-	a base to the middle. A massif lifts the middle well above the ring the bases stand on, and the
-	top is ground a unit from player one's base can drive onto. Forty seeds hold three forests and
-	six massifs; on 128 cells the thresholds pick out all three forests and four of the massifs, and
-	no seed of another kind. */
+	a base to the middle. A massif lifts ground near the middle well above the ring the bases stand
+	on, and its highest point is ground a unit from player one's base can drive onto. Forty seeds
+	hold three forests and six massifs; the thresholds pick out all three forests and at least one
+	massif. */
 //-------------------------------------------------------------------------------------------------
 TEST(a_seed_picks_its_map_type_and_its_ground)
 {
@@ -17244,22 +17329,38 @@ TEST(a_seed_picks_its_map_type_and_its_ground)
 			CHECK_EQ( rideTrees, 0 );
 		}
 
-		// The middle against the ring the bases stand on.
+		/* The highest ground near the middle against the ring the bases stand on. A massif stands off
+			the middle and can be two tables, so the top is searched for within a quarter of the map of
+			the middle rather than read at it. */
 		const Int width = theRMGParse.m_width;
 		const Int border = theRMGParse.m_border;
 		Real middle = 0.0f;
-		Int middleSamples = 0;
-		for( Int dy = -6; dy <= 6; dy++ )
+		Int topX = (Int)centre, topY = (Int)centre;
+		for( Int cy = (Int)( centre - playable * 0.25f ); cy <= (Int)( centre + playable * 0.25f ); cy += 2 )
 		{
-			for( Int dx = -6; dx <= 6; dx++ )
+			for( Int cx = (Int)( centre - playable * 0.25f ); cx <= (Int)( centre + playable * 0.25f ); cx += 2 )
 			{
-				if( dx * dx + dy * dy > 36 )
-					continue;
-				middle += (Real)theRMGParse.m_heights[( (Int)centre + dy + border ) * width + (Int)centre + dx + border];
-				middleSamples++;
+				Real here = 0.0f;
+				Int samples = 0;
+				for( Int dy = -6; dy <= 6; dy += 2 )
+				{
+					for( Int dx = -6; dx <= 6; dx += 2 )
+					{
+						if( dx * dx + dy * dy > 36 )
+							continue;
+						here += (Real)theRMGParse.m_heights[( cy + dy + border ) * width + cx + dx + border];
+						samples++;
+					}
+				}
+				here /= (Real)samples;
+				if( here > middle )
+				{
+					middle = here;
+					topX = cx;
+					topY = cy;
+				}
 			}
 		}
-		middle /= (Real)middleSamples;
 		Real ring = 0.0f;
 		for( Int k = 0; k < 32; k++ )
 		{
@@ -17270,28 +17371,12 @@ TEST(a_seed_picks_its_map_type_and_its_ground)
 		}
 		ring /= 32.0f;
 
-		// And how many bearings out of the middle run into a cliff before they reach that ring.
-		Int walled = 0;
-		for( Int k = 0; k < 64; k++ )
-		{
-			Real angle = 2.0f * PI * (Real)k / 64.0f;
-			for( Real r = 0.0f; r < playable * 0.30f; r += 1.0f )
-			{
-				Int x = (Int)( centre + r * Cos( angle ) ) + border;
-				Int y = (Int)( centre + r * Sin( angle ) ) + border;
-				if( RMGCellSpan( x, y ) > 9.8f )
-				{
-					walled++;
-					break;
-				}
-			}
-		}
-		if( middle > ring + 45.0f && walled >= 48 )
+		if( middle > ring + 40.0f )
 		{
 			massifMaps++;
 			std::vector<char> seen;
 			RMGFloodFillFromFirstStart( seen );
-			CHECK( seen[( (Int)centre + border ) * width + (Int)centre + border] );
+			CHECK( seen[( topY + border ) * width + topX + border] );
 		}
 	}
 
@@ -18152,6 +18237,50 @@ static void stampCost( AIInfluenceMap &map, Real x, Real y, Real z, Real range, 
 {
 	const Real cost[ AITHREAT_COUNT ] = { power, 0.0f, 0.0f };
 	map.stampEnemy( x, y, z, range, 0.0f, cost );
+}
+
+/** The loss map: a loss sits in its cell, a read round a spot takes the cell and its neighbours, a read along
+	 a road counts each cell once however many of its spots reach it, and it fades to nothing under the least. */
+TEST(loss_map_reads_each_cell_once_and_fades)
+{
+	AILossMap losses;
+	losses.reset( 0.0f, 0.0f, 600.0f, 600.0f, 60.0f );
+	losses.add( 330.0f, 330.0f, 1000.0f );		// cell 5,5, centre 330,330
+	losses.add( 400.0f, 330.0f, 500.0f );			// cell 6,5, centre 390,330
+	losses.add( -5.0f, 330.0f, 9999.0f );			// off the grid: nothing
+	CHECK_EQ( 1500.0f, losses.lossAround( 330.0f, 330.0f, 90.0f ) );
+	CHECK_EQ( 0.0f, losses.lossAround( 100.0f, 100.0f, 90.0f ) );
+
+	const Real xs[] = { 300.0f, 320.0f, 340.0f, 360.0f, 380.0f };
+	const Real ys[] = { 330.0f, 330.0f, 330.0f, 330.0f, 330.0f };
+	std::vector<Int> scratch;
+	CHECK_EQ( 1500.0f, losses.lossAround( xs, ys, 5, 90.0f, scratch ) );
+
+	losses.fade( 0.5f, 300.0f );
+	CHECK_EQ( 500.0f, losses.lossAround( 330.0f, 330.0f, 90.0f ) );		// 250 went under 300 and was cleared
+}
+
+/** The lanes weighed with their losses: shares of both, a missing lane left alone, and with no loss anywhere
+	 the firepower untouched to the bit. */
+TEST(lane_losses_turn_a_wave_off_the_road_it_died_on)
+{
+	Real firepower[ 3 ] = { 100.0f, 300.0f, -1.0f };
+	const Real none[ 3 ] = { 0.0f, 0.0f, 0.0f };
+	aiWeighLaneLosses( firepower, none, 3, 1.0f );
+	CHECK_EQ( 100.0f, firepower[ 0 ] );
+	CHECK_EQ( 300.0f, firepower[ 1 ] );
+	CHECK_EQ( 0, aiLeastDefendedLane( firepower, 3, 1 ) );
+
+	const Real lost[ 3 ] = { 3000.0f, 0.0f, 0.0f };
+	aiWeighLaneLosses( firepower, lost, 3, 1.0f );
+	CHECK_NEAR( firepower[ 0 ], 1.25f, 0.0001f );		// a quarter of the guns, all of the losses
+	CHECK_NEAR( firepower[ 1 ], 0.75f, 0.0001f );
+	CHECK_EQ( -1.0f, firepower[ 2 ] );
+	CHECK_EQ( 1, aiLeastDefendedLane( firepower, 3, 0 ) );
+
+	Real off[ 2 ] = { 100.0f, 300.0f };
+	aiWeighLaneLosses( off, lost, 2, 0.0f );		// Easy reads no losses
+	CHECK_EQ( 100.0f, off[ 0 ] );
 }
 
 TEST(influence_map_covers_what_a_gun_reaches_and_the_high_ground_reaches_further)
@@ -20631,6 +20760,56 @@ TEST(every_ai_rung_is_named_the_same_way_as_every_other)
 	for (Int a = 0; a < numRungs; ++a)
 		for (Int b = a + 1; b < numRungs; ++b)
 			CHECK( WideCharCmp( SlotStateName( rungs[a] ).str(), SlotStateName( rungs[b] ).str() ) != 0 );
+}
+
+/* The four levels above Hard are Hard seats at ratings 45, 60, 90 and 120.  The slot box's item data
+	 holds a SlotState or one of those ratings, so they must never meet; a Hard seat at one of them goes
+	 by that level's name and comes back to that line, and any other rating stays plain Hard. */
+TEST(levels_above_hard_are_hard_seats_with_names_of_their_own)
+{
+	for (Int i = 0; i < AI_LEVELS_ABOVE_HARD; ++i)
+	{
+		const Int rating = AILevelAboveHardRating[i];
+		CHECK( rating > SLOT_TAKEOVER );
+		CHECK( WideCharCmp( SlotStateName( SLOT_BRUTAL_AI, rating ).str(), SlotStateName( SLOT_BRUTAL_AI ).str() ) != 0 );
+		if (i > 0)
+			CHECK( rating > AILevelAboveHardRating[i - 1] );
+	}
+	CHECK( WideCharCmp( SlotStateName( SLOT_BRUTAL_AI, 6000 ).str(), u"Vicious AI" ) == 0 );
+	CHECK( WideCharCmp( SlotStateName( SLOT_BRUTAL_AI, 5000 ).str(), u"Hard AI" ) == 0 );
+	CHECK( WideCharCmp( SlotStateName( SLOT_MED_AI, 6000 ).str(), u"Medium AI" ) == 0 );
+
+	// picking the level seats Hard at its rating under its name, and the seat finds its line again
+	GameSlot slot;
+	SlotApplyPick( &slot, 6000 );
+	CHECK_EQ( (Int)slot.getState(), (Int)SLOT_BRUTAL_AI );
+	CHECK_EQ( slot.getAIRating(), 6000 );
+	CHECK( WideCharCmp( slot.getName().str(), u"Vicious AI" ) == 0 );
+	CHECK_EQ( SlotPickOf( &slot ), 6000 );
+
+	// back to plain Hard drops the rating and the name, though the state does not change
+	SlotApplyPick( &slot, SLOT_BRUTAL_AI );
+	CHECK_EQ( slot.getAIRating(), (Int)AI_RATING_NONE );
+	CHECK( WideCharCmp( slot.getName().str(), u"Hard AI" ) == 0 );
+	CHECK_EQ( SlotPickOf( &slot ), (Int)SLOT_BRUTAL_AI );
+
+	// a rating set by itself, as the slot string and a save do, renames the seat too
+	slot.setAIRating( 12000 );
+	CHECK( WideCharCmp( slot.getName().str(), u"Insane AI" ) == 0 );
+
+	// a Hard seat at a rating that is not a level (-airating 50) is Hard in the box
+	slot.setAIRating( 5000 );
+	CHECK( WideCharCmp( slot.getName().str(), u"Hard AI" ) == 0 );
+	CHECK_EQ( SlotPickOf( &slot ), (Int)SLOT_BRUTAL_AI );
+
+	// a name of its own (-seatname) is left alone
+	slot.setName( UnicodeString( u"Bot" ) );
+	slot.setAIRating( 4500 );
+	CHECK( WideCharCmp( slot.getName().str(), u"Bot" ) == 0 );
+
+	SlotApplyPick( &slot, SLOT_EASY_AI );
+	CHECK_EQ( slot.getAIRating(), (Int)AI_RATING_NONE );
+	CHECK( WideCharCmp( slot.getName().str(), u"Easy AI" ) == 0 );
 }
 //-------------------------------------------------------------------------------------------------
 // THREADING-ROADMAP.md 3.1 - the fork-join pool.
@@ -23673,6 +23852,28 @@ TEST(aircraft_altitude_lines_are_a_check_box_that_starts_on)
 	CHECK( scratch->m_aircraftAltitudeLine );
 	def->set( 0 );
 	CHECK( !scratch->m_aircraftAltitudeLine );
+
+	TheWritableGlobalData = saved;
+	delete scratch;
+}
+
+TEST(selection_outlines_are_a_check_box_that_starts_on)
+{
+	const OptionDef *def = findOptionDef( "SelectionOutlines" );
+	CHECK( def != NULL );
+	if( def == NULL )
+		return;
+	CHECK_EQ( (Int)def->kind, (Int)OPTION_BOOL );
+	CHECK_EQ( (Int)def->apply, (Int)APPLY_LIVE );
+	CHECK( strstr( def->widgetName, "CheckSelectionOutlines" ) != NULL );
+
+	GlobalData *saved = TheWritableGlobalData;
+	GlobalData *scratch = NEW GlobalData;
+	TheWritableGlobalData = scratch;
+
+	CHECK( scratch->m_selectionOutlines );
+	def->set( 0 );
+	CHECK( !scratch->m_selectionOutlines );
 
 	TheWritableGlobalData = saved;
 	delete scratch;
@@ -27926,6 +28127,7 @@ namespace {
 			m_archiveFileMap[ AsciiString( name ) ] = art;
 		}
 		void mountReforged( ArchiveFile *art, const char *name ) { mountOverRetail( art, AsciiString( name ) ); }
+		void keepRetail( void ) { keepRetailTextures(); }
 	};
 }
 
@@ -28206,6 +28408,131 @@ TEST(reforged_lod_copy_is_drawn_only_when_it_keeps_what_the_logic_reads)
 	std::error_code ignored;
 	std::filesystem::remove( "Art/W3D", ignored );		// only when empty: never someone else's folder
 	std::filesystem::remove( "Art", ignored );
+}
+
+/* A reskin is a texture under a retail name from somewhere the game does not ship it: a loose file,
+	 the user folder, or a stray archive that sorts before TexturesZH.big.  None of them is drawn.  The
+	 stray's copy goes back to EA's, its other extension and its copy in a language folder go, a name of
+	 its own stays; a loose copy loses everywhere but Art\Textures under a name the fork ships. */
+TEST(a_retail_texture_comes_only_from_the_games_own_sources)
+{
+	CHECK( bootOnce() );
+	CHECK( !FileSystem::forkTextures().empty() );
+	if( FileSystem::forkTextures().empty() )
+		return;
+	const std::string fork = *FileSystem::forkTextures().begin();		// e.g. reforgedbaramericacenter.tga
+	const std::string forkStem = fork.substr( 0, fork.rfind( '.' ) );
+	const std::string retailFork = "Art\\Textures\\" + forkStem + ".dds";
+
+	static const char *const stray[] = { "Art\\Textures\\zhrtex_helix.dds", "Art\\Textures\\zhrtex_helix.tga",
+		"Data\\English\\Art\\Textures\\zhrtex_helix.dds", "Art\\Textures\\zhrtex_own.dds", NULL };
+	const std::string strayBytes[] = { "stray helix", "stray tga", "stray localized", "stray own" };
+	const char *const texturesZH[] = { "Art\\Textures\\zhrtex_helix.dds", retailFork.c_str(), NULL };
+	const std::string texturesZHBytes[] = { "retail helix", "retail fork" };
+	static const char *const englishZH[] = { "Data\\English\\Art\\Textures\\zhrtex_gameover.tga", NULL };
+	const std::string englishZHBytes[] = { "retail gameover" };
+	// EA's base game archives sit in the base game's folder; the same names beside the exe are strays,
+	// and W3DEnglishZH.big is no language archive
+	static const char *const german[] = { "Data\\German\\Art\\Textures\\zhrtex_flagge.tga", NULL };
+	const std::string germanBytes[] = { "retail flagge" };
+	static const char *const textures[] = { "Art\\Textures\\zhrtex_flag.dds", NULL };
+	const std::string texturesBytes[] = { "retail flag" };
+	static const char *const strayEnglish[] = { "Data\\English\\Art\\Textures\\zhrtex_flag.dds", NULL };
+	static const char *const strayTextures[] = { "Art\\Textures\\zhrtex_flag.tga", NULL };
+	static const char *const strayW3D[] = { "Data\\W3DEnglish\\Art\\Textures\\zhrtex_helix.dds", NULL };
+	const std::string strayOne[] = { "stray" };
+
+	MountOrderFileSystem fs;
+	fs.m_baseGameDirectory = "ZH_Generals\\";
+	fs.mountRetail( new ServingArchive( stray, strayBytes ), "!skins.big", FALSE );		// sorts first, claims first
+	fs.mountRetail( new ServingArchive( strayEnglish, strayOne ), "English.big", FALSE );
+	fs.mountRetail( new ServingArchive( englishZH, englishZHBytes ), "EnglishZH.big", FALSE );
+	fs.mountRetail( new ServingArchive( strayTextures, strayOne ), "Textures.big", FALSE );
+	fs.mountRetail( new ServingArchive( texturesZH, texturesZHBytes ), "TexturesZH.big", FALSE );
+	fs.mountRetail( new ServingArchive( strayW3D, strayOne ), "W3DEnglishZH.big", FALSE );
+	fs.mountRetail( new ServingArchive( german, germanBytes ), "ZH_Generals\\German.big", FALSE );
+	fs.mountRetail( new ServingArchive( textures, texturesBytes ), "ZH_Generals\\Textures.big", FALSE );
+	CHECK_STR( fs.getArchiveFilenameForFile( AsciiString( "art\\textures\\zhrtex_helix.dds" ) ).str(), "!skins.big" );
+	fs.keepRetail();
+
+	CHECK_STR( fs.getArchiveFilenameForFile( AsciiString( "data\\english\\art\\textures\\zhrtex_flag.dds" ) ).str(), "" );
+	CHECK_STR( fs.getArchiveFilenameForFile( AsciiString( "art\\textures\\zhrtex_flag.tga" ) ).str(), "" );
+	CHECK_STR( fs.getArchiveFilenameForFile( AsciiString( "art\\textures\\zhrtex_flag.dds" ) ).str(), "ZH_Generals\\Textures.big" );
+	CHECK_STR( fs.getArchiveFilenameForFile( AsciiString( "data\\w3denglish\\art\\textures\\zhrtex_helix.dds" ) ).str(), "" );
+	CHECK_STR( fs.getArchiveFilenameForFile( AsciiString( "data\\german\\art\\textures\\zhrtex_flagge.tga" ) ).str(), "ZH_Generals\\German.big" );
+	CHECK( fs.isRetailTexture( "Art/Textures/zhrtex_flagge.dds" ) );
+
+	// only the fork's own archive names mount over retail; a reskin renamed Reforged*.big is not one
+	CHECK( ArchiveFileSystem::isForkArchive( AsciiString( "ReforgedSkins.big" ) ) );
+	CHECK( ArchiveFileSystem::isForkArchive( AsciiString( "C:\\Run\\reforgedusa.BIG" ) ) );
+	CHECK( ArchiveFileSystem::isForkArchive( AsciiString( "ReforgedTurkiye.big" ) ) );
+	CHECK( ArchiveFileSystem::isForkArchive( AsciiString( "ReforgedNeutralG.big" ) ) );
+	CHECK( ArchiveFileSystem::isForkArchive( AsciiString( "ReforgedTextures.big" ) ) );
+	CHECK( ArchiveFileSystem::isForkArchive( AsciiString( "ReforgedTerrain.big" ) ) );
+	CHECK( !ArchiveFileSystem::isForkArchive( AsciiString( "ReforgedZSkins.big" ) ) );
+	CHECK( !ArchiveFileSystem::isForkArchive( AsciiString( "ReforgedNeutral.big" ) ) );
+	CHECK( !ArchiveFileSystem::isForkArchive( AsciiString( "ReforgedNeutralAB.big" ) ) );
+	CHECK( !ArchiveFileSystem::isForkArchive( AsciiString( "ReforgedNormals.big" ) ) );
+	CHECK( !ArchiveFileSystem::isForkArchive( AsciiString( "ReforgedSkins.big.big" ) ) );
+
+	CHECK_STR( fs.getArchiveFilenameForFile( AsciiString( "art\\textures\\zhrtex_helix.dds" ) ).str(), "TexturesZH.big" );
+	CHECK_STR( fs.getArchiveFilenameForFile( AsciiString( "art\\textures\\zhrtex_helix.tga" ) ).str(), "" );
+	CHECK_STR( fs.getArchiveFilenameForFile( AsciiString( "data\\english\\art\\textures\\zhrtex_helix.dds" ) ).str(), "" );
+	CHECK_STR( fs.getArchiveFilenameForFile( AsciiString( "data\\english\\art\\textures\\zhrtex_gameover.tga" ) ).str(), "EnglishZH.big" );
+	CHECK_STR( fs.getArchiveFilenameForFile( AsciiString( "art\\textures\\zhrtex_own.dds" ) ).str(), "!skins.big" );
+	CHECK( fs.isRetailTexture( "Art/Textures/ZHRTEX_Helix.tga" ) );
+	CHECK( fs.isRetailTexture( "Art/Textures/zhrtex_gameover.dds" ) );
+	CHECK( !fs.isRetailTexture( "Art/Textures/zhrtex_own.dds" ) );
+	CHECK( !fs.isRetailTexture( "Data/INI/zhrtex_helix.dds" ) );
+
+	const Int LOOSE = 6;
+	const std::string forkPath = "Art/Textures/" + fork, forkOtherPath = "Art/Textures/" + forkStem + ".dds";
+	const char *const loose[LOOSE] = { "Art/Textures/zhrtex_helix.dds", "Art/Textures/zhrtex_helix.tga",
+		"Data/English/Art/Textures/zhrtex_helix.dds", "UserData/Textures/zhrtex_helix.dds", forkPath.c_str(), forkOtherPath.c_str() };
+	const Bool existed[LOOSE] = { FALSE, FALSE, FALSE, FALSE, std::filesystem::exists( loose[4] ), std::filesystem::exists( loose[5] ) };
+	std::filesystem::create_directories( "Art/Textures" );
+	std::filesystem::create_directories( "Data/English/Art/Textures" );
+	std::filesystem::create_directories( "UserData/Textures" );
+	for( Int i = 0; i < LOOSE; ++i )
+	{
+		if( existed[i] )
+			continue;		// a real copy beside the test: read it, never write over it
+		FILE *fp = fopen( loose[i], "wb" );
+		CHECK( fp != NULL );
+		if( fp != NULL )
+		{
+			fputs( "loose", fp );
+			fclose( fp );
+		}
+	}
+
+	ArchiveFileSystem *const before = TheArchiveFileSystem;
+	TheArchiveFileSystem = &fs;
+	TheFileSystem->reset();
+
+	const Int access = File::READ | File::BINARY;
+	CHECK( readAllAndClose( TheFileSystem->openFile( loose[0], access ) ) == "retail helix" );		// loose loses to EA's
+	CHECK( !TheFileSystem->doesFileExist( loose[1] ) );		// the .tga the loader would take: no source of the game's
+	CHECK( readAllAndClose( TheFileSystem->openFile( loose[1], access ) ).empty() );
+	CHECK( !TheFileSystem->doesFileExist( loose[2] ) );		// the language folder the loader asks first
+	CHECK( !TheFileSystem->doesFileExist( loose[3] ) );		// the user folder
+	FileInfo info;
+	CHECK( !TheFileSystem->getFileInfo( AsciiString( loose[3] ), &info ) );
+	if( !existed[4] )
+		CHECK( readAllAndClose( TheFileSystem->openFile( loose[4], access ) ) == "loose" );		// the fork's own copy
+	CHECK( TheFileSystem->doesFileExist( loose[4] ) );
+	CHECK( readAllAndClose( TheFileSystem->openFile( loose[5], access ) ) == "retail fork" );		// not the name it ships
+
+	TheFileSystem->reset();
+	TheArchiveFileSystem = before;
+	std::error_code ignored;
+	for( Int i = 0; i < LOOSE; ++i )
+		if( !existed[i] )
+			std::filesystem::remove( loose[i], ignored );
+	const char *const folders[] = { "Art/Textures", "Art", "Data/English/Art/Textures", "Data/English/Art", "Data/English", "Data",
+		"UserData/Textures", "UserData" };
+	for( size_t i = 0; i < ARRAY_SIZE( folders ); ++i )
+		std::filesystem::remove( folders[i], ignored );		// only when empty
 }
 
 //////////////////////////////////////////////////////////////////////////////

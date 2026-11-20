@@ -122,6 +122,7 @@ enum
 	AIKNOB_MAP_LAYERS		= 256,	///< the influence map without its still, worth, hazard and memory layers, its gun shapes and its front line, as before them
 	AIKNOB_FOREIGN_TECH	= 512,	///< no other side's tech tree: a foreign dozer or Command Center is left as before, and nothing goes after one (ForeignTech 0)
 	AIKNOB_SECOND_BASE	= 1024,	///< a base away from home is a war factory on the rung's timer, as before it was a Command Center founded once home is full
+	AIKNOB_KILL_ZONES		= 2048,	///< no loss map, no hold on attacks that do not beat the known guns, no regrouping instead of a lone hunt, the enemy's defences not in the pressure, as before them
 };
 
 //-------------------------------------------------------------------------------------------------
@@ -403,6 +404,7 @@ public:
 	Int m_textLanguage;						///< TextLanguageType: the translation GameText lays over the CSF, read once at startup (client only)
 	Bool m_showOrderLines;				///< draw a line from each selected unit to where it is going, and its queue (client only)
 	Bool m_aircraftAltitudeLine;	///< "AircraftAltitudeLine": a line from each aircraft in the air down to the ground under it (client only)
+	Bool m_selectionOutlines;			///< "SelectionOutlines": the ring under each selected unit and the line round a selected building (client only)
 	Bool m_scriptDebug;						///< Should we attempt to load the script debugger window (.DLL)
 	Bool m_particleEdit;					///< Should we attempt to load the particle editor (.DLL)
 	Bool m_displayDebug;					///< Used to display display debug info
@@ -533,6 +535,7 @@ public:
 	Bool m_directorRecord;					///< -directorrecord [name]: the director films the whole match, split for two fights, and the run quits at its end
 	AsciiString m_directorScoutFile;	///< -directorscout <file>: -directorrecord's first pass, headless, writes the match's fights and special powers here
 	AsciiString m_directorTimelineFile;	///< -directortimeline <file>: what the first pass wrote, which the filming pass reads to arrive before each fight
+	AsciiString m_directorReplaysFile;	///< -directorreplays <file>: -directorrecord's third pass, the film's missed moments (its .replays) recorded again as instant replays
 	Int m_wavStartFrame;						///< -wav <from> <to> [name]: the first logic frame of the sound recording
 	Int m_wavEndFrame;							///< -wav: the last logic frame recorded (0 = no sound recording)
 	AsciiString m_wavName;					///< -wav: the recording is Videos\<name>.wav next to the save games
@@ -589,6 +592,7 @@ public:
 	Int m_onlineStart;								///< -onlinestart [N]: the -onlinehost host starts the game at N players (0 = never, bare = 2)
 	Bool m_quickMatchOnStart;					///< -quickmatch: go into the Quick Match queue once logged in
 	Bool m_onlineLoginOnStart;				///< -onlinelogin: open the online login screen at startup, nothing filled in
+	AsciiString m_testNotice;					///< -testNotice maintenance|info: the online notice banner with no server, for proof shots
 	Bool m_lanLobbyOnStart;						///< -lanlobby: open the LAN lobby instead of stopping at the main menu
 	Bool m_skirmishLobbyOnStart;			///< -skirmishlobby: open the skirmish staging room instead of stopping at the main menu
 	Bool m_optionsMenuOnStart;				///< -optionsmenu: open the options screen over the main menu at startup

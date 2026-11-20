@@ -14446,7 +14446,7 @@ GUI:FrameRateLimit4
 END
 
 TOOLTIP:FrameRateLimit
-"Wie viele Bilder pro Sekunde das Spiel in einer Partie höchstens zeichnet. Ein niedrigeres Limit hält die Grafikkarte kühler und leiser und bremst das Spiel nicht. Die Menüs halten immer bei 60."
+"Wie viele Bilder pro Sekunde das Spiel in einer Partie und in den Menüs höchstens zeichnet. Ein niedrigeres Limit hält die Grafikkarte kühler und leiser und bremst das Spiel nicht. Bei Aus läuft eine Partie so schnell, wie der Rechner zeichnet, und die Menüs halten bei 60."
 END
 
 GUI:ClassicGraphics
@@ -14910,7 +14910,7 @@ TOOLTIP:ProRules
 END
 
 TOOLTIP:GameSpeed
-"Wie schnell das Gefecht läuft. 1.0x ist das Originalspiel, 1.5x das Tempo jedes Mehrspielerspiels. Nur das Tempo ändert sich."
+"Wie schnell das Gefecht läuft. 1.0x ist das Originalspiel und das Tempo von LAN-, Ranglisten- und KI-Spielen, 1.5x das der Online-Räume. Nur das Tempo ändert sich."
 END
 
 GUI:GameSpeedMissions

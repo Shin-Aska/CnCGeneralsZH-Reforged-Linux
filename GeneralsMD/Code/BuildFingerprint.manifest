@@ -1011,6 +1011,13 @@ Data/Cinema/lsv_burst.txt
 Data/Cinema/lsv_laser.txt
 Data/Cinema/lsv_spam.txt
 Data/Cinema/lsv_spam2.txt
+Data/Cinema/mapshot_alpine_assault.txt
+Data/Cinema/mapshot_bombardment_beach.txt
+Data/Cinema/mapshot_dust_devil.txt
+Data/Cinema/mapshot_sand_serpent.txt
+Data/Cinema/mapshot_tournament_desert.txt
+Data/Cinema/mapshot_tournament_plains.txt
+Data/Cinema/mapshot_winter_wolf.txt
 Data/Cinema/minefx.txt
 Data/Cinema/minefx_blast.txt
 Data/Cinema/minefx_desert.txt
@@ -1624,6 +1631,7 @@ GameEngine/Include/Common/Handicap.h
 GameEngine/Include/Common/INI.h
 GameEngine/Include/Common/INIException.h
 GameEngine/Include/Common/IgnorePreferences.h
+GameEngine/Include/Common/InstallFiles.h
 GameEngine/Include/Common/JobSystem.h
 GameEngine/Include/Common/KindOf.h
 GameEngine/Include/Common/LadderPreferences.h
@@ -2256,6 +2264,7 @@ GameEngine/Source/Common/INI/INIVideo.cpp
 GameEngine/Source/Common/INI/INIWater.cpp
 GameEngine/Source/Common/INI/INIWeapon.cpp
 GameEngine/Source/Common/INI/INIWebpageURL.cpp
+GameEngine/Source/Common/InstallFiles.cpp
 GameEngine/Source/Common/Language.cpp
 GameEngine/Source/Common/MapObject.cpp
 GameEngine/Source/Common/MessageStream.cpp
@@ -4008,6 +4017,8 @@ Libraries/Source/WWVegas/WWLib/sampler.h
 Libraries/Source/WWVegas/WWLib/search.h
 Libraries/Source/WWVegas/WWLib/sha.cpp
 Libraries/Source/WWVegas/WWLib/sha.h
+Libraries/Source/WWVegas/WWLib/sha256.cpp
+Libraries/Source/WWVegas/WWLib/sha256.h
 Libraries/Source/WWVegas/WWLib/shapeset.h
 Libraries/Source/WWVegas/WWLib/shapipe.cpp
 Libraries/Source/WWVegas/WWLib/shapipe.h

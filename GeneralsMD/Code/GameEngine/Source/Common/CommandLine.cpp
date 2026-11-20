@@ -1392,7 +1392,7 @@ Int parseNoTactics(char *args[], int num)
 	return 2;
 }
 
-/** -aiknobsoff even|odd|all engagegate,answerarmy,massunit,basewatch,strikedodge,defensequeue,costmap,abilities,maplayers,foreigntech,secondbase: those slots keep their rung with these knobs
+/** -aiknobsoff even|odd|all engagegate,answerarmy,massunit,basewatch,strikedodge,defensequeue,costmap,abilities,maplayers,foreigntech,secondbase,killzones: those slots keep their rung with these knobs
 	* of its profile off, so a batch can play Hard against Hard without them, or a scenario against the AI
 	* as it was.  A measuring aid like -notactics: read only in a single-player skirmish, never in a
 	* network game, and a replay made with it is played back with it given again. */
@@ -1416,6 +1416,7 @@ Int parseAIKnobsOff(char *args[], int num)
 		if (strstr(names.str(), "maplayers")) mask |= AIKNOB_MAP_LAYERS;
 		if (strstr(names.str(), "foreigntech")) mask |= AIKNOB_FOREIGN_TECH;
 		if (strstr(names.str(), "secondbase")) mask |= AIKNOB_SECOND_BASE;
+		if (strstr(names.str(), "killzones")) mask |= AIKNOB_KILL_ZONES;
 		TheWritableGlobalData->m_aiKnobsOffMask = mask;
 	}
 	return 3;
@@ -1808,6 +1809,16 @@ Int parseDirectorTimeline(char *args[], int num)
 {
 	if (TheWritableGlobalData && num > 1)
 		TheWritableGlobalData->m_directorTimelineFile = args[1];
+	return 2;
+}
+
+/* -directorreplays <file>: -directorrecord's third pass, which WinMain starts once the film is done
+	 when the filming pass wrote any instant replay to its Videos\<name>.replays.  The same match again,
+	 undrawn but for the replays' frames, recorded back to back as Videos\<name>_replays.mp4. */
+Int parseDirectorReplays(char *args[], int num)
+{
+	if (TheWritableGlobalData && num > 1)
+		TheWritableGlobalData->m_directorReplaysFile = args[1];
 	return 2;
 }
 
@@ -2727,6 +2738,15 @@ Int parseOnlineLogin(char *args[], int num)
 	return 1;
 }
 
+/* -testNotice maintenance|info: the online service's notice banner with no server behind it, in the shell
+	 and in a match, for a proof shot.  Anything but info is the maintenance one. */
+Int parseTestNotice(char *args[], int num)
+{
+	if (TheWritableGlobalData && num > 1)
+		TheWritableGlobalData->m_testNotice = args[1];
+	return 2;
+}
+
 Int parseQuickMatch(char *args[], int num)
 {
 	if (TheWritableGlobalData)
@@ -3029,6 +3049,7 @@ static CommandLineParam params[] =
 	{ "-recordfps", parseRecordFps },
 	{ "-directorscout", parseDirectorScout },
 	{ "-directortimeline", parseDirectorTimeline },
+	{ "-directorreplays", parseDirectorReplays },
 	{ "-wav", parseWav },
 	{ "-turbo", parseTurbo },
 	{ "-msaa", parseMSAA },
@@ -3087,6 +3108,7 @@ static CommandLineParam params[] =
 	{ "-onlineoptions", parseOnlineOptions },
 	{ "-onlinestart", parseOnlineStart },
 	{ "-onlinelogin", parseOnlineLogin },
+	{ "-testNotice", parseTestNotice },
 	{ "-quickmatch", parseQuickMatch },
 	{ "-lanlobby", parseLanLobby },
 	{ "-skirmishlobby", parseSkirmishLobby },

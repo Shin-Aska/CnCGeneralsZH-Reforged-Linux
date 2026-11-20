@@ -778,6 +778,7 @@ GlobalData::GlobalData()
 	m_directorRecord = FALSE;
 	m_directorScoutFile.clear();
 	m_directorTimelineFile.clear();
+	m_directorReplaysFile.clear();
 	m_wavStartFrame = 0;
 	m_wavEndFrame = 0; // record no sound unless -wav asks for a range
 	m_wavName.clear();
@@ -831,6 +832,7 @@ GlobalData::GlobalData()
 	m_onlineStart = 0;
 	m_quickMatchOnStart = FALSE;
 	m_onlineLoginOnStart = FALSE;
+	m_testNotice.clear();
 	m_lanLobbyOnStart = FALSE;
 	m_skirmishLobbyOnStart = FALSE;
 	m_optionsMenuOnStart = FALSE;
@@ -1052,6 +1054,7 @@ GlobalData::GlobalData()
 	m_textLanguage = TEXT_LANGUAGE_ENGLISH;
 	m_showOrderLines = FALSE;
 	m_aircraftAltitudeLine = TRUE;		// the owner's word: on until a player turns it off
+	m_selectionOutlines = TRUE;				// the same: the rings and building lines stay as they are until a player turns them off
 
 	m_particleEdit = FALSE;
 

@@ -3882,6 +3882,9 @@ void WaterRenderObjClass::update( void )
 //-------------------------------------------------------------------------------------------------
 void WaterRenderObjClass::replaceSkyboxTexture(const AsciiString& oldTexName, const AsciiString& newTextName)
 {
+	if (m_skyBox == NULL)
+		return;	// no new_skybox model in this art (the mod case in render below)
+
 	W3DAssetManager* assetManager = ((W3DAssetManager*)W3DAssetManager::Get_Instance());
 
 	assetManager->replacePrototypeTexture(m_skyBox, oldTexName.str(), newTextName.str());
@@ -4188,10 +4191,10 @@ void WaterRenderObjClass::updateRenderTargetTextures(CameraClass *cam)
 	// (drawReflection), so a texture kept while the camera moves still lands on the right water and
 	// only its content is late: drawn at most WATER_REFLECTION_HZ times a second, the rate retail drew
 	// the whole game at.  It is drawn at once when the water on screen now is not all inside what the
-	// kept one was drawn for, or lies at another level, or the camera jumped.  -directorrecord's panes
-	// each draw through a camera of their own and a film's pictures are not on the wall clock, so
+	// kept one was drawn for, or lies at another level, or the camera jumped.  -directorrecord's corner
+	// window draws through a camera of its own and a film's pictures are not on the wall clock, so
 	// neither keeps one.
-	if (!m_useModernWater && m_reflectionViewKept && TheObserverCamera.getDrawnPaneCount() <= 1
+	if (!m_useModernWater && m_reflectionViewKept && !TheObserverCamera.isWindowDrawn()
 		&& !GameEngine_isVideoFrame())
 	{
 		const long long perSecond = Clock_Ticks_Per_Second();
@@ -4775,7 +4778,9 @@ void WaterRenderObjClass::Render(RenderInfoClass & rinfo)
 	#if defined(__linux__)
 	SunShadow::ReceiverExclusion waterEffects(DX8Wrapper::_Get_D3D_Device());
 	#endif
-	if (TheGlobalData && TheGlobalData->m_drawSkyBox)
+	// A mod whose art has no new_skybox model still turns the sky box on (DrawSkyBox, or a map
+	// script), and the draw called through a null model at match start (crash report 4123).
+	if (TheGlobalData && TheGlobalData->m_drawSkyBox && m_skyBox)
 	{	//center skybox around camera
 		Vector3 pos=rinfo.Camera.Get_Position();
 		pos.Z = TheGlobalData->m_skyBoxPositionZ;
